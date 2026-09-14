@@ -1,0 +1,68 @@
+/* 铺满整个 surface（屏幕空间），内部 <g data-edge-world> 承担视口变换。
+   不能写成 0×0 —— Chrome 对退化尺寸的 SVG 根不绘制任何内容（见 EdgeLayer.tsx 注释）。 */
+.svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.edge {
+  fill: none;
+  stroke: var(--edge);
+  stroke-width: 1.5px;
+  transition: stroke var(--dur-edge) var(--ease-out);
+}
+
+/* 高亮（选中连线 / 节点上下游相关连线，§6.14）：2px 高亮色 */
+.edgeActive {
+  stroke: var(--edge-highlight);
+  stroke-width: 2px;
+}
+
+/* 透明加宽命中区：线太细不易点选，用 stroke 命中（pointer-events: stroke） */
+.hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14px;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.deleteBtn {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.deleteCircle {
+  fill: var(--bg-surface);
+  stroke: var(--stroke);
+  stroke-width: 1px;
+}
+
+.deleteCross {
+  stroke: var(--text-1);
+  stroke-width: 1.5px;
+  stroke-linecap: round;
+  fill: none;
+}
+
+.deleteBtn:hover .deleteCircle {
+  fill: var(--bg-hover);
+}
+
+/* 拖线中的草稿曲线（§6.14「建立连接」）：可连接常态色，不可连接转危险色 */
+.draft {
+  fill: none;
+  stroke: var(--edge-highlight);
+  stroke-width: 1.5px;
+  stroke-dasharray: 5 4;
+  pointer-events: none;
+}
+
+.draftInvalid {
+  stroke: var(--danger);
+}

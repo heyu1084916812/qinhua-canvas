@@ -1,0 +1,40 @@
+.page {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg-app);
+}
+
+/* 多标签写入提示（产品文档 §2.4） */
+.externalBanner {
+  position: absolute;
+  top: calc(var(--space-4) + 52px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: var(--bg-surface);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-float);
+  font-size: var(--fs-label);
+  color: var(--text-1);
+}
+
+.externalBtn {
+  border: var(--border);
+  background: var(--accent);
+  color: var(--accent-text);
+  border-radius: var(--radius-control);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-title);
+  cursor: pointer;
+}
+.externalBtn:hover {
+  opacity: 0.88;
+}

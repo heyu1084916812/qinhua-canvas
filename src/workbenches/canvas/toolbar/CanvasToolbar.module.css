@@ -1,0 +1,96 @@
+/* 画布左侧竖向工具栏（产品文档 §6.1 / §6.5） */
+.bar {
+  position: absolute;
+  left: var(--space-4);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-1);
+  background: var(--bg-surface);
+  border-radius: var(--radius-node);
+  box-shadow: var(--shadow-float);
+}
+
+.menuWrap {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.iconBtn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.iconBtn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.iconBtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* 8 种对齐：两列更紧凑（§6.5 ②） */
+.alignGroup {
+  display: grid;
+  grid-template-columns: repeat(2, 28px);
+  gap: var(--space-1);
+}
+
+.divider {
+  width: 18px;
+  height: var(--border-width);
+  background: var(--stroke);
+  margin: var(--space-1) 0;
+}
+
+/* 新建菜单：在按钮下方展开（§6.5 ①） */
+.menu {
+  position: absolute;
+  left: calc(100% + var(--space-2));
+  top: 0;
+  z-index: 16;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: var(--space-1);
+  background: var(--bg-surface);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-float);
+}
+
+.menuItem {
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.menuItem:hover {
+  background: var(--bg-hover);
+}

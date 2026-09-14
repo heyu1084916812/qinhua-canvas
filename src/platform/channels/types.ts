@@ -1,0 +1,66 @@
+import type { AppError } from '../../shared/result'
+import type { ModelCapability } from '../../domain/shared/capability'
+import type { StreamChunk } from '../ports'
+import type { PlatformKit, SafeChannelConfig } from '../ports'
+import type { RunRequest } from '../../domain/shared/execution/types'
+
+/**
+ * 渠道适配层契约（架构 §4.2）。
+ *
+ * 请求类型直接复用共享 domain 的 `RunRequest`（domain/shared/execution/types），
+ * 不另造一份——否则「主体产出的请求」与「渠道接收的请求」会各自定义、各自漂移。
+ * 这里只按 kind 收窄，保证 generateImage 只会收到 image 请求。
+ */
+export type ImageRunRequest = RunRequest & { kind: 'image' }
+export type VideoRunRequest = RunRequest & { kind: 'video' }
+export type TextRunRequest = RunRequest & { kind: 'text' }
+
+/** 生成产物：节点只持有 hash，媒体本体由调用方写入 assets 表 */
+export interface GeneratedAsset {
+  hash: string
+  mime: string
+  bytes: Uint8Array
+  width?: number
+  height?: number
+}
+
+export interface TextResult {
+  text: string
+  finishReason?: 'stop' | 'length' | 'tool_calls'
+}
+
+export type VerifyResult =
+  | { ok: true; models: ModelCapability[] }
+  | { ok: false; error: AppError; message?: string }
+
+/**
+ * 渠道适配器的外部依赖（M6-12 扩展）。
+ *
+ * 以前只有 `network`——于是渠道层**看不见素材**，请求里也就永远只有提示词。
+ * 图生图 / 角色参考图需要把 `inputs` 里 asset 项的字节读出来随请求上传，
+ * 故这里补上 `assets`。刻意用 `Pick<PlatformKit, …>` 而非新造结构：
+ * 装配处（两个 ExecutionProvider / channelStore）可以直接把整个 `platform` 传进来，
+ * 无需逐个字段搬运，也不会漏。
+ */
+export type ChannelDeps = Pick<PlatformKit, 'network' | 'assets'>
+
+export interface ChannelAdapter {
+  protocol: string
+  verify(config: SafeChannelConfig, signal: AbortSignal): Promise<VerifyResult>
+  listModels(config: SafeChannelConfig, signal: AbortSignal): Promise<ModelCapability[]>
+  generateImage(request: ImageRunRequest, signal: AbortSignal): Promise<GeneratedAsset[]>
+  generateVideo(request: VideoRunRequest, signal: AbortSignal): Promise<GeneratedAsset[]>
+  completeText(request: TextRunRequest, signal: AbortSignal): Promise<TextResult>
+  /** Agent 流式通道（架构 §5.9 ④）：可选，未实现该能力的渠道不提供 */
+  streamChat?(request: TextRunRequest, signal: AbortSignal): AsyncIterable<StreamChunk>
+}
+
+/** 渠道调用失败时抛出，runEngine 捕获后归一为 AppError */
+export class ChannelError extends Error {
+  readonly appError: AppError
+  constructor(appError: AppError) {
+    super(`[channel] ${appError.kind}`)
+    this.name = 'ChannelError'
+    this.appError = appError
+  }
+}

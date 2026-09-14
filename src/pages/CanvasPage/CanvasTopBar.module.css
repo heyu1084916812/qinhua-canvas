@@ -1,0 +1,76 @@
+.bar {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  right: 16px;
+  height: 44px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+  background: var(--bg-surface);
+  border-radius: var(--radius-node);
+  box-shadow: var(--shadow-float);
+}
+
+.brand {
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+  color: var(--text-1);
+  user-select: none;
+}
+
+/* 导航族（返回 / 后台设置）与画布操作族之间的竖分隔线 */
+.divider {
+  width: 1px;
+  height: 20px;
+  flex: 0 0 auto;
+  background: var(--stroke);
+}
+
+.group {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.btn {
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.primary {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--accent);
+  opacity: 0.9;
+}
+
+.zoom {
+  margin-left: auto;
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}

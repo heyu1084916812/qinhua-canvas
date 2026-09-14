@@ -1,0 +1,409 @@
+/* 格属性面板（M6-4）。令牌全部取自 ui/tokens.css，不写字面量颜色。 */
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-node);
+  background: var(--bg-surface);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+  color: var(--text-1);
+}
+
+.sub {
+  font-size: var(--fs-label);
+  color: var(--text-3);
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.blockHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.label {
+  font-size: var(--fs-label);
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.fieldLabel {
+  flex: 0 0 32px;
+  font-size: var(--fs-label);
+  color: var(--text-3);
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--text-3);
+  line-height: 1.5;
+}
+
+/* 输入控件 */
+.textarea {
+  min-height: 72px;
+  padding: var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-canvas);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.input {
+  padding: var(--space-1) var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-canvas);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+}
+
+.select {
+  padding: var(--space-1) var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-canvas);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+/* 角色多选 */
+.charRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.charChip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.charChipOn {
+  border-color: var(--text-1);
+  background: var(--bg-hover);
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.checkbox {
+  margin: 0;
+  cursor: pointer;
+}
+
+.charName {
+  user-select: none;
+}
+
+/* 对白层 */
+.addRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.addBtn {
+  padding: 2px var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.addBtn:hover {
+  background: var(--bg-hover);
+}
+
+.balloonList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.balloonRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-canvas);
+}
+
+.balloonTop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.balloonNo {
+  flex: 0 0 auto;
+  min-width: 14px;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  font-weight: 600;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.dangerBtn {
+  padding: 1px var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.dangerBtn:hover {
+  color: var(--text-1);
+}
+
+.footHint {
+  margin: 0;
+  padding-top: var(--space-2);
+  border-top: var(--border);
+  font-size: var(--fs-label);
+  color: var(--text-3);
+}
+
+/* 生成块（M6-5d）：平台 / 模型 + 生成按钮。极简：无投影、1px 细描边、圆角取 token */
+.genBtn {
+  align-self: flex-start;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--stroke-focus);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.genBtn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.genBtn:disabled {
+  border-color: var(--stroke);
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+.genBtnCancel {
+  border-color: var(--stroke);
+  color: var(--text-2);
+}
+
+.genStatus {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--text-2);
+}
+
+.genError {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--text-1);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+/* 版本历史（M6-15）。极简：无投影、1px 细描边、圆角取 token；「当前」用黑描边标记 */
+.runList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.runRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-canvas);
+}
+
+.runRowLive {
+  border-color: var(--stroke-focus);
+}
+
+.runThumbBtn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.runThumbBtn:disabled {
+  cursor: not-allowed;
+}
+
+.runThumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.runThumbEmpty {
+  color: var(--text-3);
+  font-size: var(--fs-label);
+}
+
+.runMeta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.runTop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.runVer {
+  font-size: var(--fs-chip);
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.runStatus {
+  padding: 0 var(--space-1);
+  border: var(--border);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.runLiveTag {
+  padding: 0 var(--space-1);
+  border: 1px solid var(--stroke-focus);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-chip);
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.runLine {
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.runRestore {
+  flex: 0 0 auto;
+  padding: 1px var(--space-2);
+  border: 1px solid var(--stroke-focus);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.runRestore:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.runRestore:disabled {
+  border-color: var(--stroke);
+  color: var(--text-3);
+  font-weight: 400;
+  cursor: not-allowed;
+}
+
+/* 点缩略图看大图：整屏浮层（背景取 --bg-app，与阅读器同一口径；不用字面量 rgba） */
+.previewScrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: var(--bg-app);
+  cursor: zoom-out;
+}
+
+.previewImg {
+  max-width: 100%;
+  max-height: 100%;
+  border: var(--border);
+  border-radius: var(--radius-node);
+  background: var(--bg-surface);
+  object-fit: contain;
+}

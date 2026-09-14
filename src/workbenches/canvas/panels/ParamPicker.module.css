@@ -1,0 +1,210 @@
+/*
+ * 参数选择面板（ParamPicker，产品文档 §3.3 / §6.8）。
+ *
+ * 形态：chip 触发器 + 浮层。浮层在 chip 正上方（顶部空间不足时翻转到下方），
+ * 无投影、1px 描边 + 圆角 10px、宽度 max-content（min 96 / max 280）——
+ * 与节点同属「画布工作区浮层」，靠描边与背景明度分层，不用投影。
+ *
+ * 两种形态（§6.8「通用规则」）：竖版列表（平台 / 模型 / 比例 / 尺寸 / 参考模式）
+ * 与横排胶囊（画质 / 质量）。
+ */
+.wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* chip 触发器（§6.8）：高 38px、padding 0 10px、字号 11px / 字重 600、透明底 */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 38px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  color: var(--text-1);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.chip:hover:not(:disabled),
+.chip:focus-visible,
+.chipOpen {
+  background: var(--bg-hover);
+}
+
+.chip:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+.chipLabel {
+  max-width: 160px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* V 形 chevron：展开时旋转 180°（§6.8）。矢量绘制，放大不糊 */
+.chevron {
+  flex: 0 0 auto;
+  transition: transform var(--dur-panel) var(--ease-panel);
+}
+
+.chipOpen .chevron {
+  transform: rotate(180deg);
+}
+
+.popup {
+  position: absolute;
+  left: 50%;
+  /* 水平居中于所点参数（§6.8）。必须写在**基类**上：只写在 @keyframes 里的话，
+     动画结束后 transform 会回落到 none，浮层左边缘就停在 chip 中线上。 */
+  transform: translateX(-50%);
+  z-index: 30;
+  box-sizing: border-box;
+  padding: var(--space-1);
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  animation: pickerIn var(--dur-panel) var(--ease-panel);
+}
+
+.above {
+  bottom: calc(100% + 6px);
+}
+
+.below {
+  top: calc(100% + 6px);
+}
+
+@keyframes pickerIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+}
+
+/* 竖版列表：单列，每行 34px。
+   加高度上限 + 滚动：比例有九档（9×34 ≈ 314px），不加限制时矮屏 / 贴边的 chip
+   会把列表撑出视口——浮层本身要能容纳完整选项集。 */
+.list {
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  min-width: 96px;
+  max-width: 280px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  height: 34px;
+  padding: 0 10px;
+  border: none;
+  border-radius: calc(var(--radius-control) - 4px);
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  color: var(--text-1);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.row:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.row:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+.rowOn {
+  background: var(--bg-hover);
+}
+
+.rowText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.check {
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 1;
+}
+
+/* 横排胶囊：圆角 999px、内边距 0 14px、flex-wrap、水平居中于所点参数 */
+.pill {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-1);
+  width: max-content;
+  max-width: 280px;
+}
+
+.cap {
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  color: var(--text-1);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.cap:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.cap:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.capOn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.empty {
+  display: block;
+  padding: var(--space-2) 10px;
+  min-width: 96px;
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popup {
+    animation: none;
+  }
+
+  .chevron {
+    transition: none;
+  }
+}

@@ -1,0 +1,447 @@
+.page {
+  min-height: 100vh;
+  background: var(--bg-app);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-6);
+  border-bottom: var(--border);
+  background: var(--bg-surface);
+}
+
+.brand {
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+  color: var(--text-1);
+}
+
+.ghostBtn {
+  border: var(--border);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--fs-label);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+}
+.ghostBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.newBtn {
+  border: var(--border);
+  background: var(--accent);
+  color: var(--accent-text);
+  border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-title);
+  cursor: pointer;
+  transition: opacity var(--dur-hover) var(--ease-out);
+}
+.newBtn:hover {
+  opacity: 0.88;
+}
+
+.main {
+  padding: var(--space-8) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+  color: var(--text-1);
+}
+
+.tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.search {
+  border: var(--border);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-label);
+  min-width: 180px;
+}
+.search:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.sort {
+  border: var(--border);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+.sort:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.importBtn {
+  border: var(--border);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--fs-label);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+}
+.importBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+.importBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-8) 0;
+  color: var(--text-2);
+}
+.emptyTitle {
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+  color: var(--text-1);
+  margin: 0;
+}
+.emptyHint {
+  margin: 0;
+  font-size: var(--fs-label);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-4);
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: var(--border);
+  border-radius: var(--radius-node);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color var(--dur-hover) var(--ease-out), background var(--dur-hover) var(--ease-out);
+}
+.card:hover {
+  border-color: var(--stroke-focus);
+  background: var(--bg-hover);
+}
+.card:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.thumb {
+  aspect-ratio: 16 / 10;
+  background: var(--bg-subtle);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.cardBody {
+  padding: var(--space-3) var(--space-4);
+}
+.cardName {
+  font-size: var(--fs-title);
+  font-weight: var(--fw-title);
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cardMeta {
+  margin-top: var(--space-1);
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.renameInput {
+  width: 100%;
+  box-sizing: border-box;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  padding: 2px var(--space-2);
+  font-size: var(--fs-title);
+  font-weight: var(--fw-title);
+  color: var(--text-1);
+  background: var(--bg-surface);
+}
+.renameInput:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* ⋯ 菜单按钮：默认隐于卡内，hover / 聚焦 / 菜单展开时浮现 */
+.cardActions {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  /* 高于 .menuBackdrop(z-index 1)：菜单与「删除确认」不能被关闭遮罩挡住 */
+  z-index: 3;
+  opacity: 0;
+  transition: opacity var(--dur-hover) var(--ease-out);
+}
+.card:hover .cardActions,
+.card:focus-within .cardActions,
+.cardActions:has(.menu),
+.cardActions:has(.confirm) {
+  opacity: 1;
+}
+
+.menuBtn {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+  border: var(--border);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--dur-hover) var(--ease-out), border-color var(--dur-hover) var(--ease-out);
+}
+.menuBtn:hover {
+  color: var(--text-1);
+  border-color: var(--stroke-focus);
+}
+
+.menu {
+  position: absolute;
+  top: 28px;
+  right: 0;
+  min-width: 96px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-float);
+  padding: var(--space-1);
+  z-index: 2;
+}
+.menuItem {
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.menuItem:hover {
+  background: var(--bg-hover);
+}
+.menuDanger {
+  color: var(--danger);
+}
+.menuDanger:hover {
+  background: var(--bg-hover);
+}
+
+/* 网格末尾常驻「+ 新建」卡片（产品文档 §5.1） */
+.newCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 180px;
+  border: var(--border-width) dashed var(--stroke);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+}
+.newCard:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+.newPlus {
+  font-size: 28px;
+  line-height: 1;
+}
+.newLabel {
+  font-size: var(--fs-label);
+}
+
+/* 菜单外部点击关闭遮罩 */
+.menuBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+}
+
+/* 导入 / 导出结果播报（aria-live） */
+.status {
+  min-height: var(--space-5);
+  padding: 0 var(--space-6) var(--space-6);
+  font-size: var(--fs-label);
+  color: var(--text-2);
+}
+.status:empty {
+  display: none;
+}
+
+.confirm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  background: var(--bg-surface);
+  border: var(--border);
+  border-radius: var(--radius-pill);
+}
+.confirmText {
+  font-size: var(--fs-chip);
+  color: var(--text-2);
+}
+.confirmYes,
+.confirmNo {
+  border: none;
+  background: transparent;
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+}
+.confirmYes {
+  color: var(--danger);
+}
+.confirmNo {
+  color: var(--text-2);
+}
+.confirmYes:hover {
+  background: var(--bg-hover);
+}
+.confirmNo:hover {
+  background: var(--bg-hover);
+}
+
+/* 模板库卡片 */
+.tplCard {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  background: var(--bg-surface);
+  border: var(--border);
+  border-radius: var(--radius-node);
+  overflow: hidden;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  transition: border-color var(--dur-hover) var(--ease-out), background var(--dur-hover) var(--ease-out);
+}
+.tplCard:hover {
+  border-color: var(--stroke-focus);
+  background: var(--bg-hover);
+}
+.tplCard:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.tplThumb {
+  aspect-ratio: 16 / 10;
+  background: var(--bg-subtle);
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* 卡片上的工作台标识（架构 §5.10：小色点或文案标识工作台类型） */
+.wbTag {
+  display: inline-block;
+  margin-right: var(--space-2);
+  padding: 0 var(--space-1);
+  border: var(--border);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-chip);
+  color: var(--text-2);
+}
+.wbTag[data-wb='comic'] {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+/* 「+ 新建」的工作台选择浮层（屏幕坐标，向上展开） */
+.newMenu {
+  position: fixed;
+  min-width: 132px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-float);
+  padding: var(--space-1);
+  z-index: 2;
+}
+
+/* 空态第二按钮（新建漫画剧）：弱化描边风格 */
+.newBtnGhost {
+  border: var(--border);
+  background: transparent;
+  color: var(--text-2);
+  border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-title);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+}
+.newBtnGhost:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}

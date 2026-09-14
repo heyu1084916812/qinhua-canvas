@@ -1,0 +1,163 @@
+/* 页版式编辑器（M6-3）。令牌全部取自 ui/tokens.css，不写字面量颜色。 */
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* 工具条 */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.toolHint {
+  font-size: var(--fs-label);
+  color: var(--text-3);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.toolBtn,
+.ghostBtn {
+  padding: var(--space-1) var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.toolBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.primaryBtn {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity var(--dur-hover) var(--ease-out);
+}
+
+.primaryBtn:hover {
+  opacity: 0.85;
+}
+
+/* 舞台：居中放页面 */
+.stage {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-4);
+  border: var(--border);
+  border-radius: var(--radius-node);
+  background: var(--bg-surface);
+}
+
+.stageEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-height: 240px;
+  color: var(--text-3);
+  font-size: var(--fs-body);
+}
+
+.stageEmpty p {
+  margin: 0;
+}
+
+.stageEmptyHint {
+  font-size: var(--fs-label);
+}
+
+/* 页面：固定 2:3 竖版，格子按 0..1 相对坐标绝对定位。
+   宽度可由外层用 `--comic-page-w` 覆写（M6-6 翻页预览把它调大）。 */
+.page {
+  position: relative;
+  width: var(--comic-page-w, 300px);
+  aspect-ratio: 2 / 3;
+  border: var(--border);
+  border-radius: var(--space-1);
+  background: var(--bg-canvas);
+}
+
+/* 只读模式（翻页预览）：格不可点选 */
+.editor[data-comic-layout-read] .cell {
+  cursor: default;
+}
+
+.cell {
+  position: absolute;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: var(--space-1);
+  overflow: hidden;
+  border: 1px solid var(--stroke);
+  border-radius: var(--space-1);
+  background: var(--bg-surface);
+  cursor: pointer;
+}
+
+/* 选中态：黑色描边（用 outline 不影响盒模型，避免选中时格子抖动） */
+.cellSelected {
+  outline: 2px solid var(--text-1);
+  outline-offset: -2px;
+}
+
+/* 淡色序号印章（comfyui_panels 的序号印章做法）。压在对白贴纸层之上，避免被贴纸遮住。 */
+.seal {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-3);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.cellText {
+  position: relative;
+  z-index: 1;
+  margin-left: var(--space-1);
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--fs-label);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 格内生成画面（M6-5d）：铺满格底的底图。无 z-index + DOM 在前 → 印章 / 对白叠其上 */
+.cellArt {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}

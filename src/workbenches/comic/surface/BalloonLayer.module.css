@@ -1,0 +1,140 @@
+/* 格内对白贴纸层（M6-4；直接操作手柄 M6-14）。令牌全部取自 ui/tokens.css，不写字面量颜色。 */
+
+/* 层：铺满一格，本身不吃指针（只有可拖的贴纸 / 手柄重新打开） */
+.layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* 尾巴槽位：13px 命中框 + 居中的 7px 菱形。
+   槽位做成定长是为了「只读时只露尖角、可交互时抓得到」两种形态共用一套几何——
+   菱形永远落在槽位正中，即锚点坐标上。 */
+.tailSlot,
+.tailSlotLive {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* 可交互：命中区打开 + 手型（否则尾巴被拖进气泡里就再也抓不到） */
+.tailSlotLive {
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.tailSlotLive:active {
+  cursor: grabbing;
+}
+
+/* 可交互时尾巴用略深底色：白底白框拖进气泡上等于隐身，尾巴就找不回来了；
+   换个底色同时也把「这是手柄、能拖」说清楚。只读态保持白底（尖角只露一半，够用）。 */
+.tailSlotLive .tail {
+  background: var(--bg-hover);
+}
+
+/* 尾巴本体：小菱形，压在气泡下方；拖动时跟随气泡 */
+.tail {
+  position: absolute;
+  inset: 3px;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--stroke);
+  border-bottom: 1px solid var(--stroke);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+/* 尺寸手柄：贴纸右下角内侧的小方块（M6-14）。
+   `translate(-100%,-100%)` 让它整个落在贴纸内——格子上有 `overflow:hidden`，
+   居中骑在角上的手柄会被裁掉一半、按不稳。 */
+.resizeHandle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  transform: translate(-100%, -100%);
+  border: 1px solid var(--stroke);
+  border-radius: 2px;
+  background: var(--bg-surface);
+  cursor: nwse-resize;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.resizeHandle:hover {
+  border-color: var(--text-2);
+  background: var(--bg-hover);
+}
+
+/* 贴纸本体：默认只读（半透明、不拦指针） */
+.sticker {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 2px var(--space-1);
+  overflow: hidden;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: left;
+  pointer-events: none;
+}
+
+.stickerReadonly {
+  opacity: 0.45;
+}
+
+.stickerInteractive {
+  pointer-events: auto;
+  cursor: grab;
+  /* 拖拽时不让浏览器把指针手势当滚动/缩放接管 */
+  touch-action: none;
+}
+
+.stickerInteractive:active {
+  cursor: grabbing;
+}
+
+.stickerDragging {
+  border-color: var(--text-1);
+}
+
+/* 四种对白类型用**形状**区分（极简：不加色、不加投影） */
+.typeSpeech {
+  border-radius: var(--radius-control);
+}
+
+.typeThought {
+  border-radius: var(--radius-pill);
+}
+
+.typeNarration {
+  border-radius: 2px;
+}
+
+.typeSfx {
+  border-radius: var(--radius-control);
+  font-style: italic;
+}
+
+.label {
+  color: var(--text-3);
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.text {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

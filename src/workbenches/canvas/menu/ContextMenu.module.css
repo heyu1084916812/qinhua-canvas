@@ -1,0 +1,48 @@
+/* 右键菜单（§4.1 / §4.2 视觉规范）：无投影、1px 细描边、8px 圆角、自适应宽度 */
+.menu {
+  position: absolute;
+  z-index: 40;
+  min-width: 160px;
+  background: var(--bg-surface);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  padding: var(--space-1);
+  box-shadow: var(--shadow-float);
+  user-select: none;
+  /* 菜单不随画布缩放，字号用令牌定值 */
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  color: var(--text-1);
+}
+
+.item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font: inherit;
+  color: var(--text-1);
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.item:hover,
+.item:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
+}
+
+.item:active {
+  background: var(--bg-subtle);
+}
+
+/* 危险操作（删除）保持与正常项同色，仅字形区分；不引入额外红色以免打破极简规范 */
+.sep {
+  display: block;
+  height: 1px;
+  margin: var(--space-1) 6px;
+  background: var(--stroke);
+}

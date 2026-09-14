@@ -1,0 +1,156 @@
+/* 图片 / 视频生成节点 · 本体（媒体框）——产品文档 §6.8「状态 A / 状态 B」。
+   本体只做媒体：空态占位框 + 中间 `+`；有内容按原始比例铺满。
+   参数 / 提示词 / 生成按钮归下方「创作参数面板」，本文件不再有芯片与按钮样式。 */
+
+/*
+ * 底色 = `--bg-surface`（与提示词节点内部同色）。
+ *
+ * 这里曾经写 `--bg-subtle`，于是生成节点内部是**浅灰**、提示词节点内部是**纯白**
+ * （提示词节点 .body 不设底色，透出 .frame 的 `--bg-surface`）——同屏并排时肉眼可见
+ * 两种底色。重塑成媒体框之前本体根本没有底色，是 `70e26a2` 一并引入的回归。
+ * 「节点内部统一白底」是既定规范（§3.3 层级靠描边表达，不靠填充色差），因此归位。
+ */
+.media {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border-radius: var(--radius-control);
+}
+
+/* 拖入文件时的落点提示：虚线描边 + 浅底，不动几何（避免拖拽中抖动） */
+.dropping {
+  outline: 2px dashed var(--stroke-focus);
+  outline-offset: -2px;
+  background: var(--bg-hover);
+}
+
+/* 状态 A：占位框（铺满本体，自身即选中 / 拖动区；不是按钮） */
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+/* 只有中间这个 `+` 是上传入口 */
+.plus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: var(--border);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font-sans);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--dur-hover) var(--ease-out), border-color var(--dur-hover) var(--ease-out);
+}
+
+.plus:hover {
+  color: var(--text-1);
+  border-color: var(--text-1);
+}
+
+/* 状态 B：素材铺满，保持原始比例（contain，不裁切） */
+.asset {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+
+/* 已有内容但素材尚未读回：中立骨架，绝不退回「`+` 上传」（否则会被误读成内容丢了） */
+.assetLoading {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--bg-subtle), var(--bg-hover), var(--bg-subtle));
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.videoWrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 视频播放 / 暂停：hover 浮现（§6.8） */
+.playBtn {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-hover) var(--ease-out);
+}
+
+.videoWrap:hover .playBtn {
+  opacity: 1;
+}
+
+/* 排队 / 生成中 / 失败：居中覆盖层（§6.8「在节点中心显示」） */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3);
+  background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
+  box-sizing: border-box;
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--stroke);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+
+.errorText {
+  font-size: var(--fs-label);
+  font-weight: var(--fw-title);
+  color: var(--danger);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -1,0 +1,43 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+dist-ssr/
+*.local
+
+# 测试与验证产物
+coverage/
+.playwright-verify/
+.vitest/
+
+# 一次性诊断探针（scripts/probe-*.mjs）
+#
+# 这些是「不猜测、先探针」调试法的临时产物：一次诊断写一个脚本，看完就废。
+# 它们**不是**回归资产——真正要长期成立的判据都落进了 `scripts/smoke.mjs` 的冒烟组。
+# 留在工作区会一直以 `??` 污染 `git status`，更糟的是 `git add -A` 会把它们一起提上去。
+scripts/probe-*.mjs
+
+# 搁置方向的设计稿（本地备查，不入库）
+#
+# 第三工作台「漫剧」已搁置（2026-09-11 确认），这份调研稿是复起时的唯一依据，
+# 本地长期保留，但不进版本库——避免与已交付的产品/架构文档混在一起被当成现状。
+轻画-漫剧形态调研.md
+
+# 编辑器与系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# 日志
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 环境变量（凭据不入库）
+.env
+.env.*
+!.env.example

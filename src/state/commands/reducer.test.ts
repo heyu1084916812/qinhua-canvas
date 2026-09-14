@@ -1,0 +1,745 @@
+import { describe, it, expect, beforeEach } from 'vitest'
+import { reduce } from './reducer'
+import type { GraphSnapshot } from '../../domain/canvas/model/graph'
+import { registerSpec, resetSpecs } from '../../domain/canvas/nodeSpecs/registry'
+import { promptSpec } from '../../domain/canvas/nodeSpecs/prompt'
+import { generationSpec } from '../../domain/canvas/nodeSpecs/generation'
+import { groupSpec } from '../../domain/canvas/nodeSpecs/group'
+import { boardSpec } from '../../domain/canvas/nodeSpecs/board'
+import { clipboardFromSelection, pasteEdges, pasteNodes } from '../../domain/canvas/clipboard'
+
+function emptyGraph(projectId = 'p1'): GraphSnapshot {
+  return { projectId, nodes: [], edges: [], resultGroups: [] }
+}
+
+beforeEach(() => {
+  resetSpecs()
+  registerSpec(promptSpec)
+  registerSpec(generationSpec)
+  registerSpec(groupSpec)
+  registerSpec(boardSpec)
+})
+
+describe('reduce / node.create', () => {
+  it('用 spec 默认数据建节点，尺寸取 spec.min，stale 默认 false', () => {
+    const { result, next } = reduce(
+      { kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 10, y: 20 } },
+      emptyGraph(),
+    )
+    expect(next.nodes).toHaveLength(1)
+    const n = next.nodes[0]!
+    expect(n.type).toBe('prompt')
+    expect(n.x).toBe(10)
+    expect(n.y).toBe(20)
+    expect(n.title).toBe('提示词')
+    expect(n.stale).toBe(false)
+    expect(n.data).toEqual({ text: '', upstreamPromptLinked: false, channelId: '', model: '' })
+    expect(result.transaction.mode).toBe('standalone')
+    expect(result.persist.tables).toContain('nodes')
+  })
+
+  it('未知类型抛错', () => {
+    expect(() =>
+      reduce({ kind: 'node.create', projectId: 'p1', type: 'ghost' as never, at: { x: 0, y: 0 } }, emptyGraph()),
+    ).toThrow(/未知节点类型/)
+  })
+})
+
+describe('reduce / 图数据变更', () => {
+  it('node.move 按 dx/dy 平移，事务为 coalesce', () => {
+    const g0 = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } }, emptyGraph()).next
+    const id = g0.nodes[0]!.id
+    const { result, next } = reduce({ kind: 'node.move', ids: [id], dx: 5, dy: -3, phase: 'move' }, g0)
+    expect(next.nodes[0]!.x).toBe(5)
+    expect(next.nodes[0]!.y).toBe(-3)
+    expect(result.transaction).toMatchObject({ mode: 'coalesce' })
+  })
+
+  it('node.resize 应用矩形', () => {
+    const g0 = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } }, emptyGraph()).next
+    const id = g0.nodes[0]!.id
+    const { next } = reduce({ kind: 'node.resize', id, rect: { x: 1, y: 2, w: 100, h: 80 }, phase: 'end' }, g0)
+    expect(next.nodes[0]).toMatchObject({ x: 1, y: 2, w: 100, h: 80 })
+  })
+
+  it('node.rename 改标题', () => {
+    const g0 = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } }, emptyGraph()).next
+    const id = g0.nodes[0]!.id
+    const { next } = reduce({ kind: 'node.rename', id, title: '主提示词' }, g0)
+    expect(next.nodes[0]!.title).toBe('主提示词')
+  })
+
+  it('node.updateData 合并数据；transient 走 silent 事务', () => {
+    const g0 = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } }, emptyGraph()).next
+    const id = g0.nodes[0]!.id
+    const r = reduce({ kind: 'node.updateData', id, patch: { text: '你好' }, transient: true }, g0)
+    expect((r.next.nodes[0]!.data as { text: string }).text).toBe('你好')
+    expect(r.result.transaction.mode).toBe('silent')
+  })
+})
+
+describe('reduce / 连线与归属', () => {
+  function twoNodes(): GraphSnapshot {
+    let g = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } }, emptyGraph()).next
+    g = reduce({ kind: 'node.create', projectId: 'p1', type: 'generation', at: { x: 200, y: 0 } }, g).next
+    return g
+  }
+
+  it('edge.connect 合法时建边', () => {
+    const g = twoNodes()
+    const src = g.nodes.find((n) => n.type === 'prompt')!.id
+    const tgt = g.nodes.find((n) => n.type === 'generation')!.id
+    const { next } = reduce({ kind: 'edge.connect', source: src, target: tgt }, g)
+    expect(next.edges).toHaveLength(1)
+  })
+
+  it('edge.connect 类型不匹配抛错', () => {
+    const g = twoNodes()
+    // 注意：**生成 → 提示词是合法的**（§6.7「上游可连接图片 / 视频节点与提示词节点」），
+    // 早先这条用例拿它当「不匹配」的样本，放开 prompt 的上游后必须换一个真不匹配的：
+    // 提示词节点不接受画板作上游（画板根本没端点）。
+    const tgt = g.nodes.find((n) => n.type === 'prompt')!.id
+    const withBoard = reduce(
+      { kind: 'node.create', projectId: 'p1', type: 'board', at: { x: 400, y: 0 } },
+      g,
+    ).next
+    const src = withBoard.nodes.find((n) => n.type === 'board')!.id
+    expect(() => reduce({ kind: 'edge.connect', source: src, target: tgt }, withBoard)).toThrow()
+  })
+
+  it('edge.connect 生成 → 提示词合法（§6.7 上游可连图片 / 视频节点）', () => {
+    const g = twoNodes()
+    const src = g.nodes.find((n) => n.type === 'generation')!.id
+    const tgt = g.nodes.find((n) => n.type === 'prompt')!.id
+    const { next } = reduce({ kind: 'edge.connect', source: src, target: tgt }, g)
+    expect(next.edges).toHaveLength(1)
+  })
+
+  it('edge.remove 删边', () => {
+    const g = twoNodes()
+    const src = g.nodes.find((n) => n.type === 'prompt')!.id
+    const tgt = g.nodes.find((n) => n.type === 'generation')!.id
+    const g1 = reduce({ kind: 'edge.connect', source: src, target: tgt }, g).next
+    const eid = g1.edges[0]!.id
+    const { next } = reduce({ kind: 'edge.remove', id: eid }, g1)
+    expect(next.edges).toHaveLength(0)
+  })
+
+  it('node.reparent 跨容器换算坐标并清掉连线', () => {
+    // prompt(0,0) 连到 generation(200,0)；把 generation 放进一个 board 容器，连线应被清
+    let g = twoNodes()
+    const pId = g.nodes.find((n) => n.type === 'prompt')!.id
+    const gId = g.nodes.find((n) => n.type === 'generation')!.id
+    g = reduce({ kind: 'edge.connect', source: pId, target: gId }, g).next
+    g = reduce({ kind: 'node.create', projectId: 'p1', type: 'board', at: { x: 100, y: 100 } }, g).next
+    const boardId = g.nodes.find((n) => n.type === 'board')!.id
+    const { next } = reduce({ kind: 'node.reparent', id: gId, toParent: boardId }, g)
+    const moved = next.nodes.find((n) => n.id === gId)!
+    expect(moved.parentId).toBe(boardId)
+    // 进入容器后坐标变为相对父级 local（world(200,0) - board(100,100) = (100,-100)）
+    expect(moved.x).toBe(100)
+    expect(moved.y).toBe(-100)
+    expect(next.edges).toHaveLength(0)
+    // 画板也是容器：进入后其 childIds 应记录该节点（§6.11 / §6.12 排序依据）
+    const board = next.nodes.find((n) => n.id === boardId)!
+    expect((board.data as { childIds: string[] }).childIds).toEqual([gId])
+  })
+
+  it('node.reparent 拖入分组写入 childIds、拖出移除（§6.11）', () => {
+    let g = emptyGraph()
+    g = reduce({ kind: 'node.create', projectId: 'p1', type: 'group', at: { x: 0, y: 0 } }, g).next
+    g = reduce({ kind: 'node.create', projectId: 'p1', type: 'generation', at: { x: 600, y: 0 } }, g).next
+    const groupId = g.nodes.find((n) => n.type === 'group')!.id
+    const genId = g.nodes.find((n) => n.type === 'generation')!.id
+
+    const inside = reduce({ kind: 'node.reparent', id: genId, toParent: groupId }, g).next
+    expect((inside.nodes.find((n) => n.id === groupId)!.data as { childIds: string[] }).childIds).toEqual([genId])
+
+    const outside = reduce({ kind: 'node.reparent', id: genId, toParent: null }, inside).next
+    expect((outside.nodes.find((n) => n.id === groupId)!.data as { childIds: string[] }).childIds).toEqual([])
+    expect(outside.nodes.find((n) => n.id === genId)!.parentId).toBeNull()
+  })
+
+  it('node.reparent 拒绝提示词之外的容器收纳物（画板不收纳画板）', () => {
+    let g = emptyGraph()
+    g = reduce({ kind: 'node.create', projectId: 'p1', type: 'board', at: { x: 0, y: 0 } }, g).next
+    g = reduce({ kind: 'node.create', projectId: 'p1', type: 'group', at: { x: 600, y: 0 } }, g).next
+    const boardId = g.nodes.find((n) => n.type === 'board')!.id
+    const groupId = g.nodes.find((n) => n.type === 'group')!.id
+    // group.accepts.parent = ['board'] 只说明分组可进画板；反之画板进分组不在 accepts.children 内
+    expect(() => reduce({ kind: 'node.reparent', id: boardId, toParent: groupId }, g)).toThrow()
+  })
+})
+
+describe('reduce / node.duplicate（§4.2 Alt+拖动复制）', () => {
+  /** prompt(a) → generation(b)：最常用的「提示词 → 生成」连线 */
+  function chain(): GraphSnapshot {
+    let g = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } }, emptyGraph()).next
+    g = reduce({ kind: 'node.create', projectId: 'p1', type: 'generation', at: { x: 300, y: 0 } }, g).next
+    const a = g.nodes.find((n) => n.type === 'prompt')!.id
+    const b = g.nodes.find((n) => n.type === 'generation')!.id
+    g = reduce({ kind: 'edge.connect', source: a, target: b }, g).next
+    return g
+  }
+
+  it('复制出独立节点（新 id、按 dx/dy 落位）', () => {
+    const g = chain()
+    const a = g.nodes.find((n) => n.type === 'prompt')!.id
+    const { next } = reduce({ kind: 'node.duplicate', ids: [a], newIds: ['a2'], dx: 20, dy: 30 }, g)
+    expect(next.nodes).toHaveLength(3)
+    const copy = next.nodes.find((n) => n.id === 'a2')!
+    expect(copy.type).toBe('prompt')
+    expect(copy.x).toBe(20)
+    expect(copy.y).toBe(30)
+  })
+
+  it('副本数据深拷贝（改副本不污染原节点）', () => {
+    let g = chain()
+    const a = g.nodes.find((n) => n.type === 'prompt')!.id
+    g = reduce(
+      { kind: 'node.updateData', id: a, patch: { text: '原文' } },
+      g,
+    ).next
+    const { next } = reduce({ kind: 'node.duplicate', ids: [a], newIds: ['a2'] }, g)
+    const copy = next.nodes.find((n) => n.id === 'a2')!
+    expect((copy.data as { text: string }).text).toBe('原文')
+    // 改副本
+    const next2 = reduce({ kind: 'node.updateData', id: 'a2', patch: { text: '副本改了' } }, next).next
+    expect((next2.nodes.find((n) => n.id === a)!.data as { text: string }).text).toBe('原文')
+    expect((next2.nodes.find((n) => n.id === 'a2')!.data as { text: string }).text).toBe('副本改了')
+  })
+
+  it('rewire：副本接上原节点的上下游（§4.2「保留上下游连线」）', () => {
+    const g = chain()
+    const a = g.nodes.find((n) => n.type === 'prompt')!.id
+    const b = g.nodes.find((n) => n.type === 'generation')!.id
+    // 复制中间的提示词 a：原边 a→b 应复制出 a2→b
+    const { next } = reduce({ kind: 'node.duplicate', ids: [a], newIds: ['a2'], rewire: true }, g)
+    expect(next.edges).toHaveLength(2)
+    expect(next.edges.some((e) => e.source === 'a2' && e.target === b)).toBe(true)
+    // 原边仍在
+    expect(next.edges.some((e) => e.source === a && e.target === b)).toBe(true)
+  })
+
+  it('rewire 复制下游节点时接上它的上游', () => {
+    const g = chain()
+    const a = g.nodes.find((n) => n.type === 'prompt')!.id
+    const b = g.nodes.find((n) => n.type === 'generation')!.id
+    const { next } = reduce({ kind: 'node.duplicate', ids: [b], newIds: ['b2'], rewire: true }, g)
+    expect(next.edges.some((e) => e.source === a && e.target === 'b2')).toBe(true)
+  })
+
+  it('不 rewire 时不产生任何连线', () => {
+    const g = chain()
+    const a = g.nodes.find((n) => n.type === 'prompt')!.id
+    const { next } = reduce({ kind: 'node.duplicate', ids: [a], newIds: ['a2'] }, g)
+    expect(next.edges).toHaveLength(1)
+  })
+
+  it('多选复制：集合内部连线一并复制', () => {
+    const g = chain()
+    const ids = g.nodes.map((n) => n.id)
+    const { next } = reduce(
+      { kind: 'node.duplicate', ids, newIds: ['c1', 'c2'], rewire: true },
+      g,
+    )
+    expect(next.nodes).toHaveLength(4)
+    expect(next.edges.some((e) => e.source === 'c1' && e.target === 'c2')).toBe(true)
+  })
+
+  it('非法连线静默跳过（不因一条边失败中断复制）', () => {
+    // 复制一个 generation 两次会造成重复边 → canConnect 拒绝，节点仍应复制成功
+    const g = chain()
+    const b = g.nodes.find((n) => n.type === 'generation')!.id
+    const first = reduce({ kind: 'node.duplicate', ids: [b], newIds: ['b2'], rewire: true }, g).next
+    const second = reduce({ kind: 'node.duplicate', ids: [b], newIds: ['b3'], rewire: true }, first).next
+    expect(second.nodes).toHaveLength(4)
+    expect(second.edges.filter((e) => e.target === 'b3')).toHaveLength(1)
+  })
+
+  it('ids 与 newIds 长度不一致立即报错（早失败好过静默错位）', () => {
+    const g = chain()
+    const a = g.nodes.find((n) => n.type === 'prompt')!.id
+    expect(() => reduce({ kind: 'node.duplicate', ids: [a], newIds: [] }, g)).toThrow(/长度不一致/)
+  })
+
+  it('复制不存在的节点报错', () => {
+    expect(() =>
+      reduce({ kind: 'node.duplicate', ids: ['ghost'], newIds: ['g2'] }, emptyGraph()),
+    ).toThrow(/节点不存在/)
+  })
+
+  it('事务为 standalone（一次复制一步撤销）', () => {
+    const g = chain()
+    const a = g.nodes.find((n) => n.type === 'prompt')!.id
+    const { result } = reduce({ kind: 'node.duplicate', ids: [a], newIds: ['a2'] }, g)
+    expect(result.transaction).toMatchObject({ mode: 'standalone' })
+  })
+})
+
+describe('reduce / node.paste（§4.2 Ctrl+C/V 粘贴）', () => {
+  /** prompt(a) → generation(b) 一条链，供复制粘贴 */
+  function chain(): GraphSnapshot {
+    let g = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } }, emptyGraph()).next
+    g = reduce({ kind: 'node.create', projectId: 'p1', type: 'generation', at: { x: 300, y: 0 } }, g).next
+    const a = g.nodes.find((n) => n.type === 'prompt')!.id
+    const b = g.nodes.find((n) => n.type === 'generation')!.id
+    return reduce({ kind: 'edge.connect', source: a, target: b }, g).next
+  }
+
+  /** 复制 → 粘贴：走的是与 UI 完全相同的两个 domain 纯函数 */
+  function copyPaste(g: GraphSnapshot, ids: string[], newIds: string[], at = { x: 0, y: 0 }) {
+    const payload = clipboardFromSelection(g, ids)!
+    return reduce(
+      { kind: 'node.paste', nodes: pasteNodes(payload, at, newIds), edges: pasteEdges(payload, newIds) },
+      g,
+    )
+  }
+
+  it('整链粘贴：节点与集合内连线都落库，事务为 standalone（一步撤销）', () => {
+    const g = chain()
+    const [a, b] = [g.nodes[0]!.id, g.nodes[1]!.id]
+    const { result, next } = copyPaste(g, [a, b], ['a2', 'b2'])
+    expect(next.nodes).toHaveLength(4)
+    expect(next.edges).toHaveLength(2)
+    expect(next.edges.some((e) => e.source === 'a2' && e.target === 'b2')).toBe(true)
+    expect(result.transaction).toMatchObject({ mode: 'standalone' })
+    expect(result.persist.tables).toContain('nodes')
+  })
+
+  it('projectId 盖成当前项目 → 剪贴板可跨项目粘贴', () => {
+    const g = chain()
+    const other = { ...g, projectId: 'p2' }
+    const { next } = copyPaste(other, [g.nodes[0]!.id], ['a2'])
+    expect(next.nodes.find((n) => n.id === 'a2')!.projectId).toBe('p2')
+  })
+
+  it('id 与现有节点冲突时抛错（upsert 会静默覆盖，宁可早失败）', () => {
+    const g = chain()
+    const payload = clipboardFromSelection(g, [g.nodes[0]!.id])!
+    expect(() =>
+      reduce({ kind: 'node.paste', nodes: pasteNodes(payload, { x: 0, y: 0 }, [g.nodes[0]!.id]), edges: [] }, g),
+    ).toThrow(/冲突/)
+  })
+
+  it('父指针悬空时抛错（不造出孤儿节点）', () => {
+    const g = chain()
+    const orphan = { ...g.nodes[0]!, id: 'x', parentId: '不存在的父' }
+    expect(() => reduce({ kind: 'node.paste', nodes: [orphan], edges: [] }, g)).toThrow(/父节点不存在/)
+  })
+
+  it('端点不在本批内的连线丢弃；与现有重复的边不再插一条', () => {
+    const g = chain()
+    const dangling = { nodes: [], edges: [{ source: 'a2', target: '幽灵' }], size: { w: 1, h: 1 } }
+    const { next } = reduce(
+      {
+        kind: 'node.paste',
+        nodes: [{ ...g.nodes[0]!, id: 'a2' }, { ...g.nodes[1]!, id: 'b2' }],
+        edges: [...dangling.edges, { source: 'a2', target: 'b2' }, { source: 'a2', target: 'b2' }],
+      },
+      g,
+    )
+    // 只有一条合法边（重复的那条被挡掉，悬空的那条被丢弃）
+    expect(next.edges.filter((e) => e.source === 'a2')).toHaveLength(1)
+  })
+
+  it('空剪贴板抛错', () => {
+    expect(() => reduce({ kind: 'node.paste', nodes: [], edges: [] }, chain())).toThrow(/剪贴板为空/)
+  })
+})
+
+describe('reduce / node.delete（§6.20 Delete / §4.1 右键删除）', () => {
+  /** prompt(a) → generation(b) */
+  function chain(): GraphSnapshot {
+    let g = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } }, emptyGraph()).next
+    g = reduce({ kind: 'node.create', projectId: 'p1', type: 'generation', at: { x: 300, y: 0 } }, g).next
+    const a = g.nodes.find((n) => n.type === 'prompt')!.id
+    const b = g.nodes.find((n) => n.type === 'generation')!.id
+    g = reduce({ kind: 'edge.connect', source: a, target: b }, g).next
+    return g
+  }
+
+  it('删除节点本身', () => {
+    const g = chain()
+    const a = g.nodes.find((n) => n.type === 'prompt')!.id
+    const { next } = reduce({ kind: 'node.delete', ids: [a] }, g)
+    expect(next.nodes.find((n) => n.id === a)).toBeUndefined()
+    expect(next.nodes).toHaveLength(1)
+  })
+
+  it('级联删除相连连线（不留悬空边）', () => {
+    const g = chain()
+    const a = g.nodes.find((n) => n.type === 'prompt')!.id
+    const { next } = reduce({ kind: 'node.delete', ids: [a] }, g)
+    expect(next.edges).toHaveLength(0)
+  })
+
+  it('递归删除后代（容器子节点不留下悬空 parentId）', () => {
+    let g = reduce({ kind: 'node.create', projectId: 'p1', type: 'group', at: { x: 0, y: 0 } }, emptyGraph()).next
+    const groupId = g.nodes[0]!.id
+    g = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 }, parentId: groupId }, g).next
+    const childId = g.nodes.find((n) => n.type === 'prompt')!.id
+    expect(g.nodes).toHaveLength(2)
+
+    const { next } = reduce({ kind: 'node.delete', ids: [groupId] }, g)
+    expect(next.nodes).toHaveLength(0)
+    expect(next.nodes.find((n) => n.id === childId)).toBeUndefined()
+  })
+
+  it('结果组 childIds 同步清理；清空后结果组一并删除（不留空壳）', () => {
+    let g = chain()
+    const a = g.nodes.find((n) => n.type === 'prompt')!.id
+    const b = g.nodes.find((n) => n.type === 'generation')!.id
+    g = {
+      ...g,
+      resultGroups: [
+        {
+          id: 'rg1',
+          projectId: 'p1',
+          sourceNodeId: b,
+          taskId: 't1',
+          x: 0,
+          y: 0,
+          w: 200,
+          h: 160,
+          childIds: [a],
+          collapsed: false,
+          createdAt: 1,
+          summary: { success: 1, failed: 0 },
+        },
+      ],
+    }
+
+    const { next } = reduce({ kind: 'node.delete', ids: [a] }, g)
+    expect(next.resultGroups).toHaveLength(0)
+  })
+
+  it('结果组部分子节点被删时保留结果组并更新 childIds', () => {
+    let g = chain()
+    const a = g.nodes.find((n) => n.type === 'prompt')!.id
+    const b = g.nodes.find((n) => n.type === 'generation')!.id
+    g = reduce(
+      { kind: 'node.create', projectId: 'p1', type: 'generation', at: { x: 600, y: 0 }, id: 'c' },
+      g,
+    ).next
+    g = {
+      ...g,
+      resultGroups: [
+        {
+          id: 'rg1',
+          projectId: 'p1',
+          sourceNodeId: b,
+          taskId: 't1',
+          x: 0,
+          y: 0,
+          w: 200,
+          h: 160,
+          childIds: [a, 'c'],
+          collapsed: false,
+          createdAt: 1,
+          summary: { success: 2, failed: 0 },
+        },
+      ],
+    }
+
+    const { next } = reduce({ kind: 'node.delete', ids: [a] }, g)
+    expect(next.resultGroups).toHaveLength(1)
+    expect(next.resultGroups[0]!.childIds).toEqual(['c'])
+  })
+
+  it('一次删除多个节点（standalone 事务，一步撤销整组恢复）', () => {
+    const g = chain()
+    const ids = g.nodes.map((n) => n.id)
+    const { result, next } = reduce({ kind: 'node.delete', ids }, g)
+    expect(next.nodes).toHaveLength(0)
+    expect(next.edges).toHaveLength(0)
+    expect(result.transaction.mode).toBe('standalone')
+  })
+
+  it('节点不存在时抛错（早失败，不静默跳过）', () => {
+    expect(() => reduce({ kind: 'node.delete', ids: ['ghost'] }, emptyGraph())).toThrow(/节点不存在/)
+  })
+})
+
+describe('reduce / 结果组与陈旧标记', () => {
+  it('resultGroup.create 建空壳结果组（子节点由 M0-11 填充）', () => {
+    const g0 = reduce({ kind: 'node.create', projectId: 'p1', type: 'generation', at: { x: 0, y: 0 } }, emptyGraph()).next
+    const srcId = g0.nodes[0]!.id
+    const { next } = reduce({ kind: 'resultGroup.create', sourceNodeId: srcId, taskId: 't1', count: 4 }, g0)
+    expect(next.resultGroups).toHaveLength(1)
+    expect(next.resultGroups[0]!.childIds).toEqual([])
+  })
+
+  it('node.create 带 parentId=结果组时，节点加入该结果组 childIds（M2-2）', () => {
+    const g0 = reduce({ kind: 'node.create', projectId: 'p1', type: 'generation', at: { x: 0, y: 0 } }, emptyGraph()).next
+    const srcId = g0.nodes[0]!.id
+    const g1 = reduce({ kind: 'resultGroup.create', sourceNodeId: srcId, taskId: 't1', count: 2 }, g0).next
+    const rgId = g1.resultGroups[0]!.id
+    const g2 = reduce(
+      {
+        kind: 'node.create',
+        projectId: 'p1',
+        type: 'generation',
+        at: { x: 0, y: 0 },
+        id: 'child-1',
+        parentId: rgId,
+        title: '结果 1',
+      },
+      g1,
+    ).next
+    expect(g2.resultGroups[0]!.childIds).toEqual(['child-1'])
+    // 普通（无 parentId）节点不影响任何结果组
+    const g3 = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } }, g2).next
+    expect(g3.resultGroups[0]!.childIds).toEqual(['child-1'])
+  })
+
+  it('resultGroup.setCollapsed 只落一个布尔，不碰几何（§6.9）', () => {
+    const g0 = reduce({ kind: 'node.create', projectId: 'p1', type: 'generation', at: { x: 0, y: 0 } }, emptyGraph()).next
+    const srcId = g0.nodes[0]!.id
+    const g1 = reduce({ kind: 'resultGroup.create', sourceNodeId: srcId, taskId: 't1', count: 4 }, g0).next
+    const rgId = g1.resultGroups[0]!.id
+    const before = g1.resultGroups[0]!
+
+    const folded = reduce({ kind: 'resultGroup.setCollapsed', id: rgId, collapsed: true }, g1)
+    const afterFold = folded.next.resultGroups[0]!
+    expect(afterFold.collapsed).toBe(true)
+    // 折叠几何是「现算的呈现量」：持久的 x/y/w/h 一个字节都不许动
+    expect([afterFold.x, afterFold.y, afterFold.w, afterFold.h]).toEqual([before.x, before.y, before.w, before.h])
+    expect(folded.result.patches).toHaveLength(1)
+    expect(folded.result.patches[0]).toMatchObject({ op: 'patch', table: 'resultGroups', id: rgId, changes: { collapsed: true } })
+    // 折叠是用户动作，应可一步撤销
+    expect(folded.result.transaction.mode).toBe('standalone')
+
+    const unfolded = reduce({ kind: 'resultGroup.setCollapsed', id: rgId, collapsed: false }, folded.next)
+    expect(unfolded.next.resultGroups[0]!.collapsed).toBe(false)
+    expect([unfolded.next.resultGroups[0]!.x, unfolded.next.resultGroups[0]!.w]).toEqual([before.x, before.w])
+  })
+
+  it('resultGroup.setCollapsed 对不存在的结果组报错', () => {
+    expect(() => reduce({ kind: 'resultGroup.setCollapsed', id: 'ghost', collapsed: true }, emptyGraph())).toThrow(
+      /结果组不存在/,
+    )
+  })
+
+  it('asset.put 把 hash 同时落到 id（assets 表 Dexie 主键），事务 silent', () => {
+    const { result } = reduce(
+      {
+        kind: 'asset.put',
+        asset: { hash: 'h-abc', mime: 'image/png', bytes: new Uint8Array([1, 2, 3]), width: 8, height: 8 },
+      },
+      emptyGraph(),
+    )
+    expect(result.transaction.mode).toBe('silent')
+    const row = result.patches[0] as unknown as { table: string; row: { id: string; hash: string } }
+    expect(row.table).toBe('assets')
+    expect(row.row.id).toBe('h-abc')
+    expect(row.row.hash).toBe('h-abc')
+    expect(result.persist.tables).toContain('assets')
+  })
+
+  it('resultGroup.dissolve withResults 删除子节点与相关边', () => {
+    // 结果组子节点由 runEngine 直接以 parentId=rgId 创建（不走 node.reparent），
+    // 这里手工构造初始图来验证 dissolve 的删除语义。
+    const base = reduce(
+      { kind: 'node.create', projectId: 'p1', type: 'generation', at: { x: 0, y: 0 } },
+      emptyGraph(),
+    ).next
+    const srcId = base.nodes[0]!.id
+    const g1 = reduce({ kind: 'resultGroup.create', sourceNodeId: srcId, taskId: 't1', count: 1 }, base).next
+    const rgId = g1.resultGroups[0]!.id
+    const child = {
+      id: 'c1',
+      projectId: 'p1',
+      type: 'generation' as const,
+      parentId: rgId,
+      x: 10,
+      y: 10,
+      w: 100,
+      h: 100,
+      title: '子',
+      disabled: false,
+      stale: false,
+      data: generationSpec.createDefaultData(),
+    }
+    const edge = { id: 'e1', projectId: 'p1', source: srcId, target: 'c1' }
+    const g: GraphSnapshot = {
+      projectId: 'p1',
+      nodes: [...g1.nodes, child],
+      edges: [edge],
+      resultGroups: [{ ...g1.resultGroups[0]!, childIds: ['c1'] }],
+    }
+    const { next } = reduce({ kind: 'resultGroup.dissolve', id: rgId, withResults: true }, g)
+    expect(next.resultGroups).toHaveLength(0)
+    expect(next.nodes.find((n) => n.id === 'c1')).toBeUndefined()
+    expect(next.edges).toHaveLength(0)
+  })
+
+  it('stale.mark / clear 改标记，事务 silent 但仍出现在 persist', () => {
+    const g0 = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } }, emptyGraph()).next
+    const id = g0.nodes[0]!.id
+    const mark = reduce({ kind: 'stale.mark', nodeIds: [id] }, g0)
+    expect(mark.next.nodes[0]!.stale).toBe(true)
+    expect(mark.result.transaction.mode).toBe('silent')
+    expect(mark.result.persist.tables).toContain('nodes')
+    const clear = reduce({ kind: 'stale.clear', nodeIds: [id] }, mark.next)
+    expect(clear.next.nodes[0]!.stale).toBe(false)
+  })
+})
+
+describe('reduce / 执行与版本历史命令（M0-11）', () => {
+  it('runPlan.execute 落 tasks 表，事务 silent（不进撤销栈）', () => {
+    const { result } = reduce(
+      { kind: 'runPlan.execute', planId: 'plan1', scope: 'node', mode: 'single', originNodeId: 'n1', createdAt: 1000 },
+      emptyGraph(),
+    )
+    expect(result.transaction.mode).toBe('silent')
+    const task = result.persist.upserts.find((u) => u.table === 'tasks')
+    expect(task?.rows[0]).toMatchObject({ id: 'plan1', scope: 'node', mode: 'single', state: 'running' })
+  })
+
+  it('runPlan.cancel 把计划标记为 canceled', () => {
+    const { result } = reduce({ kind: 'runPlan.cancel', runPlanId: 'plan1', at: 2000 }, emptyGraph())
+    const task = result.persist.upserts.find((u) => u.table === 'tasks')
+    expect(task?.rows[0]).toMatchObject({ id: 'plan1', state: 'canceled', canceledAt: 2000 })
+  })
+
+  it('node.runRecord.append 只落 runRecords 表，图快照不变', () => {
+    const g0 = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } }, emptyGraph()).next
+    const nodeId = g0.nodes[0]!.id
+    const record = {
+      id: 'r1',
+      nodeId,
+      projectId: 'p1',
+      version: 1,
+      createdAt: 1000,
+      status: 'succeeded' as const,
+      inputs: [],
+      params: { text: 'a', upstreamPromptLinked: false },
+      outputHashes: ['h1'],
+      fingerprint: 'fp1',
+      taskId: 't1',
+      durationMs: 12,
+    }
+    const { result, next } = reduce({ kind: 'node.runRecord.append', nodeId, record }, g0)
+    expect(next.nodes).toEqual(g0.nodes) // 图不变
+    expect(result.transaction.mode).toBe('silent') // 版本历史不进撤销栈
+    expect(result.persist.upserts.find((u) => u.table === 'runRecords')?.rows[0]).toMatchObject({ id: 'r1' })
+  })
+
+  it('node.runRecord.restore 用历史 params 覆盖节点 data', () => {
+    const g0 = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } }, emptyGraph()).next
+    const nodeId = g0.nodes[0]!.id
+    const record = {
+      id: 'r1',
+      nodeId,
+      projectId: 'p1',
+      version: 1,
+      createdAt: 1000,
+      status: 'succeeded' as const,
+      inputs: [],
+      params: { text: '历史文本', upstreamPromptLinked: false },
+      outputHashes: [],
+      fingerprint: 'fp1',
+      taskId: 't1',
+      durationMs: 1,
+    }
+    const { next } = reduce({ kind: 'node.runRecord.restore', nodeId, record }, g0)
+    expect((next.nodes[0]!.data as { text: string }).text).toBe('历史文本')
+  })
+})
+
+describe('reduce / 结果组子结果（M6-25：取出与重排）', () => {
+  /** 建一个「来源节点 + N 张结果」的结果组；子节点按格位落库 */
+  function groupWithChildren(count: number) {
+    const base = reduce(
+      { kind: 'node.create', projectId: 'p1', type: 'generation', at: { x: 0, y: 0 } },
+      emptyGraph(),
+    ).next
+    const srcId = base.nodes[0]!.id
+    const g1 = reduce({ kind: 'resultGroup.create', sourceNodeId: srcId, taskId: 't1', count }, base).next
+    const rgId = g1.resultGroups[0]!.id
+    let g = g1
+    const ids: string[] = []
+    for (let i = 0; i < count; i += 1) {
+      const id = 'c' + (i + 1)
+      ids.push(id)
+      g = reduce(
+        {
+          kind: 'node.create',
+          projectId: 'p1',
+          type: 'generation',
+          at: { x: 0, y: 0 },
+          id,
+          parentId: rgId,
+          title: '结果 ' + (i + 1),
+        },
+        g,
+      ).next
+    }
+    return { g, rgId, ids }
+  }
+
+  /**
+   * 4 张是 2×2：格位 = (16,16) / (232,16) / (16,232) / (232,232)
+   * （内边距 16、单元 200、间距 16）
+   */
+  it('取出一张后，剩余子结果按格位重排（组内不留洞）', () => {
+    const { g, ids } = groupWithChildren(4)
+    const { next } = reduce({ kind: 'node.reparent', id: ids[0]!, toParent: null }, g)
+
+    expect(next.resultGroups[0]!.childIds).toEqual([ids[1], ids[2], ids[3]])
+    const at = (id: string) => {
+      const n = next.nodes.find((x) => x.id === id)!
+      return { x: n.x, y: n.y }
+    }
+    // 3 张在 2 列容器里：c2 顶上 c1 的格，c3、c4 依次前移
+    expect(at(ids[1]!)).toEqual({ x: 16, y: 16 })
+    expect(at(ids[2]!)).toEqual({ x: 232, y: 16 })
+    expect(at(ids[3]!)).toEqual({ x: 16, y: 232 })
+    // 组本身不因为取走一张而缩水（尺寸由来源节点与当初张数撑开，刻意不动）
+    expect([next.resultGroups[0]!.w, next.resultGroups[0]!.h]).toEqual([
+      g.resultGroups[0]!.w,
+      g.resultGroups[0]!.h,
+    ])
+  })
+
+  it('删除一张后同样重排（与取出同口径）', () => {
+    const { g, ids } = groupWithChildren(4)
+    const { next } = reduce({ kind: 'node.delete', ids: [ids[1]!] }, g)
+    expect(next.resultGroups[0]!.childIds).toEqual([ids[0], ids[2], ids[3]])
+    const c1 = next.nodes.find((n) => n.id === ids[0])!
+    const c3 = next.nodes.find((n) => n.id === ids[2])!
+    const c4 = next.nodes.find((n) => n.id === ids[3])!
+    expect({ x: c1.x, y: c1.y }).toEqual({ x: 16, y: 16 })
+    expect({ x: c3.x, y: c3.y }).toEqual({ x: 232, y: 16 })
+    expect({ x: c4.x, y: c4.y }).toEqual({ x: 16, y: 232 })
+  })
+
+  it('取出后：local → world 换算 + 按 naturalSize 恢复真实比例（§6.16）', () => {
+    const { g, ids } = groupWithChildren(2)
+    const rg = g.resultGroups[0]!
+    // 给子节点一个 3:2 的产物尺寸与组内 local 坐标
+    const withSize: GraphSnapshot = {
+      ...g,
+      nodes: g.nodes.map((n) =>
+        n.id === ids[0]
+          ? {
+              ...n,
+              x: 16,
+              y: 16,
+              w: 200,
+              h: 200,
+              data: { ...(n.data as object), naturalSize: { width: 1536, height: 1024 } } as never,
+            }
+          : n,
+      ),
+    }
+    const { next } = reduce({ kind: 'node.reparent', id: ids[0]!, toParent: null }, withSize)
+    const out = next.nodes.find((n) => n.id === ids[0])!
+    expect(out.parentId).toBeNull()
+    // 世界坐标 = 组原点 + local
+    expect({ x: out.x, y: out.y }).toEqual({ x: rg.x + 16, y: rg.y + 16 })
+    // 比例回到产物真实比例（不再是被结果组压成的 200×200 方格）
+    expect(out.w / out.h).toBeCloseTo(1536 / 1024, 5)
+  })
+})

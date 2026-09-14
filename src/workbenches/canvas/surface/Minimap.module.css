@@ -1,0 +1,28 @@
+/* 小地图（产品文档 §6.4）：右下角 200 × 140，距边缘 16px，无边框、带轻阴影 */
+.minimap {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 200px;
+  height: 140px;
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+  /* 层叠：高于工具栏（15/16）、**低于创作面板（20）**——两者都在右下角，物理上会重叠；
+     同层时后渲染的小地图会盖住面板的「生成」按钮（G9 全量冒烟拦截就是这么来的）。
+     规则：常驻环境控件（小地图）让位于临时作业面（面板 / 菜单）。 */
+  z-index: 18;
+  cursor: crosshair;
+  /* 触摸拖拽由自己接管，别让浏览器抢去做滚动 */
+  touch-action: none;
+}
+
+.minimap:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.svg {
+  display: block;
+}

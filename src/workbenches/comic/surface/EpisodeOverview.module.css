@@ -1,0 +1,103 @@
+/* 一话总览（M6-6）。令牌全部取自 ui/tokens.css；无投影、1px 细描边、选中态黑色描边。 */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--space-3);
+}
+
+.card {
+  display: block;
+  width: 100%;
+  padding: var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-node);
+  background: var(--bg-surface);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.card:hover {
+  background: var(--bg-hover);
+}
+
+/* 选中态：黑色描边（与 chips / 节点一致，不用蓝色） */
+.cardActive {
+  border-color: var(--text-1);
+}
+
+/* 页缩略（M6-9）：外框负责 2:3 比例与角标定位，页/占位都铺满它 */
+.thumbFrame {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+}
+
+/* 页缩略：2:3 竖版，格子按 0..1 相对坐标绝对定位（与编辑器同一口径） */
+.thumbPage {
+  position: absolute;
+  inset: 0;
+  display: block;
+  border: var(--border);
+  border-radius: var(--space-1);
+  background: var(--bg-canvas);
+}
+
+.thumbCell {
+  position: absolute;
+  overflow: hidden;
+  border: 1px solid var(--stroke);
+  border-radius: 2px;
+  background: var(--bg-surface);
+}
+
+/* 格内生成画面（M6-9）：铺满格子，缩略不保留原始比例（看的是「画成什么样」） */
+.thumbArt {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumbEmpty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--border);
+  border-radius: var(--space-1);
+  background: var(--bg-canvas);
+  color: var(--text-3);
+  font-size: var(--fs-label);
+}
+
+/* 页码角标（M6-9）：叙事页序，固定右下、不随阅读方向镜像——
+   它是「页码」而不是阅读引导，镜像只会让人找不着。 */
+.badge {
+  position: absolute;
+  right: var(--space-1);
+  bottom: var(--space-1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.empty {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--text-3);
+}

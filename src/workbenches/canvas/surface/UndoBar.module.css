@@ -1,0 +1,58 @@
+/* 撤销条：无投影，1px 细描边 + 背景明度区分层次（产品文档 §3 / §4.2） */
+.bar {
+  position: absolute;
+  left: 50%;
+  bottom: 72px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--stroke);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  z-index: 61;
+  box-shadow: none;
+  animation: undoBarIn 120ms var(--ease-out);
+}
+
+.text {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--stroke);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-surface);
+  border-color: var(--stroke-focus);
+}
+
+.btn:disabled {
+  color: var(--text-3, #b8b8b2);
+  cursor: default;
+  opacity: 0.55;
+}
+
+@keyframes undoBarIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 4px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}

@@ -1,0 +1,176 @@
+/**
+ * 画布落位适配器（架构 §5.5，M6-5 路径 B）。
+ *
+ * 它承载了原先**硬编码在 runEngine 里**的全部画布专有落位/写回逻辑，一字不改地搬过来：
+ *  - `begin`   ：槽位计划 → 复用已有节点 / 新建承载节点（`node.create`）
+ *  - `commit`  ：成功产物 → `node.updateData`（assetHash + 缩略图顺序 + 产物真实像素；
+ *                单一产物顺带把节点改成产物比例，§6.16）
+ *  - `record`  ：RunRecord → `node.runRecord.append`
+ *  - `finalize`：聚合产物 → `resultGroup.create` + `asset.put` + 逐张结果子节点
+ *                （`generationSpec.createDefaultData()` + `RESULT_CELL`）
+ *
+ * 这样共享引擎就彻底不认识画布命令了。
+ */
+import type { RunRecord as CanvasRunRecord } from '../../../domain/canvas/model/runRecord'
+import type { Command } from '../../../state/commands'
+import { generationSpec } from '../../../domain/canvas/nodeSpecs/generation'
+import { RESULT_CELL } from '../../../domain/canvas/layout/constants'
+import { assetNodeSize } from '../../../domain/canvas/layout/assetNodeSize'
+import { createId } from '../../../shared/id'
+import type { CollectedAsset, ExecutionPlacement } from '../../shared/execution/placement'
+import type { CanvasRunTask } from './buildRunPlan'
+
+/**
+ * 是否把本次产物计入「计划末尾的聚合落位」（结果组）。
+ *
+ * 规则（§6.16，2026-09-13 用户拍板）：
+ * - **一次调用出 N ≥ 2 张**：进结果组，组内一律用统一格位 `RESULT_CELL`（容器语义 = 版面整齐）；
+ * - **同一主体展开多次调用**（批量上游 / 批量自身）：合计也是多张，同样进组；
+ *   （`shouldCollect` 是逐次调用的，只看得见本次这 1 张，故要另看 `callCount`）
+ * - **单一产物**：生成节点**自己**就能呈现产物，不建组——此时节点按产物真实比例，
+ *   这正是「结果组里的那张拖出来就恢复比例」的同一条规则（进了容器才让渡比例）；
+ * - **容器类来源例外**：分组 / 批量本体是 3×3 集合、画板是被收纳的工作区，
+ *   它们自身不呈现单张产物（画板里的生成节点产物属于那次**容器运行**），
+ *   N=1 也照旧进结果组，否则产物会写到一个看不见它的节点上；
+ * - 视频 / 文本产物照旧不入组（与既有行为一致）。
+ */
+function shouldCollect(task: CanvasRunTask, assets: readonly unknown[]): boolean {
+  if (task.request.kind !== 'image' || assets.length === 0) return false
+  if (assets.length > 1 || task.callCount > 1) return true
+  if (task.containerKind) return true
+  return task.sourceType === 'group' || task.sourceType === 'batch'
+}
+
+export function createCanvasPlacement(getProjectId: () => string): ExecutionPlacement<CanvasRunTask, Command> {
+  return {
+    begin(task, { isRepeat }) {
+      if (task.slot.kind === 'reuse' && !isRepeat) {
+        return { targetId: task.slot.nodeId, commands: [] }
+      }
+      // 新建承载节点：槽位给了 title 就用它，否则是按序号展开的后续调用
+      const targetId = createId('node')
+      return {
+        targetId,
+        commands: [
+          {
+            kind: 'node.create',
+            projectId: getProjectId(),
+            type: 'generation',
+            at: { x: 0, y: 0 },
+            id: targetId,
+            title: task.slot.kind === 'new' ? task.slot.title : `结果 ${(task.seq ?? 0) + 1}`,
+          },
+        ],
+      }
+    },
+
+    /**
+     * 成功写回：产物挂到目标上（assetHash + 缩略图顺序 + 产物真实像素）。
+     *
+     * 单一产物（不进结果组）时**顺带把节点尺寸改成产物比例**（§6.16）：
+     * 不建组意味着这个节点就是用户看到的那张图，留着 240×240 的方框
+     * 会在图两侧糊上两条白边——这正是本次要修的表观。
+     *
+     * 尺寸与 data 走**同一条命令**：分成两条会留下「data 已是新产物、框还是旧比例」
+     * 的中间态；而 `node.resize` 需要完整 rect（会顺手移动节点），不适合落位场景。
+     */
+    commit(task, targetId, assets) {
+      const first = assets[0]
+      const natural =
+        first && first.width && first.height ? { width: first.width, height: first.height } : undefined
+      const patch: Record<string, unknown> = {
+        assetHash: first?.hash ?? null,
+        thumbOrder: assets.map((a) => a.hash),
+        naturalSize: natural,
+      }
+      const size = natural && !shouldCollect(task, assets) ? assetNodeSize(natural) : null
+      /**
+       * 素材本体**必须在 commit 里落库**，不能等地一步的 `finalize`：
+       * 单一产物根本不走 finalize（不建结果组），若只在那里 `asset.put`，
+       * 节点会持有一个 assets 表里查不到的 hash —— 图永远渲染不出来。
+       * 进了结果组的产物同样先经 commit，故这是**唯一**的落库点（finalize 不再重复写）。
+       */
+      const stored: Command[] = assets.map((a) => ({
+        kind: 'asset.put',
+        asset: { hash: a.hash, mime: a.mime, bytes: a.bytes, width: a.width, height: a.height },
+      }))
+      return [
+        ...stored,
+        {
+          kind: 'node.updateData',
+          id: targetId,
+          patch,
+          ...(size ? { size } : {}),
+        },
+      ]
+    },
+
+    /** 生图成功才入结果组；N=1 的生成节点自己显示产物（§6.16） */
+    shouldCollect,
+
+    record(task, record) {
+      // 引擎用中性的 RunRecord<unknown> 留痕；此处 params 必为 NodeData
+      // （CanvasRunTask.params 已收窄为 NodeData），故这一处断言是安全的。
+      return { kind: 'node.runRecord.append', nodeId: task.nodeId, record: record as CanvasRunRecord }
+    },
+
+    finalize(plan, collected) {
+      const bySource = groupBySource(collected)
+      const cmds: Command[] = []
+      for (const [sourceId, entries] of bySource) {
+        if (entries.length === 0) continue
+        // 与旧实现一致：taskId 取该来源在 plan 里的**首个** task（无论其成败）
+        const first = plan.tasks.find((t) => t.nodeId === sourceId)
+        const rgId = createId('rg')
+        cmds.push({
+          kind: 'resultGroup.create',
+          sourceNodeId: sourceId,
+          taskId: first?.id ?? plan.id,
+          count: entries.length,
+          id: rgId,
+        })
+        entries.forEach((entry, i) => {
+          const a = entry.asset
+          cmds.push({
+            kind: 'node.create',
+            projectId: getProjectId(),
+            type: 'generation',
+            at: { x: 0, y: 0 },
+            // 组内统一格位（N≥2 才走到这里）；naturalSize 仍如实记下产物真实像素，
+            // 供「拖出 / 复制出结果组」时恢复比例（§6.16）——进了容器只是让渡呈现比例，
+            // 不是把原始比例忘掉。
+            size: RESULT_CELL,
+            id: createId('node'),
+            title: `结果 ${i + 1}`,
+            parentId: rgId,
+            data: {
+              ...generationSpec.createDefaultData(),
+              mode: 'image',
+              assetHash: a.hash,
+              naturalSize: a.width && a.height ? { width: a.width, height: a.height } : undefined,
+              thumbOrder: [a.hash],
+              channelId: first?.request.channelId ?? '',
+              model: first?.request.model ?? '',
+              prompt: first?.request.prompt ?? '',
+            },
+          })
+        })
+      }
+      return cmds
+    },
+  }
+}
+
+/** 按来源主体分组，保持 collected 的插入顺序（= 各来源首次成功的顺序） */
+function groupBySource(collected: readonly CollectedAsset[]): Map<string, CollectedAsset[]> {
+  const bySource = new Map<string, CollectedAsset[]>()
+  for (const c of collected) {
+    const list = bySource.get(c.sourceId)
+    if (list) list.push(c)
+    else bySource.set(c.sourceId, [c])
+  }
+  return bySource
+}
+
+/** 画布落位适配器类型别名（供宿主与测试显式标注） */
+export type CanvasPlacement = ExecutionPlacement<CanvasRunTask, Command>

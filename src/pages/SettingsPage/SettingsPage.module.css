@@ -1,0 +1,527 @@
+.page {
+  /* 铺满视口用 `fixed` 而不是 `100vh`：body 仍有默认 8px 外边距（本项目没有全局 reset），
+     100vh 会因此溢出 16px、逼出整页滚动条，卡片「居中」也就跟着歪。
+     本页是独立全屏页、自身不滚（滚动交给卡片内两栏），脱离文档流没有副作用。 */
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-app);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+}
+
+/* 顶栏内边距与卡片同宽（1060px）：宽度对不上时，返回按钮会孤零零飘在卡片左边缘之外。
+   背景透明、无下边框——页面里唯一的白块应该只有卡片本身。 */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-5) max(var(--space-6), calc((100% - 1060px) / 2)) var(--space-4);
+}
+
+.back {
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  text-decoration: none;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  padding: var(--space-1) var(--space-3);
+}
+.back:hover {
+  background: var(--bg-hover);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+}
+
+/* 卡片（§7.1）：整页居中、定宽、自带圆角与细描边。
+   `margin: auto` 负责水平居中；`flex: 1` + 底部间距让它占满剩余高度而不贴底。
+   两栏都在卡片内滚动，于是页面无论渠道多少都维持在「一屏内的一个卡片」大小。 */
+.layout {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 1060px;
+  margin: 0 auto var(--space-6);
+  display: grid;
+  grid-template-columns: 264px 1fr;
+  background: var(--bg-surface);
+  border: var(--border);
+  border-radius: var(--radius-node);
+  overflow: hidden;
+}
+
+/* —— 左侧列表（§7.2：无边框隐性容器，选中浮现 bg-hover 胶囊、无描边） —— */
+.sidebar {
+  border-right: var(--border);
+  background: var(--bg-surface);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+}
+
+.addBtn {
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--accent-text);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-chip);
+  cursor: pointer;
+}
+
+.dragHint {
+  margin: 0;
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  /* 渠道多时只有列表滚，新增 / 删除按钮始终钉在左栏底部 */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  padding: var(--space-2) var(--space-3);
+  cursor: grab;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+}
+.item:hover {
+  background: var(--bg-hover);
+}
+.itemActive {
+  background: var(--bg-hover);
+}
+.item:active {
+  cursor: grabbing;
+}
+
+.itemTop {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.itemName {
+  font-size: var(--fs-label);
+  font-weight: var(--fw-title);
+}
+.itemProto {
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  color: var(--text-3);
+}
+.itemMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.itemOn {
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  color: var(--success);
+}
+.itemModels {
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.empty {
+  font-size: var(--fs-label);
+  color: var(--text-3);
+  padding: var(--space-2);
+}
+
+/* —— 右侧编辑器（在卡片内独立滚动） —— */
+.editor {
+  padding: var(--space-6);
+  overflow: auto;
+  min-height: 0;
+}
+
+.placeholder {
+  color: var(--text-3);
+  font-size: var(--fs-label);
+}
+
+.form {
+  max-width: 620px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.fieldRowTop {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.label {
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  font-weight: var(--fw-title);
+}
+
+.input {
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-body);
+  font-family: var(--font-sans);
+}
+.input:focus {
+  outline: none;
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.tokenRow {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.tokenRow .input {
+  flex: 1;
+}
+
+.saved {
+  font-size: var(--fs-chip);
+  color: var(--success);
+}
+
+.fieldRow {
+  display: flex;
+  align-items: center;
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+/* 协议区：协议下拉 + 连通性测试（§7.3，同一排） */
+.protocolRow {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+/* 删除渠道（§7.2）：与「+ 新增渠道」同在左栏底部，二次确认就地展开——不弹窗、
+   不跳到别处，确认框只占住按钮原位置，视线不用移动。 */
+.dangerZone {
+  margin-top: var(--space-1);
+}
+.dangerBtn {
+  width: 100%;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--danger);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+.dangerBtn:hover {
+  background: var(--bg-hover);
+}
+.dangerBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.confirmBox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
+}
+.confirmText {
+  font-size: var(--fs-chip);
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.confirmRow {
+  display: flex;
+  gap: var(--space-2);
+}
+.dangerSolid {
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--danger);
+  color: var(--accent-text);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-chip);
+  cursor: pointer;
+}
+.dangerSolid:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.primary {
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--accent-text);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-chip);
+  cursor: pointer;
+}
+.primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ghostBtn {
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-label);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ghostBtn:hover {
+  background: var(--bg-hover);
+}
+.ghostBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.status {
+  font-size: var(--fs-label);
+  min-height: var(--fs-label);
+  color: var(--text-2);
+}
+
+/* mock 协议下的「这次没出网」提示：验证通过的样子和真实中转一模一样，必须显式说清楚 */
+.offlineNote {
+  margin: 0;
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--stroke-focus);
+  font-size: var(--fs-chip);
+  line-height: 1.7;
+  color: var(--text-3);
+}
+
+/* —— 模型管理（§7.4） —— */
+.models {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: var(--border);
+}
+
+.modelsHead {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.modelsTitleBox {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.modelsSub {
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.modelsEmpty {
+  margin: 0;
+  font-size: var(--fs-chip);
+  line-height: 1.7;
+  color: var(--text-3);
+}
+
+.selectedGroups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.selectedRow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.selectedLabel {
+  flex: none;
+  width: 68px;
+  padding-top: 3px;
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  color: var(--text-3);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  padding: 2px var(--space-2);
+  font-size: var(--fs-chip);
+  color: var(--text-1);
+}
+.chipX {
+  border: none;
+  background: none;
+  padding: 0 2px;
+  font-size: var(--fs-chip);
+  line-height: 1;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.chipX:hover {
+  color: var(--danger);
+}
+
+/* 选择面板：就地展开、不做浮层遮罩（本页是独立页面，没有需要遮挡的画布） */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  padding: var(--space-3);
+}
+.panelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.panelTitle {
+  font-size: var(--fs-label);
+  font-weight: var(--fw-title);
+}
+.panelFilters {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+}
+.tab {
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  padding: 3px var(--space-3);
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+.tab:hover {
+  background: var(--bg-hover);
+}
+.tabOn {
+  background: var(--bg-surface);
+  border-color: var(--stroke-focus);
+  color: var(--text-1);
+  font-weight: var(--fw-chip);
+}
+.search {
+  flex: 1;
+}
+
+.optionList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 300px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+.option:hover {
+  background: var(--bg-hover);
+}
+.optionName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.optionCat {
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+.optionEmpty {
+  padding: var(--space-3);
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.panelFoot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

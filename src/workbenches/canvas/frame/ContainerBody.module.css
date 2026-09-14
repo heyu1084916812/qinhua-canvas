@@ -1,0 +1,67 @@
+/*
+ * 固定比例容器（产品文档 §6.11 / §6.12）。
+ *
+ * 分组与批量的容器形态完全一致（文档明确「固定比例容器布局规则与分组节点一致」），
+ * 因此样式只写一份、两处复用；语义差异（收纳物种类、空态文案）留在各自视图里。
+ *
+ * - 5:4 由 domain 的 sizing.lockAspect = true 保证，这里不写死宽高
+ * - 虚线边框默认透明，hover / 选中时显形
+ * - 背景为半透明 --bg-subtle 60%
+ */
+.body {
+  position: relative;
+  height: 100%;
+  box-sizing: border-box;
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--bg-subtle) 60%, transparent);
+  border: 1px dashed transparent;
+  overflow: hidden;
+  transition: border-color var(--dur-edge) var(--ease-out);
+}
+
+:global([data-node-type='group']:hover) .body,
+:global([data-node-type='group'].selected) .body,
+:global([data-node-type='batch']:hover) .body,
+:global([data-node-type='batch'].selected) .body {
+  border-color: var(--stroke);
+}
+
+/* 单元：固定 200×160（5:4），位置由 domain 的打包结果给出 */
+.cell {
+  position: absolute;
+  width: 200px;
+  height: 160px;
+}
+
+/* 单元内的节点 frame 铺满整个单元（标题栏 + 内容区） */
+.cell > * {
+  width: 100% !important;
+  height: 100% !important;
+  left: 0 !important;
+  top: 0 !important;
+}
+
+/* 空容器：虚线框内提示可拖入 */
+.empty {
+  position: absolute;
+  inset: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 1px dashed var(--stroke);
+  border-radius: var(--radius-control);
+  pointer-events: none;
+}
+
+.emptyText {
+  font-size: var(--fs-label);
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.emptyHint {
+  font-size: 10px;
+  color: var(--text-3);
+}

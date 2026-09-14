@@ -1,0 +1,50 @@
+/* 漫画剧工作台页面容器（M5 骨架）。令牌全部取自 ui/tokens.css。 */
+
+.page {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg-app);
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 0 0 auto;
+  height: 44px;
+  padding: 0 var(--space-4);
+  border-bottom: var(--border);
+  background: var(--bg-surface);
+}
+
+.back {
+  border: none;
+  background: transparent;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-control);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.back:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.brand {
+  font-size: var(--fs-title);
+  font-weight: var(--fw-title);
+  color: var(--text-1);
+}
+
+.spacer {
+  flex: 1;
+}

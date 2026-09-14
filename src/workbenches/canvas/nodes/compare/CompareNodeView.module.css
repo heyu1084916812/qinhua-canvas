@@ -1,0 +1,121 @@
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+/* 对比舞台：左右两图叠放，A 为底、B 为上层裁剪层 */
+.stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  background: var(--bg-subtle);
+  /* 拖动期间禁用图片原生拖拽与文本选择 */
+  user-select: none;
+  touch-action: none;
+}
+
+.base,
+.overlay {
+  position: absolute;
+  inset: 0;
+}
+
+.overlay {
+  /* 让出左半给 A：右半可见 */
+  will-change: clip-path;
+}
+
+/*
+ * 两图必须严格同位叠放：都用 cover 铺满同一矩形，
+ * 否则 contain 各自的留白不同，分割线两侧就「对不上」。
+ */
+.base img,
+.overlay img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+
+/* 分割线：1px 白线（§6.10），拖动手柄为圆形 */
+.divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18);
+  transform: translateX(-0.5px);
+  pointer-events: none;
+}
+
+.handle {
+  position: absolute;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  margin-left: -11px;
+  margin-top: -11px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  border: var(--border);
+  cursor: ew-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+
+.handle::before,
+.handle::after {
+  content: '';
+  width: 1px;
+  height: 8px;
+  background: var(--text-3);
+}
+
+.handle::before {
+  margin-right: 3px;
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  background: var(--bg-subtle);
+}
+
+.emptyText {
+  font-size: var(--fs-label);
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.emptyHint {
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.labels {
+  display: flex;
+  justify-content: space-between;
+  flex: 0 0 auto;
+}
+
+.label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-3);
+}

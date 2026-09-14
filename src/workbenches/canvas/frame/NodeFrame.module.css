@@ -1,0 +1,164 @@
+.frame {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: var(--border);
+  border-radius: var(--radius-node);
+  /* 画布浮层无投影（产品文档 §3.3），层级靠描边与背景明度区分 */
+  overflow: visible;
+  box-sizing: border-box;
+  /*
+   * 节点框整体是拖动把手（§4.2 / §6.15「在节点任意位置按下 = 选中 + 发起拖动」）。
+   * 框内文字一律不可选中：否则在文字上按下并拖动会被浏览器判成**原生文本拖拽**，
+   * 于是 pointercancel 掐断指针流、后续 pointermove/pointerup 全丢——节点只挪了起手第一拍
+   * 就停住，松手也不触发归属判定（探针实测 G15/G16/G17 全部由它引起）。
+   * 节点内的可编辑控件自行放开（见 .titleInput 与表单控件）。
+   */
+  user-select: none;
+}
+
+/* 陈旧（§6.19.5）：橘色描边 + 右上角圆点（圆点定义见文末 .staleDot）。
+   声明顺序刻意排在 .selected 之前——两者同时成立时描边归选中（选中的是唯一长期交互态），
+   陈旧由圆点继续呈现，两个信号都不会丢。 */
+.frame.stale {
+  outline: 2px solid var(--warn);
+  outline-offset: 0;
+}
+
+.frame.selected {
+  /* 节点选中：2px 实线焦点色，不用蓝色（§3.3） */
+  outline: 2px solid var(--stroke-focus);
+  outline-offset: 0;
+}
+
+/* 标题浮在节点**外**左上方（§6.6 通用规则）。
+   绝对定位在 frame 上沿之外，因此不占用节点内部空间——节点框整体就是内容区。
+   留在 DOM 里作 frame 的子元素：单击 / 双击仍冒泡到 frame 的 onPointerDown（选中 + 拖动）。 */
+.header {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  max-width: 100%;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+  margin-bottom: 2px;
+  box-sizing: border-box;
+}
+
+.title {
+  font-size: var(--fs-title);
+  font-weight: var(--fw-title);
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: text;
+  user-select: none;
+}
+
+.titleInput {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-control);
+  padding: 2px var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-title);
+  font-weight: var(--fw-title);
+  color: var(--text-1);
+  /* 表单控件放开文本选择（frame 整体 user-select:none 会继承下来，这里显式收回） */
+  user-select: text;
+}
+
+.body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  /* clip 而非 hidden：hidden 是可编程滚动容器，scrollIntoView（focus / Playwright hover）
+     会滚动 body 使子内容整体位移、屏幕坐标错位（G21 冒烟教训）；clip 只裁剪不滚动 */
+  overflow: clip;
+}
+
+/* 节点内嵌的可编辑控件放开文本选择（frame 的 user-select:none 会继承下来） */
+.body :is(input, textarea) {
+  user-select: text;
+}
+
+/* 端点（§6.14）：左右中各一个，默认隐藏，hover 节点时淡入；加宽命中区便于拖线。
+   z-index:1 —— 端点在 DOM 里先于 .body 渲染，同为定位元素时会被 .body 盖住，
+   点击端点（恰好落在 frame 右/左边缘 = body 边界像素）会命中 frame 而非端点。 */
+.port {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin-top: -5px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  border: var(--border);
+  box-sizing: border-box;
+  opacity: 0;
+  pointer-events: auto;
+  cursor: crosshair;
+  transition: opacity var(--dur-edge) var(--ease-out);
+  z-index: 1;
+}
+
+/* 命中区比视觉尺寸大，避免细端点难按住（用伪元素扩展） */
+.port::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 999px;
+}
+
+.frame:hover .port,
+.frame.selected .port {
+  opacity: 1;
+}
+
+.portLeft {
+  left: -5px;
+}
+
+.portRight {
+  right: -5px;
+}
+
+.resizeHandle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  border-bottom-right-radius: var(--radius-node);
+  /* 弱化的拖拽提示，悬停浮现 */
+  background: transparent;
+}
+
+.resizeHandle:hover {
+  background: var(--bg-hover);
+}
+
+/* 陈旧圆点（§6.19.5「右上角 6px 圆点」）：纯标记，不吃指针事件。
+   位置落在圆角内（右上角 14px 圆角，圆心距角 8.5px < 14px），不会溢出到节点外。
+   **z-index 不能省**：圆点在 DOM 里先于 `.body` 渲染，而节点内容（如生成节点的
+   `.media`）自带不透明底色并铺满 body ⇒ 同为定位元素时会被整块盖住。
+   盖住即「DOM 里数得到、屏幕上没有」——选中态下描边归黑色（§3.3 的刻意设计），
+   圆点就是**唯一**还在的陈旧信号，被盖掉等于陈旧完全看不见（像素采样实测 0 像素）。 */
+.staleDot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--warn);
+  pointer-events: none;
+  z-index: 2;
+}

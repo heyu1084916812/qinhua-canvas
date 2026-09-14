@@ -1,0 +1,39 @@
+.surface {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-canvas);
+  /* 禁用浏览器默认手势，避免与平移 / 缩放抢事件 */
+  touch-action: none;
+  cursor: default;
+}
+
+/* 空格按下 → 进入平移模式（产品文档 §6.3） */
+.spaceMode {
+  cursor: grab;
+}
+.spaceMode:active {
+  cursor: grabbing;
+}
+
+.world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  /* 平移 / 缩放走 transform + GPU 合成，无过渡（产品文档 §3.4） */
+  will-change: transform;
+}
+
+/* 拖入素材时的落点提示（极简：1px 虚线描边，无投影、不改底色） */
+.surface[data-import-hover='true']::after {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border: 1px dashed var(--stroke);
+  border-radius: 8px;
+  pointer-events: none;
+}
