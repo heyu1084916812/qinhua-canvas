@@ -959,6 +959,28 @@ async function g10(browser) {
     rec(g, '日志含发送到画布按钮', /发送到画布/.test(text))
     await page.screenshot({ path: `${OUT}/15-g10-log.png` })
 
+    // §6.18「请求1024x1024  实际1024x1024」：两个数字都要在，且是**真读出来的**。
+    // 判据不写死期望值，而是拿缩略图 <img> 的实际 naturalWidth/Height 去比对文案里的
+    // 「实际」一侧——只有界面真的显示了产物尺寸时两边才对得上（G49 同款手法）。
+    const pxText = (await page.locator('[data-log-pixels]').first().innerText().catch(() => '')).trim()
+    rec(g, '日志含请求像素与实际像素（§6.18）', /请求\d+x\d+/.test(pxText) && /实际\d+x\d+/.test(pxText), `text="${pxText}"`)
+    const logThumb = page.locator('[data-log-thumb] img').first()
+    const thumbSize = await logThumb
+      .evaluate((el) => ({ w: el.naturalWidth ?? 0, h: el.naturalHeight ?? 0 }))
+      .catch(() => ({ w: 0, h: 0 }))
+    const actualText = /实际(\d+)x(\d+)/.exec(pxText)
+    const actualMatchesPixels =
+      thumbSize.w > 0 &&
+      actualText !== null &&
+      Number(actualText[1]) === thumbSize.w &&
+      Number(actualText[2]) === thumbSize.h
+    rec(
+      g,
+      '★ 日志实际像素与产物真实像素一致（不是照抄请求）',
+      actualMatchesPixels,
+      `shown=${actualText ? `${actualText[1]}x${actualText[2]}` : 'none'} img=${thumbSize.w}x${thumbSize.h}`,
+    )
+
     // 清空
     await dialog.getByRole('button', { name: '清空' }).click()
     await sleep(400)

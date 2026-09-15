@@ -1,5 +1,6 @@
 import { fingerprintHex } from '../../domain/shared/hash'
 import { imageInputsOf } from '../../domain/shared/execution/inputs'
+import { imageSizeFromHeader } from '../../domain/shared/imageSize'
 import type { SafeChannelConfig, NetworkResponse } from '../ports'
 import {
   ChannelError,
@@ -59,11 +60,39 @@ export function openAiImageQuality(quality: unknown): string | null {
   return typeof quality === 'string' && OPENAI_QUALITIES.has(quality) ? quality : null
 }
 
-/** 从 `1024x1536` 解出产物元数据用的宽高；解不出返回空对象（不用 512 编造） */
+/** 从 `1024x1536` 解出本次请求的像素；解不出返回空对象（不用 512 编造） */
 function sizeToDimensions(size: string | null): { width?: number; height?: number } {
   const m = size ? /^(\d+)x(\d+)$/.exec(size) : null
   if (!m) return {}
   return { width: Number(m[1]), height: Number(m[2]) }
+}
+
+/**
+ * 产物装配（§6.18「请求像素 / 实际像素」）。
+ *
+ * **实际像素一律从字节里读出来**（PNG/JPEG/GIF/WebP 的文件头即可，见
+ * `domain/shared/imageSize`），不再拿「我们请求的 size」顶替——那是
+ * 「问渠道要了多大」，不是「渠道给了多大」。早先两者同源，于是日志里两个数
+ * **恒等**，缺口看着被填上了、实则什么都没证明。
+ *
+ * 读不出（非图片字节 / 视频 / 截断）就留空，由展示侧按「未知」处理，**不猜**。
+ */
+function toAsset(
+  seed: string,
+  mime: string,
+  bytes: Uint8Array,
+  requested: { width?: number; height?: number },
+): GeneratedAsset {
+  const actual = imageSizeFromHeader(bytes)
+  return {
+    hash: fingerprintHex(seed),
+    mime,
+    bytes,
+    ...(actual ? { width: actual.width, height: actual.height } : {}),
+    ...(requested.width && requested.height
+      ? { requestedWidth: requested.width, requestedHeight: requested.height }
+      : {}),
+  }
 }
 
 export function createOpenAiImagesAdapter(
@@ -122,7 +151,7 @@ export function createOpenAiImagesAdapter(
     res: NetworkResponse,
     model: string,
     prompt: string,
-    dims: { width?: number; height?: number },
+    requested: { width?: number; height?: number },
     signal: AbortSignal,
   ): Promise<GeneratedAsset[]> => {
     const body = await res.json<{ data?: { b64_json?: string; url?: string }[] }>()
@@ -131,12 +160,11 @@ export function createOpenAiImagesAdapter(
     for (const item of items) {
       if (item.b64_json) {
         const bytes = Uint8Array.from(atob(item.b64_json), (c) => c.charCodeAt(0))
-        // 宽高取自己请求的 size（不再写死 512 —— 那是个与真实产物无关的假值）
-        assets.push({ hash: fingerprintHex(`${model}|${prompt}|${assets.length}`), mime: 'image/png', bytes, ...dims })
+        assets.push(toAsset(`${model}|${prompt}|${assets.length}`, 'image/png', bytes, requested))
       } else if (item.url) {
         const dl = await deps.network.request({ url: item.url, method: 'GET', headers: {} }, signal)
         const buf = await dl.arrayBuffer()
-        assets.push({ hash: fingerprintHex(`${model}|${item.url}`), mime: 'image/png', bytes: new Uint8Array(buf), ...dims })
+        assets.push(toAsset(`${model}|${item.url}`, 'image/png', new Uint8Array(buf), requested))
       }
     }
     return assets

@@ -260,7 +260,7 @@ export async function runEngine<TTask extends RunTask, TCommand>(
       deps,
       taskStartedAt,
       status,
-      state.kind === 'succeeded' ? assets.map((a) => a.hash) : [],
+      state.kind === 'succeeded' ? assets : [],
       finishedAt - taskStartedAt,
     )
     const recordCommand = placement.record(task, record)
@@ -302,7 +302,7 @@ function makeRecord(
   deps: { projectId: string; nextVersion?: (nodeId: string) => number },
   startedAt: number,
   status: RunRecord['status'],
-  outputHashes: string[],
+  assets: GeneratedAsset[],
   durationMs: number,
 ): RunRecord {
   return {
@@ -314,9 +314,39 @@ function makeRecord(
     status,
     inputs: task.request.inputs,
     params: task.params,
-    outputHashes,
+    outputHashes: assets.map((a) => a.hash),
     fingerprint: task.fingerprint,
     taskId: task.id,
     durationMs,
+    ...pixelFieldsOf(assets),
   }
+}
+
+/**
+ * 从产物里取「请求像素 / 实际像素」（§6.18 日志面板）。
+ *
+ * 取**第一张**产物：一次调用的所有产物同批请求、同批返回，尺寸一致；
+ * 多张时逐张记没有额外信息，只会让记录变胖。失败 / 取消（无产物）自然一项都没有。
+ *
+ * 缺哪个就不填哪个 —— 展示侧按「未知即不显示」处理，绝不拿另一侧顶替。
+ */
+function pixelFieldsOf(assets: readonly GeneratedAsset[]): Pick<
+  RunRecord,
+  'requestedWidth' | 'requestedHeight' | 'outputWidth' | 'outputHeight'
+> {
+  const first = assets[0]
+  if (!first) return {}
+  const fields: Partial<RunRecord> = {}
+  if (first.requestedWidth && first.requestedHeight) {
+    fields.requestedWidth = first.requestedWidth
+    fields.requestedHeight = first.requestedHeight
+  }
+  if (first.width && first.height) {
+    fields.outputWidth = first.width
+    fields.outputHeight = first.height
+  }
+  return fields as Pick<
+    RunRecord,
+    'requestedWidth' | 'requestedHeight' | 'outputWidth' | 'outputHeight'
+  >
 }

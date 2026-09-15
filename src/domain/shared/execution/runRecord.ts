@@ -23,6 +23,20 @@ export interface RunRecord<TParams = unknown> {
   taskId: string
   durationMs: number
   cost?: number
+  /**
+   * 本次向渠道**请求**的像素（§6.18 日志面板「请求1024x1024」）。
+   * 由渠道层翻译比例后回填（`GeneratedAsset.requestedWidth/Height`）；
+   * 渠道没报（比例不在协议表内 / 视频）则缺，**不猜、不拿实际像素顶替**。
+   */
+  requestedWidth?: number
+  requestedHeight?: number
+  /**
+   * 渠道**实际返回**的产物像素（§6.18「实际1024x1024」），取自产物字节的文件头。
+   * 与 `requested*` 刻意分成两组：合成一组时「请求 = 实际」恒成立，
+   * 日志里两个数永远相等——那是把缺口「看起来填上了」，不是填上了。
+   */
+  outputWidth?: number
+  outputHeight?: number
 }
 
 export function createRunRecord<TParams>(args: {
@@ -39,8 +53,34 @@ export function createRunRecord<TParams>(args: {
   taskId: string
   durationMs: number
   cost?: number
+  requestedWidth?: number
+  requestedHeight?: number
+  outputWidth?: number
+  outputHeight?: number
 }): RunRecord<TParams> {
   return { ...args }
+}
+
+/**
+ * 日志面板的「请求 / 实际」像素文案（§6.18）。
+ *
+ * 两者都齐全才各自成段；缺一侧就只出有的那一侧，全缺返回 `null`——
+ * 「未知」必须呈现为「不显示」，不能显示成 `0x0` 或拿另一侧顶替。
+ */
+export function pixelSummaryOf(record: {
+  requestedWidth?: number
+  requestedHeight?: number
+  outputWidth?: number
+  outputHeight?: number
+}): string | null {
+  const requested =
+    record.requestedWidth && record.requestedHeight
+      ? `请求${record.requestedWidth}x${record.requestedHeight}`
+      : null
+  const actual =
+    record.outputWidth && record.outputHeight ? `实际${record.outputWidth}x${record.outputHeight}` : null
+  const parts = [requested, actual].filter((p): p is string => p !== null)
+  return parts.length > 0 ? parts.join('  ') : null
 }
 
 /** LiveFingerprint：version 最大且 succeeded 的那条（架构 §4.1） */

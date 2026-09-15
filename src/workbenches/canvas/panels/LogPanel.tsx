@@ -4,6 +4,7 @@ import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { useCanvasStore } from '../storeContext'
 import { useAsset } from '../hooks/useAsset'
 import type { RunRecord } from '../../../domain/canvas/model/runRecord'
+import { pixelSummaryOf } from '../../../domain/shared/execution/runRecord'
 import type { GenerationData } from '../../../domain/canvas/model/node'
 import { NODE_MINIMUMS } from '../../../domain/canvas/layout/constants'
 import { createId } from '../../../shared/id'
@@ -146,6 +147,8 @@ function LogRow({
   const thumbUrl = useAsset(record.outputHashes[0])
   const ok = record.status === 'succeeded'
   const seconds = (record.durationMs / 1000).toFixed(1)
+  // §6.18「请求1024x1024  实际1024x1024」：未知即不显示（不显示 0x0、也不拿一侧顶另一侧）
+  const pixels = pixelSummaryOf(record)
 
   return (
     <div className={styles.record}>
@@ -161,6 +164,12 @@ function LogRow({
         <div className={styles.meta}>
           <b>{formatLogTime(record.createdAt)}</b>
           <span> · 输出 {record.outputHashes.length} 个</span>
+          {pixels && (
+            <span data-log-pixels>
+              {' · '}
+              {pixels}
+            </span>
+          )}
         </div>
         {params.prompt && (
           <div className={styles.promptText} title="点击复制提示词" onClick={onCopy}>

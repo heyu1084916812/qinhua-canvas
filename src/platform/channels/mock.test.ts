@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { createMockChannel } from './mock'
+import { solidPng } from './mockPng'
+import { imageSizeFromHeader } from '../../domain/shared/imageSize'
 import type { ImageRunRequest, TextRunRequest, VideoRunRequest } from './types'
 
 const signal = new AbortController().signal
@@ -67,6 +69,55 @@ describe('mock 渠道 / 图像输入可观测（M6-12）', () => {
     }
     const [asset] = await ch.generateVideo(req, signal)
     expect(asset!.mime).toBe('video/mp4')
+  })
+
+  it('§6.18 请求像素与实际像素是两组字段（比例 16:9 → 64×36）', async () => {
+    const ch = createMockChannel()
+    const [asset] = await ch.generateImage(
+      { ...imageRequest([]), params: { count: 1, ratio: '16:9' } },
+      signal,
+    )
+    expect(asset!.requestedWidth).toBe(64)
+    expect(asset!.requestedHeight).toBe(36)
+    expect(asset!.width).toBe(64)
+    expect(asset!.height).toBe(36)
+  })
+
+  /**
+   * ★ 这条是「实际像素」不是恒等式的证明。
+   *
+   * mock 造的 PNG 尺寸恰好等于请求尺寸（64×36），所以只断言「两个数都在」
+   * 是恒真的——把实现换成「实际照抄请求」也一样绿。这里把产物的**字节头**
+   * 改成另一个尺寸再交给同一个读尺寸的纯函数，得到 8×8 ≠ 64×36，
+   * 说明下游拿到的是「从字节里读出来的数」，不是请求值的副本。
+   */
+  it('★ 实际像素取自产物字节：换成另一尺寸的 PNG，读数随之改变（不是照抄请求）', async () => {
+    const ch = createMockChannel()
+    const [asset] = await ch.generateImage(
+      { ...imageRequest([]), params: { count: 1, ratio: '16:9' } },
+      signal,
+    )
+    const other = solidPng(8, 8, [0x00, 0x00, 0x00])
+    const read = imageSizeFromHeader(other)
+    expect(read).toEqual({ width: 8, height: 8 })
+    expect(read).not.toEqual({ width: asset!.requestedWidth, height: asset!.requestedHeight })
+    // 反过来说：产物字节若真被换掉，记录里的实际像素也必须跟着变
+    expect(imageSizeFromHeader(asset!.bytes)).toEqual({ width: asset!.width, height: asset!.height })
+  })
+
+  it('视频产物不带像素（不是图片，尺寸无从谈起）', async () => {
+    const ch = createMockChannel()
+    const req: VideoRunRequest = {
+      kind: 'video',
+      channelId: 'c',
+      model: 'm',
+      prompt: 'p',
+      inputs: [],
+      params: { count: 1 },
+    }
+    const [asset] = await ch.generateVideo(req, signal)
+    expect(asset!.width).toBeUndefined()
+    expect(asset!.requestedWidth).toBeUndefined()
   })
 })
 

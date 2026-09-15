@@ -3,6 +3,7 @@ import type { ModelCapability } from '../../domain/shared/capability'
 import { fingerprintHex } from '../../domain/shared/hash'
 import { clampCount } from '../../domain/shared/capability'
 import { imageInputsOf } from '../../domain/shared/execution/inputs'
+import { imageSizeFromHeader } from '../../domain/shared/imageSize'
 import { solidPng } from './mockPng'
 import type { SafeChannelConfig } from '../ports'
 import {
@@ -133,13 +134,19 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
     // 使「inputs 是否真的被消费」在离线环境下可被断言。hash 规则不变，
     // 因此既有按 hash 断言的测试不受影响。
     const withImage = imageInputsOf(request.inputs).length > 0
-    const [width, height] = pixelSizeOf(request.params.ratio)
+    const [requestedWidth, requestedHeight] = pixelSizeOf(request.params.ratio)
+    const bytes = solidPng(requestedWidth, requestedHeight, withImage ? MAGENTA : GRAY)
+    // 实际像素**从产物字节里读出来**，不照抄请求尺寸（§6.18「请求 / 实际」）。
+    // mock 造的正是这个尺寸的 PNG，两者一致是**结果**、不是预设——
+    // 断言「实际像素」时才不会退化成「请求 = 实际」的恒等式。
+    const actual = imageSizeFromHeader(bytes)
     return {
       hash,
       mime: 'image/png',
-      bytes: solidPng(width, height, withImage ? MAGENTA : GRAY),
-      width,
-      height,
+      bytes,
+      ...(actual ? { width: actual.width, height: actual.height } : {}),
+      requestedWidth,
+      requestedHeight,
     }
   }
 

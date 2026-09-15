@@ -6,8 +6,16 @@ import {
   openAiImageQuality,
 } from './openaiImages'
 import { createMemoryNetwork, createMemoryPlatform } from '../../platform/memory'
+import { solidPng } from './mockPng'
 import type { ResolvedChannelConfig } from './registry'
 import { ChannelError, type ImageRunRequest } from './types'
+
+/** 测试用的 b64 编码（`btoa` 不接受 Uint8Array，逐字节转字符串） */
+function bytesToB64(bytes: Uint8Array): string {
+  let s = ''
+  for (const b of bytes) s += String.fromCharCode(b)
+  return btoa(s)
+}
 
 function resp(status: number, obj: unknown) {
   return {
@@ -294,8 +302,63 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
   it('产物宽高来自请求的 size（不再写死 512）', async () => {
     const calls: { url: string; body: unknown }[] = []
     const assets = await adapter(calls).generateImage(request([], 1, { ratio: '2:3' }), signal)
-    expect(assets[0]!.width).toBe(1024)
-    expect(assets[0]!.height).toBe(1536)
+    expect(assets[0]!.requestedWidth).toBe(1024)
+    expect(assets[0]!.requestedHeight).toBe(1536)
+  })
+
+  /**
+   * ★ 关键：真实渠道下「请求像素」与「实际像素」**不能同源**。
+   *
+   * 早先实现把请求的 size 直接当产物宽高写上，于是日志里两个数恒等——
+   * 缺口看着被填上了，实际什么都没证明。现在实际像素读产物字节的文件头：
+   * 这里喂一张 3×5 的真 PNG，请求侧是 1024x1536，两侧必须不相等。
+   */
+  it('★ 实际像素读产物字节，不照抄请求 size（请求 1024x1536 / 实际 3x5）', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const tiny = solidPng(3, 5, [0x11, 0x22, 0x33])
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        calls.push({ url: req.url, body: req.body })
+        return resp(200, { data: [{ b64_json: bytesToB64(tiny) }] })
+      },
+    })
+    const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
+    const assets = await a.generateImage(request([], 1, { ratio: '2:3' }), signal)
+    expect(assets[0]!.requestedWidth).toBe(1024)
+    expect(assets[0]!.requestedHeight).toBe(1536)
+    expect(assets[0]!.width).toBe(3)
+    expect(assets[0]!.height).toBe(5)
+    // 两个数不相等的那一刻，日志里的「请求 / 实际」才真的是两个数
+    expect(assets[0]!.width).not.toBe(assets[0]!.requestedWidth)
+  })
+
+  it('未知比例 → 不发 size，请求像素也就不填（不拿实际像素顶替）', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const tiny = solidPng(7, 7, [0x00, 0x00, 0x00])
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        calls.push({ url: req.url, body: req.body })
+        return resp(200, { data: [{ b64_json: bytesToB64(tiny) }] })
+      },
+    })
+    const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
+    const assets = await a.generateImage(request([], 1, { ratio: '21:9' }), signal)
+    expect(assets[0]!.requestedWidth).toBeUndefined()
+    expect(assets[0]!.width).toBe(7)
+  })
+
+  it('非图片字节（解不出尺寸）→ 实际像素留空，不猜', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        calls.push({ url: req.url, body: req.body })
+        return resp(200, { data: [{ b64_json: bytesToB64(new Uint8Array([1, 2, 3, 4])) }] })
+      },
+    })
+    const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
+    const assets = await a.generateImage(request([], 1, { ratio: '1:1' }), signal)
+    expect(assets[0]!.requestedWidth).toBe(1024)
+    expect(assets[0]!.width).toBeUndefined()
   })
 
   it('纯函数映射表（含边界：null / 未知 / 空白）', () => {

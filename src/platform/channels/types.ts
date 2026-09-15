@@ -20,8 +20,17 @@ export interface GeneratedAsset {
   hash: string
   mime: string
   bytes: Uint8Array
+  /** 产物真实像素（能读出来才填；读不出保持 undefined，绝不猜） */
   width?: number
   height?: number
+  /**
+   * 本次**向渠道请求**的像素（§6.18 日志面板「请求像素」）。
+   * 渠道把比例翻译成合法像素 `size` 后才填——它是「我们问渠道要了多大」，
+   * 与 `width/height`（渠道实际给了多大）是两件事，故必须分成两组字段：
+   * 合成一组时「请求 = 实际」恒成立，日志里两个数永远相等，缺口只是看起来被填上了。
+   */
+  requestedWidth?: number
+  requestedHeight?: number
 }
 
 export interface TextResult {

@@ -6,6 +6,7 @@ import {
   filterRunRecords,
   nextVersion,
   liveFingerprintOf,
+  pixelSummaryOf,
   type RunRecord,
 } from './runRecord'
 
@@ -94,5 +95,31 @@ describe('版本版本号与 LiveFingerprint（既有行为回归锁定）', () 
     ]
     expect(liveFingerprintOf(records)).toBe('fp-4')
     expect(liveFingerprintOf([rec({ id: 'r1', version: 1, status: 'failed' })])).toBeNull()
+  })
+})
+
+describe('pixelSummaryOf / 日志「请求 / 实际」像素文案（§6.18）', () => {
+  it('两侧齐全 → 「请求WxH  实际WxH」两段（与文档排版一致）', () => {
+    expect(
+      pixelSummaryOf({ requestedWidth: 1024, requestedHeight: 1024, outputWidth: 1024, outputHeight: 1024 }),
+    ).toBe('请求1024x1024  实际1024x1024')
+  })
+
+  it('请求与实际不同 → 两个数**分别**显示（这条锁住「不准拿一侧顶另一侧」）', () => {
+    expect(
+      pixelSummaryOf({ requestedWidth: 1536, requestedHeight: 1024, outputWidth: 1024, outputHeight: 1024 }),
+    ).toBe('请求1536x1024  实际1024x1024')
+  })
+
+  it('只有请求 → 只出请求；只有实际 → 只出实际', () => {
+    expect(pixelSummaryOf({ requestedWidth: 1024, requestedHeight: 1536 })).toBe('请求1024x1536')
+    expect(pixelSummaryOf({ outputWidth: 64, outputHeight: 36 })).toBe('实际64x36')
+  })
+
+  it('全缺 / 只缺一个轴 → 返回 null（未知即不显示，不显示 0x0）', () => {
+    expect(pixelSummaryOf({})).toBeNull()
+    // 只有宽没有高 = 这段信息不完整，宁可不出
+    expect(pixelSummaryOf({ requestedWidth: 1024 })).toBeNull()
+    expect(pixelSummaryOf({ outputHeight: 768 })).toBeNull()
   })
 })

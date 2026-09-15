@@ -6,6 +6,9 @@ import { createCanvasStore, type CanvasStore } from '../../../state/workbenches/
 import type { Command } from '../../../state/commands'
 import type { TransactionBoundary } from '../../../state/shared/types'
 import { fingerprintHex } from '../../../domain/shared/hash'
+import { imageSizeFromHeader } from '../../../domain/shared/imageSize'
+import { solidPng } from '../../../platform/channels/mockPng'
+import type { ChannelAdapter, GeneratedAsset } from '../../../platform/channels/types'
 import { RESULT_CELL } from '../../../domain/canvas/layout/constants'
 import { generationSpec } from '../../../domain/canvas/nodeSpecs/generation'
 import type { GenerationData } from '../../../domain/canvas/model/node'
@@ -13,6 +16,7 @@ import { buildRunPlan, type CanvasRunTask } from './buildRunPlan'
 import { createCanvasPlacement } from './canvasPlacement'
 // 引擎上移共享层（M6-5 路径 B）；画布测试通过注入 CanvasPlacement 复现原行为
 import { runEngine, type RunEngineDeps } from '../../shared/execution/runEngine'
+import { pixelSummaryOf } from '../../../domain/shared/execution/runRecord'
 
 /**
  * M0-11 契约验证点：渠道配置 → 生成节点 → buildRunPlan → runEngine → 结果写回 → RunRecord 落库。
@@ -71,7 +75,7 @@ function host(store: CanvasStore) {
 
 function deps(
   store: CanvasStore,
-  channel: ReturnType<typeof createMockChannel>,
+  channel: ChannelAdapter,
   overrides: Partial<RunEngineDeps<CanvasRunTask, Command>> = {},
 ): RunEngineDeps<CanvasRunTask, Command> {
   return {
@@ -83,6 +87,36 @@ function deps(
     now: () => 0,
     wait: () => Promise.resolve(),
     ...overrides,
+  }
+}
+
+/**
+ * 造一个「请求像素与实际像素故意不同」的 stub 渠道。
+ *
+ * 存在的理由：mock 渠道按请求比例造图，于是两个数天然相等 —— 而**相等正是
+ * 「实际照抄请求」这个错误实现的表现**。要区分「真采集」与「抄了一遍」，
+ * 必须有一个两侧不等的渠道，故有此 stub（见下方 §6.18 的 ★ 用例）。
+ */
+function stubChannel(
+  bytes: Uint8Array,
+  requested: { requestedWidth?: number; requestedHeight?: number },
+): ChannelAdapter {
+  const image = async (): Promise<GeneratedAsset[]> => [
+    {
+      hash: fingerprintHex('stub'),
+      mime: 'image/png',
+      bytes,
+      ...(imageSizeFromHeader(bytes) ?? {}),
+      ...requested,
+    },
+  ]
+  return {
+    protocol: 'stub',
+    verify: async () => ({ ok: true, models: [] }),
+    listModels: async () => [],
+    generateImage: image,
+    generateVideo: image,
+    completeText: async () => ({ text: '' }),
   }
 }
 
@@ -244,6 +278,60 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     expect(assets).toHaveLength(1)
     expect(rows).toHaveLength(1)
     expect(rows[0]!.id).toBe(summary.records[0]!.id)
+  })
+
+  it('§6.18 日志「请求 / 实际」像素：两侧分别进 RunRecord（mock 16:9 → 64×36）', async () => {
+    const { store, promptId, genId } = setup()
+    // 16:9 → mock 按该比例造 64×36 的 PNG
+    store.dispatch({ kind: 'node.updateData', id: genId, patch: { ratio: '16:9' } })
+    const plan = buildRunPlan('node', { originNodeId: promptId }, store.getSnapshot(), 'single')
+    const summary = await runEngine(plan, deps(store, createMockChannel()))
+    store.endPlan()
+
+    const record = summary.records[0]!
+    expect(record).toMatchObject({
+      requestedWidth: 64,
+      requestedHeight: 36,
+      outputWidth: 64,
+      outputHeight: 36,
+    })
+    expect(pixelSummaryOf(record)).toBe('请求64x36  实际64x36')
+  })
+
+  /**
+   * ★ engine 层「实际像素 ≠ 请求像素」的**非恒等**证明。
+   *
+   * 上面那条用例里两个数恰好相等（mock 按请求比例造图），把实现改成
+   * 「实际照抄请求」它也照样绿——**故障注入实测确认过这一点**。
+   * 因此这里另给一个 stub 渠道：请求 1024×1024、产物字节却是 7×3，
+   * 两个数必须分别落在各自的字段上。缺了这条，「采集了」与「抄了一遍」无从区分。
+   */
+  it('★ §6.18 实际像素不照抄请求：请求 1024×1024 / 产物 7×3 时两数并存', async () => {
+    const { store, promptId } = setup()
+    const stub = stubChannel(solidPng(7, 3, [0x00, 0x00, 0x00]), {
+      requestedWidth: 1024,
+      requestedHeight: 1024,
+    })
+    const plan = buildRunPlan('node', { originNodeId: promptId }, store.getSnapshot(), 'single')
+    const summary = await runEngine(plan, deps(store, stub))
+    store.endPlan()
+
+    const record = summary.records[0]!
+    expect(record).toMatchObject({ requestedWidth: 1024, requestedHeight: 1024 })
+    expect(record).toMatchObject({ outputWidth: 7, outputHeight: 3 })
+    expect(pixelSummaryOf(record)).toBe('请求1024x1024  实际7x3')
+  })
+
+  it('§6.18 失败 / 取消不留像素（没有产物就没有尺寸）', async () => {
+    const { store, promptId } = setup()
+    const plan = buildRunPlan('node', { originNodeId: promptId }, store.getSnapshot(), 'single')
+    const summary = await runEngine(plan, deps(store, createMockChannel({ failTimes: 99 })))
+    store.endPlan()
+
+    expect(summary.records[0]!.status).toBe('failed')
+    expect(summary.records[0]!.requestedWidth).toBeUndefined()
+    expect(summary.records[0]!.outputWidth).toBeUndefined()
+    expect(pixelSummaryOf(summary.records[0]!)).toBeNull()
   })
 
   it('整次生成合并为一个撤销单元：undo 一次回到生成前', async () => {

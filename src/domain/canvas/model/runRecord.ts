@@ -23,4 +23,5 @@ export {
   nextVersion,
   inputsSummaryOf,
   filterRunRecords,
+  pixelSummaryOf,
 } from '../../shared/execution/runRecord'
