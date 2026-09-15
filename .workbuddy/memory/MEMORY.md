@@ -17,6 +17,9 @@
 - **性能剖析别信 headless 的 rAF 帧间隔**（无 vsync，恒 ~6ms）。用：每帧主线程耗时 / CDP `Profiler` / headful。卡顿多半是「每帧重算」不是「渲染慢」；A/B（`{false && <Minimap/>}`）定位浮层成本最快。
 - **React 的 `onWheel` 是 passive**，`preventDefault()` 被静默忽略；要阻止页面滚动须挂原生 `{passive:false}` 监听。
 - 提交前别 `git add -A`：一次性探针 `scripts/probe-*.mjs` 与搁置的漫剧调研稿不入库。
+- **`git status` 干净 ≠ 目录干净**：被忽略的调试转储照样堆在项目根目录（实测 135 个 / 655KB）。清理让用户在本机终端跑（沙箱删不掉；白名单已排除 `.gitignore` 与 `.dependency-cruiser.cjs`）：
+  `Get-ChildItem -Force -File | ? { $_.Name -like ".*" -and $_.Name -ne ".gitignore" -and $_.Name -ne ".dependency-cruiser.cjs" } | Remove-Item -Force`
+  另可删 `.playwright-verify/`（截图产物，235 文件 / 10MB，可再生成）。**`.git` 与 `.workbuddy` 绝不能碰。**
 
 ## 进度
 M0–M6 完成，comic 侧推迟项清零；画布侧收尾至 **M6-27 小地图（§6.4）**（范围只由内容决定防拖拽自我放大、视口框保尺寸钉回框内；G56 含像素断言 + 故障注入）。
@@ -41,6 +44,9 @@ M0–M6 完成，comic 侧推迟项清零；画布侧收尾至 **M6-27 小地图
   但引用和它的 reflog 都没了 ⇒ `git status -sb` 显示 `[gone]`。定位方法：另克隆一份跑同样的 fetch 作对照（克隆里正常）⇒ 判定为旧 `.git` 旧伤而非 PortableGit。
   **修法：`git update-ref` 无效，需先让引用存在再 `git pack-refs --all`**，改走 packed 存储后 fetch 就不再删它了。
 - 无 `gh` CLI、无 SSH 钥匙；凭据靠 Git Credential Manager 里已存的 `git:https://github.com`（HTTPS 直推可用）。
+  **2026-09-15 起本环境下 `git push` 推不动了**：trace 显示进程走到 `git credential-manager get` 就静默退出（rc=128、无任何报错文字），
+  沙箱内外都一样；`git credential-manager --version` 正常、github.com:443 也通 ⇒ 卡在「取出已存凭据」这一步（需授权）。
+  **对策：让用户在自己的终端里跑 `git push origin main`**，我不再尝试绕。
 - **换机 / 多机**：`git clone` + `npm install`（`node_modules` 不入库，靠 `package-lock.json` 复现）。
   冒烟 `npm run smoke` 必须装**系统 Chrome**（`chromium.launch({channel:'chrome'})`，Playwright 不自带）。
   **画布/漫画数据不进 git**（IndexedDB），换机要用 `exportProject`/`importProjectFile` 搬 `.flow.json`（格式 `qinghua.flow` v1）；渠道 API Key 同理要重新配。
