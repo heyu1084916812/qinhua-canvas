@@ -128,9 +128,19 @@ describe('GenerationNodeView · 状态居中（§6.8「在节点中心显示」�
     expect(html).toContain('data-node-status="running"')
   })
 
-  it('全局运行中（本节点未运行）：居中转圈', () => {
+  it('★ 全局运行中（本节点未参与）：**不长**任何状态覆盖层', () => {
+    // 用户实测报「生成某个节点时，其他没让它生成的节点也在转圈」。
+    // 「全局运行中」是**生成按钮**的状态（§6.8 按钮变 LoaderCircle 并禁用），
+    // 不属于节点本体——本体只表达自己的 running / error（§6.19.5）。
     const html = render(baseProps({ running: false, globalRunning: true }))
-    expect(html).toContain('data-node-status="busy"')
+    expect(html).not.toContain('data-node-status=')
+    expect(html).not.toContain('全局工作流运行中')
+  })
+
+  it('全局运行中 + 本节点也在跑：仍显示自己的「生成中」', () => {
+    const html = render(baseProps({ running: true, globalRunning: true }))
+    expect(html).toContain('data-node-status="running"')
+    expect(html).not.toContain('data-node-status="busy"')
   })
 
   it('失败：居中显示报错原因，且不再转圈', () => {

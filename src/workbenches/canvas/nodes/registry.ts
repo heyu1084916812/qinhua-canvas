@@ -22,8 +22,12 @@ export interface NodeViewProps<TData extends NodeData = NodeData> {
   selected: boolean
   running: boolean
   /**
-   * 全局工作流运行中（本节点自身未在运行）：生成按钮禁用并显示旋转 Loader（产品文档 §6.8）。
-   * 与 running 互斥语义：running=false 且 globalRunning=true 才是「全局忙」。
+   * 全局工作流运行中（本节点自身未在运行）。
+   *
+   * **只给生成按钮用**（产品文档 §6.8：按钮变旋转 `LoaderCircle` 并禁用），
+   * 节点本体**不得**据此渲染状态覆盖层——本体只表达自己的 running / error（§6.19.5）。
+   * 早先生成节点本体也用它画了「全局工作流运行中」的居中转圈，于是跑任意一个节点时，
+   * 画布上所有未参与的生成节点都跟着转圈（用户实测报「我没让它生成，它却在生成」）。
    */
   globalRunning?: boolean
   /** 上游输出变了、本节点 fingerprint 对不上（见 §4.1 / §6.19.5） */

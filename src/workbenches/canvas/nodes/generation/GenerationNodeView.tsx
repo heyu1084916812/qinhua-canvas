@@ -27,9 +27,16 @@ export function GenerationNodeView(props: NodeViewProps) {
   const [dropping, setDropping] = useState(false)
 
   const isVideo = data.mode === 'video'
-  const busyGlobal = !props.running && props.globalRunning === true
-  // 居中覆盖层：本节点运行中 / 全局运行中 / 失败（§6.8）
-  const overlay = props.error ? 'error' : props.running ? 'running' : busyGlobal ? 'busy' : null
+  /**
+   * 居中覆盖层只表达**本节点自己**的状态：运行中 / 失败（§6.19.5）。
+   *
+   * 刻意**不**渲染「全局运行中」：那是**生成按钮**的状态（§6.8 按钮在全局运行时变
+   * `LoaderCircle` 并禁用），不属于节点本体。此前把 `globalRunning` 也画成本体覆盖层，
+   * 于是跑任意一个节点时，画布上**所有**未参与的生成节点都跟着转圈——
+   * 用户看到的是「我没让它生成，它却在生成」。
+   * 节点是否在跑，只认 `props.running`（由执行宿主按 nodeId 反查，见 NodeLayer）。
+   */
+  const overlay = props.error ? 'error' : props.running ? 'running' : null
 
   return (
     <div
@@ -99,7 +106,7 @@ export function GenerationNodeView(props: NodeViewProps) {
               {props.error}
             </span>
           ) : (
-            <span className={styles.spinner} aria-label={overlay === 'running' ? '生成中' : '全局工作流运行中'} />
+            <span className={styles.spinner} aria-label="生成中" />
           )}
         </div>
       )}

@@ -454,7 +454,11 @@ export function PreviewPage() {
           })}
         />
         <Card label="运行中（按钮 ✕ 可取消）" node={makeNode('generation', { title: '生成' })} running runMode="single" />
-        <Card label="全局运行中（按钮 ◌ 禁用）" node={makeNode('generation', { title: '生成' })} globalRunning />
+        <Card
+          label="全局运行中（本体无标记；仅创作面板按钮变 ◌ 禁用）"
+          node={makeNode('generation', { title: '生成' })}
+          globalRunning
+        />
         <Card label="错误" node={makeNode('generation', { title: '生成' })} error="模型不可用" />
         <Card label="陈旧" node={makeNode('generation', { title: '生成' })} stale />
       </div>
