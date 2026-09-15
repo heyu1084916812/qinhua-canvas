@@ -47,9 +47,13 @@ M0–M6 完成，comic 侧推迟项清零；画布侧收尾至 **M6-27 小地图
   但引用和它的 reflog 都没了 ⇒ `git status -sb` 显示 `[gone]`。定位方法：另克隆一份跑同样的 fetch 作对照（克隆里正常）⇒ 判定为旧 `.git` 旧伤而非 PortableGit。
   **修法：`git update-ref` 无效，需先让引用存在再 `git pack-refs --all`**，改走 packed 存储后 fetch 就不再删它了。
 - 无 `gh` CLI、无 SSH 钥匙；凭据靠 Git Credential Manager 里已存的 `git:https://github.com`（HTTPS 直推可用）。
-  **2026-09-15 起本环境下 `git push` 推不动了**：trace 显示进程走到 `git credential-manager get` 就静默退出（rc=128、无任何报错文字），
-  沙箱内外都一样；`git credential-manager --version` 正常、github.com:443 也通 ⇒ 卡在「取出已存凭据」这一步（需授权）。
+  **2026-09-15 起本环境下 `git push` 推不动了**：早期是卡在 `git credential-manager get`（rc=128、无报错文字）；
+  后来用 `git push > out 2> err` 分离捕获才拿到真错误——**实为出网代理问题**：
+  `fatal: unable to access 'https://github.com/...': Empty reply from server` / `CONNECT tunnel failed, response 502`（两次报错还不一样）。
+  ⇒ 结论：本环境的 HTTPS 走代理、代理到 github.com 不通，**不是凭据问题**。
   **对策：让用户在自己的终端里跑 `git push origin main`**，我不再尝试绕。
+  **教训：git 静默失败时别只会加 trace，先把 stdout/stderr 分开重定向到文件**（PowerShell 里 `2>&1 | Out-File` 会把 git 的 UTF-16 报错搅成乱码/丢行，
+  改成 `> out.txt 2> err.txt` 再 `Get-Content -Encoding Unicode` 转存才读得清）。
 - **换机 / 多机**：`git clone` + `npm install`（`node_modules` 不入库，靠 `package-lock.json` 复现）。
   冒烟 `npm run smoke` 必须装**系统 Chrome**（`chromium.launch({channel:'chrome'})`，Playwright 不自带）。
   **画布/漫画数据不进 git**（IndexedDB），换机要用 `exportProject`/`importProjectFile` 搬 `.flow.json`（格式 `qinghua.flow` v1）；渠道 API Key 同理要重新配。
