@@ -1486,7 +1486,9 @@ async function g13(browser) {
   await sleep(350)
   rec(g, '类型不匹配连线被拒绝（§11.3）', (await page.locator('[data-edge]').count()) === 2, `连线=${await page.locator('[data-edge]').count()}`)
 
-  // 空白松手 → 不建边
+  // 空白松手 → 不建边，但**要在指针处弹出可连接菜单**（§6.14「空白松手菜单」）。
+  // 这里曾经是 `if (!hovered) return`：拖了半天线松在空白上就什么也不发生，
+  // 文档从一开始就写了这个菜单，代码里却一直没有消费者。
   await genNode.hover()
   await sleep(250)
   const outBox3 = await outPort.boundingBox()
@@ -1497,6 +1499,22 @@ async function g13(browser) {
   await page.mouse.up()
   await sleep(350)
   rec(g, '空白处松手不建边', (await page.locator('[data-edge]').count()) === 2, `连线=${await page.locator('[data-edge]').count()}`)
+
+  const linkMenu = page.locator('[data-link-menu]')
+  rec(g, '空白处松手弹出可连接菜单（不是无声取消）', (await linkMenu.count()) === 1, `菜单=${await linkMenu.count()}`)
+  if ((await linkMenu.count()) === 1) {
+    rec(g, '菜单方向 = 被拖的那一端（output）', (await linkMenu.getAttribute('data-link-menu-side')) === 'output')
+    const mb = await linkMenu.boundingBox()
+    // 锚点是「指针右侧 12px」，不是指针本身（右键菜单才是 +4/+4）
+    rec(g, '菜单锚在指针右侧 12px', Math.abs(mb.x - blankDrop.x - 12) < 2, `Δx=${(mb.x - blankDrop.x).toFixed(1)}`)
+    rec(g, '菜单含「新建并连接」分区', (await page.locator('[data-link-menu-section="create"]').count()) === 1)
+    await page.screenshot({ path: `${OUT}/22b-g13-link-menu.png` })
+    // Esc 关闭，且关闭本身不动已有连线（§6.14「菜单关闭不改变已有节点和连线」）
+    await page.keyboard.press('Escape')
+    await sleep(250)
+    rec(g, 'Esc 关闭菜单', (await page.locator('[data-link-menu]').count()) === 0)
+    rec(g, '开关菜单不产生连线', (await page.locator('[data-edge]').count()) === 2, `连线=${await page.locator('[data-edge]').count()}`)
+  }
 
   // 自连被拒绝
   await genNode.hover()
@@ -1509,6 +1527,38 @@ async function g13(browser) {
   await page.mouse.up()
   await sleep(350)
   rec(g, '自连被拒绝', (await page.locator('[data-edge]').count()) === 2, `连线=${await page.locator('[data-edge]').count()}`)
+
+  // 「新建并连接」：建节点 + 建连线合成**一步撤销**（§6.3）。
+  // 一律用**物理鼠标点击**，不用 btn.click()：菜单渲染在 surface 内部，pointerdown 会
+  // 冒泡到 surface，若它一见菜单开着就关菜单，菜单会在 click 到达前被卸载——表现为
+  // 「点了只关菜单、什么都不建」，而程序化 click 不产生 pointerdown，恰好把这类 bug 测漏。
+  await promptNode.hover()
+  await sleep(250)
+  const pOutBox2 = await pOut.boundingBox()
+  await page.mouse.move(pOutBox2.x + pOutBox2.width / 2, pOutBox2.y + pOutBox2.height / 2)
+  await page.mouse.down()
+  const blankDrop2 = await blankPoint(page)
+  await page.mouse.move(blankDrop2.x, blankDrop2.y, { steps: 8 })
+  await page.mouse.up()
+  await sleep(350)
+  const createItem = page.locator('[data-link-menu-item^="create:"]').first()
+  rec(g, '菜单含可新建且连得上的类型', (await createItem.count()) >= 1)
+  if ((await createItem.count()) >= 1) {
+    const n0 = await page.locator('[data-node-id]').count()
+    const e0 = await page.locator('[data-edge]').count()
+    await createItem.click()
+    await sleep(450)
+    const n1 = await page.locator('[data-node-id]').count()
+    const e1 = await page.locator('[data-edge]').count()
+    rec(g, '「新建并连接」建出新节点', n1 === n0 + 1, `节点 ${n0} → ${n1}`)
+    rec(g, '「新建并连接」同时建出连线', e1 === e0 + 1, `连线 ${e0} → ${e1}`)
+    await page.keyboard.press('Control+z')
+    await sleep(450)
+    const n2 = await page.locator('[data-node-id]').count()
+    const e2 = await page.locator('[data-edge]').count()
+    rec(g, '新建并连接 = 一步撤销（不留孤立节点）', n2 === n0 && e2 === e0, `节点 ${n2}(期望 ${n0}) 连线 ${e2}(期望 ${e0})`)
+  }
+  await page.screenshot({ path: `${OUT}/22c-g13-create-link.png` })
 
   await ctx.close()
 }
@@ -2527,8 +2577,10 @@ async function g22(browser) {
 }
 
 // ────────────────────────────────────────────────────────────
-// G23 LLM 优化与翻译（M4-4 / §6.7）：
-// 文本模型 → 面板「优化」写回 → 撤销回滚 → 节点本体「优化」→ 面板「翻译」
+// G23 LLM 优化与翻译（M4-4 / §6.7；2026-09-15 起「面板 = 草稿工作区」）：
+// 面板文字是**草稿**（data.draft），节点正文是最终提示词（data.text），两者解耦——
+// 面板输入 / 面板「优化 / 翻译」只动草稿；「写入节点」才把草稿落进正文（进撤销栈）；
+// 节点本体的「优化」仍直接改正文。断言围绕这条分界展开。
 // ────────────────────────────────────────────────────────────
 async function g23(browser) {
   const g = 'G23 LLM优化翻译'
@@ -2581,26 +2633,56 @@ async function g23(browser) {
   )
   await page.screenshot({ path: `${OUT}/37-g23-panel-ready.png` })
 
-  // 4) 面板点「优化」→ 节点文本被 LLM 结果覆盖（mock 返回 mock:<system+text>）
+  // 4) 解耦基线：面板草稿初始为空，节点正文是「一只猫」——两边是不同的字段
+  const panelTa = () => panel.locator('textarea').first()
+  rec(g, '初始草稿为空（面板不回显正文）', (await panelTa().inputValue()) === '')
+  rec(g, '节点正文仍是双击输入的文本', (await nodeText()).includes('一只猫'))
+
+  // 5) 面板输入只写草稿：正文纹丝不动
+  await panelTa().click()
+  await panelTa().fill('草稿猫')
+  await sleep(300)
+  rec(g, '面板输入草稿不写正文', (await nodeText()).includes('一只猫') && !(await nodeText()).includes('草稿猫'))
+
+  // 6) 面板「优化」→ 草稿被 LLM 结果覆盖（mock 返回 mock:<system+text>），正文不动
   await panel.locator('[data-panel-prompt-tools] button', { hasText: '优化' }).click()
-  let optimized = false
+  let draftOptimized = false
   for (let i = 0; i < 30; i++) {
-    if ((await nodeText()).includes('mock:')) {
-      optimized = true
+    if ((await panelTa().inputValue()).includes('mock:')) {
+      draftOptimized = true
       break
     }
     await sleep(200)
   }
-  rec(g, '面板「优化」写回节点文本', optimized)
+  rec(g, '面板「优化」写回草稿', draftOptimized)
+  rec(g, '面板「优化」不碰正文', (await nodeText()).includes('一只猫') && !(await nodeText()).includes('mock:'))
 
-  // 5) Ctrl+Z → 文本回到「一只猫」（LLM 结果进撤销栈，§6.7「保留撤销记录」）
+  // 7) Ctrl+Z → 草稿回滚（LLM 草稿写入进撤销栈），正文不动
   await page.keyboard.press('Control+z')
   await sleep(400)
-  const undone = (await nodeText()).includes('一只猫') && !(await nodeText()).includes('mock:')
-  rec(g, '撤销回滚 LLM 结果（进撤销栈）', undone)
+  const draftUndone = !(await panelTa().inputValue()).includes('mock:')
+  rec(g, '撤销回滚 LLM 草稿（进撤销栈）', draftUndone)
 
-  // 6) 节点本体「优化」按钮（底部弱化按钮，hover 显形）→ 再次写回
-  // （撤销后文本已回到「一只猫」，重跑优化得到与 afterOptimize 相同的结果，故只断言 mock: 出现）
+  // 8) 「写入节点」→ 草稿落进正文（transient:false，进撤销栈）；再撤销 → 正文还原
+  await panelTa().click()
+  await panelTa().fill('最终提示词')
+  await sleep(300)
+  await panel.locator('[data-panel-prompt-apply]').click()
+  let applied = false
+  for (let i = 0; i < 20; i++) {
+    if ((await nodeText()).includes('最终提示词')) {
+      applied = true
+      break
+    }
+    await sleep(200)
+  }
+  rec(g, '「写入节点」把草稿写进正文', applied)
+  await page.keyboard.press('Control+z')
+  await sleep(400)
+  const applyUndone = (await nodeText()).includes('一只猫') && !(await nodeText()).includes('最终提示词')
+  rec(g, '写入正文可撤销（还原为「一只猫」）', applyUndone)
+
+  // 9) 节点本体「优化」按钮（底部弱化按钮，hover 显形）→ 直接改正文（原有行为不变）
   await promptNode.hover()
   await sleep(250)
   await promptNode.locator('[data-prompt-tools] button').first().click()
@@ -2612,15 +2694,16 @@ async function g23(browser) {
     }
     await sleep(200)
   }
-  rec(g, '节点本体「优化」按钮可用', nodeRan)
+  rec(g, '节点本体「优化」按钮可用（直接改正文）', nodeRan)
   const afterNodeRun = await nodeText()
 
-  // 7) 面板点「翻译」→ 文本再次变化（system 不同 → mock 结果不同）
+  // 10) 面板点「翻译」→ 只动草稿，正文停在本体优化的结果上
+  const bodyBeforeTranslate = afterNodeRun
   await panel.locator('[data-panel-prompt-tools] button', { hasText: '翻译' }).click()
   let translated = false
   for (let i = 0; i < 30; i++) {
-    const t = await nodeText()
-    if (t !== afterNodeRun && t.includes('mock:')) {
+    const d = await panelTa().inputValue()
+    if (d !== '最终提示词' && d.includes('mock:')) {
       translated = true
       break
     }
@@ -2628,7 +2711,8 @@ async function g23(browser) {
   }
   // 早先这里只算了 translated 却忘了记录——于是「翻译到底生效没有」从未被断言，
   // 断了也照样全绿。断言补上，让这一步真的在守东西。
-  rec(g, '面板点「翻译」→ 文本再次变化', translated)
+  rec(g, '面板点「翻译」→ 草稿变化', translated)
+  rec(g, '面板「翻译」不碰正文', (await nodeText()) === bodyBeforeTranslate)
   await page.screenshot({ path: `${OUT}/38-g23-after-translate.png` })
 
   await ctx.close()
@@ -6225,21 +6309,23 @@ async function g47(browser) {
     await describeBtn.getAttribute('title'),
   )
 
-  // ⑤ 点下去：文本被 LLM 结果覆盖，且结果里带素材前缀 ⇒ 图真的进了请求
-  const before = await promptNode.locator('[data-prompt-count]').innerText().catch(() => '')
+  // ⑤ 点下去：**草稿**被 LLM 结果覆盖（2026-09-15 起面板只写草稿，G23 守解耦），
+  // 且结果里带素材前缀 ⇒ 图真的进了请求
+  const pTa = () => pPanel.locator('textarea').first()
   await describeBtn.click().catch(() => {})
   let text = ''
   for (let i = 0; i < 60; i++) {
-    text = await promptNode.innerText().catch(() => '')
+    text = await pTa().inputValue().catch(() => '')
     if (text.includes('mock:') && text.includes('img:')) break
     await sleep(250)
   }
   rec(
     g,
-    '反推结果写回节点，且带素材前缀（图真的到了渠道层）',
+    '反推结果写回草稿，且带素材前缀（图真的到了渠道层）',
     text.includes('mock:img:'),
-    `${text.slice(0, 60)}（原 ${before}）`,
+    `${text.slice(0, 60)}`,
   )
+  rec(g, '反推不碰节点正文（草稿与正文解耦，§6.7）', !(await promptNode.innerText().catch(() => '')).includes('mock:'))
   await page.screenshot({ path: `${OUT}/60-g47-describe.png` })
 
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors[0] ?? '')
@@ -7677,7 +7763,135 @@ async function g56(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g22, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g41, g42, g43, g44, g45, g46, g47, g48, g49, g50, g51, g52, g53, g54, g55, g56]
+// ────────────────────────────────────────────────────────────
+// G57 缩放锁比（§6.16）+ 同心圆角（§3.2）
+// ────────────────────────────────────────────────────────────
+async function g57(browser) {
+  const g = 'G57 缩放锁比与同心圆角'
+  const ctx = await newCtx(browser, { viewport: { width: 1440, height: 900 } })
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(700)
+
+  const ids = () => page.$$eval('[data-node-id]', (els) => els.map((e) => e.getAttribute('data-node-id')))
+  const addNode = async (t) => {
+    const before = await ids()
+    await page.locator('[data-toolbar-add]').click()
+    await page.locator(`[data-toolbar-menu-item="${t}"]`).click()
+    await sleep(350)
+    return (await ids()).find((i) => !before.includes(i))
+  }
+  const boxOf = (id) => page.locator(`[data-node-id="${id}"]`).boundingBox()
+
+  /** 拖右下缩放手柄（zoom=1：屏幕位移=世界位移），返回松手瞬间与 400ms 后两拍尺寸 */
+  const dragResize = async (id, dx, dy) => {
+    const h = await page.locator(`[data-node-id="${id}"] [class*="resizeHandle"]`).boundingBox()
+    if (!h) throw new Error('resize handle 不可见')
+    const sx = h.x + h.width / 2
+    const sy = h.y + h.height / 2
+    await page.mouse.move(sx, sy)
+    await page.mouse.down()
+    await page.mouse.move(sx + dx, sy + dy, { steps: 12 })
+    await page.mouse.up()
+    const just = await boxOf(id)
+    await sleep(400)
+    return { just, settled: await boxOf(id) }
+  }
+  const ratioOk = (box, want) => Math.abs(box.width / box.height - want) < 0.01
+  const noRebound = (a, b) => Math.abs(a.width - b.width) <= 0.6 && Math.abs(a.height - b.height) <= 0.6
+
+  // 锁比 5:4：分组 / 批量（sizing.lockAspect 声明了很久，直到本次才有消费者）
+  let id = await addNode('group')
+  let r = await dragResize(id, 80, 10)
+  rec(
+    g,
+    '★ 分组横向主导拖动保持 5:4（§6.16）',
+    !!r.settled && ratioOk(r.settled, 5 / 4),
+    r.settled ? `${r.settled.width.toFixed(0)}×${r.settled.height.toFixed(0)} (${(r.settled.width / r.settled.height).toFixed(3)})` : 'null',
+  )
+  rec(
+    g,
+    '★ 松手不回弹（end 曾回传起手矩形 → 松手即弹回原尺寸）',
+    !!r.just && !!r.settled && noRebound(r.just, r.settled),
+    r.just && r.settled ? `${r.just.width.toFixed(0)}×${r.just.height.toFixed(0)} → ${r.settled.width.toFixed(0)}×${r.settled.height.toFixed(0)}` : 'null',
+  )
+  r = await dragResize(id, 10, 80)
+  rec(
+    g,
+    '分组纵向主导拖动同样保持 5:4',
+    !!r.settled && ratioOk(r.settled, 5 / 4),
+    r.settled ? `${r.settled.width.toFixed(0)}×${r.settled.height.toFixed(0)}` : 'null',
+  )
+
+  id = await addNode('batch')
+  r = await dragResize(id, 60, 60)
+  rec(
+    g,
+    '批量对角拖动保持 5:4',
+    !!r.settled && ratioOk(r.settled, 5 / 4),
+    r.settled ? `${r.settled.width.toFixed(0)}×${r.settled.height.toFixed(0)}` : 'null',
+  )
+
+  // 'current'：对比节点锁按下瞬间的比例
+  id = await addNode('compare')
+  const c0 = await boxOf(id)
+  r = await dragResize(id, 70, 5)
+  rec(
+    g,
+    '对比节点保持按下时比例（lockAspect=current）',
+    !!c0 && !!r.settled && ratioOk(r.settled, c0.width / c0.height),
+    c0 && r.settled ? `${(c0.width / c0.height).toFixed(3)} → ${(r.settled.width / r.settled.height).toFixed(3)}` : 'null',
+  )
+
+  // 自由：提示词 / 空态生成节点两轴各改各的
+  id = await addNode('prompt')
+  const p0 = await boxOf(id)
+  r = await dragResize(id, 80, 10)
+  rec(
+    g,
+    '提示词节点自由缩放（宽高独立）',
+    !!p0 && !!r.settled && Math.abs(r.settled.width - p0.width - 80) < 2 && Math.abs(r.settled.height - p0.height - 10) < 2,
+    p0 && r.settled ? `${p0.width.toFixed(0)}×${p0.height.toFixed(0)} → ${r.settled.width.toFixed(0)}×${r.settled.height.toFixed(0)}` : 'null',
+  )
+  id = await addNode('generation')
+  const n0 = await boxOf(id)
+  r = await dragResize(id, 60, 40)
+  rec(
+    g,
+    '空态生成节点自由缩放',
+    !!n0 && !!r.settled && Math.abs(r.settled.width - n0.width - 60) < 2 && Math.abs(r.settled.height - n0.height - 40) < 2,
+    n0 && r.settled ? `${n0.width.toFixed(0)}×${n0.height.toFixed(0)} → ${r.settled.width.toFixed(0)}×${r.settled.height.toFixed(0)}` : 'null',
+  )
+
+  // 同心圆角：内层半径 = 外框 14px − 几何内缩（§3.2；此前沿用 10px，角上有两条弧）
+  const radiusOf = (id, sel) =>
+    page.evaluate(
+      ({ id, sel }) => {
+        const root = document.querySelector(`[data-node-id="${id}"]`)
+        const el = sel === ':root' ? root : root && root.querySelector(sel)
+        return el ? getComputedStyle(el).borderTopLeftRadius : null
+      },
+      { id, sel },
+    )
+  id = await addNode('group')
+  rec(g, '分组内容区圆角 13px（14 − 1px 描边）', (await radiusOf(id, 'div[class*="body"] div[class*="body"]')) === '13px', await radiusOf(id, 'div[class*="body"] div[class*="body"]'))
+  id = await addNode('compare')
+  rec(g, '对比节点舞台圆角 7px（14 − 1px 描边 − 6px 内边距）', (await radiusOf(id, '[class*="stage"]')) === '7px', await radiusOf(id, '[class*="stage"]'))
+  id = await addNode('generation')
+  rec(g, '生成节点素材容器圆角 13px', (await radiusOf(id, '[class*="media"]')) === '13px', await radiusOf(id, '[class*="media"]'))
+
+  await page.screenshot({ path: `${OUT}/72-g57-resize-lock.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g22, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g41, g42, g43, g44, g45, g46, g47, g48, g49, g50, g51, g52, g53, g54, g55, g56, g57]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

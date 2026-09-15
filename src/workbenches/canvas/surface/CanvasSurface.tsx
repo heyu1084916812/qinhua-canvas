@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
-  WheelEvent as ReactWheelEvent,
   PointerEvent as ReactPointerEvent,
   MouseEvent as ReactMouseEvent,
   DragEvent as ReactDragEvent,
@@ -32,6 +31,7 @@ import { UndoBar } from './UndoBar'
 import { Minimap } from './Minimap'
 import { fitCanvasView } from './fitView'
 import { ContextMenu } from '../menu/ContextMenu'
+import { LinkMenu } from '../menu/LinkMenu'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { createAssetNode, importAssetFile, isImportableMedia, IMPORT_ACCEPT } from '../../../features/canvas/importAsset'
 import type { ImportedAsset } from '../../../features/canvas/importAsset'
@@ -218,12 +218,32 @@ export function CanvasSurface({ onOpenSettings }: { onOpenSettings?: () => void 
     return () => window.removeEventListener('keydown', onKey)
   }, [store])
 
-  const onWheel = (e: ReactWheelEvent) => {
-    // 指针位于节点 / 面板文本框内时，滚轮归文本框处理（§6.3）
-    if (isTextEntryElement(e.target as { tagName?: string } | null)) return
-    e.preventDefault()
-    vp.onWheel(e, rectOf())
-  }
+  /**
+   * 滚轮缩放必须挂**非 passive** 的原生监听器。
+   *
+   * React 的 `onWheel` 走 passive 注册，回调里的 `preventDefault()` 会被浏览器
+   * 直接忽略（控制台刷 `Unable to preventDefault inside passive event listener
+   * invocation`）。后果不是「多滚了一点」：缩放画布的**同时**文档也在滚——
+   * `body` 默认 8px 外边距配上 `.page` 的 100vh，恰好留出 16px 可滚区，
+   * 于是缩小画布时整页上滚 16px，绝对定位的顶栏与左对齐工具栏跟着往上跳，
+   * 而用户以为那是浮层自己在动（M6-29 实测 Δy = −16px，与可滚量一模一样）。
+   *
+   * 换成 `addEventListener('wheel', fn, { passive: false })` 后 preventDefault
+   * 生效，滚轮彻底归画布：既不滚文档，Ctrl/⌘ + 滚轮（触控板捏合）也不会触发
+   * 浏览器整页缩放。
+   */
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      // 指针位于节点 / 面板文本框内时，滚轮归文本框处理（§6.3）
+      if (isTextEntryElement(e.target as { tagName?: string } | null)) return
+      e.preventDefault()
+      vp.onWheel(e, rectOf())
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [vp])
 
   /**
    * 空白处拖入素材 → 就地落成生成节点。
@@ -308,6 +328,8 @@ export function CanvasSurface({ onOpenSettings }: { onOpenSettings?: () => void 
    * 在捕获阶段 stopPropagation，节点自身的拖拽逻辑不会被触发。
    */
   const onPointerDownCapture = (e: ReactPointerEvent) => {
+    // 菜单上的按下一律不启动平移（同上：菜单在 surface 内，事件会冒泡进来）
+    if (isInsideMenu(e.target)) return
     if (e.button === MIDDLE_BUTTON || (e.button === 0 && spaceDown)) {
       e.preventDefault()
       e.stopPropagation()
@@ -324,9 +346,35 @@ function hitTestNodes(nodes: readonly { id: string; rect: Rect }[], world: Rect)
   return nodes.filter((n) => rectsIntersect(n.rect, world)).map((n) => n.id)
 }
 
+/**
+ * 浮层菜单内部发生的按下**不是画布手势**。
+ *
+ * LinkMenu / ContextMenu 都渲染在 surface 之内（浮层要靠 surface 的局部屏幕坐标定位），
+ * 于是点菜单项的 pointerdown 会一路冒泡到 surface 的 onPointerDown。此前这里只判
+ * 「菜单开着没有」就 closeLinkMenu()，等于在点菜单项的第一帧就把菜单卸载了 ——
+ * 后面的 mouseup / click 找不到目标，「新建并连接」点了没反应，只有菜单消失。
+ *
+ * 判定必须落到**按下的目标在不在菜单里**，不能只看菜单是否开着：
+ * 这样既保住了「按画布空白处关菜单」，又不会误杀菜单自己的点击。
+ */
+function isInsideMenu(target: EventTarget | null): boolean {
+  return target instanceof Element && !!target.closest('[data-link-menu], [data-context-menu]')
+}
+
 const onPointerDown = (e: ReactPointerEvent) => {
   // 中键与空格平移已在捕获阶段处理，这里不再重复
   if (e.button !== 0 || spaceDown) return
+  // 菜单内部的按下归菜单自己处理，不进画布手势（见 isInsideMenu 注释）
+  if (isInsideMenu(e.target)) return
+  /**
+   * 连线菜单开着时，画布这一次按下只用来**关菜单**（§6.14「菜单打开期间画布指针
+   * 事件不触发平移、框选或节点选择」）。否则一按空白：菜单刚弹出就被同一串事件
+   * 里的平移判定吃掉，看起来像「菜单闪一下就没了」。
+   */
+  if (store.getLinkMenu()) {
+    store.closeLinkMenu()
+    return
+  }
   const container = rectOf()
   // 框选矩形用「surface 局部屏幕坐标」：OverlayLayer 在 [data-world] 之外，
   // 若存 world 坐标则缩放 / 平移后矩形与光标对不上（M3-4 修复）。
@@ -398,7 +446,6 @@ const onPointerDown = (e: ReactPointerEvent) => {
       ref={ref}
       className={`${styles.surface} ${spaceDown ? styles.spaceMode : ''}`}
       data-canvas-surface
-      onWheel={onWheel}
       onPointerDownCapture={onPointerDownCapture}
       onPointerDown={onPointerDown}
       // 拖入素材：dragover 必须 preventDefault，否则浏览器按「不可放置」处理、根本不派发 drop
@@ -433,6 +480,7 @@ const onPointerDown = (e: ReactPointerEvent) => {
       <VersionHistoryPanel />
       <PanelLayer onOpenSettings={onOpenSettings} />
       <ContextMenu />
+      <LinkMenu />
       <CanvasNotice />
       <UndoBar />
       {/* 小地图（§6.4）：右下角导航浮层，最后渲染以免被别的浮层压住 */}

@@ -90,13 +90,17 @@
 
 /* 端点（§6.14）：左右中各一个，默认隐藏，hover 节点时淡入；加宽命中区便于拖线。
    z-index:1 —— 端点在 DOM 里先于 .body 渲染，同为定位元素时会被 .body 盖住，
-   点击端点（恰好落在 frame 右/左边缘 = body 边界像素）会命中 frame 而非端点。 */
+   点击端点（恰好落在 frame 右/左边缘 = body 边界像素）会命中 frame 而非端点。
+
+   视觉 14×14（M6-29：原 10×10 在常规缩放下几乎抓不住，用户反复反馈「太小」），
+   与右下角缩放手柄同尺寸；::after 再外扩 8px ⇒ 命中区 30×30，
+   即端点圆心 ±15px 内按下都算拖线，不必精确点在圆点上。 */
 .port {
   position: absolute;
   top: 50%;
-  width: 10px;
-  height: 10px;
-  margin-top: -5px;
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
   border-radius: 999px;
   background: var(--bg-surface);
   border: var(--border);
@@ -112,7 +116,7 @@
 .port::after {
   content: '';
   position: absolute;
-  inset: -6px;
+  inset: -8px;
   border-radius: 999px;
 }
 
@@ -121,12 +125,13 @@
   opacity: 1;
 }
 
+/* 左右各外露半个直径，圆心落在节点边框上（视觉 14 ⇒ 偏移 7） */
 .portLeft {
-  left: -5px;
+  left: -7px;
 }
 
 .portRight {
-  right: -5px;
+  right: -7px;
 }
 
 .resizeHandle {

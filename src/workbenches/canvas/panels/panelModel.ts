@@ -94,6 +94,14 @@ export type PanelEvent =
   | { type: 'reorderThumbs'; owner: PanelThumb['owner']; order: string[] }
   | { type: 'optimize' }
   | { type: 'translate' }
+  /**
+   * 把面板草稿写入节点正文（§6.7「面板 = 工作区，正文 = 最终提示词」）。
+   *
+   * 草稿（`draft`）只是创作过程，下游消费的是 `text`——两者之间唯一的桥就是
+   * 这个显式确认动作：由装配层翻译成 `node.updateData({ text: draft })`
+   * （transient:false，进撤销栈）。草稿写入后保留不清空，方便继续改了再写。
+   */
+  | { type: 'applyDraft' }
   | { type: 'run' }
   | { type: 'cancel' }
   | { type: 'close' }

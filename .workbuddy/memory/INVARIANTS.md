@@ -13,11 +13,27 @@
 - **模板套用幂等**：判据必须落**持久数据**（hydrate 结果为空 = 新建项目），不能落内存 ref 或跨刷新存活的 `location.state`。**通则：任何「只做一次」的守卫，判据要落在持久数据上。**
 - **创作面板**：ParamPicker 上拉浮层（父级单一 `openPicker` 保「只开一个」，Esc 只关浮层不关面板，点外关闭挂**捕获**阶段）；功能类别（图片/视频）= 同一节点 `data.mode`；比例九档兜底与协议能力表**同一套**。
 
+## canvas · 浮层菜单与指针事件（2026-09-15 实测）
+
+- **★★ 浮层菜单（ContextMenu / LinkMenu）渲染在 `[data-canvas-surface]` 内部** ⇒ 点菜单项的 `pointerdown` 会一路冒泡到 surface 的手势处理。**判定「这一下点在菜单上」必须落到 `e.target.closest('[data-link-menu], [data-context-menu]')`，绝不能只看「菜单是否开着」**——后者会让菜单在自己的 `click` 到达前被卸载，表现为「点了只关菜单、什么都不执行」，还不报错（`CanvasSurface.tsx#isInsideMenu`）。
+- **★★ 测菜单项一律用物理鼠标点击，别用 `btn.click()`**：程序化 click 只派发 `click`、不产生 `pointerdown`，恰好绕开上面那类 bug。曾因此把「新建并连接点了没反应」测成「功能正常」。
+- **`beginPlan` / `endPlan` 的合并靠 `activePlan` 非空** ⇒ `endPlan()` 必须写在**最后一个命令之后**。写在中间等于白开：撤销会分成两步，留下一个孤立新节点。（与「不可嵌套」并列的两条纪律。）
+- **`canConnect` 的替身节点必须真的放进 `graph.nodes`**：它内部按 id 回溯父链（画板内外不建立边、容器内不外连）。替身不在表里 ⇒ `index.get(id)` 为 undefined ⇒ 被当成「无祖先」⇒ 画板内拖线时新建项整批消失。（`linkMenu.ts` 里造 `{...graph, nodes:[...graph.nodes, probe]}` 再判。）
+- **React 的 `onWheel` 是 passive**，`preventDefault()` 被静默忽略（控制台 `Unable to preventDefault inside passive event listener invocation`）。要阻止页面滚动必须 `addEventListener('wheel', fn, { passive: false })`；顺带把 `useViewport.onWheel` 的参数类型改成 `WheelLike{ deltaY, clientX, clientY }`，原生事件才能直接喂进去。**症状是「缩放时固定浮层跟着往上跳」——看着像定位 bug，实则是文档在滚**（`body` 默认 8px 外边距 + `.page` 100vh = 16px 可滚区，已由 `ui/base.css` 归零）。
+
+## canvas · 拖动性能剖析手法（2026-09-15）
+
+- **headless Chrome 没有 vsync**，rAF 帧间隔恒为 ~6ms，**用帧间隔判断卡顿毫无意义**。三种可靠的量法：① 每帧主线程工作耗时（`pointermove` 记 t0 → 双 rAF → t1）；② CDP `Profiler` 采样看热点函数；③ **headful**（`headless:false`）才有真实 vsync 帧间隔。
+- **热点往往不是「渲染慢」而是「每帧重算」**：本次是 `NodeLayer` 每帧重建边索引（O(N·E)）与节点索引（O(N²)），外加小地图每帧全量重投影。缓存键要按**内容**（节点 id/type/parentId/data 的引用，不含坐标），平移且 zoom 不变时直接复用上一次可见列表；小地图把「内容投影」与「视口框」拆成两份 memo，节点表节流 8Hz。
+- **A/B 法定位浮层开销最省事**：临时 `{false && <Minimap />}` 渲染/不渲染各跑一次同样的拖动，差值就是它的成本。
+- 复测口径（headful、300 节点、60 步）：p50 6.1ms / p90 12.2 / p99 30.2 / >33ms **0** 次（修前 p50 34ms、>33ms 占 38/60）。
+
 ## canvas · 小地图（M6-27）
 
 - **范围只由内容决定**：顶层节点 + 结果组；无内容才退化为视口。**千万别把视口并进范围**——一边拖一边改视口会反过来改 `scale`，同一光标位置映射到的世界坐标越拖越远（自我放大的回路）。范围与视口无关，映射恒定，拖拽天然稳定。
 - **视口框越界「保尺寸、挪位置」钉回框内**：求交会让框变小、被读成「看得更少了」，而真正的含义是「已经偏出去了」；视口比内容还大（全图都在视野里）则铺满整框。
 - **只画顶层节点与结果组**：容器内子节点 x/y 是局部坐标（与 `fitCanvasView` / 框选命中同一口径，混进来范围被拉偏）。
+- **★★ 两个「框」不是一个东西（G56 曾因此 6 项挂掉）**：`container` = **画布可视区**尺寸，只喂 `viewWorldRect(vp, container)` 反算视口覆盖的世界范围；`MINIMAP_BOX`（200×140）= **小地图自身**尺寸，投影缩放与「钉回框内」都按它算。原实现 `buildMinimapModel({sources, view: viewWorldRect(viewport, box)})` 里投影框走默认值，重构时若顺手把同一个 `box` 也传给 `minimapProjection` / `minimapViewRect`，scale 会大好几倍 ⇒ 视口框撑爆小地图、点击跳不准。**性能探针和 domain 单测都发现不了**（只量耗时 / 函数是纯对的，错在接线）——必须跑全量冒烟。
 - **焦点在小地图内时，画布那套 Tab/方向键导航整体让位**：否则一次按键同时改视口和选中节点。
 - **指针处理读 ref 里的最新模型**：拖拽期间每拍都改视口并重渲染，闭包里的 model/viewport 会陈旧 ⇒ 落点越拖越偏。
 - **测「拖拽跟手」别指望中间帧**：指针移动走 rAF 合帧，同帧内中间位置是**有意**丢掉的；断言写成「未松手即已跟到中途点」，别断言「中途 ≠ 终点」。

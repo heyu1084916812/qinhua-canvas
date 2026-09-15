@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useReducer, useSyncExternalStore } from 'react'
+import { memo, useEffect, useMemo, useReducer, useRef, useSyncExternalStore } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useGraph, useSelection, useCanvasStore } from '../storeContext'
 import { useNodeDrag } from '../../../features/canvas/useNodeDrag'
@@ -8,7 +8,7 @@ import { NodeFrame } from '../frame/NodeFrame'
 import { ResultGroupLayer } from './ResultGroupLayer'
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { describeError } from '../../../shared/result'
-import { directUpstream } from '../../../domain/canvas/graph/upstreamOf'
+import { indexEdgesByTarget, upstreamsFrom } from '../../../domain/canvas/graph/upstreamOf'
 import { upstreamImagesOf } from '../../../domain/canvas/graph/resultImages'
 import { indexNodes } from '../../../domain/canvas/model/graph'
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
@@ -17,6 +17,7 @@ import type { Viewport } from '../../../domain/canvas/geometry/coords'
 import type { CanvasStore } from '../../../state/workbenches/canvas/store'
 import type { NodeSnapshot, PromptData } from '../../../domain/canvas/model/node'
 import { promptSpec } from '../../../domain/canvas/nodeSpecs/prompt'
+import { resizeLockOf } from '../../../domain/canvas/nodeSpecs/resizeLock'
 import { imageAssetInputsOf } from '../../../domain/shared/execution/inputs'
 import type { NodeInput } from '../../../domain/shared/execution/types'
 
@@ -71,13 +72,83 @@ function useVisibleNodes(
       const ids = visibleTopLevelIds(topLevel, vp, w, h)
       // 选中节点始终挂载（创作面板锚定 / 键盘导航 / 拖动落点判定依赖 DOM）
       for (const id of sel) ids.add(id)
-      const out: VisibleSnapshot = { nodes: topLevel.filter((n) => ids.has(n.id)), zoom: vp.zoom }
+      const nodes = topLevel.filter((n) => ids.has(n.id))
+      /**
+       * 引用稳定化的**第二道**：可见集合与缩放都没变时，复用上一次的快照对象。
+       *
+       * 少了这道，平移每一帧都会拿到新快照对象 ⇒ useSyncExternalStore 判「变了」
+       * ⇒ 节点层整层重渲，而节点的世界坐标**一个都没动**（动的是 `.world` 的
+       * transform）。架构 §5.4「平移 / 缩放不触发节点重渲染」在平移这条路上
+       * 其实一直是空的：300 节点平移实测每帧 22.8ms，其中绝大部分就是这轮
+       * 白跑的重渲（M6-29 Profiler 里它表现为一片 React 协调开销）。
+       *
+       * 缩放仍会换引用——`zoom` 参与快照、且它变了节点确实要按新比例重排。
+       */
+      const prev = cache
+      if (prev && prev.out.zoom === vp.zoom && sameNodeList(prev.out.nodes, nodes)) {
+        cache = { graph, vp, sel, w, h, out: prev.out }
+        return prev.out
+      }
+      const out: VisibleSnapshot = { nodes, zoom: vp.zoom }
       cache = { graph, vp, sel, w, h, out }
       return out
     }
   }, [store, surfaceEl])
 
   return useSyncExternalStore(store.subscribe, getSnapshot, getSnapshot)
+}
+
+/** 两个节点数组是否**逐项同一个对象**（长度相同且每项 `===`） */
+function sameNodeList(a: readonly NodeSnapshot[], b: readonly NodeSnapshot[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
+/**
+ * 「内容」是否等价：连线的端点、节点的 id / 类型 / 父级 / **数据对象**全都一致。
+ *
+ * 判据刻意**不含坐标**：拖动与缩放每帧都换掉整个 `graph` 引用（nodes 数组与
+ * 节点对象都是新的），而 `x/y/w/h` 与下面这些派生值毫无关系。按 `graph` 引用
+ * 做 memo 会让「只挪了一下位置」也触发整图上游重算——300 节点 / 500 边时那
+ * 是 15 万次比较，实测把拖动帧预算撑到 34ms（M6-29）。
+ *
+ * `data` 走引用比较：图是 immutable 更新，产物回写 / 提示词改动都会换掉
+ * `data` 对象，因此「引用相同」等价于「内容相同」，不需要深比较。
+ */
+function sameGraphContent(a: GraphSnapshot, b: GraphSnapshot): boolean {
+  if (a === b) return true
+  if (a.edges !== b.edges || a.resultGroups !== b.resultGroups) return false
+  if (a.nodes.length !== b.nodes.length) return false
+  for (let i = 0; i < a.nodes.length; i += 1) {
+    const x = a.nodes[i]
+    const y = b.nodes[i]
+    if (x === y) continue
+    if (x.id !== y.id || x.type !== y.type || x.parentId !== y.parentId || x.data !== y.data) {
+      return false
+    }
+  }
+  return true
+}
+
+/**
+ * 按**内容**而非引用缓存派生值（不是按引用，见 `sameGraphContent`）。
+ *
+ * 用 ref 而不是 `useMemo([graph])`：依赖里写 `graph` 就必然每帧重算，
+ * 写别的内容键又会与 `graph` 不一致、被 exhaustive-deps 判违规。
+ * ref 缓存是 React 官方认可的 memo 写法，且没有依赖数组要对齐。
+ */
+function useStableGraphMemo<T>(graph: GraphSnapshot, compute: (g: GraphSnapshot) => T): T {
+  const cache = useRef<{ g: GraphSnapshot; v: T } | null>(null)
+  const c = cache.current
+  if (!c || !sameGraphContent(c.g, graph)) {
+    const v = compute(graph)
+    cache.current = { g: graph, v }
+    return v
+  }
+  return c.v
 }
 
 /**
@@ -110,6 +181,15 @@ export const NodeLayer = memo(function NodeLayer({
 
   const index = new Map(graph.nodes.map((n) => [n.id, n] as const))
   const visibleNodes = vis.nodes
+  // 父 → 子 索引：整图建一次（O(N)）。此前在渲染循环里对每个容器 `filter` 整表，
+  // 容器一多就是 O(N²)——与上游派生同一类「每帧整图扫」的浪费。
+  const childrenByParent = new Map<string, NodeSnapshot[]>()
+  for (const n of graph.nodes) {
+    if (!n.parentId) continue
+    const bucket = childrenByParent.get(n.parentId)
+    if (bucket) bucket.push(n)
+    else childrenByParent.set(n.parentId, [n])
+  }
 
   // 上游素材 hash：整图构建一次（此前每节点重建全图索引，300 节点 = O(N²)）
   //
@@ -117,29 +197,32 @@ export const NodeLayer = memo(function NodeLayer({
   // 只按上游自身 assetHash 读会让「批量出图 → 对比」永远只有 A 没有 B。
   // 其余节点仍按「每个上游 1 张」——生成节点若也展开，面板会显示 4 张
   // 而请求只发 1 张，正是要避免的口径割裂。
-  const upstreamHashes = useMemo(() => {
+  const upstreamHashes = useStableGraphMemo(graph, (g) => {
+    const idx = indexNodes(g.nodes)
+    const byTarget = indexEdgesByTarget(g.edges)
     const out = new Map<string, string[]>()
-    for (const n of graph.nodes) {
-      const upstreamIds = directUpstream(n.id, graph.edges)
+    for (const n of g.nodes) {
+      const upstreamIds = upstreamsFrom(byTarget, n.id)
       if (upstreamIds.length === 0) continue
-      const hashes = upstreamImagesOf(upstreamIds, graph, n.type === 'compare').map((i) => i.assetHash)
+      const hashes = upstreamImagesOf(upstreamIds, g, n.type === 'compare', idx).map((i) => i.assetHash)
       if (hashes.length > 0) out.set(n.id, hashes)
     }
     return out
-  }, [graph])
+  })
   // 上游提示词节点数量：整图构建一次（§6.7 本体「上游已链接提示词节点」胶囊）
-  const upstreamPromptCounts = useMemo(() => {
-    const idx = indexNodes(graph.nodes)
+  const upstreamPromptCounts = useStableGraphMemo(graph, (g) => {
+    const idx = indexNodes(g.nodes)
+    const byTarget = indexEdgesByTarget(g.edges)
     const out = new Map<string, number>()
-    for (const n of graph.nodes) {
+    for (const n of g.nodes) {
       let c = 0
-      for (const id of directUpstream(n.id, graph.edges)) {
+      for (const id of upstreamsFrom(byTarget, n.id)) {
         if (idx.get(id)?.type === 'prompt') c += 1
       }
       if (c > 0) out.set(n.id, c)
     }
     return out
-  }, [graph])
+  })
   /**
    * 提示词节点的上游**图像素材项**（§6.7 反推：把图当素材送进 LLM）。
    *
@@ -148,18 +231,18 @@ export const NodeLayer = memo(function NodeLayer({
    * 「连上线就算生效」的假接通（与 M6-12 修掉的 `inputs` 同类）。
    * 只为 prompt 节点计算——其他类型用不到，白算就是浪费。
    */
-  const upstreamImageInputs = useMemo(() => {
-    if (!graph.nodes.some((n) => n.type === 'prompt')) return new Map<string, NodeInput[]>()
+  const upstreamImageInputs = useStableGraphMemo(graph, (g) => {
+    if (!g.nodes.some((n) => n.type === 'prompt')) return new Map<string, NodeInput[]>()
     const out = new Map<string, NodeInput[]>()
-    for (const n of graph.nodes) {
+    for (const n of g.nodes) {
       if (n.type !== 'prompt') continue
       const images = imageAssetInputsOf(
-        promptSpec.collectInputs({ node: n as NodeSnapshot<PromptData>, graph }),
+        promptSpec.collectInputs({ node: n as NodeSnapshot<PromptData>, graph: g }),
       )
       if (images.length > 0) out.set(n.id, images)
     }
     return out
-  }, [graph])
+  })
   const zoom = vis.zoom
 
   /**
@@ -243,6 +326,7 @@ export const NodeLayer = memo(function NodeLayer({
         ports={def.ports}
         minSize={def.sizing.min}
         portsHidden={portsHidden}
+        resizeLock={resizeLockOf(child)}
         onFramePointerDown={(e) => onNodePointerDown(e, child.id)}
         onResize={(rect, phase) => store.dispatch({ kind: 'node.resize', id: child.id, rect, phase })}
         onRename={(title) => store.dispatch({ kind: 'node.rename', id: child.id, title })}
@@ -284,10 +368,7 @@ export const NodeLayer = memo(function NodeLayer({
         // - board：保留真实 local 坐标（renderChild 传 preserveCoords）
         const containerChildren =
           node.type === 'group' || node.type === 'batch' || node.type === 'board'
-            ? graph.nodes
-                .filter((n) => n.parentId === node.id)
-                .map((n) => index.get(n.id))
-                .filter((n): n is NodeSnapshot => !!n)
+            ? (childrenByParent.get(node.id) ?? [])
             : []
         return (
           <NodeFrame
@@ -297,6 +378,7 @@ export const NodeLayer = memo(function NodeLayer({
             scale={zoom}
             ports={def.ports}
             minSize={def.sizing.min}
+            resizeLock={resizeLockOf(node)}
             onFramePointerDown={(e) => onNodePointerDown(e, node.id)}
             onResize={(rect, phase) => store.dispatch({ kind: 'node.resize', id: node.id, rect, phase })}
             onRename={(title) => store.dispatch({ kind: 'node.rename', id: node.id, title })}

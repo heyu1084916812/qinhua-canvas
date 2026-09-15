@@ -6,6 +6,20 @@ import { zoomAt, panBy } from '../../domain/canvas/geometry/transform'
 import { coalescePointerMove } from '../../shared/rafThrottle'
 
 /**
+ * 缩放只需要滚轮的三个数。
+ *
+ * 刻意不收 `React.WheelEvent`：缩放要挂**非 passive** 的原生监听器才能
+ * `preventDefault()`（见 CanvasSurface 的注释），原生事件不是 React 合成事件，
+ * 用 React 的类型描述它会把调用方锁死在 `onWheel` prop 上——而那个 prop 恰恰
+ * 是 passive 的、preventDefault 无效。
+ */
+export interface WheelLike {
+  deltaY: number
+  clientX: number
+  clientY: number
+}
+
+/**
  * 视口交互控制器（架构 §2.3：交互逻辑放在独立 hook，可被画布 / 画板 / 小地图复用）。
  * 平移与缩放只改 store.viewport，不触发节点重渲染（架构 §5.4）。
  *
@@ -17,7 +31,7 @@ export function useViewport(store: CanvasStore) {
   /** 滚轮以光标为锚点缩放（架构 §5.4 / §6.11）。
    *  滚轮不合帧：每次 delta 都是独立的缩放步长，丢弃中间事件会改变最终缩放。 */
   const onWheel = useCallback(
-    (e: React.WheelEvent, rect: Rect) => {
+    (e: WheelLike, rect: Rect) => {
       const vp = store.getViewport()
       const factor = Math.exp(-e.deltaY * 0.0015)
       const next = zoomAt(vp, { x: e.clientX, y: e.clientY }, rect, vp.zoom * factor)

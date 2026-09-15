@@ -166,6 +166,14 @@ export function CreationPanel(props: CreationPanelProps) {
   const tools = promptMode ? (props.promptTools ?? null) : null
   /** 视频是生成节点的功能类别（`data.mode`），参数集与图片模式不同（§6.8） */
   const videoMode = !promptMode && data.mode === 'video'
+  /**
+   * 第一部分是否为空（§6.8）。
+   *
+   * 抽出来是因为首行要按它决定「空态框出不出来」——空态框与「图片 / 视频」
+   * 功能类别切换**共用一行**（空态框在左、类别切换在右、二者等高），
+   * 而这一行本身在「既不空、又没有类别切换」时整体不该渲染。
+   */
+  const assetsEmpty = model.thumbs.length === 0 && model.collections.length === 0
 
   const activeChannel = enabled.find((c) => c.id === data.channelId)
   const channelModels: ModelCapability[] = activeChannel?.models ?? []
@@ -265,30 +273,16 @@ export function CreationPanel(props: CreationPanelProps) {
     >
       {/* 第一部分：素材缩略图（分组 = 上游 + 组内；批量 = 内部素材） */}
       <section className={styles.section} data-panel-part="assets">
-        {props.showCategoryToggle && (
-          <div className={styles.assetsHead}>
-            <div className={styles.category} role="group" aria-label="功能类别">
-              {CATEGORY_OPTIONS.map((c) => (
-                <button
-                  key={c.value}
-                  type="button"
-                  className={data.mode === c.value ? `${styles.catBtn} ${styles.catOn}` : styles.catBtn}
-                  data-param-mode={c.value}
-                  aria-pressed={data.mode === c.value}
-                  title={`切换为${c.label}生成`}
-                  onClick={() => {
-                    if (data.mode === c.value) return
-                    // 模型不属于新类别就清空：留着只会把图片模型发给视频渠道
-                    onEvent({ type: 'setMode', mode: c.value, keepModel: modelBelongsTo(c.value) })
-                  }}
-                >
-                  {c.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-        {model.thumbs.length === 0 && model.collections.length === 0 ? (
+      {/*
+        首行：素材条在左、「图片 / 视频」功能类别切换在右，同一行且等高（30px）。
+
+        - 空态：左边是「拖入素材」虚线空态框（吃掉剩余宽度）；
+        - 有素材：左边是缩略图条——此前缩略图是 64×64 的卡片独占一行，块头比切换大一倍；
+          现缩到与切换同高（30px 方块），并排进首行，切换仍贴最右端。
+          缩略图条允许换行（素材多时首行自然长高，切换垂直居中）。
+      */}
+      <div className={styles.assetsHead} data-panel-assets-head>
+        {assetsEmpty ? (
           <div className={styles.assetEmpty} data-panel-asset-empty>
             {model.emptyHint}
           </div>
@@ -320,6 +314,30 @@ export function CreationPanel(props: CreationPanelProps) {
             ))}
           </div>
         )}
+        {props.showCategoryToggle && (
+          <div className={styles.category} role="group" aria-label="功能类别">
+            {CATEGORY_OPTIONS.map((c) => (
+              <button
+                key={c.value}
+                type="button"
+                className={
+                  data.mode === c.value ? `${styles.catBtn} ${styles.catOn}` : styles.catBtn
+                }
+                data-param-mode={c.value}
+                aria-pressed={data.mode === c.value}
+                title={`切换为${c.label}生成`}
+                onClick={() => {
+                  if (data.mode === c.value) return
+                  // 模型不属于新类别就清空：留着只会把图片模型发给视频渠道
+                  onEvent({ type: 'setMode', mode: c.value, keepModel: modelBelongsTo(c.value) })
+                }}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       </section>
 
       {/* 第二部分：提示词 */}
@@ -333,7 +351,7 @@ export function CreationPanel(props: CreationPanelProps) {
           <textarea
             className={styles.prompt}
             value={model.prompt}
-            placeholder={promptMode ? '输入要在创作面板中处理的文字' : '输入提示词，或连线上游提示词节点'}
+            placeholder={promptMode ? '起草 / 反推提示词的工作区，确认后「写入节点」' : '输入提示词，或连线上游提示词节点'}
             onChange={(e) => onEvent({ type: 'setPrompt', text: e.target.value })}
           />
           {model.promptToggle && (
@@ -393,6 +411,18 @@ export function CreationPanel(props: CreationPanelProps) {
                   onClick={() => tools.run(model.prompt, 'describe')}
                 >
                   反推
+                </button>
+                {/* 写入节点（§6.7）：草稿 → 正文的唯一通道。禁用条件与「反推」相反——
+                    一个字都没有时写入没有意义；有字就允许（与正文相同也交给装配层去重）。 */}
+                <button
+                  type="button"
+                  className={styles.toolBtn}
+                  data-panel-prompt-apply
+                  disabled={tools.status === 'running' || model.prompt.trim().length === 0}
+                  title="把草稿写入节点正文（下游生成节点读的是正文，不是草稿）"
+                  onClick={() => onEvent({ type: 'applyDraft' })}
+                >
+                  写入节点
                 </button>
               </span>
             )}

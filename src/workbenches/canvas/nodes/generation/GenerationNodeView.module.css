@@ -20,7 +20,9 @@
   box-sizing: border-box;
   overflow: hidden;
   background: var(--bg-surface);
-  border-radius: var(--radius-control);
+  /* 同心圆角（§3.2）：素材容器内缩仅 1px（外框描边），半径必须跟外框走——
+     沿用 --radius-control（10px）会在角上留下两条不同弧，用户可见「圆角不一致」 */
+  border-radius: var(--radius-node-inner);
 }
 
 /* 拖入文件时的落点提示：虚线描边 + 浅底，不动几何（避免拖拽中抖动） */

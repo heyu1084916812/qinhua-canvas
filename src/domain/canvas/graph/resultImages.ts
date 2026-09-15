@@ -17,9 +17,19 @@ import { indexNodes } from '../model/graph'
  * - 没有结果组（未跑过，或单点直接写回）时退化为自身 `assetHash`
  * - 顺序以 `childIds` 为准（派生索引，与产出顺序一致）
  */
-export function resultImagesOf(node: NodeSnapshot | undefined, graph: GraphSnapshot): string[] {
+/**
+ * `index` 可传入调用方已建好的节点索引。
+ *
+ * 不传时本函数自建一份（O(N)）——在「每个节点都调一次」的循环里就是 O(N²)：
+ * 300 节点 = 9 万次 Map 插入，实测占拖动帧 5%（M6-29 Profiler）。
+ * 调用方整图只建一次再复用，即可降回 O(N)。
+ */
+export function resultImagesOf(
+  node: NodeSnapshot | undefined,
+  graph: GraphSnapshot,
+  index = indexNodes(graph.nodes),
+): string[] {
   if (!node) return []
-  const index = indexNodes(graph.nodes)
   const group = latestResultGroupOf(node.id, graph)
   const out: string[] = []
   const seen = new Set<string>()
@@ -69,14 +79,16 @@ export function upstreamImagesOf(
   upstreamIds: readonly string[],
   graph: GraphSnapshot,
   expandResults: boolean,
+  index = indexNodes(graph.nodes),
 ): UpstreamImage[] {
-  const index = indexNodes(graph.nodes)
   const out: UpstreamImage[] = []
   const seen = new Set<string>()
   for (const id of upstreamIds) {
     const up = index.get(id)
     if (!up) continue
-    const hashes = expandResults ? resultImagesOf(up, graph) : [(up.data as Partial<GenerationData>).assetHash]
+    const hashes = expandResults
+      ? resultImagesOf(up, graph, index)
+      : [(up.data as Partial<GenerationData>).assetHash]
     for (const h of hashes) {
       if (!h || seen.has(h)) continue
       seen.add(h)

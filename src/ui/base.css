@@ -1,0 +1,23 @@
+/**
+ * 全局基础样式（唯一一份 html / body 级 reset）。
+ *
+ * 存在的唯一理由：`body` 默认 8px 外边距 + 画布页 `.page` 的 `height: 100vh`
+ * 会凑出 **16px 的文档可滚区**。只要有一次滚轮没被 `preventDefault` 拦住
+ * （React 的 `onWheel` 是 passive，拦不住——见 CanvasSurface 的注释），
+ * 缩小画布就会顺带把整页往上滚 16px，绝对定位的顶栏与左对齐工具栏跟着跳。
+ * 归零外边距后文档根本滚不动，这类漂移从源头消失。
+ *
+ * 只做 reset，不放任何组件样式（组件样式一律走 CSS Module）。
+ */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+/* 用 min-height 而不是 height：首页 / 设置页内容可能比视口高，
+   写死 height 会把溢出内容压在 100% 的框里，背景铺不满。 */
+body {
+  min-height: 100%;
+}

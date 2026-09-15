@@ -16,6 +16,13 @@
   border-radius: var(--radius-control);
   font-family: var(--font-sans);
   color: var(--text-1);
+  /*
+   * 第一部分首行高度：**空态素材框与「图片 / 视频」类别切换共用这一个值**（二者等高）。
+   * 30px = 类别切换的自然高度（24px 按钮 + 2px 内距×2 + 1px 边框×2），
+   * 反过来拿它钉住空态框——光靠 `align-items: stretch` 不行：flex 拉伸按 content-box
+   * 算，空态框有 1px 虚线边框，会被撑到 32px，比类别切换高 2px。
+   */
+  --assets-row-h: 30px;
 }
 
 .section {
@@ -26,9 +33,19 @@
 
 /* ── 第一部分：缩略图 ── */
 /* 功能类别切换（§6.8「右上角为图片 / 视频功能类别切换（显性边框）」） */
+/*
+ * 首行：左「素材条 / 拖入素材空态框」、右「图片 / 视频」功能类别切换（§6.8）。
+ *
+ * 同一行且等高；素材条 `flex:1` 吃掉剩余宽度，类别切换因此始终贴在右端——
+ * 与合成前（`justify-content: flex-end` 独占一行）的视觉位置一致。
+ * 素材多到放不下时素材条内换行，首行自然长高，切换保持垂直居中。
+ */
 .assetsHead {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: var(--space-2);
+  min-height: var(--assets-row-h);
 }
 
 .category {
@@ -63,39 +80,59 @@
   color: var(--text-1);
 }
 
+/* 素材条：首行左侧，吃掉剩余宽度把类别切换推到右端；素材多时在条内换行 */
 .thumbs {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-2);
 }
 
+/*
+ * 空态：与右侧类别切换同一行、等高，故高度取 `--assets-row-h` 而不是靠内距撑开。
+ * 文字在框内水平垂直居中（原来 `padding: var(--space-3)` 是给独占整行用的，会顶到 36px）。
+ */
 .assetEmpty {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--assets-row-h);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 var(--space-3);
   border: 1px dashed var(--stroke);
   border-radius: var(--radius-control);
-  padding: var(--space-3);
   font-size: var(--fs-label);
   color: var(--text-3);
   text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-/* 集合卡（§6.12）：批量节点作为上游时替代展开的缩略图 */
+/*
+ * 集合卡（§6.12）：批量节点作为上游时替代展开的缩略图。
+ * 与缩略图同高（30px）的横向小胶囊：数量 + 「集合/素材」两行小字，宽度随内容。
+ */
 .collection {
   position: relative;
-  width: 64px;
-  height: 64px;
+  height: var(--assets-row-h);
+  box-sizing: border-box;
+  padding: 0 10px;
   border: 1px solid var(--stroke);
   border-radius: 8px;
   background: var(--bg-subtle);
-  display: flex;
-  flex-direction: column;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 2px;
+  gap: 5px;
   cursor: grab;
 }
 
 .collectionBadge {
-  font-size: 18px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-1);
   line-height: 1;
@@ -109,10 +146,17 @@
   line-height: 1.15;
 }
 
+/*
+ * 缩略图：与「图片 / 视频」类别切换**同高**（30px 方块，§6.8）。
+ * 此前是 64×64 的卡片独占一行，比切换大一倍；缩小后编号角标 / 小眼睛 / 删除
+ * 三个角标也同步收小（12 / 14 / 14px），否则会糊成一团。
+ */
 .thumb {
   position: relative;
-  width: 64px;
-  height: 64px;
+  width: var(--assets-row-h);
+  height: var(--assets-row-h);
+  /* 高度钉死 30px 必须 border-box：否则 1px 边框算在外面，会比类别切换高 2px */
+  box-sizing: border-box;
   border: 1px solid var(--stroke);
   border-radius: 8px;
   overflow: hidden;
@@ -139,44 +183,45 @@
 }
 
 .thumbText {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-2);
-  padding: 4px;
+  padding: 2px;
   max-height: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   word-break: break-all;
 }
 
-/* 编号角标：左上，显性 */
+/* 编号角标：左上，显性（30px 缩略图内收到 12px，9px 字仍在） */
 .badge {
   position: absolute;
-  left: 2px;
-  top: 2px;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 3px;
+  left: 1px;
+  top: 1px;
+  min-width: 12px;
+  height: 12px;
+  padding: 0 2px;
   box-sizing: border-box;
-  border-radius: 4px;
+  border-radius: 3px;
   background: rgba(23, 23, 22, 0.72);
   color: #fff;
   font-size: 9px;
   font-weight: 600;
-  line-height: 14px;
+  line-height: 12px;
   text-align: center;
   pointer-events: none;
 }
 
-/* 小眼睛：右上，隐性（hover / focus 才显形，§4.5「悬停替代」） */
+/* 小眼睛：右上，隐性（hover / focus 才显形，§4.5「悬停替代」）。
+   14px：与左上的角标错开，也和右下的删除按钮在 30px 方块里刚好上下不叠 */
 .eye {
   position: absolute;
-  right: 2px;
-  top: 2px;
-  width: 18px;
-  height: 18px;
+  right: 1px;
+  top: 1px;
+  width: 14px;
+  height: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -184,7 +229,7 @@
   border-radius: 999px;
   background: var(--bg-surface);
   color: var(--text-1);
-  font-size: 10px;
+  font-size: 9px;
   line-height: 1;
   cursor: pointer;
   opacity: 0;
@@ -201,7 +246,7 @@
    hover 缩略图才浮现，与小眼睛同一套隐性规则 */
 .remove {
   top: auto;
-  bottom: 2px;
+  bottom: 1px;
 }
 
 /* ── 第二部分：提示词 ── */

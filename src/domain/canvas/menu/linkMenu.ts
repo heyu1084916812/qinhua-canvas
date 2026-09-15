@@ -1,0 +1,125 @@
+/**
+ * 端点拖线在**空白处松手**时弹出的可连接菜单（产品文档 §6.14「空白松手菜单」）。
+ *
+ * 纯函数：只回答「这一刻能列出哪些项」，不碰 DOM、不派发命令。
+ * 合法性一律交 `canConnect`——与「拖到节点上松手」同一份规则，
+ * 菜单里点得到的连接，和直接拖到节点上得到的连接，结果必须一致。
+ *
+ * 两个分区（§6.14）：
+ * - 「新建并连接」：列出**建出来就能连上**的节点类型。类型是否合法按
+ *   `canConnect` 判定，而不是另写一份「谁能连谁」的表——后者一旦与
+ *   canConnect 漂移，菜单就会给出「建好了却连不上」的死项。
+ * - 「连接已有节点」：列出当前**真的连得上**的既有节点。
+ *
+ * 方向语义：`side` 是**被拖的那一端**。
+ * - `output`（从输出端点往外拖）→ 找下游：已有项作 target，新节点也作 target；
+ * - `input`（从输入端点反向拖）→ 找上游：已有项作 source，新节点也作 source。
+ */
+
+import type { NodeType } from '../model/node'
+import type { NodeSnapshot } from '../model/node'
+import type { GraphSnapshot } from '../model/graph'
+import { canConnect } from '../graph/canConnect'
+import { CREATABLE_TYPES } from './contextMenu'
+
+export type LinkSide = 'input' | 'output'
+
+export type LinkMenuAction =
+  | { kind: 'create'; type: NodeType }
+  | { kind: 'connect'; nodeId: string }
+
+export interface LinkMenuItem {
+  id: string
+  label: string
+  action: LinkMenuAction
+}
+
+export interface LinkMenuSection {
+  id: 'create' | 'connect'
+  title: string
+  items: LinkMenuItem[]
+}
+
+/**
+ * 试连用的占位 id。
+ *
+ * 「新建并连接」要预判「建出来之后连不连得上」，而 `canConnect` 收的是节点对象；
+ * 造一个只有 id / type / parentId 有含义的替身即可——它不会被建出来，
+ * 也不进任何表。
+ */
+const PROBE_ID = '__link_probe__'
+
+/** 造一个待建节点的替身供 canConnect 判定 */
+function probeOf(type: NodeType, parentId: string | null): NodeSnapshot {
+  return {
+    id: PROBE_ID,
+    // projectId 不参与连线判定；给空串只为满足类型
+    projectId: '',
+    type,
+    parentId,
+    x: 0,
+    y: 0,
+    w: 0,
+    h: 0,
+    title: '',
+    disabled: false,
+    data: {} as NodeSnapshot['data'],
+  }
+}
+
+/** 按拖线方向把「被拖节点 / 对端」归一成 canConnect 的 (source, target) */
+function orient(
+  side: LinkSide,
+  dragged: NodeSnapshot,
+  other: NodeSnapshot,
+): [NodeSnapshot, NodeSnapshot] {
+  return side === 'output' ? [dragged, other] : [other, dragged]
+}
+
+export function linkMenuSections(input: {
+  nodeId: string
+  side: LinkSide
+  graph: GraphSnapshot
+}): LinkMenuSection[] {
+  const { nodeId, side, graph } = input
+  const dragged = graph.nodes.find((n) => n.id === nodeId)
+  if (!dragged) return []
+
+  // 新建节点落在与拖线起点同一个父级下：画板内的节点只与画板内建连，
+  // 放到根层会让 canConnect 的「画板内外不建立边」立刻把它否掉。
+  const probeParent = dragged.parentId
+
+  const createItems: LinkMenuItem[] = []
+  for (const t of CREATABLE_TYPES) {
+    const probe = probeOf(t.type, probeParent)
+    /**
+     * 判定时必须把替身**放进 nodes**。
+     *
+     * canConnect 里有按 id 回溯父链的规则（画板内外不建立边、容器内节点不直接外连），
+     * 替身不在表里就等于「查无此节点、无祖先」，于是画板内的节点拖线时，
+     * 所有新建项都会被判成「画板外」而整批消失——菜单直接空掉。
+     * 替身不带任何边，故不会影响重复连线与环检测的判定。
+     */
+    const withProbe: GraphSnapshot = { ...graph, nodes: [...graph.nodes, probe] }
+    const [source, target] = orient(side, dragged, probe)
+    if (!canConnect(source, target, withProbe).ok) continue
+    createItems.push({ id: `create:${t.type}`, label: t.label, action: { kind: 'create', type: t.type } })
+  }
+
+  const connectItems: LinkMenuItem[] = []
+  for (const n of graph.nodes) {
+    if (n.id === nodeId) continue
+    const [source, target] = orient(side, dragged, n)
+    if (!canConnect(source, target, graph).ok) continue
+    connectItems.push({
+      id: `connect:${n.id}`,
+      label: n.title || n.type,
+      action: { kind: 'connect', nodeId: n.id },
+    })
+  }
+
+  const sections: LinkMenuSection[] = []
+  if (createItems.length > 0) sections.push({ id: 'create', title: '新建并连接', items: createItems })
+  if (connectItems.length > 0) sections.push({ id: 'connect', title: '连接已有节点', items: connectItems })
+  return sections
+}

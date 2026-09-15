@@ -13,7 +13,9 @@
   flex: 1 1 auto;
   min-height: 0;
   border: var(--border);
-  border-radius: var(--radius-control);
+  /* 同心圆角（§3.2）：相对外框内缩 7px（1px 外框描边 + 6px 本体内边距），
+     半径 = 外框半径 − 内缩量；沿用 --radius-control（10px）会在角上留下两条不同弧 */
+  border-radius: calc(var(--radius-node) - 7px);
   overflow: hidden;
   background: var(--bg-subtle);
   /* 拖动期间禁用图片原生拖拽与文本选择 */

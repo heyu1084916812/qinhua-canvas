@@ -3,6 +3,8 @@ import type { ReactNode, PointerEvent as ReactPointerEvent } from 'react'
 import { useSyncExternalStore } from 'react'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import type { Rect } from '../../../domain/canvas/geometry/rect'
+import type { ResizeLock } from '../../../domain/canvas/nodeSpecs/resizeLock'
+import { lockedResize } from '../../../domain/canvas/nodeSpecs/resizeLock'
 import { useCanvasStore } from '../storeContext'
 import styles from './NodeFrame.module.css'
 
@@ -15,6 +17,12 @@ export interface NodeFrameProps {
   scale: number
   ports: { input: boolean; output: boolean }
   minSize: { w: number; h: number }
+  /**
+   * 缩放锁比（§6.16），由装配层经 `resizeLockOf` 注入（视图层不算比例）：
+   * `'free'` 自由；`'current'` 锁按下时比例；数字 = 锁定该 w/h 比例
+   * （有内容的图片 / 视频节点 = `naturalSize`，分组 / 批量 = 5:4）。
+   */
+  resizeLock?: ResizeLock
   /** 在节点任意位置按下：选中 + 发起拖动（由父层接线） */
   onFramePointerDown: (e: ReactPointerEvent) => void
   /** 缩放手柄提交绝对矩形（命令层 coalesce 合并） */
@@ -95,14 +103,36 @@ export function NodeFrame(props: NodeFrameProps) {
     const startX = e.clientX
     const startY = e.clientY
     const base: Rect = { x: node.x, y: node.y, w: node.w, h: node.h }
-    props.onResize(base, 'begin')
+    /** 最后一帧的矩形——收尾（'end'）必须提交它，见下方 up() 的注释 */
+    let latest: Rect = base
+    props.onResize(latest, 'begin')
+    // 锁比解析：数字 = 固定比例；'current' = 按下瞬间的容器比例；缺省 / 'free' = 自由
+    const lock = props.resizeLock ?? 'free'
+    const ratio = typeof lock === 'number' ? lock : lock === 'current' ? base.w / base.h : null
     const move = (ev: PointerEvent) => {
-      const w = Math.max(minSize.w, base.w + (ev.clientX - startX) / scale)
-      const h = Math.max(minSize.h, base.h + (ev.clientY - startY) / scale)
-      props.onResize({ x: base.x, y: base.y, w, h }, 'move')
+      if (ratio !== null) {
+        latest = lockedResize(
+          base,
+          (ev.clientX - startX) / scale,
+          (ev.clientY - startY) / scale,
+          minSize,
+          ratio,
+        )
+      } else {
+        latest = {
+          x: base.x,
+          y: base.y,
+          w: Math.max(minSize.w, base.w + (ev.clientX - startX) / scale),
+          h: Math.max(minSize.h, base.h + (ev.clientY - startY) / scale),
+        }
+      }
+      props.onResize(latest, 'move')
     }
     const up = () => {
-      props.onResize(base, 'end')
+      // 收尾提交的是**最后一帧**而不是 base：命令层对 node.resize 一律按 rect 落盘
+      // （coalesce 只合并撤销步骤、不看 phase），传 base 等于把整段缩放撤销回起点——
+      // 松手即弹回原尺寸。
+      props.onResize(latest, 'end')
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
     }

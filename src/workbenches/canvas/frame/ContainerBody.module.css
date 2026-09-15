@@ -12,7 +12,9 @@
   position: relative;
   height: 100%;
   box-sizing: border-box;
-  border-radius: var(--radius-control);
+  /* 同心圆角（§3.2）：本层铺满外框内容盒，内缩仅 1px（外框描边），半径必须跟外框走。
+     沿用 --radius-control（10px）时角上会留下两条不同弧——与生成节点的素材框同一个毛病 */
+  border-radius: var(--radius-node-inner);
   background: color-mix(in srgb, var(--bg-subtle) 60%, transparent);
   border: 1px dashed transparent;
   overflow: hidden;
@@ -51,7 +53,8 @@
   justify-content: center;
   gap: 2px;
   border: 1px dashed var(--stroke);
-  border-radius: var(--radius-control);
+  /* 同心圆角（§3.2）：相对 .body 再内缩 8px（inset），半径 = 外层半径 − 内缩量 */
+  border-radius: calc(var(--radius-node-inner) - 8px);
   pointer-events: none;
 }
 

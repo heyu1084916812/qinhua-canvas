@@ -36,6 +36,9 @@
 
   /* —— 圆角（§3.2） —— */
   --radius-node: 14px;
+  /* 节点内容区填满型内层容器的**同心圆角**：外框 14px − 1px 描边 = 13px。
+     内层半径若沿用 --radius-control（10px），角上会出现两条不同弧（用户实测反馈） */
+  --radius-node-inner: calc(var(--radius-node) - 1px);
   --radius-control: 10px;
   --radius-pill: 999px;
 

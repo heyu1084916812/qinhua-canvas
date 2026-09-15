@@ -31,6 +31,22 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
+# 本地调试输出（探针 / 门禁 / 冒烟跑完的转储，看完就废）
+#
+# 与上面的 `scripts/probe-*.mjs` 同源：命令输出一律 `> 文件` 再读（沙箱里没有 coreutils），
+# 于是工作区堆满了 `.probe-*.txt` / `.smoke-*.txt` / `.gate*` / `.vitest*` 这类结果转储。
+# `*.log` 已被下面「日志」一节吃掉，但 `.txt` / `.out` 漏网，会以 `??` 长期污染 `git status`。
+*.out
+.probe-*
+.smoke-*
+.gate*
+.vitest*
+.tmp-*
+.ab-*
+.diff-*
+.portcheck.txt
+.stray.txt
+
 # 日志
 *.log
 npm-debug.log*

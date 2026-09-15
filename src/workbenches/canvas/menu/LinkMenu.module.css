@@ -1,0 +1,55 @@
+/* 空白松手的可连接菜单（§6.14）：与右键菜单同一套极简规范，只是多出分区标题 */
+.menu {
+  position: absolute;
+  z-index: 40;
+  min-width: 168px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  padding: var(--space-1);
+  box-shadow: var(--shadow-float);
+  user-select: none;
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  color: var(--text-1);
+}
+
+.sectionTitle {
+  padding: 6px 10px 2px;
+  font-size: var(--fs-chip);
+  color: var(--text-2);
+}
+
+.item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font: inherit;
+  color: var(--text-1);
+  cursor: pointer;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.item:hover,
+.item:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
+}
+
+.item:active {
+  background: var(--bg-subtle);
+}
+
+.sep {
+  display: block;
+  height: 1px;
+  margin: var(--space-1) 6px;
+  background: var(--stroke);
+}

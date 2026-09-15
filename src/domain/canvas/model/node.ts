@@ -22,6 +22,14 @@ export interface NodeBase {
 
 export interface PromptData {
   text: string
+  /**
+   * 创作面板的**草稿**（§6.7「面板 = 工作区」）。
+   *
+   * 面板文本框、面板里的优化 / 翻译 / 反推都只读写它，**绝不直接碰 `text`**——
+   * 节点正文是下游消费的最终提示词，两者必须解耦，否则在面板里起草的中间过程
+   * 会实时污染正文。草稿经「写入节点」确认后才落到 `text`（进撤销栈）。
+   */
+  draft?: string
   upstreamPromptLinked: boolean
   /** 文本 LLM 配置（优化 / 翻译使用，§6.7 第三部分「只能选 LLM 模型」）；未配置为空串，按钮禁用 */
   channelId?: string

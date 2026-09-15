@@ -64,6 +64,8 @@ export function useEdgeDrag(store: CanvasStore) {
       const node = graph.nodes.find((n) => n.id === nodeId)
       if (!node) return
       containerRef.current = container
+      // 新的一次拖线先收掉可能还开着的连线菜单（§6.14：菜单关闭不改变已有连线）
+      store.closeLinkMenu()
       const rect = container.getBoundingClientRect()
       const worldRect = { x: rect.left, y: rect.top, w: rect.width, h: rect.height }
       // 端点锚点用世界坐标：画板子节点的 local 坐标需叠加父级偏移（§6.13 画板内连线）
@@ -101,7 +103,18 @@ export function useEdgeDrag(store: CanvasStore) {
         const to = screenToWorld({ x: ev.clientX, y: ev.clientY }, store.getViewport(), worldRect)
         const hovered = nodeAtPoint(to, store.getSnapshot())
         setDraft(null)
-        if (!hovered) return
+        /**
+         * 空白处松手：**不取消**，改为在指针处弹出可连接菜单（§6.14「空白松手菜单」）。
+         *
+         * 此前这里是 `if (!hovered) return`——拖了半天线，松手在空白上就什么也没发生，
+         * 等于逼用户把节点先挪近再连。文档从一开始就写了这个菜单，代码里却从未有过
+         * 消费者（又一次「文档写了 = 已实现」）。
+         * 坐标换成 surface 局部屏幕坐标（与右键菜单同口径：浮层不随画布变换）。
+         */
+        if (!hovered) {
+          store.setLinkMenu(ev.clientX - worldRect.x, ev.clientY - worldRect.y, nodeId, side)
+          return
+        }
         const check = checkConnect(store, nodeId, side, hovered)
         if (!check.ok) return
         const source = side === 'output' ? nodeId : hovered

@@ -17,6 +17,7 @@ import type { Command } from '../../commands'
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import type { Patch, PersistPlan, TableName } from '../../../domain/patch/types'
 import type { Viewport } from '../../../domain/canvas/geometry/coords'
+import type { LinkSide } from '../../../domain/canvas/menu/linkMenu'
 import { createId } from '../../../shared/id'
 import { reduce } from '../../commands/reducer'
 import { clampZoom } from '../../../domain/canvas/geometry/transform'
@@ -56,11 +57,33 @@ interface CanvasState {
    */
   dragging: boolean
   /**
+   * 面板是否因**真实拖动**被收起（§6.15）。
+   *
+   * 与 `dragging` 的分工：`dragging` 只管「进行中」；这个标记管「拖过之后的后遗症」——
+   * 发生过位移的拖动，松手后面板**保持隐藏**，直到下一次显式选中（`setSelection`）
+   * 才复位。没有它，松手瞬间 `dragging` 归 false 面板就会弹回来，而节点还停在
+   * 拖后的位置上，视觉上面板「追着人跑」。
+   * 纯展示态：不进撤销栈、不落库。
+   */
+  panelDismissed: boolean
+  /**
    * 右键菜单（§4.1）。纯展示态：不进撤销栈、不落库。
    * 坐标是**屏幕坐标**（菜单浮层不随画布变换，与创作面板 §6.8 同理）。
    * `target` 决定菜单项：node = 节点菜单，canvas = 画布空白菜单。
    */
   menu: { x: number; y: number; target: { kind: 'node'; nodeId: string } | { kind: 'canvas' } } | null
+  /**
+   * 端点拖线在**空白处松手**弹出的可连接菜单（§6.14「空白松手菜单」）。
+   *
+   * 与右键菜单 `menu` 刻意分成两个字段：两者长得像，但**生命周期完全不同**——
+   * 右键菜单要点外部 / Esc / 滚动才关，这个是指针一离开就关（§6.14），
+   * 且锚点是「指针右侧 12px」而不是指针本身。合成一个字段就得分岔出
+   * `kind` 两套关闭条件，读起来是省了、改起来必错。
+   *
+   * 坐标与 `menu` 同口径：**surface 局部屏幕坐标**（浮层不随画布变换）。
+   * 纯展示态：不进撤销栈、不落库。
+   */
+  linkMenu: { x: number; y: number; nodeId: string; side: LinkSide } | null
   /** 正在重命名标题的节点（§4.1 右键「重命名」/ §4.3 单击标题） */
   renamingId: string | null
   /**
@@ -110,9 +133,15 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
   getUndoBar(): { id: string; text: string } | null
   /** 关闭撤销条（当前条不是预期的 id 时忽略，避免竞态误关新条） */
   clearUndoBar(id?: string): void
-  /** 拖动进行中（§6.15：拖动期间隐藏创作参数面板，松手后按选中规则恢复） */
+  /** 拖动进行中（§6.15：拖动期间隐藏创作参数面板） */
   setDragging(on: boolean): void
   isDragging(): boolean
+  /**
+   * 拖动收尾（§6.15）：发生过位移的拖动，松手后面板保持隐藏，直到下一次显式选中。
+   * 由 useNodeDrag 在 pointerup 时调用；普通单击（未移动）不调用，面板照常出现。
+   */
+  setPanelDismissed(on: boolean): void
+  isPanelDismissed(): boolean
   /** 打开右键菜单（§4.1）；坐标是屏幕坐标 */
   setMenu(
     x: number,
@@ -122,6 +151,13 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
   /** 关闭右键菜单（§4.1：Esc / 空白单击 / 滚动 / 平移时） */
   closeMenu(): void
   getMenu(): CanvasState['menu']
+  /**
+   * 打开连线菜单（§6.14「空白松手菜单」）：端点拖线在空白处松手时，
+   * 于指针右侧 12px 打开。`side` 是被拖的那一端（output → 找下游）。
+   */
+  setLinkMenu(x: number, y: number, nodeId: string, side: LinkSide): void
+  closeLinkMenu(): void
+  getLinkMenu(): CanvasState['linkMenu']
   /** 进入重命名态（§4.1 右键「重命名」/ §4.3 单击标题） */
   beginRename(nodeId: string): void
   endRename(): void
@@ -245,7 +281,9 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     viewport: { x: 0, y: 0, zoom: 1 },
     notice: null,
     dragging: false,
+    panelDismissed: false,
     menu: null,
+    linkMenu: null,
     renamingId: null,
     undoBar: null,
     historyNodeId: null,
@@ -327,7 +365,8 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     canRedo: () => store.getState().redoStack.length > 0,
     subscribe: (listener) => store.subscribe(listener),
     // 节点选择与连线选择互斥（§6.14 / §6.15）：选节点即清空连线选择，反之亦然
-    setSelection: (ids) => store.setState({ selection: ids, selectedEdgeIds: [] }),
+    setSelection: (ids) =>
+      store.setState({ selection: ids, selectedEdgeIds: [], panelDismissed: false }),
     getSelection: () => store.getState().selection,
     setEdgeSelection: (ids) => store.setState({ selectedEdgeIds: ids, selection: [] }),
     getEdgeSelection: () => store.getState().selectedEdgeIds,
@@ -359,9 +398,17 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     },
     setDragging: (on) => store.setState({ dragging: on }),
     isDragging: () => store.getState().dragging,
+    setPanelDismissed: (on) => store.setState({ panelDismissed: on }),
+    isPanelDismissed: () => store.getState().panelDismissed,
     setMenu: (x, y, target) => store.setState({ menu: { x, y, target } }),
     closeMenu: () => store.setState({ menu: null }),
     getMenu: () => store.getState().menu,
+    setLinkMenu: (x, y, nodeId, side) =>
+      // 拖线期间与拖线结束到菜单关闭期间，创作面板保持隐藏（§6.14「拖线状态」）。
+      // 复用 panelDismissed：它本来就表达「这次交互不弹面板，等下一次显式选中」。
+      store.setState({ linkMenu: { x, y, nodeId, side }, menu: null, panelDismissed: true }),
+    closeLinkMenu: () => store.setState({ linkMenu: null }),
+    getLinkMenu: () => store.getState().linkMenu,
     beginRename: (nodeId) => store.setState({ renamingId: nodeId }),
     endRename: () => store.setState({ renamingId: null }),
     getRenamingId: () => store.getState().renamingId,

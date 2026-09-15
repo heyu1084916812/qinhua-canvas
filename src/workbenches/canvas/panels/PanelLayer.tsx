@@ -36,16 +36,23 @@ export function PanelLayer({ onOpenSettings }: { onOpenSettings?: () => void }) 
   const viewport = useViewportState()
   const store = useCanvasStore()
   const exec = useCanvasExecution()
-  // §6.15：拖动期间面板立即隐藏，松手后若仍为单选则自然恢复（dragging 置回 false）
+  // §6.15：拖动期间面板立即隐藏；发生**真实位移**的拖动，松手后保持隐藏，
+  // 直到下一次显式选中（setSelection 复位 panelDismissed）——节点已被挪走，
+  // 面板再弹回来只会「追着节点跑」。普通单击（无位移）不算拖动，面板照常出现。
   const dragging = useSyncExternalStore(store.subscribe, store.isDragging, store.isDragging)
+  const panelDismissed = useSyncExternalStore(
+    store.subscribe,
+    store.isPanelDismissed,
+    store.isPanelDismissed,
+  )
 
-  // 多选不显示面板（§6.15）；单选且类型适用才显示
+  // 多选不显示面板（§6.15）；单选且类型适用才显示；拖动中 / 拖过后（未重新选中）同样隐藏
   const selectedNode = useMemo(() => {
-    if (dragging) return null
+    if (dragging || panelDismissed) return null
     if (selection.length !== 1) return null
     const n = graph.nodes.find((x) => x.id === selection[0])
     return n && PANEL_TYPES.has(n.type) ? n : null
-  }, [graph.nodes, selection, dragging])
+  }, [graph.nodes, selection, dragging, panelDismissed])
 
   // 提示词节点的「优化 / 翻译」工具（§6.7）：面板是纯视图，状态由本层持有
   const promptData = selectedNode?.type === 'prompt' ? (selectedNode.data as PromptData) : null
@@ -72,10 +79,12 @@ export function PanelLayer({ onOpenSettings }: { onOpenSettings?: () => void }) 
     imageInputs: promptImageInputs,
     onResult: (text) => {
       if (!selectedNode || selectedNode.type !== 'prompt') return
+      // §6.7「面板 = 工作区」：面板里跑的优化 / 翻译 / 反推只覆盖**草稿**，
+      // 不碰正文——正文只能经「写入节点」显式确认（或双击节点直接编辑）。
       store.dispatch({
         kind: 'node.updateData',
         id: selectedNode.id,
-        patch: { text },
+        patch: { draft: text },
         transient: false,
       })
     },
@@ -266,8 +275,8 @@ function buildPanelModel(node: NodeSnapshot, graph: ReturnType<typeof useGraph>)
     thumbs,
     collections,
     emptyHint: '连线上游节点，或拖入素材',
-    // 提示词节点的正文是 text（§6.7），生成类节点是 prompt
-    prompt: node.type === 'prompt' ? (node.data as PromptData).text : data.prompt,
+    // 提示词节点的面板绑定**草稿**（§6.7「面板 = 工作区」），生成类节点仍是 prompt
+    prompt: node.type === 'prompt' ? ((node.data as PromptData).draft ?? '') : data.prompt,
     linkedPromptCount,
     promptToggle: null,
   }
@@ -288,8 +297,9 @@ function handlePanelEvent(
 
   switch (event.type) {
     case 'setPrompt':
-      // 提示词节点的正文是 text（§6.7），其余节点是 prompt
-      if (node.type === 'prompt') patch({ text: event.text } as Partial<GenerationData>)
+      // 提示词节点写的是**草稿**（§6.7「面板 = 工作区」，面板文字与节点正文解耦），
+      // 其余节点是 prompt
+      if (node.type === 'prompt') patch({ draft: event.text } as Partial<GenerationData>)
       else patch({ prompt: event.text })
       break
     case 'setChannel':
@@ -348,10 +358,14 @@ function handlePanelEvent(
       reorderThumbs(event.owner, event.order, node, store)
       break
     case 'optimize':
-      promptTools.run((node.data as PromptData).text, 'optimize')
+      // 面板的工具只作用于草稿（§6.7），结果经 onResult 写回 draft
+      promptTools.run((node.data as PromptData).draft ?? '', 'optimize')
       break
     case 'translate':
-      promptTools.run((node.data as PromptData).text, 'translate')
+      promptTools.run((node.data as PromptData).draft ?? '', 'translate')
+      break
+    case 'applyDraft':
+      applyDraft(node, store)
       break
     case 'run':
       void exec.runNode(node.id)
@@ -408,7 +422,27 @@ function toggleGroupPrompt(node: NodeSnapshot, store: ReturnType<typeof useCanva
 }
 
 /**
- * 面板内拖动缩略图排序（§6.11 / §6.12「缩略图排序与节点顺序双向同步」）。
+ * 草稿 → 正文（§6.7「写入节点」）：面板草稿经用户显式确认才成为最终提示词。
+ *
+ * - `transient:false`：进撤销栈——写入是一个明确的创作决策，要能反悔；
+ * - 草稿与正文相同（或草稿为空）时**不派发**：空跑一次撤销记录只会让人疑惑
+ *   「我撤掉了什么」；
+ * - 写入后草稿**保留**：继续改草稿、再写入是常见节奏，清空反而丢工作区。
+ */
+function applyDraft(node: NodeSnapshot, store: ReturnType<typeof useCanvasStore>): void {
+  if (node.type !== 'prompt') return
+  const data = node.data as PromptData
+  const draft = data.draft ?? ''
+  if (!draft.trim() || draft === data.text) return
+  store.dispatch({
+    kind: 'node.updateData',
+    id: node.id,
+    patch: { text: draft },
+    transient: false,
+  })
+}
+
+/** 面板内拖动缩略图排序（§6.11 / §6.12「缩略图排序与节点顺序双向同步」）。
  * 容器内部素材改 childIds（`container.reorder`）；上游缩略图改 `upstreamHidden` 的展示顺序
  * ——上游顺序由连线顺序决定，M3 只同步容器内部排序（外部上游顺序调整留待后续）。
  */

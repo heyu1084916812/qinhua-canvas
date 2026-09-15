@@ -12,6 +12,8 @@ interface DragState {
   prevX: number
   prevY: number
   zoom: number
+  /** 本次按下是否发生过真实位移（区分「拖动」与「原地点击」，§6.15） */
+  moved: boolean
 }
 
 export interface NodeDragController {
@@ -39,7 +41,8 @@ export interface DragStartEvent {
  * 三条交互语义（产品文档 §4.2 / §6.15）：
  * - 多选整体拖动：按下时该节点已在选中集合且集合 > 1 → 整组一起移动，选区不变
  * - Alt + 拖动：先**原地复制**出新节点（保留上下游连线），再拖动副本（§4.2）
- * - 拖动期间置 store.dragging，创作参数面板据此立即隐藏（§6.15）
+ * - 拖动期间置 store.dragging，创作参数面板据此立即隐藏（§6.15）；
+ *   发生过位移的拖动松手后置 store.panelDismissed，面板**保持隐藏**到下一次显式选中
  */
 export function createNodeDragController(
   store: CanvasStore,
@@ -89,7 +92,7 @@ export function createNodeDragController(
     const zoom = store.getViewport().zoom
     const ids = e.altKey ? duplicateForDrag(resolveDragIds(nodeId)) : resolveDragIds(nodeId)
 
-    current = { ids, prevX: e.clientX, prevY: e.clientY, zoom }
+    current = { ids, prevX: e.clientX, prevY: e.clientY, zoom, moved: false }
     store.setDragging(true)
     store.dispatch({ kind: 'node.move', ids, dx: 0, dy: 0, phase: 'begin' })
 
@@ -103,6 +106,7 @@ export function createNodeDragController(
       d.prevX = ev.clientX
       d.prevY = ev.clientY
       if (dx !== 0 || dy !== 0) {
+        d.moved = true
         store.dispatch({ kind: 'node.move', ids: d.ids, dx, dy, phase: 'move' })
       }
     })
@@ -115,6 +119,10 @@ export function createNodeDragController(
       if (!d) return
       store.dispatch({ kind: 'node.move', ids: d.ids, dx: 0, dy: 0, phase: 'end' })
       store.setDragging(false)
+      // §6.15：真实拖动（有位移）松手后面板**保持隐藏**，直到下一次显式选中；
+      // 原地点击（无位移）不算拖动，面板照常出现。在 store 上置标记而非靠
+      // `dragging` 的下降沿——按下即 true 的单击也会产生下降沿，会把两者混淆。
+      if (d.moved) store.setPanelDismissed(true)
 
       // 归属判定（§6.11 / §6.12）只在**单节点**拖动时做：
       // 多选拖进容器的落点归属有歧义（谁进谁不进），不做猜测。

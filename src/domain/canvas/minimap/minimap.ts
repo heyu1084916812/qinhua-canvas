@@ -47,6 +47,23 @@ export interface MinimapModel {
   view: Rect
 }
 
+/**
+ * 只描述「世界 → 小地图」这一套映射，不含具体内容。
+ *
+ * 与 `MinimapModel` 分开是**性能需要**：`bounds/scale/origin` 只由内容决定
+ * （不变量 1），与视口无关。于是平移时（视口每帧变、内容一个不动）投影可以整份复用，
+ * 300 个节点小方块不必每帧重算重渲——实测小地图占拖动帧预算约 15ms，
+ * 其中绝大部分就是这轮白跑（M6-29）。
+ */
+export interface MinimapProjection {
+  scale: number
+  origin: Point
+  bounds: Rect
+}
+
+/** 内容为空时的兜底范围：不与视口耦合，保证投影在无内容时仍然恒定 */
+const EMPTY_BOUNDS: Rect = { x: 0, y: 0, w: 1, h: 1 }
+
 /** 视口覆盖的世界矩形：视口只存「左上角世界坐标 + 缩放」，宽高得用容器尺寸反算 */
 export function viewWorldRect(vp: Viewport, container: Size): Rect {
   return { x: vp.x, y: vp.y, w: container.w / vp.zoom, h: container.h / vp.zoom }
@@ -67,6 +84,55 @@ function pinRectToBox(r: Rect, box: Size): Rect {
 }
 
 /**
+ * 只算投影（不含内容）。`fallback` 是无内容时的兜底范围，由调用方给
+ * （通常是当前视口——空画布上小地图跟着视口走，点击跳转才有正确落点）。
+ */
+export function minimapProjection(
+  sources: readonly MinimapSource[],
+  box: Size = MINIMAP_BOX,
+  padding: number = MINIMAP_PADDING,
+  fallback: Rect = EMPTY_BOUNDS,
+): MinimapProjection {
+  const bounds = rectUnion(sources.map((s) => s.rect)) ?? fallback
+  const innerW = Math.max(box.w - padding * 2, 1)
+  const innerH = Math.max(box.h - padding * 2, 1)
+  const scale = Math.min(innerW / Math.max(bounds.w, 1), innerH / Math.max(bounds.h, 1))
+  // 内容在小地图里居中（否则矮胖的图会贴在左上角，右下角空一大块）
+  const origin: Point = {
+    x: padding + (innerW - bounds.w * scale) / 2,
+    y: padding + (innerH - bounds.h * scale) / 2,
+  }
+  return { scale, origin, bounds }
+}
+
+/** 世界矩形 → 小地图矩形（极小节点保留 `minPx` 的可见边长） */
+export function projectRect(p: MinimapProjection, r: Rect, minPx = 0): Rect {
+  return {
+    x: p.origin.x + (r.x - p.bounds.x) * p.scale,
+    y: p.origin.y + (r.y - p.bounds.y) * p.scale,
+    w: Math.max(r.w * p.scale, minPx),
+    h: Math.max(r.h * p.scale, minPx),
+  }
+}
+
+/** 内容在小地图上的方块（与视口无关，平移时可整份复用） */
+export function minimapItems(
+  p: MinimapProjection,
+  sources: readonly MinimapSource[],
+): { id: string; rect: Rect }[] {
+  return sources.map((s) => ({ id: s.id, rect: projectRect(p, s.rect, MIN_ITEM_PX) }))
+}
+
+/** 视口框（钉回小地图内）；视口每帧都变，故与 items 分开算 */
+export function minimapViewRect(
+  p: MinimapProjection,
+  view: Rect,
+  box: Size = MINIMAP_BOX,
+): Rect {
+  return pinRectToBox(projectRect(p, view), box)
+}
+
+/**
  * 建一次投影。
  *
  * `sources` 传**世界矩形**：顶层节点与结果组都算，容器内子节点不算（它们的 x/y 是
@@ -79,41 +145,25 @@ export function buildMinimapModel(input: {
   padding?: number
 }): MinimapModel {
   const box = input.box ?? MINIMAP_BOX
-  const padding = input.padding ?? MINIMAP_PADDING
-  const bounds = rectUnion(input.sources.map((s) => s.rect)) ?? input.view
-
-  const innerW = Math.max(box.w - padding * 2, 1)
-  const innerH = Math.max(box.h - padding * 2, 1)
-  const scale = Math.min(innerW / Math.max(bounds.w, 1), innerH / Math.max(bounds.h, 1))
-
-  // 内容在小地图里居中（否则矮胖的图会贴在左上角，右下角空一大块）
-  const origin: Point = {
-    x: padding + (innerW - bounds.w * scale) / 2,
-    y: padding + (innerH - bounds.h * scale) / 2,
-  }
-
-  const toMini = (r: Rect, minPx: number): Rect => ({
-    x: origin.x + (r.x - bounds.x) * scale,
-    y: origin.y + (r.y - bounds.y) * scale,
-    w: Math.max(r.w * scale, minPx),
-    h: Math.max(r.h * scale, minPx),
-  })
-
+  const p = minimapProjection(input.sources, box, input.padding, input.view)
   return {
-    scale,
-    origin,
-    bounds,
-    items: input.sources.map((s) => ({ id: s.id, rect: toMini(s.rect, MIN_ITEM_PX) })),
-    view: pinRectToBox(toMini(input.view, 0), box),
+    scale: p.scale,
+    origin: p.origin,
+    bounds: p.bounds,
+    items: minimapItems(p, input.sources),
+    view: minimapViewRect(p, input.view, box),
   }
 }
 
-/** 小地图坐标 → 世界坐标（`buildMinimapModel` 的逆运算，点击 / 拖拽跳转用） */
-export function minimapToWorld(p: Point, model: MinimapModel): Point {
-  const scale = model.scale > 0 ? model.scale : 1
+/**
+ * 小地图坐标 → 世界坐标（`minimapProjection` 的逆运算，点击 / 拖拽跳转用）。
+ * 只吃投影那三个数，故收 `MinimapProjection`（`MinimapModel` 也满足它）。
+ */
+export function minimapToWorld(p: Point, projection: MinimapProjection): Point {
+  const scale = projection.scale > 0 ? projection.scale : 1
   return {
-    x: model.bounds.x + (p.x - model.origin.x) / scale,
-    y: model.bounds.y + (p.y - model.origin.y) / scale,
+    x: projection.bounds.x + (p.x - projection.origin.x) / scale,
+    y: projection.bounds.y + (p.y - projection.origin.y) / scale,
   }
 }
 

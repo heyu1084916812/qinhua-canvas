@@ -135,6 +135,32 @@ describe('拖动目标集合判定', () => {
   })
 })
 
+describe('拖动后面板保持隐藏（§6.15：拖过 → 藏到下一次显式选中）', () => {
+  it('有位移的拖动：松手后 panelDismissed=true，重新选中后复位', () => {
+    const store = makeStore()
+    const { aId } = seedChain(store)
+    store.setSelection([aId])
+    const drag = createNodeDragController(store)
+    expect(store.isPanelDismissed()).toBe(false)
+    dragBy(drag, 40, 0, aId)
+    expect(store.isDragging()).toBe(false)
+    expect(store.isPanelDismissed()).toBe(true)
+    // 下一次显式选中（哪怕还是同一个节点）= 用户重新指向，面板恢复可显示
+    store.setSelection([aId])
+    expect(store.isPanelDismissed()).toBe(false)
+  })
+
+  it('原地点击（无位移）：不算拖动，面板不收起', () => {
+    const store = makeStore()
+    const { aId } = seedChain(store)
+    store.setSelection([aId])
+    const drag = createNodeDragController(store)
+    dragBy(drag, 0, 0, aId)
+    expect(store.isDragging()).toBe(false)
+    expect(store.isPanelDismissed()).toBe(false)
+  })
+})
+
 describe('Alt 复制（§4.2「原地复制出新节点，保留上下游连线」）', () => {
   it('在原地生成副本并把选中切到副本', () => {
     const store = makeStore()
