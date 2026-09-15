@@ -21,6 +21,13 @@
 - **`canConnect` 的替身节点必须真的放进 `graph.nodes`**：它内部按 id 回溯父链（画板内外不建立边、容器内不外连）。替身不在表里 ⇒ `index.get(id)` 为 undefined ⇒ 被当成「无祖先」⇒ 画板内拖线时新建项整批消失。（`linkMenu.ts` 里造 `{...graph, nodes:[...graph.nodes, probe]}` 再判。）
 - **React 的 `onWheel` 是 passive**，`preventDefault()` 被静默忽略（控制台 `Unable to preventDefault inside passive event listener invocation`）。要阻止页面滚动必须 `addEventListener('wheel', fn, { passive: false })`；顺带把 `useViewport.onWheel` 的参数类型改成 `WheelLike{ deltaY, clientX, clientY }`，原生事件才能直接喂进去。**症状是「缩放时固定浮层跟着往上跳」——看着像定位 bug，实则是文档在滚**（`body` 默认 8px 外边距 + `.page` 100vh = 16px 可滚区，已由 `ui/base.css` 归零）。
 
+## canvas · 创作面板第一部分首行（2026-09-15，用户口径）
+
+- **首行 = 素材条 / 空态框（左，flex:1） + 「图片 / 视频」类别切换（右，贴最右端）**，二者**同一行等高 30px**（`--assets-row-h`，定义在 `.panel` 上，子选择器继承）。空态时左边是「拖入素材」虚线框（吃满剩余宽度、文字居中）；有素材时左边是缩略图条（30×30 方块 + 集合卡改同高横向胶囊），素材多时条内换行、切换垂直居中。
+- **钉死高度 + 有边框 ⇒ 必须 `box-sizing: border-box`**（`.assetEmpty` / `.thumb` / `.collection`）。踩过两次：漏写就被 1px 边框撑到 32px，比类别切换高 2px。**不要用 `align-items: stretch` 代替**——flex 拉伸按 content-box 算，同样多出 2px。
+- 判据只能是**几何**（右边界 / 高度 Δ / 中心 Δ），DOM 结构「同一行」证明不了排版对。
+- **mock 渠道出的是纯灰 64×64 PNG**（`mock.ts` `GRAY=0x8a8a8a`；带图输入才出品红）。探针/冒烟截图里看到灰块**不是渲染缺陷**，别去查 CSS——先 `img.complete && naturalWidth>0` 再对照 mock 源码。用户截图里的真人真图来自他自己的真渠道。
+
 ## canvas · 拖动性能剖析手法（2026-09-15）
 
 - **headless Chrome 没有 vsync**，rAF 帧间隔恒为 ~6ms，**用帧间隔判断卡顿毫无意义**。三种可靠的量法：① 每帧主线程工作耗时（`pointermove` 记 t0 → 双 rAF → t1）；② CDP `Profiler` 采样看热点函数；③ **headful**（`headless:false`）才有真实 vsync 帧间隔。
