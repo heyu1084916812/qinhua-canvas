@@ -253,18 +253,21 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
           const from = m.get(taskId)!
           m.set(taskId, targetId)
           /**
-           * 落点从「源节点」改到「新建的承载节点」时，必须把**已经挂在源节点上的
-           * 那条状态搬过去并删掉旧的**。
+           * 状态一律**只挂在真正收产物的节点**上。
            *
-           * 只改映射表是不够的：启动时已经给源节点写了一条 `queued`，若不搬走，
-           * 用户看到的就是「转圈一直在原始节点上」（2026-09-16 报）——
-           * 状态停在源节点，而结果跑到新节点。
+           * 两种情形都要处理：
+           *  - 源节点上已有状态（启动时预置的 queued）→ 搬过去并删掉旧的。
+           *    只改映射表是不够的：源节点那条不删，用户看到的就是「转圈一直在
+           *    原始节点上」（2026-09-16 报）——状态停在源节点，而结果跑到新节点。
+           *  - 源节点上没有状态（启动时按 slot 判定没给它预置，见 launch）→ 
+           *    必须在这里给承载节点补一条 queued，否则它在调用渠道前是「无状态」的，
+           *    等 `onTaskUpdate` 送来 running 才突然开始转圈，开头那段是空的。
            */
           if (from !== targetId) {
             setNodeStates((prev) => {
               const next = new Map(prev)
               const st = next.get(from)
-              if (st) next.set(targetId, st)
+              next.set(targetId, st ?? { kind: 'queued' })
               next.delete(from)
               return next
             })
@@ -312,9 +315,26 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       taskToNodeMapsRef.current.set(plan.id, new Map(plan.tasks.map((t) => [t.id, t.nodeId])))
       planIdRef.current = plan.id
 
+      /**
+       * 启动时的 `queued`：只给**落点可能仍是自己**的任务。
+       *
+       * 此前无条件按 `plan.tasks` 的 nodeId（全是**源节点**）置 queued：
+       * 源节点已有素材时会另建承载节点，而「另建」这个决定要等引擎真正跑起来
+       * （`placement.begin`）才知道——中间隔着渠道解析、令牌读取这些 await。
+       * 于是源节点（已经有图、这次只是被当参考图用）会先转一圈，
+       * 随后状态才被搬到新节点上，用户看到「我没让它生成，它在生成」（2026-09-17 实测，
+       * MutationObserver 抓到源节点约 14ms 的 `running`，慢渠道下这个窗口会更长）。
+       *
+       * 计划期就能判定落点的两种情形，先画在这两个节点上：
+       *  - `slot.kind === 'reuse'` 且不是批量展开的后续调用 → 落点就是它自己；
+       *  - 其余（要另建承载的）由 `onTaskTarget` 在落点确定后补上（见下）。
+       * 这样源节点再也不会平白进入生成态。
+       */
       setNodeStates((prev) => {
         const n = new Map(prev)
-        for (const t of plan.tasks) n.set(t.nodeId, { kind: 'queued' })
+        for (const t of plan.tasks) {
+          if (t.slot.kind === 'reuse' && (t.seq ?? 0) === 0) n.set(t.nodeId, { kind: 'queued' })
+        }
         return n
       })
 

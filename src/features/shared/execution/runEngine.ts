@@ -218,7 +218,19 @@ export async function runEngine<TTask extends RunTask, TCommand>(
       continue
     }
 
-    update(task.id, { kind: 'queued' })
+    /**
+     * `queued` **刻意不在落点确定前广播**（2026-09-17 修）。
+     *
+     * 此前这行在 `placement.begin` 之前，而宿主此刻的 taskId→nodeId 映射还指向
+     * **源节点**——源节点已有素材时会另建承载节点，于是源节点（这次只是被当参考图
+     * 用）先平白转一圈，随后状态才被搬到新节点上。用户看到的就是
+     * 「我没让它生成，它却在生成」（MutationObserver 实测到源节点约 17ms 的 running，
+     * 真实渠道下从发起请求到落点确定的窗口更长，闪得更明显）。
+     *
+     * 排队态由宿主在启动时按 slot 精确预置（见 CanvasExecutionProvider 的 launch）；
+     * 落点一旦确定（可能是新建的承载节点），这里再补发一次，确保任何工作台
+     * 都能看到「已排队」，且一定挂在真正收产物的节点上。
+     */
 
     // 落位交给适配器：canvas 会按槽位决定「复用已有节点」还是「新建承载节点」；
     // 批量展开（同一主体多次调用）时，只有第一次复用原主体，其余另起承载，
@@ -229,6 +241,8 @@ export async function runEngine<TTask extends RunTask, TCommand>(
     if (began.commands.length > 0) write(began.commands)
     // 落点已确定 → 告诉宿主；「生成中」据此挂在真正收到产物的节点上
     deps.onTaskTarget?.(plan.id, task.id, targetId)
+    // 落点确定后才广播 queued：此刻映射已指向真正收产物的节点
+    update(task.id, { kind: 'queued' })
 
     const taskStartedAt = now()
     update(task.id, { kind: 'running', startedAt: taskStartedAt })

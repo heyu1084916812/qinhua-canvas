@@ -92,8 +92,18 @@ export function useExecution<TTask extends RunTask, TCommand>(
           setTaskStates((prev) => new Map(prev).set(taskId, state))
           hostRef.current.onTaskUpdate?.(planId, taskId, state)
         },
-        onTaskTarget: (taskId, targetId) => {
-          hostRef.current.onTaskTarget?.(plan.id, taskId, targetId)
+        /**
+         * 参数必须**按引擎的三参签名**接：`(planId, taskId, targetId)`。
+         *
+         * 此前这里写成两参 `(taskId, targetId)`，而引擎是三参调用——
+         * 于是 `taskId` 实际收到的是 **planId**、`targetId` 收到的是 **taskId**。
+         * 宿主拿着 planId 去本计划的 taskId→nodeId 表里查，永远 `undefined`，
+         * 「落点改绑」整条逻辑**从未生效**：状态一直画在源节点上，
+         * 源节点已有素材时会另建承载节点，用户看到的就是
+         * 「我没让它生成，它却在生成」（2026-09-17 实测确认）。
+         */
+        onTaskTarget: (planId, taskId, targetId) => {
+          hostRef.current.onTaskTarget?.(planId, taskId, targetId)
         },
       })
         hostRef.current.onFinish?.(summary)

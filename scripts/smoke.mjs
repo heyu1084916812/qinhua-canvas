@@ -8201,7 +8201,78 @@ async function g59(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g22, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g41, g42, g43, g44, g45, g46, g47, g48, g49, g50, g51, g52, g53, g54, g55, g56, g57, g58, g59]
+// ────────────────────────────────────────────────────────────
+// G60 有素材的生成节点再次生成（用户 2026-09-17 报）：
+// 这种情况下产出会落到**新建的承载节点**上，而**原节点不能出现生成状态**——
+// 它这次只是被当参考图用。曾因 useExecution 的 onTaskTarget 参数错位
+// （引擎三参、宿主按两参接）导致「状态改绑」从未生效，原节点一直转圈。
+// ────────────────────────────────────────────────────────────
+async function g60(browser) {
+  const g = 'G60 有素材节点再生成'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(700)
+
+  const gen = page.locator('[data-node-type="generation"]').first()
+  const panel = await genPanel(page, gen)
+  await configureGenPanel(page, panel, '屋顶的猫')
+
+  // 1) 先跑一次，让源节点有素材
+  await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
+  for (let t = 0; t < 60; t++) {
+    if ((await page.locator('[data-node-asset]').count()) > 0) break
+    await sleep(250)
+  }
+  await sleep(1000)
+  const srcId = await gen.getAttribute('data-node-id')
+  rec(g, '第一次生成：源节点出图', (await page.locator('[data-node-asset]').count()) === 1, `assets=${await page.locator('[data-node-asset]').count()}`)
+
+  // 2) 第二次生成：全程盯着**源节点**有没有进入生成态
+  const srcSelector = `[data-node-id="${srcId}"]`
+  await page.evaluate((sel) => {
+    window.__srcStates = []
+    const rec = () => {
+      const f = document.querySelector(sel)
+      const st = f && f.querySelector('[data-node-status]')
+      window.__srcStates.push(st ? st.getAttribute('data-node-status') : null)
+    }
+    rec()
+    window.__t = setInterval(rec, 20)
+    new MutationObserver(rec).observe(document.body, { subtree: true, childList: true, attributes: true })
+  }, srcSelector)
+
+  await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
+  for (let t = 0; t < 60; t++) {
+    const n = await page.locator('[data-node-asset]').count()
+    if (n >= 2 && (await page.locator('[data-node-status]').count()) === 0) break
+    await sleep(250)
+  }
+  await sleep(1000)
+  const srcStates = await page.evaluate(() => { clearInterval(window.__t); return window.__srcStates })
+  const flashed = srcStates.filter((s) => s === 'running' || s === 'queued')
+  rec(g, '★ 原节点全程不出现生成状态（它这次只是参考图）', flashed.length === 0, `flashed=${flashed.length}/${srcStates.length}`)
+
+  // 3) 产出确实落到新建的承载节点上，且原节点仍有自己的素材
+  const genCount = await page.locator('[data-node-type="generation"]').count()
+  rec(g, '产出落在新建的承载节点（共 2 个生成节点）', genCount === 2, `count=${genCount}`)
+  const srcHasAsset = await page.locator(`[data-node-id="${srcId}"] [data-node-asset]`).count()
+  rec(g, '原节点仍持有自己那张图（没被覆盖）', srcHasAsset === 1, `srcAssets=${srcHasAsset}`)
+  rec(g, '结束后无残留转圈', (await page.locator('[data-node-status]').count()) === 0, `overlays=${await page.locator('[data-node-status]').count()}`)
+
+  await page.screenshot({ path: `${OUT}/77-g60-second-run.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g22, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g41, g42, g43, g44, g45, g46, g47, g48, g49, g50, g51, g52, g53, g54, g55, g56, g57, g58, g59, g60]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
