@@ -106,6 +106,56 @@ describe('runEngine / 回调参数契约', () => {
     expect([...taskIds]).toEqual(['task_1'])
   })
 
+  /**
+   * 「N张」应当**同时开工**（用户 2026-09-17）：N 个承载节点同时出现、同时转圈，
+   * 而不是「出完一张才冒出下一个」。
+   *
+   * 判据：所有 task 的 queued/running 必须在**任何一次 succeeded 之前**全部到位。
+   * 串行实现下，第 2 个 task 的 queued 会晚于第 1 个 task 的 succeeded，
+   * 这条断言立刻变红。
+   */
+  it('★ 多任务同时开工：全部 running 先落地，才有 succeeded', async () => {
+    const tasks: RunTask[] = [0, 1, 2].map((i) => ({
+      ...makePlan().tasks[0]!,
+      id: `task_${i}`,
+      seq: i,
+    }))
+    const plan: RunPlan<RunTask> = { id: 'plan_1', tasks, scope: 'node', mode: 'single', newDownstream: false }
+
+    const events: string[] = []
+    await runEngine(plan, {
+      signal: new AbortController().signal,
+      projectId: 'p1',
+      channelResolver: () =>
+        ({
+          protocol: 'mock',
+          // 每张延迟一点点，串行实现下会明显错开
+          async generateImage() {
+            await new Promise((r) => setTimeout(r, 10))
+            return [{ hash: 'h', mime: 'image/png', bytes: new Uint8Array([1]) }]
+          },
+        }) as never,
+      writeBack: () => {},
+      placement: {
+        begin: (task: RunTask) => ({ targetId: `carrier-${task.id}`, commands: [] }),
+        commit: () => [],
+        shouldCollect: () => false,
+        record: () => null,
+        finalize: () => [],
+      },
+      onTaskUpdate: (_planId, _taskId, state) => {
+        events.push(state.kind)
+      },
+      now: () => 0,
+      wait: () => Promise.resolve(),
+    })
+
+    const firstSucceeded = events.indexOf('succeeded')
+    const runningCount = events.slice(0, firstSucceeded).filter((e) => e === 'running').length
+    expect(runningCount).toBe(3)
+    expect(firstSucceeded).toBeGreaterThanOrEqual(3)
+  })
+
   it('★ queued 不在落点确定前广播（源节点不会平白转圈）', async () => {
     const plan = makePlan()
     const order: string[] = []

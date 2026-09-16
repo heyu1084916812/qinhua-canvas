@@ -210,6 +210,18 @@ export async function runEngine<TTask extends RunTask, TCommand>(
     collected.set(nodeId, list)
   }
 
+  /**
+   * 阶段一：**先把所有落位建出来**（用户 2026-09-17）。
+   *
+   * 此前整个循环是串行的：第 2 张要等第 1 张跑完才开始，而承载节点是在
+   * `placement.begin` 时才建的 —— 于是画布上表现为「出完一张，才冒出下一个节点」。
+   * 选 2张 / 4张 时用户看到的是一条条排队冒出来，而不是同时开工。
+   *
+   * 现在先同步跑完所有 task 的 `begin`（建节点 + 连线 + 改绑 + 排队态），
+   * 这一阶段是纯命令派发、不 await 网络，因此 N 个承载节点会**同时出现并同时转圈**；
+   * 随后再并发发起渠道调用（见阶段二）。
+   */
+  const started: { task: TTask; targetId: string; startedAt: number }[] = []
   for (const task of plan.tasks) {
     if (deps.signal.aborted) {
       // 未启动即取消：跳过，不留 RunRecord（没有产生任何一次调用）
@@ -222,14 +234,11 @@ export async function runEngine<TTask extends RunTask, TCommand>(
      * `queued` **刻意不在落点确定前广播**（2026-09-17 修）。
      *
      * 此前这行在 `placement.begin` 之前，而宿主此刻的 taskId→nodeId 映射还指向
-     * **源节点**——源节点已有素材时会另建承载节点，于是源节点（这次只是被当参考图
-     * 用）先平白转一圈，随后状态才被搬到新节点上。用户看到的就是
-     * 「我没让它生成，它却在生成」（MutationObserver 实测到源节点约 17ms 的 running，
-     * 真实渠道下从发起请求到落点确定的窗口更长，闪得更明显）。
+     * **源节点**：源节点已有素材时会另建承载节点，于是源节点（这次只是被当参考图
+     * 用）先平白转一圈，随后状态才被搬到新节点上（MutationObserver 实测到源节点
+     * 约 17ms 的 running，真实渠道下这个窗口更长）。
      *
-     * 排队态由宿主在启动时按 slot 精确预置（见 CanvasExecutionProvider 的 launch）；
-     * 落点一旦确定（可能是新建的承载节点），这里再补发一次，确保任何工作台
-     * 都能看到「已排队」，且一定挂在真正收产物的节点上。
+     * 落点确定（可能是新建的承载节点）后再广播，状态就一定挂在真正收产物的节点上。
      */
 
     // 落位交给适配器：canvas 会按槽位决定「复用已有节点」还是「新建承载节点」；
@@ -241,42 +250,57 @@ export async function runEngine<TTask extends RunTask, TCommand>(
     if (began.commands.length > 0) write(began.commands)
     // 落点已确定 → 告诉宿主；「生成中」据此挂在真正收到产物的节点上
     deps.onTaskTarget?.(plan.id, task.id, targetId)
-    // 落点确定后才广播 queued：此刻映射已指向真正收产物的节点
     update(task.id, { kind: 'queued' })
 
     const taskStartedAt = now()
     update(task.id, { kind: 'running', startedAt: taskStartedAt })
+    started.push({ task, targetId, startedAt: taskStartedAt })
+  }
 
-    let attempt = 0
-    let state: RunTaskState = { kind: 'failed', error: { kind: 'parse', raw: 'unreachable' }, attempts: 1 }
-    let assets: GeneratedAsset[] = []
+  /**
+   * 阶段二：**并发**发起渠道调用（用户 2026-09-17）。
+   *
+   * N 张同时请求渠道，谁先返回谁先落盘；结果按 `started` 的顺序结算，
+   * 因此 summary / RunRecord 的次序仍与计划一致，不因完成先后而变。
+   */
+  const settled = await Promise.all(
+    started.map(async ({ task, startedAt }) => {
+      let attempt = 0
+      let state: RunTaskState = { kind: 'failed', error: { kind: 'parse', raw: 'unreachable' }, attempts: 1 }
+      let assets: GeneratedAsset[] = []
 
-    for (;;) {
-      try {
-        const adapter = deps.channelResolver(task.request)
-        // 批量展开出的后续调用套上「第 n 项」序号：渠道多以 prompt 为素材种子，
-        // 不加序号时同一素材跑多次会产出同一个 hash，结果互相覆盖（§6.12）。
-        const callRequest = applyCallOrdinal(task)
-        assets = await callChannel(adapter, callRequest, deps.signal)
-        state = { kind: 'succeeded', result: assets, duration: now() - taskStartedAt }
-        break
-      } catch (e) {
-        const error = normalizeError(e)
-        if (deps.signal.aborted) {
-          state = { kind: 'canceled' }
+      for (;;) {
+        try {
+          const adapter = deps.channelResolver(task.request)
+          // 批量展开出的后续调用套上「第 n 项」序号：渠道多以 prompt 为素材种子，
+          // 不加序号时同一素材跑多次会产出同一个 hash，结果互相覆盖（§6.12）。
+          const callRequest = applyCallOrdinal(task)
+          assets = await callChannel(adapter, callRequest, deps.signal)
+          state = { kind: 'succeeded', result: assets, duration: now() - startedAt }
+          break
+        } catch (e) {
+          const error = normalizeError(e)
+          if (deps.signal.aborted) {
+            state = { kind: 'canceled' }
+            break
+          }
+          if (isRetryable(error, policy) && attempt < policy.maxRetries) {
+            attempt += 1
+            await wait(backoffMs(attempt - 1, policy.backoffBase, 0))
+            continue
+          }
+          state = { kind: 'failed', error, attempts: attempt + 1 }
           break
         }
-        if (isRetryable(error, policy) && attempt < policy.maxRetries) {
-          attempt += 1
-          await wait(backoffMs(attempt - 1, policy.backoffBase, 0))
-          continue
-        }
-        state = { kind: 'failed', error, attempts: attempt + 1 }
-        break
       }
-    }
+      return { task, startedAt, state, assets, finishedAt: now() }
+    }),
+  )
 
-    const finishedAt = now()
+  // 阶段三：按计划顺序结算（写回 + 聚合 + 留痕 + 状态广播）
+  for (const { task, targetId, startedAt } of started) {
+    const done = settled.find((s) => s.task.id === task.id)!
+    const { state, assets, finishedAt } = done
     const status: RunRecord['status'] =
       state.kind === 'succeeded' ? 'succeeded' : state.kind === 'canceled' ? 'canceled' : 'failed'
 
@@ -292,10 +316,10 @@ export async function runEngine<TTask extends RunTask, TCommand>(
     const record = makeRecord(
       task,
       deps,
-      taskStartedAt,
+      startedAt,
       status,
       state.kind === 'succeeded' ? assets : [],
-      finishedAt - taskStartedAt,
+      finishedAt - startedAt,
     )
     const recordCommand = placement.record(task, targetId, record)
     if (recordCommand !== null) write([recordCommand])
