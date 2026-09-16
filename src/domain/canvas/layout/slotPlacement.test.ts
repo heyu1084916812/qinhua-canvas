@@ -123,4 +123,12 @@ describe('空槽位 BFS（产品文档 §6.19.3）', () => {
 
     expect(planSlots({ startNodeId: 'a', graph: g, count: 1 })).toEqual([{ kind: 'reuse', nodeId: 'a' }])
   })
+
+  it('源节点自身已有素材（自己生成的图）时，也另建下游节点，不覆盖自身', () => {
+    const g = graph([gen('a', '已有图的生成节点', 'h-self')], [])
+
+    expect(planSlots({ startNodeId: 'a', graph: g, count: 1 })).toEqual([
+      { kind: 'new', title: '已有图的生成节点的输出1', connectFrom: 'a' },
+    ])
+  })
 })

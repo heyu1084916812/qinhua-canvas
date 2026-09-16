@@ -27,15 +27,21 @@ function isEmptySlot(nodeId: string, graph: GraphSnapshot): boolean {
 }
 
 /**
- * 图生图的源节点不能作为空槽复用。
+ * 源节点「已经有内容」时不能作为空槽复用。
  *
- * 旧规则只要节点没有 assetHash 就当空槽，于是图生图会把产物写回源节点本身：
+ * 旧规则只要节点没有 assetHash 就当空槽，于是「用节点自身的素材再生成」——
+ * 无论那张图是上游生成的还是自己一开始生成的——都会把产物写回源节点本身：
  * 用户看到的是占位被替换，而不是右侧新建一张结果。
  *
- * 判定只看**源节点自己**是否已有「生成节点上游 + 该上游已产出图片」：
- * 这样不会误伤普通的「上游有内容 → 下游空槽」BFS 复用场景。
+ * 判定只看**源节点自己**：
+ * - 自身已有素材（`assetHash`）→ 它是「输入 / 参考」，结果另起下游承载；
+ * - 自身是空的，但有「生成节点上游 + 该上游已产出图片」→ 同理（图生图）。
+ *
+ * 这两条都只作用于**触发节点本身**，不会误伤普通的「上游有内容 → 下游空槽」
+ * BFS 复用场景；源节点为空且上游只有提示词时，仍按空槽位规则复用本体。
  */
-function hasImageInput(node: NodeSnapshot, graph: GraphSnapshot): boolean {
+function mustNotReuseSource(node: NodeSnapshot, graph: GraphSnapshot): boolean {
+  if ((node.data as GenerationData).assetHash) return true
   const index = indexNodes(graph.nodes)
   return directUpstream(node.id, graph.edges).some((id) => {
     const upstream = index.get(id)
@@ -75,8 +81,9 @@ export function planSlots(opts: SlotSearchOptions): SlotPlan[] {
     visited.add(current)
 
     const currentIndex = index.get(current)
-    const blockedByImageInput = current === start.id && !!currentIndex && hasImageInput(currentIndex, graph)
-    if (!used.has(current) && currentIndex && !blockedByImageInput && isEmptySlot(current, graph)) {
+    const blockedBySourceContent =
+      current === start.id && !!currentIndex && mustNotReuseSource(currentIndex, graph)
+    if (!used.has(current) && currentIndex && !blockedBySourceContent && isEmptySlot(current, graph)) {
       used.add(current)
       plans.push({ kind: 'reuse', nodeId: current })
     }
