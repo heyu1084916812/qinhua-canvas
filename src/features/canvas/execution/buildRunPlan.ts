@@ -57,6 +57,19 @@ export interface CanvasRunTask extends SharedRunTask {
    * 必须往上追一层父节点。
    */
   containerKind: ContainerKind
+  /**
+   * 源节点在画布上的矩形（世界坐标）。
+   *
+   * 为什么冻结进 task：落位适配器要按「源节点右侧」摆放新建的承载节点，
+   * 而它是**执行期**才跑的命令构造（placement.begin），拿不到"此刻"的图快照。
+   * 在计划期把源节点矩形一并冻结，落位就能脱离 store 算出位置。
+   */
+  sourceRect: { x: number; y: number; w: number; h: number }
+  /**
+   * 源节点的数据快照（平台 / 模型 / 提示词 / 参数）。
+   * 新建承载节点时带上它，新节点即可独立重跑，而不是一个空壳。
+   */
+  sourceData: NodeData
 }
 
 /** 能把生成节点装起来的容器类型；`null` = 顶层节点（不在任何容器里） */
@@ -227,6 +240,9 @@ export function buildRunPlan(
         sourceType: node.type,
         callCount: expansions.length,
         containerKind: containerKindOf(node, index) ?? subContainer,
+        // 落位要用「源节点在画布上的位置」把新建节点摆在它右侧（用户 2026-09-16）
+        sourceRect: { x: node.x, y: node.y, w: node.w, h: node.h },
+        sourceData: node.data,
         // 集合项来源（用于结果溯源）；非批量场景为 null
         collectionItemId: expansion.itemNodeId,
         seq,

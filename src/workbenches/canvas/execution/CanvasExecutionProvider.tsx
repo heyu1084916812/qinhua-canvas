@@ -231,6 +231,19 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         }
         if (nodeId) setNodeStates((prev) => new Map(prev).set(nodeId, state))
       },
+      /**
+       * 落点确定后立刻改绑：taskId 原本映射到**触发节点**，但画布可能为这次产出
+       * **另建承载节点**。此后该 task 的状态一律画在承载节点上，
+       * 触发节点不再显示「生成中」（用户 2026-09-16 报的那条）。
+       */
+      onTaskTarget: (taskId: string, targetId: string) => {
+        for (const m of taskToNodeMapsRef.current.values()) {
+          if (m.has(taskId)) {
+            m.set(taskId, targetId)
+            return
+          }
+        }
+      },
       onFinish: () => {
         void store.flush()
       },

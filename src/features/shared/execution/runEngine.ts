@@ -68,6 +68,15 @@ export interface RunEngineDeps<TTask extends RunTask, TCommand> {
   placement: ExecutionPlacement<TTask, TCommand>
   policy?: Partial<RunPolicy>
   onTaskUpdate?: (taskId: string, state: RunTaskState) => void
+  /**
+   * 任务的实际落点（`placement.begin` 返回的 `targetId`）。
+   *
+   * 与 `onTaskUpdate` 分开：更新发生在**调用渠道前后**、那时落点已经确定，
+   * 宿主据此把「生成中」画在**真正会收到产物的节点**上——
+   * 画布在源节点已有内容时会另建承载节点，状态若仍挂在源节点上，
+   * 用户看到的就是「转圈在旧节点、结果跑到新节点」（2026-09-16 报）。
+   */
+  onTaskTarget?: (taskId: string, targetId: string) => void
   /** 版本号来源；未提供时每个主体都从 1 开始 */
   nextVersion?: (nodeId: string) => number
   /** 重试等待（默认真实 setTimeout；测试传 no-op 保持同步） */
@@ -209,6 +218,8 @@ export async function runEngine<TTask extends RunTask, TCommand>(
     const began = placement.begin(task, { isRepeat })
     const targetId = began.targetId
     if (began.commands.length > 0) write(began.commands)
+    // 落点已确定 → 告诉宿主；「生成中」据此挂在真正收到产物的节点上
+    deps.onTaskTarget?.(task.id, targetId)
 
     const taskStartedAt = now()
     update(task.id, { kind: 'running', startedAt: taskStartedAt })
@@ -263,7 +274,7 @@ export async function runEngine<TTask extends RunTask, TCommand>(
       state.kind === 'succeeded' ? assets : [],
       finishedAt - taskStartedAt,
     )
-    const recordCommand = placement.record(task, record)
+    const recordCommand = placement.record(task, targetId, record)
     if (recordCommand !== null) write([recordCommand])
 
     update(task.id, state)

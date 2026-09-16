@@ -52,8 +52,12 @@ export interface ExecutionPlacement<TTask extends RunTask, TCommand> {
    * 一次调用的留痕命令（RunRecord，「从不删除」是硬性要求，产品文档 §6.21）。
    * 返回 `null` 表示该工作台暂不落留痕（如 comic 尚未引入版本历史）——
    * 引擎据此跳过写入，不强迫每个工作台都立刻具备同一能力。
+   *
+   * `targetId` 是 `begin` 交回的结果落点（不透明句柄）。适配器据此把记录挂到
+   * **真正收到产物的那个主体**上：canvas 新建了承载节点时记录应跟到新节点，
+   * 而不是一律写回触发节点（用户 2026-09-16 报「生成状态/记录仍在原始节点」）。
    */
-  record(task: TTask, record: RunRecord): TCommand | null
+  record(task: TTask, targetId: string, record: RunRecord): TCommand | null
   /**
    * 计划收尾：把聚合到的产物落成工作台自己的形态。
    * canvas：结果组 + 逐张子节点 + 素材本体；comic：无需收尾（返回空数组）。

@@ -30,6 +30,12 @@ export interface ExecutionHost<TTask extends RunTask, TCommand> {
   placement: ExecutionPlacement<TTask, TCommand>
   /** 计划结束：落 RunRecord、补发 stale.clear 都在这里做 */
   onFinish?: (summary: RunSummary) => void
+  /**
+   * 任务实际落点已确定（`placement.begin` 之后立刻回调）。
+   * 宿主用 `taskId → targetId` 重映射「生成中」状态：画布另建承载节点时，
+   * 转圈要画在新节点上，而不是触发节点。
+   */
+  onTaskTarget?: (taskId: string, targetId: string) => void
   policy?: Partial<RunPolicy>
   nextVersion?: (nodeId: string) => number
 }
@@ -76,6 +82,9 @@ export function useExecution<TTask extends RunTask, TCommand>(
         nextVersion: hostRef.current.nextVersion,
         onTaskUpdate: (taskId, state) => {
           setTaskStates((prev) => new Map(prev).set(taskId, state))
+        },
+        onTaskTarget: (taskId, targetId) => {
+          hostRef.current.onTaskTarget?.(taskId, targetId)
         },
       })
         hostRef.current.onFinish?.(summary)

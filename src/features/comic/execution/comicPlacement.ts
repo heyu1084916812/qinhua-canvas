@@ -62,12 +62,13 @@ export function createComicPlacement(
       return false
     },
 
-    record(task: RunTask, record: RunRecord) {
+    record(_task: RunTask, targetId: string, record: RunRecord) {
       // M6-15：把引擎记录翻译成格内的留痕载荷（版本号由 reducer 从历史推出，
       // `panelRunFromRecord` 刻意不产出 version —— 见 PanelRunInput）
+      // comic 的 targetId 恒为格自身，故与 task.nodeId 相同。
       return {
         kind: 'panel.runRecord.append',
-        panelId: task.nodeId,
+        panelId: targetId,
         run: panelRunFromRecord(record),
       }
     },
