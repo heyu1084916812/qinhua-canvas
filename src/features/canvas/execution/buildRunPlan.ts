@@ -195,13 +195,22 @@ export function buildRunPlan(
     singleRun && originNodeId
       ? ordered.reduce((sum, n) => sum + callCountOf(n, working) * callsPerRunOf(n), 0)
       : 0
+  /**
+   * N>1 时结果**一律铺新下游节点**（用户 2026-09-17）。
+   *
+   * 复用已有空槽会让「N张」的结果数目与用户预期对不上：
+   * 空槽只有 1 个时，第 1 张落进它、其余才新建 —— 用户看到「选了两张，下游只有一个」。
+   * 触发节点与其现有下游都是**输入方**，N 张的结果应当全部并列新建，
+   * 与 Alt+R（single-alt）同一条落位规则。
+   */
+  const multiShot = plannedCalls > 1
   const slots =
     singleRun && originNodeId
       ? planSlots({
           startNodeId: originNodeId,
           graph: working,
           count: Math.max(1, plannedCalls),
-          newDownstream,
+          newDownstream: newDownstream || multiShot,
         })
       : []
 

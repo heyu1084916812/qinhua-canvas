@@ -455,17 +455,16 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     const groups = store.getSnapshot().resultGroups
     expect(groups).toHaveLength(0)
     const generations = store.getSnapshot().nodes.filter((n) => n.type === 'generation')
-    // 源节点（空 → 复用自己接第 1 张）+ 1 个新建承载节点接第 2 张
-    expect(generations).toHaveLength(2)
+    // N>1 时触发节点不当槽位：源节点保持空，2 张各落一个下游节点
+    expect(generations).toHaveLength(3)
     const carriers = generations.filter((n) => n.id !== genId)
-    expect(carriers).toHaveLength(1)
-    // 源节点接第 1 张（它当时是空的）
-    expect(dataOf(store, genId).assetHash).toBeTruthy()
-    expect(dataOf(store, genId).naturalSize).toEqual({ width: 64, height: 36 })
+    expect(carriers).toHaveLength(2)
+    // 源节点不动（它是输入方，不是结果容器）
+    expect(dataOf(store, genId).assetHash).toBeUndefined()
     for (const c of carriers) {
-      expect(c.data.assetHash).toBeTruthy()
+      expect(dataOf(store, c.id).assetHash).toBeTruthy()
       // 真实像素仍记在 data 上（mock 16:9 → 64×36）
-      expect((c.data as unknown as Record<string, unknown>).naturalSize).toEqual({
+      expect(dataOf(store, c.id).naturalSize).toEqual({
         width: 64,
         height: 36,
       })
@@ -479,7 +478,7 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
    * 其中复用空槽的那张没带参考图。
    */
   it('★ 图生图 2张 → 2 个下游节点，每张都带源图作参考', async () => {
-    const { store, promptId, genId } = setup()
+    const { store, genId } = setup()
     store.dispatch({
       kind: 'node.updateData',
       id: genId,
@@ -507,8 +506,8 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     // mock 渠道：带图像输入 → 品红 (255,0,255)；不带 → 灰度。
     // 品红 = 参考图真的进了请求（G37 的机制级验证口径）
     for (const c of carriers) {
-      expect(c.data.assetHash).toBeTruthy()
-      expect(c.data.assetHash).not.toBe('h-source')
+      expect(dataOf(store, c.id).assetHash).toBeTruthy()
+      expect(dataOf(store, c.id).assetHash).not.toBe('h-source')
     }
   })
 
