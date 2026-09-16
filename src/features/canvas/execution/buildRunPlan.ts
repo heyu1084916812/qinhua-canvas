@@ -1,5 +1,7 @@
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
-import type { NodeData, NodeSnapshot, NodeType } from '../../../domain/canvas/model/node'
+import type { GenerationData, NodeData, NodeSnapshot, NodeType } from '../../../domain/canvas/model/node'
+import { GENERATION_ASSET_MIME } from '../../../domain/canvas/model/node'
+import type { NodeInput } from '../../../domain/shared/execution/types'
 import type { RunMode, RunScope } from '../../../domain/canvas/model/runRecord'
 import type { SlotPlan } from '../../../domain/canvas/layout/slotPlacement'
 // 计划外壳与任务基类上移共享执行 domain（M6-5 路径 B）：画布在此**绑定出**自己的任务子类型。
@@ -227,10 +229,33 @@ export function buildRunPlan(
           ? slots[Math.min(slotCursor, slots.length - 1)]!
           : { kind: 'reuse', nodeId: node.id }
 
+      /**
+       * 图生图：把源节点的图作为**图像输入**带进这次请求。
+       *
+       * 顺序问题（用户 2026-09-16 指出「新建节点 → 连线 → 结果落新节点」）：
+       * `inputs` 在**本函数**（buildRunPlan）里按图上已有连线收集，而承载节点与
+       * 那条「源节点 → 承载节点」的连线要等后续 `begin` 的命令才建出来。
+       * 于是收集时看不到这条线 → 请求里没有源节点的图 → 走的是文生图路径。
+       *
+       * 实测证据（mock 的「有图=品红 / 无图=灰度」标记）：
+       *   不补 → 灰度；补上 → 品红。故这一步是必需的，不是防御性代码。
+       *
+       * 基于 `expansion.inputs`（已按集合项展开），避免把整个批量集合项塞进去。
+       */
+      const sourceAsset = (node.data as GenerationData).assetHash
+      const withSourceImage: NodeInput[] =
+        slot.kind === 'new' && sourceAsset && !expansion.inputs.some((i) => i.kind === 'asset')
+          ? [
+              ...expansion.inputs,
+              { kind: 'asset', nodeId: node.id, assetHash: sourceAsset, mime: GENERATION_ASSET_MIME },
+            ]
+          : expansion.inputs
+
       const task: CanvasRunTask = {
         id: createId('task'),
         nodeId: node.id,
-        request,
+        // 指纹仍按**真实收集到的输入**计算，避免刚生成完就把自己标陈旧
+        request: { ...request, inputs: withSourceImage },
         dependsOn: previousId ? [previousId] : [],
         slot,
         // 指纹包含完整集合（未展开）：集合内容变了才算输入变了，

@@ -190,6 +190,30 @@ describe('buildRunPlan（单点生成）', () => {
     expect(plan.tasks[0]!.slot).toEqual({ kind: 'reuse', nodeId: genId })
   })
 
+  /**
+   * ★ 图生图必须把源节点的图带进这次请求。
+   *
+   * 顺序问题：inputs 在 buildRunPlan 里按**图上已有连线**收集，而承载节点与那条
+   * 连线要等 `begin` 的命令才存在 —— 收集时看不到，请求里就没图。
+   * 实测：不补 → 灰度（无图输入）；补上 → 品红（有图输入）。
+   */
+  it('★ 图生图：新建承载节点时，请求 inputs 里带上了源节点的图', () => {
+    const { store, genId } = setup()
+    store.dispatch({
+      kind: 'node.updateData',
+      id: genId,
+      patch: { assetHash: 'h-source', prompt: '改成水彩' },
+    })
+
+    const plan = buildRunPlan('node', { originNodeId: genId }, store.getSnapshot(), 'single')
+
+    expect(plan.tasks).toHaveLength(1)
+    expect(plan.tasks[0]!.slot.kind).toBe('new')
+    const assets = plan.tasks[0]!.request.inputs.filter((i) => i.kind === 'asset')
+    expect(assets).toHaveLength(1)
+    expect(assets[0]).toMatchObject({ kind: 'asset', assetHash: 'h-source' })
+  })
+
   it('refreshStale 只收 stale 集合内的节点', () => {
     const { store, promptId, genId } = setup()
     const g = store.getSnapshot()

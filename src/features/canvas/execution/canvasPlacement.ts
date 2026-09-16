@@ -51,20 +51,18 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
         return { targetId: task.slot.nodeId, commands: [] }
       }
       /**
-       * 新建承载节点。
+       * 新建承载节点（用户 2026-09-16 定的顺序）：
        *
-       * 用户 2026-09-16 报「只是新建了一个空白节点，不在原始节点右侧、没有连线」：
-       * 此前这里只发了一条 `node.create`，`at` 写死 `{x:0,y:0}`、既不带 `connectFrom`
-       * 也不建连线 —— 新节点于是孤零零落在原点。
+       *   ① 先**建节点**（落在源节点右侧）
+       *   ② 再**连一条线**（源节点 → 新节点，标明这一版产物的来源）
+       *   ③ 之后结果落到这个新节点上（由 `commit` 写 `assetHash`）
        *
-       * 现在按「正常生图流程」补齐三件事：
-       *  ① 落在**源节点右侧**（同一行，留出水平间距）；
-       *  ② 从源节点**连一条线**过来（它就是这一版产物的来源）；
-       *  ③ 标题取槽位给的「原节点名的输出N」。
+       * 之前这里只发了 `node.create`、`at` 写死原点、不建连线，
+       * 于是新节点孤零零落在左上角且没有来源关系。
        */
       const connectFrom = task.slot.kind === 'new' ? task.slot.connectFrom : undefined
-      const source = connectFrom ? task.sourceRect : undefined
-      const at = source
+      const source = task.sourceRect
+      const at = connectFrom
         ? { x: source.x + source.w + NEW_NODE_GAP_X, y: source.y }
         : { x: 0, y: 0 }
       const targetId = createId('node')
@@ -72,13 +70,12 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
       /**
        * 新节点的数据必须是**自己的拷贝**：
        *  - 不能与源节点共享同一个 data 对象引用 —— reducer 会原样入库，
-       *    之后两个节点在状态里持有同一份对象，渲染层的引用比较会把
-       *    「给新节点写的产物」误判成「源节点也变了」（用户 2026-09-16 报）；
-       *  - `assetHash` / `thumbOrder` / `naturalSize` 是**上一版的产物**，
-       *    新节点应该回到「等待生成」的空态，而不是一开始就顶着旧图。
+       *    两个节点在状态里持有同一份对象，渲染层的引用比较会把
+       *    「给新节点写的产物」误判成「源节点也变了」；
+       *  - `assetHash` / `naturalSize` / `thumbOrder` 是**上一版的产物**，
+       *    新节点应回到「等待生成」的空态，而不是一开始就顶着旧图。
        */
       const data = structuredClone(task.sourceData) as unknown as Record<string, unknown>
-      // 上一版产物不属于新节点：回到「等待生成」的空态
       delete data.assetHash
       delete data.naturalSize
       data.thumbOrder = []
@@ -86,6 +83,7 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
       return {
         targetId,
         commands: [
+          // ① 建节点
           {
             kind: 'node.create',
             projectId: getProjectId(),
@@ -95,14 +93,9 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
             title,
             data,
           },
+          // ② 连线：源节点 → 新节点
           ...(connectFrom
-            ? [
-                {
-                  kind: 'edge.connect' as const,
-                  source: connectFrom,
-                  target: targetId,
-                },
-              ]
+            ? [{ kind: 'edge.connect' as const, source: connectFrom, target: targetId }]
             : []),
         ],
       }
