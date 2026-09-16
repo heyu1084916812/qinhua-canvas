@@ -5,15 +5,15 @@
  * - 挂在 `[data-world]` 之外，用**屏幕坐标**绝对定位 ⇒ 缩放 / 平移只重算锚点，
  *   栏目自身尺寸不随画布缩放（§6.8「缩放独立性」同源）；
  * - world → screen 用同一个换算：屏幕 = (世界 − 视口平移) × zoom；
- * - **但显示/隐藏规则刻意与面板不同**：面板是 840px 的大块头，拖动时遮挡视线、
- *   松手后还要「追着节点跑」很烦，所以 §6.15 让它拖动即隐、拖完也保持隐藏；
- *   本栏只有一个按钮条，它的全部意义就是**跟着节点**，因此拖动中照常显示并随节点移动，
- *   拖完也不消失。只有「多选（这一栏属于谁有歧义）」与「没选中」才隐藏。
+ * - 显示/隐藏规则与面板**完全一致**（用户 2026-09-17：跟随栏要跟创作面板一个样）：
+ *   §6.15「拖动期间立即隐藏；发生真实位移的拖动，松手后保持隐藏，
+ *   直到下一次显式选中」。两个标记都从 store 读（`dragging` / `panelDismissed`），
+ *   与 PanelLayer 同源，因此两者永远同时出现、同时消失。
  *
- * 差别只有一处：面板在节点**下方**，本栏在节点**上方**（标题之上），
- * 因此纵向锚点是节点顶边再上移「栏高 + 间距」。上方空间不够时翻到节点下方贴着顶边。
+ * 差别只有纵向位置：面板在节点**下方**，本栏在节点**上方**（标题之上），
+ * 即纵向锚点 = 节点顶边再上移「栏高 + 间距」（用户 2026-09-17 起不再翻转到下方）。
  */
-import { useEffect } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { useCanvasStore, useGraph, useSelection, useViewportState } from '../storeContext'
 import { toWorldRectInGraph } from '../../../domain/canvas/geometry/coords'
@@ -48,6 +48,15 @@ export function NodeFollowBar({ onClose, onOpenSettings }: NodeFollowBarProps = 
   const viewport = useViewportState()
   const exec = useCanvasExecution()
 
+  // §6.15：拖动期间立即隐藏；**真实位移**的拖动松手后保持隐藏，直到下一次显式选中
+  // （`setSelection` 会复位 panelDismissed）。普通单击（无位移）不算拖动，照常出现。
+  const dragging = useSyncExternalStore(store.subscribe, store.isDragging, store.isDragging)
+  const dismissed = useSyncExternalStore(
+    store.subscribe,
+    store.isPanelDismissed,
+    store.isPanelDismissed,
+  )
+
   /**
    * Esc：跟随栏可见时**先收起它**（取消选中），而不是等画布那层去兜。
    *
@@ -70,7 +79,8 @@ export function NodeFollowBar({ onClose, onOpenSettings }: NodeFollowBarProps = 
     return () => window.removeEventListener('keydown', onKey)
   }, [store, selection.length])
 
-  // 多选不显示：「这一栏属于谁」有歧义（§6.15 同款判据）
+  // 与创作面板同款：拖动中 / 刚拖完（未重新选中）/ 多选（归属有歧义）都不显示
+  if (dragging || dismissed) return null
   if (selection.length !== 1) return null
   const node = graph.nodes.find((n) => n.id === selection[0])
   if (!node || !FOLLOW_TYPES.has(node.type)) return null

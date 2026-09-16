@@ -37,17 +37,6 @@ export function GenerationNodeView(props: NodeViewProps) {
    * 节点是否在跑，只认 `props.running`（由执行宿主按 nodeId 反查，见 NodeLayer）。
    */
   const overlay = props.error ? 'error' : props.running ? 'running' : null
-  /**
-   * 右上角的**产物像素**标签（用户 2026-09-17）。
-   *
-   * 只认 `naturalSize`——它就是产物的真实像素（从产物字节的文件头读出，
-   * 见 `domain/shared/imageSize`），不是「我们向渠道请求了多大」。
-   * 没有素材或读不出尺寸时**不显示**（不猜、不拿请求值顶替）：
-   * 这正是 §6.18 把「请求像素 / 实际像素」分成两组字段的原因——
-   * 合成一组时两个数恒等，看着对上了、其实什么都没证明。
-   */
-  const natural = data.naturalSize
-  const showPixels = !!data.assetHash && !!natural && natural.width > 0 && natural.height > 0
 
   return (
     <div
@@ -120,11 +109,6 @@ export function GenerationNodeView(props: NodeViewProps) {
             <span className={styles.spinner} aria-label="生成中" />
           )}
         </div>
-      )}
-      {showPixels && (
-        <span className={styles.pixels} data-node-pixels>
-          {natural!.width}×{natural!.height}
-        </span>
       )}
     </div>
   )

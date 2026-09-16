@@ -151,30 +151,6 @@
   overflow-wrap: anywhere;
 }
 
-/*
- * 右上角产物像素（用户 2026-09-17）：有素材就标出**真实像素**（宽×高）。
- *
- * 位置在右上角内侧，与陈旧圆点（NodeFrame 的 `.staleDot`，右上 6px）错开——
- * 本标签贴着**上边**、水平靠右但留出圆点的位置，两个标记不会叠在一起。
- * `pointer-events: none`：它只是读数，不该挡住节点的选中 / 拖动。
- */
-.pixels {
-  position: absolute;
-  top: 4px;
-  right: 16px;
-  z-index: 2;
-  padding: 1px 5px;
-  border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--bg-surface) 82%, transparent);
-  color: var(--text-2);
-  font-family: var(--font-sans);
-  font-size: 9px;
-  font-weight: var(--fw-chip);
-  line-height: 1.5;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
 @keyframes spin {
   to {
     transform: rotate(360deg);

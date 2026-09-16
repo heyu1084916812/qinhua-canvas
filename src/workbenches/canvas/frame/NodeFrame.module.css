@@ -35,17 +35,29 @@
 /* 标题浮在节点**外**左上方（§6.6 通用规则）。
    绝对定位在 frame 上沿之外，因此不占用节点内部空间——节点框整体就是内容区。
    留在 DOM 里作 frame 的子元素：单击 / 双击仍冒泡到 frame 的 onPointerDown（选中 + 拖动）。 */
+/*
+ * 标题排（§6.6）：浮在节点框**外**的上沿。
+ *
+ * 这一排现在是「左：节点名 / 右：产物像素」两栏：
+ * 宽度放开到节点左右各留 8px（`left/right: -8px`），像素才能贴到**节点外部的右上角**，
+ * 而不是挤在标题文字后面——用户要的是「节点外的右上角、和名字同一排」。
+ * `pointer-events: none` 加在**排**上：它整体浮在节点外，不该抢画布的指针事件；
+ * 标题要能双击改名，故标题自己收回 `auto`（见 `.title`）。
+ */
 .header {
   position: absolute;
-  left: 0;
+  left: -8px;
+  right: -8px;
   bottom: 100%;
-  max-width: 100%;
   height: 22px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
   padding: 0 2px;
   margin-bottom: 2px;
   box-sizing: border-box;
+  pointer-events: none;
 }
 
 .title {
@@ -57,6 +69,26 @@
   text-overflow: ellipsis;
   cursor: text;
   user-select: none;
+  /* 排本身不吃事件，标题要能双击改名 → 这里显式收回 */
+  pointer-events: auto;
+}
+
+/*
+ * 产物像素（用户 2026-09-17）：节点**外**的右上角、与节点名同一排。
+ *
+ * 弱化呈现（次要文字色 + 更小字号）：它是读数，不是可操作控件，
+ * 不能和节点名抢注意力。`pointer-events: none` —— 不该挡住选中 / 拖动。
+ */
+.pixels {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  line-height: 1;
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
 }
 
 .titleInput {

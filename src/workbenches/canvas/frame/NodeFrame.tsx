@@ -6,6 +6,7 @@ import type { Rect } from '../../../domain/canvas/geometry/rect'
 import type { ResizeLock } from '../../../domain/canvas/nodeSpecs/resizeLock'
 import { lockedResize } from '../../../domain/canvas/nodeSpecs/resizeLock'
 import { useCanvasStore } from '../storeContext'
+import { assetPixelsOf, formatPixels } from './assetPixels'
 import styles from './NodeFrame.module.css'
 
 export type ResizePhase = 'begin' | 'move' | 'end'
@@ -65,6 +66,14 @@ export function NodeFrame(props: NodeFrameProps) {
   const [draft, setDraft] = useState(node.title)
   const inputRef = useRef<HTMLInputElement>(null)
   const store = useCanvasStore()
+  /**
+   * 产物像素（用户 2026-09-17）：**挂在节点外**的右上角、与节点名同一排。
+   *
+   * 为什么在标题排而不是节点内部：标题按 §6.6 浮在节点框之外，
+   * 那一排是「描述这个节点」的位置（名字 + 读数），画进节点内部会压住素材本身。
+   * 取值规则在 `./assetPixels`（纯函数，可单测），本层只渲染。
+   */
+  const pixels = assetPixelsOf(node)
 
   // 容器（分组 / 批量 / 画板）的子节点：缩放手柄不渲染（尺寸由容器布局决定）。
   // 端点：分组 / 批量子节点隐藏（§6.11「组内节点端点隐藏」）；
@@ -176,6 +185,11 @@ export function NodeFrame(props: NodeFrameProps) {
               }}
             >
               {node.title}
+            </span>
+          )}
+          {pixels && (
+            <span className={styles.pixels} data-node-pixels>
+              {formatPixels(pixels)}
             </span>
           )}
         </div>

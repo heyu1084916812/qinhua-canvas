@@ -8001,41 +8001,62 @@ async function g58(browser) {
   rec(g, '缩放后仍与节点水平居中对齐', Math.abs(barCenter1 - nodeCenter1) < 2, `Δ=${(barCenter1 - nodeCenter1).toFixed(2)}`)
   await page.screenshot({ path: `${OUT}/73-g58-follow-bar-zoom.png` })
 
-  // 3) 拖动节点：栏**跟着走**（本栏的语义就是跟随，不像大面板那样拖动即隐）
+  /*
+   * 3) 拖动节点：与创作面板**同一套规则**（用户 2026-09-17）
+   *   §6.15：拖动中立即隐藏；真实位移的拖动松手后保持隐藏，直到下一次显式选中。
+   * 断言「创作面板也一起隐藏」：两者同源（都读 dragging / panelDismissed），
+   * 若哪天只有一个隐藏，用户会看到「面板没了但按钮条还在」的割裂感。
+   */
+  const creationPanel = page.locator('[data-creation-panel]')
   const grab = { x: Math.round(n1.x + 14), y: Math.round(n1.y + n1.height - 14) }
   await page.mouse.move(grab.x, grab.y)
   await page.mouse.down()
   await page.mouse.move(grab.x + 80, grab.y + 30, { steps: 10 })
   await sleep(200)
-  rec(g, '拖动中跟随栏不消失', (await bar.count()) === 1, `count=${await bar.count()}`)
-  const nDragging = await gen.boundingBox()
-  const bDragging = await bar.boundingBox()
-  rec(
-    g,
-    '拖动中仍与节点居中对齐（真的在跟随）',
-    Math.abs(bDragging.x + bDragging.width / 2 - (nDragging.x + nDragging.width / 2)) < 2,
-    `Δ=${(bDragging.x + bDragging.width / 2 - (nDragging.x + nDragging.width / 2)).toFixed(2)}`,
-  )
+  rec(g, '★ 拖动中跟随栏隐藏（与创作面板同款）', (await bar.count()) === 0, `count=${await bar.count()}`)
+  rec(g, '拖动中创作面板也隐藏（两者同源）', (await creationPanel.count()) === 0, `count=${await creationPanel.count()}`)
   await page.mouse.up()
   await sleep(300)
-  rec(g, '拖动结束后跟随栏仍在', (await bar.count()) === 1, `count=${await bar.count()}`)
+  rec(g, '★ 拖动结束后仍不显示（等下一次显式选中）', (await bar.count()) === 0, `count=${await bar.count()}`)
+  rec(g, '拖动结束后创作面板也不显示', (await creationPanel.count()) === 0, `count=${await creationPanel.count()}`)
   await page.screenshot({ path: `${OUT}/73-g58-follow-bar-drag.png` })
+
+  // 再次点击节点 → 两者一起回来
+  const nAgain = await gen.boundingBox()
+  await gen.click({ position: { x: 14, y: Math.max(16, nAgain.height - 14) } })
+  await sleep(400)
+  rec(g, '★ 再次点击后跟随栏回来', (await bar.count()) === 1, `count=${await bar.count()}`)
+  rec(g, '再次点击后创作面板也回来', (await creationPanel.count()) === 1, `count=${await creationPanel.count()}`)
+
+  // 原地单击（无位移）不算拖动 → 栏照常出现
+  const nTap = await gen.boundingBox()
+  await gen.click({ position: { x: 14, y: Math.max(16, nTap.height - 14) } })
+  await sleep(300)
+  rec(g, '原地单击（无位移）不算拖动，栏照常出现', (await bar.count()) === 1, `count=${await bar.count()}`)
 
   // 3.5) ★ 节点拖到画布**顶端**时栏**不翻到下方**（用户 2026-09-17）
   const nTop = await gen.boundingBox()
   const gTop = { x: Math.round(nTop.x + 14), y: Math.round(nTop.y + nTop.height - 14) }
+  // 只拖到「顶栏下沿之下一点」：拖出画布可视区后节点点不中，后续断言会全部落空
+  const TOP_SAFE = 70
   await page.mouse.move(gTop.x, gTop.y)
   await page.mouse.down()
-  await page.mouse.move(gTop.x, 8, { steps: 14 })
+  await page.mouse.move(gTop.x, TOP_SAFE, { steps: 14 })
   await page.mouse.up()
   await sleep(400)
-  const bTop = await bar.boundingBox()
+  // 拖动会隐藏跟随栏（新规则）→ 先重新点选让它出现，再量位置
+  rec(g, '拖到顶端后跟随栏处于隐藏态（等再次点击）', (await bar.count()) === 0, `count=${await bar.count()}`)
+  // 跟随栏浮在节点**上方**，会挡住节点上半部分 → 从下半部分点选
+  const nAfter0 = await gen.boundingBox()
+  await gen.click({ position: { x: 14, y: Math.max(10, nAfter0.height - 20) } })
+  await sleep(400)
+  const bTop = await bar.boundingBox().catch(() => null)
   const nAfter = await gen.boundingBox()
   rec(
     g,
     '★ 节点顶到画布顶端时栏仍在其上方（不自动翻下）',
-    bTop.y + bTop.height <= nAfter.y + 2,
-    `bar底=${Math.round(bTop.y + bTop.height)} node顶=${Math.round(nAfter.y)}`,
+    !!bTop && bTop.y + bTop.height <= nAfter.y + 2,
+    bTop ? `bar底=${Math.round(bTop.y + bTop.height)} node顶=${Math.round(nAfter.y)}` : 'bar=null',
   )
   await page.screenshot({ path: `${OUT}/73-g58-follow-bar-top.png` })
   // 把节点拖回画布可视区：拖到顶端后它有一部分在画布外，后续点击会落空
@@ -8158,7 +8179,22 @@ async function g59(browser) {
   const box = await label.first().boundingBox()
   const pe = await label.first().evaluate((e) => getComputedStyle(e).pointerEvents)
   rec(g, '标签不吃指针事件（不挡拖动）', pe === 'none', `pointer-events=${pe}`)
-  rec(g, '标签贴在节点右上角', !!box && box.width > 0 && box.height > 0, box ? `${Math.round(box.width)}×${Math.round(box.height)}` : 'null')
+  rec(g, '标签可见（有实际尺寸）', !!box && box.width > 0 && box.height > 0, box ? `${Math.round(box.width)}×${Math.round(box.height)}` : 'null')
+
+  /*
+   * 位置契约（用户 2026-09-17）：像素在**节点外部**的右上角，与节点名同一排。
+   * 三条几何断言，缺一条都可能退化成「画在图片右上角」（第一版就做错了）：
+   *   ① 在节点框**上方**（不是内部）；
+   *   ② 与标题**同一排**（纵向有重叠）；
+   *   ③ 比标题更靠右（在节点外的右上角）。
+   */
+  const nBox = await gen.boundingBox()
+  const titleBox = await gen.locator('[data-node-title]').boundingBox().catch(() => null)
+  rec(g, '★ 在节点框外部（框的上方）', box.y + box.height <= nBox.y + 2, `label底=${Math.round(box.y + box.height)} node顶=${Math.round(nBox.y)}`)
+  const sameRow = !!titleBox && box.y < titleBox.y + titleBox.height && box.y + box.height > titleBox.y
+  rec(g, '★ 与节点名同一排（纵向重叠）', sameRow, `label=${Math.round(box.y)}..${Math.round(box.y + box.height)} title=${titleBox ? Math.round(titleBox.y) + '..' + Math.round(titleBox.y + titleBox.height) : 'null'}`)
+  const rightOfTitle = !!titleBox && box.x > titleBox.x + titleBox.width - 2
+  rec(g, '★ 在节点名右侧（节点外的右上角）', rightOfTitle, `label.x=${Math.round(box.x)} title右=${titleBox ? Math.round(titleBox.x + titleBox.width) : 'null'}`)
 
   await page.screenshot({ path: `${OUT}/74-g59-pixels.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
