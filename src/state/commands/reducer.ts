@@ -592,8 +592,11 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
     case 'node.runRecord.append': {
       // 版本历史「从不删除」（产品文档 §6.21）→ 不进撤销栈：撤销一次生成不该删掉它的历史
       // 只落 runRecords 表，图快照本身不变（applyGraphPatches 不路由非图表）
+      // record.nodeId 以命令层的 nodeId 为准（落位改到承载节点时两者可能不同），
+      // 否则历史会挂在源节点名下、而真正收图的节点查不到这条记录。
+      const row = { ...(cmd.record as unknown as Record<string, unknown>), nodeId: cmd.nodeId }
       return {
-        patches: [{ op: 'upsert', table: 'runRecords', row: cmd.record as unknown as Row }],
+        patches: [{ op: 'upsert', table: 'runRecords', row: row as unknown as Row }],
         transaction: { mode: 'silent' },
       }
     }
