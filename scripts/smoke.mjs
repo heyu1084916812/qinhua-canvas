@@ -7914,7 +7914,148 @@ async function g57(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g22, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g41, g42, g43, g44, g45, g46, g47, g48, g49, g50, g51, g52, g53, g54, g55, g56, g57]
+// ────────────────────────────────────────────────────────────
+// G58 节点跟随功能栏（用户 2026-09-16 需求）：
+// 单选出现、锚在节点上方且水平居中、缩放只改位置不改尺寸、
+// 拖动时跟随（不消失）、多选隐藏、删除按钮真的删掉节点
+// ────────────────────────────────────────────────────────────
+async function g58(browser) {
+  const g = 'G58 节点跟随栏'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(800)
+
+  const bar = page.locator('[data-node-follow-bar]')
+  rec(g, '未选中时没有跟随栏', (await bar.count()) === 0, `count=${await bar.count()}`)
+
+  // 1) 单选生成节点 → 栏出现在节点上方、水平居中
+  const gen = page.locator('[data-node-type="generation"]').first()
+  const n0 = await gen.boundingBox()
+  await gen.click({
+    position: { x: Math.max(8, Math.min(40, n0.width / 2 - 30)), y: Math.max(16, Math.min(n0.height - 14, 72)) },
+  })
+  await sleep(300)
+  rec(g, '单选生成节点出现跟随栏', (await bar.count()) === 1, `count=${await bar.count()}`)
+  rec(
+    g,
+    '默认挂在节点上方',
+    (await bar.getAttribute('data-node-follow-placement')) === 'above',
+    `placement=${await bar.getAttribute('data-node-follow-placement')}`,
+  )
+  const b0 = await bar.boundingBox()
+  const nodeCenter0 = n0.x + n0.width / 2
+  const barCenter0 = b0.x + b0.width / 2
+  rec(g, '水平中心与节点对齐', Math.abs(barCenter0 - nodeCenter0) < 2, `Δ=${(barCenter0 - nodeCenter0).toFixed(2)}`)
+  rec(g, '栏在节点顶边之上（不压节点）', b0.y + b0.height <= n0.y + 2, `bar底=${(b0.y + b0.height).toFixed(1)} node顶=${n0.y.toFixed(1)}`)
+  const actions = await page
+    .locator('[data-follow-action]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-follow-action')))
+  rec(g, '动作齐全（生成/重命名/复制/删除/关闭）', ['run', 'rename', 'duplicate', 'delete', 'close'].every((a) => actions.includes(a)), actions.join(','))
+  await page.screenshot({ path: `${OUT}/73-g58-follow-bar.png` })
+
+  // 2) 缩放：位置跟着变，栏自身高度不变（§6.8 缩放独立性）
+  const h0 = b0.height
+  await page.mouse.move(640, 400)
+  await page.keyboard.down('Control')
+  await page.mouse.wheel(0, 300)
+  await page.keyboard.up('Control')
+  await sleep(400)
+  const b1 = await bar.boundingBox()
+  const n1 = await gen.boundingBox()
+  rec(g, '缩放后栏高不变（尺寸不随画布缩放）', Math.abs(b1.height - h0) < 1, `${h0} → ${b1.height}`)
+  const barCenter1 = b1.x + b1.width / 2
+  const nodeCenter1 = n1.x + n1.width / 2
+  rec(g, '缩放后仍与节点水平居中对齐', Math.abs(barCenter1 - nodeCenter1) < 2, `Δ=${(barCenter1 - nodeCenter1).toFixed(2)}`)
+  await page.screenshot({ path: `${OUT}/73-g58-follow-bar-zoom.png` })
+
+  // 3) 拖动节点：栏**跟着走**（本栏的语义就是跟随，不像大面板那样拖动即隐）
+  const grab = { x: Math.round(n1.x + 14), y: Math.round(n1.y + n1.height - 14) }
+  await page.mouse.move(grab.x, grab.y)
+  await page.mouse.down()
+  await page.mouse.move(grab.x + 80, grab.y + 30, { steps: 10 })
+  await sleep(200)
+  rec(g, '拖动中跟随栏不消失', (await bar.count()) === 1, `count=${await bar.count()}`)
+  const nDragging = await gen.boundingBox()
+  const bDragging = await bar.boundingBox()
+  rec(
+    g,
+    '拖动中仍与节点居中对齐（真的在跟随）',
+    Math.abs(bDragging.x + bDragging.width / 2 - (nDragging.x + nDragging.width / 2)) < 2,
+    `Δ=${(bDragging.x + bDragging.width / 2 - (nDragging.x + nDragging.width / 2)).toFixed(2)}`,
+  )
+  await page.mouse.up()
+  await sleep(300)
+  rec(g, '拖动结束后跟随栏仍在', (await bar.count()) === 1, `count=${await bar.count()}`)
+  await page.screenshot({ path: `${OUT}/73-g58-follow-bar-drag.png` })
+
+  // 4) 多选 → 隐藏（这一栏属于谁有歧义）。
+  //    用跟随栏自己的「复制」造出第二个节点（它带 24px 偏移，不会与原件重叠），
+  //    再 Shift + 点击原件加选（§6.15：Shift + 按下 = 增减选中）。
+  await page.locator('[data-node-type="generation"]').first().click({ position: { x: 20, y: 60 } })
+  await sleep(300)
+  await page.locator('[data-follow-action="duplicate"]').click()
+  await sleep(500)
+  const genCount2 = await page.locator('[data-node-type="generation"]').count()
+  rec(g, '跟随栏「复制」真的多出一个节点', genCount2 === 2, `count=${genCount2}`)
+  const copyBox = await page.locator('[data-node-type="generation"]').nth(1).boundingBox()
+  await page.keyboard.down('Shift')
+  await page.locator('[data-node-type="generation"]').nth(1).click({ position: { x: 20, y: Math.min(60, copyBox.height - 14) } })
+  await page.keyboard.up('Shift')
+  await sleep(400)
+  const selectedFrames = await page
+    .locator('[data-node-id]')
+    .evaluateAll((els) => els.filter((e) => e.className.includes('selected')).length)
+  rec(g, 'Shift+点击加选成多选', selectedFrames >= 2, `selected=${selectedFrames}`)
+  rec(g, '多选时隐藏跟随栏', (await bar.count()) === 0, `count=${await bar.count()}`)
+
+  // 5) 删除按钮：真的删掉节点，且撤销可恢复
+  const before = await page.locator('[data-node-type="generation"]').count()
+  // 先把两个节点**拉开**：复制体只偏 24px、与原件重叠 216px，
+  // 重叠区里点击一律命中上层节点（探针实测：点了但选中态不变）。
+  // 取消多选 → 单选复制体 → 拖到空白处 → 再单选它，才是一个能稳定点中的目标。
+  // Esc = 取消选中（画布既定键位）；右下角压着小地图，「点空白」在那儿清不掉选中
+  await page.keyboard.press('Escape')
+  await sleep(300)
+  rec(g, 'Esc 取消选中后跟随栏消失', (await bar.count()) === 0, `count=${await bar.count()}`)
+  const victim = page.locator('[data-node-type="generation"]').nth(1)
+  const vb = await victim.boundingBox()
+  await victim.click({ position: { x: 14, y: Math.max(16, vb.height - 14) } })
+  await sleep(300)
+  const grab2 = { x: Math.round(vb.x + 14), y: Math.round(vb.y + vb.height - 14) }
+  await page.mouse.move(grab2.x, grab2.y)
+  await page.mouse.down()
+  await page.mouse.move(grab2.x - 260, grab2.y + 160, { steps: 12 })
+  await page.mouse.up()
+  await sleep(400)
+  const vb2 = await page.locator('[data-node-type="generation"]').nth(1).boundingBox()
+  await page.locator('[data-node-type="generation"]').nth(1).click({ position: { x: 14, y: Math.max(16, vb2.height - 14) } })
+  await sleep(300)
+  rec(g, '重新单选后跟随栏回来', (await bar.count()) === 1, `count=${await bar.count()}`)
+  await page.locator('[data-follow-action="delete"]').click()
+  await sleep(400)
+  const after = await page.locator('[data-node-type="generation"]').count()
+  rec(g, '跟随栏「删除」真的删掉节点', after === before - 1, `${before} → ${after}`)
+  await page.keyboard.press('Control+z')
+  await sleep(400)
+  rec(
+    g,
+    '删除可撤销（节点回来）',
+    (await page.locator('[data-node-type="generation"]').count()) === before,
+    `count=${await page.locator('[data-node-type="generation"]').count()}`,
+  )
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g22, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g41, g42, g43, g44, g45, g46, g47, g48, g49, g50, g51, g52, g53, g54, g55, g56, g57, g58]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

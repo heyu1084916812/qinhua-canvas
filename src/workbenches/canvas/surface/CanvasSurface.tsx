@@ -24,6 +24,7 @@ import { EdgeLayer } from '../layers/EdgeLayer'
 import { NodeLayer } from '../layers/NodeLayer'
 import { OverlayLayer } from '../layers/OverlayLayer'
 import { PanelLayer } from '../panels/PanelLayer'
+import { NodeFollowBar } from '../toolbar/NodeFollowBar'
 import { VersionHistoryPanel } from '../panels/VersionHistoryPanel'
 import { VersionPreviewLayer } from '../panels/VersionPreviewLayer'
 import { CanvasNotice } from './CanvasNotice'
@@ -476,6 +477,7 @@ const onPointerDown = (e: ReactPointerEvent) => {
         <NodeLayer onPortPointerDown={beginEdgeDrag} surfaceRef={ref} onOpenSettings={onOpenSettings} />
       </div>
       <OverlayLayer marquee={marquee} />
+      <NodeFollowBar onOpenSettings={onOpenSettings} />
       <VersionPreviewLayer />
       <VersionHistoryPanel />
       <PanelLayer onOpenSettings={onOpenSettings} />
