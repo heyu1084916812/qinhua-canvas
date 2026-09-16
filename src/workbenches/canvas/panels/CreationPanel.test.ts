@@ -110,6 +110,39 @@ describe('CreationPanel · 无可用平台时的引导条', () => {
 })
 
 /**
+ * 并发生成（用户报「一个节点生成时其他节点无法生成」）。
+ *
+ * 面板此前把 `globalRunning` 直接接到生成按钮的 `disabled`：任意一个节点在跑，
+ * 其他节点的生成按钮就灰掉。并发槽位已经在执行宿主侧打开，界面必须同步放开，
+ * 否则用户看到按钮灰着，会以为功能没有修好。
+ */
+describe('CreationPanel · 并发生成不再全局禁用按钮', () => {
+  it('另一个节点在跑时，本节点生成按钮仍可点', async () => {
+    const channels = await channelStore([
+      { enabled: true, models: [{ id: 'relay-img', category: 'image', inputTypes: ['text'], maxCount: 4 }] },
+    ])
+    const html = renderToString(
+      createElement(
+        ChannelStoreContext.Provider,
+        { value: channels },
+        createElement(CreationPanel, {
+          data: { ...generationSpec.createDefaultData(), channelId: 'ch-1', model: 'relay-img' },
+          model: emptyModel,
+          running: false,
+          globalRunning: true,
+          error: null,
+          onEvent: () => {},
+          onClose: () => {},
+          showCategoryToggle: true,
+        }),
+      ),
+    )
+    expect(html).not.toContain('全局工作流运行中')
+    expect(html).not.toMatch(/aria-label="生成当前节点"[^>]*disabled/)
+  })
+})
+
+/**
  * 第三种空态（§7.4 之后才存在的）：平台选好了，但该渠道一个模型都没勾选。
  * 「拉取到的模型默认全部未勾选」，所以这是**新配渠道的默认状态**，不是边缘情况；
  * 而渠道没勾模型 → 生成节点取不到 model → 点生成**毫无动静**，

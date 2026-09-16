@@ -226,7 +226,15 @@ export function CreationPanel(props: CreationPanelProps) {
   const modelBelongsTo = (m: 'image' | 'video') =>
     !!data.model && channelModels.some((x) => x.id === data.model && x.category === m)
 
-  const busyGlobal = !props.running && props.globalRunning
+  /**
+   * 全局运行中**不再**禁用本节点的生成按钮（用户报「一个节点生成时其他节点无法生成」）。
+   *
+   * 并发槽位已经在执行宿主侧打开（多条 plan 各自持有 controller 与适配器表），
+   * 界面必须同步放开——否则用户看到按钮灰着，以为功能没修好。
+   * `globalRunning` 仍保留给「本节点未参与但全局有运行」的状态展示（如全局转圈），
+   * 它不再是**禁用**理由。
+   */
+  const busyGlobal = false
   /**
    * 生成按钮文案（§6.7 / §6.8）。
    *

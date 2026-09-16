@@ -80,8 +80,15 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
     [platform.storage, platform.credentials],
   )
 
-  const adapterMapRef = useRef<Map<string, ChannelAdapter>>(new Map())
-  const taskToNodeRef = useRef<Map<string, string>>(new Map())
+  /**
+   * 并发运行各自的适配器表：planId → (channelId → adapter)。
+   *
+   * 不能只存一份全局 map —— 第二条链路启动时会覆盖第一条的解析结果，
+   * 第一条的 `channelResolver` 就会拿到错渠道或直接抛「未解析到渠道适配器」。
+   */
+  const adapterMapsRef = useRef<Map<string, Map<string, ChannelAdapter>>>(new Map())
+  /** 并发运行各自的 task → node 反查表；按 planId 分开，避免后发计划覆盖先发计划 */
+  const taskToNodeMapsRef = useRef<Map<string, Map<string, string>>>(new Map())
   const planIdRef = useRef<string | null>(null)
   const [nodeStates, setNodeStates] = useState<Map<string, RunTaskState>>(() => new Map())
 
@@ -207,8 +214,8 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
           store.dispatch(c, transaction)
         }
       },
-      channelResolver: (request: RunRequest): ChannelAdapter => {
-        const a = adapterMapRef.current.get(request.channelId)
+      channelResolver: (request: RunRequest, runPlanId: string): ChannelAdapter => {
+        const a = adapterMapsRef.current.get(runPlanId)?.get(request.channelId)
         if (!a) throw new Error(`[execution] 未解析到渠道适配器：${request.channelId}`)
         return a
       },
@@ -216,7 +223,12 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       // 画布落位适配器：槽位/结果组等画布专有落位逻辑都在这里（架构 §5.5 路径 B）
       placement: createCanvasPlacement(() => store.getSnapshot().projectId),
       onTaskUpdate: (taskId: string, state: RunTaskState) => {
-        const nodeId = taskToNodeRef.current.get(taskId)
+        // 同一个 taskId 只属于一个 plan；扫各表即可，无需依赖「当前 plan」这个全局指针
+        let nodeId: string | undefined
+        for (const m of taskToNodeMapsRef.current.values()) {
+          nodeId = m.get(taskId)
+          if (nodeId) break
+        }
         if (nodeId) setNodeStates((prev) => new Map(prev).set(nodeId, state))
       },
       onFinish: () => {
@@ -256,8 +268,8 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         }
         map.set(id, createChannelAdapter(cfg, platform))
       }
-      adapterMapRef.current = map
-      taskToNodeRef.current = new Map(plan.tasks.map((t) => [t.id, t.nodeId]))
+      adapterMapsRef.current.set(plan.id, map)
+      taskToNodeMapsRef.current.set(plan.id, new Map(plan.tasks.map((t) => [t.id, t.nodeId])))
       planIdRef.current = plan.id
 
       setNodeStates((prev) => {
@@ -279,10 +291,19 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
 
       setNodeStates((prev) => {
         const n = new Map(prev)
-        for (const t of plan.tasks) n.delete(t.nodeId)
+        // 只清「本 plan 结束且没有别的 plan 仍占用同一节点」的条目；
+        // 并发跑同一节点属于极少见但合法的情况，不能把另一条链路的进度抹掉
+        const stillRunning = new Set(
+          [...taskToNodeMapsRef.current.entries()]
+            .filter(([id]) => id !== plan.id)
+            .flatMap(([, m]) => [...m.values()]),
+        )
+        for (const t of plan.tasks) if (!stillRunning.has(t.nodeId)) n.delete(t.nodeId)
         return n
       })
-      planIdRef.current = null
+      adapterMapsRef.current.delete(plan.id)
+      taskToNodeMapsRef.current.delete(plan.id)
+      if (planIdRef.current === plan.id) planIdRef.current = null
     },
     [store, channels, repo, platform, startRun],
   )

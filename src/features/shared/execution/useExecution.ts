@@ -5,6 +5,7 @@ import type { ChannelAdapter } from '../../../platform/channels/types'
 import type { TransactionBoundary } from '../../../state/shared/types'
 import type { ExecutionPlacement } from './placement'
 import { runEngine, type RunPolicy, type RunSummary, type RunTaskState } from './runEngine'
+import { createRunRegistry } from './runRegistry'
 
 /**
  * 执行宿主（架构 §5.5）。**跨工作台共享**（本文件位于 features/shared/execution）。
@@ -19,7 +20,11 @@ import { runEngine, type RunPolicy, type RunSummary, type RunTaskState } from '.
 export interface ExecutionHost<TTask extends RunTask, TCommand> {
   /** 把 runEngine 的命令落回 store；store 侧需支持事务边界覆盖（见 CanvasStore.dispatch(cmd, tx)） */
   writeBack: (commands: TCommand[], transaction?: TransactionBoundary) => void
-  channelResolver: (request: RunRequest) => ChannelAdapter
+  /**
+   * 解析渠道适配器。`runPlanId` 告诉宿主「这是哪条并发链路在要适配器」——
+   * 宿主按 planId 分开存放预解析结果，才不会让后发计划覆盖先发计划。
+   */
+  channelResolver: (request: RunRequest, runPlanId: string) => ChannelAdapter
   projectId: string
   /** 落位 / 写回适配器（canvas：CanvasPlacement、comic：ComicPlacement） */
   placement: ExecutionPlacement<TTask, TCommand>
@@ -33,6 +38,7 @@ export interface UseExecution<TTask extends RunTask = RunTask> {
   startRun(plan: RunPlan<TTask>): Promise<RunSummary>
   cancelRun(runPlanId: string): void
   runningPlanId: string | null
+  runningPlanIds: string[]
   taskStates: Map<string, RunTaskState>
   isRunning: boolean
 }
@@ -40,23 +46,30 @@ export interface UseExecution<TTask extends RunTask = RunTask> {
 export function useExecution<TTask extends RunTask, TCommand>(
   host: ExecutionHost<TTask, TCommand>,
 ): UseExecution<TTask> {
-  const [runningPlanId, setRunningPlanId] = useState<string | null>(null)
+  /**
+   * 并发运行表：planId → AbortController。
+   *
+   * 早先这里只有**一个** `runningPlanId` + 一个 controllerRef —— 第二个 `startRun`
+   * 会把第一个覆盖掉：界面上仍在跑的那条链路失去取消能力，且 `isRunning` 的
+   * 归零时机被后发计划改写。画布上「一个节点在生成时另一个节点生成不了」正是
+   * 这条单槽位留下的症状。改为按 planId 建表后，多条链路各自独立可取消、互不覆盖。
+   */
+  const controllersRef = useRef(createRunRegistry<AbortController>())
+  const [runningPlanIds, setRunningPlanIds] = useState<string[]>([])
   const [taskStates, setTaskStates] = useState<Map<string, RunTaskState>>(() => new Map())
-  const controllerRef = useRef<AbortController | null>(null)
   const hostRef = useRef(host)
   hostRef.current = host
 
   const startRun = useCallback(async (plan: RunPlan<TTask>): Promise<RunSummary> => {
     const controller = new AbortController()
-    controllerRef.current = controller
-    setRunningPlanId(plan.id)
-    setTaskStates(new Map())
+    controllersRef.current.add(plan.id, controller)
+    setRunningPlanIds((prev) => (prev.includes(plan.id) ? prev : [...prev, plan.id]))
 
     try {
       const summary = await runEngine<TTask, TCommand>(plan, {
         signal: controller.signal,
         projectId: hostRef.current.projectId,
-        channelResolver: hostRef.current.channelResolver,
+        channelResolver: (request) => hostRef.current.channelResolver(request, plan.id),
         writeBack: hostRef.current.writeBack,
         placement: hostRef.current.placement,
         policy: hostRef.current.policy,
@@ -65,27 +78,24 @@ export function useExecution<TTask extends RunTask, TCommand>(
           setTaskStates((prev) => new Map(prev).set(taskId, state))
         },
       })
-      hostRef.current.onFinish?.(summary)
+        hostRef.current.onFinish?.(summary)
       return summary
     } finally {
-      controllerRef.current = null
-      setRunningPlanId(null)
-      setTaskStates(new Map())
+      controllersRef.current.remove(plan.id)
+      setRunningPlanIds((prev) => prev.filter((id) => id !== plan.id))
     }
   }, [])
 
   const cancelRun = useCallback((runPlanId: string) => {
-    setRunningPlanId((current) => {
-      if (current === runPlanId) controllerRef.current?.abort()
-      return current
-    })
+    controllersRef.current.get(runPlanId)?.abort()
   }, [])
 
   return {
     startRun,
     cancelRun,
-    runningPlanId,
+    runningPlanId: runningPlanIds[runningPlanIds.length - 1] ?? null,
+    runningPlanIds,
     taskStates,
-    isRunning: runningPlanId !== null,
+    isRunning: runningPlanIds.length > 0,
   }
 }
