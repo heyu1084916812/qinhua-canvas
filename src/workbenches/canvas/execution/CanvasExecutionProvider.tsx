@@ -238,10 +238,27 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
        */
       onTaskTarget: (taskId: string, targetId: string) => {
         for (const m of taskToNodeMapsRef.current.values()) {
-          if (m.has(taskId)) {
-            m.set(taskId, targetId)
-            return
+          if (!m.has(taskId)) continue
+          const from = m.get(taskId)!
+          m.set(taskId, targetId)
+          /**
+           * 落点从「源节点」改到「新建的承载节点」时，必须把**已经挂在源节点上的
+           * 那条状态搬过去并删掉旧的**。
+           *
+           * 只改映射表是不够的：启动时已经给源节点写了一条 `queued`，若不搬走，
+           * 用户看到的就是「转圈一直在原始节点上」（2026-09-16 报）——
+           * 状态停在源节点，而结果跑到新节点。
+           */
+          if (from !== targetId) {
+            setNodeStates((prev) => {
+              const next = new Map(prev)
+              const st = next.get(from)
+              if (st) next.set(targetId, st)
+              next.delete(from)
+              return next
+            })
           }
+          return
         }
       },
       onFinish: () => {
