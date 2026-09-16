@@ -238,12 +238,28 @@ describe('CreationPanel · 生成数量上限只在模型声明时生效', () =>
  * （SSR 下浮层是收起的，看渲染结果断言不了这件事）。
  */
 describe('CreationPanel · 比例档位（§6.8）', () => {
-  const NINE = ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16', '21:9', '9:21']
+  const THIRTEEN = [
+    '1:1',
+    '1:2',
+    '2:1',
+    '9:16',
+    '16:9',
+    '3:4',
+    '4:3',
+    '3:2',
+    '2:3',
+    '5:4',
+    '4:5',
+    '21:9',
+    '9:21',
+  ]
 
-  it('模型没上报比例 → 九档兜底，含超宽 21:9 / 9:21', () => {
-    expect(ratiosOf(undefined)).toEqual(NINE)
-    expect(ratiosOf({ id: 'x', category: 'image', inputTypes: ['text'] })).toEqual(NINE)
-    expect(ratiosOf({ id: 'x', category: 'image', inputTypes: ['text'], aspectRatios: [] })).toEqual(NINE)
+  it('模型没上报比例 → 13 档兜底，含超宽 21:9 / 9:21', () => {
+    expect(ratiosOf(undefined)).toEqual(THIRTEEN)
+    expect(ratiosOf({ id: 'x', category: 'image', inputTypes: ['text'] })).toEqual(THIRTEEN)
+    expect(ratiosOf({ id: 'x', category: 'image', inputTypes: ['text'], aspectRatios: [] })).toEqual(
+      THIRTEEN,
+    )
   })
 
   it('模型上报了比例 → 以模型为准（能力驱动，UI 不写死）', () => {

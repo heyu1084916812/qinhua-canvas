@@ -21,7 +21,21 @@ export const COUNT_OPTIONS = [1, 2, 4, 9] as const
  * 排序按「方 → 横 → 竖」成对排列，竖版列表里同类相邻，不用在长列表里来回找。
  * 模型**上报了** `aspectRatios` 时仍以模型为准（能力驱动，UI 不写死）。
  */
-export const RATIO_OPTIONS = ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16', '21:9', '9:21'] as const
+export const RATIO_OPTIONS = [
+  '1:1',
+  '1:2',
+  '2:1',
+  '9:16',
+  '16:9',
+  '3:4',
+  '4:3',
+  '3:2',
+  '2:3',
+  '5:4',
+  '4:5',
+  '21:9',
+  '9:21',
+] as const
 /**
  * 画质档位（§6.8）。
  *
@@ -519,7 +533,7 @@ export function CreationPanel(props: CreationPanelProps) {
               label={data.ratio ?? '比例'}
               options={ratios.map((r) => ({ value: r, label: r }))}
               value={data.ratio ?? ''}
-              variant="list"
+              variant="ratioGrid"
               open={openPicker === 'ratio'}
               onToggle={() => togglePicker('ratio')}
               onClose={closePicker}

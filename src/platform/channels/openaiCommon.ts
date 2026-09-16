@@ -128,8 +128,26 @@ export function toModelCapability(modelId: string): ModelCapability {
      * 改成与 `CreationPanel.RATIO_OPTIONS` 一致的九档，两处口径合一；
      * 真渠道上报了自己的比例时，仍以模型上报值为准。
      */
-    aspectRatios: ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16', '21:9', '9:21'],
-    resolutions: ['1k', '2k'],
+    aspectRatios: [
+      '1:1',
+      '1:2',
+      '2:1',
+      '9:16',
+      '16:9',
+      '3:4',
+      '4:3',
+      '3:2',
+      '2:3',
+      '5:4',
+      '4:5',
+      '21:9',
+      '9:21',
+    ],
+    /**
+     * 清晰度档位。**必须包含 4K**：这张表是「模型支持哪些档位」的单一事实来源，
+     * 面板按它过滤 —— 少写一档，用户在面板上就永远看不到那一档（报「没有 4K」的根因）。
+     */
+    resolutions: ['1k', '2k', '4k'],
     qualities: ['auto', 'low', 'medium', 'high'],
     maxCount: 4,
   }

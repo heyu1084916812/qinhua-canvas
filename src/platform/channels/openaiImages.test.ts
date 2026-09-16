@@ -73,6 +73,17 @@ function platformWithAssets(assets: { id: string; bytes: Uint8Array; mime: strin
 }
 
 describe('openaiImages adapter / 基础契约', () => {
+  it('★ 模型能力表包含 2K 与 4K（面板清晰度档位的单一事实来源）', async () => {
+    const net = createMemoryNetwork({ handler: async () => resp(200, { data: [{ id: 'gpt-image-2' }] }) })
+    const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
+    const r = await a.verify(cfg, signal)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    const model = r.models[0]
+    expect(model?.resolutions).toContain('2k')
+    expect(model?.resolutions).toContain('4k')
+  })
+
   it('verify 成功返回模型', async () => {
     const net = createMemoryNetwork({ handler: async () => resp(200, { data: [{ id: 'gpt-image-2' }] }) })
     const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })

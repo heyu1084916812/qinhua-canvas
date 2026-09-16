@@ -26,8 +26,13 @@ export interface ParamPickerProps {
   label: string
   options: ParamOption[]
   value: string
-  /** 浮层形态：`list` 竖版列表（平台 / 模型 / 比例 / 尺寸 / 参考模式） */
-  variant: 'list' | 'pill'
+  /**
+   * 浮层形态：
+   * - `list`：竖版列表（平台 / 模型 / 尺寸 / 参考模式）
+   * - `pill`：横排胶囊（画质 / 质量 / 数量）
+   * - `ratioGrid`：图形化比例网格（比例专用，每格用矩形示意宽高比）
+   */
+  variant: 'list' | 'pill' | 'ratioGrid'
   /** 是否展开。同一时刻只允许一个（§6.8「开新关旧」），唯一性由父级持有的 key 保证 */
   open: boolean
   onToggle: () => void
@@ -112,7 +117,7 @@ export function ParamPicker(props: ParamPickerProps) {
           ref={popRef}
           className={[
             styles.popup,
-            variant === 'list' ? styles.list : styles.pill,
+            variant === 'list' ? styles.list : variant === 'pill' ? styles.pill : styles.ratioGrid,
             below ? styles.below : styles.above,
           ].join(' ')}
           data-param-popup={name}
@@ -126,37 +131,61 @@ export function ParamPicker(props: ParamPickerProps) {
               {props.emptyHint ?? '没有可选项'}
             </span>
           ) : (
-            options.map((o) => (
-              <button
-                key={o.value}
-                type="button"
-                role="option"
-                aria-selected={o.value === value}
-                className={
-                  variant === 'list'
-                    ? o.value === value
-                      ? `${styles.row} ${styles.rowOn}`
-                      : styles.row
-                    : o.value === value
-                      ? `${styles.cap} ${styles.capOn}`
-                      : styles.cap
-                }
-                data-param-option={o.value}
-                disabled={o.disabled}
-                title={o.title ?? o.label}
-                onClick={() => {
-                  onSelect(o.value)
-                  onClose()
-                }}
-              >
-                <span className={styles.rowText}>{o.label}</span>
-                {variant === 'list' && o.value === value && (
-                  <span className={styles.check} aria-hidden="true">
-                    ✓
-                  </span>
-                )}
-              </button>
-            ))
+            options.map((o) =>
+              variant === 'ratioGrid' ? (
+                <button
+                  key={o.value}
+                  type="button"
+                  role="option"
+                  aria-selected={o.value === value}
+                  className={
+                    o.value === value
+                      ? `${styles.ratioCell} ${styles.ratioCellOn}`
+                      : styles.ratioCell
+                  }
+                  data-param-option={o.value}
+                  disabled={o.disabled}
+                  title={o.title ?? o.label}
+                  onClick={() => {
+                    onSelect(o.value)
+                    onClose()
+                  }}
+                >
+                  <RatioGlyph ratio={o.value} />
+                  <span className={styles.ratioText}>{o.label}</span>
+                </button>
+              ) : (
+                <button
+                  key={o.value}
+                  type="button"
+                  role="option"
+                  aria-selected={o.value === value}
+                  className={
+                    variant === 'list'
+                      ? o.value === value
+                        ? `${styles.row} ${styles.rowOn}`
+                        : styles.row
+                      : o.value === value
+                        ? `${styles.cap} ${styles.capOn}`
+                        : styles.cap
+                  }
+                  data-param-option={o.value}
+                  disabled={o.disabled}
+                  title={o.title ?? o.label}
+                  onClick={() => {
+                    onSelect(o.value)
+                    onClose()
+                  }}
+                >
+                  <span className={styles.rowText}>{o.label}</span>
+                  {variant === 'list' && o.value === value && (
+                    <span className={styles.check} aria-hidden="true">
+                      ✓
+                    </span>
+                  )}
+                </button>
+              ),
+            )
           )}
         </div>
       )}
@@ -177,5 +206,28 @@ function Chevron() {
         strokeLinejoin="round"
       />
     </svg>
+  )
+}
+
+/**
+ * 比例示意图标（§6.8「比例用图形化网格」）。
+ *
+ * 每格画一个与 `w:h` 同比例的小矩形，长边固定 18px。解析不出比例时退回方块——
+ * 不猜一个假比例出来，宁可画成 1:1。
+ */
+function RatioGlyph({ ratio }: { ratio: string }) {
+  const [rawW, rawH] = ratio.split(':').map((s) => Number.parseFloat(s))
+  const ok = Number.isFinite(rawW) && Number.isFinite(rawH) && rawW > 0 && rawH > 0
+  const w = ok ? rawW : 1
+  const h = ok ? rawH : 1
+  const long = 18
+  const width = w >= h ? long : Math.round((w / h) * long)
+  const height = h >= w ? long : Math.round((h / w) * long)
+  return (
+    <span
+      className={styles.ratioGlyph}
+      style={{ width: `${width}px`, height: `${height}px` }}
+      aria-hidden="true"
+    />
   )
 }

@@ -6153,13 +6153,13 @@ async function g46(browser) {
   // 九档兜底集（模型什么都没报时）由单测 `ratiosOf` 覆盖——SSR 与真机都拿不到
   // 「一个不报比例的模型」，与其造第四个 mock 模型去污染 G8 的计数，不如在函数层断言。
 
-  // ② 形态：比例 = 竖版列表；质量 = 横排胶囊（§6.8「通用规则」）
+  // ② 形态：比例 = 图形化网格；质量 = 横排胶囊（§6.8「通用规则」）
   await panel.locator('[data-param-chip="ratio"]').click()
   await sleep(200)
   rec(
     g,
-    '比例用竖版列表浮层',
-    (await panel.locator('[data-param-popup="ratio"][data-param-variant="list"]').count()) === 1,
+    '比例用图形化网格浮层',
+    (await panel.locator('[data-param-popup="ratio"][data-param-variant="ratioGrid"]').count()) === 1,
   )
   await page.keyboard.press('Escape')
   await sleep(150)

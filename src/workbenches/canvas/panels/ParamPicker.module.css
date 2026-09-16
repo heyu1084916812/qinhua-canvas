@@ -189,6 +189,65 @@
   color: var(--accent-text);
 }
 
+/*
+ * 图形化比例网格（§6.8「比例用图形化网格」）。
+ *
+ * 每格 = 与比例同形的矩形 + 下方文字；三列排布，整体宽度固定，
+ * 与参考图一致：同类相邻、一屏看全，不必在一长列竖版列表里上下找。
+ */
+.ratioGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 64px);
+  gap: var(--space-1);
+  padding: var(--space-2);
+  width: max-content;
+}
+
+.ratioCell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 58px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-control) - 4px);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.ratioCell:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.ratioCell:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ratioCellOn {
+  border-color: var(--stroke);
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.ratioGlyph {
+  display: block;
+  box-sizing: border-box;
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+}
+
+.ratioText {
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  line-height: 1;
+}
+
 .empty {
   display: block;
   padding: var(--space-2) 10px;
