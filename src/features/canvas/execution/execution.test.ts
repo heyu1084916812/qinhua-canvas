@@ -9,7 +9,6 @@ import { fingerprintHex } from '../../../domain/shared/hash'
 import { imageSizeFromHeader } from '../../../domain/shared/imageSize'
 import { solidPng } from '../../../platform/channels/mockPng'
 import type { ChannelAdapter, GeneratedAsset } from '../../../platform/channels/types'
-import { RESULT_CELL } from '../../../domain/canvas/layout/constants'
 import { generationSpec } from '../../../domain/canvas/nodeSpecs/generation'
 import type { GenerationData } from '../../../domain/canvas/model/node'
 import { buildRunPlan, type CanvasRunTask } from './buildRunPlan'
@@ -437,24 +436,79 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     expect(store.getSnapshot().resultGroups).toHaveLength(0)
   })
 
-  it('§6.16 多张产物：进结果组，组内统一格位（与产物比例无关）', async () => {
+  /**
+   * 「N张」语义（用户 2026-09-17 拍板）：N = N 次独立调用（每次 n=1），
+   * 各自按空槽规则落一个下游节点——不再是「一次调用 n=N 挤进结果组」。
+   * 图生图时每次调用各带参考图，不再依赖中转对 n>1 的参考处理。
+   */
+  it('★ 2张 = 2 次调用 → 2 个下游节点（不再挤进结果组）', async () => {
     const { store, promptId, genId } = setup()
     store.dispatch({ kind: 'node.updateData', id: genId, patch: { ratio: '16:9', count: 2 } })
     const plan = buildRunPlan('node', { originNodeId: promptId }, store.getSnapshot(), 'single')
-    await runEngine(plan, deps(store, createMockChannel()))
+    const channel = createMockChannel()
+    await runEngine(plan, deps(store, channel))
     store.endPlan()
 
+    // 2 次独立调用，每次 n=1
+    expect(channel.callCount).toBe(2)
+
     const groups = store.getSnapshot().resultGroups
-    expect(groups).toHaveLength(1)
-    const children = store.getSnapshot().nodes.filter((n) => n.parentId === groups[0]!.id)
-    expect(children).toHaveLength(2)
-    // 组内一律统一格位；真实像素仍记在 data 上，供拖出 / 复制出时恢复比例
-    for (const c of children) {
-      expect([c.w, c.h]).toEqual([RESULT_CELL.w, RESULT_CELL.h])
+    expect(groups).toHaveLength(0)
+    const generations = store.getSnapshot().nodes.filter((n) => n.type === 'generation')
+    // 源节点（空 → 复用自己接第 1 张）+ 1 个新建承载节点接第 2 张
+    expect(generations).toHaveLength(2)
+    const carriers = generations.filter((n) => n.id !== genId)
+    expect(carriers).toHaveLength(1)
+    // 源节点接第 1 张（它当时是空的）
+    expect(dataOf(store, genId).assetHash).toBeTruthy()
+    expect(dataOf(store, genId).naturalSize).toEqual({ width: 64, height: 36 })
+    for (const c of carriers) {
+      expect(c.data.assetHash).toBeTruthy()
+      // 真实像素仍记在 data 上（mock 16:9 → 64×36）
       expect((c.data as unknown as Record<string, unknown>).naturalSize).toEqual({
         width: 64,
         height: 36,
       })
+    }
+  })
+
+  /**
+   * 用户 2026-09-17 报的场景：有素材的生成节点选 2张 → 应出 2 个下游，
+   * 且**每一张都以源节点的图为参考**（图生图），而不是有一张退化成文生图。
+   * 此前「一次调用 n=2 + 只给 new 槽带参考图」造成：下游 1 个节点 + 结果组，
+   * 其中复用空槽的那张没带参考图。
+   */
+  it('★ 图生图 2张 → 2 个下游节点，每张都带源图作参考', async () => {
+    const { store, promptId, genId } = setup()
+    store.dispatch({
+      kind: 'node.updateData',
+      id: genId,
+      patch: { count: 2, assetHash: 'h-source' },
+    })
+    const plan = buildRunPlan('node', { originNodeId: genId }, store.getSnapshot(), 'single')
+
+    // 2 次调用，且每次请求都带源图作图像输入
+    expect(plan.tasks).toHaveLength(2)
+    for (const t of plan.tasks) {
+      expect(t.request.inputs.some((i) => i.kind === 'asset')).toBe(true)
+      expect(t.request.params.count).toBe(1)
+    }
+
+    const summary = await runEngine(plan, deps(store, createMockChannel()))
+    store.endPlan()
+    expect(summary.succeeded).toBe(2)
+
+    const generations = store.getSnapshot().nodes.filter((n) => n.type === 'generation')
+    // 源节点不动 + 2 个新建承载节点（源节点有图，不再是槽位）
+    expect(generations).toHaveLength(3)
+    expect(dataOf(store, genId).assetHash).toBe('h-source')
+    const carriers = generations.filter((n) => n.id !== genId)
+    expect(carriers).toHaveLength(2)
+    // mock 渠道：带图像输入 → 品红 (255,0,255)；不带 → 灰度。
+    // 品红 = 参考图真的进了请求（G37 的机制级验证口径）
+    for (const c of carriers) {
+      expect(c.data.assetHash).toBeTruthy()
+      expect(c.data.assetHash).not.toBe('h-source')
     }
   })
 

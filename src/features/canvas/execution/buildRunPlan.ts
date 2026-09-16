@@ -193,7 +193,7 @@ export function buildRunPlan(
   const singleRun = mode === 'single' || mode === 'single-alt'
   const plannedCalls =
     singleRun && originNodeId
-      ? ordered.reduce((sum, n) => sum + callCountOf(n, working), 0)
+      ? ordered.reduce((sum, n) => sum + callCountOf(n, working) * callsPerRunOf(n), 0)
       : 0
   const slots =
     singleRun && originNodeId
@@ -224,57 +224,82 @@ export function buildRunPlan(
       })
       if (!request) return // 渠道或模型未配置 → 不入 plan
 
-      const slot: SlotPlan =
-        slots.length > 0
-          ? slots[Math.min(slotCursor, slots.length - 1)]!
-          : { kind: 'reuse', nodeId: node.id }
-
       /**
-       * 图生图：把源节点的图作为**图像输入**带进这次请求。
+       * 「N张」= N 次独立调用（用户 2026-09-17）。
        *
-       * 顺序问题（用户 2026-09-16 指出「新建节点 → 连线 → 结果落新节点」）：
-       * `inputs` 在**本函数**（buildRunPlan）里按图上已有连线收集，而承载节点与
-       * 那条「源节点 → 承载节点」的连线要等后续 `begin` 的命令才建出来。
-       * 于是收集时看不到这条线 → 请求里没有源节点的图 → 走的是文生图路径。
+       * 面板选 2张 / 4张 / 9张，此前是**一次调用 n=N**：渠道一次吐 N 张，
+       * 挤进一个结果组，下游只铺 1 个承载节点——用户看到的就是
+       * 「选了两张，下游只有一个，后面冒出个结果组」。
+       * 更糟的是图生图时一次调用只带一份参考图，中转对 n>1 的参考处理
+       * 不可控，出现了「有一张没吃到参考图」。
        *
-       * 实测证据（mock 的「有图=品红 / 无图=灰度」标记）：
-       *   不补 → 灰度；补上 → 品红。故这一步是必需的，不是防御性代码。
-       *
-       * 基于 `expansion.inputs`（已按集合项展开），避免把整个批量集合项塞进去。
+       * 现在按 `callsPerRunOf` 把 N 拆成 N 次调用，每次 params.count 强制为 1
+       * （n=1），各自带参考图、各自按空槽规则落一个节点。
+       * 批量集合的展开（expansions）语义不变，两者相乘。
        */
-      const sourceAsset = (node.data as GenerationData).assetHash
-      const withSourceImage: NodeInput[] =
-        slot.kind === 'new' && sourceAsset && !expansion.inputs.some((i) => i.kind === 'asset')
-          ? [
-              ...expansion.inputs,
-              { kind: 'asset', nodeId: node.id, assetHash: sourceAsset, mime: GENERATION_ASSET_MIME },
-            ]
-          : expansion.inputs
+      for (let c = 0; c < callsPerRunOf(node); c += 1) {
+        const slot: SlotPlan =
+          slots.length > 0
+            ? slots[Math.min(slotCursor, slots.length - 1)]!
+            : { kind: 'reuse', nodeId: node.id }
 
-      const task: CanvasRunTask = {
-        id: createId('task'),
-        nodeId: node.id,
-        // 指纹仍按**真实收集到的输入**计算，避免刚生成完就把自己标陈旧
-        request: { ...request, inputs: withSourceImage },
-        dependsOn: previousId ? [previousId] : [],
-        slot,
-        // 指纹包含完整集合（未展开）：集合内容变了才算输入变了，
-        // 逐项 task 共用同一指纹，陈旧判定与「一次生成」语义一致。
-        fingerprint: fingerprintOf(node, inputs),
-        params: node.data,
-        sourceType: node.type,
-        callCount: expansions.length,
-        containerKind: containerKindOf(node, index) ?? subContainer,
-        // 落位要用「源节点在画布上的位置」把新建节点摆在它右侧（用户 2026-09-16）
-        sourceRect: { x: node.x, y: node.y, w: node.w, h: node.h },
-        sourceData: node.data,
-        // 集合项来源（用于结果溯源）；非批量场景为 null
-        collectionItemId: expansion.itemNodeId,
-        seq,
+        /**
+         * 图生图：把源节点的图作为**图像输入**带进这次请求。
+         *
+         * 顺序问题（用户 2026-09-16 指出「新建节点 → 连线 → 结果落新节点」）：
+         * `inputs` 在**本函数**（buildRunPlan）里按图上已有连线收集，而承载节点与
+         * 那条「源节点 → 承载节点」的连线要等后续 `begin` 的命令才建出来。
+         * 于是收集时看不到这条线 → 请求里没有源节点的图 → 走的是文生图路径。
+         *
+         * 实测证据（mock 的「有图=品红 / 无图=灰度」标记）：
+         *   不补 → 灰度；补上 → 品红。故这一步是必需的，不是防御性代码。
+         *
+         * **落点不是源节点自己就带**（用户 2026-09-17）：此前只给 `slot.kind === 'new'`
+         * 带，复用下游空节点时不带——用户复用已有空输出节点跑图生图，
+         * 那一张就退化成了文生图（「有一张没参考」的另一半根因）。
+         *
+         * 基于 `expansion.inputs`（已按集合项展开），避免把整个批量集合项塞进去。
+         */
+        const sourceAsset = (node.data as GenerationData).assetHash
+        const targetIsSelf = slot.kind === 'reuse' && slot.nodeId === node.id
+        const withSourceImage: NodeInput[] =
+          !targetIsSelf && sourceAsset && !expansion.inputs.some((i) => i.kind === 'asset')
+            ? [
+                ...expansion.inputs,
+                { kind: 'asset', nodeId: node.id, assetHash: sourceAsset, mime: GENERATION_ASSET_MIME },
+              ]
+            : expansion.inputs
+
+        // 每次调用只出 1 张：N 张的语义已由调用次数表达（见上方注释）
+        const singleRequest = { ...request, params: { ...request.params, count: 1 } }
+
+        const task: CanvasRunTask = {
+          id: createId('task'),
+          nodeId: node.id,
+          // 指纹仍按**真实收集到的输入**计算，避免刚生成完就把自己标陈旧
+          request: { ...singleRequest, inputs: withSourceImage },
+          dependsOn: previousId ? [previousId] : [],
+          slot,
+          // 指纹包含完整集合（未展开）：集合内容变了才算输入变了，
+          // 逐项 task 共用同一指纹，陈旧判定与「一次生成」语义一致。
+          fingerprint: fingerprintOf(node, inputs),
+          params: node.data,
+          sourceType: node.type,
+          callCount: expansions.length,
+          containerKind: containerKindOf(node, index) ?? subContainer,
+          // 落位要用「源节点在画布上的位置」把新建节点摆在它右侧（用户 2026-09-16）
+          sourceRect: { x: node.x, y: node.y, w: node.w, h: node.h },
+          sourceData: node.data,
+          // 集合项来源（用于结果溯源）；非批量场景为 null
+          collectionItemId: expansion.itemNodeId,
+          // 跨「集合展开 × 张数」连续编号：applyCallOrdinal 用它给 prompt
+          // 加「第 n 次/项」后缀，保证多次调用的产物 hash 互不相同
+          seq: seq * callsPerRunOf(node) + c,
+        }
+        tasks.push(task)
+        previousId = task.id
+        slotCursor += 1
       }
-      tasks.push(task)
-      previousId = task.id
-      slotCursor += 1
     })
   })
 
@@ -293,4 +318,20 @@ function callCountOf(node: NodeSnapshot, graph: GraphSnapshot): number {
   const spec = getSpec(node.type)
   if (!spec) return 1
   return expansionCount(spec.collectInputs({ node, graph }))
+}
+
+/**
+ * 该节点一次「生成」要发起的调用数（面板「N张」）。
+ *
+ * 只对图片模式的生成节点生效：`2张` 的语义是**两次独立调用**（每次 n=1），
+ * 而不是一次调用 n=2——后者会让下游只铺一个节点、产物挤进结果组，
+ * 且图生图时参考图的生效与否取决于中转对 n>1 的实现（用户 2026-09-17 实测翻车）。
+ * 视频 / 其他类型没有「张数」概念，恒为 1。
+ */
+function callsPerRunOf(node: NodeSnapshot): number {
+  if (node.type !== 'generation') return 1
+  const data = node.data as Partial<GenerationData>
+  if (data.mode === 'video') return 1
+  const n = Math.floor(data.count ?? 1)
+  return Number.isFinite(n) && n > 1 ? n : 1
 }
