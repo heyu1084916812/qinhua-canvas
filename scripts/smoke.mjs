@@ -7958,6 +7958,36 @@ async function g58(browser) {
     .locator('[data-follow-action]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-follow-action')))
   rec(g, '动作齐全（生成/重命名/复制/删除/关闭）', ['run', 'rename', 'duplicate', 'delete', 'close'].every((a) => actions.includes(a)), actions.join(','))
+  /*
+   * 中文**常驻**（用户 2026-09-17）：不 hover 时中文就得看得见，
+   * 且 hover 前后按钮宽度不变（中文藏起来再展开会让整条栏抖一下）。
+   * 这条断言锁住的是「中文不依赖 hover」，也锁住「宽度不跳」。
+   */
+  const labelOf = async (action) => {
+    const el = page.locator(`[data-follow-label="${action}"]`)
+    if ((await el.count()) === 0) return null
+    return await el.evaluate((e) => {
+      const cs = getComputedStyle(e)
+      return {
+        text: e.textContent?.trim() ?? '',
+        visible: cs.opacity !== '0' && cs.maxWidth !== '0px' && e.getBoundingClientRect().width > 0,
+      }
+    })
+  }
+  const renameLabel = await labelOf('rename')
+  rec(g, '★ 中文常驻可见（不 hover 也在）', !!renameLabel?.visible && renameLabel.text === '重命名', JSON.stringify(renameLabel))
+  const wIdle = (await page.locator('[data-follow-action="rename"]').boundingBox()).width
+  const rb0 = await page.locator('[data-follow-action="rename"]').boundingBox()
+  await page.mouse.move(rb0.x + rb0.width / 2, rb0.y + rb0.height / 2)
+  await sleep(300)
+  const rb1 = await page.locator('[data-follow-action="rename"]').boundingBox()
+  rec(g, 'hover 只变色不变宽（中文常驻 ⇒ 宽度稳定）', Math.abs(rb1.width - wIdle) < 1, `${Math.round(wIdle)} → ${Math.round(rb1.width)}`)
+  const hovered = await page
+    .locator('[data-follow-action="rename"]')
+    .evaluate((e) => getComputedStyle(e).backgroundColor)
+  rec(g, 'hover 变实色块（与创作面板参数 chip 同款）', hovered === 'rgb(240, 240, 238)', hovered)
+  await page.mouse.move(640, 700)
+  await sleep(200)
   await page.screenshot({ path: `${OUT}/73-g58-follow-bar.png` })
 
   // 2) 缩放：位置跟着变，栏自身高度不变（§6.8 缩放独立性）

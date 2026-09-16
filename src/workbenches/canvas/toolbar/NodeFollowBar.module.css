@@ -1,9 +1,14 @@
 /*
- * 节点跟随功能栏（用户 2026-09-16 需求）。
+ * 节点跟随功能栏（用户 2026-09-16 需求，2026-09-17 定型）。
  *
- * 与画布浮层同款规范（§3.3）：1px 描边、无投影、背景明度区分层次、
+ * 容器就是**一条实色的栏**：白底 + 1px 描边 + 10px 圆角，与画布其它浮层
+ * （创作面板 / 参数浮层）同款（§3.3：无投影、靠描边与背景明度分层）。
+ *
+ * 按钮 = **常驻中文 + 图标**（用户 2026-09-17：中文不要藏起来）。
+ * 中文与图标一样始终可见，鼠标移到某个按钮上只把它变成**实色块**
+ * （透明 → `--bg-hover`），与创作面板参数 chip 的 hover 是同一条规则。
+ *
  * 尺寸不随画布缩放（挂在 [data-world] 之外，屏幕坐标系）。
- * 圆角沿用 --radius-control，与创作面板 / 参数浮层一致。
  */
 .bar {
   position: absolute;
@@ -27,34 +32,70 @@
   gap: var(--space-1);
 }
 
+/*
+ * 按钮：图标 + 常驻中文。
+ * 中文**始终显示**（这是 2026-09-17 的明确要求：不要 hover 才出现），
+ * 因此按钮宽度是稳定的——不会 hover 时把整条栏撑宽、挤得邻居跳位。
+ */
 .btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  height: 26px;
+  padding: 0 var(--space-2) 0 var(--space-1);
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-control) - 4px);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out);
+}
+
+/* 图标本身固定 26px 见方：标签展开时不许把它挤变形 */
+.glyph {
+  flex: 0 0 auto;
   width: 26px;
   height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: var(--border);
-  border-radius: calc(var(--radius-control) - 4px);
-  background: var(--bg-subtle);
-  color: var(--text-1);
-  font-family: var(--font-sans);
   font-size: var(--fs-label);
   line-height: 1;
-  cursor: pointer;
-  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
 }
 
-.btn:hover {
+/*
+ * 中文标签：常驻显示。
+ * `white-space: nowrap` 是必须的——中文不换行，按钮宽度才稳定；
+ * 否则「渠道设置」这类四字词在窄处折行，整条栏会突然变高。
+ */
+.label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* hover / 键盘聚焦该按钮 → 变实色块（与创作面板参数 chip 的 hover 同一条规则） */
+.btn:hover,
+.btn:focus-visible {
   background: var(--bg-hover);
+  border-color: var(--stroke);
 }
 
 /* 删除是唯一危险项：hover 时描边与文字转危险色，与右键菜单的危险分组同口径（§4.1） */
-.btn[data-follow-action='delete']:hover {
+.btn[data-follow-action='delete']:hover,
+.btn[data-follow-action='delete']:focus-visible {
   border-color: var(--danger);
   color: var(--danger);
 }
 
 .divider {
+  flex: 0 0 auto;
   width: var(--border-width);
   height: 16px;
   background: var(--stroke);
@@ -63,7 +104,7 @@
 
 /*
  * 指向节点的小三角：纯装饰，标出「这栏属于下面那个节点」。
- * 位置随 placement 翻转（在上方时朝下、在下方时朝上）。
+ * 位置随 placement 翻转（在上方时朝下、在下方时朝上），颜色与容器一致。
  */
 .arrow {
   position: absolute;
@@ -84,4 +125,10 @@
 .bar[data-node-follow-placement='below'] .arrow {
   top: -5px;
   transform: rotate(225deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn {
+    transition: none;
+  }
 }

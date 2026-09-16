@@ -135,32 +135,23 @@ function NodeActions({
   return (
     <div className={styles.actions}>
       {canRun && (
-        <button
-          className={styles.btn}
-          data-follow-action="run"
-          title={busy ? '取消生成' : '生成'}
-          aria-label={busy ? '取消生成' : '生成'}
+        <FollowButton
+          action="run"
+          glyph={busy ? '■' : '▶'}
+          label={busy ? '取消生成' : '生成'}
           onClick={onRun}
-          {...keepCanvasFocus}
-        >
-          {busy ? '■' : '▶'}
-        </button>
+        />
       )}
-      <button
-        className={styles.btn}
-        data-follow-action="rename"
-        title="重命名"
-        aria-label="重命名"
+      <FollowButton
+        action="rename"
+        glyph="✎"
+        label="重命名"
         onClick={() => store.beginRename(node.id)}
-        {...keepCanvasFocus}
-      >
-        ✎
-      </button>
-      <button
-        className={styles.btn}
-        data-follow-action="duplicate"
-        title="复制"
-        aria-label="复制"
+      />
+      <FollowButton
+        action="duplicate"
+        glyph="⧉"
+        label="复制"
         onClick={() =>
           store.dispatch({
             kind: 'node.duplicate',
@@ -171,47 +162,59 @@ function NodeActions({
             rewire: true,
           })
         }
-        {...keepCanvasFocus}
-      >
-        ⧉
-      </button>
-      <button
-        className={styles.btn}
-        data-follow-action="delete"
-        title="删除"
-        aria-label="删除"
+      />
+      <FollowButton
+        action="delete"
+        glyph="✕"
+        label="删除"
         onClick={() => {
           store.dispatch({ kind: 'node.delete', ids: [node.id] })
           store.setSelection([])
           store.showUndoBar('已删除节点')
         }}
-        {...keepCanvasFocus}
-      >
-        ✕
-      </button>
+      />
       <span className={styles.divider} />
-      <button
-        className={styles.btn}
-        data-follow-action="close"
-        title="关闭（Esc）"
-        aria-label="关闭"
-        onClick={onClose}
-        {...keepCanvasFocus}
-      >
-        ⌄
-      </button>
+      <FollowButton action="close" glyph="⌄" label="关闭" onClick={onClose} />
       {onOpenSettings && !running && (
-        <button
-          className={styles.btn}
-          data-follow-action="settings"
-          title="渠道设置"
-          aria-label="渠道设置"
-          onClick={onOpenSettings}
-          {...keepCanvasFocus}
-        >
-          ⚙
-        </button>
+        <FollowButton action="settings" glyph="⚙" label="渠道设置" onClick={onOpenSettings} />
       )}
     </div>
+  )
+}
+
+/**
+ * 单个动作按钮：**图标 + 常驻中文**（用户 2026-09-17）。
+ *
+ * 中文始终显示（不是 hover 才展开），鼠标移到按钮上只把它变成实色块——
+ * 与创作面板参数 chip 的 hover 反馈同一条规则（透明 → `--bg-hover`）。
+ * `title` 给完整中文，长悬停时与可见文案一致。
+ */
+function FollowButton({
+  action,
+  glyph,
+  label,
+  onClick,
+}: {
+  action: string
+  glyph: string
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      className={styles.btn}
+      data-follow-action={action}
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+      {...keepCanvasFocus}
+    >
+      <span className={styles.glyph} aria-hidden="true">
+        {glyph}
+      </span>
+      <span className={styles.label} data-follow-label={action}>
+        {label}
+      </span>
+    </button>
   )
 }
