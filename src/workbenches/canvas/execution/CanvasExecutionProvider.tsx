@@ -321,14 +321,24 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
 
       setNodeStates((prev) => {
         const n = new Map(prev)
-        // 只清「本 plan 结束且没有别的 plan 仍占用同一节点」的条目；
-        // 并发跑同一节点属于极少见但合法的情况，不能把另一条链路的进度抹掉
+        /**
+         * 清理本计划挂在节点上的状态。
+         *
+         * 必须按「实际落点」清理：落位若另建了承载节点，`onTaskTarget` 已把状态
+         * 从源节点搬到新节点 —— 这里若仍按 `plan.tasks` 的 nodeId（全是源节点）
+         * 清理，新节点上的 queued/running 会永远留在那里，
+         * 表现为「图已经出来了、转圈还在转」（2026-09-16 截图反馈）。
+         *
+         * 故按本计划**触达过的全部节点**（源节点 + 承载节点）清理；
+         * 并发跑同一节点时，别的 plan 仍占用的节点不能抹。
+         */
+        const touched = [...(taskToNodeMapsRef.current.get(plan.id)?.values() ?? [])]
         const stillRunning = new Set(
           [...taskToNodeMapsRef.current.entries()]
             .filter(([id]) => id !== plan.id)
             .flatMap(([, m]) => [...m.values()]),
         )
-        for (const t of plan.tasks) if (!stillRunning.has(t.nodeId)) n.delete(t.nodeId)
+        for (const nid of touched) if (!stillRunning.has(nid)) n.delete(nid)
         return n
       })
       adapterMapsRef.current.delete(plan.id)
