@@ -4,6 +4,13 @@
  * 宽度约 840px、高度自适应；三部分之间只用留白区分，不出现边线（§6.7）。
  */
 .panel {
+  /*
+   * 面板整体缩到一半（用户 2026-09-16）：宽 840 → 420，内部字号与间距
+   * 不动 token 全局值（那是全应用共享的），面板内用 `zoom` 做等比缩放。
+   * `zoom` 在 Chromium / Firefox / Safari 都已标准化，比 transform 更好——
+   * 后者只动渲染、布局仍按原始尺寸算，ParamPicker 的定位测量会全部错位。
+   */
+  zoom: 0.5;
   width: 840px;
   max-width: calc(100vw - 48px);
   display: flex;
@@ -277,6 +284,7 @@
   font: inherit;
   font-size: var(--fs-body);
   line-height: var(--lh-body);
+  text-align: left;
   color: var(--text-1);
   box-sizing: border-box;
 }

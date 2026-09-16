@@ -283,14 +283,15 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
     await a.generateImage(request([], 1, { ratio: '16:9' }), signal)
     await a.generateImage(request([], 1, { ratio: '9:16' }), signal)
     expect(calls[0]!.body).toMatchObject({ size: '1024x1024' })
-    expect(calls[1]!.body).toMatchObject({ size: '1536x1024' })
-    expect(calls[2]!.body).toMatchObject({ size: '1024x1536' })
+    // 1K 预算 1024²，16px 吸附：16:9 → 1360x768
+    expect(calls[1]!.body).toMatchObject({ size: '1360x768' })
+    expect(calls[2]!.body).toMatchObject({ size: '768x1360' })
     expect((calls[0]!.body as Record<string, unknown>).size).not.toBe('1x1')
   })
 
-  it('未知比例 → 不发 size（宁可用服务端默认，也不猜）', async () => {
+  it('超 3:1 的比例 → 不发 size（文档明确拒绝长短边比超过 3:1）', async () => {
     const calls: { url: string; body: unknown }[] = []
-    await adapter(calls).generateImage(request([], 1, { ratio: '21:9' }), signal)
+    await adapter(calls).generateImage(request([], 1, { ratio: '22:7' }), signal)
     expect(calls[0]!.body).not.toHaveProperty('size')
   })
 
@@ -298,7 +299,8 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
     const calls: { url: string; body: unknown }[] = []
     await adapter(calls).generateImage(request([], 1, { ratio: '1:1', resolution: '2k' }), signal)
     expect(calls[0]!.body).not.toHaveProperty('resolution')
-    expect(calls[0]!.body).toMatchObject({ size: '1024x1024' })
+    // resolution 不作为独立字段下发，但会并入 size：2K 1:1 → 2048x2048
+    expect(calls[0]!.body).toMatchObject({ size: '2048x2048' })
   })
 
   it('质量 → quality 透传；非法档位不发', async () => {
@@ -313,8 +315,8 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
   it('产物宽高来自请求的 size（不再写死 512）', async () => {
     const calls: { url: string; body: unknown }[] = []
     const assets = await adapter(calls).generateImage(request([], 1, { ratio: '2:3' }), signal)
-    expect(assets[0]!.requestedWidth).toBe(1024)
-    expect(assets[0]!.requestedHeight).toBe(1536)
+    expect(assets[0]!.requestedWidth).toBe(832)
+    expect(assets[0]!.requestedHeight).toBe(1248)
   })
 
   /**
@@ -335,15 +337,15 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
     })
     const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
     const assets = await a.generateImage(request([], 1, { ratio: '2:3' }), signal)
-    expect(assets[0]!.requestedWidth).toBe(1024)
-    expect(assets[0]!.requestedHeight).toBe(1536)
+    expect(assets[0]!.requestedWidth).toBe(832)
+    expect(assets[0]!.requestedHeight).toBe(1248)
     expect(assets[0]!.width).toBe(3)
     expect(assets[0]!.height).toBe(5)
     // 两个数不相等的那一刻，日志里的「请求 / 实际」才真的是两个数
     expect(assets[0]!.width).not.toBe(assets[0]!.requestedWidth)
   })
 
-  it('未知比例 → 不发 size，请求像素也就不填（不拿实际像素顶替）', async () => {
+  it('超 3:1 的比例 → 不发 size，请求像素也就不填（不拿实际像素顶替）', async () => {
     const calls: { url: string; body: unknown }[] = []
     const tiny = solidPng(7, 7, [0x00, 0x00, 0x00])
     const net = createMemoryNetwork({
@@ -353,7 +355,7 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
       },
     })
     const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
-    const assets = await a.generateImage(request([], 1, { ratio: '21:9' }), signal)
+    const assets = await a.generateImage(request([], 1, { ratio: '22:7' }), signal)
     expect(assets[0]!.requestedWidth).toBeUndefined()
     expect(assets[0]!.width).toBe(7)
   })
@@ -374,15 +376,27 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
 
   it('纯函数映射表（含边界：null / 未知 / 空白）', () => {
     expect(openAiImageSize('1:1')).toBe('1024x1024')
-    expect(openAiImageSize(' 3:2 ')).toBe('1536x1024')
-    expect(openAiImageSize('2:3')).toBe('1024x1536')
-    expect(openAiImageSize('21:9')).toBeNull()
+    expect(openAiImageSize(' 3:2 ')).toBe('1248x832')
+    expect(openAiImageSize('2:3')).toBe('832x1248')
+    // 比例本身超 3:1（如 22:7）拒发
+    expect(openAiImageSize('22:7')).toBeNull()
     expect(openAiImageSize(null)).toBeNull()
     expect(openAiImageSize(undefined)).toBeNull()
     expect(openAiImageQuality('auto')).toBe('auto')
     expect(openAiImageQuality('medium')).toBe('medium')
     expect(openAiImageQuality('ultra')).toBeNull()
     expect(openAiImageQuality(null)).toBeNull()
+  })
+
+  it('4K 档：16:9 → 3840x2160（文档常用值），1:1 特批 2880', () => {
+    expect(openAiImageSize('16:9', '4k')).toBe('3840x2160')
+    expect(openAiImageSize('9:16', '4k')).toBe('2160x3840')
+    expect(openAiImageSize('1:1', '4k')).toBe('2880x2880')
+  })
+
+  it('2K 档：1:1 → 2048x2048，16:9 → 2736x1536', () => {
+    expect(openAiImageSize('1:1', '2k')).toBe('2048x2048')
+    expect(openAiImageSize('16:9', '2k')).toBe('2736x1536')
   })
 })
 

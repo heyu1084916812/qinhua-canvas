@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
-import { useCanvasStore } from '../storeContext'
 
 /**
  * 按 hash 从 assets 表读回媒体本体并生成 objectURL（产品文档 §8：hash 即主键）。
@@ -24,7 +23,6 @@ export interface AssetMeta {
 export function useAssetMeta(hash: string | undefined): AssetMeta {
   const platform = usePlatform()
   const [meta, setMeta] = useState<AssetMeta>({ url: null, mime: null })
-  const graph = useSyncGraph()
 
   useEffect(() => {
     if (!hash) {
@@ -69,28 +67,15 @@ export function useAssetMeta(hash: string | undefined): AssetMeta {
       if (timer) clearTimeout(timer)
       if (created) URL.revokeObjectURL(created)
     }
-    // graph 变化（生成写回换引用）时重跑一次，尽早取到刚落的素材
-  }, [hash, platform, graph])
+    // 只依赖 hash：拖动 / 缩放每帧都会换图快照引用，把 graph 放进依赖会让
+    // effect 每帧重跑 —— 旧 URL 被 revoke、重查库建新 URL，<img> 每帧换 src
+    // 触发重新解码，用户看到的就是「拖动时图片一闪一闪」。
+    // 素材落库的时差由上面的退避重试兜住，不需要借 graph 变更来触发。
+  }, [hash, platform])
 
   return meta
 }
 
 export function useAsset(hash: string | undefined): string | null {
   return useAssetMeta(hash).url
-}
-
-/** 图快照变更计数（仅为触发 useAsset 重查询，不读取内容） */
-function useSyncGraph(): number {
-  const store = useCanvasStore()
-  const [tick, setTick] = useState(0)
-  useEffect(() => {
-    let last = store.getSnapshot()
-    return store.subscribe(() => {
-      const g = store.getSnapshot()
-      if (g === last) return
-      last = g
-      setTick((t) => t + 1)
-    })
-  }, [store])
-  return tick
 }

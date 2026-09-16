@@ -30,27 +30,68 @@ export interface OpenAiAdapterConfig extends SafeChannelConfig {
 }
 
 /**
- * 比例 → OpenAI 规范里的像素 `size`。
+ * 比例 + 画质档位 → OpenAI 规范里的像素 `size`。
  *
  * 规范要的是**像素**（`1024x1536`），不是比例字面量：早期实现把比例直接
  * `replace(':','x')` 发出去，得到 `"1x1"` 这种非法值，真实模型一律拒绝。
- * 比例不在表内时返回 null —— **宁可不发 size（用服务端默认），也不发一个猜的值**。
  *
- * 关于 `resolution`（画质 1K/2K/4K）：OpenAI 图像协议**没有档位参数**，
- * 像素尺寸由模型与 `size` 共同决定，故这里**刻意不从档位推 size**——
- * 把 2K 猜成 `2048x2048` 在多数中转上是 400，比「档位不生效」更糟。
+ * gpt-image-2 的 size 约束（gpt-best 文档 api-447258891，与官方
+ * image-generation#calculating-costs 同源）：
+ *   - 最大边 ≤ 3840
+ *   - 两边都是 16 的倍数
+ *   - 长短边比 ≤ 3:1
+ *   - 总像素 ∈ [655360, 8294400]
+ *
+ * 档位语义：用户在前端选的是 1K / 2K / 4K「目标分辨率档位」，不是 size 本身。
+ * 这里按档位先定总像素，再按比例解出两边，最后**吸附到 16 的倍数**（约掉会
+ * 破坏比例的事不做——吸附误差最大 16px，肉眼不可辨）。
+ * `auto`（或未设置）= 不从档位推，走 1K 表；比例解不出（0 / NaN）也返回 null，
+ * 宁可不发 size（用服务端默认），也不发一个猜的值。
  */
-const OPENAI_SIZE_BY_RATIO: Record<string, string> = {
-  '1:1': '1024x1024',
-  '3:2': '1536x1024',
-  '16:9': '1536x1024',
-  '2:3': '1024x1536',
-  '9:16': '1024x1536',
+const RES_PIXEL_BUDGET: Record<'1k' | '2k' | '4k', number> = {
+  '1k': 1024 * 1024,
+  '2k': 2048 * 2048,
+  // 用户 2026-09-16 指定：4K 档的 1:1 先按 2880 发（2880² > 2048² 但
+  // 仍满足总像素上限；其余 4K 档比例照常按 4096² 的预算解）。
+  '4k': 4096 * 4096,
 }
+const MAX_EDGE = 3840
+const MAX_PIXELS = 8294400
+const SNAP = 16
 
-export function openAiImageSize(ratio: unknown): string | null {
+export function openAiImageSize(ratio: unknown, resolution?: unknown): string | null {
   if (typeof ratio !== 'string') return null
-  return OPENAI_SIZE_BY_RATIO[ratio.replace(/\s+/g, '')] ?? null
+  const [rawW, rawH] = ratio.replace(/\s+/g, '').split(':').map((s) => Number.parseFloat(s))
+  if (!Number.isFinite(rawW) || !Number.isFinite(rawH) || rawW <= 0 || rawH <= 0) return null
+  const aspect = rawW / rawH
+  // 比例字面量本身超 3:1（如 22:7）不发——文档明确拒绝
+  if (Math.max(aspect, 1 / aspect) > 3) return null
+  const tier = resolution === '2k' ? '2k' : resolution === '4k' ? '4k' : '1k'
+  const budget = RES_PIXEL_BUDGET[tier]
+  if (tier === '4k' && Math.abs(aspect - 1) < 1e-9) {
+    // 4K 1:1 特批：2880×2880（用户 2026-09-16 指定，且在文档约束内）
+    return '2880x2880'
+  }
+  // 长边 h、短边 h/aspect（aspect ≥ 1）：h² × aspect = budget；
+  // 预算解出的长边再与 MAX_EDGE 取 min——先钳后解，吸附后比例不变形
+  const long = Math.min(Math.sqrt(budget * Math.max(aspect, 1 / aspect)), MAX_EDGE)
+  let w = Math.round((long * (aspect >= 1 ? 1 : aspect)) / SNAP) * SNAP
+  let h = Math.round((long * (aspect >= 1 ? 1 / aspect : 1)) / SNAP) * SNAP
+  // 吸附向上取整可能略超边长上限：只压超界的那条边
+  if (w > MAX_EDGE) w = Math.floor(MAX_EDGE / SNAP) * SNAP
+  if (h > MAX_EDGE) h = Math.floor(MAX_EDGE / SNAP) * SNAP
+  // 吸附后仍可能略超总像素上限：等比压长边直到达标
+  while (w * h > MAX_PIXELS) {
+    const shrinkW = w >= h
+    if (shrinkW) {
+      w = Math.max(SNAP, w - SNAP)
+      h = Math.max(SNAP, Math.round((w / aspect) / SNAP) * SNAP)
+    } else {
+      h = Math.max(SNAP, h - SNAP)
+      w = Math.max(SNAP, Math.round((h * aspect) / SNAP) * SNAP)
+    }
+  }
+  return `${w}x${h}`
 }
 
 /** OpenAI 图像协议接受的 `quality` 取值；其余档位一律不发（发了就是 400） */
@@ -262,7 +303,7 @@ export function createOpenAiImagesAdapter(
   const generateImage: ChannelAdapter['generateImage'] = async (request: ImageRunRequest, signal) => {
     const count = Math.max(1, typeof request.params.count === 'number' ? request.params.count : 1)
     // 比例 → 合法像素 size（非法/未知比例宁可不发）；质量 → OpenAI 的 quality 取值
-    const size = openAiImageSize(request.params.ratio)
+    const size = openAiImageSize(request.params.ratio, request.params.resolution)
     const quality = openAiImageQuality(request.params.quality)
     // 有参考图 → 图生图（multipart）；一张都没有 → 文生图（JSON，与 M6-12 前一致）
     const files = await readImageFiles(request)
