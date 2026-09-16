@@ -67,7 +67,13 @@ export interface RunEngineDeps<TTask extends RunTask, TCommand> {
   /** 落位 / 写回适配器：把产物翻译成工作台自己的命令（架构 §5.5 路径 B） */
   placement: ExecutionPlacement<TTask, TCommand>
   policy?: Partial<RunPolicy>
-  onTaskUpdate?: (taskId: string, state: RunTaskState) => void
+  /**
+   * 任务状态变化（queued / running / succeeded / failed / canceled）。
+   *
+   * 首参 `planId`：并发时多个计划同时在跑，宿主需按 planId 精确定位该 task
+   * 属于哪条链路，避免遍历全部计划时误改别的计划的状态。
+   */
+  onTaskUpdate?: (planId: string, taskId: string, state: RunTaskState) => void
   /**
    * 任务的实际落点（`placement.begin` 返回的 `targetId`）。
    *
@@ -75,8 +81,10 @@ export interface RunEngineDeps<TTask extends RunTask, TCommand> {
    * 宿主据此把「生成中」画在**真正会收到产物的节点**上——
    * 画布在源节点已有内容时会另建承载节点，状态若仍挂在源节点上，
    * 用户看到的就是「转圈在旧节点、结果跑到新节点」（2026-09-16 报）。
+   *
+   * 首参 `planId` 用于并发时精确定位本计划，避免宿主遍历全部计划时改错对象。
    */
-  onTaskTarget?: (taskId: string, targetId: string) => void
+  onTaskTarget?: (planId: string, taskId: string, targetId: string) => void
   /** 版本号来源；未提供时每个主体都从 1 开始 */
   nextVersion?: (nodeId: string) => number
   /** 重试等待（默认真实 setTimeout；测试传 no-op 保持同步） */
@@ -158,7 +166,8 @@ export async function runEngine<TTask extends RunTask, TCommand>(
   const now = deps.now ?? (() => Date.now())
   const wait = deps.wait ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
   const policy: RunPolicy = { ...DEFAULT_POLICY, ...deps.policy }
-  const update = (taskId: string, state: RunTaskState) => deps.onTaskUpdate?.(taskId, state)
+  const update = (taskId: string, state: RunTaskState) =>
+    deps.onTaskUpdate?.(plan.id, taskId, state)
   const placement = deps.placement
 
   const startedAt = now()
@@ -219,7 +228,7 @@ export async function runEngine<TTask extends RunTask, TCommand>(
     const targetId = began.targetId
     if (began.commands.length > 0) write(began.commands)
     // 落点已确定 → 告诉宿主；「生成中」据此挂在真正收到产物的节点上
-    deps.onTaskTarget?.(task.id, targetId)
+    deps.onTaskTarget?.(plan.id, task.id, targetId)
 
     const taskStartedAt = now()
     update(task.id, { kind: 'running', startedAt: taskStartedAt })

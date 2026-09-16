@@ -222,13 +222,17 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       projectId: store.getSnapshot().projectId,
       // 画布落位适配器：槽位/结果组等画布专有落位逻辑都在这里（架构 §5.5 路径 B）
       placement: createCanvasPlacement(() => store.getSnapshot().projectId),
-      onTaskUpdate: (taskId: string, state: RunTaskState) => {
-        // 同一个 taskId 只属于一个 plan；扫各表即可，无需依赖「当前 plan」这个全局指针
-        let nodeId: string | undefined
-        for (const m of taskToNodeMapsRef.current.values()) {
-          nodeId = m.get(taskId)
-          if (nodeId) break
-        }
+      onTaskUpdate: (planId: string, taskId: string, state: RunTaskState) => {
+        /**
+         * 按 **planId 精确定位**本计划那份映射表。
+         *
+         * 此前不带 planId、遍历全部计划去找 taskId —— 并发或上一轮残留计划未清时，
+         * 会命中**别的**计划的那一份（拿到错的 nodeId，或拿到已被删掉的旧表），
+         * 于是 queued/running/succeeded 的后续更新全部写丢，
+         * 表现为「图出来了但一直转圈」（2026-09-16 截图反馈）。
+         */
+        const m = taskToNodeMapsRef.current.get(planId)
+        const nodeId = m?.get(taskId)
         if (nodeId) setNodeStates((prev) => new Map(prev).set(nodeId, state))
       },
       /**
@@ -236,9 +240,16 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
        * **另建承载节点**。此后该 task 的状态一律画在承载节点上，
        * 触发节点不再显示「生成中」（用户 2026-09-16 报的那条）。
        */
-      onTaskTarget: (taskId: string, targetId: string) => {
-        for (const m of taskToNodeMapsRef.current.values()) {
-          if (!m.has(taskId)) continue
+      onTaskTarget: (planId: string, taskId: string, targetId: string) => {
+        /**
+         * 按 **planId 精确定位**本计划那份映射表。
+         *
+         * 此前不带 planId，只能遍历全部计划的 Map 去找这条 task —— 并发时
+         * （或上一轮残留计划还没清掉时）会改到**别的**计划的那一份，
+         * 本计划的没改到 → 清理时对不上 → queued/running 残留（转圈不停）。
+         */
+        const m = taskToNodeMapsRef.current.get(planId)
+        if (m && m.has(taskId)) {
           const from = m.get(taskId)!
           m.set(taskId, targetId)
           /**
@@ -258,7 +269,6 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
               return next
             })
           }
-          return
         }
       },
       onFinish: () => {

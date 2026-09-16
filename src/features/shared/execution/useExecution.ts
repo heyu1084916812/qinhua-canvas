@@ -34,8 +34,16 @@ export interface ExecutionHost<TTask extends RunTask, TCommand> {
    * 任务实际落点已确定（`placement.begin` 之后立刻回调）。
    * 宿主用 `taskId → targetId` 重映射「生成中」状态：画布另建承载节点时，
    * 转圈要画在新节点上，而不是触发节点。
+   *
+   * **必须带 `planId`**：并发时多个计划同时在跑，宿主若不带 planId 只能遍历
+   * 全部计划去找这条 task，既慢又可能改到别的计划的那一份（曾导致状态清不掉）。
    */
-  onTaskTarget?: (taskId: string, targetId: string) => void
+  onTaskTarget?: (planId: string, taskId: string, targetId: string) => void
+  /**
+   * 任务状态变化（queued / running / succeeded / failed / canceled）。
+   * 带 `planId` 便于宿主在并发时精确定位本计划。
+   */
+  onTaskUpdate?: (planId: string, taskId: string, state: RunTaskState) => void
   policy?: Partial<RunPolicy>
   nextVersion?: (nodeId: string) => number
 }
@@ -80,11 +88,12 @@ export function useExecution<TTask extends RunTask, TCommand>(
         placement: hostRef.current.placement,
         policy: hostRef.current.policy,
         nextVersion: hostRef.current.nextVersion,
-        onTaskUpdate: (taskId, state) => {
+        onTaskUpdate: (planId, taskId, state) => {
           setTaskStates((prev) => new Map(prev).set(taskId, state))
+          hostRef.current.onTaskUpdate?.(planId, taskId, state)
         },
         onTaskTarget: (taskId, targetId) => {
-          hostRef.current.onTaskTarget?.(taskId, targetId)
+          hostRef.current.onTaskTarget?.(plan.id, taskId, targetId)
         },
       })
         hostRef.current.onFinish?.(summary)
