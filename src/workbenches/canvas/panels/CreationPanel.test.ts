@@ -262,10 +262,10 @@ describe('CreationPanel · 比例档位（§6.8）', () => {
     )
   })
 
-  it('模型上报了比例 → 以模型为准（能力驱动，UI 不写死）', () => {
+  it('★ 模型只上报 1:1 / 16:9（残缺快照）→ 仍给全 13 档，不把网格砍成两格', () => {
     expect(
       ratiosOf({ id: 'x', category: 'image', inputTypes: ['text'], aspectRatios: ['1:1', '16:9'] }),
-    ).toEqual(['1:1', '16:9'])
+    ).toEqual(THIRTEEN)
   })
 })
 
@@ -349,9 +349,10 @@ describe('CreationPanel · 画质「自动」档（§6.8）', () => {
     expect(html).toContain('2K')
   })
 
-  it('模型只报 1k/2k 时，「自动」仍在（它不是档位，是「不指定」本身）', () => {
-    // 选项表在浮层收起时不渲染，故照 ratiosOf 的先例在函数层断言
-    expect(resolutionsOf({ ...imgModel, resolutions: ['1k', '2k'] })).toEqual(['auto', '1k', '2k'])
+  it('★ 模型只报 1k/2k（残缺快照）→ 4K 仍出现在列表里，不被隐藏', () => {
+    // 用户 2026-09-16 报「image-2 没有 4K」的根因：旧实现拿模型上报当白名单，
+    // 只报 1k/2k 时 4K 被直接过滤掉，面板上永远看不到。
+    expect(resolutionsOf({ ...imgModel, resolutions: ['1k', '2k'] })).toEqual(['auto', '1k', '2k', '4k'])
     expect(resolutionsOf(undefined)).toEqual(['auto', '1k', '2k', '4k'])
     expect(resolutionsOf({ ...imgModel, resolutions: [] })).toEqual(['auto', '1k', '2k', '4k'])
   })

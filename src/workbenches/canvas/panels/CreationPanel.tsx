@@ -95,24 +95,32 @@ export interface PanelPromptTools {
  * 光靠看面板渲染结果（SSR 下浮层是收起的）根本断言不了。
  */
 /**
- * 画质候选档位（§6.8）：模型上报了就用模型的，没上报用「自动 + 1K/2K/4K」全套。
+ * 画质候选档位（§6.8）：**始终是「自动 + 1K / 2K / 4K」全套**。
  *
- * 与 `ratiosOf` 同一条道理——抽成纯函数是为了**能在函数层断言「没上报时看到几档」**；
- * SSR 下浮层是收起的，看渲染结果根本断言不了选项表。
+ * 用户 2026-09-16 报「image-2 没有 4K」：旧实现把模型上报的 `resolutions` 当**白名单**，
+ * 模型（或缓存）只报 `['1k','2k']` 时 4K 就被**隐藏**了。而多数中转站的 `/v1/models`
+ * 根本不报这个字段，缓存里那两条也很可能只是当初的残缺快照——
+ * 「没报」不等于「不支持」，拿它当白名单等于让残缺元数据**永久砍掉**用户可选项。
  *
- * 「自动」**永远保留**：它不是某个画质档位，而是「不指定」这个选项本身——
- * 模型上报的 `resolutions` 只说明它认哪些档位，没理由把「不指定」也一起藏掉。
+ * 语义修正：档位**始终给全**；模型明确声明只支持某几档时，由面板把够不到的档位置灰
+ * （`ParamPicker` 的 `disabled`），而不是从列表里删掉。看得见但暂时不可选，
+ * 比「选项凭空消失、用户以为功能没了」可解释得多。
  */
 export function resolutionsOf(cap?: ModelCapability): string[] {
-  const declared = cap?.resolutions
-  if (!declared?.length) return RESOLUTION_OPTIONS.map((r) => r.value)
-  return RESOLUTION_OPTIONS.filter((r) => r.value === 'auto' || declared.includes(r.value)).map(
-    (r) => r.value,
-  )
+  void cap
+  return RESOLUTION_OPTIONS.map((r) => r.value)
 }
 
+/**
+ * 比例候选（§6.8）：与 `resolutionsOf` 同一口径——**始终给全 13 档**。
+ *
+ * 旧实现「模型上报就用模型的」会把残缺的快照当权威：缓存里只有 `['1:1','16:9']` 时，
+ * 图形化网格里就只剩两格，用户报「比例没有图例」。13 档是**画布的表达能力**，
+ * 不该被一次残缺上报锁死；模型确实不认的比例由渠道层如实报错，而不是界面上先藏掉。
+ */
 export function ratiosOf(cap?: ModelCapability): string[] {
-  return cap?.aspectRatios?.length ? [...cap.aspectRatios] : [...RATIO_OPTIONS]
+  void cap
+  return [...RATIO_OPTIONS]
 }
 
 export interface CreationPanelProps {

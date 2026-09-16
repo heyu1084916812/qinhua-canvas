@@ -1,8 +1,6 @@
 import type { GraphSnapshot } from '../model/graph'
 import { indexNodes } from '../model/graph'
 import { directDownstream } from '../graph/upstreamOf'
-import { directUpstream } from '../graph/upstreamOf'
-import type { GenerationData, NodeSnapshot } from '../model/node'
 
 export type SlotPlan =
   /** 复用已有的空生成节点 */
@@ -27,33 +25,14 @@ function isEmptySlot(nodeId: string, graph: GraphSnapshot): boolean {
 }
 
 /**
- * 源节点「已经有内容」时不能作为空槽复用。
- *
- * 旧规则只要节点没有 assetHash 就当空槽，于是「用节点自身的素材再生成」——
- * 无论那张图是上游生成的还是自己一开始生成的——都会把产物写回源节点本身：
- * 用户看到的是占位被替换，而不是右侧新建一张结果。
- *
- * 判定只看**源节点自己**：
- * - 自身已有素材（`assetHash`）→ 它是「输入 / 参考」，结果另起下游承载；
- * - 自身是空的，但有「生成节点上游 + 该上游已产出图片」→ 同理（图生图）。
- *
- * 这两条都只作用于**触发节点本身**，不会误伤普通的「上游有内容 → 下游空槽」
- * BFS 复用场景；源节点为空且上游只有提示词时，仍按空槽位规则复用本体。
- */
-function mustNotReuseSource(node: NodeSnapshot, graph: GraphSnapshot): boolean {
-  if ((node.data as GenerationData).assetHash) return true
-  const index = indexNodes(graph.nodes)
-  return directUpstream(node.id, graph.edges).some((id) => {
-    const upstream = index.get(id)
-    if (!upstream || upstream.type !== 'generation') return false
-    return !!(upstream.data as GenerationData).assetHash
-  })
-}
-
-/**
  * 单点生成的空槽位 BFS 查找（产品文档 §6.19.3）。
  * 从触发节点开始向下游 BFS，触发节点本身参与；已找到的槽位下一轮视为已占用。
  * 槽位不够时在拓扑方向铺新节点，命名「原节点名的输出N」。
+ *
+ * 空槽的判据只有一条：该生成节点**还没有产物**（`assetHash` 为空）。
+ * 触发节点自己也是候选之一，但它**一旦有素材就不再是槽位**——那正是
+ * 「图生图时结果被写回输入节点」这个 bug 的根：源节点有图 = 它是输入，
+ * 结果应当复用下游空槽、或另起承载节点，而不是覆盖它。
  */
 export function planSlots(opts: SlotSearchOptions): SlotPlan[] {
   const { graph, startNodeId } = opts
@@ -80,10 +59,7 @@ export function planSlots(opts: SlotSearchOptions): SlotPlan[] {
     if (visited.has(current)) continue
     visited.add(current)
 
-    const currentIndex = index.get(current)
-    const blockedBySourceContent =
-      current === start.id && !!currentIndex && mustNotReuseSource(currentIndex, graph)
-    if (!used.has(current) && currentIndex && !blockedBySourceContent && isEmptySlot(current, graph)) {
+    if (!used.has(current) && isEmptySlot(current, graph)) {
       used.add(current)
       plans.push({ kind: 'reuse', nodeId: current })
     }

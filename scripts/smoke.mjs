@@ -2520,28 +2520,32 @@ async function g22(browser) {
   const histPanel = await genPanel(page)
   await configureGenPanel(page, histPanel, '屋顶的猫')
 
-  // 3) 跑两次。完成信号**不是**结果组：N=1 的产物写回节点本体、不再建结果组
-  //    （§6.16，M6-24），结果组计数恒为 0 —— 改用「生成按钮回到空闲态 + 节点已出图」。
+  // 3) 跑两次。**2026-09-16 口径变更**：产出永远落在空槽上——第一次落在生成节点自己
+  //    身上，第二次因为源节点已有图、不再是空槽，**新建承载节点**接第二张。
+  //    完成信号仍是「生成按钮回到空闲态 + 有节点出图」。
   const runBtn = panelRunBtn(page)
   for (let i = 1; i <= 2; i++) {
     await runBtn.click()
     await sleep(400) // 让按钮先进入运行态，避免把「还没开始」读成「已完成」
     let done = false
     for (let t = 0; t < 60; t++) {
+      // 第 2 次生成会新建节点，旧面板的按钮随选中变化而卸载 —— 用「有节点出图」兜底判定
       const label = await runBtn.getAttribute('aria-label').catch(() => '')
-      if (label === '生成当前节点') {
-        done = true
-        break
-      }
+      if (label === '生成当前节点') { done = true; break }
+      if (label === null && (await page.locator('[data-node-asset]').count()) > 0) { done = true; break }
       await sleep(250)
     }
     const assetCount = await page.locator('[data-node-asset]').count()
-    rec(g, `第 ${i} 次生成完成并回填节点本体`, done && assetCount >= 1, `asset=${assetCount}`)
+    rec(g, `第 ${i} 次生成完成并有节点出图`, done && assetCount >= i, `asset=${assetCount}`)
     await sleep(600)
   }
 
-  // 4) 右键生成节点 → 「版本历史」→ 面板出现且列 2 版
-  await page.locator('[data-node-type="generation"]').click({ button: 'right', force: true })
+  // 4) 两次生成后应是**两个**生成节点（第二个承载第二次的产物）
+  const genCount = await page.locator('[data-node-type="generation"]').count()
+  rec(g, '两次生成产出两个生成节点（产出落在空槽上）', genCount === 2, `count=${genCount}`)
+
+  // 5) 右键**最新那个**生成节点 → 「版本历史」→ 面板出现且列 1 版（它是新建的，只跑过一次）
+  await page.locator('[data-node-type="generation"]').last().click({ button: 'right', force: true })
   await sleep(300)
   const historyItem = page.locator('[data-context-menu-item="history"]')
   rec(g, '右键菜单出现「版本历史」', (await historyItem.count()) > 0)
@@ -2550,10 +2554,10 @@ async function g22(browser) {
   const panel = page.locator('[data-version-history-panel]')
   rec(g, '版本历史面板出现', (await panel.count()) === 1)
   const rows2 = await page.locator('[data-version-row]').count()
-  rec(g, '两次生成列出 2 版', rows2 === 2, `rows=${rows2}`)
+  rec(g, '新节点列出 1 版（它只跑过一次）', rows2 === 1, `rows=${rows2}`)
 
-  // 5) Ctrl + 点击 v2 → 临时预览出现（30% 叠加）；Esc 退出
-  await page.locator('[data-version-row="2"]').click({ modifiers: ['Control'] })
+  // 5) Ctrl + 点击 v1 → 临时预览出现（30% 叠加）；Esc 退出
+  await page.locator('[data-version-row="1"]').click({ modifiers: ['Control'] })
   await sleep(400)
   const previewShown = await page.locator('[data-version-preview]').count()
   rec(g, 'Ctrl+点击出现临时预览', previewShown === 1)
@@ -2562,17 +2566,13 @@ async function g22(browser) {
   const previewGone = await page.locator('[data-version-preview]').count()
   rec(g, 'Esc 退出预览', previewGone === 0)
 
-  // 6) 双击 v1 → 恢复该版本并追加新 RunRecord（共 3 版，最新为 v3）
-  const rowVals = await page.evaluate(() =>
-    [...document.querySelectorAll('[data-version-row]')].map((r) => r.getAttribute('data-version-row')),
-  )
-  console.log(`  [diag] version rows before dblclick = ${JSON.stringify(rowVals)}`)
+  // 6) 双击 v1 → 恢复该版本并追加新 RunRecord（该节点变 2 版，最新为 v2）
   await page.locator('[data-version-row="1"]').dblclick()
   await sleep(700)
   const rows3 = await page.locator('[data-version-row]').count()
-  rec(g, '双击恢复 v1 后追加新版本（3 版）', rows3 === 3, `rows=${rows3}`)
+  rec(g, '双击恢复 v1 后追加新版本（2 版）', rows3 === 2, `rows=${rows3}`)
   const firstRow = await page.locator('[data-version-row]').first().getAttribute('data-version-row')
-  rec(g, '最新版本为 v3', firstRow === '3', `first=${firstRow}`)
+  rec(g, '最新版本为 v2', firstRow === '2', `first=${firstRow}`)
   await page.screenshot({ path: `${OUT}/35-g22-version-history.png` })
 
   // 7) Ctrl+H 打开时间轴：列出记录，节点过滤与状态过滤可用
@@ -2581,11 +2581,12 @@ async function g22(browser) {
   const timeline = page.locator('[aria-label="画布时间轴"]')
   rec(g, 'Ctrl+H 打开时间轴', (await timeline.count()) === 1)
   const allRows = await page.locator('[data-timeline-row]').count()
+  // 两个节点各有一条成功记录，新建的那个恢复一次 → 合计 3 条
   rec(g, '时间轴列出全部记录', allRows === 3, `rows=${allRows}`)
   await page.locator('[data-timeline-node-filter]').selectOption({ index: 1 })
   await sleep(400)
   const nodeRows = await page.locator('[data-timeline-row]').count()
-  rec(g, '按节点过滤生效', nodeRows === 3, `rows=${nodeRows}`)
+  rec(g, '按节点过滤生效', nodeRows >= 1 && nodeRows < allRows, `rows=${nodeRows}/${allRows}`)
   await page.locator('[data-timeline-status-filter] button', { hasText: '失败' }).click()
   await sleep(400)
   const failRows = await page.locator('[data-timeline-row]').count()

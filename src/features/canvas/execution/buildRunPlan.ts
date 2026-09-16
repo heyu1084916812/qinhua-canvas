@@ -166,18 +166,22 @@ export function buildRunPlan(
     .map((id) => index.get(id))
     .filter((n): n is NodeSnapshot => !!n)
 
-  // 3. 单点生成的结果落位：BFS 空槽位 / Alt+R 铺新下游。
+  // 3. 单点生成的结果落位：空槽位 BFS（§6.19.3）。
   //    槽位数 = 实际要发起的调用数（集合展开后），否则批量场景会「槽位不够铺新节点」。
-  const singleFromPrompt =
-    (mode === 'single' || mode === 'single-alt') &&
-    !!originNodeId &&
-    !(index.get(originNodeId) && canBuildRequest(index.get(originNodeId)!))
+  //
+  //    **不论触发节点是提示词还是生成节点，都要走空槽位规划**：
+  //      - 从提示词发起（提示词 → 下游生成节点）：老路径；
+  //      - 从生成节点自己发起（用户 2026-09-16 报的图生图）：同样要按「空槽」判据落位。
+  //        此前这里只在「提示词发起」时规划槽位，生成节点自跑时 `slots` 恒为空、
+  //        落位写死 `reuse` 自己 —— 于是源节点已有的图被新产物覆盖，
+  //        用户看到「用节点自己的素材生图时没有新建右侧节点」。
+  const singleRun = mode === 'single' || mode === 'single-alt'
   const plannedCalls =
-    singleFromPrompt && originNodeId
+    singleRun && originNodeId
       ? ordered.reduce((sum, n) => sum + callCountOf(n, working), 0)
       : 0
   const slots =
-    singleFromPrompt && originNodeId
+    singleRun && originNodeId
       ? planSlots({
           startNodeId: originNodeId,
           graph: working,

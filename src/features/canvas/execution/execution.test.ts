@@ -159,6 +159,37 @@ describe('buildRunPlan（单点生成）', () => {
     expect(plan.tasks).toHaveLength(0)
   })
 
+  /**
+   * ★ 用户 2026-09-16 报的 bug：生成节点**自己已有图**时再点生成，产物被写回它自己、
+   * 没有新建节点。
+   *
+   * 根因：槽位规划（`planSlots`）此前只在「提示词发起」时被调用；从生成节点自跑时
+   * `slots` 恒为空，落位写死 `{ kind: 'reuse', nodeId: node.id }`。修好后，
+   * 生成节点自跑同样走空槽位判据——它已有内容就不再是空槽，应另起承载节点。
+   */
+  it('★ 生成节点自身已有素材时自跑 → 落位是新建，不覆盖自己', () => {
+    const { store, genId } = setup()
+    store.dispatch({ kind: 'node.updateData', id: genId, patch: { assetHash: 'h-self' } })
+
+    const plan = buildRunPlan('node', { originNodeId: genId }, store.getSnapshot(), 'single')
+
+    expect(plan.tasks).toHaveLength(1)
+    expect(plan.tasks[0]!.slot.kind).toBe('new')
+    if (plan.tasks[0]!.slot.kind === 'new') {
+      expect(plan.tasks[0]!.slot.connectFrom).toBe(genId)
+    }
+  })
+
+  it('生成节点自身为空时自跑 → 落位是复用自己（首次生成落在本节点）', () => {
+    const { store, genId } = setup()
+    store.dispatch({ kind: 'node.updateData', id: genId, patch: { prompt: '自有提示词' } })
+
+    const plan = buildRunPlan('node', { originNodeId: genId }, store.getSnapshot(), 'single')
+
+    expect(plan.tasks).toHaveLength(1)
+    expect(plan.tasks[0]!.slot).toEqual({ kind: 'reuse', nodeId: genId })
+  })
+
   it('refreshStale 只收 stale 集合内的节点', () => {
     const { store, promptId, genId } = setup()
     const g = store.getSnapshot()

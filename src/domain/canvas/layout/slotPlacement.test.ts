@@ -105,7 +105,9 @@ describe('空槽位 BFS（产品文档 §6.19.3）', () => {
     expect(planSlots({ startNodeId: 'ghost', graph: g, count: 1 })).toEqual([])
   })
 
-  it('图生图：源节点为空但已有生成节点上游时，不复用源节点，改铺新下游节点', () => {
+  it('★ 源节点自身已有素材 → 它不再是空槽，另起承载节点（用户 2026-09-16 口径）', () => {
+    // 这是「用节点自己的图再生一张」那条动线：源节点有图 = 它是输入，不是槽位。
+    // 下游没有空槽 → 新建「原节点名的输出1」承载结果，源节点与其旧产物都不动。
     const g = graph(
       [prompt('p1', '提示词'), gen('a', '图生图', 'h-source')],
       [
@@ -118,17 +120,32 @@ describe('空槽位 BFS（产品文档 §6.19.3）', () => {
     ])
   })
 
-  it('普通空生成节点仍然复用，不受图生图规则影响', () => {
+  it('源节点自身为空 → 它就是空槽，结果落在自己身上（首次文生图）', () => {
     const g = graph([prompt('p1', '提示词'), gen('a', '普通生成')], [{ source: 'p1', target: 'a' }])
 
     expect(planSlots({ startNodeId: 'a', graph: g, count: 1 })).toEqual([{ kind: 'reuse', nodeId: 'a' }])
   })
 
-  it('源节点自身已有素材（自己生成的图）时，也另建下游节点，不覆盖自身', () => {
-    const g = graph([gen('a', '已有图的生成节点', 'h-self')], [])
+  it('★ 源节点有图、下游已有空槽 → 复用下游空槽（方式二），不再新建', () => {
+    const g = graph(
+      [gen('a', '有图的生成节点', 'h-a'), gen('b', '下游空槽')],
+      [{ source: 'a', target: 'b' }],
+    )
 
-    expect(planSlots({ startNodeId: 'a', graph: g, count: 1 })).toEqual([
-      { kind: 'new', title: '已有图的生成节点的输出1', connectFrom: 'a' },
-    ])
+    expect(planSlots({ startNodeId: 'a', graph: g, count: 1 })).toEqual([{ kind: 'reuse', nodeId: 'b' }])
   })
+
+  it('★ N=2 且只有一个空槽 → 复用 1 个 + 并列新建 1 个', () => {
+    const g = graph(
+      [gen('a', '有图的生成节点', 'h-a'), gen('b', '下游空槽')],
+      [{ source: 'a', target: 'b' }],
+    )
+
+    const plans = planSlots({ startNodeId: 'a', graph: g, count: 2 })
+    expect(plans).toHaveLength(2)
+    expect(plans[0]).toEqual({ kind: 'reuse', nodeId: 'b' })
+    expect(plans[1]!.kind).toBe('new')
+    if (plans[1]!.kind === 'new') expect(plans[1]!.connectFrom).toBe('a')
+  })
+
 })
