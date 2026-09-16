@@ -87,7 +87,6 @@ export function NodeFollowBar({ onClose, onOpenSettings }: NodeFollowBarProps = 
       className={styles.bar}
       style={{ left: anchor.centerX, top: anchor.top, transform: 'translateX(-50%)' }}
       data-node-follow-bar={node.id}
-      data-node-follow-placement={anchor.placement}
       // 栏上的点击/拖动不该被画布当成「点空白取消选中」或发起平移
       onPointerDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}

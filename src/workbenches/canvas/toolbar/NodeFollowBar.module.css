@@ -44,6 +44,11 @@
   gap: var(--space-1);
   height: 26px;
   padding: 0 var(--space-2) 0 var(--space-1);
+  /*
+   * 描边**恒为 transparent**（用户 2026-09-17：hover 的实色按钮不要描边）。
+   * 仍保留 1px 占位：若改成 `border: none`，hover 时加边框会让按钮尺寸与
+   * 邻居一起跳 2px；保持透明边框则只换颜色、几何不动。
+   */
   border: 1px solid transparent;
   border-radius: calc(var(--radius-control) - 4px);
   background: transparent;
@@ -80,17 +85,21 @@
   white-space: nowrap;
 }
 
-/* hover / 键盘聚焦该按钮 → 变实色块（与创作面板参数 chip 的 hover 同一条规则） */
+/*
+ * hover / 键盘聚焦该按钮 → 只变**实色**，不加描边
+ * （与创作面板参数 chip 的 hover 同一条底色规则：透明 → `--bg-hover`）。
+ */
 .btn:hover,
 .btn:focus-visible {
   background: var(--bg-hover);
-  border-color: var(--stroke);
 }
 
-/* 删除是唯一危险项：hover 时描边与文字转危险色，与右键菜单的危险分组同口径（§4.1） */
+/*
+ * 删除是唯一危险项：hover 时**文字**转危险色（与右键菜单的危险分组同口径 §4.1）。
+ * 描边同样不加——实色块 + 红字已经足够表达，再加一圈红边反而吵。
+ */
 .btn[data-follow-action='delete']:hover,
 .btn[data-follow-action='delete']:focus-visible {
-  border-color: var(--danger);
   color: var(--danger);
 }
 
@@ -104,11 +113,12 @@
 
 /*
  * 指向节点的小三角：纯装饰，标出「这栏属于下面那个节点」。
- * 位置随 placement 翻转（在上方时朝下、在下方时朝上），颜色与容器一致。
+ * 栏恒在节点**上方**（2026-09-17 起不再翻转），故三角恒朝下、固定在底边。
  */
 .arrow {
   position: absolute;
   left: 50%;
+  bottom: -5px;
   width: 8px;
   height: 8px;
   margin-left: -4px;
@@ -116,15 +126,6 @@
   border-right: 1px solid var(--stroke);
   border-bottom: 1px solid var(--stroke);
   transform: rotate(45deg);
-}
-
-.bar[data-node-follow-placement='above'] .arrow {
-  bottom: -5px;
-}
-
-.bar[data-node-follow-placement='below'] .arrow {
-  top: -5px;
-  transform: rotate(225deg);
 }
 
 @media (prefers-reduced-motion: reduce) {

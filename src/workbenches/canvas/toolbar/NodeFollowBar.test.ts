@@ -15,10 +15,9 @@ const vp = (x: number, y: number, zoom = 1): Viewport => ({ x, y, zoom })
 const rect = (x: number, y: number, w = 240, h = 240): Rect => ({ x, y, w, h })
 
 describe('followBarAnchor / 跟随栏锚点', () => {
-  it('默认挂在节点**上方**且水平居中（与创作面板同一套 screen 换算）', () => {
+  it('挂在节点**上方**且水平居中（与创作面板同一套 screen 换算）', () => {
     // 节点世界坐标 (100, 200)，视口在原点、zoom=1 → 屏幕坐标同值
     const a = followBarAnchor(rect(100, 200), vp(0, 0))
-    expect(a.placement).toBe('above')
     expect(a.centerX).toBe(100 + 240 / 2)
     // 顶边 200 上移「栏高 + 间距」
     expect(a.top).toBe(200 - FOLLOW_BAR_HEIGHT - FOLLOW_BAR_GAP)
@@ -43,15 +42,23 @@ describe('followBarAnchor / 跟随栏锚点', () => {
     expect(a1.centerX - a2.centerX).toBe(500)
   })
 
-  it('上方空间不足 → 翻到节点下方（贴着节点底边）', () => {
-    // 节点顶边在屏幕 y=8，装不下「栏高 + 间距」
-    const a = followBarAnchor(rect(100, 8), vp(0, 0))
-    expect(a.placement).toBe('below')
-    expect(a.top).toBe(8 + 240 + FOLLOW_BAR_GAP)
+  /**
+   * 位置稳定性优先于始终可见（用户 2026-09-17）：节点顶到画布顶端时栏**仍在上方**。
+   * 若在这里翻转，用户把节点往上拖一点，栏就会在上下之间横跳——比被顶栏压住更难用。
+   */
+  it('★ 节点顶到画布顶端也不翻到下方（位置稳定优先）', () => {
+    const r = rect(100, 8)
+    const a = followBarAnchor(r, vp(0, 0))
+    // 顶边 8 上移栏高 + 间距 → 负值（被画布上边界裁掉一部分），但**不翻到下方**
+    expect(a.top).toBe(8 - FOLLOW_BAR_HEIGHT - FOLLOW_BAR_GAP)
+    expect(a.top).toBeLessThan(0)
+    // 决不能落在节点下方（节点底边 248 之下）
+    expect(a.top).toBeLessThan(r.y + r.h)
   })
 
-  it('节点在画布中部时判定为上方（不误翻转）', () => {
-    const a = followBarAnchor(rect(100, 400), vp(0, 0))
-    expect(a.placement).toBe('above')
+  it('anchor 不再返回 placement（翻转语义已移除）', () => {
+    const a = followBarAnchor(rect(100, 200), vp(0, 0))
+    expect(a).not.toHaveProperty('placement')
+    expect(Object.keys(a).sort()).toEqual(['centerX', 'top'])
   })
 })

@@ -7943,13 +7943,9 @@ async function g58(browser) {
   })
   await sleep(300)
   rec(g, '单选生成节点出现跟随栏', (await bar.count()) === 1, `count=${await bar.count()}`)
-  rec(
-    g,
-    '默认挂在节点上方',
-    (await bar.getAttribute('data-node-follow-placement')) === 'above',
-    `placement=${await bar.getAttribute('data-node-follow-placement')}`,
-  )
   const b0 = await bar.boundingBox()
+  // 翻转语义已移除（用户 2026-09-17）：栏恒在节点上方，改用真实几何断言
+  rec(g, '默认挂在节点上方', b0.y + b0.height <= n0.y + 2, `bar底=${Math.round(b0.y + b0.height)} node顶=${Math.round(n0.y)}`)
   const nodeCenter0 = n0.x + n0.width / 2
   const barCenter0 = b0.x + b0.width / 2
   rec(g, '水平中心与节点对齐', Math.abs(barCenter0 - nodeCenter0) < 2, `Δ=${(barCenter0 - nodeCenter0).toFixed(2)}`)
@@ -8025,6 +8021,32 @@ async function g58(browser) {
   rec(g, '拖动结束后跟随栏仍在', (await bar.count()) === 1, `count=${await bar.count()}`)
   await page.screenshot({ path: `${OUT}/73-g58-follow-bar-drag.png` })
 
+  // 3.5) ★ 节点拖到画布**顶端**时栏**不翻到下方**（用户 2026-09-17）
+  const nTop = await gen.boundingBox()
+  const gTop = { x: Math.round(nTop.x + 14), y: Math.round(nTop.y + nTop.height - 14) }
+  await page.mouse.move(gTop.x, gTop.y)
+  await page.mouse.down()
+  await page.mouse.move(gTop.x, 8, { steps: 14 })
+  await page.mouse.up()
+  await sleep(400)
+  const bTop = await bar.boundingBox()
+  const nAfter = await gen.boundingBox()
+  rec(
+    g,
+    '★ 节点顶到画布顶端时栏仍在其上方（不自动翻下）',
+    bTop.y + bTop.height <= nAfter.y + 2,
+    `bar底=${Math.round(bTop.y + bTop.height)} node顶=${Math.round(nAfter.y)}`,
+  )
+  await page.screenshot({ path: `${OUT}/73-g58-follow-bar-top.png` })
+  // 把节点拖回画布可视区：拖到顶端后它有一部分在画布外，后续点击会落空
+  const nBack = await gen.boundingBox()
+  const gBack = { x: Math.round(nBack.x + 14), y: Math.max(8, Math.round(nBack.y + nBack.height - 14)) }
+  await page.mouse.move(gBack.x, gBack.y)
+  await page.mouse.down()
+  await page.mouse.move(gBack.x, gBack.y + 320, { steps: 14 })
+  await page.mouse.up()
+  await sleep(400)
+
   // 4) 多选 → 隐藏（这一栏属于谁有歧义）。
   //    用跟随栏自己的「复制」造出第二个节点（它带 24px 偏移，不会与原件重叠），
   //    再 Shift + 点击原件加选（§6.15：Shift + 按下 = 增减选中）。
@@ -8085,7 +8107,65 @@ async function g58(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g22, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g41, g42, g43, g44, g45, g46, g47, g48, g49, g50, g51, g52, g53, g54, g55, g56, g57, g58]
+// ────────────────────────────────────────────────────────────
+// G59 生成节点的产物像素标签（用户 2026-09-17）：
+// 有素材 → 右上角标出**真实像素**（宽×高）；数字必须等于图片实际解码尺寸，
+// 而不是「我们向渠道请求了多大」。空节点不显示。
+// ────────────────────────────────────────────────────────────
+async function g59(browser) {
+  const g = 'G59 产物像素标签'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(700)
+
+  const gen = page.locator('[data-node-type="generation"]').first()
+  const panel = await genPanel(page, gen)
+  await configureGenPanel(page, panel, '屋顶的猫')
+  // 16:9 → mock 按该比例造 64×36 的 PNG（长边 64）
+  await pickParam(panel, 'ratio', '16:9')
+  await sleep(200)
+
+  rec(g, '空节点不显示像素标签', (await page.locator('[data-node-pixels]').count()) === 0, `count=${await page.locator('[data-node-pixels]').count()}`)
+
+  await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
+  for (let t = 0; t < 60; t++) {
+    if ((await page.locator('[data-node-asset]').count()) > 0) break
+    await sleep(250)
+  }
+  await sleep(1000)
+
+  const label = page.locator('[data-node-pixels]')
+  rec(g, '有素材后出现像素标签', (await label.count()) >= 1, `count=${await label.count()}`)
+  const text = (await label.first().innerText().catch(() => '')).trim()
+  // 与图片**真实解码尺寸**比对：这是「真实像素」而不是「请求像素」的证明
+  const real = await page
+    .locator('[data-node-asset]')
+    .first()
+    .evaluate((img) => `${img.naturalWidth}×${img.naturalHeight}`)
+  rec(g, '★ 标签数字 = 图片真实解码像素（16:9 → 64×36）', text === '64×36', `label=${text}`)
+  rec(g, '★ 与 <img> 解码尺寸一致（不是请求值）', text === real, `label=${text} real=${real}`)
+  rec(g, '不是 1:1 的假值（比例真的生效了）', text !== '64×64', `label=${text}`)
+
+  // 标签不该挡住节点的选中 / 拖动
+  const box = await label.first().boundingBox()
+  const pe = await label.first().evaluate((e) => getComputedStyle(e).pointerEvents)
+  rec(g, '标签不吃指针事件（不挡拖动）', pe === 'none', `pointer-events=${pe}`)
+  rec(g, '标签贴在节点右上角', !!box && box.width > 0 && box.height > 0, box ? `${Math.round(box.width)}×${Math.round(box.height)}` : 'null')
+
+  await page.screenshot({ path: `${OUT}/74-g59-pixels.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g22, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g41, g42, g43, g44, g45, g46, g47, g48, g49, g50, g51, g52, g53, g54, g55, g56, g57, g58, g59]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
