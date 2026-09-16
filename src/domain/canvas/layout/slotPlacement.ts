@@ -1,6 +1,8 @@
 import type { GraphSnapshot } from '../model/graph'
 import { indexNodes } from '../model/graph'
 import { directDownstream } from '../graph/upstreamOf'
+import { directUpstream } from '../graph/upstreamOf'
+import type { GenerationData, NodeSnapshot } from '../model/node'
 
 export type SlotPlan =
   /** 复用已有的空生成节点 */
@@ -22,6 +24,24 @@ function isEmptySlot(nodeId: string, graph: GraphSnapshot): boolean {
   if (!node || node.type !== 'generation') return false
   const data = node.data as { assetHash?: string }
   return !data.assetHash
+}
+
+/**
+ * 图生图的源节点不能作为空槽复用。
+ *
+ * 旧规则只要节点没有 assetHash 就当空槽，于是图生图会把产物写回源节点本身：
+ * 用户看到的是占位被替换，而不是右侧新建一张结果。
+ *
+ * 判定只看**源节点自己**是否已有「生成节点上游 + 该上游已产出图片」：
+ * 这样不会误伤普通的「上游有内容 → 下游空槽」BFS 复用场景。
+ */
+function hasImageInput(node: NodeSnapshot, graph: GraphSnapshot): boolean {
+  const index = indexNodes(graph.nodes)
+  return directUpstream(node.id, graph.edges).some((id) => {
+    const upstream = index.get(id)
+    if (!upstream || upstream.type !== 'generation') return false
+    return !!(upstream.data as GenerationData).assetHash
+  })
 }
 
 /**
@@ -54,7 +74,9 @@ export function planSlots(opts: SlotSearchOptions): SlotPlan[] {
     if (visited.has(current)) continue
     visited.add(current)
 
-    if (!used.has(current) && isEmptySlot(current, graph)) {
+    const currentIndex = index.get(current)
+    const blockedByImageInput = current === start.id && !!currentIndex && hasImageInput(currentIndex, graph)
+    if (!used.has(current) && currentIndex && !blockedByImageInput && isEmptySlot(current, graph)) {
       used.add(current)
       plans.push({ kind: 'reuse', nodeId: current })
     }

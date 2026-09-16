@@ -37,6 +37,22 @@ function graph(nodes: NodeSnapshot[], edges: { source: string; target: string }[
   }
 }
 
+function prompt(id: string, title: string): NodeSnapshot {
+  return {
+    id,
+    projectId: 'p1',
+    type: 'prompt',
+    parentId: null,
+    x: 0,
+    y: 0,
+    w: 200,
+    h: 120,
+    title,
+    disabled: false,
+    data: { text: '写实风格', upstreamPromptLinked: false },
+  }
+}
+
 describe('空槽位 BFS（产品文档 §6.19.3）', () => {
   it('触发节点为空时优先填自己', () => {
     const g = graph([gen('a', '节点A'), gen('b', '节点B', 'h1')], [{ source: 'a', target: 'b' }])
@@ -87,5 +103,24 @@ describe('空槽位 BFS（产品文档 §6.19.3）', () => {
   it('起始节点不存在时返回空', () => {
     const g = graph([gen('a', '节点A')], [])
     expect(planSlots({ startNodeId: 'ghost', graph: g, count: 1 })).toEqual([])
+  })
+
+  it('图生图：源节点为空但已有生成节点上游时，不复用源节点，改铺新下游节点', () => {
+    const g = graph(
+      [prompt('p1', '提示词'), gen('a', '图生图', 'h-source')],
+      [
+        { source: 'p1', target: 'a' },
+      ],
+    )
+
+    expect(planSlots({ startNodeId: 'a', graph: g, count: 1 })).toEqual([
+      { kind: 'new', title: '图生图的输出1', connectFrom: 'a' },
+    ])
+  })
+
+  it('普通空生成节点仍然复用，不受图生图规则影响', () => {
+    const g = graph([prompt('p1', '提示词'), gen('a', '普通生成')], [{ source: 'p1', target: 'a' }])
+
+    expect(planSlots({ startNodeId: 'a', graph: g, count: 1 })).toEqual([{ kind: 'reuse', nodeId: 'a' }])
   })
 })
