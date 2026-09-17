@@ -132,7 +132,7 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
      * 尺寸与 data 走**同一条命令**：分成两条会留下「data 已是新产物、框还是旧比例」
      * 的中间态；而 `node.resize` 需要完整 rect（会顺手移动节点），不适合落位场景。
      */
-    commit(task, targetId, assets) {
+    commit(_task, targetId, assets) {
       const first = assets[0]
       const natural =
         first && first.width && first.height ? { width: first.width, height: first.height } : undefined
@@ -141,7 +141,18 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
         thumbOrder: assets.map((a) => a.hash),
         naturalSize: natural,
       }
-      const size = natural && !shouldCollect(task, assets) ? assetNodeSize(natural) : null
+      /**
+       * **一律按产物真实比例定尺寸**（用户 2026-09-17 报「白框」）。
+       *
+       * 旧逻辑 `!shouldCollect(task, assets)` 只对单一产物生效：N ≥ 2 的产物
+       * 落在独立承载节点上，却仍按建节点时的**请求比例**尺寸顶着 —— 而模型实际
+       * 返回的像素（如 1680×2512）与请求比例（16:9）并不一致，
+       * 于是 `object-fit: contain` 在节点内上下/左右露出白边。
+       *
+       * 现在不再区分：产物回来就以**真实比例**重算节点尺寸，
+       * 节点框 = 产物框，白框消失（灯箱与节点显示也因此一致）。
+       */
+      const size = natural ? assetNodeSize(natural) : null
       /**
        * 素材本体**必须在 commit 里落库**，不能等地一步的 `finalize`：
        * 单一产物根本不走 finalize（不建结果组），若只在那里 `asset.put`，
@@ -159,6 +170,10 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
           id: targetId,
           patch,
           ...(size ? { size } : {}),
+          // 产物写回是**界面级结果**：不进撤销栈（用户 2026-09-17：
+          // Ctrl+Z 不该把已生成的图从节点上抹掉；素材本体本就 silent 落库）。
+          // reducer 的 updateData 以 cmd.transient 决定 silent 事务。
+          transient: true,
         },
       ]
     },

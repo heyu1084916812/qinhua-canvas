@@ -8,7 +8,6 @@ import { ratioNodeSize } from '../../../domain/canvas/layout/assetNodeSize'
  */
 describe('carrierCellAt · 复用 §6.9 格位规则', () => {
   const src = { x: 0, y: 0, w: 240, h: 240 }
-  const N = 200
   const GAP = 16
   const PAD = 16
 
