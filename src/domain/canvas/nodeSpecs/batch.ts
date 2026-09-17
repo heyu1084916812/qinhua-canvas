@@ -57,13 +57,25 @@ export const batchSpec: NodeSpec<BatchData> = {
    * 由 collectionExpand 在展开时原样复制到每一次调用。
    */
   collectInputs({ node, graph }: InputContext<BatchData>): NodeInput[] {
-    // 集合本体（§6.12 第一部分）：内部素材 / 提示词，隐藏项跳过
+    /**
+     * 集合成员 = **内部素材 + 外部连线的素材**。
+     *
+     * 此前只有内部素材进集合，外部连线的素材被当成「共同输入」原样复制进每一次调用
+     * ——于是「批量节点是空的、两张素材从外面连进来」时会退化成**一次调用、两张图一起
+     * 丢给模型**（出一张「两个人一起吃饭」），而用户要的是「两张素材各出一张」。
+     *
+     * 批量的定义是「素材集合，逐个处理」，那么**素材从哪儿进来不该影响语义**：
+     * 放进内部、还是从外面连进来，都是这个集合的一项，都该逐张展开。
+     * 外部连线的**提示词**仍是共同输入（它不是素材，不该被拆开迭代）。
+     */
     const items = batchItemsOf(node, graph)
-    // 外部直接上游：作为「共同输入」附在每个集合项后（场景 2 / 4 的「+ 外部 1 张图」）
     const external = externalInputsOf(node, graph)
-    const collection: NodeInput = { kind: 'collection', nodeId: node.id, items }
-    if (items.length === 0) return external
-    return [...[collection], ...external]
+    const externalAssets = external.filter((i) => i.kind === 'asset')
+    const common = external.filter((i) => i.kind !== 'asset')
+    const all = [...items, ...externalAssets]
+    if (all.length === 0) return common
+    const collection: NodeInput = { kind: 'collection', nodeId: node.id, items: all }
+    return [collection, ...common]
   },
 
   /**
@@ -78,11 +90,30 @@ export const batchSpec: NodeSpec<BatchData> = {
     const data = node.data
     if (!data.channelId || !data.model) return null
 
-    const upstreamText = inputs
+    /**
+     * 提示词 = 素材自带的（本次那一项）+ 外部共同提示词 + 批量节点自己的（**尾部**）。
+     *
+     * 顺序是用户定的：批量节点面板写的那句是「对这批所有素材统一生效的指令」，
+     * 放最后才符合「先描述素材、再给统一要求」的读法；
+     * 放最前会被素材描述冲淡（尤其是素材自带描述较长时）。
+     *
+     * 「素材自带」只取**本次这一项**的（`collectionItemId` 标出来的那个），
+     * 不把所有素材的描述全拼上——那会让第 1 次调用也带上第 2 张素材的描述，
+     * 两张图互相污染，批量就退化成分组了。
+     */
+    const own = data.prompt.trim()
+    const commonText = inputs
       .filter((i): i is Extract<NodeInput, { kind: 'text' }> => i.kind === 'text')
-      .map((i) => i.text)
-      .join('\n')
-    const prompt = data.prompt.trim() || upstreamText.trim()
+      .map((i) => i.text.trim())
+      .filter(Boolean)
+    /** 本次调用对应的那一项素材（展开时打了 collectionItemId） */
+    const picked = inputs.find(
+      (i): i is Extract<NodeInput, { kind: 'asset' }> =>
+        i.kind === 'asset' && !!i.collectionItemId,
+    )
+    const itemPrompt = picked?.prompt?.trim() ?? ''
+    const parts = [itemPrompt, ...commonText, own].filter(Boolean)
+    const prompt = parts.join('\n')
     if (!prompt) return null
 
     return {
@@ -123,8 +154,18 @@ export function batchItemsOf(
       items.push({ kind: 'text', nodeId: child.id, text: (child.data as PromptData).text })
       continue
     }
-    const hash = (child.data as GenerationData).assetHash
-    if (hash) items.push({ kind: 'asset', nodeId: child.id, assetHash: hash, mime: 'image/png' })
+    const data = child.data as GenerationData
+    if (data.assetHash) {
+      items.push({
+        kind: 'asset',
+        nodeId: child.id,
+        assetHash: data.assetHash,
+        mime: 'image/png',
+        // 素材自带的描述与原始比例：批量拼提示词 / 「跟随素材」比例都要用它
+        ...(data.prompt ? { prompt: data.prompt } : {}),
+        ...(data.naturalSize ? { naturalSize: data.naturalSize } : {}),
+      })
+    }
   }
   return items
 }
@@ -145,8 +186,17 @@ export function externalInputsOf(
       out.push({ kind: 'text', nodeId: up.id, text: (up.data as PromptData).text })
       continue
     }
-    const hash = (up.data as GenerationData).assetHash
-    if (hash) out.push({ kind: 'asset', nodeId: up.id, assetHash: hash, mime: 'image/png' })
+    const data = up.data as GenerationData
+    if (data.assetHash) {
+      out.push({
+        kind: 'asset',
+        nodeId: up.id,
+        assetHash: data.assetHash,
+        mime: 'image/png',
+        ...(data.prompt ? { prompt: data.prompt } : {}),
+        ...(data.naturalSize ? { naturalSize: data.naturalSize } : {}),
+      })
+    }
   }
   return out
 }

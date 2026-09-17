@@ -11,6 +11,7 @@ import { getSpec } from '../../../domain/canvas/nodeSpecs/registry'
 import { topoSort } from '../../../domain/canvas/graph/topoSort'
 import { traverseDownstream } from '../../../domain/canvas/graph/traverseDownstream'
 import { planSlots } from '../../../domain/canvas/layout/slotPlacement'
+import { RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
 import { fingerprintOf } from '../../../domain/canvas/graph/fingerprint'
 import { isGeneratableType } from '../../../domain/canvas/model/node'
 import { directDownstream } from '../../../domain/canvas/graph/upstreamOf'
@@ -309,8 +310,36 @@ export function buildRunPlan(
               ]
             : expansion.inputs
 
-        // 每次调用只出 1 张：N 张的语义已由调用次数表达（见上方注释）
-        const singleRequest = { ...request, params: { ...request.params, count: 1 } }
+        /**
+         * 「跟随素材」比例（批量节点专属，用户 2026-09-17）：
+         * 本次调用的出图比例 = **这一项素材自己的原始比例**。
+         *
+         * 放在展开之后、按本次那一项单独覆盖，正是因为集合展开出的 N 次调用
+         * 共用同一份 params——统一比例没问题，但「各随各的」必须逐次算。
+         * 素材没有尺寸信息（老数据 / 未解码）时退回不指定，不猜一个比例。
+         */
+        const source = request.params as { ratio?: unknown }
+        const followSource = source.ratio === RATIO_FOLLOW_SOURCE
+        const picked = expansion.inputs.find(
+          (i): i is Extract<NodeInput, { kind: 'asset' }> => i.kind === 'asset' && !!i.naturalSize,
+        )
+        const followed = followSource && picked?.naturalSize ? picked.naturalSize : null
+        const singleRequest = {
+          ...request,
+          params: {
+            ...request.params,
+            count: 1,
+            ...(followSource
+              ? {
+                  ratio: followed
+                    ? `${Math.round(followed.width)}:${Math.round(followed.height)}`
+                    : null,
+                  // 供落位侧把承载节点也按这个比例建（与请求一致，避免建完再跳尺寸）
+                  followSourceSize: followed ?? null,
+                }
+              : {}),
+          },
+        }
 
         const task: CanvasRunTask = {
           id: createId('task'),

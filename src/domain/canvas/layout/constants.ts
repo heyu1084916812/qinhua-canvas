@@ -18,6 +18,20 @@ export const CONTAINER_ASPECT: readonly [number, number] = [5, 4]
 /** 结果组内结果节点单元 */
 export const RESULT_CELL: Size = { w: 200, h: 200 }
 
+/**
+ * 批量节点比例面板的**特殊档**：跟随素材（用户 2026-09-17）。
+ *
+ * 选它时，每张结果的出图比例 = 它对应那张素材的原始比例；
+ * 选任何固定档（16:9 等）则这一批统一用那个比例。
+ *
+ * 放在 domain 而不是 UI：执行计划（buildRunPlan）也要认这个值来决定
+ * 「这次调用发什么比例」，两处各写一份字符串必然漂移。
+ */
+export const RATIO_FOLLOW_SOURCE = '跟随素材'
+
+/** 展示用文案（面板里这一档的说明） */
+export const RATIO_FOLLOW_SOURCE_HINT = '每张结果用它对应素材的原始比例'
+
 /** 各节点类型最小尺寸（产品文档 §6.6 / §6.10 / §6.11） */
 export const NODE_MINIMUMS: Record<NodeType, Size> = {
   prompt: { w: 240, h: 160 },

@@ -17,6 +17,7 @@ import { createCanvasPlacement } from './canvasPlacement'
 // 引擎上移共享层（M6-5 路径 B）；画布测试通过注入 CanvasPlacement 复现原行为
 import { runEngine, type RunEngineDeps } from '../../shared/execution/runEngine'
 import { pixelSummaryOf } from '../../../domain/shared/execution/runRecord'
+import { RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
 
 /**
  * M0-11 契约验证点：渠道配置 → 生成节点 → buildRunPlan → runEngine → 结果写回 → RunRecord 落库。
@@ -787,5 +788,43 @@ describe('buildRunPlan + runEngine · 批量节点集合展开（§6.12）', () 
     expect(plan.tasks[0]!.request.inputs).toEqual([
       { kind: 'asset', nodeId: 'bp-c2', assetHash: 'hb', mime: 'image/png', collectionItemId: 'bp-c2' },
     ])
+  })
+
+  /**
+   * 「跟随素材」比例（批量节点专属，用户 2026-09-17）：
+   * 每次调用的出图比例 = **这一项素材自己的原始比例**。
+   * 集合展开出的 N 次调用共用同一份 params，所以这一档必须在展开后逐次覆盖——
+   * 这正是「统一比例」与「各随各的」唯一的实现差别。
+   */
+  it('★ 「跟随素材」：每次调用用自己那项素材的原始比例', () => {
+    const { store } = batchSetup(['ha', 'hb'])
+    // 给两张素材不同的原始比例
+    store.dispatch({ kind: 'node.updateData', id: 'bp-c1', patch: { naturalSize: { width: 800, height: 600 } } })
+    store.dispatch({ kind: 'node.updateData', id: 'bp-c2', patch: { naturalSize: { width: 600, height: 900 } } })
+    store.dispatch({ kind: 'node.updateData', id: 'gen', patch: { ratio: RATIO_FOLLOW_SOURCE } })
+
+    const plan = buildRunPlan('node', { originNodeId: 'gen' }, store.getSnapshot(), 'single')
+    expect(plan.tasks).toHaveLength(2)
+    expect(plan.tasks[0]!.request.params.ratio).toBe('800:600')
+    expect(plan.tasks[1]!.request.params.ratio).toBe('600:900')
+  })
+
+  it('选固定比例时这一批统一用那个比例（与「跟随素材」互斥）', () => {
+    const { store } = batchSetup(['ha', 'hb'])
+    store.dispatch({ kind: 'node.updateData', id: 'bp-c1', patch: { naturalSize: { width: 800, height: 600 } } })
+    store.dispatch({ kind: 'node.updateData', id: 'bp-c2', patch: { naturalSize: { width: 600, height: 900 } } })
+    store.dispatch({ kind: 'node.updateData', id: 'gen', patch: { ratio: '16:9' } })
+
+    const plan = buildRunPlan('node', { originNodeId: 'gen' }, store.getSnapshot(), 'single')
+    expect(plan.tasks).toHaveLength(2)
+    expect(plan.tasks[0]!.request.params.ratio).toBe('16:9')
+    expect(plan.tasks[1]!.request.params.ratio).toBe('16:9')
+  })
+
+  it('素材没有尺寸信息时「跟随素材」退化为不指定（不猜比例）', () => {
+    const { store } = batchSetup(['ha', 'hb'])
+    store.dispatch({ kind: 'node.updateData', id: 'gen', patch: { ratio: RATIO_FOLLOW_SOURCE } })
+    const plan = buildRunPlan('node', { originNodeId: 'gen' }, store.getSnapshot(), 'single')
+    for (const t of plan.tasks) expect(t.request.params.ratio).toBeNull()
   })
 })

@@ -55,7 +55,25 @@ export const RUN_STATUSES: readonly RunStatus[] = [
  */
 export type NodeInput =
   | { kind: 'text'; nodeId: string; text: string; collectionItemId?: string }
-  | { kind: 'asset'; nodeId: string; assetHash: string; mime: string; collectionItemId?: string }
+  | {
+      kind: 'asset'
+      nodeId: string
+      assetHash: string
+      mime: string
+      collectionItemId?: string
+      /**
+       * 素材**自带**的提示词（素材节点自己的 `data.prompt`）。
+       *
+       * 为什么需要它：批量套图时，每张素材常常有自己的描述（「男人站着」/「女人坐着」）。
+       * 收集阶段只带 assetHash 的话，拼提示词时这一段就丢了——于是「外部素材下方写了
+       * 提示词、批量节点下方也写了」时，请求里只剩后写的那一份，前一份从未生效。
+       *
+       * 只在**素材本身是生成节点**时才有值；提示词节点走 `kind:'text'`。
+       */
+      prompt?: string
+      /** 素材的原始像素（供「跟随素材比例」取比例用） */
+      naturalSize?: { width: number; height: number }
+    }
   /** 批量节点作为上游时的集合卡：下游遍历集合内每一项各生成一次 */
   | { kind: 'collection'; nodeId: string; items: NodeInput[] }
 

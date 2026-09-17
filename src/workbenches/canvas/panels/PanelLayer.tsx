@@ -4,7 +4,7 @@ import { directUpstream } from '../../../domain/canvas/graph/upstreamOf'
 import { indexNodes } from '../../../domain/canvas/model/graph'
 import { toWorldRectInGraph } from '../../../domain/canvas/geometry/coords'
 import { childIdsOf } from '../../../domain/canvas/nodeSpecs/group'
-import { batchItemsOf } from '../../../domain/canvas/nodeSpecs/batch'
+import { batchItemsOf, externalInputsOf } from '../../../domain/canvas/nodeSpecs/batch'
 import { promptSpec } from '../../../domain/canvas/nodeSpecs/prompt'
 import { imageAssetInputsOf } from '../../../domain/shared/execution/inputs'
 import { describeError } from '../../../shared/result'
@@ -127,6 +127,7 @@ export function PanelLayer({ onOpenSettings }: { onOpenSettings?: () => void }) 
         mode={selectedNode.type === 'prompt' ? 'prompt' : 'generation'}
         // 功能类别切换只给生成节点（§6.8）：分组 / 批量共用同一面板，但类别由内容决定
         showCategoryToggle={selectedNode.type === 'generation'}
+        isBatch={selectedNode.type === 'batch'}
         promptTools={promptTools}
         promptImageCount={promptImageInputs.length}
       />
@@ -251,7 +252,18 @@ function buildPanelModel(node: NodeSnapshot, graph: ReturnType<typeof useGraph>)
       const b = up.data as BatchData
       collections.push({
         id: up.id,
-        count: batchItemsOf(up as NodeSnapshot<BatchData>, graph).length,
+        /**
+         * 集合数量 = 内部素材 **+ 外部连线的素材**。
+         *
+         * 与执行侧 `batchSpec.collectInputs` 同一口径：外部素材也会逐张展开。
+         * 此前只数内部，于是「批量节点是空的、两张素材从外面连进来」时卡上显示 0
+         * ——面板看起来「没有素材输入」，而实际会跑 2 次。卡片数字与实际行为对不上，
+         * 比没有卡片更误导。
+         */
+        count:
+          batchItemsOf(up as NodeSnapshot<BatchData>, graph).length +
+          externalInputsOf(up as NodeSnapshot<BatchData>, graph).filter((i) => i.kind === 'asset')
+            .length,
         kind: b.contentType ?? 'media',
         visible: !upstreamHidden.has(up.id),
       })

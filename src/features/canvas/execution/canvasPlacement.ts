@@ -61,7 +61,16 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
        * 格位尺寸 = 按**请求比例**算出的节点尺寸，于是
        * 「选的比例和像素多大，新建的节点就多大」（用户 2026-09-17 要求）。
        */
-      const requestedRatio = (task.sourceData as GenerationData | undefined)?.ratio
+      /**
+       * 新建节点的比例：通常是面板选的那个；批量「跟随素材」时是**本次这一项素材**
+       * 的原始比例（buildRunPlan 已算好放进 `followSourceSize`）。
+       * 两者都指向「出图多大，建的框就多大」，避免先建再跳尺寸。
+       */
+      const follow = (task.request.params as { followSourceSize?: { width: number; height: number } } | undefined)
+        ?.followSourceSize
+      const requestedRatio = follow
+        ? `${Math.round(follow.width)}:${Math.round(follow.height)}`
+        : ((task.sourceData as GenerationData | undefined)?.ratio ?? undefined)
       const cell = connectFrom
         ? carrierCellAt(source, ctx.slotIndex, ctx.slotCount, requestedRatio)
         : null

@@ -8,6 +8,7 @@ import { useAsset } from '../hooks/useAsset'
 import type { PromptToolAction } from '../../../features/shared/promptTools/promptTools'
 import { ParamPicker } from './ParamPicker'
 import styles from './CreationPanel.module.css'
+import { RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
 
 /** 生成数量：固定四项（§6.8「1张 / 2张 / 4张 / 9张，固定四项」） */
 export const COUNT_OPTIONS = [1, 2, 4, 9] as const
@@ -36,6 +37,9 @@ export const RATIO_OPTIONS = [
   '21:9',
   '9:21',
 ] as const
+
+/** 「跟随素材」档位值取自 domain：执行计划也认它，不能两处各写一份 */
+export { RATIO_FOLLOW_SOURCE }
 /**
  * 画质档位（§6.8）。
  *
@@ -118,9 +122,13 @@ export function resolutionsOf(cap?: ModelCapability): string[] {
  * 图形化网格里就只剩两格，用户报「比例没有图例」。13 档是**画布的表达能力**，
  * 不该被一次残缺上报锁死；模型确实不认的比例由渠道层如实报错，而不是界面上先藏掉。
  */
-export function ratiosOf(cap?: ModelCapability): string[] {
+/**
+ * `forBatch`：批量节点额外多一档「跟随素材」（见 `RATIO_FOLLOW_SOURCE`）。
+ * 其余节点没有「一批素材」可跟随，给它这个选项等于埋死开关。
+ */
+export function ratiosOf(cap?: ModelCapability, forBatch = false): string[] {
   void cap
-  return [...RATIO_OPTIONS]
+  return forBatch ? [...RATIO_OPTIONS, RATIO_FOLLOW_SOURCE] : [...RATIO_OPTIONS]
 }
 
 export interface CreationPanelProps {
@@ -151,6 +159,13 @@ export interface CreationPanelProps {
    * 但它们的类别由内容决定，不提供手动切换。由装配层按节点类型注入。
    */
   showCategoryToggle?: boolean
+  /**
+   * 选中的是**批量节点**（§6.12）。
+   *
+   * 唯一的影响是比例候选多一档「跟随素材」——批量是「一批素材逐个处理」，
+   * 才有「跟着每张素材自己的比例出图」这回事；生成节点没有这个概念。
+   */
+  isBatch?: boolean
 }
 
 /**
@@ -230,7 +245,7 @@ export function CreationPanel(props: CreationPanelProps) {
   const count = Math.max(1, Math.min(data.count ?? 1, maxCount))
 
   // 模型不支持的档位直接隐藏（§6.8「参数项随模型能力动态渲染」）
-  const ratios = ratiosOf(activeModel)
+  const ratios = ratiosOf(activeModel, props.isBatch === true)
   const resolutions = resolutionsOf(activeModel)
 
   // 视频参数（§6.8 视频模式）：尺寸 / 时长 / 首尾帧·全能参考
