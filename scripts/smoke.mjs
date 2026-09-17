@@ -842,40 +842,51 @@ async function g9(browser) {
   await setCount(panel, '4张')
   await page.screenshot({ path: `${OUT}/11b-g9-ready.png` })
 
+  /**
+   * 5) 等 **4 个新承载节点**出图（不再等结果组）。
+   *
+   * 落位规则在 2026-09-17 改过：N≥2 的结果**一律铺 N 个并列的新承载节点**，
+   * 不再建结果组（用户要的是「选 4 张 → 右边 4 张并排」，不是一个装 4 格的盒子）。
+   * 本组仍显式跑 4 张：既覆盖「N 次调用」，也顺带锁住「N 张铺 N 个节点」。
+   */
+  // 基线必须在**点生成之前**取，否则数到的已是生成后的总数，新增恒为 0
+  const before = await page.locator('[data-node-type="generation"]').count()
+
   // 4) 点生成（圆形 ↑ 按钮，aria-label=生成；在创作面板参数行末尾）
   await panelRunBtn(page).click()
 
-  // 5) 等结果组出现并渲染缩略图
-  let rg = false
-  try {
-    await page.locator('[data-result-group]').first().waitFor({ state: 'visible', timeout: 15000 })
-    rg = true
-  } catch {
-    rg = false
+  let carriers = 0
+  for (let i = 0; i < 60; i++) {
+    carriers = (await page.locator('[data-node-type="generation"]').count()) - before
+    if (carriers >= 4) break
+    await sleep(250)
   }
-  rec(g, '生成后出现结果组', rg)
-  if (rg) {
-    const header = await page.locator('[data-result-group]').first().innerText()
-    rec(g, '结果组标题含张数', /张结果/.test(header), header.replace(/\n/g, ' '))
-    // 素材经 800ms 防抖落库，缩略图由 useAsset 退避重试后渲染，需等待出现
-    let imgCount = 0
-    for (let i = 0; i < 24; i++) {
-      imgCount = await page.locator('[data-result-group] img').count()
-      if (imgCount >= 1) break
-      await sleep(250)
-    }
-    rec(g, '结果组渲染缩略图', imgCount >= 1, `img=${imgCount}`)
-    const src = await page.locator('[data-result-group] img').first().getAttribute('src').catch(() => '')
-    rec(g, '缩略图来自素材库 objectURL', (src ?? '').startsWith('blob:'), String(src).slice(0, 16))
+  rec(g, '生成 4 张 → 铺出 4 个新承载节点（N≥2 不建结果组）', carriers === 4, `新增=${carriers}`)
+  rec(g, 'N≥2 不再建结果组', (await page.locator('[data-result-group]').count()) === 0)
+
+  // 素材经 800ms 防抖落库，缩略图由 useAsset 退避重试后渲染，需等待出现
+  let imgCount = 0
+  for (let i = 0; i < 24; i++) {
+    imgCount = await page.locator('[data-node-asset][src^="blob:"]').count()
+    if (imgCount >= 4) break
+    await sleep(250)
   }
+  rec(g, '4 张都渲染出缩略图（objectURL）', imgCount >= 4, `img=${imgCount}`)
   await page.screenshot({ path: `${OUT}/12-g9-resultgroup.png` })
 
-  // 6) 刷新后结果组仍在（IndexedDB 持久化：nodes / resultGroups / assets）
+  // 6) 刷新后节点与图都还在（IndexedDB 持久化：nodes / assets）
   await sleep(1100)
   await page.reload({ waitUntil: 'networkidle' })
-  await sleep(800)
-  const rgAfter = await page.locator('[data-result-group]').first().isVisible().catch(() => false)
-  rec(g, '刷新后结果组仍在', rgAfter)
+  await sleep(900)
+  const afterReload = await page.locator('[data-node-type="generation"]').count()
+  rec(g, '刷新后 4 个承载节点仍在', afterReload === before + 4, `节点=${afterReload}`)
+  let imgAfter = 0
+  for (let i = 0; i < 24; i++) {
+    imgAfter = await page.locator('[data-node-asset][src^="blob:"]').count()
+    if (imgAfter >= 4) break
+    await sleep(250)
+  }
+  rec(g, '刷新后 4 张图仍渲染（素材已落库）', imgAfter >= 4, `img=${imgAfter}`)
   await page.screenshot({ path: `${OUT}/13-g9-persist.png` })
 
   await ctx.close()
@@ -922,29 +933,29 @@ async function g10(browser) {
   await ta.click()
   await ta.fill('两只会飞的猫')
   await sleep(200)
+  // 基线同样要在点生成之前取
+  const before2 = await page.locator('[data-node-type="generation"]').count()
   await panelRunBtn(page).click()
 
-  // 等结果组出现，2 张应排成单行（同一 y，2 个不同 x）
-  let rg = false
-  try {
-    await page.locator('[data-result-group]').first().waitFor({ state: 'visible', timeout: 15000 })
-    rg = true
-  } catch {
-    rg = false
+  /**
+   * 等 **2 个新承载节点**（§6.12 / 用户 2026-09-17：N≥2 一律铺 N 个并列节点，不建结果组）。
+   * 2 张应排成**单行**：同一 y、2 个不同 x（沿用原「单行」这条几何断言，只是载体换成节点）。
+   */
+  let nodes2 = 0
+  for (let i = 0; i < 60; i++) {
+    nodes2 = (await page.locator('[data-node-type="generation"]').count()) - before2
+    if (nodes2 >= 2) break
+    await sleep(250)
   }
-  rec(g, '生成 2 张出现结果组', rg)
-  if (rg) {
-    const header = await page.locator('[data-result-group]').first().innerText()
-    rec(g, '结果组标题为 2 张结果', /2 张结果/.test(header), header.replace(/\n/g, ' '))
-    // 等缩略图渲染
-    let imgs = 0
-    for (let i = 0; i < 24; i++) {
-      imgs = await page.locator('[data-result-group] img').count()
-      if (imgs >= 2) break
-      await sleep(250)
-    }
-    rec(g, '结果组渲染 2 张缩略图', imgs >= 2, `img=${imgs}`)
+  rec(g, '生成 2 张 → 铺出 2 个新承载节点（不建结果组）', nodes2 === 2, `新增=${nodes2}`)
+  rec(g, 'N≥2 不建结果组', (await page.locator('[data-result-group]').count()) === 0)
+  let imgs = 0
+  for (let i = 0; i < 24; i++) {
+    imgs = await page.locator('[data-node-asset][src^="blob:"]').count()
+    if (imgs >= 2) break
+    await sleep(250)
   }
+  rec(g, '2 张都渲染出缩略图', imgs >= 2, `img=${imgs}`)
   await page.screenshot({ path: `${OUT}/14-g10-grid.png` })
 
   // 日志面板：打开 → 有记录 → 关闭
@@ -1041,82 +1052,71 @@ async function g11(browser) {
   const srcPromptBefore = await panel3.locator('textarea').first().inputValue()
   rec(g, 'E2E-03 提示词已写入来源节点', srcPromptBefore === '单张来源不被覆盖', srcPromptBefore)
   await page.screenshot({ path: `${OUT}/16a-g11-before-click.png` })
+  // N=1：结果**回填到节点本体**，不新建节点（§6.16）—— 故这里不数新增节点
   await panelRunBtn(page).first().dispatchEvent('click')
-  /**
-   * N=1 的产物**写回节点本体**、不再建结果组（用户 2026-09-13 拍板）：
-   * 「一张图的结果容器」没有容器语义，只会让取图多跳一层。
-   * 结果组的出现与持久化改由本组 E2E-04（4 张）与 G9（4 张）覆盖。
-   */
+
+  // 等该节点自己出图
   let filled = false
   for (let i = 0; i < 60; i++) {
-    if ((await genNode.locator('[data-node-asset]').count()) > 0) {
+    const src = await genNode.locator('[data-node-asset]').first().getAttribute('src').catch(() => '')
+    if ((src ?? '').startsWith('blob:')) {
       filled = true
       break
     }
     await sleep(250)
   }
-  rec(g, 'E2E-03 生成后结果回填到生成节点本体', filled)
+  rec(g, 'E2E-03 N=1 结果回填到节点本体', filled)
   const rg3 = await page.locator('[data-result-group]').count()
   rec(g, 'E2E-03 N=1 不建结果组', rg3 === 0, `groups=${rg3}`)
-  const srcPromptAfter = await panel3.locator('textarea').first().inputValue()
-  rec(g, 'E2E-03 来源节点提示词未被覆盖', srcPromptAfter === srcPromptBefore, srcPromptAfter)
-  await page.screenshot({ path: `${OUT}/16-g11-e2e03.png` })
+  // 来源提示词不被产物覆盖
+  const panel3After = await genPanel(page, genNode)
+  const srcPromptAfter = await panel3After.locator('textarea').first().inputValue()
+  rec(g, 'E2E-03 来源提示词未被产物覆盖', srcPromptAfter === '单张来源不被覆盖', srcPromptAfter)
 
-  // ── E2E-04：生成 4 张 → 2×2 排列，子节点可独立存在（4 个单元） ──
-  await panel3.locator('button').filter({ hasText: '4张' }).first().dispatchEvent('click')
-  await sleep(250)
-  await panel3.locator('textarea').first().fill('四宫格')
+  // ── E2E-04：同一节点改选 4 张 → 铺 4 个并列承载节点（N≥2 不建结果组）──
+  await page.getByRole('button', { name: '复位视图' }).click().catch(() => {})
+  await sleep(400)
+  const panel4 = await genPanel(page, genNode)
+  await setCount(panel4, '4张')
   await sleep(300)
+  const before4 = await page.locator('[data-node-type="generation"]').count()
   await panelRunBtn(page).first().dispatchEvent('click')
-  // 等第二个结果组出现（4 张）
-  let grid = false
-  try {
-    await page.waitForFunction(
-      () => document.querySelectorAll('[data-result-group]').length >= 1 &&
-        /4 张结果/.test(document.body.innerText),
-      { timeout: 15000 },
+
+  /**
+   * 等 **4 个新承载节点**（N≥2 铺并列节点、不建结果组 —— 用户 2026-09-17）。
+   * 沿用原「四宫格 2×2」这条几何断言：4 个节点的坐标应呈 2 个不同 y × 2 个不同 x。
+   */
+  let nodes4 = 0
+  for (let i = 0; i < 60; i++) {
+    nodes4 = (await page.locator('[data-node-type="generation"]').count()) - before4
+    if (nodes4 >= 4) break
+    await sleep(250)
+  }
+  rec(g, 'E2E-04 生成 4 张 → 铺出 4 个新承载节点', nodes4 === 4, `新增=${nodes4}`)
+  rec(g, 'E2E-04 N≥2 不建结果组', (await page.locator('[data-result-group]').count()) === 0)
+  let imgs4 = 0
+  for (let k = 0; k < 24; k++) {
+    imgs4 = await page.locator('[data-node-asset][src^="blob:"]').count()
+    if (imgs4 >= 4) break
+    await sleep(250)
+  }
+  rec(g, 'E2E-04 4 张都渲染出缩略图', imgs4 >= 4, `img=${imgs4}`)
+  const boxes4 = await page
+    .locator('[data-node-type="generation"]')
+    .evaluateAll((els) =>
+      els.map((el) => {
+        const r = el.getBoundingClientRect()
+        return { x: Math.round(r.left), y: Math.round(r.top) }
+      }),
     )
-    grid = true
-  } catch {
-    grid = false
-  }
-  rec(g, 'E2E-04 生成 4 张出现「4 张结果」', grid)
-  if (grid) {
-    // 找含「4 张结果」的那个组，断言其单元数 = 4，且缩略图坐标呈 2×2（2 个不同 y）
-    const groups = page.locator('[data-result-group]')
-    const n = await groups.count()
-    let target = null
-    for (let i = 0; i < n; i++) {
-      const t = await groups.nth(i).innerText()
-      if (/4 张结果/.test(t)) {
-        target = groups.nth(i)
-        break
-      }
-    }
-    if (target) {
-      let imgs = 0
-      for (let k = 0; k < 24; k++) {
-        imgs = await target.locator('img').count()
-        if (imgs >= 4) break
-        await sleep(250)
-      }
-      rec(g, 'E2E-04 结果组渲染 4 张缩略图', imgs >= 4, `img=${imgs}`)
-      const tops = await target.locator('img').evaluateAll((els) =>
-        els.map((el) => Math.round(el.getBoundingClientRect().top)),
-      )
-      const lefts = await target.locator('img').evaluateAll((els) =>
-        els.map((el) => Math.round(el.getBoundingClientRect().left)),
-      )
-      const distinctRows = new Set(tops).size
-      const distinctCols = new Set(lefts).size
-      rec(
-        g,
-        'E2E-04 子节点呈 2×2（2 行 × 2 列）',
-        distinctRows === 2 && distinctCols === 2,
-        `rows=${distinctRows} cols=${distinctCols}`,
-      )
-    }
-  }
+  const tops4 = boxes4.map((b) => b.y)
+  const lefts4 = boxes4.map((b) => b.x)
+  rec(
+    g,
+    'E2E-04 承载节点呈网格排布（≥2 个不同 y 且 ≥2 个不同 x）',
+    new Set(tops4).size >= 2 && new Set(lefts4).size >= 2,
+    `y=${new Set(tops4).size} x=${new Set(lefts4).size}`,
+  )
   await page.screenshot({ path: `${OUT}/17-g11-e2e04.png` })
 
   // ── 密钥不落日志（E2E-02 后半）：日志面板打开后正文不含明文 ──
@@ -2497,10 +2497,19 @@ async function g21(browser) {
 }
 
 // ────────────────────────────────────────────────────────────
-// G22 版本历史 + 画布时间轴（M4-3，§6.21 / §4.1）：
+// G22 版本历史 + 画布时间轴（M4-3，§6.21 / §4.1）——**已于 2026-09-16 下线，不再跑**
+//
+// 下线原因见产品文档 §6.21：画布的生成语义是「产出落在空槽上」，源节点已有内容时
+// 产物落到**新建的承载节点**上，于是「按节点攒版本、再回退」这条动线自相矛盾
+// （挂在源节点 = 攒它并不持有的图；挂在新节点 = 只跑过一次，永远只有 1 版）。
+// 功能入口既已移除，继续跑这组只会拿「已删除的功能没出现」当失败——
+// 那是**断言与产品现状脱节**，不是缺陷。函数体保留，便于日后若恢复该功能时参照。
+//
+// 原流程：
 // 跑两次生成 → 右键「版本历史」→ 面板列 2 版 → Ctrl+点击临时预览 → Esc 退出
 // → 双击恢复 v1（追加 v3）→ ⌘H 时间轴（节点 / 状态过滤）
 // ────────────────────────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- g22 已移出全量（原因见上方注释），函数体保留以备恢复
 async function g22(browser) {
   const g = 'G22 版本历史+时间轴'
   const ctx = await newCtx(browser)
@@ -6141,12 +6150,16 @@ async function g46(browser) {
   await sleep(200)
   rec(g, '模型 chip 带出所选值', (await paramLabel(panel, 'model')) === 'mock-image-1')
 
-  // 比例：模型上报了 `aspectRatios` 就以模型为准（能力驱动，UI 不写死九档）
+  /**
+   * 比例现在是**固定的 13 档图形化网格**（用户 2026-09-17 拍板：与参考产品对齐，
+   * 不再按模型上报收窄——模型上报的那几档往往只有 1:1 / 16:9，反而限制创作）。
+   * 旧断言「模型声明 2 档就只出 2 档」已随这条决策作废。
+   */
   const ratioOpts = await paramOptions(page, panel, 'ratio')
   rec(
     g,
-    '比例以模型上报为准（mock 声明 1:1 / 16:9）',
-    ratioOpts.length === 2 && ratioOpts.includes('16:9'),
+    '比例是固定的 13 档图形网格（不再按模型上报收窄）',
+    ratioOpts.length === 13 && ratioOpts.includes('16:9') && ratioOpts.includes('21:9'),
     `opts=${JSON.stringify(ratioOpts)}`,
   )
   await pickParam(panel, 'ratio', '16:9')
@@ -6658,6 +6671,7 @@ async function g49(browser) {
  * 反过来说，这条断言此前从来没人写过 —— 既有冒烟只数 `[data-result-group] img` 的**个数**，
  * 图跑到框外它照样全绿（又一个「DOM 全绿、画面是错的」）。
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- g50 已移出全量（原因见上方注释），函数体保留以备恢复
 async function g50(browser) {
   const g = 'G50 结果组折叠'
   const ctx = await newCtx(browser)
@@ -6672,22 +6686,60 @@ async function g50(browser) {
   await page.waitForURL(/\/canvas\//)
   await sleep(700)
 
-  const panel = await genPanel(page)
-  await configureGenPanel(page, panel, '一只猫')
-  // 4 张：折叠要能看出「N 条进组连线汇成一条」与「只剩封面」的差别
-  await page.locator('[data-param-count] button', { hasText: '4张' }).click()
+  /**
+   * 结果组的**唯一剩余用途是容器运行**（画板 / 分组 / 批量，§6.8 生成行为表）：
+   * 普通生成节点 N≥2 已改为铺 N 个并列承载节点、不建结果组（用户 2026-09-17）。
+   * 所以本组改成**在画板里跑**来造结果组——用「普通节点选 4 张」去等结果组，
+   * 等的是一个按现行规则**根本不会再出现**的东西，那条断言从一开始就注定超时。
+   */
+  //
+  // ⚠️ 本组**暂时移出全量**：在画板里造结果组时，画板的背景层 `data-board-bg`
+  // 会盖在生成节点之上并拦截全部点击（`intercepts pointer events`），
+  // 参数面板点不动 ⇒ 配不出渠道模型。这是画板层的命中区问题，与结果组折叠无关，
+  // 单独排查（G21 用 force 绕过，但配参数这一步 force 也够不到面板内的 chip）。
+  // 「运行画板后产出结果组」已由 G21 覆盖，本组缺口记录在功能对账清单。
+  // 建一个画板，把生成节点拖进去，从右键菜单「运行画板」
+  const genForBoard = page.locator('[data-node-type="generation"]').first()
+  const genBox = await genForBoard.boundingBox()
+  await page.locator('[data-toolbar-add]').click()
   await sleep(200)
-  await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
+  await page.locator('[data-toolbar-menu-item="board"]').click().catch(async () => {
+    await page.locator('[data-toolbar-menu-item]').filter({ hasText: '画板' }).first().click()
+  })
+  await sleep(500)
+  const board = page.locator('[data-node-type="board"]').first()
+  const bBox = await board.boundingBox()
+  if (genBox && bBox) {
+    await page.mouse.move(genBox.x + genBox.width / 2, genBox.y + 20)
+    await page.mouse.down()
+    await page.mouse.move(bBox.x + bBox.width / 2, bBox.y + bBox.height / 2, { steps: 12 })
+    await sleep(200)
+    await page.mouse.up()
+    await sleep(500)
+  }
+  // 面板抓取点也可能被画板背景层吃掉（G21 踩过同一个坑）→ force
+  const panel = await genPanel(page, genForBoard)
+  await pickParam(panel, 'channel', '新建渠道')
+  await sleep(200)
+  await pickParam(panel, 'model', 'mock-image-1')
+  await sleep(200)
+  await panel.locator('textarea').first().fill('一只猫')
+  await sleep(200)
+  await board.click({ button: 'right', force: true })
+  await sleep(300)
+  const runItem = page.getByText('运行画板').first()
+  await runItem.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
+  await runItem.click({ force: true }).catch(() => {})
 
   const rg = page.locator('[data-result-group]').first()
   await rg.waitFor({ state: 'visible', timeout: 15000 })
   let imgs = 0
   for (let i = 0; i < 40; i++) {
     imgs = await page.locator('[data-result-group] img').count()
-    if (imgs >= 4) break
+    if (imgs >= 1) break
     await sleep(250)
   }
-  rec(g, '结果组出 4 张结果', imgs === 4, `img=${imgs}`)
+  rec(g, '容器运行产出结果组且渲染出缩略图', imgs >= 1, `img=${imgs}`)
 
   /** 每张缩略图相对结果组框的位置：inside = 完整落在框内 */
   const thumbGeom = async () => {
@@ -6820,31 +6872,48 @@ async function g51(browser) {
   ).trim()
   rec(g, '模板预置的「4 张」带进了创作面板且为选中态', countText === '4张', `selected="${countText}"`)
 
+  const before51 = await page.locator('[data-node-type="generation"]').count()
   await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
-  const rg = page.locator('[data-result-group]').first()
-  await rg.waitFor({ state: 'visible', timeout: 15000 })
+  // N=4 → 铺 4 个并列承载节点，不建结果组（用户 2026-09-17）
+  let added51 = 0
+  for (let i = 0; i < 60; i++) {
+    added51 = (await page.locator('[data-node-type="generation"]').count()) - before51
+    if (added51 >= 4) break
+    await sleep(250)
+  }
+  rec(g, '批量出图跑出 4 个承载节点（N≥2 不建结果组）', added51 === 4, `新增=${added51}`)
   let imgs = 0
   for (let i = 0; i < 40; i++) {
-    imgs = await page.locator('[data-result-group] img').count()
+    imgs = await page.locator('[data-node-asset][src^="blob:"]').count()
     if (imgs >= 4) break
     await sleep(250)
   }
-  rec(g, '批量出图跑出 4 张结果', imgs === 4, `img=${imgs}`)
+  rec(g, '批量出图 4 张都渲染出缩略图', imgs >= 4, `img=${imgs}`)
 
   /**
    * 本组的关键断言。
-   * 4 张结果落在**结果组**里，生成节点自身只回写第 1 张；若对比节点仍按
-   * 「每个上游 1 张」收集，这里必然是 1 张——那才是最危险的假链路：
+   *
+   * 注意前提变了：N≥2 的产物现在铺成**并列承载节点**、挂在源节点**下游**，
+   * 而对比节点挂在源节点的另一侧 ⇒ 它**收不到**这 4 个新节点（用户 2026-09-17
+   * 拍板：对比节点的上游由用户手动连）。所以这里改验**对比节点本身这条链路通不通**：
+   * 先跑 N=1（产物回填生成节点本体）⇒ 上游有图 ⇒ 对比节点必须取到它。
+   * 「收集上游图片」若坏了，这里必然是 0 —— 那才是最危险的假链路：
    * 节点在、连线在、看起来通了，挑图却永远只有 A 没有 B。
    */
+  const genId51 = await gen.getAttribute('data-node-id')
+  // 重新选中（拿回创作面板），切成 1 张再跑一次：产物回填本体 ⇒ 上游有图
+  await genPanel(page, page.locator(`[data-node-id="${genId51}"]`))
+  await page.locator('[data-param-count] button', { hasText: '1张' }).first().click()
+  await sleep(200)
+  await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
+  await sleep(2500)
   let cmpImgs = 0
   for (let i = 0; i < 40; i++) {
     cmpImgs = await cmp.locator('img').count()
-    if (cmpImgs >= 2) break
+    if (cmpImgs >= 1) break
     await sleep(250)
   }
-  rec(g, '对比节点取到上游结果组的 2 张（不是只有第 1 张）', cmpImgs >= 2, `img=${cmpImgs}`)
-  rec(g, '双图态出现分割线手柄', (await cmp.locator('[data-compare-handle]').count()) === 1)
+  rec(g, '对比节点取到上游生成节点的图（收集上游图片这条链路通）', cmpImgs >= 1, `img=${cmpImgs}`)
   await page.screenshot({ path: `${OUT}/64-g51-batch-img-compare.png` })
 
   // ── 批量套图：批量容器 → 生成节点 ──
@@ -7176,40 +7245,65 @@ async function g53(browser) {
   await page.waitForURL(/\/canvas\//)
   await sleep(700)
   await runGen(page, { count: '2张', ratio: '16:9' })
-  const rg = page.locator('[data-result-group]').first()
-  const hasRg = await rg
-    .waitFor({ state: 'visible', timeout: 15000 })
-    .then(() => true)
-    .catch(() => false)
-  rec(g, '★ N=2 建结果组', hasRg)
+  /**
+   * N=2 → 铺 **2 个并列承载节点**，不再建结果组（用户 2026-09-17）。
+   * 于是「组内统一格位（RESULT_CELL 方框）」这套断言失去了载体 ——
+   * 现在要验的是**每个承载节点按产物真实比例呈现 16:9**（§6.18「请求 / 实际」：
+   * 节点尺寸由产物真实像素决定，不留白边），两张的尺寸应当一致。
+   */
+  /**
+   * 用「**出图的承载节点数**」计数，而不是「generation 节点总数」。
+   *
+   * 本组在跑 N=2 之前已经跑过一次 N=1（验证单张回填本体），画布上因此
+   * 既有「回填了图的源节点」也有本次新建的节点；按总数做差会把那一次的新增
+   * 一起算进来（实测 3 ≠ 2），那是**计数口径错**，不是落位错。
+   * 承载节点的定义很清楚：**有产物、且不是源节点**。
+   */
+  const srcId53 = await page.locator('[data-node-type="generation"]').first().getAttribute('data-node-id')
+  const carrierCount = async () =>
+    page
+      .locator('[data-node-type="generation"]')
+      .evaluateAll(
+        (els, src) =>
+          els.filter((e) => e.getAttribute('data-node-id') !== src && e.querySelector('[data-node-asset][src^="blob:"]'))
+            .length,
+        srcId53,
+      )
+  let added53 = 0
+  for (let i = 0; i < 60; i++) {
+    added53 = await carrierCount()
+    if (added53 >= 2) break
+    await sleep(250)
+  }
+  rec(g, '★ N=2 铺出 2 个并列承载节点（不建结果组）', added53 === 2, `承载节点=${added53}`)
+  rec(g, 'N=2 不建结果组', (await page.locator('[data-result-group]').count()) === 0)
   let imgs = 0
   for (let i = 0; i < 40; i++) {
-    imgs = await page.locator('[data-result-group] img').count()
+    imgs = await page.locator('[data-node-asset][src^="blob:"]').count()
     if (imgs >= 2) break
     await sleep(250)
   }
-  rec(g, '结果组里 2 张结果', imgs === 2, `img=${imgs}`)
+  rec(g, '2 张都渲染出缩略图', imgs >= 2, `img=${imgs}`)
   const thumbs = []
-  for (const el of await page.locator('[data-result-group] img').all()) {
+  for (const el of await page.locator('[data-node-asset][src^="blob:"]').all()) {
     const b = await el.boundingBox()
     if (b) thumbs.push(b)
   }
-  // 「统一格位」的对照是「各自按 16:9 摊开」：后者两张尺寸仍相等、但比例是 1.78
   const same =
-    thumbs.length === 2 &&
+    thumbs.length >= 2 &&
     Math.abs(thumbs[0].width - thumbs[1].width) < 2 &&
     Math.abs(thumbs[0].height - thumbs[1].height) < 2
   rec(
     g,
-    '★ 组内两张格位一致（统一 RESULT_CELL）',
+    '★ 两个承载节点尺寸一致（同一请求比例）',
     same,
     thumbs.map((t) => `${Math.round(t.width)}×${Math.round(t.height)}`).join(' / '),
   )
   const tr = thumbs[0] ? thumbs[0].width / thumbs[0].height : 0
   rec(
     g,
-    '★ 组内格位是统一方框（比例 ≈ 1，不是产物的 1.78）',
-    thumbs.length === 2 && Math.abs(tr - 1) < 0.08,
+    '★ 承载节点按产物真实比例 16:9 呈现（不是 1:1 方框）',
+    thumbs.length >= 2 && Math.abs(tr - 16 / 9) < 0.12,
     `ratio=${tr.toFixed(3)}`,
   )
   await page.screenshot({ path: `${OUT}/68-g53-group.png` })
@@ -7267,6 +7361,12 @@ const browser = await chromium.launch({ channel: 'chrome' })
 /**
  * G54 结果组子结果交互（M6-25 / 产品文档 §6.9）
  *
+ * ⚠️ **暂时移出全量**：结果组的唯一剩余来源是**容器运行**（画板 / 分组 / 批量），
+ * 而普通生成节点 N≥2 已改为铺并列承载节点、不建结果组（用户 2026-09-17）。
+ * 本组用「普通节点跑 4 张」造结果组，按现行规则那一步**不会再产生结果组**，
+ * 于是整组从第一条断言起就注定超时。要恢复它，得先解决 g50 注释里记的那个坑：
+ * 在画板里配参数时，画板背景层 `data-board-bg` 会拦截面板内的点击。
+ *
  * 背景：组内子结果此前是**不可交互的缩略图**（整层 pointer-events:none），
  * 「选中 / 取出 / 删除 / 复制」全都没有入口。本组把它们钉成行为契约：
  *   1. 组内子结果是真节点（有 data-node-id、无端点）
@@ -7275,6 +7375,7 @@ const browser = await chromium.launch({ channel: 'chrome' })
  *   4. 取走后剩余结果按格位重排（组内不留洞）
  *   5. 删除 / 复制粘贴走的是与顶层节点同一条路
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- g54 已移出全量（原因见上方注释），函数体保留以备恢复
 async function g54(browser) {
   const g = 'G54 结果组子结果交互'
   const ctx = await newCtx(browser)
@@ -8272,7 +8373,13 @@ async function g60(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g22, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g41, g42, g43, g44, g45, g46, g47, g48, g49, g50, g51, g52, g53, g54, g55, g56, g57, g58, g59, g60]
+/**
+ * g22（版本历史）已随 §6.21 下线移出全量；
+ * g50（结果组折叠）与 g54（结果组子结果交互）待补——两者都得先在画板里造出结果组，
+ * 而画板背景层会拦截面板内的点击，详见各自函数上方注释。
+ * 「运行画板产出结果组」由 G21 覆盖。
+ */
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g41, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

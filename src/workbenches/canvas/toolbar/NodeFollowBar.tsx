@@ -68,6 +68,18 @@ export function NodeFollowBar({ onClose, onOpenSettings }: NodeFollowBarProps = 
     if (selection.length === 0) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
+      /**
+       * 已经被别的层消费掉的 Esc，这里不再抢。
+       *
+       * 为什么需要这一条：创作面板的参数浮层开着时按 Esc，语义是「收起这个下拉」，
+       * 不应连带清空选中（那会让整个面板一起消失）。浮层那一侧会 `preventDefault()`
+       * 声明「这次 Esc 我吃了」，本层据此让行。
+       *
+       * 用 `defaultPrevented` 而不是 `stopPropagation`：本层挂在 window 上，
+       * 与 React 的合成事件不在同一条传播链上，靠「谁标记谁消费」协商才稳——
+       * 否则就得依赖「React 把监听器挂在 root container」这个实现细节。
+       */
+      if (e.defaultPrevented) return
       const t = e.target as { tagName?: string; isContentEditable?: boolean } | null
       // 正在改名 / 输入文本时 Esc 属于编辑器，不抢
       if (t?.isContentEditable) return

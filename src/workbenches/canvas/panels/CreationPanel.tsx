@@ -297,8 +297,25 @@ export function CreationPanel(props: CreationPanelProps) {
         if (e.key !== 'Escape') return
         // Esc 先关参数浮层，浮层没了才关整个面板——否则想收起一个下拉，
         // 结果把面板也一起关掉了（§6.8「参数面板内 Esc → 关闭当前参数选择面板」）。
-        if (openPicker) setOpenPicker(null)
-        else props.onClose()
+        if (openPicker) {
+          /**
+           * 关浮层的同时必须**声明这次 Esc 已被消费**。
+           *
+           * 少了这一句会踩一个真实的坑：`NodeFollowBar` 在 **window** 上监听 Esc
+           * 并 `setSelection([])`（它得挂 window，否则焦点不在画布上时 Esc 会失灵）。
+           * 而 React 的 `onKeyDown` 不会拦住事件继续冒到 window —— 于是一次 Esc
+           * 做了两件事：收起下拉 **并且** 清空选中，面板当场消失。
+           * 用户看到的就是「想收起下拉，整个面板没了」。
+           *
+           * 用 `preventDefault()` 而不是 `stopPropagation()`：后者依赖「React 把监听器
+           * 挂在哪个节点」这一实现细节（React 17+ 挂在 root container 上），
+           * 换挂载点即失效；`defaultPrevented` 是**跨层协商**，谁吃掉谁标记，与传播路径无关。
+           */
+          e.preventDefault()
+          setOpenPicker(null)
+        } else {
+          props.onClose()
+        }
       }}
     >
       {/* 第一部分：素材缩略图（分组 = 上游 + 组内；批量 = 内部素材） */}
