@@ -60,6 +60,16 @@ export interface CanvasRunTask extends SharedRunTask {
    */
   containerKind: ContainerKind
   /**
+   * 产物承载节点该挂在**哪个容器下**（容器运行时 = 那个容器的 id，其余为 null）。
+   *
+   * 为什么需要它：容器运行的产物若建在容器**外**，那条「源节点 → 承载节点」的
+   * 连线就跨越了画板边界，而 §6.14 定死「画板内外不建立边」——连线会被拒
+   * （实测 G21 抛 `[command edge.connect] 画板内外不建立边`）。
+   * 挂在容器内则两端同属一个画板，连线成立，语义也对：
+   * 「运行这个工作区」的结果本就该留在工作区里。
+   */
+  containerId: string | null
+  /**
    * 源节点在画布上的矩形（世界坐标）。
    *
    * 为什么冻结进 task：落位适配器要按「源节点右侧」摆放新建的承载节点，
@@ -247,10 +257,30 @@ export function buildRunPlan(
        * 批量集合的展开（expansions）语义不变，两者相乘。
        */
       for (let c = 0; c < callsPerRunOf(node); c += 1) {
+        /**
+         * 容器运行（画板 / 分组 / 批量的「运行整个容器」）的产物**一律铺新节点**。
+         *
+         * 此前它们靠结果组装产物；结果组下线后若退回 `reuse` 自己，产物就会被
+         * 写回容器内那个节点——而容器运行是新的一次生成，旧产物属于上一版，
+         * 覆盖掉等于「重跑把历史抹了」。与节点生成同一条规则：
+         * **新的一次生成 = 一个新的承载节点**，挂在自己的右侧。
+         */
+        const inContainer = (containerKindOf(node, index) ?? subContainer) !== null
         const slot: SlotPlan =
           slots.length > 0
             ? slots[Math.min(slotCursor, slots.length - 1)]!
-            : { kind: 'reuse', nodeId: node.id }
+            : inContainer
+              ? { kind: 'new', title: `${node.title}的输出`, connectFrom: node.id }
+              : { kind: 'reuse', nodeId: node.id }
+        /**
+         * 容器运行 → 承载节点挂进**源节点所在的那个容器**（与源节点做兄弟）。
+         *
+         * 画板运行比较特殊：plan 的 `working` 是 `boardSubgraph` 切出来的子图，
+         * 里面**不含画板自己**，所以容器运行时要从 `origin.containerKind` 这一侧
+         * 知道「这是容器运行」；而容器 id 仍取源节点的 `parentId`
+         * （子节点一定带 parentId，这是 boardSubgraph 的切法保证的）。
+         */
+        const hostId = inContainer && node.parentId ? node.parentId : null
 
         /**
          * 图生图：把源节点的图作为**图像输入**带进这次请求。
@@ -296,6 +326,7 @@ export function buildRunPlan(
           sourceType: node.type,
           callCount: expansions.length,
           containerKind: containerKindOf(node, index) ?? subContainer,
+          containerId: hostId,
           // 落位要用「源节点在画布上的位置」把新建节点摆在它右侧（用户 2026-09-16）
           sourceRect: { x: node.x, y: node.y, w: node.w, h: node.h },
           sourceData: node.data,

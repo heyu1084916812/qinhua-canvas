@@ -30,7 +30,7 @@ function node(over: Partial<NodeSnapshot> & { id: string }): NodeSnapshot {
 }
 
 function graph(nodes: NodeSnapshot[], edges: GraphSnapshot['edges'] = []): GraphSnapshot {
-  return { projectId: 'p1', nodes, edges, resultGroups: [] }
+  return { projectId: 'p1', nodes, edges, }
 }
 
 describe('clipboardFromSelection', () => {

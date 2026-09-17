@@ -62,7 +62,7 @@ describe('节点规格注册表', () => {
       disabled: false,
       data: { text: '一只猫', upstreamPromptLinked: false } satisfies PromptData,
     }
-    expect(spec?.collectInputs({ node, graph: { projectId: 'p1', nodes: [], edges: [], resultGroups: [] } })).toEqual([
+    expect(spec?.collectInputs({ node, graph: { projectId: 'p1', nodes: [], edges: [], } })).toEqual([
       { kind: 'text', nodeId: 'n1', text: '一只猫' },
     ])
   })
@@ -129,7 +129,7 @@ describe('节点规格注册表', () => {
         { id: 'e3', projectId: 'p1', source: 'g3', target: 'cmp' },
         { id: 'e4', projectId: 'p1', source: 'g4', target: 'cmp' },
       ],
-      resultGroups: [],
+      
     }
     // g2 无素材被跳过，取到 g1 / g3 两张后即停（超过 2 张忽略）
     expect(spec?.collectInputs({ node, graph })).toEqual([
@@ -176,39 +176,35 @@ describe('节点规格注册表', () => {
       disabled: false,
       data: { splitRatio: 0.5 },
     }
-    // 只有一个上游，但它跑出 4 张（结果在结果组内）
+    /**
+     * 上游跑 4 张 → 现在是**4 个并列承载节点**挂在来源下游（结果组已下线），
+     * 对比节点从**多个上游节点**各取 1 张、取前 2 个。
+     *
+     * 旧用例是「一个上游 + 组内 4 张」。组没了，但**要验的规则没变**：
+     * 对比节点不能退化成「只取 1 张」——否则批量出图 → 对比永远只有 A 没有 B。
+     */
     const graph = {
       projectId: 'p1',
       nodes: [
         mk('g1', 'r1'),
-        mk('c1', 'r1', 'rg1'),
-        mk('c2', 'r2', 'rg1'),
-        mk('c3', 'r3', 'rg1'),
-        mk('c4', 'r4', 'rg1'),
+        mk('c1', 'r5'),
+        mk('c2', 'r2'),
+        mk('c3', 'r3'),
+        mk('c4', 'r4'),
         node,
       ],
-      edges: [{ id: 'e1', projectId: 'p1', source: 'g1', target: 'cmp' }],
-      resultGroups: [
-        {
-          id: 'rg1',
-          projectId: 'p1',
-          sourceNodeId: 'g1',
-          taskId: 't1',
-          x: 0,
-          y: 0,
-          w: 100,
-          h: 100,
-          childIds: ['c1', 'c2', 'c3', 'c4'],
-          collapsed: false,
-          createdAt: 1,
-          summary: { success: 4, failed: 0 },
-        },
+      edges: [
+        { id: 'e1', projectId: 'p1', source: 'g1', target: 'cmp' },
+        { id: 'e2', projectId: 'p1', source: 'c1', target: 'cmp' },
+        { id: 'e3', projectId: 'p1', source: 'c2', target: 'cmp' },
+        { id: 'e4', projectId: 'p1', source: 'c3', target: 'cmp' },
+        { id: 'e5', projectId: 'p1', source: 'c4', target: 'cmp' },
       ],
     }
     // 关键：不是「只取上游自身那 1 张」——否则批量出图 → 对比永远只有 A 没有 B
     expect(spec?.collectInputs({ node, graph })).toEqual([
       { kind: 'asset', nodeId: 'g1', assetHash: 'r1', mime: 'image/png' },
-      { kind: 'asset', nodeId: 'g1', assetHash: 'r2', mime: 'image/png' },
+      { kind: 'asset', nodeId: 'c1', assetHash: 'r5', mime: 'image/png' },
     ])
   })
 })

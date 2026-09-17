@@ -20,7 +20,7 @@ export interface ProjectRepository {
   remove(id: string): Promise<void>
 }
 
-const GRAPH_TABLES: TableName[] = ['nodes', 'edges', 'resultGroups']
+const GRAPH_TABLES: TableName[] = ['nodes', 'edges']
 
 export function createProjectRepository(storage: StoragePort): ProjectRepository {
   const toProject = (row: Record<string, unknown>): Project => ({

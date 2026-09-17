@@ -41,14 +41,12 @@ describe('ProjectRepository（内存存储）', () => {
     const p = await repo.create({ name: 'X' })
     await storage.put('nodes', { id: 'n1', projectId: p.id })
     await storage.put('edges', { id: 'e1', projectId: p.id })
-    await storage.put('resultGroups', { id: 'g1', projectId: p.id })
 
     await repo.remove(p.id)
 
     expect(await storage.query('projects', {})).toHaveLength(0)
     expect(await storage.query('nodes', { projectId: p.id })).toHaveLength(0)
     expect(await storage.query('edges', { projectId: p.id })).toHaveLength(0)
-    expect(await storage.query('resultGroups', { projectId: p.id })).toHaveLength(0)
   })
 
   it('rename 更新名称与 updatedAt', async () => {

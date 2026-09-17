@@ -1,9 +1,8 @@
 import type { Command } from './index'
 import type { CommandResult, TransactionBoundary } from '../shared/types'
 import type { GraphSnapshot } from '../../domain/canvas/model/graph'
-import type { NodeSnapshot, NodeData, GroupData, GenerationData } from '../../domain/canvas/model/node'
+import type { NodeSnapshot, NodeData, GroupData } from '../../domain/canvas/model/node'
 import { CONTAINER_TYPES } from '../../domain/canvas/model/node'
-import type { ResultGroup } from '../../domain/canvas/model/resultGroup'
 import type { Patch, Row } from '../../domain/patch/types'
 import type { Rect } from '../../domain/canvas/geometry/rect'
 import { invertPatches } from '../../domain/patch/apply'
@@ -12,10 +11,6 @@ import { canConnect } from '../../domain/canvas/graph/canConnect'
 import { canReparent, applyReparent, edgesToDropOnReparent } from '../../domain/canvas/graph/reparent'
 import { createId } from '../../shared/id'
 import { toPersistPlan, applyGraphPatches } from '../workbenches/canvas/persist'
-import { layoutResultGroup, resultGroupCells } from '../../domain/canvas/layout/resultGroupLayout'
-import { RESULT_CELL } from '../../domain/canvas/layout/constants'
-import { naturalNodeSize } from '../../domain/canvas/layout/assetNodeSize'
-import { worldToLocal } from '../../domain/canvas/geometry/coords'
 import { containerMinSize } from '../../domain/canvas/layout/packContainer'
 
 export interface ReduceOutput {
@@ -31,44 +26,13 @@ function fail(kind: Command['kind'], reason: string): never {
   throw new Error(`[command ${kind}] ${reason}`)
 }
 
-/**
- * 结果组内**剩余**子结果重排（§6.9）。
- *
- * 组内格位是**算出来的**（`resultGroupCells`），不是用户摆出来的。子结果被拖出、被删除后
- * 若不管其余节点，组内就永久留一个洞 —— 看起来像「少了一张」或「随机空了一格」。
- *
- * 容器尺寸**刻意不动**：它由来源节点与当初的张数撑开，收缩会牵动折叠框与既有几何，
- * 留白比跳变安全。因此 N=4 拖走一张后是「3 张紧凑 + 一块留白」，而不是整框缩水。
- */
-function reflowResultGroup(
-  rg: ResultGroup,
-  childIds: readonly string[],
-  graph: GraphSnapshot,
-): Patch[] {
-  const cells = resultGroupCells({
-    containerRect: { x: 0, y: 0, w: rg.w, h: rg.h },
-    count: childIds.length,
-    cell: RESULT_CELL,
-  })
-  const out: Patch[] = []
-  childIds.forEach((cid, i) => {
-    const child = findNode(graph, cid)
-    const cell = cells[i]
-    if (!child || !cell) return
-    if (child.x === cell.x && child.y === cell.y) return
-    out.push({ op: 'patch', table: 'nodes', id: cid, changes: { x: cell.x, y: cell.y } })
-  })
-  return out
-}
-
 /** 跨表求逆：表之间相互独立，逐表调用 domain 的 invertPatches 后拼接 */
 function invertGraphPatches(graph: GraphSnapshot, patches: readonly Patch[]): Patch[] {
   const inv: Patch[] = []
-  for (const table of ['nodes', 'edges', 'resultGroups'] as const) {
+  for (const table of ['nodes', 'edges'] as const) {
     const tps = patches.filter((p) => p.table === table)
     if (!tps.length) continue
-    const rows =
-      table === 'nodes' ? graph.nodes : table === 'edges' ? graph.edges : graph.resultGroups
+    const rows = table === 'nodes' ? graph.nodes : graph.edges
     inv.push(...invertPatches(rows as never, tps as never))
   }
   return inv
@@ -85,26 +49,15 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
       const spec = getSpec(cmd.type)
       if (!spec) fail(cmd.kind, `未知节点类型：${cmd.type}`)
       const data = (cmd.data as NodeData | undefined) ?? spec.createDefaultData()
-      // 结果组子节点：位置与尺寸由**组内格位**决定（架构 §5.3「相对结果组的 local 坐标」）。
-      // 调用方给的 at 不适用（格位是算出来的，写死会与折叠/重排后的版面互相打架）。
-      const parentRg = cmd.parentId
-        ? graph.resultGroups.find((g) => g.id === cmd.parentId) ?? null
-        : null
-      const cell = parentRg
-        ? resultGroupCells({
-            containerRect: { x: 0, y: 0, w: parentRg.w, h: parentRg.h },
-            count: parentRg.childIds.length + 1,
-            cell: RESULT_CELL,
-          })[parentRg.childIds.length]
-        : null
-      const size = cmd.size ?? cell ?? { w: spec.sizing.min.w, h: spec.sizing.min.h }
+      // 位置与尺寸一律由调用方给定（结果组下线后不再有「算出来的格位」这回事）
+      const size = cmd.size ?? { w: spec.sizing.min.w, h: spec.sizing.min.h }
       const node: NodeSnapshot = {
         id: cmd.id ?? createId('node'),
         projectId: cmd.projectId,
         type: cmd.type,
         parentId: cmd.parentId ?? null,
-        x: cell ? cell.x : cmd.at.x,
-        y: cell ? cell.y : cmd.at.y,
+        x: cmd.at.x,
+        y: cmd.at.y,
         w: size.w,
         h: size.h,
         title: cmd.title ?? spec.label,
@@ -113,15 +66,6 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
         data,
       }
       const patches: Patch[] = [{ op: 'upsert', table: 'nodes', row: node as unknown as Row }]
-      // 结果组子节点：以 parentId 归属，把本节点加入结果组的 childIds（架构 §6.9）
-      if (parentRg) {
-        patches.push({
-          op: 'patch',
-          table: 'resultGroups',
-          id: parentRg.id,
-          changes: { childIds: [...parentRg.childIds, node.id] },
-        })
-      }
       return {
         patches,
         transaction: { mode: 'standalone', label: `新建 ${spec.label}` },
@@ -302,19 +246,6 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
         }
       }
 
-      // 结果组：childIds 是派生索引，节点删了必须同步，否则留下空壳组
-      for (const rg of graph.resultGroups) {
-        if (!rg.childIds.some((cid) => doomed.has(cid))) continue
-        const childIds = rg.childIds.filter((cid) => !doomed.has(cid))
-        if (childIds.length === 0) {
-          patches.push({ op: 'delete', table: 'resultGroups', id: rg.id })
-        } else {
-          patches.push({ op: 'patch', table: 'resultGroups', id: rg.id, changes: { childIds } })
-          // 剩下的往前补齐，不在原处留洞（§6.9「格位是算出来的」）
-          patches.push(...reflowResultGroup(rg, childIds, graph))
-        }
-      }
-
       return {
         patches,
         transaction: {
@@ -370,50 +301,24 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
       if (!check.ok) fail(cmd.kind, check.reason)
       const moved = applyReparent(node, cmd.toParent, graph)
       /**
-       * 离开**结果组**要额外做三件事（§6.16 / 架构 §5.3）。
-       *
-       * 结果组不是节点，`applyReparent` 在节点表里查不到它，于是既不会补上
-       * 组的世界偏移、也不会摘掉 `childIds` —— 拖出来的节点会：① 落在错误坐标
-       * （local 被当 world）；② 在组里留一个空格位、且被组与根层**画两遍**。
+       * 结果组下线后，`parentId` 只剩**容器节点**（分组 / 批量 / 画板）一种含义，
+       * 而容器是**真节点**，`applyReparent` 在节点表里查得到它、会自己换算坐标。
+       * 昔日「结果组不是节点、要手工补世界偏移」那一段随之删除——
+       * 留着它会拿着 `undefined` 的组原点去加，把一个不存在的偏移算进坐标。
        */
-      const fromRg = node.parentId
-        ? graph.resultGroups.find((g) => g.id === node.parentId) ?? null
-        : null
-      const leavingGroup = !!fromRg && moved.parentId !== fromRg.id
-      // local → world：结果组的 x/y 就是组原点（子节点存的是相对它的 local 坐标）。
-      // 其余情形 applyReparent 已经换好了，照用即可（再换一次会二次偏移）。
-      const placed = leavingGroup
-        ? toParent
-          ? worldToLocal({ x: node.x + fromRg!.x, y: node.y + fromRg!.y }, toParent)
-          : { x: node.x + fromRg!.x, y: node.y + fromRg!.y }
-        : { x: moved.x, y: moved.y }
       const patches: Patch[] = [
         {
           op: 'upsert',
           table: 'nodes',
           row: {
             ...node,
-            x: placed.x,
-            y: placed.y,
+            x: moved.x,
+            y: moved.y,
             parentId: moved.parentId,
-            // 出了容器就恢复产物真实比例（进了容器才让渡比例，§6.16）
-            ...(leavingGroup ? naturalNodeSize(node.data as GenerationData, node.type) ?? {} : {}),
           } as unknown as Row,
         },
       ]
-      if (leavingGroup) {
-        const childIds = fromRg!.childIds.filter((cid) => cid !== cmd.id)
-        // 组里空了就一并删掉：与 node.delete 同口径，不留「0 张结果」的空壳
-        patches.push(
-          childIds.length === 0
-            ? { op: 'delete', table: 'resultGroups', id: fromRg!.id }
-            : { op: 'patch', table: 'resultGroups', id: fromRg!.id, changes: { childIds } },
-        )
-        // 被取走的那格由后面的结果补上（§6.9「格位是算出来的」）
-        patches.push(...reflowResultGroup(fromRg!, childIds, graph))
-      }
-      // 容器的子节点清单同时维护到 data.childIds（§6.11 / §6.12 的 3×3 排序依据）。
-      // 结果组的子节点清单在 resultGroups 表，不走这里。
+      // 容器的子节点清单维护到 data.childIds（§6.11 / §6.12 的 3×3 排序依据）
       const containerOf = (id: string | null) => {
         if (!id) return null
         const n = findNode(graph, id)
@@ -511,47 +416,6 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
       }
     }
 
-    case 'resultGroup.create': {
-      const src = findNode(graph, cmd.sourceNodeId)
-      if (!src) fail(cmd.kind, `来源节点不存在：${cmd.sourceNodeId}`)
-      // 落位由 domain/layout 算好；未显式传 rect 时按默认单元尺寸自算（架构 §5.5「执行器只按坐标提交命令」）
-      const layout = layoutResultGroup({
-        sourceRect: { x: src.x, y: src.y, w: src.w, h: src.h },
-        count: Math.max(1, cmd.count),
-        cell: RESULT_CELL,
-      })
-      const rect = cmd.rect ?? layout.containerRect
-      const rg: ResultGroup = {
-        id: cmd.id ?? createId('rg'),
-        projectId: graph.projectId,
-        sourceNodeId: cmd.sourceNodeId,
-        taskId: cmd.taskId,
-        x: rect.x,
-        y: rect.y,
-        w: rect.w,
-        h: rect.h,
-        childIds: [],
-        collapsed: false,
-        createdAt: cmd.createdAt ?? Date.now(),
-        summary: { success: 0, failed: 0 },
-      }
-      return {
-        patches: [{ op: 'upsert', table: 'resultGroups', row: rg as unknown as Row }],
-        transaction: { mode: 'standalone', label: '生成结果组' },
-      }
-    }
-
-    case 'resultGroup.setCollapsed': {
-      const rg = graph.resultGroups.find((g) => g.id === cmd.id)
-      if (!rg) fail(cmd.kind, `结果组不存在：${cmd.id}`)
-      return {
-        patches: [
-          { op: 'patch', table: 'resultGroups', id: cmd.id, changes: { collapsed: cmd.collapsed } },
-        ],
-        transaction: { mode: 'standalone', label: cmd.collapsed ? '折叠结果组' : '展开结果组' },
-      }
-    }
-
     case 'asset.put': {
       // 媒体本体写 assets 表（content-addressable，hash 主键）；不进撤销栈（派生媒体，删除版本历史时由结果组级联）
       // assets 表的 Dexie 主键是 `id`，这里把 hash 同时落到 id 上（产品文档 §8：id 即内容哈希）
@@ -560,20 +424,6 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
         patches: [{ op: 'upsert', table: 'assets', row }],
         transaction: { mode: 'silent' },
       }
-    }
-
-    case 'resultGroup.dissolve': {
-      const rg = graph.resultGroups.find((g) => g.id === cmd.id)
-      if (!rg) fail(cmd.kind, `结果组不存在：${cmd.id}`)
-      const patches: Patch[] = [{ op: 'delete', table: 'resultGroups', id: cmd.id }]
-      if (cmd.withResults) {
-        const edgeIds = new Set(
-          graph.edges.filter((e) => rg.childIds.includes(e.source) || rg.childIds.includes(e.target)).map((e) => e.id),
-        )
-        for (const cid of rg.childIds) patches.push({ op: 'delete', table: 'nodes', id: cid })
-        for (const eid of edgeIds) patches.push({ op: 'delete', table: 'edges', id: eid })
-      }
-      return { patches, transaction: { mode: 'standalone', label: '解散结果组' } }
     }
 
     case 'stale.mark':

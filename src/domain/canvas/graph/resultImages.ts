@@ -3,34 +3,14 @@ import type { GenerationData, NodeSnapshot } from '../model/node'
 import { indexNodes } from '../model/graph'
 
 /**
- * 一个节点「对外可见的结果图」hash 列表（按产出顺序，去重）。
+ * 一个节点「对外可见的结果图」hash 列表。
  *
- * 为什么必须有它：一次「跑 4 张」的产物**不在生成节点自己身上**——
- * `CanvasPlacement.finalize` 把 N 张结果建成结果组内的 N 个标准图片节点
- * （`parentId` 指向结果组），生成节点自身只回写第 1 张。
- * 于是「只按 `node.data.assetHash` 读上游」的下游，永远只看得到 1 张图，
- * 「批量出图（×4）→ 对比节点」这条文档主流程就会**连上了却只有 A 没有 B**。
- *
- * 规则：
- * - 有结果组时以组内容为准（组内已含第 1 张，故不再另拼自身 hash）
- * - 同一来源跑过多次留下多个组时取**最新**的一组（`createdAt` 最大）
- * - 没有结果组（未跑过，或单点直接写回）时退化为自身 `assetHash`
- * - 顺序以 `childIds` 为准（派生索引，与产出顺序一致）
+ * 结果组下线后，产物**一定在节点自己身上**（每次调用落一个承载节点），
+ * 于是这个函数退化成「读 `data.assetHash`」——但它仍保留为一个命名函数：
+ * 「什么算一个节点的结果图」是一个规则，不该散落成一处处 `data.assetHash` 直读。
  */
-/**
- * `index` 可传入调用方已建好的节点索引。
- *
- * 不传时本函数自建一份（O(N)）——在「每个节点都调一次」的循环里就是 O(N²)：
- * 300 节点 = 9 万次 Map 插入，实测占拖动帧 5%（M6-29 Profiler）。
- * 调用方整图只建一次再复用，即可降回 O(N)。
- */
-export function resultImagesOf(
-  node: NodeSnapshot | undefined,
-  graph: GraphSnapshot,
-  index = indexNodes(graph.nodes),
-): string[] {
+export function resultImagesOf(node: NodeSnapshot | undefined): string[] {
   if (!node) return []
-  const group = latestResultGroupOf(node.id, graph)
   const out: string[] = []
   const seen = new Set<string>()
   const push = (hash: string | undefined | null): void => {
@@ -38,26 +18,8 @@ export function resultImagesOf(
     seen.add(hash)
     out.push(hash)
   }
-
-  if (group) {
-    for (const childId of group.childIds) {
-      const child = index.get(childId)
-      if (!child) continue
-      push((child.data as Partial<GenerationData>).assetHash)
-    }
-  }
   push((node.data as Partial<GenerationData>).assetHash)
   return out
-}
-
-/** 某来源节点最新的一批结果组（无则 null） */
-export function latestResultGroupOf(nodeId: string, graph: GraphSnapshot) {
-  let best = null as (typeof graph.resultGroups)[number] | null
-  for (const rg of graph.resultGroups) {
-    if (rg.sourceNodeId !== nodeId) continue
-    if (!best || rg.createdAt >= best.createdAt) best = rg
-  }
-  return best
 }
 
 /** 一张上游图片 + 它来自哪个上游节点（溯源用，不能一律记成下游自己） */
@@ -69,16 +31,18 @@ export interface UpstreamImage {
 /**
  * 下游视角的「上游图片清单」。
  *
- * 与 `resultImagesOf` 的差别只在**展开开关**：只有声明要吃全部产物的节点类型
- * （当前仅对比节点，§6.10「取前 2 张」）才展开结果组；生成节点仍按「每个上游
- * 节点 1 张」收集，否则会出现「面板显示 4 张、实际只发 1 张」的口径割裂。
+ * `expandResults` 是**历史遗留参数**：结果组在世时，它决定要不要把「一组 N 张」
+ * 摊开喂给下游（对比节点要全部，生成节点只吃 1 张）。组删掉后两种取值的结果
+ * 已经相同——都退化为「每个上游节点 1 张」。
+ * 参数暂时保留（调用方与单测都在传），等确认没有别的容器语义要展开时再移除；
+ * 在此之前它至少不该被读成「还能展开组」。
  *
  * 返回对儿而不是裸 hash：输入项要带来源 nodeId，写成下游自己会让溯源失效。
  */
 export function upstreamImagesOf(
   upstreamIds: readonly string[],
   graph: GraphSnapshot,
-  expandResults: boolean,
+  _expandResults: boolean,
   index = indexNodes(graph.nodes),
 ): UpstreamImage[] {
   const out: UpstreamImage[] = []
@@ -86,9 +50,7 @@ export function upstreamImagesOf(
   for (const id of upstreamIds) {
     const up = index.get(id)
     if (!up) continue
-    const hashes = expandResults
-      ? resultImagesOf(up, graph, index)
-      : [(up.data as Partial<GenerationData>).assetHash]
+    const hashes = resultImagesOf(up)
     for (const h of hashes) {
       if (!h || seen.has(h)) continue
       seen.add(h)

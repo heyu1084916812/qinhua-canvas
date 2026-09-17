@@ -26,25 +26,11 @@ function node(id: string, type: NodeType = 'generation', parentId: string | null
   }
 }
 
-function graph(nodes: NodeSnapshot[], pairs: [string, string][] = [], resultGroupIds: string[] = []): GraphSnapshot {
+function graph(nodes: NodeSnapshot[], pairs: [string, string][] = []): GraphSnapshot {
   return {
     projectId: 'p1',
     nodes,
     edges: pairs.map(([source, target]) => ({ id: `${source}->${target}`, projectId: 'p1', source, target })),
-    resultGroups: resultGroupIds.map((id) => ({
-      id,
-      projectId: 'p1',
-      sourceNodeId: 'a',
-      taskId: 't1',
-      x: 0,
-      y: 0,
-      w: 200,
-      h: 200,
-      childIds: [],
-      collapsed: false,
-      createdAt: 0,
-      summary: { success: 0, failed: 0 },
-    })),
   }
 }
 
@@ -62,31 +48,6 @@ describe('连线合法性', () => {
   it('重复连线被拒绝', () => {
     const g = graph([node('a', 'prompt'), node('b')], [['a', 'b']])
     expect(canConnect(g.nodes[0]!, g.nodes[1]!, g).ok).toBe(false)
-  })
-
-  it('结果组不作为端点', () => {
-    const g = graph([node('a', 'prompt'), node('b')], [], ['rg1'])
-    const rg = { ...node('b'), id: 'rg1' } as NodeSnapshot
-    expect(canConnect(g.nodes[0]!, rg, g)).toEqual({ ok: false, reason: '结果组不作为边端点' })
-  })
-
-  /**
-   * 结果组**子节点**（逐张结果）也不可连。
-   *
-   * 它们是 type=generation 的普通节点，`parentId` 指向 resultGroups 表里的组，
-   * 只按 id 判「是不是结果组」会整个漏掉它们——视图层拖线还能命中（见
-   * useEdgeDrag.nodeAtPoint），于是用户会连上一个屏幕上看不见的节点。
-   */
-  it('结果组内的结果不作为端点', () => {
-    const g = graph([node('a', 'prompt'), node('r1', 'generation', 'rg1')], [], ['rg1'])
-    expect(canConnect(g.nodes[0]!, g.nodes[1]!, g)).toEqual({
-      ok: false,
-      reason: '结果组内的结果不参与连线',
-    })
-    expect(canConnect(g.nodes[1]!, g.nodes[0]!, g)).toEqual({
-      ok: false,
-      reason: '结果组内的结果不参与连线',
-    })
   })
 
   it('画板没有端点', () => {

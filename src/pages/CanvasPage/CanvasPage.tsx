@@ -23,14 +23,13 @@ import { createAssetNode, importAssetFile, isImportableMedia } from '../../featu
 import { seedTemplate, type TemplateId } from '../../state/project/templates'
 import type { NodeSnapshot, NodeType } from '../../domain/canvas/model/node'
 import type { Edge } from '../../domain/canvas/model/edge'
-import type { ResultGroup } from '../../domain/canvas/model/resultGroup'
 import styles from './CanvasPage.module.css'
 
 /**
  * 画布页面容器（架构 §4.7：只接线，不放规则）。
  * 路由参数 projectId 决定打开哪个项目：
  * - 'demo'：空白临时画布，不读库（便于 SSR 冒烟与即时打开）
- * - 其它：挂载时从 IndexedDB 把 nodes/edges/resultGroups 读回 store
+ * - 其它：挂载时从 IndexedDB 把 nodes/edges 读回 store
  *   图数据变更仍只走 dispatch(command)；读回是 hydrate，不进撤销栈。
  */
 export function CanvasPage() {
@@ -47,7 +46,7 @@ function CanvasProject({ projectId }: { projectId: string }) {
   const seededRef = useRef(false)
   const storeRef = useRef<CanvasStore | null>(null)
   const [externalEdit, setExternalEdit] = useState(false)
-    const [logOpen, setLogOpen] = useState(false)
+  const [logOpen, setLogOpen] = useState(false)
   if (!storeRef.current) {
     storeRef.current = createStore({
       workbench: 'canvas',
@@ -63,17 +62,15 @@ function CanvasProject({ projectId }: { projectId: string }) {
     let cancelled = false
     void (async () => {
       await platform.storage.open()
-      const [n, e, rg] = await Promise.all([
+      const [n, e] = await Promise.all([
         platform.storage.query('nodes', { projectId }),
         platform.storage.query('edges', { projectId }),
-        platform.storage.query('resultGroups', { projectId }),
       ])
       if (cancelled) return
       store.hydrate({
         projectId,
         nodes: n as unknown as NodeSnapshot[],
         edges: e as unknown as Edge[],
-        resultGroups: rg as unknown as ResultGroup[],
       })
       // 模板预置仅在「新建的空项目」首次挂载时执行一次（hydrate 之后，避免被空库覆盖）。
       //

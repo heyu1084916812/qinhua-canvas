@@ -74,7 +74,7 @@ function makeGraph(): GraphSnapshot {
     { id: 'e1', projectId: 'p', source: 'p1', target: 'g1' },
     { id: 'e2', projectId: 'p', source: 'pb', target: 'gb' },
   ]
-  return { projectId: 'p', nodes, edges, resultGroups: [] }
+  return { projectId: 'p', nodes, edges, }
 }
 
 describe('buildRunPlan · 画板子图', () => {

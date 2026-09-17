@@ -94,7 +94,7 @@ describe('flowIo 导出 / 导入', () => {
   it('重名自动加后缀', async () => {
     const flow: FlowFileV1 = serializeProject(
       { ...baseProject, id: 'pX', name: '目标名' },
-      { nodes: [], edges: [], resultGroups: [] },
+      { nodes: [], edges: [], },
       { exportedAt: 1 },
     )
     const seed: Partial<Record<TableName, Row[]>> = {

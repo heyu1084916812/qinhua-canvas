@@ -22,7 +22,7 @@ function node(over: Partial<NodeSnapshot> & { id: string; type: NodeSnapshot['ty
 }
 
 function graph(nodes: NodeSnapshot[], edges: GraphSnapshot['edges'] = []): GraphSnapshot {
-  return { projectId: 'p1', nodes, edges, resultGroups: [] }
+  return { projectId: 'p1', nodes, edges, }
 }
 
 /** 一个装了指定子节点的批量节点（子节点 id 由调用方给定；`t-` 前缀视为提示词节点） */

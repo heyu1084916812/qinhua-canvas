@@ -33,7 +33,7 @@ function graph(nodes: NodeSnapshot[], edges: { source: string; target: string }[
     projectId: 'p1',
     nodes,
     edges: edges.map((e) => ({ id: `${e.source}->${e.target}`, projectId: 'p1', ...e })),
-    resultGroups: [],
+    
   }
 }
 

@@ -9,7 +9,6 @@ export type TableName =
   | 'channels'
   | 'tasks'
   | 'runRecords'
-  | 'resultGroups'
   | 'assets'
   | 'credentials'
   /** 漫画剧工作台私有：一行一个项目，文档式存整个 ComicProject（架构 §5.10 工作台私有切片） */

@@ -56,7 +56,7 @@ function build(promptText: string, gen: Partial<GenerationData> = {}): GraphSnap
     projectId: 'p1',
     nodes: [p, g],
     edges: [{ id: 'e1', projectId: 'p1', source: 'p', target: 'g' }],
-    resultGroups: [],
+    
   }
 }
 

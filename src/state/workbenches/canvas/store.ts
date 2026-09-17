@@ -254,7 +254,7 @@ function createPersister(platform: PlatformKit, debounceMs: number) {
 
 export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
   const initialGraph: GraphSnapshot =
-    opts.initial ?? { projectId: opts.projectId, nodes: [], edges: [], resultGroups: [] }
+    opts.initial ?? { projectId: opts.projectId, nodes: [], edges: [] }
   const persister = createPersister(opts.platform, opts.debounceMs ?? 800)
 
   // zustand vanilla store（不依赖 React，可在 node 下单测）

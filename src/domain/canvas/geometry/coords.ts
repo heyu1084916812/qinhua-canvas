@@ -45,27 +45,16 @@ export function toWorldRect(node: NodeLike, parent?: NodeLike | null): Rect {
 }
 
 /**
- * 图内节点的世界矩形（父级可能是**结果组**）。
+ * 图内节点的世界矩形。
  *
- * `toWorldRect` 的父级必须是节点，而结果组住在 `resultGroups` 表、不在 `nodes` 里——
- * 只查节点索引会得到 `null`，子节点的 **local 坐标被当成世界坐标**，命中判定整片
- * 偏到画布左上角（拖出结果组时判定点算错，落点归属跟着错）。
+ * 父级**一律是节点**（分组 / 批量 / 画板）。结果组下线前它还可能是 `resultGroups`
+ * 表里的组——那张表不在 `nodes` 里，于是要多查一次、并把组的 x/y 当作原点；
+ * 表删掉后这一层没有存在理由，留着只会让「父级有几种可能」继续分裂。
  * 用例：拖拽落点判定（`dropPointOf`）。
  */
-export function toWorldRectInGraph(
-  node: NodeLike,
-  graph: {
-    nodes: readonly NodeLike[]
-    resultGroups: readonly { id: string; x: number; y: number }[]
-  },
-): Rect {
+export function toWorldRectInGraph(node: NodeLike, graph: { nodes: readonly NodeLike[] }): Rect {
   const parent = node.parentId ? graph.nodes.find((n) => n.id === node.parentId) ?? null : null
-  if (parent) return toWorldRect(node, parent)
-  const rg =
-    node.parentId !== null
-      ? graph.resultGroups.find((g) => g.id === node.parentId) ?? null
-      : null
-  return rg ? { x: rg.x + node.x, y: rg.y + node.y, w: node.w, h: node.h } : toWorldRect(node, null)
+  return toWorldRect(node, parent)
 }
 
 /**

@@ -56,7 +56,7 @@ function makeGraph(): GraphSnapshot {
     { id: 'e2', projectId: 'p', source: 'pb', target: 'gb' },
     { id: 'e3', projectId: 'p', source: 'g1', target: 'pb' }, // 跨画板边，应被排除
   ]
-  return { projectId: 'p', nodes, edges, resultGroups: [] }
+  return { projectId: 'p', nodes, edges, }
 }
 
 describe('boardSubgraph', () => {

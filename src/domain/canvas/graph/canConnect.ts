@@ -37,25 +37,6 @@ export function canConnect(
 ): ConnectCheck {
   if (source.id === target.id) return { ok: false, reason: '不能连自己' }
 
-  const resultGroupIds = new Set(graph.resultGroups.map((g) => g.id))
-  if (resultGroupIds.has(source.id) || resultGroupIds.has(target.id)) {
-    return { ok: false, reason: '结果组不作为边端点' }
-  }
-  /**
-   * 结果组的**子节点**（逐张结果）同样不作为端点。
-   *
-   * 只按 id 判会漏掉它们：这些子节点类型是 generation、`parentId` 指向
-   * resultGroups 表里的组（不在 nodes 表里），于是「连到一张结果缩略图」在
-   * domain 层一直是合法的。真正的恶果在视图层——它们的 x/y 是组内 local 坐标，
-   * 命中检测又找不到父节点、只能当世界坐标用，结果在画布原点占下一块隐形命中区，
-   * 把落在那里的连线全抢走（用户看到的是：明明松手在提示词节点上，却连上了
-   * 一个屏幕上根本不存在的节点）。规则必须在这里定死，视图层才只是「执行」。
-   */
-  const inResultGroup = (n: NodeSnapshot): boolean => !!n.parentId && resultGroupIds.has(n.parentId)
-  if (inResultGroup(source) || inResultGroup(target)) {
-    return { ok: false, reason: '结果组内的结果不参与连线' }
-  }
-
   if (graph.edges.some((e) => e.source === source.id && e.target === target.id)) {
     return { ok: false, reason: '这条连线已存在' }
   }

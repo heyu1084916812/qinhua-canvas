@@ -41,8 +41,33 @@ describe('flowFile 序列化 / 反序列化', () => {
     expect(out.project.extra).toEqual({ from: 'unit' })
     expect(out.nodes).toHaveLength(3)
     expect(out.edges).toHaveLength(1)
-    expect(out.resultGroups).toHaveLength(1)
+    // 结果组已下线：老文件里带的这一项**不再还原**（没有 resultGroups 这个返回项）
     for (const n of out.nodes) expect(n.projectId).toBe('proj_new')
+  })
+
+  /**
+   * 老 .flow.json 里带着 resultGroups，且可能有节点的 `parentId` 指向某个组。
+   * 组没了之后这些 parentId 是**悬空引用**——照常保留会让节点挂在一个不存在的
+   * 父级下：既不显示在根层（被当容器子节点剔除）、也找不到容器，等于凭空消失。
+   * 故一律置 null，让它们回根层。
+   */
+  it('老文件里指向结果组的 parentId 被清到根层（不留下悬空引用）', () => {
+    // serializeProject 现在不再输出 resultGroups，老文件要**手工补回这一项**才能模拟
+    const legacy: FlowFileV1 = {
+      ...flow,
+      graph: {
+        ...flow.graph,
+        resultGroups: [{ id: 'rg_1', projectId: 'proj_old', data: {} }] as never,
+        nodes: [
+          { id: 'node_a', projectId: 'proj_old', parentId: null, data: { text: 'hi' } },
+          { id: 'node_c', projectId: 'proj_old', parentId: 'rg_1', data: {} },
+        ] as never,
+      },
+    }
+    const out = deserializeProject(legacy, 'proj_new')
+    expect(out.nodes).toHaveLength(2)
+    // 两个都被清成 null（一个本来就是 null，另一个原本指向已不存在的组）
+    expect(out.nodes.map((n) => n.parentId)).toEqual([null, null])
   })
 
   it('id 全量重映射：edges / parentId / data 内引用', () => {

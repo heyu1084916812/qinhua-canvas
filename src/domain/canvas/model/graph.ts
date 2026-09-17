@@ -1,12 +1,10 @@
 import type { NodeSnapshot, NodeType } from './node'
 import type { Edge } from './edge'
-import type { ResultGroup } from './resultGroup'
 
 export interface GraphSnapshot {
   projectId: string
   nodes: NodeSnapshot[]
   edges: Edge[]
-  resultGroups: ResultGroup[]
 }
 
 /** 图算法的最小依赖：只要 id / parentId / type，方便测试里造数据 */

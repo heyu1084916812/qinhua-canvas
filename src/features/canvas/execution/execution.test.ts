@@ -313,8 +313,7 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     const expected = mockImageHash({ model: 'mock-image-1', prompt: PROMPT_TEXT })
     expect(dataOf(store, genId).assetHash).toBe(expected)
 
-    // §6.16：单一产物**不建结果组**——生成节点自己就是那张图的落点
-    expect(store.getSnapshot().resultGroups).toHaveLength(0)
+    // 单一产物的落点就是生成节点自己（结果组已下线，产物不再进容器）
     // 产物写实：hash / 缩略图顺序 / 真实像素都落在生成节点自己身上
     expect(dataOf(store, genId).thumbOrder).toEqual([expected])
     expect(dataOf(store, genId).naturalSize).toEqual({ width: 64, height: 64 })
@@ -400,8 +399,6 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     store.undo()
     expect(dataOf(store, genId).assetHash).toBeUndefined()
     expect(store.getSnapshot().nodes).toHaveLength(before)
-    // 结果组也随撤销回滚
-    expect(store.getSnapshot().resultGroups).toHaveLength(0)
   })
 
   it('single-alt 把结果铺到新下游节点，旧节点不动', async () => {
@@ -414,7 +411,6 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     expect(summary.succeeded).toBe(1)
     // §6.16：单一产物不建结果组 → 净增 1（只有新铺的下游节点）
     expect(store.getSnapshot().nodes).toHaveLength(before + 1)
-    expect(store.getSnapshot().resultGroups).toHaveLength(0)
     const created = store.getSnapshot().nodes.find((n) => n.title === '提示词的输出1')
     expect(created).toBeDefined()
     expect((created!.data as unknown as Record<string, unknown>).assetHash).toBeDefined()
@@ -434,7 +430,6 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     // 240（最小高）→ 等比 427×240：比例 ≈ 16/9，而不是方框的 1
     expect(node.h).toBe(240)
     expect(Math.round(node.w / node.h * 100) / 100).toBeCloseTo(16 / 9, 1)
-    expect(store.getSnapshot().resultGroups).toHaveLength(0)
   })
 
   /**
@@ -453,8 +448,6 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     // 2 次独立调用，每次 n=1
     expect(channel.callCount).toBe(2)
 
-    const groups = store.getSnapshot().resultGroups
-    expect(groups).toHaveLength(0)
     const generations = store.getSnapshot().nodes.filter((n) => n.type === 'generation')
     // N>1 时触发节点不当槽位：源节点保持空，2 张各落一个下游节点
     expect(generations).toHaveLength(3)
@@ -523,11 +516,20 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
       edges: snap.edges,
     }
     const plan = buildRunPlan('board', { subgraph: sub, containerKind: 'board' }, snap, 'rerunAll')
+    const beforeBoard = snap.nodes.length
     const summary = await runEngine(plan, deps(store, createMockChannel()))
     store.endPlan()
 
     expect(summary.succeeded).toBe(1)
-    expect(store.getSnapshot().resultGroups).toHaveLength(1)
+    /**
+     * 容器运行同样**铺新承载节点**、不再建结果组（结果组已下线）。
+     *
+     * 若退回 `reuse` 自己，产物会被写回容器内那个节点——而容器运行是新的一次生成，
+     * 旧产物属于上一版，覆盖掉等于「重跑把历史抹了」。故这里锁的是**净增 1 个新节点**。
+     */
+    expect(store.getSnapshot().nodes).toHaveLength(beforeBoard + 1)
+    const made = store.getSnapshot().nodes[store.getSnapshot().nodes.length - 1]!
+    expect((made.data as unknown as Record<string, unknown>).assetHash).toBeTruthy()
   })
 
   /**
@@ -647,8 +649,16 @@ describe('buildRunPlan + runEngine · 批量节点集合展开（§6.12）', () 
     return { platform, store }
   }
 
-  it('批量 2 张 → 展开 2 个 task，结果落同一个结果组（2 个子节点）', async () => {
+  it('批量 2 张 → 展开 2 个 task，结果落 2 个并列承载节点', async () => {
     const { store } = batchSetup(['ha', 'hb'])
+    /**
+     * 集合成员 bp-c1 / bp-c2 本身就是**带图的 generation 节点**（它们是这一批的
+     * 输入素材），所以「数带图的 generation 节点」会连它们一起算进来（实测 4 ≠ 2）。
+     * 要数的是**本次新建的承载节点**，故先记下基线的 id 集合再取差集。
+     */
+    const beforeIds = new Set(
+      store.getSnapshot().nodes.filter((n) => n.type === 'generation').map((n) => n.id),
+    )
     const plan = buildRunPlan('node', { originNodeId: 'gen' }, store.getSnapshot(), 'single')
 
     // 一个下游节点因集合展开成 2 次调用
@@ -669,13 +679,17 @@ describe('buildRunPlan + runEngine · 批量节点集合展开（§6.12）', () 
     store.endPlan()
 
     expect(summary.succeeded).toBe(2)
-    // 场景 1 关键断言：批量 2 张 → 右侧**一个**结果组含 2 个结果节点
-    const groups = store.getSnapshot().resultGroups
-    expect(groups).toHaveLength(1)
-    // 注意：批量节点自身的 2 个子节点也带 parentId，这里只为结果组的子节点计数
-    const children = store.getSnapshot().nodes.filter((n) => n.parentId === groups[0]!.id)
-    expect(children).toHaveLength(2)
-    const hashes = children.map((c) => (c.data as unknown as Record<string, unknown>).assetHash)
+    // 批量 2 张 → 2 个**并列承载节点**（不建结果组），各带自己的集合项
+    const carriers = store
+      .getSnapshot()
+      .nodes.filter(
+        (n) =>
+          n.type === 'generation' &&
+          !beforeIds.has(n.id) &&
+          (n.data as unknown as Record<string, unknown>).assetHash,
+      )
+    expect(carriers).toHaveLength(2)
+    const hashes = carriers.map((c) => (c.data as unknown as Record<string, unknown>).assetHash)
     expect(new Set(hashes).size).toBe(2)
   })
 
@@ -721,11 +735,14 @@ describe('buildRunPlan + runEngine · 批量节点集合展开（§6.12）', () 
     store.endPlan()
 
     expect(summary.succeeded).toBe(2)
-    const groups = store.getSnapshot().resultGroups
-    expect(groups).toHaveLength(1)
-    const results = store.getSnapshot().nodes.filter((n) => n.parentId === groups[0]!.id)
+    // 批量节点自跑：2 条提示词 → 2 个并列承载节点
+    const results = store
+      .getSnapshot()
+      .nodes.filter(
+        (n) => n.type === 'generation' && (n.data as unknown as Record<string, unknown>).assetHash,
+      )
     expect(results).toHaveLength(2)
-    // 两条提示词不同 → 素材必然不同
+    // 两条提示词不同 → 素材必然不同（内容寻址下 hash 也不同）
     const hashes = results.map((r) => (r.data as unknown as Record<string, unknown>).assetHash)
     expect(new Set(hashes).size).toBe(2)
   })

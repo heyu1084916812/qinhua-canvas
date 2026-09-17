@@ -32,7 +32,7 @@ function graphOf(nodes: NodeSnapshot[], edges: { source: string; target: string 
     projectId: 'p1',
     nodes,
     edges: edges.map((e, i) => ({ id: `e${i}`, projectId: 'p1', ...e })),
-    resultGroups: [],
+    
   }
 }
 

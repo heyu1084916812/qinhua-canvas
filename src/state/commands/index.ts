@@ -11,8 +11,6 @@ import type { ExecutionMode } from '../../domain/shared/execution/types'
  * M0-11 扩展（相对架构原文的偏差，见交接本第 4 组）：
  * - node.create 增加 id / title / parentId / size：执行引擎需要引用自己创建出的节点
  *   （否则拿不到新节点 id，无法把生成的 assetHash 写回去）
- * - resultGroup.create 增加 id / rect / createdAt：落位由 domain/layout 算好再传入，
- *   reducer 保持纯函数（原文在 reducer 里调 Date.now()）
  * - runPlan.execute 增加 planId / createdAt：执行计划要能落 tasks 表并被取消
  * - node.runRecord.append 携带 record：reducer 是纯函数且不持有 runRecords 表
  */
@@ -83,24 +81,6 @@ export type Command =
   | { kind: 'edge.connect'; source: string; target: string }
   | { kind: 'edge.remove'; id: string }
   | { kind: 'container.reorder'; containerId: string; orderedChildIds: string[] }
-  | {
-      kind: 'resultGroup.create'
-      sourceNodeId: string
-      taskId: string
-      count: number
-      id?: string
-      rect?: Rect
-      createdAt?: number
-    }
-  | { kind: 'resultGroup.dissolve'; id: string; withResults: boolean }
-  /**
-   * 折叠 / 展开结果组（§6.9）。
-   *
-   * 折叠态**只改呈现**（框收缩为封面 + 汇总、连线汇聚成一条总线），
-   * 展开态几何（x/y/w/h）是唯一持久量、始终不写 —— 故折叠与展开天然无损往返。
-   * 这里落库的只有 `collapsed` 这一个布尔。
-   */
-  | { kind: 'resultGroup.setCollapsed'; id: string; collapsed: boolean }
   // 生成产物落库：节点只持有 hash，媒体本体（字节）写 assets 表（产品文档 §8 hash 主键）
   | {
       kind: 'asset.put'

@@ -56,29 +56,25 @@ describe('容器坐标', () => {
   })
 })
 
-describe('图内世界矩形（父级可能是结果组）', () => {
-  /**
-   * 结果组不在 nodes 表里：只查节点索引会得到 null，子节点的 local 坐标被当成
-   * 世界坐标 —— 拖出结果组时的落点判定会整片偏到画布左上角。
-   */
-  const rgGraph = {
-    nodes: [node('c1', 16, 16, 'rg1'), node('top', 100, 100, null)],
-    resultGroups: [{ id: 'rg1', x: 500, y: 300 }],
-  }
+/**
+ * 结果组下线后，父级**只有节点**一种可能（分组 / 批量 / 画板）。
+ * 昔日「父级可能是 resultGroups 表里的组、要额外查一张表」那一条路径随之消失，
+ * 这里只保留节点父级与顶层两种——少一种分叉，也少一处「查不到就用 null」的隐患。
+ */
+describe('图内世界矩形（父级一律是节点）', () => {
+  const g = { nodes: [node('c', 10, 20, 'p'), node('p', 400, 300, null)] }
 
-  it('结果组子节点要加上组原点', () => {
-    expect(toWorldRectInGraph(rgGraph.nodes[0]!, rgGraph)).toEqual({
-      x: 516,
-      y: 316,
-      w: 200,
-      h: 200,
-    })
+  it('容器子节点 = 父级原点 + local 坐标', () => {
+    expect(toWorldRectInGraph(g.nodes[0]!, g)).toEqual({ x: 410, y: 320, w: 200, h: 200 })
   })
 
-  it('普通容器子节点与顶层节点走原路径（零回归）', () => {
-    const g = { nodes: [node('c', 10, 20, 'p'), node('p', 400, 300, null)], resultGroups: [] }
-    expect(toWorldRectInGraph(g.nodes[0]!, g)).toEqual({ x: 410, y: 320, w: 200, h: 200 })
-    expect(toWorldRectInGraph(rgGraph.nodes[1]!, rgGraph)).toEqual({ x: 100, y: 100, w: 200, h: 200 })
+  it('顶层节点原样返回（不偏移）', () => {
+    expect(toWorldRectInGraph(g.nodes[1]!, g)).toEqual({ x: 400, y: 300, w: 200, h: 200 })
+  })
+
+  it('父级 id 悬空（指向已不存在的容器）→ 当顶层处理，不把 local 当世界坐标乱挪', () => {
+    const orphan = { nodes: [node('c', 16, 16, 'ghost')] }
+    expect(toWorldRectInGraph(orphan.nodes[0]!, orphan)).toEqual({ x: 16, y: 16, w: 200, h: 200 })
   })
 })
 

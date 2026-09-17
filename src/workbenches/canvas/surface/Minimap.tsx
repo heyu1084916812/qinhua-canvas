@@ -122,16 +122,14 @@ export function Minimap() {
   // 拖动 / 平移期间图每帧一变，这里按 MINIMAP_REFRESH_MS 节流后再用来投影：
   // 节流返回的是**同一个数组引用**，于是下面的 sources / 投影 / items 全部命中缓存。
   const nodes = useThrottled(graph.nodes, MINIMAP_REFRESH_MS)
-  const resultGroups = useThrottled(graph.resultGroups, MINIMAP_REFRESH_MS)
 
   const sources = useMemo<MinimapSource[]>(
     () => [
       ...nodes
         .filter((n) => !n.parentId)
         .map((n) => ({ id: n.id, rect: { x: n.x, y: n.y, w: n.w, h: n.h } as Rect })),
-      ...resultGroups.map((g) => ({ id: g.id, rect: { x: g.x, y: g.y, w: g.w, h: g.h } as Rect })),
     ],
-    [nodes, resultGroups],
+    [nodes],
   )
 
   /**

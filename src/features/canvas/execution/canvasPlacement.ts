@@ -13,20 +13,10 @@
  */
 import type { RunRecord as CanvasRunRecord } from '../../../domain/canvas/model/runRecord'
 import type { Command } from '../../../state/commands'
-import { generationSpec } from '../../../domain/canvas/nodeSpecs/generation'
-import { RESULT_CELL } from '../../../domain/canvas/layout/constants'
 import { assetNodeSize, ratioNodeSize } from '../../../domain/canvas/layout/assetNodeSize'
 import type { GenerationData } from '../../../domain/canvas/model/node'
-/**
- * 多结果的排布**复用结果组的格位规则**（§6.9 第 638–645 行）：
- * N=2 单行、N=3 单行、N=4 为 2×2、5–8 每排最多 4 个、>8 每排 4 个自动扩展。
- *
- * 不另写一套：结果组落位（`layoutResultGroup`）内部就是调 `resultGroupCells`，
- * 两者共用同一个纯函数，排布口径天然一致。
- */
-import { resultGroupCells } from '../../../domain/canvas/layout/resultGroupLayout'
 import { createId } from '../../../shared/id'
-import type { CollectedAsset, ExecutionPlacement } from '../../shared/execution/placement'
+import type { ExecutionPlacement } from '../../shared/execution/placement'
 import type { CanvasRunTask } from './buildRunPlan'
 
 /** 新建承载节点与源节点的水平间距（用户 2026-09-16：新节点落在源节点右侧） */
@@ -35,22 +25,16 @@ const NEW_NODE_GAP_X = 72
 /**
  * 是否把本次产物计入「计划末尾的聚合落位」（结果组）。
  *
- * 规则（§6.16，2026-09-13 用户拍板）：
- * - **一次调用出 N ≥ 2 张**：进结果组，组内一律用统一格位 `RESULT_CELL`（容器语义 = 版面整齐）；
- * - **同一主体展开多次调用**（批量上游 / 批量自身）：合计也是多张，同样进组；
- *   （`shouldCollect` 是逐次调用的，只看得见本次这 1 张，故要另看 `callCount`）
- * - **单一产物**：生成节点**自己**就能呈现产物，不建组——此时节点按产物真实比例，
- *   这正是「结果组里的那张拖出来就恢复比例」的同一条规则（进了容器才让渡比例）；
- * - **容器类来源例外**：分组 / 批量本体是 3×3 集合、画板是被收纳的工作区，
- *   它们自身不呈现单张产物（画板里的生成节点产物属于那次**容器运行**），
- *   N=1 也照旧进结果组，否则产物会写到一个看不见它的节点上；
- * - 视频 / 文本产物照旧不入组（与既有行为一致）。
+ * **恒为 false —— 结果组已整体下线**（用户 2026-09-17）。
+ *
+ * 原来的规则是「N≥2 进结果组、容器运行 N=1 也进组」，结果是同一份产物有两种
+ * 落法、两套尺寸口径（组内统一格位 vs 节点真实比例），用户为此报过「白框」
+ * 与「N 张叠在一起」。现在**只有一种落法**：每次调用的产物落到它自己的承载节点，
+ * 由 `begin` 建节点、`commit` 写回。容器运行（画板 / 分组 / 批量）同样如此——
+ * 产物铺在容器右侧的并列节点上，而不是塞进一个组。
  */
-function shouldCollect(task: CanvasRunTask, assets: readonly unknown[]): boolean {
-  if (task.request.kind !== 'image' || assets.length === 0) return false
-  if (assets.length > 1 || task.callCount > 1) return true
-  if (task.containerKind) return true
-  return task.sourceType === 'group' || task.sourceType === 'batch'
+function shouldCollect(_task: CanvasRunTask, _assets: readonly unknown[]): boolean {
+  return false
 }
 
 export function createCanvasPlacement(getProjectId: () => string): ExecutionPlacement<CanvasRunTask, Command> {
@@ -82,6 +66,14 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
         ? carrierCellAt(source, ctx.slotIndex, ctx.slotCount, requestedRatio)
         : null
       const at = cell ? { x: cell.x, y: cell.y } : { x: 0, y: 0 }
+      /**
+       * 容器运行时承载节点挂进**容器里**，与源节点是**兄弟**。
+       *
+       * 于是坐标系天然一致：`sourceRect` 与承载节点都在同一个父级下
+       * （NodeSnapshot 的 x/y 本就是相对父级的），不必再做一次 world ↔ local 换算。
+       * 挂进容器的理由：产物若建在容器外，「源节点 → 承载节点」这条连线就跨了
+       * 画板边界，而 §6.14 定死「画板内外不建立边」，连线会被拒。
+       */
       // 新节点按请求比例定尺寸（未取到比例时由 node.create 用默认最小尺寸）
       const nodeSize = cell ? { w: cell.w, h: cell.h } : undefined
       const targetId = createId('node')
@@ -111,6 +103,7 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
             id: targetId,
             title,
             data,
+            ...(task.containerId ? { parentId: task.containerId } : {}),
             // 按请求比例定尺寸（§6.16「有内容锁原始比例」的落位侧同样适用）
             ...(nodeSize ? { size: nodeSize } : {}),
           },
@@ -196,62 +189,14 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
       }
     },
 
-    finalize(plan, collected) {
-      const bySource = groupBySource(collected)
-      const cmds: Command[] = []
-      for (const [sourceId, entries] of bySource) {
-        if (entries.length === 0) continue
-        // 与旧实现一致：taskId 取该来源在 plan 里的**首个** task（无论其成败）
-        const first = plan.tasks.find((t) => t.nodeId === sourceId)
-        const rgId = createId('rg')
-        cmds.push({
-          kind: 'resultGroup.create',
-          sourceNodeId: sourceId,
-          taskId: first?.id ?? plan.id,
-          count: entries.length,
-          id: rgId,
-        })
-        entries.forEach((entry, i) => {
-          const a = entry.asset
-          cmds.push({
-            kind: 'node.create',
-            projectId: getProjectId(),
-            type: 'generation',
-            at: { x: 0, y: 0 },
-            // 组内统一格位（N≥2 才走到这里）；naturalSize 仍如实记下产物真实像素，
-            // 供「拖出 / 复制出结果组」时恢复比例（§6.16）——进了容器只是让渡呈现比例，
-            // 不是把原始比例忘掉。
-            size: RESULT_CELL,
-            id: createId('node'),
-            title: `结果 ${i + 1}`,
-            parentId: rgId,
-            data: {
-              ...generationSpec.createDefaultData(),
-              mode: 'image',
-              assetHash: a.hash,
-              naturalSize: a.width && a.height ? { width: a.width, height: a.height } : undefined,
-              thumbOrder: [a.hash],
-              channelId: first?.request.channelId ?? '',
-              model: first?.request.model ?? '',
-              prompt: first?.request.prompt ?? '',
-            },
-          })
-        })
-      }
-      return cmds
+    /**
+     * 没有聚合落位了 —— 结果组已下线，产物全部由 `begin` / `commit` 落到各自的
+     * 承载节点上。这里必须返回空数组：留着 `finalize` 建组，等于刚拆掉的又长回来。
+     */
+    finalize() {
+      return []
     },
   }
-}
-
-/** 按来源主体分组，保持 collected 的插入顺序（= 各来源首次成功的顺序） */
-function groupBySource(collected: readonly CollectedAsset[]): Map<string, CollectedAsset[]> {
-  const bySource = new Map<string, CollectedAsset[]>()
-  for (const c of collected) {
-    const list = bySource.get(c.sourceId)
-    if (list) list.push(c)
-    else bySource.set(c.sourceId, [c])
-  }
-  return bySource
 }
 
 /**
@@ -286,19 +231,30 @@ export function carrierCellAt(
     w: containerW,
     h: containerH,
   }
-  const cells = resultGroupCells({ containerRect, count: n, cell })
-  const c = cells[i]!
-  return { x: c.x, y: c.y, w: cell.w, h: cell.h }
+  /**
+   * 格位**就地算**，不再绕 `resultGroupCells`
+   * （那个模块随结果组一起删了，而它本质就是下面这两行）。
+   * 行距用**节点实际高度** + GAP，于是不同比例都不会吃掉间距（用户 2026-09-17 报的
+   * 「轻微重叠」就是行距按固定 200 算、而 16:9 的节点高 240 造成的）。
+   */
+  const col = i % columns
+  const row = Math.floor(i / columns)
+  return {
+    x: containerRect.x + PAD + col * (cell.w + GAP),
+    y: containerRect.y + PAD + row * (cell.h + GAP),
+    w: cell.w,
+    h: cell.h,
+  }
 }
 
-/** 与 resultGroupLayout.columnsFor 同口径：≤3 一行、4 为 2 列、其余最多 4 列 */
+/** §6.9 格位口径：≤3 一行、4 为 2 列、其余最多 4 列 */
 function columnsForCarrier(count: number): number {
   if (count <= 3) return count
   if (count === 4) return 2
   return 4
 }
 
-/** §6.9 组内间距 / 内边距（与 resultGroupLayout 的常量同源） */
+/** §6.9 间距 / 内边距 */
 const GAP = 16
 const PAD = 16
 

@@ -119,14 +119,6 @@ export function resolveDropOutcome(
    *    若照「有 parentId + 落在空白 = 脱离容器」处理，点一下就把结果甩出组了。
    * 「取出」由拖动阈值（NodeLayer）负责，那里才是用户真的想拿走的时候。
    */
-  const homeRg =
-    dragged.parentId && !index.has(dragged.parentId)
-      ? graph.resultGroups.find((g) => g.id === dragged.parentId) ?? null
-      : null
-  if (homeRg && contains({ x: homeRg.x, y: homeRg.y, w: homeRg.w, h: homeRg.h }, worldPoint)) {
-    return { kind: 'none' }
-  }
-
   // 落点所在容器：与自己当前归属相同 → 不重复 reparent（否则每拖一次都吸到新单元）
   const container = hitContainer(worldPoint, graph)
   if (container) {

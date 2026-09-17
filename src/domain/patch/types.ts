@@ -6,7 +6,6 @@ export type TableName =
   | 'channels'
   | 'tasks'
   | 'runRecords'
-  | 'resultGroups'
   | 'assets'
   | 'credentials'
 

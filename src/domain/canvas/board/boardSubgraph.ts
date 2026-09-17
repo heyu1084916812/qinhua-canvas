@@ -13,5 +13,5 @@ export function boardSubgraph(graph: GraphSnapshot, boardId: string): GraphSnaps
   const nodes = graph.nodes.filter((n) => n.parentId === boardId)
   const ids = new Set(nodes.map((n) => n.id))
   const edges = graph.edges.filter((e) => ids.has(e.source) && ids.has(e.target))
-  return { projectId: graph.projectId, nodes, edges, resultGroups: [] }
+  return { projectId: graph.projectId, nodes, edges }
 }

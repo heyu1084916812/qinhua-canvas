@@ -6,6 +6,7 @@ import type { PlatformKit } from '../../platform/ports'
 import { resetSpecs, registerSpec } from '../../domain/canvas/nodeSpecs/registry'
 import { promptSpec } from '../../domain/canvas/nodeSpecs/prompt'
 import { generationSpec } from '../../domain/canvas/nodeSpecs/generation'
+import { groupSpec } from '../../domain/canvas/nodeSpecs/group'
 
 /** 内存平台：拖动控制器只用到 storage 的调度接口，这里给最小实现 */
 const platform = {
@@ -85,6 +86,7 @@ beforeEach(() => {
   resetSpecs()
   registerSpec(promptSpec)
   registerSpec(generationSpec)
+  registerSpec(groupSpec)
 })
 
 describe('拖动目标集合判定', () => {
@@ -113,25 +115,43 @@ describe('拖动目标集合判定', () => {
     expect(createNodeDragController(store).resolveDragIds(aId)).toEqual([aId])
   })
 
-  it('结果组子节点（M6-25）：按下它只拖它一个（走取出语义）', () => {
+  /**
+   * 原用例测的是**结果组**子节点（组已下线）。
+   *
+   * 那条规则的判据其实是「父级 id 不在 nodes 表里」——结果组正是这种悬空父级。
+   * 组删掉后，parentId 只剩**真节点**一种，于是行为也随之改变，用例必须跟着改，
+   * 否则就是在断言一个已不存在的语义（实测会红）。
+   */
+  it('容器子节点：父级是真节点 → 随多选一起拖（不是被剔除）', () => {
     const store = makeStore()
-    const { aId, bId } = seedChain(store)
-    // 造一个结果组 + 组内子节点
-    store.dispatch({ kind: 'resultGroup.create', sourceNodeId: bId, taskId: 't1', count: 1, id: 'rg1' })
-    store.dispatch({ kind: 'node.create', projectId: 'p1', type: 'generation', at: { x: 0, y: 0 }, id: 'c1', parentId: 'rg1' })
+    const { aId } = seedChain(store)
+    store.dispatch({ kind: 'node.create', projectId: 'p1', type: 'group', at: { x: 0, y: 0 }, id: 'g1' })
+    store.dispatch({ kind: 'node.create', projectId: 'p1', type: 'generation', at: { x: 0, y: 0 }, id: 'c1', parentId: 'g1' })
     store.setSelection([aId, 'c1'])
     const drag = createNodeDragController(store)
-    expect(drag.resolveDragIds('c1')).toEqual(['c1'])
+    expect(drag.resolveDragIds(aId)).toEqual([aId, 'c1'])
   })
 
-  it('结果组子节点混在多选里：整体拖动时被剔除（挪 local 会拖乱组内版面）', () => {
+  /**
+   * 「父级悬空」仍要剔除：那是数据损坏（父级被删而子节点还在）时的兜底——
+   * 带着一个找不到父级的节点一起拖，落点换算会拿 undefined 当原点。
+   */
+  it('父级悬空的节点：整体拖动时被剔除（落点换算没有原点可用）', () => {
     const store = makeStore()
-    const { aId, bId } = seedChain(store)
-    store.dispatch({ kind: 'resultGroup.create', sourceNodeId: bId, taskId: 't1', count: 1, id: 'rg1' })
-    store.dispatch({ kind: 'node.create', projectId: 'p1', type: 'generation', at: { x: 0, y: 0 }, id: 'c1', parentId: 'rg1' })
+    const { aId } = seedChain(store)
+    // 手写一个 parentId 指向不存在节点的子节点（模拟损坏数据）
+    store.dispatch({ kind: 'node.create', projectId: 'p1', type: 'generation', at: { x: 0, y: 0 }, id: 'c1' })
+    const g = store.getSnapshot()
+    store.hydrate({
+      projectId: 'p1',
+      nodes: g.nodes.map((n) => (n.id === 'c1' ? { ...n, parentId: 'ghost' } : n)),
+      edges: g.edges,
+    })
     store.setSelection([aId, 'c1'])
     const drag = createNodeDragController(store)
     expect(drag.resolveDragIds(aId)).toEqual([aId])
+    // 按下它自己时也不带别人（悬空父级 = 只拖它）
+    expect(drag.resolveDragIds('c1')).toEqual(['c1'])
   })
 })
 

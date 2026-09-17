@@ -33,11 +33,10 @@ export async function exportProject(
   opts: ExportOptions = {},
 ): Promise<ExportResult> {
   await platform.storage.open()
-  const [projRows, nodes, edges, resultGroups] = await Promise.all([
+  const [projRows, nodes, edges] = await Promise.all([
     platform.storage.query('projects', { id: projectId }),
     platform.storage.query('nodes', { projectId }),
     platform.storage.query('edges', { projectId }),
-    platform.storage.query('resultGroups', { projectId }),
   ])
   const project = projRows[0]
   if (!project) throw new Error(`[flowIo] 导出失败：项目不存在 ${projectId}`)
@@ -49,7 +48,6 @@ export async function exportProject(
   const graph: FlowGraph = {
     nodes: nodes as never,
     edges: edges as never,
-    resultGroups: resultGroups as never,
     assets: assets as never,
   }
 
@@ -99,7 +97,7 @@ export async function importProjectFile(
   }
 
   const newId = createId('proj')
-  const { project, nodes, edges, resultGroups, assets, missingModels } = deserializeProject(
+  const { project, nodes, edges, assets, missingModels } = deserializeProject(
     flow,
     newId,
     opts.knownModels,
@@ -115,16 +113,12 @@ export async function importProjectFile(
   }
   project.name = name
 
-  await platform.storage.transaction(
-    ['projects', 'nodes', 'edges', 'resultGroups', 'assets'],
-    async () => {
-      await platform.storage.put('projects', project as never)
-      for (const r of nodes) await platform.storage.put('nodes', r as never)
-      for (const r of edges) await platform.storage.put('edges', r as never)
-      for (const r of resultGroups) await platform.storage.put('resultGroups', r as never)
-      for (const r of assets) await platform.storage.put('assets', r as never)
-    },
-  )
+  await platform.storage.transaction(['projects', 'nodes', 'edges', 'assets'], async () => {
+    await platform.storage.put('projects', project as never)
+    for (const r of nodes) await platform.storage.put('nodes', r as never)
+    for (const r of edges) await platform.storage.put('edges', r as never)
+    for (const r of assets) await platform.storage.put('assets', r as never)
+  })
 
   const item: ProjectListItem = { ...(project as unknown as Project), nodeCount: nodes.length }
   return { project: item, missingModels, flowName: picked.name }

@@ -3,7 +3,6 @@ import type { NodeData, NodeSnapshot } from './model/node'
 import type { Point, Size } from './geometry/rect'
 import { indexNodes } from './model/graph'
 import { toWorldRect } from './geometry/coords'
-import { naturalNodeSize } from './layout/assetNodeSize'
 
 /**
  * 画布剪贴板（产品文档 §4.2「复制与粘贴」）。
@@ -110,16 +109,15 @@ export function clipboardFromSelection(
     }
   }
 
-  const rgIds = new Set(graph.resultGroups.map((g) => g.id))
   /**
-   * 从结果组里复制出来 → 恢复产物真实比例（§6.16）。
+   * 尺寸**一律不动**。
    *
-   * 只在这一刻做：剪贴板是唯一同时知道「它原本在结果组里」与「粘出去必在根层」
-   * 的地方（顶层节点的 parentId 在下面被置空）。等到 paste 侧就只剩 parentId=null，
-   * 无从判断它是不是「刚脱离容器」——那时再改尺寸，会连「复制一份普通节点」
-   * 一起改掉（顺手毁掉用户手动调过的尺寸）。
+   * 结果组在世时这里要特判「从组里复制出来 → 恢复产物真实比例」——组内的节点
+   * 是统一格位、比例被让渡了。组删掉后，parentId 只剩容器节点（分组 / 批量 / 画板），
+   * 而复制容器时后代随容器一起走、本就不该改尺寸。于是这段特判连同它的判据
+   * 一起消失，复制变成纯粹的「原样带走」（用户手动调过的尺寸不会被顺手改掉）。
    */
-  const sized = roots.map((n) => ({ ...n, ...(detachedFromResultGroup(n, rgIds) ?? {}) }))
+  const sized = roots
 
   // 包围盒只按**顶层**算：后代的 local 坐标不参与世界定位。
   // 尺寸先于包围盒：换过比例后仍按旧尺寸居中，粘出来的节点会偏出鼠标一截。
@@ -149,20 +147,6 @@ export function clipboardFromSelection(
     .map((e) => ({ source: e.source, target: e.target }))
 
   return { nodes, edges, size: { w: maxX - minX, h: maxY - minY } }
-}
-
-/**
- * 「这个顶层节点原本在结果组里」时的**恢复后尺寸**；其余情况返回 null（保持原样）。
- *
- * 返回 `null` 而不是最小尺寸是刻意的：没有 naturalSize（老数据 / 无产物）时
- * 无从恢复，此时按最小尺寸把节点拍扁比不改更糟。
- */
-function detachedFromResultGroup(
-  node: NodeSnapshot,
-  rgIds: ReadonlySet<string>,
-): Size | null {
-  if (!node.parentId || !rgIds.has(node.parentId)) return null
-  return naturalNodeSize(node.data as { naturalSize?: { width: number; height: number } }, node.type)
 }
 
 /** 把 id 列表字段重映射到新 id；不在集合内的（外部引用）丢弃，与外部连线不复制同口径 */

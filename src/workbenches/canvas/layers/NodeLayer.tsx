@@ -5,7 +5,6 @@ import { useNodeDrag } from '../../../features/canvas/useNodeDrag'
 import { useCanvasPageEvents } from '../../../features/canvas/useCanvasPageEvents'
 import { getNodeDefinition } from '../nodes/registry'
 import { NodeFrame } from '../frame/NodeFrame'
-import { ResultGroupLayer } from './ResultGroupLayer'
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { describeError } from '../../../shared/result'
 import { indexEdgesByTarget, upstreamsFrom } from '../../../domain/canvas/graph/upstreamOf'
@@ -120,7 +119,7 @@ function sameNodeList(a: readonly NodeSnapshot[], b: readonly NodeSnapshot[]): b
  */
 function sameGraphContent(a: GraphSnapshot, b: GraphSnapshot): boolean {
   if (a === b) return true
-  if (a.edges !== b.edges || a.resultGroups !== b.resultGroups) return false
+  if (a.edges !== b.edges) return false
   if (a.nodes.length !== b.nodes.length) return false
   for (let i = 0; i < a.nodes.length; i += 1) {
     const x = a.nodes[i]
@@ -352,8 +351,6 @@ export const NodeLayer = memo(function NodeLayer({
 
   return (
     <>
-      {/* 结果组（§6.9）：容器框 + 组内子结果；子结果与顶层节点共用同一套 frame 接线 */}
-      <ResultGroupLayer renderChild={renderChild} />
       {visibleNodes.map((node) => {
         const def = getNodeDefinition(node.type)
         const selected = selection.includes(node.id)
