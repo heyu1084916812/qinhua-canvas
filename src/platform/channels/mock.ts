@@ -117,13 +117,22 @@ function sleep(ms: number): Promise<void> {
  * 真实渠道不会这样（每张图片素本就不同），mock 必须主动把「请求不同」落进字节。
  * 放 tEXt 而不改像素，是为了保住「灰度 = 无图输入 / 品红 = 有图输入」这条可观测标记。
  */
+/**
+ * 调序号纳入印记的原因很直接：**真实渠道每次调用都会出一张不同的图**，
+ * 哪怕 model + prompt + 参考图完全一样。若 mock 只按「请求内容」造图，
+ * 同参数的两批生成就会吐出**完全相同的字节** —— 内容寻址下 hash 也相同，
+ * 于是「先生成 4 张、再生成 2 张」里后两张会跟前两张一模一样（用户 2026-09-17 报的
+ * 现象之一）。`callSeq` 是渠道**累计调用次数**，故每次调用都不同；
+ * 而新建的 channel 从 1 起，于是「同一个请求、全新的 channel」仍然可复现。
+ */
 function stampOf(
   model: string,
   prompt: string,
   imageHashes: readonly string[],
+  callSeq: number,
   index: number,
 ): string {
-  return [model, prompt, imageHashes.join(','), String(index)].join('|')
+  return [model, prompt, imageHashes.join(','), `call#${callSeq}`, `item#${index}`].join('|')
 }
 
 /**
@@ -137,6 +146,7 @@ export function mockImageHash(args: {
   model: string
   prompt: string
   imageHashes?: readonly string[]
+  callSeq?: number
   index?: number
   ratio?: string
 }): string {
@@ -146,7 +156,7 @@ export function mockImageHash(args: {
     w,
     h,
     withImage ? MAGENTA : GRAY,
-    stampOf(args.model, args.prompt, args.imageHashes ?? [], args.index ?? 0),
+    stampOf(args.model, args.prompt, args.imageHashes ?? [], args.callSeq ?? 1, args.index ?? 0),
   )
   return fingerprintBytesSync(bytes)
 }
@@ -183,6 +193,7 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
       request.model,
       request.prompt,
       imageInputsOf(request.inputs).map((i) => i.assetHash),
+      calls,
       index,
     )
     const bytes = solidPng(requestedWidth, requestedHeight, withImage ? MAGENTA : GRAY, stamp)

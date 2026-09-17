@@ -138,6 +138,9 @@ export function LightboxLayer() {
     <div
       className={styles.overlay}
       data-lightbox
+      // 当前展示的素材 hash：灯箱按 hash 取图，这里把它暴露出来，
+      // 「灯箱显示的到底是不是这个节点的图」才可断言（否则只能比像素，纯色图比不出来）
+      data-lightbox-hash={assetHash ?? ''}
       role="dialog"
       aria-modal="true"
       aria-label="素材灯箱"

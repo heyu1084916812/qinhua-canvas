@@ -530,6 +530,36 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     expect(store.getSnapshot().resultGroups).toHaveLength(1)
   })
 
+  /**
+   * ★ 空源节点选 N=4：4 张结果必须铺 4 个**并列**的新节点。
+   *
+   * 与上面「源节点有图」那条是**两条不同的路**：空源节点自己就是一个空槽位，
+   * 于是槽位规划会把第 1 张「复用自己」、其余才新建 ⇒ 用户看到「选了 4 张，
+   * 只多出 3 个节点，还有 1 张把源节点自己填了」。N>1 时结果一律并列新建，
+   * 触发节点是**输入方**，不算槽位——这与 N=1「首次生成落在本节点」并不冲突。
+   */
+  it('★ 空源节点 N=4：4 次调用铺 4 个并列新节点，不占用源节点自己', async () => {
+    const { store, genId } = setup()
+    store.dispatch({ kind: 'node.updateData', id: genId, patch: { count: 4, prompt: '自有提示词' } })
+
+    const plan = buildRunPlan('node', { originNodeId: genId }, store.getSnapshot(), 'single')
+    expect(plan.tasks).toHaveLength(4)
+    // 每一次都铺新节点 —— 不能有一张是 reuse 源节点自己
+    for (const t of plan.tasks) expect(t.slot.kind).toBe('new')
+
+    const summary = await runEngine(plan, deps(store, createMockChannel()))
+    store.endPlan()
+    expect(summary.succeeded).toBe(4)
+
+    const generations = store.getSnapshot().nodes.filter((n) => n.type === 'generation')
+    // 源节点原样留空 + 4 个并列承载节点
+    expect(generations).toHaveLength(5)
+    expect(dataOf(store, genId).assetHash).toBeFalsy()
+    const carriers = generations.filter((n) => n.id !== genId)
+    expect(carriers).toHaveLength(4)
+    for (const c of carriers) expect(dataOf(store, c.id).assetHash).toBeTruthy()
+  })
+
   it('可重试错误按退避重试，最终成功', async () => {
     const { store, promptId } = setup()
     const plan = buildRunPlan('node', { originNodeId: promptId }, store.getSnapshot(), 'single')
