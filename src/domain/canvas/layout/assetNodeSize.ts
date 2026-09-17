@@ -59,3 +59,29 @@ export function naturalNodeSize(
   if (!n || !(n.width > 0) || !(n.height > 0)) return null
   return assetNodeSize({ width: n.width, height: n.height }, type, maxSide)
 }
+
+/**
+ * 按**请求的比例**预估节点尺寸（`w:h` → Size）。
+ *
+ * 用途：生成前要先建出承载节点，此时还没有产物、拿不到 `naturalSize`，
+ * 但用户已选了比例（如 16:9）——节点应当**按这个比例**建，
+ * 于是「选的比例和像素多大，新建的节点就多大」（用户 2026-09-17 要求）。
+ *
+ * 做法：把比例当成一份「虚拟 natural」喂给 `assetNodeSize`，
+ * 复用同一套「缩到长边上限 → 放大盖住最小框」的规则，避免两处各算一遍而漂移。
+ * 比例解析失败 → 退回最小尺寸（不猜）。
+ */
+export function ratioNodeSize(
+  ratio: string | null | undefined,
+  type: keyof typeof NODE_MINIMUMS = 'generation',
+  maxSide: number = ASSET_NODE_MAX_SIDE,
+): Size {
+  if (!ratio) return { ...NODE_MINIMUMS[type] }
+  const [rawW, rawH] = ratio.replace(/\s+/g, '').split(':').map((s) => Number.parseFloat(s))
+  if (!Number.isFinite(rawW) || !Number.isFinite(rawH) || rawW <= 0 || rawH <= 0) {
+    return { ...NODE_MINIMUMS[type] }
+  }
+  // 用长边 1024 的比例样本即可：assetNodeSize 只关心**比例**，会再统一缩到 maxSide
+  const scale = 1024 / Math.max(rawW, rawH)
+  return assetNodeSize({ width: Math.round(rawW * scale), height: Math.round(rawH * scale) }, type, maxSide)
+}

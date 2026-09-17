@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { carrierCellAt } from './canvasPlacement'
+import { ratioNodeSize } from '../../../domain/canvas/layout/assetNodeSize'
 
 /**
  * 多结果新建承载节点的排布（§6.9 第 638–645 行）：
@@ -11,7 +12,8 @@ describe('carrierCellAt · 复用 §6.9 格位规则', () => {
   const GAP = 16
   const PAD = 16
 
-  const at = (count: number) => Array.from({ length: count }, (_, i) => carrierCellAt(src, i, count))
+  const at = (count: number, ratio?: string) =>
+    Array.from({ length: count }, (_, i) => carrierCellAt(src, i, count, ratio))
 
   it('N=1：单个节点', () => {
     const p = at(1)
@@ -25,8 +27,10 @@ describe('carrierCellAt · 复用 §6.9 格位规则', () => {
     const ys = [...new Set(p.map((c) => c.y))].sort((a, b) => a - b)
     expect(xs).toHaveLength(2)
     expect(ys).toHaveLength(2)
-    expect(xs[1]! - xs[0]!).toBe(N + GAP)
-    expect(ys[1]! - ys[0]!).toBe(N + GAP)
+    // 步长 = 节点实际尺寸 + 间距 16（未指定比例时用最小尺寸 240×240）
+    const cell = ratioNodeSize(undefined)
+    expect(xs[1]! - xs[0]!).toBe(cell.w + GAP)
+    expect(ys[1]! - ys[0]!).toBe(cell.h + GAP)
   })
 
   it('★ N=2 / N=3 单行排布', () => {
@@ -50,5 +54,31 @@ describe('carrierCellAt · 复用 §6.9 格位规则', () => {
   it('起始位置在源节点右侧（水平间距 72 + 内边距 16）', () => {
     const first = at(1)[0]!
     expect(first.x).toBe(src.x + src.w + 72 + PAD)
+  })
+
+  /**
+   * ★ 按**节点实际边界**排布，相邻行必须留出 16px 可见间隔（用户 2026-09-17 报「重叠一点点」）。
+   *
+   * 根因是格位固定 200×200 而节点按产物比例更高（16:9 → 427×240），
+   * 行距 216 < 240 于是叠住。改为按实际尺寸排布后：下一行 y - 上一行 y = 实际高 + 16。
+   */
+  it('★ 相邻行按实际边界留出 16px 间隔（不再轻微重叠）', () => {
+    const cell = ratioNodeSize('16:9')
+    expect(cell.h).toBeGreaterThan(200) // 16:9 会算得比固定格位高
+    const p = at(4, '16:9')
+    const ys = [...new Set(p.map((c) => c.y))].sort((a, b) => a - b)
+    expect(ys[1]! - ys[0]!).toBe(cell.h + GAP)
+    // 上一行底边 + 16 = 下一行顶边 ⇒ 不重叠
+    expect(ys[0]! + cell.h + GAP).toBe(ys[1]!)
+  })
+
+  it('★ 承载节点尺寸 = 按请求比例算出的节点尺寸', () => {
+    for (const ratio of ['1:1', '16:9', '9:16', '4:3']) {
+      const expected = ratioNodeSize(ratio)
+      const c = carrierCellAt(src, 0, 1, ratio)
+      expect({ w: c.w, h: c.h }).toEqual(expected)
+      // 宽高比应与请求比例一致（允许取整误差）
+      expect(Math.abs(c.w / c.h - expected.w / expected.h)).toBeLessThan(0.02)
+    }
   })
 })

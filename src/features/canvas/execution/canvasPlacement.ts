@@ -15,7 +15,8 @@ import type { RunRecord as CanvasRunRecord } from '../../../domain/canvas/model/
 import type { Command } from '../../../state/commands'
 import { generationSpec } from '../../../domain/canvas/nodeSpecs/generation'
 import { RESULT_CELL } from '../../../domain/canvas/layout/constants'
-import { assetNodeSize } from '../../../domain/canvas/layout/assetNodeSize'
+import { assetNodeSize, ratioNodeSize } from '../../../domain/canvas/layout/assetNodeSize'
+import type { GenerationData } from '../../../domain/canvas/model/node'
 /**
  * 多结果的排布**复用结果组的格位规则**（§6.9 第 638–645 行）：
  * N=2 单行、N=3 单行、N=4 为 2×2、5–8 每排最多 4 个、>8 每排 4 个自动扩展。
@@ -72,12 +73,17 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
       const connectFrom = task.slot.kind === 'new' ? task.slot.connectFrom : undefined
       const source = task.sourceRect
       /**
-       * 位置按 §6.9 格位规则算：以源节点右侧的一块虚拟容器为基准，
-       * 取出第 slotIndex 个格位。
-       *
-       * 这样 N=4 会得到 2×2，5–8 每排最多 4 个，与结果组完全一致。
+       * 位置与尺寸都按 §6.9 格位规则算：以源节点右侧的虚拟容器为基准取第 slotIndex 格。
+       * 格位尺寸 = 按**请求比例**算出的节点尺寸，于是
+       * 「选的比例和像素多大，新建的节点就多大」（用户 2026-09-17 要求）。
        */
-      const at = connectFrom ? carrierCellAt(source, ctx.slotIndex, ctx.slotCount) : { x: 0, y: 0 }
+      const requestedRatio = (task.sourceData as GenerationData | undefined)?.ratio
+      const cell = connectFrom
+        ? carrierCellAt(source, ctx.slotIndex, ctx.slotCount, requestedRatio)
+        : null
+      const at = cell ? { x: cell.x, y: cell.y } : { x: 0, y: 0 }
+      // 新节点按请求比例定尺寸（未取到比例时由 node.create 用默认最小尺寸）
+      const nodeSize = cell ? { w: cell.w, h: cell.h } : undefined
       const targetId = createId('node')
       const title = task.slot.kind === 'new' ? task.slot.title : `结果 ${(task.seq ?? 0) + 1}`
       /**
@@ -105,6 +111,8 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
             id: targetId,
             title,
             data,
+            // 按请求比例定尺寸（§6.16「有内容锁原始比例」的落位侧同样适用）
+            ...(nodeSize ? { size: nodeSize } : {}),
           },
           // ② 连线：源节点 → 新节点
           ...(connectFrom
@@ -242,11 +250,17 @@ export function carrierCellAt(
   sourceRect: { x: number; y: number; w: number; h: number },
   index: number,
   count: number,
-): { x: number; y: number } {
+  ratio?: string | null,
+): { x: number; y: number; w: number; h: number } {
   const n = Math.max(1, Math.floor(count))
   const i = Math.max(0, Math.min(n - 1, Math.floor(index)))
-  const cell = { w: RESULT_CELL.w, h: RESULT_CELL.h }
-  // 先算出一个虚拟容器矩形（与 layoutResultGroup 的容器尺寸同一套公式）
+  /**
+   * 格位取**节点实际尺寸**（按请求比例算），而非固定的 RESULT_CELL —— 这就是「轻微重叠」的根因：
+   * 格位固定 200×200，而节点按产物比例可能更高（16:9 会算成 427×240）；
+   * 行距 = 200 + 16 = 216 < 240，于是相邻两行吃掉间距而叠在一起（用户 2026-09-17 报）。
+   * 按实际边界排布后，步长 = 实际高 + 16，天然留出可见间隔。
+   */
+  const cell = ratioNodeSize(ratio)
   const columns = columnsForCarrier(n)
   const rows = Math.ceil(n / columns)
   const containerW = PAD * 2 + columns * cell.w + (columns - 1) * GAP
@@ -258,7 +272,8 @@ export function carrierCellAt(
     h: containerH,
   }
   const cells = resultGroupCells({ containerRect, count: n, cell })
-  return { x: cells[i]!.x, y: cells[i]!.y }
+  const c = cells[i]!
+  return { x: c.x, y: c.y, w: cell.w, h: cell.h }
 }
 
 /** 与 resultGroupLayout.columnsFor 同口径：≤3 一行、4 为 2 列、其余最多 4 列 */
