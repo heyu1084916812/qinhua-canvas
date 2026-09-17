@@ -1,4 +1,4 @@
-import { fingerprintHex } from '../../domain/shared/hash'
+import { fingerprintBytes } from '../../domain/shared/hash'
 import { imageInputsOf } from '../../domain/shared/execution/inputs'
 import { imageSizeFromHeader } from '../../domain/shared/imageSize'
 import type { SafeChannelConfig, NetworkResponse } from '../ports'
@@ -119,14 +119,14 @@ function sizeToDimensions(size: string | null): { width?: number; height?: numbe
  * 读不出（非图片字节 / 视频 / 截断）就留空，由展示侧按「未知」处理，**不猜**。
  */
 function toAsset(
-  seed: string,
+  hash: string,
   mime: string,
   bytes: Uint8Array,
   requested: { width?: number; height?: number },
 ): GeneratedAsset {
   const actual = imageSizeFromHeader(bytes)
   return {
-    hash: fingerprintHex(seed),
+    hash,
     mime,
     bytes,
     ...(actual ? { width: actual.width, height: actual.height } : {}),
@@ -190,8 +190,6 @@ export function createOpenAiImagesAdapter(
   /** 把 b64 / url 两种返回形态统一解码成产物；两种都没有时该项跳过 */
   const toAssets = async (
     res: NetworkResponse,
-    model: string,
-    prompt: string,
     requested: { width?: number; height?: number },
     signal: AbortSignal,
   ): Promise<GeneratedAsset[]> => {
@@ -201,11 +199,16 @@ export function createOpenAiImagesAdapter(
     for (const item of items) {
       if (item.b64_json) {
         const bytes = Uint8Array.from(atob(item.b64_json), (c) => c.charCodeAt(0))
-        assets.push(toAsset(`${model}|${prompt}|${assets.length}`, 'image/png', bytes, requested))
+        // hash 取**产物字节**指纹（内容寻址）：旧的 model|prompt|index 在两次
+        // 生成同 model + prompt 时 index 碰撞 ⇒ 不同的图共用一个 hash（用户报）
+        const hash = await fingerprintBytes(bytes)
+        assets.push(toAsset(hash, 'image/png', bytes, requested))
       } else if (item.url) {
         const dl = await deps.network.request({ url: item.url, method: 'GET', headers: {} }, signal)
         const buf = await dl.arrayBuffer()
-        assets.push(toAsset(`${model}|${item.url}`, 'image/png', new Uint8Array(buf), requested))
+        const bytes = new Uint8Array(buf)
+        const hash = await fingerprintBytes(bytes)
+        assets.push(toAsset(hash, 'image/png', bytes, requested))
       }
     }
     return assets
@@ -316,7 +319,7 @@ export function createOpenAiImagesAdapter(
       const { error } = classifyError(null, res.status)
       throw new ChannelError(error)
     }
-    return toAssets(res, request.model, request.prompt, sizeToDimensions(size), signal)
+    return toAssets(res, sizeToDimensions(size), signal)
   }
 
   return {

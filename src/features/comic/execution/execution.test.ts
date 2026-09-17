@@ -5,7 +5,7 @@ import { createComicStore, type ComicStore } from '../../../state/workbenches/co
 import type { ComicCommand } from '../../../state/workbenches/comic/reducer'
 import type { TransactionBoundary } from '../../../state/shared/types'
 import type { GeneratedAsset } from '../../../platform/channels/types'
-import { fingerprintHex } from '../../../domain/shared/hash'
+import { mockImageHash } from '../../../platform/channels/mock'
 import { buildPanelRunPlan, panelPromptOf } from '../../../domain/comic/panel/panelRun'
 import { findPanel } from '../../../domain/comic/model/comicProject'
 import { createComicPlacement } from './comicPlacement'
@@ -113,8 +113,11 @@ describe('comic 落位 · 端到端出图（runEngine + ComicPlacement）', () =
     expect(summary.succeeded).toBe(1)
     expect(summary.failed).toBe(0)
 
-    // ① 出图：hash 与 mock 渠道确定性输出一致（model | prompt | 序号 0）
-    const expected = fingerprintHex(`${MODEL}|${panelPromptOf(store.getProject(), panelOf(store, panelId))}|0`)
+    // ① 出图：hash = 产物字节的内容指纹（口径由 mock 渠道自己给出）
+    const expected = mockImageHash({
+      model: MODEL,
+      prompt: panelPromptOf(store.getProject(), panelOf(store, panelId)),
+    })
     expect(panelOf(store, panelId).assetHash).toBe(expected)
 
     // ② 素材本体真的进了 assets 表（hash 即主键）

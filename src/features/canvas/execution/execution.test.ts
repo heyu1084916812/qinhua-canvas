@@ -6,6 +6,7 @@ import { createCanvasStore, type CanvasStore } from '../../../state/workbenches/
 import type { Command } from '../../../state/commands'
 import type { TransactionBoundary } from '../../../state/shared/types'
 import { fingerprintHex } from '../../../domain/shared/hash'
+import { mockImageHash } from '../../../platform/channels/mock'
 import { imageSizeFromHeader } from '../../../domain/shared/imageSize'
 import { solidPng } from '../../../platform/channels/mockPng'
 import type { ChannelAdapter, GeneratedAsset } from '../../../platform/channels/types'
@@ -308,8 +309,8 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     expect(summary.canceled).toBe(0)
     expect(summary.taskResults[0]!.state.kind).toBe('succeeded')
 
-    // 结果写回：assetHash 与 mock 渠道的确定性输出一致
-    const expected = fingerprintHex(`mock-image-1|${PROMPT_TEXT}|0`)
+    // 结果写回：assetHash = 产物字节的内容指纹（mock 口径由渠道自己给出，避免与实现脱节）
+    const expected = mockImageHash({ model: 'mock-image-1', prompt: PROMPT_TEXT })
     expect(dataOf(store, genId).assetHash).toBe(expected)
 
     // §6.16：单一产物**不建结果组**——生成节点自己就是那张图的落点

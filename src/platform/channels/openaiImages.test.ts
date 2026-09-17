@@ -374,6 +374,45 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
     expect(assets[0]!.width).toBeUndefined()
   })
 
+  /**
+   * ★ 用户报的原始场景（2026-09-17）：选 4 张生成、再选 2 张生成，
+   * 两次**同 model + 同 prompt**，结果「前两张与后两张一模一样」、灯箱点开是别的图。
+   *
+   * 根因是 hash 按请求维度取（`model|prompt|序号`）：序号在两批之间从 0 重新数，
+   * 于是批二的 0/1 撞上批一的 0/1，不同的图共用一个 hash ⇒ 展示层按 hash 取图取错。
+   * 这里喂 4 张**字节各不相同**的图（真实渠道必然如此），断言 6 个 hash 互不相同。
+   */
+  it('★ 两批同参数生成：产物 hash 全不重复（内容寻址，不是请求索引）', async () => {
+    // 第一批 4 张 + 第二批 2 张，字节各不相同（真实渠道必然如此）
+    const first = [0x11, 0x22, 0x33, 0x44].map((c) => solidPng(4, 4, [c, c, c]))
+    const second = [0x55, 0x66].map((c) => solidPng(4, 4, [c, c, c]))
+    const queue = [...first, ...second]
+    let served = 0
+    const net = createMemoryNetwork({
+      handler: async () => resp(200, { data: [{ b64_json: bytesToB64(queue[served++]!) }] }),
+    })
+    const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
+
+    const hashes: string[] = []
+    for (let i = 0; i < 6; i += 1) {
+      // 每次都是同一个 model + prompt —— 按请求维度取 hash 的实现会在这里撞车
+      const [asset] = await a.generateImage(request([], 1), signal)
+      hashes.push(asset!.hash)
+    }
+    expect(new Set(hashes).size).toBe(6)
+  })
+
+  it('同一张图重复生成 → hash 稳定（内容寻址的幂等面）', async () => {
+    const same = solidPng(4, 4, [0x11, 0x22, 0x33])
+    const net = createMemoryNetwork({
+      handler: async () => resp(200, { data: [{ b64_json: bytesToB64(same) }] }),
+    })
+    const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
+    const [one] = await a.generateImage(request([], 1), signal)
+    const [two] = await a.generateImage(request([], 1), signal)
+    expect(two!.hash).toBe(one!.hash)
+  })
+
   it('纯函数映射表（含边界：null / 未知 / 空白）', () => {
     expect(openAiImageSize('1:1')).toBe('1024x1024')
     expect(openAiImageSize(' 3:2 ')).toBe('1248x832')

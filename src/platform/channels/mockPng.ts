@@ -50,15 +50,28 @@ function chunk(type: string, data: number[]): number[] {
   return [...be32(data.length), ...body, ...be32(crc32(new Uint8Array(body)))]
 }
 
+/** tEXt 块：keyword\0value（Latin-1）。放在 IDAT 之后、IEND 之前，符合 PNG 规范 */
+function textChunk(keyword: string, value: string): number[] {
+  const enc = new TextEncoder()
+  const body = [...enc.encode(keyword), 0, ...enc.encode(value)]
+  return chunk('tEXt', body)
+}
+
 /**
  * 生成一张纯色 PNG。
  *
  * 逐行以 filter=0 编码（每行前置一个 0 字节），这是 PNG 解码器必支持的路径。
+ *
+ * `text` 会写进一个 `tEXt` 附加块：**只改字节、不改任何像素**。
+ * 为什么需要它：mock 的产物要能被「内容指纹」区分（不同请求 → 不同字节 → 不同 hash），
+ * 但像素必须保持纯色，否则「灰度 = 无图输入 / 品红 = 有图输入」这个可观测标记就花了。
+ * 用附加块承载差异，两件事互不干扰。
  */
 export function solidPng(
   width: number,
   height: number,
   rgb: readonly [number, number, number],
+  text?: string,
 ): Uint8Array {
   const w = Math.max(1, Math.floor(width))
   const h = Math.max(1, Math.floor(height))
@@ -85,6 +98,7 @@ export function solidPng(
     ...SIGNATURE,
     ...chunk('IHDR', ihdr),
     ...chunk('IDAT', [...zlibStored(raw)]),
+    ...(text ? textChunk('Comment', text) : []),
     ...chunk('IEND', []),
   ])
 }

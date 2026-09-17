@@ -1,6 +1,6 @@
 import type { AppError } from '../../shared/result'
 import type { ModelCapability } from '../../domain/shared/capability'
-import { fingerprintHex } from '../../domain/shared/hash'
+import { fingerprintBytesSync, fingerprintHex } from '../../domain/shared/hash'
 import { clampCount } from '../../domain/shared/capability'
 import { imageInputsOf } from '../../domain/shared/execution/inputs'
 import { imageSizeFromHeader } from '../../domain/shared/imageSize'
@@ -109,6 +109,49 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * mock 出图的「请求印记」：写进 PNG 的 `tEXt` 块，**只改字节、不改像素**。
+ *
+ * 为什么要这一段：产物 hash 是**产物字节的内容指纹**（§8「id 即内容哈希」）。
+ * 而 mock 是确定性的 —— 同色同尺寸的图字节完全相同，于是「改提示词重生成」
+ * 与「批量 N 张」都会撞成同一个 hash，「底图确实换了」这类断言就无从断言。
+ * 真实渠道不会这样（每张图片素本就不同），mock 必须主动把「请求不同」落进字节。
+ * 放 tEXt 而不改像素，是为了保住「灰度 = 无图输入 / 品红 = 有图输入」这条可观测标记。
+ */
+function stampOf(
+  model: string,
+  prompt: string,
+  imageHashes: readonly string[],
+  index: number,
+): string {
+  return [model, prompt, imageHashes.join(','), String(index)].join('|')
+}
+
+/**
+ * 测试用：不调渠道，直接算出 mock 对给定请求会吐出的产物 hash。
+ *
+ * 存在的理由：hash 规则变成内容寻址后，测试里再拼 `fingerprintHex(model|prompt|0)`
+ * 就与实现脱节了 —— 那样的断言会**恒假**，不是「锁住规则」而是「锁住一个已不存在的规则」。
+ * 由实现方暴露口径，测试才能真的锁住「同请求 → 同 hash」。
+ */
+export function mockImageHash(args: {
+  model: string
+  prompt: string
+  imageHashes?: readonly string[]
+  index?: number
+  ratio?: string
+}): string {
+  const withImage = (args.imageHashes ?? []).length > 0
+  const [w, h] = pixelSizeOf(args.ratio ?? null)
+  const bytes = solidPng(
+    w,
+    h,
+    withImage ? MAGENTA : GRAY,
+    stampOf(args.model, args.prompt, args.imageHashes ?? [], args.index ?? 0),
+  )
+  return fingerprintBytesSync(bytes)
+}
+
+/**
  * mock 渠道（M0-11 契约验证用）。
  * 出图是确定性的：同样的 model + prompt + 序号必然产出同样的 hash，
  * 因此测试可以对 hash 做精确断言，而不必处理随机性。
@@ -126,8 +169,9 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
   }
 
   const asset = (request: ImageRunRequest | VideoRunRequest, index: number): GeneratedAsset => {
-    const hash = fingerprintHex(`${request.model}|${request.prompt}|${index}`)
     if (request.kind === 'video') {
+      // 视频走文本文节 ⇒ 用请求维度 seed（保持既有 hash 规则，避免影响既有断言）
+      const hash = fingerprintHex(`${request.model}|${request.prompt}|${index}`)
       return { hash, mime: 'video/mp4', bytes: new TextEncoder().encode(`mock-asset:${hash}`) }
     }
     // M6-12：请求带了图像输入（上游图 / 角色参考图）→ 出品红图，
@@ -135,11 +179,24 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
     // 因此既有按 hash 断言的测试不受影响。
     const withImage = imageInputsOf(request.inputs).length > 0
     const [requestedWidth, requestedHeight] = pixelSizeOf(request.params.ratio)
-    const bytes = solidPng(requestedWidth, requestedHeight, withImage ? MAGENTA : GRAY)
+    const stamp = stampOf(
+      request.model,
+      request.prompt,
+      imageInputsOf(request.inputs).map((i) => i.assetHash),
+      index,
+    )
+    const bytes = solidPng(requestedWidth, requestedHeight, withImage ? MAGENTA : GRAY, stamp)
     // 实际像素**从产物字节里读出来**，不照抄请求尺寸（§6.18「请求 / 实际」）。
     // mock 造的正是这个尺寸的 PNG，两者一致是**结果**、不是预设——
     // 断言「实际像素」时才不会退化成「请求 = 实际」的恒等式。
     const actual = imageSizeFromHeader(bytes)
+    /**
+     * 图片 hash 取**产物字节**指纹（内容寻址），与 openaiImages 同口径。
+     * 旧的 `model|prompt|index` 在两次生成同 model + prompt 时 index 会碰撞，
+     * 导致不同的图共用一个 hash（用户 2026-09-17 报「灯箱出现另一张图」）。
+     */
+    // mock 的 PNG 只有几十字节 ⇒ 用同步内容指纹（与异步版哈希值一致）
+    const hash = fingerprintBytesSync(bytes)
     return {
       hash,
       mime: 'image/png',

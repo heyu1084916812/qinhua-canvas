@@ -47,14 +47,29 @@ describe('mock 渠道 / 图像输入可观测（M6-12）', () => {
     expect(withVideo).toEqual(plain)
   })
 
-  it('hash 规则不随输入变化（既有按 hash 断言的测试不受影响）', async () => {
+  /**
+   * hash 是**产物字节的内容指纹**（§8「id 即内容哈希」），不是请求指纹。
+   *
+   * 推论有两层，都在这里锁住：
+   * ① 带图像输入时像素变品红 ⇒ 字节变 ⇒ hash 变（内容寻址的自然结果）；
+   * ② 同参数重跑仍然同 hash（mock 是确定性的），所以按 hash 断言依旧可复现。
+   */
+  it('hash = 产物字节的内容指纹：输入改变 → 字节改变 → hash 改变', async () => {
     const ch = createMockChannel()
     const a = (await ch.generateImage(imageRequest([]), signal))[0]!
     const b = await ch.generateImage(
       imageRequest([{ kind: 'asset', nodeId: 'up', assetHash: 'h1', mime: 'image/png' }]),
       signal,
     )
-    expect(b[0]!.hash).toBe(a.hash)
+    expect(b[0]!.bytes).not.toEqual(a.bytes)
+    expect(b[0]!.hash).not.toBe(a.hash)
+  })
+
+  it('同参数重跑：字节与 hash 都稳定（按 hash 断言的可复现性来源）', async () => {
+    const first = (await createMockChannel().generateImage(imageRequest([]), signal))[0]!
+    const second = (await createMockChannel().generateImage(imageRequest([]), signal))[0]!
+    expect(second.bytes).toEqual(first.bytes)
+    expect(second.hash).toBe(first.hash)
   })
 
   it('视频请求仍走假字节分支，不因 inputs 变成 PNG', async () => {

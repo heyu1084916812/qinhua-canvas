@@ -83,6 +83,19 @@ export function fingerprintHex(input: string): string {
   return sha1Hex(input).slice(0, 16)
 }
 
+/**
+ * 同步版**内容指纹**（对字节取 SHA-1 前 16 hex）。
+ *
+ * 与异步 `fingerprintBytes` 的区别只在「是否让出主线程」：两者都是标准 SHA-1、
+ * **哈希值完全一致**。同步版用于**字节很小**且调用方是纯函数/同步路径的场合
+ * （如 mock 通道造的几十字节 PNG），避免为等一个微任务把链路改成 async。
+ *
+ * 字节较大时仍应走异步版（纯 JS sha1 对 7MB 实测阻塞主线程 233ms）。
+ */
+export function fingerprintBytesSync(bytes: Uint8Array): string {
+  return sha1Bytes(bytes).slice(0, 16)
+}
+
 function hexFromBytes(bytes: Uint8Array): string {
   let s = ''
   for (let i = 0; i < bytes.length; i += 1) s += bytes[i].toString(16).padStart(2, '0')
