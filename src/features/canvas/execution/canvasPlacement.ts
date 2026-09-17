@@ -16,19 +16,20 @@ import type { Command } from '../../../state/commands'
 import { generationSpec } from '../../../domain/canvas/nodeSpecs/generation'
 import { RESULT_CELL } from '../../../domain/canvas/layout/constants'
 import { assetNodeSize } from '../../../domain/canvas/layout/assetNodeSize'
+/**
+ * 多结果的排布**复用结果组的格位规则**（§6.9 第 638–645 行）：
+ * N=2 单行、N=3 单行、N=4 为 2×2、5–8 每排最多 4 个、>8 每排 4 个自动扩展。
+ *
+ * 不另写一套：结果组落位（`layoutResultGroup`）内部就是调 `resultGroupCells`，
+ * 两者共用同一个纯函数，排布口径天然一致。
+ */
+import { resultGroupCells } from '../../../domain/canvas/layout/resultGroupLayout'
 import { createId } from '../../../shared/id'
 import type { CollectedAsset, ExecutionPlacement } from '../../shared/execution/placement'
 import type { CanvasRunTask } from './buildRunPlan'
 
 /** 新建承载节点与源节点的水平间距（用户 2026-09-16：新节点落在源节点右侧） */
 const NEW_NODE_GAP_X = 72
-/**
- * 多个新承载节点之间的**垂直间距**（§6.5「整理节点」：水平 / 垂直间距统一 24px）。
- *
- * N ≥ 2 时结果并列铺 N 个新节点（§6.19.3 C 段），
- * 必须按序号纵向错开，否则会算成同一坐标而全部重叠（用户 2026-09-17 报）。
- */
-const NEW_NODE_GAP_Y = 24
 
 /**
  * 是否把本次产物计入「计划末尾的聚合落位」（结果组）。
@@ -53,7 +54,8 @@ function shouldCollect(task: CanvasRunTask, assets: readonly unknown[]): boolean
 
 export function createCanvasPlacement(getProjectId: () => string): ExecutionPlacement<CanvasRunTask, Command> {
   return {
-    begin(task, { isRepeat }) {
+    begin(task, ctx) {
+      const { isRepeat } = ctx
       if (task.slot.kind === 'reuse' && !isRepeat) {
         return { targetId: task.slot.nodeId, commands: [] }
       }
@@ -70,16 +72,12 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
       const connectFrom = task.slot.kind === 'new' ? task.slot.connectFrom : undefined
       const source = task.sourceRect
       /**
-       * 第 index 个新节点向下错开，避免 N 个新节点重叠在同一点。
-       * 步长 = 节点高度 + 24px 间距（§6.5 统一 24px）。
+       * 位置按 §6.9 格位规则算：以源节点右侧的一块虚拟容器为基准，
+       * 取出第 slotIndex 个格位。
+       *
+       * 这样 N=4 会得到 2×2，5–8 每排最多 4 个，与结果组完全一致。
        */
-      const slotIndex = task.slot.kind === 'new' ? task.slot.index : 0
-      const at = connectFrom
-        ? {
-            x: source.x + source.w + NEW_NODE_GAP_X,
-            y: source.y + slotIndex * (source.h + NEW_NODE_GAP_Y),
-          }
-        : { x: 0, y: 0 }
+      const at = connectFrom ? carrierCellAt(source, ctx.slotIndex, ctx.slotCount) : { x: 0, y: 0 }
       const targetId = createId('node')
       const title = task.slot.kind === 'new' ? task.slot.title : `结果 ${(task.seq ?? 0) + 1}`
       /**
@@ -232,6 +230,47 @@ function groupBySource(collected: readonly CollectedAsset[]): Map<string, Collec
   }
   return bySource
 }
+
+/**
+ * 第 index 个新建承载节点的世界坐标（§6.9 格位规则）。
+ *
+ * 做法：以「源节点右侧 32px 起、能放下 count 个格位」的虚拟容器为基准，
+ * 直接复用 `resultGroupCells` 取第 index 格 —— 于是 N=4 是 2×2、5–8 每排最多 4 个，
+ * 与结果组的排布完全同源，不会再出现 N 个节点叠在同一点。
+ */
+export function carrierCellAt(
+  sourceRect: { x: number; y: number; w: number; h: number },
+  index: number,
+  count: number,
+): { x: number; y: number } {
+  const n = Math.max(1, Math.floor(count))
+  const i = Math.max(0, Math.min(n - 1, Math.floor(index)))
+  const cell = { w: RESULT_CELL.w, h: RESULT_CELL.h }
+  // 先算出一个虚拟容器矩形（与 layoutResultGroup 的容器尺寸同一套公式）
+  const columns = columnsForCarrier(n)
+  const rows = Math.ceil(n / columns)
+  const containerW = PAD * 2 + columns * cell.w + (columns - 1) * GAP
+  const containerH = PAD * 2 + rows * cell.h + (rows - 1) * GAP
+  const containerRect = {
+    x: sourceRect.x + sourceRect.w + NEW_NODE_GAP_X,
+    y: sourceRect.y + sourceRect.h / 2 - containerH / 2,
+    w: containerW,
+    h: containerH,
+  }
+  const cells = resultGroupCells({ containerRect, count: n, cell })
+  return { x: cells[i]!.x, y: cells[i]!.y }
+}
+
+/** 与 resultGroupLayout.columnsFor 同口径：≤3 一行、4 为 2 列、其余最多 4 列 */
+function columnsForCarrier(count: number): number {
+  if (count <= 3) return count
+  if (count === 4) return 2
+  return 4
+}
+
+/** §6.9 组内间距 / 内边距（与 resultGroupLayout 的常量同源） */
+const GAP = 16
+const PAD = 16
 
 /** 画布落位适配器类型别名（供宿主与测试显式标注） */
 export type CanvasPlacement = ExecutionPlacement<CanvasRunTask, Command>

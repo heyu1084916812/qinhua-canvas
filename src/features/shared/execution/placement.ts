@@ -40,7 +40,20 @@ export interface ExecutionPlacement<TTask extends RunTask, TCommand> {
    * `isRepeat`：同一主体展开出的**后续**调用（批量集合卡，seq > 0）。
    * canvas 据此决定「复用原节点」还是「另起承载节点」；comic 单格单调用，恒为 false。
    */
-  begin(task: TTask, ctx: { isRepeat: boolean }): PlacementTarget<TCommand>
+  begin(
+    task: TTask,
+    ctx: {
+      isRepeat: boolean
+      /**
+       * 本计划里**第几个**槽位（从 0 起）与**总槽位数**。
+       *
+       * 用于把多个新建承载节点按 §6.9 的格位规则排布（N=4 为 2×2、5–8 每排 4 个），
+       * 否则逐个 `begin` 时不知道总数与序号，N 个新节点会算成同一坐标而重叠。
+       */
+      slotIndex: number
+      slotCount: number
+    },
+  ): PlacementTarget<TCommand>
   /** 成功写回：把产物挂到目标上（canvas：assetHash + 缩略图顺序） */
   commit(task: TTask, targetId: string, assets: GeneratedAsset[]): TCommand[]
   /**

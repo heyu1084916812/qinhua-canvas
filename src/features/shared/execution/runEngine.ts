@@ -245,7 +245,14 @@ export async function runEngine<TTask extends RunTask, TCommand>(
     // 批量展开（同一主体多次调用）时，只有第一次复用原主体，其余另起承载，
     // 否则后来的结果会不断覆盖前一次。
     const isRepeat = (callCounts.get(task.nodeId) ?? 1) > 1 && (task.seq ?? 0) > 0
-    const began = placement.begin(task, { isRepeat })
+    /**
+     * 槽位序号与总数：多个新建承载节点要按 §6.9 的格位规则排布
+     * （N=4 为 2×2、5–8 每排最多 4 个）。逐个 `begin` 时没有这两个数，
+     * 落位就会把 N 个节点算成同一坐标而全部重叠。
+     */
+    const slotIndex = started.length
+    const slotCount = plan.tasks.length
+    const began = placement.begin(task, { isRepeat, slotIndex, slotCount })
     const targetId = began.targetId
     if (began.commands.length > 0) write(began.commands)
     // 落点已确定 → 告诉宿主；「生成中」据此挂在真正收到产物的节点上

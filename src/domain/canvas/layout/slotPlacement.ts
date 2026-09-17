@@ -5,13 +5,8 @@ import { directDownstream } from '../graph/upstreamOf'
 export type SlotPlan =
   /** 复用已有的空生成节点 */
   | { kind: 'reuse'; nodeId: string }
-  /**
-   * 需要新建：连在 connectFrom 的下游，命名「原节点名的输出N」。
-   *
-   * `index`：本次新建的第几个（从 0 起）。落位适配器据此把它们**纵向错开**，
-   * 否则 N 个新节点会算成同一个坐标、全部叠在一起（用户 2026-09-17 报）。
-   */
-  | { kind: 'new'; title: string; connectFrom: string; index: number }
+  /** 需要新建：连在 connectFrom 的下游，命名「原节点名的输出N」 */
+  | { kind: 'new'; title: string; connectFrom: string }
 
 export interface SlotSearchOptions {
   startNodeId: string
@@ -51,12 +46,7 @@ export function planSlots(opts: SlotSearchOptions): SlotPlan[] {
 
   if (opts.newDownstream) {
     for (let i = 0; i < count; i += 1) {
-      plans.push({
-        kind: 'new',
-        title: `${start.title}的输出${i + 1}`,
-        connectFrom: start.id,
-        index: i,
-      })
+      plans.push({ kind: 'new', title: `${start.title}的输出${i + 1}`, connectFrom: start.id })
     }
     return plans
   }
@@ -81,14 +71,9 @@ export function planSlots(opts: SlotSearchOptions): SlotPlan[] {
   // 不够则铺新节点，挂在最后一个被占用节点的下游（无占用则挂在触发节点下游）
   const anchor = plans.length > 0 ? start.id : start.id
   let remaining = count - plans.length
-  let seq = 0
+  let seq = 1
   while (remaining > 0) {
-    plans.push({
-      kind: 'new',
-      title: `${start.title}的输出${seq + 1}`,
-      connectFrom: anchor,
-      index: seq,
-    })
+    plans.push({ kind: 'new', title: `${start.title}的输出${seq}`, connectFrom: anchor })
     seq += 1
     remaining -= 1
   }
