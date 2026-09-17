@@ -22,6 +22,13 @@ import type { CanvasRunTask } from './buildRunPlan'
 
 /** 新建承载节点与源节点的水平间距（用户 2026-09-16：新节点落在源节点右侧） */
 const NEW_NODE_GAP_X = 72
+/**
+ * 多个新承载节点之间的**垂直间距**（§6.5「整理节点」：水平 / 垂直间距统一 24px）。
+ *
+ * N ≥ 2 时结果并列铺 N 个新节点（§6.19.3 C 段），
+ * 必须按序号纵向错开，否则会算成同一坐标而全部重叠（用户 2026-09-17 报）。
+ */
+const NEW_NODE_GAP_Y = 24
 
 /**
  * 是否把本次产物计入「计划末尾的聚合落位」（结果组）。
@@ -62,8 +69,16 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
        */
       const connectFrom = task.slot.kind === 'new' ? task.slot.connectFrom : undefined
       const source = task.sourceRect
+      /**
+       * 第 index 个新节点向下错开，避免 N 个新节点重叠在同一点。
+       * 步长 = 节点高度 + 24px 间距（§6.5 统一 24px）。
+       */
+      const slotIndex = task.slot.kind === 'new' ? task.slot.index : 0
       const at = connectFrom
-        ? { x: source.x + source.w + NEW_NODE_GAP_X, y: source.y }
+        ? {
+            x: source.x + source.w + NEW_NODE_GAP_X,
+            y: source.y + slotIndex * (source.h + NEW_NODE_GAP_Y),
+          }
         : { x: 0, y: 0 }
       const targetId = createId('node')
       const title = task.slot.kind === 'new' ? task.slot.title : `结果 ${(task.seq ?? 0) + 1}`

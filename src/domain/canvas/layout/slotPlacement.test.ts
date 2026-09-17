@@ -68,10 +68,10 @@ describe('空槽位 BFS（产品文档 §6.19.3）', () => {
 
   it('槽位不够时铺新节点并命名「原节点名的输出N」', () => {
     const g = graph([gen('a', '节点A', 'h1'), gen('b', '节点B', 'h2')], [{ source: 'a', target: 'b' }])
-    const plans = planSlots({ startNodeId: 'a', graph: g, count: 2 })
-    expect(plans).toHaveLength(2)
-    expect(plans[0]).toEqual({ kind: 'new', title: '节点A的输出1', connectFrom: 'a' })
-    expect(plans[1]).toEqual({ kind: 'new', title: '节点A的输出2', connectFrom: 'a' })
+ const plans = planSlots({ startNodeId: 'a', graph: g, count: 2 })
+ expect(plans).toHaveLength(2)
+ expect(plans[0]).toEqual({ kind: 'new', title: '节点A的输出1', connectFrom: 'a', index: 0 })
+ expect(plans[1]).toEqual({ kind: 'new', title: '节点A的输出2', connectFrom: 'a', index: 1 })
   })
 
   it('count > 1 时累加，已找到的槽位视为占用', () => {
@@ -100,6 +100,22 @@ describe('空槽位 BFS（产品文档 §6.19.3）', () => {
     expect(plans.map((p) => (p.kind === 'new' ? p.title : ''))).toEqual(['节点A的输出1', '节点A的输出2'])
   })
 
+  /**
+   * ★ N 个新建槽位必须带**递增且互不重复**的 index（用户 2026-09-17 报「重叠」）。
+   *
+   * 落位适配器按 index 把它们纵向错开；若 index 缺失或重复，
+   * N 个新节点会算成同一个坐标而全部叠在一起。
+   */
+  it('★ N 个新建槽位的 index 从 0 递增且互不重复（落位据此错开，避免重叠）', () => {
+    const g = graph([gen('a', '节点A', 'h1')], [])
+    for (const n of [2, 4, 9]) {
+      const plans = planSlots({ startNodeId: 'a', graph: g, count: n, newDownstream: true })
+      const indices = plans.map((p) => (p.kind === 'new' ? p.index : -1))
+      expect(indices).toEqual([...Array(n).keys()])
+      expect(new Set(indices).size).toBe(n)
+    }
+  })
+
   it('起始节点不存在时返回空', () => {
     const g = graph([gen('a', '节点A')], [])
     expect(planSlots({ startNodeId: 'ghost', graph: g, count: 1 })).toEqual([])
@@ -116,7 +132,7 @@ describe('空槽位 BFS（产品文档 §6.19.3）', () => {
     )
 
     expect(planSlots({ startNodeId: 'a', graph: g, count: 1 })).toEqual([
-      { kind: 'new', title: '图生图的输出1', connectFrom: 'a' },
+      { kind: 'new', title: '图生图的输出1', connectFrom: 'a', index: 0 },
     ])
   })
 
