@@ -91,19 +91,12 @@ interface CanvasState {
    * 提供「撤销 / 重做」入口。纯展示态：不进撤销栈、不落库，由 UI 侧计时自动清除。
    */
   undoBar: { id: string; text: string } | null
-  /** 正在查看版本历史的节点（§6.21 右键「版本历史」）。纯展示态：不进撤销栈、不落库。 */
-  historyNodeId: string | null
-  /**
-   * 版本历史临时预览（§6.21「⌘+点击 → 临时预览」）：版本图叠加在当前显示上，
-   * 30% 透明度，不修改任何状态。纯展示态：不进撤销栈、不落库。
-   */
-  versionPreview: { nodeId: string; recordId: string; assetHash: string | null } | null
   /**
    * 素材灯箱（§6.17）。纯展示态：不进撤销栈、不落库。
    *
    * 放在 store 而不是组件本地 state：触发它的两处（节点双击、日志缩略图）在
    * **不同的子树**里（画布表面 / 页面级日志面板），塞本地 state 就得把回调一路
-   * 透传。它是瞬时态——关掉即忘，与 menu / notice / historyNodeId 同口径。
+   * 透传。它是瞬时态——关掉即忘，与 menu / notice 同口径。
    */
   lightbox: { assetHash: string } | null
 }
@@ -161,15 +154,8 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
   /** 进入重命名态（§4.1 右键「重命名」/ §4.3 单击标题） */
   beginRename(nodeId: string): void
   endRename(): void
-  getRenamingId(): string | null
-  /** 打开 / 关闭节点版本历史面板（§6.21） */
-  openHistory(nodeId: string): void
-  closeHistory(): void
-  getHistoryNodeId(): string | null
-  /** 设置 / 清除版本临时预览（§6.21「⌘+点击 → 临时预览」） */
-  setVersionPreview: (preview: { nodeId: string; recordId: string; assetHash: string | null } | null) => void
-  getVersionPreview: () => { nodeId: string; recordId: string; assetHash: string | null } | null
-  /** 打开 / 关闭素材灯箱（§6.17）；只存 hash，本体由灯箱自己按 hash 读回 */
+    getRenamingId(): string | null
+    /** 打开 / 关闭素材灯箱（§6.17）；只存 hash，本体由灯箱自己按 hash 读回 */
   openLightbox: (assetHash: string) => void
   closeLightbox: () => void
   getLightbox: () => { assetHash: string } | null
@@ -286,8 +272,6 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     linkMenu: null,
     renamingId: null,
     undoBar: null,
-    historyNodeId: null,
-    versionPreview: null,
     lightbox: null,
   }))
 
@@ -412,14 +396,6 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     beginRename: (nodeId) => store.setState({ renamingId: nodeId }),
     endRename: () => store.setState({ renamingId: null }),
     getRenamingId: () => store.getState().renamingId,
-    openHistory: (nodeId) => {
-      // 切换目标时清掉上一个节点的预览（预览与面板生命周期绑定）
-      store.setState({ historyNodeId: nodeId, versionPreview: null })
-    },
-    closeHistory: () => store.setState({ historyNodeId: null, versionPreview: null }),
-    getHistoryNodeId: () => store.getState().historyNodeId,
-    setVersionPreview: (preview) => store.setState({ versionPreview: preview }),
-    getVersionPreview: () => store.getState().versionPreview,
     openLightbox: (assetHash) => store.setState({ lightbox: { assetHash }, menu: null }),
     closeLightbox: () => store.setState({ lightbox: null }),
     getLightbox: () => store.getState().lightbox,

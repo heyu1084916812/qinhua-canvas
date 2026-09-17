@@ -37,17 +37,13 @@ describe('nodeMenuItems / 节点右键菜单（§4.1）', () => {
     expect(ids(nodeMenuItems('prompt'))).toEqual(['duplicate', 'rename', 'delete'])
   })
 
-  it('生成 / 批量节点有「版本历史」，位于编辑类之后、删除之前（§4.1 / §6.21）', () => {
-    for (const t of ['generation', 'batch'] as NodeType[]) {
-      const items = nodeMenuItems(t)
-      expect(ids(items)).toContain('history')
-      expect(items.findIndex((i) => i.id === 'history')).toBe(items.length - 2)
-      expect(items.find((i) => i.id === 'history')!.separatorAfter).toBeFalsy()
-    }
-  })
-
-  it('提示词 / 对比 / 分组 / 画板节点没有「版本历史」', () => {
-    for (const t of ['prompt', 'compare', 'group', 'board'] as NodeType[]) {
+  /**
+   * §6.21 版本历史已随功能下线（2026-09-16 拍板，2026-09-17 拆除入口）。
+   * 这条断言的方向随之反转：不是「必须有」，而是**任何节点类型都不许再有**——
+   * 留着它是防止哪天有人把菜单项加回来而功能并不存在（死入口比没有更糟）。
+   */
+  it('任何节点类型都没有「版本历史」（§6.21 已下线）', () => {
+    for (const t of ['generation', 'batch', 'prompt', 'compare', 'group', 'board'] as NodeType[]) {
       expect(ids(nodeMenuItems(t))).not.toContain('history')
     }
   })

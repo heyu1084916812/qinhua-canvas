@@ -626,26 +626,6 @@ describe('reduce / 执行与版本历史命令（M0-11）', () => {
     expect(result.persist.upserts.find((u) => u.table === 'runRecords')?.rows[0]).toMatchObject({ id: 'r1' })
   })
 
-  it('node.runRecord.restore 用历史 params 覆盖节点 data', () => {
-    const g0 = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } }, emptyGraph()).next
-    const nodeId = g0.nodes[0]!.id
-    const record = {
-      id: 'r1',
-      nodeId,
-      projectId: 'p1',
-      version: 1,
-      createdAt: 1000,
-      status: 'succeeded' as const,
-      inputs: [],
-      params: { text: '历史文本', upstreamPromptLinked: false },
-      outputHashes: [],
-      fingerprint: 'fp1',
-      taskId: 't1',
-      durationMs: 1,
-    }
-    const { next } = reduce({ kind: 'node.runRecord.restore', nodeId, record }, g0)
-    expect((next.nodes[0]!.data as { text: string }).text).toBe('历史文本')
-  })
 })
 
 describe('reduce / 结果组子结果（M6-25：取出与重排）', () => {

@@ -25,8 +25,6 @@ import { NodeLayer } from '../layers/NodeLayer'
 import { OverlayLayer } from '../layers/OverlayLayer'
 import { PanelLayer } from '../panels/PanelLayer'
 import { NodeFollowBar } from '../toolbar/NodeFollowBar'
-import { VersionHistoryPanel } from '../panels/VersionHistoryPanel'
-import { VersionPreviewLayer } from '../panels/VersionPreviewLayer'
 import { CanvasNotice } from './CanvasNotice'
 import { UndoBar } from './UndoBar'
 import { Minimap } from './Minimap'
@@ -478,8 +476,6 @@ const onPointerDown = (e: ReactPointerEvent) => {
       </div>
       <OverlayLayer marquee={marquee} />
       <NodeFollowBar onOpenSettings={onOpenSettings} />
-      <VersionPreviewLayer />
-      <VersionHistoryPanel />
       <PanelLayer onOpenSettings={onOpenSettings} />
       <ContextMenu />
       <LinkMenu />

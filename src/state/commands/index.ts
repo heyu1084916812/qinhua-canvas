@@ -14,7 +14,7 @@ import type { ExecutionMode } from '../../domain/shared/execution/types'
  * - resultGroup.create 增加 id / rect / createdAt：落位由 domain/layout 算好再传入，
  *   reducer 保持纯函数（原文在 reducer 里调 Date.now()）
  * - runPlan.execute 增加 planId / createdAt：执行计划要能落 tasks 表并被取消
- * - node.runRecord.restore 改为携带 record：reducer 是纯函数且不持有 runRecords 表
+ * - node.runRecord.append 携带 record：reducer 是纯函数且不持有 runRecords 表
  */
 export type Command =
   | {
@@ -109,9 +109,8 @@ export type Command =
   // 陈旧标记：来自 useStaleness，走命令但不进 undo 栈（架构 §4.3）
   | { kind: 'stale.mark'; nodeIds: string[] }
   | { kind: 'stale.clear'; nodeIds: string[] }
-  // RunRecord：版本历史载体，「从不删除」是硬性要求（产品文档 §6.21）
+  // RunRecord：执行留痕，「从不删除」是硬性要求（日志面板的数据源）
   | { kind: 'node.runRecord.append'; nodeId: string; record: RunRecord }
-  | { kind: 'node.runRecord.restore'; nodeId: string; record: RunRecord }
   // runPlan 是「执行计划」的图数据化形态（§4.5）
   | {
       kind: 'runPlan.execute'

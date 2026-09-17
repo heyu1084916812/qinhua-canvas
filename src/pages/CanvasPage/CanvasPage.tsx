@@ -13,7 +13,6 @@ import { CanvasSurface } from '../../workbenches/canvas/surface/CanvasSurface'
 import { fitCanvasView } from '../../workbenches/canvas/surface/fitView'
 import { CanvasExecutionProvider } from '../../workbenches/canvas/execution/CanvasExecutionProvider'
 import { LogPanel } from '../../workbenches/canvas/panels/LogPanel'
-import { CanvasTimeline } from '../../workbenches/canvas/panels/CanvasTimeline'
 import { CanvasToolbar } from '../../workbenches/canvas/toolbar/CanvasToolbar'
 import { LightboxLayer } from '../../workbenches/canvas/lightbox/LightboxLayer'
 import { CanvasTopBar } from './CanvasTopBar'
@@ -48,8 +47,7 @@ function CanvasProject({ projectId }: { projectId: string }) {
   const seededRef = useRef(false)
   const storeRef = useRef<CanvasStore | null>(null)
   const [externalEdit, setExternalEdit] = useState(false)
-  const [logOpen, setLogOpen] = useState(false)
-  const [timelineOpen, setTimelineOpen] = useState(false)
+    const [logOpen, setLogOpen] = useState(false)
   if (!storeRef.current) {
     storeRef.current = createStore({
       workbench: 'canvas',
@@ -99,25 +97,6 @@ function CanvasProject({ projectId }: { projectId: string }) {
   }, [platform, projectId, store, template])
 
   useEffect(() => () => store.dispose(), [store])
-
-  // ⌘/Ctrl + H：打开 / 关闭画布时间轴（§6.20 / §6.21）；文本框 / 激活控件内不拦截
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.code !== 'KeyH' || !(e.ctrlKey || e.metaKey)) return
-      const target = e.target as { tagName?: string; isContentEditable?: boolean } | null
-      const tag = target?.tagName
-      const inText =
-        target?.isContentEditable === true ||
-        tag === 'INPUT' ||
-        tag === 'TEXTAREA' ||
-        tag === 'SELECT'
-      if (inText) return
-      e.preventDefault()
-      setTimelineOpen((v) => !v)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
 
   // 会话与启动（产品文档 §2.4 / §4.4）：离开前台 / 关闭前强制 flush，并广播写入
   useEffect(() => {
@@ -260,8 +239,7 @@ function CanvasProject({ projectId }: { projectId: string }) {
           )}
           <CanvasSurface onOpenSettings={openSettings} />
           <CanvasToolbar onCreateNode={addNodeAtCenter} />
-          {logOpen && <LogPanel onClose={() => setLogOpen(false)} />}
-          {timelineOpen && <CanvasTimeline onClose={() => setTimelineOpen(false)} />}
+            {logOpen && <LogPanel onClose={() => setLogOpen(false)} />}
           {/* 素材灯箱（§6.17）挂在页面级：它的触发方有画布表面与日志面板两处，
               挂在任一子树里另一处都够不着；状态在 store，故放哪都能读 */}
           <LightboxLayer />

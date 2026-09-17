@@ -601,21 +601,6 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
       }
     }
 
-    case 'node.runRecord.restore': {
-      const n = findNode(graph, cmd.nodeId)
-      if (!n) fail(cmd.kind, `节点不存在：${cmd.nodeId}`)
-      return {
-        patches: [
-          {
-            op: 'patch',
-            table: 'nodes',
-            id: cmd.nodeId,
-            changes: { data: { ...n.data, ...cmd.record.params } },
-          },
-        ],
-        transaction: { mode: 'standalone', label: '恢复历史版本' },
-      }
-    }
 
     case 'runPlan.execute': {
       // 执行计划的图数据化形态：落 tasks 表，供中断恢复与日志查询（架构 §4.3）

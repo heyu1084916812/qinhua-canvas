@@ -17,7 +17,6 @@ export type ContextMenuAction =
   | { kind: 'rerunFrom' }
   | { kind: 'refreshStaleFrom' }
   | { kind: 'clearStale' }
-  | { kind: 'history' }
   | { kind: 'duplicate' }
   | { kind: 'rename' }
   | { kind: 'delete' }
@@ -89,10 +88,6 @@ export function nodeMenuItems(type: NodeType, ctx: NodeMenuContext = {}): Contex
   items.push({ id: 'rename', label: '重命名', action: { kind: 'rename' }, separatorAfter: true })
   if (ctx.hasStale) {
     items.push({ id: 'clearStale', label: '清除陈旧标记', action: { kind: 'clearStale' }, separatorAfter: true })
-  }
-  if (RUNNABLE.has(type)) {
-    // 历史与结构类：位于编辑类之后、危险操作之前（§4.1 分组约定）
-    items.push({ id: 'history', label: '版本历史', action: { kind: 'history' } })
   }
   items.push({ id: 'delete', label: '删除', action: { kind: 'delete' } })
   return items

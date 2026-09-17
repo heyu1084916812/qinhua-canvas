@@ -116,9 +116,6 @@ export function ContextMenu() {
       } else if (a.kind === 'clearStale') {
         // 清除陈旧标记（§6.19.5）：清的是全图，不是本节点
         exec.clearStale()
-      } else if (a.kind === 'history') {
-        // 版本历史面板（§6.21 ①）：纯展示态开合，面板自身读 runRecords 表
-        store.openHistory(nodeId)
       } else if (a.kind === 'duplicate') {
         store.dispatch({
           kind: 'node.duplicate',
