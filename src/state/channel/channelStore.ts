@@ -355,7 +355,7 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
      */
     const usable = enabledChannels()
     // 有配方 → 按配方（模型失效时兜底该渠道第一个可用模型）
-    const byRecipe = resolveRecipe(recipeCache.get(projectId)!, usable)
+    const byRecipe = resolveRecipe(recipeCache.get(projectId)!, usable, category)
     if (byRecipe) return byRecipe
     /**
      * 没有配方（项目从未生成过）→ **第一个渠道的第一个模型**。

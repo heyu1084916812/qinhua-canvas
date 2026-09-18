@@ -213,7 +213,26 @@ export function CreationPanel(props: CreationPanelProps) {
   const assetsEmpty = model.thumbs.length === 0 && model.collections.length === 0
 
   const activeChannel = enabled.find((c) => c.id === data.channelId)
-  const channelModels: ModelCapability[] = activeChannel?.models ?? []
+  /**
+   * 该渠道可选的全部模型。
+   *
+   * **勾选列表为空的渠道，回落到它的 `modelCache`**（2026-09-18 实测踩到）：
+   * 「拉取模型」只是把模型拉进缓存，**不等于勾选**——用户还得在设置页的
+   * 「选择模型」里勾上并点应用，那次操作才写进 `models`。
+   * 于是「我只配了一个渠道、点了拉取、就直接回画布建节点」这条最常见的路径下，
+   * `models` 是空的：
+   *   - 节点虽然拿到了默认模型（`defaultForNewNode` 会回落到缓存），
+   *     但这里的 `activeModel` 找不到它 → chip 显示占位「生图模型」，
+   *     看起来就跟没默认一样；
+   *   - 面板的模型下拉也是空的，用户连手动选都做不到。
+   *
+   * 只在**勾选为空**时回落：勾过的渠道仍以勾选为准（§7.4「用户勾选的才是下拉的数据源」），
+   * 否则用户特意筛掉的模型又会冒出来。
+   */
+  const channelModels: ModelCapability[] =
+    activeChannel && activeChannel.models.length > 0
+      ? activeChannel.models
+      : (activeChannel?.modelCache ?? [])
   /**
    * prompt 模式只能选文本 LLM（§6.7「只能选 LLM 模型」）；生成节点按**功能类别**
    * 过滤（图片 / 视频两套模型，§6.8）。都从 `models`（用户勾选的）里取，

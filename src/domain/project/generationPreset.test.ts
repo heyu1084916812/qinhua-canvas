@@ -34,6 +34,51 @@ describe('生成配方（新建节点的默认渠道 / 模型 / 参数）', () =
     expect(firstUsableChannel([{ id: 'ch2', models: [] }])).toBeNull()
   })
 
+  /**
+   * ★ 勾选为空时**回落到 modelCache**（2026-09-18 实测踩到）。
+   *
+   * 「拉取模型」只把模型放进缓存，**不等于勾选**——用户还得在设置页的
+   * 「选择模型」里勾上并点应用。于是「只配一个渠道、点了拉取、直接回画布建节点」
+   * 这条最常见的路径下 `models` 是空的；不回落到缓存就什么都拿不到，
+   * 表现成「明明配好了渠道，新建节点还是空的」。
+   */
+  it('★ 已勾选为空 → 回落到 modelCache 的第一个', () => {
+    const ch: PresetChannelLike = {
+      id: 'ch1',
+      models: [],
+      modelCache: [{ id: 'from-cache' }, { id: 'second' }],
+    }
+    expect(firstUsableChannel([ch])).toEqual({
+      channelId: 'ch1',
+      model: 'from-cache',
+      params: {},
+      substituted: true,
+    })
+  })
+
+  it('★ 有勾选时以勾选为准（不再看缓存，否则用户筛掉的模型会冒出来）', () => {
+    const ch: PresetChannelLike = {
+      id: 'ch1',
+      models: [{ id: 'picked' }],
+      modelCache: [{ id: 'from-cache' }],
+    }
+    expect(firstUsableChannel([ch])?.model).toBe('picked')
+  })
+
+  it('★ 配方里的模型仍在该渠道的缓存里 → 视为有效（不算失效）', () => {
+    const ch: PresetChannelLike = {
+      id: 'ch1',
+      models: [],
+      modelCache: [{ id: 'kept' }],
+    }
+    expect(resolveRecipe({ channelId: 'ch1', model: 'kept', params: {}, savedAt: 0 }, [ch])).toEqual({
+      channelId: 'ch1',
+      model: 'kept',
+      params: {},
+      substituted: false,
+    })
+  })
+
   it('★ 渠道 + 模型都有值才记（半份配方比没有更糟）', () => {
     expect(rememberRecipe('ch1', 'm1', { ratio: '16:9' }, 100)).toEqual({
       channelId: 'ch1',

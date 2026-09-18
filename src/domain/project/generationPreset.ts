@@ -109,10 +109,39 @@ export interface ResolvedRecipe {
   substituted: boolean
 }
 
-/** 渠道的最小视图：本模块只需要「它有哪些已勾选模型」，不关心协议 / 地址 */
+/**
+ * 渠道的最小视图：本模块只关心「它有哪些模型可选」，不关心协议 / 地址。
+ *
+ * `models` = 用户**已勾选**的（画布下拉的数据源）；
+ * `modelCache` = 「拉取模型」拉回来的**全部**（选择面板的数据源）。
+ * 两者都要：优先用勾选的，勾选为空时回落到缓存（见 `pickModel`）。
+ */
 export interface PresetChannelLike {
   id: string
   models: readonly { id: string }[]
+  modelCache?: readonly { id: string }[]
+}
+
+/**
+ * 挑一个能用的模型：**先看已勾选，再看拉取回来的缓存**。
+ *
+ * 为什么必须回落到 `modelCache`（2026-09-18 实测踩到）：
+ * 「拉取模型」只是把模型放进缓存，**不等于勾选**——用户还得在「选择模型」面板里
+ * 勾上并点应用，那次操作才写进 `models`。于是「我只配了一个渠道、点了拉取、
+ * 就直接回画布建节点」这条**最常见**的路径下，`models` 是空的，
+ * 默认值就什么都拿不到，表现成「明明配好了渠道，新建节点还是空的」。
+ *
+ * 原先不回落的理由是「缓存可能几十上百个，拿第一个等于随机」——那只在
+ * **多模型**时成立；一个都不勾选的情况下，退回第一个（也就是列表里最靠前的那个）
+ * 显然比留空更符合用户预期。
+ */
+function pickModel(
+  channel: PresetChannelLike,
+  category?: string,
+): { id: string } | undefined {
+  const byCategory = (list: readonly { id: string }[]) =>
+    category ? list.find((m) => (m as { category?: string }).category === category) : list[0]
+  return byCategory(channel.models) ?? byCategory(channel.modelCache ?? [])
 }
 
 /**
@@ -125,11 +154,19 @@ export interface PresetChannelLike {
 export function resolveRecipe(
   recipe: GenerationRecipe,
   channels: readonly PresetChannelLike[],
+  category?: string,
 ): ResolvedRecipe | null {
   if (!recipe.channelId) return null
   const channel = channels.find((c) => c.id === recipe.channelId)
   if (!channel) return null
-  const same = channel.models.find((m) => m.id === recipe.model)
+  /**
+   * 记录里的模型如果**这个渠道还提供**（已勾选或已在缓存里），就用它。
+   *
+   * 两边都查：勾选列表是用户显式选择的，但「拉取了却没勾」的渠道里
+   * 那个模型仍然出现在缓存里——只看勾选会把一个完全可用的记录判成失效。
+   */
+  const available = [...channel.models, ...(channel.modelCache ?? [])]
+  const same = available.find((m) => m.id === recipe.model)
   if (same) {
     return {
       channelId: recipe.channelId,
@@ -138,7 +175,7 @@ export function resolveRecipe(
       substituted: false,
     }
   }
-  const first = channel.models[0]
+  const first = pickModel(channel, category)
   if (!first) return null
   return { channelId: recipe.channelId, model: first.id, params: recipe.params, substituted: true }
 }
@@ -157,9 +194,7 @@ export function firstUsableChannel(
   category?: string,
 ): ResolvedRecipe | null {
   for (const c of channels) {
-    const pick = category
-      ? c.models.find((m) => (m as { category?: string }).category === category)
-      : c.models[0]
+    const pick = pickModel(c, category)
     if (pick) {
       return { channelId: c.id, model: pick.id, params: {}, substituted: true }
     }

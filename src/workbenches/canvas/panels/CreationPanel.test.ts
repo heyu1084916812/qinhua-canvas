@@ -54,7 +54,9 @@ function render(
 }
 
 /** 内存渠道表：[] 表示从没配过；enabled 决定它是否出现在画布 */
-async function channelStore(rows: { enabled: boolean; models?: unknown[] }[]): Promise<ChannelStore> {
+async function channelStore(
+  rows: { enabled: boolean; models?: unknown[]; modelCache?: unknown[] }[],
+): Promise<ChannelStore> {
   const platform = createMemoryPlatform({
     rows: {
       channels: rows.map((r, i) => ({
@@ -64,15 +66,18 @@ async function channelStore(rows: { enabled: boolean; models?: unknown[] }[]): P
         baseUrl: 'https://relay.example.com',
         credentialRef: null,
         enabled: r.enabled,
-        modelCache: [
-          {
-            id: 'gpt-image-2',
-            category: 'image',
-            inputTypes: ['text'],
-            aspectRatios: ['1:1'],
-            maxCount: 4,
-          },
-        ],
+        // 不给 modelCache 的行走「默认有一个可拉取的模型」，与加本参数前的行为一致
+        modelCache:
+          r.modelCache ??
+          [
+            {
+              id: 'gpt-image-2',
+              category: 'image',
+              inputTypes: ['text'],
+              aspectRatios: ['1:1'],
+              maxCount: 4,
+            },
+          ],
         // 不给 models 的行走仓库的「老数据回落为全部缓存」路径，与加本字段前的行为一致
         ...(r.models === undefined ? {} : { models: r.models }),
         createdAt: i + 1,
@@ -143,23 +148,46 @@ describe('CreationPanel · 并发生成不再全局禁用按钮', () => {
 })
 
 /**
- * 第三种空态（§7.4 之后才存在的）：平台选好了，但该渠道一个模型都没勾选。
- * 「拉取到的模型默认全部未勾选」，所以这是**新配渠道的默认状态**，不是边缘情况；
- * 而渠道没勾模型 → 生成节点取不到 model → 点生成**毫无动静**，
- * 与「没配平台」是同一类坑，必须同样给出可点击的解释。
+ * 「平台选好了，但模型那一格怎么办」（§7.4 之后才存在的状态）。
+ *
+ * 语义在 2026-09-18 修订：**看这个渠道有没有模型可选，而不是看用户勾没勾**。
+ *
+ * 原先只在 `models`（用户勾选的）为空时判定为空态。但「拉取模型」只把模型放进
+ * `modelCache`，**不等于勾选**——用户还得去「选择模型」里勾上并点应用。
+ * 于是新配渠道的默认状态（拉取了、没勾）被判定成空态，给一条引导条、
+ * 连下拉都不挂：**用户连手动选都做不到**，只能回设置页再走一遍。
+ *
+ * 现在：有模型可选（勾选的或缓存的）就给下拉；**只有这个渠道真的一无所有**时
+ * 才给引导条——那时引导条才是唯一正确的出路。
  */
-describe('CreationPanel · 平台已选但没勾模型', () => {
+describe('CreationPanel · 平台已选但模型不可用', () => {
   /** 面板上「平台」已选好（channelId = ch-1），只差模型 */
   const withChannel = () => ({ ...generationSpec.createDefaultData(), channelId: 'ch-1' })
 
-  it('给出「该渠道还没勾选模型」引导条，且不再挂一个点开是空的模型 chip', async () => {
+  /**
+   * 渠道**确有模型可选**（只是用户没勾）→ 必须给下拉。
+   *
+   * 这是新配渠道最常见的样子：拉取完模型就直接回画布。此时下拉里要能列出来，
+   * 用户点一下就能选；给引导条会把人挡在唯一一条路外面。
+   */
+  it('★ 渠道有模型可选（未勾选）→ 给下拉，不给引导条', async () => {
     const channels = await channelStore([{ enabled: true, models: [] }])
     const html = render(channels, withChannel())
+    expect(html).toContain('data-param-chip="model"')
+    expect(html).not.toContain('data-panel-setup-hint')
+  })
+
+  /**
+   * 渠道**一个模型都没有**（没拉取过 / 拉取失败）→ 此时才该给引导条。
+   *
+   * 「没得选就别挂空壳」这条规则仍然成立，只是判据从「用户勾没勾」
+   * 换成「这个渠道有没有模型」——前者拦住了唯一的路，后者才是真的没得选。
+   */
+  it('★ 渠道一个模型都没有 → 给引导条，不挂空下拉', async () => {
+    const channels = await channelStore([{ enabled: true, models: [], modelCache: [] }])
+    const html = render(channels, withChannel())
     expect(html).toContain('data-panel-setup-hint')
-    expect(html).toContain('该渠道还没勾选模型')
-    // 「没得选就别挂空壳」：引导条已经解释了原因，再留一个空下拉只是让人白点一次
     expect(html).not.toContain('data-param-chip="model"')
-    expect(html).not.toContain('gpt-image-2')
   })
 
   it('勾选模型后引导消失，模型 chip 带出该模型', async () => {
