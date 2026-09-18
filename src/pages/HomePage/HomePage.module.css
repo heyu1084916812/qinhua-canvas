@@ -16,6 +16,13 @@
   background: var(--bg-surface);
 }
 
+/* 右侧出口簇：主题切换与「后台设置」同排，间距比顶栏两端的留白小 */
+.topbarRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .brand {
   font-size: var(--fs-panel-title);
   font-weight: var(--fw-panel-title);

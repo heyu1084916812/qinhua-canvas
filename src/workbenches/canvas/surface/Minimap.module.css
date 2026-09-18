@@ -26,3 +26,32 @@
 .svg {
   display: block;
 }
+
+/*
+ * 小地图的点阵与视口框（§6.4）。
+ *
+ * 颜色放在 CSS 里而不是写成 SVG 的 fill / stroke 属性：这里是 SVG 里唯一
+ * 需要跟着主题变的两处，用 `fill` 属性写死字面量的话，深色主题下小地图会
+ * 继续画浅灰点阵（压在深色底上几乎看不见），而 CSS 变量是唯一能让它们
+ * 跟着 tokens.css 一起翻的机制。属性被移走后，DOM 上仍留有
+ * data-minimap-node / data-minimap-view 供冒烟与故障注入定位。
+ */
+.node {
+  /* §6.4 指定的浅灰点阵；深色主题下由下面的块换成能压住深底的一档 */
+  fill: #d8d8de;
+}
+
+/* 视口框：半透填充 + 半透描边（§6.4「半透描边」） */
+.view {
+  fill: rgba(22, 22, 26, 0.06);
+  stroke: rgba(22, 22, 26, 0.55);
+}
+
+[data-theme='dark'] .node {
+  fill: #5b6270;
+}
+
+[data-theme='dark'] .view {
+  fill: rgba(232, 233, 237, 0.1);
+  stroke: rgba(232, 233, 237, 0.7);
+}

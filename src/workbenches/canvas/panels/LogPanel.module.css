@@ -1,7 +1,8 @@
 .overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.18);
+  /* 整屏遮罩走 token：深色主题下 0.18 的黑几乎看不出压暗，需要更重的一档 */
+  background: var(--scrim);
   z-index: 30;
   display: flex;
   justify-content: flex-end;
@@ -106,10 +107,10 @@
 }
 
 .capOk {
-  color: #16a34a;
+  color: var(--success);
 }
 .capFail {
-  color: #dc2626;
+  color: var(--danger);
 }
 
 .meta {
@@ -134,7 +135,7 @@
 
 .errorText {
   font-size: 11px;
-  color: #dc2626;
+  color: var(--danger);
   cursor: pointer;
 }
 

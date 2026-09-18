@@ -1,0 +1,45 @@
+/*
+ * 主题切换按钮：与首页 / 设置页的次要按钮同一口径（1px 描边 + 10px 圆角 +
+ * hover 换底色），不引入新的按钮形态。配色全走 token，故无需为深色另写一份。
+ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+}
+
+.btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+/* 紧凑态（画布顶栏）：正方形，只留字形，与顶栏 32px 高的按钮排齐 */
+.compact {
+  width: 32px;
+  padding: 0;
+  justify-content: center;
+}
+
+/*
+ * 字形略大于正文：☀ / ☾ / ◐ 在 12px 下几乎读不出来（笔画被压成一团）。
+ * 与文字基线手动对齐（`line-height: 1` 防止它把 32px 的按钮撑高）。
+ */
+.glyph {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.label {
+  line-height: 1;
+}

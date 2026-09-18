@@ -45,12 +45,6 @@ import styles from './Minimap.module.css'
 /** 节点点阵的刷新间隔（ms）：约 8Hz。视口框不受它限制，仍逐帧跟随 */
 const MINIMAP_REFRESH_MS = 120
 
-/** 节点简化矩形（§6.4 指定色） */
-const NODE_FILL = '#D8D8DE'
-/** 视口框：半透填充 + 描边（§6.4「半透 #16161A 描边」） */
-const VIEW_FILL = 'rgba(22, 22, 26, 0.06)'
-const VIEW_STROKE = 'rgba(22, 22, 26, 0.55)'
-
 /** 方向键一次平移的屏幕像素 */
 const KEY_STEP = 80
 /** Shift + 方向键：快一点 */
@@ -78,13 +72,13 @@ const MinimapNodes = memo(function MinimapNodes({
       {items.map((item) => (
         <rect
           key={item.id}
+          className={styles.node}
           data-minimap-node={item.id}
           x={item.rect.x}
           y={item.rect.y}
           width={item.rect.w}
           height={item.rect.h}
           rx={1}
-          fill={NODE_FILL}
         />
       ))}
     </>
@@ -236,14 +230,13 @@ export function Minimap() {
             这里整块跳过（否则每帧要协调 300 个 <rect>） */}
         <MinimapNodes items={items} />
         <rect
+          className={styles.view}
           data-minimap-view
           x={viewRect.x}
           y={viewRect.y}
           width={viewRect.w}
           height={viewRect.h}
           rx={2}
-          fill={VIEW_FILL}
-          stroke={VIEW_STROKE}
           strokeWidth={1}
         />
       </svg>

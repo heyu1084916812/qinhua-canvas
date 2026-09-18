@@ -7273,15 +7273,25 @@ async function g56(browser) {
   // 像素：DOM 有 ≠ 屏幕有（连线就是这么漏的）
   const ink0 = box ? await countMinimapInk(page, box) : 0
   rec(g, '★ 节点矩形在画面上真的被绘制（像素采样）', ink0 >= 200, `墨迹像素=${ink0}`)
-  // 故障注入：抹掉填充，墨迹必须塌下去 —— 否则上一条量的根本不是节点矩形
+  /**
+   * 故障注入：抹掉填充，墨迹必须塌下去 —— 否则上一条量的根本不是节点矩形。
+   *
+   * ⚠️ 主题化之后必须改注入手法：点阵颜色已从 SVG `fill` **属性**挪到 CSS 类
+   * （Minimap.module.css 的 `.node`），而 **CSS 的优先级高于表现属性**——
+   * 再写 `setAttribute('fill','none')` 会被 CSS 盖掉，注入无效、墨迹纹丝不动，
+   * 于是「这一条在量节点矩形」的证明变成了假的（实测注入前后都是 10853）。
+   * 改为直接改 `style.fill`（内联样式优先级最高，稳稳盖过类选择器）。
+   */
   await page.evaluate(() =>
-    document.querySelectorAll('[data-minimap-node]').forEach((el) => el.setAttribute('fill', 'none')),
+    document.querySelectorAll('[data-minimap-node]').forEach((el) => {
+      el.style.fill = 'none'
+    }),
   )
   const inkNone = box ? await countMinimapInk(page, box) : -1
   await page.evaluate(() =>
-    document
-      .querySelectorAll('[data-minimap-node]')
-      .forEach((el) => el.setAttribute('fill', '#D8D8DE')),
+    document.querySelectorAll('[data-minimap-node]').forEach((el) => {
+      el.style.fill = ''
+    }),
   )
   rec(
     g,
@@ -7897,13 +7907,137 @@ async function g60(browser) {
 }
 
 /**
+ * 页面平均亮度（G61 用）。
+ *
+ * 为什么主题必须靠像素判定：`data-theme="dark"` 写在 `<html>` 上之后，
+ * DOM 里怎么看都是对的——属性在、CSS 变量查得到、`getComputedStyle` 也返回深色值。
+ * 但只要有一处组件硬编码了亮色、或者 token 覆盖没生效，**屏幕上依旧是白的**，
+ * 而上面那些检查全绿（老教训：连线 0×0 的 SVG 就是这么漏的）。
+ * 故这里只认屏幕像素，取整页截图的平均亮度。
+ */
+async function meanLuma(page) {
+  const shot = await page.screenshot()
+  return page.evaluate(async (dataUrl) => {
+    const img = new Image()
+    img.src = dataUrl
+    await img.decode()
+    const c = document.createElement('canvas')
+    c.width = img.naturalWidth
+    c.height = img.naturalHeight
+    const g2 = c.getContext('2d')
+    g2.drawImage(img, 0, 0)
+    const d = g2.getImageData(0, 0, c.width, c.height).data
+    let sum = 0
+    let n = 0
+    for (let i = 0; i < d.length; i += 4) {
+      // 感知亮度（Rec. 709）：比直接取平均更能反映「看着是亮还是暗」
+      sum += 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]
+      n += 1
+    }
+    return n ? sum / n : 0
+  }, `data:image/png;base64,${shot.toString('base64')}`)
+}
+
+/**
+ * 取根元素上某个 token 的计算值（G61 用）。
+ * 只用于**辅助诊断**：单独断言它会像上面说的那样被「样式写了但没生效」骗过去，
+ * 真正的判据是 meanLuma。
+ */
+async function tokenValue(page, name) {
+  return page.evaluate(
+    (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(),
+    name,
+  )
+}
+
+// ────────────────────────────────────────────────────────────
+// G61 暗色主题（§3.1 色彩）：三档轮转、真的变暗、刷新不回弹、画布 / 漫画剧都覆盖
+// ────────────────────────────────────────────────────────────
+async function g61(browser) {
+  const g = 'G61 暗色主题'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  const themeAttr = () => page.evaluate(() => document.documentElement.dataset.theme ?? '')
+  const settingAttr = () => page.evaluate(() => document.documentElement.dataset.themeSetting ?? '')
+
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(400)
+
+  // 1) 默认「跟随系统」，系统是亮的 → 亮色
+  rec(g, '默认档位是「跟随系统」', (await settingAttr()) === 'system', await settingAttr())
+  const lumaLight = await meanLuma(page)
+  rec(g, '★ 默认（系统亮色）下首页是亮的', lumaLight > 180, `平均亮度=${lumaLight.toFixed(1)}`)
+
+  // 2) 点一下 → 深色。判据是像素，不是属性
+  await page.locator('[data-theme-toggle]').click()
+  await sleep(300)
+  rec(g, '切换到深色后根元素带 data-theme=dark', (await themeAttr()) === 'dark', await themeAttr())
+  const lumaDark = await meanLuma(page)
+  rec(g, '★ 深色下整页真的变暗（像素）', lumaDark < 90, `平均亮度=${lumaDark.toFixed(1)}`)
+  rec(
+    g,
+    '★ 明暗两档的亮度差足够大（不是只换个描边）',
+    lumaLight - lumaDark > 80,
+    `${lumaLight.toFixed(1)} → ${lumaDark.toFixed(1)}`,
+  )
+
+  // 3) token 确实被换掉了（辅助诊断；顺便钉住「不是靠 body 硬编码」）
+  const bgDark = await tokenValue(page, '--bg-app')
+  rec(g, '深色主题下 --bg-app 已被覆盖（不再是 #f7f7f5）', bgDark !== '' && bgDark !== '#f7f7f5', bgDark)
+  await page.screenshot({ path: `${OUT}/78-g61-home-dark.png` })
+
+  // 4) ★ 刷新后仍是深色：这是「首帧不闪白」那条内联脚本唯一能被外部观测到的证据。
+  //    effect 里切主题的话，刷新后第一帧是亮的、随后才翻过来——单看属性看不出来。
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(300)
+  rec(g, '★ 刷新后仍是深色（首帧脚本已落地，不回弹浅色）', (await themeAttr()) === 'dark', await themeAttr())
+  const lumaAfterReload = await meanLuma(page)
+  rec(g, '★ 刷新后画面仍是暗的', lumaAfterReload < 90, `平均亮度=${lumaAfterReload.toFixed(1)}`)
+
+  // 5) 继续轮转：深 → 浅 → 跟随系统。
+  //    顺序刻意不是「深 → 跟随系统」：默认档是跟随系统，若从那里固定顺序走到
+  //    「浅色」，在系统本就是浅色时等于点了没反应。故规则是先切外观的反面，
+  //    再由显式档交回系统（详见 ui/theme.ts#nextThemeSetting）。
+  await page.locator('[data-theme-toggle]').click()
+  await sleep(250)
+  rec(g, '深色再点一次是「浅色」', (await settingAttr()) === 'light', await settingAttr())
+  await page.locator('[data-theme-toggle]').click()
+  await sleep(250)
+  rec(g, '第三次点交回「跟随系统」', (await settingAttr()) === 'system', await settingAttr())
+  const lumaExplicitLight = await meanLuma(page)
+  rec(g, '显式选浅色时画面回到亮色', lumaExplicitLight > 180, `平均亮度=${lumaExplicitLight.toFixed(1)}`)
+
+  // 6) 主题要覆盖到工作台，而不只是首页
+  await page.locator('[data-theme-toggle]').click() // 跟随系统（亮） → 深色
+  await sleep(250)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(800)
+  rec(g, '画布页顶栏也有主题切换', (await page.locator('[data-theme-toggle]').count()) === 1)
+  const canvasLuma = await meanLuma(page)
+  rec(g, '★ 画布页也是暗的（节点 / 面板 / 顶栏都被覆盖）', canvasLuma < 110, `平均亮度=${canvasLuma.toFixed(1)}`)
+  const nodeBg = await page.evaluate(() => {
+    const el = document.querySelector('[data-node-id]')
+    return el ? getComputedStyle(el).backgroundColor : ''
+  })
+  rec(g, '节点底色跟着变了（不是硬编码白）', nodeBg !== '' && nodeBg !== 'rgb(255, 255, 255)', nodeBg)
+  await page.screenshot({ path: `${OUT}/79-g61-canvas-dark.png` })
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+/**
  * 已从全量移除的组（测的都是已不存在的功能，继续跑只会拿「它没出现」当失败）：
  * - g22：版本历史（§6.21 于 2026-09-16 下线）
  * - g41：陈旧标记与按范围重跑（2026-09-17 下线：橘点、整条流程重跑、仅刷新陈旧、全图重跑）
  * - g50 / g54：结果组折叠与子结果交互（2026-09-17 结果组整体下线）
  * 「运行画板产生产物」改由 G21 覆盖（断言已从结果组改为承载节点）。
  */
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

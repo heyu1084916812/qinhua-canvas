@@ -6,6 +6,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, it, expect } from 'vitest'
 import { PlatformProvider } from './providers/PlatformProvider'
 import { ChannelStoreProvider } from './providers/ChannelStoreProvider'
+import { ThemeProvider } from './ThemeProvider'
 import { AppRoutes } from './routes'
 
 /**
@@ -38,7 +39,13 @@ async function renderTree(entries: string[]): Promise<string> {
     createElement(
       ChannelStoreProvider,
       null,
-      createElement(MemoryRouter, { initialEntries: entries }, createElement(AppRoutes)),
+      // 主题包在路由之外（与 App.tsx 同一顺序）：首页 / 工作台顶栏都有主题切换，
+      // 它读 ThemeProvider 的 context，缺了它会直接抛而不是「渲染出来少一个按钮」。
+      createElement(
+        ThemeProvider,
+        null,
+        createElement(MemoryRouter, { initialEntries: entries }, createElement(AppRoutes)),
+      ),
     ),
   )
 

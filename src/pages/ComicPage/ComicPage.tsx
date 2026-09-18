@@ -7,6 +7,7 @@ import { emptyComicProject, normalizeComicProject } from '../../domain/comic/mod
 import { ComicStoreProvider } from '../../workbenches/comic/storeContext'
 import { ComicExecutionProvider } from '../../workbenches/comic/execution/ComicExecutionProvider'
 import { ComicSurface } from '../../workbenches/comic/surface/ComicSurface'
+import { ThemeToggle } from '../../app/ThemeToggle'
 import styles from './ComicPage.module.css'
 
 /**
@@ -96,6 +97,8 @@ function ComicProject({ projectId }: { projectId: string }) {
             >
               后台设置
             </button>
+            {/* 与画布顶栏对称：外观偏好放右端出口这一侧，紧凑态只占一个 32px 方块 */}
+            <ThemeToggle compact />
             <span className={styles.spacer} />
           </header>
           <ComicSurface />

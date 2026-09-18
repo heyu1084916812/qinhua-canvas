@@ -11,6 +11,7 @@ import { exportProject, importProjectFile } from '../../state/project/flowIo'
 import { projectRoute, WORKBENCHES, WORKBENCH_ORDER, type WorkbenchId } from '../../domain/shared/workbench'
 import { formatRelative } from '../../domain/shared/time'
 import { TEMPLATES, type TemplateId } from '../../state/project/templates'
+import { ThemeToggle } from '../../app/ThemeToggle'
 import type { ProjectListItem } from '../../domain/project/project'
 import styles from './HomePage.module.css'
 
@@ -125,9 +126,12 @@ export function HomePage() {
     <div className={styles.page}>
       <header className={styles.topbar}>
         <span className={styles.brand}>轻画</span>
-        <button className={styles.ghostBtn} onClick={() => navigate('/settings')}>
-          后台设置
-        </button>
+        <div className={styles.topbarRight}>
+          <button className={styles.ghostBtn} onClick={() => navigate('/settings')}>
+            后台设置
+          </button>
+          <ThemeToggle />
+        </div>
       </header>
 
       <main className={styles.main}>

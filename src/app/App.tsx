@@ -1,6 +1,7 @@
 import { BrowserRouter } from 'react-router-dom'
 import { PlatformProvider } from './providers/PlatformProvider'
 import { ChannelStoreProvider } from './providers/ChannelStoreProvider'
+import { ThemeProvider } from './ThemeProvider'
 import { AppRoutes } from './routes'
 import { BootstrapGate } from './BootstrapGate'
 import { registerAllSpecs } from '../domain/canvas/nodeSpecs'
@@ -28,11 +29,15 @@ export function App(props: AppProps) {
   return (
     <PlatformProvider runtime={runtime}>
       <ChannelStoreProvider>
-        <BootstrapGate>
-          <BrowserRouter>
-            <AppRoutes />
-          </BrowserRouter>
-        </BootstrapGate>
+        {/* 主题在最外层：它只改 <html data-theme>，不依赖任何业务状态，
+            先于 BootstrapGate 落地才能让「启动校验」那一屏也是正确配色。 */}
+        <ThemeProvider>
+          <BootstrapGate>
+            <BrowserRouter>
+              <AppRoutes />
+            </BrowserRouter>
+          </BootstrapGate>
+        </ThemeProvider>
       </ChannelStoreProvider>
     </PlatformProvider>
   )

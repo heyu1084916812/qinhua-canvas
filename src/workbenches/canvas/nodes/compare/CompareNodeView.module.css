@@ -47,14 +47,18 @@
   pointer-events: none;
 }
 
-/* 分割线：1px 白线（§6.10），拖动手柄为圆形 */
+/* 分割线：1px 亮线（§6.10），拖动手柄为圆形。
+   线色走 --overlay-text 而非字面量白色：它压在**用户素材**上，素材亮度不可控，
+   深色主题下白线会在亮图上消失，故与角标共用「叠在素材上的浮层」这一组 token。 */
 .divider {
   position: absolute;
   top: 0;
   bottom: 0;
   width: 1px;
-  background: #fff;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18);
+  background: var(--overlay-text);
+  /* 亮线外侧压一圈反向暗边：全白的图（漫画线稿）上，只有白线会整条看不见。
+     用 --scrim 而不是字面量 rgba —— 深色主题下遮罩更重，这条边也要跟着重。 */
+  box-shadow: 0 0 0 1px var(--scrim);
   transform: translateX(-0.5px);
   pointer-events: none;
 }
@@ -73,7 +77,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 0 0 1px var(--scrim);
 }
 
 .handle::before,
