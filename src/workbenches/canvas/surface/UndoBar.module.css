@@ -41,7 +41,9 @@
 }
 
 .btn:disabled {
-  color: var(--text-3, #b8b8b2);
+  /* 兜底值删掉：--text-3 由 ui/tokens.css 保证存在，留一个字面量兜底只会
+     让「颜色只取 token」这条规矩出现例外，且那个值在深色下是错的。 */
+  color: var(--text-3);
   cursor: default;
   opacity: 0.55;
 }

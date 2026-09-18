@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "check": "tsc --noEmit && eslint . && depcruise src --config .dependency-cruiser.cjs",
+    "check": "tsc --noEmit && eslint . && depcruise src --config .dependency-cruiser.cjs && node scripts/check-theme.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke": "node scripts/smoke.mjs"

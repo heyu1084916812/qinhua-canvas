@@ -183,5 +183,7 @@
 .copied {
   font-size: 10px;
   font-weight: 600;
-  color: #16a34a;
+  /* 走 --success 而不是字面量：上一轮主题化漏掉的就是这一处（同文件同色却只改了另外三处），
+     深色下 #16a34a 压在深底上对比度不够。 */
+  color: var(--success);
 }

@@ -45,7 +45,12 @@
 /*
 /*
  * 空态上传按钮（用户 2026-09-19 定形）：
- * **胶囊形**圆角矩形（宽 68px、高 30px、`--radius-pill`），深色实底 `#2E2E2D` + 白色文字「上传素材」。
+ * **胶囊形**圆角矩形（宽 68px、高 30px、`--radius-pill`），实色底 + 反色文字「上传素材」。
+ *
+ * 底色走 `--accent` / `--accent-text`（§3.1「实体主按钮填充」）而不是写死 `#2e2e2d`：
+ * 它是空态里唯一的主操作，正属该语义；更重要的是**这对 token 在深色主题下整套反转**
+ * （深底浅字 → 浅底深字），写死的话深色主题里这个「深色实底」会糊进深色节点面
+ * （`#22242b`）而失去辨识度——它作为空态唯一提示的意义就没了。
  *
  * 形状：胶囊而不是圆角方块 / 圆形 —— 与参数 chip 同一套形状语言；宽度固定 68px（用户要求），高度压到 30px 才成胶囊比例（68×68 是圆的，68×30 才是胶囊）。
  * 文案：`＋` 换成**文字**「上传素材」——纯符号按钮要用户猜含义，文字把「点这里会发生什么」直接说清（与 §4.5 的可见标签一致）。
@@ -62,8 +67,8 @@
   padding: 0 var(--space-2);
   border: none;
   border-radius: var(--radius-pill);
-  background: #2e2e2d;
-  color: #ffffff;
+  background: var(--accent);
+  color: var(--accent-text);
   font-family: var(--font-sans);
   font-size: var(--fs-chip);
   font-weight: var(--fw-chip);
@@ -75,7 +80,9 @@
 }
 
 .uploadBtn:hover {
-  background: #3b3b39;
+  /* 与主按钮同一套 hover（保持实色、只降不透明度）：另调一个hover色会在两套主题下各偏一次 */
+  background: var(--accent);
+  opacity: 0.88;
 }
 
 .uploadBtn:active {

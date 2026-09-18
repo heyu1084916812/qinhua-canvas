@@ -392,6 +392,26 @@ async function newCtx(browser, opts = {}) {
   return ctx
 }
 
+/**
+ * 在**深色主题**下开一个上下文（G62 用）。
+ *
+ * 为什么不能靠「进页面点一下切换按钮」：那样测到的是「切过去之后好不好看」，
+ * 而真正会烂掉的是**首帧**——首帧由 index.html 的内联脚本决定，
+ * 从浅色点过去那条路径根本不经过它。故这里在**页面加载前**就把
+ * localStorage 写好，让应用从头到尾都以为自己一直是深色。
+ */
+async function newDarkCtx(browser, opts = {}) {
+  const ctx = await newCtx(browser, opts)
+  await ctx.addInitScript(() => {
+    try {
+      localStorage.setItem('flow:theme', 'dark')
+    } catch {
+      /* 忽略：存储不可用时不该让整组冒烟挂掉 */
+    }
+  })
+  return ctx
+}
+
 // ────────────────────────────────────────────────────────────
 // G1 核心闭环：建项目 → 加节点 → 刷新仍在 → 首页见节点数
 // ────────────────────────────────────────────────────────────
@@ -8030,6 +8050,196 @@ async function g61(browser) {
   await ctx.close()
 }
 
+// ────────────────────────────────────────────────────────────
+// G62 深色主题下的可读性（§3.1）
+//
+// 存在的理由：主题是「换一份变量表」，组件只要写死一个字面量颜色，深色就静默
+// 退化成浅色那套，而 tsc / eslint / 单测 / 其余冒烟**全绿**（它们都在浅色下跑）。
+// 故这里在深色下把「最依赖配色的几个面」逐个用像素量一遍。
+// ────────────────────────────────────────────────────────────
+async function g62(browser) {
+  const g = 'G62 深色可读性'
+  const ctx = await newDarkCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(500)
+
+  // 1) 首帧即为深色（不经过任何点击）——这也是 index.html 内联脚本唯一的外部证据
+  rec(g, '★ 首帧就是深色（未经点击切换）', (await page.evaluate(() => document.documentElement.dataset.theme)) === 'dark')
+
+  /**
+   * 采样某个矩形区域的亮度统计（均值 / 标准差 / 极差）。
+   */
+  const statsOfClip = async (clip) => {
+    const vp = page.viewportSize() ?? { width: 1280, height: 800 }
+    const x = Math.max(0, Math.floor(clip.x))
+    const y = Math.max(0, Math.floor(clip.y))
+    const width = Math.min(Math.ceil(clip.width), vp.width - x)
+    const height = Math.min(Math.ceil(clip.height), vp.height - y)
+    if (width <= 0 || height <= 0) return null
+    const shot = await page.screenshot({ clip: { x, y, width, height } })
+    return page.evaluate(async (dataUrl) => {
+      const img = new Image()
+      img.src = dataUrl
+      await img.decode()
+      const c = document.createElement('canvas')
+      c.width = img.naturalWidth
+      c.height = img.naturalHeight
+      const g2 = c.getContext('2d')
+      g2.drawImage(img, 0, 0)
+      const d = g2.getImageData(0, 0, c.width, c.height).data
+      // 逐像素累加，不落地成数组：整页截图有上百万像素，
+      // Math.min(...arr) 会把调用栈撑爆（实测 RangeError）。
+      let n = 0
+      let sum = 0
+      let sumSq = 0
+      let min = Infinity
+      let max = -Infinity
+      for (let i = 0; i < d.length; i += 4) {
+        const l = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]
+        n += 1
+        sum += l
+        sumSq += l * l
+        if (l < min) min = l
+        if (l > max) max = l
+      }
+      const mean = sum / n
+      const sd = Math.sqrt(Math.max(0, sumSq / n - mean * mean))
+      return { mean, sd, min, max }
+    }, `data:image/png;base64,${shot.toString('base64')}`)
+  }
+
+  /**
+   * 元素**内部**的可读性：区域内亮度标准差。
+   *
+   * 只用于「这一块里有文字 / 图标要看得见」的场合（顶栏、工具栏、面板）。
+   * ⚠️ 它**证明不了元素与它所在的面分得开**——元素内部有文字时，
+   * 即使元素底色和画布底色完全一样、边界彻底消失，标准差照样很高
+   * （实测注入「节点底色 = 画布底色」后 sd 反而从 9.2 升到 10.9）。
+   * 要证明「分得开」，用下面的 edgeOf。
+   */
+  const contrastOf = async (selector) => {
+    const el = page.locator(selector).first()
+    if ((await el.count()) === 0) return null
+    const box = await el.boundingBox().catch(() => null)
+    if (!box || box.width < 2 || box.height < 2) return null
+    return statsOfClip(box)
+  }
+
+  /**
+   * ★ 元素与**其外侧背景**的分界强度（G62 的主要判据）。
+   *
+   * 为什么非它不可：contrastOf 有洞——真正会坏的是「节点 / 面板和画布糊成一片、
+   * 边界消失」，那是**跨边界**的亮度差，元素内部的标准差根本测不到
+   * （实测注入「节点底色 = 画布底色」后 contrastOf 反而从 9.2 升到 10.9，全绿）。
+   *
+   * 手法：沿**下边界**取内外两条 3px 窄带，比较两者的均值差。
+   * 有描边 / 底色差时两侧均值明显不同；边界消失时两条带是同一个色 ⇒ 差值塌向 0。
+   *
+   * 为什么取**下**边界而不是上边界：节点标题浮在节点**外上方**（`bottom:100%`，
+   * 且左右各外扩 8px），上边界外侧那条带必然含到标题文字，
+   * 于是「节点糊进画布」时它仍靠文字给出高方差（实测极差仍有 17.0）——
+   * 那测的是标题，不是边界。下边界外侧是纯画布，干净。
+   */
+  const edgeOf = async (selector) => {
+    const el = page.locator(selector).first()
+    if ((await el.count()) === 0) return null
+    const box = await el.boundingBox().catch(() => null)
+    if (!box || box.width < 20 || box.height < 10) return null
+    const band = 3
+    const w = Math.min(box.width - 40, 120)
+    const x = box.x + box.width / 2 - w / 2
+    const bottom = box.y + box.height
+    const inside = await statsOfClip({ x, y: bottom - band - 1, width: w, height: band })
+    const outside = await statsOfClip({ x, y: bottom + 1, width: w, height: band })
+    if (!inside || !outside) return null
+    return { inside: inside.mean, outside: outside.mean, step: Math.abs(inside.mean - outside.mean) }
+  }
+
+  // 2) 首页：品牌文字与顶栏不能糊进背景
+  const brandContrast = await contrastOf('.brand, [class*="brand"]')
+  rec(
+    g,
+    '★ 首页顶栏文字没糊进背景（亮度标准差 > 6）',
+    !!brandContrast && brandContrast.sd > 6,
+    brandContrast ? `sd=${brandContrast.sd.toFixed(1)} mean=${brandContrast.mean.toFixed(1)}` : 'null',
+  )
+
+  // 3) 进画布：节点、顶栏、工具栏都要还能分出层次
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+  const canvasLuma = await meanLuma(page)
+  rec(g, '★ 画布整体是暗的', canvasLuma < 110, `平均亮度=${canvasLuma.toFixed(1)}`)
+
+  // 边界分界强度（见 edgeOf 的说明：contrastOf 证明不了「分得开」）
+  const nodeEdge = await edgeOf('[data-node-id]')
+  rec(
+    g,
+    '★ 节点与画布没糊成一片（下边界内外亮度差 > 6）',
+    !!nodeEdge && nodeEdge.step > 6,
+    nodeEdge ? `内=${nodeEdge.inside.toFixed(1)} 外=${nodeEdge.outside.toFixed(1)} 差=${nodeEdge.step.toFixed(1)}` : 'null',
+  )
+  const barEdge = await edgeOf('[data-canvas-toolbar]')
+  rec(
+    g,
+    '★ 左侧工具栏与画布没糊成一片',
+    !!barEdge && barEdge.step > 6,
+    barEdge ? `内=${barEdge.inside.toFixed(1)} 外=${barEdge.outside.toFixed(1)} 差=${barEdge.step.toFixed(1)}` : 'null',
+  )
+
+  // 4) 选中节点：选中描边在深色下必须**变亮**（近黑描边在深底上等于看不见）
+  const gen = page.locator('[data-node-type="generation"]').first()
+  const nb = await gen.boundingBox()
+  if (nb) {
+    await page.mouse.click(Math.round(nb.x + 12), Math.round(Math.max(nb.y + 72, 72)))
+    await sleep(400)
+    const outline = await page.evaluate(() => {
+      const el = document.querySelector('[data-node-id]')
+      if (!el) return ''
+      const cs = getComputedStyle(el)
+      return `${cs.outlineColor}|${cs.outlineWidth}`
+    })
+    rec(g, '选中态有描边', outline !== '' && !outline.startsWith('rgba(0, 0, 0, 0)'), outline)
+    // 描边色必须比节点自身底色亮，否则在深底上看不见
+    const dark = await page.evaluate(() => {
+      const el = document.querySelector('[data-node-id]')
+      if (!el) return null
+      const parse = (s) => (s.match(/\d+/g) ?? []).map(Number)
+      return { outline: parse(getComputedStyle(el).outlineColor), bg: parse(getComputedStyle(el).backgroundColor) }
+    })
+    const lumOf = (c) => (c && c.length >= 3 ? 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2] : NaN)
+    rec(
+      g,
+      '★ 选中描边比节点底色亮（深色下反转生效，不是近黑描边）',
+      !!dark && lumOf(dark.outline) > lumOf(dark.bg) + 30,
+      dark ? `描边亮度=${lumOf(dark.outline).toFixed(1)} 底色=${lumOf(dark.bg).toFixed(1)}` : 'null',
+    )
+  }
+
+  // 5) 创作面板与日志面板：这两处此前都有写死的字面量颜色
+  await genPanel(page, gen)
+  const panelContrast = await contrastOf('[data-creation-panel]')
+  rec(
+    g,
+    '★ 创作面板能分出层次',
+    !!panelContrast && panelContrast.sd > 6,
+    panelContrast ? `sd=${panelContrast.sd.toFixed(1)}` : 'null',
+  )
+  const panelBg = await page.evaluate(() => {
+    const el = document.querySelector('[data-creation-panel]')
+    return el ? getComputedStyle(el).backgroundColor : ''
+  })
+  rec(g, '创作面板底色不是白（跟着主题走了）', panelBg !== '' && panelBg !== 'rgb(255, 255, 255)', panelBg)
+  await page.screenshot({ path: `${OUT}/80-g62-dark-panel.png` })
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
 /**
  * 已从全量移除的组（测的都是已不存在的功能，继续跑只会拿「它没出现」当失败）：
  * - g22：版本历史（§6.21 于 2026-09-16 下线）
@@ -8037,7 +8247,7 @@ async function g61(browser) {
  * - g50 / g54：结果组折叠与子结果交互（2026-09-17 结果组整体下线）
  * 「运行画板产生产物」改由 G21 覆盖（断言已从结果组改为承载节点）。
  */
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
