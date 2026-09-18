@@ -3,6 +3,7 @@ import type { PlatformKit } from '../../platform/ports'
 import type { Channel, CreateChannelInput } from '../../domain/project/channel'
 import { PROBE_PROTOCOLS, requiresBaseUrl, tokenTailOf } from '../../domain/project/channel'
 import {
+  firstUsableChannel,
   NO_PRESET,
   rememberPreset as rememberPresetOf,
   resolvePreset,
@@ -331,7 +332,19 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
 
   const defaultForNewNode: ChannelStoreActions['defaultForNewNode'] = async () => {
     if (presetRef.current === NO_PRESET) presetRef.current = await presets.load()
-    return resolvePreset(presetRef.current, store.getState().channels)
+    /**
+     * 只拿**已启用**的渠道参与解析：把没启用的渠道当默认值，用户一生成就报
+     * 「平台未启用」，比空着更让人困惑。
+     */
+    const usable = enabledChannels()
+    // 有预设 → 按预设（失效时兜底该渠道第一个模型）
+    const byPreset = resolvePreset(presetRef.current, usable)
+    if (byPreset) return byPreset
+    /**
+     * 没预设（全新用户 / 刚配好渠道还没手动选过）→ **取第一个可用的渠道**。
+     * 不做这层兜底的话，用户会觉得「默认根本没做」——这正是他二次反馈的场景。
+     */
+    return firstUsableChannel(usable)
   }
 
   return {

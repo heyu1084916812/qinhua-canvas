@@ -217,4 +217,95 @@ describe('channelStore', () => {
     await store.reorder([b.id, a.id])
     expect(store.getState().channels.map((c) => c.name)).toEqual(['B', 'A'])
   })
+
+  /**
+   * 生成预设（新建节点默认渠道 + 模型，用户 2026-09-17 提）。
+   *
+   * ★ 这条锁的是一个**真实回归**（2026-09-18 实测）：页面曾把默认值缓存一份，
+   * 而 `rememberPreset` 只更新 store 内部那份 —— 于是「刚在面板里选完渠道模型，
+   * 新建节点仍然是空的」，非得刷新页面才生效。
+   * 语义上 `rememberPreset` 之后 `defaultForNewNode` 必须**立刻**反映，不能等下一次读库。
+   */
+  it('★ rememberPreset 之后 defaultForNewNode 立刻生效（不等刷新）', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+    const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
+    await store.setEnabled(ch.id, true)
+    await store.setModels(ch.id, [
+      { id: 'model-a', category: 'image', inputTypes: ['text'] },
+    ])
+
+    // 还没选过，但渠道可用 → 用兜底（第一个可用渠道的第一个已勾选模型）
+    expect(await store.defaultForNewNode()).toEqual({
+      channelId: ch.id,
+      model: 'model-a',
+      substituted: true,
+    })
+
+    await store.rememberPreset(ch.id, 'model-a')
+    expect(await store.defaultForNewNode()).toEqual({
+      channelId: ch.id,
+      model: 'model-a',
+      substituted: false,
+    })
+  })
+
+  it('预设里的模型已不在该渠道 → 兜底取第一个已勾选模型', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+    const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
+    await store.setEnabled(ch.id, true)
+    await store.setModels(ch.id, [{ id: 'still-here', category: 'image', inputTypes: ['text'] }])
+    await store.rememberPreset(ch.id, 'gone-away')
+    expect(await store.defaultForNewNode()).toEqual({
+      channelId: ch.id,
+      model: 'still-here',
+      substituted: true,
+    })
+  })
+
+  it('只选了渠道、还没选模型 → 不记预设；渠道又没勾模型时确实没有默认值', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+    const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
+    await store.setEnabled(ch.id, true)
+    await store.rememberPreset(ch.id, '')
+    // 「半份预设」没被记下（这是 rememberPreset 的职责）；
+    // 而这个渠道**一个模型都没勾**，兜底也无从取值 → null 是对的。
+    expect(await store.defaultForNewNode()).toBeNull()
+  })
+
+  /**
+   * ★ 全新用户：从没手动选过模型，但已经配好并启用了渠道。
+   *
+   * 这条正是用户二次反馈的场景（「新建生成节点的渠道还是默认没有」）——
+   * 此前没有任何预设就返回 null，于是每个新节点都空着，看起来像功能没做。
+   * 配好的渠道本身就是意图表达，该拿来当默认。
+   */
+  it('★ 从未选过模型 + 有已启用渠道 → 用该渠道兜底，而不是留空', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+    const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
+    await store.setModels(ch.id, [{ id: 'only-model', category: 'image', inputTypes: ['text'] }])
+    await store.setEnabled(ch.id, true)
+    expect(await store.defaultForNewNode()).toEqual({
+      channelId: ch.id,
+      model: 'only-model',
+      substituted: true,
+    })
+  })
+
+  it('渠道**未启用**时不参与默认（否则一点生成就报「平台未启用」）', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+    const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
+    await store.setModels(ch.id, [{ id: 'm', category: 'image', inputTypes: ['text'] }])
+    // 刻意不 setEnabled
+    expect(await store.defaultForNewNode()).toBeNull()
+  })
 })

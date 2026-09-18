@@ -111,3 +111,25 @@ export function resolvePreset(
   if (!first) return null
   return { channelId: preset.channelId, model: first.id, substituted: true }
 }
+
+/**
+ * 没有任何预设时的兜底：**取第一个有已勾选模型的渠道**。
+ *
+ * 为什么需要它（用户 2026-09-18 又提了一次「新建节点还是没默认」）：
+ * 预设只在「用户在面板里手动选过模型」之后才会存在。一个全新用户 ——
+ * 或者刚配好渠道、直接从画布开始建节点的人 —— 从来没触发过那次记录，
+ * 于是每个新节点都是空的，看起来像「默认功能没做」。
+ *
+ * 他配好的渠道本身就是意图表达：**有已启用渠道、且勾了模型，就该拿来当默认**。
+ * 只认「已勾选模型」而不是 `modelCache`（后者是拉回来的全部，可能几十上百个，
+ * 拿第一个当默认等于随机）。
+ */
+export function firstUsableChannel(
+  channels: readonly PresetChannelLike[],
+): ResolvedPreset | null {
+  for (const c of channels) {
+    const first = c.models[0]
+    if (first) return { channelId: c.id, model: first.id, substituted: true }
+  }
+  return null
+}

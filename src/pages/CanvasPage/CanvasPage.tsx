@@ -58,24 +58,6 @@ function CanvasProject({ projectId }: { projectId: string }) {
   }
   const store = storeRef.current
   const channels = useChannels()
-  /**
-   * 新建生成节点时用的默认「渠道 + 模型」。
-   *
-   * 预取一次放进 ref，而不是每次新建都 await：新建是即时交互，
-   * 为它多等一次 IndexedDB 往返会让按钮「卡一下」。
-   * 预设在别处被更新时（`rememberPreset`）由这个 ref 之外的调用方各自持有最新值，
-   * 这里的 ref 只保证「打开页面后新建就用上次那个」——够用且简单。
-   */
-  const presetRef = useRef<{ channelId: string; model: string } | null>(null)
-  useEffect(() => {
-    let cancelled = false
-    void channels.defaultForNewNode().then((p) => {
-      if (!cancelled) presetRef.current = p
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [channels])
 
   // 从 IndexedDB 读回图数据（demo 不需要）；读回后若是模板新建的项目，套用模板预置节点
   useEffect(() => {
@@ -178,9 +160,16 @@ function CanvasProject({ projectId }: { projectId: string }) {
     const min = NODE_MINIMUMS[type]
     /**
      * 生成类节点默认带上**上次用过的渠道与模型**（用户 2026-09-17）。
-     * 规则在 domain/newNodePreset，这里只负责把已解析好的预设取来喂给它。
+     *
+     * 每次新建都**现取**，而不是在页面挂载时缓存一份：
+     * 缓存的写法有个真实缺陷——用户在面板里选完渠道/模型后（`rememberPreset` 落库），
+     * 页面里那份缓存并不会更新，于是「刚选完，新建节点仍是空的」，
+     * 非得刷新页面才生效（2026-09-18 实测确认）。
+     *
+     * 现取并不慢：`defaultForNewNode()` 内部有内存缓存，只在首次读一次库。
      */
-    const data = newGeneratingNodeData(type, presetRef.current)
+    const preset = await channels.defaultForNewNode()
+    const data = newGeneratingNodeData(type, preset)
     const res = store.dispatch({
       kind: 'node.create',
       projectId,
