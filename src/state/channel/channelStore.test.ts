@@ -219,13 +219,13 @@ describe('channelStore', () => {
   })
 
   /**
-   * 生成配方（新建节点默认渠道 + 模型 + 参数，用户 2026-09-18 定稿）。
+   * 生成配方（新建节点默认渠道 + 模型 + 参数，2026-09-18 定稿为**按渠道记忆**）。
    *
    * 两条规则：
-   * - 项目**从没生成过** → 第一个渠道的第一个模型
-   * - 项目**生成过** → 最后一次生成用的那套（渠道 + 模型 + 参数）
+   * - 该渠道**没记过** → 第一个可用渠道的第一个模型
+   * - 该渠道**记过** → 上一次生成用的那套（模型 + 参数）
    */
-  it('★ 项目从没生成过 → 取第一个渠道的第一个模型（而不是留空）', async () => {
+  it('★ 没记过 → 取第一个渠道的第一个模型（而不是留空）', async () => {
     const p = createMemoryPlatform()
     const store = createChannelStore(p)
     await store.load()
@@ -233,7 +233,7 @@ describe('channelStore', () => {
     await store.setEnabled(ch.id, true)
     await store.setModels(ch.id, [{ id: 'model-a', category: 'image', inputTypes: ['text'] }])
 
-    expect(await store.defaultForNewNode('proj-1')).toEqual({
+    expect(await store.defaultForNewNode({})).toEqual({
       channelId: ch.id,
       model: 'model-a',
       params: {},
@@ -241,7 +241,7 @@ describe('channelStore', () => {
     })
   })
 
-  it('★ 生成过 → 用记录的那套（含参数），并且立刻生效（不等刷新）', async () => {
+  it('★ 记过 → 用记录的那套（含参数），并且立刻生效（不等刷新）', async () => {
     const p = createMemoryPlatform()
     const store = createChannelStore(p)
     await store.load()
@@ -249,8 +249,8 @@ describe('channelStore', () => {
     await store.setEnabled(ch.id, true)
     await store.setModels(ch.id, [{ id: 'model-a', category: 'image', inputTypes: ['text'] }])
 
-    await store.rememberRecipe('proj-1', ch.id, 'model-a', { ratio: '16:9', count: 4 })
-    expect(await store.defaultForNewNode('proj-1')).toEqual({
+    await store.rememberRecipe(ch.id, 'model-a', { ratio: '16:9', count: 4 })
+    expect(await store.defaultForNewNode({})).toEqual({
       channelId: ch.id,
       model: 'model-a',
       params: { ratio: '16:9', count: 4 },
@@ -259,10 +259,43 @@ describe('channelStore', () => {
   })
 
   /**
-   * ★ 配方按项目隔离（用户 2026-09-18 修订自「全局一份」）。
-   * A 项目选的模型不该跑到 B 项目去——这正是全局粒度站不住的地方。
+   * ★ 配方按**渠道**隔离（2026-09-18 晚收口）。
+   *
+   * 本项目统一走渠道，参照项目「按执行模式分桶」的那层在这里等价于渠道层：
+   * 两条渠道各记各的，A 渠道选的模型不该跑到 B 渠道去。
    */
-  it('★ 配方按项目隔离：一个项目的记录不影响另一个', async () => {
+  it('★ 配方按渠道隔离：一条渠道的记录不影响另一条', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+    const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
+    await store.setEnabled(ch.id, true)
+    await store.setModels(ch.id, [
+      { id: 'model-a', category: 'image', inputTypes: ['text'] },
+      { id: 'model-b', category: 'image', inputTypes: ['text'] },
+    ])
+    const ch2 = await store.create({ name: 'B', protocol: 'mock', baseUrl: '' })
+    await store.setEnabled(ch2.id, true)
+    await store.setModels(ch2.id, [{ id: 'other-a', category: 'image', inputTypes: ['text'] }])
+
+    await store.rememberRecipe(ch.id, 'model-b', { ratio: '16:9' })
+
+    // A 渠道用记录的那套
+    expect((await store.defaultForNewNode({ channelId: ch.id }))?.model).toBe('model-b')
+    // B 渠道没记录 → 落回它自己的第一个模型（不是 A 渠道的 model-b）
+    expect(await store.defaultForNewNode({ channelId: ch2.id })).toEqual({
+      channelId: ch2.id,
+      model: 'other-a',
+      params: {},
+      substituted: true,
+    })
+  })
+
+  /**
+   * ★ 节点自身带齐渠道 + 模型 → 原样保留。
+   * 这是面板兜底**不能**抢用户选择的那条边界。
+   */
+  it('★ 节点自身带渠道 + 模型 → 原样保留（不替换、不覆盖）', async () => {
     const p = createMemoryPlatform()
     const store = createChannelStore(p)
     await store.load()
@@ -273,16 +306,11 @@ describe('channelStore', () => {
       { id: 'model-b', category: 'image', inputTypes: ['text'] },
     ])
 
-    await store.rememberRecipe('proj-1', ch.id, 'model-b', { ratio: '16:9' })
-
-    // proj-1 用记录的那套
-    expect((await store.defaultForNewNode('proj-1'))?.model).toBe('model-b')
-    // proj-2 没记录 → 落回第一个模型（不是 proj-1 的 model-b）
-    expect(await store.defaultForNewNode('proj-2')).toEqual({
+    expect(await store.defaultForNewNode({ channelId: ch.id, model: 'model-b' })).toEqual({
       channelId: ch.id,
-      model: 'model-a',
+      model: 'model-b',
       params: {},
-      substituted: true,
+      substituted: false,
     })
   })
 
@@ -293,8 +321,8 @@ describe('channelStore', () => {
     const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
     await store.setEnabled(ch.id, true)
     await store.setModels(ch.id, [{ id: 'still-here', category: 'image', inputTypes: ['text'] }])
-    await store.rememberRecipe('proj-1', ch.id, 'gone-away', { quality: 'high' })
-    expect(await store.defaultForNewNode('proj-1')).toEqual({
+    await store.rememberRecipe(ch.id, 'gone-away', { quality: 'high' })
+    expect(await store.defaultForNewNode({ channelId: ch.id })).toEqual({
       channelId: ch.id,
       model: 'still-here',
       params: { quality: 'high' },
@@ -308,8 +336,8 @@ describe('channelStore', () => {
     await store.load()
     const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
     await store.setEnabled(ch.id, true)
-    await store.rememberRecipe('proj-1', ch.id, '', {})
-    expect(await store.defaultForNewNode('proj-1')).toBeNull()
+    await store.rememberRecipe(ch.id, '', {})
+    expect(await store.defaultForNewNode({ channelId: ch.id })).toBeNull()
   })
 
   it('渠道**未启用**时不参与默认（否则一点生成就报「平台未启用」）', async () => {
@@ -319,7 +347,7 @@ describe('channelStore', () => {
     const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
     await store.setModels(ch.id, [{ id: 'm', category: 'image', inputTypes: ['text'] }])
     // 刻意不 setEnabled
-    expect(await store.defaultForNewNode('proj-1')).toBeNull()
+    expect(await store.defaultForNewNode({})).toBeNull()
   })
 
   /**
@@ -336,7 +364,7 @@ describe('channelStore', () => {
       { id: 'img-1', category: 'image', inputTypes: ['text'] },
       { id: 'chat-1', category: 'chat', inputTypes: ['text'] },
     ])
-    const picked = await store.defaultForNewNode('proj-1', 'chat')
+    const picked = await store.defaultForNewNode({}, 'chat')
     expect(picked?.model).toBe('chat-1')
   })
 })

@@ -170,9 +170,12 @@ function CanvasProject({ projectId }: { projectId: string }) {
     /**
      * 提示词节点也要默认值（用户 2026-09-18：「提示词节点也一样」），
      * 但它要的是**文本模型**而不是生成用的图片模型。
+     *
+     * 新节点自身还没有渠道 / 模型，传空对象即可——解析链会走
+     * 「该渠道记录 → 第一个可用渠道的首模型」那两档。
      */
     if (type === 'prompt') {
-      const recipe = await channels.defaultForNewNode(projectId, 'chat')
+      const recipe = await channels.defaultForNewNode({}, 'chat')
       const promptData = recipe
         ? { channelId: recipe.channelId, model: recipe.model }
         : {}
@@ -190,7 +193,7 @@ function CanvasProject({ projectId }: { projectId: string }) {
       return
     }
 
-    const recipe = await channels.defaultForNewNode(projectId)
+    const recipe = await channels.defaultForNewNode({})
     const data = newGeneratingNodeData(type, recipe)
     const res = store.dispatch({
       kind: 'node.create',

@@ -1,4 +1,4 @@
-import { useSyncExternalStore, useState } from 'react'
+import { useEffect, useSyncExternalStore, useState } from 'react'
 import { clampDuration, type ModelCapability } from '../../../domain/shared/capability'
 import type { GenerationData } from '../../../domain/canvas/model/node'
 import type { PanelCollection, PanelModel, PanelThumb } from './panelModel'
@@ -189,6 +189,68 @@ export function CreationPanel(props: CreationPanelProps) {
     () => channels.getState().channels,
     () => channels.getState().channels,
   )
+  /** 面板形态判定要先于兜底：解析链按它决定模型类别（chat / video / image） */
+  const promptMode = props.mode === 'prompt'
+  /** 视频是生成节点的功能类别（`data.mode`），参数集与图片模式不同（§6.8） */
+  const videoMode = !promptMode && data.mode === 'video'
+  /**
+   * 面板兜底：节点上**空着**时，按**解析链**现算一个可用的渠道 / 模型。
+   *
+   * 为什么面板也要兜底：早期只在**创建那一刻**算一次，算不出来就写空节点；
+   * 于是「渠道已配置、模型只进了 modelCache、尚未勾选」这条最常见的路径下，
+   * 新建节点永远是空的，而面板这边又只看节点上的值——**没有第二道兜底**。
+   * 现在创建与面板调的是同一个 domain 解析链（`defaultForNewNode`）。
+   *
+   * **只在节点模型为空时兜底**，这是刻意的边界（G46 实测踩到）：
+   * 节点已经带了模型（哪怕它不属于当前类别）是**用户自己的状态**，
+   * 例如「图片 → 视频」切类别会把图片模型清掉，若这里又按新类别塞一个，
+   * 就等于面板在跟用户抢所有权——类别切换会立刻被填回一个值，切完看着像没生效。
+   *
+   * 兜底只影响**显示**：不写回节点。用户不动它、直接点生成，执行层仍按节点上
+   * 已固化的值为准；用户改选时才会把选择写回节点（与 §6.8「所见即所发」一致）。
+   */
+  const [fallback, setFallback] = useState<{ channelId: string; model: string } | null>(null)
+  const ownedChannelId = data.channelId ?? ''
+  const ownedModel = data.model ?? ''
+  /**
+   * 依赖用**稳定值**：`enabled` 是每次渲染新建的数组，直接进依赖会无限重跑；
+   * 渠道数量 + 各自的勾选状态足以覆盖「渠道被启用 / 被禁用 / 勾选模型变化」。
+   */
+  const channelSignature = enabled
+    .map((c) => `${c.id}:${c.models.length}:${c.modelCache?.length ?? 0}`)
+    .join('|')
+  useEffect(() => {
+    let cancelled = false
+    /**
+     * 节点模型非空 → 一律不兜底。节点上的值是用户的选择（或类别切换后的刻意为空），
+     * 面板是纯视图，不该拿解析链覆盖它。
+     */
+    if (ownedModel) {
+      setFallback(null)
+      return
+    }
+    /** 一个渠道都没有时不必算：解析链必然返回 null，白白多跑一次。 */
+    if (enabled.length === 0) {
+      setFallback(null)
+      return
+    }
+    const category = promptMode ? 'chat' : videoMode ? 'video' : 'image'
+    void channels
+      .defaultForNewNode({ channelId: ownedChannelId, model: ownedModel }, category)
+      .then((recipe) => {
+        if (cancelled || !recipe) return
+        setFallback({ channelId: recipe.channelId, model: recipe.model })
+      })
+      .catch(() => {
+        /** 解析失败不该让面板崩：留空并照常渲染「还没配置渠道」的解释 */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [channels, ownedChannelId, ownedModel, promptMode, videoMode, channelSignature])
+  /** 面板实际展示的渠道 / 模型：节点自身优先，其次解析链兜底 */
+  const shownChannelId = ownedChannelId || fallback?.channelId || ''
+  const shownModel = ownedModel || fallback?.model || ''
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   /**
    * 当前展开的参数浮层（§6.8「同一时刻只允许一个面板打开，开新关旧」）。
@@ -199,10 +261,7 @@ export function CreationPanel(props: CreationPanelProps) {
   const [openPicker, setOpenPicker] = useState<string | null>(null)
   const closePicker = () => setOpenPicker(null)
   const togglePicker = (key: string) => setOpenPicker((cur) => (cur === key ? null : key))
-  const promptMode = props.mode === 'prompt'
   const tools = promptMode ? (props.promptTools ?? null) : null
-  /** 视频是生成节点的功能类别（`data.mode`），参数集与图片模式不同（§6.8） */
-  const videoMode = !promptMode && data.mode === 'video'
   /**
    * 第一部分是否为空（§6.8）。
    *
@@ -212,7 +271,7 @@ export function CreationPanel(props: CreationPanelProps) {
    */
   const assetsEmpty = model.thumbs.length === 0 && model.collections.length === 0
 
-  const activeChannel = enabled.find((c) => c.id === data.channelId)
+  const activeChannel = enabled.find((c) => c.id === shownChannelId)
   /**
    * 该渠道可选的全部模型。
    *
@@ -240,7 +299,7 @@ export function CreationPanel(props: CreationPanelProps) {
    */
   const wantedCategory = promptMode ? 'chat' : videoMode ? 'video' : 'image'
   const models: ModelCapability[] = channelModels.filter((m) => m.category === wantedCategory)
-  const activeModel = models.find((m) => m.id === data.model)
+  const activeModel = models.find((m) => m.id === shownModel)
   /** 类别名：写进占位文案与空态提示，让「没模型」这件事说得出是**哪一类**没有 */
   const categoryLabel = promptMode ? '文本模型' : videoMode ? '视频模型' : '生图模型'
   /**
@@ -278,9 +337,17 @@ export function CreationPanel(props: CreationPanelProps) {
    * 与数量上限同一条道理（§6.8「未声明」不等于「不支持」）。
    */
   const showRefMode = !activeModel || (activeModel.maxReferenceImages ?? 0) > 0
-  /** 切换功能类别时，当前模型是否属于目标类别；不属于就得清掉（否则会把图片模型发给视频渠道） */
+  /**
+   * 切换功能类别时，**节点自己存的**模型是否属于目标类别；不属于就得清掉
+   * （否则会把图片模型发给视频渠道）。
+   *
+   * 判的是 `data.model` 而**不是** `shownModel`（G46 实测踩到）：
+   * `shownModel` 可能来自面板兜底，而兜底是按**当前**类别算的——
+   * 拿它判「该不该清」会永远判成「属于」，切类别就清不掉了。
+   * 这里问的是「用户存的这个值还要不要」，与「面板暂时显示什么」是两回事。
+   */
   const modelBelongsTo = (m: 'image' | 'video') =>
-    !!data.model && channelModels.some((x) => x.id === data.model && x.category === m)
+    !!ownedModel && channelModels.some((x) => x.id === ownedModel && x.category === m)
 
   /**
    * 全局运行中**不再**禁用本节点的生成按钮（用户报「一个节点生成时其他节点无法生成」）。
@@ -549,7 +616,7 @@ export function CreationPanel(props: CreationPanelProps) {
             ariaLabel="生成平台"
             label={activeChannel?.name ?? '平台'}
             options={enabled.map((c) => ({ value: c.id, label: c.name }))}
-            value={data.channelId}
+            value={shownChannelId}
             variant="list"
             open={openPicker === 'channel'}
             onToggle={() => togglePicker('channel')}
@@ -572,7 +639,7 @@ export function CreationPanel(props: CreationPanelProps) {
               (promptMode && activeChannel && models.length === 0 ? '暂无可用文本模型' : categoryLabel)
             }
             options={models.map((m) => ({ value: m.id, label: m.id }))}
-            value={data.model}
+            value={shownModel}
             variant="list"
             open={openPicker === 'model'}
             onToggle={() => togglePicker('model')}

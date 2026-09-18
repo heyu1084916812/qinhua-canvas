@@ -250,18 +250,17 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       const summary = await startRun(plan)
 
       /**
-       * 记「这个项目的生成配方」（用户 2026-09-18）。
+       * 记「这条渠道的生成配方」（用户 2026-09-18，晚收口为按渠道）。
        *
        * 时机 = **生成成功之后**，不是选参数的瞬间：
        * 用户要的是「最后一次**生成**用的那套」——选了却失败/没跑的那次不该影响默认值。
        * 记录内容取本次计划的**首个 task**（同一次生成里渠道/模型/参数是一致的；
-       * N 张只是同一个配方跑 N 次）。
+       * N 张只是同一个配方跑 N 次）。渠道从 task 自己带，不需要再读项目。
        */
       if (summary.succeeded > 0) {
         const first = plan.tasks[0]
         if (first) {
           void channels.rememberRecipe(
-            store.getSnapshot().projectId,
             first.request.channelId,
             first.request.model,
             (first.request.params ?? {}) as Record<string, unknown>,

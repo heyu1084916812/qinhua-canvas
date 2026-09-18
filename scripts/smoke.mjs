@@ -5998,12 +5998,32 @@ async function g46(browser) {
       (await panel.locator('[data-param-chip="quality"]').count()) === 0 &&
       (await panel.locator('[data-param-count]').count()) === 0,
   )
-  rec(g, '切类别后旧模型被清空（图片模型不属于视频类）', (await paramLabel(panel, 'model')) === '视频模型')
+  /**
+   * 切类别后**旧模型必须被清掉**——图片模型不能活到视频模式里。
+   *
+   * 断言的是**意图**（图片模型走了），不是「chip 显示占位」这个旧表象：
+   * 2026-09-18 起面板带解析链兜底，模型被清空后会立刻按新类别补一个可用模型，
+   * 所以 chip 会显示 `mock-video-1` 而不是占位「视频模型」。
+   * 若这里仍断言占位，等于要求「清空后必须空着」——与用户「新建节点不能没默认」冲突。
+   */
+  const modelAfterSwitch = await paramLabel(panel, 'model')
+  rec(
+    g,
+    '切类别后旧模型被清空（图片模型不属于视频类）',
+    modelAfterSwitch !== 'mock-image-1',
+    `chip=${modelAfterSwitch}`,
+  )
   const videoOpts = await paramOptions(page, panel, 'model')
+  /**
+   * 选项文案可能带「✓」（当前选中项），故按**包含**判断而不是全等——
+   * 2026-09-18 起面板带解析链兜底，切到视频后会自动选中一个视频模型，
+   * 该选项自然带上选中标记。断言关心的是「列了哪些模型」，不是「哪个被选中」。
+   */
+  const optHas = (needle) => videoOpts.some((t) => t.includes(needle))
   rec(
     g,
     '视频类别只列视频模型',
-    videoOpts.includes('mock-video-1') && !videoOpts.includes('mock-image-1'),
+    optHas('mock-video-1') && !optHas('mock-image-1'),
     `opts=${JSON.stringify(videoOpts)}`,
   )
   await page.screenshot({ path: `${OUT}/46-b-video-params.png` })

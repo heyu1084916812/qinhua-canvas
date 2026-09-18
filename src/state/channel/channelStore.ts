@@ -3,10 +3,9 @@ import type { PlatformKit } from '../../platform/ports'
 import type { Channel, CreateChannelInput } from '../../domain/project/channel'
 import { PROBE_PROTOCOLS, requiresBaseUrl, tokenTailOf } from '../../domain/project/channel'
 import {
-  firstUsableChannel,
   NO_RECIPE,
   rememberRecipe,
-  resolveRecipe,
+  resolveForNode,
 } from '../../domain/project/generationPreset'
 import type { ModelCapability } from '../../domain/shared/capability'
 import { createChannelRepository, type ChannelRepository } from '../project/channelRepository'
@@ -97,25 +96,32 @@ export interface ChannelStoreActions {
   /** 已启用渠道：供创作面板的平台下拉使用（M2-2 接入） */
   enabledChannels(): Channel[]
   /**
-   * 记住「**这次生成**实际用的渠道 + 模型 + 参数」，作为该项目新建节点的默认值
-   * （用户 2026-09-18）。调用方是**生成成功那一刻**，不是选参数的瞬间——
-   * 用户要的是「最后一次生成用的那套」，选了却没生成的不该影响默认值。
+   * 记住「**这次生成**实际用的渠道 + 模型 + 参数」，作为该渠道新建节点的默认值
+   * （用户 2026-09-18，2026-09-18 晚收口为按渠道）。调用方是**生成成功那一刻**，
+   * 不是选参数的瞬间——用户要的是「最后一次生成用的那套」，选了却没生成的不该影响默认值。
    */
   rememberRecipe(
-    projectId: string,
     channelId: string,
     model: string,
     params: Record<string, unknown>,
   ): Promise<void>
   /**
-   * 新建节点时该填的渠道 / 模型 / 参数。
+   * 给节点解析「该填的渠道 / 模型 / 参数」。
    *
-   * - 该项目**生成过** → 用记录的那套（模型失效时兜底该渠道第一个可用模型）
-   * - 该项目**从没生成过** → 用后台设置的**第一个渠道的第一个模型**
+   * 解析链（与 domain/project/generationPreset.resolveForNode 同源）：
+   * 1. 节点自身已带的渠道 / 模型（`node` 参数，用户手动选过的最优先）
+   * 2. 该渠道上次记录（模型失效时兜底该渠道第一个可用模型）
+   * 3. 第一个可用渠道的第一个可用模型
+   * 4. 都没有 → `null`（调用方给出可诊断的解释）
+   *
    * - `category`：提示词节点只要文本模型（生成节点不需要传）
+   *
+   * 为什么带 `node` 参数：面板打开时节点可能已经带了渠道 / 模型，
+   * 但也可能是「创建那刻没算出来」的空节点——此时面板用同一条解析链现算，
+   * 不再留一个空下拉。这是修「明明配好渠道，新建节点还是空的」的关键。
    */
   defaultForNewNode(
-    projectId: string,
+    node: { channelId?: string; model?: string },
     category?: string,
   ): Promise<{ channelId: string; model: string; params: Record<string, unknown>; substituted: boolean } | null>
 }
@@ -332,36 +338,52 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
    * 而这个 store 正是列表的持有者。规则本身仍在 domain 的纯函数里，
    * 这里只把列表喂给它——不复制那份判断。
    */
-  /** 内存缓存：projectId → 配方（避免每次建节点都读一次库） */
+  /**
+   * 内存缓存：channelId → 配方（避免每次建节点都读一次库）。
+   *
+   * `cacheLoaded` 区分「还没从库里读过」与「读过但一条都没有」——
+   * 否则第二种情况会每次新建都重读一次库。
+   */
   const recipeCache = new Map<string, typeof NO_RECIPE>()
+  let cacheLoaded = false
 
-  const rememberRecipeOfProject: ChannelStoreActions['rememberRecipe'] = async (
-    projectId,
+  const ensureRecipes = async (): Promise<void> => {
+    if (cacheLoaded) return
+    recipeCache.clear()
+    for (const [channelId, recipe] of await presets.loadAll()) {
+      recipeCache.set(channelId, recipe)
+    }
+    cacheLoaded = true
+  }
+
+  const rememberRecipeOfChannel: ChannelStoreActions['rememberRecipe'] = async (
     channelId,
     model,
     params,
   ) => {
     const next = rememberRecipe(channelId, model, params, Date.now())
     if (!next) return
-    recipeCache.set(projectId, next)
-    await presets.save(projectId, next)
+    recipeCache.set(channelId, next)
+    await presets.save(next)
   }
 
-  const defaultForNewNode: ChannelStoreActions['defaultForNewNode'] = async (projectId, category) => {
-    if (!recipeCache.has(projectId)) recipeCache.set(projectId, await presets.load(projectId))
+  const defaultForNewNode: ChannelStoreActions['defaultForNewNode'] = async (node, category) => {
+    await ensureRecipes()
     /**
      * 只拿**已启用**的渠道参与解析：把没启用的当默认值，用户一生成就报
      * 「平台未启用」，比空着更让人困惑。
      */
     const usable = enabledChannels()
-    // 有配方 → 按配方（模型失效时兜底该渠道第一个可用模型）
-    const byRecipe = resolveRecipe(recipeCache.get(projectId)!, usable, category)
-    if (byRecipe) return byRecipe
     /**
-     * 没有配方（项目从未生成过）→ **第一个渠道的第一个模型**。
-     * 用户口径：「项目开始如果没有生成过的话用后台设置的第一个渠道的对应第一个模型」。
+     * 解析链收在 domain 的纯函数里（见 generationPreset.resolveForNode），
+     * 面板兜底与创建路径**调的是同一个函数**——两条路各写一份必然漂移。
      */
-    return firstUsableChannel(usable, category)
+    return resolveForNode(
+      node,
+      usable,
+      (channelId) => recipeCache.get(channelId) ?? NO_RECIPE,
+      category,
+    )
   }
 
   return {
@@ -380,7 +402,7 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
     detectProtocol,
     refreshModels,
     enabledChannels,
-    rememberRecipe: rememberRecipeOfProject,
+    rememberRecipe: rememberRecipeOfChannel,
     defaultForNewNode,
   }
 }

@@ -6,6 +6,7 @@ import {
   recipeFromRow,
   recipeToRow,
   rememberRecipe,
+  resolveForNode,
   resolveRecipe,
   type PresetChannelLike,
 } from './generationPreset'
@@ -106,15 +107,16 @@ describe('生成配方（新建节点的默认渠道 / 模型 / 参数）', () =
   })
 
   /**
-   * ★ 配方**按项目存**（用户 2026-09-18 修订自「全局一份」）。
-   * 行主键由 projectId 派生，两个项目互不覆盖。
+   * ★ 配方**按渠道存**（2026-09-18 晚收口；对照参考项目的「模式桶」后确认，
+   * 本项目统一走渠道，故其模式层等价于渠道层）。行主键由 channelId 派生，
+   * 两条渠道互不覆盖。
    */
-  it('★ 行主键按项目隔离：两个项目的配方互不覆盖', () => {
-    const a = recipeToRow('p1', { channelId: 'c', model: 'm', params: {}, savedAt: 0 })
-    const b = recipeToRow('p2', { channelId: 'c', model: 'm', params: {}, savedAt: 0 })
+  it('★ 行主键按渠道隔离：两条渠道的配方互不覆盖', () => {
+    const a = recipeToRow({ channelId: 'ch1', model: 'm', params: {}, savedAt: 0 })
+    const b = recipeToRow({ channelId: 'ch2', model: 'm', params: {}, savedAt: 0 })
     expect(a.id).not.toBe(b.id)
-    expect(a.id).toBe(presetRowId('p1'))
-    expect(a.projectId).toBe('p1')
+    expect(a.id).toBe(presetRowId('ch1'))
+    expect(a.channelId).toBe('ch1')
   })
 
   it('配方仍可用 → 原样返回（含参数）', () => {
@@ -142,5 +144,101 @@ describe('生成配方（新建节点的默认渠道 / 模型 / 参数）', () =
     expect(resolveRecipe({ channelId: 'gone', model: 'm1', params: {}, savedAt: 0 }, channels)).toBeNull()
     expect(resolveRecipe({ channelId: 'ch2', model: 'm1', params: {}, savedAt: 0 }, channels)).toBeNull()
     expect(resolveRecipe(NO_RECIPE, channels)).toBeNull()
+  })
+
+  /**
+   * ★ `resolveForNode` 是**统一入口**：创建路径与面板兜底都调它。
+   *
+   * 这组用例锁的是「节点是空的也能解析出默认值」——正是那个用户反复报的
+   * bug（明明配了渠道，新建节点还是空的）。
+   */
+  describe('resolveForNode（解析链）', () => {
+    const noRecipes = () => NO_RECIPE
+
+    it('★ 节点什么都没有 → 取第一个可用渠道的首模型', () => {
+      expect(resolveForNode({}, channels, noRecipes)).toEqual({
+        channelId: 'ch1',
+        model: 'm1',
+        params: {},
+        substituted: true,
+      })
+    })
+
+    it('★ 节点带渠道但没模型 → 该渠道首模型（面板兜底的关键一档）', () => {
+      expect(resolveForNode({ channelId: 'ch1' }, channels, noRecipes)).toEqual({
+        channelId: 'ch1',
+        model: 'm1',
+        params: {},
+        substituted: true,
+      })
+    })
+
+    it('★ 节点带渠道 + 模型且都可用 → 原样保留，不替换', () => {
+      expect(resolveForNode({ channelId: 'ch1', model: 'm2' }, channels, noRecipes)).toEqual({
+        channelId: 'ch1',
+        model: 'm2',
+        params: {},
+        substituted: false,
+      })
+    })
+
+    it('★ 节点模型已失效 → 落到该渠道的记录，参数一并沿用', () => {
+      const recipes = (channelId: string) =>
+        channelId === 'ch1'
+          ? { channelId: 'ch1', model: 'm2', params: { ratio: '16:9' }, savedAt: 1 }
+          : NO_RECIPE
+      expect(resolveForNode({ channelId: 'ch1', model: 'gone' }, channels, recipes)).toEqual({
+        channelId: 'ch1',
+        model: 'm2',
+        params: { ratio: '16:9' },
+        substituted: false,
+      })
+    })
+
+    it('★ 节点带齐但渠道已失效 → 落到第一个可用渠道', () => {
+      expect(resolveForNode({ channelId: 'gone', model: 'm1' }, channels, noRecipes)).toEqual({
+        channelId: 'ch1',
+        model: 'm1',
+        params: {},
+        substituted: true,
+      })
+    })
+
+    it('★ category 过滤提示词节点：第一档就只要 chat 模型', () => {
+      const withChat = [
+        { id: 'img', models: [{ id: 'i1' }] },
+        { id: 'chat', models: [{ id: 'c1', category: 'chat' }] },
+      ] as unknown as PresetChannelLike[]
+      expect(resolveForNode({}, withChat, noRecipes, 'chat')).toEqual({
+        channelId: 'chat',
+        model: 'c1',
+        params: {},
+        substituted: true,
+      })
+    })
+
+    it('全都没有可用模型 → null（调用方给可诊断的解释，不留空白下拉）', () => {
+      expect(resolveForNode({}, [{ id: 'ch2', models: [] }], noRecipes)).toBeNull()
+    })
+
+    /**
+     * ★ 节点是空的、但该渠道记过配方 → 必须捡回记录（含参数）。
+     *
+     * 这条是「创建路径」的核心：新建节点自身什么都没有，若解析链直接跳到
+     * 「第一个可用渠道的首模型」，就会把上次生成用的参数（比例 / 数量）丢掉，
+     * 「按渠道记忆」这条规则在创建路径上等于失效。
+     */
+    it('★ 空节点 + 有记录 → 捡回记录（含参数），不退化成首模型', () => {
+      const recipes = (channelId: string) =>
+        channelId === 'ch1'
+          ? { channelId: 'ch1', model: 'm2', params: { ratio: '16:9', count: 4 }, savedAt: 1 }
+          : NO_RECIPE
+      expect(resolveForNode({}, channels, recipes)).toEqual({
+        channelId: 'ch1',
+        model: 'm2',
+        params: { ratio: '16:9', count: 4 },
+        substituted: false,
+      })
+    })
   })
 })

@@ -5,26 +5,37 @@
  * 于是每建一个节点都要重新选一次。而一个项目通常固定用同一个渠道与模型——
  * 默认值应该是「上次那套」，不是「没选」。
  *
- * ## 取值规则（用户 2026-09-18 口径）
+ * ## 取值规则（2026-09-18 定稿：**按渠道记忆**）
  *
- * | 项目状态 | 默认值 |
+ * | 情形 | 默认值 |
  * | --- | --- |
- * | 从未生成过 | 后台设置的**第一个渠道 → 第一个模型** |
- * | 生成过 | **最后一次生成时用的那一套**（渠道 + 模型 + 生成参数） |
+ * | 该渠道记过 | 该渠道**上一次生成用的那一套**（模型 + 生成参数） |
+ * | 从没记过 | 后台设置的**第一个可用渠道 → 它的第一个可用模型** |
  *
- * ## 为什么按项目一份（修订自「全局一份」）
+ * ## 为什么按渠道一份（修订自「按项目一份」「全局一份」）
  *
- * 早先存全局，理由是「渠道配置跨项目共享，同粒度最不容易串」。那个理由站不住：
- * **渠道共享 ≠ 选择共享**——同一个渠道在不同项目里常配不同的模型与参数，
- * 全局一份会让 A 项目的选择跑到 B 项目去。用户要的是「打开这个项目时，
- * 用关闭它时最后一次生成选的那套」。
+ * 全局一份会让 A 项目的选择跑到 B 项目去，站不住。改成「按项目一份」后仍不理想：
+ * 同一个项目里换渠道（生图站 vs 对话站）本该各记各的，按项目只会互相覆盖。
+ * 对照参考项目「大雄无限画布」后确认：它把记忆按**执行模式**分桶，而本项目
+ * **统一走渠道**、执行引擎不分叉——故它的「模式桶」在这里天然等价于**渠道这一层**。
+ *
+ * ## 解析链（创建与面板兜底**共用**）
+ *
+ * 1. 节点自身已有的 `channelId` / `model`
+ * 2. 该渠道上次记录（模型失效 → 该渠道第一个可用模型）
+ * 3. 第一个可用渠道的第一个可用模型
+ * 4. 都没有 → `null`（调用方给出可诊断的解释，不留空白下拉）
+ *
+ * 早期只在**创建那一刻**算一次、算不出就写空，且面板侧没有第二道兜底，
+ * 于是「渠道已配置、模型只进了 `modelCache`、尚未勾选」这条最常见路径下永远为空。
+ * 把解析链收成这一个函数，创建与面板都调它，是修这个 bug 的关键。
  *
  * ## 为什么记「生成时」而不是「选参数时」
  *
  * 用户要的是「最后一次**生成**用的」。选了参数却没点生成的那次不该影响默认值。
  *
  * 纯数据 + 纯函数：不读时间、不碰 storage、不依赖 React，可在 node 下单测。
- * 存哪儿由 state 层决定（见 state/project/presetStore，键带 projectId）。
+ * 存哪儿由 state 层决定（见 state/project/presetStore，键带 channelId）。
  */
 
 /**
@@ -41,19 +52,27 @@ export interface GenerationRecipe {
   savedAt: number
 }
 
-/** 配方在库里的行形态：一行一个项目 */
+/**
+ * 配方在库里的行形态：**一行一渠道**（按渠道记忆，2026-09-18 收口）。
+ *
+ * 为什么从「一项目一行」收到「一渠道一行」：对照参考项目「大雄无限画布」后确认——
+ * 它把「记住上次设置」按**执行模式**分桶（api 生图 / api 视频 / comfy 文案…），
+ * 必须分桶是因为那几档对应**完全不同的执行引擎**、参数结构不通用；
+ * 本项目**统一走渠道**、执行引擎不分叉，故它的「模式桶」在这里天然等价于「渠道这一层」。
+ *
+ * 配方以 `channelId` 作身份，所以这里**不再需要 projectId**。
+ */
 export interface PresetRow {
   id: string
-  projectId: string
   channelId: string
   model: string
   params: Record<string, unknown>
   savedAt: number
 }
 
-/** 行主键由 projectId 派生：一个项目一行 */
-export function presetRowId(projectId: string): string {
-  return `recipe:${projectId}`
+/** 行主键由 channelId 派生：一个渠道一行 */
+export function presetRowId(channelId: string): string {
+  return `recipe:${channelId}`
 }
 
 /** 空配方（没生成过 / 数据不可信时的取值） */
@@ -79,9 +98,9 @@ export function recipeFromRow(row: unknown): GenerationRecipe {
   return { channelId, model, params, savedAt }
 }
 
-/** 配方 → 行 */
-export function recipeToRow(projectId: string, recipe: GenerationRecipe): PresetRow {
-  return { id: presetRowId(projectId), projectId, ...recipe }
+/** 配方 → 行（主键由渠道派生） */
+export function recipeToRow(recipe: GenerationRecipe): PresetRow {
+  return { id: presetRowId(recipe.channelId), ...recipe }
 }
 
 /**
@@ -200,4 +219,73 @@ export function firstUsableChannel(
     }
   }
   return null
+}
+
+/**
+ * **统一入口**：给节点算「该用哪个渠道 / 模型 / 参数」。
+ *
+ * 为什么必须是**一个函数**、创建与面板都调它：早期两条路径各写一份——
+ * 创建时算一次写进节点，面板则只看节点上的值。两条路一漂移就出现
+ * 「新建节点渠道是空的，而面板明明有可用渠道」这种自相矛盾的状态。
+ *
+ * 解析链：
+ * 1. 节点自身已有的 `channelId` / `model`（用户手动选过，最优先）
+ * 2. 该渠道（或任一渠道）上次记录（`lookupRecipe`）
+ * 3. 第一个可用渠道的第一个可用模型
+ * 4. `null`
+ *
+ * @param owned    节点自身已带的渠道 / 模型（可空）
+ * @param channels 可用渠道（调用方已按 enabled 过滤）
+ * @param lookupRecipe 按 channelId 取上次记录；没记过返回空配方
+ * @param category 模型类别过滤：提示词节点传 `'chat'`，生成节点不传
+ */
+export function resolveForNode(
+  owned: { channelId?: string; model?: string },
+  channels: readonly PresetChannelLike[],
+  lookupRecipe: (channelId: string) => GenerationRecipe,
+  category?: string,
+): ResolvedRecipe | null {
+  const channelId = owned.channelId ?? ''
+  const model = owned.model ?? ''
+
+  /** 第 1 档：节点自己带了渠道——只看这个渠道的记录 / 首模型，不跨渠道兜底。 */
+  if (channelId) {
+    const channel = channels.find((c) => c.id === channelId)
+    if (channel) {
+      const available = [...channel.models, ...(channel.modelCache ?? [])]
+      /** 节点上的模型若仍可用，原样保留（连参数一起给回）。 */
+      if (model && available.some((m) => m.id === model)) {
+        const recipe = lookupRecipe(channelId)
+        return { channelId, model, params: recipe.params, substituted: false }
+      }
+      /** 模型失效 / 没选：该渠道记录 → 该渠道第一个可用模型。 */
+      const byRecipe = resolveRecipe(lookupRecipe(channelId), channels, category)
+      if (byRecipe) return byRecipe
+      const first = pickModel(channel, category)
+      if (first) return { channelId, model: first.id, params: {}, substituted: true }
+    }
+  }
+
+  /**
+   * 第 2 档：节点没带渠道（或渠道已失效）——按**渠道顺序**找第一条记过的配方。
+   *
+   * 为什么要遍历：节点空着时（新建刚建出来），解析必须能捡回「上次生成用的那套」，
+   * 否则「记过」这条规则在创建路径上形同虚设——直接掉到第 3 档、白丢参数。
+   *
+   * `model` 若也带了（渠道失效但模型名还在）优先找匹配该模型的记录，
+   * 命中不了再退回第一条记过的渠道——两者都优于「什么都不看直接取首模型」。
+   */
+  const candidates = model
+    ? [
+        ...channels.filter((c) => lookupRecipe(c.id).model === model),
+        ...channels.filter((c) => lookupRecipe(c.id).model !== model),
+      ]
+    : channels
+  for (const c of candidates) {
+    const resolved = resolveRecipe(lookupRecipe(c.id), [c], category)
+    if (resolved) return resolved
+  }
+
+  /** 第 3 档：第一个可用渠道的首模型。 */
+  return firstUsableChannel(channels, category)
 }
