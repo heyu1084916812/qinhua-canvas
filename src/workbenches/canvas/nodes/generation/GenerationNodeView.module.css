@@ -43,35 +43,42 @@
 
 /* 只有中间这个 `+` 是上传入口 */
 /*
- * 空态上传按钮（用户 2026-09-19）：
- * 深色底 `#2E2E2D` + 白色 `＋`，尺寸从 34px **放大一倍到 68px**。
+/*
+ * 空态上传按钮（用户 2026-09-19 定形）：
+ * **胶囊形**圆角矩形（宽 68px、高 30px、`--radius-pill`），深色实底 `#2E2E2D` + 白色文字「上传素材」。
  *
- * 空态是「这个节点还没东西」的唯一提示，34px 的浅色圈在画布上几乎看不见；
- * 深色实心块 + 大尺寸让它一眼可辨，点击目标也从 34×34 变成 68×68（远超 §4.5 的 44px 下限）。
- * 描边去掉：实心块已经足够界定边界，再描边会显得重。
+ * 形状：胶囊而不是圆角方块 / 圆形 —— 与参数 chip 同一套形状语言；宽度固定 68px（用户要求），高度压到 30px 才成胶囊比例（68×68 是圆的，68×30 才是胶囊）。
+ * 文案：`＋` 换成**文字**「上传素材」——纯符号按钮要用户猜含义，文字把「点这里会发生什么」直接说清（与 §4.5 的可见标签一致）。
+ *
+ * 字号用 `--fs-chip`（11px）+ `--fw-chip`：四字在 68px 内居中排得下（约 44px 字宽），`nowrap` + `overflow:hidden` 兜住极端字体下的溢出。
  */
-.plus {
+.uploadBtn {
   display: flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
   width: 68px;
-  height: 68px;
+  height: 30px;
+  padding: 0 var(--space-2);
   border: none;
   border-radius: var(--radius-pill);
   background: #2e2e2d;
   color: #ffffff;
   font-family: var(--font-sans);
-  font-size: 34px;
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
   line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
   cursor: pointer;
   transition: background var(--dur-hover) var(--ease-out), transform var(--dur-hover) var(--ease-out);
 }
 
-.plus:hover {
+.uploadBtn:hover {
   background: #3b3b39;
 }
 
-.plus:active {
+.uploadBtn:active {
   transform: scale(0.96);
 }
 

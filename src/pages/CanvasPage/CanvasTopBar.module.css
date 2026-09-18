@@ -32,14 +32,26 @@
   height: 32px;
   padding: 0 var(--space-2);
   border-radius: var(--radius-control);
+  /* 隐形底：平时看不出有一块，hover 才显形（用户 2026-09-19「鼠标滑过去出现实体色」） */
   background: transparent;
   cursor: pointer;
   user-select: none;
-  transition: background var(--dur-hover) var(--ease-out);
+  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
 }
 
-.brand:hover {
-  background: var(--bg-hover);
+.brand:hover,
+.brand:focus-visible {
+  /*
+   * **实体色**：hover 时整块变成强调色实心（文字转反色），而不是之前那点浅灰。
+   * 品牌位承担「回首页」这个导航动作，需要比参数胶囊的 hover 更明确的反馈——
+   * 浅灰在白色顶栏上几乎看不出，用户会以为它不可点。
+   */
+  background: var(--accent);
+}
+
+.brand:hover .brandMark,
+.brand:focus-visible .brandMark {
+  color: var(--accent-text);
 }
 
 .brand:focus-visible {
@@ -54,6 +66,7 @@
   font-weight: var(--fw-panel-title);
   color: var(--text-1);
   white-space: nowrap;
+  transition: color var(--dur-hover) var(--ease-out);
 }
 
 /* 导航族（返回 / 后台设置）与画布操作族之间的竖分隔线 */
@@ -156,41 +169,57 @@
 }
 
 /*
- * 关闭按钮（用户 2026-09-19）：只关这个标签，不删项目。
+ * 关闭按钮（用户 2026-09-19，2026-09-19 二轮修正）：只关这个标签，不删项目。
  *
- * hover 才加深、平时弱化——它是高频但低危的操作，常显会跟标签名抢注意力，
- * 完全隐藏又等于没有（上一版素材菜单就是因为藏起来而消失的）。折中：平时半透明、hover 浮现。
+ * **必须常显**（上一版做成 opacity .45 + hover 才浮，结果在实色底的当前标签上
+ * 根本看不见）：现在选中 / 未选中各给一种**明确**颜色，与标签名同色系但可区分，
+ * 不再靠透明度——透明度在实色底（当前项）上会糊掉，是这次「看不到」的根因。
+ *
+ * 两态取色：未选中 = 次文字色（浅底上清晰）；选中 = 实色底上的反色（当前项是深色实底）。
  */
 .tabClose {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  margin-left: 2px;
+  width: 20px;
+  height: 20px;
+  margin-left: 4px;
   padding: 0;
   border: none;
   border-radius: var(--radius-pill);
   background: transparent;
-  color: inherit;
+  /* 未选中：与未选中标签名同色（--text-2），常显可见 */
+  color: var(--text-2);
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1;
   cursor: pointer;
-  opacity: 0.45;
-  transition: opacity var(--dur-hover) var(--ease-out), background var(--dur-hover) var(--ease-out);
+  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
 }
 
 .tabClose:hover {
-  opacity: 1;
-  background: rgba(127, 127, 127, 0.22);
+  /* hover：给一个中性底，让「可以点」被感知；不用强调色——它是低危操作 */
+  color: var(--text-1);
+  background: rgba(127, 127, 127, 0.25);
 }
 
 .tabClose:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
-  opacity: 1;
+}
+
+/*
+ * 选中态的关闭按钮：当前项是**实色底**，此时用反色文字（与选中标签名一致），
+ * hover 时给一层半透明白底而不是灰色——灰色压在深色实底上会看不出变化。
+ */
+.tabActive .tabClose {
+  color: var(--accent-text);
+}
+
+.tabActive .tabClose:hover {
+  color: var(--accent-text);
+  background: rgba(255, 255, 255, 0.24);
 }
 
 .btn {

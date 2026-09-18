@@ -77,11 +77,16 @@ beforeEach(() => {
 })
 
 describe('GenerationNodeView · 状态 A（空态）', () => {
-  it('渲染占位框与中间的 `+` 上传按钮', () => {
+  /**
+   * 上传入口从 `＋` 图标改为**文字按钮「上传素材」**（用户 2026-09-19）：
+   * 纯符号要用户猜含义，文字把「点这里会发生什么」直接说清。
+   * 断言跟着改成断言文案，而不是断言某个字形——字形还会再变，文案是稳定契约。
+   */
+  it('渲染占位框与「上传素材」文字按钮', () => {
     const html = render(baseProps())
     expect(html).toContain('data-generation-media')
     expect(html).toContain('data-node-upload')
-    expect(html).toContain('＋')
+    expect(html).toContain('上传素材')
   })
 
   it('空态不渲染素材骨架（骨架只在「已有内容」时出现）', () => {

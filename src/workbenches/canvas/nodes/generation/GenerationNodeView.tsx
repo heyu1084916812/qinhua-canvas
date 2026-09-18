@@ -93,16 +93,16 @@ export function GenerationNodeView(props: NodeViewProps) {
         <div className={styles.placeholder} data-node-placeholder>
           <button
             type="button"
-            className={styles.plus}
+            className={styles.uploadBtn}
             data-node-upload
-            title="点击上传，或把图片 / 视频拖进来"
+            title="点击上传素材，或把图片 / 视频拖进来"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation()
               props.emit({ type: 'requestUpload' })
             }}
           >
-            <span aria-hidden>＋</span>
+            上传素材
           </button>
         </div>
       )}

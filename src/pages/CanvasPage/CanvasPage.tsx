@@ -80,14 +80,16 @@ function CanvasProject({ projectId }: { projectId: string }) {
   const [externalEdit, setExternalEdit] = useState(false)
   const [logOpen, setLogOpen] = useState(false)
   /**
-   * 顶栏标签集合：挂载时把当前项目并入「已打开」列表（去重、当前项排最前）。
+   * 顶栏标签集合（用户 2026-09-19：**切换项目不要改变顺序**）。
    *
-   * 只在这里算一次并回写：切换项目会整棵子树重新挂载（`key={projectId}`），
-   * 于是每次进入项目都会把它提到最前 —— 正好符合「最近打开的在前」的直觉。
+   * 只在挂载时算一次：项目已在列表里就**保持原位**，新项目才追加到末尾。
+   * 早先写成「把当前项提到最前」，于是每次切换项目整棵子树重新挂载
+   * （`key={projectId}`）都会重排一次——标签在顶栏上跳来跳去，用户找不到刚看的那个。
+   * 顺序只由「首次打开的先后」决定，与当前选中谁无关。
    */
   const [openTabs, setOpenTabs] = useState<string[]>(() => {
-    const ids = readOpenTabs().filter((id) => id !== projectId)
-    const next = [projectId, ...ids]
+    const saved = readOpenTabs()
+    const next = saved.includes(projectId) ? saved : [...saved, projectId]
     writeOpenTabs(next)
     return next
   })
