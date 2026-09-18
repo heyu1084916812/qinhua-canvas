@@ -15,8 +15,6 @@ import { useGraph, useViewportState, useCanvasStore, useSelection } from '../sto
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { usePromptTools } from '../../../features/shared/promptTools/usePromptTools'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
-import { useCanvasPageEvents } from '../../../features/canvas/useCanvasPageEvents'
-import type { NodeViewEvent } from '../nodes/registry'
 
 /** 面板与节点底边的间距 */
 const PANEL_GAP = 12
@@ -44,12 +42,6 @@ export function PanelLayer({
   const store = useCanvasStore()
   const exec = useCanvasExecution()
   const channels = useChannels()
-  /**
-   * 面板侧的视图事件翻译（与 NodeLayer 同一个 hook）。
-   * 「替换素材」要调起文件选择器，那件事在宿主（features 层）而不是面板里——
-   * 面板不认识 FilePort，也不该认识（架构 §4.7）。
-   */
-  const { emitNodeEvent } = useCanvasPageEvents(store, onOpenSettings)
   // §6.15：拖动期间面板立即隐藏；发生**真实位移**的拖动，松手后保持隐藏，
   // 直到下一次显式选中（setSelection 复位 panelDismissed）——节点已被挪走，
   // 面板再弹回来只会「追着节点跑」。普通单击（无位移）不算拖动，面板照常出现。
@@ -144,7 +136,6 @@ export function PanelLayer({
             exec,
             promptTools,
             channels,
-            emitNodeEvent,
             onOpenSettings,
           )
         }
@@ -328,11 +319,6 @@ function handlePanelEvent(
   promptTools: ReturnType<typeof usePromptTools>,
   /** 渠道 store：记住「这次用的渠道 + 模型」作为新建节点的默认值（用户 2026-09-17） */
   channels: ReturnType<typeof useChannels>,
-  /**
-   * 转发节点视图事件（「替换素材」最终走 `requestUpload`，由宿主取文件）。
-   * 传进来而不是在这里直接调 hook，是为了让 `handlePanelEvent` 保持纯函数、可单测。
-   */
-  emitNodeEvent?: (nodeId: string, ev: NodeViewEvent) => void,
   /** 宿主导航：由页面容器注入，工作台层不认识路由（见 panelModel.PanelEvent） */
   onOpenSettings?: () => void,
 ): void {
@@ -401,16 +387,6 @@ function handlePanelEvent(
         patch: { assetHash: undefined },
         transient: false,
       })
-      break
-    /**
-     * 替换节点自身素材（用户 2026-09-17）。
-     *
-     * 面板只 emit，真正的取文件 / 算哈希 / 落库在宿主（useCanvasPageEvents）——
-     * 与 `requestUpload` 同源。这里转发成同一个事件，
-     * 于是「替换」和「上传」永远走同一条路，不会各写一份。
-     */
-    case 'replaceOwnAsset':
-      emitNodeEvent?.(node.id, { type: 'requestUpload' })
       break
     case 'togglePrompt':
       toggleGroupPrompt(node, store)

@@ -156,3 +156,80 @@
     transform: rotate(360deg);
   }
 }
+
+/*
+ * 素材替换入口——用户 2026-09-18 指定挂在**本体那张图的右上角**，
+ * 并给了参考设计：圆形实色按钮 + hover tooltip + 深色菜单。
+ *
+ * **只在节点被选中时显示**（用户明确要求「选中图片才会显示出来」）：
+ * 未选中时画布上只有内容，不被工具按钮打扰；选中某个节点即表示「我要动它」，
+ * 这时才把操作入口递到右手边。与节点跟随栏（选中才出现）是同一套交互语言。
+ *
+ * 位置取**内侧 4px** 而不是溢出到节点外沿：`.media` 有 `overflow: hidden`
+ * （圆角裁切需要），溢出的按钮会被裁掉——这与上一轮的坑是同一个。
+ */
+.assetActions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity var(--dur-hover) var(--ease-out);
+}
+
+/* 选中态由 NodeFrame 落在 `data-node-selected` 上（class 是哈希，本模块选不到） */
+[data-node-selected] .assetActions,
+.assetActions:focus-within {
+  opacity: 1;
+}
+
+.assetMenuTrigger {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-pill);
+  /* 实色按钮走项目自己的强调色（与顶栏「＋ 提示词」、生成按钮同一套） */
+  background: var(--accent);
+  color: var(--accent-text);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.assetMenuTrigger:hover,
+.assetMenuTrigger:focus-visible {
+  opacity: 0.9;
+}
+
+/*
+ * hover 时才出的小提示（参考设计里的「替换素材」气泡）。
+ *
+ * 它是**按需出现**而不是常驻：按钮本身已经表达了「换」，气泡只是补一个确切说法；
+ * 常驻会在节点右上角多挂一块文字，把媒体框弄脏。
+ * `pointer-events: none` 必须加——否则它会挡住按钮自身的点击。
+ */
+.tooltip {
+  position: absolute;
+  top: -6px;
+  right: 50%;
+  transform: translate(50%, -100%);
+  padding: 3px 8px;
+  border-radius: 6px;
+  /* 与实色按钮同源：深底浅字，用强调色而不是另开一套深色 */
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-weight: var(--fw-chip);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-hover) var(--ease-out);
+}
+
+.assetMenuTrigger:hover .tooltip,
+.assetMenuTrigger:focus-visible .tooltip {
+  opacity: 1;
+}

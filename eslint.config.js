@@ -4,7 +4,15 @@ import importPlugin from 'eslint-plugin-import'
 import globals from 'globals'
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules', '.workbuddy'] },
+  {
+    /**
+     * `scripts/probe-*.mjs` 是**临时验证脚本**（与 .gitignore 同口径，不入库）：
+     * 用完即删，里面的变量常常只为调试而留。让 lint 扫它们只会反复报
+     * 「assigned but never used」——那是脚本的常态，不是缺陷。
+     * 正式脚本（scripts/smoke.mjs 等）仍照常检查。
+     */
+    ignores: ['dist', 'node_modules', '.workbuddy', 'scripts/probe-*.mjs'],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

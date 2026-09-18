@@ -158,21 +158,21 @@
  * 此前是 64×64 的卡片独占一行，比切换大一倍；缩小后编号角标 / 小眼睛 / 删除
  * 三个角标也同步收小（12 / 14 / 14px），否则会糊成一团。
  */
-.thumb {
-  position: relative;
-  width: var(--assets-row-h);
-  height: var(--assets-row-h);
-  /* 高度钉死 30px 必须 border-box：否则 1px 边框算在外面，会比类别切换高 2px */
-  box-sizing: border-box;
-  border: 1px solid var(--stroke);
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--bg-subtle);
-  cursor: grab;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+  .thumb {
+    position: relative;
+    width: var(--assets-row-h);
+    height: var(--assets-row-h);
+    /* 高度钉死 30px 必须 border-box：否则 1px 边框算在外面，会比类别切换高 2px */
+    box-sizing: border-box;
+    border: 1px solid var(--stroke);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--bg-subtle);
+    cursor: grab;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 
 .thumbDragging {
   opacity: 0.4;
@@ -182,12 +182,12 @@
   opacity: 0.35;
 }
 
-.thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
+  .thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
 
 .thumbText {
   font-size: 9px;
@@ -249,15 +249,40 @@
   opacity: 1;
 }
 
-  /* 删除按钮（§6.6「节点自身内容可删除」）：右下角，与右上角小眼睛错开；
-     hover 缩略图才浮现，与小眼睛同一套隐性规则 */
   /*
-   * 用户 2026-09-17：右上角改成**素材操作菜单**（⋯，点开出「清除 / 替换」），
-   * 小眼睛因此移到右下角——两个角各一个，不再挤在同一角。
+   * 素材操作入口（用户 2026-09-17 提，2026-09-18 两轮修）：
+   * 右上角一个按钮，点开出「清除 / 替换」。
+   *
+   * 前两版都「有按钮但看不见」，两次都因为同一个原因——**位置不对**：
+   *  ① 沿用 `.eye` 的 hover 才浮现 ⇒ 用户根本不知道要悬停；
+   *  ② 改成常显后仍在 30×30 的缩略图内部，被压成 8×8 一个点（实测 boundingBox）。
+   * 所以这一版把按钮**溢出到缩略图右上角外沿**：它不再与 30px 的格抢空间，
+   * 拿到完整的 18×18 命中区，同时不改变缩略图本身的尺寸与排布。
+   *
+   * 常显是刻意的：小眼睛是纯展示开关（藏起来无妨），而这是「换掉 / 清掉这张图」
+   * 的唯一入口——藏起来等于没有。
    */
   .assetMenuBtn {
-    font-size: 11px;
+    top: -7px;
+    right: -7px;
+    width: 18px;
+    height: 18px;
+    font-size: 13px;
+    font-weight: 700;
     line-height: 1;
+    opacity: 1;
+    z-index: 2;
+    background: var(--bg-surface);
+    box-shadow: 0 0 0 1px var(--stroke);
+  }
+
+  .assetMenuBtn:hover {
+    background: var(--bg-hover);
+  }
+
+  /* 溢出到格子外，缩略图条需要留出这一圈空间，否则按钮被裁掉 */
+  .thumb {
+    overflow: visible;
   }
 
   /* 小眼睛让位到右下角 */

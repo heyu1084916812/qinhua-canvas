@@ -39,9 +39,16 @@ export interface NodeFollowBarProps {
   onClose?: () => void
   /** 宿主导航：去后台设置配渠道 */
   onOpenSettings?: () => void
+  /**
+   * 下载节点自身素材（用户 2026-09-18）。
+   *
+   * 与 `onOpenSettings` 同类：**宿主注入**。取字节（AssetPort）与落盘（FilePort）
+   * 都在宿主侧，跟随栏不认识存储（架构 §4.7「视图只 emit / 调用注入回调」）。
+   */
+  onDownload?: (nodeId: string) => void
 }
 
-export function NodeFollowBar({ onClose, onOpenSettings }: NodeFollowBarProps = {}) {
+export function NodeFollowBar({ onClose, onOpenSettings, onDownload }: NodeFollowBarProps = {}) {
   const store = useCanvasStore()
   const graph = useGraph()
   const selection = useSelection()
@@ -118,6 +125,7 @@ export function NodeFollowBar({ onClose, onOpenSettings }: NodeFollowBarProps = 
         running={exec.isRunning}
         onClose={close}
         onOpenSettings={onOpenSettings}
+        onDownload={onDownload}
       />
       <span className={styles.arrow} data-node-follow-arrow aria-hidden="true" />
     </div>
@@ -135,17 +143,26 @@ function NodeActions({
   running,
   onClose,
   onOpenSettings,
+  onDownload,
 }: {
   node: NodeSnapshot
   running: boolean
   onClose: () => void
   onOpenSettings?: () => void
+  onDownload?: (nodeId: string) => void
 }) {
   const store = useCanvasStore()
   const exec = useCanvasExecution()
   const state = exec.nodeStateOf(node.id)
   const busy = state?.kind === 'queued' || state?.kind === 'running'
   const canRun = node.type === 'generation' || node.type === 'batch' || node.type === 'group'
+  /**
+   * 「有可下载的素材」= 节点**自身**持有 `assetHash`。
+   *
+   * 刻意不含「容器内某个子节点的素材」：那种情况下「下载」到底该下哪一张没有唯一答案，
+   * 猜一个必然有人不满意。要下容器里的某张，选中那张子节点再下即可。
+   */
+  const hasAsset = !!(node.data as { assetHash?: string }).assetHash
 
   const onRun = () => {
     if (busy) exec.cancel()
@@ -184,6 +201,20 @@ function NodeActions({
           })
         }
       />
+      {/*
+        下载（用户 2026-09-18：加在跟随栏里）。
+        只在**有素材**时出现——空节点没有可下载的内容，摆一个点了没反应的按钮
+        比不摆更糟（与「上传只在无上游时出现」同一条口径）。
+        放在「复制」与「删除」之间：它是普通操作，不该贴着危险操作。
+      */}
+      {hasAsset && onDownload && (
+        <FollowButton
+          action="download"
+          glyph="⬇"
+          label="下载"
+          onClick={() => onDownload(node.id)}
+        />
+      )}
       <FollowButton
         action="delete"
         glyph="✕"

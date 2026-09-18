@@ -88,6 +88,13 @@ export type NodeViewEvent =
   | { type: 'requestRunBoard' }
   | { type: 'createChild'; nodeType: NodeType }
   | { type: 'openLightbox'; assetHash: string }
+  /**
+   * 下载节点自身的素材（用户 2026-09-18：加在节点跟随栏里）。
+   *
+   * 视图只上报「要下载这个节点的内容」；**取字节与落盘都在宿主**——
+   * 节点视图拿不到 AssetPort / FilePort，也不该拿（架构 §4.7）。
+   */
+  | { type: 'downloadOwnAsset' }
   | { type: 'toggleUpstream'; upstreamId: string }
   | { type: 'removeOwnAsset' }
   | { type: 'reorderThumbs'; order: string[] }

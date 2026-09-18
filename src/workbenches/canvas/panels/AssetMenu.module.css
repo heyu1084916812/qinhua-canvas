@@ -1,15 +1,17 @@
 /*
- * 素材操作菜单（用户 2026-09-17）。
+ * 素材操作菜单（用户 2026-09-17 提；2026-09-18 定形态）。
  *
- * 与 ParamPicker 同属「画布工作区浮层」：无投影、1px 描边 + 圆角 10px，
- * 靠描边与背景明度分层。刻意复用同一套形态，避免又出现一种浮层样式。
+ * 布局照参考设计（图标 + 文案、圆角、实底），**配色用本项目自己的 token**
+ * （用户 2026-09-18 明确要求）——不照抄参考图那套深色，否则画布上会多出
+ * 一种不属于这套设计的颜色。与 ParamPicker 同属「画布工作区浮层」：
+ * 1px 描边 + 10px 圆角 + 无投影，靠描边与背景明度分层。
  */
 .menu {
   position: absolute;
   z-index: 30;
-  min-width: 96px;
-  padding: 4px;
-  border: 1px solid var(--border-1);
+  min-width: 148px;
+  padding: 6px;
+  border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
   background: var(--bg-surface);
   display: flex;
@@ -17,23 +19,37 @@
   gap: 2px;
 }
 
-/* 锚在素材右上角：向右展开、顶部对齐触发器 */
-.topRight {
+/* 向右展开（触发器在左、菜单在右） */
+.right {
   top: 0;
   left: 100%;
   margin-left: 4px;
 }
 
+/*
+ * 向下展开（默认）：触发器在左上、菜单在其右下方。
+ *
+ * 挂在节点右上角时用这个——向右展开会顶到节点边界，菜单被压成竖排单字。
+ * `right: 0` 让菜单右边缘与触发器右边缘对齐，整体向左生长，不会溢出节点右侧。
+ */
+.below {
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+}
+
 .item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   width: 100%;
-  height: 30px;
+  height: 34px;
   padding: 0 10px;
   border: none;
-  border-radius: calc(var(--radius-control) - 4px);
+  border-radius: 8px;
   background: transparent;
   font-family: var(--font-sans);
-  font-size: var(--fs-chip);
+  font-size: var(--fs-body, 13px);
   font-weight: var(--fw-chip);
   color: var(--text-1);
   text-align: left;

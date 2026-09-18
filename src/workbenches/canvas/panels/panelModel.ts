@@ -89,12 +89,6 @@ export type PanelEvent =
   | { type: 'toggleThumb'; owner: PanelThumb['owner']; id: string }
   /** 删除节点自身内容（§6.6「节点自身内容 → 删除」）；上游缩略图不可删，只有小眼睛 */
   | { type: 'removeOwnAsset' }
-  /**
-   * 替换节点自身素材（用户 2026-09-17）：与「清除」并列，菜单里的第二项。
-   * 语义是「换一张」，因此**不清空**直接调起文件选择；
-   * 选完由宿主走与上传同一条路（取文件 → 算哈希 → 落库 → 写回）。
-   */
-  | { type: 'replaceOwnAsset' }
   | { type: 'toggleCollection'; id: string }
   | { type: 'togglePrompt' }
   | { type: 'reorderThumbs'; owner: PanelThumb['owner']; order: string[] }

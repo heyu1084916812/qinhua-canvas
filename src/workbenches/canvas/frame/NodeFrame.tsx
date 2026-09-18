@@ -149,6 +149,14 @@ export function NodeFrame(props: NodeFrameProps) {
       style={{ left: node.x, top: node.y, width: node.w, height: node.h }}
       data-node-id={node.id}
       data-node-type={node.type}
+      /**
+       * 选中态也落到 data 属性上，供**节点内部**（如生成节点的素材操作入口）
+       * 用纯 CSS 判断「这个节点被选中了吗」。
+       *
+       * 为什么不能靠 class：选中类名是 CSS Module 的哈希（`.frame_xxx_selected`），
+       * 节点视图在自己的 module 里选不到它。`data-node-stale` 早先就是同一套做法。
+       */
+      data-node-selected={selected ? '' : undefined}
       onPointerDown={props.onFramePointerDown}
       onDragStart={(e) => e.preventDefault()}
     >

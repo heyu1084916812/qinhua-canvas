@@ -33,6 +33,7 @@ import { ContextMenu } from '../menu/ContextMenu'
 import { LinkMenu } from '../menu/LinkMenu'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { createAssetNode, importAssetFile, isImportableMedia, IMPORT_ACCEPT } from '../../../features/canvas/importAsset'
+import { downloadAsset } from '../../../features/canvas/downloadAsset'
 import type { ImportedAsset } from '../../../features/canvas/importAsset'
 import { assetNodeSize } from '../../../domain/canvas/layout/assetNodeSize'
 import styles from './CanvasSurface.module.css'
@@ -70,6 +71,27 @@ export function CanvasSurface({ onOpenSettings }: { onOpenSettings?: () => void 
   const [spaceDown, setSpaceDown] = useState(false)
   const [importHover, setImportHover] = useState(false)
   const platform = usePlatform()
+  /**
+   * 下载节点自身素材（用户 2026-09-18）。
+   *
+   * 就地实现而不往页面容器透传：Surface 已经持有 platform（导入素材就走它），
+   * 而跟随栏是 Surface 的子层。多绕一层页面只会让「谁能下载」这件事
+   * 在两个文件里各说一半。
+   */
+  const handleDownload = useCallback(
+    (nodeId: string) => {
+      const node = store.getSnapshot().nodes.find((n) => n.id === nodeId)
+      const hash = (node?.data as { assetHash?: string } | undefined)?.assetHash
+      if (!hash) return
+      void downloadAsset({ assets: platform.assets, files: platform.files }, hash).then((r) => {
+        // 如实反馈：静默失败会让用户以为「下载坏了」，而其实是素材已不在表里
+        if (!r.ok) {
+          store.notify(r.reason === 'missing' ? '这张素材已不在素材库里' : '下载失败')
+        }
+      })
+    },
+    [platform, store],
+  )
   const edgeDrag = useEdgeDrag(store)
   const edgeDragBegin = edgeDrag.begin
   // Ctrl/Cmd + C/V（§4.2）：剪贴板是模块级单例、不订阅，故不参与本组件重渲染
@@ -475,7 +497,7 @@ const onPointerDown = (e: ReactPointerEvent) => {
         <NodeLayer onPortPointerDown={beginEdgeDrag} surfaceRef={ref} onOpenSettings={onOpenSettings} />
       </div>
       <OverlayLayer marquee={marquee} />
-      <NodeFollowBar onOpenSettings={onOpenSettings} />
+      <NodeFollowBar onOpenSettings={onOpenSettings} onDownload={handleDownload} />
       <PanelLayer onOpenSettings={onOpenSettings} />
       <ContextMenu />
       <LinkMenu />

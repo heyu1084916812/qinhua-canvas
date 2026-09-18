@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { GenerationData } from '../../../../domain/canvas/model/node'
 import type { NodeViewProps } from '../registry'
 import { useAsset } from '../../hooks/useAsset'
+import { AssetMenu } from '../../panels/AssetMenu'
 import styles from './GenerationNodeView.module.css'
 
 /** 生成数量：固定四项（产品文档 §6.8「1张 / 2张 / 4张 / 9张，固定四项」） */
@@ -25,6 +26,13 @@ export function GenerationNodeView(props: NodeViewProps) {
   const data = props.node.data as GenerationData
   const url = useAsset(data.assetHash)
   const [dropping, setDropping] = useState(false)
+  /**
+   * 素材操作菜单（清除 / 替换）挂在**本体那张图的右上角**（用户 2026-09-18 明确位置）。
+   *
+   * 此前误加在创作面板的缩略图上——那是另一个地方，用户要的是节点本身。
+   * 本体才是「这张图属于谁」的直观对象，换图 / 清图在这里做最顺手。
+   */
+  const [menuOpen, setMenuOpen] = useState(false)
 
   const isVideo = data.mode === 'video'
   /**
@@ -107,6 +115,73 @@ export function GenerationNodeView(props: NodeViewProps) {
             </span>
           ) : (
             <span className={styles.spinner} aria-label="生成中" />
+          )}
+        </div>
+      )}
+
+      {/*
+        素材操作（清除 / 替换）：**本体那张图的右上角**（用户 2026-09-18 指定位置）。
+
+        只在**有素材**时出现——空态本来就有中间的 `+` 作为上传入口，再摆一个
+        「替换」是重复的。常显而不做 hover 才浮现：这是换图 / 清图的唯一入口，
+        藏起来等于没有（上一版在创作面板缩略图上就是这么消失的）。
+      */}
+      {data.assetHash && url && (
+        <div className={styles.assetActions} data-node-asset-actions>
+          <button
+            type="button"
+            className={styles.assetMenuTrigger}
+            data-node-asset-menu
+            title="素材操作"
+            aria-label="素材操作"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation()
+              setMenuOpen((v) => !v)
+            }}
+          >
+            {/*
+              替换素材图标（用户 2026-09-18 参考设计）：两条反向箭头。
+              用内联 SVG 而不是字符——字符在不同字体下形状会飘，
+              而这个图标承担「换一张」的唯一含义，形状必须稳定。
+            */}
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+              <path
+                d="M3 6.5h7.5a2.5 2.5 0 0 1 0 5H8"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+              <path d="M5.2 4.2 2.8 6.5l2.4 2.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M13 9.5H5.5a2.5 2.5 0 0 1 0-5H8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              <path d="M10.8 11.8 13.2 9.5l-2.4-2.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className={styles.tooltip} role="tooltip">
+              替换素材
+            </span>
+          </button>
+          {menuOpen && (
+            <AssetMenu
+              onClose={() => setMenuOpen(false)}
+              items={[
+                {
+                  id: 'clear',
+                  label: '清除',
+                  hint: '清掉这张素材，节点回到空态',
+                  icon: 'clear',
+                  onSelect: () => props.emit({ type: 'removeOwnAsset' }),
+                },
+                {
+                  id: 'replace',
+                  label: '替换',
+                  hint: '换一张素材',
+                  icon: 'upload',
+                  onSelect: () => props.emit({ type: 'requestUpload' }),
+                },
+              ]}
+            />
           )}
         </div>
       )}

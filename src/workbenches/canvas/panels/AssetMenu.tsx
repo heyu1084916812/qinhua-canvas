@@ -18,7 +18,42 @@ export interface AssetMenuItem {
   label: string
   /** 次级说明（悬停提示） */
   hint: string
+  /**
+   * 左侧图标（用户 2026-09-18 参考设计：菜单项带图标）。
+   * 只认这几个具名图标，而不是让调用方传任意 ReactNode——
+   * 图标集合收敛在一处，才不会每个调用点各画一套、粗细与尺寸互不相同。
+   */
+  icon?: 'upload' | 'clear' | 'history'
   onSelect: () => void
+}
+
+/** 菜单项图标（14px 线框，与全局图标风格一致） */
+function MenuIcon({ name }: { name: AssetMenuItem['icon'] }) {
+  if (name === 'upload') {
+    return (
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+        <path d="M8 10.5V2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <path d="M4.8 5.4 8 2.2l3.2 3.2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M2.5 10.5v2a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5v-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  if (name === 'history') {
+    return (
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+        <circle cx="8" cy="8" r="5.6" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M8 5.2V8l2 1.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  if (name === 'clear') {
+    return (
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+        <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    )
+  }
+  return null
 }
 
 export function AssetMenu({
@@ -28,8 +63,11 @@ export function AssetMenu({
 }: {
   items: readonly AssetMenuItem[]
   onClose: () => void
-  /** 锚点位置：固定在素材右上角，故由父级定位、这里只认 'top-right' */
-  anchor?: 'top-right'
+  /**
+   * 展开方向。默认向下——挂在**节点本体的右上角**时，向右展开会顶到节点右边界
+   * 被压成竖排的一列字（实测菜单宽 96px 被压到只剩 20px）。
+   */
+  anchor?: 'right' | 'below'
 }) {
   const wrapRef = useRef<HTMLDivElement>(null)
 
@@ -59,7 +97,7 @@ export function AssetMenu({
   return (
     <div
       ref={wrapRef}
-      className={anchor === 'top-right' ? `${styles.menu} ${styles.topRight}` : styles.menu}
+      className={anchor === 'right' ? `${styles.menu} ${styles.right}` : `${styles.menu} ${styles.below}`}
       data-asset-menu
       role="menu"
     >
@@ -77,6 +115,7 @@ export function AssetMenu({
             it.onSelect()
           }}
         >
+          {it.icon && <MenuIcon name={it.icon} />}
           {it.label}
         </button>
       ))}
