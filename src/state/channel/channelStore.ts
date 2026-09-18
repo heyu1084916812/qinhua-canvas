@@ -4,9 +4,9 @@ import type { Channel, CreateChannelInput } from '../../domain/project/channel'
 import { PROBE_PROTOCOLS, requiresBaseUrl, tokenTailOf } from '../../domain/project/channel'
 import {
   firstUsableChannel,
-  NO_PRESET,
-  rememberPreset as rememberPresetOf,
-  resolvePreset,
+  NO_RECIPE,
+  rememberRecipe,
+  resolveRecipe,
 } from '../../domain/project/generationPreset'
 import type { ModelCapability } from '../../domain/shared/capability'
 import { createChannelRepository, type ChannelRepository } from '../project/channelRepository'
@@ -97,18 +97,27 @@ export interface ChannelStoreActions {
   /** 已启用渠道：供创作面板的平台下拉使用（M2-2 接入） */
   enabledChannels(): Channel[]
   /**
-   * 记住「这次用的渠道 + 模型」，作为**新建生成 / 批量节点时的默认值**（用户 2026-09-17）。
-   *
-   * 记录时机由调用方决定（面板里选完的那一刻），这里只负责写库与维护内存态。
+   * 记住「**这次生成**实际用的渠道 + 模型 + 参数」，作为该项目新建节点的默认值
+   * （用户 2026-09-18）。调用方是**生成成功那一刻**，不是选参数的瞬间——
+   * 用户要的是「最后一次生成用的那套」，选了却没生成的不该影响默认值。
    */
-  rememberPreset(channelId: string, model: string): Promise<void>
+  rememberRecipe(
+    projectId: string,
+    channelId: string,
+    model: string,
+    params: Record<string, unknown>,
+  ): Promise<void>
   /**
-   * 新建节点时该填的渠道 + 模型。
+   * 新建节点时该填的渠道 / 模型 / 参数。
    *
-   * 预设失效（渠道已被删 / 模型已被取消勾选）时按用户选的口径**自动挑该渠道第一个
-   * 已勾选模型**，而不是留空让人重选；`substituted` 标明这是兜底值，供调用方提示。
+   * - 该项目**生成过** → 用记录的那套（模型失效时兜底该渠道第一个可用模型）
+   * - 该项目**从没生成过** → 用后台设置的**第一个渠道的第一个模型**
+   * - `category`：提示词节点只要文本模型（生成节点不需要传）
    */
-  defaultForNewNode(): Promise<{ channelId: string; model: string; substituted: boolean } | null>
+  defaultForNewNode(
+    projectId: string,
+    category?: string,
+  ): Promise<{ channelId: string; model: string; params: Record<string, unknown>; substituted: boolean } | null>
 }
 
 export type ChannelStore = MiniStore<ChannelStoreState> & ChannelStoreActions
@@ -142,8 +151,11 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
   }))
 
   const load: ChannelStoreActions['load'] = async () => {
-    const [channels, preset] = await Promise.all([repo.list(), presets.load()])
-    presetRef.current = preset
+    /**
+     * 配方**不在这里预读**：它是按项目的，而 store 这一层不知道当前是哪个项目。
+     * 改成 `defaultForNewNode(projectId)` 时按需读一次（结果进 recipeCache）。
+     */
+    const channels = await repo.list()
     store.setState({ channels, loaded: true })
   }
 
@@ -316,35 +328,40 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
 
   const enabledChannels = (): Channel[] => store.getState().channels.filter((c) => c.enabled)
   /**
-   * 预设的两个动作放在这里，是因为**兜底解析需要渠道列表**（它有哪些已勾选模型），
+   * 配方的两个动作放在这里，是因为**解析需要渠道列表**（它有哪些已勾选模型），
    * 而这个 store 正是列表的持有者。规则本身仍在 domain 的纯函数里，
    * 这里只把列表喂给它——不复制那份判断。
    */
-  /** 内存态：避免每次建节点都读一次库 */
-  const presetRef = { current: NO_PRESET }
+  /** 内存缓存：projectId → 配方（避免每次建节点都读一次库） */
+  const recipeCache = new Map<string, typeof NO_RECIPE>()
 
-  const rememberPreset: ChannelStoreActions['rememberPreset'] = async (channelId, model) => {
-    const next = rememberPresetOf(channelId, model, Date.now())
+  const rememberRecipeOfProject: ChannelStoreActions['rememberRecipe'] = async (
+    projectId,
+    channelId,
+    model,
+    params,
+  ) => {
+    const next = rememberRecipe(channelId, model, params, Date.now())
     if (!next) return
-    presetRef.current = next
-    await presets.save(next)
+    recipeCache.set(projectId, next)
+    await presets.save(projectId, next)
   }
 
-  const defaultForNewNode: ChannelStoreActions['defaultForNewNode'] = async () => {
-    if (presetRef.current === NO_PRESET) presetRef.current = await presets.load()
+  const defaultForNewNode: ChannelStoreActions['defaultForNewNode'] = async (projectId, category) => {
+    if (!recipeCache.has(projectId)) recipeCache.set(projectId, await presets.load(projectId))
     /**
-     * 只拿**已启用**的渠道参与解析：把没启用的渠道当默认值，用户一生成就报
+     * 只拿**已启用**的渠道参与解析：把没启用的当默认值，用户一生成就报
      * 「平台未启用」，比空着更让人困惑。
      */
     const usable = enabledChannels()
-    // 有预设 → 按预设（失效时兜底该渠道第一个模型）
-    const byPreset = resolvePreset(presetRef.current, usable)
-    if (byPreset) return byPreset
+    // 有配方 → 按配方（模型失效时兜底该渠道第一个可用模型）
+    const byRecipe = resolveRecipe(recipeCache.get(projectId)!, usable)
+    if (byRecipe) return byRecipe
     /**
-     * 没预设（全新用户 / 刚配好渠道还没手动选过）→ **取第一个可用的渠道**。
-     * 不做这层兜底的话，用户会觉得「默认根本没做」——这正是他二次反馈的场景。
+     * 没有配方（项目从未生成过）→ **第一个渠道的第一个模型**。
+     * 用户口径：「项目开始如果没有生成过的话用后台设置的第一个渠道的对应第一个模型」。
      */
-    return firstUsableChannel(usable)
+    return firstUsableChannel(usable, category)
   }
 
   return {
@@ -363,7 +380,7 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
     detectProtocol,
     refreshModels,
     enabledChannels,
-    rememberPreset,
+    rememberRecipe: rememberRecipeOfProject,
     defaultForNewNode,
   }
 }

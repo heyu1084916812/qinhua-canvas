@@ -14,7 +14,6 @@ import type { PanelEvent, PanelModel, PanelThumb } from './panelModel'
 import { useGraph, useViewportState, useCanvasStore, useSelection } from '../storeContext'
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { usePromptTools } from '../../../features/shared/promptTools/usePromptTools'
-import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 
 /** 面板与节点底边的间距 */
 const PANEL_GAP = 12
@@ -41,7 +40,6 @@ export function PanelLayer({
   const viewport = useViewportState()
   const store = useCanvasStore()
   const exec = useCanvasExecution()
-  const channels = useChannels()
   // §6.15：拖动期间面板立即隐藏；发生**真实位移**的拖动，松手后保持隐藏，
   // 直到下一次显式选中（setSelection 复位 panelDismissed）——节点已被挪走，
   // 面板再弹回来只会「追着节点跑」。普通单击（无位移）不算拖动，面板照常出现。
@@ -135,7 +133,6 @@ export function PanelLayer({
             store,
             exec,
             promptTools,
-            channels,
             onOpenSettings,
           )
         }
@@ -317,8 +314,6 @@ function handlePanelEvent(
   store: ReturnType<typeof useCanvasStore>,
   exec: ReturnType<typeof useCanvasExecution>,
   promptTools: ReturnType<typeof usePromptTools>,
-  /** 渠道 store：记住「这次用的渠道 + 模型」作为新建节点的默认值（用户 2026-09-17） */
-  channels: ReturnType<typeof useChannels>,
   /** 宿主导航：由页面容器注入，工作台层不认识路由（见 panelModel.PanelEvent） */
   onOpenSettings?: () => void,
 ): void {
@@ -338,13 +333,6 @@ function handlePanelEvent(
       break
     case 'setModel':
       patch({ model: event.model })
-      /**
-       * 记下这次的选择，作为**新建节点的默认值**（用户 2026-09-17）。
-       * 只在「渠道 + 模型都齐了」时才记（半份预设比没有更糟——见 generationPreset）。
-       */
-      if ((node.data as GenerationData).channelId && event.model) {
-        void channels.rememberPreset((node.data as GenerationData).channelId, event.model)
-      }
       break
     case 'setRatio':
       patch({ ratio: event.ratio })

@@ -159,17 +159,39 @@ function CanvasProject({ projectId }: { projectId: string }) {
     )
     const min = NODE_MINIMUMS[type]
     /**
-     * 生成类节点默认带上**上次用过的渠道与模型**（用户 2026-09-17）。
+     * 默认带**这个项目的配方**（用户 2026-09-18）：
+     * 项目生成过 → 最后一次生成用的渠道 + 模型 + 参数；
+     * 项目从没生成过 → 后台设置的第一个渠道的第一个模型。
      *
-     * 每次新建都**现取**，而不是在页面挂载时缓存一份：
-     * 缓存的写法有个真实缺陷——用户在面板里选完渠道/模型后（`rememberPreset` 落库），
-     * 页面里那份缓存并不会更新，于是「刚选完，新建节点仍是空的」，
-     * 非得刷新页面才生效（2026-09-18 实测确认）。
-     *
-     * 现取并不慢：`defaultForNewNode()` 内部有内存缓存，只在首次读一次库。
+     * 每次新建都**现取**（内部有按项目的内存缓存，不会多读库）：
+     * 早先缓存一份在页面里的写法有个真缺陷——生成后配方更新了，那份缓存不更新，
+     * 于是「刚生成完，新建节点还是空的」，非得刷新页面才生效（实测确认）。
      */
-    const preset = await channels.defaultForNewNode()
-    const data = newGeneratingNodeData(type, preset)
+    /**
+     * 提示词节点也要默认值（用户 2026-09-18：「提示词节点也一样」），
+     * 但它要的是**文本模型**而不是生成用的图片模型。
+     */
+    if (type === 'prompt') {
+      const recipe = await channels.defaultForNewNode(projectId, 'chat')
+      const promptData = recipe
+        ? { channelId: recipe.channelId, model: recipe.model }
+        : {}
+      const res = store.dispatch({
+        kind: 'node.create',
+        projectId,
+        type,
+        at: { x: c.x - min.w / 2, y: c.y - min.h / 2 },
+        data: { text: '', upstreamPromptLinked: false, ...promptData },
+      })
+      const created = res.patches.find(
+        (p) => p.op === 'upsert' && p.table === 'nodes',
+      ) as unknown as { row: { id: string } } | undefined
+      if (created) store.setSelection([created.row.id])
+      return
+    }
+
+    const recipe = await channels.defaultForNewNode(projectId)
+    const data = newGeneratingNodeData(type, recipe)
     const res = store.dispatch({
       kind: 'node.create',
       projectId,

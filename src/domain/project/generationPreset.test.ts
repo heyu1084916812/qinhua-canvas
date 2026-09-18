@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
-  NO_PRESET,
-  presetFromRow,
-  presetToRow,
-  rememberPreset,
-  resolvePreset,
+  NO_RECIPE,
+  firstUsableChannel,
+  presetRowId,
+  recipeFromRow,
+  recipeToRow,
+  rememberRecipe,
+  resolveRecipe,
   type PresetChannelLike,
 } from './generationPreset'
 
@@ -14,46 +16,86 @@ const channels: PresetChannelLike[] = [
   { id: 'ch2', models: [] },
 ]
 
-describe('生成预设（新建节点默认渠道 / 模型）', () => {
-  it('★ 渠道与模型都齐了才记（半份预设比没有更糟）', () => {
-    expect(rememberPreset('ch1', 'm1', 100)).toEqual({ channelId: 'ch1', model: 'm1', savedAt: 100 })
-    // 只选了渠道、还没选模型 → 不记
-    expect(rememberPreset('ch1', '', 100)).toBeNull()
-    expect(rememberPreset('', 'm1', 100)).toBeNull()
-  })
-
-  it('行 ↔ 预设：字段缺失 / 类型不对一律退化为空预设', () => {
-    expect(presetFromRow(null)).toEqual(NO_PRESET)
-    expect(presetFromRow({})).toEqual(NO_PRESET)
-    // 半份：有渠道没模型 → 不当预设用（否则面板显示渠道却跑不起来）
-    expect(presetFromRow({ channelId: 'ch1' })).toEqual(NO_PRESET)
-    expect(presetFromRow({ channelId: 'ch1', model: 'm1', savedAt: 7 })).toEqual({
+describe('生成配方（新建节点的默认渠道 / 模型 / 参数）', () => {
+  /**
+   * ★ 用户 2026-09-18 口径：项目从没生成过时，用**第一个渠道的第一个模型**。
+   * 此前返回 null（留空），于是每个新节点都空着，看起来像「默认功能没做」。
+   */
+  it('★ 没有配方 → 取第一个有模型的渠道的第一个模型', () => {
+    expect(firstUsableChannel(channels)).toEqual({
       channelId: 'ch1',
       model: 'm1',
-      savedAt: 7,
-    })
-    expect(presetToRow({ channelId: 'ch1', model: 'm1', savedAt: 7 }).id).toBe('generation-default')
-  })
-
-  it('★ 预设仍可用 → 原样返回', () => {
-    expect(resolvePreset({ channelId: 'ch1', model: 'm1', savedAt: 0 }, channels)).toEqual({
-      channelId: 'ch1',
-      model: 'm1',
-      substituted: false,
-    })
-  })
-
-  it('★ 原模型已不在该渠道里 → 兜底取第一个已勾选模型，并标明是兜底', () => {
-    expect(resolvePreset({ channelId: 'ch1', model: 'gone', savedAt: 0 }, channels)).toEqual({
-      channelId: 'ch1',
-      model: 'm1',
+      params: {},
       substituted: true,
     })
   })
 
-  it('渠道被删 / 渠道没勾任何模型 → 没有默认值可用（返回 null，不猜）', () => {
-    expect(resolvePreset({ channelId: 'deleted', model: 'm1', savedAt: 0 }, channels)).toBeNull()
-    expect(resolvePreset({ channelId: 'ch2', model: 'm1', savedAt: 0 }, channels)).toBeNull()
-    expect(resolvePreset(NO_PRESET, channels)).toBeNull()
+  it('渠道都没勾模型 → 给不出默认值（不猜）', () => {
+    expect(firstUsableChannel([{ id: 'ch2', models: [] }])).toBeNull()
+  })
+
+  it('★ 渠道 + 模型都有值才记（半份配方比没有更糟）', () => {
+    expect(rememberRecipe('ch1', 'm1', { ratio: '16:9' }, 100)).toEqual({
+      channelId: 'ch1',
+      model: 'm1',
+      params: { ratio: '16:9' },
+      savedAt: 100,
+    })
+    expect(rememberRecipe('ch1', '', {}, 100)).toBeNull()
+    expect(rememberRecipe('', 'm1', {}, 100)).toBeNull()
+  })
+
+  it('行 ↔ 配方：缺字段 / 类型不对一律退化为空配方', () => {
+    expect(recipeFromRow(null)).toEqual(NO_RECIPE)
+    expect(recipeFromRow({})).toEqual(NO_RECIPE)
+    expect(recipeFromRow({ channelId: 'ch1' })).toEqual(NO_RECIPE)
+    expect(recipeFromRow({ channelId: 'ch1', model: 'm1', params: { ratio: '1:1' }, savedAt: 7 })).toEqual({
+      channelId: 'ch1',
+      model: 'm1',
+      params: { ratio: '1:1' },
+      savedAt: 7,
+    })
+    // params 不是对象 → 退化为空对象，而不是把数组/字符串当参数带下去
+    const bad = recipeFromRow({ channelId: 'ch1', model: 'm1', params: [1, 2] })
+    expect(bad.params).toEqual({})
+  })
+
+  /**
+   * ★ 配方**按项目存**（用户 2026-09-18 修订自「全局一份」）。
+   * 行主键由 projectId 派生，两个项目互不覆盖。
+   */
+  it('★ 行主键按项目隔离：两个项目的配方互不覆盖', () => {
+    const a = recipeToRow('p1', { channelId: 'c', model: 'm', params: {}, savedAt: 0 })
+    const b = recipeToRow('p2', { channelId: 'c', model: 'm', params: {}, savedAt: 0 })
+    expect(a.id).not.toBe(b.id)
+    expect(a.id).toBe(presetRowId('p1'))
+    expect(a.projectId).toBe('p1')
+  })
+
+  it('配方仍可用 → 原样返回（含参数）', () => {
+    const r = resolveRecipe(
+      { channelId: 'ch1', model: 'm1', params: { count: 4 }, savedAt: 0 },
+      channels,
+    )
+    expect(r).toEqual({ channelId: 'ch1', model: 'm1', params: { count: 4 }, substituted: false })
+  })
+
+  it('★ 原模型已不在该渠道 → 兜底该渠道第一个模型，但参数仍沿用记录', () => {
+    const r = resolveRecipe(
+      { channelId: 'ch1', model: 'gone', params: { ratio: '16:9' }, savedAt: 0 },
+      channels,
+    )
+    expect(r).toEqual({
+      channelId: 'ch1',
+      model: 'm1',
+      params: { ratio: '16:9' },
+      substituted: true,
+    })
+  })
+
+  it('渠道被删 / 渠道没勾模型 → 解析不出（交由上层落回「第一个可用渠道」）', () => {
+    expect(resolveRecipe({ channelId: 'gone', model: 'm1', params: {}, savedAt: 0 }, channels)).toBeNull()
+    expect(resolveRecipe({ channelId: 'ch2', model: 'm1', params: {}, savedAt: 0 }, channels)).toBeNull()
+    expect(resolveRecipe(NO_RECIPE, channels)).toBeNull()
   })
 })

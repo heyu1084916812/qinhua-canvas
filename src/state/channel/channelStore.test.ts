@@ -219,14 +219,50 @@ describe('channelStore', () => {
   })
 
   /**
-   * 生成预设（新建节点默认渠道 + 模型，用户 2026-09-17 提）。
+   * 生成配方（新建节点默认渠道 + 模型 + 参数，用户 2026-09-18 定稿）。
    *
-   * ★ 这条锁的是一个**真实回归**（2026-09-18 实测）：页面曾把默认值缓存一份，
-   * 而 `rememberPreset` 只更新 store 内部那份 —— 于是「刚在面板里选完渠道模型，
-   * 新建节点仍然是空的」，非得刷新页面才生效。
-   * 语义上 `rememberPreset` 之后 `defaultForNewNode` 必须**立刻**反映，不能等下一次读库。
+   * 两条规则：
+   * - 项目**从没生成过** → 第一个渠道的第一个模型
+   * - 项目**生成过** → 最后一次生成用的那套（渠道 + 模型 + 参数）
    */
-  it('★ rememberPreset 之后 defaultForNewNode 立刻生效（不等刷新）', async () => {
+  it('★ 项目从没生成过 → 取第一个渠道的第一个模型（而不是留空）', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+    const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
+    await store.setEnabled(ch.id, true)
+    await store.setModels(ch.id, [{ id: 'model-a', category: 'image', inputTypes: ['text'] }])
+
+    expect(await store.defaultForNewNode('proj-1')).toEqual({
+      channelId: ch.id,
+      model: 'model-a',
+      params: {},
+      substituted: true,
+    })
+  })
+
+  it('★ 生成过 → 用记录的那套（含参数），并且立刻生效（不等刷新）', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+    const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
+    await store.setEnabled(ch.id, true)
+    await store.setModels(ch.id, [{ id: 'model-a', category: 'image', inputTypes: ['text'] }])
+
+    await store.rememberRecipe('proj-1', ch.id, 'model-a', { ratio: '16:9', count: 4 })
+    expect(await store.defaultForNewNode('proj-1')).toEqual({
+      channelId: ch.id,
+      model: 'model-a',
+      params: { ratio: '16:9', count: 4 },
+      substituted: false,
+    })
+  })
+
+  /**
+   * ★ 配方按项目隔离（用户 2026-09-18 修订自「全局一份」）。
+   * A 项目选的模型不该跑到 B 项目去——这正是全局粒度站不住的地方。
+   */
+  it('★ 配方按项目隔离：一个项目的记录不影响另一个', async () => {
     const p = createMemoryPlatform()
     const store = createChannelStore(p)
     await store.load()
@@ -234,69 +270,46 @@ describe('channelStore', () => {
     await store.setEnabled(ch.id, true)
     await store.setModels(ch.id, [
       { id: 'model-a', category: 'image', inputTypes: ['text'] },
+      { id: 'model-b', category: 'image', inputTypes: ['text'] },
     ])
 
-    // 还没选过，但渠道可用 → 用兜底（第一个可用渠道的第一个已勾选模型）
-    expect(await store.defaultForNewNode()).toEqual({
-      channelId: ch.id,
-      model: 'model-a',
-      substituted: true,
-    })
+    await store.rememberRecipe('proj-1', ch.id, 'model-b', { ratio: '16:9' })
 
-    await store.rememberPreset(ch.id, 'model-a')
-    expect(await store.defaultForNewNode()).toEqual({
+    // proj-1 用记录的那套
+    expect((await store.defaultForNewNode('proj-1'))?.model).toBe('model-b')
+    // proj-2 没记录 → 落回第一个模型（不是 proj-1 的 model-b）
+    expect(await store.defaultForNewNode('proj-2')).toEqual({
       channelId: ch.id,
       model: 'model-a',
-      substituted: false,
+      params: {},
+      substituted: true,
     })
   })
 
-  it('预设里的模型已不在该渠道 → 兜底取第一个已勾选模型', async () => {
+  it('配方里的模型已不在该渠道 → 兜底该渠道第一个模型，参数仍沿用', async () => {
     const p = createMemoryPlatform()
     const store = createChannelStore(p)
     await store.load()
     const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
     await store.setEnabled(ch.id, true)
     await store.setModels(ch.id, [{ id: 'still-here', category: 'image', inputTypes: ['text'] }])
-    await store.rememberPreset(ch.id, 'gone-away')
-    expect(await store.defaultForNewNode()).toEqual({
+    await store.rememberRecipe('proj-1', ch.id, 'gone-away', { quality: 'high' })
+    expect(await store.defaultForNewNode('proj-1')).toEqual({
       channelId: ch.id,
       model: 'still-here',
+      params: { quality: 'high' },
       substituted: true,
     })
   })
 
-  it('只选了渠道、还没选模型 → 不记预设；渠道又没勾模型时确实没有默认值', async () => {
+  it('只选了渠道、还没选模型 → 不记配方；渠道又没勾模型时确实没有默认值', async () => {
     const p = createMemoryPlatform()
     const store = createChannelStore(p)
     await store.load()
     const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
     await store.setEnabled(ch.id, true)
-    await store.rememberPreset(ch.id, '')
-    // 「半份预设」没被记下（这是 rememberPreset 的职责）；
-    // 而这个渠道**一个模型都没勾**，兜底也无从取值 → null 是对的。
-    expect(await store.defaultForNewNode()).toBeNull()
-  })
-
-  /**
-   * ★ 全新用户：从没手动选过模型，但已经配好并启用了渠道。
-   *
-   * 这条正是用户二次反馈的场景（「新建生成节点的渠道还是默认没有」）——
-   * 此前没有任何预设就返回 null，于是每个新节点都空着，看起来像功能没做。
-   * 配好的渠道本身就是意图表达，该拿来当默认。
-   */
-  it('★ 从未选过模型 + 有已启用渠道 → 用该渠道兜底，而不是留空', async () => {
-    const p = createMemoryPlatform()
-    const store = createChannelStore(p)
-    await store.load()
-    const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
-    await store.setModels(ch.id, [{ id: 'only-model', category: 'image', inputTypes: ['text'] }])
-    await store.setEnabled(ch.id, true)
-    expect(await store.defaultForNewNode()).toEqual({
-      channelId: ch.id,
-      model: 'only-model',
-      substituted: true,
-    })
+    await store.rememberRecipe('proj-1', ch.id, '', {})
+    expect(await store.defaultForNewNode('proj-1')).toBeNull()
   })
 
   it('渠道**未启用**时不参与默认（否则一点生成就报「平台未启用」）', async () => {
@@ -306,6 +319,24 @@ describe('channelStore', () => {
     const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
     await store.setModels(ch.id, [{ id: 'm', category: 'image', inputTypes: ['text'] }])
     // 刻意不 setEnabled
-    expect(await store.defaultForNewNode()).toBeNull()
+    expect(await store.defaultForNewNode('proj-1')).toBeNull()
+  })
+
+  /**
+   * 提示词节点要的是**文本模型**（用户 2026-09-18：「提示词节点也一样」）。
+   * 生成配方里存的是图片模型，对文本节点不适用，故按类别重新挑。
+   */
+  it('★ 传 category 时只挑该类别的模型（提示词节点要文本模型）', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+    const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
+    await store.setEnabled(ch.id, true)
+    await store.setModels(ch.id, [
+      { id: 'img-1', category: 'image', inputTypes: ['text'] },
+      { id: 'chat-1', category: 'chat', inputTypes: ['text'] },
+    ])
+    const picked = await store.defaultForNewNode('proj-1', 'chat')
+    expect(picked?.model).toBe('chat-1')
   })
 })
