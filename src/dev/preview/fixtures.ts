@@ -22,7 +22,6 @@ export function makeNode(type: NodeType, over: Partial<NodeSnapshot> = {}): Node
     h: over.h ?? spec.sizing.min.h,
     title: over.title ?? spec.label,
     data: (over.data ?? data) as NodeSnapshot['data'],
-    stale: over.stale,
   } as NodeSnapshot
 }
 

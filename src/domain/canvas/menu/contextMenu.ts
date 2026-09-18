@@ -14,9 +14,6 @@ import type { NodeType } from '../model/node'
 export type ContextMenuAction =
   | { kind: 'run' }
   | { kind: 'runBoard' }
-  | { kind: 'rerunFrom' }
-  | { kind: 'refreshStaleFrom' }
-  | { kind: 'clearStale' }
   | { kind: 'duplicate' }
   | { kind: 'rename' }
   | { kind: 'delete' }
@@ -46,49 +43,30 @@ export const CREATABLE_TYPES: readonly { type: NodeType; label: string }[] = [
 const RUNNABLE: ReadonlySet<NodeType> = new Set<NodeType>(['generation', 'batch'])
 
 /** 节点菜单的可选上下文：决定「按范围跑」与「清除陈旧」两项该不该出现 */
-export interface NodeMenuContext {
-  /**
-   * 该节点下游是否还有**可执行**的节点（有才列「整条流程重新运行 / 仅刷新陈旧节点」）。
-   * 判定与执行引擎同口径（`canBuildRequest`），避免列出点了没反应的死项。
-   */
-  hasRunnableDownstream?: boolean
-  /** 全图是否存在陈旧节点（§6.19.5：「清除陈旧标记」清的是**全图**，故与触发节点无关） */
-  hasStale?: boolean
-}
-
 /**
  * 节点右键菜单。
  * `type` 决定运行类项是否存在：只有生成 / 批量节点有「生成」（§6.12 生成入口）。
  * 生成 / 批量节点有「版本历史」（§6.21：RunRecord 由生成类节点产生）。
  *
- * 执行模式（§6.19.1）在右键菜单里只列「整条流程重新运行」（P）与「仅刷新陈旧节点」（Shift+R）：
- * 单点生成已由上面的「生成」覆盖，`Alt+R` 是它的修饰键而非独立模式，
- * 全图重跑（Ctrl+Enter）按 §6.19.1 只出现在顶栏，不进节点菜单。
+ * 执行入口在右键菜单里只保留「运行画板」与「生成」两条。
+ *
+ * 已下线的三个（用户 2026-09-17）：「整条流程重新运行」「仅刷新陈旧节点」
+ * 「清除陈旧标记」。前两个是**覆盖式**重跑——产物写回原节点、旧结果被冲掉；
+ * 而落位改成「每次生成新建一个右侧节点」之后，用户要的是「出一份新的、旧的留着对比」，
+ * 覆盖式重跑正好与之相反。留着只会让人误点丢结果。
  *
  * 禁用 / 全屏编辑 / 改写提示词属 M4 后续，未落地故不列
  * （列出点了没反应的禁用项比不列更糟）。
  */
-export function nodeMenuItems(type: NodeType, ctx: NodeMenuContext = {}): ContextMenuItem[] {
+export function nodeMenuItems(type: NodeType): ContextMenuItem[] {
   const items: ContextMenuItem[] = []
   if (type === 'board') {
     items.push({ id: 'runBoard', label: '运行画板', action: { kind: 'runBoard' }, separatorAfter: true })
   } else if (RUNNABLE.has(type)) {
     items.push({ id: 'run', label: '生成', action: { kind: 'run' }, separatorAfter: true })
   }
-  if (ctx.hasRunnableDownstream) {
-    items.push({ id: 'rerunFrom', label: '整条流程重新运行', action: { kind: 'rerunFrom' } })
-    items.push({
-      id: 'refreshStale',
-      label: '仅刷新陈旧节点',
-      action: { kind: 'refreshStaleFrom' },
-      separatorAfter: true,
-    })
-  }
   items.push({ id: 'duplicate', label: '复制', action: { kind: 'duplicate' } })
   items.push({ id: 'rename', label: '重命名', action: { kind: 'rename' }, separatorAfter: true })
-  if (ctx.hasStale) {
-    items.push({ id: 'clearStale', label: '清除陈旧标记', action: { kind: 'clearStale' }, separatorAfter: true })
-  }
   items.push({ id: 'delete', label: '删除', action: { kind: 'delete' } })
   return items
 }
@@ -98,7 +76,7 @@ export function nodeMenuItems(type: NodeType, ctx: NodeMenuContext = {}): Contex
  *
  * `canPaste` 由调用方按「剪贴板是否为空」传入（本模块是纯函数，不持有剪贴板）。
  * 空剪贴板时不列「粘贴」——列出点了没反应的死项比不列更糟（与
- * `hasRunnableDownstream` / `hasStale` 同口径：菜单只列当下真能做的事）。
+ * `hasRunnableDownstream` 同口径：菜单只列当下真能做的事）。
  */
 export function canvasMenuItems(opts: { canPaste?: boolean } = {}): ContextMenuItem[] {
   const items: ContextMenuItem[] = CREATABLE_TYPES.map((t) => ({

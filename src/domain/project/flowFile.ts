@@ -82,7 +82,9 @@ export interface DeserializeResult {
  * 把 .flow.json 反序列化为可写入新项目的一组行。
  * - 为新项目分配新 id，所有节点 / 连线 / 素材的 id 全量重映射
  * - 引用旧 id 的位置（edges.source/target、node.parentId、data 内的 id 列表）一并改写
- * - 可选 knownModels：非空且某节点的 model 不在其中时，标记该节点 stale 并收集模型名
+ * - 可选 knownModels：非空且某节点的 model 不在其中时**只收集模型名**返回给调用方提示。
+ *   此前还会顺手把节点标 `stale`（借橘点表达「配不了」）；该字段随橘点一并下线
+ *   （用户 2026-09-17），缺失信息由 `missingModels` 单独承载，不再寄生在节点上。
  *
  * @param newProjectId 导入后落地的新项目 id（由调用方用 createId 生成）
  * @param knownModels  已知可用模型集合；不传则不做缺失检测
@@ -114,9 +116,7 @@ export function deserializeProject(
   const nodes = flow.graph.nodes.map((n) => {
     const data = deepRemapRefs(n.data as Record<string, unknown>, idMap)
     const model = (data as { model?: unknown }).model
-    let stale = Boolean(n.stale)
     if (typeof model === 'string' && model && knownModels && !knownModels.has(model)) {
-      stale = true
       if (!seenModel.has(model)) {
         seenModel.add(model)
         missingModels.push(model)
@@ -130,7 +130,6 @@ export function deserializeProject(
         n.parentId == null || deadParentIds.has(String(n.parentId))
           ? null
           : remap(String(n.parentId)),
-      stale,
       data,
     }
   })

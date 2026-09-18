@@ -56,12 +56,6 @@ export interface NodeFrameProps {
  */
 export function NodeFrame(props: NodeFrameProps) {
   const { node, selected, scale, ports, minSize } = props
-  /**
-   * 陈旧标记（§6.19.5）：直接读节点自己的派生字段渲染。
-   * 写入口在 CanvasExecutionProvider（对账后发 stale.mark / stale.clear），
-   * 本层只渲染，不计算——渲染层不读图（架构 §4.7）。
-   */
-  const stale = !!node.stale
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(node.title)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -151,15 +145,13 @@ export function NodeFrame(props: NodeFrameProps) {
 
   return (
     <div
-      className={`${styles.frame} ${selected ? styles.selected : ''} ${stale ? styles.stale : ''}`}
+      className={`${styles.frame} ${selected ? styles.selected : ''}`}
       style={{ left: node.x, top: node.y, width: node.w, height: node.h }}
       data-node-id={node.id}
       data-node-type={node.type}
-      data-node-stale={stale ? '' : undefined}
       onPointerDown={props.onFramePointerDown}
       onDragStart={(e) => e.preventDefault()}
     >
-      {stale && <span className={styles.staleDot} data-stale-dot />}
       {!inContainer && (
         <div className={styles.header} data-node-header>
           {editing ? (

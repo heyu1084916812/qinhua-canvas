@@ -25,6 +25,7 @@ class QinghuaDB extends Dexie {
   runRecords!: Table<Row, string>
   assets!: Table<Row, string>
   credentials!: Table<Row, string>
+  presets!: Table<Row, string>
   comics!: Table<Row, string>
 
   constructor(name = 'qinghua') {
@@ -42,6 +43,7 @@ class QinghuaDB extends Dexie {
     })
     this.version(2).stores({
       comics: 'id',
+      presets: 'id',
     })
   }
 }

@@ -2,8 +2,14 @@ import { createStore as createVanilla } from 'zustand/vanilla'
 import type { PlatformKit } from '../../platform/ports'
 import type { Channel, CreateChannelInput } from '../../domain/project/channel'
 import { PROBE_PROTOCOLS, requiresBaseUrl, tokenTailOf } from '../../domain/project/channel'
+import {
+  NO_PRESET,
+  rememberPreset as rememberPresetOf,
+  resolvePreset,
+} from '../../domain/project/generationPreset'
 import type { ModelCapability } from '../../domain/shared/capability'
 import { createChannelRepository, type ChannelRepository } from '../project/channelRepository'
+import { createPresetStore, type PresetStore } from '../project/presetStore'
 import {
   createChannelAdapter,
   type ResolvedChannelConfig,
@@ -89,6 +95,19 @@ export interface ChannelStoreActions {
   refreshModels(id: string): Promise<void>
   /** 已启用渠道：供创作面板的平台下拉使用（M2-2 接入） */
   enabledChannels(): Channel[]
+  /**
+   * 记住「这次用的渠道 + 模型」，作为**新建生成 / 批量节点时的默认值**（用户 2026-09-17）。
+   *
+   * 记录时机由调用方决定（面板里选完的那一刻），这里只负责写库与维护内存态。
+   */
+  rememberPreset(channelId: string, model: string): Promise<void>
+  /**
+   * 新建节点时该填的渠道 + 模型。
+   *
+   * 预设失效（渠道已被删 / 模型已被取消勾选）时按用户选的口径**自动挑该渠道第一个
+   * 已勾选模型**，而不是留空让人重选；`substituted` 标明这是兜底值，供调用方提示。
+   */
+  defaultForNewNode(): Promise<{ channelId: string; model: string; substituted: boolean } | null>
 }
 
 export type ChannelStore = MiniStore<ChannelStoreState> & ChannelStoreActions
@@ -112,6 +131,7 @@ function toSafeConfig(ch: Channel): ResolvedChannelConfig {
 
 export function createChannelStore(platform: PlatformKit): ChannelStore {
   const repo: ChannelRepository = createChannelRepository(platform.storage, platform.credentials)
+  const presets: PresetStore = createPresetStore(platform.storage)
   const store = createVanillaStore<ChannelStoreState>(() => ({
     channels: [],
     loaded: false,
@@ -121,7 +141,8 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
   }))
 
   const load: ChannelStoreActions['load'] = async () => {
-    const channels = await repo.list()
+    const [channels, preset] = await Promise.all([repo.list(), presets.load()])
+    presetRef.current = preset
     store.setState({ channels, loaded: true })
   }
 
@@ -293,6 +314,25 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
   }
 
   const enabledChannels = (): Channel[] => store.getState().channels.filter((c) => c.enabled)
+  /**
+   * 预设的两个动作放在这里，是因为**兜底解析需要渠道列表**（它有哪些已勾选模型），
+   * 而这个 store 正是列表的持有者。规则本身仍在 domain 的纯函数里，
+   * 这里只把列表喂给它——不复制那份判断。
+   */
+  /** 内存态：避免每次建节点都读一次库 */
+  const presetRef = { current: NO_PRESET }
+
+  const rememberPreset: ChannelStoreActions['rememberPreset'] = async (channelId, model) => {
+    const next = rememberPresetOf(channelId, model, Date.now())
+    if (!next) return
+    presetRef.current = next
+    await presets.save(next)
+  }
+
+  const defaultForNewNode: ChannelStoreActions['defaultForNewNode'] = async () => {
+    if (presetRef.current === NO_PRESET) presetRef.current = await presets.load()
+    return resolvePreset(presetRef.current, store.getState().channels)
+  }
 
   return {
     ...store,
@@ -310,5 +350,7 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
     detectProtocol,
     refreshModels,
     enabledChannels,
+    rememberPreset,
+    defaultForNewNode,
   }
 }

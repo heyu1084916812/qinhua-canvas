@@ -13,10 +13,8 @@ import type { Channel } from '../../../domain/project/channel'
 import type { RunRequest } from '../../../domain/canvas/nodeSpecs/types'
 import type { NodeInput } from '../../../domain/shared/execution/types'
 import { boardSubgraph } from '../../../domain/canvas/board/boardSubgraph'
-import { liveFingerprintOf, type RunRecord } from '../../../domain/canvas/model/runRecord'
-import { staleNodeFingerprints, staleReport } from '../../../domain/canvas/staleness/staleNodes'
-import { useCanvasStore, useGraph } from '../storeContext'
-import { ConfirmDialog } from '../surface/ConfirmDialog'
+import type { RunRecord } from '../../../domain/canvas/model/runRecord'
+import { useCanvasStore } from '../storeContext'
 import { RunHotkeys } from './RunHotkeys'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
@@ -34,16 +32,6 @@ export interface CanvasExecutionApi {
   /** 单点生成（R / 面板 / 右键「生成」）；alt = `Alt+R`（保留旧内容，拓扑方向铺新下游） */
   runNode(nodeId: string, opts?: { alt?: boolean }): Promise<void>
   runBoard(boardId: string): Promise<void>
-  /** 整条流程重新运行（P / 右键）：触发节点 + 全部下游按拓扑序覆盖式重跑 */
-  rerunFrom(nodeId: string): Promise<void>
-  /** 仅刷新陈旧（`Shift+R` = 触发节点下游；不传 = 全图，顶栏） */
-  refreshStale(nodeId?: string): Promise<void>
-  /** 全图重跑（`Ctrl+Enter` / 顶栏）——调用前必须已过二次确认 */
-  rerunAll(): Promise<void>
-  /** 请求全图重跑：弹二次确认（§6.19.1「确认前不进入执行引擎」） */
-  requestRerunAll(): void
-  /** 清除全图陈旧标记（§6.19.5 右键「清除陈旧标记」） */
-  clearStale(): void
   cancel(): void
   nodeStateOf(nodeId: string): RunTaskState | undefined
   isRunning: boolean
@@ -71,8 +59,6 @@ const Ctx = createContext<CanvasExecutionApi | null>(null)
 
 export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   const store = useCanvasStore()
-  /** 只用于驱动陈旧对账（图变更时重算），本组件不直接渲染它 */
-  const graph = useGraph()
   const channels = useChannels()
   const platform = usePlatform()
   const repo = useMemo(
@@ -97,17 +83,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   // 引擎之外的写入方（版本恢复）经 appendRecord 递增，保证计数与库一致。
   const versionMaxRef = useRef<Map<string, number>>(new Map())
 
-  // —— 陈旧标记（§6.19.5）——
-  // 成功基线：nodeId → { version, fingerprint }，即「version 最大且 succeeded」那条记录。
-  // 用 ref 而非 state：引擎写回时要**同步**记账，不能让 React 的批处理拖后一帧。
-  const liveRef = useRef<Map<string, { version: number; fingerprint: string }>>(new Map())
-  /** 基线是可变 ref，用这个哑计数把变化告诉 useMemo / effect */
-  const [liveTick, setLiveTick] = useState(0)
-  /** 用户手动清除过的节点 → 清除那一刻的指纹；指纹再变一次，豁免自然失效、标记重现 */
-  const dismissedRef = useRef<Map<string, string>>(new Map())
-  const [confirmRerunAll, setConfirmRerunAll] = useState(false)
-
-  // 挂载时读回历史：既初始化版本计数，也建立成功指纹基线（刷新后陈旧标记无需重跑即可复原）
+  // 挂载时读回历史：初始化版本计数（RunRecord 是日志面板的数据源）
   useEffect(() => {
     let alive = true
     void (async () => {
@@ -120,97 +96,21 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         else byNode.set(r.nodeId, [r])
       }
       const versions = versionMaxRef.current
-      const live = liveRef.current
-      live.clear()
       for (const [nodeId, recs] of byNode) {
         let max = 0
         for (const r of recs) if (r.version > max) max = r.version
         versions.set(nodeId, Math.max(versions.get(nodeId) ?? 0, max))
-        const fp = liveFingerprintOf(recs)
-        if (fp) live.set(nodeId, { version: max, fingerprint: fp })
       }
-      setLiveTick((n) => n + 1)
     })()
     return () => {
       alive = false
     }
   }, [platform, store])
 
-  /**
-   * 记下一条成功记录作为该节点的新基线。
-   * 只有 succeeded 才算基线（失败 / 取消没有改变「已经产出的东西」）；
-   * version 必须严格更大才覆盖（版本恢复追加更大的版本号，回退后基线随之更新）。
-   */
-  const noteRecord = useCallback((record: RunRecord) => {
-    if (record.status !== 'succeeded') return
-    const cur = liveRef.current.get(record.nodeId)
-    if (cur && cur.version >= record.version) return
-    liveRef.current.set(record.nodeId, { version: record.version, fingerprint: record.fingerprint })
-    setLiveTick((n) => n + 1)
-  }, [])
-
-  /** 成功指纹基线：nodeId → fingerprint（无基线的节点不在表里） */
-  const liveFingerprints = useMemo(() => {
-    const m = new Map<string, string | null>()
-    for (const [id, v] of liveRef.current) m.set(id, v.fingerprint)
-    return m
-  }, [liveTick])
-  // clearStale / refreshStale 走事件回调，需要读到最新基线而不重挂依赖
-  const liveFingerprintsRef = useRef(liveFingerprints)
-  liveFingerprintsRef.current = liveFingerprints
-
-  /**
-   * 陈旧标记对账：把「当前指纹 ≠ 成功基线」的节点标陈旧，把**能证明已回到基线**的撤掉。
-   *
-   * 两条纪律：
-   * - **清除只认 `fresh` 集合**——「不在陈旧里」不构成清除理由，因为从未成功生成过的
-   *   节点（无基线）也「不在陈旧里」。只清指纹已能被证明与基线一致的那些，
-   *   才不会把导入时因「模型缺失」自带的 stale 悄悄抹掉（§6.19.5）。
-   *   这比「记住本层标过谁」更稳：那份记忆一刷新就没了，而 `fresh` 每次都能重算出来。
-   * - **拖动期间跳过**——拖动只改 x/y，而 x/y 不进指纹，陈旧集合不可能变；
-   *   跳过省掉每帧一次 O(N) 重算（300 节点拖拽场景，架构 §1.7 性能预算）。
-   */
-  useEffect(() => {
-    if (store.isDragging()) return
-    const report = staleReport(graph, liveFingerprints)
-    const toMark: string[] = []
-    const toClear: string[] = []
-    for (const n of graph.nodes) {
-      // 用户手动清除过、且指纹未再变 → 尊重意愿，不重标（指纹一变，豁免自然失效）
-      const dismissed = dismissedRef.current.get(n.id) === report.stale.get(n.id)
-      const want = report.stale.has(n.id) && !dismissed
-      const has = !!n.stale
-      if (want && !has) toMark.push(n.id)
-      else if (has && report.fresh.has(n.id)) toClear.push(n.id)
-    }
-    if (toMark.length > 0) store.dispatch({ kind: 'stale.mark', nodeIds: toMark })
-    if (toClear.length > 0) store.dispatch({ kind: 'stale.clear', nodeIds: toClear })
-  }, [graph, liveFingerprints, store])
-
-  /**
-   * 清除全图陈旧标记（§6.19.5 右键「清除陈旧标记」）。
-   * 记下「被清除时的指纹」作为豁免：用户既然看着这个状态点了清除，就先别再提醒；
-   * 上游再变一次 → 指纹变了 → 豁免失效，标记重新出现（陈旧与否是事实，不由用户意愿改写）。
-   */
-  const clearStale = useCallback(() => {
-    const g = store.getSnapshot()
-    const stale = g.nodes.filter((n) => n.stale)
-    if (stale.length === 0) return
-    const report = staleReport(g, liveFingerprintsRef.current)
-    for (const n of stale) {
-      const fp = report.stale.get(n.id)
-      if (fp) dismissedRef.current.set(n.id, fp)
-    }
-    store.dispatch({ kind: 'stale.clear', nodeIds: stale.map((n) => n.id) })
-    store.notify('已清除陈旧标记')
-  }, [store])
-
   const host = useMemo(
     () => ({
       writeBack: (commands: Command[], transaction?: TransactionBoundary) => {
         for (const c of commands) {
-          // 成功记录即新基线：同步记账，本帧随后的图变化会触发陈旧对账
-          if (c.kind === 'node.runRecord.append') noteRecord(c.record)
           store.dispatch(c, transaction)
         }
       },
@@ -284,7 +184,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         return next
       },
     }),
-    [store, noteRecord],
+    [store],
   )
 
   const { startRun, cancelRun, isRunning } = useExecution<CanvasRunTask, Command>(host)
@@ -408,64 +308,6 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
     [store, launch],
   )
 
-  /** 整条流程重新运行（P / 右键）：触发节点 + 全部下游覆盖式重跑 */
-  const rerunFrom = useCallback(
-    async (nodeId: string) => {
-      const graph = store.getSnapshot()
-      const plan = buildRunPlan('node', { originNodeId: nodeId }, graph, 'rerun')
-      if (plan.tasks.length === 0) {
-        store.notify('没有可执行的节点')
-        return
-      }
-      await launch(plan, nodeId)
-    },
-    [store, launch],
-  )
-
-  /**
-   * 仅刷新陈旧（§6.19.1）：`Shift+R` = 触发节点下游，顶栏 = 全图。
-   *
-   * 陈旧集合由**指纹现算**（与渲染标记同源），而不是读 `node.stale`——
-   * 标记可能被用户手动清除过，但「这条链路值得重跑」的事实并没有被改写。
-   */
-  const refreshStale = useCallback(
-    async (nodeId?: string) => {
-      const graph = store.getSnapshot()
-      const staleIds = new Set(staleNodeFingerprints(graph, liveFingerprintsRef.current).keys())
-      if (staleIds.size === 0) {
-        store.notify('没有陈旧的节点')
-        return
-      }
-      const plan = buildRunPlan(
-        nodeId ? 'node' : 'global',
-        { originNodeId: nodeId ?? null },
-        graph,
-        'refreshStale',
-        staleIds,
-      )
-      if (plan.tasks.length === 0) {
-        store.notify('没有陈旧的节点')
-        return
-      }
-      await launch(plan, nodeId)
-    },
-    [store, launch],
-  )
-
-  /** 全图重跑（`Ctrl+Enter` / 顶栏，已过二次确认）：从源头按拓扑序跑一次全图 */
-  const rerunAll = useCallback(async () => {
-    const graph = store.getSnapshot()
-    const plan = buildRunPlan('global', { originNodeId: null }, graph, 'rerunAll')
-    if (plan.tasks.length === 0) {
-      store.notify('没有可执行的节点')
-      return
-    }
-    await launch(plan, undefined)
-  }, [store, launch])
-
-  /** 全图重跑前的二次确认（§6.19.1）；确认前不进入执行引擎 */
-  const requestRerunAll = useCallback(() => setConfirmRerunAll(true), [])
-
   const cancel = useCallback(() => {
     if (planIdRef.current) cancelRun(planIdRef.current)
   }, [cancelRun])
@@ -474,21 +316,14 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
     () => ({
       runNode,
       runBoard,
-      rerunFrom,
-      refreshStale,
-      rerunAll,
-      requestRerunAll,
-      clearStale,
       cancel,
       nodeStateOf: (nodeId: string) => nodeStates.get(nodeId),
       isRunning,
       appendRecord: async (record: RunRecord) => {
         const map = versionMaxRef.current
         map.set(record.nodeId, Math.max(map.get(record.nodeId) ?? 0, record.version))
-        // 版本恢复也是一次新的成功产出 → 刷新陈旧基线（回退后该节点不再显示为陈旧）
-        noteRecord(record)
         store.dispatch({ kind: 'node.runRecord.append', nodeId: record.nodeId, record })
-        // append 走 800ms 防抖落库；版本历史 / 时间轴面板实时读库，flush 完成后再返回
+        // append 走 800ms 防抖落库；日志面板实时读库，flush 完成后再返回
         await store.flush()
       },
       completeText: async ({ channelId, model, system, text, inputs, signal }) => {
@@ -515,11 +350,6 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
     [
       runNode,
       runBoard,
-      rerunFrom,
-      refreshStale,
-      rerunAll,
-      requestRerunAll,
-      clearStale,
       cancel,
       nodeStates,
       isRunning,
@@ -527,7 +357,6 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       channels,
       repo,
       platform,
-      noteRecord,
     ],
   )
 
@@ -536,18 +365,6 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       {children}
       {/* 执行模式快捷键（R / Alt+R / P / Shift+R / Ctrl+Enter，§6.20） */}
       <RunHotkeys />
-      {/* 全图重跑二次确认（§6.19.1）：顶栏按钮与 Ctrl+Enter 都汇到这一处 */}
-      <ConfirmDialog
-        open={confirmRerunAll}
-        title="全图重跑"
-        message="将按拓扑序从源头重跑全图，覆盖各节点的当前显示结果（版本历史保留）。"
-        confirmLabel="全图重跑"
-        onCancel={() => setConfirmRerunAll(false)}
-        onConfirm={() => {
-          setConfirmRerunAll(false)
-          void rerunAll()
-        }}
-      />
     </Ctx.Provider>
   )
 }

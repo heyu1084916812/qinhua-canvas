@@ -11,6 +11,11 @@ export type TableName =
   | 'runRecords'
   | 'assets'
   | 'credentials'
+  /**
+   * UI 偏好（生成预设等）：一行一个偏好，键固定（见 domain/project/generationPreset）。
+   * 与业务数据分开，业务表保持「只有业务」这一条界限。
+   */
+  | 'presets'
   /** 漫画剧工作台私有：一行一个项目，文档式存整个 ComicProject（架构 §5.10 工作台私有切片） */
   | 'comics'
 

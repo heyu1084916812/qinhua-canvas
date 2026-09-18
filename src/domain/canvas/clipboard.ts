@@ -170,7 +170,6 @@ function remapIdLists(data: unknown, idMap: ReadonlyMap<string, string>): Record
  * 对着哪儿按 V 就以哪儿为中心冒出来，比「左上角对齐」更贴合直觉）。
  * 后代不额外加偏移：它们跟着父节点走。
  *
- * `stale` 一律清空：副本还没真正跑过，而它往往带着原件的产物（`assetHash`），
  * 标上「陈旧」等于告诉用户「这内容过期了」——可它明明刚粘出来、画面就在那儿。
  */
 export function pasteNodes(
@@ -200,7 +199,6 @@ export function pasteNodes(
       // 重映射只动 id 列表，其余字段原样带过 —— 类型上仍是 NodeData，故在此收口断言，
       // 不把 Record<string, unknown> 泄漏到 NodeSnapshot 上
       data: remapIdLists(n.data, idMap) as unknown as NodeData,
-      stale: false,
     } satisfies NodeSnapshot
   })
 }

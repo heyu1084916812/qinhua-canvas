@@ -21,7 +21,7 @@ beforeEach(() => {
 })
 
 describe('reduce / node.create', () => {
-  it('用 spec 默认数据建节点，尺寸取 spec.min，stale 默认 false', () => {
+  it('用 spec 默认数据建节点，尺寸取 spec.min', () => {
     const { result, next } = reduce(
       { kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 10, y: 20 } },
       emptyGraph(),
@@ -32,7 +32,6 @@ describe('reduce / node.create', () => {
     expect(n.x).toBe(10)
     expect(n.y).toBe(20)
     expect(n.title).toBe('提示词')
-    expect(n.stale).toBe(false)
     expect(n.data).toEqual({ text: '', upstreamPromptLinked: false, channelId: '', model: '' })
     expect(result.transaction.mode).toBe('standalone')
     expect(result.persist.tables).toContain('nodes')

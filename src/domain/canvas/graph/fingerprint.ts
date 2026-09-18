@@ -65,11 +65,3 @@ export function fingerprintOf(
   const canonical = `${node.type}|${stableStringify(data)}|${inputs.map(inputKey).join(';')}`
   return fingerprintHex(canonical)
 }
-
-/**
- * 陈旧判定：从未成功生成过（live 为 null）不算陈旧——没有可对比的基线。
- */
-export function isStale(liveFingerprint: string | null, currentFingerprint: string): boolean {
-  if (liveFingerprint === null) return false
-  return liveFingerprint !== currentFingerprint
-}

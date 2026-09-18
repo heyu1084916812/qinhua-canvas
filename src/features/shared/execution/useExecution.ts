@@ -28,7 +28,7 @@ export interface ExecutionHost<TTask extends RunTask, TCommand> {
   projectId: string
   /** 落位 / 写回适配器（canvas：CanvasPlacement、comic：ComicPlacement） */
   placement: ExecutionPlacement<TTask, TCommand>
-  /** 计划结束：落 RunRecord、补发 stale.clear 都在这里做 */
+  /** 计划结束：落 RunRecord 都在这里做 */
   onFinish?: (summary: RunSummary) => void
   /**
    * 任务实际落点已确定（`placement.begin` 之后立刻回调）。

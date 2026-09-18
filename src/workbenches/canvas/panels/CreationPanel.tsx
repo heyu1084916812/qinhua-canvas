@@ -7,6 +7,7 @@ import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { useAsset } from '../hooks/useAsset'
 import type { PromptToolAction } from '../../../features/shared/promptTools/promptTools'
 import { ParamPicker } from './ParamPicker'
+import { AssetMenu } from './AssetMenu'
 import styles from './CreationPanel.module.css'
 import { RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
 
@@ -190,6 +191,8 @@ export function CreationPanel(props: CreationPanelProps) {
     () => channels.getState().channels,
   )
   const [dragIndex, setDragIndex] = useState<number | null>(null)
+  /** 素材操作菜单：同一时刻只开一个（与参数浮层同口径） */
+  const [menuThumbId, setMenuThumbId] = useState<string | null>(null)
   /**
    * 当前展开的参数浮层（§6.8「同一时刻只允许一个面板打开，开新关旧」）。
    *
@@ -372,6 +375,10 @@ export function CreationPanel(props: CreationPanelProps) {
                 }}
                 onToggle={() => onEvent({ type: 'toggleThumb', owner: t.owner, id: t.id })}
                 onRemove={t.removable ? () => onEvent({ type: 'removeOwnAsset' }) : undefined}
+                onReplace={t.removable ? () => onEvent({ type: 'replaceOwnAsset' }) : undefined}
+                menuOpen={menuThumbId === t.id}
+                onToggleMenu={() => setMenuThumbId(menuThumbId === t.id ? null : t.id)}
+                onCloseMenu={() => setMenuThumbId(null)}
               />
             ))}
           </div>
@@ -725,6 +732,10 @@ function Thumb({
   onDrop,
   onToggle,
   onRemove,
+  onReplace,
+  menuOpen,
+  onToggleMenu,
+  onCloseMenu,
 }: {
   thumb: PanelThumb
   index: number
@@ -732,8 +743,16 @@ function Thumb({
   onDragStart: () => void
   onDrop: () => void
   onToggle: () => void
-  /** 仅「节点自身内容」提供（§6.6）；上游缩略图只能小眼睛隐藏 */
+  /**
+   * 仅「节点自身内容」提供（§6.6）；上游缩略图只能小眼睛隐藏。
+   * 清除 / 替换都走这里，由父级翻译成具体事件。
+   */
   onRemove?: () => void
+  onReplace?: () => void
+  /** 该素材的操作菜单是否展开（同一时刻只开一个，由父级持有） */
+  menuOpen?: boolean
+  onToggleMenu?: () => void
+  onCloseMenu?: () => void
 }) {
   const url = useAsset(thumb.assetHash)
   return (
@@ -759,7 +778,7 @@ function Thumb({
       {/* 小眼睛：右上，隐性（hover / 选中才显形） */}
       <button
         type="button"
-        className={styles.eye}
+        className={`${styles.eye} ${styles.eyeAtBottom}`}
         title={thumb.visible ? '本次生成包含该素材' : '本次生成跳过该素材'}
         aria-label={thumb.visible ? '跳过该素材' : '启用该素材'}
         aria-pressed={thumb.visible}
@@ -770,21 +789,37 @@ function Thumb({
       >
         {thumb.visible ? '👁' : '⃠'}
       </button>
-      {/* 删除：仅节点自身内容有（§6.6）。放右下角，与右上角的小眼睛错开 */}
+      {/*
+        节点自身素材的操作入口（用户 2026-09-17）：右上角一个按钮，
+        点开是「清除 / 替换」两项。
+        位置按用户指定放右上角；小眼睛在右下角，两者错开不打架。
+      */}
       {onRemove && (
         <button
           type="button"
-          className={`${styles.eye} ${styles.remove}`}
-          title="删除该内容"
-          aria-label="删除该内容"
-          data-thumb-remove
+          className={`${styles.eye} ${styles.assetMenuBtn}`}
+          title="素材操作"
+          aria-label="素材操作"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen ?? false}
+          data-thumb-menu
           onClick={(e) => {
             e.stopPropagation()
-            onRemove()
+            onToggleMenu?.()
           }}
         >
-          ✕
+          ⋯
         </button>
+      )}
+      {menuOpen && onRemove && onReplace && (
+        <AssetMenu
+          anchor="top-right"
+          onClose={onCloseMenu ?? (() => {})}
+          items={[
+            { id: 'clear', label: '清除', hint: '清掉这张素材，节点回到空态', onSelect: onRemove },
+            { id: 'replace', label: '替换', hint: '换一张素材', onSelect: onReplace },
+          ]}
+        />
       )}
     </div>
   )

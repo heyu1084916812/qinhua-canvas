@@ -6,32 +6,13 @@ import {
   nodeMenuItems,
   canvasMenuItems,
   type ContextMenuItem,
-  type NodeMenuContext,
 } from '../../../domain/canvas/menu/contextMenu'
 import { hasClipboard, pasteClipboard } from '../../../features/canvas/useClipboard'
-import { traverseDownstream } from '../../../domain/canvas/graph/traverseDownstream'
-import { canBuildRequest } from '../../../features/canvas/execution/buildRunPlan'
-import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import { screenToWorld } from '../../../domain/canvas/geometry/coords'
 import { fitCanvasView } from '../surface/fitView'
 import { NODE_MINIMUMS } from '../../../domain/canvas/layout/constants'
 import { createId } from '../../../shared/id'
 import styles from './ContextMenu.module.css'
-
-/**
- * 右键菜单上下文（§6.19.1 / §6.19.5）。
- * - 下游有没有**可执行**节点：决定是否列「整条流程重新运行 / 仅刷新陈旧节点」；
- * - 全图有没有陈旧标记：决定是否列「清除陈旧标记」（它清的是全图，与触发节点无关）。
- */
-function nodeMenuContext(nodeId: string, graph: GraphSnapshot): NodeMenuContext {
-  let hasRunnableDownstream = false
-  traverseDownstream(nodeId, graph, (n) => {
-    if (!canBuildRequest(n)) return
-    hasRunnableDownstream = true
-    return false // 找到一个就够，不必走完整条下游
-  })
-  return { hasRunnableDownstream, hasStale: graph.nodes.some((n) => !!n.stale) }
-}
 
 /**
  * 右键菜单（§4.1）。浮层用**屏幕坐标**绝对定位（与创作面板 §6.8 同理，不随画布变换），
@@ -81,10 +62,7 @@ export function ContextMenu() {
 
   const nodeId = menu.target.kind === 'node' ? menu.target.nodeId : null
   const items: ContextMenuItem[] = nodeId
-    ? nodeMenuItems(
-        graph.nodes.find((n) => n.id === nodeId)?.type ?? 'prompt',
-        nodeMenuContext(nodeId, graph),
-      )
+    ? nodeMenuItems(graph.nodes.find((n) => n.id === nodeId)?.type ?? 'prompt')
     // 剪贴板是模块级单例、不触发重渲染；菜单每次打开都会重算这里，故读到的即当前值
     : canvasMenuItems({ canPaste: hasClipboard() })
 
@@ -107,15 +85,6 @@ export function ContextMenu() {
         void exec.runNode(nodeId)
       } else if (a.kind === 'runBoard') {
         void exec.runBoard(nodeId)
-      } else if (a.kind === 'rerunFrom') {
-        // 整条流程重新运行（§6.19.1「P」）
-        void exec.rerunFrom(nodeId)
-      } else if (a.kind === 'refreshStaleFrom') {
-        // 仅刷新陈旧节点（§6.19.1「Shift+R」右键口径 = 触发节点下游）
-        void exec.refreshStale(nodeId)
-      } else if (a.kind === 'clearStale') {
-        // 清除陈旧标记（§6.19.5）：清的是全图，不是本节点
-        exec.clearStale()
       } else if (a.kind === 'duplicate') {
         store.dispatch({
           kind: 'node.duplicate',

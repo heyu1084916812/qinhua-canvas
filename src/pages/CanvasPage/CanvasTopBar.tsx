@@ -1,7 +1,6 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { useSyncExternalStore } from 'react'
 import { useCanvasStore, useViewportState } from '../../workbenches/canvas/storeContext'
-import { useCanvasExecution } from '../../workbenches/canvas/execution/CanvasExecutionProvider'
 import styles from './CanvasTopBar.module.css'
 
 /**
@@ -50,13 +49,8 @@ export function CanvasTopBar({
 }) {
   const store = useCanvasStore()
   const vp = useViewportState()
-  const exec = useCanvasExecution()
   const canUndo = useSyncExternalStore(store.subscribe, store.canUndo, store.canUndo)
   const canRedo = useSyncExternalStore(store.subscribe, store.canRedo, store.canRedo)
-  // 陈旧数用「返回原始值的 getSnapshot」订阅：只在**这个数**变化时重渲，
-  // 不会因每个节点位移（图引用变更）就重渲顶栏
-  const countStale = () => store.getSnapshot().nodes.reduce((n, x) => n + (x.stale ? 1 : 0), 0)
-  const staleCount = useSyncExternalStore(store.subscribe, countStale, countStale)
 
   return (
     <div className={styles.bar}>
@@ -114,27 +108,12 @@ export function CanvasTopBar({
         <button className={styles.btn} onClick={onToggleLog} {...keepCanvasFocus}>
           日志
         </button>
-        {/* 按范围执行（§6.19.1 顶栏口径）：仅刷新陈旧 = 全图陈旧节点；全图重跑 = 二次确认 */}
-        <button
-          className={styles.btn}
-          data-topbar-refresh-stale
-          onClick={() => void exec.refreshStale()}
-          disabled={exec.isRunning || staleCount === 0}
-          title={staleCount > 0 ? `${staleCount} 个节点陈旧` : '没有陈旧的节点'}
-          {...keepCanvasFocus}
-        >
-          仅刷新陈旧
-        </button>
-        <button
-          className={styles.btn}
-          data-topbar-rerun-all
-          onClick={exec.requestRerunAll}
-          disabled={exec.isRunning}
-          title="从源头按拓扑序重跑全图（需二次确认）"
-          {...keepCanvasFocus}
-        >
-          全图重跑
-        </button>
+        {/*
+          曾有「仅刷新陈旧」与「全图重跑」两个顶栏入口，均已下线（用户 2026-09-17）：
+          两者都是**覆盖式**重跑（产物写回原节点，旧结果被冲掉），与「每次生成新建
+          一个右侧节点、旧的留着对比」的落位模型正好相反。全图重跑更是会把整张画布
+          的历史结果一次冲掉，风险最大——即便有二次确认也不该留这个入口。
+        */}
       </div>
       <span className={styles.zoom}>{Math.round(vp.zoom * 100)}%</span>
     </div>

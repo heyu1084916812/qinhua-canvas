@@ -23,8 +23,7 @@ function node(over: Partial<NodeSnapshot> & { id: string }): NodeSnapshot {
     h: 60,
     title: over.id,
     disabled: false,
-    stale: false,
-    data,
+      data,
     ...over,
   }
 }
@@ -123,11 +122,6 @@ describe('pasteNodes', () => {
     const out = pasteNodes(payload, { x: 0, y: 0 }, newIds)
     // 'c' → 'c2'；'x' 不在本次复制集合内 → 丢弃（与外部连线不复制同口径）
     expect((out[0]!.data as { childIds: string[] }).childIds).toEqual(['c2'])
-  })
-
-  it('stale 清空：副本刚粘出来，画面就在那儿，不该标「内容过期」', () => {
-    const stale = clipboardFromSelection(graph([node({ id: 'a', stale: true })]), ['a'])!
-    expect(pasteNodes(stale, { x: 0, y: 0 }, ['a2'])[0]!.stale).toBe(false)
   })
 
   it('newIds 与节点数不一致直接抛错（早失败好过静默错位）', () => {

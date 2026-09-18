@@ -35,8 +35,7 @@ function genNode(overrides: Partial<NodeSnapshot> = {}): NodeSnapshot {
     h: 240,
     title: '生成',
     disabled: false,
-    stale: false,
-    data: generationSpec.createDefaultData(),
+      data: generationSpec.createDefaultData(),
     ...overrides,
   }
 }
@@ -66,8 +65,7 @@ function baseProps(overrides: Partial<NodeViewProps> = {}): NodeViewProps {
     scale: 1,
     selected: false,
     running: false,
-    stale: false,
-    runMode: 'idle',
+      runMode: 'idle',
     error: null,
     emit: () => {},
     ...overrides,

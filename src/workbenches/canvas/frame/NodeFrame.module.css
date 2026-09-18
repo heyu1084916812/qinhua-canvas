@@ -18,14 +18,6 @@
   user-select: none;
 }
 
-/* 陈旧（§6.19.5）：橘色描边 + 右上角圆点（圆点定义见文末 .staleDot）。
-   声明顺序刻意排在 .selected 之前——两者同时成立时描边归选中（选中的是唯一长期交互态），
-   陈旧由圆点继续呈现，两个信号都不会丢。 */
-.frame.stale {
-  outline: 2px solid var(--warn);
-  outline-offset: 0;
-}
-
 .frame.selected {
   /* 节点选中：2px 实线焦点色，不用蓝色（§3.3） */
   outline: 2px solid var(--stroke-focus);
@@ -182,20 +174,3 @@
   background: var(--bg-hover);
 }
 
-/* 陈旧圆点（§6.19.5「右上角 6px 圆点」）：纯标记，不吃指针事件。
-   位置落在圆角内（右上角 14px 圆角，圆心距角 8.5px < 14px），不会溢出到节点外。
-   **z-index 不能省**：圆点在 DOM 里先于 `.body` 渲染，而节点内容（如生成节点的
-   `.media`）自带不透明底色并铺满 body ⇒ 同为定位元素时会被整块盖住。
-   盖住即「DOM 里数得到、屏幕上没有」——选中态下描边归黑色（§3.3 的刻意设计），
-   圆点就是**唯一**还在的陈旧信号，被盖掉等于陈旧完全看不见（像素采样实测 0 像素）。 */
-.staleDot {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 6px;
-  height: 6px;
-  border-radius: var(--radius-pill);
-  background: var(--warn);
-  pointer-events: none;
-  z-index: 2;
-}

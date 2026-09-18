@@ -96,7 +96,6 @@ interface CardProps {
   selected?: boolean
   running?: boolean
   globalRunning?: boolean
-  stale?: boolean
   runMode?: RunMode
   error?: string | null
   upstreamAssetHashes?: string[]
@@ -108,7 +107,6 @@ function Card({
   selected,
   running,
   globalRunning,
-  stale,
   runMode = 'idle',
   error = null,
   upstreamAssetHashes,
@@ -139,7 +137,6 @@ function Card({
             selected={!!selected}
             running={!!running}
             globalRunning={!!globalRunning}
-            stale={!!stale}
             runMode={runMode}
             error={error}
             upstreamAssetHashes={upstreamAssetHashes}
@@ -181,7 +178,6 @@ function ChildView({ node }: { node: NodeSnapshot }) {
       scale={1}
       selected={false}
       running={false}
-      stale={false}
       runMode="idle"
       error={null}
       emit={() => {}}
@@ -440,8 +436,7 @@ export function PreviewPage() {
         <Card label="选中" node={makeNode('prompt', { title: '提示词' })} selected />
         <Card label="运行中" node={makeNode('prompt', { title: '提示词' })} running runMode="single" />
         <Card label="错误" node={makeNode('prompt', { title: '提示词' })} error="生成失败：渠道超时" />
-        <Card label="陈旧" node={makeNode('prompt', { title: '提示词' })} stale />
-      </div>
+              </div>
 
       <h2 className={styles.h2}>生成节点 · 状态矩阵（产品文档 §6.8 / M2-3）</h2>
       <div className={styles.grid}>
@@ -460,8 +455,7 @@ export function PreviewPage() {
           globalRunning
         />
         <Card label="错误" node={makeNode('generation', { title: '生成' })} error="模型不可用" />
-        <Card label="陈旧" node={makeNode('generation', { title: '生成' })} stale />
-      </div>
+              </div>
 
       <h2 className={styles.h2}>结果组 · 网格矩阵（产品文档 §6.9 / M2-3）</h2>
       <div className={styles.grid}>

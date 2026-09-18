@@ -103,23 +103,13 @@ describe('canvas store / 撤销条（§6.12）', () => {
   })
 })
 
-describe('canvas store / 陈旧标记不进撤销栈', () => {
-  it('stale.mark 后 undo 不回退陈旧（陈旧不进撤销栈），但 flush 仍落库', async () => {
-    const store = createCanvasStore({ platform, projectId: 'p1' })
-    store.dispatch({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } })
-    const id = store.getSnapshot().nodes[0]!.id
-    store.dispatch({ kind: 'stale.mark', nodeIds: [id] })
-    expect(store.getSnapshot().nodes[0]!.stale).toBe(true)
-
-    await store.flush()
-    const rows = await platform.storage.query('nodes', {})
-    expect((rows[0] as { stale?: boolean }).stale).toBe(true)
-
-    // undo 只回退 node.create（唯一撤销条目），不会先去回退陈旧标记
-    store.undo()
-    expect(store.getSnapshot().nodes).toHaveLength(0)
-  })
-})
+/**
+ * 陈旧标记已下线（用户 2026-09-17），原先「stale.mark 不进撤销栈」那组随之删除。
+ *
+ * 保留下来的、仍然要守的那条是：**产物写回不进撤销栈**——
+ * Ctrl+Z 不该把已生成的图从节点上抹掉。它由 `node.updateData` 的 `transient: true`
+ * 表达（见 execution.test 的对应用例），这里不再重复。
+ */
 
 describe('canvas store / 瞬态状态', () => {
   it('选中与视口走独立 API，不进 dispatch / undo / 持久化', () => {

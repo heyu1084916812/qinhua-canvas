@@ -31,7 +31,6 @@ export interface NodeViewProps<TData extends NodeData = NodeData> {
    */
   globalRunning?: boolean
   /** 上游输出变了、本节点 fingerprint 对不上（见 §4.1 / §6.19.5） */
-  stale: boolean
   runMode: RunMode
   error: string | null
   /** 唯一变更出口：节点视图只能 emit，由页面装配层翻译成 command */

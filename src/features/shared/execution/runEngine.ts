@@ -101,7 +101,6 @@ const DEFAULT_POLICY: RunPolicy = {
 const MODE_LABEL: Record<RunPlan['mode'], string> = {
   single: '生成',
   rerun: '重跑下游',
-  refreshStale: '刷新过期',
   rerunAll: '全部重跑',
 }
 

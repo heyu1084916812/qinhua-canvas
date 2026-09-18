@@ -1190,49 +1190,6 @@ async function edgeClip(page) {
 const EDGE_INK_MIN = 60
 
 /**
- * 采样页面上指定矩形区域内的「陈旧橘色」像素数（§6.19.5）。
- *
- * 与连线同理：陈旧标记是否**真的被画出来**无法从 DOM 证明——`data-node-stale`
- * 存在、`[data-stale-dot]` 计数为 1、计算样式 `outline-color` 正确，
- * 都可能发生在元素被遮挡 / 尺寸为 0 / 被后续规则覆盖而屏幕上什么都没有的情形。
- *
- * 判定色：陈旧标记 `--warn` #9a6424（154,100,36）。画布上其余候选色都能被排除：
- * - 文本 / 描边 / 网格 / 白底（#171716 / #deded9 / #ececef / #ffffff）：r−b ≤ 5；
- * - 连线 #c9c9d1：r−b = −8；
- * - 危险色 #b4473a：**偏红**（g−b = 13），而陈旧色**偏棕**（g−b = 64）。
- * 故用「r ≥ 120 且 r−b ≥ 50 且 g−b ≥ 30 且 g < r」锁定橘棕系，
- * 阈值下探到与白底约 50% 的抗锯齿混色（≈ 203,176,143）仍计入。
- */
-async function countWarnInk(page, clip) {
-  const vp = page.viewportSize() ?? { width: 1280, height: 800 }
-  const x = Math.max(0, Math.floor(clip.x))
-  const y = Math.max(0, Math.floor(clip.y))
-  const width = Math.min(Math.ceil(clip.width), vp.width - x)
-  const height = Math.min(Math.ceil(clip.height), vp.height - y)
-  if (width <= 0 || height <= 0) return 0
-  const shot = await page.screenshot({ clip: { x, y, width, height } })
-  return page.evaluate(async (dataUrl) => {
-    const img = new Image()
-    img.src = dataUrl
-    await img.decode()
-    const c = document.createElement('canvas')
-    c.width = img.naturalWidth
-    c.height = img.naturalHeight
-    const g2 = c.getContext('2d')
-    g2.drawImage(img, 0, 0)
-    const d = g2.getImageData(0, 0, c.width, c.height).data
-    let ink = 0
-    for (let i = 0; i < d.length; i += 4) {
-      const r = d[i]
-      const gg = d[i + 1]
-      const b = d[i + 2]
-      if (r >= 120 && r - b >= 50 && gg - b >= 30 && gg < r) ink++
-    }
-    return ink
-  }, `data:image/png;base64,${shot.toString('base64')}`)
-}
-
-/**
  * 小地图里「节点矩形」的墨迹像素数（G56）。
  *
  * 节点填充 #D8D8DE = (216,216,222)：**偏蓝的中灰**（b−r ≈ 6）；
@@ -1325,21 +1282,6 @@ async function clickBlankCanvas(page) {
   return true
 }
 
-/**
- * 「陈旧**描边**已绘制」的判定下限。实测标定：
- * - 无标记 = 0（画布上没有第二个橘棕来源）；
- * - **仅右上角圆点**约 20~30 像素（6px 圆，抗锯齿吃掉外圈）；
- * - **圆点 + 2px 描边**（未选中时 outline 用 --warn）可达 1200+。
- *
- * 取 100：要求采样必须包含描边，即**采样前先清空选择**——节点一旦被选中，
- * `.frame.selected` 的 outline 会盖掉 `.frame.stale` 的橘色描边（选中优先级更高，
- * 见 NodeFrame.module.css 声明顺序），只剩圆点，计数会掉到 30 以下。
- * 故 G41 在取样前点空白取消选中（走 clickBlankCanvas，不写死坐标）。
- *
- * **圆点另有独立断言**（阈值 8，见 G41）：它是选中态下**唯一**的陈旧信号，
- * 而它最容易「DOM 在、屏幕没有」（被节点内容盖住），不能用描边的阈值顺带覆盖。
- */
-const WARN_INK_MIN = 100
 
 // ────────────────────────────────────────────────────────────
 // G12 连线交互（§6.14）：单击选中变色 / 节点选中时上下游高亮+删除按钮 / 删除按钮删除 / 双击删除
@@ -5503,174 +5445,6 @@ async function g40(browser) {
 }
 
 // ────────────────────────────────────────────────────────────
-// G41 陈旧标记与按范围重跑（§6.19.5 陈旧 / §6.19.1 四种执行模式 / §6.20 快捷键）
-//
-// 本组回答两件事：
-// 1) 陈旧标记**是否真的画出来**（像素采样，同连线事故的教训：DOM 全对 ≠ 屏幕上有）；
-// 2) 「什么时候该陈旧 / 什么时候该清除」是否由**指纹对账**决定，而不是靠内存记忆——
-//    故末尾专门验证「刷新后凭库里的 RunRecord 重建基线」这条路径。
-// ────────────────────────────────────────────────────────────
-async function g41(browser) {
-  const g = 'G41 陈旧标记与重跑入口'
-  const ctx = await newCtx(browser)
-  const page = await ctx.newPage()
-  const pageErrors = []
-  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 120)))
-
-  /** 点画布右下角空白：同时清空节点选择（选中态 outline 会盖掉陈旧描边，取样前必须清） */
-  // 取消选中要走「真正的空白单击」：写死坐标会随布局漂移（见 clickBlankCanvas 注释）。
-  // 取消选中后陈旧描边才不会被选中态的黑描边压掉（§3.3 的刻意优先级）。
-  const clickBlank = () => clickBlankCanvas(page)
-  const staleCount = () => page.locator('[data-node-stale]').count()
-
-  // 1) 配 mock 渠道并启用（出图前提；含勾选模型）
-  const g41ch = await configureMockChannel(page)
-  rec(g, '渠道验证通过并拉到模型', g41ch.verified)
-
-  // 2) 文生图模板 → 选渠道/模型/提示词 → 生成一次（建立成功基线）
-  await page.goto(BASE, { waitUntil: 'networkidle' })
-  await sleep(400)
-  await page.locator('[data-template="text2img"]').click()
-  await page.waitForURL(/\/canvas\//)
-  await sleep(700)
-
-  // 参数与提示词在创作面板里（M6-16 起节点本体只剩媒体框）
-  const g41Panel = await genPanel(page)
-  await configureGenPanel(page, g41Panel, '屋顶的猫')
-
-  await panelRunBtn(page).click()
-  let ranOnce = false
-  try {
-    // N=1 的产物写回节点本体、不建结果组（§6.16，M6-24），故等**节点出图**而不是等结果组
-    await page.locator('[data-node-asset]').first().waitFor({ state: 'visible', timeout: 15000 })
-    ranOnce = true
-  } catch {
-    ranOnce = false
-  }
-  rec(g, '首次生成成功（建立成功基线）', ranOnce)
-  await sleep(600)
-
-  // 3) 刚生成成功 → 与基线一致 → 无陈旧标记
-  //    （若实现写成「生成过就陈旧」或「永远陈旧」，这条会失败）
-  const staleAfterRun = await staleCount()
-  rec(g, '生成成功后无陈旧标记（与基线一致）', staleAfterRun === 0, `stale=${staleAfterRun}`)
-  rec(g, '无陈旧时右上角无圆点', (await page.locator('[data-stale-dot]').count()) === 0)
-
-  // 4) 改自己的参数 → 自己陈旧（§6.19.5：参数参与指纹）
-  await g41Panel.locator('textarea').first().fill('屋顶的狗')
-  await sleep(600)
-  const staleNow = await staleCount()
-  rec(g, '改参数后节点被标陈旧', staleNow >= 1, `stale=${staleNow}`)
-  rec(g, '陈旧节点渲染右上角圆点', (await page.locator('[data-stale-dot]').count()) >= 1)
-
-  // 5) 像素级：陈旧标记是否**真的被绘制**（描边与圆点都是 --warn 橘棕，画布上无第二处来源）
-  //    先取消选中：`.frame.selected` 的黑描边按 §3.3 刻意压过 `.frame.stale` 的橘描边，
-  //    不取消的话测到的是「只剩圆点」，量不出描边。
-  await clickBlank()
-  const staleBox = await page.locator('[data-node-stale]').first().boundingBox()
-  const outlineInk = staleBox
-    ? await countWarnInk(page, {
-        x: staleBox.x - 4,
-        y: staleBox.y - 4,
-        width: staleBox.width + 8,
-        height: staleBox.height + 8,
-      })
-    : 0
-  rec(g, '陈旧描边在画面上真的被绘制（像素采样）', outlineInk >= WARN_INK_MIN, `橘色像素=${outlineInk}`)
-
-  // 圆点单独测一次：**选中态下它是唯一的陈旧信号**（描边归黑），而它在 DOM 里先于
-  // `.body` 渲染、节点内容又自带不透明底色铺满 body ⇒ 少一个 z-index 就会被整块盖住
-  // ——「DOM 里数得到、屏幕上没有」，正是本项目栽过的那类假 ✅。
-  const dotBox = await page.locator('[data-stale-dot]').first().boundingBox()
-  const dotInk = dotBox
-    ? await countWarnInk(page, {
-        x: dotBox.x - 3,
-        y: dotBox.y - 3,
-        width: dotBox.width + 6,
-        height: dotBox.height + 6,
-      })
-    : 0
-  rec(g, '陈旧圆点在画面上真的被绘制（不被节点内容盖住）', dotInk >= 8, `圆点橘色像素=${dotInk}`)
-  await page.screenshot({ path: `${OUT}/79-g41-stale.png` })
-
-  // 6) 顶栏入口存在且反映陈旧数（§6.19.1「仅刷新陈旧」= 全图范围）
-  const refreshBtn = page.locator('[data-topbar-refresh-stale]')
-  rec(g, '顶栏「仅刷新陈旧」按钮存在', (await refreshBtn.count()) === 1)
-  const refreshTitle = (await refreshBtn.getAttribute('title')) ?? ''
-  rec(g, '顶栏按钮标题反映陈旧数', /陈旧/.test(refreshTitle), refreshTitle)
-  rec(g, '有陈旧时「仅刷新陈旧」可点', !(await refreshBtn.isDisabled()))
-  rec(g, '顶栏「全图重跑」按钮存在', (await page.locator('[data-topbar-rerun-all]').count()) === 1)
-
-  // 7) 右键菜单「清除陈旧标记」→ 标记消失
-  const staleNode = page.locator('[data-node-stale]').first()
-  await staleNode.click({ button: 'right' })
-  await sleep(350)
-  const menu = await page.locator('[data-context-menu] [data-context-menu-item]').allInnerTexts()
-  rec(g, '右键菜单含「清除陈旧标记」（§6.19.5）', menu.includes('清除陈旧标记'), `items=${JSON.stringify(menu)}`)
-  await page
-    .locator('[data-context-menu] [data-context-menu-item]', { hasText: '清除陈旧标记' })
-    .first()
-    .click()
-  await sleep(500)
-  rec(g, '清除后陈旧标记消失', (await staleCount()) === 0, `stale=${await staleCount()}`)
-
-  // 8) 清除后指纹未变 → 豁免生效（对账不会立刻把它重新标上）
-  await sleep(700)
-  rec(g, '清除后不立即重标（豁免生效至指纹再变）', (await staleCount()) === 0)
-
-  // 9) 指纹再变一次 → 豁免失效、标记重现（陈旧与否是事实，不由用户意愿改写）
-  //    右键操作后选中态可能已变，重新拿一次创作面板再改提示词
-  await genPanel(page)
-  await page.locator('[data-creation-panel] textarea').first().fill('屋顶的鸟')
-  await sleep(600)
-  rec(g, '指纹再变后标记重现（豁免自动失效）', (await staleCount()) >= 1, `stale=${await staleCount()}`)
-
-  // 10) Ctrl+Enter 全图重跑 → 二次确认（§6.19.1「确认前不进入执行引擎」）
-  await clickBlank()
-  await page.keyboard.press('Control+Enter')
-  const dlgShown = await page.locator('[data-confirm-dialog]').isVisible().catch(() => false)
-  rec(g, 'Ctrl+Enter 弹出全图重跑二次确认', dlgShown)
-  if (dlgShown) {
-    await page.screenshot({ path: `${OUT}/80-g41-confirm.png` })
-    // 取消 → 不执行，陈旧原样保留
-    await page.locator('[data-confirm-cancel]').click()
-    await sleep(400)
-    rec(g, '取消后不进入执行引擎（陈旧仍在）', (await staleCount()) >= 1)
-    // 再次 Ctrl+Enter → 确认 → 重跑完成，陈旧被清
-    await clickBlank()
-    await page.keyboard.press('Control+Enter')
-    await page.locator('[data-confirm-ok]').click()
-    await sleep(3000)
-    rec(g, '确认后全图重跑完成且陈旧清除', (await staleCount()) === 0, `stale=${await staleCount()}`)
-  }
-  await page.screenshot({ path: `${OUT}/81-g41-rerun.png` })
-
-  // 11) 刷新后**凭库里的 RunRecord 重建基线**：刚重跑过 → 仍不陈旧；
-  //     再改一次参数 → 无需重跑也能立刻标出陈旧（证明基线来自持久化，不是内存残留）
-  await sleep(1300)
-  const nodesBeforeReload = await nodeCount(page)
-  await page.reload({ waitUntil: 'networkidle' })
-  await sleep(1000)
-  rec(
-    g,
-    '刷新不重复套用模板（套用幂等，节点数不变）',
-    (await nodeCount(page)) === nodesBeforeReload,
-    `刷新前=${nodesBeforeReload} 刷新后=${await nodeCount(page)}`,
-  )
-  rec(g, '刷新后无陈旧（基线由库重建，已与之一致）', (await staleCount()) === 0, `stale=${await staleCount()}`)
-  // 刷新后选中态丢失：重新选中节点 → 在面板里改提示词 → 仍应标出陈旧
-  const ta2 = (await genPanel(page)).locator('textarea').first()
-  await ta2.click()
-  await ta2.fill('屋顶的云')
-  await sleep(700)
-  rec(g, '刷新后改参数仍能标出陈旧（基线来自持久化）', (await staleCount()) >= 1, `stale=${await staleCount()}`)
-
-  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors[0] ?? '')
-
-  await ctx.close()
-}
-
-// ────────────────────────────────────────────────────────────
 // G42 导航出口与空渠道引导
 //
 // 这一组盯的是「用户能不能走到渠道配置」——此前画布顶栏没有任何导航出口，
@@ -8066,11 +7840,13 @@ async function g60(browser) {
 }
 
 /**
- * g22（版本历史）已随 §6.21 下线、g50 / g54（结果组折叠与子结果交互）随结果组
- * 一并删除——三者测的都是已不存在的功能，继续跑只会拿「它没出现」当失败。
+ * 已从全量移除的组（测的都是已不存在的功能，继续跑只会拿「它没出现」当失败）：
+ * - g22：版本历史（§6.21 于 2026-09-16 下线）
+ * - g41：陈旧标记与按范围重跑（2026-09-17 下线：橘点、整条流程重跑、仅刷新陈旧、全图重跑）
+ * - g50 / g54：结果组折叠与子结果交互（2026-09-17 结果组整体下线）
  * 「运行画板产生产物」改由 G21 覆盖（断言已从结果组改为承载节点）。
  */
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g41, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

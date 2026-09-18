@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fingerprintOf, isStale } from './fingerprint'
+import { fingerprintOf } from './fingerprint'
 import type { NodeSnapshot, GenerationData, PromptData } from '../model/node'
 
 function genNode(overrides: Partial<GenerationData> = {}): NodeSnapshot<GenerationData> {
@@ -91,19 +91,13 @@ describe('节点指纹', () => {
   })
 })
 
-describe('陈旧判定', () => {
-  it('从未成功生成过（live 为 null）不算陈旧', () => {
-    expect(isStale(null, 'any')).toBe(false)
-  })
-
-  it('live 与当前指纹一致 → 不陈旧；不一致 → 陈旧', () => {
-    const node = genNode()
-    const current = fingerprintOf(node, [])
-    expect(isStale(current, current)).toBe(false)
-    expect(isStale('old-fingerprint', current)).toBe(true)
-  })
-
-  it('上游提示词改了，生成节点指纹随之改变（陈旧传播的基础）', () => {
+/**
+ * 指纹的用途随陈旧标记下线而变化：它现在服务于「同一节点多次生成是否输入相同」
+ * （批量集合共用指纹、避免刚生成完就把自己标成新的一次），不再用于「要不要重跑」。
+ * 下面锁的是**指纹本身的稳定性规则**——那是去重与批量语义的地基。
+ */
+describe('指纹随输入变化', () => {
+  it('上游提示词改了 → 生成节点指纹随之改变', () => {
     const node = genNode()
     const before = fingerprintOf(node, [
       { kind: 'text', nodeId: 'p1', text: promptNode('猫').data.text },
@@ -111,6 +105,12 @@ describe('陈旧判定', () => {
     const after = fingerprintOf(node, [
       { kind: 'text', nodeId: 'p1', text: promptNode('狗').data.text },
     ])
-    expect(isStale(before, after)).toBe(true)
+    expect(before).not.toBe(after)
+  })
+
+  it('同一输入两次计算 → 同一指纹（去重依赖这一点）', () => {
+    const node = genNode()
+    const inputs = [{ kind: 'text' as const, nodeId: 'p1', text: promptNode('猫').data.text }]
+    expect(fingerprintOf(node, inputs)).toBe(fingerprintOf(node, inputs))
   })
 })

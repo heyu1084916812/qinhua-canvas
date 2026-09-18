@@ -84,19 +84,24 @@ describe('flowFile 序列化 / 反序列化', () => {
     expect((b.data as { linkedPromptNodeIds: string[] }).linkedPromptNodeIds).toEqual([a.id])
   })
 
-  it('模型缺失检测：knownModels 不含时收集并标记 stale', () => {
+  /**
+   * 陈旧标记下线后（用户 2026-09-17），模型缺失**只反映在 `missingModels`**，
+   * 不再往节点上写 `stale`——那本来就是借橘点的壳表达一件不相干的事。
+   */
+  it('模型缺失检测：knownModels 不含时只收集模型名，不动节点', () => {
     const out = deserializeProject(flow, 'proj_new', new Set(['sd-xl']))
     expect(out.missingModels).toEqual(['gpt-image'])
     const b = out.nodes.find((n) => (n.data as { model?: string }).model === 'gpt-image')!
-    expect(b.stale).toBe(true)
+    // 节点本身不受影响：模型仍在，只是调用方拿它去提示「这个模型这儿没有」
+    expect(b.data).toBeDefined()
     const c = out.nodes.find((n) => (n.data as { model?: string }).model === 'sd-xl')!
-    expect(c.stale).toBeFalsy()
+    expect(c.data).toBeDefined()
   })
 
   it('无 knownModels 时不标缺失', () => {
     const out = deserializeProject(flow, 'proj_new')
     expect(out.missingModels).toEqual([])
-    expect(out.nodes.every((n) => !n.stale)).toBe(true)
+    expect(out.nodes).toHaveLength(3)
   })
 
   it('序列化产物带格式版本与时间戳', () => {

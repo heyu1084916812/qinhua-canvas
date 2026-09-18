@@ -215,20 +215,16 @@ describe('buildRunPlan（单点生成）', () => {
     expect(assets[0]).toMatchObject({ kind: 'asset', assetHash: 'h-source' })
   })
 
-  it('refreshStale 只收 stale 集合内的节点', () => {
-    const { store, promptId, genId } = setup()
-    const g = store.getSnapshot()
-    expect(buildRunPlan('node', { originNodeId: promptId }, g, 'refreshStale', new Set()).tasks).toHaveLength(0)
-    expect(
-      buildRunPlan('node', { originNodeId: promptId }, g, 'refreshStale', new Set([genId])).tasks,
-    ).toHaveLength(1)
-  })
 })
 
 /**
- * §6.19.1 四种执行模式的区间差异都在这里锁死：
- * 单点 = 触发节点、整条流程 = 触发节点 + 全部下游、仅刷新陈旧 = 陈旧子集、
- * 全图重跑 = 无触发节点的全图。
+ * §6.19.1 执行模式的区间差异在这里锁死。
+ *
+ * 曾是四种（单点 / 整条流程 / 仅刷新陈旧 / 全图重跑），下线两种后剩：
+ * 单点 = 触发节点、全图重跑 = 无触发节点的全图。
+ * 「refreshStale」随陈旧标记一并删除（用户 2026-09-17）——新节点没有基线、
+ * 旧节点指纹不变，那个集合恒为空，模式没有意义。
+ * 全图重跑模式**保留**：画板运行（`runBoard`）仍用它表达「跑这个容器」。
  */
 describe('buildRunPlan · 按范围的执行模式（§6.19.1）', () => {
   it('单点生成只收触发节点这一跳，不碰下游', () => {
@@ -278,15 +274,6 @@ describe('buildRunPlan · 按范围的执行模式（§6.19.1）', () => {
     const plan = buildRunPlan('node', { originNodeId: promptId }, store.getSnapshot(), 'rerun')
     expect(plan.mode).toBe('rerun')
     expect(plan.tasks.map((t) => t.nodeId)).toEqual([genId, 'n-gen2'])
-  })
-
-  it('仅刷新陈旧：无触发节点 = 全图（顶栏口径），只收陈旧集合内的节点', () => {
-    const { store, genId } = setup()
-    const g = store.getSnapshot()
-    expect(buildRunPlan('global', { originNodeId: null }, g, 'refreshStale', new Set()).tasks).toHaveLength(0)
-    const plan = buildRunPlan('global', { originNodeId: null }, g, 'refreshStale', new Set([genId]))
-    expect(plan.scope).toBe('global')
-    expect(plan.tasks.map((t) => t.nodeId)).toEqual([genId])
   })
 
   it('全图重跑（rerunAll）：无触发节点，从源头收全图', () => {

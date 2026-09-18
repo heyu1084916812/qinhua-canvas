@@ -338,7 +338,6 @@ export const NodeLayer = memo(function NodeLayer({
           selected={selection.includes(child.id)}
           running={running}
           globalRunning={exec.isRunning && !running}
-          stale={!!child.stale}
           runMode={st && (st.kind === 'queued' || st.kind === 'running' || st.kind === 'canceled') ? 'single' : 'idle'}
           error={error}
           upstreamAssetHashes={upstreamHashes.get(child.id)}
@@ -388,7 +387,6 @@ export const NodeLayer = memo(function NodeLayer({
               selected={selected}
               running={running}
               globalRunning={exec.isRunning && !running}
-              stale={!!node.stale}
               runMode={runMode}
               error={error}
               upstreamAssetHashes={upstreamHashes.get(node.id)}

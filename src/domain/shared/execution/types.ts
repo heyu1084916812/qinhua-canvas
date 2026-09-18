@@ -21,7 +21,14 @@
 export type RunScope = 'node' | 'board' | 'global'
 
 /** 执行模式（架构 §4.3 / §4.5 修订）：single-alt 是入口修饰符，不进命令联合 */
-export type RunMode = 'idle' | 'single' | 'single-alt' | 'rerun' | 'refreshStale' | 'rerunAll'
+/**
+ * 执行模式。
+ *
+ * `refreshStale` 已随陈旧标记一并下线（用户 2026-09-17）：它筛出「指纹变了」的
+ * 节点重跑，而落位改成「每次生成新建右侧节点」后，新节点本就没有基线、旧节点
+ * 指纹也不变——这个集合恒为空，模式失去意义。
+ */
+export type RunMode = 'idle' | 'single' | 'single-alt' | 'rerun' | 'rerunAll'
 
 /** 真正进入 plan / 命令层的模式：idle 与 single-alt 在计划构建时被解析掉 */
 export type ExecutionMode = Exclude<RunMode, 'idle' | 'single-alt'>

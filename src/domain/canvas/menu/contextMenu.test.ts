@@ -55,34 +55,37 @@ describe('nodeMenuItems / 节点右键菜单（§4.1）', () => {
   })
 })
 
-describe('nodeMenuItems / 执行模式入口（§6.19.1）', () => {
-  it('下游有可执行节点时才列「整条流程重新运行 / 仅刷新陈旧节点」', () => {
-    expect(ids(nodeMenuItems('prompt'))).not.toContain('rerunFrom')
-    const items = nodeMenuItems('prompt', { hasRunnableDownstream: true })
-    expect(ids(items)).toContain('rerunFrom')
-    expect(ids(items)).toContain('refreshStale')
-    expect(items.find((i) => i.id === 'rerunFrom')!.action).toEqual({ kind: 'rerunFrom' })
-    // 运行类之后紧跟，仍属「运行」分组，其后才接编辑类
-    expect(items.find((i) => i.id === 'refreshStale')!.separatorAfter).toBe(true)
-    expect(items.findIndex((i) => i.id === 'refreshStale')).toBeLessThan(
-      items.findIndex((i) => i.id === 'duplicate'),
-    )
+/**
+ * 三个执行入口已下线（用户 2026-09-17）：「整条流程重新运行」「仅刷新陈旧节点」
+ * 「清除陈旧标记」。它们都是**覆盖式**重跑（产物写回原节点、旧结果被冲掉），
+ * 与「每次生成新建一个右侧节点、旧的留着对比」的落位模型相反。
+ *
+ * 这几条断言的方向因此反转成「任何类型都不许再有」——留着它们，是为了
+ * 防止哪天有人把入口加回来而它背后的语义已经不存在（死入口比没有更糟）。
+ */
+describe('nodeMenuItems / 已下线的执行入口', () => {
+  const types: NodeType[] = ['prompt', 'generation', 'batch', 'board', 'compare', 'group']
+
+  it('任何节点类型都不再列「整条流程重新运行 / 仅刷新陈旧 / 清除陈旧标记」', () => {
+    for (const t of types) {
+      const idsOf = ids(nodeMenuItems(t))
+      expect(idsOf).not.toContain('rerunFrom')
+      expect(idsOf).not.toContain('refreshStale')
+      expect(idsOf).not.toContain('clearStale')
+    }
   })
 
-  it('全图有陈旧标记时才列「清除陈旧标记」（清的是全图，与触发节点无关）', () => {
-    expect(ids(nodeMenuItems('generation'))).not.toContain('clearStale')
-    const items = nodeMenuItems('generation', { hasStale: true })
-    expect(ids(items)).toContain('clearStale')
-    expect(items.find((i) => i.id === 'clearStale')!.action).toEqual({ kind: 'clearStale' })
-    // 危险操作仍单独置底
-    expect(items[items.length - 1].id).toBe('delete')
+  it('保留的仍是「生成 / 运行画板」两条：画板走运行画板，可生成节点走生成', () => {
+    expect(ids(nodeMenuItems('board'))).toContain('runBoard')
+    expect(ids(nodeMenuItems('generation'))).toContain('run')
+    expect(ids(nodeMenuItems('batch'))).toContain('run')
+    // 提示词 / 对比 / 分组不是执行主体，不列运行项
+    expect(ids(nodeMenuItems('prompt'))).not.toContain('run')
   })
 
-  it('单点生成不重复出现；Alt+R 是修饰键、全图重跑只在顶栏，都不进节点菜单', () => {
-    const items = nodeMenuItems('generation', { hasRunnableDownstream: true, hasStale: true })
-    expect(ids(items).filter((id) => id === 'run')).toHaveLength(1)
-    expect(ids(items)).not.toContain('rerunAll')
-    expect(ids(items)).not.toContain('singleAlt')
+  it('危险操作仍单独置底', () => {
+    const items = nodeMenuItems('generation')
+    expect(items[items.length - 1]!.id).toBe('delete')
   })
 })
 

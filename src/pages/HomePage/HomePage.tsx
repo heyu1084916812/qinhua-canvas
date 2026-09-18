@@ -77,8 +77,12 @@ export function HomePage() {
       const res = await importProjectFile(platform, repo)
       if (res.cancelled) return
       await store.load()
+      /**
+       * 陈旧标记下线后（用户 2026-09-17），缺失的模型不再往节点上「标记」——
+       * 文案里的「已标记」会指向一个不存在的视觉信号，故改成直说事实。
+       */
       const modelNote = res.missingModels.length
-        ? `（${res.missingModels.length} 个节点模型缺失，已标记）`
+        ? `（${res.missingModels.length} 个节点引用了本机没有的模型）`
         : ''
       setStatus(`已导入「${res.project?.name}」${modelNote}`)
     } catch (err) {

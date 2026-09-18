@@ -16,8 +16,6 @@ export interface NodeBase {
   h: number
   title: string
   disabled: boolean
-  /** 陈旧标记（架构 §4.3 / 产品文档 §6.19.5）：派生视觉状态，不进撤销栈 */
-  stale?: boolean
 }
 
 export interface PromptData {

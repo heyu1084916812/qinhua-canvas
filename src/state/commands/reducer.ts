@@ -60,10 +60,9 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
         y: cmd.at.y,
         w: size.w,
         h: size.h,
-        title: cmd.title ?? spec.label,
-        disabled: false,
-        stale: false,
-        data,
+      title: cmd.title ?? spec.label,
+      disabled: false,
+      data,
       }
       const patches: Patch[] = [{ op: 'upsert', table: 'nodes', row: node as unknown as Row }]
       return {
@@ -424,19 +423,6 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
         patches: [{ op: 'upsert', table: 'assets', row }],
         transaction: { mode: 'silent' },
       }
-    }
-
-    case 'stale.mark':
-    case 'stale.clear': {
-      const value = cmd.kind === 'stale.mark'
-      const patches: Patch[] = cmd.nodeIds.map((id) => ({
-        op: 'patch',
-        table: 'nodes',
-        id,
-        changes: { stale: value },
-      }))
-      // 陈旧标记走命令但不进撤销栈（派生视觉状态）；仍随 persist 落库
-      return { patches, transaction: { mode: 'silent' } }
     }
 
     case 'node.runRecord.append': {

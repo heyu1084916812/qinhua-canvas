@@ -86,9 +86,6 @@ export type Command =
       kind: 'asset.put'
       asset: { hash: string; mime: string; bytes: Uint8Array; width?: number; height?: number }
     }
-  // 陈旧标记：来自 useStaleness，走命令但不进 undo 栈（架构 §4.3）
-  | { kind: 'stale.mark'; nodeIds: string[] }
-  | { kind: 'stale.clear'; nodeIds: string[] }
   // RunRecord：执行留痕，「从不删除」是硬性要求（日志面板的数据源）
   | { kind: 'node.runRecord.append'; nodeId: string; record: RunRecord }
   // runPlan 是「执行计划」的图数据化形态（§4.5）

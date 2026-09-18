@@ -96,7 +96,7 @@ export type RunPlan = SharedRunPlan<CanvasRunTask>
 
 /**
  * 计划起点。`originNodeId: null` 表示**没有触发节点**，只对
- * `rerunAll` / `refreshStale` 两种「按范围跑」的模式有意义（顶栏按钮 = 全图）。
+ * `rerunAll` 这种「按范围跑」的模式有意义（顶栏按钮 = 全图）。
  */
 export type RunOrigin =
   | { originNodeId: string | null }
@@ -142,7 +142,6 @@ export function buildRunPlan(
   origin: RunOrigin,
   graph: GraphSnapshot,
   mode: Exclude<RunMode, 'idle'>,
-  staleNodeIds: ReadonlySet<string> = new Set(),
 ): RunPlan {
   const newDownstream = mode === 'single-alt'
   const executionMode: ExecutionMode = newDownstream ? 'single' : (mode as ExecutionMode)
@@ -156,9 +155,6 @@ export function buildRunPlan(
   let candidateIds: string[]
   if (mode === 'rerunAll') {
     candidateIds = working.nodes.map((n) => n.id)
-  } else if (mode === 'refreshStale' && !originNodeId) {
-    // 顶栏「仅刷新陈旧」= 全图范围（§6.19.1：顶栏 = 全图，右键 = 触发节点下游）
-    candidateIds = working.nodes.map((n) => n.id)
   } else if (!originNodeId) {
     candidateIds = []
   } else if (mode === 'single' || mode === 'single-alt') {
@@ -169,18 +165,13 @@ export function buildRunPlan(
         ? [originNodeId]
         : directDownstream(originNodeId, working.edges)
   } else {
-    // rerun / refreshStale：origin + 全部下游
+    // rerun：origin + 全部下游
     candidateIds = collectDownstream(originNodeId, working)
   }
 
-  let selected = candidateIds
+  const selected = candidateIds
     .map((id) => index.get(id))
     .filter((n): n is NodeSnapshot => !!n && canBuildRequest(n))
-
-  if (mode === 'refreshStale') {
-    // 只有落在 staleNodeIds 里的节点才入 plan（§5.5）
-    selected = selected.filter((n) => staleNodeIds.has(n.id))
-  }
 
   // 2. 拓扑排序：保证上游先跑
   const selectedIds = new Set(selected.map((n) => n.id))
