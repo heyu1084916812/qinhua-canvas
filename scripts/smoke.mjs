@@ -121,6 +121,17 @@ const addNodeViaToolbar = async (page, type) => {
 }
 
 /**
+ * 复位视图（§6.3）——走左侧工具栏的 `data-toolbar-reset` 锚点。
+ *
+ * 顶栏按 §6.2 改版后不再有「复位视图」文字按钮（画布内操作一律归工具栏），
+ * 工具栏里那个是**图标按钮**（`⤾`，aria-label「重置视图」），按文字找不到。故统一用锚点，不再靠 `getByRole` 的可见文案。
+ */
+const resetView = async (page) => {
+  await page.locator('[data-toolbar-reset]').click()
+  await sleep(250)
+}
+
+/**
  * 生成节点的**创作面板**（M6-16 起）。
  *
  * 生成节点本体已按 §6.8 减重为「媒体框」（占位框 + 中间 `+` / 内容缩略图），
@@ -548,7 +559,7 @@ async function g4(browser) {
   const vMin = await readViewport(page)
   rec(g, '缩放下限 clamp 10%', Math.abs(vMin.zoom - 0.1) < 0.001, `zoom=${vMin.zoom}`)
 
-  await page.getByRole('button', { name: '复位视图' }).click()
+  await resetView(page)
   await sleep(250)
 
   // 滚轮归文本框：双击节点进入编辑态（提示词节点的 textarea 只在编辑时渲染）
@@ -574,7 +585,7 @@ async function g4(browser) {
   }
 
   // 空格 + 拖拽平移（点过工具栏后焦点不应滞留按钮，否则空格会被按钮吃掉）
-  await page.getByRole('button', { name: '复位视图' }).click()
+  await resetView(page)
   await sleep(200)
   // 先把焦点从提示词 textarea 移回画布（文本框内空格属于输入，这是正确行为）
   await page.evaluate(() => {
@@ -594,7 +605,7 @@ async function g4(browser) {
   rec(g, '空格 + 拖拽平移', p1.x !== p0.x || p1.y !== p0.y, `(${p0.x},${p0.y}) → (${p1.x},${p1.y})`)
 
   // 中键拖拽平移（无视选中）
-  await page.getByRole('button', { name: '复位视图' }).click()
+  await resetView(page)
   await sleep(200)
   const m0 = await readViewport(page)
   await page.mouse.move(cx, cy)
@@ -1053,7 +1064,7 @@ async function g11(browser) {
 
   // ── E2E-03：生成 1 张 → 结果回填到生成节点本体（N=1 不建结果组，§6.16），来源提示词不被覆盖 ──
   // 重载后视口可能偏移，先复位视图保证节点完整可见可交互
-  await page.getByRole('button', { name: '复位视图' }).click()
+  await resetView(page)
   await sleep(500)
   const gen2 = page.locator('[data-node-type="generation"]')
   // 模板可能产生多个生成节点，统一取第一个并在整个 E2E-03/04 中复用同一 nodeId
@@ -1087,7 +1098,7 @@ async function g11(browser) {
   rec(g, 'E2E-03 来源提示词未被产物覆盖', srcPromptAfter === '单张来源不被覆盖', srcPromptAfter)
 
   // ── E2E-04：同一节点改选 4 张 → 铺 4 个并列承载节点（N≥2 不建结果组）──
-  await page.getByRole('button', { name: '复位视图' }).click().catch(() => {})
+  await resetView(page).catch(() => {})
   await sleep(400)
   const panel4 = await genPanel(page, genNode)
   await setCount(panel4, '4张')
@@ -1402,7 +1413,7 @@ async function g13(browser) {
   rec(g, '模板已带 1 条连线', (await page.locator('[data-edge]').count()) === 1, `连线=${await page.locator('[data-edge]').count()}`)
 
   // 加一个对比节点（生成 → 对比 是合法连接）
-  await page.getByRole('button', { name: '＋ 对比' }).click()
+  await addNodeViaToolbar(page, 'compare')
   await sleep(400)
   const cmpNode = page.locator('[data-node-type="compare"]').first()
   const cmpId = await cmpNode.getAttribute('data-node-id')
@@ -1552,7 +1563,7 @@ async function g14(browser) {
   // 配 mock 渠道并启用（生成两张图作为对比素材）
   await configureMockChannel(page)
 
-  // 到画布：新建项目 → 「＋ 提示词」→「＋ 对比」，验证空态与类型拒绝
+  // 到画布：新建项目 → 工具栏「＋ 提示词」→「＋ 对比」，验证空态与类型拒绝
   await page.goto(BASE, { waitUntil: 'networkidle' })
   await sleep(400)
   await createProject(page)
@@ -1561,10 +1572,10 @@ async function g14(browser) {
   await addNodeViaToolbar(page, 'prompt')
   await sleep(300)
   const promptId = await page.locator('[data-node-type="prompt"]').first().getAttribute('data-node-id')
-  await page.getByRole('button', { name: '＋ 对比' }).click()
+  await addNodeViaToolbar(page, 'compare')
   await sleep(400)
   const compareCount = await page.locator('[data-node-type="compare"]').count()
-  rec(g, '顶栏「＋ 对比」创建对比节点', compareCount === 1, `对比节点=${compareCount}`)
+  rec(g, '工具栏「＋ 对比」创建对比节点', compareCount === 1, `对比节点=${compareCount}`)
 
   if (compareCount === 1) {
     const cmp = page.locator('[data-node-type="compare"]').first()
@@ -1676,10 +1687,10 @@ async function g15(browser) {
   await createProject(page)
   await sleep(500)
 
-  await page.getByRole('button', { name: '＋ 分组' }).click()
+  await addNodeViaToolbar(page, 'group')
   await sleep(400)
   const groupCount = await page.locator('[data-node-type="group"]').count()
-  rec(g, '顶栏「＋ 分组」创建分组节点', groupCount === 1, `分组=${groupCount}`)
+  rec(g, '工具栏「＋ 分组」创建分组节点', groupCount === 1, `分组=${groupCount}`)
 
   if (groupCount !== 1) {
     await ctx.close()
@@ -1779,10 +1790,10 @@ async function g16(browser) {
   await createProject(page)
   await sleep(500)
 
-  await page.getByRole('button', { name: '＋ 批量' }).click()
+  await addNodeViaToolbar(page, 'batch')
   await sleep(400)
   const batchCount = await page.locator('[data-node-type="batch"]').count()
-  rec(g, '顶栏「＋ 批量」创建批量节点', batchCount === 1, `批量=${batchCount}`)
+  rec(g, '工具栏「＋ 批量」创建批量节点', batchCount === 1, `批量=${batchCount}`)
   if (batchCount !== 1) {
     await ctx.close()
     return
@@ -7910,5 +7921,7 @@ if (fail) {
   for (const r of results.filter((x) => !x.pass)) console.log(` - [${r.group}] ${r.name} ${r.detail}`)
   process.exitCode = 1
 }
+
+
 
 
