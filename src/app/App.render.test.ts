@@ -61,7 +61,19 @@ describe('App 路由整树渲染冒烟', () => {
     const html = await renderTree(['/canvas/demo'])
     expect(html).toContain('data-canvas-surface')
     expect(html).toContain('轻画')
-    expect(html).toContain('提示词')
+    /*
+     * 顶栏按 §6.2 只留导航与项目级入口（返回 / 后台设置 / 项目标签 / 日志），
+     * 新建节点归左侧工具栏（§6.5）。故这里断言**各自的锚点**：
+     * 顶栏有导航出口，工具栏有新建入口与撤销 / 重做 / 导入。
+     */
+    expect(html).toContain('data-topbar-back')
+    expect(html).toContain('data-topbar-settings')
+    expect(html).toContain('data-topbar-projects')
+    expect(html).toContain('data-canvas-toolbar')
+    expect(html).toContain('data-toolbar-add')
+    expect(html).toContain('data-toolbar-undo')
+    expect(html).toContain('data-toolbar-redo')
+    expect(html).toContain('data-toolbar-import')
   }, TREE_TIMEOUT)
 
   it('漫画剧路由下：工作台表面与返回入口都在', async () => {

@@ -108,6 +108,19 @@ async function readViewport(page) {
 const nodeCount = (page) => page.locator('[data-node-id]').count()
 
 /**
+ * 用左侧工具栏新建节点（§6.5）。
+ *
+ * 顶栏按 §6.2 改版后不再带「＋ 提示词 / 对比 / 分组 / 批量」那一排，
+ * 新建入口统一在左工具栏的「＋」菜单里（画布空白处右键是同一份菜单）。
+ * 早先冒烟直接点顶栏按钮，改版后必须改成：点开菜单 → 点菜单项。
+ */
+const addNodeViaToolbar = async (page, type) => {
+  await page.locator('[data-toolbar-add]').click()
+  await sleep(200)
+  await page.locator(`[data-toolbar-menu-item="${type}"]`).click()
+}
+
+/**
  * 生成节点的**创作面板**（M6-16 起）。
  *
  * 生成节点本体已按 §6.8 减重为「媒体框」（占位框 + 中间 `+` / 内容缩略图），
@@ -389,7 +402,7 @@ async function g1(browser) {
   const url1 = page.url()
   rec(g, '新建空白项目 → 进画布', /\/canvas\/.+/.test(url1), url1.replace(BASE, ''))
 
-  await page.getByRole('button', { name: '＋ 提示词' }).click()
+  await addNodeViaToolbar(page, 'prompt')
   await sleep(300)
   const n1 = await nodeCount(page)
   rec(g, '加提示词节点', n1 === 1, `节点数=${n1}`)
@@ -539,7 +552,7 @@ async function g4(browser) {
   await sleep(250)
 
   // 滚轮归文本框：双击节点进入编辑态（提示词节点的 textarea 只在编辑时渲染）
-  await page.getByRole('button', { name: '＋ 提示词' }).click()
+  await addNodeViaToolbar(page, 'prompt')
   await sleep(400)
   await page.locator('[data-node-id]').first().dblclick()
   await sleep(300)
@@ -606,7 +619,7 @@ async function g5(browser) {
   await page.goto(BASE, { waitUntil: 'networkidle' })
 
   await createProject(page)
-  await page.getByRole('button', { name: '＋ 提示词' }).click()
+  await addNodeViaToolbar(page, 'prompt')
   await sleep(1100)
   const nBefore = await nodeCount(page)
 
@@ -673,7 +686,7 @@ async function g6(browser) {
   const p2 = await ctx.newPage()
   await p2.goto(url, { waitUntil: 'networkidle' })
   await sleep(500)
-  await p2.getByRole('button', { name: '＋ 提示词' }).click()
+  await addNodeViaToolbar(p2, 'prompt')
   await sleep(1100) // 等防抖落库
 
   // 用户切回标签 1（标签 2 转 hidden → 触发 flush + 广播）
@@ -1545,7 +1558,7 @@ async function g14(browser) {
   await createProject(page)
   await sleep(500)
 
-  await page.getByRole('button', { name: '＋ 提示词' }).click()
+  await addNodeViaToolbar(page, 'prompt')
   await sleep(300)
   const promptId = await page.locator('[data-node-type="prompt"]').first().getAttribute('data-node-id')
   await page.getByRole('button', { name: '＋ 对比' }).click()
@@ -1698,7 +1711,7 @@ async function g15(browser) {
   await sleep(400)
 
   // 再建一个提示词节点，拖进分组
-  await page.getByRole('button', { name: '＋ 提示词' }).click()
+  await addNodeViaToolbar(page, 'prompt')
   await sleep(400)
   const promptId = await page.locator('[data-node-type="prompt"]').first().getAttribute('data-node-id')
   const promptNode = page.locator(`[data-node-id="${promptId}"]`)
@@ -1791,7 +1804,7 @@ async function g16(browser) {
   await sleep(400)
 
   // 先放提示词（把集合定为 prompt 类型）
-  await page.getByRole('button', { name: '＋ 提示词' }).click()
+  await addNodeViaToolbar(page, 'prompt')
   await sleep(400)
   const p1Id = await page.locator('[data-node-type="prompt"]').first().getAttribute('data-node-id')
   await dragNode(page, p1Id, batchId)
@@ -1804,7 +1817,7 @@ async function g16(browser) {
 
   // ── 同类可继续拖入：新建的提示词节点默认与上一个**完全重叠**（都落在视口中心），
   //    重叠时鼠标只能抓到上层那个，必须先把它挪开再拖 ──
-  await page.getByRole('button', { name: '＋ 提示词' }).click()
+  await addNodeViaToolbar(page, 'prompt')
   await sleep(450)
   const promptCount = await page.locator('[data-node-type="prompt"]').count()
   rec(g, '再建一个提示词节点（用于同类拖入用例）', promptCount >= 2, `提示词=${promptCount}`)
@@ -1853,7 +1866,7 @@ async function g17(browser) {
   // 横向排开：单选弹出的创作面板浮在节点下方（§6.8），纵向排布会被面板挡住点击。
   const ids = []
   for (let i = 0; i < 3; i += 1) {
-    await page.getByRole('button', { name: '＋ 提示词' }).click()
+    await addNodeViaToolbar(page, 'prompt')
     await sleep(400)
     const id = await page.locator('[data-node-type="prompt"]').last().getAttribute('data-node-id')
     ids.push(id)
@@ -2175,11 +2188,11 @@ async function g19(browser) {
   await sleep(500)
 
   // 建 2 个提示词节点，错开位置（顶栏新建落视口中心，必须挪开，见 moveNode 注释）
-  await page.getByRole('button', { name: '＋ 提示词' }).click()
+  await addNodeViaToolbar(page, 'prompt')
   await sleep(400)
   const id1 = await page.locator('[data-node-type="prompt"]').last().getAttribute('data-node-id')
   await moveNode(page, id1, 360, 260)
-  await page.getByRole('button', { name: '＋ 提示词' }).click()
+  await addNodeViaToolbar(page, 'prompt')
   await sleep(400)
   const id2 = await page.locator('[data-node-type="prompt"]').last().getAttribute('data-node-id')
   await moveNode(page, id2, 760, 480)
@@ -2583,7 +2596,7 @@ async function g23(browser) {
   await page.goto(BASE, { waitUntil: 'networkidle' })
   await sleep(400)
   await createProject(page)
-  await page.getByRole('button', { name: '＋ 提示词' }).click()
+  await addNodeViaToolbar(page, 'prompt')
   await sleep(400)
   const promptNode = page.locator('[data-node-type="prompt"]').first()
   await promptNode.dblclick()
@@ -6635,7 +6648,7 @@ async function g52(browser) {
   await sleep(700)
 
   // ── 顶栏有「导入素材」按钮（拖放之外的第二条路）──
-  rec(g, '顶栏出现「导入素材」按钮', (await page.locator('[data-topbar-import]').count()) === 1)
+  rec(g, '工具栏出现「导入素材」按钮', (await page.locator('[data-toolbar-import]').count()) === 1)
 
   // ── 生成节点加号：选择器被真的调起，且参数合法 ──
   // 顶栏没有「＋ 生成」，走画布左侧工具栏的新建菜单（§6.5）
@@ -7088,7 +7101,7 @@ async function g55(browser) {
   // ── 1. 单张大图：多久能看到 ──
   const [chooser] = await Promise.all([
     page.waitForEvent('filechooser', { timeout: 8000 }).catch(() => null),
-    page.locator('[data-topbar-import]').click(),
+    page.locator('[data-toolbar-import]').click(),
   ])
   rec(g, '顶栏「导入素材」调起文件选择', !!chooser, chooser ? '' : 'no filechooser event')
   if (!chooser) {
@@ -7151,7 +7164,7 @@ async function g55(browser) {
   for (let i = 0; i < 2; i += 1) {
     const [c] = await Promise.all([
       page.waitForEvent('filechooser', { timeout: 8000 }).catch(() => null),
-      page.locator('[data-topbar-import]').click(),
+      page.locator('[data-toolbar-import]').click(),
     ])
     if (c) await c.setFiles(file)
     await sleep(300)
@@ -7884,3 +7897,5 @@ if (fail) {
   for (const r of results.filter((x) => !x.pass)) console.log(` - [${r.group}] ${r.name} ${r.detail}`)
   process.exitCode = 1
 }
+
+

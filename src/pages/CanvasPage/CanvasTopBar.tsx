@@ -1,22 +1,31 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import { useSyncExternalStore } from 'react'
+import { useEffect, useState } from 'react'
 import { useCanvasStore, useViewportState } from '../../workbenches/canvas/storeContext'
+import { usePlatform } from '../../app/providers/PlatformProvider'
+import { createProjectRepository } from '../../state/project/repository'
+import type { ProjectListItem } from '../../domain/project/project'
 import styles from './CanvasTopBar.module.css'
 
 /**
- * 画布顶栏（架构 §3 顶层固定栏：圆角浮层、带小投影）。
- * 提供：返回首页、后台设置、新建提示词、撤销 / 重做、视图复位、日志面板、
- * **按范围执行的两种模式**、缩放读数。
+ * 画布顶栏（产品文档 §6.2「顶部悬浮面板」）。
+ *
+ * ```
+ * ╭─────────────────────────────────────────────────────────────────╮
+ * │ [Logo] │ [返回首页] │ [项目A] [项目B] [项目C] ─── [日志] [后台设置] │
+ * ╰─────────────────────────────────────────────────────────────────╯
+ * ```
+ *
+ * 顶栏只放**导航与项目级入口**：Logo、返回首页、已打开项目（横排标签）、
+ * 日志、后台设置，右端是缩放读数。
+ *
+ * 「新建节点 / 撤销·重做 / 对齐 / 整理 / 复位视图 / 导入素材」属于**画布内操作**，
+ * 按 §6.5 归左侧竖向工具栏（新建菜单本来就在那里；撤销 / 重做 / 导入同批迁入），
+ * 顶栏不再堆这一排——两处都放会让人不知道该点哪个。
  *
  * 导航出口（返回 / 后台设置）必须留在顶栏：画布是应用里唯一的全屏工作区，
  * 顶栏之外没有任何可点击的导航元素，缺了它用户只能靠浏览器后退键离开；
  * 而「后台设置」是渠道配置的**唯一入口**，画布内若没有它，用户配不出平台、
- * 也就永远点不亮生成（见 §6.2）。
- *
- * 两种模式按 §6.19.1 只出现在顶栏（不进节点右键菜单）：
- * - 「仅刷新陈旧」= 全图范围，只跑带陈旧标记的节点；
- * - 「全图重跑」= 二次确认后从源头全量重跑。
- * 「整条流程重新运行」与单点生成是**节点级**的，留在右键菜单与快捷键里。
+ * 也就永远点不亮生成。
  */
 /**
  * 鼠标按下时阻止默认聚焦：工具栏按钮点击后不滞留焦点，
@@ -26,31 +35,46 @@ import styles from './CanvasTopBar.module.css'
 const keepCanvasFocus = { onMouseDown: (e: ReactMouseEvent) => e.preventDefault() }
 
 export function CanvasTopBar({
-  onAddPrompt,
-  onAddCompare,
-  onAddGroup,
-  onAddBatch,
-  onImportAsset,
   onToggleLog,
   onBack,
   onOpenSettings,
+  onSwitchProject,
 }: {
-  onAddPrompt: () => void
-  onAddCompare: () => void
-  onAddGroup: () => void
-  onAddBatch: () => void
-  /** 导入本地图片 / 视频素材：落成带素材的生成节点（画布导入的第二条路，拖放之外） */
-  onImportAsset: () => void
+  /** 开关日志面板（§6.18） */
   onToggleLog: () => void
   /** 返回首页（路由由页面容器持有，顶栏只报事件） */
   onBack: () => void
   /** 进入后台模型设置（画布内唯一的渠道配置入口） */
   onOpenSettings: () => void
+  /** 切换到另一个已打开项目（路由由页面容器持有，顶栏只报事件） */
+  onSwitchProject: (projectId: string) => void
 }) {
   const store = useCanvasStore()
   const vp = useViewportState()
-  const canUndo = useSyncExternalStore(store.subscribe, store.canUndo, store.canUndo)
-  const canRedo = useSyncExternalStore(store.subscribe, store.canRedo, store.canRedo)
+  const platform = usePlatform()
+  const projectId = store.getSnapshot().projectId
+  const [projects, setProjects] = useState<ProjectListItem[]>([])
+
+  /**
+   * 已打开项目标签（§6.2）：按最近编辑倒序，当前项实色高亮。
+   *
+   * 只在这里读一次列表、不订阅：项目的新建 / 重命名发生在首页与设置页，
+   * 回到画布时本组件会重新挂载；画布内的改动不增删项目，故无需实时同步。
+   */
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      try {
+        const list = await createProjectRepository(platform.storage).list()
+        if (alive) setProjects(list)
+      } catch {
+        // 列表读不出来就只显示当前项目，不让顶栏整条挂掉
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [platform])
 
   return (
     <div className={styles.bar}>
@@ -69,52 +93,29 @@ export function CanvasTopBar({
       </button>
       {/* 分隔线：把「离开画布」的导航与「画布内操作」两族按钮分开，避免误点 */}
       <span className={styles.divider} aria-hidden="true" />
-      <div className={styles.group}>
-        <button className={`${styles.btn} ${styles.primary}`} onClick={onAddPrompt} {...keepCanvasFocus}>
-          ＋ 提示词
-        </button>
-        <button className={styles.btn} onClick={onAddCompare} {...keepCanvasFocus}>
-          ＋ 对比
-        </button>
-        <button className={styles.btn} onClick={onAddGroup} {...keepCanvasFocus}>
-          ＋ 分组
-        </button>
-        <button className={styles.btn} onClick={onAddBatch} {...keepCanvasFocus}>
-          ＋ 批量
-        </button>
-        {/* 导入素材：也可以直接把文件拖到画布空白处（两条路共用同一段落库逻辑） */}
-        <button
-          className={styles.btn}
-          data-topbar-import
-          onClick={onImportAsset}
-          title="导入本地图片 / 视频，落成生成节点（也可直接拖到画布上）"
-          {...keepCanvasFocus}
-        >
-          ⬆ 导入素材
-        </button>
-        <button className={styles.btn} onClick={() => store.undo()} disabled={!canUndo} {...keepCanvasFocus}>
-          撤销
-        </button>
-        <button className={styles.btn} onClick={() => store.redo()} disabled={!canRedo} {...keepCanvasFocus}>
-          重做
-        </button>
-        <button
-          className={styles.btn}
-          onClick={() => store.setViewport({ x: 0, y: 0, zoom: 1 })}
-          {...keepCanvasFocus}
-        >
-          复位视图
-        </button>
-        <button className={styles.btn} onClick={onToggleLog} {...keepCanvasFocus}>
-          日志
-        </button>
-        {/*
-          曾有「仅刷新陈旧」与「全图重跑」两个顶栏入口，均已下线（用户 2026-09-17）：
-          两者都是**覆盖式**重跑（产物写回原节点，旧结果被冲掉），与「每次生成新建
-          一个右侧节点、旧的留着对比」的落位模型正好相反。全图重跑更是会把整张画布
-          的历史结果一次冲掉，风险最大——即便有二次确认也不该留这个入口。
-        */}
+      {/*
+        已打开项目（§6.2）：横排标签，当前项实色底高亮，点击直接切换。
+        列表里没有当前项目时（如 demo 或未入库）补一个占位标签，
+        避免「进来了却看不到自己在哪」。
+      */}
+      <div className={styles.tabs} data-topbar-projects>
+        {(projects.length > 0 ? projects : [{ id: projectId, name: '当前项目' }]).map((p) => (
+          <button
+            key={p.id}
+            className={p.id === projectId ? `${styles.tab} ${styles.tabActive}` : styles.tab}
+            data-topbar-project-tab={p.id}
+            data-active={p.id === projectId ? 'true' : 'false'}
+            title={`切换到「${p.name}」`}
+            onClick={() => onSwitchProject(p.id)}
+            {...keepCanvasFocus}
+          >
+            {p.name}
+          </button>
+        ))}
       </div>
+      <button className={styles.btn} onClick={onToggleLog} {...keepCanvasFocus}>
+        日志
+      </button>
       <span className={styles.zoom}>{Math.round(vp.zoom * 100)}%</span>
     </div>
   )

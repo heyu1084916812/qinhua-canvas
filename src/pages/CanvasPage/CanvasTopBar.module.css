@@ -34,6 +34,62 @@
   gap: var(--space-2);
 }
 
+/*
+ * 已打开项目标签（产品文档 §6.2）。
+ *
+ * 横排、可横向滚动（项目多时不挤压右侧的日志 / 设置）；当前项实色底高亮。
+ * `min-width: 0` + `flex: 1 1 auto` 是让它在空间不足时**自己收缩并滚动**，
+ * 而不是把右端的按钮挤出顶栏。
+ */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  flex: 0 0 auto;
+  max-width: 160px;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+}
+
+.tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+/* 当前项目：实色底（§6.2「当前项实色底高亮」），与强调色同一套 */
+.tabActive {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.tabActive:hover {
+  background: var(--accent);
+  color: var(--accent-text);
+  opacity: 0.9;
+}
+
 .btn {
   height: 32px;
   padding: 0 var(--space-3);
@@ -69,6 +125,7 @@
 
 .zoom {
   margin-left: auto;
+  flex: 0 0 auto;
   font-size: var(--fs-label);
   color: var(--text-2);
   font-variant-numeric: tabular-nums;

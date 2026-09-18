@@ -254,14 +254,10 @@ function CanvasProject({ projectId }: { projectId: string }) {
       <CanvasExecutionProvider>
         <div className={styles.page}>
           <CanvasTopBar
-            onAddPrompt={() => addNodeAtCenter('prompt')}
-            onAddCompare={() => addNodeAtCenter('compare')}
-            onAddGroup={() => addNodeAtCenter('group')}
-            onAddBatch={() => addNodeAtCenter('batch')}
-            onImportAsset={() => void importAssetAtCenter()}
             onToggleLog={() => setLogOpen((v) => !v)}
             onBack={() => navigate('/')}
             onOpenSettings={openSettings}
+            onSwitchProject={(id) => navigate(`/canvas/${id}`)}
           />
           {externalEdit && (
             <div className={styles.externalBanner} role="status">
@@ -276,7 +272,10 @@ function CanvasProject({ projectId }: { projectId: string }) {
             </div>
           )}
           <CanvasSurface onOpenSettings={openSettings} />
-          <CanvasToolbar onCreateNode={addNodeAtCenter} />
+          <CanvasToolbar
+            onCreateNode={addNodeAtCenter}
+            onImportAsset={() => void importAssetAtCenter()}
+          />
             {logOpen && <LogPanel onClose={() => setLogOpen(false)} />}
           {/* 素材灯箱（§6.17）挂在页面级：它的触发方有画布表面与日志面板两处，
               挂在任一子树里另一处都够不着；状态在 store，故放哪都能读 */}

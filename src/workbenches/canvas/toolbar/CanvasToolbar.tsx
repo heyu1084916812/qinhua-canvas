@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import { useSyncExternalStore } from 'react'
 import { useCanvasStore, useSelection } from '../storeContext'
 import { useAlignTools } from '../../../features/canvas/useAlignTools'
 import { ALIGN_MODES, canAlign, type AlignMode } from '../../../domain/canvas/layout/align'
@@ -43,12 +42,27 @@ const ALIGN_GLYPH: Record<AlignMode, string> = {
  * 四组能力：新建节点菜单 / 8 种对齐 / 整理节点 / 重置视图。
  * 对齐与整理都要求 ≥ 2 个节点选中，不满足时按钮禁用（§6.5）。
  */
-export function CanvasToolbar({ onCreateNode }: { onCreateNode: (type: NodeType) => void }) {
+export function CanvasToolbar({
+  onCreateNode,
+  onImportAsset,
+}: {
+  onCreateNode: (type: NodeType) => void
+  /** 导入本地图片 / 视频，落成生成节点（顶栏改版后迁入工具栏） */
+  onImportAsset?: () => void
+}) {
   const store = useCanvasStore()
   const selection = useSelection()
   const { align, arrange } = useAlignTools(store)
   const [menuOpen, setMenuOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
+  /**
+   * 撤销 / 重做从顶栏迁入（产品文档 §6.2 / §6.5 顶栏改版，2026-09-18）。
+   *
+   * 顶栏按 §6.2 只留导航与项目级入口，画布内操作一律归工具栏；
+   * 撤销 / 重做的是**图操作**的逆操作，与对齐 / 整理同类，故放这里。
+   */
+  const canUndo = useSyncExternalStore(store.subscribe, store.canUndo, store.canUndo)
+  const canRedo = useSyncExternalStore(store.subscribe, store.canRedo, store.canRedo)
 
   // 点击外部或 Esc 关闭新建菜单（§6.15「Esc 取消」）
   useEffect(() => {
@@ -160,6 +174,47 @@ export function CanvasToolbar({ onCreateNode }: { onCreateNode: (type: NodeType)
       >
         ⤾
       </button>
+
+      <span className={styles.divider} />
+
+      <button
+        className={styles.iconBtn}
+        title="撤销"
+        aria-label="撤销"
+        data-toolbar-undo
+        disabled={!canUndo}
+        onClick={() => store.undo()}
+        {...keepCanvasFocus}
+      >
+        ↶
+      </button>
+      <button
+        className={styles.iconBtn}
+        title="重做"
+        aria-label="重做"
+        data-toolbar-redo
+        disabled={!canRedo}
+        onClick={() => store.redo()}
+        {...keepCanvasFocus}
+      >
+        ↷
+      </button>
+      {/*
+        导入素材（§6.3）：顶栏改版后从顶栏迁入工具栏。落点语义不变
+        （视口中心），拖文件到画布空白处的第二条入口也不变。
+      */}
+      {onImportAsset && (
+        <button
+          className={styles.iconBtn}
+          title="导入本地图片 / 视频，落成生成节点（也可直接拖到画布上）"
+          aria-label="导入素材"
+          data-toolbar-import
+          onClick={onImportAsset}
+          {...keepCanvasFocus}
+        >
+          ⬆
+        </button>
+      )}
     </div>
   )
 }
