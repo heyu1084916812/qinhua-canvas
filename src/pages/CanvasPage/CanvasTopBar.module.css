@@ -14,11 +14,31 @@
   box-shadow: var(--shadow-float);
 }
 
-.brand {
+/*
+ * 品牌（同时是「返回首页」的落点，用户 2026-09-19）。
+ *
+ * 视觉上仍是纯文字、不带边框与底色——它是顶栏的**锚点**而不是一个操作按钮；
+ * 只在 hover 时给一点圆角底色，让「可以点」这件事被感知到，但不喧宾夺主
+ * （顶栏里真正需要显眼的是右侧的出口与项目标签）。
+ */
+.brandBtn {
+  flex: 0 0 auto;
+  padding: 2px var(--space-2);
+  margin-left: calc(var(--space-2) * -1);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  font-family: var(--font-sans);
   font-size: var(--fs-panel-title);
   font-weight: var(--fw-panel-title);
   color: var(--text-1);
+  cursor: pointer;
   user-select: none;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.brandBtn:hover {
+  background: var(--bg-hover);
 }
 
 /* 导航族（返回 / 后台设置）与画布操作族之间的竖分隔线 */

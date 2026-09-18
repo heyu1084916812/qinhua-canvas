@@ -10,22 +10,28 @@ import styles from './CanvasTopBar.module.css'
  * 画布顶栏（产品文档 §6.2「顶部悬浮面板」）。
  *
  * ```
- * ╭─────────────────────────────────────────────────────────────────╮
- * │ [Logo] │ [返回首页] │ [项目A] [项目B] [项目C] ─── [日志] [后台设置] │
- * ╰─────────────────────────────────────────────────────────────────╯
+ * ╭───────────────────────────────────────────────────────╮
+ * │ [轻画] │ [项目A] [项目B] [项目C] ─── [日志] [后台设置] 100% │
+ * ╰───────────────────────────────────────────────────────╯
  * ```
  *
- * 顶栏只放**导航与项目级入口**：Logo、返回首页、已打开项目（横排标签）、
+ * 顶栏只放**导航与项目级入口**：Logo（点它回首页）、已打开项目（横排标签）、
  * 日志、后台设置，右端是缩放读数。
+ *
+ * **没有单独的「← 返回」按钮**（用户 2026-09-19）：点 Logo 即回首页。
+ * 顶栏是画布里唯一的导航区，一个回首页的落点就够；两个并排既冗余，
+ * 也让「离开画布」这件事显得比它实际更重。
  *
  * 「新建节点 / 撤销·重做 / 对齐 / 整理 / 复位视图 / 导入素材」属于**画布内操作**，
  * 按 §6.5 归左侧竖向工具栏（新建菜单本来就在那里；撤销 / 重做 / 导入同批迁入），
  * 顶栏不再堆这一排——两处都放会让人不知道该点哪个。
  *
- * 导航出口（返回 / 后台设置）必须留在顶栏：画布是应用里唯一的全屏工作区，
- * 顶栏之外没有任何可点击的导航元素，缺了它用户只能靠浏览器后退键离开；
- * 而「后台设置」是渠道配置的**唯一入口**，画布内若没有它，用户配不出平台、
- * 也就永远点不亮生成。
+ * **顺序**：`日志` 在 `后台设置` 左边——日志是**看结果**的临时面板开关，
+ * 后台设置是**离开画布**去配渠道的出口，越靠右越接近「离开」，
+ * 与「从查看到离开」的动线一致。
+ *
+ * 后台设置必须留在顶栏：它是渠道配置的**唯一入口**，画布内若没有它，
+ * 用户配不出平台、也就永远点不亮生成。
  */
 /**
  * 鼠标按下时阻止默认聚焦：工具栏按钮点击后不滞留焦点，
@@ -78,20 +84,22 @@ export function CanvasTopBar({
 
   return (
     <div className={styles.bar}>
-      <span className={styles.brand}>轻画</span>
-      <button className={styles.btn} data-topbar-back onClick={onBack} {...keepCanvasFocus}>
-        ← 返回
-      </button>
+      {/*
+        Logo 即返回首页（用户 2026-09-19）：它是顶栏最左端的落点，
+        与大多数工具「点品牌回主页」的习惯一致，故不再单设「← 返回」按钮。
+        仍保留 data-topbar-back 锚点，方便冒烟/自动化定位这个出口。
+      */}
       <button
-        className={styles.btn}
-        data-topbar-settings
-        onClick={onOpenSettings}
-        title="配置渠道与模型（生成前必须先在这里启用一个渠道）"
+        className={styles.brandBtn}
+        data-topbar-back
+        onClick={onBack}
+        title="返回首页"
+        aria-label="返回首页"
         {...keepCanvasFocus}
       >
-        后台设置
+        轻画
       </button>
-      {/* 分隔线：把「离开画布」的导航与「画布内操作」两族按钮分开，避免误点 */}
+      {/* 分隔线：把「项目 / 导航」与右侧出口分开，避免误点 */}
       <span className={styles.divider} aria-hidden="true" />
       {/*
         已打开项目（§6.2）：横排标签，当前项实色底高亮，点击直接切换。
@@ -115,6 +123,15 @@ export function CanvasTopBar({
       </div>
       <button className={styles.btn} onClick={onToggleLog} {...keepCanvasFocus}>
         日志
+      </button>
+      <button
+        className={styles.btn}
+        data-topbar-settings
+        onClick={onOpenSettings}
+        title="配置渠道与模型（生成前必须先在这里启用一个渠道）"
+        {...keepCanvasFocus}
+      >
+        后台设置
       </button>
       <span className={styles.zoom}>{Math.round(vp.zoom * 100)}%</span>
     </div>

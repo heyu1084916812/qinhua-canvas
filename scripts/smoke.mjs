@@ -5516,9 +5516,22 @@ async function g42(browser) {
   await sleep(800)
   const canvasUrl = page.url()
 
-  // 3) 画布顶栏的两个导航出口（修复前两者都不存在）
-  rec(g, '画布顶栏有「← 返回」', (await page.locator('[data-topbar-back]').count()) === 1)
+  // 3) 画布顶栏的导航出口
+  //    「← 返回」已于 2026-09-19 移除，改为**点品牌回首页**；锚点仍在
+  //    data-topbar-back 上，故同时断言「锚点存在」与「不再是独立返回按钮」。
+  const backBtn = page.locator('[data-topbar-back]')
+  rec(g, '画布顶栏有返回首页的落点', (await backBtn.count()) === 1, `count=${await backBtn.count()}`)
+  rec(g, '返回落点是品牌名（不再是「← 返回」）', (await backBtn.innerText()) === '轻画', await backBtn.innerText())
   rec(g, '画布顶栏有「后台设置」', (await page.locator('[data-topbar-settings]').count()) === 1)
+  // 后台设置在**日志右边**（用户 2026-09-19）：越靠右越接近「离开画布」
+  const barOrder = await page.evaluate(() => {
+    const bar = document.querySelector('[data-topbar-settings]')?.parentElement
+    if (!bar) return []
+    return [...bar.querySelectorAll('button')].map((b) => b.innerText)
+  })
+  const logIdx = barOrder.indexOf('日志')
+  const setIdx = barOrder.indexOf('后台设置')
+  rec(g, '★ 后台设置在日志右边', logIdx >= 0 && setIdx > logIdx, JSON.stringify(barOrder))
 
   // 4) 无渠道：**创作面板**给出引导条。
   //    M6-16 起节点本体减重为媒体框（§6.8），参数与引导都不在节点里——

@@ -66,6 +66,11 @@ describe('App 路由整树渲染冒烟', () => {
      * 新建节点归左侧工具栏（§6.5）。故这里断言**各自的锚点**：
      * 顶栏有导航出口，工具栏有新建入口与撤销 / 重做 / 导入。
      */
+    /*
+     * 「← 返回」已于 2026-09-19 移除，改为**点品牌回首页**：
+     * 仍用 data-topbar-back 锚点（挂在这个按钮上），故断言它存在，
+     * 但文案不再是「← 返回」而是品牌名「轻画」。
+     */
     expect(html).toContain('data-topbar-back')
     expect(html).toContain('data-topbar-settings')
     expect(html).toContain('data-topbar-projects')
