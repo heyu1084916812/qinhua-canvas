@@ -11,6 +11,39 @@ export type AppError =
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: AppError }
 
+/**
+ * 从 HTTP 错误响应体里抠出**服务端自己给的原因**。
+ *
+ * 放在 shared 而不是 platform：**产生错误的地方要解析它，展示错误的地方也要解析它**，
+ * 而 shared 是两者唯一的共同下层。放到 platform 会让 shared 反向依赖 platform（架构禁止）。
+ *
+ * OpenAI 兼容格式是 `{"error":{"message":"..."}}`；少数中转把原因放在顶层
+ * `message` / `detail`。都不是就返回 null —— **不猜**，宁可只显示状态码。
+ * 不是 JSON 时原样回一段（截断），总比什么都不给强。
+ */
+export function serverReasonOf(body?: string): string | null {
+  if (!body) return null
+  const raw = body.trim()
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object') return null
+    const err = (parsed as { error?: unknown }).error
+    if (typeof err === 'string' && err.trim()) return err.trim()
+    if (err && typeof err === 'object') {
+      const msg = (err as { message?: unknown }).message
+      if (typeof msg === 'string' && msg.trim()) return msg.trim()
+    }
+    for (const key of ['message', 'detail'] as const) {
+      const v = (parsed as Record<string, unknown>)[key]
+      if (typeof v === 'string' && v.trim()) return v.trim()
+    }
+    return null
+  } catch {
+    return raw.slice(0, 200)
+  }
+}
+
 export function Ok<T>(value: T): Result<T> {
   return { ok: true, value }
 }
@@ -28,7 +61,15 @@ export function describeError(e: AppError): string {
     case 'network':
       return `网络错误：${e.detail}`
     case 'http':
-      return `HTTP ${e.status}`
+      /**
+       * 带上服务端原话（如果拿到了）。
+       *
+       * 此前只出「HTTP 403」这样的三个字符，用户看完仍然不知道发生了什么——
+       * 而 403 的成因远不止一种（模型未开通 / 额度用尽 / IP 白名单 / 渠道被禁），
+       * **真正的原因就写在响应体里**。适配器已经把 body 收进 AppError 了，
+       * 这里再不显示就等于白收。
+       */
+      return e.body ? `HTTP ${e.status}｜${serverReasonOf(e.body) ?? e.body.slice(0, 200)}` : `HTTP ${e.status}`
     case 'parse':
       return '解析失败'
     case 'storage':

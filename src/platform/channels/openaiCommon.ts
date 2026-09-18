@@ -1,5 +1,4 @@
-import type { AppError } from '../../shared/result'
-import { asAppError } from '../../shared/result'
+import { asAppError, serverReasonOf, type AppError } from '../../shared/result'
 import type { ModelCapability } from '../../domain/shared/capability'
 
 /**
@@ -59,11 +58,24 @@ export function httpMessage(status: number): string {
   return `HTTP ${status}`
 }
 
-/** 已有 HTTP 状态码时的归一化（error 联合 + 可读文案） */
-export function statusToFailure(status: number): { error: AppError; message: string } {
-  const message = httpMessage(status)
-  if (status === 401 || status === 403) return { error: { kind: 'channel', detail: 'missingKey' }, message }
-  return { error: { kind: 'http', status }, message }
+/**
+ * 已有 HTTP 状态码时的归一化（error 联合 + 可读文案）。
+ *
+ * `body` 一并带进 `AppError`：错误对象要能承载**服务端原话**，
+ * 否则上层（执行引擎 / 日志 / 界面）再怎么想显示细节也无从取起。
+ */
+export function statusToFailure(status: number, body?: string): { error: AppError; message: string } {
+  const reason = serverReasonOf(body)
+  const base = httpMessage(status)
+  // 有服务端原因就把它附在后面：用户看到的先是「怎么回事」，再是「大概是哪一类」
+  const message = reason ? `${base}｜服务端：${reason}` : base
+  /**
+   * 401 仍然直接判为 missingKey（没带有效凭据，语义明确）；
+   * **403 不再预先断言是 Key 问题**——它可能是模型/额度/IP 任何一种，
+   * 归成 `http` 保留状态码与 body，让上层能如实展示。
+   */
+  if (status === 401) return { error: { kind: 'channel', detail: 'missingKey' }, message }
+  return { error: { kind: 'http', status, ...(body ? { body } : {}) }, message }
 }
 
 /** 归一化的 AppError → 可读文案（verify/listModels 的失败会直接显示在设置页状态行） */
@@ -72,7 +84,8 @@ export function appErrorMessage(e: AppError): string {
     case 'network':
       return NETWORK_MESSAGE[e.detail]
     case 'http':
-      return httpMessage(e.status)
+      // 与 shared/result.describeError 同口径：拿到 body 就把服务端原话带上
+      return e.body ? `${httpMessage(e.status)}｜服务端：${serverReasonOf(e.body) ?? e.body.slice(0, 200)}` : httpMessage(e.status)
     case 'channel':
       return e.detail === 'missingKey' ? httpMessage(401) : `渠道不支持该能力（${e.detail}）`
     case 'parse':
@@ -84,8 +97,12 @@ export function appErrorMessage(e: AppError): string {
   }
 }
 
-export function classifyError(e: unknown, status?: number): { error: AppError; message: string } {
-  if (typeof status === 'number') return statusToFailure(status)
+export function classifyError(
+  e: unknown,
+  status?: number,
+  body?: string,
+): { error: AppError; message: string } {
+  if (typeof status === 'number') return statusToFailure(status, body)
   // 网络端口抛的是**归一化后的 AppError 字面量**、渠道层抛的是 ChannelError（载荷在 appError 上），
   // 两者都不是「有 message 的 Error」。早先这里只认 `instanceof Error`，于是它们一路掉到
   // `String(e)`，设置页状态行显示「✗ [object Object]」——失败原因一个字都没传上来。

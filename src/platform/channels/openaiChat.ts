@@ -63,7 +63,9 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
         signal,
       )
       if (res.status < 200 || res.status >= 300) {
-        const { error, message } = classifyError(null, res.status)
+        // 同 openaiImages：失败时先读响应体，服务端原话是排障的唯一线索
+        const detail = await res.text().catch(() => '')
+        const { error, message } = classifyError(null, res.status, detail)
         return { ok: false, error, message }
       }
       const body = await res.json<{ data?: { id: string }[] }>().catch(() => null)
@@ -87,7 +89,8 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
       signal,
     )
     if (res.status < 200 || res.status >= 300) {
-      const { error } = classifyError(null, res.status)
+      const detail = await res.text().catch(() => '')
+      const { error } = classifyError(null, res.status, detail)
       throw new ChannelError(error)
     }
     const body = await res.json<{ data?: { id: string }[] }>().catch(() => ({ data: [] as { id: string }[] }))
@@ -133,7 +136,8 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
       signal,
     )
     if (res.status < 200 || res.status >= 300) {
-      const { error } = classifyError(null, res.status)
+      const detail = await res.text().catch(() => '')
+      const { error } = classifyError(null, res.status, detail)
       throw new ChannelError(error)
     }
     const body = await res

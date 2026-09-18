@@ -103,6 +103,42 @@ describe('openaiImages adapter / 基础契约', () => {
     }
   })
 
+  /**
+   * ★ 403 不再一律断言成「Key 无效」，而且**服务端原话必须传上来**。
+   *
+   * 403 的成因远不止一种：模型没开通、额度用尽、IP 不在白名单、渠道被禁用，
+   * 中转站都回 403，真正的原因写在响应体里（`{"error":{"message":"..."}}`）。
+   * 此前适配器只把状态码交给 classifyError、body 直接丢掉，界面只剩「HTTP 403」——
+   * 用户拿着这三个字符无从排查（2026-09-18 实测）。
+   */
+  it('★ verify 403 → 保留状态码与响应体，文案带出服务端原因', async () => {
+    const net = createMemoryNetwork({
+      handler: async () => resp(403, { error: { message: 'model gpt-image-2 is not allowed for this key' } }),
+    })
+    const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
+    const r = await a.verify(cfg, signal)
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      // 不再被归成 missingKey —— 那是 401 的语义
+      expect(r.error.kind).toBe('http')
+      if (r.error.kind === 'http') {
+        expect(r.error.status).toBe(403)
+        expect(r.error.body).toContain('is not allowed')
+      }
+      expect(r.message).toContain('is not allowed')
+    }
+  })
+
+  it('★ 生图 403 → 抛出的错误同样带着服务端原因（这是用户最常撞上 403 的地方）', async () => {
+    const net = createMemoryNetwork({
+      handler: async () => resp(403, { error: { message: 'insufficient quota' } }),
+    })
+    const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
+    await expect(a.generateImage(request([]), signal)).rejects.toMatchObject({
+      appError: { kind: 'http', status: 403 },
+    })
+  })
+
   it('verify：200 但不是模型列表（SPA 兜底页 / 登录页）→ 判失败，否则「任何地址都命中」', async () => {
     const htmlPage = {
       status: 200,

@@ -153,7 +153,13 @@ export function createOpenAiImagesAdapter(
         signal,
       )
       if (res.status < 200 || res.status >= 300) {
-        const { error, message } = classifyError(null, res.status)
+        /**
+         * 失败时**先读响应体**：403 / 429 这些状态的真实原因（模型未开通、额度用尽、
+         * IP 白名单……）就写在里面，只按状态码翻译会把唯一有用的信息丢掉。
+         * `text()` 只能读一次，故这里读到的就是给用户的那份。
+         */
+        const detail = await res.text().catch(() => '')
+        const { error, message } = classifyError(null, res.status, detail)
         return { ok: false, error, message }
       }
       const body = await res.json<{ data?: { id: string }[] }>().catch(() => null)
@@ -180,7 +186,8 @@ export function createOpenAiImagesAdapter(
       signal,
     )
     if (res.status < 200 || res.status >= 300) {
-      const { error } = classifyError(null, res.status)
+      const detail = await res.text().catch(() => '')
+      const { error } = classifyError(null, res.status, detail)
       throw new ChannelError(error)
     }
     const body = await res.json<{ data?: { id: string }[] }>().catch(() => ({ data: [] as { id: string }[] }))
@@ -316,7 +323,12 @@ export function createOpenAiImagesAdapter(
         : await postGenerations(request, count, size, quality, signal)
 
     if (res.status < 200 || res.status >= 300) {
-      const { error } = classifyError(null, res.status)
+      /**
+       * 生图失败时把响应体一并带回 —— 这里是用户最常撞上 403 的地方
+       * （模型没开通 / 额度不足 / 渠道限制），而原因就在 body 里。
+       */
+      const detail = await res.text().catch(() => '')
+      const { error } = classifyError(null, res.status, detail)
       throw new ChannelError(error)
     }
     return toAssets(res, sizeToDimensions(size), signal)
