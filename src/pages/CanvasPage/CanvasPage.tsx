@@ -28,6 +28,36 @@ import type { Edge } from '../../domain/canvas/model/edge'
 import styles from './CanvasPage.module.css'
 
 /**
+ * 顶栏「已打开项目」标签的会话态（用户 2026-09-19）。
+ *
+ * 顶栏要能**在项目之间切换**，也要能关掉某个标签。这个集合既不是「磁盘上有哪些项目」
+ * （那是首页的职责），也不该刷新一次就丢，故存在 `sessionStorage` ——
+ * 它天然表达「这次会话打开了哪些」，关掉即走；关掉标签**不删项目**。
+ *
+ * 读写都容错：隐私模式下 `sessionStorage` 可能抛异常，那时退化成「只有当前项目」，
+ * 不让顶栏整条挂掉。
+ */
+const OPEN_TABS_KEY = 'qinghua:openProjects'
+
+function readOpenTabs(): string[] {
+  try {
+    const raw = sessionStorage.getItem(OPEN_TABS_KEY)
+    const parsed: unknown = raw ? JSON.parse(raw) : null
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function writeOpenTabs(ids: string[]): void {
+  try {
+    sessionStorage.setItem(OPEN_TABS_KEY, JSON.stringify(ids))
+  } catch {
+    // 存不下就算了：标签集合是会话态，不是业务数据
+  }
+}
+
+/**
  * 画布页面容器（架构 §4.7：只接线，不放规则）。
  * 路由参数 projectId 决定打开哪个项目：
  * - 'demo'：空白临时画布，不读库（便于 SSR 冒烟与即时打开）
@@ -49,6 +79,18 @@ function CanvasProject({ projectId }: { projectId: string }) {
   const storeRef = useRef<CanvasStore | null>(null)
   const [externalEdit, setExternalEdit] = useState(false)
   const [logOpen, setLogOpen] = useState(false)
+  /**
+   * 顶栏标签集合：挂载时把当前项目并入「已打开」列表（去重、当前项排最前）。
+   *
+   * 只在这里算一次并回写：切换项目会整棵子树重新挂载（`key={projectId}`），
+   * 于是每次进入项目都会把它提到最前 —— 正好符合「最近打开的在前」的直觉。
+   */
+  const [openTabs, setOpenTabs] = useState<string[]>(() => {
+    const ids = readOpenTabs().filter((id) => id !== projectId)
+    const next = [projectId, ...ids]
+    writeOpenTabs(next)
+    return next
+  })
   if (!storeRef.current) {
     storeRef.current = createStore({
       workbench: 'canvas',
@@ -258,6 +300,19 @@ function CanvasProject({ projectId }: { projectId: string }) {
             onBack={() => navigate('/')}
             onOpenSettings={openSettings}
             onSwitchProject={(id) => navigate(`/canvas/${id}`)}
+            openProjectIds={openTabs}
+            onCloseProject={(id) => {
+              const rest = openTabs.filter((x) => x !== id)
+              setOpenTabs(rest)
+              writeOpenTabs(rest)
+              /**
+               * 关掉的是**当前正在编辑的项目** → 跳到相邻标签；一个都不剩就回首页。
+               * 关掉别的标签不影响当前编辑，只更新列表。
+               */
+              if (id !== projectId) return
+              const next = rest[0]
+              navigate(next ? `/canvas/${next}` : '/')
+            }}
           />
           {externalEdit && (
             <div className={styles.externalBanner} role="status">

@@ -42,26 +42,37 @@
 }
 
 /* 只有中间这个 `+` 是上传入口 */
+/*
+ * 空态上传按钮（用户 2026-09-19）：
+ * 深色底 `#2E2E2D` + 白色 `＋`，尺寸从 34px **放大一倍到 68px**。
+ *
+ * 空态是「这个节点还没东西」的唯一提示，34px 的浅色圈在画布上几乎看不见；
+ * 深色实心块 + 大尺寸让它一眼可辨，点击目标也从 34×34 变成 68×68（远超 §4.5 的 44px 下限）。
+ * 描边去掉：实心块已经足够界定边界，再描边会显得重。
+ */
 .plus {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
-  border: var(--border);
+  width: 68px;
+  height: 68px;
+  border: none;
   border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--text-3);
+  background: #2e2e2d;
+  color: #ffffff;
   font-family: var(--font-sans);
-  font-size: 18px;
+  font-size: 34px;
   line-height: 1;
   cursor: pointer;
-  transition: color var(--dur-hover) var(--ease-out), border-color var(--dur-hover) var(--ease-out);
+  transition: background var(--dur-hover) var(--ease-out), transform var(--dur-hover) var(--ease-out);
 }
 
 .plus:hover {
-  color: var(--text-1);
-  border-color: var(--text-1);
+  background: #3b3b39;
+}
+
+.plus:active {
+  transform: scale(0.96);
 }
 
 /* 状态 B：素材铺满，保持原始比例（contain，不裁切） */

@@ -15,30 +15,45 @@
 }
 
 /*
- * 品牌（同时是「返回首页」的落点，用户 2026-09-19）。
+ * 品牌区（用户 2026-09-19）：**不是按钮**，是一块可点的范围（点击回首页）。
  *
- * 视觉上仍是纯文字、不带边框与底色——它是顶栏的**锚点**而不是一个操作按钮；
- * 只在 hover 时给一点圆角底色，让「可以点」这件事被感知到，但不喧宾夺主
- * （顶栏里真正需要显眼的是右侧的出口与项目标签）。
+ * 用 div + role=button 而不是 <button>：这里将来要放 Logo 图标（<img> / <svg>），
+ * 用非 button 元素替换时不必清按钮的默认边框 / 背景，也不影响可访问性语义。
+ * 内边距属于**可点范围的一部分**（整块都能点回首页）。
  */
-.brandBtn {
+.brand {
   flex: 0 0 auto;
-  padding: 2px var(--space-2);
-  margin-left: calc(var(--space-2) * -1);
-  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 可点范围：给 Logo 留一个固定盒子，将来换成图标不用改尺寸
+     （盒子比文字大一圈，视觉上就是「品牌位」） */
+  min-width: 56px;
+  height: 32px;
+  padding: 0 var(--space-2);
   border-radius: var(--radius-control);
   background: transparent;
-  font-family: var(--font-sans);
-  font-size: var(--fs-panel-title);
-  font-weight: var(--fw-panel-title);
-  color: var(--text-1);
   cursor: pointer;
   user-select: none;
   transition: background var(--dur-hover) var(--ease-out);
 }
 
-.brandBtn:hover {
+.brand:hover {
   background: var(--bg-hover);
+}
+
+.brand:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+/* Logo 占位：现在是品牌名，将来换成图标即可（盒子尺寸由 .brand 定） */
+.brandMark {
+  font-family: var(--font-sans);
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+  color: var(--text-1);
+  white-space: nowrap;
 }
 
 /* 导航族（返回 / 后台设置）与画布操作族之间的竖分隔线 */
@@ -77,37 +92,105 @@
 
 .tab {
   flex: 0 0 auto;
-  max-width: 160px;
+  display: flex;
+  align-items: center;
+  max-width: 180px;
   height: 28px;
-  padding: 0 var(--space-3);
+  padding: 0 4px 0 var(--space-3);
   border: none;
   border-radius: var(--radius-pill);
   background: transparent;
-  color: var(--text-2);
   font-family: var(--font-sans);
   font-size: var(--fs-label);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+  transition: background var(--dur-hover) var(--ease-out);
 }
 
 .tab:hover {
   background: var(--bg-hover);
+}
+
+/*
+ * 标签文字 = 切换入口（用户 2026-09-19「项目之间需要可以点击切换」）。
+ *
+ * 与关闭按钮是**兄弟**而不是整块可点：整块可点会让 × 的点击区与切换区重叠，
+ * 点 × 会顺带触发切换。这里文字负责切换、× 负责关闭，两者命中区不重叠。
+ */
+.tabLabel {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: color var(--dur-hover) var(--ease-out);
+}
+
+.tab:hover .tabLabel,
+.tabLabel:focus-visible {
   color: var(--text-1);
+}
+
+.tabLabel:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
 }
 
 /* 当前项目：实色底（§6.2「当前项实色底高亮」），与强调色同一套 */
 .tabActive {
   background: var(--accent);
-  color: var(--accent-text);
 }
 
 .tabActive:hover {
   background: var(--accent);
-  color: var(--accent-text);
   opacity: 0.9;
+}
+
+/* 当前项目的标签文字：实色底上用反色（§6.2「当前项实色底高亮」） */
+.tabActive .tabLabel {
+  color: var(--accent-text);
+}
+
+.tabActive:hover .tabLabel {
+  color: var(--accent-text);
+}
+
+/*
+ * 关闭按钮（用户 2026-09-19）：只关这个标签，不删项目。
+ *
+ * hover 才加深、平时弱化——它是高频但低危的操作，常显会跟标签名抢注意力，
+ * 完全隐藏又等于没有（上一版素材菜单就是因为藏起来而消失的）。折中：平时半透明、hover 浮现。
+ */
+.tabClose {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity var(--dur-hover) var(--ease-out), background var(--dur-hover) var(--ease-out);
+}
+
+.tabClose:hover {
+  opacity: 1;
+  background: rgba(127, 127, 127, 0.22);
+}
+
+.tabClose:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  opacity: 1;
 }
 
 .btn {

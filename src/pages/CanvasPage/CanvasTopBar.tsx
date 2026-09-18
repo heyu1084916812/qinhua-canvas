@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useCanvasStore, useViewportState } from '../../workbenches/canvas/storeContext'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { createProjectRepository } from '../../state/project/repository'
+import { ThemeToggle } from '../../app/ThemeToggle'
 import type { ProjectListItem } from '../../domain/project/project'
 import styles from './CanvasTopBar.module.css'
 
@@ -45,6 +46,8 @@ export function CanvasTopBar({
   onBack,
   onOpenSettings,
   onSwitchProject,
+  onCloseProject,
+  openProjectIds,
 }: {
   /** 开关日志面板（§6.18） */
   onToggleLog: () => void
@@ -54,6 +57,22 @@ export function CanvasTopBar({
   onOpenSettings: () => void
   /** 切换到另一个已打开项目（路由由页面容器持有，顶栏只报事件） */
   onSwitchProject: (projectId: string) => void
+  /**
+   * 关闭标签（把它从顶栏的已打开列表里移除；**不删项目**）。
+   *
+   * 顶栏标签表达的是「这次会话打开了哪些项目」，不是「磁盘上有哪些项目」；
+   * 删项目是首页卡片 `⋯` 菜单的职责，两个动作不能混。关掉当前正在编辑的项目时
+   * 由页面容器决定跳到哪儿（相邻标签 / 首页）。
+   */
+  onCloseProject: (projectId: string) => void
+  /**
+   * 已打开项目的 id 列表（顺序即标签顺序，最近打开的在前）。
+   *
+   * 由页面容器持有（会话态，存在 sessionStorage）：顶栏是纯展示，不该自己发明
+   * 「打开了哪些」这份状态 —— 否则刷新后顺序与关闭状态都会漂。
+   * 不传时退回「只有当前项目」，保证顶栏永远能渲染。
+   */
+  openProjectIds?: string[]
 }) {
   const store = useCanvasStore()
   const vp = useViewportState()
@@ -82,23 +101,45 @@ export function CanvasTopBar({
     }
   }, [platform])
 
+  /**
+   * 标签顺序 = `openProjectIds` 的顺序（最近打开的在前），不在打开列表里的项目不显示。
+   *
+   * 名字要从库里读（列表里只有 id），读不到时用 id 兜底，避免「标签在、名字空」。
+   * 未传 `openProjectIds` 时只显示当前项目——与「没打开过别的」等价。
+   */
+  const byId = new Map(projects.map((p) => [p.id, p]))
+  const orderedIds = openProjectIds?.length ? openProjectIds : [projectId]
+  const tabs = orderedIds.map((id) => byId.get(id) ?? ({ id, name: '未命名项目' } as ProjectListItem))
+
   return (
     <div className={styles.bar}>
       {/*
-        Logo 即返回首页（用户 2026-09-19）：它是顶栏最左端的落点，
-        与大多数工具「点品牌回主页」的习惯一致，故不再单设「← 返回」按钮。
-        仍保留 data-topbar-back 锚点，方便冒烟/自动化定位这个出口。
+        品牌区（用户 2026-09-19）：**不是按钮**，只是一块可点的范围。
+
+        这里将来会放 Logo 图标（替换掉现在的文字），所以刻意用 `role="button"`
+        的 div 而不是 <button>：换成 <img>/<svg> 时不用改结构，也不会有按钮的
+        默认边框 / 背景要清。整块范围（含内边距）都可点，点击回首页。
+        保留 data-topbar-back 锚点，方便冒烟 / 自动化定位这个出口。
       */}
-      <button
-        className={styles.brandBtn}
+      <div
+        className={styles.brand}
+        role="button"
+        tabIndex={0}
         data-topbar-back
         onClick={onBack}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' && e.key !== ' ') return
+          e.preventDefault()
+          onBack()
+        }}
         title="返回首页"
         aria-label="返回首页"
-        {...keepCanvasFocus}
       >
-        轻画
-      </button>
+        <span className={styles.brandMark} data-topbar-logo aria-hidden="true">
+          {/* Logo 图标位：将来用 <img> / <svg> 替换这块占位 */}
+          轻画
+        </span>
+      </div>
       {/* 分隔线：把「项目 / 导航」与右侧出口分开，避免误点 */}
       <span className={styles.divider} aria-hidden="true" />
       {/*
@@ -107,18 +148,49 @@ export function CanvasTopBar({
         避免「进来了却看不到自己在哪」。
       */}
       <div className={styles.tabs} data-topbar-projects>
-        {(projects.length > 0 ? projects : [{ id: projectId, name: '当前项目' }]).map((p) => (
-          <button
+        {(tabs.length > 0 ? tabs : [{ id: projectId, name: '当前项目' }] as ProjectListItem[]).map((p) => (
+          <div
             key={p.id}
             className={p.id === projectId ? `${styles.tab} ${styles.tabActive}` : styles.tab}
             data-topbar-project-tab={p.id}
             data-active={p.id === projectId ? 'true' : 'false'}
             title={`切换到「${p.name}」`}
-            onClick={() => onSwitchProject(p.id)}
-            {...keepCanvasFocus}
           >
-            {p.name}
-          </button>
+            <span
+              className={styles.tabLabel}
+              role="button"
+              tabIndex={0}
+              data-topbar-project-switch={p.id}
+              onClick={() => onSwitchProject(p.id)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return
+                e.preventDefault()
+                onSwitchProject(p.id)
+              }}
+            >
+              {p.name}
+            </span>
+            {/*
+              关闭按钮（用户 2026-09-19）：点它只关标签，不删项目。
+              刻意**嵌在标签里**而不是独立一排——标签与它的关闭是一体的，
+              分开摆会让人分不清这个 × 属于哪个项目。阻止冒泡，
+              否则点 × 会顺带触发切换（那就关不掉了）。
+            */}
+            <button
+              type="button"
+              className={styles.tabClose}
+              data-topbar-project-close={p.id}
+              title={`关闭「${p.name}」标签（不会删除项目）`}
+              aria-label={`关闭「${p.name}」标签`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation()
+                onCloseProject(p.id)
+              }}
+            >
+              ×
+            </button>
+          </div>
         ))}
       </div>
       <button className={styles.btn} onClick={onToggleLog} {...keepCanvasFocus}>
@@ -133,6 +205,9 @@ export function CanvasTopBar({
       >
         后台设置
       </button>
+      {/* 主题切换：外观偏好属于「环境」而非画布操作，故放在顶栏右端出口这一侧，
+          用紧凑态（只留字形）以不打乱顶栏这一排按钮的节奏。 */}
+      <ThemeToggle compact onMouseDown={keepCanvasFocus.onMouseDown} />
       <span className={styles.zoom}>{Math.round(vp.zoom * 100)}%</span>
     </div>
   )

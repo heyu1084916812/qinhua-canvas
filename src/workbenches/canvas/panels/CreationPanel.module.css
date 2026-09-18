@@ -10,7 +10,12 @@
    * `zoom` 在 Chromium / Firefox / Safari 都已标准化，比 transform 更好——
    * 后者只动渲染、布局仍按原始尺寸算，ParamPicker 的定位测量会全部错位。
    */
-  zoom: 0.5;
+  /*
+   * 2026-09-19：面板再**放大一半**（0.5 → 0.75）。
+   * 0.5 是 2026-09-16 定的「整体缩半」，实测偏小、参数 chip 有些挤；放大到 0.75 后
+   * 仍是「比原始尺寸小一档」，但字号与点击区回到可用区间。
+   */
+  zoom: 0.75;
   width: 840px;
   max-width: calc(100vw - 48px);
   display: flex;
@@ -212,8 +217,10 @@
   padding: 0 2px;
   box-sizing: border-box;
   border-radius: 3px;
-  background: rgba(23, 23, 22, 0.72);
-  color: #fff;
+  /* 叠在素材缩略图上：素材亮度不可控，故走「浮层」而不是 --bg-surface ——
+     深色主题下它会翻成浅底深字，压在亮图上照样读得清。 */
+  background: var(--overlay-scrim);
+  color: var(--overlay-text);
   font-size: 9px;
   font-weight: 600;
   line-height: 12px;
