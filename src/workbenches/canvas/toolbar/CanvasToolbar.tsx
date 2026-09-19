@@ -4,6 +4,7 @@ import { useCanvasStore, useSelection } from '../storeContext'
 import { useAlignTools } from '../../../features/canvas/useAlignTools'
 import { ALIGN_MODES, canAlign, type AlignMode } from '../../../domain/canvas/layout/align'
 import { canArrange } from '../../../domain/canvas/layout/arrange'
+import { ARRANGE_MODES, type ArrangeMode } from '../../../domain/canvas/layout/arrangeModes'
 import type { NodeType } from '../../../domain/canvas/model/node'
 import { fitCanvasView } from '../surface/fitView'
 import styles from './CanvasToolbar.module.css'
@@ -38,6 +39,16 @@ const ALIGN_GLYPH: Record<AlignMode, string> = {
 }
 
 /**
+ * 三种排列的图标字形（纯文本）。
+ * 取形意对应：宫格 = 四方块、水平 = 横排格里、垂直 = 竖排格里。
+ */
+const ARRANGE_GLYPH: Record<ArrangeMode, string> = {
+  grid: '▦',
+  row: '▤',
+  column: '▥',
+}
+
+/**
  * 画布左侧竖向工具栏（产品文档 §6.1「画布左侧竖向悬浮」/ §6.5）。
  * 四组能力：新建节点菜单 / 8 种对齐 / 整理节点 / 重置视图。
  * 对齐与整理都要求 ≥ 2 个节点选中，不满足时按钮禁用（§6.5）。
@@ -52,8 +63,10 @@ export function CanvasToolbar({
 }) {
   const store = useCanvasStore()
   const selection = useSelection()
-  const { align, arrange } = useAlignTools(store)
+  const { align, arrange, arrangeMode } = useAlignTools(store)
   const [menuOpen, setMenuOpen] = useState(false)
+  /** 排列面板（§6.5 ④）：与新建菜单同一套「开新关旧」规则 */
+  const [arrangeOpen, setArrangeOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   /**
    * 撤销 / 重做从顶栏迁入（产品文档 §6.2 / §6.5 顶栏改版，2026-09-18）。
@@ -64,15 +77,19 @@ export function CanvasToolbar({
   const canUndo = useSyncExternalStore(store.subscribe, store.canUndo, store.canUndo)
   const canRedo = useSyncExternalStore(store.subscribe, store.canRedo, store.canRedo)
 
-  // 点击外部或 Esc 关闭新建菜单（§6.15「Esc 取消」）
+  // 点击外部或 Esc 关闭浮层（§6.15「Esc 取消」）；两个浮层共用一套规则
   useEffect(() => {
-    if (!menuOpen) return
+    if (!menuOpen && !arrangeOpen) return
     const onDown = (e: PointerEvent) => {
       if (rootRef.current?.contains(e.target as Node)) return
       setMenuOpen(false)
+      setArrangeOpen(false)
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false)
+      if (e.key === 'Escape') {
+        setMenuOpen(false)
+        setArrangeOpen(false)
+      }
     }
     window.addEventListener('pointerdown', onDown)
     window.addEventListener('keydown', onKey)
@@ -80,7 +97,7 @@ export function CanvasToolbar({
       window.removeEventListener('pointerdown', onDown)
       window.removeEventListener('keydown', onKey)
     }
-  }, [menuOpen])
+  }, [menuOpen, arrangeOpen])
 
   const count = selection.length
   // useSyncExternalStore 保持与 store 同源，避免工具栏与画布选中不同步
@@ -95,6 +112,13 @@ export function CanvasToolbar({
     const r = arrange()
     if (r.kind === 'cycle') store.notify(r.reason ?? '存在循环依赖，无法整理')
     else if (r.kind === 'too-few') store.notify('至少选中 2 个节点才能整理')
+  }
+
+  /** 排列面板里点某一项：应用后立即收起（§6.5 ④） */
+  const onArrangeMode = (mode: ArrangeMode) => {
+    const r = arrangeMode(mode)
+    if (r.kind === 'too-few') store.notify('至少选中 2 个节点才能排列')
+    setArrangeOpen(false)
   }
 
   return (
@@ -149,6 +173,50 @@ export function CanvasToolbar({
             {ALIGN_GLYPH[mode]}
           </button>
         ))}
+      </div>
+
+      <span className={styles.divider} />
+
+      {/*
+        排列面板（§6.5 ④）：一个按钮，点击在其右侧展开三种排列方式。
+        形态对齐参考产品的排列菜单（图标 + 文案、圆角、实底）。
+        与 ② 8 种对齐并存：对齐改一个方向，排列两个方向一起重排。
+      */}
+      <div className={styles.menuWrap}>
+        <button
+          className={styles.iconBtn}
+          title="排列"
+          aria-label="排列"
+          aria-expanded={arrangeOpen}
+          data-toolbar-arrange-modes
+          disabled={!canAlign(count, 'left') || dragging}
+          onClick={() => {
+            setArrangeOpen((v) => !v)
+            setMenuOpen(false)
+          }}
+          {...keepCanvasFocus}
+        >
+          {ARRANGE_GLYPH.grid}
+        </button>
+        {arrangeOpen && (
+          <div className={styles.menu} role="menu" data-toolbar-arrange-menu>
+            {ARRANGE_MODES.map(({ mode, label }) => (
+              <button
+                key={mode}
+                className={styles.menuItem}
+                role="menuitem"
+                data-toolbar-arrange-mode={mode}
+                onClick={() => onArrangeMode(mode)}
+                {...keepCanvasFocus}
+              >
+                <span className={styles.menuIcon} aria-hidden="true">
+                  {ARRANGE_GLYPH[mode]}
+                </span>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <span className={styles.divider} />

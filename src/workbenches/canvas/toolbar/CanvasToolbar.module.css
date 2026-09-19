@@ -88,9 +88,23 @@
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
+  /* 排列面板用「图标 + 文案」两列，与参考产品的排列菜单同形 */
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   transition: background var(--dur-hover) var(--ease-out);
 }
 
 .menuItem:hover {
   background: var(--bg-hover);
+}
+
+/* 菜单项左侧图标：定宽，保证多行文案左边缘对齐 */
+.menuIcon {
+  width: 16px;
+  flex: none;
+  text-align: center;
+  font-size: var(--fs-body);
+  line-height: 1;
+  color: var(--text-2);
 }

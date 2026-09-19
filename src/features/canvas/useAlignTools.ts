@@ -6,6 +6,8 @@ import { toWorldRect } from '../../domain/canvas/geometry/coords'
 import { indexNodes } from '../../domain/canvas/model/graph'
 import { computeAlign, canAlign, type AlignMode } from '../../domain/canvas/layout/align'
 import { computeArrange, canArrange } from '../../domain/canvas/layout/arrange'
+import { computeArrangeMode, type ArrangeMode } from '../../domain/canvas/layout/arrangeModes'
+import { createId } from '../../shared/id'
 
 /**
  * 对齐与整理的执行入口（产品文档 §6.5 ②③）。
@@ -27,6 +29,8 @@ export interface AlignOutcome {
 export interface AlignTools {
   align(mode: AlignMode): AlignOutcome
   arrange(): AlignOutcome
+  /** 宫格 / 水平 / 垂直排列（§6.5 ④）。与 arrange() 的区别：它不看连线，纯按位置重排 */
+  arrangeMode(mode: ArrangeMode): AlignOutcome
 }
 
 export function createAlignTools(store: CanvasStore): AlignTools {
@@ -48,9 +52,22 @@ export function createAlignTools(store: CanvasStore): AlignTools {
 
   /**
    * 把目标坐标落成 node.move。
-   * node.move 对集合施加**同一**位移，各节点位移量不同 → 按位移量分组下发。
+   *
+   * node.move 对集合施加**同一**位移，而排列 / 对齐后各节点位移量各不相同，
+   * 故按位移量分组下发——但**必须共用同一个事务 key**（见下）。
+   *
+   * 为什么不能让各组各走默认事务：node.move 自带的 key 是 `move:${ids.join(',')}`，
+   * 分组后每组 id 集合都不同 ⇒ key 不同 ⇒ 每次 dispatch 新开一个撤销单元。
+   * 表现就是「一次排列要按好几次撤销才退回去」，用户按一次只退回了一部分
+   * （实测：宫格排列 4 个节点，一次撤销只回去 1 个）。
+   *
+   * 解法：显式传事务边界（txOverride），本次操作的所有位移共用同一个 multi-step
+   * planId ⇒ 合并成一个撤销单元，一次撤销完整退回。
    */
-  function applyTargets(targets: Map<string, { x: number; y: number }>): number {
+  function applyTargets(
+    targets: Map<string, { x: number; y: number }>,
+    label: string,
+  ): number {
     if (targets.size === 0) return 0
     const index = indexNodes(store.getSnapshot().nodes)
     const groups = new Map<string, { ids: string[]; dx: number; dy: number }>()
@@ -69,8 +86,13 @@ export function createAlignTools(store: CanvasStore): AlignTools {
       groups.set(key, g)
       count += 1
     }
+    /** 本次操作 = 一个撤销单元：所有分组共享同一个 planId */
+    const planId = createId('arrange')
     for (const g of groups.values()) {
-      store.dispatch({ kind: 'node.move', ids: g.ids, dx: g.dx, dy: g.dy, phase: 'end' })
+      store.dispatch(
+        { kind: 'node.move', ids: g.ids, dx: g.dx, dy: g.dy, phase: 'end' },
+        { mode: 'multi-step', planId, label },
+      )
     }
     return count
   }
@@ -82,7 +104,7 @@ export function createAlignTools(store: CanvasStore): AlignTools {
       nodes.map((n) => ({ id: n.id, rect: worldRectOf(n) })),
       mode,
     )
-    return { kind: 'ok', moved: applyTargets(targets) }
+    return { kind: 'ok', moved: applyTargets(targets, '对齐节点') }
   }
 
   function arrange(): AlignOutcome {
@@ -95,10 +117,21 @@ export function createAlignTools(store: CanvasStore): AlignTools {
     if (result.cycles.length > 0) {
       return { kind: 'cycle', reason: '存在循环依赖，无法整理', moved: 0 }
     }
-    return { kind: 'ok', moved: applyTargets(result.targets) }
+    return { kind: 'ok', moved: applyTargets(result.targets, '整理节点') }
   }
 
-  return { align, arrange }
+  function arrangeMode(mode: ArrangeMode): AlignOutcome {
+    const nodes = selectedNodes()
+    /** ≥ 2 才可用，与对齐 / 整理同一门槛（§6.5） */
+    if (nodes.length < 2) return { kind: 'too-few', moved: 0 }
+    const targets = computeArrangeMode(
+      nodes.map((n) => ({ id: n.id, rect: worldRectOf(n) })),
+      mode,
+    )
+    return { kind: 'ok', moved: applyTargets(targets, '排列节点') }
+  }
+
+  return { align, arrange, arrangeMode }
 }
 
 /** hook 包装：把工具挂到组件生命周期上 */

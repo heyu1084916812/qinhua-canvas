@@ -188,3 +188,76 @@ describe('useAlignTools / arrange', () => {
     expect(posOf(store, bystander)).toEqual({ x: 2000, y: 2000 })
   })
 })
+
+describe('useAlignTools / arrangeMode（§6.5 ④）', () => {
+  it('少于 2 个选中时拒绝并给出原因', () => {
+    const store = makeStore()
+    const a = addPrompt(store, 0, 0)
+    store.setSelection([a])
+    expect(tools(store).arrangeMode('grid')).toMatchObject({ kind: 'too-few', moved: 0 })
+  })
+
+  it('水平排列：全部落到同一 y', () => {
+    const store = makeStore()
+    const ids = [addPrompt(store, 0, 0), addPrompt(store, 500, 200), addPrompt(store, 100, 400)]
+    store.setSelection(ids)
+    tools(store).arrangeMode('row')
+    const ys = ids.map((id) => posOf(store, id).y)
+    expect(new Set(ys).size).toBe(1)
+  })
+
+  it('垂直排列：全部落到同一 x', () => {
+    const store = makeStore()
+    const ids = [addPrompt(store, 0, 0), addPrompt(store, 500, 200), addPrompt(store, 100, 400)]
+    store.setSelection(ids)
+    tools(store).arrangeMode('column')
+    const xs = ids.map((id) => posOf(store, id).x)
+    expect(new Set(xs).size).toBe(1)
+  })
+
+  it('未选中节点不参与排列', () => {
+    const store = makeStore()
+    const a = addPrompt(store, 0, 0)
+    const b = addPrompt(store, 500, 200)
+    const bystander = addPrompt(store, 3000, 3000)
+    store.setSelection([a, b])
+    tools(store).arrangeMode('row')
+    expect(posOf(store, bystander)).toEqual({ x: 3000, y: 3000 })
+  })
+
+  /**
+   * ★ 回归：一次排列必须能**一次撤销**完整退回。
+   *
+   * 各节点位移量不同，曾被按位移量拆成多次 `node.move` 下发；而每条命令自带的事务
+   * key 由 id 集合派生（不同 ⇒ 各自开一个撤销单元），于是「按一次撤销只退回一部分」。
+   * 修法是让本次操作的所有位移共用同一个 multi-step planId。
+   */
+  it('★ 一次撤销完整退回（不能被拆成多步撤销）', () => {
+    const store = makeStore()
+    const ids = [
+      addPrompt(store, 0, 0),
+      addPrompt(store, 400, 0),
+      addPrompt(store, 0, 400),
+      addPrompt(store, 400, 400),
+    ]
+    store.setSelection(ids)
+    const before = ids.map((id) => posOf(store, id))
+
+    tools(store).arrangeMode('grid')
+    expect(ids.map((id) => posOf(store, id))).not.toEqual(before)
+
+    store.undo()
+    expect(ids.map((id) => posOf(store, id))).toEqual(before)
+  })
+
+  it('★ 对齐也是一次撤销退回（同一事务边界修复覆盖对齐）', () => {
+    const store = makeStore()
+    const ids = [addPrompt(store, 0, 0), addPrompt(store, 400, 250), addPrompt(store, 800, 600)]
+    store.setSelection(ids)
+    const before = ids.map((id) => posOf(store, id))
+    tools(store).align('left')
+    expect(ids.map((id) => posOf(store, id))).not.toEqual(before)
+    store.undo()
+    expect(ids.map((id) => posOf(store, id))).toEqual(before)
+  })
+})

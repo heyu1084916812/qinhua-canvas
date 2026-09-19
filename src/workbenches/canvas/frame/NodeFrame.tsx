@@ -16,11 +16,12 @@ export type ResizePhase = 'begin' | 'move' | 'end'
  * 端点磁吸参数（§6.14，用户 2026-09-19）。
  *
  * `radius`：感应圈半径（视觉像素，从圆心算）。命中区是 15（14 直径 + ::after 扩 8），
- * 再往外放一圈，做到「快靠近就浮现」，不必精确压到圆点上。
+ * 首版取 34（命中区再外放一圈），用户实测「太小、要凑很近才浮现」，
+ * 故放大到 68——命中区的四倍多，隔一段距离就能感觉得到，不必精确对上去。
  * `maxPull`：最大吸附位移。刻意取小值——端点要**跟手但不出格**，
  * 吸得太远会脱离节点边框，反而看不出它属于哪个节点。
  */
-const MAGNET_OPTS = { radius: 34, maxPull: 6 }
+const MAGNET_OPTS = { radius: 68, maxPull: 8 }
 
 export interface NodeFrameProps {
   node: NodeSnapshot
