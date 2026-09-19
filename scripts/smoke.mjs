@@ -879,6 +879,21 @@ async function g9(browser) {
   const chOpts = await paramOptions(page, panel, 'channel')
   console.log('  [diag] 生成节点平台 chip 可选项 =', JSON.stringify(chOpts))
 
+  /**
+   * 面板基准比例 21:9（用户 2026-09-19 第 2 条）：「保持长度不变、高度加高到 21:9」。
+   *
+   * `zoom: 0.75` 是等比缩放，缩放前后比例不变，故直接量**渲染尺寸**即可：
+   * 840 ÷ (21/9) = 360（未缩放）⇒ 渲染 630 × 270。容差 0.02 吸收亚像素取整。
+   */
+  const panelBox = await panel.boundingBox()
+  const panelRatio = panelBox ? panelBox.width / panelBox.height : NaN
+  rec(
+    g,
+    '★ 创作面板长宽比 = 21:9（宽度保持、高度加高）',
+    Number.isFinite(panelRatio) && Math.abs(panelRatio - 21 / 9) < 0.02,
+    panelBox ? `${Math.round(panelBox.width)}×${Math.round(panelBox.height)} 比例=${panelRatio.toFixed(3)}` : 'null',
+  )
+
   // 3) 生成节点选 渠道 + 模型 + 提示词（用 data 属性而非 CSS module 哈希类名）
   await configureGenPanel(page, panel, '屋顶的猫')
   // N=1 已不建结果组（§6.16，M6-24）：本组要验的是「结果组出现 + 刷新后仍在」，
@@ -7291,6 +7306,29 @@ async function g56(browser) {
     '尺寸 200 × 140（§6.4）',
     !!box && Math.abs(box.width - 200) < 2 && Math.abs(box.height - 140) < 2,
     box ? `${Math.round(box.width)}×${Math.round(box.height)}` : 'null',
+  )
+
+  /**
+   * 同心圆角（用户 2026-09-19「描边不是同一个圆角、有东西被遮住」）：
+   *
+   * 外框是 10px 圆角 + `overflow:hidden`，视口框此前写死 `rx=2`。当视口比内容大、
+   * 视口框铺满整框时，那个近似直角正好顶在外框圆弧上 —— 角上看起来「里面的方框
+   * 戳出圆角」。修法是让视口框半径按它到外框的留白算（同心），铺满时必须等于外框
+   * 半径。这条断言直接读**计算样式**的 `rx`，不是看截图，故障注入可复现。
+   */
+  const radii = await page.evaluate(() => {
+    const h = document.querySelector('[data-canvas-minimap]')
+    const v = h && h.querySelector('[data-minimap-view]')
+    return {
+      outer: h ? parseFloat(getComputedStyle(h).borderTopLeftRadius) : NaN,
+      inner: v ? parseFloat(v.getAttribute('rx')) : NaN,
+    }
+  })
+  rec(
+    g,
+    '★ 视口框铺满整框时圆角与外框同心（不再是方角戳出圆弧）',
+    Number.isFinite(radii.outer) && Number.isFinite(radii.inner) && Math.abs(radii.inner - radii.outer) < 0.5,
+    `外框=${radii.outer}px 视口框=${radii.inner}px`,
   )
 
   // 小地图内部的矩形坐标（相对左上角），不用世界坐标：世界坐标测不出「有没有被裁掉」

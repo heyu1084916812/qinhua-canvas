@@ -518,7 +518,7 @@ export function CreationPanel(props: CreationPanelProps) {
       </section>
 
       {/* 第二部分：提示词 */}
-      <section className={styles.section} data-panel-part="prompt">
+      <section className={`${styles.section} ${styles.promptSection}`} data-panel-part="prompt">
         <div className={styles.promptRow}>
           {model.linkedPromptCount > 0 && (
             <span className={styles.linked} data-panel-linked-prompt>

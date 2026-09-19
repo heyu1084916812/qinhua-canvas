@@ -17,6 +17,15 @@
    */
   zoom: 0.75;
   width: 840px;
+  /*
+   * 2026-09-19（用户第 2 条）：**宽度不动，高度加高到长宽比 21:9**。
+   * 840 ÷ (21/9) = 360px。此前高度是「由内容撑开」（实测约 240px，比例 3.5:1），
+   * 三个区域挤在一起；钉到 360px 后比例落在 21:9，纵向留出呼吸感。
+   * `zoom` 等比缩放，21:9 的比例在缩放前后不变（渲染 630 × 270）。
+   * 用 `height` 而非 `aspect-ratio`：宽度已被 `max-width` 在窄屏收窄，
+   * aspect-ratio 会顺着窄屏把高度一起缩掉，反而丢掉「保持长度」的语义。
+   */
+  height: 360px;
   max-width: calc(100vw - 48px);
   display: flex;
   flex-direction: column;
@@ -41,6 +50,16 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+/*
+ * 面板被钉到 21:9（见 .panel）后多出来的纵向空间由**提示词区吸收**：
+ * 素材行与参数行都是固定高度，只有提示词是用户可写的多行内容，让它长高最合理。
+ * 不加这一段的话三段会仍按内容顶在上边，面板底部留一条死白。
+ */
+.promptSection {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 /* ── 第一部分：缩略图 ── */
@@ -303,6 +322,8 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   gap: var(--space-2);
 }
 
@@ -318,6 +339,7 @@
 
 .prompt {
   width: 100%;
+  flex: 1 1 auto;
   min-height: 72px;
   resize: vertical;
   border: none;

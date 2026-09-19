@@ -133,6 +133,29 @@ export function minimapViewRect(
 }
 
 /**
+ * 小地图外框圆角（`--radius-control`）。与 CSS 保持同一个数：
+ * 视觉同心是**两条弧共圆心**，内框半径必须由它推出来，故在这里也留一份。
+ */
+export const MINIMAP_RADIUS = 10
+
+/**
+ * 视口框的圆角半径：**与外框同心**。
+ *
+ * 用户 2026-09-19 反馈「描边不是同一个圆角、有东西被遮住」：外框 10px 圆角，
+ * 而视口框一直写死 `rx=2`。视口比内容大时它会**铺满整框**（贴到 0..200 / 0..140），
+ * 于是 2px 的近似直角正好顶在 10px 的圆弧上——两条弧圆心不同、曲率不同，角上就
+ * 出现「里面的方框戳出圆角」的错觉。
+ *
+ * 同心规则：内框半径 = 外半径 − 内框到外边界的最小距离。贴着边（inset=0）时
+ * 内半径 = 外半径，两条弧完全重合；内框离边越远，半径越小，直到退化为止。
+ * 直边上的 inset 取 0（那边没有弧要跟随），这样只有真正靠近圆角的那条边参与计算。
+ */
+export function minimapViewRadius(view: Rect, box: Size = MINIMAP_BOX, outerRadius = MINIMAP_RADIUS): number {
+  const inset = Math.max(Math.min(view.x, view.y, box.w - (view.x + view.w), box.h - (view.y + view.h)), 0)
+  return Math.max(outerRadius - inset, 0)
+}
+
+/**
  * 建一次投影。
  *
  * `sources` 传**世界矩形**：顶层节点与结果组都算，容器内子节点不算（它们的 x/y 是

@@ -7,6 +7,7 @@ import {
   minimapProjection,
   minimapItems,
   minimapViewRect,
+  minimapViewRadius,
   centerViewportOn,
   minimapToWorld,
   viewWorldRect,
@@ -150,6 +151,9 @@ export function Minimap() {
     () => minimapViewRect(projection, viewWorldRect(viewport, container), box),
     [projection, viewport, container.w, container.h],
   )
+  // 视口框圆角随它的位置算：铺满整框时与外框 10px 同心，缩小时才退成小圆角。
+  // 写死 rx=2 是本次「圆角不一致」的成因（见 minimapViewRadius）。
+  const viewRadius = useMemo(() => minimapViewRadius(viewRect, box), [viewRect, box])
 
   /** 指针处理里要读**最新**的投影、视口与画布尺寸（闭包里的会陈旧 ⇒ 落点越拖越偏） */
   const latest = useRef<{ projection: MinimapProjection; viewport: Viewport; surface: Size | null }>({
@@ -236,7 +240,7 @@ export function Minimap() {
           y={viewRect.y}
           width={viewRect.w}
           height={viewRect.h}
-          rx={2}
+          rx={viewRadius}
           strokeWidth={1}
         />
       </svg>

@@ -3,9 +3,11 @@ import { rectCenter, type Rect } from '../geometry/rect'
 import {
   MINIMAP_BOX,
   MINIMAP_PADDING,
+  MINIMAP_RADIUS,
   buildMinimapModel,
   centerViewportOn,
   minimapToWorld,
+  minimapViewRadius,
   viewWorldRect,
   type MinimapSource,
 } from './minimap'
@@ -120,6 +122,42 @@ describe('buildMinimapModel', () => {
     build(sources, view)
     expect(sources).toEqual(snapshotSources)
     expect(view).toEqual(snapshotView)
+  })
+})
+
+describe('minimapViewRadius（同心圆角）', () => {
+  it('视口铺满整框（贴到四边）时，内框半径 = 外框半径', () => {
+    // 用户 2026-09-19「描边不是同一个圆角、有东西被遮住」的回归：
+    // 视口比内容大时会铺满 0..200 / 0..140，写死 rx=2 的方角正好戳进 10px 圆角。
+    expect(minimapViewRadius({ x: 0, y: 0, w: BOX.w, h: BOX.h })).toBe(MINIMAP_RADIUS)
+  })
+
+  it('内框离边越远，半径越小（保持与外框同心）', () => {
+    const r0 = minimapViewRadius({ x: 0, y: 0, w: BOX.w, h: BOX.h })
+    const r4 = minimapViewRadius({ x: 4, y: 4, w: BOX.w - 8, h: BOX.h - 8 })
+    const r6 = minimapViewRadius({ x: 6, y: 6, w: BOX.w - 12, h: BOX.h - 12 })
+    expect(r0).toBe(MINIMAP_RADIUS)
+    expect(r4).toBe(MINIMAP_RADIUS - 4)
+    expect(r6).toBe(MINIMAP_RADIUS - 6)
+    // 单调：离边越远半径越小，绝不反弹
+    expect(r0).toBeGreaterThan(r4)
+    expect(r4).toBeGreaterThan(r6)
+  })
+
+  it('内框足够小时半径退化为 0（不出现负半径）', () => {
+    expect(minimapViewRadius({ x: 40, y: 40, w: 20, h: 20 })).toBe(0)
+    expect(minimapViewRadius({ x: 100, y: 100, w: 5, h: 5 })).toBe(0)
+  })
+
+  it('只有一条边靠近圆角时也按那条边算（取四边最小留白）', () => {
+    // 上边贴边（inset=0），其余三边离得远 —— 贴上边圆角的那条边决定半径
+    expect(minimapViewRadius({ x: 50, y: 0, w: 40, h: 60 }, BOX)).toBe(MINIMAP_RADIUS)
+  })
+
+  it('视口越出盒外时也不出现负半径 / NaN', () => {
+    const r = minimapViewRadius({ x: 12, y: 12, w: 200, h: 140 })
+    expect(Number.isFinite(r)).toBe(true)
+    expect(r).toBeGreaterThanOrEqual(0)
   })
 })
 
