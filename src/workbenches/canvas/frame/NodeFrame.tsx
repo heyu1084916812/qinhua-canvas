@@ -5,11 +5,22 @@ import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import type { Rect } from '../../../domain/canvas/geometry/rect'
 import type { ResizeLock } from '../../../domain/canvas/nodeSpecs/resizeLock'
 import { lockedResize } from '../../../domain/canvas/nodeSpecs/resizeLock'
+import { portMagnet } from '../../../domain/canvas/geometry/portMagnet'
 import { useCanvasStore } from '../storeContext'
 import { assetPixelsOf, formatPixels } from './assetPixels'
 import styles from './NodeFrame.module.css'
 
 export type ResizePhase = 'begin' | 'move' | 'end'
+
+/**
+ * 端点磁吸参数（§6.14，用户 2026-09-19）。
+ *
+ * `radius`：感应圈半径（视觉像素，从圆心算）。命中区是 15（14 直径 + ::after 扩 8），
+ * 再往外放一圈，做到「快靠近就浮现」，不必精确压到圆点上。
+ * `maxPull`：最大吸附位移。刻意取小值——端点要**跟手但不出格**，
+ * 吸得太远会脱离节点边框，反而看不出它属于哪个节点。
+ */
+const MAGNET_OPTS = { radius: 34, maxPull: 6 }
 
 export interface NodeFrameProps {
   node: NodeSnapshot
@@ -60,6 +71,99 @@ export function NodeFrame(props: NodeFrameProps) {
   const [draft, setDraft] = useState(node.title)
   const inputRef = useRef<HTMLInputElement>(null)
   const store = useCanvasStore()
+  /**
+   * 端点的「磁吸」状态（用户 2026-09-19）。
+   *
+   * 语义：指针进入端点附近的**感应圈**时，端点浮现并朝指针方向吸过去（像磁铁），
+   * 离开感应圈则弹回原位、淡出。左右两个端点各自独立。
+   *
+   * 为什么用 JS 算距离、而不是 CSS `:hover` 放大命中区：
+   * 端点隐形时 `opacity:0` 但**仍占位、仍可命中**，`:hover` 会让「看不见的东西
+   * 已经生效」——用户觉得诡异。按**指针到圆心的距离**判定则完全由几何驱动：
+   * 看得见的浮现范围 = 真正生效的范围，二者一致。
+   */
+  const inputPortRef = useRef<HTMLSpanElement>(null)
+  const outputPortRef = useRef<HTMLSpanElement>(null)
+  const [hotPort, setHotPort] = useState<'input' | 'output' | null>(null)
+  useEffect(() => {
+    /**
+     * 端点圆心 = 节点边框左右中点；用 getBoundingClientRect 拿实时位置，
+     * 这样画布缩放 / 平移 / 节点拖动都不用重算——每次都问 DOM 要真值。
+     */
+    /**
+     * 端点**未位移时**的圆心。
+     *
+     * 必须减掉当前挂着的吸附位移：`getBoundingClientRect` 会把 `transform` 算进去，
+     * 直接用它会在「已吸过去的位置」上再算一次距离——越吸越偏，是个自我放大的回路。
+     * 读 `offsetWidth` / `offsetHeight` 拿的是布局尺寸（不含 transform），正是我们想要的。
+     */
+    const centerOf = (el: HTMLElement | null) => {
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      const shift = el.dataset.snapShift
+      let sx = 0
+      let sy = 0
+      if (shift) {
+        const [tx, ty] = shift.split(',').map(Number)
+        sx = Number.isFinite(tx) ? tx : 0
+        sy = Number.isFinite(ty) ? ty : 0
+      }
+      return { x: r.left + r.width / 2 - sx, y: r.top + r.height / 2 - sy }
+    }
+    const onMove = (e: PointerEvent) => {
+      /**
+       * 逐个端点问几何层要「吸不吸、吸多少」，取最近的那个生效。
+       * 判定与位移量都在 domain（portMagnet，可单测），这里只做 DOM 读写。
+       */
+      const pointer = { x: e.clientX, y: e.clientY }
+      const magnets = (
+        [
+          ['input', inputPortRef.current],
+          ['output', outputPortRef.current],
+        ] as const
+      ).map(([side, el]) => {
+        const c = centerOf(el)
+        if (!c) return null
+        return { side, el: el as HTMLElement, m: portMagnet(c, pointer, MAGNET_OPTS), dist: Math.hypot(pointer.x - c.x, pointer.y - c.y) }
+      })
+      const hot = magnets
+        .filter((x): x is NonNullable<typeof x> => !!x && x.m.hot)
+        .sort((a, b) => a.dist - b.dist)[0]
+      setHotPort(hot ? hot.side : null)
+      /** 位移只作用在「热」的那个端点；另一个必须回到 0，否则会残留偏移 */
+      for (const [side, el] of [
+        ['input', inputPortRef.current],
+        ['output', outputPortRef.current],
+      ] as const) {
+        if (!el) continue
+        const on = !!hot && side === hot.side
+        if (on) {
+          el.dataset.snapShift = `${hot.m.dx},${hot.m.dy}`
+          el.style.transform = `translate(${hot.m.dx}px, ${hot.m.dy}px)`
+        } else {
+          delete el.dataset.snapShift
+          el.style.transform = ''
+        }
+      }
+    }
+    const onLeave = () => {
+      setHotPort(null)
+      for (const el of [inputPortRef.current, outputPortRef.current]) {
+        if (!el) continue
+        delete el.dataset.snapShift
+        el.style.transform = ''
+      }
+    }
+    window.addEventListener('pointermove', onMove)
+    /** 指针离开窗口（切标签 / 移出视口）也要复位，否则端点停在吸附位置 */
+    window.addEventListener('pointerleave', onLeave)
+    window.addEventListener('blur', onLeave)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerleave', onLeave)
+      window.removeEventListener('blur', onLeave)
+    }
+  }, [])
   /**
    * 产物像素（用户 2026-09-17）：**挂在节点外**的右上角、与节点名同一排。
    *
@@ -197,7 +301,8 @@ export function NodeFrame(props: NodeFrameProps) {
 
       {ports.input && !props.portsHidden && (
         <span
-          className={`${styles.port} ${styles.portLeft}`}
+          ref={inputPortRef}
+          className={`${styles.port} ${styles.portLeft} ${hotPort === 'input' ? styles.hot : ''}`}
           data-port="input"
           onPointerDown={(e) => {
             if (!props.onPortPointerDown) return
@@ -208,7 +313,8 @@ export function NodeFrame(props: NodeFrameProps) {
       )}
       {ports.output && !props.portsHidden && (
         <span
-          className={`${styles.port} ${styles.portRight}`}
+          ref={outputPortRef}
+          className={`${styles.port} ${styles.portRight} ${hotPort === 'output' ? styles.hot : ''}`}
           data-port="output"
           onPointerDown={(e) => {
             if (!props.onPortPointerDown) return

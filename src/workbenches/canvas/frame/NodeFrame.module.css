@@ -126,14 +126,29 @@
   height: 14px;
   margin-top: -7px;
   border-radius: 999px;
-  background: var(--bg-surface);
-  border: var(--border);
+  /**
+   * 端点颜色**固定** #E8E9ED，不走主题令牌（用户 2026-09-19）。
+   *
+   * 早先取 `--bg-surface`：亮色主题下是白底、衬在浅灰画布上勉强可见；
+   * 换到暗色主题后背景变深，端点仍取 `--bg-surface`（也更深），
+   * 于是「和背景一个色」——端点直接消失。它是**交互控件**而非内容面板，
+   * 需要的是在两种画布底色上都有稳定对比，故给定值，不跟随主题漂移。
+   */
+  background: var(--port);
+  border: 1px solid var(--port-stroke);
   box-sizing: border-box;
   opacity: 0;
   pointer-events: auto;
   cursor: crosshair;
-  transition: opacity var(--dur-edge) var(--ease-out);
-  z-index: 1;
+  /**
+   * 浮现 / 弹回：`transform` 承担「吸附到指针」的位移，`opacity` 承担淡入淡出。
+   * 两者同时过渡，才有「磁铁吸过去、松手弹回」的手感（用户 2026-09-19）。
+   */
+  transition:
+    opacity var(--dur-edge) var(--ease-out),
+    transform var(--dur-edge) var(--ease-out);
+  /* 吸附时端点要浮在连线与节点描边之上，否则半途被压住看不见 */
+  z-index: 3;
 }
 
 /* 命中区比视觉尺寸大，避免细端点难按住（用伪元素扩展） */
@@ -144,7 +159,16 @@
   border-radius: 999px;
 }
 
-.frame:hover .port,
+/*
+  浮现改由**指针靠近**驱动（见 NodeFrame.tsx 的磁吸逻辑），不再用 `.frame:hover`。
+
+  为什么弃用 frame hover：它要求指针先进入**节点框**才显形，而端点圆心正好落在
+  节点边框上、半个圆在外面——用户从外侧靠近那个圆点时端点还是隐形的，
+  于是「端点看不见」这件事在暗色主题下被放大成「根本不知道这里有连接点」。
+
+  `.port.hot` 由 JS 按「指针到圆心的距离 < 感应半径」切换，兼顾圈外靠近与选中常显。
+*/
+.port.hot,
 .frame.selected .port {
   opacity: 1;
 }
