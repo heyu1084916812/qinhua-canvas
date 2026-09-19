@@ -21,21 +21,13 @@
  * 主题本就是本机偏好，可以接受。
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import {
-  parseThemeSetting,
-  resolveTheme,
-  THEME_STORAGE_KEY,
-  type ResolvedTheme,
-  type ThemeSetting,
-} from '../ui/theme'
+import { parseThemeSetting, THEME_STORAGE_KEY, type ResolvedTheme, type ThemeSetting } from '../ui/theme'
 
 export interface ThemeApi {
-  /** 用户的设置（三档） */
+  /** 用户的设置（明 / 暗两档） */
   setting: ThemeSetting
-  /** 实际生效的主题（已把「跟随系统」解析掉） */
+  /** 实际生效的主题（两档之后恒等于 `setting`，保留字段是为免调用方到处改） */
   resolved: ResolvedTheme
-  /** 系统当前偏好（供 UI 显示「跟随系统（当前深色）」） */
-  system: ResolvedTheme
   setSetting: (next: ThemeSetting) => void
 }
 
@@ -49,38 +41,32 @@ function readSystem(): ResolvedTheme {
   return window.matchMedia(DARK_QUERY).matches ? 'dark' : 'light'
 }
 
-/** 读持久化的设置；读不到 / 禁用存储时回落「跟随系统」 */
+/**
+ * 读持久化的设置。
+ *
+ * 读不到 / 值非法（含旧版本存下的 `'system'`）时回落**系统当前偏好**：
+ * 这既保住了「不能瞎猜」的原意（不知道用户想要什么就看系统），
+ * 又满足「只要明 / 暗两档」——落成的是一个具体档位，不会再出现第三档。
+ *
+ * 依赖 `readSystem`，故必须在它之后定义。
+ */
 function readSetting(): ThemeSetting {
-  if (typeof localStorage === 'undefined') return 'system'
+  if (typeof localStorage === 'undefined') return readSystem()
   try {
-    return parseThemeSetting(localStorage.getItem(THEME_STORAGE_KEY))
+    return parseThemeSetting(localStorage.getItem(THEME_STORAGE_KEY)) ?? readSystem()
   } catch {
-    // 隐私模式等场景下访问 localStorage 会直接抛，回落「跟随系统」而不是让整个应用挂掉
-    return 'system'
+    // 隐私模式等场景下访问 localStorage 会直接抛，回落系统偏好而不是让整个应用挂掉
+    return readSystem()
   }
 }
 
 export function ThemeProvider({ children }: { children?: ReactNode }) {
   const [setting, setSettingState] = useState<ThemeSetting>(readSetting)
-  const [system, setSystem] = useState<ResolvedTheme>(readSystem)
-  const resolved = resolveTheme(setting, system)
-
   /**
-   * 系统偏好可能随时变（用户在系统设置里切深浅）。只有「跟随系统」这一档
-   * 需要跟着动——显式选了明 / 暗的用户不该被系统覆盖。
+   * 两档之后**不再监听系统偏好**：没有任何一档需要「跟着系统动」了。
+   * 系统偏好只在**首次读取**（没有已存选择、或旧值非法）时用来定初始档位。
    */
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
-    const mq = window.matchMedia(DARK_QUERY)
-    const onChange = (e: MediaQueryListEvent) => setSystem(e.matches ? 'dark' : 'light')
-    // addEventListener 在 Safari < 14 上没有，退回 addListener；两者都缺就只认当前值
-    if (typeof mq.addEventListener === 'function') {
-      mq.addEventListener('change', onChange)
-      return () => mq.removeEventListener('change', onChange)
-    }
-    mq.addListener(onChange)
-    return () => mq.removeListener(onChange)
-  }, [])
+  const resolved: ResolvedTheme = setting
 
   /** 落到 DOM：实际主题写在根元素上，同时用 data-theme-setting 暴露「用户选了什么」 */
   useEffect(() => {
@@ -95,13 +81,13 @@ export function ThemeProvider({ children }: { children?: ReactNode }) {
     try {
       localStorage.setItem(THEME_STORAGE_KEY, next)
     } catch {
-      // 存不下不影响本次生效（内存里的 state 已经变了），只是刷新后回到「跟随系统」
+      // 存不下不影响本次生效（内存里的 state 已经变了），只是刷新后回到系统偏好
     }
   }, [])
 
   const api = useMemo<ThemeApi>(
-    () => ({ setting, resolved, system, setSetting }),
-    [setting, resolved, system, setSetting],
+    () => ({ setting, resolved, setSetting }),
+    [setting, resolved, setSetting],
   )
 
   return <ThemeContext.Provider value={api}>{children}</ThemeContext.Provider>

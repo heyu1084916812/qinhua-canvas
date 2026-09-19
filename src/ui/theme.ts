@@ -11,13 +11,20 @@
  * 组件样式只引用 token 名，不认识明 / 暗，因此加主题不需要改任何组件 CSS。
  */
 
-/** 用户可选的三种设置（对应产品文档 §3.1 的色彩表，明 / 暗两套取值） */
-export type ThemeSetting = 'light' | 'dark' | 'system'
+/**
+ * 用户可选的设置（对应产品文档 §3.1 的色彩表）。
+ *
+ * **只有明 / 暗两档**（用户 2026-09-19 第 9 条：「只要两个主题色，去掉跟随系统」）。
+ * 早先是明 / 暗 / 跟随系统三档轮转，但本产品的色彩表只定义了两套取值，
+ * 第三档既不产生新外观、又让「点一下到底变成了什么」多一层心算；
+ * 用户明确要求收敛成两档，故这里是**两档**。
+ */
+export type ThemeSetting = 'light' | 'dark'
 
 /** 真正落到 `<html data-theme>` 上的两种取值 */
 export type ResolvedTheme = 'light' | 'dark'
 
-export const THEME_SETTINGS: readonly ThemeSetting[] = ['light', 'dark', 'system']
+export const THEME_SETTINGS: readonly ThemeSetting[] = ['light', 'dark']
 
 /** localStorage 键：与 `session.ts` 的 `flow:*` 前缀同族，避免和无主字符串撞车 */
 export const THEME_STORAGE_KEY = 'flow:theme'
@@ -25,12 +32,16 @@ export const THEME_STORAGE_KEY = 'flow:theme'
 /**
  * 读回上次的选择。
  *
- * 非法值（手改过、旧版本写的东西、null）一律回落到 `system`，**不抛错也不回落到
- * light**：回落 light 会让「系统已经是暗色」的用户在每次升级后都被弹回亮色，
- * 而 `system` 是唯一「不知道就别瞎猜」的答案。
+ * 非法值（手改过、旧版本写的东西、null）一律回落到 **`system` 的等价物**——
+ * 两档之后没有 `system` 可存，故直接按**系统当前偏好**落成 light / dark。
+ *
+ * 为什么不让 `parseThemeSetting` 自己回落：它是纯函数，读不到系统偏好；
+ * 把「旧值 `system` 该解析成什么」交给调用方（ThemeProvider 能拿到系统偏好），
+ * 这里只负责**判定合法值**。旧版本存下的 `'system'` 会被判为非法，
+ * 由调用方按系统偏好落地——这正是「跟随系统」用户升级后应有的行为。
  */
-export function parseThemeSetting(raw: string | null | undefined): ThemeSetting {
-  return raw === 'light' || raw === 'dark' || raw === 'system' ? raw : 'system'
+export function parseThemeSetting(raw: string | null | undefined): ThemeSetting | null {
+  return raw === 'light' || raw === 'dark' ? raw : null
 }
 
 /**
@@ -43,34 +54,17 @@ export function systemTheme(query: string | null | undefined): ResolvedTheme {
   return query === '(prefers-color-scheme: dark)' || query === 'dark' ? 'dark' : 'light'
 }
 
-/**
- * 设置 + 系统偏好 → 实际主题。`system` 是唯一需要看系统脸色的一档。
- */
-export function resolveTheme(setting: ThemeSetting, system: ResolvedTheme): ResolvedTheme {
-  return setting === 'system' ? system : setting
-}
-
 /** 设置项的中文标签（UI 与 aria-label 共用一份，避免两处文案漂移） */
 export function themeSettingLabel(setting: ThemeSetting): string {
-  if (setting === 'light') return '浅色'
-  if (setting === 'dark') return '深色'
-  return '跟随系统'
+  return setting === 'light' ? '浅色' : '深色'
 }
 
 /**
  * 下一次点击该切到哪一档。
  *
- * **不是固定顺序轮转**（浅 → 深 → 跟随系统 那样）：默认档是「跟随系统」，
- * 固定顺序下第一次点击会落到「浅色」——而系统本来就是浅的，于是**点了没反应**，
- * 用户会以为是按钮坏了。故规则改成「从跟随系统出发，先切到当前外观的**反面**」，
- * 保证默认状态下第一次点击必然看得见变化。
- *
- * 轮转顺序（以系统为浅色为例）：跟随系统 → 深色 → 浅色 → 跟随系统。
- * 三档都走得到，且只有「显式浅色 → 跟随系统」这一档在视觉上不动（它换的是
- * 语义而非外观，档位名会变，不算失灵）。
+ * 两档之后就是**互切**：浅 → 深 → 浅。每次点击必然产生可见的外观变化，
+ * 不存在「点了没反应」的档位。
  */
-export function nextThemeSetting(setting: ThemeSetting, resolved: ResolvedTheme): ThemeSetting {
-  if (setting === 'system') return resolved === 'dark' ? 'light' : 'dark'
-  if (setting === 'dark') return 'light'
-  return 'system'
+export function nextThemeSetting(setting: ThemeSetting): ThemeSetting {
+  return setting === 'dark' ? 'light' : 'dark'
 }

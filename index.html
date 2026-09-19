@@ -17,22 +17,23 @@
       才翻成深色——暗色用户每次刷新都被闪一下。这里直接读 localStorage 把
       data-theme 打到 <html> 上，React 挂载后由 app/ThemeProvider 接管后续变化。
 
-      口径与 ui/theme.ts 一致（三档：light / dark / system，非法值回落 system）：
-      内联脚本不能 import，故判定逻辑在这里复述一份——它只有三行，
+      口径与 ui/theme.ts 一致（**两档：light / dark**，用户 2026-09-19 第 9 条
+      去掉了「跟随系统」）：内联脚本不能 import，故判定逻辑在这里复述一份——它只有几行，
       值得为「不闪白」付这个代价；真正的解析规则仍以 ui/theme.ts 为准，并由单测钉住。
+
+      旧版本可能存着 `'system'`：它现在**不是合法档位**，当作「没有选择」处理，
+      按系统偏好落成一个具体的明 / 暗档——这样老用户升级后外观不变，且不会再出现第三档。
     -->
     <script>
       ;(function () {
         try {
           var s = localStorage.getItem('flow:theme')
-          var dark =
-            s === 'dark' ||
-            ((s === 'system' || s !== 'light') &&
-              window.matchMedia &&
-              window.matchMedia('(prefers-color-scheme: dark)').matches)
+          var prefersDark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+          // 只认 light / dark 为合法已存值；其余（含旧的 'system'）一律看系统偏好
+          var dark = s === 'dark' || (s !== 'light' && prefersDark)
           var root = document.documentElement
           root.dataset.theme = dark ? 'dark' : 'light'
-          root.dataset.themeSetting = s === 'light' || s === 'dark' ? s : 'system'
+          root.dataset.themeSetting = dark ? 'dark' : 'light'
         } catch (e) {
           // 隐私模式 / 禁用存储：保持亮色，不该因为读不到偏好就白屏
         }

@@ -2075,13 +2075,37 @@ async function g17(browser) {
     if (!el || !btn) return null
     const r = el.getBoundingClientRect()
     const br = btn.getBoundingClientRect()
-    return { w: Math.round(r.width), h: Math.round(r.height), btnW: Math.round(br.width) }
+    const btns = [...el.querySelectorAll('[data-toolbar-icon]')]
+    const last = btns[btns.length - 1].getBoundingClientRect()
+    return {
+      w: Math.round(r.width),
+      h: Math.round(r.height),
+      btnW: Math.round(br.width),
+      padTop: Math.round(br.top - r.top),
+      padBottom: Math.round(r.bottom - last.bottom),
+      padLeft: Math.round(br.left - r.left),
+      padRight: Math.round(r.right - br.right),
+    }
   })
   rec(
     g,
     '★ 工具栏加大一半（按钮 36 → 54px）',
     !!tbRect && Math.abs(tbRect.btnW - 54) <= 1,
     tbRect ? `${tbRect.w}×${tbRect.h} 按钮=${tbRect.btnW}` : 'null',
+  )
+  /**
+   * ★ 首个按钮四边间距必须**相等**（用户 2026-09-19：「第一个按钮看起来和顶部的
+   *   距离偏大」）。此前上下用 --space-3(12px)、左右 6px，圆角同心了但间距不匀，
+   *   肉眼读成「偏下 / 顶得太多」。同心与间距匀是两件事，这里把后者也钉住。
+   */
+  rec(
+    g,
+    '★ 首个按钮到顶边 / 左右边的间距相等（不再「离顶部偏大」）',
+    !!tbRect &&
+      Math.abs(tbRect.padTop - tbRect.padLeft) <= 1 &&
+      Math.abs(tbRect.padTop - tbRect.padRight) <= 1 &&
+      Math.abs(tbRect.padTop - tbRect.padBottom) <= 1,
+    tbRect ? `上=${tbRect.padTop} 下=${tbRect.padBottom} 左=${tbRect.padLeft} 右=${tbRect.padRight}` : 'null',
   )
 
   await page.locator('[data-toolbar-add]').click()
@@ -8167,8 +8191,13 @@ async function g61(browser) {
   await page.goto(BASE, { waitUntil: 'networkidle' })
   await sleep(400)
 
-  // 1) 默认「跟随系统」，系统是亮的 → 亮色
-  rec(g, '默认档位是「跟随系统」', (await settingAttr()) === 'system', await settingAttr())
+  /*
+   * 1) 没有已存选择时按**系统偏好**落地成一个具体档位（用户第 9 条去掉了
+   *    「跟随系统」，所以这里必须是 light / dark 之一，不能再出现 system）。
+   *    测试环境系统为亮色 → light。
+   */
+  rec(g, '★ 档位只有明 / 暗两档（不再出现「跟随系统」）', ['light', 'dark'].includes(await settingAttr()), await settingAttr())
+  rec(g, '无已存选择时按系统偏好落地（系统亮色 → 浅色）', (await settingAttr()) === 'light', await settingAttr())
   const lumaLight = await meanLuma(page)
   rec(g, '★ 默认（系统亮色）下首页是亮的', lumaLight > 180, `平均亮度=${lumaLight.toFixed(1)}`)
 
@@ -8198,22 +8227,18 @@ async function g61(browser) {
   const lumaAfterReload = await meanLuma(page)
   rec(g, '★ 刷新后画面仍是暗的', lumaAfterReload < 90, `平均亮度=${lumaAfterReload.toFixed(1)}`)
 
-  // 5) 继续轮转：深 → 浅 → 跟随系统。
-  //    顺序刻意不是「深 → 跟随系统」：默认档是跟随系统，若从那里固定顺序走到
-  //    「浅色」，在系统本就是浅色时等于点了没反应。故规则是先切外观的反面，
-  //    再由显式档交回系统（详见 ui/theme.ts#nextThemeSetting）。
+  // 5) 两档互切：深 → 浅 → 深。每一步都产生可见变化。
   await page.locator('[data-theme-toggle]').click()
   await sleep(250)
   rec(g, '深色再点一次是「浅色」', (await settingAttr()) === 'light', await settingAttr())
-  await page.locator('[data-theme-toggle]').click()
-  await sleep(250)
-  rec(g, '第三次点交回「跟随系统」', (await settingAttr()) === 'system', await settingAttr())
   const lumaExplicitLight = await meanLuma(page)
   rec(g, '显式选浅色时画面回到亮色', lumaExplicitLight > 180, `平均亮度=${lumaExplicitLight.toFixed(1)}`)
+  await page.locator('[data-theme-toggle]').click()
+  await sleep(250)
+  rec(g, '★ 第三次点回到「深色」（两档往复，不经过第三档）', (await settingAttr()) === 'dark', await settingAttr())
 
   // 6) 主题要覆盖到工作台，而不只是首页
-  await page.locator('[data-theme-toggle]').click() // 跟随系统（亮） → 深色
-  await sleep(250)
+  //    当前已是深色（上一步刚切到深色），直接进画布
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
   await sleep(800)
@@ -8225,6 +8250,15 @@ async function g61(browser) {
     return el ? getComputedStyle(el).backgroundColor : ''
   })
   rec(g, '节点底色跟着变了（不是硬编码白）', nodeBg !== '' && nodeBg !== 'rgb(255, 255, 255)', nodeBg)
+  /*
+   * ★ 旧值迁移：老版本存过 'system'，它现在不是合法档位，必须被判为
+   *   「没有有效选择」并按系统偏好落成一个具体档位——否则第三档会从旧数据里复活。
+   */
+  await page.evaluate(() => localStorage.setItem('flow:theme', 'system'))
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(400)
+  const migrated = await settingAttr()
+  rec(g, '★ 旧值 system 被迁移成具体档位（系统亮色 → light）', migrated === 'light', migrated)
   await page.screenshot({ path: `${OUT}/79-g61-canvas-dark.png` })
 
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
