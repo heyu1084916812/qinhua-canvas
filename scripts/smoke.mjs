@@ -883,7 +883,7 @@ async function g9(browser) {
   await configureGenPanel(page, panel, '屋顶的猫')
   // N=1 已不建结果组（§6.16，M6-24）：本组要验的是「结果组出现 + 刷新后仍在」，
   // 故显式跑 4 张；单张不建组由 G53 覆盖。
-  await setCount(panel, '4张')
+  await setCount(panel, '4 张')
   await page.screenshot({ path: `${OUT}/11b-g9-ready.png` })
 
   /**
@@ -962,17 +962,30 @@ async function g10(browser) {
   await pickParam(panel, 'model', 'mock-image-1')
   await sleep(200)
 
-  // 数量胶囊固定四项
-  const countBtns = await panel.locator('button').filter({ hasText: '张' }).allInnerTexts()
-  rec(g, '数量胶囊固定四项 1/2/4/9', JSON.stringify(countBtns) === '["1张","2张","4张","9张"]', countBtns.join(','))
+  /**
+   * 数量固定四项 1/2/4/9（§6.8）。
+   * 张数已改成 chip + 弹层（2026-09-19），所以要先点开 chip 才能读到四项。
+   */
+  await panel.locator('[data-param-chip="count"]').click()
+  await sleep(200)
+  const countBtns = await panel
+    .locator('[data-param-popup="count"] button')
+    .allInnerTexts()
+  rec(
+    g,
+    '数量固定四项 1/2/4/9',
+    JSON.stringify(countBtns.map((t) => t.replace(/\s+/g, ''))) === '["1张","2张","4张","9张"]',
+    countBtns.join(','),
+  )
+  await page.keyboard.press('Escape')
+  await sleep(150)
 
   // 生成按钮空闲态：圆形 ↑ + aria-label「生成当前节点」（§6.8 三态之一）
   const idleLabel = await panel.locator(`button[aria-label="生成当前节点"]`).count()
   rec(g, '生成按钮空闲态为「生成当前节点」', idleLabel === 1, `count=${idleLabel}`)
 
   // 选 2 张，输入提示词，生成
-  await panel.locator('button').filter({ hasText: '2张' }).click()
-  await sleep(200)
+  await setCount(panel, '2 张')
   const ta = panel.locator('textarea').first()
   await ta.click()
   await ta.fill('两只会飞的猫')
@@ -1121,7 +1134,7 @@ async function g11(browser) {
   await resetView(page).catch(() => {})
   await sleep(400)
   const panel4 = await genPanel(page, genNode)
-  await setCount(panel4, '4张')
+  await setCount(panel4, '4 张')
   await sleep(300)
   const before4 = await page.locator('[data-node-type="generation"]').count()
   await panelRunBtn(page).first().dispatchEvent('click')
@@ -6056,7 +6069,7 @@ async function g46(browser) {
     '图片模式：画质 / 质量 / 数量在位',
     (await panel.locator('[data-param-chip="resolution"]').count()) === 1 &&
       (await panel.locator('[data-param-chip="quality"]').count()) === 1 &&
-      (await panel.locator('[data-param-count]').count()) === 1,
+      (await panel.locator('[data-param-chip="count"]').count()) === 1,
   )
   await panel.locator('[data-param-mode="video"]').click()
   await sleep(400)
@@ -6072,7 +6085,7 @@ async function g46(browser) {
     '切到视频：画质 / 质量 / 数量整块退场',
     (await panel.locator('[data-param-chip="resolution"]').count()) === 0 &&
       (await panel.locator('[data-param-chip="quality"]').count()) === 0 &&
-      (await panel.locator('[data-param-count]').count()) === 0,
+      (await panel.locator('[data-param-chip="count"]').count()) === 0,
   )
   /**
    * 切类别后**旧模型必须被清掉**——图片模型不能活到视频模式里。
@@ -6585,11 +6598,12 @@ async function g51(browser) {
   const gen = page.locator('[data-node-type="generation"]').first()
   const panel = await genPanel(page, gen)
   await configureGenPanel(page, panel, '一只猫')
-  // 读**当前选中**的档（只读整组按钮的 innerText 会把「1/2/4/9张」全读出来，恒真）
-  const countText = (
-    await panel.locator('[data-param-count] button[data-active="true"]').innerText().catch(() => '')
-  ).trim()
-  rec(g, '模板预置的「4 张」带进了创作面板且为选中态', countText === '4张', `selected="${countText}"`)
+  /**
+   * 张数已改成 chip（2026-09-19），读 **chip 文案**即可知道当前档。
+   * 旧写法读「整组按钮里 data-active 的那个」，现在没有那排按钮了。
+   */
+  const countText = (await panel.locator('[data-param-chip="count"]').innerText().catch(() => '')).trim()
+  rec(g, '模板预置的「4 张」带进了创作面板且为选中态', countText === '4 张', `selected="${countText}"`)
 
   const before51 = await page.locator('[data-node-type="generation"]').count()
   await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
@@ -6622,8 +6636,7 @@ async function g51(browser) {
   const genId51 = await gen.getAttribute('data-node-id')
   // 重新选中（拿回创作面板），切成 1 张再跑一次：产物回填本体 ⇒ 上游有图
   await genPanel(page, page.locator(`[data-node-id="${genId51}"]`))
-  await page.locator('[data-param-count] button', { hasText: '1张' }).first().click()
-  await sleep(200)
+  await setCount(page.locator('[data-creation-panel]'), '1 张')
   await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
   await sleep(2500)
   let cmpImgs = 0
@@ -6900,9 +6913,16 @@ async function addGenNode(page) {
   return page.locator('[data-node-type="generation"]').first()
 }
 
-/** 张数是 `data-param-count` 里的一排按钮，不是 ParamPicker chip（§6.8 横排胶囊） */
+/**
+ * 设张数（§6.8，2026-09-19 改版）。
+ *
+ * 张数现在是**与画质 / 质量同形的 ParamPicker chip**，不再是并排按钮组，
+ * 所以要先点开 chip，再在弹层里选。`text` 形如 `'4 张'`。
+ */
 async function setCount(panel, text) {
-  await panel.locator('[data-param-count] button', { hasText: text }).first().click()
+  await panel.locator('[data-param-chip="count"]').click()
+  await sleep(200)
+  await panel.locator('[data-param-popup="count"] button', { hasText: text }).first().click()
   await sleep(150)
 }
 
@@ -6942,7 +6962,7 @@ async function g53(browser) {
   await sleep(700)
 
   // ── N=1：不建结果组，节点自己按产物真实比例 ──
-  const gen1 = await runGen(page, { count: '1张', ratio: '16:9' })
+  const gen1 = await runGen(page, { count: '1 张', ratio: '16:9' })
   rec(g, '单张生成真的出图（本体回写了素材）', await waitGenAsset(page, gen1))
   const groups1 = await page.locator('[data-result-group]').count()
   rec(g, '★ N=1 不建结果组（孤零零一张也进容器的旧语义已废）', groups1 === 0, `groups=${groups1}`)
@@ -6963,7 +6983,7 @@ async function g53(browser) {
   await page.locator('[data-template="blank"]').click()
   await page.waitForURL(/\/canvas\//)
   await sleep(700)
-  await runGen(page, { count: '2张', ratio: '16:9' })
+  await runGen(page, { count: '2 张', ratio: '16:9' })
   /**
    * N=2 → 铺 **2 个并列承载节点**，不再建结果组（用户 2026-09-17）。
    * 于是「组内统一格位（RESULT_CELL 方框）」这套断言失去了载体 ——
@@ -8076,6 +8096,78 @@ async function g61(browser) {
 // 退化成浅色那套，而 tsc / eslint / 单测 / 其余冒烟**全绿**（它们都在浅色下跑）。
 // 故这里在深色下把「最依赖配色的几个面」逐个用像素量一遍。
 // ────────────────────────────────────────────────────────────
+/**
+ * G63 生成张数（§6.8）
+ *
+ * 用户 2026-09-19 报「选不了 9 张」。根因不在按钮，而在领域层的 `clampCount`：
+ * 它是 `maxCount ?? 1`，把「模型没上报这个字段」当成「最多 1 张」——
+ * 而 mock 与多数中转渠道都不报 `maxCount`。于是面板能选 9 张、请求发出去被静默夹回 1 张，
+ * 表现为「选了 9 张只出 1 张」。这条断言**必须走完整链路**（不是断 UI 能不能点）：
+ * 真选 9 张、真生成、数产物节点数。
+ */
+async function g63(browser) {
+  const g = 'G63 生成张数'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(800)
+  const panel = await genPanel(page)
+
+  // 张数现在是 chip，与画质 / 质量同形
+  const countChip = panel.locator('[data-param-chip="count"]')
+  rec(g, '张数是 chip（不再是并排按钮组）', (await countChip.count()) === 1)
+  rec(g, '旧的并排按钮组已移除', (await panel.locator('[data-param-count]').count()) === 0)
+
+  // 参数 chip 不带下拉箭头，且字号与正文同级
+  rec(g, '参数 chip 不再画下拉箭头', (await panel.locator('.chevron, svg.chevron').count()) === 0)
+  const chipFont = await panel.locator('[data-param-chip="ratio"]').evaluate((el) => getComputedStyle(el).fontSize)
+  rec(g, '参数 chip 字号提到正文级', chipFont === '13px', chipFont)
+
+  /**
+   * mock 的 `mock-image-1` **声明了** `maxCount: 4`，所以 9 张在这里本就该置灰
+   * （这条先钉住「明确声明的上限确实生效」，与下面的未声明场景成对）。
+   */
+  await countChip.click()
+  await sleep(250)
+  const opts = await panel
+    .locator('[data-param-popup="count"] button')
+    .evaluateAll((els) => els.map((e) => ({ t: e.textContent.trim(), dis: e.disabled })))
+  rec(g, '张数面板列出 1/2/4/9 四项', opts.length === 4, JSON.stringify(opts))
+  const nine = opts.find((o) => o.t.includes('9'))
+  rec(
+    g,
+    '模型明确声明 maxCount=4 时，9 张置灰（声明生效）',
+    !!nine && nine.dis === true,
+    JSON.stringify(nine),
+  )
+
+  await panel.locator('[data-param-popup="count"] button', { hasText: '4' }).first().click()
+  await sleep(250)
+  rec(g, '选 4 张后 chip 显示 4', (await countChip.innerText()).includes('4'))
+
+  // 真跑一次：产物节点数应等于 4（复现「面板选了 N、实际只出 1」的整条链路）
+  await configureGenPanel(page, panel, '九张探针')
+  const before = await nodeCount(page)
+  await panelRunBtn(page).click()
+  let made = 0
+  for (let i = 0; i < 80; i++) {
+    made = (await nodeCount(page)) - before
+    if (made >= 4) break
+    await sleep(250)
+  }
+  rec(g, '★ 生成 4 张真的产出 4 个承载节点（不被静默夹回 1）', made === 4, `新增=${made}`)
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await page.screenshot({ path: `${OUT}/63-count-nine.png` })
+}
+
 async function g62(browser) {
   const g = 'G62 深色可读性'
   const ctx = await newDarkCtx(browser)
@@ -8266,7 +8358,7 @@ async function g62(browser) {
  * - g50 / g54：结果组折叠与子结果交互（2026-09-17 结果组整体下线）
  * 「运行画板产生产物」改由 G21 覆盖（断言已从结果组改为承载节点）。
  */
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import { useSyncExternalStore } from 'react'
 import { useCanvasStore, useGraph } from '../storeContext'
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
@@ -13,6 +13,34 @@ import { fitCanvasView } from '../surface/fitView'
 import { NODE_MINIMUMS } from '../../../domain/canvas/layout/constants'
 import { createId } from '../../../shared/id'
 import styles from './ContextMenu.module.css'
+import {
+  IconBatch,
+  IconBoard,
+  IconCompare,
+  IconGeneration,
+  IconGroup,
+  IconPrompt,
+  IconReset,
+} from '../toolbar/icons'
+
+/**
+ * 菜单项的图标（用户 2026-09-19）。
+ *
+ * 为什么是「按 id 映射」而不是让领域层带图标：`nodeMenuItems` / `canvasMenuItems`
+ * 是纯函数、只描述结构与顺序（架构 §4.1 的解耦口径），不该持有 React 节点。
+ * 图标属于渲染决定，故映射放在这里——但**同一份 id 在功能栏与右键菜单里
+ * 必须拿到同一个图标**，两边都从 `toolbar/icons` 取，不各画一套。
+ */
+const MENU_ICON_SIZE = 18
+const MENU_ICON: Record<string, ReactNode> = {
+  'create:prompt': <IconPrompt size={MENU_ICON_SIZE} />,
+  'create:generation': <IconGeneration size={MENU_ICON_SIZE} />,
+  'create:compare': <IconCompare size={MENU_ICON_SIZE} />,
+  'create:group': <IconGroup size={MENU_ICON_SIZE} />,
+  'create:batch': <IconBatch size={MENU_ICON_SIZE} />,
+  'create:board': <IconBoard size={MENU_ICON_SIZE} />,
+  resetView: <IconReset size={MENU_ICON_SIZE} />,
+}
 
 /**
  * 右键菜单（§4.1）。浮层用**屏幕坐标**绝对定位（与创作面板 §6.8 同理，不随画布变换），
@@ -165,6 +193,16 @@ export function ContextMenu() {
             onClick={() => runAction(item)}
             onMouseDown={(e) => e.preventDefault()}
           >
+            {/*
+              图标 + 文案两列（与左侧功能栏的面板同形）。没配图标的项
+              （复制 / 重命名 / 删除…）不占位——占位会留出一列空白，
+              让那些项看起来「缺了点什么」。
+            */}
+            {MENU_ICON[item.id] && (
+              <span className={styles.itemIcon} aria-hidden="true">
+                {MENU_ICON[item.id]}
+              </span>
+            )}
             {item.label}
           </button>
           {item.separatorAfter && i < items.length - 1 && <span className={styles.sep} />}

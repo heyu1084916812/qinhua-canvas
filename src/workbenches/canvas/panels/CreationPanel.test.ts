@@ -216,7 +216,21 @@ describe('CreationPanel · 平台已选但模型不可用', () => {
  * 和「模型没上报 maxCount」（多数中转渠道的 /v1/models 不报此字段）都变成「最多 1 张」，
  * 于是 2张/4张/9张 一进面板就整排置灰，还提示「当前模型最多 1 张」——而当时根本没有当前模型。
  */
-describe('CreationPanel · 生成数量上限只在模型声明时生效', () => {
+/**
+ * 生成数量（§6.8，2026-09-19 改版）
+ *
+ * 张数从「一排固定按钮」收成与画质 / 质量同形的 chip + 弹层。
+ * 于是**置灰与原因不再出现在首屏 HTML 里**（弹层收起时不渲染选项）——
+ * 这正是这一改动的代价：面板更整齐，但「选项是否可用」这类断言
+ * 不能再靠静态 SSR，得走真机（见冒烟 G63）。
+ *
+ * 这里守住两件在 SSR 层仍可见、且真正重要的事：
+ *   1. 张数确实是 chip（旧的并排按钮组已不存在）；
+ *   2. 默认 data 没被改坏（仍是 1 张起步）。
+ * 「未声明 = 不设限」「声明了才收窄」的语义由 `capability.test.ts` 的单测钉住，
+ * 「真的能出 N 张」由冒烟 G63 走完整链路验证。
+ */
+describe('CreationPanel · 生成数量（chip 形态）', () => {
   const imgModel = (maxCount?: number) => ({
     id: 'relay-img',
     category: 'image' as const,
@@ -224,30 +238,35 @@ describe('CreationPanel · 生成数量上限只在模型声明时生效', () =>
     ...(maxCount === undefined ? {} : { maxCount }),
   })
 
-  it('没选模型：2/4/9 不置灰，也不出现「当前模型最多 N 张」', async () => {
-    const channels = await channelStore([{ enabled: true, models: [imgModel(4)] }])
-    const html = render(channels, { ...generationSpec.createDefaultData(), channelId: 'ch-1' })
-    expect(html).not.toContain('当前模型最多')
-  })
-
-  it('模型没上报 maxCount：同样不置灰（未声明 = 不知道上限 = 不设限）', async () => {
-    const channels = await channelStore([{ enabled: true, models: [imgModel(undefined)] }])
-    const html = render(channels, {
-      ...generationSpec.createDefaultData(),
-      channelId: 'ch-1',
-      model: 'relay-img',
-    })
-    expect(html).not.toContain('当前模型最多')
-  })
-
-  it('模型显式声明 maxCount=4：够不到的 9张 才置灰并说明原因', async () => {
+  it('张数是 chip，不再是并排的固定按钮组', async () => {
     const channels = await channelStore([{ enabled: true, models: [imgModel(4)] }])
     const html = render(channels, {
       ...generationSpec.createDefaultData(),
       channelId: 'ch-1',
       model: 'relay-img',
     })
-    expect(html).toContain('当前模型最多 4 张')
+    expect(html).toContain('data-param-chip="count"')
+    expect(html).not.toContain('data-param-count')
+  })
+
+  it('默认 1 张（chip 文案带「张」）', async () => {
+    const channels = await channelStore([{ enabled: true, models: [imgModel()] }])
+    const html = render(channels, {
+      ...generationSpec.createDefaultData(),
+      channelId: 'ch-1',
+      model: 'relay-img',
+    })
+    expect(html).toContain('1 张')
+  })
+
+  it('参数 chip 不再渲染下拉箭头', async () => {
+    const channels = await channelStore([{ enabled: true, models: [imgModel()] }])
+    const html = render(channels, {
+      ...generationSpec.createDefaultData(),
+      channelId: 'ch-1',
+      model: 'relay-img',
+    })
+    expect(html).not.toContain('chevron')
   })
 })
 

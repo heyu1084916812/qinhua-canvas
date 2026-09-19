@@ -169,6 +169,36 @@ export interface CreationPanelProps {
 }
 
 /**
+ * 生成按钮里的箭头（用户 2026-09-19：「换一个粗一点的，前方左右两边要长一点」）。
+ *
+ * 为什么不用文字 `↑`：字形箭头又细又小，笔画宽度跟着字体走、改不动。
+ * 自绘 SVG 能把**线宽**（2.2）和**两侧斜臂的长度**（从尖端往左下拉得较长）
+ * 都定死，得到一个「粗、臂长、看得清方向」的箭头——这正是它作为主操作要有的分量。
+ */
+function RunArrow() {
+  return (
+    <svg
+      className={styles.runArrow}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {/* 主干：从下往上 */}
+      <path d="M12 20.5V4.5" />
+      {/* 两侧斜臂：往下拉得较长，形成开阔的箭头 */}
+      <path d="M5.5 11 12 4.5 18.5 11" />
+    </svg>
+  )
+}
+
+/**
  * 创作参数面板（产品文档 §6.8 / §6.11 / §6.12）。
  *
  * 三部分（§6.8）：①上游/内部素材缩略图 ②提示词 ③参数与生成。
@@ -760,22 +790,31 @@ export function CreationPanel(props: CreationPanelProps) {
                   onClose={closePicker}
                   onSelect={(v) => onEvent({ type: 'setQuality', quality: v })}
                 />
-                <span className={styles.countGroup} data-param-count>
-                  {COUNT_OPTIONS.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      className={c === count ? `${styles.countBtn} ${styles.countActive}` : styles.countBtn}
-                      disabled={c > maxCount}
-                      // 选中态只体现在 CSS module 哈希类名上，自动化读不到：补一个稳定锚点
-                      data-active={c === count ? 'true' : 'false'}
-                      title={c > maxCount ? `当前模型最多 ${maxCount} 张` : `${c} 张`}
-                      onClick={() => onEvent({ type: 'setCount', count: c })}
-                    >
-                      {c}张
-                    </button>
-                  ))}
-                </span>
+                {/*
+                  张数改成与画质 / 质量同形的 chip + 弹层（用户 2026-09-19）。
+
+                  早先是一排固定按钮（1张 / 2张 / 4张 / 9张 并排挂着），
+                  与旁边两个 chip 的形态不一致：参数行里三个控件长得像两套东西。
+                  收进 chip 后整行只有「画质 / 质量 / 张数」三个同形控件，扫视成本更低。
+                */}
+                <ParamPicker
+                  name="count"
+                  ariaLabel="生成张数"
+                  label={`${count} 张`}
+                  options={COUNT_OPTIONS.map((c) => ({
+                    value: String(c),
+                    label: `${c} 张`,
+                    /** 模型明确声明的上限才置灰；未声明 = 不设限（见 maxCount 的注释） */
+                    disabled: c > maxCount,
+                    title: c > maxCount ? `当前模型最多 ${maxCount} 张` : `${c} 张`,
+                  }))}
+                  value={String(count)}
+                  variant="pill"
+                  open={openPicker === 'count'}
+                  onToggle={() => togglePicker('count')}
+                  onClose={closePicker}
+                  onSelect={(v) => onEvent({ type: 'setCount', count: Number(v) })}
+                />
               </>
             )}
           </>
@@ -794,7 +833,7 @@ export function CreationPanel(props: CreationPanelProps) {
           aria-label={runLabel}
           onClick={() => onEvent({ type: props.running ? 'cancel' : 'run' })}
         >
-          {props.running ? '✕' : busyGlobal ? '◌' : '↑'}
+          {props.running ? '✕' : busyGlobal ? '◌' : <RunArrow />}
         </button>
         {props.error && <span className={styles.error}>{props.error}</span>}
       </section>

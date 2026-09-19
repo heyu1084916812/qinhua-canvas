@@ -492,6 +492,14 @@
   cursor: not-allowed;
 }
 
+/*
+ * 生成按钮里的箭头：与按钮同色（`currentColor`），`display:block` 去掉基线偏移。
+ * 尺寸由 SVG 的 width/height 决定，不在这里写死，方便以后单点微调。
+ */
+.runArrow {
+  display: block;
+}
+
 .runCancel {
   background: var(--bg-surface);
   color: var(--text-1);

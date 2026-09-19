@@ -110,7 +110,6 @@ export function ParamPicker(props: ParamPickerProps) {
         onClick={onToggle}
       >
         <span className={styles.chipLabel}>{label}</span>
-        <Chevron />
       </button>
       {open && (
         <div
@@ -194,20 +193,6 @@ export function ParamPicker(props: ParamPickerProps) {
 }
 
 /** V 形 chevron（矢量，放大不糊）；展开时由 CSS 旋转 180° */
-function Chevron() {
-  return (
-    <svg className={styles.chevron} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-      <path
-        d="M2 3.8 L5 6.8 L8 3.8"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
 
 /**
  * 比例示意图标（§6.8「比例用图形化网格」）。

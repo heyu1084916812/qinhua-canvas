@@ -7,6 +7,23 @@ import { ARRANGE_MODES, type ArrangeMode } from '../../../domain/canvas/layout/a
 import type { NodeType } from '../../../domain/canvas/model/node'
 import { fitCanvasView } from '../surface/fitView'
 import styles from './CanvasToolbar.module.css'
+import {
+  IconBatch,
+  IconBoard,
+  IconColumnArrange,
+  IconCompare,
+  IconGeneration,
+  IconGridArrange,
+  IconGroup,
+  IconImport,
+  IconPrompt,
+  IconRedo,
+  IconReset,
+  IconRowArrange,
+  IconTidy,
+  IconUndo,
+} from './icons'
+import type { ReactNode } from 'react'
 
 /**
  * 鼠标按下时阻止默认聚焦：工具栏按钮点击后不滞留焦点，
@@ -16,27 +33,33 @@ import styles from './CanvasToolbar.module.css'
 const keepCanvasFocus = { onMouseDown: (e: ReactMouseEvent) => e.preventDefault() }
 
 /** 新建节点菜单项（§6.5 ①「与画布空白处右键菜单同一份」） */
-const NODE_MENU: readonly { type: NodeType; label: string; icon: string }[] = [
-  { type: 'prompt', label: '提示词节点', icon: 'T' },
+/**
+ * 按钮里的图标尺寸（视觉像素）。18 而不是默认 16：这些是线性图标，
+ * 线条本身占不满画布，16 在 36px 的圆里显得偏小、发虚。
+ */
+const ICON_SIZE = 18
+
+const NODE_MENU: readonly { type: NodeType; label: string; icon: ReactNode }[] = [
+  { type: 'prompt', label: '提示词节点', icon: <IconPrompt size={ICON_SIZE} /> },
   /**
    * 文案：「图片·视频生成节点」→「生成节点」（用户 2026-09-19）。
    * 图片与视频是同一个节点的两种功能类别（`data.mode`），名字里不必再复述一遍。
    */
-  { type: 'generation', label: '生成节点', icon: '▣' },
-  { type: 'compare', label: '对比节点', icon: '⊟' },
-  { type: 'group', label: '分组节点', icon: '▢' },
-  { type: 'batch', label: '批量节点', icon: '▦' },
-  { type: 'board', label: '画板节点', icon: '▤' },
+  { type: 'generation', label: '生成节点', icon: <IconGeneration size={ICON_SIZE} /> },
+  { type: 'compare', label: '对比节点', icon: <IconCompare size={ICON_SIZE} /> },
+  { type: 'group', label: '分组节点', icon: <IconGroup size={ICON_SIZE} /> },
+  { type: 'batch', label: '批量节点', icon: <IconBatch size={ICON_SIZE} /> },
+  { type: 'board', label: '画板节点', icon: <IconBoard size={ICON_SIZE} /> },
 ]
 
 /**
- * 三种排列的图标字形（纯文本）。
- * 取形意对应：宫格 = 四方块、水平 = 横排格里、垂直 = 竖排格里。
+ * 三种排列的图标（§6.5 ②，用户 2026-09-19 指定形状）。
+ * 取形意对应：宫格 = 九宫格、水平 = 并排的竖条、垂直 = 叠放的横条。
  */
-const ARRANGE_GLYPH: Record<ArrangeMode, string> = {
-  grid: '▦',
-  row: '▤',
-  column: '▥',
+const ARRANGE_ICON: Record<ArrangeMode, ReactNode> = {
+  grid: <IconGridArrange size={ICON_SIZE} />,
+  row: <IconRowArrange size={ICON_SIZE} />,
+  column: <IconColumnArrange size={ICON_SIZE} />,
 }
 
 /**
@@ -141,7 +164,7 @@ export function CanvasToolbar({
    */
   const tools: readonly {
     key: string
-    icon: string
+    icon: ReactNode
     label: string
     /** 动作；`menu` 表示它挂的是浮层面板而不是立即执行 */
     onClick?: () => void
@@ -151,24 +174,29 @@ export function CanvasToolbar({
     solid?: boolean
     attr?: string
   }[] = [
+    /**
+     * 第一个按钮画的是**加号**（不换图标组件）：它要能在 hover 时旋转 45° 变 ×，
+     * 而旋转对文字 `＋` 是最稳的——用 SVG 加号也行，但纯文本少一层嵌套。
+     * 加号的视觉大小由 CSS 的 `--fs-*` 控制（见 `.solid`）。
+     */
     { key: 'add', icon: '＋', label: '新建节点', menu: 'add', solid: true, attr: 'data-toolbar-add' },
     {
       key: 'arrange-modes',
-      icon: ARRANGE_GLYPH.grid,
+      icon: <IconGridArrange size={ICON_SIZE} />,
       /** 整理节点已并入这个面板（用户 2026-09-19），名称反映合并后的含义 */
       label: '排列与整理',
       menu: 'arrange',
       disabled: count < 2 || dragging,
       attr: 'data-toolbar-arrange-modes',
     },
-    { key: 'reset', icon: '⤾', label: '重置视图', onClick: () => fitCanvasView(store), attr: 'data-toolbar-reset' },
-    { key: 'undo', icon: '↶', label: '撤销', onClick: () => store.undo(), disabled: !canUndo, attr: 'data-toolbar-undo' },
-    { key: 'redo', icon: '↷', label: '重做', onClick: () => store.redo(), disabled: !canRedo, attr: 'data-toolbar-redo' },
+    { key: 'reset', icon: <IconReset size={ICON_SIZE} />, label: '重置视图', onClick: () => fitCanvasView(store), attr: 'data-toolbar-reset' },
+    { key: 'undo', icon: <IconUndo size={ICON_SIZE} />, label: '撤销', onClick: () => store.undo(), disabled: !canUndo, attr: 'data-toolbar-undo' },
+    { key: 'redo', icon: <IconRedo size={ICON_SIZE} />, label: '重做', onClick: () => store.redo(), disabled: !canRedo, attr: 'data-toolbar-redo' },
     ...(onImportAsset
       ? [
           {
             key: 'import',
-            icon: '⬆',
+            icon: <IconImport size={ICON_SIZE} />,
             label: '导入素材',
             onClick: onImportAsset,
             attr: 'data-toolbar-import',
@@ -293,7 +321,7 @@ export function CanvasToolbar({
                     {...keepCanvasFocus}
                   >
                     <span className={styles.menuIcon} aria-hidden="true">
-                      {ARRANGE_GLYPH[mode]}
+                      {ARRANGE_ICON[mode]}
                     </span>
                     {label}
                   </button>
@@ -314,7 +342,7 @@ export function CanvasToolbar({
                   {...keepCanvasFocus}
                 >
                   <span className={styles.menuIcon} aria-hidden="true">
-                    ⌗
+                    <IconTidy size={ICON_SIZE} />
                   </span>
                   整理节点
                 </button>

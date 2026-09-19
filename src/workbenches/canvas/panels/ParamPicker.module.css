@@ -24,8 +24,16 @@
   border-radius: var(--radius-control);
   background: transparent;
   font-family: var(--font-sans);
-  font-size: var(--fs-chip);
-  font-weight: var(--fw-chip);
+  /**
+   * chip 文案从 `--fs-chip`(11px) 提到 `--fs-body`(13px)（用户 2026-09-19：
+   * 「参数文字太小了，变大一点」）。
+   *
+   * 为什么不该用 chip 那一档：这几个 chip 是用户**反复读写**的主要信息
+   * （当前渠道 / 模型 / 比例 / 张数），不是角标或辅助标签；比正文还小会让人
+   * 反复凑近看。字号跟随 `--fs-body`，与面板里其它正文同级，视觉上也更稳。
+   */
+  font-size: var(--fs-body);
+  font-weight: 500;
   color: var(--text-1);
   cursor: pointer;
   transition: background var(--dur-hover) var(--ease-out);
@@ -47,16 +55,6 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-
-/* V 形 chevron：展开时旋转 180°（§6.8）。矢量绘制，放大不糊 */
-.chevron {
-  flex: 0 0 auto;
-  transition: transform var(--dur-panel) var(--ease-panel);
-}
-
-.chipOpen .chevron {
-  transform: rotate(180deg);
 }
 
 .popup {
@@ -263,7 +261,4 @@
     animation: none;
   }
 
-  .chevron {
-    transition: none;
-  }
 }

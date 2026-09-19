@@ -29,14 +29,21 @@ export interface ContextMenuItem {
   separatorAfter?: boolean
 }
 
-/** 可新建的节点类型与展示顺序（§6.5 ① 新建节点菜单 / §4.1 画布空白右键） */
+/**
+ * 可新建的节点类型与展示顺序（§6.5 ① 新建节点菜单 / §4.1 画布空白右键）。
+ *
+ * 文案与左侧功能栏**逐字一致**（用户 2026-09-19）：早先这里是「提示词 / 生成 / …」，
+ * 而功能栏是「提示词节点 / 生成节点 / …」——同一件事在两个入口叫不同名字，
+ * 用户会以为它们是两种东西。统一带上「节点」，并保持同样顺序。
+ * 图标由 UI 层按 `type` 映射（领域层不持有渲染物）。
+ */
 export const CREATABLE_TYPES: readonly { type: NodeType; label: string }[] = [
-  { type: 'prompt', label: '提示词' },
-  { type: 'generation', label: '生成' },
-  { type: 'compare', label: '对比' },
-  { type: 'group', label: '分组' },
-  { type: 'batch', label: '批量' },
-  { type: 'board', label: '画板' },
+  { type: 'prompt', label: '提示词节点' },
+  { type: 'generation', label: '生成节点' },
+  { type: 'compare', label: '对比节点' },
+  { type: 'group', label: '分组节点' },
+  { type: 'batch', label: '批量节点' },
+  { type: 'board', label: '画板节点' },
 ]
 
 /** 右键菜单里带「生成」项的类型（§4.1：生成节点 / 批量节点） */

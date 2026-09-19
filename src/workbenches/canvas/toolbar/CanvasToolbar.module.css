@@ -16,7 +16,15 @@
   flex-direction: column;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-2);
+  /**
+   * 左右内距必须**等于**（上下的另算），且与按钮直径配合，首尾两个圆才与胶囊同心。
+   *
+   * 之前左右和上下用了同一个变量、按钮又是固定 36px，三处尺寸凑不出同心——
+   * 用户看到「第一个和最后一个圆偏出去一点」（2026-09-19）。
+   * 现在：左右内距 = 按钮外圈留白，上下另给一档，容器宽度 = 36 + 2×6 = 48px，
+   * 半宽 24px 正是 `--radius-pill` 的弧心，首尾圆心与胶囊中心线重合。
+   */
+  padding: var(--space-3) 6px;
   background: var(--bg-surface);
   /* 长胶囊而不是圆角矩形：容器宽度固定、圆角取半宽即成一整条胶囊 */
   border-radius: var(--radius-pill);
@@ -56,21 +64,30 @@
   /* 圆形按钮（用户要求不要圆角矩形）；直径与胶囊内宽一致，看着齐整 */
   width: 36px;
   height: 36px;
+  /* 图标本体居中，SVG 与文字字形都吃这条（text 用行高归一到几何中心） */
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
   border: none;
   border-radius: var(--radius-pill);
   /* 隐性按钮：常态完全透明，只有图标 */
   background: transparent;
   color: var(--text-1);
   font-family: var(--font-sans);
-  font-size: 17px;
   line-height: 1;
   cursor: pointer;
   transition:
     background var(--dur-hover) var(--ease-out),
     transform var(--dur-hover) var(--ease-out);
+}
+
+/*
+ * SVG 图标：线条型，颜色吃 `currentColor`（两套主题自动跟随）。
+ * 不用 `display:block` 的默认基线——flex 居中已经把垂直对齐处理好了。
+ */
+.iconBtn > svg {
+  display: block;
 }
 
 /* 隐性按钮的 hover：给一层浅底表示「指针在这个按钮上」，但不抢主按钮的实色地位 */
@@ -109,6 +126,8 @@
  */
 .solid {
   font-size: 24px;
+  /* 加号是文字字形，行高归一到几何中心，才和 SVG 图标视觉等高 */
+  line-height: 24px;
 }
 
 /*
@@ -217,4 +236,8 @@
   font-size: var(--fs-body);
   line-height: 1;
   color: var(--text-2);
+  /* SVG 与文本字形共用这一格；flex 居中保证图标不因基线偏移 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
