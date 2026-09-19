@@ -1,10 +1,9 @@
-import { useMemo } from 'react'
+﻿import { useMemo } from 'react'
 import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import type { Rect } from '../../domain/canvas/geometry/rect'
 import { toWorldRect } from '../../domain/canvas/geometry/coords'
 import { indexNodes } from '../../domain/canvas/model/graph'
-import { computeAlign, canAlign, type AlignMode } from '../../domain/canvas/layout/align'
 import { computeArrange, canArrange } from '../../domain/canvas/layout/arrange'
 import { computeArrangeMode, type ArrangeMode } from '../../domain/canvas/layout/arrangeModes'
 import { createId } from '../../shared/id'
@@ -19,21 +18,20 @@ import { createId } from '../../shared/id'
  *
  * 与 React 解耦（工厂 + hook 包装）：单测可不装 testing-library 直接驱动。
  */
-export interface AlignOutcome {
+export interface ArrangeOutcome {
   kind: 'ok' | 'too-few' | 'cycle'
   /** 有环时的提示文案（§6.5「存在循环依赖，无法整理」） */
   reason?: string
   moved: number
 }
 
-export interface AlignTools {
-  align(mode: AlignMode): AlignOutcome
-  arrange(): AlignOutcome
-  /** 宫格 / 水平 / 垂直排列（§6.5 ④）。与 arrange() 的区别：它不看连线，纯按位置重排 */
-  arrangeMode(mode: ArrangeMode): AlignOutcome
+export interface ArrangeTools {
+  arrange(): ArrangeOutcome
+  /** 宫格 / 水平 / 垂直排列（§6.5 ②）。与 arrange() 的区别：它不看连线，纯按位置重排 */
+  arrangeMode(mode: ArrangeMode): ArrangeOutcome
 }
 
-export function createAlignTools(store: CanvasStore): AlignTools {
+export function createArrangeTools(store: CanvasStore): ArrangeTools {
   /** 节点的世界矩形（容器内存的是 local，要加父容器偏移 —— 架构 §5.3） */
   function worldRectOf(node: NodeSnapshot): Rect {
     const parent = node.parentId
@@ -97,17 +95,7 @@ export function createAlignTools(store: CanvasStore): AlignTools {
     return count
   }
 
-  function align(mode: AlignMode): AlignOutcome {
-    const nodes = selectedNodes()
-    if (!canAlign(nodes.length, mode)) return { kind: 'too-few', moved: 0 }
-    const targets = computeAlign(
-      nodes.map((n) => ({ id: n.id, rect: worldRectOf(n) })),
-      mode,
-    )
-    return { kind: 'ok', moved: applyTargets(targets, '对齐节点') }
-  }
-
-  function arrange(): AlignOutcome {
+  function arrange(): ArrangeOutcome {
     const nodes = selectedNodes()
     if (!canArrange(nodes.length)) return { kind: 'too-few', moved: 0 }
     const result = computeArrange(
@@ -120,7 +108,7 @@ export function createAlignTools(store: CanvasStore): AlignTools {
     return { kind: 'ok', moved: applyTargets(result.targets, '整理节点') }
   }
 
-  function arrangeMode(mode: ArrangeMode): AlignOutcome {
+  function arrangeMode(mode: ArrangeMode): ArrangeOutcome {
     const nodes = selectedNodes()
     /** ≥ 2 才可用，与对齐 / 整理同一门槛（§6.5） */
     if (nodes.length < 2) return { kind: 'too-few', moved: 0 }
@@ -131,10 +119,11 @@ export function createAlignTools(store: CanvasStore): AlignTools {
     return { kind: 'ok', moved: applyTargets(targets, '排列节点') }
   }
 
-  return { align, arrange, arrangeMode }
+  return { arrange, arrangeMode }
 }
 
 /** hook 包装：把工具挂到组件生命周期上 */
-export function useAlignTools(store: CanvasStore): AlignTools {
-  return useMemo(() => createAlignTools(store), [store])
+export function useArrangeTools(store: CanvasStore): ArrangeTools {
+  return useMemo(() => createArrangeTools(store), [store])
 }
+

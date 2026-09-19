@@ -35,6 +35,8 @@
 /* 状态 A：占位框（铺满本体，自身即选中 / 拖动区；不是按钮） */
 .placeholder {
   display: flex;
+  /* 纵向：按钮在上、支持类型的小字在下（用户 2026-09-19） */
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   width: 100%;
@@ -87,6 +89,25 @@
 
 .uploadBtn:active {
   transform: scale(0.96);
+}
+
+/*
+ * 按钮下方的小字：支持的素材类型（用户 2026-09-19）。
+ *
+ * 为什么需要它：按钮只说了「上传素材」这个动作，没说「能传什么」。
+ * 用户手里可能是音频、可能是 mp4，猜错就得点一次才发现不收——这行字把范围直接摆出来。
+ *
+ * 样式：次要信息用 `--text-3`（比正文再退一档），字号压到 10px 与按钮拉开层级；
+ * 颜色走令牌，两套主题自动跟随。宽度跟按钮对齐、居中。
+ */
+.uploadHint {
+  margin-top: var(--space-2);
+  max-width: 120px;
+  text-align: center;
+  color: var(--text-3);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  line-height: 1.4;
 }
 
 /* 状态 B：素材铺满，保持原始比例（contain，不裁切） */

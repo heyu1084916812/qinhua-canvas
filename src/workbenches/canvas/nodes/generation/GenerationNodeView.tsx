@@ -104,6 +104,14 @@ export function GenerationNodeView(props: NodeViewProps) {
           >
             上传素材
           </button>
+          {/*
+            按钮下方的小字：说明「能传什么」（用户 2026-09-19）。
+            按钮只说动作、不说范围——用户手里可能是音频或 mp4，猜错就得点一次才发现不收。
+            文案里「音频」放最前：它最容易被误以为不支持。
+          */}
+          <span className={styles.uploadHint} data-node-upload-hint>
+            支持音频、视频、图片素材
+          </span>
         </div>
       )}
 

@@ -159,12 +159,20 @@ async function runtimeChecks(browser) {
       out.push(['§6.6 / §6.13 / §6.16', '画板节点拖到最小时的实际尺寸', { w: 320, h: 240 }, null, String(e).slice(0, 80)])
     }
 
-    // 工具栏 8 种对齐（§6.5）
-    const alignCount = await page.locator('[data-toolbar-align-mode]').count()
-    out.push(['§6.5', '工具栏对齐方式数量', 8, alignCount])
+    /**
+     * 工具栏排列方式数量（§6.5 ②）。
+     * 8 种对齐已于 2026-09-19 下线，改为验证三种排列。
+     * 面板由指针进入按钮范围展开（不再点击），故这里先 hover。
+     */
+    await page.locator('[data-toolbar-arrange-modes]').hover()
+    await sleep(300)
+    const arrangeModeCount = await page.locator('[data-toolbar-arrange-mode]').count()
+    out.push(['§6.5', '工具栏排列方式数量', 3, arrangeModeCount])
+    await page.keyboard.press('Escape')
+    await sleep(200)
 
-    // 新建节点菜单 6 项（§6.5 / §4.1）
-    await page.locator('[data-toolbar-add]').click()
+    // 新建节点菜单 6 项（§6.5 / §4.1）：同样改 hover 展开
+    await page.locator('[data-toolbar-add]').hover()
     await sleep(300)
     const menuItems = await page.locator('[data-toolbar-menu-item]').count()
     out.push(['§6.5 / §4.1', '「新建节点」菜单项数量', 6, menuItems])

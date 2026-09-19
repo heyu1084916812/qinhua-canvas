@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { createAlignTools } from './useAlignTools'
+﻿import { describe, it, expect, beforeEach } from 'vitest'
+import { createArrangeTools } from './useArrangeTools'
 import { createCanvasStore } from '../../state/workbenches/canvas/store'
 import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import type { PlatformKit } from '../../platform/ports'
@@ -18,7 +18,7 @@ function makeStore(): CanvasStore {
 
 /** 直接驱动工厂（hook 只是它的 useMemo 包装，逻辑同源） */
 function tools(store: CanvasStore) {
-  return createAlignTools(store)
+  return createArrangeTools(store)
 }
 
 function addPrompt(store: CanvasStore, x: number, y: number, w = 200, h = 100): string {
@@ -41,70 +41,7 @@ beforeEach(() => {
   registerSpec(generationSpec)
 })
 
-describe('useAlignTools / align', () => {
-  it('少于 2 个选中时拒绝并给出原因', () => {
-    const store = makeStore()
-    const a = addPrompt(store, 0, 0)
-    store.setSelection([a])
-    expect(tools(store).align('left')).toMatchObject({ kind: 'too-few', moved: 0 })
-  })
-
-  it('等距分布少于 3 个时拒绝', () => {
-    const store = makeStore()
-    const a = addPrompt(store, 0, 0)
-    const b = addPrompt(store, 300, 0)
-    store.setSelection([a, b])
-    expect(tools(store).align('hdistribute')).toMatchObject({ kind: 'too-few' })
-  })
-
-  it('左对齐：把选中节点挪到同一 x，未选中节点不动', () => {
-    const store = makeStore()
-    const a = addPrompt(store, 0, 0)
-    const b = addPrompt(store, 300, 50)
-    const bystander = addPrompt(store, 900, 900)
-    store.setSelection([a, b])
-
-    const r = tools(store).align('left')
-    expect(r.kind).toBe('ok')
-    expect(posOf(store, a).x).toBe(0)
-    expect(posOf(store, b).x).toBe(0)
-    // y 不受影响
-    expect(posOf(store, b).y).toBe(50)
-    expect(posOf(store, bystander)).toEqual({ x: 900, y: 900 })
-  })
-
-  it('顶对齐：把选中节点挪到同一 y', () => {
-    const store = makeStore()
-    const a = addPrompt(store, 0, 0)
-    const b = addPrompt(store, 300, 400)
-    store.setSelection([a, b])
-    tools(store).align('top')
-    expect(posOf(store, a).y).toBe(0)
-    expect(posOf(store, b).y).toBe(0)
-  })
-
-  it('整次对齐只占一步撤销', () => {
-    const store = makeStore()
-    const a = addPrompt(store, 0, 0)
-    const b = addPrompt(store, 300, 50)
-    store.setSelection([a, b])
-    tools(store).align('left')
-    store.undo()
-    expect(posOf(store, b).x).toBe(300)
-  })
-
-  it('8 种模式都能执行（与工具栏按钮一一对应）', () => {
-    const store = makeStore()
-    const ids = [addPrompt(store, 0, 0), addPrompt(store, 300, 50), addPrompt(store, 600, 120)]
-    store.setSelection(ids)
-    const t = tools(store)
-    for (const mode of ['left', 'hcenter', 'right', 'top', 'vcenter', 'bottom', 'hdistribute', 'vdistribute'] as const) {
-      expect(t.align(mode).kind, mode).toBe('ok')
-    }
-  })
-})
-
-describe('useAlignTools / arrange', () => {
+describe('useArrangeTools / arrange', () => {
   it('少于 2 个选中时拒绝', () => {
     const store = makeStore()
     const a = addPrompt(store, 0, 0)
@@ -189,7 +126,7 @@ describe('useAlignTools / arrange', () => {
   })
 })
 
-describe('useAlignTools / arrangeMode（§6.5 ④）', () => {
+describe('useArrangeTools / arrangeMode（§6.5 ④）', () => {
   it('少于 2 个选中时拒绝并给出原因', () => {
     const store = makeStore()
     const a = addPrompt(store, 0, 0)
@@ -250,14 +187,15 @@ describe('useAlignTools / arrangeMode（§6.5 ④）', () => {
     expect(ids.map((id) => posOf(store, id))).toEqual(before)
   })
 
-  it('★ 对齐也是一次撤销退回（同一事务边界修复覆盖对齐）', () => {
+  it('★ 整理节点也是一次撤销退回（与排列共用同一条事务边界）', () => {
     const store = makeStore()
     const ids = [addPrompt(store, 0, 0), addPrompt(store, 400, 250), addPrompt(store, 800, 600)]
     store.setSelection(ids)
     const before = ids.map((id) => posOf(store, id))
-    tools(store).align('left')
+    tools(store).arrange()
     expect(ids.map((id) => posOf(store, id))).not.toEqual(before)
     store.undo()
     expect(ids.map((id) => posOf(store, id))).toEqual(before)
   })
 })
+

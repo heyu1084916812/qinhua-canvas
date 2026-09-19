@@ -1,4 +1,11 @@
-/* 画布左侧竖向工具栏（产品文档 §6.1 / §6.5） */
+/*
+ * 画布左侧竖向工具栏（产品文档 §6.1 / §6.5，2026-09-19 改版为「长胶囊」）。
+ *
+ * 三条形态规则：
+ *   1. 外形容器是一条胶囊（`--radius-pill`），内部按钮**之间没有分割线**；
+ *   2. 只有第一个按钮是常驻实色，其余是隐性按钮（无边框、无底色）；
+ *   3. 鼠标进入某个按钮范围时，右侧浮出它的名称（圆角矩形标签）。
+ */
 .bar {
   position: absolute;
   left: var(--space-4);
@@ -8,36 +15,47 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-2) var(--space-1);
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-2);
   background: var(--bg-surface);
-  border-radius: var(--radius-node);
+  /* 长胶囊而不是圆角矩形：容器宽度固定、圆角取半宽即成一整条胶囊 */
+  border-radius: var(--radius-pill);
   box-shadow: var(--shadow-float);
 }
 
-.menuWrap {
+/*
+ * 每个工具的包裹层：既是浮层的定位锚点，也是「指针进入范围」的判定区域。
+ * 宽度压到按钮本身（不撑满容器），这样右侧留出的空隙属于画布而不是这个按钮，
+ * 指针从旁边掠过时不会误触发名称浮层。
+ */
+.toolWrap {
   position: relative;
   display: flex;
   justify-content: center;
 }
 
 .iconBtn {
-  width: 28px;
-  height: 28px;
+  /* 圆形按钮（用户要求不要圆角矩形）；直径与胶囊内宽一致，看着齐整 */
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: var(--border);
-  border-radius: var(--radius-control);
-  background: var(--bg-subtle);
+  border: none;
+  border-radius: var(--radius-pill);
+  /* 隐性按钮：常态完全透明，只有图标 */
+  background: transparent;
   color: var(--text-1);
   font-family: var(--font-sans);
-  font-size: var(--fs-label);
+  font-size: 17px;
   line-height: 1;
   cursor: pointer;
-  transition: background var(--dur-hover) var(--ease-out);
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    transform var(--dur-hover) var(--ease-out);
 }
 
+/* 隐性按钮的 hover：给一层浅底表示「指针在这个按钮上」，但不抢主按钮的实色地位 */
 .iconBtn:hover:not(:disabled) {
   background: var(--bg-hover);
 }
@@ -47,21 +65,73 @@
   cursor: default;
 }
 
-/* 8 种对齐：两列更紧凑（§6.5 ②） */
-.alignGroup {
-  display: grid;
-  grid-template-columns: repeat(2, 28px);
-  gap: var(--space-1);
+/*
+ * 常驻实色（只有第一个「新建节点」）：
+ * 走 `--accent` / `--accent-text`——这对 token 在两套主题下整体反转，
+ * 写死深色的话暗色主题里会糊进节点面，失去「唯一主操作」的辨识度。
+ */
+.solid {
+  background: var(--accent);
+  color: var(--accent-text);
 }
 
-.divider {
-  width: 18px;
-  height: var(--border-width);
-  background: var(--stroke);
-  margin: var(--space-1) 0;
+.solid:hover:not(:disabled) {
+  /* 与其它实色主按钮同一套 hover（保持实色、只降不透明度） */
+  background: var(--accent);
+  opacity: 0.88;
 }
 
-/* 新建菜单：在按钮下方展开（§6.5 ①） */
+/*
+ * 加号 → ×：指针进入第一个按钮范围时顺时针转 45°。
+ * 只转图标本体（`＋` 旋转 45° 正是 `×`），不换字符——换字符会有一次跳变，
+ * 旋转则是连续动画，用户看得出「这是同一个按钮的状态变化」。
+ */
+.rotated {
+  transform: rotate(45deg);
+}
+
+/*
+ * 名称标签：圆角矩形（按钮是圆的，标签才用圆角矩形，与用户给的参考一致）。
+ * 常态隐形，指针进入按钮范围时淡入；贴在按钮右侧、垂直居中。
+ */
+.tip {
+  position: absolute;
+  left: calc(100% + var(--space-2));
+  top: 50%;
+  transform: translateY(-50%);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  white-space: nowrap;
+  box-shadow: var(--shadow-float);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-hover) var(--ease-out);
+  z-index: 17;
+}
+
+/* 指针进入该按钮范围 → 名称浮现 */
+.toolWrap:hover .tip,
+/* 键盘聚焦同样要能看到名称，否则纯键盘用户不知道按钮叫什么 */
+.toolWrap:focus-within .tip {
+  opacity: 1;
+}
+
+/*
+ * 挂了浮层的按钮**不再显示名称标签**（用户实测：两者都在按钮右侧、
+ * 位置完全重叠，「排列」与「宫格排列」糊在一起）。
+ *
+ * 浮层里每一项本身就带名称，名称标签在这里是多余的；只有「点了就直接执行」
+ * 的那些按钮才需要它来解释自己是什么。
+ */
+.toolWrap:has([data-toolbar-menu]) .tip,
+.toolWrap:has([data-toolbar-arrange-menu]) .tip {
+  opacity: 0;
+}
+
+/* 新建 / 排列浮层：在按钮右侧展开（§6.5 ①②） */
 .menu {
   position: absolute;
   left: calc(100% + var(--space-2));

@@ -1925,9 +1925,14 @@ async function g17(browser) {
   const selAfterMarquee = await page.evaluate(() =>
     document.querySelectorAll('[data-node-id].selected, [class*="selected"]').length,
   )
-  // 选中态没有 data-selected 钩子，用「框选后工具栏对齐按钮启用」间接验证
-  const alignEnabled = await page.locator('[data-toolbar-align-mode="left"]').isEnabled()
-  rec(g, '框选命中后对齐按钮启用（说明选中 ≥ 2）', alignEnabled, `sel=${selAfterMarquee}`)
+  /**
+   * 选中态没有 data-selected 钩子，用「框选后工具栏的 ≥2 类按钮启用」间接验证。
+   *
+   * 8 种对齐已于 2026-09-19 下线，改用**排列**按钮当这个探针：
+   * 它与整理节点同为「≥ 2 个节点选中才可用」，门槛完全一致。
+   */
+  const alignEnabled = await page.locator('[data-toolbar-arrange-modes]').isEnabled()
+  rec(g, '框选命中后排列按钮启用（说明选中 ≥ 2）', alignEnabled, `sel=${selAfterMarquee}`)
 
   // ── 2. Shift + 单击 = 增减选中（§6.15） ──
   // 注意：单选会弹出创作参数面板，面板浮在节点**下方**（§6.8），
@@ -1935,7 +1940,7 @@ async function g17(browser) {
   // 且对齐/整理这类会把节点摞到一起的操作放到最后。
   // 点空白清选中：右下角已被小地图占用，必须走 blankPoint（见其注释）
   await clickBlankCanvas(page)
-  const alignDisabledAfterClear = !(await page.locator('[data-toolbar-align-mode="left"]').isEnabled())
+  const alignDisabledAfterClear = !(await page.locator('[data-toolbar-arrange-modes]').isEnabled())
   rec(g, '空白单击清空选中（对齐按钮禁用）', alignDisabledAfterClear)
 
   await page.locator(`[data-node-id="${ids[0]}"]`).click({ position: { x: 60, y: 10 } })
@@ -1944,7 +1949,7 @@ async function g17(browser) {
     .locator(`[data-node-id="${ids[1]}"]`)
     .click({ position: { x: 60, y: 10 }, modifiers: ['Shift'] })
   await sleep(250)
-  const twoSelected = await page.locator('[data-toolbar-align-mode="left"]').isEnabled()
+  const twoSelected = await page.locator('[data-toolbar-arrange-modes]').isEnabled()
   rec(g, 'Shift+单击增减选中（选中 2 个）', twoSelected)
 
   // 再 Shift 点一次 → 取消该节点，回到 1 个
@@ -1952,7 +1957,7 @@ async function g17(browser) {
     .locator(`[data-node-id="${ids[1]}"]`)
     .click({ position: { x: 60, y: 10 }, modifiers: ['Shift'] })
   await sleep(250)
-  const oneSelected = !(await page.locator('[data-toolbar-align-mode="left"]').isEnabled())
+  const oneSelected = !(await page.locator('[data-toolbar-arrange-modes]').isEnabled())
   rec(g, 'Shift+单击可取消选中（回到 1 个）', oneSelected)
 
   // ── 5. 多选整体拖动：选区内所有节点一起位移 ──
@@ -2062,14 +2067,21 @@ async function g17(browser) {
   await page.mouse.up()
   await page.keyboard.up('Control')
   await sleep(300)
+  /**
+   * 8 种对齐已下线（2026-09-19），这里改验**垂直排列**——
+   * 它同样把一组散开的节点归一到一个方向（x 全部相同），是同一类「整理布局」的证明。
+   * 排列面板现在由指针进入按钮范围展开，故先 hover 再点具体模式。
+   */
   const beforeAlign = await Promise.all(ids.map(posOf))
-  await page.locator('[data-toolbar-align-mode="left"]').click()
-  await sleep(400)
+  await page.locator('[data-toolbar-arrange-modes]').hover()
+  await sleep(250)
+  await page.locator('[data-toolbar-arrange-mode="column"]').click()
+  await sleep(500)
   const afterAlign = await Promise.all(ids.map(posOf))
   const xs = afterAlign.map((p) => p.x)
   rec(
     g,
-    '左对齐后 x 归一（§6.5 ②）',
+    '垂直排列后 x 归一（§6.5 ②）',
     new Set(xs).size === 1 && new Set(beforeAlign.map((p) => p.x)).size > 1,
     `before=${beforeAlign.map((p) => p.x).join(',')} after=${xs.join(',')}`,
   )

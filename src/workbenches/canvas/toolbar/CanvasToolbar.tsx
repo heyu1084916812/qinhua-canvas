@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { useCanvasStore, useSelection } from '../storeContext'
-import { useAlignTools } from '../../../features/canvas/useAlignTools'
-import { ALIGN_MODES, canAlign, type AlignMode } from '../../../domain/canvas/layout/align'
+import { useArrangeTools } from '../../../features/canvas/useArrangeTools'
 import { canArrange } from '../../../domain/canvas/layout/arrange'
 import { ARRANGE_MODES, type ArrangeMode } from '../../../domain/canvas/layout/arrangeModes'
 import type { NodeType } from '../../../domain/canvas/model/node'
@@ -19,24 +18,16 @@ const keepCanvasFocus = { onMouseDown: (e: ReactMouseEvent) => e.preventDefault(
 /** 新建节点菜单项（§6.5 ①「与画布空白处右键菜单同一份」） */
 const NODE_MENU: readonly { type: NodeType; label: string }[] = [
   { type: 'prompt', label: '提示词节点' },
-  { type: 'generation', label: '图片·视频生成节点' },
+  /**
+   * 文案：「图片·视频生成节点」→「生成节点」（用户 2026-09-19）。
+   * 图片与视频是同一个节点的两种功能类别（`data.mode`），名字里不必再复述一遍。
+   */
+  { type: 'generation', label: '生成节点' },
   { type: 'compare', label: '对比节点' },
   { type: 'group', label: '分组节点' },
   { type: 'batch', label: '批量节点' },
   { type: 'board', label: '画板节点' },
 ]
-
-/** 8 种对齐的图标字形（纯文本，不引图标库） */
-const ALIGN_GLYPH: Record<AlignMode, string> = {
-  left: '⇤',
-  hcenter: '↔',
-  right: '⇥',
-  top: '⇡',
-  vcenter: '↕',
-  bottom: '⇣',
-  hdistribute: '⋯',
-  vdistribute: '⋮',
-}
 
 /**
  * 三种排列的图标字形（纯文本）。
@@ -63,50 +54,41 @@ export function CanvasToolbar({
 }) {
   const store = useCanvasStore()
   const selection = useSelection()
-  const { align, arrange, arrangeMode } = useAlignTools(store)
-  const [menuOpen, setMenuOpen] = useState(false)
-  /** 排列面板（§6.5 ④）：与新建菜单同一套「开新关旧」规则 */
-  const [arrangeOpen, setArrangeOpen] = useState(false)
+  const { arrange, arrangeMode } = useArrangeTools(store)
+  /**
+   * 浮层改由**鼠标进入按钮范围**驱动（用户 2026-09-19），不再要求点击。
+   *
+   * `openMenu` 同时承担两件事：① 新建菜单是否展开 ② 加号是否已旋转成 ×。
+   * 两者必须同源——分开存就会出现「图标转了但没有菜单」这种自相矛盾的状态。
+   */
+  const [openMenu, setOpenMenu] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   /**
    * 撤销 / 重做从顶栏迁入（产品文档 §6.2 / §6.5 顶栏改版，2026-09-18）。
    *
    * 顶栏按 §6.2 只留导航与项目级入口，画布内操作一律归工具栏；
-   * 撤销 / 重做的是**图操作**的逆操作，与对齐 / 整理同类，故放这里。
+   * 撤销 / 重做的是**图操作**的逆操作，与排列 / 整理同类，故放这里。
    */
   const canUndo = useSyncExternalStore(store.subscribe, store.canUndo, store.canUndo)
   const canRedo = useSyncExternalStore(store.subscribe, store.canRedo, store.canRedo)
 
-  // 点击外部或 Esc 关闭浮层（§6.15「Esc 取消」）；两个浮层共用一套规则
+  /**
+   * Esc 收起浮层（§6.15「Esc 取消」）。
+   * 不再监听「点击外部」：浮层由指针进入 / 离开驱动，指针离开按钮范围自然就收了，
+   * 再加一层点击关闭只会和 hover 打架（点一下先关、指针还在又立刻打开）。
+   */
   useEffect(() => {
-    if (!menuOpen && !arrangeOpen) return
-    const onDown = (e: PointerEvent) => {
-      if (rootRef.current?.contains(e.target as Node)) return
-      setMenuOpen(false)
-      setArrangeOpen(false)
-    }
+    if (!openMenu) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setMenuOpen(false)
-        setArrangeOpen(false)
-      }
+      if (e.key === 'Escape') setOpenMenu(null)
     }
-    window.addEventListener('pointerdown', onDown)
     window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('pointerdown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [menuOpen, arrangeOpen])
+    return () => window.removeEventListener('keydown', onKey)
+  }, [openMenu])
 
   const count = selection.length
   // useSyncExternalStore 保持与 store 同源，避免工具栏与画布选中不同步
   const dragging = useSyncExternalStore(store.subscribe, store.isDragging, store.isDragging)
-
-  const onAlign = (mode: AlignMode) => {
-    const r = align(mode)
-    if (r.kind === 'too-few') store.notify('至少选中 2 个节点才能对齐')
-  }
 
   const onArrange = () => {
     const r = arrange()
@@ -114,175 +96,165 @@ export function CanvasToolbar({
     else if (r.kind === 'too-few') store.notify('至少选中 2 个节点才能整理')
   }
 
-  /** 排列面板里点某一项：应用后立即收起（§6.5 ④） */
+  /** 排列面板里点某一项（§6.5 ②） */
   const onArrangeMode = (mode: ArrangeMode) => {
     const r = arrangeMode(mode)
     if (r.kind === 'too-few') store.notify('至少选中 2 个节点才能排列')
-    setArrangeOpen(false)
+    setOpenMenu(null)
   }
+
+
+  /**
+   * 工具的统一定义：一个图标 + 一个名称 + 一个动作。
+   *
+   * 抽成数据而不是把按钮一段段写死：新形态下每个按钮都要挂「hover 浮出名称」这套行为，
+   * 逐个手写必然漏掉某一个（漏了就是「这个按钮没有名字」）。数据驱动则不可能漏。
+   */
+  const tools: readonly {
+    key: string
+    icon: string
+    label: string
+    /** 动作；`menu` 表示它挂的是浮层面板而不是立即执行 */
+    onClick?: () => void
+    menu?: 'add' | 'arrange'
+    disabled?: boolean
+    /** 是否有常驻实色（只有第一个「新建节点」是） */
+    solid?: boolean
+    attr?: string
+  }[] = [
+    { key: 'add', icon: '＋', label: '新建节点', menu: 'add', solid: true, attr: 'data-toolbar-add' },
+    {
+      key: 'arrange-modes',
+      icon: ARRANGE_GLYPH.grid,
+      label: '排列',
+      menu: 'arrange',
+      disabled: count < 2 || dragging,
+      attr: 'data-toolbar-arrange-modes',
+    },
+    {
+      key: 'arrange',
+      icon: '⌗',
+      label: '整理节点',
+      onClick: onArrange,
+      disabled: !canArrange(count) || dragging,
+      attr: 'data-toolbar-arrange',
+    },
+    { key: 'reset', icon: '⤾', label: '重置视图', onClick: () => fitCanvasView(store), attr: 'data-toolbar-reset' },
+    { key: 'undo', icon: '↶', label: '撤销', onClick: () => store.undo(), disabled: !canUndo, attr: 'data-toolbar-undo' },
+    { key: 'redo', icon: '↷', label: '重做', onClick: () => store.redo(), disabled: !canRedo, attr: 'data-toolbar-redo' },
+    ...(onImportAsset
+      ? [
+          {
+            key: 'import',
+            icon: '⬆',
+            label: '导入素材',
+            onClick: onImportAsset,
+            attr: 'data-toolbar-import',
+          },
+        ]
+      : []),
+  ]
 
   return (
     <div className={styles.bar} ref={rootRef} data-canvas-toolbar>
-      <div className={styles.menuWrap}>
-        <button
-          className={styles.iconBtn}
-          title="新建节点"
-          aria-label="新建节点"
-          aria-expanded={menuOpen}
-          data-toolbar-add
-          onClick={() => setMenuOpen((v) => !v)}
-          {...keepCanvasFocus}
-        >
-          ＋
-        </button>
-        {menuOpen && (
-          <div className={styles.menu} role="menu" data-toolbar-menu>
-            {NODE_MENU.map((item) => (
-              <button
-                key={item.type}
-                className={styles.menuItem}
-                role="menuitem"
-                data-toolbar-menu-item={item.type}
-                onClick={() => {
-                  onCreateNode(item.type)
-                  setMenuOpen(false)
-                }}
-                {...keepCanvasFocus}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <span className={styles.divider} />
-
-      <div className={styles.alignGroup} data-toolbar-align>
-        {ALIGN_MODES.map(({ mode, label }) => (
-          <button
-            key={mode}
-            className={styles.iconBtn}
-            title={label}
-            aria-label={label}
-            data-toolbar-align-mode={mode}
-            disabled={!canAlign(count, mode) || dragging}
-            onClick={() => onAlign(mode)}
-            {...keepCanvasFocus}
+      {tools.map((t) => {
+        /**
+         * 浮层开关由**鼠标进入按钮范围**驱动（用户 2026-09-19）。
+         * 用 `onPointerEnter/Leave` 而不是 CSS `:hover`：浮层要跟着按钮一起存在，
+         * 纯 CSS 会在指针移向浮层途中就把它收掉（两点之间有一段空隙）。
+         */
+        const open = t.menu ? openMenu === t.key : false
+        return (
+          <div
+            key={t.key}
+            className={styles.toolWrap}
+            data-toolbar-tool={t.key}
+            onPointerEnter={() => {
+              if (t.menu) setOpenMenu(t.key)
+            }}
+            onPointerLeave={() => {
+              if (t.menu) setOpenMenu((cur) => (cur === t.key ? null : cur))
+            }}
           >
-            {ALIGN_GLYPH[mode]}
-          </button>
-        ))}
-      </div>
+            <button
+              type="button"
+              className={`${styles.iconBtn} ${t.solid ? styles.solid : ''} ${
+                open && t.key === 'add' ? styles.rotated : ''
+              }`}
+              aria-label={t.label}
+              aria-expanded={t.menu ? open : undefined}
+              disabled={t.disabled}
+              data-toolbar-icon
+              {...{ [t.attr!]: '' }}
+              onClick={() => {
+                if (t.menu) {
+                  /**
+                   * 浮层的主触发已是「指针进入」（onPointerEnter），点击只是**兜底**：
+                   * 键盘用户 Tab 到按钮后按 Enter、或触屏点击（无 hover）时用它打开。
+                   * 因此点击**只开不关**——若写成 toggle，会与 hover 打架：
+                   * 指针进入已展开、随后的点击会立刻把它关掉，用户看到「点了没反应」。
+                   * 收起交给「指针离开」与 Esc。
+                   */
+                  setOpenMenu(t.key)
+                  return
+                }
+                t.onClick?.()
+              }}
+              {...keepCanvasFocus}
+            >
+              {t.icon}
+            </button>
+            {/*
+              名称标签：圆角矩形（按钮本体是圆形，标签才用圆角矩形）。
+              只在 hover 该按钮时出现，所以**必须可键盘到达**——否则纯键盘用户
+              永远看不到这些按钮叫什么。`:focus-visible` 也显示同一份标签。
+            */}
+            <span className={styles.tip} data-toolbar-tip>
+              {t.label}
+            </span>
 
-      <span className={styles.divider} />
+            {open && t.menu === 'add' && (
+              <div className={styles.menu} role="menu" data-toolbar-menu>
+                {NODE_MENU.map((item) => (
+                  <button
+                    key={item.type}
+                    className={styles.menuItem}
+                    role="menuitem"
+                    data-toolbar-menu-item={item.type}
+                    onClick={() => {
+                      onCreateNode(item.type)
+                      setOpenMenu(null)
+                    }}
+                    {...keepCanvasFocus}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
-      {/*
-        排列面板（§6.5 ④）：一个按钮，点击在其右侧展开三种排列方式。
-        形态对齐参考产品的排列菜单（图标 + 文案、圆角、实底）。
-        与 ② 8 种对齐并存：对齐改一个方向，排列两个方向一起重排。
-      */}
-      <div className={styles.menuWrap}>
-        <button
-          className={styles.iconBtn}
-          title="排列"
-          aria-label="排列"
-          aria-expanded={arrangeOpen}
-          data-toolbar-arrange-modes
-          disabled={!canAlign(count, 'left') || dragging}
-          onClick={() => {
-            setArrangeOpen((v) => !v)
-            setMenuOpen(false)
-          }}
-          {...keepCanvasFocus}
-        >
-          {ARRANGE_GLYPH.grid}
-        </button>
-        {arrangeOpen && (
-          <div className={styles.menu} role="menu" data-toolbar-arrange-menu>
-            {ARRANGE_MODES.map(({ mode, label }) => (
-              <button
-                key={mode}
-                className={styles.menuItem}
-                role="menuitem"
-                data-toolbar-arrange-mode={mode}
-                onClick={() => onArrangeMode(mode)}
-                {...keepCanvasFocus}
-              >
-                <span className={styles.menuIcon} aria-hidden="true">
-                  {ARRANGE_GLYPH[mode]}
-                </span>
-                {label}
-              </button>
-            ))}
+            {open && t.menu === 'arrange' && (
+              <div className={styles.menu} role="menu" data-toolbar-arrange-menu>
+                {ARRANGE_MODES.map(({ mode, label }) => (
+                  <button
+                    key={mode}
+                    className={styles.menuItem}
+                    role="menuitem"
+                    data-toolbar-arrange-mode={mode}
+                    onClick={() => onArrangeMode(mode)}
+                    {...keepCanvasFocus}
+                  >
+                    <span className={styles.menuIcon} aria-hidden="true">
+                      {ARRANGE_GLYPH[mode]}
+                    </span>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-      </div>
-
-      <span className={styles.divider} />
-
-      <button
-        className={styles.iconBtn}
-        title="整理节点"
-        aria-label="整理节点"
-        data-toolbar-arrange
-        disabled={!canArrange(count) || dragging}
-        onClick={onArrange}
-        {...keepCanvasFocus}
-      >
-        ⌗
-      </button>
-      <button
-        className={styles.iconBtn}
-        title="重置视图"
-        aria-label="重置视图"
-        data-toolbar-reset
-        onClick={() => fitCanvasView(store)}
-        {...keepCanvasFocus}
-      >
-        ⤾
-      </button>
-
-      <span className={styles.divider} />
-
-      <button
-        className={styles.iconBtn}
-        title="撤销"
-        aria-label="撤销"
-        data-toolbar-undo
-        disabled={!canUndo}
-        onClick={() => store.undo()}
-        {...keepCanvasFocus}
-      >
-        ↶
-      </button>
-      <button
-        className={styles.iconBtn}
-        title="重做"
-        aria-label="重做"
-        data-toolbar-redo
-        disabled={!canRedo}
-        onClick={() => store.redo()}
-        {...keepCanvasFocus}
-      >
-        ↷
-      </button>
-      {/*
-        导入素材（§6.3）：顶栏改版后从顶栏迁入工具栏。落点语义不变
-        （视口中心），拖文件到画布空白处的第二条入口也不变。
-      */}
-      {onImportAsset && (
-        <button
-          className={styles.iconBtn}
-          title="导入本地图片 / 视频，落成生成节点（也可直接拖到画布上）"
-          aria-label="导入素材"
-          data-toolbar-import
-          onClick={onImportAsset}
-          {...keepCanvasFocus}
-        >
-          ⬆
-        </button>
-      )}
+        )
+      })}
     </div>
   )
 }
