@@ -16,17 +16,17 @@ import styles from './CanvasToolbar.module.css'
 const keepCanvasFocus = { onMouseDown: (e: ReactMouseEvent) => e.preventDefault() }
 
 /** 新建节点菜单项（§6.5 ①「与画布空白处右键菜单同一份」） */
-const NODE_MENU: readonly { type: NodeType; label: string }[] = [
-  { type: 'prompt', label: '提示词节点' },
+const NODE_MENU: readonly { type: NodeType; label: string; icon: string }[] = [
+  { type: 'prompt', label: '提示词节点', icon: 'T' },
   /**
    * 文案：「图片·视频生成节点」→「生成节点」（用户 2026-09-19）。
    * 图片与视频是同一个节点的两种功能类别（`data.mode`），名字里不必再复述一遍。
    */
-  { type: 'generation', label: '生成节点' },
-  { type: 'compare', label: '对比节点' },
-  { type: 'group', label: '分组节点' },
-  { type: 'batch', label: '批量节点' },
-  { type: 'board', label: '画板节点' },
+  { type: 'generation', label: '生成节点', icon: '▣' },
+  { type: 'compare', label: '对比节点', icon: '⊟' },
+  { type: 'group', label: '分组节点', icon: '▢' },
+  { type: 'batch', label: '批量节点', icon: '▦' },
+  { type: 'board', label: '画板节点', icon: '▤' },
 ]
 
 /**
@@ -64,6 +64,34 @@ export function CanvasToolbar({
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   /**
+   * 关闭浮层的**延迟句柄**（用户 2026-09-19 实测踩到）。
+   *
+   * 纯 `onPointerLeave` 立刻关闭会让浮层**永远点不中**：按钮右缘到浮层左缘之间
+   * 有 8px 空隙，指针穿过去的那一刻就触发了关闭。补一条不可见的「桥」能覆盖这段空隙，
+   * 但指针移到浮层上时仍会离开 `.toolWrap`（浮层是它的兄弟节点、超出其盒子），
+   * 所以还需要一个**短暂宽限期**：离开后等一小会儿再关，指针在这段时间内
+   * 落到浮层或桥上就会被取消（见下面的 `onPointerEnter`）。
+   *
+   * 为什么用延迟而不是把浮层塞进 wrap 内：浮层要贴在按钮右侧、超出工具栏容器，
+   * 强行纳入 `.toolWrap` 会连带把它算进工具栏的布局盒，撑破那条竖直胶囊。
+   */
+  const closeTimer = useRef<number | null>(null)
+  const cancelClose = () => {
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current)
+      closeTimer.current = null
+    }
+  }
+  const scheduleClose = (key: string) => {
+    cancelClose()
+    closeTimer.current = window.setTimeout(() => {
+      setOpenMenu((cur) => (cur === key ? null : cur))
+      closeTimer.current = null
+    }, 160)
+  }
+  /** 组件卸载时清掉待执行的关闭，避免对已卸载组件 setState */
+  useEffect(() => cancelClose, [])
+  /**
    * 撤销 / 重做从顶栏迁入（产品文档 §6.2 / §6.5 顶栏改版，2026-09-18）。
    *
    * 顶栏按 §6.2 只留导航与项目级入口，画布内操作一律归工具栏；
@@ -94,9 +122,10 @@ export function CanvasToolbar({
     const r = arrange()
     if (r.kind === 'cycle') store.notify(r.reason ?? '存在循环依赖，无法整理')
     else if (r.kind === 'too-few') store.notify('至少选中 2 个节点才能整理')
+    setOpenMenu(null)
   }
 
-  /** 排列面板里点某一项（§6.5 ②） */
+  /** 排列面板里点某一项（§6.5 ②③） */
   const onArrangeMode = (mode: ArrangeMode) => {
     const r = arrangeMode(mode)
     if (r.kind === 'too-few') store.notify('至少选中 2 个节点才能排列')
@@ -126,18 +155,11 @@ export function CanvasToolbar({
     {
       key: 'arrange-modes',
       icon: ARRANGE_GLYPH.grid,
-      label: '排列',
+      /** 整理节点已并入这个面板（用户 2026-09-19），名称反映合并后的含义 */
+      label: '排列与整理',
       menu: 'arrange',
       disabled: count < 2 || dragging,
       attr: 'data-toolbar-arrange-modes',
-    },
-    {
-      key: 'arrange',
-      icon: '⌗',
-      label: '整理节点',
-      onClick: onArrange,
-      disabled: !canArrange(count) || dragging,
-      attr: 'data-toolbar-arrange',
     },
     { key: 'reset', icon: '⤾', label: '重置视图', onClick: () => fitCanvasView(store), attr: 'data-toolbar-reset' },
     { key: 'undo', icon: '↶', label: '撤销', onClick: () => store.undo(), disabled: !canUndo, attr: 'data-toolbar-undo' },
@@ -170,10 +192,14 @@ export function CanvasToolbar({
             className={styles.toolWrap}
             data-toolbar-tool={t.key}
             onPointerEnter={() => {
-              if (t.menu) setOpenMenu(t.key)
+              if (!t.menu) return
+              /** 指针落回按钮 / 桥：取消正在倒计时的关闭 */
+              cancelClose()
+              setOpenMenu(t.key)
             }}
             onPointerLeave={() => {
-              if (t.menu) setOpenMenu((cur) => (cur === t.key ? null : cur))
+              /** 离开不立刻关（会点不中浮层），交给宽限期 */
+              if (t.menu) scheduleClose(t.key)
             }}
           >
             <button
@@ -213,28 +239,50 @@ export function CanvasToolbar({
               {t.label}
             </span>
 
+            {/*
+              按钮与浮层之间的不可见「桥」：让两者成为连续的 hover 区域，
+              指针穿过渡过 8px 空隙时不会掉出 wrap（见 CSS 注释）。
+            */}
+            {open && t.menu && <span className={styles.bridge} aria-hidden="true" />}
+
             {open && t.menu === 'add' && (
-              <div className={styles.menu} role="menu" data-toolbar-menu>
+              <div
+                className={styles.menu}
+                role="menu"
+                data-toolbar-menu
+                /** 指针在浮层里时持续取消关闭；离开浮层才开始倒计时 */
+                onPointerEnter={cancelClose}
+                onPointerLeave={() => scheduleClose(t.key)}
+              >
                 {NODE_MENU.map((item) => (
                   <button
                     key={item.type}
                     className={styles.menuItem}
-                    role="menuitem"
-                    data-toolbar-menu-item={item.type}
-                    onClick={() => {
-                      onCreateNode(item.type)
-                      setOpenMenu(null)
-                    }}
-                    {...keepCanvasFocus}
-                  >
-                    {item.label}
-                  </button>
+                role="menuitem"
+                data-toolbar-menu-item={item.type}
+                onClick={() => {
+                  onCreateNode(item.type)
+                  setOpenMenu(null)
+                }}
+                {...keepCanvasFocus}
+              >
+                <span className={styles.menuIcon} aria-hidden="true">
+                  {item.icon}
+                </span>
+                {item.label}
+              </button>
                 ))}
               </div>
             )}
 
             {open && t.menu === 'arrange' && (
-              <div className={styles.menu} role="menu" data-toolbar-arrange-menu>
+              <div
+                className={styles.menu}
+                role="menu"
+                data-toolbar-arrange-menu
+                onPointerEnter={cancelClose}
+                onPointerLeave={() => scheduleClose(t.key)}
+              >
                 {ARRANGE_MODES.map(({ mode, label }) => (
                   <button
                     key={mode}
@@ -250,6 +298,26 @@ export function CanvasToolbar({
                     {label}
                   </button>
                 ))}
+                {/*
+                  整理节点并入本面板（用户 2026-09-19）：它和三种排列同属
+                  「按某种规则重排选中节点」，分两个按钮只是让工具栏更长。
+                  它与排列的区别是**看连线**（按上下游层级重排）而不是纯按位置，
+                  放在同一面板里，用户按需求挑一个即可。
+                */}
+                <button
+                  type="button"
+                  className={styles.menuItem}
+                  role="menuitem"
+                  data-toolbar-arrange
+                  disabled={!canArrange(count) || dragging}
+                  onClick={onArrange}
+                  {...keepCanvasFocus}
+                >
+                  <span className={styles.menuIcon} aria-hidden="true">
+                    ⌗
+                  </span>
+                  整理节点
+                </button>
               </div>
             )}
           </div>

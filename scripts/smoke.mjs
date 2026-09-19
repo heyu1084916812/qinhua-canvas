@@ -2086,7 +2086,14 @@ async function g17(browser) {
     `before=${beforeAlign.map((p) => p.x).join(',')} after=${xs.join(',')}`,
   )
 
-  // ── 8. 整理节点：同层纵向等距（§6.5 ③）──
+  /**
+   * ── 8. 整理节点：同层纵向等距（§6.5 ②）──
+   *
+   * 整理节点已于 2026-09-19 并入「排列与整理」面板（不再有独立按钮），
+   * 且面板由**指针进入按钮范围**展开，故这里必须重新 hover 把那面板挂出来。
+   */
+  await page.locator('[data-toolbar-arrange-modes]').hover()
+  await sleep(300)
   await page.locator('[data-toolbar-arrange]').click()
   await sleep(400)
   const afterArrange = await Promise.all(ids.map(posOf))
