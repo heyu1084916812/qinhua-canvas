@@ -112,7 +112,7 @@ export function CanvasTopBar({
   const tabs = orderedIds.map((id) => byId.get(id) ?? ({ id, name: '未命名项目' } as ProjectListItem))
 
   return (
-    <div className={styles.bar}>
+    <div className={styles.bar} data-topbar>
       {/*
         品牌区（用户 2026-09-19）：**不是按钮**，只是一块可点的范围。
 

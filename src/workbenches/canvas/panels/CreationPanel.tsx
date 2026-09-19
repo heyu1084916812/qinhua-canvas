@@ -450,7 +450,7 @@ export function CreationPanel(props: CreationPanelProps) {
       }}
     >
       {/* 第一部分：素材缩略图（分组 = 上游 + 组内；批量 = 内部素材） */}
-      <section className={styles.section} data-panel-part="assets">
+      <section className={`${styles.section} ${styles.assetsSection}`} data-panel-part="assets">
       {/*
         首行：素材条在左、「图片 / 视频」功能类别切换在右，同一行且等高（30px）。
 
@@ -613,7 +613,7 @@ export function CreationPanel(props: CreationPanelProps) {
       </section>
 
       {/* 第三部分：参数与生成 */}
-      <section className={`${styles.section} ${styles.params}`} data-panel-part="params">
+      <section className={`${styles.section} ${styles.params} ${styles.paramsSection}`} data-panel-part="params">
         {/* 无可用平台 → 引导去后台设置（独占一行，与错误提示同一排版位） */}
         {noPlatform && (
           <button

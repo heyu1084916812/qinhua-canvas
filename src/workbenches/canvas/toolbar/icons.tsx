@@ -206,3 +206,14 @@ export function IconImport(props: IconProps) {
     </Svg>
   )
 }
+
+/** 连接到已有节点：两个节点块之间一条连线（§6.14「连接已有节点」区分于「新建」） */
+export function IconLink(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="2.5" y="7.5" width="6" height="9" rx="1.4" />
+      <rect x="15.5" y="7.5" width="6" height="9" rx="1.4" />
+      <path d="M8.5 12h7" />
+    </Svg>
+  )
+}

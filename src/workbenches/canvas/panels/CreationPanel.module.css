@@ -39,11 +39,14 @@
   color: var(--text-1);
   /*
    * 第一部分首行高度：**空态素材框与「图片 / 视频」类别切换共用这一个值**（二者等高）。
-   * 30px = 类别切换的自然高度（24px 按钮 + 2px 内距×2 + 1px 边框×2），
+   * 60px = 类别切换的自然高度（48px 按钮 + 2px 内距×2 + 1px 边框×2），
    * 反过来拿它钉住空态框——光靠 `align-items: stretch` 不行：flex 拉伸按 content-box
-   * 算，空态框有 1px 虚线边框，会被撑到 32px，比类别切换高 2px。
+   * 算，空态框有 1px 虚线边框，会被撑到 62px，比类别切换高 2px。
+   *
+   * 2026-09-19（用户第 4 条）：缩略图与「图片 / 视频」切换**一起加大一倍**（30 → 60）。
+   * 两者必须同倍放大并继续等高：只放大一边会立刻破掉首行的对齐（它们共处一行）。
    */
-  --assets-row-h: 30px;
+  --assets-row-h: 60px;
 }
 
 .section {
@@ -60,6 +63,16 @@
 .promptSection {
   flex: 1 1 auto;
   min-height: 0;
+}
+
+/*
+ * 素材行与参数行是**固定内容**，不允许被压缩：面板钉死 360px 后，若它们可收缩，
+ * `flex-shrink` 会按比例把这两行也挤小（实测素材按钮从 48px 被压到 36px，
+ * 「加大一倍」直接失效）。让可伸缩的只有中间的提示词区。
+ */
+.assetsSection,
+.paramsSection {
+  flex: 0 0 auto;
 }
 
 /* ── 第一部分：缩略图 ── */
@@ -82,6 +95,8 @@
 .category {
   display: inline-flex;
   align-items: center;
+  /* 不被父级 flex 压缩：否则 48px 按钮会被挤到 36px（实测），「加大一倍」失效 */
+  flex: 0 0 auto;
   gap: 2px;
   padding: 2px;
   border: 1px solid var(--stroke);
@@ -89,13 +104,14 @@
 }
 
 .catBtn {
-  height: 24px;
-  padding: 0 10px;
+  /* 用户第 4 条：与缩略图同倍放大（24 → 48 高、字号 11 → 18） */
+  height: 48px;
+  padding: 0 18px;
   border: none;
   border-radius: calc(var(--radius-control) - 3px);
   background: transparent;
   font-family: var(--font-sans);
-  font-size: var(--fs-chip);
+  font-size: 18px;
   font-weight: var(--fw-chip);
   color: var(--text-2);
   cursor: pointer;
@@ -214,7 +230,7 @@
   }
 
 .thumbText {
-  font-size: 9px;
+  font-size: 18px;
   color: var(--text-2);
   padding: 2px;
   max-height: 100%;
@@ -226,35 +242,35 @@
   word-break: break-all;
 }
 
-/* 编号角标：左上，显性（30px 缩略图内收到 12px，9px 字仍在） */
+/* 编号角标：左上，显性（60px 缩略图内收到 24px，18px 字） */
 .badge {
   position: absolute;
   left: 1px;
   top: 1px;
-  min-width: 12px;
-  height: 12px;
-  padding: 0 2px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
   box-sizing: border-box;
   border-radius: 3px;
   /* 叠在素材缩略图上：素材亮度不可控，故走「浮层」而不是 --bg-surface ——
      深色主题下它会翻成浅底深字，压在亮图上照样读得清。 */
   background: var(--overlay-scrim);
   color: var(--overlay-text);
-  font-size: 9px;
+  font-size: 18px;
   font-weight: 600;
-  line-height: 12px;
+  line-height: 24px;
   text-align: center;
   pointer-events: none;
 }
 
 /* 小眼睛：右上，隐性（hover / focus 才显形，§4.5「悬停替代」）。
-   14px：与左上的角标错开，也和右下的删除按钮在 30px 方块里刚好上下不叠 */
+   28px：与左上的角标错开，也和右下的删除按钮在 60px 方块里刚好上下不叠 */
 .eye {
   position: absolute;
   right: 1px;
   top: 1px;
-  width: 14px;
-  height: 14px;
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -262,7 +278,7 @@
   border-radius: 999px;
   background: var(--bg-surface);
   color: var(--text-1);
-  font-size: 9px;
+  font-size: 18px;
   line-height: 1;
   cursor: pointer;
   opacity: 0;
@@ -289,11 +305,11 @@
    * 的唯一入口——藏起来等于没有。
    */
   .assetMenuBtn {
-    top: -7px;
-    right: -7px;
-    width: 18px;
-    height: 18px;
-    font-size: 13px;
+    top: -14px;
+    right: -14px;
+    width: 36px;
+    height: 36px;
+    font-size: 26px;
     font-weight: 700;
     line-height: 1;
     opacity: 1;
@@ -346,7 +362,8 @@
   outline: none;
   background: transparent;
   font: inherit;
-  font-size: var(--fs-body);
+  /* 用户第 3 条：「参数文字加大」也覆盖提示词正文——它是面板里最主要的一块阅读内容 */
+  font-size: 16px;
   line-height: var(--lh-body);
   text-align: left;
   color: var(--text-1);
@@ -491,17 +508,17 @@
   cursor: not-allowed;
 }
 
-/* 生成按钮：圆形 38×38，实色 --accent，高度与参数行齐平（§6.8） */
+/* 生成按钮：圆形 46×46，实色 --accent，高度与参数行（chip 46px）齐平（§6.8） */
 .run {
   margin-left: auto;
-  width: 38px;
-  height: 38px;
+  width: 46px;
+  height: 46px;
   flex: 0 0 auto;
   border: none;
   border-radius: 999px;
   background: var(--accent);
   color: var(--accent-text);
-  font-size: 16px;
+  font-size: 20px;
   line-height: 1;
   display: inline-flex;
   align-items: center;

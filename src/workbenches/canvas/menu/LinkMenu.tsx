@@ -1,11 +1,44 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useSyncExternalStore } from 'react'
 import { useCanvasStore, useGraph } from '../storeContext'
 import { screenToWorld } from '../../../domain/canvas/geometry/coords'
 import { linkMenuSections, type LinkMenuItem } from '../../../domain/canvas/menu/linkMenu'
 import { NODE_MINIMUMS } from '../../../domain/canvas/layout/constants'
 import { createId } from '../../../shared/id'
+import {
+  IconBatch,
+  IconBoard,
+  IconCompare,
+  IconGeneration,
+  IconGroup,
+  IconLink,
+  IconPrompt,
+} from '../toolbar/icons'
 import styles from './LinkMenu.module.css'
+
+/**
+ * 菜单项图标（用户 2026-09-19 第 5 条：拉线后的这个菜单也要有图标，与工具栏同一套）。
+ *
+ * 「新建并连接」的项按**要建的节点类型**取图标——与工具栏节点面板逐字同形，
+ * 用户不必在两处各认一遍；「连接已有节点」的项统一用连线图标（它们指向的是不同
+ * 既有节点，图标要表达的是「连过去」这个动作，而不是目标类型）。
+ */
+const MENU_ICON_SIZE = 16
+
+const CREATE_ICONS: Record<string, ReactNode> = {
+  prompt: <IconPrompt size={MENU_ICON_SIZE} />,
+  generation: <IconGeneration size={MENU_ICON_SIZE} />,
+  compare: <IconCompare size={MENU_ICON_SIZE} />,
+  group: <IconGroup size={MENU_ICON_SIZE} />,
+  batch: <IconBatch size={MENU_ICON_SIZE} />,
+  board: <IconBoard size={MENU_ICON_SIZE} />,
+}
+
+function iconOf(item: LinkMenuItem) {
+  if (item.action.kind === 'create') return CREATE_ICONS[item.action.type] ?? <IconLink size={MENU_ICON_SIZE} />
+  return <IconLink size={MENU_ICON_SIZE} />
+}
 
 /** §6.14：菜单打开在「指针右侧 12px」 */
 const POINTER_GAP = 12
@@ -150,6 +183,9 @@ export function LinkMenu() {
               onClick={() => runItem(item)}
               onMouseDown={(e) => e.preventDefault()}
             >
+              <span className={styles.itemIcon} aria-hidden="true">
+                {iconOf(item)}
+              </span>
               {item.label}
             </button>
           ))}

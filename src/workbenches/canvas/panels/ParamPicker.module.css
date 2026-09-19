@@ -13,26 +13,27 @@
   display: inline-flex;
 }
 
-/* chip 触发器（§6.8）：高 38px、padding 0 10px、字号 11px / 字重 600、透明底 */
+/* chip 触发器（§6.8）：高 46px、padding 0 12px、字号 16px / 字重 500、透明底 */
 .chip {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  height: 38px;
-  padding: 0 10px;
+  height: 46px;
+  padding: 0 12px;
   border: none;
   border-radius: var(--radius-control);
   background: transparent;
   font-family: var(--font-sans);
   /**
-   * chip 文案从 `--fs-chip`(11px) 提到 `--fs-body`(13px)（用户 2026-09-19：
-   * 「参数文字太小了，变大一点」）。
+   * chip 文案从 `--fs-chip`(11px) 提到 **16px**（用户 2026-09-19：
+   * 「这里面文字加大一点，现在太少太小了」——先提到 13px，仍偏小，
+   * 这一轮再加大到 16px，明显大于正文）。
    *
    * 为什么不该用 chip 那一档：这几个 chip 是用户**反复读写**的主要信息
    * （当前渠道 / 模型 / 比例 / 张数），不是角标或辅助标签；比正文还小会让人
-   * 反复凑近看。字号跟随 `--fs-body`，与面板里其它正文同级，视觉上也更稳。
+   * 反复凑近看。
    */
-  font-size: var(--fs-body);
+  font-size: 16px;
   font-weight: 500;
   color: var(--text-1);
   cursor: pointer;
@@ -100,7 +101,7 @@
   width: max-content;
   min-width: 96px;
   max-width: 280px;
-  max-height: 340px;
+  max-height: 440px;
   overflow-y: auto;
 }
 
@@ -109,14 +110,14 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  height: 34px;
-  padding: 0 10px;
+  height: 44px;
+  padding: 0 14px;
   border: none;
   border-radius: calc(var(--radius-control) - 4px);
   background: transparent;
   font-family: var(--font-sans);
-  font-size: var(--fs-chip);
-  font-weight: var(--fw-chip);
+  font-size: 15px;
+  font-weight: 500;
   color: var(--text-1);
   text-align: left;
   white-space: nowrap;

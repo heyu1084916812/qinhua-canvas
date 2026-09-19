@@ -147,12 +147,21 @@ async function genPanel(page, nodeLocator) {
   if (box) {
     /**
      * 选中点击点避开两个坑：
-     * - **顶栏浮层**：`top:12 / height:44`（屏幕 y 12..56）盖在画布上；模板预置节点
-     *   world y=0 → 屏幕 y≈8，其顶部 56px 被顶栏吃掉，点 y:16 会被顶栏拦截（探针实测）。
-     *   故取节点内 y=72（顶栏下沿之下）。
+     * - **顶栏浮层**盖在画布上。早先它固定 `top:12 / height:44`（屏幕 y 12..56），
+     *   于是这里写死 y=72；但顶栏 2026-09-19 按用户要求「加大一倍」（`.bar` 挂 `zoom:2`，
+     *   占位变成 y 24..112），写死的 72 反而落进顶栏里、点击被它吃掉。
+     *   改为**运行时量顶栏下沿**，以后顶栏再怎么改尺寸都不会悄悄失效。
      * - **本体中央的 `+`**：那是上传入口，点它会弹 showOpenFilePicker；故取左侧 x=40。
      */
-    const y = Math.max(16, Math.min(box.height - 14, 72))
+    const barBottom = await page
+      .evaluate(() => {
+        const el = document.querySelector('[data-topbar]')
+        return el ? el.getBoundingClientRect().bottom : 0
+      })
+      .catch(() => 0)
+    /** 节点在屏幕上的顶边（box.y）到「顶栏下沿」的偏移；再加 8px 余量 */
+    const safeY = Math.max(16, barBottom - box.y + 8)
+    const y = Math.min(Math.max(16, safeY), box.height - 14)
     const x = Math.max(8, Math.min(40, box.width / 2 - 30))
     await node.click({ position: { x, y } })
   }
@@ -1544,6 +1553,25 @@ async function g13(browser) {
     // 锚点是「指针右侧 12px」，不是指针本身（右键菜单才是 +4/+4）
     rec(g, '菜单锚在指针右侧 12px', Math.abs(mb.x - blankDrop.x - 12) < 2, `Δx=${(mb.x - blankDrop.x).toFixed(1)}`)
     rec(g, '菜单含「新建并连接」分区', (await page.locator('[data-link-menu-section="create"]').count()) === 1)
+    /**
+     * 菜单项图标（用户 2026-09-19 第 5 条：拉线后的这个菜单也要有图标）。
+     *
+     * 断言「每一项都画出了 SVG」且**不是零尺寸**——只数元素个数会被空壳骗过
+     * （老教训：连线 DOM 存在但屏幕上没有）。故连盒模型一起量。
+     */
+    const menuIconStats = await page.locator('[data-link-menu-item]').evaluateAll((items) =>
+      items.map((it) => {
+        const svg = it.querySelector('svg')
+        const r = svg?.getBoundingClientRect()
+        return { id: it.getAttribute('data-link-menu-item'), has: !!svg, w: r ? Math.round(r.width) : 0, h: r ? Math.round(r.height) : 0 }
+      }),
+    )
+    rec(
+      g,
+      '★ 菜单项都带线性图标（与工具栏同一套，非零尺寸 SVG）',
+      menuIconStats.length > 0 && menuIconStats.every((s) => s.has && s.w >= 12 && s.h >= 12),
+      menuIconStats.map((s) => `${s.id}:${s.w}×${s.h}`).join(' '),
+    )
     await page.screenshot({ path: `${OUT}/22b-g13-link-menu.png` })
     // Esc 关闭，且关闭本身不动已有连线（§6.14「菜单关闭不改变已有节点和连线」）
     await page.keyboard.press('Escape')
@@ -2036,6 +2064,26 @@ async function g17(browser) {
   // ── 7. 工具栏存在且新建菜单可展开 ──
   const toolbarExists = (await page.locator('[data-canvas-toolbar]').count()) === 1
   rec(g, '左侧竖向工具栏存在（§6.1 / §6.5）', toolbarExists)
+
+  /**
+   * 工具栏加大一半（用户 2026-09-19 第 7 条）。与顶栏同理：`zoom` 不改
+   * `clientWidth`，必须量屏幕矩形。48×280 → 72×420，按钮 36 → 54。
+   */
+  const tbRect = await page.evaluate(() => {
+    const el = document.querySelector('[data-canvas-toolbar]')
+    const btn = el?.querySelector('[data-toolbar-icon]')
+    if (!el || !btn) return null
+    const r = el.getBoundingClientRect()
+    const br = btn.getBoundingClientRect()
+    return { w: Math.round(r.width), h: Math.round(r.height), btnW: Math.round(br.width) }
+  })
+  rec(
+    g,
+    '★ 工具栏加大一半（按钮 36 → 54px）',
+    !!tbRect && Math.abs(tbRect.btnW - 54) <= 1,
+    tbRect ? `${tbRect.w}×${tbRect.h} 按钮=${tbRect.btnW}` : 'null',
+  )
+
   await page.locator('[data-toolbar-add]').click()
   await sleep(250)
   const menuItems = await page.locator('[data-toolbar-menu-item]').count()
@@ -2075,9 +2123,19 @@ async function g17(browser) {
     allInside,
     `zoom ${zoomed.zoom} → ${reset.zoom} / 节点 ${nodeBoxes.length} 个`,
   )
-  // 顶栏浮层占屏幕 y 12..56：适配后节点（连同浮在框外的标题）不能落在它下面。
-  // fitViewport 的 padding=72：内容装得下时居中（≥72），装不下时贴 padding（=72），两种都 ≥56。
-  const FLOAT_H = 56
+  /*
+   * 适配后节点（连同浮在框外的标题）不能落在顶栏底下。
+   *
+   * 这里原本写死 FLOAT_H = 56（旧顶栏下沿 12+44）。顶栏 2026-09-19 放大一倍后
+   * 下沿到 112，写死的值会让这条断言在**节点真被压住**时依然通过（假绿）。
+   * 改为运行时量真实下沿，断言才继续有效。配套的 FIT_PADDING 已同步涨到 128。
+   */
+  const FLOAT_H = await page
+    .evaluate(() => {
+      const el = document.querySelector('[data-topbar]')
+      return el ? el.getBoundingClientRect().bottom : 56
+    })
+    .catch(() => 56)
   const notOccluded = nodeBoxes.length > 0 && nodeBoxes.every((bx) => bx.y >= FLOAT_H)
   rec(
     g,
@@ -5601,6 +5659,26 @@ async function g42(browser) {
   rec(g, '画布顶栏有返回首页的落点', (await backBtn.count()) === 1, `count=${await backBtn.count()}`)
   rec(g, '返回落点是品牌名（不再是「← 返回」）', (await backBtn.innerText()) === '轻画', await backBtn.innerText())
   rec(g, '画布顶栏有「后台设置」', (await page.locator('[data-topbar-settings]').count()) === 1)
+
+  /**
+   * 顶栏整体加倍（用户 2026-09-19 第 6 条）。
+   *
+   * 顶栏用 `zoom: 2` 放大，`clientHeight` 仍是 44（zoom 不改布局值），
+   * 所以必须量 **`getBoundingClientRect()` 的屏幕尺寸**才看得出真正翻倍。
+   */
+  const topbarRect = await page.evaluate(() => {
+    const el = document.querySelector('[data-topbar]')
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    return { w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top) }
+  })
+  rec(
+    g,
+    '★ 顶栏整体加大一倍（屏幕高 88，原 44）',
+    !!topbarRect && Math.abs(topbarRect.h - 88) <= 2,
+    topbarRect ? `${topbarRect.w}×${topbarRect.h} top=${topbarRect.top}` : 'null',
+  )
+
   // 后台设置在**日志右边**（用户 2026-09-19）：越靠右越接近「离开画布」
   const barOrder = await page.evaluate(() => {
     const bar = document.querySelector('[data-topbar-settings]')?.parentElement
@@ -7669,8 +7747,22 @@ async function g58(browser) {
   // 1) 单选生成节点 → 栏出现在节点上方、水平居中
   const gen = page.locator('[data-node-type="generation"]').first()
   const n0 = await gen.boundingBox()
+  /*
+   * 选中点纵向要落在顶栏下沿之下（顶栏 2026-09-19 放大一倍后下沿到 112，
+   * 写死的 72 会点进顶栏里，被项目标签拦走）。运行时量顶栏下沿 + 8px 余量。
+   */
+  const followBarSafeY =
+    (await page
+      .evaluate(() => {
+        const el = document.querySelector('[data-topbar]')
+        return el ? el.getBoundingClientRect().bottom : 0
+      })
+      .catch(() => 0)) - n0.y + 8
   await gen.click({
-    position: { x: Math.max(8, Math.min(40, n0.width / 2 - 30)), y: Math.max(16, Math.min(n0.height - 14, 72)) },
+    position: {
+      x: Math.max(8, Math.min(40, n0.width / 2 - 30)),
+      y: Math.min(Math.max(followBarSafeY, 16), n0.height - 14),
+    },
   })
   await sleep(300)
   rec(g, '单选生成节点出现跟随栏', (await bar.count()) === 1, `count=${await bar.count()}`)
@@ -7768,8 +7860,20 @@ async function g58(browser) {
   // 3.5) ★ 节点拖到画布**顶端**时栏**不翻到下方**（用户 2026-09-17）
   const nTop = await gen.boundingBox()
   const gTop = { x: Math.round(nTop.x + 14), y: Math.round(nTop.y + nTop.height - 14) }
-  // 只拖到「顶栏下沿之下一点」：拖出画布可视区后节点点不中，后续断言会全部落空
-  const TOP_SAFE = 70
+  /*
+   * 只拖到「顶栏下沿之下一点」：拖出画布可视区后节点点不中，后续断言会全部落空。
+   *
+   * 这里的 70 原本按旧顶栏（下沿 56）写死；顶栏 2026-09-19 放大一倍后下沿到 112，
+   * 70 已经落进顶栏里，点击会被顶栏的项目标签拦走（实测 Playwright 报
+   * "subtree intercepts pointer events"）。改为**运行时量**顶栏下沿，加一点余量。
+   */
+  const TOP_SAFE =
+    (await page
+      .evaluate(() => {
+        const el = document.querySelector('[data-topbar]')
+        return el ? el.getBoundingClientRect().bottom : 0
+      })
+      .catch(() => 0)) + 16
   await page.mouse.move(gTop.x, gTop.y)
   await page.mouse.down()
   await page.mouse.move(gTop.x, TOP_SAFE, { steps: 14 })
@@ -8163,10 +8267,17 @@ async function g63(browser) {
   rec(g, '张数是 chip（不再是并排按钮组）', (await countChip.count()) === 1)
   rec(g, '旧的并排按钮组已移除', (await panel.locator('[data-param-count]').count()) === 0)
 
-  // 参数 chip 不带下拉箭头，且字号与正文同级
+  /*
+   * 参数 chip 不带下拉箭头，字号**明显大于正文**。
+   *
+   * 口径变过两次：最初 11px（chip 档）→ 13px（与正文同级，用户 2026-09-19 第一轮：
+   * 「参数文字太小了」）→ 16px（同一用户第二轮：「这里面文字加大一点，现在太少太小了」，
+   * 说明 13px 仍不够）。故断言从「等于正文级」改为「显著大于正文(13px)」，
+   * 锁住的是**可读性意图**而不是某一个具体像素值，下次再调字号不必重写这条。
+   */
   rec(g, '参数 chip 不再画下拉箭头', (await panel.locator('.chevron, svg.chevron').count()) === 0)
   const chipFont = await panel.locator('[data-param-chip="ratio"]').evaluate((el) => getComputedStyle(el).fontSize)
-  rec(g, '参数 chip 字号提到正文级', chipFont === '13px', chipFont)
+  rec(g, '参数 chip 字号明显大于正文（≥16px）', parseFloat(chipFont) >= 16, chipFont)
 
   /**
    * mock 的 `mock-image-1` **声明了** `maxCount: 4`，所以 9 张在这里本就该置灰
@@ -8344,7 +8455,15 @@ async function g62(browser) {
   const gen = page.locator('[data-node-type="generation"]').first()
   const nb = await gen.boundingBox()
   if (nb) {
-    await page.mouse.click(Math.round(nb.x + 12), Math.round(Math.max(nb.y + 72, 72)))
+    /* 同 G58：顶栏下沿已到 112，选中点必须落在它之下，否则被顶栏拦走 */
+    const safeTop =
+      (await page
+        .evaluate(() => {
+          const el = document.querySelector('[data-topbar]')
+          return el ? el.getBoundingClientRect().bottom : 0
+        })
+        .catch(() => 0)) + 8
+    await page.mouse.click(Math.round(nb.x + 12), Math.round(Math.max(nb.y + 72, safeTop)))
     await sleep(400)
     const outline = await page.evaluate(() => {
       const el = document.querySelector('[data-node-id]')
