@@ -217,3 +217,133 @@ export function IconLink(props: IconProps) {
     </Svg>
   )
 }
+
+/* ────────────────────────────────────────────────────────────
+ * 正文格式图标（用户 2026-09-21）。
+ *
+ * 形状对齐「线性图标」：只描边、不填充、线宽与上面同一套（1.6 / 24×24）。
+ * 标题用 **H1/H2/H3 字形**（用户参考图就是字），列表 / 分隔线 / 复制 / 全屏
+ * 用图形——这也是参考图的分法：文字类格式给字形，结构类给图形。
+ * ──────────────────────────────────────────────────────────── */
+
+/**
+ * 标题字形。用 `<text>` 而不是路径：这三个是**文字本身**（H1/H2/H3），
+ * 画成路径反而失真；`font-size` 随 viewBox 缩放，和旁边图形同高。
+ */
+function HeadingGlyph({ level, ...rest }: IconProps & { level: 1 | 2 | 3 }) {
+  return (
+    <Svg {...rest}>
+      <text
+        x="12"
+        y="16.5"
+        textAnchor="middle"
+        fontSize="11"
+        fontWeight="600"
+        fill="currentColor"
+        stroke="none"
+        fontFamily="var(--font-sans)"
+      >
+        H{level}
+      </text>
+    </Svg>
+  )
+}
+
+export function IconH1(props: IconProps) {
+  return <HeadingGlyph level={1} {...props} />
+}
+export function IconH2(props: IconProps) {
+  return <HeadingGlyph level={2} {...props} />
+}
+export function IconH3(props: IconProps) {
+  return <HeadingGlyph level={3} {...props} />
+}
+
+/** 正文：一个段落符号（¶），表示「取消标题 / 列表，回到普通段落」 */
+export function IconParagraph(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M13 4v16" />
+      <path d="M17 4v16" />
+      <path d="M13 4h-3a4 4 0 0 0 0 8h3" />
+    </Svg>
+  )
+}
+
+/** 粗体：字形 B */
+export function IconBold(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M7 4h6a4 4 0 0 1 0 8H7Z" />
+      <path d="M7 12h7a4 4 0 0 1 0 8H7Z" />
+    </Svg>
+  )
+}
+
+/** 斜体：字形 I（带倾角的竖笔） */
+export function IconItalic(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M14.5 4h-5" />
+      <path d="M14.5 20h-5" />
+      <path d="M14 4 10 20" />
+    </Svg>
+  )
+}
+
+/** 无序列表：三行，行首为圆点 */
+export function IconBulletList(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="5" cy="7" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none" />
+      <circle cx="5" cy="17" r="1.4" fill="currentColor" stroke="none" />
+      <path d="M10 7h9M10 12h9M10 17h9" />
+    </Svg>
+  )
+}
+
+/** 有序列表：三行，行首为数字 */
+export function IconOrderedList(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 5.5 5.5 4.5V9" />
+      <path d="M4 12.5h2.2L4 15h2.2" />
+      <path d="M4 17h1.6a1.2 1.2 0 0 1 0 2.4H4" />
+      <path d="M10 7h9M10 12h9M10 17h9" />
+    </Svg>
+  )
+}
+
+/** 分隔线：一条横线，两侧短竖线示意「上下断开」 */
+export function IconDivider(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3 12h18" />
+      <path d="M7 7v2M12 7v2M17 7v2" opacity="0.35" />
+      <path d="M7 15v2M12 15v2M17 15v2" opacity="0.35" />
+    </Svg>
+  )
+}
+
+/** 复制：两层叠放的方框（与跟随栏「复制」同一形状，语义一致） */
+export function IconCopyText(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="9" y="9" width="11" height="11" rx="1.6" />
+      <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+    </Svg>
+  )
+}
+
+/** 全屏编辑：四角向外（进入）/ 向内（退出）由调用方翻转 */
+export function IconExpand(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 9V5a1 1 0 0 1 1-1h4" />
+      <path d="M20 9V5a1 1 0 0 0-1-1h-4" />
+      <path d="M4 15v4a1 1 0 0 0 1 1h4" />
+      <path d="M20 15v4a1 1 0 0 1-1 1h-4" />
+    </Svg>
+  )
+}

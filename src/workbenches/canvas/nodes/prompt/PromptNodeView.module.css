@@ -99,6 +99,33 @@
   font-style: italic;
 }
 
+/*
+ * 节点内编辑态（双击进入，用户 2026-09-21）。
+ *
+ * 与 `.text` 占**同一块空间**（都是 `flex:1` + 同一组排版），切换时才不会跳。
+ * 这里显示的是**带 Markdown 符号的真实文本**——它是唯一有光标的地方，
+ * 符号藏掉就没法定位了；要看「无符号的效果」去大编辑框（右键 / 全屏按钮）。
+ */
+.editArea {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+}
+
+.editArea::placeholder {
+  color: var(--text-3);
+}
+
 .footer {
   flex: none;
   display: flex;

@@ -58,17 +58,21 @@
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--stroke);
+  /* 窗口窄时工具栏可横向滚动，而不是把标题一起压扁 */
+  overflow-x: auto;
 }
 
 .title {
-  flex: 1;
-  min-width: 0;
+  /*
+   * 标题给一个**下限**，不被工具栏挤成「文本节…」：面板标题本身是识别标志，
+   * 截断到三个字就失去意义。窗口窄时让标题区先保住，工具栏横向滚动。
+   */
+  flex: 0 0 auto;
+  min-width: 120px;
   font-size: var(--fs-panel-title);
   font-weight: var(--fw-panel-title);
   color: var(--text-1);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .body {

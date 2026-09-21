@@ -1,75 +1,79 @@
 /*
- * 正文格式工具栏（§6.7）。形态与节点跟随栏同款（§3.3：无投影、
- * 1px 细描边 + 背景明度分层、10px 圆角），保证两处工具栏看起来是一套东西。
+ * 正文格式工具栏（§6.7）。
+ *
+ * ★ **不自带边框**（用户 2026-09-21 第二版反馈）：它渲染在节点跟随栏**内部**，
+ * 而跟随栏已经有 1px 描边 + 10px 圆角。自带宽框会形成「框里有框」——
+ * 与生成节点那条只有一个框的观感不一致（实测确实如此）。
+ * 灯箱那一处由 `<header>` 的下边框划线，同样不需要它自带框。
+ *
+ * 按钮的尺寸 / 内距 / 字号**逐条对齐** `NodeFollowBar.module.css` 的 `.btn`，
+ * 这样两条栏看上去才是同一套东西（用户明确要求「和生成节点共享同一套规则」）。
  */
 .bar {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 3px;
-  box-sizing: border-box;
-  background: var(--bg-surface);
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius-control);
+  /* 只留按钮之间的呼吸，不留自己的框 */
+  padding: 0;
   font-family: var(--font-sans);
   user-select: none;
 }
 
-/*
- * 按钮：**文字符**（H1/H2/H3/正文）与**图形符**（B / I / ⧉ / ⤢）混排。
- * 统一宽度而不是让内容撑开——否则「正文」比「H1」宽，按钮会参差不齐。
- */
-.btn,
-.btnOn {
-  display: inline-flex;
+.btn {
+  display: flex;
   align-items: center;
   justify-content: center;
-  /* 定宽而不是随内容：H1（2 字）与「正文」（2 字）宽度一致，整排才齐 */
-  width: 32px;
-  box-sizing: border-box;
+  /* 只有图标 → 定宽方形，整排等距 */
+  width: 28px;
   height: 26px;
   padding: 0;
-  border: none;
+  /*
+   * 描边**恒为 transparent**（与跟随栏同款）：若改成 `border: none`，
+   * hover 时加边框会让按钮尺寸与邻居跳 2px；保持透明边框则几何不动。
+   */
+  border: 1px solid transparent;
   border-radius: calc(var(--radius-control) - 4px);
   background: transparent;
   color: var(--text-1);
   font-family: var(--font-sans);
-  font-size: var(--fs-label);
-  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
   line-height: 1;
   cursor: pointer;
-  transition: background var(--dur-hover) var(--ease-out);
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out);
 }
 
 .btn:hover,
-.btnOn:hover {
+.btn:focus-visible {
   background: var(--bg-hover);
 }
 
 /* 点亮 = 光标那行现在就是这个格式（与 ParamPicker 的选中态同一口径） */
 .btnOn {
   background: var(--bg-hover);
-  font-weight: 600;
 }
 
-.btn:focus-visible,
-.btnOn:focus-visible {
+.btn:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
 
+/* 图标 26px 见方：与按钮等高，视觉居中 */
+.icon {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .divider {
+  flex: none;
   width: 1px;
   height: 16px;
   margin: 0 var(--space-1);
   background: var(--stroke);
-}
-
-/* B 加粗显示、I 倾斜显示——按钮自己说明它是干什么的 */
-.boldGlyph {
-  font-weight: 700;
-}
-
-.italicGlyph {
-  font-style: italic;
 }

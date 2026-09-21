@@ -73,7 +73,19 @@ function MarkdownBody({ source }: { source: string }) {
 export function PromptNodeView(props: NodeViewProps) {
   const data = props.node.data as PromptData
   const bodyRef = useRef<HTMLDivElement>(null)
+  const editRef = useRef<HTMLTextAreaElement>(null)
+  /** 是否处于**节点内编辑态**（双击进入；Esc / 失焦退出） */
+  const [editing, setEditing] = useState(false)
   const exec = useCanvasExecution()
+
+  /** 进入编辑态即聚焦并把光标放到末尾（用户双击就是要接着写） */
+  useEffect(() => {
+    if (!editing) return
+    const ta = editRef.current
+    if (!ta) return
+    ta.focus()
+    ta.setSelectionRange(ta.value.length, ta.value.length)
+  }, [editing])
 
   /**
    * 上游图片素材（§6.7 反推）：由 NodeLayer 用 `promptSpec.collectInputs` 算好注入，
@@ -126,20 +138,28 @@ export function PromptNodeView(props: NodeViewProps) {
   }
 
   /**
-   * 双击正文 = **全选**（用户 2026-09-21）。
+   * 双击的**两态语义**（用户 2026-09-21 明确）。
    *
-   * 早先双击是「进入节点内编辑态」，但节点只有 240×160，长提示词写起来很憋屈；
-   * 现在编辑统一走大编辑框，双击的语义改成「把正文全选起来，方便替换 / 复制」。
-   * 用浏览器原生选区（不是自绘高亮），于是 Ctrl+C 立刻可用。
+   * - **非编辑态** → 双击 = 进入编辑态（这是进入编辑的唯一入口，少了它节点没法输入）
+   * - **编辑态 + 有文字** → 双击 = 全选正文（再点一次就是「改全部」，与浏览器
+   *   地址栏、Word 的行为一致）
+   *
+   * ⚠️ 上一版把它写成「永远全选」并删掉了输入框，结果是**双击没反应、也打不了字**
+   * ——功能被改坏。这条注释留着，避免以后又把它简化成单态。
    */
-  const selectAll = () => {
-    const el = bodyRef.current
-    if (!el) return
-    const range = document.createRange()
-    range.selectNodeContents(el)
-    const sel = window.getSelection()
-    sel?.removeAllRanges()
-    sel?.addRange(range)
+  const onBodyDoubleClick = () => {
+    if (!editing) {
+      setEditing(true)
+      return
+    }
+    if (!data.text) return
+    /*
+     * 编辑态里全选**必须落在 textarea 自己的选区上**（`select()`），
+     * 不能去动 window 的 Range——编辑时 `bodyRef` 指向的那个渲染层已经不在 DOM 里
+     * （被 textarea 顶掉了），对它建 Range 会选中一个 0 尺寸的游离节点，
+     * 实测表现为「双击只选了一个字」（浏览器默认的按词选中），而不是全选。
+     */
+    editRef.current?.select()
   }
 
   return (
@@ -151,13 +171,35 @@ export function PromptNodeView(props: NodeViewProps) {
           上游已链接提示词节点
         </span>
       )}
-      <div className={styles.text} ref={bodyRef} onDoubleClick={selectAll}>
-        {data.text ? (
-          <MarkdownBody source={data.text} />
-        ) : (
-          <span className={styles.placeholder}>双击输入提示词…</span>
-        )}
-      </div>
+      {editing ? (
+        <textarea
+          ref={editRef}
+          className={styles.editArea}
+          data-prompt-inline-input
+          value={data.text}
+          placeholder="输入提示词…"
+          onChange={(e) => props.emit({ type: 'updateData', patch: { text: e.target.value } })}
+          onPointerDown={(e) => e.stopPropagation()}
+          onBlur={() => setEditing(false)}
+          onDoubleClick={onBodyDoubleClick}
+          onKeyDown={(e) => {
+            // 编辑态里 Esc 退出；其余按键不透传给画布快捷键
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              setEditing(false)
+            }
+            e.stopPropagation()
+          }}
+        />
+      ) : (
+        <div className={styles.text} ref={bodyRef} onDoubleClick={onBodyDoubleClick}>
+          {data.text ? (
+            <MarkdownBody source={data.text} />
+          ) : (
+            <span className={styles.placeholder}>双击输入提示词…</span>
+          )}
+        </div>
+      )}
       <div className={styles.footer}>
         <span className={styles.count} data-prompt-count>
           {data.text.length} 字

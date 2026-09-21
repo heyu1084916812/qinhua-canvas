@@ -2,16 +2,39 @@
  * 正文格式工具栏（产品文档 §6.7，用户 2026-09-21）。
  *
  * 同一排按钮出现在**两处**：节点跟随栏、文本编辑灯箱的右上角。
- * 抽成一个组件是刻意的——两处若各写一份，迟早会在「按钮顺序 / 禁用条件 /
- * 选中态」上漂移，而用户会同时用到两处。
+ * 抽成一个组件是刻意的——两处若各写一份，迟早会在「按钮顺序 / 选中态 /
+ * 禁用条件」上漂移，而用户会同时用到两处。
  *
- * 按钮只 emit 语义动作（`onFormat`），不自己改文本：文本的变换是
+ * **形态与参数**（用户 2026-09-21 第二版反馈）：
+ * - **自己不带边框**。它渲染在跟随栏**内部**，跟随栏已经有 1px 描边 + 圆角；
+ *   自带边框会形成「框里有框」（实测确实如此）。灯箱那一处由 `<header>` 的
+ *   下边框划线，同样不需要它自带框。
+ * - **只有图标，不带文字**（用户 2026-09-21 第三版反馈：「节点上的工具栏我
+ *   不需要有文字，只需要图标即可」）。图标走 `toolbar/icons.tsx` 的线性图标集，
+ *   不用 `•` `1.` 这类文本符号充数；完整名称放 `title` / `aria-label`。
+ *
+ *   注：生成节点那条跟随栏仍是「图标 + 中文」——两条栏语义不同（那条是**动作**，
+ *   这条是**格式开关**），且格式按钮一眼就能从图标认出，不需要文字占位。
+ *
+ * 按钮只 emit 语义动作（`onAction`），不自己改文本：文本的变换是
  * `domain/canvas/text/markdownFormat` 的纯函数，光标由宿主读写。
- * 于是这个组件对「文本怎么变」零认知，纯粹是按钮排。
  */
+import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { LineFormat, InlineFormat } from '../../../domain/canvas/text/markdownFormat'
+import {
+  IconBold,
+  IconBulletList,
+  IconCopyText,
+  IconDivider,
+  IconExpand,
+  IconH1,
+  IconH2,
+  IconH3,
+  IconItalic,
+  IconOrderedList,
+  IconParagraph,
+} from '../toolbar/icons'
 import styles from './FormatToolbar.module.css'
-import type { MouseEvent as ReactMouseEvent } from 'react'
 
 export type FormatAction =
   | { kind: 'line'; format: LineFormat }
@@ -29,9 +52,12 @@ export interface FormatToolbarProps {
   onToggleFullscreen?: () => void
   /** 全屏态时按钮显示为「退出」 */
   fullscreen?: boolean
-  /** 点了不该丢画布焦点（沿用跟随栏那套） */
+  /** 点了不该丢画布焦点（节点栏用；灯箱里不需要） */
   keepFocus?: boolean
 }
+
+/** 图标尺寸：与跟随栏其它图标一致（16px） */
+const ICON = 16
 
 export function FormatToolbar({
   activeLine,
@@ -41,125 +67,54 @@ export function FormatToolbar({
   fullscreen,
   keepFocus,
 }: FormatToolbarProps) {
-  /** 按钮统一入口：顺手阻止默认聚焦，避免按空格时被按钮吃掉（§6.3） */
   const guard = keepFocus ? { onMouseDown: (e: ReactMouseEvent) => e.preventDefault() } : {}
 
-  const lineBtn = (format: LineFormat, label: string, action: FormatAction) => (
-    <button
-      type="button"
-      className={activeLine === format ? styles.btnOn : styles.btn}
-      data-format-btn={format}
-      data-format-active={activeLine === format ? 'true' : undefined}
-      title={label}
-      aria-label={label}
-      aria-pressed={activeLine === format}
-      onClick={() => onAction(action)}
-      {...guard}
-    >
-      {label}
-    </button>
-  )
-
-  /** 图形符按钮（列表用）：与 lineBtn 同一套选中态，只是内容是符号而非文字 */
-  const iconBtn = (
+  /** 通用按钮：图标 + 常驻中文（与跟随栏 `FollowButton` 同构） */
+  const btn = (
     key: string,
-    glyph: string,
+    icon: ReactNode,
     label: string,
-    active: boolean,
-    action: FormatAction,
+    onClick: () => void,
+    active?: boolean,
   ) => (
     <button
       type="button"
-      className={active ? styles.btnOn : styles.btn}
+      className={active ? `${styles.btn} ${styles.btnOn}` : styles.btn}
       data-format-btn={key}
       data-format-active={active ? 'true' : undefined}
       title={label}
       aria-label={label}
       aria-pressed={active}
-      onClick={() => onAction(action)}
+      onClick={onClick}
       {...guard}
     >
-      {glyph}
+      <span className={styles.icon} aria-hidden="true">
+        {icon}
+      </span>
     </button>
   )
 
   return (
     <div className={styles.bar} data-format-toolbar>
-      {lineBtn('h1', 'H1', { kind: 'line', format: 'h1' })}
-      {lineBtn('h2', 'H2', { kind: 'line', format: 'h2' })}
-      {lineBtn('h3', 'H3', { kind: 'line', format: 'h3' })}
-      {lineBtn('paragraph', '正文', { kind: 'line', format: 'paragraph' })}
+      {btn('h1', <IconH1 size={ICON} />, '标题1', () => onAction({ kind: 'line', format: 'h1' }), activeLine === 'h1')}
+      {btn('h2', <IconH2 size={ICON} />, '标题2', () => onAction({ kind: 'line', format: 'h2' }), activeLine === 'h2')}
+      {btn('h3', <IconH3 size={ICON} />, '标题3', () => onAction({ kind: 'line', format: 'h3' }), activeLine === 'h3')}
+      {btn('paragraph', <IconParagraph size={ICON} />, '正文', () => onAction({ kind: 'line', format: 'paragraph' }), activeLine === 'paragraph')}
       <span className={styles.divider} />
-      <button
-        type="button"
-        className={activeInline.bold ? styles.btnOn : styles.btn}
-        data-format-btn="bold"
-        data-format-active={activeInline.bold ? 'true' : undefined}
-        title="粗体"
-        aria-label="粗体"
-        aria-pressed={activeInline.bold}
-        onClick={() => onAction({ kind: 'inline', format: 'bold' })}
-        {...guard}
-      >
-        <span className={styles.boldGlyph}>B</span>
-      </button>
-      <button
-        type="button"
-        className={activeInline.italic ? styles.btnOn : styles.btn}
-        data-format-btn="italic"
-        data-format-active={activeInline.italic ? 'true' : undefined}
-        title="斜体"
-        aria-label="斜体"
-        aria-pressed={activeInline.italic}
-        onClick={() => onAction({ kind: 'inline', format: 'italic' })}
-        {...guard}
-      >
-        <span className={styles.italicGlyph}>I</span>
-      </button>
-      {/*
-        列表 / 分隔线用**图形符**而不是中文（用户参考图就是图标）。
-        中文标签会让这一排宽度失控（「无序列表」四个字 vs「H1」两个字符），
-        整条栏被撑得很长；完整名称放 `title` / `aria-label`，悬停可见。
-      */}
-      {iconBtn('bullet', '•', '无序列表', activeLine === 'bullet', { kind: 'line', format: 'bullet' })}
-      {iconBtn('ordered', '1.', '有序列表', activeLine === 'ordered', { kind: 'line', format: 'ordered' })}
-      <button
-        type="button"
-        className={styles.btn}
-        data-format-btn="divider"
-        title="分隔线"
-        aria-label="分隔线"
-        onClick={() => onAction({ kind: 'divider' })}
-        {...guard}
-      >
-        ―
-      </button>
+      {btn('bold', <IconBold size={ICON} />, '粗体', () => onAction({ kind: 'inline', format: 'bold' }), activeInline.bold)}
+      {btn('italic', <IconItalic size={ICON} />, '斜体', () => onAction({ kind: 'inline', format: 'italic' }), activeInline.italic)}
+      {btn('bullet', <IconBulletList size={ICON} />, '无序', () => onAction({ kind: 'line', format: 'bullet' }), activeLine === 'bullet')}
+      {btn('ordered', <IconOrderedList size={ICON} />, '有序', () => onAction({ kind: 'line', format: 'ordered' }), activeLine === 'ordered')}
+      {btn('divider', <IconDivider size={ICON} />, '分隔线', () => onAction({ kind: 'divider' }))}
       <span className={styles.divider} />
-      <button
-        type="button"
-        className={styles.btn}
-        data-format-btn="copy"
-        title="复制正文"
-        aria-label="复制正文"
-        onClick={() => onAction({ kind: 'copy' })}
-        {...guard}
-      >
-        ⧉
-      </button>
-      {onToggleFullscreen && (
-        <button
-          type="button"
-          className={styles.btn}
-          data-format-btn="fullscreen"
-          title={fullscreen ? '退出全屏编辑' : '全屏编辑'}
-          aria-label={fullscreen ? '退出全屏编辑' : '全屏编辑'}
-          aria-pressed={fullscreen}
-          onClick={onToggleFullscreen}
-          {...guard}
-        >
-          {fullscreen ? '⤡' : '⤢'}
-        </button>
-      )}
+      {btn('copy', <IconCopyText size={ICON} />, '复制', () => onAction({ kind: 'copy' }))}
+      {onToggleFullscreen &&
+        btn(
+          'fullscreen',
+          <IconExpand size={ICON} />,
+          fullscreen ? '退出' : '全屏',
+          onToggleFullscreen,
+        )}
     </div>
   )
 }

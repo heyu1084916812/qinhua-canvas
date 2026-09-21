@@ -8628,6 +8628,56 @@ async function g64(browser) {
       JSON.stringify(['h1', 'h2', 'h3', 'paragraph', 'bold', 'italic', 'bullet', 'ordered', 'divider', 'copy', 'fullscreen']),
     btnIds.join(','),
   )
+  /**
+   * ★ 图标栏**不带文字**（用户 2026-09-21 第三版：「节点上的工具栏我不需要有文字，
+   * 只需要图标即可」）。判据是按钮里**没有文本节点**——只数「文字长度」会被
+   * 字形图标（H1 本身就是文字）骗过，所以按 `data-format-btn` 逐个看可见文字：
+   * H1/H2/H3 是图标字形，允许非空；其余按钮必须为空。
+   */
+  const barTexts = await page
+    .locator('[data-node-follow-bar] [data-format-btn]')
+    .evaluateAll((els) =>
+      els.map((e) => ({ key: e.getAttribute('data-format-btn'), text: (e.innerText || '').trim() })),
+    )
+  const labeled = barTexts.filter((b) => !['h1', 'h2', 'h3'].includes(b.key) && b.text !== '')
+  rec(
+    g,
+    '★ 格式栏只有图标、没有文字标签',
+    labeled.length === 0,
+    labeled.map((b) => `${b.key}:${b.text}`).join(' ') || '无文字标签',
+  )
+  /** ★ 单层框：工具栏自己不能带边框（否则与跟随栏形成「框里有框」） */
+  const innerBorder = await page
+    .locator('[data-node-follow-bar] [data-format-toolbar]')
+    .evaluate((el) => getComputedStyle(el).borderTopWidth)
+  rec(g, '★ 格式栏自身无边框（不再「框里有框」）', parseFloat(innerBorder) === 0, innerBorder)
+
+  // ── 双击的两态语义（用户 2026-09-21 明确）──
+  await page.mouse.dblclick(0, 0).catch(() => {}) // 先点空白清掉选中
+  await sleep(250)
+  const pbx = await prompt.boundingBox()
+  await page.mouse.dblclick(pbx.x + pbx.width / 2, pbx.y + 60)
+  await sleep(400)
+  const editingNow = await page.locator('[data-prompt-inline-input]').count()
+  rec(g, '★ 非编辑态双击 → 进入编辑态（出现输入框）', editingNow === 1)
+
+  // 敲字，确认真的能输入（上一版这里双击没反应、打不了字）
+  await page.keyboard.type('一只猫')
+  await sleep(300)
+  const typedNow = await page.locator('[data-prompt-inline-input]').inputValue()
+  rec(g, '★ 编辑态里能正常打字', typedNow === '一只猫', typedNow)
+
+  // 编辑态 + 有文字 → 再双击 = 全选
+  await page.mouse.dblclick(pbx.x + pbx.width / 2, pbx.y + 60)
+  await sleep(300)
+  const selLen = await page.locator('[data-prompt-inline-input]').evaluate((el) => el.selectionEnd - el.selectionStart)
+  rec(g, '★ 编辑态再双击 → 全选正文', selLen === 3, `选中 ${selLen} 字`)
+
+  // Esc 退出编辑态，回到渲染态
+  await page.keyboard.press('Escape')
+  await sleep(350)
+  rec(g, '★ Esc 退出编辑态（输入框消失）', (await page.locator('[data-prompt-inline-input]').count()) === 0)
+
   // 生成节点不该有格式工具栏（它是另一套动作）——防「换了类型忘了分支」
   const genBox = await page.locator('[data-node-type="generation"]').first().boundingBox()
   await page.mouse.click(genBox.x + 40, genBox.y + 60)
