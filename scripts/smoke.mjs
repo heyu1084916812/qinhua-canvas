@@ -8652,6 +8652,43 @@ async function g64(browser) {
     .evaluate((el) => getComputedStyle(el).borderTopWidth)
   rec(g, '★ 格式栏自身无边框（不再「框里有框」）', parseFloat(innerBorder) === 0, innerBorder)
 
+  /**
+   * ★ H1/H2/H3 的字形必须**与线性图标等重**（用户 2026-09-21：「好小啊，好扁啊」）。
+   *
+   * 首版字号 11，在 24 的视图里只占不到一半高，字形实测只有 9px；旁边的 B / I 是
+   * 画满视图的路径，两者放一起 H 系列明显小一圈。现在字号 15.5，实测 15px。
+   *
+   * 判据取「字形高度 / 图标尺寸 ≥ 0.75」而不是写死像素：以后若要整体放大图标，
+   * 这条仍成立；而「字形比图标小一截」这种退化会被挡住。
+   */
+  const headingGeom = await page
+    .locator('[data-node-follow-bar] [data-format-btn="h1"]')
+    .evaluate((el) => {
+      const svg = el.querySelector('svg')
+      const text = svg?.querySelector('text')
+      return {
+        svgH: svg ? svg.getBoundingClientRect().height : 0,
+        textH: text ? text.getBoundingClientRect().height : 0,
+        fontWeight: text ? getComputedStyle(text).fontWeight : '',
+      }
+    })
+  rec(
+    g,
+    '★ H1 字形够大（不再又小又扁）',
+    headingGeom.svgH > 0 && headingGeom.textH / headingGeom.svgH >= 0.75,
+    `字形 ${Math.round(headingGeom.textH)}px / 图标 ${Math.round(headingGeom.svgH)}px`,
+  )
+  rec(
+    g,
+    '格式按钮是方形（不再扁）',
+    await page
+      .locator('[data-node-follow-bar] [data-format-btn="h1"]')
+      .evaluate((el) => {
+        const r = el.getBoundingClientRect()
+        return Math.abs(r.width - r.height) <= 1
+      }),
+  )
+
   // ── 双击的两态语义（用户 2026-09-21 明确）──
   await page.mouse.dblclick(0, 0).catch(() => {}) // 先点空白清掉选中
   await sleep(250)

@@ -56,8 +56,14 @@ export interface FormatToolbarProps {
   keepFocus?: boolean
 }
 
-/** 图标尺寸：与跟随栏其它图标一致（16px） */
-const ICON = 16
+/**
+ * 图标尺寸。
+ *
+ * 用 18 而不是跟随栏的 16（用户 2026-09-21：「H1/H2/H3 好小啊，好扁啊」）：
+ * 这排是**高频点击的格式开关**，按钮本来就只有 28px 宽，16 的图标留白过多、
+ * 整体看起来又小又扁。放大到 18 后图标撑得更满，与 30px 的按钮比例更匀。
+ */
+const ICON = 18
 
 export function FormatToolbar({
   activeLine,

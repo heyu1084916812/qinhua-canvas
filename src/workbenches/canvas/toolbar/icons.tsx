@@ -228,20 +228,27 @@ export function IconLink(props: IconProps) {
 
 /**
  * 标题字形。用 `<text>` 而不是路径：这三个是**文字本身**（H1/H2/H3），
- * 画成路径反而失真；`font-size` 随 viewBox 缩放，和旁边图形同高。
+ * 画成路径反而失真；`font-size` 随 viewBox 缩放。
+ *
+ * ⚠️ 字号要**撑满视图**（用户 2026-09-21：「H1/H2/H3 好小啊，好扁啊」）：
+ * 首版用 `font-size=11`，在 24 的视图里只占不到一半高——旁边的 B / I 是
+ * 画满 24 的路径，两者放一起，H 系列明显小一圈、显扁。
+ * 现在取 15 并把基线抬到 19，字形高度接近 14/24，与线性图标等重。
+ * `fontWeight=700` 同理：线性图标有 1.6 的描边重量，细字压不住。
  */
 function HeadingGlyph({ level, ...rest }: IconProps & { level: 1 | 2 | 3 }) {
   return (
     <Svg {...rest}>
       <text
         x="12"
-        y="16.5"
+        y="18.6"
         textAnchor="middle"
-        fontSize="11"
-        fontWeight="600"
+        fontSize="15.5"
+        fontWeight="700"
         fill="currentColor"
         stroke="none"
         fontFamily="var(--font-sans)"
+        letterSpacing="-0.4"
       >
         H{level}
       </text>
