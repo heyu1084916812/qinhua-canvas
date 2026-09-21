@@ -8884,7 +8884,7 @@ async function g65(browser) {
     }
   })
 
-  rec(g, '★ 缩略图缩到 40px', Math.abs(geo.w - 40) <= 1 && Math.abs(geo.h - 40) <= 1, `${Math.round(geo.w)}×${Math.round(geo.h)}`)
+  rec(g, '★ 缩略图设计值 52px（面板 zoom 0.75 ⇒ 屏幕约 39px）', Math.abs(geo.w - 52) <= 1 && Math.abs(geo.h - 52) <= 1, `设计 ${Math.round(geo.w)}×${Math.round(geo.h)}`)
   /**
    * 同心圆角：内层 = 外层 − 1px 描边。
    * 只断言「内层有圆角」不够——方形（radius 0）也该被挡住。
@@ -8897,19 +8897,219 @@ async function g65(browser) {
   )
   rec(g, '★ 内层真的把图片裁进圆角里（overflow:hidden）', geo.innerOverflow === 'hidden', geo.innerOverflow)
   /**
-   * 角标不再遮素材：重叠量 ≤ 2px（允许描边有 1px 视觉接触，但数字不能压在图面上）。
-   * 旧版角标贴在容器内 (1,1)，与图片的重叠是数十像素——这条会直接红。
+   * ★ 角标的**中心点**应落在缩略图左上角顶点（用户 2026-09-21 明确）。
+   *
+   * 判据是几何而不是像素：角标中心 (cx, cy) 与缩略图左上角 (0,0) 的距离 ≤ 1px。
+   * 用「中心」而不是「边角」是为了把三种退化都挡住：
+   * ① 角内 (3,3) → 中心在 (11,11)，偏 15px；② 全出角外 (-18,-18) → 中心在 (-9,-9)，
+   * 偏 13px；③ 定稿骑角 → 中心就在 (0,0)。
    */
+  const badgeCenter = await thumb.evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    const badge = el.querySelector('span[class*="badge"]')
+    if (!badge) return null
+    const br = badge.getBoundingClientRect()
+    const panel = el.closest('[data-creation-panel]')
+    const zoom = panel ? parseFloat(getComputedStyle(panel).zoom) || 1 : 1
+    // 换算回未缩放的设计坐标，与缩略图的左上角 (r.left, r.top) 比较
+    const cx = (br.left + br.width / 2 - r.left) / zoom
+    const cy = (br.top + br.height / 2 - r.top) / zoom
+    return { cx, cy }
+  })
   rec(
     g,
-    '★ 编号角标不压住素材（已移到角落外沿）',
-    geo.overlapX <= 2 && geo.overlapY <= 2,
-    `重叠 x=${geo.overlapX} y=${geo.overlapY}`,
+    '★ 角标中心骑在缩略图左上角顶点',
+    !!badgeCenter && Math.abs(badgeCenter.cx) <= 1 && Math.abs(badgeCenter.cy) <= 1,
+    badgeCenter ? `中心偏移 (${badgeCenter.cx.toFixed(1)}, ${badgeCenter.cy.toFixed(1)})` : 'null',
+  )
+
+  rec(
+    g,
+    '★ 编号角标默认隐藏（悬停才出现）',
+    (await thumb.evaluate((el) => parseFloat(getComputedStyle(el.querySelector('span[class*="badge"]')).opacity))) === 0,
+  )
+  /** 悬停后必须显形——用户参考图就是「滑动上去才出现」 */
+  const tb = await thumb.boundingBox()
+  await page.mouse.move(tb.x + tb.width / 2, tb.y + tb.height / 2)
+  await sleep(350)
+  rec(
+    g,
+    '★ 悬停缩略图后角标显形',
+    (await thumb.evaluate((el) => parseFloat(getComputedStyle(el.querySelector('span[class*="badge"]')).opacity))) === 1,
   )
 
   await page.screenshot({ path: `${OUT}/81-g65-thumb.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
+}
+
+/**
+ * G66 缩略图删除角标（§6.6 / §6.8，用户 2026-09-21）。
+ *
+ * 每一张缩略图的右上角顶点有一个**红色删除角标**，点击后按来源分两种动作：
+ * - `self`（自身素材）→ 清空素材，节点回到「没上传图片」状态；
+ * - `upstream`（上游素材）→ 删掉**那条连线**，上游节点与其素材都保留。
+ *
+ * 两条都必须断言「**上游那张图还在**」——只数缩略图消失的话，
+ * 「误删了上游节点的数据」这种越权行为照样绿（这是本次最容易犯的错）。
+ */
+async function g66(browser) {
+  const g = 'G66 缩略图删除'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  const PNG =
+    'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAXklEQVR42u3OMQEAAAgDoC252/hn0Q42kF4JAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4LcBNCQAAWCq3sQAAAAASUVORK5CYII='
+
+  /** 拖一张图进画布 → 建出「素材节点」 */
+  const dropAsset = async () => {
+    const dt = await page.evaluateHandle(
+      ({ b64 }) => {
+        const bin = atob(b64)
+        const bytes = new Uint8Array(bin.length)
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+        const d = new DataTransfer()
+        d.items.add(new File([bytes], 'a.png', { type: 'image/png' }))
+        return d
+      },
+      { b64: PNG },
+    )
+    const s = await page.locator('[data-canvas-surface]').boundingBox()
+    await page.locator('[data-canvas-surface]').dispatchEvent('dragover', { dataTransfer: dt })
+    await page.locator('[data-canvas-surface]').dispatchEvent('drop', {
+      dataTransfer: dt,
+      clientX: s.x + 380,
+      clientY: s.y + 320,
+    })
+    await sleep(1200)
+  }
+
+  const selectFirstGen = async () => {
+    const node = page.locator('[data-node-type="generation"]').first()
+    const b1 = await node.boundingBox()
+    await page.mouse.click(b1.x + 40, b1.y + 70)
+    await sleep(700)
+    return node
+  }
+
+  const thumbs = () => page.locator('[data-creation-panel] [data-panel-thumb]')
+
+  // ── 情形一：自身素材 → 清除素材，节点回到空态 ──
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-template="blank"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(700)
+  await dropAsset()
+  const selfNode = await selectFirstGen()
+  rec(g, '（情形一）面板出现自身素材缩略图', (await thumbs().count()) >= 1)
+
+  if ((await thumbs().count()) >= 1) {
+    const t = thumbs().first()
+    const tb = await t.boundingBox()
+    await page.mouse.move(tb.x + tb.width / 2, tb.y + tb.height / 2)
+    await sleep(350)
+    const del = t.locator('[data-thumb-delete]')
+    const has = await del.count()
+    rec(g, '★ 缩略图右上角有删除角标', has === 1)
+    rec(g, '★ 删除角标默认隐藏、悬停显形', has === 1 && (await del.evaluate((e) => getComputedStyle(e).opacity)) === '1')
+    rec(g, '自身素材的删除语义是「清除素材」', (await del.getAttribute('title')) === '清除素材', await del.getAttribute('title'))
+
+    await del.click()
+    await sleep(800)
+    rec(g, '★ 点击后缩略图消失', (await thumbs().count()) === 0)
+    rec(g, '★ 节点回到「没上传图片」状态（出现占位框）', (await selfNode.locator('[data-node-placeholder]').count()) >= 1)
+    rec(g, '删除进撤销栈（可撤回）', (await page.locator('[data-undo-bar]').count()) >= 1)
+  }
+  await ctx.close()
+
+  // ── 情形二：上游素材 → 删掉那条连线，上游节点不受影响 ──
+  const ctx2 = await newCtx(browser)
+  const page2 = await ctx2.newPage()
+  page2.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  await page2.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page2.locator('[data-template="text2img"]').click()
+  await page2.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  const dt2 = await page2.evaluateHandle(
+    ({ b64 }) => {
+      const bin = atob(b64)
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      const d = new DataTransfer()
+      d.items.add(new File([bytes], 'a.png', { type: 'image/png' }))
+      return d
+    },
+    { b64: PNG },
+  )
+  const s2 = await page2.locator('[data-canvas-surface]').boundingBox()
+  await page2.locator('[data-canvas-surface]').dispatchEvent('dragover', { dataTransfer: dt2 })
+  await page2.locator('[data-canvas-surface]').dispatchEvent('drop', {
+    dataTransfer: dt2,
+    clientX: s2.x + 380,
+    clientY: s2.y + 300,
+  })
+  await sleep(1300)
+
+  // 把导入的素材节点连到第一个生成节点，制造上游缩略图
+  const gens = page2.locator('[data-node-type="generation"]')
+  const gn = await gens.count()
+  if (gn >= 2) {
+    const src = gens.nth(gn - 1)
+    await src.hover()
+    await sleep(300)
+    const port = src.locator('[data-port="output"]')
+    if (await port.count()) {
+      const pb = await port.boundingBox()
+      const tb = await gens.first().boundingBox()
+      await page2.mouse.move(pb.x + pb.width / 2, pb.y + pb.height / 2)
+      await page2.mouse.down()
+      await page2.mouse.move(tb.x + tb.width / 2, tb.y + tb.height / 2, { steps: 12 })
+      await page2.mouse.up()
+      await sleep(700)
+    }
+  }
+
+  const target = gens.first()
+  const tb2 = await target.boundingBox()
+  await page2.mouse.click(tb2.x + 40, tb2.y + 70)
+  await sleep(700)
+  const t2 = page2.locator('[data-creation-panel] [data-panel-thumb]')
+  const edgesBefore = await page2.locator('[data-edge]').count()
+  rec(g, '（情形二）上游素材出现在面板里', (await t2.count()) >= 1, `缩略图 ${await t2.count()} / 连线 ${edgesBefore}`)
+
+  if ((await t2.count()) >= 1) {
+    const one = t2.first()
+    const ob = await one.boundingBox()
+    await page2.mouse.move(ob.x + ob.width / 2, ob.y + ob.height / 2)
+    await sleep(350)
+    const del2 = one.locator('[data-thumb-delete]')
+    rec(
+      g,
+      '上游素材的删除语义是「删除连线」（不是删上游节点的图）',
+      (await del2.getAttribute('title')) === '移除该上游素材（删除连线）',
+      await del2.getAttribute('title'),
+    )
+    await del2.click()
+    await sleep(800)
+    rec(g, '★ 点击后缩略图消失', (await t2.count()) === 0, `剩 ${await t2.count()}`)
+    const edgesAfter = await page2.locator('[data-edge]').count()
+    rec(g, '★ 那条连线被删掉', edgesAfter === edgesBefore - 1, `${edgesBefore} → ${edgesAfter}`)
+    /**
+     * ★ 关键：上游节点**必须还在**。若实现错成「改上游节点的数据」，
+     * 缩略图也会消失、连线也会少，但上游节点被清空了——这就是越权删别人的内容。
+     */
+    const gensAfter = await page2.locator('[data-node-type="generation"]').count()
+    rec(g, '★ 上游节点仍然存在（没有越权改它的数据）', gensAfter === gn, `${gn} → ${gensAfter}`)
+  }
+
+  await page2.screenshot({ path: `${OUT}/82-g66-delete.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx2.close()
 }
 
 /**
@@ -8919,7 +9119,7 @@ async function g65(browser) {
  * - g50 / g54：结果组折叠与子结果交互（2026-09-17 结果组整体下线）
  * 「运行画板产生产物」改由 G21 覆盖（断言已从结果组改为承载节点）。
  */
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

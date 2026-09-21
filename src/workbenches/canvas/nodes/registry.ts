@@ -97,6 +97,8 @@ export type NodeViewEvent =
   | { type: 'downloadOwnAsset' }
   | { type: 'toggleUpstream'; upstreamId: string }
   | { type: 'removeOwnAsset' }
+  /** 删除某一张缩略图：self = 清空自身素材，upstream = 删掉那条连线 */
+  | { type: 'removeThumb'; owner: 'upstream' | 'self'; id: string }
   | { type: 'reorderThumbs'; order: string[] }
   /**
    * 上传素材（§6.8 状态 A「点击 `+` 或拖入文件可上传」）。

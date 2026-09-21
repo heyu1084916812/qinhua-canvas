@@ -23,13 +23,24 @@ export interface PanelThumb {
   /** 是否参与本次生成（小眼睛状态） */
   visible: boolean
   /**
-   * 是否显示「删除」按钮。
+   * 删除按钮的语义（用户 2026-09-21 改）：
    *
-   * §6.6 把缩略图分成两类，操作刻意不同：**上游链接的素材只能小眼睛隐藏**
-   * （取消连线才移除），**节点自身内容可以删除**。所以只有 `owner==='self'`
-   * 且确实是本节点内容的项可删；组内 / 上游项一律不可删。
+   * **每一张缩略图都可删**，但按来源分两种动作——
+   * - `upstream`（上游节点的图）：删掉**那条连线**，上游节点本身不受影响。
+   * - `self`（本节点自己的图）：**清空自己的素材**，节点回到「没上传图片」状态。
+   *
+   * 早先 §6.6 只允许删 `self`（上游只能小眼睛隐藏），理由是「删上游素材语义模糊」。
+   * 用户这次把语义定死了：**上游删的是连线**，于是两类都能有明确的删除动作，
+   * 上游不必再委屈地只能隐藏。
    */
   removable?: boolean
+  /**
+   * 该缩略图对应的**连线 id**（`owner==='upstream'` 时才有）。
+   *
+   * 为什么必须由模型给出而不是视图自己找：视图层不读图（架构 §4.7），
+   * 而「删哪条边」要按 (上游节点 id → 本节点 id) 在图里查出来。
+   */
+  edgeId?: string
 }
 
 export interface PanelModel {
@@ -89,6 +100,14 @@ export type PanelEvent =
   | { type: 'toggleThumb'; owner: PanelThumb['owner']; id: string }
   /** 删除节点自身内容（§6.6「节点自身内容 → 删除」）；上游缩略图不可删，只有小眼睛 */
   | { type: 'removeOwnAsset' }
+  /**
+   * 删除**某一张缩略图**（用户 2026-09-21）。
+   *
+   * 语义由 `owner` 决定（见 `PanelThumb` 的说明）：
+   * - `self` → 清空本节点的素材；
+   * - `upstream` → 删掉那条连线（上游节点保留）。
+   */
+  | { type: 'removeThumb'; owner: PanelThumb['owner']; id: string }
   | { type: 'toggleCollection'; id: string }
   | { type: 'togglePrompt' }
   | { type: 'reorderThumbs'; owner: PanelThumb['owner']; order: string[] }

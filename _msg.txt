@@ -1,0 +1,29 @@
+feat(canvas): red delete badge on every thumbnail corner
+
+用户 2026-09-21：所有缩略图的右上角顶点要一个红色删除角标——
+点击后按来源分两种动作：上游缩略图删掉那条连线；自身缩略图清空节点素材
+（回到「没上传图片」状态）。
+
+实现
+- panelModel.ts：PanelEvent 新增 removeThumb{owner,id}；PanelThumb 补
+  edgeId（上游缩略图对应的连线 id，由模型层查图得出——视图层不读图）。
+  removable 语义从「只有 self 可删」改为「两类都可删，动作不同」。
+- PanelLayer.tsx：handlePanelEvent 新增 removeThumb 分流。
+  ★ self → node.updateData 清 assetHash；upstream → edge.remove 删连线。
+  ⚠️ 上游绝不能改上游节点的数据——那是越权删别人的内容。
+- CreationPanel.tsx：每张缩略图渲染红色 ✕（removable 时），
+  中心骑在右上角顶点（right/top = -9px，与左上编号角标同一套几何），
+  默认隐藏、悬停显形；红色取 --danger，白字取 --accent-text。
+
+踩过的两个坑（已记入 MEMORY）
+1. 首版把 case 'removeThumb' 写进了 useCanvasPageEvents.ts——TS 过、
+   点击也出撤销条，但事件没路由到（面板事件走 PanelLayer 的 handlePanelEvent），
+   连线数纹丝不动。靠「撤销条出现了却没删」这个矛盾才定位到。
+2. edge.remove 命令不收 transient（删边本身就是独立撤销单元）。
+
+验证
+- 单测 1181 全绿；门禁全绿（首版把 color 写成 #fff 被主题守卫拦下，改 --accent-text）
+- 冒烟**全量 876/876**；新增 G66（13 项）覆盖两种来源：
+  self：角标悬停显形 / 缩略图消失 / 节点回空态（占位框出现）/ 进撤销栈；
+  upstream：语义是「删除连线」/ 连线 2 → 1 / **上游节点仍在 2 → 2**
+  （这条专门防「越权改上游数据」的实现错误）。

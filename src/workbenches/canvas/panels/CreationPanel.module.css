@@ -38,14 +38,18 @@
   font-family: var(--font-sans);
   color: var(--text-1);
   /*
-   * 素材**缩略图**的边长（用户 2026-09-21：60 → 40）。
+   * 素材**缩略图**的边长（用户 2026-09-21 二轮）。
    *
-   * ⚠️ 它与首行高度（`--assets-row-h`）**不再是同一个值**：
-   * 「图片 / 视频」切换保持 60px 高（它是首行的高度基准），缩略图缩到 40px
-   * 并在行内**垂直居中**。早先两者共用一个变量，改一个就动全身；
-   * 现在拆开，缩略图尺寸可以单独调。
+   * ⚠️ **这是「未缩放的设计值」**：创作面板整体挂 `zoom: 0.75`，
+   * 屏幕上看到的是它 × 0.75（52px ⇒ 屏幕约 39px）。
+   * 首版定 40 时我说的是设计值，用户看到 30px 觉得太小——
+   * 就是没把这个换算讲清楚。改 52 后屏幕观感 ≈ 40。
+   *
+   * ⚠️ 它与首行高度（`--assets-row-h`）**不是同一个值**：
+   * 「图片 / 视频」切换保持 60px 高（首行的高度基准），缩略图在行内**垂直居中**。
+   * 两者已拆成两个变量，可各自单独调。
    */
-  --thumb-size: 40px;
+  --thumb-size: 52px;
   /*
    * 第一部分首行高度：**空态素材框与「图片 / 视频」类别切换共用这一个值**（二者等高）。
    * 60px = 类别切换的自然高度（48px 按钮 + 2px 内距×2 + 1px 边框×2），
@@ -270,38 +274,105 @@
 }
 
 /*
- * 编号角标：**骑在缩略图左上角的外沿**（用户 2026-09-21：「遮住了素材」）。
+ * 编号角标：**中心点骑在缩略图左上角的顶点上**
+ * （用户 2026-09-21 明确：「角标的中心点在缩略图的左上角的顶点」）。
  *
- * 原先贴在容器内 (1,1)，数字直接压在图片上——那张图里它正好盖住人脸。
+ * 几何：`left/top = -(角标边长 / 2)`。角标 18px ⇒ **-9px**，
+ * 于是它一半压在图角（圆角已切掉的地方，不挡画面主体）、一半探出框外——
+ * 这是「骑角」的标准做法，既与缩略图连成一体，又不糊在图片中间。
  *
- * 现在**整体移到角外**（`left/top` 用负的完整边长 + 一点余量）：
- * 角标是 18px，配 `-14px` 后它只有约 4px 与图片相交，且那 4px 落在**内层圆角
- * 已经切掉的地方**（圆角内是空的，不是图面）——所以视觉上完全不压素材。
- * 早先试过「骑一半」（`-8px`），实测与图面重叠 7px，仍会盖住画面。
+ * 三个版本的取舍（别再退回去）：
+ * ① 角内 (3,3) —— 数字落在图面上，盖住素材；
+ * ② 全出角外 (-18px) —— 与缩略图脱节，像界面上的杂点；
+ * ③ 定稿 = 中心骑角 (-9px) + 默认隐藏、悬停显形。
  *
- * `z-index` 高于 `.thumbFrame`：它现在压在**边框**上，不能被子层盖住。
+ * `z-index` 高于 `.thumbFrame`：它叠在图片上，必须盖过裁切层。
  */
 .badge {
   position: absolute;
-  left: -18px;
-  top: -18px;
+  /* 中心骑在左上角顶点：(18 / 2) = 9 */
+  left: -9px;
+  top: -9px;
   z-index: 2;
   min-width: 18px;
   height: 18px;
   padding: 0 3px;
   box-sizing: border-box;
-  border-radius: 9px;
+  border-radius: 999px;
   /* 叠在素材缩略图上：素材亮度不可控，故走「浮层」而不是 --bg-surface ——
      深色主题下它会翻成浅底深字，压在亮图上照样读得清。 */
   background: var(--overlay-scrim);
   color: var(--overlay-text);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   line-height: 18px;
   text-align: center;
   pointer-events: none;
-  /* 探出到图片外时要有自己的描边，否则压在画布上会糊掉 */
+  /* 默认藏起：编号只在要看的时候出现（与「小眼睛 hover 显形」同一套交互） */
+  opacity: 0;
+  transition: opacity var(--dur-hover) var(--ease-out);
+}
+
+.thumb:hover .badge,
+.thumb:focus-visible .badge,
+.thumb:focus-within .badge {
+  opacity: 1;
+}
+
+/*
+ * 删除角标：**红色实底，中心骑在右上角顶点**（用户 2026-09-21）。
+ *
+ * 与左上的编号角标对称——都是「中心落在角顶点」：`right/top = -(边长/2)`。
+ * 边长 18px ⇒ -9px，于是它一半在图角（圆角已切掉处）、一半探出框外。
+ *
+ * **默认隐藏、悬停显形**：与编号角标、小眼睛同一套交互。
+ * 删除是不可逆动作，不该常驻占地方；悬停才出现能减少误点。
+ *
+ * 红色取自 `--danger`（§3.1 的错误色）——这是面板里唯一的破坏性操作，
+ * 用语义色让它在悬停出现的第一眼就被认出来。
+ */
+.deleteBadge {
+  position: absolute;
+  right: -9px;
+  top: -9px;
+  z-index: 3;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: var(--danger);
+  /* 白字压红底（--danger 是「在任何主题下都够对比」的语义色，白字恒定成立） */
+  color: var(--accent-text);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-hover) var(--ease-out);
+  /* 探出框外时要有描边，否则压在面板底色上会糊掉 */
   box-shadow: 0 0 0 1.5px var(--bg-surface);
+}
+
+.thumb:hover .deleteBadge,
+.thumb:focus-within .deleteBadge {
+  opacity: 1;
+}
+
+.deleteBadge:hover {
+  /* 悬停加深一点，给出「这一下会删东西」的确认感 */
+  filter: brightness(0.9);
+}
+
+.deleteBadge:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  opacity: 1;
 }
 
 /* 小眼睛：右上，隐性（hover / focus 才显形，§4.5「悬停替代」）。

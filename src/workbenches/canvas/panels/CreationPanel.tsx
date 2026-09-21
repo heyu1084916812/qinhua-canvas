@@ -487,6 +487,7 @@ export function CreationPanel(props: CreationPanelProps) {
                   onEvent({ type: 'reorderThumbs', owner: t.owner, order })
                 }}
                 onToggle={() => onEvent({ type: 'toggleThumb', owner: t.owner, id: t.id })}
+                onRemove={() => onEvent({ type: 'removeThumb', owner: t.owner, id: t.id })}
               />
             ))}
           </div>
@@ -848,6 +849,7 @@ function Thumb({
   onDragStart,
   onDrop,
   onToggle,
+  onRemove,
 }: {
   thumb: PanelThumb
   index: number
@@ -855,6 +857,7 @@ function Thumb({
   onDragStart: () => void
   onDrop: () => void
   onToggle: () => void
+  onRemove: () => void
 }) {
   const url = useAsset(thumb.assetHash)
   return (
@@ -906,6 +909,31 @@ function Thumb({
       >
         {thumb.visible ? '👁' : '⃠'}
       </button>
+      {/*
+        删除角标：**中心骑在右上角顶点**（用户 2026-09-21）。
+        与左上的编号角标对称——都是「中心落在角顶点」的骑角做法。
+
+        语义按来源分两种（见 panelModel 的说明）：
+        - 上游缩略图 → 删掉那条连线；
+        - 自身素材 → 清空本节点的图，回到「没上传图片」状态。
+        两者都进撤销栈，误删能撤回。
+      */}
+      {thumb.removable && (
+        <button
+          type="button"
+          className={styles.deleteBadge}
+          data-thumb-delete={thumb.id}
+          title={thumb.owner === 'upstream' ? '移除该上游素材（删除连线）' : '清除素材'}
+          aria-label={thumb.owner === 'upstream' ? '移除该上游素材（删除连线）' : '清除素材'}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation()
+            onRemove()
+          }}
+        >
+          ✕
+        </button>
+      )}
     </div>
   )
 }

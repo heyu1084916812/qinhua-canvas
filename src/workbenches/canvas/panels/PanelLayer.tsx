@@ -283,11 +283,29 @@ function buildPanelModel(node: NodeSnapshot, graph: ReturnType<typeof useGraph>)
       continue
     }
     const hash = (up.data as Partial<GenerationData>).assetHash
-    if (hash) thumbs.push({ owner: 'upstream', id: up.id, assetHash: hash, visible: !upstreamHidden.has(up.id) })
+    if (hash) {
+      /*
+       * 上游缩略图现在**可删**（用户 2026-09-21）：删除动作是「删掉那条连线」，
+       * 上游节点本身不动。故这里必须把连线 id 一起带给面板——
+       * 视图层不读图（架构 §4.7），查边的活由模型层做。
+       */
+      thumbs.push({
+        owner: 'upstream',
+        id: up.id,
+        assetHash: hash,
+        visible: !upstreamHidden.has(up.id),
+        removable: true,
+        edgeId: graph.edges.find((e) => e.source === up.id && e.target === node.id)?.id,
+      })
+    }
   }
   if (data.assetHash) {
-    // 节点自身内容：生成节点可删除（§6.6「节点自身内容 → 删除」）；
-    // 提示词节点此处只会是历史遗留素材，不给删除入口以免误伤正文语义。
+    /*
+     * 节点自身内容：删除动作是**清空本节点的素材**，节点回到「没上传图片」状态。
+     *
+     * 提示词节点此处只会是历史遗留素材，不给删除入口以免误伤正文语义
+     * （它的正文才是内容，素材不是）。
+     */
     thumbs.unshift({
       owner: 'self',
       id: node.id,
@@ -376,6 +394,33 @@ function handlePanelEvent(
         transient: false,
       })
       break
+    /**
+     * 删除某一张缩略图（用户 2026-09-21）。
+     *
+     * 两种语义按 `owner` 分流：
+     * - `self` → 清空本节点的素材，回到「没上传图片」状态；
+     * - `upstream` → 删掉那条**连线**（上游节点与其素材都保留）。
+     *
+     * ⚠️ 上游那条必须走 `edge.remove` 而不是改上游节点的数据：
+     * 上游的图**不属于本节点**，改它等于越权删别人的内容。
+     * 用户要的是「这条上游素材不再进来」，那就是删连线。
+     */
+    case 'removeThumb': {
+      if (event.owner === 'self') {
+        store.dispatch({
+          kind: 'node.updateData',
+          id: node.id,
+          patch: { assetHash: undefined },
+          transient: false,
+        })
+        break
+      }
+      const edge = store.getSnapshot().edges.find((e) => e.source === event.id && e.target === node.id)
+      if (!edge) break
+      store.dispatch({ kind: 'edge.remove', id: edge.id })
+      store.showUndoBar('已移除上游素材')
+      break
+    }
     case 'togglePrompt':
       toggleGroupPrompt(node, store)
       break
