@@ -8797,13 +8797,129 @@ async function g64(browser) {
 }
 
 /**
+ * G65 素材缩略图几何（§6.8，用户 2026-09-21）。
+ *
+ * 三条要求，都是**几何**，所以判据必须是量出来的数字：
+ * 1. 缩略图缩到 **40px**；
+ * 2. 圆角与容器**同心**（外层 8 / 内层 7 = 外层 − 1px 描边，§3.2 的口径）；
+ * 3. 编号角标**不再压住素材**（骑在左上角外沿）。
+ *
+ * 为什么单独成组：这三条在 DOM 结构上「都对」（元素都在），
+ * 只有量尺寸才看得出方角 / 被遮 / 尺寸没缩——正是像素级断言该管的事。
+ */
+async function g65(browser) {
+  const g = 'G65 缩略图几何'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-template="blank"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(700)
+
+  // 拖入一张图 → 建出「素材节点」，它自己就带 assetHash
+  const dt = await page.evaluateHandle(
+    ({ b64 }) => {
+      const bin = atob(b64)
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      const d = new DataTransfer()
+      d.items.add(new File([bytes], 'thumb.png', { type: 'image/png' }))
+      return d
+    },
+    { b64: PNG_IMPORT_BASE64 },
+  )
+  const sbox = await page.locator('[data-canvas-surface]').boundingBox()
+  await page.locator('[data-canvas-surface]').dispatchEvent('dragover', { dataTransfer: dt })
+  await page.locator('[data-canvas-surface]').dispatchEvent('drop', {
+    dataTransfer: dt,
+    clientX: sbox.x + 360,
+    clientY: sbox.y + 320,
+  })
+  await sleep(1200)
+
+  // 选中它 → 面板第一部分显示**自身素材**缩略图
+  const node = page.locator('[data-node-type="generation"]').first()
+  const nb = await node.boundingBox()
+  await page.mouse.click(nb.x + 40, nb.y + 70)
+  await sleep(700)
+
+  const thumb = page.locator('[data-creation-panel] [data-panel-thumb]').first()
+  const count = await thumb.count()
+  rec(g, '面板出现素材缩略图', count >= 1, `count=${count}`)
+  if (count === 0) {
+    rec(g, '（后续断言跳过）', false, '没有缩略图')
+    await ctx.close()
+    return
+  }
+
+  const geo = await thumb.evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    /*
+     * ⚠️ 创作面板整体挂 `zoom: 0.75`，`getBoundingClientRect` 拿到的是**缩放后**的
+     * 屏幕尺寸（40px 渲染成 30px）。要断言「缩略图 40px」这个**设计值**，
+     * 必须除掉 zoom；否则会把正确的 40px 判成「只有 30、没生效」（实测踩过）。
+     */
+    const panel = el.closest('[data-creation-panel]')
+    const zoom = panel ? parseFloat(getComputedStyle(panel).zoom) || 1 : 1
+    const frame = el.querySelector('span[class*="thumbFrame"]')
+    const fcs = frame ? getComputedStyle(frame) : null
+    const badge = el.querySelector('span[class*="badge"]')
+    const br = badge ? badge.getBoundingClientRect() : null
+    const img = el.querySelector('img')
+    const ir = img ? img.getBoundingClientRect() : null
+    return {
+      w: r.width / zoom,
+      h: r.height / zoom,
+      outerRadius: parseFloat(getComputedStyle(el).borderTopLeftRadius),
+      innerRadius: fcs ? parseFloat(fcs.borderTopLeftRadius) : NaN,
+      innerOverflow: fcs ? fcs.overflow : '',
+      imgW: ir ? ir.width : 0,
+      // 角标与图片的**重叠量**：两者都为正 = 压在图上
+      overlapX: br && ir ? Math.round((br.right - ir.left) / zoom) : 0,
+      overlapY: br && ir ? Math.round((br.bottom - ir.top) / zoom) : 0,
+    }
+  })
+
+  rec(g, '★ 缩略图缩到 40px', Math.abs(geo.w - 40) <= 1 && Math.abs(geo.h - 40) <= 1, `${Math.round(geo.w)}×${Math.round(geo.h)}`)
+  /**
+   * 同心圆角：内层 = 外层 − 1px 描边。
+   * 只断言「内层有圆角」不够——方形（radius 0）也该被挡住。
+   */
+  rec(
+    g,
+    '★ 缩略图圆角与外框同心（内层 = 外层 − 1px）',
+    Number.isFinite(geo.outerRadius) && Number.isFinite(geo.innerRadius) && Math.abs(geo.innerRadius - (geo.outerRadius - 1)) <= 0.5,
+    `外 ${geo.outerRadius}px / 内 ${geo.innerRadius}px`,
+  )
+  rec(g, '★ 内层真的把图片裁进圆角里（overflow:hidden）', geo.innerOverflow === 'hidden', geo.innerOverflow)
+  /**
+   * 角标不再遮素材：重叠量 ≤ 2px（允许描边有 1px 视觉接触，但数字不能压在图面上）。
+   * 旧版角标贴在容器内 (1,1)，与图片的重叠是数十像素——这条会直接红。
+   */
+  rec(
+    g,
+    '★ 编号角标不压住素材（已移到角落外沿）',
+    geo.overlapX <= 2 && geo.overlapY <= 2,
+    `重叠 x=${geo.overlapX} y=${geo.overlapY}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/81-g65-thumb.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+/**
  * 已从全量移除的组（测的都是已不存在的功能，继续跑只会拿「它没出现」当失败）：
  * - g22：版本历史（§6.21 于 2026-09-16 下线）
  * - g41：陈旧标记与按范围重跑（2026-09-17 下线：橘点、整条流程重跑、仅刷新陈旧、全图重跑）
  * - g50 / g54：结果组折叠与子结果交互（2026-09-17 结果组整体下线）
  * 「运行画板产生产物」改由 G21 覆盖（断言已从结果组改为承载节点）。
  */
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

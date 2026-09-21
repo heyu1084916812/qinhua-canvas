@@ -868,15 +868,30 @@ function Thumb({
       onDrop={onDrop}
       data-panel-thumb={thumb.id}
     >
-      {/* 编号角标：左上，显性（§6.8 / §6.11） */}
+      {/*
+        画面层单独包一层：**圆角裁切只作用在它身上**（用户 2026-09-21）。
+
+        拆开的原因是两个需求打架：圆角裁图需要 `overflow:hidden`，
+        而角标 / 小眼睛要「探出边框」需要 `overflow:visible`。
+        放在同一个盒子上只能二选一——旧版选了 visible，于是**图片变成方的**
+        （裁切失效），角标也**压在图上**（它只能待在容器内部）。
+        现在裁切下沉到内层，外层保持 visible，两个需求各得其所。
+      */}
+      <span className={styles.thumbFrame}>
+        {url ? (
+          <img src={url} alt="" draggable={false} />
+        ) : (
+          <span className={styles.thumbText} title={thumb.text}>
+            {thumb.text?.trim() ? thumb.text : '空提示词'}
+          </span>
+        )}
+      </span>
+      {/*
+        编号角标：**骑在左上角外沿**（用户 2026-09-21：「遮住了素材」）。
+        它原先贴在容器内的 (1,1)，数字直接盖在图片上。现在向内收 − 向外探，
+        既让开画面、又能被一眼看到。
+      */}
       <span className={styles.badge}>{index + 1}</span>
-      {url ? (
-        <img src={url} alt="" draggable={false} />
-      ) : (
-        <span className={styles.thumbText} title={thumb.text}>
-          {thumb.text?.trim() ? thumb.text : '空提示词'}
-        </span>
-      )}
       {/* 小眼睛：右上，隐性（hover / 选中才显形） */}
       <button
         type="button"

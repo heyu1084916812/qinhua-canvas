@@ -38,13 +38,19 @@
   font-family: var(--font-sans);
   color: var(--text-1);
   /*
+   * 素材**缩略图**的边长（用户 2026-09-21：60 → 40）。
+   *
+   * ⚠️ 它与首行高度（`--assets-row-h`）**不再是同一个值**：
+   * 「图片 / 视频」切换保持 60px 高（它是首行的高度基准），缩略图缩到 40px
+   * 并在行内**垂直居中**。早先两者共用一个变量，改一个就动全身；
+   * 现在拆开，缩略图尺寸可以单独调。
+   */
+  --thumb-size: 40px;
+  /*
    * 第一部分首行高度：**空态素材框与「图片 / 视频」类别切换共用这一个值**（二者等高）。
    * 60px = 类别切换的自然高度（48px 按钮 + 2px 内距×2 + 1px 边框×2），
    * 反过来拿它钉住空态框——光靠 `align-items: stretch` 不行：flex 拉伸按 content-box
    * 算，空态框有 1px 虚线边框，会被撑到 62px，比类别切换高 2px。
-   *
-   * 2026-09-19（用户第 4 条）：缩略图与「图片 / 视频」切换**一起加大一倍**（30 → 60）。
-   * 两者必须同倍放大并继续等高：只放大一边会立刻破掉首行的对齐（它们共处一行）。
    */
   --assets-row-h: 60px;
 }
@@ -194,25 +200,46 @@
 }
 
 /*
- * 缩略图：与「图片 / 视频」类别切换**同高**（30px 方块，§6.8）。
- * 此前是 64×64 的卡片独占一行，比切换大一倍；缩小后编号角标 / 小眼睛 / 删除
- * 三个角标也同步收小（12 / 14 / 14px），否则会糊成一团。
+ * 缩略图**外层**：只负责定位与「允许子元素探出」，**不做裁切**。
+ *
+ * 尺寸 40px（用户 2026-09-21），在 60px 高的首行里垂直居中。
+ * `overflow: visible` 是必须的——右上角的素材操作按钮与左上的编号角标都要
+ * 骑到边框外沿去；裁切交给内层 `.thumbFrame`。
  */
-  .thumb {
-    position: relative;
-    width: var(--assets-row-h);
-    height: var(--assets-row-h);
-    /* 高度钉死 30px 必须 border-box：否则 1px 边框算在外面，会比类别切换高 2px */
-    box-sizing: border-box;
-    border: 1px solid var(--stroke);
-    border-radius: 8px;
-    overflow: hidden;
-    background: var(--bg-subtle);
-    cursor: grab;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
+.thumb {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--thumb-size);
+  height: var(--thumb-size);
+  box-sizing: border-box;
+  overflow: visible;
+  background: var(--bg-subtle);
+  /* 8px 圆角：与 40px 的方块比例协调（半径 ≈ 边长 1/5，与面板内其它小容器一致） */
+  border-radius: 8px;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/*
+ * 缩略图**内层**：只负责裁切与描边。
+ *
+ * **圆角必须与外层同心**（用户 2026-09-21「要和创作面板同心圆的圆角」）：
+ * 外层圆角 8px、内层贴着 1px 描边，故内层取 `8 - 1 = 7px`
+ * ——与 §3.2 里 `--radius-node-inner` 的同一条口径（否则角上出现两条不同弧）。
+ */
+.thumbFrame {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--stroke);
+  border-radius: 7px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 
 .thumbDragging {
   opacity: 0.4;
@@ -222,12 +249,12 @@
   opacity: 0.35;
 }
 
-  .thumb img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
+.thumbFrame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 
 .thumbText {
   font-size: 18px;
@@ -242,25 +269,39 @@
   word-break: break-all;
 }
 
-/* 编号角标：左上，显性（60px 缩略图内收到 24px，18px 字） */
+/*
+ * 编号角标：**骑在缩略图左上角的外沿**（用户 2026-09-21：「遮住了素材」）。
+ *
+ * 原先贴在容器内 (1,1)，数字直接压在图片上——那张图里它正好盖住人脸。
+ *
+ * 现在**整体移到角外**（`left/top` 用负的完整边长 + 一点余量）：
+ * 角标是 18px，配 `-14px` 后它只有约 4px 与图片相交，且那 4px 落在**内层圆角
+ * 已经切掉的地方**（圆角内是空的，不是图面）——所以视觉上完全不压素材。
+ * 早先试过「骑一半」（`-8px`），实测与图面重叠 7px，仍会盖住画面。
+ *
+ * `z-index` 高于 `.thumbFrame`：它现在压在**边框**上，不能被子层盖住。
+ */
 .badge {
   position: absolute;
-  left: 1px;
-  top: 1px;
-  min-width: 24px;
-  height: 24px;
-  padding: 0 4px;
+  left: -18px;
+  top: -18px;
+  z-index: 2;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 3px;
   box-sizing: border-box;
-  border-radius: 3px;
+  border-radius: 9px;
   /* 叠在素材缩略图上：素材亮度不可控，故走「浮层」而不是 --bg-surface ——
      深色主题下它会翻成浅底深字，压在亮图上照样读得清。 */
   background: var(--overlay-scrim);
   color: var(--overlay-text);
-  font-size: 18px;
+  font-size: 11px;
   font-weight: 600;
-  line-height: 24px;
+  line-height: 18px;
   text-align: center;
   pointer-events: none;
+  /* 探出到图片外时要有自己的描边，否则压在画布上会糊掉 */
+  box-shadow: 0 0 0 1.5px var(--bg-surface);
 }
 
 /* 小眼睛：右上，隐性（hover / focus 才显形，§4.5「悬停替代」）。
@@ -269,8 +310,9 @@
   position: absolute;
   right: 1px;
   top: 1px;
-  width: 28px;
-  height: 28px;
+  /* 20px：缩略图 40px 的一半，与角标同量级（原 28px 是给 60px 缩略图配的） */
+  width: 20px;
+  height: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -278,7 +320,7 @@
   border-radius: 999px;
   background: var(--bg-surface);
   color: var(--text-1);
-  font-size: 18px;
+  font-size: 13px;
   line-height: 1;
   cursor: pointer;
   opacity: 0;
@@ -305,11 +347,12 @@
    * 的唯一入口——藏起来等于没有。
    */
   .assetMenuBtn {
-    top: -14px;
-    right: -14px;
-    width: 36px;
-    height: 36px;
-    font-size: 26px;
+    /* 24px：缩略图 40px 的一半多一点；溢出一半，与角标同一套「骑边」做法 */
+    top: -10px;
+    right: -10px;
+    width: 24px;
+    height: 24px;
+    font-size: 17px;
     font-weight: 700;
     line-height: 1;
     opacity: 1;
@@ -320,11 +363,6 @@
 
   .assetMenuBtn:hover {
     background: var(--bg-hover);
-  }
-
-  /* 溢出到格子外，缩略图条需要留出这一圈空间，否则按钮被裁掉 */
-  .thumb {
-    overflow: visible;
   }
 
   /* 小眼睛让位到右下角 */
