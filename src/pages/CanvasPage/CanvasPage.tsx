@@ -15,6 +15,7 @@ import { CanvasExecutionProvider } from '../../workbenches/canvas/execution/Canv
 import { LogPanel } from '../../workbenches/canvas/panels/LogPanel'
 import { CanvasToolbar } from '../../workbenches/canvas/toolbar/CanvasToolbar'
 import { LightboxLayer } from '../../workbenches/canvas/lightbox/LightboxLayer'
+import { TextEditorLayer } from '../../workbenches/canvas/text/TextEditorLayer'
 import { CanvasTopBar } from './CanvasTopBar'
 import { screenToWorld } from '../../domain/canvas/geometry/coords'
 import { NODE_MINIMUMS } from '../../domain/canvas/layout/constants'
@@ -337,6 +338,9 @@ function CanvasProject({ projectId }: { projectId: string }) {
           {/* 素材灯箱（§6.17）挂在页面级：它的触发方有画布表面与日志面板两处，
               挂在任一子树里另一处都够不着；状态在 store，故放哪都能读 */}
           <LightboxLayer />
+          {/* 文本编辑灯箱（§6.7）：与素材灯箱同级、互斥。同样挂页面级——
+              入口有「右键菜单」与「节点跟随栏的全屏按钮」两处 */}
+          <TextEditorLayer />
         </div>
       </CanvasExecutionProvider>
     </CanvasStoreProvider>

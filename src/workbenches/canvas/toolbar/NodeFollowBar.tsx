@@ -22,6 +22,9 @@ import type { NodeSnapshot, NodeType } from '../../../domain/canvas/model/node'
 import { createId } from '../../../shared/id'
 import { followBarAnchor } from './followBarAnchor'
 import styles from './NodeFollowBar.module.css'
+import { FormatToolbar, type FormatAction } from '../text/FormatToolbar'
+import { applyInlineFormat, applyLineFormat, insertDivider, linePrefixOf } from '../../../domain/canvas/text/markdownFormat'
+import { toPlainText } from '../../../domain/canvas/text/markdownRender'
 
 /**
  * 出现跟随栏的节点类型。
@@ -153,6 +156,22 @@ function NodeActions({
 }) {
   const store = useCanvasStore()
   const exec = useCanvasExecution()
+
+  /**
+   * 提示词节点走**正文格式工具栏**（用户 2026-09-21），而不是下面那套
+   * 「生成 / 重命名 / 复制 / 删除」。
+   *
+   * 为什么不并把两套都塞进一条：提示词节点的常用操作是「给正文加格式」，
+   * 而它那套通用动作（重命名 / 删除）已在**右键菜单**里各有一份；
+   * 一条栏里堆十来个按钮会把常用操作挤到看不见。
+   *
+   * 工具栏本体与全屏灯箱**共用同一个组件**（`text/FormatToolbar`），
+   * 所以两处的按钮顺序、选中态、禁用逻辑永远一致。
+   */
+  if (node.type === 'prompt') {
+    return <PromptFormatActions node={node} onClose={onClose} />
+  }
+
   const state = exec.nodeStateOf(node.id)
   const busy = state?.kind === 'queued' || state?.kind === 'running'
   const canRun = node.type === 'generation' || node.type === 'batch' || node.type === 'group'
@@ -231,6 +250,56 @@ function NodeActions({
         <FollowButton action="settings" glyph="⚙" label="渠道设置" onClick={onOpenSettings} />
       )}
     </div>
+  )
+}
+
+/**
+ * 提示词节点的**正文格式作栏**（用户 2026-09-21）。
+ *
+ * 节点本体上的正文是只读展示（双击 = 全选），所以这里没有「光标」可用——
+ * 格式按钮作用于**整个正文的逐行**：
+ * - 点 H2 → 正文每一行都变成 H2（对单行提示词就是「这行变标题」）；
+ * - 点粗体 → 若已有选区信息可用就用，否则把整段包成粗体。
+ *
+ * 真正需要精细光标操作的场合是**全屏编辑灯箱**——那里有真实 textarea，
+ * 按钮走的是完整的「按光标 / 选区变换」。两处共用同一份纯函数，
+ * 差别只在「作用范围」（整段 vs 光标处）。
+ */
+function PromptFormatActions({ node, onClose }: { node: NodeSnapshot; onClose: () => void }) {
+  const store = useCanvasStore()
+  const text = (node.data as { text?: string }).text ?? ''
+
+  const apply = (next: { text: string; start: number; end: number }) => {
+    store.dispatch({
+      kind: 'node.updateData',
+      id: node.id,
+      patch: { text: next.text },
+      transient: false,
+    })
+  }
+
+  const onAction = (action: FormatAction) => {
+    // 节点栏无光标：整段处理（start=0, end=全文）
+    if (action.kind === 'line') apply(applyLineFormat(text, 0, text.length, action.format))
+    else if (action.kind === 'inline') apply(applyInlineFormat(text, 0, text.length, action.format))
+    else if (action.kind === 'divider') apply(insertDivider(text, text.length, text.length))
+    else if (action.kind === 'copy') void navigator.clipboard?.writeText(toPlainText(text))
+  }
+
+  return (
+    <FormatToolbar
+      activeLine={linePrefixOf(text, 0)}
+      activeInline={{
+        bold: text.startsWith('**') && text.endsWith('**') && text.length > 4,
+        italic: text.startsWith('*') && text.endsWith('*') && !text.startsWith('**'),
+      }}
+      onAction={onAction}
+      onToggleFullscreen={() => {
+        store.openTextEditor(node.id)
+        onClose()
+      }}
+      keepFocus
+    />
   )
 }
 

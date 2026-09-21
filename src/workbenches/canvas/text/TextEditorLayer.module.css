@@ -1,0 +1,187 @@
+/*
+ * 文本编辑灯箱（§6.7，用户 2026-09-21）。
+ *
+ * 观感照抄素材灯箱（§6.17）：**居中大面板 + 四周留白 + 底色 --bg-subtle**，
+ * 不用压在画布上的半透明黑遮罩。用户的原话是「就像灯箱一样」。
+ *
+ * 两处刻意的差别：
+ * - 素材灯箱铺满整屏（`inset: 0` 的 flex 容器）；这里是个**居中面板**，
+ *   四周能看到画布（用户 2026-09-21 明确「不是正的全屏」）。
+ * - **不能移动**：不是浮窗，没有拖拽标题栏。
+ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  /* 高于日志面板(30) / 时间轴与确认框(40)；与素材灯箱同级——两者互斥 */
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  box-sizing: border-box;
+  /* 极轻的压暗：既让面板浮起来，又能看见底下的画布（不是纯黑遮罩） */
+  background: color-mix(in srgb, var(--scrim) 60%, transparent);
+  animation: fadeIn var(--dur-lightbox) var(--ease-panel);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay {
+    animation: none;
+  }
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: min(900px, 100%);
+  height: min(680px, 100%);
+  box-sizing: border-box;
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-node);
+  overflow: hidden;
+}
+
+.head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--stroke);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+/*
+ * 编辑区：**真实文本**（带 Markdown 符号）。所有排版变量与右侧预览共用，
+ * 保证「同一段文字在两边看起来行高、字号一致」，否则读起来会跳。
+ */
+.input {
+  min-width: 0;
+  min-height: 0;
+  padding: var(--space-4);
+  box-sizing: border-box;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.7;
+  overflow: auto;
+}
+
+.input::placeholder {
+  color: var(--text-3);
+}
+
+.preview {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--stroke);
+  background: var(--bg-subtle);
+}
+
+/* 「预览」小标：说明右边这块是什么，避免用户以为是第二个输入框 */
+.previewTitle {
+  flex: none;
+  padding: var(--space-2) var(--space-4) 0;
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  color: var(--text-3);
+}
+
+.previewBody {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-2) var(--space-4) var(--space-4);
+  overflow: auto;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.previewEmpty {
+  color: var(--text-3);
+}
+
+/* ── 预览里的块样式（符号已剥掉，只画格式） ── */
+.h1 {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.35;
+  margin: var(--space-3) 0 var(--space-2);
+}
+
+.h2 {
+  font-size: 23px;
+  font-weight: 700;
+  line-height: 1.4;
+  margin: var(--space-3) 0 var(--space-2);
+}
+
+.h3 {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.5;
+  margin: var(--space-2) 0 var(--space-1);
+}
+
+.paragraph {
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.dividerRow {
+  height: 1px;
+  margin: var(--space-3) 0;
+  background: var(--stroke);
+}
+
+/* 列表标记：固定宽度，保证「•」与「12.」都能与正文对齐 */
+.marker {
+  flex: none;
+  min-width: 18px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.bold {
+  font-weight: 700;
+}
+
+.italic {
+  font-style: italic;
+}

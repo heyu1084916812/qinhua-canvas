@@ -1,0 +1,75 @@
+/*
+ * 正文格式工具栏（§6.7）。形态与节点跟随栏同款（§3.3：无投影、
+ * 1px 细描边 + 背景明度分层、10px 圆角），保证两处工具栏看起来是一套东西。
+ */
+.bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  box-sizing: border-box;
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  font-family: var(--font-sans);
+  user-select: none;
+}
+
+/*
+ * 按钮：**文字符**（H1/H2/H3/正文）与**图形符**（B / I / ⧉ / ⤢）混排。
+ * 统一宽度而不是让内容撑开——否则「正文」比「H1」宽，按钮会参差不齐。
+ */
+.btn,
+.btnOn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 定宽而不是随内容：H1（2 字）与「正文」（2 字）宽度一致，整排才齐 */
+  width: 32px;
+  box-sizing: border-box;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: calc(var(--radius-control) - 4px);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.btn:hover,
+.btnOn:hover {
+  background: var(--bg-hover);
+}
+
+/* 点亮 = 光标那行现在就是这个格式（与 ParamPicker 的选中态同一口径） */
+.btnOn {
+  background: var(--bg-hover);
+  font-weight: 600;
+}
+
+.btn:focus-visible,
+.btnOn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 var(--space-1);
+  background: var(--stroke);
+}
+
+/* B 加粗显示、I 倾斜显示——按钮自己说明它是干什么的 */
+.boldGlyph {
+  font-weight: 700;
+}
+
+.italicGlyph {
+  font-style: italic;
+}

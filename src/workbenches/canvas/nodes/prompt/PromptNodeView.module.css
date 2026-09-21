@@ -36,20 +36,67 @@
   color: var(--text-3);
 }
 
-/* 编辑态：textarea 铺满 frame body（丢了这个类会缩成内联尺寸，滚轮/布局全乱） */
-.textarea {
-  width: 100%;
-  height: 100%;
-  padding: var(--space-3);
-  box-sizing: border-box;
-  border: none;
-  outline: none;
-  resize: none;
-  background: transparent;
-  font-family: var(--font-sans);
-  font-size: var(--fs-body);
-  line-height: var(--lh-body);
-  color: var(--text-1);
+/*
+ * 正文的 Markdown 渲染（用户 2026-09-21：看格式、不看符号）。
+ *
+ * 节点只有 240×160 起，所以这里的标题比灯箱预览里**收得小**——
+ * 用灯箱那套 26px 会把节点撑爆。节点的定位是「一眼看出结构」，
+ * 精读与长文本编辑走灯箱。
+ */
+.mdH1 {
+  display: flex;
+  gap: var(--space-1);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.4;
+  margin: var(--space-1) 0;
+}
+
+.mdH2 {
+  display: flex;
+  gap: var(--space-1);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.45;
+  margin: var(--space-1) 0;
+}
+
+.mdH3 {
+  display: flex;
+  gap: var(--space-1);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  margin: var(--space-1) 0;
+}
+
+.mdParagraph {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+/* 列表标记固定宽度：让「•」与「12.」都能与正文对齐 */
+.mdMarker {
+  flex: none;
+  min-width: 14px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.mdDivider {
+  height: 1px;
+  margin: var(--space-2) 0;
+  background: var(--stroke);
+}
+
+.mdBold {
+  font-weight: 700;
+}
+
+.mdItalic {
+  font-style: italic;
 }
 
 .footer {

@@ -34,7 +34,25 @@ describe('nodeMenuItems / 节点右键菜单（§4.1）', () => {
   })
 
   it('通用项顺序：复制 → 重命名 → 删除', () => {
-    expect(ids(nodeMenuItems('prompt'))).toEqual(['duplicate', 'rename', 'delete'])
+    expect(ids(nodeMenuItems('generation'))).toEqual(['run', 'duplicate', 'rename', 'delete'])
+    expect(ids(nodeMenuItems('compare'))).toEqual(['duplicate', 'rename', 'delete'])
+  })
+
+  /**
+   * 「全屏编辑」2026-09-21 落地（用户要求）：只有**提示词节点**有正文可编辑，
+   * 其它类型的「正文」概念不存在，故不该出现这个入口（死入口比没有更糟）。
+   * 位置在**编辑类**（复制之后、重命名之前）。
+   */
+  it('★ 提示词节点有「全屏编辑」，且排在编辑类里', () => {
+    const items = nodeMenuItems('prompt')
+    expect(ids(items)).toEqual(['duplicate', 'fullscreenEdit', 'rename', 'delete'])
+    expect(items.find((i) => i.id === 'fullscreenEdit')!.action).toEqual({ kind: 'fullscreenEdit' })
+  })
+
+  it('★ 非提示词节点没有「全屏编辑」（无正文可编辑）', () => {
+    for (const t of ['generation', 'batch', 'compare', 'group', 'board'] as NodeType[]) {
+      expect(ids(nodeMenuItems(t))).not.toContain('fullscreenEdit')
+    }
   })
 
   /**

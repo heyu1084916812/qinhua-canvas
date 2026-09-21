@@ -16,6 +16,7 @@ export type ContextMenuAction =
   | { kind: 'runBoard' }
   | { kind: 'duplicate' }
   | { kind: 'rename' }
+  | { kind: 'fullscreenEdit' }
   | { kind: 'delete' }
   | { kind: 'create'; type: NodeType }
   | { kind: 'paste' }
@@ -62,8 +63,11 @@ const RUNNABLE: ReadonlySet<NodeType> = new Set<NodeType>(['generation', 'batch'
  * 而落位改成「每次生成新建一个右侧节点」之后，用户要的是「出一份新的、旧的留着对比」，
  * 覆盖式重跑正好与之相反。留着只会让人误点丢结果。
  *
- * 禁用 / 全屏编辑 / 改写提示词属 M4 后续，未落地故不列
+ * 禁用 / 改写提示词属后续，未落地故不列
  * （列出点了没反应的禁用项比不列更糟）。
+ *
+ * 「全屏编辑」2026-09-21 落地：提示词节点多一项，打开**文本编辑灯箱**（§6.7）。
+ * 它放在「编辑类」——与复制 / 重命名同一组（§4.1 的分组约定）。
  */
 export function nodeMenuItems(type: NodeType): ContextMenuItem[] {
   const items: ContextMenuItem[] = []
@@ -73,6 +77,10 @@ export function nodeMenuItems(type: NodeType): ContextMenuItem[] {
     items.push({ id: 'run', label: '生成', action: { kind: 'run' }, separatorAfter: true })
   }
   items.push({ id: 'duplicate', label: '复制', action: { kind: 'duplicate' } })
+  // 只有提示词节点有正文可编辑；其它类型的「正文」概念不存在
+  if (type === 'prompt') {
+    items.push({ id: 'fullscreenEdit', label: '全屏编辑', action: { kind: 'fullscreenEdit' } })
+  }
   items.push({ id: 'rename', label: '重命名', action: { kind: 'rename' }, separatorAfter: true })
   items.push({ id: 'delete', label: '删除', action: { kind: 'delete' } })
   return items

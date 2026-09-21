@@ -124,6 +124,8 @@ export function ContextMenu() {
         })
       } else if (a.kind === 'rename') {
         store.beginRename(nodeId)
+      } else if (a.kind === 'fullscreenEdit') {
+        store.openTextEditor(nodeId)
       } else if (a.kind === 'delete') {
         store.dispatch({ kind: 'node.delete', ids: [nodeId] })
         store.setSelection([])

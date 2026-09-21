@@ -228,6 +228,33 @@ function panelRunBtn(page) {
 }
 
 /**
+ * 给提示词节点写入正文（用户 2026-09-21 起的唯一编辑入口）。
+ *
+ * 为什么需要这个 helper：编辑入口变过一次——早先是「双击节点 → 节点内 textarea」，
+ * 现在双击是**全选**，编辑统一走**文本编辑灯箱**。当时好几处冒烟还在找
+ * `[data-node-type="prompt"] textarea`，改完入口就集体超时。
+ * 收成一个 helper 后，下次再改入口只改这一个地方。
+ *
+ * 走的是**和用户一样的路**：右键节点 → 菜单「全屏编辑」→ 填 → Esc。
+ * （刻意不用直接派发 store 命令：那样测不到入口本身。）
+ */
+async function setTextViaEditor(page, nodeLocator, text) {
+  const node = nodeLocator ?? page.locator('[data-node-type="prompt"]').first()
+  const box = await node.boundingBox()
+  if (!box) throw new Error('setTextViaEditor: 节点不可见')
+  await page.mouse.click(box.x + 40, box.y + 60, { button: 'right' })
+  await sleep(250)
+  await page.locator('[data-context-menu-item="fullscreenEdit"]').click()
+  await sleep(400)
+  const input = page.locator('[data-text-input]')
+  await input.waitFor({ state: 'visible', timeout: 5000 })
+  await input.fill(text)
+  await sleep(200)
+  await page.keyboard.press('Escape')
+  await sleep(350)
+}
+
+/**
  * 节点框上的**安全抓取点**：左下角内侧。
  *
  * 标题已按 §6.6 移到节点框外，"框内顶部"不再是安全区——画板节点的工具条就压在那里
@@ -591,18 +618,30 @@ async function g4(browser) {
   await resetView(page)
   await sleep(250)
 
-  // 滚轮归文本框：双击节点进入编辑态（提示词节点的 textarea 只在编辑时渲染）
+  /*
+   * 滚轮归文本框：正文编辑 2026-09-21 起在**文本编辑灯箱**里，
+   * 所以这里改成「打开灯箱 → 在它的 textarea 上滚轮」，验证的仍是同一件事：
+   * **指针在文本框里时滚轮只滚文本，不缩放画布**。
+   *
+   * 顺带覆盖新入口本身（右键 → 全屏编辑），而不是绕过它。
+   */
   await addNodeViaToolbar(page, 'prompt')
   await sleep(400)
-  await page.locator('[data-node-id]').first().dblclick()
-  await sleep(300)
-  const ta = page.locator('[data-node-id] textarea').first()
+  const promptForWheel = page.locator('[data-node-type="prompt"]').first()
+  const pwb = await promptForWheel.boundingBox()
+  await page.mouse.click(pwb.x + 40, pwb.y + 60, { button: 'right' })
+  await sleep(250)
+  await page.locator('[data-context-menu-item="fullscreenEdit"]').click()
+  await sleep(400)
+  const ta = page.locator('[data-text-input]')
   const hasTa = (await ta.count()) > 0
-  rec(g, '双击节点进入编辑（出现 textarea）', hasTa)
+  rec(g, '右键「全屏编辑」打开文本编辑灯箱（出现 textarea）', hasTa)
   if (hasTa) {
     const before = await readViewport(page)
+    // 指针移到**灯箱文本框自己身上**再滚（不是画布坐标——灯箱盖在画布之上）
+    const tb = await ta.boundingBox()
     await ta.click()
-    await page.mouse.move(cx, cy)
+    await page.mouse.move(tb.x + tb.width / 2, tb.y + tb.height / 2)
     await page.mouse.wheel(0, -400)
     await sleep(250)
     const after = await readViewport(page)
@@ -611,6 +650,9 @@ async function g4(browser) {
     await page.keyboard.type('a b')
     const val = await ta.inputValue()
     rec(g, '文本框内可键入空格（空格未被画布接管）', val.includes(' '), JSON.stringify(val))
+    // 关掉灯箱再继续：后面几组要操作画布，留着它会把点击全吃掉
+    await page.keyboard.press('Escape')
+    await sleep(300)
   }
 
   // 空格 + 拖拽平移（点过工具栏后焦点不应滞留按钮，否则空格会被按钮吃掉）
@@ -2752,18 +2794,21 @@ async function g23(browser) {
   const g23ch = await configureMockChannel(page)
   rec(g, '渠道验证通过（模型缓存含 chat）', g23ch.verified)
 
-  // 2) 进画布建提示词节点，双击进编辑态输入文本
+  /*
+   * 2) 建提示词节点并写入正文。
+   *
+   * 编辑入口 2026-09-21 变了：双击正文不再是「进节点内编辑态」（那个 textarea
+   * 已删除），而是**全选**；正文编辑统一走**文本编辑灯箱**。
+   * 这里走跟用户一样的路：右键 → 全屏编辑 → 写 → Esc。
+   * 用 `setTextViaEditor` 而不是各写一遍，避免下次再改入口时又漏掉几处。
+   */
   await page.goto(BASE, { waitUntil: 'networkidle' })
   await sleep(400)
   await createProject(page)
   await addNodeViaToolbar(page, 'prompt')
   await sleep(400)
   const promptNode = page.locator('[data-node-type="prompt"]').first()
-  await promptNode.dblclick()
-  const ta = page.locator('[data-node-type="prompt"] textarea').first()
-  await ta.fill('一只猫')
-  await ta.press('Escape')
-  await sleep(300)
+  await setTextViaEditor(page, promptNode, '一只猫')
   const nodeText = async () => (await promptNode.innerText().catch(() => ''))
   rec(g, '初始文本', (await nodeText()).includes('一只猫'))
 
@@ -8543,13 +8588,135 @@ async function g62(browser) {
 }
 
 /**
+ * G64 提示词正文格式化与文本编辑灯箱（§6.7，用户 2026-09-21）。
+ *
+ * 覆盖三件事：
+ * 1. 节点跟随栏在提示词节点上换成**格式工具栏**（不是生成那套动作）；
+ * 2. 点格式按钮后节点**渲染出格式、看不到 Markdown 符号**（关键诉求）；
+ * 3. 全屏编辑灯箱能开、能改、预览同步。
+ */
+async function g64(browser) {
+  const g = 'G64 正文格式化'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(800)
+
+  const prompt = page.locator('[data-node-type="prompt"]').first()
+  const selectPrompt = async () => {
+    const b = await prompt.boundingBox()
+    await page.mouse.click(b.x + 40, b.y + 60)
+    await sleep(300)
+  }
+
+  await selectPrompt()
+  const bar = page.locator('[data-node-follow-bar] [data-format-toolbar]')
+  rec(g, '提示词节点的跟随栏是格式工具栏', (await bar.count()) === 1)
+  const btnIds = await page
+    .locator('[data-node-follow-bar] [data-format-btn]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-format-btn')))
+  rec(
+    g,
+    '按钮齐全且顺序正确（H1/H2/H3/正文 | B/I/无序/有序/分隔线 | 复制/全屏）',
+    JSON.stringify(btnIds) ===
+      JSON.stringify(['h1', 'h2', 'h3', 'paragraph', 'bold', 'italic', 'bullet', 'ordered', 'divider', 'copy', 'fullscreen']),
+    btnIds.join(','),
+  )
+  // 生成节点不该有格式工具栏（它是另一套动作）——防「换了类型忘了分支」
+  const genBox = await page.locator('[data-node-type="generation"]').first().boundingBox()
+  await page.mouse.click(genBox.x + 40, genBox.y + 60)
+  await sleep(300)
+  rec(g, '生成节点不出现格式工具栏（仍是它自己那套）', (await bar.count()) === 0)
+
+  /*
+   * 先**真的写一段字**再点格式。
+   *
+   * 模板给的提示词节点正文是空的，若直接点 H1，node 里渲染出的是空 h1 块——
+   * 「看不到 `#`」就成了「因为什么都没有所以看不到」，断言恒真（实测首版即如此）。
+   * 必须有真实文字，这条才在验证「符号被剥掉」。
+   */
+  await selectPrompt()
+  await page.locator('[data-node-follow-bar] [data-format-btn="fullscreen"]').click()
+  await sleep(450)
+  await page.locator('[data-text-input]').fill('一只猫')
+  await sleep(250)
+  await page.keyboard.press('Escape')
+  await sleep(400)
+
+  // ── 点 H1：节点渲染成 h1 块，且**正文里看不到 `#`** ──
+  await selectPrompt()
+  await page.locator('[data-node-follow-bar] [data-format-btn="h1"]').click()
+  await sleep(400)
+  rec(g, '点 H1 后节点渲染出 h1 块', (await prompt.locator('[data-md-block="h1"]').count()) === 1)
+  const mdText = (await prompt.locator('[data-md-block="h1"]').innerText()).trim()
+  rec(g, '★ 节点上不显示 `#` 符号（只看得到文字）', mdText === '一只猫', JSON.stringify(mdText))
+
+  // ── 打开文本编辑灯箱 ──
+  await selectPrompt()
+  await page.locator('[data-node-follow-bar] [data-format-btn="fullscreen"]').click()
+  await sleep(500)
+  rec(g, '★ 点「全屏」打开文本编辑灯箱', (await page.locator('[data-text-editor]').count()) === 1)
+  const input = page.locator('[data-text-input]')
+  rec(g, '灯箱里是**带符号的真实文本**（可编辑的那一份）', (await input.inputValue()).startsWith('#'), await input.inputValue())
+
+  // ── 灯箱内加粗：文本变 `**x**`，预览里看不到星号 ──
+  await input.fill('一只猫')
+  await input.evaluate((el) => el.setSelectionRange(1, 2))
+  await sleep(150)
+  await page.locator('[data-text-editor] [data-format-btn="bold"]').click()
+  await sleep(400)
+  rec(g, '选中「只」点粗体 → 文本变成一对 `**`', (await input.inputValue()) === '一**只**猫', await input.inputValue())
+  const prevText = await page.locator('[data-text-preview]').innerText()
+  rec(g, '★ 预览里看不到 `**`（只看到文字）', !prevText.includes('*'), JSON.stringify(prevText))
+  rec(g, '★ 预览里真的渲染出了加粗片段', (await page.locator('[data-text-preview] [class*="bold"]').count()) >= 1)
+
+  // ── 幂等：H2 再点 H2 不叠加 ──
+  await input.evaluate((el) => el.setSelectionRange(0, 0))
+  await sleep(150)
+  await page.locator('[data-text-editor] [data-format-btn="h2"]').click()
+  await sleep(350)
+  const afterH2 = await input.inputValue()
+  await page.locator('[data-text-editor] [data-format-btn="h2"]').click()
+  await sleep(350)
+  rec(g, '★ H2 连点两次不叠加（仍是单个 `## `）', (await input.inputValue()) === afterH2, await input.inputValue())
+
+  // ── Esc 关闭，且编辑结果留在节点上 ──
+  await page.keyboard.press('Escape')
+  await sleep(400)
+  rec(g, '★ Esc 关闭灯箱', (await page.locator('[data-text-editor]').count()) === 0)
+  rec(g, '★ 编辑结果写回节点（渲染出 h2 块）', (await prompt.locator('[data-md-block="h2"]').count()) === 1)
+
+  // ── 右键菜单有「全屏编辑」，且只有提示词节点有 ──
+  const pb = await prompt.boundingBox()
+  await page.mouse.click(pb.x + 40, pb.y + 60, { button: 'right' })
+  await sleep(350)
+  rec(
+    g,
+    '★ 右键菜单里有「全屏编辑」',
+    (await page.locator('[data-context-menu-item="fullscreenEdit"]').count()) === 1,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(250)
+
+  await page.screenshot({ path: `${OUT}/80-g64-format.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+/**
  * 已从全量移除的组（测的都是已不存在的功能，继续跑只会拿「它没出现」当失败）：
  * - g22：版本历史（§6.21 于 2026-09-16 下线）
  * - g41：陈旧标记与按范围重跑（2026-09-17 下线：橘点、整条流程重跑、仅刷新陈旧、全图重跑）
  * - g50 / g54：结果组折叠与子结果交互（2026-09-17 结果组整体下线）
  * 「运行画板产生产物」改由 G21 覆盖（断言已从结果组改为承载节点）。
  */
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

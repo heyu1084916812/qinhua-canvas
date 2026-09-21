@@ -99,6 +99,17 @@ interface CanvasState {
    * 透传。它是瞬时态——关掉即忘，与 menu / notice 同口径。
    */
   lightbox: { assetHash: string } | null
+  /**
+   * 文本编辑灯箱（产品文档 §6.7，用户 2026-09-21）：提示词正文的**大编辑框**。
+   *
+   * 与素材灯箱 `lightbox` 分开存，而不是合成一个联合类型：两者的**内容形态
+   * 完全不同**（一个是图片 + 缩放平移，一个是文本框），共用字段只会让两边
+   * 都多出一堆 `if`。但它们**互斥**——打开一个就关掉另一个，见 `openTextEditor`。
+   *
+   * 只存 nodeId：正文本身在 `graph` 里（编辑要走命令，进撤销栈），
+   * 这里存一份副本就会出现「两份真相」。
+   */
+  textEditor: { nodeId: string } | null
 }
 
 export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
@@ -159,6 +170,10 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
   openLightbox: (assetHash: string) => void
   closeLightbox: () => void
   getLightbox: () => { assetHash: string } | null
+  /** 打开 / 关闭文本编辑灯箱（§6.7）。与素材灯箱互斥 */
+  openTextEditor: (nodeId: string) => void
+  closeTextEditor: () => void
+  getTextEditor: () => { nodeId: string } | null
   /**
    * 开启一次多步事务（架构 §5.5）：开启后到 endPlan() 之间的所有命令
    * 合并进同一个撤销单元——整次拓扑生成只占一步撤销。
@@ -273,6 +288,7 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     renamingId: null,
     undoBar: null,
     lightbox: null,
+    textEditor: null,
   }))
 
   // 当前进行中的多步事务（拓扑生成）：非 null 时，所有命令都合并进同一个撤销单元
@@ -396,9 +412,15 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     beginRename: (nodeId) => store.setState({ renamingId: nodeId }),
     endRename: () => store.setState({ renamingId: null }),
     getRenamingId: () => store.getState().renamingId,
-    openLightbox: (assetHash) => store.setState({ lightbox: { assetHash }, menu: null }),
+    openLightbox: (assetHash) =>
+      store.setState({ lightbox: { assetHash }, textEditor: null, menu: null }),
     closeLightbox: () => store.setState({ lightbox: null }),
     getLightbox: () => store.getState().lightbox,
+    /* 与素材灯箱互斥：同一个屏幕位置不可能同时看图和改字，两个都开着只会互相盖住 */
+    openTextEditor: (nodeId) =>
+      store.setState({ textEditor: { nodeId }, lightbox: null, menu: null }),
+    closeTextEditor: () => store.setState({ textEditor: null }),
+    getTextEditor: () => store.getState().textEditor,
     beginPlan: (planId, label) => {
       activePlan = { planId, label }
     },
