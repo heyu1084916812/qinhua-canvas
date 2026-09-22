@@ -2376,7 +2376,8 @@ async function g17(browser) {
   await page.locator('[data-toolbar-add]').click()
   await sleep(250)
   const menuItems = await page.locator('[data-toolbar-menu-item]').count()
-  rec(g, '新建节点菜单展开 6 项', menuItems === 6, `items=${menuItems}`)
+  // 7 项：6 种原有类型 + 循环节点（§6.22，2026-09-22 新增）
+  rec(g, '新建节点菜单展开 7 项', menuItems === 7, `items=${menuItems}`)
   await page.keyboard.press('Escape')
   await sleep(200)
   rec(g, 'Esc 关闭新建菜单', (await page.locator('[data-toolbar-menu]').count()) === 0)
@@ -2563,8 +2564,9 @@ async function g18(browser) {
   const canvasSet = new Set(canvasMenu)
   rec(
     g,
-    '画布空白右键含 6 新建 + 重置视图（§4.1）',
-    canvasSet.size === 7 && canvasSet.has('重置视图'),
+    // 7 新建（含循环节点）+ 重置视图 = 8 项
+    '画布空白右键含 7 新建 + 重置视图（§4.1）',
+    canvasSet.size === 8 && canvasSet.has('重置视图'),
     `items=${JSON.stringify(canvasMenu)}`,
   )
   await page.keyboard.press('Escape')
@@ -9336,13 +9338,154 @@ async function g66(browser) {
 }
 
 /**
+ * G67 循环节点（§6.22，用户 2026-09-22）。
+ *
+ * 循环节点是**分发器**：自己不产图，把上游素材按轮次交给下游跑 N 次。
+ * 本组只覆盖「节点能用」这一层（建出来 / 参数能改 / 连得上）；
+ * 轮次展开的数学在 `domain/canvas/loop/loopPlan.test.ts`（20 项单测）里钉着。
+ */
+async function g67(browser) {
+  const g = 'G67 循环节点'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-template="blank"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(800)
+
+  // ── 建得出来 ──
+  await page.locator('[data-toolbar-add]').click()
+  await sleep(350)
+  const menuIds = await page
+    .locator('[data-toolbar-menu-item]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-toolbar-menu-item')))
+  rec(g, '新建菜单里有「循环节点」', menuIds.includes('loop'), menuIds.join(','))
+  await page.locator('[data-toolbar-menu-item="loop"]').click()
+  await sleep(600)
+
+  const node = page.locator('[data-node-type="loop"]').first()
+  rec(g, '画布上建出了循环节点', (await node.count()) === 1)
+  if ((await node.count()) === 0) {
+    rec(g, '（后续断言跳过）', false, '节点没建出来')
+    await ctx.close()
+    return
+  }
+
+  // ── 节点内 UI 齐全 ──
+  const ui = await node.evaluate((el) => ({
+    segs: [...el.querySelectorAll('[data-loop-mode]')].map((e) => e.getAttribute('data-loop-mode')),
+    toggles: [...el.querySelectorAll('[data-loop-toggle]')].map((e) => e.getAttribute('data-loop-toggle')),
+    nums: [...el.querySelectorAll('[data-loop-number]')].map((e) => e.getAttribute('data-loop-number')),
+    prompts: el.querySelectorAll('[data-loop-prompt]').length,
+  }))
+  rec(g, '串行 / 并行分段控件齐备', JSON.stringify(ui.segs) === JSON.stringify(['serial', 'parallel']), ui.segs.join(','))
+  rec(g, '素材 / 提示词两个开关齐备', JSON.stringify(ui.toggles) === JSON.stringify(['image', 'prompt']), ui.toggles.join(','))
+  rec(
+    g,
+    '起始 / 轮数 / 每轮 三个数字字段齐备',
+    JSON.stringify(ui.nums) === JSON.stringify(['loopStart', 'count', 'batch']),
+    ui.nums.join(','),
+  )
+  rec(g, '至少有一条提示词输入', ui.prompts >= 1, `${ui.prompts} 条`)
+
+  /**
+   * ★ 内容不许被压扁（用户实测：「第一条提示词只露出半截」）。
+   * 判据是几何：容器不能溢出，且第一条提示词**完整落在容器内**。
+   */
+  const layout = await node.evaluate((el) => {
+    const body = el.querySelector('[data-loop-node]')
+    const first = el.querySelector('[data-loop-prompt="0"]')
+    const br = body.getBoundingClientRect()
+    const fr = first ? first.getBoundingClientRect() : null
+    return {
+      overflow: body.scrollHeight > body.clientHeight + 1,
+      firstInside: fr ? fr.top >= br.top - 1 && fr.bottom <= br.bottom + 1 : false,
+      firstH: fr ? Math.round(fr.height) : 0,
+    }
+  })
+  rec(g, '★ 节点内无溢出（内容没有被压扁）', layout.overflow === false, `overflow=${layout.overflow}`)
+  rec(g, '★ 第一条提示词完整可见（不是只露半截）', layout.firstInside && layout.firstH >= 20, `高 ${layout.firstH}px`)
+
+  // ── 参数能改且写进数据 ──
+  const countInput = node.locator('[data-loop-number="count"]')
+  await countInput.fill('7')
+  await sleep(600)
+  rec(g, '改轮数后回读一致', (await countInput.inputValue()) === '7')
+
+  await node.locator('[data-loop-mode="parallel"]').click()
+  await sleep(350)
+  rec(g, '切并行后按钮是按下态', (await node.locator('[data-loop-mode="parallel"]').getAttribute('aria-pressed')) === 'true')
+
+  // ── 提示词可增删、可插入计数变量 ──
+  await node.locator('[data-loop-prompt-add]').click()
+  await sleep(350)
+  rec(g, '「＋」加出第二条提示词', (await node.locator('[data-loop-prompt]').count()) === 2)
+  await node.locator('[data-loop-insert-counter]').click()
+  await sleep(450)
+  rec(g, '「计数」按钮把变量插进第一条', (await node.locator('[data-loop-prompt="0"]').inputValue()).includes('《计数》'))
+
+  // ── 关键：循环节点能连到下游生成节点（否则它毫无用处）──
+  await page.locator('[data-toolbar-add]').click()
+  await sleep(300)
+  await page.locator('[data-toolbar-menu-item="generation"]').click()
+  await sleep(500)
+  const gen = page.locator('[data-node-type="generation"]').first()
+
+  /**
+   * 先把两个节点**拉开距离**再拖线：新建的节点落在视口中心，
+   * 与循环节点靠得很近，两个端点可能重叠——那样拖线会被判成"拖到自身上"而失败。
+   * 把生成节点往右下拖 320px，模拟用户真实的摆放。
+   */
+  const genBox0 = await gen.boundingBox()
+  if (genBox0) {
+    await page.mouse.move(genBox0.x + 40, genBox0.y + genBox0.height - 20)
+    await page.mouse.down()
+    await page.mouse.move(genBox0.x + 380, genBox0.y + genBox0.height + 140, { steps: 12 })
+    await page.mouse.up()
+    await sleep(500)
+  }
+  await gen.hover()
+  await sleep(300)
+  const inPort = gen.locator('[data-port="input"]')
+  const loopOut = node.locator('[data-port="output"]')
+  const hasPorts = (await inPort.count()) > 0 && (await loopOut.count()) > 0
+  rec(g, '两端都有可用端点（循环有输出、生成有输入）', hasPorts)
+
+  if (hasPorts) {
+    const ob = await loopOut.boundingBox()
+    const ib = await inPort.boundingBox()
+    await page.mouse.move(ob.x + ob.width / 2, ob.y + ob.height / 2)
+    await page.mouse.down()
+    // 先移出一小段再奔向目标：让拖线手势被真正识别为"拖拽"而不是"点击"
+    await page.mouse.move(ob.x + 40, ob.y + 8, { steps: 5 })
+    await page.mouse.move(ib.x + ib.width / 2, ib.y + ib.height / 2, { steps: 14 })
+    await page.mouse.up()
+    await sleep(600)
+    rec(
+      g,
+      '★ 循环节点 → 生成节点 能连上（这是它唯一的作用路径）',
+      (await page.locator('[data-edge]').count()) >= 1,
+      `连线 ${await page.locator('[data-edge]').count()}`,
+    )
+  }
+
+  await page.screenshot({ path: `${OUT}/83-g67-loop.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+/**
  * 已从全量移除的组（测的都是已不存在的功能，继续跑只会拿「它没出现」当失败）：
  * - g22：版本历史（§6.21 于 2026-09-16 下线）
  * - g41：陈旧标记与按范围重跑（2026-09-17 下线：橘点、整条流程重跑、仅刷新陈旧、全图重跑）
  * - g50 / g54：结果组折叠与子结果交互（2026-09-17 结果组整体下线）
  * 「运行画板产生产物」改由 G21 覆盖（断言已从结果组改为承载节点）。
  */
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

@@ -344,6 +344,23 @@ export function IconCopyText(props: IconProps) {
 }
 
 /** 全屏编辑：四角向外（进入）/ 向内（退出）由调用方翻转 */
+/**
+ * 循环：首尾相接的两段箭头弧（§6.22 循环节点）。
+ *
+ * 形状取「环形箭头」这一通用符号——两端各一个箭头，中段断开，
+ * 一眼能读成「重复」。不画整圆，否则在 16px 下会与「对比」「分组」的圆角方块混淆。
+ */
+export function IconLoop(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4.5 12a7.5 7.5 0 0 1 12.3-5.8" />
+      <path d="M19.5 12a7.5 7.5 0 0 1-12.3 5.8" />
+      <path d="M17.2 3.2v3.2h-3.2" />
+      <path d="M6.8 20.8v-3.2h3.2" />
+    </Svg>
+  )
+}
+
 export function IconExpand(props: IconProps) {
   return (
     <Svg {...props}>

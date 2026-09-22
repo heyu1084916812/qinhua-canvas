@@ -40,6 +40,12 @@ export const NODE_MINIMUMS: Record<NodeType, Size> = {
   group: { w: 240, h: 192 },
   batch: { w: 240, h: 192 },
   board: { w: 400, h: 300 },
+  /**
+   * 循环节点默认 240×260：比其它节点高——它默认开着提示词面板，
+   * 192 会把第一条提示词行压扁（实测截图里只露出半截）。
+   * 高度仍可自由缩放，这只是开箱可用值。
+   */
+  loop: { w: 240, h: 260 },
 }
 
 export const ZOOM_HIDE_GRID_BELOW = 0.4

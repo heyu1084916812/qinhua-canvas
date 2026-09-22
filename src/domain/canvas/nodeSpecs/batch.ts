@@ -24,7 +24,8 @@ export const batchSpec: NodeSpec<BatchData> = {
   ports: { input: true, output: true },
   accepts: {
     // 与分组同源：外部上游只作补充（§6.12 场景 2 / 4 的「+ 外部 1 张图」）
-    upstream: ['prompt', 'generation'],
+    /** `loop` 一并接受（§6.22）：批量也能吃循环分发的输入 */
+    upstream: ['prompt', 'generation', 'loop'],
     // 两种都允许「形式上」收纳；真正的 media/prompt 互斥由 canAcceptIntoBatch 二次校验
     children: ['prompt', 'generation'],
     parent: ['board'],

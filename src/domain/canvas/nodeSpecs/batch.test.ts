@@ -51,7 +51,8 @@ describe('批量节点规格（§6.12）', () => {
     expect(spec.type).toBe('batch')
     expect(spec.label).toBe('批量')
     expect(spec.ports).toEqual({ input: true, output: true })
-    expect(spec.accepts.upstream).toEqual(['prompt', 'generation'])
+    // loop 于 2026-09-22 并入（§6.22）：循环节点分发的输入也能进批量
+    expect(spec.accepts.upstream).toEqual(['prompt', 'generation', 'loop'])
     expect(spec.accepts.children).toEqual(['prompt', 'generation'])
     expect(spec.accepts.parent).toEqual(['board'])
     expect(spec.sizing.lockAspect).toBe(true)

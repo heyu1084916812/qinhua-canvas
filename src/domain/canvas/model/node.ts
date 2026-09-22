@@ -1,4 +1,4 @@
-export type NodeType = 'prompt' | 'generation' | 'compare' | 'group' | 'batch' | 'board'
+export type NodeType = 'prompt' | 'generation' | 'compare' | 'group' | 'batch' | 'board' | 'loop'
 
 /** 容器类节点：子节点用 parentId 归属（结果组不在 NodeType 内，见 model/resultGroup.ts） */
 export const CONTAINER_TYPES: ReadonlySet<NodeType> = new Set<NodeType>(['group', 'batch', 'board'])
@@ -131,6 +131,33 @@ export interface BoardData {
   texts: TextItem[]
 }
 
+/**
+ * 循环节点数据（§6.22，2026-09-22）。
+ *
+ * **它自己不产出任何东西**：只把上游素材按轮次分发给下游，
+ * 让同一段下游链路跑 N 次。所以这里没有 `assetHash` / `prompt` 那类"内容"字段，
+ * 只有"怎么分发"的参数。
+ *
+ * `prompts` 是**数组**：多条提示词按轮次取模轮换（写 3 条跑 9 轮 = 1-2-3-1-2-3）。
+ * 语义与展开逻辑集中在 `domain/canvas/loop/loopPlan`（纯函数，20 项单测）。
+ */
+export interface LoopData {
+  /** 循环几轮 */
+  count: number
+  /** 从上游素材的第几张开始（1 起） */
+  loopStart: number
+  /** 每轮取几张素材 */
+  batch: number
+  /** 串行 / 并行（并行受执行层并发上限约束） */
+  mode: 'serial' | 'parallel'
+  /** 是否把上游素材当输入分发（关掉则只循环提示词） */
+  useImageInput: boolean
+  /** 是否启用提示词（关掉则下游用各自的提示词） */
+  usePrompt: boolean
+  /** 本节点的提示词，多条：按轮次取模轮换 */
+  prompts: string[]
+}
+
 export type NodeData =
   | PromptData
   | GenerationData
@@ -138,6 +165,7 @@ export type NodeData =
   | GroupData
   | BatchData
   | BoardData
+  | LoopData
 
 export interface NodeSnapshot<TData extends NodeData = NodeData> extends NodeBase {
   data: TData

@@ -20,7 +20,8 @@ export const groupSpec: NodeSpec<GroupData> = {
   ports: { input: true, output: true },
   accepts: {
     // 上游与内部收纳物一致：图片 / 视频生成结果 + 提示词（§6.11 表）
-    upstream: ['prompt', 'generation'],
+    /** `loop` 一并接受（§6.22）：分组也能吃循环分发的输入 */
+    upstream: ['prompt', 'generation', 'loop'],
     children: ['prompt', 'generation'],
     // 容器可拖入画板（§6.12「可拖入画板：是」）；不嵌套容器，保持单层收纳
     parent: ['board'],

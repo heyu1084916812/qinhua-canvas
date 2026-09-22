@@ -1,0 +1,36 @@
+feat(canvas): loop node (distributor that runs a downstream chain N times)
+
+用户 2026-09-22：参照「大雄无限画布」的 `smart-loop` 做同能力节点。
+核心机制已逐段核对那边 `static/js/smart-canvas.js`；**抄概念、按轻画的分层重写**。
+
+定位：**循环节点自己不产图，是分发器**
+- 把上游素材按轮次**切片**交给下游，让同一段下游链路跑 N 次；下游完全不知道在循环里。
+- 所以它的 `generate` 缺席（规格里有单测钉住），输出 = 本轮分到的那份输入。
+
+三条关键语义
+1. **素材切片 vs 提示词取模**（有意的差异，别统一）：
+   素材取完就没有了（第 4 轮不该再拿第 1 张）；提示词可轮换复用（写 3 条跑 9 轮）。
+   统一成一种都会错——都切片则长循环后提示词为空，都取模则素材被重复使用。
+2. **变量两种写法都认**：`《计数》`/`[计数]`、`《总数》`/`[总数]`、`《进度》`/`[进度]`。
+3. **不做成引擎原语**：一轮 = 一个 RunTask，N 轮 = 同一 RunPlan 里 N 个任务，
+   复用既有 seq / callCount / collectionItemId。`runEngine` 是共享层（canvas+comic），
+   把循环塞进去等于让 comic 背一个它不用的概念——与「第二消费者定义接口」的教训相反。
+
+落地
+- domain/canvas/loop/loopPlan.ts：纯函数（归一化 / 变量替换 / 逐轮展开）+ 20 项单测
+- nodeSpecs/loop.ts：接进节点体系（collectInputs 转发上游提示词）+ 10 项单测
+- nodes/loop/LoopNodeView.tsx + css：纯参数卡（串并行 / 两个开关 / 多条提示词 / 三个数字）
+- 接线：NodeType + NodeData + NODE_MINIMUMS + registerAllSpecs/registerView
+  + CREATABLE_TYPES + NODE_MENU + IconLoop
+- ★ generation / group / batch 的 accepts.upstream 并入 `loop`
+  （漏了会报「不接受来自 loop 的输入」，实测踩到）
+
+顺带修两个 UI 问题（实测截图发现）
+- 节点默认高 192 时第一条提示词被压扁只露半截 ⇒ 默认高度 260，
+  且提示词列表自己滚动（内部包一层 .promptList），不让整块被压缩。
+- 数字字段的中文标签折成「起 始」⇒ 加 white-space: nowrap。
+
+验证
+- 单测 1211 全绿（+30：loopPlan 20 + loopSpec 10）；门禁全绿
+- 冒烟**全量 899/899**；新增 G67（15 项），含「循环 → 生成 能连上」这条唯一作用路径
+- 顺带更新两处钉住「菜单项数」的断言：新建菜单 6→7、空白右键 7→8

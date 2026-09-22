@@ -49,7 +49,8 @@ describe('linkMenuSections / 空白松手菜单（§6.14）', () => {
 
   it('输出侧：只列「建出来就连得上」的类型，没有端点的画板不在其中', () => {
     const g = graphOf([node('a', 'prompt')])
-    expect(idsOf('output', 'a', g, 'create')).toEqual(['prompt', 'generation', 'group', 'batch'])
+    // loop 于 2026-09-22 并入（§6.22）：循环节点也能被新建并连接
+    expect(idsOf('output', 'a', g, 'create')).toEqual(['prompt', 'generation', 'group', 'batch', 'loop'])
   })
 
   it('输出侧：对比节点不接受提示词上游，故不出现在新建列表（不是建好却连不上的死项）', () => {
@@ -90,9 +91,9 @@ describe('linkMenuSections / 空白松手菜单（§6.14）', () => {
   })
 
   it('输入侧反向拖：找的是上游，方向相反', () => {
-    // 从生成节点的输入端点往外拖 → 找能作它上游的类型（提示词 / 生成 / 批量）
+    // 从生成节点的输入端点往外拖 → 找能作它上游的类型（提示词 / 生成 / 批量 / 循环）
     const g = graphOf([node('g', 'generation'), node('p', 'prompt')])
-    expect(idsOf('input', 'g', g, 'create')).toEqual(['prompt', 'generation', 'batch'])
+    expect(idsOf('input', 'g', g, 'create')).toEqual(['prompt', 'generation', 'batch', 'loop'])
     expect(idsOf('input', 'g', g, 'connect')).toEqual(['p'])
   })
 

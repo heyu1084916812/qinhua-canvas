@@ -44,6 +44,7 @@ export const CREATABLE_TYPES: readonly { type: NodeType; label: string }[] = [
   { type: 'compare', label: '对比节点' },
   { type: 'group', label: '分组节点' },
   { type: 'batch', label: '批量节点' },
+  { type: 'loop', label: '循环节点' },
   { type: 'board', label: '画板节点' },
 ]
 

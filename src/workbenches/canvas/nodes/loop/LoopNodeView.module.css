@@ -1,0 +1,240 @@
+/*
+ * 循环节点（§6.22）：纯参数卡。
+ *
+ * 沿用节点内一致的视觉口径（§3.3）：白底 `--bg-surface`、1px 细描边、
+ * 无投影、`--radius-control` 圆角；控件用与参数 chip 同一档的字号与内距。
+ */
+.body {
+  width: 100%;
+  height: 100%;
+  padding: var(--space-2) var(--space-3);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-family: var(--font-sans);
+  color: var(--text-1);
+  overflow: auto;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ── 串行 / 并行：分段控件（二元互斥，用分段而非两个独立开关） ── */
+.seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+}
+
+.segBtn,
+.segOn {
+  height: 24px;
+  padding: 0 10px;
+  border: none;
+  border-radius: calc(var(--radius-control) - 3px);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  cursor: pointer;
+}
+
+.segOn {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+/* ── 两个开关：素材 / 提示词 ── */
+.toggle,
+.toggleOn {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  cursor: pointer;
+}
+
+/* 开启 = 实色（它决定这一路要不要参与循环，需要一眼看出开没开） */
+.toggleOn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+/* ── 提示词面板 ── */
+.panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  /*
+   * ★ 列表本身滚动，而不是让整块被压扁（用户看不到第一行就是这么来的）。
+   *
+   * 之前 `.panel` 直接 `overflow:auto`：flex 收缩时它会把**内容压扁**到容器高度，
+   * 于是第一行提示词被上个元素盖住一半（实测截图里"《计数》"只露出下半截）。
+   * 现在内部再包一层滚动容器（`.promptList`），让「列表」自己滚、
+   * 「按钮行」永远留在底部可见——轮数很多时才不会连"+"都点不到。
+   */
+  overflow: hidden;
+}
+
+.promptList {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  overflow-y: auto;
+}
+
+.promptRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* 序号：说明"这是第几条"，与轮次取模的语义对得上 */
+.promptIndex {
+  flex: none;
+  width: 16px;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  font-weight: 600;
+  text-align: center;
+}
+
+/*
+ * 提示词输入用 `<input>` 而不是 textarea：循环提示词通常是**一行短句**
+ * （"生成第 N 张卖点图"），多行反而让这张卡长得很高。
+ * 需要长文本的场景走提示词节点 + 连线，那条路本来就更合适。
+ */
+.promptInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  box-sizing: border-box;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--stroke);
+  border-radius: calc(var(--radius-control) - 4px);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+}
+
+.promptInput::placeholder {
+  color: var(--text-3);
+}
+
+.iconBtn {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.iconBtn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.iconBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* 「计数」token：点一下插入 《计数》，不让用户手打符号 */
+.tokenBtn {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tokenBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.addBtn {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.addBtn:hover {
+  background: var(--bg-hover);
+}
+
+/* ── 底部三个数字 ── */
+.footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  /* 收紧间距：三个字段并排本来就紧，gap 12 会把标签挤到折行 */
+  gap: var(--space-2);
+}
+
+.num {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.numLabel {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  /* 不换行：中文两字标签在窄格里会折成「起 始」，看起来像排版错误 */
+  white-space: nowrap;
+}
+
+.numInput {
+  /* 52 + 两侧内距够放 4 位数（9999）而不挤 */
+  width: 52px;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--stroke);
+  border-radius: calc(var(--radius-control) - 4px);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}

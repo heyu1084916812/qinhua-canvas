@@ -22,7 +22,11 @@ export const generationSpec: NodeSpec<GenerationData> = {
   // M1 模板「图生视频」需要 图片生成 → 视频生成 的连线；故 generation 也接受 generation 上游。
   // 仅扩展 accepts，不引入新节点类型；执行期多模态输入（图→视频）的收集属 M2 范围。
   // M3-3：接受 batch 上游（§6.12「作为上游：集合卡」）——下游遍历集合内每项各生成一次。
-  accepts: { upstream: ['prompt', 'generation', 'batch'] },
+  /**
+   * `loop` 必须在内（§6.22）：循环节点正是通过"被下游连接"来把本轮输入交出去的，
+   * 少了它，「循环 → 生成」这条主链路直接连不上（实测报「不接受来自 loop 的输入」）。
+   */
+  accepts: { upstream: ['prompt', 'generation', 'batch', 'loop'] },
   createDefaultData(): GenerationData {
     return {
       mode: 'image',

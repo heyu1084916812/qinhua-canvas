@@ -33,7 +33,8 @@ describe('分组规格（§6.11）', () => {
   it('是生成类节点：有端点、可生成、接受提示词与生成上游', () => {
     const spec = getSpec('group')!
     expect(spec.ports).toEqual({ input: true, output: true })
-    expect(spec.accepts.upstream).toEqual(['prompt', 'generation'])
+    // loop 于 2026-09-22 并入（§6.22）：循环节点分发的输入也能进分组
+    expect(spec.accepts.upstream).toEqual(['prompt', 'generation', 'loop'])
     expect(spec.accepts.children).toEqual(['prompt', 'generation'])
     expect(spec.accepts.parent).toEqual(['board'])
     // 有 toRunRequest 才会进入 buildRunPlan（isGeneratableType 已含 group）

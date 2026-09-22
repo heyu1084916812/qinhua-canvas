@@ -40,8 +40,8 @@ describe('节点规格注册表', () => {
   it('registerAllSpecs 幂等', () => {
     registerAllSpecs()
     registerAllSpecs()
-    expect(registeredTypes().sort()).toEqual(['batch', 'board', 'compare', 'generation', 'group', 'prompt'])
-    expect(allSpecs()).toHaveLength(6)
+    expect(registeredTypes().sort()).toEqual(['batch', 'board', 'compare', 'generation', 'group', 'loop', 'prompt'])
+    expect(allSpecs()).toHaveLength(7)
   })
 
   it('提示词节点默认数据可用，输入收集返回自身文本', () => {

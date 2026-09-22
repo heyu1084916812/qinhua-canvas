@@ -168,6 +168,34 @@
 
 同理，这次还把 `.menuIcon` 的图标槽（16→24）与 `.menu` 的 `min-width`（160→240）、
 `padding` 一并换算，否则「图标放大而文字槽没放大」会导致左边缘对不齐。
+
+### ★ 循环节点（§6.22，2026-09-22 落地）
+
+用户指定参照「大雄无限画布」的 `smart-loop`（`static/js/smart-canvas.js`）。
+**抄概念、不抄实现**——那边的轮次上下文是全局 `smartLoopContext`，轻画一律显式出入参。
+
+**三条不能搞错的语义**：
+1. **循环节点不产出、只分发**：`generate` 必须缺席；下游靠「连到循环节点」拿到本轮输入，
+   所以 `loop` 必须进 generation / group / batch 的 `accepts.upstream`（漏了就连不上）。
+2. **素材切片、提示词取模**（有意的差异）：素材取完就没了（第 4 轮不该再拿第 1 张），
+   提示词可轮换复用（写 3 条跑 9 轮）。统一成一种都会错。
+3. **变量两种写法都认**：`《计数》` / `[计数]`、`《总数》` / `[总数]`、`《进度》` / `[进度]`。
+
+**实现落点**：`domain/canvas/loop/loopPlan.ts`（纯函数：归一化 / 变量替换 / 逐轮展开，20 单测）
++ `nodeSpecs/loop.ts`（接进节点体系）+ `nodes/loop/LoopNodeView.tsx`（纯参数卡）。
+**没有动执行引擎**——展开成多个 task 即可，`runEngine` 零改动（理由见 §6.22）。
+
+**UI 踩过的两个坑**：
+- 节点默认高 192 时**第一条提示词被压扁**（只露半截）。修法：默认高度提到 260，
+  且提示词列表**自己滚动**（内部再包一层 `.promptList`），而不是让整块被压缩。
+- 数字字段的中文标签在窄格里会折成「起 始」，加 `white-space: nowrap` 修掉。
+
+**新增节点类型的接线清单**（下次再加节点照这个过）：
+① `NodeType` 联合类型；② `NodeData` 联合 + 数据接口；③ `NODE_MINIMUMS`；
+④ nodeSpecs 新文件 + `registerAllSpecs`；⑤ `nodes/index.ts` 的 `registerView`
+（注册表会校验 spec/view 数量一致，漏一个直接抛错）；⑥ `CREATABLE_TYPES`（空白右键）
++ `NODE_MENU`（工具栏）；⑦ **各下游的 `accepts.upstream`**（最容易漏）;
+⑧ 图标；⑨ 钉住"菜单项数"的冒烟断言（本次 G17/G18 各改一处）。
 - **测浮层菜单项必须用物理鼠标点击**：程序化 `btn.click()` 不产生 `pointerdown`，会绕开「菜单渲染在 surface 内部、pointerdown 冒泡到 surface 手势逻辑」这类 bug（曾把「点了没反应」测成正常）。
 - **性能剖析别信 headless 的 rAF 帧间隔**（无 vsync，恒 ~6ms）。用：每帧主线程耗时 / CDP `Profiler` / headful。卡顿多半是「每帧重算」不是「渲染慢」；A/B（`{false && <Minimap/>}`）定位浮层成本最快。
 - **React 的 `onWheel` 是 passive**，`preventDefault()` 被静默忽略；要阻止页面滚动须挂原生 `{passive:false}` 监听。
