@@ -2276,6 +2276,40 @@ async function g17(browser) {
     `偏移 dx=${centroid.dx.toFixed(2)} dy=${centroid.dy.toFixed(2)}`,
   )
 
+  /**
+   * ★ 尺寸只对**新建按钮**生效，不许误伤其它图标（用户 2026-09-22 实测报障：
+   * 「你怎么把我工具栏的其他图标也放大了」）。
+   *
+   * 根因是上一版把尺寸规则写成 `.iconSpin > svg`，而 `.iconSpin` 是
+   * **所有按钮图标的公共类**——整条工具栏的图标被一起撑到按钮大小。
+   * 修法是加 `.solid` 限定，只命中第一个实色按钮。
+   *
+   * 判据：新建按钮的图标明显大于其它按钮的图标（否则说明两者被同一规则命中）；
+   * 同时其它图标必须**远小于按钮**（没被撑满）。
+   */
+  const iconSizes = await page.locator('[data-toolbar-icon]').evaluateAll((els) =>
+    els.map((e) => {
+      const svg = e.querySelector('svg')
+      const sr = svg ? svg.getBoundingClientRect() : null
+      return {
+        isAdd: e.hasAttribute('data-toolbar-add'),
+        icon: sr ? Math.max(sr.width, sr.height) : 0,
+        btn: e.getBoundingClientRect().width,
+      }
+    }),
+  )
+  const addBtnIcon = iconSizes.find((s) => s.isAdd)
+  const others = iconSizes.filter((s) => !s.isAdd)
+  rec(
+    g,
+    '★ 放大只作用于新建按钮，其它工具栏图标未被误伤',
+    !!addBtnIcon &&
+      others.length > 0 &&
+      addBtnIcon.icon > Math.max(...others.map((o) => o.icon)) &&
+      others.every((o) => o.icon < o.btn * 0.5),
+    `新建 ${Math.round(addBtnIcon?.icon ?? 0)}px；其它 ${others.map((o) => Math.round(o.icon)).join('/')}px（按钮 ${Math.round(others[0]?.btn ?? 0)}px）`,
+  )
+
   await page.locator('[data-toolbar-add]').click()
   await sleep(250)
   const menuItems = await page.locator('[data-toolbar-menu-item]').count()

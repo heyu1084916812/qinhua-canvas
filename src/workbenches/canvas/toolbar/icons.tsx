@@ -371,6 +371,9 @@ export function IconExpand(props: IconProps) {
 export function IconPlus(props: IconProps) {
   return (
     <Svg {...props} strokeWidth={2}>
+      {/* 字形占 24×24 viewBox 的 5..19（居中，四周各留 5）。
+          视觉大小由调用方的尺寸 + CSS 的 padding 决定，这里只保证**几何居中**：
+          5..19 的中点正是 12，与 viewBox 中心重合——旋转时绕的就是自己的中心。 */}
       <path d="M12 5v14" />
       <path d="M5 12h14" />
     </Svg>
