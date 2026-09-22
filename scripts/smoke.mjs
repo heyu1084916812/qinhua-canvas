@@ -2221,6 +2221,61 @@ async function g17(browser) {
     `图标=${rot.icon.slice(0, 24)} 按钮=${rot.button}`,
   )
 
+  /**
+   * ★★ 像素级：字形质心必须与按钮圆心**重合**（用户 2026-09-22 二轮）。
+   *
+   * 为什么必须落到像素：DOM 三层都没问题（按钮 54×54、图标 39×39、
+   * `transform-origin` 也报在中心）——**但字形仍然偏 0.54px**。
+   * 根因是「26 ÷ 2 = 13 的设计值在 `zoom:1.5` 下落在半像素上」，取整后整体偏一档。
+   * 只看 DOM 数字永远查不出来，只有量像素质心才露馅。
+   *
+   * 判据：白字形质心 − 深色圆质心，两个方向都 ≤ 1 个物理像素。
+   */
+  const addBox = await page.locator('[data-toolbar-add]').boundingBox()
+  const addShot = await page.screenshot({
+    clip: { x: addBox.x, y: addBox.y, width: addBox.width, height: addBox.height },
+  })
+  const centroid = await page.evaluate(async (b64) => {
+    const img = new Image()
+    await new Promise((res) => {
+      img.onload = res
+      img.src = 'data:image/png;base64,' + b64
+    })
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const d = ctx.getImageData(0, 0, c.width, c.height).data
+    let lx = 0, ly = 0, ln = 0, cx = 0, cy = 0, cn = 0
+    for (let y = 0; y < c.height; y++) {
+      for (let x = 0; x < c.width; x++) {
+        const i = (y * c.width + x) * 4
+        if (d[i + 3] < 200) continue
+        const lum = (d[i] + d[i + 1] + d[i + 2]) / 3
+        if (lum > 200) { lx += x; ly += y; ln++ } else if (lum < 90) { cx += x; cy += y; cn++ }
+      }
+    }
+    return { dx: lx / ln - cx / cn, dy: ly / ln - cy / cn }
+  }, addShot.toString('base64'))
+  /**
+   * 阈值取 **0.05px**（不是 1px，也不是 0.25px）。
+   *
+   * 实测过的三档（把图标改回 26 做故障注入）：
+   * - 正确实现（24px）：偏移 **0.00**；
+   * - 旧值（26px）：本组视口（DPR=1）偏移 **0.13**，4× 设备像素比下 **0.54**；
+   * - 用 ≤1px 甚至 ≤0.25px 的阈值，0.13 全都照样绿——**断言形同虚设**。
+   *
+   * 这个缺陷**依赖设备像素比**，本组跑在 DPR=1 上漂得最小，所以阈值必须卡到
+   * 亚像素才拦得住。定 0.05：正确实现是精确的 0，留 0.05 只是给渲染抖动一点余量。
+   */
+  rec(
+    g,
+    '★★ 加号字形质心与按钮圆心重合（像素级，≤0.05px）',
+    Math.abs(centroid.dx) <= 0.05 && Math.abs(centroid.dy) <= 0.05,
+    `偏移 dx=${centroid.dx.toFixed(2)} dy=${centroid.dy.toFixed(2)}`,
+  )
+
   await page.locator('[data-toolbar-add]').click()
   await sleep(250)
   const menuItems = await page.locator('[data-toolbar-menu-item]').count()

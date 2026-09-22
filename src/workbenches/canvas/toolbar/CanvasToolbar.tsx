@@ -183,7 +183,20 @@ export function CanvasToolbar({
      * 一颗偏心的点，看起来「没绕自己中心转」。SVG 的笔画由坐标定义，
      * `viewBox` 的几何中心即字形中心，旋转精确。
      */
-    { key: 'add', icon: <IconPlus size={26} />, label: '新建节点', menu: 'add', solid: true, attr: 'data-toolbar-add' },
+    /*
+     * ★ 尺寸取 **24**（不是 26）——用户 2026-09-22 二轮反馈「还是不对，锚点不在正中心」。
+     *
+     * 像素级实测（截按钮 PNG、求白字形与深色圆的**质心**）：
+     * 26px 的图标在 36px 按钮里，叠加 `zoom: 1.5` 与设备像素比后，
+     * 字形质心比圆心偏 **0.54px**（216px 截图上的 1 个物理像素）——
+     * 单看代码量不出来（DOM 测出来是 0，`transform-origin` 也对），
+     * 但镜像对称性比对会露馅（左右翻转差异 4.1，完全对称应为 0）。
+     *
+     * 根因是 **26 ÷ 2 = 13（设计值）在 1.5 倍缩放下落在半像素上**，取整后字形整体偏一档。
+     * 改 24 后：24 ÷ 2 = 12，× 1.5 = 18，全是整数像素，质心与圆心严格重合。
+     * 24 也更好看——它比其它图标的 16 大一圈（仍是视觉焦点），又不会顶到 36 的圆边。
+     */
+    { key: 'add', icon: <IconPlus size={24} />, label: '新建节点', menu: 'add', solid: true, attr: 'data-toolbar-add' },
     {
       key: 'arrange-modes',
       icon: <IconGridArrange size={ICON_SIZE} />,
