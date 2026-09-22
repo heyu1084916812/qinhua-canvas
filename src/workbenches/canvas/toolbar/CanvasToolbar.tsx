@@ -16,6 +16,7 @@ import {
   IconGridArrange,
   IconGroup,
   IconImport,
+  IconPlus,
   IconPrompt,
   IconRedo,
   IconReset,
@@ -175,11 +176,14 @@ export function CanvasToolbar({
     attr?: string
   }[] = [
     /**
-     * 第一个按钮画的是**加号**（不换图标组件）：它要能在 hover 时旋转 45° 变 ×，
-     * 而旋转对文字 `＋` 是最稳的——用 SVG 加号也行，但纯文本少一层嵌套。
-     * 加号的视觉大小由 CSS 的 `--fs-*` 控制（见 `.solid`）。
+     * 第一个按钮画的是**加号**：hover 时旋转 45° 变 ×。
+     *
+     * 2026-09-22 由文本 `＋` 改为 **SVG**（用户：「我不要符号，我要真正的矢量图图标」）：
+     * 文本字形的**位置由字体决定**，全角 `＋` 在字体盒里偏上/偏左，旋转时绕的是
+     * 一颗偏心的点，看起来「没绕自己中心转」。SVG 的笔画由坐标定义，
+     * `viewBox` 的几何中心即字形中心，旋转精确。
      */
-    { key: 'add', icon: '＋', label: '新建节点', menu: 'add', solid: true, attr: 'data-toolbar-add' },
+    { key: 'add', icon: <IconPlus size={26} />, label: '新建节点', menu: 'add', solid: true, attr: 'data-toolbar-add' },
     {
       key: 'arrange-modes',
       icon: <IconGridArrange size={ICON_SIZE} />,
@@ -232,9 +236,7 @@ export function CanvasToolbar({
           >
             <button
               type="button"
-              className={`${styles.iconBtn} ${t.solid ? styles.solid : ''} ${
-                open && t.key === 'add' ? styles.rotated : ''
-              }`}
+              className={`${styles.iconBtn} ${t.solid ? styles.solid : ''}`}
               aria-label={t.label}
               aria-expanded={t.menu ? open : undefined}
               disabled={t.disabled}
@@ -256,7 +258,15 @@ export function CanvasToolbar({
               }}
               {...keepCanvasFocus}
             >
-              {t.icon}
+              {/*
+                ★ 旋转挂在**图标本体**上，不挂在按钮上（用户 2026-09-22）：
+                按钮有内距与 26px 的图标容器，挂在按钮上会绕按钮中心转；
+                挂在图标上则绕**图标自己的几何中心**转——这正是「绕图标中心旋转」
+                的字面实现，与按钮内距无关。
+              */}
+              <span className={open && t.key === 'add' ? styles.rotated : styles.iconSpin}>
+                {t.icon}
+              </span>
             </button>
             {/*
               名称标签：圆角矩形（按钮本体是圆形，标签才用圆角矩形）。

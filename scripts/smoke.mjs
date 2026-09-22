@@ -2150,6 +2150,77 @@ async function g17(browser) {
     tbRect ? `上=${tbRect.padTop} 下=${tbRect.padBottom} 左=${tbRect.padLeft} 右=${tbRect.padRight}` : 'null',
   )
 
+  /**
+   * ★ 新建按钮是**矢量图标**，且旋转绕**图标自己的中心**（用户 2026-09-22）。
+   *
+   * 旧版用文本 `＋`：字形的实际位置由**字体**决定（全角加号在字体盒里偏上偏左），
+   * 实测文字盒 36×46 而字形只占其中一部分，于是 `rotate(45deg)` 绕的是一颗
+   * **偏心的点**，看起来「没绕自己中心转」。
+   *
+   * 两条判据缺一不可：
+   * ① 按钮里**没有文本节点**、只有 `<svg>` —— 证明真的换成了矢量图（不是换了个字符）；
+   * ② 图标盒中心与按钮中心**重合**，且旋转中心是 `center` —— 证明绕的是图标几何中心。
+   *    只断言「转了 45°」不够：偏心旋转同样能转出 45°（旧版就转得出来）。
+   */
+  const addIcon = await page.locator('[data-toolbar-add]').evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    const svg = el.querySelector('svg')
+    const sr = svg ? svg.getBoundingClientRect() : null
+    const spin = el.querySelector('span')
+    const scs = spin ? getComputedStyle(spin) : null
+    return {
+      /*
+       * 必须在**图标容器内部**找文本：图标包在 `<span>` 里，
+       * 只查按钮的直接子节点会漏掉（注入文本图标时实测 hasTextNode 仍为 false，
+       * 那条断言会假绿）。用 textContent 更直接：真矢量图标没有任何文字。
+       */
+      iconText: (spin?.textContent ?? el.textContent ?? '').trim(),
+      svgW: sr ? sr.width : 0,
+      offsetX: sr ? (sr.left + sr.width / 2) - (r.left + r.width / 2) : NaN,
+      offsetY: sr ? (sr.top + sr.height / 2) - (r.top + r.height / 2) : NaN,
+      spinOrigin: scs ? scs.transformOrigin : '',
+    }
+  })
+  rec(
+    g,
+    '★ 新建按钮用矢量图标（不是文本符号）',
+    addIcon.iconText === '' && addIcon.svgW > 0,
+    `图标内文字=${JSON.stringify(addIcon.iconText)} svg=${Math.round(addIcon.svgW)}px`,
+  )
+  /**
+   * 悬停时校验「**旋转的是图标本体、不是按钮**」。
+   *
+   * 只在静止态读 class 是不够的——那时本来就没有旋转类，判不出挂在哪。
+   * 必须真的 hover 起来，再分别看「图标有没有转」与「按钮有没有转」：
+   * 期望 = 图标转了 45°、而按钮**没有** transform（否则就是绕按钮中心转的旧实现）。
+   */
+  await page.locator('[data-toolbar-add]').hover()
+  await sleep(450)
+  const rot = await page.locator('[data-toolbar-add]').evaluate((el) => {
+    const spin = el.querySelector('span')
+    return {
+      icon: spin ? getComputedStyle(spin).transform : 'none',
+      iconOrigin: spin ? getComputedStyle(spin).transformOrigin : '',
+      button: getComputedStyle(el).transform,
+    }
+  })
+  /** 矩阵前两位是 cos/sin：45° 时都约等于 0.707 */
+  const is45 = (m) => m.startsWith('matrix(0.707')
+  await page.mouse.move(760, 760)
+  await sleep(450)
+  rec(
+    g,
+    '★ 图标与按钮中心重合（几何上绕自己中心）',
+    Math.abs(addIcon.offsetX) <= 0.5 && Math.abs(addIcon.offsetY) <= 0.5,
+    `图标中心偏移 (${addIcon.offsetX.toFixed(2)}, ${addIcon.offsetY.toFixed(2)})`,
+  )
+  rec(
+    g,
+    '★ 悬停时是**图标**在转 45°、按钮本身不转（绕图标中心而非按钮中心）',
+    is45(rot.icon) && rot.button === 'none',
+    `图标=${rot.icon.slice(0, 24)} 按钮=${rot.button}`,
+  )
+
   await page.locator('[data-toolbar-add]').click()
   await sleep(250)
   const menuItems = await page.locator('[data-toolbar-menu-item]').count()
