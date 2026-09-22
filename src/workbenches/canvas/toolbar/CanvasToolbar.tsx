@@ -35,10 +35,18 @@ const keepCanvasFocus = { onMouseDown: (e: ReactMouseEvent) => e.preventDefault(
 
 /** 新建节点菜单项（§6.5 ①「与画布空白处右键菜单同一份」） */
 /**
- * 按钮里的图标尺寸（视觉像素）。18 而不是默认 16：这些是线性图标，
- * 线条本身占不满画布，16 在 36px 的圆里显得偏小、发虚。
+ * 按钮里的图标尺寸（视觉像素）。
+ *
+ * ★ 27 = 18 × 1.5（用户 2026-09-22：「其他的按钮变得太小了，看看记录原来的大小」）。
+ *
+ * 来龙去脉：原设计是「图标 18px + 工具栏挂 `zoom: 1.5`」，渲染出来是 **27px**。
+ * 我为了修「加号旋转偏半像素」把 `zoom: 1.5` 换成了显式尺寸，
+ * **按钮换算对了**（36 → 54），**图标却漏了** —— 仍是 18，
+ * 于是渲染从 27 掉回 18，肉眼就是整条工具栏的图标都变小了。
+ *
+ * 现在换算口径与按钮统一：显式值 = 原设计值 × 1.5（36→54、18→27、内距 6→9）。
  */
-const ICON_SIZE = 18
+const ICON_SIZE = 27
 
 const NODE_MENU: readonly { type: NodeType; label: string; icon: ReactNode }[] = [
   { type: 'prompt', label: '提示词节点', icon: <IconPrompt size={ICON_SIZE} /> },

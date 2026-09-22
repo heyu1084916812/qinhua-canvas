@@ -2306,8 +2306,31 @@ async function g17(browser) {
     !!addBtnIcon &&
       others.length > 0 &&
       addBtnIcon.icon > Math.max(...others.map((o) => o.icon)) &&
-      others.every((o) => o.icon < o.btn * 0.5),
+      /*
+       * 阈值取 **0.7**（不是 0.5）：正常比例就是 0.5（图标 27 / 按钮 54），
+       * 用 `< 0.5` 会把**正确实现**判失败（实测踩过）。
+       * 要拦的是「被撑满成 1.0」那种失误，0.7 留足余量。
+       */
+      others.every((o) => o.icon < o.btn * 0.7),
     `新建 ${Math.round(addBtnIcon?.icon ?? 0)}px；其它 ${others.map((o) => Math.round(o.icon)).join('/')}px（按钮 ${Math.round(others[0]?.btn ?? 0)}px）`,
+  )
+
+  /**
+   * ★ 图标 / 按钮的**比例**必须还是 0.5（用户 2026-09-22 报「其他按钮变得太小」）。
+   *
+   * 背景：原设计是「图标 18 + 工具栏 `zoom: 1.5`」⇒ 渲染 27；按钮 36 ⇒ 渲染 54，
+   * 比例 0.5。我为修半像素偏移取消了 zoom、把按钮换算成 54，**却漏了图标**——
+   * 它仍是 18，比例掉到 1/3，肉眼立刻看出"图标变小了"。
+   *
+   * 判据用**比例**而不是写死 27：以后若再调整整体尺寸，只要比例不变，
+   * 这条仍然成立；而"换算漏了一半导致比例失衡"会被逮住。
+   */
+  const ratio = others.length > 0 ? others[0].icon / others[0].btn : 0
+  rec(
+    g,
+    '★ 普通图标 / 按钮比例保持 0.5（取消 zoom 时没漏换算）',
+    Math.abs(ratio - 0.5) <= 0.03,
+    `实测 ${ratio.toFixed(3)}（图标 ${Math.round(others[0]?.icon ?? 0)} / 按钮 ${Math.round(others[0]?.btn ?? 0)}）`,
   )
 
   await page.locator('[data-toolbar-add]').click()
