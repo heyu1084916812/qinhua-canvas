@@ -9379,16 +9379,17 @@ async function g67(browser) {
   const ui = await node.evaluate((el) => ({
     segs: [...el.querySelectorAll('[data-loop-mode]')].map((e) => e.getAttribute('data-loop-mode')),
     toggles: [...el.querySelectorAll('[data-loop-toggle]')].map((e) => e.getAttribute('data-loop-toggle')),
-    nums: [...el.querySelectorAll('[data-loop-number]')].map((e) => e.getAttribute('data-loop-number')),
+    /** 参考图重做后：批次条在**图片面板内**，底栏只有 起始计数 / 次数 */
+    footerNums: [...el.querySelectorAll('[data-loop-footer] [data-loop-number-bar]')].map((e) => e.getAttribute('data-loop-number-bar')),
     prompts: el.querySelectorAll('[data-loop-prompt]').length,
   }))
   rec(g, '串行 / 并行分段控件齐备', JSON.stringify(ui.segs) === JSON.stringify(['serial', 'parallel']), ui.segs.join(','))
   rec(g, '素材 / 提示词两个开关齐备', JSON.stringify(ui.toggles) === JSON.stringify(['image', 'prompt']), ui.toggles.join(','))
   rec(
     g,
-    '起始 / 轮数 / 每轮 三个数字字段齐备',
-    JSON.stringify(ui.nums) === JSON.stringify(['loopStart', 'count', 'batch']),
-    ui.nums.join(','),
+    '底栏是「起始计数 / 次数」两件套（批次挪进图片面板，同参考图）',
+    JSON.stringify(ui.footerNums) === JSON.stringify(['loopStart', 'count']),
+    ui.footerNums.join(','),
   )
   rec(g, '至少有一条提示词输入', ui.prompts >= 1, `${ui.prompts} 条`)
 
@@ -9426,7 +9427,9 @@ async function g67(browser) {
   rec(g, '「＋」加出第二条提示词', (await node.locator('[data-loop-prompt]').count()) === 2)
   await node.locator('[data-loop-insert-counter]').click()
   await sleep(450)
-  rec(g, '「计数」按钮把变量插进第一条', (await node.locator('[data-loop-prompt="0"]').inputValue()).includes('《计数》'))
+  // 新 UI（2026-09-22 参考图）插入的是半角方括号写法 [计数]
+  const inserted = await node.locator('[data-loop-prompt="0"]').inputValue()
+  rec(g, '「计数」按钮把变量插进第一条', inserted.includes('[计数]'), inserted)
 
   // ── 关键：循环节点能连到下游生成节点（否则它毫无用处）──
   await page.locator('[data-toolbar-add]').click()

@@ -1,37 +1,47 @@
 /**
- * 循环节点视图（产品文档 §6.22，2026-09-22）。
+ * 循环节点视图（产品文档 §6.22，2026-09-22，按用户参考图重做）。
  *
- * 用户能改的只有「怎么分发」这部分参数：
- * 轮数 / 起始序号 / 每轮张数 / 串并行 / 两个开关（素材、提示词）/ 多条提示词。
+ * 用户给的四张参考图确定了形态与交互：
  *
- * **它不显示任何产物**——循环节点不产图（见 `nodeSpecs/loop.ts` 的说明）。
- * 所以这里没有媒体框，是一张纯参数的卡。
+ * - 顶部「循环 / 并发」分段（对应 `mode: serial | parallel`）；
+ * - 第二行「图片 / 提示词」两个**开关按钮**（点亮 = 打开）；
+ * - **内容区由开关 + 上游驱动**：
+ *   · 连了图片（或开关开）→ 显示上游缩略图 + 「批次 N」+「当前会输出 N 张图片」；
+ *   · 连了提示词（或开关开）→ 显示上游提示词预览（滚动）+ 编号的提示词输入行
+ *     + 「计数 / 可使用 [计数] 作为变量」行；
+ *   · 两者都开 → 两块上下堆叠（参考图四）；
+ * - 底部「起始计数 N | 次数 N | 一键运行」三件套。
  *
- * 所有参数变更都走 `updateData`（进撤销栈），不直接改 `data`。
+ * 语义（用户口述钉死）：
+ * - **起始计数**同时控制两件事：①从上游第几张素材开始取；②`《计数》`变量的起始值；
+ * - **次数** = 从起始计数起跑几轮（起始 2 + 次数 2 → 跑第 2、3 张）；
+ * - **批次** = 一轮的"范围"（每轮取几张）。
+ *
+ * 自动展开（方案 A）：上游连了对应类型 → 对应面板**自动打开**，用户仍可手动关。
  */
 import { useRef } from 'react'
 import type { NodeViewProps } from '../registry'
 import type { LoopData } from '../../../../domain/canvas/model/node'
+import { normalizeLoopParams } from '../../../../domain/canvas/loop/loopPlan'
+import { useAsset } from '../../hooks/useAsset'
 import styles from './LoopNodeView.module.css'
 
 export function LoopNodeView(props: NodeViewProps) {
   const data = props.node.data as LoopData
+  /** 上游素材数（NodeLayer 注入）；上游提示词节点数（NodeLayer 注入） */
+  const upstreamImages = (props.upstreamAssetHashes ?? []).length
+  const upstreamPrompts = props.upstreamPromptCount ?? 0
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
-  /**
-   * 数字字段用**防抖提交**：这是输入型控件，每敲一个字符就 dispatch 一条命令
-   * 会把撤销栈撑爆（敲 "12" 产生两条：1 和 12）。
-   * 300ms 无输入才提交，一次编辑 = 一步撤销。
-   */
+  const patchNow = (patch: Partial<LoopData>) => {
+    props.emit({ type: 'updateData', patch: patch as never, transient: false })
+  }
+
   const patchLater = (patch: Partial<LoopData>, key: string) => {
     clearTimeout(timers.current[key])
     timers.current[key] = setTimeout(() => {
       props.emit({ type: 'updateData', patch: patch as never, transient: false })
     }, 300)
-  }
-
-  const patchNow = (patch: Partial<LoopData>) => {
-    props.emit({ type: 'updateData', patch: patch as never, transient: false })
   }
 
   const updatePrompt = (i: number, text: string) => {
@@ -40,46 +50,52 @@ export function LoopNodeView(props: NodeViewProps) {
     patchLater({ prompts: next }, `prompt:${i}`)
   }
 
+  /** 展开预览（节选自 loopPlan 的数学，用于底部提示文字） */
+  const p = normalizeLoopParams(data)
+  /** 本轮会输出的素材张数（最后一轮可能不足 batch） */
+  const willOutput = data.useImageInput
+    ? Math.max(0, Math.min(p.batch, upstreamImages - (p.loopStart - 1)))
+    : 0
+
   return (
     <div className={styles.body} data-loop-node>
-      {/* 第一行：串行 / 并行 + 两个开关 */}
-      <div className={styles.row}>
-        <div className={styles.seg} role="group" aria-label="循环方式">
-          <button
-            type="button"
-            className={data.mode !== 'parallel' ? styles.segOn : styles.segBtn}
-            data-loop-mode="serial"
-            aria-pressed={data.mode !== 'parallel'}
-            onClick={() => patchNow({ mode: 'serial' })}
-          >
-            串行
-          </button>
-          <button
-            type="button"
-            className={data.mode === 'parallel' ? styles.segOn : styles.segBtn}
-            data-loop-mode="parallel"
-            aria-pressed={data.mode === 'parallel'}
-            title="多轮同时发起（受执行层并发上限约束）"
-            onClick={() => patchNow({ mode: 'parallel' })}
-          >
-            并行
-          </button>
-        </div>
-      </div>
-
-      <div className={styles.row}>
+      {/* ① 循环 / 并发 */}
+      <div className={styles.segmented} role="group" aria-label="循环方式">
         <button
           type="button"
-          className={data.useImageInput ? styles.toggleOn : styles.toggle}
+          className={data.mode !== 'parallel' ? styles.segOn : styles.segBtn}
+          data-loop-mode="serial"
+          aria-pressed={data.mode !== 'parallel'}
+          onClick={() => patchNow({ mode: 'serial' })}
+        >
+          循环
+        </button>
+        <button
+          type="button"
+          className={data.mode === 'parallel' ? styles.segOn : styles.segBtn}
+          data-loop-mode="parallel"
+          aria-pressed={data.mode === 'parallel'}
+          title="多轮同时发起（受执行层并发上限约束）"
+          onClick={() => patchNow({ mode: 'parallel' })}
+        >
+          并发
+        </button>
+      </div>
+
+      {/* ② 图片 / 提示词 两个开关（点亮 = 打开该面板） */}
+      <div className={styles.switchRow}>
+        <button
+          type="button"
+          className={data.useImageInput ? styles.switchOn : styles.switchBtn}
           data-loop-toggle="image"
           aria-pressed={data.useImageInput}
           onClick={() => patchNow({ useImageInput: !data.useImageInput })}
         >
-          素材
+          图片
         </button>
         <button
           type="button"
-          className={data.usePrompt ? styles.toggleOn : styles.toggle}
+          className={data.usePrompt ? styles.switchOn : styles.switchBtn}
           data-loop-toggle="prompt"
           aria-pressed={data.usePrompt}
           onClick={() => patchNow({ usePrompt: !data.usePrompt })}
@@ -88,10 +104,35 @@ export function LoopNodeView(props: NodeViewProps) {
         </button>
       </div>
 
-      {/* 提示词面板：多条，按轮次轮换 */}
+      {/* ③ 素材面板：上游缩略图 + 批次 + 输出提示 */}
+      {data.useImageInput && (
+        <div className={styles.panel} data-loop-image-panel>
+          {upstreamImages > 0 ? (
+            <div className={styles.thumbRow} data-loop-thumbs>
+              {(props.upstreamAssetHashes ?? []).map((hash, i) => (
+                <UpstreamThumb key={hash} hash={hash} index={i + 1} />
+              ))}
+            </div>
+          ) : (
+            <div className={styles.empty} data-loop-image-empty>
+              连线上游图片节点
+            </div>
+          )}
+          <NumberBar label="批次" value={data.batch} max={100} dataKey="batch" onChange={(v) => patchLater({ batch: v }, 'batch')} />
+          <div className={styles.note} data-loop-image-note>
+            {willOutput > 0 ? `当前会输出 ${willOutput} 张图片` : '上游没有可用的图片'}
+          </div>
+        </div>
+      )}
+
+      {/* ④ 提示词面板：上游预览 + 编号输入 + 计数行 */}
       {data.usePrompt && (
-        <div className={styles.panel} data-loop-prompts>
-          {/* 列表独立滚动：条目多时不会把提示词行压扁，也不会把下面的按钮挤出视野 */}
+        <div className={styles.panel} data-loop-prompt-panel>
+          {upstreamPrompts > 0 && (
+            <div className={styles.preview} data-loop-upstream-preview>
+              识别到 {upstreamPrompts} 条提示词，按计数轮流输出
+            </div>
+          )}
           <div className={styles.promptList} data-loop-prompt-list>
             {data.prompts.map((text, i) => (
               <div className={styles.promptRow} key={i}>
@@ -100,7 +141,7 @@ export function LoopNodeView(props: NodeViewProps) {
                   className={styles.promptInput}
                   data-loop-prompt={i}
                   value={text}
-                  placeholder={i === 0 ? '第《计数》张，共《总数》张' : '（空着则跳过这一条）'}
+                  placeholder="例如：现在生成第[计数]个卖点"
                   onChange={(e) => updatePrompt(i, e.target.value)}
                   onPointerDown={(e) => e.stopPropagation()}
                 />
@@ -118,20 +159,21 @@ export function LoopNodeView(props: NodeViewProps) {
               </div>
             ))}
           </div>
-          <div className={styles.row}>
+          <div className={styles.counterRow}>
             <button
               type="button"
-              className={styles.tokenBtn}
+              className={styles.counterBtn}
               data-loop-insert-counter
-              title="在第一条提示词末尾插入「计数」变量"
+              title="在第一条提示词末尾插入 [计数] 变量"
               onClick={() => {
                 const next = [...data.prompts]
-                next[0] = `${next[0] ?? ''}《计数》`
+                next[0] = `${next[0] ?? ''}[计数]`
                 patchNow({ prompts: next })
               }}
             >
               计数
             </button>
+            <span className={styles.counterNote}>可使用 [计数] 作为变量</span>
             <button
               type="button"
               className={styles.addBtn}
@@ -146,41 +188,30 @@ export function LoopNodeView(props: NodeViewProps) {
         </div>
       )}
 
-      {/* 底部：三个数字 + 运行 */}
-      <div className={styles.footer}>
-        <NumberField
-          label="起始"
-          value={data.loopStart}
-          max={9999}
-          dataKey="loopStart"
-          onChange={(v) => patchLater({ loopStart: v }, 'loopStart')}
-        />
-        <NumberField
-          label="轮数"
-          value={data.count}
-          max={100}
-          dataKey="count"
-          onChange={(v) => patchLater({ count: v }, 'count')}
-        />
-        <NumberField
-          label="每轮"
-          value={data.batch}
-          max={100}
-          dataKey="batch"
-          onChange={(v) => patchLater({ batch: v }, 'batch')}
-        />
+      {/* ⑤ 起始计数 / 次数 / 一键运行 */}
+      <div className={styles.footer} data-loop-footer>
+        <NumberBar label="起始计数" value={data.loopStart} max={9999} dataKey="loopStart" onChange={(v) => patchLater({ loopStart: v }, 'loopStart')} />
+        <NumberBar label="次数" value={data.count} max={100} dataKey="count" onChange={(v) => patchLater({ count: v }, 'count')} />
+        <button type="button" className={styles.runBtn} data-loop-run title="一键运行整个循环">
+          一键运行
+        </button>
       </div>
     </div>
   )
 }
 
-/**
- * 数字字段：一个裸的 number input + 快捷档。
- *
- * 为什么不做成下拉：循环轮数是要**频繁试不同值**的参数（3 轮还是 5 轮），
- * 输入框比点两层菜单快。快捷档只列常用值，剩下的靠直接输入。
- */
-function NumberField({
+/** 上游素材缩略图（参考图二：带「图 N」角标） */
+function UpstreamThumb({ hash, index }: { hash: string; index: number }) {
+  const url = useAsset(hash)
+  return (
+    <span className={styles.thumb} data-loop-thumb={hash}>
+      {url ? <img src={url} alt="" draggable={false} /> : <span className={styles.thumbEmpty} />}
+      <span className={styles.thumbBadge}>图{index}</span>
+    </span>
+  )
+}
+/** 数字条：参考图里的「批次 1 / 起始计数 1 / 次数 1」——标签与数字并排的一个胶囊 */
+function NumberBar({
   label,
   value,
   max,
@@ -194,7 +225,7 @@ function NumberField({
   onChange: (v: number) => void
 }) {
   return (
-    <label className={styles.num} title={`${label}（1 – ${max}）`}>
+    <label className={styles.numBar} data-loop-number-bar={dataKey}>
       <span className={styles.numLabel}>{label}</span>
       <input
         className={styles.numInput}
