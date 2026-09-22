@@ -2333,6 +2333,46 @@ async function g17(browser) {
     `实测 ${ratio.toFixed(3)}（图标 ${Math.round(others[0]?.icon ?? 0)} / 按钮 ${Math.round(others[0]?.btn ?? 0)}）`,
   )
 
+  /**
+   * ★ 工具栏里的**文字**也要跟着放大（用户 2026-09-22：「这个地方的文字太小了，
+   * 是因为左边按钮的 zoom:1.5 的原因吗？」——正是）。
+   *
+   * 取消 `.bar` 的 `zoom: 1.5` 时，这是**第二处漏换算**：按钮（36→54）与图标
+   * （18→27）换了，**文字没换** ⇒ 名称标签与菜单项从 `12 × 1.5 = 18` 掉回 12。
+   *
+   * 判据用「字号 ≥ 16」而不是写死 18：这条要锁的是**可读性意图**
+   * （文字明显大于旧 token 的 12px），以后微调字号不必重写。
+   */
+  await page.locator('[data-toolbar-reset]').hover()
+  await sleep(450)
+  const tipFont = await page
+    .locator('[data-toolbar-tip]')
+    .first()
+    .evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
+    .catch(() => 0)
+  rec(
+    g,
+    '★ 按钮名称标签的字号已随 zoom 取消一起换算（≥16px）',
+    tipFont >= 16,
+    `${tipFont}px（旧 token 为 12px；原 zoom 下渲染 18px）`,
+  )
+
+  await page.locator('[data-toolbar-arrange-modes]').hover()
+  await sleep(500)
+  const menuFont = await page
+    .locator('[data-toolbar-arrange-menu] button')
+    .first()
+    .evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
+    .catch(() => 0)
+  rec(
+    g,
+    '★ 弹出菜单项的字号同样已换算（≥16px）',
+    menuFont >= 16,
+    `${menuFont}px`,
+  )
+  await page.mouse.move(760, 760)
+  await sleep(300)
+
   await page.locator('[data-toolbar-add]').click()
   await sleep(250)
   const menuItems = await page.locator('[data-toolbar-menu-item]').count()

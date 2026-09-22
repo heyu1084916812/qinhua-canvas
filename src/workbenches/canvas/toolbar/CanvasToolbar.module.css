@@ -237,11 +237,19 @@
   left: calc(100% + var(--space-2));
   top: 50%;
   transform: translateY(-50%);
-  padding: var(--space-1) var(--space-3);
+  /*
+   * ★ 取消 `zoom: 1.5` 后，这里是**第二处漏换算**（用户 2026-09-22：
+   * 「这个地方的文字太小了，是因为左边按钮的 zoom:1.5 的原因吗？」——正是）。
+   *
+   * 原来字号 12（`--fs-label`）挂在 zoom 下渲染成 **18**；我取消 zoom 时只换了
+   * 按钮（36→54）与图标（18→27），**文字漏了** ⇒ 掉回 12，看着明显变小。
+   * 现在写死 18：等于原 12 × 1.5，与按钮 / 图标的换算口径一致。
+   */
+  font-size: 18px;
+  padding: 6px 18px;
   border-radius: var(--radius-control);
   background: var(--bg-surface);
   color: var(--text-1);
-  font-size: var(--fs-label);
   white-space: nowrap;
   box-shadow: var(--shadow-float);
   opacity: 0;
@@ -277,8 +285,9 @@
   z-index: 16;
   display: flex;
   flex-direction: column;
-  min-width: 160px;
-  padding: var(--space-1);
+  /* 原 160 / 4 挂在 zoom:1.5 下 ⇒ 现 240 / 6（与 `.menuItem` 同批换算） */
+  min-width: 240px;
+  padding: 6px;
   background: var(--bg-surface);
   border: var(--border);
   border-radius: var(--radius-control);
@@ -286,20 +295,25 @@
 }
 
 .menuItem {
-  padding: var(--space-2) var(--space-3);
+  /*
+   * ★ 与 `.tip` 同一处漏换算（用户 2026-09-22）：「宫格排列 / 水平排列…」这些
+   * 菜单项的排版值原本也挂在 `zoom: 1.5` 下，取消 zoom 时必须一并 × 1.5。
+   * 原：内距 8/12、字号 12、间距 8 ⇒ 现：12/18、18、12。
+   */
+  padding: 12px 18px;
   border: none;
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--text-1);
   font-family: var(--font-sans);
-  font-size: var(--fs-label);
+  font-size: 18px;
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
   /* 排列面板用「图标 + 文案」两列，与参考产品的排列菜单同形 */
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 12px;
   transition: background var(--dur-hover) var(--ease-out);
 }
 
@@ -319,10 +333,11 @@
 
 /* 菜单项左侧图标：定宽，保证多行文案左边缘对齐 */
 .menuIcon {
-  width: 16px;
+  /* 原 16 × 1.5 = 24：图标槽也要跟着图标（27）一起放大，否则左边缘对不齐 */
+  width: 24px;
   flex: none;
   text-align: center;
-  font-size: var(--fs-body);
+  font-size: 18px;
   line-height: 1;
   color: var(--text-2);
   /* SVG 与文本字形共用这一格；flex 居中保证图标不因基线偏移 */
