@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 循环节点视图（产品文档 §6.22）。
  *
  * 2026-09-23 按「信息层级」重做一版。要解决的问题：
@@ -73,9 +73,19 @@ export function LoopNodeView(props: NodeViewProps) {
   }
 
   const p = normalizeLoopParams(data)
+  /**
+   * 提示词数组的统一兜底。
+   *
+   * `LoopData.prompts` 在类型上必填，但**老库数据 / 别的创建路径**都可能缺它
+   * （本文件下方多处直接读 `.length`）。同一份数据只要有一处没防，节点就会崩、
+   * 进而把整棵树带下去 —— 同文件里的 PromptNodeView 就是这么黑屏的（2026-09-23）。
+   * 收成一个变量，让「缺字段」只在一处处理。
+   */
+  const prompts = data.prompts ?? []
   const summary = useMemo(
-    () => loopSummary(data, { images: upstreamImages, prompts: upstreamPrompts }),
-    [data, upstreamImages, upstreamPrompts],
+    // 传**兜底后**的 prompts：否则摘要内部要再兜一次，两处口径容易分叉
+    () => loopSummary({ ...data, prompts }, { images: upstreamImages, prompts: upstreamPrompts }),
+    [data, prompts, upstreamImages, upstreamPrompts],
   )
 
   /** 关掉某个通道时，把抽屉一并收起——抽屉里是提示词，开关一关它就没意义了 */
@@ -111,25 +121,25 @@ export function LoopNodeView(props: NodeViewProps) {
   }, [drawerOpen])
 
   const updatePrompt = (i: number, text: string) => {
-    const next = [...data.prompts]
+    const next = [...prompts]
     next[i] = text
     patchLater({ prompts: next }, `prompt:${i}`)
   }
 
   const insertToken = (token: string) => {
-    const i = Math.min(focusedRef.current, data.prompts.length - 1)
+    const i = Math.min(focusedRef.current, prompts.length - 1)
     if (i < 0) return
-    const next = [...data.prompts]
+    const next = [...prompts]
     next[i] = `${next[i] ?? ''}${token}`
     patchNow({ prompts: next })
   }
 
   /** 本体上显示「当前生效的那条」：第 1 轮用哪条提示词 */
   const activePrompt = useMemo(() => {
-    const own = data.prompts.find((s) => s.trim())
+    const own = prompts.find((s) => s.trim())
     if (own) return own
     return upstreamPrompts > 0 ? '（来自上游提示词节点）' : ''
-  }, [data.prompts, upstreamPrompts])
+  }, [prompts, upstreamPrompts])
 
   const runnable = data.useImageInput || data.usePrompt
 
@@ -171,7 +181,7 @@ export function LoopNodeView(props: NodeViewProps) {
         <ChannelRow
           kind="prompt"
           label="提示词"
-          count={upstreamPrompts + data.prompts.filter((s) => s.trim()).length}
+          count={upstreamPrompts + prompts.filter((s) => s.trim()).length}
           on={data.usePrompt}
           onToggle={() => patchNow({ usePrompt: !data.usePrompt })}
         />
@@ -287,7 +297,7 @@ export function LoopNodeView(props: NodeViewProps) {
           </div>
 
           <div className={styles.drawerList} data-loop-drawer-list>
-            {data.prompts.map((text, i) => (
+            {prompts.map((text, i) => (
               <div className={styles.drawerItem} key={i}>
                 <div className={styles.drawerItemHead}>
                   <span className={styles.drawerIndex}>#{i + 1}</span>
@@ -295,10 +305,10 @@ export function LoopNodeView(props: NodeViewProps) {
                     type="button"
                     className={styles.drawerDel}
                     data-loop-prompt-delete={i}
-                    disabled={data.prompts.length <= 1}
+                    disabled={prompts.length <= 1}
                     title="删除这一条"
                     aria-label={`删除第 ${i + 1} 条`}
-                    onClick={() => patchNow({ prompts: data.prompts.filter((_, k) => k !== i) })}
+                    onClick={() => patchNow({ prompts: prompts.filter((_, k) => k !== i) })}
                   >
                     ×
                   </button>
@@ -321,7 +331,7 @@ export function LoopNodeView(props: NodeViewProps) {
             type="button"
             className={styles.drawerAdd}
             data-loop-prompt-add
-            onClick={() => patchNow({ prompts: [...data.prompts, ''] })}
+            onClick={() => patchNow({ prompts: [...prompts, ''] })}
           >
             ＋ 添加一条
           </button>

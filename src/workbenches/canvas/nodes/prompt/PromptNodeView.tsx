@@ -121,7 +121,9 @@ export function PromptNodeView(props: NodeViewProps) {
     const isActive = busy && activeAction === action
     // 反推的输入是**图**不是文本，所以它的禁用条件与其它两个动作相反：
     // 有图就能点（哪怕一个字都没有），没图点了也是空跑。
-    const lacksInput = action === 'describe' ? imageInputs.length === 0 : data.text.length === 0
+    // 与渲染处同一口径：`text` 按可选处理（缺字段时视作空文本，而不是崩）
+    const lacksInput =
+      action === 'describe' ? imageInputs.length === 0 : (data.text ?? '').length === 0
     return (
       <button
         type="button"
@@ -202,7 +204,18 @@ export function PromptNodeView(props: NodeViewProps) {
       )}
       <div className={styles.footer}>
         <span className={styles.count} data-prompt-count>
-          {data.text.length} 字
+          {/*
+            必须和上面那个 `data.text ? ... : ...` 用同一个兜底（用户 2026-09-23 报黑屏）。
+
+            上面渲染正文时防了空值，这里却直接读 `.length` —— **同一份数据两处口径不一致**。
+            只要 `text` 是 undefined（老库数据、或某条创建路径漏带该字段），
+            这一行就抛 `Cannot read properties of undefined (reading 'length')`，
+            React 整棵树随之挂掉 ⇒ **整个画布黑屏**。
+
+            这里以「节点数据可能缺字段」为前提：视图层对数据一律按可选处理，
+            崩一次的代价（整页白屏、用户丢掉所有未保存操作）远大于多写一个 `?? ''`。
+          */}
+          {(data.text ?? '').length} 字
         </span>
         <span className={styles.tools} data-prompt-tools>
           {toolButton('optimize', '优化', '用文本模型优化此提示词')}
