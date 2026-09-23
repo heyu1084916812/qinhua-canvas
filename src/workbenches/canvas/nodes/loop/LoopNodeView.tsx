@@ -127,24 +127,56 @@ export function LoopNodeView(props: NodeViewProps) {
    * 反过来若只收不放（或只放不收），两个方向里总有一个会立刻违背「自适应」。
    */
   const contentRef = useRef<HTMLDivElement | null>(null)
+  /**
+   * 「节点当前高度 / 宽度 / emit」一律走 ref。
+   *
+   * 若把它们写进 useEffect 依赖，每次我们写回高度 → 重渲染 → effect 重建 →
+   * 重新 observe，在缩放这种高频场景会形成重建风暴。
+   * 放进 ref 后 effect **只建一次**，回调里读到的仍是最新值。
+   */
+  const nodeHRef = useRef(props.node.h)
+  nodeHRef.current = props.node.h
+  const nodeWRef = useRef(props.node.w)
+  nodeWRef.current = props.node.w
+  const emitRef = useRef(props.emit)
+  emitRef.current = props.emit
+
   useEffect(() => {
     const content = contentRef.current
     if (!content) return
-    const nodeEl = content.closest<HTMLElement>('[data-node-id]')
-    if (!nodeEl) return
+    // 必须挂在节点框内才有意义（节点视图也可能用于预览/容器子渲染）
+    if (!content.closest('[data-node-id]')) return
 
+    /**
+     * ⚠️ 用 `offsetHeight` 而不是 `getBoundingClientRect()`（2026-09-24 修缩放黑屏）。
+     *
+     * 画布缩放是 `[data-world]` 上的 CSS `scale(zoom)`（见 CanvasSurface）。
+     * `getBoundingClientRect()` 返回的是**变换后**的屏幕像素：
+     * zoom=0.5 时量到的是实际高度的一半。拿这个数去写世界坐标的 `node.h` 就写错了，
+     * 而写错 → 内容重排 → ResizeObserver 再触发 → 又拿缩放值去写 ……
+     * **在缩放过程中这个循环会高速空转，页面直接崩掉（黑屏）**。
+     *
+     * `offsetHeight` 是**布局高度**，不受 transform 影响，与世界坐标同量纲 ——
+     * 这才是这里要拿的数。
+     */
     const sync = () => {
-      const nodeRect = nodeEl.getBoundingClientRect()
-      const contentRect = content.getBoundingClientRect()
+      const contentH = content.offsetHeight
+      if (!contentH) return
       // 18 = .card 上下 padding（8×2）+ 节点框 1px 边框 ×2
-      const needed = Math.ceil(contentRect.height) + 18
-      // 容差 4px：避免因亚像素取整在临界点反复抖动（放大 → 重排 → 又变小 → 再放大）
-      if (Math.abs(nodeRect.height - needed) > 4) {
-        props.emit({
+      const needed = contentH + 18
+      /*
+       * 容差放大到 8px：offsetHeight 是取整值，加上不同 zoom 下边框的舍入差异，
+       * 太小的容差会在临界点反复触发（写高度 → 重排 → 又判定不一致 → 再写）。
+       *
+       * 另外**只在确实需要时写**：写 `patch: {}` 的空 updateData 也会走一遍
+       * store 与持久化，缩放时高频触发代价不小。
+       */
+      if (Math.abs(nodeHRef.current - needed) > 8) {
+        emitRef.current({
           type: 'updateData',
           patch: {},
           transient: true,
-          size: { w: props.node.w, h: needed },
+          size: { w: nodeWRef.current, h: needed },
         })
       }
     }
@@ -152,7 +184,8 @@ export function LoopNodeView(props: NodeViewProps) {
     const ro = new ResizeObserver(sync)
     ro.observe(content)
     return () => ro.disconnect()
-  }, [props.node.w, props.emit])
+    // 依赖为空：所有读取都走 ref，effect 只建一次（见上面 ref 的说明）
+  }, [])
 
   return (
     <div className={styles.card} data-loop-node>

@@ -80,6 +80,31 @@
 另外：`edge.remove` 命令**不收 `transient`**（删边本身就是独立撤销单元）；
 写代码前看一眼 `state/commands/index.ts` 的命令签名。
 
+### ★ 画布节点里量尺寸：用 offsetHeight，别用 getBoundingClientRect（2026-09-24，缩放黑屏）
+
+画布缩放是 `[data-world]` 上的 CSS `scale(zoom)`（见 CanvasSurface）。
+于是节点内所有「量高度」的 API 分成两类：
+
+| API | 含义 | 缩放时 |
+| --- | --- | --- |
+| `offsetHeight` / `offsetWidth` | **布局**尺寸 | **恒定**，不受 transform 影响 |
+| `getBoundingClientRect()` | **变换后**的屏幕像素 | **随 zoom 变化** |
+
+**凡是要写回世界坐标（`node.h` / `node.w`）的，必须用 offsetHeight。**
+用错会形成反馈环：写高度 → 重排 → observer 触发 → 量到缩放值 → 写错 → 再触发……
+缩放过程中高速空转 ⇒ **页面崩溃（黑屏）**。
+
+实测（zoom=0.826）：offsetHeight=318 恒定，而 rect.height=262（318×0.826）。
+
+**配套三条**（这次一起改的，缺一条都可能复发）：
+1. 量布局尺寸（`offsetHeight`），不用屏幕矩形；
+2. `node.h / node.w / emit` 走 **ref**、effect **依赖为空** —— 否则每次写回都会
+   重建 effect + 重新 observe，缩放时形成重建风暴；
+3. 容差至少 8px（offsetHeight 是取整值，太小会在临界点抖动）。
+
+> 注意：getBoundingClientRect 不是不能用 —— 量**屏幕**位置（菜单定位、
+> 端点坐标、拖放命中）就该用它。区别只有一个：**要写回世界坐标的，必须量布局**。
+
 ### ★ 高度自适应用「量出来」，别用「查表」——查表法必然过期（2026-09-24，第三次修）
 
 循环节点「高度自适应」前后修了三版：
