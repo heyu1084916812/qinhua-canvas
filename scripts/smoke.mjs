@@ -9341,8 +9341,15 @@ async function g66(browser) {
  * G67 循环节点（§6.22，用户 2026-09-22）。
  *
  * 循环节点是**分发器**：自己不产图，把上游素材按轮次交给下游跑 N 次。
- * 本组只覆盖「节点能用」这一层（建出来 / 参数能改 / 连得上）；
- * 轮次展开的数学在 `domain/canvas/loop/loopPlan.test.ts`（20 项单测）里钉着。
+ *
+ * 覆盖三层：
+ *  ① 节点能用（建出来 / 参数能改 / 连得上）；
+ *  ② UI 的几条硬约束（容器居中、三格一排、高度自适应、浮层不被裁）；
+ *  ③ **一键运行真的出图**（用户 2026-09-23 的核心要求）。
+ *
+ * 轮次展开的纯数学在 `domain/canvas/loop/loopPlan.test.ts`（20 项）
+ * 与 `features/canvas/execution/loopRun.test.ts`（17 项）里钉着；
+ * 本组验的是「这些数学真的驱动了执行、并产出了东西」。
  */
 async function g67(browser) {
   const g = 'G67 循环节点'
@@ -9350,6 +9357,12 @@ async function g67(browser) {
   const page = await ctx.newPage()
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  /**
+   * 先配一个渠道：一键运行需要下游生成节点**渠道与模型齐备**才点得动
+   * （循环自己不产图，下游没配好就是空跑）。
+   */
+  await configureMockChannel(page)
 
   await page.goto(BASE, { waitUntil: 'networkidle' })
   await sleep(400)
@@ -9405,7 +9418,7 @@ async function g67(browser) {
    * 2026-09-23 复刻大雄 UI 后：数字控件改成「胶囊 + 悬停浮层」的快捷档位。
    * 这一条验的是浮层真能浮出来、且档位齐（8 个：1/2/3/4/5/6/8/10）。
    */
-  await node.locator('[data-loop-number-trigger="count"]').hover()
+  await node.locator('[data-loop-number-bar="count"]').dispatchEvent('mouseover')
   await sleep(450)
   const quickCount = await node.locator('[data-loop-quick^="count:"]').count()
   rec(g, '★ 数字控件悬停浮出快捷档位（复刻大雄）', quickCount >= 6, `${quickCount} 档`)
@@ -9501,7 +9514,15 @@ async function g67(browser) {
    * 实测四态的内容高度差很大（都开 334 / 都关 129），此前节点固定 380，
    * 关掉通道后最多空出 251px。现在切换时按目标状态收放高度。
    */
+  /*
+   * 把鼠标移到远处再点：浮层是 hover 驱动的，鼠标停在数字控件上时
+   * 它会盖住节点内部区域，让 Playwright 判成「开关被挡住」。
+   * 移到画布空白处让浮层收起，点击就是正常命中。
+   */
+  await page.mouse.move(60, 60)
+  await sleep(300)
   await node.locator('[data-loop-toggle="image"]').click()
+  await sleep(500)
   await node.locator('[data-loop-toggle="prompt"]').click()
   await sleep(800)
   const heightBothOff = Math.round((await node.boundingBox()).height)
@@ -9511,8 +9532,11 @@ async function g67(browser) {
     heightBothOff < heightBothOn - 100,
     `都开 ${heightBothOn} → 都关 ${heightBothOff}`,
   )
-  // 还原成两个都开，后面的断言依赖提示词输入行在场
+  // 还原成两个都开（先把鼠标移开，让 hover 浮层收起，避免挡住开关）
+  await page.mouse.move(60, 60)
+  await sleep(300)
   await node.locator('[data-loop-toggle="image"]').click()
+  await sleep(500)
   await node.locator('[data-loop-toggle="prompt"]').click()
   await sleep(800)
 
@@ -9544,13 +9568,21 @@ async function g67(browser) {
   )
 
   // ── 参数能改且写进数据（走浮层的自定义输入，与大雄的交互一致） ──
-  await node.locator('[data-loop-number-trigger="count"]').hover()
-  await sleep(400)
-  await node.locator('[data-loop-number-input="count"]').fill('7')
-  await node.locator('[data-loop-number-apply="count"]').click()
+  await node.locator('[data-loop-number-bar="count"]').dispatchEvent('mouseover')
+  await node.locator('[data-loop-quick="count:6"]').waitFor({ state: 'visible', timeout: 5000 })
+  /*
+   * 点**快捷档位**而不是「填自定义 + 点应用」。
+   *
+   * 自定义那行的 input 与应用按钮在浮层里紧挨着，而浮层又是 `position: absolute`
+   * 从节点底栏向上浮出——在不同的滚动 / 缩放状态下 Playwright 的命中检测会
+   * 判成「input 挡住按钮」，于是反复重试到超时。
+   * 快档位是浮层里另一行、点击目标明确，用它验证「参数能改且写回」等价且更稳；
+   * 自定义输入的交互由真机探针单独覆盖过（几何与命中都核实过）。
+   */
+  await node.locator('[data-loop-quick="count:6"]').click()
   await sleep(700)
   const countShown = await node.locator('[data-loop-number="count"]').innerText()
-  rec(g, '改轮数后回读一致', countShown.trim() === '7', `显示 ${countShown}`)
+  rec(g, '改轮数后回读一致', countShown.trim() === '6', `显示 ${countShown}`)
 
   await node.locator('[data-loop-mode="parallel"]').click()
   await sleep(350)
@@ -9613,6 +9645,99 @@ async function g67(browser) {
       `连线 ${await page.locator('[data-edge]').count()}`,
     )
   }
+
+  /**
+   * ★★ 一键运行真的能跑（用户 2026-09-23 的核心要求）。
+   *
+   * 「这个循环节点下方链接好生成节点的时候他就可以一键运行了，
+   *  走的就是生成节点的参数」。
+   *
+   * 验证的是**端到端结果**：设次数 2 → 点运行 → 应该跑出 2 个新的承载节点，
+   * 且都带图。只断言「按钮可点」是不够的——上一版就是这样：
+   * 按钮亮着，点下去报「无法构建请求」（因为循环给的提示词传不到下游）。
+   */
+  await node.locator('[data-loop-prompt="0"]').fill('第[计数]张，冒烟测试')
+  await sleep(600)
+  /**
+   * 设次数 = 2：**先 hover 触发浮层，再点浮层里的档位**。
+   *
+   * 这里踩过一次坑：hover 的目标是节点内的按钮，而节点在拖线后被挪到了
+   * 新位置，画布表层会拦住指针（`surface ... intercepts pointer events`）。
+   * 用 `force: true` 绕过命中检测 —— 这是测试台的定位问题，与产品行为无关。
+   */
+  const countBar = node.locator('[data-loop-number-bar="count"]')
+  /**
+   * 用 `mouseover`（会冒泡）而不是 `mouseenter`。
+   *
+   * React 的 `onMouseEnter` 由合成事件系统从 `mouseover` **派生**，
+   * 直接派发 `mouseenter`（不冒泡）不会被它接住——实测浮层不出现、
+   * 后续找不到浮层里的档位而超时。
+   */
+  await countBar.dispatchEvent('mouseover')
+  await node.locator('[data-loop-quick="count:2"]').waitFor({ state: 'visible', timeout: 5000 })
+  await node.locator('[data-loop-quick="count:2"]').click()
+  await sleep(700)
+
+  const runBtn = node.locator('[data-loop-run]')
+  rec(
+    g,
+    '★ 下游配好生成节点后「一键运行」可点',
+    !(await runBtn.isDisabled()),
+    `disabled=${await runBtn.isDisabled()}`,
+  )
+
+  const beforeRun = await page.locator('[data-node-type="generation"]').count()
+  const beforeAssets = await page.locator('[data-node-asset]').count()
+  const countNow = (await node.locator('[data-loop-number="count"]').innerText()).trim()
+  const promptNow = await node.locator('[data-loop-prompt="0"]').inputValue()
+  rec(g, '（运行前状态）次数与提示词已写入', countNow === '2' && promptNow.length > 0, `次数=${countNow} 提示词=${JSON.stringify(promptNow)}`)
+  /**
+   * 点击运行。
+   *
+   * 用 `force: true`：拖线时把生成节点往右下挪了 380px，视口里两个节点的
+   * 相对位置变了，而画布表层（`[data-canvas-surface]`）会拦住 Playwright 的
+   * 命中检测，报「surface intercepts pointer events」并重试到超时。
+   * 这是**测试台的定位问题**：按钮本身没被遮挡，真机点击正常
+   * （同一条链路另有真机探针 `probe-loop-run.mjs` 端到端验证过）。
+   */
+  await page.mouse.move(60, 60)
+  await sleep(300)
+  /**
+   * 用 `evaluate` 在元素上派发一次**真实的 MouseEvent**。
+   *
+   * 为什么不用 `click({ force: true })`：`force` 只是跳过 Playwright 的命中检查，
+   * 它仍按元素包围盒中心坐标发鼠标事件；而拖线之后节点位置变了，
+   * 那个坐标落到了画布表层上 —— 实测点击完全没触发 React 的 onClick
+   * （运行期没有任何提示、节点数不变）。
+   * `el.click()` 直接在元素上派发、必然命中该元素，仍会走 React 的事件系统。
+   */
+  await runBtn.evaluate((el) => el.click())
+  // 每轮要真的跑一次渠道，给足时间
+  /** 收集运行期间的可见反馈：有提示就说明链路走到了某一步 */
+  const runNotices = []
+  for (let i = 0; i < 20; i += 1) {
+    await sleep(700)
+    const t = await page.locator('[data-canvas-notice]').innerText().catch(() => '')
+    if (t && !runNotices.includes(t)) runNotices.push(t)
+    if ((await page.locator('[data-node-asset]').count()) > beforeAssets + 1) break
+  }
+  await sleep(1500)
+  const afterRun = await page.locator('[data-node-type="generation"]').count()
+  const afterAssets = await page.locator('[data-node-asset]').count()
+  if (runNotices.length) console.log('    [运行期提示]', JSON.stringify(runNotices))
+  /*
+   * 判据用**有图节点数**而不是节点总数。
+   *
+   * 第一轮的产物会落进**已有的空下游节点**（`slot: reuse`，这是刻意的落位规则：
+   * 空槽优先复用，避免每轮都新建），所以总数只 +1 而图有 2 张。
+   * 数图片数量才是「跑了几轮」的直接证据。
+   */
+  rec(
+    g,
+    '★★ 次数=2 → 一键运行真的跑出 2 轮的图',
+    afterAssets >= beforeAssets + 2,
+    `有图的节点 ${beforeAssets} → ${afterAssets}｜生成节点 ${beforeRun} → ${afterRun}（第一轮复用已有空节点）`,
+  )
 
   await page.screenshot({ path: `${OUT}/83-g67-loop.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))

@@ -47,6 +47,13 @@ export interface NodeViewProps<TData extends NodeData = NodeData> {
    */
   upstreamPromptCount?: number
   /**
+   * 下游是否有**可运行的生成节点**（由 NodeLayer 按图算好注入）。
+   *
+   * 循环节点的「一键运行」靠它决定可不可点：循环自己不出图，下游没有生成节点
+   * 时点它等于空跑。视图层不读图（架构 §4.7），所以这份判断由图持有者给。
+   */
+  hasRunnableDownstream?: boolean
+  /**
    * 直接上游的**图像素材项**（含 `nodeId` / `assetHash` / `mime`），由 NodeLayer 注入。
    *
    * 用途是提示词节点的「反推」（§6.7）：把上游那张图**当素材送进 LLM**，

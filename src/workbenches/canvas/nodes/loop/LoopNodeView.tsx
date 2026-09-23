@@ -131,6 +131,14 @@ export function LoopNodeView(props: NodeViewProps) {
     ? `识别到 ${upstreamPrompts} 条上游提示词，按计数轮流输出`
     : '可使用 [计数] 作为变量'
 
+  /**
+   * 能否一键运行：**下游要有可运行的生成节点**（由 NodeLayer 按图算好注入）。
+   *
+   * 循环节点不产图，它的产物来自下游那一趟。下游没配好渠道 / 模型时，
+   * 跑起来只会得到「无法构建请求」——那种情况按钮该是禁用的。
+   */
+  const canRun = !!props.hasRunnableDownstream
+
   return (
     <div className={styles.card} data-loop-node>
       {/* ① 循环 / 并发：两格分段 */}
@@ -302,20 +310,26 @@ export function LoopNodeView(props: NodeViewProps) {
           onChange={(v) => patchLater({ count: v }, 'count')}
         />
         {/*
-          运行按钮照抄大雄的形态（带图标 + 主色实底），但**如实禁用**：
-          循环执行尚未接引擎（`expandLoopRounds` 已写好、没人调用）。
-          大雄那个能真跑，轻画这个还不能——界面上必须说清，不能做成「点了没反应」。
+          一键运行（用户 2026-09-23：「下方链接好生成节点的时候他就可以一键运行了，
+          走的就是生成节点的参数」）。
+
+          可点条件 = **下游有可运行的生成节点**（下游渠道 / 模型都配好）。
+          循环节点自己不产图，下游没配好时点它必然空跑 —— 那种情况如实禁用并说明，
+          而不是留一个点了没反应的按钮（本项目反复出现的缺陷类型）。
         */}
         <button
           type="button"
           className={styles.run}
           data-loop-run
-          disabled
+          disabled={!canRun}
           title={
-            data.useImageInput || data.usePrompt
-              ? '循环执行还没接上，当前只能配置'
-              : '先把图片或提示词打开'
+            canRun
+              ? `按当前参数跑 ${p.count} 轮（下游生成节点的渠道与模型已就绪）`
+              : !data.useImageInput && !data.usePrompt
+                ? '先把图片或提示词打开'
+                : '下游还没有配置好的生成节点：先连一个，并选好渠道与模型'
           }
+          onClick={() => props.emit({ type: 'requestRun', mode: 'single' })}
         >
           <IconWorkflow />
           <span>一键运行</span>

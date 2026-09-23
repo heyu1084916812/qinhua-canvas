@@ -59,6 +59,30 @@ export const generationSpec: NodeSpec<GenerationData> = {
         inputs.push({ kind: 'text', nodeId: upstream.id, text: (upstream.data as PromptData).text })
         continue
       }
+      /**
+       * 循环节点作为上游 → 取**本轮**的提示词与素材（用户 2026-09-23）。
+       *
+       * 循环节点不产图，它把「第 N 轮该用哪条提示词、哪几张图」交给下游。
+       * 此前这里不认 `loop`（`accepts.upstream` 早就含它，但只连了线、没收输入），
+       * 于是「循环 → 生成」这条主链路**连上了却不生效**——
+       * 下游拿不到提示词，`toRunRequest` 因 `!prompt` 返回 null，
+       * 循环节点的一键运行直接报「无法构建请求」。
+       *
+       * 两个字段都由执行侧在每轮开始时**临时写入**循环节点的 data：
+       *  - `__roundPrompt`：本轮提示词（已做过变量替换）
+       *  - `__roundAssets`：本轮的素材 hash 列表
+       * 双下划线前缀表示「运行期瞬时态」，不参与持久化的字段约定。
+       */
+      if (upstream.type === 'loop') {
+        const round = upstream.data as { __roundPrompt?: string; __roundAssets?: string[] }
+        if (round.__roundPrompt) {
+          inputs.push({ kind: 'text', nodeId: upstream.id, text: round.__roundPrompt })
+        }
+        for (const hash of round.__roundAssets ?? []) {
+          inputs.push({ kind: 'asset', nodeId: upstream.id, assetHash: hash, mime: GENERATION_ASSET_MIME })
+        }
+        continue
+      }
       // 生成节点作为上游 → 它的产物就是本次的**图像输入**（M6-12：图生图 / 图生视频）。
       // `accepts.upstream` 早就含 'generation'，但此前只连了线、没收进 inputs，
       // 于是渠道拿到的永远只有提示词——图生图在数据模型里「接好了」却从未生效。

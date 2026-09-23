@@ -3,6 +3,15 @@ import type { ChannelAdapter } from '../../../platform/channels/types'
 import { createChannelAdapter, type ResolvedChannelConfig } from '../../../platform/channels/registry'
 import { buildRunPlan, type CanvasRunTask } from '../../../features/canvas/execution/buildRunPlan'
 import { emptyPlanReason } from '../../../features/canvas/execution/emptyPlanReason'
+import {
+  hasRunnableDownstream,
+  loopUpstreamAssets,
+  loopUpstreamPrompts,
+  planLoopRounds,
+} from '../../../features/canvas/execution/loopRun'
+import type { LoopData } from '../../../domain/canvas/model/node'
+import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
+import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import { createCanvasPlacement } from '../../../features/canvas/execution/canvasPlacement'
 // 执行引擎与宿主上移共享层（M6-5 路径 B）：画布注入自己的命令类型与落位适配器
 import { useExecution } from '../../../features/shared/execution/useExecution'
@@ -313,9 +322,104 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
     [store, channels],
   )
 
+  /**
+   * 一键运行循环节点（用户 2026-09-23）。
+   *
+   * 逐轮执行下游链路：每轮把该轮的**图片切片 + 替换过变量的提示词**交给下游，
+   * 下游按普通单点运行跑一趟。循环节点自己不产生任何产物。
+   *
+   * 几处刻意的取舍：
+   *  - **串行**：一轮 await 完再跑下一轮。`mode: parallel` 目前不并发——
+   *    并发要处理「多轮同时改同一批下游节点」的写入竞态，风险远大于收益，
+   *    先保证能跑、且结果正确（设计文档里 `parallel` 也注明「受并发上限约束」）。
+   *  - **提示词替换走一次性的节点数据改动**：把该轮提示词临时写回下游节点的
+   *    `prompt`，跑完恢复原值。这样下游的既有链路（收集 inputs、构建请求）零改造。
+   *  - **任一轮失败就停**：继续跑下去会把「上游没出图」的状态传染给后续轮次，
+   *    报错也难定位。停下来并如实说明。
+   */
+  const runLoop = useCallback(
+    async (loopNode: NodeSnapshot<LoopData>, graph: GraphSnapshot) => {
+      const rounds = planLoopRounds(
+        loopNode,
+        loopUpstreamAssets(loopNode, graph),
+        loopUpstreamPrompts(loopNode, graph),
+      )
+      if (rounds.length === 0) {
+        store.notify('循环次数为 0，没有可跑的轮次')
+        return
+      }
+      if (!hasRunnableDownstream(loopNode, graph)) {
+        store.notify('循环节点下游还没有生成节点，无法运行')
+        return
+      }
+
+      try {
+        for (const round of rounds) {
+          /**
+           * 把本轮的输入写进**循环节点自己**（而不是改写下游节点的字段）。
+           *
+           * 为什么写在循环节点上：下游的 `collectInputs` 会去读「上游循环节点
+           * 给的这一轮输入」（见 generation spec 的 loop 分支）。这样：
+           *  - 下游节点的数据**一个字节都不动**（改写用户节点的 prompt 需要备份 +
+           *    恢复，异常路径漏一次就是数据损坏）；
+           *  - 语义也对：提示词是「循环分发出来的输入」，不是「下游自己写的」。
+           */
+          store.dispatch({
+            kind: 'node.updateData',
+            id: loopNode.id,
+            patch: { __roundPrompt: round.prompt, __roundAssets: round.assetHashes },
+            transient: true,
+          })
+
+          const fresh = store.getSnapshot()
+          const plan = buildRunPlan('node', { originNodeId: loopNode.id }, fresh, 'single')
+          if (plan.tasks.length === 0) {
+            store.notify(
+              round.prompt || round.assetHashes.length > 0
+                ? `第 ${round.index} 轮无法构建请求，已停止`
+                : `第 ${round.index} 轮没有可用的提示词或图片，已停止（在下游节点写提示词，或在循环节点写一条）`,
+            )
+            return
+          }
+          await launch(plan, loopNode.id)
+        }
+      } finally {
+        // 清掉运行期瞬态字段，避免它们留在数据里（下一轮会重新写）
+        store.dispatch({
+          kind: 'node.updateData',
+          id: loopNode.id,
+          patch: { __roundPrompt: undefined, __roundAssets: undefined },
+          transient: true,
+        })
+        void store.flush()
+      }
+    },
+    [store, launch],
+  )
+
   const runNode = useCallback(
     async (nodeId: string, opts?: { alt?: boolean }) => {
       const graph = store.getSnapshot()
+      const node = graph.nodes.find((n) => n.id === nodeId)
+
+      /**
+       * 循环节点走**另一条路**：它自己不产图，而是把下游链路跑 N 轮。
+       *
+       * 这里不做成「把 N 轮塞进同一个 RunPlan」：那需要改 `buildRunPlan` 的核心
+       * （为每轮复制一份下游 task、各自带该轮输入），而 `buildRunPlan` 是
+       * 画布与后续工作台共用的形状，为单个节点类型改它的主流程风险太大。
+       *
+       * 改成**逐轮构建并执行**：每轮拿到该轮的图片切片与替换过变量的提示词，
+       * 当成一次普通的「从循环节点出发的单点运行」。好处是：
+       *  - 下游零改造（它看到的输入就是循环节点给的那份，与设计一致）；
+       *  - 落位、写回、撤销、日志全部复用既有链路，不新增机制；
+       *  - 串行天然成立（一轮 await 完再下一轮）。
+       */
+      if (node?.type === 'loop') {
+        await runLoop(node as NodeSnapshot<LoopData>, graph)
+        return
+      }
+
       const plan = buildRunPlan(
         'node',
         { originNodeId: nodeId },
@@ -328,7 +432,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       }
       await launch(plan, nodeId)
     },
-    [store, launch, explainEmptyPlan],
+    [store, launch, explainEmptyPlan, runLoop],
   )
 
   /** 运行整个画板：取画板子图 → 拓扑重跑（rerunAll） */
