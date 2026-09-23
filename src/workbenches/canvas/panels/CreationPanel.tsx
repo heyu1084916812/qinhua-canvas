@@ -1,7 +1,8 @@
-import { useEffect, useRef, useSyncExternalStore, useState } from 'react'
+﻿import { useEffect, useRef, useSyncExternalStore, useState } from 'react'
 import { clampDuration, type ModelCapability } from '../../../domain/shared/capability'
 import type { GenerationData } from '../../../domain/canvas/model/node'
-import type { PanelCollection, PanelModel, PanelThumb } from './panelModel'
+import type { PanelCollection, PanelModel, PanelThumb, RecipeSnapshot } from './panelModel'
+import { generationParams } from '../../../domain/canvas/nodeSpecs/params'
 import { moveInOrder } from './panelModel'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { useAsset } from '../hooks/useAsset'
@@ -336,6 +337,27 @@ export function CreationPanel(props: CreationPanelProps) {
    */
   const assetsEmpty = model.thumbs.length === 0 && model.collections.length === 0
 
+  /**
+   * 构造「配方快照」：把面板**当前显示**的渠道 / 模型 / 参数打成一包交给宿主。
+   *
+   * 为什么不在宿主侧从节点 data 现取（用户 2026-09-23 实测）：
+   * 节点为空、只有面板兜底显示着渠道与模型时（新建后尚未落库那条路径），
+   * 节点上取到的永远是空值，于是「改了参数就记配方」根本记不上——
+   * 表现为「改了参数，再新建还是原来的默认值」。
+   *
+   * 面板是**唯一**知道「用户眼前这套值是什么」的地方，所以由它带出来。
+   * `overrides` 是本次正要写入的那一项（例如刚选的 ratio），因为 state 还没更新。
+   */
+  const recipeSnapshot = (overrides: Partial<GenerationData> = {}): RecipeSnapshot => {
+    const merged = { ...(data as GenerationData), ...overrides }
+    return {
+      channelId: shownChannelId,
+      model: shownModel,
+      mode: merged.mode ?? 'image',
+      params: { mode: merged.mode ?? 'image', ...generationParams(merged) },
+    }
+  }
+
   const activeChannel = enabled.find((c) => c.id === shownChannelId)
   /**
    * 该渠道可选的全部模型。
@@ -572,7 +594,7 @@ export function CreationPanel(props: CreationPanelProps) {
                 onClick={() => {
                   if (data.mode === c.value) return
                   // 模型不属于新类别就清空：留着只会把图片模型发给视频渠道
-                  onEvent({ type: 'setMode', mode: c.value, keepModel: modelBelongsTo(c.value) })
+                  onEvent({ type: 'setMode', mode: c.value, keepModel: modelBelongsTo(c.value), recipe: recipeSnapshot({ mode: c.value }) })
                 }}
               >
                 {c.label}
@@ -740,7 +762,7 @@ export function CreationPanel(props: CreationPanelProps) {
             open={openPicker === 'model'}
             onToggle={() => togglePicker('model')}
             onClose={closePicker}
-            onSelect={(v) => onEvent({ type: 'setModel', model: v })}
+            onSelect={(v) => onEvent({ type: 'setModel', model: v, recipe: recipeSnapshot({ model: v }) })}
             disabled={!activeChannel || models.length === 0}
           />
         )}
@@ -758,7 +780,7 @@ export function CreationPanel(props: CreationPanelProps) {
               open={openPicker === 'ratio'}
               onToggle={() => togglePicker('ratio')}
               onClose={closePicker}
-              onSelect={(v) => onEvent({ type: 'setRatio', ratio: v })}
+              onSelect={(v) => onEvent({ type: 'setRatio', ratio: v, recipe: recipeSnapshot({ ratio: v }) })}
             />
             {videoMode ? (
               <>
@@ -773,7 +795,7 @@ export function CreationPanel(props: CreationPanelProps) {
                   open={openPicker === 'size'}
                   onToggle={() => togglePicker('size')}
                   onClose={closePicker}
-                  onSelect={(v) => onEvent({ type: 'setSize', size: v as NonNullable<GenerationData['size']> })}
+                  onSelect={(v) => onEvent({ type: 'setSize', size: v as NonNullable<GenerationData['size']>, recipe: recipeSnapshot({ size: v as NonNullable<GenerationData['size']> }) })}
                 />
                 {/* 时长：滑块 3–15 秒，支持直接键入数值（§6.8） */}
                 <span className={styles.duration} data-param-duration>
@@ -786,7 +808,7 @@ export function CreationPanel(props: CreationPanelProps) {
                     max={maxSec}
                     step={1}
                     value={duration}
-                    onChange={(e) => onEvent({ type: 'setDurationSec', sec: Number(e.target.value) })}
+                    onChange={(e) => onEvent({ type: 'setDurationSec', sec: Number(e.target.value), recipe: recipeSnapshot({ durationSec: Number(e.target.value) }) })}
                   />
                   <input
                     type="number"
@@ -801,7 +823,7 @@ export function CreationPanel(props: CreationPanelProps) {
                       const n = Number(e.target.value)
                       // 清空输入框时 Number('') === 0，直接夹回会把用户正在改的 8 变成 3
                       if (!Number.isFinite(n) || e.target.value.trim() === '') return
-                      onEvent({ type: 'setDurationSec', sec: n })
+                      onEvent({ type: 'setDurationSec', sec: n, recipe: recipeSnapshot({ durationSec: n }) })
                     }}
                   />
                   <span className={styles.durationUnit}>秒</span>
@@ -818,7 +840,7 @@ export function CreationPanel(props: CreationPanelProps) {
                     onToggle={() => togglePicker('refMode')}
                     onClose={closePicker}
                     onSelect={(v) =>
-                      onEvent({ type: 'setRefMode', refMode: v as NonNullable<GenerationData['refMode']> })
+                      onEvent({ type: 'setRefMode', refMode: v as NonNullable<GenerationData['refMode']>, recipe: recipeSnapshot({ refMode: v as NonNullable<GenerationData['refMode']> }) })
                     }
                   />
                 )}
@@ -842,7 +864,7 @@ export function CreationPanel(props: CreationPanelProps) {
                   open={openPicker === 'resolution'}
                   onToggle={() => togglePicker('resolution')}
                   onClose={closePicker}
-                  onSelect={(v) => onEvent({ type: 'setResolution', resolution: v })}
+                  onSelect={(v) => onEvent({ type: 'setResolution', resolution: v, recipe: recipeSnapshot({ resolution: v as NonNullable<GenerationData['resolution']> }) })}
                 />
                 <ParamPicker
                   name="quality"
@@ -854,7 +876,7 @@ export function CreationPanel(props: CreationPanelProps) {
                   open={openPicker === 'quality'}
                   onToggle={() => togglePicker('quality')}
                   onClose={closePicker}
-                  onSelect={(v) => onEvent({ type: 'setQuality', quality: v })}
+                  onSelect={(v) => onEvent({ type: 'setQuality', quality: v, recipe: recipeSnapshot({ quality: v as NonNullable<GenerationData['quality']> }) })}
                 />
                 {/*
                   张数改成与画质 / 质量同形的 chip + 弹层（用户 2026-09-19）。
@@ -879,7 +901,7 @@ export function CreationPanel(props: CreationPanelProps) {
                   open={openPicker === 'count'}
                   onToggle={() => togglePicker('count')}
                   onClose={closePicker}
-                  onSelect={(v) => onEvent({ type: 'setCount', count: Number(v) })}
+                  onSelect={(v) => onEvent({ type: 'setCount', count: Number(v), recipe: recipeSnapshot({ count: Number(v) }) })}
                 />
               </>
             )}

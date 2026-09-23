@@ -9482,13 +9482,134 @@ async function g67(browser) {
 }
 
 /**
+ * G68 配方记忆（§6.8，用户 2026-09-23）。
+ *
+ * 用户拍板的两条规则：
+ *   1. 项目第一次用 → 新建节点带后台第一个可用渠道的第一个可用模型；
+ *   2. 此后**只要改了参数就记**（不等生成），下一个新建节点继承它。
+ *
+ * 这条链路曾经在真机上断掉（用户报「改了参数，再新建还是原来的默认」），
+ * 断点有两个、都很隐蔽：
+ *   - 面板把「显示用的兜底值」写回节点后，配方记录却仍从节点 data 取渠道/模型 ——
+ *     节点为空时取到的永远是空，于是改多少次参数都记不上；
+ *   - 记录挂在「生成成功」上，而用户根本没生成，只改了参数。
+ *
+ * 本组按用户的真实操作路径走一遍，断言**落库的 presets 与新节点的 data**，
+ * 不看面板显示值（那正是当初骗过我们的东西）。
+ */
+async function g68(browser) {
+  const g = 'G68 配方记忆'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  // 配一个启用渠道（带可用模型），否则解析链给不出渠道 / 模型，记录会被守卫挡掉
+  await configureMockChannel(page)
+
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(500)
+  await page.locator('[data-template="blank"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  /** 读库里该项目的 nodes + presets（断言用事实，不看界面） */
+  const readState = () =>
+    page.evaluate(async () => {
+      const readAll = (db, table) =>
+        new Promise((res) => {
+          if (!db.objectStoreNames.contains(table)) return res([])
+          const tx = db.transaction(table, 'readonly')
+          const rq = tx.objectStore(table).getAll()
+          rq.onsuccess = () => res(rq.result)
+          rq.onerror = () => res([])
+        })
+      const dbs = await indexedDB.databases()
+      for (const info of dbs) {
+        if (!info.name) continue
+        const db = await new Promise((res, rej) => {
+          const rq = indexedDB.open(info.name)
+          rq.onsuccess = () => res(rq.result)
+          rq.onerror = () => rej(rq.error)
+        })
+        if (!db.objectStoreNames.contains('nodes')) { db.close(); continue }
+        const nodes = await readAll(db, 'nodes')
+        const presets = await readAll(db, 'presets')
+        db.close()
+        return {
+          nodes: nodes.map((n) => ({
+            id: n.id,
+            model: n.data?.model ?? '',
+            ratio: n.data?.ratio ?? null,
+          })),
+          presets: presets.map((p) => ({ model: p.model, params: p.params ?? {} })),
+        }
+      }
+      return { nodes: [], presets: [] }
+    })
+
+  const ids = () =>
+    page.locator('[data-node-id]').evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+  const addGeneration = async () => {
+    const before = await ids()
+    await page.locator('[data-toolbar-add]').click()
+    await sleep(300)
+    await page.locator('[data-toolbar-menu-item="generation"]').click()
+    await sleep(1200)
+    return (await ids()).find((i) => !before.includes(i))
+  }
+
+  // ── 规则 1：第一次新建就带默认渠道与模型 ──
+  const idA = await addGeneration()
+  const afterA = await readState()
+  const nodeA = afterA.nodes.find((n) => n.id === idA)
+  rec(g, '★ 新建节点带上默认模型（不再是空的）', !!nodeA?.model, `model=${nodeA?.model}`)
+  rec(g, '★ 新建时就把这套默认值记进配方', afterA.presets.length > 0, `presets=${afterA.presets.length}`)
+
+  // ── 规则 2：改参数（**不生成**）就记 ──
+  await page.locator(`[data-node-id="${idA}"]`).click()
+  await sleep(700)
+  await page.locator('[data-creation-panel] [aria-label="画面比例"]').first().click()
+  await sleep(400)
+  const ratioOpts = page.locator('[role="option"]')
+  const optCount = await ratioOpts.count()
+  let pickedRatio = null
+  if (optCount > 1) {
+    pickedRatio = (await ratioOpts.nth(1).innerText()).trim()
+    await ratioOpts.nth(1).click()
+    await sleep(800)
+  }
+  const afterEdit = await readState()
+  const editedA = afterEdit.nodes.find((n) => n.id === idA)
+  rec(g, '★ 改了参数后节点自身确实变了', !!editedA?.ratio, `ratio=${editedA?.ratio}`)
+  rec(
+    g,
+    '★★ 没生成也把新参数记进配方（用户 2026-09-23 的核心要求）',
+    JSON.stringify(afterEdit.presets[0]?.params ?? {}).includes(String(editedA?.ratio)),
+    `配方参数=${JSON.stringify(afterEdit.presets[0]?.params)}`,
+  )
+
+  // ── 继承：再建一个节点，应当带上刚才那套 ──
+  const idB = await addGeneration()
+  const afterB = await readState()
+  const nodeB = afterB.nodes.find((n) => n.id === idB)
+  rec(g, '★★ 下一个新建节点继承上一个改过的参数', nodeB?.ratio === editedA?.ratio, `B=${nodeB?.ratio} / 期望=${editedA?.ratio}`)
+  rec(g, '新节点也带模型（不是只剩参数）', !!nodeB?.model, `model=${nodeB?.model}`)
+
+  rec(g, '选中的比例不是默认值（确保这条断言不是"本来就这样"）', pickedRatio !== null, `选项数=${optCount}`)
+  await page.screenshot({ path: `${OUT}/84-g68-recipe.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+/**
  * 已从全量移除的组（测的都是已不存在的功能，继续跑只会拿「它没出现」当失败）：
  * - g22：版本历史（§6.21 于 2026-09-16 下线）
  * - g41：陈旧标记与按范围重跑（2026-09-17 下线：橘点、整条流程重跑、仅刷新陈旧、全图重跑）
  * - g50 / g54：结果组折叠与子结果交互（2026-09-17 结果组整体下线）
  * 「运行画板产生产物」改由 G21 覆盖（断言已从结果组改为承载节点）。
  */
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

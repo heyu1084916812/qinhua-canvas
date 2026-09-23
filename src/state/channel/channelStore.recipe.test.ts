@@ -175,4 +175,30 @@ describe('生成配方记忆 · 新建节点要记住上次生成那套', () => 
     expect(after?.model).toBe('b-img')
     expect(after?.params).toMatchObject({ ratio: '16:9' })
   })
+
+  /**
+   * ★★★ 用户实测的那条完整链路（2026-09-23 真机复现后钉住）：
+   *   建 A → 改比例 → **不生成** → 建 B，B 必须带上 A 改过的比例。
+   *
+   * 这是用户报「改了参数，再新建还是原来的默认」的直接对口用例。
+   * 它同时覆盖了两个曾经断掉的点：
+   *   ①新建时要把落进节点的那套值记下来（否则 B 只能退回第一个模型）；
+   *   ②改参数时就写回（而不是等生成成功）。
+   */
+  it('★★★ 建 A → 改参数（不生成）→ 建 B，B 继承 A 改过的参数', async () => {
+    const { store } = await storeWith([channel('ch-1', ['a-img', 'b-img'])])
+
+    // 建 A：走兜底，记下第一个模型
+    const first = await store.defaultForNewNode({}, 'image')
+    expect(first?.model).toBe('a-img')
+    await store.rememberRecipe('ch-1', 'a-img', { mode: 'image', ratio: null, count: 1 })
+
+    // 用户在面板里把比例改成 16:9 —— 此刻**没有生成**
+    await store.rememberRecipe('ch-1', 'a-img', { mode: 'image', ratio: '16:9', count: 1 })
+
+    // 建 B：应当继承 16:9
+    const second = await store.defaultForNewNode({}, 'image')
+    expect(second?.model).toBe('a-img')
+    expect(second?.params).toMatchObject({ ratio: '16:9' })
+  })
 })

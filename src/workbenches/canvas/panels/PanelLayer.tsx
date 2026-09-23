@@ -10,13 +10,12 @@ import { imageAssetInputsOf } from '../../../domain/shared/execution/inputs'
 import { describeError } from '../../../shared/result'
 import { clampDuration } from '../../../domain/shared/capability'
 import { CreationPanel } from './CreationPanel'
-import type { PanelEvent, PanelModel, PanelThumb } from './panelModel'
+import type { PanelEvent, PanelModel, PanelThumb, RecipeSnapshot } from './panelModel'
 import { useGraph, useViewportState, useCanvasStore, useSelection } from '../storeContext'
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { usePromptTools } from '../../../features/shared/promptTools/usePromptTools'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { isRecipeEdit } from '../../../domain/project/generationPreset'
-import { generationParams } from '../../../domain/canvas/nodeSpecs/params'
 
 /** 面板与节点底边的间距 */
 const PANEL_GAP = 12
@@ -358,8 +357,8 @@ function handlePanelEvent(
    * 只有渠道与模型都有值时才记（`rememberRecipe` 内部也挡了一道）：
    * 半份配方（有渠道没模型）会让下一个节点落在一个跑不起来的组合上。
    */
-  const remember = (eventType: string, patch: Partial<GenerationData>) => {
-    if (!rememberRecipe) return
+  const remember = (eventType: string, recipe?: RecipeSnapshot) => {
+    if (!rememberRecipe || !recipe) return
     /**
      * 名单守卫：只有「配方跟踪字段」的变更才落库。
      *
@@ -368,18 +367,19 @@ function handlePanelEvent(
      * 收在 domain 层，加了新参数只改那一处；配套单测钉住每一档。
      */
     if (!isRecipeEdit(eventType)) return
-    const merged = { ...(node.data as GenerationData), ...patch }
-    const channelId = merged.channelId ?? ''
-    const model = merged.model ?? ''
-    if (!channelId || !model) return
     /**
-     * 参数形状复用 `generationParams`（发请求时用的那一份），而不是在这里另写一遍。
+     * 配方**整份由面板带过来**（`event.recipe`），本层不再从节点 data 上现取。
      *
-     * 理由与它当初被抽出来时一样：`generation` / `group` / `batch` 各抄一份，
-     * 视频参数立刻漏了三个字段。配方若再抄一份，将来加参数同样会漏。
-     * 加上 `mode`（generationParams 不含它）——配方的消费侧要靠它知道是哪一类参数。
+     * 实测教训（2026-09-23）：原先从节点上取渠道与模型，而节点为空、只有面板兜底
+     * 显示着它们时，取到的永远是空 ⇒ 改了参数一条配方都记不上 ⇒ 表现为
+     * 「改了参数，再新建还是原来的默认值」。面板才是知道「眼前这套是什么」的那一方。
+     *
+     * 仍要挡「有渠道没模型」这种半份配方：下一个节点落在一个跑不起来的组合上，
+     * 比不带默认值更糟。
      */
-    rememberRecipe(channelId, model, { mode: merged.mode, ...generationParams(merged) })
+    const { channelId, model, params } = recipe
+    if (!channelId || !model) return
+    rememberRecipe(channelId, model, params)
   }
 
   switch (event.type) {
@@ -395,42 +395,42 @@ function handlePanelEvent(
       break
     case 'setModel':
       patch({ model: event.model })
-      remember(event.type, { model: event.model })
+      remember(event.type, event.recipe)
       break
     case 'setRatio':
       patch({ ratio: event.ratio })
-      remember(event.type, { ratio: event.ratio })
+      remember(event.type, event.recipe)
       break
     case 'setResolution':
       patch({ resolution: event.resolution as GenerationData['resolution'] })
-      remember(event.type, { resolution: event.resolution as GenerationData['resolution'] })
+      remember(event.type, event.recipe)
       break
     case 'setQuality':
       patch({ quality: event.quality as GenerationData['quality'] })
-      remember(event.type, { quality: event.quality as GenerationData['quality'] })
+      remember(event.type, event.recipe)
       break
     case 'setCount':
       patch({ count: event.count })
-      remember(event.type, { count: event.count })
+      remember(event.type, event.recipe)
       break
     case 'setMode':
       // 切换功能类别：模型不属于新类别时一并清空（面板已判好，见 PanelEvent.setMode）
       patch(event.keepModel ? { mode: event.mode } : { mode: event.mode, model: '' })
       // 切类别时若清了模型，这次不进配方（半份配方没意义）；保留模型才记
-      if (event.keepModel) remember(event.type, { mode: event.mode })
+      if (event.keepModel) remember(event.type, event.recipe)
       break
     case 'setSize':
       patch({ size: event.size })
-      remember(event.type, { size: event.size })
+      remember(event.type, event.recipe)
       break
     case 'setDurationSec':
       // 越界在领域层夹回（clampDuration，§6.8「滑块 3 – 15 秒」）
       patch({ durationSec: clampDuration(event.sec) })
-      remember(event.type, { durationSec: clampDuration(event.sec) })
+      remember(event.type, event.recipe)
       break
     case 'setRefMode':
       patch({ refMode: event.refMode })
-      remember(event.type, { refMode: event.refMode })
+      remember(event.type, event.recipe)
       break
     case 'toggleThumb':
       toggleThumb(event.owner, event.id, node, store)

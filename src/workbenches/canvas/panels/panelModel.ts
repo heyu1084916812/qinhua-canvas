@@ -1,4 +1,4 @@
-import type { NodeSnapshot } from '../../../domain/canvas/model/node'
+﻿import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 
 /**
  * 创作参数面板的数据模型（产品文档 §6.8 / §6.11 / §6.12）。
@@ -74,15 +74,30 @@ export interface PanelCollection {
   visible: boolean
 }
 
+/**
+ * 配方快照：改参数时由面板一并带出「它当前显示的那套渠道 / 模型 / 参数」。
+ *
+ * 为什么由面板带、而不是让宿主从节点上读（用户 2026-09-23 实测踩到）：
+ * 节点为空、只有面板兜底显示着渠道与模型时，节点 data 上取到的永远是空，
+ * 于是「改了参数就记配方」这条链从源头断掉——表现为「改了参数，下一个新建节点
+ * 还是原来的默认值」。面板手上本来就有解析链算出的可用组合，由它带出来最准确。
+ */
+export interface RecipeSnapshot {
+  channelId: string
+  model: string
+  mode: 'image' | 'video'
+  params: Record<string, unknown>
+}
+
 /** 面板事件：全部是语义事件，由页面装配层翻译成命令（架构 §4.7） */
 export type PanelEvent =
   | { type: 'setPrompt'; text: string }
   | { type: 'setChannel'; channelId: string }
-  | { type: 'setModel'; model: string }
-  | { type: 'setRatio'; ratio: string }
-  | { type: 'setResolution'; resolution: string }
-  | { type: 'setQuality'; quality: string }
-  | { type: 'setCount'; count: number }
+  | { type: 'setModel'; model: string; recipe?: RecipeSnapshot }
+  | { type: 'setRatio'; ratio: string; recipe?: RecipeSnapshot }
+  | { type: 'setResolution'; resolution: string; recipe?: RecipeSnapshot }
+  | { type: 'setQuality'; quality: string; recipe?: RecipeSnapshot }
+  | { type: 'setCount'; count: number; recipe?: RecipeSnapshot }
   /**
    * 功能类别切换（§6.8「右上角为图片 / 视频功能类别切换」）。
    *
@@ -92,11 +107,11 @@ export type PanelEvent =
    * `keepModel = false` 表示当前模型不属于目标类别，装配层需一并清空，否则会把
    * 生图模型发给视频渠道。让装配层自己去查列表等于把这份知识抄两遍。
    */
-  | { type: 'setMode'; mode: 'image' | 'video'; keepModel: boolean }
+  | { type: 'setMode'; mode: 'image' | 'video'; keepModel: boolean; recipe?: RecipeSnapshot }
   /** 视频参数（§6.8 视频模式）：尺寸 / 时长 / 首尾帧·全能参考 */
-  | { type: 'setSize'; size: 'auto' | '480p' | '720p' | '1080p' }
-  | { type: 'setDurationSec'; sec: number }
-  | { type: 'setRefMode'; refMode: 'first-last-frame' | 'all-purpose' }
+  | { type: 'setSize'; size: 'auto' | '480p' | '720p' | '1080p'; recipe?: RecipeSnapshot }
+  | { type: 'setDurationSec'; sec: number; recipe?: RecipeSnapshot }
+  | { type: 'setRefMode'; refMode: 'first-last-frame' | 'all-purpose'; recipe?: RecipeSnapshot }
   | { type: 'toggleThumb'; owner: PanelThumb['owner']; id: string }
   /** 删除节点自身内容（§6.6「节点自身内容 → 删除」）；上游缩略图不可删，只有小眼睛 */
   | { type: 'removeOwnAsset' }
