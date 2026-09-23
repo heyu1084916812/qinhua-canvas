@@ -248,26 +248,18 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         originNodeId,
       })
 
-      const summary = await startRun(plan)
+      await startRun(plan)
 
       /**
-       * 记「这条渠道的生成配方」（用户 2026-09-18，晚收口为按渠道）。
+       * 配方记忆**不再挂在这里**（用户 2026-09-23 修订口径）。
        *
-       * 时机 = **生成成功之后**，不是选参数的瞬间：
-       * 用户要的是「最后一次**生成**用的那套」——选了却失败/没跑的那次不该影响默认值。
-       * 记录内容取本次计划的**首个 task**（同一次生成里渠道/模型/参数是一致的；
-       * N 张只是同一个配方跑 N 次）。渠道从 task 自己带，不需要再读项目。
+       * 原口径「生成成功那一刻才记」已被用户否掉：他要的是「只要我改了参数就记住」。
+       * 现在的记录点在 `PanelLayer` 的参数变更事件里（含新建节点时写入默认值那一档），
+       * 与生成成功与否无关——改了就算数。
+       *
+       * 留这段注释而不是直接删掉，是因为「生成成功才记」看上去很合理、
+       * 下次很容易被当成修复对象加回来；这里说明它是**有意去掉的**。
        */
-      if (summary.succeeded > 0) {
-        const first = plan.tasks[0]
-        if (first) {
-          void channels.rememberRecipe(
-            first.request.channelId,
-            first.request.model,
-            (first.request.params ?? {}) as Record<string, unknown>,
-          )
-        }
-      }
 
       setNodeStates((prev) => {
         const n = new Map(prev)

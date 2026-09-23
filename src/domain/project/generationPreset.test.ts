@@ -6,6 +6,7 @@ import {
   recipeFromRow,
   recipeToRow,
   rememberRecipe,
+  isRecipeEdit,
   resolveForNode,
   resolveRecipe,
   type PresetChannelLike,
@@ -240,5 +241,50 @@ describe('生成配方（新建节点的默认渠道 / 模型 / 参数）', () =
         substituted: false,
       })
     })
+  })
+})
+/**
+ * 「改了参数就记住」——记录时机修订（用户 2026-09-23）。
+ *
+ * 原口径是「生成成功那一刻才记」，用户明确否掉：
+ * 「只要我改了参数，他也给我记住……后面每次新建的节点参数就来自于上个新建节点时候的参数」。
+ *
+ * 于是新增 `isRecipeEdit`：它是「哪些面板改动算改了配方」的**唯一判据**。
+ * 这一组把它钉住——加新参数时忘了登记，用户就会遇到「改了这一项、新建节点却没记住」。
+ */
+describe('isRecipeEdit · 哪些改动算「改了配方」', () => {
+  it('参数类事件都算（模型 / 比例 / 画质 / 质量 / 张数 / 尺寸 / 时长 / 参考模式）', () => {
+    for (const ev of [
+      'setModel',
+      'setRatio',
+      'setResolution',
+      'setQuality',
+      'setCount',
+      'setSize',
+      'setDurationSec',
+      'setRefMode',
+    ]) {
+      expect(isRecipeEdit(ev), `${ev} 应当算配方改动`).toBe(true)
+    }
+  })
+
+  it('切换图片 / 视频类别算（模型与参数集会跟着换）', () => {
+    expect(isRecipeEdit('setMode')).toBe(true)
+  })
+
+  it('换渠道算（但落库侧要求同时有模型，半份配方不记）', () => {
+    expect(isRecipeEdit('setChannel')).toBe(true)
+  })
+
+  it('★ 内容类改动**不算**：提示词与素材不该继承给下一个节点', () => {
+    for (const ev of ['setPrompt', 'toggleThumb', 'removeThumb', 'removeOwnAsset']) {
+      expect(isRecipeEdit(ev), `${ev} 不该算配方改动`).toBe(false)
+    }
+  })
+
+  it('★ 执行类事件不算（跑一次生成 / 取消，本身不改变参数）', () => {
+    for (const ev of ['run', 'cancel', 'openSettings', 'applyDraft']) {
+      expect(isRecipeEdit(ev), `${ev} 不该算配方改动`).toBe(false)
+    }
   })
 })

@@ -1,4 +1,64 @@
 /**
+ * 哪些面板改动算「用户改了这套生成参数」（用户 2026-09-23 定稿）。
+ *
+ * 规则修订的背景：原本记录时机是「**生成成功**那一刻」，理由是「选了参数却没生成的那次
+ * 不该影响默认值」。用户实测后明确否掉了这个口径：
+ *
+ * > 「只要我改了参数，他也给我记住。两种规则：第一个是新项目时有默认模型规则；
+ * >  改完参数就记下来；后面每次新建的节点参数就来自上一次改的那套。」
+ *
+ * 也就是把「记配方」从**生成行为的副产品**，改成**编辑行为的直接结果**：
+ * 用户在面板里动了什么，下一次新建就该继承什么，不必先跑一次生成。
+ * 这与「参数是用户的偏好、不是某次请求的记录」这一直觉一致。
+ *
+ * 刻意**不含**提示词与素材：那些是「这一张图的内容」，继承给下一个节点
+ * 只会让人先删掉再写（与产品文档 §6.8「不记内容」同一条边界）。
+ *
+ * 含 `mode`（图片 / 视频切换）：类别变了，模型与参数集都会跟着换，
+ * 记下来才能让下一个节点直接落在同一个类别上。
+ */
+export const RECIPE_TRACKED_KEYS = [
+  'mode',
+  'channelId',
+  'model',
+  'ratio',
+  'resolution',
+  'quality',
+  'count',
+  'size',
+  'durationSec',
+  'refMode',
+] as const
+
+export type RecipeTrackedKey = (typeof RECIPE_TRACKED_KEYS)[number]
+
+/**
+ * 该面板事件是否算「改了配方」。
+ *
+ * 收成一个纯函数而不是在事件处理里逐个 `case` 判断，是因为**这份名单就是产品规则**：
+ * 加参数时若忘了在这里登记，用户就会遇到「改了这一项、新建节点却没记住」——
+ * 与「文档写了、链路没接上」同一类缺陷。集中一处，配套单测能钉住每一档。
+ */
+export function isRecipeEdit(eventType: string): boolean {
+  /**
+   * 事件名是 `setXxx` 形式（`setModel` / `setRatio` / …），而名单写的是字段名。
+   * 这里把两者对齐：剥掉 `set` 前缀并把首字母转小写（`setModel` → `model`）。
+   *
+   * 用**映射**而不是「名单里存事件名」：名单随后要用来决定记哪些字段，
+   * 存事件名会让「字段」与「事件」两个概念混在一起；而事件名是可推导的。
+   */
+  const field = eventType.startsWith('set')
+    ? eventType.slice(3, 4).toLowerCase() + eventType.slice(4)
+    : eventType
+  /**
+   * 两个事件名与字段名不同名，在这里对齐（而不是给它们各自开特例分支）：
+   * `setChannel` 改的是 `channelId` 字段、`setMode` 改的是 `mode`。
+   */
+  const normalized = field === 'channel' ? 'channelId' : field
+  return (RECIPE_TRACKED_KEYS as readonly string[]).includes(normalized)
+}
+
+/**
  * 生成配方：新建节点时的默认「渠道 + 模型 + 参数」。
  *
  * 解决一件很小但每天都碰到的事：新建节点的 `channelId` / `model` 默认是空串，

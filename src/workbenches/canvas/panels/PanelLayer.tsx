@@ -1,4 +1,4 @@
-import { useMemo, useSyncExternalStore } from 'react'
+﻿import { useMemo, useSyncExternalStore } from 'react'
 import type { NodeSnapshot, GenerationData, GroupData, BatchData, PromptData } from '../../../domain/canvas/model/node'
 import { directUpstream } from '../../../domain/canvas/graph/upstreamOf'
 import { indexNodes } from '../../../domain/canvas/model/graph'
@@ -14,6 +14,9 @@ import type { PanelEvent, PanelModel, PanelThumb } from './panelModel'
 import { useGraph, useViewportState, useCanvasStore, useSelection } from '../storeContext'
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { usePromptTools } from '../../../features/shared/promptTools/usePromptTools'
+import { useChannels } from '../../../app/providers/ChannelStoreProvider'
+import { isRecipeEdit } from '../../../domain/project/generationPreset'
+import { generationParams } from '../../../domain/canvas/nodeSpecs/params'
 
 /** 面板与节点底边的间距 */
 const PANEL_GAP = 12
@@ -40,6 +43,8 @@ export function PanelLayer({
   const viewport = useViewportState()
   const store = useCanvasStore()
   const exec = useCanvasExecution()
+  /** 配方记忆（用户 2026-09-23）：面板里改完参数即写回该渠道的配方 */
+  const channels = useChannels()
   // §6.15：拖动期间面板立即隐藏；发生**真实位移**的拖动，松手后保持隐藏，
   // 直到下一次显式选中（setSelection 复位 panelDismissed）——节点已被挪走，
   // 面板再弹回来只会「追着节点跑」。普通单击（无位移）不算拖动，面板照常出现。
@@ -134,6 +139,9 @@ export function PanelLayer({
             exec,
             promptTools,
             onOpenSettings,
+            (channelId, model, params) => {
+              void channels.rememberRecipe(channelId, model, params)
+            },
           )
         }
         onClose={() => store.setSelection([])}
@@ -334,9 +342,45 @@ function handlePanelEvent(
   promptTools: ReturnType<typeof usePromptTools>,
   /** 宿主导航：由页面容器注入，工作台层不认识路由（见 panelModel.PanelEvent） */
   onOpenSettings?: () => void,
+  /** 记录配方（用户 2026-09-23：改了参数就记，不等生成成功） */
+  rememberRecipe?: (channelId: string, model: string, params: Record<string, unknown>) => void,
 ): void {
   const patch = (p: Partial<GenerationData>) =>
     store.dispatch({ kind: 'node.updateData', id: node.id, patch: p as Record<string, unknown>, transient: true })
+
+  /**
+   * 参数变更后记配方（用户 2026-09-23）。
+   *
+   * 关键：**用 `patch` 合并后的结果**去记，而不是只记这次改的那一项——
+   * 用户要的是「这一套参数」，不是「最后一次动的那一格」。
+   * 例如先选 16:9、再选 2张，配方里必须同时留着比例和张数。
+   *
+   * 只有渠道与模型都有值时才记（`rememberRecipe` 内部也挡了一道）：
+   * 半份配方（有渠道没模型）会让下一个节点落在一个跑不起来的组合上。
+   */
+  const remember = (eventType: string, patch: Partial<GenerationData>) => {
+    if (!rememberRecipe) return
+    /**
+     * 名单守卫：只有「配方跟踪字段」的变更才落库。
+     *
+     * 这一道不是多余的——`remember` 是**通用**的，将来有人在别的分支（比如改提示词）
+     * 顺手调它，配方就会被内容污染。`isRecipeEdit` 把「哪些算参数」这条产品规则
+     * 收在 domain 层，加了新参数只改那一处；配套单测钉住每一档。
+     */
+    if (!isRecipeEdit(eventType)) return
+    const merged = { ...(node.data as GenerationData), ...patch }
+    const channelId = merged.channelId ?? ''
+    const model = merged.model ?? ''
+    if (!channelId || !model) return
+    /**
+     * 参数形状复用 `generationParams`（发请求时用的那一份），而不是在这里另写一遍。
+     *
+     * 理由与它当初被抽出来时一样：`generation` / `group` / `batch` 各抄一份，
+     * 视频参数立刻漏了三个字段。配方若再抄一份，将来加参数同样会漏。
+     * 加上 `mode`（generationParams 不含它）——配方的消费侧要靠它知道是哪一类参数。
+     */
+    rememberRecipe(channelId, model, { mode: merged.mode, ...generationParams(merged) })
+  }
 
   switch (event.type) {
     case 'setPrompt':
@@ -351,32 +395,42 @@ function handlePanelEvent(
       break
     case 'setModel':
       patch({ model: event.model })
+      remember(event.type, { model: event.model })
       break
     case 'setRatio':
       patch({ ratio: event.ratio })
+      remember(event.type, { ratio: event.ratio })
       break
     case 'setResolution':
       patch({ resolution: event.resolution as GenerationData['resolution'] })
+      remember(event.type, { resolution: event.resolution as GenerationData['resolution'] })
       break
     case 'setQuality':
       patch({ quality: event.quality as GenerationData['quality'] })
+      remember(event.type, { quality: event.quality as GenerationData['quality'] })
       break
     case 'setCount':
       patch({ count: event.count })
+      remember(event.type, { count: event.count })
       break
     case 'setMode':
       // 切换功能类别：模型不属于新类别时一并清空（面板已判好，见 PanelEvent.setMode）
       patch(event.keepModel ? { mode: event.mode } : { mode: event.mode, model: '' })
+      // 切类别时若清了模型，这次不进配方（半份配方没意义）；保留模型才记
+      if (event.keepModel) remember(event.type, { mode: event.mode })
       break
     case 'setSize':
       patch({ size: event.size })
+      remember(event.type, { size: event.size })
       break
     case 'setDurationSec':
       // 越界在领域层夹回（clampDuration，§6.8「滑块 3 – 15 秒」）
       patch({ durationSec: clampDuration(event.sec) })
+      remember(event.type, { durationSec: clampDuration(event.sec) })
       break
     case 'setRefMode':
       patch({ refMode: event.refMode })
+      remember(event.type, { refMode: event.refMode })
       break
     case 'toggleThumb':
       toggleThumb(event.owner, event.id, node, store)

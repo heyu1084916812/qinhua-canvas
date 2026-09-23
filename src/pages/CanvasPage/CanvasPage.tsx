@@ -24,7 +24,8 @@ import { newGeneratingNodeData } from '../../domain/canvas/nodeSpecs/newNodePres
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
 import { createAssetNode, importAssetFile, isImportableMedia } from '../../features/canvas/importAsset'
 import { seedTemplate, type TemplateId } from '../../state/project/templates'
-import type { NodeSnapshot, NodeType } from '../../domain/canvas/model/node'
+import type { GenerationData, NodeSnapshot, NodeType } from '../../domain/canvas/model/node'
+import { generationParams } from '../../domain/canvas/nodeSpecs/params'
 import type { Edge } from '../../domain/canvas/model/edge'
 import styles from './CanvasPage.module.css'
 
@@ -240,6 +241,25 @@ function CanvasProject({ projectId }: { projectId: string }) {
 
     const recipe = await channels.defaultForNewNode({})
     const data = newGeneratingNodeData(type, recipe)
+    /**
+     * 把这次**实际写进节点的**那套值记回配方（用户 2026-09-23）。
+     *
+     * 目的：让「新建的节点参数来自上一次节点」这条链真正闭合。
+     *
+     * 只靠面板里的参数变更事件是不够的：用户新建节点后可能根本没动过面板，
+     * 那这个节点上的值就永远进不了配方；下一个节点又会去问解析链，
+     * 解析链只能退回「第一个渠道第一个模型」。
+     *
+     * 记的是 `data`（真正落进节点的值）而不是 `recipe`（解析结果）：
+     * 若某一步把值做了修正 / 过滤，配方要跟着真实结果走，否则又会分叉。
+     */
+    if (recipe) {
+      const d = data as unknown as GenerationData
+      void channels.rememberRecipe(recipe.channelId, recipe.model, {
+        mode: d.mode,
+        ...generationParams(d),
+      })
+    }
     const res = store.dispatch({
       kind: 'node.create',
       projectId,
