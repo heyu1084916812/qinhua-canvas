@@ -53,6 +53,8 @@ export function useCanvasPageEvents(store: CanvasStore, onOpenSettings?: () => v
             id: nodeId,
             patch: event.patch,
             transient: event.transient ?? true,
+            // 尺寸联动（如循环节点展开抽屉时撑高）——与 node.updateData 命令同口径
+            ...(event.size ? { size: event.size } : {}),
           })
           break
         case 'rename':

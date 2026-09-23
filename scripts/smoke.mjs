@@ -9379,19 +9379,30 @@ async function g67(browser) {
   const ui = await node.evaluate((el) => ({
     segs: [...el.querySelectorAll('[data-loop-mode]')].map((e) => e.getAttribute('data-loop-mode')),
     toggles: [...el.querySelectorAll('[data-loop-toggle]')].map((e) => e.getAttribute('data-loop-toggle')),
-    /** 参考图重做后：批次条在**图片面板内**，底栏只有 起始计数 / 次数 */
-    footerNums: [...el.querySelectorAll('[data-loop-footer] [data-loop-number-bar]')].map((e) => e.getAttribute('data-loop-number-bar')),
+    /**
+     * 2026-09-23 重做：三个数字（起始 / 次数 / 批次）收进同一个网格，
+     * 不再分「图片面板里的批次」+「底栏两个」两处。三个应该**同时在场**。
+     */
+    nums: [...el.querySelectorAll('[data-loop-number-bar]')].map((e) => e.getAttribute('data-loop-number-bar')),
     prompts: el.querySelectorAll('[data-loop-prompt]').length,
+    /** 摘要：把参数翻译成人话的那句（本轮新增，必须有） */
+    hasSummary: !!el.querySelector('[data-loop-summary]'),
   }))
   rec(g, '串行 / 并行分段控件齐备', JSON.stringify(ui.segs) === JSON.stringify(['serial', 'parallel']), ui.segs.join(','))
   rec(g, '素材 / 提示词两个开关齐备', JSON.stringify(ui.toggles) === JSON.stringify(['image', 'prompt']), ui.toggles.join(','))
   rec(
     g,
-    '底栏是「起始计数 / 次数」两件套（批次挪进图片面板，同参考图）',
-    JSON.stringify(ui.footerNums) === JSON.stringify(['loopStart', 'count']),
-    ui.footerNums.join(','),
+    '三个数字（起始 / 次数 / 批次）齐备',
+    JSON.stringify(ui.nums) === JSON.stringify(['loopStart', 'count', 'batch']),
+    ui.nums.join(','),
   )
-  rec(g, '至少有一条提示词输入', ui.prompts >= 1, `${ui.prompts} 条`)
+  rec(g, '★ 有「实际会怎么跑」的摘要文字（本轮新增的关键信息）', ui.hasSummary)
+
+  // 提示词输入收进了抽屉：先点「编辑」展开，再数输入行
+  await node.locator('[data-loop-prompt-edit]').click()
+  await sleep(450)
+  const promptRows = await node.locator('[data-loop-prompt]').count()
+  rec(g, '点「编辑」后至少有一条提示词输入', promptRows >= 1, `${promptRows} 条`)
 
   /**
    * ★ 内容不许被压扁（用户实测：「第一条提示词只露出半截」）。
@@ -9409,7 +9420,12 @@ async function g67(browser) {
     }
   })
   rec(g, '★ 节点内无溢出（内容没有被压扁）', layout.overflow === false, `overflow=${layout.overflow}`)
-  rec(g, '★ 第一条提示词完整可见（不是只露半截）', layout.firstInside && layout.firstH >= 20, `高 ${layout.firstH}px`)
+  rec(
+    g,
+    '★ 抽屉里的提示词输入框完整可见（不是只露半截）',
+    layout.firstInside && layout.firstH >= 28,
+    `高 ${layout.firstH}px`,
+  )
 
   // ── 参数能改且写进数据 ──
   const countInput = node.locator('[data-loop-number="count"]')
@@ -9424,14 +9440,20 @@ async function g67(browser) {
   // ── 提示词可增删、可插入计数变量 ──
   await node.locator('[data-loop-prompt-add]').click()
   await sleep(350)
-  rec(g, '「＋」加出第二条提示词', (await node.locator('[data-loop-prompt]').count()) === 2)
-  await node.locator('[data-loop-insert-counter]').click()
+  rec(g, '「添加一条」加出第二条提示词', (await node.locator('[data-loop-prompt]').count()) === 2)
+  // 先聚焦第一条，变量才会插到它（插入目标是「最后聚焦的那个输入框」）
+  await node.locator('[data-loop-prompt="0"]').click()
+  await sleep(200)
+  await node.locator('[data-loop-token="[计数]"]').click()
   await sleep(450)
-  // 新 UI（2026-09-22 参考图）插入的是半角方括号写法 [计数]
+  // 插入的是半角方括号写法 [计数]（全角《计数》也认，见 loopPlan 的单测）
   const inserted = await node.locator('[data-loop-prompt="0"]').inputValue()
   rec(g, '「计数」按钮把变量插进第一条', inserted.includes('[计数]'), inserted)
 
   // ── 关键：循环节点能连到下游生成节点（否则它毫无用处）──
+  // 先把抽屉收起：它展开时会把节点撑高，输出端点位置随之变化
+  await node.locator('[data-loop-drawer-close]').click().catch(() => {})
+  await sleep(350)
   await page.locator('[data-toolbar-add]').click()
   await sleep(300)
   await page.locator('[data-toolbar-menu-item="generation"]').click()

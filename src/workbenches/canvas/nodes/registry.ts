@@ -81,7 +81,12 @@ export type NodeViewEvent =
    * 数据补丁。transient=true（默认）不进撤销栈但仍落库，用于连续输入（文本编辑、滑块拖动）；
    * 离散提交（如画板落一笔、放一段文字、改一次背景）应传 transient:false 以进入撤销栈。
    */
-  | { type: 'updateData'; patch: Partial<NodeData>; transient?: boolean }
+  /**
+   * `size` 是**可选的尺寸联动**（与 `node.updateData` 命令同口径）：
+   * 视图需要在改数据的同时改框尺寸时用（例如循环节点展开提示词抽屉时把节点撑高）。
+   * 只改尺寸、不改数据时传空 patch 即可。
+   */
+  | { type: 'updateData'; patch: Partial<NodeData>; transient?: boolean; size?: { w: number; h: number } }
   | { type: 'requestPanel' }
   | { type: 'requestRun'; mode: Exclude<RunMode, 'idle'> }
   | { type: 'requestRunCancel' }
