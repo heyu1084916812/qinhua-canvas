@@ -9415,6 +9415,72 @@ async function g67(browser) {
   rec(g, '至少有一条提示词输入', promptRows >= 1, `${promptRows} 条`)
 
   /**
+   * ★ 用户 2026-09-23 报的三件事，逐个钉住：
+   *  ①内容容器左右居中；②三个数字一排；③「起始计数」四字标签。
+   *
+   * ① 的根因是 flex 子项少了 `min-width: 0`，内容把面板顶宽 18px —— 这种
+   * 「看不见的溢出」只能靠量几何发现，肉眼看只是「感觉没居中」。
+   */
+  /**
+   * 先往提示词里塞一段**超长无空格文本**，再量居中。
+   *
+   * 为什么必须这么测：空节点时内容宽度本来就小于容器，缺了 `min-width:0`
+   * 也看不出来（实测：删掉那条规则，空节点下断言照样绿）。
+   * 超长无空格串是最容易把 flex 子项顶宽的内容——它不能折行，只能溢出，
+   * 正是「容器没居中」那个 bug 的触发条件。
+   */
+  await node.locator('[data-loop-prompt="0"]').fill('A'.repeat(120))
+  await sleep(700)
+
+  const align = await node.evaluate((el) => {
+    const g = (s) => {
+      const n = el.querySelector(s)
+      if (!n) return null
+      const b = n.getBoundingClientRect()
+      return { left: Math.round(b.left), right: Math.round(b.right), top: Math.round(b.top), w: Math.round(b.width) }
+    }
+    const card = el.querySelector('[data-loop-node]')
+    const cb = card?.getBoundingClientRect()
+    const cs = card ? getComputedStyle(card) : null
+    return {
+      inner: cb && cs
+        ? { left: Math.round(cb.left + parseFloat(cs.paddingLeft)), right: Math.round(cb.right - parseFloat(cs.paddingRight)) }
+        : null,
+      imagePanel: g('[data-loop-image-panel]'),
+      promptPanel: g('[data-loop-prompt-panel]'),
+      start: g('[data-loop-number-bar="loopStart"]'),
+      count: g('[data-loop-number-bar="count"]'),
+      batch: g('[data-loop-number-bar="batch"]'),
+      startLabel: el.querySelector('[data-loop-number-bar="loopStart"]')?.textContent?.trim() ?? '',
+    }
+  })
+
+  const centered = (box, inner) =>
+    !!box && !!inner && Math.abs((box.left + box.right) / 2 - (inner.left + inner.right) / 2) <= 1
+
+  rec(
+    g,
+    '★ 图片 / 提示词容器左右居中（不再被内容顶宽）',
+    centered(align.imagePanel, align.inner) && centered(align.promptPanel, align.inner),
+    `inner=${JSON.stringify(align.inner)} img=${JSON.stringify(align.imagePanel)} prompt=${JSON.stringify(align.promptPanel)}`,
+  )
+  rec(
+    g,
+    '★ 起始计数 / 次数 / 批次 三格同一排',
+    !!align.start && !!align.count && !!align.batch &&
+      align.start.top === align.count.top &&
+      align.count.top === align.batch.top &&
+      align.start.left < align.count.left &&
+      align.count.left < align.batch.left,
+    `y: ${align.start?.top}/${align.count?.top}/${align.batch?.top} x: ${align.start?.left}/${align.count?.left}/${align.batch?.left}`,
+  )
+  rec(g, '★ 第一格标签是「起始计数」', align.startLabel.startsWith('起始计数'), align.startLabel)
+
+  // 清掉刚才为了触发溢出塞进去的长文本，免得影响后面的断言
+  await node.locator('[data-loop-prompt="0"]').fill('')
+  await sleep(500)
+
+  /**
    * ★ 内容不许被压扁（用户实测：「第一条提示词只露出半截」）。
    * 判据是几何：容器不能溢出，且第一条提示词**完整落在容器内**。
    */

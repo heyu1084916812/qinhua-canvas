@@ -152,15 +152,6 @@ export function LoopNodeView(props: NodeViewProps) {
               ))}
             </div>
           )}
-          <div className={styles.mini}>
-            <NumberControl
-              label="批次"
-              value={data.batch}
-              max={100}
-              dataKey="batch"
-              onChange={(v) => patchLater({ batch: v }, 'batch')}
-            />
-          </div>
           <div className={styles.note} data-loop-image-note>
             {willOutput > 0 ? `当前会输出 ${willOutput} 张图片` : '上游没有可用的图片'}
           </div>
@@ -234,10 +225,18 @@ export function LoopNodeView(props: NodeViewProps) {
         </div>
       )}
 
-      {/* ⑤ 底栏三格：起始 / 次数 / 一键运行 */}
+      {/*
+        ⑤ 底栏：**起始计数 / 次数 / 批次三格一排**，运行按钮独占下一行
+        （用户 2026-09-23：「批次这个按钮要放在下方起始计数和次数的右边，
+        三个容器为一排」）。
+
+        改动前批次在图片面板里、起始与次数在底栏——同是「每轮取几张」这类
+        调度参数，却被拆到两处，用户得上下找。三个放一起，视线不用跳。
+      */}
       <div className={styles.footer} data-loop-footer>
         <NumberControl
-          label="起始"
+          /* 「起始」→「起始计数」：与产品文档 §6.22 的字段名一致，也更明确 */
+          label="起始计数"
           value={p.loopStart}
           max={9999}
           dataKey="loopStart"
@@ -249,6 +248,13 @@ export function LoopNodeView(props: NodeViewProps) {
           max={100}
           dataKey="count"
           onChange={(v) => patchLater({ count: v }, 'count')}
+        />
+        <NumberControl
+          label="批次"
+          value={data.batch}
+          max={100}
+          dataKey="batch"
+          onChange={(v) => patchLater({ batch: v }, 'batch')}
         />
         {/*
           运行按钮照抄大雄的形态（带图标 + 主色实底），但**如实禁用**：

@@ -123,6 +123,8 @@
 /* ── ③④ 内容面板（大雄 .loop-smart-panel） ── */
 .panel {
   width: 100%;
+  /* 与 width:100% 配套：允许被压到容器宽度，而不是被内容顶宽（见 .thumbRow 的说明） */
+  box-sizing: border-box;
   min-width: 0;
   flex: none;
   border: 1px solid var(--stroke);
@@ -156,6 +158,15 @@
   gap: 6px;
   overflow-x: auto;
   scrollbar-width: none;
+  /*
+   * `min-width: 0` 是必需的，不是可选的（用户 2026-09-23 报「容器没左右居中」）。
+   *
+   * flex 子项的 `min-width` 默认是 `auto` —— 内容（这里是缩略图 + 间距）会把
+   * 子项撑到比父容器还宽，父容器随之溢出。实测：图片面板与提示词面板右边缘
+   * 比节点内容区各多出 18px（925 vs 907），视觉上就是「没居中、整体偏右」。
+   * 给了 0 之后，子项可以被压到容器宽度以内，横向滚动交给 `overflow-x: auto`。
+   */
+  min-width: 0;
 }
 
 .thumbRow::-webkit-scrollbar {
@@ -248,8 +259,10 @@
   display: flex;
   flex-direction: column;
   gap: 7px;
+  /* 同上：不加这一条，输入行会把面板顶宽 */
   min-width: 0;
   flex: 0 1 auto;
+  min-width: 0;
 }
 
 .promptItem {
@@ -428,15 +441,28 @@
   width: 100%;
   display: grid;
   /*
-   * 大雄的比例是 0.8fr / 0.8fr / 1.35fr（两个数字窄、运行按钮宽）。
-   * 240px 里按同样比例会挤扁「起始」两字，故改为 1fr / 1fr / 1.2fr
-   * 并允许整体换行——宽度不够时运行按钮落到下一行，而不是压扁标签。
+   * 三格一排（起始计数 / 次数 / 批次），运行按钮独占下一行。
+   *
+   * 240px 账：内容区 214，扣两个 7px 间距 ⇒ 每格 66px。
+   * 「起始计数」是四字标签，66px 里放不下 10px 字号 + 数值并排（实测需约 76px），
+   * 故标签与数值**改成上下两行**（见 `.numTrigger` 的 `flex-direction: column`）——
+   * 竖排后四字标签独占一行，66px 刚好放得下，也不再有截断。
    */
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-auto-rows: auto;
   align-items: center;
   gap: 7px;
-  margin-top: auto;
+  /*
+   * 不再 `margin-top: auto`。
+   *
+   * 上一版用它把底栏贴到节点下沿（那时提示词面板会吸收剩余高度、中间不留白）。
+   * 现在面板改成按内容高之后，`auto` 会把底栏推到最底部，中间裂开一大块空白
+   * （实测约 100px），看起来像内容没加载完。
+   *
+   * 改成**紧跟上一块**：整张卡是「上密下疏」的自然流，多余空间留在最下方，
+   * 由用户按需把节点拉矮——这比中间开一个洞自然得多。
+   */
+  margin-top: 0;
 }
 
 /* 运行按钮占满第二行（主操作，整行更好点） */
@@ -495,26 +521,36 @@
 
 .numTrigger {
   width: 100%;
-  height: 30px;
+  /*
+   * 高度 30 → 36：标签与数值改成上下两行后需要更多纵向空间。
+   *
+   * 为什么竖排：三格一排时每格 66px，「起始计数」四个字与数值并排需要约 76px，
+   * 放不下就只剩截断或缩字号两条路——两条都不接受。竖排后标签独占一行，
+   * 宽度足够、字号保持 10px，代价只是多 6px 高。
+   */
+  height: 36px;
   min-width: 0;
-  padding: 0 8px;
+  padding: 3px 6px;
   border-radius: var(--radius-control);
   border: 1px solid var(--stroke);
   background: var(--bg-surface);
   color: var(--text-2);
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 1px;
   font-family: var(--font-sans);
   font-size: 10px;
   font-weight: 700;
+  line-height: 1.1;
   white-space: nowrap;
   overflow: hidden;
   cursor: pointer;
 }
 
 .numTrigger > span {
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -524,6 +560,7 @@
   color: var(--text-1);
   font-size: 12px;
   font-weight: 900;
+  line-height: 1.1;
   font-variant-numeric: tabular-nums;
 }
 
