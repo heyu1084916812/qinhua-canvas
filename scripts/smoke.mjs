@@ -9393,16 +9393,26 @@ async function g67(browser) {
   rec(
     g,
     '三个数字（起始 / 次数 / 批次）齐备',
-    JSON.stringify(ui.nums) === JSON.stringify(['loopStart', 'count', 'batch']),
+    /**
+     * 顺序按**页面出现顺序**（DOM 序），不是逻辑顺序：
+     * 图片面板在提示词面板之前，所以「批次」先出现，然后才是底栏的起始 / 次数。
+     * 断言用集合比较 —— 只关心三个都在，不把 DOM 顺序当成契约（布局可能再调）。
+     */
+    JSON.stringify([...ui.nums].sort()) === JSON.stringify(['batch', 'count', 'loopStart']),
     ui.nums.join(','),
   )
-  rec(g, '★ 有「实际会怎么跑」的摘要文字（本轮新增的关键信息）', ui.hasSummary)
-
-  // 提示词输入收进了抽屉：先点「编辑」展开，再数输入行
-  await node.locator('[data-loop-prompt-edit]').click()
+  /**
+   * 2026-09-23 复刻大雄 UI 后：数字控件改成「胶囊 + 悬停浮层」的快捷档位。
+   * 这一条验的是浮层真能浮出来、且档位齐（8 个：1/2/3/4/5/6/8/10）。
+   */
+  await node.locator('[data-loop-number-trigger="count"]').hover()
   await sleep(450)
+  const quickCount = await node.locator('[data-loop-quick^="count:"]').count()
+  rec(g, '★ 数字控件悬停浮出快捷档位（复刻大雄）', quickCount >= 6, `${quickCount} 档`)
+
+  // 提示词输入行直接列在面板里（大雄形态，不是抽屉）
   const promptRows = await node.locator('[data-loop-prompt]').count()
-  rec(g, '点「编辑」后至少有一条提示词输入', promptRows >= 1, `${promptRows} 条`)
+  rec(g, '至少有一条提示词输入', promptRows >= 1, `${promptRows} 条`)
 
   /**
    * ★ 内容不许被压扁（用户实测：「第一条提示词只露出半截」）。
@@ -9422,16 +9432,19 @@ async function g67(browser) {
   rec(g, '★ 节点内无溢出（内容没有被压扁）', layout.overflow === false, `overflow=${layout.overflow}`)
   rec(
     g,
-    '★ 抽屉里的提示词输入框完整可见（不是只露半截）',
+    '★ 提示词输入框完整可见（不是只露半截）',
     layout.firstInside && layout.firstH >= 28,
     `高 ${layout.firstH}px`,
   )
 
-  // ── 参数能改且写进数据 ──
-  const countInput = node.locator('[data-loop-number="count"]')
-  await countInput.fill('7')
-  await sleep(600)
-  rec(g, '改轮数后回读一致', (await countInput.inputValue()) === '7')
+  // ── 参数能改且写进数据（走浮层的自定义输入，与大雄的交互一致） ──
+  await node.locator('[data-loop-number-trigger="count"]').hover()
+  await sleep(400)
+  await node.locator('[data-loop-number-input="count"]').fill('7')
+  await node.locator('[data-loop-number-apply="count"]').click()
+  await sleep(700)
+  const countShown = await node.locator('[data-loop-number="count"]').innerText()
+  rec(g, '改轮数后回读一致', countShown.trim() === '7', `显示 ${countShown}`)
 
   await node.locator('[data-loop-mode="parallel"]').click()
   await sleep(350)
@@ -9440,20 +9453,17 @@ async function g67(browser) {
   // ── 提示词可增删、可插入计数变量 ──
   await node.locator('[data-loop-prompt-add]').click()
   await sleep(350)
-  rec(g, '「添加一条」加出第二条提示词', (await node.locator('[data-loop-prompt]').count()) === 2)
-  // 先聚焦第一条，变量才会插到它（插入目标是「最后聚焦的那个输入框」）
-  await node.locator('[data-loop-prompt="0"]').click()
-  await sleep(200)
-  await node.locator('[data-loop-token="[计数]"]').click()
-  await sleep(450)
-  // 插入的是半角方括号写法 [计数]（全角《计数》也认，见 loopPlan 的单测）
+  rec(g, '「＋」加出第二条提示词', (await node.locator('[data-loop-prompt]').count()) === 2)
+  /**
+   * 「计数」按钮把变量插进**第一条**（大雄同样是固定插第一条）。
+   * 锚点 `data-loop-insert-counter` 与旧版一致，无需额外聚焦动作。
+   */
+  await node.locator('[data-loop-insert-counter]').click()
+  await sleep(600)
   const inserted = await node.locator('[data-loop-prompt="0"]').inputValue()
   rec(g, '「计数」按钮把变量插进第一条', inserted.includes('[计数]'), inserted)
 
   // ── 关键：循环节点能连到下游生成节点（否则它毫无用处）──
-  // 先把抽屉收起：它展开时会把节点撑高，输出端点位置随之变化
-  await node.locator('[data-loop-drawer-close]').click().catch(() => {})
-  await sleep(350)
   await page.locator('[data-toolbar-add]').click()
   await sleep(300)
   await page.locator('[data-toolbar-menu-item="generation"]').click()

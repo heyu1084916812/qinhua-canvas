@@ -1,15 +1,16 @@
 /*
- * 循环节点（§6.22，2026-09-23 重做）。
+ * 循环节点样式（§6.22）—— 2026-09-23 按「大雄无限画布」的
+ * `.loop-smart-*` 一组规则复刻（结构、间距、层级照搬）。
  *
- * 两条硬约束贯穿全文：
- *  1. **文字绝不溢出容器** —— 该省略的省略（ellipsis）、该换行的换行，
- *     绝不靠缩字号硬塞，也绝不让内容被无声裁掉。
- *  2. **控件不因剩余空间变形** —— 所有控件 `flex: none` 或固定高，
- *     不给任何面板 `flex: 1` 去吞剩余高度（那样会把控件拉成一只空箱子）。
+ * ⚠️ **颜色一律换成轻画的 token**：大雄用 `rgba(148,163,184,.32)` 硬编码 +
+ * `.theme-dark` 逐个覆写；轻画走 `--*` 变量，明暗两套自动跟随，
+ * 且 `scripts/check-theme.mjs` 会拦截硬编码色值。
  *
- * 颜色一律走 token：主题守卫会检查硬编码色值，亮暗两套必须都能看。
+ * 尺寸与间距**保持大雄的量级**：它那套是在 340px 宽的循环节点里调出来的，
+ * 这里节点默认 240 宽，故把内距与外距整体收紧（见各处的注释），
+ * 但控件高度、圆角节奏、字号层级与它一致——这才是「看起来是同一套 UI」的关键。
  */
-.body {
+.card {
   width: 100%;
   height: 100%;
   box-sizing: border-box;
@@ -19,46 +20,46 @@
   gap: var(--space-2);
   font-family: var(--font-sans);
   color: var(--text-1);
-  /* 横向一律裁：用户可能把节点缩得比内容窄，横向滚动条等于承认「放不下」 */
+  /* 横向裁掉（用户可能把节点拖窄）；纵向可滚兜底，正常内容放得下 */
   overflow-x: hidden;
-  /*
-   * 纵向 auto 兜底：用户把节点缩得比内容矮时（例如手动拖到 200 高），
-   * 滚动比无声裁掉内容可接受。默认高度按内容给足，正常不出现滚动条。
-   */
   overflow-y: auto;
-  /*
-   * 紧凑上对齐（用户 2026-09-23 第三版）。
-   *
-   * 曾试过 `space-between` 把留白摊到各块之间——在 480 高时空得很明显，
-   * 但定稿高度改成 300（按最常见状态）后，留白本就接近零，
-   * 再摊开反而会把各块拉开、失去「参数卡」的紧凑感。
-   */
   justify-content: flex-start;
 }
 
-/* ── ① 运行方式：分段控件 ── */
-.segmented {
-  flex: none;
+.row {
+  width: 100%;
   display: flex;
-  padding: 2px;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: none;
+}
+
+/* ── ① 循环 / 并发：两格分段（大雄 .loop-smart-seg） ── */
+.seg {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
   gap: 2px;
-  background: var(--bg-subtle);
+  padding: 2px;
   border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  border: 1px solid var(--stroke);
 }
 
 .segBtn,
-.segOn {
-  flex: 1 1 0;
-  /* min-width:0 是省略号生效的前提，缺了它 flex 子项不会收缩 */
+.segActive {
+  height: 25px;
   min-width: 0;
-  height: 26px;
+  padding: 0 8px;
   border: none;
-  border-radius: calc(var(--radius-control) - 2px);
+  border-radius: calc(var(--radius-control) - 1px);
   background: transparent;
   color: var(--text-2);
   font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   line-height: 1;
   white-space: nowrap;
   overflow: hidden;
@@ -67,110 +68,93 @@
   transition: background var(--dur-hover), color var(--dur-hover);
 }
 
-.segOn {
-  background: var(--bg-surface);
-  color: var(--text-1);
-  box-shadow: var(--shadow-float);
+.segActive {
+  background: var(--accent);
+  color: var(--accent-text);
 }
 
 .segBtn:hover {
   color: var(--text-1);
 }
 
-/* ── ② 通道行：名称 + 数量 + 开关 ── */
-.channels {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.channel,
-.channelOff {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  height: 30px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius-control);
-  background: var(--bg-surface);
-}
-
-.channelOff {
-  /* 关掉时整行降一级：底色更浅、文字更淡，一眼看出它没参与 */
-  background: var(--bg-subtle);
-}
-
-.channelName {
+/* ── ② 图片 / 提示词开关（大雄 .loop-smart-toggle） ── */
+.toggle,
+.toggleActive {
+  flex: 1 1 0;
   min-width: 0;
-  color: var(--text-1);
-  font-size: 12px;
-  font-weight: 600;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--stroke);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.channelOff .channelName {
-  color: var(--text-3);
-}
-
-.channelCount {
-  color: var(--text-3);
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-
-/* 开关：24×14 的胶囊 + 10px 圆钮。尺寸取偶数，避免半像素模糊 */
-.switchOn,
-.switchOff {
-  flex: none;
-  position: relative;
-  width: 26px;
-  height: 15px;
-  padding: 0;
-  border: none;
-  border-radius: 999px;
   cursor: pointer;
-  transition: background var(--dur-hover);
+  transition: border-color var(--dur-hover), color var(--dur-hover), background var(--dur-hover);
 }
 
-.switchOn {
-  background: var(--accent);
-}
-
-.switchOff {
-  background: var(--stroke);
-}
-
-.knobOn,
-.knobOff {
-  position: absolute;
-  top: 2px;
-  width: 11px;
-  height: 11px;
-  border-radius: 999px;
-  background: var(--bg-surface);
-  transition: left var(--dur-hover);
-}
-
-.knobOn {
-  left: 13px;
-}
-
-.knobOff {
-  left: 2px;
-}
-
-/* ── ③ 上游缩略图：横向滚动，一屏露 6 张 ── */
-.thumbRow {
+/* 图标尺寸在按钮里固定：不固定的话 svg 会按父级字号撑开 */
+.toggle svg,
+.toggleActive svg {
+  width: 12px;
+  height: 12px;
   flex: none;
+}
+
+.toggle:hover {
+  border-color: var(--text-3);
+  color: var(--text-1);
+}
+
+.toggleActive {
+  background: var(--bg-hover);
+  color: var(--text-1);
+  border-color: var(--text-3);
+}
+
+/* ── ③④ 内容面板（大雄 .loop-smart-panel） ── */
+.panel {
+  width: 100%;
+  min-width: 0;
+  flex: none;
+  border: 1px solid var(--stroke);
+  border-radius: calc(var(--radius-control) + 2px);
+  background: var(--bg-subtle);
+  padding: var(--space-2);
   display: flex;
-  gap: var(--space-1);
+  flex-direction: column;
+  gap: 6px;
+}
+
+/*
+ * 提示词面板**按内容高**，不吸收剩余空间（与大雄有一处有意偏离）。
+ *
+ * 大雄写的是 `flex:1 1 auto`，但它的节点默认 340×168 且内容更密，
+ * 余量小、拉伸不明显。本项目节点 240 宽、默认高度更大，若照抄这条，
+ * 实测提示词面板被拉到 247 高而内容只需约 130 —— 中间空一大片，
+ * 还把底栏推到了节点底部之外（底栏 y=666、节点下沿 750，视觉上脱节）。
+ *
+ * 现在面板按内容高，多出来的空间**留在底栏与面板之间**（footer 用 margin-top:auto
+ * 贴底），视觉上是「内容在上、主操作在下」的正常分层，而不是中间空一块。
+ */
+.promptPanel {
+  min-height: 0;
+  flex: none;
+}
+
+/* 上游缩略图：横向滚动，不换行（换行会把面板撑得忽高忽低） */
+.thumbRow {
+  display: flex;
+  gap: 6px;
   overflow-x: auto;
-  /* 隐藏滚动条但保留可滚：44px 高的条里挂一根滚动条会把缩略图压扁 */
   scrollbar-width: none;
 }
 
@@ -185,7 +169,7 @@
   height: 40px;
   border-radius: calc(var(--radius-control) - 2px);
   overflow: hidden;
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   display: inline-flex;
 }
 
@@ -204,10 +188,10 @@
 .thumbBadge {
   position: absolute;
   left: 0;
-  bottom: 0;
+  top: 0;
   min-width: 12px;
   padding: 0 3px;
-  border-radius: 0 calc(var(--radius-control) - 2px) 0 0;
+  border-radius: 0 0 calc(var(--radius-control) - 2px) 0;
   background: var(--overlay-scrim);
   color: var(--overlay-text);
   font-size: 10px;
@@ -217,378 +201,432 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── ④ 提示词摘要行 ── */
-.promptRow {
-  flex: none;
+.mini {
+  width: 100%;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  height: 30px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius-control);
-  background: var(--bg-surface);
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
-.promptText {
-  flex: 1 1 auto;
+.note {
+  color: var(--text-3);
+  font-size: 10px;
+  line-height: 1.35;
+  font-weight: 600;
   min-width: 0;
-  color: var(--text-2);
-  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 上游提示词预览（大雄 .loop-smart-upstream） ── */
+.upstream {
+  border: 1px dashed var(--stroke);
+  border-radius: calc(var(--radius-control) - 1px);
+  background: var(--bg-surface);
+  padding: 7px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  flex: none;
+}
+
+.upstreamLabel {
+  color: var(--text-3);
+  font-size: 10px;
+  line-height: 1.2;
+  font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.editBtn {
-  flex: none;
-  height: 22px;
-  padding: 0 8px;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-1);
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.editBtn:hover {
-  background: var(--bg-hover);
-}
-
-/* ── ⑤ 三个数字：3 列网格，纵向排（标签在上、加减在下） ── */
-.params {
-  flex: none;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-1);
-}
-
-.numCell,
-.numCellOff {
+/* ── 提示词列表（大雄 .loop-smart-prompt-item / .loop-smart-text） ── */
+.promptList {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 4px 4px 3px;
-  border: 1px solid var(--stroke);
+  gap: 7px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.promptItem {
+  position: relative;
+  display: block;
+  min-width: 0;
+  /*
+   * 左上角留出一圈空间给编号圆点。
+   *
+   * 大雄的圆点用 `translate(-30%,-30%)` 往外骑，靠的是 `.prompt-list` 有内距、
+   * 圆点溢出去也看得见。本实现的面板内距只有 8px，圆点 18px 的 30% 约 5px，
+   * 溢出的部分正好被输入框**压住**（实测两者矩形重叠）。
+   * 给 item 上方与左侧各让 4px，圆点就完整骑在角外侧，与输入框不再重叠。
+   */
+  padding: 4px 0 0 4px;
   border-radius: var(--radius-control);
-  background: var(--bg-surface);
 }
 
-.numCellOff {
-  background: var(--bg-subtle);
-}
-
-.numLabel {
-  color: var(--text-3);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.2;
-  white-space: nowrap;
-}
-
-.numRow {
+/*
+ * 编号圆点**骑在左上角**：大雄用 `transform:translate(-30%,-30%)`，
+ * 让圆点压在边框拐角上，而不是占一行空间。这是那套 UI 的一个辨识特征。
+ */
+.promptIndex {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 1px;
-  width: 100%;
+  background: var(--accent);
+  color: var(--accent-text);
+  border: 2px solid var(--bg-surface);
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  /*
+   * 偏移用**固定像素**而不是百分比（与上一版的有意偏离，理由如下）。
+   *
+   * 大雄用 `translate(-30%,-30%)`：它在 340 宽的节点里、面板内距更大，
+   * 30% 正好把圆点推出输入框边框。本实现面板内距 8px，30% 只有约 5px，
+   * 圆点仍有大半压在输入框里（实测圆点矩形 695,414 与输入框 706,425 重叠）。
+   * 固定 -9px 让圆点中心落在输入框左上角**顶点**上——这才是「骑在角上」。
+   */
+  transform: translate(-9px, -9px);
 }
 
-.stepBtn {
-  flex: none;
+.promptText {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 54px;
+  max-height: 112px;
+  overflow: auto;
+  resize: none;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  outline: none;
+  padding: 8px 9px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: text;
+  user-select: text;
+  transition: border-color var(--dur-hover), background var(--dur-hover);
+}
+
+.promptText:hover {
+  border-color: var(--text-3);
+}
+
+.promptText:focus {
+  border-color: var(--stroke-focus);
+}
+
+.promptText::placeholder {
+  color: var(--text-3);
+}
+
+/* 删除按钮：默认半隐，悬停才实起来（大雄 opacity .72 → 1） */
+.iconBtn {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  z-index: 2;
   width: 18px;
   height: 18px;
   padding: 0;
   border: none;
-  border-radius: calc(var(--radius-control) - 4px);
-  background: transparent;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  font-weight: 800;
+  cursor: pointer;
+  opacity: 0.72;
+  transition: background var(--dur-hover), color var(--dur-hover), opacity var(--dur-hover);
+}
+
+.iconBtn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--danger, var(--text-1));
+  opacity: 1;
+}
+
+.iconBtn:disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
+}
+
+/* 变量行：三列网格（按钮 | 说明 | 加号），说明可省略 */
+.promptActions {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  margin-top: 1px;
+}
+
+/* 「计数」按钮：黑底胶囊（大雄 .loop-smart-counter-token） */
+.counterToken {
+  height: 28px;
+  padding: 0 13px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: var(--shadow-float);
+}
+
+.counterToken:hover {
+  opacity: 0.9;
+}
+
+.addPrompt {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke);
   color: var(--text-2);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1;
   cursor: pointer;
 }
 
-.stepBtn:hover:not(:disabled) {
-  background: var(--bg-hover);
+.addPrompt:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+/* ── ⑤ 底栏三格（大雄 .loop-smart-footer） ── */
+.footer {
+  width: 100%;
+  display: grid;
+  /*
+   * 大雄的比例是 0.8fr / 0.8fr / 1.35fr（两个数字窄、运行按钮宽）。
+   * 240px 里按同样比例会挤扁「起始」两字，故改为 1fr / 1fr / 1.2fr
+   * 并允许整体换行——宽度不够时运行按钮落到下一行，而不是压扁标签。
+   */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: auto;
+  align-items: center;
+  gap: 7px;
+  margin-top: auto;
+}
+
+/* 运行按钮占满第二行（主操作，整行更好点） */
+.run {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 38px;
+  border-radius: calc(var(--radius-control) + 3px);
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: var(--shadow-float);
+}
+
+.run svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+/*
+ * 禁用态必须与可点态**明显不同**：否则用户会反复点它找原因
+ * （这正是「点了没反应」那类反馈的预防）。执行未接，如实置灰。
+ */
+.run:disabled {
+  background: var(--bg-subtle);
+  border-color: var(--stroke);
+  color: var(--text-3);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* ── 数字控件（复刻大雄 .loop-number-control） ── */
+.numControl {
+  position: relative;
+  min-width: 0;
+  z-index: 1;
+}
+
+/* 浮层打开时抬到最上层，免得被下面的面板盖住 */
+.numControl:hover,
+.numControl:focus-within {
+  z-index: 60;
+}
+
+.numTrigger {
+  width: 100%;
+  height: 30px;
+  min-width: 0;
+  padding: 0 8px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--stroke);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.numTrigger > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.numTrigger strong {
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 快捷面板：从控件**上方**浮出（大雄 `bottom:calc(100% + 4px)`）。
+ *
+ * ⚠️ 向上弹时会盖住它上面那块内容（实测：点底栏「次数」的浮层压住了
+ * 提示词面板的变量行）。但改成向下弹更糟——底栏贴着节点下沿，往下的浮层
+ * 会被节点边缘裁掉大半，用户选不到档位。
+ *
+ * 取舍：**宁可盖住上方内容，也不能被裁**。浮层是临时态（鼠标移开即收起），
+ * 盖住的那块内容在浮层关闭后立刻恢复可见；而被裁掉的档位是**点不到**的，
+ * 属于功能性失效。这与「浮层必须完整落在可视区内」是同一条优先级。
+ */
+.numPopover {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  z-index: 40;
+  width: 156px;
+  padding: 7px;
+  border-radius: calc(var(--radius-control) + 2px);
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18);
+  transform: translateX(-50%);
+}
+
+.numGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3px;
+  padding: 3px;
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  border: 1px solid var(--stroke);
+}
+
+.numCell,
+.numCellActive {
+  height: 24px;
+  border: none;
+  border-radius: calc(var(--radius-control) - 3px);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.numCell:hover {
   color: var(--text-1);
 }
 
-.stepBtn:disabled {
-  opacity: 0.25;
-  cursor: default;
+.numCellActive {
+  background: var(--accent);
+  color: var(--accent-text);
 }
 
-.numInput {
+.numCustom {
+  margin-top: 6px;
+  height: 28px;
+  padding: 0 4px 0 8px;
+  border-radius: calc(var(--radius-control) - 1px);
+  border: 1px solid var(--stroke);
+  background: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.numCustomInput {
   flex: 1 1 auto;
-  /* 3 列网格里这一格能拿到约 20px，够放 2 位数；再窄就靠 min-width:0 收缩 */
   min-width: 0;
-  width: 100%;
-  padding: 0;
   border: none;
   outline: none;
   background: transparent;
   color: var(--text-1);
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  line-height: 1;
-  text-align: center;
   font-variant-numeric: tabular-nums;
-  /* 去掉浏览器自带上下箭头，外观由两边的加减按钮承担 */
   appearance: textfield;
 }
 
-.numInput::-webkit-outer-spin-button,
-.numInput::-webkit-inner-spin-button {
+.numCustomInput::-webkit-outer-spin-button,
+.numCustomInput::-webkit-inner-spin-button {
   appearance: none;
   margin: 0;
 }
 
-.numInput:disabled {
-  color: var(--text-3);
-}
-
-/* ── ⑥ 结果摘要：把三个数字翻译成一句人话 ── */
-.summary {
-  flex: none;
-  padding: var(--space-1) var(--space-2);
-  border-radius: calc(var(--radius-control) - 2px);
-  background: var(--bg-subtle);
-  color: var(--text-2);
-  font-size: 11px;
-  line-height: 1.4;
-  /*
-   * 摘要最多两行，超出省略。
-   *
-   * 它是**说明性文字**，不是主操作：宁可截断也不许把节点撑高。
-   * 完整内容由 title 提供（宿主悬停可见）。
-   */
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  word-break: break-word;
-}
-
-/* 语气：只用文字颜色区分。刻意不写死色值——token 已含亮暗两套 */
-.summary[data-loop-summary='warn'] {
-  color: var(--text-1);
-  background: var(--bg-hover);
-}
-
-.summary[data-loop-summary='blocked'] {
-  color: var(--text-3);
-}
-
-/* ── ⑦ 运行按钮 ── */
-.runBtn {
-  flex: none;
-  height: 32px;
-  border: none;
-  border-radius: var(--radius-control);
-  background: var(--accent);
-  color: var(--accent-text);
-  font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-
-/*
- * 禁用态：必须与可点态**明显不同**，否则用户会反复点击找原因。
- * 这正是「点了没反应」类反馈的预防——按钮自己先说明它不可用。
- */
-.runBtn:disabled {
-  background: var(--bg-subtle);
-  color: var(--text-3);
-  cursor: not-allowed;
-}
-
-/* ── 抽屉：多条提示词 ── */
-.drawer {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-2);
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius-control);
-  background: var(--bg-subtle);
-}
-
-.drawerHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.drawerTitle {
-  color: var(--text-1);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.drawerClose {
+.numApply {
   flex: none;
   width: 20px;
   height: 20px;
   padding: 0;
   border: none;
   border-radius: 999px;
-  background: transparent;
-  color: var(--text-2);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.drawerClose:hover {
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
-
-/* 变量芯片行：标签 + 三个按钮，窄时自动换行 */
-.tokenRow {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.tokenLabel {
-  color: var(--text-3);
-  font-size: 10px;
-  white-space: nowrap;
-}
-
-.tokenBtn {
-  height: 20px;
-  padding: 0 6px;
-  border: none;
-  border-radius: calc(var(--radius-control) - 4px);
-  background: var(--bg-surface);
-  color: var(--text-1);
-  font-family: var(--font-sans);
-  /* 等宽让 [计数] / [总数] / [进度] 三个芯片宽度一致，扫视更稳 */
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.tokenBtn:hover {
-  background: var(--bg-hover);
-}
-
-.drawerList {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  /*
-   * 抽屉里的列表**不设自己的滚动**：节点本体已有 `overflow-y: auto`，
-   * 再套一层会让「滚哪一层」变得难以预测（滚轮停在抽屉上时页面不动）。
-   * 让最外层统一滚，行为最直白。
-   */
-}
-
-.drawerItem {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: var(--space-1);
-  border: 1px solid var(--stroke);
-  border-radius: calc(var(--radius-control) - 2px);
-  background: var(--bg-surface);
-}
-
-.drawerItemHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.drawerIndex {
-  color: var(--text-3);
-  font-size: 10px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.drawerDel {
-  flex: none;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-3);
+  background: var(--accent);
+  color: var(--accent-text);
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
-}
-
-.drawerDel:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
-
-.drawerDel:disabled {
-  opacity: 0.25;
-  cursor: default;
-}
-
-.drawerInput {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 4px 6px;
-  border: 1px solid var(--stroke);
-  border-radius: calc(var(--radius-control) - 4px);
-  background: var(--bg-surface);
-  color: var(--text-1);
-  font-family: var(--font-sans);
-  font-size: 11px;
-  line-height: 1.4;
-  /* 用户可纵向拖，但不许拖出容器宽度 */
-  resize: vertical;
-  min-height: 34px;
-}
-
-.drawerInput:focus {
-  outline: none;
-  border-color: var(--stroke-focus);
-}
-
-.drawerInput::placeholder {
-  color: var(--text-3);
-}
-
-.drawerAdd {
-  flex: none;
-  height: 26px;
-  border: 1px dashed var(--stroke);
-  border-radius: calc(var(--radius-control) - 2px);
-  background: transparent;
-  color: var(--text-2);
-  font-family: var(--font-sans);
-  font-size: 11px;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.drawerAdd:hover {
-  background: var(--bg-hover);
-  color: var(--text-1);
 }

@@ -1,66 +1,71 @@
-﻿/**
+/**
  * 循环节点视图（产品文档 §6.22）。
  *
- * 2026-09-23 按「信息层级」重做一版。要解决的问题：
- * 240px 宽里塞不下「运行方式 + 两个通道 + 三个数字 + 多条提示词 + 进度」，
- * 上一版靠把面板拉长、字挤成两行硬塞，实测到处溢出。
+ * 2026-09-23：按用户要求**复刻「大雄无限画布」的 smart-loop UI**。
+ * 参考实现：`static/js/smart-canvas.js` 的 `smartLoopBodyHtml`，
+ * 以及 `static/css/smart-canvas.css` 的 `.loop-smart-*` 一组规则。
  *
- * ## 这一版的信息分层
+ * ## 抄什么、不抄什么
  *
- * | 层 | 内容 | 位置 |
- * | --- | --- | --- |
- * | 常驻 | 运行方式、两个通道开关（带数量）、三个数字、**结果摘要**、运行按钮 | 节点本体 |
- * | 二级 | 多条提示词的增删改、变量插入 | 点「编辑」开的抽屉 |
+ * **抄结构与交互**（这是用户要的部分）：
  *
- * 关键决策是**把提示词收进抽屉**（用户给的 AI 设计稿里的思路，本实现采纳）：
- * 提示词是这张卡里唯一「条目数不确定」的内容，内联列表会让节点高度随提示词条数
- * 无限增长；收进固定层后，节点本体高度是**确定的**，其余控件的空间才有保障。
- * 本体上只留一行「当前生效的那条」摘要，信息也没丢。
+ * | 大雄 | 本实现 |
+ * | --- | --- |
+ * | 顶部两格分段（循环 / 并发） | `Seg` |
+ * | 带图标的开关按钮（图片 / 提示词） | `Toggle` |
+ * | 图片面板：缩略图 + 批次 + 说明 | 同 |
+ * | 提示词面板：上游预览 + 编号输入行 + 变量行 | 同 |
+ * | **数字控件 = 胶囊 + 悬停浮出的快捷面板**（1/2/3/4…+ 自定义） | `NumberControl` |
+ * | 底栏三格（起始 / 次数 / 运行），运行按钮带图标 | 同 |
+ * | 编号圆点**骑在输入行左上角**（`translate(-30%,-30%)`） | 同 |
  *
- * ## 与执行的关系
+ * **不抄的**（换成轻画的口径，理由都写在下面对应处）：
+ *  - 颜色：大雄用 rgba 硬编码 + `.theme-dark` 逐个覆写；轻画一律走 CSS 变量，
+ *    明暗两套自动跟随，且主题守卫会拦截硬编码色值；
+ *  - 图标：大雄用 lucide 字体/图标库；轻画用内联 SVG（有明确教训：
+ *    字体图标的字形位置由字体决定，旋转与居中不可控）；
+ *  - 运行按钮：大雄那个能真跑；轻画**循环执行尚未接引擎**，
+ *    故做成如实禁用 + 说明，不留「点了没反应」（本项目反复出现的缺陷类型）。
  *
- * **「一键运行」尚未接执行引擎**（`expandLoopRounds` 写好了但没人调用）。
- * 本轮把按钮做成**如实的禁用态 + 说明**，而不是留一个点了没反应的主按钮——
- * 「点了没反应」是项目里反复出现的缺陷类型（见对账清单「点了没反应」各条）。
+ * ## 语义（用户口述钉死，未变）
+ *
+ * - **起始计数**同时控制两件事：①从上游第几张素材开始取；②`《计数》`变量的起始值；
+ * - **次数** = 从起始计数起跑几轮（起始 2 + 次数 2 → 跑第 2、3 张）；
+ * - **批次** = 一轮取几张。
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { NodeViewProps } from '../registry'
 import type { LoopData } from '../../../../domain/canvas/model/node'
 import { normalizeLoopParams } from '../../../../domain/canvas/loop/loopPlan'
-import { loopSummary } from '../../../../domain/canvas/loop/loopSummary'
 import { useAsset } from '../../hooks/useAsset'
 import styles from './LoopNodeView.module.css'
 
-/** 变量芯片：点一下插到当前聚焦的输入框末尾 */
-const TOKENS = [
-  { label: '[计数]', hint: '当前轮次' },
-  { label: '[总数]', hint: '总轮次' },
-  { label: '[进度]', hint: '形如 3/10' },
-] as const
+/**
+ * 数字控件的快捷档位（照抄大雄的 `quick:[1,2,3,4,5,6,8,10]`）。
+ *
+ * 大雄把常用值做成浮层里的 4 列网格，比「必须点加减或手输」快得多；
+ * 档位也照顾到「每轮 6 / 8 / 10 张」这类批量场景。
+ */
+const QUICK_VALUES = [1, 2, 3, 4, 5, 6, 8, 10] as const
 
 export function LoopNodeView(props: NodeViewProps) {
   const data = props.node.data as LoopData
+  /** 上游素材数（NodeLayer 注入）；上游提示词节点数（NodeLayer 注入） */
   const upstreamImages = (props.upstreamAssetHashes ?? []).length
   const upstreamPrompts = props.upstreamPromptCount ?? 0
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  /**
-   * 抽屉展开时**把节点临时撑高**，收起时还原（用户 2026-09-23）。
-   *
-   * 为什么必须这么做：节点高度是数据决定的，视图不能凭空长高。
-   * 而抽屉（多条提示词的输入框）展开后内容会超过默认的 300 高，
-   * 实测后果是**输入框被压扁到 41px**（正常 60+），文字挤成一团——
-   * 正是「文字不许被压扁」这条约束要防的情况。
-   *
-   * 数值来自实测（探针量 `scrollHeight`，不靠估）：
-   * 抽屉展开时内容需要 470，而节点框的 `clientHeight` 比 `height` 少 2px
-   * （上下 1px 边框）。所以撑高值取 **474** = 470 + 2 + 2px 余量，
-   * 否则会差那么一点点、仍然产生 2px 滚动。
-   * **不写「默认高度」常量**：收起时还原的是撑高前的原值，用户手动拉高过的尺寸不会被抹掉。
-   */
-  const DRAWER_H = 474
-  /** 变量插入的目标：用户最后聚焦的那个输入框（没聚焦过就插第一条） */
-  const focusedRef = useRef(0)
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+
+  /**
+   * 提示词数组的统一兜底。
+   *
+   * 类型上 `prompts` 必填，但**老库数据 / 别的创建路径**都可能缺它。
+   * 本文件多处读 `.length`，只要有一处没防就会崩、并把整棵树带下去
+   * （同项目的 PromptNodeView 就因为 `data.text.length` 黑屏过，2026-09-23）。
+   * 收成一个变量，让「缺字段」只在一处处理。
+   */
+  const prompts = data.prompts ?? []
+  /** 至少留一行（大雄的 `visiblePromptFields` 也是这么兜的），否则用户没地方输入 */
+  const promptRows = prompts.length ? prompts : ['']
 
   const patchNow = (patch: Partial<LoopData>) => {
     props.emit({ type: 'updateData', patch: patch as never, transient: false })
@@ -71,312 +76,205 @@ export function LoopNodeView(props: NodeViewProps) {
       props.emit({ type: 'updateData', patch: patch as never, transient: false })
     }, 300)
   }
-
-  const p = normalizeLoopParams(data)
-  /**
-   * 提示词数组的统一兜底。
-   *
-   * `LoopData.prompts` 在类型上必填，但**老库数据 / 别的创建路径**都可能缺它
-   * （本文件下方多处直接读 `.length`）。同一份数据只要有一处没防，节点就会崩、
-   * 进而把整棵树带下去 —— 同文件里的 PromptNodeView 就是这么黑屏的（2026-09-23）。
-   * 收成一个变量，让「缺字段」只在一处处理。
-   */
-  const prompts = data.prompts ?? []
-  const summary = useMemo(
-    // 传**兜底后**的 prompts：否则摘要内部要再兜一次，两处口径容易分叉
-    () => loopSummary({ ...data, prompts }, { images: upstreamImages, prompts: upstreamPrompts }),
-    [data, prompts, upstreamImages, upstreamPrompts],
-  )
-
-  /** 关掉某个通道时，把抽屉一并收起——抽屉里是提示词，开关一关它就没意义了 */
-  useEffect(() => {
-    if (!data.usePrompt) setDrawerOpen(false)
-  }, [data.usePrompt])
-
-  /**
-   * 抽屉开合 ⇒ 节点高度跟着变。
-   *
-   * 收起时**还原到撑高之前的那个值**（而不是写死 DEFAULT_H）：
-   * 用户可能已经手动把节点拉高过，直接改回 300 等于替他做了决定、还丢了尺寸。
-   * 用 ref 记住撑高前的原始高度，只在「开 → 关」这一次还原。
-   */
-  const heightBeforeDrawer = useRef<number | null>(null)
-  useEffect(() => {
-    const h = props.node.h
-    const emit = props.emit
-    if (drawerOpen) {
-      heightBeforeDrawer.current = h
-      if (h < DRAWER_H) {
-        emit({ type: 'updateData', patch: {}, transient: true, size: { w: props.node.w, h: DRAWER_H } } as never)
-      }
-    } else if (heightBeforeDrawer.current !== null) {
-      const back = heightBeforeDrawer.current
-      heightBeforeDrawer.current = null
-      if (h !== back) {
-        emit({ type: 'updateData', patch: {}, transient: true, size: { w: props.node.w, h: back } } as never)
-      }
-    }
-    // 依赖数组**刻意只有 drawerOpen**：`props.node.h` 会在我们 emit 之后变化，
-    // 若把它加进来，撑高 → 重渲染 → effect 重跑 → 又比较一次，会来回打架。
-  }, [drawerOpen])
-
   const updatePrompt = (i: number, text: string) => {
-    const next = [...prompts]
+    const next = [...promptRows]
     next[i] = text
     patchLater({ prompts: next }, `prompt:${i}`)
   }
 
-  const insertToken = (token: string) => {
-    const i = Math.min(focusedRef.current, prompts.length - 1)
-    if (i < 0) return
-    const next = [...prompts]
-    next[i] = `${next[i] ?? ''}${token}`
-    patchNow({ prompts: next })
-  }
-
-  /** 本体上显示「当前生效的那条」：第 1 轮用哪条提示词 */
-  const activePrompt = useMemo(() => {
-    const own = prompts.find((s) => s.trim())
-    if (own) return own
-    return upstreamPrompts > 0 ? '（来自上游提示词节点）' : ''
-  }, [prompts, upstreamPrompts])
-
-  const runnable = data.useImageInput || data.usePrompt
+  const p = normalizeLoopParams(data)
+  /** 本轮会输出的素材张数（最后一轮可能不足 batch） */
+  const willOutput = data.useImageInput
+    ? Math.max(0, Math.min(p.batch, upstreamImages - (p.loopStart - 1)))
+    : 0
+  const promptHint = upstreamPrompts
+    ? `识别到 ${upstreamPrompts} 条上游提示词，按计数轮流输出`
+    : '可使用 [计数] 作为变量'
 
   return (
-    <div className={styles.body} data-loop-node>
-      {/* ① 运行方式 */}
-      <div className={styles.segmented} role="group" aria-label="运行方式">
-        <button
-          type="button"
-          className={data.mode !== 'parallel' ? styles.segOn : styles.segBtn}
-          data-loop-mode="serial"
-          aria-pressed={data.mode !== 'parallel'}
-          title="一轮跑完再跑下一轮"
-          onClick={() => patchNow({ mode: 'serial' })}
-        >
-          串行
-        </button>
-        <button
-          type="button"
-          className={data.mode === 'parallel' ? styles.segOn : styles.segBtn}
-          data-loop-mode="parallel"
-          aria-pressed={data.mode === 'parallel'}
-          title="多轮同时发起（受并发上限约束）"
-          onClick={() => patchNow({ mode: 'parallel' })}
-        >
-          并发
-        </button>
-      </div>
-
-      {/* ② 两个通道：开关 + 数量。数量直接写在标题里，省一行空态文案 */}
-      <div className={styles.channels}>
-        <ChannelRow
-          kind="image"
-          label="图片"
-          count={upstreamImages}
-          on={data.useImageInput}
-          onToggle={() => patchNow({ useImageInput: !data.useImageInput })}
-        />
-        <ChannelRow
-          kind="prompt"
-          label="提示词"
-          count={upstreamPrompts + prompts.filter((s) => s.trim()).length}
-          on={data.usePrompt}
-          onToggle={() => patchNow({ usePrompt: !data.usePrompt })}
-        />
-      </div>
-
-      {/* ③ 图片通道展开时：上游缩略图（一屏最多露 4 张，其余横滚） */}
-      {data.useImageInput && upstreamImages > 0 && (
-        <div className={styles.thumbRow} data-loop-thumbs>
-          {(props.upstreamAssetHashes ?? []).slice(0, 6).map((hash, i) => (
-            <UpstreamThumb key={hash} hash={hash} index={i + 1} />
-          ))}
-        </div>
-      )}
-
-      {/* ④ 提示词通道展开时：摘要 + 编辑入口（真正的编辑在抽屉里） */}
-      {data.usePrompt && (
-        <div className={styles.promptRow} data-loop-prompt-summary>
-          <span className={styles.promptText} title={activePrompt}>
-            {activePrompt || '还没有提示词'}
-          </span>
+    <div className={styles.card} data-loop-node>
+      {/* ① 循环 / 并发：两格分段 */}
+      <div className={styles.row}>
+        <div className={styles.seg} role="group" aria-label="循环方式">
           <button
             type="button"
-            className={styles.editBtn}
-            data-loop-prompt-edit
-            onClick={() => setDrawerOpen((v) => !v)}
-            aria-expanded={drawerOpen}
+            className={data.mode !== 'parallel' ? styles.segActive : styles.segBtn}
+            data-loop-mode="serial"
+            aria-pressed={data.mode !== 'parallel'}
+            onClick={() => patchNow({ mode: 'serial' })}
           >
-            编辑
+            循环
           </button>
+          <button
+            type="button"
+            className={data.mode === 'parallel' ? styles.segActive : styles.segBtn}
+            data-loop-mode="parallel"
+            aria-pressed={data.mode === 'parallel'}
+            title="多轮同时发起（受执行层并发上限约束）"
+            onClick={() => patchNow({ mode: 'parallel' })}
+          >
+            并发
+          </button>
+        </div>
+      </div>
+
+      {/* ② 图片 / 提示词：带图标的开关 */}
+      <div className={styles.row}>
+        <button
+          type="button"
+          className={data.useImageInput ? styles.toggleActive : styles.toggle}
+          data-loop-toggle="image"
+          aria-pressed={data.useImageInput}
+          onClick={() => patchNow({ useImageInput: !data.useImageInput })}
+        >
+          <IconImage />
+          <span>图片</span>
+        </button>
+        <button
+          type="button"
+          className={data.usePrompt ? styles.toggleActive : styles.toggle}
+          data-loop-toggle="prompt"
+          aria-pressed={data.usePrompt}
+          onClick={() => patchNow({ usePrompt: !data.usePrompt })}
+        >
+          <IconTextCursor />
+          <span>提示词</span>
+        </button>
+      </div>
+
+      {/* ③ 图片面板：上游缩略图 + 批次 + 说明 */}
+      {data.useImageInput && (
+        <div className={styles.panel} data-loop-image-panel>
+          {upstreamImages > 0 && (
+            <div className={styles.thumbRow} data-loop-thumbs>
+              {(props.upstreamAssetHashes ?? []).map((hash, i) => (
+                <UpstreamThumb key={hash} hash={hash} index={i + 1} />
+              ))}
+            </div>
+          )}
+          <div className={styles.mini}>
+            <NumberControl
+              label="批次"
+              value={data.batch}
+              max={100}
+              dataKey="batch"
+              onChange={(v) => patchLater({ batch: v }, 'batch')}
+            />
+          </div>
+          <div className={styles.note} data-loop-image-note>
+            {willOutput > 0 ? `当前会输出 ${willOutput} 张图片` : '上游没有可用的图片'}
+          </div>
         </div>
       )}
 
-      {/* ⑤ 三个数字：2 列网格，标签在上、加减在下，避免 240px 里挤成一行 */}
-      <div className={styles.params} data-loop-params>
-        <NumberCell
+      {/* ④ 提示词面板：上游预览 + 编号输入行 + 变量行 */}
+      {data.usePrompt && (
+        <div className={`${styles.panel} ${styles.promptPanel}`} data-loop-prompt-panel>
+          {upstreamPrompts > 0 && (
+            <div className={styles.upstream} data-loop-upstream-preview>
+              <div className={styles.upstreamLabel}>{promptHint}</div>
+            </div>
+          )}
+          <div className={styles.promptList} data-loop-prompt-list>
+            {promptRows.map((text, i) => (
+              <div className={styles.promptItem} key={i}>
+                {/* 编号圆点**骑在左上角**（照抄大雄的 translate(-30%,-30%)） */}
+                <span className={styles.promptIndex}>{i + 1}</span>
+                <textarea
+                  className={styles.promptText}
+                  data-loop-prompt={i}
+                  rows={2}
+                  value={text}
+                  placeholder="例如：现在生成第 [计数] 个卖点"
+                  onChange={(e) => updatePrompt(i, e.target.value)}
+                  onPointerDown={(e) => e.stopPropagation()}
+                />
+                <button
+                  type="button"
+                  className={styles.iconBtn}
+                  data-loop-prompt-delete={i}
+                  disabled={promptRows.length <= 1}
+                  title="删除这一条"
+                  aria-label="删除这一条"
+                  onClick={() => patchNow({ prompts: promptRows.filter((_, k) => k !== i) })}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className={styles.promptActions}>
+            <button
+              type="button"
+              className={styles.counterToken}
+              data-loop-insert-counter
+              title="在第一条提示词末尾插入 [计数] 变量"
+              onClick={() => {
+                const next = [...promptRows]
+                next[0] = `${next[0] ?? ''}[计数]`
+                patchNow({ prompts: next })
+              }}
+            >
+              计数
+            </button>
+            <span className={styles.note} title={promptHint}>
+              {promptHint}
+            </span>
+            <button
+              type="button"
+              className={styles.addPrompt}
+              data-loop-prompt-add
+              title="新增一条提示词"
+              aria-label="新增一条提示词"
+              onClick={() => patchNow({ prompts: [...promptRows, ''] })}
+            >
+              ＋
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ⑤ 底栏三格：起始 / 次数 / 一键运行 */}
+      <div className={styles.footer} data-loop-footer>
+        <NumberControl
           label="起始"
-          hint="从上游第几张开始取，也是 [计数] 的起始值"
           value={p.loopStart}
           max={9999}
           dataKey="loopStart"
           onChange={(v) => patchLater({ loopStart: v }, 'loopStart')}
         />
-        <NumberCell
+        <NumberControl
           label="次数"
-          hint="从这里开始跑几轮"
           value={p.count}
           max={100}
           dataKey="count"
           onChange={(v) => patchLater({ count: v }, 'count')}
         />
-        <NumberCell
-          label="批次"
-          hint="每一轮取几张素材"
-          value={p.batch}
-          max={100}
-          dataKey="batch"
-          disabled={!data.useImageInput}
-          onChange={(v) => patchLater({ batch: v }, 'batch')}
-        />
+        {/*
+          运行按钮照抄大雄的形态（带图标 + 主色实底），但**如实禁用**：
+          循环执行尚未接引擎（`expandLoopRounds` 已写好、没人调用）。
+          大雄那个能真跑，轻画这个还不能——界面上必须说清，不能做成「点了没反应」。
+        */}
+        <button
+          type="button"
+          className={styles.run}
+          data-loop-run
+          disabled
+          title={
+            data.useImageInput || data.usePrompt
+              ? '循环执行还没接上，当前只能配置'
+              : '先把图片或提示词打开'
+          }
+        >
+          <IconWorkflow />
+          <span>一键运行</span>
+        </button>
       </div>
-
-      {/* ⑥ 结果摘要：把三个数字翻译成一句人话 */}
-      <div className={styles.summary} data-loop-summary={summary.tone} title={summary.text}>
-        {summary.text}
-      </div>
-
-      {/* ⑦ 运行：未接执行引擎，如实禁用并说明 */}
-      <button
-        type="button"
-        className={styles.runBtn}
-        data-loop-run
-        disabled
-        title={
-          runnable
-            ? '循环执行还没接上，当前只能配置'
-            : '先把图片或提示词通道打开'
-        }
-      >
-        一键运行（尚未接执行）
-      </button>
-
-      {/* 抽屉：多条提示词的增删改 + 变量插入 */}
-      {drawerOpen && data.usePrompt && (
-        <div className={styles.drawer} data-loop-drawer>
-          <div className={styles.drawerHead}>
-            <span className={styles.drawerTitle}>提示词</span>
-            <button
-              type="button"
-              className={styles.drawerClose}
-              data-loop-drawer-close
-              aria-label="关闭"
-              title="关闭"
-              onClick={() => setDrawerOpen(false)}
-            >
-              ×
-            </button>
-          </div>
-
-          <div className={styles.tokenRow}>
-            <span className={styles.tokenLabel}>插入</span>
-            {TOKENS.map((t) => (
-              <button
-                key={t.label}
-                type="button"
-                className={styles.tokenBtn}
-                data-loop-token={t.label}
-                title={`${t.hint}（也可写成全角 ${t.label.replace('[', '《').replace(']', '》')}）`}
-                onClick={() => insertToken(t.label)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          <div className={styles.drawerList} data-loop-drawer-list>
-            {prompts.map((text, i) => (
-              <div className={styles.drawerItem} key={i}>
-                <div className={styles.drawerItemHead}>
-                  <span className={styles.drawerIndex}>#{i + 1}</span>
-                  <button
-                    type="button"
-                    className={styles.drawerDel}
-                    data-loop-prompt-delete={i}
-                    disabled={prompts.length <= 1}
-                    title="删除这一条"
-                    aria-label={`删除第 ${i + 1} 条`}
-                    onClick={() => patchNow({ prompts: prompts.filter((_, k) => k !== i) })}
-                  >
-                    ×
-                  </button>
-                </div>
-                <textarea
-                  className={styles.drawerInput}
-                  data-loop-prompt={i}
-                  rows={2}
-                  value={text}
-                  placeholder="例如：第 [计数] 组，自然光散射"
-                  onFocus={() => { focusedRef.current = i }}
-                  onChange={(e) => updatePrompt(i, e.target.value)}
-                  onPointerDown={(e) => e.stopPropagation()}
-                />
-              </div>
-            ))}
-          </div>
-
-          <button
-            type="button"
-            className={styles.drawerAdd}
-            data-loop-prompt-add
-            onClick={() => patchNow({ prompts: [...prompts, ''] })}
-          >
-            ＋ 添加一条
-          </button>
-        </div>
-      )}
     </div>
   )
 }
 
-/** 通道行：图标 + 名称 + 数量 + 开关 */
-function ChannelRow({
-  kind,
-  label,
-  count,
-  on,
-  onToggle,
-}: {
-  kind: 'image' | 'prompt'
-  label: string
-  count: number
-  on: boolean
-  onToggle: () => void
-}) {
-  return (
-    <div className={on ? styles.channel : styles.channelOff} data-loop-channel={kind}>
-      <span className={styles.channelName}>
-        {label}
-        <span className={styles.channelCount}>{count > 0 ? ` (${count})` : ''}</span>
-      </span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        aria-label={`${label}通道`}
-        className={on ? styles.switchOn : styles.switchOff}
-        data-loop-toggle={kind}
-        onClick={onToggle}
-      >
-        <span className={on ? styles.knobOn : styles.knobOff} />
-      </button>
-    </div>
-  )
-}
-
-/** 上游素材缩略图（带「图 N」角标，编号与起始计数的口径一致） */
+/** 上游素材缩略图（大雄：`smartNodeInputThumbsHtml`，带序号角标） */
 function UpstreamThumb({ hash, index }: { hash: string; index: number }) {
   const url = useAsset(hash)
   return (
@@ -388,71 +286,144 @@ function UpstreamThumb({ hash, index }: { hash: string; index: number }) {
 }
 
 /**
- * 数字格：标签在上、值居中、加减在两侧。
+ * 数字控件（复刻大雄的 `loopNumberControlHtml` / `.loop-number-control`）。
  *
- * 为什么不做成「标签 + 输入框」一行：240px 里三格并排时每格只有 ~70px，
- * 「起始」两个字加输入框必然挤成两行（上一版实测）。改成**纵向**后每格宽度够，
- * 标签也能完整显示；三格用 3 列网格并排，高度反而更省。
+ * 形态：胶囊显示「标签 + 当前值」，**悬停或聚焦时向上浮出**一个快捷面板 ——
+ * 4 列网格放常用档位（1/2/3/4/5/6/8/10），下面一行自定义输入 + 应用按钮。
+ *
+ * 为什么值得做这一层：循环的三个数字天天要调（批次 1→4、次数 3→9），
+ * 光靠加减按钮要点十几次，光靠手输又要先点进去再打字。快捷档位一按到位、
+ * 长尾用自定义输入兜住——这是大雄那套里最实用的一处交互。
  */
-function NumberCell({
+function NumberControl({
   label,
-  hint,
   value,
   max,
   dataKey,
-  disabled,
   onChange,
 }: {
   label: string
-  hint: string
   value: number
   max: number
   dataKey: string
-  disabled?: boolean
   onChange: (v: number) => void
 }) {
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState(String(value))
   const clampSet = (n: number) => onChange(Math.max(1, Math.min(max, Math.floor(n))))
+
+  /**
+   * 面板收起时把草稿同步回当前值。
+   *
+   * 不这么做的话：用户输入「15」没提交、又点到别处，下次打开会看到残留的 15，
+   * 而胶囊上显示的是真实值（比如 3）—— 又是一处「显示与实际不一致」。
+   */
+  useEffect(() => {
+    if (!open) setDraft(String(value))
+  }, [open, value])
+
+  const applyDraft = () => {
+    const n = Number(draft)
+    if (Number.isFinite(n)) clampSet(n)
+  }
+
   return (
-    <div className={disabled ? styles.numCellOff : styles.numCell} data-loop-number-bar={dataKey} title={`${label}：${hint}`}>
-      <span className={styles.numLabel}>{label}</span>
-      <div className={styles.numRow}>
-        <button
-          type="button"
-          className={styles.stepBtn}
-          data-loop-step={`${dataKey}-down`}
-          disabled={disabled || value <= 1}
-          aria-label={`${label}减一`}
-          onClick={() => clampSet(value - 1)}
-        >
-          −
-        </button>
-        <input
-          className={styles.numInput}
-          data-loop-number={dataKey}
-          type="number"
-          min={1}
-          max={max}
-          step={1}
-          value={value}
-          disabled={disabled}
-          onPointerDown={(e) => e.stopPropagation()}
-          onChange={(e) => {
-            const n = Number(e.target.value)
-            if (!Number.isFinite(n)) return
-            clampSet(n)
-          }}
-        />
-        <button
-          type="button"
-          className={styles.stepBtn}
-          data-loop-step={`${dataKey}-up`}
-          disabled={disabled || value >= max}
-          aria-label={`${label}加一`}
-          onClick={() => clampSet(value + 1)}
-        >
-          ＋
-        </button>
-      </div>
+    <div
+      className={styles.numControl}
+      data-loop-number-bar={dataKey}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        type="button"
+        className={styles.numTrigger}
+        data-loop-number-trigger={dataKey}
+        aria-expanded={open}
+        onFocus={() => setOpen(true)}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <span>{label}</span>
+        {/* 数值单独包一层并带 data 锚点：自动化与既有冒烟都按它读当前值 */}
+        <strong data-loop-number={dataKey}>{value}</strong>
+      </button>
+      {open && (
+        <div className={styles.numPopover} data-loop-number-popover={dataKey}>
+          <div className={styles.numGrid}>
+            {QUICK_VALUES.filter((v) => v <= max).map((v) => (
+              <button
+                key={v}
+                type="button"
+                className={v === value ? styles.numCellActive : styles.numCell}
+                data-loop-quick={`${dataKey}:${v}`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={() => clampSet(v)}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+          <div className={styles.numCustom}>
+            <input
+              className={styles.numCustomInput}
+              data-loop-number-input={dataKey}
+              type="number"
+              min={1}
+              max={max}
+              value={draft}
+              onPointerDown={(e) => e.stopPropagation()}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') applyDraft()
+              }}
+            />
+            <button
+              type="button"
+              className={styles.numApply}
+              data-loop-number-apply={dataKey}
+              aria-label={`应用${label}`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={applyDraft}
+            >
+              ＋
+            </button>
+          </div>
+        </div>
+      )}
     </div>
+  )
+}
+
+/* ── 内联 SVG 图标 ──
+ * 大雄用 lucide 图标库；轻画一律内联 SVG —— 本项目有明确教训：字体图标的
+ * 字形位置由字体决定，旋转与居中不可控（曾导致「加号没绕自己中心转」）。
+ * 形状照 lucide 手写，笔画由坐标定义。 */
+
+function IconImage() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <circle cx="9" cy="9" r="2" />
+      <path d="m21 15-3.5-3.5L9 20" />
+    </svg>
+  )
+}
+
+function IconTextCursor() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <path d="M4 7V5h16v2" />
+      <path d="M12 5v14" />
+      <path d="M9 19h6" />
+    </svg>
+  )
+}
+
+function IconWorkflow() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+      <path d="M10 6.5h4a3 3 0 0 1 3 3v4" />
+    </svg>
   )
 }
