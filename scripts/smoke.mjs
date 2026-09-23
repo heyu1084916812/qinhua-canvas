@@ -9603,13 +9603,159 @@ async function g68(browser) {
 }
 
 /**
+ * G69 配方记忆 · 多渠道不串味（用户 2026-09-23 报「改了参数没带上」）。
+ *
+ * 用户还给了关键线索：「Alt 拖动复制后的节点是带上的」——说明配方数据本身是对的，
+ * 问题只在新建那条**取值路径**上。
+ *
+ * 真因：解析链第 2 档原先按**渠道列表顺序**挑第一条记过的配方。多渠道时必然出错——
+ * 用户在渠道乙上改的参数，会被排在列表前面的渠道甲那份记录盖过。
+ *
+ * 本组造两条渠道，在**第二条**上改参数，再新建，断言继承的是第二条那套。
+ */
+async function g69(browser) {
+  const g = 'G69 配方记忆·多渠道'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  /**
+   * 再建第二条渠道，形成「多渠道」场景。
+   *
+   * 这里不走 `configureMockChannel`：它用 `getByText('新建渠道').first()` 定位「+ 新增渠道」，
+   * 而第一条渠道建完以后左栏已经有一个叫「新建渠道」的列表项，`.first()` 会点中那一条，
+   * 于是第二条根本建不出来（实测：面板里的渠道数恒为 1）。
+   * 改用稳定的 `data-channel-add` 锚点。
+   */
+  await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-channel-add]').click()
+  await sleep(400)
+  await page.getByRole('button', { name: '验证地址' }).click()
+  await page.getByText(/地址可达/).waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+  await page.getByRole('button', { name: '拉取模型' }).click()
+  await page.getByText(/已拉取模型/).waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+  await pickAllModels(page)
+  await page.locator('input[type="checkbox"]').first().check().catch(() => {})
+  await sleep(400)
+
+  const secondChannelCount = await page.locator('[data-channel-item]').count()
+  rec(g, '已建出两条渠道（场景成立）', secondChannelCount >= 2, `渠道项=${secondChannelCount}`)
+
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(500)
+  await page.locator('[data-template="blank"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  const readNodes = () =>
+    page.evaluate(async () => {
+      const dbs = await indexedDB.databases()
+      for (const info of dbs) {
+        if (!info.name) continue
+        const db = await new Promise((res, rej) => {
+          const rq = indexedDB.open(info.name)
+          rq.onsuccess = () => res(rq.result)
+          rq.onerror = () => rej(rq.error)
+        })
+        if (!db.objectStoreNames.contains('nodes')) { db.close(); continue }
+        const nodes = await new Promise((res) => {
+          const tx = db.transaction('nodes', 'readonly')
+          const rq = tx.objectStore('nodes').getAll()
+          rq.onsuccess = () => res(rq.result)
+          rq.onerror = () => res([])
+        })
+        db.close()
+        return nodes.map((n) => ({
+          id: n.id,
+          channelId: n.data?.channelId ?? '',
+          model: n.data?.model ?? '',
+          ratio: n.data?.ratio ?? null,
+        }))
+      }
+      return []
+    })
+
+  const ids = () =>
+    page.locator('[data-node-id]').evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+  const addGeneration = async () => {
+    const before = await ids()
+    await page.locator('[data-toolbar-add]').click()
+    await sleep(300)
+    await page.locator('[data-toolbar-menu-item="generation"]').click()
+    await sleep(1200)
+    return (await ids()).find((i) => !before.includes(i))
+  }
+
+  // 建 A，并把它切到**第二条渠道**（关键：改参数的渠道不是列表第一条）
+  const idA = await addGeneration()
+  await page.locator(`[data-node-id="${idA}"]`).click()
+  await sleep(700)
+
+  const channelChip = page.locator('[data-creation-panel] [aria-label="生成平台"]').first()
+  const chCount = (await channelChip.count()) > 0 ? await channelChip.count() : 0
+  if (chCount > 0) {
+    await channelChip.click()
+    await sleep(450)
+    const chOpts = page.locator('[role="option"]')
+    const n = await chOpts.count()
+    rec(g, '★ 面板里能看到多条渠道（场景成立）', n > 1, `渠道数=${n}`)
+    if (n > 1) {
+      await chOpts.nth(1).click()
+      await sleep(700)
+      // 切渠道会清空模型，需要重新选
+      const modelChip = page.locator('[data-creation-panel] [aria-label="生图模型"]').first()
+      if ((await modelChip.count()) > 0 && (await modelChip.isEnabled().catch(() => false))) {
+        await modelChip.click()
+        await sleep(450)
+        const mOpts = page.locator('[role="option"]')
+        if ((await mOpts.count()) > 0) { await mOpts.first().click(); await sleep(600) }
+      }
+    }
+  } else {
+    rec(g, '★ 面板里能看到多条渠道（场景成立）', false, '平台 chip 不存在')
+  }
+
+  const beforeEdit = (await readNodes()).find((n) => n.id === idA)
+  rec(g, '节点已落在第二条渠道上', !!beforeEdit?.channelId && !!beforeEdit?.model, `ch=${beforeEdit?.channelId} model=${beforeEdit?.model}`)
+
+  // 在该渠道上改比例
+  await page.locator('[data-creation-panel] [aria-label="画面比例"]').first().click()
+  await sleep(400)
+  const ratioOpts = page.locator('[role="option"]')
+  if ((await ratioOpts.count()) > 1) {
+    await ratioOpts.nth(1).click()
+    await sleep(800)
+  }
+  const edited = (await readNodes()).find((n) => n.id === idA)
+  rec(g, '改参数后节点自身变了', !!edited?.ratio, `ratio=${edited?.ratio}`)
+
+  // 新建 B：必须继承**第二条渠道**那套，而不是列表第一条
+  const idB = await addGeneration()
+  const nodeB = (await readNodes()).find((n) => n.id === idB)
+  rec(
+    g,
+    '★★ 新建节点继承的是改过参数的那条渠道（不是列表里排第一的）',
+    nodeB?.channelId === edited?.channelId,
+    `B.channel=${nodeB?.channelId} / 期望=${edited?.channelId}`,
+  )
+  rec(g, '★★ 参数也跟着继承', nodeB?.ratio === edited?.ratio, `B=${nodeB?.ratio} / 期望=${edited?.ratio}`)
+
+  await page.screenshot({ path: `${OUT}/85-g69-multi-channel.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+/**
  * 已从全量移除的组（测的都是已不存在的功能，继续跑只会拿「它没出现」当失败）：
  * - g22：版本历史（§6.21 于 2026-09-16 下线）
  * - g41：陈旧标记与按范围重跑（2026-09-17 下线：橘点、整条流程重跑、仅刷新陈旧、全图重跑）
  * - g50 / g54：结果组折叠与子结果交互（2026-09-17 结果组整体下线）
  * 「运行画板产生产物」改由 G21 覆盖（断言已从结果组改为承载节点）。
  */
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

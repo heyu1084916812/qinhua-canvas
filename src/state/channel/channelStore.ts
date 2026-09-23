@@ -346,12 +346,28 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
    */
   const recipeCache = new Map<string, typeof NO_RECIPE>()
   let cacheLoaded = false
+  /**
+   * 配方时间戳**单调递增**（2026-09-23）。
+   *
+   * 解析链按 `savedAt` 挑「最近改过的那条」，而 `Date.now()` 只有毫秒精度：
+   * 用户连着在两个渠道上改参数（或程序化地连记两次）完全可能落在同一毫秒，
+   * 排序结果就不确定了——表现为「明明刚改过，新建却取了另一条」。
+   * 这里保证每次记录严格大于上一次，排序因此永远有确定答案。
+   */
+  let lastRecipeAt = 0
+  const nextRecipeAt = (): number => {
+    const now = Date.now()
+    lastRecipeAt = now > lastRecipeAt ? now : lastRecipeAt + 1
+    return lastRecipeAt
+  }
 
   const ensureRecipes = async (): Promise<void> => {
     if (cacheLoaded) return
     recipeCache.clear()
     for (const [channelId, recipe] of await presets.loadAll()) {
       recipeCache.set(channelId, recipe)
+      // 从库里读回时也要把水位抬起来，避免与已存记录的时间戳撞上
+      if (recipe.savedAt > lastRecipeAt) lastRecipeAt = recipe.savedAt
     }
     cacheLoaded = true
   }
@@ -361,7 +377,7 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
     model,
     params,
   ) => {
-    const next = rememberRecipe(channelId, model, params, Date.now())
+    const next = rememberRecipe(channelId, model, params, nextRecipeAt())
     if (!next) return
     recipeCache.set(channelId, next)
     await presets.save(next)

@@ -201,4 +201,49 @@ describe('生成配方记忆 · 新建节点要记住上次生成那套', () => 
     expect(second?.model).toBe('a-img')
     expect(second?.params).toMatchObject({ ratio: '16:9' })
   })
+
+  /**
+   * ★★★ 多渠道时的口径：用户最近改过哪条渠道的参数，新建就继承**那一条**。
+   *
+   * 风险点：解析链第 2 档写的是「按**渠道顺序**找第一条记过的配方」。
+   * 用户若先用渠道乙改过参数、渠道甲又恰好排在前面，新建就会取到甲那套——
+   * 看起来正是「改了参数却没带上」。这里把正确口径钉住。
+   */
+  it('★★★ 两条渠道都记过配方时，新建继承**最近改过**的那条（不是排在前面的）', async () => {
+    const { store } = await storeWith([channel('ch-1', ['a-img']), channel('ch-2', ['b-img'])])
+
+    // 先在两渠道上各记一次（模拟"都用过"）
+    await store.rememberRecipe('ch-1', 'a-img', { ratio: '1:1' })
+    await sleepTiny()
+    await store.rememberRecipe('ch-2', 'b-img', { ratio: '16:9' })
+
+    // 最近改的是 ch-2 ⇒ 新建应当继承 ch-2 那套
+    const recipe = await store.defaultForNewNode({}, 'image')
+    expect(recipe?.channelId).toBe('ch-2')
+    expect(recipe?.model).toBe('b-img')
+    expect(recipe?.params).toMatchObject({ ratio: '16:9' })
+  })
+
+  /**
+   * ★★★ 同毫秒内连记两次（快速在两个渠道间切换参数）也要有确定答案。
+   *
+   * `Date.now()` 只有毫秒精度，不额外保证的话两次记录会并列，
+   * 排序退化成「渠道顺序」——又回到了上面那个 bug。这里**不插入任何延时**，
+   * 模拟最快的一次双击式改动。
+   */
+  it('★★★ 同一毫秒内连记两次渠道，仍以**后记的**为准', async () => {
+    const { store } = await storeWith([channel('ch-1', ['a-img']), channel('ch-2', ['b-img'])])
+    // 不加 sleep：两条记录极可能落在同一毫秒
+    await store.rememberRecipe('ch-1', 'a-img', { ratio: '1:1' })
+    await store.rememberRecipe('ch-2', 'b-img', { ratio: '16:9' })
+
+    const recipe = await store.defaultForNewNode({}, 'image')
+    expect(recipe?.channelId).toBe('ch-2')
+    expect(recipe?.params).toMatchObject({ ratio: '16:9' })
+  })
 })
+
+/** rememberRecipe 的 savedAt 取当前时间，同毫秒会并列；让两条记录的时间先后明确 */
+function sleepTiny() {
+  return new Promise((r) => setTimeout(r, 0))
+}

@@ -327,20 +327,28 @@ export function resolveForNode(
   }
 
   /**
-   * 第 2 档：节点没带渠道（或渠道已失效）——按**渠道顺序**找第一条记过的配方。
+   * 第 2 档：节点没带渠道（或渠道已失效）——找**最近一次改过的**那份配方。
    *
-   * 为什么要遍历：节点空着时（新建刚建出来），解析必须能捡回「上次生成用的那套」，
+   * 为什么要遍历：节点空着时（新建刚建出来），解析必须能捡回「上次那套」，
    * 否则「记过」这条规则在创建路径上形同虚设——直接掉到第 3 档、白丢参数。
    *
+   * ⚠️ **按 `savedAt` 倒序，而不是按渠道顺序**（2026-09-23 修正）。
+   * 原实现按渠道列表顺序取第一条记过的，多渠道时必然出错：用户明明刚在渠道乙上
+   * 改过参数，而渠道甲恰好排在列表前面，新建就拿甲那套——表现为「改了参数却没带上」
+   * （用户实测报的就是这个）。「最近改的」才符合直觉，也不依赖列表顺序这种无关状态。
+   *
    * `model` 若也带了（渠道失效但模型名还在）优先找匹配该模型的记录，
-   * 命中不了再退回第一条记过的渠道——两者都优于「什么都不看直接取首模型」。
+   * 命中不了再按时间倒序退——两者都优于「什么都不看直接取首模型」。
    */
+  const byRecency = [...channels].sort(
+    (a, b) => lookupRecipe(b.id).savedAt - lookupRecipe(a.id).savedAt,
+  )
   const candidates = model
     ? [
-        ...channels.filter((c) => lookupRecipe(c.id).model === model),
-        ...channels.filter((c) => lookupRecipe(c.id).model !== model),
+        ...byRecency.filter((c) => lookupRecipe(c.id).model === model),
+        ...byRecency.filter((c) => lookupRecipe(c.id).model !== model),
       ]
-    : channels
+    : byRecency
   for (const c of candidates) {
     const resolved = resolveRecipe(lookupRecipe(c.id), [c], category)
     if (resolved) return resolved
