@@ -20,9 +20,18 @@
   gap: var(--space-2);
   font-family: var(--font-sans);
   color: var(--text-1);
-  /* 横向裁掉（用户可能把节点拖窄）；纵向可滚兜底，正常内容放得下 */
-  overflow-x: hidden;
-  overflow-y: auto;
+  /*
+   * ⚠️ **不能用 overflow 裁剪**（用户 2026-09-23 报「数字菜单被节点容器裁剪」）。
+   *
+   * 数字控件的快捷档位是浮层，它会**向上/向下溢出节点边界**才能完整显示。
+   * 只要这里写了 `overflow-y: auto` 或 `hidden`，浮层就会被裁掉一半——
+   * 档位点不到，功能直接失效。
+   *
+   * 代价是：节点被用户拖得比内容还矮时，内容会溢出到框外而不是出现滚动条。
+   * 这是**有意的取舍**——浮层可用性优先于极端尺寸下的观感，且节点高度
+   * 默认按内容给足（见 NODE_MINIMUMS.loop），正常不会撞到。
+   */
+  overflow: visible;
   justify-content: flex-start;
 }
 
@@ -441,16 +450,19 @@
   width: 100%;
   display: grid;
   /*
-   * 三格一排（起始计数 / 次数 / 批次），运行按钮独占下一行。
+   * 三格一排：起始计数 / 次数 / 一键运行（用户 2026-09-23）。
    *
-   * 240px 账：内容区 214，扣两个 7px 间距 ⇒ 每格 66px。
+   * 240px 账：内容区 214，扣两个间距 ⇒ 每格约 66px。
    * 「起始计数」是四字标签，66px 里放不下 10px 字号 + 数值并排（实测需约 76px），
-   * 故标签与数值**改成上下两行**（见 `.numTrigger` 的 `flex-direction: column`）——
-   * 竖排后四字标签独占一行，66px 刚好放得下，也不再有截断。
+   * 故数字控件取**标签在上、数值在下**的竖排（见 `.numTrigger`）——
+   * 四字独占一行刚好放得下，代价只是高 6px，不接受缩字号或截断。
+   *
+   * 运行按钮同样受 66px 限制：图标 + 「一键运行」四字并排放不下，
+   * 故也取竖排（图标在上、文字在下），与本排另两格形态一致。
    */
   grid-template-columns: repeat(3, minmax(0, 1fr));
   grid-auto-rows: auto;
-  align-items: center;
+  align-items: stretch;
   gap: 7px;
   /*
    * 不再 `margin-top: auto`。
@@ -465,23 +477,24 @@
   margin-top: 0;
 }
 
-/* 运行按钮占满第二行（主操作，整行更好点） */
+/* 运行按钮与另两格同排同高（形态对齐） */
 .run {
-  grid-column: 1 / -1;
   width: 100%;
-  height: 38px;
-  border-radius: calc(var(--radius-control) + 3px);
+  min-height: 36px;
+  padding: 3px 6px;
+  border-radius: var(--radius-control);
   border: 1px solid var(--accent);
   background: var(--accent);
   color: var(--accent-text);
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 2px;
   font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 900;
-  line-height: 1;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.1;
   white-space: nowrap;
   overflow: hidden;
   cursor: pointer;
@@ -489,8 +502,8 @@
 }
 
 .run svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   flex: none;
 }
 

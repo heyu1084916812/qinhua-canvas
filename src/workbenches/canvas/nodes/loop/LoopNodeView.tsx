@@ -82,6 +82,46 @@ export function LoopNodeView(props: NodeViewProps) {
     patchLater({ prompts: next }, `prompt:${i}`)
   }
 
+  /**
+   * 切换通道时**同步收放节点高度**（用户 2026-09-23：「节点的上下的距离完全自适应，
+   * 目前取消选中图片或者提示词的时候，下方会空很多出来」）。
+   *
+   * 实测四态的内容自然高度（`scripts/probe-loop-states.mjs`）：
+   *   两者都关 129 / 仅图片 211 / 仅提示词 252 / 两者都开 334
+   * 而节点固定 380 ⇒ 关掉通道后最多空出 251px。
+   *
+   * 做法：切换时按**目标状态**算出内容高度，把节点收到那个高度（加 16 余量）。
+   * 为什么不直接量 DOM：切换的一拍 DOM 还是旧状态，量到的是旧高度。
+   * 用查表 + 实测校准的常数，比「setTimeout 等下一帧再量」稳，
+   * 也避免因动画/字体加载造成的高度抖动。
+   *
+   * ⚠️ 这里**按目标状态直接设高**，不写「只在变矮时才改」。
+   * 曾那么写过，结果出现「仅提示词」被压到 137 而内容需要 252 —— 因为切到
+   * 提示词时节点还沿用着上一个更矮的状态。通道开关是**结构变化**，
+   * 结构变了就该按新结构给高度；用户的自由缩放仍可在之后随时进行。
+   */
+  const CHROME_H = 31 + 30 + 36 + 8 * 3 // 分段 + 开关行 + 底栏 + 三处间距
+  const heightFor = (useImage: boolean, usePrompt: boolean) => {
+    let h = CHROME_H
+    if (useImage) h += 74 + 8 // 图片面板（含批次与说明）+ 间距
+    if (usePrompt) h += 115 + 8 // 提示词面板 + 间距
+    return h + 16 // 上下各留 8 的余量，避免贴边
+  }
+
+  const toggleChannel = (which: 'image' | 'prompt') => {
+    const nextImage = which === 'image' ? !data.useImageInput : data.useImageInput
+    const nextPrompt = which === 'prompt' ? !data.usePrompt : data.usePrompt
+    const want = heightFor(nextImage, nextPrompt)
+    const patch: Partial<LoopData> =
+      which === 'image' ? { useImageInput: nextImage } : { usePrompt: nextPrompt }
+    props.emit({
+      type: 'updateData',
+      patch: patch as never,
+      transient: false,
+      size: { w: props.node.w, h: want },
+    })
+  }
+
   const p = normalizeLoopParams(data)
   /** 本轮会输出的素材张数（最后一轮可能不足 batch） */
   const willOutput = data.useImageInput
@@ -125,7 +165,7 @@ export function LoopNodeView(props: NodeViewProps) {
           className={data.useImageInput ? styles.toggleActive : styles.toggle}
           data-loop-toggle="image"
           aria-pressed={data.useImageInput}
-          onClick={() => patchNow({ useImageInput: !data.useImageInput })}
+          onClick={() => toggleChannel('image')}
         >
           <IconImage />
           <span>图片</span>
@@ -135,7 +175,7 @@ export function LoopNodeView(props: NodeViewProps) {
           className={data.usePrompt ? styles.toggleActive : styles.toggle}
           data-loop-toggle="prompt"
           aria-pressed={data.usePrompt}
-          onClick={() => patchNow({ usePrompt: !data.usePrompt })}
+          onClick={() => toggleChannel('prompt')}
         >
           <IconTextCursor />
           <span>提示词</span>
@@ -152,6 +192,21 @@ export function LoopNodeView(props: NodeViewProps) {
               ))}
             </div>
           )}
+          {/*
+            批次放回图片面板里（用户 2026-09-23 第二次调整）。
+            「批次」说的是「每轮取几张**图**」，它属于图片通道；放进底栏那一排后
+            与「起始计数 / 次数」混在一起，反而看不出它只作用于图片。
+            底栏那排留给两个**全局**参数 + 运行按钮。
+          */}
+          <div className={styles.mini}>
+            <NumberControl
+              label="批次"
+              value={data.batch}
+              max={100}
+              dataKey="batch"
+              onChange={(v) => patchLater({ batch: v }, 'batch')}
+            />
+          </div>
           <div className={styles.note} data-loop-image-note>
             {willOutput > 0 ? `当前会输出 ${willOutput} 张图片` : '上游没有可用的图片'}
           </div>
@@ -226,16 +281,13 @@ export function LoopNodeView(props: NodeViewProps) {
       )}
 
       {/*
-        ⑤ 底栏：**起始计数 / 次数 / 批次三格一排**，运行按钮独占下一行
-        （用户 2026-09-23：「批次这个按钮要放在下方起始计数和次数的右边，
-        三个容器为一排」）。
+        ⑤ 底栏：**起始计数 / 次数 / 一键运行 三格一排**
+        （用户 2026-09-23 第二次调整：「一键运行和起始计数和次数放在同一排」）。
 
-        改动前批次在图片面板里、起始与次数在底栏——同是「每轮取几张」这类
-        调度参数，却被拆到两处，用户得上下找。三个放一起，视线不用跳。
+        批次已放回图片面板（它只作用于图片通道），底栏留给两个全局参数 + 主操作。
       */}
       <div className={styles.footer} data-loop-footer>
         <NumberControl
-          /* 「起始」→「起始计数」：与产品文档 §6.22 的字段名一致，也更明确 */
           label="起始计数"
           value={p.loopStart}
           max={9999}
@@ -248,13 +300,6 @@ export function LoopNodeView(props: NodeViewProps) {
           max={100}
           dataKey="count"
           onChange={(v) => patchLater({ count: v }, 'count')}
-        />
-        <NumberControl
-          label="批次"
-          value={data.batch}
-          max={100}
-          dataKey="batch"
-          onChange={(v) => patchLater({ batch: v }, 'batch')}
         />
         {/*
           运行按钮照抄大雄的形态（带图标 + 主色实底），但**如实禁用**：

@@ -9451,6 +9451,8 @@ async function g67(browser) {
       start: g('[data-loop-number-bar="loopStart"]'),
       count: g('[data-loop-number-bar="count"]'),
       batch: g('[data-loop-number-bar="batch"]'),
+      run: g('[data-loop-run]'),
+      footerTop: el.querySelector('[data-loop-footer]')?.getBoundingClientRect().top ?? null,
       startLabel: el.querySelector('[data-loop-number-bar="loopStart"]')?.textContent?.trim() ?? '',
     }
   })
@@ -9464,17 +9466,55 @@ async function g67(browser) {
     centered(align.imagePanel, align.inner) && centered(align.promptPanel, align.inner),
     `inner=${JSON.stringify(align.inner)} img=${JSON.stringify(align.imagePanel)} prompt=${JSON.stringify(align.promptPanel)}`,
   )
+  /**
+   * ★ 底栏三格一排：**起始计数 / 次数 / 一键运行**（用户 2026-09-23）。
+   *
+   * 批次**不在**这一排 —— 它已挪回图片面板（「批次」说的是每轮取几张图，
+   * 属于图片通道）。所以这里比的是 start / count / run 三者的 y 与 x 顺序。
+   */
   rec(
     g,
-    '★ 起始计数 / 次数 / 批次 三格同一排',
-    !!align.start && !!align.count && !!align.batch &&
+    '★ 底栏三格一排：起始计数 / 次数 / 一键运行',
+    !!align.start && !!align.count && !!align.run &&
       align.start.top === align.count.top &&
-      align.count.top === align.batch.top &&
+      align.count.top === align.run.top &&
       align.start.left < align.count.left &&
-      align.count.left < align.batch.left,
-    `y: ${align.start?.top}/${align.count?.top}/${align.batch?.top} x: ${align.start?.left}/${align.count?.left}/${align.batch?.left}`,
+      align.count.left < align.run.left,
+    `y: ${align.start?.top}/${align.count?.top}/${align.run?.top} x: ${align.start?.left}/${align.count?.left}/${align.run?.left}`,
   )
   rec(g, '★ 第一格标签是「起始计数」', align.startLabel.startsWith('起始计数'), align.startLabel)
+  // 两个通道都开时的高度，供后面「自适应」断言对比
+  const heightBothOn = Math.round((await node.boundingBox()).height)
+
+  /** ★ 批次回到图片面板里（与「起始计数 / 次数」分开） */
+  rec(
+    g,
+    '★ 批次在图片面板内，不混进底栏那排',
+    !!align.batch && !!align.imagePanel &&
+      align.batch.top >= align.imagePanel.top &&
+      align.batch.top < align.footerTop,
+    `batch.top=${align.batch?.top} panel.top=${align.imagePanel?.top} footer.top=${align.footerTop}`,
+  )
+  /**
+   * ★ 通道开关后节点高度自适应（关掉面板后下方不再空一大块）。
+   *
+   * 实测四态的内容高度差很大（都开 334 / 都关 129），此前节点固定 380，
+   * 关掉通道后最多空出 251px。现在切换时按目标状态收放高度。
+   */
+  await node.locator('[data-loop-toggle="image"]').click()
+  await node.locator('[data-loop-toggle="prompt"]').click()
+  await sleep(800)
+  const heightBothOff = Math.round((await node.boundingBox()).height)
+  rec(
+    g,
+    '★ 关掉两个通道后节点高度自动收拢（不留大块空白）',
+    heightBothOff < heightBothOn - 100,
+    `都开 ${heightBothOn} → 都关 ${heightBothOff}`,
+  )
+  // 还原成两个都开，后面的断言依赖提示词输入行在场
+  await node.locator('[data-loop-toggle="image"]').click()
+  await node.locator('[data-loop-toggle="prompt"]').click()
+  await sleep(800)
 
   // 清掉刚才为了触发溢出塞进去的长文本，免得影响后面的断言
   await node.locator('[data-loop-prompt="0"]').fill('')
