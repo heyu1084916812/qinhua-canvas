@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 循环节点视图（产品文档 §6.22）。
  *
  * 2026-09-23：按用户要求**复刻「大雄无限画布」的 smart-loop UI**。
@@ -82,44 +82,12 @@ export function LoopNodeView(props: NodeViewProps) {
     patchLater({ prompts: next }, `prompt:${i}`)
   }
 
-  /**
-   * 切换通道时**同步收放节点高度**（用户 2026-09-23：「节点的上下的距离完全自适应，
-   * 目前取消选中图片或者提示词的时候，下方会空很多出来」）。
-   *
-   * 实测四态的内容自然高度（`scripts/probe-loop-states.mjs`）：
-   *   两者都关 129 / 仅图片 211 / 仅提示词 252 / 两者都开 334
-   * 而节点固定 380 ⇒ 关掉通道后最多空出 251px。
-   *
-   * 做法：切换时按**目标状态**算出内容高度，把节点收到那个高度（加 16 余量）。
-   * 为什么不直接量 DOM：切换的一拍 DOM 还是旧状态，量到的是旧高度。
-   * 用查表 + 实测校准的常数，比「setTimeout 等下一帧再量」稳，
-   * 也避免因动画/字体加载造成的高度抖动。
-   *
-   * ⚠️ 这里**按目标状态直接设高**，不写「只在变矮时才改」。
-   * 曾那么写过，结果出现「仅提示词」被压到 137 而内容需要 252 —— 因为切到
-   * 提示词时节点还沿用着上一个更矮的状态。通道开关是**结构变化**，
-   * 结构变了就该按新结构给高度；用户的自由缩放仍可在之后随时进行。
-   */
-  const CHROME_H = 31 + 30 + 36 + 8 * 3 // 分段 + 开关行 + 底栏 + 三处间距
-  const heightFor = (useImage: boolean, usePrompt: boolean) => {
-    let h = CHROME_H
-    if (useImage) h += 74 + 8 // 图片面板（含批次与说明）+ 间距
-    if (usePrompt) h += 115 + 8 // 提示词面板 + 间距
-    return h + 16 // 上下各留 8 的余量，避免贴边
-  }
-
   const toggleChannel = (which: 'image' | 'prompt') => {
     const nextImage = which === 'image' ? !data.useImageInput : data.useImageInput
     const nextPrompt = which === 'prompt' ? !data.usePrompt : data.usePrompt
-    const want = heightFor(nextImage, nextPrompt)
     const patch: Partial<LoopData> =
       which === 'image' ? { useImageInput: nextImage } : { usePrompt: nextPrompt }
-    props.emit({
-      type: 'updateData',
-      patch: patch as never,
-      transient: false,
-      size: { w: props.node.w, h: want },
-    })
+    props.emit({ type: 'updateData', patch: patch as never, transient: false })
   }
 
   const p = normalizeLoopParams(data)
@@ -139,8 +107,56 @@ export function LoopNodeView(props: NodeViewProps) {
    */
   const canRun = !!props.hasRunnableDownstream
 
+  /**
+   * 节点高度**跟随内容**（用户 2026-09-24：「上下的距离完全自适应」）。
+   *
+   * 前两版都用**查表**：按「哪些通道开着」取一个高度常数写回节点。查表法的
+   * 致命弱点是**常数会过期** —— 批次挪回图片面板、底栏改竖排、缩略图条出现与否，
+   * 任何一处布局变了表就偏了，而偏了的表现正是用户报的「内容被裁掉」。
+   * 这已经是第二次栽在同一个地方，所以这次彻底不用常数：
+   *
+   *  - 内容包进 `data-loop-content`（只包内容，不含 `.card` 的 padding）；
+   *  - `ResizeObserver` 盯它的实际高度，超出节点时把节点高度写回（+ padding + 边框）。
+   * 布局再怎么改，量出来的永远是真实值 —— 没有常数，也就没有过期。
+   *
+   * **双向跟随**（放大与缩小都做）：用户要的是「上下的距离完全自适应」，
+   * 只放大不缩小会让关掉通道后底部留一大块空白 —— 那正是上一轮他报过的问题。
+   *
+   * 与「用户手动拉高」的关系：手动拉高后，节点高度 > 内容高度，这里会把它压回内容高。
+   * 这是**有意**的 —— 循环节点是参数卡，高度跟着内容才对；要留白可以随时再拉。
+   * 反过来若只收不放（或只放不收），两个方向里总有一个会立刻违背「自适应」。
+   */
+  const contentRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const content = contentRef.current
+    if (!content) return
+    const nodeEl = content.closest<HTMLElement>('[data-node-id]')
+    if (!nodeEl) return
+
+    const sync = () => {
+      const nodeRect = nodeEl.getBoundingClientRect()
+      const contentRect = content.getBoundingClientRect()
+      // 18 = .card 上下 padding（8×2）+ 节点框 1px 边框 ×2
+      const needed = Math.ceil(contentRect.height) + 18
+      // 容差 4px：避免因亚像素取整在临界点反复抖动（放大 → 重排 → 又变小 → 再放大）
+      if (Math.abs(nodeRect.height - needed) > 4) {
+        props.emit({
+          type: 'updateData',
+          patch: {},
+          transient: true,
+          size: { w: props.node.w, h: needed },
+        })
+      }
+    }
+    sync()
+    const ro = new ResizeObserver(sync)
+    ro.observe(content)
+    return () => ro.disconnect()
+  }, [props.node.w, props.emit])
+
   return (
     <div className={styles.card} data-loop-node>
+      <div className={styles.content} ref={contentRef} data-loop-content>
       {/* ① 循环 / 并发：两格分段 */}
       <div className={styles.row}>
         <div className={styles.seg} role="group" aria-label="循环方式">
@@ -334,6 +350,7 @@ export function LoopNodeView(props: NodeViewProps) {
           <IconWorkflow />
           <span>一键运行</span>
         </button>
+      </div>
       </div>
     </div>
   )

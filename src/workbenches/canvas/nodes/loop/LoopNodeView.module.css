@@ -17,22 +17,22 @@
   padding: var(--space-2) var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  /* 间距由 .content 承担（卡片只包一层内容，双份 gap 会把各块撑开一倍） */
   font-family: var(--font-sans);
   color: var(--text-1);
-  /*
-   * ⚠️ **不能用 overflow 裁剪**（用户 2026-09-23 报「数字菜单被节点容器裁剪」）。
-   *
-   * 数字控件的快捷档位是浮层，它会**向上/向下溢出节点边界**才能完整显示。
-   * 只要这里写了 `overflow-y: auto` 或 `hidden`，浮层就会被裁掉一半——
-   * 档位点不到，功能直接失效。
-   *
-   * 代价是：节点被用户拖得比内容还矮时，内容会溢出到框外而不是出现滚动条。
-   * 这是**有意的取舍**——浮层可用性优先于极端尺寸下的观感，且节点高度
-   * 默认按内容给足（见 NODE_MINIMUMS.loop），正常不会撞到。
-   */
   overflow: visible;
   justify-content: flex-start;
+}
+
+/*
+ * 内容包裹层：ResizeObserver 量它的实际高度来写回节点高度。
+ * 不需要样式，纯结构层（见 LoopNodeView.tsx 里那段 effect 的说明）。
+ */
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
 }
 
 .row {
@@ -227,6 +227,20 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  /*
+   * 数字控件**占满一行**（用户 2026-09-24：「批次的长度要和这个 div 容器这么长，
+   * 不要现在的一个小按钮」）。
+   *
+   * `.mini` 本身是 flex-wrap：子项不声明 flex-basis 时就按内容宽收缩，
+   * 于是批次缩成一个小胶囊，而它上下的缩略图行、说明文字都是整行宽 —— 视觉断层。
+   * 让 `.numControl` 拉满后，胶囊与面板同宽，也和大雄原版
+   * （`.loop-smart-mini .loop-number-control { flex:1 1 100% }`）一致。
+   */
+}
+
+.mini .numControl {
+  flex: 1 1 100%;
+  min-width: 0;
 }
 
 .note {
