@@ -6,6 +6,8 @@ import { screenToWorld } from '../../../domain/canvas/geometry/coords'
 import { linkMenuSections, type LinkMenuItem } from '../../../domain/canvas/menu/linkMenu'
 import { NODE_MINIMUMS } from '../../../domain/canvas/layout/constants'
 import { createId } from '../../../shared/id'
+import { useChannels } from '../../../app/providers/ChannelStoreProvider'
+import { applyDefaults, resolveDefaults } from '../../../features/canvas/createNodeWithDefaults'
 import {
   IconBatch,
   IconBoard,
@@ -61,6 +63,8 @@ const MARGIN = 8
 export function LinkMenu() {
   const store = useCanvasStore()
   const graph = useGraph()
+  /** 新建节点要带默认配方（用户 2026-09-23：三个入口必须同源） */
+  const channels = useChannels()
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ w: 180, h: 0 })
   const menu = useSyncExternalStore(store.subscribe, store.getLinkMenu, store.getLinkMenu)
@@ -119,7 +123,7 @@ export function LinkMenu() {
     })
   }
 
-  const runItem = (item: LinkMenuItem) => {
+  const runItem = async (item: LinkMenuItem) => {
     const a = item.action
     if (a.kind === 'connect') {
       const source = menu.side === 'output' ? menu.nodeId : a.nodeId
@@ -130,6 +134,16 @@ export function LinkMenu() {
       if (!at) return
       const min = NODE_MINIMUMS[a.type]
       /**
+       * 默认配方先在**事务外**异步解析（用户 2026-09-23）。
+       *
+       * `beginPlan` / `endPlan` 之间必须同步——中间一旦 await，事务边界被让出，
+       * 「建节点 + 连线」就不再是一次撤销。所以先取数据、再进事务。
+       *
+       * 此前这里直接裸 `node.create`（data 为空）⇒ 拖线建出来的生成节点
+       * 没有默认渠道 / 模型，「改参数就记配方」也因守卫缺渠道而记不上。
+       */
+      const data = await resolveDefaults({ channels, type: a.type })
+      /**
        * 建节点 + 连线合成**一步撤销**（§6.3「一次操作 = 一次撤销步骤」）。
        *
        * 分两步的话，撤销一次会留下一个孤零零的新节点。关键在 `endPlan()` 的位置：
@@ -137,20 +151,19 @@ export function LinkMenu() {
        * `edge.connect` **之后**才结束计划——先结束就等于白开，撤销仍然分两步。
        */
       store.beginPlan(`link:${createId('link')}`, '新建并连接')
-      const res = store.dispatch({
-        kind: 'node.create',
+      const createdId = applyDefaults({
+        store,
+        channels,
         projectId: graph.projectId,
         type: a.type,
         at: { x: at.x - min.w / 2, y: at.y - min.h / 2 },
+        data,
       })
-      const created = res.patches.find(
-        (p) => p.op === 'upsert' && p.table === 'nodes',
-      ) as unknown as { row: { id: string } } | undefined
-      if (created) {
-        const source = menu.side === 'output' ? menu.nodeId : created.row.id
-        const target = menu.side === 'output' ? created.row.id : menu.nodeId
+      if (createdId) {
+        const source = menu.side === 'output' ? menu.nodeId : createdId
+        const target = menu.side === 'output' ? createdId : menu.nodeId
         store.dispatch({ kind: 'edge.connect', source, target })
-        store.setSelection([created.row.id])
+        store.setSelection([createdId])
       }
       store.endPlan()
     }

@@ -12,6 +12,8 @@ import { screenToWorld } from '../../../domain/canvas/geometry/coords'
 import { fitCanvasView } from '../surface/fitView'
 import { NODE_MINIMUMS } from '../../../domain/canvas/layout/constants'
 import { createId } from '../../../shared/id'
+import { useChannels } from '../../../app/providers/ChannelStoreProvider'
+import { createNodeWithDefaults } from '../../../features/canvas/createNodeWithDefaults'
 import styles from './ContextMenu.module.css'
 import {
   IconBatch,
@@ -53,6 +55,8 @@ export function ContextMenu() {
   const store = useCanvasStore()
   const graph = useGraph()
   const exec = useCanvasExecution()
+  /** 新建节点要带默认配方（用户 2026-09-23：三个入口必须同源） */
+  const channels = useChannels()
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ w: 180, h: 0 })
 
@@ -144,16 +148,18 @@ export function ContextMenu() {
           { x: r.left, y: r.top, w: r.width, h: r.height },
         )
         const min = NODE_MINIMUMS[a.type]
-        const res = store.dispatch({
-          kind: 'node.create',
+        /**
+         * 走统一入口（用户 2026-09-23）：此前这里是裸 `node.create`、
+         * data 为空 ⇒ 右键建出来的生成节点没有默认渠道 / 模型，
+         * 后面「改参数就记配方」也因守卫缺渠道而一条都记不上。
+         */
+        void createNodeWithDefaults({
+          store,
+          channels,
           projectId: graph.projectId,
           type: a.type,
           at: { x: world.x - min.w / 2, y: world.y - min.h / 2 },
         })
-        const created = res.patches.find(
-          (p) => p.op === 'upsert' && p.table === 'nodes',
-        ) as unknown as { row: { id: string } } | undefined
-        if (created) store.setSelection([created.row.id])
       } else if (a.kind === 'paste') {
         // 粘贴在**右键那一点**（§4.1 菜单锚点即落点；快捷键则落在鼠标位置）
         const el = document.querySelector<HTMLElement>('[data-canvas-surface]')

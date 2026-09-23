@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M1 真机冒烟：把「单测 + SSR 冒烟」覆盖不到的浏览器内交互跑一遍。
  * 用法：先 `npm run dev`，再 `node scripts/smoke.mjs`
  * 产物：.playwright-verify/*.png 截图 + 控制台结果表
@@ -9749,13 +9749,151 @@ async function g69(browser) {
 }
 
 /**
+ * G70 新建节点的**所有入口**都要带默认配方（用户 2026-09-23 实测报）。
+ *
+ * 用户反复报「改了参数，新建还是没带上」。查下来是**入口不一致**：
+ *   1. 左栏「＋」菜单          —— 带默认配方（唯一一个）
+ *   2. 画布空白**右键**菜单     —— 裸 node.create，data 为空
+ *   3. 拖线到空白「新建并连接」—— 同样裸 node.create
+ *
+ * 从 2 / 3 建出来的节点没有渠道与模型，用户在它上面改参数时，
+ * 配方守卫（要求渠道 + 模型齐全）一条都记不上 ⇒ 表现就是「改了参数没带上」。
+ *
+ * 本组把三个入口各建一次，断言**每个入口建出来的节点都带默认渠道与模型**。
+ * 这是「同一个功能有 N 个入口、却只在其中一个生效」这类缺陷的定点回归。
+ */
+async function g70(browser) {
+  const g = 'G70 新建入口一致性'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(500)
+  await page.locator('[data-template="blank"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  const readNodes = () =>
+    page.evaluate(async () => {
+      const dbs = await indexedDB.databases()
+      for (const info of dbs) {
+        if (!info.name) continue
+        const db = await new Promise((res, rej) => {
+          const rq = indexedDB.open(info.name)
+          rq.onsuccess = () => res(rq.result)
+          rq.onerror = () => rej(rq.error)
+        })
+        if (!db.objectStoreNames.contains('nodes')) { db.close(); continue }
+        const nodes = await new Promise((res) => {
+          const tx = db.transaction('nodes', 'readonly')
+          const rq = tx.objectStore('nodes').getAll()
+          rq.onsuccess = () => res(rq.result)
+          rq.onerror = () => res([])
+        })
+        db.close()
+        return nodes.map((n) => ({
+          id: n.id,
+          channelId: n.data?.channelId ?? '',
+          model: n.data?.model ?? '',
+        }))
+      }
+      return []
+    })
+  const ids = () =>
+    page.locator('[data-node-id]').evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+
+  // ── 入口 1：左栏「＋」菜单 ──
+  {
+    const before = await ids()
+    await page.locator('[data-toolbar-add]').click()
+    await sleep(300)
+    await page.locator('[data-toolbar-menu-item="generation"]').click()
+    await sleep(1400)
+    const id = (await ids()).find((i) => !before.includes(i))
+    const n = (await readNodes()).find((x) => x.id === id)
+    rec(g, '左栏「＋」入口：带默认渠道与模型', !!n?.channelId && !!n?.model, `ch=${n?.channelId} model=${n?.model}`)
+  }
+
+  // ── 入口 2：画布空白**右键**菜单 ──
+  {
+    const before = await ids()
+    const surface = await page.locator('[data-canvas-surface]').boundingBox()
+    /**
+     * 落点必须是**真的空白**：前两个入口已经建过节点，固定坐标很容易压在节点上
+     * （那时弹的是节点菜单，自然找不到 `create:generation`）。
+     * 这里取画布左下角——节点默认落在视口中心，左下角是安全的。
+     */
+    await page.mouse.click(surface.x + 60, surface.y + surface.height - 60, { button: 'right' })
+    await sleep(600)
+    let item = page.locator('[data-context-menu-item="create:generation"]')
+    if ((await item.count()) === 0) {
+      // 兜底：换个更靠边的空白点再试一次（画布尺寸 / 平移可能不同）
+      await page.keyboard.press('Escape')
+      await page.mouse.click(surface.x + surface.width - 60, surface.y + surface.height - 60, { button: 'right' })
+      await sleep(600)
+      item = page.locator('[data-context-menu-item="create:generation"]')
+    }
+    if ((await item.count()) > 0) {
+      await item.click()
+      await sleep(1500)
+      const id = (await ids()).find((i) => !before.includes(i))
+      const n = (await readNodes()).find((x) => x.id === id)
+      rec(g, '★ 右键菜单入口：带默认渠道与模型', !!n?.channelId && !!n?.model, `ch=${n?.channelId} model=${n?.model}`)
+    } else {
+      rec(g, '★ 右键菜单入口：带默认渠道与模型', false, '右键菜单项 create:generation 不存在')
+      await page.keyboard.press('Escape')
+    }
+  }
+
+  // ── 入口 3：拖线到空白「新建并连接」 ──
+  {
+    const before = await ids()
+    // 从第一个节点的输出端口拖到空白处松手 → 弹出新建并连接菜单
+    const srcNode = page.locator('[data-node-id]').first()
+    const box = await srcNode.boundingBox()
+    const outPort = srcNode.locator('[data-port="output"]').first()
+    const ob = (await outPort.count()) > 0 ? await outPort.boundingBox() : null
+    if (box && ob) {
+      await page.mouse.move(ob.x + ob.width / 2, ob.y + ob.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(box.x + 260, box.y + 380, { steps: 12 })
+      await page.mouse.move(box.x + 300, box.y + 420, { steps: 8 })
+      await page.mouse.up()
+      await sleep(700)
+    }
+    const lnk = page.locator('[data-link-menu-item="create:generation"]')
+    if ((await lnk.count()) > 0) {
+      await lnk.click()
+      await sleep(1600)
+      const id = (await ids()).find((i) => !before.includes(i))
+      const n = (await readNodes()).find((x) => x.id === id)
+      rec(g, '★ 拖线新建入口：带默认渠道与模型', !!n?.channelId && !!n?.model, `ch=${n?.channelId} model=${n?.model}`)
+    } else {
+      // 端口或菜单锚点不同：如实记为「未覆盖」，而不是假装通过
+      const items = await page
+        .locator('[data-link-menu-item]')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('data-link-menu-item')))
+      rec(g, '★ 拖线新建入口：带默认渠道与模型', false, `未出现新建菜单，项=${JSON.stringify(items)}`)
+      await page.keyboard.press('Escape')
+    }
+  }
+
+  await page.screenshot({ path: `${OUT}/86-g70-entry-parity.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+/**
  * 已从全量移除的组（测的都是已不存在的功能，继续跑只会拿「它没出现」当失败）：
  * - g22：版本历史（§6.21 于 2026-09-16 下线）
  * - g41：陈旧标记与按范围重跑（2026-09-17 下线：橘点、整条流程重跑、仅刷新陈旧、全图重跑）
  * - g50 / g54：结果组折叠与子结果交互（2026-09-17 结果组整体下线）
  * 「运行画板产生产物」改由 G21 覆盖（断言已从结果组改为承载节点）。
  */
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

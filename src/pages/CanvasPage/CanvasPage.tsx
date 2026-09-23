@@ -20,12 +20,11 @@ import { CanvasTopBar } from './CanvasTopBar'
 import { screenToWorld } from '../../domain/canvas/geometry/coords'
 import { NODE_MINIMUMS } from '../../domain/canvas/layout/constants'
 import { assetNodeSize } from '../../domain/canvas/layout/assetNodeSize'
-import { newGeneratingNodeData } from '../../domain/canvas/nodeSpecs/newNodePreset'
+import { createNodeWithDefaults } from '../../features/canvas/createNodeWithDefaults'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
 import { createAssetNode, importAssetFile, isImportableMedia } from '../../features/canvas/importAsset'
 import { seedTemplate, type TemplateId } from '../../state/project/templates'
-import type { GenerationData, NodeSnapshot, NodeType } from '../../domain/canvas/model/node'
-import { generationParams } from '../../domain/canvas/nodeSpecs/params'
+import type { NodeSnapshot, NodeType } from '../../domain/canvas/model/node'
 import type { Edge } from '../../domain/canvas/model/edge'
 import styles from './CanvasPage.module.css'
 
@@ -220,57 +219,23 @@ function CanvasProject({ projectId }: { projectId: string }) {
      * 新节点自身还没有渠道 / 模型，传空对象即可——解析链会走
      * 「该渠道记录 → 第一个可用渠道的首模型」那两档。
      */
-    if (type === 'prompt') {
-      const recipe = await channels.defaultForNewNode({}, 'chat')
-      const promptData = recipe
-        ? { channelId: recipe.channelId, model: recipe.model }
-        : {}
-      const res = store.dispatch({
-        kind: 'node.create',
-        projectId,
-        type,
-        at: { x: c.x - min.w / 2, y: c.y - min.h / 2 },
-        data: { text: '', upstreamPromptLinked: false, ...promptData },
-      })
-      const created = res.patches.find(
-        (p) => p.op === 'upsert' && p.table === 'nodes',
-      ) as unknown as { row: { id: string } } | undefined
-      if (created) store.setSelection([created.row.id])
-      return
-    }
-
-    const recipe = await channels.defaultForNewNode({})
-    const data = newGeneratingNodeData(type, recipe)
     /**
-     * 把这次**实际写进节点的**那套值记回配方（用户 2026-09-23）。
+     * 三个新建入口收敛到同一个实现（用户 2026-09-23）。
      *
-     * 目的：让「新建的节点参数来自上一次节点」这条链真正闭合。
-     *
-     * 只靠面板里的参数变更事件是不够的：用户新建节点后可能根本没动过面板，
-     * 那这个节点上的值就永远进不了配方；下一个节点又会去问解析链，
-     * 解析链只能退回「第一个渠道第一个模型」。
-     *
-     * 记的是 `data`（真正落进节点的值）而不是 `recipe`（解析结果）：
-     * 若某一步把值做了修正 / 过滤，配方要跟着真实结果走，否则又会分叉。
+     * 此前这里（左栏「＋」菜单）是唯一带默认配方与配方回写的入口；
+     * 右键菜单与拖线新建各写一份裸 `node.create` ⇒ 从那两个入口建出来的
+     * 生成节点没有渠道 / 模型，用户在它上面改参数也记不进配方。
+     * 现在统一走 `createNodeWithDefaults`，新增入口只需调它。
      */
-    if (recipe) {
-      const d = data as unknown as GenerationData
-      void channels.rememberRecipe(recipe.channelId, recipe.model, {
-        mode: d.mode,
-        ...generationParams(d),
-      })
-    }
-    const res = store.dispatch({
-      kind: 'node.create',
+    await createNodeWithDefaults({
+      store,
+      channels,
       projectId,
       type,
       at: { x: c.x - min.w / 2, y: c.y - min.h / 2 },
-      ...(Object.keys(data).length > 0 ? { data } : {}),
+      // 提示词节点要多带两个字段（正文空、未连上游）
+      extraData: type === 'prompt' ? { text: '', upstreamPromptLinked: false } : undefined,
     })
-    const created = res.patches.find(
-      (p) => p.op === 'upsert' && p.table === 'nodes',
-    ) as unknown as { row: { id: string } } | undefined
-    if (created) store.setSelection([created.row.id])
   }
 
   /**
