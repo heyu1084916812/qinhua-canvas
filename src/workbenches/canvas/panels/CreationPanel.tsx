@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore, useState } from 'react'
+import { useEffect, useRef, useSyncExternalStore, useState } from 'react'
 import { clampDuration, type ModelCapability } from '../../../domain/shared/capability'
 import type { GenerationData } from '../../../domain/canvas/model/node'
 import type { PanelCollection, PanelModel, PanelThumb } from './panelModel'
@@ -240,6 +240,13 @@ export function CreationPanel(props: CreationPanelProps) {
    * 已固化的值为准；用户改选时才会把选择写回节点（与 §6.8「所见即所发」一致）。
    */
   const [fallback, setFallback] = useState<{ channelId: string; model: string } | null>(null)
+  /**
+   * `onEvent` 是父组件每次渲染新建的内联函数，**不能进 effect 依赖**：
+   * 那会让这个「解析默认配方」的 effect 每渲染一次就跑一遍，进而反复派发写回事件，
+   * 把节点数据与撤销栈刷爆。用 ref 取最新引用，effect 只按真实业务值触发。
+   */
+  const onEventRef = useRef(onEvent)
+  onEventRef.current = onEvent
   const ownedChannelId = data.channelId ?? ''
   const ownedModel = data.model ?? ''
   /**
@@ -249,6 +256,25 @@ export function CreationPanel(props: CreationPanelProps) {
   const channelSignature = enabled
     .map((c) => `${c.id}:${c.models.length}:${c.modelCache?.length ?? 0}`)
     .join('|')
+  /**
+   * 兜底算出的渠道 / 模型**要写回节点**，不能只拿来显示。
+   *
+   * 用户 2026-09-23 实测报：「UI 层有默认模型，但实际没有；新建节点直接生成，
+   * 下方提示我没选渠道」。
+   *
+   * 根因是这里曾经只做「显示兜底」：`shownModel` 由解析链补齐，面板看着配好了，
+   * 而节点 data 里 `channelId` / `model` 仍是空 —— 执行层读的**只有节点 data**
+   * （`toRunRequest` 见到空渠道直接返回 null ⇒ 该节点不进计划）。于是界面与事实
+   * 分叉：面板显示一套，执行用另一套，点下去必然失败。
+   *
+   * 这与项目里反复出现的一类缺陷同源（「看着通了、其实没接上」）：**显示层替用户
+   * 做了决定，却没把决定落到数据上**。修法是让兜底落地 —— 解析链既然能算出一条可用
+   * 配方，就把它写进节点，显示与实际从此同源，点生成也用得上。
+   *
+   * 只在**节点自身为空**时写（`ownedChannelId` / `ownedModel` 都空），
+   * 所以不会覆盖用户的任何显式选择，也不参与「切类别清模型」那条路径
+   * （那条走 `ownedModel` 非空的分支，进不来）。
+   */
   useEffect(() => {
     let cancelled = false
     /**
@@ -270,6 +296,15 @@ export function CreationPanel(props: CreationPanelProps) {
       .then((recipe) => {
         if (cancelled || !recipe) return
         setFallback({ channelId: recipe.channelId, model: recipe.model })
+        /**
+         * 写回节点。
+         *
+         * 两个事件而不是一个：`setChannel` 的语义是「换渠道 ⇒ 清空模型」，
+         * 先发它、再发 `setModel`，落到 reducer 上正好是一次完整赋值，
+         * 复用既有事件、不新增命令（也就不用动 state 层与测试台）。
+         */
+        if (!ownedChannelId) onEventRef.current({ type: 'setChannel', channelId: recipe.channelId })
+        onEventRef.current({ type: 'setModel', model: recipe.model })
       })
       .catch(() => {
         /** 解析失败不该让面板崩：留空并照常渲染「还没配置渠道」的解释 */
@@ -418,6 +453,36 @@ export function CreationPanel(props: CreationPanelProps) {
    */
   const noModel = !promptMode && !noPlatform && !!activeChannel && models.length === 0
   const noModelHint = videoMode ? '该渠道还没勾选视频模型' : '该渠道还没勾选模型'
+
+  /**
+   * 「现在按下去一定不会有反应」这件事，按钮自己先说清楚（用户 2026-09-23 报「没有反应点了」）。
+   *
+   * 此前面板上方已经挂了「还没有配置任何渠道」的引导条，但**生成按钮仍然可点**：
+   * 点下去后执行层 `toRunRequest` 返回 null ⇒ 该节点不进执行计划 ⇒ `runNode` 见到
+   * `plan.tasks.length === 0` 直接 return，于是没有提示、没有报错、没有任何状态。
+   * 用户读到的就是「这个按钮是坏的」。
+   *
+   * 两类空缺都要拦：①没有可用渠道；②选了渠道但该分类下没勾选模型。
+   * 提示词节点（promptMode）走的是另一套 —— 它没有模型 chip，缺文本模型时按钮本就该置灰，
+   * 文案直接说「暂无可用文本模型」（§6.7）。
+   */
+  /**
+   * 只拦**确实必空**的两种：一个可用渠道都没有、以及渠道里这一类模型一个都没有。
+   *
+   * 刻意**不**拦「有模型可选但用户还没选」：那一条路是通的（点开 chip 选一个就能跑），
+   * 按钮灰掉反而把唯一的路堵死（G46 已踩过这个坑）。
+   */
+  const blockedReason = props.running
+    ? null
+    : noPlatform
+      ? platformGap
+      : activeChannel && models.length === 0
+        ? promptMode
+          ? '暂无可用文本模型'
+          : noModelHint
+        : null
+  const runDisabled = busyGlobal || blockedReason !== null
+  const runTitle = blockedReason ? `${blockedReason}，去后台设置后再生成` : runLabel
 
   return (
     <div
@@ -829,8 +894,9 @@ export function CreationPanel(props: CreationPanelProps) {
           ]
             .filter(Boolean)
             .join(' ')}
-          disabled={busyGlobal}
-          title={runLabel}
+          disabled={runDisabled}
+          data-panel-run-blocked={blockedReason ?? undefined}
+          title={runTitle}
           aria-label={runLabel}
           onClick={() => onEvent({ type: props.running ? 'cancel' : 'run' })}
         >

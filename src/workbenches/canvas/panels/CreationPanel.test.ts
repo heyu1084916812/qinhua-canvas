@@ -89,12 +89,78 @@ async function channelStore(
   return store
 }
 
+/**
+ * 「UI 有默认模型、实际没有」（用户 2026-09-23 实测报）。
+ *
+ * 现象：新建节点后，面板上看着渠道和模型都在；点生成 → 提示「还没有选择渠道」。
+ *
+ * 根因：面板的 `shownChannelId` / `shownModel` 是「节点值，为空则解析链兜底」，
+ * 而兜底**只影响显示、不写回节点**。执行层只读节点 data（`toRunRequest` 见空渠道
+ * 即返回 null，该节点不进计划）⇒ 显示与执行两套事实，点下去必然失败。
+ *
+ * 这一组断言钉住的就是「显示必须落到数据上」这条契约。
+ *
+ * 注意测试环境是 node（无 testing-library），只能断言**首屏渲染**；
+ * 写回发生在 effect 里，故这里用「解析链可算出配方」这一前提 + 源码契约来验证：
+ * 兜底存在时，面板必须把配方交给 onEvent，而不是自己留着显示。
+ */
+describe('CreationPanel · 兜底配方必须写回节点（不许只显示）', () => {
+  it('★ 节点为空但渠道有可用模型：面板把解析出的渠道 / 模型发出去（而不是只显示）', async () => {
+    const channels = await channelStore([
+      { enabled: true, models: [{ id: 'relay-img', category: 'image', inputTypes: ['text'], maxCount: 4 }] },
+    ])
+    // 走真实解析链，确认「节点为空 + 渠道可用」确实能算出配方 —— 这正是触发写回的前提
+    const recipe = await channels.defaultForNewNode({}, 'image')
+    expect(recipe).not.toBeNull()
+    expect(recipe?.channelId).toBe('ch-1')
+    expect(recipe?.model).toBe('relay-img')
+  })
+
+  it('★ 解析链算不出配方时（没有可用渠道）：不写回、也不显示假默认值', async () => {
+    const channels = await channelStore([])
+    const recipe = await channels.defaultForNewNode({}, 'image')
+    expect(recipe).toBeNull()
+    const html = render(channels)
+    // 没有可用渠道 ⇒ 面板显示引导条，且模型 chip 是禁用的占位，不是某个具体模型
+    expect(html).toContain('data-panel-setup-hint')
+    expect(html).not.toContain('relay-img')
+  })
+})
+
 describe('CreationPanel · 无可用平台时的引导条', () => {
   it('一个渠道都没有：说明「还没有配置任何渠道」，并给出可点击的出口', async () => {
     const html = render(await channelStore([]))
     expect(html).toContain('data-panel-setup-hint')
     expect(html).toContain('还没有配置任何渠道')
     expect(html).toContain('去后台设置')
+  })
+
+  /**
+   * 用户 2026-09-23 报「没有反应点了」。
+   *
+   * 此前面板上已经挂着「还没有配置任何渠道」，但生成按钮仍然可点；点下去后
+   * 执行计划为空被静默吞掉 ⇒ 没有提示、没有报错、没有状态，读起来就是按钮坏了。
+   * 修法分两层，这里钉住**面板这一层**：按钮自己必须是禁用态，并带上原因。
+   */
+  it('★ 一个渠道都没有：生成按钮禁用并写明原因（点下去必然无反应的情况不许再骗人）', async () => {
+    const html = render(await channelStore([]))
+    expect(html).toMatch(/<button[^>]*disabled[^>]*aria-label="生成当前节点"/)
+    expect(html).toContain('data-panel-run-blocked="还没有配置任何渠道"')
+  })
+
+  it('★ 渠道存在但未启用：生成按钮同样禁用（未启用 = 选不到 = 必然无反应）', async () => {
+    const html = render(await channelStore([{ enabled: false }]))
+    expect(html).toMatch(/<button[^>]*disabled[^>]*aria-label="生成当前节点"/)
+    expect(html).toContain('data-panel-run-blocked="已配置的渠道都未启用"')
+  })
+
+  it('渠道里这一类模型一个都没有：生成按钮禁用，文案按类别分叉', async () => {
+    const html = render(
+      await channelStore([{ enabled: true, models: [], modelCache: [] }]),
+      { ...generationSpec.createDefaultData(), channelId: 'ch-1' },
+    )
+    expect(html).toMatch(/<button[^>]*disabled[^>]*aria-label="生成当前节点"/)
+    expect(html).toContain('data-panel-run-blocked=')
   })
 
   it('渠道存在但未启用：文案切换为「已配置的渠道都未启用」', async () => {
@@ -111,6 +177,20 @@ describe('CreationPanel · 无可用平台时的引导条', () => {
     expect(html).not.toContain('data-panel-setup-hint')
     expect(html).toContain('data-param-chip="channel"')
     expect(html).toContain('中转站1')
+  })
+
+  it('渠道与模型齐备：生成按钮不因本改动被禁用', async () => {
+    const html = render(
+      await channelStore([
+        {
+          enabled: true,
+          models: [{ id: 'relay-img', category: 'image', inputTypes: ['text'], maxCount: 4 }],
+        },
+      ]),
+      { ...generationSpec.createDefaultData(), channelId: 'ch-1', model: 'relay-img', prompt: '一只猫' },
+    )
+    expect(html).not.toMatch(/<button[^>]*disabled[^>]*aria-label="生成当前节点"/)
+    expect(html).not.toContain('data-panel-run-blocked')
   })
 })
 

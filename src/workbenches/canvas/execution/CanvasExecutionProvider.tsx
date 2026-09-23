@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ChannelAdapter } from '../../../platform/channels/types'
 import { createChannelAdapter, type ResolvedChannelConfig } from '../../../platform/channels/registry'
 import { buildRunPlan, type CanvasRunTask } from '../../../features/canvas/execution/buildRunPlan'
+import { emptyPlanReason } from '../../../features/canvas/execution/emptyPlanReason'
 import { createCanvasPlacement } from '../../../features/canvas/execution/canvasPlacement'
 // 执行引擎与宿主上移共享层（M6-5 路径 B）：画布注入自己的命令类型与落位适配器
 import { useExecution } from '../../../features/shared/execution/useExecution'
@@ -297,6 +298,29 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
     [store, channels, repo, platform, startRun],
   )
 
+  /**
+   * 「计划为空」时给出可见反馈。
+   *
+   * 用户 2026-09-23 报「点生成没有反应」：节点若缺 channelId / model，规格的
+   * `toRunRequest` 返回 null ⇒ 该节点不进计划 ⇒ `runNode` 见到 `tasks.length === 0`
+   * 直接 return。全程没有 toast、没有日志、没有状态变化，用户只能得出「按钮坏了」。
+   *
+   * 面板侧已经把关（缺渠道 / 缺模型时按钮置灰并写明原因），这里是**第二道**：
+   * 入口不止面板一个（快捷键 R、右键菜单、节点自身按钮），任何一条走到这里都要说话。
+   *
+   * 文案按节点当前状态分叉，而不是给一句笼统的「无法生成」——用户需要知道去改什么。
+   */
+  const explainEmptyPlan = useCallback(
+    (nodeId: string) => {
+      const graph = store.getSnapshot()
+      const node = graph.nodes.find((n) => n.id === nodeId)
+      const reason = emptyPlanReason(node, channels.getState().channels, graph)
+      if (!reason) return
+      store.notify(`${reason}，无法生成`)
+    },
+    [store, channels],
+  )
+
   const runNode = useCallback(
     async (nodeId: string, opts?: { alt?: boolean }) => {
       const graph = store.getSnapshot()
@@ -306,10 +330,13 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         graph,
         opts?.alt ? 'single-alt' : 'single',
       )
-      if (plan.tasks.length === 0) return
+      if (plan.tasks.length === 0) {
+        explainEmptyPlan(nodeId)
+        return
+      }
       await launch(plan, nodeId)
     },
-    [store, launch],
+    [store, launch, explainEmptyPlan],
   )
 
   /** 运行整个画板：取画板子图 → 拓扑重跑（rerunAll） */
@@ -321,7 +348,10 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       const sub = boardSubgraph(graph, boardId)
       // 声明「这是容器运行」：子图里没有画板自己，plan 无从推断（§6.8：容器运行各自建结果组）
       const plan = buildRunPlan('board', { subgraph: sub, containerKind: 'board' }, graph, 'rerunAll')
-      if (plan.tasks.length === 0) return
+      if (plan.tasks.length === 0) {
+        store.notify('画板里没有可运行的生成节点')
+        return
+      }
       await launch(plan, boardId)
     },
     [store, launch],
