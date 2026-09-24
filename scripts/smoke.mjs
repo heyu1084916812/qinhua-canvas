@@ -3297,7 +3297,21 @@ async function g23(browser) {
 
   const taStyle = await panelTa().evaluate((el) => {
     const cs = getComputedStyle(el)
-    return { resize: cs.resize, scrollbarWidth: cs.scrollbarWidth, scrollbarColor: cs.scrollbarColor }
+    /**
+     * 读 `scrollbar-width` 的**计算值**：
+     *  - 我写过标准属性 → 计算值会是 `thin` / `auto`（非 `auto` 才算写过 thin）；
+     *  - 未写过 → `auto`。
+     *
+     * ⚠️ 这一条是本轮缺陷的**根因检查**：只要声明了标准的 `scrollbar-width`，
+     * 现代 Chromium 就切到内置滚动条，并**整组忽略 `::-webkit-scrollbar-*`** ——
+     * 于是「隐藏上下箭头」那条规则失效，用户看到的箭头又回来了。
+     * 所以这里必须断言它是 `auto`（= 我没写），否则箭头随时可能复活。
+     */
+    return {
+      resize: cs.resize,
+      scrollbarWidth: cs.scrollbarWidth,
+      scrollbarColor: cs.scrollbarColor,
+    }
   })
   rec(
     g,
@@ -3307,9 +3321,77 @@ async function g23(browser) {
   )
   rec(
     g,
-    '★ 文字框滚动条为细样式、轨道透明（无背景色）',
-    taStyle.scrollbarWidth === 'thin' && /rgba\(0, 0, 0, 0\)|transparent/.test(taStyle.scrollbarColor),
-    `width=${taStyle.scrollbarWidth} color=${taStyle.scrollbarColor}`,
+    '★★ 不声明标准 scrollbar-width（否则 Chromium 会忽略 webkit 规则、箭头复活）',
+    taStyle.scrollbarWidth === 'auto',
+    `scrollbar-width=${taStyle.scrollbarWidth}`,
+  )
+  /**
+   * webkit 伪元素规则必须真的在样式表里。
+   *
+   * 判据是「从注入的样式表里找得到 `.prompt::-webkit-scrollbar-button` 且带 display:none」——
+   * 直接读 CSSOM 查这条规则，比截图更早、也更稳（截图受 headless 的 overlay 滚动条影响，
+   * 那是**测不出来**的，本项目已踩过：headless 的 `offsetWidth - clientWidth` 恒为 0）。
+   */
+  const sbRules = await page.evaluate(() => {
+    const found = { button: null, bar: null, track: null }
+    /** 取文本框自身的类名（CSS module 哈希过），只认它那一组规则 */
+    const ta = document.querySelector('[data-panel-prompt]')
+    const promptClass = ta ? [...ta.classList].find((c) => c.includes('prompt')) ?? '' : ''
+    /**
+     * ⚠️ 选择器是 **CSS module 哈希过的**：`.prompt::-webkit-scrollbar` 实际长成
+     * `._prompt_xxxxx_123::-webkit-scrollbar`。所以不能用 `===` 比对整串，
+     * 必须按**后缀**匹配伪元素部分。
+     */
+    for (const sheet of document.styleSheets) {
+      let rules
+      try {
+        rules = sheet.cssRules
+      } catch {
+        continue
+      }
+      for (const rule of rules) {
+        const sel = rule.selectorText ?? ''
+        if (!sel.includes('::-webkit-scrollbar')) continue
+        /*
+         * 用**精确后缀**区分，别用 `includes('-button')`：
+         * 基类 `::-webkit-scrollbar` 是另外几条的前缀，
+         * includes 判断会把顺序搅乱（实测 base 规则被当成 button）。
+         */
+        /*
+         * 只认**提示词文本框自己**那组规则。
+         *
+         * 页面上还有别的组件也写了 `::-webkit-scrollbar`（如缩略图行、顶栏标签），
+         * 它们的规则会先被遍历到 —— 第一版就因此读到了 `display:none`、
+         * 而把真正的宽度规则漏过去。所以这里先按「这个元素自己的类名」过滤。
+         */
+        if (!sel.includes(promptClass)) continue
+        if (sel.endsWith('::-webkit-scrollbar-button')) found.button = rule.style.display
+        else if (sel.endsWith('::-webkit-scrollbar-track')) found.track = rule.style.background
+        else if (sel.endsWith('::-webkit-scrollbar-thumb:hover')) continue
+        else if (sel.endsWith('::-webkit-scrollbar-thumb')) continue
+        else if (sel.endsWith('::-webkit-scrollbar-corner')) continue
+        else if (sel.endsWith('::-webkit-scrollbar')) found.bar = rule.style.width
+      }
+    }
+    return found
+  })
+  rec(
+    g,
+    '★★ 箭头已隐藏（webkit button display:none）',
+    sbRules.button === 'none',
+    `scrollbar-button display=${sbRules.button}`,
+  )
+  rec(
+    g,
+    '★ 滚动条宽度已收窄（webkit 6px，屏幕上约 4.5px，系统默认 15px）',
+    sbRules.bar === '6px',
+    `width=${JSON.stringify(sbRules.bar)}`,
+  )
+  rec(
+    g,
+    '★ 轨道取节点内部同色（不是 transparent）',
+    !!sbRules.track && !/transparent|rgba\(0, 0, 0, 0\)/.test(sbRules.track),
+    `track=${sbRules.track}`,
   )
 
   await ctx.close()

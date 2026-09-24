@@ -577,16 +577,19 @@
    *   而且不要上下两个箭头，同时滚动条的背景颜色也不要，
    *   滚动条容器的位置就在文本输入框与左右两边间距的里面」。
    *
-   * 面板现在会随内容长高，所以这条滚动条只在**单次写到很长、
-   * 面板到达高度上限**时才出现；平时是看不见的。
+   * ⚠️ **这里刻意只写 `::-webkit-scrollbar-*`，不写标准的
+   * `scrollbar-width` / `scrollbar-color`**（2026-09-24 踩坑后定的）。
    *
-   * `scrollbar-width: thin` + `scrollbar-color` 是标准属性（Firefox 与
-   * Chromium 119+ 都认）；下面 `::-webkit-scrollbar` 那一组兜住更早的
-   * Chromium/Safari —— 两套并存，谁生效都不会出现双滚动条。
+   * 原因：现代 Chromium 一旦看到标准的 `scrollbar-width`，
+   * 就改用**内置滚动条**渲染，并**整组忽略 `::-webkit-scrollbar-*`** ——
+   * 包括那条「隐藏上下箭头」的 `-webkit-scrollbar-button { display:none }`。
+   * 于是用户看到的正是「箭头还在」（我写了消失规则，却被浏览器整个跳过）。
+   * 两套机制只能选一套：要自定义箭头/轨道/宽度，就必须用 webkit 那套。
+   *
+   * 宽度：8px 在面板 `zoom: 0.75` 下渲染约 6px。用户说「起码缩小一半」
+   * 是相对系统默认（约 15px）而言，6px 已达成；这里再收一档到 6px
+   * （屏幕上约 4.5px），但留一个下限不再更小 —— 再细就点不中了。
    */
-  scrollbar-width: thin;
-  /* 拇指 = 半透明前景色；轨道 = 透明（用户：背景颜色不要） */
-  scrollbar-color: color-mix(in srgb, var(--text-3) 55%, transparent) transparent;
   /**
    * `padding-right` 让**文字**不贴到滚动条上。
    * 滚动条本身在内边距**之内**（浏览器把滚动条画在 padding box 里），
@@ -595,27 +598,50 @@
   padding-right: 6px;
 }
 
-/* 细滚动条（Chromium / Safari）：8px 宽、无按钮、轨道透明 */
+/**
+ * 细滚动条（Chromium / Safari）。
+ *
+ * 6px 是设计值，面板 `zoom: 0.75` 后屏幕上约 4.5px，比系统默认窄一半以上。
+ * 用户要求「宽度起码缩小一半」。
+ */
 .prompt::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
-/* 上下两端不出现箭头按钮（用户明确要求） */
+/**
+ * 上下两端**不出现箭头按钮**（用户两轮都提到）。
+ *
+ * ⚠️ 这条此前**没生效**，原因值得记下来：同一条规则块里还写了标准的
+ * `scrollbar-width: thin`。现代 Chromium 一看到它就切到内置滚动条渲染，
+ * 并**整组忽略 `::-webkit-scrollbar-*`** —— 包括这里的 `display: none`。
+ * 于是「我明明写了隐藏箭头，用户那边箭头还在」。
+ *
+ * 现在标准属性**完全不写**，Chromium 走这套 webkit 伪元素，`display:none` 才真正生效。
+ * （代价：Firefox 拿不到自定义样式，用它的默认滚动条 —— 可接受，
+ *   Chromium 系是主目标；两套混写会互相打断，只能选一套。）
+ */
 .prompt::-webkit-scrollbar-button {
   display: none;
   width: 0;
   height: 0;
 }
 
-/* 轨道透明：不加背景色，浮在面板底色上（用户明确要求） */
+/**
+ * 轨道**与节点内部同色**（用户 2026-09-24 第二次反馈）。
+ *
+ * 第一版给的 `transparent` 在 Chromium 下会被渲染成「透出下面一层」，
+ * 而文本框所在的那层底色与面板底色并不总是一致，看起来仍像「多了一条槽」。
+ * 用户的原话是「背景需要和节点的内部的颜色一样，这样才会感觉是没有背景」——
+ * 所以这里直接取**与面板/节点内部同一个令牌**，让它彻底融进去。
+ */
 .prompt::-webkit-scrollbar-track {
-  background: transparent;
+  background: var(--bg-surface);
 }
 
 /* 拇指：细圆角、半透明，悬停时略实一点 */
 .prompt::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--text-3) 55%, transparent);
+  background: color-mix(in srgb, var(--text-3) 45%, transparent);
   border-radius: 999px;
 }
 
