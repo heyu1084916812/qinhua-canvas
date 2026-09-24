@@ -233,9 +233,19 @@ async function paramOptions(page, scope, name) {
   return empty > 0 ? [] : texts
 }
 
-/** 面板里的生成按钮（空闲态 aria-label=生成当前节点） */
+/**
+ * 面板里的生成按钮。
+ *
+ * 空闲态文案有两种（§6.7 / §6.12 / §6.22）：
+ *  - 「生成当前节点」——生成 / 批量（无下游）自己出图；
+ *  - 「生成下游节点」——提示词节点、以及**接了生成节点的批量 / 循环**，
+ *    点它是驱动下游节点（用户 2026-09-24 把批量归到这条语义）。
+ *
+ * 统一用 `data-panel-run` 找按钮，不按文案找：文案是产品的表达，
+ * 不该成为「按钮在不在」的判据（改文案就会误伤一大批用例）。
+ */
 function panelRunBtn(page) {
-  return page.locator('[data-creation-panel] button[aria-label="生成当前节点"]')
+  return page.locator('[data-creation-panel] [data-panel-run]')
 }
 
 /**
@@ -10243,13 +10253,246 @@ async function g70(browser) {
 }
 
 /**
+ * G71 批量节点接下游生成节点 → 「一键生成」驱动**下游节点**（用户 2026-09-24）。
+ *
+ * > 「批量节点的下游需要链接生图节点，所用的参数就是生图节点的参数，
+ * >  点击一键生成的时候参考普通节点生成的逻辑」
+ *
+ * 语义与循环节点、提示词节点同源：分发器自己不产图，点生成是**让下游那趟跑起来**。
+ *
+ * 本组要钉两件事：
+ *  ① 按钮文案从「生成当前节点」变成「生成下游节点」（用户靠它判断点下去会发生什么）；
+ *  ② 点下去真的跑下游、产物铺在**下游生成节点**这一侧，且用的是**下游自己的提示词**。
+ *
+ * 一条**很容易复发的陷阱**也在这里钉住：批量自跑一次后会留下承载节点，
+ * 它们带着渠道 / 模型、又和批量连着线 —— 若不排除，判据会把它们当成
+ * 「用户接的下游」，按钮被劫持到空提示词的承载节点上，点下去毫无反应。
+ */
+async function g71(browser) {
+  const g = 'G71 批量分发'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-template="blank"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  // ── 两张开外链素材拖进画布，再收进批量容器 ──
+  const dt = await page.evaluateHandle(
+    ({ b64 }) => {
+      const d = new DataTransfer()
+      const bin = atob(b64)
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      d.items.add(new File([bytes], 'a.png', { type: 'image/png' }))
+      d.items.add(new File([bytes], 'b.png', { type: 'image/png' }))
+      return d
+    },
+    { b64: PNG_IMPORT_BASE64 },
+  )
+  const sbox = await page.locator('[data-canvas-surface]').boundingBox()
+  await page.locator('[data-canvas-surface]').dispatchEvent('dragover', { dataTransfer: dt })
+  await page.locator('[data-canvas-surface]').dispatchEvent('drop', {
+    dataTransfer: dt,
+    clientX: sbox.x + 240,
+    clientY: sbox.y + 210,
+  })
+  await sleep(1200)
+  const assetIds = await page
+    .locator('[data-node-type="generation"]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+  rec(g, '拖入 2 张素材（形成 2 个集合成员）', assetIds.length === 2, `${assetIds.length} 张`)
+
+  await addNodeViaToolbar(page, 'batch')
+  const batch = page.locator('[data-node-type="batch"]').first()
+  const batchId = await batch.getAttribute('data-node-id')
+  for (const id of assetIds) await dragNode(page, id, batchId)
+  await sleep(600)
+  const childCount = await batch.locator('[data-batch-body]').getAttribute('data-batch-child-count')
+  rec(g, '两张素材都收进了批量容器', childCount === '2', `childCount=${childCount}`)
+
+  // ── ① 没有下游时：按钮是「生成当前节点」，点了自己出 N 份 ──
+  await selectSingleNode(page, batch)
+  await fillPanelPromptViaTextarea(page, '批量自跑')
+  rec(
+    g,
+    '① 批量（无下游）按钮文案是「生成当前节点」',
+    (await panelRunLabelOf(page)) === '生成当前节点',
+    await panelRunLabelOf(page),
+  )
+  const beforeSelf = await page.locator('[data-node-asset]').count()
+  await panelRunBtn(page).first().click()
+  await waitForAssetCount(page, beforeSelf + 2, 20000)
+  const afterSelf = await page.locator('[data-node-asset]').count()
+  rec(g, '① 批量自跑展开成 N 份（2 张 → 2 个承载节点带图）', afterSelf >= beforeSelf + 2, `${beforeSelf} → ${afterSelf}`)
+
+  /**
+   * 自跑留下的承载节点必须**不**让按钮换语义 —— 这里正是那个陷阱的回归点。
+   * 只有承载节点时，批量仍然是「生成当前节点」。
+   */
+  await selectSingleNode(page, batch)
+  rec(
+    g,
+    '★ 只有自跑产出的承载节点时，按钮仍是「生成当前节点」（没被劫持）',
+    (await panelRunLabelOf(page)) === '生成当前节点',
+    await panelRunLabelOf(page),
+  )
+
+  // ── ② 接一个真正配好的下游生成节点 ──
+  // 批量挪左下、生成节点摆右上：两端拉开，拖线才不会被判成拖到自身上
+  const bb = await batch.boundingBox()
+  await page.mouse.move(bb.x + 40, bb.y + 14)
+  await page.mouse.down()
+  await page.mouse.move(110, 470, { steps: 10 })
+  await page.mouse.up()
+  await sleep(500)
+  await addNodeViaToolbar(page, 'generation')
+  const gens = page.locator('[data-node-type="generation"]')
+  const gen = gens.nth((await gens.count()) - 1)
+  const genId = await gen.getAttribute('data-node-id')
+  {
+    const gb = await gen.boundingBox()
+    await page.mouse.move(gb.x + 40, gb.y + gb.height - 20)
+    await page.mouse.down()
+    // 往右下摆：往上会钻进顶栏浮层（顶栏占屏幕顶部约 112px），点选会被它吃掉
+    await page.mouse.move(760, 620, { steps: 12 })
+    await page.mouse.up()
+    await sleep(600)
+  }
+  // 下游生成节点的**自有提示词**（用户口径：「参数就是生图节点的参数」）
+  await selectSingleNode(page, gen)
+  await fillPanelPromptViaTextarea(page, '下游生成节点自己的提示词')
+
+  const edgesBefore = await page.locator('[data-edge]').count()
+  await gen.hover()
+  await sleep(300)
+  {
+    const ob = await batch.locator('[data-port="output"]').boundingBox()
+    const ib = await gen.locator('[data-port="input"]').boundingBox()
+    await page.mouse.move(ob.x + ob.width / 2, ob.y + ob.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(ob.x + 40, ob.y + 8, { steps: 5 })
+    await page.mouse.move(ib.x + ib.width / 2, ib.y + ib.height / 2, { steps: 14 })
+    await page.mouse.up()
+    await sleep(700)
+  }
+  rec(
+    g,
+    '批量 → 生成节点 能连上（分发通路的前提）',
+    (await page.locator('[data-edge]').count()) > edgesBefore,
+    `${edgesBefore} → ${await page.locator('[data-edge]').count()}`,
+  )
+
+  await selectSingleNode(page, batch)
+  const anchor = await page.locator('[data-panel-anchor]').getAttribute('data-panel-anchor').catch(() => null)
+  rec(g, '② 重新选中的确实是批量节点', anchor === batchId, `anchor=${anchor}`)
+  const label = await panelRunLabelOf(page)
+  rec(g, '★★ 接了下游后按钮文案变成「生成下游节点」', label === '生成下游节点', label)
+
+  const beforeRun = await page.locator('[data-node-asset]').count()
+  const genBefore = await page.locator('[data-node-type="generation"]').count()
+  await panelRunBtn(page).first().click()
+  await waitForAssetCount(page, beforeRun + 1, 25000)
+  await sleep(2000)
+  const afterRun = await page.locator('[data-node-asset]').count()
+  rec(
+    g,
+    '★★ 点批量 → 真的跑出下游那趟（图数增加）',
+    afterRun > beforeRun,
+    `图数 ${beforeRun} → ${afterRun}｜生成节点 ${genBefore} → ${await page.locator('[data-node-type="generation"]').count()}`,
+  )
+
+  // 产物承载节点挂在下游生成节点一侧，而不是批量节点一侧
+  const geom = await page.evaluate(
+    ({ gid, bid }) => {
+      const box = (id) => {
+        const el = document.querySelector(`[data-node-id="${id}"]`)
+        if (el) {
+          const b = el.getBoundingClientRect()
+          return { left: Math.round(b.left), right: Math.round(b.right) }
+        }
+        // 承载节点可能没 id 记录，退化成按标题找
+        return null
+      }
+      const carriers = [...document.querySelectorAll('[data-node-type="generation"]')]
+        .map((el) => ({
+          title: el.querySelector('[data-node-title]')?.textContent ?? '',
+          b: el.getBoundingClientRect(),
+        }))
+        .filter((x) => x.title.includes('输出'))
+        .map((x) => ({ title: x.title, left: Math.round(x.b.left), right: Math.round(x.b.right) }))
+      return { gen: box(gid), batch: box(bid), carriers }
+    },
+    { gid: genId, bid: batchId },
+  )
+  rec(
+    g,
+    '★★ 下游那趟的承载节点铺在**生成节点**右侧（不是批量节点右侧）',
+    !!geom.gen && geom.carriers.length > 0 && geom.carriers.every((c) => c.left >= geom.gen.right - 4),
+    `生成节点 right=${geom.gen?.right}｜承载 left=${geom.carriers.map((c) => c.left).join(',')}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/87-g71-batch-downstream.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+/** 选中单个节点（避开顶栏浮层与节点中央的上传 `+`） */
+async function selectSingleNode(page, node) {
+  const b = await node.boundingBox()
+  if (!b) return
+  const barBottom = await page
+    .evaluate(() => document.querySelector('[data-topbar]')?.getBoundingClientRect().bottom ?? 0)
+    .catch(() => 0)
+  const y = Math.min(Math.max(16, barBottom - b.y + 8), b.height - 14)
+  await node.click({ position: { x: 40, y } })
+  await sleep(600)
+}
+
+/** 面板生成按钮的当前 aria-label（空闲 / 取消 / 忙碌三态） */
+async function panelRunLabelOf(page) {
+  return page
+    .locator('[data-creation-panel] [data-panel-run]')
+    .first()
+    .getAttribute('aria-label')
+    .catch(() => null)
+}
+
+/** 面板提示词框写入并失焦落库（面板是「本地草稿 + 300ms 防抖」） */
+async function fillPanelPromptViaTextarea(page, text) {
+  const panel = page.locator('[data-creation-panel]')
+  await panel.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+  const ta = panel.locator('textarea').first()
+  if (!(await ta.count())) return
+  await ta.click()
+  await ta.fill(text)
+  await ta.blur()
+  await sleep(500)
+}
+
+/** 等带图节点数达到 n（超时即返回当前值，由调用方断言） */
+async function waitForAssetCount(page, n, timeout) {
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    if ((await page.locator('[data-node-asset]').count()) >= n) return
+    await sleep(400)
+  }
+}
+
+/**
  * 已从全量移除的组（测的都是已不存在的功能，继续跑只会拿「它没出现」当失败）：
  * - g22：版本历史（§6.21 于 2026-09-16 下线）
  * - g41：陈旧标记与按范围重跑（2026-09-17 下线：橘点、整条流程重跑、仅刷新陈旧、全图重跑）
  * - g50 / g54：结果组折叠与子结果交互（2026-09-17 结果组整体下线）
  * 「运行画板产生产物」改由 G21 覆盖（断言已从结果组改为承载节点）。
  */
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

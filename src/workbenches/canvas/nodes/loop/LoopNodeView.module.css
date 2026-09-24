@@ -605,7 +605,12 @@
   border-radius: calc(var(--radius-control) + 2px);
   background: var(--bg-surface);
   border: 1px solid var(--stroke);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18);
+  /*
+   * 浮层阴影走令牌，不写字面量（主题守卫会拦）。
+   * 早先这里硬编码了 `rgba(0,0,0,.18)`，深色主题下不会跟着变；
+   * `--shadow-float` 是项目里「浮层」的统一阴影，明暗两套各自定义。
+   */
+  box-shadow: var(--shadow-float);
   transform: translateX(-50%);
 }
 

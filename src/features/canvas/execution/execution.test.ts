@@ -733,6 +733,17 @@ describe('buildRunPlan + runEngine · 批量节点集合展开（§6.12）', () 
     // 两条提示词不同 → 素材必然不同（内容寻址下 hash 也不同）
     const hashes = results.map((r) => (r.data as unknown as Record<string, unknown>).assetHash)
     expect(new Set(hashes).size).toBe(2)
+    /**
+     * ★★ 承载节点必须带 `__carrierOf` 标记（用户 2026-09-24）。
+     *
+     * 没有它，「一键运行」的下游判据会把批量自己刚产出的承载节点
+     * 当成「用户接的下游生成节点」，按钮被劫持到那个空提示词的承载节点上
+     * （实测：点前后节点数与图数都不变）。这条断言就是那个修复的**数据依据**：
+     * 标记丢了，劫持立刻复现。
+     */
+    expect(
+      results.map((r) => (r.data as unknown as Record<string, unknown>).__carrierOf),
+    ).toEqual(['bp', 'bp'])
   })
 
   it('批量结论：集合为空时不产生任何调用', () => {

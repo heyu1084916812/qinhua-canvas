@@ -16,6 +16,7 @@ import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { usePromptTools } from '../../../features/shared/promptTools/usePromptTools'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { isRecipeEdit } from '../../../domain/project/generationPreset'
+import { hasRunnableDownstream } from '../../../features/canvas/execution/loopRun'
 
 /** 面板与节点底边的间距 */
 const PANEL_GAP = 12
@@ -162,6 +163,12 @@ export function PanelLayer({
         // 功能类别切换只给生成节点（§6.8）：分组 / 批量共用同一面板，但类别由内容决定
         showCategoryToggle={selectedNode.type === 'generation'}
         isBatch={selectedNode.type === 'batch'}
+        /**
+         * 分发器语义（用户 2026-09-24）：批量节点接了配好的下游生成节点时，
+         * 面板上的「生成」按钮实际跑的是**下游节点**（用它的参数）——
+         * 与循环节点、提示词节点同一条语义，文案要说清是「生成下游节点」。
+         */
+        runsDownstream={selectedNode.type === 'batch' && hasRunnableDownstream(selectedNode, graph)}
         promptTools={promptTools}
         onOpenSkills={onOpenSkills}
         promptImageCount={promptImageInputs.length}

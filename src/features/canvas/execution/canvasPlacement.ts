@@ -99,6 +99,26 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
       delete data.assetHash
       delete data.naturalSize
       data.thumbOrder = []
+      /**
+       * 打上「承载节点」来源标记（2026-09-24）。
+       *
+       * 分发器节点（批量 / 循环）跑完一次后，产物节点会带一条
+       * 「分发器 → 承载节点」的连线。那条线让承载节点在拓扑上成了分发器的下游，
+       * 而承载节点带着 `sourceData`（渠道 / 模型齐全）—— 于是「一键运行」
+       * 的下游判据（`hasRunnableDownstream`）会把**自己刚产出的承载节点**
+       * 当成「用户接的下游生成节点」，按钮被劫持到一个空提示词的节点上，
+       * 点下去什么都没有（实测：点前后节点数与图数都不变）。
+       *
+       * 用显式标记而不是「有没有连线」或「父节点是谁」来排除：
+       *  - 父节点关系靠不住 —— 顶层批量节点自己的 `parentId` 是 null，
+       *    它的承载节点同样落成顶层（`parentId: null`），与用户手建的下游无法区分；
+       *  - 连线关系正是要排除的那条，不能拿它当判据。
+       *
+       * 字段名与循环节点的运行期字段同一约定：`__` 前缀表示「引擎写的元信息」。
+       */
+      if (task.sourceType === 'batch' || task.sourceType === 'loop') {
+        data.__carrierOf = task.nodeId
+      }
 
       return {
         targetId,

@@ -23,6 +23,12 @@ const DATA_EXCLUDED: ReadonlySet<string> = new Set([
   'upstreamHidden', // 显示开关
   'hiddenIds',
   'hiddenPromptIds',
+  /**
+   * 承载节点来源标记（2026-09-24）：由落位写入的**引擎元信息**，
+   * 用于把「分发器自己产出的承载节点」从「用户接的下游生成节点」里排除。
+   * 纯标记，不参与「输入是否变了」的判定。
+   */
+  '__carrierOf',
 ])
 
 function stableStringify(value: unknown): string {

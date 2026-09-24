@@ -174,6 +174,17 @@ export interface CreationPanelProps {
    * 才有「跟着每张素材自己的比例出图」这回事；生成节点没有这个概念。
    */
   isBatch?: boolean
+  /**
+   * 选中的**分发器**节点（循环 / 批量）下游有可运行的生成节点。
+   *
+   * 有下游时，这个节点的「生成」按钮实际驱动的是**下游生成节点**
+   * （用它的参数），与提示词节点同一种语义——用户 2026-09-24：
+   * 「点击一键生成的时候参考普通节点生成的逻辑」。按钮文案必须说清这件事，
+   * 否则按下去看到下游在动，会以为按了个寂寞（同「假成功」那一类）。
+   *
+   * 由装配层按图算出并注入；面板保持纯视图、不读图（架构 §4.7）。
+   */
+  runsDownstream?: boolean
 }
 
 /**
@@ -504,7 +515,7 @@ export function CreationPanel(props: CreationPanelProps) {
     ? '取消当前生成'
     : busyGlobal
       ? '全局工作流运行中'
-      : promptMode
+      : promptMode || props.runsDownstream
         ? '生成下游节点'
         : '生成当前节点'
 
@@ -988,6 +999,7 @@ export function CreationPanel(props: CreationPanelProps) {
             .filter(Boolean)
             .join(' ')}
           disabled={runDisabled}
+          data-panel-run
           data-panel-run-blocked={blockedReason ?? undefined}
           title={runTitle}
           aria-label={runLabel}

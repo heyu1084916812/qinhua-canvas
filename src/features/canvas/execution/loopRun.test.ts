@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { loopUpstreamAssets, loopUpstreamPrompts, planLoopRounds, hasRunnableDownstream } from './loopRun'
+import {
+  candidateDownstream,
+  hasRunnableDownstream,
+  loopUpstreamAssets,
+  loopUpstreamPrompts,
+  planLoopRounds,
+} from './loopRun'
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import type { LoopData } from '../../../domain/canvas/model/node'
@@ -212,5 +218,146 @@ describe('hasRunnableDownstream · 一键运行的前置条件', () => {
   it('没有下游 → 不可运行', () => {
     const loop = loopNode()
     expect(hasRunnableDownstream(loop, graph([], [loop]))).toBe(false)
+  })
+
+  /**
+   * ★★ 承载节点不算「下游生成节点」（用户 2026-09-24 实测踩到）。
+   *
+   * 批量 / 循环跑完一次后，会新增承载 generation 节点并连一条
+   * `分发器 → 承载` 的线（§6.8）。承载节点带着源节点的 `sourceData`，
+   * 渠道 / 模型齐全 —— 若只看「下游 + 可运行」，它就会被误认成用户接的下游，
+   * 按钮随即被劫持到那个空提示词的承载节点上，点下去什么都不发生。
+   *
+   * 判据是落位时打的 `__carrierOf` 标记（`canvasPlacement.begin`）。
+   * 注意**不能**用「父节点是谁」：顶层分发器自己的 `parentId` 是 null，
+   * 它产出的承载节点同样落成顶层（实测 `parentId: null`）。
+   */
+  it('★★ 自己产出的承载节点（带 __carrierOf）不算下游 → 不可运行', () => {
+    const loop = loopNode()
+    const g = graph(
+      [{ source: 'loop-1', target: 'carrier-1' }],
+      [
+        loop,
+        {
+          id: 'carrier-1',
+          type: 'generation',
+          parentId: null,
+          data: { channelId: 'ch-1', model: 'm-1', __carrierOf: 'loop-1' },
+        },
+      ] as unknown as NodeSnapshot[],
+    )
+    expect(hasRunnableDownstream(loop, g)).toBe(false)
+  })
+
+  /** 承载节点之外还接了真的下游生成节点 → 仍然可运行（排除不能误伤） */
+  it('★ 承载节点 + 真的下游生成节点 → 仍可运行，且候选不含承载节点', () => {
+    const loop = loopNode()
+    const g = graph(
+      [
+        { source: 'loop-1', target: 'carrier-1' },
+        { source: 'loop-1', target: 'gen-1' },
+      ],
+      [
+        loop,
+        {
+          id: 'carrier-1',
+          type: 'generation',
+          data: { channelId: 'ch-1', model: 'm-1', __carrierOf: 'loop-1' },
+        },
+        { id: 'gen-1', type: 'generation', data: { channelId: 'ch-1', model: 'm-1' } },
+      ] as unknown as NodeSnapshot[],
+    )
+    expect(hasRunnableDownstream(loop, g)).toBe(true)
+    expect(candidateDownstream(loop, g).map((n) => n.id)).toEqual(['gen-1'])
+  })
+
+  /**
+   * 别人产出的承载节点**不该**被排除：`__carrierOf` 指向的是别的节点，
+   * 那它对本节点而言就是普通下游。判据按 id 比较，不是「带没带这个字段」。
+   */
+  it('★ 别的节点产出的承载节点（__carrierOf 指向他人）仍算下游', () => {
+    const loop = loopNode()
+    const g = graph(
+      [{ source: 'loop-1', target: 'carrier-x' }],
+      [
+        loop,
+        {
+          id: 'carrier-x',
+          type: 'generation',
+          data: { channelId: 'ch-1', model: 'm-1', __carrierOf: 'other-node' },
+        },
+      ] as unknown as NodeSnapshot[],
+    )
+    expect(hasRunnableDownstream(loop, g)).toBe(true)
+  })
+})
+
+/**
+ * 批量节点接下游生成节点（用户 2026-09-24）：
+ *
+ * > 「批量节点的下游需要链接生图节点，所用的参数就是生图节点的参数，
+ * >  点击一键生成的时候参考普通节点生成的逻辑」
+ *
+ * 批量与循环走同一份判据（都是「下游有配好的生成节点」），
+ * 所以这里只锁「批量节点也能用这套判据」+「自己产出的承载节点同样要排除」。
+ */
+describe('hasRunnableDownstream · 批量节点的下游判据', () => {
+  function graph(edges: { source: string; target: string }[], nodes: NodeSnapshot[]): GraphSnapshot {
+    return {
+      projectId: 'p1',
+      nodes,
+      edges: edges.map((e, i) => ({ id: `e${i}`, ...e })),
+    } as GraphSnapshot
+  }
+
+  function batchNode(overrides: Record<string, unknown> = {}): NodeSnapshot {
+    return {
+      id: 'batch-1',
+      type: 'batch',
+      x: 0,
+      y: 0,
+      w: 240,
+      h: 192,
+      parentId: null,
+      data: {
+        mode: 'image',
+        prompt: '统一要求',
+        childIds: [],
+        hiddenIds: [],
+        channelId: 'ch-1',
+        model: 'm-1',
+        ...overrides,
+      },
+    } as unknown as NodeSnapshot
+  }
+
+  it('★ 批量 → 配好的生成节点：判定可运行（按钮文案据此说「生成下游节点」）', () => {
+    const g = graph(
+      [{ source: 'batch-1', target: 'gen-1' }],
+      [
+        batchNode(),
+        { id: 'gen-1', type: 'generation', data: { channelId: 'ch-1', model: 'm-1' } },
+      ] as unknown as NodeSnapshot[],
+    )
+    expect(hasRunnableDownstream(batchNode(), g)).toBe(true)
+  })
+
+  it('★ 批量只有自己跑出来的承载节点 → 不可运行（不劫持到空提示词的承载节点）', () => {
+    const g = graph(
+      [{ source: 'batch-1', target: 'carrier-1' }],
+      [
+        batchNode(),
+        {
+          id: 'carrier-1',
+          type: 'generation',
+          data: { channelId: 'ch-1', model: 'm-1', __carrierOf: 'batch-1' },
+        },
+      ] as unknown as NodeSnapshot[],
+    )
+    expect(hasRunnableDownstream(batchNode(), g)).toBe(false)
+  })
+
+  it('★ 批量没有下游 → 不可运行（退回「在批量面板点生成」那条老路）', () => {
+    expect(hasRunnableDownstream(batchNode(), graph([], [batchNode()]))).toBe(false)
   })
 })

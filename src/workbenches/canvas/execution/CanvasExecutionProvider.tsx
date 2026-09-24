@@ -5,6 +5,7 @@ import { buildRunPlan, type CanvasRunTask, type RunPlan } from '../../../feature
 import { createId } from '../../../shared/id'
 import { emptyPlanReason } from '../../../features/canvas/execution/emptyPlanReason'
 import {
+  candidateDownstream,
   hasRunnableDownstream,
   loopUpstreamAssets,
   loopUpstreamPrompts,
@@ -518,6 +519,42 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       if (node?.type === 'loop') {
         await runLoop(node as NodeSnapshot<LoopData>, graph)
         return
+      }
+
+      /**
+       * 批量节点接到下游生成节点时也走**分发器**语义（用户 2026-09-24）：
+       *
+       * > 「批量节点的下游需要链接生图节点，所用的参数就是生图节点的参数，
+       * >  点击一键生成的时候参考普通节点生成的逻辑」
+       *
+       * 与循环节点同一条思路，但**不需要展开轮次**：批量的集合展开是既有能力 ——
+       * 下游生成节点的 `collectInputs` 本来就会把「上游是批量节点」包成
+       * 一个 `collection` 项（§6.12「作为上游：集合卡」），执行计划阶段按项展开成
+       * N 次调用，各铺一个承载节点。
+       *
+       * 所以这里只需把**起点换成下游生成节点**，其余（参数、提示词、比例跟随、
+       * 落位、连线、日志、撤销）全部走「生成节点自己跑一趟」那条既有链路。
+       *
+       * 为什么只在**有可运行下游**时才改道：批量节点没有下游时，
+       * 「在批量节点面板填提示词 + 参数，点生成 → 右侧出 N 个结果」是
+       * §6.12 场景 1 / 3 的既定行为，不能丢。两条路按「下游有没有配好的生成节点」二选一。
+       */
+      if (node?.type === 'batch' && hasRunnableDownstream(node, graph)) {
+        /**
+         * 用 `candidateDownstream` 而不是「直接下游里第一个生成节点」：
+         * 后者会把**批量自己产出的承载节点**也算进来（见该函数注释里
+         * 2026-09-24 那个「按钮被劫持到空提示词承载节点」的实测）。
+         */
+        const target = candidateDownstream(node, graph)[0]
+        if (target) {
+          const plan = buildRunPlan('node', { originNodeId: target.id }, graph, 'single')
+          if (plan.tasks.length === 0) {
+            explainEmptyPlan(target.id)
+            return
+          }
+          await launch(plan, target.id)
+          return
+        }
       }
 
       const plan = buildRunPlan(

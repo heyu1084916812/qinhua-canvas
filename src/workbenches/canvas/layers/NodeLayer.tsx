@@ -9,7 +9,6 @@ import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { describeError } from '../../../shared/result'
 import { indexEdgesByTarget, upstreamsFrom } from '../../../domain/canvas/graph/upstreamOf'
 import { hasRunnableDownstream } from '../../../features/canvas/execution/loopRun'
-import type { LoopData } from '../../../domain/canvas/model/node'
 import { upstreamImagesOf } from '../../../domain/canvas/graph/resultImages'
 import { indexNodes } from '../../../domain/canvas/model/graph'
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
@@ -225,15 +224,15 @@ export const NodeLayer = memo(function NodeLayer({
     return out
   })
   /**
-   * 循环节点的「下游有没有可运行的生成节点」。
+   * **分发器**节点（循环 / 批量）的「下游有没有可运行的生成节点」。
    *
-   * 只给循环节点算（其他类型不读这个值），但做成整图一次遍历、
+   * 只给这两类算（其他类型不读这个值），但做成整图一次遍历、
    * 与上面的 upstream* 同款 memo，避免每个节点各自扫一遍图。
    */
   const runnableDownstream = useStableGraphMemo(graph, (g) => {
     const out = new Map<string, boolean>()
     for (const n of g.nodes) {
-      if (n.type !== 'loop') continue
+      if (n.type !== 'loop' && n.type !== 'batch') continue
       /**
        * 复用 `hasRunnableDownstream` 而不是在这里再写一遍判断。
        *
@@ -241,7 +240,7 @@ export const NodeLayer = memo(function NodeLayer({
        * `canBuildRequest` 只问「节点类型是否可生成」，不看渠道 / 模型配没配，
        * 于是按钮亮着、点下去空跑。**同一个事实只允许一个来源**。
        */
-      out.set(n.id, hasRunnableDownstream(n as NodeSnapshot<LoopData>, g))
+      out.set(n.id, hasRunnableDownstream(n, g))
     }
     return out
   })
