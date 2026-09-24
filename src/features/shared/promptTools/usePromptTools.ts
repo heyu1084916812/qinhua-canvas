@@ -6,7 +6,7 @@ import {
   trimToolResult,
   type PromptToolAction,
 } from './promptTools'
-import { skillGuard, type Skill } from '../../../domain/prompt/skill'
+import { asAppError, describeError } from '../../../shared/result'
 
 /** 文本 LLM 调用契约（由宿主提供，如 CanvasExecutionApi.completeText） */
 export type PromptToolCompleteText = (req: {
@@ -32,8 +32,6 @@ export interface UsePromptToolsOptions {
 export interface UsePromptToolsResult {
   /** 点击入口：先过守卫（不通过则直接置 error），再发起请求 */
   run: (text: string, action: PromptToolAction) => void
-  /** 用用户自己的技能跑一次（用户 2026-09-24） */
-  runSkill: (text: string, skill: Skill) => void
   cancel: () => void
   status: 'idle' | 'running' | 'error'
   error: string | null
@@ -88,7 +86,22 @@ export function usePromptTools(opts: UsePromptToolsOptions): UsePromptToolsResul
           setStatus('idle')
           return
         }
-        setError(e instanceof Error ? e.message : String(e))
+        /**
+         * 归一化成**人话**再显示（用户 2026-09-24 截图报「面板里出现 `[channel] channel`」）。
+         *
+         * 渠道层抛的是 `ChannelError`，它的 `message` 是给开发者看的调试串
+         * （`[channel] channel`），直接 `e.message` 就把内部术语糊到用户脸上，
+         * 而且没有说明**该怎么办**。
+         *
+         * `asAppError` 会把 ChannelError 拆到它真正的 `appError` 载荷上，
+         * `describeError` 再翻成「渠道错误：…」这类可读文案 —— 别的地方
+         * （节点报错、画布提示条）都走这一对，这里此前是漏网的一处。
+         *
+         * 拿不到 AppError 结构时**仍要兜底**：抛的可能是任意异常（编程错误、
+         * 第三方库），那时把 message 原样显示比吞掉更有用。
+         */
+        const appError = asAppError(e)
+        setError(appError ? describeError(appError) : e instanceof Error ? e.message : String(e))
         setStatus('error')
       })
   }, [])
@@ -117,36 +130,6 @@ export function usePromptTools(opts: UsePromptToolsOptions): UsePromptToolsResul
     [invoke],
   )
 
-  /**
-   * 用**用户自己的技能**跑一次（用户 2026-09-24）。
-   *
-   * 与 `run` 唯一的差别是 `system` 来自技能正文，而不是内置常量；
-   * 可行性判断也换成 `skillGuard`（它读技能自己声明的输入要求）。
-   */
-  const runSkill = useCallback(
-    (text: string, skill: Skill) => {
-      const o = optsRef.current
-      if (!o.channelId || !o.model) {
-        setError('暂无可用文本模型：请先在创作面板选择平台与模型')
-        setStatus('error')
-        return
-      }
-      const guard = skillGuard(skill, { text, imageCount: o.imageInputs?.length ?? 0 })
-      if (guard) {
-        setError(guard)
-        setStatus('error')
-        return
-      }
-      invoke({
-        system: skill.content,
-        text,
-        // 技能声明需要图时才带图（`any` 也带上：那类技能通常要用图才发挥得出来）
-        withImages: skill.inputMode !== 'text',
-      })
-    },
-    [invoke],
-  )
-
   const cancel = useCallback(() => {
     abortRef.current?.abort()
     abortRef.current = null
@@ -154,5 +137,5 @@ export function usePromptTools(opts: UsePromptToolsOptions): UsePromptToolsResul
     setError(null)
   }, [])
 
-  return { run, runSkill, cancel, status, error }
+  return { run, cancel, status, error }
 }

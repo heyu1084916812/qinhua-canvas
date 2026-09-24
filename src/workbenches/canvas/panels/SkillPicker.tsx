@@ -19,19 +19,24 @@ export function SkillPicker({
   running,
   text,
   imageCount,
-  onRun,
+  selectedId,
+  onSelect,
   onOpenLibrary,
 }: {
   skills: Skill[]
   running: boolean
   text: string
   imageCount: number
-  onRun: (skill: Skill) => void
+  /** 当前选中的技能 id（`null` = 没选） */
+  selectedId?: string | null
+  /** 选中 / 取消选中（传 `null` 表示清除） */
+  onSelect: (skillId: string | null) => void
   /** 打开技能库（缺技能时的出口；不传则该入口不显示） */
   onOpenLibrary?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLSpanElement | null>(null)
+  const selected = skills.find((s) => s.id === selectedId) ?? null
 
   /** 点外部 / Esc 关闭（与数字控件的浮层同一套做法） */
   useEffect(() => {
@@ -62,8 +67,8 @@ export function SkillPicker({
         title={skills.length > 0 ? '用自己写的技能处理这段文本' : '还没有技能：去「后台设置 → 技能」添加'}
         onClick={() => setOpen((v) => !v)}
       >
-        技能
-        {skills.length > 0 && <span className={styles.count}>{skills.length}</span>}
+        {selected ? selected.name : '技能'}
+        {skills.length > 0 && !selected && <span className={styles.count}>{skills.length}</span>}
       </button>
 
       {open && (
@@ -95,21 +100,42 @@ export function SkillPicker({
             </div>
           ) : (
             <div className={styles.list}>
+              {/*
+                已选中时给一个**清除**项。没有它，用户选错了技能就退不回去
+                —— 只能去技能库里删掉那条，那是把「取消选择」这件事做成了破坏性操作。
+              */}
+              {selected && (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={false}
+                  className={styles.item}
+                  data-panel-skill-clear
+                  title="不使用技能，只用优化 / 翻译 / 反推"
+                  onClick={() => {
+                    onSelect(null)
+                    setOpen(false)
+                  }}
+                >
+                  <span className={styles.itemDesc}>不使用技能</span>
+                </button>
+              )}
               {skills.map((s) => {
                 const blocked = skillGuard(s, { text, imageCount })
+                const isOn = s.id === selectedId
                 return (
                   <button
                     key={s.id}
                     type="button"
                     role="option"
-                    aria-selected={false}
-                    className={styles.item}
+                    aria-selected={isOn}
+                    className={isOn ? `${styles.item} ${styles.itemOn}` : styles.item}
                     data-panel-skill-item={s.id}
                     disabled={!!blocked}
                     /* 悬停时把「为什么不能点」说出来，而不是让人猜 */
                     title={blocked ?? (s.description || s.name)}
                     onClick={() => {
-                      onRun(s)
+                      onSelect(isOn ? null : s.id)
                       setOpen(false)
                     }}
                   >

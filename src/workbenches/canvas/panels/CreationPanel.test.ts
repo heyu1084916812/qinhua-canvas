@@ -558,7 +558,7 @@ describe('CreationPanel · 提示词节点「反推」（§6.7）', () => {
           onClose: () => {},
           mode: 'prompt',
           promptImageCount: imageCount,
-          promptTools: { status: 'idle' as const, error: null, run: () => {}, runSkill: () => {} },
+          promptTools: { status: 'idle' as const, error: null, run: () => {} },
           }),
         ),
       ),

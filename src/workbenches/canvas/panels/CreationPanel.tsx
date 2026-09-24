@@ -8,7 +8,6 @@ import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { useSkills } from '../../../app/providers/SkillStoreProvider'
 import { useAsset } from '../hooks/useAsset'
 import type { PromptToolAction } from '../../../features/shared/promptTools/promptTools'
-import type { Skill } from '../../../domain/prompt/skill'
 import { ParamPicker } from './ParamPicker'
 import { SkillPicker } from './SkillPicker'
 import styles from './CreationPanel.module.css'
@@ -94,8 +93,6 @@ export interface PanelPromptTools {
   status: 'idle' | 'running' | 'error'
   error: string | null
   run: (text: string, action: PromptToolAction) => void
-  /** 用用户自己的技能跑一次（用户 2026-09-24） */
-  runSkill: (text: string, skill: Skill) => void
 }
 
 /**
@@ -960,7 +957,8 @@ export function CreationPanel(props: CreationPanelProps) {
               running={tools.status === 'running'}
               text={model.prompt}
               imageCount={props.promptImageCount ?? 0}
-              onRun={(skill) => tools.runSkill(model.prompt, skill)}
+              selectedId={model.selectedSkillId ?? null}
+              onSelect={(skillId) => onEvent({ type: 'selectSkill', skillId })}
               onOpenLibrary={props.onOpenSkills}
             />
             <button

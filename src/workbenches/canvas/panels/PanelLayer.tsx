@@ -140,6 +140,26 @@ export function PanelLayer({
   const screenX = (rect.x + rect.w / 2 - viewport.x) * viewport.zoom
   const screenY = (rect.y + rect.h - viewport.y) * viewport.zoom + PANEL_GAP
 
+  /**
+   * 面板可用的竖向空间 = 视口高度 − 锚点位置 − 底部留白（用户 2026-09-24 第 1 条）。
+   *
+   * 为什么不能只给面板写 `max-height: 80svh`：面板是**绝对定位在节点下方**的，
+   * 它的高度上限必须减去「锚点已经在屏幕的哪个位置」。实测：节点靠近屏幕下方时，
+   * 固定 80svh 的面板会直接伸出屏幕，参数行（含生成按钮）整个看不见 ——
+   * 用户连点生成都点不到。
+   *
+   * 于是把「还剩多少空间」算出来，用 CSS 变量交给面板自己约束：
+   * 空间够 → 面板按内容长高（用户要的自适应）；
+   * 空间不够 → 面板停在这个高度，里面滚（生成按钮始终留在可视区内）。
+   *
+   * 下限 220px：再小就没有可用性了，那时宁可让它伸出屏幕，
+   * 也不要压成一个只有两行高的条 —— 用户可以缩小画布或移动节点来腾地方。
+   */
+  const availableHeight = Math.max(
+    220,
+    (typeof window === 'undefined' ? 800 : window.innerHeight) - screenY - PANEL_GAP,
+  )
+
   return (
     <div
       className="panel-anchor"
@@ -149,6 +169,7 @@ export function PanelLayer({
         top: screenY,
         transform: 'translateX(-50%)',
         zIndex: 20,
+        ['--panel-available-h' as string]: `${availableHeight}px`,
       }}
       data-panel-anchor={selectedNode.id}
     >
@@ -381,6 +402,11 @@ function buildPanelModel(node: NodeSnapshot, graph: ReturnType<typeof useGraph>)
     prompt: node.type === 'prompt' ? ((node.data as PromptData).text ?? '') : data.prompt,
     linkedPromptCount,
     promptToggle: null,
+    /**
+     * 已选技能（用户 2026-09-24）：技能是「设定」，面板要显示**选了哪一条**，
+     * 否则用户看不出当前用的是哪个技能。
+     */
+    selectedSkillId: node.type === 'prompt' ? ((node.data as PromptData).skillId ?? null) : null,
   }
 }
 
@@ -552,6 +578,17 @@ function handlePanelEvent(
       break
     case 'run':
       void exec.runNode(node.id)
+      break
+    /**
+     * 选中 / 取消**技能**（用户 2026-09-24）。
+     *
+     * 这是**设定**，不是动作：只把「用哪条技能」写到节点上，不发任何请求。
+     * 生效时刻是下一次点生成（见 CanvasExecutionProvider 的 applySkillIfSelected）。
+     * 因此这里用 `transient: false` —— 选技能是一次明确的编辑，要能撤销。
+     */
+    case 'selectSkill':
+      if (node.type !== 'prompt') break
+      patch({ skillId: event.skillId ?? undefined } as Partial<GenerationData>)
       break
     case 'cancel':
       exec.cancel()

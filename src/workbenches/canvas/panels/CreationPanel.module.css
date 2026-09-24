@@ -18,14 +18,53 @@
   zoom: 0.75;
   width: 840px;
   /*
-   * 2026-09-19（用户第 2 条）：**宽度不动，高度加高到长宽比 21:9**。
-   * 840 ÷ (21/9) = 360px。此前高度是「由内容撑开」（实测约 240px，比例 3.5:1），
-   * 三个区域挤在一起；钉到 360px 后比例落在 21:9，纵向留出呼吸感。
-   * `zoom` 等比缩放，21:9 的比例在缩放前后不变（渲染 630 × 270）。
-   * 用 `height` 而非 `aspect-ratio`：宽度已被 `max-width` 在窄屏收窄，
+   * 高度**跟着内容走**（用户 2026-09-24 第 1 条）。
+   *
+   * 此前钉死 `height: 360px`（2026-09-19 为了让比例落在 21:9）。
+   * 代价是内容一多，面板自己不动、里面出现滚动条 —— 用户明确不要这个：
+   * 「我不想要文字太多的时候右边出现滚动条，自适应就好，包括其他的创作面板」。
+   *
+   * 现在改用 `min-height: 360px`：
+   *  - 内容少 → 仍是 21:9 那块「大面板」，观感不变；
+   *  - 内容多 → 面板长高，把内容装下，不出现滚动条。
+   *
+   * 为什么不用 `aspect-ratio`：宽度会被 `max-width` 在窄屏收窄，
    * aspect-ratio 会顺着窄屏把高度一起缩掉，反而丢掉「保持长度」的语义。
+   * 上界交给外层（面板是绝对定位的浮层，画布可视高度由它自己的计算约束）。
    */
-  height: 360px;
+  min-height: 360px;
+  /**
+   * 总高度**上限**（用户 2026-09-24 第 1 条的现实约束）。
+   *
+   * 只给内容设上限是不够的：面板挂 `min-height: 360px` 且会随内容长高，
+   * 一篇很长的提示词会把面板顶到屏幕外 —— 实测 30 行时参数行（含生成按钮）
+   * 直接跑出可视区，用户连按钮都点不到。
+   *
+   * `max-height` 用视口高度表达，留出上下各约 10% 的余量：
+   *  - 内容适中 → 面板在上下限之间自由长高（用户要的「自适应」）；
+   *  - 内容超长 → 面板停在屏幕内，多出来的部分由**文字框自己滚**
+   *    （这正是用户说的「文本输入框可以有滚动条」那种情形）。
+   *
+   * 用 `svh` 而不是 `vh`：移动端地址栏收起/展开时 `vh` 会跳，
+   * `svh` 取「最小视口高度」，面板不会因为地址栏而溢出。
+   */
+  /*
+   * 上限来自**锚点还剩多少空间**（PanelLayer 算好挂在 --panel-available-h）。
+   * 兜底 80svh 只是变量缺席时（SSR / 测试）的保守值。
+   */
+  max-height: var(--panel-available-h, 80svh);
+  /*
+   * ⚠️ 这里**不能**写 `overflow: auto/hidden`（踩过一次，G46 抓到）。
+   *
+   * 参数浮层（ParamPicker 的 `.popup`）是 `position: absolute` 的**面板后代**。
+   * 面板一旦成为滚动容器，浮层就会被它裁掉/随它滚动 ——
+   * 表现是「比例浮层点不中」（实测被画布节点拦截 pointer events）。
+   *
+   * 所以面板保持 `overflow: visible`，把「装不下」的责任交给**文字框**：
+   * 文字框有更小的 `max-height`，它会先滚（用户要的那种滚动条）。
+   * 面板自身高度由 `--panel-available-h` 约束，浮层因此永远有地方可画。
+   */
+  overflow: visible;
   max-width: calc(100vw - 48px);
   display: flex;
   flex-direction: column;
@@ -70,8 +109,19 @@
  * 素材行与参数行都是固定高度，只有提示词是用户可写的多行内容，让它长高最合理。
  * 不加这一段的话三段会仍按内容顶在上边，面板底部留一条死白。
  */
+/**
+ * 提示词区**不再被压缩**（用户 2026-09-24 第 1 条）。
+ *
+ * 改高度自适应之前这里是 `flex: 1 1 auto; min-height: 0` ——
+ * 面板钉死 360px 时靠它「吸收剩余空间」。现在面板由内容定高，
+ * 再保留 `flex-shrink: 1` 会在面板触到高度上限时**把这一区挤扁**，
+ * 表现为文字框第一行被裁掉（实测：30 行文本时首行露出半个字）。
+ *
+ * 改成不许压缩：文字框自己按内容定高（`field-sizing: content`），
+ * 面板放不下时由**面板整体滚**或**文字框自己滚**，而不是把内容裁掉。
+ */
 .promptSection {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
 }
 
@@ -464,9 +514,53 @@
 
 .prompt {
   width: 100%;
-  flex: 1 1 auto;
+  /**
+   * **高度跟着内容长**（用户 2026-09-24 第 1 条）。
+   *
+   * 此前是 `flex: 1 1 auto`：textarea 只会**撑满**父级给它的高度，
+   * 内容超出时它自己内部滚动 —— 于是面板永远 360px、里面一条滚动条。
+   * 用户明确不要这个（「文字太多的时候右边出现滚动条，自适应就好」）。
+   *
+   * `field-sizing: content` 让表单控件按内容定高（Chromium 123+ 标准属性）。
+   * 配合下面的 `max-height` 兜底：粘一篇超长文章进来时，
+   * 面板长到某个高度就停住，剩下的由 textarea 自己滚 ——
+   * 用户要的「输入框可以有滚动条」正是这个状态。
+   *
+   * 不再需要 `flex: 1 1 auto`：面板高度由内容决定，
+   * 短内容时靠 `.panel` 的 `min-height` 撑出原来那块 21:9 的大面板。
+   */
+  flex: 0 0 auto;
+  field-sizing: content;
+  /**
+   * 下限：再挤也要能看见几行，否则文字区退化成一条缝。
+   * 与 `.panel` 的 220px 下限配套（220 − 160 = 60，故这里至少 72）。
+   */
   min-height: 72px;
-  resize: vertical;
+  /**
+   * 文字区的高度上限（设计值，zoom 0.75 后屏幕上 ×0.75）。
+   *
+   * 两个约束取**更小**的那个：
+   *  - 固定的 420：常见长提示词都装得下，且不会长得离谱；
+   *  - **面板可用高度减去其它几行**：面板高度被 `--panel-available-h` 钳住时，
+   *    文字区必须跟着收，否则它会顶破面板（面板现在是 `overflow: visible`，
+   *    顶破了就真的画到屏幕上、盖住下面的东西）。
+   *
+   * 减掉的约 190px 是「素材行 + 参数行 + 内距 + 间距」的设计值合计；
+   * 取 160 留一点余量，宁可文字区小一点，也不要面板溢出。
+   */
+  max-height: min(
+    420px,
+    calc(var(--panel-available-h, 480px) - 160px)
+  );
+  /**
+   * 去掉右下角的拖拽手柄（用户 2026-09-24：「下拉按钮目前好像是一个死功能」）。
+   *
+   * 它来自 `resize: vertical`。但面板整体挂着 `zoom: 0.75`，
+   * 原生 resize 手柄的命中区**不跟着 zoom 缩放**，拖它时灵时不灵；
+   * 而且面板现在是「内容多高它就多高」，再给一个手动拉高的小三角
+   * 既没用、又占着文本框右下角最碍事的那一格。故直接禁掉。
+   */
+  resize: none;
   border: none;
   outline: none;
   background: transparent;
@@ -477,6 +571,61 @@
   text-align: left;
   color: var(--text-1);
   box-sizing: border-box;
+  /**
+   * 文本框**保留**自己的滚动条（用户 2026-09-24 明确）：
+   * 「提示词节点的文本输入框可以有滚动条，但是要细一点，
+   *   而且不要上下两个箭头，同时滚动条的背景颜色也不要，
+   *   滚动条容器的位置就在文本输入框与左右两边间距的里面」。
+   *
+   * 面板现在会随内容长高，所以这条滚动条只在**单次写到很长、
+   * 面板到达高度上限**时才出现；平时是看不见的。
+   *
+   * `scrollbar-width: thin` + `scrollbar-color` 是标准属性（Firefox 与
+   * Chromium 119+ 都认）；下面 `::-webkit-scrollbar` 那一组兜住更早的
+   * Chromium/Safari —— 两套并存，谁生效都不会出现双滚动条。
+   */
+  scrollbar-width: thin;
+  /* 拇指 = 半透明前景色；轨道 = 透明（用户：背景颜色不要） */
+  scrollbar-color: color-mix(in srgb, var(--text-3) 55%, transparent) transparent;
+  /**
+   * `padding-right` 让**文字**不贴到滚动条上。
+   * 滚动条本身在内边距**之内**（浏览器把滚动条画在 padding box 里），
+   * 这正是用户说的「位置在文本框与左右两边间距的里面，不是在右边间距再加一个容器」。
+   */
+  padding-right: 6px;
+}
+
+/* 细滚动条（Chromium / Safari）：8px 宽、无按钮、轨道透明 */
+.prompt::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+/* 上下两端不出现箭头按钮（用户明确要求） */
+.prompt::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* 轨道透明：不加背景色，浮在面板底色上（用户明确要求） */
+.prompt::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 拇指：细圆角、半透明，悬停时略实一点 */
+.prompt::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-3) 55%, transparent);
+  border-radius: 999px;
+}
+
+.prompt::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-3) 75%, transparent);
+}
+
+/* 右下角那个「两条斜线凑成的小三角」是滚动条的 corner，一并去掉 */
+.prompt::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .prompt::placeholder {
@@ -707,7 +856,17 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-left: auto;
+  /**
+   * ⚠️ 这里**不能**再用 `margin-left: auto`（用户 2026-09-24 截图反馈）。
+   *
+   * 上一版用它把整组顶到行尾，于是「渠道 / 模型」与那条竖线之间
+   * 被撑出一大段空白（用户：「左边的渠道和模型还有右边的竖线太远了，要始终…」）。
+   *
+   * 现在改成**紧跟在模型 chip 之后**：竖线与前一组之间只留常规间距。
+   * 生成按钮仍靠右，由它自己的 `margin-left: auto` 负责（见 `.run`）——
+   * 于是「参数…｜技能」靠左成组、按钮贴右，中间的空隙落在**该落**的地方。
+   */
+  margin-left: var(--space-1);
 }
 
 .toolGroup::before {

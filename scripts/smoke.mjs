@@ -3229,6 +3229,89 @@ async function g23(browser) {
     `gap=${ui?.gapAfterCount}px`,
   )
 
+  /**
+   * 12) 面板**高度自适应** + 文字框**细滚动条**（用户 2026-09-24 第 1 条）。
+   *
+   * 「我不想要文字太多的时候右边出现滚动条，自适应就好，包括其他的创作面板」；
+   * 「文本输入框可以有滚动条，但是要细一点，而且不要上下两个箭头，
+   *   同时滚动条的背景颜色也不要」。
+   *
+   * 判据：面板**长高**（而不是内部出现滚动条），
+   * 文字框的 `resize` 关掉（右下角那个拖拽手柄是死的）、滚动条为 thin。
+   */
+  // 先量短文本时的面板高度
+  await panelTa().fill('短')
+  await panelTa().blur()
+  await sleep(600)
+  const shortH = (await panel.boundingBox())?.height ?? 0
+
+  // 再灌 30 行，面板应变高
+  const longLines = Array.from({ length: 30 }, (_, i) => `第 ${i + 1} 行`).join('\n')
+  await panelTa().fill(longLines)
+  await panelTa().blur()
+  await sleep(900)
+  const longPanel = await panel.evaluate((el) => {
+    const b = el.getBoundingClientRect()
+    const ta = el.querySelector('textarea')
+    return {
+      h: Math.round(b.height),
+      // 面板底部相对视口的位置：验证它没有伸到屏幕外
+      bottom: Math.round(b.bottom),
+      viewportH: window.innerHeight,
+      /**
+       * 文字框是否在自己滚。
+       *
+       * 面板**刻意**不是滚动容器（那会把参数浮层裁掉，G46 抓到过），
+       * 所以「空间不够」的表现是**文字框滚**，不是面板滚。
+       */
+      taScrolls: ta ? ta.scrollHeight > ta.clientHeight + 1 : false,
+    }
+  })
+  /**
+   * 判据必须容纳**两种正确形态**（面板高度上限取决于「锚点下方还剩多少空间」）：
+   *  - 空间够 → 面板长高（用户要的「自适应」）；
+   *  - 空间不够 → 面板停在上限、内部滚动（绝不把内容裁掉，见下一条）。
+   *
+   * 这条用例里提示词节点靠近屏幕下方，所以走的是第二种。
+   * **不能**只断言「变高了」—— 那会把「高度被合理钳制」误判成缺陷。
+   */
+  const grewOrScrolls = (() => {
+    if (longPanel.h > shortH + 20) return { ok: true, why: '面板长高了' }
+    return longPanel.taScrolls
+      ? { ok: true, why: '空间不足 → 文字框自己滚（未裁内容）' }
+      : { ok: false, why: '既没长高，文字框也没滚（内容被裁了）' }
+  })()
+  rec(
+    g,
+    '★★ 文字变长 → 面板长高；空间不足则文字框自己滚（都不可裁内容）',
+    grewOrScrolls.ok,
+    `短 ${Math.round(shortH)} → 长 ${longPanel.h}｜${grewOrScrolls.why}`,
+  )
+  /** 无论哪种形态，面板都**不许伸出屏幕底部**（否则参数行与生成按钮被推出可视区） */
+  rec(
+    g,
+    '★★ 面板不伸出屏幕底部（生成按钮始终可达）',
+    longPanel.bottom <= longPanel.viewportH + 2,
+    `bottom=${longPanel.bottom} viewport=${longPanel.viewportH}`,
+  )
+
+  const taStyle = await panelTa().evaluate((el) => {
+    const cs = getComputedStyle(el)
+    return { resize: cs.resize, scrollbarWidth: cs.scrollbarWidth, scrollbarColor: cs.scrollbarColor }
+  })
+  rec(
+    g,
+    '★ 文字框右下角的拖拽手柄已去掉（resize: none）',
+    taStyle.resize === 'none',
+    `resize=${taStyle.resize}`,
+  )
+  rec(
+    g,
+    '★ 文字框滚动条为细样式、轨道透明（无背景色）',
+    taStyle.scrollbarWidth === 'thin' && /rgba\(0, 0, 0, 0\)|transparent/.test(taStyle.scrollbarColor),
+    `width=${taStyle.scrollbarWidth} color=${taStyle.scrollbarColor}`,
+  )
+
   await ctx.close()
 }
 
@@ -10705,13 +10788,135 @@ async function g72(browser) {
 }
 
 /**
+ * G73 技能是「设定」不是「动作」（用户 2026-09-24 第 2 条）。
+ *
+ * 用户口径：「技能这个功能属于是设定，而不是进行 —— 选择好技能之后，
+ * 点击生成开始生效。优化和翻译还有反推都是一个预设好的内容，所以点击后
+ * 他直接就可以根据里面预设的内容生效」。
+ *
+ * 这条口径与旧版**相反**：旧版点技能 = 立刻跑一次 LLM（和优化同一类）。
+ * 新版点技能 = 只选中，真正生效在**点生成**那一刻。
+ *
+ * 三件事必须同时成立，少一条都是静默失效：
+ *  ① 点技能**不发起** LLM（正文纹丝不动）；
+ *  ② 选中状态**看得见**（chip 显示技能名）；
+ *  ③ 点生成**真的跑**技能，且结果写回正文；
+ *  ④ 对照：优化仍是「点了立刻生效」，没被一起改坏。
+ */
+async function g73(browser) {
+  const g = 'G73 技能即设定'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+
+  // ── 先在技能库建一条技能 ──
+  await page.goto(`${BASE}/skills`, { waitUntil: 'networkidle' })
+  await sleep(700)
+  await page.getByRole('button', { name: /新建/ }).first().click()
+  await sleep(500)
+  await page.locator('[data-skill-name]').fill('冒烟技能')
+  await page.locator('[data-skill-content]').fill('把这段文字改写成一句诗。只输出结果。')
+  await page.locator('[data-skill-save]').click()
+  await sleep(900)
+  rec(g, '技能库里建出一条技能', (await page.locator('[data-skill-item]').count()) === 1)
+
+  // ── 回画布，建提示词节点 ──
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(1000)
+
+  const promptNode = page.locator('[data-node-type="prompt"]').first()
+  await genPanel(page, promptNode)
+  const panel = page.locator('[data-creation-panel]')
+  await pickParam(panel, 'channel', '新建渠道')
+  await sleep(200)
+  await pickParam(panel, 'model', 'mock-chat-1')
+  await sleep(250)
+
+  // 写正文
+  {
+    const ta = panel.locator('textarea').first()
+    await ta.click()
+    await ta.fill('今天天气很好')
+    await ta.blur()
+    await sleep(600)
+  }
+  const bodyText = async () => (await promptNode.innerText()).replace(/\s+/g, '')
+  rec(g, '（基线）正文是面板里写的那句', (await bodyText()).includes('今天天气很好'))
+
+  // ── ① 点技能：只选中，不跑 LLM ──
+  const skillChip = panel.locator('[data-panel-skill-chip]')
+  await skillChip.click()
+  await sleep(400)
+  const items = panel.locator('[data-panel-skill-popup] [data-panel-skill-item]')
+  rec(g, '技能列表里有刚建的那条', (await items.count()) === 1, `${await items.count()} 条`)
+  await items.first().click()
+  await sleep(1200)
+
+  rec(
+    g,
+    '★ ① 选中的技能名显示在按钮上（选中状态可见）',
+    (await skillChip.innerText()).replace(/\s+/g, '') === '冒烟技能',
+    await skillChip.innerText(),
+  )
+  rec(
+    g,
+    '★★ ② 点技能**不发起** LLM：正文纹丝不动（技能是设定不是动作）',
+    !(await bodyText()).includes('mock:') && (await bodyText()).includes('今天天气很好'),
+    (await promptNode.innerText()).slice(0, 40),
+  )
+
+  // ── ③ 点生成：技能此时才生效 ──
+  await panel.locator('[data-panel-run]').first().evaluate((el) => el.click())
+  let applied = false
+  for (let i = 0; i < 40; i += 1) {
+    await sleep(500)
+    if ((await bodyText()).includes('mock:')) {
+      applied = true
+      break
+    }
+  }
+  rec(
+    g,
+    '★★ ③ 点生成后技能真的跑了，结果写进正文',
+    applied,
+    (await promptNode.innerText()).slice(0, 50),
+  )
+
+  // ── ④ 对照：优化仍是「点了立刻生效」 ──
+  await genPanel(page, promptNode)
+  const p2 = page.locator('[data-creation-panel]')
+  const before = await bodyText()
+  const optBtn = p2.locator('[data-panel-prompt-tools] button', { hasText: '优化' })
+  await optBtn.click()
+  let changed = false
+  for (let i = 0; i < 40; i += 1) {
+    await sleep(500)
+    if ((await bodyText()) !== before) {
+      changed = true
+      break
+    }
+  }
+  rec(g, '★ ④ 对照：优化点了立刻生效（不需要再点生成）', changed)
+
+  await page.screenshot({ path: `${OUT}/89-g73-skill-as-setting.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+/**
  * 已从全量移除的组（测的都是已不存在的功能，继续跑只会拿「它没出现」当失败）：
  * - g22：版本历史（§6.21 于 2026-09-16 下线）
  * - g41：陈旧标记与按范围重跑（2026-09-17 下线：橘点、整条流程重跑、仅刷新陈旧、全图重跑）
  * - g50 / g54：结果组折叠与子结果交互（2026-09-17 结果组整体下线）
  * 「运行画板产生产物」改由 G21 覆盖（断言已从结果组改为承载节点）。
  */
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

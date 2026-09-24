@@ -31,6 +31,11 @@ import { useCanvasStore } from '../storeContext'
 import { RunHotkeys } from './RunHotkeys'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
+import { useSkillsOptional } from '../../../app/providers/SkillStoreProvider'
+import { promptSpec } from '../../../domain/canvas/nodeSpecs/prompt'
+import type { PromptData } from '../../../domain/canvas/model/node'
+import { trimToolResult } from '../../../features/shared/promptTools/promptTools'
+import { asAppError, describeError } from '../../../shared/result'
 
 /**
  * 画布执行宿主（架构 §4.7 / §5.5）：把 `useExecution` 接到画布 store + 渠道解析器。
@@ -74,6 +79,13 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   const store = useCanvasStore()
   const channels = useChannels()
   const platform = usePlatform()
+  /**
+   * 用**可选**版本：技能是增强项，没选技能时执行层完全不碰它。
+   * 若用会抛错的 `useSkills`，任何没挂 SkillStoreProvider 的渲染路径
+   * （部分单测、以及将来可能的新入口）都会当场崩 —— 那是整屏黑屏，
+   * 代价远大于「技能列表为空」。
+   */
+  const skillStore = useSkillsOptional()
   const repo = useMemo(
     () => createChannelRepository(platform.storage, platform.credentials),
     [platform.storage, platform.credentials],
@@ -498,6 +510,142 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
     [store, launch],
   )
 
+  /**
+   * 文本 LLM 单次调用（提示词节点的优化 / 翻译 / 反推 / 技能都用它）。
+   *
+   * 从 `api` 里抽出来单独一个 callback，是因为**技能要在生成前调它**，
+   * 而技能的执行发生在 `runNode` 里 —— 若它仍留在 `api` 的 useMemo 内部，
+   * `runNode` 就得反过来引用 `api`，形成一个「api 依赖 runNode、
+   * runNode 依赖 api」的循环。抽成独立值后两边都只是引用它。
+   */
+  const completeText = useCallback(
+    async ({
+      channelId,
+      model,
+      system,
+      text,
+      inputs,
+      signal,
+    }: {
+      channelId: string
+      model: string
+      system: string
+      text: string
+      inputs?: NodeInput[]
+      signal: AbortSignal
+    }): Promise<string> => {
+      const ch = channels.getState().channels.find((c) => c.id === channelId)
+      if (!ch) throw new Error(`[promptTools] 未找到渠道：${channelId}`)
+      const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
+      const cfg: ResolvedChannelConfig = {
+        id: ch.id,
+        protocol: ch.protocol,
+        baseUrl: ch.baseUrl,
+        credentialRef: ch.credentialRef,
+        modelCache: ch.modelCache,
+        apiKey,
+      }
+      const adapter = createChannelAdapter(cfg, platform)
+      const prompt = system ? `${system}\n\n${text}` : text
+      const result = await adapter.completeText(
+        { kind: 'text', channelId, model, prompt, inputs: inputs ?? [], params: {} },
+        signal,
+      )
+      return result.text
+    },
+    [channels, repo, platform],
+  )
+
+  /**
+   * 若提示词节点选了技能，**在生成前**用技能跑一遍 LLM（用户 2026-09-24）。
+   *
+   * 返回：
+   *  - `'none'`：没选技能，照常往下跑；
+   *  - `'applied'`：跑完并把结果写回正文，照常往下跑；
+   *  - `'failed'`：技能跑不动（缺模型 / 请求失败 / 技能已被删），**中止这次生成** ——
+   *    不能带着「没处理的正文」继续，那会让用户以为技能生效了。
+   *
+   * 抽成独立回调而不是塞进 runNode 体内：这段有 4 个提前返回分支，
+   * 混在里面会让 runNode 的分支数失控（它已经背了循环 / 批量两条分发路径）。
+   */
+  const applySkillIfSelected = useCallback(
+    async (node: NodeSnapshot<PromptData>): Promise<'none' | 'applied' | 'failed'> => {
+      const skillId = node.data.skillId
+      if (!skillId) return 'none'
+
+      const skill = skillStore.skills.find((s) => s.id === skillId)
+      if (!skill) {
+        /**
+         * 技能找不到了（在技能库里被删、或换了项目）。
+         *
+         * **清掉节点上的选择**再报错：不清的话用户每次点生成都撞同一堵墙，
+         * 而面板上还写着那个已经不存在的技能名 —— 看起来像功能坏了。
+         */
+        store.dispatch({
+          kind: 'node.updateData',
+          id: node.id,
+          patch: { skillId: undefined },
+          transient: false,
+        })
+        store.notify('选中的技能已被删除，已取消选择，请重新选择后再生成')
+        return 'failed'
+      }
+
+      const text = (node.data.text ?? '').trim()
+      const channelId = node.data.channelId
+      const model = node.data.model
+      if (!channelId || !model) {
+        store.notify('技能需要文本模型：请先在创作面板选择平台与模型')
+        return 'failed'
+      }
+      /**
+       * 技能声明要图时，把上游素材一起送出去（与「反推」同一口径）。
+       *
+       * 复用 `promptSpec.collectInputs` 而不是自己扫图：它就是反推按钮
+       * 与实际请求共用的那一份，两处各扫一遍迟早不一致。
+       */
+      const needsImages = skill.inputMode !== 'text'
+      const inputs = needsImages
+        ? promptSpec.collectInputs({ node, graph: store.getSnapshot() }).filter((i) => i.kind === 'asset')
+        : []
+      if (skill.inputMode === 'image' && inputs.length === 0) {
+        store.notify(`技能「${skill.name}」需要上游图片：先把一个已出图的生成节点连到本节点`)
+        return 'failed'
+      }
+      if (skill.inputMode === 'text' && !text) {
+        store.notify(`技能「${skill.name}」需要提示词正文：先在本节点写一段内容`)
+        return 'failed'
+      }
+
+      const ac = new AbortController()
+      try {
+        const result = await completeText({
+          channelId,
+          model,
+          system: skill.content,
+          text,
+          inputs,
+          signal: ac.signal,
+        })
+        store.dispatch({
+          kind: 'node.updateData',
+          id: node.id,
+          patch: { text: trimToolResult(result), draft: trimToolResult(result) },
+          // 进撤销栈：技能改写正文是一次明确的创作动作，要能反悔
+          transient: false,
+        })
+        return 'applied'
+      } catch (e) {
+        const appError = asAppError(e)
+        store.notify(
+          appError ? `技能执行失败：${describeError(appError)}` : `技能执行失败：${String(e)}`,
+        )
+        return 'failed'
+      }
+    },
+    [skillStore, store, completeText],
+  )
+
   const runNode = useCallback(
     async (nodeId: string, opts?: { alt?: boolean }) => {
       const graph = store.getSnapshot()
@@ -519,6 +667,31 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       if (node?.type === 'loop') {
         await runLoop(node as NodeSnapshot<LoopData>, graph)
         return
+      }
+
+      /**
+       * 提示词节点若**选了技能**，先把技能跑一遍，再走原来的下游链路
+       * （用户 2026-09-24：「技能这个功能属于是设定，而不是进行 —— 选择好技能之后，
+       *  点击生成开始生效」）。
+       *
+       * 语义定稿：技能正文 = **这次调用的系统指令**，与「优化 / 翻译 / 反推」
+       * 走的是同一条链路（`系统指令 + 节点正文 → 文本模型 → 结果写回正文`），
+       * 三者唯一的差别就是那段指令从哪来。所以这里不需要新的执行机制：
+       *  - 取技能正文当 system；
+       *  - 拿节点正文当 user 内容；
+       *  - 结果写回正文（进撤销栈）；
+       *  - 然后**继续往下跑** —— 下游生成节点读到的是改写后的正文。
+       *
+       * 为什么放在 `runNode` 而不是面板的按钮里：用户要的是「点生成时生效」，
+       * 而「生成」的入口不止面板一个（右键菜单、快捷键 R、跟随栏）。
+       * 放在这里，**所有入口一致**；放按钮里则只有面板那条路会跑技能。
+       *
+       * 取不到技能（被删了 / 换了项目）时**不静默跳过**：把选择清掉并告知，
+       * 而不是假装跑了。否则用户会以为「技能生效了」，实际发出去的是没处理的正文。
+       */
+      if (node?.type === 'prompt') {
+        const applied = await applySkillIfSelected(node as NodeSnapshot<PromptData>)
+        if (applied === 'failed') return
       }
 
       /**
@@ -569,7 +742,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       }
       await launch(plan, nodeId)
     },
-    [store, launch, explainEmptyPlan, runLoop],
+    [store, launch, explainEmptyPlan, runLoop, applySkillIfSelected],
   )
 
   /** 运行整个画板：取画板子图 → 拓扑重跑（rerunAll） */
@@ -608,26 +781,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         // append 走 800ms 防抖落库；日志面板实时读库，flush 完成后再返回
         await store.flush()
       },
-      completeText: async ({ channelId, model, system, text, inputs, signal }) => {
-        const ch = channels.getState().channels.find((c) => c.id === channelId)
-        if (!ch) throw new Error(`[promptTools] 未找到渠道：${channelId}`)
-        const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
-        const cfg: ResolvedChannelConfig = {
-          id: ch.id,
-          protocol: ch.protocol,
-          baseUrl: ch.baseUrl,
-          credentialRef: ch.credentialRef,
-          modelCache: ch.modelCache,
-          apiKey,
-        }
-        const adapter = createChannelAdapter(cfg, platform)
-        const prompt = system ? `${system}\n\n${text}` : text
-        const result = await adapter.completeText(
-          { kind: 'text', channelId, model, prompt, inputs: inputs ?? [], params: {} },
-          signal,
-        )
-        return result.text
-      },
+      completeText,
     }),
     [
       runNode,
@@ -636,9 +790,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       nodeStates,
       isRunning,
       store,
-      channels,
-      repo,
-      platform,
+      completeText,
     ],
   )
 

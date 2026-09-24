@@ -116,6 +116,17 @@
   background: var(--bg-hover);
 }
 
+/*
+ * 已选中项（用户 2026-09-24：技能是「设定」，所以列表里要能看出**当前选的是哪条**）。
+ *
+ * 用背景明度 + 左侧短竖条标记，不用强调色：这一档是「状态」不是主操作，
+ * 抢了生成按钮的注意力反而不对。
+ */
+.itemOn {
+  background: var(--bg-hover);
+  box-shadow: inset 2px 0 0 var(--text-1);
+}
+
 .item:disabled {
   cursor: not-allowed;
   opacity: 0.55;

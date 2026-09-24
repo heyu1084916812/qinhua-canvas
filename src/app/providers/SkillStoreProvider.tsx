@@ -93,3 +93,36 @@ export function useSkills(): SkillStoreApi {
   if (!s) throw new Error('SkillStoreProvider 未挂载')
   return s
 }
+
+/**
+ * 与 `useSkills` 相同的读取，但**Provider 缺席时返回空列表**而不是抛错。
+ *
+ * 给「技能只是可选增强」的消费方用（如画布执行层：没选技能就完全不走这条路）。
+ * 好处有二：
+ *  - 那些只关心节点渲染、不关心技能的单测不必为了一个可选依赖补 Provider
+ *    （这是本项目吃过一次的坑：给共享组件加一个 context 依赖，
+ *     等于给所有渲染它的测试加了前置条件）；
+ *  - 真有漏挂 Provider 的路径也只是「技能列表为空」，
+ *     而不是整棵树被一个 throw 带下去（那就是全屏黑屏）。
+ *
+ * 需要「必须挂载」语义的地方仍用 `useSkills`（技能库页自己）。
+ */
+export function useSkillsOptional(): SkillStoreApi {
+  const s = useContext(SkillStoreContext)
+  return (
+    s ?? {
+      skills: [],
+      loading: false,
+      reload: async () => {},
+      create: async () => {
+        throw new Error('SkillStoreProvider 未挂载')
+      },
+      save: async () => {
+        throw new Error('SkillStoreProvider 未挂载')
+      },
+      remove: async () => {
+        throw new Error('SkillStoreProvider 未挂载')
+      },
+    }
+  )
+}

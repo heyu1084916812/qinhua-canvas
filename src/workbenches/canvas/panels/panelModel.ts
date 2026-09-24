@@ -60,6 +60,14 @@ export interface PanelModel {
   linkedPromptCount: number
   /** 提示词容器右侧的小眼睛（§6.11「组内若有提示词节点…提供小眼睛」） */
   promptToggle: { visible: boolean; title: string } | null
+  /**
+   * 提示词节点已选中的**技能 id**（`null` = 没选）。
+   *
+   * 技能是**设定**不是动作（用户 2026-09-24）：面板只负责展示「选了哪个」，
+   * 真正生效在点生成时。故这里只带一个 id，不带技能正文 ——
+   * 正文归技能库管，节点只记「用哪一条」。
+   */
+  selectedSkillId?: string | null
 }
 
 /** 集合卡（§6.12）：不展开内部素材，只标注数量；隐藏的素材不计入 */
@@ -131,6 +139,14 @@ export type PanelEvent =
   | { type: 'run' }
   | { type: 'cancel' }
   | { type: 'close' }
+  /**
+   * 选中 / 取消一个**技能**（用户 2026-09-24）。
+   *
+   * 与 `run` / `optimize` 这类「动作」不同，这是一个**设定**：
+   * 它只把「用哪条技能」写到节点上，不发起任何请求。
+   * 生效时机是**下一次点生成**（见 `CanvasExecutionProvider` 的提示词分支）。
+   */
+  | { type: 'selectSkill'; skillId: string | null }
   /**
    * 去后台设置配渠道（面板发现「没有可用平台」时的引导出口）。
    *
