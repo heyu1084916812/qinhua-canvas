@@ -87,9 +87,27 @@ export const generationSpec: NodeSpec<GenerationData> = {
       // `accepts.upstream` 早就含 'generation'，但此前只连了线、没收进 inputs，
       // 于是渠道拿到的永远只有提示词——图生图在数据模型里「接好了」却从未生效。
       // 这里补上后，上游重生成会改变 assetHash → 下游指纹随之变化 → 自动判定陈旧。
-      const hash = (upstream.data as GenerationData).assetHash
+      const upData = upstream.data as GenerationData
+      const hash = upData.assetHash
       if (hash) {
-        inputs.push({ kind: 'asset', nodeId: upstream.id, assetHash: hash, mime: GENERATION_ASSET_MIME })
+        inputs.push({
+          kind: 'asset',
+          nodeId: upstream.id,
+          assetHash: hash,
+          mime: GENERATION_ASSET_MIME,
+          /**
+           * 带上素材的**原始像素**（用户 2026-09-24）。
+           *
+           * 「跟随素材」比例要在执行期按参考图 1 的真实比例定尺寸，而它读的就是
+           * 这个字段。此前只给 `batch` 上游带（批量套图是当时唯一的使用场景），
+           * 生成节点当上游时**丢掉了它** —— 于是普通图生图选「跟随素材」永远拿不到
+           * 比例，只能退化成「不指定」（老数据解不出尺寸时也一样）。
+           *
+           * 只补 `naturalSize`，**不动 `prompt`**：那是「素材自带描述要不要参与拼
+           * 提示词」的另一件事，改它会让既有的图生图请求文案变样，不在本次范围内。
+           */
+          ...(upData.naturalSize ? { naturalSize: upData.naturalSize } : {}),
+        })
       }
     }
     return inputs

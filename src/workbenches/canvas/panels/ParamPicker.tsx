@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import styles from './ParamPicker.module.css'
+import { RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
 
 /** 参数选项：`value` 落到节点数据，`label` 只用于展示 */
 export interface ParamOption {
@@ -201,6 +202,32 @@ export function ParamPicker(props: ParamPickerProps) {
  * 不猜一个假比例出来，宁可画成 1:1。
  */
 function RatioGlyph({ ratio }: { ratio: string }) {
+  /**
+   * 「跟随素材」不是宽高比，画矩形示意只会变成一个和 1:1 撞脸的方块
+   * （用户 2026-09-24：这一档放全局后，网格里必须一眼认得出它）。
+   * 换成「叠两张纸」的线性图形：表示「照搬上游那张图的比例」。
+   */
+  if (ratio === RATIO_FOLLOW_SOURCE) {
+    return (
+      <svg
+        className={styles.ratioGlyph}
+        width="18"
+        height="18"
+        viewBox="0 0 18 18"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        focusable="false"
+      >
+        {/* 后一张（虚线框）+ 前一张（实线框），表达「跟随后面那张的比例」 */}
+        <rect x="6" y="2.5" width="9.5" height="9.5" rx="2" strokeDasharray="2.4 2.2" />
+        <rect x="2.5" y="6" width="9.5" height="9.5" rx="2" />
+      </svg>
+    )
+  }
   const [rawW, rawH] = ratio.split(':').map((s) => Number.parseFloat(s))
   const ok = Number.isFinite(rawW) && Number.isFinite(rawH) && rawW > 0 && rawH > 0
   const w = ok ? rawW : 1

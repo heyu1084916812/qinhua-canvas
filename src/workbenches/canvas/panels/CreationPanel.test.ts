@@ -425,6 +425,22 @@ describe('CreationPanel · 比例档位（§6.8）', () => {
       ratiosOf({ id: 'x', category: 'image', inputTypes: ['text'], aspectRatios: ['1:1', '16:9'] }),
     ).toEqual(THIRTEEN)
   })
+
+  /**
+   * 「跟随素材」这一档的**开放条件**（用户 2026-09-24 放全局）。
+   *
+   * 判据是「这次生成有没有参考图」，不是「节点是不是批量」：
+   *  - 有参考图（批量自己 / 批量当上游的下游生成节点 / 普通图生图）→ 给这一档；
+   *  - 纯文生图（没有参考图）→ 不给，给了就是个永远用不上的死开关。
+   */
+  it('★ 有图片参考 → 多出「跟随素材」一档（批量下游的生成节点也算）', () => {
+    expect(ratiosOf(undefined, true)).toEqual([...THIRTEEN, '跟随素材'])
+  })
+
+  it('没有图片参考（纯文生图）→ 不给「跟随素材」', () => {
+    expect(ratiosOf(undefined, false)).toEqual(THIRTEEN)
+    expect(ratiosOf(undefined)).toEqual(THIRTEEN)
+  })
 })
 
 /**

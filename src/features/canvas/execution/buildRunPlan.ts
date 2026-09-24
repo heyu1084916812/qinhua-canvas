@@ -302,19 +302,24 @@ export function buildRunPlan(
             : expansion.inputs
 
         /**
-         * 「跟随素材」比例（批量节点专属，用户 2026-09-17）：
-         * 本次调用的出图比例 = **这一项素材自己的原始比例**。
+         * 「跟随素材」比例 = **参考图 1 的原始比例**（用户 2026-09-24 放全局并定稿）。
          *
-         * 放在展开之后、按本次那一项单独覆盖，正是因为集合展开出的 N 次调用
-         * 共用同一份 params——统一比例没问题，但「各随各的」必须逐次算。
-         * 素材没有尺寸信息（老数据 / 未解码）时退回不指定，不猜一个比例。
+         * 放在**展开之后**逐次算：集合展开出的 N 次调用共用同一份 params，
+         * 统一比例没问题，但「各随各的」必须逐次算 —— 批量场景每次调用只带
+         * 一项素材，「参考图 1」天然就是那一次的那张，于是多张不同比例各自自适应。
+         *
+         * ⚠️ **取第一张，不跳过后面的**（这条是 2026-09-24 明确下来的契约）。
+         *
+         * 早先用的是 `find(i => i.naturalSize)` —— 它会**跳过**没有尺寸信息的项，
+         * 往后取到第二张。于是「参考图 1 没有像素信息、参考图 2 有」时，
+         * 出图比例悄悄跟着**参考图 2** 走了，与用户看到的「跟随参考图 1」不符。
+         * 现在固定取第一张：它有尺寸就用它，没有就**如实不指定比例**（退回模型默认），
+         * 宁可少做一次自适应，也不偷换成别的参考图。
          */
         const source = request.params as { ratio?: unknown }
         const followSource = source.ratio === RATIO_FOLLOW_SOURCE
-        const picked = expansion.inputs.find(
-          (i): i is Extract<NodeInput, { kind: 'asset' }> => i.kind === 'asset' && !!i.naturalSize,
-        )
-        const followed = followSource && picked?.naturalSize ? picked.naturalSize : null
+        const first = expansion.inputs.find((i) => i.kind === 'asset')
+        const followed = followSource && first?.naturalSize ? first.naturalSize : null
         const singleRequest = {
           ...request,
           params: {

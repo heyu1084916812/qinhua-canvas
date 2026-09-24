@@ -10486,13 +10486,153 @@ async function waitForAssetCount(page, n, timeout) {
 }
 
 /**
+ * G72 「跟随素材」比例档的开放条件（用户 2026-09-24 放全局）。
+ *
+ * 这一档原先是**批量节点专属**（那时批量是「自己出图」的思路）。
+ * 现在真正的用法是「批量当上游 → 下游生成节点」，那一档就够不着了 ——
+ * 用户实际是在下游生成节点上改比例，却看不到它。
+ *
+ * 本组把判据钉成「这次生成**有没有图片参考**」，而不是「节点是不是批量」：
+ *  ① 纯文生图（没有任何参考图）→ 13 档，**不含**「跟随素材」（不给死开关）；
+ *  ② 有上游图片（普通图生图）→ 14 档，**含**「跟随素材」。
+ *
+ * 只断言「档数」是不够的：用户要的是那一档**能被选中并生效**，
+ * 所以顺带断言它选中后 chip 文案真的变成它。
+ */
+async function g72(browser) {
+  const g = 'G72 跟随素材档'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-template="blank"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  /** 读当前面板的比例候选（点开 chip 再关掉） */
+  const ratioOptions = async () => {
+    const panel = page.locator('[data-creation-panel]')
+    await panel.locator('[data-param-chip="ratio"]').click()
+    await sleep(350)
+    const opts = await panel
+      .locator('[data-param-popup="ratio"] [data-param-option]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-option')))
+    await page.keyboard.press('Escape')
+    await sleep(200)
+    return opts
+  }
+
+  // ── ① 没有上游图：不该有「跟随素材」 ──
+  await addNodeViaToolbar(page, 'generation')
+  const lonely = page.locator('[data-node-type="generation"]').first()
+  await genPanel(page, lonely)
+  const noSource = await ratioOptions()
+  rec(
+    g,
+    '① 没有参考图（纯文生图）→ 13 档，不含「跟随素材」',
+    noSource.length === 13 && !noSource.includes('跟随素材'),
+    `档数=${noSource.length} 含=${noSource.includes('跟随素材')}`,
+  )
+
+  // ── ② 拖入一张图（它本身就是有图的生成节点），再建下游并连线 ──
+  const dt = await page.evaluateHandle(
+    ({ b64 }) => {
+      const d = new DataTransfer()
+      const bin = atob(b64)
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      d.items.add(new File([bytes], 'src.png', { type: 'image/png' }))
+      return d
+    },
+    { b64: PNG_IMPORT_BASE64 },
+  )
+  const sbox = await page.locator('[data-canvas-surface]').boundingBox()
+  await page.locator('[data-canvas-surface]').dispatchEvent('dragover', { dataTransfer: dt })
+  await page.locator('[data-canvas-surface]').dispatchEvent('drop', {
+    dataTransfer: dt,
+    clientX: sbox.x + 220,
+    clientY: sbox.y + 200,
+  })
+  await sleep(1600)
+
+  const gens = page.locator('[data-node-type="generation"]')
+  const src = gens.nth((await gens.count()) - 1)
+  // 拖到左下，腾出右上给下游节点
+  await moveNode(page, await src.getAttribute('data-node-id'), 120, 470)
+  await addNodeViaToolbar(page, 'generation')
+  const dst = page.locator('[data-node-type="generation"]').last()
+  const dstId = await dst.getAttribute('data-node-id')
+  await moveNode(page, dstId, 780, 150)
+
+  await dst.hover()
+  await sleep(300)
+  {
+    const ob = await src.locator('[data-port="output"]').boundingBox()
+    const ib = await dst.locator('[data-port="input"]').boundingBox()
+    await page.mouse.move(ob.x + ob.width / 2, ob.y + ob.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(ob.x + 40, ob.y + 8, { steps: 5 })
+    await page.mouse.move(ib.x + ib.width / 2, ib.y + ib.height / 2, { steps: 14 })
+    await page.mouse.up()
+    await sleep(700)
+  }
+
+  await genPanel(page, dst)
+  const withSource = await ratioOptions()
+  rec(
+    g,
+    '★★ 有上游图（普通图生图）→ 14 档，含「跟随素材」',
+    withSource.length === 14 && withSource.includes('跟随素材'),
+    `档数=${withSource.length} 含=${withSource.includes('跟随素材')}`,
+  )
+
+  // 选中示例：chip 文案要真的变成「跟随素材」
+  const panel = page.locator('[data-creation-panel]')
+  await panel.locator('[data-param-chip="ratio"]').click()
+  await sleep(350)
+  await panel.locator('[data-param-popup="ratio"] [data-param-option="跟随素材"]').click()
+  await sleep(500)
+  const chipText = (await panel.locator('[data-param-chip="ratio"]').innerText()).trim()
+  rec(g, '★ 选中后 chip 显示「跟随素材」', chipText === '跟随素材', `chip=${chipText}`)
+
+  /**
+   * 图标不能和 1:1 撞脸：这一格画的应当是「叠两张纸」而不是一个方块。
+   *
+   * 注意**要重新点开浮层**再查——上面那次选择点完，浮层已按「选完即关」收起，
+   * 此时去查 `[data-param-popup]` 是查不到东西的（第一版就栽在这里，svg=0）。
+   * 判据同时要求：存在 svg、且里面不是单个 rect（比例格是单 rect 的色块）。
+   */
+  await panel.locator('[data-param-chip="ratio"]').click()
+  await sleep(350)
+  const cell = panel.locator('[data-param-popup="ratio"] [data-param-option="跟随素材"]')
+  const glyph = await cell.locator('svg').count().catch(() => 0)
+  const rects = await cell.locator('svg rect').count().catch(() => 0)
+  rec(
+    g,
+    '★ 「跟随素材」有专属图标（两张叠起来的纸，不是单个方块）',
+    glyph === 1 && rects === 2,
+    `svg=${glyph} rect=${rects}`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(200)
+
+  await page.screenshot({ path: `${OUT}/88-g72-follow-source.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+/**
  * 已从全量移除的组（测的都是已不存在的功能，继续跑只会拿「它没出现」当失败）：
  * - g22：版本历史（§6.21 于 2026-09-16 下线）
  * - g41：陈旧标记与按范围重跑（2026-09-17 下线：橘点、整条流程重跑、仅刷新陈旧、全图重跑）
  * - g50 / g54：结果组折叠与子结果交互（2026-09-17 结果组整体下线）
  * 「运行画板产生产物」改由 G21 覆盖（断言已从结果组改为承载节点）。
  */
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g25, g26, g27, g28, g29, g30, g31, g32, g33, g34, g35, g36, g37, g38, g39, g40, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

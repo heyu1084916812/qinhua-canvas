@@ -129,12 +129,17 @@ export function resolutionsOf(cap?: ModelCapability): string[] {
  * 不该被一次残缺上报锁死；模型确实不认的比例由渠道层如实报错，而不是界面上先藏掉。
  */
 /**
- * `forBatch`：批量节点额外多一档「跟随素材」（见 `RATIO_FOLLOW_SOURCE`）。
- * 其余节点没有「一批素材」可跟随，给它这个选项等于埋死开关。
+ * `withFollowSource`：上游**有图片素材**时多一档「跟随素材」（见 `RATIO_FOLLOW_SOURCE`）。
+ *
+ * 判据是「这次生成有没有参考图」，不是「节点是哪种类型」（2026-09-24 用户拍板）：
+ *  - 批量节点自己出图    → 有素材，给这一档；
+ *  - 批量 → 下游生成节点 → 那个生成节点也有素材，同样给（此前漏了，这是主要缺口）；
+ *  - 普通图生图          → 有参考图，也给，跟随**参考图 1**；
+ *  - 纯文生图            → 没有素材可跟随，不给（给了就是死开关）。
  */
-export function ratiosOf(cap?: ModelCapability, forBatch = false): string[] {
+export function ratiosOf(cap?: ModelCapability, withFollowSource = false): string[] {
   void cap
-  return forBatch ? [...RATIO_OPTIONS, RATIO_FOLLOW_SOURCE] : [...RATIO_OPTIONS]
+  return withFollowSource ? [...RATIO_OPTIONS, RATIO_FOLLOW_SOURCE] : [...RATIO_OPTIONS]
 }
 
 export interface CreationPanelProps {
@@ -168,12 +173,15 @@ export interface CreationPanelProps {
    */
   showCategoryToggle?: boolean
   /**
-   * 选中的是**批量节点**（§6.12）。
+   * 这次生成**有没有图片参考**（上游素材，或节点自身的素材）。
    *
-   * 唯一的影响是比例候选多一档「跟随素材」——批量是「一批素材逐个处理」，
-   * 才有「跟着每张素材自己的比例出图」这回事；生成节点没有这个概念。
+   * 唯一的影响是比例候选多一档「跟随素材」——没有素材可跟随就不该给这一档
+   * （给了是个死开关）。判据是「有没有素材」而不是「是不是批量节点」
+   * （2026-09-24 用户拍板：凡是有生图、有素材的地方都给这一档）。
+   *
+   * 由装配层按图算出并注入；面板保持纯视图、不读图（架构 §4.7）。
    */
-  isBatch?: boolean
+  hasSourceImage?: boolean
   /**
    * 选中的**分发器**节点（循环 / 批量）下游有可运行的生成节点。
    *
@@ -469,7 +477,7 @@ export function CreationPanel(props: CreationPanelProps) {
   const count = Math.max(1, Math.min(data.count ?? 1, maxCount))
 
   // 模型不支持的档位直接隐藏（§6.8「参数项随模型能力动态渲染」）
-  const ratios = ratiosOf(activeModel, props.isBatch === true)
+  const ratios = ratiosOf(activeModel, props.hasSourceImage === true)
   const resolutions = resolutionsOf(activeModel)
 
   // 视频参数（§6.8 视频模式）：尺寸 / 时长 / 首尾帧·全能参考

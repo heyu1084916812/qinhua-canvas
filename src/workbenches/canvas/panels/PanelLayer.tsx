@@ -115,6 +115,14 @@ export function PanelLayer({
 
   if (!selectedNode) return null
 
+  /**
+   * 面板模型（缩略图 / 集合卡）。
+   *
+   * 提到这里算一次，因为「跟随素材」这一档的开放条件要从**同一份**结果读
+   * （见 `hasSourceImage`）——两处各算一遍迟早漂移。
+   */
+  const panelModel = buildPanelModel(selectedNode, graph)
+
   const state = exec.nodeStateOf(selectedNode.id)
   const running = state?.kind === 'queued' || state?.kind === 'running'
   const error = state?.kind === 'failed' ? describeError(state.error) : null
@@ -141,7 +149,7 @@ export function PanelLayer({
     >
       <CreationPanel
         data={selectedNode.data as GenerationData}
-        model={buildPanelModel(selectedNode, graph)}
+        model={panelModel}
         running={running}
         globalRunning={exec.isRunning && !running}
         error={error}
@@ -162,7 +170,17 @@ export function PanelLayer({
         mode={selectedNode.type === 'prompt' ? 'prompt' : 'generation'}
         // 功能类别切换只给生成节点（§6.8）：分组 / 批量共用同一面板，但类别由内容决定
         showCategoryToggle={selectedNode.type === 'generation'}
-        isBatch={selectedNode.type === 'batch'}
+        /**
+         * 「跟随素材」这一档的开放条件：这次生成**有图片参考**（用户 2026-09-24）。
+         *
+         * 判据取面板模型里已经算好的东西，不另扫一遍图：
+         *  - 任何一张缩略图（上游素材 / 自身素材）都算；
+         *  - **集合卡也算** —— 批量当上游时面板不展开缩略图，但执行期会逐项展开成
+         *    参考图，正是最需要「跟随素材」的场景。漏了它这一档在主要用法下就没了。
+         */
+        hasSourceImage={
+          panelModel.thumbs.some((t) => !!t.assetHash) || panelModel.collections.length > 0
+        }
         /**
          * 分发器语义（用户 2026-09-24）：批量节点接了配好的下游生成节点时，
          * 面板上的「生成」按钮实际跑的是**下游节点**（用它的参数）——

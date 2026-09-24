@@ -789,10 +789,12 @@ describe('buildRunPlan + runEngine · 批量节点集合展开（§6.12）', () 
   })
 
   /**
-   * 「跟随素材」比例（批量节点专属，用户 2026-09-17）：
-   * 每次调用的出图比例 = **这一项素材自己的原始比例**。
-   * 集合展开出的 N 次调用共用同一份 params，所以这一档必须在展开后逐次覆盖——
-   * 这正是「统一比例」与「各随各的」唯一的实现差别。
+   * 「跟随素材」比例 = **参考图 1 的原始比例**（2026-09-24 放全局并定稿）。
+   *
+   * 批量场景：集合展开出的 N 次调用各自只带一项素材，「参考图 1」天然就是
+   * 那一次的那张 ⇒ 多张不同比例各自自适应。集合展开出的 N 次调用共用同一份
+   * params，所以这一档必须在展开后逐次覆盖 —— 这正是「统一比例」与「各随各的」
+   * 唯一的实现差别。
    */
   it('★ 「跟随素材」：每次调用用自己那项素材的原始比例', () => {
     const { store } = batchSetup(['ha', 'hb'])
@@ -824,5 +826,75 @@ describe('buildRunPlan + runEngine · 批量节点集合展开（§6.12）', () 
     store.dispatch({ kind: 'node.updateData', id: 'gen', patch: { ratio: RATIO_FOLLOW_SOURCE } })
     const plan = buildRunPlan('node', { originNodeId: 'gen' }, store.getSnapshot(), 'single')
     for (const t of plan.tasks) expect(t.request.params.ratio).toBeNull()
+  })
+})
+
+/**
+ * 「跟随素材」= **参考图 1**（用户 2026-09-24 放全局）。
+ *
+ * 普通图生图可能一次性带**多张**参考图（没有集合展开），这时必须有确定的含义：
+ * 用**第一张**的比例 —— 那是用户能看见（缩略图第 1 张）、也能靠拖动排序控制的那张。
+ *
+ * 这里同时钉住一个**必须被修掉的旧行为**：早先用 `find(i => i.naturalSize)`
+ * 找「第一张有尺寸的」，会**跳过**参考图 1 去取参考图 2 ——
+ * 于是「参考图 1 没尺寸信息」时，出图比例悄悄跟着参考图 2 走了。
+ */
+describe('buildRunPlan · 「跟随素材」固定跟随参考图 1（2026-09-24）', () => {
+  /** 生成节点 + 两张上游图片素材（无批量 / 无集合，走「一次调用多参考图」） */
+  function twoRefSetup() {
+    const platform = createMemoryPlatform()
+    const store = createCanvasStore({ platform, projectId: 'p1', debounceMs: 0 })
+    store.dispatch({
+      kind: 'node.create',
+      projectId: 'p1',
+      type: 'generation',
+      at: { x: 0, y: 0 },
+      id: 'ref-1',
+      data: genDefaults({ assetHash: 'h1', naturalSize: { width: 800, height: 600 } }),
+    })
+    store.dispatch({
+      kind: 'node.create',
+      projectId: 'p1',
+      type: 'generation',
+      at: { x: 0, y: 300 },
+      id: 'ref-2',
+      data: genDefaults({ assetHash: 'h2', naturalSize: { width: 600, height: 900 } }),
+    })
+    store.dispatch({
+      kind: 'node.create',
+      projectId: 'p1',
+      type: 'generation',
+      at: { x: 500, y: 0 },
+      id: 'gen',
+      data: genDefaults({
+        channelId: 'ch-mock',
+        model: 'mock-image-1',
+        prompt: '把两张图合成',
+        ratio: RATIO_FOLLOW_SOURCE,
+      }),
+    })
+    store.dispatch({ kind: 'edge.connect', source: 'ref-1', target: 'gen' })
+    store.dispatch({ kind: 'edge.connect', source: 'ref-2', target: 'gen' })
+    return store
+  }
+
+  it('★ 两张上游参考图 → 用**第一张**的比例（不跳过、不取第二张）', () => {
+    const store = twoRefSetup()
+    const plan = buildRunPlan('node', { originNodeId: 'gen' }, store.getSnapshot(), 'single')
+    expect(plan.tasks).toHaveLength(1)
+    // 参考图 1 = 800×600；参考图 2 = 600×900（竖）。必须是前者。
+    expect(plan.tasks[0]!.request.params.ratio).toBe('800:600')
+    // 落位也要按同一比例建承载节点（与请求一致，避免建完再跳尺寸）
+    expect(plan.tasks[0]!.request.params.followSourceSize).toEqual({ width: 800, height: 600 })
+  })
+
+  it('★★ 参考图 1 没有尺寸信息时不跳到参考图 2（如实不指定比例）', () => {
+    const store = twoRefSetup()
+    // 抹掉参考图 1 的尺寸，参考图 2 仍然有
+    store.dispatch({ kind: 'node.updateData', id: 'ref-1', patch: { naturalSize: null } })
+    const plan = buildRunPlan('node', { originNodeId: 'gen' }, store.getSnapshot(), 'single')
+    expect(plan.tasks).toHaveLength(1)
+    // 旧实现这里会是 '600:900'（跟着参考图 2 走了）——那正是要避免的偷换
+    expect(plan.tasks[0]!.request.params.ratio).toBeNull()
   })
 })
