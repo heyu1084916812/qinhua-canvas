@@ -5,9 +5,12 @@ import type { PanelCollection, PanelModel, PanelThumb, RecipeSnapshot } from './
 import { generationParams } from '../../../domain/canvas/nodeSpecs/params'
 import { moveInOrder } from './panelModel'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
+import { useSkills } from '../../../app/providers/SkillStoreProvider'
 import { useAsset } from '../hooks/useAsset'
 import type { PromptToolAction } from '../../../features/shared/promptTools/promptTools'
+import type { Skill } from '../../../domain/prompt/skill'
 import { ParamPicker } from './ParamPicker'
+import { SkillPicker } from './SkillPicker'
 import styles from './CreationPanel.module.css'
 import { RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
 
@@ -91,6 +94,8 @@ export interface PanelPromptTools {
   status: 'idle' | 'running' | 'error'
   error: string | null
   run: (text: string, action: PromptToolAction) => void
+  /** 用用户自己的技能跑一次（用户 2026-09-24） */
+  runSkill: (text: string, skill: Skill) => void
 }
 
 /**
@@ -146,6 +151,8 @@ export interface CreationPanelProps {
   mode?: 'generation' | 'prompt'
   /** prompt 模式下的优化 / 翻译工具（缺省则不显示按钮） */
   promptTools?: PanelPromptTools | null
+  /** 打开技能库（缺技能时的出口）；由页面容器注入路由跳转 */
+  onOpenSkills?: () => void
   /**
    * 选中提示词节点的**上游图片数量**（§6.7 反推）。
    *
@@ -367,6 +374,8 @@ export function CreationPanel(props: CreationPanelProps) {
   const closePicker = () => setOpenPicker(null)
   const togglePicker = (key: string) => setOpenPicker((cur) => (cur === key ? null : key))
   const tools = promptMode ? (props.promptTools ?? null) : null
+  /** 技能库（共享的全局单例，设置页改完这里会立刻反映） */
+  const { skills } = useSkills()
   /**
    * 第一部分是否为空（§6.8）。
    *
@@ -689,6 +698,21 @@ export function CreationPanel(props: CreationPanelProps) {
             </span>
             {tools && (
               <span className={styles.toolGroup}>
+                {/*
+                  技能选择器（用户 2026-09-24）。
+
+                  它与右边「优化 / 翻译 / 反推」是**同一层**的东西：都只决定
+                  「这次调用用哪段系统指令」。所以放在同一排、同一个按钮样式里，
+                  而不是另起一个区域 —— 另起会让人以为它是另一类功能。
+                */}
+                <SkillPicker
+                  skills={skills}
+                  running={tools.status === 'running'}
+                  text={model.prompt}
+                  imageCount={props.promptImageCount ?? 0}
+                  onRun={(skill) => tools.runSkill(model.prompt, skill)}
+                  onOpenLibrary={props.onOpenSkills}
+                />
                 <button
                   type="button"
                   className={styles.toolBtn}

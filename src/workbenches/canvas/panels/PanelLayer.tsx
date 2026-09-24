@@ -34,8 +34,11 @@ const PANEL_TYPES = new Set<NodeSnapshot['type']>(['prompt', 'generation', 'grou
  */
 export function PanelLayer({
   onOpenSettings,
+  onOpenSkills,
 }: {
   onOpenSettings?: () => void
+  /** 打开技能库（用户 2026-09-24）：面板上「管理技能库」与缺技能时的出口 */
+  onOpenSkills?: () => void
 }) {
   const graph = useGraph()
   const selection = useSelection()
@@ -95,6 +98,17 @@ export function PanelLayer({
         patch: { draft: text },
         transient: false,
       })
+      /**
+       * 长文本自动开大编辑框（用户 2026-09-24：「长文本框也要」）。
+       *
+       * 面板里那个输入框只有几行高，而技能（如「详情页策划」）的产出往往是一整篇 ——
+       * 在小框里看它得反复滚动，等于没法用。项目里已经有为此做的
+       * 「大编辑框灯箱」（`TextEditorLayer`，带 Markdown 工具栏），直接复用它。
+       *
+       * 阈值 200 字：短结果（翻译一句话）开框反而打断节奏；
+       * 长的说明它已经是一篇文档，适合大框 + 格式工具。
+       */
+      if (text.length >= 200) store.openTextEditor(selectedNode.id)
     },
   })
 
@@ -149,6 +163,7 @@ export function PanelLayer({
         showCategoryToggle={selectedNode.type === 'generation'}
         isBatch={selectedNode.type === 'batch'}
         promptTools={promptTools}
+        onOpenSkills={onOpenSkills}
         promptImageCount={promptImageInputs.length}
       />
     </div>

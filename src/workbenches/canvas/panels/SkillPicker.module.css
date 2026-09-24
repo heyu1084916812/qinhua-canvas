@@ -1,0 +1,180 @@
+/*
+ * 技能选择器（用户 2026-09-24）。
+ *
+ * 与 ParamPicker 同形（胶囊 + 上拉浮层），因为它在面板里与平台 / 模型是同类控件。
+ * 颜色一律走 token —— 它同时出现在亮色与暗色主题下。
+ */
+.wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.chip {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-pill, 999px);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.chip:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 数量角标：让人一眼知道库里有多少条，不用点开数 */
+.count {
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 浮层向上弹（与数字控件同一取舍）：它挂在面板底部那排，
+ * 向下弹会超出面板可视区被裁掉。
+ */
+.popup {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 40;
+  width: 260px;
+  max-height: 280px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-2);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+}
+
+.head {
+  flex: none;
+  padding: 0 2px var(--space-1);
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.empty {
+  padding: var(--space-3) var(--space-2);
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  line-height: 1.6;
+  text-align: center;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.item:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.item:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.itemName {
+  font-size: var(--fs-chip);
+  font-weight: 600;
+  /* 长名字截断而不是把浮层撑宽 */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemDesc,
+.itemBlocked {
+  font-size: 10px;
+  line-height: 1.4;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemDesc {
+  color: var(--text-3);
+}
+
+/* 不可用的原因：用弱化色，与说明文字区分开（它不是描述，是拦阻理由） */
+.itemBlocked {
+  color: var(--text-2);
+  font-style: italic;
+}
+
+/* 空库时的出口按钮：让它看起来像能点的东西，而不是一行说明文字 */
+.emptyBtn {
+  margin-top: var(--space-2);
+  padding: 4px 10px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-pill, 999px);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.emptyBtn:hover {
+  background: var(--bg-hover);
+}
+
+/* 列表底部的「管理技能库」：与技能项区分开（它不是一条技能） */
+.moreBtn {
+  margin-top: var(--space-1);
+  padding: 6px 8px;
+  border: none;
+  border-top: 1px solid var(--stroke);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.moreBtn:hover {
+  color: var(--text-1);
+}

@@ -1,0 +1,256 @@
+/*
+ * 技能库（用户 2026-09-24）。
+ *
+ * 布局沿用设置页的「左列表 + 右编辑」：用户已经熟悉这个形状。
+ * 颜色一律走 token（明暗两套主题都要能看）。
+ */
+.page {
+  width: 100%;
+  height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  background: var(--bg-app);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+}
+
+.top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.back,
+.ghost,
+.primary,
+.danger {
+  height: 32px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-control);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.back,
+.ghost {
+  border: 1px solid var(--stroke);
+  background: var(--bg-surface);
+  color: var(--text-1);
+}
+
+.back:hover,
+.ghost:hover {
+  background: var(--bg-hover);
+}
+
+.primary {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.primary:hover {
+  opacity: 0.9;
+}
+
+.danger {
+  border: 1px solid var(--stroke);
+  background: transparent;
+  color: var(--text-2);
+}
+
+.danger:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.topActions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* 提示条：成功 / 失败用同一形状、不同色调（位置固定，不跳） */
+.noticeOk,
+.noticeErr {
+  flex: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.noticeOk {
+  background: var(--bg-subtle);
+  color: var(--text-1);
+}
+
+.noticeErr {
+  background: var(--bg-subtle);
+  color: var(--text-1);
+  /* 失败要一眼可辨：用左边框而不是整块红底（本项目克制用色的口径） */
+  border-left: 3px solid var(--stroke-focus);
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  /* 左列表固定宽、右编辑自适应；240 与设置页的列表同宽 */
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.list {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+}
+
+.item,
+.itemOn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: var(--space-2);
+  border: none;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.item:hover {
+  background: var(--bg-hover);
+}
+
+.itemOn {
+  background: var(--bg-hover);
+}
+
+.itemName {
+  max-width: 100%;
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemMeta {
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.editor {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  overflow-y: auto;
+}
+
+.empty {
+  margin: auto;
+  padding: var(--space-4);
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+/* 正文那一栏吃满剩余高度：它是主要编辑对象 */
+.grow {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.counter {
+  color: var(--text-3);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.input,
+.textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  outline: none;
+}
+
+.input {
+  height: 32px;
+  padding: 0 var(--space-2);
+}
+
+.textarea {
+  flex: 1 1 auto;
+  min-height: 220px;
+  padding: var(--space-2);
+  line-height: 1.6;
+  /*
+   * 可以纵向拖，但**不许拖出容器宽度** —— 横向拖动会把右侧编辑区撑破，
+   * 而那正是「文字/控件不许溢出容器」要防的。
+   */
+  resize: vertical;
+}
+
+.input:focus,
+.textarea:focus {
+  border-color: var(--stroke-focus);
+}
+
+.actions {
+  flex: none;
+  display: flex;
+  gap: var(--space-2);
+}

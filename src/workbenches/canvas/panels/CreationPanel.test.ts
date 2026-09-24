@@ -2,6 +2,7 @@ import { createElement } from 'react'
 import { renderToString } from 'react-dom/server'
 import { describe, it, expect } from 'vitest'
 import { ChannelStoreContext } from '../../../app/providers/ChannelStoreProvider'
+import { SkillStoreContext } from '../../../app/providers/SkillStoreProvider'
 import { createMemoryPlatform } from '../../../platform/memory'
 import { createChannelStore, type ChannelStore } from '../../../state/channel/channelStore'
 import { generationSpec } from '../../../domain/canvas/nodeSpecs/generation'
@@ -26,6 +27,23 @@ const emptyModel: PanelModel = {
   promptToggle: null,
 }
 
+/**
+ * 技能库的空实现（面板现在会读技能，测试必须提供 Provider）。
+ *
+ * 本组关心的是渠道 / 参数；技能本身另有 `domain/prompt/skill.test.ts`
+ * 与 `state/project/skillStore.test.ts` 覆盖。
+ */
+const emptySkills = {
+  skills: [],
+  loading: false,
+  reload: async () => {},
+  create: async () => {
+    throw new Error('unused')
+  },
+  save: async () => {},
+  remove: async () => {},
+}
+
 function render(
   channels: ChannelStore,
   data = generationSpec.createDefaultData(),
@@ -38,7 +56,15 @@ function render(
     createElement(
       ChannelStoreContext.Provider,
       { value: channels },
-      createElement(CreationPanel, {
+      /*
+       * 必须包 SkillStoreProvider：面板现在会读技能（提示词节点上的「技能」入口）。
+       * 少了它直接抛「SkillStoreProvider 未挂载」，27 条与技能无关的断言全变红 ——
+       * 那是测试环境缺件，不是功能坏了。
+       */
+      createElement(
+        SkillStoreContext.Provider,
+        { value: emptySkills },
+        createElement(CreationPanel, {
         data,
         model: emptyModel,
         running: false,
@@ -48,7 +74,8 @@ function render(
         onClose: () => {},
         showCategoryToggle,
         mode,
-      }),
+        }),
+      ),
     ),
   )
 }
@@ -210,7 +237,10 @@ describe('CreationPanel · 并发生成不再全局禁用按钮', () => {
       createElement(
         ChannelStoreContext.Provider,
         { value: channels },
-        createElement(CreationPanel, {
+        createElement(
+          SkillStoreContext.Provider,
+          { value: emptySkills },
+          createElement(CreationPanel, {
           data: { ...generationSpec.createDefaultData(), channelId: 'ch-1', model: 'relay-img' },
           model: emptyModel,
           running: false,
@@ -219,7 +249,8 @@ describe('CreationPanel · 并发生成不再全局禁用按钮', () => {
           onEvent: () => {},
           onClose: () => {},
           showCategoryToggle: true,
-        }),
+          }),
+        ),
       ),
     )
     expect(html).not.toContain('全局工作流运行中')
@@ -498,7 +529,10 @@ describe('CreationPanel · 提示词节点「反推」（§6.7）', () => {
       createElement(
         ChannelStoreContext.Provider,
         { value: await channelStore([{ enabled: true, models: [chatModel] }]) },
-        createElement(CreationPanel, {
+        createElement(
+          SkillStoreContext.Provider,
+          { value: emptySkills },
+          createElement(CreationPanel, {
           data: { ...asPrompt(), channelId: 'ch-1', model: 'gpt-chat' },
           model: emptyModel,
           running: false,
@@ -508,8 +542,9 @@ describe('CreationPanel · 提示词节点「反推」（§6.7）', () => {
           onClose: () => {},
           mode: 'prompt',
           promptImageCount: imageCount,
-          promptTools: { status: 'idle' as const, error: null, run: () => {} },
-        }),
+          promptTools: { status: 'idle' as const, error: null, run: () => {}, runSkill: () => {} },
+          }),
+        ),
       ),
     )
     return html

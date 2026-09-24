@@ -61,7 +61,14 @@ function draggedFiles(e: { dataTransfer: DataTransfer }): File[] {
  * 框选矩形存「surface 局部屏幕坐标」而非世界坐标：OverlayLayer 在 [data-world] 之外，
  * 不受视口 transform 影响，存世界坐标会导致缩放 / 平移后矩形与光标错位。
  */
-export function CanvasSurface({ onOpenSettings }: { onOpenSettings?: () => void } = {}) {
+export function CanvasSurface({
+  onOpenSettings,
+  onOpenSkills,
+}: {
+  onOpenSettings?: () => void
+  /** 打开技能库（用户 2026-09-24）：由页面容器注入路由跳转 */
+  onOpenSkills?: () => void
+} = {}) {
   const store = useCanvasStore()
   const graph = useGraph()
   const viewport = useViewportState()
@@ -498,7 +505,7 @@ const onPointerDown = (e: ReactPointerEvent) => {
       </div>
       <OverlayLayer marquee={marquee} />
       <NodeFollowBar onOpenSettings={onOpenSettings} onDownload={handleDownload} />
-      <PanelLayer onOpenSettings={onOpenSettings} />
+      <PanelLayer onOpenSettings={onOpenSettings} onOpenSkills={onOpenSkills} />
       <ContextMenu />
       <LinkMenu />
       <CanvasNotice />

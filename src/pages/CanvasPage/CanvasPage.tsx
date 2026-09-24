@@ -314,7 +314,7 @@ function CanvasProject({ projectId }: { projectId: string }) {
               </button>
             </div>
           )}
-          <CanvasSurface onOpenSettings={openSettings} />
+          <CanvasSurface onOpenSettings={openSettings} onOpenSkills={() => navigate('/skills')} />
           <CanvasToolbar
             onCreateNode={addNodeAtCenter}
             onImportAsset={() => void importAssetAtCenter()}
