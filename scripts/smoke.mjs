@@ -3025,10 +3025,16 @@ async function g22(browser) {
 }
 
 // ────────────────────────────────────────────────────────────
-// G23 LLM 优化与翻译（M4-4 / §6.7；2026-09-15 起「面板 = 草稿工作区」）：
-// 面板文字是**草稿**（data.draft），节点正文是最终提示词（data.text），两者解耦——
-// 面板输入 / 面板「优化 / 翻译」只动草稿；「写入节点」才把草稿落进正文（进撤销栈）；
-// 节点本体的「优化」仍直接改正文。断言围绕这条分界展开。
+// G23 LLM 优化与翻译（M4-4 / §6.7）。
+//
+// ⚠️ **口径已变（用户 2026-09-24）**：删掉了「写入节点」按钮。
+//
+// 此前：面板 = 草稿工作区（`data.draft`），节点正文 = 最终提示词（`data.text`），
+// 两者解耦，「写入节点」是唯一的桥。现在**面板直接写正文** ——
+// 面板里打的字就是下游读到的东西，不需要也不存在第二道确认。
+//
+// 这条口径变化必须连着改执行层：若只删按钮、面板仍写 `draft`，
+// 就会出现「面板打了字、下游永远收不到」的静默失效。
 // ────────────────────────────────────────────────────────────
 async function g23(browser) {
   const g = 'G23 LLM优化翻译'
@@ -3084,54 +3090,47 @@ async function g23(browser) {
   )
   await page.screenshot({ path: `${OUT}/37-g23-panel-ready.png` })
 
-  // 4) 解耦基线：面板草稿初始为空，节点正文是「一只猫」——两边是不同的字段
+  /**
+   * 4) 面板与正文现在是**同一份内容**（用户 2026-09-24 删掉「写入节点」）。
+   *
+   * 面板一打开就回显节点正文；两边不再是「草稿 vs 正文」两份。
+   */
   const panelTa = () => panel.locator('textarea').first()
-  rec(g, '初始草稿为空（面板不回显正文）', (await panelTa().inputValue()) === '')
-  rec(g, '节点正文仍是双击输入的文本', (await nodeText()).includes('一只猫'))
+  rec(g, '面板回显节点正文（不再是空的草稿框）', (await panelTa().inputValue()).includes('一只猫'))
+  rec(g, '节点正文仍是灯箱输入的文本', (await nodeText()).includes('一只猫'))
+  rec(
+    g,
+    '★「写入节点」按钮已删除（面板直接写正文）',
+    (await panel.locator('[data-panel-prompt-apply]').count()) === 0,
+  )
 
-  // 5) 面板输入只写草稿：正文纹丝不动
+  // 5) 面板输入**直接写正文**：节点本体立刻跟着变
   await panelTa().click()
-  await panelTa().fill('草稿猫')
-  await sleep(300)
-  rec(g, '面板输入草稿不写正文', (await nodeText()).includes('一只猫') && !(await nodeText()).includes('草稿猫'))
+  await panelTa().fill('面板直接写正文')
+  await panelTa().blur()
+  await sleep(600)
+  rec(
+    g,
+    '★★ 面板输入直接落到节点正文（下游读的就是它）',
+    (await nodeText()).includes('面板直接写正文'),
+  )
 
-  // 6) 面板「优化」→ 草稿被 LLM 结果覆盖（mock 返回 mock:<system+text>），正文不动
+  // 6) 面板「优化」→ LLM 结果直接覆盖正文（mock 返回 mock:<system+text>）
   await panel.locator('[data-panel-prompt-tools] button', { hasText: '优化' }).click()
-  let draftOptimized = false
+  let optimized = false
   for (let i = 0; i < 30; i++) {
-    if ((await panelTa().inputValue()).includes('mock:')) {
-      draftOptimized = true
+    if ((await nodeText()).includes('mock:')) {
+      optimized = true
       break
     }
     await sleep(200)
   }
-  rec(g, '面板「优化」写回草稿', draftOptimized)
-  rec(g, '面板「优化」不碰正文', (await nodeText()).includes('一只猫') && !(await nodeText()).includes('mock:'))
+  rec(g, '★ 面板「优化」结果直接进正文', optimized)
 
-  // 7) Ctrl+Z → 草稿回滚（LLM 草稿写入进撤销栈），正文不动
+  // 7) Ctrl+Z → 优化结果回滚（进撤销栈）
   await page.keyboard.press('Control+z')
   await sleep(400)
-  const draftUndone = !(await panelTa().inputValue()).includes('mock:')
-  rec(g, '撤销回滚 LLM 草稿（进撤销栈）', draftUndone)
-
-  // 8) 「写入节点」→ 草稿落进正文（transient:false，进撤销栈）；再撤销 → 正文还原
-  await panelTa().click()
-  await panelTa().fill('最终提示词')
-  await sleep(300)
-  await panel.locator('[data-panel-prompt-apply]').click()
-  let applied = false
-  for (let i = 0; i < 20; i++) {
-    if ((await nodeText()).includes('最终提示词')) {
-      applied = true
-      break
-    }
-    await sleep(200)
-  }
-  rec(g, '「写入节点」把草稿写进正文', applied)
-  await page.keyboard.press('Control+z')
-  await sleep(400)
-  const applyUndone = (await nodeText()).includes('一只猫') && !(await nodeText()).includes('最终提示词')
-  rec(g, '写入正文可撤销（还原为「一只猫」）', applyUndone)
+  rec(g, '★ 优化结果可撤销（还原成面板里那句）', !(await nodeText()).includes('mock:'))
 
   // 9) 节点本体「优化」按钮（底部弱化按钮，hover 显形）→ 直接改正文（原有行为不变）
   await promptNode.hover()
@@ -3148,23 +3147,87 @@ async function g23(browser) {
   rec(g, '节点本体「优化」按钮可用（直接改正文）', nodeRan)
   const afterNodeRun = await nodeText()
 
-  // 10) 面板点「翻译」→ 只动草稿，正文停在本体优化的结果上
+  // 10) 面板点「翻译」→ 同样直接改正文
   const bodyBeforeTranslate = afterNodeRun
   await panel.locator('[data-panel-prompt-tools] button', { hasText: '翻译' }).click()
   let translated = false
   for (let i = 0; i < 30; i++) {
-    const d = await panelTa().inputValue()
-    if (d !== '最终提示词' && d.includes('mock:')) {
+    const t = await nodeText()
+    if (t !== bodyBeforeTranslate) {
       translated = true
       break
     }
     await sleep(200)
   }
-  // 早先这里只算了 translated 却忘了记录——于是「翻译到底生效没有」从未被断言，
-  // 断了也照样全绿。断言补上，让这一步真的在守东西。
-  rec(g, '面板点「翻译」→ 草稿变化', translated)
-  rec(g, '面板「翻译」不碰正文', (await nodeText()) === bodyBeforeTranslate)
+  rec(g, '面板点「翻译」→ 正文变化', translated)
   await page.screenshot({ path: `${OUT}/38-g23-after-translate.png` })
+
+  /**
+   * 11) 工具行的**外观与位置**（用户 2026-09-24 两轮反馈）：
+   *  ① 它和渠道 / 模型 chip 同形（同高、无边框、透明底、同字号）；
+   *  ② 与参数组之间只有**一条竖线**；
+   *  ③ 字数行不再撑出大空隙。
+   *
+   * 判据全用**几何 + 计算样式**：只看渲染结果判断不了「像不像」，
+   * 而这几条恰恰是视觉一致性问题，必须量出来。
+   */
+  const ui = await panel.evaluate((panelEl) => {
+    const group = panelEl.querySelector('[data-panel-part="params"] [class*="toolGroup"]')
+    const btn = group?.querySelector('button')
+    const chip = panelEl.querySelector('[data-param-chip="channel"]')
+    const count = panelEl.querySelector('[data-panel-prompt-count]')
+    const params = panelEl.querySelector('[data-panel-part="params"]')
+    if (!group || !btn || !chip) return null
+    const bs = getComputedStyle(btn)
+    const cs = getComputedStyle(chip)
+    const divider = getComputedStyle(group, '::before')
+    const countBox = count?.getBoundingClientRect()
+    const paramsBox = params?.getBoundingClientRect()
+    return {
+      sameHeight: Math.abs(btn.getBoundingClientRect().height - chip.getBoundingClientRect().height) <= 1,
+      sameFont: bs.fontSize === cs.fontSize && bs.fontWeight === cs.fontWeight,
+      btnBorder: bs.borderStyle,
+      btnRadius: bs.borderRadius,
+      chipRadius: cs.borderRadius,
+      dividerW: divider.width,
+      dividerH: divider.height,
+      dividerContent: divider.content,
+      /** 字数行下沿到参数行上沿的距离：应当是常规间距，不是一整行空白 */
+      gapAfterCount: countBox && paramsBox ? Math.round(paramsBox.top - countBox.bottom) : null,
+      /** 工具组与生成按钮同一行（顶边接近） */
+      sameRowAsRun: (() => {
+        const run = panelEl.querySelector('[data-panel-run]')
+        if (!run) return false
+        return Math.abs(group.getBoundingClientRect().top - run.getBoundingClientRect().top) <= 4
+      })(),
+    }
+  })
+  rec(g, '★ 工具行与参数 chip 同高', !!ui?.sameHeight, `h相同=${ui?.sameHeight}`)
+  rec(g, '★ 工具行与参数 chip 同字号 / 字重', !!ui?.sameFont, `font同=${ui?.sameFont}`)
+  rec(
+    g,
+    '★ 工具按钮与 chip 同为无边框圆角块（不再是小描边胶囊）',
+    ui?.btnBorder === 'none' && ui?.btnRadius === ui?.chipRadius,
+    `border=${ui?.btnBorder} radius=${ui?.btnRadius}/${ui?.chipRadius}`,
+  )
+  rec(
+    g,
+    '★ 工具组与参数组之间只有一条竖线',
+    ui?.dividerW === '1px' && ui?.dividerContent === '""',
+    `w=${ui?.dividerW} h=${ui?.dividerH} content=${ui?.dividerContent}`,
+  )
+  rec(
+    g,
+    '★ 工具组与生成按钮同一排',
+    !!ui?.sameRowAsRun,
+    `sameRow=${ui?.sameRowAsRun}`,
+  )
+  rec(
+    g,
+    '★ 字数行下方不再留大空隙（≤ 16px）',
+    typeof ui?.gapAfterCount === 'number' && ui.gapAfterCount <= 16,
+    `gap=${ui?.gapAfterCount}px`,
+  )
 
   await ctx.close()
 }
@@ -6649,8 +6712,10 @@ async function g47(browser) {
     await describeBtn.getAttribute('title'),
   )
 
-  // ⑤ 点下去：**草稿**被 LLM 结果覆盖（2026-09-15 起面板只写草稿，G23 守解耦），
-  // 且结果里带素材前缀 ⇒ 图真的进了请求
+  /**
+   * ⑤ 点下去：LLM 结果**直接进正文**（用户 2026-09-24 删掉「写入节点」后，
+   * 面板与正文是同一份内容），且结果里带素材前缀 ⇒ 图真的进了请求。
+   */
   const pTa = () => pPanel.locator('textarea').first()
   await describeBtn.click().catch(() => {})
   let text = ''
@@ -6661,11 +6726,25 @@ async function g47(browser) {
   }
   rec(
     g,
-    '反推结果写回草稿，且带素材前缀（图真的到了渠道层）',
+    '反推结果写回面板，且带素材前缀（图真的到了渠道层）',
     text.includes('mock:img:'),
     `${text.slice(0, 60)}`,
   )
-  rec(g, '反推不碰节点正文（草稿与正文解耦，§6.7）', !(await promptNode.innerText().catch(() => '')).includes('mock:'))
+  /**
+   * ★ 反推结果必须**同步到节点正文**（面板与正文同一份内容）。
+   *
+   * 这条断言的**方向**与旧版相反：旧版守的是「反推不碰正文」（草稿解耦），
+   * 现在删掉「写入节点」后，反推若不落正文，下游就永远收不到 —— 正是要防的静默失效。
+   */
+  let inBody = false
+  for (let i = 0; i < 20; i++) {
+    if ((await promptNode.innerText().catch(() => '')).includes('mock:')) {
+      inBody = true
+      break
+    }
+    await sleep(250)
+  }
+  rec(g, '★★ 反推结果同步落到节点正文（面板与正文同一份内容）', inBody)
   await page.screenshot({ path: `${OUT}/60-g47-describe.png` })
 
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors[0] ?? '')

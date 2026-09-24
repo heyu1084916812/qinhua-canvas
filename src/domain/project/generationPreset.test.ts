@@ -283,7 +283,7 @@ describe('isRecipeEdit · 哪些改动算「改了配方」', () => {
   })
 
   it('★ 执行类事件不算（跑一次生成 / 取消，本身不改变参数）', () => {
-    for (const ev of ['run', 'cancel', 'openSettings', 'applyDraft']) {
+    for (const ev of ['run', 'cancel', 'openSettings']) {
       expect(isRecipeEdit(ev), `${ev} 不该算配方改动`).toBe(false)
     }
   })

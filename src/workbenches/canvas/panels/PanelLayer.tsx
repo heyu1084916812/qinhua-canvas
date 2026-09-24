@@ -91,12 +91,17 @@ export function PanelLayer({
     imageInputs: promptImageInputs,
     onResult: (text) => {
       if (!selectedNode || selectedNode.type !== 'prompt') return
-      // §6.7「面板 = 工作区」：面板里跑的优化 / 翻译 / 反推只覆盖**草稿**，
-      // 不碰正文——正文只能经「写入节点」显式确认（或双击节点直接编辑）。
+      /*
+       * 优化 / 翻译 / 反推的结果**直接写正文**（用户 2026-09-24 删掉「写入节点」）。
+       *
+       * 面板与正文不再是两份内容，所以结果落在哪只有一处：`text`。
+       * 进撤销栈（`transient:false`）——「一键改了整段提示词」必须能反悔。
+       * `draft` 一起写，避免老字段残留出不一致。
+       */
       store.dispatch({
         kind: 'node.updateData',
         id: selectedNode.id,
-        patch: { draft: text },
+        patch: { text, draft: text },
         transient: false,
       })
       /**
@@ -366,7 +371,14 @@ function buildPanelModel(node: NodeSnapshot, graph: ReturnType<typeof useGraph>)
     collections,
     emptyHint: '连线上游节点，或拖入素材',
     // 提示词节点的面板绑定**草稿**（§6.7「面板 = 工作区」），生成类节点仍是 prompt
-    prompt: node.type === 'prompt' ? ((node.data as PromptData).draft ?? '') : data.prompt,
+    /**
+     * 提示词节点的面板现在绑定**正文**（用户 2026-09-24 删掉「写入节点」）。
+     *
+     * 面板与正文从此是同一份内容 —— 面板里打的字直接就是下游读到的东西。
+     * 老数据里 `draft` 可能还残留着旧的工作区文本，**不再展示**它：
+     * 展示一个不生效的字段会让用户以为写了却没反应（正是删按钮要避免的事）。
+     */
+    prompt: node.type === 'prompt' ? ((node.data as PromptData).text ?? '') : data.prompt,
     linkedPromptCount,
     promptToggle: null,
   }
@@ -424,10 +436,20 @@ function handlePanelEvent(
 
   switch (event.type) {
     case 'setPrompt':
-      // 提示词节点写的是**草稿**（§6.7「面板 = 工作区」，面板文字与节点正文解耦），
-      // 其余节点是 prompt
-      if (node.type === 'prompt') patch({ draft: event.text } as Partial<GenerationData>)
-      else patch({ prompt: event.text })
+      /*
+       * 提示词节点的面板**直接写正文**（用户 2026-09-24 删掉「写入节点」）。
+       *
+       * 此前面板写 `draft`、正文是 `text`，两者之间唯一的桥是「写入节点」按钮。
+       * 用户把这个按钮删了，那条桥也就没了 —— 若这里仍写 `draft`，
+       * 面板里打的字**永远不会到达下游**（下游读的是 `text`）。
+       * 这正是「点了没反应」那一类静默失效，必须一并改掉。
+       *
+       * `draft` 仍一起写：它是老数据里存在的字段，留着保持同值，
+       * 免得「面板显示 draft、节点显示 text」两处再次分叉。
+       */
+      if (node.type === 'prompt') {
+        patch({ text: event.text, draft: event.text } as Partial<GenerationData>)
+      } else patch({ prompt: event.text })
       break
     case 'setChannel':
       // 换渠道后模型缓存变了，清空模型避免脏值
@@ -528,9 +550,6 @@ function handlePanelEvent(
     case 'translate':
       promptTools.run((node.data as PromptData).draft ?? '', 'translate')
       break
-    case 'applyDraft':
-      applyDraft(node, store)
-      break
     case 'run':
       void exec.runNode(node.id)
       break
@@ -582,27 +601,6 @@ function toggleGroupPrompt(node: NodeSnapshot, store: ReturnType<typeof useCanva
     id: node.id,
     patch: { hiddenPromptIds: anyVisible ? promptIds : [] },
     transient: true,
-  })
-}
-
-/**
- * 草稿 → 正文（§6.7「写入节点」）：面板草稿经用户显式确认才成为最终提示词。
- *
- * - `transient:false`：进撤销栈——写入是一个明确的创作决策，要能反悔；
- * - 草稿与正文相同（或草稿为空）时**不派发**：空跑一次撤销记录只会让人疑惑
- *   「我撤掉了什么」；
- * - 写入后草稿**保留**：继续改草稿、再写入是常见节奏，清空反而丢工作区。
- */
-function applyDraft(node: NodeSnapshot, store: ReturnType<typeof useCanvasStore>): void {
-  if (node.type !== 'prompt') return
-  const data = node.data as PromptData
-  const draft = data.draft ?? ''
-  if (!draft.trim() || draft === data.text) return
-  store.dispatch({
-    kind: 'node.updateData',
-    id: node.id,
-    patch: { text: draft },
-    transient: false,
   })
 }
 

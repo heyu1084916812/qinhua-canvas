@@ -684,7 +684,11 @@ export function CreationPanel(props: CreationPanelProps) {
             className={styles.prompt}
             data-panel-prompt
             value={promptDraft}
-            placeholder={promptMode ? '起草 / 反推提示词的工作区，确认后「写入节点」' : '输入提示词，或连线上游提示词节点'}
+            placeholder={
+              promptMode
+                ? '输入提示词（下游生成节点读的就是这里）'
+                : '输入提示词，或连线上游提示词节点'
+            }
             onChange={(e) => onPromptChange(e.target.value)}
             /* 失焦立即落库，不等那 300ms —— 用户点走就是「我打完了」 */
             onBlur={() => {
@@ -710,77 +714,18 @@ export function CreationPanel(props: CreationPanelProps) {
           )}
         </div>
         {promptMode && (
-          // 底部行（§6.7）：左字数，右「优化 / 翻译」——与节点本体同一套 LLM 行为
+          /*
+           * 提示词区的收尾行（§6.7）：只留**字数**。
+           *
+           * 「技能 / 优化 / 翻译 / 反推」这一排已挪到第三部分参数行的尾部
+           * （用户 2026-09-24：「这一排放在参数那一排的后面即可」）——
+           * 它们和渠道 / 模型 / 生成按钮同属「这次生成怎么跑」，
+           * 摆在同一排比塞在提示词框下方更容易一次扫完。
+           */
           <div className={styles.toolRow} data-panel-prompt-tools>
             <span className={styles.toolCount} data-panel-prompt-count>
               {model.prompt.length} 字
             </span>
-            {tools && (
-              <span className={styles.toolGroup}>
-                {/*
-                  技能选择器（用户 2026-09-24）。
-
-                  它与右边「优化 / 翻译 / 反推」是**同一层**的东西：都只决定
-                  「这次调用用哪段系统指令」。所以放在同一排、同一个按钮样式里，
-                  而不是另起一个区域 —— 另起会让人以为它是另一类功能。
-                */}
-                <SkillPicker
-                  skills={skills}
-                  running={tools.status === 'running'}
-                  text={model.prompt}
-                  imageCount={props.promptImageCount ?? 0}
-                  onRun={(skill) => tools.runSkill(model.prompt, skill)}
-                  onOpenLibrary={props.onOpenSkills}
-                />
-                <button
-                  type="button"
-                  className={styles.toolBtn}
-                  disabled={tools.status === 'running' || model.prompt.trim().length === 0}
-                  title={tools.error ?? '用文本模型优化此提示词'}
-                  onClick={() => tools.run(model.prompt, 'optimize')}
-                >
-                  优化
-                </button>
-                <button
-                  type="button"
-                  className={styles.toolBtn}
-                  disabled={tools.status === 'running' || model.prompt.trim().length === 0}
-                  title={tools.error ?? '中文 ⇄ 英文互译'}
-                  onClick={() => tools.run(model.prompt, 'translate')}
-                >
-                  翻译
-                </button>
-                {/* 反推（§6.7）：输入是**上游图片**而非文本，故禁用条件与其它两个相反——
-                    有图就能点（哪怕一个字都没有），没图点了也是空跑。 */}
-                <button
-                  type="button"
-                  className={styles.toolBtn}
-                  data-panel-prompt-tool="describe"
-                  disabled={tools.status === 'running' || (props.promptImageCount ?? 0) === 0}
-                  title={
-                    tools.error ??
-                    ((props.promptImageCount ?? 0) > 0
-                      ? `把上游 ${props.promptImageCount} 张图发给文本模型，反推出绘画提示词（覆盖当前文本）`
-                      : '反推需要上游图片：先把一个已出图的生成节点连到本节点')
-                  }
-                  onClick={() => tools.run(model.prompt, 'describe')}
-                >
-                  反推
-                </button>
-                {/* 写入节点（§6.7）：草稿 → 正文的唯一通道。禁用条件与「反推」相反——
-                    一个字都没有时写入没有意义；有字就允许（与正文相同也交给装配层去重）。 */}
-                <button
-                  type="button"
-                  className={styles.toolBtn}
-                  data-panel-prompt-apply
-                  disabled={tools.status === 'running' || model.prompt.trim().length === 0}
-                  title="把草稿写入节点正文（下游生成节点读的是正文，不是草稿）"
-                  onClick={() => onEvent({ type: 'applyDraft' })}
-                >
-                  写入节点
-                </button>
-              </span>
-            )}
           </div>
         )}
         {promptMode && tools?.error && (
@@ -857,7 +802,7 @@ export function CreationPanel(props: CreationPanelProps) {
           />
         )}
 
-        {!promptMode && (
+       {!promptMode && (
           <>
             {/* 比例：竖版列表选择器（§6.8） */}
             <ParamPicker
@@ -996,6 +941,64 @@ export function CreationPanel(props: CreationPanelProps) {
               </>
             )}
           </>
+        )}
+        {/*
+          「技能 / 优化 / 翻译 / 反推」这一排（§6.7）。
+
+          用户 2026-09-24：「这一排放在参数那一排的后面即可」——
+          它们决定**这次调用用哪段系统指令 / 拿上游图去推**，
+          与渠道 / 模型 / 生成按钮同属「这次生成怎么跑」，
+          摆进参数行、紧挨着生成按钮，一次扫完。
+
+          为什么要 `margin-left: auto`：参数行是 flex 换行容器，
+          这一组靠右对齐后永远贴着生成按钮，参数多少都不会把它挤走。
+        */}
+        {promptMode && tools && (
+          <span className={styles.toolGroup} data-panel-prompt-tools>
+            <SkillPicker
+              skills={skills}
+              running={tools.status === 'running'}
+              text={model.prompt}
+              imageCount={props.promptImageCount ?? 0}
+              onRun={(skill) => tools.runSkill(model.prompt, skill)}
+              onOpenLibrary={props.onOpenSkills}
+            />
+            <button
+              type="button"
+              className={styles.toolBtn}
+              disabled={tools.status === 'running' || model.prompt.trim().length === 0}
+              title={tools.error ?? '用文本模型优化此提示词'}
+              onClick={() => tools.run(model.prompt, 'optimize')}
+            >
+              优化
+            </button>
+            <button
+              type="button"
+              className={styles.toolBtn}
+              disabled={tools.status === 'running' || model.prompt.trim().length === 0}
+              title={tools.error ?? '中文 ⇄ 英文互译'}
+              onClick={() => tools.run(model.prompt, 'translate')}
+            >
+              翻译
+            </button>
+            {/* 反推（§6.7）：输入是**上游图片**而非文本，故禁用条件与其它两个相反——
+                有图就能点（哪怕一个字都没有），没图点了也是空跑。 */}
+            <button
+              type="button"
+              className={styles.toolBtn}
+              data-panel-prompt-tool="describe"
+              disabled={tools.status === 'running' || (props.promptImageCount ?? 0) === 0}
+              title={
+                tools.error ??
+                ((props.promptImageCount ?? 0) > 0
+                  ? `把上游 ${props.promptImageCount} 张图发给文本模型，反推出绘画提示词（覆盖当前文本）`
+                  : '反推需要上游图片：先把一个已出图的生成节点连到本节点')
+              }
+              onClick={() => tools.run(model.prompt, 'describe')}
+            >
+              反推
+            </button>
+          </span>
         )}
         {/* §6.7：提示词节点的第三部分同样以生成按钮收尾（触发下游生成，见 runLabel） */}
         <button

@@ -670,11 +670,18 @@
   color: var(--danger);
 }
 
-/* ── 提示词节点面板（§6.7）：底部工具行 ── */
+/*
+ * 提示词节点面板（§6.7）：**字数**单独一行。
+ *
+ * 用户 2026-09-24 报「左边的文字和右边的下拉的下方有空隙」——
+ * 根因是这一行原本 `justify-content: space-between`，把字数推到最左、
+ * 把后面的东西推到最右，中间空出一整条。现在这里只剩字数，
+ * 去掉 `space-between`（它只为「两端对齐」存在），行高按字数自身收，
+ * 不再撑出一条空隙。
+ */
 .toolRow {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-2);
   margin-top: var(--space-2);
 }
@@ -685,28 +692,57 @@
   color: var(--text-3);
 }
 
+/*
+ * 「技能 / 优化 / 翻译 / 反推」这一组（参数行尾）。
+ *
+ * 用户 2026-09-24：「技能 / 优化 / 翻译 / 反推的 UI 和渠道、模型的 UI 一样，
+ * 两个地方用一条竖线分开即可」。
+ *
+ * 于是这里**不再是一个灰色胶囊背景**（那会形成「框里有框」），
+ * 而是与渠道 / 模型 chip 同形：透明底、同样高度、同样的圆角与字号，
+ * 靠 `margin-left: auto` 停在行尾、紧贴生成按钮。
+ * 分组之间只用一条竖线（::before）分隔。
+ */
 .toolGroup {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 2px;
-  background: var(--bg-subtle);
-  border-radius: var(--radius-control);
+  margin-left: auto;
 }
 
+.toolGroup::before {
+  content: '';
+  width: 1px;
+  height: 22px;
+  margin: 0 8px;
+  background: var(--stroke);
+  flex: none;
+}
+
+/*
+ * 工具按钮与参数 chip 同形（用户要求「UI 一样」）。
+ *
+ * 数值对齐 `ParamPicker.module.css` 的 `.chip`：高 46px、左右 12px 内距、
+ * `--radius-control` 圆角、16px / 字重 500、悬停浮现 `--bg-hover`。
+ * 写死数值而不是复用类名：CSS module 不跨文件组合，抄的是**同一套视觉参数**，
+ * 哪边改了都要一起看（若将来抽成共享 token 更好）。
+ */
 .toolBtn {
   border: none;
   background: transparent;
-  padding: 2px 8px;
-  border-radius: calc(var(--radius-control) - 2px);
-  font-size: var(--fs-label);
-  font-weight: 600;
-  color: var(--text-2);
+  height: 46px;
+  padding: 0 12px;
+  border-radius: var(--radius-control);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-1);
   cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
 }
 
 .toolBtn:hover:not(:disabled) {
-  background: var(--bg-surface);
+  background: var(--bg-hover);
   color: var(--text-1);
 }
 
