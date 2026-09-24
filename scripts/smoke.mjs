@@ -3295,6 +3295,38 @@ async function g23(browser) {
     `bottom=${longPanel.bottom} viewport=${longPanel.viewportH}`,
   )
 
+  /**
+   * ★★ 面板底部**不许留多余空白**（用户 2026-09-25 报「参数那一排下面怎么这么多空」）。
+   *
+   * 这是「高度自适应」那次改动的回归：`height:360 → min-height:360` 的同时
+   * 把提示词区的 `flex:1 1 auto` 改成了 `flex:0 0 auto`，剩余空间没人吸收，
+   * 三段顶在上边、底部露出一条死白（实测 74px）。
+   *
+   * 判据：最后一段（参数行）底边到面板底边的距离 ≤ **内边距 + 2px 容差**。
+   * 内边距实测 13px（= padding 设计值 × zoom 0.75），故阈值取 16px ——
+   * 与上面「字数行下方不再留大空隙」同一口径，且留了亚像素余量。
+   *
+   * 注意这一条要放在**短内容**之后量：内容一长面板就被内容撑满，
+   * 空白自然消失，那时断言恒真、什么也证明不了。
+   */
+  await panelTa().fill('短')
+  await panelTa().blur()
+  await sleep(700)
+  const tailGap = await panel.evaluate((el) => {
+    const b = el.getBoundingClientRect()
+    const kids = [...el.children]
+    const last = kids[kids.length - 1]
+    if (!last) return null
+    const lb = last.getBoundingClientRect()
+    return Math.round(b.bottom - lb.bottom)
+  })
+  rec(
+    g,
+    '★★ 面板底部无多余空白（参数行下方只剩内边距）',
+    typeof tailGap === 'number' && tailGap <= 16,
+    `底部留白=${tailGap}px（阈值 16）`,
+  )
+
   const taStyle = await panelTa().evaluate((el) => {
     const cs = getComputedStyle(el)
     /**
