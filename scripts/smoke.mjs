@@ -2590,6 +2590,33 @@ async function g18(browser) {
     canvasSet.size === 8 && canvasSet.has('重置视图'),
     `items=${JSON.stringify(canvasMenu)}`,
   )
+
+  /**
+   * ★ 每个「新建 X 节点」都必须有矢量图标（用户 2026-09-25 报：循环节点没有）。
+   *
+   * 漏的是右键菜单 `MENU_ICON` 里的 `create:loop` —— 左侧「＋」菜单有、右键没有，
+   * 六个类型里唯独它空一档。**这类「少一个」的缺陷读代码很难发现**，
+   * 必须逐项比：可建类型集合 ↔ 实际带图标的项。
+   *
+   * 判据取 `<svg>` 而不是「有没有 span」：图标是 SVG 矢量（§「不要用文本字形当图标」），
+   * 只查容器会漏。
+   */
+  const iconState = await page.evaluate(() => {
+    const items = [...document.querySelectorAll('[data-context-menu] [data-context-menu-item]')]
+    return items
+      .filter((el) => (el.getAttribute('data-context-menu-item') || '').startsWith('create:'))
+      .map((el) => ({
+        id: el.getAttribute('data-context-menu-item'),
+        hasSvg: !!el.querySelector('svg'),
+      }))
+  })
+  const missing = iconState.filter((i) => !i.hasSvg).map((i) => i.id)
+  rec(
+    g,
+    '★ 每个新建项都有矢量图标（含循环节点；图标两侧菜单同源）',
+    iconState.length === 7 && missing.length === 0,
+    `带图标 ${iconState.length}/7${missing.length ? ` 缺=${missing.join(',')}` : ''}`,
+  )
   await page.keyboard.press('Escape')
   await sleep(150)
 

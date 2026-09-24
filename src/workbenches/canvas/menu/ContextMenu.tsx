@@ -21,6 +21,7 @@ import {
   IconCompare,
   IconGeneration,
   IconGroup,
+  IconLoop,
   IconPrompt,
   IconReset,
 } from '../toolbar/icons'
@@ -40,6 +41,14 @@ const MENU_ICON: Record<string, ReactNode> = {
   'create:compare': <IconCompare size={MENU_ICON_SIZE} />,
   'create:group': <IconGroup size={MENU_ICON_SIZE} />,
   'create:batch': <IconBatch size={MENU_ICON_SIZE} />,
+  /**
+   * 循环节点（用户 2026-09-25 报）：`loop` 进 `CREATABLE_TYPES` 时只补了左侧
+   * 「＋」菜单的图标，右键菜单这张映射**漏了它** —— 六个类型里唯独循环节点
+   * 没有图标，视觉上断一档。
+   *
+   * 图标与功能栏取**同一份**（`toolbar/icons` 的 `IconLoop`），不另画一套。
+   */
+  'create:loop': <IconLoop size={MENU_ICON_SIZE} />,
   'create:board': <IconBoard size={MENU_ICON_SIZE} />,
   resetView: <IconReset size={MENU_ICON_SIZE} />,
 }

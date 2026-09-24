@@ -765,6 +765,12 @@ TypeError: Cannot read properties of undefined (reading 'length')
 + `NODE_MENU`（工具栏）；⑦ **各下游的 `accepts.upstream`**（最容易漏）;
 ⑧ 图标；⑨ 钉住"菜单项数"的冒烟断言（本次 G17/G18 各改一处）。
 - **测浮层菜单项必须用物理鼠标点击**：程序化 `btn.click()` 不产生 `pointerdown`，会绕开「菜单渲染在 surface 内部、pointerdown 冒泡到 surface 手势逻辑」这类 bug（曾把「点了没反应」测成正常）。
+- **「可建类型」+1 时，图标要在**两处**都登记**（用户 2026-09-25 报循环节点没图标才补）：
+  ① 左工具栏 `CanvasToolbar.tsx` 的 `NODE_MENU`（带 `icon` 字段）；
+  ② 右键菜单 `ContextMenu.tsx` 的 `MENU_ICON`（key 是 `create:${type}`，由 `contextMenu.ts` 生成）。
+  两边都必须从 `toolbar/icons` 取**同一个组件**——各画一套迟早漂。
+  **这类「少一个」的缺陷读代码发现不了**，只能逐项比：可建类型集合 ↔ 实际带 `<svg>` 的项
+  （冒烟 G18 已加；故障注入能精确报出缺哪个 id）。
 ### ★ 创作面板高度：可伸展 vs 不可压缩，是两个方向（2026-09-25）
 
 面板的「剩余空间」必须**有且只有一处吸收**，否则底部必留死白；而吸收它的那一处
