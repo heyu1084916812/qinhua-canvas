@@ -325,6 +325,45 @@ export function CreationPanel(props: CreationPanelProps) {
    * 那样必然能同时开出两个浮层，再靠互相通知去关，是自找的竞态。
    */
   const [openPicker, setOpenPicker] = useState<string | null>(null)
+
+  /**
+   * 提示词输入的**本地草稿 + 防抖落库**（用户 2026-09-24：「批量节点里面输入文字有点卡」）。
+   *
+   * 卡的原因：`onChange` 每敲一个键就 `dispatch` 一次 `node.updateData`。
+   * 每次 dispatch 都会**替换整张 graph 快照**并触发整图重渲染；而批量节点还要
+   * 额外算集合成员（`batchItemsOf` 遍历子节点），于是每键的代价被放大。
+   *
+   * 做法：输入时只改**本地状态**（那一层是浏览器原生的，没有重渲染），
+   * 停手 300ms 后再落库。落库前如果用户切了节点，`model.prompt` 会变，
+   * 下面的 effect 会把草稿同步过去 —— 不会把 A 节点的内容写进 B 节点。
+   */
+  const [promptDraft, setPromptDraft] = useState(model.prompt)
+  const promptTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 外部值变了（切节点 / 撤销 / 别的入口写入）→ 丢弃本地草稿，跟着外部走
+  useEffect(() => {
+    setPromptDraft(model.prompt)
+    if (promptTimer.current) {
+      clearTimeout(promptTimer.current)
+      promptTimer.current = null
+    }
+  }, [model.prompt])
+
+  // 卸载前把未落库的输入补交，避免「刚打完就关面板」丢字
+  useEffect(() => {
+    return () => {
+      if (promptTimer.current) clearTimeout(promptTimer.current)
+    }
+  }, [])
+
+  const onPromptChange = (text: string) => {
+    setPromptDraft(text)
+    if (promptTimer.current) clearTimeout(promptTimer.current)
+    promptTimer.current = setTimeout(() => {
+      promptTimer.current = null
+      onEvent({ type: 'setPrompt', text })
+    }, 300)
+  }
   const closePicker = () => setOpenPicker(null)
   const togglePicker = (key: string) => setOpenPicker((cur) => (cur === key ? null : key))
   const tools = promptMode ? (props.promptTools ?? null) : null
@@ -615,9 +654,17 @@ export function CreationPanel(props: CreationPanelProps) {
           )}
           <textarea
             className={styles.prompt}
-            value={model.prompt}
+            data-panel-prompt
+            value={promptDraft}
             placeholder={promptMode ? '起草 / 反推提示词的工作区，确认后「写入节点」' : '输入提示词，或连线上游提示词节点'}
-            onChange={(e) => onEvent({ type: 'setPrompt', text: e.target.value })}
+            onChange={(e) => onPromptChange(e.target.value)}
+            /* 失焦立即落库，不等那 300ms —— 用户点走就是「我打完了」 */
+            onBlur={() => {
+              if (!promptTimer.current) return
+              clearTimeout(promptTimer.current)
+              promptTimer.current = null
+              onEvent({ type: 'setPrompt', text: promptDraft })
+            }}
           />
           {model.promptToggle && (
             <button

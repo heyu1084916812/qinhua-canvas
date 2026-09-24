@@ -38,6 +38,7 @@ import type { NodeViewProps } from '../registry'
 import type { LoopData } from '../../../../domain/canvas/model/node'
 import { normalizeLoopParams } from '../../../../domain/canvas/loop/loopPlan'
 import { useAsset } from '../../hooks/useAsset'
+import { TokenEditor, type TokenEditorHandle } from '../../text/TokenEditor'
 import styles from './LoopNodeView.module.css'
 
 /**
@@ -80,6 +81,19 @@ export function LoopNodeView(props: NodeViewProps) {
     const next = [...promptRows]
     next[i] = text
     patchLater({ prompts: next }, `prompt:${i}`)
+  }
+
+  /**
+   * 每条提示词的编辑器句柄。
+   *
+   * 「计数」按钮要把变量插进**用户正在编辑的那一条**；没聚焦过任何一条时，
+   * 插进第一条（大雄也是这个口径：它的插入目标固定在首条）。
+   */
+  const editorRefs = useRef<(TokenEditorHandle | null)[]>([])
+  const lastFocused = useRef(0)
+  const insertToken = () => {
+    const i = Math.min(lastFocused.current, promptRows.length - 1)
+    editorRefs.current[i]?.insertToken('[计数]')
   }
 
   const toggleChannel = (which: 'image' | 'prompt') => {
@@ -283,14 +297,24 @@ export function LoopNodeView(props: NodeViewProps) {
               <div className={styles.promptItem} key={i}>
                 {/* 编号圆点**骑在左上角**（照抄大雄的 translate(-30%,-30%)） */}
                 <span className={styles.promptIndex}>{i + 1}</span>
-                <textarea
-                  className={styles.promptText}
-                  data-loop-prompt={i}
-                  rows={2}
+                {/*
+                  提示词用**变量芯片编辑器**（用户 2026-09-24：「输入框内会自动变成
+                  一个按钮一样的东西」）：`[计数]` 在输入框里显示成带 × 的胶囊，
+                  而不是一串方括号字符。存储层仍是纯文本（见 TokenEditor 的说明）。
+                */}
+                <TokenEditor
+                  ref={(h) => { editorRefs.current[i] = h }}
+                  dataKey={String(i)}
+                  /**
+                   * 保留 `data-loop-prompt` 锚点：既有冒烟与探针都按它定位输入行。
+                   * 换成变量芯片编辑器后锚点若丢，测试会以「等不到元素」超时 ——
+                   * 那是**测试台与实现脱节**，不是功能坏了。
+                   */
+                  anchorAttr={{ 'data-loop-prompt': String(i) }}
                   value={text}
                   placeholder="例如：现在生成第 [计数] 个卖点"
-                  onChange={(e) => updatePrompt(i, e.target.value)}
-                  onPointerDown={(e) => e.stopPropagation()}
+                  onChange={(next) => updatePrompt(i, next)}
+                  onFocus={() => { lastFocused.current = i }}
                 />
                 <button
                   type="button"
@@ -311,12 +335,8 @@ export function LoopNodeView(props: NodeViewProps) {
               type="button"
               className={styles.counterToken}
               data-loop-insert-counter
-              title="在第一条提示词末尾插入 [计数] 变量"
-              onClick={() => {
-                const next = [...promptRows]
-                next[0] = `${next[0] ?? ''}[计数]`
-                patchNow({ prompts: next })
-              }}
+              title="在光标处插入 [计数] 变量（生成时替换成当前轮次）"
+              onClick={insertToken}
             >
               计数
             </button>
@@ -371,6 +391,8 @@ export function LoopNodeView(props: NodeViewProps) {
           className={styles.run}
           data-loop-run
           disabled={!canRun}
+          /* 文字在窄节点里会被 CSS 隐藏，故按钮的可读名称必须由 aria-label 兜住 */
+          aria-label="一键运行"
           title={
             canRun
               ? `按当前参数跑 ${p.count} 轮（下游生成节点的渠道与模型已就绪）`
@@ -403,12 +425,23 @@ function UpstreamThumb({ hash, index }: { hash: string; index: number }) {
 /**
  * 数字控件（复刻大雄的 `loopNumberControlHtml` / `.loop-number-control`）。
  *
- * 形态：胶囊显示「标签 + 当前值」，**悬停或聚焦时向上浮出**一个快捷面板 ——
- * 4 列网格放常用档位（1/2/3/4/5/6/8/10），下面一行自定义输入 + 应用按钮。
+ * 形态：按钮显示「标签 + 当前值」（**左右排**），点开后浮出快捷面板 ——
+ * 4 列网格放常用档位（1/2/3/4/5/6/8/10），下面一行「自定义」输入（1–99）。
  *
- * 为什么值得做这一层：循环的三个数字天天要调（批次 1→4、次数 3→9），
- * 光靠加减按钮要点十几次，光靠手输又要先点进去再打字。快捷档位一按到位、
- * 长尾用自定义输入兜住——这是大雄那套里最实用的一处交互。
+ * ## 三处按用户 2026-09-24 反馈修正
+ *
+ * 1. **改成点击开合，不再 hover 开合**。
+ *    原先 `onMouseEnter/Leave` 挂在容器上，而浮层绝对定位在容器**之外** ——
+ *    鼠标往浮层移动时会先离开容器，浮层当场关闭，**里面的档位点不到**
+ *    （用户原话：「只要移开按钮范围他就不见了」）。
+ *    现在点触发区开、点外部关，`Escape` 也能关。
+ *
+ * 2. **档位与自定义的关系说清**（用户：「面板上有 1-10，只有 1-10 才和下方的
+ *    自定义对应，如果自定义大于 10 的话，面板上的参数就不再是选中状态」）。
+ *    ⇒ 档位只在**当前值正好等于该档**时高亮；自定义输入 >10 时十个档位全不高亮。
+ *
+ * 3. **自定义范围 1–99**（与大雄一致；原先用的是各字段的最大值，
+ *    起始计数能填到 9999，在这么小的浮层里没有意义也容易误填）。
  */
 function NumberControl({
   label,
@@ -425,7 +458,11 @@ function NumberControl({
 }) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(String(value))
-  const clampSet = (n: number) => onChange(Math.max(1, Math.min(max, Math.floor(n))))
+  const rootRef = useRef<HTMLDivElement | null>(null)
+
+  /** 自定义输入的上限：1–99（档位固定到 10，见上面的说明） */
+  const CUSTOM_MAX = 99
+  const clampSet = (n: number) => onChange(Math.max(1, Math.min(Math.min(max, CUSTOM_MAX), Math.floor(n))))
 
   /**
    * 面板收起时把草稿同步回当前值。
@@ -442,20 +479,41 @@ function NumberControl({
     if (Number.isFinite(n)) clampSet(n)
   }
 
+  /**
+   * 点外部关闭。
+   *
+   * 用 `pointerdown` 而不是 `click`：点击经常会被节点拖动、
+   * 画布的空白点击处理抢先消费，click 可能永远到不了 document。
+   */
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
   return (
     <div
       className={styles.numControl}
       data-loop-number-bar={dataKey}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      ref={rootRef}
     >
       <button
         type="button"
         className={styles.numTrigger}
         data-loop-number-trigger={dataKey}
         aria-expanded={open}
-        onFocus={() => setOpen(true)}
         onPointerDown={(e) => e.stopPropagation()}
+        onClick={() => setOpen((v) => !v)}
       >
         <span>{label}</span>
         {/* 数值单独包一层并带 data 锚点：自动化与既有冒烟都按它读当前值 */}
@@ -477,13 +535,15 @@ function NumberControl({
               </button>
             ))}
           </div>
-          <div className={styles.numCustom}>
+          <label className={styles.numCustom}>
+            {/* 「自定义」标签：与大雄一致，也让「上面是快捷档、这里是任意值」一目了然 */}
+            <span className={styles.numCustomLabel}>自定义</span>
             <input
               className={styles.numCustomInput}
               data-loop-number-input={dataKey}
               type="number"
               min={1}
-              max={max}
+              max={CUSTOM_MAX}
               value={draft}
               onPointerDown={(e) => e.stopPropagation()}
               onChange={(e) => setDraft(e.target.value)}
@@ -501,7 +561,7 @@ function NumberControl({
             >
               ＋
             </button>
-          </div>
+          </label>
         </div>
       )}
     </div>

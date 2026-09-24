@@ -181,6 +181,17 @@ async function configureGenPanel(page, panel, prompt) {
     const ta = panel.locator('textarea').first()
     await ta.click()
     await ta.fill(prompt)
+    /**
+     * 填完必须**失焦**再往下走（用户 2026-09-24）。
+     *
+     * 面板提示词改成「本地草稿 + 300ms 防抖落库」后，`fill()` 之后立刻点生成
+     * 会读到**还没写进 store 的旧值**（空串）⇒ `toRunRequest` 因缺 prompt 返回 null
+     * ⇒ 该节点不进计划 ⇒ 生成不触发 ⇒ 后面的 `waitNodeAsset` 白等一轮超时。
+     *
+     * 这里 blur 一下：实现里「失焦立即落库」（用户点走就是「我打完了」），
+     * 于是测试走的正是产品里真实的那条路径，而不是靠 sleep 猜时长。
+     */
+    await ta.blur()
     await sleep(200)
   }
 }
@@ -9351,6 +9362,52 @@ async function g66(browser) {
  * 与 `features/canvas/execution/loopRun.test.ts`（17 项）里钉着；
  * 本组验的是「这些数学真的驱动了执行、并产出了东西」。
  */
+/**
+ * 给「变量芯片编辑器」（contenteditable）赋值 / 取值。
+ *
+ * 循环节点的提示词输入从 `textarea` 换成了变量芯片编辑器（用户 2026-09-24），
+ * 而 `fill()` / `inputValue()` 只适用于表单控件 —— 对 contenteditable
+ * 前者报错、后者永远返回空串。这两个 helper 是它们在本项目里的等价物。
+ *
+ * 赋值用 `execCommand('insertText')` 而不是直接改 textContent：它会触发真实的
+ * `input` 事件，React 的回调因此照常收到 —— 否则改完 DOM 而状态没更新，
+ * 会得到「界面有字、节点数据是空」的假通过。
+ */
+async function setLoopPrompt(page, locator, text) {
+  await locator.click()
+  /**
+   * 走 `locator.evaluate` 而不是 `page.evaluate` + elementHandle。
+   * Playwright 的 `page.evaluate` 只接**一个**参数（要多个得包成对象），
+   * 直接传 `(handle, value)` 会报 "Too many arguments"。
+   */
+  await locator.evaluate(
+    (el, value) => {
+      el.focus()
+      const range = document.createRange()
+      range.selectNodeContents(el)
+      const sel = window.getSelection()
+      sel.removeAllRanges()
+      sel.addRange(range)
+      document.execCommand('insertText', false, value)
+    },
+    text,
+  )
+}
+
+/** 读变量芯片编辑器的纯文本（chip 还原成 `[计数]`，与 TokenEditor 内部同一口径） */
+async function readLoopPrompt(locator) {
+  return locator.evaluate((el) => {
+    const walk = (n) => {
+      if (n.nodeType === Node.TEXT_NODE) return n.nodeValue ?? ''
+      if (n.nodeType !== Node.ELEMENT_NODE) return ''
+      if (n.dataset?.token) return n.dataset.token
+      if (n.tagName === 'BR') return '\n'
+      return [...n.childNodes].map(walk).join('')
+    }
+    return [...el.childNodes].map(walk).join('').replace(/\u00a0/g, ' ')
+  })
+}
+
 async function g67(browser) {
   const g = 'G67 循环节点'
   const ctx = await newCtx(browser)
@@ -9418,10 +9475,14 @@ async function g67(browser) {
    * 2026-09-23 复刻大雄 UI 后：数字控件改成「胶囊 + 悬停浮层」的快捷档位。
    * 这一条验的是浮层真能浮出来、且档位齐（8 个：1/2/3/4/5/6/8/10）。
    */
-  await node.locator('[data-loop-number-bar="count"]').dispatchEvent('mouseover')
-  await sleep(450)
+  // 数字控件改成**点击**开合（用户 2026-09-24：hover 开合会让浮层里的档位点不到）
+  await node.locator('[data-loop-number-trigger="count"]').click()
+  await node.locator('[data-loop-quick="count:3"]').waitFor({ state: 'visible', timeout: 5000 })
   const quickCount = await node.locator('[data-loop-quick^="count:"]').count()
-  rec(g, '★ 数字控件悬停浮出快捷档位（复刻大雄）', quickCount >= 6, `${quickCount} 档`)
+  rec(g, '★ 数字控件点开后浮出快捷档位（复刻大雄）', quickCount >= 6, `${quickCount} 档`)
+  // 关掉浮层，免得挡住后面的操作
+  await page.keyboard.press('Escape')
+  await sleep(300)
 
   // 提示词输入行直接列在面板里（大雄形态，不是抽屉）
   const promptRows = await node.locator('[data-loop-prompt]').count()
@@ -9442,7 +9503,7 @@ async function g67(browser) {
    * 超长无空格串是最容易把 flex 子项顶宽的内容——它不能折行，只能溢出，
    * 正是「容器没居中」那个 bug 的触发条件。
    */
-  await node.locator('[data-loop-prompt="0"]').fill('A'.repeat(120))
+  await setLoopPrompt(page, node.locator('[data-loop-prompt="0"]'), 'A'.repeat(120))
   await sleep(700)
 
   const align = await node.evaluate((el) => {
@@ -9541,7 +9602,7 @@ async function g67(browser) {
   await sleep(800)
 
   // 清掉刚才为了触发溢出塞进去的长文本，免得影响后面的断言
-  await node.locator('[data-loop-prompt="0"]').fill('')
+  await setLoopPrompt(page, node.locator('[data-loop-prompt="0"]'), '')
   await sleep(500)
 
   /**
@@ -9568,7 +9629,8 @@ async function g67(browser) {
   )
 
   // ── 参数能改且写进数据（走浮层的自定义输入，与大雄的交互一致） ──
-  await node.locator('[data-loop-number-bar="count"]').dispatchEvent('mouseover')
+  // 点击开合（不再是 hover）：见上方「数字控件点开后浮出快捷档位」那条的说明
+  await node.locator('[data-loop-number-trigger="count"]').click()
   await node.locator('[data-loop-quick="count:6"]').waitFor({ state: 'visible', timeout: 5000 })
   /*
    * 点**快捷档位**而不是「填自定义 + 点应用」。
@@ -9598,7 +9660,7 @@ async function g67(browser) {
    */
   await node.locator('[data-loop-insert-counter]').click()
   await sleep(600)
-  const inserted = await node.locator('[data-loop-prompt="0"]').inputValue()
+  const inserted = await readLoopPrompt(node.locator('[data-loop-prompt="0"]'))
   rec(g, '「计数」按钮把变量插进第一条', inserted.includes('[计数]'), inserted)
 
   // ── 关键：循环节点能连到下游生成节点（否则它毫无用处）──
@@ -9656,24 +9718,16 @@ async function g67(browser) {
    * 且都带图。只断言「按钮可点」是不够的——上一版就是这样：
    * 按钮亮着，点下去报「无法构建请求」（因为循环给的提示词传不到下游）。
    */
-  await node.locator('[data-loop-prompt="0"]').fill('第[计数]张，冒烟测试')
+  await setLoopPrompt(page, node.locator('[data-loop-prompt="0"]'), '第[计数]张，冒烟测试')
   await sleep(600)
   /**
-   * 设次数 = 2：**先 hover 触发浮层，再点浮层里的档位**。
+   * 设次数 = 2：**先点开浮层，再点浮层里的档位**。
    *
-   * 这里踩过一次坑：hover 的目标是节点内的按钮，而节点在拖线后被挪到了
-   * 新位置，画布表层会拦住指针（`surface ... intercepts pointer events`）。
-   * 用 `force: true` 绕过命中检测 —— 这是测试台的定位问题，与产品行为无关。
+   * 交互从 hover 改成点击（用户 2026-09-24：「只要移开按钮范围他就不见了」）——
+   * hover 开合时鼠标往浮层移动会先离开容器，浮层当场关闭、档位点不到。
+   * 改用点击后这条路才真正可操作，所以测试也跟着改成点击。
    */
-  const countBar = node.locator('[data-loop-number-bar="count"]')
-  /**
-   * 用 `mouseover`（会冒泡）而不是 `mouseenter`。
-   *
-   * React 的 `onMouseEnter` 由合成事件系统从 `mouseover` **派生**，
-   * 直接派发 `mouseenter`（不冒泡）不会被它接住——实测浮层不出现、
-   * 后续找不到浮层里的档位而超时。
-   */
-  await countBar.dispatchEvent('mouseover')
+  await node.locator('[data-loop-number-trigger="count"]').click()
   await node.locator('[data-loop-quick="count:2"]').waitFor({ state: 'visible', timeout: 5000 })
   await node.locator('[data-loop-quick="count:2"]').click()
   await sleep(700)
@@ -9689,7 +9743,7 @@ async function g67(browser) {
   const beforeRun = await page.locator('[data-node-type="generation"]').count()
   const beforeAssets = await page.locator('[data-node-asset]').count()
   const countNow = (await node.locator('[data-loop-number="count"]').innerText()).trim()
-  const promptNow = await node.locator('[data-loop-prompt="0"]').inputValue()
+  const promptNow = await readLoopPrompt(node.locator('[data-loop-prompt="0"]'))
   rec(g, '（运行前状态）次数与提示词已写入', countNow === '2' && promptNow.length > 0, `次数=${countNow} 提示词=${JSON.stringify(promptNow)}`)
   /**
    * 点击运行。

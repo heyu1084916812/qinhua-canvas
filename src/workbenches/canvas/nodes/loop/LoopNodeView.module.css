@@ -22,6 +22,11 @@
   color: var(--text-1);
   overflow: visible;
   justify-content: flex-start;
+  /*
+   * 容器查询的判定基准：`.run` 的文字是否显示按**节点自身宽度**决定
+   * （见 `.run span` 的说明）。不写这一句，下面的 `@container` 不生效。
+   */
+  container-type: inline-size;
 }
 
 /*
@@ -337,40 +342,13 @@
   transform: translate(-9px, -9px);
 }
 
-.promptText {
-  width: 100%;
-  box-sizing: border-box;
-  min-height: 54px;
-  max-height: 112px;
-  overflow: auto;
-  resize: none;
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius-control);
-  background: var(--bg-surface);
-  color: var(--text-1);
-  outline: none;
-  padding: 8px 9px;
-  font-family: var(--font-sans);
-  font-size: 11px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
-  cursor: text;
-  user-select: text;
-  transition: border-color var(--dur-hover), background var(--dur-hover);
-}
-
-.promptText:hover {
-  border-color: var(--text-3);
-}
-
-.promptText:focus {
-  border-color: var(--stroke-focus);
-}
-
-.promptText::placeholder {
-  color: var(--text-3);
-}
+/*
+ * 提示词输入区的样式已移到 `TokenEditor.module.css`。
+ *
+ * 原先这里是 textarea 的 `.promptText`；换成变量芯片编辑器后，
+ * 尺寸 / 描边 / 焦点态都由编辑器自己负责 —— 留一份等价样式在这里，
+ * 两边迟早会漂移（改了一处忘了另一处），表现就是「同一个输入框在新旧两种渲染下不一样」。
+ */
 
 /* 删除按钮：默认半隐，悬停才实起来（大雄 opacity .72 → 1） */
 .iconBtn {
@@ -463,18 +441,16 @@
 .footer {
   width: 100%;
   display: grid;
-  /*
-   * 三格一排：起始计数 / 次数 / 一键运行（用户 2026-09-23）。
-   *
-   * 240px 账：内容区 214，扣两个间距 ⇒ 每格约 66px。
-   * 「起始计数」是四字标签，66px 里放不下 10px 字号 + 数值并排（实测需约 76px），
-   * 故数字控件取**标签在上、数值在下**的竖排（见 `.numTrigger`）——
-   * 四字独占一行刚好放得下，代价只是高 6px，不接受缩字号或截断。
-   *
-   * 运行按钮同样受 66px 限制：图标 + 「一键运行」四字并排放不下，
-   * 故也取竖排（图标在上、文字在下），与本排另两格形态一致。
-   */
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+    /*
+     * 三格一排：起始计数 / 次数 / 一键运行。
+     *
+     * 列宽**不等分**（用户 2026-09-24：数字改成左右排后等分会挤）。
+     * 240px 账 —— 内容区 214，扣两个 7px 间距 = 200：
+     * 两个数字要用左右排装下「起始计数 + 数值」，实测各需约 88px；
+     * 余下约 24px 给运行按钮当图标位。
+     * 故数字格 1.15fr、运行格 0.7fr —— 比例偏数字侧，保证四字标签不被截。
+     */
+    grid-template-columns: 1.15fr 1.15fr 0.7fr;
   grid-auto-rows: auto;
   align-items: stretch;
   gap: 7px;
@@ -494,25 +470,41 @@
 /* 运行按钮与另两格同排同高（形态对齐） */
 .run {
   width: 100%;
-  min-height: 36px;
-  padding: 3px 6px;
+  /* 与左侧两个数字格同高（30px），整排才齐 */
+  min-height: 30px;
+  padding: 0;
   border-radius: var(--radius-control);
   border: 1px solid var(--accent);
   background: var(--accent);
   color: var(--accent-text);
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.1;
-  white-space: nowrap;
+  gap: 4px;
   overflow: hidden;
   cursor: pointer;
   box-shadow: var(--shadow-float);
+}
+
+/*
+ * 240px 宽时**只显示图标**，节点拉宽后自动放出文字。
+ *
+ * 第三格只有约 60px：图标 13 + 间距 4 + 「一键运行」四字约 48 = 65px，装不下。
+ * 与其缩字号或截断（都是用户反复反馈过的问题），不如窄时只留图标 ——
+ * `title` 与 `aria-label` 都带着完整文案，悬停说明与可访问性都不受影响。
+ *
+ * 用**容器查询**而不是媒体查询：判断依据是「这个节点有多宽」，
+ * 不是「浏览器窗口有多宽」——后者在画布上完全不相干。
+ */
+.run span {
+  display: none;
+}
+
+@container (min-width: 300px) {
+  .run span {
+    display: inline;
+  }
 }
 
 .run svg {
@@ -549,24 +541,25 @@
 .numTrigger {
   width: 100%;
   /*
-   * 高度 30 → 36：标签与数值改成上下两行后需要更多纵向空间。
+   * **左右排**（用户 2026-09-24：「批次、起始数量、次数的排版替换成左右，
+   * 目前是上下」）：标签在左、数值在右，两端对齐。
    *
-   * 为什么竖排：三格一排时每格 66px，「起始计数」四个字与数值并排需要约 76px，
-   * 放不下就只剩截断或缩字号两条路——两条都不接受。竖排后标签独占一行，
-   * 宽度足够、字号保持 10px，代价只是多 6px 高。
+   * 之前竖排是因为底栏挤了三格、每格只有 66px 放不下四字标签 + 数值。
+   * 现在底栏只留「起始计数 / 次数 / 一键运行」，且运行按钮独占右侧，
+   * 前两格宽了一截；再来一次左右排不会挤 —— 高度也从 36 收回到 30。
    */
-  height: 36px;
+  height: 30px;
   min-width: 0;
-  padding: 3px 6px;
+  padding: 0 8px;
   border-radius: var(--radius-control);
   border: 1px solid var(--stroke);
   background: var(--bg-surface);
   color: var(--text-2);
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
-  gap: 1px;
+  justify-content: space-between;
+  gap: 4px;
   font-family: var(--font-sans);
   font-size: 10px;
   font-weight: 700;
@@ -659,6 +652,14 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.numCustomLabel {
+  flex: none;
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .numCustomInput {
