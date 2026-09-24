@@ -9790,7 +9790,46 @@ async function g67(browser) {
     g,
     '★★ 次数=2 → 一键运行真的跑出 2 轮的图',
     afterAssets >= beforeAssets + 2,
-    `有图的节点 ${beforeAssets} → ${afterAssets}｜生成节点 ${beforeRun} → ${afterRun}（第一轮复用已有空节点）`,
+    `有图的节点 ${beforeAssets} → ${afterAssets}｜生成节点 ${beforeRun} → ${afterRun}（每轮各铺一个承载节点）`,
+  )
+
+  /**
+   * ★★ 落位与连线（用户 2026-09-24）：
+   * 「槽位应该出现在循环节点下游的生成节点的右边，而且线条应该是链接下游生成节点的，
+   *   不是从循环节点出来的，因为参数是靠下游生成节点控制的」
+   *
+   * 判据全部用**几何**：承载节点在生成节点右侧、两个承载节点**不重叠**（x 递增）。
+   * 只断言「节点数 +2」是不够的 —— 那正是上一版的状态：两个槽位算在同一格位、
+   * 叠在一起，数量对了但用户看到的是「只有一个」。
+   */
+  const layout2 = await page.evaluate(() => {
+    const list = [...document.querySelectorAll('[data-node-id]')].map((el) => {
+      const b = el.getBoundingClientRect()
+      return {
+        type: el.getAttribute('data-node-type'),
+        title: el.querySelector('[data-node-title]')?.textContent ?? '',
+        left: Math.round(b.left),
+        right: Math.round(b.right),
+      }
+    })
+    const gen = list.find((n) => n.type === 'generation' && n.title === '生成')
+    const carriers = list.filter((n) => n.title.startsWith('生成的输出'))
+    return { gen, carriers }
+  })
+  rec(
+    g,
+    '★★ 两个承载槽位都在下游生成节点右侧（不是循环节点右侧）',
+    !!layout2.gen &&
+      layout2.carriers.length >= 2 &&
+      layout2.carriers.every((c) => c.left >= layout2.gen.right),
+    `生成节点 right=${layout2.gen?.right}｜槽位 left=${layout2.carriers.map((c) => c.left).join(',')}`,
+  )
+  rec(
+    g,
+    '★★ 两个槽位并列排开、互不重叠（x 递增）',
+    layout2.carriers.length >= 2 &&
+      new Set(layout2.carriers.map((c) => c.left)).size === layout2.carriers.length,
+    `x=${layout2.carriers.map((c) => c.left).join(',')}`,
   )
 
   await page.screenshot({ path: `${OUT}/83-g67-loop.png` })

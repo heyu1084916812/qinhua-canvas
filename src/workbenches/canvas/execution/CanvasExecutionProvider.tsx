@@ -1,7 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ChannelAdapter } from '../../../platform/channels/types'
 import { createChannelAdapter, type ResolvedChannelConfig } from '../../../platform/channels/registry'
-import { buildRunPlan, type CanvasRunTask } from '../../../features/canvas/execution/buildRunPlan'
+import { buildRunPlan, type CanvasRunTask, type RunPlan } from '../../../features/canvas/execution/buildRunPlan'
+import { createId } from '../../../shared/id'
 import { emptyPlanReason } from '../../../features/canvas/execution/emptyPlanReason'
 import {
   hasRunnableDownstream,
@@ -10,6 +11,7 @@ import {
   planLoopRounds,
 } from '../../../features/canvas/execution/loopRun'
 import type { LoopData } from '../../../domain/canvas/model/node'
+import { directDownstream } from '../../../domain/canvas/graph/upstreamOf'
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import { createCanvasPlacement } from '../../../features/canvas/execution/canvasPlacement'
@@ -353,7 +355,43 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         return
       }
 
+      /**
+       * 落位的源节点是**下游的生成节点**，不是循环节点（用户 2026-09-24）：
+       *
+       * > 「槽位应该是出现在循环节点下游的生成节点的右边，而且线条应该是链接
+       * >  循环节点下游的生成节点的，不是从循环节点出来的，因为参数是靠循环节点
+       * >  下游的生成节点控制的参数」
+       *
+       * 所以计划要从**每个下游生成节点**各自发起（`originNodeId = 该节点`），
+       * 而不是从循环节点发起。这样落位、连线、进度状态全都自然走
+       * 「生成节点自己跑一趟」那条既有规则 —— 不必为循环另写一套落位。
+       */
+      const downstreamIds = directDownstream(loopNode.id, graph.edges)
+        .map((id) => graph.nodes.find((n) => n.id === id))
+        .filter((n): n is NodeSnapshot => !!n)
+        .filter((n) => n.type === 'generation' || n.type === 'batch')
+        .map((n) => n.id)
+
       try {
+        /**
+         * 先把**所有轮次**的计划建出来、合并成一个计划，再交给引擎跑。
+         *
+         * 为什么必须合并（用户 2026-09-24）：「次数=2 时应该在下游生成节点右边
+         * 出现**两个槽位**」。若逐轮各建一个计划，每轮的 `slotIndex` 都从 0 起算
+         * ⇒ 两个承载节点会算出**同一个格位**、重叠在一起（实测 x 都是 1448，
+         * 标题也都是「生成的输出1」）。
+         *
+         * 合并成一个计划后，引擎按 `slotIndex / slotCount` 统一排布，
+         * N 个槽位自然并列铺开；`mode: parallel` 时它们还会并发发起
+         * （引擎的并发上限负责节流），不再是一轮跑完才冒出一个。
+         *
+         * 这不改 `buildRunPlan` 的主流程 —— 只是在宿主侧把多个计划的任务
+         * 拼成一个，槽位重新按总数分配。
+         */
+        /**
+         * 逐轮建计划，把任务收集起来；**槽位按总数统一重排**（见上方说明）。
+         */
+        const allTasks: CanvasRunTask[] = []
         for (const round of rounds) {
           /**
            * 把本轮的输入写进**循环节点自己**（而不是改写下游节点的字段）。
@@ -371,9 +409,27 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
             transient: true,
           })
 
-          const fresh = store.getSnapshot()
-          const plan = buildRunPlan('node', { originNodeId: loopNode.id }, fresh, 'single')
-          if (plan.tasks.length === 0) {
+          let added = 0
+          for (const nodeId of downstreamIds) {
+            const fresh = store.getSnapshot()
+            /**
+             * 用 `single-alt` 而不是 `single`（用户 2026-09-24）。
+             *
+             * `single` 的落位规则里，**空的下游节点本身也是候选槽位** ——
+             * 于是第一轮的产物会写进下游生成节点自己，第二轮才另建一个。
+             * 用户看到的是「先跑完一轮、才冒出一个槽位」，而他要的是
+             * **次数=2 时直接在下游生成节点右边出现两个槽位**（每一轮各占一个）。
+             *
+             * `single-alt` 在本项目里的语义正是「保留原有节点、一律铺新承载节点」，
+             * 与这里要的行为一致：循环的每一轮都是**新增一次产出**，
+             * 不该占用下游节点本身（那个节点是「参数与输入的持有者」）。
+             */
+            const plan = buildRunPlan('node', { originNodeId: nodeId }, fresh, 'single-alt')
+            if (plan.tasks.length === 0) continue
+            allTasks.push(...plan.tasks)
+            added += 1
+          }
+          if (added === 0) {
             store.notify(
               round.prompt || round.assetHashes.length > 0
                 ? `第 ${round.index} 轮无法构建请求，已停止`
@@ -381,8 +437,52 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
             )
             return
           }
-          await launch(plan, loopNode.id)
         }
+
+        if (allTasks.length === 0) {
+          store.notify('没有可执行的轮次')
+          return
+        }
+
+        /**
+         * 槽位重排：N 个任务按 `slotIndex / slotCount` 统一铺开。
+         *
+         * 每个任务原本的 `slot` 是「自己那一轮的第 1 格」（title 都是「输出1」、
+         * 位置也相同）。重排后第 i 个任务拿到第 i 格，标题带序号、位置依次右移 ——
+         * 这正是用户要的「两个槽位并排在生成节点右边」。
+         */
+        const total = allTasks.length
+        const arranged: CanvasRunTask[] = allTasks.map((t, i) => {
+          /** 承载节点挂在**它的来源生成节点**右边（用户 2026-09-24 的要求） */
+          const from = t.slot.kind === 'new' ? t.slot.connectFrom : t.nodeId
+          const fromNode = graph.nodes.find((n) => n.id === from)
+          return {
+            ...t,
+            slot: {
+              kind: 'new' as const,
+              title: `${fromNode?.title ?? '生成'}的输出${i + 1}`,
+              connectFrom: from,
+            },
+            seq: i,
+            callCount: total,
+          }
+        })
+
+        /**
+         * 一个计划跑全部轮次。
+         *
+         * 复用第一份计划的 `id` / `scope` / `mode` 之外的字段没必要 ——
+         * 引擎只认 `tasks`；其余字段由这里按「一次循环运行」重新给定，
+         * 于是日志与中断恢复把它看成**一次运行**（与设计文档「整次循环运行 =
+         * 一步撤销」的口径一致）。
+         */
+        const merged: RunPlan = {
+          id: createId('plan'),
+          scope: 'node',
+          mode: 'single',
+          tasks: arranged,
+        }
+        await launch(merged, loopNode.id)
       } finally {
         // 清掉运行期瞬态字段，避免它们留在数据里（下一轮会重新写）
         store.dispatch({
