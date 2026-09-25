@@ -36,7 +36,7 @@ const toChannel = (row: Record<string, unknown>): Channel => {
     // `models` 引入前写下的行没有这个键 → 读回**回落为全部缓存**，即「沿用旧行为」：
     // 加本字段之前，画布 / 漫画的模型下拉列的就是 modelCache 全集。
     // 键一旦存在（哪怕值是 []）就以它为准——用户在面板里取消全选也是合法状态，不能被回落覆盖。
-    // 与 comic 的 `normalizeComicProject` 同一条口径：**只补不删**。
+    // 口径：**只补不删**（缺字段补默认值，多余字段不动）。
     models: row.models === undefined ? modelCache : ((row.models as Channel['models']) ?? []),
     modelCache,
     order: (row.order as number) ?? 0,

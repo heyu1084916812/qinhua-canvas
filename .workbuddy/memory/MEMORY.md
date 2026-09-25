@@ -6,7 +6,15 @@
 ## 项目与架构
 - React + Vite + TS 纯前端，IndexedDB（dexie）唯一主存储，无后端。七层：domain 纯函数 → platform ports → state commands → workbenches UI，depcruise 强制。唯一入口 `store.dispatch(command)`。
 - ⚠️ **代码里目前没有 Tauri**：无 `src-tauri/`、package.json 无 tauri 依赖，实为纯 Vite Web 应用（`npm run dev` → :1420）。「Tauri」只是规划，别再当现状写进文档。
-- 多工作台 `'canvas'|'comic'`，路由级 lazy。**新增架构约束必须同步落 depcruise 规则，否则静默失效。**
+- 工作台：**现只有 `'canvas'`**。路由级 lazy。**新增架构约束必须同步落 depcruise 规则，否则静默失效。**
+  > ⚠️ **2026-09-25：comic（漫画剧）工作台已按用户要求整体移除。** 用户是设计师，该方向从来不是需求
+  > （「当时写出来是因为你判断错了」），真正想要的是**漫剧** —— 一个视频工作台
+  > （2026-09-11 只出过设计稿、从未写代码，仍待复起）。移除约 1 万行
+  > （`domain/comic` / `features/comic` / `state/workbenches/comic` / `workbenches/comic` /
+  > `pages/ComicPage`）+ 13 个冒烟组；`WorkbenchId` 收窄为 `'canvas'`。
+  > 回滚分支：`backup/comic-workbench-before-removal`。
+  > **但多工作台的骨架刻意保留**（`WORKBENCHES` 表 / `WORKBENCH_ORDER` / `projectRoute` /
+  > `createStore` 的 switch）—— 退化成单值会让「再开一个工作台」重新变成大改。
 - 持久化按数据形态选型：图结构 → 补丁流 `PersistPlan`；单聚合对象（comic）→ 防抖 800ms 整对象覆盖写一行。
 
 ## 节奏与对账

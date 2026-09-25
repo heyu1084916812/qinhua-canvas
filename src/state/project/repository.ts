@@ -54,7 +54,7 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
     get,
 
     async create(input: CreateProjectInput = {}) {
-      // 复用 domain 的构造函数：默认名按 workbench 区分（canvas / comic）
+      // 复用 domain 的构造函数：默认名按 workbench 区分（现只有 canvas「未命名项目」）
       const project = createProject(input, createId('proj'), Date.now())
       await storage.put('projects', project as never)
       return { ...project, nodeCount: 0 }

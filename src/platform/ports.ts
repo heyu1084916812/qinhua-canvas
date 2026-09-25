@@ -16,8 +16,6 @@ export type TableName =
    * 与业务数据分开，业务表保持「只有业务」这一条界限。
    */
   | 'presets'
-  /** 漫画剧工作台私有：一行一个项目，文档式存整个 ComicProject（架构 §5.10 工作台私有切片） */
-  | 'comics'
 
 export interface Row {
   id: string

@@ -32,7 +32,6 @@ export interface CreateProjectInput {
 
 const DEFAULT_NAME: Record<WorkbenchId, string> = {
   canvas: '未命名项目',
-  comic: '未命名漫画剧',
 }
 
 /** 构造一个新的 Project 领域对象（纯函数，不含持久化与 id 生成） */

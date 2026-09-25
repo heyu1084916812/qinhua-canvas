@@ -1,9 +1,14 @@
 import type { PlatformKit } from '../platform/ports'
 import type { GraphSnapshot } from '../domain/canvas/model/graph'
 import { createCanvasStore, type CanvasStore, type CanvasStoreOptions } from './workbenches/canvas/store'
-import { createComicStore, type ComicStore, type ComicStoreOptions } from './workbenches/comic/store'
 
-/** 工厂公共选项；workbench 决定返回哪个 store 类型（见下方重载） */
+/**
+ * 工厂公共选项。
+ *
+ * 2026-09-25：漫画剧（comic）工作台已移除，这里不再有按 workbench 的重载分支。
+ * `workbench` 字段与分支结构**刻意保留**（而不是直接内联成 createCanvasStore）：
+ * 它是「多工作台」这个骨架的最后一段，下一个工作台（漫剧）接入时只需加一条 case。
+ */
 export interface CreateStoreOptions {
   platform: PlatformKit
   projectId: string
@@ -16,11 +21,6 @@ interface CanvasCreateOptions extends CreateStoreOptions {
   workbench: 'canvas'
   initial?: GraphSnapshot
 }
-interface ComicCreateOptions {
-  workbench: 'comic'
-  platform: PlatformKit
-  projectId: string
-}
 
 /**
  * 工厂而非模块级单例（架构 §4.3）：每个工作台页面挂载时调用一次，
@@ -31,14 +31,10 @@ interface ComicCreateOptions {
  * 这里是唯一的按 workbench 分支点，返回类型随 workbench 收窄，
  * 调用方无需再手动断言。
  */
-export function createStore(opts: CanvasCreateOptions): CanvasStore
-export function createStore(opts: ComicCreateOptions): ComicStore
-export function createStore(opts: CanvasCreateOptions | ComicCreateOptions): CanvasStore | ComicStore {
+export function createStore(opts: CanvasCreateOptions): CanvasStore {
   switch (opts.workbench) {
     case 'canvas':
       return createCanvasStore(opts as CanvasStoreOptions)
-    case 'comic':
-      return createComicStore(opts as unknown as ComicStoreOptions)
     default:
       throw new Error(`未实现的工作台：${(opts as { workbench: string }).workbench}`)
   }

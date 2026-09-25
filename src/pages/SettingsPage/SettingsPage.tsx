@@ -32,13 +32,9 @@ export function SettingsPage() {
   // 直接输 URL 进来（无 state）时回落首页。
   const location = useLocation()
   const from = (location.state as { from?: string } | null)?.from ?? null
-  const cameFromWorkbench = typeof from === 'string' && (from.startsWith('/canvas/') || from.startsWith('/comic/'))
+  const cameFromWorkbench = typeof from === 'string' && from.startsWith('/canvas/')
   const backTo = cameFromWorkbench ? from : '/'
-  const backLabel = !cameFromWorkbench
-    ? '← 返回首页'
-    : from!.startsWith('/canvas/')
-      ? '← 返回画布'
-      : '← 返回漫画剧'
+  const backLabel = cameFromWorkbench ? '← 返回画布' : '← 返回首页'
   const channelsList = useSyncExternalStore(
     channels.subscribe,
     () => channels.getState().channels,

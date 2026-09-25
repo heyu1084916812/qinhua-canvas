@@ -417,11 +417,6 @@
   font-size: var(--fs-chip);
   color: var(--text-2);
 }
-.wbTag[data-wb='comic'] {
-  border-color: var(--warn);
-  color: var(--warn);
-}
-
 /* 「+ 新建」的工作台选择浮层（屏幕坐标，向上展开） */
 .newMenu {
   position: fixed;

@@ -88,13 +88,6 @@ describe('App 路由整树渲染冒烟', () => {
     expect(html).toContain('data-toolbar-import')
   }, TREE_TIMEOUT)
 
-  it('漫画剧路由下：工作台表面与返回入口都在', async () => {
-    const html = await renderTree(['/comic/demo'])
-    expect(html).toContain('data-comic-surface')
-    expect(html).toContain('漫画剧')
-    expect(html).toContain('data-comic-back')
-  }, TREE_TIMEOUT)
-
   it('首页路由下：品牌与新建入口都在', async () => {
     const html = await renderTree(['/'])
     expect(html).toContain('轻画')

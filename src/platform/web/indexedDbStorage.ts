@@ -8,8 +8,21 @@ import type { StoragePort, Row, TableName } from '../ports'
  * schema 版本：
  * - v1：画布工作台的表（projects / nodes / edges / channels / tasks / runRecords /
  *   resultGroups / assets / credentials）。projects 一开始就带 workbench 字段。
- * - v2（M5-M6）：新增 `comics` 表（漫画剧工作台私有）。Dexie 只需列出**新增**的表，
- *   其余表延续上一版定义，既有数据不受影响（架构 §9.4 数据迁移）。
+ * - v2（M5-M6）：新增 `comics` 表（漫画剧工作台私有）与 `presets`。
+ * - v3（2026-09-25）：**删除 `comics` 表**（漫画剧工作台整体移除）。
+ *
+ * **删表必须写 `表名: null`，光「不列出」是删不掉的**（2026-09-25 真机实测确认）。
+ *
+ * 这一条与下面 `resultGroups` 的注释**相互矛盾**，实测站在后者对面：
+ * 我原以为 Dexie 是「某版不列出的表即被删除」，于是写了
+ * 「v3 只列出保留表 ⇒ comics 消失」。浏览器里用真实 Dexie 跑了一遍，结果是
+ * **comics 仍然存在**（v3 的 `tables` 里还留着它）—— 光不列出只是「不再描述」，
+ * 并不会删。正确的删法是在任一更高的版本里显式写 `comics: null`。
+ *
+ * 实测记录（`scripts/probe-dexie.mjs`，真实 Dexie 4.4.5）：
+ *   · v3 只列 [A,B,C]（D 不出现） → 结果仍是 [A,B,C,D]，**D 没被删**
+ *   · v3 写 `{D: null}`            → 结果 [A,B,C]，**D 被删，且 A 的数据完整保留**
+ * 两种写法保留表的数据都不受影响，差别只在 D 到底删没删。
  *
  * **v1 里的 `resultGroups` 刻意保留定义**：结果组 2026-09-17 已下线，但已经存在的
  * 库是按 v1 建的，把这一列从 v1 删掉会让 Dexie 在打开老库时报错（schema 与库不匹配）。
@@ -26,7 +39,6 @@ class QinghuaDB extends Dexie {
   assets!: Table<Row, string>
   credentials!: Table<Row, string>
   presets!: Table<Row, string>
-  comics!: Table<Row, string>
 
   constructor(name = 'qinghua') {
     super(name)
@@ -44,6 +56,17 @@ class QinghuaDB extends Dexie {
     this.version(2).stores({
       comics: 'id',
       presets: 'id',
+    })
+    /**
+     * v3：漫画剧工作台移除（用户 2026-09-25）。
+     *
+     * 删 `comics` 用的是**显式 `comics: null`**（实测唯一有效的写法，见类头注释）。
+     * 同时把 `resultGroups` 也一并显式删掉 —— 它此前只在 v2 被「不列出」，
+     * 按实测语义其实一直没被删过（老库里的空表残留至今），这次顺手用同一机制清掉。
+     */
+    this.version(3).stores({
+      comics: null,
+      resultGroups: null,
     })
   }
 }

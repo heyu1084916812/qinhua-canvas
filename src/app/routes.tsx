@@ -7,7 +7,6 @@ import { SettingsPage } from '../pages/SettingsPage/SettingsPage'
  * 路由表（react-router-dom v7，架构 §3）。
  * - /                → 首页（项目卡片网格）
  * - /canvas/:id      → 画布工作台页（按 projectId 从 IndexedDB 读回图）
- * - /comic/:id       → 漫画剧工作台页
  * - /settings        → 设置页（渠道配置）
  * - /skills          → 技能库（用户 2026-09-24：自己写给文本模型用的系统指令）
  * - *                → 兜底回首页
@@ -19,9 +18,6 @@ import { SettingsPage } from '../pages/SettingsPage/SettingsPage'
  */
 const CanvasPage = lazy(() =>
   import('../pages/CanvasPage/CanvasPage').then((m) => ({ default: m.CanvasPage })),
-)
-const ComicPage = lazy(() =>
-  import('../pages/ComicPage/ComicPage').then((m) => ({ default: m.ComicPage })),
 )
 /**
  * 技能库单独成页，而不是塞进设置页。
@@ -45,7 +41,6 @@ export function AppRoutes() {
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/canvas/:projectId" element={<CanvasPage />} />
-        <Route path="/comic/:projectId" element={<ComicPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/skills" element={<SkillsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -49,7 +49,7 @@ export function HomePage() {
   }, [store])
 
   const createBlank = async (workbench: WorkbenchId = 'canvas') => {
-    // 不传 name：由 domain 按 workbench 取默认名（canvas「未命名项目」/ comic「未命名漫画剧」）
+    // 不传 name：由 domain 按 workbench 取默认名（现只有 canvas「未命名项目」）
     const item = await store.create({ workbench })
     navigate(projectRoute(item.workbench, item.id))
   }
@@ -169,7 +169,7 @@ export function HomePage() {
           </div>
 
           {visible.length === 0 && !loading ? (
-            <HomeEmptyState onCreate={() => void createBlank('canvas')} onCreateComic={() => void createBlank('comic')} />
+            <HomeEmptyState onCreate={() => void createBlank('canvas')} />
           ) : (
             <div className={styles.grid}>
               {visible.map((p) => (
@@ -274,13 +274,7 @@ export function HomePage() {
 }
 
 /** 无项目时的空状态（产品文档 §5.6）。导出供 /_preview 陈列室做视觉回归 */
-export function HomeEmptyState({
-  onCreate,
-  onCreateComic,
-}: {
-  onCreate: () => void
-  onCreateComic?: () => void
-}) {
+export function HomeEmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div className={styles.empty}>
       <p className={styles.emptyTitle}>还没有项目</p>
@@ -288,11 +282,6 @@ export function HomeEmptyState({
       <button className={styles.newBtn} onClick={onCreate} data-new-project>
         ＋ 新建项目
       </button>
-      {onCreateComic && (
-        <button className={styles.newBtnGhost} onClick={onCreateComic} data-new-comic>
-          ＋ 新建漫画剧
-        </button>
-      )}
     </div>
   )
 }
