@@ -18,6 +18,23 @@ import {
   type CategoryFilter,
 } from '../../domain/project/modelSelection'
 import styles from './SettingsPage.module.css'
+import { SkillsPanel } from '../SkillsPage/SkillsPanel'
+import { usePresetText } from '../../app/providers/PresetTextProvider'
+import {
+  PRESET_TEXT_MAX,
+  presetTextEntries,
+  validatePresetText,
+  type PromptToolAction,
+} from '../../domain/prompt/presetText'
+
+/**
+ * 后台的三个分区（用户 2026-09-25「后台中枢」）。
+ *
+ * 以往这里是「后台模型设置」——只管渠道。而用户要管的东西有三类：
+ * 渠道（连什么）、功能预设词（内置动作怎么做）、技能库（自己新增什么动作）。
+ * 三者都是「配置」，只是此前散在三个入口（设置页 / 代码常量 / 独立技能页）。
+ */
+type SettingsSection = 'channels' | 'presets' | 'skills'
 
 /**
  * 后台模型设置页（产品文档 §7）。
@@ -27,6 +44,9 @@ import styles from './SettingsPage.module.css'
  */
 export function SettingsPage() {
   const channels = useChannels()
+  /** 功能预设词（后台中枢）：三区之一，改的是「优化 / 翻译 / 反推」做什么 */
+  const presetText = usePresetText()
+  const [section, setSection] = useState<SettingsSection>('channels')
   // 来源路径由工作台顶栏在跳转时带上（`state.from`）。据此把返回按钮指回**刚才那个项目**，
   // 而不是一律丢回首页——在画布中间去配个渠道，回来还得重新找项目，是纯粹的摩擦。
   // 直接输 URL 进来（无 state）时回落首页。
@@ -341,15 +361,52 @@ export function SettingsPage() {
   const showMockNote = action === 'verify' && verify.status === 'ok' && verifiedFor?.protocol === 'mock'
   const tokenHint = selected?.tokenTail ? maskTokenTail(selected.tokenTail) : ''
 
+  /** 预设词的界面模型（用户改过的 + 出厂默认，由 domain 组装，本页不做回落判断） */
+  const presets = presetTextEntries(presetText.overrides)
+
   return (
     <div className={styles.page}>
       <header className={styles.topbar}>
         <Link className={styles.back} to={backTo} data-settings-back>
           {backLabel}
         </Link>
-        <h1 className={styles.heading}>后台模型设置</h1>
+        <h1 className={styles.heading}>后台设置</h1>
+        {/*
+          三区切换（用户 2026-09-25「后台中枢」）。
+          用标签而不是把所有内容竖着堆成一页：三类内容的形态差别很大
+          （渠道是列表+表单、预设词是三条长文本、技能是列表+编辑器），
+          堆一页会互相挤，且用户每次只关心其中一类。
+        */}
+        <nav className={styles.sections} role="tablist" aria-label="后台分区">
+          {(
+            [
+              ['channels', '渠道'],
+              ['presets', '功能预设词'],
+              ['skills', '技能库'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={section === id}
+              className={section === id ? styles.sectionOn : styles.sectionBtn}
+              data-settings-section={id}
+              onClick={() => setSection(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
       </header>
 
+      {section === 'presets' ? (
+        <PresetTextSection presets={presets} presetText={presetText} />
+      ) : section === 'skills' ? (
+        <div className={styles.skillsHost} data-settings-skills>
+          <SkillsPanel />
+        </div>
+      ) : (
       <div className={styles.layout} data-settings-card>
         <aside className={styles.sidebar}>
           <ul className={styles.list}>
@@ -655,6 +712,141 @@ export function SettingsPage() {
             </div>
           )}
         </section>
+      </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * 功能预设词分区（后台中枢，用户 2026-09-25）。
+ *
+ * 三条固定动作（优化 / 翻译 / 反推）各一段可编辑的**系统指令**。
+ * 它是「改造内置动作」——与技能区「新增自己的动作」是两件事，界面上也分区放。
+ *
+ * 每条的编辑是**草稿态**：先写在本地，点「保存」才落库；这与设置页既有的
+ * 渠道表单、模型选择面板同一条口径（中途反悔不该留下半份改动）。
+ */
+function PresetTextSection({
+  presets,
+  presetText,
+}: {
+  presets: ReturnType<typeof presetTextEntries>
+  presetText: ReturnType<typeof usePresetText>
+}) {
+  /** action → 正在编辑的草稿；只有被点开的那条在草稿里出现 */
+  const [drafts, setDrafts] = useState<Partial<Record<PromptToolAction, string>>>({})
+  const [busy, setBusy] = useState<PromptToolAction | null>(null)
+  const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+
+  const save = async (action: PromptToolAction) => {
+    const draft = drafts[action]
+    if (draft === undefined) return
+    const err = validatePresetText(draft)
+    if (err) {
+      setNotice({ kind: 'error', text: err })
+      return
+    }
+    setBusy(action)
+    try {
+      await presetText.save(action, draft)
+      setDrafts((prev) => {
+        const next = { ...prev }
+        delete next[action]
+        return next
+      })
+      setNotice({ kind: 'ok', text: '已保存' })
+    } catch (e) {
+      setNotice({ kind: 'error', text: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  /** 恢复默认 = 清掉覆盖值（写 null），于是它与「从没改过」是同一种状态 */
+  const restore = async (action: PromptToolAction) => {
+    setBusy(action)
+    try {
+      await presetText.save(action, null)
+      setDrafts((prev) => {
+        const next = { ...prev }
+        delete next[action]
+        return next
+      })
+      setNotice({ kind: 'ok', text: '已恢复默认' })
+    } catch (e) {
+      setNotice({ kind: 'error', text: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className={styles.presetHost} data-settings-presets>
+      <p className={styles.presetLead}>
+        提示词节点上的这三个按钮各有一段**系统指令**。改这里就是改它们的行为 ——
+        想新增一个自己的动作，去「技能库」。
+      </p>
+      {notice && (
+        <div
+          className={notice.kind === 'ok' ? styles.noticeOk : styles.noticeErr}
+          data-settings-preset-notice={notice.kind}
+          role="status"
+          aria-live="polite"
+        >
+          {notice.text}
+        </div>
+      )}
+      <div className={styles.presetList}>
+        {presets.map((p) => {
+          const draft = drafts[p.id]
+          const editing = draft !== undefined
+          const value = editing ? draft : p.content
+          return (
+            <section key={p.id} className={styles.presetCard} data-preset-card={p.id}>
+              <header className={styles.presetHead}>
+                <span className={styles.presetName} data-preset-label>
+                  {p.label}
+                </span>
+                {!p.isDefault && (
+                  <span className={styles.presetChanged} data-preset-changed>
+                    已改
+                  </span>
+                )}
+                <span className={styles.presetHint}>{p.hint}</span>
+              </header>
+              <textarea
+                className={styles.presetTextarea}
+                data-preset-text={p.id}
+                value={value}
+                onChange={(e) => setDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
+              />
+              <div className={styles.presetFoot}>
+                <span className={styles.presetCounter}>
+                  {value.length} / {PRESET_TEXT_MAX}
+                </span>
+                <button
+                  type="button"
+                  className={styles.ghostBtn}
+                  data-preset-restore={p.id}
+                  disabled={busy !== null || p.isDefault}
+                  onClick={() => void restore(p.id)}
+                >
+                  恢复默认
+                </button>
+                <button
+                  type="button"
+                  className={styles.primary}
+                  data-preset-save={p.id}
+                  disabled={busy !== null || !editing}
+                  onClick={() => void save(p.id)}
+                >
+                  保存
+                </button>
+              </div>
+            </section>
+          )
+        })}
       </div>
     </div>
   )

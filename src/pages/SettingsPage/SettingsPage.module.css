@@ -525,3 +525,155 @@
   justify-content: flex-end;
   gap: var(--space-2);
 }
+
+/* ── 后台中枢：三区标签（用户 2026-09-25）───────────────────────────
+   与返回按钮同一行：返回在左、标题居中偏左、分区标签跟在标题后。
+   选中态用文字色 + 底色区分，不引入新的强调色（与全站 chip 同一口径）。 */
+.sections {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: var(--space-4);
+}
+.sectionBtn,
+.sectionOn {
+  border: none;
+  background: transparent;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-control);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-title);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+.sectionBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+.sectionOn {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+/* ── 功能预设词区（后台中枢）─────────────────────────────────────
+   三条卡片竖排。刻意**不**做成「列表 + 详情」（渠道那样）：只有三条，
+   全摊开比来回点更省事。 */
+.presetHost {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 1060px;
+  margin: 0 auto var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: var(--border);
+  border-radius: var(--radius-node);
+  padding: var(--space-5);
+  box-sizing: border-box;
+}
+.presetLead {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  line-height: 1.6;
+}
+.noticeOk,
+.noticeErr {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  font-size: var(--fs-label);
+  background: var(--bg-subtle);
+}
+.noticeOk {
+  color: var(--text-1);
+}
+.noticeErr {
+  color: var(--danger);
+}
+.presetList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.presetCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
+}
+.presetHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.presetName {
+  font-weight: var(--fw-title);
+  color: var(--text-1);
+}
+.presetChanged {
+  padding: 0 var(--space-1);
+  border: var(--border);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-chip);
+  color: var(--text-2);
+}
+.presetHint {
+  flex: 1 1 100%;
+  font-size: var(--fs-label);
+  color: var(--text-3);
+  line-height: 1.5;
+}
+.presetTextarea {
+  width: 100%;
+  min-height: 108px;
+  box-sizing: border-box;
+  padding: var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  line-height: 1.6;
+  resize: vertical;
+}
+.presetTextarea:focus {
+  outline: none;
+  border-color: var(--stroke-focus);
+}
+.presetFoot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.presetCounter {
+  flex: 1;
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+/* ── 技能区（后台中枢）──────────────────────────────────────────
+   直接复用技能面板，只给它一个与渠道卡片同宽同形的高容器 —— 于是
+   「在 /skills 页」与「在后台设置里」看到的是同一块东西。 */
+.skillsHost {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 1060px;
+  margin: 0 auto var(--space-6);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: var(--border);
+  border-radius: var(--radius-node);
+  overflow: hidden;
+  box-sizing: border-box;
+}

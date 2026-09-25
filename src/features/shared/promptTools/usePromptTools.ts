@@ -1,11 +1,11 @@
 import { useCallback, useRef, useState } from 'react'
 import type { NodeInput } from '../../../domain/shared/execution/types'
 import {
-  PROMPT_TOOL_SYSTEM,
   promptToolGuard,
   trimToolResult,
   type PromptToolAction,
 } from './promptTools'
+import { effectivePresetText } from '../../../domain/prompt/presetText'
 import { asAppError, describeError } from '../../../shared/result'
 
 /** 文本 LLM 调用契约（由宿主提供，如 CanvasExecutionApi.completeText） */
@@ -25,6 +25,14 @@ export interface UsePromptToolsOptions {
   model?: string
   /** 上游图片素材（反推用）；不带即纯文本动作 */
   imageInputs?: NodeInput[]
+  /**
+   * 用户在后台改过的预设词（后台中枢，用户 2026-09-25）。
+   *
+   * 由调用方从 `PresetTextProvider` 取来传进来，而不是 hook 自己去 useContext ——
+   * 这个 hook 住 `features/shared`，不该反向依赖 `app/providers`。
+   * 缺省（`{}` 或 undefined）= 三个动作全按出厂默认跑。
+   */
+  presetOverrides?: Partial<Record<PromptToolAction, string>>
   /** 结果回写（覆盖文本并保留撤销记录由调用方决定 transient） */
   onResult: (text: string) => void
 }
@@ -122,7 +130,12 @@ export function usePromptTools(opts: UsePromptToolsOptions): UsePromptToolsResul
         return
       }
       invoke({
-        system: PROMPT_TOOL_SYSTEM[action],
+        /**
+         * 用**生效值**而不是常量：用户在后台改过预设词就按改过的跑。
+         * `effectivePresetText` 在覆盖缺失 / 空白 / 超限时一律回落出厂默认，
+         * 所以「从没进过后台」与「刚点了恢复默认」是同一条路径。
+         */
+        system: effectivePresetText(action, o.presetOverrides),
         text,
         withImages: action === 'describe',
       })

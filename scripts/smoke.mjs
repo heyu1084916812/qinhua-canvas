@@ -8594,13 +8594,153 @@ async function g73(browser) {
 }
 
 /**
+ * G74 后台中枢（§7，用户 2026-09-25「把我计划的后台设置继续制作完成他」）。
+ *
+ * 缺口 #16 要求把三处分散的配置收敛到一处：渠道（已有）、功能预设词（**新机制**）、
+ * 技能库（独立页搬进来）。本组验三件事：
+ *  ① 三区标签齐备、可切换；
+ *  ② 预设词可改、可保存、刷新后还在、可恢复默认；
+ *  ③ **★ 改了要真的生效** —— 改完「优化」的预设词后回画布点优化，
+ *     发出去的请求里必须带上改过的那段（mock 的 completeText 会回显 prompt，
+ *     这是可观测的铁证；只验「存进去了」证明不了它被用上）。
+ */
+async function g74(browser) {
+  const g = 'G74 后台中枢'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+
+  // ── ① 三区标签 ──
+  await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+  await sleep(700)
+  const sections = await page
+    .locator('[data-settings-section]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-settings-section')))
+  rec(
+    g,
+    '★ 后台分三区：渠道 / 功能预设词 / 技能库',
+    JSON.stringify(sections) === JSON.stringify(['channels', 'presets', 'skills']),
+    sections.join(','),
+  )
+  rec(g, '默认停在渠道区（既有配置不受影响）', (await page.locator('[data-settings-card]').count()) === 1)
+
+  // ── ② 预设词可编辑 ──
+  await page.locator('[data-settings-section="presets"]').click()
+  await sleep(500)
+  const cards = await page
+    .locator('[data-preset-card]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-preset-card')))
+  rec(
+    g,
+    '三条内置动作各有一段可编辑的预设词',
+    JSON.stringify(cards) === JSON.stringify(['optimize', 'translate', 'describe']),
+    cards.join(','),
+  )
+  rec(
+    g,
+    '未改过时不显示「已改」标记',
+    (await page.locator('[data-preset-card="optimize"] [data-preset-changed]').count()) === 0,
+  )
+
+  const MARK = 'MARKER_SYSTEM_INSTRUCTION'
+  const defaultText = await page.locator('[data-preset-text="optimize"]').inputValue()
+  await page.locator('[data-preset-text="optimize"]').fill(MARK)
+  await page.locator('[data-preset-save="optimize"]').click()
+  await sleep(900)
+  rec(
+    g,
+    '保存后标为「已改」',
+    (await page.locator('[data-preset-card="optimize"] [data-preset-changed]').count()) === 1,
+  )
+
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(800)
+  await page.locator('[data-settings-section="presets"]').click()
+  await sleep(500)
+  rec(
+    g,
+    '★ 刷新后改过的预设词仍在（真的落库，不是内存态）',
+    (await page.locator('[data-preset-text="optimize"]').inputValue()) === MARK,
+  )
+
+  // ── ③ ★ 改了要真的生效 ──
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+  await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20000 })
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(1200)
+  const promptNode = page.locator('[data-node-type="prompt"]').first()
+  const pb = await promptNode.boundingBox()
+  await page.mouse.click(pb.x + 40, Math.max(100, pb.y + 40))
+  await sleep(700)
+  const panel = page.locator('[data-creation-panel]')
+  await pickParam(panel, 'channel', '新建渠道')
+  await sleep(250)
+  await pickParam(panel, 'model', 'mock-chat-1')
+  await sleep(300)
+  {
+    const ta = panel.locator('textarea').first()
+    await ta.click()
+    await ta.fill('原始正文')
+    await ta.blur()
+    await sleep(700)
+  }
+  await panel.locator('[data-panel-prompt-tools] button', { hasText: '优化' }).click()
+  const bodyText = async () => (await promptNode.innerText()).replace(/\s+/g, '')
+  let hit = false
+  for (let i = 0; i < 40; i += 1) {
+    await sleep(500)
+    if ((await bodyText()).includes(MARK)) {
+      hit = true
+      break
+    }
+  }
+  rec(
+    g,
+    '★★ 改过的预设词真的被发出去（mock 回显 prompt 里带上了它）',
+    hit,
+    (await promptNode.innerText()).slice(0, 60),
+  )
+
+  // ── ④ 恢复默认 ──
+  await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+  await sleep(700)
+  await page.locator('[data-settings-section="presets"]').click()
+  await sleep(500)
+  await page.locator('[data-preset-restore="optimize"]').click()
+  await sleep(800)
+  rec(
+    g,
+    '★ 恢复默认回到出厂值（且「已改」标记消失）',
+    (await page.locator('[data-preset-text="optimize"]').inputValue()) === defaultText &&
+      (await page.locator('[data-preset-card="optimize"] [data-preset-changed]').count()) === 0,
+  )
+
+  // ── ⑤ 技能库并入同一页 ──
+  await page.locator('[data-settings-section="skills"]').click()
+  await sleep(600)
+  rec(
+    g,
+    '★ 技能库并入后台（同一块面板，不再是独立入口才算）',
+    (await page.locator('[data-skills-actions]').count()) === 1,
+  )
+
+  await page.screenshot({ path: `${OUT}/90-g74-hub.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+/**
  * 已从全量移除的组（测的都是已不存在的功能，继续跑只会拿「它没出现」当失败）：
  * - g22：版本历史（§6.21 于 2026-09-16 下线）
  * - g41：陈旧标记与按范围重跑（2026-09-17 下线：橘点、整条流程重跑、仅刷新陈旧、全图重跑）
  * - g50 / g54：结果组折叠与子结果交互（2026-09-17 结果组整体下线）
  * 「运行画板产生产物」改由 G21 覆盖（断言已从结果组改为承载节点）。
  */
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

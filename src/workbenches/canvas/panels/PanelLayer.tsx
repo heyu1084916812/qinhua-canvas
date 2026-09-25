@@ -15,6 +15,7 @@ import { useGraph, useViewportState, useCanvasStore, useSelection } from '../sto
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { usePromptTools } from '../../../features/shared/promptTools/usePromptTools'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
+import { usePresetTextOptional } from '../../../app/providers/PresetTextProvider'
 import { isRecipeEdit } from '../../../domain/project/generationPreset'
 import { hasRunnableDownstream } from '../../../features/canvas/execution/loopRun'
 
@@ -48,6 +49,8 @@ export function PanelLayer({
   const exec = useCanvasExecution()
   /** 配方记忆（用户 2026-09-23）：面板里改完参数即写回该渠道的配方 */
   const channels = useChannels()
+  /** 功能预设词（后台中枢）：改了要立刻生效，见 PresetTextProvider 的注释 */
+  const presetText = usePresetTextOptional()
   // §6.15：拖动期间面板立即隐藏；发生**真实位移**的拖动，松手后保持隐藏，
   // 直到下一次显式选中（setSelection 复位 panelDismissed）——节点已被挪走，
   // 面板再弹回来只会「追着节点跑」。普通单击（无位移）不算拖动，面板照常出现。
@@ -89,6 +92,7 @@ export function PanelLayer({
     channelId: promptData?.channelId,
     model: promptData?.model,
     imageInputs: promptImageInputs,
+    presetOverrides: presetText.overrides,
     onResult: (text) => {
       if (!selectedNode || selectedNode.type !== 'prompt') return
       /*

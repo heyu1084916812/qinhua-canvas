@@ -5,6 +5,7 @@ import { useCanvasExecution } from '../../execution/CanvasExecutionProvider'
 import { usePromptTools } from '../../../../features/shared/promptTools/usePromptTools'
 import type { PromptToolAction } from '../../../../features/shared/promptTools/promptTools'
 import { parseMarkdown } from '../../../../domain/canvas/text/markdownRender'
+import { usePresetTextOptional } from '../../../../app/providers/PresetTextProvider'
 import styles from './PromptNodeView.module.css'
 
 /**
@@ -77,6 +78,8 @@ export function PromptNodeView(props: NodeViewProps) {
   /** 是否处于**节点内编辑态**（双击进入；Esc / 失焦退出） */
   const [editing, setEditing] = useState(false)
   const exec = useCanvasExecution()
+  /** 功能预设词（后台中枢）：节点本体上的优化 / 翻译 / 反推也要按改过的指令跑 */
+  const presetText = usePresetTextOptional()
 
   /** 进入编辑态即聚焦并把光标放到末尾（用户双击就是要接着写） */
   useEffect(() => {
@@ -98,6 +101,7 @@ export function PromptNodeView(props: NodeViewProps) {
     channelId: data.channelId,
     model: data.model,
     imageInputs,
+    presetOverrides: presetText.overrides,
     onResult: (text) =>
       props.emit({ type: 'updateData', patch: { text }, transient: false }),
   })

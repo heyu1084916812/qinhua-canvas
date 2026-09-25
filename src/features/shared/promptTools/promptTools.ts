@@ -1,25 +1,31 @@
 /**
  * 提示词 LLM 工具（优化 / 翻译）的纯逻辑（产品文档 §6.7「LLM 行为」）。
  * 与 React 解耦：hook（usePromptTools）只做状态包装，这里可独立单测。
+ *
+ * ⚠️ 2026-09-25：三个动作的**默认系统指令**与动作类型已上移到
+ * `domain/prompt/presetText.ts`（后台中枢要做成可编辑，而 domain 不许反向依赖 features）。
+ * 这里重新导出，**既有 import 路径零改动**；`PROMPT_TOOL_SYSTEM` 保留为「出厂默认」的别名，
+ * 执行链路应改取 `effectivePresetText(action, stored)` 以获得用户改过的那一份。
  */
 
-export type PromptToolAction = 'optimize' | 'translate' | 'describe'
+import {
+  DEFAULT_PRESET_TEXT,
+  type PromptToolAction,
+} from '../../../domain/prompt/presetText'
 
 /**
- * 系统指令：优化 = 提升清晰度/结构/可执行性；翻译 = 中英互译，无法判断时就地说明。
+ * 出厂默认系统指令：优化 = 提升清晰度/结构/可执行性；翻译 = 中英互译，无法判断时就地说明。
  *
  * `describe` = **反推提示词**（§6.7）：把上游图片当素材一起发给模型，让它描述画面、
  * 产出可复用的绘画提示词。它与另两个动作的关键差别是**必须带图**——
  * 没图时的反推只会得到一段凭空编造的描述，所以守卫里单独卡这一条。
+ *
+ * 用户在后台改过之后，**实际发出去的是改过的那份**（见 `effectivePresetText`）；
+ * 这个常量仍代表「没改过时是什么」，供界面显示「恢复默认」与单测钉行为契约。
  */
-export const PROMPT_TOOL_SYSTEM: Record<PromptToolAction, string> = {
-  optimize:
-    '你是一名专业的 AI 绘画提示词工程师。请优化用户提供的提示词，提升其清晰度、结构与可执行性，保留核心意图与关键细节，不要解释，只输出优化后的提示词本身。',
-  translate:
-    '判断用户提供文本的主要语言：若为中文则翻译为英文，若为英文则翻译为中文；若无法判断，用一句话就地说明原因。只输出最终结果，不要解释。',
-  describe:
-    '你是一名专业的 AI 绘画提示词工程师。请根据用户提供的图片，反推出一段可以直接用于 AI 绘画的英文提示词：描述主体、构图、光线、风格与质感，不要解释、不要复述要求，只输出提示词本身。若用户文本里另有补充要求，把它并入提示词。',
-}
+export const PROMPT_TOOL_SYSTEM: Record<PromptToolAction, string> = DEFAULT_PRESET_TEXT
+
+export type { PromptToolAction }
 
 /**
  * 按钮可执行性守卫：返回错误文案（不可执行）或 null（可执行）。

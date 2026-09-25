@@ -873,3 +873,35 @@ M0–M6 完成，comic 侧推迟项清零；画布侧收尾至 **M6-27 小地图
   冒烟 `npm run smoke` 必须装**系统 Chrome**（`chromium.launch({channel:'chrome'})`，Playwright 不自带）。
   **画布/漫画数据不进 git**（IndexedDB），换机要用 `exportProject`/`importProjectFile` 搬 `.flow.json`（格式 `qinghua.flow` v1）；渠道 API Key 同理要重新配。
   上下文交接让对方按序读：功能对账清单 → 架构设计文档 → `.workbuddy/memory/MEMORY.md` → `INVARIANTS.md`。
+
+### ★ 后台中枢（§7，2026-09-25 落地）
+
+用户 2026-09-24 提的第 3 条（当时按「先记录、后面再完善」登记为缺口 #16），
+2026-09-25 说「把我计划的后台设置继续制作完成他」，于是把设置页升格为**后台中枢**。
+
+**三区**（顶部标签，默认停在渠道）：渠道 / 功能预设词 / 技能库。
+
+**唯一的新机制是「功能预设词」** —— 提示词节点那三个内置动作
+（优化 / 翻译 / 反推）的系统指令，此前**写死在** `PROMPT_TOOL_SYSTEM` 常量里，
+用户能看到按钮却改不了它们的行为。现在可编辑、落库、恢复默认。
+
+三条纪律（改这块前必读）：
+
+1. **默认值搬到了 domain，但 import 路径没变**：`PromptToolAction` 与默认指令
+   上移到 `domain/prompt/presetText.ts`（理由：预设词要落库、要出现在 pages，
+   而 domain 不许反向依赖 features）。`features/shared/promptTools/promptTools.ts`
+   重新导出它们，所以**既有引用点零改动** —— 别看到两处定义就以为是重复。
+2. **执行链路必须取「生效值」**：`usePromptTools` 用
+   `effectivePresetText(action, overrides)` 而不是常量。**这是本功能的核心**：
+   只把预设词存进库、执行时仍用常量，用户改完看不出任何区别（而界面一切正常）。
+   G74 那条 ★★ 断言专门盯这个，故障注入（换回常量）**只有它会红**、其余 9 条照绿。
+3. **「恢复默认」= 写 null 清掉覆盖**，不是写回默认值副本 —— 于是「改坏后恢复」
+   与「从没改过」在数据上是同一状态，不会因为默认文案日后调整而留下陈旧副本。
+
+**其他落地细节**：
+- 存储复用 `presets` 表（`presetText:` 前缀），**不动 Dexie schema**（迁移不可逆，
+  为一张同构表付这个代价不值得 —— 与技能库同一条理由）。
+- 技能库抽成 `pages/SkillsPage/SkillsPanel.tsx`，**同一块面板**同时服务
+  `/skills` 独立页与后台中枢的技能区；`/skills` 页保留，因为画布「缺技能」时会深链过去。
+- Provider 用 `usePresetTextOptional`：漏挂时按出厂默认跑，而不是把整棵树 throw 掉
+  （那是全屏黑屏，本项目踩过）。
