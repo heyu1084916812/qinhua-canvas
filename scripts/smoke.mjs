@@ -8670,16 +8670,11 @@ async function g74(browser) {
     `nav=${railGeom.rects[0]?.x} card=${railGeom.cardLeft}`,
   )
   /**
-   * ★★ 选中项「与内容同色、并向右接成一片」（用户 2026-09-25 明确指出的参考图要点）。
+   * ★★ 选中项是一个**四角全圆的圆角矩形**，底色与内容面板一致，
+   * 并向右延伸到与内容面板左沿对齐（用户 2026-09-25 二轮：一比一复刻）。
    *
-   * 参考图里侧栏是深色块，选中的那项与右侧内容**同为白色**，看起来像从侧栏里
-   * 掏出来、和内容连在一起。三处缺一不可：
-   *  ① 底色 = 内容面板的底色（不是 hover 灰）；
-   *  ② 右侧是**直角**（圆着就不像延伸出去）；
-   *  ③ 右沿与内容面板左沿**对齐**（差值 0）。
-   *
-   * 这三条读代码看不出来（写了 `background` 与 `border-radius` 都"看着对"），
-   * 必须量：底色比色、圆角读计算值、右沿量像素。
+   * 三处缺一不可，且都读不出来（写上 `border-radius` 与 `background` 看着就对），
+   * 必须量：底色比色、四角圆角读计算值、右沿量像素。
    */
   const notch = await page.evaluate(() => {
     const on = document.querySelector('[data-settings-section][aria-selected="true"]')
@@ -8692,30 +8687,30 @@ async function g74(browser) {
     return {
       onBg: cs.backgroundColor,
       cardBg: cardCs.backgroundColor,
-      cornerRightTop: cs.borderTopRightRadius,
-      cornerRightBottom: cs.borderBottomRightRadius,
-      cornerLeftTop: cs.borderTopLeftRadius,
+      corners: [
+        cs.borderTopLeftRadius,
+        cs.borderTopRightRadius,
+        cs.borderBottomRightRadius,
+        cs.borderBottomLeftRadius,
+      ],
       overhang: Math.round(cr.left - or.right),
     }
   })
   rec(
     g,
-    '★★ 选中项底色与内容面板一致（同为 surface，不是 hover 灰）',
+    '★★ 选中项底色与内容面板一致（同为 surface）',
     !!notch && notch.onBg === notch.cardBg,
     `on=${notch?.onBg} card=${notch?.cardBg}`,
   )
   rec(
     g,
-    '★★ 选中项右侧为直角（左侧仍圆角）——「掏出来」的关键',
-    !!notch &&
-      notch.cornerRightTop === '0px' &&
-      notch.cornerRightBottom === '0px' &&
-      notch.cornerLeftTop !== '0px',
-    `左${notch?.cornerLeftTop} 右上${notch?.cornerRightTop} 右下${notch?.cornerRightBottom}`,
+    '★★ 选中项是圆角矩形（四角全圆）',
+    !!notch && notch.corners.every((c) => parseFloat(c) > 0),
+    notch?.corners.join(' '),
   )
   rec(
     g,
-    '★★ 选中项右沿与内容面板左沿对齐（差值 0，中间不留缝）',
+    '★★ 选中项右沿与内容面板左沿对齐（差值 0）',
     !!notch && notch.overhang === 0,
     `差值=${notch?.overhang}px`,
   )
