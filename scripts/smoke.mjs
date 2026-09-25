@@ -4037,21 +4037,35 @@ async function g45(browser) {
   await page.getByRole('button', { name: /新增渠道/ }).click()
   await sleep(400)
 
-  // ① 居中卡片：定宽 + 左右等距 + 整页不溢出（滚动在卡片内）
+  /**
+   * ① 定宽 + **整体居中** + 整页不溢出。
+   *
+   * ⚠️ 2026-09-25 口径变更：布局从「一页只有一张居中卡片」改为
+   * 「左侧导航栏 + 右侧内容」（用户给的参考图结构）。于是**卡片自己不再居中** ——
+   * 它右侧贴着导航，必然偏右。用旧的「卡片左右等距」断言会把**有意的布局变更**
+   * 判成回归（实测 左302/右108）。
+   *
+   * 改为量**整块**（导航栏整体，即 `shell`）是否居中：布局换了，但
+   * 「这一页是居中的一块」这个意图没变 —— 断言跟着意图走，而不是跟着旧像素走。
+   */
   const geom = await page.evaluate(() => {
     const card = document.querySelector('[data-settings-card]')
+    // shell = 导航 + 内容整块（新布局的「居中单位」），用稳定锚点定位
+    const shell = document.querySelector('[data-settings-shell]')
     const r = card.getBoundingClientRect()
+    const sr = shell ? shell.getBoundingClientRect() : r
     return {
       w: Math.round(r.width),
-      left: Math.round(r.left),
-      right: Math.round(window.innerWidth - r.right),
-      gap: Math.round(Math.abs(r.left - (window.innerWidth - r.right))),
+      shellW: Math.round(sr.width),
+      left: Math.round(sr.left),
+      right: Math.round(window.innerWidth - sr.right),
+      gap: Math.round(Math.abs(sr.left - (window.innerWidth - sr.right))),
       vh: window.innerHeight,
       scrollH: document.documentElement.scrollHeight,
     }
   })
-  rec(g, '卡片定宽（≤1060 + 2px 描边）', geom.w <= 1062, `宽=${geom.w}`)
-  rec(g, '卡片左右居中', geom.gap <= 1, `左${geom.left}/右${geom.right}`)
+  rec(g, '卡片定宽（≤1060 内，右栏不再自带宽度上限）', geom.w <= 1062, `宽=${geom.w}`)
+  rec(g, '★ 导航+内容整块左右居中（新布局的居中单位）', geom.gap <= 1, `左${geom.left}/右${geom.right}`)
   rec(g, '整页不溢出（滚动交给卡片内部）', geom.scrollH <= geom.vh, `${geom.scrollH}/${geom.vh}`)
   await page.screenshot({ path: `${OUT}/45-a-settings-card.png` })
 
@@ -8624,6 +8638,36 @@ async function g74(browser) {
     '★ 后台分三区：渠道 / 功能预设词 / 技能库',
     JSON.stringify(sections) === JSON.stringify(['channels', 'presets', 'skills']),
     sections.join(','),
+  )
+  /**
+   * ★ 三区是**左侧竖排导航**（用户 2026-09-25 给的参考图结构），
+   * 且每项带矢量图标 —— 只搬结构、配色走既有令牌。
+   *
+   * 判据三条：① 三个导航项在同一竖列（x 相同、y 递增）；
+   * ② 每项都有 `<svg>`（矢量图标，不是文本字形——本项目为此修过一轮）；
+   * ③ 导航在内容**左侧**。少了任一条都会退化成「顶部标签」那种旧形态。
+   */
+  const railGeom = await page.evaluate(() => {
+    const items = [...document.querySelectorAll('[data-settings-section]')]
+    const rects = items.map((el) => {
+      const r = el.getBoundingClientRect()
+      return { id: el.getAttribute('data-settings-section'), x: Math.round(r.left), y: Math.round(r.top), svg: !!el.querySelector('svg') }
+    })
+    const card = document.querySelector('[data-settings-card]')?.getBoundingClientRect()
+    return { rects, cardLeft: card ? Math.round(card.left) : null }
+  })
+  const sameColumn =
+    railGeom.rects.length === 3 &&
+    new Set(railGeom.rects.map((r) => r.x)).size === 1 &&
+    railGeom.rects[0].y < railGeom.rects[1].y &&
+    railGeom.rects[1].y < railGeom.rects[2].y
+  rec(g, '★ 三区是左侧竖排导航（不是旧的顶部标签）', sameColumn, railGeom.rects.map((r) => `${r.id}@${r.x},${r.y}`).join(' '))
+  rec(g, '★ 每个导航项都带矢量图标（svg）', railGeom.rects.every((r) => r.svg))
+  rec(
+    g,
+    '★ 导航在内容左侧',
+    railGeom.cardLeft !== null && railGeom.rects[0].x < railGeom.cardLeft,
+    `nav=${railGeom.rects[0]?.x} card=${railGeom.cardLeft}`,
   )
   rec(g, '默认停在渠道区（既有配置不受影响）', (await page.locator('[data-settings-card]').count()) === 1)
 

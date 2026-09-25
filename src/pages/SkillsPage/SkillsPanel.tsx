@@ -120,7 +120,13 @@ export function SkillsPanel() {
   }
 
   return (
-    <>
+    /**
+     * 面板自带内边距（用户 2026-09-25 后台改版后才需要）：
+     * 在 `/skills` 独立页里，外层 `.page` 提供了整页 padding；
+     * 而它现在还被后台中枢的「技能库」分区复用，那里右栏**没有**外层内边距，
+     * 光靠外层会让内容贴着卡片边缘。收进组件内，两个宿主就都对了。
+     */
+    <div className={styles.panelShell}>
       <div className={styles.topActions} data-skills-actions>
         <button type="button" className={styles.ghost} data-skills-new onClick={startNew}>
           ＋ 新建
@@ -275,6 +281,6 @@ export function SkillsPanel() {
           )}
         </section>
       </div>
-    </>
+    </div>
   )
 }

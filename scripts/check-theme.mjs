@@ -35,6 +35,14 @@ const ALLOWED = new Map([
   // 令牌表本身就是唯一的定义处：明 / 暗两套值都写在这里
   ['src/ui/tokens.css', '令牌唯一来源'],
   /**
+   * 组件陈列室（`/_preview`，仅 DEV 加载）：它是**独立的一套预览页样式**，
+   * 用的是 `--text-strong` / `--radius-sm` 这类通用命名，与产品主题表无关
+   * （该页默认落在系统字体与默认色上，本就不参与明暗主题）。
+   * 它不进生产产物（`import.meta.env.DEV` 分支被 tree-shake），
+   * 故不纳入「组件必须引用产品令牌」这条约束。
+   */
+  ['src/dev/preview/PreviewPage.module.css', '开发预览页，独立样式体系'],
+  /**
    * 小地图的点阵与视口框：SVG 的 fill / stroke **属性**写死后无法跟随主题，
    * 故颜色挪进 CSS 类；而它在同一份文件里需要给出明 / 暗**两组**值
    * （`[data-theme=dark]` 选择器），这些值本身就是主题定义的一部分。
@@ -92,6 +100,77 @@ for (const abs of files) {
   const rel = relative(ROOT, abs).split(sep).join('/')
   if (ALLOWED.has(rel)) continue
   violations.push(...findViolations(abs, rel))
+}
+
+/**
+ * 第二条检查：**引用的令牌必须真的被定义过**。
+ *
+ * ## 为什么要有它（2026-09-25 实测踩到）
+ *
+ * `SettingsPage` 顶栏写着 `padding: var(--space-5) …`，而 `tokens.css` 里
+ * **从来没有 `--space-5`**（只有 1/2/3/4/6/8）。CSS 的规则是
+ * 「`var()` 解析不到值时**整条声明作废**」—— 于是那条 padding 静默失效，
+ * 表现为「返回按钮贴在屏幕左上角」，而 tsc / eslint / 单测 / 冒烟**全绿**。
+ *
+ * 这与「字面量颜色」是同一类缺陷：**写错了没有任何信号**，只能靠人恰好看到。
+ * 故一并纳入守卫。
+ *
+ * 口径：
+ * - 只查 `src/**` 下组件样式里的 `var(--x)`；
+ * - 定义源只认 `ui/tokens.css`（含 `[data-theme=dark]` 那份）；
+ * - 组件**自己声明**的局部变量（如 `CreationPanel` 的 `--thumb-size`）
+ *   在同一个选择器块里 `--x: …` 定义过，也算有定义 —— 故同时收集「文件内自定义」。
+ * - **带兜底值的 `var(--x, 兜底)` 一律放行**：那不是疏漏，是刻意的写法 ——
+ *   变量由**运行时注入**（如 `--panel-available-h` 由 `PanelLayer` 按锚点算好挂上），
+ *   兜底值负责 SSR / 单测这些「还没挂上」的时刻。若连这类也拦，
+ *   就会逼人把兜底值删掉，反而制造出真正的失效路径。
+ */
+const TOKENS_FILE = join(SRC, 'ui', 'tokens.css')
+const tokenSource = readFileSync(TOKENS_FILE, 'utf8')
+/** 全局令牌 + 各文件自己的局部声明都算「有定义」 */
+const globalTokens = new Set(
+  [...stripComments(tokenSource).matchAll(/(--[a-z0-9-]+)\s*:/gi)].map((m) => m[1]),
+)
+
+/** 收集一个文件里 `--x: value` 形式的自定义属性声明（含组件局部变量） */
+function localTokens(css) {
+  return new Set([...stripComments(css).matchAll(/(--[a-z0-9-]+)\s*:/gi)].map((m) => m[1]))
+}
+
+/** 找出引用了但未定义的令牌：{ file, line, name } */
+function findUndefinedVars(absPath, relPath) {
+  const raw = readFileSync(absPath, 'utf8')
+  const local = localTokens(raw)
+  const out = []
+  stripComments(raw)
+    .split(/\r?\n/)
+    .forEach((text, i) => {
+      // 匹配 var(--name) 与 var(--name, 兜底)；兜底写法里的逗号是判据
+      for (const m of text.matchAll(/var\(\s*(--[a-z0-9-]+)\s*([,)])/gi)) {
+        const name = m[1]
+        // 有兜底值 ⇒ 运行时注入，跳过
+        if (m[2] === ',') continue
+        if (globalTokens.has(name) || local.has(name)) continue
+        out.push({ file: relPath, line: i + 1, name })
+      }
+    })
+  return out
+}
+
+const undefinedVars = []
+for (const abs of files) {
+  const rel = relative(ROOT, abs).split(sep).join('/')
+  // 白名单对两条检查一视同仁：`dev/preview` 是独立样式体系，不参与产品令牌约束
+  if (ALLOWED.has(rel)) continue
+  undefinedVars.push(...findUndefinedVars(abs, rel))
+}
+
+if (undefinedVars.length > 0) {
+  console.error(`✖ 主题守卫失败：${undefinedVars.length} 处引用了未定义的令牌\n`)
+  console.error('CSS 里 var() 取不到值时**整条声明作废**，且不会有任何报错。')
+  console.error('请到 ui/tokens.css 补上定义，或改用已有的档位。\n')
+  for (const v of undefinedVars) console.error(`  ${v.file}:${v.line}  var(${v.name}) 未定义`)
+  process.exit(1)
 }
 
 if (violations.length === 0) {

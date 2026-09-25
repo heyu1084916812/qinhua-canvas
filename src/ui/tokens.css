@@ -80,6 +80,13 @@
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
+  /**
+   * ⚠️ `--space-5` 曾被两处引用却**从未定义**（`SettingsPage` 顶栏的 padding、
+   * `HomePage` 状态行的高度）。CSS 里 `var()` 取不到值时**整条声明作废**，
+   * 于是那两条 padding 一直静默失效 —— 表现为设置页顶栏贴着屏幕左上角。
+   * 4px 基础的第 5 档 = 20px，补上后两处同时恢复。
+   */
+  --space-5: 20px;
   --space-6: 24px;
   --space-8: 32px;
 

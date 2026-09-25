@@ -47,8 +47,6 @@
   flex: 1;
   min-height: 0;
   width: 100%;
-  max-width: 1060px;
-  margin: 0 auto var(--space-6);
   display: grid;
   grid-template-columns: 264px 1fr;
   background: var(--bg-surface);
@@ -526,35 +524,93 @@
   gap: var(--space-2);
 }
 
-/* ── 后台中枢：三区标签（用户 2026-09-25）───────────────────────────
-   与返回按钮同一行：返回在左、标题居中偏左、分区标签跟在标题后。
-   选中态用文字色 + 底色区分，不引入新的强调色（与全站 chip 同一口径）。 */
-.sections {
+/* ── 后台中枢：左侧竖排导航 + 右侧内容（用户 2026-09-25）────────────
+   用户给的参考图是「左侧一条独立导航栏 + 右侧内容区」的形态，要求只搬**结构**。
+   故这里不取参考图的墨绿侧栏与亮黄选中态（本项目没有这两个颜色），
+   也不给它加投影（§3.3：画布浮层一律无投影、靠 1px 描边与底色分层）。
+
+   `shell` 与既有 `.layout`（渠道区的卡片）同宽同距，于是三区切换时
+   左侧导航不会左右横跳 —— 那是最容易露馅的一处。 */
+.shell {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 1060px;
+  margin: 0 auto var(--space-6);
+  display: grid;
+  grid-template-columns: 176px 1fr;
+  gap: var(--space-4);
+  box-sizing: border-box;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-content: start;
+  padding: var(--space-3);
+  background: var(--bg-surface);
+  border: var(--border);
+  border-radius: var(--radius-node);
+  box-sizing: border-box;
+  /* 导航项少（三项），高度跟着内容走而不是撑满 —— 撑满会变成一大块空壳 */
+  align-self: start;
+  width: 100%;
+}
+
+.railBtn,
+.railOn {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  margin-left: var(--space-4);
-}
-.sectionBtn,
-.sectionOn {
+  gap: var(--space-2);
+  width: 100%;
+  box-sizing: border-box;
   border: none;
   background: transparent;
-  padding: var(--space-1) var(--space-3);
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-control);
   font-family: var(--font-sans);
   font-size: var(--fs-label);
   font-weight: var(--fw-title);
   color: var(--text-2);
+  text-align: left;
   cursor: pointer;
   transition: background var(--dur-hover) var(--ease-out);
 }
-.sectionBtn:hover {
+
+.railBtn:hover {
   background: var(--bg-hover);
   color: var(--text-1);
 }
-.sectionOn {
+
+/* 选中态用 `--bg-hover` 胶囊 + 文字转深色表达（与全站 chip 同一口径），
+   不引入新的强调色 —— 参考图那抹亮黄在本项目里没有对应的语义色。 */
+.railOn {
   background: var(--bg-hover);
   color: var(--text-1);
+}
+
+.railIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
+.railLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.content {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── 功能预设词区（后台中枢）─────────────────────────────────────
@@ -564,8 +620,6 @@
   flex: 1;
   min-height: 0;
   width: 100%;
-  max-width: 1060px;
-  margin: 0 auto var(--space-6);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -667,8 +721,6 @@
   flex: 1;
   min-height: 0;
   width: 100%;
-  max-width: 1060px;
-  margin: 0 auto var(--space-6);
   display: flex;
   flex-direction: column;
   background: var(--bg-surface);

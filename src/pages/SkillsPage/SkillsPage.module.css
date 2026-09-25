@@ -11,6 +11,11 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  /*
+   * 这一层是**独立页特有的**整页留白（顶栏与卡片离屏幕边缘的距离）；
+   * `.panelShell` 那份内边距是**卡片内部**的留白，两者职责不同、可叠加。
+   * 后台中枢里没有这一层（右栏本来就嵌在卡片里），于是两边看起来一致。
+   */
   padding: var(--space-4) var(--space-6);
   background: var(--bg-app);
   color: var(--text-1);
@@ -81,6 +86,22 @@
 .topActions {
   display: flex;
   gap: var(--space-2);
+}
+
+/*
+ * 面板外壳（用户 2026-09-25）：`SkillsPanel` 现在同时被两个宿主使用 ——
+ * `/skills` 独立页（外层 `.page` 已有整页内边距）与后台中枢的技能分区
+ * （右栏没有内边距）。内边距收进组件内，两个宿主才都对齐；
+ * `flex:1 + min-height:0` 让它把剩余高度吃满，`body` 的 grid 才有高度可分。
+ */
+.panelShell {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-4);
+  box-sizing: border-box;
 }
 
 /* 提示条：成功 / 失败用同一形状、不同色调（位置固定，不跳） */

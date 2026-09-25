@@ -26,6 +26,7 @@ import {
   validatePresetText,
   type PromptToolAction,
 } from '../../domain/prompt/presetText'
+import { IconPrompt, IconGeneration, IconBoard } from '../../workbenches/canvas/toolbar/icons'
 
 /**
  * 后台的三个分区（用户 2026-09-25「后台中枢」）。
@@ -35,6 +36,20 @@ import {
  * 三者都是「配置」，只是此前散在三个入口（设置页 / 代码常量 / 独立技能页）。
  */
 type SettingsSection = 'channels' | 'presets' | 'skills'
+
+/**
+ * 侧栏导航项（用户 2026-09-25：「渠道、功能等替换成这种风格的 ui」——
+ * 参考图是**左侧竖排图标导航 + 右侧内容区**，此处只搬结构，配色全走本项目令牌）。
+ *
+ * 图标复用画布工具栏那一套（`toolbar/icons`），不另画三个 ——
+ * 「渠道 / 预设词 / 技能」在语感上分别对应「连生成 / 提示词 / 画板」的意象，
+ * 且同一套图标让两个页面看起来是一家的。
+ */
+const SECTIONS: readonly { id: SettingsSection; label: string; Icon: typeof IconPrompt }[] = [
+  { id: 'channels', label: '渠道', Icon: IconGeneration },
+  { id: 'presets', label: '功能预设词', Icon: IconPrompt },
+  { id: 'skills', label: '技能库', Icon: IconBoard },
+]
 
 /**
  * 后台模型设置页（产品文档 §7）。
@@ -371,35 +386,37 @@ export function SettingsPage() {
           {backLabel}
         </Link>
         <h1 className={styles.heading}>后台设置</h1>
-        {/*
-          三区切换（用户 2026-09-25「后台中枢」）。
-          用标签而不是把所有内容竖着堆成一页：三类内容的形态差别很大
-          （渠道是列表+表单、预设词是三条长文本、技能是列表+编辑器），
-          堆一页会互相挤，且用户每次只关心其中一类。
-        */}
-        <nav className={styles.sections} role="tablist" aria-label="后台分区">
-          {(
-            [
-              ['channels', '渠道'],
-              ['presets', '功能预设词'],
-              ['skills', '技能库'],
-            ] as const
-          ).map(([id, label]) => (
+      </header>
+
+      {/*
+        左侧竖排导航 + 右侧内容区（用户 2026-09-25 参考图的**结构**）。
+
+        只搬结构：参考图里那块墨绿侧栏与亮黄选中态不取（本项目没有这两个颜色，
+        且 §3.3 定的是「无投影 + 1px 细描边」），配色一律走既有令牌。
+
+        `data-settings-section` 锚点原样保留 —— 冒烟按它切区，换成侧栏不该让断言失效。
+      */}
+      <div className={styles.shell} data-settings-shell>
+        <nav className={styles.rail} role="tablist" aria-label="后台分区">
+          {SECTIONS.map(({ id, label, Icon }) => (
             <button
               key={id}
               type="button"
               role="tab"
               aria-selected={section === id}
-              className={section === id ? styles.sectionOn : styles.sectionBtn}
+              className={section === id ? styles.railOn : styles.railBtn}
               data-settings-section={id}
               onClick={() => setSection(id)}
             >
-              {label}
+              <span className={styles.railIcon} aria-hidden="true">
+                <Icon size={20} />
+              </span>
+              <span className={styles.railLabel}>{label}</span>
             </button>
           ))}
         </nav>
-      </header>
 
+        <div className={styles.content}>
       {section === 'presets' ? (
         <PresetTextSection presets={presets} presetText={presetText} />
       ) : section === 'skills' ? (
@@ -714,6 +731,8 @@ export function SettingsPage() {
         </section>
       </div>
       )}
+        </div>
+      </div>
     </div>
   )
 }
