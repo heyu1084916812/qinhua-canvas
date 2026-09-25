@@ -8669,6 +8669,56 @@ async function g74(browser) {
     railGeom.cardLeft !== null && railGeom.rects[0].x < railGeom.cardLeft,
     `nav=${railGeom.rects[0]?.x} card=${railGeom.cardLeft}`,
   )
+  /**
+   * ★★ 选中项「与内容同色、并向右接成一片」（用户 2026-09-25 明确指出的参考图要点）。
+   *
+   * 参考图里侧栏是深色块，选中的那项与右侧内容**同为白色**，看起来像从侧栏里
+   * 掏出来、和内容连在一起。三处缺一不可：
+   *  ① 底色 = 内容面板的底色（不是 hover 灰）；
+   *  ② 右侧是**直角**（圆着就不像延伸出去）；
+   *  ③ 右沿与内容面板左沿**对齐**（差值 0）。
+   *
+   * 这三条读代码看不出来（写了 `background` 与 `border-radius` 都"看着对"），
+   * 必须量：底色比色、圆角读计算值、右沿量像素。
+   */
+  const notch = await page.evaluate(() => {
+    const on = document.querySelector('[data-settings-section][aria-selected="true"]')
+    const card = document.querySelector('[data-settings-card]')
+    if (!on || !card) return null
+    const cs = getComputedStyle(on)
+    const cardCs = getComputedStyle(card)
+    const or = on.getBoundingClientRect()
+    const cr = card.getBoundingClientRect()
+    return {
+      onBg: cs.backgroundColor,
+      cardBg: cardCs.backgroundColor,
+      cornerRightTop: cs.borderTopRightRadius,
+      cornerRightBottom: cs.borderBottomRightRadius,
+      cornerLeftTop: cs.borderTopLeftRadius,
+      overhang: Math.round(cr.left - or.right),
+    }
+  })
+  rec(
+    g,
+    '★★ 选中项底色与内容面板一致（同为 surface，不是 hover 灰）',
+    !!notch && notch.onBg === notch.cardBg,
+    `on=${notch?.onBg} card=${notch?.cardBg}`,
+  )
+  rec(
+    g,
+    '★★ 选中项右侧为直角（左侧仍圆角）——「掏出来」的关键',
+    !!notch &&
+      notch.cornerRightTop === '0px' &&
+      notch.cornerRightBottom === '0px' &&
+      notch.cornerLeftTop !== '0px',
+    `左${notch?.cornerLeftTop} 右上${notch?.cornerRightTop} 右下${notch?.cornerRightBottom}`,
+  )
+  rec(
+    g,
+    '★★ 选中项右沿与内容面板左沿对齐（差值 0，中间不留缝）',
+    !!notch && notch.overhang === 0,
+    `差值=${notch?.overhang}px`,
+  )
   rec(g, '默认停在渠道区（既有配置不受影响）', (await page.locator('[data-settings-card]').count()) === 1)
 
   // ── ② 预设词可编辑 ──

@@ -532,6 +532,14 @@
    `shell` 与既有 `.layout`（渠道区的卡片）同宽同距，于是三区切换时
    左侧导航不会左右横跳 —— 那是最容易露馅的一处。 */
 .shell {
+  /**
+   * 导航栏与内容区之间的间距，**单点定义**。
+   *
+   * 选中项要向右"越过"这段间距去和内容面板接上（见 `.railOn`），
+   * 所以那个负外边距必须引用这里的值 —— 写死像素的话，日后一调 gap
+   * 接缝就会裂开，而且是从视觉上先裂、没人会想到去查 gap。
+   */
+  --rail-gap: var(--space-4);
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -539,7 +547,7 @@
   margin: 0 auto var(--space-6);
   display: grid;
   grid-template-columns: 176px 1fr;
-  gap: var(--space-4);
+  gap: var(--rail-gap);
   box-sizing: border-box;
 }
 
@@ -549,7 +557,18 @@
   gap: var(--space-1);
   align-content: start;
   padding: var(--space-3);
-  background: var(--bg-surface);
+  /**
+   * 导航栏底色**刻意比内容区暗一档**（用户 2026-09-25 给的参考图）。
+   *
+   * 它的作用是让选中项"白得出来"：参考图里侧栏是一整块深色，
+   * 选中的那一项与右侧内容同为白色 ⇒ 看起来像从侧栏里**掏出来**、
+   * 和内容连成一片。若侧栏也取 `--bg-surface`（与内容同色），
+   * 这个效果就完全消失，选中项会退化成一个普通胶囊。
+   *
+   * 颜色只搬这层**关系**（栏比内容暗一档），不搬参考图那抹墨绿 ——
+   * 用户要求「配色用我的配色」，故取本项目现成的 `--bg-subtle`。
+   */
+  background: var(--bg-subtle);
   border: var(--border);
   border-radius: var(--radius-node);
   box-sizing: border-box;
@@ -579,15 +598,35 @@
 }
 
 .railBtn:hover {
-  background: var(--bg-hover);
+  background: var(--bg-surface);
   color: var(--text-1);
 }
 
-/* 选中态用 `--bg-hover` 胶囊 + 文字转深色表达（与全站 chip 同一口径），
-   不引入新的强调色 —— 参考图那抹亮黄在本项目里没有对应的语义色。 */
+/**
+ * 选中项：**与右侧内容同色，并向右延伸与之接成一片**（用户 2026-09-25 的参考图要点）。
+ *
+ * 三处合起来才是那个效果，缺一处都会退化：
+ *  ① 底色取 `--bg-surface`（与内容面板同一个令牌）—— 不是 hover 灰；
+ *  ② **只圆左边两个角**，右边是直角 —— 圆着就不像"延伸出去"；
+ *  ③ 负右外边距把这一项**推出导航栏、跨过栏间距**，右沿正好落在内容面板左沿上。
+ *
+ * ③ 的数值来自 `--rail-gap` 与 `.rail` 的右内距，两处都在本文件里成对维护：
+ * 改导航栏内距或栏间距时，这里要一起改，否则中间会裂出一条缝。
+ * `z-index` 是为了盖住导航栏自己的右边框 —— 那条线正好穿过接缝。
+ */
 .railOn {
-  background: var(--bg-hover);
+  position: relative;
+  z-index: 1;
+  background: var(--bg-surface);
   color: var(--text-1);
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  /**
+   * ⚠️ 这里**不能**用「`width: 100%` + `margin-right: 负值`」去把它推出去：
+   * 块级元素同时给了 width 与左右 margin 属**过约束**，浏览器会**丢掉 margin-right**
+   * （CSS 规范里 LTR 下调整的正是右边距）。实测就是"负 margin 写了、纹丝不动"。
+   * 改成直接加宽：宽度 = 100% + 右内距 + 栏间距 + 1px 边框。
+   */
+  width: calc(100% + var(--space-3) + var(--rail-gap) + var(--border-width));
 }
 
 .railIcon {
