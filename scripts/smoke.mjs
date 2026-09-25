@@ -9340,6 +9340,73 @@ async function g64(browser) {
   await page.keyboard.press('Escape')
   await sleep(250)
 
+  /**
+   * ★ 提示词**节点本体**的滚动条也要是细滚动条（用户 2026-09-25 报）。
+   *
+   * 缺陷形态：滚动条样式原先只写在**创作面板**那一处（`.prompt::-webkit-scrollbar-*`）；
+   * 节点本体的正文容器同样是 `overflow:auto`，却没有任何样式 ⇒ 回落系统默认
+   * （实测 15px 宽、**带上下箭头**、轨道是独立底色）。用户原话：
+   * 「这个上下的箭头有什么用？我不要，而且这个滚动条太粗了，需要缩小四分之三的宽度，
+   *   背景要无缝的嵌入到节点里面，现在的颜色看起来是单独的」。
+   *
+   * 修法：搬到 `ui/base.css` 做成**全局**规则（4px = 系统默认 15px 的四分之一），
+   * 于是「任何滚动容器」都自动同款，不再依赖「每加一处就记得补样式」。
+   *
+   * 判据三条，缺一不可：
+   *  ① 宽度 ≈ 4px；
+   *  ② 箭头 `display: none`；
+   *  ③ 轨道背景 = `--bg-surface`（「无缝嵌入」的量化形式）。
+   *
+   * ⚠️ 宽度**不能**用 `offsetWidth - clientWidth` 量：冒烟跑在 headless 下，
+   * 覆盖式滚动条的真实占宽**恒为 0**（本项目已踩过，见 G23 那段注释）。
+   * 故这里读 `::-webkit-scrollbar` 的 computed 宽度 —— 它是声明值的解析结果，
+   * 在 headless 下同样可读，且「被更具体规则覆盖」时也会如实反映成被覆盖后的值。
+   */
+  {
+    // 先灌够多的行，让正文真的溢出（不溢出则根本没有滚动条可量，断言会恒真）
+    const tb = await prompt.boundingBox()
+    await page.mouse.dblclick(tb.x + tb.width / 2, tb.y + tb.height / 2)
+    await sleep(400)
+    const editor = prompt.locator('textarea')
+    await editor.fill(Array.from({ length: 40 }, (_, i) => `第 ${i + 1} 行内容`).join('\n'))
+    await sleep(300)
+    await page.keyboard.press('Escape')
+    await sleep(600)
+
+    const sb = await prompt.evaluate((el) => {
+      // 编辑态/非编辑态是两个容器（textarea / div.text），取当下那个有溢出的
+      const cands = [el.querySelector('textarea'), el.querySelector('div[class*="text"]')].filter(Boolean)
+      const t = cands.find((c) => c.scrollHeight > c.clientHeight + 1) ?? cands[0]
+      if (!t) return null
+      const g = (p) => getComputedStyle(t, p)
+      return {
+        barWidth: g('::-webkit-scrollbar').width,
+        buttonDisplay: g('::-webkit-scrollbar-button').display,
+        trackBg: g('::-webkit-scrollbar-track').backgroundColor,
+        scrolls: t.scrollHeight > t.clientHeight + 1,
+      }
+    })
+    rec(g, '★ 节点正文溢出（滚动条真的出现了，否则下两条恒真）', !!sb?.scrolls)
+    rec(
+      g,
+      '★ 节点本体滚动条已收细（4px = 系统默认 15px 的四分之一）',
+      sb?.barWidth === '4px',
+      `computed width=${sb?.barWidth}`,
+    )
+    rec(
+      g,
+      '★ 节点本体滚动条无上下箭头',
+      sb?.buttonDisplay === 'none',
+      `display=${sb?.buttonDisplay}`,
+    )
+    rec(
+      g,
+      '★ 节点本体滚动条轨道与节点内部同色（无缝嵌入，不是单独一条）',
+      !!sb && sb.trackBg === 'rgb(255, 255, 255)',
+      `track=${sb?.trackBg}`,
+    )
+  }
+
   await page.screenshot({ path: `${OUT}/80-g64-format.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()

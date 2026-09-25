@@ -21,3 +21,76 @@ body {
 body {
   min-height: 100%;
 }
+
+/*
+ * 全局细滚动条（用户 2026-09-25）。
+ *
+ * ## 为什么放在这里而不是某个组件里
+ *
+ * 滚动条的样式此前只在**创作面板**那一处写过（`CreationPanel.module.css` 的
+ * `.prompt::-webkit-scrollbar-*`）。用户随后在**提示词节点本体**上又看到一条
+ * 又粗又带箭头的原生滚动条 —— 同一个应用里两套外观。根因是样式写在组件模块里，
+ * 每多一个滚动容器就多一次「记得补样式」的机会，而漏掉的表现是**回落到系统默认**
+ * （实测 15px 宽 + 上下箭头 + 独立底色的轨道），比没做还显眼。
+ *
+ * 这些规则只描述「滚动条该长什么样」，不含任何组件结构，属于全局基础样式；
+ * 放全局后**新增任何滚动容器都自动获得同一套外观**，不必逐个登记。
+ *
+ * ## 两条硬约束（都是踩过坑定的，别改）
+ *
+ * ① **只写 `::-webkit-scrollbar-*`，绝不写标准的 `scrollbar-width` /
+ *    `scrollbar-color`**。现代 Chromium 一看到标准属性就切回**内置滚动条**渲染，
+ *    并**整组忽略** `::-webkit-scrollbar-*` —— 包括下面那条
+ *    「隐藏上下箭头」。2026-09-24 那次「我写了 display:none 可箭头还在」
+ *    就是这么来的。
+ * ② **轨道颜色显式取 `--bg-surface`**，不写 `transparent`。`transparent` 在
+ *    Chromium 下会被渲染成「透出下面一层」，而容器底色与父层不总是相同，
+ *    看起来仍像多了一条槽。用户的原话是「背景要无缝的嵌入进去，现在的颜色
+ *    看起来是单独的」。
+ *
+ * ## 宽度
+ *
+ * 用户要求「在现有基础上再缩小四分之三」。系统默认实测 **15px**，取
+ * **4px**（≈ 15 ÷ 4 = 3.75，向上取整到 4 保留可点性；再细就基本抓不住了）。
+ */
+
+/*
+ * 轨道：与所在节点的内部同色 —— 这是「无缝嵌入」的关键一条。
+ * 同时把 `border` 归零：某些平台会给轨道加 1px 高光边，抵消掉颜色融合的效果。
+ */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+/*
+ * 上下两端的箭头按钮（用户明确不要）。
+ *
+ * 同时给到 `width/height: 0` 而不是只写 `display: none`：部分 Chromium 版本
+ * 在 `display:none` 之后仍按「按钮存在」预留两端的空间，表现为轨道两端各空一截。
+ */
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-surface);
+  border: 0;
+}
+
+/* 拇指：细圆角、半透明，悬停时略实一点（与创作面板那套同观感） */
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-3) 45%, transparent);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-3) 75%, transparent);
+}
+
+/* 右下角「两条斜线凑成的小三角」是滚动条的 corner，一并去掉 */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}

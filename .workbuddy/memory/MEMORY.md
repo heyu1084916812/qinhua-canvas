@@ -790,6 +790,37 @@ TypeError: Cannot read properties of undefined (reading 'length')
   量到「面板 270 / 内容 147」就该立刻想到是 `min-height` 在撑，而不是去查 flex。
 - **空白类缺陷的断言要在「短内容」时量**：内容一长面板就被撑满、空白自然消失，
   断言恒真、什么也证明不了（本次故障注入 83px 才抓得到）。
+
+### ★ 滚动条：写在组件里 = 迟早漏一处（2026-09-25）
+
+**事故形态**：滚动条样式原先只写在 `CreationPanel.module.css` 的
+`.prompt::-webkit-scrollbar-*`（2026-09-24 修的）。用户在**提示词节点本体**上
+又看到一条又粗又带箭头的原生滚动条 —— 那个容器的 `overflow:auto` 同样存在，
+只是**没人给它写样式**，于是回落系统默认（实测 **15px** 宽 + 上下箭头 + 独立底色轨道）。
+同一应用里两套外观。
+
+**根因不是「忘了写」，是「样式写在组件模块里」这个做法本身**：每多一个滚动容器，
+就多一次「记得补样式」的机会，而**漏掉的表现比不做还显眼**（原生滚动条会自己冒出来）。
+修法 = 搬到 `ui/base.css` 做成全局 `::-webkit-scrollbar-*`（4px），
+新增滚动容器自动同款，不再需要登记。
+
+**两条硬约束（别改，都是一次踩坑换来的）**：
+1. **只写 `::-webkit-scrollbar-*`，绝不写标准的 `scrollbar-width` / `scrollbar-color`**。
+   现代 Chromium 见到标准属性就切回**内置滚动条**渲染，并**整组忽略** webkit 规则
+   —— 包括「隐藏箭头」那条。2026-09-24 的「写了 display:none 箭头还在」就是这么来的。
+2. **轨道显式取 `--bg-surface`，不写 `transparent`**。`transparent` 在 Chromium 下
+   渲染成「透出下面一层」，容器底色与父层不同时仍像多了一条槽。用户要的
+   「无缝嵌入」= 显式同一个令牌。
+
+**尺寸口径**：用户说「再缩小四分之三」→ 系统默认 15px ÷ 4 ≈ **4px**。
+**一处有理由的例外**：创作面板保留 6px —— 它整体挂 `zoom: 0.75`，
+全局 4px 渲染后只有 3px，抓不住。改那处前先读它自己的注释。
+
+**测试口径（重要）**：**headless 下滚动条的真实占宽恒为 0**
+（`offsetWidth - clientWidth` 量不到）。要量宽度只能读
+`getComputedStyle(el, '::-webkit-scrollbar').width` —— 声明值的解析结果，
+headless 也能读，被更具体规则覆盖时也会如实反映。真机尺寸另用
+**有头**探针（`headless:false`）复核，本项目已验证。
 - **性能剖析别信 headless 的 rAF 帧间隔**（无 vsync，恒 ~6ms）。用：每帧主线程耗时 / CDP `Profiler` / headful。卡顿多半是「每帧重算」不是「渲染慢」；A/B（`{false && <Minimap/>}`）定位浮层成本最快。
 - **React 的 `onWheel` 是 passive**，`preventDefault()` 被静默忽略；要阻止页面滚动须挂原生 `{passive:false}` 监听。
 - 提交前别 `git add -A`：一次性探针 `scripts/probe-*.mjs` 与搁置的漫剧调研稿不入库。
