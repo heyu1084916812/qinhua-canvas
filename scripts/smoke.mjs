@@ -8699,7 +8699,6 @@ async function g74(browser) {
         cs.borderBottomRightRadius,
         cs.borderBottomLeftRadius,
       ],
-      overhang: Math.round(cr.left - or.right),
     }
   })
   rec(
@@ -8714,11 +8713,36 @@ async function g74(browser) {
     !!notch && notch.corners.every((c) => parseFloat(c) >= 999),
     notch?.corners.join(' '),
   )
+  /**
+   * ★★ 选中项**伸进面板、把右端圆角藏进去**，两块真正连成一片
+   * （用户 2026-09-26「想个办法把这个链接在一起」）。
+   *
+   * ⚠️ 这一条**取代**了早先那条「右沿与面板左沿对齐（差值 0）」——两者互斥：
+   * 只对齐（差值 0）时，胶囊右端是**圆角**（999px），两者只在**最中间那一个点**相切，
+   * 上下各露一道月牙缝，看着是"挨着"而不是"连着"。正解是**再往里伸一截**把圆角藏掉。
+   * 留着旧断言只会把它自己的错误当成标准。
+   *
+   * 判据两条缺一不可：① overhang 为**负**（伸进去，不是相切）；
+   * ② 伸入量**大于胶囊半高**，否则圆角仍会露出一点。
+   */
+  const seam = await page.evaluate(() => {
+    const on = document.querySelector('[data-settings-section][aria-selected="true"]')
+    const panel = document.querySelector(
+      '[data-settings-card], [data-settings-presets], [data-settings-skills]',
+    )
+    if (!on || !panel) return null
+    const o = on.getBoundingClientRect()
+    const p = panel.getBoundingClientRect()
+    return {
+      overhang: Math.round(p.left - o.right), // 负数 = 伸进面板
+      halfHeight: o.height / 2,
+    }
+  })
   rec(
     g,
-    '★★ 选中项右沿与内容面板左沿对齐（差值 0）',
-    !!notch && notch.overhang === 0,
-    `差值=${notch?.overhang}px`,
+    '★★ 选中项伸进面板（负 overhang，把右端圆角藏进同色面板 ⟹ 真正连成一片）',
+    !!seam && seam.overhang < 0 && Math.abs(seam.overhang) > seam.halfHeight,
+    `伸入=${seam ? -seam.overhang : '?'}px，半高=${seam?.halfHeight}px（伸入须更大）`,
   )
   rec(g, '默认停在渠道区（既有配置不受影响）', (await page.locator('[data-settings-card]').count()) === 1)
 
