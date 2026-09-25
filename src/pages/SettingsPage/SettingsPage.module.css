@@ -50,16 +50,26 @@
   display: grid;
   grid-template-columns: 264px 1fr;
   background: var(--bg-surface);
-  border: var(--border);
+  /**
+   * **最外层容器不描边**（用户 2026-09-26：「右边具体的功能最外面的容器我不要描边」）。
+   *
+   * 去掉描边后，这一块靠**底色与卡片圆角**和页面背景分层（`--bg-surface` 亮于 `--bg-app`），
+   * 与参考图那种"内容浮在白底上"的观感一致，也少一圈框。
+   * 内部的次级容器（渠道列表、模型面板…）**仍有自己的描边**，层次不丢。
+   */
   border-radius: var(--radius-node);
   overflow: hidden;
 }
 
 /* —— 左侧列表（§7.2：无边框隐性容器，选中浮现 bg-hover 胶囊、无描边） —— */
 .sidebar {
-  border-right: var(--border);
+  /**
+   * 去掉与右栏之间的那条分隔线：外层容器已经不描边了，里面再留一条竖线
+   * 等于把"没有框"这件事又破坏掉。两栏靠**留白**分开（左栏 `padding` + 右栏 `padding`）。
+   */
   background: var(--bg-surface);
-  padding: var(--space-4);
+  /* 内容离边缘更远（用户 2026-09-26） */
+  padding: var(--space-6);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -158,7 +168,11 @@
 
 /* —— 右侧编辑器（在卡片内独立滚动） —— */
 .editor {
-  padding: var(--space-6);
+  /**
+   * 内边距收成 16px：外面 `.shell` 已有 16px，两段相加即「内容离边缘远一点」。
+   * 之前写 32 是**还没加外层大容器**时的口径，那时它要独自承担留白。
+   */
+  padding: var(--space-4);
   overflow: auto;
   min-height: 0;
 }
@@ -561,6 +575,21 @@
   grid-template-columns: 176px 1fr;
   gap: var(--rail-gap);
   box-sizing: border-box;
+  /**
+   * ★ 一个外层容器**同时包住**左侧选项栏与右侧内容（用户 2026-09-26：
+   * 「右边的具体功能框要朝左边放大包住左边的选项」）。
+   *
+   * 参考图的结构不是「两个并排的独立框」，而是**一个大白块**，
+   * 左侧深色选项栏是它内部的一块、右侧内容也在它内部 —— 所以：
+   *  · 外层取 `--bg-surface`（白）并给圆角，白块从最左一直铺到最右；
+   *  · 选项栏退化成它内部的一块深色块（`.rail` 自己的底色）；
+   *  · 选中项伸出选项栏后落在这层白底上 ⇒ 与右侧内容天然连成一片。
+   *
+   * 仍**不加描边**（用户上一轮的要求）：靠白底与页面底色 `--bg-app` 的明度差分层。
+   */
+  background: var(--bg-surface);
+  border-radius: var(--radius-node);
+  padding: var(--space-4);
 }
 
 .rail {
@@ -581,11 +610,23 @@
    * 用户要求「配色用我的配色」，故取本项目现成的 `--bg-subtle`。
    */
   background: var(--bg-subtle);
-  border: var(--border);
+  /**
+   * 选项栏**不再自带描边**（用户 2026-09-26 要求外层是一个大容器）：
+   * 它现在是大白块**内部**的一块深色区域（靠底色差分层），
+   * 再给自己描一圈边就成了"框里还有框"—— 那正是用户要去掉的东西。
+   */
   border-radius: var(--radius-node);
   box-sizing: border-box;
-  /* 导航项少（三项），高度跟着内容走而不是撑满 —— 撑满会变成一大块空壳 */
-  align-self: start;
+  /* 已经在大容器里，四周不留外距，靠大容器的 padding 定位 */
+  margin: 0;
+  /**
+   * **通高**（用户 2026-09-26：参考图里侧栏是一整列深色，从卡片顶贯到底）。
+   *
+   * 早先写 `align-self: start` 是"只有三项、撑满会像空壳"时的判断；
+   * 但对照参考图，侧栏本就是**一列**、不是一块浮在小卡片里的按钮组 ——
+   * 通高之后「大白块包住左边选项 + 右边内容」这个结构才读得出来。
+   */
+  align-self: stretch;
   width: 100%;
 }
 
@@ -685,9 +726,13 @@
   gap: var(--space-3);
   overflow-y: auto;
   background: var(--bg-surface);
-  border: var(--border);
-  border-radius: var(--radius-node);
-  padding: var(--space-5);
+  /* 最外层不描边（用户 2026-09-26）；内部的每条预设词卡片仍各有自己的描边 */
+  /**
+   * 内边距**收成与大容器同级**：外面已经有一层 `.shell` 的 `padding`（16px），
+   * 这里若再留 32px，两段相加就是 48px —— 内容离边缘太远、白块显得空。
+   * 用户要的「内容离边缘远一点」由**外层那 16px + 这里的 16px**共同给出。
+   */
+  padding: var(--space-4);
   box-sizing: border-box;
 }
 .presetLead {
@@ -784,8 +829,8 @@
   display: flex;
   flex-direction: column;
   background: var(--bg-surface);
-  border: var(--border);
-  border-radius: var(--radius-node);
+  /* 最外层不描边（用户 2026-09-26）；内部的列表 / 编辑面板仍各有描边 */
+  border-radius: 0;
   overflow: hidden;
   box-sizing: border-box;
 }

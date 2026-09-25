@@ -100,7 +100,11 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  padding: var(--space-4) var(--space-4) var(--space-4);
+  /*
+   * 内边距 16px：在后台的「大容器」里，外层 `.shell` 已经给了 16px，
+   * 两者相加才是"内容离边缘远一点"；写 32 会让内容离得太远、白块显空。
+   */
+  padding: var(--space-4);
   box-sizing: border-box;
 }
 

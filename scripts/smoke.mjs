@@ -8688,8 +8688,6 @@ async function g74(browser) {
     if (!on || !card) return null
     const cs = getComputedStyle(on)
     const cardCs = getComputedStyle(card)
-    const or = on.getBoundingClientRect()
-    const cr = card.getBoundingClientRect()
     return {
       onBg: cs.backgroundColor,
       cardBg: cardCs.backgroundColor,
@@ -8744,6 +8742,101 @@ async function g74(browser) {
     !!seam && seam.overhang < 0 && Math.abs(seam.overhang) > seam.halfHeight,
     `伸入=${seam ? -seam.overhang : '?'}px，半高=${seam?.halfHeight}px（伸入须更大）`,
   )
+  /**
+   * ★ 右侧三个区的**最外层容器都不描边**，且内容与边缘留有充分留白
+   * （用户 2026-09-26：「右边具体的功能最外面的容器我不要描边，里面的内容距离边缘远一点」）。
+   *
+   * 两层意思都要验：
+   *  ① 外层 `border-width` 为 0 —— 只验"看起来没有框"不够，描边可能是被别的元素盖住的；
+   *  ② 内容离边缘够远（≥24px）—— 去掉描边后若不留白，内容会贴着卡片边，
+   *     比有描边时更局促。
+   * **内部的次级容器仍应有描边**（渠道列表、每条预设词卡片…），否则层次全丢；
+   * 这里顺带断言预设词卡片自己有描边，防止"一刀切去掉所有边框"。
+   */
+  /**
+   * ⚠️ 三个区是**条件渲染**的（同一时刻只有一个在 DOM 里），
+   * 所以必须**逐个切过去量**，不能一次性 evaluate 三个选择器 ——
+   * 那样另外两个恒为 `undefined`，断言形同虚设（实测报 undefined）。
+   */
+  const borderOf = async (sectionId, sel) => {
+    await page.locator(`[data-settings-section="${sectionId}"]`).click()
+    await sleep(450)
+    return page.evaluate((s) => {
+      const el = document.querySelector(s)
+      if (!el) return { border: 1, padding: [0] } // 找不到就按"有描边"判失败，不放过
+      const cs = getComputedStyle(el)
+      return {
+        border:
+          parseFloat(cs.borderTopWidth) +
+          parseFloat(cs.borderRightWidth) +
+          parseFloat(cs.borderBottomWidth) +
+          parseFloat(cs.borderLeftWidth),
+        padding: [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].map((v) =>
+          parseFloat(v),
+        ),
+      }
+    }, sel)
+  }
+  const shellBorders = {
+    channels: await borderOf('channels', '[data-settings-card]'),
+    presets: await borderOf('presets', '[data-settings-presets]'),
+    skills: await borderOf('skills', '[data-settings-skills]'),
+  }
+  const noBorder = Object.values(shellBorders).every((s) => s.border === 0)
+  rec(
+    g,
+    '★ 右侧三个区最外层容器都没有描边',
+    noBorder,
+    Object.entries(shellBorders).map(([k, v]) => `${k}=${v.border}px`).join(' '),
+  )
+  /**
+   * ★ 「内容离边缘远一点」量**总留白**（用户 2026-09-26）。
+   *
+   * 留白由**两层**共同给出：外层大容器 `.shell` 的 padding + 分区自己的 padding。
+   *
+   * ⚠️ 两个坑都踩过，别再犯：
+   *  ① **量左侧会失效**：`内容左边缘 − 大容器左边缘` 中间横着整条左侧选项栏（176px），
+   *     于是无论 padding 是 0 还是 16 都恒为 200 多 px —— 断言恒真、什么也证明不了
+   *     （故障注入实测：把 padding 改成 0，它照样绿）。
+   *  ② 必须**切到预设词区**再量：`[data-preset-card]` 只在那一区存在。
+   *
+   * 正解：量**右侧**——内容右边缘到最外层容器右边缘，那里只隔着两层 padding。
+   */
+  // `borderOf` 最后一次停在技能区，而 `[data-preset-card]` 只在预设词区 —— 先切过去
+  await page.locator('[data-settings-section="presets"]').click()
+  await sleep(450)
+  const contentInset = await page.evaluate(() => {
+    const shell = document.querySelector('[data-settings-shell]')
+    const firstContent = document.querySelector('[data-preset-card]')
+    if (!shell || !firstContent) return null
+    return Math.round(
+      shell.getBoundingClientRect().right - firstContent.getBoundingClientRect().right,
+    )
+  })
+  rec(
+    g,
+    '★ 内容离最外层容器右边缘够远（总留白 ≥24px，两层 padding 之和）',
+    typeof contentInset === 'number' && contentInset >= 24,
+    `总留白=${contentInset}px（外层 padding + 分区 padding）`,
+  )
+  /**
+   * 内部层级另在预设词区验（那里才有 `[data-preset-card]`）：
+   * 在渠道区断言它恒为 null，「层次没丢」这件事就成了空话。
+   */
+  await page.locator('[data-settings-section="presets"]').click()
+  await sleep(450)
+  const innerBorder = await page.evaluate(() => {
+    const el = document.querySelector('[data-preset-card]')
+    return el ? parseFloat(getComputedStyle(el).borderTopWidth) : null
+  })
+  rec(
+    g,
+    '★ 内部次级容器仍保留描边（层次没丢）',
+    typeof innerBorder === 'number' && innerBorder > 0,
+    `预设词卡片 border=${innerBorder}px`,
+  )
+  await page.locator('[data-settings-section="channels"]').click()
+  await sleep(400)
   rec(g, '默认停在渠道区（既有配置不受影响）', (await page.locator('[data-settings-card]').count()) === 1)
 
   // ── ② 预设词可编辑 ──
