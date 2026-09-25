@@ -8670,11 +8670,17 @@ async function g74(browser) {
     `nav=${railGeom.rects[0]?.x} card=${railGeom.cardLeft}`,
   )
   /**
-   * ★★ 选中项是一个**四角全圆的圆角矩形**，底色与内容面板一致，
-   * 并向右延伸到与内容面板左沿对齐（用户 2026-09-25 二轮：一比一复刻）。
+   * ★★ 选中项是**胶囊**（`--radius-pill`），底色与内容面板**同色**，
+   * 并向右延伸到与内容面板左沿对齐。
+   *
+   * 用户 2026-09-25 三轮：「像胶囊一样的，选中后的颜色就是 #22242b，
+   * 而且和右边的是一体的」。`#22242b` 正是**暗色主题**下 `--bg-surface` 的值
+   * （亮色下是 `#ffffff`）—— 所以断言按「选中底色 == 内容面板底色」来量，
+   * 而不是写死 `#22242b`：否则这条断言在浅色主题下必然失败，
+   * 而浅色那一套也是用户定的正确颜色。
    *
    * 三处缺一不可，且都读不出来（写上 `border-radius` 与 `background` 看着就对），
-   * 必须量：底色比色、四角圆角读计算值、右沿量像素。
+   * 必须量：底色比色、圆角读计算值、右沿量像素。
    */
   const notch = await page.evaluate(() => {
     const on = document.querySelector('[data-settings-section][aria-selected="true"]')
@@ -8704,8 +8710,8 @@ async function g74(browser) {
   )
   rec(
     g,
-    '★★ 选中项是圆角矩形（四角全圆）',
-    !!notch && notch.corners.every((c) => parseFloat(c) > 0),
+    '★★ 选中项是胶囊（四角全圆，= --radius-pill 的 999px）',
+    !!notch && notch.corners.every((c) => parseFloat(c) >= 999),
     notch?.corners.join(' '),
   )
   rec(

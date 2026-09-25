@@ -587,7 +587,11 @@
   border: none;
   background: transparent;
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-control);
+  /**
+   * **胶囊**（用户 2026-09-25 三轮定稿）：导航项一律全圆角，选中态尤其要像一粒胶囊 ——
+   * 不是 10px 圆角矩形。取 `--radius-pill`，与全站 chip / 胶囊同一口径。
+   */
+  border-radius: var(--radius-pill);
   font-family: var(--font-sans);
   font-size: var(--fs-label);
   font-weight: var(--fw-title);
@@ -603,12 +607,14 @@
 }
 
 /**
- * 选中项：**与右侧内容同色，并向右延伸与之接成一片**（用户 2026-09-25 的参考图要点）。
+ * 选中项：**胶囊形 + 与右侧内容同色 + 向右延伸与之接成一片**
+ * （用户 2026-09-25 三轮：「像胶囊一样的，选中后的颜色就是 #22242b，而且和右边的是一体的」）。
  *
  * 三处合起来才是那个效果，缺一处都会退化：
- *  ① 底色取 `--bg-surface`（与内容面板同一个令牌）—— 不是 hover 灰；
- *  ② **四角全圆角**（圆角矩形，不是"只圆左边"）—— 用户 2026-09-25 二轮明确：
- *     参考图里选中的就是一个**圆角矩形**；
+ *  ① 底色取 `--bg-surface` —— 与内容面板**同一个令牌**。用户说的 `#22242b`
+ *     正是**暗色主题**下的 `--bg-surface`（亮色下是 `#ffffff`），故这里写令牌
+ *     而不是硬编码那个色值：两套主题自动都对，且选中项与内容在任何主题下都"同色 = 一体"；
+ *  ② 形状是**胶囊**（`--radius-pill`），不是 10px 圆角矩形；
  *  ③ 加宽把这一项**推出导航栏、跨过栏间距**，右沿正好落在内容面板左沿上。
  *
  * ③ 的数值来自 `--rail-gap` 与 `.rail` 的右内距，两处都在本文件里成对维护：
@@ -620,7 +626,7 @@
   z-index: 1;
   background: var(--bg-surface);
   color: var(--text-1);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-pill);
   /**
    * ⚠️ 这里**不能**用「`width: 100%` + `margin-right: 负值`」去把它推出去：
    * 块级元素同时给了 width 与左右 margin 属**过约束**，浏览器会**丢掉 margin-right**
