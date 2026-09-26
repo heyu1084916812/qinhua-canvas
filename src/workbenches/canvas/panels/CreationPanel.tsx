@@ -12,6 +12,12 @@ import { ParamPicker } from './ParamPicker'
 import { SkillPicker } from './SkillPicker'
 import styles from './CreationPanel.module.css'
 import { RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
+import {
+  capabilityOfLogical,
+  categoryOfLogical,
+  logicalOptions,
+  toLogicalName,
+} from '../../../domain/project/modelCatalog'
 
 /** 生成数量：固定四项（§6.8「1张 / 2张 / 4张 / 9张，固定四项」） */
 export const COUNT_OPTIONS = [1, 2, 4, 9] as const
@@ -263,7 +269,19 @@ export function CreationPanel(props: CreationPanelProps) {
    * 兜底只影响**显示**：不写回节点。用户不动它、直接点生成，执行层仍按节点上
    * 已固化的值为准；用户改选时才会把选择写回节点（与 §6.8「所见即所发」一致）。
    */
-  const [fallback, setFallback] = useState<{ channelId: string; model: string } | null>(null)
+  /**
+   * 兜底结果**带类别标记**。
+   *
+   * 为什么类别要进 state：兜底是「按当时类别」算出来的，切类别后它就是陈旧值。
+   * 若不看类别直接用，切到视频时上一轮的 `mock-image-1` 会立刻顶上
+   * ⇒ 「切了视频，chip 却还是图片模型」（G46 实测）。
+   * 带上标记后，只有同类别的兜底才被采用（见 `shownModel`）。
+   */
+  const [fallback, setFallback] = useState<{
+    channelId: string
+    model: string
+    category: string
+  } | null>(null)
   /**
    * `onEvent` 是父组件每次渲染新建的内联函数，**不能进 effect 依赖**：
    * 那会让这个「解析默认配方」的 effect 每渲染一次就跑一遍，进而反复派发写回事件，
@@ -309,6 +327,17 @@ export function CreationPanel(props: CreationPanelProps) {
       setFallback(null)
       return
     }
+    /**
+     * M7-4 修一条回归：兜底是**按当时类别**算的，切类别后它会变成陈旧值。
+     *
+     * 切到视频时节点模型被清空（keepModel=false），而上一轮兜底算出的
+     * `mock-image-1` 还留在 state 里 ⇒ `shownModel` 立刻拿它顶上，
+     * 表现为「切了视频，chip 却还是图片模型」（G46 实测）。
+     *
+     * 不能在这里 `setFallback(null)` —— 那会把 state 改回同一个值、
+     * 再次触发本 effect，形成空转。改用**带类别标记的兜底**：
+     * 只有「兜底的类别 == 当前类别」时才采用它（见下方 setFallback）。
+     */
     /** 一个渠道都没有时不必算：解析链必然返回 null，白白多跑一次。 */
     if (enabled.length === 0) {
       setFallback(null)
@@ -316,10 +345,10 @@ export function CreationPanel(props: CreationPanelProps) {
     }
     const category = promptMode ? 'chat' : videoMode ? 'video' : 'image'
     void channels
-      .defaultForNewNode({ channelId: ownedChannelId, model: ownedModel }, category)
+  .defaultForNewNode({ channelId: ownedChannelId, model: ownedModel }, category)
       .then((recipe) => {
         if (cancelled || !recipe) return
-        setFallback({ channelId: recipe.channelId, model: recipe.model })
+    setFallback({ channelId: recipe.channelId, model: recipe.model, category })
         /**
          * 写回节点。
          *
@@ -328,7 +357,19 @@ export function CreationPanel(props: CreationPanelProps) {
          * 复用既有事件、不新增命令（也就不用动 state 层与测试台）。
          */
         if (!ownedChannelId) onEventRef.current({ type: 'setChannel', channelId: recipe.channelId })
-        onEventRef.current({ type: 'setModel', model: recipe.model })
+        /**
+         * 写回模型。
+         *
+         * ⚠️ 只在「解析出的模型**属于当前类别**」时才写（G46 回归）：
+         * 切类别那一帧，`defaultForNewNode` 仍可能按旧的配方/缓存给出
+         * 上一档的模型 —— 写回去就等于把图片模型塞回视频模式。
+         */
+        const cat = capabilityOfLogical(
+          allChannels,
+          toLogicalName(allChannels, recipe.model),
+          recipe.channelId,
+        )?.category
+        if (cat === category) onEventRef.current({ type: 'setModel', model: recipe.model })
       })
       .catch(() => {
         /** 解析失败不该让面板崩：留空并照常渲染「还没配置渠道」的解释 */
@@ -338,8 +379,15 @@ export function CreationPanel(props: CreationPanelProps) {
     }
   }, [channels, ownedChannelId, ownedModel, promptMode, videoMode, channelSignature])
   /** 面板实际展示的渠道 / 模型：节点自身优先，其次解析链兜底 */
-  const shownChannelId = ownedChannelId || fallback?.channelId || ''
-  const shownModel = ownedModel || fallback?.model || ''
+  /** 当前功能类别（提示词=文本 / 生成=图片|视频）——兜底与目录都按它走 */
+  const currentCategory = promptMode ? 'chat' : videoMode ? 'video' : 'image'
+  /**
+   * 只在**兜底的类别 == 当前类别**时才采用它：切类别后旧兜底立即失效，
+   * 由下面的 effect 按新类别重算（G46 回归的修法）。
+   */
+  const usableFallback = fallback && fallback.category === currentCategory ? fallback : null
+  const shownChannelId = ownedChannelId || usableFallback?.channelId || ''
+  const shownModel = ownedModel || usableFallback?.model || ''
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   /**
    * 当前展开的参数浮层（§6.8「同一时刻只允许一个面板打开，开新关旧」）。
@@ -424,33 +472,44 @@ export function CreationPanel(props: CreationPanelProps) {
 
   const activeChannel = enabled.find((c) => c.id === shownChannelId)
   /**
-   * 该渠道可选的全部模型。
+   * 「该渠道可选的全部模型」原先在这里算（勾选为空时回落到 `modelCache`）。
    *
-   * **勾选列表为空的渠道，回落到它的 `modelCache`**（2026-09-18 实测踩到）：
-   * 「拉取模型」只是把模型拉进缓存，**不等于勾选**——用户还得在设置页的
-   * 「选择模型」里勾上并点应用，那次操作才写进 `models`。
-   * 于是「我只配了一个渠道、点了拉取、就直接回画布建节点」这条最常见的路径下，
-   * `models` 是空的：
-   *   - 节点虽然拿到了默认模型（`defaultForNewNode` 会回落到缓存），
-   *     但这里的 `activeModel` 找不到它 → chip 显示占位「生图模型」，
-   *     看起来就跟没默认一样；
-   *   - 面板的模型下拉也是空的，用户连手动选都做不到。
-   *
-   * 只在**勾选为空**时回落：勾过的渠道仍以勾选为准（§7.4「用户勾选的才是下拉的数据源」），
-   * 否则用户特意筛掉的模型又会冒出来。
+   * M7-4 起下拉与能力都改由 `domain/project/modelCatalog` 按**逻辑名**推导
+   * （`logicalOptions` / `capabilityOfLogical`），那份回落规则已收进目录层，
+   * 故这里不再需要本地的 `channelModels` —— 留着就是两套口径，迟早漂移。
    */
-  const channelModels: ModelCapability[] =
-    activeChannel && activeChannel.models.length > 0
-      ? activeChannel.models
-      : (activeChannel?.modelCache ?? [])
   /**
    * prompt 模式只能选文本 LLM（§6.7「只能选 LLM 模型」）；生成节点按**功能类别**
    * 过滤（图片 / 视频两套模型，§6.8）。都从 `models`（用户勾选的）里取，
    * 不是 `modelCache`（拉回来的全部）——§7.4。
    */
   const wantedCategory = promptMode ? 'chat' : videoMode ? 'video' : 'image'
-  const models: ModelCapability[] = channelModels.filter((m) => m.category === wantedCategory)
-  const activeModel = models.find((m) => m.id === shownModel)
+  /**
+   * M7-4：下拉列的是**逻辑名**，不是各站点的上游 ID。
+   *
+   * 同一个模型在不同站点 ID 不同（`gpt-image-2` / `image-2`），
+   * 用户眼里却只有一个模型 —— 下拉就该只出一个名字，
+   * 真正发请求时用哪个 ID 由渠道的 `modelMap` 决定（M7-3 已接好）。
+   *
+   * 老数据零迁移：没有任何映射时，逻辑名 = 上游 ID，
+   * 这里的列表与加此功能前**一字不差**。
+   */
+  const logicalModelNames: string[] = logicalOptions(
+    allChannels,
+    wantedCategory,
+    shownChannelId || undefined,
+  )
+  /**
+   * 节点上存的模型名 → 逻辑名。
+   *
+   * 老节点存的是上游 ID；若它是某站映射的目标，显示时按逻辑名走，
+   * 否则用户看到的名字在下拉里根本找不到，看起来像「这个模型没了」。
+   */
+  const shownLogicalModel = toLogicalName(allChannels, shownModel)
+  // BISECT: 能力按当前**类别**里第一个逻辑名取（不依赖节点上可能失效的模型名）
+  const activeModel = logicalModelNames[0]
+    ? capabilityOfLogical(allChannels, logicalModelNames[0], shownChannelId || undefined)
+    : undefined
   /** 类别名：写进占位文案与空态提示，让「没模型」这件事说得出是**哪一类**没有 */
   const categoryLabel = promptMode ? '文本模型' : videoMode ? '视频模型' : '生图模型'
   /**
@@ -498,7 +557,21 @@ export function CreationPanel(props: CreationPanelProps) {
    * 这里问的是「用户存的这个值还要不要」，与「面板暂时显示什么」是两回事。
    */
   const modelBelongsTo = (m: 'image' | 'video') =>
-    !!ownedModel && channelModels.some((x) => x.id === ownedModel && x.category === m)
+    /**
+     * 节点上存的是**逻辑名**（M7-4），要按目录判它属于哪一档。
+     *
+     * ⚠️ 关键是**用入参 `m`（目标类别）判，不依赖当前渲染状态**：
+     * 这个函数是在「切换前」的那次渲染里被调用的，此刻 `videoMode`
+     * 仍是旧值 —— 若按当前类别判，等于拿旧类别问「属不属于」，
+     * 结果恒为真 ⇒ 旧模型永远清不掉（G46 实测：视频参数不出现、
+     * chip 仍是 mock-image-1，会把图片模型发给视频渠道）。
+     */
+    !!ownedModel &&
+    categoryOfLogical(
+      allChannels,
+      toLogicalName(allChannels, ownedModel),
+      ownedChannelId || undefined,
+    ) === m
 
   /**
    * 全局运行中**不再**禁用本节点的生成按钮（用户报「一个节点生成时其他节点无法生成」）。
@@ -537,7 +610,8 @@ export function CreationPanel(props: CreationPanelProps) {
    * **提示词节点不走这条**（§6.7）：它要求的是「模型 chip **禁用**并显示『暂无可用文本模型』」，
    * 而不是「隐藏 chip + 给一条引导条」——换个藏法，用户反而不知道这个字段还在。
    */
-  const noModel = !promptMode && !noPlatform && !!activeChannel && models.length === 0
+  const noModel =
+    !promptMode && !noPlatform && !!activeChannel && logicalModelNames.length === 0
   const noModelHint = videoMode ? '该渠道还没勾选视频模型' : '该渠道还没勾选模型'
 
   /**
@@ -562,7 +636,7 @@ export function CreationPanel(props: CreationPanelProps) {
     ? null
     : noPlatform
       ? platformGap
-      : activeChannel && models.length === 0
+    : activeChannel && logicalModelNames.length === 0
         ? promptMode
           ? '暂无可用文本模型'
           : noModelHint
@@ -784,18 +858,27 @@ export function CreationPanel(props: CreationPanelProps) {
             name="model"
             ariaLabel={categoryLabel}
             label={
-              activeModel?.id ??
+              /**
+               * 显示**逻辑名**：节点上存的可能仍是上游 ID（老数据），
+               * 经 `shownLogicalModel` 归一后才与下拉里的名字一致。
+               */
+              (shownLogicalModel ||
+                activeModel?.id ||
+                '')
               // §6.7：提示词节点在「渠道里没有文本模型」时禁用并直说，不玩隐藏
-              (promptMode && activeChannel && models.length === 0 ? '暂无可用文本模型' : categoryLabel)
+                ||
+                (promptMode && activeChannel && logicalModelNames.length === 0
+                  ? '暂无可用文本模型'
+                  : categoryLabel)
             }
-            options={models.map((m) => ({ value: m.id, label: m.id }))}
-            value={shownModel}
+            options={logicalModelNames.map((n) => ({ value: n, label: n }))}
+            value={shownLogicalModel}
             variant="list"
             open={openPicker === 'model'}
             onToggle={() => togglePicker('model')}
             onClose={closePicker}
             onSelect={(v) => onEvent({ type: 'setModel', model: v, recipe: recipeSnapshot({ model: v }) })}
-            disabled={!activeChannel || models.length === 0}
+            disabled={!activeChannel || logicalModelNames.length === 0}
           />
         )}
 

@@ -1,3 +1,6 @@
+/** 逻辑名 → 该渠道上游 ID（M7-4）；缺映射时恒等（与 `modelMapping` 同口径） */
+import { resolveUpstreamModel } from './modelMapping'
+
 /**
  * 哪些面板改动算「用户改了这套生成参数」（用户 2026-09-23 定稿）。
  *
@@ -199,6 +202,13 @@ export interface PresetChannelLike {
   id: string
   models: readonly { id: string }[]
   modelCache?: readonly { id: string }[]
+  /**
+   * M7-4：逻辑名 → 该渠道上游 ID 的映射。解析链要按它把逻辑名归一后再比对，
+   * 否则逻辑名会被误判成「渠道没有这个模型」。
+   *
+   * 可选：老调用方（单测里的简化渠道）没有这一项时按「恒等」处理，行为不变。
+   */
+  modelMap?: Readonly<Record<string, string>> | null
 }
 
 /**
@@ -245,7 +255,16 @@ export function resolveRecipe(
    * 那个模型仍然出现在缓存里——只看勾选会把一个完全可用的记录判成失效。
    */
   const available = [...channel.models, ...(channel.modelCache ?? [])]
-  const same = available.find((m) => m.id === recipe.model)
+  /**
+   * M7-4：记录/节点上的模型是**逻辑名**，可能与渠道里的上游 ID 不同名
+   * （`逻辑名 → 上游ID` 映射）。直接按原名比会判成「渠道没有这个模型」，
+   * 于是被当作失效并随即覆盖 —— 表现为切类别后旧模型清不掉（G46 回归）。
+   * 故先归一（逻辑名 → 该渠道的上游 ID），再去比对；两者任一命中即算可用。
+   */
+  const logicalUpstream = resolveUpstreamModel(channel.modelMap, recipe.model)
+  const same =
+    available.find((m) => m.id === recipe.model) ??
+    (logicalUpstream ? available.find((m) => m.id === logicalUpstream) : undefined)
   if (same) {
     return {
       channelId: recipe.channelId,
@@ -314,7 +333,16 @@ export function resolveForNode(
     if (channel) {
       const available = [...channel.models, ...(channel.modelCache ?? [])]
       /** 节点上的模型若仍可用，原样保留（连参数一起给回）。 */
-      if (model && available.some((m) => m.id === model)) {
+      /**
+       * 同上方 `resolveRecipe` 的理由：节点上存的是逻辑名，
+       * 需按该渠道的映射归一后再判「它还提不提供这个模型」。
+       */
+      const modelUpstream = resolveUpstreamModel(channel.modelMap, model)
+      if (
+        model &&
+        (available.some((m) => m.id === model) ||
+          (modelUpstream ? available.some((m) => m.id === modelUpstream) : false))
+      ) {
         const recipe = lookupRecipe(channelId)
         return { channelId, model, params: recipe.params, substituted: false }
       }

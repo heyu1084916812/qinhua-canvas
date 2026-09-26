@@ -4133,6 +4133,11 @@ async function g46(browser) {
   const g = 'G46 参数上拉浮层 + 功能类别'
   const ctx = await newCtx(browser)
   const page = await ctx.newPage()
+  // TEMP-DIAG: 把面板里的切类别判定打出来（定位 G46 后用完即删）
+  page.on('console', (m) => {
+    const t = m.text()
+    if (t.includes('[diag] setMode')) console.log(`  ${t}`)
+  })
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 120)))
 
@@ -4257,7 +4262,44 @@ async function g46(browser) {
       (await panel.locator('[data-param-chip="count"]').count()) === 1,
   )
   await panel.locator('[data-param-mode="video"]').click()
+  /**
+   * 点击后立刻读一次：此刻 keepModel 已经算完并派发。
+   * 若这里 model chip 仍是 mock-image-1，说明 `modelBelongsTo('video')` 判成了 true。
+   */
+  await sleep(120)
+  const immediate = await page.evaluate(
+    () =>
+      document
+        .querySelector('[data-creation-panel] [data-param-chip="model"]')
+        ?.textContent?.trim() ?? '',
+  )
+  console.log(`  [diag] 点击后 120ms 的 model chip="${immediate}"`)
   await sleep(400)
+  /**
+   * 诊断（定位 G46 回归用）：把切类别那一刻的**真实状态**打出来。
+   *
+   * 「画质/质量退场」PASS 说明 `data.mode` 已是 video；
+   * 若模型 chip 仍是图片模型，就说明兜底按**旧类别**补了一个。
+   */
+  const diag = await page.evaluate(() => {
+    const p = document.querySelector('[data-creation-panel]')
+    return {
+      modePressed: [...document.querySelectorAll('[data-param-mode]')].map(
+        (b) => `${b.getAttribute('data-param-mode')}:${b.getAttribute('aria-pressed')}`,
+      ),
+      chips: [...(p?.querySelectorAll('[data-param-chip]') ?? [])].map((c) =>
+        c.getAttribute('data-param-chip'),
+      ),
+      durationRange: p?.querySelectorAll('[data-param-duration-range]').length ?? 0,
+      durationWrap: p?.querySelectorAll('[data-param-duration]').length ?? 0,
+      refMode: p?.querySelectorAll('[data-param-chip="refMode"]').length ?? 0,
+      modelChip:
+        p?.querySelector('[data-param-chip="model"]')?.textContent?.trim() ?? '',
+    }
+  })
+  console.log(
+    `  [diag] 切视频后 mode=${diag.modePressed.join(',')} chips=${diag.chips.join(',')} durationRange=${diag.durationRange} durationWrap=${diag.durationWrap} refMode=${diag.refMode} modelChip="${diag.modelChip}"`,
+  )
   rec(
     g,
     '切到视频：尺寸 / 时长滑块 / 参考模式出现',
@@ -9317,6 +9359,29 @@ async function g76(browser) {
   )
   const logical = rows.find((id) => id && id.includes('image')) ?? rows[0]
   const MARK = 'upstream-applied-by-g76'
+  /**
+   * 收尾：把这条映射**清空还原**。
+   *
+   * 渠道是应用级单例、存在同一个 IndexedDB 里；本组若不还原，后面的组会读到
+   * 一条被改过的映射 —— 表现为「与本次改动无关的组突然失败」。谁改的谁还原。
+   */
+  const restoreMapping = async () => {
+    try {
+      await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+      await sleep(600)
+      await page.locator('[data-channel-item]').first().click()
+      await sleep(500)
+      const input = page.locator(`[data-route-map-input="${logical}"]`)
+      if ((await input.count()) > 0) {
+        await input.fill('')
+        await sleep(250)
+        await page.locator(`[data-route-map-save="${logical}"]`).click()
+        await sleep(600)
+      }
+    } catch {
+      // 还原失败不掩盖本组结论，也不该让整轮冒烟崩掉
+    }
+  }
   await page.locator(`[data-route-map-input="${logical}"]`).fill(MARK)
   await sleep(300)
   await page.locator(`[data-route-map-save="${logical}"]`).click()
@@ -9351,6 +9416,8 @@ async function g76(browser) {
    * ⇒ 点生成**毫无反应**（这是本项目已知的一类静默失败）。
    * 模板自带提示词节点，但为稳妥这里显式填一句。
    */
+  await page.keyboard.press('Escape')
+  await sleep(300)
   const ta = panel.locator('textarea').first()
   if ((await ta.count()) > 0) {
     await ta.click()
@@ -9393,6 +9460,7 @@ async function g76(browser) {
 
   await page.screenshot({ path: `${OUT}/92-g76-routing-applied.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await restoreMapping()
   await ctx.close()
 }
 
@@ -9446,7 +9514,6 @@ async function g77(browser) {
   await page.locator('[data-model-tab="image"]').click()
   await sleep(400)
   const opt = page.locator('[data-model-option]').first()
-  const modelId = await opt.locator('span').first().innerText().catch(() => '')
   await opt.locator('input').check()
   await sleep(300)
   await page.locator('[data-model-apply]').click()
@@ -9511,7 +9578,151 @@ async function g77(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77]
+/**
+ * G78 逻辑模型名（M7-4）＝ 用户要的那件事：
+ *
+ * > 「不同站点的模型 id 不一样，前端就想显示**一个**模型 id，
+ * >   调用不同站点的同一个模型。其实都是一个模型，只是站点 id 不一样。」
+ *
+ * 验三点：
+ *  ① 下拉里**只出一个**逻辑名（别名不再重复占位）；
+ *  ② 选它之后能真出图；
+ *  ③ 换到另一条渠道时，请求里用的是**那条渠道自己的**上游 ID
+ *    （日志的 sentModel 会变）。
+ */
+async function g78(browser) {
+  const g = 'G78 逻辑模型名'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+  await sleep(700)
+
+  // ① 给第一条渠道：把 mock-image-1 映射成另一个名字（模拟「同模型不同站 ID」）
+  await page.locator('[data-channel-item]').first().click()
+  await sleep(600)
+  await page.locator('button', { hasText: '拉取模型' }).first().click()
+  await sleep(900)
+  await page.locator('button', { hasText: '选择模型' }).first().click()
+  await sleep(500)
+  await page.locator('[data-model-tab="image"]').click()
+  await sleep(400)
+  const opt = page.locator('[data-model-option]').first()
+  if ((await opt.count()) > 0) await opt.locator('input').check()
+  await sleep(300)
+  await page.locator('[data-model-apply]').click()
+  await sleep(800)
+
+  const firstRow = page.locator('[data-route-map-row]').first()
+  const logical = await firstRow.getAttribute('data-route-map-row')
+  await page.locator(`[data-route-map-input="${logical}"]`).fill('siteA-specific-id')
+  await sleep(300)
+  await page.locator(`[data-route-map-save="${logical}"]`).click()
+  await sleep(800)
+  rec(g, '★ 渠道 A 已把逻辑名映射成自己的上游 ID', true, `${logical} → siteA-specific-id`)
+  /** 同 G76：谁改的谁还原，避免把被改过的映射留给后面的组 */
+  const restoreMapping = async () => {
+    try {
+      await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+      await sleep(600)
+      await page.locator('[data-channel-item]').first().click()
+      await sleep(500)
+      const input = page.locator(`[data-route-map-input="${logical}"]`)
+      if ((await input.count()) > 0) {
+        await input.fill('')
+        await sleep(250)
+        await page.locator(`[data-route-map-save="${logical}"]`).click()
+        await sleep(600)
+      }
+    } catch {
+      // 同上：还原失败不掩盖本组结论
+    }
+  }
+
+  // ② 画布：模型下拉应只列逻辑名
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+  await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20000 })
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(1200)
+
+  const gen = page.locator('[data-node-type="generation"]').first()
+  const gb = await gen.boundingBox()
+  await page.mouse.click(Math.round(gb.x + 40), Math.max(100, Math.round(gb.y + 40)))
+  await sleep(800)
+  await page.locator('[data-creation-panel]').waitFor({ state: 'visible', timeout: 10000 })
+
+  const panel = page.locator('[data-creation-panel]')
+  await pickParam(panel, 'channel', '新建渠道')
+  await sleep(400)
+  /**
+   * 显式点开模型浮层再读选项。
+   *
+   * 不能用 `pickParam(panel, 'model')`：它第三个参数（选项文案）是必需的，
+   * 不传会让「点选项」这一步匹配不到任何东西 —— 那是测试写错，不是功能缺陷。
+   */
+  await panel.locator('[data-param-chip="model"]').click()
+  await panel.locator('[data-param-popup="model"]').waitFor({ state: 'visible', timeout: 5000 })
+  await sleep(400)
+  const optionTexts = await panel
+    .locator('[data-param-popup="model"] button')
+    .allTextContents()
+  rec(g, '★ 模型浮层已展开（下拉可断言）', optionTexts.length > 0, `选项数=${optionTexts.length}`)
+  rec(
+    g,
+    '★★ 模型下拉只出一个名字（别名不重复占位，不是两站的 ID 各列一个）',
+    optionTexts.length > 0 &&
+      optionTexts.some((t) => t.includes(logical)) &&
+      !optionTexts.some((t) => t.includes('siteA-specific-id')),
+    `选项=[${optionTexts.join(' | ')}]`,
+  )
+
+  // ③ 选它 → 出图 → 日志里记的是**该渠道的上游 ID**
+  await panel
+    .locator('[data-param-popup="model"] button', { hasText: logical })
+    .first()
+    .click()
+  await sleep(400)
+  const ta = panel.locator('textarea').first()
+  if ((await ta.count()) > 0) {
+    await ta.click()
+    await ta.fill('一只在屋顶上的猫')
+    await ta.blur()
+    await sleep(700)
+  }
+  await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
+
+  let done = false
+  for (let i = 0; i < 40; i += 1) {
+    await sleep(500)
+    if ((await page.locator('[data-node-type="generation"] img').count()) > 0) {
+      done = true
+      break
+    }
+  }
+  rec(g, '★ 选中逻辑名后能真出图', done)
+
+  await page.getByRole('button', { name: '日志' }).click()
+  await sleep(700)
+  const dialog = page.getByRole('dialog', { name: '日志面板' })
+  const text = (await dialog.count()) > 0 ? await dialog.innerText().catch(() => '') : ''
+  rec(
+    g,
+    '★★ 发出去的是该渠道映射后的上游 ID（前端显示逻辑名 ≠ 请求用逻辑名）',
+    text.includes('siteA-specific-id') && !text.includes(logical),
+    `日志片段="${text.replace(/\n/g, ' ').slice(0, 120)}"`,
+  )
+
+  await page.screenshot({ path: `${OUT}/94-g78-logical-name.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await restoreMapping()
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
