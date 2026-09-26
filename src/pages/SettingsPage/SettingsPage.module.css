@@ -549,7 +549,14 @@
   /**
    * 导航栏与内容区之间的间距，**单点定义**。
    */
-  --rail-gap: var(--space-4);
+  --rail-gap: 0px;
+  /**
+   * 反向凹圆角的半径（“外侧圆角”的切口半径）。
+   *
+   * 选中项右端与内容区同色接成一块后，需要在接缝上下各切掉一个
+   * 朝内的圆角；半径与导航项高度同量级（36px 高取 14px）看起来最顺。
+   */
+  --rail-cutout: var(--radius-node);
   flex: 1;
   min-height: 0;
   width: 100%;
@@ -584,6 +591,7 @@
 }
 
 .rail {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -656,34 +664,64 @@
 }
 
 /**
- * 选中项：**胶囊形 + 与右侧内容同色 + 向右延伸与之接成一片**
+ * 选中项：**左端胶囊圆角 + 右端直角 + 与右侧内容同色接成一片**
  * （用户 2026-09-25 三轮：「像胶囊一样的，选中后的颜色就是 #22242b，而且和右边的是一体的」）。
  *
  * 三处合起来才是那个效果，缺一处都会退化：
  *  ① 底色取 `--bg-surface` —— 与内容面板**同一个令牌**。用户说的 `#22242b`
  *     正是**暗色主题**下的 `--bg-surface`（亮色下是 `#ffffff`），故这里写令牌
  *     而不是硬编码那个色值：两套主题自动都对，且选中项与内容在任何主题下都"同色 = 一体"；
- *  ② 形状是**胶囊**（`--radius-pill`），不是 10px 圆角矩形；
- *  ③ 加宽把这一项**推出导航栏、跨过栏间距**，右沿正好落在内容面板左沿上。
- *
- * ③ 的数值来自 `--rail-gap` 与 `.rail` 的右内距，两处都在本文件里成对维护：
- * 改导航栏内距或栏间距时，这里要一起改，否则中间会裂出一条缝。
- * `z-index` 是为了盖住导航栏自己的右边框 —— 那条线正好穿过接缝。
+ *  ② 左端是胶囊圆角（`--radius-pill`）、右端直角；
+ *  ③ 宽度伸到内容区左沿，两块的接缝由下面的反向凹圆角伪元素处理。
  */
 .railOn {
   position: relative;
   z-index: 1;
   background: var(--bg-surface);
   color: var(--text-1);
-  border-radius: var(--radius-pill);
   /**
-   * 完整胶囊**留在栏内**（用户 2026-09-26：右侧也要能看到圆角）。
-   *
-   * 之前为了让选中项和右侧内容连成一片，把它加宽伸出 `.rail`、盖到内容区上；
-   * 结果是右端圆角被同色面板遮住，视觉上变成一条盖上去的长胶囊。现在收回默认宽度，
-   * 圆角由 `.rail` 的左右内距完整露出来。
+   * 左端是胶囊圆角，右端**不圆**：它一直伸到内容区左沿，
+   * 与右侧白面接成同一块。右侧两个"圆角"改由下面两个反圆角缺口负责。
    */
-  width: 100%;
+  border-radius: var(--radius-pill) 0 0 var(--radius-pill);
+  /**
+   * 从栏内左内距一直伸到内容区左沿：
+   * 宽度 = 栏内可用宽 + 栏的右内距（`--space-3`，也是左内距）。
+   *
+   * 这样右端与内容区严丝合缝，白条不是"盖"在侧栏上，
+   * 而是和内容区同一块面从右往左伸出来。
+   */
+  width: calc(100% + var(--space-3));
+}
+
+/**
+ * 参考图接缝的两个**内凹圆角**。
+ *
+ * 画法与常见实现相反：伪元素要和**选中项同色**，放在选中项上下两侧，
+ * 再把它朝向选中项的两个角切圆 —— 真正被"咬"出缺口的是深色侧栏。
+ *
+ * 上块：位于选中项上方，圆左下角 → 侧栏上方的圆角从接缝向左收；
+ * 下块：位于选中项下方，圆左上角 → 侧栏下方的圆角从接缝向左收。
+ */
+.railOn::before,
+.railOn::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  width: var(--rail-cutout);
+  height: var(--rail-cutout);
+  background: var(--bg-surface);
+  pointer-events: none;
+}
+
+.railOn::before {
+  top: calc(-1 * var(--rail-cutout));
+  border-bottom-left-radius: var(--rail-cutout);
+}
+
+.railOn::after {
+  bottom: calc(-1 * var(--rail-cutout));
+  border-top-left-radius: var(--rail-cutout);
 }
 
 .railIcon {

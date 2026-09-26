@@ -8707,8 +8707,12 @@ async function g74(browser) {
   )
   rec(
     g,
-    '★★ 选中项是胶囊（四角全圆，= --radius-pill 的 999px）',
-    !!notch && notch.corners.every((c) => parseFloat(c) >= 999),
+    '★★ 选中项左端是胶囊圆角、右端为直角并与内容区相连',
+    !!notch &&
+      parseFloat(notch.corners[0]) >= 999 &&
+      parseFloat(notch.corners[3]) >= 999 &&
+      parseFloat(notch.corners[1]) === 0 &&
+      parseFloat(notch.corners[2]) === 0,
     notch?.corners.join(' '),
   )
   /**
@@ -8744,38 +8748,168 @@ async function g74(browser) {
     `左=${railEdges?.left ?? '?'}px 上=${railEdges?.top ?? '?'}px 下=${railEdges?.bottom ?? '?'}px`,
   )
   /**
-   * ★★ 选中项完整待在侧栏内，右端圆角可见（用户 2026-09-26：
-   * 「选中的那个框不仅仅是左边要形成圆角效果，右边也要……我不想要单单的覆盖住」）。
+   * ★★ 选中项与内容区连成一块，接缝上下各有一个**反向凹圆角**
+   * （用户 2026-09-26 口径：菜单项激活时背景延伸进内容区，
+   * 右侧用伪元素做 outside / inverted radius，而不是盖一条胶囊）。
    *
-   * 只断言「有 999px 圆角」不够：上一版也有四角 999px，但右端伸进内容面板 21px、
-   * 被同色的面板盖住，肉眼看就是一条覆盖上去的长胶囊。必须同时量：
-   * ① 选中项右沿在侧栏右沿之内（留出 `space-3` 内距，不越栏）；
-   * ② 侧栏右沿在内容面板左沿之内，所以选中项也不会碰到内容区。
+   * 判据四条，缺一不可：
+   *  ① 选中项右沿 == 内容区左沿（严丝合缝，中间的栏间距必须为 0）；
+   *  ② 两个伪元素都存在、尺寸 = 圆角半径；
+   *  ③ 上块圆的是**左下角**（切口朝选中项右上方）；
+   *  ④ 下块圆的是**左上角**（切口朝选中项右下方）。
+   *
+   * 只看 `border-radius: 999px` 会漏：上一版四角全圆、看着"有圆角"，
+   * 实际却是单独一条胶囊，接缝上没有任何凹口。
    */
-  const pill = await page.evaluate(() => {
-    const shell = document.querySelector('[data-settings-shell]')
-    const rail = document.querySelector('nav[role="tablist"]')
+  const inverted = await page.evaluate(() => {
     const on = document.querySelector('[data-settings-section][aria-selected="true"]')
     const panel = document.querySelector(
       '[data-settings-card], [data-settings-presets], [data-settings-skills]',
     )
-    if (!shell || !rail || !on || !panel) return null
-    const s = shell.getBoundingClientRect()
-    const r = rail.getBoundingClientRect()
+    if (!on || !panel) return null
     const o = on.getBoundingClientRect()
     const p = panel.getBoundingClientRect()
+    const be = getComputedStyle(on, '::before')
+    const af = getComputedStyle(on, '::after')
+    const px = (v) => Math.round(parseFloat(v))
     return {
-      leftInset: Math.round(o.left - r.left),
-      rightInset: Math.round(r.right - o.right),
-      railInsidePanel: Math.round(p.left - r.right),
-      shellTop: Math.round(r.top - s.top), // 保留 shell 引用，避免断言漂移到另一个容器
+      seam: Math.round(p.left - o.right),
+      beforeW: px(be.width),
+      beforeH: px(be.height),
+      beforeRadius: px(be.borderBottomLeftRadius),
+      afterW: px(af.width),
+      afterH: px(af.height),
+      afterRadius: px(af.borderTopLeftRadius),
     }
+  })
+  const invertedOk =
+    !!inverted &&
+    inverted.seam === 0 &&
+    inverted.beforeW > 0 &&
+    inverted.beforeW === inverted.beforeH &&
+    inverted.beforeW === inverted.beforeRadius &&
+    inverted.afterW === inverted.beforeW &&
+    inverted.afterH === inverted.beforeH &&
+    inverted.afterRadius === inverted.beforeRadius
+  rec(
+    g,
+    '★★ 选中项右沿与内容区无缝相接（栏间距 0）',
+    !!inverted && inverted.seam === 0,
+    `接缝差值=${inverted?.seam ?? '?'}px`,
+  )
+  rec(
+    g,
+    '★★ 接缝上下有反向凹圆角（伪元素切成 1/4 圆）',
+    invertedOk,
+    `上=${inverted?.beforeW ?? '?'}×${inverted?.beforeH ?? '?'} r=${inverted?.beforeRadius ?? '?'}｜下=${inverted?.afterW ?? '?'}×${inverted?.afterH ?? '?'} r=${inverted?.afterRadius ?? '?'}`,
+  )
+  /**
+   * ★★ 反向圆角必须**真的画在屏幕上**（像素级）。
+   *
+   * DOM 里读到 `::before { border-bottom-left-radius: 14px }` 只能证明"写了这条规则"，
+   * 证不了它没被遮挡、没被裁掉、圆角方向没做反 —— 这正是本项目反复踩到的
+   * 「DOM 全绿但屏幕上没有」那一类缺陷（连线的教训）。故在接缝上取三点：
+   *  ① 上缺口圆心附近（贴近选中项）应是白色；
+   *  ② 上缺口外侧（远离选中项的那一角）应是侧栏底色；
+   *  ③ 下缺口同样成立。
+   */
+  const cutoutPixels = await page.screenshot()
+  const decoded = await page.evaluate(async (png) => {
+    const blob = new Blob([Uint8Array.from(atob(png), (c) => c.charCodeAt(0))], {
+      type: 'image/png',
+    })
+    const bmp = await createImageBitmap(blob)
+    const c = document.createElement('canvas')
+    c.width = bmp.width
+    c.height = bmp.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(bmp, 0, 0)
+    const dpr = window.devicePixelRatio || 1
+    return { data: ctx.getImageData(0, 0, c.width, c.height).data, w: c.width, h: c.height, dpr }
+  }, cutoutPixels.toString('base64'))
+  const sample = await page.evaluate(
+    ({ data, w, dpr }) => {
+      const on = document.querySelector('[data-settings-section][aria-selected="true"]')
+      const panel = document.querySelector(
+        '[data-settings-card], [data-settings-presets], [data-settings-skills]',
+      )
+      if (!on || !panel) return null
+      const o = on.getBoundingClientRect()
+      const p = panel.getBoundingClientRect()
+      const r = Math.round(parseFloat(getComputedStyle(on, '::before').width))
+      const at = (x, y) => {
+        const px = Math.round(x * dpr)
+        const py = Math.round(y * dpr)
+        const i = (py * w + px) * 4
+        return [data[i], data[i + 1], data[i + 2]]
+      }
+      const white = (rgb) => rgb[0] > 245 && rgb[1] > 245 && rgb[2] > 245
+      const side = (rgb) => Math.abs(rgb[0] - 247) < 6 && Math.abs(rgb[1] - 247) < 6
+      // 伪元素是 14×14 的方块，左下/左上被切成 1/4 圆：
+      // 「圆外」= 靠近选中项一侧（应白），「圆内」= 远离选中项一侧（应侧栏色）。
+      // 取圆心附近的对角点，才能跨过圆弧两侧、真正证明圆角存在。
+      // 伪元素宽 r，左沿在 `p.left - r`；要跨过 1/4 圆，必须在左沿附近取点，
+      // 而不是靠近内容区那一侧（那里整块都是白的，四点会全部相等）。
+      const x = p.left - r + 2
+      const beforeInside = at(x, o.top - r + 2) // 上缺口：弧外（靠选中项）应是白
+      const beforeOutside = at(x, o.top - 2) // 上缺口：弧内（远离选中项）应是侧栏色
+      const afterInside = at(x, o.bottom + r - 2) // 下缺口：弧外（靠选中项）应是白
+      const afterOutside = at(x, o.bottom + 2) // 下缺口：弧内（远离选中项）应是侧栏色
+      return { r, beforeInside, beforeOutside, afterInside, afterOutside, white: [white(beforeInside), white(afterInside)], side: [side(beforeOutside), side(afterOutside)] }
+    },
+    decoded,
+  )
+  rec(
+    g,
+    '★★ 反向凹圆角真的绘制出来（像素级，不是只有 CSS 声明）',
+    !!sample && sample.white.every(Boolean) && sample.side.every(Boolean),
+    sample
+      ? `r=${sample.r}px｜上内=${sample.beforeInside} 上外=${sample.beforeOutside}｜下内=${sample.afterInside} 下外=${sample.afterOutside}`
+      : '采样失败',
+  )
+  /**
+   * ★ 深浅两套主题下，选中项 / 侧栏 / 内容区 / 凹角伪元素都必须随令牌同步，
+   * 不能有任何一处被写死。用户明确要求：「切换主题时，反向圆角的阴影色
+   * 能随设计变量自动同步改变」。
+   */
+  const themeTokens = await page.evaluate(async () => {
+    const read = () => {
+      const on = document.querySelector('[data-settings-section][aria-selected="true"]')
+      const rail = document.querySelector('nav[role="tablist"]')
+      const card = document.querySelector('[data-settings-card]')
+      if (!on || !rail || !card) return null
+      return {
+        on: getComputedStyle(on).backgroundColor,
+        rail: getComputedStyle(rail).backgroundColor,
+        card: getComputedStyle(card).backgroundColor,
+        cutout: getComputedStyle(on, '::before').backgroundColor,
+      }
+    }
+    const root = document.documentElement
+    const prev = root.getAttribute('data-theme')
+    root.setAttribute('data-theme', 'light')
+    // `.railOn` 的 background 带 `--dur-hover` 过渡：立刻读会拿到两色之间的中间值，
+    // 必须等过渡结束再比色（否则断言失败的原因会变成"测得太早"）。
+    await new Promise((r) => setTimeout(r, 300))
+    const light = read()
+    root.setAttribute('data-theme', 'dark')
+    await new Promise((r) => setTimeout(r, 300))
+    const dark = read()
+    root.setAttribute('data-theme', prev ?? 'light')
+    return { light, dark }
   })
   rec(
     g,
-    '★★ 选中胶囊完整留在侧栏内（左右圆角均可见，不覆盖内容区）',
-    !!pill && pill.leftInset > 0 && pill.rightInset > 0 && pill.railInsidePanel >= 0,
-    `左内距=${pill?.leftInset ?? '?'}px 右内距=${pill?.rightInset ?? '?'}px 栏到面板=${pill?.railInsidePanel ?? '?'}px shell上=${pill?.shellTop ?? '?'}px`,
+    '★ 激活底色 / 凹角缺口自动跟随明暗主题令牌',
+    !!themeTokens?.light &&
+      !!themeTokens?.dark &&
+      themeTokens.light.on === themeTokens.light.card &&
+      themeTokens.light.cutout === themeTokens.light.card &&
+      themeTokens.dark.on === themeTokens.dark.card &&
+      themeTokens.dark.cutout === themeTokens.dark.card &&
+      themeTokens.light.on !== themeTokens.dark.on &&
+      themeTokens.light.rail !== themeTokens.dark.rail,
+    `浅色 on=${themeTokens?.light?.on} rail=${themeTokens?.light?.rail}｜深色 on=${themeTokens?.dark?.on} rail=${themeTokens?.dark?.rail}`,
   )
   /**
    * ★ 右侧三个区的**最外层容器都不描边**，且内容与边缘留有充分留白
