@@ -111,7 +111,14 @@ export function LogPanel({ onClose }: { onClose: () => void }) {
               <LogRow
                 key={r.id}
                 record={r}
-                channelName={channelName((r.params as GenerationData).channelId)}
+                /**
+                 * 渠道名按**实际发出**的那条取（M7-3）：选路后可能换了渠道。
+                 * 老记录没有 `sentChannelId` → 回落到 params（节点意图），
+                 * 与加此字段前完全一致。
+                 */
+                channelName={channelName(
+                  r.sentChannelId ?? (r.params as GenerationData).channelId,
+                )}
                 copied={copiedId === r.id}
                 onCopy={() => void copy(r.id, (r.params as GenerationData).prompt ?? '')}
                 onSend={() => sendToCanvas(r)}
@@ -149,6 +156,11 @@ function LogRow({
   const seconds = (record.durationMs / 1000).toFixed(1)
   // §6.18「请求1024x1024  实际1024x1024」：未知即不显示（不显示 0x0、也不拿一侧顶另一侧）
   const pixels = pixelSummaryOf(record)
+  /**
+   * 显示**实际发出**的模型（M7-3）：选路后它已换成该渠道的上游 ID。
+   * 老记录没有 `sentModel` → 回落到 `params.model`（逻辑名），行为不变。
+   */
+  const shownModel = record.sentModel ?? params.model ?? ''
 
   return (
     <div className={styles.record}>
@@ -158,7 +170,9 @@ function LogRow({
             {statusLabel(record.status)}
           </span>
           <span className={styles.cap}>{channelName}</span>
-          <span className={styles.cap}>{params.model || '—'}</span>
+          <span className={styles.cap} data-log-model>
+            {shownModel || '—'}
+          </span>
           <span className={styles.cap}>{seconds}s</span>
         </div>
         <div className={styles.meta}>

@@ -24,6 +24,17 @@ export interface RunRecord<TParams = unknown> {
   durationMs: number
   cost?: number
   /**
+   * 本次**实际发往**的渠道 id（M7-3）。
+   *
+   * 为什么单独记：`params` 里的渠道/模型是**节点上的意图**（逻辑名），
+   * 而选路后真正发请求的可能是另一条渠道、模型也换成了该站的上游 ID。
+   * 只留意图会让日志永远显示逻辑名 —— 用户据此排查，会去查一个
+   * 根本没被请求过的名字。
+   */
+  sentChannelId?: string
+  /** 本次**实际发出**的模型 ID（该渠道映射后的上游 ID），与 `sentChannelId` 成对 */
+  sentModel?: string
+  /**
    * 本次向渠道**请求**的像素（§6.18 日志面板「请求1024x1024」）。
    * 由渠道层翻译比例后回填（`GeneratedAsset.requestedWidth/Height`）；
    * 渠道没报（比例不在协议表内 / 视频）则缺，**不猜、不拿实际像素顶替**。
@@ -53,6 +64,8 @@ export function createRunRecord<TParams>(args: {
   taskId: string
   durationMs: number
   cost?: number
+  sentChannelId?: string
+  sentModel?: string
   requestedWidth?: number
   requestedHeight?: number
   outputWidth?: number

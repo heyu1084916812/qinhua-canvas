@@ -9257,7 +9257,146 @@ async function g75(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75]
+/**
+ * G76 选路真的作用到执行（M7-3）。
+ *
+ * G75 只证明「配置能存」；这条证明**执行链路真的用了它**：
+ * 把某渠道的映射改成另一个上游 ID 后，画布上跑一次生成，
+ * 日志里记录的模型必须是**改后**的那个上游 ID，而不是节点上的逻辑名。
+ *
+ * 只验配置不验生效，是本项目反复踩过的「存了不用」缺陷
+ * （预设词那次就是这么栽的，故单独成组、断言到日志这一层）。
+ */
+async function g76(browser) {
+  const g = 'G76 选路作用于执行'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+
+  // ① 后台：给已选模型改一个可识别的上游 ID
+  await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+  await sleep(700)
+  await page.locator('[data-channel-item]').first().click()
+  await sleep(600)
+  await page.locator('button', { hasText: '拉取模型' }).first().click()
+  await sleep(900)
+  /**
+   * 把已选模型**重设为「只勾生图分类的第一个」**。
+   *
+   * 不复用既有勾选：前面的组（G74/G75）可能已给这条渠道勾过对话模型，
+   * 而生成节点的下拉只列**图片类**模型 —— 沿用残留勾选会导致后面
+   * `pickParam('model')` 找不到选项而超时（那是测试选错对象，不是功能缺陷）。
+   */
+  await page.locator('button', { hasText: '选择模型' }).first().click()
+  await sleep(500)
+  // 先取消全部勾选
+  const checked = page.locator('[data-model-option] input:checked')
+  const checkedCount = await checked.count()
+  for (let i = 0; i < checkedCount; i += 1) {
+    await checked.first().uncheck().catch(() => {})
+    await sleep(120)
+  }
+  await page.locator('[data-model-tab="image"]').click()
+  await sleep(400)
+  const opt = page.locator('[data-model-option]').first()
+  if ((await opt.count()) > 0) await opt.locator('input').check()
+  await sleep(300)
+  await page.locator('[data-model-apply]').click()
+  await sleep(800)
+
+  /**
+   * 必须挑一个**生图模型**：生成节点的模型下拉只列图片类模型，
+   * 若这里取到对话模型（mock 清单里两种都有），后面 `pickParam('model')`
+   * 会找不到选项而超时 —— 那是测试选错了对象，不是功能缺陷。
+   */
+  const rows = await page.locator('[data-route-map-row]').evaluateAll((els) =>
+    els.map((e) => e.getAttribute('data-route-map-row')),
+  )
+  const logical = rows.find((id) => id && id.includes('image')) ?? rows[0]
+  const MARK = 'upstream-applied-by-g76'
+  await page.locator(`[data-route-map-input="${logical}"]`).fill(MARK)
+  await sleep(300)
+  await page.locator(`[data-route-map-save="${logical}"]`).click()
+  await sleep(800)
+  rec(g, '★ 后台已写入上游 ID 映射', true, `逻辑名=${logical} → ${MARK}`)
+
+  // ② 画布：跑一次生成
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+  await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20000 })
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(1200)
+
+  const gen = page.locator('[data-node-type="generation"]').first()
+  const gb = await gen.boundingBox()
+  /**
+   * 点**标题区**而不是节点中心：生成节点本体是媒体框，中心是素材区
+   * （点它不会打开创作面板）。与既有冒烟同一手法（点 `gb.x + 40` 那一带）。
+   */
+  await page.mouse.click(Math.round(gb.x + 40), Math.max(100, Math.round(gb.y + 40)))
+  await sleep(800)
+  await page.locator('[data-creation-panel]').waitFor({ state: 'visible', timeout: 10000 })
+
+  // 节点默认模型可能不是我们改的那条；把它选成改过的那条逻辑名
+  const panel = page.locator('[data-creation-panel]')
+  await pickParam(panel, 'channel', '新建渠道')
+  await sleep(300)
+  await pickParam(panel, 'model', logical)
+  await sleep(400)
+  /**
+   * 必须写提示词：`toRunRequest` 在 prompt 为空时返回 null ⇒ 节点不进计划
+   * ⇒ 点生成**毫无反应**（这是本项目已知的一类静默失败）。
+   * 模板自带提示词节点，但为稳妥这里显式填一句。
+   */
+  const ta = panel.locator('textarea').first()
+  if ((await ta.count()) > 0) {
+    await ta.click()
+    await ta.fill('一只在屋顶上的猫')
+    await ta.blur()
+    await sleep(700)
+  }
+
+  await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
+
+  // 等出图（承载节点出现新图）
+  let done = false
+  for (let i = 0; i < 40; i += 1) {
+    await sleep(500)
+    const n = await page.locator('[data-node-type="generation"] img').count()
+    if (n > 0) {
+      done = true
+      break
+    }
+  }
+  rec(g, '★ 生成真的跑通（画布上出现产物图）', done, `img 数=${await page.locator('[data-node-type="generation"] img').count()}`)
+
+  // ③ 日志：记录的必须是**上游 ID**，不是逻辑名
+  await page.getByRole('button', { name: '日志' }).click()
+  await sleep(700)
+  const dialog = page.getByRole('dialog', { name: '日志面板' })
+  const text = (await dialog.count()) > 0 ? await dialog.innerText().catch(() => '') : ''
+  rec(
+    g,
+    '★★ 日志里记录的是映射后的上游 ID（选路真的作用到执行，不是存了不用）',
+    text.includes(MARK),
+    `日志片段="${text.replace(/\n/g, ' ').slice(0, 120)}"`,
+  )
+  rec(
+    g,
+    '★ 日志里不再出现未经映射的逻辑名（适配器只认上游 ID）',
+    !text.includes(logical) || logical === MARK,
+    `logical=${logical}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/92-g76-routing-applied.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

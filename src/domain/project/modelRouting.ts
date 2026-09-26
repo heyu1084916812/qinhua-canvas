@@ -60,6 +60,23 @@ export interface RouteSelection {
  */
 const WEIGHT_FLOOR = 10
 
+/**
+ * 未显式传 `resolve` 时的兜底：**恒等映射**（逻辑名即上游 ID）。
+ *
+ * 与 `modelMapping.resolveUpstreamModel` 的缺省语义一致 —— 无映射就是恒等，
+ * 老渠道零迁移。这里不 import 它，是为了让本模块不依赖具体映射实现。
+ */
+function defaultResolve(
+  map: Readonly<Record<string, string>> | null | undefined,
+  name: string,
+): string | null {
+  const key = name.trim()
+  if (!key) return null
+  const mapped = map?.[key]
+  if (mapped === undefined || mapped.trim() === '') return key
+  return mapped
+}
+
 function weightedPick<T extends { weight: number }>(pool: readonly T[], random: number): T | null {
   if (pool.length === 0) return null
   const total = pool.reduce((sum, c) => sum + Math.max(0, c.weight) + WEIGHT_FLOOR, 0)
@@ -158,6 +175,8 @@ export interface RouteChannelSource {
   /** 该渠道提供的模型（已选 `models` 即画布可见的那些） */
   modelIds: readonly string[]
   modelMap: Readonly<Record<string, string>> | null | undefined
+  /** 该渠道自己的选路策略 */
+  routeStrategy: RouteStrategy
 }
 
 /**
@@ -188,4 +207,49 @@ export function routeCandidatesFor(
       latencyMs: c.lastTestLatency,
       upstreamModel: resolve(c.modelMap, name),
     }))
+}
+
+/**
+ * 「这次该发给谁」：按逻辑模型名解析出**最终渠道 + 该渠道的上游 ID**。
+ *
+ * 为什么需要一个「主导策略」：策略住在渠道上，而选路是**跨渠道**比较 ——
+ * 候选们可能各自声明了不同策略，必须有唯一一把尺子。
+ * 取 `governingChannelId`（节点自己选的那条渠道）的策略：它就是用户心里
+ * 的「主站」，用它决定这次怎么挑；该渠道不在候选里时回落 `priority`
+ * （手工排的优先度，不需要任何实测数据，行为最可预测）。
+ *
+ * 返回 `null` = **没有任何渠道提供这个逻辑模型** —— 调用方必须如实报错，
+ * 不要退回「照原样发出去」（那会拿一个已下线的模型名去请求，失败原因难查）。
+ */
+export function resolveRouteFor(
+  channels: readonly RouteChannelSource[],
+  logicalModel: string,
+  options: {
+    governingChannelId?: string
+    attempt?: number
+    random?: number
+    /**
+     * 解析「逻辑名 → 上游 ID」的函数，显式传入而非 import。
+     *
+     * 它住在 `modelMapping.ts`；这里若直接 import 会形成一个可避免的耦合，
+     * 且调用方（执行宿主）已经持有它 —— 传进来即可，本模块保持纯粹。
+     */
+    resolve?: (map: Readonly<Record<string, string>> | null | undefined, name: string) => string | null
+  } = {},
+): RouteSelection | null {
+  const name = logicalModel.trim()
+  if (!name) return null
+  const resolve = options.resolve ?? defaultResolve
+  const candidates = routeCandidatesFor(channels, name, resolve)
+  if (candidates.length === 0) return null
+
+  const governing = options.governingChannelId
+    ? channels.find((c) => c.id === options.governingChannelId)
+    : undefined
+  const strategy: RouteStrategy = governing?.routeStrategy ?? 'priority'
+
+  return selectRoute(candidates, strategy, {
+    attempt: options.attempt,
+    random: options.random,
+  })
 }

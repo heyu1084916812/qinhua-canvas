@@ -36,6 +36,11 @@ import { promptSpec } from '../../../domain/canvas/nodeSpecs/prompt'
 import type { PromptData } from '../../../domain/canvas/model/node'
 import { trimToolResult } from '../../../features/shared/promptTools/promptTools'
 import { asAppError, describeError } from '../../../shared/result'
+import {
+  resolveRouteFor,
+  type RouteChannelSource,
+} from '../../../domain/project/modelRouting'
+import { resolveUpstreamModel } from '../../../domain/project/modelMapping'
 
 /**
  * 画布执行宿主（架构 §4.7 / §5.5）：把 `useExecution` 接到画布 store + 渠道解析器。
@@ -217,9 +222,52 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   /** 渠道预解析 + 状态注入 + 派发执行计划 + 启动运行（runNode / runBoard 共用） */
   const launch = useCallback(
     async (plan: ReturnType<typeof buildRunPlan>, originNodeId: string | undefined) => {
+      /**
+       * M7-3：执行前**按策略选路**并解析模型映射（§7.4.1）。
+       *
+       * 时机：在适配器预解析之前。因为「选哪条渠道」决定要解析哪条渠道的
+       * 适配器与令牌 —— 先选路、再解析，顺序反了就会拿错渠道的凭据。
+       *
+       * 两条不变式（架构 §6.3）：
+       *  ① 选中后 `request.model` 变成**该渠道的上游 ID**；适配器不需要认识逻辑名。
+       *  ② 没有任何渠道提供这个逻辑模型 → **如实报错**，不静默退回原名
+       *    （那会拿一个可能已下线的名字去请求，失败原因极难定位）。
+       */
+      const all: Channel[] = channels.getState().channels
+      const sources: RouteChannelSource[] = all.map((c) => ({
+        id: c.id,
+        enabled: c.enabled,
+        priority: c.priority,
+        weight: c.weight,
+        lastTestLatency: c.lastTestLatency,
+        modelIds: c.models.map((m) => m.id),
+        modelMap: c.modelMap,
+        routeStrategy: c.routeStrategy,
+      }))
+
+      for (const task of plan.tasks) {
+        const logical = task.request.model
+        const picked = resolveRouteFor(sources, logical, {
+          governingChannelId: task.request.channelId,
+          resolve: resolveUpstreamModel,
+          random: Math.random(),
+        })
+        if (!picked) {
+          store.notify(
+            `没有渠道提供模型「${logical}」：请到后台设置的「模型管理」里勾选并配置映射`,
+          )
+          return
+        }
+        task.request = {
+          ...task.request,
+          channelId: picked.channelId,
+          model: picked.upstreamModel,
+        }
+      }
+
       // channelResolver 必须同步：预先把计划里涉及的渠道解析成适配器映射
       const map = new Map<string, ChannelAdapter>()
-      const list: Channel[] = channels.getState().channels
+      const list: Channel[] = all
       for (const task of plan.tasks) {
         const id = task.request.channelId
         if (map.has(id)) continue

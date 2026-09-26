@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   ROUTE_STRATEGIES,
+  resolveRouteFor,
   routeCandidatesFor,
   selectRoute,
   type RouteCandidate,
+  type RouteChannelSource,
 } from './modelRouting'
 import { resolveUpstreamModel } from './modelMapping'
 
@@ -115,13 +117,14 @@ describe('selectRoute', () => {
 })
 
 describe('routeCandidatesFor', () => {
-  const ch = (over: Partial<Parameters<typeof routeCandidatesFor>[0][0]> & { id: string }) => ({
+  const ch = (over: Partial<RouteChannelSource> & { id: string }): RouteChannelSource => ({
     enabled: true,
     priority: 0,
     weight: 0,
     lastTestLatency: null,
     modelIds: [],
     modelMap: {},
+    routeStrategy: 'priority',
     ...over,
   })
 
@@ -172,5 +175,80 @@ describe('routeCandidatesFor', () => {
       resolveUpstreamModel,
     )
     expect(selectRoute(candidates, 'performance')?.channelId).toBe('fast')
+  })
+})
+
+describe('resolveRouteFor', () => {
+  const ch = (over: Partial<RouteChannelSource> & { id: string }): RouteChannelSource => ({
+    enabled: true,
+    priority: 0,
+    weight: 0,
+    lastTestLatency: null,
+    modelIds: [],
+    modelMap: {},
+    routeStrategy: 'priority',
+    ...over,
+  })
+
+  it('★ 没有任何渠道提供该逻辑模型 → null（调用方必须如实报错，不静默按原名发）', () => {
+    expect(resolveRouteFor([ch({ id: 'a', modelIds: ['other'] })], 'image-2')).toBeNull()
+    expect(resolveRouteFor([], 'image-2')).toBeNull()
+    expect(resolveRouteFor([ch({ id: 'a', modelIds: ['image-2'] })], '  ')).toBeNull()
+  })
+
+  it('★ 主导策略取**节点所选渠道**的（用户心里的主站），不是候选里第一条', () => {
+    // 慢站是数组第一条，但主站声明 performance ⇒ 应选快的那条
+    const picked = resolveRouteFor(
+      [
+        ch({ id: 'slow', modelIds: ['image-2'], lastTestLatency: 900 }),
+        ch({
+          id: 'main',
+          modelIds: ['image-2'],
+          lastTestLatency: 15,
+          routeStrategy: 'performance',
+        }),
+      ],
+      'image-2',
+      { governingChannelId: 'main' },
+    )
+    expect(picked?.channelId).toBe('main')
+  })
+
+  it('★ 主站不在候选里时回落 priority（不需要实测数据，行为最可预测）', () => {
+    const picked = resolveRouteFor(
+      [
+        ch({ id: 'x', modelIds: ['image-2'], priority: 1 }),
+        ch({ id: 'y', modelIds: ['image-2'], priority: 9 }),
+      ],
+      'image-2',
+      { governingChannelId: '已删除的渠道' },
+    )
+    expect(picked?.channelId).toBe('y')
+  })
+
+  it('★ 返回的是被选中渠道**自己映射**出来的上游 ID（各站叫法不同）', () => {
+    const picked = resolveRouteFor(
+      [
+        ch({ id: 'A', modelIds: ['image-2'], modelMap: { 'image-2': 'gpt-image-2' }, priority: 9 }),
+        ch({ id: 'B', modelIds: ['image-2'], priority: 1 }),
+      ],
+      'image-2',
+    )
+    expect(picked).toEqual({ channelId: 'A', upstreamModel: 'gpt-image-2' })
+  })
+
+  it('★ attempt 走降级：主站优先度高但失败一次后降到下一档', () => {
+    const list = [
+      ch({ id: 'p10', modelIds: ['m'], priority: 10 }),
+      ch({ id: 'p1', modelIds: ['m'], priority: 1 }),
+    ]
+    expect(resolveRouteFor(list, 'm', { attempt: 0 })?.channelId).toBe('p10')
+    expect(resolveRouteFor(list, 'm', { attempt: 1 })?.channelId).toBe('p1')
+  })
+
+  it('未启用的渠道不参与选路', () => {
+    expect(
+      resolveRouteFor([ch({ id: 'off', modelIds: ['m'], enabled: false })], 'm'),
+    ).toBeNull()
   })
 })

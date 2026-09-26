@@ -378,6 +378,15 @@ function makeRecord(
     status,
     inputs: task.request.inputs,
     params: task.params,
+    /**
+     * 实际发出的渠道 / 模型（M7-3）。
+     *
+     * 取自 `task.request`（选路改写后的那份），不是 `task.params` ——
+     * 后者是节点上的意图（逻辑名）。留痕只记意图的话，日志会显示一个
+     * 从未被请求过的名字，排查直接跑偏。
+     */
+    sentChannelId: task.request.channelId,
+    sentModel: task.request.model,
     outputHashes: assets.map((a) => a.hash),
     fingerprint: task.fingerprint,
     taskId: task.id,
