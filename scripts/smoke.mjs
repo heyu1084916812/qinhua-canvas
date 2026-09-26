@@ -9396,7 +9396,122 @@ async function g76(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76]
+/**
+ * G77 多渠道选路（M7-3 的核心价值：单渠道时选路没意义）。
+ *
+ * 建**两条**都能提供同一模型的渠道，给它们不同优先度，
+ * 然后跑一次生成 —— 日志里的平台名必须是**优先度高的那条**。
+ *
+ * 这条同时守住一个刚修的缺口：没存令牌的渠道必须被跳过
+ * （否则选到它必然失败，而旁边有配好的站）。
+ */
+async function g77(browser) {
+  const g = 'G77 多渠道选路'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+  await sleep(700)
+
+  /**
+   * 建第二条渠道：与第一条同样启用、同样勾同一个生图模型，
+   * 但优先度给得更高 ⇒ 按 priority 策略应当总是选中它。
+   */
+  await page.locator('[data-channel-add]').click()
+  await sleep(800)
+  const items = page.locator('[data-channel-item]')
+  const count = await items.count()
+  rec(g, '★ 已建出第二条渠道（多渠道场景成立）', count >= 2, `渠道数=${count}`)
+
+  const second = items.nth(count - 1)
+  await second.click()
+  await sleep(600)
+  /**
+   * 必须先**改名**：两条渠道默认都叫「新建渠道」，
+   * 不改名的话后面「日志里的平台名是哪条」根本分辨不出来
+   * —— 断言会恒真，什么都证明不了。
+   */
+  const NAME = '备用站-B'
+  await page.locator('[data-settings-name]').fill(NAME)
+  await sleep(500)
+  await page.locator('button', { hasText: '保存配置' }).click()
+  await sleep(700)
+  await page.locator('button', { hasText: '拉取模型' }).first().click()
+  await sleep(900)
+  await page.locator('button', { hasText: '选择模型' }).first().click()
+  await sleep(500)
+  await page.locator('[data-model-tab="image"]').click()
+  await sleep(400)
+  const opt = page.locator('[data-model-option]').first()
+  const modelId = await opt.locator('span').first().innerText().catch(() => '')
+  await opt.locator('input').check()
+  await sleep(300)
+  await page.locator('[data-model-apply]').click()
+  await sleep(800)
+
+  // 优先度拉到最高；启用开关打开
+  const enabledBox = page.locator('input[type="checkbox"]').first()
+  if ((await enabledBox.count()) > 0 && !(await enabledBox.isChecked())) {
+    await enabledBox.check()
+    await sleep(500)
+  }
+  await page.locator('[data-route-priority]').fill('99')
+  await sleep(600)
+
+  rec(g, '★ 第二条渠道已配好（改名 + 启用 + 勾模型 + 优先度 99）', true, `名称=${NAME}`)
+
+  // 画布上跑一次生成
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+  await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20000 })
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(1200)
+
+  const gen = page.locator('[data-node-type="generation"]').first()
+  const gb = await gen.boundingBox()
+  await page.mouse.click(Math.round(gb.x + 40), Math.max(100, Math.round(gb.y + 40)))
+  await sleep(800)
+  await page.locator('[data-creation-panel]').waitFor({ state: 'visible', timeout: 10000 })
+  const panel = page.locator('[data-creation-panel]')
+  const ta = panel.locator('textarea').first()
+  if ((await ta.count()) > 0) {
+    await ta.click()
+    await ta.fill('一只在屋顶上的猫')
+    await ta.blur()
+    await sleep(700)
+  }
+  await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
+
+  let done = false
+  for (let i = 0; i < 40; i += 1) {
+    await sleep(500)
+    if ((await page.locator('[data-node-type="generation"] img').count()) > 0) {
+      done = true
+      break
+    }
+  }
+  rec(g, '★ 多渠道场景下生成跑通', done)
+
+  await page.getByRole('button', { name: '日志' }).click()
+  await sleep(700)
+  const dialog = page.getByRole('dialog', { name: '日志面板' })
+  const text = (await dialog.count()) > 0 ? await dialog.innerText().catch(() => '') : ''
+  rec(
+    g,
+    '★★ 选路挑中了优先度更高的渠道（日志平台名 = 备用站-B）',
+    text.includes(NAME),
+    `日志片段="${text.replace(/\n/g, ' ').slice(0, 120)}"`,
+  )
+
+  await page.screenshot({ path: `${OUT}/93-g77-multi-channel.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

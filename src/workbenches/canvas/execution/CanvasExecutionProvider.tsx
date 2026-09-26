@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ChannelAdapter } from '../../../platform/channels/types'
 import { createChannelAdapter, type ResolvedChannelConfig } from '../../../platform/channels/registry'
+import { OFFLINE_PROTOCOLS } from '../../../domain/project/channel'
 import { buildRunPlan, type CanvasRunTask, type RunPlan } from '../../../features/canvas/execution/buildRunPlan'
 import { createId } from '../../../shared/id'
 import { emptyPlanReason } from '../../../features/canvas/execution/emptyPlanReason'
@@ -234,9 +235,27 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
        *    （那会拿一个可能已下线的名字去请求，失败原因极难定位）。
        */
       const all: Channel[] = channels.getState().channels
+      /**
+       * 逐个渠道判断「有没有令牌」。
+       *
+       * 离线协议（mock）不发真实请求，恒按「有令牌」处理 —— 否则 mock 渠道
+       * 会因没存令牌而永远进不了选路，本地离线跑的路径直接断掉。
+       */
+      const tokenFlags = new Map<string, boolean>()
+      for (const c of all) {
+        if (OFFLINE_PROTOCOLS.includes(c.protocol)) {
+          tokenFlags.set(c.id, true)
+          continue
+        }
+        tokenFlags.set(
+          c.id,
+          c.credentialRef ? (await repo.loadToken(c.credentialRef)) != null : false,
+        )
+      }
       const sources: RouteChannelSource[] = all.map((c) => ({
         id: c.id,
         enabled: c.enabled,
+        hasToken: tokenFlags.get(c.id) ?? false,
         priority: c.priority,
         weight: c.weight,
         lastTestLatency: c.lastTestLatency,

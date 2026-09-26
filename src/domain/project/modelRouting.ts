@@ -39,6 +39,14 @@ export const ROUTE_STRATEGIES: { value: RouteStrategy; label: string; hint: stri
 export interface RouteCandidate {
   channelId: string
   enabled: boolean
+  /**
+   * 该渠道**此刻能不能真发请求**：令牌是否已存（离线协议由调用方传 true）。
+   *
+   * 为什么选路要看它：只按「已启用 + 提供该模型」筛，会把一条**没存令牌**的
+   * 渠道也选进来，请求发出去必然失败；而旁边明明有一条配好的站。
+   * 选路的意义正是避开这种站。
+   */
+  hasToken: boolean
   /** 数值越大越优先（与 new-api 的 `priority DESC` 同向） */
   priority: number
   /** 权重，>=0；`balanced` 时按 weight+10 加权随机（+10 保证 0 权重也有机会） */
@@ -145,7 +153,13 @@ export function selectRoute(
   strategy: RouteStrategy,
   options: { attempt?: number; random?: number } = {},
 ): RouteSelection | null {
-  const usable = candidates.filter((c) => c.enabled && c.upstreamModel)
+  /**
+   * 三个条件缺一不可：已启用、**有令牌**、且该渠道确实提供这个模型。
+   *
+   * 令牌这一条是补上的：少了它，一条没存令牌的渠道也会被选中 ——
+   * 请求发出去必然失败，而旁边明明有一条配好的站。选路本就该避开这种站。
+   */
+  const usable = candidates.filter((c) => c.enabled && c.hasToken && c.upstreamModel)
   if (usable.length === 0) return null
 
   const attempt = Math.max(0, Math.floor(options.attempt ?? 0))
@@ -169,6 +183,8 @@ export function selectRoute(
 export interface RouteChannelSource {
   id: string
   enabled: boolean
+  /** 是否已存令牌；离线协议（不发真实请求）由调用方传 true */
+  hasToken: boolean
   priority: number
   weight: number
   lastTestLatency: number | null
@@ -202,6 +218,7 @@ export function routeCandidatesFor(
     .map((c) => ({
       channelId: c.id,
       enabled: c.enabled,
+      hasToken: c.hasToken,
       priority: c.priority,
       weight: c.weight,
       latencyMs: c.lastTestLatency,

@@ -11,6 +11,7 @@ import { resolveUpstreamModel } from './modelMapping'
 
 const cand = (over: Partial<RouteCandidate> & { channelId: string }): RouteCandidate => ({
   enabled: true,
+  hasToken: true,
   priority: 0,
   weight: 0,
   latencyMs: null,
@@ -30,6 +31,22 @@ describe('selectRoute', () => {
         'priority',
       ),
     ).toBeNull()
+  })
+
+  it('★ 没存令牌的渠道不参与选路（选它必然失败，旁边有配好的站就该避开）', () => {
+    expect(
+      selectRoute([cand({ channelId: 'noToken', hasToken: false })], 'priority'),
+    ).toBeNull()
+    // 同档里只有一条有令牌 → 选它
+    expect(
+      selectRoute(
+        [
+          cand({ channelId: 'noToken', hasToken: false, priority: 10 }),
+          cand({ channelId: 'ok', hasToken: true, priority: 1 }),
+        ],
+        'priority',
+      )?.channelId,
+    ).toBe('ok')
   })
 
   it('★ priority：优先度高的先选（数值越大越优先）', () => {
@@ -119,6 +136,7 @@ describe('selectRoute', () => {
 describe('routeCandidatesFor', () => {
   const ch = (over: Partial<RouteChannelSource> & { id: string }): RouteChannelSource => ({
     enabled: true,
+    hasToken: true,
     priority: 0,
     weight: 0,
     lastTestLatency: null,
@@ -181,6 +199,7 @@ describe('routeCandidatesFor', () => {
 describe('resolveRouteFor', () => {
   const ch = (over: Partial<RouteChannelSource> & { id: string }): RouteChannelSource => ({
     enabled: true,
+    hasToken: true,
     priority: 0,
     weight: 0,
     lastTestLatency: null,
@@ -250,5 +269,16 @@ describe('resolveRouteFor', () => {
     expect(
       resolveRouteFor([ch({ id: 'off', modelIds: ['m'], enabled: false })], 'm'),
     ).toBeNull()
+  })
+
+  it('★ 端到端：优先度最高的那条没存令牌 → 落到次优先的那条', () => {
+    const picked = resolveRouteFor(
+      [
+        ch({ id: 'vip', modelIds: ['m'], priority: 100, hasToken: false }),
+        ch({ id: 'backup', modelIds: ['m'], priority: 1, hasToken: true }),
+      ],
+      'm',
+    )
+    expect(picked?.channelId).toBe('backup')
   })
 })
