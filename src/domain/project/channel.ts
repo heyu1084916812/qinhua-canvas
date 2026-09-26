@@ -1,5 +1,6 @@
 import type { ModelCapability } from '../shared/capability'
 import { createId } from '../../shared/id'
+import type { ModelMap } from './modelMapping'
 
 /**
  * 渠道领域模型（产品文档 §7 / §8）。
@@ -36,6 +37,29 @@ export interface Channel {
   models: ModelCapability[]
   /** 设置页拉取的**全部**模型缓存；只喂选择面板，不进任何下拉 */
   modelCache: ModelCapability[]
+  /**
+   * 模型映射：`逻辑名 → 该站上游 ID`（§7.4.1，M7）。
+   *
+   * 节点与界面一律只认**逻辑名**，发请求前按此表翻译成该站真实 ID；
+   * 空对象 = 恒等映射（逻辑名即上游 ID），老渠道零迁移。
+   * 缺失映射必须如实报错，绝不静默换模型（架构 §6.3 不变式）。
+   */
+  modelMap: ModelMap
+  /**
+   * 选路优先度（M7）：数值**越大越优先**。
+   *
+   * 与 new-api 的 `priority DESC` 同向 —— 选路时按它分档，
+   * 失败降级是「降到下一档」，所以这个值天然就是一条降级链。
+   * 缺省 0：所有渠道同档，退化为按权重随机分摊。
+   */
+  priority: number
+  /**
+   * 选路权重（M7）：同档内按 `weight + 10` 加权随机。
+   *
+   * `+10` 是 new-api 的做法，理由很实在：权重 0 的渠道也必须有机会被选中，
+   * 否则「均衡分摊」会退化成只有配过权重的渠道能出图。
+   */
+  weight: number
   /**
    * 左侧列表排序位（产品文档 §7.2 拖动排序）。
    * 拖一次写一遍（重排 = 给每行重新编号），读回按它升序、同值回落 `createdAt` 倒序。
@@ -112,6 +136,11 @@ export function createChannel(input: CreateChannelInput): Channel {
     // 刻意**不**把 modelCache 抄成 models —— §7.4「拉取到的模型默认全部未勾选，由用户自行勾选」。
     models: [],
     modelCache: [],
+    // 映射与选路三项都从「缺省」起步：空映射 = 恒等、优先度 0 = 同档、权重 0 = 均摊。
+    // 老渠道读回时补齐这些默认值，行为与加此功能前**完全一致**（零迁移）。
+    modelMap: {},
+    priority: 0,
+    weight: 0,
     order: input.order ?? 0,
     lastTestAt: null,
     lastTestLatency: null,

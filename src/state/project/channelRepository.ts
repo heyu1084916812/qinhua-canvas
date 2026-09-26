@@ -2,6 +2,7 @@ import type { StoragePort, CredentialPort, RowOf, TableName } from '../../platfo
 import type { Channel, CreateChannelInput } from '../../domain/project/channel'
 import { createChannel } from '../../domain/project/channel'
 import { createId } from '../../shared/id'
+import { normalizeModelMap } from '../../domain/project/modelMapping'
 
 /**
  * channels 表仓储（架构 §5.10：渠道不是图数据，直连 platform.storage，不走 dispatch / undo 栈）。
@@ -39,6 +40,18 @@ const toChannel = (row: Record<string, unknown>): Channel => {
     // 口径：**只补不删**（缺字段补默认值，多余字段不动）。
     models: row.models === undefined ? modelCache : ((row.models as Channel['models']) ?? []),
     modelCache,
+    /**
+     * M7 三项（映射 / 优先度 / 权重）：老行没有这些键 → 补**缺省值**。
+     *
+     * 缺省值的语义必须与「加功能之前」完全一致，这是零迁移的关键：
+     *  - 空映射 = 恒等映射（逻辑名原样发出去）
+     *  - 优先度 0 / 权重 0 = 所有渠道同档、按权重均摊
+     * 即老渠道读回后，选路结果不变、行为不变。
+     * 口径同 `models`：**只补不删**。
+     */
+    modelMap: normalizeModelMap(row.modelMap),
+    priority: (row.priority as number) ?? 0,
+    weight: (row.weight as number) ?? 0,
     order: (row.order as number) ?? 0,
     lastTestAt: (row.lastTestAt as number | null) ?? null,
     lastTestLatency: (row.lastTestLatency as number | null) ?? null,
