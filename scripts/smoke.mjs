@@ -4133,11 +4133,6 @@ async function g46(browser) {
   const g = 'G46 参数上拉浮层 + 功能类别'
   const ctx = await newCtx(browser)
   const page = await ctx.newPage()
-  // TEMP-DIAG: 把面板里的切类别判定打出来（定位 G46 后用完即删）
-  page.on('console', (m) => {
-    const t = m.text()
-    if (t.includes('[diag] setMode')) console.log(`  ${t}`)
-  })
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 120)))
 
@@ -4262,44 +4257,7 @@ async function g46(browser) {
       (await panel.locator('[data-param-chip="count"]').count()) === 1,
   )
   await panel.locator('[data-param-mode="video"]').click()
-  /**
-   * 点击后立刻读一次：此刻 keepModel 已经算完并派发。
-   * 若这里 model chip 仍是 mock-image-1，说明 `modelBelongsTo('video')` 判成了 true。
-   */
-  await sleep(120)
-  const immediate = await page.evaluate(
-    () =>
-      document
-        .querySelector('[data-creation-panel] [data-param-chip="model"]')
-        ?.textContent?.trim() ?? '',
-  )
-  console.log(`  [diag] 点击后 120ms 的 model chip="${immediate}"`)
   await sleep(400)
-  /**
-   * 诊断（定位 G46 回归用）：把切类别那一刻的**真实状态**打出来。
-   *
-   * 「画质/质量退场」PASS 说明 `data.mode` 已是 video；
-   * 若模型 chip 仍是图片模型，就说明兜底按**旧类别**补了一个。
-   */
-  const diag = await page.evaluate(() => {
-    const p = document.querySelector('[data-creation-panel]')
-    return {
-      modePressed: [...document.querySelectorAll('[data-param-mode]')].map(
-        (b) => `${b.getAttribute('data-param-mode')}:${b.getAttribute('aria-pressed')}`,
-      ),
-      chips: [...(p?.querySelectorAll('[data-param-chip]') ?? [])].map((c) =>
-        c.getAttribute('data-param-chip'),
-      ),
-      durationRange: p?.querySelectorAll('[data-param-duration-range]').length ?? 0,
-      durationWrap: p?.querySelectorAll('[data-param-duration]').length ?? 0,
-      refMode: p?.querySelectorAll('[data-param-chip="refMode"]').length ?? 0,
-      modelChip:
-        p?.querySelector('[data-param-chip="model"]')?.textContent?.trim() ?? '',
-    }
-  })
-  console.log(
-    `  [diag] 切视频后 mode=${diag.modePressed.join(',')} chips=${diag.chips.join(',')} durationRange=${diag.durationRange} durationWrap=${diag.durationWrap} refMode=${diag.refMode} modelChip="${diag.modelChip}"`,
-  )
   rec(
     g,
     '切到视频：尺寸 / 时长滑块 / 参考模式出现',
