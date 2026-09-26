@@ -62,6 +62,37 @@ describe('channelStore', () => {
     expect(store.getState().channels).toHaveLength(0)
   })
 
+  it('★ setModelMapping 写入映射；传空串即删除该条（回到恒等，不存空串）', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
+
+    await store.setModelMapping(ch.id, 'image-2', 'gpt-image-2')
+    expect(store.getState().channels.find((c) => c.id === ch.id)!.modelMap).toEqual({
+      'image-2': 'gpt-image-2',
+    })
+
+    await store.setModelMapping(ch.id, 'image-2', '   ')
+    expect(store.getState().channels.find((c) => c.id === ch.id)!.modelMap).toEqual({})
+  })
+
+  it('★ setRouteTuning：优先度取整、权重取整且不为负（档位靠相等比较，小数会分出无数档）', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
+
+    await store.setRouteTuning(ch.id, { priority: 7.9, weight: 3 })
+    let cur = store.getState().channels.find((c) => c.id === ch.id)!
+    expect(cur.priority).toBe(7)
+    expect(cur.weight).toBe(3)
+
+    await store.setRouteTuning(ch.id, { weight: -5 })
+    cur = store.getState().channels.find((c) => c.id === ch.id)!
+    expect(cur.weight).toBe(0)
+    // 没传的字段保持不动（patch 语义，不该被默认值抹掉）
+    expect(cur.priority).toBe(7)
+  })
+
   it('verify 不写 modelCache、也不替用户勾选 models（§7.3 只管通不通 / §7.4 默认未勾选）', async () => {
     const p = createMemoryPlatform()
     const store = createChannelStore(p)

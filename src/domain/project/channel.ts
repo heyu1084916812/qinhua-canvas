@@ -1,6 +1,7 @@
 import type { ModelCapability } from '../shared/capability'
 import { createId } from '../../shared/id'
 import type { ModelMap } from './modelMapping'
+import type { RouteStrategy } from './modelRouting'
 
 /**
  * 渠道领域模型（产品文档 §7 / §8）。
@@ -60,6 +61,17 @@ export interface Channel {
    * 否则「均衡分摊」会退化成只有配过权重的渠道能出图。
    */
   weight: number
+  /**
+   * 这条渠道的选路策略（M7-2，§7.4.1）。
+   *
+   * 放在渠道上而不是做成全局设置：不同渠道的用法本来就不一样
+   * （一条是主力的高性能站、另一条是便宜的备用站），
+   * 用户是按渠道来想这件事的。也省掉「再找一处存全局设置」的麻烦。
+   *
+   * 缺省 `priority`（手工排的优先度）—— 它的行为与加此功能前最接近，
+   * 且不需要任何实测数据就能生效。
+   */
+  routeStrategy: RouteStrategy
   /**
    * 左侧列表排序位（产品文档 §7.2 拖动排序）。
    * 拖一次写一遍（重排 = 给每行重新编号），读回按它升序、同值回落 `createdAt` 倒序。
@@ -141,6 +153,7 @@ export function createChannel(input: CreateChannelInput): Channel {
     modelMap: {},
     priority: 0,
     weight: 0,
+    routeStrategy: 'priority',
     order: input.order ?? 0,
     lastTestAt: null,
     lastTestLatency: null,

@@ -27,6 +27,10 @@ import {
   type PromptToolAction,
 } from '../../domain/prompt/presetText'
 import { IconPrompt, IconGeneration, IconBoard } from '../../workbenches/canvas/toolbar/icons'
+import {
+  ROUTE_STRATEGIES,
+  type RouteStrategy,
+} from '../../domain/project/modelRouting'
 
 /**
  * 后台的三个分区（用户 2026-09-25「后台中枢」）。
@@ -123,6 +127,15 @@ export function SettingsPage() {
 
   /** 正在被拖动的渠道 id（§7.2 拖动排序） */
   const [dragId, setDragId] = useState<string | null>(null)
+  /**
+   * 映射表的草稿（M7-2）：`逻辑名 → 输入框里的值`。
+   *
+   * 为什么是草稿而不是「改一个存一个」：映射是**按渠道**的一整张表，
+   * 逐条落库会让「改到一半」的状态被持久化（用户还没决定，库里已经变了）。
+   * 与本页既有的渠道表单、模型选择面板同一口径（中途反悔不该留下半份改动）。
+   * 切渠道时清空，避免把 A 站的上游 ID 带到 B 站。
+   */
+  const [mapDrafts, setMapDrafts] = useState<Record<string, string>>({})
 
   useEffect(() => {
     void channels.load()
@@ -144,6 +157,7 @@ export function SettingsPage() {
     setPanelOpen(false)
     // 换一条渠道 → 撤掉上一条残留的删除确认态，否则「删除 A？」会跟着光标挂到 B 头上。
     setConfirmDelete(false)
+    setMapDrafts({})
     if (!ch) return
     setName(ch.name)
     setProtocol(ch.protocol)
@@ -723,9 +737,131 @@ export function SettingsPage() {
                         应用到模型列表
                       </button>
                     </div>
+                </div>
+              )}
+
+              {/* —— 选路与模型映射（§7.4.1，M7-2）—— */}
+              <section className={styles.route} data-settings-route>
+                <div className={styles.modelsHead}>
+                  <div className={styles.modelsTitleBox}>
+                    <span className={styles.label}>选路策略</span>
+                    <span className={styles.modelsSub}>
+                      同一个模型在多条渠道都能出图时，按什么规则挑一条
+                    </span>
+                  </div>
+                </div>
+
+                <div className={styles.fieldRow}>
+                  <label className={`${styles.field} ${styles.grow}`}>
+                    <span className={styles.label}>策略</span>
+                    <select
+                      className={styles.input}
+                      data-route-strategy
+                      value={selected.routeStrategy}
+                      onChange={(e) =>
+                        void channels.update(selectedId!, {
+                          routeStrategy: e.target.value as RouteStrategy,
+                        })
+                      }
+                    >
+                      {ROUTE_STRATEGIES.map((s) => (
+                        <option key={s.value} value={s.value}>
+                          {s.label}·{s.hint}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className={styles.field}>
+                    <span className={styles.label}>优先度（越大越先）</span>
+                    <input
+                      className={`${styles.input} ${styles.numInput}`}
+                      type="number"
+                      data-route-priority
+                      value={selected.priority}
+                      onChange={(e) =>
+                        void channels.setRouteTuning(selectedId!, {
+                          priority: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span className={styles.label}>权重（同档均摊）</span>
+                    <input
+                      className={`${styles.input} ${styles.numInput}`}
+                      type="number"
+                      min={0}
+                      data-route-weight
+                      value={selected.weight}
+                      onChange={(e) =>
+                        void channels.setRouteTuning(selectedId!, {
+                          weight: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+
+                {selected.routeStrategy === 'performance' &&
+                  selected.lastTestLatency == null && (
+                    <p className={styles.modelsEmpty}>
+                      还没测过延迟，这条渠道会排在测过的后面。点上面的「验证地址」测一次。
+                    </p>
+                  )}
+
+                <div className={styles.mapHead}>
+                  <span className={styles.label}>模型映射（逻辑名 → 本站点真实 ID）</span>
+                  <span className={styles.modelsSub}>
+                    留空即按原名发送；不同站点叫法不一样时才需要改
+                  </span>
+                </div>
+
+                {selected.models.length === 0 ? (
+                  <p className={styles.modelsEmpty} data-route-map-empty>
+                    还没有已选模型，先点「选择模型」勾选。
+                  </p>
+                ) : (
+                  <div className={styles.mapList}>
+                    {selected.models.map((m) => {
+                      const saved = selected.modelMap[m.id] ?? ''
+                      const draft = mapDrafts[m.id]
+                      const value = draft ?? saved
+                      return (
+                        <div key={m.id} className={styles.mapRow} data-route-map-row={m.id}>
+                          <span className={styles.mapName} title={m.id}>
+                            {m.id}
+                          </span>
+                          <input
+                            className={`${styles.input} ${styles.mapInput}`}
+                            data-route-map-input={m.id}
+                            placeholder="留空 = 按原名发送"
+                            value={value}
+                            onChange={(e) =>
+                              setMapDrafts((prev) => ({ ...prev, [m.id]: e.target.value }))
+                            }
+                          />
+                          <button
+                            className={styles.ghostBtn}
+                            data-route-map-save={m.id}
+                            disabled={value === saved}
+                            onClick={async () => {
+                              await channels.setModelMapping(selectedId!, m.id, value)
+                              setMapDrafts((prev) => {
+                                const next = { ...prev }
+                                delete next[m.id]
+                                return next
+                              })
+                            }}
+                          >
+                            保存
+                          </button>
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
               </section>
+            </section>
             </div>
           )}
         </section>

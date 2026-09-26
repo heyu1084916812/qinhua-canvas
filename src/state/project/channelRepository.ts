@@ -3,6 +3,7 @@ import type { Channel, CreateChannelInput } from '../../domain/project/channel'
 import { createChannel } from '../../domain/project/channel'
 import { createId } from '../../shared/id'
 import { normalizeModelMap } from '../../domain/project/modelMapping'
+import { ROUTE_STRATEGIES } from '../../domain/project/modelRouting'
 
 /**
  * channels 表仓储（架构 §5.10：渠道不是图数据，直连 platform.storage，不走 dispatch / undo 栈）。
@@ -52,6 +53,11 @@ const toChannel = (row: Record<string, unknown>): Channel => {
     modelMap: normalizeModelMap(row.modelMap),
     priority: (row.priority as number) ?? 0,
     weight: (row.weight as number) ?? 0,
+    // 未知策略值回落 'priority'：宁可退到「手工排的优先度」，
+    // 也不要让一个认不出来的值把选路搞成未定义行为。
+    routeStrategy: ROUTE_STRATEGIES.some((s) => s.value === row.routeStrategy)
+      ? (row.routeStrategy as Channel['routeStrategy'])
+      : 'priority',
     order: (row.order as number) ?? 0,
     lastTestAt: (row.lastTestAt as number | null) ?? null,
     lastTestLatency: (row.lastTestLatency as number | null) ?? null,

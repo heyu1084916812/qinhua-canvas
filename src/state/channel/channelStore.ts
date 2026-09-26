@@ -2,6 +2,7 @@ import { createStore as createVanilla } from 'zustand/vanilla'
 import type { PlatformKit } from '../../platform/ports'
 import type { Channel, CreateChannelInput } from '../../domain/project/channel'
 import { PROBE_PROTOCOLS, requiresBaseUrl, tokenTailOf } from '../../domain/project/channel'
+import { buildDefaultModelMap, setModelMapping } from '../../domain/project/modelMapping'
 import {
   NO_RECIPE,
   rememberRecipe,
@@ -83,6 +84,16 @@ export interface ChannelStoreActions {
   setEnabled(id: string, enabled: boolean): Promise<void>
   /** 「应用到模型列表」（§7.4）：把面板勾选结果写进 `models` */
   setModels(id: string, models: ModelCapability[]): Promise<void>
+  /**
+   * 写一条模型映射（§7.4.1，M7-2）：`逻辑名 → 该站上游 ID`。
+   * 上游 ID 传空串即**删除**该条映射（回到恒等），不存空串。
+   */
+  setModelMapping(id: string, logicalName: string, upstreamId: string): Promise<void>
+  /**
+   * 选路参数（M7-2）：优先度（越大越优先）与权重（同档内加权随机）。
+   * 与 `modelMap` 一样住在渠道行上，不新增表。
+   */
+  setRouteTuning(id: string, patch: { priority?: number; weight?: number }): Promise<void>
   hasToken(id: string): Promise<boolean>
   /** 「验证地址」（§7.3）：只测通不通 + 延迟，不碰 models / modelCache */
   verify(id: string): Promise<void>
@@ -214,6 +225,35 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
     await update(id, { models })
   }
 
+  const setModelMappingAction: ChannelStoreActions['setModelMapping'] = async (
+    id,
+    logicalName,
+    upstreamId,
+  ) => {
+    const ch = await repo.get(id)
+    if (!ch) throw new Error(`[channelStore] 渠道不存在：${id}`)
+    // 传**当前整张表**进去，由纯函数产出新表：
+    // 「空值即删除 / 只补不删 / 去空白」这些口径只有一份实现（domain），
+    // 这里再写一遍必然漂移。
+    await update(id, { modelMap: setModelMapping(ch.modelMap, logicalName, upstreamId) })
+  }
+
+  const setRouteTuning: ChannelStoreActions['setRouteTuning'] = async (id, patch) => {
+    const ch = await repo.get(id)
+    if (!ch) throw new Error(`[channelStore] 渠道不存在：${id}`)
+    const next: { priority?: number; weight?: number } = {}
+    // 优先度是整数档位，权重是非负整数 —— 表单里可能出现 "3.7" 或 "-1"，
+    // 直接写进去会让「档位」这个概念失去意义（分档靠相等比较，小数会分出无数档）。
+    if (typeof patch.priority === 'number') {
+      next.priority = Number.isFinite(patch.priority) ? Math.trunc(patch.priority) : 0
+    }
+    if (typeof patch.weight === 'number') {
+      const w = Number.isFinite(patch.weight) ? Math.trunc(patch.weight) : 0
+      next.weight = Math.max(0, w)
+    }
+    await update(id, next)
+  }
+
   const hasToken: ChannelStoreActions['hasToken'] = async (id) => {
     const ch = await repo.get(id)
     if (!ch?.credentialRef) return false
@@ -318,7 +358,21 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
       const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
       const adapter = createChannelAdapter({ ...toSafeConfig(ch), apiKey }, platform)
       const models = await adapter.listModels(toSafeConfig(ch), timeoutSignal(10_000))
-      const updated = await repo.update(id, { modelCache: models })
+      /**
+       * 拉取后**顺带建默认映射**（§7.4.1）：上游 ID 与逻辑名同名的自动补成恒等映射，
+       * 不同名的留空待用户填。
+       *
+       * 为什么在这里做而不是等用户点保存：映射表的键是「逻辑名」，而逻辑名的全集
+       * 正是此刻刚拉回来的这份 + 用户已勾选的那份；错过这一次，用户就得先手动
+       * 想起来有哪些名字。补的是**同名恒等**项，行为与不写完全一致，零风险。
+       */
+      const logicalNames = [
+        ...new Set([...models.map((m) => m.id), ...ch.models.map((m) => m.id)]),
+      ]
+      const updated = await repo.update(id, {
+        modelCache: models,
+        modelMap: buildDefaultModelMap(ch.modelMap, logicalNames, models.map((m) => m.id)),
+      })
       store.setState((s) => ({
         channels: s.channels.map((c) => (c.id === id ? updated : c)),
         models: { status: 'ok', modelCount: models.length },
@@ -413,6 +467,8 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
     removeToken,
     setEnabled,
     setModels,
+    setModelMapping: setModelMappingAction,
+    setRouteTuning,
     hasToken,
     verify,
     detectProtocol,

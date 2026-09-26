@@ -9121,7 +9121,143 @@ async function g74(browser) {
  * - g50 / g54：结果组折叠与子结果交互（2026-09-17 结果组整体下线）
  * 「运行画板产生产物」改由 G21 覆盖（断言已从结果组改为承载节点）。
  */
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74]
+/**
+ * G75 模型路由（§7.4.1，M7）。
+ *
+ * 验的是「界面上能改、改完真的落库」—— 单测已经覆盖了纯逻辑的分档与加权，
+ * 这里只钉住**接线**：策略下拉存在且可切、映射能保存并在刷新后还在、
+ * 优先度能写进渠道。缺的就是这类「写了组件但没接上」的缺陷。
+ */
+async function g75(browser) {
+  const g = 'G75 模型路由'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+  await sleep(700)
+
+  /**
+   * 场景前提：右侧表单**只在选中渠道后**才渲染（`selected` 为 null 时是占位文案）。
+   * 少了这一步，后面的按钮根本不存在 —— 这是「断言写对了但场景没搭起来」，
+   * 不是功能缺陷。
+   */
+  await page.locator('[data-channel-item]').first().click()
+  await sleep(600)
+
+  // mock 协议可离线拉取模型
+  await page.locator('button', { hasText: '拉取模型' }).first().click()
+  await sleep(900)
+  const apply = page.locator('[data-model-apply]')
+  if ((await apply.count()) === 0) {
+    await page.locator('button', { hasText: '选择模型' }).first().click()
+    await sleep(500)
+    // 勾第一个可用模型
+    const opt = page.locator('[data-model-option]').first()
+    if ((await opt.count()) > 0) await opt.click()
+    await sleep(300)
+    await page.locator('[data-model-apply]').click()
+    await sleep(700)
+  }
+
+  // ① 选路区块存在且策略可切
+  rec(g, '★ 设置页出现「选路策略」区块', (await page.locator('[data-settings-route]').count()) === 1)
+  const strategySel = page.locator('[data-route-strategy]')
+  rec(g, '★ 策略下拉存在', (await strategySel.count()) === 1)
+
+  const options = await strategySel.locator('option').allTextContents()
+  rec(
+    g,
+    '★ 三档策略齐备：优先度 / 性能优先 / 均衡分摊',
+    options.join('|').includes('优先度') &&
+      options.join('|').includes('性能优先') &&
+      options.join('|').includes('均衡分摊'),
+    options.join(' | '),
+  )
+
+  await strategySel.selectOption('performance')
+  await sleep(500)
+  // 刷新会清空「当前选中渠道」（它是组件内存态），故每次刷新后都要重新选中
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(700)
+  await page.locator('[data-channel-item]').first().click()
+  await sleep(600)
+  rec(
+    g,
+    '★ 策略切换后落库（刷新仍是 performance）',
+    (await page.locator('[data-route-strategy]').inputValue()) === 'performance',
+    await page.locator('[data-route-strategy]').inputValue(),
+  )
+
+  // ② 优先度能写进渠道并落库
+  await page.locator('[data-route-priority]').fill('7')
+  await sleep(600)
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(700)
+  await page.locator('[data-channel-item]').first().click()
+  await sleep(600)
+  rec(
+    g,
+    '★ 优先度改写后刷新仍在（真的落库，不是内存态）',
+    (await page.locator('[data-route-priority]').inputValue()) === '7',
+    await page.locator('[data-route-priority]').inputValue(),
+  )
+
+  // ③ 映射：改一个已选模型的上游 ID → 保存 → 刷新后还在
+  const rowCount = await page.locator('[data-route-map-row]').count()
+  rec(g, '★ 已选模型都列出映射行', rowCount > 0, `行数=${rowCount}`)
+  if (rowCount > 0) {
+    const firstRow = page.locator('[data-route-map-row]').first()
+    const logical = await firstRow.getAttribute('data-route-map-row')
+    const input = page.locator(`[data-route-map-input="${logical}"]`)
+    const saveBtn = page.locator(`[data-route-map-save="${logical}"]`)
+    rec(
+      g,
+      '★ 映射「保存」按钮在未改动时禁用（防误写）',
+      await saveBtn.isDisabled(),
+      `disabled=${await saveBtn.isDisabled()}`,
+    )
+    await input.fill('upstream-renamed-by-smoke')
+    await sleep(300)
+    rec(g, '★ 改动后「保存」可点', await saveBtn.isEnabled())
+    await saveBtn.click()
+    await sleep(700)
+    await page.reload({ waitUntil: 'networkidle' })
+    await sleep(700)
+    await page.locator('[data-channel-item]').first().click()
+    await sleep(600)
+    rec(
+      g,
+      '★ 映射保存后刷新仍在（真的落库）',
+      (await page.locator(`[data-route-map-input="${logical}"]`).inputValue()) === 'upstream-renamed-by-smoke',
+      await page.locator(`[data-route-map-input="${logical}"]`).inputValue(),
+    )
+
+    // ④ 清空 = 删除该条映射，回到「按原名发送」
+    await page.locator(`[data-route-map-input="${logical}"]`).fill('')
+    await sleep(300)
+    await page.locator(`[data-route-map-save="${logical}"]`).click()
+    await sleep(700)
+    await page.reload({ waitUntil: 'networkidle' })
+    await sleep(700)
+    await page.locator('[data-channel-item]').first().click()
+    await sleep(600)
+    rec(
+      g,
+      '★ 清空并保存 → 该条映射被删除（回到恒等，不存空串）',
+      (await page.locator(`[data-route-map-input="${logical}"]`).inputValue()) === '',
+      `值="${await page.locator(`[data-route-map-input="${logical}"]`).inputValue()}"`,
+    )
+  }
+
+  await page.screenshot({ path: `${OUT}/91-g75-model-routing.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

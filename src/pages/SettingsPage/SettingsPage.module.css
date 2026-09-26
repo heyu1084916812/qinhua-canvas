@@ -532,6 +532,56 @@
   color: var(--text-3);
 }
 
+/* ── 选路策略与模型映射（§7.4.1，M7-2）─────────────────────────
+   与「模型管理」同一组视觉语言（细描边 + 内距），不新造一套卡片。 */
+.route {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: var(--border);
+}
+
+.numInput {
+  width: 96px;
+  box-sizing: border-box;
+}
+
+.mapHead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mapList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* 每一行 = 逻辑名 + 输入 + 保存：名字定宽，输入框吃满剩余宽度，
+   这样换一条长模型名也不会把按钮挤到下一行（固定格式控件的尺寸要稳定）。 */
+.mapRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.mapName {
+  flex: none;
+  width: 200px;
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mapInput {
+  flex: 1;
+  min-width: 0;
+}
+
 .panelFoot {
   display: flex;
   justify-content: flex-end;
