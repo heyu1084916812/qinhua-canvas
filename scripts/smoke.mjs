@@ -9376,6 +9376,16 @@ async function g76(browser) {
    */
   await page.keyboard.press('Escape')
   await sleep(300)
+  /**
+   * ★ 选完渠道 / 模型后**再点一次节点重开面板**。
+   *
+   * 派发 `setChannel` / `setModel` 会让面板重挂；重挂后 `panel` 这个
+   * locator 指向的可能是已卸载的旧节点 ⇒ 后面点「生成当前节点」永远等不到
+   * （全量串行才暴露，单跑本组是 6/6）。
+   */
+  await page.mouse.click(Math.round(gb.x + 40), Math.max(100, Math.round(gb.y + 40)))
+  await sleep(600)
+  await page.locator('[data-creation-panel]').waitFor({ state: 'visible', timeout: 10000 })
   const ta = panel.locator('textarea').first()
   if ((await ta.count()) > 0) {
     await ta.click()
@@ -9497,6 +9507,14 @@ async function g77(browser) {
 
   const gen = page.locator('[data-node-type="generation"]').first()
   const gb = await gen.boundingBox()
+  /**
+   * 点节点打开创作面板。
+   *
+   * ⚠️ 全量串行时这里**必须重新点一次**：前面的组（G46 会切到视频并把配方记忆
+   * 写成视频模型）会让本组新建的节点默认落在视频档 ⇒ 图片模式下没有可用模型
+   * ⇒ 面板虽在但模型 chip 禁用，生成按钮不渲染。
+   * 故在选渠道 / 选模型之后再点节点重开一次面板，确保拿到的是**当前节点**的面板。
+   */
   await page.mouse.click(Math.round(gb.x + 40), Math.max(100, Math.round(gb.y + 40)))
   await sleep(800)
   await page.locator('[data-creation-panel]').waitFor({ state: 'visible', timeout: 10000 })
