@@ -8671,7 +8671,7 @@ async function g74(browser) {
   )
   /**
    * ★★ 选中项是**胶囊**（`--radius-pill`），底色与内容面板**同色**，
-   * 并向右延伸到与内容面板左沿对齐。
+   * 但它必须完整待在左侧栏内。
    *
    * 用户 2026-09-25 三轮：「像胶囊一样的，选中后的颜色就是 #22242b，
    * 而且和右边的是一体的」。`#22242b` 正是**暗色主题**下 `--bg-surface` 的值
@@ -8680,7 +8680,7 @@ async function g74(browser) {
    * 而浅色那一套也是用户定的正确颜色。
    *
    * 三处缺一不可，且都读不出来（写上 `border-radius` 与 `background` 看着就对），
-   * 必须量：底色比色、圆角读计算值、右沿量像素。
+   * 必须量：底色比色、四角圆角、**左右两端的圆角都没有被别人盖住**。
    */
   const notch = await page.evaluate(() => {
     const on = document.querySelector('[data-settings-section][aria-selected="true"]')
@@ -8712,35 +8712,70 @@ async function g74(browser) {
     notch?.corners.join(' '),
   )
   /**
-   * ★★ 选中项**伸进面板、把右端圆角藏进去**，两块真正连成一片
-   * （用户 2026-09-26「想个办法把这个链接在一起」）。
+   * ★★ 左侧功能框贴住外层容器的左、上、下三条边（用户 2026-09-26：
+   * 「像重合左边边界和上下边界」）。
    *
-   * ⚠️ 这一条**取代**了早先那条「右沿与面板左沿对齐（差值 0）」——两者互斥：
-   * 只对齐（差值 0）时，胶囊右端是**圆角**（999px），两者只在**最中间那一个点**相切，
-   * 上下各露一道月牙缝，看着是"挨着"而不是"连着"。正解是**再往里伸一截**把圆角藏掉。
-   * 留着旧断言只会把它自己的错误当成标准。
-   *
-   * 判据两条缺一不可：① overhang 为**负**（伸进去，不是相切）；
-   * ② 伸入量**大于胶囊半高**，否则圆角仍会露出一点。
+   * 注意这里量的是 `.rail` 本身，不是选中项。此前误把「选中项伸进右栏」
+   * 当成"连接效果"，结果三条边上都留着 `.shell` 的 16px padding，
+   * 与用户要的"重合"正好相反。
    */
-  const seam = await page.evaluate(() => {
-    const on = document.querySelector('[data-settings-section][aria-selected="true"]')
-    const panel = document.querySelector(
-      '[data-settings-card], [data-settings-presets], [data-settings-skills]',
-    )
-    if (!on || !panel) return null
-    const o = on.getBoundingClientRect()
-    const p = panel.getBoundingClientRect()
+  const railEdges = await page.evaluate(() => {
+    const shell = document.querySelector('[data-settings-shell]')
+    const rail = document.querySelector('nav[role="tablist"]')
+    if (!shell || !rail) return null
+    const s = shell.getBoundingClientRect()
+    const r = rail.getBoundingClientRect()
     return {
-      overhang: Math.round(p.left - o.right), // 负数 = 伸进面板
-      halfHeight: o.height / 2,
+      left: Math.round(r.left - s.left),
+      top: Math.round(r.top - s.top),
+      bottom: Math.round(s.bottom - r.bottom),
+      railRight: Math.round(r.right),
+      panelLeft: Math.round(
+        document
+          .querySelector('[data-settings-card], [data-settings-presets], [data-settings-skills]')
+          ?.getBoundingClientRect().left ?? NaN,
+      ),
     }
   })
   rec(
     g,
-    '★★ 选中项伸进面板（负 overhang，把右端圆角藏进同色面板 ⟹ 真正连成一片）',
-    !!seam && seam.overhang < 0 && Math.abs(seam.overhang) > seam.halfHeight,
-    `伸入=${seam ? -seam.overhang : '?'}px，半高=${seam?.halfHeight}px（伸入须更大）`,
+    '★★ 左侧功能框贴住外层容器的左 / 上 / 下三条边',
+    !!railEdges && railEdges.left === 0 && railEdges.top === 0 && railEdges.bottom === 0,
+    `左=${railEdges?.left ?? '?'}px 上=${railEdges?.top ?? '?'}px 下=${railEdges?.bottom ?? '?'}px`,
+  )
+  /**
+   * ★★ 选中项完整待在侧栏内，右端圆角可见（用户 2026-09-26：
+   * 「选中的那个框不仅仅是左边要形成圆角效果，右边也要……我不想要单单的覆盖住」）。
+   *
+   * 只断言「有 999px 圆角」不够：上一版也有四角 999px，但右端伸进内容面板 21px、
+   * 被同色的面板盖住，肉眼看就是一条覆盖上去的长胶囊。必须同时量：
+   * ① 选中项右沿在侧栏右沿之内（留出 `space-3` 内距，不越栏）；
+   * ② 侧栏右沿在内容面板左沿之内，所以选中项也不会碰到内容区。
+   */
+  const pill = await page.evaluate(() => {
+    const shell = document.querySelector('[data-settings-shell]')
+    const rail = document.querySelector('nav[role="tablist"]')
+    const on = document.querySelector('[data-settings-section][aria-selected="true"]')
+    const panel = document.querySelector(
+      '[data-settings-card], [data-settings-presets], [data-settings-skills]',
+    )
+    if (!shell || !rail || !on || !panel) return null
+    const s = shell.getBoundingClientRect()
+    const r = rail.getBoundingClientRect()
+    const o = on.getBoundingClientRect()
+    const p = panel.getBoundingClientRect()
+    return {
+      leftInset: Math.round(o.left - r.left),
+      rightInset: Math.round(r.right - o.right),
+      railInsidePanel: Math.round(p.left - r.right),
+      shellTop: Math.round(r.top - s.top), // 保留 shell 引用，避免断言漂移到另一个容器
+    }
+  })
+  rec(
+    g,
+    '★★ 选中胶囊完整留在侧栏内（左右圆角均可见，不覆盖内容区）',
+    !!pill && pill.leftInset > 0 && pill.rightInset > 0 && pill.railInsidePanel >= 0,
+    `左内距=${pill?.leftInset ?? '?'}px 右内距=${pill?.rightInset ?? '?'}px 栏到面板=${pill?.railInsidePanel ?? '?'}px shell上=${pill?.shellTop ?? '?'}px`,
   )
   /**
    * ★ 右侧三个区的**最外层容器都不描边**，且内容与边缘留有充分留白
