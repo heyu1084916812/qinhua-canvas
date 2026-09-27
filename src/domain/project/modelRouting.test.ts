@@ -194,6 +194,38 @@ describe('routeCandidatesFor', () => {
     )
     expect(selectRoute(candidates, 'performance')?.channelId).toBe('fast')
   })
+
+  /**
+   * ★ 用户 2026-09-27 第 7 轮：前端显示名（`GPT Image 2.5 Flare`）
+   * 在中转站里叫 `gpt-image-2.5-flare`，**勾选列表里没有这个名字**。
+   *
+   * 若候选只看 `modelIds`，用户配好映射后选路依然找不到任何候选 ——
+   * 表现为「映射填了、还是发不出去」。故映射表里出现该逻辑名也算提供。
+   */
+  it('★ 只在 modelMap 里配了映射（勾选列表没有该名字）也算候选', () => {
+    const out = routeCandidatesFor(
+      [
+        ch({
+          id: 'A',
+          modelIds: ['gpt-image-2.5-flare'],
+          modelMap: { 'GPT Image 2.5 Flare': 'gpt-image-2.5-flare' },
+        }),
+      ],
+      'GPT Image 2.5 Flare',
+      resolveUpstreamModel,
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0]!.upstreamModel).toBe('gpt-image-2.5-flare')
+  })
+
+  it('映射值为空白 → 不算提供（那是「没配」，不是「配成空」）', () => {
+    const out = routeCandidatesFor(
+      [ch({ id: 'A', modelIds: ['other'], modelMap: { 'GPT Image 2.5 Flare': '   ' } })],
+      'GPT Image 2.5 Flare',
+      resolveUpstreamModel,
+    )
+    expect(out).toEqual([])
+  })
 })
 
 describe('resolveRouteFor', () => {

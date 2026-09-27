@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import styles from './ParamPicker.module.css'
 import { RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
 
@@ -6,6 +6,13 @@ import { RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
 export interface ParamOption {
   value: string
   label: string
+  /**
+   * 选项前的矢量图标（用户 2026-09-27：固定模型清单要「图标 + 名称」）。
+   *
+   * 由调用方传 ReactNode 而不是图标名：本组件不认识任何厂商，
+   * 也不该为了画一个图标去 import 模型目录。
+   */
+  icon?: ReactNode
   /** 模型明确不支持的档位（如数量超过 `maxCount`）；**未声明**不算不支持 */
   disabled?: boolean
   /** 置灰原因，鼠标悬停可见 */
@@ -62,6 +69,8 @@ const useIsoLayoutEffect = typeof window === 'undefined' ? useEffect : useLayout
  */
 export function ParamPicker(props: ParamPickerProps) {
   const { name, ariaLabel, label, options, value, variant, open, onToggle, onClose, onSelect } = props
+  /** 当前值对应的图标（没有就不占位），让 chip 与浮层里的那一行看起来是同一个东西 */
+  const currentIcon = options.find((o) => o.value === value)?.icon
   const wrapRef = useRef<HTMLSpanElement>(null)
   const popRef = useRef<HTMLDivElement>(null)
   const [below, setBelow] = useState(false)
@@ -110,6 +119,7 @@ export function ParamPicker(props: ParamPickerProps) {
         disabled={props.disabled}
         onClick={onToggle}
       >
+        {currentIcon}
         <span className={styles.chipLabel}>{label}</span>
       </button>
       {open && (
@@ -177,6 +187,7 @@ export function ParamPicker(props: ParamPickerProps) {
                     onClose()
                   }}
                 >
+                  {o.icon && <span className={styles.rowIcon}>{o.icon}</span>}
                   <span className={styles.rowText}>{o.label}</span>
                   {variant === 'list' && o.value === value && (
                     <span className={styles.check} aria-hidden="true">

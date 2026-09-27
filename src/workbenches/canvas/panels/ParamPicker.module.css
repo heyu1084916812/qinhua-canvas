@@ -139,8 +139,21 @@
 }
 
 .rowText {
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.rowIcon {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--text-1);
+}
+
+/* chip 里的图标：没有图标时不占位，有图标时与文字保持同一内距 */
+.chip > svg {
+  flex: 0 0 auto;
 }
 
 .check {

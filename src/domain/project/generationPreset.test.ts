@@ -141,6 +141,50 @@ describe('生成配方（新建节点的默认渠道 / 模型 / 参数）', () =
     })
   })
 
+  /**
+   * ★ 记的模型**不属于本次要的类别** → 不能原样沿用（用户 2026-09-27 实测暴露）。
+   *
+   * 图片 → 视频切类别时，配方里记的还是上次那张图用的生图模型。
+   * 只判「渠道还提供它吗」会把它判成有效 ⇒ 面板又把生图模型填回视频模式，
+   * 界面看着换过来了、请求却带着图片模型。有 `category` 时必须按类别过滤。
+   */
+  it('★ 记录里的模型属于别类 → 不沿用，改取该类第一个（G46 实测场景）', () => {
+    const mixed: PresetChannelLike[] = [
+      {
+        id: 'ch1',
+        models: [
+          { id: 'img-1', category: 'image' },
+          { id: 'vid-1', category: 'video' },
+        ],
+      },
+    ]
+    const r = resolveRecipe(
+      { channelId: 'ch1', model: 'img-1', params: { mode: 'image' }, savedAt: 0 },
+      mixed,
+      'video',
+    )
+    expect(r?.model).toBe('vid-1')
+    expect(r?.substituted).toBe(true)
+  })
+
+  it('记录里的模型就是目标类别 → 仍原样沿用', () => {
+    const mixed: PresetChannelLike[] = [
+      {
+        id: 'ch1',
+        models: [
+          { id: 'img-1', category: 'image' },
+          { id: 'vid-1', category: 'video' },
+        ],
+      },
+    ]
+    const r = resolveRecipe(
+      { channelId: 'ch1', model: 'vid-1', params: {}, savedAt: 0 },
+      mixed,
+      'video',
+    )
+    expect(r).toEqual({ channelId: 'ch1', model: 'vid-1', params: {}, substituted: false })
+  })
+
   it('渠道被删 / 渠道没勾模型 → 解析不出（交由上层落回「第一个可用渠道」）', () => {
     expect(resolveRecipe({ channelId: 'gone', model: 'm1', params: {}, savedAt: 0 }, channels)).toBeNull()
     expect(resolveRecipe({ channelId: 'ch2', model: 'm1', params: {}, savedAt: 0 }, channels)).toBeNull()

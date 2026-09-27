@@ -603,6 +603,16 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
     }): Promise<string> => {
       const ch = channels.getState().channels.find((c) => c.id === channelId)
       if (!ch) throw new Error(`[promptTools] 未找到渠道：${channelId}`)
+      /**
+       * 逻辑名 → 该渠道的上游 ID（用户 2026-09-27 第 7 轮）。
+       *
+       * 面板里显示的是固定显示名（如 `GPT-6 Astra`），本站可能叫别的
+       * （如 `gpt-6-astra`）。此前这里把**显示名原样**发给上游，
+       * 用户配了映射也不生效 —— 而生成节点那条路早就走映射了。
+       * 提示词节点这条（优化 / 翻译 / 反推 / 技能）补上同一件事，
+       * 两条路才是一套机制，而不是「一条映射、一条不映射」。
+       */
+      const upstreamModel = resolveUpstreamModel(ch.modelMap, model) ?? model
       const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
       const cfg: ResolvedChannelConfig = {
         id: ch.id,
@@ -615,7 +625,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       const adapter = createChannelAdapter(cfg, platform)
       const prompt = system ? `${system}\n\n${text}` : text
       const result = await adapter.completeText(
-        { kind: 'text', channelId, model, prompt, inputs: inputs ?? [], params: {} },
+        { kind: 'text', channelId, model: upstreamModel, prompt, inputs: inputs ?? [], params: {} },
         signal,
       )
       return result.text

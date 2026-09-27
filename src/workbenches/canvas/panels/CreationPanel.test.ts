@@ -181,13 +181,19 @@ describe('CreationPanel · 无可用平台时的引导条', () => {
     expect(html).toContain('data-panel-run-blocked="已配置的渠道都未启用"')
   })
 
-  it('渠道里这一类模型一个都没有：生成按钮禁用，文案按类别分叉', async () => {
+  /**
+   * 用户 2026-09-27 起，生成节点的模型下拉来自**固定显示名目录**，
+   * 不再因为「该渠道没勾这一类模型」而把按钮置灰 ——
+   * 名字在、后台把映射配好就能跑，置灰等于把唯一的路堵死。
+   */
+  it('★ 渠道里这一类模型一个都没有：仍可点、仍选得到固定显示名', async () => {
     const html = render(
       await channelStore([{ enabled: true, models: [], modelCache: [] }]),
       { ...generationSpec.createDefaultData(), channelId: 'ch-1' },
     )
-    expect(html).toMatch(/<button[^>]*disabled[^>]*aria-label="生成当前节点"/)
-    expect(html).toContain('data-panel-run-blocked=')
+    expect(html).not.toMatch(/<button[^>]*disabled[^>]*aria-label="生成当前节点"/)
+    expect(html).not.toContain('data-panel-run-blocked=')
+    expect(html).toContain('data-param-chip="model"')
   })
 
   it('渠道存在但未启用：文案切换为「已配置的渠道都未启用」', async () => {
@@ -198,12 +204,14 @@ describe('CreationPanel · 无可用平台时的引导条', () => {
     expect(html).not.toContain('中转站1')
   })
 
-  it('有启用渠道：引导条消失，平台 chip 出现并带出当前渠道名', async () => {
+  it('★ 有启用渠道：引导条消失，生成节点已无平台 chip（渠道由选路决定）', async () => {
     const channels = await channelStore([{ enabled: true }])
     const html = render(channels, { ...generationSpec.createDefaultData(), channelId: 'ch-1' })
     expect(html).not.toContain('data-panel-setup-hint')
-    expect(html).toContain('data-param-chip="channel"')
-    expect(html).toContain('中转站1')
+    // 用户 2026-09-27：生图 / 视频面板不再让用户手选平台
+    expect(html).not.toContain('data-param-chip="channel"')
+    // 模型下拉必须在（生成节点的主选择器）
+    expect(html).toContain('data-param-chip="model"')
   })
 
   it('渠道与模型齐备：生成按钮不因本改动被禁用', async () => {
@@ -289,16 +297,17 @@ describe('CreationPanel · 平台已选但模型不可用', () => {
   })
 
   /**
-   * 渠道**一个模型都没有**（没拉取过 / 拉取失败）→ 此时才该给引导条。
+   * 渠道**一个模型都没有**（没拉取过 / 拉取失败）→ 依然给下拉。
    *
-   * 「没得选就别挂空壳」这条规则仍然成立，只是判据从「用户勾没勾」
-   * 换成「这个渠道有没有模型」——前者拦住了唯一的路，后者才是真的没得选。
+   * 旧规则「没得选就别挂空壳」说的是「下拉里空空如也」；
+   * 现在下拉里**永远有固定显示名**（用户 2026-09-27），所以它不是空壳，
+   * 反而是用户先把名字选好、再去后台配映射的正常路径。
    */
-  it('★ 渠道一个模型都没有 → 给引导条，不挂空下拉', async () => {
+  it('★ 渠道一个模型都没有 → 仍给下拉（固定显示名不是空壳）', async () => {
     const channels = await channelStore([{ enabled: true, models: [], modelCache: [] }])
     const html = render(channels, withChannel())
-    expect(html).toContain('data-panel-setup-hint')
-    expect(html).not.toContain('data-param-chip="model"')
+    expect(html).not.toContain('data-panel-setup-hint')
+    expect(html).toContain('data-param-chip="model"')
   })
 
   it('勾选模型后引导消失，模型 chip 带出该模型', async () => {

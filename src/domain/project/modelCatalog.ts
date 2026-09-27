@@ -12,6 +12,7 @@
  */
 import type { ModelCapability } from '../shared/capability'
 import { resolveUpstreamModel } from './modelMapping'
+import { PRESET_MODELS, presetModelsOf, type PresetModel } from './modelPresets'
 
 /** 目录只需渠道的这几项，不认识整条渠道实体（与选路同款的最小视图做法） */
 export interface CatalogChannelLike {
@@ -109,7 +110,16 @@ export function capabilityOfLogical(
   for (const c of ordered) {
     const upstream = resolveUpstreamModel(c.modelMap, name)
     if (!upstream) continue
-    const hit = [...c.models, ...(c.modelCache ?? [])].find((m) => m.id === upstream)
+    /**
+     * 名称匹配允许两种：**上游 ID**（常态）与**逻辑名本身**。
+     *
+     * 后者是为固定显示名准备的（用户 2026-09-27）：前端显示 `GPT Image 2.5 Flare`，
+     * 中转站里叫 `gpt-image-2.5-flare`；用户在设置页映射之前，渠道里能对上的
+     * 只有逻辑名那一侧，也必须能取到能力（否则面板会把它当成「不认识」而隐藏）。
+     */
+    const hit = [...c.models, ...(c.modelCache ?? [])].find(
+      (m) => m.id === upstream || m.id === name,
+    )
     if (hit) return hit
   }
   // 没有映射（恒等）时按同名直配找
@@ -120,13 +130,21 @@ export function capabilityOfLogical(
   return undefined
 }
 
-/** 逻辑名属于哪一档（生图 / 对话 / 视频）；取不到返回 undefined，不猜 */
+/**
+ * 逻辑名属于哪一档（生图 / 对话 / 视频）；取不到返回 undefined，不猜。
+ *
+ * 固定显示名（`modelPresets`）自带分类：它在渠道里往往**还没有对应条目**
+ * （用户就是要先在前端看到名字、再去后台映射），此时按清单给的分类返回，
+ * 否则切类别时 `modelBelongsTo` 会把它误判成「不属于新类别」而清掉。
+ */
 export function categoryOfLogical(
   channels: readonly CatalogChannelLike[],
   logicalName: string,
   channelId?: string,
 ): ModelCapability['category'] | undefined {
-  return capabilityOfLogical(channels, logicalName, channelId)?.category
+  const fromChannel = capabilityOfLogical(channels, logicalName, channelId)?.category
+  if (fromChannel) return fromChannel
+  return presetOf(logicalName)?.category
 }
 
 /** 某一档的逻辑名（下拉的数据源），保持目录顺序 */
@@ -138,6 +156,47 @@ export function logicalOptions(
   return logicalNames(channels).filter(
     (n) => categoryOfLogical(channels, n, channelId) === category,
   )
+}
+
+/**
+ * 创作面板的模型下拉数据源（用户 2026-09-27 第 7 轮）。
+ *
+ * = **固定显示名清单**（用户拍板的 6 生图 / 4 对话 / 5 视频）**排在最前**，
+ * 其后才是渠道里勾选过的其它模型。
+ *
+ * 为什么固定清单在前、渠道模型在后（而不是只列固定清单）：
+ *   ① 固定清单是用户认可的主名，排在最前便于反复取用；
+ *   ② 渠道里那些**没有归一**的模型仍然可达 —— 否则用户手上还没配映射的站
+ *      会突然「一个模型都选不出来」，那是比列表长更糟的失败；
+ *   ③ 去重：某个渠道的模型恰好与固定名同名时只出一个。
+ *
+ * `logicalOptions` 保持原样（只按渠道算），单测与其它调用方不受影响 ——
+ * 这条「面板数据源」的口径只在这里定义一次，面板与设置页共用。
+ */
+export function panelModelOptions(
+  channels: readonly CatalogChannelLike[],
+  category: ModelCapability['category'],
+  channelId?: string,
+): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const m of presetModelsOf(category)) {
+    if (seen.has(m.id)) continue
+    seen.add(m.id)
+    out.push(m.id)
+  }
+  for (const n of logicalOptions(channels, category, channelId)) {
+    if (seen.has(n)) continue
+    seen.add(n)
+    out.push(n)
+  }
+  return out
+}
+
+/** 固定清单里的条目（含厂商，供面板取图标）；不是固定名则返回 undefined */
+export function presetOf(name: string): PresetModel | undefined {
+  const key = name.trim()
+  return PRESET_MODELS.find((m) => m.id === key)
 }
 
 /**

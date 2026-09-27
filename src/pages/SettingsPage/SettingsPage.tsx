@@ -31,6 +31,7 @@ import {
   ROUTE_STRATEGIES,
   type RouteStrategy,
 } from '../../domain/project/modelRouting'
+import { PRESET_MODELS } from '../../domain/project/modelPresets'
 
 /**
  * 后台的三个分区（用户 2026-09-25「后台中枢」）。
@@ -532,7 +533,12 @@ export function SettingsPage() {
                     onChange={(e) => setName(e.target.value)}
                   />
                 </label>
-                <button className={styles.primary} disabled={busy} onClick={handleSaveConfig}>
+                <button
+                  className={styles.primary}
+                  data-settings-save
+                  disabled={busy}
+                  onClick={handleSaveConfig}
+                >
                   保存配置
                 </button>
               </div>
@@ -561,10 +567,20 @@ export function SettingsPage() {
                   <button className={styles.ghostBtn} onClick={() => setShowToken((v) => !v)}>
                     {showToken ? '隐藏' : '显示'}
                   </button>
-                  <button className={styles.ghostBtn} disabled={!token || busy} onClick={handleSaveToken}>
+                  <button
+                    className={styles.ghostBtn}
+                    data-settings-token-save
+                    disabled={!token || busy}
+                    onClick={handleSaveToken}
+                  >
                     保存
                   </button>
-                  <button className={styles.ghostBtn} disabled={!tokenSaved || busy} onClick={handleRemoveToken}>
+                  <button
+                    className={styles.ghostBtn}
+                    data-settings-token-remove
+                    disabled={!tokenSaved || busy}
+                    onClick={handleRemoveToken}
+                  >
                     删除
                   </button>
                 </div>
@@ -810,56 +826,79 @@ export function SettingsPage() {
                   )}
 
                 <div className={styles.mapHead}>
-                  <span className={styles.label}>模型映射（逻辑名 → 本站点真实 ID）</span>
+                  <span className={styles.label}>模型映射（前端显示名 → 本站点真实 ID）</span>
                   <span className={styles.modelsSub}>
-                    留空即按原名发送；不同站点叫法不一样时才需要改
+                    左边是画布里显示的名字，填这一站点实际要发的模型 ID；留空即按原名发送
                   </span>
                 </div>
 
-                {selected.models.length === 0 ? (
-                  <p className={styles.modelsEmpty} data-route-map-empty>
-                    还没有已选模型，先点「选择模型」勾选。
-                  </p>
-                ) : (
-                  <div className={styles.mapList}>
-                    {selected.models.map((m) => {
-                      const saved = selected.modelMap[m.id] ?? ''
-                      const draft = mapDrafts[m.id]
-                      const value = draft ?? saved
-                      return (
-                        <div key={m.id} className={styles.mapRow} data-route-map-row={m.id}>
-                          <span className={styles.mapName} title={m.id}>
-                            {m.id}
-                          </span>
-                          <input
-                            className={`${styles.input} ${styles.mapInput}`}
-                            data-route-map-input={m.id}
-                            placeholder="留空 = 按原名发送"
-                            value={value}
-                            onChange={(e) =>
-                              setMapDrafts((prev) => ({ ...prev, [m.id]: e.target.value }))
-                            }
-                          />
-                          <button
-                            className={styles.ghostBtn}
-                            data-route-map-save={m.id}
-                            disabled={value === saved}
-                            onClick={async () => {
-                              await channels.setModelMapping(selectedId!, m.id, value)
-                              setMapDrafts((prev) => {
-                                const next = { ...prev }
-                                delete next[m.id]
-                                return next
-                              })
-                            }}
-                          >
-                            保存
-                          </button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
+                {/*
+                  映射列表 = **固定显示名** + 该渠道已勾选的模型，后者去重。
+
+                  为什么固定名一定要在这里出现（用户 2026-09-27）：
+                  画布下拉列的就是这几个名字，它们**不一定出现在本站的模型清单里**
+                  （例如前端叫 `GPT Image 2.5 Flare`，本站叫 `gpt-image-2.5-flare`）。
+                  若这里只列「已勾选模型」，用户就没地方填这个翻译 ——
+                  在画布选完固定名，请求会带着显示名发出去并被上游拒绝。
+                */}
+                {(() => {
+                  const presetIds = PRESET_MODELS.map((m) => m.id)
+                  const extraIds = selected.models
+                    .map((m) => m.id)
+                    .filter((id) => !presetIds.includes(id))
+                  const rows = [...presetIds, ...extraIds]
+                  return (
+                    <>
+                      <p className={styles.modelsSub} data-route-map-help>
+                        下面这些是画布里可选的显示名；只填你本站有的那几个即可。
+                      </p>
+                      <div className={styles.mapList}>
+                        {rows.map((id) => {
+                          const saved = selected.modelMap[id] ?? ''
+                          const draft = mapDrafts[id]
+                          const value = draft ?? saved
+                          const isPreset = presetIds.includes(id)
+                          return (
+                            <div
+                              key={id}
+                              className={styles.mapRow}
+                              data-route-map-row={id}
+                              data-route-map-preset={isPreset ? '1' : '0'}
+                            >
+                              <span className={styles.mapName} title={id}>
+                                {id}
+                              </span>
+                              <input
+                                className={`${styles.input} ${styles.mapInput}`}
+                                data-route-map-input={id}
+                                placeholder="留空 = 按原名发送"
+                                value={value}
+                                onChange={(e) =>
+                                  setMapDrafts((prev) => ({ ...prev, [id]: e.target.value }))
+                                }
+                              />
+                              <button
+                                className={styles.ghostBtn}
+                                data-route-map-save={id}
+                                disabled={value === saved}
+                                onClick={async () => {
+                                  await channels.setModelMapping(selectedId!, id, value)
+                                  setMapDrafts((prev) => {
+                                    const next = { ...prev }
+                                    delete next[id]
+                                    return next
+                                  })
+                                }}
+                              >
+                                保存
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </>
+                  )
+                })()}
               </section>
             </section>
             </div>

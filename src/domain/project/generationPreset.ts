@@ -200,8 +200,15 @@ export interface ResolvedRecipe {
  */
 export interface PresetChannelLike {
   id: string
-  models: readonly { id: string }[]
-  modelCache?: readonly { id: string }[]
+  /**
+   * `category` 可选：候选的模型能力分类（`image` / `chat` / `video`）。
+   *
+   * 解析链在**指定类别**时必须按它过滤，否则「图片 → 视频」切类别时会把
+   * 上次记的生图模型当成有效记录原样填回视频模式（用户 2026-09-27 实测暴露）。
+   * 老调用方的简化渠道没有这一项 → 视为「不分类」，行为与以前一致。
+   */
+  models: readonly { id: string; category?: string }[]
+  modelCache?: readonly { id: string; category?: string }[]
   /**
    * M7-4：逻辑名 → 该渠道上游 ID 的映射。解析链要按它把逻辑名归一后再比对，
    * 否则逻辑名会被误判成「渠道没有这个模型」。
@@ -265,7 +272,19 @@ export function resolveRecipe(
   const same =
     available.find((m) => m.id === recipe.model) ??
     (logicalUpstream ? available.find((m) => m.id === logicalUpstream) : undefined)
-  if (same) {
+  /**
+   * 记录里的模型还必须属于**本次要的类别**（用户 2026-09-27 实测暴露）。
+   *
+   * 只判「这个模型渠道还提供吗」是不够的：图片 → 视频切类别时，记录的仍是
+   * 上次那张图用的**生图模型**，它确实还在渠道里 ⇒ 被当成有效记录原样返回，
+   * 于是面板又把生图模型填回视频模式（界面看着换过来了，请求却带着图片模型）。
+   *
+   * 有 `category` 时按它过滤；没传 `category` 的调用方（生成节点不分类检索）
+   * 保持原行为，零迁移。
+   */
+  const sameMatchesCategory =
+    !category || (same as { category?: string } | undefined)?.category === category
+  if (same && sameMatchesCategory) {
     return {
       channelId: recipe.channelId,
       model: recipe.model,

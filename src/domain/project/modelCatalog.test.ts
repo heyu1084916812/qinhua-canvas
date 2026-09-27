@@ -4,6 +4,8 @@ import {
   categoryOfLogical,
   logicalNames,
   logicalOptions,
+  panelModelOptions,
+  presetOf,
   toLogicalName,
   type CatalogChannelLike,
 } from './modelCatalog'
@@ -178,5 +180,67 @@ describe('toLogicalName', () => {
   it('空值不炸', () => {
     expect(toLogicalName(channels, '')).toBe('')
     expect(toLogicalName([], 'x')).toBe('x')
+  })
+})
+
+/**
+ * 创作面板的模型下拉数据源（用户 2026-09-27 第 7 轮）。
+ *
+ * 用户要的是「前端只显示我定好的那几个名字」：
+ * 固定清单排在**最前**，其后才是渠道里勾选过的其它模型。
+ */
+describe('panelModelOptions', () => {
+  it('★ 固定显示名排在最前（用户拍板的那几个永远看得见）', () => {
+    const c = ch({ id: 'A', models: [cap('mock-image-1')] })
+    const opts = panelModelOptions([c], 'image')
+    expect(opts.slice(0, 6)).toEqual([
+      'GPT Image 2.5 Flare',
+      'GPT Image 2.5 Sunburst',
+      'GPT Image 2',
+      'Nano Banana Pro',
+      'Nano Banana 2',
+      'Midjourney',
+    ])
+  })
+
+  it('★ 渠道勾过的其它模型跟在固定清单后面（没配映射的站不该一个都选不出来）', () => {
+    const c = ch({ id: 'A', models: [cap('mock-image-1')] })
+    const opts = panelModelOptions([c], 'image')
+    expect(opts).toContain('mock-image-1')
+    expect(opts.indexOf('mock-image-1')).toBeGreaterThan(opts.indexOf('Midjourney'))
+  })
+
+  it('★ 与固定名同名的渠道模型不重复出现', () => {
+    const c = ch({ id: 'A', models: [cap('Midjourney')] })
+    const opts = panelModelOptions([c], 'image')
+    expect(opts.filter((n) => n === 'Midjourney')).toHaveLength(1)
+  })
+
+  it('按类别分档：生图档不混入对话 / 视频固定名', () => {
+    const image = panelModelOptions([], 'image')
+    expect(image).not.toContain('GPT-6 Astra')
+    expect(image).not.toContain('即梦 2.5')
+    expect(panelModelOptions([], 'chat')).toEqual([
+      'GPT-6 Astra',
+      'GPT-6 Sol',
+      'GPT-6 Luna',
+      'Gemini 3.8 Flash',
+    ])
+    expect(panelModelOptions([], 'video')).toHaveLength(5)
+  })
+
+  it('presetOf 取得到厂商（面板据此画图标），非固定名返回 undefined', () => {
+    expect(presetOf('Midjourney')?.vendor).toBe('midjourney')
+    expect(presetOf('Gemini Omni Flash 1.1')?.vendor).toBe('google')
+    expect(presetOf('GPT Image 2')?.vendor).toBe('openai')
+    expect(presetOf('mock-image-1')).toBeUndefined()
+  })
+
+  it('★ 固定显示名即使渠道里没有同名模型，也能取到分类（切类别不被误清）', () => {
+    const channels = [ch({ id: 'A', models: [cap('mock-image-1')] })]
+    // 渠道里根本没有 GPT Image 2.5 Flare，但它是固定生图名
+    expect(categoryOfLogical(channels, 'GPT Image 2.5 Flare', 'A')).toBe('image')
+    expect(categoryOfLogical(channels, 'GPT-6 Astra', 'A')).toBe('chat')
+    expect(categoryOfLogical(channels, '即梦 2.5', 'A')).toBe('video')
   })
 })

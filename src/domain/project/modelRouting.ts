@@ -214,7 +214,16 @@ export function routeCandidatesFor(
   const name = logicalName.trim()
   if (!name) return []
   return channels
-    .filter((c) => c.modelIds.includes(name))
+    /**
+     * 「该渠道提供这个逻辑模型」有**两种**成立方式（用户 2026-09-27 第 7 轮）：
+     *  ① 勾选列表里有同名模型（老路，逻辑名 = 上游 ID 时）；
+     *  ② 该渠道的 `modelMap` 里有这个**逻辑名**的条目（新路）。
+     *
+     * ② 是固定显示名能跑起来的关键：前端显示 `GPT Image 2.5 Flare`，
+     * 而站点的模型列表里叫 `gpt-image-2.5-flare` —— ② 没接上时，
+     * 用户配好了映射，选路却找不到任何候选，请求发不出去。
+     */
+    .filter((c) => c.modelIds.includes(name) || Boolean((c.modelMap ?? {})[name]?.trim()))
     .map((c) => ({
       channelId: c.id,
       enabled: c.enabled,

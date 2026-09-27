@@ -14,9 +14,11 @@ import styles from './CreationPanel.module.css'
 import { RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
 import {
   categoryOfLogical,
-  logicalOptions,
+  panelModelOptions,
   toLogicalName,
 } from '../../../domain/project/modelCatalog'
+import { presetOf } from '../../../domain/project/modelCatalog'
+import { ModelIcon } from './ModelIcon'
 
 /** 生成数量：固定四项（§6.8「1张 / 2张 / 4张 / 9张，固定四项」） */
 export const COUNT_OPTIONS = [1, 2, 4, 9] as const
@@ -342,6 +344,31 @@ export function CreationPanel(props: CreationPanelProps) {
       cancelled = true
     }
   }, [channels, ownedChannelId, ownedModel, promptMode, videoMode, channelSignature])
+  /**
+   * 「有模型、却没有渠道」→ 补一条可用渠道（用户 2026-09-27 去掉平台 chip 后的必要配套）。
+   *
+   * 去掉平台 chip 之后，用户可能先选模型、而节点上还没有渠道：
+   *  - 上面那条兜底在 `ownedModel` 非空时**刻意不跑**（不覆盖用户选择）；
+   *  - 而 `toRunRequest` 见到空 `channelId` 直接返回 null ⇒ 节点不进计划
+   *    ⇒ 点生成**毫无反应**（本项目反复踩过的「假成功」）。
+   *
+   * 所以这里只补**渠道**、不动模型：渠道是「这次打哪条路」的兜底，
+   * 模型是用户刚选的东西。补完节点就能参与选路，哪怕这条渠道还没有该模型的
+   * 映射，也会走「没有渠道提供模型」的**明确报错**，而不是静默失败。
+   */
+  useEffect(() => {
+    if (ownedChannelId || enabled.length === 0) return
+    const first = enabled[0]
+    if (!first) return
+    /**
+     * `setChannel` 的语义是「换渠道 ⇒ 清空模型」（见 PanelLayer）。
+     * 若此刻节点上已经有用户刚选的模型，必须**随后写回**，
+     * 否则「先选模型、再补渠道」这条路径会把用户的选择当场抹掉。
+     */
+    onEventRef.current({ type: 'setChannel', channelId: first.id })
+    if (ownedModel) onEventRef.current({ type: 'setModel', model: ownedModel })
+    // 依赖口径与上一条兜底一致：用稳定的 `channelSignature` 而不是每次新建的 `enabled`
+  }, [ownedChannelId, ownedModel, enabled, channelSignature])
   /** 面板实际展示的渠道 / 模型：节点自身优先，其次解析链兜底 */
   const shownChannelId = ownedChannelId || fallback?.channelId || ''
   const shownModel = ownedModel || fallback?.model || ''
@@ -464,11 +491,29 @@ export function CreationPanel(props: CreationPanelProps) {
  *
  * 零迁移：没有任何映射时逻辑名 = 上游 ID，列表与加此功能前一字不差。
    */
-  const logicalModelNames: string[] = logicalOptions(
+  /**
+   * 模型下拉的数据源。
+   *
+   * - **提示词节点**：只列该渠道勾选过的对话模型（它必须真能发请求给 LLM）；
+   * - **生成节点**：先列用户拍板的**固定显示名**（6 生图 / 5 视频），
+   *   其后才是渠道勾选过的其它模型（用户 2026-09-27）。
+   *   固定名在前是为了「一眼就选到自己的模型」，保留后者是为了
+   *   还没配映射的站不至于一个都选不出来。
+   */
+  const logicalModelNames: string[] = panelModelOptions(
     allChannels,
     wantedCategory,
     shownChannelId || undefined,
   )
+  /** 固定清单条目（有则模型行带厂商图标）；渠道模型没有图标，只出名字 */
+  const modelOptions = logicalModelNames.map((n) => {
+    const preset = presetOf(n)
+    return {
+      value: n,
+      label: n,
+      ...(preset ? { icon: <ModelIcon vendor={preset.vendor} /> } : {}),
+    }
+  })
 /** 节点上存的模型名 → 逻辑名（老数据迁移）：见 `logicalModelNames` 处的说明 */
   const shownLogicalModel = toLogicalName(allChannels, shownModel)
   /**
@@ -577,9 +622,6 @@ export function CreationPanel(props: CreationPanelProps) {
    * **提示词节点不走这条**（§6.7）：它要求的是「模型 chip **禁用**并显示『暂无可用文本模型』」，
    * 而不是「隐藏 chip + 给一条引导条」——换个藏法，用户反而不知道这个字段还在。
    */
-  const noModel = !promptMode && !noPlatform && !!activeChannel && models.length === 0
-  const noModelHint = videoMode ? '该渠道还没勾选视频模型' : '该渠道还没勾选模型'
-
   /**
    * 「现在按下去一定不会有反应」这件事，按钮自己先说清楚（用户 2026-09-23 报「没有反应点了」）。
    *
@@ -602,10 +644,8 @@ export function CreationPanel(props: CreationPanelProps) {
     ? null
     : noPlatform
       ? platformGap
-      : activeChannel && models.length === 0
-        ? promptMode
-          ? '暂无可用文本模型'
-          : noModelHint
+      : promptMode && activeChannel && models.length === 0
+        ? '暂无可用文本模型'
         : null
   const runDisabled = busyGlobal || blockedReason !== null
   const runTitle = blockedReason ? `${blockedReason}，去后台设置后再生成` : runLabel
@@ -786,21 +826,18 @@ export function CreationPanel(props: CreationPanelProps) {
             <span className={styles.setupHintGo}>去后台设置 →</span>
           </button>
         )}
-        {/* 平台选了、模型却是空的 → 指向设置页的「选择模型」，而不是留一个点开没内容的下拉 */}
-        {noModel && (
-          <button
-            type="button"
-            className={styles.setupHint}
-            data-panel-setup-hint={noModelHint}
-            onClick={() => onEvent({ type: 'openSettings' })}
-          >
-            <span>{noModelHint}</span>
-            <span className={styles.setupHintGo}>去后台设置 →</span>
-          </button>
-        )}
+        {/*
+          平台 chip：**只有提示词节点还留着**（用户 2026-09-27）。
 
-        {/* §6.8「无可用平台 | 平台下拉换成引导按钮」：此时不再挂一个点开是空的平台 chip */}
-        {!noPlatform && (
+          生成节点（生图 / 视频）由**选路**决定打哪条渠道（M7-3），
+          面板再挂一个「平台」只是重复且会误导 —— 用户改了它以为换了站，
+          实际请求按优先度走。渠道仍写在节点 data 上（兜底与配方记忆用），
+          只是不再让用户手选。
+
+          提示词节点保留：它的「优化 / 翻译 / 反推」走 `completeText`，
+          目前没有接入选路，需要一个明确的渠道。
+        */}
+        {promptMode && !noPlatform && (
           <ParamPicker
             name="channel"
             ariaLabel="生成平台"
@@ -816,28 +853,34 @@ export function CreationPanel(props: CreationPanelProps) {
         )}
 
         {/*
-          模型 chip：**提示词节点同样要选**（§6.7「只能选 LLM 模型」，优化 / 翻译要用），
-          所以这里不能按 promptMode 收窄——只有「没得选」时才让位给引导条。
+        模型 chip：**提示词节点同样要选**（§6.7「只能选 LLM 模型」，优化 / 翻译要用），
+          所以这里不能按 promptMode 收窄。
+
+          下拉现在**永远有固定显示名**（用户 2026-09-27），不再有
+          「这一类没得选 → 藏起来换引导条」的状态；名字在、映射配好就能跑。
         */}
-        {!noModel && (
-          <ParamPicker
+        <ParamPicker
             name="model"
             ariaLabel={categoryLabel}
             label={
-              activeModel?.id ??
+              shownLogicalModel ||
               // §6.7：提示词节点在「渠道里没有文本模型」时禁用并直说，不玩隐藏
               (promptMode && activeChannel && models.length === 0 ? '暂无可用文本模型' : categoryLabel)
             }
-            options={logicalModelNames.map((n) => ({ value: n, label: n }))}
+            options={modelOptions}
             value={shownLogicalModel}
             variant="list"
             open={openPicker === 'model'}
             onToggle={() => togglePicker('model')}
             onClose={closePicker}
             onSelect={(v) => onEvent({ type: 'setModel', model: v, recipe: recipeSnapshot({ model: v }) })}
-            disabled={!activeChannel || models.length === 0}
-          />
-        )}
+            /*
+             * 生成节点的模型清单来自**固定目录**，不再依赖「该渠道有没有勾模型」，
+             * 所以不能在没选到渠道时禁用 —— 那会让固定清单一个都点不动。
+             * 只有提示词节点维持「没文本模型就禁用」的原口径（它必须真能发出去）。
+             */
+            disabled={promptMode ? !activeChannel || models.length === 0 : noPlatform}
+        />
 
        {!promptMode && (
           <>

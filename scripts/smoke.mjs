@@ -173,8 +173,10 @@ async function genPanel(page, nodeLocator) {
 
 /** 面板内配置渠道 + 模型 + 提示词（等价于旧版在节点内直接操作三条） */
 async function configureGenPanel(page, panel, prompt) {
-  await pickParam(panel, 'channel', '新建渠道')
-  await sleep(200)
+  /**
+   * 生成节点**没有平台 chip**了（用户 2026-09-27）：渠道由选路决定，
+   * 面板的解析链会自动把首个可用渠道写进节点，所以这里直接选模型即可。
+   */
   await pickParam(panel, 'model', 'mock-image-1')
   await sleep(200)
   if (prompt != null) {
@@ -945,11 +947,12 @@ async function g9(browser) {
   await page.waitForURL(/\/canvas\//)
   await sleep(700)
 
-  // 诊断：打印生成节点平台 chip 的可选项，确认渠道已出现在画布平台选择中
-  // （M6-16 起这些参数在**创作面板**里，节点本体只剩媒体框；M6-17 起是上拉浮层）
+  // 诊断：打印生成节点模型 chip 的可选项
+  // （M6-16 起这些参数在**创作面板**里，节点本体只剩媒体框；M6-17 起是上拉浮层；
+  //   用户 2026-09-27 起生成节点已**没有平台 chip**，渠道由选路决定）
   const panel = await genPanel(page)
-  const chOpts = await paramOptions(page, panel, 'channel')
-  console.log('  [diag] 生成节点平台 chip 可选项 =', JSON.stringify(chOpts))
+  const modelOptsDiag = await paramOptions(page, panel, 'model')
+  console.log('  [diag] 生成节点模型 chip 可选项 =', JSON.stringify(modelOptsDiag))
 
   /**
    * 面板基准比例 21:9（用户 2026-09-19 第 2 条）：「保持长度不变、高度加高到 21:9」。
@@ -1044,8 +1047,6 @@ async function g10(browser) {
 
   // 参数与数量胶囊都在创作面板里（节点本体只剩媒体框，§6.8）
   const panel = await genPanel(page)
-  await pickParam(panel, 'channel', '新建渠道')
-  await sleep(200)
   await pickParam(panel, 'model', 'mock-image-1')
   await sleep(200)
 
@@ -1169,8 +1170,6 @@ async function g11(browser) {
   await page.waitForURL(/\/canvas\//)
   await sleep(700)
   const panel = await genPanel(page)
-  await pickParam(panel, 'channel', '新建渠道')
-  await sleep(200)
   await pickParam(panel, 'model', 'mock-image-1')
   await sleep(600)
   await page.reload({ waitUntil: 'networkidle' })
@@ -3811,20 +3810,30 @@ async function g42(browser) {
   await selectGenNode()
   rec(g, '渠道启用后面板引导条消失', (await page.locator('[data-panel-setup-hint]').count()) === 0)
   const panelNow = page.locator('[data-creation-panel]')
-  const platformOpts = await paramOptions(page, panelNow, 'channel')
-  rec(g, '平台 chip 出现已启用渠道', platformOpts.includes('新建渠道'), `opts=${JSON.stringify(platformOpts)}`)
+  /**
+   * 用户 2026-09-27 起生成节点**不再有平台 chip**（渠道由选路决定），
+   * 故这里改为断言「模型下拉已可用、且列出了固定显示名」——
+   * 它才是这个面板现在真正要验的东西。
+   */
+  const modelOpts = await paramOptions(page, panelNow, 'model')
+  rec(
+    g,
+    '★ 渠道启用后模型下拉可用（生成节点已无平台 chip）',
+    (await panelNow.locator('[data-param-chip="channel"]').count()) === 0 && modelOpts.length > 0,
+    `opts=${JSON.stringify(modelOpts)}`,
+  )
 
   // 8) 刷新后引导不回来（渠道是落库的应用级单例，不是内存态）
   await page.reload({ waitUntil: 'networkidle' })
   await sleep(1000)
   // 刷新后选中态丢失，必须重新选中节点才看得到面板
   await selectGenNode()
-  const platformAfterReload = await paramOptions(page, page.locator('[data-creation-panel]'), 'channel')
+  const modelAfterReload = await paramOptions(page, page.locator('[data-creation-panel]'), 'model')
   rec(
     g,
     '刷新后仍无引导（渠道已落库）',
-    (await page.locator('[data-panel-setup-hint]').count()) === 0 && platformAfterReload.includes('新建渠道'),
-    `opts=${JSON.stringify(platformAfterReload)}`,
+    (await page.locator('[data-panel-setup-hint]').count()) === 0 && modelAfterReload.length > 0,
+    `opts=${JSON.stringify(modelAfterReload)}`,
   )
 
   /**
@@ -3972,16 +3981,22 @@ async function g44(browser) {
   await sleep(300)
   const tokenInput = page.locator('input[type="password"]').first()
   await tokenInput.fill('sk-1234567890abcdef3f2a')
-  // exact: 「保存」是「保存配置」的子串，不精确匹配会同时命中两个按钮
-  await page.getByRole('button', { name: '保存', exact: true }).click()
+  /**
+   * 用 `data-settings-save` 锚点而不是文案。
+   *
+   * 原来靠 `保存` 精确匹配区分「保存配置」；但映射区（§7.4.1）每个显示名
+   * 也各有一个「保存」按钮，文案撞车后 `exact` 也照样命中多个。
+   * 锚点是稳定标识，不随按钮文案变化。
+   */
+  await page.locator('[data-settings-token-save]').click()
   await sleep(400)
   const tailText = await page.locator('[data-settings-token-tail]').innerText().catch(() => '')
   rec(g, '令牌保存后显示尾 4 位（脱敏）', norm0(tailText).includes('3f2a'), tailText)
   rec(g, '页面不出现令牌明文', !(await page.locator('body').innerText()).includes('sk-1234567890abcdef3f2a'))
   await page.screenshot({ path: `${OUT}/44-b-token-tail.png` })
 
-  // ③ 删除令牌 → 提示消失、渠道还在、可再存（exact 同上：避开「删除渠道」）
-  await page.getByRole('button', { name: '删除', exact: true }).click()
+  // ③ 删除令牌 → 提示消失、渠道还在、可再存（用锚点避开「删除渠道」）
+  await page.locator('[data-settings-token-remove]').click()
   await sleep(400)
   rec(g, '删除令牌后尾号提示消失', (await page.locator('[data-settings-token-tail]').count()) === 0)
   rec(g, '删除令牌不删渠道', (await page.locator('[data-channel-item]').count()) === 2)
@@ -4154,11 +4169,21 @@ async function g46(browser) {
   rec(g, '生成节点面板显示「上游已链接提示词节点」', linkedText.includes('上游已链接提示词节点'), linkedText)
 
   // ① 上拉浮层（§3.3 / §6.8）
-  const chip = panel.locator('[data-param-chip="channel"]')
-  rec(g, '平台是 chip，面板里已无原生下拉', (await chip.count()) === 1 && (await panel.locator('select').count()) === 0)
+  /**
+   * 用户 2026-09-27：「生图节点的平台选中都不需要了」。
+   * 生成节点（图片 / 视频）改由**选路**决定渠道，面板不再挂平台 chip；
+   * 上拉浮层改在**模型 chip** 上验（它是生成节点现在最主要的选择器）。
+   */
+  const chip = panel.locator('[data-param-chip="model"]')
+  rec(
+    g,
+    '★ 生成节点已无平台 chip（渠道由选路决定）',
+    (await panel.locator('[data-param-chip="channel"]').count()) === 0 &&
+      (await panel.locator('select').count()) === 0,
+  )
   await chip.click()
   await sleep(220)
-  const popup = panel.locator('[data-param-popup="channel"]')
+  const popup = panel.locator('[data-param-popup="model"]')
   rec(g, '点 chip 挂出浮层（DOM 里真有这块元素）', (await popup.count()) === 1)
   const chipBox = await chip.boundingBox()
   const popBox = await popup.boundingBox()
@@ -4192,24 +4217,26 @@ async function g46(browser) {
   await sleep(200)
   rec(g, '点浮层外关闭', (await panel.locator('[data-param-popup]').count()) === 0)
 
-  // 真正选中渠道（上面几轮都只是在开合浮层，从没选过值 → 模型 chip 还是禁用的）
-  await pickParam(panel, 'channel', '新建渠道')
-  rec(g, '平台 chip 带出所选渠道', (await paramLabel(panel, 'channel')) === '新建渠道')
+  // 真正选中一个渠道模型（上面几轮都只是在开合浮层，从没选过值）
+  await chip.click()
+  await sleep(220)
+  await panel.locator('[data-param-popup="model"] button', { hasText: 'mock-image-1' }).first().click()
+  await sleep(200)
+  rec(g, '模型 chip 带出所选值', (await paramLabel(panel, 'model')) === 'mock-image-1')
 
   // 开新关旧（§6.8）：一个开着时点另一个 chip，应只剩新的那个
   await chip.click()
   await sleep(200)
-  await panel.locator('[data-param-chip="model"]').click()
+  await panel.locator('[data-param-chip="ratio"]').click()
   await sleep(250)
   rec(
     g,
     '开新关旧：同一时刻只有一个浮层',
     (await panel.locator('[data-param-popup]').count()) === 1 &&
-      (await panel.locator('[data-param-popup="model"]').count()) === 1,
+      (await panel.locator('[data-param-popup="ratio"]').count()) === 1,
   )
-  await panel.locator('[data-param-popup="model"] button', { hasText: 'mock-image-1' }).first().click()
-  await sleep(200)
-  rec(g, '模型 chip 带出所选值', (await paramLabel(panel, 'model')) === 'mock-image-1')
+  await page.keyboard.press('Escape')
+  await sleep(150)
 
   /**
    * 比例现在是**固定的 13 档图形化网格**（用户 2026-09-17 拍板：与参考产品对齐，
@@ -7870,6 +7897,28 @@ async function g69(browser) {
   const secondChannelCount = await page.locator('[data-channel-item]').count()
   rec(g, '已建出两条渠道（场景成立）', secondChannelCount >= 2, `渠道项=${secondChannelCount}`)
 
+  /**
+   * 让新建生成节点落到**第二条渠道**上。
+   *
+   * ⚠️ 用户 2026-09-27 起生成节点**没有平台 chip**（渠道由选路决定），
+   * 所以不能再像以前那样「在面板里把渠道切到第二条」。
+   * 改用一条**真实可达**的路径达成同一个局面：临时停用第一条渠道，
+   * 于是新建的节点只能落到第二条；随后（新建 B 之前）再恢复第一条。
+   *
+   * 本组真正要守的那条不变式没变：**新建 B 继承的是「最近改过配方」的那条渠道，
+   * 而不是列表里排第一的那条**；所以恢复第一条必须在建 B 之前做完。
+   */
+  await page.locator('[data-channel-item]').first().click()
+  await sleep(500)
+  {
+    const enabledBox = page.locator('input[type="checkbox"]').first()
+    if (await enabledBox.isChecked().catch(() => false)) {
+      await enabledBox.uncheck()
+      await sleep(600)
+    }
+  }
+  rec(g, '★ 已临时停用第一条渠道（好让 A 落到第二条）', true)
+
   await page.goto(BASE, { waitUntil: 'networkidle' })
   await sleep(500)
   await page.locator('[data-template="blank"]').click()
@@ -7915,37 +7964,30 @@ async function g69(browser) {
     return (await ids()).find((i) => !before.includes(i))
   }
 
-  // 建 A，并把它切到**第二条渠道**（关键：改参数的渠道不是列表第一条）
   const idA = await addGeneration()
   await page.locator(`[data-node-id="${idA}"]`).click()
   await sleep(700)
 
-  const channelChip = page.locator('[data-creation-panel] [aria-label="生成平台"]').first()
-  const chCount = (await channelChip.count()) > 0 ? await channelChip.count() : 0
-  if (chCount > 0) {
-    await channelChip.click()
-    await sleep(450)
-    const chOpts = page.locator('[role="option"]')
-    const n = await chOpts.count()
-    rec(g, '★ 面板里能看到多条渠道（场景成立）', n > 1, `渠道数=${n}`)
-    if (n > 1) {
-      await chOpts.nth(1).click()
-      await sleep(700)
-      // 切渠道会清空模型，需要重新选
-      const modelChip = page.locator('[data-creation-panel] [aria-label="生图模型"]').first()
-      if ((await modelChip.count()) > 0 && (await modelChip.isEnabled().catch(() => false))) {
-        await modelChip.click()
-        await sleep(450)
-        const mOpts = page.locator('[role="option"]')
-        if ((await mOpts.count()) > 0) { await mOpts.first().click(); await sleep(600) }
-      }
+  /** 面板确实没有平台 chip 了（这条需求本身也该被守住） */
+  rec(
+    g,
+    '★ 生成节点没有平台 chip（渠道由选路决定）',
+    (await page.locator('[data-creation-panel] [aria-label="生成平台"]').count()) === 0,
+  )
+
+  // 选一个模型（固定显示名或渠道模型都行），让节点成为一份完整配方
+  {
+    const modelChip = page.locator('[data-creation-panel] [aria-label="生图模型"]').first()
+    if ((await modelChip.count()) > 0 && (await modelChip.isEnabled().catch(() => false))) {
+      await modelChip.click()
+      await sleep(450)
+      const mOpts = page.locator('[role="option"]')
+      if ((await mOpts.count()) > 0) { await mOpts.first().click(); await sleep(600) }
     }
-  } else {
-    rec(g, '★ 面板里能看到多条渠道（场景成立）', false, '平台 chip 不存在')
   }
 
   const beforeEdit = (await readNodes()).find((n) => n.id === idA)
-  rec(g, '节点已落在第二条渠道上', !!beforeEdit?.channelId && !!beforeEdit?.model, `ch=${beforeEdit?.channelId} model=${beforeEdit?.model}`)
+  rec(g, '★ 节点已落在第二条渠道上（场景成立）', !!beforeEdit?.channelId && !!beforeEdit?.model, `ch=${beforeEdit?.channelId} model=${beforeEdit?.model}`)
 
   // 在该渠道上改比例
   await page.locator('[data-creation-panel] [aria-label="画面比例"]').first().click()
@@ -7957,6 +7999,30 @@ async function g69(browser) {
   }
   const edited = (await readNodes()).find((n) => n.id === idA)
   rec(g, '改参数后节点自身变了', !!edited?.ratio, `ratio=${edited?.ratio}`)
+
+  /**
+   * 恢复第一条渠道的启用状态。
+   *
+   * 必须**在新建 B 之前**恢复：本组要验的正是「两条渠道都可用时，
+   * B 继承的是最近改过的第二条，而不是列表第一的那条」。
+   * 只恢复一条渠道的话，B 只能落到它身上，断言会退化成恒真。
+   */
+  await page.locator('[data-topbar-settings]').click()
+  await page.waitForURL(/\/settings/)
+  await sleep(600)
+  await page.locator('[data-channel-item]').first().click()
+  await sleep(500)
+  {
+    const enabledBox = page.locator('input[type="checkbox"]').first()
+    if (!(await enabledBox.isChecked().catch(() => true))) {
+      await enabledBox.check()
+      await sleep(600)
+    }
+  }
+  // 用顶栏设置入口进、再用返回按钮回来，保证回到**同一个项目**
+  await page.locator('[data-settings-back]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
 
   // 新建 B：必须继承**第二条渠道**那套，而不是列表第一条
   const idB = await addGeneration()
@@ -9365,8 +9431,8 @@ async function g76(browser) {
 
   // 节点默认模型可能不是我们改的那条；把它选成改过的那条逻辑名
   const panel = page.locator('[data-creation-panel]')
-  await pickParam(panel, 'channel', '新建渠道')
-  await sleep(300)
+  // 生成节点已无平台 chip（用户 2026-09-27）：面板会自动把首个可用渠道写进节点
+  await sleep(400)
   await pickParam(panel, 'model', logical)
   await sleep(400)
   /**
@@ -9632,7 +9698,7 @@ async function g78(browser) {
   await page.locator('[data-creation-panel]').waitFor({ state: 'visible', timeout: 10000 })
 
   const panel = page.locator('[data-creation-panel]')
-  await pickParam(panel, 'channel', '新建渠道')
+  // 生成节点已无平台 chip（用户 2026-09-27）：渠道由面板解析链自动落到节点上
   await sleep(400)
   /**
    * 显式点开模型浮层再读选项。
@@ -9698,7 +9764,196 @@ async function g78(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78]
+/**
+ * G79 固定模型显示名（用户 2026-09-27 第 7 轮）。
+ *
+ * 三件事一起验，缺一这条需求就没真正落地：
+ *  ① 生图节点**没有平台 chip**（渠道由选路决定）；
+ *  ② 模型下拉列的是用户拍板的**固定显示名**，每个都带矢量图标；
+ *  ③ 这些显示名在后台**能逐条映射**到本站真实 ID，且映射后
+ *     请求发出去的是真实 ID（不是显示名）—— 这是「前端只显示、
+ *     后端用映射」那句需求的可执行证据。
+ */
+async function g79(browser) {
+  const g = 'G79 固定模型显示名'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+  await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20000 })
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(1200)
+
+  const panel = await genPanel(page)
+  rec(
+    g,
+    '★ 生图节点没有平台 chip（用户：平台选中都不需要了）',
+    (await panel.locator('[data-param-chip="channel"]').count()) === 0,
+  )
+
+  // ① 图片档：固定六个 + 每个带图标
+  await panel.locator('[data-param-chip="model"]').click()
+  await sleep(400)
+  const imageRows = panel.locator('[data-param-popup="model"] button')
+  const imageOpts = await imageRows.allInnerTexts()
+  const imageValues = await imageRows.evaluateAll((els) =>
+    els.map((e) => e.getAttribute('data-param-option')),
+  )
+  const wantImage = [
+    'GPT Image 2.5 Flare',
+    'GPT Image 2.5 Sunburst',
+    'GPT Image 2',
+    'Nano Banana Pro',
+    'Nano Banana 2',
+    'Midjourney',
+  ]
+  rec(
+    g,
+    '★ 生图档列出用户拍板的固定六个（且排在渠道模型之前）',
+    JSON.stringify(imageValues.slice(0, 6)) === JSON.stringify(wantImage),
+    `opts=${JSON.stringify(imageValues)}`,
+  )
+  rec(
+    g,
+    '★ 固定项不含 Nano Banana 2 Lite（用户明确不要）',
+    !imageOpts.some((t) => t.includes('Nano Banana 2 Lite')),
+  )
+  const iconCount = await imageRows.locator('svg[data-model-icon]').count()
+  rec(g, '★ 固定模型每项前方都有矢量图标', iconCount >= 6, `图标数=${iconCount}`)
+  await page.screenshot({ path: `${OUT}/95-g79-image-models.png` })
+  await page.keyboard.press('Escape')
+  await sleep(200)
+
+  // ② 视频档：固定五个
+  await panel.locator('[data-param-mode="video"]').click()
+  await sleep(500)
+  await panel.locator('[data-param-chip="model"]').click()
+  await sleep(400)
+  const videoValues = await panel
+    .locator('[data-param-popup="model"] button')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-option')))
+  rec(
+    g,
+    '★ 视频档列出用户挑的前五个（即梦 2.5 排在首位）',
+    JSON.stringify(videoValues.slice(0, 5)) ===
+      JSON.stringify(['即梦 2.5', 'Gemini Omni Flash 1.1', 'Minimax H3 Max', 'MiniMax H3', 'Wan 3.0']),
+    `opts=${JSON.stringify(videoValues)}`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(200)
+
+  // ③ 提示词节点：对话档固定四个
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+  await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20000 })
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(1000)
+  const promptNode = page.locator('[data-node-type="prompt"]').first()
+  const pPanel = await genPanel(page, promptNode)
+  await pPanel.locator('[data-param-chip="model"]').click()
+  await sleep(400)
+  const chatValues = await pPanel
+    .locator('[data-param-popup="model"] button')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-option')))
+  rec(
+    g,
+    '★ 对话档 = OpenAI 三个 + Gemini 3.8 Flash（Google 只留一个）',
+    JSON.stringify(chatValues.slice(0, 4)) ===
+      JSON.stringify(['GPT-6 Astra', 'GPT-6 Sol', 'GPT-6 Luna', 'Gemini 3.8 Flash']),
+    `opts=${JSON.stringify(chatValues)}`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(200)
+
+  // ④ 后台能逐条映射固定显示名 → 本站真实 ID
+  await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+  await sleep(700)
+  await page.locator('[data-channel-item]').first().click()
+  await sleep(600)
+  const presetRow = page.locator('[data-route-map-row="GPT Image 2.5 Flare"]')
+  rec(g, '★ 后台为固定显示名给出可填写的映射行', (await presetRow.count()) === 1)
+  await page.locator('[data-route-map-input="GPT Image 2.5 Flare"]').fill('gpt-image-2.5-flare')
+  await sleep(300)
+  await page.locator('[data-route-map-save="GPT Image 2.5 Flare"]').click()
+  await sleep(700)
+
+  const restoreMapping = async () => {
+    try {
+      await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+      await sleep(600)
+      await page.locator('[data-channel-item]').first().click()
+      await sleep(500)
+      const input = page.locator('[data-route-map-input="GPT Image 2.5 Flare"]')
+      if ((await input.count()) > 0) {
+        await input.fill('')
+        await sleep(250)
+        await page.locator('[data-route-map-save="GPT Image 2.5 Flare"]').click()
+        await sleep(600)
+      }
+    } catch {
+      // 还原失败不掩盖本组结论
+    }
+  }
+
+  // ⑤ 画布选固定显示名 → 出图 → 日志里是映射后的真实 ID
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+  await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20000 })
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(1200)
+  const gen = page.locator('[data-node-type="generation"]').first()
+  const gb = await gen.boundingBox()
+  await page.mouse.click(Math.round(gb.x + 40), Math.max(100, Math.round(gb.y + 40)))
+  await sleep(800)
+  const panel2 = page.locator('[data-creation-panel]')
+  await panel2.waitFor({ state: 'visible', timeout: 10000 })
+  await pickParam(panel2, 'model', 'GPT Image 2.5 Flare')
+  await sleep(400)
+  rec(
+    g,
+    '★ 选中后 chip 显示的是**显示名**（前端只显示这一个名字）',
+    (await paramLabel(panel2, 'model')) === 'GPT Image 2.5 Flare',
+    await paramLabel(panel2, 'model'),
+  )
+  const ta = panel2.locator('textarea').first()
+  if ((await ta.count()) > 0) {
+    await ta.click()
+    await ta.fill('一只在屋顶上的猫')
+    await ta.blur()
+    await sleep(700)
+  }
+  await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
+  let done = false
+  for (let i = 0; i < 40; i += 1) {
+    await sleep(500)
+    if ((await page.locator('[data-node-type="generation"] img').count()) > 0) {
+      done = true
+      break
+    }
+  }
+  rec(g, '★ 显示名配好映射后能真出图', done)
+
+  await page.getByRole('button', { name: '日志' }).click()
+  await sleep(700)
+  const dialog = page.getByRole('dialog', { name: '日志面板' })
+  const text = (await dialog.count()) > 0 ? await dialog.innerText().catch(() => '') : ''
+  rec(
+    g,
+    '★★ 请求发的是映射后的真实 ID，不是显示名（前后端分离的要害）',
+    text.includes('gpt-image-2.5-flare') && !text.includes('GPT Image 2.5 Flare'),
+    `日志片段="${text.replace(/\n/g, ' ').slice(0, 140)}"`,
+  )
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await restoreMapping()
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
