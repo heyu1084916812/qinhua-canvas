@@ -375,8 +375,6 @@ export function SettingsPage() {
 
         于是这个页面现在就是**渠道配置本身**，从内容直接开始。
       */}
-      <div className={styles.shell} data-settings-shell>
-        <div className={styles.content}>
       {(
       <div className={styles.layout} data-settings-card>
         <aside className={styles.sidebar}>
@@ -913,8 +911,6 @@ export function SettingsPage() {
         </section>
       </div>
       )}
-        </div>
-      </div>
     </div>
   )
 }

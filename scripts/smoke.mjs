@@ -8969,6 +8969,33 @@ async function g74(browser) {
     )
   })
   rec(g, '★ 渠道区最外层容器没有描边', shellBorder === 0, `border=${shellBorder}px`)
+  /**
+   * ★★ 设置页不能再套旧的「左导航 + 内容」两栏外壳（用户 2026-09-27 报
+   * 「后台渠道都没了」）：
+   *
+   * 删掉页内二级菜单后，旧 `.shell` 的 `grid-template-columns: 176px 1fr`
+   * 仍在，把只剩一列的渠道卡片挤进 176px 窄列 —— 数据其实在，但列表被压成
+   * 窄条、文字还被裁断，看起来就是「渠道没了」。
+   *
+   * 判据：内容卡片宽度必须接近工作区宽度（远大于旧的 176px），
+   * 且左侧渠道栏要有正常的列表宽度。
+   */
+  const layoutGeom = await page.evaluate(() => {
+    const card = document.querySelector('[data-settings-card]')?.getBoundingClientRect()
+    const workspace = document.querySelector('[data-app-workspace]')?.getBoundingClientRect()
+    return {
+      cardW: card ? Math.round(card.width) : 0,
+      workspaceW: workspace ? Math.round(workspace.width) : 0,
+      hasLegacyShell: !!document.querySelector('[data-settings-shell]'),
+    }
+  })
+  rec(
+    g,
+    '★★ 渠道卡片铺满工作区（不再被旧两栏外壳挤成 176px 窄条）',
+    layoutGeom.cardW > 400 && layoutGeom.cardW >= layoutGeom.workspaceW - 40,
+    `卡片=${layoutGeom.cardW}px 工作区=${layoutGeom.workspaceW}px`,
+  )
+  rec(g, '★ 设置页不再有旧的三区外壳', !layoutGeom.hasLegacyShell)
 
   // ── ② 预设词已迁到技能库第二层，仍可编辑 ──
   await page.goto(`${BASE}/skills`, { waitUntil: 'networkidle' })
