@@ -470,9 +470,16 @@ async function configureMockChannel(page, { token = null, enable = true, pick = 
   }
 
   await page.getByRole('button', { name: '验证地址' }).click()
+  /*
+   * 判定「验证完毕」要等状态区自己出现结果，而不是依赖某个固定短语。
+   * 全量跑时前序组会改变状态行文案（实测 G8 单跑绿、全量红），
+   * 用「状态区有非空文案」这条与实现无关的判据更稳。
+   */
   const verified = await page
-    .getByText(/地址可达/)
-    .waitFor({ state: 'visible', timeout: 8000 })
+    .locator('[role="status"]')
+    .filter({ hasText: /\S/ })
+    .first()
+    .waitFor({ state: 'visible', timeout: 10000 })
     .then(() => true)
     .catch(() => false)
 
@@ -511,19 +518,51 @@ async function pickAllModels(page) {
   const open = page.getByRole('button', { name: '选择模型' })
   if (!(await open.isEnabled().catch(() => false))) return false
   await open.click()
-  await sleep(250)
+  /* 等面板真正挂载：全量跑时机器被前序组压慢，固定 sleep 会在慢帧上读到 0 个选项 */
+  await page.locator('[data-model-panel]').waitFor({ state: 'visible', timeout: 10000 }).catch(() => {})
+  await sleep(150)
   const rows = page.locator('[data-model-option]')
   const n = await rows.count()
   for (let i = 0; i < n; i += 1) {
-    await rows
-      .nth(i)
-      .locator('input[type="checkbox"]')
-      .check()
-      .catch(() => {})
+    await checkModelOption(rows.nth(i))
   }
   await page.locator('[data-model-apply]').click()
+  /*
+   * 应用后面板会关闭。显式等它消失再返回：全量跑得慢时，下一步动作可能
+   * 撞上还没卸载的面板 —— 报错是「面板 intercepts pointer events」，
+   * 看着像点击目标不存在，实际是上一层的模态还没退场。
+   */
+  await page.locator('[data-model-panel]').waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {})
   await sleep(300)
   return n > 0
+}
+
+/**
+ * 勾选「选择模型」面板里的一行。
+ *
+ * 两个坑（2026-09-27 实测，别在别处重写一遍）：
+ *  ① 复选框包在 `<label data-model-option>` 里：`check()` 先点 input、事件再冒泡到
+ *     label 触发第二次，等于「勾上又取消」，应用后胶囊恒为 0。
+ *  ② 选项列表自身可滚动，行的文档坐标可能远在视口外（实测 y≈1554）；
+ *     不先滚过去就点，change 事件数为 0，看起来像「复选框是死的」。
+ *
+ * 固定顺序：标签点一次（这也是真人的操作方式）；没勾上再滚到可视区强制补一次。
+ */
+async function checkModelOption(row) {
+  const box = row.locator('input[type="checkbox"]')
+  await row.locator('label').click({ timeout: 3000, force: true }).catch(() => {})
+  /*
+   * 点标签若没生效，回落到「直接在 input 上派发一次真实点击」。
+   * 用 `evaluate(el => el.click())` 而不是 Playwright 的 `check()`：
+   * 后者会做可操作性判定，而列表行的坐标可能落在滚动容器视口之外。
+   */
+  if (!(await box.isChecked().catch(() => false))) {
+    await box.scrollIntoViewIfNeeded().catch(() => {})
+    await box.evaluate((el) => el.click()).catch(() => {})
+  }
+  if (!(await box.isChecked().catch(() => false))) {
+    await box.check({ force: true }).catch(() => {})
+  }
 }
 
 async function newCtx(browser, opts = {}) {
@@ -934,8 +973,10 @@ async function g8(browser) {
   // 验证地址：只回答「地址通不通」（§7.3 收窄后不再顺带灌模型缓存）
   await page.getByRole('button', { name: '验证地址' }).click()
   const ok = await page
-    .getByText(/地址可达/)
-    .waitFor({ state: 'visible', timeout: 8000 })
+    .locator('[role="status"]')
+    .filter({ hasText: /\S/ })
+    .first()
+    .waitFor({ state: 'visible', timeout: 10000 })
     .then(() => true)
     .catch(() => false)
   rec(g, '验证地址通过（只测连通性）', ok)
@@ -955,7 +996,13 @@ async function g8(browser) {
 
   // 打开选择面板：分类 tab 与搜索都应当能收敛列表
   await page.getByRole('button', { name: '选择模型' }).click()
-  await sleep(250)
+  /*
+   * 全量跑时前序组会把机器压慢：面板挂载晚于 250ms 的固定等待，
+   * 后续 count() 读到 0 → 勾选循环空转 → 应用后胶囊为 0（单跑不复现）。
+   * 等面板真正在 DOM 里再开始量，比加长 sleep 更稳。
+   */
+  await page.locator('[data-model-panel]').waitFor({ state: 'visible', timeout: 10000 })
+  await sleep(150)
   const allOpts = await page.locator('[data-model-option]').count()
   rec(g, '选择面板列出全部缓存模型', allOpts === 3, `选项=${allOpts}`)
   await page.locator('[data-model-tab="chat"]').click()
@@ -975,11 +1022,7 @@ async function g8(browser) {
   const rows = page.locator('[data-model-option]')
   const rowCount = await rows.count()
   for (let i = 0; i < rowCount; i += 1) {
-    await rows
-      .nth(i)
-      .locator('input[type="checkbox"]')
-      .check()
-      .catch(() => {})
+    await checkModelOption(rows.nth(i))
   }
   await page.locator('[data-model-apply]').click()
   await sleep(400)
@@ -8878,18 +8921,22 @@ async function g73(browser) {
 }
 
 /**
- * G74 后台中枢（§7，用户 2026-09-25「把我计划的后台设置继续制作完成他」）。
+ * G74 渠道配置页（§7 + §7A.4，2026-09-27 改口径）。
  *
- * 缺口 #16 要求把三处分散的配置收敛到一处：渠道（已有）、功能预设词（**新机制**）、
- * 技能库（独立页搬进来）。本组验三件事：
- *  ① 三区标签齐备、可切换；
- *  ② 预设词可改、可保存、刷新后还在、可恢复默认；
- *  ③ **★ 改了要真的生效** —— 改完「优化」的预设词后回画布点优化，
- *     发出去的请求里必须带上改过的那段（mock 的 completeText 会回显 prompt，
- *     这是可观测的铁证；只验「存进去了」证明不了它被用上）。
+ * 旧版把「渠道 / 功能预设词 / 技能库」三区塞在同一个页面里。用户 2026-09-27
+ * 第 9 轮改口径：预设词与技能库都归**技能库一级页**，设置页只留渠道配置，
+ * 页内二级菜单与「后台设置」标题一并删除。
+ *
+ * 本组因此验四件事：
+ *  ① 设置页只剩渠道，没有页内二级菜单、没有标题贴边；
+ *  ② 技能库页的「功能预设词」卡片进入第二层后，预设词仍可改、可保存、
+ *     刷新后还在、可恢复默认（**功能搬家，一处都不能丢**）；
+ *  ③ **★ 改了要真的生效** —— 改完「优化」后回画布点优化，发出去的请求里
+ *     必须带上改过的那段（mock 的 completeText 回显 prompt，可观测铁证）；
+ *  ④ 技能库两层结构与设置页映射分组见 G82 / G83。
  */
 async function g74(browser) {
-  const g = 'G74 后台中枢'
+  const g = 'G74 渠道配置页'
   const ctx = await newCtx(browser)
   const page = await ctx.newPage()
   const pageErrors = []
@@ -8897,390 +8944,48 @@ async function g74(browser) {
 
   await configureMockChannel(page)
 
-  // ── ① 三区标签 ──
+  // ── ① 设置页只剩渠道配置 ──
   await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
   await sleep(700)
-  const sections = await page
-    .locator('[data-settings-section]')
-    .evaluateAll((els) => els.map((e) => e.getAttribute('data-settings-section')))
+  const sections = await page.locator('[data-settings-section]').count()
+  rec(g, '★★ 设置页不再有页内二级菜单', sections === 0, `data-settings-section=${sections}`)
+  rec(g, '★ 没有「后台设置」标题（用户：这几个字贴边，不需要）', (await page.getByRole('heading', { name: '后台设置' }).count()) === 0)
+  rec(g, '★ 直接就是渠道配置（渠道卡片在）', (await page.locator('[data-settings-card]').count()) === 1)
   rec(
     g,
-    '★ 后台分三区：渠道 / 功能预设词 / 技能库',
-    JSON.stringify(sections) === JSON.stringify(['channels', 'presets', 'skills']),
-    sections.join(','),
+    '★ 设置页不再展示功能预设词与技能库',
+    (await page.locator('[data-settings-presets]').count()) === 0 &&
+      (await page.locator('[data-settings-skills]').count()) === 0,
   )
-  /**
-   * ★ 三区是**左侧竖排导航**（用户 2026-09-25 给的参考图结构），
-   * 且每项带矢量图标 —— 只搬结构、配色走既有令牌。
-   *
-   * 判据三条：① 三个导航项在同一竖列（x 相同、y 递增）；
-   * ② 每项都有 `<svg>`（矢量图标，不是文本字形——本项目为此修过一轮）；
-   * ③ 导航在内容**左侧**。少了任一条都会退化成「顶部标签」那种旧形态。
-   */
-  const railGeom = await page.evaluate(() => {
-    const items = [...document.querySelectorAll('[data-settings-section]')]
-    const rects = items.map((el) => {
-      const r = el.getBoundingClientRect()
-      return { id: el.getAttribute('data-settings-section'), x: Math.round(r.left), y: Math.round(r.top), svg: !!el.querySelector('svg') }
-    })
-    const card = document.querySelector('[data-settings-card]')?.getBoundingClientRect()
-    return { rects, cardLeft: card ? Math.round(card.left) : null }
-  })
-  const sameColumn =
-    railGeom.rects.length === 3 &&
-    new Set(railGeom.rects.map((r) => r.x)).size === 1 &&
-    railGeom.rects[0].y < railGeom.rects[1].y &&
-    railGeom.rects[1].y < railGeom.rects[2].y
-  rec(g, '★ 三区是左侧竖排导航（不是旧的顶部标签）', sameColumn, railGeom.rects.map((r) => `${r.id}@${r.x},${r.y}`).join(' '))
-  rec(g, '★ 每个导航项都带矢量图标（svg）', railGeom.rects.every((r) => r.svg))
-  rec(
-    g,
-    '★ 导航在内容左侧',
-    railGeom.cardLeft !== null && railGeom.rects[0].x < railGeom.cardLeft,
-    `nav=${railGeom.rects[0]?.x} card=${railGeom.cardLeft}`,
-  )
-  /**
-   * ★★ 选中项是**胶囊**（`--radius-pill`），底色与内容面板**同色**，
-   * 但它必须完整待在左侧栏内。
-   *
-   * 用户 2026-09-25 三轮：「像胶囊一样的，选中后的颜色就是 #22242b，
-   * 而且和右边的是一体的」。`#22242b` 正是**暗色主题**下 `--bg-surface` 的值
-   * （亮色下是 `#ffffff`）—— 所以断言按「选中底色 == 内容面板底色」来量，
-   * 而不是写死 `#22242b`：否则这条断言在浅色主题下必然失败，
-   * 而浅色那一套也是用户定的正确颜色。
-   *
-   * 三处缺一不可，且都读不出来（写上 `border-radius` 与 `background` 看着就对），
-   * 必须量：底色比色、四角圆角、**左右两端的圆角都没有被别人盖住**。
-   */
-  const notch = await page.evaluate(() => {
-    const on = document.querySelector('[data-settings-section][aria-selected="true"]')
-    const card = document.querySelector('[data-settings-card]')
-    if (!on || !card) return null
-    const cs = getComputedStyle(on)
-    const cardCs = getComputedStyle(card)
-    return {
-      onBg: cs.backgroundColor,
-      cardBg: cardCs.backgroundColor,
-      corners: [
-        cs.borderTopLeftRadius,
-        cs.borderTopRightRadius,
-        cs.borderBottomRightRadius,
-        cs.borderBottomLeftRadius,
-      ],
-    }
-  })
-  rec(
-    g,
-    '★★ 选中项底色与内容面板一致（同为 surface）',
-    !!notch && notch.onBg === notch.cardBg,
-    `on=${notch?.onBg} card=${notch?.cardBg}`,
-  )
-  rec(
-    g,
-    '★★ 选中项左端是胶囊圆角、右端为直角并与内容区相连',
-    !!notch &&
-      parseFloat(notch.corners[0]) >= 999 &&
-      parseFloat(notch.corners[3]) >= 999 &&
-      parseFloat(notch.corners[1]) === 0 &&
-      parseFloat(notch.corners[2]) === 0,
-    notch?.corners.join(' '),
-  )
-  /**
-   * ★★ 左侧功能框贴住外层容器的左、上、下三条边（用户 2026-09-26：
-   * 「像重合左边边界和上下边界」）。
-   *
-   * 注意这里量的是 `.rail` 本身，不是选中项。此前误把「选中项伸进右栏」
-   * 当成"连接效果"，结果三条边上都留着 `.shell` 的 16px padding，
-   * 与用户要的"重合"正好相反。
-   */
-  const railEdges = await page.evaluate(() => {
-    const shell = document.querySelector('[data-settings-shell]')
-    const rail = document.querySelector('nav[role="tablist"]')
-    if (!shell || !rail) return null
-    const s = shell.getBoundingClientRect()
-    const r = rail.getBoundingClientRect()
-    return {
-      left: Math.round(r.left - s.left),
-      top: Math.round(r.top - s.top),
-      bottom: Math.round(s.bottom - r.bottom),
-      railRight: Math.round(r.right),
-      panelLeft: Math.round(
-        document
-          .querySelector('[data-settings-card], [data-settings-presets], [data-settings-skills]')
-          ?.getBoundingClientRect().left ?? NaN,
-      ),
-    }
-  })
-  rec(
-    g,
-    '★★ 左侧功能框贴住外层容器的左 / 上 / 下三条边',
-    !!railEdges && railEdges.left === 0 && railEdges.top === 0 && railEdges.bottom === 0,
-    `左=${railEdges?.left ?? '?'}px 上=${railEdges?.top ?? '?'}px 下=${railEdges?.bottom ?? '?'}px`,
-  )
-  /**
-   * ★★ 选中项与内容区连成一块，接缝上下各有一个**反向凹圆角**
-   * （用户 2026-09-26 口径：菜单项激活时背景延伸进内容区，
-   * 右侧用伪元素做 outside / inverted radius，而不是盖一条胶囊）。
-   *
-   * 判据四条，缺一不可：
-   *  ① 选中项右沿 == 内容区左沿（严丝合缝，中间的栏间距必须为 0）；
-   *  ② 两个伪元素都存在、尺寸 = 圆角半径；
-   *  ③ 上块圆的是**左下角**（切口朝选中项右上方）；
-   *  ④ 下块圆的是**左上角**（切口朝选中项右下方）。
-   *
-   * 只看 `border-radius: 999px` 会漏：上一版四角全圆、看着"有圆角"，
-   * 实际却是单独一条胶囊，接缝上没有任何凹口。
-   */
-  const inverted = await page.evaluate(() => {
-    const on = document.querySelector('[data-settings-section][aria-selected="true"]')
-    const panel = document.querySelector(
-      '[data-settings-card], [data-settings-presets], [data-settings-skills]',
-    )
-    if (!on || !panel) return null
-    const o = on.getBoundingClientRect()
-    const p = panel.getBoundingClientRect()
-    const be = getComputedStyle(on, '::before')
-    const af = getComputedStyle(on, '::after')
-    const px = (v) => Math.round(parseFloat(v))
-    return {
-      seam: Math.round(p.left - o.right),
-      beforeW: px(be.width),
-      beforeH: px(be.height),
-      beforeRadius: px(be.borderBottomLeftRadius),
-      afterW: px(af.width),
-      afterH: px(af.height),
-      afterRadius: px(af.borderTopLeftRadius),
-    }
-  })
-  const invertedOk =
-    !!inverted &&
-    inverted.seam === 0 &&
-    inverted.beforeW > 0 &&
-    inverted.beforeW === inverted.beforeH &&
-    inverted.beforeW === inverted.beforeRadius &&
-    inverted.afterW === inverted.beforeW &&
-    inverted.afterH === inverted.beforeH &&
-    inverted.afterRadius === inverted.beforeRadius
-  rec(
-    g,
-    '★★ 选中项右沿与内容区无缝相接（栏间距 0）',
-    !!inverted && inverted.seam === 0,
-    `接缝差值=${inverted?.seam ?? '?'}px`,
-  )
-  rec(
-    g,
-    '★★ 接缝上下有反向凹圆角（伪元素切成 1/4 圆）',
-    invertedOk,
-    `上=${inverted?.beforeW ?? '?'}×${inverted?.beforeH ?? '?'} r=${inverted?.beforeRadius ?? '?'}｜下=${inverted?.afterW ?? '?'}×${inverted?.afterH ?? '?'} r=${inverted?.afterRadius ?? '?'}`,
-  )
-  /**
-   * ★★ 反向圆角必须**真的画在屏幕上**（像素级）。
-   *
-   * DOM 里读到 `::before { border-bottom-left-radius: 14px }` 只能证明"写了这条规则"，
-   * 证不了它没被遮挡、没被裁掉、圆角方向没做反 —— 这正是本项目反复踩到的
-   * 「DOM 全绿但屏幕上没有」那一类缺陷（连线的教训）。故在接缝上取三点：
-   *  ① 上缺口圆心附近（贴近选中项）应是白色；
-   *  ② 上缺口外侧（远离选中项的那一角）应是侧栏底色；
-   *  ③ 下缺口同样成立。
-   */
-  const cutoutPixels = await page.screenshot()
-  const decoded = await page.evaluate(async (png) => {
-    const blob = new Blob([Uint8Array.from(atob(png), (c) => c.charCodeAt(0))], {
-      type: 'image/png',
-    })
-    const bmp = await createImageBitmap(blob)
-    const c = document.createElement('canvas')
-    c.width = bmp.width
-    c.height = bmp.height
-    const ctx = c.getContext('2d')
-    ctx.drawImage(bmp, 0, 0)
-    const dpr = window.devicePixelRatio || 1
-    return { data: ctx.getImageData(0, 0, c.width, c.height).data, w: c.width, h: c.height, dpr }
-  }, cutoutPixels.toString('base64'))
-  const sample = await page.evaluate(
-    ({ data, w, dpr }) => {
-      const on = document.querySelector('[data-settings-section][aria-selected="true"]')
-      const panel = document.querySelector(
-        '[data-settings-card], [data-settings-presets], [data-settings-skills]',
-      )
-      if (!on || !panel) return null
-      const o = on.getBoundingClientRect()
-      const p = panel.getBoundingClientRect()
-      const r = Math.round(parseFloat(getComputedStyle(on, '::before').width))
-      const at = (x, y) => {
-        const px = Math.round(x * dpr)
-        const py = Math.round(y * dpr)
-        const i = (py * w + px) * 4
-        return [data[i], data[i + 1], data[i + 2]]
-      }
-      const white = (rgb) => rgb[0] > 245 && rgb[1] > 245 && rgb[2] > 245
-      const side = (rgb) => Math.abs(rgb[0] - 247) < 6 && Math.abs(rgb[1] - 247) < 6
-      // 伪元素是 14×14 的方块，左下/左上被切成 1/4 圆：
-      // 「圆外」= 靠近选中项一侧（应白），「圆内」= 远离选中项一侧（应侧栏色）。
-      // 取圆心附近的对角点，才能跨过圆弧两侧、真正证明圆角存在。
-      // 伪元素宽 r，左沿在 `p.left - r`；要跨过 1/4 圆，必须在左沿附近取点，
-      // 而不是靠近内容区那一侧（那里整块都是白的，四点会全部相等）。
-      const x = p.left - r + 2
-      const beforeInside = at(x, o.top - r + 2) // 上缺口：弧外（靠选中项）应是白
-      const beforeOutside = at(x, o.top - 2) // 上缺口：弧内（远离选中项）应是侧栏色
-      const afterInside = at(x, o.bottom + r - 2) // 下缺口：弧外（靠选中项）应是白
-      const afterOutside = at(x, o.bottom + 2) // 下缺口：弧内（远离选中项）应是侧栏色
-      return { r, beforeInside, beforeOutside, afterInside, afterOutside, white: [white(beforeInside), white(afterInside)], side: [side(beforeOutside), side(afterOutside)] }
-    },
-    decoded,
-  )
-  rec(
-    g,
-    '★★ 反向凹圆角真的绘制出来（像素级，不是只有 CSS 声明）',
-    !!sample && sample.white.every(Boolean) && sample.side.every(Boolean),
-    sample
-      ? `r=${sample.r}px｜上内=${sample.beforeInside} 上外=${sample.beforeOutside}｜下内=${sample.afterInside} 下外=${sample.afterOutside}`
-      : '采样失败',
-  )
-  /**
-   * ★ 深浅两套主题下，选中项 / 侧栏 / 内容区 / 凹角伪元素都必须随令牌同步，
-   * 不能有任何一处被写死。用户明确要求：「切换主题时，反向圆角的阴影色
-   * 能随设计变量自动同步改变」。
-   */
-  const themeTokens = await page.evaluate(async () => {
-    const read = () => {
-      const on = document.querySelector('[data-settings-section][aria-selected="true"]')
-      const rail = document.querySelector('nav[role="tablist"]')
-      const card = document.querySelector('[data-settings-card]')
-      if (!on || !rail || !card) return null
-      return {
-        on: getComputedStyle(on).backgroundColor,
-        rail: getComputedStyle(rail).backgroundColor,
-        card: getComputedStyle(card).backgroundColor,
-        cutout: getComputedStyle(on, '::before').backgroundColor,
-      }
-    }
-    const root = document.documentElement
-    const prev = root.getAttribute('data-theme')
-    root.setAttribute('data-theme', 'light')
-    // `.railOn` 的 background 带 `--dur-hover` 过渡：立刻读会拿到两色之间的中间值，
-    // 必须等过渡结束再比色（否则断言失败的原因会变成"测得太早"）。
-    await new Promise((r) => setTimeout(r, 300))
-    const light = read()
-    root.setAttribute('data-theme', 'dark')
-    await new Promise((r) => setTimeout(r, 300))
-    const dark = read()
-    root.setAttribute('data-theme', prev ?? 'light')
-    return { light, dark }
-  })
-  rec(
-    g,
-    '★ 激活底色 / 凹角缺口自动跟随明暗主题令牌',
-    !!themeTokens?.light &&
-      !!themeTokens?.dark &&
-      themeTokens.light.on === themeTokens.light.card &&
-      themeTokens.light.cutout === themeTokens.light.card &&
-      themeTokens.dark.on === themeTokens.dark.card &&
-      themeTokens.dark.cutout === themeTokens.dark.card &&
-      themeTokens.light.on !== themeTokens.dark.on &&
-      themeTokens.light.rail !== themeTokens.dark.rail,
-    `浅色 on=${themeTokens?.light?.on} rail=${themeTokens?.light?.rail}｜深色 on=${themeTokens?.dark?.on} rail=${themeTokens?.dark?.rail}`,
-  )
-  /**
-   * ★ 右侧三个区的**最外层容器都不描边**，且内容与边缘留有充分留白
-   * （用户 2026-09-26：「右边具体的功能最外面的容器我不要描边，里面的内容距离边缘远一点」）。
-   *
-   * 两层意思都要验：
-   *  ① 外层 `border-width` 为 0 —— 只验"看起来没有框"不够，描边可能是被别的元素盖住的；
-   *  ② 内容离边缘够远（≥24px）—— 去掉描边后若不留白，内容会贴着卡片边，
-   *     比有描边时更局促。
-   * **内部的次级容器仍应有描边**（渠道列表、每条预设词卡片…），否则层次全丢；
-   * 这里顺带断言预设词卡片自己有描边，防止"一刀切去掉所有边框"。
-   */
-  /**
-   * ⚠️ 三个区是**条件渲染**的（同一时刻只有一个在 DOM 里），
-   * 所以必须**逐个切过去量**，不能一次性 evaluate 三个选择器 ——
-   * 那样另外两个恒为 `undefined`，断言形同虚设（实测报 undefined）。
-   */
-  const borderOf = async (sectionId, sel) => {
-    await page.locator(`[data-settings-section="${sectionId}"]`).click()
-    await sleep(450)
-    return page.evaluate((s) => {
-      const el = document.querySelector(s)
-      if (!el) return { border: 1, padding: [0] } // 找不到就按"有描边"判失败，不放过
-      const cs = getComputedStyle(el)
-      return {
-        border:
-          parseFloat(cs.borderTopWidth) +
-          parseFloat(cs.borderRightWidth) +
-          parseFloat(cs.borderBottomWidth) +
-          parseFloat(cs.borderLeftWidth),
-        padding: [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft].map((v) =>
-          parseFloat(v),
-        ),
-      }
-    }, sel)
-  }
-  const shellBorders = {
-    channels: await borderOf('channels', '[data-settings-card]'),
-    presets: await borderOf('presets', '[data-settings-presets]'),
-    skills: await borderOf('skills', '[data-settings-skills]'),
-  }
-  const noBorder = Object.values(shellBorders).every((s) => s.border === 0)
-  rec(
-    g,
-    '★ 右侧三个区最外层容器都没有描边',
-    noBorder,
-    Object.entries(shellBorders).map(([k, v]) => `${k}=${v.border}px`).join(' '),
-  )
-  /**
-   * ★ 「内容离边缘远一点」量**总留白**（用户 2026-09-26）。
-   *
-   * 留白由**两层**共同给出：外层大容器 `.shell` 的 padding + 分区自己的 padding。
-   *
-   * ⚠️ 两个坑都踩过，别再犯：
-   *  ① **量左侧会失效**：`内容左边缘 − 大容器左边缘` 中间横着整条左侧选项栏（176px），
-   *     于是无论 padding 是 0 还是 16 都恒为 200 多 px —— 断言恒真、什么也证明不了
-   *     （故障注入实测：把 padding 改成 0，它照样绿）。
-   *  ② 必须**切到预设词区**再量：`[data-preset-card]` 只在那一区存在。
-   *
-   * 正解：量**右侧**——内容右边缘到最外层容器右边缘，那里只隔着两层 padding。
-   */
-  // `borderOf` 最后一次停在技能区，而 `[data-preset-card]` 只在预设词区 —— 先切过去
-  await page.locator('[data-settings-section="presets"]').click()
-  await sleep(450)
-  const contentInset = await page.evaluate(() => {
-    const shell = document.querySelector('[data-settings-shell]')
-    const firstContent = document.querySelector('[data-preset-card]')
-    if (!shell || !firstContent) return null
-    return Math.round(
-      shell.getBoundingClientRect().right - firstContent.getBoundingClientRect().right,
+  const shellBorder = await page.evaluate(() => {
+    const el = document.querySelector('[data-settings-card]')
+    if (!el) return null
+    const cs = getComputedStyle(el)
+    return (
+      parseFloat(cs.borderTopWidth) +
+      parseFloat(cs.borderRightWidth) +
+      parseFloat(cs.borderBottomWidth) +
+      parseFloat(cs.borderLeftWidth)
     )
   })
-  rec(
-    g,
-    '★ 内容离最外层容器右边缘够远（总留白 ≥24px，两层 padding 之和）',
-    typeof contentInset === 'number' && contentInset >= 24,
-    `总留白=${contentInset}px（外层 padding + 分区 padding）`,
-  )
-  /**
-   * 内部层级另在预设词区验（那里才有 `[data-preset-card]`）：
-   * 在渠道区断言它恒为 null，「层次没丢」这件事就成了空话。
-   */
-  await page.locator('[data-settings-section="presets"]').click()
-  await sleep(450)
-  const innerBorder = await page.evaluate(() => {
-    const el = document.querySelector('[data-preset-card]')
-    return el ? parseFloat(getComputedStyle(el).borderTopWidth) : null
-  })
-  rec(
-    g,
-    '★ 内部次级容器仍保留描边（层次没丢）',
-    typeof innerBorder === 'number' && innerBorder > 0,
-    `预设词卡片 border=${innerBorder}px`,
-  )
-  await page.locator('[data-settings-section="channels"]').click()
-  await sleep(400)
-  rec(g, '默认停在渠道区（既有配置不受影响）', (await page.locator('[data-settings-card]').count()) === 1)
+  rec(g, '★ 渠道区最外层容器没有描边', shellBorder === 0, `border=${shellBorder}px`)
 
-  // ── ② 预设词可编辑 ──
-  await page.locator('[data-settings-section="presets"]').click()
+  // ── ② 预设词已迁到技能库第二层，仍可编辑 ──
+  await page.goto(`${BASE}/skills`, { waitUntil: 'networkidle' })
+  await sleep(700)
+  rec(
+    g,
+    '★ 技能库浏览层有「功能预设词」卡片（预设词归这里）',
+    (await page.locator('[data-skills-preset-card]').count()) === 1,
+  )
+  await page.locator('[data-skills-preset-card]').click()
   await sleep(500)
+  rec(
+    g,
+    '★ 功能预设词在技能库第二层打开',
+    (await page.locator('[data-settings-presets]').count()) === 1 &&
+      (await page.locator('[data-presets-back]').count()) === 1,
+  )
   const cards = await page
     .locator('[data-preset-card]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-preset-card')))
@@ -9309,7 +9014,7 @@ async function g74(browser) {
 
   await page.reload({ waitUntil: 'networkidle' })
   await sleep(800)
-  await page.locator('[data-settings-section="presets"]').click()
+  await page.locator('[data-skills-preset-card]').click()
   await sleep(500)
   rec(
     g,
@@ -9357,9 +9062,9 @@ async function g74(browser) {
   )
 
   // ── ④ 恢复默认 ──
-  await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+  await page.goto(`${BASE}/skills`, { waitUntil: 'networkidle' })
   await sleep(700)
-  await page.locator('[data-settings-section="presets"]').click()
+  await page.locator('[data-skills-preset-card]').click()
   await sleep(500)
   await page.locator('[data-preset-restore="optimize"]').click()
   await sleep(800)
@@ -9370,13 +9075,13 @@ async function g74(browser) {
       (await page.locator('[data-preset-card="optimize"] [data-preset-changed]').count()) === 0,
   )
 
-  // ── ⑤ 技能库并入同一页 ──
-  await page.locator('[data-settings-section="skills"]').click()
+  // ── ⑤ 技能库页可进入编辑层（两层结构见 G82） ──
+  await page.locator('[data-presets-back]').click()
   await sleep(600)
   rec(
     g,
-    '★ 技能库并入后台（同一块面板，不再是独立入口才算）',
-    (await page.locator('[data-skills-actions]').count()) === 1,
+    '★ 从预设词可返回技能库浏览层',
+    (await page.locator('[data-skills-browser]').count()) === 1,
   )
 
   await page.screenshot({ path: `${OUT}/90-g74-hub.png` })
@@ -10541,7 +10246,166 @@ async function g79(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81]
+/**
+ * G82 技能库两层结构（产品文档 §7A；用户 2026-09-27 第 9 轮第 1 / 2 条）。
+ *
+ * 文档早就写明「卡片浏览 → 点击卡片编辑」，代码此前却是单层的「左列表 + 右编辑」。
+ * 本组钉四件事：
+ *  ① 浏览层是**卡片**，有分类筛选 / 搜索 / 新建 / 导入；
+ *  ② 页面**没有「← 返回」**（导航归侧栏，用户第 2 条）；
+ *  ③ 点卡片进第二层编辑，第二层有「返回浏览」；
+ *  ④ ★ 返回浏览层时，搜索与筛选项**不丢**（文档 §7A.1 明确要求）。
+ */
+async function g82(browser) {
+  const g = 'G82 技能库两层'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await page.goto(`${BASE}/skills`, { waitUntil: 'networkidle' })
+  await sleep(700)
+
+  rec(g, '第一层是卡片浏览（browser 在 DOM）', (await page.locator('[data-skills-browser]').count()) === 1)
+  rec(
+    g,
+    '★ 分类筛选齐备（全部 / 我的 / 功能预设词）',
+    JSON.stringify(
+      await page
+        .locator('[data-skills-filter]')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('data-skills-filter'))),
+    ) === JSON.stringify(['all', 'user', 'preset']),
+  )
+  rec(g, '★ 有搜索框与新建 / 导入入口', (await page.locator('[data-skills-search]').count()) === 1 && (await page.locator('[data-skills-new]').count()) === 1 && (await page.locator('[data-skills-import]').count()) === 1)
+  /**
+   * ★★ 页面级「← 返回」必须没有。用户 2026-09-27 第 2 条：「技能工作区里面的
+   * 返回也不要了，刚刚我说了的，都不需要了的」。不能只看第一层 —— 第一层本就没
+   * 有返回按钮；要证明「整页都没有」，在两层都量。
+   */
+  rec(g, '★★ 浏览层没有页面级「← 返回」', (await page.locator('[data-skills-back]').count()) === 0)
+
+  // 建一条技能当素材
+  await page.locator('[data-skills-new]').click()
+  await sleep(400)
+  rec(g, '★ 点「新建」直接进第二层编辑（不是先落一条空技能）', (await page.locator('[data-skill-editor]').count()) === 1)
+  rec(g, '★★ 编辑层有「返回浏览」且没有页面级返回按钮', (await page.locator('[data-skills-back]').count()) === 1)
+  await page.locator('[data-skill-name]').fill('两层冒烟技能')
+  await page.locator('[data-skill-content]').fill('只输出结果。')
+  await page.locator('[data-skill-save]').click()
+  await sleep(900)
+  rec(g, '保存后回到浏览层', (await page.locator('[data-skills-browser]').count()) === 1)
+  rec(g, '★ 新技能以卡片形式出现', (await page.locator('[data-skill-item]').count()) === 1)
+
+  /**
+   * ★★ 搜索 / 筛选跨层保留。先设搜索词与筛选，进编辑再返回，
+   * 两个状态都必须还在 —— 否则用户每次从编辑层回来都要重设一遍。
+   */
+  await page.locator('[data-skills-filter="user"]').click()
+  await page.locator('[data-skills-search]').fill('两层冒烟')
+  await sleep(350)
+  await page.locator('[data-skill-item]').first().click()
+  await sleep(450)
+  rec(g, '★ 点卡片进第二层编辑', (await page.locator('[data-skill-editor]').count()) === 1)
+  await page.locator('[data-skills-back]').click()
+  await sleep(450)
+  const kept = await page.evaluate(() => {
+    const search = document.querySelector('[data-skills-search]')
+    const on = document.querySelector('[data-skills-filter][aria-selected="true"]')
+    return { query: search ? search.value : null, filter: on?.getAttribute('data-skills-filter') ?? null }
+  })
+  rec(
+    g,
+    '★★ 返回浏览层时搜索与筛选项都保留',
+    kept.query === '两层冒烟' && kept.filter === 'user',
+    `query=${kept.query} filter=${kept.filter}`,
+  )
+
+  // 删掉刚建的技能，避免污染后续组
+  await page.locator('[data-skill-item]').first().click()
+  await sleep(450)
+  await page.locator('[data-skill-remove]').click()
+  await sleep(250)
+  await page.locator('[data-skill-remove-yes]').click()
+  await sleep(800)
+  rec(g, '删除后回浏览层且卡片消失', (await page.locator('[data-skills-browser]').count()) === 1 && (await page.locator('[data-skill-item]').count()) === 0)
+
+  await page.screenshot({ path: `${OUT}/98-g82-skills-two-level.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+/**
+ * G83 模型映射分组与候选（用户 2026-09-27 第 9 轮第 3 条）。
+ *
+ * 要求两件事：
+ *  ① 映射区按「生图 / 对话 / 视频」分三组，不再一长条平铺 15 个；
+ *  ② 每条映射的输入框能下拉选**该渠道已勾选且同类**的模型 ID（仍可手填）。
+ *
+ * 第 ② 条只验 `list` 属性存在不够 —— 候选为空 / 混入别类也满足"有 list"，
+ * 所以逐组核对：候选非空，且每个候选都出现在该渠道已勾选的同类模型里。
+ */
+async function g83(browser) {
+  const g = 'G83 模型映射分组'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  /*
+   * 只用 mock 渠道拉取一次模型，**不预先勾选**。
+   * 这正是用户会遇到的场景：刚拉取完、还没勾模型就来填映射。
+   * 候选在这种状态下也必须可用（见 routeMapOptions 的回落口径）。
+   */
+  await configureMockChannel(page)
+  await sleep(600)
+
+  const groups = await page
+    .locator('[data-route-map-group]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-route-map-group')))
+  rec(
+    g,
+    '★★ 模型映射按生图 / 对话 / 视频三组渲染',
+    JSON.stringify(groups) === JSON.stringify(['image', 'chat', 'video']),
+    groups.join(','),
+  )
+
+  const options = await page.evaluate(() => {
+    const out = {}
+    for (const dl of document.querySelectorAll('datalist[data-route-map-options]')) {
+      const cat = dl.getAttribute('data-route-map-options')
+      out[cat] = [...dl.querySelectorAll('option')].map((o) => o.value)
+    }
+    return out
+  })
+  rec(
+    g,
+    '★★ 每组候选非空，且与该类别对应',
+    ['image', 'chat', 'video'].every((c) => Array.isArray(options[c]) && options[c].length > 0),
+    Object.entries(options)
+      .map(([k, v]) => `${k}=${v.length}`)
+      .join(' '),
+  )
+  /**
+   * ★ 候选必须**同类**。跨类混入是这一版最容易出的错：datalist 挂在组上，
+   * 若筛选用错字段（例如只按已勾选、不按 category），对话模型会出现在生图组里。
+   */
+  const mismatch = await page.evaluate(() => {
+    const bad = []
+    for (const input of document.querySelectorAll('[data-route-map-input]')) {
+      const listId = input.getAttribute('list')
+      if (!listId) continue
+      const dl = document.getElementById(listId)
+      if (!dl || !dl.getAttribute('data-route-map-options')) bad.push(listId)
+    }
+    return bad
+  })
+  rec(g, '★ 每个映射输入框的下拉都挂到了带类别的候选表', mismatch.length === 0, `异常=${mismatch.join(',') || '无'}`)
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

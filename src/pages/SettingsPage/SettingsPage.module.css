@@ -568,6 +568,27 @@
   gap: var(--space-2);
 }
 
+/*
+ * 映射区的分组容器（用户 2026-09-27 第 9 轮：分生图 / 对话 / 视频三组）。
+ *
+ * 组与组之间留出比「行间距」更大的空隙，让分组在视觉上真的成立 ——
+ * 否则三组紧挨着排下来，与「一长条平铺」没有区别（那正是要改掉的）。
+ */
+.mapGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.mapGroupTitle {
+  font-size: var(--fs-chip);
+  font-weight: 600;
+  color: var(--text-3);
+  /* 与下面的行对齐：行里的名字列宽 200px，标题不缩进反而更像「分隔标签」 */
+  text-transform: none;
+}
+
 /* 每一行 = 逻辑名 + 输入 + 保存：名字定宽，输入框吃满剩余宽度，
    这样换一条长模型名也不会把按钮挤到下一行（固定格式控件的尺寸要稳定）。 */
 .mapRow {

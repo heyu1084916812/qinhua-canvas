@@ -1,36 +1,35 @@
 /*
- * 技能库（用户 2026-09-24）。
- *
- * 布局沿用设置页的「左列表 + 右编辑」：用户已经熟悉这个形状。
- * 颜色一律走 token（明暗两套主题都要能看）。
+ * 技能库（产品文档 §7A）：两层结构。
+ * 第一层是卡片网格，第二层是编辑 / 功能预设词。
+ * 颜色一律走 token，明暗两套主题都要能看。
  */
 .page {
   width: 100%;
-  /* 应用壳右侧工作区里的插槽：用 100% 跟随，不用视口单位（同 CanvasPage 的理由） */
   height: 100%;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  /*
-   * 这一层是**独立页特有的**整页留白（顶栏与卡片离屏幕边缘的距离）；
-   * `.panelShell` 那份内边距是**卡片内部**的留白，两者职责不同、可叠加。
-   * 后台中枢里没有这一层（右栏本来就嵌在卡片里），于是两边看起来一致。
-   */
   padding: var(--space-4) var(--space-6);
   background: var(--bg-app);
   color: var(--text-1);
   font-family: var(--font-sans);
 }
 
-.top {
+/* 第二层顶部只有「返回浏览」+ 当前层级名；页面级「← 返回」按钮已按用户要求删除 */
+.levelBar {
   flex: none;
   display: flex;
   align-items: center;
   gap: var(--space-3);
 }
 
-.back,
+.levelTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
 .ghost,
 .primary,
 .danger {
@@ -44,14 +43,12 @@
   cursor: pointer;
 }
 
-.back,
 .ghost {
   border: 1px solid var(--stroke);
   background: var(--bg-surface);
   color: var(--text-1);
 }
 
-.back:hover,
 .ghost:hover {
   background: var(--bg-hover);
 }
@@ -77,120 +74,144 @@
   color: var(--text-1);
 }
 
-.title {
-  flex: 1 1 auto;
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.topActions {
-  display: flex;
-  gap: var(--space-2);
-}
-
-/*
- * 面板外壳（用户 2026-09-25）：`SkillsPanel` 现在同时被两个宿主使用 ——
- * `/skills` 独立页（外层 `.page` 已有整页内边距）与后台中枢的技能分区
- * （右栏没有内边距）。内边距收进组件内，两个宿主才都对齐；
- * `flex:1 + min-height:0` 让它把剩余高度吃满，`body` 的 grid 才有高度可分。
- */
-.panelShell {
+/* ── 第一层：浏览 ── */
+.browser {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  /*
-   * 内边距 16px：在后台的「大容器」里，外层 `.shell` 已经给了 16px，
-   * 两者相加才是"内容离边缘远一点"；写 32 会让内容离得太远、白块显空。
-   */
-  padding: var(--space-4);
-  box-sizing: border-box;
 }
 
-/* 提示条：成功 / 失败用同一形状、不同色调（位置固定，不跳） */
-.noticeOk,
-.noticeErr {
+/*
+ * 工具条：筛选 / 搜索 / 动作。
+ * 换行而不是压缩控件 —— 窄工作区下不允许把按钮挤扁或让文字溢出。
+ */
+.browserBar {
   flex: none;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-control);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.noticeOk {
-  background: var(--bg-subtle);
-  color: var(--text-1);
-}
-
-.noticeErr {
-  background: var(--bg-subtle);
-  color: var(--text-1);
-  /* 失败要一眼可辨：用左边框而不是整块红底（本项目克制用色的口径） */
-  border-left: 3px solid var(--stroke-focus);
-}
-
-.body {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: grid;
-  /* 左列表固定宽、右编辑自适应；240 与设置页的列表同宽 */
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: var(--space-4);
-}
-
-.list {
-  min-height: 0;
-  overflow-y: auto;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.chip {
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--stroke);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chip:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.chipOn {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.chipOn:hover {
+  background: var(--accent);
+  color: var(--accent-text);
+  opacity: 0.9;
+}
+
+.search {
+  flex: 1 1 200px;
+  min-width: 160px;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 var(--space-3);
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
   background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  outline: none;
 }
 
-.item,
-.itemOn {
+.search:focus {
+  border-color: var(--stroke-focus);
+}
+
+.browserActions {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+/* 卡片网格：auto-fill 让窄工作区自动减列，不出现横向滚动 */
+.cards {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-auto-rows: min-content;
+  gap: var(--space-3);
+  align-content: start;
+}
+
+.card {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
-  padding: var(--space-2);
-  border: none;
-  border-radius: calc(var(--radius-control) - 2px);
-  background: transparent;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
   color: var(--text-1);
   font-family: var(--font-sans);
   text-align: left;
   cursor: pointer;
 }
 
-.item:hover {
+.card:hover {
   background: var(--bg-hover);
+  border-color: var(--stroke-focus);
 }
 
-.itemOn {
-  background: var(--bg-hover);
-}
-
-.itemName {
+.cardName {
   max-width: 100%;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* 长名字换行，不截断也不溢出容器 */
+  overflow-wrap: anywhere;
 }
 
-.itemMeta {
+.cardDesc {
+  max-width: 100%;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.cardMeta {
   color: var(--text-3);
   font-size: 10px;
 }
 
+/* ── 第二层：编辑 ── */
 .editor {
+  flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -200,15 +221,6 @@
   border-radius: var(--radius-control);
   background: var(--bg-surface);
   overflow-y: auto;
-}
-
-.empty {
-  margin: auto;
-  padding: var(--space-4);
-  color: var(--text-3);
-  font-size: 12px;
-  line-height: 1.7;
-  text-align: center;
 }
 
 .field {
@@ -263,10 +275,7 @@
   min-height: 220px;
   padding: var(--space-2);
   line-height: 1.6;
-  /*
-   * 可以纵向拖，但**不许拖出容器宽度** —— 横向拖动会把右侧编辑区撑破，
-   * 而那正是「文字/控件不许溢出容器」要防的。
-   */
+  /* 可纵向拖，但不许拖出容器宽度 */
   resize: vertical;
 }
 
@@ -278,5 +287,41 @@
 .actions {
   flex: none;
   display: flex;
+  align-items: center;
   gap: var(--space-2);
+}
+
+.confirmHint {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.empty {
+  grid-column: 1 / -1;
+  padding: var(--space-4);
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.7;
+  text-align: center;
+}
+
+/* 提示条：成功 / 失败同形状、不同色条，位置固定不跳 */
+.noticeOk,
+.noticeErr {
+  flex: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.noticeOk {
+  background: var(--bg-subtle);
+  color: var(--text-1);
+}
+
+.noticeErr {
+  background: var(--bg-subtle);
+  color: var(--text-1);
+  border-left: 3px solid var(--stroke-focus);
 }

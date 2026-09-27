@@ -1,0 +1,168 @@
+/**
+ * 功能预设词的样式（产品文档 §7A.4）。
+ *
+ * 2026-09-27 随组件从 SettingsPage.module.css **抽出来**：
+ * 组件搬到技能库一级页后，样式若继续留在设置页那份文件里，
+ * 「只想调预设词的外观」就会去改一个已与它无关的页面 —— 下一次有人删设置页样式时会连带删掉它。
+ *
+ * 规则**原样搬运**，没有调整数值：这次只换归属，不改外观。
+ */
+
+.presetHost {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  overflow-y: auto;
+  background: var(--bg-surface);
+  /* 最外层不描边（用户 2026-09-26）；内部的每条预设词卡片仍各有自己的描边 */
+  /**
+   * 内边距**收成与大容器同级**：外面已经有一层 `.shell` 的 `padding`（16px），
+   * 这里若再留 32px，两段相加就是 48px —— 内容离边缘太远、白块显得空。
+   * 用户要的「内容离边缘远一点」由**外层那 16px + 这里的 16px**共同给出。
+   */
+  padding: var(--space-4);
+  box-sizing: border-box;
+}
+
+.presetLead {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+.noticeOk,
+.noticeErr {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  font-size: var(--fs-label);
+  background: var(--bg-subtle);
+}
+
+.noticeOk {
+  color: var(--text-1);
+}
+
+.noticeErr {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  font-size: var(--fs-label);
+  background: var(--bg-subtle);
+}
+
+.noticeErr {
+  color: var(--danger);
+}
+
+.presetList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.presetCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
+}
+
+.presetHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.presetName {
+  font-weight: var(--fw-title);
+  color: var(--text-1);
+}
+
+.presetChanged {
+  padding: 0 var(--space-1);
+  border: var(--border);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-chip);
+  color: var(--text-2);
+}
+
+.presetHint {
+  flex: 1 1 100%;
+  font-size: var(--fs-label);
+  color: var(--text-3);
+  line-height: 1.5;
+}
+
+.presetTextarea {
+  width: 100%;
+  min-height: 108px;
+  box-sizing: border-box;
+  padding: var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.presetTextarea:focus {
+  outline: none;
+  border-color: var(--stroke-focus);
+}
+
+.presetFoot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.presetCounter {
+  flex: 1;
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.ghostBtn {
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-label);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ghostBtn:hover {
+  background: var(--bg-hover);
+}
+
+.ghostBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.primary {
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--accent-text);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-chip);
+  cursor: pointer;
+}
+
+.primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

@@ -14,18 +14,10 @@ import {
   groupModelsByCategory,
   initialChecked,
   removeModel,
+  routeMapOptions,
   type CategoryFilter,
 } from '../../domain/project/modelSelection'
 import styles from './SettingsPage.module.css'
-import { SkillsPanel } from '../SkillsPage/SkillsPanel'
-import { usePresetText } from '../../app/providers/PresetTextProvider'
-import {
-  PRESET_TEXT_MAX,
-  presetTextEntries,
-  validatePresetText,
-  type PromptToolAction,
-} from '../../domain/prompt/presetText'
-import { IconPrompt, IconGeneration, IconBoard } from '../../workbenches/canvas/toolbar/icons'
 import {
   ROUTE_STRATEGIES,
   type RouteStrategy,
@@ -33,26 +25,16 @@ import {
 import { PRESET_MODELS, presetIdForUpstream } from '../../domain/project/modelPresets'
 
 /**
- * 后台的三个分区（用户 2026-09-25「后台中枢」）。
+ * 模型映射区的三个分组（用户 2026-09-27 第 9 轮）。
  *
- * 以往这里是「后台模型设置」——只管渠道。而用户要管的东西有三类：
- * 渠道（连什么）、功能预设词（内置动作怎么做）、技能库（自己新增什么动作）。
- * 三者都是「配置」，只是此前散在三个入口（设置页 / 代码常量 / 独立技能页）。
+ * `category` 必须与 `modelPresets` 里的取值**同字面**（`image | chat | video`）——
+ * 这里只是给它配了个中文标题，没有第二份分类口径。
+ * 顺序 = 用户说的顺序：生图 → 对话 → 视频。
  */
-type SettingsSection = 'channels' | 'presets' | 'skills'
-
-/**
- * 侧栏导航项（用户 2026-09-25：「渠道、功能等替换成这种风格的 ui」——
- * 参考图是**左侧竖排图标导航 + 右侧内容区**，此处只搬结构，配色全走本项目令牌）。
- *
- * 图标复用画布工具栏那一套（`toolbar/icons`），不另画三个 ——
- * 「渠道 / 预设词 / 技能」在语感上分别对应「连生成 / 提示词 / 画板」的意象，
- * 且同一套图标让两个页面看起来是一家的。
- */
-const SECTIONS: readonly { id: SettingsSection; label: string; Icon: typeof IconPrompt }[] = [
-  { id: 'channels', label: '渠道', Icon: IconGeneration },
-  { id: 'presets', label: '功能预设词', Icon: IconPrompt },
-  { id: 'skills', label: '技能库', Icon: IconBoard },
+const MAP_GROUPS = [
+  { category: 'image' as const, title: '生图模型' },
+  { category: 'chat' as const, title: '对话模型' },
+  { category: 'video' as const, title: '视频模型' },
 ]
 
 /**
@@ -63,9 +45,6 @@ const SECTIONS: readonly { id: SettingsSection; label: string; Icon: typeof Icon
  */
 export function SettingsPage() {
   const channels = useChannels()
-  /** 功能预设词（后台中枢）：三区之一，改的是「优化 / 翻译 / 反推」做什么 */
-  const presetText = usePresetText()
-  const [section, setSection] = useState<SettingsSection>('channels')
   const channelsList = useSyncExternalStore(
     channels.subscribe,
     () => channels.getState().channels,
@@ -382,63 +361,23 @@ export function SettingsPage() {
   const showMockNote = action === 'verify' && verify.status === 'ok' && verifiedFor?.protocol === 'mock'
   const tokenHint = selected?.tokenTail ? maskTokenTail(selected.tokenTail) : ''
 
-  /** 预设词的界面模型（用户改过的 + 出厂默认，由 domain 组装，本页不做回落判断） */
-  const presets = presetTextEntries(presetText.overrides)
-
   return (
     <div className={styles.page}>
       {/*
-        ⛔ 「← 返回」按钮已移除（用户 2026-09-27）：
-        「工作区的返回按钮都可以不用了，目前可以直接在侧边栏进行替换了」。
+        ⛔ 页内标题「后台设置」与左侧二级菜单**已删除**（用户 2026-09-27 第 9 轮）：
+        「后台设置这几个词贴边了，不需要了，后台设置工作区里面左边的几个菜单也不需要了」。
 
-        它当初存在，是因为设置页曾是**一个独立的整屏页面**、没有别的出口 ——
-        用户在画布中间去配渠道，配完得有个明确的路回来。
-        现在应用壳侧栏常驻，六个一级页面互相可达，返回按钮就成了冗余的第二套导航。
+        两条理由：
+        ① 身份与导航**已由应用壳侧栏表达**（它那一项就叫「渠道配置」），
+           页内再放标题与菜单就是同一个事实的第二份说法；
+        ② 三个菜单项里，功能预设词与技能库已按 §7A 迁去技能库一级页，
+           只剩「渠道」一项 —— 一个只有单个选项的菜单没有任何导航价值。
 
-        顺带解决一个它自带的麻烦：它靠 `state.from` 判断该回画布还是首页，
-        而**任何直接输 URL / 刷新**都会丢掉 state、退化成「返回首页」——
-        一个按钮的去向取决于你是怎么进来的，本来就不好解释。
-
-        `Link` 已不再被本文件使用，一并清理 import（见文件头）。
-      */}
-      <h1 className={styles.heading}>后台设置</h1>
-
-      {/*
-        左侧竖排导航 + 右侧内容区（用户 2026-09-25 参考图的**结构**）。
-
-        只搬结构：参考图里那块墨绿侧栏与亮黄选中态不取（本项目没有这两个颜色，
-        且 §3.3 定的是「无投影 + 1px 细描边」），配色一律走既有令牌。
-
-        `data-settings-section` 锚点原样保留 —— 冒烟按它切区，换成侧栏不该让断言失效。
+        于是这个页面现在就是**渠道配置本身**，从内容直接开始。
       */}
       <div className={styles.shell} data-settings-shell>
-        <nav className={styles.rail} role="tablist" aria-label="后台分区">
-          {SECTIONS.map(({ id, label, Icon }) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={section === id}
-              className={section === id ? styles.railOn : styles.railBtn}
-              data-settings-section={id}
-              onClick={() => setSection(id)}
-            >
-              <span className={styles.railIcon} aria-hidden="true">
-                <Icon size={20} />
-              </span>
-              <span className={styles.railLabel}>{label}</span>
-            </button>
-          ))}
-        </nav>
-
         <div className={styles.content}>
-      {section === 'presets' ? (
-        <PresetTextSection presets={presets} presetText={presetText} />
-      ) : section === 'skills' ? (
-        <div className={styles.skillsHost} data-settings-skills>
-          <SkillsPanel />
-        </div>
-      ) : (
+      {(
       <div className={styles.layout} data-settings-card>
         <aside className={styles.sidebar}>
           <ul className={styles.list}>
@@ -863,19 +802,54 @@ export function SettingsPage() {
                    * 这条口径在设置页的落点。
                    */
                   const rows = [
-                    ...PRESET_MODELS.map((m) => ({ key: m.id, label: m.id })),
+                    ...PRESET_MODELS.map((m) => ({ key: m.id, label: m.id, category: m.category })),
                     ...selected.models
                       .filter((m) => presetAliases.has(m.id))
-                      .map((m) => ({ key: m.id, label: presetIdForUpstream(m.id) })),
-                    ...extraIds.map((id) => ({ key: id, label: id })),
+                      .map((m) => ({
+                        key: m.id,
+                        label: presetIdForUpstream(m.id),
+                        /* 有认定显示名的，分类跟它走（它就是要映射到的那个逻辑模型） */
+                        category:
+                          PRESET_MODELS.find((p) => p.id === presetIdForUpstream(m.id))?.category ??
+                          m.category,
+                      })),
+                    ...extraIds.map((id) => {
+                      const m = selected.models.find((x) => x.id === id)
+                      return { key: id, label: id, category: m?.category ?? 'image' }
+                    }),
                   ]
                   return (
                     <>
                       <p className={styles.modelsSub} data-route-map-help>
-                        下面这些是画布里可选的显示名；只填你本站有的那几个即可。
+                        左边是画布里可选的显示名，右边填你本站对应的模型 ID；
+                        只填你本站有的那几个即可。带下拉的可以直接从**已勾选的同类模型**里挑。
                       </p>
-                      <div className={styles.mapList}>
-                        {rows.map(({ key: id, label }) => {
+                      {/*
+                        按类别分三组（用户 2026-09-27 第 9 轮）：
+                        「模型映射的部分也需要分生图模型，对话模型和视频模型」。
+                        上一版是一长条平铺 15 个名字 —— 找某个生图模型要扫过对话与视频。
+
+                        分类取自 `PRESET_MODELS` 自己的 `category`，**不在这里另写一份**
+                        （写两份必然漂移，那正是本项目反复踩的坑）。
+                      */}
+                      {MAP_GROUPS.map(({ category, title }) => {
+                        const groupRows = rows.filter((r) => r.category === category)
+                        if (groupRows.length === 0) return null
+                        /*
+                         * 候选 = 该渠道**已勾选且同类**的模型 ID。
+                         * 这是用户要的「没填写的话可以下拉选择已经选择好类别的模型」——
+                         * 上游 ID 本来就躺在已勾选清单里，让人重复默写没有道理。
+                         * 用 `<datalist>` 而不是 `<select>`：仍允许手填
+                         * （模型没勾选、或 ID 不在清单里的情况依然存在）。
+                         */
+                        /* 候选取法见 domain 纯函数 routeMapOptions（已勾选优先、缺失回落已拉取） */
+                        const options = routeMapOptions(category, selected.models, selected.modelCache)
+                        const listId = `route-map-${selectedId}-${category}`
+                        return (
+                          <div key={category} className={styles.mapGroup} data-route-map-group={category}>
+                            <div className={styles.mapGroupTitle}>{title}</div>
+                            <div className={styles.mapList}>
+                        {groupRows.map(({ key: id, label }) => {
                           const saved = selected.modelMap[id] ?? ''
                           const draft = mapDrafts[id]
                           const value = draft ?? saved
@@ -895,6 +869,7 @@ export function SettingsPage() {
                                 data-route-map-input={id}
                                 placeholder="留空 = 按原名发送"
                                 value={value}
+                                list={listId}
                                 onChange={(e) =>
                                   setMapDrafts((prev) => ({ ...prev, [id]: e.target.value }))
                                 }
@@ -917,7 +892,17 @@ export function SettingsPage() {
                             </div>
                           )
                         })}
-                      </div>
+                              {options.length > 0 && (
+                                <datalist id={listId} data-route-map-options={category}>
+                                  {options.map((o) => (
+                                    <option key={o} value={o} />
+                                  ))}
+                                </datalist>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
                     </>
                   )
                 })()}
@@ -934,139 +919,6 @@ export function SettingsPage() {
   )
 }
 
-/**
- * 功能预设词分区（后台中枢，用户 2026-09-25）。
- *
- * 三条固定动作（优化 / 翻译 / 反推）各一段可编辑的**系统指令**。
- * 它是「改造内置动作」——与技能区「新增自己的动作」是两件事，界面上也分区放。
- *
- * 每条的编辑是**草稿态**：先写在本地，点「保存」才落库；这与设置页既有的
- * 渠道表单、模型选择面板同一条口径（中途反悔不该留下半份改动）。
- */
-function PresetTextSection({
-  presets,
-  presetText,
-}: {
-  presets: ReturnType<typeof presetTextEntries>
-  presetText: ReturnType<typeof usePresetText>
-}) {
-  /** action → 正在编辑的草稿；只有被点开的那条在草稿里出现 */
-  const [drafts, setDrafts] = useState<Partial<Record<PromptToolAction, string>>>({})
-  const [busy, setBusy] = useState<PromptToolAction | null>(null)
-  const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
-
-  const save = async (action: PromptToolAction) => {
-    const draft = drafts[action]
-    if (draft === undefined) return
-    const err = validatePresetText(draft)
-    if (err) {
-      setNotice({ kind: 'error', text: err })
-      return
-    }
-    setBusy(action)
-    try {
-      await presetText.save(action, draft)
-      setDrafts((prev) => {
-        const next = { ...prev }
-        delete next[action]
-        return next
-      })
-      setNotice({ kind: 'ok', text: '已保存' })
-    } catch (e) {
-      setNotice({ kind: 'error', text: e instanceof Error ? e.message : String(e) })
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  /** 恢复默认 = 清掉覆盖值（写 null），于是它与「从没改过」是同一种状态 */
-  const restore = async (action: PromptToolAction) => {
-    setBusy(action)
-    try {
-      await presetText.save(action, null)
-      setDrafts((prev) => {
-        const next = { ...prev }
-        delete next[action]
-        return next
-      })
-      setNotice({ kind: 'ok', text: '已恢复默认' })
-    } catch (e) {
-      setNotice({ kind: 'error', text: e instanceof Error ? e.message : String(e) })
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  return (
-    <div className={styles.presetHost} data-settings-presets>
-      <p className={styles.presetLead}>
-        提示词节点上的这三个按钮各有一段**系统指令**。改这里就是改它们的行为 ——
-        想新增一个自己的动作，去「技能库」。
-      </p>
-      {notice && (
-        <div
-          className={notice.kind === 'ok' ? styles.noticeOk : styles.noticeErr}
-          data-settings-preset-notice={notice.kind}
-          role="status"
-          aria-live="polite"
-        >
-          {notice.text}
-        </div>
-      )}
-      <div className={styles.presetList}>
-        {presets.map((p) => {
-          const draft = drafts[p.id]
-          const editing = draft !== undefined
-          const value = editing ? draft : p.content
-          return (
-            <section key={p.id} className={styles.presetCard} data-preset-card={p.id}>
-              <header className={styles.presetHead}>
-                <span className={styles.presetName} data-preset-label>
-                  {p.label}
-                </span>
-                {!p.isDefault && (
-                  <span className={styles.presetChanged} data-preset-changed>
-                    已改
-                  </span>
-                )}
-                <span className={styles.presetHint}>{p.hint}</span>
-              </header>
-              <textarea
-                className={styles.presetTextarea}
-                data-preset-text={p.id}
-                value={value}
-                onChange={(e) => setDrafts((prev) => ({ ...prev, [p.id]: e.target.value }))}
-              />
-              <div className={styles.presetFoot}>
-                <span className={styles.presetCounter}>
-                  {value.length} / {PRESET_TEXT_MAX}
-                </span>
-                <button
-                  type="button"
-                  className={styles.ghostBtn}
-                  data-preset-restore={p.id}
-                  disabled={busy !== null || p.isDefault}
-                  onClick={() => void restore(p.id)}
-                >
-                  恢复默认
-                </button>
-                <button
-                  type="button"
-                  className={styles.primary}
-                  data-preset-save={p.id}
-                  disabled={busy !== null || !editing}
-                  onClick={() => void save(p.id)}
-                >
-                  保存
-                </button>
-              </div>
-            </section>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
 
 function protoLabel(proto: string): string {
   return SUPPORTED_PROTOCOLS.find((p) => p.value === proto)?.label ?? proto

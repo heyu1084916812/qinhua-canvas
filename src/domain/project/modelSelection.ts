@@ -103,3 +103,25 @@ export function applySelection(
 export function removeModel(selected: readonly ModelCapability[], modelId: string): ModelCapability[] {
   return selected.filter((m) => m.id !== modelId)
 }
+
+/**
+ * 映射区下拉的候选项（产品文档 §7.4.1「填法」）。
+ *
+ * 口径：**已勾选且同类**优先；该类别还没勾选时，回落到**已拉取且同类**。
+ *
+ * 为什么不能只读已勾选：`refreshModels` 只写 `modelCache`，把模型放进 `models`
+ * 是用户的勾选动作。若候选只认 `models`，「刚拉取完、还没勾选」时三个下拉全是空的 ——
+ * 而那正是用户最需要候选的时刻（本项就是为「别再默写上游 ID」而加的）。
+ *
+ * 纯函数放在 domain：这条口径在界面上看不出对错（三组都空着也「长得像正常」），
+ * 只有单测能钉住它。
+ */
+export function routeMapOptions(
+  category: ModelCategory,
+  selected: readonly ModelCapability[],
+  cache: readonly ModelCapability[],
+): string[] {
+  const checked = selected.filter((m) => m.category === category)
+  const source = checked.length > 0 ? checked : cache.filter((m) => m.category === category)
+  return source.map((m) => m.id)
+}

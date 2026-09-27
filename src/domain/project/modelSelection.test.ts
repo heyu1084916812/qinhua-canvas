@@ -6,6 +6,7 @@ import {
   groupModelsByCategory,
   initialChecked,
   removeModel,
+  routeMapOptions,
 } from './modelSelection'
 
 const m = (id: string, category: ModelCapability['category']): ModelCapability => ({
@@ -84,6 +85,27 @@ describe('applySelection', () => {
   it('不产生重复项（同时在缓存与已选里）', () => {
     const out = applySelection([CACHE[0], CACHE[1]], CACHE, new Set(['gpt-image-2', 'flux-1']))
     expect(out.map((x) => x.id)).toEqual(['gpt-image-2', 'flux-1'])
+  })
+})
+
+describe('routeMapOptions（映射区下拉候选，§7.4.1）', () => {
+  it('已勾选优先，且只取同类', () => {
+    const selected = [m('gpt-5.6', 'chat')]
+    expect(routeMapOptions('chat', selected, CACHE)).toEqual(['gpt-5.6'])
+    expect(routeMapOptions('image', selected, [])).toEqual([])
+  })
+
+  it('★ 该类别还没勾选时回落到已拉取的同类模型（否则下拉全空）', () => {
+    expect(routeMapOptions('image', [], CACHE)).toEqual([
+      'gpt-image-2',
+      'flux-1',
+      'Seedream-4',
+    ])
+    expect(routeMapOptions('video', [], CACHE)).toEqual(['veo-3'])
+  })
+
+  it('回落也按类别过滤，不把别类模型混进来', () => {
+    expect(routeMapOptions('chat', [], CACHE)).toEqual(['gpt-5.6'])
   })
 })
 
