@@ -244,6 +244,16 @@ export function Minimap() {
           strokeWidth={1}
         />
       </svg>
+      {/*
+        缩放读数（产品文档 §6.2：顶栏去掉后「缩放百分比移到小地图附近，只显示数值；
+        不额外做加减号与适配按钮」）。
+
+        放在小地图**正下方**而不是塞进 SVG：它是纯文本、不该参与投影与命中，
+        塞进去会连带影响小地图那套「点击跳转」的坐标换算。
+      */}
+      <span className={styles.zoom} data-canvas-zoom>
+        {Math.round(viewport.zoom * 100)}%
+      </span>
     </div>
   )
 }

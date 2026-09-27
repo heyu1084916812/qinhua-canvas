@@ -1,0 +1,34 @@
+/**
+ * 应用壳布局（架构文档 §5.10）。
+ *
+ * 壳是**两块并列的真实布局**，不是浮层：侧栏占宽、工作区吃掉剩下的。
+ * 因此这里不出现 `position: fixed/absolute`、不出现阴影 ——
+ * 它一浮起来，画布的矩形计算就要跟着改（§6.3 以 surface 真实矩形为准）。
+ */
+
+.shell {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  /* 撑满视口：内部各页自行决定要不要滚动，壳本身不滚 */
+  overflow: hidden;
+  background: var(--bg-app);
+}
+
+.workspace {
+  /*
+   * `flex: 1` + `min-width: 0` 的组合是这里唯一的关键点。
+   * 少了 `min-width: 0`，工作区里任何「不肯缩小」的内容
+   * （画布视口、宽表格、长文本）都会把它顶宽，
+   * 于是侧栏展开不是把右侧挤窄、而是把页面撑出横向滚动条。
+   */
+  flex: 1 1 auto;
+  min-width: 0;
+  /* `min-height: 0` 同理，管纵向：否则子元素会顶破壳层高度而不是自己滚 */
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-canvas);
+  /* 侧栏与之并列，接缝由侧栏的右描边提供，这里不再加线（否则两条线） */
+  position: relative;
+}

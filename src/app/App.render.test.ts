@@ -8,6 +8,7 @@ import { PlatformProvider } from './providers/PlatformProvider'
 import { ChannelStoreProvider } from './providers/ChannelStoreProvider'
 import { ThemeProvider } from './ThemeProvider'
 import { AppRoutes } from './routes'
+import { AppShell } from './AppShell'
 
 /**
  * 整树渲染冒烟（M0-5 结构验证，M1 改为路由级，M5 起工作台页面为 lazy）。
@@ -44,7 +45,16 @@ async function renderTree(entries: string[]): Promise<string> {
       createElement(
         ThemeProvider,
         null,
-        createElement(MemoryRouter, { initialEntries: entries }, createElement(AppRoutes)),
+        /*
+         * 壳层一起渲染：`AppShell` 在 App.tsx 里包在**路由之外**（全路由常驻），
+         * 只渲染 AppRoutes 的话，侧栏的锚点一个都不在树里 —— 那不算整树冒烟
+         * （2026-09-27 应用壳改版）。
+         */
+        createElement(
+          MemoryRouter,
+          { initialEntries: entries },
+          createElement(AppShell, null, createElement(AppRoutes)),
+        ),
       ),
     ),
   )
@@ -64,23 +74,27 @@ async function renderTree(entries: string[]): Promise<string> {
 }
 
 describe('App 路由整树渲染冒烟', () => {
-  it('画布路由下：画布表面与顶栏都在', async () => {
+  it('画布路由下：画布表面与左侧功能栏都在，且旧顶栏已消失', async () => {
     const html = await renderTree(['/canvas/demo'])
     expect(html).toContain('data-canvas-surface')
-    expect(html).toContain('轻画')
     /*
-     * 顶栏按 §6.2 只留导航与项目级入口（返回 / 后台设置 / 项目标签 / 日志），
-     * 新建节点归左侧工具栏（§6.5）。故这里断言**各自的锚点**：
-     * 顶栏有导航出口，工具栏有新建入口与撤销 / 重做 / 导入。
+     * 品牌字从「轻画」变成侧栏那个单字 Logo「轻」。
+     * 原断言的「轻画」二字**原来来自被删掉的顶栏品牌**，不是页面里的其它文案 ——
+     * 顶栏一去它就没了。这里改断言侧栏 Logo 的锚点 + 那个字。
      */
+    expect(html).toContain('data-sidebar-logo')
+    expect(html).toContain('轻')
+    /* 新宿主：应用壳侧栏（产品文档 §2.1 / §2.2） */
+    expect(html).toContain('data-app-shell')
+    expect(html).toContain('data-app-sidebar')
+    expect(html).toContain('data-sidebar-item="/settings"')
+    /* 日志那件事搬到了画布右上角（§6.2） */
+    expect(html).toContain('data-canvas-log')
     /*
-     * 「← 返回」已于 2026-09-19 移除，改为**点品牌回首页**：
-     * 仍用 data-topbar-back 锚点（挂在这个按钮上），故断言它存在，
-     * 但文案不再是「← 返回」而是品牌名「轻画」。
+     * ★ 旧顶栏**必须不在**。这一条是「顶栏已按 §6.2 去除」的护栏：
+     * 少了它，只能靠真机上肉眼发现「怎么又冒出来一条顶栏」。
      */
-    expect(html).toContain('data-topbar-back')
-    expect(html).toContain('data-topbar-settings')
-    expect(html).toContain('data-topbar-projects')
+    expect(html).not.toContain('data-topbar')
     expect(html).toContain('data-canvas-toolbar')
     expect(html).toContain('data-toolbar-add')
     expect(html).toContain('data-toolbar-undo')
@@ -88,9 +102,22 @@ describe('App 路由整树渲染冒烟', () => {
     expect(html).toContain('data-toolbar-import')
   }, TREE_TIMEOUT)
 
-  it('首页路由下：品牌与新建入口都在', async () => {
+  it('首页路由下：欢迎页与快捷入口都在', async () => {
     const html = await renderTree(['/'])
+    expect(html).toContain('data-home-page')
+    /* 首页已按 §5.1 变轻：项目网格搬去 /projects，这里留欢迎与入口 */
+    expect(html).toContain('data-home-projects')
     expect(html).toContain('轻画')
-    expect(html).toContain('新建项目')
+  }, TREE_TIMEOUT)
+
+  it('项目路由下：项目网格与模板库都在（§5.1 的迁移目标）', async () => {
+    const html = await renderTree(['/projects'])
+    /*
+     * 空库时是**空态**（`data-new-project`），不是网格末尾那张「+ 新建」卡
+     * （`data-new-card` 只在有项目时出现）。断言用空态锚点，
+     * 否则测的是「有没有项目」而不是「项目页渲染出来了没」。
+     */
+    expect(html).toContain('data-new-project')
+    expect(html).toContain('data-template="text2img"')
   }, TREE_TIMEOUT)
 })

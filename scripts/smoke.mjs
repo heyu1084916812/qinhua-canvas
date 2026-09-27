@@ -148,17 +148,21 @@ async function genPanel(page, nodeLocator) {
     /**
      * 选中点击点避开两个坑：
      * - **顶栏浮层**盖在画布上。早先它固定 `top:12 / height:44`（屏幕 y 12..56），
-     *   于是这里写死 y=72；但顶栏 2026-09-19 按用户要求「加大一倍」（`.bar` 挂 `zoom:2`，
+     *   于是这里曾写死 y=72；但顶栏 2026-09-19 按用户要求「加大一倍」（`.bar` 挂 `zoom:2`，
      *   占位变成 y 24..112），写死的 72 反而落进顶栏里、点击被它吃掉。
-     *   改为**运行时量顶栏下沿**，以后顶栏再怎么改尺寸都不会悄悄失效。
+     *   **2026-09-27：那个顶栏已按 §6.2 整体去除**，画布顶部不再有遮挡物，
+     *   于是这里不再需要「躲开顶栏」的偏移（详见下面的说明）。
      * - **本体中央的 `+`**：那是上传入口，点它会弹 showOpenFilePicker；故取左侧 x=40。
      */
-    const barBottom = await page
-      .evaluate(() => {
-        const el = document.querySelector('[data-topbar]')
-        return el ? el.getBoundingClientRect().bottom : 0
-      })
-      .catch(() => 0)
+    /*
+     * 顶部不再有遮挡物。
+     *
+     * 这段原本查画布顶部悬浮栏（`[data-topbar]`）的下沿，好让点击落在它下面。
+     * 顶栏已按 §6.2 整体去除 —— 现在画布**顶部是干净的**，
+     * 取 0 就是正确值（下面 `Math.max(16, …)` 再兜一个最小边距）。
+     * 留着那次查询只会让人以为「上面还有东西」，故直接写明。
+     */
+    const barBottom = 0
     /** 节点在屏幕上的顶边（box.y）到「顶栏下沿」的偏移；再加 8px 余量 */
     const safeY = Math.max(16, barBottom - box.y + 8)
     const y = Math.min(Math.max(16, safeY), box.height - 14)
@@ -233,6 +237,69 @@ async function paramOptions(page, scope, name) {
   await page.keyboard.press('Escape')
   await sleep(100)
   return empty > 0 ? [] : texts
+}
+
+/**
+ * 打开**项目页**（模板库所在处）——产品文档 §5.1 起模板库在 `/projects`，
+ * 不再在 `/`（那是欢迎页）。
+ *
+ * 为什么收成一个 helper：全量里有一批用例是「回到首页 → 点某个模板」，
+ * 改版后这一步的落点变了。散着改 50 多处必然漏几个，
+ * 而漏掉的表现是「模板按钮找不到」的超时 —— 与真正的缺陷长得一模一样。
+ */
+async function gotoProjects(page) {
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(400)
+}
+
+/**
+ * 确保应用壳侧栏处于**展开**态（导航项的文字与「最近项目」只在展开时渲染）。
+ *
+ * 侧栏默认收起（产品口径：刷新回收起），而收起态下导航项只有图标 ——
+ * 用文字选择器找它们会全落空。凡是「要读导航项文字」或「要点最近项目」的地方，
+ * 先调这个，别再各写一遍判断。
+ */
+async function ensureSidebarOpen(page) {
+  const rail = page.locator('[data-app-sidebar]')
+  if ((await rail.count()) === 0) return
+  if ((await rail.getAttribute('data-sidebar-open')) === 'true') return
+  await page.locator('[data-sidebar-toggle]').click()
+  await page.waitForFunction(
+    () => document.querySelector('[data-app-sidebar]')?.getAttribute('data-sidebar-open') === 'true',
+    null,
+    { timeout: 4000 },
+  )
+}
+
+/**
+ * 量侧栏两档宽度（收起 / 展开），量完**复位回收起**。
+ *
+ * 为什么量 `getBoundingClientRect().width` 而不是读 CSS 声明：
+ * 宽度由内联 style（来自 `sidebarState`）给，CSS 里的 64px 只是兜底；
+ * 只有量渲染结果才能证明**状态确实驱动了宽度**。
+ *
+ * 复位很重要：侧栏是模块级单例，展开了不复位会污染后续用例
+ * （本项目对这类「跨用例状态泄漏」有专门教训）。
+ */
+async function measureSidebarWidths(page) {
+  const rail = page.locator('[data-app-sidebar]')
+  if ((await rail.count()) === 0) return { collapsed: -1, expanded: -1 }
+  const read = async () => Math.round((await rail.boundingBox()).width)
+  const toggle = page.locator('[data-sidebar-toggle]')
+
+  // 先接到「收起」
+  if ((await rail.getAttribute('data-sidebar-open')) === 'true') {
+    await toggle.click()
+    await sleep(500)
+  }
+  const collapsed = await read()
+  await toggle.click()
+  await sleep(500)
+  const expanded = await read()
+  // 复位回收起，别把状态留给下一个用例
+  await toggle.click()
+  await sleep(500)
+  return { collapsed, expanded }
 }
 
 /**
@@ -333,8 +400,22 @@ async function dragNode(page, nodeId, containerId) {
  * 新建项目。
  * 有项目时：网格末尾的「+ 新建」卡片（data-new-card）→ 弹工作台浮层 → 选 canvas。
  * 空态时：空状态主按钮（data-new-project）→ 直接建 canvas，无浮层。
+ *
+ * ⚠️ **2026-09-27 应用壳改版后要先落到项目页**：项目网格已按产品文档 §5.1
+ * 从 `/`（现在的欢迎页）迁到 `/projects`。仍按老办法在 `/` 上找
+ * `data-new-project` 会等不到它 —— 欢迎页上本来就没有新建按钮。
+ * 这里统一先导航过去，调用方不必各自记得。
  */
 async function createProject(page) {
+  if (!/\/projects/.test(page.url())) {
+    /*
+     * 用 `page.goto` 而不是点侧栏：本 helper 的调用方可能在任意页面
+     * （画布 / 首页 / 设置页），走 URL 是最短且不依赖壳层 UI 的路径。
+     * 先回 `/` 再进 `/projects` 没必要 —— MemoryRouter 不在，真路由直接可达。
+     */
+    await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' }).catch(() => {})
+    await sleep(400)
+  }
   const card = page.locator('[data-new-card]')
   const hasGrid = await card
     .waitFor({ state: 'visible', timeout: 8000 })
@@ -480,8 +561,12 @@ async function g1(browser) {
   const page = await ctx.newPage()
   page.on('pageerror', (e) => rec(g, '无未捕获异常', false, String(e).slice(0, 120)))
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
-  // 首页项目列表要等 IndexedDB 读回后才渲染，冷启动（全量跑的第一组）可能晚于 networkidle；
+  /*
+   * 空状态在**项目页**（§5.1：项目网格从「首页」迁到一级「项目」页）。
+   * 首页现在只有欢迎与新建入口，那里没有项目列表、自然也没有空状态。
+   */
+  await gotoProjects(page)
+  // 项目列表要等 IndexedDB 读回后才渲染，冷启动（全量跑的第一组）可能晚于 networkidle；
   // isVisible() 不自动等待，若直接判定会把「还没渲染」误报成「没有空状态」。显式等一拍（仍会在真缺时超时失败）。
   await page.getByText('还没有项目').waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
   const empty = await page.getByText('还没有项目').isVisible()
@@ -505,7 +590,7 @@ async function g1(browser) {
   const n2 = await nodeCount(page)
   rec(g, '刷新后节点仍在', n2 === 1, `节点数=${n2}`)
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   const meta = await page.locator('[data-project-card]').first().innerText()
   rec(g, '首页卡片显示节点数', /1 个节点/.test(meta), meta.replace(/\n/g, ' / '))
@@ -521,7 +606,7 @@ async function g2(browser) {
   const g = 'G2 模板'
   const ctx = await newCtx(browser)
   const page = await ctx.newPage()
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
 
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -557,7 +642,7 @@ async function g3(browser) {
   // 造 3 个项目
   for (const name of ['Alpha', 'Beta', 'Gamma']) {
     await createProject(page)
-    await page.goto(BASE, { waitUntil: 'networkidle' })
+    await gotoProjects(page)
     await page.locator('[data-project-card] button[aria-label="项目菜单"]').first().click()
     await page.getByRole('menuitem', { name: '重命名' }).click()
     const input = page.locator('[data-project-card] input').first()
@@ -728,7 +813,7 @@ async function g5(browser) {
   await sleep(1100)
   const nBefore = await nodeCount(page)
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
 
   // 导出
@@ -941,7 +1026,7 @@ async function g9(browser) {
   await page.screenshot({ path: `${OUT}/10b-g9-channel.png` })
 
   // 2) 文生图模板进画布（预置 提示词 + 生成 节点）
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -1039,7 +1124,7 @@ async function g10(browser) {
   await configureMockChannel(page)
 
   // 进画布（文生图模板）
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -1164,7 +1249,7 @@ async function g11(browser) {
   await configureMockChannel(page, { token: 'SECRET-TOKEN-SHOULD-NOT-LEAK' })
 
   // ── E2E-02：选模型 → 重载后仍选中，且密钥不出现在页面 ──
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -1436,7 +1521,7 @@ async function g12(browser) {
   page.on('pageerror', (e) => rec(g, '无未捕获异常', false, String(e).slice(0, 120)))
 
   // 文生图模板：提示词 → 图片生成，预置 1 条连线
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -1519,12 +1604,12 @@ async function g13(browser) {
   const page = await ctx.newPage()
   page.on('pageerror', (e) => rec(g, '无未捕获异常', false, String(e).slice(0, 120)))
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await createProject(page)
   await sleep(500)
   // 文生图模板给出「提示词 → 生成」一对合法连线起点，并自带 1 条边
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -1987,7 +2072,7 @@ async function g16(browser) {
   // 生成节点来自文生图模板；本页没有，用顶栏没有「＋ 生成」，
   // 因此走首页模板另开项目验证集合卡（见 G9/G10 路径），
   // 本组只验证「批量 → 生成」这条连线被 canConnect 接受。
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -2433,25 +2518,29 @@ async function g17(browser) {
     allInside,
     `zoom ${zoomed.zoom} → ${reset.zoom} / 节点 ${nodeBoxes.length} 个`,
   )
-  /*
-   * 适配后节点（连同浮在框外的标题）不能落在顶栏底下。
+  /**
+   * 适配后节点（连同浮在框外的标题）不能被**常驻控件**压住。
    *
-   * 这里原本写死 FLOAT_H = 56（旧顶栏下沿 12+44）。顶栏 2026-09-19 放大一倍后
-   * 下沿到 112，写死的值会让这条断言在**节点真被压住**时依然通过（假绿）。
-   * 改为运行时量真实下沿，断言才继续有效。配套的 FIT_PADDING 已同步涨到 128。
+   * ⚠️ 判据在 2026-09-27 换过对象：原先量的是**画布顶部悬浮栏**的下沿，
+   * 而那个顶栏已按 §6.2 整体去除。继续拿它当判据会**恒真**
+   * （查询恒返回兜底值 56，节点当然都在 56 之下）——
+   * 一条「看起来在守、其实什么都没守」的假断言，比没有更危险。
+   *
+   * 现在改量**应用壳侧栏的右沿**：它才是当前布局里真正可能压住画布内容的
+   * 常驻控件（`FIT_PADDING` 要保证适配后节点落在它右边）。
    */
-  const FLOAT_H = await page
+  const SIDEBAR_R = await page
     .evaluate(() => {
-      const el = document.querySelector('[data-topbar]')
-      return el ? el.getBoundingClientRect().bottom : 56
+      const el = document.querySelector('[data-app-sidebar]')
+      return el ? el.getBoundingClientRect().right : 0
     })
-    .catch(() => 56)
-  const notOccluded = nodeBoxes.length > 0 && nodeBoxes.every((bx) => bx.y >= FLOAT_H)
+    .catch(() => 0)
+  const notOccluded = nodeBoxes.length > 0 && nodeBoxes.every((bx) => bx.x >= SIDEBAR_R - 1)
   rec(
     g,
-    '重置视图后节点不被悬浮顶栏遮挡',
+    '★ 重置视图后节点不被左侧功能栏遮挡（§5.10）',
     notOccluded,
-    `最高节点 y=${nodeBoxes.length ? Math.min(...nodeBoxes.map((b) => b.y)).toFixed(0) : 'n/a'}`,
+    `最左节点 x=${nodeBoxes.length ? Math.min(...nodeBoxes.map((b) => b.x)).toFixed(0) : 'n/a'} 侧栏右沿=${SIDEBAR_R}`,
   )
 
   // ── 7. 左对齐：选中集合 x 归一（§6.5 ②）──
@@ -2833,7 +2922,7 @@ async function g21(browser) {
   await configureMockChannel(page)
 
   // 2) 进画布，建画板
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="blank"]').click().catch(() => {})
   await page.waitForURL(/\/canvas\//).catch(() => {})
@@ -2962,7 +3051,7 @@ async function g22(browser) {
   await configureMockChannel(page)
 
   // 2) 文生图模板进画布，配置生成节点
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -3581,7 +3670,7 @@ async function g37(browser) {
   rec(g, '渠道验证通过', g37ch.verified)
 
   // 2) 图生图模板：底图生成 → 图生图（两个 generation，已连线）
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="img2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -3711,59 +3800,86 @@ async function g42(browser) {
     await sleep(600)
   }
 
-  // 1) 首页顶栏 → 后台设置；无来源信息时返回按钮回落首页
+  // 1) 侧栏「渠道配置」→ 设置页；无来源信息时返回按钮回落首页
+  /*
+   * ⚠️ 2026-09-27 应用壳改版（产品文档 §2.1 / §6.2）：
+   * 各页自己的全局顶栏已去掉，导航出口统一由**应用壳左侧功能栏**承担。
+   * 所以这里不再找「首页顶栏的后台设置按钮」，改为点侧栏的一级导航项。
+   * 断言的**意图不变**：这个入口存在、且能到 `/settings`。
+   */
   await page.goto(BASE, { waitUntil: 'networkidle' })
   await sleep(400)
-  await page.getByRole('button', { name: '后台设置' }).click()
+  await ensureSidebarOpen(page)
+  await page.locator('[data-sidebar-item="/settings"]').click()
   await page.waitForURL(/\/settings/)
-  rec(g, '首页可进入后台设置', page.url().includes('/settings'))
+  rec(g, '侧栏「渠道配置」可进入设置页', page.url().includes('/settings'))
   const labelFromHome = await page.locator('[data-settings-back]').innerText()
   rec(g, '从首页进入时返回按钮指向首页', labelFromHome.includes('首页'), labelFromHome)
 
   // 2) 模板建一个画布项目，记住 URL 供后面比对
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
   await sleep(800)
   const canvasUrl = page.url()
 
-  // 3) 画布顶栏的导航出口
-  //    「← 返回」已于 2026-09-19 移除，改为**点品牌回首页**；锚点仍在
-  //    data-topbar-back 上，故同时断言「锚点存在」与「不再是独立返回按钮」。
-  const backBtn = page.locator('[data-topbar-back]')
-  rec(g, '画布顶栏有返回首页的落点', (await backBtn.count()) === 1, `count=${await backBtn.count()}`)
-  rec(g, '返回落点是品牌名（不再是「← 返回」）', (await backBtn.innerText()) === '轻画', await backBtn.innerText())
-  rec(g, '画布顶栏有「后台设置」', (await page.locator('[data-topbar-settings]').count()) === 1)
-
-  /**
-   * 顶栏整体加倍（用户 2026-09-19 第 6 条）。
+  // 3) 应用壳侧栏承担导航出口（§2.1 / §2.2）
+  /*
+   * ⛔ 原来的三条断言全部指向**已删除的**画布顶栏
+   * （`data-topbar-back` / 品牌文字 / `data-topbar-settings`）以及它的
+   * “加大一倍”尺寸 —— 顶栏没了，那几条要么恒假、要么在要求一个不该存在的东西。
    *
-   * 顶栏用 `zoom: 2` 放大，`clientHeight` 仍是 44（zoom 不改布局值），
-   * 所以必须量 **`getBoundingClientRect()` 的屏幕尺寸**才看得出真正翻倍。
+   * 能力本身没有消失，只是换了宿主（§6.2 的迁移表）：
+   *   品牌 / 返回首页 → 侧栏 Logo（此处不承担返回职责，回首页走导航项）
+   *   后台设置        → 一级导航「渠道配置」
+   * 所以改为断言**新宿主**，并补一条「旧顶栏确实不在」的护栏。
    */
-  const topbarRect = await page.evaluate(() => {
-    const el = document.querySelector('[data-topbar]')
-    if (!el) return null
-    const r = el.getBoundingClientRect()
-    return { w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top) }
-  })
+  await ensureSidebarOpen(page)
+  rec(g, '应用壳侧栏在全路由常驻', (await page.locator('[data-app-sidebar]').count()) === 1)
   rec(
     g,
-    '★ 顶栏整体加大一倍（屏幕高 88，原 44）',
-    !!topbarRect && Math.abs(topbarRect.h - 88) <= 2,
-    topbarRect ? `${topbarRect.w}×${topbarRect.h} top=${topbarRect.top}` : 'null',
+    '★ 侧栏「渠道配置」就是原来的后台设置入口',
+    (await page.locator('[data-sidebar-item="/settings"]').count()) === 1,
+  )
+  rec(
+    g,
+    '★ 画布页不再有旧的顶部悬浮栏（§6.2 已去除）',
+    (await page.locator('[data-topbar]').count()) === 0,
   )
 
-  // 后台设置在**日志右边**（用户 2026-09-19）：越靠右越接近「离开画布」
-  const barOrder = await page.evaluate(() => {
-    const bar = document.querySelector('[data-topbar-settings]')?.parentElement
-    if (!bar) return []
-    return [...bar.querySelectorAll('button')].map((b) => b.innerText)
-  })
-  const logIdx = barOrder.indexOf('日志')
-  const setIdx = barOrder.indexOf('后台设置')
-  rec(g, '★ 后台设置在日志右边', logIdx >= 0 && setIdx > logIdx, JSON.stringify(barOrder))
+  /**
+   * 侧栏宽度两档（§5.10）：收起 64 / 展开 240。
+   * 这条替代了原来的「顶栏加大一倍」：同一个意图 —— **壳层的尺寸是产品口径**，
+   * 不是随手写的数 —— 只是对象从顶栏换成了侧栏。
+   */
+  const sidebarWidths = await measureSidebarWidths(page)
+  rec(
+    g,
+    '★ 侧栏两档宽度：收起 64 / 展开 240（§5.10）',
+    sidebarWidths.collapsed === 64 && sidebarWidths.expanded === 240,
+    `收起=${sidebarWidths.collapsed} 展开=${sidebarWidths.expanded}`,
+  )
+
+  /*
+   * 「后台设置在日志右边」这条**随顶栏一并作废**（§6.2）。
+   *
+   * 它原先约束的是「一横向工具栏里两个按钮的左右顺序」。现在这两件事
+   * 分居两处、不在同一个容器里（日志在画布右上角、渠道配置在一级侧栏），
+   * 没有任何「谁在谁右边」可言 —— 继续断言只会测出一个无意义的结果。
+   * 取而代之的是下面这条**跨页可达性**：从画布出发，日志能开、渠道配置能到。
+   */
+  const logBtnOnCanvas = page.locator('[data-canvas-log]')
+  rec(g, '★ 画布右上角有日志入口（§6.2 迁移）', (await logBtnOnCanvas.count()) === 1)
+  await logBtnOnCanvas.click()
+  await sleep(400)
+  const logOpened = await page.locator('[data-log-panel]').count()
+  rec(g, '★ 点它能打开日志面板', logOpened === 1, `logPanel=${logOpened}`)
+  if (logOpened) {
+    // 关掉，别影响后面的用例
+    await page.keyboard.press('Escape')
+    await sleep(300)
+  }
 
   // 4) 无渠道：**创作面板**给出引导条。
   //    M6-16 起节点本体减重为媒体框（§6.8），参数与引导都不在节点里——
@@ -3804,8 +3920,10 @@ async function g42(browser) {
   const hint2Text = hint2 ? norm(await page.locator('[data-panel-setup-hint]').first().innerText()) : ''
   rec(g, '渠道未启用时文案切换为「都未启用」', hint2Text.includes('未启用'), hint2Text)
 
-  // 7) 顶栏「后台设置」→ 启用 → 回画布：引导消失，平台下拉出现该渠道
-  await page.locator('[data-topbar-settings]').click()
+  // 7) 侧栏「渠道配置」→ 启用 → 回画布：引导消失，平台下拉出现该渠道
+  //    （原为顶栏的「后台设置」，2026-09-27 起入口归一级导航，见 §6.2 迁移表）
+  await ensureSidebarOpen(page)
+  await page.locator('[data-sidebar-item="/settings"]').click()
   await page.waitForURL(/\/settings/)
   await page.getByText('新建渠道').first().click()
   await sleep(300)
@@ -3845,21 +3963,38 @@ async function g42(browser) {
   )
 
   /**
-   * 9) 工作台顶栏同样有设置出口。
+   * 9) 工作台里同样有进入后台设置的出口。
    *
-   * ⚠️ 2026-09-25：原断言验的是**漫画页**顶栏。comic 工作台已按用户要求整体移除，
-   * 故改为验证画布页 —— 它本就是本条断言真正关心的东西（「在工作台里能进后台设置」）。
-   * 不要因为删了漫画就把这一条一并删掉：顶栏导航出口是本项目**修过一次回归**的地方
-   * （§七「工作区导航断头路」，当时文档标 ✅ 但按钮根本不存在）。
+   * 沿革：最早验的是漫画页顶栏 → comic 移除后改为画布页顶栏 →
+   * **2026-09-27 应用壳改版后顶栏整体去除**（产品文档 §6.2），
+   * 出口归一级导航「渠道配置」。断言**意图始终没变**：
+   * 「在工作台里能进后台设置」。
+   *
+   * 不要因为入口换地方就把这一条删掉：这是本项目**修过一次回归**的地方
+   * （§七「工作区导航断头路」——当时文档标 ✅，按钮根本不存在）。
+   * 入口会搬家，但「搬完之后还在不在」必须一直有人守着。
    */
   await page.goto(BASE, { waitUntil: 'networkidle' })
   await sleep(300)
   /** 用既有的 `createProject`：它会按「空态 / 网格态」自己选入口，不重复实现一遍 */
   await createProject(page)
-  // createProject 只保证 URL 跳到 /canvas/；顶栏随 lazy chunk 渲染，等它真出来再断言
-  await page.locator('[data-topbar]').waitFor({ state: 'visible', timeout: 8000 })
-  rec(g, '画布页顶栏有「后台设置」', (await page.locator('[data-topbar-settings]').count()) === 1)
-  rec(g, '画布页仍保留「← 返回」', (await page.locator('[data-topbar-back]').count()) === 1)
+  // 壳层随路由常驻；等侧栏真出来再断言（lazy chunk 渲染有时间差）
+  await page.locator('[data-app-sidebar]').waitFor({ state: 'visible', timeout: 8000 })
+  await ensureSidebarOpen(page)
+  rec(
+    g,
+    '画布页可从侧栏进入「渠道配置」',
+    (await page.locator('[data-sidebar-item="/settings"]').count()) === 1,
+  )
+  // 点了确实到设置页，才算「入口真的通」
+  await page.locator('[data-sidebar-item="/settings"]').click()
+  await page.waitForURL(/\/settings/, { timeout: 6000 }).catch(() => {})
+  rec(g, '点它确实到设置页', page.url().includes('/settings'), page.url())
+  rec(
+    g,
+    '画布页不再有旧的顶部悬浮栏（§6.2）',
+    (await page.locator('[data-topbar]').count()) === 0,
+  )
 
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors[0] ?? '')
 
@@ -4160,7 +4295,7 @@ async function g46(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 120)))
 
   await configureMockChannel(page)
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -4385,7 +4520,7 @@ async function g47(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
   await configureMockChannel(page)
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -4516,7 +4651,7 @@ async function g48(browser) {
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -4687,7 +4822,7 @@ async function g49(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
   await configureMockChannel(page)
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -4804,7 +4939,7 @@ async function g51(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
   await configureMockChannel(page)
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
 
   const hint = (await page.locator('[data-template="batch-style"]').innerText().catch(() => '')).trim()
@@ -4885,7 +5020,7 @@ async function g51(browser) {
   await page.screenshot({ path: `${OUT}/64-g51-batch-img-compare.png` })
 
   // ── 批量套图：批量容器 → 生成节点 ──
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(500)
   await page.locator('[data-template="batch-style"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -4953,7 +5088,7 @@ async function g52(browser) {
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="blank"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -5004,7 +5139,7 @@ async function g52(browser) {
   const ctx2 = await newCtx(browser)
   await ctx2.addInitScript(pickerStub('typeerror'))
   const page2 = await ctx2.newPage()
-  await page2.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page2)
   await sleep(400)
   await page2.locator('[data-template="blank"]').click()
   await page2.waitForURL(/\/canvas\//)
@@ -5191,7 +5326,7 @@ async function g53(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
   await configureMockChannel(page)
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="blank"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -5214,7 +5349,7 @@ async function g53(browser) {
   await page.screenshot({ path: `${OUT}/67-g53-single.png` })
 
   // ── N=2：进结果组，组内统一格位 RESULT_CELL（200×200）──
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(500)
   await page.locator('[data-template="blank"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -5284,7 +5419,7 @@ async function g53(browser) {
   await page.screenshot({ path: `${OUT}/68-g53-group.png` })
 
   // ── 点 `+` 上传：同样按原始比例（此前只有拖放这条路是对的）──
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(500)
   await page.locator('[data-template="blank"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -5359,7 +5494,7 @@ async function g55(browser) {
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="blank"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -5512,7 +5647,7 @@ async function g56(browser) {
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -5634,10 +5769,19 @@ async function g56(browser) {
     v1 ? `${Math.round(v1.w)}×${Math.round(v1.h)}` : 'null',
   )
 
-  // 平移画布 → 视口框跟着动
-  await page.mouse.move(600, 500)
+  /*
+   * 平移画布 → 视口框跟着动。
+   *
+   * ⚠️ 起点必须落在**空白处**：2026-09-27 起画布右侧多了应用壳侧栏，
+   * 而模板节点也随之整体右移，原先写死的 (600,500) 可能正好压在节点上 ——
+   * 那样拖的是节点、画布没动，视口框自然「没跟着动」（实测就是这条挂了）。
+   * 改为按画布矩形取一个偏左下的空白点。
+   */
+  const surfaceBox = await page.locator('[data-canvas-surface]').boundingBox()
+  const panFrom = { x: surfaceBox.x + 40, y: surfaceBox.y + surfaceBox.height - 60 }
+  await page.mouse.move(panFrom.x, panFrom.y)
   await page.mouse.down()
-  await page.mouse.move(500, 430, { steps: 8 })
+  await page.mouse.move(panFrom.x - 100, panFrom.y - 70, { steps: 8 })
   await page.mouse.up()
   await sleep(300)
   const v2 = await viewRect()
@@ -5748,7 +5892,7 @@ async function g57(browser) {
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -5878,7 +6022,7 @@ async function g58(browser) {
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -5890,21 +6034,14 @@ async function g58(browser) {
   // 1) 单选生成节点 → 栏出现在节点上方、水平居中
   const gen = page.locator('[data-node-type="generation"]').first()
   const n0 = await gen.boundingBox()
-  /*
-   * 选中点纵向要落在顶栏下沿之下（顶栏 2026-09-19 放大一倍后下沿到 112，
-   * 写死的 72 会点进顶栏里，被项目标签拦走）。运行时量顶栏下沿 + 8px 余量。
-   */
-  const followBarSafeY =
-    (await page
-      .evaluate(() => {
-        const el = document.querySelector('[data-topbar]')
-        return el ? el.getBoundingClientRect().bottom : 0
-      })
-      .catch(() => 0)) - n0.y + 8
   await gen.click({
     position: {
       x: Math.max(8, Math.min(40, n0.width / 2 - 30)),
-      y: Math.min(Math.max(followBarSafeY, 16), n0.height - 14),
+      /*
+       * 顶部已无遮挡物（画布顶栏按 §6.2 去除），取 16px 边距即可。
+       * 原先这里要「落在顶栏下沿之下」，那次查询现在恒返回 0。
+       */
+      y: Math.min(Math.max(16, 16), n0.height - 14),
     },
   })
   await sleep(300)
@@ -6004,19 +6141,13 @@ async function g58(browser) {
   const nTop = await gen.boundingBox()
   const gTop = { x: Math.round(nTop.x + 14), y: Math.round(nTop.y + nTop.height - 14) }
   /*
-   * 只拖到「顶栏下沿之下一点」：拖出画布可视区后节点点不中，后续断言会全部落空。
+   * 只拖到「画布顶端之下一点」：拖出可视区后节点点不中，后续断言会全部落空。
    *
-   * 这里的 70 原本按旧顶栏（下沿 56）写死；顶栏 2026-09-19 放大一倍后下沿到 112，
-   * 70 已经落进顶栏里，点击会被顶栏的项目标签拦走（实测 Playwright 报
-   * "subtree intercepts pointer events"）。改为**运行时量**顶栏下沿，加一点余量。
+   * 这个值曾经跟着**画布顶部悬浮栏**的下沿走（先写死 70，后来顶栏放大到 112
+   * 又改成运行时量）。那个顶栏已按 §6.2 整体去除，画布顶部不再有遮挡物，
+   * 于是取一个小的固定边距即可 —— 目的只剩「别拖出可视区」。
    */
-  const TOP_SAFE =
-    (await page
-      .evaluate(() => {
-        const el = document.querySelector('[data-topbar]')
-        return el ? el.getBoundingClientRect().bottom : 0
-      })
-      .catch(() => 0)) + 16
+  const TOP_SAFE = 16
   await page.mouse.move(gTop.x, gTop.y)
   await page.mouse.down()
   await page.mouse.move(gTop.x, TOP_SAFE, { steps: 14 })
@@ -6119,7 +6250,7 @@ async function g59(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
   await configureMockChannel(page)
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -6193,7 +6324,7 @@ async function g60(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
   await configureMockChannel(page)
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -6307,7 +6438,7 @@ async function g61(browser) {
   const themeAttr = () => page.evaluate(() => document.documentElement.dataset.theme ?? '')
   const settingAttr = () => page.evaluate(() => document.documentElement.dataset.themeSetting ?? '')
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
 
   /*
@@ -6408,7 +6539,7 @@ async function g63(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
   await configureMockChannel(page)
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -6477,7 +6608,7 @@ async function g62(browser) {
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(500)
 
   // 1) 首帧即为深色（不经过任何点击）——这也是 index.html 内联脚本唯一的外部证据
@@ -6572,11 +6703,18 @@ async function g62(browser) {
     return { inside: inside.mean, outside: outside.mean, step: Math.abs(inside.mean - outside.mean) }
   }
 
-  // 2) 首页：品牌文字与顶栏不能糊进背景
-  const brandContrast = await contrastOf('.brand, [class*="brand"]')
+  /**
+   * 2) 应用壳侧栏的 Logo 不能糊进背景。
+   *
+   * ⚠️ 这条原先测的是**首页自己的顶栏品牌文字**（`.brand`）。2026-09-27 应用壳
+   * 改版后首页顶栏已按 §5.2 退役、品牌归侧栏，`.brand` 不复存在 ——
+   * 继续找它会拿到 null（恒假）。改测侧栏 Logo 的锚点：同一个意图
+   *（「深色下文字 / 标记仍可读」），只是对象换了宿主。
+   */
+  const brandContrast = await contrastOf('[data-sidebar-logo]')
   rec(
     g,
-    '★ 首页顶栏文字没糊进背景（亮度标准差 > 6）',
+    '★ 应用壳侧栏 Logo 没糊进背景（亮度标准差 > 6）',
     !!brandContrast && brandContrast.sd > 6,
     brandContrast ? `sd=${brandContrast.sd.toFixed(1)} mean=${brandContrast.mean.toFixed(1)}` : 'null',
   )
@@ -6608,15 +6746,11 @@ async function g62(browser) {
   const gen = page.locator('[data-node-type="generation"]').first()
   const nb = await gen.boundingBox()
   if (nb) {
-    /* 同 G58：顶栏下沿已到 112，选中点必须落在它之下，否则被顶栏拦走 */
-    const safeTop =
-      (await page
-        .evaluate(() => {
-          const el = document.querySelector('[data-topbar]')
-          return el ? el.getBoundingClientRect().bottom : 0
-        })
-        .catch(() => 0)) + 8
-    await page.mouse.click(Math.round(nb.x + 12), Math.round(Math.max(nb.y + 72, safeTop)))
+    /*
+     * 选中点落在节点靠下一点的位置：避开发送机中央的上传 `+`。
+     * 从前还要与「顶栏下沿」取 max —— 顶栏已按 §6.2 去除，那层约束没有了。
+     */
+    await page.mouse.click(Math.round(nb.x + 12), Math.round(nb.y + Math.min(72, nb.height - 14)))
     await sleep(400)
     const outline = await page.evaluate(() => {
       const el = document.querySelector('[data-node-id]')
@@ -6676,7 +6810,7 @@ async function g64(browser) {
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -6955,7 +7089,7 @@ async function g65(browser) {
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="blank"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -7138,7 +7272,7 @@ async function g66(browser) {
   const thumbs = () => page.locator('[data-creation-panel] [data-panel-thumb]')
 
   // ── 情形一：自身素材 → 清除素材，节点回到空态 ──
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="blank"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -7170,7 +7304,7 @@ async function g66(browser) {
   const ctx2 = await newCtx(browser)
   const page2 = await ctx2.newPage()
   page2.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
-  await page2.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page2)
   await sleep(400)
   await page2.locator('[data-template="text2img"]').click()
   await page2.waitForURL(/\/canvas\//)
@@ -7326,7 +7460,7 @@ async function g67(browser) {
    */
   await configureMockChannel(page)
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="blank"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -7768,7 +7902,7 @@ async function g68(browser) {
   // 配一个启用渠道（带可用模型），否则解析链给不出渠道 / 模型，记录会被守卫挡掉
   await configureMockChannel(page)
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(500)
   await page.locator('[data-template="blank"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -7927,7 +8061,7 @@ async function g69(browser) {
   }
   rec(g, '★ 已临时停用第一条渠道（好让 A 落到第二条）', true)
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(500)
   await page.locator('[data-template="blank"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -8015,7 +8149,9 @@ async function g69(browser) {
    * B 继承的是最近改过的第二条，而不是列表第一的那条」。
    * 只恢复一条渠道的话，B 只能落到它身上，断言会退化成恒真。
    */
-  await page.locator('[data-topbar-settings]').click()
+  // 入口从顶栏换成一级导航（§6.2 迁移表）
+  await ensureSidebarOpen(page)
+  await page.locator('[data-sidebar-item="/settings"]').click()
   await page.waitForURL(/\/settings/)
   await sleep(600)
   await page.locator('[data-channel-item]').first().click()
@@ -8070,7 +8206,7 @@ async function g70(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
   await configureMockChannel(page)
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(500)
   await page.locator('[data-template="blank"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -8211,7 +8347,7 @@ async function g71(browser) {
 
   await configureMockChannel(page)
 
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="blank"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -8377,15 +8513,34 @@ async function g71(browser) {
   await ctx.close()
 }
 
-/** 选中单个节点（避开顶栏浮层与节点中央的上传 `+`） */
+/**
+ * 选中单个节点。
+ *
+ * 点击点要避开两处遮挡：
+ *  1. **左侧竖向工具条**（`[data-canvas-toolbar]`）—— 它常驻画布左侧，
+ *     节点若被摆到左边缘附近，`x=40` 会正好落在它上面（实测报
+ *     “toolbar subtree intercepts pointer events”）；
+ *  2. 节点中央的上传 `+`（点它会弹文件选择器）。
+ *
+ * ⚠️ 这里**曾经**按 `[data-topbar]` 的下沿算 y（旧画布有悬浮顶栏）。
+ * 2026-09-27 顶栏已整体去除（§6.2），那个查询恒返回 0、
+ * 于是 y 落到 16 —— 正好撞上左侧工具条。
+ * 现在改为**运行时按工具条右沿算 x**，不依赖任何已删除的元素。
+ */
 async function selectSingleNode(page, node) {
   const b = await node.boundingBox()
   if (!b) return
-  const barBottom = await page
-    .evaluate(() => document.querySelector('[data-topbar]')?.getBoundingClientRect().bottom ?? 0)
+  const toolbarRight = await page
+    .evaluate(() => {
+      const el = document.querySelector('[data-canvas-toolbar]')
+      return el ? el.getBoundingClientRect().right : 0
+    })
     .catch(() => 0)
-  const y = Math.min(Math.max(16, barBottom - b.y + 8), b.height - 14)
-  await node.click({ position: { x: 40, y } })
+  /* 工具条右沿之后再留 16px；节点很窄时退回节点中部，别越出节点 */
+  const x = Math.max(8, Math.min(toolbarRight + 16, b.width - 8))
+  /* 贴近节点顶部但不出界：避开发动机中央的上传 `+` */
+  const y = Math.max(8, Math.min(16, b.height - 14))
+  await node.click({ position: { x, y } })
   await sleep(600)
 }
 
@@ -8441,7 +8596,7 @@ async function g72(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
   await configureMockChannel(page)
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="blank"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -8587,7 +8742,13 @@ async function g73(browser) {
   // ── 先在技能库建一条技能 ──
   await page.goto(`${BASE}/skills`, { waitUntil: 'networkidle' })
   await sleep(700)
-  await page.getByRole('button', { name: /新建/ }).first().click()
+  /*
+   * 用稳定锚点 `data-skills-new`，不按按钮文案找。
+   * 技能库 2026-09-25 被抽成 `SkillsPanel`（/skills 与后台中枢共用），
+   * 顶栏结构随之变过 —— 文案匹配在这种重构下很脆，
+   * 而锚点是组件契约的一部分。
+   */
+  await page.locator('[data-skills-new]').click()
   await sleep(500)
   await page.locator('[data-skill-name]').fill('冒烟技能')
   await page.locator('[data-skill-content]').fill('把这段文字改写成一句诗。只输出结果。')
@@ -8596,7 +8757,7 @@ async function g73(browser) {
   rec(g, '技能库里建出一条技能', (await page.locator('[data-skill-item]').count()) === 1)
 
   // ── 回画布，建提示词节点 ──
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await gotoProjects(page)
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -9122,7 +9283,7 @@ async function g74(browser) {
   )
 
   // ── ③ ★ 改了要真的生效 ──
-  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+  await gotoProjects(page)
   await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20000 })
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -9184,6 +9345,156 @@ async function g74(browser) {
   )
 
   await page.screenshot({ path: `${OUT}/90-g74-hub.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+/**
+ * G80 应用壳与左侧功能栏（产品文档 §2.1 / §2.2；架构文档 §5.10）。
+ *
+ * 缺口 #30 的落地验收。要钉住五件事：
+ *  ① 刷新后**收起**（64px）、点开合按钮 → 240px，且右侧工作区**真的变窄**；
+ *  ② 六个一级导航项的**顺序**（产品口径，不按字母重排）；
+ *  ③ 侧栏**全路由常驻**；
+ *  ④ 主题切换在侧栏底部、点了能换主题；
+ *  ⑤ 画布页的旧顶栏**确实没了**，日志与缩放读数搬到新位置。
+ *
+ * ⚠️ 判据必须是**几何**（宽度、相对位置）而不是「元素在不在」：
+ * 侧栏把工作区挤窄 vs 浮在工作区上面，DOM 完全一样 —— 只有量矩形能分开。
+ */
+async function g80(browser) {
+  const g = 'G80 应用壳'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  const rail = page.locator('[data-app-sidebar]')
+  const workspace = page.locator('[data-app-workspace]')
+
+  await gotoProjects(page)
+  await sleep(800)
+
+  // ── ① 收起 / 展开 + 工作区跟随 ──
+  rec(g, '首屏有应用壳与侧栏', (await page.locator('[data-app-shell]').count()) === 1 && (await rail.count()) === 1)
+  rec(
+    g,
+    '★ 刷新后侧栏是收起态（产品口径：不记忆上次状态）',
+    (await rail.getAttribute('data-sidebar-open')) === 'false',
+    `open=${await rail.getAttribute('data-sidebar-open')}`,
+  )
+  const collapsed = await rail.boundingBox()
+  const wsCollapsed = await workspace.boundingBox()
+  rec(g, '★ 收起宽度 64px（§5.10）', Math.round(collapsed.width) === 64, `${Math.round(collapsed.width)}px`)
+
+  await page.locator('[data-sidebar-toggle]').click()
+  await sleep(600)
+  const expanded = await rail.boundingBox()
+  const wsExpanded = await workspace.boundingBox()
+  rec(g, '★ 展开宽度 240px（§5.10）', Math.round(expanded.width) === 240, `${Math.round(expanded.width)}px`)
+  /**
+   * ★★ 关键：工作区**变窄**，而不是被侧栏盖住。
+   * 「盖住」时工作区矩形不随侧栏变化，画布左边一截会藏在侧栏底下 ——
+   * 这是「浮层式侧栏」与「布局式侧栏」的唯一可观测差别。
+   */
+  rec(
+    g,
+    '★★ 展开后右侧工作区真的变窄（侧栏是布局的一部分，不是浮层）',
+    Math.round(wsExpanded.width) < Math.round(wsCollapsed.width) - 100 &&
+      Math.round(wsExpanded.x) === Math.round(expanded.width),
+    `工作区 ${Math.round(wsCollapsed.width)} → ${Math.round(wsExpanded.width)}，x=${Math.round(wsExpanded.x)}`,
+  )
+
+  // ── ② 导航项与顺序 ──
+  const navIds = await page
+    .locator('[data-sidebar-item]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-sidebar-item')))
+  rec(
+    g,
+    '★ 六个一级导航且顺序固定（首页/项目/画布/技能库/我的素材/渠道配置）',
+    JSON.stringify(navIds) ===
+      JSON.stringify(['/', '/projects', '/canvas', '/skills', '/assets', '/settings']),
+    navIds.join(','),
+  )
+  // 展开态要有文字（收起态只有图标）
+  const firstLabel = (await page.locator('[data-sidebar-item="/"]').innerText()).trim()
+  rec(g, '★ 展开态导航项带文字', firstLabel === '首页', JSON.stringify(firstLabel))
+
+  // ── ③ 全路由常驻 ──
+  await page.locator('[data-sidebar-item="/projects"]').click()
+  await sleep(800)
+  rec(
+    g,
+    '★★ 切到 /projects 后侧栏仍在、且展开态保持',
+    (await rail.count()) === 1 && (await rail.getAttribute('data-sidebar-open')) === 'true',
+    `open=${await rail.getAttribute('data-sidebar-open')}`,
+  )
+  rec(g, '项目页有自己的内容（模板库）', (await page.locator('[data-template="text2img"]').count()) >= 1)
+
+  // ── ④ 主题切换在侧栏底部 ──
+  const themeInRail = await rail.locator('[data-theme-toggle]').count()
+  rec(g, '★ 主题切换在侧栏内（§6.2 迁移）', themeInRail === 1, `count=${themeInRail}`)
+  /**
+   * 位置：主题按钮必须在侧栏的**下半部分**。
+   * 只断言「在侧栏里」不够 —— 挂在顶部也算「在侧栏里」，那就不是「底部」。
+   */
+  const themePos = await page.evaluate(() => {
+    const railEl = document.querySelector('[data-app-sidebar]')
+    const btn = railEl?.querySelector('[data-theme-toggle]')
+    if (!railEl || !btn) return null
+    const r = railEl.getBoundingClientRect()
+    const b = btn.getBoundingClientRect()
+    return { railBottom: r.bottom, btnBottom: b.bottom }
+  })
+  rec(
+    g,
+    '★ 主题按钮贴在侧栏底部',
+    !!themePos && themePos.railBottom - themePos.btnBottom < 40,
+    `距底 ${themePos ? Math.round(themePos.railBottom - themePos.btnBottom) : '?'}px`,
+  )
+  const themeBefore = await page.evaluate(() => document.documentElement.dataset.theme)
+  await rail.locator('[data-theme-toggle]').click()
+  await sleep(500)
+  const themeAfter = await page.evaluate(() => document.documentElement.dataset.theme)
+  rec(g, '★ 点它真的换主题', themeAfter !== themeBefore, `${themeBefore} → ${themeAfter}`)
+  await rail.locator('[data-theme-toggle]').click() // 切回，免得影响后续
+  await sleep(400)
+
+  // ── ⑤ 画布页：旧顶栏没了、日志与缩放就位 ──
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(500)
+  await createProject(page)
+  await sleep(1200)
+  rec(g, '★★ 画布页不再有旧的顶部悬浮栏（§6.2）', (await page.locator('[data-topbar]').count()) === 0)
+  rec(g, '★ 日志入口在画布右上角', (await page.locator('[data-canvas-log]').count()) === 1)
+  await page.locator('[data-canvas-log]').click()
+  await sleep(400)
+  rec(g, '★ 点日志入口能打开日志面板', (await page.locator('[data-log-panel]').count()) === 1)
+  await page.keyboard.press('Escape')
+  await sleep(300)
+  rec(g, '★ 缩放读数在小地图附近（§6.2 迁移）', (await page.locator('[data-canvas-zoom]').count()) === 1)
+  rec(
+    g,
+    '★ 画布左侧竖向工具条保留（§6.1）',
+    (await page.locator('[data-canvas-toolbar]').count()) === 1,
+  )
+  /**
+   * ★★ 画布 surface 宽度应约等于工作区宽度 —— 证明画布没被侧栏压住。
+   * 这是壳层改版对画布最实质的影响：坐标与命中都基于 surface 的真实矩形（§6.3）。
+   */
+  const widths = await page.evaluate(() => {
+    const s = document.querySelector('[data-canvas-surface]')?.getBoundingClientRect()
+    const w = document.querySelector('[data-app-workspace]')?.getBoundingClientRect()
+    return s && w ? { surface: Math.round(s.width), workspace: Math.round(w.width) } : null
+  })
+  rec(
+    g,
+    '★★ 画布 surface 宽度 = 工作区宽度（没有被侧栏压住）',
+    !!widths && Math.abs(widths.surface - widths.workspace) <= 2,
+    `surface=${widths?.surface} workspace=${widths?.workspace}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/90-g80-shell.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
 }
@@ -9421,7 +9732,7 @@ async function g76(browser) {
   rec(g, '★ 后台已写入上游 ID 映射', true, `逻辑名=${logical} → ${MARK}`)
 
   // ② 画布：跑一次生成
-  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+  await gotoProjects(page)
   await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20000 })
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -9573,7 +9884,7 @@ async function g77(browser) {
   rec(g, '★ 第二条渠道已配好（改名 + 启用 + 勾模型 + 优先度 99）', true, `名称=${NAME}`)
 
   // 画布上跑一次生成
-  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+  await gotoProjects(page)
   await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20000 })
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -9693,7 +10004,7 @@ async function g78(browser) {
   }
 
   // ② 画布：模型下拉应只列逻辑名
-  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+  await gotoProjects(page)
   await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20000 })
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -9790,7 +10101,7 @@ async function g79(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
   await configureMockChannel(page)
-  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+  await gotoProjects(page)
   await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20000 })
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -9874,7 +10185,7 @@ async function g79(browser) {
   await sleep(200)
 
   // ③ 提示词节点：对话档固定四个 + **没有平台 chip** + 模型可点
-  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+  await gotoProjects(page)
   await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20000 })
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -9954,7 +10265,7 @@ async function g79(browser) {
   }
 
   // ⑤ 画布选固定显示名 → 出图 → 日志里是映射后的真实 ID
-  await page.goto(BASE, { waitUntil: 'domcontentloaded' })
+  await gotoProjects(page)
   await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20000 })
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
@@ -10007,7 +10318,7 @@ async function g79(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

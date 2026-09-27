@@ -1,0 +1,35 @@
+/** 我的素材占位页（产品文档 §2.1 #6）。无交互，只需把空态摆正。 */
+
+.page {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  box-sizing: border-box;
+  background: var(--bg-app);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: center;
+  text-align: center;
+  width: min(420px, 100%);
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.hint {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+}

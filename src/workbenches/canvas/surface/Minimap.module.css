@@ -4,6 +4,13 @@
   right: 16px;
   bottom: 16px;
   width: 200px;
+  /*
+   * ⚠️ **尺寸仍钉死 200×140**（§6.4 的规格，冒烟 G56 按它断言）。
+   *
+   * 缩放读数**不放进这个盒子**：那会把高度撑到 163，直接违背 §6.4。
+   * 它作为**兄弟元素**定位在盒子正下方（见 `.zoom`）——
+   * 读数属于「小地图附近」，不属于小地图本身。
+   */
   height: 140px;
   border-radius: var(--radius-control);
   background: var(--bg-surface);
@@ -16,6 +23,38 @@
   cursor: crosshair;
   /* 触摸拖拽由自己接管，别让浏览器抢去做滚动 */
   touch-action: none;
+}
+
+/*
+ * 缩放读数（产品文档 §6.2：顶栏去掉后「缩放读数移到小地图附近，只显示数值；
+ * 不额外做加减号与适配按钮」）。
+ *
+ * ⚠️ 它是小地图的**兄弟**，不是子元素：
+ * 小地图本体被 §6.4 钉成 200×140，读数塞进去会把它撑高（实测 163），
+ * 破坏那条规格。这里用绝对定位贴在它**正下方**，两者视觉上仍连成一块 ——
+ * 读数本来就属于「小地图附近」。
+ *
+ * 定位基准是 `.minimap` 的父层（画布 surface），所以右/下都要与小地图对齐：
+ * right:16 + 小地图高 140 + 间距 4 + 距底 16。
+ */
+.zoom {
+  position: absolute;
+  right: 16px;
+  bottom: calc(16px + 140px + 4px);
+  min-width: 48px;
+  padding: 2px 8px;
+  box-sizing: border-box;
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  /* 与小地图同级，但不可交互：点它不该有任何反应 */
+  cursor: default;
+  user-select: none;
 }
 
 .minimap:focus-visible {

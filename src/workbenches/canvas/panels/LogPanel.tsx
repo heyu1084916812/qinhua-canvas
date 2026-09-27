@@ -35,6 +35,26 @@ export function LogPanel({ onClose }: { onClose: () => void }) {
     void reload()
   }, [reload])
 
+  /**
+   * `Esc` 关闭（2026-09-27 补）。
+   *
+   * 原先只能点右上角「关闭」——而本项目其它每个浮层（素材灯箱、文本编辑灯箱、
+   * 右键菜单、参数浮层、侧栏）都认 `Esc`。少这一个，用户按 Esc 会以为
+   * 「没关掉」，而面板的遮罩层还盖在画布上，接着点什么都点不中
+   * （全量冒烟里 G42 正是这么撞上的：脚本按了 Esc，面板没关，
+   * 后面的节点点击全被遮罩吃掉）。
+   *
+   * 挂在 `window` 而不是面板自身：面板里没有初始焦点，
+   * 挂在自己身上要用户先点一下才生效 —— 那等于没有。
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   // 面板打开期间图有变更（新生成写回）时刷新列表
   useEffect(() => {
     let last = store.getSnapshot()
@@ -91,7 +111,13 @@ export function LogPanel({ onClose }: { onClose: () => void }) {
     channels.getState().channels.find((c) => c.id === chId)?.name ?? chId ?? '未知平台'
 
   return (
-    <div className={styles.overlay} onPointerDown={(e) => e.stopPropagation()} role="dialog" aria-label="日志面板">
+    <div
+      className={styles.overlay}
+      data-log-panel
+      onPointerDown={(e) => e.stopPropagation()}
+      role="dialog"
+      aria-label="日志面板"
+    >
       <div className={styles.panel}>
         <div className={styles.header}>
           <span className={styles.title}>日志</span>

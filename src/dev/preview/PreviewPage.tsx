@@ -6,7 +6,11 @@ import menuStyles from '../../workbenches/canvas/menu/ContextMenu.module.css'
 import { CanvasStoreProvider } from '../../workbenches/canvas/storeContext'
 import { createCanvasStore } from '../../state/workbenches/canvas/store'
 import { createMemoryPlatform } from '../../platform/memory/index'
-import { ProjectCard, HomeEmptyState } from '../../pages/HomePage/HomePage'
+/**
+ * 这两个组件随项目页一起搬到了 `pages/ProjectsPage`（2026-09-27 应用壳改版）：
+ * 「项目卡片」与「无项目空态」本来就是项目页的东西，原来挂在叫 HomePage 的页上。
+ */
+import { ProjectCard, HomeEmptyState } from '../../pages/ProjectsPage/ProjectsPage'
 import { useGraph } from '../../workbenches/canvas/storeContext'
 import { makeNode, makeProject, genData, groupData, batchData } from './fixtures'
 import { PREVIEW_ASSET_HASHES } from './assets'

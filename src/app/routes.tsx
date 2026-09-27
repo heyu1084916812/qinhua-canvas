@@ -1,6 +1,8 @@
 import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { HomePage } from '../pages/HomePage/HomePage'
+import { ProjectsPage } from '../pages/ProjectsPage/ProjectsPage'
+import { AssetsPage } from '../pages/AssetsPage/AssetsPage'
 import { SettingsPage } from '../pages/SettingsPage/SettingsPage'
 
 /**
@@ -40,9 +42,22 @@ export function AppRoutes() {
     <Suspense fallback={<RouteFallback />}>
       <Routes>
         <Route path="/" element={<HomePage />} />
+        {/*
+          `/projects` 是一级「项目」页（产品文档 §2.1 #3）。
+          内容就是原来的项目网格 + 模板库 —— 它们原先挂在 `/` 上，
+          而 `/` 已按 §5.1 改成「欢迎 + 快捷入口」。
+        */}
+        <Route path="/projects" element={<ProjectsPage />} />
+        {/*
+          `/canvas`（无 id）也接住：侧栏「画布」这一项指向它，
+          没有项目时进去应当是「打开空白画布」而不是跳回首页。
+        */}
+        <Route path="/canvas" element={<CanvasPage />} />
         <Route path="/canvas/:projectId" element={<CanvasPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/skills" element={<SkillsPage />} />
+        {/* 「我的素材」暂为占位页（§2.1 #6 明写「交互后期补齐」） */}
+        <Route path="/assets" element={<AssetsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

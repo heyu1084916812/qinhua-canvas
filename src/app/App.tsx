@@ -5,6 +5,7 @@ import { SkillStoreProvider } from './providers/SkillStoreProvider'
 import { PresetTextProvider } from './providers/PresetTextProvider'
 import { ThemeProvider } from './ThemeProvider'
 import { AppRoutes } from './routes'
+import { AppShell } from './AppShell'
 import { BootstrapGate } from './BootstrapGate'
 import { registerAllSpecs } from '../domain/canvas/nodeSpecs'
 import { registerAllViews } from '../workbenches/canvas/nodes'
@@ -40,7 +41,14 @@ export function App(props: AppProps) {
         <ThemeProvider>
           <BootstrapGate>
             <BrowserRouter>
-              <AppRoutes />
+              {/*
+                应用壳包在**路由之外**（产品文档 §2.1「全路由常驻」）：
+                它是布局，不是页面；放进来之后切页面不会重建侧栏，
+                侧栏的展开状态与「最近项目」列表因此不会闪一下重来。
+              */}
+              <AppShell>
+                <AppRoutes />
+              </AppShell>
             </BrowserRouter>
           </BootstrapGate>
         </ThemeProvider>

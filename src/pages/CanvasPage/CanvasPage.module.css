@@ -1,9 +1,45 @@
 .page {
   position: relative;
-  width: 100vw;
-  height: 100vh;
+  /*
+   * `100%` 而不是 `100vw/100vh`（2026-09-27 应用壳改版）。
+   *
+   * 画布页现在是**应用壳右侧工作区里的插槽**，不再是整屏页面：
+   * 用视口单位会横跨侧栏那 64/240px，画布左边一截被侧栏压住，
+   * 且 `[data-canvas-surface]` 的矩形算出来比实际可视区宽。
+   * 交给父级（`.workspace` 已经是 flex 列）给尺寸即可。
+   */
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   background: var(--bg-app);
+}
+
+/*
+ * 日志入口（产品文档 §6.2：顶栏去掉后，日志按钮移到画布右上角）。
+ *
+ * 它与小地图（右下）、左工具栏（左侧竖直）都不冲突，所以放右上角；
+ * `z-index` 与创作面板同级之下 —— 面板永远不会盖到右上角的这一小块，
+ * 但浮层（日志 / 灯箱）要能盖住它。
+ */
+.logBtn {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  z-index: 18;
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.logBtn:hover {
+  background: var(--bg-hover);
 }
 
 /* 多标签写入提示（产品文档 §2.4） */
