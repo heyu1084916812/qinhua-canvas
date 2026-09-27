@@ -6168,7 +6168,30 @@ async function g58(browser) {
   const hovered = await page
     .locator('[data-follow-action="rename"]')
     .evaluate((e) => getComputedStyle(e).backgroundColor)
-  rec(g, 'hover 变实色块（与创作面板参数 chip 同款）', hovered === 'rgb(240, 240, 238)', hovered)
+  /*
+   * 判据改成**读令牌**，不写死十六进制。
+   * 2026-09-27 定色把 `--bg-hover` 由 #f0f0ee 改成 #e2e2e2，
+   * 原先写死的 `rgb(240, 240, 238)` 立刻变红 —— 那是配色改了，不是 hover 坏了。
+   * 断言关心的是「hover 用的是 hover 令牌且带底色」，那就拿令牌来比：
+   * `--bg-hover` 换值时断言跟着走，而「hover 没变色」这一类真回归照样抓得住。
+   */
+  const hoverToken = await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--bg-hover').trim(),
+  )
+  const hoverTokenRgb = await page.evaluate((hex) => {
+    const c = document.createElement('canvas')
+    c.width = c.height = 1
+    const ctx = c.getContext('2d')
+    ctx.fillStyle = hex
+    ctx.fillRect(0, 0, 1, 1)
+    return Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)).join(', ')
+  }, hoverToken)
+  rec(
+    g,
+    'hover 变实色块（= --bg-hover 令牌，与创作面板参数 chip 同款）',
+    hovered === `rgb(${hoverTokenRgb})` && hovered !== 'rgba(0, 0, 0, 0)',
+    `${hovered} vs --bg-hover ${hoverToken}`,
+  )
   await page.mouse.move(640, 700)
   await sleep(200)
   await page.screenshot({ path: `${OUT}/73-g58-follow-bar.png` })
@@ -10442,7 +10465,129 @@ async function g83(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83]
+/**
+ * G84 全局字体统一（用户 2026-09-27 报「文字看起来没有参考站那么清晰」）。
+ *
+ * 根因不是配色：深色主文字对比度实测 15.79:1（远高于 WCAG 的 4.5:1）。
+ * 真 bug 是**全项目从来没设过全局字体**——`base.css` 只做了 reset，
+ * `body` 因此用浏览器默认（实测 Times New Roman），而**表单控件默认不继承字体**，
+ * button / select / option 走 UA 样式表的 Arial。同屏两种字体 ⇒ 观感发脏发虚。
+ *
+ * 这一组为什么必须有：字体是**全局基线**，一处改坏会同时影响所有页面，
+ * 而单测读不到 computed font（jsdom 不做样式继承），只能靠真机量。
+ * 判据取「页面上出现的字体**种类数**」而不是「某个元素是不是某个字体」——
+ * 后者只能钉住被点名的那一个，下次新增一处漏网控件照样静默回退。
+ */
+async function g84(browser) {
+  const g = 'G84 全局字体统一'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  /**
+   * 收集页面上**直接带文本**的元素所用的字体。
+   * 只看有直接文本子节点的元素：容器自身也算有 computed font，但用户读不到它的字。
+   */
+  const collectFonts = () =>
+    page.evaluate(() => {
+      const out = []
+      for (const el of document.querySelectorAll('*')) {
+        let txt = ''
+        for (const n of el.childNodes) if (n.nodeType === 3) txt += n.textContent
+        txt = txt.trim()
+        if (!txt) continue
+        const r = el.getBoundingClientRect()
+        if (r.width === 0 || r.height === 0) continue
+        out.push({
+          tag: el.tagName,
+          txt: txt.slice(0, 14),
+          font: getComputedStyle(el).fontFamily.split(',')[0].replace(/"/g, '').trim(),
+        })
+      }
+      return out
+    })
+
+  // 三个一级页都要查：字体是全局基线，任何一个页面漏设都是同一个 bug 的另一个落点
+  const seenByFont = new Map()
+  const total = []
+  for (const url of ['/projects', '/settings', '/skills']) {
+    await page.goto(`${BASE}${url}`, { waitUntil: 'networkidle' })
+    await sleep(500)
+    const rows = await collectFonts()
+    total.push({ url, n: rows.length })
+    for (const r of rows) {
+      if (!seenByFont.has(r.font)) seenByFont.set(r.font, r)
+    }
+  }
+
+  const fonts = [...seenByFont.keys()]
+  rec(
+    g,
+    '★★ 全站只出现一种字体（不再 Times New Roman / Arial 混排）',
+    fonts.length === 1,
+    `字体种类=${fonts.length} [${fonts.join(' | ')}] 样本=${total.map((t) => `${t.url}:${t.n}`).join(' ')}`,
+  )
+
+  // 光「只有一种」还不够 —— 那一种必须真是应用字体，不是恰好统一成了浏览器默认
+  const bodyFont = await page.evaluate(
+    () => getComputedStyle(document.body).fontFamily.split(',')[0].replace(/"/g, '').trim(),
+  )
+  const tokenFont = await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--font-sans').trim().split(',')[0].replace(/"/g, ''),
+  )
+  rec(g, '★ body 用的是应用字体（不是浏览器默认）', bodyFont === tokenFont, `body=${bodyFont} 令牌=${tokenFont}`)
+
+  // ★ 表单控件是最容易漏的一处：它们不继承字体，必须显式 `font: inherit`
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(500)
+  const controlFonts = await page.evaluate(() => {
+    const out = []
+    for (const sel of ['button', 'select', 'option', 'input', 'textarea']) {
+      for (const el of document.querySelectorAll(sel)) {
+        const r = el.getBoundingClientRect()
+        if (r.width === 0 || r.height === 0) continue
+        out.push({
+          sel,
+          font: getComputedStyle(el).fontFamily.split(',')[0].replace(/"/g, '').trim(),
+          size: getComputedStyle(el).fontSize,
+        })
+      }
+    }
+    return out
+  })
+  const badControls = controlFonts.filter((c) => c.font !== tokenFont)
+  rec(
+    g,
+    '★★ 表单控件（button/select/option/input）也用应用字体（不继承 ⇒ 必须显式 inherit）',
+    controlFonts.length > 0 && badControls.length === 0,
+    `控件=${controlFonts.length} 走偏=${badControls.length}${badControls.length ? ' 例:' + JSON.stringify(badControls[0]) : ''}`,
+  )
+
+  /**
+   * 字号上调一档（2026-09-27）：body 13 → 14、label 12 → 13、chip 11 → 12。
+   * 只钉**相对关系**（panel-title > body > label > chip）与「正文不再小于 14px」，
+   * 不钉绝对值——设计令牌整体调整时不该整组变红，但「又缩回 12px」必须被抓到。
+   */
+  const scales = await page.evaluate(() => {
+    const cs = getComputedStyle(document.documentElement)
+    const v = (n) => parseFloat(cs.getPropertyValue(n))
+    return { body: v('--fs-body'), label: v('--fs-label'), chip: v('--fs-chip'), title: v('--fs-panel-title') }
+  })
+  rec(g, '★ 正文 ≥ 14px（用户嫌小，整体上调一档）', scales.body >= 14, `body=${scales.body}px`)
+  rec(
+    g,
+    '★ 字号层级关系不变（panel-title > body > label > chip）',
+    scales.title > scales.body && scales.body > scales.label && scales.label > scales.chip,
+    JSON.stringify(scales),
+  )
+
+  await page.screenshot({ path: `${OUT}/99-g84-typography.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

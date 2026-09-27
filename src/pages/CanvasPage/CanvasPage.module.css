@@ -11,7 +11,12 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--bg-app);
+  /*
+   * 工作区底色（`--bg-canvas`），不是一级菜单色 `--bg-app`：理由见 ProjectsPage。
+   * 画布页里这层只是**兜底**（画布本体 `[data-canvas-surface]` 自带同色底），
+   * 但两者必须一致 —— 否则画布留白处会露出另一种底色。
+   */
+  background: var(--bg-canvas);
 }
 
 /*

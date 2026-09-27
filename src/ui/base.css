@@ -33,6 +33,40 @@ html {
 }
 
 /*
+ * ★ 全局字体（2026-09-27 修）——此前**从来没设过**，是个真 bug。
+ *
+ * 现象：界面里混着两种字体。各页在 `.page` 上写了 `font-family: var(--font-sans)`，
+ * 所以正文是好字体；但 `body` 本身用的是浏览器默认（实测 **Times New Roman**），
+ * 而**表单控件默认不继承字体**（button / input / select / option 走 UA 样式表），
+ * 实测它们是 **Arial**。同屏两种字体，笔画粗细与字面宽度不一致，
+ * 加起来就是「文字看起来不清晰」。
+ *
+ * 设在这里而不是各页：字体是全局排版基线，不是某个页面的偏好；
+ * 各页已有的 `font-family` 保留无妨（同值，且不依赖加载顺序）。
+ */
+html,
+body {
+  font-family: var(--font-sans);
+}
+
+/**
+ * ★ 表单控件必须显式 `font: inherit`：它们**不会**自动继承字体。
+ *
+ * 只给 html/body 设字体是不够的 —— 这条不补，按钮和下拉仍然是 Arial，
+ * 上面那个「两种字体」的现象只会从「页面级」缩小到「控件级」，看着还是脏。
+ * `font: inherit` 一次带上 family / size / weight / line-height，
+ * 与既有各处手写的 `font-family: var(--font-sans)` 等价但更彻底。
+ */
+button,
+input,
+select,
+textarea,
+optgroup,
+option {
+  font: inherit;
+}
+
+/*
  * ⚠️ `body` 要 **`height: 100%`**，不能只给 `min-height: 100%`。
  *
  * 百分比的**高度**与**min-height**要求不同：

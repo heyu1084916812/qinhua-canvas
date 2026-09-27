@@ -11,7 +11,8 @@
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-4) var(--space-6);
-  background: var(--bg-app);
+  /* 工作区底色（`--bg-canvas`），不是一级菜单色 `--bg-app`：理由见 ProjectsPage */
+  background: var(--bg-canvas);
   color: var(--text-1);
   font-family: var(--font-sans);
 }

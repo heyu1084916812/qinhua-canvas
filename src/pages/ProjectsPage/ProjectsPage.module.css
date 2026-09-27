@@ -5,7 +5,15 @@
    * 于是永远多出一条纵向滚动。内容更高时仍靠 `min-height` 自然长高。
    */
   min-height: 100%;
-  background: var(--bg-app);
+  /*
+   * 工作区底色取 `--bg-canvas`，**不是 `--bg-app`**（用户 2026-09-27 定色后修正）。
+   *
+   * 页面是壳右侧工作区里的插槽，`--bg-canvas` 才是「工作区」那一层；
+   * `--bg-app` 现在是**一级菜单**的颜色。原先写 `--bg-app` 时两者恰好接近看不出，
+   * 新配色下菜单（#f5f5f5 / #1a1a1a）与工作区（#ffffff / #161616）差一档，
+   * 页面一填 `--bg-app` 就把工作区染成了菜单色。
+   */
+  background: var(--bg-canvas);
   color: var(--text-1);
   font-family: var(--font-sans);
   font-size: var(--fs-body);

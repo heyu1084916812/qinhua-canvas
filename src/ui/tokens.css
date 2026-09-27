@@ -11,14 +11,18 @@
      少了它，「暗色页面 + 亮白色原生滚动条」是最刺眼的一处破绽（§3.1）。 */
   color-scheme: light;
 
-  /* —— 色彩（§3.1） —— */
-  --bg-app: #f7f7f5;
-  --bg-canvas: #fcfcfb;
+  /* —— 色彩（§3.1；2026-09-27 按用户给定色值定稿） ——
+     层级关系（三层，从低到高）：canvas（工作区）→ app（一级菜单）→ surface（卡面）。
+     亮色下工作区纯白、菜单浅灰，菜单因此**比工作区暗一档** —— 这正是用户要的。
+     深色下反过来：工作区 #161616、菜单 #1a1a1a，菜单**比工作区亮一档**。
+     两套主题的「谁比谁亮」方向相反，故不能共用一个相对关系，各自给值。 */
+  --bg-canvas: #ffffff;
+  --bg-app: #f5f5f5;
   --bg-surface: #ffffff;
-  --bg-subtle: #f7f7f8;
-  --bg-hover: #f0f0ee;
+  --bg-subtle: #f5f5f5;
+  --bg-hover: #e2e2e2;
 
-  --stroke: #deded9;
+  --stroke: #e2e2e2;
   --grid-line: #ececef;
 
   /* 连线（§6.14）：常态 #C9C9D1 1.5px / 高亮 2px */
@@ -33,9 +37,9 @@
   --port: #171716;
   --port-stroke: rgba(255, 255, 255, 0.72);
 
-  --text-1: #171716;
-  --text-2: #70706b;
-  --text-3: #9a9a94;
+  --text-1: #171717;
+  --text-2: #737373;
+  --text-3: #9a9a9a;
 
   --accent: #171716;
   --accent-text: #ffffff;
@@ -65,14 +69,21 @@
 
   /* —— 字号与字重（§3.2） —— */
   --font-sans: "Segoe UI Variable", "Microsoft YaHei UI", "PingFang SC", sans-serif;
-  --fs-body: 13px;
+  /**
+   * ★ 字号整体上调一档（用户 2026-09-27：「文字看起来没有参考站那么清晰」）。
+   *
+   * 原值 body 13 / label 12 偏小：界面上大部分说明文字都是 12px，
+   * 在 1080p 下明显比参考站（同类文字 14px 起）细碎。这里整体 +1px，
+   * 各级的**相对关系不变**（panel-title > body > label > chip）。
+   */
+  --fs-body: 14px;
   --lh-body: 1.6;
-  --fs-title: 13px;
+  --fs-title: 14px;
   --fw-title: 500;
-  --fs-label: 12px;
-  --fs-panel-title: 14px;
+  --fs-label: 13px;
+  --fs-panel-title: 15px;
   --fw-panel-title: 600;
-  --fs-chip: 11px;
+  --fs-chip: 12px;
   --fw-chip: 600;
 
   /* —— 间距（§3.2，基础 4px） —— */
@@ -128,32 +139,36 @@
 [data-theme='dark'] {
   color-scheme: dark;
 
-  --bg-app: #0e0f13;
-  --bg-canvas: #16181d;
-  --bg-surface: #22242b;
-  --bg-subtle: #2a2d35;
-  --bg-hover: #333743;
+  /* 用户 2026-09-27 给定：工作区 #161616 / 一级菜单 #1a1a1a /
+     悬浮按钮 #333333 / 未选中边框 #3a3a3a。
+     注意深色下**菜单比工作区亮**（#1a1a1a > #161616），与亮色相反，
+     故上面「谁比谁亮」那条注释在深色里读作另一套值 —— 这是有意的，不是笔误。 */
+  --bg-canvas: #161616;
+  --bg-app: #1a1a1a;
+  --bg-surface: #222222;
+  --bg-subtle: #1f1f1f;
+  --bg-hover: #333333;
 
-  --stroke: #3a3e48;
-  --grid-line: #262931;
+  --stroke: #3a3a3a;
+  --grid-line: #262626;
 
   /* 连线：常态提亮到能在深底上看清，高亮翻成近白（与 --accent 同一套反转） */
-  --edge: #5b6270;
-  --edge-highlight: #e8e9ed;
+  --edge: #5b5b5b;
+  --edge-highlight: #efefef;
 
   /* 端点：深底上翻成浅色（与 --accent 同一套反转），这样才是「对比色」；
      深色下若沿用亮色那个近黑值，就正好和画布背景融成一片。 */
-  --port: #e8e9ed;
+  --port: #efefef;
   --port-stroke: rgba(0, 0, 0, 0.34);
 
-  --text-1: #e8e9ed;
-  --text-2: #a2a7b3;
-  --text-3: #767c8a;
+  --text-1: #efefef;
+  --text-2: #a2a2a2;
+  --text-3: #767676;
 
-  --accent: #e8e9ed;
-  --accent-text: #16181d;
+  --accent: #efefef;
+  --accent-text: #161616;
 
-  --stroke-focus: #e8e9ed;
+  --stroke-focus: #efefef;
   /* 焦点环提亮：#5B67D6 在深底上偏闷，抬到能一眼看见的靛蓝 */
   --focus-ring: #8f9bf5;
 
@@ -162,8 +177,8 @@
   --danger: #e8776a;
 
   /* 叠在素材上的浮层：反过来成「浅底深字」，压在亮图上照样读得清 */
-  --overlay-scrim: rgba(232, 233, 237, 0.86);
-  --overlay-text: #16181d;
+  --overlay-scrim: rgba(239, 239, 239, 0.86);
+  --overlay-text: #161616;
   /* 暗色下整屏遮罩要压得更狠才分得出层次（亮色 0.18 在这里几乎看不出） */
   --scrim: rgba(0, 0, 0, 0.52);
 
