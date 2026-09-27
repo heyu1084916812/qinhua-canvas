@@ -13,6 +13,7 @@ import { formatRelative } from '../../domain/shared/time'
 import { TEMPLATES, type TemplateId } from '../../state/project/templates'
 import type { ProjectListItem } from '../../domain/project/project'
 import styles from './ProjectsPage.module.css'
+import { useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
 
 /**
  * 项目页（产品文档 §5.1 / §5.3；路由 `/projects`）。
@@ -291,6 +292,41 @@ export function HomeEmptyState({ onCreate }: { onCreate: () => void }) {
   )
 }
 
+/**
+ * 项目封面（用户 2026-09-27 第 2 条）：
+ * 「用最后一张生成的图片作为封面，平铺展示，不要拉伸，占满显示项目卡片的显示区域即可」。
+ *
+ * 「不要拉伸」与「占满区域」要**同时成立**，所以：
+ *  - `object-fit: cover` —— 等比放大到铺满、多出来的部分裁掉；
+ *    **绝不能是 `fill`**（那才是拉伸变形）；
+ *  - 没有产物时不留白：回落到原来的网格占位（§5.3「无内容时显示 24px 网格占位」），
+ *    而不是显示一个破图图标。
+ */
+function ProjectCover({ item }: { item: ProjectListItem }) {
+  const meta = useAssetMeta(item.coverHash ?? undefined)
+
+  if (!meta.url) {
+    /* 无产物 / 还没取到字节：保留占位，不闪空框 */
+    return <div className={styles.thumb} aria-hidden />
+  }
+  if (meta.mime?.startsWith('video/')) {
+    /*
+     * 视频封面：用 `<video>` 停在第 0 帧当静态图。
+     * 刻意**不 autoplay** —— 首页一排卡片同时解码十几个视频是性能事故。
+     */
+    return (
+      <div className={styles.thumb}>
+        <video className={styles.cover} src={meta.url} muted playsInline preload="metadata" />
+      </div>
+    )
+  }
+  return (
+    <div className={styles.thumb}>
+      <img className={styles.cover} src={meta.url} alt="" aria-hidden="true" draggable={false} />
+    </div>
+  )
+}
+
 /** 项目卡片（产品文档 §5.3）。导出供 /_preview 陈列室做视觉回归 */
 export function ProjectCard(props: {
   project: ProjectListItem
@@ -333,7 +369,7 @@ export function ProjectCard(props: {
         }
       }}
     >
-      <div className={styles.thumb} aria-hidden />
+      <ProjectCover item={project} />
 
       <div className={styles.cardBody}>
         {renaming ? (

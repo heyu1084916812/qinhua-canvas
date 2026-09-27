@@ -48,18 +48,40 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-control);
-  background: var(--accent);
-  color: var(--accent-text);
-  font-size: var(--fs-label);
-  font-weight: 600;
+  /*
+   * Logo 不再坐实色底：猫画那个动态图标本身是**黑色不规则形体**，
+   * 再套一个深色圆角块会把它吞掉（用户给的图标是独立图形，不是字标）。
+   */
   user-select: none;
+}
+
+/* 图标等比、不裁切；`img` 默认会被行高挤出一条基线间隙 */
+.logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/*
+ * 深色主题：猫画图标是**纯黑**形体（源文件里 `fill:#212121`），
+ * 放在深色侧栏上几乎看不见。用 `invert` 翻成白色 ——
+ * 它是单色图形，翻转后没有色彩失真。
+ */
+:global([data-theme='dark']) .logo img {
+  filter: invert(1);
 }
 
 .toggle {
   flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
+  /*
+   * 与下面菜单项**同一个尺寸与圆角**（用户 2026-09-27：
+   * 「折叠按钮感觉好像没有下面菜单的同一个大小」）。
+   * 菜单项是 38px 高、`--radius-control`，这里对齐它。
+   * 28px 是上一版的尺寸 —— 比菜单项明显小一圈。
+   */
+  width: 38px;
+  height: 38px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -77,24 +99,60 @@
 }
 
 /*
- * 收起态：64px 里放不下「Logo + 按钮」两件东西，把按钮叠到 Logo 上、
- * 只在悬停 / 键盘聚焦时显形。`opacity` 而不是 `display:none` —— 后者会让
- * 元素不可聚焦，键盘用户就再也打不开侧栏了。
+ * ── 收起态：Logo 与开合按钮**同一格，悬停互换**（用户 2026-09-27） ──
+ *
+ * 用户的原话：「鼠标在侧边栏折叠起来的时候悬停在 logo 位上的时候，
+ * logo 需要消失，然后那个按钮就出现了，离开的时候 logo 就又出现了；
+ * 目前是 logo 一直在」。
+ *
+ * 做法：
+ *  - `.head` 是 38px 的定位容器（与菜单项同高，位置上下贯通）；
+ *  - Logo 与按钮都 `position: absolute` 落在**同一格**，互不参与布局；
+ *  - 默认 Logo 可见、按钮透明；`.head:hover` / `:focus-within` 时反过来。
+ *
+ * 为什么用 `opacity` 而不是 `display`：按钮要**可聚焦** ——
+ * 用 `display:none` 它就不在 Tab 序列里，键盘用户再也打不开侧栏
+ * （`focus-within` 也永远触发不了）。透明但存在，两种输入方式都成立。
  */
-.rail:not(.railOpen) .logo {
-  margin-left: auto;
-  margin-right: auto;
+.rail:not(.railOpen) .head {
+  position: relative;
+  /* 与菜单项同高、且水平居中：Logo 位就是「第一格」 */
+  height: 38px;
+  min-height: 38px;
+  justify-content: center;
+}
+
+.rail:not(.railOpen) .logo,
+.rail:not(.railOpen) .toggle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
 }
 
 .rail:not(.railOpen) .toggle {
-  position: absolute;
-  top: var(--space-3);
-  left: var(--space-2);
+  /*
+   * 覆盖在 Logo 上：尺寸一致（38px），所以「换出来」时不会有大小跳变。
+   * 背景取侧栏底色 —— 否则按钮悬停底色会与下面的 Logo 叠在一起。
+   */
   opacity: 0;
   background: var(--bg-app);
+  transition: opacity var(--dur-hover, 120ms) var(--ease-out, ease-out);
+}
+
+.rail:not(.railOpen) .logo {
+  transition: opacity var(--dur-hover, 120ms) var(--ease-out, ease-out);
+}
+
+/* 悬停或键盘聚焦进这一格：Logo 让位、按钮顶上 */
+.rail:not(.railOpen) .head:hover .logo,
+.rail:not(.railOpen) .head:focus-within .logo {
+  opacity: 0;
 }
 
 .rail:not(.railOpen) .head:hover .toggle,
+.rail:not(.railOpen) .head:focus-within .toggle,
 .rail:not(.railOpen) .toggle:focus-visible {
   opacity: 1;
 }
@@ -174,17 +232,22 @@
 }
 
 /*
- * 选中态：圆角矩形高亮块（与参考图一致）。
- * 用 `--bg-surface` + 文字加重，而不是强调色填充 —— 侧栏是导航，
- * 抢了生成按钮的注意力就本末倒置（§3.1「强调色只给主操作」）。
+ * 选中态：**只靠底色与字重**，不描边（用户 2026-09-27：
+ * 「左边的栏目选中状态也要隐性的，不要带描边的」）。
+ *
+ * 上一版是 `--bg-surface` 底 + `inset 0 0 0 1px --stroke` 内描边，
+ * 那个描边让选中项读起来像「一个输入框 / 一个按钮」，
+ * 而导航的选中应该是**位置感**，不是控件的边界感。
+ *
+ * 现在：底用 `--bg-hover`（与悬停同一档，选中 = 悬停态常驻），
+ * 文字加重到 600 负责区分「选中」与「划过」。
+ * 依赖关系反过来了 —— 上一版是选中比悬停重，这版是选中=悬停但常驻。
  */
 .itemOn,
 .itemOn:hover {
-  background: var(--bg-surface);
+  background: var(--bg-hover);
   color: var(--text-1);
   font-weight: 600;
-  /* 内描边代替边框：不改变盒模型，切换时不会让图标位移 1px */
-  box-shadow: inset 0 0 0 1px var(--stroke);
 }
 
 .itemIcon {

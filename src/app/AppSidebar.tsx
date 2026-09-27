@@ -9,6 +9,7 @@ import {
   toggleSidebar,
 } from './sidebarState'
 import { ThemeToggle } from './ThemeToggle'
+import { CatLogo } from './CatLogo'
 import {
   IconAssets,
   IconCanvas,
@@ -135,8 +136,12 @@ export function AppSidebar() {
     >
       {/* 顶部：Logo + 展开 / 收起 */}
       <div className={styles.head}>
-        <span className={styles.logo} data-sidebar-logo aria-hidden="true">
-          轻
+        {/*
+          猫画动态 Logo（用户 2026-09-27）。收起态下它与开合按钮**同一格**：
+          平时显示 Logo，鼠标悬停时 Logo 隐去、按钮显现（见 CSS）。
+        */}
+        <span className={styles.logo} data-sidebar-logo>
+          <CatLogo size={28} />
         </span>
         {/*
           收起态下这个按钮只在悬停时浮现（否则 64px 宽里塞不下 logo + 按钮）。
@@ -178,18 +183,6 @@ export function AppSidebar() {
             <Link
               key={item.to}
               to={item.to}
-              /*
-               * 把**当前路径**作为 `state.from` 带过去（2026-09-27）。
-               *
-               * 这不是多余的一步：设置页的「← 返回」靠 `state.from` 才知道该回哪儿。
-               * 旧画布顶栏的「后台设置」是带 state 跳的，而侧栏是全局导航 ——
-               * 不带 state 的话，用户在画布中间去配个渠道、点返回会被丢到首页，
-               * 得重新找项目（§7 的「后台设置」条目原本正是为此加的）。
-               *
-               * 只给 `/settings` 带：其它导航项的去处是列表页 / 首页，
-               * 它们没有「返回上一处」这个按钮，带了也没人读。
-               */
-              state={item.to === '/settings' ? { from: location.pathname } : undefined}
               /*
                * ⚠️ 手写高亮而不用 `NavLink`：需要一条额外的规则 ——
                * `/canvas` 与 `/canvas/:id` 一起亮（前者是「无项目时打开空白画布」

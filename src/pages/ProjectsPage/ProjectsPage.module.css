@@ -196,6 +196,30 @@
     linear-gradient(var(--grid-line) 1px, transparent 1px),
     linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
   background-size: 24px 24px;
+  /*
+   * 封面图要「占满这个区域」且**不拉伸**（用户 2026-09-27）：
+   * 容器负责裁切，媒体自己负责等比铺满。
+   *
+   * `overflow: hidden` + 圆角继承卡片：`.card` 有 `--radius-control` 圆角，
+   * 封面是它的第一个子块，不裁的话图片会溢出圆角、四角露成直角。
+   */
+  overflow: hidden;
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
+}
+
+/*
+ * 封面媒体本体：`object-fit: cover` = 等比放大到铺满、多余裁掉。
+ *
+ * ⚠️ **不要改成 `fill`**：那正是用户说的「拉伸」——宽高比会跟着容器走，
+ * 竖图会被压扁。`cover` 保比例、`contain` 则会留边（不满足「占满」）。
+ */
+.cover {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* 视频封面同理：让它铺满而不是按原始宽高比留黑边 */
+  object-position: center;
 }
 
 .cardBody {

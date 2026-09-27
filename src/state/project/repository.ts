@@ -45,7 +45,37 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
       const items = await Promise.all(
         projects.map(async (p) => {
           const nodes = await storage.query('nodes', { projectId: p.id })
-          return { ...p, nodeCount: nodes.length }
+          /**
+           * 封面 = **最近一次生成出的最后一张图**（用户 2026-09-27）。
+           *
+           * 为什么不用 `project.thumbnail`：那个字段一直没被写过
+           * （domain 注释写着「M1 暂未生成，留空」），既没有生产者、
+           * 也没人维护它。**加一个真正的来源**比让一个空字段复活更可靠。
+           *
+           * 数据来源是 `runRecords`，不是节点：节点上只有 `assetHash`（当前那张），
+           * 没有「什么时候生成的」。而 RunRecord 带 `createdAt` 与 `outputHashes`，
+           * 天然就是「生成历史」——按时间倒序取第一条有产物的，
+           * 再取它的**最后一张**（一次生成多张时，用户看到的是最后落下的那张）。
+           */
+          const records = (await storage.query('runRecords', { projectId: p.id })) as unknown as {
+            createdAt: number
+            outputHashes?: string[]
+          }[]
+          const latest = records
+            .filter((r) => (r.outputHashes?.length ?? 0) > 0)
+            .sort((a, b) => b.createdAt - a.createdAt)[0]
+          const coverHash = latest?.outputHashes?.[latest.outputHashes.length - 1] ?? null
+          return {
+            ...p,
+            nodeCount: nodes.length,
+            /**
+             * 传的是**素材 hash**而不是 dataURL：
+             * 素材本体在 assets 表里，卡片侧用既有的 `useAsset` 取字节 ——
+             * 那条链路有退避重试与内容寻址缓存，比在这里塞 base64 好得多
+             * （一张图几百 KB，全塞进项目列表会让首页首屏多背几 MB）。
+             */
+            coverHash,
+          }
         }),
       )
       return items

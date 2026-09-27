@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { createProjectRepository } from '../../state/project/repository'
 import { projectRoute } from '../../domain/shared/workbench'
+import { CatLogo } from '../../app/CatLogo'
 import styles from './HomePage.module.css'
 
 /**
@@ -37,6 +38,12 @@ export function HomePage() {
   return (
     <div className={styles.page} data-home-page>
       <div className={styles.inner}>
+        {/*
+          猫画动态 Logo（用户 2026-09-27：「首页的 logo 也同步替换我要的猫画里面的那个动态图标」）。
+          与侧栏用**同一个组件**：同一处资源、同一套尺寸口径 ——
+          两处各写一份的话，换图标时必然漏掉一个。
+        */}
+        <CatLogo size={72} className={styles.logo} />
         <h1 className={styles.title}>轻画</h1>
         <p className={styles.subtitle}>给图片与视频生成用的无限画布</p>
 

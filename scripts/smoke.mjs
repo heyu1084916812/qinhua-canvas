@@ -3800,7 +3800,7 @@ async function g42(browser) {
     await sleep(600)
   }
 
-  // 1) 侧栏「渠道配置」→ 设置页；无来源信息时返回按钮回落首页
+  // 1) 侧栏「渠道配置」→ 设置页
   /*
    * ⚠️ 2026-09-27 应用壳改版（产品文档 §2.1 / §6.2）：
    * 各页自己的全局顶栏已去掉，导航出口统一由**应用壳左侧功能栏**承担。
@@ -3813,8 +3813,18 @@ async function g42(browser) {
   await page.locator('[data-sidebar-item="/settings"]').click()
   await page.waitForURL(/\/settings/)
   rec(g, '侧栏「渠道配置」可进入设置页', page.url().includes('/settings'))
-  const labelFromHome = await page.locator('[data-settings-back]').innerText()
-  rec(g, '从首页进入时返回按钮指向首页', labelFromHome.includes('首页'), labelFromHome)
+  /*
+   * ★ 设置页的「← 返回」按钮**已按用户要求移除**（2026-09-27）：
+   * 「工作区的返回按钮都可以不用了，目前可以直接在侧边栏进行替换了」。
+   *
+   * 所以这里**反过来断言它不存在** —— 少了这条，将来有人「顺手加回去」
+   * 就会多出第二套导航，而没有断言会拦住它。
+   */
+  rec(
+    g,
+    '★ 设置页不再有自己的「← 返回」（导航归侧栏）',
+    (await page.locator('[data-settings-back]').count()) === 0,
+  )
 
   // 2) 模板建一个画布项目，记住 URL 供后面比对
   await gotoProjects(page)
@@ -3898,12 +3908,10 @@ async function g42(browser) {
       (await page.locator('[data-node-setup-hint]').count()) === 0,
   )
 
-  // 5) 面板上的出口能直接进设置；此时返回按钮指向画布
+  // 5) 面板上的出口能直接进设置
   await hint.first().click()
   await page.waitForURL(/\/settings/)
   rec(g, '面板上的出口可进后台设置', page.url().includes('/settings'))
-  const labelFromCanvas = await page.locator('[data-settings-back]').innerText()
-  rec(g, '从画布进入时返回按钮指向画布', labelFromCanvas.includes('画布'), labelFromCanvas)
 
   // 6) 建渠道但**不启用** → 文案必须切换。
   //    这两种情况用户最容易混淆：以为「建过」就等于「配好了」。
@@ -3911,9 +3919,19 @@ async function g42(browser) {
   await sleep(500)
   await page.getByText('新建渠道').first().click()
   await sleep(300)
-  await page.locator('[data-settings-back]').click()
+  /**
+   * 回画布改走**侧栏「最近项目」**（用户 2026-09-27 移除设置页返回按钮后的替代路径）。
+   *
+   * 这一点值得单独断言：返回按钮删掉之后，「配完渠道怎么回到刚才那个画布」
+   * 必须有别的路 —— 如果侧栏最近项目不可用，用户就被困在设置页了。
+   * 断言的是**回到同一个项目**（URL 相等），不只是「回到了画布」。
+   */
+  await ensureSidebarOpen(page)
+  const recentLink = page.locator('[data-sidebar-recent-item]').first()
+  rec(g, '设置页可从侧栏「最近项目」回画布（替代已删的返回按钮）', (await recentLink.count()) >= 1)
+  await recentLink.click()
   await page.waitForURL(/\/canvas\//)
-  rec(g, '返回按钮回到原来那个画布', page.url() === canvasUrl, `期望=${canvasUrl} 实际=${page.url()}`)
+  rec(g, '回到的是原来那个项目（不是新建一个）', page.url() === canvasUrl, `期望=${canvasUrl} 实际=${page.url()}`)
   await sleep(500)
   await selectGenNode()
   const hint2 = await page.locator('[data-panel-setup-hint]').count()
@@ -3929,7 +3947,9 @@ async function g42(browser) {
   await sleep(300)
   await page.locator('input[type="checkbox"]').first().check()
   await sleep(400)
-  await page.locator('[data-settings-back]').click()
+  // 同上：用侧栏最近项目回画布（设置页的返回按钮已移除）
+  await ensureSidebarOpen(page)
+  await page.locator('[data-sidebar-recent-item]').first().click()
   await page.waitForURL(/\/canvas\//)
   await sleep(700)
   rec(g, '渠道启用后节点本体仍无参数控件（参数只在面板）', (await page.locator('[data-node-type="generation"] select').count()) === 0)
@@ -4210,14 +4230,25 @@ async function g45(browser) {
     const card = document.querySelector('[data-settings-card]')
     // shell = 导航 + 内容整块（新布局的「居中单位」），用稳定锚点定位
     const shell = document.querySelector('[data-settings-shell]')
+    /*
+     * ⚠️ 居中的**参照系是右侧工作区**，不是整个窗口（2026-09-27 应用壳改版）。
+     *
+     * 设置页现在在应用壳工作区里，左边多了侧栏那 64/240px。
+     * 仍拿 `window.innerWidth` 算，会得到「左 142 / 右 78」——
+     * 看起来像「没居中」，其实是**参考错了坐标系**。
+     * 产品文档 §5.1 早就写明：项目页内容相对**右侧工作区**居中，不是相对窗口。
+     */
+    const ws = document.querySelector('[data-app-workspace]')
+    const wsr = ws ? ws.getBoundingClientRect() : { left: 0, right: window.innerWidth }
     const r = card.getBoundingClientRect()
     const sr = shell ? shell.getBoundingClientRect() : r
     return {
       w: Math.round(r.width),
       shellW: Math.round(sr.width),
-      left: Math.round(sr.left),
-      right: Math.round(window.innerWidth - sr.right),
-      gap: Math.round(Math.abs(sr.left - (window.innerWidth - sr.right))),
+      /* 左右边距都换算到**工作区坐标系**，detail 里打印的才是判据用的那两个数 */
+      left: Math.round(sr.left - wsr.left),
+      right: Math.round(wsr.right - sr.right),
+      gap: Math.round(Math.abs(sr.left - wsr.left - (wsr.right - sr.right))),
       vh: window.innerHeight,
       scrollH: document.documentElement.scrollHeight,
     }
@@ -8163,8 +8194,12 @@ async function g69(browser) {
       await sleep(600)
     }
   }
-  // 用顶栏设置入口进、再用返回按钮回来，保证回到**同一个项目**
-  await page.locator('[data-settings-back]').click()
+  /*
+   * 回画布：设置页的返回按钮已删（2026-09-27），改走侧栏「最近项目」——
+   * 同样保证回到**同一个项目**（最近项目第一条就是刚编辑的那个）。
+   */
+  await ensureSidebarOpen(page)
+  await page.locator('[data-sidebar-recent-item]').first().click()
   await page.waitForURL(/\/canvas\//)
   await sleep(900)
 
@@ -9500,6 +9535,194 @@ async function g80(browser) {
 }
 
 /**
+ * G81 侧栏视觉与项目封面（用户 2026-09-27 四条反馈里的 1 / 2 / 4）。
+ *
+ *  1) 选中项**不带描边**；Logo 用猫画动态图标；折叠态悬停互换（Logo↔按钮）；
+ *     折叠按钮与菜单项同尺寸、垂直居中。
+ *  2) 项目封面 = 最后一张生成图，`object-fit: cover`（等比铺满、不拉伸）。
+ *  4) 首页也有同一个 Logo。
+ *
+ * 判据全部是**计算样式与几何**：「像不像」「居不居中」这类事，
+ * DOM 计数看不出来，肉眼又容易被 1~2px 骗过去。
+ */
+async function g81(browser) {
+  const g = 'G81 侧栏视觉与封面'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  // ── 4) 首页 Logo ──
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await sleep(800)
+  const homeLogo = await page.evaluate(() => {
+    const img = document.querySelector('[data-home-page] img')
+    return img ? { w: Math.round(img.getBoundingClientRect().width) } : null
+  })
+  rec(g, '★ 首页有品牌 Logo（猫画动态图标）', !!homeLogo && homeLogo.w > 0, JSON.stringify(homeLogo))
+
+  // ── 1) 选中项不描边 ──
+  const selStyle = await page.evaluate(() => {
+    const el = document.querySelector('[data-sidebar-item="/"]')
+    if (!el) return null
+    const cs = getComputedStyle(el)
+    return { boxShadow: cs.boxShadow, weight: cs.fontWeight }
+  })
+  rec(
+    g,
+    '★★ 侧栏选中项不带描边（隐性选中）',
+    !!selStyle && (selStyle.boxShadow === 'none' || !selStyle.boxShadow.includes('inset')),
+    `box-shadow=${selStyle?.boxShadow}`,
+  )
+  rec(g, '★ 选中靠字重区分（600）', selStyle?.weight === '600', `weight=${selStyle?.weight}`)
+
+  // ── 1) 折叠态：Logo 与按钮同格、同尺寸；悬停互换 ──
+  const geo = await page.evaluate(() => {
+    const rail = document.querySelector('[data-app-sidebar]')
+    const logo = rail.querySelector('[data-sidebar-logo]')
+    const btn = rail.querySelector('[data-sidebar-toggle]')
+    const item = rail.querySelector('[data-sidebar-item="/projects"]')
+    const r = (e) => {
+      const b = e.getBoundingClientRect()
+      return {
+        w: Math.round(b.width),
+        h: Math.round(b.height),
+        cx: Math.round(b.x + b.width / 2),
+        cy: Math.round(b.y + b.height / 2),
+      }
+    }
+    return {
+      logo: r(logo),
+      btn: r(btn),
+      item: r(item),
+      logoOp: getComputedStyle(logo).opacity,
+      btnOp: getComputedStyle(btn).opacity,
+    }
+  })
+  rec(
+    g,
+    '★★ 折叠按钮与菜单项同高（38px）',
+    geo.btn.h === geo.item.h,
+    `按钮 ${geo.btn.h}px / 菜单项 ${geo.item.h}px`,
+  )
+  rec(
+    g,
+    '★★ 折叠按钮与 Logo 同心（位置垂直居中于同一格）',
+    Math.abs(geo.btn.cy - geo.logo.cy) <= 1 && Math.abs(geo.btn.cx - geo.logo.cx) <= 1,
+    `按钮(${geo.btn.cx},${geo.btn.cy}) Logo(${geo.logo.cx},${geo.logo.cy})`,
+  )
+  rec(
+    g,
+    '★ 默认显示 Logo、按钮透明',
+    geo.logoOp === '1' && geo.btnOp === '0',
+    `logo=${geo.logoOp} btn=${geo.btnOp}`,
+  )
+
+  // 悬停 Logo 位 → 互换
+  const logoBox = await page.locator('[data-sidebar-logo]').boundingBox()
+  await page.mouse.move(logoBox.x + logoBox.width / 2, logoBox.y + logoBox.height / 2)
+  await sleep(450)
+  const hovered = await page.evaluate(() => {
+    const rail = document.querySelector('[data-app-sidebar]')
+    return {
+      logoOp: getComputedStyle(rail.querySelector('[data-sidebar-logo]')).opacity,
+      btnOp: getComputedStyle(rail.querySelector('[data-sidebar-toggle]')).opacity,
+    }
+  })
+  rec(
+    g,
+    '★★ 悬停时 Logo 隐去、按钮出现',
+    hovered.logoOp === '0' && hovered.btnOp === '1',
+    `logo=${hovered.logoOp} btn=${hovered.btnOp}`,
+  )
+
+  // 移开 → Logo 回来
+  await page.mouse.move(900, 500)
+  await sleep(450)
+  const away = await page.evaluate(() => {
+    const rail = document.querySelector('[data-app-sidebar]')
+    return {
+      logoOp: getComputedStyle(rail.querySelector('[data-sidebar-logo]')).opacity,
+      btnOp: getComputedStyle(rail.querySelector('[data-sidebar-toggle]')).opacity,
+    }
+  })
+  rec(
+    g,
+    '★★ 移开后 Logo 回来、按钮隐去',
+    away.logoOp === '1' && away.btnOp === '0',
+    `logo=${away.logoOp} btn=${away.btnOp}`,
+  )
+
+  // ── 2) 项目封面 = 最后一张生成图 ──
+  // 先跑一张图：配渠道 → 模板 → 生成
+  await configureMockChannel(page)
+  await gotoProjects(page)
+  await sleep(500)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(1300)
+  {
+    const genNode = page.locator('[data-node-type="generation"]').first()
+    const b = await genNode.boundingBox()
+    await page.mouse.click(Math.round(b.x + 40), Math.round(b.y + 16))
+    await sleep(800)
+  }
+  const panel = page.locator('[data-creation-panel]')
+  {
+    const ta = panel.locator('textarea').first()
+    if (await ta.count()) {
+      await ta.click()
+      await ta.fill('封面冒烟')
+      await ta.blur()
+      await sleep(600)
+    }
+  }
+  const beforeImgs = await page.locator('[data-node-asset]').count()
+  const runBtn = panel.locator('[data-panel-run]').first()
+  if (await runBtn.count()) await runBtn.evaluate((el) => el.click())
+  for (let i = 0; i < 40; i += 1) {
+    await sleep(500)
+    if ((await page.locator('[data-node-asset]').count()) > beforeImgs) break
+  }
+  await sleep(2500) // 等素材与 runRecord 落库
+
+  await gotoProjects(page)
+  await sleep(1800)
+  const cover = await page.evaluate(() => {
+    const card = document.querySelector('[data-project-card]')
+    if (!card) return null
+    const media = card.querySelector('img, video')
+    if (!media) return null
+    const cs = getComputedStyle(media)
+    const mb = media.getBoundingClientRect()
+    const tb = media.parentElement.getBoundingClientRect()
+    return {
+      tag: media.tagName.toLowerCase(),
+      objectFit: cs.objectFit,
+      sameW: Math.abs(mb.width - tb.width) <= 1,
+      sameH: Math.abs(mb.height - tb.height) <= 1,
+    }
+  })
+  rec(g, '★★ 项目封面用了最近生成的图（不是占位网格）', !!cover, JSON.stringify(cover))
+  rec(
+    g,
+    '★★ 封面 object-fit 是 cover（等比铺满，不是拉伸）',
+    cover?.objectFit === 'cover',
+    `object-fit=${cover?.objectFit}`,
+  )
+  rec(
+    g,
+    '★ 封面铺满卡片缩略图区域',
+    !!cover && cover.sameW && cover.sameH,
+    `对齐=${cover?.sameW}/${cover?.sameH}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/91-g81-cover.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+/**
  * 已从全量移除的组（测的都是已不存在的功能，继续跑只会拿「它没出现」当失败）：
  * - g22：版本历史（§6.21 于 2026-09-16 下线）
  * - g41：陈旧标记与按范围重跑（2026-09-17 下线：橘点、整条流程重跑、仅刷新陈旧、全图重跑）
@@ -10318,7 +10541,7 @@ async function g79(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

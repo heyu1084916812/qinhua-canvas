@@ -23,6 +23,17 @@ export interface Project {
  */
 export interface ProjectListItem extends Project {
   nodeCount: number
+  /**
+   * 项目封面的**素材 hash**（用户 2026-09-27：用最后一张生成图当封面）。
+   *
+   * 与 `Project.thumbnail`（dataURL）的区别是**存什么**：
+   * 这里只有内容寻址的 hash（几十字节），图本身在 assets 表里，
+   * 由卡片用既有的 `useAsset` 取。项目列表因此不必背几 MB 的 base64。
+   *
+   * `null` = 这个项目还没有任何生成产物（新项目、或只连了线没跑过）——
+   * 卡片据此回落成网格占位，不显示破图。
+   */
+  coverHash?: string | null
 }
 
 export interface CreateProjectInput {

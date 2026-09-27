@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useSyncExternalStore, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
 import {
   maskTokenTail,
@@ -67,14 +66,6 @@ export function SettingsPage() {
   /** 功能预设词（后台中枢）：三区之一，改的是「优化 / 翻译 / 反推」做什么 */
   const presetText = usePresetText()
   const [section, setSection] = useState<SettingsSection>('channels')
-  // 来源路径由工作台顶栏在跳转时带上（`state.from`）。据此把返回按钮指回**刚才那个项目**，
-  // 而不是一律丢回首页——在画布中间去配个渠道，回来还得重新找项目，是纯粹的摩擦。
-  // 直接输 URL 进来（无 state）时回落首页。
-  const location = useLocation()
-  const from = (location.state as { from?: string } | null)?.from ?? null
-  const cameFromWorkbench = typeof from === 'string' && from.startsWith('/canvas/')
-  const backTo = cameFromWorkbench ? from : '/'
-  const backLabel = cameFromWorkbench ? '← 返回画布' : '← 返回首页'
   const channelsList = useSyncExternalStore(
     channels.subscribe,
     () => channels.getState().channels,
@@ -396,12 +387,21 @@ export function SettingsPage() {
 
   return (
     <div className={styles.page}>
-      <header className={styles.topbar}>
-        <Link className={styles.back} to={backTo} data-settings-back>
-          {backLabel}
-        </Link>
-        <h1 className={styles.heading}>后台设置</h1>
-      </header>
+      {/*
+        ⛔ 「← 返回」按钮已移除（用户 2026-09-27）：
+        「工作区的返回按钮都可以不用了，目前可以直接在侧边栏进行替换了」。
+
+        它当初存在，是因为设置页曾是**一个独立的整屏页面**、没有别的出口 ——
+        用户在画布中间去配渠道，配完得有个明确的路回来。
+        现在应用壳侧栏常驻，六个一级页面互相可达，返回按钮就成了冗余的第二套导航。
+
+        顺带解决一个它自带的麻烦：它靠 `state.from` 判断该回画布还是首页，
+        而**任何直接输 URL / 刷新**都会丢掉 state、退化成「返回首页」——
+        一个按钮的去向取决于你是怎么进来的，本来就不好解释。
+
+        `Link` 已不再被本文件使用，一并清理 import（见文件头）。
+      */}
+      <h1 className={styles.heading}>后台设置</h1>
 
       {/*
         左侧竖排导航 + 右侧内容区（用户 2026-09-25 参考图的**结构**）。

@@ -34,6 +34,22 @@
   letter-spacing: 0;
 }
 
+/* 首页 Logo：等比、不裁切；与标题之间靠 `.inner` 的 gap 留白 */
+.logo {
+  display: block;
+  object-fit: contain;
+  /* 图标本身是黑色形体，浅色主题下不需要额外处理；深色主题在下面翻转 */
+}
+
+/*
+ * 深色主题：猫画图标是**纯黑**形体（`fill:#212121`），
+ * 直接放在深色底上等于看不见。用 `invert` 翻成白色 ——
+ * 它是单色图形，翻转后没有色彩失真；侧栏里的同位图标同理。
+ */
+:global([data-theme='dark']) .logo {
+  filter: invert(1);
+}
+
 .subtitle {
   margin: 0;
   color: var(--text-2);

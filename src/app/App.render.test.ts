@@ -78,12 +78,15 @@ describe('App 路由整树渲染冒烟', () => {
     const html = await renderTree(['/canvas/demo'])
     expect(html).toContain('data-canvas-surface')
     /*
-     * 品牌字从「轻画」变成侧栏那个单字 Logo「轻」。
-     * 原断言的「轻画」二字**原来来自被删掉的顶栏品牌**，不是页面里的其它文案 ——
-     * 顶栏一去它就没了。这里改断言侧栏 Logo 的锚点 + 那个字。
+     * 侧栏 Logo 现在是**猫画那个动态 SVG**（用户 2026-09-27：
+     * 「logo 用猫画的那个动态 logo」），不再是「轻」这个字。
+     *
+     * 断言不能用「包含某个字」了 —— 那会随图标资源变化而无意义。
+     * 改为钉住**锚点 + 它确实是个 img**：这才是「Logo 位渲染出来了」的判据，
+     * 至于是哪张图由 `CatLogo` 决定（它同时被首页复用）。
      */
     expect(html).toContain('data-sidebar-logo')
-    expect(html).toContain('轻')
+    expect(html).toMatch(/data-sidebar-logo[^>]*>\s*<img/)
     /* 新宿主：应用壳侧栏（产品文档 §2.1 / §2.2） */
     expect(html).toContain('data-app-shell')
     expect(html).toContain('data-app-sidebar')
