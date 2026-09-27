@@ -5,7 +5,10 @@ import {
   PRESET_MODELS,
   PRESET_VIDEO_MODELS,
   isPresetModel,
+  isPresetModelOfCategory,
+  presetIdForUpstream,
   presetModelsOf,
+  upstreamAliasesOf,
 } from './modelPresets'
 
 /**
@@ -82,5 +85,67 @@ describe('固定模型目录', () => {
     for (const m of PRESET_MODELS) {
       expect(m.vendor.length).toBeGreaterThan(0)
     }
+  })
+})
+
+/**
+ * 上游 ID ↔ 显示名（用户 2026-09-27 第 8 轮）。
+ *
+ * 用户原话：「`gpt-image-2` 这个和头两个模型 id 格式不一样，应该是 `GPT Image 2`」。
+ * 两组函数的用途不同，别混：
+ *  - `presetIdForUpstream`：**显示**用（把 ID 变成拍板过的名字）；
+ *  - `upstreamAliasesOf`：**选路**用（判断这条渠道到底提不提供这个模型）。
+ */
+describe('上游 ID ↔ 显示名', () => {
+  it('★ gpt-image-2 归一成「GPT Image 2」（用户点名的那个）', () => {
+    expect(presetIdForUpstream('gpt-image-2')).toBe('GPT Image 2')
+  })
+
+  it('★ 其余三家也各自归一', () => {
+    expect(presetIdForUpstream('gemini-3-pro-image')).toBe('Nano Banana Pro')
+    expect(presetIdForUpstream('gemini-3.1-flash-image')).toBe('Nano Banana 2')
+    expect(presetIdForUpstream('gpt-6-astra')).toBe('GPT-6 Astra')
+    expect(presetIdForUpstream('seedance-2.5')).toBe('即梦 2.5')
+    expect(presetIdForUpstream('gemini-omni-1.1-flash')).toBe('Gemini Omni Flash 1.1')
+  })
+
+  it('显示名本身就是显示名 → 原样返回（幂等）', () => {
+    expect(presetIdForUpstream('GPT Image 2')).toBe('GPT Image 2')
+    expect(presetIdForUpstream('Midjourney')).toBe('Midjourney')
+  })
+
+  it('★ 认不出来就原样返回 —— 不把未知模型硬塞进某个显示名', () => {
+    expect(presetIdForUpstream('advanced-voice')).toBe('advanced-voice')
+    expect(presetIdForUpstream('some-relay-model')).toBe('some-relay-model')
+    expect(presetIdForUpstream('')).toBe('')
+  })
+
+  it('★ upstreamAliasesOf 含显示名本身与其别名（选路据此认候选）', () => {
+    const aliases = upstreamAliasesOf('GPT Image 2')
+    expect(aliases).toContain('GPT Image 2')
+    expect(aliases).toContain('gpt-image-2')
+  })
+
+  it('非固定名 → 只有它自己（不猜别名）', () => {
+    expect(upstreamAliasesOf('advanced-voice')).toEqual(['advanced-voice'])
+    expect(upstreamAliasesOf('')).toEqual([])
+  })
+
+  it('别名字符串两两不冲突（一个上游 ID 不能同时属于两个显示名）', () => {
+    const seen = new Map<string, string>()
+    for (const m of PRESET_MODELS) {
+      for (const key of [m.id, ...(m.aliases ?? [])]) {
+        const prev = seen.get(key)
+        expect(prev === undefined || prev === m.id, `${key} 同时属于 ${prev} 与 ${m.id}`).toBe(true)
+        seen.set(key, m.id)
+      }
+    }
+  })
+
+  it('isPresetModelOfCategory 按类别收口（对话名不会被当成视频名）', () => {
+    expect(isPresetModelOfCategory('GPT-6 Astra', 'chat')).toBe(true)
+    expect(isPresetModelOfCategory('GPT-6 Astra', 'video')).toBe(false)
+    expect(isPresetModelOfCategory('GPT-6 Astra')).toBe(true)
+    expect(isPresetModelOfCategory('advanced-voice', 'chat')).toBe(false)
   })
 })

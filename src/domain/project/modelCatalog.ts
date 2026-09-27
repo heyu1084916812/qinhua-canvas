@@ -12,7 +12,12 @@
  */
 import type { ModelCapability } from '../shared/capability'
 import { resolveUpstreamModel } from './modelMapping'
-import { PRESET_MODELS, presetModelsOf, type PresetModel } from './modelPresets'
+import {
+  PRESET_MODELS,
+  presetIdForUpstream,
+  presetModelsOf,
+  type PresetModel,
+} from './modelPresets'
 
 /** 目录只需渠道的这几项，不认识整条渠道实体（与选路同款的最小视图做法） */
 export interface CatalogChannelLike {
@@ -84,7 +89,15 @@ export function logicalNames(channels: readonly CatalogChannelLike[]): string[] 
     for (const m of selectable) {
       const id = m.id.trim()
       if (!id || targets.has(id)) continue
-      out.add(id)
+      /**
+       * 已知的上游 ID 先归一成**显示名**（用户 2026-09-27 第 8 轮）。
+       *
+       * 渠道里勾的是 `gpt-image-2`，而用户拍板要看到 `GPT Image 2` ——
+       * 目录这一层不收口的话，固定清单与渠道模型会在下拉里各占一行，
+       * 看起来像两个模型（正是用户报「id 格式不一样」的现象）。
+       * 认不出来的 ID 原样保留，不猜。
+       */
+      out.add(presetIdForUpstream(id))
     }
   }
   return [...out]
@@ -186,9 +199,15 @@ export function panelModelOptions(
     out.push(m.id)
   }
   for (const n of logicalOptions(channels, category, channelId)) {
-    if (seen.has(n)) continue
-    seen.add(n)
-    out.push(n)
+    /**
+     * 渠道模型的**上游 ID** 先归一成显示名（用户 2026-09-27 第 8 轮）：
+     * 渠道里勾的是 `gpt-image-2`，而固定清单里已经有 `GPT Image 2` ——
+     * 不归一的话用户会在下拉里同时看到这两行，看起来像两个模型。
+     */
+    const display = presetIdForUpstream(n)
+    if (seen.has(display)) continue
+    seen.add(display)
+    out.push(display)
   }
   return out
 }
@@ -221,5 +240,12 @@ export function toLogicalName(
       if (upstream.trim() === name) return logical.trim()
     }
   }
-  return name
+  /**
+   * 最后一道：**已知的上游 ID 写法 → 它的显示名**（用户 2026-09-27 第 8 轮）。
+   *
+   * 场景正是用户截图里的那个：节点上存的是 `gpt-image-2`（老数据或中转站
+   * 拉回来的 ID），而用户要看到的是 `GPT Image 2`。上面两道都认不出来时，
+   * 用固定清单里登记的别名兜底 —— 认不出来才原样返回，不硬塞。
+   */
+  return presetIdForUpstream(name)
 }

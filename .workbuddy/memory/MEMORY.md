@@ -1233,3 +1233,45 @@ G44 因此红。改用 `data-settings-save` / `data-settings-token-save` /
   必须按新落点迁移断言，不能靠旧锚点“恰好还能找到”来假装通过。
 - 现有画布坐标 / 小地图 / 创作面板依赖 `data-canvas-surface` 的容器矩形；侧栏展开改变容器宽度时，
   这套依赖应自然适配，但要补几何回归测试。
+
+### M7-6 提示词节点去平台 + 官方 PNG logo + 显示名认领上游 ID（2026-09-27 第 8 轮）
+
+**用户四条原话**（别再各自理解）：
+① 「提示词节点也不需要平台的配置了，只需要模型即可」
+② 「当前提示词节点的模型是灰色的无法点击进行修改」
+③ 「这些模型的 logo 我要官方的 logo，png 格式…当前的不太像」
+④ 「gpt-image-2 这个和头两个模型 id 格式不一样，应该是 GPT Image 2」
+
+**②和③的根因值得记**：
+- 灰色是因为旧口径「该渠道没勾对话模型 → 置灰 + 暂无可用文本模型」。
+  现在下拉里永远有固定显示名，那个状态已经不存在；置灰只会把用户挡在换模型之外。
+  **连带把 `blockedReason` 收窄成只剩「一个可用渠道都没有」**。
+- 默认是 `advanced-voice` 是因为 `pickModel` 取「渠道里该类别第一个」，
+  而渠道勾选顺序是**上游给的**。改成对话类取固定清单第一个（`GPT-6 Astra`）。
+  ⚠️ **只在 `category==='chat'` 时替换，且要求该渠道真有对话模型** ——
+  第一版写成「任何类别都用固定名」，立刻把生图/视频的默认也改了，
+  channelStore.recipe 五条 + createNodeWithDefaults 红的。别图省事。
+
+**④的根因是「目录层没归一」**：固定清单是 `GPT Image 2`、渠道勾的是 `gpt-image-2`，
+两者各占一行。解法是给 `PresetModel` 加 `aliases`，然后**三处都要收口**：
+`logicalNames`/`panelModelOptions`（下拉不重复）、`toLogicalName`（老节点存的 ID 显示成名字）、
+`routeCandidatesFor`（认别名，否则配了映射选路还说「没有渠道提供」）。
+少任一处，用户就会在某个界面看见那个裸 ID。
+
+**③落地方式**：官方 PNG 放 `src/assets/model-logos/`（7 张，用 Google favicon 服务
+`https://www.google.com/s2/favicons?domain=<域名>&sz=128` 抓，128px）。
+**必须套底板**：OpenAI / Midjourney 是单色深色线条，深色主题下直接贴深色浮层会糊掉；
+底板取 `--bg-surface` + 1px 内描边，浅深两套都过（深色实测 rgb(34,36,43)）。
+
+**★ 冒烟里「数 DOM」证明不了图真的能看**：只 count `img` 的话，
+路径写错 / 404 也会数出 6 个、图上却空白。要断言 `naturalWidth > 0`。
+
+**★ 又踩一次「文案选择器撞车」**：映射区加了 15 行之后，
+`getByRole('button', { name: '保存', exact: true })` 命中多个，G44 红。
+改用 `data-settings-save` / `data-settings-token-save` / `data-settings-token-remove`。
+（M7-5 已经记过同一课，这次是新 UI 又撞了一次 —— 加按钮时顺手加锚点。）
+
+**★ 工具行外观断言要跟着改参照物**：G23 用 `[data-param-chip="channel"]` 量
+「工具按钮与 chip 同形」，提示词节点去掉平台 chip 后该选择器恒为 null，
+整组断言会**静默失真**（不是红，是 `!!ui?.sameHeight` 变 false 才红）。
+改取 `model` chip。教训：断言里引用一个可能消失的锚点时，先想它会怎么失效。

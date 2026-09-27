@@ -1,0 +1,20 @@
+/*
+ * 厂商 logo 的底板（理由见 ModelIcon.tsx：深色主题下单色 logo 会糊进背景）。
+ *
+ * 取 `--bg-surface` 而不是写死白 —— 两套主题自动跟随，也过主题守卫。
+ */
+.plate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: 4px;
+  background: var(--bg-surface);
+  /* 深色主题下底板与浮层底同色、看不出边界，用 1px 内描边把 logo 的范围立住 */
+  box-shadow: inset 0 0 0 1px var(--stroke);
+}
+
+.logo {
+  display: block;
+  object-fit: contain;
+}

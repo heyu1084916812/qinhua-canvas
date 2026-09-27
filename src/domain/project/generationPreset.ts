@@ -1,5 +1,6 @@
 /** 逻辑名 → 该渠道上游 ID（M7-4）；缺映射时恒等（与 `modelMapping` 同口径） */
 import { resolveUpstreamModel } from './modelMapping'
+import { isPresetModelOfCategory, presetModelsOf } from './modelPresets'
 
 /**
  * 哪些面板改动算「用户改了这套生成参数」（用户 2026-09-23 定稿）。
@@ -237,7 +238,26 @@ function pickModel(
 ): { id: string } | undefined {
   const byCategory = (list: readonly { id: string }[]) =>
     category ? list.find((m) => (m as { category?: string }).category === category) : list[0]
-  return byCategory(channel.models) ?? byCategory(channel.modelCache ?? [])
+  const hit = byCategory(channel.models) ?? byCategory(channel.modelCache ?? [])
+  /**
+   * **对话类**默认取固定显示名的第一个（用户 2026-09-27 第 8 轮：
+   * 「目前需要一个默认的显示，不是 advanced-voice」）。
+   *
+   * 渠道里的勾选顺序是**上游给的**，`advanced-voice` 这类与创作无关的条目
+   * 经常排在前面 —— 用户看到的默认模型就成了它。固定清单是用户自己拍板的那几行，
+   * 第一项（`GPT-6 Astra`）才是合适的默认值。
+   *
+   * 两个边界都要守住：
+   *  ① **只在对话类替换**：生图 / 视频的既有默认（渠道第一个模型）不动，
+   *     否则一次「修提示词默认值」会把生成节点的默认也悄悄改掉；
+   *  ② **仍要求这个渠道真有对话模型**（`hit` 存在）才替换 —— 否则一个
+   *     只有生图模型的渠道会「凭一个固定名」被选成对话节点的默认渠道。
+   */
+  if (hit && category === 'chat') {
+    const preset = presetModelsOf('chat')[0]
+    if (preset) return { id: preset.id }
+  }
+  return hit
 }
 
 /**
@@ -285,6 +305,22 @@ export function resolveRecipe(
   const sameMatchesCategory =
     !category || (same as { category?: string } | undefined)?.category === category
   if (same && sameMatchesCategory) {
+    return {
+      channelId: recipe.channelId,
+      model: recipe.model,
+      params: recipe.params,
+      substituted: false,
+    }
+  }
+  /**
+   * 记录里的是**固定显示名**（用户 2026-09-27 第 8 轮）→ 直接沿用。
+   *
+   * 固定显示名在渠道里通常**没有对应条目**（渠道里叫 `gpt-image-2`，界面叫
+   * `GPT Image 2`），上面的「渠道还提供吗」永远查不到它。不认这条会怎样：
+   * 用户每次新开面板，选好的 `GPT Image 2` 都被判成失效、又被兜底换成别的 ——
+   * 表现为「选了下拉自己变回去」。
+   */
+  if (isPresetModelOfCategory(recipe.model, category)) {
     return {
       channelId: recipe.channelId,
       model: recipe.model,
@@ -360,7 +396,12 @@ export function resolveForNode(
       if (
         model &&
         (available.some((m) => m.id === model) ||
-          (modelUpstream ? available.some((m) => m.id === modelUpstream) : false))
+          (modelUpstream ? available.some((m) => m.id === modelUpstream) : false) ||
+          /**
+           * 固定显示名：渠道里没有对应条目也算可用（理由见 `resolveRecipe` 的同一段）。
+           * 少了这一条，用户新选的固定名会在下一次解析时被判失效、被兜底覆盖回去。
+           */
+          isPresetModelOfCategory(model, category))
       ) {
         const recipe = lookupRecipe(channelId)
         return { channelId, model, params: recipe.params, substituted: false }

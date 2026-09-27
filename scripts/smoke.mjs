@@ -3101,7 +3101,11 @@ async function g23(browser) {
     await ctx.close()
     return
   }
-  await pickParam(panel, 'channel', '新建渠道')
+  /**
+   * 提示词节点也**没有平台 chip** 了（用户 2026-09-27 第 8 轮：
+   * 「提示词节点也不需要平台的配置了，只需要模型即可」）。
+   * 渠道由面板的解析链自动落到节点上，这里直接选模型。
+   */
   await sleep(250)
   await pickParam(panel, 'model', 'mock-chat-1')
   await sleep(250)
@@ -3200,7 +3204,11 @@ async function g23(browser) {
   const ui = await panel.evaluate((panelEl) => {
     const group = panelEl.querySelector('[data-panel-part="params"] [class*="toolGroup"]')
     const btn = group?.querySelector('button')
-    const chip = panelEl.querySelector('[data-param-chip="channel"]')
+    /**
+     * 比对的 chip 取**模型**那一个（用户 2026-09-27 第 8 轮起提示词节点
+     * 也没有平台 chip 了，取它会让这里恒为 null、整组断言静默失真）。
+     */
+    const chip = panelEl.querySelector('[data-param-chip="model"]')
     const count = panelEl.querySelector('[data-panel-prompt-count]')
     const params = panelEl.querySelector('[data-panel-part="params"]')
     if (!group || !btn || !chip) return null
@@ -4440,7 +4448,7 @@ async function g47(browser) {
   await page.keyboard.press('Escape')
   await sleep(200)
   const pPanel = await genPanel(page, promptNode)
-  await pickParam(pPanel, 'channel', '新建渠道')
+  // 提示词节点已无平台 chip（用户 2026-09-27 第 8 轮）
   await sleep(200)
   await pickParam(pPanel, 'model', 'mock-chat-1')
   await sleep(250)
@@ -8597,7 +8605,7 @@ async function g73(browser) {
   const promptNode = page.locator('[data-node-type="prompt"]').first()
   await genPanel(page, promptNode)
   const panel = page.locator('[data-creation-panel]')
-  await pickParam(panel, 'channel', '新建渠道')
+  // 提示词节点已无平台 chip（用户 2026-09-27 第 8 轮）
   await sleep(200)
   await pickParam(panel, 'model', 'mock-chat-1')
   await sleep(250)
@@ -9124,7 +9132,7 @@ async function g74(browser) {
   await page.mouse.click(pb.x + 40, Math.max(100, pb.y + 40))
   await sleep(700)
   const panel = page.locator('[data-creation-panel]')
-  await pickParam(panel, 'channel', '新建渠道')
+  // 提示词节点已无平台 chip（用户 2026-09-27 第 8 轮）
   await sleep(250)
   await pickParam(panel, 'model', 'mock-chat-1')
   await sleep(300)
@@ -9822,8 +9830,27 @@ async function g79(browser) {
     '★ 固定项不含 Nano Banana 2 Lite（用户明确不要）',
     !imageOpts.some((t) => t.includes('Nano Banana 2 Lite')),
   )
-  const iconCount = await imageRows.locator('svg[data-model-icon]').count()
-  rec(g, '★ 固定模型每项前方都有矢量图标', iconCount >= 6, `图标数=${iconCount}`)
+  /**
+   * 图标在 2026-09-27 第 8 轮从手绘 SVG 换成**官方 PNG**
+   * （用户：「这些模型的 logo 我要官方的 logo，png 格式…当前的不太像」）。
+   *
+   * 断言两条，缺一都不足以证明「官方图标真的加载出来了」：
+   *  ① 每个固定项前方有 `img[data-model-logo]`；
+   *  ② 每张图**真的解码成功**（`naturalWidth > 0`）—— 只数 DOM 的话，
+   *     路径写错、404 也会数出 6 个，图上却是空白。
+   */
+  const logoImgs = imageRows.locator('img[data-model-logo]')
+  const logoCount = await logoImgs.count()
+  const decoded = await logoImgs.evaluateAll((els) =>
+    els.map((e) => ({ src: e.getAttribute('src') ?? '', w: e.naturalWidth })),
+  )
+  rec(g, '★ 固定模型每项前方都有官方 PNG 图标', logoCount >= 6, `图标数=${logoCount}`)
+  rec(
+    g,
+    '★★ 图标真的解码出来了（不是 404 空图）',
+    decoded.length >= 6 && decoded.every((d) => d.w > 0),
+    JSON.stringify(decoded.slice(0, 3)),
+  )
   await page.screenshot({ path: `${OUT}/95-g79-image-models.png` })
   await page.keyboard.press('Escape')
   await sleep(200)
@@ -9846,7 +9873,7 @@ async function g79(browser) {
   await page.keyboard.press('Escape')
   await sleep(200)
 
-  // ③ 提示词节点：对话档固定四个
+  // ③ 提示词节点：对话档固定四个 + **没有平台 chip** + 模型可点
   await page.goto(BASE, { waitUntil: 'domcontentloaded' })
   await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20000 })
   await page.locator('[data-template="text2img"]').click()
@@ -9854,6 +9881,16 @@ async function g79(browser) {
   await sleep(1000)
   const promptNode = page.locator('[data-node-type="prompt"]').first()
   const pPanel = await genPanel(page, promptNode)
+  rec(
+    g,
+    '★ 提示词节点没有平台 chip（用户：提示词节点也不需要平台配置了）',
+    (await pPanel.locator('[data-param-chip="channel"]').count()) === 0,
+  )
+  rec(
+    g,
+    '★ 提示词节点的模型 chip 可点（用户报「灰色的无法点击」）',
+    await pPanel.locator('[data-param-chip="model"]').isEnabled(),
+  )
   await pPanel.locator('[data-param-chip="model"]').click()
   await sleep(400)
   const chatValues = await pPanel
@@ -9876,6 +9913,23 @@ async function g79(browser) {
   await sleep(600)
   const presetRow = page.locator('[data-route-map-row="GPT Image 2.5 Flare"]')
   rec(g, '★ 后台为固定显示名给出可填写的映射行', (await presetRow.count()) === 1)
+  /**
+   * 用户 2026-09-27 第 8 轮：「`gpt-image-2` 这个和头两个模型 id 格式不一样，
+   * 应该是 `GPT Image 2`」。
+   *
+   * 映射区列的是**显示名**：15 个固定项各一行、每行标签就是那个显示名，
+   * 不存在「`GPT Image 2` 与 `gpt-image-2` 各占一行」的重复。
+   */
+  const presetRows = page.locator('[data-route-map-preset="1"]')
+  const presetLabels = await presetRows.locator('[data-route-map-label]').allInnerTexts()
+  rec(
+    g,
+    '★ 映射区列 15 个显示名，且不含裸 ID `gpt-image-2`（用户报的那个）',
+    (await presetRows.count()) === 15 &&
+      presetLabels.map((s) => s.trim()).includes('GPT Image 2') &&
+      !presetLabels.some((s) => s.trim() === 'gpt-image-2'),
+    `行数=${await presetRows.count()} 含GPT Image 2=${presetLabels.some((s) => s.trim() === 'GPT Image 2')}`,
+  )
   await page.locator('[data-route-map-input="GPT Image 2.5 Flare"]').fill('gpt-image-2.5-flare')
   await sleep(300)
   await page.locator('[data-route-map-save="GPT Image 2.5 Flare"]').click()

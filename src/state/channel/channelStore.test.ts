@@ -385,7 +385,14 @@ describe('channelStore', () => {
    * 提示词节点要的是**文本模型**（用户 2026-09-18：「提示词节点也一样」）。
    * 生成配方里存的是图片模型，对文本节点不适用，故按类别重新挑。
    */
-  it('★ 传 category 时只挑该类别的模型（提示词节点要文本模型）', async () => {
+  /**
+   * 用户 2026-09-27 第 8 轮：提示词节点默认显示**固定清单的第一个对话名**
+   * （`GPT-6 Astra`），不再是渠道里排第一的那个文本模型
+   * （实测那个是 `advanced-voice`，与创作无关）。
+   *
+   * 条件是**这个渠道确实有对话模型** —— 否则不该硬塞一个固定名进去。
+   */
+  it('★ 传 category=chat 时默认取固定清单第一个（GPT-6 Astra），且要求渠道真有对话模型', async () => {
     const p = createMemoryPlatform()
     const store = createChannelStore(p)
     await store.load()
@@ -396,6 +403,6 @@ describe('channelStore', () => {
       { id: 'chat-1', category: 'chat', inputTypes: ['text'] },
     ])
     const picked = await store.defaultForNewNode({}, 'chat')
-    expect(picked?.model).toBe('chat-1')
+    expect(picked?.model).toBe('GPT-6 Astra')
   })
 })

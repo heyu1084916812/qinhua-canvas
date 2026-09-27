@@ -249,17 +249,50 @@ describe('生成配方（新建节点的默认渠道 / 模型 / 参数）', () =
       })
     })
 
-    it('★ category 过滤提示词节点：第一档就只要 chat 模型', () => {
+    /**
+     * ★ category=chat 时默认取**固定显示名的第一个**，不是渠道里的第一条。
+     *
+     * 用户 2026-09-27 第 8 轮实测报「提示词节点模型显示 advanced-voice」——
+     * 因为渠道勾选顺序是上游给的，`advanced-voice` 这类与创作无关的条目
+     * 恰好排在前面。固定清单是用户拍板的那几行，第一项才是合适的默认值。
+     */
+    it('★ category=chat → 默认是固定清单第一个（GPT-6 Astra），不是渠道首条', () => {
       const withChat = [
         { id: 'img', models: [{ id: 'i1' }] },
-        { id: 'chat', models: [{ id: 'c1', category: 'chat' }] },
+        { id: 'chat', models: [{ id: 'advanced-voice', category: 'chat' }] },
       ] as unknown as PresetChannelLike[]
       expect(resolveForNode({}, withChat, noRecipes, 'chat')).toEqual({
         channelId: 'chat',
-        model: 'c1',
+        model: 'GPT-6 Astra',
         params: {},
         substituted: true,
       })
+    })
+
+    /**
+     * ★ 生图 / 视频**不受**这条影响：默认仍是该渠道的第一个模型。
+     *
+     * 「修提示词默认值」不该顺手改掉生成节点的默认值 —— 那是另一次行为变更，
+     * 用户没要求，也会让 G46 / G69 这些既有断言莫名其妙地红。
+     */
+    it('★ category=image → 仍是渠道第一个模型（不被固定清单顶替）', () => {
+      const channels = [
+        { id: 'ch1', models: [{ id: 'weird-model-1', category: 'image' }] },
+      ] as unknown as PresetChannelLike[]
+      expect(resolveForNode({}, channels, noRecipes, 'image')).toEqual({
+        channelId: 'ch1',
+        model: 'weird-model-1',
+        params: {},
+        substituted: true,
+      })
+    })
+
+    /** 只有生图模型的渠道，不该因为一个固定对话名而被选成对话节点的默认渠道 */
+    it('★ 渠道没有对话模型 → 不硬塞固定对话名（返回 null）', () => {
+      const channels = [
+        { id: 'ch1', models: [{ id: 'img-1', category: 'image' }] },
+      ] as unknown as PresetChannelLike[]
+      expect(resolveForNode({}, channels, noRecipes, 'chat')).toBeNull()
     })
 
     it('全都没有可用模型 → null（调用方给可诊断的解释，不留空白下拉）', () => {

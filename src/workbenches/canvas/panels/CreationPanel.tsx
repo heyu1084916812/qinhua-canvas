@@ -18,6 +18,7 @@ import {
   toLogicalName,
 } from '../../../domain/project/modelCatalog'
 import { presetOf } from '../../../domain/project/modelCatalog'
+import { presetModelsOf } from '../../../domain/project/modelPresets'
 import { ModelIcon } from './ModelIcon'
 
 /** 生成数量：固定四项（§6.8「1张 / 2张 / 4张 / 9张，固定四项」） */
@@ -517,6 +518,16 @@ export function CreationPanel(props: CreationPanelProps) {
 /** 节点上存的模型名 → 逻辑名（老数据迁移）：见 `logicalModelNames` 处的说明 */
   const shownLogicalModel = toLogicalName(allChannels, shownModel)
   /**
+   * 模型 chip 在**还没选**时的占位文案（用户 2026-09-27 第 8 轮）。
+   *
+   * 此前占位就是类别名（「生图模型」「文本模型」），用户看不出默认该用哪个。
+   * 现在固定清单的**第一个**就是该类别的默认显示名，直接用它的名字当占位 ——
+   * 用户一眼就知道「这里点了会先给什么」。
+   */
+  const defaultModelLabel =
+    presetModelsOf(wantedCategory)[0]?.id ??
+    (promptMode ? '文本模型' : videoMode ? '视频模型' : '生图模型')
+  /**
    * 能力（分类 / 张数上限 / 时长区间 / 参考图数）仍按**站点 ID**取（与 M7-4 之前一致）。
    *
    * ⚠️ 这里**刻意不改**按逻辑名取：二分实测（BISECT-D）证明改了会让 G46 失败 ——
@@ -614,15 +625,6 @@ export function CreationPanel(props: CreationPanelProps) {
   const noPlatform = enabled.length === 0
   const platformGap = allChannels.length === 0 ? '还没有配置任何渠道' : '已配置的渠道都未启用'
   /**
-   * 选了平台但这个分类下一个模型都没有：与「没有平台」是两回事，得说清是**没勾选**（§7.4）。
-   * 上游拉回的模型现在默认全不勾选，所以这是最可能撞上的空态。
-   * 文案带上**类别**：视频模式下说「还没勾选视频模型」比笼统的「没勾选模型」有用得多
-   * （渠道里可能明明有生图模型）。
-   *
-   * **提示词节点不走这条**（§6.7）：它要求的是「模型 chip **禁用**并显示『暂无可用文本模型』」，
-   * 而不是「隐藏 chip + 给一条引导条」——换个藏法，用户反而不知道这个字段还在。
-   */
-  /**
    * 「现在按下去一定不会有反应」这件事，按钮自己先说清楚（用户 2026-09-23 报「没有反应点了」）。
    *
    * 此前面板上方已经挂了「还没有配置任何渠道」的引导条，但**生成按钮仍然可点**：
@@ -630,23 +632,12 @@ export function CreationPanel(props: CreationPanelProps) {
    * `plan.tasks.length === 0` 直接 return，于是没有提示、没有报错、没有任何状态。
    * 用户读到的就是「这个按钮是坏的」。
    *
-   * 两类空缺都要拦：①没有可用渠道；②选了渠道但该分类下没勾选模型。
-   * 提示词节点（promptMode）走的是另一套 —— 它没有模型 chip，缺文本模型时按钮本就该置灰，
-   * 文案直接说「暂无可用文本模型」（§6.7）。
+   * **只剩「一个可用渠道都没有」这一条**（用户 2026-09-27 第 8 轮）：
+   * 模型下拉现在**永远有固定显示名**，所以「该类别一个模型都没勾」不再是一个
+   * 必空状态 —— 名字选得出来、映射配好就能跑，按钮不该因此置灰。
+   * 提示词节点那条「暂无可用文本模型」的旧口径也随之取消（它把用户挡在换模型之外）。
    */
-  /**
-   * 只拦**确实必空**的两种：一个可用渠道都没有、以及渠道里这一类模型一个都没有。
-   *
-   * 刻意**不**拦「有模型可选但用户还没选」：那一条路是通的（点开 chip 选一个就能跑），
-   * 按钮灰掉反而把唯一的路堵死（G46 已踩过这个坑）。
-   */
-  const blockedReason = props.running
-    ? null
-    : noPlatform
-      ? platformGap
-      : promptMode && activeChannel && models.length === 0
-        ? '暂无可用文本模型'
-        : null
+  const blockedReason = props.running ? null : noPlatform ? platformGap : null
   const runDisabled = busyGlobal || blockedReason !== null
   const runTitle = blockedReason ? `${blockedReason}，去后台设置后再生成` : runLabel
 
@@ -827,31 +818,13 @@ export function CreationPanel(props: CreationPanelProps) {
           </button>
         )}
         {/*
-          平台 chip：**只有提示词节点还留着**（用户 2026-09-27）。
+          **没有平台 chip**（用户 2026-09-27 第 8 轮：「提示词节点也不需要平台的配置了，
+          只需要模型即可」）。
 
-          生成节点（生图 / 视频）由**选路**决定打哪条渠道（M7-3），
-          面板再挂一个「平台」只是重复且会误导 —— 用户改了它以为换了站，
-          实际请求按优先度走。渠道仍写在节点 data 上（兜底与配方记忆用），
-          只是不再让用户手选。
-
-          提示词节点保留：它的「优化 / 翻译 / 反推」走 `completeText`，
-          目前没有接入选路，需要一个明确的渠道。
+          生成节点早一轮就去掉了，提示词节点这一轮跟上。渠道不再由用户手选：
+          面板的解析链会把首个可用渠道写进节点（「有模型无渠道就补渠道」那条兜底），
+          文本调用再从节点的 `channelId` 取渠道。用户只需要关心「用哪个模型」。
         */}
-        {promptMode && !noPlatform && (
-          <ParamPicker
-            name="channel"
-            ariaLabel="生成平台"
-            label={activeChannel?.name ?? '平台'}
-            options={enabled.map((c) => ({ value: c.id, label: c.name }))}
-            value={shownChannelId}
-            variant="list"
-            open={openPicker === 'channel'}
-            onToggle={() => togglePicker('channel')}
-            onClose={closePicker}
-            onSelect={(v) => onEvent({ type: 'setChannel', channelId: v })}
-          />
-        )}
-
         {/*
         模型 chip：**提示词节点同样要选**（§6.7「只能选 LLM 模型」，优化 / 翻译要用），
           所以这里不能按 promptMode 收窄。
@@ -862,11 +835,7 @@ export function CreationPanel(props: CreationPanelProps) {
         <ParamPicker
             name="model"
             ariaLabel={categoryLabel}
-            label={
-              shownLogicalModel ||
-              // §6.7：提示词节点在「渠道里没有文本模型」时禁用并直说，不玩隐藏
-              (promptMode && activeChannel && models.length === 0 ? '暂无可用文本模型' : categoryLabel)
-            }
+            label={shownLogicalModel || defaultModelLabel}
             options={modelOptions}
             value={shownLogicalModel}
             variant="list"
@@ -875,11 +844,15 @@ export function CreationPanel(props: CreationPanelProps) {
             onClose={closePicker}
             onSelect={(v) => onEvent({ type: 'setModel', model: v, recipe: recipeSnapshot({ model: v }) })}
             /*
-             * 生成节点的模型清单来自**固定目录**，不再依赖「该渠道有没有勾模型」，
-             * 所以不能在没选到渠道时禁用 —— 那会让固定清单一个都点不动。
-             * 只有提示词节点维持「没文本模型就禁用」的原口径（它必须真能发出去）。
+             * **一律可点**（用户 2026-09-27 第 8 轮：「当前提示词节点的模型是灰色的
+             * 无法点击进行修改」）。
+             *
+             * 下拉里永远有固定显示名（6 生图 / 4 对话 / 5 视频），所以「没得选」
+             * 这个状态已经不存在了。此前的提示词节点在「该渠道没勾对话模型」时
+             * 把 chip 置灰 —— 用户看到的是「模型动不了」，而他真正想做的只是换个模型。
+             * 名字选得出来、映射配好就能跑；真发不出去时由执行层报明确原因。
              */
-            disabled={promptMode ? !activeChannel || models.length === 0 : noPlatform}
+            disabled={false}
         />
 
        {!promptMode && (

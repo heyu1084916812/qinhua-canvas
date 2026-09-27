@@ -30,6 +30,17 @@ export interface PresetModel {
   id: string
   category: 'image' | 'chat' | 'video'
   vendor: PresetVendor
+  /**
+   * 该显示名**已知的上游 ID 写法**（用户 2026-09-27：「`gpt-image-2` 这个和头两个
+   * 模型 id 格式不一样，应该是 `GPT Image 2`」）。
+   *
+   * 用途有两处，缺一用户就会在界面上同时看到「显示名」和「上游 ID」两个条目：
+   *  ① **归一显示**：节点上存的是上游 ID（老数据 / 中转站拉回来的）时，
+   *     界面按显示名展示 —— `gpt-image-2` → `GPT Image 2`；
+   *  ② **去重**：渠道里勾了 `gpt-image-2` 时，它不再单独占一行
+   *     （它已经被 `GPT Image 2` 这一行代表了）。
+   */
+  aliases?: readonly string[]
 }
 
 /**
@@ -41,9 +52,10 @@ export interface PresetModel {
 export const PRESET_IMAGE_MODELS: readonly PresetModel[] = [
   { id: 'GPT Image 2.5 Flare', category: 'image', vendor: 'openai' },
   { id: 'GPT Image 2.5 Sunburst', category: 'image', vendor: 'openai' },
-  { id: 'GPT Image 2', category: 'image', vendor: 'openai' },
-  { id: 'Nano Banana Pro', category: 'image', vendor: 'google' },
-  { id: 'Nano Banana 2', category: 'image', vendor: 'google' },
+  /** 用户点名的那个：前端必须是 `GPT Image 2`，不是 `gpt-image-2` */
+  { id: 'GPT Image 2', category: 'image', vendor: 'openai', aliases: ['gpt-image-2'] },
+  { id: 'Nano Banana Pro', category: 'image', vendor: 'google', aliases: ['gemini-3-pro-image'] },
+  { id: 'Nano Banana 2', category: 'image', vendor: 'google', aliases: ['gemini-3.1-flash-image'] },
   { id: 'Midjourney', category: 'image', vendor: 'midjourney' },
 ]
 
@@ -54,10 +66,10 @@ export const PRESET_IMAGE_MODELS: readonly PresetModel[] = [
  * 的发布顺序，不是榜单排名 —— 用户要的是「最新的前三个」，不是「最强的三个」。
  */
 export const PRESET_CHAT_MODELS: readonly PresetModel[] = [
-  { id: 'GPT-6 Astra', category: 'chat', vendor: 'openai' },
-  { id: 'GPT-6 Sol', category: 'chat', vendor: 'openai' },
-  { id: 'GPT-6 Luna', category: 'chat', vendor: 'openai' },
-  { id: 'Gemini 3.8 Flash', category: 'chat', vendor: 'google' },
+  { id: 'GPT-6 Astra', category: 'chat', vendor: 'openai', aliases: ['gpt-6-astra'] },
+  { id: 'GPT-6 Sol', category: 'chat', vendor: 'openai', aliases: ['gpt-6-sol'] },
+  { id: 'GPT-6 Luna', category: 'chat', vendor: 'openai', aliases: ['gpt-6-luna'] },
+  { id: 'Gemini 3.8 Flash', category: 'chat', vendor: 'google', aliases: ['gemini-3.8-flash'] },
 ]
 
 /**
@@ -67,8 +79,13 @@ export const PRESET_CHAT_MODELS: readonly PresetModel[] = [
  * 其后是 Artificial Analysis Video Arena 文生/图生两张榜的综合前十里的前几名。
  */
 export const PRESET_VIDEO_MODELS: readonly PresetModel[] = [
-  { id: '即梦 2.5', category: 'video', vendor: 'bytedance' },
-  { id: 'Gemini Omni Flash 1.1', category: 'video', vendor: 'google' },
+  { id: '即梦 2.5', category: 'video', vendor: 'bytedance', aliases: ['seedance-2.5'] },
+  {
+    id: 'Gemini Omni Flash 1.1',
+    category: 'video',
+    vendor: 'google',
+    aliases: ['gemini-omni-1.1-flash'],
+  },
   { id: 'Minimax H3 Max', category: 'video', vendor: 'fal' },
   { id: 'MiniMax H3', category: 'video', vendor: 'minimax' },
   { id: 'Wan 3.0', category: 'video', vendor: 'alibaba' },
@@ -89,4 +106,49 @@ export function presetModelsOf(category: PresetModel['category']): PresetModel[]
 export function isPresetModel(name: string): boolean {
   const key = name.trim()
   return PRESET_MODELS.some((m) => m.id === key)
+}
+
+/**
+ * 某个名字是不是**该类别**的固定显示名。
+ *
+ * 解析链用它认「这个模型可用」：固定显示名在渠道里通常**没有对应条目**
+ * （它正是靠 `modelMap` 翻译的），只按渠道清单判会把一个完全可用的固定名
+ * 判成「这个渠道没这个模型」，于是又被兜底覆盖掉。
+ */
+export function isPresetModelOfCategory(name: string, category?: string): boolean {
+  const key = name.trim()
+  if (!key) return false
+  return PRESET_MODELS.some((m) => m.id === key && (!category || m.category === category))
+}
+
+/**
+ * 某个显示名**已知的全部上游写法**（含显示名本身）。
+ *
+ * 选路用它认候选：渠道勾的是 `gpt-image-2`、界面显示 `GPT Image 2`，
+ * 两种写法都是「这条渠道有 GPT Image 2」，任一命中即算提供。
+ * 非固定名返回它自己（不猜）。
+ */
+export function upstreamAliasesOf(name: string): string[] {
+  const key = name.trim()
+  if (!key) return []
+  const hit = PRESET_MODELS.find((m) => m.id === key)
+  if (!hit) return [key]
+  return [hit.id, ...(hit.aliases ?? [])]
+}
+
+/**
+ * 上游 ID → 它对应的**显示名**。
+ *
+ * 界面用它在两处收口（见 `PresetModel.aliases`）：把 `gpt-image-2`
+ * 显示成 `GPT Image 2`、并让渠道里那条同名模型不再重复占一行。
+ * 认不出来就返回原值 —— 未知模型不该被硬塞进某个显示名。
+ */
+export function presetIdForUpstream(upstreamId: string): string {
+  const key = upstreamId.trim()
+  if (!key) return key
+  for (const m of PRESET_MODELS) {
+    if (m.id === key) return m.id
+    if (m.aliases?.some((alias) => alias === key)) return m.id
+  }
+  return key
 }

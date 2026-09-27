@@ -71,8 +71,14 @@ describe('resolveDefaults · 只有需要配方的类型才注入默认值', () 
   it('提示词节点：带上渠道与模型（文本类）', async () => {
     const data = await resolveDefaults({ channels: await store(), type: 'prompt' })
     expect(data.channelId).toBe('ch-1')
-    // 提示词节点要的是**文本模型**，不是图片模型（传错类别会让它拿到生图模型）
-    expect(data.model).toBe('chat-1')
+    /**
+     * 提示词节点要的是**文本模型**，不是图片模型（传错类别会让它拿到生图模型）。
+     *
+     * 用户 2026-09-27 第 8 轮起，默认值是固定清单的第一个对话名
+     * （`GPT-6 Astra`）而不是渠道里排第一的文本模型 —— 后者实测是
+     * `advanced-voice`，用户明确说「目前需要一个默认的显示，不是 advanced-voice」。
+     */
+    expect(data.model).toBe('GPT-6 Astra')
   })
 
   it('extraData 与默认值合并（提示词节点的 text 不会丢）', async () => {

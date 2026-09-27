@@ -7,8 +7,10 @@
  * 参考 `new-api` 的 `Ability`（group × model × channel × priority × weight），
  * 候选由**渠道派生**而非另建表 —— 渠道自己就带着「提供哪些模型」与「优先度 / 权重」。
  *
- * 纯函数、不依赖 platform / state / React，可在 node 下单测。
- */
+* 纯函数、不依赖 platform / state / React，可在 node 下单测。
+*/
+
+import { upstreamAliasesOf } from './modelPresets'
 
 /**
  * 选路策略。
@@ -223,7 +225,19 @@ export function routeCandidatesFor(
      * 而站点的模型列表里叫 `gpt-image-2.5-flare` —— ② 没接上时，
      * 用户配好了映射，选路却找不到任何候选，请求发不出去。
      */
-    .filter((c) => c.modelIds.includes(name) || Boolean((c.modelMap ?? {})[name]?.trim()))
+    .filter(
+      (c) =>
+        c.modelIds.includes(name) ||
+        Boolean((c.modelMap ?? {})[name]?.trim()) ||
+        /**
+         * 上游 ID 本来就等于显示名登记的别名时也算提供（用户 2026-09-27 第 8 轮）。
+         *
+         * 例：渠道勾了 `gpt-image-2`、用户在后台把它填成 `GPT Image 2` 的映射 ——
+         * 两种写法都是「这条渠道有 GPT Image 2」，任一命中即可。只认映射键的话，
+         * 用户明明配好了、选路却说「没有渠道提供模型」。
+         */
+        upstreamAliasesOf(name).some((alias) => c.modelIds.includes(alias)),
+    )
     .map((c) => ({
       channelId: c.id,
       enabled: c.enabled,

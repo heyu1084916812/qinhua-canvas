@@ -310,14 +310,22 @@ describe('CreationPanel · 平台已选但模型不可用', () => {
     expect(html).toContain('data-param-chip="model"')
   })
 
-  it('勾选模型后引导消失，模型 chip 带出该模型', async () => {
+  /**
+   * ★ 老节点存的上游 ID（`gpt-image-2`）→ 面板显示拍板过的 `GPT Image 2`。
+   *
+   * 用户 2026-09-27 第 8 轮：「`gpt-image-2` 这个和头两个模型 id 格式不一样，
+   * 应该是 `GPT Image 2`」。这条同时守住两件事：界面不再露出裸 ID，
+   * 且它与固定清单里的那一行是**同一个模型**（不会重复出现）。
+   */
+  it('★ 节点存的是上游 ID → chip 显示拍板过的显示名（不再露 gpt-image-2）', async () => {
     const channels = await channelStore([
       { enabled: true, models: [{ id: 'gpt-image-2', category: 'image', inputTypes: ['text'], maxCount: 4 }] },
     ])
     const html = render(channels, { ...withChannel(), model: 'gpt-image-2' })
     expect(html).not.toContain('data-panel-setup-hint')
     expect(html).toContain('data-param-chip="model"')
-    expect(html).toContain('gpt-image-2')
+    expect(html).toContain('GPT Image 2')
+    expect(html).not.toContain('>gpt-image-2<')
   })
 
   it('没选平台时不说「未选模型」（那是两回事，未选平台要说字段名）', async () => {
@@ -470,7 +478,14 @@ describe('CreationPanel · 提示词节点面板（§6.7）', () => {
     expect(html).toContain('aria-label="生成下游节点"')
   })
 
-  it('渠道里没有文本模型 → 模型 chip 禁用并直说「暂无可用文本模型」', async () => {
+  /**
+   * 用户 2026-09-27 第 8 轮：「当前提示词节点的模型是灰色的无法点击进行修改」。
+   *
+   * 旧口径是「渠道没勾对话模型 → 置灰并写『暂无可用文本模型』」。现在下拉里
+   * **永远有固定显示名**（GPT-6 Astra 等），所以那个状态已经不存在了；
+   * 置灰只会让用户以为功能坏了，而他真正想做的不过是换个模型。
+   */
+  it('★ 渠道里没有文本模型 → 模型 chip 仍可点（下拉有固定显示名）', async () => {
     const html = render(
       await channelStore([{ enabled: true, models: [imageOnly] }]),
       { ...asPrompt(), channelId: 'ch-1' },
@@ -478,9 +493,8 @@ describe('CreationPanel · 提示词节点面板（§6.7）', () => {
       'prompt',
     )
     expect(html).toContain('data-param-chip="model"')
-    expect(html).toContain('暂无可用文本模型')
-    expect(/data-param-chip="model"[^>]*?disabled=/.test(html)).toBe(true)
-    // §6.7 要的是禁用 + 说明，不是 §6.8 那套「隐藏 chip + 引导条」
+    expect(/data-param-chip="model"[^>]*?disabled=/.test(html)).toBe(false)
+    expect(html).not.toContain('暂无可用文本模型')
     expect(html).not.toContain('该渠道还没勾选')
   })
 

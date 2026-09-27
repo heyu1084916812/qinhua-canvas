@@ -31,7 +31,7 @@ import {
   ROUTE_STRATEGIES,
   type RouteStrategy,
 } from '../../domain/project/modelRouting'
-import { PRESET_MODELS } from '../../domain/project/modelPresets'
+import { PRESET_MODELS, presetIdForUpstream } from '../../domain/project/modelPresets'
 
 /**
  * 后台的三个分区（用户 2026-09-25「后台中枢」）。
@@ -843,17 +843,39 @@ export function SettingsPage() {
                 */}
                 {(() => {
                   const presetIds = PRESET_MODELS.map((m) => m.id)
+                  /**
+                   * 渠道里的上游 ID 若已经对应某个固定显示名（`gpt-image-2` →
+                   * `GPT Image 2`），就**不再单列一行** —— 否则用户会看到
+                   * 「GPT Image 2」和「gpt-image-2」两行，以为这是两个模型
+                   * （用户 2026-09-27 第 8 轮报的正是这个）。
+                   */
+                  const presetAliases = new Set(
+                    PRESET_MODELS.flatMap((m) => m.aliases ?? []),
+                  )
                   const extraIds = selected.models
                     .map((m) => m.id)
-                    .filter((id) => !presetIds.includes(id))
-                  const rows = [...presetIds, ...extraIds]
+                    .filter((id) => !presetIds.includes(id) && !presetAliases.has(id))
+                  /**
+                   * 一行的 `key` 是**发送时用的键**，标签是**显示的文案**。
+                   *
+                   * `gpt-image-2` 这一行：键取上游 ID（改的就是这条真实映射），
+                   * 标签显示 `GPT Image 2`。两者分开正是「前端显示名 ≠ 请求 ID」
+                   * 这条口径在设置页的落点。
+                   */
+                  const rows = [
+                    ...PRESET_MODELS.map((m) => ({ key: m.id, label: m.id })),
+                    ...selected.models
+                      .filter((m) => presetAliases.has(m.id))
+                      .map((m) => ({ key: m.id, label: presetIdForUpstream(m.id) })),
+                    ...extraIds.map((id) => ({ key: id, label: id })),
+                  ]
                   return (
                     <>
                       <p className={styles.modelsSub} data-route-map-help>
                         下面这些是画布里可选的显示名；只填你本站有的那几个即可。
                       </p>
                       <div className={styles.mapList}>
-                        {rows.map((id) => {
+                        {rows.map(({ key: id, label }) => {
                           const saved = selected.modelMap[id] ?? ''
                           const draft = mapDrafts[id]
                           const value = draft ?? saved
@@ -865,8 +887,8 @@ export function SettingsPage() {
                               data-route-map-row={id}
                               data-route-map-preset={isPreset ? '1' : '0'}
                             >
-                              <span className={styles.mapName} title={id}>
-                                {id}
+                              <span className={styles.mapName} title={id} data-route-map-label>
+                                {label}
                               </span>
                               <input
                                 className={`${styles.input} ${styles.mapInput}`}

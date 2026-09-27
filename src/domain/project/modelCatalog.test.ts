@@ -236,6 +236,23 @@ describe('panelModelOptions', () => {
     expect(presetOf('mock-image-1')).toBeUndefined()
   })
 
+  /**
+   * ★ 渠道勾的是上游 ID（`gpt-image-2`），而固定清单里已经有 `GPT Image 2` ——
+   * 不归一的话用户会在下拉里同时看到这两行，看起来像两个模型
+   * （用户 2026-09-27 第 8 轮报的正是「id 格式不一样」）。
+   */
+  it('★ 上游 ID 归一成显示名，不与固定项重复占位', () => {
+    const c = ch({ id: 'A', models: [cap('gpt-image-2')] })
+    const opts = panelModelOptions([c], 'image')
+    expect(opts.filter((n) => n === 'GPT Image 2')).toHaveLength(1)
+    expect(opts).not.toContain('gpt-image-2')
+  })
+
+  it('★ 老节点存的是上游 ID → 显示成拍板过的显示名', () => {
+    const channels = [ch({ id: 'A', models: [cap('gpt-image-2')] })]
+    expect(toLogicalName(channels, 'gpt-image-2')).toBe('GPT Image 2')
+  })
+
   it('★ 固定显示名即使渠道里没有同名模型，也能取到分类（切类别不被误清）', () => {
     const channels = [ch({ id: 'A', models: [cap('mock-image-1')] })]
     // 渠道里根本没有 GPT Image 2.5 Flare，但它是固定生图名
