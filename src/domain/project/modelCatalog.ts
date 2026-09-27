@@ -70,7 +70,17 @@ export function logicalNames(channels: readonly CatalogChannelLike[]): string[] 
     }
   }
   for (const c of channels) {
-    for (const m of [...c.models, ...(c.modelCache ?? [])]) {
+    /**
+     * ⚠️ **勾选优先，勾选为空才回落 `modelCache`** —— 不能无条件把缓存全量算进来。
+     *
+     * 这是曾经踩过的口子（用户 2026-09-27 报「我的模型上又很多很多模型」）：
+     * 中转站一次拉回几百个模型，`modelCache` 是**全部**、`models` 才是用户勾选的
+     * （§7.4 的分工）。无条件合并两者，等于把用户特意筛掉的全又倒回下拉里。
+     * 回落本身是必要的（「拉取了但还没勾」的渠道不该是空下拉），
+     * 但它只在**勾选为空**时生效 —— 与 `generationPreset.pickModel` 同一条口径。
+     */
+    const selectable = c.models.length > 0 ? c.models : (c.modelCache ?? [])
+    for (const m of selectable) {
       const id = m.id.trim()
       if (!id || targets.has(id)) continue
       out.add(id)

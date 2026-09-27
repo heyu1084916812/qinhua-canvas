@@ -50,6 +50,27 @@ describe('logicalNames', () => {
     expect(logicalNames([])).toEqual([])
   })
 
+  /**
+   * ★ 用户 2026-09-27 报「我的模型上又很多很多模型」的回归断言。
+   *
+   * 中转站一次拉回几百个进 `modelCache`，而用户只勾了 2 个进 `models`。
+   * 下拉必须**只列勾选的那 2 个** —— 把缓存全量并进来，用户特意筛掉的会全回来。
+   */
+  it('★★ 已勾选时，缓存里的其它模型不进下拉（勾选优先）', () => {
+    const c = ch({
+      id: 'A',
+      models: [cap('picked-1'), cap('picked-2')],
+      modelCache: [cap('picked-1'), cap('picked-2'), cap('junk-1'), cap('junk-2'), cap('junk-3')],
+    })
+    expect(logicalNames([c]).sort()).toEqual(['picked-1', 'picked-2'])
+    expect(logicalOptions([c], 'image').sort()).toEqual(['picked-1', 'picked-2'])
+  })
+
+  it('★ 一个都没勾选时才回落缓存（「拉取了但还没勾」不该是空下拉）', () => {
+    const c = ch({ id: 'A', models: [], modelCache: [cap('cached-1'), cap('cached-2')] })
+    expect(logicalNames([c]).sort()).toEqual(['cached-1', 'cached-2'])
+  })
+
   it('aliasTargets 收集全部映射目标', () => {
     expect(
       aliasTargets([
