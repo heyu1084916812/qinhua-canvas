@@ -4259,45 +4259,55 @@ async function g45(browser) {
   await sleep(400)
 
   /**
-   * ① 定宽 + **整体居中** + 整页不溢出。
+   * ① 铺满工作区 + 整页不溢出。
    *
-   * ⚠️ 2026-09-25 口径变更：布局从「一页只有一张居中卡片」改为
-   * 「左侧导航栏 + 右侧内容」（用户给的参考图结构）。于是**卡片自己不再居中** ——
-   * 它右侧贴着导航，必然偏右。用旧的「卡片左右等距」断言会把**有意的布局变更**
-   * 判成回归（实测 左302/右108）。
+   * ⚠️ 口径改过两次，这里记着免得下次又拿旧像素当判据：
+   *  · 最初是「一页一张 1060px 居中卡片」；
+   *  · 2026-09-25 加页内二级导航后，卡片自己不再居中（右侧贴导航，必然偏右），
+   *    改量「导航 + 内容」整块是否居中；
+   *  · **2026-09-27 应用壳改版**：页内二级导航整体删除，设置页变成右侧工作区里的
+   *    一个插槽，口径最终定为**铺满工作区**（见下面那条断言）。
    *
-   * 改为量**整块**（导航栏整体，即 `shell`）是否居中：布局换了，但
-   * 「这一页是居中的一块」这个意图没变 —— 断言跟着意图走，而不是跟着旧像素走。
+   * 所以现在不再量「居中」，只量「铺满」与「不溢出」——
+   * 铺满意味着左右边距天然为 0，再拿旧的居中判据没有意义。
    */
   const geom = await page.evaluate(() => {
     const card = document.querySelector('[data-settings-card]')
-    // shell = 导航 + 内容整块（新布局的「居中单位」），用稳定锚点定位
-    const shell = document.querySelector('[data-settings-shell]')
     /*
-     * ⚠️ 居中的**参照系是右侧工作区**，不是整个窗口（2026-09-27 应用壳改版）。
+     * ⚠️ **参照系是右侧工作区**，不是整个窗口（2026-09-27 应用壳改版）。
      *
      * 设置页现在在应用壳工作区里，左边多了侧栏那 64/240px。
      * 仍拿 `window.innerWidth` 算，会得到「左 142 / 右 78」——
-     * 看起来像「没居中」，其实是**参考错了坐标系**。
-     * 产品文档 §5.1 早就写明：项目页内容相对**右侧工作区**居中，不是相对窗口。
+     * 看起来像「没铺满」，其实是**参考错了坐标系**。
+     * 产品文档 §5.1 写明：工作区里的内容相对**右侧工作区**量，不是相对窗口。
      */
     const ws = document.querySelector('[data-app-workspace]')
     const wsr = ws ? ws.getBoundingClientRect() : { left: 0, right: window.innerWidth }
     const r = card.getBoundingClientRect()
-    const sr = shell ? shell.getBoundingClientRect() : r
     return {
       w: Math.round(r.width),
-      shellW: Math.round(sr.width),
-      /* 左右边距都换算到**工作区坐标系**，detail 里打印的才是判据用的那两个数 */
-      left: Math.round(sr.left - wsr.left),
-      right: Math.round(wsr.right - sr.right),
-      gap: Math.round(Math.abs(sr.left - wsr.left - (wsr.right - sr.right))),
+      /* 判「铺满工作区」要用它：卡片宽应与工作区宽一致（见下面的断言） */
+      workspaceW: Math.round(wsr.right - wsr.left),
       vh: window.innerHeight,
       scrollH: document.documentElement.scrollHeight,
     }
   })
-  rec(g, '卡片定宽（≤1060 内，右栏不再自带宽度上限）', geom.w <= 1062, `宽=${geom.w}`)
-  rec(g, '★ 导航+内容整块左右居中（新布局的居中单位）', geom.gap <= 1, `左${geom.left}/右${geom.right}`)
+  /**
+   * ★ 卡片**铺满工作区**（2026-09-27 改口径）。
+   *
+   * 原断言是「宽 ≤ 1062」（那张 1060px 居中卡片的老设计）。应用壳改版后
+   * 设置页不再是独立整屏页，而是右侧工作区里的一个插槽，口径变成**铺满**。
+   *
+   * 必须改而不是留着：上游 `e26767c` 新加的 G74 断言要求「卡片 ≥ 工作区宽 − 40」，
+   * 与旧的「≤ 1062」**正好相反** —— 同一份代码会被两条断言判成两个结论
+   * （实测 G74 过、G45 红）。留着它只会每次全量都报一个假失败。
+   */
+  rec(
+    g,
+    '★ 卡片铺满工作区（不是旧的 1060px 居中卡片）',
+    geom.w >= geom.workspaceW - 40,
+    `卡片=${geom.w} 工作区=${geom.workspaceW}`,
+  )
   rec(g, '整页不溢出（滚动交给卡片内部）', geom.scrollH <= geom.vh, `${geom.scrollH}/${geom.vh}`)
   await page.screenshot({ path: `${OUT}/45-a-settings-card.png` })
 

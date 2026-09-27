@@ -22,33 +22,19 @@
   font-size: var(--fs-body);
 }
 
-/* 顶栏内边距与卡片同宽（1060px）：宽度对不上时，返回按钮会孤零零飘在卡片左边缘之外。
-   背景透明、无下边框——页面里唯一的白块应该只有卡片本身。 */
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-5) max(var(--space-6), calc((100% - 1060px) / 2)) var(--space-4);
-}
-
-.back {
-  font-size: var(--fs-label);
-  color: var(--text-2);
-  text-decoration: none;
-  border: var(--border);
-  border-radius: var(--radius-control);
-  padding: var(--space-1) var(--space-3);
-}
-.back:hover {
-  background: var(--bg-hover);
-}
-
-.heading {
-  margin: 0;
-  font-size: var(--fs-panel-title);
-  font-weight: var(--fw-panel-title);
-}
-
+/*
+ * 页内顶栏已移除（2026-09-27）：`.topbar` / `.back` / `.heading` 三个类连同
+ * 那条 `calc((100% - 1060px) / 2)` 一起删除。
+ *
+ * 它们是「独立整屏设置页」那一版的零件 —— 页面自带顶栏（返回按钮 + 标题），
+ * 内容是一张 1060px 的居中卡片。应用壳改版（`dc0f5ac`）把设置页接进右侧工作区、
+ * 顶栏统一交给应用壳之后，三者在 `SettingsPage.tsx` 里**都已无引用**
+ * （冒烟也早已改成断言 `[data-settings-back]` **不存在**）。
+ *
+ * 删它们的直接理由是那条 1060：它挂在一个没人用的类上，却会让人
+ * （包括我）误以为「设置页仍该是 1060px 居中卡片」—— 而现在的口径是
+ * **铺满右侧工作区**。死样式比没有样式更容易误导。
+ */
 /* 卡片（§7.1）：整页居中、定宽、自带圆角与细描边。
    `margin: auto` 负责水平居中；`flex: 1` + 底部间距让它占满剩余高度而不贴底。
    两栏都在卡片内滚动，于是页面无论渠道多少都维持在「一屏内的一个卡片」大小。 */
@@ -618,215 +604,25 @@
   gap: var(--space-2);
 }
 
-/* ── 后台中枢：左侧竖排导航 + 右侧内容（用户 2026-09-25）────────────
-   用户给的参考图是「左侧一条独立导航栏 + 右侧内容区」的形态，要求只搬**结构**。
-   故这里不取参考图的墨绿侧栏与亮黄选中态（本项目没有这两个颜色），
-   也不给它加投影（§3.3：画布浮层一律无投影、靠 1px 描边与底色分层）。
-
-   `shell` 与既有 `.layout`（渠道区的卡片）同宽同距，于是三区切换时
-   左侧导航不会左右横跳 —— 那是最容易露馅的一处。 */
-.shell {
-  /**
-   * 导航栏与内容区之间的间距，**单点定义**。
-   */
-  --rail-gap: 0px;
-  /**
-   * 反向凹圆角的半径（“外侧圆角”的切口半径）。
-   *
-   * 选中项右端与内容区同色接成一块后，需要在接缝上下各切掉一个
-   * 朝内的圆角；半径与导航项高度同量级（36px 高取 14px）看起来最顺。
-   */
-  --rail-cutout: var(--radius-node);
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  max-width: 1060px;
-  margin: 0 auto var(--space-6);
-  display: grid;
-  grid-template-columns: 176px 1fr;
-  gap: var(--rail-gap);
-  box-sizing: border-box;
-  /**
-   * ★ 一个外层容器**同时包住**左侧选项栏与右侧内容（用户 2026-09-26：
-   * 「右边的具体功能框要朝左边放大包住左边的选项」）。
-   *
-   * 参考图的结构不是「两个并排的独立框」，而是**一个大白块**，
-   * 左侧深色选项栏是它内部的一块、右侧内容也在它内部 —— 所以：
-   *  · 外层取 `--bg-surface`（白）并给圆角，白块从最左一直铺到最右；
-   *  · 选项栏退化成它内部的一块深色块（`.rail` 自己的底色）；
-   *  · 选项栏的左、上、下边缘与这层大白块的边缘重合。
-   *
-   * 仍**不加描边**（用户上一轮的要求）：靠白底与页面底色 `--bg-app` 的明度差分层。
-   *
-   * **左 / 上 / 下不留内边距**：用户 2026-09-26 要的是左侧功能框「和左边边界、
-   * 上下边界重合」。若在这一层写四边等距的 `padding`，选项栏会被整体推离三条边。
-   *
-   * 右侧仍留 8px：右栏内容自己还有 16px 内距，两段相加 24px，
-   * 保住上一轮定下的「内容离边缘远一点」，而左侧栏不受影响。
-   */
-  background: var(--bg-surface);
-  border-radius: var(--radius-node);
-  padding: 0 var(--space-2) 0 0;
-  overflow: hidden;
-}
-
-.rail {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  align-content: start;
-  padding: var(--space-3);
-  /**
-   * 导航栏底色**刻意比内容区暗一档**（用户 2026-09-25 给的参考图）。
-   *
-   * 它的作用是让选中项"白得出来"：参考图里侧栏是一整块深色，
-   * 选中的那一项与右侧内容同为白色 ⇒ 看起来像从侧栏里**掏出来**、
-   * 和内容连成一片。若侧栏也取 `--bg-surface`（与内容同色），
-   * 这个效果就完全消失，选中项会退化成一个普通胶囊。
-   *
-   * 颜色只搬这层**关系**（栏比内容暗一档），不搬参考图那抹墨绿 ——
-   * 用户要求「配色用我的配色」，故取本项目现成的 `--bg-subtle`。
-   */
-  background: var(--bg-subtle);
-  /**
-   * 选项栏**不再自带描边**（用户 2026-09-26 要求外层是一个大容器）：
-   * 它现在是大白块**内部**的一块深色区域（靠底色差分层），
-   * 再给自己描一圈边就成了"框里还有框"—— 那正是用户要去掉的东西。
-   */
-  /**
-   * 选项栏贴住外层容器的左 / 上 / 下三条边（用户 2026-09-26：
-   * 「像重合左边边界和上下边界」），所以这里不能有自己的圆角 ——
-   * 一圆就把左上、左下两个角从外框里"抠"出来了。
-   */
-  border-radius: 0;
-  box-sizing: border-box;
-  /* 不再靠大容器的 padding 定位：三条边直接与大容器重合 */
-  margin: 0;
-  /**
-   * **通高**（用户 2026-09-26：参考图里侧栏是一整列深色，从卡片顶贯到底）。
-   *
-   * 早先写 `align-self: start` 是"只有三项、撑满会像空壳"时的判断；
-   * 但对照参考图，侧栏本就是**一列**、不是一块浮在小卡片里的按钮组 ——
-   * 通高之后「大白块包住左边选项 + 右边内容」这个结构才读得出来。
-   */
-  align-self: stretch;
-  width: 100%;
-}
-
-.railBtn,
-.railOn {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  box-sizing: border-box;
-  border: none;
-  background: transparent;
-  padding: var(--space-2) var(--space-3);
-  /**
-   * **胶囊**（用户 2026-09-25 三轮定稿）：导航项一律全圆角，选中态尤其要像一粒胶囊 ——
-   * 不是 10px 圆角矩形。取 `--radius-pill`，与全站 chip / 胶囊同一口径。
-   */
-  border-radius: var(--radius-pill);
-  font-family: var(--font-sans);
-  font-size: var(--fs-label);
-  font-weight: var(--fw-title);
-  color: var(--text-2);
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--dur-hover) var(--ease-out);
-}
-
-.railBtn:hover {
-  background: var(--bg-surface);
-  color: var(--text-1);
-}
-
-/**
- * 选中项：**左端胶囊圆角 + 右端直角 + 与右侧内容同色接成一片**
- * （用户 2026-09-25 三轮：「像胶囊一样的，选中后的颜色就是 #22242b，而且和右边的是一体的」）。
+/*
+ * 页内二级导航整家已移除（2026-09-27）。
  *
- * 三处合起来才是那个效果，缺一处都会退化：
- *  ① 底色取 `--bg-surface` —— 与内容面板**同一个令牌**。用户说的 `#22242b`
- *     正是**暗色主题**下的 `--bg-surface`（亮色下是 `#ffffff`），故这里写令牌
- *     而不是硬编码那个色值：两套主题自动都对，且选中项与内容在任何主题下都"同色 = 一体"；
- *  ② 左端是胶囊圆角（`--radius-pill`）、右端直角；
- *  ③ 宽度伸到内容区左沿，两块的接缝由下面的反向凹圆角伪元素处理。
+ * 这里原来住着「后台中枢」那一版的左侧竖排导航：`.shell`（把导航 + 内容收成
+ * 1060px 居中卡片的外壳）、`.rail` / `.railBtn` / `.railOn` / `.railIcon` /
+ * `.railLabel`（导航本体与选中态），以及 `.content`（它的右栏）。
+ *
+ * 用户第 9 轮把这条导航整个删了（「后台设置工作区里面左边的几个菜单也不需要了」），
+ * 三条菜单里两条已迁去技能库一级页、只剩「渠道」一项，单个选项的菜单没有导航价值；
+ * 身份与导航改由应用壳侧栏承担。上游 `e26767c` 又删掉了 `.shell` 在 JSX 里的
+ * 最后一个引用。于是**这一家全部成了死代码**。
+ *
+ * ⚠️ 它们必须**整家一起删**，不能只删 `.shell`：`--rail-cutout` 定义在 `.shell` 上、
+ * 只被 `.railOn` 的伪元素消费。只删 `.shell` 会让 `.railOn` 引用一个不存在的令牌 ——
+ * CSS 里 `var()` 取不到值时**整条声明作废且不报错**，那两道反向凹圆角会静默变成直角
+ * （主题守卫能拦住这种引用，但留着死样式仍会误导后来的人）。
+ *
+ * 当前真正在用的结构是 `.page > .layout > (.sidebar + .editor)`，见上面 `.layout`。
  */
-.railOn {
-  position: relative;
-  z-index: 1;
-  background: var(--bg-surface);
-  color: var(--text-1);
-  /**
-   * 左端是胶囊圆角，右端**不圆**：它一直伸到内容区左沿，
-   * 与右侧白面接成同一块。右侧两个"圆角"改由下面两个反圆角缺口负责。
-   */
-  border-radius: var(--radius-pill) 0 0 var(--radius-pill);
-  /**
-   * 从栏内左内距一直伸到内容区左沿：
-   * 宽度 = 栏内可用宽 + 栏的右内距（`--space-3`，也是左内距）。
-   *
-   * 这样右端与内容区严丝合缝，白条不是"盖"在侧栏上，
-   * 而是和内容区同一块面从右往左伸出来。
-   */
-  width: calc(100% + var(--space-3));
-}
-
-/**
- * 参考图接缝的两个**内凹圆角**。
- *
- * 画法与常见实现相反：伪元素要和**选中项同色**，放在选中项上下两侧，
- * 再把它朝向选中项的两个角切圆 —— 真正被"咬"出缺口的是深色侧栏。
- *
- * 上块：位于选中项上方，圆左下角 → 侧栏上方的圆角从接缝向左收；
- * 下块：位于选中项下方，圆左上角 → 侧栏下方的圆角从接缝向左收。
- */
-.railOn::before,
-.railOn::after {
-  content: '';
-  position: absolute;
-  right: 0;
-  width: var(--rail-cutout);
-  height: var(--rail-cutout);
-  background: var(--bg-surface);
-  pointer-events: none;
-}
-
-.railOn::before {
-  top: calc(-1 * var(--rail-cutout));
-  border-bottom-left-radius: var(--rail-cutout);
-}
-
-.railOn::after {
-  bottom: calc(-1 * var(--rail-cutout));
-  border-top-left-radius: var(--rail-cutout);
-}
-
-.railIcon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 20px;
-  height: 20px;
-}
-
-.railLabel {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.content {
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
 /* ── 功能预设词区（后台中枢）─────────────────────────────────────
    三条卡片竖排。刻意**不**做成「列表 + 详情」（渠道那样）：只有三条，
    全摊开比来回点更省事。 */
