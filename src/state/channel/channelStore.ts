@@ -1,7 +1,18 @@
 import { createStore as createVanilla } from 'zustand/vanilla'
 import type { PlatformKit } from '../../platform/ports'
 import type { Channel, CreateChannelInput } from '../../domain/project/channel'
-import { PROBE_PROTOCOLS, requiresBaseUrl, tokenTailOf } from '../../domain/project/channel'
+import { requiresBaseUrl, tokenTailOf } from '../../domain/project/channel'
+import {
+  buildProtocolCatalog,
+  protocolById,
+  stationProtocolForUrl,
+  validateCustomProtocol,
+  PROBE_VERSION_PATHS,
+  type CustomProtocolInput,
+  type CustomProtocolValidation,
+  type ProtocolCatalog,
+  type ProtocolDefinition,
+} from '../../domain/project/protocol'
 import { buildDefaultModelMap, setModelMapping } from '../../domain/project/modelMapping'
 import {
   NO_RECIPE,
@@ -65,6 +76,8 @@ export interface ChannelDetect {
 
 export interface ChannelStoreState {
   channels: Channel[]
+  /** 用户自建协议（内置协议不在这里，见 domain/project/protocol 的目录） */
+  customProtocols: ProtocolDefinition[]
   loaded: boolean
   verify: ChannelVerify
   models: ChannelModelsResult
@@ -73,6 +86,12 @@ export interface ChannelStoreState {
 
 export interface ChannelStoreActions {
   load(): Promise<void>
+  /** 当前目录：内置协议 + 已加载的自建协议（渠道解析 / 界面共用一份） */
+  protocolCatalog(): ProtocolCatalog
+  /** 新增自建协议；返回校验结果，`ok:false` 时界面可直接展示原因 */
+  createCustomProtocol(input: CustomProtocolInput): Promise<CustomProtocolValidation>
+  /** 删除自建协议；仍被渠道引用时抛错（不静默改指） */
+  removeCustomProtocol(id: string): Promise<void>
   create(input: CreateChannelInput): Promise<Channel>
   update(id: string, patch: Partial<Channel>): Promise<Channel>
   remove(id: string): Promise<void>
@@ -145,10 +164,11 @@ function timeoutSignal(ms: number): AbortSignal {
     : new AbortController().signal
 }
 
-function toSafeConfig(ch: Channel): ResolvedChannelConfig {
+function toSafeConfig(ch: Channel, catalog: ProtocolCatalog): ResolvedChannelConfig {
   return {
     id: ch.id,
     protocol: ch.protocol,
+    protocolDefinition: protocolById(ch.protocol, catalog),
     baseUrl: ch.baseUrl,
     credentialRef: ch.credentialRef,
     modelCache: ch.modelCache,
@@ -161,19 +181,67 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
   const presets: PresetStore = createPresetStore(platform.storage)
   const store = createVanillaStore<ChannelStoreState>(() => ({
     channels: [],
+    customProtocols: [],
     loaded: false,
     verify: { status: 'idle' },
     models: { status: 'idle' },
     detect: { status: 'idle', protocol: null },
   }))
 
+  /** 当前目录：内置 + 已加载的自建。每次读取都现算，避免忘了在增删后同步 */
+  const catalog = (): ProtocolCatalog =>
+    buildProtocolCatalog(store.getState().customProtocols)
+
+  /** 自建协议在存储里就是一条行；只取 ProtocolDefinition 需要的字段（不塞进 UI 字段） */
+  const toCustomDefinition = (row: Record<string, unknown>): ProtocolDefinition | null => {
+    if (typeof row.id !== 'string') return null
+    const capabilities = Array.isArray(row.capabilities)
+      ? (row.capabilities.filter((c) => c === 'chat' || c === 'image' || c === 'video') as ProtocolDefinition['capabilities'])
+      : []
+    return {
+      id: row.id,
+      name: typeof row.name === 'string' ? row.name : row.id,
+      short: typeof row.short === 'string' ? row.short : row.id,
+      family: 'openai-compatible',
+      kind: 'custom',
+      status: 'ready',
+      capabilities,
+      ...(typeof row.defaultBaseUrl === 'string' ? { defaultBaseUrl: row.defaultBaseUrl } : {}),
+      ...(typeof row.versionPath === 'string' ? { versionPath: row.versionPath } : {}),
+      ...(typeof row.docUrl === 'string' ? { docUrl: row.docUrl } : {}),
+    }
+  }
+
   const load: ChannelStoreActions['load'] = async () => {
     /**
      * 配方**不在这里预读**：它是按项目的，而 store 这一层不知道当前是哪个项目。
      * 改成 `defaultForNewNode(projectId)` 时按需读一次（结果进 recipeCache）。
      */
-    const channels = await repo.list()
-    store.setState({ channels, loaded: true })
+    const [channels, customRows] = await Promise.all([
+      repo.list(),
+      platform.storage.query('customProtocols', {}),
+    ])
+    const customProtocols = customRows
+      .map((r) => toCustomDefinition(r as Record<string, unknown>))
+      .filter((p): p is ProtocolDefinition => p !== null)
+    store.setState({ channels, customProtocols, loaded: true })
+  }
+
+  const createCustomProtocol: ChannelStoreActions['createCustomProtocol'] = async (input) => {
+    const result = validateCustomProtocol(input, catalog().all)
+    if (!result.ok) return result
+    await platform.storage.put('customProtocols', { ...result.value })
+    store.setState((s) => ({ customProtocols: [...s.customProtocols, result.value] }))
+    return result
+  }
+
+  const removeCustomProtocol: ChannelStoreActions['removeCustomProtocol'] = async (id) => {
+    const usedBy = store.getState().channels.filter((c) => c.protocol === id)
+    if (usedBy.length > 0) {
+      throw new Error(`仍有 ${usedBy.length} 条渠道在使用该协议，请先改协议或删除渠道`)
+    }
+    await platform.storage.delete('customProtocols', id)
+    store.setState((s) => ({ customProtocols: s.customProtocols.filter((p) => p.id !== id) }))
   }
 
   const create: ChannelStoreActions['create'] = async (input) => {
@@ -265,7 +333,7 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
     if (!ch) return
     // 地址都没填就别发请求：空地址会让 URL 退化成**相对当前页**的路径（`/v1/models`），
     // 而 dev server / SPA 对任意路径都回 200 的 index.html ——「验证通过」会是纯假象。
-    if (requiresBaseUrl(ch.protocol) && !ch.baseUrl.trim()) {
+    if (requiresBaseUrl(ch.protocol, catalog()) && !ch.baseUrl.trim()) {
       store.setState({ verify: { status: 'error', message: '请先填写地址' } })
       return
     }
@@ -276,8 +344,9 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
     const elapsed = () => Date.now() - startedAt
     try {
       const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
-      const adapter = createChannelAdapter({ ...toSafeConfig(ch), apiKey }, platform)
-      const res: VerifyResult = await adapter.verify(toSafeConfig(ch), timeoutSignal(10_000))
+      const config: ResolvedChannelConfig = { ...toSafeConfig(ch, catalog()), apiKey }
+      const adapter = createChannelAdapter(config, platform)
+      const res: VerifyResult = await adapter.verify(config, timeoutSignal(10_000))
       if (res.ok) {
         // **刻意不写 `modelCache`**：拉模型是「拉取模型」按钮的职责（§7.4）。
         // 验证顺带把全集缓存回来，会让「验证」的语义从「这个地址通不通」漂成
@@ -313,30 +382,46 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
     }
     store.setState({ detect: { status: 'checking', protocol: null } })
     const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
-    // 逐个试打到第一个成功为止。候选表**不含离线协议**（见 domain/PROBE_PROTOCOLS）：
-    // 一旦混入一个恒成功的协议，探测会在任何地址上都命中它，自动选中就成了假动作。
+    /**
+     * 探测只问一件事：这个地址是不是 OpenAI 兼容 HTTP。
+     *
+     * 改造前是「逐条协议打一遍、第一个通过即命中」，而 `openai-images` 与
+     * `openai-chat` 都打 `/v1/models`，同一个中继必然被两条同时命中，协议落在
+     * 哪条全看候选表顺序（M6-16）。现在只剩一条通用模板，变的只是版本段：
+     * `/v1` 不行再试 Ark 的 `/api/v3`。
+     */
+    const template = protocolById('openai-compatible', catalog())
     let lastMessage = ''
-    for (const probe of PROBE_PROTOCOLS) {
+    for (const versionPath of PROBE_VERSION_PATHS) {
       const startedAt = Date.now()
       const elapsed = () => Date.now() - startedAt
-      // 用探测协议覆盖当前协议：verify 打的是「这个协议在这台机器上长什么样」的端点。
-      const config: ResolvedChannelConfig = { ...toSafeConfig(ch), protocol: probe.value }
+      // 用探测模板覆盖当前协议：verify 打的是「OpenAI 兼容在这台机器上长什么样」的端点。
+      const config: ResolvedChannelConfig = {
+        ...toSafeConfig(ch, catalog()),
+        protocol: 'openai-compatible',
+        protocolDefinition: template ? { ...template, versionPath } : undefined,
+      }
       try {
         const adapter = createChannelAdapter({ ...config, apiKey }, platform)
         const res: VerifyResult = await adapter.verify(config, timeoutSignal(10_000))
         if (res.ok) {
-          // 命中即落库：`protocol` 是用户本来就要在协议下拉里手选的那一格，
-          // 探测只是替他把这一格填对。同时刷新 lastTest*，与「验证地址」共用同一份「上次往返」记录。
+          /**
+           * 命中即落库。探测事实层面只能说「这是 OpenAI 兼容」，但用户是带着站点
+           * 心智来的：填了玉玉的地址却看到协议变成「OpenAI 兼容」会以为选错了。
+           * 按 host 反查站点协议，让探测结果与用户认知一致；未知站点回落通用模板。
+           * 同时刷新 lastTest*，与「验证地址」共用同一份「上次往返」记录。
+           */
+          const hit = stationProtocolForUrl(ch.baseUrl, catalog())?.id ?? 'openai-compatible'
           const updated = await repo.update(id, {
-            protocol: probe.value,
+            protocol: hit,
             lastTestAt: Date.now(),
             lastTestLatency: elapsed(),
           })
           store.setState((s) => ({
             channels: s.channels.map((c) => (c.id === id ? updated : c)),
-            detect: { status: 'ok', protocol: probe.value },
+            detect: { status: 'ok', protocol: hit },
           }))
-          return probe.value
+          return hit
         }
         lastMessage = res.message ?? describeError(res.error)
       } catch (e) {
@@ -345,7 +430,7 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
       }
     }
     store.setState({
-      detect: { status: 'error', protocol: null, message: lastMessage || '所有候选协议均未通过' },
+      detect: { status: 'error', protocol: null, message: lastMessage || '该地址不像 OpenAI 兼容接口' },
     })
     return null
   }
@@ -356,8 +441,9 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
     store.setState({ models: { status: 'checking' } })
     try {
       const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
-      const adapter = createChannelAdapter({ ...toSafeConfig(ch), apiKey }, platform)
-      const models = await adapter.listModels(toSafeConfig(ch), timeoutSignal(10_000))
+      const config: ResolvedChannelConfig = { ...toSafeConfig(ch, catalog()), apiKey }
+      const adapter = createChannelAdapter(config, platform)
+      const models = await adapter.listModels(config, timeoutSignal(10_000))
       /**
        * 拉取后**顺带建默认映射**（§7.4.1）：上游 ID 与逻辑名同名的自动补成恒等映射，
        * 不同名的留空待用户填。
@@ -459,6 +545,9 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
   return {
     ...store,
     load,
+    protocolCatalog: catalog,
+    createCustomProtocol,
+    removeCustomProtocol,
     create,
     update,
     remove,

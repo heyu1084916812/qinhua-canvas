@@ -2,10 +2,16 @@ import { useEffect, useMemo, useSyncExternalStore, useState } from 'react'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
 import {
   maskTokenTail,
+  protocolLabel,
   protocolShort,
-  SUPPORTED_PROTOCOLS,
   type Channel,
 } from '../../domain/project/channel'
+import {
+  CAPABILITY_LABEL,
+  protocolById,
+  type ProtocolCapability,
+  type ProtocolKind,
+} from '../../domain/project/protocol'
 import {
   applySelection,
   CATEGORY_FILTERS,
@@ -38,6 +44,21 @@ const MAP_GROUPS = [
 ]
 
 /**
+ * 协议下拉的分组顺序（用户 2026-09-28「一站一协议」）。
+ *
+ * 分组只影响**看见的顺序**，不影响行为：`kind` 与协议目录里的取值同字面。
+ * 站点排在前是因为「一站一条渠道」之后，用户多数时候是在选具体站点；
+ * 公开模板与旧协议往下放，避免它们挤掉最常用的那几条。
+ */
+const PROTOCOL_GROUPS: { kind: ProtocolKind; label: string }[] = [
+  { kind: 'offline', label: '离线 / 测试' },
+  { kind: 'station', label: '站点' },
+  { kind: 'public', label: '公开协议' },
+  { kind: 'legacy', label: '旧协议' },
+  { kind: 'custom', label: '自定义协议' },
+]
+
+/**
  * 后台模型设置页（产品文档 §7）。
  * 左：渠道列表（可拖动排序）；右：选中渠道的配置（名称 / 地址 / 加密令牌 / 启用 / 协议 / 验证）
  * + 模型管理（§7.4：拉取 → 勾选 → 已选三行分组）。
@@ -64,6 +85,11 @@ export function SettingsPage() {
     channels.subscribe,
     () => channels.getState().detect,
     () => channels.getState().detect,
+  )
+  const customProtocols = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().customProtocols,
+    () => channels.getState().customProtocols,
   )
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -107,6 +133,29 @@ export function SettingsPage() {
    * 切渠道时清空，避免把 A 站的上游 ID 带到 B 站。
    */
   const [mapDrafts, setMapDrafts] = useState<Record<string, string>>({})
+
+  /**
+   * 协议目录版本号。`protocolCatalog()` 每次返回**新对象**，但 useSyncExternalStore
+   * 只在 store 快照变化时重渲染；自建协议增删后靠这个计数把目录重算一遍，
+   * 让新协议立刻出现在下拉里（不必刷新页面）。
+   */
+  const [catalogVersion, setCatalogVersion] = useState(0)
+  const catalog = useMemo(() => channels.protocolCatalog(), [channels, catalogVersion])
+  /** 下拉里的全部协议（含 pending：它们显示为“待支持”且不可选，见协议区渲染） */
+  const protocolOptions = catalog.all
+
+  // —— 添加自定义协议（用户 2026-09-28）：只开放 OpenAI 兼容族的对话 / 生图声明 ——
+  const [newProtoOpen, setNewProtoOpen] = useState(false)
+  const [npName, setNpName] = useState('')
+  const [npShort, setNpShort] = useState('')
+  const [npId, setNpId] = useState('')
+  const [npCaps, setNpCaps] = useState<ProtocolCapability[]>(['chat', 'image'])
+  const [npBaseUrl, setNpBaseUrl] = useState('')
+  const [npVersionPath, setNpVersionPath] = useState('/v1')
+  const [npDocUrl, setNpDocUrl] = useState('')
+  const [npError, setNpError] = useState('')
+  const [npNotice, setNpNotice] = useState('')
+  const [protoRemoveError, setProtoRemoveError] = useState('')
 
   useEffect(() => {
     void channels.load()
@@ -325,6 +374,77 @@ export function SettingsPage() {
     [selected],
   )
 
+  /** 勾选 / 取消一项能力（视频无适配器，界面不提供该开关） */
+  const toggleNewCap = (capability: ProtocolCapability, on: boolean) => {
+    setNpCaps((prev) => {
+      if (on) return prev.includes(capability) ? prev : [...prev, capability]
+      return prev.filter((c) => c !== capability)
+    })
+  }
+
+  /**
+   * 协议下拉切换：选中带默认地址的站点协议时「选中即填地址」。
+   *
+   * 只覆盖两种情况——地址还是空的，或地址恰好**是上一条协议的默认地址**
+   * （说明用户没动过它）。用户手填过的地址一律保留：切协议不该抹掉他刚敲进去的东西。
+   * 站点类协议（玉玉 / 灵境 等）的地址就是靠这一步省掉「翻文档抄一遍」。
+   */
+  const handleProtocolChange = (id: string) => {
+    const prevDefault = protocolById(protocol, catalog)?.defaultBaseUrl ?? ''
+    const nextDefault = protocolById(id, catalog)?.defaultBaseUrl ?? ''
+    setProtocol(id)
+    const current = baseUrl.trim()
+    if (nextDefault && (!current || current === prevDefault)) setBaseUrl(nextDefault)
+  }
+
+  /**
+   * 添加自定义协议：走 store 的校验 + 落库，成功后把这条自动选中。
+   *
+   * 为什么不允许用户自建「异步任务 / CLI 网关」：那两族需要后端或本机命令，
+   * 纯浏览器应用里填个地址也发不出去——放出来只会让用户配一条看着像配好了、
+   * 实际跑不通的渠道。可自建的只有 OpenAI 兼容这一族的声明。
+   */
+  const handleCreateProtocol = async () => {
+    setNpError('')
+    setNpNotice('')
+    const res = await channels.createCustomProtocol({
+      id: npId,
+      name: npName,
+      short: npShort,
+      capabilities: npCaps,
+      baseUrl: npBaseUrl,
+      versionPath: npVersionPath,
+      docUrl: npDocUrl,
+    })
+    if (!res.ok) {
+      setNpError(res.reason)
+      return
+    }
+    setCatalogVersion((v) => v + 1)
+    setProtocol(res.value.id)
+    if (!baseUrl.trim() && res.value.defaultBaseUrl) setBaseUrl(res.value.defaultBaseUrl)
+    setNpName('')
+    setNpShort('')
+    setNpId('')
+    setNpCaps(['chat', 'image'])
+    setNpBaseUrl('')
+    setNpVersionPath('/v1')
+    setNpDocUrl('')
+    setNewProtoOpen(false)
+    setNpNotice(`已添加「${res.value.name}」`)
+  }
+
+  /** 删除自建协议：仍被渠道引用时 store 会抛错，界面原样展示原因 */
+  const handleRemoveProtocol = async (id: string) => {
+    setProtoRemoveError('')
+    try {
+      await channels.removeCustomProtocol(id)
+      setCatalogVersion((v) => v + 1)
+    } catch (e) {
+      setProtoRemoveError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   // 状态行只对「本次选中的渠道 + 本渠道最近一次动作」负责，避免 A 渠道的结论
   // 挂到 B 渠道头上（store 里的三份结果都是全局单份）。
   const action = verifiedFor?.channelId === selectedId ? verifiedFor.source : null
@@ -338,11 +458,12 @@ export function SettingsPage() {
     if (!action) return null
     if (action === 'detect') {
       if (detect.status === 'checking') return '正在探测协议…'
-      if (detect.status === 'ok' && detect.protocol) return `✓ 已识别协议 · ${protoLabel(detect.protocol)}`
+      if (detect.status === 'ok' && detect.protocol)
+        return `✓ 已识别协议 · ${protocolLabel(detect.protocol, catalog)}`
       if (detect.status === 'error') return `✗ 未识别出协议 · ${detect.message ?? '所有候选协议均未通过'}`
       return null
     }
-    const label = protoLabel(verifiedFor?.protocol ?? '')
+    const label = protocolLabel(verifiedFor?.protocol ?? '', catalog)
     if (action === 'models') {
       if (modelsResult.status === 'checking') return '正在拉取模型…'
       if (modelsResult.status === 'ok')
@@ -355,7 +476,7 @@ export function SettingsPage() {
       return `✓ 地址可达 · ${label}${typeof verify.latency === 'number' ? ` · ${verify.latency}ms` : ''}`
     if (verify.status === 'error') return `✗ ${verify.message ?? '地址不可达'}`
     return null
-  }, [action, verifiedFor, verify, modelsResult, detect])
+  }, [action, verifiedFor, verify, modelsResult, detect, catalog])
 
   // mock 提示只在**真的拿 mock 验了地址**时出现（探测的候选表不含 mock，故不受其影响）。
   const showMockNote = action === 'verify' && verify.status === 'ok' && verifiedFor?.protocol === 'mock'
@@ -399,7 +520,7 @@ export function SettingsPage() {
                   <span className={styles.itemTop}>
                     <span className={styles.itemName}>{ch.name}</span>
                     <span className={styles.itemProto} data-channel-proto>
-                      {protocolShort(ch.protocol)}
+                      {protocolShort(ch.protocol, catalog)}
                     </span>
                   </span>
                   <span className={styles.itemMeta}>
@@ -572,13 +693,25 @@ export function SettingsPage() {
                       className={styles.input}
                       data-settings-protocol
                       value={protocol}
-                      onChange={(e) => setProtocol(e.target.value)}
+                      onChange={(e) => handleProtocolChange(e.target.value)}
                     >
-                      {SUPPORTED_PROTOCOLS.map((p) => (
-                        <option key={p.value} value={p.value}>
-                          {p.label}
-                        </option>
-                      ))}
+                      {!protocolOptions.some((p) => p.id === protocol) && (
+                        <option value={protocol}>未知协议（{protocol}）</option>
+                      )}
+                      {PROTOCOL_GROUPS.map(({ kind, label }) => {
+                        const items = protocolOptions.filter((p) => p.kind === kind)
+                        if (items.length === 0) return null
+                        return (
+                          <optgroup key={kind} label={label}>
+                            {items.map((p) => (
+                              <option key={p.id} value={p.id} disabled={p.status !== 'ready'}>
+                                {p.name}
+                                {p.status !== 'ready' ? '（待支持）' : ''}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )
+                      })}
                     </select>
                   </label>
                   <button
@@ -604,10 +737,148 @@ export function SettingsPage() {
                   {statusLine}
                 </div>
 
+                <div className={styles.protoTools}>
+                  <button
+                    className={styles.ghostBtn}
+                    data-proto-add-toggle
+                    onClick={() => setNewProtoOpen((v) => !v)}
+                  >
+                    {newProtoOpen ? '收起' : '添加自定义协议'}
+                  </button>
+                  {npNotice && <span className={styles.saved}>{npNotice}</span>}
+                </div>
+
+                {newProtoOpen && (
+                  <div className={styles.protoForm} data-proto-form>
+                    <p className={styles.protoHint}>
+                      只支持 OpenAI 兼容形态（对话 / 生图）。输入异步任务、CLI 一类需要专用程序抓取的协议，
+                      请先用内置协议；自建渠道的地址、版本段、能力都可按站点文档填。
+                    </p>
+                    <div className={styles.protoRow}>
+                      <label className={`${styles.field} ${styles.grow}`}>
+                        <span className={styles.label}>名称</span>
+                        <input
+                          className={styles.input}
+                          data-proto-field="name"
+                          placeholder="例如：某站点"
+                          value={npName}
+                          onChange={(e) => setNpName(e.target.value)}
+                        />
+                      </label>
+                      <label className={styles.field}>
+                        <span className={styles.label}>短标签</span>
+                        <input
+                          className={styles.input}
+                          data-proto-field="short"
+                          placeholder="最多 8 字"
+                          value={npShort}
+                          onChange={(e) => setNpShort(e.target.value)}
+                        />
+                      </label>
+                    </div>
+                    <div className={styles.protoRow}>
+                      <label className={`${styles.field} ${styles.grow}`}>
+                        <span className={styles.label}>协议标识</span>
+                        <input
+                          className={styles.input}
+                          data-proto-field="id"
+                          placeholder="小写字母 / 数字 / - / _"
+                          value={npId}
+                          onChange={(e) => setNpId(e.target.value)}
+                        />
+                      </label>
+                      <div className={styles.field}>
+                        <span className={styles.label}>能力</span>
+                        <div className={styles.capRow}>
+                          {(['chat', 'image'] as ProtocolCapability[]).map((c) => (
+                            <label key={c} className={styles.capBox}>
+                              <input
+                                type="checkbox"
+                                data-proto-cap={c}
+                                checked={npCaps.includes(c)}
+                                onChange={(e) => toggleNewCap(c, e.target.checked)}
+                              />
+                              <span>{CAPABILITY_LABEL[c]}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <div className={styles.protoRow}>
+                      <label className={`${styles.field} ${styles.grow}`}>
+                        <span className={styles.label}>默认地址</span>
+                        <input
+                          className={styles.input}
+                          data-proto-field="baseurl"
+                          placeholder="https://your-site.com（可留空，渠道里再填）"
+                          value={npBaseUrl}
+                          onChange={(e) => setNpBaseUrl(e.target.value)}
+                        />
+                      </label>
+                      <label className={styles.field}>
+                        <span className={styles.label}>版本段</span>
+                        <input
+                          className={styles.input}
+                          data-proto-field="version"
+                          placeholder="/v1"
+                          value={npVersionPath}
+                          onChange={(e) => setNpVersionPath(e.target.value)}
+                        />
+                      </label>
+                    </div>
+                    <label className={styles.field}>
+                      <span className={styles.label}>文档地址（可选）</span>
+                      <input
+                        className={styles.input}
+                        data-proto-field="doc"
+                        placeholder="https://站点文档"
+                        value={npDocUrl}
+                        onChange={(e) => setNpDocUrl(e.target.value)}
+                      />
+                    </label>
+                    {npError && (
+                      <p className={styles.protoError} data-proto-error>
+                        {npError}
+                      </p>
+                    )}
+                    <div className={styles.protoFoot}>
+                      <button className={styles.primary} data-proto-create onClick={handleCreateProtocol}>
+                        添加
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {customProtocols.length > 0 && (
+                  <div className={styles.protoMine} data-proto-mine>
+                    <span className={styles.label}>我添加的协议</span>
+                    {customProtocols.map((p) => (
+                      <div key={p.id} className={styles.protoMineRow}>
+                        <span className={styles.protoMineName}>
+                          {p.name}（{p.short}）
+                        </span>
+                        <button
+                          className={styles.chipX}
+                          data-proto-remove={p.id}
+                          aria-label={`删除协议 ${p.name}`}
+                          onClick={() => void handleRemoveProtocol(p.id)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    {protoRemoveError && (
+                      <p className={styles.protoError} data-proto-remove-error>
+                        {protoRemoveError}
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {showMockNote && (
                   <p className={styles.offlineNote} data-settings-mock-note>
                     Mock 是离线协议：不发任何网络请求、也不会去访问上面填的地址，所以验证必然通过。
-                    要联调真实中转，把「协议」切到「OpenAI 兼容 · 生图」后再点一次「验证地址」，
+                    要联调真实中转，把「协议」切到「OpenAI 兼容（对话 + 生图）」后再点一次「验证地址」，
                     或者直接点「验证协议」让它自己认。
                   </p>
                 )}
@@ -929,6 +1200,3 @@ export function SettingsPage() {
 }
 
 
-function protoLabel(proto: string): string {
-  return SUPPORTED_PROTOCOLS.find((p) => p.value === proto)?.label ?? proto
-}

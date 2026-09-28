@@ -10,6 +10,7 @@ import type { StoragePort, Row, TableName } from '../ports'
  *   resultGroups / assets / credentials）。projects 一开始就带 workbench 字段。
  * - v2（M5-M6）：新增 `comics` 表（漫画剧工作台私有）与 `presets`。
  * - v3（2026-09-25）：**删除 `comics` 表**（漫画剧工作台整体移除）。
+ * - v4（2026-09-28）：新增 `customProtocols` 表（用户自建协议，见 domain/project/protocol）。
  *
  * **删表必须写 `表名: null`，光「不列出」是删不掉的**（2026-09-25 真机实测确认）。
  *
@@ -39,6 +40,7 @@ class QinghuaDB extends Dexie {
   assets!: Table<Row, string>
   credentials!: Table<Row, string>
   presets!: Table<Row, string>
+  customProtocols!: Table<Row, string>
 
   constructor(name = 'qinghua') {
     super(name)
@@ -67,6 +69,9 @@ class QinghuaDB extends Dexie {
     this.version(3).stores({
       comics: null,
       resultGroups: null,
+    })
+    this.version(4).stores({
+      customProtocols: 'id',
     })
   }
 }

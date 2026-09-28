@@ -13,7 +13,7 @@ import {
   authHeader,
   classifyError,
   isModelListBody,
-  normalizeBaseUrl,
+  openAiBaseUrl,
   toModelCapability,
   CHAT_TIMEOUT_MS,
   VERIFY_TIMEOUT_MS,
@@ -52,9 +52,10 @@ function toBase64(bytes: Uint8Array): string {
  * 但一张都读不到而调用方明确要带图时，仍会照发纯文本（不编造、不假装有图）。
  */
 export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelDeps): ChannelAdapter {
-  const base = normalizeBaseUrl(config.baseUrl)
-  const modelsUrl = `${base}/v1/models`
-  const chatUrl = `${base}/v1/chat/completions`
+  // 版本段由协议声明（`/v1` 或 Ark 的 `/api/v3`），基址已含版本段，端点直接续写
+  const base = openAiBaseUrl(config)
+  const modelsUrl = `${base}/models`
+  const chatUrl = `${base}/chat/completions`
 
   const verify: ChannelAdapter['verify'] = async (_cfg, signal): Promise<VerifyResult> => {
     try {

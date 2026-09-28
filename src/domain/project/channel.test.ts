@@ -9,6 +9,7 @@ import {
   SUPPORTED_PROTOCOLS,
   tokenTailOf,
 } from './channel'
+import { BUILTIN_CATALOG } from './protocol'
 
 describe('createChannel', () => {
   it('默认未启用、无模型缓存、无凭据引用', () => {
@@ -62,9 +63,16 @@ describe('PROBE_PROTOCOLS（「验证协议」候选表）', () => {
     expect(OFFLINE_PROTOCOLS).toContain('mock')
   })
 
-  it('由下拉表派生：除离线协议外一项不少（新增协议自动进入探测序列）', () => {
-    const expected = SUPPORTED_PROTOCOLS.filter((p) => !OFFLINE_PROTOCOLS.includes(p.value))
-    expect(PROBE_PROTOCOLS.map((p) => p.value)).toEqual(expected.map((p) => p.value))
+  it('只含通用模板（probe: true）：站点协议是手选入口，不进探测序列', () => {
+    // 探测要回答的只是「这个地址是不是 OpenAI 兼容 HTTP」；把十几个站点协议放进候选表
+    // 会让探测连打十几个请求，而且同一个 200 被多条协议同时命中（M6-16 的根因）。
+    expect(PROBE_PROTOCOLS.map((p) => p.value)).toEqual(BUILTIN_CATALOG.probe.map((p) => p.id))
+    for (const p of PROBE_PROTOCOLS) {
+      const def = BUILTIN_CATALOG.all.find((d) => d.id === p.value)!
+      // 站点身份交给 stationProtocolForUrl 按 host 反查，候选表里只留 public 模板。
+      expect(def.kind).toBe('public')
+      expect(def.probe).toBe(true)
+    }
   })
 
   it('保持下拉表原顺序（探测顺序 = 用户心里的协议优先级）', () => {

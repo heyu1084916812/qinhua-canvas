@@ -412,6 +412,74 @@
   gap: var(--space-2);
 }
 
+/* 自建协议（用户 2026-09-28）：入口按钮 + 就地展开的声明表单。
+   表单落在渠道卡内，与模型选择面板同一口径——就地展开、不做浮层。 */
+.protoTools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.protoForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  padding: var(--space-3);
+}
+.protoHint {
+  margin: 0;
+  font-size: var(--fs-chip);
+  line-height: 1.7;
+  color: var(--text-3);
+}
+.protoRow {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+.protoFoot {
+  display: flex;
+  justify-content: flex-end;
+}
+.capRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 36px;
+}
+.capBox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.protoError {
+  margin: 0;
+  font-size: var(--fs-chip);
+  line-height: 1.7;
+  color: var(--danger);
+}
+.protoMine {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.protoMineRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.protoMineName {
+  font-size: var(--fs-chip);
+  color: var(--text-1);
+}
+
 /* 删除渠道（§7.2）：与「+ 新增渠道」同在左栏底部，二次确认就地展开——不弹窗、
    不跳到别处，确认框只占住按钮原位置，视线不用移动。 */
 .dangerZone {

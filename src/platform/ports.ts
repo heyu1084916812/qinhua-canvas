@@ -1,5 +1,6 @@
 import type { AppError } from '../shared/result'
 import type { ModelCapability } from '../domain/shared/capability'
+import type { ProtocolDefinition } from '../domain/project/protocol'
 
 /** 表名与产品文档 §8 数据模型一致 */
 export type TableName =
@@ -16,6 +17,8 @@ export type TableName =
    * 与业务数据分开，业务表保持「只有业务」这一条界限。
    */
   | 'presets'
+  /** 用户自建协议（「一站一协议」的声明式定义，见 domain/project/protocol） */
+  | 'customProtocols'
 
 export interface Row {
   id: string
@@ -119,6 +122,11 @@ export interface PlatformKit {
 export interface SafeChannelConfig {
   id: string
   protocol: string
+  /**
+   * 该渠道协议的定义（内置或自建）。渠道一建好就带上它，适配器因此不必再查全局表，
+   * 也就不会出现「界面认识这条自建协议、适配器不认识」的半认识状态。
+   */
+  protocolDefinition?: ProtocolDefinition
   baseUrl: string
   credentialRef: string | null
   modelCache?: ModelCapability[]

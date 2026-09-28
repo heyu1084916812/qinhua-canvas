@@ -8,6 +8,8 @@ export type TableName =
   | 'runRecords'
   | 'assets'
   | 'credentials'
+  | 'presets'
+  | 'customProtocols'
 
 export interface Row {
   id: string

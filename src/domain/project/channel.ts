@@ -2,6 +2,14 @@ import type { ModelCapability } from '../shared/capability'
 import { createId } from '../../shared/id'
 import type { ModelMap } from './modelMapping'
 import type { RouteStrategy } from './modelRouting'
+import {
+  BUILTIN_CATALOG,
+  protocolById,
+  protocolLabel as catalogLabel,
+  protocolShort as catalogShort,
+  protocolRequiresBaseUrl,
+  type ProtocolCatalog,
+} from './protocol'
 
 /**
  * 渠道领域模型（产品文档 §7 / §8）。
@@ -94,46 +102,29 @@ export interface CreateChannelInput {
 }
 
 /**
- * 设置页协议下拉项；新增协议需同时在 registry 注册对应适配器。
- * `short` 是左侧列表里名称右侧的短标签（产品文档 §7.2 的 OAI / ANT / GEM），
- * 与 `label` 同源维护——分两处写迟早会漂。
+ * 设置页协议下拉项（兼容层）。
+ *
+ * 协议的唯一事实来源已迁到 `domain/project/protocol.ts` 的协议目录（用户 2026-09-28
+ * 「一站一协议」）。这里保留 `{ value, label, short }` 这个老形状，是为了让设置页、
+ * 老测试与外部引用**零改动**读到与目录一致的数据——而不是再维护第二份协议表。
  */
-export const SUPPORTED_PROTOCOLS: { value: string; label: string; short: string }[] = [
-  { value: 'mock', label: 'Mock（离线验证）', short: 'MOCK' },
-  { value: 'openai-images', label: 'OpenAI 兼容 · 生图', short: 'OAI' },
-  {
-    value: 'openai-chat',
-    label: 'OpenAI 兼容 · 对话',
-    short: 'CHAT',
-  },
-]
+export const SUPPORTED_PROTOCOLS: { value: string; label: string; short: string }[] =
+  BUILTIN_CATALOG.all.map((p) => ({ value: p.id, label: p.name, short: p.short }))
 
 /**
  * 离线协议：不需要真实地址与网络就能 `verify` 成功。
- *
- * 单列出来是因为**候选表必须剔除「永不失败」的协议**——见 `PROBE_PROTOCOLS`。
  */
 export const OFFLINE_PROTOCOLS: readonly string[] = ['mock']
 
 /**
- * 「验证协议」的候选表（产品文档 §7.3）：按此顺序逐个试打，第一个 `verify` 通过的即为该地址的协议。
+ * 「验证协议」的候选表（兼容层）：只含进入探测序列的**通用模板**（`probe: true`）。
  *
- * 与 `SUPPORTED_PROTOCOLS` 的关系是**派生而非并列**：候选表由下拉表过滤得到，
- * 所以新增一个真实协议时它会自动进入探测序列，不需要在这里再抄一遍（抄一遍迟早会漂）。
- *
- * 为什么剔除 `OFFLINE_PROTOCOLS`：`mock` 的 `verify` 恒成功，一旦入选候选表，
- * 探测在**任何**地址上都会第一个命中 mock，把用户填的真实地址悄悄改写成 mock——
- * 用户看到的「自动选中」其实是探测失效。这是「候选表只放会失败的协议」的具体形态。
- *
- * 已知局限（M6-16）：`openai-images` 与 `openai-chat` 的 `verify` 都打 `GET /v1/models`，
- * 因此**同一个地址两个协议都会通过**，探测只能按本表顺序取第一个（生图）。
- * 一个中转站同时支持生图与对话时，自动探测会选中生图——需要对话协议的用户
- * 得自己在下拉里改。要修就得让 verify 去打各自独有的端点，代价是探测请求翻倍，
- * 本轮不划算；先如实记下，别让人以为「自动探测能区分协议」。
+ * 与改造前不同，候选表不再等于「全部非离线协议」——站点协议是手选的便利入口，
+ * 放进来会让探测连打十几个请求、同一个 200 被十几条同时命中。探测要回答的只是
+ * 「这个地址是不是 OpenAI 兼容 HTTP」，命中的站点身份另由 `stationProtocolForUrl` 反查。
  */
-export const PROBE_PROTOCOLS = SUPPORTED_PROTOCOLS.filter(
-  (p) => !OFFLINE_PROTOCOLS.includes(p.value),
-)
+export const PROBE_PROTOCOLS: { value: string; label: string; short: string }[] =
+  BUILTIN_CATALOG.probe.map((p) => ({ value: p.id, label: p.name, short: p.short }))
 
 export function createChannel(input: CreateChannelInput): Channel {
   return {
@@ -162,19 +153,28 @@ export function createChannel(input: CreateChannelInput): Channel {
 }
 
 /** 协议短标签（列表项用）；未知协议回落原串，不吞信息 */
-export function protocolShort(proto: string): string {
-  return SUPPORTED_PROTOCOLS.find((p) => p.value === proto)?.short ?? proto
+export function protocolShort(proto: string, catalog: ProtocolCatalog = BUILTIN_CATALOG): string {
+  return catalogShort(proto, catalog)
+}
+
+/** 协议全名（状态行用）；未知协议回落原串 */
+export function protocolLabel(proto: string, catalog: ProtocolCatalog = BUILTIN_CATALOG): string {
+  return catalogLabel(proto, catalog)
 }
 
 /**
  * 该协议是否**必须**有地址才能验证。
- *
- * 为什么值得单列一条：地址为空时请求会退化成**相对当前页**的路径（`/v1/models`），
- * 而 dev server / SPA 对任意路径都回 200 的 index.html —— 于是「验证通过」是纯假象。
- * 离线协议（mock）不发请求，所以不受此限。
  */
-export function requiresBaseUrl(protocol: string): boolean {
-  return !OFFLINE_PROTOCOLS.includes(protocol)
+export function requiresBaseUrl(protocol: string, catalog: ProtocolCatalog = BUILTIN_CATALOG): boolean {
+  return protocolRequiresBaseUrl(protocol, catalog)
+}
+
+/** 协议定义（含自建项）；未登记返回 undefined */
+export function channelProtocol(
+  proto: string,
+  catalog: ProtocolCatalog = BUILTIN_CATALOG,
+): ReturnType<typeof protocolById> {
+  return protocolById(proto, catalog)
 }
 
 /**

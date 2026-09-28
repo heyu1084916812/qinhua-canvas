@@ -17,6 +17,7 @@ import {
   fileExtensionOf,
   isModelListBody,
   normalizeBaseUrl,
+  openAiBaseUrl,
   GENERATE_TIMEOUT_MS,
   VERIFY_TIMEOUT_MS,
 } from './openaiCommon'
@@ -140,11 +141,12 @@ export function createOpenAiImagesAdapter(
   config: OpenAiAdapterConfig,
   deps: ChannelDeps,
 ): ChannelAdapter {
-  const base = normalizeBaseUrl(config.baseUrl)
-  const modelsUrl = `${base}/v1/models`
-  const imagesUrl = `${base}/v1/images/generations`
+  // 版本段由协议声明（`/v1` 或 Ark 的 `/api/v3`），基址已含版本段，端点直接续写
+  const base = openAiBaseUrl(config)
+  const modelsUrl = `${base}/models`
+  const imagesUrl = `${base}/images/generations`
   /** 图生图端点（M6-12）：带参考图时走这里，multipart 上传 */
-  const editsUrl = `${base}/v1/images/edits`
+  const editsUrl = `${base}/images/edits`
 
   const verify: ChannelAdapter['verify'] = async (_cfg, signal): Promise<VerifyResult> => {
     try {

@@ -11,14 +11,14 @@ export interface ResolvedChannelConfig extends SafeChannelConfig {
 
 export type ChannelAdapterFactory = (config: ResolvedChannelConfig, deps: ChannelDeps) => ChannelAdapter
 
+/**
+ * 应急 / 测试用的按协议 id 注册表（向后兼容导出）。
+ *
+ * 「一站一协议」之后常规分发走 `config.protocolDefinition.family`，
+ * 这张表只在「没有协议定义、只能按老 id 认」或测试里替换某条协议时兜底。
+ * 注册进这里会优先于 family 分发。
+ */
 const factories = new Map<string, ChannelAdapterFactory>()
-factories.set('mock', () => createMockChannel())
-factories.set('openai-images', (config, deps) => createOpenAiImagesAdapter(config, deps))
-// 聊天协议（M6-16）：提示词节点的「优化 / 翻译 / 反推」需要文本模型，
-// 而生图协议没有 /v1/chat/completions，故此前的真实渠道一律退化成「暂无可用文本模型」。
-factories.set('openai-chat', (config, deps) => createOpenAiChatAdapter(config, deps))
-// openai-video 的适配器在 M2 后续组实现，暂用生图适配器顶上「验证地址 / 拉取模型」
-//（真实生成时按协议抛 unsupported）。避免设置页选到未注册协议直接报错。
 
 export function registerChannelAdapter(protocol: string, factory: ChannelAdapterFactory): void {
   factories.set(protocol, factory)
@@ -28,11 +28,66 @@ export function getChannelAdapterFactory(protocol: string): ChannelAdapterFactor
   return factories.get(protocol)
 }
 
+/**
+ * OpenAI 兼容族的组合适配器：一份协议同时声明对话与生图时，能力按声明裁剪。
+ *
+ * 对话与生图的请求形态、超时、内容解析完全不同，各自已有独立实现与单测；
+ * 这里只做能力分派，未声明某项能力就抛 unsupported，不悄悄发站不支持的请求。
+ */
+function createOpenAiCompatibleAdapter(
+  config: ResolvedChannelConfig,
+  deps: ChannelDeps,
+): ChannelAdapter {
+  const capabilities = config.protocolDefinition?.capabilities ?? ['chat', 'image']
+  const chat = capabilities.includes('chat') ? createOpenAiChatAdapter(config, deps) : null
+  const images = capabilities.includes('image') ? createOpenAiImagesAdapter(config, deps) : null
+  // verify / listModels 打的是同一个 /models，两条实现等价；优先用声明了的那条
+  const verifier = chat ?? images
+  if (!verifier) throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
+
+  return {
+    protocol: config.protocol,
+    verify: (cfg, signal) => verifier.verify(cfg, signal),
+    listModels: (cfg, signal) => verifier.listModels(cfg, signal),
+    generateImage(request, signal) {
+      if (!images) throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
+      return images.generateImage(request, signal)
+    },
+    generateVideo() {
+      throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
+    },
+    completeText(request, signal) {
+      if (!chat) throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
+      return chat.completeText(request, signal)
+    },
+  }
+}
+
+/** 老渠道没有 protocolDefinition 时按老 id 认家族；新渠道一律走定义 */
+const LEGACY_FAMILY: Record<string, 'mock' | 'openai-compatible'> = {
+  mock: 'mock',
+  'openai-images': 'openai-compatible',
+  'openai-chat': 'openai-compatible',
+}
+
 export function createChannelAdapter(
   config: ResolvedChannelConfig,
   deps: ChannelDeps,
 ): ChannelAdapter {
-  const factory = factories.get(config.protocol)
-  if (!factory) throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
-  return factory(config, deps)
+  // 显式注册（测试替身 / 未来专用协议）优先
+  const explicit = factories.get(config.protocol)
+  if (explicit) return explicit(config, deps)
+
+  const family = config.protocolDefinition?.family ?? LEGACY_FAMILY[config.protocol]
+  switch (family) {
+    case 'mock':
+      return createMockChannel()
+    case 'openai-compatible':
+      return createOpenAiCompatibleAdapter(config, deps)
+    // 异步任务 / CLI 网关的适配器尚未实现：如实报「不支持」，不落到某个壳里假装能用
+    case 'async-task':
+    case 'cli-gateway':
+    default:
+      throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
+  }
 }

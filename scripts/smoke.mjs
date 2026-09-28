@@ -4105,7 +4105,7 @@ async function g43(browser) {
   await page.screenshot({ path: `${OUT}/43-a-mock-verified.png` })
 
   // B) 只改协议 + 地址，**不点保存配置**，直接验证
-  await page.locator('[data-settings-protocol]').selectOption('openai-images')
+  await page.locator('[data-settings-protocol]').selectOption('openai-compatible')
   await page.locator('[data-settings-baseurl]').fill('http://127.0.0.1:9/v1')
   await sleep(200)
   await page.getByRole('button', { name: '验证地址' }).click()
@@ -4119,7 +4119,7 @@ async function g43(browser) {
   rec(g, '不再伪造「发现 N 个模型」的通过', !bText.includes('个模型'), bText)
   rec(g, 'mock 离线提示随之消失', (await page.locator('[data-settings-mock-note]').count()) === 0)
   const protoAfter = await page.locator('[data-settings-protocol]').inputValue()
-  rec(g, '验证后协议不被弹回旧值', protoAfter === 'openai-images', protoAfter)
+  rec(g, '验证后协议不被弹回旧值', protoAfter === 'openai-compatible', protoAfter)
   await page.screenshot({ path: `${OUT}/43-b-openai-unreachable.png` })
 
   // C) 刷新 → 协议与地址都已落库（B 的「先落库后验证」生效）
@@ -4129,7 +4129,7 @@ async function g43(browser) {
   await page.getByText('新建渠道').first().click()
   await sleep(300)
   const protoReload = await page.locator('[data-settings-protocol]').inputValue()
-  rec(g, '刷新后协议仍是新值（已落库）', protoReload === 'openai-images', protoReload)
+  rec(g, '刷新后协议仍是新值（已落库）', protoReload === 'openai-compatible', protoReload)
   const urlReload = await page.locator('[data-settings-baseurl]').inputValue()
   rec(g, '刷新后地址仍在', urlReload === 'http://127.0.0.1:9/v1', urlReload)
 
@@ -4321,13 +4321,13 @@ async function g45(browser) {
   rec(
     g,
     '协议下拉自动切到命中的协议',
-    (await page.locator('[data-settings-protocol]').inputValue()) === 'openai-images',
+    (await page.locator('[data-settings-protocol]').inputValue()) === 'openai-compatible',
     await page.locator('[data-settings-protocol]').inputValue(),
   )
   rec(
     g,
-    '左栏协议短标签同步为 OAI',
-    norm(await page.locator('[data-channel-proto]').first().innerText()) === 'OAI',
+    '左栏协议短标签同步为 OAI+',
+    norm(await page.locator('[data-channel-proto]').first().innerText()) === 'OAI+',
   )
 
   // 空地址必须被拒绝：否则空串会退化成相对当前页的路径，被 SPA 的 200 兜底页骗成「通了」
@@ -11422,7 +11422,91 @@ async function g87(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87]
+/**
+ * G88 一站一协议 + 用户自建协议（用户 2026-09-28）。
+ *
+ *  ① 站点协议「选中即填地址」：选中玉玉 → 地址自动补成 https://yuli.host；
+ *     用户手填过的地址则不被后续切协议覆盖。
+ *  ② 自建协议：填名称 / 短标签 / 标识 / 能力 / 地址 / 版本段 → 添加 → 下拉自动选中。
+ *  ③ 被渠道引用的自建协议不能删；把渠道改回 mock 后可以删掉。
+ */
+async function g88(browser) {
+  const g = 'G88 一站一协议与自建协议'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+  await sleep(500)
+  await page.getByRole('button', { name: /新增渠道/ }).click()
+  await sleep(400)
+  await page.getByText('新建渠道').first().click()
+  await sleep(300)
+
+  // ① 站点协议 → 默认地址
+  await page.locator('[data-settings-baseurl]').fill('')
+  await page.locator('[data-settings-protocol]').selectOption('yuli')
+  await sleep(200)
+  const yuliUrl = await page.locator('[data-settings-baseurl]').inputValue()
+  rec(g, '★ 选中站点协议自动填默认地址', yuliUrl === 'https://yuli.host', yuliUrl)
+
+  await page.locator('[data-settings-baseurl]').fill('http://my-own.test')
+  await page.locator('[data-settings-protocol]').selectOption('apistudio')
+  await sleep(200)
+  const keptUrl = await page.locator('[data-settings-baseurl]').inputValue()
+  rec(g, '★ 切协议不覆盖用户手填地址', keptUrl === 'http://my-own.test', keptUrl)
+
+  // ② 自建协议
+  await page.locator('[data-proto-add-toggle]').click()
+  await page.locator('[data-proto-form]').waitFor({ state: 'visible', timeout: 4000 })
+  await page.locator('[data-proto-field="name"]').fill('私有站')
+  await page.locator('[data-proto-field="short"]').fill('MY')
+  await page.locator('[data-proto-field="id"]').fill('my-private')
+  await page.locator('[data-proto-field="baseurl"]').fill('http://my-private.test')
+  await page.locator('[data-proto-field="version"]').fill('/v1')
+  await page.locator('[data-proto-create]').click()
+  await sleep(300)
+  const afterAdd = await page.locator('[data-settings-protocol]').inputValue()
+  rec(g, '★ 添加自建协议后下拉自动选中', afterAdd === 'my-private', afterAdd)
+  rec(
+    g,
+    '★ 自建协议出现在「我添加的协议」',
+    (await page.locator('[data-proto-remove="my-private"]').count()) === 1,
+  )
+
+  // ③ 保存渠道 → 左栏短标签显示自建协议 → 引用中的协议删不掉
+  await page.locator('[data-settings-save]').click()
+  await sleep(400)
+  const shortTag = (await page.locator('[data-channel-proto]').first().innerText()).trim()
+  rec(g, '★ 渠道短标签显示自建协议', shortTag === 'MY', shortTag)
+
+  await page.locator('[data-proto-remove="my-private"]').click()
+  await sleep(300)
+  const blocked = await page
+    .locator('[data-proto-remove-error]')
+    .innerText()
+    .catch(() => '')
+  rec(g, '★ 被渠道引用的自建协议拒绝删除并给出原因', blocked.includes('仍在用') || blocked.includes('使用该协议'), blocked)
+
+  // ④ 改回 mock 后可删
+  await page.locator('[data-settings-protocol]').selectOption('mock')
+  await page.locator('[data-settings-save]').click()
+  await sleep(400)
+  await page.locator('[data-proto-remove="my-private"]').click()
+  await sleep(400)
+  rec(
+    g,
+    '★ 无渠道引用后自建协议可删除',
+    (await page.locator('[data-proto-remove="my-private"]').count()) === 0,
+  )
+
+  await page.screenshot({ path: `${OUT}/103-g88-custom-protocol.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

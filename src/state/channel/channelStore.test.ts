@@ -127,12 +127,32 @@ describe('channelStore', () => {
 
     const hit = await store.detectProtocol(ch.id)
 
-    expect(hit).toBe('openai-images')
+    // 未知站点只回落到通用模板：探测事实层面只能说「这是 OpenAI 兼容」，
+    // 能力归属（对话 / 生图）由这条协议一次声明、模型按类别分流。
+    expect(hit).toBe('openai-compatible')
     const updated = store.getState().channels.find((c) => c.id === ch.id)!
-    expect(updated.protocol).toBe('openai-images')
+    expect(updated.protocol).toBe('openai-compatible')
     // 与「验证地址」共用同一份「上次往返」记录。
     expect(updated.lastTestAt).toBeGreaterThan(0)
-    expect(store.getState().detect).toMatchObject({ status: 'ok', protocol: 'openai-images' })
+    expect(store.getState().detect).toMatchObject({ status: 'ok', protocol: 'openai-compatible' })
+  })
+
+  it('★ detectProtocol：已知站点按 host 反查，探测落回站点协议（不是通用模板）', async () => {
+    const p = createMemoryPlatform({
+      handler: async (req: NetworkRequest) =>
+        req.url.endsWith('/v1/models')
+          ? jsonResponse(200, { data: [{ id: 'gpt-image-2' }] })
+          : jsonResponse(404, ''),
+    })
+    const store = createChannelStore(p)
+    // 用户填了玉玉的地址：探测事实仍是「OpenAI 兼容」，但身份该是「玉玉」。
+    const ch = await store.create({ name: '玉玉', protocol: 'mock', baseUrl: 'https://yuli.host' })
+
+    const hit = await store.detectProtocol(ch.id)
+
+    expect(hit).toBe('yuli')
+    expect(store.getState().channels.find((c) => c.id === ch.id)!.protocol).toBe('yuli')
+    expect(store.getState().detect).toMatchObject({ status: 'ok', protocol: 'yuli' })
   })
 
   it('detectProtocol：候选表不含离线协议——探测不会「自己选中自己」', async () => {
@@ -404,5 +424,79 @@ describe('channelStore', () => {
     ])
     const picked = await store.defaultForNewNode({}, 'chat')
     expect(picked?.model).toBe('GPT-6 Astra')
+  })
+})
+
+/**
+ * 用户自建协议（用户 2026-09-28「一站一协议」）：只开放 OpenAI 兼容族的声明式配置，
+ * 私有形态（CLI 网关 / 异步轮询）必须内置——所以这一组测的是「能加、能删、加了就能用」。
+ */
+describe('channelStore · 自建协议', () => {
+  it('创建后立即进入协议目录，且可被新渠道选用', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+
+    const res = await store.createCustomProtocol({
+      id: 'my-relay',
+      name: '我的中转',
+      short: 'MINE',
+      capabilities: ['chat', 'image'],
+      baseUrl: 'https://relay.mine',
+      versionPath: '/v1',
+    })
+    expect(res.ok).toBe(true)
+
+    // 目录里出现该协议，且是 ready（下拉里可选）
+    const def = store.protocolCatalog().all.find((d) => d.id === 'my-relay')
+    expect(def).toMatchObject({ name: '我的中转', short: 'MINE', family: 'openai-compatible', status: 'ready' })
+    expect(store.protocolCatalog().ready.some((d) => d.id === 'my-relay')).toBe(true)
+
+    // 新建渠道选它，落库后读回仍是它
+    const ch = await store.create({ name: 'R', protocol: 'my-relay', baseUrl: 'https://relay.mine' })
+    expect(store.getState().channels.find((c) => c.id === ch.id)!.protocol).toBe('my-relay')
+  })
+
+  it('拒绝与内置协议撞名（撞名会把老渠道悄悄改指到另一份定义）', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+
+    const res = await store.createCustomProtocol({
+      id: 'yuli',
+      name: '冒名',
+      short: 'X',
+      capabilities: ['chat'],
+    })
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.field).toBe('id')
+  })
+
+  it('非法 id / 空能力被拦下（不会拼出一条跑不通的协议）', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+
+    const badId = await store.createCustomProtocol({ id: 'Bad ID', name: 'x', short: 'X', capabilities: ['chat'] })
+    expect(badId.ok).toBe(false)
+
+    const noCap = await store.createCustomProtocol({ id: 'ok-id', name: 'x', short: 'X', capabilities: [] })
+    expect(noCap.ok).toBe(false)
+    if (!noCap.ok) expect(noCap.field).toBe('capabilities')
+  })
+
+  it('删除自建协议：没被引用直接删；被渠道引用时抛错且保留（不静默改指）', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+
+    await store.createCustomProtocol({ id: 'unused', name: '闲置', short: 'U', capabilities: ['chat'] })
+    await store.removeCustomProtocol('unused')
+    expect(store.protocolCatalog().all.some((d) => d.id === 'unused')).toBe(false)
+
+    await store.createCustomProtocol({ id: 'in-use', name: '在用', short: 'I', capabilities: ['image'] })
+    await store.create({ name: 'R', protocol: 'in-use', baseUrl: 'https://relay.mine' })
+    await expect(store.removeCustomProtocol('in-use')).rejects.toThrow()
+    expect(store.protocolCatalog().all.some((d) => d.id === 'in-use')).toBe(true)
   })
 })

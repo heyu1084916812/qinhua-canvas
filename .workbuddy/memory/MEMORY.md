@@ -1628,3 +1628,47 @@ x 坐标完全不变、容器只向右扩，就必须让这两者是**左对齐*
 它会预提升合成层，和节点内部 `container-type` 在非整数缩放下共同作用，
 表现为节点模糊或只有一部分清晰。保持 `will-change:auto`，由浏览器在缩放时正常栅格化；
 冒烟 G67 以世界层 `will-change=auto` 作为回归钉子。
+
+### ★ 协议是「声明」不是「开关」：一站一协议（2026-09-28）
+
+用户要的「一个站一个协议」不是把三个协议合并成下拉里的一个选项，而是把协议
+**从互斥的适配器开关升格为一份声明**：`ProtocolDefinition` 同时带 `family`
+（哪个适配器实现）、`capabilities`（这个站有哪些能力）、`versionPath`（版本段）、
+`defaultBaseUrl`（站点默认地址）。渠道因此只建一条，同一站的对话 / 生图模型
+靠 `ModelCapability.category` 分流到不同节点，不再需要为同一个中转建两条渠道。
+
+**三条硬边界，决定了哪些条目是 `ready`、哪些只能是 `pending`**：
+
+- **没有官方依据的端点不写死**。宁可 `pending`、界面不可选，也不填一个猜出来的
+  路径——「文档里写了 ≠ 实现里有」，写死错端点只会让用户在「验证失败」里绕圈。
+- **领域层没有的能力不假装支持**。`ModelCapability.category` 当时只有
+  `chat | image | video`，没有音频与 3D，协议 `capabilities` 就只到这三项；
+  自建协议更只开放对话 / 生图，视频被过滤掉。
+- **纯 Web 应用跑不了本机 CLI**。即梦 / GPT / Gemini CLI 必须先有专用网关，
+  没有网关时只能是 pending，不能给个空壳让用户以为配好了。
+
+**「第一个通过的协议」是假动作，探测必须只问一个问题**：改造前
+`openai-images` 与 `openai-chat` 的验证都只打 `GET /v1/models`，同一个中继
+必然被两条同时命中，协议落在哪条全看候选表顺序（M6-16）。现在探测只留一条
+通用模板 `openai-compatible`，它只回答「这个地址是不是 OpenAI 兼容 HTTP」，
+不再冒充「能力归属」；命中后按 host 反查站点身份（`stationProtocolForUrl`），
+让用户填了玉玉地址就显示玉玉而不是「OpenAI 兼容」。
+
+**地址归一是「版本段声明 + 补一次」**，不是无条件拼 `/v1` 也不是无条件剥 `/vN`：
+前者把「地址已含 `/v1`」变成 `/v1/v1/models`（一律 404），后者把火山 Ark 的
+`/api/v3` 剥成 `/api`。正确口径是 `resolveProtocolBaseUrl(raw, versionPath)`：
+**已以本协议版本段结尾就原样用，否则先剥掉结尾的版本段再补一次**。
+
+**用户能自建，但只开放结构简单的一族**：用户在界面上可以新增 OpenAI 兼容协议
+（名称 / 短标签 / 标识 / 能力 / 默认地址 / 版本段 / 文档地址），校验后落独立
+的 `customProtocols` 表（不污染 `presets` 的配方命名空间），可删除；CLI 包装、
+异步轮询、站点私有字段这些必须内置适配器承担，用户拼不出——允许他拼等于让他
+配一条跑不通的渠道。校验规则只写在 `validateCustomProtocol` 一处，界面 / 导入 /
+单测三个入口共用；被渠道引用时阻止删除并说明原因。
+
+**老 id 必须原样保留**：`openai-images` / `openai-chat` 的 id 改了，等于让所有
+已配置渠道升级后变成「未知协议」。所以它们留在目录里、标 `legacy`、只解释不改名。
+
+**新增 IndexedDB 表要升 schema 版本**：`customProtocols` 走
+`this.version(4).stores({ customProtocols: 'id' })`，Dexie 只声明新增表，
+其余表延续上一版。

@@ -1,5 +1,7 @@
 import { asAppError, serverReasonOf, type AppError } from '../../shared/result'
 import type { ModelCapability } from '../../domain/shared/capability'
+import type { ProtocolDefinition } from '../../domain/project/protocol'
+import { resolveProtocolBaseUrl } from '../../domain/project/protocol'
 
 /**
  * OpenAI 兼容协议的**公共零件**（地址归一、错误归一、鉴权头）。
@@ -39,6 +41,20 @@ export function authHeader(apiKey: string | null): Record<string, string> {
  */
 export function normalizeBaseUrl(raw: string): string {
   return raw.trim().replace(/\/+$/, '').replace(/\/v\d+$/i, '')
+}
+
+/**
+ * 按**协议声明的版本段**归一化基址（「一站一协议」）。
+ *
+ * 老的 `normalizeBaseUrl` 无条件剥掉结尾的 `/vN`，对 `/v1` 的中继是对的，
+ * 但火山 Ark 的版本段是 `/api/v3`：剥完变成 `.../api` 再补 `/v1`，永远 404。
+ * 版本段从此由协议目录给出，适配器只负责「补一次、不重复补」。
+ */
+export function openAiBaseUrl(config: {
+  baseUrl: string
+  protocolDefinition?: ProtocolDefinition
+}): string {
+  return resolveProtocolBaseUrl(config.baseUrl, config.protocolDefinition?.versionPath ?? '/v1')
 }
 
 /** 网络细节 → 用户能据以自查的文案。光说「网络错误」等于没说，得点到地址/证书/CORS */
