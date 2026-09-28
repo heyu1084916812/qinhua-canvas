@@ -1,8 +1,7 @@
 import type { Size } from '../geometry/rect'
 import type { NodeType } from '../model/node'
 
-/** 网格与间距（产品文档 §3.2 / §6.11 / §6.9） */
-export const GRID_SIZE = 24
+/** 间距（产品文档 §3.2 / §6.11 / §6.9） */
 export const GAP = 16
 export const CONTAINER_PADDING = 20
 export const CONTAINER_GAP = 16
@@ -71,5 +70,3 @@ export const NODE_MINIMUMS: Record<NodeType, Size> = {
   loop: { w: 240, h: 380 },
 }
 
-export const ZOOM_HIDE_GRID_BELOW = 0.4
-export const ZOOM_FADE_GRID_ABOVE = 2

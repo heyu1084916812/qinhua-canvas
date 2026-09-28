@@ -19,7 +19,6 @@ import {
   type NavDir,
 } from '../../../domain/canvas/navigation/spatial'
 import type { Rect } from '../../../domain/canvas/geometry/rect'
-import { GridLayer } from '../layers/GridLayer'
 import { EdgeLayer } from '../layers/EdgeLayer'
 import { NodeLayer } from '../layers/NodeLayer'
 import { OverlayLayer } from '../layers/OverlayLayer'
@@ -495,7 +494,6 @@ const onPointerDown = (e: ReactPointerEvent) => {
         if (e.button === MIDDLE_BUTTON) e.preventDefault()
       }}
     >
-      <GridLayer viewport={viewport} />
       {/* 连线层在 [data-world] 之外：SVG 根必须铺满 surface（屏幕空间），
           视口变换挂在它内部的 <g data-edge-world> 上。放回 0×0 的 .world 内会被
           Chrome 整块跳过绘制（DOM 与样式全正常、屏幕上却没有线） */}

@@ -10,8 +10,15 @@
   display: flex;
   width: 100%;
   height: 100%;
-  /* 撑满视口：内部各页自行决定要不要滚动，壳本身不滚 */
-  overflow: hidden;
+  /*
+   * 撑满视口：内部各页自行决定要不要滚动，壳本身不滚。
+   *
+   * 不能在这里裁纵向：猫画 Logo 有缩放动画，会略微越过侧栏顶部；
+   * `overflow: hidden` 会让它在壳层被切平。横向仍由侧栏自己裁，
+   * 页面内部的滚动也由工作区各页自己承担。
+   */
+  overflow-x: clip;
+  overflow-y: visible;
   background: var(--bg-app);
 }
 

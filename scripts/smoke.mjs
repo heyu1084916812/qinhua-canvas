@@ -1410,9 +1410,9 @@ async function g11(browser) {
  * 在一个 0×0 的 `<svg>` 根里**全都成立**，而 Chrome 会整块跳过它的绘制
  * （屏幕上一条线都没有）。只有真实屏幕 pixel 能证伪这类「静默不绘制」。
  *
- * 判定色：连线 `--edge` #c9c9d1（201,201,209）。相比画布底 #fcfcfb（252）、网格线 #ececef（236）、
- * 节点白底（255）/描边 #deded9（222），它**比网格线更暗**（r ≤ 234，网格线永远不会低于 236，
- * 故网格绝不会误判）且**偏蓝**（b−r = +8；网格线 +3，白底 0，描边 −5）。
+ * 判定色：连线 `--edge` #c9c9d1（201,201,209）。相比画布底 #fcfcfb（252）、
+ * 节点白底（255）/描边 #deded9（222），它**比画布底更暗**（r ≤ 234）
+ * 且**偏蓝**（b−r = +8；画布底 0，描边 −5）。
  * 用「r ∈ [150,234] 且 b−r ≥ 2」把连线连同其抗锯齿中间色一起摘出来——
  * 阈值必须覆盖 1.5px 描边落在半像素上（覆盖率 0.5、r≈226）的情形，否则同一根线
  * 在平移前后会因亚像素相位不同而给出悬殊的计数。
@@ -10985,7 +10985,89 @@ async function g86(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86]
+/**
+ * G87 画布去网格 + Logo 容器不裁剪（用户 2026-09-28 两条）。
+ *
+ *  1) 画布背景**没有任何网格**：既没有网格层组件，`[data-canvas-surface]`
+ *     的计算样式上也不该再挂任何网格背景图（repeating / linear-gradient 网格）。
+ *     只查「有没有 GridLayer 元素」不够——网格也可能是纯 CSS 背景画出来的。
+ *  2) 动态猫画 Logo 有缩放动画、会越过容器边界：壳层若在纵向上 `overflow: hidden`
+ *     会把动画帧切平。这里断言壳层纵向不裁切，且 Logo 横向能够溢出其父容器
+ *     （即它的 overflow 约定允许动画帧露出来）。
+ */
+async function g87(browser) {
+  const g = 'G87 画布去网格 + Logo 容器不裁剪'
+  const ctx = await newDarkCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  // ── ① 画布无网格 ──
+  await createProject(page)
+  await sleep(800)
+
+  const grid = await page.evaluate(() => {
+    const surface = document.querySelector('[data-canvas-surface]')
+    if (!surface) return { surface: false }
+    const cs = getComputedStyle(surface)
+    const bg = `${cs.backgroundImage} ${cs.background}`
+    return {
+      surface: true,
+      // 网格通常来自带 gradient 的背景图；纯色背景不含 gradient
+      hasGradientBg: bg.includes('gradient'),
+      hasGridLayer: !!document.querySelector('[data-canvas-grid], [class*="GridLayer"]'),
+      bgImage: cs.backgroundImage,
+    }
+  })
+  rec(g, '画布表面存在', grid.surface === true, JSON.stringify(grid))
+  rec(g, '★ 画布没有网格层', grid.hasGridLayer === false, JSON.stringify(grid))
+  rec(
+    g,
+    '★ 画布背景不含任何网格渐变',
+    grid.hasGradientBg === false,
+    grid.bgImage,
+  )
+
+  // ── ② Logo 不裁剪 ──
+  await gotoProjects(page)
+  await sleep(600)
+
+  const overflow = await page.evaluate(() => {
+    const shell = document.querySelector('[data-app-shell]') ?? document.querySelector('#root > div')
+    const sidebar = document.querySelector('[data-app-sidebar]')
+    const logo = document.querySelector('[data-sidebar-logo]')
+    if (!shell || !logo) return null
+    const cs = getComputedStyle(shell)
+    const sidebarCs = sidebar ? getComputedStyle(sidebar) : null
+    const shellRect = shell.getBoundingClientRect()
+    const logoRect = logo.getBoundingClientRect()
+    return {
+      shellOverflowY: cs.overflowY,
+      sidebarOverflowY: sidebarCs?.overflowY ?? null,
+      // Logo 顶边若被容器切平，会恰好等于或低于壳层顶边；动画帧应让它能越出
+      logoTop: Math.round(logoRect.top),
+      shellTop: Math.round(shellRect.top),
+    }
+  })
+  rec(
+    g,
+    '★ 壳层纵向不裁切（overflow-y: visible）',
+    overflow?.shellOverflowY === 'visible',
+    JSON.stringify(overflow),
+  )
+  rec(
+    g,
+    '★ 侧栏纵向不裁切（overflow-y: visible）',
+    overflow?.sidebarOverflowY === 'visible',
+    JSON.stringify(overflow),
+  )
+
+  await page.screenshot({ path: `${OUT}/102-g87-no-grid-unclipped-logo.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

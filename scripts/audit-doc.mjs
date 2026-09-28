@@ -64,7 +64,6 @@ const CODE_CLAIMS = [
   ['§6.6 / §6.11', '分组节点空容器最小尺寸', { w: 240, h: 192 }, () => nodeMinimum('group')],
   ['§6.6 / §6.12', '批量节点空容器最小尺寸', { w: 240, h: 192 }, () => nodeMinimum('batch')],
   ['§6.6 / §6.13 / §6.16', '画板节点最小尺寸', { w: 320, h: 240 }, () => nodeMinimum('board')],
-  ['§6.1 / §6.3', '画布网格', 24, () => constNum(LAYOUT, 'GRID_SIZE')],
   ['§6.11 / §6.12', '分组·批量内部单元尺寸', { w: 200, h: 160 }, () => constSize(LAYOUT, 'PACKED_CELL')],
   ['§6.11', '分组·批量每排最多（3×3）', 3, () => constNum(LAYOUT, 'PACKED_MAX_COLUMNS')],
   ['§6.11', '分组·批量单元间距', 16, () => constNum(LAYOUT, 'CONTAINER_GAP')],
@@ -138,7 +137,8 @@ async function runtimeChecks(browser) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } })
   const page = await ctx.newPage()
   try {
-    await page.goto(BASE, { waitUntil: 'networkidle' })
+    // 模板库在应用壳改版后从 `/` 迁到 `/projects`（`/` 现在是欢迎页，没有模板按钮）
+    await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
     await page.locator('[data-template="blank"]').click()
     await page.waitForURL(/\/canvas\//)
     await sleep(800)
