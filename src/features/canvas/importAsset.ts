@@ -49,7 +49,17 @@ export async function importAssetFile(deps: ImportDeps, file?: File): Promise<Im
   const hash = await fingerprintBytes(bytes)
   // 图片补 naturalSize（供「有内容锁原始比例」与节点初始尺寸）；视频尺寸交给解码时再取
   const size = mime.startsWith('image/') ? await readImageSize(blob, bytes) : null
-  deps.store.dispatch({ kind: 'asset.put', asset: { hash, mime, bytes, ...(size ?? {}) } })
+  /**
+   * 素材库的两个字段在这里带上：`createdAt` 是「这张图什么时候进的库」，
+   * `projectId` 是「它属于当前这个项目」。
+   *
+   * 上传是最直接的一次归属 —— 用户正站在某个画布里，来源不存在歧义。
+   * 生成产物那边的 projectId 由争议的挂载点决定（见 canvasPlacement）。
+   */
+  deps.store.dispatch({
+    kind: 'asset.put',
+    asset: { hash, mime, bytes, ...(size ?? {}), createdAt: Date.now(), projectId: deps.projectId },
+  })
   return { hash, mime, name, ...(size ?? {}) }
 }
 

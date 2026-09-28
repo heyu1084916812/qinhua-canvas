@@ -11643,7 +11643,387 @@ async function g89(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89]
+/**
+ * G90 我的素材页（`/assets`，用户 2026-09-29：素材库工作区）。
+ *
+ * 这个页面此前是**占位页**，素材本体却一直在 `assets` 表里。本轮把它做成
+ * 真工作区，故断言分三层，缺一层都会留下「看起来做完了」的假象：
+ *
+ *  ① **数据层**：种子直接写 IndexedDB（图片 / 视频各一张，带不同的
+ *     createdAt 与 projectId），验证页面读回来的就是这几张 —— 只断言
+ *     「有卡片」的话，渲染出一排空壳照样全绿。
+ *  ② **排序与来源**：新的在前 + 卡片上写的是项目名而不是 hash。
+ *     这两条是素材库的核心价值（翻找与溯源），也是最容易被
+ *     「按 hash 排序 / 显示 hash」糊过去的地方。
+ *  ③ **交互**：类型筛选、关键字筛选、大图预览、删除。
+ *     预览要断言 `naturalWidth > 0`——只查 DOM 存在的话，一张 404 空图
+ *     也会算「预览打开了」。
+ */
+async function g90(browser) {
+  const g = 'G90 我的素材页'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  // 先落地一次，让 Dexie 建库（否则 `indexedDB.databases()` 里还没有它）
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(500)
+
+  /**
+   * 直接往 IndexedDB 里种素材。
+   *
+   * 为什么不走「画布里生成一张」：那条路径依赖渠道与网络 mock，
+   * 会让本组变成一条端到端长链，一处抖动就分不清是素材库坏了还是生成坏了。
+   * 素材库是**读** `assets` 表，直接种表测的正是它自己的那一段。
+   */
+  const seeded = await page.evaluate(async ({ pngB64 }) => {
+    const b64 = pngB64
+    const bin = atob(b64)
+    const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i)
+
+    const openDb = () =>
+      new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+    const db = await openDb()
+    const put = (table, rows) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(table, 'readwrite')
+        const store = tx.objectStore(table)
+        for (const r of rows) store.put(r)
+        tx.oncomplete = () => resolve(true)
+        tx.onerror = () => reject(tx.error)
+      })
+
+    const now = Date.now()
+    await put('projects', [
+      { id: 'p-g90-a', name: '猫咪项目', workbench: 'canvas', createdAt: now, updatedAt: now },
+      { id: 'p-g90-b', name: '狗狗项目', workbench: 'canvas', createdAt: now, updatedAt: now },
+    ])
+    /**
+     * 四张图，比例刻意错开：横 16:9 / 方 1:1 / 竖 9:16 / 极端长图。
+     *
+     * 瀑布流的断言需要**高度不齐的样本**才成立 —— 四张同比例的图
+     * 会排出一个等高网格，「高度随比例变化」那条断言就恒真了。
+     */
+    await put('assets', [
+      {
+        id: 'g90-img',
+        hash: 'g90-img',
+        mime: 'image/png',
+        bytes,
+        width: 64,
+        height: 36,
+        createdAt: now - 1000,
+        projectId: 'p-g90-a',
+      },
+      {
+        id: 'g90-vid',
+        hash: 'g90-vid',
+        mime: 'video/mp4',
+        bytes,
+        createdAt: now,
+        projectId: 'p-g90-b',
+      },
+      {
+        id: 'g90-wide',
+        hash: 'g90-wide',
+        mime: 'image/png',
+        bytes,
+        width: 1600,
+        height: 400,
+        createdAt: now - 3000,
+        projectId: 'p-g90-a',
+      },
+      {
+        id: 'g90-tall',
+        hash: 'g90-tall',
+        mime: 'image/png',
+        bytes,
+        width: 400,
+        height: 1600,
+        createdAt: now + 1000,
+        projectId: 'p-g90-b',
+      },
+    ])
+    return { assets: 4, projects: 2 }
+  }, { pngB64: solidPngBuffer(64, 36).toString('base64') })
+
+  rec(
+    g,
+    '种子已写入 IndexedDB（4 个素材 / 2 个项目）',
+    seeded.assets === 4 && seeded.projects === 2,
+    JSON.stringify(seeded),
+  )
+
+  await page.goto(`${BASE}/assets`, { waitUntil: 'networkidle' })
+  await sleep(800)
+
+  rec(g, '素材页挂载（不再是占位页）', (await page.locator('[data-assets-page]').count()) === 1)
+  rec(
+    g,
+    '旧的占位文案已消失（不再说「还没开始做」）',
+    !(await page.locator('[data-assets-page]').innerText()).includes('还没开始做'),
+  )
+
+  // ── ① 数据层：两张都读回来了 ──
+  const cards = page.locator('[data-asset-card]')
+  let count = 0
+  for (let i = 0; i < 20; i += 1) {
+    count = await cards.count()
+    if (count >= 4) break
+    await sleep(250)
+  }
+  rec(g, '★★ 素材库列出了库里的素材（4 张）', count === 4, `cards=${count}`)
+  const countText = await page.locator('[data-assets-count]').innerText().catch(() => '')
+  rec(g, '★ 计数文案说的是总数', /共\s*4\s*个素材/.test(countText), countText.trim())
+
+  /*
+   * ── ② 排序 ──
+   *
+   * ⚠ 这里用 DOM 顺序（`data-asset-card` 的出现顺序）而不是视觉坐标断言：
+   * 瀑布流是多列布局，卡片按「先填满一列再填下一列」排布，
+   * **纵坐标不与时间顺序对应** —— 按 top 排序会把正确的顺序判成错的。
+   * 时间顺序由 store 保证，DOM 顺序即数据源顺序，量它才是对的判据。
+   */
+  const order = await page.locator('[data-asset-card]').evaluateAll((els) =>
+    els.map((el) => el.getAttribute('data-asset-card')),
+  )
+  const rank = (h) => order.indexOf(h)
+  rec(
+    g,
+    '★★ 新的在前（竖图最晚，横图最早）',
+    rank('g90-tall') === 0 && rank('g90-wide') === 3,
+    order.join(','),
+  )
+
+  const sources = await page.locator('[data-asset-source]').allInnerTexts()
+  rec(
+    g,
+    '★★ 卡片显示来源**项目名**而不是 hash',
+    sources.includes('猫咪项目') && sources.includes('狗狗项目') && !sources.some((s) => /g90-/.test(s)),
+    sources.join(' | '),
+  )
+
+  const imgDecoded = await page
+    .locator('[data-asset-card="g90-img"] [data-asset-media]')
+    .evaluate((el) => el.naturalWidth)
+    .catch(() => 0)
+  rec(
+    g,
+    '★ 图片真的被解码（naturalWidth=64，不是空壳）',
+    imgDecoded === 64,
+    `naturalWidth=${imgDecoded}`,
+  )
+
+  // ── ② 瀑布流排版（用户 2026-09-29 要的展示方式）──
+  const masonry = await page.evaluate(() => {
+    const els = [...document.querySelectorAll('[data-asset-card]')]
+    const boxes = els.map((el) => {
+      const r = el.getBoundingClientRect()
+      return {
+        hash: el.getAttribute('data-asset-card'),
+        x: Math.round(r.left),
+        w: Math.round(r.width),
+        h: Math.round(r.height),
+      }
+    })
+    const grid = document.querySelector('[data-assets-grid]')
+    const gs = grid ? getComputedStyle(grid) : null
+    return {
+      boxes,
+      /**
+       * `columns: 240px` 设的是**列宽**，计算样式里 `column-count` 因此是 `auto`
+       * （列数由容器宽度除以列宽算出）。故这里读 `column-width` ——
+       * 断言 `column-count` 会把正确的多列布局判成失败。
+       */
+      columnWidth: gs ? gs.columnWidth : null,
+      columnGap: gs ? gs.columnGap : null,
+      breakInside: els[0] ? getComputedStyle(els[0]).breakInside : null,
+    }
+  })
+
+  /* 多列：瀑布流的机制证据（写 grid 也能排出卡片，但那不是瀑布流） */
+  rec(
+    g,
+    '★★ 容器是多列布局（瀑布流的机制，不是等高 grid）',
+    masonry.columnWidth === '240px',
+    `columnWidth=${masonry.columnWidth} columnGap=${masonry.columnGap}`,
+  )
+  rec(
+    g,
+    '★ 卡片禁止跨列断开（否则会被从中间切成两半）',
+    masonry.breakInside === 'avoid',
+    `break-inside=${masonry.breakInside}`,
+  )
+
+  /* 同一列的卡片宽度一致（列宽固定是瀑布流的前提） */
+  const widths = [...new Set(masonry.boxes.map((b) => b.w))]
+  rec(g, '★ 所有卡片同宽（列宽固定）', widths.length === 1, `widths=${widths.join(',')}`)
+
+  const cols = [...new Set(masonry.boxes.map((b) => b.x))]
+  rec(g, '★ 卡片落在多列上（不是一列到底）', cols.length >= 2, `列 x=${cols.join(',')}`)
+
+  /* ★ 核心：高度不齐 = 瀑布流；所有卡片等高 = 退化成等高网格 */
+  const heights = [...new Set(masonry.boxes.map((b) => b.h))]
+  rec(
+    g,
+    '★★★ 卡片高度随素材比例变化（等高则退化成网格，不是瀑布流）',
+    heights.length >= 2,
+    `heights=${masonry.boxes.map((b) => `${b.hash}:${b.h}`).join(' ')}`,
+  )
+
+  /* 竖图必须比横图高 —— 这条把「高度不同」钉成「高度方向正确」 */
+  const hOf = (h) => masonry.boxes.find((b) => b.hash === h)?.h ?? 0
+  rec(
+    g,
+    '★★ 竖图比横图高（比例方向正确，不是随机错落）',
+    hOf('g90-tall') > hOf('g90-img') && hOf('g90-img') > hOf('g90-wide'),
+    `tall=${hOf('g90-tall')} img=${hOf('g90-img')} wide=${hOf('g90-wide')}`,
+  )
+
+  /* 极端长图被夹住，不会把整列撑成一根面条 */
+  const tallAspect = await page
+    .getAttribute('[data-asset-card="g90-tall"] [data-asset-thumb]', 'data-asset-aspect')
+    .catch(() => null)
+  rec(
+    g,
+    '★ 极端比例被夹在 2:1 ~ 1:2（长图不会把一列撑成面条）',
+    Number(tallAspect) >= 0.5 && Number(tallAspect) <= 2,
+    `aspect=${tallAspect}`,
+  )
+
+  // ── ③ 类型筛选 ──
+  await page.locator('[data-assets-filter="image"]').click()
+  await sleep(400)
+  rec(
+    g,
+    '★ 筛「图片」时视频不出现',
+    (await page.locator('[data-asset-card]').count()) === 3 &&
+      (await page.locator('[data-asset-card="g90-vid"]').count()) === 0,
+    `count=${await page.locator('[data-asset-card]').count()}`,
+  )
+  await page.locator('[data-assets-filter="video"]').click()
+  await sleep(400)
+  rec(
+    g,
+    '★ 筛「视频」时只剩视频那张',
+    (await page.locator('[data-asset-card="g90-vid"]').count()) === 1 &&
+      (await page.locator('[data-asset-card]').count()) === 1,
+  )
+  await page.locator('[data-assets-filter="all"]').click()
+  await sleep(400)
+
+  // ── ③ 关键字筛选（按项目名）──
+  await page.locator('[data-assets-search]').fill('猫咪')
+  await sleep(400)
+  rec(
+    g,
+    '★ 关键字能按来源项目名筛（只剩猫咪项目那两张）',
+    (await page.locator('[data-asset-card]').count()) === 2 &&
+      (await page.locator('[data-asset-card="g90-vid"]').count()) === 0,
+    `count=${await page.locator('[data-asset-card]').count()}`,
+  )
+  await page.locator('[data-assets-search]').fill('')
+  await sleep(400)
+
+  // ── ③ 大图预览 ──
+  await page.locator('[data-asset-card="g90-img"] [data-asset-open]').click()
+  await sleep(500)
+  rec(g, '点卡片打开预览浮层', (await page.locator('[data-asset-preview]').count()) === 1)
+  rec(
+    g,
+    '★★ 预览打开的正是这张（hash 对得上）',
+    (await page.getAttribute('[data-asset-preview]', 'data-asset-preview-hash')) === 'g90-img',
+  )
+  const previewW = await page
+    .locator('[data-asset-preview-media]')
+    .evaluate((el) => el.naturalWidth)
+    .catch(() => 0)
+  rec(
+    g,
+    '★★ 预览里的图真的画出来了（naturalWidth=64，404 空图会数出 1 个却宽 0）',
+    previewW === 64,
+    `naturalWidth=${previewW}`,
+  )
+  const previewSource = await page.locator('[data-asset-preview-source]').innerText().catch(() => '')
+  rec(g, '预览显示来源项目', previewSource.trim() === '猫咪项目', previewSource.trim())
+
+  // Esc 关闭（与画布灯箱同一手感）
+  await page.keyboard.press('Escape')
+  await sleep(400)
+  rec(g, '★ Esc 关闭预览', (await page.locator('[data-asset-preview]').count()) === 0)
+
+  // ── ③ 删除（二次确认）──
+  const target = page.locator('[data-asset-card="g90-vid"]')
+  await target.locator('[data-asset-menu]').click()
+  await sleep(300)
+  await target.getByRole('menuitem', { name: '删除' }).click()
+  await sleep(300)
+  rec(g, '删除前要二次确认（不是一点就没）', (await page.locator('[data-asset-delete-yes]').count()) === 1)
+  await page.locator('[data-asset-delete-yes]').click()
+  await sleep(600)
+  rec(
+    g,
+    '★ 删除后卡片消失',
+    (await page.locator('[data-asset-card]').count()) === 3 &&
+      (await page.locator('[data-asset-card="g90-vid"]').count()) === 0,
+    `count=${await page.locator('[data-asset-card]').count()}`,
+  )
+
+  // 库里也要真的没了（只消失在界面上 = 刷新又回来）
+  const left = await page.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('qinghua')
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+    return new Promise((resolve) => {
+      const tx = db.transaction('assets', 'readonly')
+      const req = tx.objectStore('assets').getAllKeys()
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => resolve([])
+    })
+  })
+  rec(
+    g,
+    '★★ 删除真的落库（assets 表里没了，不只是界面上消失）',
+    Array.isArray(left) && !left.includes('g90-vid') && left.includes('g90-img'),
+    JSON.stringify(left),
+  )
+
+  // ── 几何：内容随工作区居中（与技能库 / 设置页同一口径）──
+  const geo = await page.evaluate(() => {
+    const stage = document.querySelector('[data-assets-stage]')
+    const ws = document.querySelector('[data-app-workspace]')
+    if (!stage || !ws) return null
+    const s = stage.getBoundingClientRect()
+    const w = ws.getBoundingClientRect()
+    return { stageCx: Math.round(s.left + s.width / 2), wsCx: Math.round(w.left + w.width / 2), sw: Math.round(s.width), ww: Math.round(w.width) }
+  })
+  rec(
+    g,
+    '★ 素材库内容在工作区水平居中（±2px）',
+    !!geo && Math.abs(geo.stageCx - geo.wsCx) <= 2,
+    JSON.stringify(geo),
+  )
+  rec(
+    g,
+    '★ 内容不横向溢出工作区',
+    !!geo && geo.sw <= geo.ww,
+    geo ? `stage=${geo.sw} workspace=${geo.ww}` : 'no geo',
+  )
+
+  await page.screenshot({ path: `${OUT}/105-g90-assets.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

@@ -84,7 +84,22 @@ export type Command =
   // 生成产物落库：节点只持有 hash，媒体本体（字节）写 assets 表（产品文档 §8 hash 主键）
   | {
       kind: 'asset.put'
-      asset: { hash: string; mime: string; bytes: Uint8Array; width?: number; height?: number }
+      /**
+       * `createdAt` / `projectId` 是**素材库要用的两个字段**（2026-09-29）。
+       *
+       * 素材本体此前只有字节与尺寸：能画出来，但「什么时候来的、属于哪个项目」
+       * 一概不知 —— 于是素材库既排不了序，也说不出来源。这两个字段可选，
+       * 老数据缺它们由 `toLibraryAssets` 从生成记录 / 持有节点回落，零迁移。
+       */
+      asset: {
+        hash: string
+        mime: string
+        bytes: Uint8Array
+        width?: number
+        height?: number
+        createdAt?: number
+        projectId?: string
+      }
     }
   // RunRecord：执行留痕，「从不删除」是硬性要求（日志面板的数据源）
   | { kind: 'node.runRecord.append'; nodeId: string; record: RunRecord }

@@ -183,7 +183,23 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
        */
       const stored: Command[] = assets.map((a) => ({
         kind: 'asset.put',
-        asset: { hash: a.hash, mime: a.mime, bytes: a.bytes, width: a.width, height: a.height },
+        /**
+         * `createdAt` / `projectId`：素材库靠它们排序与显示来源。
+         *
+         * 项目取 `getProjectId()`（当前画布所在的项目）而不是「谁触发了这次生成」：
+         * 产物落在**当前项目**的节点上，它就是这个项目的素材 ——
+         * 与上传那条路同口径，两处不这么统一的话，同一张图在两个入口
+         * 会显示成不同的来源。
+         */
+        asset: {
+          hash: a.hash,
+          mime: a.mime,
+          bytes: a.bytes,
+          width: a.width,
+          height: a.height,
+          createdAt: Date.now(),
+          projectId: getProjectId(),
+        },
       }))
       return [
         ...stored,

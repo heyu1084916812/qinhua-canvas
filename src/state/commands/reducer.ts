@@ -416,8 +416,16 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
     }
 
     case 'asset.put': {
-      // 媒体本体写 assets 表（content-addressable，hash 主键）；不进撤销栈（派生媒体，删除版本历史时由结果组级联）
-      // assets 表的 Dexie 主键是 `id`，这里把 hash 同时落到 id 上（产品文档 §8：id 即内容哈希）
+      /**
+       * 媒体本体写 assets 表（content-addressable，hash 主键）；不进撤销栈
+       * （派生媒体，删除版本历史时由结果组级联）。
+       * assets 表的 Dexie 主键是 `id`，这里把 hash 同时落到 id 上（产品文档 §8：id 即内容哈希）。
+       *
+       * `createdAt` / `projectId` 透传（素材库的排序与来源靠它们）。
+       * **两者都允许缺**：老素材没有这两个字段，由 `toLibraryAssets` 回落 ——
+       * 这里不补默认值，因为命令层没有「现在几点」之外的真相
+       * （缺就是缺，补一个假时间比不补更糟）。
+       */
       const row = { ...cmd.asset, id: cmd.asset.hash } as unknown as Row
       return {
         patches: [{ op: 'upsert', table: 'assets', row }],
