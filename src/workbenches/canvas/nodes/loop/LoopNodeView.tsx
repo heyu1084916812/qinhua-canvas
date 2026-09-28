@@ -295,8 +295,10 @@ export function LoopNodeView(props: NodeViewProps) {
           <div className={styles.promptList} data-loop-prompt-list>
             {promptRows.map((text, i) => (
               <div className={styles.promptItem} key={i}>
-                {/* 编号圆点**骑在左上角**（照抄大雄的 translate(-30%,-30%)） */}
-                <span className={styles.promptIndex}>{i + 1}</span>
+                {/* 编号圆点圆心**落在输入框左上角顶点**（用户 2026-09-28：圆点必须在顶点上） */}
+                <span className={styles.promptIndex} data-loop-prompt-index={i}>
+                  {i + 1}
+                </span>
                 {/*
                   提示词用**变量芯片编辑器**（用户 2026-09-24：「输入框内会自动变成
                   一个按钮一样的东西」）：`[计数]` 在输入框里显示成带 × 的胶囊，
@@ -325,7 +327,7 @@ export function LoopNodeView(props: NodeViewProps) {
                   aria-label="删除这一条"
                   onClick={() => patchNow({ prompts: promptRows.filter((_, k) => k !== i) })}
                 >
-                  ×
+                  <IconClose />
                 </button>
               </div>
             ))}
@@ -351,7 +353,7 @@ export function LoopNodeView(props: NodeViewProps) {
               aria-label="新增一条提示词"
               onClick={() => patchNow({ prompts: [...promptRows, ''] })}
             >
-              ＋
+              <IconPlus />
             </button>
           </div>
         </div>
@@ -559,7 +561,7 @@ function NumberControl({
               onPointerDown={(e) => e.stopPropagation()}
               onClick={applyDraft}
             >
-              ＋
+              <IconPlus />
             </button>
           </label>
         </div>
@@ -579,6 +581,43 @@ function IconImage() {
       <rect x="3" y="3" width="18" height="18" rx="2" />
       <circle cx="9" cy="9" r="2" />
       <path d="m21 15-3.5-3.5L9 20" />
+    </svg>
+  )
+}
+
+/*
+ * 加号 / 关闭：**居中 24×24 viewBox**，圆心即按钮中心。
+ * 字形本身关于 (12,12) 对称，容器用 grid+place-items 居中后，旋转或缩放都不会偏移
+ * （用户 2026-09-28：文本符号「＋ / ×」在圆形按钮里看起来始终偏，故换成矢量图标）。
+ */
+function IconPlus() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  )
+}
+
+function IconClose() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M18 6 6 18M6 6l12 12" />
     </svg>
   )
 }

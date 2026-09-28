@@ -1615,3 +1615,16 @@ x 坐标完全不变、容器只向右扩，就必须让这两者是**左对齐*
 本机默认 headless shell 未安装，`chromium.launch()` 直接起不来。临时探针与
 截图脚本一律用 `chromium.launch({ channel: 'chrome' })`；像素 / 几何结论仍以
 `scripts/smoke.mjs` 的有头链路为准，临时脚本不要复用页面初始化。
+
+### ★ 圆钮图标不要用 `＋` / `×` 字形（2026-09-28 循环节点）
+
+文本字形的视觉边界受字体度量影响，即使外层 `flex` 居中，在圆钮里看仍会偏。
+圆钮内统一用关于 viewBox 中心对称的 SVG，容器用 `grid + place-items:center`，
+并给图标自身固定宽高。深色主题的选中态用 `--control-inverse-bg` /
+`--control-inverse-text`，不要用 `--accent*`，后者在深色主题会翻成浅底深字。
+
+### ★ 画布世界层不要写 `will-change: transform`（2026-09-28 循环节点）
+
+它会预提升合成层，和节点内部 `container-type` 在非整数缩放下共同作用，
+表现为节点模糊或只有一部分清晰。保持 `will-change:auto`，由浏览器在缩放时正常栅格化；
+冒烟 G67 以世界层 `will-change=auto` 作为回归钉子。

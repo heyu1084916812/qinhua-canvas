@@ -7626,6 +7626,31 @@ async function g67(browser) {
   await node.locator('[data-loop-quick="count:3"]').waitFor({ state: 'visible', timeout: 5000 })
   const quickCount = await node.locator('[data-loop-quick^="count:"]').count()
   rec(g, '★ 数字控件点开后浮出快捷档位（复刻大雄）', quickCount >= 6, `${quickCount} 档`)
+  /*
+   * ★ 用户 2026-09-28：「那个加号的中心没有和圆形的中心一致，偏移了，
+   *   xx 的符号好像也偏移了」。
+   *
+   * 之前的实现用文本字形（`＋` / `×`）当图标，字形的位置由字体度量决定，
+   * 在圆形按钮里永远差一点点。现在换成内联 SVG（关于 viewBox 中心对称），
+   * 容器用 `grid + place-items: center`。判据：**按钮中心与 SVG 中心的
+   * 偏差 ≤ 1px** —— 这直接量的是用户看到的那件事，而不是「用没用 SVG」。
+   */
+  const applyCentered = await node.locator('[data-loop-number-apply="count"]').evaluate((btn) => {
+    const svg = btn.querySelector('svg')
+    if (!svg) return null
+    const b = btn.getBoundingClientRect()
+    const s = svg.getBoundingClientRect()
+    return {
+      dx: Math.abs((b.left + b.right) / 2 - (s.left + s.right) / 2),
+      dy: Math.abs((b.top + b.bottom) / 2 - (s.top + s.bottom) / 2),
+    }
+  })
+  rec(
+    g,
+    '★ 数字浮层「应用」按钮里的加号居中（矢量图标，不是字形）',
+    !!applyCentered && applyCentered.dx <= 1 && applyCentered.dy <= 1,
+    applyCentered ? `dx=${applyCentered.dx.toFixed(2)} dy=${applyCentered.dy.toFixed(2)}` : '没找到 svg',
+  )
   // 关掉浮层，免得挡住后面的操作
   await page.keyboard.press('Escape')
   await sleep(300)
@@ -7633,6 +7658,144 @@ async function g67(browser) {
   // 提示词输入行直接列在面板里（大雄形态，不是抽屉）
   const promptRows = await node.locator('[data-loop-prompt]').count()
   rec(g, '至少有一条提示词输入', promptRows >= 1, `${promptRows} 条`)
+
+  /**
+   * ★ 用户 2026-09-28 一轮报了四件事，逐条钉住：
+   *  ①选中态要「深色按钮 + 浅色文字」；②编号圆点圆心落在输入框左上角顶点；
+   *  ③删除 × 的圆心落在右上角顶点；④节点缩放时不该糊。
+   */
+  /*
+   * ① 选中态配色。
+   *
+   * 用户要的是「深色按钮 + 浅色文字」，所以判据也是这两件事本身：
+   *  · 选中态按钮的底色 = `--control-inverse-bg`、字色 = `--control-inverse-text`
+   *    （不能用 `--accent*`：深色主题下它是近白底，选中反而变浅）；
+   *  · 底色亮度必须**低于**字色亮度 —— 万一有人把令牌值改反了也能拦住。
+   * 探针元素现场取令牌的计算值当基准，不写死具体色值。
+   */
+  const toggleStyle = await node.evaluate((el) => {
+    const probe = document.createElement('div')
+    probe.style.background = 'var(--control-inverse-bg)'
+    probe.style.color = 'var(--control-inverse-text)'
+    el.appendChild(probe)
+    const ps = getComputedStyle(probe)
+    const wantBg = ps.backgroundColor
+    const wantFg = ps.color
+    probe.remove()
+    // 相对亮度：只用来判方向（底比字暗），不追求严格的 WCAG 对比度公式
+    const lum = (rgb) => {
+      const m = rgb.match(/\d+(\.\d+)?/g)
+      if (!m) return null
+      const [r, g, b] = m.slice(0, 3).map(Number)
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+    const out = {}
+    for (const which of ['image', 'prompt']) {
+      const btn = el.querySelector(`[data-loop-toggle="${which}"]`)
+      if (!btn) continue
+      const cs = getComputedStyle(btn)
+      out[which] = {
+        bg: cs.backgroundColor,
+        fg: cs.color,
+        pressed: btn.getAttribute('aria-pressed'),
+      }
+    }
+    return { wantBg, wantFg, out, wantBgLum: lum(wantBg), wantFgLum: lum(wantFg) }
+  })
+  const toggleOk = ['image', 'prompt'].every((w) => {
+    const t = toggleStyle.out[w]
+    return t && t.pressed === 'true' && t.bg === toggleStyle.wantBg && t.fg === toggleStyle.wantFg
+  })
+  rec(
+    g,
+    '★ 图片 / 提示词选中态是反色令牌（深色底 + 浅色字）',
+    toggleOk &&
+      toggleStyle.wantBgLum !== null &&
+      toggleStyle.wantFgLum !== null &&
+      toggleStyle.wantBgLum < toggleStyle.wantFgLum,
+    `want ${toggleStyle.wantBg}/${toggleStyle.wantFg} got ${JSON.stringify(toggleStyle.out)}`,
+  )
+
+  /*
+   * ②③ 角标圆心与输入框顶点重合。
+   *
+   * 判据是最小容差 1px：**圆心**（按钮矩形中心）与输入框的左上 / 右上**顶点**对齐。
+   * 输入框的定位点取自它自己的 `getBoundingClientRect()`，所以这条断言不依赖
+   * item 的内距是多少 —— 以后改内距，只要圆心还落在顶点上就仍然过。
+   * 同时顺带验「加号按钮里的 SVG 也在按钮中心」。
+   */
+  const cornerGeo = await node.evaluate((el) => {
+    const input = el.querySelector('[data-loop-prompt="0"]')
+    const badge = el.querySelector('[data-loop-prompt-index="0"]')
+    const del = el.querySelector('[data-loop-prompt-delete="0"]')
+    const add = el.querySelector('[data-loop-prompt-add]')
+    if (!input || !badge || !del || !add) return null
+    const ib = input.getBoundingClientRect()
+    const center = (n) => {
+      const b = n.getBoundingClientRect()
+      return { x: (b.left + b.right) / 2, y: (b.top + b.bottom) / 2 }
+    }
+    const bc = center(badge)
+    const dc = center(del)
+    const delSvg = del.querySelector('svg')
+    const db = del.getBoundingClientRect()
+    const ds = delSvg ? delSvg.getBoundingClientRect() : null
+    const addSvg = add.querySelector('svg')
+    const ab = add.getBoundingClientRect()
+    const as = addSvg ? addSvg.getBoundingClientRect() : null
+    return {
+      leftDx: Math.abs(bc.x - ib.left),
+      leftDy: Math.abs(bc.y - ib.top),
+      rightDx: Math.abs(dc.x - ib.right),
+      rightDy: Math.abs(dc.y - ib.top),
+      delDx: ds ? Math.abs((db.left + db.right) / 2 - (ds.left + ds.right) / 2) : null,
+      delDy: ds ? Math.abs((db.top + db.bottom) / 2 - (ds.top + ds.bottom) / 2) : null,
+      addDx: as ? Math.abs((ab.left + ab.right) / 2 - (as.left + as.right) / 2) : null,
+      addDy: as ? Math.abs((ab.top + ab.bottom) / 2 - (as.top + as.bottom) / 2) : null,
+    }
+  })
+  rec(
+    g,
+    '★ 编号圆点圆心落在输入框左上角顶点（≤1px）',
+    !!cornerGeo && cornerGeo.leftDx <= 1 && cornerGeo.leftDy <= 1,
+    cornerGeo ? `dx=${cornerGeo.leftDx.toFixed(2)} dy=${cornerGeo.leftDy.toFixed(2)}` : '没找到元素',
+  )
+  rec(
+    g,
+    '★ 删除 × 圆心落在输入框右上角顶点（≤1px）',
+    !!cornerGeo && cornerGeo.rightDx <= 1 && cornerGeo.rightDy <= 1,
+    cornerGeo ? `dx=${cornerGeo.rightDx.toFixed(2)} dy=${cornerGeo.rightDy.toFixed(2)}` : '没找到元素',
+  )
+  rec(
+    g,
+    '★ 删除按钮里的 × 居中（矢量图标，不是字形）',
+    !!cornerGeo && cornerGeo.delDx !== null && cornerGeo.delDx <= 1 && cornerGeo.delDy <= 1,
+    cornerGeo ? `dx=${cornerGeo.delDx?.toFixed(2)} dy=${cornerGeo.delDy?.toFixed(2)}` : '没找到元素',
+  )
+  rec(
+    g,
+    '★ 「＋新增一条」按钮里的加号居中（矢量图标）',
+    !!cornerGeo && cornerGeo.addDx !== null && cornerGeo.addDx <= 1 && cornerGeo.addDy <= 1,
+    cornerGeo ? `dx=${cornerGeo.addDx?.toFixed(2)} dy=${cornerGeo.addDy?.toFixed(2)}` : '没找到元素',
+  )
+
+  /*
+   * ④ 渲染清晰度：根因是画布世界层被 `will-change: transform` 预提升成合成层，
+   * 节点内部 `container-type: inline-size` 的容器在非整数缩放下被光栅化成位图，
+   * 放大就糊、分块栅格化就「一块清晰一块糊」。
+   *
+   * 判据：世界层的 `will-change` 必须是 `auto`（即没被提升）。这条钉子是为了
+   * 防止以后有人「优化性能」时又把它加回来 —— 那正是这次 bug 的来源。
+   */
+  const worldWillChange = await page
+    .locator('[data-world]')
+    .evaluate((el) => getComputedStyle(el).willChange)
+  rec(
+    g,
+    '★ 画布世界层没有被预提升成合成层（防节点缩放发糊）',
+    worldWillChange === 'auto',
+    `will-change=${worldWillChange}`,
+  )
 
   /**
    * ★ 用户 2026-09-23 报的三件事，逐个钉住：

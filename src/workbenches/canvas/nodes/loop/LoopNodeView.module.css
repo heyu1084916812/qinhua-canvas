@@ -129,9 +129,16 @@
 }
 
 .toggleActive {
-  background: var(--bg-hover);
-  color: var(--text-1);
-  border-color: var(--text-3);
+  /*
+   * 选中态固定「深色底 + 浅色字」（用户 2026-09-28）。
+   *
+   * 这里**不能**用 `--accent*`：深色主题下 `--accent` 会翻成近白底，
+   * 选中反而变成浅色按钮，与「深色按钮加浅色文字」相反。
+   * `--control-inverse-*` 在明暗两套主题下都是深底浅字，语义也正好是「反色控件」。
+   */
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+  border-color: var(--control-inverse-bg);
 }
 
 /* ── ③④ 内容面板（大雄 .loop-smart-panel） ── */
@@ -298,25 +305,28 @@
   display: block;
   min-width: 0;
   /*
-   * 左上角留出一圈空间给编号圆点。
+   * 左上角与顶部各留 4px，作为编号圆点的定位基准。
    *
-   * 大雄的圆点用 `translate(-30%,-30%)` 往外骑，靠的是 `.prompt-list` 有内距、
-   * 圆点溢出去也看得见。本实现的面板内距只有 8px，圆点 18px 的 30% 约 5px，
-   * 溢出的部分正好被输入框**压住**（实测两者矩形重叠）。
-   * 给 item 上方与左侧各让 4px，圆点就完整骑在角外侧，与输入框不再重叠。
+   * 输入框（TokenEditor）是 `width:100%` + `box-sizing:border-box` 的块级元素，
+   * 没有自身外边距，所以它的左上角顶点就是这里的 `(4px, 4px)`，右上角顶点
+   * 就在 item 右边缘的 `y = 4px` 处。圆点与删除按钮都用绝对定位 + 反向平移，
+   * 让**圆心**正好压在这两个顶点上（用户 2026-09-28 的要求）。
    */
   padding: 4px 0 0 4px;
   border-radius: var(--radius-control);
 }
 
 /*
- * 编号圆点**骑在左上角**：大雄用 `transform:translate(-30%,-30%)`，
- * 让圆点压在边框拐角上，而不是占一行空间。这是那套 UI 的一个辨识特征。
+ * 编号圆点：圆心**落在输入框左上角顶点**上，圆点一半溢在输入框外。
+ *
+ * 定位基准是 `.promptItem` 的 `(4px, 4px)`（即输入框左上角顶点），
+ * 再用 `translate(-50%,-50%)` 把圆点自身的宽高各退回一半，圆心才与顶点重合。
+ * 不要改回百分比以外的「固定像素偏移」写法：固定值只在某一档字号下成立。
  */
 .promptIndex {
   position: absolute;
-  left: 0;
-  top: 0;
+  left: 4px;
+  top: 4px;
   z-index: 2;
   width: 18px;
   height: 18px;
@@ -331,15 +341,7 @@
   line-height: 1;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
-  /*
-   * 偏移用**固定像素**而不是百分比（与上一版的有意偏离，理由如下）。
-   *
-   * 大雄用 `translate(-30%,-30%)`：它在 340 宽的节点里、面板内距更大，
-   * 30% 正好把圆点推出输入框边框。本实现面板内距 8px，30% 只有约 5px，
-   * 圆点仍有大半压在输入框里（实测圆点矩形 695,414 与输入框 706,425 重叠）。
-   * 固定 -9px 让圆点中心落在输入框左上角**顶点**上——这才是「骑在角上」。
-   */
-  transform: translate(-9px, -9px);
+  transform: translate(-50%, -50%);
 }
 
 /*
@@ -350,11 +352,18 @@
  * 两边迟早会漂移（改了一处忘了另一处），表现就是「同一个输入框在新旧两种渲染下不一样」。
  */
 
-/* 删除按钮：默认半隐，悬停才实起来（大雄 opacity .72 → 1） */
+/*
+ * 删除按钮：圆心**落在输入框右上角顶点**上（用户 2026-09-28）。
+ *
+ * `.promptItem` 右侧没有内距，所以按钮的 `right: 0` 就是输入框右边缘；
+ * `translate(50%,-50%)` 再把它自身退回一半，圆心与顶点重合，按钮一半溢在框外。
+ * 图标用内联 SVG（不是 `×` 字形）：字形的位置由字体决定，居中不可控。
+ * 默认半隐，悬停才实起来（大雄 opacity .72 → 1）。
+ */
 .iconBtn {
   position: absolute;
-  right: 2px;
-  top: 2px;
+  right: 0;
+  top: 4px;
   z-index: 2;
   width: 18px;
   height: 18px;
@@ -363,15 +372,23 @@
   border-radius: 999px;
   background: var(--bg-hover);
   color: var(--text-3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  line-height: 1;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  line-height: 0;
   font-weight: 800;
   cursor: pointer;
   opacity: 0.72;
   transition: background var(--dur-hover), color var(--dur-hover), opacity var(--dur-hover);
+  transform: translate(50%, -50%);
+}
+
+/* 图标尺寸在按钮里固定：不固定的话 svg 会按父级字号撑开、居中随之失效 */
+.iconBtn svg {
+  display: block;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
 }
 
 .iconBtn:hover:not(:disabled) {
@@ -420,15 +437,21 @@
   height: 22px;
   padding: 0;
   border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
   background: var(--bg-surface);
   border: 1px solid var(--stroke);
   color: var(--text-2);
-  font-size: 13px;
-  line-height: 1;
+  line-height: 0;
   cursor: pointer;
+}
+
+.addPrompt svg {
+  display: block;
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
 }
 
 .addPrompt:hover {
@@ -696,7 +719,16 @@
   border-radius: 999px;
   background: var(--accent);
   color: var(--accent-text);
-  font-size: 12px;
-  line-height: 1;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  line-height: 0;
   cursor: pointer;
+}
+
+.numApply svg {
+  display: block;
+  width: 11px;
+  height: 11px;
+  pointer-events: none;
 }
