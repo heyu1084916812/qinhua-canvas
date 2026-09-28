@@ -143,6 +143,8 @@ export function SettingsPage() {
   const catalog = useMemo(() => channels.protocolCatalog(), [channels, catalogVersion])
   /** 下拉里的全部协议（含 pending：它们显示为“待支持”且不可选，见协议区渲染） */
   const protocolOptions = catalog.all
+  /** 当前所选协议的说明（CLI 网关等有前提的协议必须显示出来，否则用户会填错地址） */
+  const selectedProtocolNote = protocolById(protocol, catalog)?.note ?? ''
 
   // —— 添加自定义协议（用户 2026-09-28）：只开放 OpenAI 兼容族的对话 / 生图声明 ——
   const [newProtoOpen, setNewProtoOpen] = useState(false)
@@ -880,6 +882,17 @@ export function SettingsPage() {
                     Mock 是离线协议：不发任何网络请求、也不会去访问上面填的地址，所以验证必然通过。
                     要联调真实中转，把「协议」切到「OpenAI 兼容（对话 + 生图）」后再点一次「验证地址」，
                     或者直接点「验证协议」让它自己认。
+                  </p>
+                )}
+                {/*
+                  「这条协议有什么前提」一直写在目录的 `note` 里，却从未显示 ——
+                  于是 CLI 网关类协议看起来与普通站点无异，用户把 CLI 官网地址填进来
+                  必然验证失败，还不知道为什么。这里把当前协议的说明显式说出来。
+                  mock 另有专门提示（要点是「没出网」），故仅在非 mock 时显示。
+                */}
+                {selectedProtocolNote && protocol !== 'mock' && (
+                  <p className={styles.offlineNote} data-settings-proto-note>
+                    {selectedProtocolNote}
                   </p>
                 )}
               </section>

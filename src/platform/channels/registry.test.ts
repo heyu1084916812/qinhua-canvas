@@ -53,4 +53,102 @@ describe('channel registry', () => {
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.models[0]?.id).toBe('gpt-image-2')
   })
+
+  it('async-task 族分派到异步任务适配器（不再是 unsupported）', () => {
+    const a = createChannelAdapter(
+      {
+        ...base,
+        protocol: 'apimart',
+        baseUrl: 'https://api.apimart.ai',
+        apiKey: 'k',
+        protocolDefinition: {
+          id: 'apimart',
+          name: 'APIMART',
+          short: 'APIM',
+          family: 'async-task',
+          kind: 'station',
+          status: 'ready',
+          capabilities: ['image', 'video'],
+          versionPath: '/v1',
+        },
+      },
+      createMemoryPlatform(),
+    )
+    expect(a.protocol).toBe('apimart')
+  })
+
+  it('cli-gateway 族分派到网关适配器（不再是 unsupported）', () => {
+    const a = createChannelAdapter(
+      {
+        ...base,
+        protocol: 'gemini-cli',
+        baseUrl: 'http://127.0.0.1:8787',
+        apiKey: null,
+        protocolDefinition: {
+          id: 'gemini-cli',
+          name: 'Gemini CLI 网关',
+          short: 'GEM',
+          family: 'cli-gateway',
+          kind: 'station',
+          status: 'ready',
+          capabilities: ['chat'],
+          versionPath: '/v1',
+        },
+      },
+      createMemoryPlatform(),
+    )
+    expect(a.protocol).toBe('gemini-cli')
+  })
+
+  it('异步任务：提交 → 轮询 → 产物，走完整链路', async () => {
+    let polls = 0
+    const platform = createMemoryPlatform({
+      handler: async (req) => {
+        if (req.method === 'POST') return resp(200, { data: { task_id: 't1' } })
+        if (req.url?.includes('/tasks/')) {
+          polls += 1
+          if (polls === 1) return resp(200, { status: 'processing' })
+          return resp(200, { status: 'completed', result: { images: [{ url: ['https://x/a.png'] }] } })
+        }
+        return resp(200, {})
+      },
+    })
+    const a = createChannelAdapter(
+      {
+        ...base,
+        protocol: 'apimart',
+        baseUrl: 'https://api.apimart.ai',
+        apiKey: 'k',
+        protocolDefinition: {
+          id: 'apimart',
+          name: 'APIMART',
+          short: 'APIM',
+          family: 'async-task',
+          kind: 'station',
+          status: 'ready',
+          capabilities: ['image'],
+          versionPath: '/v1',
+        },
+      },
+      platform,
+    )
+    const assets = await (
+      a as unknown as {
+        __withPoll?: unknown
+      } & typeof a
+    ).generateImage(
+      {
+        kind: 'image',
+        channelId: 'c',
+        model: 'gpt-image-2',
+        prompt: 'cat',
+        inputs: [],
+        params: { count: 1 },
+      } as never,
+      new AbortController().signal,
+    )
+    // 产物下载在内存平台里取不到字节 → 断言「走到了终态且没有抛错」
+    expect(Array.isArray(assets)).toBe(true)
+    expect(polls).toBe(2)
+  })
 })

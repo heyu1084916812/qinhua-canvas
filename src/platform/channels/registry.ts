@@ -3,6 +3,8 @@ import { ChannelError, type ChannelAdapter, type ChannelDeps } from './types'
 import { createMockChannel } from './mock'
 import { createOpenAiChatAdapter } from './openaiChat'
 import { createOpenAiImagesAdapter } from './openaiImages'
+import { createAsyncTaskAdapter } from './asyncTask'
+import { createCliGatewayAdapter } from './cliGateway'
 
 /** 调用前由凭据层注入明文令牌的渠道配置（业务代码与 UI 全程不接触明文） */
 export interface ResolvedChannelConfig extends SafeChannelConfig {
@@ -84,9 +86,18 @@ export function createChannelAdapter(
       return createMockChannel()
     case 'openai-compatible':
       return createOpenAiCompatibleAdapter(config, deps)
-    // 异步任务 / CLI 网关的适配器尚未实现：如实报「不支持」，不落到某个壳里假装能用
+    /**
+     * 异步任务族：提交只回 `task_id`，产物要轮询 `GET {base}/tasks/{id}` 才拿得到。
+     * 与同步族是两条不同的链路，故单独一个适配器（依据见 asyncTask.ts 文件头）。
+     */
     case 'async-task':
+      return createAsyncTaskAdapter(config, deps)
+    /**
+     * CLI 网关族：浏览器跑不了本机命令，只能访问用户自己跑的网关。
+     * 网关对外是 OpenAI 兼容形态，故按能力分派到既有两个适配器（见 cliGateway.ts）。
+     */
     case 'cli-gateway':
+      return createCliGatewayAdapter(config, deps)
     default:
       throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
   }

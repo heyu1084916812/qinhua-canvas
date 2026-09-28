@@ -1394,6 +1394,31 @@ G44 因此红。改用 `data-settings-save` / `data-settings-token-save` /
 断言「第一排五个同一 y」时必须把 `[data-new-card]` 计入第一排，不能只查
 `[data-project-card]`，否则第一条项目卡落在第二排，五列断言会假红。
 
+### ★ 异步任务族与 CLI 网关族：适配器落成前的三条口径（2026-09-29）
+
+用户「把协议和 CLI 支持做完」时，这两族此前只是 `pending`（界面不可选）。
+落地时的三个判断，改这块前先读：
+
+1. **异步族不是「同步请求换个地址」**。APIMART 的图像 / 视频是
+   `POST /images/generations` → 只回 `data.task_id` → `GET /v1/tasks/{id}` 轮询 →
+   `result.images[].url[]` / `result.videos[].url[]` 才是产物地址。
+   塞进同步适配器会得到「点生成立刻成功、一张图都没有」——最难查的一类假功能。
+   依据取自 `docs.apimart.ai`（另有 `/llms.txt` 索引，抓正文比猜端点可靠）。
+2. **CLI 族必须有网关，且要在界面上说清**。浏览器没有子进程，跑不了 `gemini` / `codex`。
+   这类协议可用与否取决于用户自己跑的网关（把 CLI 包成 OpenAI 兼容 HTTP），
+   适配器只按能力分派到既有 chat / images 适配器。**`note` 必须显示**，否则
+   CLI 条目看起来与普通中转站无异，用户填 CLI 官网地址必然验证失败。
+   顺带修掉一个真缺陷：协议 `note` 从没被渲染过，只有 mock 有一条写死的提示。
+3. **能力只声明有适配器分支的那些**。异步族没有对话适配器，就不声明 `chat`；
+   声明了却抛 unsupported，等于给用户一条跑不通的路。
+
+**轮询参数必须可注入**（`pollIntervalMs` / `sleep` / `now`）：单测要走完
+「processing → completed」两步并覆盖超时，**不能靠 sleep 赌时长**。
+
+**冒烟分层**：只断言「下拉里可选」证不出适配器真的接上了（标 ready 却抛 unsupported
+照样全绿）。G89 因此既查 `option` 不是 disabled，又用 `page.route` 拦下出站请求，
+断言实际打的是 `/v1/models` 这类协议自己声明的端点。
+
 ### M7-6 提示词节点去平台 + 官方 PNG logo + 显示名认领上游 ID（2026-09-27 第 8 轮）
 
 **用户四条原话**（别再各自理解）：

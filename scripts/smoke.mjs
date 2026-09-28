@@ -11506,7 +11506,109 @@ async function g88(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88]
+/**
+ * G89 异步任务协议 + CLI 网关（用户 2026-09-28「把协议和 CLI 支持做完」）。
+ *
+ * 这两族此前是 pending（界面不可选），本轮落了真实适配器：
+ *  - `apimart`：提交回 `task_id` → 轮询 `GET /v1/tasks/{id}` → `result.images[].url[]`；
+ *  - `jimeng-cli` / `gpt-cli` / `gemini-cli`：要求用户跑一个 OpenAI 兼容的 HTTP 网关。
+ *
+ * 断言刻意分两层：①界面上真的可选（不是 disabled）；②按协议打的是它自己声明的端点。
+ * 只做①的话，「标了 ready 但适配器还是抛 unsupported」照样全绿。
+ */
+async function g89(browser) {
+  const g = 'G89 异步任务与CLI网关'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  // 拦截出站请求，记录协议实际打出的端点（不发真实请求）
+  const seen = []
+  await page.route('**://api.apimart.ai/**', async (route) => {
+    const url = route.request().url()
+    const method = route.request().method()
+    seen.push(`${method} ${url}`)
+    if (method === 'POST') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 200, data: { status: 'submitted', task_id: 'task_g89' } }),
+      })
+      return
+    }
+    if (url.includes('/tasks/')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'task_g89',
+          status: 'completed',
+          progress: 100,
+          result: { images: [{ url: ['https://api.apimart.ai/fake/a.png'] }] },
+        }),
+      })
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: [{ id: 'gpt-image-2' }] }),
+    })
+  })
+
+  await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+  await sleep(500)
+  await page.getByRole('button', { name: /新增渠道/ }).click()
+  await sleep(400)
+  await page.getByText('新建渠道').first().click()
+  await sleep(300)
+
+  // ① 异步任务协议可选（不再是「待支持」且被禁用）
+  const apimartDisabled = await page
+    .locator('[data-settings-protocol] option[value="apimart"]')
+    .isDisabled()
+  const apimartLabel = await page
+    .locator('[data-settings-protocol] option[value="apimart"]')
+    .innerText()
+  rec(g, '★ APIMART 异步协议可选（不再标待支持）', apimartDisabled === false, apimartLabel.trim())
+
+  await page.locator('[data-settings-protocol]').selectOption('apimart')
+  await sleep(250)
+  const apimartUrl = await page.locator('[data-settings-baseurl]').inputValue()
+  rec(g, '★ 选中 APIMART 自动填官方文档基址', apimartUrl === 'https://api.apimart.ai', apimartUrl)
+
+  // ② 验证地址：异步族仍走 /v1/models（连通性与 OpenAI 兼容同形）
+  await page.locator('[data-settings-verify]').click()
+  await sleep(900)
+  rec(
+    g,
+    '★★ 异步协议验证打的是 /v1/models',
+    seen.some((s) => s === 'GET https://api.apimart.ai/v1/models'),
+    seen.join(' | '),
+  )
+
+  // ③ CLI 三条都是 ready，且选中后要求填网关地址（不给默认地址，避免拿官网地址冒充）
+  for (const id of ['jimeng-cli', 'gpt-cli', 'gemini-cli']) {
+    const disabled = await page
+      .locator(`[data-settings-protocol] option[value="${id}"]`)
+      .isDisabled()
+    rec(g, `★ ${id} 可选（网关形态已可用）`, disabled === false)
+  }
+  await page.locator('[data-settings-protocol]').selectOption('gemini-cli')
+  await sleep(250)
+  const cliNote = await page
+    .locator('[data-settings-proto-note]')
+    .innerText()
+    .catch(() => '')
+  rec(g, '★ CLI 协议提示需要网关地址', cliNote.includes('网关'), cliNote.slice(0, 80))
+
+  await page.screenshot({ path: `${OUT}/104-g89-async-cli.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

@@ -20,8 +20,10 @@
  * 2. **领域层没有的能力不假装支持**。`ModelCapability.category` 目前只有
  *    `image | chat | video`，没有音频与 3D。协议 `capabilities` 因此也只到这三项；
  *    音频 / 3D 站点先按 pending 记着，等领域层有能力定义再开。
- * 3. **纯 Web 应用跑不了本机 CLI**。CLI 类协议（即梦 / GPT / Gemini）必须接一个
- *    专用网关才有意义，没有网关时它们只能是 pending，不能给个空壳让用户以为配好了。
+ * 3. **纯 Web 应用跑不了本机 CLI**。CLI 类协议（即梦 / GPT / Gemini）要能用，
+ *    前提是用户自己跑一个**网关**把 CLI 包成 OpenAI 兼容 HTTP——本应用只访问那个地址。
+ *    所以它们现在是 ready，但 `note` 必须写明「这里填的是网关地址」；
+ *    不写清楚就等于让用户拿 CLI 的官网地址去配，必然验证失败。
  *
  * 纯度：纯数据 + 纯函数，不依赖 platform / state / React（架构 §2.2）。
  */
@@ -111,6 +113,19 @@ export interface ProtocolDefinition {
  * 改 id 等于让所有已配置渠道在升级后变成「未知协议」。新站点一律用
  * `openai-compatible` 或站点条目。
  */
+
+/**
+ * CLI 网关族的统一说明（三条 CLI 协议共用）。
+ *
+ * 必须先声明再用：它在下面的 `BUILTIN_PROTOCOLS` 里被引用，
+ * 放在数组之后会撞上 `const` 的暂时性死区（ReferenceError）。
+ *
+ * 三条共用一句是因为差别只在「网关后面挂的是哪个 CLI」，
+ * 而用户要做的动作完全相同 —— 跑网关、把网关地址填进来。
+ */
+const CLI_GATEWAY_NOTE_TEXT =
+  'CLI 类协议不能直接跑本机命令：请先把 CLI 包成一个 OpenAI 兼容的 HTTP 网关（本机或服务器均可），这里填网关地址。'
+
 export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
   {
     id: 'mock',
@@ -252,9 +267,18 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     short: 'APIM',
     family: 'async-task',
     kind: 'station',
-    status: 'pending',
-    capabilities: [],
-    note: '异步提交 + 轮询协议，尚未核到官方文档，暂不可选。',
+    status: 'ready',
+    capabilities: ['image', 'video'],
+    defaultBaseUrl: 'https://api.apimart.ai',
+    versionPath: '/v1',
+    docUrl: 'https://docs.apimart.ai/',
+    /**
+     * 依据（2026-09-29 核官方文档）：图像 / 视频都是「提交回 `task_id` →
+     * `GET /v1/tasks/{task_id}` 轮询 → `result.images[]/videos[].url[]` 取产物」；
+     * 对话仍是同步 OpenAI 形态。故能力只声明 image / video，不声明 chat——
+     * 声明了却没有适配器分支，等于给用户一条跑不通的路。
+     */
+    note: '异步任务协议：提交后轮询 /v1/tasks/{task_id} 取结果（图像 / 视频）。对话请另建 OpenAI 兼容渠道。',
   },
   {
     id: 'runninghub',
@@ -273,9 +297,10 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     short: 'JM',
     family: 'cli-gateway',
     kind: 'station',
-    status: 'pending',
-    capabilities: [],
-    note: '本机 CLI 形态：浏览器里跑不了本机命令，需要先有专用网关。',
+    status: 'ready',
+    capabilities: ['chat', 'image'],
+    versionPath: '/v1',
+    note: CLI_GATEWAY_NOTE_TEXT,
   },
   {
     id: 'gpt-cli',
@@ -283,9 +308,10 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     short: 'GPT',
     family: 'cli-gateway',
     kind: 'station',
-    status: 'pending',
-    capabilities: [],
-    note: '本机 CLI 形态：浏览器里跑不了本机命令，需要先有专用网关。',
+    status: 'ready',
+    capabilities: ['chat', 'image'],
+    versionPath: '/v1',
+    note: CLI_GATEWAY_NOTE_TEXT,
   },
   {
     id: 'gemini-cli',
@@ -293,12 +319,12 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     short: 'GEM',
     family: 'cli-gateway',
     kind: 'station',
-    status: 'pending',
-    capabilities: [],
-    note: '本机 CLI 形态：浏览器里跑不了本机命令，需要先有专用网关。',
+    status: 'ready',
+    capabilities: ['chat', 'image'],
+    versionPath: '/v1',
+    note: CLI_GATEWAY_NOTE_TEXT,
   },
 ]
-
 /**
  * 协议目录：内置项 + 用户自建项的合并视图。
  *
