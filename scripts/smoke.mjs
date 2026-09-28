@@ -9061,6 +9061,35 @@ async function g74(browser) {
     !!centered && Math.abs(centered.formCenter - centered.editorCenter) <= 2,
     centered ? `表单中心=${centered.formCenter} 工作区中心=${centered.editorCenter} 宽=${centered.formW}px` : 'missing',
   )
+  /**
+   * ★★ 用户 2026-09-28：「渠道的选择和渠道内容一起居中」。
+   *
+   * 上一条只保证**右侧表单**在其编辑列里居中；但在宽屏上，若整块
+   * 「左列表 + 右编辑」仍贴着工作区左侧铺开（`.layout` 是 264px + 1fr 的
+   * 满宽栅格），组合体整体是偏左的 —— 观感依旧不对。
+   *
+   * 判据：两栏组合体 `[data-settings-workarea]` 的中心必须与工作区中心一致（±2px）。
+   * 这要求 `.layout` 铺满、内容定宽居中（外层铺满满足 G45/G74 的宽度口径，
+   * 内层 `margin-inline:auto` 满足本条），两者不矛盾。
+   */
+  const groupCentered = await page.evaluate(() => {
+    const group = document.querySelector('[data-settings-workarea]')?.getBoundingClientRect()
+    const workspace = document.querySelector('[data-app-workspace]')?.getBoundingClientRect()
+    if (!group || !workspace) return null
+    return {
+      groupCenter: Math.round((group.left + group.right) / 2),
+      workspaceCenter: Math.round((workspace.left + workspace.right) / 2),
+      groupW: Math.round(group.width),
+    }
+  })
+  rec(
+    g,
+    '★★ 渠道选择 + 内容整组在工作区水平居中',
+    !!groupCentered && Math.abs(groupCentered.groupCenter - groupCentered.workspaceCenter) <= 2,
+    groupCentered
+      ? `组合体中心=${groupCentered.groupCenter} 工作区中心=${groupCentered.workspaceCenter} 宽=${groupCentered.groupW}px`
+      : 'missing',
+  )
   rec(g, '★ 设置页不再有旧的三区外壳', !layoutGeom.hasLegacyShell)
 
   // ── ② 预设词已迁到技能库第二层，仍可编辑 ──

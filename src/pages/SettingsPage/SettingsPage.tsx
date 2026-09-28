@@ -377,7 +377,8 @@ export function SettingsPage() {
       */}
       {(
       <div className={styles.layout} data-settings-card>
-        <aside className={styles.sidebar}>
+        <div className={styles.workarea} data-settings-workarea>
+          <aside className={styles.sidebar}>
           <ul className={styles.list}>
             {channelsList.map((ch: Channel) => (
               <li key={ch.id}>
@@ -885,7 +886,8 @@ export function SettingsPage() {
             </section>
             </div>
           )}
-        </section>
+          </section>
+        </div>
       </div>
       )}
     </div>

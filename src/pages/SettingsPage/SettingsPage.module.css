@@ -36,12 +36,33 @@
  * （包括我）误以为「设置页仍该是 1060px 居中卡片」—— 而现在的口径是
  * **铺满右侧工作区**。死样式比没有样式更容易误导。
  */
-/* 卡片（§7.1）：整页居中、定宽、自带圆角与细描边。
-   `margin: auto` 负责水平居中；`flex: 1` + 底部间距让它占满剩余高度而不贴底。
-   两栏都在卡片内滚动，于是页面无论渠道多少都维持在「一屏内的一个卡片」大小。 */
+/* 页面舞台（§7.1）：铺满工作区，把两栏工作区定宽居中。
+   `.layout` 只负责撑满与居中；圆角/底色由内部 `.workarea` 承担。
+   两栏都在工作区内滚动，于是页面无论渠道多少都维持在「一屏内的一个卡片」大小。 */
 .layout {
   flex: 1;
   min-height: 0;
+  width: 100%;
+  /**
+   * **外层铺满工作区，内容整体居中**（用户 2026-09-28：渠道的选择和渠道内容
+   * 要一起居中，目前只有右侧表单在编辑区里居中，整块两栏看起来偏左）。
+   *
+   * 铺满与居中并不冲突：`.layout` 只是撑满工作区的**居中舞台**，
+   * 真正被看的「左列表 + 右表单」这一整组放进 `.workarea`，由它定宽并
+   * `margin-inline:auto`。这样既满足「卡片宽度 ≥ 工作区宽 − 40」的既有口径，
+   * 又让整组内容在宽屏上居中。
+   */
+  display: flex;
+  justify-content: center;
+  background: var(--bg-canvas);
+}
+
+/* —— 真正被观察的两栏工作区：定宽、整体居中 —— */
+.workarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  max-width: 1120px;
   width: 100%;
   display: grid;
   grid-template-columns: 264px 1fr;
@@ -63,12 +84,17 @@
    * 去掉与右栏之间的那条分隔线：外层容器已经不描边了，里面再留一条竖线
    * 等于把"没有框"这件事又破坏掉。两栏靠**留白**分开（左栏 `padding` + 右栏 `padding`）。
    */
-  background: var(--bg-surface);
-  /* 内容离边缘更远（用户 2026-09-26） */
-  padding: var(--space-6);
+  /**
+   * 左栏改成**略深的功能底色**（`--bg-subtle`），与右栏表单的 `--bg-surface`
+   * 拉开层次：两栏之间没有竖线，只靠留白区分时，整块容易糊成一片、看不出
+   * 「左边是选择器、右边是内容」（用户 2026-09-28：排版有点难看）。
+   * 用一层极浅的底色分区，比加分隔线更克制，也贴合参考图「内容浮在白底上」的观感。
+   */
+  background: var(--bg-subtle);
+  padding: var(--space-5) var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-2);
   min-height: 0;
 }
 
@@ -97,6 +123,8 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* 给滚出的条目留出上下呼吸，滚动时不至于贴边被裁 */
+  padding: var(--space-1) 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -116,12 +144,19 @@
   cursor: grab;
   color: var(--text-1);
   font-family: var(--font-sans);
+  transition: background var(--dur-hover) var(--ease-out);
 }
 .item:hover {
   background: var(--bg-hover);
 }
 .itemActive {
-  background: var(--bg-hover);
+  /**
+   * 选中态：换成**卡片底色 + 细细的聚焦描边**，而不是与 hover 一样的灰底。
+   * 之前 hover 和选中是同一块 `--bg-hover`，一眼分不出「鼠标停在这」与
+   * 「现在编辑的是这条」（用户 2026-09-28 要求隐性选中态，但要有区分）。
+   */
+  background: var(--bg-surface);
+  border-color: var(--stroke-focus);
 }
 .item:active {
   cursor: grabbing;
@@ -168,7 +203,7 @@
    * 内边距收成 16px：外面 `.shell` 已有 16px，两段相加即「内容离边缘远一点」。
    * 之前写 32 是**还没加外层大容器**时的口径，那时它要独自承担留白。
    */
-  padding: var(--space-4);
+  padding: var(--space-5) var(--space-6);
   overflow: auto;
   min-height: 0;
 }
@@ -179,11 +214,11 @@
 }
 
 .form {
-  max-width: 620px;
+  max-width: 640px;
   margin-inline: auto;
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-5);
 }
 
 .field {
