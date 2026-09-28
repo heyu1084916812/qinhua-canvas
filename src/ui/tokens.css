@@ -60,6 +60,11 @@
      单独成 token，好让两种主题各自给一个「在任何图上都能看清」的值。 */
   --overlay-scrim: rgba(23, 23, 22, 0.72);
   --overlay-text: #ffffff;
+  /* 浮层控件：项目卡片右下角的 ⋯ 菜单按钮等，永远以深底浅字压在图面/卡面上。 */
+  --control-inverse-bg: #303030;
+  --control-inverse-bg-hover: #454545;
+  --control-inverse-text: #f5f4ef;
+  --control-inverse-text-hover: #ffffff;
   /* 遮罩（日志 / 确认框 / 灯箱背后的整屏压暗层） */
   --scrim: rgba(0, 0, 0, 0.18);
 
@@ -193,6 +198,11 @@
   /* 叠在素材上的浮层：反过来成「浅底深字」，压在亮图上照样读得清 */
   --overlay-scrim: rgba(239, 239, 239, 0.86);
   --overlay-text: #161616;
+  /* 深色下仍保持深底浅字：按钮浮在卡片封面之上，不能跟着主题翻成亮底。 */
+  --control-inverse-bg: #303030;
+  --control-inverse-bg-hover: #454545;
+  --control-inverse-text: #f5f4ef;
+  --control-inverse-text-hover: #ffffff;
   /* 暗色下整屏遮罩要压得更狠才分得出层次（亮色 0.18 在这里几乎看不出） */
   --scrim: rgba(0, 0, 0, 0.52);
 

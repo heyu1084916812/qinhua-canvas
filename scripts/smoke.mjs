@@ -10622,6 +10622,10 @@ async function g85(browser) {
     const cardNameEl = [...document.querySelectorAll('[data-project-card]')]
       .map((card) => card.querySelector('[data-project-name]'))
       .find(Boolean)
+    const cardMetaEl = [...document.querySelectorAll('[data-project-card]')]
+      .map((card) => card.querySelector('[data-project-meta]'))
+      .find(Boolean)
+    const menuBtnEl = firstProjectCard?.querySelector('button[aria-label="项目菜单"]')
     const sectionTitleEl = document.querySelector('[data-projects-heading]')
     return {
       workspace: workspace ? { left: workspace.left, width: workspace.width } : null,
@@ -10642,6 +10646,24 @@ async function g85(browser) {
             fontWeight: getComputedStyle(cardNameEl).fontWeight,
           }
         : null,
+      cardLines: cardNameEl && cardMetaEl
+        ? {
+            nameBottom: cardNameEl.getBoundingClientRect().bottom,
+            metaTop: cardMetaEl.getBoundingClientRect().top,
+            metaText: cardMetaEl.textContent?.trim() ?? '',
+          }
+        : null,
+      menuStyle: menuBtnEl
+        ? {
+            width: Math.round(menuBtnEl.getBoundingClientRect().width),
+            height: Math.round(menuBtnEl.getBoundingClientRect().height),
+            borderWidth: getComputedStyle(menuBtnEl).borderTopWidth,
+            radius: parseFloat(getComputedStyle(menuBtnEl).borderTopLeftRadius),
+            background: getComputedStyle(menuBtnEl).backgroundColor,
+            color: getComputedStyle(menuBtnEl).color,
+          }
+        : null,
+      workbenchTags: document.querySelectorAll('[data-wb]').length,
       cardOverflow: firstProjectCard
         ? {
             scrollWidth: firstProjectCard.scrollWidth,
@@ -10682,6 +10704,33 @@ async function g85(browser) {
     '★ 项目名 14px / 500（Lovart 口径，用户 2026-09-28）',
     JSON.stringify(layout.cardNameStyle) === JSON.stringify({ fontSize: '14px', fontWeight: '500' }),
     JSON.stringify(layout.cardNameStyle),
+  )
+  rec(
+    g,
+    '★ 项目名与更新时间分两行，第二行含日期和节点数',
+    !!layout.cardLines &&
+      layout.cardLines.metaTop >= layout.cardLines.nameBottom &&
+      /个节点/.test(layout.cardLines.metaText) &&
+      !/画布|漫画/.test(layout.cardLines.metaText),
+    JSON.stringify(layout.cardLines),
+  )
+  rec(
+    g,
+    '★ 卡片不再显示工作台标签胶囊',
+    layout.workbenchTags === 0,
+    `tags=${layout.workbenchTags}`,
+  )
+  rec(
+    g,
+    '★★ 项目菜单为 28×28 深色圆角方块、无描边',
+    !!layout.menuStyle &&
+      layout.menuStyle.width === 28 &&
+      layout.menuStyle.height === 28 &&
+      layout.menuStyle.borderWidth === '0px' &&
+      layout.menuStyle.radius >= 8 &&
+      layout.menuStyle.radius <= 10 &&
+      layout.menuStyle.background !== 'rgba(0, 0, 0, 0)',
+    JSON.stringify(layout.menuStyle),
   )
   rec(
     g,

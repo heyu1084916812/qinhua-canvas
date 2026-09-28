@@ -555,10 +555,7 @@ export function ProjectCard(props: {
             {project.name}
           </div>
         )}
-        <div className={styles.cardMeta}>
-          <span className={styles.wbTag} data-wb={project.workbench}>
-            {WORKBENCHES[project.workbench].label}
-          </span>
+        <div className={styles.cardMeta} data-project-meta>
           {formatRelative(project.updatedAt)}
           {project.workbench === 'canvas' ? ` · ${project.nodeCount} 个节点` : ''}
         </div>

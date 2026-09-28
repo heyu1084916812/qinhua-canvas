@@ -287,7 +287,7 @@
 .cardBody {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
   padding: 0;
 }
@@ -305,6 +305,9 @@
   line-height: var(--lh-nav);
   font-weight: 400;
   color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .renameInput {
@@ -350,20 +353,20 @@
 }
 
 .menuBtn {
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-pill);
-  border: var(--border);
-  background: var(--bg-surface);
-  color: var(--text-2);
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  border: 0;
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
-  transition: color var(--dur-hover) var(--ease-out), border-color var(--dur-hover) var(--ease-out);
+  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
 }
 .menuBtn:hover {
-  color: var(--text-1);
-  border-color: var(--stroke-focus);
+  background: var(--control-inverse-bg-hover);
+  color: var(--control-inverse-text-hover);
 }
 
 .menu {
@@ -545,16 +548,6 @@
   background-size: 24px 24px;
 }
 
-/* 卡片上的工作台标识（架构 §5.10：小色点或文案标识工作台类型） */
-.wbTag {
-  display: inline-block;
-  margin-right: var(--space-2);
-  padding: 0 var(--space-1);
-  border: var(--border);
-  border-radius: var(--radius-pill);
-  font-size: var(--fs-chip);
-  color: var(--text-2);
-}
 /* 「+ 新建」的工作台选择浮层（屏幕坐标，向上展开） */
 .newMenu {
   position: fixed;
