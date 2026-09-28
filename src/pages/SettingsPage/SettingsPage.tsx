@@ -155,6 +155,8 @@ export function SettingsPage() {
   const visibleProtocolOptions = protocolOptions.filter(
     (p) => p.kind !== 'legacy' || p.id === protocol,
   )
+  /** 待支持的协议（CLI / RunningHub）：下拉里灰掉几乎看不见，故在渠道菜单下方单列说明 */
+  const pendingProtocols = protocolOptions.filter((p) => p.status === 'pending')
 
   // —— 添加自定义协议（用户 2026-09-28）：只开放 OpenAI 兼容族的对话 / 生图声明 ——
   const [newProtoOpen, setNewProtoOpen] = useState(false)
@@ -904,11 +906,31 @@ export function SettingsPage() {
                         </button>
                       </div>
                     ))}
-                    {protoRemoveError && (
+                {protoRemoveError && (
                       <p className={styles.protoError} data-proto-remove-error>
                         {protoRemoveError}
                       </p>
                     )}
+                  </div>
+                )}
+
+                {/*
+                  待支持协议（CLI / RunningHub）。
+
+                  为什么单独列一块而不是只留在下拉里灰掉：灰掉的 `<option>` 在多数浏览器里
+                  几乎看不见，用户只会以为「根本没有 CLI 这一项」。列出来才回答得上
+                  「支不支持」这个问题，同时明写为什么不支持 —— 这也是「能看到但选不了」
+                  与「压根不知道有」的区别。
+                */}
+                {pendingProtocols.length > 0 && (
+                  <div className={styles.protoMine} data-proto-pending>
+                    <span className={styles.label}>待支持协议</span>
+                    {pendingProtocols.map((p) => (
+                      <div key={p.id} className={styles.protoMineRow} data-proto-pending-item={p.id}>
+                        <span className={styles.protoMineName}>{p.name}</span>
+                        <span className={styles.protoPendingWhy}>{p.note}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
 

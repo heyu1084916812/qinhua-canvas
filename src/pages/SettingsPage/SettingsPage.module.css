@@ -479,6 +479,19 @@
   font-size: var(--fs-chip);
   color: var(--text-1);
 }
+/*
+ * 待支持协议的原因文案。
+ * 必须显示「为什么不支持」：只写「待支持」等于没解释，
+ * 用户会当成还没做完的功能，而不是「这个形态在浏览器里不成立」。
+ */
+.protoPendingWhy {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-chip);
+  line-height: 1.6;
+  color: var(--text-3);
+  text-align: right;
+}
 
 /* 删除渠道（§7.2）：与「+ 新增渠道」同在左栏底部，二次确认就地展开——不弹窗、
    不跳到别处，确认框只占住按钮原位置，视线不用移动。 */

@@ -11616,6 +11616,27 @@ async function g89(browser) {
   // ④ 旧协议不再出现在新渠道的下拉里（保留识别能力，但不给新用户选）
   const legacyShown = await page.locator('[data-settings-protocol] option[value="openai-images"]').count()
   rec(g, '★★ 旧协议对新渠道隐藏（不重复提供同一套能力）', legacyShown === 0, `count=${legacyShown}`)
+  /*
+   * ⑤ 待支持协议要在渠道菜单下方**看得见**：下拉里灰掉的 option 几乎无人看见，
+   * 用户只会以为「根本没有这一项」。这里断言既列出了名字、也写明了原因。
+   */
+  const pendingList = await page.evaluate(() => {
+    const box = document.querySelector('[data-proto-pending]')
+    if (!box) return null
+    return [...box.querySelectorAll('[data-proto-pending-item]')].map((el) => el.innerText.replace(/\s+/g, ' ').trim())
+  })
+  rec(
+    g,
+    '★★ 待支持协议在渠道菜单下方列出（不是只灰在下拉里）',
+    Array.isArray(pendingList) && pendingList.length >= 3,
+    `items=${pendingList?.length ?? 0}`,
+  )
+  rec(
+    g,
+    '★ 列出时写明为什么不支持（不是只写「待支持」）',
+    !!pendingList && pendingList.every((t) => t.length > 10),
+    pendingList?.[0]?.slice(0, 60) ?? '',
+  )
 
   await page.screenshot({ path: `${OUT}/104-g89-async-cli.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
