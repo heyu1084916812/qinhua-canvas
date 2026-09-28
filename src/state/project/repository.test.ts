@@ -49,6 +49,23 @@ describe('ProjectRepository（内存存储）', () => {
     expect(await storage.query('edges', { projectId: p.id })).toHaveLength(0)
   })
 
+  it('removeMany 一次级联删除多个项目，不影响未选项目', async () => {
+    const storage = createMemoryStorage()
+    const repo = createProjectRepository(storage)
+    const a = await repo.create({ name: 'A' })
+    const b = await repo.create({ name: 'B' })
+    const keep = await repo.create({ name: '保留' })
+    await storage.put('nodes', { id: 'na', projectId: a.id })
+    await storage.put('edges', { id: 'eb', projectId: b.id })
+
+    await repo.removeMany([a.id, b.id, a.id])
+
+    expect((await storage.query('projects', {})).map((r) => r.id)).toEqual([keep.id])
+    expect(await storage.query('nodes', { projectId: a.id })).toHaveLength(0)
+    expect(await storage.query('edges', { projectId: b.id })).toHaveLength(0)
+    expect(await storage.query('nodes', { projectId: keep.id })).toHaveLength(0)
+  })
+
   it('rename 更新名称与 updatedAt', async () => {
     const storage = createMemoryStorage()
     const repo = createProjectRepository(storage)

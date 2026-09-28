@@ -18,6 +18,8 @@ export interface ProjectRepository {
   /** 复制项目及其全部图数据（节点 / 连线），生成带「副本」后缀的新项目 */
   duplicate(id: string): Promise<ProjectListItem>
   remove(id: string): Promise<void>
+  /** 批量删除项目，与单删共用同一套级联清理语义 */
+  removeMany(ids: readonly string[]): Promise<void>
 }
 
 const GRAPH_TABLES: TableName[] = ['nodes', 'edges']
@@ -106,6 +108,20 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
         for (const table of GRAPH_TABLES) {
           const rows = await storage.query(table, { projectId: id })
           for (const row of rows) await storage.delete(table, row.id)
+        }
+      })
+    },
+
+    async removeMany(ids) {
+      const unique = [...new Set(ids)]
+      if (unique.length === 0) return
+      await storage.transaction(['projects', ...GRAPH_TABLES], async () => {
+        for (const id of unique) {
+          await storage.delete('projects', id)
+          for (const table of GRAPH_TABLES) {
+            const rows = await storage.query(table, { projectId: id })
+            for (const row of rows) await storage.delete(table, row.id)
+          }
         }
       })
     },

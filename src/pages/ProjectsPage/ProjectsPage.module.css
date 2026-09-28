@@ -73,6 +73,15 @@
 }
 
 .main {
+  /*
+   * 内容相对**右侧工作区**居中，而不是相对浏览器视口居中：
+   * `.main` 的上游就是 `[data-app-workspace]`，这里给上限宽度再加
+   * `margin-inline: auto` 即可；侧栏开合后工作区宽度变化，内容会重新居中。
+   */
+  width: 100%;
+  max-width: 1520px;
+  margin-inline: auto;
+  box-sizing: border-box;
   padding: var(--space-8) var(--space-6);
   display: flex;
   flex-direction: column;
@@ -92,11 +101,47 @@
   gap: var(--space-4);
 }
 
+.titleGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .sectionTitle {
   margin: 0;
   font-size: var(--fs-panel-title);
   font-weight: var(--fw-panel-title);
   color: var(--text-1);
+}
+
+.selectToggle {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  cursor: pointer;
+  transition:
+    color var(--dur-hover) var(--ease-out),
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out);
+}
+.selectToggle:hover {
+  color: var(--text-1);
+  background: var(--bg-hover);
+}
+.selectToggleOn {
+  color: var(--accent-text);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.selectToggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .tools {
@@ -173,7 +218,12 @@
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  /*
+   * 用户 2026-09-28 口径：桌面端一排五个。`minmax(0, 1fr)` 比 minmax(220px,1fr)
+   * 更能保证五列不被内容顶宽；卡片本身有 `min-width: 0` 的默认行为，
+   * 长标题也只会在卡片内部截断。
+   */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: var(--space-4);
 }
 
@@ -196,9 +246,13 @@
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
+.cardSelected {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
 
 .thumb {
-  aspect-ratio: 16 / 10;
+  aspect-ratio: 16 / 9;
   background: var(--bg-subtle);
   background-image:
     linear-gradient(var(--grid-line) 1px, transparent 1px),
@@ -263,11 +317,17 @@
   outline-offset: 1px;
 }
 
-/* ⋯ 菜单按钮：默认隐于卡内，hover / 聚焦 / 菜单展开时浮现 */
+/*
+ * ⋯ 菜单按钮：固定卡片右下角，默认隐于卡内，
+ * hover / 聚焦 / 菜单展开时浮现（用户 2026-09-28）。
+ *
+ * 菜单向上展开：卡片为了裁封面用了 `overflow: hidden`，
+ * 若向下展开会被卡片自身裁掉，按钮看似能点、菜单却不可见。
+ */
 .cardActions {
   position: absolute;
-  top: var(--space-2);
   right: var(--space-2);
+  bottom: var(--space-2);
   /* 高于 .menuBackdrop(z-index 1)：菜单与「删除确认」不能被关闭遮罩挡住 */
   z-index: 3;
   opacity: 0;
@@ -278,6 +338,9 @@
 .cardActions:has(.menu),
 .cardActions:has(.confirm) {
   opacity: 1;
+}
+.card[data-selecting='true'] .cardActions {
+  display: none;
 }
 
 .menuBtn {
@@ -299,7 +362,8 @@
 
 .menu {
   position: absolute;
-  top: 28px;
+  top: auto;
+  bottom: 28px;
   right: 0;
   min-width: 96px;
   display: flex;
@@ -310,6 +374,31 @@
   box-shadow: var(--shadow-float);
   padding: var(--space-1);
   z-index: 2;
+}
+
+.selectMark {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 2;
+  width: 24px;
+  height: 24px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--stroke);
+  border-radius: var(--radius-pill);
+  color: var(--accent-text);
+  background: var(--bg-surface);
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out);
+}
+.selectMarkOn {
+  background: var(--accent);
+  border-color: var(--accent);
 }
 .menuItem {
   text-align: left;
@@ -338,7 +427,8 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  min-height: 180px;
+  min-width: 0;
+  min-height: 0;
   border: var(--border-width) dashed var(--stroke);
   border-radius: var(--radius-control);
   background: transparent;
@@ -367,6 +457,10 @@
 
 /* 导入 / 导出结果播报（aria-live） */
 .status {
+  width: 100%;
+  max-width: 1520px;
+  margin-inline: auto;
+  box-sizing: border-box;
   min-height: var(--space-5);
   padding: 0 var(--space-6) var(--space-6);
   font-size: var(--fs-label);
@@ -436,7 +530,7 @@
   outline-offset: 2px;
 }
 .tplThumb {
-  aspect-ratio: 16 / 10;
+  aspect-ratio: 16 / 9;
   background: var(--bg-subtle);
   background-image:
     linear-gradient(var(--grid-line) 1px, transparent 1px),
@@ -483,4 +577,104 @@
 .newBtnGhost:hover {
   background: var(--bg-hover);
   color: var(--text-1);
+}
+
+/* —— 项目多选浮栏（用户 2026-09-28） —— */
+.bulkBar {
+  /*
+   * 固定浮在**右侧工作区**底部中央。左侧偏移 = 侧栏宽 + 剩余工作区的一半；
+   * `--sidebar-w` 由 AppShell 注入，预览页没有壳时回落到 0px。
+   */
+  position: fixed;
+  left: calc(var(--sidebar-w, 0px) + (100vw - var(--sidebar-w, 0px)) / 2);
+  bottom: var(--space-6);
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: calc(100vw - var(--sidebar-w, 0px) - var(--space-8));
+  padding: var(--space-2) var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+  color: var(--text-1);
+  white-space: nowrap;
+}
+.bulkText {
+  padding-inline: var(--space-2);
+  font-size: var(--fs-label);
+  color: var(--text-2);
+}
+.bulkSelectAll,
+.bulkBtn,
+.bulkDanger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-1);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+.bulkSelectAll:hover,
+.bulkBtn:hover {
+  background: var(--bg-hover);
+}
+.bulkDanger {
+  color: var(--danger);
+}
+.bulkDanger:hover {
+  background: var(--bg-hover);
+}
+
+/*
+ * 窄工作区逐级降列。先保五列是因为桌面端是主场景；
+ * 收起侧栏与展开侧栏都不应让项目卡溢出工作区。
+ */
+@media (max-width: 1180px) {
+  .grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 680px) {
+  .main {
+    padding-inline: var(--space-4);
+  }
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .sectionHead {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .tools {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .search {
+    flex: 1 1 180px;
+  }
+}
+@media (max-width: 460px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .bulkBar {
+    gap: var(--space-2);
+  }
+  .bulkText {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }

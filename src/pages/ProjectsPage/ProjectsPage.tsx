@@ -12,6 +12,12 @@ import { projectRoute, WORKBENCHES, WORKBENCH_ORDER, type WorkbenchId } from '..
 import { formatRelative } from '../../domain/shared/time'
 import { TEMPLATES, type TemplateId } from '../../state/project/templates'
 import type { ProjectListItem } from '../../domain/project/project'
+import {
+  allVisibleProjectsSelected,
+  clearVisibleProjects,
+  selectVisibleProjects,
+  toggleProjectSelection,
+} from '../../domain/project/selection'
 import styles from './ProjectsPage.module.css'
 import { useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
 
@@ -52,6 +58,10 @@ export function ProjectsPage() {
   const [renameValue, setRenameValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
+  /** 项目多选模式（用户 2026-09-28）：选择态下卡片点击不再进入画布 */
+  const [selecting, setSelecting] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set())
+  const [bulkConfirm, setBulkConfirm] = useState(false)
   /** 「+ 新建」的工作台选择浮层（null = 未展开；坐标 = 展开位置） */
   const [newMenu, setNewMenu] = useState<{ x: number; y: number } | null>(null)
 
@@ -80,6 +90,53 @@ export function ProjectsPage() {
     await store.remove(id)
     setConfirmId(null)
     setMenuId(null)
+  }
+
+  const visibleIds = visible.map((p) => p.id)
+  const selectedCount = selectedIds.size
+
+  const exitSelection = () => {
+    setSelecting(false)
+    setSelectedIds(new Set())
+    setBulkConfirm(false)
+  }
+
+  const toggleSelectionMode = () => {
+    if (selecting) {
+      exitSelection()
+      return
+    }
+    setMenuId(null)
+    setConfirmId(null)
+    setSelecting(true)
+  }
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds((current) => toggleProjectSelection(current, id))
+    setBulkConfirm(false)
+  }
+
+  const toggleSelectVisible = () => {
+    setSelectedIds((current) =>
+      allVisibleProjectsSelected(current, visibleIds)
+        ? clearVisibleProjects(current, visibleIds)
+        : selectVisibleProjects(current, visibleIds),
+    )
+    setBulkConfirm(false)
+  }
+
+  const clearSelected = () => {
+    setSelectedIds(new Set())
+    setBulkConfirm(false)
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedCount === 0) return
+    await store.removeMany([...selectedIds])
+    setMenuId(null)
+    setConfirmId(null)
+    exitSelection()
+    setStatus(`已删除 ${selectedCount} 个项目`)
   }
 
   const handleImport = async () => {
@@ -144,7 +201,20 @@ export function ProjectsPage() {
         {/* —— 我的项目 —— */}
         <section className={styles.section}>
           <div className={styles.sectionHead}>
-            <h2 className={styles.sectionTitle}>我的项目</h2>
+            <div className={styles.titleGroup}>
+              <h2 className={styles.sectionTitle}>项目</h2>
+              <button
+                className={`${styles.selectToggle} ${selecting ? styles.selectToggleOn : ''}`}
+                type="button"
+                aria-label={selecting ? '退出选择项目' : '选择项目'}
+                aria-pressed={selecting}
+                title={selecting ? '退出选择' : '选择项目'}
+                data-project-select-toggle
+                onClick={toggleSelectionMode}
+              >
+                <IconSelect />
+              </button>
+            </div>
             <div className={styles.tools}>
               <input
                 className={styles.search}
@@ -178,15 +248,37 @@ export function ProjectsPage() {
             <HomeEmptyState onCreate={() => void createBlank('canvas')} />
           ) : (
             <div className={styles.grid}>
+              {/* 参考图口径：新建项目是网格第一张，其余项目依次排开 */}
+              <button
+                className={styles.newCard}
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect()
+                  setNewMenu({ x: r.left, y: r.bottom + 8 })
+                }}
+                data-new-card
+              >
+                <span className={styles.newPlus} aria-hidden>
+                  ＋
+                </span>
+                <span className={styles.newLabel}>新建项目</span>
+              </button>
               {visible.map((p) => (
                 <ProjectCard
                   key={p.id}
                   project={p}
+                  selecting={selecting}
+                  selected={selectedIds.has(p.id)}
                   confirming={confirmId === p.id}
                   menuOpen={menuId === p.id}
                   renaming={renamingId === p.id}
                   renameValue={renameValue}
-                  onOpen={() => navigate(projectRoute(p.workbench, p.id))}
+                  onOpen={() => {
+                    if (selecting) {
+                      toggleSelected(p.id)
+                      return
+                    }
+                    navigate(projectRoute(p.workbench, p.id))
+                  }}
                   onRenameChange={setRenameValue}
                   onRenameCommit={commitRename}
                   onCancelRename={() => setRenamingId(null)}
@@ -204,20 +296,6 @@ export function ProjectsPage() {
                   onExport={() => void handleExport(p.id, p.name)}
                 />
               ))}
-              {/* 网格末尾常驻「+ 新建」卡片（产品文档 §5.1）；点击弹工作台选择 */}
-              <button
-                className={styles.newCard}
-                onClick={(e) => {
-                  const r = e.currentTarget.getBoundingClientRect()
-                  setNewMenu({ x: r.left, y: r.bottom + 8 })
-                }}
-                data-new-card
-              >
-                <span className={styles.newPlus} aria-hidden>
-                  ＋
-                </span>
-                <span className={styles.newLabel}>新建</span>
-              </button>
             </div>
           )}
         </section>
@@ -247,6 +325,74 @@ export function ProjectsPage() {
       <div aria-live="polite" className={styles.status} role="status">
         {status}
       </div>
+
+      {selecting && (
+        <div className={styles.bulkBar} data-project-bulk-bar>
+          {bulkConfirm ? (
+            <>
+              <span className={styles.bulkText}>
+                删除 {selectedCount} 个项目？不可撤销
+              </span>
+              <button
+                className={styles.bulkDanger}
+                type="button"
+                data-project-bulk-confirm
+                onClick={() => void handleBulkDelete()}
+              >
+                <IconTrash />
+                确认删除
+              </button>
+              <button className={styles.bulkBtn} type="button" onClick={() => setBulkConfirm(false)}>
+                取消
+              </button>
+            </>
+          ) : selectedCount === 0 ? (
+            <>
+              <button
+                className={styles.bulkSelectAll}
+                type="button"
+                data-project-select-all
+                onClick={toggleSelectVisible}
+              >
+                <IconSelect />
+                全选 ({visibleIds.length})
+              </button>
+              <button className={styles.bulkBtn} type="button" onClick={exitSelection}>
+                取消
+              </button>
+            </>
+          ) : (
+            <>
+              <span className={styles.bulkText}>已选择 {selectedCount} 项</span>
+              <button
+                className={styles.bulkDanger}
+                type="button"
+                data-project-bulk-delete
+                onClick={() => setBulkConfirm(true)}
+              >
+                <IconTrash />
+                删除
+              </button>
+              <button
+                className={styles.bulkBtn}
+                type="button"
+                data-project-bulk-clear
+                onClick={clearSelected}
+              >
+                清除
+              </button>
+              <button
+                className={styles.bulkBtn}
+                type="button"
+                data-project-bulk-cancel
+                onClick={exitSelection}
+              >
+                取消
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* 「+ 新建」的工作台选择浮层（屏幕坐标） */}
       {newMenu && (
@@ -330,6 +476,8 @@ function ProjectCover({ item }: { item: ProjectListItem }) {
 /** 项目卡片（产品文档 §5.3）。导出供 /_preview 陈列室做视觉回归 */
 export function ProjectCard(props: {
   project: ProjectListItem
+  selecting: boolean
+  selected: boolean
   confirming: boolean
   menuOpen: boolean
   renaming: boolean
@@ -348,20 +496,24 @@ export function ProjectCard(props: {
   onExport: () => void
 }) {
   const {
-    project, confirming, menuOpen,     renaming, renameValue,
+    project, selecting, selected, confirming, menuOpen, renaming, renameValue,
     onOpen, onRenameChange, onRenameCommit, onCancelRename,
     onRequestDelete, onConfirmDelete, onCancelDelete,
     onToggleMenu, onStartRename, onDuplicate, onExport,
   } = props
+  const name = selecting && selected ? `${project.name}，已选择` : project.name
 
   return (
     <div
-      className={styles.card}
+      className={`${styles.card} ${selected ? styles.cardSelected : ''}`}
       onClick={onOpen}
       role="button"
       tabIndex={0}
+      aria-pressed={selecting ? selected : undefined}
+      data-selecting={selecting ? 'true' : undefined}
+      data-selected={selected ? 'true' : undefined}
       data-project-card={project.id}
-      aria-label={project.name}
+      aria-label={name}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
@@ -370,6 +522,15 @@ export function ProjectCard(props: {
       }}
     >
       <ProjectCover item={project} />
+      {selecting && (
+        <span
+          className={`${styles.selectMark} ${selected ? styles.selectMarkOn : ''}`}
+          data-project-select-mark
+          aria-hidden
+        >
+          {selected && <IconCheck />}
+        </span>
+      )}
 
       <div className={styles.cardBody}>
         {renaming ? (
@@ -469,5 +630,65 @@ export function ProjectCard(props: {
         )}
       </div>
     </div>
+  )
+}
+
+/** 顶栏选择模式入口与批量栏复用的一组轻量图标 */
+function IconSelect({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.7}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <rect x="4" y="5" width="6" height="6" rx="1.5" />
+      <path d="m5.4 8 1.2 1.2L9 7.1" />
+      <path d="M14 6.5h6M14 10.5h5" />
+      <rect x="4" y="14" width="6" height="6" rx="1.5" />
+      <path d="M14 16.5h6M14 20h5" />
+    </svg>
+  )
+}
+
+function IconCheck({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="m3 8.3 3.1 3.1L13 4.7" />
+    </svg>
+  )
+}
+
+function IconTrash({ size = 15 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M4.5 7h15M9 4.5h6M7 7l.8 12h8.4L17 7" />
+      <path d="M10 10.5v5M14 10.5v5" />
+    </svg>
   )
 }

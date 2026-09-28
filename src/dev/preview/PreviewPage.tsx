@@ -212,6 +212,8 @@ function HomeCard({
       <div className={styles.homeStage}>
         <ProjectCard
           project={project}
+          selecting={false}
+          selected={false}
           confirming={confirming}
           menuOpen={menuOpen}
           renaming={renaming}

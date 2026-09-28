@@ -10587,7 +10587,143 @@ async function g84(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84]
+/**
+ * G85 项目页五列 / 16:9 / 多选（用户 2026-09-28）。
+ *
+ * 这组刻意不复用 G3 的数据上下文：G3 会做搜索 / 排序 / 单删，
+ * 断言顺序一长就会掩盖“五列和选择模式”本身的问题。
+ * 这里从空存储造 6 个项目，只验证项目页的视觉与批量交互。
+ */
+async function g85(browser) {
+  const g = 'G85 项目页五列与多选'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  for (let i = 0; i < 6; i += 1) {
+    await createProject(page)
+    await gotoProjects(page)
+  }
+
+  const cards = page.locator('[data-new-card], [data-project-card]')
+  await cards.first().waitFor({ state: 'visible', timeout: 5000 })
+  const projectCards = page.locator('[data-project-card]')
+  rec(g, '6 个项目卡片全部渲染', (await projectCards.count()) === 6, `count=${await projectCards.count()}`)
+
+  const layout = await page.evaluate(() => {
+    const workspace = document.querySelector('[data-app-workspace]')?.getBoundingClientRect()
+    const grid = document.querySelector('[data-new-card]')?.parentElement?.getBoundingClientRect()
+    const nodes = [...document.querySelectorAll('[data-new-card], [data-project-card]')]
+    const firstFive = nodes.slice(0, 5).map((el) => el.getBoundingClientRect())
+    const projects = [...document.querySelectorAll('[data-project-card]')].slice(0, 5).map((el) => el.getBoundingClientRect())
+    const thumb = document.querySelector('[data-project-card] > div:first-child')?.getBoundingClientRect()
+    return {
+      workspace: workspace ? { left: workspace.left, width: workspace.width } : null,
+      grid: grid ? { left: grid.left, width: grid.width } : null,
+      firstFive: firstFive.map((r) => ({ top: r.top, left: r.left, width: r.width })),
+      projects: projects.map((r) => ({ top: r.top, left: r.left, width: r.width })),
+      thumb: thumb ? { width: thumb.width, height: thumb.height } : null,
+      firstIsNew: nodes[0]?.hasAttribute('data-new-card') ?? false,
+    }
+  })
+  const tops = layout.firstFive.map((r) => r.top)
+  const widths = layout.firstFive.map((r) => r.width)
+  rec(g, '★ 第一排五个卡片同一 y（五列）', tops.length === 5 && Math.max(...tops) - Math.min(...tops) <= 1, tops.join(','))
+  rec(g, '★ 每列宽度一致', widths.every((w) => Math.abs(w - widths[0]) <= 1.5), widths.join(','))
+  rec(
+    g,
+    '★★ 网格在工作区内水平居中',
+    !!layout.workspace && !!layout.grid &&
+      Math.abs((layout.workspace.left + layout.workspace.width / 2) - (layout.grid.left + layout.grid.width / 2)) <= 2,
+    JSON.stringify(layout),
+  )
+  rec(
+    g,
+    '★★ 项目封面比例 16:9',
+    !!layout.thumb && Math.abs(layout.thumb.width / layout.thumb.height - 16 / 9) < 0.02,
+    layout.thumb ? `${layout.thumb.width.toFixed(1)}×${layout.thumb.height.toFixed(1)}` : 'null',
+  )
+  rec(g, '新建项目在网格第一张', layout.firstIsNew)
+
+  // 窄工作区降列：缩窗口并展开侧栏，验证不再硬撑 5 列，且卡片不越出工作区。
+  await page.setViewportSize({ width: 1050, height: 800 })
+  await page.locator('[data-sidebar-toggle]').click()
+  await sleep(400)
+  const narrow = await page.evaluate(() => {
+    const workspace = document.querySelector('[data-app-workspace]')?.getBoundingClientRect()
+    const nodes = [...document.querySelectorAll('[data-new-card], [data-project-card]')]
+    const top = Math.round(nodes[0]?.getBoundingClientRect().top ?? 0)
+    const firstRow = nodes.filter((el) => Math.abs(Math.round(el.getBoundingClientRect().top) - top) <= 1)
+    const right = Math.max(...nodes.map((el) => el.getBoundingClientRect().right))
+    return { cols: firstRow.length, right, workspaceRight: workspace?.right ?? 0 }
+  })
+  rec(g, '★ 窄工作区自动降列、不横向溢出', narrow.cols < 5 && narrow.right <= narrow.workspaceRight + 1, JSON.stringify(narrow))
+  await page.locator('[data-sidebar-toggle]').click()
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await sleep(400)
+
+  // 默认菜单隐藏；悬浮卡片后出现在右下角，并向上展开避免被卡片裁掉
+  await page.mouse.move(0, 0)
+  const firstCard = projectCards.first()
+  const firstMenu = firstCard.locator('button[aria-label="项目菜单"]')
+  const menuHidden = await firstCard.locator('button[aria-label="项目菜单"]').evaluate((el) => {
+    const wrapper = el.parentElement
+    const card = el.closest('[data-project-card]')
+    return {
+      opacity: wrapper ? getComputedStyle(wrapper).opacity : '1',
+      rightGap: card ? card.getBoundingClientRect().right - wrapper.getBoundingClientRect().right : 999,
+      bottomGap: card ? card.getBoundingClientRect().bottom - wrapper.getBoundingClientRect().bottom : 999,
+    }
+  })
+  rec(g, '★★ 未悬浮时项目菜单隐藏', Number(menuHidden.opacity) === 0, JSON.stringify(menuHidden))
+  await firstCard.hover()
+  await sleep(250)
+  const menuShown = await firstCard.locator('button[aria-label="项目菜单"]').evaluate((el) => {
+    const wrapper = el.parentElement
+    const card = el.closest('[data-project-card]')
+    return {
+      opacity: wrapper ? getComputedStyle(wrapper).opacity : '0',
+      rightGap: card ? card.getBoundingClientRect().right - wrapper.getBoundingClientRect().right : 999,
+      bottomGap: card ? card.getBoundingClientRect().bottom - wrapper.getBoundingClientRect().bottom : 999,
+    }
+  })
+  rec(g, '★★ 悬浮后菜单出现在卡片右下角', Number(menuShown.opacity) === 1 && menuShown.rightGap <= 12 && menuShown.bottomGap <= 12, JSON.stringify(menuShown))
+  await firstMenu.click()
+  await sleep(200)
+  const menuRect = await page.locator('[data-project-card] [role="menu"]').first().boundingBox()
+  const buttonRect = await firstMenu.boundingBox()
+  rec(g, '★ 菜单向上展开、不被卡片裁掉', !!menuRect && !!buttonRect && menuRect.y + menuRect.height <= buttonRect.y + 1, JSON.stringify({ menuRect, buttonRect }))
+  await page.keyboard.press('Escape')
+  await page.mouse.click(0, 0)
+  await sleep(200)
+
+  await page.locator('[data-project-select-toggle]').click()
+  rec(g, '★ 标题旁点击选择模式后出现底部批量栏', await page.locator('[data-project-bulk-bar]').isVisible())
+  rec(g, '选择模式显示顶部勾选框', (await page.locator('[data-project-select-mark]').count()) === 6, `marks=${await page.locator('[data-project-select-mark]').count()}`)
+  await page.locator('[data-project-select-all]').click()
+  rec(g, '★ 全选当前 6 个项目', /已选择 6 项/.test(await page.locator('[data-project-bulk-bar]').innerText()), await page.locator('[data-project-bulk-bar]').innerText())
+  await page.locator('[data-project-bulk-clear]').click()
+  rec(g, '★ 清除后回到全选入口', await page.locator('[data-project-select-all]').isVisible())
+  await page.locator('[data-project-bulk-bar] button').filter({ hasText: '取消' }).click()
+  rec(g, '★ 取消退出选择模式并收起批量栏', !(await page.locator('[data-project-bulk-bar]').isVisible()))
+
+  await page.locator('[data-project-select-toggle]').click()
+  await projectCards.nth(0).click()
+  await projectCards.nth(1).click()
+  rec(g, '★ 点卡片只切换选中、不进入画布', page.url().endsWith('/projects') && /已选择 2 项/.test(await page.locator('[data-project-bulk-bar]').innerText()), page.url())
+  await page.locator('[data-project-bulk-delete]').click()
+  await page.locator('[data-project-bulk-confirm]').click()
+  await sleep(500)
+  rec(g, '★★ 确认删除后选中的两个项目消失', (await projectCards.count()) === 4, `left=${await projectCards.count()}`)
+  rec(g, '删除后退出选择模式', !(await page.locator('[data-project-bulk-bar]').isVisible()))
+
+  await page.screenshot({ path: `${OUT}/100-g85-projects-selection.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

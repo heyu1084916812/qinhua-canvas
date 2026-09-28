@@ -35,6 +35,7 @@ export interface ProjectListActions {
   rename: (id: string, name: string) => Promise<void>
   duplicate: (id: string) => Promise<ProjectListItem>
   remove: (id: string) => Promise<void>
+  removeMany: (ids: readonly string[]) => Promise<void>
   setSort: (sort: ProjectSort) => void
   setQuery: (query: string) => void
 }
@@ -122,6 +123,16 @@ export function createProjectListStore(repo: ProjectRepository): ProjectListStor
     })
   }
 
+  const removeMany: ProjectListActions['removeMany'] = async (ids) => {
+    const unique = new Set(ids)
+    if (unique.size === 0) return
+    await repo.removeMany([...unique])
+    store.setState((s) => {
+      const projects = s.projects.filter((p) => !unique.has(p.id))
+      return { projects, visible: deriveVisible(projects, s.query, s.sort) }
+    })
+  }
+
   const setSort: ProjectListActions['setSort'] = (sort) => {
     store.setState((s) => ({ sort, visible: deriveVisible(s.projects, s.query, sort) }))
   }
@@ -130,5 +141,5 @@ export function createProjectListStore(repo: ProjectRepository): ProjectListStor
     store.setState((s) => ({ query, visible: deriveVisible(s.projects, query, s.sort) }))
   }
 
-  return { ...store, load, create, rename, duplicate, remove, setSort, setQuery }
+  return { ...store, load, create, rename, duplicate, remove, removeMany, setSort, setQuery }
 }
