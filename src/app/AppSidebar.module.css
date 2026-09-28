@@ -17,7 +17,11 @@
   height: 100%;
   box-sizing: border-box;
   padding: var(--space-4) var(--space-3);
-  gap: var(--space-2);
+  /*
+   * Four groups: logo + toggle / new project / nav / recent.
+   * Keep gap at 0 so only each group margin-top controls spacing.
+   */
+  gap: 0;
   background: var(--bg-app);
   /* 与右侧工作区之间一条细线：两块是并列关系，靠 1px 描边划分，不用阴影（§3.3） */
   border-right: 1px solid var(--stroke);
@@ -52,7 +56,20 @@
 .head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /*
+   * 必须显式撑满侧栏内容宽度（用户 2026-09-28）。
+   *
+   * 侧栏是 `flex-direction: column` 的容器，默认 `align-items: stretch` 会让
+   * 子项铺满宽度 —— 但这里一旦在收起态把 `.logo` / `.toggle` 改成
+   * `position: absolute`，行内就没有参与布局的子项了，`.head` 会**收缩到内容宽度**。
+   * 结果：绝对定位的按钮 `right: var(--space-3)` 锚在一个 39px 的盒子上，
+   * 算出 `left: -13px` —— 按钮跑到侧栏外面，看起来「不在正中 / 位置不对」。
+   *
+   * 显式 `width: 100%` 让盒子始终等于侧栏内容宽度，
+   * 收起/展开两种状态的定位基准就一致了。
+   */
+  width: 100%;
+  box-sizing: border-box;
   min-height: 40px;
   gap: var(--space-1);
 }
@@ -61,7 +78,11 @@
   flex: 0 0 auto;
   width: 28px;
   height: 28px;
-  margin-left: var(--space-1);
+  /*
+   * In the expanded state the logo left edge must match the nav icons.
+   * Nav icons sit at --space-2 inside .item, so the logo uses the same value.
+   */
+  margin-left: var(--space-2);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -96,6 +117,7 @@
 
 .toggle {
   flex: 0 0 auto;
+  margin-left: auto;
   /*
    * 与下面菜单项**同一个尺寸与圆角**（用户 2026-09-27：
    * 「折叠按钮感觉好像没有下面菜单的同一个大小」）。
@@ -138,22 +160,40 @@
  */
 .rail:not(.railOpen) .head {
   position: relative;
-  /* 与菜单项同高、且水平居中：Logo 位就是「第一格」 */
   height: 40px;
   min-height: 40px;
-  justify-content: center;
+  /* Kept at the same inline start as the expanded state so toggling does not jump. */
+  justify-content: flex-start;
 }
 
-.rail:not(.railOpen) .logo,
-.rail:not(.railOpen) .toggle {
+.rail:not(.railOpen) .logo {
   position: absolute;
   top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  /* Equals the expanded state margin-left: var(--space-2). */
+  left: var(--space-2);
+  transform: translateY(-50%);
   margin: 0;
 }
 
 .rail:not(.railOpen) .toggle {
+  position: absolute;
+  top: 50%;
+  /*
+   * 收起态按钮仍与下方导航容器共用同一条右边界。
+   *
+   * `.head` 现在是侧栏内容盒（收起态 40px 宽）；再减 12px 会把按钮推到侧栏外，
+   * 这正是用户看到的「不在正中心 / 位置不对」。`right: 0` 让按钮右边缘
+   * 与 `.item` 右边缘重合，同时保持 Logo ↔ 按钮在同一格里悬停互换。
+   */
+  right: 0;
+  transform: translateY(-50%);
+  margin: 0;
+  /*
+   * 收起态用 34×34 的可见/命中区，尺寸与展开态 40px 不同是有意为之：
+   * 64px 侧栏里 Logo 靠左、按钮右缘贴 `.item`，两者中心必须重合。
+   */
+  width: 34px;
+  height: 34px;
   /*
    * 覆盖在 Logo 上：尺寸一致（38px），所以「换出来」时不会有大小跳变。
    * 背景取侧栏底色 —— 否则按钮悬停底色会与下面的 Logo 叠在一起。
@@ -187,6 +227,8 @@
   gap: var(--space-2);
   width: 100%;
   height: 40px;
+  /* Group 2: keep 20px below the logo row. */
+  margin-top: var(--space-sidebar-group);
   padding: 0 var(--space-2);
   box-sizing: border-box;
   border: 1px solid var(--stroke);
@@ -228,7 +270,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin-top: var(--space-1);
+  margin-top: var(--space-sidebar-group);
 }
 
 .item {
@@ -239,10 +281,11 @@
   padding: 0 var(--space-2);
   box-sizing: border-box;
   border-radius: var(--radius-control);
-  color: var(--text-2);
+  color: var(--sidebar-nav);
   font-family: var(--font-sans);
-  font-size: var(--fs-body);
-  font-weight: 500;
+  font-size: var(--fs-nav);
+  line-height: var(--lh-nav);
+  font-weight: 400;
   text-decoration: none;
   white-space: nowrap;
   overflow: hidden;
@@ -250,7 +293,7 @@
 
 .item:hover {
   background: var(--bg-hover);
-  color: var(--text-1);
+  color: var(--sidebar-nav);
 }
 
 /*
@@ -268,7 +311,7 @@
 .itemOn,
 .itemOn:hover {
   background: var(--bg-hover);
-  color: var(--text-1);
+  color: var(--sidebar-nav);
   font-weight: 600;
 }
 
@@ -288,8 +331,7 @@
 
 /* 收起态：图标居中、文字让位 */
 .rail:not(.railOpen) .item {
-  justify-content: center;
-  padding: 0;
+  justify-content: flex-start;
 }
 
 /* ── 最近项目 ── */
@@ -298,7 +340,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  margin-top: var(--space-2);
+  margin-top: var(--space-sidebar-group);
   /* 列表长了就自己滚，别把底部的主题按钮顶出去 */
   min-height: 0;
   overflow-y: auto;
@@ -307,8 +349,9 @@
 .recentHead {
   padding: 0 var(--space-2);
   color: var(--text-3);
-  font-size: var(--fs-chip);
-  font-weight: 600;
+  font-size: var(--fs-nav);
+  line-height: var(--lh-nav);
+  font-weight: 400;
 }
 
 .recentEmpty {
@@ -334,9 +377,10 @@
   border: none;
   border-radius: calc(var(--radius-control) - 2px);
   background: transparent;
-  color: var(--text-2);
+  color: var(--sidebar-nav);
   font-family: var(--font-sans);
-  font-size: var(--fs-label);
+  font-size: var(--fs-nav);
+  line-height: var(--lh-nav);
   text-align: left;
   /* 单行截断：项目名可能很长，侧栏宽度固定 */
   white-space: nowrap;
@@ -353,7 +397,7 @@
 .recentItemOn,
 .recentItemOn:hover {
   background: var(--bg-surface);
-  color: var(--text-1);
+  color: var(--sidebar-nav);
   font-weight: 600;
 }
 

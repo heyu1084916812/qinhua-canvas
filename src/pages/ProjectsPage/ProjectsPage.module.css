@@ -109,10 +109,10 @@
 
 .sectionTitle {
   margin: 0;
-  font-size: 20px;
-  font-weight: var(--fw-panel-title);
-  line-height: 28px;
-  color: var(--text-1);
+  font-size: var(--fs-page-title);
+  font-weight: var(--fw-page-title);
+  line-height: var(--lh-page-title);
+  color: var(--sidebar-page-title);
 }
 
 .selectToggle {
@@ -232,28 +232,27 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  background: var(--bg-surface);
-  border: var(--border);
-  border-radius: var(--radius-node);
-  overflow: hidden;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
   cursor: pointer;
-  transition: border-color var(--dur-hover) var(--ease-out), background var(--dur-hover) var(--ease-out);
+  transition: color var(--dur-hover) var(--ease-out);
 }
 .card:hover {
-  border-color: var(--stroke-focus);
-  background: var(--bg-hover);
+  color: var(--text-1);
 }
 .card:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 .cardSelected {
-  border-color: var(--accent);
-  background: var(--bg-hover);
+  color: var(--accent);
 }
 
 .thumb {
-  aspect-ratio: 16 / 9;
+  aspect-ratio: 303 / 180;
   background: var(--bg-subtle);
   background-image:
     linear-gradient(var(--grid-line) 1px, transparent 1px),
@@ -267,7 +266,7 @@
    * 封面是它的第一个子块，不裁的话图片会溢出圆角、四角露成直角。
    */
   overflow: hidden;
-  border-radius: var(--radius-control) var(--radius-control) 0 0;
+  border-radius: var(--radius-control);
 }
 
 /*
@@ -286,19 +285,25 @@
 }
 
 .cardBody {
-  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
 }
 .cardName {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--fs-nav);
+  line-height: var(--lh-nav);
+  font-weight: 500;
   color: var(--text-1);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .cardMeta {
-  margin-top: var(--space-1);
-  font-size: var(--fs-chip);
+  font-size: var(--fs-nav);
+  line-height: var(--lh-nav);
+  font-weight: 400;
   color: var(--text-3);
 }
 
@@ -427,12 +432,13 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2);
+  gap: 0;
   min-width: 0;
   min-height: 0;
-  border: var(--border-width) dashed var(--stroke);
-  border-radius: var(--radius-node);
-  background: transparent;
+  padding: 0;
+  border: none;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-control);
   color: var(--text-2);
   cursor: pointer;
   transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
@@ -442,7 +448,7 @@
   color: var(--text-1);
 }
 .newPlus {
-  font-size: 28px;
+  font-size: 24px;
   line-height: 1;
 }
 .newLabel {

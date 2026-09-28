@@ -41,6 +41,10 @@
   --text-2: #737373;
   --text-3: #9a9a9a;
 
+  /* Sidebar nav: icon and text share one near-black tone, same in every state. */
+  --sidebar-nav: #202020;
+  --sidebar-page-title: #171717;
+
   --accent: #171716;
   --accent-text: #ffffff;
 
@@ -78,6 +82,11 @@
    */
   --fs-body: 14px;
   --lh-body: 1.6;
+  --fs-nav: 14px;
+  --lh-nav: 22px;
+  --fs-page-title: 24px;
+  --lh-page-title: 32px;
+  --fw-page-title: 500;
   --fs-title: 14px;
   --fw-title: 500;
   --fs-label: 13px;
@@ -100,6 +109,7 @@
   --space-5: 20px;
   --space-6: 24px;
   --space-8: 32px;
+  --space-sidebar-group: 20px;
 
   /* —— 描边与浮层投影（§3.3） —— */
   --border-width: 1px;
@@ -164,6 +174,10 @@
   --text-1: #efefef;
   --text-2: #a2a2a2;
   --text-3: #767676;
+
+  /* Dark theme keeps sidebar nav near-white in every state; only the section heading steps down. */
+  --sidebar-nav: #efefef;
+  --sidebar-page-title: #f5f4ef;
 
   --accent: #efefef;
   --accent-text: #161616;

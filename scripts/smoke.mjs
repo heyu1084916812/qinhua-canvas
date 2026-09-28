@@ -9341,7 +9341,7 @@ async function g81(browser) {
   )
   rec(g, '★ 选中靠字重区分（600）', selStyle?.weight === '600', `weight=${selStyle?.weight}`)
 
-  // ── 1) 折叠态：Logo 与按钮同格、同尺寸；悬停互换 ──
+  // ── 1) 折叠态：Logo 靠左、按钮靠右；尺寸一致；悬停互换 ──
   const geo = await page.evaluate(() => {
     const rail = document.querySelector('[data-app-sidebar]')
     const logo = rail.querySelector('[data-sidebar-logo]')
@@ -9366,16 +9366,16 @@ async function g81(browser) {
   })
   rec(
     g,
-    '★★ 折叠按钮与菜单项同高（38px）',
-    geo.btn.h === geo.item.h,
+    '★★ 折叠按钮与菜单项同高（展开态 40px；收起态为同格 34px）',
+    geo.btn.h === geo.item.h || geo.btn.h === 34,
     `按钮 ${geo.btn.h}px / 菜单项 ${geo.item.h}px`,
   )
-  rec(
-    g,
-    '★★ 折叠按钮与 Logo 同心（位置垂直居中于同一格）',
-    Math.abs(geo.btn.cy - geo.logo.cy) <= 1 && Math.abs(geo.btn.cx - geo.logo.cx) <= 1,
-    `按钮(${geo.btn.cx},${geo.btn.cy}) Logo(${geo.logo.cx},${geo.logo.cy})`,
-  )
+    rec(
+      g,
+      '★★ 折叠按钮与 Logo 垂直同心、落在同一 Logo 格（悬停互换）',
+      Math.abs(geo.btn.cy - geo.logo.cy) <= 1 && Math.abs(geo.btn.cx - geo.logo.cx) <= 1,
+      `按钮(${geo.btn.cx},${geo.btn.cy}) Logo(${geo.logo.cx},${geo.logo.cy})`,
+    )
   rec(
     g,
     '★ 默认显示 Logo、按钮透明',
@@ -10666,21 +10666,21 @@ async function g85(browser) {
   )
   rec(
     g,
-    '★★ 项目封面比例 16:9',
-    !!layout.thumb && Math.abs(layout.thumb.width / layout.thumb.height - 16 / 9) < 0.02,
+    '★★ 项目封面比例 303:180（Lovart 卡片口径，用户 2026-09-28）',
+    !!layout.thumb && Math.abs(layout.thumb.width / layout.thumb.height - 303 / 180) < 0.02,
     layout.thumb ? `${layout.thumb.width.toFixed(1)}×${layout.thumb.height.toFixed(1)}` : 'null',
   )
   rec(g, '新建项目在网格第一张', layout.firstIsNew)
   rec(
     g,
-    '★ “项目”标题 20px / 28px / 600',
-    JSON.stringify(layout.titleStyle) === JSON.stringify({ fontSize: '20px', lineHeight: '28px', fontWeight: '600' }),
+    '★ “项目”标题 24px / 32px / 500（Lovart 口径，用户 2026-09-28）',
+    JSON.stringify(layout.titleStyle) === JSON.stringify({ fontSize: '24px', lineHeight: '32px', fontWeight: '500' }),
     JSON.stringify(layout.titleStyle),
   )
   rec(
     g,
-    '★ 项目名 15px / 600',
-    JSON.stringify(layout.cardNameStyle) === JSON.stringify({ fontSize: '15px', fontWeight: '600' }),
+    '★ 项目名 14px / 500（Lovart 口径，用户 2026-09-28）',
+    JSON.stringify(layout.cardNameStyle) === JSON.stringify({ fontSize: '14px', fontWeight: '500' }),
     JSON.stringify(layout.cardNameStyle),
   )
   rec(
@@ -10769,7 +10769,149 @@ async function g85(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85]
+
+/**
+ * G86 侧栏展开不跳动 + 四分组间距 + Lovart 对齐（用户 2026-09-28 四条）。
+ *
+ *  1) Logo 行 / 折叠图标 / 字体对齐 Lovart：折叠图标 20px，
+ *     展开态折叠按钮右边缘与下方导航容器右边缘对齐。
+ *  2) 侧栏导航图标与文字统一 `#efefef`（深色主题、选中与否都一样），
+ *     只有「最近项目」小标题走二级文字色。
+ *  3) 展开**不跳动**：Logo 与导航图标的横向 x 在收起/展开两态完全一致，
+ *     容器与文字只向右扩展，折叠按钮再右移到与导航容器右对齐。
+ *  4) 四个分组：Logo+折叠 / 新建项目 / 功能菜单 / 最近项目，组间距约 20px。
+ *
+ * 全部用**计算样式与几何**判定 —— 「跳没跳」「对齐没有」肉眼会被 1~2px 骗过去。
+ */
+async function g86(browser) {
+  const g = 'G86 侧栏展开动效与 Lovart 对齐'
+  const ctx = await newDarkCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await gotoProjects(page)
+  await sleep(600)
+
+  const rail = page.locator('[data-app-sidebar]')
+
+  // ── 收起态：记录 Logo 与折叠按钮的几何 ──
+  const collapsed = await page.evaluate(() => {
+    const box = (sel) => {
+      const el = document.querySelector(sel)
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      return { left: Math.round(r.left), top: Math.round(r.top), right: Math.round(r.right), cx: Math.round(r.left + r.width / 2) }
+    }
+    return {
+      logo: box('[data-sidebar-logo]'),
+      toggle: box('[data-sidebar-toggle]'),
+      firstIcon: box('[data-sidebar-item="/"] span'),
+    }
+  })
+
+  await page.locator('[data-sidebar-toggle]').click()
+  await sleep(600)
+  rec(g, '展开态已打开', (await rail.getAttribute('data-sidebar-open')) === 'true')
+
+  const expanded = await page.evaluate(() => {
+    const box = (sel) => {
+      const el = document.querySelector(sel)
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      return { left: Math.round(r.left), top: Math.round(r.top), right: Math.round(r.right), width: Math.round(r.width), height: Math.round(r.height), cx: Math.round(r.left + r.width / 2) }
+    }
+    const nav = document.querySelector('[data-sidebar-item="/"]')?.parentElement
+    const navRect = nav?.getBoundingClientRect()
+    const styleOf = (sel) => {
+      const el = document.querySelector(sel)
+      return el ? getComputedStyle(el) : null
+    }
+    const firstItemStyle = styleOf('[data-sidebar-item="/"]')
+    const recentHeadStyle = styleOf('[data-sidebar-recent] > div')
+    const head = document.querySelector('[data-sidebar-logo]')?.parentElement?.getBoundingClientRect()
+    const newBtn = document.querySelector('[data-sidebar-new]')?.getBoundingClientRect()
+    const recent = document.querySelector('[data-sidebar-recent]')?.getBoundingClientRect()
+    const svg = document.querySelector('[data-sidebar-toggle] svg')?.getBoundingClientRect()
+    return {
+      logo: box('[data-sidebar-logo]'),
+      toggle: box('[data-sidebar-toggle]'),
+      toggleSvg: svg ? { width: Math.round(svg.width), height: Math.round(svg.height) } : null,
+      firstIcon: box('[data-sidebar-item="/"] span'),
+      navRight: navRect ? Math.round(navRect.right) : null,
+      groups: {
+        head: head ? { top: Math.round(head.top), bottom: Math.round(head.bottom) } : null,
+        newBtn: newBtn ? { top: Math.round(newBtn.top), bottom: Math.round(newBtn.bottom) } : null,
+        nav: navRect ? { top: Math.round(navRect.top), bottom: Math.round(navRect.bottom) } : null,
+        recent: recent ? { top: Math.round(recent.top), bottom: Math.round(recent.bottom) } : null,
+      },
+      itemColor: firstItemStyle?.color ?? null,
+      recentHeadColor: recentHeadStyle?.color ?? null,
+    }
+  })
+
+  // ① 对齐：Logo x 不动，折叠按钮右边缘与导航容器右边缘对齐，图标 20px
+  rec(
+    g,
+    '★ 展开后 Logo 横向位置与收起态一致（不跳动）',
+    !!collapsed.logo && !!expanded.logo && collapsed.logo.left === expanded.logo.left,
+    `收起 x=${collapsed.logo?.left} 展开 x=${expanded.logo?.left}`,
+  )
+  rec(
+    g,
+    '★ 展开后导航图标横向位置与收起态一致（不跳动）',
+    !!collapsed.firstIcon && !!expanded.firstIcon && collapsed.firstIcon.left === expanded.firstIcon.left,
+    `收起 x=${collapsed.firstIcon?.left} 展开 x=${expanded.firstIcon?.left}`,
+  )
+  rec(
+    g,
+    '★ 折叠按钮右边缘与导航容器右边缘对齐（Lovart）',
+    !!expanded.toggle && !!expanded.navRight && Math.abs(expanded.toggle.right - expanded.navRight) <= 1,
+    `toggle.right=${expanded.toggle?.right} nav.right=${expanded.navRight}`,
+  )
+  rec(
+    g,
+    '★ 折叠图标 20×20',
+    JSON.stringify(expanded.toggleSvg) === JSON.stringify({ width: 20, height: 20 }),
+    JSON.stringify(expanded.toggleSvg),
+  )
+
+  // ② 配色：深色下导航图标/文字统一近白，最近项目标题走二级文字色
+  rec(
+    g,
+    '★ 深色下导航项颜色 #efefef',
+    expanded.itemColor === 'rgb(239, 239, 239)',
+    expanded.itemColor,
+  )
+  rec(
+    g,
+    '★ “最近项目”走二级文字色（与导航项区分）',
+    !!expanded.recentHeadColor && expanded.recentHeadColor !== expanded.itemColor,
+    `recentHead=${expanded.recentHeadColor} nav=${expanded.itemColor}`,
+  )
+
+  // ③ 四分组间距约 20px
+  const gs = expanded.groups
+  const gaps = gs.head && gs.newBtn && gs.nav && gs.recent
+    ? [
+        gs.newBtn.top - gs.head.bottom,
+        gs.nav.top - gs.newBtn.bottom,
+        gs.recent.top - gs.nav.bottom,
+      ]
+    : []
+  rec(
+    g,
+    '★★ 四个分组间距都约 20px（Logo / 新建 / 菜单 / 最近）',
+    gaps.length === 3 && gaps.every((n) => Math.abs(n - 20) <= 3),
+    gaps.map((n) => `${n}px`).join(', '),
+  )
+
+  await page.screenshot({ path: `${OUT}/101-g86-sidebar-lovart.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

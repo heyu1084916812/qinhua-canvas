@@ -157,7 +157,7 @@ export function AppSidebar() {
           title={open ? '收起侧栏' : '展开侧栏'}
           onClick={() => toggleSidebar()}
         >
-          <IconSidebarToggle size={18} />
+          <IconSidebarToggle size={20} />
         </button>
       </div>
 
