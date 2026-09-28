@@ -11,7 +11,7 @@ export default tseslint.config(
      * 「assigned but never used」——那是脚本的常态，不是缺陷。
      * 正式脚本（scripts/smoke.mjs 等）仍照常检查。
      */
-    ignores: ['dist', 'node_modules', '.workbuddy', 'scripts/probe-*.mjs'],
+    ignores: ['dist', 'node_modules', '.workbuddy', '.playwright-verify', 'scripts/probe-*.mjs'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

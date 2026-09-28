@@ -202,7 +202,9 @@ export function ProjectsPage() {
         <section className={styles.section}>
           <div className={styles.sectionHead}>
             <div className={styles.titleGroup}>
-              <h2 className={styles.sectionTitle}>项目</h2>
+              <h2 className={styles.sectionTitle} data-projects-heading>
+                项目
+              </h2>
               <button
                 className={`${styles.selectToggle} ${selecting ? styles.selectToggleOn : ''}`}
                 type="button"
@@ -549,7 +551,9 @@ export function ProjectCard(props: {
             }}
           />
         ) : (
-          <div className={styles.cardName}>{project.name}</div>
+          <div className={styles.cardName} data-project-name>
+            {project.name}
+          </div>
         )}
         <div className={styles.cardMeta}>
           <span className={styles.wbTag} data-wb={project.workbench}>

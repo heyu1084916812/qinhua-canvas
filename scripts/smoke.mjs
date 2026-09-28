@@ -10617,13 +10617,39 @@ async function g85(browser) {
     const nodes = [...document.querySelectorAll('[data-new-card], [data-project-card]')]
     const firstFive = nodes.slice(0, 5).map((el) => el.getBoundingClientRect())
     const projects = [...document.querySelectorAll('[data-project-card]')].slice(0, 5).map((el) => el.getBoundingClientRect())
-    const thumb = document.querySelector('[data-project-card] > div:first-child')?.getBoundingClientRect()
+    const firstProjectCard = document.querySelector('[data-project-card]')
+    const thumb = firstProjectCard?.firstElementChild?.getBoundingClientRect()
+    const cardNameEl = [...document.querySelectorAll('[data-project-card]')]
+      .map((card) => card.querySelector('[data-project-name]'))
+      .find(Boolean)
+    const sectionTitleEl = document.querySelector('[data-projects-heading]')
     return {
       workspace: workspace ? { left: workspace.left, width: workspace.width } : null,
       grid: grid ? { left: grid.left, width: grid.width } : null,
       firstFive: firstFive.map((r) => ({ top: r.top, left: r.left, width: r.width })),
       projects: projects.map((r) => ({ top: r.top, left: r.left, width: r.width })),
       thumb: thumb ? { width: thumb.width, height: thumb.height } : null,
+      titleStyle: sectionTitleEl
+        ? {
+            fontSize: getComputedStyle(sectionTitleEl).fontSize,
+            lineHeight: getComputedStyle(sectionTitleEl).lineHeight,
+            fontWeight: getComputedStyle(sectionTitleEl).fontWeight,
+          }
+        : null,
+      cardNameStyle: cardNameEl
+        ? {
+            fontSize: getComputedStyle(cardNameEl).fontSize,
+            fontWeight: getComputedStyle(cardNameEl).fontWeight,
+          }
+        : null,
+      cardOverflow: firstProjectCard
+        ? {
+            scrollWidth: firstProjectCard.scrollWidth,
+            clientWidth: firstProjectCard.clientWidth,
+            nameScrollWidth: firstProjectCard.querySelector('[data-project-name]')?.scrollWidth ?? 0,
+            nameClientWidth: firstProjectCard.querySelector('[data-project-name]')?.clientWidth ?? 0,
+          }
+        : null,
       firstIsNew: nodes[0]?.hasAttribute('data-new-card') ?? false,
     }
   })
@@ -10645,6 +10671,26 @@ async function g85(browser) {
     layout.thumb ? `${layout.thumb.width.toFixed(1)}×${layout.thumb.height.toFixed(1)}` : 'null',
   )
   rec(g, '新建项目在网格第一张', layout.firstIsNew)
+  rec(
+    g,
+    '★ “项目”标题 20px / 28px / 600',
+    JSON.stringify(layout.titleStyle) === JSON.stringify({ fontSize: '20px', lineHeight: '28px', fontWeight: '600' }),
+    JSON.stringify(layout.titleStyle),
+  )
+  rec(
+    g,
+    '★ 项目名 15px / 600',
+    JSON.stringify(layout.cardNameStyle) === JSON.stringify({ fontSize: '15px', fontWeight: '600' }),
+    JSON.stringify(layout.cardNameStyle),
+  )
+  rec(
+    g,
+    '真实项目卡片不横向溢出',
+    !!layout.cardOverflow &&
+      layout.cardOverflow.scrollWidth <= layout.cardOverflow.clientWidth + 1 &&
+      layout.cardOverflow.nameScrollWidth <= layout.cardOverflow.nameClientWidth + 1,
+    JSON.stringify(layout.cardOverflow),
+  )
 
   // 窄工作区降列：缩窗口并展开侧栏，验证不再硬撑 5 列，且卡片不越出工作区。
   await page.setViewportSize({ width: 1050, height: 800 })
