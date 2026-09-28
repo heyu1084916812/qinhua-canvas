@@ -220,11 +220,15 @@
 .grid {
   display: grid;
   /*
-   * 用户 2026-09-28 口径：桌面端一排五个。`minmax(0, 1fr)` 比 minmax(220px,1fr)
-   * 更能保证五列不被内容顶宽；卡片本身有 `min-width: 0` 的默认行为，
-   * 长标题也只会在卡片内部截断。
+   * 用户 2026-09-28 口径：项目卡片固定 **303 × 180**，
+   * 不是只保持 303:180 的比例。
+   *
+   * 因此这里**不能用 `1fr`**：弹性列会随工作区宽度把卡片拉宽，
+   * 窄窗口再把它压小，比例对了但尺寸始终不对。改成固定列宽后，
+   * 卡片本体也同步锁定宽高，栅格只决定一排放几张、整体是否居中。
    */
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, 303px);
+  justify-content: center;
   gap: var(--space-5);
 }
 
@@ -252,7 +256,9 @@
 }
 
 .thumb {
-  aspect-ratio: 303 / 180;
+  width: 303px;
+  height: 180px;
+  flex: none;
   background: var(--bg-subtle);
   background-image:
     linear-gradient(var(--grid-line) 1px, transparent 1px),
@@ -431,6 +437,8 @@
 
 /* 网格末尾常驻「+ 新建」卡片（产品文档 §5.1） */
 .newCard {
+  width: 303px;
+  height: 180px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -638,12 +646,12 @@
  */
 @media (max-width: 1180px) {
   .grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, 303px);
   }
 }
 @media (max-width: 900px) {
   .grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, 303px);
   }
 }
 @media (max-width: 680px) {
@@ -651,7 +659,11 @@
     padding-inline: var(--space-4);
   }
   .grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fill, min(303px, 100%));
+  }
+  .thumb,
+  .newCard {
+    width: min(303px, 100%);
   }
   .sectionHead {
     align-items: flex-start;
@@ -666,9 +678,6 @@
   }
 }
 @media (max-width: 460px) {
-  .grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .bulkBar {
     gap: var(--space-2);
   }

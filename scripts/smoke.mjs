@@ -10613,7 +10613,8 @@ async function g85(browser) {
 
   const layout = await page.evaluate(() => {
     const workspace = document.querySelector('[data-app-workspace]')?.getBoundingClientRect()
-    const grid = document.querySelector('[data-new-card]')?.parentElement?.getBoundingClientRect()
+    const gridEl = document.querySelector('[data-new-card]')?.parentElement
+    const grid = gridEl?.getBoundingClientRect()
     const nodes = [...document.querySelectorAll('[data-new-card], [data-project-card]')]
     const firstFive = nodes.slice(0, 5).map((el) => el.getBoundingClientRect())
     const projects = [...document.querySelectorAll('[data-project-card]')].slice(0, 5).map((el) => el.getBoundingClientRect())
@@ -10629,7 +10630,15 @@ async function g85(browser) {
     const sectionTitleEl = document.querySelector('[data-projects-heading]')
     return {
       workspace: workspace ? { left: workspace.left, width: workspace.width } : null,
-      grid: grid ? { left: grid.left, width: grid.width } : null,
+      grid: grid
+        ? {
+            left: grid.left,
+            width: grid.width,
+            right: grid.right,
+            nodeScrollWidth: gridEl.scrollWidth,
+            nodeClientWidth: gridEl.clientWidth,
+          }
+        : null,
       firstFive: firstFive.map((r) => ({ top: r.top, left: r.left, width: r.width })),
       projects: projects.map((r) => ({ top: r.top, left: r.left, width: r.width })),
       thumb: thumb ? { width: thumb.width, height: thumb.height } : null,
@@ -10677,8 +10686,22 @@ async function g85(browser) {
   })
   const tops = layout.firstFive.map((r) => r.top)
   const widths = layout.firstFive.map((r) => r.width)
-  rec(g, '★ 第一排五个卡片同一 y（五列）', tops.length === 5 && Math.max(...tops) - Math.min(...tops) <= 1, tops.join(','))
-  rec(g, '★ 每列宽度一致', widths.every((w) => Math.abs(w - widths[0]) <= 1.5), widths.join(','))
+  const sameRow = tops.filter((top) => Math.abs(top - tops[0]) <= 1).length
+  /*
+   * 用户 2026-09-28 最终口径是「卡片必须固定 303×180」。
+   * 当前冒烟窗口的可用宽度放不下 5 张固定宽卡片，因此不能再要求一排五张；
+   * 真正要守住的是尺寸不缩、栅格居中、按可用宽度自然换行，且不横向溢出。
+   */
+  rec(g, '★ 固定宽卡片按可用宽度自然换行，不缩小卡片', sameRow >= 1 && sameRow < 5, `sameRow=${sameRow}; tops=${tops.join(',')}`)
+  rec(g, '★★ 每张项目卡片固定 303×180（用户 2026-09-28）', widths.every((w) => Math.abs(w - 303) <= 1), widths.join(','))
+  rec(
+    g,
+    '★ 固定宽卡片栅格不横向溢出工作区',
+    !!layout.workspace && !!layout.grid &&
+      layout.grid.left >= layout.workspace.left - 1 &&
+      layout.grid.right <= layout.workspace.left + layout.workspace.width + 1,
+    layout.grid ? `grid=${layout.grid.left}..${layout.grid.right}; workspace=${layout.workspace.left}..${layout.workspace.left + layout.workspace.width}` : 'null',
+  )
   rec(
     g,
     '★★ 网格在工作区内水平居中',
@@ -10688,8 +10711,10 @@ async function g85(browser) {
   )
   rec(
     g,
-    '★★ 项目封面比例 303:180（Lovart 卡片口径，用户 2026-09-28）',
-    !!layout.thumb && Math.abs(layout.thumb.width / layout.thumb.height - 303 / 180) < 0.02,
+    '★★ 项目封面实到 303×180，而不是只保持比例（Lovart 卡片口径，用户 2026-09-28）',
+    !!layout.thumb &&
+      Math.abs(layout.thumb.width - 303) <= 1 &&
+      Math.abs(layout.thumb.height - 180) <= 1,
     layout.thumb ? `${layout.thumb.width.toFixed(1)}×${layout.thumb.height.toFixed(1)}` : 'null',
   )
   rec(g, '新建项目在网格第一张', layout.firstIsNew)
