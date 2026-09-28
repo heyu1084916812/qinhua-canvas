@@ -180,6 +180,7 @@
 
 .form {
   max-width: 620px;
+  margin-inline: auto;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);

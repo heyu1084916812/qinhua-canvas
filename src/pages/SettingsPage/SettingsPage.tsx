@@ -22,7 +22,7 @@ import {
   ROUTE_STRATEGIES,
   type RouteStrategy,
 } from '../../domain/project/modelRouting'
-import { PRESET_MODELS, presetIdForUpstream } from '../../domain/project/modelPresets'
+import { PRESET_MODELS } from '../../domain/project/modelPresets'
 
 /**
  * 模型映射区的三个分组（用户 2026-09-27 第 9 轮）。
@@ -455,11 +455,11 @@ export function SettingsPage() {
           </div>
         </aside>
 
-        <section className={styles.editor}>
+        <section className={styles.editor} data-settings-editor>
           {!selected ? (
             <div className={styles.placeholder}>从左侧选择，或新增一个渠道</div>
           ) : (
-            <div className={styles.form}>
+            <div className={styles.form} data-settings-form>
               <div className={styles.fieldRowTop}>
                 <label className={`${styles.field} ${styles.grow}`}>
                   <span className={styles.label}>名称</span>
@@ -770,52 +770,29 @@ export function SettingsPage() {
                 </div>
 
                 {/*
-                  映射列表 = **固定显示名** + 该渠道已勾选的模型，后者去重。
+                  映射列表 = **前端固定显示名**。
 
                   为什么固定名一定要在这里出现（用户 2026-09-27）：
                   画布下拉列的就是这几个名字，它们**不一定出现在本站的模型清单里**
                   （例如前端叫 `GPT Image 2.5 Flare`，本站叫 `gpt-image-2.5-flare`）。
                   若这里只列「已勾选模型」，用户就没地方填这个翻译 ——
                   在画布选完固定名，请求会带着显示名发出去并被上游拒绝。
+
+                  上游拉到的模型 ID 只作为输入框候选（`routeMapOptions`），
+                  不再额外生成映射行；否则站点一拉模型，映射区就会越积越多。
                 */}
                 {(() => {
                   const presetIds = PRESET_MODELS.map((m) => m.id)
                   /**
-                   * 渠道里的上游 ID 若已经对应某个固定显示名（`gpt-image-2` →
-                   * `GPT Image 2`），就**不再单列一行** —— 否则用户会看到
-                   * 「GPT Image 2」和「gpt-image-2」两行，以为这是两个模型
-                   * （用户 2026-09-27 第 8 轮报的正是这个）。
-                   */
-                  const presetAliases = new Set(
-                    PRESET_MODELS.flatMap((m) => m.aliases ?? []),
-                  )
-                  const extraIds = selected.models
-                    .map((m) => m.id)
-                    .filter((id) => !presetIds.includes(id) && !presetAliases.has(id))
-                  /**
-                   * 一行的 `key` 是**发送时用的键**，标签是**显示的文案**。
+                   * 一行的 `key` 固定取预设显示名，标签与它一致。
                    *
-                   * `gpt-image-2` 这一行：键取上游 ID（改的就是这条真实映射），
-                   * 标签显示 `GPT Image 2`。两者分开正是「前端显示名 ≠ 请求 ID」
-                   * 这条口径在设置页的落点。
+                   * 映射保存的就是「显示名 → 本站真实 ID」，上游 ID 不占一个显示槽位。
                    */
-                  const rows = [
-                    ...PRESET_MODELS.map((m) => ({ key: m.id, label: m.id, category: m.category })),
-                    ...selected.models
-                      .filter((m) => presetAliases.has(m.id))
-                      .map((m) => ({
-                        key: m.id,
-                        label: presetIdForUpstream(m.id),
-                        /* 有认定显示名的，分类跟它走（它就是要映射到的那个逻辑模型） */
-                        category:
-                          PRESET_MODELS.find((p) => p.id === presetIdForUpstream(m.id))?.category ??
-                          m.category,
-                      })),
-                    ...extraIds.map((id) => {
-                      const m = selected.models.find((x) => x.id === id)
-                      return { key: id, label: id, category: m?.category ?? 'image' }
-                    }),
-                  ]
+                  const rows = PRESET_MODELS.map((m) => ({
+                    key: m.id,
+                    label: m.id,
+                    category: m.category,
+                  }))
                   return (
                     <>
                       <p className={styles.modelsSub} data-route-map-help>

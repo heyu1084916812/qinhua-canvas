@@ -9028,6 +9028,39 @@ async function g74(browser) {
     layoutGeom.cardW > 400 && layoutGeom.cardW >= layoutGeom.workspaceW - 40,
     `卡片=${layoutGeom.cardW}px 工作区=${layoutGeom.workspaceW}px`,
   )
+  /**
+   * ★★ 用户 2026-09-28：渠道的内容在工作区也必须居中。
+   *
+   * 之前 `.editor` 只有左内边距，表单贴着左侧渠道列表；宽屏下整块内容
+   * 看起来偏左。判据：表单左右中心与编辑区中心一致（±2px 容忍子像素）。
+   *
+   * 注意必须**先选中渠道**：`selectedId` 刷新后归零（§7.1「进来不预选」），
+   * 不选中时右侧只渲染 `<div class="placeholder">`，`[data-settings-form]`
+   * 根本不存在 —— 直接量会拿到 `missing`，而不是「没居中」。
+   */
+  await page.locator('[data-channel-item]').first().click()
+  await sleep(300)
+  const centered = await page.evaluate(() => {
+    const form = document.querySelector('[data-settings-form]')?.getBoundingClientRect()
+    /**
+     * 参照系必须是**表单真正所在的编辑区** `.editor`（两栏栅格右列），
+     * 而不是整张卡片：卡片还含 264px 的左侧渠道列表，拿卡片中心去比会
+     * 稳定偏右 ~halfSidebar，把「正确的居中」误判成失败。
+     */
+    const editor = document.querySelector('[data-settings-editor]')?.getBoundingClientRect()
+    if (!form || !editor) return null
+    return {
+      formCenter: Math.round((form.left + form.right) / 2),
+      editorCenter: Math.round((editor.left + editor.right) / 2),
+      formW: Math.round(form.width),
+    }
+  })
+  rec(
+    g,
+    '★★ 渠道内容在编辑区水平居中',
+    !!centered && Math.abs(centered.formCenter - centered.editorCenter) <= 2,
+    centered ? `表单中心=${centered.formCenter} 工作区中心=${centered.editorCenter} 宽=${centered.formW}px` : 'missing',
+  )
   rec(g, '★ 设置页不再有旧的三区外壳', !layoutGeom.hasLegacyShell)
 
   // ── ② 预设词已迁到技能库第二层，仍可编辑 ──
@@ -10221,13 +10254,20 @@ async function g79(browser) {
    */
   const presetRows = page.locator('[data-route-map-preset="1"]')
   const presetLabels = await presetRows.locator('[data-route-map-label]').allInnerTexts()
+  const allRows = page.locator('[data-route-map-row]')
+  const allRowLabels = await allRows.locator('[data-route-map-label]').allInnerTexts()
+  const trimmedLabels = allRowLabels.map((s) => s.trim())
   rec(
     g,
-    '★ 映射区列 15 个显示名，且不含裸 ID `gpt-image-2`（用户报的那个）',
-    (await presetRows.count()) === 15 &&
+    '★ 映射区只列 15 个固定显示名，不含上游裸 ID 或重复项',
+    (await allRows.count()) === 15 &&
+      (await presetRows.count()) === 15 &&
       presetLabels.map((s) => s.trim()).includes('GPT Image 2') &&
-      !presetLabels.some((s) => s.trim() === 'gpt-image-2'),
-    `行数=${await presetRows.count()} 含GPT Image 2=${presetLabels.some((s) => s.trim() === 'GPT Image 2')}`,
+      !trimmedLabels.includes('gpt-image-2') &&
+      !trimmedLabels.includes('gemini-3.1-pro-preview') &&
+      !trimmedLabels.includes('gemini-3.5-flash') &&
+      new Set(trimmedLabels).size === trimmedLabels.length,
+    `总行数=${await allRows.count()} 固定行数=${await presetRows.count()} 标签=${JSON.stringify(trimmedLabels)}`,
   )
   await page.locator('[data-route-map-input="GPT Image 2.5 Flare"]').fill('gpt-image-2.5-flare')
   await sleep(300)
