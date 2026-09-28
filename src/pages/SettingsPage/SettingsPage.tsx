@@ -412,48 +412,52 @@ export function SettingsPage() {
               </li>
             ))}
             {channelsList.length === 0 && <li className={styles.empty}>还没有渠道，点下方「+ 新增渠道」</li>}
-          </ul>
-          <button className={styles.addBtn} data-channel-add onClick={handleCreate}>
-            + 新增渠道
-          </button>
-          {channelsList.length > 0 && <p className={styles.dragHint}>按住条目上下拖动可排序</p>}
 
-          {/* 删除渠道（§7.2）：挪到「+ 新增渠道」正下方——增/删是同类的**列表级**操作，挨着才找得到；
-              它此前孤零零挂在右栏最底部，既远，又容易被读成「保存类」按钮。
-              删除不可逆，所以走**就地二次确认**而不是点一下就走。 */}
-          <div className={styles.dangerZone}>
-            {!confirmDelete ? (
-              <button
-                className={styles.dangerBtn}
-                data-channel-remove
-                disabled={!selectedId || busy}
-                onClick={() => setConfirmDelete(true)}
-              >
-                删除渠道
+            {/* 列表级操作跟在**最后一条渠道**后面（用户 2026-09-28）：
+                它们此前被 `flex: 1` 的滚动列表挤到左栏最底部，渠道少时离条目很远；
+                放回列表尾部后，新增/删除仍是同一组操作，但视线不用跨越空白。
+                删除不可逆，所以继续走就地二次确认。 */}
+            <li className={styles.listActions} data-channel-actions>
+              <button className={styles.addBtn} data-channel-add onClick={handleCreate}>
+                + 新增渠道
               </button>
-            ) : (
-              <div className={styles.confirmBox} data-channel-remove-confirm>
-                <span className={styles.confirmText}>删除「{selected?.name ?? ''}」？不可撤销</span>
-                <div className={styles.confirmRow}>
+              {channelsList.length > 0 && <p className={styles.dragHint}>按住条目上下拖动可排序</p>}
+
+              <div className={styles.dangerZone}>
+                {!confirmDelete ? (
                   <button
-                    className={styles.dangerSolid}
-                    data-channel-remove-yes
-                    disabled={busy}
-                    onClick={handleRemove}
+                    className={styles.dangerBtn}
+                    data-channel-remove
+                    disabled={!selectedId || busy}
+                    onClick={() => setConfirmDelete(true)}
                   >
-                    确认删除
+                    删除渠道
                   </button>
-                  <button
-                    className={styles.ghostBtn}
-                    data-channel-remove-no
-                    onClick={() => setConfirmDelete(false)}
-                  >
-                    取消
-                  </button>
-                </div>
+                ) : (
+                  <div className={styles.confirmBox} data-channel-remove-confirm>
+                    <span className={styles.confirmText}>删除「{selected?.name ?? ''}」？不可撤销</span>
+                    <div className={styles.confirmRow}>
+                      <button
+                        className={styles.dangerSolid}
+                        data-channel-remove-yes
+                        disabled={busy}
+                        onClick={handleRemove}
+                      >
+                        确认删除
+                      </button>
+                      <button
+                        className={styles.ghostBtn}
+                        data-channel-remove-no
+                        onClick={() => setConfirmDelete(false)}
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </li>
+          </ul>
         </aside>
 
         <section className={styles.editor} data-settings-editor>
@@ -461,139 +465,169 @@ export function SettingsPage() {
             <div className={styles.placeholder}>从左侧选择，或新增一个渠道</div>
           ) : (
             <div className={styles.form} data-settings-form>
-              <div className={styles.fieldRowTop}>
-                <label className={`${styles.field} ${styles.grow}`}>
-                  <span className={styles.label}>名称</span>
-                  <input
-                    className={styles.input}
-                    data-settings-name
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                  />
-                </label>
-                <button
-                  className={styles.primary}
-                  data-settings-save
-                  disabled={busy}
-                  onClick={handleSaveConfig}
-                >
-                  保存配置
-                </button>
-              </div>
-
-              <label className={styles.field}>
-                <span className={styles.label}>地址</span>
-                <input
-                  className={styles.input}
-                  data-settings-baseurl
-                  placeholder="https://your-relay.example.com（含 /v1 或不含都可以）"
-                  value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                />
-              </label>
-
-              <div className={styles.field}>
-                <span className={styles.label}>令牌（API Key）</span>
-                <div className={styles.tokenRow}>
-                  <input
-                    className={styles.input}
-                    type={showToken ? 'text' : 'password'}
-                    placeholder={tokenSaved ? '已保存（重新输入可覆盖）' : '粘贴 API Key'}
-                    value={token}
-                    onChange={(e) => setToken(e.target.value)}
-                  />
-                  <button className={styles.ghostBtn} onClick={() => setShowToken((v) => !v)}>
-                    {showToken ? '隐藏' : '显示'}
-                  </button>
+              {/* —— 基本信息（§7.2）—— */}
+              <section className={styles.card} data-settings-basics>
+                <div className={styles.cardHead}>
+                  <span className={styles.cardTitle}>基本信息</span>
+                  <span className={styles.cardSub}>这条渠道在画布里显示的名字</span>
+                </div>
+                <div className={styles.fieldRowTop}>
+                  <label className={`${styles.field} ${styles.grow}`}>
+                    <span className={styles.label}>名称</span>
+                    <input
+                      className={styles.input}
+                      data-settings-name
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                    />
+                  </label>
                   <button
-                    className={styles.ghostBtn}
-                    data-settings-token-save
-                    disabled={!token || busy}
-                    onClick={handleSaveToken}
+                    className={styles.primary}
+                    data-settings-save
+                    disabled={busy}
+                    onClick={handleSaveConfig}
                   >
-                    保存
-                  </button>
-                  <button
-                    className={styles.ghostBtn}
-                    data-settings-token-remove
-                    disabled={!tokenSaved || busy}
-                    onClick={handleRemoveToken}
-                  >
-                    删除
+                    保存配置
                   </button>
                 </div>
-                {/* 尾 4 位是唯一的身份线索：看不出来存的是哪把钥匙，就只能靠「删了重存」来确认。
-                    整串明文不回显（凭据层只在调用前注入），所以这里只给尾号。 */}
-                {tokenSaved && (
-                  <span className={styles.saved} data-settings-token-tail>
-                    ● 令牌已加密保存{tokenHint ? ` · ${tokenHint}` : ''}
-                  </span>
-                )}
-              </div>
 
-              <div className={styles.fieldRow}>
-                <label className={styles.switch}>
-                  <input type="checkbox" checked={enabled} onChange={handleToggleEnabled} />
-                  <span>已启用（出现在画布平台选择中）</span>
-                </label>
-              </div>
+                <div className={styles.fieldRow}>
+                  <label className={styles.switch}>
+                    <input
+                      className={styles.switchInput}
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={handleToggleEnabled}
+                    />
+                    <span className={styles.switchTrack} aria-hidden="true" />
+                    <span>已启用（出现在画布平台选择中）</span>
+                  </label>
+                </div>
+              </section>
 
-              {/* 协议区（§7.3）：协议下拉 + 三个动作按钮。
-                  「验证地址」只回答地址通不通；「验证协议」按候选表试打并把命中的协议填进下拉；
-                  「拉取模型」在下方模型区分内。三者职责不重叠，所以按钮文案也是三句不同的话。 */}
-              <div className={styles.protocolRow}>
-                <label className={`${styles.field} ${styles.grow}`}>
-                  <span className={styles.label}>协议</span>
-                  <select
+              {/* —— 连接与鉴权（§7.3）—— */}
+              <section className={styles.card} data-settings-connection>
+                <div className={styles.cardHead}>
+                  <span className={styles.cardTitle}>连接与鉴权</span>
+                  <span className={styles.cardSub}>站点地址、API Key 与协议</span>
+                </div>
+
+                <label className={styles.field}>
+                  <span className={styles.label}>地址</span>
+                  <input
                     className={styles.input}
-                    data-settings-protocol
-                    value={protocol}
-                    onChange={(e) => setProtocol(e.target.value)}
-                  >
-                    {SUPPORTED_PROTOCOLS.map((p) => (
-                      <option key={p.value} value={p.value}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
+                    data-settings-baseurl
+                    placeholder="https://your-relay.example.com（含 /v1 或不含都可以）"
+                    value={baseUrl}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                  />
                 </label>
-                <button
-                  className={styles.ghostBtn}
-                  data-settings-detect
-                  disabled={busy}
-                  onClick={handleDetect}
-                  title="按候选协议逐个试打，第一个通的自动选中"
-                >
-                  验证协议
-                </button>
-                <button className={styles.ghostBtn} data-settings-verify disabled={busy} onClick={handleVerify}>
-                  验证地址
-                </button>
-              </div>
 
-              <div className={styles.status} role="status" aria-live="polite" data-settings-status>
-                {statusLine}
-              </div>
+                <div className={styles.field}>
+                  <span className={styles.label}>令牌（API Key）</span>
+                  <div className={styles.tokenRow}>
+                    <input
+                      className={styles.input}
+                      type={showToken ? 'text' : 'password'}
+                      placeholder={tokenSaved ? '已保存（重新输入可覆盖）' : '粘贴 API Key'}
+                      value={token}
+                      onChange={(e) => setToken(e.target.value)}
+                    />
+                    <button className={styles.ghostBtn} onClick={() => setShowToken((v) => !v)}>
+                      {showToken ? '隐藏' : '显示'}
+                    </button>
+                    <button
+                      className={styles.ghostBtn}
+                      data-settings-token-save
+                      disabled={!token || busy}
+                      onClick={handleSaveToken}
+                    >
+                      保存
+                    </button>
+                    <button
+                      className={styles.ghostBtn}
+                      data-settings-token-remove
+                      disabled={!tokenSaved || busy}
+                      onClick={handleRemoveToken}
+                    >
+                      删除
+                    </button>
+                  </div>
+                  {/* 尾 4 位是唯一的身份线索：看不出来存的是哪把钥匙，就只能靠「删了重存」来确认。
+                      整串明文不回显（凭据层只在调用前注入），所以这里只给尾号。 */}
+                  {tokenSaved && (
+                    <span className={styles.saved} data-settings-token-tail>
+                      ● 令牌已加密保存{tokenHint ? ` · ${tokenHint}` : ''}
+                    </span>
+                  )}
+                </div>
 
-              {showMockNote && (
-                <p className={styles.offlineNote} data-settings-mock-note>
-                  Mock 是离线协议：不发任何网络请求、也不会去访问上面填的地址，所以验证必然通过。
-                  要联调真实中转，把「协议」切到「OpenAI 兼容 · 生图」后再点一次「验证地址」，
-                  或者直接点「验证协议」让它自己认。
-                </p>
-              )}
+                {/* 协议区（§7.3）：协议下拉 + 三个动作按钮。
+                    「验证地址」只回答地址通不通；「验证协议」按候选表试打并把命中的协议填进下拉；
+                    「拉取模型」在下方模型区分内。三者职责不重叠，所以按钮文案也是三句不同的话。 */}
+                <div className={styles.protocolRow}>
+                  <label className={`${styles.field} ${styles.grow}`}>
+                    <span className={styles.label}>协议</span>
+                    <select
+                      className={styles.input}
+                      data-settings-protocol
+                      value={protocol}
+                      onChange={(e) => setProtocol(e.target.value)}
+                    >
+                      {SUPPORTED_PROTOCOLS.map((p) => (
+                        <option key={p.value} value={p.value}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    className={styles.ghostBtn}
+                    data-settings-detect
+                    disabled={busy}
+                    onClick={handleDetect}
+                    title="按候选协议逐个试打，第一个通的自动选中"
+                  >
+                    验证协议
+                  </button>
+                  <button
+                    className={styles.ghostBtn}
+                    data-settings-verify
+                    disabled={busy}
+                    onClick={handleVerify}
+                  >
+                    验证地址
+                  </button>
+                </div>
+
+                <div className={styles.status} role="status" aria-live="polite" data-settings-status>
+                  {statusLine}
+                </div>
+
+                {showMockNote && (
+                  <p className={styles.offlineNote} data-settings-mock-note>
+                    Mock 是离线协议：不发任何网络请求、也不会去访问上面填的地址，所以验证必然通过。
+                    要联调真实中转，把「协议」切到「OpenAI 兼容 · 生图」后再点一次「验证地址」，
+                    或者直接点「验证协议」让它自己认。
+                  </p>
+                )}
+              </section>
 
               {/* —— 模型管理（§7.4）—— */}
-              <section className={styles.models} data-settings-models>
+              <section className={styles.card} data-settings-models>
                 <div className={styles.modelsHead}>
                   <div className={styles.modelsTitleBox}>
-                    <span className={styles.label}>模型列表</span>
-                    <span className={styles.modelsSub}>从上游 api 自动拉取所有可用模型</span>
+                    <span className={styles.cardTitle}>模型列表</span>
+                    <span className={styles.cardSub}>从上游 api 自动拉取所有可用模型</span>
                   </div>
                   <button className={styles.ghostBtn} disabled={busy} onClick={handleRefresh}>
                     拉取模型
                   </button>
-                  <button className={styles.ghostBtn} disabled={busy || selected.modelCache.length === 0} onClick={openPanel}>
+                  <button
+                    className={styles.ghostBtn}
+                    disabled={busy || selected.modelCache.length === 0}
+                    onClick={openPanel}
+                  >
                     选择模型
                   </button>
                 </div>
@@ -691,15 +725,16 @@ export function SettingsPage() {
                         应用到模型列表
                       </button>
                     </div>
-                </div>
-              )}
+                  </div>
+                )}
+              </section>
 
               {/* —— 选路与模型映射（§7.4.1，M7-2）—— */}
-              <section className={styles.route} data-settings-route>
+              <section className={styles.card} data-settings-route>
                 <div className={styles.modelsHead}>
                   <div className={styles.modelsTitleBox}>
-                    <span className={styles.label}>选路策略</span>
-                    <span className={styles.modelsSub}>
+                    <span className={styles.cardTitle}>选路策略</span>
+                    <span className={styles.cardSub}>
                       同一个模型在多条渠道都能出图时，按什么规则挑一条
                     </span>
                   </div>
@@ -825,49 +860,49 @@ export function SettingsPage() {
                           <div key={category} className={styles.mapGroup} data-route-map-group={category}>
                             <div className={styles.mapGroupTitle}>{title}</div>
                             <div className={styles.mapList}>
-                        {groupRows.map(({ key: id, label }) => {
-                          const saved = selected.modelMap[id] ?? ''
-                          const draft = mapDrafts[id]
-                          const value = draft ?? saved
-                          const isPreset = presetIds.includes(id)
-                          return (
-                            <div
-                              key={id}
-                              className={styles.mapRow}
-                              data-route-map-row={id}
-                              data-route-map-preset={isPreset ? '1' : '0'}
-                            >
-                              <span className={styles.mapName} title={id} data-route-map-label>
-                                {label}
-                              </span>
-                              <input
-                                className={`${styles.input} ${styles.mapInput}`}
-                                data-route-map-input={id}
-                                placeholder="留空 = 按原名发送"
-                                value={value}
-                                list={listId}
-                                onChange={(e) =>
-                                  setMapDrafts((prev) => ({ ...prev, [id]: e.target.value }))
-                                }
-                              />
-                              <button
-                                className={styles.ghostBtn}
-                                data-route-map-save={id}
-                                disabled={value === saved}
-                                onClick={async () => {
-                                  await channels.setModelMapping(selectedId!, id, value)
-                                  setMapDrafts((prev) => {
-                                    const next = { ...prev }
-                                    delete next[id]
-                                    return next
-                                  })
-                                }}
-                              >
-                                保存
-                              </button>
-                            </div>
-                          )
-                        })}
+                              {groupRows.map(({ key: id, label }) => {
+                                const saved = selected.modelMap[id] ?? ''
+                                const draft = mapDrafts[id]
+                                const value = draft ?? saved
+                                const isPreset = presetIds.includes(id)
+                                return (
+                                  <div
+                                    key={id}
+                                    className={styles.mapRow}
+                                    data-route-map-row={id}
+                                    data-route-map-preset={isPreset ? '1' : '0'}
+                                  >
+                                    <span className={styles.mapName} title={id} data-route-map-label>
+                                      {label}
+                                    </span>
+                                    <input
+                                      className={`${styles.input} ${styles.mapInput}`}
+                                      data-route-map-input={id}
+                                      placeholder="留空 = 按原名发送"
+                                      value={value}
+                                      list={listId}
+                                      onChange={(e) =>
+                                        setMapDrafts((prev) => ({ ...prev, [id]: e.target.value }))
+                                      }
+                                    />
+                                    <button
+                                      className={styles.ghostBtn}
+                                      data-route-map-save={id}
+                                      disabled={value === saved}
+                                      onClick={async () => {
+                                        await channels.setModelMapping(selectedId!, id, value)
+                                        setMapDrafts((prev) => {
+                                          const next = { ...prev }
+                                          delete next[id]
+                                          return next
+                                        })
+                                      }}
+                                    >
+                                      保存
+                                    </button>
+                                  </div>
+                                )
+                              })}
                               {options.length > 0 && (
                                 <datalist id={listId} data-route-map-options={category}>
                                   {options.map((o) => (
@@ -883,10 +918,9 @@ export function SettingsPage() {
                   )
                 })()}
               </section>
-            </section>
             </div>
           )}
-          </section>
+        </section>
         </div>
       </div>
       )}

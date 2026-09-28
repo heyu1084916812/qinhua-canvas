@@ -9092,6 +9092,75 @@ async function g74(browser) {
   )
   rec(g, '★ 设置页不再有旧的三区外壳', !layoutGeom.hasLegacyShell)
 
+  /**
+   * ★★ 用户 2026-09-28：「新增渠道和删除渠道这两个功能不要放在最底部了，
+   * 跟随渠道选择的最后一个即可」。
+   *
+   * 之前列表 `flex:1` 把这一组挤到左栏底部，渠道少时跟条目之间隔着大片空白，
+   * 视线要跨越整个列表。判据：`[data-channel-actions]` 是渠道列表的**最后一个**
+   * 子节点，且排在最后一条 `[data-channel-item]` 之后 —— 这样「新增 / 删除」
+   * 永远贴着最后一条渠道，新增一条就自动跟着往下走。
+   *
+   * 注意复用上面已经选中的渠道状态，**不要再次导航**：重复 `goto('/settings')`
+   * 会重置 `selectedId`，并让后续「改预设词 → 画布优化」流程出现时序漂移。
+   */
+  const listActionsOrder = await page.evaluate(() => {
+    const actions = document.querySelector('[data-channel-actions]')
+    const list = actions?.parentElement
+    if (!actions || !list) return null
+    const kids = Array.from(list.children)
+    const items = list.querySelectorAll('[data-channel-item]')
+    return {
+      isLast: kids[kids.length - 1] === actions,
+      itemCount: items.length,
+      afterLastItem:
+        items.length > 0 &&
+        items[items.length - 1].compareDocumentPosition(actions) === Node.DOCUMENT_POSITION_FOLLOWING,
+    }
+  })
+  rec(
+    g,
+    '★★ 新增/删除渠道跟在最后一条渠道后面（不再是列表底部孤零零一组）',
+    !!listActionsOrder && listActionsOrder.isLast && listActionsOrder.afterLastItem,
+    listActionsOrder
+      ? `是列表最后子节点=${listActionsOrder.isLast} 渠道数=${listActionsOrder.itemCount} 在末条之后=${listActionsOrder.afterLastItem}`
+      : 'missing',
+  )
+
+  /**
+   * ★★ 用户 2026-09-28：「右边具体的渠道配置我需要继续的设计一下排版，
+   * 目前看不清，能不能分卡片？」
+   *
+   * 右侧编辑器此前是一长条没有分组的表单，扫读时找不到边界。判据：四张卡片
+   * 各出现且仅出现一次，顺序为 基本信息 → 连接与鉴权 → 模型列表 → 选路策略。
+   */
+  const cardOrder = await page.evaluate(() => {
+    const sel = [
+      '[data-settings-basics]',
+      '[data-settings-connection]',
+      '[data-settings-models]',
+      '[data-settings-route]',
+    ]
+    const found = sel.map((s) => document.querySelector(s))
+    if (found.some((el) => !el)) return null
+    const base = document.querySelector('[data-settings-form]')
+    if (!base || !base.contains(found[0])) return null
+    let prev = found[0]
+    const ordered = found.every((el, i) => {
+      if (i === 0) return true
+      const ok = prev.compareDocumentPosition(el) === Node.DOCUMENT_POSITION_FOLLOWING
+      prev = el
+      return ok
+    })
+    return { counts: sel.map((s) => document.querySelectorAll(s).length), ordered }
+  })
+  rec(
+    g,
+    '★★ 渠道配置分成四张卡片（基本信息 / 连接与鉴权 / 模型列表 / 选路策略）',
+    !!cardOrder && cardOrder.counts.every((n) => n === 1) && cardOrder.ordered,
+    cardOrder ? `各卡片数=${cardOrder.counts.join(',')} 顺序正确=${cardOrder.ordered}` : 'missing',
+  )
+
   // ── ② 预设词已迁到技能库第二层，仍可编辑 ──
   await page.goto(`${BASE}/skills`, { waitUntil: 'networkidle' })
   await sleep(700)
