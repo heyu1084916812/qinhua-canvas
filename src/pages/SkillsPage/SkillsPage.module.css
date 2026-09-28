@@ -17,6 +17,36 @@
   font-family: var(--font-sans);
 }
 
+/*
+ * 三层层级各自的**居中舞台**（用户 2026-09-28：「技能库的 UI 也要居中，
+ * 不要左对齐」）。
+ *
+ * `.page` 只负责铺满工作区；真正被看的内容放进舞台，由它定宽并
+ * `margin-inline: auto` 整体居中。宽屏下内容不再贴着工作区左缘。
+ * 三个层级互斥地渲染，但共用同一套定位口径，切换层级时视线不会横向跳。
+ */
+.browserStage,
+.editorStage,
+.presetsStage {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* 卡片网格层最宽（要摆多列），编辑 / 预设词层收窄一档便于专注阅读 */
+.browserStage {
+  max-width: 1120px;
+}
+
+.editorStage,
+.presetsStage {
+  max-width: 900px;
+}
+
 /* 第二层顶部只有「返回浏览」+ 当前层级名；页面级「← 返回」按钮已按用户要求删除 */
 .levelBar {
   flex: none;
@@ -26,7 +56,7 @@
 }
 
 .levelTitle {
-  font-size: 13px;
+  font-size: var(--fs-label);
   font-weight: 600;
   color: var(--text-2);
 }
@@ -38,7 +68,7 @@
   padding: 0 var(--space-3);
   border-radius: var(--radius-control);
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: var(--fs-chip);
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -110,7 +140,7 @@
   background: var(--bg-surface);
   color: var(--text-2);
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: var(--fs-chip);
   font-weight: 600;
   cursor: pointer;
 }
@@ -143,7 +173,7 @@
   background: var(--bg-surface);
   color: var(--text-1);
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: var(--fs-chip);
   outline: none;
 }
 
@@ -163,8 +193,8 @@
   min-height: 0;
   overflow-y: auto;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  grid-auto-rows: min-content;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  /* 行高由该行最高的卡片决定，同行卡片再拉伸等高（`align-items` 默认 stretch） */
   gap: var(--space-3);
   align-content: start;
 }
@@ -191,7 +221,8 @@
 
 .cardName {
   max-width: 100%;
-  font-size: 13px;
+  min-width: 0;
+  font-size: var(--fs-title);
   font-weight: 600;
   /* 长名字换行，不截断也不溢出容器 */
   overflow-wrap: anywhere;
@@ -199,15 +230,18 @@
 
 .cardDesc {
   max-width: 100%;
+  min-width: 0;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--fs-label);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
 .cardMeta {
+  /* 顶到底部：同一行卡片等高时，元信息对齐在最下沿 */
+  margin-top: auto;
   color: var(--text-3);
-  font-size: 10px;
+  font-size: var(--fs-chip);
 }
 
 /* ── 第二层：编辑 ── */
@@ -243,7 +277,7 @@
   justify-content: space-between;
   gap: var(--space-2);
   color: var(--text-2);
-  font-size: 11px;
+  font-size: var(--fs-label);
   font-weight: 600;
 }
 
@@ -262,7 +296,7 @@
   background: var(--bg-surface);
   color: var(--text-1);
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: var(--fs-body);
   outline: none;
 }
 
@@ -294,14 +328,14 @@
 
 .confirmHint {
   color: var(--text-3);
-  font-size: 11px;
+  font-size: var(--fs-label);
 }
 
 .empty {
   grid-column: 1 / -1;
   padding: var(--space-4);
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--fs-label);
   line-height: 1.7;
   text-align: center;
 }
@@ -312,7 +346,7 @@
   flex: none;
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-control);
-  font-size: 12px;
+  font-size: var(--fs-label);
   line-height: 1.5;
 }
 

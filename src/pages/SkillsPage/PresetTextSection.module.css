@@ -47,13 +47,6 @@
 }
 
 .noticeErr {
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-control);
-  font-size: var(--fs-label);
-  background: var(--bg-subtle);
-}
-
-.noticeErr {
   color: var(--danger);
 }
 

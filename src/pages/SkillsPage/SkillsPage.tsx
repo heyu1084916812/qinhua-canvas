@@ -56,7 +56,7 @@ export function SkillsPage() {
   return (
     <div className={styles.page} data-skills-page>
       {level === 'edit' && draft && (
-        <>
+        <div className={styles.editorStage} data-skill-editor-stage>
           <div className={styles.levelBar}>
             <button type="button" className={styles.ghost} data-skills-back onClick={backToBrowse}>
               ← 返回浏览
@@ -70,11 +70,11 @@ export function SkillsPage() {
             onSaved={backToBrowse}
             onDeleted={backToBrowse}
           />
-        </>
+        </div>
       )}
 
       {level === 'presets' && (
-        <>
+        <div className={styles.presetsStage} data-presets-stage>
           <div className={styles.levelBar}>
             <button type="button" className={styles.ghost} data-presets-back onClick={backToBrowse}>
               ← 返回浏览
@@ -82,19 +82,21 @@ export function SkillsPage() {
             <span className={styles.levelTitle}>功能预设词</span>
           </div>
           <PresetTextSection presets={presets} presetText={presetText} />
-        </>
+        </div>
       )}
 
       {level === 'browse' && (
-        <SkillsBrowser
-          filter={filter}
-          query={query}
-          onFilter={setFilter}
-          onQuery={setQuery}
-          onPick={openSkill}
-          onNew={openNew}
-          onOpenPresets={() => setLevel('presets')}
-        />
+        <div className={styles.browserStage} data-skills-browser-stage>
+          <SkillsBrowser
+            filter={filter}
+            query={query}
+            onFilter={setFilter}
+            onQuery={setQuery}
+            onPick={openSkill}
+            onNew={openNew}
+            onOpenPresets={() => setLevel('presets')}
+          />
+        </div>
       )}
     </div>
   )

@@ -10464,7 +10464,26 @@ async function g82(browser) {
   await page.goto(`${BASE}/skills`, { waitUntil: 'networkidle' })
   await sleep(700)
 
+  /**
+   * ★★ 三层各自居中（用户 2026-09-28：「技能库的 UI 也要居中，不要左对齐」）。
+   * 只看「有没有 max-width」不够 —— 少了 `margin-inline:auto` 一样定宽却是贴左。
+   * 所以逐层量**内容舞台中心**与 `[data-app-workspace]` 中心的偏差。
+   */
+  const centerOffset = (sel) =>
+    page.evaluate(
+      ([stageSel, wsSel]) => {
+        const stage = document.querySelector(stageSel)
+        const ws = document.querySelector(wsSel)
+        if (!stage || !ws) return null
+        const a = stage.getBoundingClientRect()
+        const b = ws.getBoundingClientRect()
+        return Math.abs((a.left + a.right) / 2 - (b.left + b.right) / 2)
+      },
+      [sel, '[data-app-workspace]'],
+    )
+
   rec(g, '第一层是卡片浏览（browser 在 DOM）', (await page.locator('[data-skills-browser]').count()) === 1)
+  rec(g, '★★ 浏览层有居中舞台且水平居中', (await page.locator('[data-skills-browser-stage]').count()) === 1 && (await centerOffset('[data-skills-browser-stage]')) <= 2, `offset=${await centerOffset('[data-skills-browser-stage]')}`)
   rec(
     g,
     '★ 分类筛选齐备（全部 / 我的 / 功能预设词）',
@@ -10486,13 +10505,36 @@ async function g82(browser) {
   await page.locator('[data-skills-new]').click()
   await sleep(400)
   rec(g, '★ 点「新建」直接进第二层编辑（不是先落一条空技能）', (await page.locator('[data-skill-editor]').count()) === 1)
+  rec(g, '★★ 编辑层有居中舞台且水平居中', (await page.locator('[data-skill-editor-stage]').count()) === 1 && (await centerOffset('[data-skill-editor-stage]')) <= 2, `offset=${await centerOffset('[data-skill-editor-stage]')}`)
   rec(g, '★★ 编辑层有「返回浏览」且没有页面级返回按钮', (await page.locator('[data-skills-back]').count()) === 1)
-  await page.locator('[data-skill-name]').fill('两层冒烟技能')
+  /**
+   * 名字取满上限（24 字，含搜索词「两层冒烟」以复用后面的搜索断言），
+   * 说明也填长 —— 用来验证长文本在卡片里换行，不撑破容器。
+   */
+  const longName = '两层冒烟'.repeat(6)
+  const longDesc =
+    '这是一段很长的技能说明，用来验证说明文字在卡片容器内自动换行，不会横向溢出把卡片撑破，也不会盖住下方的元信息。'
+  await page.locator('[data-skill-name]').fill(longName)
+  await page.locator('[data-skill-desc]').fill(longDesc)
   await page.locator('[data-skill-content]').fill('只输出结果。')
   await page.locator('[data-skill-save]').click()
   await sleep(900)
   rec(g, '保存后回到浏览层', (await page.locator('[data-skills-browser]').count()) === 1)
   rec(g, '★ 新技能以卡片形式出现', (await page.locator('[data-skill-item]').count()) === 1)
+  /**
+   * ★★ 长名字 / 长说明不溢出容器：卡片本身与两个文本节点都要满足
+   * `scrollWidth <= clientWidth + 1`（留 1px 给亚像素取整）。
+   */
+  const overflow = await page.locator('[data-skill-item]').first().evaluate((el) => {
+    const bad = []
+    for (const node of [el, ...el.querySelectorAll('span')]) {
+      if (node.scrollWidth > node.clientWidth + 1) {
+        bad.push(`${node.className || node.tagName}:${node.scrollWidth}>${node.clientWidth}`)
+      }
+    }
+    return bad
+  })
+  rec(g, '★★ 超长技能名 / 说明在卡片内换行不溢出', overflow.length === 0, overflow.join(' | '))
 
   /**
    * ★★ 搜索 / 筛选跨层保留。先设搜索词与筛选，进编辑再返回，
@@ -10526,6 +10568,18 @@ async function g82(browser) {
   await page.locator('[data-skill-remove-yes]').click()
   await sleep(800)
   rec(g, '删除后回浏览层且卡片消失', (await page.locator('[data-skills-browser]').count()) === 1 && (await page.locator('[data-skill-item]').count()) === 0)
+
+  // 第三层（功能预设词）同样要居中
+  // 先把筛选与搜索复位到「全部」，否则「我的」筛选下不渲染预设词卡片
+  await page.locator('[data-skills-filter="all"]').click()
+  await page.locator('[data-skills-search]').fill('')
+  await sleep(300)
+  await page.locator('[data-skills-preset-card]').click()
+  await sleep(450)
+  rec(g, '★★ 预设词层有居中舞台且水平居中', (await page.locator('[data-presets-stage]').count()) === 1 && (await centerOffset('[data-presets-stage]')) <= 2, `offset=${await centerOffset('[data-presets-stage]')}`)
+  rec(g, '预设词层有「返回浏览」', (await page.locator('[data-presets-back]').count()) === 1)
+  await page.locator('[data-presets-back]').click()
+  await sleep(350)
 
   await page.screenshot({ path: `${OUT}/98-g82-skills-two-level.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
