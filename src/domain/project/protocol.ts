@@ -114,18 +114,6 @@ export interface ProtocolDefinition {
  * `openai-compatible` 或站点条目。
  */
 
-/**
- * CLI 网关族的统一说明（三条 CLI 协议共用）。
- *
- * 必须先声明再用：它在下面的 `BUILTIN_PROTOCOLS` 里被引用，
- * 放在数组之后会撞上 `const` 的暂时性死区（ReferenceError）。
- *
- * 三条共用一句是因为差别只在「网关后面挂的是哪个 CLI」，
- * 而用户要做的动作完全相同 —— 跑网关、把网关地址填进来。
- */
-const CLI_GATEWAY_NOTE_TEXT =
-  'CLI 类协议不能直接跑本机命令：请先把 CLI 包成一个 OpenAI 兼容的 HTTP 网关（本机或服务器均可），这里填网关地址。'
-
 export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
   {
     id: 'mock',
@@ -139,7 +127,15 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
   },
   {
     id: 'openai-compatible',
-    name: 'OpenAI 兼容（对话 + 生图）',
+    /**
+     * 名字里的能力后缀刻意去掉（用户 2026-09-29）。
+     *
+     * 「（对话 + 生图）」会让人以为这条协议**只**能做这两件事，于是去找
+     * 「视频协议 / 音频协议 / 3D 协议」。实际上视频走的也是同一条 OpenAI 兼容
+     * HTTP，只是端点不同；音频 / 3D 是领域层 `ModelCapability.category` 根本没有
+     * 的定义。名字只该说形态，不该假装是能力清单。
+     */
+    name: 'OpenAI 兼容',
     short: 'OAI+',
     family: 'openai-compatible',
     kind: 'public',
@@ -147,7 +143,7 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     capabilities: ['chat', 'image'],
     versionPath: '/v1',
     docUrl: 'https://platform.openai.com/docs/api-reference',
-    note: '一个站一条渠道：对话模型进提示词节点，生图模型进生成节点，靠模型类别分流。',
+    note: '一个站一条渠道：对话模型进提示词节点、生图 / 视频模型进生成节点，按模型类别分流。视频需要该站提供视频端点；音频 / 3D 领域层暂无定义，故不支持。',
     probe: true,
   },
   {
@@ -297,10 +293,17 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     short: 'JM',
     family: 'cli-gateway',
     kind: 'station',
-    status: 'ready',
-    capabilities: ['chat', 'image'],
-    versionPath: '/v1',
-    note: CLI_GATEWAY_NOTE_TEXT,
+    status: 'pending',
+    capabilities: [],
+    /**
+     * 2026-09-29 退回 pending（用户明确不要「先跑网关」这条路）。
+     *
+     * 适配器已经写好（`platform/channels/cliGateway.ts`），但它成立的前提是
+     * 用户自己跑一个网关 —— 纯前端起不了子进程，浏览器也拿不到 CLI 的登录态。
+     * 前提不成立就该如实标「待支持」，而不是挂着让人以为能用。
+     * 等有了桌面壳（Tauri）或内建本地桥，把 status 改回 ready 即可。
+     */
+    note: '需要本机网关把 CLI 包成 HTTP：浏览器跑不了本机命令、也拿不到 CLI 登录态。待支持。',
   },
   {
     id: 'gpt-cli',
@@ -308,10 +311,9 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     short: 'GPT',
     family: 'cli-gateway',
     kind: 'station',
-    status: 'ready',
-    capabilities: ['chat', 'image'],
-    versionPath: '/v1',
-    note: CLI_GATEWAY_NOTE_TEXT,
+    status: 'pending',
+    capabilities: [],
+    note: '需要本机网关把 CLI 包成 HTTP：浏览器跑不了本机命令、也拿不到 CLI 登录态。待支持。',
   },
   {
     id: 'gemini-cli',
@@ -319,10 +321,9 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     short: 'GEM',
     family: 'cli-gateway',
     kind: 'station',
-    status: 'ready',
-    capabilities: ['chat', 'image'],
-    versionPath: '/v1',
-    note: CLI_GATEWAY_NOTE_TEXT,
+    status: 'pending',
+    capabilities: [],
+    note: '需要本机网关把 CLI 包成 HTTP：浏览器跑不了本机命令、也拿不到 CLI 登录态。待支持。',
   },
 ]
 /**

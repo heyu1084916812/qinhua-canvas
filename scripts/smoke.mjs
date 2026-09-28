@@ -11588,20 +11588,34 @@ async function g89(browser) {
     seen.join(' | '),
   )
 
-  // ③ CLI 三条都是 ready，且选中后要求填网关地址（不给默认地址，避免拿官网地址冒充）
+  /*
+   * ③ CLI 三条退回 pending：没有本机网关就没有可用路径，不该显示为可选。
+   *
+   * ⚠ 刻意不用 Playwright 的 `isDisabled()`：它对 `<optgroup>` 里的 `<option>`
+   * 判定不可靠（实测把 disabled 的选项报成可用）。这里直接读 DOM 属性 ——
+   * 「不可选」这件事只能由浏览器自己的状态证明。
+   */
+  const cliStates = await page.evaluate(() => {
+    const sel = document.querySelector('[data-settings-protocol]')
+    const out = {}
+    for (const id of ['jimeng-cli', 'gpt-cli', 'gemini-cli']) {
+      const opt = sel?.querySelector(`option[value="${id}"]`)
+      out[id] = opt ? { disabled: opt.disabled, text: opt.textContent.trim() } : null
+    }
+    return out
+  })
   for (const id of ['jimeng-cli', 'gpt-cli', 'gemini-cli']) {
-    const disabled = await page
-      .locator(`[data-settings-protocol] option[value="${id}"]`)
-      .isDisabled()
-    rec(g, `★ ${id} 可选（网关形态已可用）`, disabled === false)
+    const st = cliStates[id]
+    rec(
+      g,
+      `★ ${id} 标为待支持且不可选（无本机网关则不成立）`,
+      !!st && st.disabled === true && st.text.includes('待支持'),
+      JSON.stringify(st),
+    )
   }
-  await page.locator('[data-settings-protocol]').selectOption('gemini-cli')
-  await sleep(250)
-  const cliNote = await page
-    .locator('[data-settings-proto-note]')
-    .innerText()
-    .catch(() => '')
-  rec(g, '★ CLI 协议提示需要网关地址', cliNote.includes('网关'), cliNote.slice(0, 80))
+  // ④ 旧协议不再出现在新渠道的下拉里（保留识别能力，但不给新用户选）
+  const legacyShown = await page.locator('[data-settings-protocol] option[value="openai-images"]').count()
+  rec(g, '★★ 旧协议对新渠道隐藏（不重复提供同一套能力）', legacyShown === 0, `count=${legacyShown}`)
 
   await page.screenshot({ path: `${OUT}/104-g89-async-cli.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))

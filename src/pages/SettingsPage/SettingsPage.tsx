@@ -145,6 +145,16 @@ export function SettingsPage() {
   const protocolOptions = catalog.all
   /** 当前所选协议的说明（CLI 网关等有前提的协议必须显示出来，否则用户会填错地址） */
   const selectedProtocolNote = protocolById(protocol, catalog)?.note ?? ''
+  /**
+   * 旧协议（`openai-images` / `openai-chat`）**只在当前渠道本身就是它时才出现**（用户 2026-09-29「不要重复的东西」）。
+   *
+   * 这两个 id 不能从目录里删：老渠道存的就是它们，删了会变成「未知协议」、
+   * 适配器也认不出族（`registry.ts` 的 `LEGACY_FAMILY` 正是靠它们兜底）。
+   * 但新渠道不该再选到 —— 它们与「OpenAI 兼容」是同一套适配器，只是能力被写死成单项。
+   */
+  const visibleProtocolOptions = protocolOptions.filter(
+    (p) => p.kind !== 'legacy' || p.id === protocol,
+  )
 
   // —— 添加自定义协议（用户 2026-09-28）：只开放 OpenAI 兼容族的对话 / 生图声明 ——
   const [newProtoOpen, setNewProtoOpen] = useState(false)
@@ -697,11 +707,11 @@ export function SettingsPage() {
                       value={protocol}
                       onChange={(e) => handleProtocolChange(e.target.value)}
                     >
-                      {!protocolOptions.some((p) => p.id === protocol) && (
+                      {!visibleProtocolOptions.some((p) => p.id === protocol) && (
                         <option value={protocol}>未知协议（{protocol}）</option>
                       )}
                       {PROTOCOL_GROUPS.map(({ kind, label }) => {
-                        const items = protocolOptions.filter((p) => p.kind === kind)
+                        const items = visibleProtocolOptions.filter((p) => p.kind === kind)
                         if (items.length === 0) return null
                         return (
                           <optgroup key={kind} label={label}>
@@ -755,6 +765,31 @@ export function SettingsPage() {
                     <p className={styles.protoHint}>
                       只支持 OpenAI 兼容形态（对话 / 生图）。输入异步任务、CLI 一类需要专用程序抓取的协议，
                       请先用内置协议；自建渠道的地址、版本段、能力都可按站点文档填。
+                    </p>
+                    {/*
+                      用户问「里面的东西从什么地方获取」（2026-09-29）。
+                      表单原本只给占位提示，没说这些值从哪来 —— 于是「自定义协议」对
+                      非技术用户等于不可用的入口。这里把四个字段的来源一次说清，
+                      并给一条最短路径：先试「OpenAI 兼容」，只有确定站点的版本段与
+                      能力不符合时才需要自建。
+                    */}
+                    <p className={styles.protoHint} data-proto-guide>
+                      <strong>从哪找这些值：</strong>
+                      <br />
+                      ① <b>地址</b>：站点文档里的「API 基址 / Base URL」，<b>不要带</b>结尾的 <code>/v1</code>
+                      （版本段单独填下一格）。例：<code>https://api.xxx.com</code>。
+                      <br />
+                      ② <b>版本段</b>：文档里基址结尾那一段，多数是 <code>/v1</code>；火山方舟是{' '}
+                      <code>/api/v3</code>。填错的表现是验证报 404。
+                      <br />
+                      ③ <b>能力</b>：看站点提供哪些接口 —— 有 <code>/chat/completions</code> 勾「对话」，
+                      有 <code>/images/generations</code> 勾「生图」。
+                      <br />
+                      ④ <b>标识 / 名称 / 短标签</b>：自己起，只用于界面显示，不影响请求；标识只能用小写字母、数字、
+                      <code>-</code>、<code>_</code>。
+                      <br />
+                      <strong>最短路径</strong>：大多数中转站不用自建 —— 直接选「OpenAI 兼容」填地址即可；
+                      只有当这个站的版本段或接口形态与通用模板不一致时才需要建一条。
                     </p>
                     <div className={styles.protoRow}>
                       <label className={`${styles.field} ${styles.grow}`}>
