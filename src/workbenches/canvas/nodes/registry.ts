@@ -107,6 +107,8 @@ export type NodeViewEvent =
    * 节点视图拿不到 AssetPort / FilePort，也不该拿（架构 §4.7）。
    */
   | { type: 'downloadOwnAsset' }
+  /** 把节点当前素材与生成信息冻结保存到手动收藏库 */
+  | { type: 'saveOwnAsset' }
   | { type: 'toggleUpstream'; upstreamId: string }
   | { type: 'removeOwnAsset' }
   /** 删除某一张缩略图：self = 清空自身素材，upstream = 删掉那条连线 */

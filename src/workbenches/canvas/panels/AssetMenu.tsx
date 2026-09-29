@@ -23,12 +23,21 @@ export interface AssetMenuItem {
    * 只认这几个具名图标，而不是让调用方传任意 ReactNode——
    * 图标集合收敛在一处，才不会每个调用点各画一套、粗细与尺寸互不相同。
    */
-  icon?: 'upload' | 'clear' | 'history'
+  icon?: 'save' | 'upload' | 'clear' | 'history'
   onSelect: () => void
 }
 
 /** 菜单项图标（14px 线框，与全局图标风格一致） */
 function MenuIcon({ name }: { name: AssetMenuItem['icon'] }) {
+  if (name === 'save') {
+    return (
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+        <path d="M8 2.2v7.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <path d="m4.8 6.6 3.2 3.2 3.2-3.2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M2.5 10.4v1.8a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5v-1.8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    )
+  }
   if (name === 'upload') {
     return (
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>

@@ -11,6 +11,7 @@ import type { StoragePort, Row, TableName } from '../ports'
  * - v2（M5-M6）：新增 `comics` 表（漫画剧工作台私有）与 `presets`。
  * - v3（2026-09-25）：**删除 `comics` 表**（漫画剧工作台整体移除）。
  * - v4（2026-09-28）：新增 `customProtocols` 表（用户自建协议，见 domain/project/protocol）。
+ * - v5（2026-09-29）：新增 `assetLibrary` 表（用户手动保存的素材收藏；素材字节仍在 assets）。
  *
  * **删表必须写 `表名: null`，光「不列出」是删不掉的**（2026-09-25 真机实测确认）。
  *
@@ -41,6 +42,7 @@ class QinghuaDB extends Dexie {
   credentials!: Table<Row, string>
   presets!: Table<Row, string>
   customProtocols!: Table<Row, string>
+  assetLibrary!: Table<Row, string>
 
   constructor(name = 'qinghua') {
     super(name)
@@ -72,6 +74,9 @@ class QinghuaDB extends Dexie {
     })
     this.version(4).stores({
       customProtocols: 'id',
+    })
+    this.version(5).stores({
+      assetLibrary: 'id, savedAt',
     })
   }
 }

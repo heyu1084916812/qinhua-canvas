@@ -1,23 +1,6 @@
-/**
- * 我的素材页（产品文档 §2.1 #6）。
- *
- * 2026-09-29 从占位页做成真工作区，排版沿用**「居中舞台」**这套已有模式
- * （设置页 #43、技能库 #45 都用它）：`.page` 铺满工作区，内层 `.main`
- * 定宽 + `margin-inline: auto` 随工作区水平居中。
- *
- * 配色一律走 `ui/tokens.css`，没有一处字面量颜色 —— 深色主题因此
- * 自动跟着换（这是 `check-theme.mjs` 在拦的事）。
- */
-
 .page {
-  /*
-   * `min-height: 100%` 而非 `100vh`：页面在壳右侧工作区里，
-   * `100vh` 会比可用区高一截（那块要减去侧栏），于是永远多出一条
-   * 纵向滚动。内容更高时仍靠 `min-height` 自然长高。
-   */
   min-height: 100%;
   box-sizing: border-box;
-  /* 工作区底色（`--bg-canvas`），不是一级菜单色 `--bg-app`：理由见 ProjectsPage */
   background: var(--bg-canvas);
   color: var(--text-1);
   font-family: var(--font-sans);
@@ -25,16 +8,12 @@
   line-height: var(--lh-body);
 }
 
-/** 居中舞台：外层铺满、内层内容块居中（宽度比其他页宽一档，素材本来就该铺开看） */
 .main {
   width: 100%;
   max-width: 1520px;
   margin-inline: auto;
   box-sizing: border-box;
   padding: var(--space-8);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-8);
 }
 
 .section {
@@ -56,12 +35,6 @@
   font-weight: var(--fw-page-title);
   line-height: var(--lh-page-title);
   color: var(--sidebar-page-title);
-}
-
-.hint {
-  margin: 0;
-  color: var(--text-2);
-  font-size: var(--fs-label);
 }
 
 .tools {
@@ -113,7 +86,7 @@
   border-radius: var(--radius-control);
   padding: var(--space-2) var(--space-3);
   font-size: var(--fs-label);
-  min-width: 220px;
+  min-width: 240px;
 }
 .search:focus-visible {
   outline: 2px solid var(--focus-ring);
@@ -127,25 +100,8 @@
 }
 
 /*
- * 瀑布流（用户 2026-09-29：「我要瀑布流展示方式」）。
- *
- * ## 为什么是 CSS 多列而不是 grid / JS 定位
- *
- * 瀑布流的本质是「列宽固定、卡片按自己的高度往最短的一列里落」。
- * - `grid` 做不到：同一行的格子共享行高，卡片高度不齐就会留下空洞 ——
- *   那正是等高网格而不是瀑布流。
- * - JS 定位（量高 → 算坐标 → absolute）能做，但要监听每张图的加载与
- *   容器 resize，还会引入「首帧先渲染成一列再跳开」的闪动。
- * - `columns` 是浏览器原生的瀑布流：只负责「按列切分并按顺序填充」，
- *   卡片高度由内容自己决定，无需 JS，也不会闪。
- *
- * 代价是**顺序按列走**（1、2、3 落在第一列，4、5、6 在第二列），
- * 而不是「全局按高矮插空」。对素材库这是可接受的：它是翻找场景，
- * 用户不按精确顺序索引；而它换来的是零 JS、零布局抖动。
- * 时间顺序仍由 store 保证（新的在前 → 落在前面的列）。
- *
- * `column-gap` 控制列间距，卡片自己的 `margin-bottom` 控制行间距 ——
- * 两者分开是因为多列布局里 `gap` 对块级子项只管列间，不管行间。
+ * CSS 多列是最轻量的瀑布流：卡片宽度固定，高度由素材真实比例决定。
+ * 卡片不再承载文字信息，图片完整显示，因此不会出现 cover 裁切。
  */
 .grid {
   columns: 240px;
@@ -156,36 +112,32 @@
   position: relative;
   display: flex;
   width: 100%;
-  /*
-   * `break-inside: avoid` ——没有它，卡片会被从中间切成两半分到上下两列，
-   * 那是多列布局最典型的破相。
-   */
   break-inside: avoid;
   margin-bottom: var(--space-5);
-  /* 卡面用 `--bg-subtle`，与工作区 `--bg-canvas` 拉开一档层次 */
   background: var(--bg-subtle);
   border: var(--border);
   border-radius: var(--radius-node);
   overflow: hidden;
-  transition: border-color var(--dur-hover) var(--ease-out);
+  transition:
+    border-color var(--dur-hover) var(--ease-out),
+    box-shadow var(--dur-hover) var(--ease-out);
 }
-.card:hover {
-  border-color: var(--stroke-focus);
-}
+.card:hover,
 .card:focus-within {
   border-color: var(--stroke-focus);
 }
+.cardSelected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
 
-/* 整块可点：点图的任何地方都是「看大图」，与项目卡「点哪都进画布」同一手感 */
 .cardMain {
-  display: flex;
-  flex-direction: column;
+  display: block;
   width: 100%;
   padding: 0;
   border: none;
   background: transparent;
   color: inherit;
-  text-align: left;
   cursor: pointer;
 }
 .cardMain:focus-visible {
@@ -193,13 +145,6 @@
   outline-offset: -2px;
 }
 
-/*
- * 封面：**高度由素材真实比例决定**（`aspect-ratio` 由卡片内联注入）。
- *
- * 这是瀑布流成立的关键一处：比例统一就退化成等高网格。
- * 极端比例已在 `masonryAspectOf` 里夹到 2:1 ~ 1:2，
- * 故不会出现「一列被一张长图撑成面条」。
- */
 .thumb {
   position: relative;
   display: block;
@@ -212,59 +157,14 @@
   display: block;
   width: 100%;
   height: 100%;
-  /* cover = 等比铺满 + 多余裁掉；不用 contain（会留白边、列高不齐） */
-  object-fit: cover;
+  object-fit: contain;
   object-position: center;
 }
 
-/* 视频角标：压在图面上，故走 `--overlay-*` 那组（任何图上都能看清） */
-.kindBadge {
-  position: absolute;
-  left: var(--space-2);
-  bottom: var(--space-2);
-  padding: 2px var(--space-2);
-  border-radius: var(--radius-pill);
-  background: var(--overlay-scrim);
-  color: var(--overlay-text);
-  font-size: var(--fs-chip);
-  font-weight: var(--fw-chip);
-}
-
-.cardBody {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  padding: var(--space-3);
-}
-
-.cardName {
-  font-size: var(--fs-title);
-  line-height: var(--lh-nav);
-  font-weight: var(--fw-title);
-  color: var(--text-1);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.cardMeta {
-  font-size: var(--fs-chip);
-  line-height: 1.5;
-  color: var(--text-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/*
- * 卡片操作：右下角，默认隐去，hover / 聚焦时出现（口径同项目卡片）。
- * 菜单**向上展开** —— 卡片为了裁封面用了 `overflow: hidden`，向下会被自己裁掉。
- */
 .cardActions {
   position: absolute;
   right: var(--space-2);
-  bottom: var(--space-2);
+  top: var(--space-2);
   z-index: 3;
   opacity: 0;
   transition: opacity var(--dur-hover) var(--ease-out);
@@ -288,7 +188,9 @@
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
-  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out);
 }
 .menuBtn:hover {
   background: var(--control-inverse-bg-hover);
@@ -297,9 +199,9 @@
 
 .menu {
   position: absolute;
-  bottom: 28px;
+  top: 28px;
   right: 0;
-  min-width: 96px;
+  min-width: 112px;
   display: flex;
   flex-direction: column;
   background: var(--bg-surface);
@@ -319,6 +221,7 @@
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-control);
   cursor: pointer;
+  white-space: nowrap;
 }
 .menuItem:hover {
   background: var(--bg-hover);
@@ -340,6 +243,7 @@
 .confirmText {
   font-size: var(--fs-chip);
   color: var(--text-2);
+  white-space: nowrap;
 }
 .confirmYes,
 .confirmNo {
@@ -382,7 +286,6 @@
   font-size: var(--fs-label);
 }
 
-/* aria-live 播报：下载 / 删除的结果 */
 .status {
   width: 100%;
   max-width: 1520px;
@@ -397,19 +300,12 @@
   display: none;
 }
 
-/* 菜单外部点击关闭 */
 .backdrop {
   position: fixed;
   inset: 0;
   z-index: 1;
 }
 
-/* ─── 大图预览（浮层） ─── */
-
-/*
- * 观感对齐画布灯箱：整屏压暗、居中大面板、四周留白看得见底下。
- * 两个主题下的压暗深度由 `--scrim` 自己决定（深色里它压得更狠）。
- */
 .overlay {
   position: fixed;
   inset: 0;
@@ -423,10 +319,10 @@
 }
 
 .previewPanel {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
   gap: var(--space-3);
-  width: min(1080px, 100%);
+  width: min(1180px, 100%);
   max-height: 100%;
   padding: var(--space-3);
   box-sizing: border-box;
@@ -436,10 +332,9 @@
   box-shadow: var(--shadow-float);
 }
 
-/* 舞台不吃满高度：留出成图与底部信息条之间的呼吸，也避免超长竖图顶到面板外 */
 .previewStage {
-  flex: 1 1 auto;
-  min-height: 0;
+  min-width: 0;
+  min-height: 360px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -448,41 +343,125 @@
   overflow: hidden;
 }
 
-/*
- * 这里刻意用 `contain` 而不是 `cover`：预览的目的是「看清这张图」，
- * 裁掉边缘就违背了它的用途（卡片上才需要 cover 来齐整排列）。
- */
 .previewMedia {
   max-width: 100%;
-  max-height: 62vh;
+  max-height: 78vh;
   display: block;
   object-fit: contain;
 }
 
-.previewBar {
-  flex: none;
+.previewDetails {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  overflow: auto;
+}
+
+.previewHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.previewTitle {
+  margin: 0;
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+  color: var(--text-1);
+}
+
+.iconButton {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.iconButton:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.metaList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.metaRow {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: var(--space-3);
+}
+.metaRow dt {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  line-height: 1.7;
+}
+.metaRow dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.metaMuted {
+  color: var(--text-3);
+}
+
+.promptValue {
+  white-space: pre-wrap;
+}
+
+.palette {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
 }
 
+.swatch {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border: var(--border);
+  border-radius: var(--radius-pill);
+}
+
+.paletteText {
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+}
+
+.previewActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: auto;
+  padding-top: var(--space-3);
+}
+
 .previewSpacer {
   flex: 1 1 auto;
 }
 
-.previewChip {
-  padding: 2px var(--space-2);
-  border-radius: var(--radius-pill);
-  background: var(--bg-subtle);
-  color: var(--text-2);
-  font-size: var(--fs-chip);
-  font-weight: var(--fw-chip);
-  white-space: nowrap;
-}
-
 .ghost,
-.primary {
+.primary,
+.dangerGhost {
   height: 32px;
   padding: 0 var(--space-3);
   border-radius: var(--radius-control);
@@ -493,13 +472,18 @@
   cursor: pointer;
 }
 
-.ghost {
+.ghost,
+.dangerGhost {
   border: 1px solid var(--stroke);
   background: var(--bg-surface);
   color: var(--text-1);
 }
-.ghost:hover {
+.ghost:hover,
+.dangerGhost:hover {
   background: var(--bg-hover);
+}
+.dangerGhost {
+  color: var(--danger);
 }
 
 .primary {
@@ -507,11 +491,20 @@
   background: var(--accent);
   color: var(--accent-text);
 }
-.primary:hover {
-  opacity: 0.88;
+
+@media (max-width: 880px) {
+  .previewPanel {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+  }
+  .previewStage {
+    min-height: 240px;
+  }
+  .previewDetails {
+    overflow: visible;
+  }
 }
 
-/* 窄工作区：卡片列收一级，预览留白同步收紧 */
 @media (max-width: 680px) {
   .main {
     padding-inline: var(--space-4);

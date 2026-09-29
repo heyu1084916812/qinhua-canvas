@@ -19,6 +19,11 @@ export type TableName =
   | 'presets'
   /** 用户自建协议（「一站一协议」的声明式定义，见 domain/project/protocol） */
   | 'customProtocols'
+  /**
+   * 素材库收藏关系。**只记录「用户手动保存过哪张素材」与保存当时的元数据**，
+   * 素材字节仍在 `assets` 表；一张素材未被收藏时不会进入 `/assets`。
+   */
+  | 'assetLibrary'
 
 export interface Row {
   id: string

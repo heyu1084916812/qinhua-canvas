@@ -1,151 +1,149 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createMemoryStorage } from '../../platform/memory'
+import type { Row, TableName } from '../../platform/ports'
+import type { LibraryAsset } from '../../domain/shared/assetLibrary'
 import { createAssetLibraryRepository } from './assetLibraryRepository'
 import { createAssetLibraryStore } from './assetLibraryStore'
-import type { Row, TableName } from '../../platform/ports'
-
-/**
- * 素材库仓储 + store 的集成单测（memory 平台，node 下可跑）。
- *
- * 重点不在 CRUD 本身，而在两条**回落口径**：老素材没有 createdAt / projectId 时
- * 时间与来源怎么来。那两条一旦写错，界面会静默显示「—」或指到错的项目上，
- * 而 UI 层没有任何东西会发现。
- */
 
 function seedStorage(rows: Partial<Record<TableName, Row[]>>) {
   const storage = createMemoryStorage({ rows })
   return { storage, repo: createAssetLibraryRepository(storage) }
 }
 
-describe('素材库仓储：来源于时间的回落', () => {
-  it('新素材自带 createdAt / projectId 时直接用（不与回落冲突）', async () => {
+const saved = (over: Partial<LibraryAsset> = {}): LibraryAsset => ({
+  hash: 'h1',
+  mime: 'image/png',
+  bytes: 12,
+  width: 512,
+  height: 512,
+  savedAt: 10,
+  projectId: 'p1',
+  prompt: '猫咪',
+  model: 'image-pro',
+  quality: 'high',
+  ratio: '1:1',
+  channelId: 'ch1',
+  ...over,
+})
+
+describe('素材库仓储', () => {
+  it('只列 assetLibrary，普通 assets 没有被收藏就不出现', async () => {
     const { repo } = seedStorage({
       assets: [
-        { id: 'a1', hash: 'a1', mime: 'image/png', bytes: new Uint8Array(4), createdAt: 555, projectId: 'p1' },
+        { id: 'not-saved', hash: 'not-saved', mime: 'image/png', bytes: 9 },
       ],
-      projects: [{ id: 'p1', name: '猫咪' }],
-    })
-    const [asset] = await repo.list()
-    expect(asset!.createdAt).toBe(555)
-    expect(asset!.projectId).toBe('p1')
-    expect((await repo.projectNames()).get('p1')).toBe('猫咪')
-  })
-
-  it('★ 老素材（无时间无项目）→ 时间取最早那条生成记录，来源取当前持有它的节点', async () => {
-    const { repo } = seedStorage({
-      assets: [{ id: 'a1', hash: 'a1', mime: 'image/png', bytes: new Uint8Array(4) }],
-      runRecords: [
-        { id: 'r2', createdAt: 900, outputHashes: ['a1'] },
-        { id: 'r1', createdAt: 400, outputHashes: ['a1'] },
-      ],
-      nodes: [
+      assetLibrary: [
         {
-          id: 'n1',
-          projectId: 'p-current',
-          data: { assetHash: 'a1', thumbOrder: ['a1'] },
+          id: 'saved',
+          hash: 'saved',
+          mime: 'image/png',
+          bytes: 5,
+          savedAt: 20,
+          prompt: '收藏图',
         },
       ],
-      projects: [
-        { id: 'p-current', name: '当前项目' },
-        { id: 'p-old', name: '历史项目' },
-      ],
     })
-    const [asset] = await repo.list()
-    expect(asset!.createdAt).toBe(400)
-    expect(asset!.projectId).toBe('p-current')
+    const list = await repo.list()
+    expect(list.map((item) => item.hash)).toEqual(['saved'])
+    expect(list[0]!.prompt).toBe('收藏图')
   })
 
-  it('对比节点左右两张图也算子素材来源（否则它们的来源永远是「—」）', async () => {
-    const { repo } = seedStorage({
-      assets: [{ id: 'x', hash: 'x', mime: 'image/png', bytes: new Uint8Array(4) }],
-      nodes: [{ id: 'n1', projectId: 'p9', data: { leftAssetHash: 'x' } }],
-      projects: [{ id: 'p9', name: 'P9' }],
+  it('save 只写收藏关系到 assetLibrary，不改 assets 字节行', async () => {
+    const { storage, repo } = seedStorage({
+      assets: [{ id: 'h1', hash: 'h1', mime: 'image/png', bytes: new Uint8Array(4) }],
     })
-    const out = await repo.list()
-    expect(out[0]!.projectId).toBe('p9')
+    await repo.save(saved())
+    expect(await storage.query('assetLibrary', {})).toHaveLength(1)
+    expect((await storage.query('assets', { id: 'h1' }))[0]).toMatchObject({
+      bytes: expect.any(Uint8Array),
+    })
   })
 
-  it('排序：新的在前（界面不再自己排）', async () => {
-    const { repo } = seedStorage({
-      assets: [
-        { id: 'a', hash: 'a', mime: 'image/png', createdAt: 1 },
-        { id: 'b', hash: 'b', mime: 'image/png', createdAt: 2 },
-      ],
-    })
-    expect((await repo.list()).map((a) => a.hash)).toEqual(['b', 'a'])
+  it('同 hash 再次保存是覆盖，不新增第二条收藏', async () => {
+    const { repo } = seedStorage({})
+    await repo.save(saved({ prompt: '第一版', savedAt: 1 }))
+    await repo.save(saved({ prompt: '第二版', savedAt: 2 }))
+    const list = await repo.list()
+    expect(list).toHaveLength(1)
+    expect(list[0]!.prompt).toBe('第二版')
   })
 
-  it('删除只动 assets 表那一行（不级联改节点，那是画布的事）', async () => {
-    const storage = createMemoryStorage({
-      rows: {
-        assets: [{ id: 'a1', hash: 'a1', mime: 'image/png', bytes: new Uint8Array(4) }],
-        nodes: [{ id: 'n1', projectId: 'p1', data: { assetHash: 'a1' } }],
-      },
+  it('remove 只删收藏关系，assets 与节点原样保留', async () => {
+    const { storage, repo } = seedStorage({
+      assets: [{ id: 'a1', hash: 'a1', mime: 'image/png', bytes: new Uint8Array(4) }],
+      assetLibrary: [{ id: 'a1', hash: 'a1', mime: 'image/png', bytes: 4, savedAt: 1 }],
+      nodes: [{ id: 'n1', projectId: 'p1', data: { assetHash: 'a1' } }],
     })
-    const repo = createAssetLibraryRepository(storage)
     await repo.remove('a1')
-    expect(await storage.query('assets', {})).toHaveLength(0)
+    expect(await storage.query('assetLibrary', {})).toHaveLength(0)
+    expect(await storage.query('assets', {})).toHaveLength(1)
     expect(await storage.query('nodes', {})).toHaveLength(1)
   })
 })
 
 describe('素材库 store', () => {
   const setup = async () => {
-    const { repo } = seedStorage({
-      assets: [
-        { id: 'i1', hash: 'i1', mime: 'image/png', bytes: 2048, createdAt: 10, projectId: 'p1', width: 512, height: 512 },
-        { id: 'v1', hash: 'v1', mime: 'video/mp4', bytes: 4096, createdAt: 20, projectId: 'p1' },
-        { id: 'i2', hash: 'i2', mime: 'image/png', bytes: 1024, createdAt: 30, projectId: 'p2' },
-      ],
-      projects: [
-        { id: 'p1', name: '猫咪项目' },
-        { id: 'p2', name: '狗狗项目' },
+    const { storage, repo } = seedStorage({
+      assetLibrary: [
+        {
+          id: 'i1',
+          hash: 'i1',
+          mime: 'image/png',
+          bytes: 2048,
+          width: 512,
+          height: 512,
+          savedAt: 10,
+          prompt: '猫咪',
+          model: 'image-pro',
+        },
+        {
+          id: 'v1',
+          hash: 'v1',
+          mime: 'video/mp4',
+          bytes: 4096,
+          savedAt: 20,
+          prompt: '狗狗奔跑',
+        },
       ],
     })
     const store = createAssetLibraryStore(repo)
     await store.load()
-    return { store, repo }
+    return { store, repo, storage }
   }
 
-  it('load 后可见列表即全部，且按时间倒序', async () => {
+  it('load 后按保存时间倒序，loaded 为真', async () => {
     const { store } = await setup()
-    expect(store.getState().visible.map((a) => a.hash)).toEqual(['i2', 'v1', 'i1'])
+    expect(store.getState().visible.map((item) => item.hash)).toEqual(['v1', 'i1'])
     expect(store.getState().loaded).toBe(true)
   })
 
-  it('★ 类型筛选：只要图片时不出现视频（回声_sort 视频卡片与图片长得一样）', async () => {
+  it('类型与关键字筛选叠加是「与」关系', async () => {
     const { store } = await setup()
     store.setFilter('image')
-    expect(store.getState().visible.map((a) => a.hash)).toEqual(['i2', 'i1'])
-    store.setFilter('video')
-    expect(store.getState().visible.map((a) => a.hash)).toEqual(['v1'])
-    store.setFilter('all')
-    expect(store.getState().visible).toHaveLength(3)
-  })
-
-  it('关键字按项目名筛选', async () => {
-    const { store } = await setup()
     store.setQuery('猫咪')
-    expect(store.getState().visible.map((a) => a.hash)).toEqual(['v1', 'i1'])
-    store.setQuery('')
-    expect(store.getState().visible).toHaveLength(3)
+    expect(store.getState().visible.map((item) => item.hash)).toEqual(['i1'])
+    store.setFilter('video')
+    expect(store.getState().visible).toHaveLength(0)
   })
 
-  it('★ 类型与关键字叠加是「与」不是「或」', async () => {
-    const { store } = await setup()
-    store.setFilter('image')
-    store.setQuery('狗狗')
-    expect(store.getState().visible.map((a) => a.hash)).toEqual(['i2'])
-  })
-
-  it('删除后从列表消失，且库中真的没了', async () => {
+  it('save 同 hash 覆盖、重新排序，并同步 visible', async () => {
     const { store, repo } = await setup()
-    await store.remove('v1')
-    expect(store.getState().visible.map((a) => a.hash)).toEqual(['i2', 'i1'])
+    await store.save(saved({ hash: 'i1', savedAt: 30, prompt: '新提示词' }))
+    expect(store.getState().visible.map((item) => item.hash)).toEqual(['i1', 'v1'])
+    expect(store.getState().visible[0]!.prompt).toBe('新提示词')
     expect(await repo.list()).toHaveLength(2)
   })
 
-  it('删失败时按库恢复（不留「看起来删了其实还在」）', async () => {
+  it('取消收藏后卡片消失，但资产字节与其它表保留', async () => {
+    const { store, storage } = await setup()
+    await storage.put('assets', { id: 'v1', hash: 'v1', mime: 'video/mp4', bytes: 4096 })
+    await store.remove('v1')
+    expect(store.getState().visible.map((item) => item.hash)).toEqual(['i1'])
+    expect(await storage.query('assetLibrary', { id: 'v1' })).toHaveLength(0)
+    expect(await storage.query('assets', { id: 'v1' })).toHaveLength(1)
+  })
+
+  it('删除失败时按库恢复', async () => {
     const { repo } = await setup()
     const failing = {
       ...repo,
@@ -156,6 +154,6 @@ describe('素材库 store', () => {
     const store = createAssetLibraryStore(failing)
     await store.load()
     await expect(store.remove('v1')).rejects.toThrow('删除素材失败')
-    expect(store.getState().visible.map((a) => a.hash)).toEqual(['i2', 'v1', 'i1'])
+    expect(store.getState().visible.map((item) => item.hash)).toEqual(['v1', 'i1'])
   })
 })

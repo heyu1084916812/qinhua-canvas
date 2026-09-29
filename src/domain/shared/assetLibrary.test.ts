@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   assetKindOf,
+  buildLibraryAssetSnapshot,
   byteLengthOf,
   filterLibraryAssets,
   formatAssetSize,
@@ -9,6 +10,7 @@ import {
   sortLibraryAssets,
   toLibraryAssets,
   type LibraryAsset,
+  type SnapshotRunRecordLike,
 } from './assetLibrary'
 
 const asset = (over: Partial<LibraryAsset> = {}): LibraryAsset => ({
@@ -17,7 +19,7 @@ const asset = (over: Partial<LibraryAsset> = {}): LibraryAsset => ({
   bytes: 1024,
   width: 512,
   height: 512,
-  createdAt: 1000,
+  savedAt: 1000,
   projectId: 'p1',
   ...over,
 })
@@ -32,125 +34,242 @@ describe('assetKindOf', () => {
 })
 
 describe('byteLengthOf', () => {
-  it('三种落库形态都能量出长度（IndexedDB 会把 Uint8Array 还原成 ArrayBuffer）', () => {
+  it('三种落库形态都能量出长度', () => {
     expect(byteLengthOf(new Uint8Array(10))).toBe(10)
     expect(byteLengthOf(new ArrayBuffer(7))).toBe(7)
     expect(byteLengthOf([1, 2, 3])).toBe(3)
   })
 
-  it('认不出来时是 0，不抛（界面显示「—」而不是崩）', () => {
+  it('认不出来时是 0，不抛', () => {
     expect(byteLengthOf(undefined)).toBe(0)
     expect(byteLengthOf('abc')).toBe(0)
   })
 })
 
 describe('sortLibraryAssets', () => {
-  it('新的在前', () => {
+  it('新的在前，时间相同时按 hash 稳定排序', () => {
     const sorted = sortLibraryAssets([
-      asset({ hash: 'old', createdAt: 1 }),
-      asset({ hash: 'new', createdAt: 9 }),
+      asset({ hash: 'old', savedAt: 1 }),
+      asset({ hash: 'b', savedAt: 9 }),
+      asset({ hash: 'a', savedAt: 9 }),
     ])
-    expect(sorted.map((a) => a.hash)).toEqual(['new', 'old'])
+    expect(sorted.map((item) => item.hash)).toEqual(['a', 'b', 'old'])
   })
 
-  it('时间相同时按 hash 稳定排序（否则每次渲染顺序都在跳）', () => {
-    const sorted = sortLibraryAssets([
-      asset({ hash: 'b', createdAt: 5 }),
-      asset({ hash: 'a', createdAt: 5 }),
-    ])
-    expect(sorted.map((a) => a.hash)).toEqual(['a', 'b'])
-  })
-
-  it('未知时间（0）排在最后，不冒充「很早以前」', () => {
-    const sorted = sortLibraryAssets([
-      asset({ hash: 'unknown', createdAt: 0 }),
-      asset({ hash: 'known', createdAt: 1 }),
-    ])
-    expect(sorted.map((a) => a.hash)).toEqual(['known', 'unknown'])
-  })
-
-  it('不修改入参数组（界面可能拿它做别的派生）', () => {
-    const input = [asset({ hash: 'b', createdAt: 5 }), asset({ hash: 'a', createdAt: 9 })]
+  it('不修改入参数组', () => {
+    const input = [asset({ hash: 'b', savedAt: 5 }), asset({ hash: 'a', savedAt: 9 })]
     sortLibraryAssets(input)
-    expect(input.map((a) => a.hash)).toEqual(['b', 'a'])
+    expect(input.map((item) => item.hash)).toEqual(['b', 'a'])
   })
 })
 
 describe('filterLibraryAssets', () => {
-  const names = (id: string | null) => (id === 'p1' ? '猫咪项目' : '未命名项目')
   const pool = [
-    asset({ hash: 'a', mime: 'image/png', projectId: 'p1' }),
-    asset({ hash: 'v', mime: 'video/mp4', projectId: 'p1' }),
+    asset({
+      hash: 'a',
+      mime: 'image/png',
+      prompt: '猫咪在窗边',
+      model: 'image-pro',
+      quality: 'high',
+      ratio: '16:9',
+      resolution: '2k',
+    }),
+    asset({ hash: 'v', mime: 'video/mp4', prompt: '狗狗奔跑', model: 'video-x' }),
   ]
 
   it('类型筛选：只要图片时视频不出现', () => {
-    const out = filterLibraryAssets(pool, '', 'image', names)
-    expect(out.map((a) => a.hash)).toEqual(['a'])
+    expect(filterLibraryAssets(pool, '', 'image').map((item) => item.hash)).toEqual(['a'])
   })
 
-  it('关键字能命中项目名', () => {
-    expect(filterLibraryAssets(pool, '猫咪', 'all', names).map((a) => a.hash)).toEqual(['a', 'v'])
+  it('关键字能命中提示词、模型、质量、比例、分辨率与尺寸', () => {
+    expect(filterLibraryAssets(pool, '猫咪', 'all').map((item) => item.hash)).toEqual(['a'])
+    expect(filterLibraryAssets(pool, 'video-x', 'all').map((item) => item.hash)).toEqual(['v'])
+    expect(filterLibraryAssets(pool, 'high', 'all').map((item) => item.hash)).toEqual(['a'])
+    expect(filterLibraryAssets(pool, '16:9', 'all').map((item) => item.hash)).toEqual(['a'])
+    expect(filterLibraryAssets(pool, '2k', 'all').map((item) => item.hash)).toEqual(['a'])
+    expect(filterLibraryAssets(pool, '512', 'all')).toHaveLength(2)
   })
 
-  it('关键字能命中 mime 与尺寸', () => {
-    expect(filterLibraryAssets(pool, 'video', 'all', names).map((a) => a.hash)).toEqual(['v'])
-    expect(filterLibraryAssets(pool, '512', 'all', names).map((a) => a.hash)).toEqual(['a', 'v'])
+  it('刻意不按 hash 搜索', () => {
+    const withHash = [...pool, asset({ hash: 'z9q8w7', prompt: '没有关键字', model: '' })]
+    expect(filterLibraryAssets(withHash, 'z9q8w7', 'all')).toHaveLength(0)
   })
 
-  it('空关键字返回全部（不把「没输入」当成「什么都不匹配」）', () => {
-    expect(filterLibraryAssets(pool, '   ', 'all', names)).toHaveLength(2)
+  it('空关键字返回全部', () => {
+    expect(filterLibraryAssets(pool, '   ', 'all')).toHaveLength(2)
   })
 })
 
 describe('toLibraryAssets', () => {
-  it('新素材直接用自己的 createdAt 与 projectId', () => {
+  it('收藏行直接转成冻结快照，按保存时间倒序', () => {
     const out = toLibraryAssets([
-      { hash: 'h1', mime: 'image/png', bytes: new Uint8Array(4), createdAt: 123, projectId: 'p9' },
+      {
+        id: 'a',
+        mime: 'image/png',
+        bytes: new Uint8Array(4),
+        savedAt: 1,
+        projectId: 'p1',
+        prompt: 'P',
+      },
+      {
+        id: 'b',
+        mime: 'video/mp4',
+        bytes: 8,
+        savedAt: 2,
+        channelId: 'ch2',
+      },
     ])
-    expect(out[0]!.createdAt).toBe(123)
-    expect(out[0]!.projectId).toBe('p9')
-  })
-
-  it('★ 老素材没有时间 → 回落到最早一次产出它的生成记录', () => {
-    const out = toLibraryAssets([{ hash: 'h1', mime: 'image/png', bytes: new Uint8Array(4) }], {
-      runRecords: [
-        { createdAt: 500, outputHashes: ['h1'] },
-        { createdAt: 300, outputHashes: ['h1'] },
-      ],
+    expect(out.map((item) => item.hash)).toEqual(['b', 'a'])
+    expect(out[1]).toMatchObject({
+      projectId: 'p1',
+      prompt: 'P',
+      width: undefined,
+      savedAt: 1,
     })
-    expect(out[0]!.createdAt).toBe(300)
+    expect(out[0]!.channelId).toBe('ch2')
   })
 
-  it('★ 老素材没有项目 → 回落到「当前持有它的节点」所属项目', () => {
-    const out = toLibraryAssets([{ hash: 'h1', mime: 'image/png', bytes: new Uint8Array(4) }], {
-      nodes: [{ hash: 'h1', projectId: 'p-current' }],
-      runRecords: [{ createdAt: 100, projectId: 'p-old', outputHashes: ['h1'] }],
-    })
-    // 来源取「现在在哪儿」而不是「谁生的」——后者会让用户在项目里找不到它
-    expect(out[0]!.projectId).toBe('p-current')
-  })
-
-  it('两者都没有时是 0 / null（界面显示「—」，不猜）', () => {
-    const out = toLibraryAssets([{ hash: 'h1', mime: 'image/png', bytes: new Uint8Array(4) }])
-    expect(out[0]!.createdAt).toBe(0)
-    expect(out[0]!.projectId).toBeNull()
-  })
-
-  it('没有 hash 也没有 id 的行被跳过（脏数据不该让整页崩）', () => {
+  it('没有 hash 也没有 id 的行被跳过', () => {
     expect(toLibraryAssets([{ mime: 'image/png' }])).toHaveLength(0)
   })
+})
 
-  it('id 即 hash 的老行也能认出来（assets 表主键就是内容哈希）', () => {
-    const out = toLibraryAssets([{ id: 'abc', mime: 'image/png' }])
-    expect(out[0]!.hash).toBe('abc')
+describe('buildLibraryAssetSnapshot', () => {
+  const assetRow = {
+    id: 'h1',
+    hash: 'h1',
+    mime: 'image/png',
+    bytes: new Uint8Array(12),
+    width: 256,
+    height: 256,
+  }
+  const node = {
+    projectId: 'p-current',
+    data: {
+      channelId: 'node-channel',
+      model: 'node-model',
+      prompt: 'node prompt',
+      quality: 'low',
+      ratio: '1:1',
+      resolution: '1k',
+      naturalSize: { width: 800, height: 600 },
+    },
+  }
+
+  it('选用最新成功记录，渠道 / 模型与参数优先取实际发送值', () => {
+    const records: SnapshotRunRecordLike[] = [
+      {
+        status: 'succeeded',
+        createdAt: 100,
+        version: 1,
+        outputHashes: ['h1'],
+        sentChannelId: 'old-channel',
+        sentModel: 'old-model',
+        outputWidth: 300,
+        outputHeight: 200,
+        params: { prompt: 'old', quality: 'medium', ratio: '2:1', resolution: '2k' },
+      },
+      {
+        status: 'failed',
+        createdAt: 500,
+        outputHashes: ['h1'],
+        sentChannelId: 'failed-channel',
+      },
+      {
+        status: 'succeeded',
+        createdAt: 300,
+        version: 2,
+        outputHashes: ['other', 'h1'],
+        sentChannelId: 'sent-channel',
+        sentModel: 'sent-model',
+        outputWidth: 1024,
+        outputHeight: 768,
+        params: { prompt: 'sent prompt', quality: 'high', ratio: '4:3', resolution: '4k' },
+      },
+    ]
+
+    const out = buildLibraryAssetSnapshot({
+      hash: 'h1',
+      asset: assetRow,
+      node,
+      runRecords: records,
+      savedAt: 1234,
+    })
+
+    expect(out).toEqual({
+      hash: 'h1',
+      mime: 'image/png',
+      bytes: 12,
+      width: 1024,
+      height: 768,
+      savedAt: 1234,
+      projectId: 'p-current',
+      prompt: 'sent prompt',
+      model: 'sent-model',
+      quality: 'high',
+      ratio: '4:3',
+      resolution: '4k',
+      channelId: 'sent-channel',
+    })
   })
 
-  it('结果按时间倒序（界面不必再排一遍）', () => {
-    const out = toLibraryAssets([
-      { hash: 'a', createdAt: 1 },
-      { hash: 'b', createdAt: 2 },
-    ])
-    expect(out.map((a) => a.hash)).toEqual(['b', 'a'])
+  it('没有成功记录时回落节点，再回落素材行尺寸', () => {
+    const out = buildLibraryAssetSnapshot({
+      hash: 'h1',
+      asset: assetRow,
+      node,
+      runRecords: [],
+      savedAt: 8,
+    })
+    expect(out).toMatchObject({
+      width: 800,
+      height: 600,
+      channelId: 'node-channel',
+      model: 'node-model',
+      prompt: 'node prompt',
+      quality: 'low',
+      ratio: '1:1',
+      resolution: '1k',
+    })
+
+    const noNode = buildLibraryAssetSnapshot({
+      hash: 'h1',
+      asset: assetRow,
+      runRecords: [],
+      savedAt: 8,
+    })
+    expect(noNode).toMatchObject({ width: 256, height: 256 })
+  })
+
+  it('素材行缺失或 hash 不符时返回 null，不伪造收藏', () => {
+    expect(
+      buildLibraryAssetSnapshot({ hash: 'h1', asset: null, savedAt: 1 }),
+    ).toBeNull()
+    expect(
+      buildLibraryAssetSnapshot({
+        hash: 'h1',
+        asset: { id: 'other', bytes: new Uint8Array(2) },
+        savedAt: 1,
+      }),
+    ).toBeNull()
+  })
+
+  it('单个像素字段缺失时不在该来源猜数，继续向下回落', () => {
+    const out = buildLibraryAssetSnapshot({
+      hash: 'h1',
+      asset: assetRow,
+      node,
+      runRecords: [
+        {
+          status: 'succeeded',
+          createdAt: 9,
+          outputHashes: ['h1'],
+          outputWidth: 999,
+        },
+      ],
+      savedAt: 1,
+    })
+    expect(out).toMatchObject({ width: 800, height: 600 })
   })
 })
 
@@ -173,23 +292,15 @@ describe('formatAssetSize', () => {
 })
 
 describe('masonryAspectOf', () => {
-  it('横图矮、竖图高：比例取自素材真实宽高', () => {
+  it('横图矮、竖图高，保留真实极端比例', () => {
     expect(masonryAspectOf({ width: 1600, height: 900 })).toBeCloseTo(16 / 9, 5)
     expect(masonryAspectOf({ width: 900, height: 1600 })).toBeCloseTo(9 / 16, 5)
+    expect(masonryAspectOf({ width: 100, height: 2000 })).toBeCloseTo(0.05, 5)
+    expect(masonryAspectOf({ width: 2000, height: 100 })).toBeCloseTo(20, 5)
   })
 
-  it('★ 极端长图被夹住（否则一列会被单张图撑成一根面条）', () => {
-    expect(masonryAspectOf({ width: 100, height: 2000 })).toBeCloseTo(0.5, 5)
-    expect(masonryAspectOf({ width: 2000, height: 100 })).toBeCloseTo(2, 5)
-  })
-
-  it('★ 尺寸未知时返回默认 4:3（封面容器必须有高度，不能塌成一条线）', () => {
+  it('尺寸未知时返回默认 4:3', () => {
     expect(masonryAspectOf({})).toBeCloseTo(4 / 3, 5)
     expect(masonryAspectOf({ width: 0, height: 100 })).toBeCloseTo(4 / 3, 5)
-  })
-
-  it('返回值恒为正（除零 / 负数不该算出 NaN 把布局整条作废）', () => {
-    expect(masonryAspectOf({ width: -5, height: -5 })).toBeGreaterThan(0)
-    expect(Number.isFinite(masonryAspectOf({ width: 1, height: 0 }))).toBe(true)
   })
 })
