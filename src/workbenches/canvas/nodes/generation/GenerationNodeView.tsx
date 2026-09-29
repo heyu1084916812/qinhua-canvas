@@ -175,13 +175,6 @@ export function GenerationNodeView(props: NodeViewProps) {
               onClose={() => setMenuOpen(false)}
               items={[
                 {
-                  id: 'save-library',
-                  label: '保存到素材库',
-                  hint: '把这张素材和当前生成信息保存到素材库',
-                  icon: 'save',
-                  onSelect: () => props.emit({ type: 'saveOwnAsset' }),
-                },
-                {
                   id: 'clear',
                   label: '清除',
                   hint: '清掉这张素材，节点回到空态',

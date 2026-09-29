@@ -5,7 +5,6 @@ import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import type { NodeViewEvent } from '../../workbenches/canvas/nodes/registry'
 import { importAssetFile } from './importAsset'
 import { assetNodeSize } from '../../domain/canvas/layout/assetNodeSize'
-import { saveAssetToLibrary } from './saveAssetToLibrary'
 
 /**
  * 视图事件 → 命令 的翻译层（架构 §4.7 ①）。
@@ -39,26 +38,6 @@ export function useCanvasPageEvents(store: CanvasStore, onOpenSettings?: () => v
         ...(natural ? { size: assetNodeSize(natural) } : {}),
         transient: false,
       })
-    },
-    [platform, store],
-  )
-
-  /**
-   * 把节点当前素材主动收藏到素材库。
-   *
-   * 收藏写的是保存当下的冻结快照，画布节点与 `assets` 字节都不改。
-   * 运行记录在这里只用于补齐真实渠道 / 模型与参数，读取失败不阻断最基本收藏。
-   */
-  const handleSaveOwnAsset = useCallback(
-    async (nodeId: string) => {
-      const result = await saveAssetToLibrary({ platform, store }, nodeId)
-      if (result.ok) {
-        store.showUndoBar('已保存到素材库')
-        return
-      }
-      store.showUndoBar(
-        result.reason === 'missing' ? '素材尚未落库，暂时无法保存' : '保存到素材库失败',
-      )
     },
     [platform, store],
   )
@@ -133,9 +112,6 @@ export function useCanvasPageEvents(store: CanvasStore, onOpenSettings?: () => v
         case 'requestUpload':
           void handleUpload(nodeId, event.file)
           break
-        case 'saveOwnAsset':
-          void handleSaveOwnAsset(nodeId)
-          break
         case 'removeOwnAsset':
           // 删掉节点自身内容（§6.6「节点自身内容 → 删除」）。
           // 置 undefined 而非删键：全站判断都走真值，且落库时 JSON 会自然丢弃。
@@ -164,7 +140,7 @@ export function useCanvasPageEvents(store: CanvasStore, onOpenSettings?: () => v
           break
       }
     },
-    [store, onOpenSettings, handleUpload, handleSaveOwnAsset],
+    [store, onOpenSettings, handleUpload],
   )
 
   return { emitNodeEvent }

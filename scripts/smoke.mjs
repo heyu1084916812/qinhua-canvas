@@ -12169,6 +12169,36 @@ async function g90(browser) {
     previewW === 64,
     `naturalWidth=${previewW}`,
   )
+  const previewLayout = await page.evaluate(() => {
+    const stage = document.querySelector('[data-asset-preview-stage]')
+    const details = document.querySelector('[data-asset-preview-details]')
+    if (!stage || !details) return null
+    const s = stage.getBoundingClientRect()
+    const d = details.getBoundingClientRect()
+    return {
+      railRight: d.left >= s.right - 2,
+      activeClose: document.activeElement === document.querySelector('[data-asset-preview-close]'),
+      paletteWidth: document.querySelector('[data-asset-preview-palette]')?.getBoundingClientRect().width ?? 0,
+      promptWidth: document.querySelector('[data-asset-preview-prompt]')?.getBoundingClientRect().width ?? 0,
+    }
+  })
+  rec(
+    g,
+    '★★ 灯箱是媒体舞台 + 右侧信息栏（不是卡片套装）',
+    !!previewLayout && previewLayout.railRight,
+    JSON.stringify(previewLayout),
+  )
+  rec(
+    g,
+    '★ 灯箱打开后焦点落在关闭按钮，键盘可达',
+    !!previewLayout?.activeClose,
+  )
+  rec(
+    g,
+    '★ 配色与提示词各有独立阅读区',
+    !!previewLayout && previewLayout.paletteWidth > 200 && previewLayout.promptWidth > 200,
+    JSON.stringify(previewLayout),
+  )
 
   const detailSelectors = [
     '[data-asset-preview-palette]',
@@ -12291,6 +12321,19 @@ async function g90(browser) {
   await sleep(700)
   const saveNode = page.locator('[data-node-id="n-g90-save"]')
   rec(g, '保存链路节点已装载', (await saveNode.count()) === 1)
+  await saveNode.click({ position: { x: 120, y: 20 } })
+  await page.waitForTimeout(250)
+  await saveNode.locator('[data-node-asset-menu]').click()
+  await page.waitForTimeout(200)
+  const nodeAssetMenuText = await saveNode.locator('[data-asset-menu]').innerText().catch(() => '')
+  rec(
+    g,
+    '★ 保存入口不再藏在节点右上角素材菜单里',
+    !nodeAssetMenuText.includes('保存到素材库'),
+    nodeAssetMenuText.replace(/\s+/g, ' ').trim(),
+  )
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(200)
   await saveNode.click({ button: 'right', position: { x: 120, y: 20 } })
   await sleep(250)
   rec(

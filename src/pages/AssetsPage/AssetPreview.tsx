@@ -34,15 +34,32 @@ export function AssetPreview({
   const { url, mime } = useAssetMeta(asset.hash)
   const kind = assetKindOf(mime ?? asset.mime)
   const isVideo = kind === 'video'
+  const panelRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const [colors, setColors] = useState<string[]>([])
 
   useEffect(() => {
     closeRef.current?.focus()
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      onClose()
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onClose()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const focusable = panelRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], video[controls], [tabindex]:not([tabindex="-1"])',
+      )
+      if (!focusable || focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -63,6 +80,7 @@ export function AssetPreview({
   }, [isVideo, url, asset.hash])
 
   const paletteText = paletteTextFor(kind, colors)
+  const sizeText = formatAssetSize(asset) ?? MISSING
 
   return (
     <div
@@ -71,11 +89,16 @@ export function AssetPreview({
       data-asset-preview-hash={asset.hash}
       role="dialog"
       aria-modal="true"
-      aria-label="素材详情"
+      aria-labelledby="asset-preview-title"
       onClick={onClose}
     >
-      <div className={styles.previewPanel} data-asset-preview-panel onClick={(event) => event.stopPropagation()}>
-        <div className={styles.previewStage} data-asset-preview-stage>
+      <div
+        ref={panelRef}
+        className={styles.previewPanel}
+        data-asset-preview-panel
+        onClick={(event) => event.stopPropagation()}
+      >
+        <section className={styles.previewStage} data-asset-preview-stage>
           {isVideo ? (
             <video
               className={styles.previewMedia}
@@ -95,11 +118,18 @@ export function AssetPreview({
               draggable={false}
             />
           )}
-        </div>
+        </section>
 
         <aside className={styles.previewDetails} data-asset-preview-details>
           <div className={styles.previewHeader}>
-            <h3 className={styles.previewTitle}>素材信息</h3>
+            <div className={styles.previewHeading}>
+              <h3 id="asset-preview-title" className={styles.previewTitle}>
+                素材详情
+              </h3>
+              <p className={styles.previewSubtitle}>
+                {isVideo ? '视频素材' : '图片素材'} · {sizeText}
+              </p>
+            </div>
             <button
               ref={closeRef}
               type="button"
@@ -113,50 +143,51 @@ export function AssetPreview({
             </button>
           </div>
 
-          <dl className={styles.metaList}>
-            <div className={styles.metaRow}>
-              <dt>配色方案</dt>
-              <dd data-asset-preview-palette>
-                {paletteText === PALETTE_UNAVAILABLE ? (
-                  <span className={styles.metaMuted}>{paletteText}</span>
-                ) : (
-                  <span className={styles.palette}>
-                    {colors.map((color) => (
-                      <span
-                        key={color}
-                        className={styles.swatch}
-                        style={{ backgroundColor: color }}
-                        title={color}
-                      />
-                    ))}
-                    <span className={styles.paletteText}>{paletteText}</span>
+          <section className={styles.detailSection}>
+            <h4 className={styles.detailLabel}>配色方案</h4>
+            <div className={styles.paletteBoard} data-asset-preview-palette>
+              {paletteText === PALETTE_UNAVAILABLE ? (
+                <span className={styles.metaMuted}>{paletteText}</span>
+              ) : (
+                colors.map((color) => (
+                  <span key={color} className={styles.swatchItem}>
+                    <span
+                      className={styles.swatch}
+                      style={{ backgroundColor: color }}
+                      title={color}
+                    />
+                    <span className={styles.swatchText}>{color}</span>
                   </span>
-                )}
-              </dd>
+                ))
+              )}
             </div>
-            <div className={styles.metaRow}>
-              <dt>原提示词</dt>
-              <dd className={styles.promptValue} data-asset-preview-prompt>
+          </section>
+
+          <section className={styles.detailSection}>
+            <h4 className={styles.detailLabel}>原提示词</h4>
+            <div className={styles.promptBlock} data-asset-preview-prompt>
                 {displayMeta(asset.prompt)}
-              </dd>
             </div>
-            <div className={styles.metaRow}>
+          </section>
+
+          <dl className={styles.metaGrid}>
+            <div className={styles.metaItem}>
               <dt>像素</dt>
-              <dd data-asset-preview-size>{formatAssetSize(asset) ?? MISSING}</dd>
+              <dd data-asset-preview-size>{sizeText}</dd>
             </div>
-            <div className={styles.metaRow}>
+            <div className={styles.metaItem}>
               <dt>比例</dt>
               <dd data-asset-preview-ratio>{displayMeta(asset.ratio)}</dd>
             </div>
-            <div className={styles.metaRow}>
+            <div className={styles.metaItem}>
               <dt>画质</dt>
               <dd data-asset-preview-quality>{displayMeta(asset.quality)}</dd>
             </div>
-            <div className={styles.metaRow}>
+            <div className={styles.metaItem}>
               <dt>模型</dt>
               <dd data-asset-preview-model>{displayMeta(asset.model)}</dd>
             </div>
-            <div className={styles.metaRow}>
+            <div className={`${styles.metaItem} ${styles.metaItemWide}`}>
               <dt>渠道</dt>
               <dd data-asset-preview-channel>{displayMeta(asset.channelId)}</dd>
             </div>

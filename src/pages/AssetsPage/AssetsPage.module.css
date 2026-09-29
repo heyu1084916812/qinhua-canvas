@@ -313,60 +313,70 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-8);
+  padding: var(--space-6);
   box-sizing: border-box;
   background: var(--scrim);
+  backdrop-filter: blur(10px);
 }
 
 .previewPanel {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.65fr);
-  gap: var(--space-3);
-  width: min(1180px, 100%);
-  max-height: 100%;
-  padding: var(--space-3);
+  grid-template-columns: minmax(0, 1fr) 380px;
+  width: min(1360px, 100%);
+  height: min(820px, calc(100svh - var(--space-8) - var(--space-8)));
   box-sizing: border-box;
   background: var(--bg-surface);
   border: var(--border);
   border-radius: var(--radius-node);
   box-shadow: var(--shadow-float);
+  overflow: hidden;
+  animation: previewIn 180ms var(--ease-out) both;
 }
 
 .previewStage {
+  position: relative;
   min-width: 0;
-  min-height: 360px;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-control);
-  background: var(--bg-subtle);
+  padding: var(--space-8);
+  box-sizing: border-box;
+  background: var(--bg-canvas);
+  border-right: var(--border);
   overflow: hidden;
 }
 
 .previewMedia {
   max-width: 100%;
-  max-height: 78vh;
+  max-height: 100%;
   display: block;
   object-fit: contain;
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-float);
 }
 
 .previewDetails {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
-  padding: var(--space-3);
-  border: var(--border);
-  border-radius: var(--radius-control);
+  gap: var(--space-5);
+  padding: var(--space-6);
   background: var(--bg-surface);
   overflow: auto;
 }
 
 .previewHeader {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
+}
+
+.previewHeading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .previewTitle {
@@ -376,75 +386,137 @@
   color: var(--text-1);
 }
 
+.previewSubtitle {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  line-height: 1.5;
+}
+
 .iconButton {
-  width: 28px;
-  height: 28px;
+  width: 40px;
+  height: 40px;
+  flex: none;
   display: grid;
   place-items: center;
   border: var(--border);
   border-radius: var(--radius-control);
-  background: var(--bg-surface);
+  background: var(--bg-subtle);
   color: var(--text-2);
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out);
 }
 .iconButton:hover {
   background: var(--bg-hover);
   color: var(--text-1);
 }
 
-.metaList {
+.detailSection {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  margin: 0;
+  gap: var(--space-2);
 }
 
-.metaRow {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: var(--space-3);
-}
-.metaRow dt {
+.detailLabel {
+  margin: 0;
   color: var(--text-3);
   font-size: var(--fs-chip);
-  line-height: 1.7;
-}
-.metaRow dd {
-  min-width: 0;
-  margin: 0;
-  color: var(--text-1);
-  font-size: var(--fs-label);
-  line-height: 1.7;
-  overflow-wrap: anywhere;
-}
-.metaMuted {
-  color: var(--text-3);
+  font-weight: var(--fw-chip);
+  line-height: 1.4;
 }
 
-.promptValue {
-  white-space: pre-wrap;
-}
-
-.palette {
+.paletteBoard {
   display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-height: 58px;
+  padding: var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+}
+
+.swatchItem {
+  display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  flex-wrap: wrap;
+  min-width: 0;
+  padding: 4px 8px 4px 4px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
 }
 
 .swatch {
-  width: 18px;
-  height: 18px;
+  width: 28px;
+  height: 28px;
   flex: none;
   border: var(--border);
   border-radius: var(--radius-pill);
 }
 
-.paletteText {
+.swatchText {
   color: var(--text-2);
   font-size: var(--fs-chip);
+  line-height: 1;
+}
+
+.metaMuted {
+  align-self: center;
+  color: var(--text-3);
+  font-size: var(--fs-label);
+}
+
+.promptBlock {
+  max-height: 180px;
+  padding: var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.metaGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.metaItem {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+}
+.metaItemWide {
+  grid-column: 1 / -1;
+}
+.metaItem dt {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  line-height: 1.4;
+}
+.metaItem dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-title);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .previewActions {
@@ -452,7 +524,8 @@
   align-items: center;
   gap: var(--space-2);
   margin-top: auto;
-  padding-top: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: var(--border);
 }
 
 .previewSpacer {
@@ -460,9 +533,8 @@
 }
 
 .ghost,
-.primary,
 .dangerGhost {
-  height: 32px;
+  height: 40px;
   padding: 0 var(--space-3);
   border-radius: var(--radius-control);
   font-family: var(--font-sans);
@@ -486,22 +558,28 @@
   color: var(--danger);
 }
 
-.primary {
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: var(--accent-text);
+@keyframes previewIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
 }
 
 @media (max-width: 880px) {
   .previewPanel {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(260px, 1fr) minmax(0, 42svh);
+    height: min(860px, calc(100svh - var(--space-6) - var(--space-6)));
     overflow: auto;
   }
   .previewStage {
-    min-height: 240px;
+    min-height: 260px;
+    padding: var(--space-4);
+    border-right: none;
+    border-bottom: var(--border);
   }
   .previewDetails {
-    overflow: visible;
+    padding: var(--space-5);
   }
 }
 
@@ -522,5 +600,20 @@
   }
   .overlay {
     padding: var(--space-4);
+  }
+  .previewPanel {
+    height: calc(100svh - var(--space-4) - var(--space-4));
+  }
+  .metaGrid {
+    grid-template-columns: 1fr;
+  }
+  .metaItemWide {
+    grid-column: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .previewPanel {
+    animation: none;
   }
 }
