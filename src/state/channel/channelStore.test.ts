@@ -93,6 +93,37 @@ describe('channelStore', () => {
     expect(cur.priority).toBe(7)
   })
 
+  it('★ 全局选路策略默认 priority；setRouteStrategy 落库后新 store 也能读回（用户 2026-09-29 第 12 轮）', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+    expect(store.getState().routeStrategy).toBe('priority')
+
+    await store.setRouteStrategy('performance')
+    expect(store.getState().routeStrategy).toBe('performance')
+
+    // 换一个 store（同底层存储）读回 —— 证明真的落库，不是内存态。
+    const fresh = createChannelStore(p)
+    await fresh.load()
+    expect(fresh.getState().routeStrategy).toBe('performance')
+  })
+
+  it('★ 存储里的策略非法 / 缺字段 → 回落 priority（不把脏数据当成有效策略）', async () => {
+    const dirty = createMemoryPlatform({
+      rows: { presets: [{ id: 'routing:strategy', strategy: 'telepathy' }] },
+    })
+    const dirtyStore = createChannelStore(dirty)
+    await dirtyStore.load()
+    expect(dirtyStore.getState().routeStrategy).toBe('priority')
+
+    const empty = createMemoryPlatform({
+      rows: { presets: [{ id: 'routing:strategy' }] },
+    })
+    const emptyStore = createChannelStore(empty)
+    await emptyStore.load()
+    expect(emptyStore.getState().routeStrategy).toBe('priority')
+  })
+
   it('verify 不写 modelCache、也不替用户勾选 models（§7.3 只管通不通 / §7.4 默认未勾选）', async () => {
     const p = createMemoryPlatform()
     const store = createChannelStore(p)

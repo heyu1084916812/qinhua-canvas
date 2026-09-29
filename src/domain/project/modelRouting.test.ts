@@ -49,6 +49,24 @@ describe('selectRoute', () => {
     ).toBe('ok')
   })
 
+  it('★ 未启用的渠道不参与选路：优先度 / 权重 / 延迟再优也不选它（用户 2026-09-29 第 12 轮）', () => {
+    const pool = [
+      cand({
+        channelId: 'disabled-best',
+        enabled: false,
+        priority: 100,
+        weight: 100,
+        latencyMs: 1,
+      }),
+      cand({ channelId: 'enabled-ok', priority: 1, weight: 0, latencyMs: 500 }),
+    ]
+    expect(selectRoute(pool, 'priority')?.channelId).toBe('enabled-ok')
+    expect(selectRoute(pool, 'performance')?.channelId).toBe('enabled-ok')
+    expect(selectRoute(pool, 'balanced', { random: 0 })?.channelId).toBe('enabled-ok')
+    // 只剩禁用渠道时没有可用候选 —— 不静默按它发出去
+    expect(selectRoute([pool[0]!], 'priority')).toBeNull()
+  })
+
   it('★ priority：优先度高的先选（数值越大越优先）', () => {
     const low = cand({ channelId: 'low', priority: 1 })
     const high = cand({ channelId: 'high', priority: 10 })
@@ -142,7 +160,6 @@ describe('routeCandidatesFor', () => {
     lastTestLatency: null,
     modelIds: [],
     modelMap: {},
-    routeStrategy: 'priority',
     ...over,
   })
 
@@ -237,7 +254,6 @@ describe('resolveRouteFor', () => {
     lastTestLatency: null,
     modelIds: [],
     modelMap: {},
-    routeStrategy: 'priority',
     ...over,
   })
 
@@ -247,32 +263,26 @@ describe('resolveRouteFor', () => {
     expect(resolveRouteFor([ch({ id: 'a', modelIds: ['image-2'] })], '  ')).toBeNull()
   })
 
-  it('★ 主导策略取**节点所选渠道**的（用户心里的主站），不是候选里第一条', () => {
-    // 慢站是数组第一条，但主站声明 performance ⇒ 应选快的那条
+  it('★ 策略由调用方显式传入（全局策略），与候选顺序无关', () => {
+    // 慢站是数组第一条，但全局策略是 performance ⇒ 应选快的那条
     const picked = resolveRouteFor(
       [
         ch({ id: 'slow', modelIds: ['image-2'], lastTestLatency: 900 }),
-        ch({
-          id: 'main',
-          modelIds: ['image-2'],
-          lastTestLatency: 15,
-          routeStrategy: 'performance',
-        }),
+        ch({ id: 'fast', modelIds: ['image-2'], lastTestLatency: 15 }),
       ],
       'image-2',
-      { governingChannelId: 'main' },
+      { strategy: 'performance' },
     )
-    expect(picked?.channelId).toBe('main')
+    expect(picked?.channelId).toBe('fast')
   })
 
-  it('★ 主站不在候选里时回落 priority（不需要实测数据，行为最可预测）', () => {
+  it('★ 不传策略时回落 priority（不需要实测数据，行为最可预测）', () => {
     const picked = resolveRouteFor(
       [
         ch({ id: 'x', modelIds: ['image-2'], priority: 1 }),
         ch({ id: 'y', modelIds: ['image-2'], priority: 9 }),
       ],
       'image-2',
-      { governingChannelId: '已删除的渠道' },
     )
     expect(picked?.channelId).toBe('y')
   })

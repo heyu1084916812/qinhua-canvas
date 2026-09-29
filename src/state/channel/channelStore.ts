@@ -14,6 +14,7 @@ import {
   type ProtocolDefinition,
 } from '../../domain/project/protocol'
 import { buildDefaultModelMap, setModelMapping } from '../../domain/project/modelMapping'
+import type { RouteStrategy } from '../../domain/project/modelRouting'
 import {
   NO_RECIPE,
   rememberRecipe,
@@ -76,6 +77,13 @@ export interface ChannelDetect {
 
 export interface ChannelStoreState {
   channels: Channel[]
+  /**
+   * 全局选路策略（用户 2026-09-29 第 12 轮）：跨渠道比较共用的一把尺子。
+   *
+   * 从渠道字段迁出到这里，是因为「同一个模型在多条渠道都能出图」天然是
+   * 全局问题；放进每条渠道的表单会变成「用哪条渠道的策略」这种说不清的问题。
+   */
+  routeStrategy: RouteStrategy
   /** 用户自建协议（内置协议不在这里，见 domain/project/protocol 的目录） */
   customProtocols: ProtocolDefinition[]
   loaded: boolean
@@ -109,10 +117,12 @@ export interface ChannelStoreActions {
    */
   setModelMapping(id: string, logicalName: string, upstreamId: string): Promise<void>
   /**
-   * 选路参数（M7-2）：优先度（越大越优先）与权重（同档内加权随机）。
-   * 与 `modelMap` 一样住在渠道行上，不新增表。
+   * 渠道级选路参数（M7-2）：优先度（越大越优先）与权重（同档内加权随机）。
+   * 与 `modelMap` 一样住在渠道行上——它们衡量的是「这条渠道本身」。
    */
   setRouteTuning(id: string, patch: { priority?: number; weight?: number }): Promise<void>
+  /** 全局选路策略（跨渠道比较用的那把尺子），落库到 `presets` 的保留行 */
+  setRouteStrategy(strategy: RouteStrategy): Promise<void>
   hasToken(id: string): Promise<boolean>
   /** 「验证地址」（§7.3）：只测通不通 + 延迟，不碰 models / modelCache */
   verify(id: string): Promise<void>
@@ -181,6 +191,7 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
   const presets: PresetStore = createPresetStore(platform.storage)
   const store = createVanillaStore<ChannelStoreState>(() => ({
     channels: [],
+    routeStrategy: 'priority',
     customProtocols: [],
     loaded: false,
     verify: { status: 'idle' },
@@ -217,14 +228,15 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
      * 配方**不在这里预读**：它是按项目的，而 store 这一层不知道当前是哪个项目。
      * 改成 `defaultForNewNode(projectId)` 时按需读一次（结果进 recipeCache）。
      */
-    const [channels, customRows] = await Promise.all([
+    const [channels, customRows, routeStrategy] = await Promise.all([
       repo.list(),
       platform.storage.query('customProtocols', {}),
+      presets.loadRoutingStrategy(),
     ])
     const customProtocols = customRows
       .map((r) => toCustomDefinition(r as Record<string, unknown>))
       .filter((p): p is ProtocolDefinition => p !== null)
-    store.setState({ channels, customProtocols, loaded: true })
+    store.setState({ channels, customProtocols, routeStrategy, loaded: true })
   }
 
   const createCustomProtocol: ChannelStoreActions['createCustomProtocol'] = async (input) => {
@@ -320,6 +332,13 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
       next.weight = Math.max(0, w)
     }
     await update(id, next)
+  }
+
+  const setRouteStrategy: ChannelStoreActions['setRouteStrategy'] = async (strategy) => {
+    // 先落库再改内存。落库失败不抛：偏好类写不进去不该打断使用，
+    // 最坏情况是本次能用、下次启动回落 priority（见 presetStore.saveRoutingStrategy）。
+    await presets.saveRoutingStrategy(strategy)
+    store.setState({ routeStrategy: strategy })
   }
 
   const hasToken: ChannelStoreActions['hasToken'] = async (id) => {
@@ -558,6 +577,7 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
     setModels,
     setModelMapping: setModelMappingAction,
     setRouteTuning,
+    setRouteStrategy,
     hasToken,
     verify,
     detectProtocol,

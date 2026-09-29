@@ -261,13 +261,14 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         lastTestLatency: c.lastTestLatency,
         modelIds: c.models.map((m) => m.id),
         modelMap: c.modelMap,
-        routeStrategy: c.routeStrategy,
       }))
 
+      /** 全局选路策略（用户 2026-09-29 第 12 轮）：一次执行内固定，不再看渠道字段 */
+      const strategy = channels.getState().routeStrategy
       for (const task of plan.tasks) {
         const logical = task.request.model
         const picked = resolveRouteFor(sources, logical, {
-          governingChannelId: task.request.channelId,
+          strategy,
           resolve: resolveUpstreamModel,
           random: Math.random(),
         })

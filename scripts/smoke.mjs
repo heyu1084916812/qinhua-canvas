@@ -9294,20 +9294,27 @@ async function g74(browser) {
    * ★★ 用户 2026-09-28：「右边具体的渠道配置我需要继续的设计一下排版，
    * 目前看不清，能不能分卡片？」
    *
-   * 右侧编辑器此前是一长条没有分组的表单，扫读时找不到边界。判据：四张卡片
-   * 各出现且仅出现一次，顺序为 基本信息 → 连接与鉴权 → 模型列表 → 选路策略。
+   * 右侧编辑器此前是一长条没有分组的表单，扫读时找不到边界。
+   *
+   * 用户 2026-09-29 第 12 轮把「选路策略」从渠道第四张卡片拆成**全局设置**：
+   *  - 全局选路卡片 `[data-settings-global-route]` 住在编辑区里、渠道表单**之外**，
+   *    跨渠道比较的一把尺子，与「当前选中哪条渠道」无关；
+   *  - 渠道侧只剩 基本信息 → 连接与鉴权 → 模型列表 → 渠道权重与模型映射 四张卡片。
    */
   const cardOrder = await page.evaluate(() => {
+    const form = document.querySelector('[data-settings-form]')
+    const editor = document.querySelector('[data-settings-editor]')
+    const globalCard = document.querySelector('[data-settings-global-route]')
     const sel = [
       '[data-settings-basics]',
       '[data-settings-connection]',
       '[data-settings-models]',
-      '[data-settings-route]',
+      '[data-settings-channel-route]',
     ]
     const found = sel.map((s) => document.querySelector(s))
     if (found.some((el) => !el)) return null
-    const base = document.querySelector('[data-settings-form]')
-    if (!base || !base.contains(found[0])) return null
+    if (!form || !editor || !globalCard) return null
+    if (!form.contains(found[0])) return null
     let prev = found[0]
     const ordered = found.every((el, i) => {
       if (i === 0) return true
@@ -9315,13 +9322,54 @@ async function g74(browser) {
       prev = el
       return ok
     })
-    return { counts: sel.map((s) => document.querySelectorAll(s).length), ordered }
+    return {
+      counts: sel.map((s) => document.querySelectorAll(s).length),
+      globalCount: document.querySelectorAll('[data-settings-global-route]').length,
+      ordered,
+      globalInEditor: editor.contains(globalCard),
+      globalOutsideForm: !form.contains(globalCard),
+    }
   })
   rec(
     g,
-    '★★ 渠道配置分成四张卡片（基本信息 / 连接与鉴权 / 模型列表 / 选路策略）',
+    '★★ 渠道配置分四张卡片（基本信息 / 连接与鉴权 / 模型列表 / 渠道权重与模型映射）',
     !!cardOrder && cardOrder.counts.every((n) => n === 1) && cardOrder.ordered,
     cardOrder ? `各卡片数=${cardOrder.counts.join(',')} 顺序正确=${cardOrder.ordered}` : 'missing',
+  )
+  rec(
+    g,
+    '★★ 选路策略拆成全局卡片：在编辑区里、渠道表单之外（与选中渠道无关）',
+    !!cardOrder &&
+      cardOrder.globalCount === 1 &&
+      cardOrder.globalInEditor &&
+      cardOrder.globalOutsideForm,
+    cardOrder
+      ? `全局卡片数=${cardOrder.globalCount} 在编辑区=${cardOrder.globalInEditor} 在表单外=${cardOrder.globalOutsideForm}`
+      : 'missing',
+  )
+
+  /**
+   * 浏览器批注（用户 2026-09-29）：「按住条目上下拖动这个提示文字放在新增渠道的上方」。
+   * 判据：提示文字与 `[data-channel-add]` 同容器，且出现在它**之前**。
+   */
+  const dragHintOrder = await page.evaluate(() => {
+    const hint = Array.from(document.querySelectorAll('[data-channel-actions] p')).find((p) =>
+      (p.textContent ?? '').includes('按住条目上下拖动'),
+    )
+    const add = document.querySelector('[data-channel-add]')
+    if (!hint || !add) return null
+    return {
+      sharesContainer: hint.parentElement === add.parentElement,
+      beforeAdd: hint.compareDocumentPosition(add) === Node.DOCUMENT_POSITION_FOLLOWING,
+    }
+  })
+  rec(
+    g,
+    '★★ 拖动提示文字在「+ 新增渠道」上方（浏览器批注）',
+    !!dragHintOrder && dragHintOrder.sharesContainer && dragHintOrder.beforeAdd,
+    dragHintOrder
+      ? `同一容器=${dragHintOrder.sharesContainer} 在新增之前=${dragHintOrder.beforeAdd}`
+      : 'missing',
   )
 
   // ── ② 预设词已迁到技能库第二层，仍可编辑 ──
@@ -9807,12 +9855,57 @@ async function g75(browser) {
   await sleep(700)
 
   /**
-   * 场景前提：右侧表单**只在选中渠道后**才渲染（`selected` 为 null 时是占位文案）。
+   * ★ 全局选路策略是**跨渠道**的（用户 2026-09-29 第 12 轮）：未选中渠道时它也要在
+   * —— 右栏其余部分此时只是占位文案，策略卡片不该跟着消失。
+   */
+  rec(
+    g,
+    '★ 未选中渠道时也出现全局「选路策略」卡片',
+    (await page.locator('[data-settings-global-route]').count()) === 1,
+  )
+  const strategySel = page.locator('[data-route-strategy]')
+  rec(g, '★ 全局策略下拉存在', (await strategySel.count()) === 1)
+  rec(
+    g,
+    '★ 未选中渠道时不显示渠道侧「渠道权重与模型映射」',
+    (await page.locator('[data-settings-channel-route]').count()) === 0,
+  )
+
+  const options = await strategySel.locator('option').allTextContents()
+  rec(
+    g,
+    '★ 三档策略齐备：优先度 / 性能优先 / 均衡分摊',
+    options.join('|').includes('优先度') &&
+      options.join('|').includes('性能优先') &&
+      options.join('|').includes('均衡分摊'),
+    options.join(' | '),
+  )
+
+  await strategySel.selectOption('performance')
+  await sleep(500)
+  // 刷新会清空「当前选中渠道」（组件内存态）。全局策略不依赖选中渠道，
+  // 故这条断言**故意不重新选中** —— 它正说明策略是全局的，不是挂在渠道上的。
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(700)
+  rec(
+    g,
+    '★ 策略切换后落库（刷新仍是 performance，且不必先选中渠道）',
+    (await page.locator('[data-route-strategy]').inputValue()) === 'performance',
+    await page.locator('[data-route-strategy]').inputValue(),
+  )
+
+  /**
+   * 场景前提：**渠道表单**只在选中渠道后才渲染（`selected` 为 null 时是占位文案）。
    * 少了这一步，后面的按钮根本不存在 —— 这是「断言写对了但场景没搭起来」，
    * 不是功能缺陷。
    */
   await page.locator('[data-channel-item]').first().click()
   await sleep(600)
+  rec(
+    g,
+    '★ 选中渠道后出现渠道侧「渠道权重与模型映射」',
+    (await page.locator('[data-settings-channel-route]').count()) === 1,
+  )
 
   // mock 协议可离线拉取模型
   await page.locator('button', { hasText: '拉取模型' }).first().click()
@@ -9828,35 +9921,6 @@ async function g75(browser) {
     await page.locator('[data-model-apply]').click()
     await sleep(700)
   }
-
-  // ① 选路区块存在且策略可切
-  rec(g, '★ 设置页出现「选路策略」区块', (await page.locator('[data-settings-route]').count()) === 1)
-  const strategySel = page.locator('[data-route-strategy]')
-  rec(g, '★ 策略下拉存在', (await strategySel.count()) === 1)
-
-  const options = await strategySel.locator('option').allTextContents()
-  rec(
-    g,
-    '★ 三档策略齐备：优先度 / 性能优先 / 均衡分摊',
-    options.join('|').includes('优先度') &&
-      options.join('|').includes('性能优先') &&
-      options.join('|').includes('均衡分摊'),
-    options.join(' | '),
-  )
-
-  await strategySel.selectOption('performance')
-  await sleep(500)
-  // 刷新会清空「当前选中渠道」（它是组件内存态），故每次刷新后都要重新选中
-  await page.reload({ waitUntil: 'networkidle' })
-  await sleep(700)
-  await page.locator('[data-channel-item]').first().click()
-  await sleep(600)
-  rec(
-    g,
-    '★ 策略切换后落库（刷新仍是 performance）',
-    (await page.locator('[data-route-strategy]').inputValue()) === 'performance',
-    await page.locator('[data-route-strategy]').inputValue(),
-  )
 
   // ② 优先度能写进渠道并落库
   await page.locator('[data-route-priority]').fill('7')

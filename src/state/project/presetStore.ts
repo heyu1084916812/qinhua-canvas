@@ -16,6 +16,23 @@ import {
   recipeToRow,
   type GenerationRecipe,
 } from '../../domain/project/generationPreset'
+import { ROUTE_STRATEGIES, type RouteStrategy } from '../../domain/project/modelRouting'
+
+/**
+ * 全局选路策略的保留行 id。
+ *
+ * 策略与生成配方同住 `presets` 表（用户 2026-09-29 第 12 轮）：两者都是
+ * 「一行一个 UI 偏好」，再为它单开一张表只会多一处要同步的存储。
+ * 前缀 `routing:` 与配方的 `recipe:` 分开，读回时各自只认自己那一类行。
+ */
+const ROUTE_STRATEGY_ROW_ID = 'routing:strategy'
+
+/** 未知 / 缺字段 / 读失败时回落 `priority`（手工排的优先度，行为最可预测） */
+function routeStrategyFromRow(row: unknown): RouteStrategy {
+  if (!row || typeof row !== 'object') return 'priority'
+  const value = (row as Record<string, unknown>).strategy
+  return ROUTE_STRATEGIES.some((s) => s.value === value) ? (value as RouteStrategy) : 'priority'
+}
 
 export interface PresetStore {
   /** 读取该渠道的配方；没有 / 数据不可信时返回空配方 */
@@ -24,6 +41,10 @@ export interface PresetStore {
   save(recipe: GenerationRecipe): Promise<void>
   /** 一次读回全部配方，供面板兜底时同步查表（避免逐个 await） */
   loadAll(): Promise<Map<string, GenerationRecipe>>
+  /** 读取全局选路策略；没有 / 数据不可信时回落 `priority` */
+  loadRoutingStrategy(): Promise<RouteStrategy>
+  /** 写入全局选路策略 */
+  saveRoutingStrategy(strategy: RouteStrategy): Promise<void>
 }
 
 export function createPresetStore(storage: StoragePort): PresetStore {
@@ -56,6 +77,22 @@ export function createPresetStore(storage: StoragePort): PresetStore {
         // 同上：读不到就退化为「谁都没记过」，由解析链兜底
       }
       return out
+    },
+    async loadRoutingStrategy() {
+      try {
+        const rows = await storage.query('presets', { id: ROUTE_STRATEGY_ROW_ID })
+        return routeStrategyFromRow(rows[0])
+      } catch {
+        // 表可能还不存在（老库未升级）：读不到就按缺省策略
+        return 'priority'
+      }
+    },
+    async saveRoutingStrategy(strategy) {
+      try {
+        await storage.put('presets', { id: ROUTE_STRATEGY_ROW_ID, strategy } as never)
+      } catch {
+        // 偏好写不进去不该打断使用：最坏情况只是下次仍按缺省策略
+      }
     },
   }
 }

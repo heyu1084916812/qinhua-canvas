@@ -193,8 +193,6 @@ export interface RouteChannelSource {
   /** 该渠道提供的模型（已选 `models` 即画布可见的那些） */
   modelIds: readonly string[]
   modelMap: Readonly<Record<string, string>> | null | undefined
-  /** 该渠道自己的选路策略 */
-  routeStrategy: RouteStrategy
 }
 
 /**
@@ -252,11 +250,12 @@ export function routeCandidatesFor(
 /**
  * 「这次该发给谁」：按逻辑模型名解析出**最终渠道 + 该渠道的上游 ID**。
  *
- * 为什么需要一个「主导策略」：策略住在渠道上，而选路是**跨渠道**比较 ——
- * 候选们可能各自声明了不同策略，必须有唯一一把尺子。
- * 取 `governingChannelId`（节点自己选的那条渠道）的策略：它就是用户心里
- * 的「主站」，用它决定这次怎么挑；该渠道不在候选里时回落 `priority`
+ * 选路策略是**全局**的（用户 2026-09-29 第 12 轮）：它决定所有渠道之间共用的
+ * 那把尺子，由调用方从设置里读出来显式传入；不传时回落 `priority`
  * （手工排的优先度，不需要任何实测数据，行为最可预测）。
+ *
+ * 为什么不再看渠道自己的 `routeStrategy`：候选可能各自声明不同策略，而选路
+ * 是**跨渠道**比较，必须有唯一一把尺子；旧字段仅为老数据兼容保留，不参与选路。
  *
  * 返回 `null` = **没有任何渠道提供这个逻辑模型** —— 调用方必须如实报错，
  * 不要退回「照原样发出去」（那会拿一个已下线的模型名去请求，失败原因难查）。
@@ -265,7 +264,8 @@ export function resolveRouteFor(
   channels: readonly RouteChannelSource[],
   logicalModel: string,
   options: {
-    governingChannelId?: string
+    /** 全局选路策略；不传回落 `priority` */
+    strategy?: RouteStrategy
     attempt?: number
     random?: number
     /**
@@ -283,10 +283,7 @@ export function resolveRouteFor(
   const candidates = routeCandidatesFor(channels, name, resolve)
   if (candidates.length === 0) return null
 
-  const governing = options.governingChannelId
-    ? channels.find((c) => c.id === options.governingChannelId)
-    : undefined
-  const strategy: RouteStrategy = governing?.routeStrategy ?? 'priority'
+  const strategy: RouteStrategy = options.strategy ?? 'priority'
 
   return selectRoute(candidates, strategy, {
     attempt: options.attempt,

@@ -91,6 +91,12 @@ export function SettingsPage() {
     () => channels.getState().customProtocols,
     () => channels.getState().customProtocols,
   )
+  /** 全局选路策略（用户 2026-09-29 第 12 轮）：与选中的渠道无关 */
+  const routeStrategy = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().routeStrategy,
+    () => channels.getState().routeStrategy,
+  )
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [name, setName] = useState('')
@@ -553,10 +559,12 @@ export function SettingsPage() {
                 放回列表尾部后，新增/删除仍是同一组操作，但视线不用跨越空白。
                 删除不可逆，所以继续走就地二次确认。 */}
             <li className={styles.listActions} data-channel-actions>
+              {/* 拖动提示放在新增按钮**上方**（用户浏览器批注）：它描述的是上方列表，
+                  夹在「新增」与「删除」之间会让人以为在说下面那组按钮。 */}
+              {channelsList.length > 0 && <p className={styles.dragHint}>按住条目上下拖动可排序</p>}
               <button className={styles.addBtn} data-channel-add onClick={handleCreate}>
                 + 新增渠道
               </button>
-              {channelsList.length > 0 && <p className={styles.dragHint}>按住条目上下拖动可排序</p>}
 
               <div className={styles.dangerZone}>
                 {!confirmDelete ? (
@@ -596,6 +604,46 @@ export function SettingsPage() {
         </aside>
 
         <section className={styles.editor} data-settings-editor>
+          {/* —— 全局选路策略（用户 2026-09-29 第 12 轮）——
+              跨渠道比较用的一把尺子，与「当前选中哪条渠道」无关；
+              单独成卡并放在编辑器最上方，未选中渠道时也能设置。 */}
+          <section className={styles.card} data-settings-global-route>
+            <div className={styles.modelsHead}>
+              <div className={styles.modelsTitleBox}>
+                <span className={styles.cardTitle}>选路策略</span>
+                <span className={styles.cardSub}>
+                  同一个模型在多条渠道都能用时，所有渠道统一按这个规则挑一条
+                </span>
+              </div>
+            </div>
+
+            <div className={styles.fieldRow}>
+              <label className={`${styles.field} ${styles.grow}`}>
+                <span className={styles.label}>策略</span>
+                <select
+                  className={styles.input}
+                  data-route-strategy
+                  value={routeStrategy}
+                  onChange={(e) =>
+                    void channels.setRouteStrategy(e.target.value as RouteStrategy)
+                  }
+                >
+                  {ROUTE_STRATEGIES.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}·{s.hint}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {routeStrategy === 'performance' && (
+              <p className={styles.modelsEmpty}>
+                性能优先按「验证地址」测出的延迟排序；没测过的渠道会排在测过的后面。
+              </p>
+            )}
+          </section>
+
           {!selected ? (
             <div className={styles.placeholder}>从左侧选择，或新增一个渠道</div>
           ) : (
@@ -1070,37 +1118,20 @@ export function SettingsPage() {
                 )}
               </section>
 
-              {/* —— 选路与模型映射（§7.4.1，M7-2）—— */}
-              <section className={styles.card} data-settings-route>
+              {/* —— 渠道的选路权重与模型映射（§7.4.1，M7-2）——
+                  策略本身是全局的（见上方 `data-settings-global-route`）；
+                  这里只留**按渠道**才有意义的优先度 / 权重 / 映射。 */}
+              <section className={styles.card} data-settings-channel-route>
                 <div className={styles.modelsHead}>
                   <div className={styles.modelsTitleBox}>
-                    <span className={styles.cardTitle}>选路策略</span>
+                    <span className={styles.cardTitle}>渠道权重与模型映射</span>
                     <span className={styles.cardSub}>
-                      同一个模型在多条渠道都能出图时，按什么规则挑一条
+                      优先度与权重只描述这条渠道本身；映射解决各站模型 ID 叫法不同
                     </span>
                   </div>
                 </div>
 
                 <div className={styles.fieldRow}>
-                  <label className={`${styles.field} ${styles.grow}`}>
-                    <span className={styles.label}>策略</span>
-                    <select
-                      className={styles.input}
-                      data-route-strategy
-                      value={selected.routeStrategy}
-                      onChange={(e) =>
-                        void channels.update(selectedId!, {
-                          routeStrategy: e.target.value as RouteStrategy,
-                        })
-                      }
-                    >
-                      {ROUTE_STRATEGIES.map((s) => (
-                        <option key={s.value} value={s.value}>
-                          {s.label}·{s.hint}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
                   <label className={styles.field}>
                     <span className={styles.label}>优先度（越大越先）</span>
                     <input
@@ -1131,13 +1162,6 @@ export function SettingsPage() {
                     />
                   </label>
                 </div>
-
-                {selected.routeStrategy === 'performance' &&
-                  selected.lastTestLatency == null && (
-                    <p className={styles.modelsEmpty}>
-                      还没测过延迟，这条渠道会排在测过的后面。点上面的「验证地址」测一次。
-                    </p>
-                  )}
 
                 <div className={styles.mapHead}>
                   <span className={styles.label}>模型映射（前端显示名 → 本站点真实 ID）</span>
