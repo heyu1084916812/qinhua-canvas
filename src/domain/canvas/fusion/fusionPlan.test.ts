@@ -135,6 +135,42 @@ describe('融合几何 · paddedRectOf（贴边选区）', () => {
       expect(r.ok, JSON.stringify(rect)).toBe(true)
     }
   })
+
+  /**
+   * ★★ 这条直接抄大雄插件的 `test_padding_preserves_non_square_ratio_at_all_edges`。
+   *
+   * 「贴边」不是只有四个角那几种情形 —— 选区可以在**任何**位置贴着任何一条边。
+   * 逐位置扫一遍，同时钉住两条不变量：
+   *   ① 比例与选区一致；
+   *   ② **外扩框完整包含选区**（这条最容易被取整破坏：选区顶满图宽时，
+   *      `round(w × scale)` 可能比选区窄 1px，于是水平方向直接退化成不羽化）。
+   */
+  it('★★ 选区贴任何一条边时：比例不变 **且** 外扩框完整包含选区', () => {
+    const image = { w: 200, h: 120 }
+    const sel = { w: 40, h: 30 } // 4:3，非方形
+    for (const x of [0, 5, 40, 80, 120, 155, 160]) {
+      for (const y of [0, 5, 30, 60, 85, 90]) {
+        const rect = { x, y, ...sel }
+        const p = paddedRectOf(rect, image, 0.1)
+        const where = JSON.stringify(rect)
+        // ① 比例
+        expect(Math.abs(p.w / p.h / (rect.w / rect.h) - 1) < 0.02, where).toBe(true)
+        // ② 包含选区（四条边）
+        expect(p.x <= rect.x, where).toBe(true)
+        expect(p.y <= rect.y, where).toBe(true)
+        expect(p.x + p.w >= rect.x + rect.w, where).toBe(true)
+        expect(p.y + p.h >= rect.y + rect.h, where).toBe(true)
+        // ③ 不越界
+        expect(p.x >= 0 && p.y >= 0, where).toBe(true)
+        expect(p.x + p.w <= image.w && p.y + p.h <= image.h, where).toBe(true)
+      }
+    }
+  })
+
+  it('★ 选区已经顶满整张图时不缩反扩（取整不许把窗口压到比选区小）', () => {
+    const p = paddedRectOf({ x: 0, y: 0, w: 100, h: 100 }, { w: 100, h: 100 }, 0.1)
+    expect(p).toEqual({ x: 0, y: 0, w: 100, h: 100 })
+  })
 })
 
 describe('融合几何 · clampRect / 比例工具', () => {
@@ -178,8 +214,8 @@ describe('融合上下文 · contextFromSelection', () => {
       ratio: 1,
     })
     expect(ctx.rect).toEqual({ x: 250, y: 100, w: 100, h: 100 })
-    // 外扩 8% × 短边 100 = 8
-    expect(ctx.paddedRect).toEqual({ x: 242, y: 92, w: 116, h: 116 })
+    // 默认外扩比例 0.1（与大雄插件对齐）：宽高各 ×1.2 ⇒ 100×100 → 120×120，居中安放
+    expect(ctx.paddedRect).toEqual({ x: 240, y: 90, w: 120, h: 120 })
   })
 
   it('自由档不动用户框出来的形状', () => {

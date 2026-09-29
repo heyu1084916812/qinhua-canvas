@@ -25,8 +25,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
  * 断言「节点按素材原始比例」时 1:1 的素材与「一律按方框」的退化实现长得一模一样，
  * 断言恒真。故这里按指定宽高现造，比例想给多少给多少。
  */
-function solidPngBuffer(w, h) {
-  const row = Buffer.concat([Buffer.from([0]), Buffer.concat(Array.from({ length: w }, () => Buffer.from([200, 120, 60])))])
+/**
+ * 纯色 PNG。颜色可指定（默认 `200,120,60`）—— **G91 靠它验色彩匹配**：
+ * 原图与补丁用两种差别很大的纯色，融合后选区正中应当是「补丁色被拉回原图色
+ * 但只拉了 ±24」的那个确定值；两边同色的话，色彩匹配做没做都看不出来。
+ */
+function solidPngBuffer(w, h, color = [200, 120, 60]) {
+  const row = Buffer.concat([
+    Buffer.from([0]),
+    Buffer.concat(Array.from({ length: w }, () => Buffer.from(color))),
+  ])
   const raw = Buffer.concat(Array.from({ length: h }, () => row))
   const chunk = (type, data) => {
     const len = Buffer.alloc(4)
@@ -12206,7 +12214,7 @@ async function g91(browser) {
   await sleep(800)
 
   /** 建一个**带真实素材**的生成节点（融合的上游必须是「有图」的节点） */
-  const addGenWithImage = async (w, h) => {
+  const addGenWithImage = async (w, h, color) => {
     await page.locator('[data-toolbar-add]').click()
     await sleep(250)
     await page.locator('[data-toolbar-menu-item="generation"]').click()
@@ -12218,7 +12226,11 @@ async function g91(browser) {
       scoped.locator('[data-node-upload]').first().click(),
     ])
     if (chooser) {
-      await chooser.setFiles({ name: 'fusion-src.png', mimeType: 'image/png', buffer: solidPngBuffer(w, h) })
+      await chooser.setFiles({
+        name: 'fusion-src.png',
+        mimeType: 'image/png',
+        buffer: solidPngBuffer(w, h, color),
+      })
       await sleep(1200)
     }
     return { id, node: scoped }
@@ -12323,7 +12335,7 @@ async function g91(browser) {
    * ② 下面要验证「按模型比例提取」——选区吸附到 16:9 之后，补丁（同样是 16:9）
    * 才过得了比例校验。图太小会把「功能正常」测成「功能不可用」。
    */
-  const src = await addGenWithImage(640, 360)
+  const src = await addGenWithImage(640, 360, [200, 120, 60])
   await moveNode(page, src.id, 150, 240)
   await sleep(300)
   const fBox = await fusion.boundingBox()
@@ -12353,7 +12365,11 @@ async function g91(browser) {
   rec(g, '★ 拖到左半边 → 边落在 input 口', (await inputEdge.count()) === 1, `count=${await inputEdge.count()}`)
 
   // ── ⑤ 补丁：从**右上角的 patch 口**反拖到生成节点 → 应该落 patch 口 ──
-  const patchSrc = await addGenWithImage(640, 360)
+  /**
+   * 补丁用**另一种差别很大的纯色**（蓝）—— 见下面「色彩匹配」那几条像素断言：
+   * 若两边同色，色彩匹配做没做、羽化做没做，读出来都一样。
+   */
+  const patchSrc = await addGenWithImage(640, 360, [60, 60, 200])
   await moveNode(page, patchSrc.id, 150, 520)
   await sleep(300)
   const patchBox = await patchSrc.node.boundingBox()
@@ -12436,6 +12452,56 @@ async function g91(browser) {
   if ((await result.count()) === 1) {
     const nw = await result.evaluate((el) => el.naturalWidth).catch(() => 0)
     rec(g, '★ 结果图真被解码（不是空壳 img）', nw > 0, `naturalWidth=${nw}`)
+
+    /**
+     * ★★ **像素级**验证「不是硬贴」与「色彩匹配真的生效」。
+     *
+     * 素材是两种**纯色**（原图 `200,120,60`、补丁 `60,60,200`），于是三个点的取值
+     * 是算得出来的确定值 —— DOM 计数 / 元素存在性都证明不了这些：
+     *
+     *  - **选区正中**：羽化在这里恒为 1，故结果 = 补丁色 + 受限偏移
+     *    = `(60+24, 60+24, 200−24) = (84,84,176)`。
+     *    **去掉色彩匹配会读成 `(60,60,200)`，去掉 ±24 上限会读成原图色** —— 两头都卡住。
+     *  - **图像最左边**：落在补丁覆盖范围之外，必须还是原图色 `(200,120,60)`。
+     *  - **同一行上的颜色种类 > 8**：硬贴只会得到「原图色 + 补丁色」两种；
+     *    有羽化才会在外扩带里出现一串过渡色。
+     */
+    const px = await page.evaluate(async (url) => {
+      const img = new Image()
+      img.src = url
+      await img.decode()
+      const c = document.createElement('canvas')
+      c.width = img.naturalWidth
+      c.height = img.naturalHeight
+      const g2 = c.getContext('2d')
+      if (!g2) return null
+      g2.drawImage(img, 0, 0)
+      const midY = Math.floor(img.naturalHeight / 2)
+      const midX = Math.floor(img.naturalWidth / 2)
+      const center = Array.from(g2.getImageData(midX, midY, 1, 1).data).slice(0, 3)
+      const farLeft = Array.from(g2.getImageData(0, midY, 1, 1).data).slice(0, 3)
+      const row = g2.getImageData(0, midY, img.naturalWidth, 1).data
+      const seen = new Set()
+      for (let i = 0; i < row.length; i += 4) seen.add(`${row[i]},${row[i + 1]},${row[i + 2]}`)
+      return { center, farLeft, distinct: seen.size }
+    }, await result.getAttribute('src'))
+
+    const near = (a, b, tol = 3) =>
+      !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= tol)
+    const pxText = px ? `center=${px.center} left=${px.farLeft} colors=${px.distinct}` : 'no pixels'
+    rec(
+      g,
+      '★★ 选区正中 = 补丁色被**受限**拉回原图色（±24 上限生效）',
+      near(px?.center, [84, 84, 176]),
+      pxText,
+    )
+    rec(g, '★ 补丁覆盖范围之外仍是原图色（原图没有被整体改掉）', near(px?.farLeft, [200, 120, 60]), pxText)
+    rec(
+      g,
+      '★★ 同一行上的颜色种类 > 8（羽化过渡，不是硬贴一块）',
+      (px?.distinct ?? 0) > 8,
+      pxText,
+    )
   }
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await page.screenshot({ path: `${OUT}/106-g91-fusion.png` })

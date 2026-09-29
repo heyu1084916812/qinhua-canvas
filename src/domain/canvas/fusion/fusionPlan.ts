@@ -25,8 +25,15 @@ export const FUSION_MAX_PIXELS = 100_000_000
  * 1.67 —— 而模型按用户选的 16:9 出图，回来一比就超 1% 容差，**每一张补丁都会
  * 被比例校验拒掉**，功能等于不可用。等比外扩则 `paddedRect` 与 `rect` 比例完全
  * 相同，补丁既能通过校验、也不用被拉伸。
+ *
+ * 后来对照大雄无限画布 `local-patch` 插件的 `compute_padded_rect`，
+ * 发现**它踩过同一个坑并留下了同一句结论**（源码注释原文：
+ * 「A simple boundary clamp removes padding from only one axis/side and changes
+ * the ratio whenever the selection is close to an image edge. Instead, size the
+ * context window uniformly and slide it back inside the image.」）。
+ * 数值也一并对齐它：默认 `0.1`（见下）。
  */
-export const FUSION_PADDING_RATIO = 0.08
+export const FUSION_PADDING_RATIO = 0.1
 /** 长宽比失配阈值：超过即拒绝，避免把补丁拉伸变形 */
 export const FUSION_RATIO_TOLERANCE = 0.01
 
@@ -113,30 +120,38 @@ export function fitRectToRatio(rect: FusionRect, ratio: number): FusionRect {
  * 缺一条，接缝就成了硬边。平移保住矩形完整，代价只是合成位置整体内移几像素。
  */
 export function paddedRectOf(rect: FusionRect, bounds: Size, paddingRatio = FUSION_PADDING_RATIO): FusionRect {
-  const p = Math.max(0, paddingRatio)
-  // 等比放大：宽高乘同一个系数，比例原样保留（见 FUSION_PADDING_RATIO 的说明）
-  const grow = 1 + 2 * p
-  let w = Math.max(1, Math.round(rect.w * grow))
-  let h = Math.max(1, Math.round(rect.h * grow))
-  let x = rect.x + (rect.w - w) / 2
-  let y = rect.y + (rect.h - h) / 2
-  const ratio = rect.h > 0 ? rect.w / rect.h : 1
+  /**
+   * 这一段是**逐行对齐大雄无限画布 `local-patch` 的 `compute_padded_rect`**
+   * （数值与夹取顺序都照抄），因为它把三条不变量都钉住了，而自己写一版很容易漏掉第三条：
+   *
+   *  ① 比例不变：宽高乘**同一个** `scale`；
+   *  ② 窗口不越界：整体**平移**回图内（不是裁掉一边）；
+   *  ③ **窗口完整包含选区**：`max(rect.w, ...)` 那一下是关键 ——
+   *     选区已经顶满图宽时，`round(rect.w * scale)` 可能取整到比选区**窄 1px**，
+   *     于是羽化剖面里「选区右边界」跑到窗口外面，水平方向直接退化成不羽化。
+   */
+  const p = Math.max(0, Math.min(0.5, paddingRatio))
+  if (!(rect.w > 0) || !(rect.h > 0)) return clampRect({ ...rect, w: 1, h: 1 }, bounds)
 
-  if (w > bounds.w || h > bounds.h) {
-    const scale = Math.min(bounds.w / w, bounds.h / h)
-    w = Math.max(1, Math.floor(w * scale))
-    // 高的那一侧跟着宽走会丢精度，故按原比例重算一次再夹住
-    h = Math.max(1, Math.min(Math.floor(bounds.h), Math.floor(w / ratio)))
-    // 缩放围绕选区中心进行，否则「缩回图内」会顺带把取景框挪走
-    x = rect.x + rect.w / 2 - w / 2
-    y = rect.y + rect.h / 2 - h / 2
+  const desired = 1 + 2 * p
+  const available = Math.min(bounds.w / rect.w, bounds.h / rect.h)
+  const scale = Math.min(desired, available)
+  const w = Math.min(bounds.w, Math.max(rect.w, Math.round(rect.w * scale)))
+  const h = Math.min(bounds.h, Math.max(rect.h, Math.round(rect.h * scale)))
+
+  /** 居中安放后滑回图内，且不许滑到「装不下选区」的位置 */
+  const placeAxis = (start: number, length: number, target: number, imageLength: number): number => {
+    const ideal = start - Math.floor((target - length) / 2)
+    const minimum = Math.max(0, start + length - target)
+    const maximum = Math.min(start, imageLength - target)
+    return Math.min(Math.max(ideal, minimum), maximum)
   }
 
   return {
     w,
     h,
-    x: Math.round(clamp(x, 0, Math.max(0, bounds.w - w))),
-    y: Math.round(clamp(y, 0, Math.max(0, bounds.h - h))),
+    x: placeAxis(rect.x, rect.w, w, bounds.w),
+    y: placeAxis(rect.y, rect.h, h, bounds.h),
   }
 }
 

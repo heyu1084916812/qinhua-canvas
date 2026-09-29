@@ -8,6 +8,15 @@ import {
   planFusion,
   type FusionPatchInput,
 } from '../../../domain/canvas/fusion/fusionPlan'
+import {
+  FUSION_FEATHER_BLUR_PX,
+  applyColorOffset,
+  featherMaskAlpha,
+  innerRectOf,
+  isZeroOffset,
+  limitedColorOffset,
+  type Rgb,
+} from '../../../domain/canvas/fusion/fusionBlend'
 import { fingerprintBytes } from '../../../domain/shared/hash'
 import { createId } from '../../../shared/id'
 
@@ -48,62 +57,79 @@ async function bitmapOf(deps: FuseDeps, hash: string): Promise<ImageBitmap | nul
 }
 
 /**
- * 羽化遮罩的透明度剖面（smoothstep）。
+ * 造羽化遮罩：`featherMaskAlpha` 出解析剖面 → **0.8px 模糊** → 选区内补回不透明。
  *
- * `t` = 距外扩边界的归一化距离（0 = 最外圈、1 = 选区本体）。
- * `t²(3-2t)` 在两端导数为 0，接缝处不会留下一条可见的硬边 —— 这是
- * 线性渐变做不到的（线性渐变的两端有折角，缩放到 100% 看就是一圈浅痕）。
+ * 三步的顺序与大雄插件的 `build_feather_mask` 一一对应（见 `fusionBlend` 的说明）：
+ * 剖面负责「渐变」，模糊抹掉解析剖面上仍能看出的折线，最后把选区内部补成纯不透明
+ * ——**少了最后这步，模糊会从选区边界往里啃一圈**，选区自己的像素被啃淡。
  */
-function smoothstep(t: number): number {
-  const x = Math.max(0, Math.min(1, t))
-  return x * x * (3 - 2 * x)
+function featherMask(w: number, h: number, inner: FusionRect): HTMLCanvasElement {
+  const flat = document.createElement('canvas')
+  flat.width = w
+  flat.height = h
+  const fctx = flat.getContext('2d')
+  if (!fctx) return flat
+
+  const alpha = featherMaskAlpha({ w, h }, inner)
+  const data = fctx.createImageData(w, h)
+  for (let i = 0; i < alpha.length; i += 1) {
+    data.data[i * 4] = 255
+    data.data[i * 4 + 1] = 255
+    data.data[i * 4 + 2] = 255
+    data.data[i * 4 + 3] = alpha[i]
+  }
+  fctx.putImageData(data, 0, 0)
+
+  const out = document.createElement('canvas')
+  out.width = w
+  out.height = h
+  const octx = out.getContext('2d')
+  if (!octx) return flat
+  octx.filter = `blur(${FUSION_FEATHER_BLUR_PX}px)`
+  octx.drawImage(flat, 0, 0)
+  octx.filter = 'none'
+  // 选区内 = 完全不透明（模糊会把这里啃掉一圈，补回来）
+  octx.fillStyle = 'rgba(255,255,255,1)'
+  octx.fillRect(inner.x, inner.y, inner.w, inner.h)
+  return out
 }
 
 /**
- * 造一张「外圈透明、内圈实心」的羽化遮罩。
+ * 外扩框里「挖掉选区」那一圈的平均色。
  *
- * 做法是四条边各来一次 `destination-in` 的线性渐变：最终 alpha 是四条剖面的
- * **乘积**，于是越靠角越淡 —— 正是我们要的形状，且不需要逐像素循环。
- * 每条渐变的色标按 `smoothstep` 采样（而不是只有首尾两档），否则乘积出来仍是折线。
+ * 这一圈既属于补丁的覆盖范围、又紧贴原图未改动的内容，是两者色差的唯一可比之处
+ * （大雄的 `_ring_mask` 口径）。
  */
-function featherMask(w: number, h: number, padX: number, padY: number): HTMLCanvasElement {
-  const mask = document.createElement('canvas')
-  mask.width = w
-  mask.height = h
-  const ctx = mask.getContext('2d')
-  if (!ctx) return mask
-  ctx.fillStyle = '#fff'
-  ctx.fillRect(0, 0, w, h)
-
-  const STEPS = 8
-  const ramp = (from: [number, number], to: [number, number]) => {
-    const g = ctx.createLinearGradient(from[0], from[1], to[0], to[1])
-    for (let i = 0; i <= STEPS; i += 1) {
-      const t = i / STEPS
-      g.addColorStop(t, `rgba(255,255,255,${smoothstep(t)})`)
+function ringMean(image: ImageData, inner: FusionRect): Rgb {
+  const { width, height, data } = image
+  let r = 0
+  let g = 0
+  let b = 0
+  let n = 0
+  for (let y = 0; y < height; y += 1) {
+    const insideY = y >= inner.y && y < inner.y + inner.h
+    for (let x = 0; x < width; x += 1) {
+      if (insideY && x >= inner.x && x < inner.x + inner.w) continue
+      const i = (y * width + x) * 4
+      r += data[i]
+      g += data[i + 1]
+      b += data[i + 2]
+      n += 1
     }
-    return g
   }
+  if (n === 0) return [0, 0, 0]
+  return [r / n, g / n, b / n]
+}
 
-  ctx.globalCompositeOperation = 'destination-in'
-  /**
-   * 四条边各一条渐变，羽化带宽**按边分开**给。
-   *
-   * 外扩是等比的（横向 `w×p`、纵向 `h×p`），16:9 的选区这两者差近一倍；
-   * 只给一个 `pad` 会让某个方向的羽化带过宽，接缝处看着「糊了一块」。
-   */
-  const edges: [number, number, number, number][] = [
-    [0, 0, padX, 0], // 左
-    [w, 0, w - padX, 0], // 右
-    [0, 0, 0, padY], // 上
-    [0, h, 0, h - padY], // 下
-  ]
-  for (const [x0, y0, x1, y1] of edges) {
-    ctx.fillStyle = ramp([x0, y0], [x1, y1])
-    ctx.fillRect(0, 0, w, h)
+/** 把受限色偏逐像素加到补丁上（只动 RGB，不动 alpha） */
+function applyOffsetInPlace(image: ImageData, offset: Rgb): void {
+  const d = image.data
+  for (let i = 0; i < d.length; i += 4) {
+    const next = applyColorOffset([d[i], d[i + 1], d[i + 2]], offset)
+    d[i] = next[0]
+    d[i + 1] = next[1]
+    d[i + 2] = next[2]
   }
-  ctx.globalCompositeOperation = 'source-over'
-  return mask
 }
 
 /**
@@ -202,25 +228,47 @@ export async function fuseNode(deps: FuseDeps, nodeId: string): Promise<FuseOutc
     for (let i = 0; i < planned.plan.steps.length; i += 1) {
       const step = planned.plan.steps[i]
       const patch = decoded[i]
+      const padded: FusionRect = step.target
+      const inner = innerRectOf(contexts[i].rect, padded)
       const layer = document.createElement('canvas')
-      layer.width = step.target.w
-      layer.height = step.target.h
+      layer.width = padded.w
+      layer.height = padded.h
       const lctx = layer.getContext('2d')
       if (!lctx) continue
-      drawScaled(lctx, patch, { x: 0, y: 0, w: step.target.w, h: step.target.h })
+      drawScaled(lctx, patch, { x: 0, y: 0, w: padded.w, h: padded.h })
 
       /**
-       * 羽化带宽 = 外扩矩形比原选区多出来的那一圈，**两个方向分开算**。
-       * 直接用矩形尺寸差，而不是再乘一遍 `paddingRatio` ——
-       * 重复算一次就会在「贴边被缩回」的情形下与真实外扩量对不上。
+       * ① **受限色彩匹配**（大雄 `_apply_limited_color_match` 的口径）。
+       *
+       * 参考色取**当前主画布**上同一块，而不是原始原图位图：多张补丁依次合成时，
+       * 后一张要匹配的是「已经被前面改过的那张图」—— 取原图会让第二张补丁
+       * 把第一张的效果当不存在，色偏越叠越明显。
+       *
+       * 偏移夹在 ±24：不设上限就等于「把补丁刷成原图的颜色」，
+       * 补丁自己的色彩信息会被抹掉。
        */
-      const padX = Math.max(1, Math.round((step.target.w - contexts[i].rect.w) / 2))
-      const padY = Math.max(1, Math.round((step.target.h - contexts[i].rect.h) / 2))
+      try {
+        const reference = ctx.getImageData(padded.x, padded.y, padded.w, padded.h)
+        const patchImage = lctx.getImageData(0, 0, padded.w, padded.h)
+        const offset = limitedColorOffset(ringMean(reference, inner), ringMean(patchImage, inner))
+        if (!isZeroOffset(offset)) {
+          applyOffsetInPlace(patchImage, offset)
+          lctx.putImageData(patchImage, 0, 0)
+        }
+      } catch {
+        /**
+         * 逐像素读写失败（极少数环境的画布安全策略）时**跳过色彩匹配**继续合成，
+         * 而不是整次失败：羽化仍然生效，产物依然可用，只是色偏这一层没上。
+         * 这属于「增强项降级」，与「输入缺失」不同 —— 后者必须报错。
+         */
+      }
+
+      // ② 羽化：解析剖面 + 0.8px 模糊 + 选区内补回不透明
       lctx.globalCompositeOperation = 'destination-in'
-      lctx.drawImage(featherMask(step.target.w, step.target.h, padX, padY), 0, 0)
+      lctx.drawImage(featherMask(padded.w, padded.h, inner), 0, 0)
       lctx.globalCompositeOperation = 'source-over'
 
-      ctx.drawImage(layer, step.target.x, step.target.y)
+      ctx.drawImage(layer, padded.x, padded.y)
     }
 
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
