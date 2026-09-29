@@ -58,6 +58,42 @@ function solidPngBuffer(w, h, color = [200, 120, 60]) {
 }
 
 /**
+ * 水平渐变 PNG：R 随 x 线性变化（0→255），G/B 固定。
+ *
+ * G92 用它验「提取选区 → 融合回来」的位置对不对：**纯色图放哪儿都一样**，
+ * 只有带变化的图才能在像素上证明「局部图被放回了它原来那一块」。
+ */
+function gradientPngBuffer(w, h) {
+  const px = Buffer.alloc(w * 3)
+  for (let x = 0; x < w; x += 1) {
+    px[x * 3] = Math.round((x / Math.max(1, w - 1)) * 255)
+    px[x * 3 + 1] = 90
+    px[x * 3 + 2] = 40
+  }
+  const row = Buffer.concat([Buffer.from([0]), px])
+  const raw = Buffer.concat(Array.from({ length: h }, () => row))
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4)
+    len.writeUInt32BE(data.length)
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
+    const crc = Buffer.alloc(4)
+    crc.writeUInt32BE(crc32(body) >>> 0)
+    return Buffer.concat([len, body, crc])
+  }
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(w, 0)
+  ihdr.writeUInt32BE(h, 4)
+  ihdr[8] = 8 // bit depth
+  ihdr[9] = 2 // color type: truecolor
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', deflateSync(raw)),
+    chunk('IEND', Buffer.alloc(0)),
+  ])
+}
+
+/**
  * 造一张**不可压缩**的大 PNG（G55 用）。
  *
  * 纯色 PNG 会被 deflate 压到几十 KB，测不出「大文件」的任何问题；真实照片
@@ -5395,6 +5431,35 @@ async function addGenNode(page) {
   await page.locator('[data-toolbar-menu-item="generation"]').click()
   await sleep(500)
   return page.locator('[data-node-type="generation"]').first()
+}
+
+/**
+ * 建一个**带真实素材**的生成节点（G91 融合 / G92 提取选区的上游都要有图）。
+ *
+ * `buffer` 不给时用 `solidPngBuffer(w,h,color)`；要渐变之类的图案就自己传 buffer。
+ * 返回 `{ id, node }`：id 用来精确连线，node 是**按 id 收窄的 locator**
+ * （`.first()` 会拿到上一个同类节点，后面新建的越多越容易连错）。
+ */
+async function addGenWithImage(page, w, h, color, buffer) {
+  await page.locator('[data-toolbar-add]').click()
+  await sleep(250)
+  await page.locator('[data-toolbar-menu-item="generation"]').click()
+  await sleep(500)
+  const id = await page.locator('[data-node-type="generation"]').last().getAttribute('data-node-id')
+  const node = page.locator(`[data-node-id="${id}"]`)
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null),
+    node.locator('[data-node-upload]').first().click(),
+  ])
+  if (chooser) {
+    await chooser.setFiles({
+      name: 'seed.png',
+      mimeType: 'image/png',
+      buffer: buffer ?? solidPngBuffer(w, h, color),
+    })
+    await sleep(1200)
+  }
+  return { id, node }
 }
 
 /**
@@ -12453,29 +12518,6 @@ async function g91(browser) {
   await page.waitForURL(/\/canvas\//)
   await sleep(800)
 
-  /** 建一个**带真实素材**的生成节点（融合的上游必须是「有图」的节点） */
-  const addGenWithImage = async (w, h, color) => {
-    await page.locator('[data-toolbar-add]').click()
-    await sleep(250)
-    await page.locator('[data-toolbar-menu-item="generation"]').click()
-    await sleep(500)
-    const id = await page.locator('[data-node-type="generation"]').last().getAttribute('data-node-id')
-    const scoped = page.locator(`[data-node-id="${id}"]`)
-    const [chooser] = await Promise.all([
-      page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null),
-      scoped.locator('[data-node-upload]').first().click(),
-    ])
-    if (chooser) {
-      await chooser.setFiles({
-        name: 'fusion-src.png',
-        mimeType: 'image/png',
-        buffer: solidPngBuffer(w, h, color),
-      })
-      await sleep(1200)
-    }
-    return { id, node: scoped }
-  }
-
   /** 从一个端点拖到某个屏幕点（§6.14 拖线建连） */
   const dragFromPortTo = async (portLocator, to) => {
     const b = await portLocator.boundingBox()
@@ -12571,7 +12613,7 @@ async function g91(browser) {
    * ② 下面要验证「按模型比例提取」——选区吸附到 16:9 之后，补丁（同样是 16:9）
    * 才过得了比例校验。图太小会把「功能正常」测成「功能不可用」。
    */
-  const src = await addGenWithImage(640, 360, [200, 120, 60])
+  const src = await addGenWithImage(page, 640, 360, [200, 120, 60])
   await moveNode(page, src.id, 150, 240)
   await sleep(300)
   const fBox = await fusion.boundingBox()
@@ -12605,7 +12647,7 @@ async function g91(browser) {
    * 补丁用**另一种差别很大的纯色**（蓝）—— 见下面「色彩匹配」那几条像素断言：
    * 若两边同色，色彩匹配做没做、羽化做没做，读出来都一样。
    */
-  const patchSrc = await addGenWithImage(640, 360, [60, 60, 200])
+  const patchSrc = await addGenWithImage(page, 640, 360, [60, 60, 200])
   await moveNode(page, patchSrc.id, 150, 520)
   await sleep(300)
   /**
@@ -12832,7 +12874,186 @@ async function g91(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91]
+/**
+ * G92 提取选区（产品文档 §6.23，2026-09-29）
+ *
+ * 用户口径：「图片素材，点击提取选取后，在素材的灯箱预览的界面框选局部图，
+ * 框选有比例的限制……框选后的局部图带持久性的上下文，通过模型进行改图后也有上下文，
+ * 能支持多轮改图」。这一组把这条链路走通，并且**用像素证明位置没跑偏**：
+ *
+ * 原图用**水平渐变**（`gradientPngBuffer`）—— 纯色图放哪儿都长一样，证明不了什么。
+ * 「提取出来的局部图」与「原图那一块」是同一份像素，所以融合结果应当与原图
+ * **逐点一致**；上下文要是错了（比如把整图当成了选区），渐变就会被拉伸，断言立刻红。
+ */
+async function g92(browser) {
+  const g = 'G92 提取选区'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  const dragFromPortTo = async (portLocator, to) => {
+    const b = await portLocator.boundingBox()
+    if (!b) return false
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(to.x, to.y, { steps: 10 })
+    await page.mouse.up()
+    await sleep(450)
+    return true
+  }
+  /** 取一张图（blob URL）中间那一行的几个采样点 */
+  const sampleRow = (url) =>
+    page.evaluate(async (u) => {
+      const img = new Image()
+      img.src = u
+      await img.decode()
+      const c = document.createElement('canvas')
+      c.width = img.naturalWidth
+      c.height = img.naturalHeight
+      const g2 = c.getContext('2d')
+      if (!g2) return null
+      g2.drawImage(img, 0, 0)
+      const y = Math.floor(img.naturalHeight / 2)
+      const at = (x) => Array.from(g2.getImageData(x, y, 1, 1).data).slice(0, 3)
+      return { w: img.naturalWidth, h: img.naturalHeight, p: [at(100), at(320), at(500)] }
+    }, url)
+  const near = (a, b, tol = 4) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= tol)
+
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="blank"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(800)
+
+  // ① 一张渐变原图
+  const source = await addGenWithImage(page, 640, 360, null, gradientPngBuffer(640, 360))
+  await moveNode(page, source.id, 180, 220)
+  await sleep(300)
+
+  // ② 图片节点**上方功能栏**里的入口
+  await page.locator(`[data-node-id="${source.id}"]`).click({ position: { x: 30, y: 10 } })
+  await sleep(350)
+  const extractBtn = page.locator('[data-follow-action="extract"]')
+  rec(g, '★ 图片节点上方功能栏有「提取选区」', (await extractBtn.count()) === 1)
+  if ((await extractBtn.count()) !== 1) {
+    rec(g, '（后续断言跳过）', false, '功能栏里没有提取入口')
+    await ctx.close()
+    return
+  }
+  await extractBtn.click()
+  await sleep(600)
+
+  // ③ 在**素材灯箱**里框选（不是另做一个裁剪器）
+  rec(
+    g,
+    '★ 在素材灯箱里打开框选（复用灯箱，不另做裁剪器）',
+    (await page.locator('[data-lightbox]').count()) === 1 &&
+      (await page.locator('[data-lightbox-crop-apply]').count()) === 1,
+  )
+  rec(
+    g,
+    '★ 比例档就在灯箱界面上',
+    (await page.locator('[data-lightbox-crop-ratio]').count()) >= 9,
+    `count=${await page.locator('[data-lightbox-crop-ratio]').count()}`,
+  )
+  rec(g, '★ 还没框选时「提取选区」禁用', await page.locator('[data-lightbox-crop-apply]').isDisabled())
+
+  // ④ 选 16:9 → 拖框 → 自动吸附
+  await page.locator('[data-lightbox-crop-ratio="16:9"]').click()
+  await sleep(250)
+  const stage = await page.locator('[data-lightbox-stage]').boundingBox()
+  await page.mouse.move(stage.x + stage.width * 0.3, stage.y + stage.height * 0.3)
+  await page.mouse.down()
+  await page.mouse.move(stage.x + stage.width * 0.7, stage.y + stage.height * 0.7, { steps: 12 })
+  await page.mouse.up()
+  await sleep(400)
+  const rectBox = await page.locator('[data-lightbox-crop-rect]').boundingBox().catch(() => null)
+  rec(g, '★★ 在灯箱里拖框画出了选区', !!rectBox)
+  const rectRatio = rectBox ? rectBox.width / rectBox.height : 0
+  rec(
+    g,
+    '★★ 选区被吸附到 16:9（比例限制真的生效）',
+    Math.abs(rectRatio - 16 / 9) < 0.08,
+    `ratio=${rectRatio.toFixed(3)}`,
+  )
+  rec(g, '★ 有合法选区后按钮可点', !(await page.locator('[data-lightbox-crop-apply]').isDisabled()))
+
+  // ⑤ 确认：关灯箱 + 在原图右侧生成局部图
+  const nodesBefore = await nodeCount(page)
+  await page.locator('[data-lightbox-crop-apply]').click()
+  await sleep(2000)
+  rec(g, '★ 提取后灯箱自动关闭', (await page.locator('[data-lightbox]').count()) === 0)
+  const nodesAfter = await nodeCount(page)
+  rec(g, '★★ 在原图右侧生成了一个新节点（原图不改动）', nodesAfter === nodesBefore + 1, `${nodesBefore} → ${nodesAfter}`)
+  const localId = await page.locator('[data-node-type="generation"]').last().getAttribute('data-node-id')
+  const localNode = page.locator(`[data-node-id="${localId}"]`)
+  const localTitle = ((await localNode.locator('[data-node-title]').textContent().catch(() => '')) ?? '').trim()
+  rec(g, '★ 新节点叫「局部图」', localTitle.includes('局部图'), localTitle)
+  const localNw = await localNode
+    .locator('[data-node-asset]')
+    .first()
+    .evaluate((el) => el.naturalWidth)
+    .catch(() => 0)
+  rec(g, '★ 局部图确实是裁出来的（比原图窄）', localNw > 0 && localNw < 640, `naturalWidth=${localNw}`)
+
+  // ⑥ 原图 → 融合节点左口；局部图 → 右侧共用口。**不在融合节点里框任何东西**
+  await page.locator('[data-toolbar-add]').click()
+  await sleep(250)
+  await page.locator('[data-toolbar-menu-item="fusion"]').click()
+  await sleep(600)
+  const fusionId = await page.locator('[data-node-type="fusion"]').first().getAttribute('data-node-id')
+  const fusion = page.locator(`[data-node-id="${fusionId}"]`)
+  await moveNodeVia(page, fusion, page.locator('[data-fusion-patches]'), 900, 200)
+  await sleep(300)
+  const fBox = await fusion.boundingBox()
+  await dragFromPortTo(source.node.locator('[data-port="output"]').first(), {
+    x: fBox.x + 30,
+    y: fBox.y + fBox.height / 2,
+  })
+  await dragFromPortTo(localNode.locator('[data-port="output"]').first(), {
+    x: fBox.x + fBox.width - 30,
+    y: fBox.y + fBox.height / 2,
+  })
+  rec(
+    g,
+    '★ 两条边落在不同口上（原图 → 左口；局部图 → 右共用口）',
+    (await page.locator('[data-edge-target-port="input"]').count()) === 1 &&
+      (await page.locator('[data-edge-target-port="patch"]').count()) === 1,
+  )
+  rec(g, '★ 融合节点里一个选区都没框（选区来自局部图自己）', (await page.locator('[data-fusion-context="1"]').count()) === 0)
+  rec(
+    g,
+    '★★ 没在融合节点里框任何选区，「融合」按钮依然可点（上下文跟着局部图来了）',
+    !(await page.locator('[data-fusion-run]').isDisabled()),
+    `disabled=${await page.locator('[data-fusion-run]').isDisabled()}`,
+  )
+
+  // ⑦ 融合 → 结果图；位置的硬证据：渐变必须与原图逐点一致
+  await page.locator('[data-fusion-run]').click()
+  await sleep(2500)
+  const result = page.locator('[data-fusion-image="result"]')
+  rec(g, '★★ 点「融合」产出了结果图', (await result.count()) === 1)
+  if ((await result.count()) === 1) {
+    const srcUrl = await source.node.locator('[data-node-asset]').first().getAttribute('src')
+    const outUrl = await result.getAttribute('src')
+    const [a, b] = await Promise.all([sampleRow(srcUrl), sampleRow(outUrl)])
+    rec(g, '★ 两张图尺寸一致（产物 = 原图尺寸）', a && b && a.w === b.w && a.h === b.h, `${a?.w}×${a?.h} vs ${b?.w}×${b?.h}`)
+    const same = a && b && a.p.every((c, i) => near(c, b.p[i]))
+    rec(
+      g,
+      '★★ 融合结果的渐变与原图**逐点一致**（局部图被放回了它原来那一块）',
+      same,
+      `原图=${JSON.stringify(a?.p)} 结果=${JSON.stringify(b?.p)}`,
+    )
+  }
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await page.screenshot({ path: `${OUT}/107-g92-extract.png` })
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

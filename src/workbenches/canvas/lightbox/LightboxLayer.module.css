@@ -112,3 +112,76 @@
 .close:hover {
   background: var(--bg-hover);
 }
+
+/*
+ * ── 提取选区模式（§6.23）──
+ *
+ * 选区框、比例档、确认按钮。颜色一律走 token（主题守卫拦字面量色值）。
+ */
+.cropRect {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid var(--text-1);
+  background: var(--accent);
+  /* 半透明靠 opacity 而不是 rgba —— 半透明色值在这里等于写死主题 */
+  opacity: 0.28;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.ratioLabel {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  white-space: nowrap;
+}
+
+.ratio,
+.ratioActive {
+  height: 26px;
+  padding: 0 var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.ratioActive {
+  background: var(--control-inverse-bg);
+  border-color: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+}
+
+.ratio:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.confirm {
+  height: 32px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--control-inverse-bg);
+  border-radius: var(--radius-control);
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.confirm:not(:disabled):hover {
+  background: var(--control-inverse-bg-hover);
+}
+
+.confirm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

@@ -32,28 +32,9 @@ import {
   ratioValueOf,
 } from '../../../../domain/canvas/fusion/fusionPlan'
 import { createId } from '../../../../shared/id'
+import { RATIO_CHOICES } from '../../../../domain/canvas/layout/ratioChoices'
 import { useAsset } from '../../hooks/useAsset'
 import styles from './FusionNodeView.module.css'
-
-/**
- * 「按模型现有比例提取」可选的比例档。
- *
- * 与生图面板的九档**同一批比例**（产品文档 §6.8），但刻意不是同一个常量：
- * 那边在 `workbenches/canvas/panels` 里，是 UI 模块；domain 不能反向依赖 UI。
- * 两处若哪天对不上，用户会看到「生图面板有 21:9、融合这里没有」——
- * 那时该做的是把比例表下沉到 domain 共用，而不是在这里悄悄多加一档。
- */
-const RATIO_CHOICES: readonly { label: string; value: string }[] = [
-  { label: '自由', value: '' },
-  { label: '1:1', value: '1:1' },
-  { label: '4:3', value: '4:3' },
-  { label: '3:4', value: '3:4' },
-  { label: '16:9', value: '16:9' },
-  { label: '9:16', value: '9:16' },
-  { label: '3:2', value: '3:2' },
-  { label: '2:3', value: '2:3' },
-  { label: '21:9', value: '21:9' },
-]
 
 /** 预览框高度（世界像素）：定值才能把「图在框内的实际位置」算准（见 fitInside） */
 const PREVIEW_H = 200
@@ -74,15 +55,16 @@ function toUnit(rect: FusionRect, size: { w: number; h: number }): UnitRect {
 function runHint(input: {
   hasOriginal: boolean
   patchCount: number
-  contextCount: number
-  usableCount: number
+  /** 有没有哪张局部图既没自带上下文、融合节点里也没给它框选区 */
+  missingContextAt: number | null
+  originalChanged: boolean
 }): string {
   if (!input.hasOriginal) return '先把一张完整原图连到左侧'
-  if (input.patchCount === 0) return '把局部修改图连到右上角的接口'
-  if (input.contextCount === 0) return '先在原图上拖一个框，选出要融合的局部'
-  if (input.usableCount !== input.patchCount) {
-    return '原图换了：请重新框选（旧选区对不上新图）'
+  if (input.patchCount === 0) return '把局部修改图连到右侧那只端点'
+  if (input.missingContextAt !== null) {
+    return `第 ${input.missingContextAt} 张局部图没有选区上下文：改用「提取选区」得到的局部图，或在融合节点里给它框一个选区`
   }
+  if (input.originalChanged) return '原图换了：请重新框选（旧选区对不上新图）'
   return `把 ${input.patchCount} 张局部修改图融回原图`
 }
 
@@ -95,8 +77,9 @@ export function FusionNodeView(props: NodeViewProps) {
    * 由 NodeLayer 按端口分组注入（多口节点才有这个字段）。
    */
   const portAssets = props.inputPortAssets ?? {}
-  const originalHash = (portAssets.input ?? [])[0]
-  const patchHashes = portAssets.patch ?? []
+  const originalHash = (portAssets.input ?? [])[0]?.hash
+  const patches = portAssets.patch ?? []
+  const patchHashes = patches.map((p) => p.hash)
   const resultHash = data.assetHash
 
   /** 预览区显示原图还是产物：「对比原图」打开时（或还没有产物时）显示原图 */
@@ -240,13 +223,20 @@ export function FusionNodeView(props: NodeViewProps) {
         height: natural.h,
       })
     : []
-  const canRun =
-    !!originalHash && patchHashes.length > 0 && usable.length === patchHashes.length && !props.running
+  /**
+   * 第 i 张局部图能不能回贴：**自带上下文**（「提取选区」那条链路，上下文跟着图走），
+   * 或者融合节点里给它框过一条选区（老路径，按连线顺序配对）。
+   * 两者都没有时按钮禁用，并指明是第几张 —— 摆一个点了报错的按钮更糟。
+   */
+  const firstMissing = patches.findIndex((p, i) => !p.hasContext && !usable[i])
+  const missingContextAt = firstMissing >= 0 ? firstMissing + 1 : null
+  const originalChanged = patches.every((p) => !p.hasContext) && usable.length !== patches.length
+  const canRun = !!originalHash && patches.length > 0 && missingContextAt === null && !props.running
   const hint = runHint({
     hasOriginal: !!originalHash,
-    patchCount: patchHashes.length,
-    contextCount: contexts.length,
-    usableCount: usable.length,
+    patchCount: patches.length,
+    missingContextAt,
+    originalChanged,
   })
 
   /** 框选拖拽中 / 已存在的选区，都按同一套换算画到预览框里（框内 px → 百分比） */

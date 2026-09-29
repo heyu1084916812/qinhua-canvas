@@ -208,6 +208,24 @@ export function IconImport(props: IconProps) {
 }
 
 /** 连接到已有节点：两个节点块之间一条连线（§6.14「连接已有节点」区分于「新建」） */
+/**
+ * 提取选区：四角取景框 + 中间一块被框住的区域（§6.23）。
+ *
+ * 形状取「截图取景」这一通用符号：四个直角 + 中间一个实心小块，
+ * 一眼能与「导入」「全屏」区分开（那两个也是四角，但没有中间那块）。
+ */
+export function IconScan(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9" />
+      <path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9" />
+      <path d="M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15" />
+      <path d="M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15" />
+      <rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor" stroke="none" />
+    </Svg>
+  )
+}
+
 export function IconLink(props: IconProps) {
   return (
     <Svg {...props}>

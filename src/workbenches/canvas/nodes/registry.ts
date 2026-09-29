@@ -69,7 +69,7 @@ export interface NodeViewProps<TData extends NodeData = NodeData> {
    * 右上 `patch` 是局部修改图），混在一起读会把原图当成第 1 张补丁。只有声明了
    * 多只输入口的节点才会拿到这个字段（其余为 undefined，零成本）。
    */
-  inputPortAssets?: Record<string, string[]>
+  inputPortAssets?: Record<string, InputPortAsset[]>
   /**
    * 容器类节点（分组 / 批量）自己的子节点快照，由 NodeLayer 注入（视图层不读图）。
    * 非容器类型为空数组。
@@ -83,6 +83,19 @@ export interface NodeViewProps<TData extends NodeData = NodeData> {
    */
   renderChild?: (child: NodeSnapshot, opts?: { preserveCoords?: boolean }) => ReactNode
   children?: ReactNode
+}
+
+/**
+ * 某个输入口上的一项上游素材。
+ *
+ * `hasContext` = 这张图（或它的上游链上）带着**局部选区上下文**（§6.23 提取选区产生）。
+ * 视图据此判断「第 i 张局部图能不能回贴」：自带上下文的局部图**不需要**在融合节点里
+ * 再框一次；没有的才要求节点自己框。这层判断必须由**持有图**的 NodeLayer 算好注入 ——
+ * 视图拿不到图，自己推不出来（架构 §4.7）。
+ */
+export interface InputPortAsset {
+  hash: string
+  hasContext: boolean
 }
 
 export interface NodePanelProps<TData extends NodeData = NodeData> {

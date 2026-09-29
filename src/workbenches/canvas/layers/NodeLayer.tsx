@@ -3,7 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useGraph, useSelection, useCanvasStore } from '../storeContext'
 import { useNodeDrag } from '../../../features/canvas/useNodeDrag'
 import { useCanvasPageEvents } from '../../../features/canvas/useCanvasPageEvents'
-import { getNodeDefinition } from '../nodes/registry'
+import { getNodeDefinition, type InputPortAsset } from '../nodes/registry'
 import { NodeFrame } from '../frame/NodeFrame'
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { describeError } from '../../../shared/result'
@@ -19,6 +19,7 @@ import type { NodeSnapshot, PromptData } from '../../../domain/canvas/model/node
 import { promptSpec } from '../../../domain/canvas/nodeSpecs/prompt'
 import { resizeLockOf } from '../../../domain/canvas/nodeSpecs/resizeLock'
 import { portDeclsOf } from '../../../domain/canvas/nodeSpecs/ports'
+import { resolveCropContext } from '../../../domain/canvas/fusion/cropContext'
 import { getSpec } from '../../../domain/canvas/nodeSpecs/registry'
 import { targetPortOf } from '../../../domain/canvas/model/edge'
 import { resultImagesOf } from '../../../domain/canvas/graph/resultImages'
@@ -275,8 +276,20 @@ export const NodeLayer = memo(function NodeLayer({
    * 左侧原图算成第 1 张局部修改图，整条链路从第一张就错位。
    */
   const inputPortAssets = useStableGraphMemo(graph, (g) => {
-    const out = new Map<string, Record<string, string[]>>()
+    const out = new Map<string, Record<string, InputPortAsset[]>>()
     const idx = indexNodes(g.nodes)
+    /**
+     * 每个节点「这一路有没有局部选区上下文」（§6.23）。整图算一次 O(N·E)，
+     * 且只在这个 memo 重建时算（内容变了才重建）—— 不能放进每帧的渲染路径。
+     */
+    const hasContext = new Map<string, boolean>()
+    const contextOf = (id: string): boolean => {
+      const cached = hasContext.get(id)
+      if (cached !== undefined) return cached
+      const value = resolveCropContext(id, g, idx).kind === 'local'
+      hasContext.set(id, value)
+      return value
+    }
     for (const n of g.nodes) {
       const spec = getSpec(n.type)
       if (!spec) continue
@@ -288,14 +301,14 @@ export const NodeLayer = memo(function NodeLayer({
       const inputs = portDeclsOf(spec.ports).filter((p) => p.kind === 'input' || p.kind === 'both')
       // 单口节点：upstreamAssetHashes 已经表达了同一件事，不必再算一份
       if (inputs.length < 2) continue
-      const byPort: Record<string, string[]> = {}
+      const byPort: Record<string, InputPortAsset[]> = {}
       for (const p of inputs) byPort[p.id] = []
       for (const e of g.edges) {
         if (e.target !== n.id) continue
         const bucket = byPort[targetPortOf(e)]
         if (!bucket) continue
         const hash = resultImagesOf(idx.get(e.source))[0]
-        if (hash) bucket.push(hash)
+        if (hash) bucket.push({ hash, hasContext: contextOf(e.source) })
       }
       out.set(n.id, byPort)
     }

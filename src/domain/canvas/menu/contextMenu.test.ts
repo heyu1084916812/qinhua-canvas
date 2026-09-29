@@ -57,14 +57,32 @@ describe('nodeMenuItems / 节点右键菜单（§4.1）', () => {
 
   it('★ 生成节点已有素材时，右键菜单提供「保存到素材库」', () => {
     const items = nodeMenuItems('generation', { hasAsset: true })
-    expect(ids(items)).toEqual(['run', 'saveLibrary', 'duplicate', 'rename', 'delete'])
+    // extractSelection 于 2026-09-29 并入（§6.23）：有素材的节点都能提取选区
+    expect(ids(items)).toEqual([
+      'run',
+      'saveLibrary',
+      'extractSelection',
+      'duplicate',
+      'rename',
+      'delete',
+    ])
     expect(items.find((i) => i.id === 'saveLibrary')!.action).toEqual({ kind: 'saveLibrary' })
+    expect(items.find((i) => i.id === 'extractSelection')!.action).toEqual({
+      kind: 'extractSelection',
+    })
   })
 
   it('空生成节点或非生成节点不列「保存到素材库」', () => {
     expect(ids(nodeMenuItems('generation', { hasAsset: false }))).not.toContain('saveLibrary')
     expect(ids(nodeMenuItems('batch', { hasAsset: true }))).not.toContain('saveLibrary')
     expect(ids(nodeMenuItems('prompt', { hasAsset: true }))).not.toContain('saveLibrary')
+  })
+
+  it('★「提取选区」只看「有没有素材」，与节点类型无关（融合产物也是一张图）', () => {
+    expect(ids(nodeMenuItems('generation', { hasAsset: true }))).toContain('extractSelection')
+    expect(ids(nodeMenuItems('fusion', { hasAsset: true }))).toContain('extractSelection')
+    expect(ids(nodeMenuItems('generation', { hasAsset: false }))).not.toContain('extractSelection')
+    expect(ids(nodeMenuItems('prompt', { hasAsset: true }))).toContain('extractSelection')
   })
 
   /**

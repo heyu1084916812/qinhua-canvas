@@ -98,6 +98,13 @@ export interface GenerationData {
   // 缩略图状态
   thumbOrder: string[]
   upstreamHidden: string[]
+  /**
+   * 这张图自带的裁剪上下文（见 `CropContext`）。
+   *
+   * 由「提取选区」写在新建的局部图上；此后**沿上游链解析**（`resolveCropContext`），
+   * 所以中间再套几个生成节点改图也不会丢。
+   */
+  cropContext?: CropContext
 }
 
 export interface CompareData {
@@ -254,6 +261,21 @@ export interface FusionData {
    */
   ratio?: string
 }
+
+/**
+ * **图片自带的裁剪上下文**（产品文档 §6.23「提取选区」）。
+ *
+ * 与 `FusionContext` 是同一件事的两种存法，差别只在**谁持有**：
+ * `FusionContext` 是融合节点自己那条选区记录（带 id），本类型是**这张图自己的属性** ——
+ * 所以没有 id，它就该跟着图片走：改图、放大、并发、分组、复制粘贴、刷新、导入导出。
+ *
+ * 两种形态：
+ * - `{ full: true }`：**完整图边界**（参考实现的同名标记）。融合产物已经是一张完整图，
+ *   从此**不再继承**任何局部上下文，否则第二轮会错误追溯到上一轮的选区；
+ *   它也正好让「拿融合结果再提取一个新选区」成为合法操作。
+ * - `Omit<FusionContext, 'id'>`：真正的局部图 —— 属于哪张原图、哪个矩形、外扩矩形。
+ */
+export type CropContext = { full: true } | Omit<FusionContext, 'id'>
 
 export type NodeData =
   | PromptData

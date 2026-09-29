@@ -1,13 +1,20 @@
 import type { PlatformKit } from '../../../platform/ports'
 import type { CanvasStore } from '../../../state/workbenches/canvas/store'
-import type { FusionData, FusionRect, NodeSnapshot } from '../../../domain/canvas/model/node'
+import type {
+  FusionContext,
+  FusionData,
+  FusionRect,
+  NodeSnapshot,
+} from '../../../domain/canvas/model/node'
 import { fusionInputsOf } from '../../../domain/canvas/nodeSpecs/fusion'
 import {
   FUSION_MISSING_INPUT,
+  contextMatchesSource,
   contextsForSource,
   planFusion,
   type FusionPatchInput,
 } from '../../../domain/canvas/fusion/fusionPlan'
+import { resolveCropContext } from '../../../domain/canvas/fusion/cropContext'
 import {
   FUSION_FEATHER_BLUR_PX,
   applyColorOffset,
@@ -166,9 +173,6 @@ export async function fuseNode(deps: FuseDeps, nodeId: string): Promise<FuseOutc
   if (!original || patches.length === 0) {
     return { ok: false, reason: FUSION_MISSING_INPUT }
   }
-  if ((data.contexts ?? []).length === 0) {
-    return { ok: false, reason: '还没有框选任何区域：先在原图上拖一个框' }
-  }
 
   const originalBitmap = await bitmapOf(deps, original.assetHash)
   if (!originalBitmap) return { ok: false, reason: '读不到原图素材，请重新连接上游节点' }
@@ -184,7 +188,50 @@ export async function fuseNode(deps: FuseDeps, nodeId: string): Promise<FuseOutc
    * 原图被换掉后，旧选区的坐标落在新图上就是错的位置。这里不是「筛掉就算了」——
    * 筛完数量对不上会在 `planFusion` 里如实报出来，用户知道要重新框。
    */
-  const contexts = contextsForSource(data.contexts ?? [], source)
+  const ownContexts = contextsForSource(data.contexts ?? [], source)
+
+  /**
+   * **每条补丁对应哪个选区**：优先用**图片自己带的上下文**，没有才退回
+   * 「融合节点里框的选区（按连线顺序配对）」。
+   *
+   * 两种来源并存是有意的：
+   * - 走「提取选区」的链路 → 局部图自带上下文（提取产生、经改图沿上游继承），
+   *   这才是主路径：局部图在哪张原图的哪一块是**它自己的属性**，不必再在融合节点里框一遍；
+   * - 直接在融合节点里框选 → 老路径仍然可用（用户也可以两种混用）。
+   *
+   * 冲突（一张图里混了多个不同选区）**必须报错**，不许猜 —— 猜错就是把局部图
+   * 融到不相干的位置，而画面上不一定看得出来。
+   */
+  const contexts: typeof ownContexts = []
+  for (let i = 0; i < patches.length; i += 1) {
+    const patch = patches[i]
+    const resolved = resolveCropContext(patch.nodeId, graph)
+    if (resolved.kind === 'conflict') {
+      return {
+        ok: false,
+        reason: `第 ${i + 1} 张局部修改图里混了多个不同的选区，无法确定该融回哪里（请把它们分成多张独立的局部图）`,
+      }
+    }
+    if (resolved.kind === 'local') {
+      const carried: FusionContext = { id: `ctx:${patch.nodeId}`, ...resolved.context }
+      if (!contextMatchesSource(carried, source)) {
+        return {
+          ok: false,
+          reason: `第 ${i + 1} 张局部图的上下文不属于当前原图（请把它当初提取时的那张原图连到左侧）`,
+        }
+      }
+      contexts.push(carried)
+      continue
+    }
+    const fallback = ownContexts[i]
+    if (!fallback) {
+      return {
+        ok: false,
+        reason: `第 ${i + 1} 张局部图没有选区上下文：改用「提取选区」得到的局部图，或在融合节点里给它框一个选区`,
+      }
+    }
+    contexts.push(fallback)
+  }
 
   const decoded: ImageBitmap[] = []
   const patchInputs: FusionPatchInput[] = []

@@ -17,6 +17,7 @@ export type ContextMenuAction =
   | { kind: 'duplicate' }
   | { kind: 'rename' }
   | { kind: 'fullscreenEdit' }
+  | { kind: 'extractSelection' }
   | { kind: 'saveLibrary' }
   | { kind: 'delete' }
   | { kind: 'create'; type: NodeType }
@@ -87,6 +88,18 @@ export function nodeMenuItems(
       id: 'saveLibrary',
       label: '保存到素材库',
       action: { kind: 'saveLibrary' },
+    })
+  }
+  /**
+   * 「提取选区」（§6.23）：**图片节点**才有的动作 —— 在素材灯箱里框选一块局部，
+   * 生成一张带上下文的新局部图。所以条件是「有素材」，与类型无关：
+   * 生成节点、以及融合节点（它的产物也是一张图）都能提取。
+   */
+  if (opts.hasAsset) {
+    items.push({
+      id: 'extractSelection',
+      label: '提取选区',
+      action: { kind: 'extractSelection' },
     })
   }
   items.push({ id: 'duplicate', label: '复制', action: { kind: 'duplicate' } })
