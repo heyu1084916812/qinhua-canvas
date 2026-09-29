@@ -1,11 +1,9 @@
 /*
- * 融合节点样式（产品文档 §6.23，2026-09-29）。
+ * 融合节点样式（产品文档 §6.23）。
  *
- * 视觉沿用循环节点那套口径：卡面走 token、控件高度 25–30px、
- * 圆角用 --radius-control、无投影、1px 描边。
- *
- * ⚠️ 颜色一律 `var(--*)`：`scripts/check-theme.mjs` 会拦截字面量色值
- * （写死一个 rgba 就等于深色主题静默退化，而且四个门禁全绿）。
+ * 结构照用户 2026-09-29 给的参考图：上「原图 | 局部修改」两块预览 → 中间连接状态胶囊 →
+ * 颜色匹配 → 全宽「开始融合」。配色仍然只走 token（主题守卫拦字面量色值），
+ * 圆角 / 描边 / 无投影沿用节点卡的通用口径。
  */
 .card {
   width: 100%;
@@ -16,7 +14,6 @@
   flex-direction: column;
   font-family: var(--font-sans);
   color: var(--text-1);
-  /* 比例浮层要越出节点：由 NodeFrame 的 `.body:has([data-fusion-node])` 放开裁剪 */
   overflow: visible;
 }
 
@@ -27,243 +24,126 @@
   width: 100%;
 }
 
-/* ── ① 预览区 ── */
-.preview {
-  position: relative;
-  width: 100%;
-  /* 定高：图在框内的实际矩形才能算准（fitInside 的口径），且拖框精度稳定 */
-  height: 200px;
-  border-radius: var(--radius-control);
-  border: 1px solid var(--stroke);
-  background: var(--bg-subtle);
-  overflow: hidden;
-  cursor: crosshair;
-  touch-action: none;
-}
-
-.image {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  /* 图是内容不是控件：不吃指针，拖框一律落在容器上 */
-  pointer-events: none;
-  user-select: none;
-}
-
-.empty {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: var(--space-3);
-  color: var(--text-3);
-  font-size: var(--fs-chip);
-  text-align: center;
-  /* 长文案要能换行，不许溢出预览框 */
-  overflow-wrap: anywhere;
-}
-
-/* 已保存的选区：描边 + 半透明实底（不用 rgba —— 主题守卫不许字面量色值） */
-.selection,
-.selectionActive {
-  position: absolute;
-  box-sizing: border-box;
-  border: 1px solid var(--text-1);
-  background: var(--accent);
-  opacity: 0.28;
-  pointer-events: none;
-  border-radius: 2px;
-}
-
-.selectionActive {
-  border: 2px solid var(--text-1);
-  opacity: 0.45;
-}
-
-/* 正在拖的框：只有描边，不填色（填色会盖住底图，看不出要融的是哪一块） */
-.selectionDraft {
-  position: absolute;
-  box-sizing: border-box;
-  border: 1px dashed var(--text-1);
-  pointer-events: none;
-  border-radius: 2px;
-}
-
-/* ── ②③ 行 ── */
-.row {
-  width: 100%;
+/* ── ① 预览：原图 | 局部修改（多张局部图时自动分摊宽度） ── */
+.panes {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
   gap: 6px;
+  width: 100%;
   min-width: 0;
-  flex: none;
 }
 
-.note {
-  color: var(--text-3);
-  font-size: var(--fs-chip);
-  line-height: 1.4;
+.pane {
+  position: relative;
+  flex: 1 1 0;
   min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-/* ── 选区芯片（编号 + 删除） ── */
-.chipWrap {
-  position: relative;
-  display: inline-flex;
-  flex: none;
-}
-
-.chip,
-.chipActive {
-  width: 26px;
-  height: 26px;
-  border-radius: var(--radius-control);
-  border: 1px solid var(--stroke);
-  background: var(--bg-surface);
-  color: var(--text-2);
-  font-family: var(--font-sans);
-  font-size: var(--fs-chip);
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-  /* 选中态走反色控件（深底浅字）：--accent 在深色主题会翻成浅底深字，与文字撞色 */
-  transition: background var(--dur-hover), color var(--dur-hover);
-}
-
-.chipActive {
-  background: var(--control-inverse-bg);
-  color: var(--control-inverse-text);
-  border-color: var(--control-inverse-bg);
-}
-
-/*
- * 删除角标：**圆心落在芯片右上角顶点**上（用户 2026-09-28 对循环节点的口径）。
- * 用 `translate(50%,-50%)` 把元素中心搬到那个顶点，而不是靠 padding 目测。
- */
-.chipDelete {
-  position: absolute;
-  right: 0;
-  top: 0;
-  transform: translate(50%, -50%);
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius-pill);
-  background: var(--bg-surface);
-  color: var(--text-2);
-  cursor: pointer;
-}
-
-.chipDelete svg {
-  width: 10px;
-  height: 10px;
-  /* 图标盒与圆钮盒同中心：grid + place-items 之后不再有字体度量带来的偏心 */
-  display: block;
-}
-
-.chipDelete:hover {
-  color: var(--danger);
-}
-
-/* ── 局部修改图缩略图 ── */
-.thumb {
-  position: relative;
-  width: 40px;
-  height: 40px;
-  flex: none;
+  /* 正方形格：两块并排时高度由宽度决定，节点宽高都不会被内容拉歪 */
+  aspect-ratio: 1;
   border-radius: var(--radius-control);
   border: 1px solid var(--stroke);
   background: var(--bg-subtle);
   overflow: hidden;
 }
 
-.thumb img {
+.paneImg {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
 
-.thumbEmpty {
+.paneEmpty {
   position: absolute;
   inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
 }
 
-/* 编号角标：圆心对准缩略图**左上角顶点**（与循环节点的角标同一口径） */
-.thumbBadge {
+.paneEmpty svg {
+  width: 28px;
+  height: 28px;
+}
+
+/* 标签胶囊压在预览左下角（参考图就是这个位置与形态） */
+.paneLabel {
   position: absolute;
-  left: 0;
-  top: 0;
-  transform: translate(-50%, -50%);
-  min-width: 15px;
-  height: 15px;
-  padding: 0 3px;
+  left: 6px;
+  bottom: 6px;
+  height: 20px;
+  padding: 0 8px;
   box-sizing: border-box;
   border-radius: var(--radius-pill);
   background: var(--control-inverse-bg);
   color: var(--control-inverse-text);
-  font-size: 9px;
+  font-size: var(--fs-chip);
   font-weight: 700;
-  line-height: 15px;
-  text-align: center;
+  line-height: 20px;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
-/* ── ④ 底栏 ── */
-.footer {
+/* ── ② 连接状态提醒 ── */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-  flex: none;
-}
-
-/* 第一排：比例 + 颜色匹配；第二排：对比原图 + 融合 */
-.optionRow,
-.actionRow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   min-width: 0;
 }
 
-/*
- * 颜色匹配开关。
- *
- * 原生 checkbox 直接 `appearance: none` **自绘**，而不是把它 clip 起来、
- * 只留一个伪装成开关的 div —— 项目踩过那个坑：被 clip 的原生控件
- * Playwright 判为不可见，`check()` 静默失败（渠道启用开关那次）。
- */
+.chipOk,
+.chipOff {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-chip);
+  font-weight: 600;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.chipOk {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.chipOff {
+  background: var(--bg-subtle);
+  color: var(--text-3);
+}
+
+.chipOk svg,
+.chipOff svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
+/* ── ③ 颜色匹配开关 ── */
 .check {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 30px;
-  padding: 0 8px;
-  box-sizing: border-box;
-  flex: none;
-  border-radius: var(--radius-control);
-  border: 1px solid var(--stroke);
-  background: var(--bg-surface);
-  color: var(--text-2);
-  font-family: var(--font-sans);
-  font-size: var(--fs-chip);
-  font-weight: 700;
-  white-space: nowrap;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-1);
+  font-size: var(--fs-body);
   cursor: pointer;
 }
 
+/*
+ * 原生 checkbox 直接 `appearance: none` 自绘。
+ * **不要**用 clip / 1px 把原生控件藏起来 —— 那种写法 Playwright 判「不可见」，
+ * `check()` 会静默失败（渠道启用开关那次踩过）。
+ */
 .checkBox {
   appearance: none;
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
   margin: 0;
   flex: none;
   box-sizing: border-box;
@@ -274,75 +154,29 @@
 }
 
 .checkBox:checked {
-  background: var(--control-inverse-bg);
-  border-color: var(--control-inverse-bg);
-  /* 对勾用 inset 阴影画两条边，避免再塞一个伪元素与文字打架 */
+  background: var(--accent);
+  border-color: var(--accent);
+  /* 对勾用 inset 阴影示意（与外扩口的环形同一手法，不再塞伪元素） */
   box-shadow: inset 0 0 0 2px var(--bg-surface);
 }
 
-.ratioWrap {
-  position: relative;
-  flex: 1 1 auto;
-  min-width: 0;
-  display: inline-flex;
-}
-
-.toggle,
+/* ── ④ 全宽主按钮 ── */
 .run {
-  height: 30px;
-  padding: 0 9px;
-  border-radius: var(--radius-control);
-  border: 1px solid var(--stroke);
-  background: var(--bg-surface);
-  color: var(--text-2);
+  width: 100%;
+  height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  font-family: var(--font-sans);
-  font-size: var(--fs-chip);
-  font-weight: 700;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background var(--dur-hover), color var(--dur-hover);
-}
-
-.toggle {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-
-.ratioWrap .toggle {
-  width: 100%;
-}
-
-.toggle span,
-.run span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 图标固定尺寸：不写的话 svg 会按父级字号撑开 */
-.toggle svg,
-.run svg {
-  width: 14px;
-  height: 14px;
-  flex: none;
-}
-
-.toggle:disabled,
-.run:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-/* 主操作用反色实底（与循环节点的底栏按钮同款） */
-.run {
-  flex: 0 0 auto;
+  gap: 8px;
+  border: 1px solid var(--control-inverse-bg);
+  border-radius: var(--radius-control);
   background: var(--control-inverse-bg);
   color: var(--control-inverse-text);
-  border-color: var(--control-inverse-bg);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
 }
 
 .run:not(:disabled):hover {
@@ -350,41 +184,13 @@
   color: var(--control-inverse-text-hover);
 }
 
-/* 比例浮层：从芯片向上浮出（节点下方空间不确定，向上更稳） */
-.ratioMenu {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 6px);
-  z-index: 2;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 2px;
-  padding: var(--space-1);
-  border-radius: var(--radius-control);
-  border: 1px solid var(--stroke);
-  background: var(--bg-surface);
-  min-width: 132px;
+.run:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
-.ratioItem,
-.ratioItemActive {
-  height: 26px;
-  border: none;
-  border-radius: calc(var(--radius-control) - 2px);
-  background: transparent;
-  color: var(--text-2);
-  font-family: var(--font-sans);
-  font-size: var(--fs-chip);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.ratioItemActive {
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
-
-.ratioItem:hover {
-  background: var(--bg-hover);
-  color: var(--text-1);
+.run svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
 }

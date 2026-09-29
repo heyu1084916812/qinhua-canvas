@@ -405,7 +405,8 @@ function grabPoint(box) {
  * 与 `moveNode` 的差别：抓取点由调用方给。
  * `moveNode` 固定抓「左下角内 14px」——对融合节点那是**底栏的比例控件**，
  * 控件自己 `stopPropagation`（不然点按钮就等于拖节点），于是拖不动。
- * 融合节点用 `[data-fusion-patches]` 那一行当把手（居中行，任何情况下都不吃指针）。
+ * 融合节点用 `[data-fusion-chips]`（连接状态那一行）当把手 —— 它居中、任何情况下都不吃指针。
+ * 注意**不要**用预览行：那一行虽然也能拖动，但它是内容区，将来加交互（点击放大之类）就会失效。
  */
 async function moveNodeVia(page, nodeLocator, handleLocator, x, y) {
   const nb = await nodeLocator.boundingBox()
@@ -12556,7 +12557,7 @@ async function g91(browser) {
    * 比它看上去宽得多。
    */
   const fusionId = await fusion.getAttribute('data-node-id')
-  await moveNodeVia(page, fusion, page.locator('[data-fusion-patches]'), 840, 240)
+  await moveNodeVia(page, fusion, page.locator('[data-fusion-chips]'), 840, 240)
   await sleep(250)
 
   // ── ② 两只口：左原图 + 右侧一只共用口 ──
@@ -12715,160 +12716,50 @@ async function g91(browser) {
   await page.keyboard.press('Escape')
   await sleep(200)
 
-  // ── ⑥ 框选：在原图上拖一个框 → 出现选区 1 ──
-  const preview = page.locator('[data-fusion-preview]')
-  const pBox = await preview.boundingBox()
+  // ── ⑥ 卡片结构（照用户给的参考图：原图 | 局部修改 + 连接提醒 + 颜色匹配 + 全宽按钮） ──
   rec(
     g,
-    '★ 原图真的解码出来了（naturalWidth>0，否则框不出选区）',
-    (await page.locator('[data-fusion-image="original"]').evaluate((el) => el.naturalWidth).catch(() => 0)) > 0,
+    '★★ 两块预览都在：原图 + 局部修改',
+    (await page.locator('[data-fusion-pane="original"]').count()) === 1 &&
+      (await page.locator('[data-fusion-pane="patch"]').count()) === 1,
+    `panes=${await page.locator('[data-fusion-pane]').count()}`,
   )
-
+  rec(
+    g,
+    '★ 原图那块真的解码出来了（不是空壳）',
+    (await page
+      .locator('[data-fusion-pane="original"] img')
+      .evaluate((el) => el.naturalWidth)
+      .catch(() => 0)) > 0,
+  )
+  const chipOriginal = ((await page.locator('[data-fusion-chip="original"]').textContent()) ?? '').trim()
+  const chipPatch = ((await page.locator('[data-fusion-chip="patch"]').textContent()) ?? '').trim()
+  rec(g, '★ 连接提醒：原图已连接', chipOriginal === '原图', chipOriginal)
+  rec(g, '★ 连接提醒：局部修改 1 张', /局部修改 1 张/.test(chipPatch), chipPatch)
   /**
-   * 先选「按模型现有比例提取」的 16:9，再框选。
-   *
-   * 这一步同时验证两件事：① 比例档真的能选；② 框出来的选区**被吸附到 16:9** ——
-   * 而补丁（16:9）只有对上这个比例才过得了校验，所以「能不能融合成功」
-   * 本身就是比例吸附生效的证明。
+   * ★★ 这张局部图是普通生成节点（没有选区上下文）⇒ 按钮**应当**禁用并说明原因。
+   * 成功路径在 G92（用「提取选区」得到的局部图）。
    */
-  await page.locator('[data-fusion-ratio]').click()
-  await sleep(200)
-  rec(g, '★ 「按模型比例提取」浮层能打开', (await page.locator('[data-fusion-ratio-menu]').count()) === 1)
-  await page.locator('[data-fusion-ratio-option="16:9"]').click()
-  await sleep(250)
   rec(
     g,
-    '★ 选中的比例回显在按钮上',
-    ((await page.locator('[data-fusion-ratio]').textContent()) ?? '').includes('16:9'),
-    (await page.locator('[data-fusion-ratio]').textContent()) ?? '',
+    '★★ 局部图没有上下文时按钮禁用，且 title 说清是第几张、该怎么办',
+    (await page.locator('[data-fusion-run]').isDisabled()) &&
+      /第 1 张局部图没有选区上下文/.test((await page.locator('[data-fusion-run]').getAttribute('title')) ?? ''),
+    (await page.locator('[data-fusion-run]').getAttribute('title')) ?? '',
   )
-
-  await page.mouse.move(pBox.x + pBox.width * 0.2, pBox.y + pBox.height * 0.25)
-  await page.mouse.down()
-  await page.mouse.move(pBox.x + pBox.width * 0.8, pBox.y + pBox.height * 0.75, { steps: 12 })
-  await page.mouse.up()
-  await sleep(500)
-  rec(g, '★★ 在原图上拖框产出一个选区（编号 1）', (await page.locator('[data-fusion-context="1"]').count()) === 1)
-  rec(g, '★ 选区角标画在原图上（选区几何算出来了）', (await page.locator('[data-fusion-selection-index="0"]').count()) === 1)
-
   /**
-   * ★★ 选区被吸附到 16:9（而不是用户随手拖出来的 2.13:1）。
-   *
-   * 量的是**画在预览框里的那个块的宽高比**：预览用 `object-fit: contain`，
-   * 图到框是等比映射，故屏幕上的比例就是选区在原图里的比例。
+   * ★★ 反向断言：旧卡片那套（节点内框选 / 选区芯片 / 比例芯片 / 对比原图）**已经删干净**。
+   * 「删干净」也是需求的一部分 —— 用户原话：「之前的那个东西删掉，都不对」。
    */
-  const selBox = await page.locator('[data-fusion-selection-index="0"]').boundingBox()
-  const selRatio = selBox ? selBox.width / selBox.height : 0
   rec(
     g,
-    '★★ 选区被吸附到 16:9（比例档真的生效，不是白选）',
-    Math.abs(selRatio - 16 / 9) < 0.08,
-    `ratio=${selRatio.toFixed(3)}`,
+    '★★ 旧卡片那套已删干净（节点内框选 / 选区芯片 / 比例 / 对比原图）',
+    (await page.locator('[data-fusion-preview]').count()) === 0 &&
+      (await page.locator('[data-fusion-contexts]').count()) === 0 &&
+      (await page.locator('[data-fusion-ratio]').count()) === 0 &&
+      (await page.locator('[data-fusion-compare]').count()) === 0,
   )
-  rec(g, '★ 局部修改图按连线顺序编号（缩略图上有角标 1）', (await page.locator('[data-fusion-patch="1"]').count()) === 1)
 
-  // ── ⑦ 点融合：真的产出一张图 ──
-  rec(g, '★ 原图 + 补丁 + 选区齐了之后按钮可点', !(await page.locator('[data-fusion-run]').isDisabled()))
-  await page.locator('[data-fusion-run]').click()
-  await sleep(2000)
-  const result = page.locator('[data-fusion-image="result"]')
-  rec(g, '★★ 点融合产出了结果图（本地像素合成 + 落库全链路）', (await result.count()) === 1, `count=${await result.count()}`)
-  if ((await result.count()) === 1) {
-    const nw = await result.evaluate((el) => el.naturalWidth).catch(() => 0)
-    rec(g, '★ 结果图真被解码（不是空壳 img）', nw > 0, `naturalWidth=${nw}`)
-
-    /**
-     * ★★ **像素级**验证「不是硬贴」与「色彩匹配真的生效」。
-     *
-     * 素材是两种**纯色**（原图 `200,120,60`、补丁 `60,60,200`），于是三个点的取值
-     * 是算得出来的确定值 —— DOM 计数 / 元素存在性都证明不了这些：
-     *
-     *  - **选区正中**：羽化在这里恒为 1，故结果 = 补丁色 + 受限偏移
-     *    = `(60+24, 60+24, 200−24) = (84,84,176)`。
-     *    **去掉色彩匹配会读成 `(60,60,200)`，去掉 ±24 上限会读成原图色** —— 两头都卡住。
-     *  - **图像最左边**：落在补丁覆盖范围之外，必须还是原图色 `(200,120,60)`。
-     *  - **同一行上的颜色种类 > 8**：硬贴只会得到「原图色 + 补丁色」两种；
-     *    有羽化才会在外扩带里出现一串过渡色。
-     */
-    const px = await page.evaluate(async (url) => {
-      const img = new Image()
-      img.src = url
-      await img.decode()
-      const c = document.createElement('canvas')
-      c.width = img.naturalWidth
-      c.height = img.naturalHeight
-      const g2 = c.getContext('2d')
-      if (!g2) return null
-      g2.drawImage(img, 0, 0)
-      const midY = Math.floor(img.naturalHeight / 2)
-      const midX = Math.floor(img.naturalWidth / 2)
-      const center = Array.from(g2.getImageData(midX, midY, 1, 1).data).slice(0, 3)
-      const farLeft = Array.from(g2.getImageData(0, midY, 1, 1).data).slice(0, 3)
-      const row = g2.getImageData(0, midY, img.naturalWidth, 1).data
-      const seen = new Set()
-      for (let i = 0; i < row.length; i += 4) seen.add(`${row[i]},${row[i + 1]},${row[i + 2]}`)
-      return { center, farLeft, distinct: seen.size }
-    }, await result.getAttribute('src'))
-
-    const near = (a, b, tol = 3) =>
-      !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= tol)
-    const pxText = px ? `center=${px.center} left=${px.farLeft} colors=${px.distinct}` : 'no pixels'
-    rec(
-      g,
-      '★★ 选区正中 = 补丁色被**受限**拉回原图色（±24 上限生效）',
-      near(px?.center, [84, 84, 176]),
-      pxText,
-    )
-    rec(g, '★ 补丁覆盖范围之外仍是原图色（原图没有被整体改掉）', near(px?.farLeft, [200, 120, 60]), pxText)
-    rec(
-      g,
-      '★★ 同一行上的颜色种类 > 8（羽化过渡，不是硬贴一块）',
-      (px?.distinct ?? 0) > 8,
-      pxText,
-    )
-
-    /**
-     * ── ⑧ 颜色匹配开关：关掉之后，选区正中应当回到**原始补丁色** ──
-     *
-     * 这条是「开关真的在管这一层」的唯一硬证据：同一个输入、同一张原图，
-     * 只把复选框取消，中心色就从 `84,84,176`（拉回后）变回 `60,60,200`（原样）。
-     * 只看界面「复选框在不在」证明不了任何事。
-     */
-    await page.locator('[data-fusion-color-match] input[type="checkbox"]').uncheck()
-    await sleep(250)
-    await page.locator('[data-fusion-run]').click()
-    await sleep(2000)
-    const pxOff = await page.evaluate(async (url) => {
-      const img = new Image()
-      img.src = url
-      await img.decode()
-      const c = document.createElement('canvas')
-      c.width = img.naturalWidth
-      c.height = img.naturalHeight
-      const g2 = c.getContext('2d')
-      if (!g2) return null
-      g2.drawImage(img, 0, 0)
-      const midY = Math.floor(img.naturalHeight / 2)
-      const center = Array.from(g2.getImageData(Math.floor(img.naturalWidth / 2), midY, 1, 1).data).slice(0, 3)
-      const row = g2.getImageData(0, midY, img.naturalWidth, 1).data
-      const seen = new Set()
-      for (let i = 0; i < row.length; i += 4) seen.add(`${row[i]},${row[i + 1]},${row[i + 2]}`)
-      return { center, distinct: seen.size }
-    }, await page.locator('[data-fusion-image="result"]').getAttribute('src'))
-    const offText = pxOff ? `center=${pxOff.center} colors=${pxOff.distinct}` : 'no pixels'
-    rec(
-      g,
-      '★★ 取消「颜色匹配」后选区正中 = 原始补丁色（开关真的在管这一层）',
-      near(pxOff?.center, [60, 60, 200]),
-      offText,
-    )
-    rec(
-      g,
-      '★ 取消颜色匹配后**羽化仍在**（只关一层增强，不是整段关掉）',
-      (pxOff?.distinct ?? 0) > 8,
-      offText,
-    )
-  }
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await page.screenshot({ path: `${OUT}/106-g91-fusion.png` })
   await ctx.close()
@@ -13004,7 +12895,7 @@ async function g92(browser) {
   await sleep(600)
   const fusionId = await page.locator('[data-node-type="fusion"]').first().getAttribute('data-node-id')
   const fusion = page.locator(`[data-node-id="${fusionId}"]`)
-  await moveNodeVia(page, fusion, page.locator('[data-fusion-patches]'), 900, 200)
+  await moveNodeVia(page, fusion, page.locator('[data-fusion-chips]'), 900, 200)
   await sleep(300)
   const fBox = await fusion.boundingBox()
   await dragFromPortTo(source.node.locator('[data-port="output"]').first(), {
@@ -13029,25 +12920,52 @@ async function g92(browser) {
     `disabled=${await page.locator('[data-fusion-run]').isDisabled()}`,
   )
 
-  // ⑦ 融合 → 结果图；位置的硬证据：渐变必须与原图逐点一致
+  // ⑦ 融合 → 结果**落成右侧一个新节点**（参考实现：「结果会通过连线生成在融合节点右侧」）
+  const beforeRun = await nodeCount(page)
   await page.locator('[data-fusion-run]').click()
-  await sleep(2500)
-  const result = page.locator('[data-fusion-image="result"]')
-  rec(g, '★★ 点「融合」产出了结果图', (await result.count()) === 1)
-  if ((await result.count()) === 1) {
-    const srcUrl = await source.node.locator('[data-node-asset]').first().getAttribute('src')
-    const outUrl = await result.getAttribute('src')
-    const [a, b] = await Promise.all([sampleRow(srcUrl), sampleRow(outUrl)])
-    rec(g, '★ 两张图尺寸一致（产物 = 原图尺寸）', a && b && a.w === b.w && a.h === b.h, `${a?.w}×${a?.h} vs ${b?.w}×${b?.h}`)
-    const same = a && b && a.p.every((c, i) => near(c, b.p[i]))
-    rec(
-      g,
-      '★★ 融合结果的渐变与原图**逐点一致**（局部图被放回了它原来那一块）',
-      same,
-      `原图=${JSON.stringify(a?.p)} 结果=${JSON.stringify(b?.p)}`,
-    )
-  }
+  await sleep(2800)
+  const afterRun = await nodeCount(page)
+  rec(
+    g,
+    '★★ 点「开始融合」在右侧生成了一个结果节点（不是写回融合节点自己）',
+    afterRun === beforeRun + 1,
+    `${beforeRun} → ${afterRun}`,
+  )
+  const resultId = await page.locator('[data-node-type="generation"]').last().getAttribute('data-node-id')
+  const resultNode = page.locator(`[data-node-id="${resultId}"]`)
+  const resultTitle = ((await resultNode.locator('[data-node-title]').textContent().catch(() => '')) ?? '').trim()
+  rec(g, '★ 结果节点叫「融合结果」', resultTitle.includes('融合结果'), resultTitle)
+  await sleep(600)
+  rec(
+    g,
+    '★★ 结果是从融合节点的**共用口**连出来的（出方向）',
+    (await page
+      .locator(`[data-edge-source-port="patch"][data-edge-source="${fusionId}"][data-edge-target="${resultId}"]`)
+      .count()) === 1,
+  )
+  rec(
+    g,
+    '★ 融合节点自己不存产物（卡片里仍是原图 / 局部修改两块）',
+    (await page.locator(`[data-node-id="${fusionId}"] [data-fusion-pane="original"]`).count()) === 1 &&
+      (await page.locator(`[data-node-id="${fusionId}"] [data-fusion-pane="patch"]`).count()) === 1,
+  )
 
+  // ⑧ 位置的硬证据：结果的渐变必须与原图**逐点一致**
+  const srcUrl = await source.node.locator('[data-node-asset]').first().getAttribute('src')
+  const outUrl = await resultNode.locator('[data-node-asset]').first().getAttribute('src')
+  const [snapSrc, snapOut] = await Promise.all([sampleRow(srcUrl), sampleRow(outUrl)])
+  rec(
+    g,
+    '★ 两张图尺寸一致（产物 = 原图尺寸）',
+    snapSrc && snapOut && snapSrc.w === snapOut.w && snapSrc.h === snapOut.h,
+    `${snapSrc?.w}×${snapSrc?.h} vs ${snapOut?.w}×${snapOut?.h}`,
+  )
+  rec(
+    g,
+    '★★ 融合结果的渐变与原图**逐点一致**（局部图被放回了它原来那一块）',
+    snapSrc && snapOut && snapSrc.p.every((c, i) => near(c, snapOut.p[i])),
+    `原图=${JSON.stringify(snapSrc?.p)} 结果=${JSON.stringify(snapOut?.p)}`,
+  )
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await page.screenshot({ path: `${OUT}/107-g92-extract.png` })
   await ctx.close()
@@ -13071,7 +12989,3 @@ if (fail) {
   for (const r of results.filter((x) => !x.pass)) console.log(` - [${r.group}] ${r.name} ${r.detail}`)
   process.exitCode = 1
 }
-
-
-
-

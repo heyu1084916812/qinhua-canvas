@@ -88,11 +88,8 @@ describe('fusionSpec / 结构', () => {
     expect(patchPort!.multi).toBe(true)
   })
 
-  it('默认数据：没有选区、没有选中、没有产物', () => {
-    expect(getSpec('fusion')!.createDefaultData()).toEqual({
-      contexts: [],
-      activeContextId: null,
-    })
+  it('★ 默认数据只有一份设置：颜色匹配默认开（选区与产物都不在它身上）', () => {
+    expect(getSpec('fusion')!.createDefaultData()).toEqual({ colorMatch: true })
   })
 
   it('接受会产图的类型作上游（含自己，二次融合）', () => {
@@ -106,7 +103,7 @@ describe('fusionSpec / 结构', () => {
 
 describe('fusionSpec / 输入按端口拆分', () => {
   it('★ 左口是原图、右上口是补丁 —— 不按端口读会把原图算成第 1 张补丁', () => {
-    const f = node('f', 'fusion', { contexts: [] })
+    const f = node('f', 'fusion', { colorMatch: true })
     const g = graph(
       [producer('src', 'a'.repeat(64)), producer('p1', 'b'.repeat(64)), producer('p2', 'c'.repeat(64)), f],
       [

@@ -61,7 +61,8 @@ export const fusionSpec: NodeSpec<FusionData> = {
    */
   accepts: { upstream: ['generation', 'group', 'batch', 'loop', 'fusion'] },
   createDefaultData(): FusionData {
-    return { contexts: [], activeContextId: null }
+    // 只剩一份设置：颜色匹配默认开（与参考实现的复选框一致）
+    return { colorMatch: true }
   },
 
   /**

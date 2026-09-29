@@ -30,10 +30,10 @@ type WithNaturalSize = { assetHash?: string; naturalSize?: { width: number; heig
  */
 export function assetPixelsOf(node: NodeSnapshot): AssetPixels | null {
   /**
-   * 融合节点也读这一份（§6.23）：它的产物是本地合成的整图，`naturalSize`
-   * 与生成节点同源（真实字节尺寸），所以那个「640×360」是同一口径的读数。
+   * 只有**持有图片**的节点才显示这个读数。融合节点不在其列（§6.23）：
+   * 它自己不存产物 —— 产物落成右侧一个新节点，读数归那个节点显示。
    */
-  if (node.type !== 'generation' && node.type !== 'fusion') return null
+  if (node.type !== 'generation') return null
   const data = node.data as unknown as WithNaturalSize & NodeData
   if (!data.assetHash) return null
   const n = data.naturalSize

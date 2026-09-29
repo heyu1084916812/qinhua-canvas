@@ -4,13 +4,13 @@ import type {
   FusionContext,
   FusionData,
   FusionRect,
+  GenerationData,
   NodeSnapshot,
 } from '../../../domain/canvas/model/node'
-import { fusionInputsOf } from '../../../domain/canvas/nodeSpecs/fusion'
+import { FUSION_PATCH_PORT, fusionInputsOf } from '../../../domain/canvas/nodeSpecs/fusion'
 import {
   FUSION_MISSING_INPUT,
   contextMatchesSource,
-  contextsForSource,
   planFusion,
   type FusionPatchInput,
 } from '../../../domain/canvas/fusion/fusionPlan'
@@ -25,6 +25,8 @@ import {
   type Rgb,
 } from '../../../domain/canvas/fusion/fusionBlend'
 import { fingerprintBytes } from '../../../domain/shared/hash'
+import { assetNodeSize } from '../../../domain/canvas/layout/assetNodeSize'
+import { generationSpec } from '../../../domain/canvas/nodeSpecs/generation'
 import { createId } from '../../../shared/id'
 
 /**
@@ -46,8 +48,8 @@ export interface FuseDeps {
   store: CanvasStore
 }
 
-/** 一次合成的结果：成功给 hash，失败给可显示的原因 */
-export type FuseOutcome = { ok: true; assetHash: string } | { ok: false; reason: string }
+/** 一次合成的结果：成功给**右侧新建的结果节点 id**，失败给可显示的原因 */
+export type FuseOutcome = { ok: true; resultNodeId: string } | { ok: false; reason: string }
 
 /** 解码一张素材；素材不在库里 / 不是图 → null（调用方据 null 报缺失） */
 async function bitmapOf(deps: FuseDeps, hash: string): Promise<ImageBitmap | null> {
@@ -188,21 +190,15 @@ export async function fuseNode(deps: FuseDeps, nodeId: string): Promise<FuseOutc
    * 原图被换掉后，旧选区的坐标落在新图上就是错的位置。这里不是「筛掉就算了」——
    * 筛完数量对不上会在 `planFusion` 里如实报出来，用户知道要重新框。
    */
-  const ownContexts = contextsForSource(data.contexts ?? [], source)
-
   /**
-   * **每条补丁对应哪个选区**：优先用**图片自己带的上下文**，没有才退回
-   * 「融合节点里框的选区（按连线顺序配对）」。
-   *
-   * 两种来源并存是有意的：
-   * - 走「提取选区」的链路 → 局部图自带上下文（提取产生、经改图沿上游继承），
-   *   这才是主路径：局部图在哪张原图的哪一块是**它自己的属性**，不必再在融合节点里框一遍；
-   * - 直接在融合节点里框选 → 老路径仍然可用（用户也可以两种混用）。
+   * **每条补丁对应哪个选区**：一律读**图片自己带的上下文**（「提取选区」产生、
+   * 沿上游继承）。早先版本还允许「在融合节点里框选区」，那套已经删掉 ——
+   * 选区属于图片，不属于融合节点（用户口径：「之前的那个东西删掉，都不对」）。
    *
    * 冲突（一张图里混了多个不同选区）**必须报错**，不许猜 —— 猜错就是把局部图
    * 融到不相干的位置，而画面上不一定看得出来。
    */
-  const contexts: typeof ownContexts = []
+  const contexts: FusionContext[] = []
   for (let i = 0; i < patches.length; i += 1) {
     const patch = patches[i]
     const resolved = resolveCropContext(patch.nodeId, graph)
@@ -212,25 +208,20 @@ export async function fuseNode(deps: FuseDeps, nodeId: string): Promise<FuseOutc
         reason: `第 ${i + 1} 张局部修改图里混了多个不同的选区，无法确定该融回哪里（请把它们分成多张独立的局部图）`,
       }
     }
-    if (resolved.kind === 'local') {
-      const carried: FusionContext = { id: `ctx:${patch.nodeId}`, ...resolved.context }
-      if (!contextMatchesSource(carried, source)) {
-        return {
-          ok: false,
-          reason: `第 ${i + 1} 张局部图的上下文不属于当前原图（请把它当初提取时的那张原图连到左侧）`,
-        }
-      }
-      contexts.push(carried)
-      continue
-    }
-    const fallback = ownContexts[i]
-    if (!fallback) {
+    if (resolved.kind !== 'local') {
       return {
         ok: false,
-        reason: `第 ${i + 1} 张局部图没有选区上下文：改用「提取选区」得到的局部图，或在融合节点里给它框一个选区`,
+        reason: `第 ${i + 1} 张局部图没有选区上下文：请在它的原图上用「提取选区」得到局部图，再用改图结果来融合`,
       }
     }
-    contexts.push(fallback)
+    const carried: FusionContext = { id: `ctx:${patch.nodeId}`, ...resolved.context }
+    if (!contextMatchesSource(carried, source)) {
+      return {
+        ok: false,
+        reason: `第 ${i + 1} 张局部图的上下文不属于当前原图（请把它当初提取时的那张原图连到左侧）`,
+      }
+    }
+    contexts.push(carried)
   }
 
   const decoded: ImageBitmap[] = []
@@ -330,10 +321,20 @@ export async function fuseNode(deps: FuseDeps, nodeId: string): Promise<FuseOutc
     const hash = await fingerprintBytes(bytes)
 
     /**
-     * 落库 + 写回合成**一步撤销**：`beginPlan` / `endPlan` 之间不得 await
+     * 结果**落成融合节点右侧的一个新节点**（参考实现：「结果会通过连线生成在
+     * 融合节点右侧，不覆盖任何输入图片」）。
+     *
+     * 为什么不写回融合节点自己：那张卡片要同时显示「原图」与「局部修改」两块预览，
+     * 它自己是**参数与输入的持有者**，不是产物；而且用户要的就是「结果在节点右侧」。
+     *
+     * 落库 + 建节点 + 连线**一步撤销**：`beginPlan` / `endPlan` 之间不得 await
      * （`activePlan` 是单个变量，中间让出会把它拆成两步），故字节与哈希都在此之前算完。
      */
-    deps.store.beginPlan(`fuse:${createId('fuse')}`, '图像融合')
+    const resultId = createId('node')
+    const size = assetNodeSize({ width: canvas.width, height: canvas.height })
+    // 已经连出去的结果节点数：第 k 个往下排一格，反复融合不会叠在一起
+    const placed = graph.edges.filter((e) => e.source === nodeId).length
+    deps.store.beginPlan(`fuse:${resultId}`, '图像融合')
     deps.store.dispatch({
       kind: 'asset.put',
       asset: {
@@ -347,17 +348,35 @@ export async function fuseNode(deps: FuseDeps, nodeId: string): Promise<FuseOutc
       },
     })
     deps.store.dispatch({
-      kind: 'node.updateData',
-      id: nodeId,
-      patch: {
+      kind: 'node.create',
+      projectId: graph.projectId,
+      type: 'generation',
+      at: { x: node.x + node.w + 40, y: node.y + placed * (size.h + 24) },
+      id: resultId,
+      size,
+      title: '融合结果',
+      data: {
+        ...generationSpec.createDefaultData(),
         assetHash: hash,
         naturalSize: { width: canvas.width, height: canvas.height },
-      } as never,
-      transient: false,
+        thumbOrder: [hash],
+        /**
+         * **完整图边界**：产物已经是一张完整图，从此不再继承任何局部上下文
+         * （否则拿它再提取选区时会追溯到上一轮的选区）。参考实现的同名标记。
+         */
+        cropContext: { full: true },
+      } as GenerationData,
+    })
+    deps.store.dispatch({
+      kind: 'edge.connect',
+      source: nodeId,
+      target: resultId,
+      sourcePort: FUSION_PATCH_PORT,
     })
     deps.store.endPlan()
+    deps.store.setSelection([resultId])
     await deps.store.flush()
-    return { ok: true, assetHash: hash }
+    return { ok: true, resultNodeId: resultId }
   } finally {
     for (const d of decoded) d.close()
     originalBitmap.close()
