@@ -53,8 +53,45 @@
    * 又让整组内容在宽屏上居中。
    */
   display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  box-sizing: border-box;
   background: var(--bg-canvas);
+}
+
+/*
+ * 全局选路策略（用户 2026-09-29 第 13 轮）。
+ *
+ * 它原来住在右侧编辑区最上方，视觉上落进「渠道表单」那一列 ——
+ * 用户批注：「这个选路策略看起来就好像是在右边渠道表单里面一样」。
+ * 但它跨渠道生效，**不属于任何一条渠道**，所以改成横跨左右两栏的一条独立顶栏：
+ * 与下方两栏同宽、同一条中轴，靠一段明确间距与 `.workarea` 分层。
+ *
+ * 排成**单行**（左说明 / 右控件）而不是竖排卡片：一条横带才读得出「全局」，
+ * 竖排的话跟下面那些渠道卡片长得一模一样，问题原样复现。
+ * 底色与 `.workarea` 同用 `--bg-surface`，两者是同级内容块，不套第二层卡片。
+ */
+.globalRoute {
+  width: 100%;
+  max-width: 1120px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-surface);
+  border-radius: var(--radius-node);
+}
+
+.globalRouteText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 /* —— 真正被观察的两栏工作区：定宽、整体居中 —— */

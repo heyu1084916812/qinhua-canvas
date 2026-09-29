@@ -1,0 +1,247 @@
+/*
+ * 设置页的「chip + 浮层菜单」（用户 2026-09-29 第 13 轮）。
+ *
+ * 两条批注：选路策略的下拉、模型映射的下拉「跟没设计过一样」，要求做成
+ * **生图节点参数（ParamPicker）那一套 UI**。浮层因此沿用同一套口径：
+ * `--bg-surface` 底 + 1px `--stroke` 描边 + `--radius-control` 圆角、**无投影**，
+ * 菜单行 44px、选中行 `--bg-hover`、行尾勾选标记；关闭 = 点浮层外 / Esc。
+ *
+ * 两处刻意的差异，都因为宿主从画布换成了后台表单：
+ *  1. 触发器保留 1px 描边 + `--bg-surface`（与同页 `.input` 同一副面孔）——
+ *     表单里没有画布那种「挨着节点」的语境，一个完全透明的可点区域会被当成
+ *     静态文字，用户根本不会去点它；
+ *  2. 浮层**左对齐**在触发器下沿（画布参数是水平居中）——表单是一列左对齐的字段。
+ */
+
+.wrap {
+  position: relative;
+  display: inline-flex;
+  min-width: 260px;
+}
+
+/* chip 触发器：高 46px、16px/500，与画布参数 chip 同高同字号 */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  height: 46px;
+  padding: 0 12px;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-1);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.chip:hover,
+.chip:focus-visible,
+.chipOpen {
+  background: var(--bg-hover);
+}
+
+.chipLabel {
+  flex: 0 0 auto;
+}
+
+/* chip 上的口径说明（「高的先跑」）：比主文案弱一档，不抢当前档位的名字 */
+.chipHint {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--fs-label);
+  font-weight: 400;
+  color: var(--text-2);
+}
+
+.chevron {
+  flex: 0 0 auto;
+  color: var(--text-2);
+  transition: transform var(--dur-hover) var(--ease-out);
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.popup {
+  position: absolute;
+  left: 0;
+  z-index: 40;
+  box-sizing: border-box;
+  padding: var(--space-1);
+  width: max-content;
+  min-width: 100%;
+  max-width: 360px;
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  animation: pickerIn var(--dur-panel) var(--ease-panel);
+}
+
+.above {
+  bottom: calc(100% + 6px);
+}
+
+.below {
+  top: calc(100% + 6px);
+}
+
+@keyframes pickerIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 菜单行：44px、选中行 `--bg-hover`、行尾勾选 —— 与 ParamPicker 竖版列表同规格 */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border: none;
+  border-radius: calc(var(--radius-control) - 4px);
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-1);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--bg-hover);
+}
+
+.rowOn {
+  background: var(--bg-hover);
+}
+
+.rowMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rowLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowHint {
+  font-size: var(--fs-chip);
+  font-weight: 400;
+  color: var(--text-2);
+}
+
+.check {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+}
+
+/*
+ * 模型映射的「可手填 + 可下拉」组合：输入框吃满剩余宽度，右侧挂下拉开关。
+ * 容器带 1px 描边，输入框自己不再描边（同一条边不画两层）。
+ */
+.combo {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+}
+
+.comboOpen {
+  border-color: var(--focus-ring);
+}
+
+.comboInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+}
+
+.comboInput:focus {
+  outline: none;
+}
+
+.comboToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin-right: 2px;
+  padding: 0;
+  border: none;
+  border-radius: calc(var(--radius-control) - 4px);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.comboToggle:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.comboToggle:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+/* 候选浮层与输入框同宽；候选可能很长，靠 max-width 兜住 */
+.comboMenu {
+  width: max-content;
+  min-width: 100%;
+  max-width: 420px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.empty {
+  display: block;
+  padding: var(--space-2) 12px;
+  min-width: 160px;
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .popup {
+    animation: none;
+  }
+
+  .chevron {
+    transition: none;
+  }
+}

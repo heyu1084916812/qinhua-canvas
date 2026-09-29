@@ -9296,14 +9296,17 @@ async function g74(browser) {
    *
    * 右侧编辑器此前是一长条没有分组的表单，扫读时找不到边界。
    *
-   * 用户 2026-09-29 第 12 轮把「选路策略」从渠道第四张卡片拆成**全局设置**：
-   *  - 全局选路卡片 `[data-settings-global-route]` 住在编辑区里、渠道表单**之外**，
-   *    跨渠道比较的一把尺子，与「当前选中哪条渠道」无关；
+   * 用户 2026-09-29 第 12 轮把「选路策略」从渠道第四张卡片拆成**全局设置**；
+   * 第 13 轮再按批注把它**移出右侧编辑区**（「看起来就好像是在右边渠道表单里面一样」），
+   * 升成一条横跨左右两栏的独立顶栏：
+   *  - 全局选路条 `[data-settings-global-route]` 是 `.layout` 的直接子节点，
+   *    **在 `.workarea` 之外、渠道表单之外**，与「当前选中哪条渠道」无关；
    *  - 渠道侧只剩 基本信息 → 连接与鉴权 → 模型列表 → 渠道权重与模型映射 四张卡片。
    */
   const cardOrder = await page.evaluate(() => {
     const form = document.querySelector('[data-settings-form]')
-    const editor = document.querySelector('[data-settings-editor]')
+    const workarea = document.querySelector('[data-settings-workarea]')
+    const layout = document.querySelector('[data-settings-card]')
     const globalCard = document.querySelector('[data-settings-global-route]')
     const sel = [
       '[data-settings-basics]',
@@ -9313,7 +9316,7 @@ async function g74(browser) {
     ]
     const found = sel.map((s) => document.querySelector(s))
     if (found.some((el) => !el)) return null
-    if (!form || !editor || !globalCard) return null
+    if (!form || !workarea || !layout || !globalCard) return null
     if (!form.contains(found[0])) return null
     let prev = found[0]
     const ordered = found.every((el, i) => {
@@ -9322,12 +9325,17 @@ async function g74(browser) {
       prev = el
       return ok
     })
+    /* 全局策略条必须排在 `.workarea` **之前**：比较结果是「后者在前者之后」即成立 */
+    const aboveWorkarea =
+      globalCard.compareDocumentPosition(workarea) === Node.DOCUMENT_POSITION_FOLLOWING
     return {
       counts: sel.map((s) => document.querySelectorAll(s).length),
       globalCount: document.querySelectorAll('[data-settings-global-route]').length,
       ordered,
-      globalInEditor: editor.contains(globalCard),
+      globalInLayout: layout.contains(globalCard),
+      globalOutsideWorkarea: !workarea.contains(globalCard),
       globalOutsideForm: !form.contains(globalCard),
+      aboveWorkarea,
     }
   })
   rec(
@@ -9338,13 +9346,15 @@ async function g74(browser) {
   )
   rec(
     g,
-    '★★ 选路策略拆成全局卡片：在编辑区里、渠道表单之外（与选中渠道无关）',
+    '★★ 选路策略是全局顶栏：在两栏工作区之外、渠道表单之外（与选中渠道无关）',
     !!cardOrder &&
       cardOrder.globalCount === 1 &&
-      cardOrder.globalInEditor &&
-      cardOrder.globalOutsideForm,
+      cardOrder.globalInLayout &&
+      cardOrder.globalOutsideWorkarea &&
+      cardOrder.globalOutsideForm &&
+      cardOrder.aboveWorkarea,
     cardOrder
-      ? `全局卡片数=${cardOrder.globalCount} 在编辑区=${cardOrder.globalInEditor} 在表单外=${cardOrder.globalOutsideForm}`
+      ? `全局条数=${cardOrder.globalCount} 在layout=${cardOrder.globalInLayout} workarea外=${cardOrder.globalOutsideWorkarea} 表单外=${cardOrder.globalOutsideForm} 在workarea上方=${cardOrder.aboveWorkarea}`
       : 'missing',
   )
 
@@ -9668,6 +9678,39 @@ async function g81(browser) {
   })
   rec(g, '★ 首页有品牌 Logo（猫画动态图标）', !!homeLogo && homeLogo.w > 0, JSON.stringify(homeLogo))
 
+  /**
+   * 首页文字标（用户 2026-09-29 第 13 轮）：`轻画` 二字换成用户给的 QINGHUA
+   * SVG 轮廓，只取字母、去掉原图背景与装饰。两条判据：
+   *  ① 字标确实渲染出可见宽度（不是被裁成 0）；
+   *  ② 它跟随主题文字色（`currentColor` → `--text-1`）—— 用户的诉求是
+   *     「颜色符合项目配色即可，不用保留原色」，这正是深色/浅色下都能看清的前提。
+   */
+  const wordmark = await page.evaluate(() => {
+    const svg = document.querySelector('[data-home-page] [data-qinghua-wordmark]')
+    if (!svg) return null
+    const box = svg.getBoundingClientRect()
+    const title = svg.closest('h1')
+    return {
+      w: Math.round(box.width),
+      h: Math.round(box.height),
+      color: getComputedStyle(svg).color,
+      titleColor: title ? getComputedStyle(title).color : null,
+      hasImage: !!svg.querySelector('image'),
+    }
+  })
+  rec(
+    g,
+    '★ 首页文字标是 QINGHUA 字形且可见',
+    !!wordmark && wordmark.w > 0 && wordmark.h > 0,
+    JSON.stringify(wordmark && { w: wordmark.w, h: wordmark.h }),
+  )
+  rec(
+    g,
+    '★★ 文字标跟随主题文字色（currentColor，非原图配色）',
+    !!wordmark && wordmark.color === wordmark.titleColor && !wordmark.hasImage,
+    wordmark ? `svg=${wordmark.color} h1=${wordmark.titleColor}` : 'missing',
+  )
+
   // ── 1) 选中项不描边 ──
   const selStyle = await page.evaluate(() => {
     const el = document.querySelector('[data-sidebar-item="/"]')
@@ -9863,35 +9906,51 @@ async function g75(browser) {
     '★ 未选中渠道时也出现全局「选路策略」卡片',
     (await page.locator('[data-settings-global-route]').count()) === 1,
   )
-  const strategySel = page.locator('[data-route-strategy]')
-  rec(g, '★ 全局策略下拉存在', (await strategySel.count()) === 1)
+  const strategyBtn = page.locator('[data-route-strategy]')
+  rec(g, '★ 全局策略选择器存在', (await strategyBtn.count()) === 1)
   rec(
     g,
     '★ 未选中渠道时不显示渠道侧「渠道权重与模型映射」',
     (await page.locator('[data-settings-channel-route]').count()) === 0,
   )
 
-  const options = await strategySel.locator('option').allTextContents()
+  /**
+   * 第 13 轮把原生 `<select>` 换成 chip + 浮层（用户批注「跟没设计过一样」）。
+   * 于是这里不能再 `selectOption()` / `inputValue()`，得**真的点开菜单**：
+   * 这同时验证了浮层能展开、选项能点、点完会收起。
+   */
+  await strategyBtn.click()
+  await sleep(200)
+  const options = await page.locator('[data-route-strategy-option]').allTextContents()
   rec(
     g,
-    '★ 三档策略齐备：优先度 / 性能优先 / 均衡分摊',
+    '★ 策略浮层能展开，且三档齐备：优先度 / 性能优先 / 均衡分摊',
     options.join('|').includes('优先度') &&
       options.join('|').includes('性能优先') &&
       options.join('|').includes('均衡分摊'),
     options.join(' | '),
   )
+  rec(
+    g,
+    '★ 策略浮层是 listbox 菜单（不再是原生 select）',
+    (await page.locator('[data-route-strategy-menu][role="listbox"]').count()) === 1 &&
+      (await strategyBtn.locator('option').count()) === 0,
+  )
 
-  await strategySel.selectOption('performance')
+  await page.locator('[data-route-strategy-option="performance"]').click()
   await sleep(500)
   // 刷新会清空「当前选中渠道」（组件内存态）。全局策略不依赖选中渠道，
   // 故这条断言**故意不重新选中** —— 它正说明策略是全局的，不是挂在渠道上的。
   await page.reload({ waitUntil: 'networkidle' })
   await sleep(700)
+  const storedStrategy = await page
+    .locator('[data-route-strategy]')
+    .getAttribute('data-route-strategy-value')
   rec(
     g,
     '★ 策略切换后落库（刷新仍是 performance，且不必先选中渠道）',
-    (await page.locator('[data-route-strategy]').inputValue()) === 'performance',
-    await page.locator('[data-route-strategy]').inputValue(),
+    storedStrategy === 'performance',
+    String(storedStrategy),
   )
 
   /**
@@ -10848,14 +10907,28 @@ async function g83(browser) {
     groups.join(','),
   )
 
-  const options = await page.evaluate(() => {
-    const out = {}
-    for (const dl of document.querySelectorAll('datalist[data-route-map-options]')) {
-      const cat = dl.getAttribute('data-route-map-options')
-      out[cat] = [...dl.querySelectorAll('option')].map((o) => o.value)
-    }
-    return out
-  })
+  /**
+   * 第 13 轮把原生 `<datalist>` 换成 `ModelMapCombo` 的浮层菜单（用户批注：
+   * 模型映射的下拉「跟没设计过一样」）。候选改为**真的点开**每一组的第一个
+   * 下拉开关来读，顺带验证浮层能展开、Esc 能收起。
+   */
+  const options = {}
+  const menuCategoryOk = []
+  for (const cat of ['image', 'chat', 'video']) {
+    const toggle = page.locator(`[data-route-map-group="${cat}"] [data-route-map-toggle]`).first()
+    await toggle.click()
+    await sleep(150)
+    const menuCat = await page
+      .locator('[data-route-map-menu]')
+      .first()
+      .getAttribute('data-route-map-menu')
+    menuCategoryOk.push(menuCat === cat)
+    options[cat] = await page
+      .locator(`[data-route-map-menu="${cat}"] [data-route-map-option="${cat}"]`)
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-value')))
+    await page.keyboard.press('Escape')
+    await sleep(120)
+  }
   rec(
     g,
     '★★ 每组候选非空，且与该类别对应',
@@ -10865,20 +10938,20 @@ async function g83(browser) {
       .join(' '),
   )
   /**
-   * ★ 候选必须**同类**。跨类混入是这一版最容易出的错：datalist 挂在组上，
+   * ★ 候选必须**同类**。跨类混入是这一版最容易出的错：菜单挂在组上，
    * 若筛选用错字段（例如只按已勾选、不按 category），对话模型会出现在生图组里。
    */
-  const mismatch = await page.evaluate(() => {
-    const bad = []
-    for (const input of document.querySelectorAll('[data-route-map-input]')) {
-      const listId = input.getAttribute('list')
-      if (!listId) continue
-      const dl = document.getElementById(listId)
-      if (!dl || !dl.getAttribute('data-route-map-options')) bad.push(listId)
-    }
-    return bad
-  })
-  rec(g, '★ 每个映射输入框的下拉都挂到了带类别的候选表', mismatch.length === 0, `异常=${mismatch.join(',') || '无'}`)
+  rec(
+    g,
+    '★ 每组浮层的类别与实际候选一一对应',
+    menuCategoryOk.every(Boolean),
+    `类别匹配=${menuCategoryOk.join(',')}`,
+  )
+  rec(
+    g,
+    '★ 已无原生 datalist（候选改走浮层菜单）',
+    (await page.locator('datalist[data-route-map-options]').count()) === 0,
+  )
 
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()

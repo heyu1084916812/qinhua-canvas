@@ -29,6 +29,7 @@ import {
   type RouteStrategy,
 } from '../../domain/project/modelRouting'
 import { PRESET_MODELS } from '../../domain/project/modelPresets'
+import { ModelMapCombo, StrategyPicker } from './SettingsPicker'
 
 /**
  * 模型映射区的三个分组（用户 2026-09-27 第 9 轮）。
@@ -518,6 +519,33 @@ export function SettingsPage() {
       */}
       {(
       <div className={styles.layout} data-settings-card>
+        {/* —— 全局选路策略（用户 2026-09-29 第 12/13 轮）——
+            跨渠道比较用的一把尺子，与「当前选中哪条渠道」无关。
+            它**不放进渠道编辑区**（否则看上去像是右边渠道表单里的一项）——
+            独立成一条横跨左右两栏的顶栏，未选中渠道时也能设置。 */}
+        <section className={styles.globalRoute} data-settings-global-route>
+          <div className={styles.globalRouteText}>
+            <span className={styles.cardTitle}>选路策略</span>
+            <span className={styles.cardSub}>
+              同一个模型在多条渠道都能用时，所有渠道统一按这个规则挑一条
+            </span>
+            {routeStrategy === 'performance' && (
+              <span className={styles.cardSub}>
+                性能优先按「验证地址」测出的延迟排序；没测过的渠道会排在测过的后面。
+              </span>
+            )}
+          </div>
+          <StrategyPicker
+            value={routeStrategy}
+            options={ROUTE_STRATEGIES.map((s) => ({
+              value: s.value,
+              label: s.label,
+              hint: s.hint,
+            }))}
+            onChange={(value) => void channels.setRouteStrategy(value as RouteStrategy)}
+          />
+        </section>
+
         <div className={styles.workarea} data-settings-workarea>
           <aside className={styles.sidebar}>
           <ul className={styles.list}>
@@ -604,46 +632,6 @@ export function SettingsPage() {
         </aside>
 
         <section className={styles.editor} data-settings-editor>
-          {/* —— 全局选路策略（用户 2026-09-29 第 12 轮）——
-              跨渠道比较用的一把尺子，与「当前选中哪条渠道」无关；
-              单独成卡并放在编辑器最上方，未选中渠道时也能设置。 */}
-          <section className={styles.card} data-settings-global-route>
-            <div className={styles.modelsHead}>
-              <div className={styles.modelsTitleBox}>
-                <span className={styles.cardTitle}>选路策略</span>
-                <span className={styles.cardSub}>
-                  同一个模型在多条渠道都能用时，所有渠道统一按这个规则挑一条
-                </span>
-              </div>
-            </div>
-
-            <div className={styles.fieldRow}>
-              <label className={`${styles.field} ${styles.grow}`}>
-                <span className={styles.label}>策略</span>
-                <select
-                  className={styles.input}
-                  data-route-strategy
-                  value={routeStrategy}
-                  onChange={(e) =>
-                    void channels.setRouteStrategy(e.target.value as RouteStrategy)
-                  }
-                >
-                  {ROUTE_STRATEGIES.map((s) => (
-                    <option key={s.value} value={s.value}>
-                      {s.label}·{s.hint}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            {routeStrategy === 'performance' && (
-              <p className={styles.modelsEmpty}>
-                性能优先按「验证地址」测出的延迟排序；没测过的渠道会排在测过的后面。
-              </p>
-            )}
-          </section>
-
           {!selected ? (
             <div className={styles.placeholder}>从左侧选择，或新增一个渠道</div>
           ) : (
@@ -1215,12 +1203,14 @@ export function SettingsPage() {
                          * 候选 = 该渠道**已勾选且同类**的模型 ID。
                          * 这是用户要的「没填写的话可以下拉选择已经选择好类别的模型」——
                          * 上游 ID 本来就躺在已勾选清单里，让人重复默写没有道理。
-                         * 用 `<datalist>` 而不是 `<select>`：仍允许手填
-                         * （模型没勾选、或 ID 不在清单里的情况依然存在）。
+                         *
+                         * 控件是 `ModelMapCombo`（用户 2026-09-29 第 13 轮）：输入框仍可手填
+                         * （模型没勾选、或 ID 不在清单里的情况依然存在），右侧的下拉开关
+                         * 展开**与画布参数同一套**的浮层菜单。此前用的原生 `<datalist>`
+                         * 的候选列表由浏览器绘制，既不受浮层规范约束，也无法被冒烟断言。
                          */
                         /* 候选取法见 domain 纯函数 routeMapOptions（已勾选优先、缺失回落已拉取） */
                         const options = routeMapOptions(category, selected.models, selected.modelCache)
-                        const listId = `route-map-${selectedId}-${category}`
                         return (
                           <div key={category} className={styles.mapGroup} data-route-map-group={category}>
                             <div className={styles.mapGroupTitle}>{title}</div>
@@ -1240,14 +1230,16 @@ export function SettingsPage() {
                                     <span className={styles.mapName} title={id} data-route-map-label>
                                       {label}
                                     </span>
-                                    <input
-                                      className={`${styles.input} ${styles.mapInput}`}
-                                      data-route-map-input={id}
-                                      placeholder="留空 = 按原名发送"
+                                    <ModelMapCombo
+                                      rowId={id}
+                                      category={category}
                                       value={value}
-                                      list={listId}
-                                      onChange={(e) =>
-                                        setMapDrafts((prev) => ({ ...prev, [id]: e.target.value }))
+                                      options={options}
+                                      placeholder="留空 = 按原名发送"
+                                      emptyHint="该渠道还没勾选同类模型"
+                                      ariaLabel={`${title} ${label} 对应的本站模型 ID`}
+                                      onChange={(next) =>
+                                        setMapDrafts((prev) => ({ ...prev, [id]: next }))
                                       }
                                     />
                                     <button
@@ -1268,13 +1260,6 @@ export function SettingsPage() {
                                   </div>
                                 )
                               })}
-                              {options.length > 0 && (
-                                <datalist id={listId} data-route-map-options={category}>
-                                  {options.map((o) => (
-                                    <option key={o} value={o} />
-                                  ))}
-                                </datalist>
-                              )}
                             </div>
                           </div>
                         )

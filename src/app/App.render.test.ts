@@ -110,7 +110,13 @@ describe('App 路由整树渲染冒烟', () => {
     expect(html).toContain('data-home-page')
     /* 首页已按 §5.1 变轻：项目网格搬去 /projects，这里留欢迎与入口 */
     expect(html).toContain('data-home-projects')
+    /*
+     * 文字标是用户给的 QINGHUA 字形（2026-09-29 第 13 轮），字形本身没有可读
+     * 文本，所以「轻画」只留在 `aria-label` 上；这里两个断言各钉一半：
+     * 可读页名还在，且渲染的确实是字标组件而不是回退成纯文字标题。
+     */
     expect(html).toContain('轻画')
+    expect(html).toContain('data-qinghua-wordmark')
   }, TREE_TIMEOUT)
 
   it('项目路由下：项目网格与模板库都在（§5.1 的迁移目标）', async () => {

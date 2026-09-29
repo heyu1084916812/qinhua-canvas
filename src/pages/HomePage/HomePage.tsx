@@ -4,6 +4,7 @@ import { usePlatform } from '../../app/providers/PlatformProvider'
 import { createProjectRepository } from '../../state/project/repository'
 import { projectRoute } from '../../domain/shared/workbench'
 import { CatLogo } from '../../app/CatLogo'
+import { QinghuaWordmark } from '../../app/QinghuaWordmark'
 import styles from './HomePage.module.css'
 
 /**
@@ -44,7 +45,12 @@ export function HomePage() {
           两处各写一份的话，换图标时必然漏掉一个。
         */}
         <CatLogo size={72} className={styles.logo} />
-        <h1 className={styles.title}>轻画</h1>
+        {/* 文字标换成用户给的 QINGHUA 字形（2026-09-29 第 13 轮）：
+            只取原 SVG 的字母轮廓，配色交给 `currentColor` 跟随主题。
+            `aria-label` 保留「轻画」——字形本身没有可读文本，删掉它读屏就没有页名了。 */}
+        <h1 className={styles.title} aria-label="轻画">
+          <QinghuaWordmark className={styles.wordmark} />
+        </h1>
         <p className={styles.subtitle}>给图片与视频生成用的无限画布</p>
 
         <div className={styles.actions}>
