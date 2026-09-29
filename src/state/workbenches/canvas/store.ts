@@ -83,7 +83,7 @@ interface CanvasState {
    * 坐标与 `menu` 同口径：**surface 局部屏幕坐标**（浮层不随画布变换）。
    * 纯展示态：不进撤销栈、不落库。
    */
-  linkMenu: { x: number; y: number; nodeId: string; side: LinkSide } | null
+  linkMenu: { x: number; y: number; nodeId: string; side: LinkSide; portId?: string } | null
   /** 正在重命名标题的节点（§4.1 右键「重命名」/ §4.3 单击标题） */
   renamingId: string | null
   /**
@@ -159,7 +159,7 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
    * 打开连线菜单（§6.14「空白松手菜单」）：端点拖线在空白处松手时，
    * 于指针右侧 12px 打开。`side` 是被拖的那一端（output → 找下游）。
    */
-  setLinkMenu(x: number, y: number, nodeId: string, side: LinkSide): void
+  setLinkMenu(x: number, y: number, nodeId: string, side: LinkSide, portId?: string): void
   closeLinkMenu(): void
   getLinkMenu(): CanvasState['linkMenu']
   /** 进入重命名态（§4.1 右键「重命名」/ §4.3 单击标题） */
@@ -403,10 +403,10 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     setMenu: (x, y, target) => store.setState({ menu: { x, y, target } }),
     closeMenu: () => store.setState({ menu: null }),
     getMenu: () => store.getState().menu,
-    setLinkMenu: (x, y, nodeId, side) =>
+    setLinkMenu: (x, y, nodeId, side, portId) =>
       // 拖线期间与拖线结束到菜单关闭期间，创作面板保持隐藏（§6.14「拖线状态」）。
       // 复用 panelDismissed：它本来就表达「这次交互不弹面板，等下一次显式选中」。
-      store.setState({ linkMenu: { x, y, nodeId, side }, menu: null, panelDismissed: true }),
+      store.setState({ linkMenu: { x, y, nodeId, side, portId }, menu: null, panelDismissed: true }),
     closeLinkMenu: () => store.setState({ linkMenu: null }),
     getLinkMenu: () => store.getState().linkMenu,
     beginRename: (nodeId) => store.setState({ renamingId: nodeId }),

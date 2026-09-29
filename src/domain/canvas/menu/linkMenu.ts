@@ -21,6 +21,9 @@ import type { NodeSnapshot } from '../model/node'
 import type { GraphSnapshot } from '../model/graph'
 import { canConnect } from '../graph/canConnect'
 import { CREATABLE_TYPES } from './contextMenu'
+import { portDeclsOf } from '../nodeSpecs/ports'
+import { getSpec } from '../nodeSpecs/registry'
+import { DEFAULT_SOURCE_PORT, DEFAULT_TARGET_PORT } from '../model/edge'
 
 export type LinkSide = 'input' | 'output'
 
@@ -79,11 +82,37 @@ function orient(
 export function linkMenuSections(input: {
   nodeId: string
   side: LinkSide
+  /**
+   * 被拖的那只口的 id（产品文档 §6.23）。
+   *
+   * 缺省时按历史口径（output / input）。带上它之后，从融合节点的 `patch` 口
+   * 往外拖，菜单里那一项建出来的边才会真的落在 `patch` 上。
+   */
+  portId?: string
   graph: GraphSnapshot
 }): LinkMenuSection[] {
-  const { nodeId, side, graph } = input
+  const { nodeId, side, portId, graph } = input
   const dragged = graph.nodes.find((n) => n.id === nodeId)
   if (!dragged) return []
+
+  /**
+   * 对端那一侧用哪只口。
+   *
+   * 菜单里挑不出「融合节点的 patch 还是 input」（它只有节点名，没有位置信息），
+   * 故对端统一取**第一只输入口** —— 也就是默认的 `input`。要接 `patch` 口，
+   * 从 `patch` 口反向拖或直接拖到节点上（那时按离指针最近的口判定）。
+   */
+  const portsFor = (other: NodeSnapshot): { sourcePort: string; targetPort: string } => {
+    const spec = getSpec(other.type)
+    const firstInput = spec ? portDeclsOf(spec.ports).find((p) => p.kind === 'input') : undefined
+    if (side === 'output') {
+      return {
+        sourcePort: portId ?? DEFAULT_SOURCE_PORT,
+        targetPort: firstInput?.id ?? DEFAULT_TARGET_PORT,
+      }
+    }
+    return { sourcePort: DEFAULT_SOURCE_PORT, targetPort: portId ?? DEFAULT_TARGET_PORT }
+  }
 
   // 新建节点落在与拖线起点同一个父级下：画板内的节点只与画板内建连，
   // 放到根层会让 canConnect 的「画板内外不建立边」立刻把它否掉。
@@ -102,7 +131,7 @@ export function linkMenuSections(input: {
      */
     const withProbe: GraphSnapshot = { ...graph, nodes: [...graph.nodes, probe] }
     const [source, target] = orient(side, dragged, probe)
-    if (!canConnect(source, target, withProbe).ok) continue
+    if (!canConnect(source, target, withProbe, portsFor(probe)).ok) continue
     createItems.push({ id: `create:${t.type}`, label: t.label, action: { kind: 'create', type: t.type } })
   }
 
@@ -110,7 +139,7 @@ export function linkMenuSections(input: {
   for (const n of graph.nodes) {
     if (n.id === nodeId) continue
     const [source, target] = orient(side, dragged, n)
-    if (!canConnect(source, target, graph).ok) continue
+    if (!canConnect(source, target, graph, portsFor(n)).ok) continue
     connectItems.push({
       id: `connect:${n.id}`,
       label: n.title || n.type,

@@ -3,18 +3,57 @@ import { useCanvasStore, useEdgeSelection, useSelection, useViewportState } from
 import type { LinkDraft } from '../../../features/canvas/useEdgeDrag'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import type { Edge } from '../../../domain/canvas/model/edge'
+import { sourcePortOf, targetPortOf } from '../../../domain/canvas/model/edge'
+import { portDeclOf } from '../../../domain/canvas/nodeSpecs/ports'
+import { getSpec } from '../../../domain/canvas/nodeSpecs/registry'
 import { toWorldRect } from '../../../domain/canvas/geometry/coords'
 import type { Rect } from '../../../domain/canvas/geometry/rect'
 import styles from './EdgeLayer.module.css'
 
-/** 贝塞尔曲线的控制点与端点（源右中 → 目标左中）；输入为 world 矩形 */
-function portPoints(source: Rect, target: Rect) {
-  const sx = source.x + source.w
-  const sy = source.y + source.h / 2
-  const tx = target.x
-  const ty = target.y + target.h / 2
+interface Anchor {
+  x: number
+  y: number
+  side: 'left' | 'right'
+}
+
+/**
+ * 一条边在某一端的世界锚点。
+ *
+ * 位置来自**端口声明**（§6.23 多端口），不是写死的「左中 / 右中」：融合节点的
+ * `patch` 在右侧偏上、`output` 在右侧中点，写死的版本会把两条线画到同一个点上。
+ * 规格查不到（节点类型未注册 / 老数据）时回落到历史口径。
+ */
+function anchorOf(rect: Rect, type: string, portId: string, fallback: 'left' | 'right'): Anchor {
+  const spec = getSpec(type as Parameters<typeof getSpec>[0])
+  const decl = spec ? portDeclOf(spec.ports, portId) : null
+  const side = decl ? decl.side : fallback
+  const y = decl ? decl.y : 0.5
+  return { x: side === 'left' ? rect.x : rect.x + rect.w, y: rect.y + rect.h * y, side }
+}
+
+/** 贝塞尔曲线的控制点与端点；控制点的伸出方向随各自所在的那一侧翻转 */
+function portPoints(s: Anchor, t: Anchor) {
+  const { x: sx, y: sy } = s
+  const { x: tx, y: ty } = t
   const dx = Math.max(40, Math.abs(tx - sx) / 2)
-  return { sx, sy, tx, ty, c1x: sx + dx, c2x: tx - dx }
+  /**
+   * 「逆向端点」的控制臂要收短。
+   *
+   * 常规边是「右出 → 左入」，两端各伸 `dx`（= 距离一半）画出来最舒展。
+   * 而融合节点的 `patch` 是**长在右边缘上的入口**（§6.23）：线从左边来、
+   * 却必须从右边进入它，两端都用 `dx` 会甩出一个绕出节点外面一大圈的大回环。
+   * 收短那一端的臂（≤72px）后，线贴着节点右侧绕进来，看得出是「接到右上那个口」。
+   */
+  const sourceArm = s.side === 'left' ? Math.min(dx, 72) : dx
+  const targetArm = t.side === 'right' ? Math.min(dx, 72) : dx
+  return {
+    sx,
+    sy,
+    tx,
+    ty,
+    c1x: s.side === 'right' ? sx + sourceArm : sx - sourceArm,
+    c2x: t.side === 'left' ? tx - targetArm : tx + targetArm,
+  }
 }
 
 type PortPoints = ReturnType<typeof portPoints>
@@ -23,10 +62,15 @@ function toPath(p: PortPoints): string {
   return `M ${p.sx} ${p.sy} C ${p.c1x} ${p.sy}, ${p.c2x} ${p.ty}, ${p.tx} ${p.ty}`
 }
 
-/** 自由端点的草稿曲线：两端横向延展，方向随拖动端点侧翻转 */
+/**
+ * 自由端点的草稿曲线：两端横向延展，方向随**被拖端点所在的那一侧**翻转。
+ *
+ * 用 `fromSide`（几何）而不是 `side`（入 / 出）：融合节点的 `patch` 是**输入口
+ * 但长在右侧**，按语义判会朝左伸，线看起来从节点里穿出去。
+ */
 function draftPath(d: LinkDraft): string {
   const dx = Math.max(40, Math.abs(d.to.x - d.from.x) / 2)
-  if (d.side === 'output') {
+  if (d.fromSide === 'right') {
     return `M ${d.from.x} ${d.from.y} C ${d.from.x + dx} ${d.from.y}, ${d.to.x - dx} ${d.to.y}, ${d.to.x} ${d.to.y}`
   }
   return `M ${d.from.x} ${d.from.y} C ${d.from.x - dx} ${d.from.y}, ${d.to.x + dx} ${d.to.y}, ${d.to.x} ${d.to.y}`
@@ -126,7 +170,12 @@ export const EdgeLayer = memo(function EdgeLayer({
           // 画板内子节点用世界坐标（parent 偏移）定位连线端点
           const ws = toWorldRect(s, s.parentId ? byId.get(s.parentId) : null)
           const wt = toWorldRect(t, t.parentId ? byId.get(t.parentId) : null)
-          const p = portPoints(ws, wt)
+          const sourcePort = sourcePortOf(e)
+          const targetPort = targetPortOf(e)
+          const p = portPoints(
+            anchorOf(ws, s.type, sourcePort, 'right'),
+            anchorOf(wt, t.type, targetPort, 'left'),
+          )
           const d = toPath(p)
           const active = selectedEdgeSet.has(e.id) || relatedEdgeIds.has(e.id)
           const mid = midPoint(p)
@@ -156,6 +205,10 @@ export const EdgeLayer = memo(function EdgeLayer({
                    （§6.7「反推」取的是**上游**图）——冒烟据此断言「谁是谁的上游」。 */
                 data-edge-source={e.source}
                 data-edge-target={e.target}
+                /* 端口也落到 DOM：融合节点的两条边同在右侧，
+                   只按 source/target 断言「谁接在 patch 上」是断言不出来的 */
+                data-edge-source-port={sourcePort}
+                data-edge-target-port={targetPort}
               />
               {active && (
                 <g

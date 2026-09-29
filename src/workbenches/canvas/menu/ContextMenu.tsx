@@ -19,6 +19,7 @@ import {
   IconBatch,
   IconBoard,
   IconCompare,
+  IconFusion,
   IconGeneration,
   IconGroup,
   IconLoop,
@@ -49,6 +50,8 @@ const MENU_ICON: Record<string, ReactNode> = {
    * 图标与功能栏取**同一份**（`toolbar/icons` 的 `IconLoop`），不另画一套。
    */
   'create:loop': <IconLoop size={MENU_ICON_SIZE} />,
+  /** 融合节点：与左侧「＋」菜单取同一份图标组件（各画一套迟早漂） */
+  'create:fusion': <IconFusion size={MENU_ICON_SIZE} />,
   'create:board': <IconBoard size={MENU_ICON_SIZE} />,
   resetView: <IconReset size={MENU_ICON_SIZE} />,
 }

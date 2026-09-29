@@ -45,6 +45,7 @@ export const CREATABLE_TYPES: readonly { type: NodeType; label: string }[] = [
   { type: 'group', label: '分组节点' },
   { type: 'batch', label: '批量节点' },
   { type: 'loop', label: '循环节点' },
+  { type: 'fusion', label: '融合节点' },
   { type: 'board', label: '画板节点' },
 ]
 

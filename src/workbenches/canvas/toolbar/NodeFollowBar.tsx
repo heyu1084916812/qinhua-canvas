@@ -32,7 +32,7 @@ import { toPlainText } from '../../../domain/canvas/text/markdownRender'
  * 与创作面板同一批（§6.1）——画板是「被收纳的工作区」，其内部工具条已经常驻，
  * 再叠一条跟随栏会与它抢位置。
  */
-const FOLLOW_TYPES = new Set<NodeType>(['prompt', 'generation', 'group', 'batch', 'compare'])
+const FOLLOW_TYPES = new Set<NodeType>(['prompt', 'generation', 'group', 'batch', 'compare', 'fusion'])
 
 /** 鼠标按下时阻止默认聚焦：按钮点击后不滞留焦点，否则空格会被按钮吃掉（§6.3） */
 const keepCanvasFocus = { onMouseDown: (e: ReactMouseEvent) => e.preventDefault() }
@@ -174,7 +174,17 @@ function NodeActions({
 
   const state = exec.nodeStateOf(node.id)
   const busy = state?.kind === 'queued' || state?.kind === 'running'
-  const canRun = node.type === 'generation' || node.type === 'batch' || node.type === 'group'
+  /**
+   * 「生成」按钮出现的类型。
+   *
+   * 融合节点也在内（§6.23）：它的运行入口不止节点内那个按钮 —— 右键菜单、
+   * 快捷键 R 都会走到同一处，跟随栏少一个按钮只是少一个入口，不是少一条语义。
+   */
+  const canRun =
+    node.type === 'generation' ||
+    node.type === 'batch' ||
+    node.type === 'group' ||
+    node.type === 'fusion'
   /**
    * 「有可下载的素材」= 节点**自身**持有 `assetHash`。
    *

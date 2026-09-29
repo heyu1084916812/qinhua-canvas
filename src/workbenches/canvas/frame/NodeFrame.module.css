@@ -121,7 +121,8 @@
  * 溢出的内容画在上层（.body 之外还有 header 与选中描边），且节点本身透明，
  * 溢出不会挡住别的节点（画布按节点矩形做命中与选区，浮层只在 hover 时出现）。
  */
-.body:has([data-loop-node]) {
+.body:has([data-loop-node]),
+.body:has([data-fusion-node]) {
   overflow: visible;
 }
 

@@ -1,0 +1,334 @@
+/*
+ * 融合节点样式（产品文档 §6.23，2026-09-29）。
+ *
+ * 视觉沿用循环节点那套口径：卡面走 token、控件高度 25–30px、
+ * 圆角用 --radius-control、无投影、1px 描边。
+ *
+ * ⚠️ 颜色一律 `var(--*)`：`scripts/check-theme.mjs` 会拦截字面量色值
+ * （写死一个 rgba 就等于深色主题静默退化，而且四个门禁全绿）。
+ */
+.card {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-sans);
+  color: var(--text-1);
+  /* 比例浮层要越出节点：由 NodeFrame 的 `.body:has([data-fusion-node])` 放开裁剪 */
+  overflow: visible;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+/* ── ① 预览区 ── */
+.preview {
+  position: relative;
+  width: 100%;
+  /* 定高：图在框内的实际矩形才能算准（fitInside 的口径），且拖框精度稳定 */
+  height: 200px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--stroke);
+  background: var(--bg-subtle);
+  overflow: hidden;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  /* 图是内容不是控件：不吃指针，拖框一律落在容器上 */
+  pointer-events: none;
+  user-select: none;
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-3);
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  text-align: center;
+  /* 长文案要能换行，不许溢出预览框 */
+  overflow-wrap: anywhere;
+}
+
+/* 已保存的选区：描边 + 半透明实底（不用 rgba —— 主题守卫不许字面量色值） */
+.selection,
+.selectionActive {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--text-1);
+  background: var(--accent);
+  opacity: 0.28;
+  pointer-events: none;
+  border-radius: 2px;
+}
+
+.selectionActive {
+  border: 2px solid var(--text-1);
+  opacity: 0.45;
+}
+
+/* 正在拖的框：只有描边，不填色（填色会盖住底图，看不出要融的是哪一块） */
+.selectionDraft {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px dashed var(--text-1);
+  pointer-events: none;
+  border-radius: 2px;
+}
+
+/* ── ②③ 行 ── */
+.row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  flex: none;
+}
+
+.note {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  line-height: 1.4;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ── 选区芯片（编号 + 删除） ── */
+.chipWrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.chip,
+.chipActive {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--stroke);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  /* 选中态走反色控件（深底浅字）：--accent 在深色主题会翻成浅底深字，与文字撞色 */
+  transition: background var(--dur-hover), color var(--dur-hover);
+}
+
+.chipActive {
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+  border-color: var(--control-inverse-bg);
+}
+
+/*
+ * 删除角标：**圆心落在芯片右上角顶点**上（用户 2026-09-28 对循环节点的口径）。
+ * 用 `translate(50%,-50%)` 把元素中心搬到那个顶点，而不是靠 padding 目测。
+ */
+.chipDelete {
+  position: absolute;
+  right: 0;
+  top: 0;
+  transform: translate(50%, -50%);
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.chipDelete svg {
+  width: 10px;
+  height: 10px;
+  /* 图标盒与圆钮盒同中心：grid + place-items 之后不再有字体度量带来的偏心 */
+  display: block;
+}
+
+.chipDelete:hover {
+  color: var(--danger);
+}
+
+/* ── 局部修改图缩略图 ── */
+.thumb {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--stroke);
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.thumbEmpty {
+  position: absolute;
+  inset: 0;
+}
+
+/* 编号角标：圆心对准缩略图**左上角顶点**（与循环节点的角标同一口径） */
+.thumbBadge {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%);
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+/* ── ④ 底栏 ── */
+.footer {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.ratioWrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: inline-flex;
+}
+
+.toggle,
+.run {
+  height: 30px;
+  padding: 0 9px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--stroke);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-hover), color var(--dur-hover);
+}
+
+.toggle {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.ratioWrap .toggle {
+  width: 100%;
+}
+
+.toggle span,
+.run span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 图标固定尺寸：不写的话 svg 会按父级字号撑开 */
+.toggle svg,
+.run svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.toggle:disabled,
+.run:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* 主操作用反色实底（与循环节点的底栏按钮同款） */
+.run {
+  flex: 0 0 auto;
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+  border-color: var(--control-inverse-bg);
+}
+
+.run:not(:disabled):hover {
+  background: var(--control-inverse-bg-hover);
+  color: var(--control-inverse-text-hover);
+}
+
+/* 比例浮层：从芯片向上浮出（节点下方空间不确定，向上更稳） */
+.ratioMenu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 6px);
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  padding: var(--space-1);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--stroke);
+  background: var(--bg-surface);
+  min-width: 132px;
+}
+
+.ratioItem,
+.ratioItemActive {
+  height: 26px;
+  border: none;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ratioItemActive {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.ratioItem:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}

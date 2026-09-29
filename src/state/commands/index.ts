@@ -55,7 +55,8 @@ export type Command =
   | {
       kind: 'node.paste'
       nodes: NodeSnapshot[]
-      edges: { source: string; target: string }[]
+      /** 端点可选：老剪贴板载荷与默认口不写字段（见 `edge.connect`） */
+      edges: { source: string; target: string; sourcePort?: string; targetPort?: string }[]
     }
   /**
    * 删除节点（§6.20 Delete / Backspace、§4.1 右键「删除」）。
@@ -78,7 +79,14 @@ export type Command =
    */
   | { kind: 'node.updateData'; id: string; patch: Record<string, unknown>; transient?: boolean; size?: Size }
   | { kind: 'node.reparent'; id: string; toParent: string | null; index?: number }
-  | { kind: 'edge.connect'; source: string; target: string }
+  /**
+   * 建一条边。
+   *
+   * `sourcePort` / `targetPort` 缺省 = 历史口径（`output` → `input`）。
+   * 融合节点的「局部修改图」入口在**右侧**、id 是 `patch`（产品文档 §6.23），
+   * 只按 (source,target) 无法表达它。
+   */
+  | { kind: 'edge.connect'; source: string; target: string; sourcePort?: string; targetPort?: string }
   | { kind: 'edge.remove'; id: string }
   | { kind: 'container.reorder'; containerId: string; orderedChildIds: string[] }
   // 生成产物落库：节点只持有 hash，媒体本体（字节）写 assets 表（产品文档 §8 hash 主键）

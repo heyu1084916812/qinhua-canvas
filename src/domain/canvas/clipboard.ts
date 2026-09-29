@@ -19,6 +19,14 @@ import { toWorldRect } from './geometry/coords'
 export interface ClipboardEdge {
   source: string
   target: string
+  /**
+   * 端点（产品文档 §6.23 融合节点）。
+   *
+   * 必须跟着边一起复制：融合节点的 `patch` 与 `output` 都在右侧，
+   * 丢掉端口后粘出来的两条线会退化成同一条 —— 补丁融不进图，而且不报错。
+   */
+  sourcePort?: string
+  targetPort?: string
 }
 
 export interface ClipboardPayload {
@@ -144,7 +152,12 @@ export function clipboardFromSelection(
 
   const edges: ClipboardEdge[] = graph.edges
     .filter((e) => inSet.has(e.source) && inSet.has(e.target))
-    .map((e) => ({ source: e.source, target: e.target }))
+    .map((e) => ({
+      source: e.source,
+      target: e.target,
+      sourcePort: e.sourcePort,
+      targetPort: e.targetPort,
+    }))
 
   return { nodes, edges, size: { w: maxX - minX, h: maxY - minY } }
 }
@@ -214,7 +227,7 @@ export function pasteEdges(
     const source = idMap.get(e.source)
     const target = idMap.get(e.target)
     if (!source || !target) continue
-    out.push({ source, target })
+    out.push({ source, target, sourcePort: e.sourcePort, targetPort: e.targetPort })
   }
   return out
 }

@@ -356,6 +356,27 @@ function grabPoint(box) {
 }
 
 /**
+ * 从指定的**把手**拖动节点到屏幕坐标 (x, y)（左上角落点口径同 `moveNode`）。
+ *
+ * 与 `moveNode` 的差别：抓取点由调用方给。
+ * `moveNode` 固定抓「左下角内 14px」——对融合节点那是**底栏的比例控件**，
+ * 控件自己 `stopPropagation`（不然点按钮就等于拖节点），于是拖不动。
+ * 融合节点用 `[data-fusion-patches]` 那一行当把手（居中行，任何情况下都不吃指针）。
+ */
+async function moveNodeVia(page, nodeLocator, handleLocator, x, y) {
+  const nb = await nodeLocator.boundingBox()
+  const hb = await handleLocator.boundingBox()
+  if (!nb || !hb) return false
+  const from = { x: hb.x + hb.width / 2, y: hb.y + hb.height / 2 }
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  await page.mouse.move(from.x + (x - nb.x), from.y + (y - nb.y), { steps: 12 })
+  await page.mouse.up()
+  await page.waitForTimeout(350)
+  return true
+}
+
+/**
  * 把节点**左上角**移到画布屏幕坐标 (x, y)（按压点仍是节点框的安全抓取点）。
  *
  * 契约是「左上角落到 (x,y)」而不是「抓点落到 (x,y)」：抓点只是实现细节，
@@ -2524,8 +2545,8 @@ async function g17(browser) {
   await page.locator('[data-toolbar-add]').click()
   await sleep(250)
   const menuItems = await page.locator('[data-toolbar-menu-item]').count()
-  // 7 项：6 种原有类型 + 循环节点（§6.22，2026-09-22 新增）
-  rec(g, '新建节点菜单展开 7 项', menuItems === 7, `items=${menuItems}`)
+  // 8 项：6 种原有类型 + 循环节点（§6.22，2026-09-22）+ 融合节点（§6.23，2026-09-29）
+  rec(g, '新建节点菜单展开 8 项', menuItems === 8, `items=${menuItems}`)
   await page.keyboard.press('Escape')
   await sleep(200)
   rec(g, 'Esc 关闭新建菜单', (await page.locator('[data-toolbar-menu]').count()) === 0)
@@ -2716,9 +2737,9 @@ async function g18(browser) {
   const canvasSet = new Set(canvasMenu)
   rec(
     g,
-    // 7 新建（含循环节点）+ 重置视图 = 8 项
-    '画布空白右键含 7 新建 + 重置视图（§4.1）',
-    canvasSet.size === 8 && canvasSet.has('重置视图'),
+    // 8 新建（含循环节点 §6.22、融合节点 §6.23）+ 重置视图 = 9 项
+    '画布空白右键含 8 新建 + 重置视图（§4.1）',
+    canvasSet.size === 9 && canvasSet.has('重置视图'),
     `items=${JSON.stringify(canvasMenu)}`,
   )
 
@@ -2744,9 +2765,9 @@ async function g18(browser) {
   const missing = iconState.filter((i) => !i.hasSvg).map((i) => i.id)
   rec(
     g,
-    '★ 每个新建项都有矢量图标（含循环节点；图标两侧菜单同源）',
-    iconState.length === 7 && missing.length === 0,
-    `带图标 ${iconState.length}/7${missing.length ? ` 缺=${missing.join(',')}` : ''}`,
+    '★ 每个新建项都有矢量图标（含循环 / 融合节点；图标两侧菜单同源）',
+    iconState.length === 8 && missing.length === 0,
+    `带图标 ${iconState.length}/8${missing.length ? ` 缺=${missing.join(',')}` : ''}`,
   )
   await page.keyboard.press('Escape')
   await sleep(150)
@@ -12160,7 +12181,268 @@ async function g90(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90]
+/**
+ * G91 融合节点（产品文档 §6.23，2026-09-29）
+ *
+ * 这一组只测**浏览器里才成立**的东西，纯逻辑（几何、比例校验、计划组织）
+ * 已经在 `domain/canvas/fusion/fusionPlan.test.ts`（25 项）里逐条钉过：
+ *   - 三只口的**存在、方向、几何位置**（patch 在右上、output 在右中、原图在左）；
+ *   - 两条线真的落在**不同的口**上（`data-edge-target-port`）；
+ *   - 框选能产出选区、选区编号与补丁编号对得上；
+ *   - 点「融合」真的产出一张图（本地像素合成走完整条落库链路）；
+ *   - 没输入时按钮禁用、且**说得出为什么**（不留「点了没反应」）。
+ */
+async function g91(browser) {
+  const g = 'G91 融合节点'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="blank"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(800)
+
+  /** 建一个**带真实素材**的生成节点（融合的上游必须是「有图」的节点） */
+  const addGenWithImage = async (w, h) => {
+    await page.locator('[data-toolbar-add]').click()
+    await sleep(250)
+    await page.locator('[data-toolbar-menu-item="generation"]').click()
+    await sleep(500)
+    const id = await page.locator('[data-node-type="generation"]').last().getAttribute('data-node-id')
+    const scoped = page.locator(`[data-node-id="${id}"]`)
+    const [chooser] = await Promise.all([
+      page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null),
+      scoped.locator('[data-node-upload]').first().click(),
+    ])
+    if (chooser) {
+      await chooser.setFiles({ name: 'fusion-src.png', mimeType: 'image/png', buffer: solidPngBuffer(w, h) })
+      await sleep(1200)
+    }
+    return { id, node: scoped }
+  }
+
+  /** 从一个端点拖到某个屏幕点（§6.14 拖线建连） */
+  const dragFromPortTo = async (portLocator, to) => {
+    const b = await portLocator.boundingBox()
+    if (!b) return false
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(to.x, to.y, { steps: 10 })
+    await page.mouse.up()
+    await sleep(450)
+    return true
+  }
+
+  // ── ① 建得出来 ──
+  await page.locator('[data-toolbar-add]').click()
+  await sleep(350)
+  const menuIds = await page
+    .locator('[data-toolbar-menu-item]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-toolbar-menu-item')))
+  rec(g, '新建菜单里有「融合节点」', menuIds.includes('fusion'), menuIds.join(','))
+  await page.locator('[data-toolbar-menu-item="fusion"]').click()
+  await sleep(600)
+
+  const fusion = page.locator('[data-node-type="fusion"]').first()
+  rec(g, '画布上建出了融合节点', (await fusion.count()) === 1)
+  if ((await fusion.count()) === 0) {
+    rec(g, '（后续断言跳过）', false, '节点没建出来')
+    await ctx.close()
+    return
+  }
+  /**
+   * 融合节点靠右放：它 280×420，左边留给两个上游生成节点。
+   *
+   * ⚠️ 位置必须**不重叠**：`nodeAtPoint` 取最上层命中的节点，若上游生成节点
+   * 压在融合节点上，拖线的落点会被**上游自己**吃掉（表现为「连不上、也不报错」）。
+   * 上传 64×36 的图后生成节点会自动变成 427×240（`assetNodeSize` 放大到盖住最小框），
+   * 比它看上去宽得多。
+   */
+  await moveNodeVia(page, fusion, page.locator('[data-fusion-patches]'), 840, 240)
+  await sleep(250)
+
+  // ── ② 三只口：存在 + 方向 + 几何 ──
+  const portGeo = await fusion.evaluate((el) => {
+    const nr = el.getBoundingClientRect()
+    return {
+      left: nr.left,
+      right: nr.right,
+      cy: nr.top + nr.height / 2,
+      ports: [...el.querySelectorAll('[data-port]')].map((p) => {
+        const r = p.getBoundingClientRect()
+        return {
+          id: p.getAttribute('data-port'),
+          kind: p.getAttribute('data-port-kind'),
+          cx: r.left + r.width / 2,
+          cy: r.top + r.height / 2,
+        }
+      }),
+    }
+  })
+  const portById = Object.fromEntries(portGeo.ports.map((p) => [p.id, p]))
+  rec(
+    g,
+    '★ 三只口齐全：input / patch / output',
+    portGeo.ports.length === 3 && !!portById.input && !!portById.patch && !!portById.output,
+    portGeo.ports.map((p) => p.id).join(','),
+  )
+  rec(
+    g,
+    '★★ patch 在**右侧**、且是**输入口**（不是又一个出口）',
+    portById.patch?.kind === 'input' && Math.abs(portById.patch.cx - portGeo.right) <= 2,
+    `kind=${portById.patch?.kind} patch.cx=${portById.patch?.cx?.toFixed(1)} node.right=${portGeo.right.toFixed(1)}`,
+  )
+  rec(
+    g,
+    '★ patch 在 output 上方（两口分开，线不会糊成一条）',
+    !!portById.patch && !!portById.output && portById.patch.cy < portById.output.cy - 20,
+    `patch.cy=${portById.patch?.cy?.toFixed(1)} output.cy=${portById.output?.cy?.toFixed(1)}`,
+  )
+  rec(
+    g,
+    '★ 原图口在**左边缘中点**（左入右出的历史口径没被挪走）',
+    Math.abs(portById.input?.cx - portGeo.left) <= 2 &&
+      Math.abs(portById.input?.cy - portGeo.cy) <= 2 &&
+      Math.abs(portById.output?.cy - portGeo.cy) <= 2,
+    `in=(${portById.input?.cx?.toFixed(1)},${portById.input?.cy?.toFixed(1)}) left=${portGeo.left.toFixed(1)} mid=${portGeo.cy.toFixed(1)}`,
+  )
+
+  // ── ③ 空输入时：按钮禁用 + 说得出为什么 ──
+  rec(g, '★ 没有原图时「融合」按钮禁用（不留点了没反应的入口）', await page.locator('[data-fusion-run]').isDisabled())
+  const emptyTitle = await page.locator('[data-fusion-run]').getAttribute('title')
+  rec(g, '★ 禁用时说清了先接什么', /原图|局部修改图/.test(emptyTitle ?? ''), emptyTitle ?? '')
+
+  // ── ④ 原图：拖生成节点的输出口，落在融合节点**左半边** → 应该进 input ──
+  /**
+   * 素材用 **640×360**（16:9）而不是 64×36。
+   *
+   * 两个原因：① 选区有 32px 的最小边长，64px 宽的图上根本框不出合规的选区；
+   * ② 下面要验证「按模型比例提取」——选区吸附到 16:9 之后，补丁（同样是 16:9）
+   * 才过得了比例校验。图太小会把「功能正常」测成「功能不可用」。
+   */
+  const src = await addGenWithImage(640, 360)
+  await moveNode(page, src.id, 150, 240)
+  await sleep(300)
+  const fBox = await fusion.boundingBox()
+  const srcPort = src.node.locator('[data-port="output"]').first()
+  const srcPortBox = await srcPort.boundingBox()
+  rec(
+    g,
+    '★ 上游生成节点的输出口有可点的几何位置',
+    !!srcPortBox && srcPortBox.width > 0,
+    JSON.stringify(srcPortBox),
+  )
+  if (srcPortBox) {
+    await page.mouse.move(srcPortBox.x + srcPortBox.width / 2, srcPortBox.y + srcPortBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(fBox.x + 30, fBox.y + fBox.height / 2, { steps: 10 })
+    await sleep(120)
+    rec(
+      g,
+      '★ 端点按下后拖出草稿曲线（说明 pointerdown 真的命中了端点）',
+      (await page.locator('[data-edge-draft]').count()) === 1,
+      `draft=${await page.locator('[data-edge-draft]').count()}`,
+    )
+    await page.mouse.up()
+    await sleep(450)
+  }
+  const inputEdge = page.locator('[data-edge-target-port="input"]')
+  rec(g, '★ 拖到左半边 → 边落在 input 口', (await inputEdge.count()) === 1, `count=${await inputEdge.count()}`)
+
+  // ── ⑤ 补丁：从**右上角的 patch 口**反拖到生成节点 → 应该落 patch 口 ──
+  const patchSrc = await addGenWithImage(640, 360)
+  await moveNode(page, patchSrc.id, 150, 520)
+  await sleep(300)
+  const patchBox = await patchSrc.node.boundingBox()
+  await dragFromPortTo(fusion.locator('[data-port="patch"]'), {
+    x: patchBox.x + patchBox.width / 2,
+    y: patchBox.y + patchBox.height / 2,
+  })
+  const patchEdge = page.locator('[data-edge-target-port="patch"]')
+  rec(
+    g,
+    '★★ 从 patch 口反拖 → 边落在 patch 口（两条边同节点不同口，各自独立）',
+    (await patchEdge.count()) === 1,
+    `count=${await patchEdge.count()}`,
+  )
+  rec(
+    g,
+    '★ patch 口的边记的是上游生成节点 → 融合节点',
+    (await page.locator(`[data-edge-target-port="patch"][data-edge-source="${patchSrc.id}"]`).count()) === 1,
+    `source=${patchSrc.id}`,
+  )
+
+  // ── ⑥ 框选：在原图上拖一个框 → 出现选区 1 ──
+  const preview = page.locator('[data-fusion-preview]')
+  const pBox = await preview.boundingBox()
+  rec(
+    g,
+    '★ 原图真的解码出来了（naturalWidth>0，否则框不出选区）',
+    (await page.locator('[data-fusion-image="original"]').evaluate((el) => el.naturalWidth).catch(() => 0)) > 0,
+  )
+
+  /**
+   * 先选「按模型现有比例提取」的 16:9，再框选。
+   *
+   * 这一步同时验证两件事：① 比例档真的能选；② 框出来的选区**被吸附到 16:9** ——
+   * 而补丁（16:9）只有对上这个比例才过得了校验，所以「能不能融合成功」
+   * 本身就是比例吸附生效的证明。
+   */
+  await page.locator('[data-fusion-ratio]').click()
+  await sleep(200)
+  rec(g, '★ 「按模型比例提取」浮层能打开', (await page.locator('[data-fusion-ratio-menu]').count()) === 1)
+  await page.locator('[data-fusion-ratio-option="16:9"]').click()
+  await sleep(250)
+  rec(
+    g,
+    '★ 选中的比例回显在按钮上',
+    ((await page.locator('[data-fusion-ratio]').textContent()) ?? '').includes('16:9'),
+    (await page.locator('[data-fusion-ratio]').textContent()) ?? '',
+  )
+
+  await page.mouse.move(pBox.x + pBox.width * 0.2, pBox.y + pBox.height * 0.25)
+  await page.mouse.down()
+  await page.mouse.move(pBox.x + pBox.width * 0.8, pBox.y + pBox.height * 0.75, { steps: 12 })
+  await page.mouse.up()
+  await sleep(500)
+  rec(g, '★★ 在原图上拖框产出一个选区（编号 1）', (await page.locator('[data-fusion-context="1"]').count()) === 1)
+  rec(g, '★ 选区角标画在原图上（选区几何算出来了）', (await page.locator('[data-fusion-selection-index="0"]').count()) === 1)
+
+  /**
+   * ★★ 选区被吸附到 16:9（而不是用户随手拖出来的 2.13:1）。
+   *
+   * 量的是**画在预览框里的那个块的宽高比**：预览用 `object-fit: contain`，
+   * 图到框是等比映射，故屏幕上的比例就是选区在原图里的比例。
+   */
+  const selBox = await page.locator('[data-fusion-selection-index="0"]').boundingBox()
+  const selRatio = selBox ? selBox.width / selBox.height : 0
+  rec(
+    g,
+    '★★ 选区被吸附到 16:9（比例档真的生效，不是白选）',
+    Math.abs(selRatio - 16 / 9) < 0.08,
+    `ratio=${selRatio.toFixed(3)}`,
+  )
+  rec(g, '★ 局部修改图按连线顺序编号（缩略图上有角标 1）', (await page.locator('[data-fusion-patch="1"]').count()) === 1)
+
+  // ── ⑦ 点融合：真的产出一张图 ──
+  rec(g, '★ 原图 + 补丁 + 选区齐了之后按钮可点', !(await page.locator('[data-fusion-run]').isDisabled()))
+  await page.locator('[data-fusion-run]').click()
+  await sleep(2000)
+  const result = page.locator('[data-fusion-image="result"]')
+  rec(g, '★★ 点融合产出了结果图（本地像素合成 + 落库全链路）', (await result.count()) === 1, `count=${await result.count()}`)
+  if ((await result.count()) === 1) {
+    const nw = await result.evaluate((el) => el.naturalWidth).catch(() => 0)
+    rec(g, '★ 结果图真被解码（不是空壳 img）', nw > 0, `naturalWidth=${nw}`)
+  }
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await page.screenshot({ path: `${OUT}/106-g91-fusion.png` })
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

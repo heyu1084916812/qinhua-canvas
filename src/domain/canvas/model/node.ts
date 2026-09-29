@@ -1,4 +1,12 @@
-export type NodeType = 'prompt' | 'generation' | 'compare' | 'group' | 'batch' | 'board' | 'loop'
+export type NodeType =
+  | 'prompt'
+  | 'generation'
+  | 'compare'
+  | 'group'
+  | 'batch'
+  | 'board'
+  | 'loop'
+  | 'fusion'
 
 /** 容器类节点：子节点用 parentId 归属（结果组不在 NodeType 内，见 model/resultGroup.ts） */
 export const CONTAINER_TYPES: ReadonlySet<NodeType> = new Set<NodeType>(['group', 'batch', 'board'])
@@ -169,6 +177,77 @@ export interface LoopData {
   prompts: string[]
 }
 
+/** 矩形（原图像素坐标，整数） */
+export interface FusionRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * 一条**选区上下文**（产品文档 §6.23）。
+ *
+ * 它回答的是「这张局部修改图对应原图上的哪一块」，而不是「这张图长什么样」。
+ * 之所以要把它和补丁图分开存：补丁会被反复重生成（用户「能进行多次的修改」），
+ * 而选区本身不变 —— 把选区存成节点数据，重生成后重新运行融合即可把新版本
+ * 融回**同一个位置**，不必再框一次。
+ */
+export interface FusionContext {
+  id: string
+  /** 原图素材 hash + 像素尺寸（尺寸用于把选区换算成原图坐标） */
+  source: { assetHash: string; width: number; height: number }
+  /** 用户框选的局部修改区（原图像素坐标） */
+  rect: FusionRect
+  /**
+   * 参与合成与外扩的矩形。
+   *
+   * 与 `rect` 的差别：它按 `paddingRatio` **等比**向外扩一圈（给羽化留余量），
+   * 并在**贴边时先外扩再平移回图内**（对齐大雄插件的处理，见产品文档 §6.23）。
+   *
+   * 「等比」是硬要求，不是风格选择：外扩若只按短边加一圈，比例会被改掉，
+   * 而补丁是按**用户选的模型比例**出的图 ⇒ 每张补丁都会被比例校验拒掉。
+   * 等比外扩让 `paddedRect` 与 `rect` 比例完全相同。
+   */
+  paddedRect: FusionRect
+  /** 外扩比例（宽高各乘 `1 + 2p`），默认 0.08 */
+  paddingRatio: number
+}
+
+/**
+ * 图像融合节点数据（产品文档 §6.23，2026-09-29）。
+ *
+ * **它自己不调模型**：左侧 `original` 接一张完整原图，右侧 `patch` 接 1–16 张
+ * 局部修改图，本地做像素合成后经 `output` 交给下游。故这里没有
+ * `channelId` / `model` / `prompt` 那类字段 —— 它不进选路，也不进 `isGeneratableType`。
+ */
+export interface FusionData {
+  /**
+   * 选区上下文列表，按提取顺序存（1–16 条）。
+   *
+   * 「按提取顺序」也是**补丁映射的真相**：第 i 条 `patch` 入边对应第 i 条上下文
+   * （连线顺序 = 用户连接的时间顺序）。映射规则写在 `domain/canvas/fusion`，
+   * 不做成「每条上下文记住自己的补丁节点 id」——那会在换线 / 复制粘贴时留下
+   * 指向不存在节点的悬空引用，而位置映射天然跟着图走。
+   */
+  contexts: FusionContext[]
+  /** 当前在节点内预览 / 编辑的选区 id；无选中为 null */
+  activeContextId: string | null
+  /** 融合产物（本地像素合成结果落 `assets` 表后的 hash） */
+  assetHash?: string
+  /** 产物真实像素（供「有内容锁原始比例」与对比预览用，§6.16 同口径） */
+  naturalSize?: { width: number; height: number }
+  /** 预览区显示的是产物还是原图（「对比原图」，§6.23） */
+  compare?: boolean
+  /**
+   * 「按模型现有比例提取」选中的比例档（如 `'1:1'`）。
+   *
+   * 空 / 缺省 = 自由框选。选中后新框的选区会被吸附到该比例 ——
+   * 这是为了让补丁刚好符合下游模型能出的比例，省掉「出图再裁」一步。
+   */
+  ratio?: string
+}
+
 export type NodeData =
   | PromptData
   | GenerationData
@@ -177,6 +256,7 @@ export type NodeData =
   | BatchData
   | BoardData
   | LoopData
+  | FusionData
 
 export interface NodeSnapshot<TData extends NodeData = NodeData> extends NodeBase {
   data: TData

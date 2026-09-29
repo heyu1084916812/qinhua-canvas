@@ -34,7 +34,8 @@ describe('分组规格（§6.11）', () => {
     const spec = getSpec('group')!
     expect(spec.ports).toEqual({ input: true, output: true })
     // loop 于 2026-09-22 并入（§6.22）：循环节点分发的输入也能进分组
-    expect(spec.accepts.upstream).toEqual(['prompt', 'generation', 'loop'])
+    // fusion 于 2026-09-29 并入（§6.23）：融合产物同样是「一张图」
+    expect(spec.accepts.upstream).toEqual(['prompt', 'generation', 'loop', 'fusion'])
     expect(spec.accepts.children).toEqual(['prompt', 'generation'])
     expect(spec.accepts.parent).toEqual(['board'])
     // 有 toRunRequest 才会进入 buildRunPlan（isGeneratableType 已含 group）

@@ -361,6 +361,24 @@ export function IconLoop(props: IconProps) {
   )
 }
 
+/**
+ * 融合：两张图**叠在一起**，右侧那张只露出一角。
+ *
+ * 形状取「叠图」这一通用符号，而不是「两个箭头汇合」：后者在 16px 下
+ * 与「整理节点」「连接」那几枚箭头图标几乎分不出来。叠图一眼就是
+ * 「两张图合成一张」，正是这个节点做的事（§6.23）。
+ */
+export function IconFusion(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3.5" y="6.5" width="11" height="11" rx="1.6" />
+      <path d="M9 6.5V5.5A1.5 1.5 0 0 1 10.5 4h8A1.5 1.5 0 0 1 20 5.5v8a1.5 1.5 0 0 1-1.5 1.5h-1" />
+      <path d="M14.5 12.5 17 15l-2.5 2.5" />
+      <path d="M12 15h5" />
+    </Svg>
+  )
+}
+
 export function IconExpand(props: IconProps) {
   return (
     <Svg {...props}>

@@ -63,6 +63,14 @@ export interface NodeViewProps<TData extends NodeData = NodeData> {
    */
   upstreamImageInputs?: NodeInput[]
   /**
+   * **按输入口分组**的上游素材 hash（由 NodeLayer 注入，产品文档 §6.23）。
+   *
+   * 单口节点用 `upstreamAssetHashes` 就够了；融合节点有三只口（左 `input` 是原图、
+   * 右上 `patch` 是局部修改图），混在一起读会把原图当成第 1 张补丁。只有声明了
+   * 多只输入口的节点才会拿到这个字段（其余为 undefined，零成本）。
+   */
+  inputPortAssets?: Record<string, string[]>
+  /**
    * 容器类节点（分组 / 批量）自己的子节点快照，由 NodeLayer 注入（视图层不读图）。
    * 非容器类型为空数组。
    */

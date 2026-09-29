@@ -16,7 +16,8 @@ export const compareSpec: NodeSpec<CompareData> = {
   sizing: { min: NODE_MINIMUMS.compare, lockAspect: true },
   ports: { input: true, output: true },
   // 接受来自生成节点 / 其他对比节点的图片（分组、批量在 M3 后续补 accepts）
-  accepts: { upstream: ['generation', 'compare'] },
+  /** `fusion` 一并接受（§6.23）：融合前后的图正好适合 A/B 对比 */
+  accepts: { upstream: ['generation', 'compare', 'fusion'] },
   createDefaultData(): CompareData {
     return { splitRatio: 0.5 }
   },

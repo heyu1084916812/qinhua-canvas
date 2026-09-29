@@ -19,7 +19,7 @@ export interface AssetPixels {
   height: number
 }
 
-/** 带产物尺寸字段的 data（目前只有生成节点；视频未解码时该字段缺失） */
+/** 带产物尺寸字段的 data（生成 / 融合节点；视频未解码时该字段缺失） */
 type WithNaturalSize = { assetHash?: string; naturalSize?: { width: number; height: number } }
 
 /**
@@ -29,7 +29,11 @@ type WithNaturalSize = { assetHash?: string; naturalSize?: { width: number; heig
  * 或拿「请求了 1024×1024」冒充「收到了 1024×1024」，都是假读数。
  */
 export function assetPixelsOf(node: NodeSnapshot): AssetPixels | null {
-  if (node.type !== 'generation') return null
+  /**
+   * 融合节点也读这一份（§6.23）：它的产物是本地合成的整图，`naturalSize`
+   * 与生成节点同源（真实字节尺寸），所以那个「640×360」是同一口径的读数。
+   */
+  if (node.type !== 'generation' && node.type !== 'fusion') return null
   const data = node.data as unknown as WithNaturalSize & NodeData
   if (!data.assetHash) return null
   const n = data.naturalSize

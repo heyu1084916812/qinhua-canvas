@@ -18,6 +18,10 @@ import type { CanvasStore } from '../../../state/workbenches/canvas/store'
 import type { NodeSnapshot, PromptData } from '../../../domain/canvas/model/node'
 import { promptSpec } from '../../../domain/canvas/nodeSpecs/prompt'
 import { resizeLockOf } from '../../../domain/canvas/nodeSpecs/resizeLock'
+import { portDeclsOf } from '../../../domain/canvas/nodeSpecs/ports'
+import { getSpec } from '../../../domain/canvas/nodeSpecs/registry'
+import { targetPortOf } from '../../../domain/canvas/model/edge'
+import { resultImagesOf } from '../../../domain/canvas/graph/resultImages'
 import { imageAssetInputsOf } from '../../../domain/shared/execution/inputs'
 import type { NodeInput } from '../../../domain/shared/execution/types'
 
@@ -165,7 +169,7 @@ export const NodeLayer = memo(function NodeLayer({
   onOpenSettings,
 }: {
   /** 端点按下开始拖线建连（§6.14），由 CanvasSurface 注入 */
-  onPortPointerDown?: (e: ReactPointerEvent, nodeId: string, side: 'input' | 'output') => void
+  onPortPointerDown?: (e: ReactPointerEvent, nodeId: string, portId: string) => void
   /** 画布表面容器：拖动松手时用它把屏幕坐标换回世界坐标（§6.11 归属判定）+ 裁剪取视口尺寸 */
   surfaceRef?: { current: HTMLElement | null }
   /** 宿主导航（去后台设置）：节点视图只 emit，路由由页面容器持有 */
@@ -264,6 +268,34 @@ export const NodeLayer = memo(function NodeLayer({
     }
     return out
   })
+  /**
+   * **按输入口分组**的上游素材（§6.23）：只有声明了多只输入口的节点会进这张表。
+   *
+   * 为什么不能复用 `upstreamHashes`：那份是「所有上游的并集」，fusion 用它会把
+   * 左侧原图算成第 1 张局部修改图，整条链路从第一张就错位。
+   */
+  const inputPortAssets = useStableGraphMemo(graph, (g) => {
+    const out = new Map<string, Record<string, string[]>>()
+    const idx = indexNodes(g.nodes)
+    for (const n of g.nodes) {
+      const spec = getSpec(n.type)
+      if (!spec) continue
+      const inputs = portDeclsOf(spec.ports).filter((p) => p.kind === 'input')
+      // 单口节点：upstreamAssetHashes 已经表达了同一件事，不必再算一份
+      if (inputs.length < 2) continue
+      const byPort: Record<string, string[]> = {}
+      for (const p of inputs) byPort[p.id] = []
+      for (const e of g.edges) {
+        if (e.target !== n.id) continue
+        const bucket = byPort[targetPortOf(e)]
+        if (!bucket) continue
+        const hash = resultImagesOf(idx.get(e.source))[0]
+        if (hash) bucket.push(hash)
+      }
+      out.set(n.id, byPort)
+    }
+    return out
+  })
   const zoom = vis.zoom
 
   /**
@@ -351,7 +383,7 @@ export const NodeLayer = memo(function NodeLayer({
         onFramePointerDown={(e) => onNodePointerDown(e, child.id)}
         onResize={(rect, phase) => store.dispatch({ kind: 'node.resize', id: child.id, rect, phase })}
         onRename={(title) => store.dispatch({ kind: 'node.rename', id: child.id, title })}
-        onPortPointerDown={(e, side) => onPortPointerDown?.(e, child.id, side)}
+        onPortPointerDown={(e, portId) => onPortPointerDown?.(e, child.id, portId)}
       >
         <def.View
           node={child}
@@ -401,7 +433,7 @@ export const NodeLayer = memo(function NodeLayer({
             onFramePointerDown={(e) => onNodePointerDown(e, node.id)}
             onResize={(rect, phase) => store.dispatch({ kind: 'node.resize', id: node.id, rect, phase })}
             onRename={(title) => store.dispatch({ kind: 'node.rename', id: node.id, title })}
-            onPortPointerDown={(e, side) => onPortPointerDown?.(e, node.id, side)}
+            onPortPointerDown={(e, portId) => onPortPointerDown?.(e, node.id, portId)}
           >
             <View
               node={node}
@@ -416,6 +448,7 @@ export const NodeLayer = memo(function NodeLayer({
               upstreamPromptCount={upstreamPromptCounts.get(node.id)}
               hasRunnableDownstream={runnableDownstream.get(node.id)}
               upstreamImageInputs={upstreamImageInputs.get(node.id)}
+              inputPortAssets={inputPortAssets.get(node.id)}
               childNodes={containerChildren}
               renderChild={containerChildren.length > 0 ? renderChild : undefined}
               emit={(ev) => {
