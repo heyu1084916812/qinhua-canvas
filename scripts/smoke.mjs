@@ -12434,8 +12434,8 @@ async function g90(browser) {
  *
  * 这一组只测**浏览器里才成立**的东西，纯逻辑（几何、比例校验、计划组织）
  * 已经在 `domain/canvas/fusion/fusionPlan.test.ts`（25 项）里逐条钉过：
- *   - 三只口的**存在、方向、几何位置**（patch 在右上、output 在右中、原图在左）；
- *   - 两条线真的落在**不同的口**上（`data-edge-target-port`）；
+ *   - **两只口**（左原图 + 右侧一只共用口）的几何位置与「共用」属性；
+ *   - 局部图的线落在共用口上、结果也从共用口出（`data-edge-target-port`）；
  *   - 框选能产出选区、选区编号与补丁编号对得上；
  *   - 点「融合」真的产出一张图（本地像素合成走完整条落库链路）；
  *   - 没输入时按钮禁用、且**说得出为什么**（不留「点了没反应」）。
@@ -12513,10 +12513,11 @@ async function g91(browser) {
    * 上传 64×36 的图后生成节点会自动变成 427×240（`assetNodeSize` 放大到盖住最小框），
    * 比它看上去宽得多。
    */
+  const fusionId = await fusion.getAttribute('data-node-id')
   await moveNodeVia(page, fusion, page.locator('[data-fusion-patches]'), 840, 240)
   await sleep(250)
 
-  // ── ② 三只口：存在 + 方向 + 几何 ──
+  // ── ② 两只口：左原图 + 右侧一只共用口 ──
   const portGeo = await fusion.evaluate((el) => {
     const nr = el.getBoundingClientRect()
     return {
@@ -12537,28 +12538,23 @@ async function g91(browser) {
   const portById = Object.fromEntries(portGeo.ports.map((p) => [p.id, p]))
   rec(
     g,
-    '★ 三只口齐全：input / patch / output',
-    portGeo.ports.length === 3 && !!portById.input && !!portById.patch && !!portById.output,
+    '★ 只有两只口：左原图 `input` + 右共用口 `patch`',
+    portGeo.ports.length === 2 && !!portById.input && !!portById.patch,
     portGeo.ports.map((p) => p.id).join(','),
   )
   rec(
     g,
-    '★★ patch 在**右侧**、且是**输入口**（不是又一个出口）',
-    portById.patch?.kind === 'input' && Math.abs(portById.patch.cx - portGeo.right) <= 2,
-    `kind=${portById.patch?.kind} patch.cx=${portById.patch?.cx?.toFixed(1)} node.right=${portGeo.right.toFixed(1)}`,
+    '★★ 右端口是**共用口**（`kind=both`，入 / 出同一锚点）且贴在右边缘中点',
+    portById.patch?.kind === 'both' &&
+      Math.abs(portById.patch.cx - portGeo.right) <= 2 &&
+      Math.abs(portById.patch.cy - portGeo.cy) <= 2,
+    `kind=${portById.patch?.kind} cx=${portById.patch?.cx?.toFixed(1)} right=${portGeo.right.toFixed(1)} cy=${portById.patch?.cy?.toFixed(1)} mid=${portGeo.cy.toFixed(1)}`,
   )
   rec(
     g,
-    '★ patch 在 output 上方（两口分开，线不会糊成一条）',
-    !!portById.patch && !!portById.output && portById.patch.cy < portById.output.cy - 20,
-    `patch.cy=${portById.patch?.cy?.toFixed(1)} output.cy=${portById.output?.cy?.toFixed(1)}`,
-  )
-  rec(
-    g,
-    '★ 原图口在**左边缘中点**（左入右出的历史口径没被挪走）',
+    '★ 原图口在**左边缘中点**（左入的口径没被挪走）',
     Math.abs(portById.input?.cx - portGeo.left) <= 2 &&
-      Math.abs(portById.input?.cy - portGeo.cy) <= 2 &&
-      Math.abs(portById.output?.cy - portGeo.cy) <= 2,
+      Math.abs(portById.input?.cy - portGeo.cy) <= 2,
     `in=(${portById.input?.cx?.toFixed(1)},${portById.input?.cy?.toFixed(1)}) left=${portGeo.left.toFixed(1)} mid=${portGeo.cy.toFixed(1)}`,
   )
 
@@ -12604,7 +12600,7 @@ async function g91(browser) {
   const inputEdge = page.locator('[data-edge-target-port="input"]')
   rec(g, '★ 拖到左半边 → 边落在 input 口', (await inputEdge.count()) === 1, `count=${await inputEdge.count()}`)
 
-  // ── ⑤ 补丁：从**右上角的 patch 口**反拖到生成节点 → 应该落 patch 口 ──
+  // ── ⑤ 入方向：上游出线、落在融合节点**右半边** → 应该落共用口 ──
   /**
    * 补丁用**另一种差别很大的纯色**（蓝）—— 见下面「色彩匹配」那几条像素断言：
    * 若两边同色，色彩匹配做没做、羽化做没做，读出来都一样。
@@ -12612,24 +12608,70 @@ async function g91(browser) {
   const patchSrc = await addGenWithImage(640, 360, [60, 60, 200])
   await moveNode(page, patchSrc.id, 150, 520)
   await sleep(300)
-  const patchBox = await patchSrc.node.boundingBox()
-  await dragFromPortTo(fusion.locator('[data-port="patch"]'), {
-    x: patchBox.x + patchBox.width / 2,
-    y: patchBox.y + patchBox.height / 2,
+  /**
+   * 落点选**右半边**：节点可能有两只输入口（左原图 / 右共用口），松手时按
+   * 「离指针最近的输入口」判定 —— 这也是共用口作为**入口**的唯一接法。
+   */
+  await dragFromPortTo(patchSrc.node.locator('[data-port="output"]').first(), {
+    x: fBox.x + fBox.width - 30,
+    y: fBox.y + fBox.height / 2,
   })
   const patchEdge = page.locator('[data-edge-target-port="patch"]')
   rec(
     g,
-    '★★ 从 patch 口反拖 → 边落在 patch 口（两条边同节点不同口，各自独立）',
+    '★★ 上游落在右半边 → 边落在共用口（左半边落原图口，各归各的）',
     (await patchEdge.count()) === 1,
     `count=${await patchEdge.count()}`,
   )
   rec(
     g,
-    '★ patch 口的边记的是上游生成节点 → 融合节点',
+    '★ 共用口上的边记的是上游生成节点 → 融合节点',
     (await page.locator(`[data-edge-target-port="patch"][data-edge-source="${patchSrc.id}"]`).count()) === 1,
     `source=${patchSrc.id}`,
   )
+
+  /**
+   * ── ⑤b 出方向：从**共用口**拖到另一个节点 → 生成的是「融合 → 那个节点」 ──
+   *
+   * 参考实现里这就是「结果会通过连线生成在融合节点右侧」（README 第 6 条）。
+   * 判据落在边的两端与**源端口**上：`data-edge-source-port="patch"`、
+   * source = 融合节点、target = 被拖到的那个节点。
+   */
+  await page.locator('[data-toolbar-add]').click()
+  await sleep(250)
+  await page.locator('[data-toolbar-menu-item="generation"]').click()
+  await sleep(500)
+  const downId = await page.locator('[data-node-type="generation"]').last().getAttribute('data-node-id')
+  await moveNode(page, downId, 560, 620)
+  await sleep(300)
+  const downBox = await page.locator(`[data-node-id="${downId}"]`).boundingBox()
+  await dragFromPortTo(page.locator('[data-node-type="fusion"] [data-port="patch"]'), {
+    x: downBox.x + downBox.width / 2,
+    y: downBox.y + downBox.height / 2,
+  })
+  rec(
+    g,
+    '★★ 从共用口拖到别的节点 → 连出来的是「融合 → 那个节点」的**出边**',
+    (await page
+      .locator(`[data-edge-source-port="patch"][data-edge-source="${fusionId}"][data-edge-target="${downId}"]`)
+      .count()) === 1,
+    `fusion=${fusionId} down=${downId}`,
+  )
+
+  /**
+   * ★★ 共用口**拖出去必须算「出」**。
+   *
+   * 这是「一个端点两个方向」最容易被写反的地方：如果它只按 `kind: 'input'` 处理，
+   * 从它往外拖会被当成「找上游」，松手菜单给出的是上游候选。
+   * 参考实现给这个点的 `mousedown` 直接就是 `startLink(..., 'out')`，这里照同一条口径。
+   * 判据用菜单自带的 `data-link-menu-side`（它就是拖线方向的原样落点）。
+   */
+  const blankForMenu = await blankPoint(page)
+  await dragFromPortTo(page.locator('[data-node-type="fusion"] [data-port="patch"]'), blankForMenu)
+  const menuSide = await page.locator('[data-link-menu]').getAttribute('data-link-menu-side').catch(() => null)
+  rec(g, '★★ 从共用口往外拖 = 「出」（松手菜单按找下游给出）', menuSide === 'output', `side=${menuSide}`)
+  await page.keyboard.press('Escape')
+  await sleep(200)
 
   // ── ⑥ 框选：在原图上拖一个框 → 出现选区 1 ──
   const preview = page.locator('[data-fusion-preview]')
@@ -12741,6 +12783,48 @@ async function g91(browser) {
       '★★ 同一行上的颜色种类 > 8（羽化过渡，不是硬贴一块）',
       (px?.distinct ?? 0) > 8,
       pxText,
+    )
+
+    /**
+     * ── ⑧ 颜色匹配开关：关掉之后，选区正中应当回到**原始补丁色** ──
+     *
+     * 这条是「开关真的在管这一层」的唯一硬证据：同一个输入、同一张原图，
+     * 只把复选框取消，中心色就从 `84,84,176`（拉回后）变回 `60,60,200`（原样）。
+     * 只看界面「复选框在不在」证明不了任何事。
+     */
+    await page.locator('[data-fusion-color-match] input[type="checkbox"]').uncheck()
+    await sleep(250)
+    await page.locator('[data-fusion-run]').click()
+    await sleep(2000)
+    const pxOff = await page.evaluate(async (url) => {
+      const img = new Image()
+      img.src = url
+      await img.decode()
+      const c = document.createElement('canvas')
+      c.width = img.naturalWidth
+      c.height = img.naturalHeight
+      const g2 = c.getContext('2d')
+      if (!g2) return null
+      g2.drawImage(img, 0, 0)
+      const midY = Math.floor(img.naturalHeight / 2)
+      const center = Array.from(g2.getImageData(Math.floor(img.naturalWidth / 2), midY, 1, 1).data).slice(0, 3)
+      const row = g2.getImageData(0, midY, img.naturalWidth, 1).data
+      const seen = new Set()
+      for (let i = 0; i < row.length; i += 4) seen.add(`${row[i]},${row[i + 1]},${row[i + 2]}`)
+      return { center, distinct: seen.size }
+    }, await page.locator('[data-fusion-image="result"]').getAttribute('src'))
+    const offText = pxOff ? `center=${pxOff.center} colors=${pxOff.distinct}` : 'no pixels'
+    rec(
+      g,
+      '★★ 取消「颜色匹配」后选区正中 = 原始补丁色（开关真的在管这一层）',
+      near(pxOff?.center, [60, 60, 200]),
+      offText,
+    )
+    rec(
+      g,
+      '★ 取消颜色匹配后**羽化仍在**（只关一层增强，不是整段关掉）',
+      (pxOff?.distinct ?? 0) > 8,
+      offText,
     )
   }
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))

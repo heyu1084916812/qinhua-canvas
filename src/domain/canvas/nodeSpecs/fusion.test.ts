@@ -77,14 +77,14 @@ describe('fusionSpec / 结构', () => {
     expect(spec.toRunRequest).toBeUndefined()
   })
 
-  it('★ 三只口：左原图（入）、右上局部修改图（入、允许多条）、右中输出（出）', () => {
+  it('★ 两只口：左原图（入）+ 右侧一只**共用口**（入 / 出，允许多条入边）', () => {
     const ports = getSpec('fusion')!.ports
+    expect(ports.output).toBe(false) // 关掉默认 output：否则右侧又变成两个点
     expect(portDeclOf(ports, 'input')).toMatchObject({ kind: 'input', side: 'left', y: 0.5 })
-    expect(portDeclOf(ports, 'output')).toMatchObject({ kind: 'output', side: 'right', y: 0.5 })
+    expect(portDeclOf(ports, 'output')).toBeNull()
     const patchPort = portDeclOf(ports, FUSION_PATCH_PORT)
-    expect(patchPort).toMatchObject({ kind: 'input', side: 'right' })
-    // 靠上：与中点的 output 拉开距离，否则两条线糊成一条、点起来也分不清
-    expect(patchPort!.y).toBeLessThan(0.5)
+    // 一个锚点，两个方向都用它（参考实现给同一个点挂 in + out 两个类）
+    expect(patchPort).toMatchObject({ kind: 'both', side: 'right', y: 0.5 })
     expect(patchPort!.multi).toBe(true)
   })
 
@@ -185,11 +185,15 @@ describe('fusionSpec / 连线规则', () => {
     expect(canConnect(g.nodes[0], g.nodes[1], g).ok).toBe(false)
   })
 
-  it('★ 输出口不接受入边（右侧的 output 是出口，不是入口）', () => {
+  it('★ 共用口**两个方向都吃**：既能接局部修改图，也能把结果连到下游', () => {
     const f = node('f', 'fusion', {})
-    const g = graph([producer('p', 'a'.repeat(64)), f])
-    const check = canConnect(g.nodes[0], g.nodes[1], g, { targetPort: 'output' })
-    expect(check.ok).toBe(false)
+    const g = graph([producer('p', 'a'.repeat(64)), f, node('down', 'generation', {})])
+    // 入：上游 → 共用口
+    expect(canConnect(g.nodes[0], g.nodes[1], g, { targetPort: FUSION_PATCH_PORT })).toEqual({ ok: true })
+    // 出：共用口 → 下游
+    expect(
+      canConnect(g.nodes[1], g.nodes[2], g, { sourcePort: FUSION_PATCH_PORT, targetPort: 'input' }),
+    ).toEqual({ ok: true })
   })
 
   it('★ 原图口不接受出边（不能从 input 往外连）', () => {
@@ -199,17 +203,21 @@ describe('fusionSpec / 连线规则', () => {
     expect(check.ok).toBe(false)
   })
 
-  it('融合结果可以喂给下游生成节点（走默认 output → input）', () => {
+  it('融合结果可以喂给下游生成节点（从共用口出 → 下游 input）', () => {
     const f = node('f', 'fusion', {})
     const g = graph([f, node('down', 'generation', {})])
-    expect(canConnect(g.nodes[0], g.nodes[1], g)).toEqual({ ok: true })
+    expect(canConnect(g.nodes[0], g.nodes[1], g, { sourcePort: FUSION_PATCH_PORT })).toEqual({
+      ok: true,
+    })
+    // 默认口（output）在融合节点上**不存在**了 —— 传默认值必须被拒，不能静默连上
+    expect(canConnect(g.nodes[0], g.nodes[1], g).ok).toBe(false)
   })
 
-  it('生成节点不能作为融合节点的下游（融合没有输入给下游模型）', () => {
-    // 反向：生成节点连到融合节点的 output 口 → 方向不合法
+  it('把生成节点接到融合节点的共用口上仍然只算「入」，不会反向成环', () => {
     const f = node('f', 'fusion', {})
     const gen = node('gen', 'generation', {})
     const g = graph([f, gen])
-    expect(canConnect(gen, f, g, { targetPort: 'output' }).ok).toBe(false)
+    const check = canConnect(gen, f, g, { targetPort: FUSION_PATCH_PORT })
+    expect(check).toEqual({ ok: true })
   })
 })

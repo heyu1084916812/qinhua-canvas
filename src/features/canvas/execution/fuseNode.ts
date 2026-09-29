@@ -247,20 +247,26 @@ export async function fuseNode(deps: FuseDeps, nodeId: string): Promise<FuseOutc
        * 偏移夹在 ±24：不设上限就等于「把补丁刷成原图的颜色」，
        * 补丁自己的色彩信息会被抹掉。
        */
-      try {
-        const reference = ctx.getImageData(padded.x, padded.y, padded.w, padded.h)
-        const patchImage = lctx.getImageData(0, 0, padded.w, padded.h)
-        const offset = limitedColorOffset(ringMean(reference, inner), ringMean(patchImage, inner))
-        if (!isZeroOffset(offset)) {
-          applyOffsetInPlace(patchImage, offset)
-          lctx.putImageData(patchImage, 0, 0)
+      /**
+       * 关掉这一层时**连 getImageData 都不做**：逐像素读写是这里最贵的一步，
+       * 用户明确不想要色彩匹配时不该还付这份钱。
+       */
+      if (data.colorMatch !== false) {
+        try {
+          const reference = ctx.getImageData(padded.x, padded.y, padded.w, padded.h)
+          const patchImage = lctx.getImageData(0, 0, padded.w, padded.h)
+          const offset = limitedColorOffset(ringMean(reference, inner), ringMean(patchImage, inner))
+          if (!isZeroOffset(offset)) {
+            applyOffsetInPlace(patchImage, offset)
+            lctx.putImageData(patchImage, 0, 0)
+          }
+        } catch {
+          /**
+           * 逐像素读写失败（极少数环境的画布安全策略）时**跳过色彩匹配**继续合成，
+           * 而不是整次失败：羽化仍然生效，产物依然可用，只是色偏这一层没上。
+           * 这属于「增强项降级」，与「输入缺失」不同 —— 后者必须报错。
+           */
         }
-      } catch {
-        /**
-         * 逐像素读写失败（极少数环境的画布安全策略）时**跳过色彩匹配**继续合成，
-         * 而不是整次失败：羽化仍然生效，产物依然可用，只是色偏这一层没上。
-         * 这属于「增强项降级」，与「输入缺失」不同 —— 后者必须报错。
-         */
       }
 
       // ② 羽化：解析剖面 + 0.8px 模糊 + 选区内补回不透明

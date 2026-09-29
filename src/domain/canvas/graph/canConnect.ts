@@ -2,7 +2,7 @@ import type { NodeSnapshot } from '../model/node'
 import type { GraphSnapshot } from '../model/graph'
 import { indexNodes } from '../model/graph'
 import { getSpec } from '../nodeSpecs/registry'
-import { portDeclOf } from '../nodeSpecs/ports'
+import { portAcceptsInput, portAcceptsOutput, portDeclOf } from '../nodeSpecs/ports'
 import { DEFAULT_SOURCE_PORT, DEFAULT_TARGET_PORT, hasEdge } from '../model/edge'
 import { isReachable } from './topoSort'
 
@@ -58,10 +58,10 @@ export function canConnect(
    */
   const sourceDecl = sourceSpec ? portDeclOf(sourceSpec.ports, sourcePort) : null
   const targetDecl = targetSpec ? portDeclOf(targetSpec.ports, targetPort) : null
-  if (sourceSpec && (!sourceDecl || sourceDecl.kind !== 'output')) {
+  if (sourceSpec && !portAcceptsOutput(sourceDecl)) {
     return { ok: false, reason: `${source.type} 没有输出端点 ${sourcePort}` }
   }
-  if (targetSpec && (!targetDecl || targetDecl.kind !== 'input')) {
+  if (targetSpec && !portAcceptsInput(targetDecl)) {
     return { ok: false, reason: `${target.type} 没有输入端点 ${targetPort}` }
   }
 

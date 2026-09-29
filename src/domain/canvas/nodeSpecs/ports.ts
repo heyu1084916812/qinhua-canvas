@@ -16,7 +16,15 @@ import { DEFAULT_SOURCE_PORT, DEFAULT_TARGET_PORT } from '../model/edge'
  */
 export interface PortDecl {
   id: string
-  kind: 'input' | 'output'
+  /**
+   * 方向。
+   *
+   * `'both'` = **同一个锚点既是入也是出**（融合节点右侧那只共用口）——
+   * 大雄无限画布 `local-patch` 插件就是这个形状：那个点同时带 `in` 和 `out`
+   * 两个类，`data-target-port="patch"`，从它往外拖走的是「出」（`startLink(..., 'out')`），
+   * 上游把线拖到它身上就是「入」。用户口径：「右边只需要一个端点，可以连接多个局部图」。
+   */
+  kind: 'input' | 'output' | 'both'
   side: 'left' | 'right'
   /** 纵向位置，0 = 顶边、1 = 底边、0.5 = 中点 */
   y: number
@@ -25,8 +33,8 @@ export interface PortDecl {
   /**
    * 允许多条同源入边。
    *
-   * 默认 `false`（同一条端到端只允许一条边，防止重复连线）；融合节点的 `patch`
-   * 口置 `true` —— 同一个生成节点连两次就是「两张局部修改图」，是合法输入。
+   * 默认 `false`（同一条端到端只允许一条边，防止重复连线）；融合节点的共用口
+   * 置 `true` —— 同一个生成节点连两次就是「两张局部修改图」，是合法输入。
    */
   multi?: boolean
 }
@@ -44,6 +52,16 @@ export type PortsDeclaration = NodePorts
 
 export const INPUT_PORT: PortDecl = { id: DEFAULT_TARGET_PORT, kind: 'input', side: 'left', y: 0.5 }
 export const OUTPUT_PORT: PortDecl = { id: DEFAULT_SOURCE_PORT, kind: 'output', side: 'right', y: 0.5 }
+
+/** 这只口能不能当**出**用（`output` 与 `both` 都行） */
+export function portAcceptsOutput(decl: PortDecl | null | undefined): boolean {
+  return !!decl && (decl.kind === 'output' || decl.kind === 'both')
+}
+
+/** 这只口能不能当**入**用（`input` 与 `both` 都行） */
+export function portAcceptsInput(decl: PortDecl | null | undefined): boolean {
+  return !!decl && (decl.kind === 'input' || decl.kind === 'both')
+}
 
 /**
  * 展开节点规格的端口声明为一份完整清单。

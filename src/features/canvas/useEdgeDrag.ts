@@ -74,7 +74,8 @@ export function nearestInputPort(
 ): PortDecl | null {
   const spec = getSpec(type)
   if (!spec) return null
-  const inputs = portDeclsOf(spec.ports).filter((p) => p.kind === 'input')
+  /** 共用口（`both`）也算输入口：把线拖到它身上就是接进来（参考实现的共用口口径） */
+  const inputs = portDeclsOf(spec.ports).filter((p) => p.kind === 'input' || p.kind === 'both')
   if (inputs.length === 0) return null
   let best = inputs[0]
   let bestDist = Infinity
@@ -109,7 +110,14 @@ export function useEdgeDrag(store: CanvasStore) {
       if (!node) return
       const decl = portDeclOf(getSpec(node.type)?.ports ?? { input: false, output: false }, portId)
       if (!decl) return
-      const side: PortSide = decl.kind
+      /**
+       * 共用口（`both`）**从它往外拖 = 出**。
+       *
+       * 与参考实现一致：大雄那边给共用口的 `mousedown` 直接就是
+       * `startLink(..., 'out')`。要接「入」，由**上游**把线拖到这只口上
+       * （松手时按「离指针最近的输入口」判定，共用口算输入口）。
+       */
+      const side: PortSide = decl.kind === 'input' ? 'input' : 'output'
       containerRef.current = container
       // 新的一次拖线先收掉可能还开着的连线菜单（§6.14：菜单关闭不改变已有连线）
       store.closeLinkMenu()
@@ -240,7 +248,15 @@ function checkConnect(
   if (!dragNode || !hovered) return { ok: false, reason: '节点不存在' }
 
   let wired: WiredPorts
-  if (dragPort.kind === 'output') {
+  /**
+   * **只要不是纯输入口，从它往外拖就是「出」** —— 共用口（`both`）也算。
+   *
+   * 这与参考实现一致（共用口的 mousedown 直接是 `startLink(..., 'out')`）：
+   * 从融合节点右侧那只口拖到任意节点上，得到的是「融合结果 → 那个节点」。
+   * 反向（上游 → 融合）由**上游**出线、落在融合节点右半边来完成。
+   * 判反了的表现很隐蔽：线照样连上，只是方向反过来、语义完全错。
+   */
+  if (dragPort.kind !== 'input') {
     const world = toWorldRect(hovered, hovered.parentId ? index.get(hovered.parentId) : undefined)
     const targetPort = nearestInputPort(world, hovered.type, point)
     if (!targetPort) return { ok: false, reason: `${hovered.type} 没有输入端点` }
@@ -280,7 +296,7 @@ export interface WiredPorts {
 export function nodeHasPort(type: Parameters<typeof getSpec>[0], side: PortSide): boolean {
   const spec = getSpec(type)
   if (!spec) return false
-  return portDeclsOf(spec.ports).some((p) => p.kind === side)
+  return portDeclsOf(spec.ports).some((p) => p.kind === side || p.kind === 'both')
 }
 
 export type { Size }

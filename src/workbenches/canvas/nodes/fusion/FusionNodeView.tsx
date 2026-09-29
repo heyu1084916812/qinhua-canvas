@@ -363,35 +363,58 @@ export function FusionNodeView(props: NodeViewProps) {
           )}
         </div>
 
-        {/* ④ 底栏：比例 / 对比原图 / 融合 */}
+        {/* ④ 底栏：比例 + 颜色匹配 / 对比原图 + 融合（分两排，窄节点里才放得下） */}
         <div className={styles.footer} data-fusion-footer>
-          <RatioChip value={data.ratio ?? ''} onChange={(v) => emit({ ratio: v || undefined })} />
-          <button
-            type="button"
-            className={styles.toggle}
-            data-fusion-compare
-            aria-pressed={data.compare === true}
-            disabled={!resultHash}
-            title={resultHash ? '在原图与融合结果之间切换' : '还没有融合结果'}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => emit({ compare: !data.compare })}
-          >
-            <IconCompare />
-            <span>对比原图</span>
-          </button>
-          <button
-            type="button"
-            className={styles.run}
-            data-fusion-run
-            disabled={!canRun}
-            title={hint}
-            aria-label="融合"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => props.emit({ type: 'requestRun', mode: 'single' })}
-          >
-            <IconFuse />
-            <span>融合</span>
-          </button>
+          <div className={styles.optionRow}>
+            <RatioChip value={data.ratio ?? ''} onChange={(v) => emit({ ratio: v || undefined })} />
+            {/*
+              颜色匹配开关（参考实现的融合卡片上就是这个复选框，默认开）。
+              用原生 checkbox + `appearance: none` 自绘：**不要**用 clip / 1px 隐藏
+              原生控件 —— 那样 Playwright 的 check() 会静默失败（项目踩过这个坑）。
+            */}
+            <label
+              className={styles.check}
+              data-fusion-color-match
+              title="用外扩框边缘环的均值色差，把局部图的色偏拉回原图（每通道最多 ±24）"
+            >
+              <input
+                type="checkbox"
+                className={styles.checkBox}
+                checked={data.colorMatch !== false}
+                onPointerDown={(e) => e.stopPropagation()}
+                onChange={(e) => emit({ colorMatch: e.target.checked })}
+              />
+              <span>颜色匹配</span>
+            </label>
+          </div>
+          <div className={styles.actionRow}>
+            <button
+              type="button"
+              className={styles.toggle}
+              data-fusion-compare
+              aria-pressed={data.compare === true}
+              disabled={!resultHash}
+              title={resultHash ? '在原图与融合结果之间切换' : '还没有融合结果'}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => emit({ compare: !data.compare })}
+            >
+              <IconCompare />
+              <span>对比原图</span>
+            </button>
+            <button
+              type="button"
+              className={styles.run}
+              data-fusion-run
+              disabled={!canRun}
+              title={hint}
+              aria-label="融合"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => props.emit({ type: 'requestRun', mode: 'single' })}
+            >
+              <IconFuse />
+              <span>融合</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -104,14 +104,31 @@ export function linkMenuSections(input: {
    */
   const portsFor = (other: NodeSnapshot): { sourcePort: string; targetPort: string } => {
     const spec = getSpec(other.type)
-    const firstInput = spec ? portDeclsOf(spec.ports).find((p) => p.kind === 'input') : undefined
+    /**
+     * 对端用哪只口：优先真正的输入口，其次**共用口**（`both`）。
+     * 只认 `kind === 'input'` 的话，一个只有共用口的节点在菜单里会永远连不上
+     * （退回到不存在的默认口 ⇒ `canConnect` 直接拒）。
+     */
+    const decls = spec ? portDeclsOf(spec.ports) : []
+    /**
+     * 对端的「出」口同理：优先真正的输出口，其次**共用口**。
+     * 写死 `output` 会让「从别人的输入口反拖找上游」列不出融合节点 ——
+     * 它的出边是从共用口走的（实测：G91 之外，这条险些把融合节点从菜单里漏掉）。
+     */
+    const firstOutput =
+      decls.find((p) => p.kind === 'output') ?? decls.find((p) => p.kind === 'both')
+    const firstInput =
+      decls.find((p) => p.kind === 'input') ?? decls.find((p) => p.kind === 'both')
     if (side === 'output') {
       return {
         sourcePort: portId ?? DEFAULT_SOURCE_PORT,
         targetPort: firstInput?.id ?? DEFAULT_TARGET_PORT,
       }
     }
-    return { sourcePort: DEFAULT_SOURCE_PORT, targetPort: portId ?? DEFAULT_TARGET_PORT }
+    return {
+      sourcePort: firstOutput?.id ?? DEFAULT_SOURCE_PORT,
+      targetPort: portId ?? DEFAULT_TARGET_PORT,
+    }
   }
 
   // 新建节点落在与拖线起点同一个父级下：画板内的节点只与画板内建连，

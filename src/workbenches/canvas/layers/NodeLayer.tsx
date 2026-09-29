@@ -280,7 +280,12 @@ export const NodeLayer = memo(function NodeLayer({
     for (const n of g.nodes) {
       const spec = getSpec(n.type)
       if (!spec) continue
-      const inputs = portDeclsOf(spec.ports).filter((p) => p.kind === 'input')
+      /**
+       * **共用口（`both`）也算输入口**：融合节点右侧那只口就是 `both`，
+       * 只认 `kind === 'input'` 会让它整条被跳过 ⇒ 视图拿不到按口分组的素材，
+       * 表现为「线连上了、节点里却写着『把一张完整原图连到左侧』」（实测踩到）。
+       */
+      const inputs = portDeclsOf(spec.ports).filter((p) => p.kind === 'input' || p.kind === 'both')
       // 单口节点：upstreamAssetHashes 已经表达了同一件事，不必再算一份
       if (inputs.length < 2) continue
       const byPort: Record<string, string[]> = {}
