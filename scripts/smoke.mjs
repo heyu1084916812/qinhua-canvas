@@ -11810,20 +11810,17 @@ async function g89(browser) {
 }
 
 /**
- * G90 我的素材页（`/assets`，用户 2026-09-29：素材库工作区）。
+ * G90 我的素材页（`/assets`，用户 2026-09-29：手动收藏素材库）。
  *
- * 这个页面此前是**占位页**，素材本体却一直在 `assets` 表里。本轮把它做成
- * 真工作区，故断言分三层，缺一层都会留下「看起来做完了」的假象：
+ * 这里验证的是**收藏关系**，不是 `assets` 内容仓库：只有 `assetLibrary`
+ * 里的行才该出现。断言分三层，缺一层都会留下「看起来做完了」的假象：
  *
- *  ① **数据层**：种子直接写 IndexedDB（图片 / 视频各一张，带不同的
- *     createdAt 与 projectId），验证页面读回来的就是这几张 —— 只断言
- *     「有卡片」的话，渲染出一排空壳照样全绿。
- *  ② **排序与来源**：新的在前 + 卡片上写的是项目名而不是 hash。
- *     这两条是素材库的核心价值（翻找与溯源），也是最容易被
- *     「按 hash 排序 / 显示 hash」糊过去的地方。
- *  ③ **交互**：类型筛选、关键字筛选、大图预览、删除。
- *     预览要断言 `naturalWidth > 0`——只查 DOM 存在的话，一张 404 空图
- *     也会算「预览打开了」。
+ *  ① **收藏过滤**：`assets` 故意多放一张未收藏图，页面必须只列 2 张
+ *     `assetLibrary` 行；取消收藏后断言关系表少一行而 assets 字节仍在。
+ *  ② **展示**：卡片不再显示项目 / 时间 / 体积，媒体 `contain` 完整显示；
+ *     瀑布流高度由真实素材比例驱动。
+ *  ③ **交互与详情**：单击只能选中，双击才开灯箱；七类信息必须是保存时
+ *     冻结的值；视频配色明确显示“暂不可用”；空库文案精确可断言。
  */
 async function g90(browser) {
   const g = 'G90 我的素材页'
@@ -11866,63 +11863,128 @@ async function g90(browser) {
       })
 
     const now = Date.now()
-    await put('projects', [
-      { id: 'p-g90-a', name: '猫咪项目', workbench: 'canvas', createdAt: now, updatedAt: now },
-      { id: 'p-g90-b', name: '狗狗项目', workbench: 'canvas', createdAt: now, updatedAt: now },
-    ])
     /**
-     * 四张图，比例刻意错开：横 16:9 / 方 1:1 / 竖 9:16 / 极端长图。
-     *
-     * 瀑布流的断言需要**高度不齐的样本**才成立 —— 四张同比例的图
-     * 会排出一个等高网格，「高度随比例变化」那条断言就恒真了。
+     * `assets` 是内容仓库：这里故意多放一张“没有收藏关系”的图。
+     * 素材页若仍扫描 assets 表，它就会错误出现；只读 assetLibrary 才不会。
      */
     await put('assets', [
       {
-        id: 'g90-img',
-        hash: 'g90-img',
+        id: 'g90-saved',
+        hash: 'g90-saved',
         mime: 'image/png',
         bytes,
         width: 64,
         height: 36,
-        createdAt: now - 1000,
-        projectId: 'p-g90-a',
       },
       {
         id: 'g90-vid',
         hash: 'g90-vid',
         mime: 'video/mp4',
         bytes,
-        createdAt: now,
-        projectId: 'p-g90-b',
       },
       {
-        id: 'g90-wide',
-        hash: 'g90-wide',
+        id: 'g90-not-saved',
+        hash: 'g90-not-saved',
         mime: 'image/png',
         bytes,
-        width: 1600,
-        height: 400,
-        createdAt: now - 3000,
-        projectId: 'p-g90-a',
+        width: 64,
+        height: 36,
       },
       {
-        id: 'g90-tall',
-        hash: 'g90-tall',
+        id: 'g90-save-me',
+        hash: 'g90-save-me',
         mime: 'image/png',
         bytes,
-        width: 400,
-        height: 1600,
-        createdAt: now + 1000,
-        projectId: 'p-g90-b',
+        width: 64,
+        height: 36,
       },
     ])
-    return { assets: 4, projects: 2 }
+    await put('assetLibrary', [
+      {
+        id: 'g90-saved',
+        hash: 'g90-saved',
+        mime: 'image/png',
+        bytes: bytes.length,
+        width: 64,
+        height: 36,
+        savedAt: now - 1000,
+        prompt: '月光下的猫咪',
+        ratio: '16:9',
+        quality: 'high',
+        model: 'image-pro',
+        channelId: 'ch-cat',
+      },
+      {
+        id: 'g90-vid',
+        hash: 'g90-vid',
+        mime: 'video/mp4',
+        bytes: bytes.length,
+        savedAt: now,
+        prompt: '奔跑的狗狗',
+        ratio: '4:3',
+        quality: 'medium',
+        model: 'video-x',
+        channelId: 'ch-dog',
+      },
+    ])
+    await put('projects', [
+      { id: 'p-g90-save', name: '保存链路', workbench: 'canvas', createdAt: now, updatedAt: now },
+    ])
+    await put('nodes', [
+      {
+        id: 'n-g90-save',
+        projectId: 'p-g90-save',
+        type: 'generation',
+        parentId: null,
+        x: 200,
+        y: 180,
+        w: 240,
+        h: 240,
+        title: '生成',
+        disabled: false,
+        data: {
+          mode: 'image',
+          assetHash: 'g90-save-me',
+          naturalSize: { width: 64, height: 36 },
+          prompt: '节点提示词',
+          linkedPromptNodeIds: [],
+          channelId: 'node-channel',
+          model: 'node-model',
+          ratio: '16:9',
+          quality: 'high',
+          count: 1,
+          thumbOrder: ['g90-save-me'],
+          upstreamHidden: [],
+        },
+      },
+    ])
+    await put('runRecords', [
+      {
+        id: 'r-g90-save',
+        nodeId: 'n-g90-save',
+        projectId: 'p-g90-save',
+        version: 1,
+        createdAt: now,
+        status: 'succeeded',
+        inputs: [],
+        params: { prompt: '冻结提示词', ratio: '4:3', quality: 'medium' },
+        outputHashes: ['g90-save-me'],
+        fingerprint: 'fp-g90',
+        taskId: 't-g90',
+        durationMs: 1,
+        sentChannelId: 'sent-channel',
+        sentModel: 'sent-model',
+        outputWidth: 64,
+        outputHeight: 36,
+      },
+    ])
+    return { assets: 4, library: 2, projects: 1 }
   }, { pngB64: solidPngBuffer(64, 36).toString('base64') })
 
   rec(
     g,
-    '种子已写入 IndexedDB（4 个素材 / 2 个项目）',
-    seeded.assets === 4 && seeded.projects === 2,
+    '种子已写入 IndexedDB（内容仓库 4 张，其中仅 2 张被收藏，另备保存链路节点）',
+    seeded.assets === 4 && seeded.library === 2 && seeded.projects === 1,
     JSON.stringify(seeded),
   )
 
@@ -11941,12 +12003,17 @@ async function g90(browser) {
   let count = 0
   for (let i = 0; i < 20; i += 1) {
     count = await cards.count()
-    if (count >= 4) break
+    if (count >= 2) break
     await sleep(250)
   }
-  rec(g, '★★ 素材库列出了库里的素材（4 张）', count === 4, `cards=${count}`)
+  rec(g, '★★ 素材库只列手动收藏的素材（2 张，不是 assets 里的 3 张）', count === 2, `cards=${count}`)
+  rec(
+    g,
+    '★★ 未收藏的 assets 内容不出现',
+    (await page.locator('[data-asset-card="g90-not-saved"]').count()) === 0,
+  )
   const countText = await page.locator('[data-assets-count]').innerText().catch(() => '')
-  rec(g, '★ 计数文案说的是总数', /共\s*4\s*个素材/.test(countText), countText.trim())
+  rec(g, '★ 计数文案说的是收藏总数', /共\s*2\s*个素材/.test(countText), countText.trim())
 
   /*
    * ── ② 排序 ──
@@ -11962,21 +12029,22 @@ async function g90(browser) {
   const rank = (h) => order.indexOf(h)
   rec(
     g,
-    '★★ 新的在前（竖图最晚，横图最早）',
-    rank('g90-tall') === 0 && rank('g90-wide') === 3,
+    '★★ 新的在前（视频晚于图片保存）',
+    rank('g90-vid') === 0 && rank('g90-saved') === 1,
     order.join(','),
   )
 
-  const sources = await page.locator('[data-asset-source]').allInnerTexts()
+  const cardText = await page.locator('[data-asset-card]').allInnerTexts()
   rec(
     g,
-    '★★ 卡片显示来源**项目名**而不是 hash',
-    sources.includes('猫咪项目') && sources.includes('狗狗项目') && !sources.some((s) => /g90-/.test(s)),
-    sources.join(' | '),
+    '★★ 卡片下面不再显示项目 / 时间 / 体积等文字',
+    (await page.locator('[data-asset-source], [data-asset-meta]').count()) === 0 &&
+      cardText.every((text) => text.trim() === '⋯' || text.trim() === ''),
+    cardText.join(' | '),
   )
 
   const imgDecoded = await page
-    .locator('[data-asset-card="g90-img"] [data-asset-media]')
+    .locator('[data-asset-card="g90-saved"] [data-asset-media]')
     .evaluate((el) => el.naturalWidth)
     .catch(() => 0)
   rec(
@@ -12047,21 +12115,26 @@ async function g90(browser) {
   const hOf = (h) => masonry.boxes.find((b) => b.hash === h)?.h ?? 0
   rec(
     g,
-    '★★ 竖图比横图高（比例方向正确，不是随机错落）',
-    hOf('g90-tall') > hOf('g90-img') && hOf('g90-img') > hOf('g90-wide'),
-    `tall=${hOf('g90-tall')} img=${hOf('g90-img')} wide=${hOf('g90-wide')}`,
+    '★★ 视频占位高度与图片不同（比例方向由数据驱动）',
+    hOf('g90-vid') > hOf('g90-saved'),
+    `vid=${hOf('g90-vid')} img=${hOf('g90-saved')}`,
   )
 
-  /* 极端长图被夹住，不会把整列撑成一根面条 */
-  const tallAspect = await page
-    .getAttribute('[data-asset-card="g90-tall"] [data-asset-thumb]', 'data-asset-aspect')
+  /* 比例不再夹取；素材完整展示而不是被裁成统一封面 */
+  const savedAspect = await page
+    .getAttribute('[data-asset-card="g90-saved"] [data-asset-thumb]', 'data-asset-aspect')
     .catch(() => null)
   rec(
     g,
-    '★ 极端比例被夹在 2:1 ~ 1:2（长图不会把一列撑成面条）',
-    Number(tallAspect) >= 0.5 && Number(tallAspect) <= 2,
-    `aspect=${tallAspect}`,
+    '★ 卡片比例取素材真实比例（16:9 不被夹取）',
+    Math.abs(Number(savedAspect) - 64 / 36) < 0.01,
+    `aspect=${savedAspect}`,
   )
+
+  const fit = await page
+    .locator('[data-asset-card="g90-saved"] [data-asset-media]')
+    .evaluate((el) => getComputedStyle(el).objectFit)
+  rec(g, '★★ 图片完整显示（object-fit: contain，不裁切）', fit === 'contain', `fit=${fit}`)
 
   // ── ③ 类型筛选 ──
   await page.locator('[data-assets-filter="image"]').click()
@@ -12069,7 +12142,7 @@ async function g90(browser) {
   rec(
     g,
     '★ 筛「图片」时视频不出现',
-    (await page.locator('[data-asset-card]').count()) === 3 &&
+    (await page.locator('[data-asset-card]').count()) === 1 &&
       (await page.locator('[data-asset-card="g90-vid"]').count()) === 0,
     `count=${await page.locator('[data-asset-card]').count()}`,
   )
@@ -12084,27 +12157,36 @@ async function g90(browser) {
   await page.locator('[data-assets-filter="all"]').click()
   await sleep(400)
 
-  // ── ③ 关键字筛选（按项目名）──
+  // ── ③ 关键字筛选（按冻结的生成信息）──
   await page.locator('[data-assets-search]').fill('猫咪')
   await sleep(400)
   rec(
     g,
-    '★ 关键字能按来源项目名筛（只剩猫咪项目那两张）',
-    (await page.locator('[data-asset-card]').count()) === 2 &&
+    '★ 关键字能按提示词筛（只剩猫咪那张）',
+    (await page.locator('[data-asset-card]').count()) === 1 &&
       (await page.locator('[data-asset-card="g90-vid"]').count()) === 0,
     `count=${await page.locator('[data-asset-card]').count()}`,
   )
   await page.locator('[data-assets-search]').fill('')
   await sleep(400)
 
-  // ── ③ 大图预览 ──
-  await page.locator('[data-asset-card="g90-img"] [data-asset-open]').click()
-  await sleep(500)
-  rec(g, '点卡片打开预览浮层', (await page.locator('[data-asset-preview]').count()) === 1)
+  // ── ③ 单击选中、双击开灯箱 ──
+  const imageCard = page.locator('[data-asset-card="g90-saved"]')
+  await imageCard.locator('[data-asset-open]').click()
+  await sleep(250)
   rec(
     g,
-    '★★ 预览打开的正是这张（hash 对得上）',
-    (await page.getAttribute('[data-asset-preview]', 'data-asset-preview-hash')) === 'g90-img',
+    '★★ 第一次单击只选中，不直接打开灯箱',
+    (await imageCard.getAttribute('data-asset-selected')) === 'true' &&
+      (await page.locator('[data-asset-preview]').count()) === 0,
+  )
+  await imageCard.locator('[data-asset-open]').dblclick()
+  await sleep(700)
+  rec(g, '★★ 双击卡片打开灯箱', (await page.locator('[data-asset-preview]').count()) === 1)
+  rec(
+    g,
+    '★★ 灯箱打开的正是这张（hash 对得上）',
+    (await page.getAttribute('[data-asset-preview]', 'data-asset-preview-hash')) === 'g90-saved',
   )
   const previewW = await page
     .locator('[data-asset-preview-media]')
@@ -12112,55 +12194,213 @@ async function g90(browser) {
     .catch(() => 0)
   rec(
     g,
-    '★★ 预览里的图真的画出来了（naturalWidth=64，404 空图会数出 1 个却宽 0）',
+    '★★ 灯箱里的图真的画出来了（naturalWidth=64）',
     previewW === 64,
     `naturalWidth=${previewW}`,
   )
-  const previewSource = await page.locator('[data-asset-preview-source]').innerText().catch(() => '')
-  rec(g, '预览显示来源项目', previewSource.trim() === '猫咪项目', previewSource.trim())
+  const previewLayout = await page.evaluate(() => {
+    const stage = document.querySelector('[data-asset-preview-stage]')
+    const details = document.querySelector('[data-asset-preview-details]')
+    if (!stage || !details) return null
+    const s = stage.getBoundingClientRect()
+    const d = details.getBoundingClientRect()
+    return {
+      railRight: d.left >= s.right - 2,
+      activeClose: document.activeElement === document.querySelector('[data-asset-preview-close]'),
+      paletteWidth: document.querySelector('[data-asset-preview-palette]')?.getBoundingClientRect().width ?? 0,
+      promptWidth: document.querySelector('[data-asset-preview-prompt]')?.getBoundingClientRect().width ?? 0,
+    }
+  })
+  rec(
+    g,
+    '★★ 灯箱是媒体舞台 + 右侧信息栏（不是卡片套装）',
+    !!previewLayout && previewLayout.railRight,
+    JSON.stringify(previewLayout),
+  )
+  rec(
+    g,
+    '★ 灯箱打开后焦点落在关闭按钮，键盘可达',
+    !!previewLayout?.activeClose,
+  )
+  rec(
+    g,
+    '★ 配色与提示词各有独立阅读区',
+    !!previewLayout && previewLayout.paletteWidth > 200 && previewLayout.promptWidth > 200,
+    JSON.stringify(previewLayout),
+  )
 
-  // Esc 关闭（与画布灯箱同一手感）
+  const detailSelectors = [
+    '[data-asset-preview-palette]',
+    '[data-asset-preview-prompt]',
+    '[data-asset-preview-size]',
+    '[data-asset-preview-ratio]',
+    '[data-asset-preview-quality]',
+    '[data-asset-preview-model]',
+    '[data-asset-preview-channel]',
+  ]
+  rec(
+    g,
+    '★★ 右侧七类信息齐全（配色 / 提示词 / 像素 / 比例 / 画质 / 模型 / 渠道）',
+    (await Promise.all(detailSelectors.map((selector) => page.locator(selector).count()))).every(
+      (n) => n === 1,
+    ),
+  )
+  const details = await page.evaluate((selectors) => {
+    const read = (selector) => document.querySelector(selector)?.textContent?.trim() ?? ''
+    return selectors.map(read)
+  }, detailSelectors)
+  rec(
+    g,
+    '★★ 详情显示保存时冻结的真实内容',
+    details[0].includes('#') &&
+      details[1] === '月光下的猫咪' &&
+      details[2] === '64 × 36' &&
+      details[3] === '16:9' &&
+      details[4] === 'high' &&
+      details[5] === 'image-pro' &&
+      details[6] === 'ch-cat',
+    details.join(' | '),
+  )
+
+  // 视频配色没有统一取色口径，必须明确显示暂不可用，而不是空白或伪造色。
+  await page.locator('[data-asset-preview-close]').click()
+  await sleep(250)
+  const videoCard = page.locator('[data-asset-card="g90-vid"]')
+  await videoCard.locator('[data-asset-open]').dblclick()
+  await sleep(500)
+  const videoPalette = await page.locator('[data-asset-preview-palette]').innerText().catch(() => '')
+  rec(g, '★★ 视频的配色方案显示暂不可用', videoPalette.trim() === '暂不可用', videoPalette.trim())
   await page.keyboard.press('Escape')
   await sleep(400)
-  rec(g, '★ Esc 关闭预览', (await page.locator('[data-asset-preview]').count()) === 0)
+  rec(g, '★ Esc 关闭灯箱', (await page.locator('[data-asset-preview]').count()) === 0)
 
-  // ── ③ 删除（二次确认）──
-  const target = page.locator('[data-asset-card="g90-vid"]')
-  await target.locator('[data-asset-menu]').click()
-  await sleep(300)
-  await target.getByRole('menuitem', { name: '删除' }).click()
-  await sleep(300)
-  rec(g, '删除前要二次确认（不是一点就没）', (await page.locator('[data-asset-delete-yes]').count()) === 1)
-  await page.locator('[data-asset-delete-yes]').click()
+  // ── ③ 取消收藏：只删关系，不删 assets 字节 ──
+  await imageCard.locator('[data-asset-open]').dblclick()
+  await sleep(400)
+  rec(
+    g,
+    '★ 灯箱提供取消收藏入口',
+    (await page.locator('[data-asset-preview-remove]').count()) === 1,
+  )
+  await page.locator('[data-asset-preview-remove]').click()
   await sleep(600)
   rec(
     g,
-    '★ 删除后卡片消失',
-    (await page.locator('[data-asset-card]').count()) === 3 &&
-      (await page.locator('[data-asset-card="g90-vid"]').count()) === 0,
+    '★ 灯箱取消收藏后卡片消失',
+    (await page.locator('[data-asset-card="g90-saved"]').count()) === 0 &&
+      (await page.locator('[data-asset-card]').count()) === 1,
     `count=${await page.locator('[data-asset-card]').count()}`,
   )
 
-  // 库里也要真的没了（只消失在界面上 = 刷新又回来）
-  const left = await page.evaluate(async () => {
+  const afterImageRemoval = await page.evaluate(async () => {
     const db = await new Promise((resolve, reject) => {
       const req = indexedDB.open('qinghua')
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => reject(req.error)
     })
-    return new Promise((resolve) => {
-      const tx = db.transaction('assets', 'readonly')
-      const req = tx.objectStore('assets').getAllKeys()
-      req.onsuccess = () => resolve(req.result)
-      req.onerror = () => resolve([])
-    })
+    const keys = (table) =>
+      new Promise((resolve) => {
+        const tx = db.transaction(table, 'readonly')
+        const req = tx.objectStore(table).getAllKeys()
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => resolve([])
+      })
+    return { library: await keys('assetLibrary'), assets: await keys('assets') }
   })
   rec(
     g,
-    '★★ 删除真的落库（assets 表里没了，不只是界面上消失）',
-    Array.isArray(left) && !left.includes('g90-vid') && left.includes('g90-img'),
-    JSON.stringify(left),
+    '★★★ 取消收藏只删关系，assets 字节仍在（画布引用不会被弄坏）',
+    Array.isArray(afterImageRemoval.library) &&
+      !afterImageRemoval.library.includes('g90-saved') &&
+      afterImageRemoval.assets.includes('g90-saved'),
+    JSON.stringify(afterImageRemoval),
   )
+
+  // ── 卡片菜单同样用二次确认取消收藏 ──
+  const target = page.locator('[data-asset-card="g90-vid"]')
+  await target.locator('[data-asset-menu]').click()
+  await sleep(300)
+  await target.getByRole('menuitem', { name: '取消收藏' }).click()
+  await sleep(300)
+  rec(
+    g,
+    '取消收藏前要二次确认（不是一点就没）',
+    (await page.locator('[data-asset-delete-yes]').count()) === 1,
+  )
+  await page.locator('[data-asset-delete-yes]').click()
+  await sleep(600)
+  rec(
+    g,
+    '★ 取消收藏后卡片消失',
+    (await page.locator('[data-asset-card]').count()) === 0 &&
+      (await page.locator('[data-asset-card="g90-vid"]').count()) === 0,
+    `count=${await page.locator('[data-asset-card]').count()}`,
+  )
+
+  const emptyHint = await page.locator('[data-assets-empty-hint]').innerText().catch(() => '')
+  rec(
+    g,
+    '★★ 空库文案精确说明素材从生成节点保存',
+    emptyHint.trim() === '从生成节点保存素材后才会出现在这里。',
+    emptyHint.trim(),
+  )
+
+  // ── ③ 从真实生成节点的右键菜单保存，再回素材库看到这张 ──
+  await page.goto(`${BASE}/canvas/p-g90-save`, { waitUntil: 'networkidle' })
+  await sleep(700)
+  const saveNode = page.locator('[data-node-id="n-g90-save"]')
+  rec(g, '保存链路节点已装载', (await saveNode.count()) === 1)
+  await saveNode.click({ position: { x: 120, y: 20 } })
+  await page.waitForTimeout(250)
+  await saveNode.locator('[data-node-asset-menu]').click()
+  await page.waitForTimeout(200)
+  const nodeAssetMenuText = await saveNode.locator('[data-asset-menu]').innerText().catch(() => '')
+  rec(
+    g,
+    '★ 保存入口不再藏在节点右上角素材菜单里',
+    !nodeAssetMenuText.includes('保存到素材库'),
+    nodeAssetMenuText.replace(/\s+/g, ' ').trim(),
+  )
+  await page.keyboard.press('Escape')
+  await page.waitForTimeout(200)
+  await saveNode.click({ button: 'right', position: { x: 120, y: 20 } })
+  await sleep(250)
+  rec(
+    g,
+    '★★ 生成节点右键菜单提供“保存到素材库”',
+    (await page.locator('[data-context-menu-item="saveLibrary"]').count()) === 1,
+  )
+  await page.locator('[data-context-menu-item="saveLibrary"]').click()
+  await sleep(700)
+
+  await page.goto(`${BASE}/assets`, { waitUntil: 'networkidle' })
+  await sleep(700)
+  rec(
+    g,
+    '★★ 保存后素材进入收藏库',
+    (await page.locator('[data-asset-card="g90-save-me"]').count()) === 1,
+  )
+  await page.locator('[data-asset-card="g90-save-me"] [data-asset-open]').dblclick()
+  await sleep(500)
+  const savedDetails = await page.evaluate(() => ({
+    prompt: document.querySelector('[data-asset-preview-prompt]')?.textContent?.trim(),
+    ratio: document.querySelector('[data-asset-preview-ratio]')?.textContent?.trim(),
+    quality: document.querySelector('[data-asset-preview-quality]')?.textContent?.trim(),
+    model: document.querySelector('[data-asset-preview-model]')?.textContent?.trim(),
+    channel: document.querySelector('[data-asset-preview-channel]')?.textContent?.trim(),
+  }))
+  rec(
+    g,
+    '★★ 保存时冻结的是实际发送记录，而不是节点当前值',
+    savedDetails.prompt === '冻结提示词' &&
+      savedDetails.ratio === '4:3' &&
+      savedDetails.quality === 'medium' &&
+      savedDetails.model === 'sent-model' &&
+      savedDetails.channel === 'sent-channel',
+    JSON.stringify(savedDetails),
+  )
+  await page.keyboard.press('Escape')
+  await sleep(300)
 
   // ── 几何：内容随工作区居中（与技能库 / 设置页同一口径）──
   const geo = await page.evaluate(() => {

@@ -17,6 +17,7 @@ export type ContextMenuAction =
   | { kind: 'duplicate' }
   | { kind: 'rename' }
   | { kind: 'fullscreenEdit' }
+  | { kind: 'saveLibrary' }
   | { kind: 'delete' }
   | { kind: 'create'; type: NodeType }
   | { kind: 'paste' }
@@ -71,12 +72,22 @@ const RUNNABLE: ReadonlySet<NodeType> = new Set<NodeType>(['generation', 'batch'
  * 「全屏编辑」2026-09-21 落地：提示词节点多一项，打开**文本编辑灯箱**（§6.7）。
  * 它放在「编辑类」——与复制 / 重命名同一组（§4.1 的分组约定）。
  */
-export function nodeMenuItems(type: NodeType): ContextMenuItem[] {
+export function nodeMenuItems(
+  type: NodeType,
+  opts: { hasAsset?: boolean } = {},
+): ContextMenuItem[] {
   const items: ContextMenuItem[] = []
   if (type === 'board') {
     items.push({ id: 'runBoard', label: '运行画板', action: { kind: 'runBoard' }, separatorAfter: true })
   } else if (RUNNABLE.has(type)) {
     items.push({ id: 'run', label: '生成', action: { kind: 'run' }, separatorAfter: true })
+  }
+  if (type === 'generation' && opts.hasAsset) {
+    items.push({
+      id: 'saveLibrary',
+      label: '保存到素材库',
+      action: { kind: 'saveLibrary' },
+    })
   }
   items.push({ id: 'duplicate', label: '复制', action: { kind: 'duplicate' } })
   // 只有提示词节点有正文可编辑；其它类型的「正文」概念不存在

@@ -167,7 +167,7 @@ export function GenerationNodeView(props: NodeViewProps) {
               <path d="M10.8 11.8 13.2 9.5l-2.4-2.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             <span className={styles.tooltip} role="tooltip">
-              替换素材
+              素材操作
             </span>
           </button>
           {menuOpen && (
