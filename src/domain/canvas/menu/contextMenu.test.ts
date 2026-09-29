@@ -55,6 +55,18 @@ describe('nodeMenuItems / 节点右键菜单（§4.1）', () => {
     }
   })
 
+  it('★ 生成节点已有素材时，右键菜单提供「保存到素材库」', () => {
+    const items = nodeMenuItems('generation', { hasAsset: true })
+    expect(ids(items)).toEqual(['run', 'saveLibrary', 'duplicate', 'rename', 'delete'])
+    expect(items.find((i) => i.id === 'saveLibrary')!.action).toEqual({ kind: 'saveLibrary' })
+  })
+
+  it('空生成节点或非生成节点不列「保存到素材库」', () => {
+    expect(ids(nodeMenuItems('generation', { hasAsset: false }))).not.toContain('saveLibrary')
+    expect(ids(nodeMenuItems('batch', { hasAsset: true }))).not.toContain('saveLibrary')
+    expect(ids(nodeMenuItems('prompt', { hasAsset: true }))).not.toContain('saveLibrary')
+  })
+
   /**
    * §6.21 版本历史已随功能下线（2026-09-16 拍板，2026-09-17 拆除入口）。
    * 这条断言的方向随之反转：不是「必须有」，而是**任何节点类型都不许再有**——

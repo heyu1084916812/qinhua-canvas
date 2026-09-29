@@ -5,8 +5,7 @@ import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import type { NodeViewEvent } from '../../workbenches/canvas/nodes/registry'
 import { importAssetFile } from './importAsset'
 import { assetNodeSize } from '../../domain/canvas/layout/assetNodeSize'
-import { buildLibraryAssetSnapshot } from '../../domain/shared/assetLibrary'
-import { createAssetLibraryRepository } from '../../state/project/assetLibraryRepository'
+import { saveAssetToLibrary } from './saveAssetToLibrary'
 
 /**
  * 视图事件 → 命令 的翻译层（架构 §4.7 ①）。
@@ -52,39 +51,16 @@ export function useCanvasPageEvents(store: CanvasStore, onOpenSettings?: () => v
    */
   const handleSaveOwnAsset = useCallback(
     async (nodeId: string) => {
-      const node = store.getSnapshot().nodes.find((n) => n.id === nodeId)
-      const hash = (node?.data as { assetHash?: string } | undefined)?.assetHash
-      if (!node || !hash) return
-
-      try {
-        const [asset] = await platform.storage.query('assets', { id: hash })
-        if (!asset) {
-          store.showUndoBar('素材尚未落库，暂时无法保存')
-          return
-        }
-        const runRecords = await platform.storage
-          .query('runRecords', {})
-          .catch(() => [])
-        const snapshot = buildLibraryAssetSnapshot({
-          hash,
-          asset: asset as unknown as Parameters<typeof buildLibraryAssetSnapshot>[0]['asset'],
-          node: node as unknown as Parameters<typeof buildLibraryAssetSnapshot>[0]['node'],
-          runRecords: runRecords as unknown as Parameters<
-            typeof buildLibraryAssetSnapshot
-          >[0]['runRecords'],
-          savedAt: Date.now(),
-        })
-        if (!snapshot) {
-          store.showUndoBar('素材尚未落库，暂时无法保存')
-          return
-        }
-        await createAssetLibraryRepository(platform.storage).save(snapshot)
+      const result = await saveAssetToLibrary({ platform, store }, nodeId)
+      if (result.ok) {
         store.showUndoBar('已保存到素材库')
-      } catch {
-        store.showUndoBar('保存到素材库失败')
+        return
       }
+      store.showUndoBar(
+        result.reason === 'missing' ? '素材尚未落库，暂时无法保存' : '保存到素材库失败',
+      )
     },
-    [platform.storage, store],
+    [platform, store],
   )
 
   const emitNodeEvent = useCallback(

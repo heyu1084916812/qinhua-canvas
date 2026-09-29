@@ -13,7 +13,9 @@ import { fitCanvasView } from '../surface/fitView'
 import { NODE_MINIMUMS } from '../../../domain/canvas/layout/constants'
 import { createId } from '../../../shared/id'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
+import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { createNodeWithDefaults } from '../../../features/canvas/createNodeWithDefaults'
+import { saveAssetToLibrary } from '../../../features/canvas/saveAssetToLibrary'
 import styles from './ContextMenu.module.css'
 import {
   IconBatch,
@@ -50,6 +52,13 @@ const MENU_ICON: Record<string, ReactNode> = {
    */
   'create:loop': <IconLoop size={MENU_ICON_SIZE} />,
   'create:board': <IconBoard size={MENU_ICON_SIZE} />,
+  saveLibrary: (
+    <svg width={MENU_ICON_SIZE} height={MENU_ICON_SIZE} viewBox="0 0 18 18" fill="none" aria-hidden>
+      <path d="M9 2.5v8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="m5.8 7.6 3.2 3.2 3.2-3.2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M3 12.2v1.6a1.8 1.8 0 0 0 1.8 1.8h8.4a1.8 1.8 0 0 0 1.8-1.8v-1.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  ),
   resetView: <IconReset size={MENU_ICON_SIZE} />,
 }
 
@@ -64,6 +73,7 @@ export function ContextMenu() {
   const store = useCanvasStore()
   const graph = useGraph()
   const exec = useCanvasExecution()
+  const platform = usePlatform()
   /** 新建节点要带默认配方（用户 2026-09-23：三个入口必须同源） */
   const channels = useChannels()
   const ref = useRef<HTMLDivElement>(null)
@@ -102,8 +112,10 @@ export function ContextMenu() {
   if (!menu) return null
 
   const nodeId = menu.target.kind === 'node' ? menu.target.nodeId : null
+  const node = nodeId ? graph.nodes.find((n) => n.id === nodeId) : null
+  const hasAsset = !!(node?.data as { assetHash?: string } | undefined)?.assetHash
   const items: ContextMenuItem[] = nodeId
-    ? nodeMenuItems(graph.nodes.find((n) => n.id === nodeId)?.type ?? 'prompt')
+    ? nodeMenuItems(node?.type ?? 'prompt', { hasAsset })
     // 剪贴板是模块级单例、不触发重渲染；菜单每次打开都会重算这里，故读到的即当前值
     : canvasMenuItems({ canPaste: hasClipboard() })
 
@@ -139,6 +151,16 @@ export function ContextMenu() {
         store.beginRename(nodeId)
       } else if (a.kind === 'fullscreenEdit') {
         store.openTextEditor(nodeId)
+      } else if (a.kind === 'saveLibrary') {
+        void saveAssetToLibrary({ platform, store }, nodeId).then((result) => {
+          if (result.ok) {
+            store.showUndoBar('已保存到素材库')
+          } else {
+            store.showUndoBar(
+              result.reason === 'missing' ? '素材尚未落库，暂时无法保存' : '保存到素材库失败',
+            )
+          }
+        })
       } else if (a.kind === 'delete') {
         store.dispatch({ kind: 'node.delete', ids: [nodeId] })
         store.setSelection([])

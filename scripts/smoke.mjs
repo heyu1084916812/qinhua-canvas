@@ -11861,6 +11861,14 @@ async function g90(browser) {
         width: 64,
         height: 36,
       },
+      {
+        id: 'g90-save-me',
+        hash: 'g90-save-me',
+        mime: 'image/png',
+        bytes,
+        width: 64,
+        height: 36,
+      },
     ])
     await put('assetLibrary', [
       {
@@ -11890,13 +11898,64 @@ async function g90(browser) {
         channelId: 'ch-dog',
       },
     ])
-    return { assets: 3, library: 2 }
+    await put('projects', [
+      { id: 'p-g90-save', name: '保存链路', workbench: 'canvas', createdAt: now, updatedAt: now },
+    ])
+    await put('nodes', [
+      {
+        id: 'n-g90-save',
+        projectId: 'p-g90-save',
+        type: 'generation',
+        parentId: null,
+        x: 200,
+        y: 180,
+        w: 240,
+        h: 240,
+        title: '生成',
+        disabled: false,
+        data: {
+          mode: 'image',
+          assetHash: 'g90-save-me',
+          naturalSize: { width: 64, height: 36 },
+          prompt: '节点提示词',
+          linkedPromptNodeIds: [],
+          channelId: 'node-channel',
+          model: 'node-model',
+          ratio: '16:9',
+          quality: 'high',
+          count: 1,
+          thumbOrder: ['g90-save-me'],
+          upstreamHidden: [],
+        },
+      },
+    ])
+    await put('runRecords', [
+      {
+        id: 'r-g90-save',
+        nodeId: 'n-g90-save',
+        projectId: 'p-g90-save',
+        version: 1,
+        createdAt: now,
+        status: 'succeeded',
+        inputs: [],
+        params: { prompt: '冻结提示词', ratio: '4:3', quality: 'medium' },
+        outputHashes: ['g90-save-me'],
+        fingerprint: 'fp-g90',
+        taskId: 't-g90',
+        durationMs: 1,
+        sentChannelId: 'sent-channel',
+        sentModel: 'sent-model',
+        outputWidth: 64,
+        outputHeight: 36,
+      },
+    ])
+    return { assets: 4, library: 2, projects: 1 }
   }, { pngB64: solidPngBuffer(64, 36).toString('base64') })
 
   rec(
     g,
-    '种子已写入 IndexedDB（内容仓库 3 张，其中仅 2 张被收藏）',
-    seeded.assets === 3 && seeded.library === 2,
+    '种子已写入 IndexedDB（内容仓库 4 张，其中仅 2 张被收藏，另备保存链路节点）',
+    seeded.assets === 4 && seeded.library === 2 && seeded.projects === 1,
     JSON.stringify(seeded),
   )
 
@@ -12226,6 +12285,50 @@ async function g90(browser) {
     emptyHint.trim() === '从生成节点保存素材后才会出现在这里。',
     emptyHint.trim(),
   )
+
+  // ── ③ 从真实生成节点的右键菜单保存，再回素材库看到这张 ──
+  await page.goto(`${BASE}/canvas/p-g90-save`, { waitUntil: 'networkidle' })
+  await sleep(700)
+  const saveNode = page.locator('[data-node-id="n-g90-save"]')
+  rec(g, '保存链路节点已装载', (await saveNode.count()) === 1)
+  await saveNode.click({ button: 'right', position: { x: 120, y: 20 } })
+  await sleep(250)
+  rec(
+    g,
+    '★★ 生成节点右键菜单提供“保存到素材库”',
+    (await page.locator('[data-context-menu-item="saveLibrary"]').count()) === 1,
+  )
+  await page.locator('[data-context-menu-item="saveLibrary"]').click()
+  await sleep(700)
+
+  await page.goto(`${BASE}/assets`, { waitUntil: 'networkidle' })
+  await sleep(700)
+  rec(
+    g,
+    '★★ 保存后素材进入收藏库',
+    (await page.locator('[data-asset-card="g90-save-me"]').count()) === 1,
+  )
+  await page.locator('[data-asset-card="g90-save-me"] [data-asset-open]').dblclick()
+  await sleep(500)
+  const savedDetails = await page.evaluate(() => ({
+    prompt: document.querySelector('[data-asset-preview-prompt]')?.textContent?.trim(),
+    ratio: document.querySelector('[data-asset-preview-ratio]')?.textContent?.trim(),
+    quality: document.querySelector('[data-asset-preview-quality]')?.textContent?.trim(),
+    model: document.querySelector('[data-asset-preview-model]')?.textContent?.trim(),
+    channel: document.querySelector('[data-asset-preview-channel]')?.textContent?.trim(),
+  }))
+  rec(
+    g,
+    '★★ 保存时冻结的是实际发送记录，而不是节点当前值',
+    savedDetails.prompt === '冻结提示词' &&
+      savedDetails.ratio === '4:3' &&
+      savedDetails.quality === 'medium' &&
+      savedDetails.model === 'sent-model' &&
+      savedDetails.channel === 'sent-channel',
+    JSON.stringify(savedDetails),
+  )
+  await page.keyboard.press('Escape')
+  await sleep(300)
 
   // ── 几何：内容随工作区居中（与技能库 / 设置页同一口径）──
   const geo = await page.evaluate(() => {
