@@ -1,5 +1,32 @@
 # CanvasFlow（轻画）项目记忆
 
+### ⚠️ 一条待查的开发期告警（2026-09-29 记录，**不是**融合节点引入的）
+
+`npm run dev` 的控制台会**间歇**出现：
+
+```
+Warning: Cannot update a component (`EdgeLayer`) while rendering a different component (`CanvasSurface`)
+    at CanvasSurface (…/workbenches/canvas/surface/CanvasSurface.tsx:51:16)
+```
+
+**为什么判断它不是融合节点带来的**：它出现在**根本不含融合节点**的冒烟组里
+（如 G59 / G1 这些只建生成节点与提示词节点的组）；涉及的代码是 `CanvasSurface` 的
+空白点击处理（`store.setSelection([])` / `vp.beginPan(e)`）与 `EdgeLayer` 的
+`useSyncExternalStore` 订阅 —— 这两处本次只改了「拖线回调的形参名」与「端口锚点几何」，
+都不含任何会派发更新的调用。
+
+**它不是「无所谓」的告警**：`Cannot update a component while rendering a different
+component` 意味着某处有**渲染阶段的副作用**，React 在并发模式下可能丢更新。
+本次没查是因为：(a) 它不属于本次改动面；(b) 冒烟全绿、无可见症状。
+**下次动 `CanvasSurface` 的指针处理时顺手查一次**：最可能的嫌疑是
+`useSyncExternalStore` 的订阅在这条链上被同步通知（store 直接 `setState` 给
+所有订阅者），而调用点又恰好落在 React 的渲染阶段。
+
+**对照**：融合节点自己**曾**有一条同类告警（`NodeLayer` while rendering
+`FusionNodeView`），根因是「把 `emit` 写进了 `setDraftRect` 的更新函数」——
+**传给 setState 的更新函数是在渲染阶段求值的**，在它里面派发命令就是渲染期副作用。
+已修（改用 ref 读数、在事件处理里提交），修完控制台干净。
+
 ### ★ 融合节点：多端口是怎么加进来的（2026-09-29）
 
 产品文档 §6.23 / 对账清单 #59。#59 之前在这里躺了一整个会话（只写了文档、没写代码），
