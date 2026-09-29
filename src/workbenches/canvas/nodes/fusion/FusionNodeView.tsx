@@ -133,6 +133,18 @@ export function FusionNodeView(props: NodeViewProps) {
 
   /** 拖框进行中的单位矩形（不进 store：纯视觉，松手才提交） */
   const [draftRect, setDraftRect] = useState<UnitRect | null>(null)
+  /**
+   * 同一个矩形也留一份在 ref 里，松手时**从 ref 读**、不要在 `setState` 的更新
+   * 函数里提交。
+   *
+   * 为什么（实测踩到，开发服务器控制台报 `Cannot update a component (NodeLayer)
+   * while rendering a different component (FusionNodeView)`）：**传给 `setState`
+   * 的更新函数是在 React 的渲染阶段求值的**，在它里面调用 `emit`（→ 派发命令 →
+   * 父组件 `NodeLayer` 更新）就是「渲染期间更新别的组件」—— React 会告警，
+   * 而且更新时机变得不可预测。
+   */
+  const draftRef = useRef<UnitRect | null>(null)
+  /** 拖框的起点（单位坐标） */
   const dragRef = useRef<{ ax: number; ay: number } | null>(null)
 
   const emit = (patch: Partial<FusionData>) => {
@@ -181,27 +193,33 @@ export function FusionNodeView(props: NodeViewProps) {
     if (!p) return
     e.stopPropagation()
     dragRef.current = { ax: p.u, ay: p.v }
-    setDraftRect({ x: p.u, y: p.v, w: 0, h: 0 })
+    const first: UnitRect = { x: p.u, y: p.v, w: 0, h: 0 }
+    draftRef.current = first
+    setDraftRect(first)
 
     const move = (ev: PointerEvent) => {
       const q = unitAt(ev)
       const a = dragRef.current
       if (!q || !a) return
-      setDraftRect({
+      const next: UnitRect = {
         x: Math.min(a.ax, q.u),
         y: Math.min(a.ay, q.v),
         w: Math.abs(q.u - a.ax),
         h: Math.abs(q.v - a.ay),
-      })
+      }
+      draftRef.current = next
+      setDraftRect(next)
     }
     const up = () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
       dragRef.current = null
-      setDraftRect((rect) => {
-        if (rect) commitSelection(rect)
-        return null
-      })
+      // 先收起草稿框，再提交选区：提交是**事件处理**（不在渲染阶段），
+      // 故可以安全地派发命令（见 draftRef 的说明）
+      const rect = draftRef.current
+      draftRef.current = null
+      setDraftRect(null)
+      if (rect) commitSelection(rect)
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
