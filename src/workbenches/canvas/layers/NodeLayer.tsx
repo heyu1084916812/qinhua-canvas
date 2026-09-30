@@ -17,7 +17,7 @@ import type { Viewport } from '../../../domain/canvas/geometry/coords'
 import type { CanvasStore } from '../../../state/workbenches/canvas/store'
 import type { NodeSnapshot, PromptData } from '../../../domain/canvas/model/node'
 import { promptSpec } from '../../../domain/canvas/nodeSpecs/prompt'
-import { resizeLockOf } from '../../../domain/canvas/nodeSpecs/resizeLock'
+import { heightFromContentOf, resizeLockOf } from '../../../domain/canvas/nodeSpecs/resizeLock'
 import { portDeclsOf } from '../../../domain/canvas/nodeSpecs/ports'
 import { resolveCropContext } from '../../../domain/canvas/fusion/cropContext'
 import { getSpec } from '../../../domain/canvas/nodeSpecs/registry'
@@ -398,6 +398,7 @@ export const NodeLayer = memo(function NodeLayer({
         minSize={def.sizing.min}
         portsHidden={portsHidden}
         resizeLock={resizeLockOf(child)}
+        heightFromContent={heightFromContentOf(child)}
         onFramePointerDown={(e) => onNodePointerDown(e, child.id)}
         onResize={(rect, phase) => store.dispatch({ kind: 'node.resize', id: child.id, rect, phase })}
         onRename={(title) => store.dispatch({ kind: 'node.rename', id: child.id, title })}
@@ -448,6 +449,7 @@ export const NodeLayer = memo(function NodeLayer({
             ports={def.ports}
             minSize={def.sizing.min}
             resizeLock={resizeLockOf(node)}
+            heightFromContent={heightFromContentOf(node)}
             onFramePointerDown={(e) => onNodePointerDown(e, node.id)}
             onResize={(rect, phase) => store.dispatch({ kind: 'node.resize', id: node.id, rect, phase })}
             onRename={(title) => store.dispatch({ kind: 'node.rename', id: node.id, title })}

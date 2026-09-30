@@ -13300,7 +13300,103 @@ async function g92(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92]
+/**
+ * G93 节点缩放：三类语义 + 「松手不再变」不变式（§6.16 · 2026-09-30）
+ *
+ * 用户口径：「好像节点的缩放都会出现一些问题」。逐类型实测后，真正的缺陷只有一处
+ * （循环节点：内容高度写回与手动拉高度互相顶 ⇒ 拖到 332、松手跳到 380，而且再也回不来）。
+ * 这一组把三类缩放语义一起钉住，免得以后再改一处、坏另一处：
+ *  - `free`   —— 尺寸严格跟指针（提示词 / 画板 / 空态生成 / 融合）；
+ *  - `locked` —— 等比（分组 / 批量 5:4、对比节点按当前比例、有产物的生成节点按产物比例）；
+ *  - `width`  —— 只跟横向、高度由内容写回（循环节点）。
+ * 三类共同的不变式：**松手之后尺寸不再变化**（历史两次「跳动」都出在这里）。
+ */
+async function g93(browser) {
+  const g = 'G93 节点缩放'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="blank"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(800)
+
+  const cases = [
+    { type: 'prompt', mode: 'free' },
+    { type: 'board', mode: 'free' },
+    { type: 'generation', mode: 'free' },
+    { type: 'fusion', mode: 'free' },
+    { type: 'batch', mode: 'locked' },
+    { type: 'group', mode: 'locked' },
+    { type: 'compare', mode: 'locked' },
+    { type: 'loop', mode: 'width' },
+  ]
+
+  for (const c of cases) {
+    await page.locator('[data-toolbar-add]').click()
+    await sleep(250)
+    await page.locator(`[data-toolbar-menu-item="${c.type}"]`).click()
+    await sleep(650)
+    const node = page.locator(`[data-node-type="${c.type}"]`).last()
+    const id = await node.getAttribute('data-node-id')
+    const before = await page.locator(`[data-node-id="${id}"]`).boundingBox()
+    const hb = await page.locator(`[data-node-id="${id}"] [data-node-resize-handle]`).boundingBox()
+    if (!before || !hb) {
+      rec(g, `${c.type}：缩放手柄可点`, false, `before=${!!before} handle=${!!hb}`)
+      continue
+    }
+    await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(hb.x + hb.width / 2 + 100, hb.y + hb.height / 2 + 60, { steps: 8 })
+    await sleep(220)
+    const during = await page.locator(`[data-node-id="${id}"]`).boundingBox()
+    await page.mouse.up()
+    await sleep(500)
+    const after = await page.locator(`[data-node-id="${id}"]`).boundingBox()
+
+    rec(
+      g,
+      `★★ ${c.type}：松手之后尺寸不再变化（不跳动）`,
+      Math.abs(after.width - during.width) <= 2 && Math.abs(after.height - during.height) <= 2,
+      `拖动中 ${during.width.toFixed(0)}×${during.height.toFixed(0)} → 松手后 ${after.width.toFixed(0)}×${after.height.toFixed(0)}`,
+    )
+    if (c.mode === 'free') {
+      rec(
+        g,
+        `★ ${c.type}：自由缩放严格跟指针（+100/+60）`,
+        Math.abs(after.width - before.width - 100) <= 3 && Math.abs(after.height - before.height - 60) <= 3,
+        `实际 +${(after.width - before.width).toFixed(0)}/+${(after.height - before.height).toFixed(0)}`,
+      )
+    } else if (c.mode === 'locked') {
+      const r0 = before.width / before.height
+      const r1 = after.width / after.height
+      rec(
+        g,
+        `★ ${c.type}：锁比缩放保持比例`,
+        Math.abs(r1 - r0) < 0.03 && after.width - before.width > 40,
+        `${r0.toFixed(3)} → ${r1.toFixed(3)}（宽 +${(after.width - before.width).toFixed(0)}）`,
+      )
+    } else {
+      rec(
+        g,
+        `★★ ${c.type}：只跟横向、高度由内容决定（纵向位移整份丢掉）`,
+        Math.abs(after.width - before.width - 100) <= 3 && Math.abs(after.height - before.height) < 40,
+        `宽 +${(after.width - before.width).toFixed(0)} / 高 ${(after.height - before.height).toFixed(0)}`,
+      )
+    }
+    await page.keyboard.press('Delete')
+    await sleep(350)
+  }
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await page.screenshot({ path: `${OUT}/109-g93-resize.png` })
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

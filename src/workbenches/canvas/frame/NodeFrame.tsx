@@ -38,6 +38,13 @@ export interface NodeFrameProps {
    * （有内容的图片 / 视频节点 = `naturalSize`，分组 / 批量 = 5:4）。
    */
   resizeLock?: ResizeLock
+  /**
+   * 高度由内容决定（参数卡，见 `heightFromContentOf`）：缩放**只取横向位移**。
+   *
+   * 少了这一条，拖拽每帧写的 h 会与内容同步写的 h 互相覆盖 —— 用户看到的就是
+   * 「拖到某个高度、松手跳到另一个高度」（2026-09-30 实测：332 → 380）。
+   */
+  heightFromContent?: boolean
   /** 在节点任意位置按下：选中 + 发起拖动（由父层接线） */
   onFramePointerDown: (e: ReactPointerEvent) => void
   /** 缩放手柄提交绝对矩形（命令层 coalesce 合并） */
@@ -70,6 +77,15 @@ export interface NodeFrameProps {
  */
 export function NodeFrame(props: NodeFrameProps) {
   const { node, selected, scale, minSize } = props
+  /**
+   * 节点的**最新快照**（每次渲染刷新）。
+   *
+   * 缩放的 `move` 回调闭包捕获的是**按下那一刻**的 props，读它拿到的是旧高度。
+   * 「高度归内容」的节点要把高度原样带回去（不加纵向位移），用旧值就会把视图
+   * 刚按内容写回的新高度又按回旧高度 —— 每帧来回一次，用户看到的是抽搐。
+   */
+  const nodeRef = useRef(props.node)
+  nodeRef.current = props.node
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(node.title)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -217,22 +233,29 @@ export function NodeFrame(props: NodeFrameProps) {
     props.onResize(latest, 'begin')
     // 锁比解析：数字 = 固定比例；'current' = 按下瞬间的容器比例；缺省 / 'free' = 自由
     const lock = props.resizeLock ?? 'free'
+    /**
+     * 高度归内容的节点（`heightFromContent`）：高度**整份交给视图按内容写回**。
+     *
+     * 这里不只是「忽略纵向位移」，而是**连最小高度也不夹**：循环节点声明的最小高度
+     * 380 其实是**开箱默认尺寸**（它由 `NODE_MINIMUMS` 兼任），而内容自适应会把它收到
+     * 内容真正需要的高度（实测 320）。若在这一步又按 380 夹一次，用户一碰右下角就
+     * 会看到节点「跳」到 380（2026-09-30 用户报的那个跳动就是它）。
+     */
+    const heightFromContent = props.heightFromContent === true
     const ratio = typeof lock === 'number' ? lock : lock === 'current' ? base.w / base.h : null
     const move = (ev: PointerEvent) => {
+      const dx = (ev.clientX - startX) / scale
+      /** 高度归内容的节点：纵向位移**整份丢掉**（不是取一半），高度交给内容同步 */
+      const dy = ((ev.clientY - startY) / scale) * (heightFromContent ? 0 : 1)
       if (ratio !== null) {
-        latest = lockedResize(
-          base,
-          (ev.clientX - startX) / scale,
-          (ev.clientY - startY) / scale,
-          minSize,
-          ratio,
-        )
+        latest = lockedResize(base, dx, dy, minSize, ratio)
       } else {
         latest = {
           x: base.x,
           y: base.y,
-          w: Math.max(minSize.w, base.w + (ev.clientX - startX) / scale),
-          h: Math.max(minSize.h, base.h + (ev.clientY - startY) / scale),
+          w: Math.max(minSize.w, base.w + dx),
+          /** 高度归内容时带**最新**高度回去（不是按下那一刻的），见 `nodeRef` 的说明 */
+          h: heightFromContent ? nodeRef.current.h : Math.max(minSize.h, base.h + dy),
         }
       }
       props.onResize(latest, 'move')
