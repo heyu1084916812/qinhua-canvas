@@ -34,7 +34,6 @@
  *
  * 于是这个节点只剩「看两块输入 + 一个开关 + 一个按钮」。
  */
-import { useEffect, useRef } from 'react'
 import type { NodeViewProps } from '../registry'
 import type { FusionData } from '../../../../domain/canvas/model/node'
 import { useAsset } from '../../hooks/useAsset'
@@ -71,37 +70,22 @@ export function FusionNodeView(props: NodeViewProps) {
         ? `第 ${missingContextAt + 1} 张局部图没有选区上下文：请在它的原图上用「提取选区」得到局部图`
         : `把 ${patches.length} 张局部修改图融回原图`
 
-  /** 节点高度跟随内容（同循环节点：量真实高度而不是查表） */
-  const contentRef = useRef<HTMLDivElement | null>(null)
-  const nodeHRef = useRef(props.node.h)
-  nodeHRef.current = props.node.h
-  const nodeWRef = useRef(props.node.w)
-  nodeWRef.current = props.node.w
-  const emitRef = useRef(props.emit)
-  emitRef.current = props.emit
-  useEffect(() => {
-    const content = contentRef.current
-    if (!content || !content.closest('[data-node-id]')) return
-    const sync = () => {
-      const needed = content.offsetHeight + 18
-      if (Math.abs(nodeHRef.current - needed) > 8) {
-        emitRef.current({
-          type: 'updateData',
-          patch: {},
-          transient: true,
-          size: { w: nodeWRef.current, h: needed },
-        })
-      }
-    }
-    sync()
-    const ro = new ResizeObserver(sync)
-    ro.observe(content)
-    return () => ro.disconnect()
-  }, [])
+  /**
+   * **不做「节点高度跟随内容」**（与循环节点相反，2026-09-30 实修）。
+   *
+   * 循环节点是**参数卡**：内容高度由参数条数决定，节点该跟着内容长，所以它量高度写回。
+   * 融合卡是**看图的地方**：预览区本来就该吃掉节点里剩下的空间。上一版照搬了循环节点
+   * 那套 `ResizeObserver` 写回高度，结果与「用户手动拉右下角」直接打架 ——
+   * 拖拽中节点高度被拖大，紧接着自适应又把高度按内容写回，松手那一刻还会再补一跳
+   * （实测：拖到 h=306，松手后跳到 332）。用户报的就是这个跳动。
+   *
+   * 现在改成**内容跟节点**：`.content` 撑满，`.panes` 用 flex 吃掉剩余高度，
+   * 左右两块填满各自格子。拖多大就是多大，没有任何写回。
+   */
 
   return (
     <div className={styles.card} data-fusion-node>
-      <div className={styles.content} ref={contentRef} data-fusion-content>
+      <div className={styles.content} data-fusion-content>
         {/* ① 两块预览：左原图 | 右局部修改（多张**上下排列**） */}
         <div className={styles.panes} data-fusion-panes>
           <Pane

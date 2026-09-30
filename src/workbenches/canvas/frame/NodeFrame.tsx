@@ -330,7 +330,12 @@ export function NodeFrame(props: NodeFrameProps) {
       <div className={styles.body}>{props.children}</div>
 
       {!inContainer && (
-        <span className={styles.resizeHandle} onPointerDown={onResizePointerDown} />
+        // `data-node-resize-handle`：给自动化一个稳定锚点（别靠「最后一个 span」这种结构巧合）
+        <span
+          className={styles.resizeHandle}
+          data-node-resize-handle
+          onPointerDown={onResizePointerDown}
+        />
       )}
     </div>
   )

@@ -9,7 +9,12 @@
   width: 100%;
   height: 100%;
   box-sizing: border-box;
-  padding: var(--space-2) var(--space-3);
+  /*
+   * 四边**同一档**间距（用户 2026-09-30：「和容器边界的距离，有些大有些小」）。
+   * 这一版之前是「上下 8 / 左右 12」：通用卡片那样写没问题，但这张卡的预览块是
+   * 贴边的大面积色块，左右比上下宽 4px 一眼就看出来不齐。
+   */
+  padding: var(--space-3);
   display: flex;
   flex-direction: column;
   font-family: var(--font-sans);
@@ -22,6 +27,9 @@
   flex-direction: column;
   gap: var(--space-2);
   width: 100%;
+  /* 内容撑满节点：预览区吃掉剩余高度（配合下面 .panes 的 flex:1） */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 /*
@@ -33,18 +41,24 @@
  */
 .panes {
   display: flex;
-  gap: 6px;
+  gap: var(--space-2);
   width: 100%;
   min-width: 0;
   /* 原图那一块跟着右列的高度走（等高对齐），而不是自己撑出一个正方形 */
   align-items: stretch;
+  /*
+   * 预览区**吃掉剩余高度**（用户 2026-09-30：「右下角进行放大的时候会跳动」）。
+   * 上一版这一行是 `aspect-ratio: 1` 撑出来的固定高度，节点高度则由 ResizeObserver
+   * 写回 —— 两个方向互相顶，拖右下角时松手必跳。现在节点多大、预览区就多高。
+   */
+  flex: 1 1 auto;
+  min-height: 72px;
 }
 
 .pane {
   position: relative;
   min-width: 0;
-  /* 正方形格：两块并排时高度由宽度决定，节点宽高都不会被内容拉歪 */
-  aspect-ratio: 1;
+  min-height: 0;
   border-radius: var(--radius-control);
   border: 1px solid var(--stroke);
   background: var(--bg-subtle);
@@ -52,7 +66,7 @@
 }
 
 /*
- * 原图：占左半列，**正方形**（它的高度就是整行的高度）。
+ * 原图：占左半列，高度 = 预览区高度（由节点尺寸决定，见 `.panes`）。
  *
  * 图片按 `cover` 平铺铺满，不留上下白边（用户 2026-09-30：「原图的容器中，
  * 图片没有铺满，上下留白了，用平铺的规则」）。
@@ -73,7 +87,7 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
   /*
    * 张数多到「每张都低于可读高度」时，让**这一列自己滚**（参考图右列就有细滚动条），
    * 而不是把每张压成一条缝。容器本身仍然不长高 —— 滚动发生在容器内部。
@@ -86,7 +100,6 @@
   flex: 1 1 0;
   /* 地板高度：再小就看不清是哪张局部图了；触到地板后由上面的 overflow 接手 */
   min-height: 44px;
-  aspect-ratio: auto;
 }
 
 .paneImg {

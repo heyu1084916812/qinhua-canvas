@@ -12864,6 +12864,59 @@ async function g91(browser) {
   const chipPatch2 = ((await page.locator('[data-fusion-chip="patch"]').textContent()) ?? '').trim()
   rec(g, '★ 连接提醒跟着更新为 2 张', /局部修改 2 张/.test(chipPatch2), chipPatch2)
 
+  /**
+   * ── ⑧ 内边距与「拖右下角放大」（用户 2026-09-30：「和容器边界的距离，有些大有些小」+
+   * 「右下角进行放大的时候会跳动」） ──
+   *
+   * 跳动是**两条规则互相顶**：`.panes` 用 `aspect-ratio` 撑出内容高，而节点又被
+   * `ResizeObserver` 按内容高写回尺寸 ⇒ 拖拽中高度被写回、松手再补一跳（实测 306 → 332）。
+   * 现在改成「内容跟节点」，判据是**松手前后高度一致**。
+   */
+  const gaps = await page.locator(`[data-node-id="${fusionId}"]`).evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    const box = (sel) => {
+      const n = el.querySelector(sel)
+      if (!n) return null
+      const b = n.getBoundingClientRect()
+      return { l: b.x - r.x, r: r.x + r.width - (b.x + b.width), t: b.y - r.y, b: r.y + r.height - (b.y + b.height) }
+    }
+    return { panes: box('[data-fusion-panes]'), run: box('[data-fusion-run]') }
+  })
+  const four = gaps.panes ? [gaps.panes.l, gaps.panes.r, gaps.panes.t, gaps.run?.b ?? 0] : []
+  rec(
+    g,
+    '★ 卡片四边内边距一致（不再「上下窄、左右宽」）',
+    four.length === 4 && Math.max(...four) - Math.min(...four) <= 2,
+    `左${gaps.panes?.l?.toFixed(1)} 右${gaps.panes?.r?.toFixed(1)} 上${gaps.panes?.t?.toFixed(1)} 下${gaps.run?.b?.toFixed(1)}`,
+  )
+  const handle = page.locator(`[data-node-id="${fusionId}"] [data-node-resize-handle]`)
+  const hb = await handle.boundingBox()
+  if (hb) {
+    await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(hb.x + hb.width / 2 + 120, hb.y + hb.height / 2 + 90, { steps: 10 })
+    await sleep(200)
+    const during = await fusion.boundingBox()
+    await page.mouse.up()
+    await sleep(500)
+    const after = await fusion.boundingBox()
+    rec(
+      g,
+      '★★ 拖右下角放大之后**不回弹、不跳动**（松手前后高度一致）',
+      Math.abs(after.height - during.height) <= 2 && after.height > 300 && after.width > 360,
+      `拖动中=${during.width.toFixed(0)}×${during.height.toFixed(0)} 松手后=${after.width.toFixed(0)}×${after.height.toFixed(0)}`,
+    )
+    const panesAfter = await page
+      .locator(`[data-node-id="${fusionId}"] [data-fusion-panes]`)
+      .boundingBox()
+    rec(
+      g,
+      '★ 预览区跟着节点一起长（内容跟节点，不是节点跟内容）',
+      !!panesAfter && panesAfter.height > 150,
+      `panes=${panesAfter?.height?.toFixed(1)}`,
+    )
+  }
+
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await page.screenshot({ path: `${OUT}/106-g91-fusion.png` })
   await ctx.close()
