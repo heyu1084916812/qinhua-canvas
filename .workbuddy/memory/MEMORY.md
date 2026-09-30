@@ -1985,3 +1985,33 @@ I 竖笔 rect，无背景色块），`viewBox="0 0 1020.37 166.48"`，实机约 
 `<h1>` 必须保留 `aria-label="轻画"`，否则读屏失去页名——`App.render.test.ts`
 两条断言各钉一半（「轻画」还在 + `data-qinghua-wordmark` 确实渲染），只查其一
 会漏掉回退成纯文字的情况。
+
+### ★★ 协议定义是**执行期**才查的，别只看设置页（2026-09-30，用户报「点生成没反应」）
+
+「一站一协议」之后渠道行里只存**协议 id**（`comfly` / `gemini` / …），适配器要的
+`family` / `capabilities` / `versionPath` 全在**协议目录**里现查。设置页那条路
+（`state/channel/channelStore.toSafeConfig`）一直查了 ⇒ **验证地址 / 拉取模型全绿**，
+用户以为自己配好了；而画布执行那条路（`CanvasExecutionProvider`）**没查** ⇒
+`createChannelAdapter` 落到 `LEGACY_FAMILY`（只认 `mock` / `openai-images` / `openai-chat`
+三个老 id）认不出 `comfly` ⇒ 抛 `ChannelError: [channel] channel` ⇒
+**既不发请求、也不给提示**，用户视角就是「按钮坏了」。
+
+三条教训，一条都不能省：
+1. **`protocolDefinition` 是可选的，漏掉在类型上完全看不出来** —— 所以「组装执行期配置」
+   只能有一处实现（`execution/channelAdapterConfig.ts`），两处各写一遍必然漂移。
+2. **同一条配置在两条链路上表现不一致时，先怀疑「有一边少查了一样东西」**，
+   不要怀疑用户没配好。这次用户说的「我不是说了我已经配置了吗」是对的。
+3. **异常冒到宿主外 = 用户看到「点了没反应」**。凡是执行宿主里造适配器 / 建连接这类
+   可能抛的操作，都要接住并 `notify`；不然排查成本全落在用户身上（这次花了两轮对话）。
+
+### ★ 真机复现技巧：把用户的浏览器配置整份复制到临时配置（2026-09-30）
+
+用户报「生成不了」而本机又没有他的数据时，最快的路是**复制他的浏览器 profile**：
+Codex 内浏览器（IAB）的分区在
+`%APPDATA%\Codex\web\Codex\Default\Partitions\codex-browser-app\IndexedDB\http_127.0.0.1_1420.indexeddb.leveldb`
+（令牌密文在**同级的 `Local Storage\leveldb`** —— 凭据走 `localStorage`，不在 IndexedDB
+的 `credentials` 表里，查错地方会得出「没存令牌」的错误结论）。把这两份拷进一个临时
+user-data-dir 的 `Default/` 下，用 Playwright 的 `launchPersistentContext` 打开
+`http://127.0.0.1:1420` 就是**用户本人的数据**。再把 `page.route('**://<站点>/**')`
+一拦（`route.abort()`），就能看到真实的请求体、又不会花用户的钱。
+这招也让「修前 / 修后」的对照变成硬证据（修前 0 请求 + 控制台抛错，修后请求真的发出去）。
