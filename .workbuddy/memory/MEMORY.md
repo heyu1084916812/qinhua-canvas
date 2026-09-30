@@ -2092,3 +2092,18 @@ user-data-dir 的 `Default/` 下，用 Playwright 的 `launchPersistentContext` 
 「我不想要功能栏下方的小三角」。教训：**归属关系靠位置与选中态就够了**，再画一个
 尖角属于自造噪音。找它的办法值得复用 —— 写个一次性脚本扫全页「像三角形」的元素
 （零宽/零高 + 有边框、`clip-path`、类名带 arrow/tri），一次就能定位，比对着截图猜快。
+
+### ⛔ dev server 会发**陈旧的 CSS 模块**：改完样式量不到变化（2026-09-30）
+
+改完 `NodeFollowBar.module.css`（图标位 26px → 16px）后，用 Playwright 量 DOM 仍是旧值：
+图标位还是 26px、内距还是 4/8。**整页刷新不管用** —— Vite 的开发转换缓存没失效，
+而类名哈希已经变了（`_glyph_1vms9_137` → `_glyph_1fgjs_138`），于是「新哈希 + 旧规则体」
+一起发出来，看着像样式没生效。
+
+判据（别再靠肉眼）：直接取那支模块的转换结果看规则体 ——
+`Invoke-WebRequest http://127.0.0.1:1420/src/.../X.module.css`，`match` 你要的那条规则。
+**修法是重启 dev server**（`Stop-Process` 旧 PID → 重新 `vite --port 1420 --strictPort`），
+重启后再量一遍。
+
+教训放大一点：**「我改了 CSS」与「浏览器跑的是新 CSS」是两件事**。凡是靠几何断言验样式
+（本项目大量这么做）的，先确认发出来的规则体是新的，否则断言与截图都在骗自己。

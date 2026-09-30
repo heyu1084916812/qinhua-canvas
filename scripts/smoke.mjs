@@ -6277,6 +6277,34 @@ async function g58(browser) {
     barOverflowBottom <= 0.5,
     `越出 ${barOverflowBottom.toFixed(1)}px`,
   )
+  /**
+   * ★★ 图标与文字**贴住**（用户 2026-09-30 第 2 轮：「功能栏上图标和名称靠的太远了」）。
+   *
+   * 旧版图标位是个 26px 的格子，而图标墨迹只有 16px ⇒ 左右各 5px 死区，
+   * 视觉上「图标↔文字」被顶到 9px（比文字到右边缘还宽）。判据两条：
+   * 图标位宽度 == 图标宽度；图标右边缘到文字左边缘 ≤ 6px。
+   */
+  const spacingAudit = await page.locator('[data-follow-action]').evaluateAll((els) =>
+    els.map((b) => {
+      const glyph = b.firstElementChild
+      const label = b.lastElementChild
+      const g = glyph.getBoundingClientRect()
+      const s = glyph.querySelector('svg').getBoundingClientRect()
+      const l = label.getBoundingClientRect()
+      return {
+        action: b.getAttribute('data-follow-action'),
+        slot: +g.width.toFixed(1),
+        icon: +s.width.toFixed(1),
+        gap: +(l.left - g.right).toFixed(1),
+      }
+    }),
+  )
+  rec(
+    g,
+    '★★ 图标位贴住图标、到文字 ≤6px（不再浮在 26px 格子里）',
+    spacingAudit.length > 0 && spacingAudit.every((x) => Math.abs(x.slot - x.icon) <= 0.5 && x.gap <= 6),
+    JSON.stringify(spacingAudit),
+  )
   /*
    * 中文**常驻**（用户 2026-09-17）：不 hover 时中文就得看得见，
    * 且 hover 前后按钮宽度不变（中文藏起来再展开会让整条栏抖一下）。
