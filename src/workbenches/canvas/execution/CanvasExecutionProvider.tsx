@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ChannelAdapter } from '../../../platform/channels/types'
-import { createChannelAdapter, type ResolvedChannelConfig } from '../../../platform/channels/registry'
 import { OFFLINE_PROTOCOLS } from '../../../domain/project/channel'
+import { adapterForChannel } from './channelAdapterConfig'
 import { buildRunPlan, type CanvasRunTask, type RunPlan } from '../../../features/canvas/execution/buildRunPlan'
 import { createId } from '../../../shared/id'
 import { emptyPlanReason } from '../../../features/canvas/execution/emptyPlanReason'
@@ -288,21 +288,35 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       // channelResolver 必须同步：预先把计划里涉及的渠道解析成适配器映射
       const map = new Map<string, ChannelAdapter>()
       const list: Channel[] = all
+      /**
+       * 协议目录**在这里取一次**：渠道行上只存协议 id，适配器要的 family /
+       * capabilities / versionPath 都在目录里（内置站点协议 + 用户自建）。
+       * 少了这一步，内置站点协议（`comfly` 等）会解析不出 family ⇒
+       * `createChannelAdapter` 抛「不支持的协议」，表现就是**点生成没反应**（2026-09-30 实修）。
+       */
+      const catalog = channels.protocolCatalog()
       for (const task of plan.tasks) {
         const id = task.request.channelId
         if (map.has(id)) continue
         const ch = list.find((c) => c.id === id)
         if (!ch) continue
         const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
-        const cfg: ResolvedChannelConfig = {
-          id: ch.id,
-          protocol: ch.protocol,
-          baseUrl: ch.baseUrl,
-          credentialRef: ch.credentialRef,
-          modelCache: ch.modelCache,
-          apiKey,
+        /**
+         * 造不出适配器时**如实报错并中止**，不让异常冒到宿主外。
+         * 冒出去的表现是「点了生成既没请求也没提示」，用户只能干瞪眼 ——
+         * 这正是这次排查花掉最多时间的地方。
+         */
+        try {
+          map.set(id, adapterForChannel(ch, catalog, apiKey, platform))
+        } catch (e) {
+          const app = asAppError(e)
+          store.notify(
+            app
+              ? `渠道「${ch.name}」无法执行：${describeError(app)}`
+              : `渠道「${ch.name}」无法执行：${String(e)}`,
+          )
+          return
         }
-        map.set(id, createChannelAdapter(cfg, platform))
       }
       adapterMapsRef.current.set(plan.id, map)
       taskToNodeMapsRef.current.set(plan.id, new Map(plan.tasks.map((t) => [t.id, t.nodeId])))
@@ -615,15 +629,8 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
        */
       const upstreamModel = resolveUpstreamModel(ch.modelMap, model) ?? model
       const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
-      const cfg: ResolvedChannelConfig = {
-        id: ch.id,
-        protocol: ch.protocol,
-        baseUrl: ch.baseUrl,
-        credentialRef: ch.credentialRef,
-        modelCache: ch.modelCache,
-        apiKey,
-      }
-      const adapter = createChannelAdapter(cfg, platform)
+      /** 同上面那条路：协议定义必须按 id 去目录查（提示词节点也走内置站点协议） */
+      const adapter = adapterForChannel(ch, channels.protocolCatalog(), apiKey, platform)
       const prompt = system ? `${system}\n\n${text}` : text
       const result = await adapter.completeText(
         { kind: 'text', channelId, model: upstreamModel, prompt, inputs: inputs ?? [], params: {} },
