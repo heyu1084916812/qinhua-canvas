@@ -159,6 +159,10 @@
 }
 
 .toolBtn {
+  /* 图标是内联 SVG（运行中显示停止方块），所以按 flex 居中而不是靠字形基线 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: transparent;
   padding: 2px 6px;

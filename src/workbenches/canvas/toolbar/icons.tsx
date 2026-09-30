@@ -432,3 +432,123 @@ export function IconPlus(props: IconProps) {
     </Svg>
   )
 }
+
+/**
+ * ── 节点功能栏（跟随栏 + 节点内功能条）的动作图标（2026-09-30）──
+ *
+ * 用户：「节点功能栏的图标我不要符号，我要真正的矢量图」。
+ *
+ * 上一版这些按钮画的是**文本字形**（`▶ ■ ✎ ⧉ ▣ ⬇ ✕ ⌄ ⚙`）。字形的问题是**位置不可控**：
+ * 不同字体下字形在字体盒里的位置、宽度、基线都不同（工具栏那个全角「＋」已经栽过一次），
+ * 于是「图标是否居中」这件事取决于用户机器上装了什么字体 —— 这正是要根除的东西。
+ * 现在全部换成与图标集同一套约定的内联 SVG（24×24、`currentColor`、线宽 1.6、圆头）。
+ */
+
+/** 生成 / 运行：三角形（与暂停 / 停止成对） */
+export function IconPlay(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M8.5 5.8 18 12l-9.5 6.2z" />
+    </Svg>
+  )
+}
+
+/** 暂停（视频播放中的那一下） */
+export function IconPause(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M9.5 6v12" />
+      <path d="M14.5 6v12" />
+    </Svg>
+  )
+}
+
+/** 停止 / 取消生成：方块 */
+export function IconStop(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="7" y="7" width="10" height="10" rx="1.6" />
+    </Svg>
+  )
+}
+
+/** 重命名：铅笔 */
+export function IconRename(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4.5 19.5h4L19 9l-4-4L4.5 15.5z" />
+      <path d="m13.5 6.5 4 4" />
+    </Svg>
+  )
+}
+
+/** 复制节点：两张叠起来的纸 */
+export function IconDuplicate(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="8.5" y="8.5" width="11" height="11" rx="2.2" />
+      <path d="M15.5 5.5h-9a2 2 0 0 0-2 2v9" />
+    </Svg>
+  )
+}
+
+/** 下载：向下箭头落进托盘 */
+export function IconDownload(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 4v9" />
+      <path d="m8 9.5 4 3.8 4-3.8" />
+      <path d="M4.5 16v2.2a1.8 1.8 0 0 0 1.8 1.8h11.4a1.8 1.8 0 0 0 1.8-1.8V16" />
+    </Svg>
+  )
+}
+
+/** 删除：垃圾桶（功能栏里是危险操作，形状要与普通操作区分开） */
+export function IconDelete(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4.5 7h15" />
+      <path d="M9.5 7V5.2h5V7" />
+      <path d="m6.8 7 1 12.2h8.4L17.2 7" />
+      <path d="M10.5 10.5v6M13.5 10.5v6" />
+    </Svg>
+  )
+}
+
+/** 收起 / 展开：向下的折角 */
+export function IconChevronDown(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="m6 9.5 6 6 6-6" />
+    </Svg>
+  )
+}
+
+/** 渠道设置：齿轮（线性画法，与其余图标同一套重量） */
+export function IconSettings(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="3.1" />
+      <path d="M12 3.6v2.2M12 18.2v2.2M3.6 12h2.2M18.2 12h2.2M6.1 6.1l1.6 1.6M16.3 16.3l1.6 1.6M17.9 6.1l-1.6 1.6M7.7 16.3l-1.6 1.6" />
+    </Svg>
+  )
+}
+
+/** 关闭 / 移除：叉（标签上的「✕」也用它，字号不再决定形状） */
+export function IconClose(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="m6.5 6.5 11 11" />
+      <path d="m17.5 6.5-11 11" />
+    </Svg>
+  )
+}
+
+/** 进行中：一段圆弧（配合 CSS 旋转，替代文本 `◌`） */
+export function IconSpinner(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 4.6a7.4 7.4 0 1 0 7.4 7.4" />
+    </Svg>
+  )
+}

@@ -6236,6 +6236,47 @@ async function g58(browser) {
     .locator('[data-follow-action]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-follow-action')))
   rec(g, '动作齐全（生成/重命名/复制/删除/关闭）', ['run', 'rename', 'duplicate', 'delete', 'close'].every((a) => actions.includes(a)), actions.join(','))
+  /**
+   * 图标必须是**内联 SVG**（用户 2026-09-30：「节点功能栏的图标我不要符号，我要真正的矢量图」）。
+   * 判据落在图标位那一格：里面有且只有一个 `svg`、且**没有文本** —— 塞回 `▶ ✎ ⧉`
+   * 这类字形就会当场变红（字形的问题不是好看，而是落点由用户机器上的字体决定）。
+   */
+  const iconAudit = await page.locator('[data-follow-action]').evaluateAll((els) =>
+    els.map((e) => {
+      const icon = e.firstElementChild
+      return {
+        action: e.getAttribute('data-follow-action'),
+        svg: icon ? icon.querySelectorAll('svg').length : 0,
+        text: (icon?.textContent ?? '').trim(),
+      }
+    }),
+  )
+  rec(
+    g,
+    '★★ 功能栏图标全是内联 SVG（图标位里没有文本字形）',
+    iconAudit.length > 0 && iconAudit.every((x) => x.svg === 1 && x.text === ''),
+    JSON.stringify(iconAudit),
+  )
+  /**
+   * 栏下方不再挂装饰小三角（用户 2026-09-30：「我不想要功能栏下方的小三角」）。
+   * 判据是**几何**：栏内所有非零尺寸子元素都不越出栏的底边 —— 再挂一个小三角就会越界。
+   */
+  const barOverflowBottom = await bar.evaluate((el) => {
+    const b = el.getBoundingClientRect()
+    let worst = 0
+    for (const kid of el.querySelectorAll('*')) {
+      const r = kid.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) continue
+      worst = Math.max(worst, r.bottom - b.bottom)
+    }
+    return worst
+  })
+  rec(
+    g,
+    '★★ 功能栏下方没有伸出的小三角（子元素不越出底边）',
+    barOverflowBottom <= 0.5,
+    `越出 ${barOverflowBottom.toFixed(1)}px`,
+  )
   /*
    * 中文**常驻**（用户 2026-09-17）：不 hover 时中文就得看得见，
    * 且 hover 前后按钮宽度不变（中文藏起来再展开会让整条栏抖一下）。

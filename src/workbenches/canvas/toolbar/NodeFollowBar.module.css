@@ -63,7 +63,12 @@
     border-color var(--dur-hover) var(--ease-out);
 }
 
-/* 图标本身固定 26px 见方：标签展开时不许把它挤变形 */
+/*
+ * 图标位固定 26px 见方：标签展开时不许把它挤变形。
+ *
+ * 里面装的是**内联 SVG**（`toolbar/icons`），不是文本字形 —— 字形落点由字体决定、
+ * 换台机器就可能偏（用户 2026-09-30：「节点功能栏的图标我不要符号，我要真正的矢量图」）。
+ */
 .glyph {
   flex: 0 0 auto;
   width: 26px;
@@ -71,8 +76,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--fs-label);
   line-height: 1;
+}
+
+/* 图标 16px：与按钮 26px 的高度成比例，且与菜单图标（18px）同档 */
+.glyph svg {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 
 /*
@@ -109,23 +120,6 @@
   height: 16px;
   background: var(--stroke);
   margin: 0 2px;
-}
-
-/*
- * 指向节点的小三角：纯装饰，标出「这栏属于下面那个节点」。
- * 栏恒在节点**上方**（2026-09-17 起不再翻转），故三角恒朝下、固定在底边。
- */
-.arrow {
-  position: absolute;
-  left: 50%;
-  bottom: -5px;
-  width: 8px;
-  height: 8px;
-  margin-left: -4px;
-  background: var(--bg-surface);
-  border-right: 1px solid var(--stroke);
-  border-bottom: 1px solid var(--stroke);
-  transform: rotate(45deg);
 }
 
 @media (prefers-reduced-motion: reduce) {

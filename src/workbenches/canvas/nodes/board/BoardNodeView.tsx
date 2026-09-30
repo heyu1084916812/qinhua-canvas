@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { BoardData, Stroke, TextItem, NodeType } from '../../../../domain/canvas/model/node'
 import type { NodeViewProps } from '../registry'
 import { clientToLogical, strokePath, makeStroke, makeText } from '../../../../domain/canvas/board/boardCanvas'
+import { IconPlay, IconPlus } from '../../toolbar/icons'
 import styles from './BoardNodeView.module.css'
 
 type Tool = 'select' | 'brush' | 'text'
@@ -262,7 +263,8 @@ export function BoardNodeView(props: NodeViewProps) {
               onClick={runBoard}
               title="运行整个画板（拓扑重跑画板内节点）"
             >
-              ▶ 运行画板
+              <IconPlay size={14} />
+              运行画板
             </button>
             <div className={styles.addWrap}>
               <button
@@ -271,7 +273,8 @@ export function BoardNodeView(props: NodeViewProps) {
                 data-board-create
                 onClick={() => setAddOpen((v) => !v)}
               >
-                ＋ 新建
+                <IconPlus size={14} />
+                新建
               </button>
               {addOpen && (
                 <div className={styles.addMenu} data-board-create-menu>

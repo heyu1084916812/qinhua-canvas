@@ -20,6 +20,7 @@ import {
 import { presetOf } from '../../../domain/project/modelCatalog'
 import { presetModelsOf } from '../../../domain/project/modelPresets'
 import { ModelIcon } from './ModelIcon'
+import { IconClose, IconSpinner, IconStop } from '../toolbar/icons'
 
 /** 生成数量：固定四项（§6.8「1张 / 2张 / 4张 / 9张，固定四项」） */
 export const COUNT_OPTIONS = [1, 2, 4, 9] as const
@@ -1070,7 +1071,13 @@ export function CreationPanel(props: CreationPanelProps) {
           aria-label={runLabel}
           onClick={() => onEvent({ type: props.running ? 'cancel' : 'run' })}
         >
-          {props.running ? '✕' : busyGlobal ? '◌' : <RunArrow />}
+          {props.running ? (
+            <IconStop size={18} />
+          ) : busyGlobal ? (
+            <IconSpinner size={20} />
+          ) : (
+            <RunArrow />
+          )}
         </button>
         {props.error && <span className={styles.error}>{props.error}</span>}
       </section>
@@ -1167,7 +1174,7 @@ function Thumb({
             onRemove()
           }}
         >
-          ✕
+          <IconClose size={12} />
         </button>
       )}
     </div>
