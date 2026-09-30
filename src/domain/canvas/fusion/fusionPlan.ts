@@ -113,6 +113,25 @@ export type CropHandle = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se'
 
 export const CROP_HANDLES: readonly CropHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
 
+/**
+ * 拖框**本身**（不是拖手柄）：尺寸一分不变，整块平移，出界只夹不平移出图外。
+ *
+ * 用户 2026-09-30：「在选取内拖动每次都会新建一个选取」—— 那是首版把「按在图上」
+ * 一律当成「开始画新框」。框好之后最常见的动作其实是**微调位置**（把框挪到想改的地方），
+ * 所以选区内部的按下应当解释成「搬这个框」，只有按在框**外**才是画新框。
+ *
+ * 平移量取「当前指针 − 按下那一刻的指针」而不是逐帧累加：逐帧累加会把每帧的取整
+ * 误差攒起来，拖一会框就飘了（同样的理由见 `startResize`）。
+ */
+export function movedCropRect(
+  base: FusionRect,
+  dx: number,
+  dy: number,
+  bounds: Size,
+): FusionRect {
+  return clampRect({ x: base.x + dx, y: base.y + dy, w: base.w, h: base.h }, bounds)
+}
+
 export interface CropResizeInput {
   /** 按下手柄那一刻的框：整段拖拽都以它为基准（不累加，避免抖动被放大） */
   base: FusionRect

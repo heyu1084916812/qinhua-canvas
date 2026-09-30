@@ -17,6 +17,7 @@ import {
   FUSION_MIN_EDGE,
   clampRect,
   fitRectToRatio,
+  movedCropRect,
   ratioValueOf,
   resizedCropRect,
   type CropHandle,
@@ -159,6 +160,36 @@ export function LightboxLayer() {
     if (!natural) return rect
     const locked = ratioValue ? fitRectToRatio(rect, ratioValue) : rect
     return clampRect(locked, { w: natural.w, h: natural.h })
+  }
+
+  /**
+   * 拖**框本身**（框内按下）。
+   *
+   * 用户 2026-09-30：「在选取内拖动每次都会新建一个选取」—— 首版把「按在图上」
+   * 一律当成画新框，于是框好之后想挪个位置就必须重画。现在框内按下 = 搬框
+   * （尺寸不变），只有按在框**外**才是画新框；这层由 `[data-lightbox-crop-move]`
+   * 覆盖在选框上接管指针，顺带把光标变成 `move` 给出提示。
+   */
+  const startMove = (e: ReactPointerEvent) => {
+    if (!cropRect || !natural) return
+    e.stopPropagation()
+    e.preventDefault()
+    movedRef.current = true
+    const base = cropRect
+    const bounds = { w: natural.w, h: natural.h }
+    const from = imgPointAt(e.clientX, e.clientY)
+    if (!from) return
+    const move = (ev: PointerEvent) => {
+      const cur = imgPointAt(ev.clientX, ev.clientY)
+      if (!cur) return
+      setCropRect(movedCropRect(base, cur.x - from.x, cur.y - from.y, bounds))
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
   }
 
   /** 提取选区模式下的拖拽 = **画框**（不是平移） */
@@ -376,6 +407,12 @@ export function LightboxLayer() {
         {cropBox && <div className={styles.cropRect} data-lightbox-crop-rect style={cropBox} />}
         {cropBox && (
           <div className={styles.cropHandles} data-lightbox-crop-handles style={cropBox}>
+            {/* 框内按下 = 搬框（先铺一层「移动层」，8 个手柄在它上面，压角时手柄优先） */}
+            <div
+              className={styles.cropMove}
+              data-lightbox-crop-move
+              onPointerDown={startMove}
+            />
             {CROP_HANDLES.map((h) => (
               <span
                 key={h}

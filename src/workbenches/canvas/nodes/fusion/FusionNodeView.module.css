@@ -51,31 +51,42 @@
   overflow: hidden;
 }
 
-/* 原图：占左半列、高度跟右列一致 */
+/*
+ * 原图：占左半列，**正方形**（它的高度就是整行的高度）。
+ *
+ * 图片按 `cover` 平铺铺满，不留上下白边（用户 2026-09-30：「原图的容器中，
+ * 图片没有铺满，上下留白了，用平铺的规则」）。
+ */
 .paneOriginal {
   flex: 1 1 0;
-  aspect-ratio: auto;
-  align-self: stretch;
 }
 
 /*
- * 原图用 `contain`：局部图多起来之后这一格会变成竖长条，
- * `cover` 会把原图裁掉一半 —— 而「对比原图」正是这一格存在的理由。
+ * 右列：局部图**上下排列**，但整列高度锁死在行高里 —— 每张等分这块高度，
+ * 张数越多每张越小（用户 2026-09-30：「不要一直叠加叠高，要自动适应缩小，
+ * 保持整体的局部图外部容器不发生改变」）。`min-height: 0` 是让 flex 子项
+ * 真能缩下去的关键（默认 `min-height: auto` 会被内容顶住）。
  */
-.paneOriginal .paneImg {
-  object-fit: contain;
-}
-
 .patchStack {
   flex: 1 1 0;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  /*
+   * 张数多到「每张都低于可读高度」时，让**这一列自己滚**（参考图右列就有细滚动条），
+   * 而不是把每张压成一条缝。容器本身仍然不长高 —— 滚动发生在容器内部。
+   */
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 .patchStack .pane {
-  flex: none;
+  flex: 1 1 0;
+  /* 地板高度：再小就看不清是哪张局部图了；触到地板后由上面的 overflow 接手 */
+  min-height: 44px;
+  aspect-ratio: auto;
 }
 
 .paneImg {

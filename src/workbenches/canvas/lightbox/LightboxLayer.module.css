@@ -140,6 +140,19 @@
   pointer-events: none;
 }
 
+/*
+ * 「搬框」层：铺满整个选框，接管框内的指针 —— 框内按下是**移动**选区，
+ * 不是重画一个（用户 2026-09-30 报的就是「在选取内拖动每次都会新建一个选取」）。
+ * 光标给 `move`，让「这里能拖」不用靠猜。
+ */
+.cropMove {
+  position: absolute;
+  inset: 0;
+  cursor: move;
+  pointer-events: auto;
+  touch-action: none;
+}
+
 .cropHandle {
   position: absolute;
   /* 手柄中心压在顶点上（margin 负半个身位），与「圆心在顶点」的视觉口径一致 */

@@ -12804,6 +12804,63 @@ async function g91(browser) {
     !!origBox2 && !!pane1 && origBox2.x + origBox2.width <= pane1.x + 1,
     `orig=${JSON.stringify(origBox2)} patch=${JSON.stringify(pane1)}`,
   )
+  /**
+   * ★★ 局部图区**锁在原图那一格的高度里**（用户 2026-09-30：「不要一直叠加叠高，
+   * 要自动适应缩小，保持整体的局部图外部容器不发生改变」）。
+   * 判据是几何：右列上下两端与左原图格对齐，且两张各占一半高。
+   */
+  rec(
+    g,
+    '★★ 局部图区锁在原图高度里（张数变多不撑高，每张等分变小）',
+    !!origBox2 &&
+      paneBoxes.length === 2 &&
+      Math.abs(pane1.y - origBox2.y) <= 2 &&
+      Math.abs(pane2.y + pane2.h - (origBox2.y + origBox2.height)) <= 4 &&
+      Math.abs(pane1.h - pane2.h) <= 2 &&
+      pane1.h < origBox2.height * 0.62,
+    `origH=${origBox2?.height?.toFixed(1)} p1=${JSON.stringify(pane1)} p2=${JSON.stringify(pane2)}`,
+  )
+  rec(
+    g,
+    '★ 原图那格是平铺铺满（cover，不留上下白边）',
+    (await page
+      .locator(`[data-node-id="${fusionId}"] [data-fusion-pane="original"] img`)
+      .evaluate((el) => getComputedStyle(el).objectFit)
+      .catch(() => '')) === 'cover',
+  )
+  /**
+   * 参考图（用户 2026-09-30 给的截图）里右列是有细滚动条的：张数多到每张低于可读高度
+   * 时，**列内滚动**接手，容器依旧不长高。这里钉住「有滚动能力 + 每张不低于地板 44px」。
+   */
+  const stackOverflow = await page
+    .locator(`[data-node-id="${fusionId}"] [data-fusion-patch-stack]`)
+    .evaluate((el) => getComputedStyle(el).overflowY)
+    .catch(() => '')
+  rec(
+    g,
+    '★ 局部图列：贴到可读高度地板后改为列内滚动（容器仍不长高）',
+    stackOverflow === 'auto' && paneBoxes.every((p) => p.h >= 44),
+    `overflowY=${stackOverflow} heights=${paneBoxes.map((p) => p.h.toFixed(1)).join(',')}`,
+  )
+  /**
+   * ★★ 双击预览大图（用户 2026-09-30：「局部融合节点里面的图片也可以进行双击灯箱预览」）。
+   * 断言要认到**具体是哪一张**（比对 `data-lightbox-hash` 与格里记的 hash），
+   * 只断言「灯箱开了」的话，双报到原图上也照样绿。
+   */
+  const firstPatch = page.locator(`[data-node-id="${fusionId}"] [data-fusion-pane="patch"]`).first()
+  const patchHash = await firstPatch.getAttribute('data-fusion-pane-hash')
+  await firstPatch.dblclick()
+  await sleep(700)
+  const lbHash = await page.locator('[data-lightbox]').getAttribute('data-lightbox-hash').catch(() => null)
+  rec(
+    g,
+    '★★ 双击局部图开灯箱，且预览的正是这一张',
+    !!patchHash && lbHash === patchHash,
+    `pane=${patchHash} lightbox=${lbHash}`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(400)
+  rec(g, '★ Esc 关掉预览', (await page.locator('[data-lightbox]').count()) === 0)
   const chipPatch2 = ((await page.locator('[data-fusion-chip="patch"]').textContent()) ?? '').trim()
   rec(g, '★ 连接提醒跟着更新为 2 张', /局部修改 2 张/.test(chipPatch2), chipPatch2)
 
@@ -12966,6 +13023,36 @@ async function g92(browser) {
       !!grown && Math.abs(grown.x - rectBox.x) <= 2 && Math.abs(grown.y - rectBox.y) <= 2,
       grown ? `nw ${rectBox.x.toFixed(1)},${rectBox.y.toFixed(1)} → ${grown.x.toFixed(1)},${grown.y.toFixed(1)}` : 'null',
     )
+
+    /**
+     * ★★ 框内拖动 = **搬框**，不是重画（用户 2026-09-30：「在选取内拖动每次都会新建
+     * 一个选取」）。尺寸必须一分不变，位置按位移走。
+     */
+    const beforeMove = await page.locator('[data-lightbox-crop-rect]').boundingBox().catch(() => null)
+    const moveLayer = await page.locator('[data-lightbox-crop-move]').boundingBox().catch(() => null)
+    rec(g, '★ 选框上铺了「搬框」层（框内按下接手指针）', !!moveLayer && moveLayer.width > 0)
+    if (beforeMove && moveLayer) {
+      await page.mouse.move(beforeMove.x + beforeMove.width / 2, beforeMove.y + beforeMove.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(
+        beforeMove.x + beforeMove.width / 2 - 40,
+        beforeMove.y + beforeMove.height / 2 - 20,
+        { steps: 10 },
+      )
+      await page.mouse.up()
+      await sleep(350)
+      const afterMove = await page.locator('[data-lightbox-crop-rect]').boundingBox().catch(() => null)
+      rec(
+        g,
+        '★★ 框内拖动 = 平移选区（尺寸不变、位置跟着走，不再重画一个）',
+        !!afterMove &&
+          Math.abs(afterMove.width - beforeMove.width) <= 2 &&
+          Math.abs(afterMove.height - beforeMove.height) <= 2 &&
+          Math.abs(afterMove.x - (beforeMove.x - 40)) <= 3 &&
+          Math.abs(afterMove.y - (beforeMove.y - 20)) <= 3,
+        `before=${JSON.stringify(beforeMove)} after=${JSON.stringify(afterMove)}`,
+      )
+    }
   }
 
   /**

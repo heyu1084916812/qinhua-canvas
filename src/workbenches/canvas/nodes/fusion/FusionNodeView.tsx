@@ -18,9 +18,11 @@
  * └──────────────────────────────┘
  * ```
  *
- * 局部图**为什么纵向排**：一个「原图 + N 个局部选区」的语义就是「左右两块」，
- * 横向铺开会把节点越撑越宽、把左边那张原图挤小；纵向排则节点只长高，
- * 原图那一列的宽度稳定，多选区时也更像参考实现（左原图 / 右局部图区）。
+ * 局部图**为什么纵向排、而且不撑高**：一个「原图 + N 个局部选区」的语义就是
+ * 「左右两块」——横向铺开会把节点越撑越宽、把左边那张原图挤小；纵向排则原图列
+ * 宽度恒定。而右列的高度**锁死在左原图那一格**里，几张就等分几份：张数变多只是
+ * 每张变小，节点宽高都不动（用户 2026-09-30：「不要一直叠加叠高，要自动适应缩小，
+ * 保持整体的局部图外部容器不发生改变」）。
  *
  * ## 这一版**删掉**了什么（用户：「之前的那个东西删掉，都不对」）
  *
@@ -51,6 +53,12 @@ export function FusionNodeView(props: NodeViewProps) {
   const colorMatch = data.colorMatch !== false
   /** 原图预览（单张，直接在这里取；局部图数量会变，必须在子组件里取，否则违反 hook 规则） */
   const originalUrl = useAsset(original?.hash)
+  /**
+   * 双击预览大图（用户 2026-09-30：「局部融合节点里面的图片也可以进行双击灯箱预览」）。
+   * 与生成节点同一个事件口径（`emit({ type:'openLightbox' })` → `useCanvasPageEvents` 翻译成
+   * `store.openLightbox`），不另开一条预览链路。
+   */
+  const openPane = (hash: string) => props.emit({ type: 'openLightbox', assetHash: hash })
 
   /** 每张局部图能不能回贴：上下文跟着图片走（NodeLayer 沿上游解析后注入） */
   const missingContextAt = patches.findIndex((p) => !p.hasContext)
@@ -96,13 +104,20 @@ export function FusionNodeView(props: NodeViewProps) {
       <div className={styles.content} ref={contentRef} data-fusion-content>
         {/* ① 两块预览：左原图 | 右局部修改（多张**上下排列**） */}
         <div className={styles.panes} data-fusion-panes>
-          <Pane label="原图" url={originalUrl} testId="original" extraClass={styles.paneOriginal} />
+          <Pane
+            label="原图"
+            url={originalUrl}
+            hash={original?.hash ?? null}
+            onOpen={openPane}
+            testId="original"
+            extraClass={styles.paneOriginal}
+          />
           <div className={styles.patchStack} data-fusion-patch-stack>
             {patches.length === 0 ? (
               <Pane label="局部修改" url={null} testId="patch-empty" />
             ) : (
               patches.map((p, i) => (
-                <PatchPane key={`${p.hash}-${i}`} hash={p.hash} index={i + 1} />
+                <PatchPane key={`${p.hash}-${i}`} hash={p.hash} index={i + 1} onOpen={openPane} />
               ))
             )}
           </div>
@@ -170,16 +185,27 @@ export function FusionNodeView(props: NodeViewProps) {
 function Pane({
   label,
   url,
+  hash,
+  onOpen,
   testId,
   extraClass,
 }: {
   label: string
   url: string | null
+  hash?: string | null
+  onOpen?: (hash: string) => void
   testId: string
   extraClass?: string
 }) {
+  const openable = !!(url && hash && onOpen)
   return (
-    <div className={extraClass ? `${styles.pane} ${extraClass}` : styles.pane} data-fusion-pane={testId}>
+    <div
+      className={extraClass ? `${styles.pane} ${extraClass}` : styles.pane}
+      data-fusion-pane={testId}
+      data-fusion-pane-hash={hash ?? undefined}
+      title={openable ? '双击查看大图' : undefined}
+      onDoubleClick={openable ? () => onOpen?.(hash as string) : undefined}
+    >
       {url ? (
         <img className={styles.paneImg} src={url} alt="" draggable={false} />
       ) : (
@@ -192,17 +218,37 @@ function Pane({
   )
 }
 
-/** 局部修改图：编号从 1 起（与连线顺序一致），多于一张时才带序号 */
-function PatchPane({ hash, index }: { hash: string; index: number }) {
+/**
+ * 局部修改图：编号从 1 起（与连线顺序一致）。
+ *
+ * 标签照参考图写成「局部 1 / 局部 2」（**始终带序号**，不是第一张光写「局部修改」）：
+ * 参考图里几张局部图并排时，序号是唯一能跟连线顺序对上的东西（用户 2026-09-30 给的截图）。
+ */
+function PatchPane({
+  hash,
+  index,
+  onOpen,
+}: {
+  hash: string
+  index: number
+  onOpen: (hash: string) => void
+}) {
   const url = useAsset(hash)
   return (
-    <div className={styles.pane} data-fusion-pane="patch" data-fusion-patch={index}>
+    <div
+      className={styles.pane}
+      data-fusion-pane="patch"
+      data-fusion-patch={index}
+      data-fusion-pane-hash={hash}
+      title="双击查看大图"
+      onDoubleClick={() => onOpen(hash)}
+    >
       {url ? (
         <img className={styles.paneImg} src={url} alt="" draggable={false} />
       ) : (
         <span className={styles.paneEmpty} />
       )}
-      <span className={styles.paneLabel}>{index > 1 ? `局部修改 ${index}` : '局部修改'}</span>
+      <span className={styles.paneLabel}>{`局部 ${index}`}</span>
     </div>
   )
 }

@@ -9,6 +9,7 @@ import {
   contextsForSource,
   fitInside,
   fitRectToRatio,
+  movedCropRect,
   paddedRectOf,
   planFusion,
   ratioMatches,
@@ -158,6 +159,34 @@ describe('融合几何 · resizedCropRect（拖手柄改选区）', () => {
         }
       }
     }
+  })
+})
+
+/**
+ * 拖框**本身**（用户 2026-09-30：「在选取内拖动每次都会新建一个选取」）。
+ * 尺寸必须一分不变 —— 移动和缩放是两件事，混在一起用户就没法微调位置。
+ */
+describe('融合几何 · movedCropRect（拖框微调位置）', () => {
+  const BOUNDS = { w: 640, h: 360 }
+  const BASE = { x: 100, y: 60, w: 200, h: 150 }
+
+  it('尺寸不动，整块跟着位移', () => {
+    const r = movedCropRect(BASE, 30, -20, BOUNDS)
+    expect(r).toEqual({ x: 130, y: 40, w: 200, h: 150 })
+  })
+
+  it('★ 平移量是相对按下那一刻算的：给同样的位移得到同样的结果（不累加）', () => {
+    expect(movedCropRect(BASE, 10, 10, BOUNDS)).toEqual(movedCropRect(BASE, 10, 10, BOUNDS))
+  })
+
+  it('★ 拖出图外只夹位置，尺寸不变（不把框压扁）', () => {
+    const r = movedCropRect(BASE, 9999, 9999, BOUNDS)
+    expect(r.w).toBe(200)
+    expect(r.h).toBe(150)
+    expect(r.x).toBe(BOUNDS.w - 200)
+    expect(r.y).toBe(BOUNDS.h - 150)
+    const l = movedCropRect(BASE, -9999, -9999, BOUNDS)
+    expect(l).toEqual({ x: 0, y: 0, w: 200, h: 150 })
   })
 })
 
