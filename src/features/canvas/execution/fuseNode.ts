@@ -365,6 +365,12 @@ export async function fuseNode(deps: FuseDeps, nodeId: string): Promise<FuseOutc
          * （否则拿它再提取选区时会追溯到上一轮的选区）。参考实现的同名标记。
          */
         cropContext: { full: true },
+        /**
+         * 记下「这张结果是从哪张原图融出来的」：灯箱里双击产物时据此给出
+         * 「对比原图」（两张叠放 + 可拖的分割线）。存 hash 不存节点 id ——
+         * 换节点 / 复制粘贴都不会指错，原图素材不在时对比入口自动不出现。
+         */
+        compareWith: original.assetHash,
       } as GenerationData,
     })
     deps.store.dispatch({

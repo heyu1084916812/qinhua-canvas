@@ -188,6 +188,99 @@
   background: var(--stroke);
 }
 
+/*
+ * ── 灯箱里的「对比原图」（§6.23，用户 2026-09-30）──
+ *
+ * 三档分段控件（结果 / 对比 / 原图）+ 可拖的分割线。分割线形态与对比节点（§6.10）
+ * 同一套：1px 竖线 + 圆形把手，拖动只改本地瞬时值。
+ */
+.compareGroup {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  box-sizing: border-box;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+}
+
+.compareOff,
+.compareOn {
+  flex: none;
+  height: 26px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.compareOn {
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+}
+
+.compareOff:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.compareDivider {
+  position: absolute;
+  width: 1px;
+  border-left: 1px solid var(--text-1);
+  cursor: ew-resize;
+  pointer-events: auto;
+  touch-action: none;
+  z-index: 2;
+}
+
+.compareKnob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  box-sizing: border-box;
+  border: 1px solid var(--text-1);
+  border-radius: 50%;
+  background: var(--bg-surface);
+}
+
+/* 画面顶部两角的「原图 / 结果」标签：不吃指针 */
+.compareTags {
+  position: absolute;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: var(--space-2);
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.compareTag {
+  height: 20px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+  font-size: var(--fs-chip);
+  font-weight: 700;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
 .ratioLabel {
   color: var(--text-3);
   font-size: var(--fs-chip);

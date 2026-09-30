@@ -13174,6 +13174,74 @@ async function g92(browser) {
     snapSrc && snapOut && snapSrc.p.every((c, i) => near(c, snapOut.p[i])),
     `原图=${JSON.stringify(snapSrc?.p)} 结果=${JSON.stringify(snapOut?.p)}`,
   )
+
+  /**
+   * ── ⑨ 融合结果双击 → 灯箱里**对比原图**（用户 2026-09-30：
+   * 「融合节点出的结果图双击出现灯箱后要有对比原图的功能」） ──
+   *
+   * 配对关系由产物节点自己的 `compareWith` 给出（产出那一刻写死的既成事实），
+   * 所以这里能断到**具体是哪一张**：切到「原图」档后展示的 hash 必须等于
+   * 融合节点左口那张原图的 hash，且**不等于**结果自己的 hash。
+   */
+  const origHash = await page
+    .locator(`[data-node-id="${fusionId}"] [data-fusion-pane="original"]`)
+    .getAttribute('data-fusion-pane-hash')
+  await resultNode.locator('[data-node-asset]').first().dblclick()
+  await sleep(700)
+  rec(
+    g,
+    '★★ 双击融合结果开灯箱，并给出「对比原图」三档',
+    (await page.locator('[data-lightbox]').count()) === 1 &&
+      (await page.locator('[data-lightbox-compare-group]').count()) === 1,
+  )
+  await page.locator('[data-lightbox-compare="split"]').click()
+  await sleep(400)
+  const ratioBefore = Number(
+    await page.locator('[data-lightbox-compare-divider]').getAttribute('data-lightbox-compare-ratio'),
+  )
+  rec(
+    g,
+    '★★ 「对比」档把原图叠在结果上，分割线默认在中线',
+    (await page.locator('[data-lightbox-compare-media]').count()) === 1 &&
+      Math.abs(ratioBefore - 0.5) < 0.02,
+    `ratio=${ratioBefore}`,
+  )
+  const dividerBox = await page.locator('[data-lightbox-compare-divider]').boundingBox()
+  const mediaBox = await page.locator('[data-lightbox-media]').boundingBox()
+  if (dividerBox && mediaBox) {
+    await page.mouse.move(dividerBox.x + dividerBox.width / 2, dividerBox.y + dividerBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(mediaBox.x + mediaBox.width * 0.25, dividerBox.y + dividerBox.height / 2, {
+      steps: 10,
+    })
+    await page.mouse.up()
+    await sleep(300)
+    const ratioAfter = Number(
+      await page.locator('[data-lightbox-compare-divider]').getAttribute('data-lightbox-compare-ratio'),
+    )
+    rec(
+      g,
+      '★★ 拖分割线真的改比例（0.5 → 约 0.25）',
+      Math.abs(ratioAfter - 0.25) < 0.06,
+      `before=${ratioBefore} after=${ratioAfter}`,
+    )
+    /** 留一张「对比档 + 分割线拖到左边」的截图：这类画面只有肉眼能判断好不好看 */
+    await page.screenshot({ path: `${OUT}/108-g92-compare.png` })
+  }
+  const resultHash = await page.locator('[data-lightbox]').getAttribute('data-lightbox-hash')
+  await page.locator('[data-lightbox-compare="original"]').click()
+  await sleep(400)
+  const shownHash = await page.locator('[data-lightbox]').getAttribute('data-lightbox-shown-hash')
+  rec(
+    g,
+    '★★ 「原图」档展示的确实是那张原图（不是结果自己）',
+    !!origHash && shownHash === origHash && shownHash !== resultHash,
+    `原图=${origHash} 展示=${shownHash} 结果=${resultHash}`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(400)
+  rec(g, '★ 对比完 Esc 关掉灯箱', (await page.locator('[data-lightbox]').count()) === 0)
+
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await page.screenshot({ path: `${OUT}/107-g92-extract.png` })
   await ctx.close()
