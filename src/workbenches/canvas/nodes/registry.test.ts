@@ -19,11 +19,11 @@ describe('节点视图注册表', () => {
   })
 
   it('规格与视图类型集合不一致时抛错', () => {
-    registerAllSpecs() // specs = { prompt, generation, board }
+    registerAllSpecs()
     registerAllViews() // 先拿到完整视图集合，再人为抽掉两个
     const view = getNodeDefinition('prompt').View
     resetViews()
-    // 只保留 prompt 一个 view，故意漏掉 generation / board
+    // 只保留 prompt 一个 view，故意漏掉其它已注册类型
     registerView('prompt', { View: view as never })
     expect(() => assertRegistryConsistent()).toThrow(/规格与视图注册不一致/)
   })

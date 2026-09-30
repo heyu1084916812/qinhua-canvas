@@ -167,7 +167,7 @@ export const EdgeLayer = memo(function EdgeLayer({
           const s = byId.get(e.source)
           const t = byId.get(e.target)
           if (!s || !t) return null
-          // 画板内子节点用世界坐标（parent 偏移）定位连线端点
+          // 容器子节点用世界坐标（parent 偏移）定位连线端点
           const ws = toWorldRect(s, s.parentId ? byId.get(s.parentId) : null)
           const wt = toWorldRect(t, t.parentId ? byId.get(t.parentId) : null)
           const sourcePort = sourcePortOf(e)

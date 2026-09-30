@@ -17,8 +17,7 @@ registerAllSpecs()
  * 「新建节点带默认配方」的类型边界（用户 2026-09-23 实测踩到）。
  *
  * `node.create` 的 data 是**整体替换** `spec.createDefaultData()`，不是合并。
- * 曾经无条件给所有类型注入 `{channelId, model}`，把画板的 `bg` 挤掉了 ⇒
- * 点画板抛 `Cannot read properties of undefined (reading 'color')`。
+ * 曾经无条件给所有类型注入 `{channelId, model}`，会把气泡节点自己的默认结构挤掉。
  *
  * 这一组钉住「只有需要配方的类型才注入」。
  */
@@ -50,10 +49,6 @@ async function store() {
 }
 
 describe('resolveDefaults · 只有需要配方的类型才注入默认值', () => {
-  it('★ 画板：一个字段都不加（否则会挤掉 spec 的 bg/strokes/texts）', async () => {
-    const data = await resolveDefaults({ channels: await store(), type: 'board' })
-    expect(Object.keys(data)).toEqual([])
-  })
 
   it('★ 分组：同样不加（它的默认数据是 items）', async () => {
     const data = await resolveDefaults({ channels: await store(), type: 'group' })

@@ -54,9 +54,9 @@ export interface CanvasRunTask extends SharedRunTask {
   /**
    * 来源节点**所在容器**的类型（§6.8 生成行为表：容器运行各自产生独立结果组）。
    *
-   * 「N=1 不建结果组」只对**独立的生成节点**成立：画板 / 分组 / 批量里跑出来的产物
+   * 「N=1 不建结果组」只对**独立的生成节点**成立：分组 / 批量里跑出来的产物
    * 属于那一次容器运行，写回容器内某个子节点等于把结果藏进集合里看不见。
-   * 只看 `sourceType` 判断不出来——画板里的生成节点 `type` 仍然是 `generation`，
+   * 只看 `sourceType` 判断不出来——容器里的生成节点 `type` 仍然是 `generation`，
    * 必须往上追一层父节点。
    */
   containerKind: ContainerKind
@@ -64,9 +64,8 @@ export interface CanvasRunTask extends SharedRunTask {
    * 产物承载节点该挂在**哪个容器下**（容器运行时 = 那个容器的 id，其余为 null）。
    *
    * 为什么需要它：容器运行的产物若建在容器**外**，那条「源节点 → 承载节点」的
-   * 连线就跨越了画板边界，而 §6.14 定死「画板内外不建立边」——连线会被拒
-   * （实测 G21 抛 `[command edge.connect] 画板内外不建立边`）。
-   * 挂在容器内则两端同属一个画板，连线成立，语义也对：
+   * 连线会被容器规则拒掉（子节点不与外部连线，§6.14）。
+   * 挂在容器内则两端同属一个容器，连线成立，语义也对：
    * 「运行这个工作区」的结果本就该留在工作区里。
    */
   containerId: string | null
@@ -85,8 +84,12 @@ export interface CanvasRunTask extends SharedRunTask {
   sourceData: NodeData
 }
 
-/** 能把生成节点装起来的容器类型；`null` = 顶层节点（不在任何容器里） */
-export type ContainerKind = 'board' | 'group' | 'batch' | null
+/**
+ * 能把生成节点装起来的容器类型；`null` = 顶层节点（不在任何容器里）。
+ *
+ * 画板节点已于 2026-09-30 下线，仅保留分组 / 批量。
+ */
+export type ContainerKind = 'group' | 'batch' | null
 
 /**
  * 画布执行计划：共享外壳 + 画布任务。
@@ -103,9 +106,9 @@ export type RunOrigin =
   | {
       subgraph: GraphSnapshot
       /**
-       * 这次运行**所在容器**的类型（画板运行必填）。
+       * 这次运行**所在容器**的类型。
        *
-       * 子图里只有容器内的节点、**不含容器自己**（`boardSubgraph` 就是这么切的），
+       * 子图里只有容器内的节点、**不含容器自己**，
        * 所以「这是不是一次容器运行」没法从子图推断 —— 只能由调用方声明。
        */
       containerKind?: ContainerKind
@@ -250,7 +253,7 @@ export function buildRunPlan(
        */
       for (let c = 0; c < callsPerRunOf(node); c += 1) {
         /**
-         * 容器运行（画板 / 分组 / 批量的「运行整个容器」）的产物**一律铺新节点**。
+         * 容器运行（分组 / 批量的「运行整个容器」）的产物**一律铺新节点**。
          *
          * 此前它们靠结果组装产物；结果组下线后若退回 `reuse` 自己，产物就会被
          * 写回容器内那个节点——而容器运行是新的一次生成，旧产物属于上一版，
@@ -267,10 +270,10 @@ export function buildRunPlan(
         /**
          * 容器运行 → 承载节点挂进**源节点所在的那个容器**（与源节点做兄弟）。
          *
-         * 画板运行比较特殊：plan 的 `working` 是 `boardSubgraph` 切出来的子图，
-         * 里面**不含画板自己**，所以容器运行时要从 `origin.containerKind` 这一侧
+         * 容器运行时 plan 的 `working` 是切出来的子图、**不含容器自己**，
+         * 所以要从 `origin.containerKind` 这一侧
          * 知道「这是容器运行」；而容器 id 仍取源节点的 `parentId`
-         * （子节点一定带 parentId，这是 boardSubgraph 的切法保证的）。
+         * （子节点一定带 parentId，这是子图切法的保证）。
          */
         const hostId = inContainer && node.parentId ? node.parentId : null
 
@@ -375,7 +378,7 @@ export function buildRunPlan(
 function containerKindOf(node: NodeSnapshot, index: ReturnType<typeof indexNodes>): ContainerKind {
   const parent = node.parentId ? index.get(node.parentId) : undefined
   if (!parent) return null
-  return parent.type === 'board' || parent.type === 'group' || parent.type === 'batch' ? parent.type : null
+  return parent.type === 'group' || parent.type === 'batch' ? parent.type : null
 }
 
 /** 某个节点会发起多少次调用（= 其输入里集合的展开尺寸） */

@@ -374,14 +374,14 @@ export const NodeLayer = memo(function NodeLayer({
    * 子节点的 local x/y 由网格决定，因此渲染时归零、位置交给外层单元容器。
    * 结果组的子节点仍由 ResultGroupLayer 呈现，不走本函数。
    */
-  const renderChild = (child: NodeSnapshot, opts?: { preserveCoords?: boolean }) => {
+  const renderChild = (child: NodeSnapshot) => {
     const def = getNodeDefinition(child.type)
     const st = exec.nodeStateOf(child.id)
     const running = st?.kind === 'queued' || st?.kind === 'running'
     const error = st?.kind === 'failed' ? describeError(st.error) : null
-    // 分组 / 批量：由容器网格定位，child 坐标归零；画板：保留真实 local 坐标
-    const frameNode = opts?.preserveCoords ? child : { ...child, x: 0, y: 0 }
-    // 分组 / 批量子节点隐藏端点；画板子节点保留端点以构成子图连线（§6.13）
+    // 分组 / 批量：由容器网格定位，child 坐标归零。
+    const frameNode = { ...child, x: 0, y: 0 }
+    // 分组 / 批量子节点隐藏端点。
     // 结果组子节点也隐藏：它的父不在 nodes 表（指向 resultGroups），端点会拖出
     // 一条 `canConnect` 必拒的线（§6.9「结果组不作为边端点」）。
     const parent = child.parentId ? index.get(child.parentId) : undefined
@@ -433,13 +433,9 @@ export const NodeLayer = memo(function NodeLayer({
         const error = st?.kind === 'failed' ? describeError(st.error) : null
         const runMode: 'idle' | 'single' =
           st && (st.kind === 'queued' || st.kind === 'running' || st.kind === 'canceled') ? 'single' : 'idle'
-        // 容器类节点：把组内/画板内节点递归渲染成 frame，交给容器视图定位
-        // - group/batch：网格化定位（child 坐标归零，renderChild 默认）
-        // - board：保留真实 local 坐标（renderChild 传 preserveCoords）
+        // 容器类节点（分组 / 批量）：把子节点递归渲染成 frame，交给容器视图网格化定位
         const containerChildren =
-          node.type === 'group' || node.type === 'batch' || node.type === 'board'
-            ? (childrenByParent.get(node.id) ?? [])
-            : []
+          node.type === 'group' || node.type === 'batch' ? (childrenByParent.get(node.id) ?? []) : []
         return (
           <NodeFrame
             key={node.id}
@@ -474,10 +470,6 @@ export const NodeLayer = memo(function NodeLayer({
               emit={(ev) => {
                 if (ev.type === 'requestRun') {
                   void exec.runNode(node.id)
-                  return
-                }
-                if (ev.type === 'requestRunBoard') {
-                  void exec.runBoard(node.id)
                   return
                 }
                 if (ev.type === 'requestRunCancel') {

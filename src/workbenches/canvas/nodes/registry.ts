@@ -78,10 +78,9 @@ export interface NodeViewProps<TData extends NodeData = NodeData> {
   /**
    * 把子节点渲染成带外框的完整节点（含标题 / 选中态 / 拖动接线），
    * 由容器视图在自己的坐标系里调用；非容器类型不提供。
-   * opts.preserveCoords=true 时保留子节点真实 local 坐标（画板用），
-   * 否则坐标归零交由容器网格定位（分组 / 批量用）。
+   * 子节点坐标归零，交由容器网格定位（分组 / 批量用）。
    */
-  renderChild?: (child: NodeSnapshot, opts?: { preserveCoords?: boolean }) => ReactNode
+  renderChild?: (child: NodeSnapshot) => ReactNode
   children?: ReactNode
 }
 
@@ -107,7 +106,7 @@ export type NodeViewEvent =
   | { type: 'rename'; title: string }
   /**
    * 数据补丁。transient=true（默认）不进撤销栈但仍落库，用于连续输入（文本编辑、滑块拖动）；
-   * 离散提交（如画板落一笔、放一段文字、改一次背景）应传 transient:false 以进入撤销栈。
+   * 离散提交应传 transient:false 以进入撤销栈。
    */
   /**
    * `size` 是**可选的尺寸联动**（与 `node.updateData` 命令同口径）：
@@ -118,8 +117,6 @@ export type NodeViewEvent =
   | { type: 'requestPanel' }
   | { type: 'requestRun'; mode: Exclude<RunMode, 'idle'> }
   | { type: 'requestRunCancel' }
-  | { type: 'requestRunBoard' }
-  | { type: 'createChild'; nodeType: NodeType }
   | { type: 'openLightbox'; assetHash: string }
   /**
    * 下载节点自身的素材（用户 2026-09-18：加在节点跟随栏里）。

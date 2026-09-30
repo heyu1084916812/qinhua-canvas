@@ -5,7 +5,7 @@
  * UI 层拿到 items 后负责渲染与派发，命令层负责执行 —— 三者解耦，菜单结构可单测。
  *
  * §4.1 分组约定：
- * 运行类（生成 / 改写提示词 / 运行画板）最上 → 编辑类（复制 / 重命名 / 全屏编辑）
+ * 运行类（生成 / 改写提示词）最上 → 编辑类（复制 / 重命名 / 全屏编辑）
  * → 历史与结构类（版本历史）→ 危险操作（删除）单独一组置于底部，以分隔线区分。
  */
 
@@ -13,7 +13,6 @@ import type { NodeType } from '../model/node'
 
 export type ContextMenuAction =
   | { kind: 'run' }
-  | { kind: 'runBoard' }
   | { kind: 'duplicate' }
   | { kind: 'rename' }
   | { kind: 'fullscreenEdit' }
@@ -48,7 +47,6 @@ export const CREATABLE_TYPES: readonly { type: NodeType; label: string }[] = [
   { type: 'batch', label: '批量节点' },
   { type: 'loop', label: '循环节点' },
   { type: 'fusion', label: '融合节点' },
-  { type: 'board', label: '画板节点' },
 ]
 
 /** 右键菜单里带「生成」项的类型（§4.1：生成节点 / 批量节点） */
@@ -60,7 +58,7 @@ const RUNNABLE: ReadonlySet<NodeType> = new Set<NodeType>(['generation', 'batch'
  * `type` 决定运行类项是否存在：只有生成 / 批量节点有「生成」（§6.12 生成入口）。
  * 生成 / 批量节点有「版本历史」（§6.21：RunRecord 由生成类节点产生）。
  *
- * 执行入口在右键菜单里只保留「运行画板」与「生成」两条。
+ * 执行入口在右键菜单里只保留「生成」一条。
  *
  * 已下线的三个（用户 2026-09-17）：「整条流程重新运行」「仅刷新陈旧节点」
  * 「清除陈旧标记」。前两个是**覆盖式**重跑——产物写回原节点、旧结果被冲掉；
@@ -78,9 +76,7 @@ export function nodeMenuItems(
   opts: { hasAsset?: boolean } = {},
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = []
-  if (type === 'board') {
-    items.push({ id: 'runBoard', label: '运行画板', action: { kind: 'runBoard' }, separatorAfter: true })
-  } else if (RUNNABLE.has(type)) {
+  if (RUNNABLE.has(type)) {
     items.push({ id: 'run', label: '生成', action: { kind: 'run' }, separatorAfter: true })
   }
   if (type === 'generation' && opts.hasAsset) {

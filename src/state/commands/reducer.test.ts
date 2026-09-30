@@ -5,7 +5,6 @@ import { registerSpec, resetSpecs } from '../../domain/canvas/nodeSpecs/registry
 import { promptSpec } from '../../domain/canvas/nodeSpecs/prompt'
 import { generationSpec } from '../../domain/canvas/nodeSpecs/generation'
 import { groupSpec } from '../../domain/canvas/nodeSpecs/group'
-import { boardSpec } from '../../domain/canvas/nodeSpecs/board'
 import { clipboardFromSelection, pasteEdges, pasteNodes } from '../../domain/canvas/clipboard'
 
 function emptyGraph(projectId = 'p1'): GraphSnapshot {
@@ -17,7 +16,6 @@ beforeEach(() => {
   registerSpec(promptSpec)
   registerSpec(generationSpec)
   registerSpec(groupSpec)
-  registerSpec(boardSpec)
 })
 
 describe('reduce / node.create', () => {
@@ -92,20 +90,6 @@ describe('reduce / 连线与归属', () => {
     expect(next.edges).toHaveLength(1)
   })
 
-  it('edge.connect 类型不匹配抛错', () => {
-    const g = twoNodes()
-    // 注意：**生成 → 提示词是合法的**（§6.7「上游可连接图片 / 视频节点与提示词节点」），
-    // 早先这条用例拿它当「不匹配」的样本，放开 prompt 的上游后必须换一个真不匹配的：
-    // 提示词节点不接受画板作上游（画板根本没端点）。
-    const tgt = g.nodes.find((n) => n.type === 'prompt')!.id
-    const withBoard = reduce(
-      { kind: 'node.create', projectId: 'p1', type: 'board', at: { x: 400, y: 0 } },
-      g,
-    ).next
-    const src = withBoard.nodes.find((n) => n.type === 'board')!.id
-    expect(() => reduce({ kind: 'edge.connect', source: src, target: tgt }, withBoard)).toThrow()
-  })
-
   it('edge.connect 生成 → 提示词合法（§6.7 上游可连图片 / 视频节点）', () => {
     const g = twoNodes()
     const src = g.nodes.find((n) => n.type === 'generation')!.id
@@ -125,23 +109,20 @@ describe('reduce / 连线与归属', () => {
   })
 
   it('node.reparent 跨容器换算坐标并清掉连线', () => {
-    // prompt(0,0) 连到 generation(200,0)；把 generation 放进一个 board 容器，连线应被清
     let g = twoNodes()
     const pId = g.nodes.find((n) => n.type === 'prompt')!.id
     const gId = g.nodes.find((n) => n.type === 'generation')!.id
     g = reduce({ kind: 'edge.connect', source: pId, target: gId }, g).next
-    g = reduce({ kind: 'node.create', projectId: 'p1', type: 'board', at: { x: 100, y: 100 } }, g).next
-    const boardId = g.nodes.find((n) => n.type === 'board')!.id
-    const { next } = reduce({ kind: 'node.reparent', id: gId, toParent: boardId }, g)
+    g = reduce({ kind: 'node.create', projectId: 'p1', type: 'group', at: { x: 100, y: 100 } }, g).next
+    const groupId = g.nodes.find((n) => n.type === 'group')!.id
+    const { next } = reduce({ kind: 'node.reparent', id: gId, toParent: groupId }, g)
     const moved = next.nodes.find((n) => n.id === gId)!
-    expect(moved.parentId).toBe(boardId)
-    // 进入容器后坐标变为相对父级 local（world(200,0) - board(100,100) = (100,-100)）
+    expect(moved.parentId).toBe(groupId)
     expect(moved.x).toBe(100)
     expect(moved.y).toBe(-100)
     expect(next.edges).toHaveLength(0)
-    // 画板也是容器：进入后其 childIds 应记录该节点（§6.11 / §6.12 排序依据）
-    const board = next.nodes.find((n) => n.id === boardId)!
-    expect((board.data as { childIds: string[] }).childIds).toEqual([gId])
+    const group = next.nodes.find((n) => n.id === groupId)!
+    expect((group.data as { childIds: string[] }).childIds).toEqual([gId])
   })
 
   it('node.reparent 拖入分组写入 childIds、拖出移除（§6.11）', () => {
@@ -159,14 +140,12 @@ describe('reduce / 连线与归属', () => {
     expect(outside.nodes.find((n) => n.id === genId)!.parentId).toBeNull()
   })
 
-  it('node.reparent 拒绝提示词之外的容器收纳物（画板不收纳画板）', () => {
+  it('node.reparent 拒绝分组收纳另一个容器', () => {
     let g = emptyGraph()
-    g = reduce({ kind: 'node.create', projectId: 'p1', type: 'board', at: { x: 0, y: 0 } }, g).next
+    g = reduce({ kind: 'node.create', projectId: 'p1', type: 'group', at: { x: 0, y: 0 } }, g).next
     g = reduce({ kind: 'node.create', projectId: 'p1', type: 'group', at: { x: 600, y: 0 } }, g).next
-    const boardId = g.nodes.find((n) => n.type === 'board')!.id
-    const groupId = g.nodes.find((n) => n.type === 'group')!.id
-    // group.accepts.parent = ['board'] 只说明分组可进画板；反之画板进分组不在 accepts.children 内
-    expect(() => reduce({ kind: 'node.reparent', id: boardId, toParent: groupId }, g)).toThrow()
+    const [outerId, innerId] = g.nodes.map((n) => n.id)
+    expect(() => reduce({ kind: 'node.reparent', id: innerId!, toParent: outerId! }, g)).toThrow()
   })
 })
 

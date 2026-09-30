@@ -131,8 +131,7 @@ export function linkMenuSections(input: {
     }
   }
 
-  // 新建节点落在与拖线起点同一个父级下：画板内的节点只与画板内建连，
-  // 放到根层会让 canConnect 的「画板内外不建立边」立刻把它否掉。
+  // 新建节点落在与拖线起点同一个父级下，保持容器内外的连线边界一致。
   const probeParent = dragged.parentId
 
   const createItems: LinkMenuItem[] = []
@@ -141,9 +140,9 @@ export function linkMenuSections(input: {
     /**
      * 判定时必须把替身**放进 nodes**。
      *
-     * canConnect 里有按 id 回溯父链的规则（画板内外不建立边、容器内节点不直接外连），
-     * 替身不在表里就等于「查无此节点、无祖先」，于是画板内的节点拖线时，
-     * 所有新建项都会被判成「画板外」而整批消失——菜单直接空掉。
+     * canConnect 里有按 id 回溯父链的规则（容器内节点不直接外连），
+     * 替身不在表里就等于「查无此节点、无祖先」，于是容器内节点拖线时，
+     * 所有新建项都会被判成「容器外」而整批消失——菜单直接空掉。
      * 替身不带任何边，故不会影响重复连线与环检测的判定。
      */
     const withProbe: GraphSnapshot = { ...graph, nodes: [...graph.nodes, probe] }

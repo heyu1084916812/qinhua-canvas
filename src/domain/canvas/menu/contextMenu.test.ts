@@ -18,8 +18,8 @@ describe('nodeMenuItems / 节点右键菜单（§4.1）', () => {
     expect(ids(nodeMenuItems('batch'))).toContain('run')
   })
 
-  it('提示词 / 对比 / 分组 / 画板节点没有「生成」', () => {
-    for (const t of ['prompt', 'compare', 'group', 'board'] as NodeType[]) {
+  it('提示词 / 对比 / 分组节点没有「生成」', () => {
+    for (const t of ['prompt', 'compare', 'group'] as NodeType[]) {
       expect(ids(nodeMenuItems(t))).not.toContain('run')
     }
   })
@@ -50,7 +50,7 @@ describe('nodeMenuItems / 节点右键菜单（§4.1）', () => {
   })
 
   it('★ 非提示词节点没有「全屏编辑」（无正文可编辑）', () => {
-    for (const t of ['generation', 'batch', 'compare', 'group', 'board'] as NodeType[]) {
+    for (const t of ['generation', 'batch', 'compare', 'group'] as NodeType[]) {
       expect(ids(nodeMenuItems(t))).not.toContain('fullscreenEdit')
     }
   })
@@ -91,7 +91,7 @@ describe('nodeMenuItems / 节点右键菜单（§4.1）', () => {
    * 留着它是防止哪天有人把菜单项加回来而功能并不存在（死入口比没有更糟）。
    */
   it('任何节点类型都没有「版本历史」（§6.21 已下线）', () => {
-    for (const t of ['generation', 'batch', 'prompt', 'compare', 'group', 'board'] as NodeType[]) {
+    for (const t of ['generation', 'batch', 'prompt', 'compare', 'group', 'fusion', 'loop'] as NodeType[]) {
       expect(ids(nodeMenuItems(t))).not.toContain('history')
     }
   })
@@ -112,7 +112,7 @@ describe('nodeMenuItems / 节点右键菜单（§4.1）', () => {
  * 防止哪天有人把入口加回来而它背后的语义已经不存在（死入口比没有更糟）。
  */
 describe('nodeMenuItems / 已下线的执行入口', () => {
-  const types: NodeType[] = ['prompt', 'generation', 'batch', 'board', 'compare', 'group']
+  const types: NodeType[] = ['prompt', 'generation', 'batch', 'compare', 'group']
 
   it('任何节点类型都不再列「整条流程重新运行 / 仅刷新陈旧 / 清除陈旧标记」', () => {
     for (const t of types) {
@@ -123,8 +123,7 @@ describe('nodeMenuItems / 已下线的执行入口', () => {
     }
   })
 
-  it('保留的仍是「生成 / 运行画板」两条：画板走运行画板，可生成节点走生成', () => {
-    expect(ids(nodeMenuItems('board'))).toContain('runBoard')
+  it('保留的仍是「生成」一条：可生成节点走生成', () => {
     expect(ids(nodeMenuItems('generation'))).toContain('run')
     expect(ids(nodeMenuItems('batch'))).toContain('run')
     // 提示词 / 对比 / 分组不是执行主体，不列运行项
@@ -166,7 +165,7 @@ describe('canvasMenuItems / 画布空白右键菜单（§4.1 / §6.5）', () => 
     expect(ids(items)).toContain('paste')
     const paste = items.find((i) => i.id === 'paste')!
     expect(paste.action).toEqual({ kind: 'paste' })
-    expect(ids(items).indexOf('paste')).toBeGreaterThan(ids(items).indexOf('create:board'))
+    expect(ids(items).indexOf('paste')).toBeGreaterThan(ids(items).indexOf('create:batch'))
     expect(items[items.length - 1].id).toBe('resetView')
   })
 })

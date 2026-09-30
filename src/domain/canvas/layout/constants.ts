@@ -47,7 +47,6 @@ export const NODE_MINIMUMS: Record<NodeType, Size> = {
   compare: { w: 240, h: 180 },
   group: { w: 240, h: 192 },
   batch: { w: 240, h: 192 },
-  board: { w: 400, h: 300 },
   /**
    * 循环节点默认 240×320：它默认开着「素材 + 提示词」两块面板（§6.22 参考图四），
    * 260 会溢出（实测）。高度仍可自由缩放，这只是开箱可用值。

@@ -5,7 +5,7 @@ import type { Viewport } from '../geometry/coords'
 /**
  * 小地图（产品文档 §6.4）：把「世界坐标里的节点 + 当前视口」等比投到一块固定尺寸的小画布上。
  *
- * 纯函数：不吃 React / store / DOM，便于单测，也便于将来别的宿主（画板内缩略）复用。
+ * 纯函数：不吃 React / store / DOM，便于单测，也便于别的宿主复用。
  *
  * 三条不变量：
  *

@@ -10,27 +10,14 @@ export type ConnectCheck = { ok: true } | { ok: false; reason: string }
 
 const OK: ConnectCheck = { ok: true }
 
-/** 节点所在的最外层画板 id（画板内外不建立边） */
-function boardAncestorOf(nodeId: string, graph: GraphSnapshot): string | null {
-  const index = indexNodes(graph.nodes)
-  let current = index.get(nodeId)
-  const seen = new Set<string>()
-  let board: string | null = null
-  while (current && !seen.has(current.id)) {
-    seen.add(current.id)
-    if (current.type === 'board') board = current.id
-    current = current.parentId ? index.get(current.parentId) : undefined
-  }
-  return board
-}
-
 /**
  * 连线合法性（架构 §4.1 / 产品文档 §6.14 与 §11.3）
- * 四条硬规则 + 类型匹配 + 环检测：
+ * 三条硬规则 + 类型匹配 + 环检测：
  * 1. 输出端点只能连输入端点
  * 2. 结果组本身不作为边端点（组内标准生成节点才是端点）
- * 3. 画板无端点；画板内外不建立边
- * 4. 分组 / 批量的子节点之间及其与外部不建立边
+ * 3. 分组 / 批量的子节点之间及其与外部不建立边
+ *
+ * （历史上还有第 4 条「画板内外不建立边」：画板节点 2026-09-30 整体下线，随之一并删除。）
  */
 export function canConnect(
   source: NodeSnapshot,
@@ -73,13 +60,6 @@ export function canConnect(
    */
   if (!targetDecl?.multi && hasEdge(graph.edges, source.id, target.id, sourcePort, targetPort)) {
     return { ok: false, reason: '这条连线已存在' }
-  }
-
-  if (source.type === 'board' || target.type === 'board') {
-    return { ok: false, reason: '画板没有端点' }
-  }
-  if (boardAncestorOf(source.id, graph) !== boardAncestorOf(target.id, graph)) {
-    return { ok: false, reason: '画板内外不建立边' }
   }
 
   // 规则 4：子节点与外部、子节点之间不建立边

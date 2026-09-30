@@ -29,7 +29,6 @@ describe('节点规格注册表', () => {
     expect(getSpec('compare')?.label).toBe('对比')
     expect(getSpec('group')?.label).toBe('分组')
     expect(getSpec('batch')?.label).toBe('批量')
-    expect(getSpec('board')?.label).toBe('画板')
     expect(getSpec('fusion')?.label).toBe('融合节点')
   })
 
@@ -43,7 +42,6 @@ describe('节点规格注册表', () => {
     registerAllSpecs()
     expect(registeredTypes().sort()).toEqual([
       'batch',
-      'board',
       'compare',
       'fusion',
       'generation',
@@ -51,7 +49,7 @@ describe('节点规格注册表', () => {
       'loop',
       'prompt',
     ])
-    expect(allSpecs()).toHaveLength(8)
+    expect(allSpecs()).toHaveLength(7)
   })
 
   it('提示词节点默认数据可用，输入收集返回自身文本', () => {

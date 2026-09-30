@@ -29,7 +29,6 @@ export const batchSpec: NodeSpec<BatchData> = {
     upstream: ['prompt', 'generation', 'loop', 'fusion'],
     // 两种都允许「形式上」收纳；真正的 media/prompt 互斥由 canAcceptIntoBatch 二次校验
     children: ['prompt', 'generation'],
-    parent: ['board'],
   },
   createDefaultData(): BatchData {
     return {

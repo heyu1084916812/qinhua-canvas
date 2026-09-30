@@ -4,7 +4,6 @@ import { generationSpec } from './generation'
 import { compareSpec } from './compare'
 import { groupSpec } from './group'
 import { batchSpec } from './batch'
-import { boardSpec } from './board'
 import { loopSpec } from './loop'
 import { fusionSpec } from './fusion'
 
@@ -19,7 +18,6 @@ export function registerAllSpecs(): void {
   registerSpec(compareSpec)
   registerSpec(groupSpec)
   registerSpec(batchSpec)
-  registerSpec(boardSpec)
   registerSpec(loopSpec)
   registerSpec(fusionSpec)
 }

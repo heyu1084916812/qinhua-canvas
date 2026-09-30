@@ -34,7 +34,7 @@ export const loopSpec: NodeSpec<LoopData> = {
    */
   /** `fusion` 一并接受（§6.23）：融合产物和生成产物一样是「一张图」 */
   accepts: {
-    upstream: ['prompt', 'generation', 'compare', 'group', 'batch', 'board', 'loop', 'fusion'],
+    upstream: ['prompt', 'generation', 'compare', 'group', 'batch', 'loop', 'fusion'],
   },
   createDefaultData(): LoopData {
     return {

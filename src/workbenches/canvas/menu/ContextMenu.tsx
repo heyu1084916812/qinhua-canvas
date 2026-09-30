@@ -19,7 +19,6 @@ import { saveAssetToLibrary } from '../../../features/canvas/saveAssetToLibrary'
 import styles from './ContextMenu.module.css'
 import {
   IconBatch,
-  IconBoard,
   IconCompare,
   IconFusion,
   IconGeneration,
@@ -55,7 +54,6 @@ const MENU_ICON: Record<string, ReactNode> = {
   'create:loop': <IconLoop size={MENU_ICON_SIZE} />,
   /** 融合节点：与左侧「＋」菜单取同一份图标组件（各画一套迟早漂） */
   'create:fusion': <IconFusion size={MENU_ICON_SIZE} />,
-  'create:board': <IconBoard size={MENU_ICON_SIZE} />,
   /** 提取选区：与功能栏取同一份图标组件 */
   extractSelection: <IconScan size={MENU_ICON_SIZE} />,
   saveLibrary: (
@@ -142,8 +140,6 @@ export function ContextMenu() {
       const a = item.action
       if (a.kind === 'run') {
         void exec.runNode(nodeId)
-      } else if (a.kind === 'runBoard') {
-        void exec.runBoard(nodeId)
       } else if (a.kind === 'duplicate') {
         store.dispatch({
           kind: 'node.duplicate',

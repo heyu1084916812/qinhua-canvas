@@ -40,8 +40,7 @@ import {
 /**
  * 出现跟随栏的节点类型。
  *
- * 与创作面板同一批（§6.1）——画板是「被收纳的工作区」，其内部工具条已经常驻，
- * 再叠一条跟随栏会与它抢位置。
+ * 与创作面板同一批（§6.1）。
  */
 const FOLLOW_TYPES = new Set<NodeType>(['prompt', 'generation', 'group', 'batch', 'compare', 'fusion'])
 

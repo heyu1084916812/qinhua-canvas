@@ -29,11 +29,6 @@ describe('端点拖线（§6.14）', () => {
       }
     })
 
-    it('画板无端点（§4.1）', () => {
-      expect(nodeHasPort('board', 'input')).toBe(false)
-      expect(nodeHasPort('board', 'output')).toBe(false)
-    })
-
     it('未注册类型不报错，返回 false', () => {
       resetSpecs()
       expect(nodeHasPort('group', 'input')).toBe(false)

@@ -4,12 +4,11 @@ export type NodeType =
   | 'compare'
   | 'group'
   | 'batch'
-  | 'board'
   | 'loop'
   | 'fusion'
 
 /** 容器类节点：子节点用 parentId 归属（结果组不在 NodeType 内，见 model/resultGroup.ts） */
-export const CONTAINER_TYPES: ReadonlySet<NodeType> = new Set<NodeType>(['group', 'batch', 'board'])
+export const CONTAINER_TYPES: ReadonlySet<NodeType> = new Set<NodeType>(['group', 'batch'])
 
 export interface NodeBase {
   id: string
@@ -137,38 +136,6 @@ export interface BatchData extends GenerationData {
   hiddenIds: string[]
 }
 
-export interface StrokePoint {
-  x: number
-  y: number
-  pressure?: number
-}
-
-export interface Stroke {
-  id: string
-  color: string
-  width: number
-  /** 羽化值（px，§6.13 画笔可调参数）：0 = 硬边，>0 时描边做高斯模糊软化 */
-  feather: number
-  points: StrokePoint[]
-}
-
-export interface TextItem {
-  id: string
-  x: number
-  y: number
-  text: string
-  size: number
-  color: string
-  /** 字重（§6.13 文字可调参数），默认 600 与全局 chip 字重一致 */
-  weight: number
-}
-
-export interface BoardData {
-  bg: { color: string; opacity: number }
-  strokes: Stroke[]
-  texts: TextItem[]
-}
-
 /**
  * 循环节点数据（§6.22，2026-09-22）。
  *
@@ -274,7 +241,6 @@ export type NodeData =
   | CompareData
   | GroupData
   | BatchData
-  | BoardData
   | LoopData
   | FusionData
 
@@ -286,7 +252,7 @@ export function isContainerType(type: NodeType): boolean {
   return CONTAINER_TYPES.has(type)
 }
 
-/** 生成类节点：可发起模型调用（对比节点不可生成，画板走内部流水线） */
+/** 生成类节点：可发起模型调用（对比节点不可生成） */
 export function isGeneratableType(type: NodeType): boolean {
   return type === 'prompt' || type === 'generation' || type === 'group' || type === 'batch'
 }

@@ -47,7 +47,7 @@ describe('linkMenuSections / 空白松手菜单（§6.14）', () => {
     expect(linkMenuSections({ nodeId: 'ghost', side: 'output', graph: g })).toEqual([])
   })
 
-  it('输出侧：只列「建出来就连得上」的类型，没有端点的画板不在其中', () => {
+  it('输出侧：只列「建出来就连得上」的类型', () => {
     const g = graphOf([node('a', 'prompt')])
     // loop 于 2026-09-22 并入（§6.22）：循环节点也能被新建并连接
     expect(idsOf('output', 'a', g, 'create')).toEqual(['prompt', 'generation', 'group', 'batch', 'loop'])
@@ -60,7 +60,7 @@ describe('linkMenuSections / 空白松手菜单（§6.14）', () => {
 
   it('create 区没有死项：列出的每一项真连一次都必须合法', () => {
     const dragged = node('a', 'prompt')
-    const g = graphOf([dragged, node('b', 'generation'), node('c', 'compare'), node('d', 'board')])
+    const g = graphOf([dragged, node('b', 'generation'), node('c', 'compare')])
     for (const section of linkMenuSections({ nodeId: 'a', side: 'output', graph: g })) {
       for (const item of section.items) {
         if (item.action.kind !== 'create') continue
@@ -118,11 +118,4 @@ describe('linkMenuSections / 空白松手菜单（§6.14）', () => {
     ])
   })
 
-  it('画板内拖线：待建节点落在同一画板下，否则会被「画板内外不建立边」整批否掉', () => {
-    const board = node('bd', 'board')
-    const inner = node('a', 'prompt', { parentId: 'bd' })
-    const g = graphOf([board, inner])
-    // 关键：probe 的 parentId 取被拖节点的 parentId，两边同属一个画板
-    expect(idsOf('output', 'a', g, 'create')).toContain('generation')
-  })
 })

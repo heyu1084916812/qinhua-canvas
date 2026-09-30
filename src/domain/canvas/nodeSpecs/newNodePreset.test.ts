@@ -41,12 +41,12 @@ describe('新建节点的默认数据（用户 2026-09-17）', () => {
   })
 
   /**
-   * 提示词 / 对比 / 分组 / 画板不参与：它们没有「渠道 + 模型」这个概念，
+   * 提示词 / 对比 / 分组不参与：它们没有「渠道 + 模型」这个概念，
    * 塞进去只会让 data 多两个永远没人读的字段（假数据）。
    */
   it('非生成类节点不带渠道 / 模型', () => {
     const preset = { channelId: 'ch1', model: 'm1' }
-    for (const t of ['prompt', 'compare', 'group', 'board'] as const) {
+    for (const t of ['prompt', 'compare', 'group'] as const) {
       expect(newGeneratingNodeData(t, preset)).toEqual({})
     }
   })

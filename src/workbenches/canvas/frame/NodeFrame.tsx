@@ -52,7 +52,7 @@ export interface NodeFrameProps {
   onRename: (title: string) => void
   /** 从端点按下开始拖线建连（§6.14）；不传则端点不可拖。`portId` 是具体口（§6.23） */
   onPortPointerDown?: (e: ReactPointerEvent, portId: string) => void
-  /** 隐藏端点（分组 / 批量子节点不显示端点；画板子节点显示以构成子图连线，§6.13） */
+  /** 隐藏端点（分组 / 批量子节点不显示端点） */
   portsHidden?: boolean
   children?: ReactNode
 }
@@ -191,9 +191,8 @@ export function NodeFrame(props: NodeFrameProps) {
    */
   const pixels = assetPixelsOf(node)
 
-  // 容器（分组 / 批量 / 画板）的子节点：缩放手柄不渲染（尺寸由容器布局决定）。
-  // 端点：分组 / 批量子节点隐藏（§6.11「组内节点端点隐藏」）；
-  // 画板子节点保留端点以便内部连线构成子图（§6.13 运行整个画板）。
+  // 容器（分组 / 批量）的子节点：缩放手柄不渲染（尺寸由容器布局决定）。
+  // 端点：分组 / 批量子节点隐藏（§6.11「组内节点端点隐藏」）。
   const inContainer = node.parentId !== null
 
   // 右键菜单「重命名」（§4.1）/ 标题单击进入编辑：store 置 renamingId 时本节点切入编辑态

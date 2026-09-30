@@ -95,19 +95,6 @@ export function IconBatch(props: IconProps) {
   )
 }
 
-/** 画板：带角标的画布 + 一支笔 */
-export function IconBoard(props: IconProps) {
-  return (
-    <Svg {...props}>
-      <path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8" />
-      <path d="M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8" />
-      <path d="M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H16" />
-      <path d="M8 20H5.5A1.5 1.5 0 0 1 4 18.5V15" />
-      <path d="M13.5 16.5 19 11l-1.6-1.6L11.9 14.9l-.4 2z" />
-    </Svg>
-  )
-}
-
 /** 重置视图：逆时针回转箭头 */
 export function IconReset(props: IconProps) {
   return (

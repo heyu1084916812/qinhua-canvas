@@ -30,7 +30,7 @@ const NEW_NODE_GAP_X = 72
  * 原来的规则是「N≥2 进结果组、容器运行 N=1 也进组」，结果是同一份产物有两种
  * 落法、两套尺寸口径（组内统一格位 vs 节点真实比例），用户为此报过「白框」
  * 与「N 张叠在一起」。现在**只有一种落法**：每次调用的产物落到它自己的承载节点，
- * 由 `begin` 建节点、`commit` 写回。容器运行（画板 / 分组 / 批量）同样如此——
+ * 由 `begin` 建节点、`commit` 写回。容器运行（分组 / 批量）同样如此——
  * 产物铺在容器右侧的并列节点上，而不是塞进一个组。
  */
 function shouldCollect(_task: CanvasRunTask, _assets: readonly unknown[]): boolean {
@@ -81,7 +81,7 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
        * 于是坐标系天然一致：`sourceRect` 与承载节点都在同一个父级下
        * （NodeSnapshot 的 x/y 本就是相对父级的），不必再做一次 world ↔ local 换算。
        * 挂进容器的理由：产物若建在容器外，「源节点 → 承载节点」这条连线就跨了
-       * 画板边界，而 §6.14 定死「画板内外不建立边」，连线会被拒。
+       * 容器边界，连线会被拒。
        */
       // 新节点按请求比例定尺寸（未取到比例时由 node.create 用默认最小尺寸）
       const nodeSize = cell ? { w: cell.w, h: cell.h } : undefined

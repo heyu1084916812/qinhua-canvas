@@ -50,18 +50,6 @@ describe('连线合法性', () => {
     expect(canConnect(g.nodes[0]!, g.nodes[1]!, g).ok).toBe(false)
   })
 
-  it('画板没有端点', () => {
-    const g = graph([node('a', 'prompt'), node('b', 'board')])
-    expect(canConnect(g.nodes[0]!, g.nodes[1]!, g)).toEqual({ ok: false, reason: '画板没有端点' })
-  })
-
-  it('画板内外不建立边', () => {
-    const g = graph([node('a', 'generation', 'board1'), node('board1', 'board'), node('out')])
-    const inner = g.nodes[0]!
-    const outer = g.nodes[2]!
-    expect(canConnect(inner, outer, g)).toEqual({ ok: false, reason: '画板内外不建立边' })
-  })
-
   it('容器内子节点不与外部连线', () => {
     const g = graph([node('a', 'generation', 'g1'), node('g1', 'group'), node('out')])
     expect(canConnect(g.nodes[0]!, g.nodes[2]!, g)).toEqual({ ok: false, reason: '容器内节点不直接与外部连线' })

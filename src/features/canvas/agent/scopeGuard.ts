@@ -67,8 +67,13 @@ export function assertWithinSteps(scope: AgentScope, steps: number): void {
   }
 }
 
-/** 建节点时也要按类型收敛：避免 Agent 建出产品形态未定的节点 */
+/**
+ * 建节点时按类型收敛：避免 Agent 建出产品形态未定的节点。
+ *
+ * 当前所有类型都允许，这里保留函数是因为它是**将来加限制的单一入口**。
+ */
 export function assertNodeTypeAllowed(scope: AgentScope, type: NodeType): boolean {
   void scope
-  return type !== 'board'
+  void type
+  return true
 }

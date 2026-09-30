@@ -35,7 +35,7 @@ export async function createNodeWithDefaults(opts: {
   at: { x: number; y: number }
   /** 额外数据（提示词节点等）；会与默认配方合并 */
   extraData?: Record<string, unknown>
-  /** 气泡节点（分组 / 画板）等不需要默认配方的类型传 false */
+  /** 气泡节点（分组）等不需要默认配方的类型传 false */
   withDefaults?: boolean
 }): Promise<string | null> {
   const { store, channels, projectId, type, at, extraData, withDefaults = true } = opts
@@ -49,9 +49,7 @@ export async function createNodeWithDefaults(opts: {
  *
  * ⚠️ **白名单而不是黑名单**（2026-09-23 实测踩到）：`node.create` 的 data 是
  * **整体替换** `spec.createDefaultData()`，不是合并。先前无条件给每个类型注入
- * `{channelId, model}`，结果画板节点丢了 `bg`（`createDefaultData` 里的
- * `{bg, strokes, texts}` 被整份替换掉）⇒ 点画板直接抛
- * `Cannot read properties of undefined (reading 'color')`，冒烟 G21 当场变红。
+ * `{channelId, model}`，会把气泡节点自己的默认结构整份挤掉。
  *
  * 所以只对**真正需要配方**的类型注入；其余类型一个字都不加，完全交给 spec 默认值。
  */

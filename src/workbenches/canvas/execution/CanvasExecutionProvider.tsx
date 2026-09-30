@@ -27,7 +27,6 @@ import { createChannelRepository } from '../../../state/project/channelRepositor
 import type { Channel } from '../../../domain/project/channel'
 import type { RunRequest } from '../../../domain/canvas/nodeSpecs/types'
 import type { NodeInput } from '../../../domain/shared/execution/types'
-import { boardSubgraph } from '../../../domain/canvas/board/boardSubgraph'
 import type { RunRecord } from '../../../domain/canvas/model/runRecord'
 import { useCanvasStore } from '../storeContext'
 import { RunHotkeys } from './RunHotkeys'
@@ -56,7 +55,6 @@ import { resolveUpstreamModel } from '../../../domain/project/modelMapping'
 export interface CanvasExecutionApi {
   /** 单点生成（R / 面板 / 右键「生成」）；alt = `Alt+R`（保留旧内容，拓扑方向铺新下游） */
   runNode(nodeId: string, opts?: { alt?: boolean }): Promise<void>
-  runBoard(boardId: string): Promise<void>
   cancel(): void
   nodeStateOf(nodeId: string): RunTaskState | undefined
   isRunning: boolean
@@ -221,7 +219,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
 
   const { startRun, cancelRun, isRunning } = useExecution<CanvasRunTask, Command>(host)
 
-  /** 渠道预解析 + 状态注入 + 派发执行计划 + 启动运行（runNode / runBoard 共用） */
+  /** 渠道预解析 + 状态注入 + 派发执行计划 + 启动运行 */
   const launch = useCallback(
     async (plan: ReturnType<typeof buildRunPlan>, originNodeId: string | undefined) => {
       /**
@@ -845,24 +843,6 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
     [store, launch, explainEmptyPlan, runLoop, applySkillIfSelected],
   )
 
-  /** 运行整个画板：取画板子图 → 拓扑重跑（rerunAll） */
-  const runBoard = useCallback(
-    async (boardId: string) => {
-      const graph = store.getSnapshot()
-      const boardNode = graph.nodes.find((n) => n.id === boardId && n.type === 'board')
-      if (!boardNode) return
-      const sub = boardSubgraph(graph, boardId)
-      // 声明「这是容器运行」：子图里没有画板自己，plan 无从推断（§6.8：容器运行各自建结果组）
-      const plan = buildRunPlan('board', { subgraph: sub, containerKind: 'board' }, graph, 'rerunAll')
-      if (plan.tasks.length === 0) {
-        store.notify('画板里没有可运行的生成节点')
-        return
-      }
-      await launch(plan, boardId)
-    },
-    [store, launch],
-  )
-
   const cancel = useCallback(() => {
     if (planIdRef.current) cancelRun(planIdRef.current)
   }, [cancelRun])
@@ -870,7 +850,6 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   const api: CanvasExecutionApi = useMemo(
     () => ({
       runNode,
-      runBoard,
       cancel,
       nodeStateOf: (nodeId: string) => nodeStates.get(nodeId),
       isRunning,
@@ -885,7 +864,6 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
     }),
     [
       runNode,
-      runBoard,
       cancel,
       nodeStates,
       isRunning,

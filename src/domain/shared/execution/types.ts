@@ -17,8 +17,8 @@
  * 纯度：只依赖 `domain/shared` 与 `shared`，不含 React / platform / state（架构 §2.2）。
  */
 
-/** 执行作用域（架构 §4.3）：node = 单主体、board = 容器子图、global = 全量 */
-export type RunScope = 'node' | 'board' | 'global'
+/** 执行作用域（架构 §4.3）：node = 单主体、global = 全量 */
+export type RunScope = 'node' | 'global'
 
 /** 执行模式（架构 §4.3 / §4.5 修订）：single-alt 是入口修饰符，不进命令联合 */
 /**

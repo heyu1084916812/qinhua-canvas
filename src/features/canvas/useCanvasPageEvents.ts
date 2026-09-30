@@ -1,5 +1,4 @@
 import { useCallback } from 'react'
-import { createId } from '../../shared/id'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import type { NodeViewEvent } from '../../workbenches/canvas/nodes/registry'
@@ -47,7 +46,7 @@ export function useCanvasPageEvents(store: CanvasStore, onOpenSettings?: () => v
       switch (event.type) {
         case 'updateData':
           // 默认 transient（文本编辑等连续输入）：不进撤销栈，但仍落库（架构 §4.3）。
-          // 离散提交（画板落笔画字、改背景）传 transient:false 以进入撤销栈。
+          // 离散提交传 transient:false 以进入撤销栈。
           store.dispatch({
             kind: 'node.updateData',
             id: nodeId,
@@ -60,54 +59,6 @@ export function useCanvasPageEvents(store: CanvasStore, onOpenSettings?: () => v
         case 'rename':
           store.dispatch({ kind: 'node.rename', id: nodeId, title: event.title })
           break
-        case 'createChild': {
-          // 在容器（画板）内新建子节点：网格瀑布式布局，避免与已有子节点重叠
-          // （同位叠放会让后建节点盖住先建节点的端点，端点拖线永远点不到——G21 冒烟教训）
-          const board = store.getSnapshot().nodes.find((n) => n.id === nodeId)
-          if (!board || board.type !== 'board') break
-          const cellW = 220
-          const cellH = 160
-          const cols = Math.max(1, Math.floor((board.w - 24) / cellW))
-          const idx = store
-            .getSnapshot()
-            .nodes.filter((n) => n.parentId === board.id).length
-          const id = createId('node')
-          store.dispatch({
-            kind: 'node.create',
-            projectId: board.projectId,
-            type: event.nodeType,
-            at: {
-              x: 24 + (idx % cols) * cellW,
-              y: 24 + Math.floor(idx / cols) * cellH,
-            },
-            parentId: board.id,
-            id,
-          })
-          store.setSelection([id])
-          // 画板随子节点自动扩容：容器始终完整容纳子图（§6.13），
-          // 否则子节点超出部分被 overflow:clip 裁掉，不可见也不可点
-          const snap = store.getSnapshot()
-          const child = snap.nodes.find((n) => n.id === id)
-          const boardNow = snap.nodes.find((n) => n.id === board.id)
-          if (child && boardNow) {
-            const needW = child.x + child.w + 24
-            const needH = child.y + child.h + 24
-            if (needW > boardNow.w || needH > boardNow.h) {
-              store.dispatch({
-                kind: 'node.resize',
-                id: board.id,
-                rect: {
-                  x: boardNow.x,
-                  y: boardNow.y,
-                  w: Math.max(boardNow.w, needW),
-                  h: Math.max(boardNow.h, needH),
-                },
-                phase: 'end',
-              })
-            }
-          }
-          break
-        }
         // 上传素材（§6.8 状态 A）：取文件 / 算哈希 / 落库三件事都在宿主侧
         case 'requestUpload':
           void handleUpload(nodeId, event.file)

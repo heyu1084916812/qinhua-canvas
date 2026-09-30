@@ -47,7 +47,7 @@ export function toWorldRect(node: NodeLike, parent?: NodeLike | null): Rect {
 /**
  * 图内节点的世界矩形。
  *
- * 父级**一律是节点**（分组 / 批量 / 画板）。结果组下线前它还可能是 `resultGroups`
+ * 父级**一律是节点**（分组 / 批量）。结果组下线前它还可能是 `resultGroups`
  * 表里的组——那张表不在 `nodes` 里，于是要多查一次、并把组的 x/y 当作原点；
  * 表删掉后这一层没有存在理由，留着只会让「父级有几种可能」继续分裂。
  * 用例：拖拽落点判定（`dropPointOf`）。

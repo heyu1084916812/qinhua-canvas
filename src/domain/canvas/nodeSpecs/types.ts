@@ -22,7 +22,7 @@ export interface RunContext<TData extends NodeData = NodeData> {
 
 export type GenerateContext<TData extends NodeData = NodeData> = RunContext<TData>
 
-export type Placement = 'self' | 'downstream-slots' | 'board-internal'
+export type Placement = 'self' | 'downstream-slots'
 
 export interface GenerationPlan {
   /** 要发起的 API 调用序列，长度 = 调用次数 */

@@ -50,10 +50,9 @@ describe('resizeLockOf / 锁比解析（§6.16）', () => {
     expect(resizeLockOf(node('batch', {}))).toBe(5 / 4)
   })
 
-  it('对比节点锁按下时比例；提示词 / 画板自由', () => {
+  it('对比节点锁按下时比例；提示词自由', () => {
     expect(resizeLockOf(node('compare', {}))).toBe('current')
     expect(resizeLockOf(node('prompt', {}))).toBe('free')
-    expect(resizeLockOf(node('board', {}))).toBe('free')
   })
 })
 

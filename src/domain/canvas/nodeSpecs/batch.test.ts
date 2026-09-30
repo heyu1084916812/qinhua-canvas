@@ -46,7 +46,7 @@ beforeEach(() => {
 })
 
 describe('批量节点规格（§6.12）', () => {
-  it('是生成类节点：有端点、接受提示词与生成上游、只能放在画板里', () => {
+  it('是生成类节点：有端点、接受提示词与生成上游', () => {
     const spec = getSpec('batch')!
     expect(spec.type).toBe('batch')
     expect(spec.label).toBe('批量')
@@ -55,7 +55,8 @@ describe('批量节点规格（§6.12）', () => {
     // fusion 于 2026-09-29 并入（§6.23）：融合产物同样是「一张图」
     expect(spec.accepts.upstream).toEqual(['prompt', 'generation', 'loop', 'fusion'])
     expect(spec.accepts.children).toEqual(['prompt', 'generation'])
-    expect(spec.accepts.parent).toEqual(['board'])
+    // 分组 / 批量不再允许归属任何父容器（保持单层收纳）
+    expect(spec.accepts.parent).toBeUndefined()
     expect(spec.sizing.lockAspect).toBe(true)
     expect(typeof spec.toRunRequest).toBe('function')
   })

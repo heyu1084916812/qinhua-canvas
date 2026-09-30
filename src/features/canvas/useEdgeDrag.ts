@@ -123,7 +123,7 @@ export function useEdgeDrag(store: CanvasStore) {
       store.closeLinkMenu()
       const rect = container.getBoundingClientRect()
       const worldRect = { x: rect.left, y: rect.top, w: rect.width, h: rect.height }
-      // 端点锚点用世界坐标：画板子节点的 local 坐标需叠加父级偏移（§6.13 画板内连线）
+      // 端点锚点用世界坐标：容器子节点的 local 坐标需叠加父级偏移。
       const parent = node.parentId ? graph.nodes.find((n) => n.id === node.parentId) : undefined
       const world = toWorldRect(node, parent)
       const anchor = portAnchorWorld(world, decl)
@@ -196,7 +196,7 @@ export function useEdgeDrag(store: CanvasStore) {
 }
 
 /**
- * 命中指针所在的世界坐标下的最上层节点（画板子节点用世界矩形判定，§6.13 画板内连线）。
+ * 命中指针所在的世界坐标下的最上层节点（容器子节点用世界矩形判定）。
  *
  * 收 `GraphSnapshot` 而非 store：命中是纯几何判断，不依赖 store 的任何行为，
  * 因而可单测——「结果缩略图抢走落点」这类 bug 就得靠这种测锁住。

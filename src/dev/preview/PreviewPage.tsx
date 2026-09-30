@@ -273,7 +273,6 @@ export function PreviewPage() {
         <Card label="提示词节点" node={makeNode('prompt', { title: '提示词' })} />
         <Card label="生成节点" node={makeNode('generation', { title: '生成' })} />
         <Card label="对比节点" node={makeNode('compare', { title: '对比' })} />
-        <Card label="画板节点" node={makeNode('board', { title: '画板' })} />
       </div>
 
       <h2 className={styles.h2}>对比节点 · 状态矩阵（产品文档 §6.10 / M3-1）</h2>
@@ -430,7 +429,6 @@ export function PreviewPage() {
             { label: '对比' },
             { label: '分组' },
             { label: '批量' },
-            { label: '画板', separatorAfter: true },
             { label: '重置视图' },
           ]}
         />

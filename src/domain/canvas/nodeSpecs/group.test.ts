@@ -37,7 +37,6 @@ describe('分组规格（§6.11）', () => {
     // fusion 于 2026-09-29 并入（§6.23）：融合产物同样是「一张图」
     expect(spec.accepts.upstream).toEqual(['prompt', 'generation', 'loop', 'fusion'])
     expect(spec.accepts.children).toEqual(['prompt', 'generation'])
-    expect(spec.accepts.parent).toEqual(['board'])
     // 有 toRunRequest 才会进入 buildRunPlan（isGeneratableType 已含 group）
     expect(typeof spec.toRunRequest).toBe('function')
   })

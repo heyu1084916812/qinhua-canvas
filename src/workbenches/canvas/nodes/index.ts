@@ -4,7 +4,6 @@ import { GenerationNodeView } from './generation/GenerationNodeView'
 import { CompareNodeView } from './compare/CompareNodeView'
 import { GroupNodeView } from './group/GroupNodeView'
 import { BatchNodeView } from './batch/BatchNodeView'
-import { BoardNodeView } from './board/BoardNodeView'
 import { LoopNodeView } from './loop/LoopNodeView'
 import { FusionNodeView } from './fusion/FusionNodeView'
 
@@ -22,7 +21,6 @@ export function registerAllViews(): void {
   registerView('compare', { View: CompareNodeView })
   registerView('group', { View: GroupNodeView })
   registerView('batch', { View: BatchNodeView })
-  registerView('board', { View: BoardNodeView })
   registerView('loop', { View: LoopNodeView })
   registerView('fusion', { View: FusionNodeView })
   assertRegistryConsistent()

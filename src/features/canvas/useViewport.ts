@@ -20,7 +20,7 @@ export interface WheelLike {
 }
 
 /**
- * 视口交互控制器（架构 §2.3：交互逻辑放在独立 hook，可被画布 / 画板 / 小地图复用）。
+ * 视口交互控制器（架构 §2.3：交互逻辑放在独立 hook，可被画布 / 小地图复用）。
  * 平移与缩放只改 store.viewport，不触发节点重渲染（架构 §5.4）。
  *
  * 注意：features 不能反向依赖 workbenches，故以 store 实例为参数。

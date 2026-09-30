@@ -63,7 +63,6 @@ const CODE_CLAIMS = [
   ['§6.6 / §6.10 / §6.16', '对比节点最小尺寸', { w: 240, h: 180 }, () => nodeMinimum('compare')],
   ['§6.6 / §6.11', '分组节点空容器最小尺寸', { w: 240, h: 192 }, () => nodeMinimum('group')],
   ['§6.6 / §6.12', '批量节点空容器最小尺寸', { w: 240, h: 192 }, () => nodeMinimum('batch')],
-  ['§6.6 / §6.13 / §6.16', '画板节点最小尺寸', { w: 320, h: 240 }, () => nodeMinimum('board')],
   ['§6.11 / §6.12', '分组·批量内部单元尺寸', { w: 200, h: 160 }, () => constSize(LAYOUT, 'PACKED_CELL')],
   ['§6.11', '分组·批量每排最多（3×3）', 3, () => constNum(LAYOUT, 'PACKED_MAX_COLUMNS')],
   ['§6.11', '分组·批量单元间距', 16, () => constNum(LAYOUT, 'CONTAINER_GAP')],
@@ -149,14 +148,6 @@ async function runtimeChecks(browser) {
       out.push(['§6.6 / §6.8 / §6.16', '生成节点拖到最小时的实际尺寸', { w: 200, h: 160 }, got])
     } catch (e) {
       out.push(['§6.6 / §6.8 / §6.16', '生成节点拖到最小时的实际尺寸', { w: 200, h: 160 }, null, String(e).slice(0, 80)])
-    }
-
-    // 画板节点最小尺寸（文档 320×240）
-    try {
-      const got = await measureMinSize(page, 'board')
-      out.push(['§6.6 / §6.13 / §6.16', '画板节点拖到最小时的实际尺寸', { w: 320, h: 240 }, got])
-    } catch (e) {
-      out.push(['§6.6 / §6.13 / §6.16', '画板节点拖到最小时的实际尺寸', { w: 320, h: 240 }, null, String(e).slice(0, 80)])
     }
 
     /**

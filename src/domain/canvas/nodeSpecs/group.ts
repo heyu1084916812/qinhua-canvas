@@ -24,8 +24,7 @@ export const groupSpec: NodeSpec<GroupData> = {
     /** `fusion` 一并接受（§6.23）：融合产物和生成产物一样是「一张图」 */
     upstream: ['prompt', 'generation', 'loop', 'fusion'],
     children: ['prompt', 'generation'],
-    // 容器可拖入画板（§6.12「可拖入画板：是」）；不嵌套容器，保持单层收纳
-    parent: ['board'],
+    // 不嵌套容器，保持单层收纳
   },
   createDefaultData(): GroupData {
     return {
@@ -105,7 +104,7 @@ export const groupSpec: NodeSpec<GroupData> = {
 }
 
 /**
- * 容器（分组 / 批量）的排序键：只要 id 与 data.childIds（画板没有 childIds，不适用）。
+ * 容器（分组 / 批量）的排序键：只要 id 与 data.childIds。
  * 让 batch 能直接复用它，不必按类型重写一遍。
  */
 export interface ContainerLike {

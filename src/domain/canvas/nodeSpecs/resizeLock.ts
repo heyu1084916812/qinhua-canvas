@@ -4,7 +4,7 @@ import type { Rect } from '../geometry/rect'
 /**
  * 缩放锁比（产品文档 §6.16「尺寸与缩放」）。
  *
- * - `'free'`：自由缩放（宽高各改各的）——提示词 / 画板 / **空态**生成节点；
+ * - `'free'`：自由缩放（宽高各改各的）——提示词 / **空态**生成节点；
  * - `'current'`：锁**按下时**的比例——对比节点（spec `lockAspect: true`，
  *   但未存产物像素，拿不到「内容比例」，用拖动起点的容器比例代替）；
  *   有内容却缺 `naturalSize` 的生成节点同样走这条（model 注释「字段缺失即
@@ -35,7 +35,7 @@ export function resizeLockOf(node: NodeSnapshot): ResizeLock {
     case 'compare':
       return 'current'
     default:
-      return 'free' // 提示词 / 画板：自由缩放
+      return 'free' // 提示词：自由缩放
   }
 }
 

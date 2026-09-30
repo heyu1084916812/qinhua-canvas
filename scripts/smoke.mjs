@@ -391,8 +391,7 @@ async function setTextViaEditor(page, nodeLocator, text) {
 /**
  * 节点框上的**安全抓取点**：左下角内侧。
  *
- * 标题已按 §6.6 移到节点框外，"框内顶部"不再是安全区——画板节点的工具条就压在那里
- * （且它 `stopPropagation`，从工具条按下拖不动节点）；本体中央还可能是生成节点的 `+`
+ * 标题已按 §6.6 移到节点框外，"框内顶部"不再是安全区；本体中央还可能是生成节点的 `+`
  * 上传入口。左下角内侧对全部节点类型都空着（缩放手柄在右下角）。
  */
 function grabPoint(box) {
@@ -425,8 +424,7 @@ async function moveNodeVia(page, nodeLocator, handleLocator, x, y) {
  * 把节点**左上角**移到画布屏幕坐标 (x, y)（按压点仍是节点框的安全抓取点）。
  *
  * 契约是「左上角落到 (x,y)」而不是「抓点落到 (x,y)」：抓点只是实现细节，
- * 若把它当坐标锚点，调用方看到的落点会随抓点定义漂移——G20 曾因抓点改到左下角，
- * 画板被顶高 286px、工具条正好钻进悬浮顶栏（`＋ 批量` 抢走点击）。
+ * 若把它当坐标锚点，调用方看到的落点会随抓点定义漂移。
  * 位移按「抓点 → 目标」补回偏移，语义与调用方直觉一致。
  *
  * 注意：顶栏「＋ X」新建的节点都落在**视口中心**——连续新建两个会完全重叠，
@@ -2590,8 +2588,8 @@ async function g17(browser) {
   await page.locator('[data-toolbar-add]').click()
   await sleep(250)
   const menuItems = await page.locator('[data-toolbar-menu-item]').count()
-  // 8 项：6 种原有类型 + 循环节点（§6.22，2026-09-22）+ 融合节点（§6.23，2026-09-29）
-  rec(g, '新建节点菜单展开 8 项', menuItems === 8, `items=${menuItems}`)
+  // 7 项：提示词 / 生成 / 对比 / 分组 / 批量 / 循环 / 融合（画板节点已下线）
+  rec(g, '新建节点菜单展开 7 项', menuItems === 7, `items=${menuItems}`)
   await page.keyboard.press('Escape')
   await sleep(200)
   rec(g, 'Esc 关闭新建菜单', (await page.locator('[data-toolbar-menu]').count()) === 0)
@@ -2782,9 +2780,9 @@ async function g18(browser) {
   const canvasSet = new Set(canvasMenu)
   rec(
     g,
-    // 8 新建（含循环节点 §6.22、融合节点 §6.23）+ 重置视图 = 9 项
-    '画布空白右键含 8 新建 + 重置视图（§4.1）',
-    canvasSet.size === 9 && canvasSet.has('重置视图'),
+    // 7 新建（含循环节点 §6.22、融合节点 §6.23）+ 重置视图 = 8 项
+    '画布空白右键含 7 新建 + 重置视图（§4.1）',
+    canvasSet.size === 8 && canvasSet.has('重置视图'),
     `items=${JSON.stringify(canvasMenu)}`,
   )
 
@@ -2811,8 +2809,8 @@ async function g18(browser) {
   rec(
     g,
     '★ 每个新建项都有矢量图标（含循环 / 融合节点；图标两侧菜单同源）',
-    iconState.length === 8 && missing.length === 0,
-    `带图标 ${iconState.length}/8${missing.length ? ` 缺=${missing.join(',')}` : ''}`,
+    iconState.length === 7 && missing.length === 0,
+    `带图标 ${iconState.length}/7${missing.length ? ` 缺=${missing.join(',')}` : ''}`,
   )
   await page.keyboard.press('Escape')
   await sleep(150)
@@ -2917,221 +2915,6 @@ async function g19(browser) {
   } else {
     rec(g, '撤销条「撤销」按钮恢复节点', false, '撤销条未出现')
   }
-
-  await ctx.close()
-}
-
-// ────────────────────────────────────────────────────────────
-// G20 画板绘制（M4-1）：建画板 → 画笔绘制 → 文字落位 → 改背景色
-// ────────────────────────────────────────────────────────────
-async function g20(browser) {
-  const g = 'G20 画板绘制'
-  const ctx = await newCtx(browser)
-  const page = await ctx.newPage()
-  page.on('pageerror', (e) => rec(g, '无未捕获异常', false, String(e).slice(0, 120)))
-
-  await page.goto(BASE, { waitUntil: 'networkidle' })
-  await createProject(page)
-  await sleep(500)
-
-  // 1) 新建画板节点（落视口中心）
-  await page.locator('[data-toolbar-add]').click()
-  await sleep(200)
-  await page.locator('[data-toolbar-menu-item="board"]').click()
-  await sleep(500)
-  const boardCount = await page.locator('[data-node-type="board"]').count()
-  rec(g, '工具栏新建画板节点', boardCount === 1, `画板=${boardCount}`)
-  if (boardCount !== 1) {
-    await ctx.close()
-    return
-  }
-  const boardId = await page.locator('[data-node-type="board"]').first().getAttribute('data-node-id')
-  const board = page.locator(`[data-node-id="${boardId}"]`)
-
-  // 移到空旷处，避免与后续元素重叠
-  await moveNode(page, boardId, 440, 300)
-  await sleep(300)
-
-  // 2) 选中画板 → 工具条出现
-  //    点左下角内侧：画板工具条压在节点框顶部且 stopPropagation，点顶部落不到画板本体
-  const bb = await board.boundingBox()
-  const bg = grabPoint(bb)
-  await page.mouse.click(bg.x, bg.y)
-  await sleep(250)
-  const toolVisible = await page.locator('[data-board-tool="brush"]').isVisible().catch(() => false)
-  rec(g, '选中画板后工具条出现（选择/画笔/文字）', toolVisible)
-
-  // 3) 画笔：选画笔 → 在画板下半部拖拽绘制
-  await page.locator('[data-board-tool="brush"]').click()
-  await sleep(150)
-  const b2 = await board.boundingBox()
-  const sx = b2.x + b2.width * 0.35
-  const sy = b2.y + b2.height * 0.55
-  const ex = b2.x + b2.width * 0.7
-  const ey = b2.y + b2.height * 0.8
-  await page.mouse.move(sx, sy)
-  await page.mouse.down()
-  await page.mouse.move((sx + ex) / 2, (sy + ey) / 2, { steps: 8 })
-  await page.mouse.move(ex, ey, { steps: 8 })
-  await page.mouse.up()
-  await sleep(350)
-  const pathCount = await page.locator('[data-board-surface] path').count()
-  rec(g, '画笔拖拽后画板出现笔迹 path', pathCount >= 1, `path=${pathCount}`)
-  await page.screenshot({ path: `${OUT}/32-g20-board-stroke.png` })
-
-  // 4) 文字：选文字 → 点画板落位 → 输入 → 回车提交
-  await page.locator('[data-board-tool="text"]').click()
-  await sleep(150)
-  const b3 = await board.boundingBox()
-  await page.mouse.click(b3.x + b3.width * 0.5, b3.y + b3.height * 0.85)
-  await sleep(250)
-  const inputShown = await page.locator('[data-board-text-input]').isVisible().catch(() => false)
-  rec(g, '文字工具点击后弹出输入', inputShown)
-  let textCount = 0
-  if (inputShown) {
-    await page.locator('[data-board-text-input]').fill('测试文字')
-    await page.locator('[data-board-text-input]').press('Enter')
-    await sleep(300)
-    textCount = await page.locator('[data-board-surface] text').count()
-    rec(g, '回车后画板出现文字图元', textCount >= 1, `text=${textCount}`)
-  }
-  await page.screenshot({ path: `${OUT}/33-g20-board-text.png` })
-
-  // 5) 改背景色（transient：不进撤销栈）→ 背景层 computed background 更新
-  await page.locator('[data-board-bg-color]').fill('#ff0000')
-  await sleep(300)
-  const bgColor = await page.locator('[data-board-bg]').evaluate((el) => getComputedStyle(el).backgroundColor)
-  rec(g, '改背景色生效（rgb(255, 0, 0)）', bgColor === 'rgb(255, 0, 0)', bgColor)
-
-  // 6) 撤销：最近一次离散提交是「文字」，先撤销文字（笔迹 path 不受影响）
-  await page.keyboard.press('Control+z')
-  await sleep(350)
-  const textAfterUndo = await page.locator('[data-board-surface] text').count()
-  rec(g, 'Ctrl+Z 撤销最近一次文字提交', textAfterUndo === 0, `text ${textCount} → ${textAfterUndo}`)
-
-  // 7) 再撤销一次，撤销画笔笔迹（transient 的背景色改动被跳过）
-  await page.keyboard.press('Control+z')
-  await sleep(350)
-  const pathAfterUndo = await page.locator('[data-board-surface] path').count()
-  rec(g, 'Ctrl+Z 再撤销画笔笔迹', pathAfterUndo === pathCount - 1, `path ${pathCount} → ${pathAfterUndo}`)
-
-  await ctx.close()
-}
-
-// ────────────────────────────────────────────────────────────
-// G21 画板容器 + 一键运行（M4-2）：建画板 → 画板内新建子节点 → 连线 → 运行画板 → 出结果
-// ────────────────────────────────────────────────────────────
-async function g21(browser) {
-  const g = 'G21 画板容器+运行'
-  const ctx = await newCtx(browser)
-  const page = await ctx.newPage()
-  page.on('pageerror', (e) => rec(g, '无未捕获异常', false, String(e).slice(0, 120)))
-
-  // 1) 配置 mock 渠道（与 G9 同）
-  await configureMockChannel(page)
-
-  // 2) 进画布，建画板
-  await gotoProjects(page)
-  await sleep(400)
-  await page.locator('[data-template="blank"]').click().catch(() => {})
-  await page.waitForURL(/\/canvas\//).catch(() => {})
-  await sleep(500)
-  await page.locator('[data-toolbar-add]').click()
-  await sleep(300)
-  await page.locator('[data-toolbar-menu-item="board"]').click()
-  await sleep(500)
-  const board = page.locator('[data-node-type="board"]').first()
-  rec(g, '画板已创建', (await board.count()) === 1)
-  await board.click()
-  await sleep(300)
-
-  // 3) 画板内新建「提示词」子节点
-  await board.hover()
-  await sleep(200)
-  await page.locator('[data-board-create]').click()
-  await sleep(200)
-  await page.locator('[data-board-create-item="prompt"]').click()
-  await sleep(400)
-  const childPrompt = page.locator('[data-board-children] [data-node-type="prompt"]').first()
-  rec(g, '画板内新建提示词子节点', (await childPrompt.count()) === 1)
-
-  // 4) 画板内新建「生成」子节点
-  await board.hover()
-  await sleep(200)
-  await page.locator('[data-board-create]').click()
-  await sleep(200)
-  await page.locator('[data-board-create-item="generation"]').click()
-  await sleep(400)
-  const childGen = page.locator('[data-board-children] [data-node-type="generation"]').first()
-  rec(g, '画板内新建生成子节点', (await childGen.count()) === 1)
-
-  // 5) 连线：提示词输出 → 生成输入（画板内）
-  // 注意：hover 会触发 scrollIntoView，先 hover 再量坐标，量完立即使用（G21 教训）
-  await childPrompt.hover({ force: true })
-  await sleep(250)
-  const pOut = childPrompt.locator('[data-port="output"]')
-  const pBox = await pOut.boundingBox()
-  const pCount = await pOut.count()
-  await childGen.hover({ force: true })
-  await sleep(250)
-  const gIn = childGen.locator('[data-port="input"]')
-  const gBox = await gIn.boundingBox()
-  const gCount = await gIn.count()
-  console.log(`  [diag] pCount=${pCount} pBox=${JSON.stringify(pBox)} gCount=${gCount} gBox=${JSON.stringify(gBox)}`)
-  if (pBox && gBox) {
-    await page.mouse.move(pBox.x + pBox.width / 2, pBox.y + pBox.height / 2)
-    await page.mouse.down()
-    await page.mouse.move((pBox.x + gBox.x) / 2, (pBox.y + gBox.y) / 2, { steps: 4 })
-    await sleep(150)
-    const draftMid = await page.locator('[data-edge-draft]').count()
-    console.log(`  [diag] draftAtMid=${draftMid}`)
-    // 落点用生成节点 frame 中心（比输入端口中心更稳健，端口紧贴节点边缘）
-    const gFrame = await childGen.boundingBox()
-    if (!gFrame) throw new Error('generation frame not found')
-    await page.mouse.move(gFrame.x + gFrame.width / 2, gFrame.y + gFrame.height / 2, { steps: 8 })
-    await sleep(150)
-    const draftEnd = await page.locator('[data-edge-draft]').count()
-    console.log(`  [diag] draftAtEnd=${draftEnd}`)
-    await page.mouse.up()
-    await sleep(400)
-  }
-  rec(g, '画板内连线成功', (await page.locator('[data-edge]').count()) >= 1, `edges=${await page.locator('[data-edge]').count()}`)
-
-  // 6) 配置生成子节点（§6.8：本体是媒体框，参数/提示词只在下方创作面板）
-  rec(g, '生成子节点本体为媒体框（无 select/textarea）', (await childGen.locator('select, textarea').count()) === 0)
-  const childPanel = await genPanel(page, childGen)
-  await configureGenPanel(page, childPanel, '屋顶的猫')
-
-  // 7) 运行整个画板（右键菜单「运行画板」，顶层覆盖层，稳定触发，并验证 §4.1 右键菜单）
-  await board.click({ button: 'right', force: true })
-  await sleep(300)
-  const runItem = page.getByText('运行画板').first()
-  await runItem.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
-  rec(g, '右键菜单出现「运行画板」', (await runItem.count()) > 0)
-  await runItem.click({ force: true })
-  /**
-   * 容器运行的产物同样**铺并列承载节点**、不再建结果组（结果组已下线）。
-   * 旧断言 `waitFor('[data-result-group]')` 等的是一个按现行规则不会再出现的东西。
-   */
-  const before21 = await page.locator('[data-node-type="generation"]').count()
-  let made = 0
-  for (let i = 0; i < 60; i++) {
-    made = (await page.locator('[data-node-type="generation"]').count()) - before21
-    if (made >= 1) break
-    await sleep(250)
-  }
-  /**
-   * ⚠️ 这条**暂时不断言、只记录**：画板运行在真机上没有产出新节点
-   * （DB 里 generation 仍只有画板下那 2 个，没有新增），而**单测里同样的
-   * `rerunAll` + `containerKind:'board'` 路径是通的**（净增 1）。
-   *
-   * 差异只可能在「右键菜单这一下有没有真的发出」——而画板背景层
-   * `data-board-bg` 盖在画板内容之上并拦截指针事件（这个是**已知**问题：
-   * 它此前也让 g50 / g54 在画板里配不了参数而整组跑不起来）。
-   * 画板层修好后，这里应改回 `rec(g, ...)` 真断言。
-   */
-  console.log(`  [diag] 运行画板后新增承载节点 = ${made}（已知受画板背景层拦截影响，暂不断言）`)
-  await page.screenshot({ path: `${OUT}/34-g21-board-run.png` })
 
   await ctx.close()
 }
@@ -10041,7 +9824,6 @@ async function g81(browser) {
  * - g22：版本历史（§6.21 于 2026-09-16 下线）
  * - g41：陈旧标记与按范围重跑（2026-09-17 下线：橘点、整条流程重跑、仅刷新陈旧、全图重跑）
  * - g50 / g54：结果组折叠与子结果交互（2026-09-17 结果组整体下线）
- * 「运行画板产生产物」改由 G21 覆盖（断言已从结果组改为承载节点）。
  */
 /**
  * G75 模型路由（§7.4.1，M7）。
@@ -13375,7 +13157,7 @@ async function g92(browser) {
  * 用户口径：「好像节点的缩放都会出现一些问题」。逐类型实测后，真正的缺陷只有一处
  * （循环节点：内容高度写回与手动拉高度互相顶 ⇒ 拖到 332、松手跳到 380，而且再也回不来）。
  * 这一组把三类缩放语义一起钉住，免得以后再改一处、坏另一处：
- *  - `free`   —— 尺寸严格跟指针（提示词 / 画板 / 空态生成 / 融合）；
+ *  - `free`   —— 尺寸严格跟指针（提示词 / 空态生成 / 融合）；
  *  - `locked` —— 等比（分组 / 批量 5:4、对比节点按当前比例、有产物的生成节点按产物比例）；
  *  - `width`  —— 只跟横向、高度由内容写回（循环节点）。
  * 三类共同的不变式：**松手之后尺寸不再变化**（历史两次「跳动」都出在这里）。
@@ -13395,7 +13177,6 @@ async function g93(browser) {
 
   const cases = [
     { type: 'prompt', mode: 'free' },
-    { type: 'board', mode: 'free' },
     { type: 'generation', mode: 'free' },
     { type: 'fusion', mode: 'free' },
     { type: 'batch', mode: 'locked' },
@@ -13465,7 +13246,7 @@ async function g93(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

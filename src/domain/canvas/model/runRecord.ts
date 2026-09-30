@@ -14,7 +14,7 @@ import type { RunRecord as SharedRunRecord } from '../../shared/execution/runRec
  */
 export type { RunScope, RunMode, ExecutionMode, RunStatus, NodeInput } from '../../shared/execution/types'
 
-/** 画布侧生成记录：参数快照固定为 `NodeData`（提示词 / 生成 / 分组 / 批量 / 画板数据） */
+/** 画布侧生成记录：参数快照固定为 `NodeData`（提示词 / 生成 / 分组 / 批量等） */
 export type RunRecord = SharedRunRecord<NodeData>
 
 export {

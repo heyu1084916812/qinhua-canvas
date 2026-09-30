@@ -10,7 +10,6 @@ import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { applyDefaults, resolveDefaults } from '../../../features/canvas/createNodeWithDefaults'
 import {
   IconBatch,
-  IconBoard,
   IconCompare,
   IconGeneration,
   IconGroup,
@@ -34,7 +33,6 @@ const CREATE_ICONS: Record<string, ReactNode> = {
   compare: <IconCompare size={MENU_ICON_SIZE} />,
   group: <IconGroup size={MENU_ICON_SIZE} />,
   batch: <IconBatch size={MENU_ICON_SIZE} />,
-  board: <IconBoard size={MENU_ICON_SIZE} />,
 }
 
 function iconOf(item: LinkMenuItem) {

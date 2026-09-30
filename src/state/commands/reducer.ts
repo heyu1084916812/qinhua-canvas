@@ -307,7 +307,7 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
       if (!check.ok) fail(cmd.kind, check.reason)
       const moved = applyReparent(node, cmd.toParent, graph)
       /**
-       * 结果组下线后，`parentId` 只剩**容器节点**（分组 / 批量 / 画板）一种含义，
+       * 结果组下线后，`parentId` 只剩**容器节点**（分组 / 批量）一种含义，
        * 而容器是**真节点**，`applyReparent` 在节点表里查得到它、会自己换算坐标。
        * 昔日「结果组不是节点、要手工补世界偏移」那一段随之删除——
        * 留着它会拿着 `undefined` 的组原点去加，把一个不存在的偏移算进坐标。
@@ -330,7 +330,7 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
         const n = findNode(graph, id)
         return n && CONTAINER_TYPES.has(n.type) ? n : null
       }
-      /** 容器子清单：画板的 data 里没有 childIds（不需要排序），缺失时按空处理 */
+      /** 容器子清单：缺失时按空处理 */
       const childIdsOf = (n: NodeSnapshot): string[] =>
         (n.data as Partial<GroupData>).childIds ?? []
       const from = containerOf(node.parentId)

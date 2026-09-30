@@ -224,7 +224,7 @@ describe('buildRunPlan（单点生成）', () => {
  * 单点 = 触发节点、全图重跑 = 无触发节点的全图。
  * 「refreshStale」随陈旧标记一并删除（用户 2026-09-17）——新节点没有基线、
  * 旧节点指纹不变，那个集合恒为空，模式没有意义。
- * 全图重跑模式**保留**：画板运行（`runBoard`）仍用它表达「跑这个容器」。
+ * 全图重跑模式**保留**，用于无触发节点的全图运行。
  */
 describe('buildRunPlan · 按范围的执行模式（§6.19.1）', () => {
   it('单点生成只收触发节点这一跳，不碰下游', () => {
@@ -503,8 +503,8 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
       nodes: snap.nodes.filter((n) => n.id === genId || n.id === promptId),
       edges: snap.edges,
     }
-    const plan = buildRunPlan('board', { subgraph: sub, containerKind: 'board' }, snap, 'rerunAll')
-    const beforeBoard = snap.nodes.length
+    const plan = buildRunPlan('node', { subgraph: sub, containerKind: 'group' }, snap, 'rerunAll')
+    const before = snap.nodes.length
     const summary = await runEngine(plan, deps(store, createMockChannel()))
     store.endPlan()
 
@@ -515,7 +515,7 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
      * 若退回 `reuse` 自己，产物会被写回容器内那个节点——而容器运行是新的一次生成，
      * 旧产物属于上一版，覆盖掉等于「重跑把历史抹了」。故这里锁的是**净增 1 个新节点**。
      */
-    expect(store.getSnapshot().nodes).toHaveLength(beforeBoard + 1)
+    expect(store.getSnapshot().nodes).toHaveLength(before + 1)
     const made = store.getSnapshot().nodes[store.getSnapshot().nodes.length - 1]!
     expect((made.data as unknown as Record<string, unknown>).assetHash).toBeTruthy()
   })
