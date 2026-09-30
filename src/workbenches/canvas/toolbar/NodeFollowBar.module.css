@@ -15,8 +15,9 @@
   z-index: 19;
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1);
+  gap: 6px;
+  /* 四边同档 6px：与按钮内距（8px）成一级，比 4px 松一点点（用户 2026-09-30：「距离太小了」） */
+  padding: 6px;
   box-sizing: border-box;
   background: var(--bg-surface);
   border: 1px solid var(--stroke);
@@ -29,7 +30,12 @@
 .actions {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  /**
+   * 按钮之间 6px（原 4px）：上一版把**按钮内部**的图标↔文字收到 4px 之后，
+   * 整排的呼吸感只剩「按钮之间的 4px」，用户看到的是「功能挤在一起」。
+   * 这两处要分开看：内部贴紧、外部留一格，才读得出「一个功能一个块」。
+   */
+  gap: 6px;
 }
 
 /*
@@ -41,7 +47,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-1);
+  /**
+   * 图标↔文字 6px：9px（首版）太远、4px（上一版）太挤，6px 是用户指出的「合适位置」。
+   */
+  gap: 6px;
   height: 26px;
   /**
    * 左右内距**对称**（用户 2026-09-30：「图标和名称靠得太远」）。
