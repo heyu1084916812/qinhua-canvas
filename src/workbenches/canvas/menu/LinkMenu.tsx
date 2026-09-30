@@ -99,7 +99,12 @@ export function LinkMenu() {
 
   if (!menu) return null
 
-  const sections = linkMenuSections({ nodeId: menu.nodeId, side: menu.side, graph })
+  const sections = linkMenuSections({
+    nodeId: menu.nodeId,
+    side: menu.side,
+    portId: menu.portId,
+    graph,
+  })
   if (sections.length === 0) return null
 
   const surface = document.querySelector<HTMLElement>('[data-canvas-surface]')
@@ -125,10 +130,22 @@ export function LinkMenu() {
 
   const runItem = async (item: LinkMenuItem) => {
     const a = item.action
+    /**
+     * 建边时带上被拖的那只口（§6.23）：从融合节点的 `patch` 口反拖时，
+     * 目标口就是 `patch`；从输出口正拖时，源口是它、目标口取对端的默认输入口。
+     */
+    const wiredPorts = { sourcePort: menu.portId, targetPort: menu.portId }
     if (a.kind === 'connect') {
       const source = menu.side === 'output' ? menu.nodeId : a.nodeId
       const target = menu.side === 'output' ? a.nodeId : menu.nodeId
-      store.dispatch({ kind: 'edge.connect', source, target })
+      store.dispatch({
+        kind: 'edge.connect',
+        source,
+        target,
+        ...(menu.side === 'output'
+          ? { sourcePort: wiredPorts.sourcePort }
+          : { targetPort: wiredPorts.targetPort }),
+      })
     } else {
       const at = dropWorld()
       if (!at) return
@@ -162,7 +179,14 @@ export function LinkMenu() {
       if (createdId) {
         const source = menu.side === 'output' ? menu.nodeId : createdId
         const target = menu.side === 'output' ? createdId : menu.nodeId
-        store.dispatch({ kind: 'edge.connect', source, target })
+        store.dispatch({
+          kind: 'edge.connect',
+          source,
+          target,
+          ...(menu.side === 'output'
+            ? { sourcePort: wiredPorts.sourcePort }
+            : { targetPort: wiredPorts.targetPort }),
+        })
         store.setSelection([createdId])
       }
       store.endPlan()

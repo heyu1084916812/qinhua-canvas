@@ -1,0 +1,254 @@
+/*
+ * 融合节点样式（产品文档 §6.23）。
+ *
+ * 结构照用户 2026-09-29 给的参考图：上「原图 | 局部修改」两块预览 → 中间连接状态胶囊 →
+ * 颜色匹配 → 全宽「开始融合」。配色仍然只走 token（主题守卫拦字面量色值），
+ * 圆角 / 描边 / 无投影沿用节点卡的通用口径。
+ */
+.card {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  /*
+   * 四边**同一档**间距（用户 2026-09-30：「和容器边界的距离，有些大有些小」）。
+   * 这一版之前是「上下 8 / 左右 12」：通用卡片那样写没问题，但这张卡的预览块是
+   * 贴边的大面积色块，左右比上下宽 4px 一眼就看出来不齐。
+   */
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-sans);
+  color: var(--text-1);
+  overflow: visible;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  /* 内容撑满节点：预览区吃掉剩余高度（配合下面 .panes 的 flex:1） */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/*
+ * ── ① 预览：左原图 | 右局部修改 ──
+ *
+ * 多张局部图**上下排列**（用户 2026-09-30：「右边多个局部图要上下排列，
+ * 参考大雄：左边原图、右边局部图区域，两张局部图就上下两块，不是朝右横向新增」）。
+ * 横向铺开的话节点会越撑越宽、左原图越挤越小；纵向排只长高，原图那一列宽度稳定。
+ */
+.panes {
+  display: flex;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+  /* 原图那一块跟着右列的高度走（等高对齐），而不是自己撑出一个正方形 */
+  align-items: stretch;
+  /*
+   * 预览区**吃掉剩余高度**（用户 2026-09-30：「右下角进行放大的时候会跳动」）。
+   * 上一版这一行是 `aspect-ratio: 1` 撑出来的固定高度，节点高度则由 ResizeObserver
+   * 写回 —— 两个方向互相顶，拖右下角时松手必跳。现在节点多大、预览区就多高。
+   */
+  flex: 1 1 auto;
+  min-height: 72px;
+}
+
+.pane {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--stroke);
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+
+/*
+ * 原图：占左半列，高度 = 预览区高度（由节点尺寸决定，见 `.panes`）。
+ *
+ * 图片按 `cover` 平铺铺满，不留上下白边（用户 2026-09-30：「原图的容器中，
+ * 图片没有铺满，上下留白了，用平铺的规则」）。
+ */
+.paneOriginal {
+  flex: 1 1 0;
+}
+
+/*
+ * 右列：局部图**上下排列**，但整列高度锁死在行高里 —— 每张等分这块高度，
+ * 张数越多每张越小（用户 2026-09-30：「不要一直叠加叠高，要自动适应缩小，
+ * 保持整体的局部图外部容器不发生改变」）。`min-height: 0` 是让 flex 子项
+ * 真能缩下去的关键（默认 `min-height: auto` 会被内容顶住）。
+ */
+.patchStack {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  /*
+   * 张数多到「每张都低于可读高度」时，让**这一列自己滚**（参考图右列就有细滚动条），
+   * 而不是把每张压成一条缝。容器本身仍然不长高 —— 滚动发生在容器内部。
+   */
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.patchStack .pane {
+  flex: 1 1 0;
+  /* 地板高度：再小就看不清是哪张局部图了；触到地板后由上面的 overflow 接手 */
+  min-height: 44px;
+}
+
+.paneImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.paneEmpty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+}
+
+.paneEmpty svg {
+  width: 28px;
+  height: 28px;
+}
+
+/* 标签胶囊压在预览左下角（参考图就是这个位置与形态） */
+.paneLabel {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  height: 20px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+  font-size: var(--fs-chip);
+  font-weight: 700;
+  line-height: 20px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ── ② 连接状态提醒 ── */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.chipOk,
+.chipOff {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-chip);
+  font-weight: 600;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.chipOk {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.chipOff {
+  background: var(--bg-subtle);
+  color: var(--text-3);
+}
+
+.chipOk svg,
+.chipOff svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
+/* ── ③ 颜色匹配开关 ── */
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-1);
+  font-size: var(--fs-body);
+  cursor: pointer;
+}
+
+/*
+ * 原生 checkbox 直接 `appearance: none` 自绘。
+ * **不要**用 clip / 1px 把原生控件藏起来 —— 那种写法 Playwright 判「不可见」，
+ * `check()` 会静默失败（渠道启用开关那次踩过）。
+ */
+.checkBox {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  flex: none;
+  box-sizing: border-box;
+  border: 1px solid var(--stroke);
+  border-radius: 4px;
+  background: var(--bg-surface);
+  cursor: pointer;
+}
+
+.checkBox:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+  /* 对勾用 inset 阴影示意（与外扩口的环形同一手法，不再塞伪元素） */
+  box-shadow: inset 0 0 0 2px var(--bg-surface);
+}
+
+/* ── ④ 全宽主按钮 ── */
+.run {
+  width: 100%;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--control-inverse-bg);
+  border-radius: var(--radius-control);
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.run:not(:disabled):hover {
+  background: var(--control-inverse-bg-hover);
+  color: var(--control-inverse-text-hover);
+}
+
+.run:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.run svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}

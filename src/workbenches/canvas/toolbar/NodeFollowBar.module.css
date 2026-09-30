@@ -15,8 +15,9 @@
   z-index: 19;
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1);
+  gap: 6px;
+  /* 四边同档 6px：与按钮内距（8px）成一级，比 4px 松一点点（用户 2026-09-30：「距离太小了」） */
+  padding: 6px;
   box-sizing: border-box;
   background: var(--bg-surface);
   border: 1px solid var(--stroke);
@@ -29,7 +30,12 @@
 .actions {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
+  /**
+   * 按钮之间 6px（原 4px）：上一版把**按钮内部**的图标↔文字收到 4px 之后，
+   * 整排的呼吸感只剩「按钮之间的 4px」，用户看到的是「功能挤在一起」。
+   * 这两处要分开看：内部贴紧、外部留一格，才读得出「一个功能一个块」。
+   */
+  gap: 6px;
 }
 
 /*
@@ -41,9 +47,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-1);
+  /**
+   * 图标↔文字 6px：9px（首版）太远、4px（上一版）太挤，6px 是用户指出的「合适位置」。
+   */
+  gap: 6px;
   height: 26px;
-  padding: 0 var(--space-2) 0 var(--space-1);
+  /**
+   * 左右内距**对称**（用户 2026-09-30：「图标和名称靠得太远」）。
+   *
+   * 旧版是 `padding: 0 8px 0 4px` + 「图标位 26px」两件事凑出来的视觉内距：
+   * 图标墨迹只有 16px，26px 的格子左右各留 5px 死区 ⇒ 眼睛读到的左内距是 4+5=9px、
+   * 图标到文字是 5+4=9px，比文字到右边缘还大，整排看着「图标浮在左边、文字飘在右边」。
+   * 现在图标位贴着图标本身（16px），内距改回对称的 8px，间距用 4px（与参数 chip 同档）。
+   */
+  padding: 0 var(--space-2);
   /*
    * 描边**恒为 transparent**（用户 2026-09-17：hover 的实色按钮不要描边）。
    * 仍保留 1px 占位：若改成 `border: none`，hover 时加边框会让按钮尺寸与
@@ -63,16 +80,29 @@
     border-color var(--dur-hover) var(--ease-out);
 }
 
-/* 图标本身固定 26px 见方：标签展开时不许把它挤变形 */
+/*
+ * 图标位**贴住图标本身**（16px 宽，高度撑满按钮保持垂直居中）。
+ *
+ * 里面装的是**内联 SVG**（`toolbar/icons`），不是文本字形 —— 字形落点由字体决定、
+ * 换台机器就可能偏（用户 2026-09-30：「节点功能栏的图标我不要符号，我要真正的矢量图」）。
+ * 宽度不能再留成一整格 26px：那会在图标两侧各留 5px 死区，把「图标↔文字」的
+ * 视觉距离顶到 9px（用户 2026-09-30 第 2 轮实测反馈）。
+ */
 .glyph {
   flex: 0 0 auto;
-  width: 26px;
+  width: 16px;
   height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--fs-label);
   line-height: 1;
+}
+
+/* 图标 16px：与按钮 26px 的高度成比例，且与菜单图标（18px）同档 */
+.glyph svg {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 
 /*
@@ -109,23 +139,6 @@
   height: 16px;
   background: var(--stroke);
   margin: 0 2px;
-}
-
-/*
- * 指向节点的小三角：纯装饰，标出「这栏属于下面那个节点」。
- * 栏恒在节点**上方**（2026-09-17 起不再翻转），故三角恒朝下、固定在底边。
- */
-.arrow {
-  position: absolute;
-  left: 50%;
-  bottom: -5px;
-  width: 8px;
-  height: 8px;
-  margin-left: -4px;
-  background: var(--bg-surface);
-  border-right: 1px solid var(--stroke);
-  border-bottom: 1px solid var(--stroke);
-  transform: rotate(45deg);
 }
 
 @media (prefers-reduced-motion: reduce) {

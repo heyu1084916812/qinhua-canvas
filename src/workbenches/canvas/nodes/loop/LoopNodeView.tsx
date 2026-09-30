@@ -33,7 +33,7 @@
  * - **次数** = 从起始计数起跑几轮（起始 2 + 次数 2 → 跑第 2、3 张）；
  * - **批次** = 一轮取几张。
  */
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { NodeViewProps } from '../registry'
 import type { LoopData } from '../../../../domain/canvas/model/node'
 import { normalizeLoopParams } from '../../../../domain/canvas/loop/loopPlan'
@@ -155,51 +155,61 @@ export function LoopNodeView(props: NodeViewProps) {
   const emitRef = useRef(props.emit)
   emitRef.current = props.emit
 
-  useEffect(() => {
+  const syncHeight = useCallback(() => {
     const content = contentRef.current
-    if (!content) return
     // 必须挂在节点框内才有意义（节点视图也可能用于预览/容器子渲染）
-    if (!content.closest('[data-node-id]')) return
-
+    if (!content || !content.closest('[data-node-id]')) return
     /**
      * ⚠️ 用 `offsetHeight` 而不是 `getBoundingClientRect()`（2026-09-24 修缩放黑屏）。
      *
      * 画布缩放是 `[data-world]` 上的 CSS `scale(zoom)`（见 CanvasSurface）。
      * `getBoundingClientRect()` 返回的是**变换后**的屏幕像素：
      * zoom=0.5 时量到的是实际高度的一半。拿这个数去写世界坐标的 `node.h` 就写错了，
-     * 而写错 → 内容重排 → ResizeObserver 再触发 → 又拿缩放值去写 ……
+     * 而写错 → 内容重排 → 又触发一次 → 又拿缩放值去写 ……
      * **在缩放过程中这个循环会高速空转，页面直接崩掉（黑屏）**。
-     *
-     * `offsetHeight` 是**布局高度**，不受 transform 影响，与世界坐标同量纲 ——
-     * 这才是这里要拿的数。
+     * `offsetHeight` 是**布局高度**，不受 transform 影响，与世界坐标同量纲。
      */
-    const sync = () => {
-      const contentH = content.offsetHeight
-      if (!contentH) return
-      // 18 = .card 上下 padding（8×2）+ 节点框 1px 边框 ×2
-      const needed = contentH + 18
-      /*
-       * 容差放大到 8px：offsetHeight 是取整值，加上不同 zoom 下边框的舍入差异，
-       * 太小的容差会在临界点反复触发（写高度 → 重排 → 又判定不一致 → 再写）。
-       *
-       * 另外**只在确实需要时写**：写 `patch: {}` 的空 updateData 也会走一遍
-       * store 与持久化，缩放时高频触发代价不小。
-       */
-      if (Math.abs(nodeHRef.current - needed) > 8) {
-        emitRef.current({
-          type: 'updateData',
-          patch: {},
-          transient: true,
-          size: { w: nodeWRef.current, h: needed },
-        })
-      }
+    const contentH = content.offsetHeight
+    if (!contentH) return
+    // 18 = .card 上下 padding（8×2）+ 节点框 1px 边框 ×2
+    const needed = contentH + 18
+    /**
+     * 只在**真的不一致**时写（容差 4px：`offsetHeight` 是取整值，加上缩放下的舍入差异，
+     * 太紧会在临界点反复触发）。写出去的值不会被任何地方夹取（缩放交互对这类节点
+     * 不夹高度、命令层也不夹），所以「写 → 重排 → 达成一致」必然收敛，不需要额外的防抖闸门。
+     */
+    if (Math.abs(nodeHRef.current - needed) > 4) {
+      emitRef.current({
+        type: 'updateData',
+        patch: {},
+        transient: true,
+        size: { w: nodeWRef.current, h: needed },
+      })
     }
-    sync()
-    const ro = new ResizeObserver(sync)
+  }, [])
+
+  /**
+   * **每次渲染后自检**（`useLayoutEffect`：在浏览器绘制前量、必要时当帧写回）。
+   *
+   * 这是 2026-09-30 补的一刀：上一版只在 `ResizeObserver` 回调里量高度，而它**只在
+   * 内容尺寸变化时**触发。于是「拖右下角」这种场景下若某次量到了瞬时值（拖拽中间态的
+   * 换行导致的更高内容），就会写回一个过高的高度；写完之后内容尺寸没再变 ⇒ RO 不再触发
+   * ⇒ **那个错误高度永远留在那儿**（实测 332 → 380，内容其实只要 332）。
+   * 渲染后自检让写回变成**幂等且自愈**：写错了下一帧就改回来，且同一个值只请求一次。
+   */
+  useLayoutEffect(() => {
+    syncHeight()
+  })
+
+  /** 内容自己变了（面板开合、图片加载完把内容撑高）也要跟上：RO 补这条路径 */
+  useEffect(() => {
+    const content = contentRef.current
+    if (!content || !content.closest('[data-node-id]')) return
+    syncHeight()
+    const ro = new ResizeObserver(() => syncHeight())
     ro.observe(content)
     return () => ro.disconnect()
-    // 依赖为空：所有读取都走 ref，effect 只建一次（见上面 ref 的说明）
-  }, [])
+  }, [syncHeight])
 
   return (
     <div className={styles.card} data-loop-node>

@@ -32,7 +32,10 @@ export const loopSpec: NodeSpec<LoopData> = {
    * 刻意**包含 loop**：支持「循环套循环」（外层按批分、内层再逐个处理）。
    * 死循环风险由 `loopPlan` 的展开次数上限（count ≤ 100）与连接层的环检测兜住。
    */
-  accepts: { upstream: ['prompt', 'generation', 'compare', 'group', 'batch', 'board', 'loop'] },
+  /** `fusion` 一并接受（§6.23）：融合产物和生成产物一样是「一张图」 */
+  accepts: {
+    upstream: ['prompt', 'generation', 'compare', 'group', 'batch', 'board', 'loop', 'fusion'],
+  },
   createDefaultData(): LoopData {
     return {
       count: 3,

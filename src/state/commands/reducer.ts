@@ -12,6 +12,7 @@ import { canReparent, applyReparent, edgesToDropOnReparent } from '../../domain/
 import { createId } from '../../shared/id'
 import { toPersistPlan, applyGraphPatches } from '../workbenches/canvas/persist'
 import { containerMinSize } from '../../domain/canvas/layout/packContainer'
+import { DEFAULT_SOURCE_PORT, DEFAULT_TARGET_PORT, edgeKey } from '../../domain/canvas/model/edge'
 
 export interface ReduceOutput {
   result: CommandResult
@@ -136,7 +137,7 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
           const sn = resolve(source)
           const tn = resolve(target)
           if (!sn || !tn) continue
-          if (!canConnect(sn, tn, graph).ok) continue
+          if (!canConnect(sn, tn, graph, { sourcePort: e.sourcePort, targetPort: e.targetPort }).ok) continue
           patches.push({
             op: 'upsert',
             table: 'edges',
@@ -145,6 +146,8 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
               projectId: graph.projectId,
               source,
               target,
+              ...(e.sourcePort && e.sourcePort !== DEFAULT_SOURCE_PORT ? { sourcePort: e.sourcePort } : {}),
+              ...(e.targetPort && e.targetPort !== DEFAULT_TARGET_PORT ? { targetPort: e.targetPort } : {}),
             } as unknown as Row,
           })
         }
@@ -193,9 +196,11 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
       const seen = new Set<string>()
       for (const e of cmd.edges) {
         if (!incoming.has(e.source) || !incoming.has(e.target)) continue
-        const key = `${e.source}->${e.target}`
+        const key = edgeKey(e.source, e.target, e.sourcePort, e.targetPort)
         if (seen.has(key)) continue
-        if (graph.edges.some((x) => x.source === e.source && x.target === e.target)) continue
+        if (graph.edges.some((x) => edgeKey(x.source, x.target, x.sourcePort, x.targetPort) === key)) {
+          continue
+        }
         seen.add(key)
         patches.push({
           op: 'upsert',
@@ -205,6 +210,8 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
             projectId: graph.projectId,
             source: e.source,
             target: e.target,
+            ...(e.sourcePort && e.sourcePort !== DEFAULT_SOURCE_PORT ? { sourcePort: e.sourcePort } : {}),
+            ...(e.targetPort && e.targetPort !== DEFAULT_TARGET_PORT ? { targetPort: e.targetPort } : {}),
           } as unknown as Row,
         })
       }
@@ -378,13 +385,19 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
       const target = findNode(graph, cmd.target)
       if (!source) fail(cmd.kind, `源节点不存在：${cmd.source}`)
       if (!target) fail(cmd.kind, `目标节点不存在：${cmd.target}`)
-      const check = canConnect(source, target, graph)
+      const check = canConnect(source, target, graph, {
+        sourcePort: cmd.sourcePort,
+        targetPort: cmd.targetPort,
+      })
       if (!check.ok) fail(cmd.kind, check.reason)
       const edge = {
         id: createId('edge'),
         projectId: graph.projectId,
         source: cmd.source,
         target: cmd.target,
+        // 缺省口不写字段：老数据与绝大多数新边因此长得完全一样（少一份要维护的形状）
+        ...(cmd.sourcePort && cmd.sourcePort !== DEFAULT_SOURCE_PORT ? { sourcePort: cmd.sourcePort } : {}),
+        ...(cmd.targetPort && cmd.targetPort !== DEFAULT_TARGET_PORT ? { targetPort: cmd.targetPort } : {}),
       }
       return {
         patches: [{ op: 'upsert', table: 'edges', row: edge }],

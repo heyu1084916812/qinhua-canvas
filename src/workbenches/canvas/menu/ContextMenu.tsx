@@ -21,11 +21,13 @@ import {
   IconBatch,
   IconBoard,
   IconCompare,
+  IconFusion,
   IconGeneration,
   IconGroup,
   IconLoop,
   IconPrompt,
   IconReset,
+  IconScan,
 } from '../toolbar/icons'
 
 /**
@@ -51,7 +53,11 @@ const MENU_ICON: Record<string, ReactNode> = {
    * 图标与功能栏取**同一份**（`toolbar/icons` 的 `IconLoop`），不另画一套。
    */
   'create:loop': <IconLoop size={MENU_ICON_SIZE} />,
+  /** 融合节点：与左侧「＋」菜单取同一份图标组件（各画一套迟早漂） */
+  'create:fusion': <IconFusion size={MENU_ICON_SIZE} />,
   'create:board': <IconBoard size={MENU_ICON_SIZE} />,
+  /** 提取选区：与功能栏取同一份图标组件 */
+  extractSelection: <IconScan size={MENU_ICON_SIZE} />,
   saveLibrary: (
     <svg width={MENU_ICON_SIZE} height={MENU_ICON_SIZE} viewBox="0 0 18 18" fill="none" aria-hidden>
       <path d="M9 2.5v8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -151,6 +157,9 @@ export function ContextMenu() {
         store.beginRename(nodeId)
       } else if (a.kind === 'fullscreenEdit') {
         store.openTextEditor(nodeId)
+      } else if (a.kind === 'extractSelection') {
+        // 在素材灯箱里框选局部（§6.23）：入口只负责「以提取模式打开灯箱」
+        store.openCropLightbox(nodeId)
       } else if (a.kind === 'saveLibrary') {
         void saveAssetToLibrary({ platform, store }, nodeId).then((result) => {
           if (result.ok) {

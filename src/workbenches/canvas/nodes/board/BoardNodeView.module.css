@@ -87,6 +87,9 @@
 }
 
 .toolBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: var(--border);
   border-radius: var(--radius-control);
   background: var(--bg-surface);
@@ -102,6 +105,9 @@
 
 /* 运行画板：主操作按钮，与工具按钮区分（稍重） */
 .runBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: var(--border);
   border-radius: var(--radius-control);
   background: var(--bg-surface);

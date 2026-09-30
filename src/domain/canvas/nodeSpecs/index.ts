@@ -6,6 +6,7 @@ import { groupSpec } from './group'
 import { batchSpec } from './batch'
 import { boardSpec } from './board'
 import { loopSpec } from './loop'
+import { fusionSpec } from './fusion'
 
 /**
  * 注册全部节点行为规格。
@@ -20,6 +21,7 @@ export function registerAllSpecs(): void {
   registerSpec(batchSpec)
   registerSpec(boardSpec)
   registerSpec(loopSpec)
+  registerSpec(fusionSpec)
 }
 
 export { getSpec, allSpecs, registeredTypes, resetSpecs } from './registry'

@@ -30,6 +30,7 @@ describe('节点规格注册表', () => {
     expect(getSpec('group')?.label).toBe('分组')
     expect(getSpec('batch')?.label).toBe('批量')
     expect(getSpec('board')?.label).toBe('画板')
+    expect(getSpec('fusion')?.label).toBe('融合节点')
   })
 
   it('重复注册同一类型直接抛错', () => {
@@ -40,8 +41,17 @@ describe('节点规格注册表', () => {
   it('registerAllSpecs 幂等', () => {
     registerAllSpecs()
     registerAllSpecs()
-    expect(registeredTypes().sort()).toEqual(['batch', 'board', 'compare', 'generation', 'group', 'loop', 'prompt'])
-    expect(allSpecs()).toHaveLength(7)
+    expect(registeredTypes().sort()).toEqual([
+      'batch',
+      'board',
+      'compare',
+      'fusion',
+      'generation',
+      'group',
+      'loop',
+      'prompt',
+    ])
+    expect(allSpecs()).toHaveLength(8)
   })
 
   it('提示词节点默认数据可用，输入收集返回自身文本', () => {

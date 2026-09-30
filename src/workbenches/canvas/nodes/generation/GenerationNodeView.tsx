@@ -3,6 +3,7 @@ import type { GenerationData } from '../../../../domain/canvas/model/node'
 import type { NodeViewProps } from '../registry'
 import { useAsset } from '../../hooks/useAsset'
 import { AssetMenu } from '../../panels/AssetMenu'
+import { IconPause, IconPlay } from '../../toolbar/icons'
 import styles from './GenerationNodeView.module.css'
 
 /** 生成数量：固定四项（产品文档 §6.8「1张 / 2张 / 4张 / 9张，固定四项」） */
@@ -224,7 +225,7 @@ function VideoBody({ url, onOpen }: { url: string; onOpen: () => void }) {
           setPlaying((p) => !p)
         }}
       >
-        {playing ? '❙❙' : '▶'}
+        {playing ? <IconPause size={14} /> : <IconPlay size={14} />}
       </button>
     </div>
   )

@@ -17,6 +17,7 @@ import { directDownstream } from '../../../domain/canvas/graph/upstreamOf'
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import { createCanvasPlacement } from '../../../features/canvas/execution/canvasPlacement'
+import { fuseNode } from '../../../features/canvas/execution/fuseNode'
 // 执行引擎与宿主上移共享层（M6-5 路径 B）：画布注入自己的命令类型与落位适配器
 import { useExecution } from '../../../features/shared/execution/useExecution'
 import type { RunTaskState } from '../../../features/shared/execution/runEngine'
@@ -751,6 +752,20 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
        */
       if (node?.type === 'loop') {
         await runLoop(node as NodeSnapshot<LoopData>, graph)
+        return
+      }
+
+      /**
+       * 融合节点走**第三条路**（产品文档 §6.23）：它不调渠道，产物来自本地像素合成。
+       *
+       * 放在 `runNode` 而不是节点自己的按钮里：生成入口不止一个（节点按钮、
+       * 跟随栏、右键菜单、快捷键 R），写在按钮里只有那一条路会真的融合。
+       * 失败一律**如实告知**（缺原图 / 缺补丁 / 比例不符 / 素材读不出来都是用户能修的事），
+       * 不静默返回 —— 静默返回的表现就是「点了没反应」。
+       */
+      if (node?.type === 'fusion') {
+        const outcome = await fuseNode({ platform, store }, nodeId)
+        if (!outcome.ok) store.notify(outcome.reason)
         return
       }
 

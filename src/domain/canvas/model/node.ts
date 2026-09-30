@@ -1,4 +1,12 @@
-export type NodeType = 'prompt' | 'generation' | 'compare' | 'group' | 'batch' | 'board' | 'loop'
+export type NodeType =
+  | 'prompt'
+  | 'generation'
+  | 'compare'
+  | 'group'
+  | 'batch'
+  | 'board'
+  | 'loop'
+  | 'fusion'
 
 /** 容器类节点：子节点用 parentId 归属（结果组不在 NodeType 内，见 model/resultGroup.ts） */
 export const CONTAINER_TYPES: ReadonlySet<NodeType> = new Set<NodeType>(['group', 'batch', 'board'])
@@ -90,6 +98,25 @@ export interface GenerationData {
   // 缩略图状态
   thumbOrder: string[]
   upstreamHidden: string[]
+  /**
+   * 这张图自带的裁剪上下文（见 `CropContext`）。
+   *
+   * 由「提取选区」写在新建的局部图上；此后**沿上游链解析**（`resolveCropContext`），
+   * 所以中间再套几个生成节点改图也不会丢。
+   */
+  cropContext?: CropContext
+  /**
+   * 「这张图该跟哪张图对比」（目前只有**融合结果**会写）。
+   *
+   * 融合把一张完整原图 + 若干局部修改图合成成一张新图，产物落成右侧的新节点，
+   * 于是「改之前长什么样」在画布上只剩一条连线。用户在灯箱里看大图时想对照原图，
+   * 靠连线反推也能做，但**连线是活的状态**（上游换了原图、连线被删都会变），
+   * 而「这张结果是从哪张原图融出来的」是**既成事实** —— 所以落库时记下来。
+   *
+   * 存 hash（不是节点 id）：素材是内容寻址的，复制粘贴 / 换节点都不会让它指错；
+   * 找不到这张素材时对比入口自动不出现，不猜。
+   */
+  compareWith?: string
 }
 
 export interface CompareData {
@@ -169,6 +196,78 @@ export interface LoopData {
   prompts: string[]
 }
 
+/** 矩形（原图像素坐标，整数） */
+export interface FusionRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * 一条**选区上下文**（产品文档 §6.23）。
+ *
+ * 它回答的是「这张局部修改图对应原图上的哪一块」，而不是「这张图长什么样」。
+ * 之所以要把它和补丁图分开存：补丁会被反复重生成（用户「能进行多次的修改」），
+ * 而选区本身不变 —— 把选区存成节点数据，重生成后重新运行融合即可把新版本
+ * 融回**同一个位置**，不必再框一次。
+ */
+export interface FusionContext {
+  id: string
+  /** 原图素材 hash + 像素尺寸（尺寸用于把选区换算成原图坐标） */
+  source: { assetHash: string; width: number; height: number }
+  /** 用户框选的局部修改区（原图像素坐标） */
+  rect: FusionRect
+  /**
+   * 参与合成与外扩的矩形。
+   *
+   * 与 `rect` 的差别：它按 `paddingRatio` **等比**向外扩一圈（给羽化留余量），
+   * 并在**贴边时先外扩再平移回图内**（对齐大雄插件的处理，见产品文档 §6.23）。
+   *
+   * 「等比」是硬要求，不是风格选择：外扩若只按短边加一圈，比例会被改掉，
+   * 而补丁是按**用户选的模型比例**出的图 ⇒ 每张补丁都会被比例校验拒掉。
+   * 等比外扩让 `paddedRect` 与 `rect` 比例完全相同。
+   */
+  paddedRect: FusionRect
+  /** 外扩比例（宽高各乘 `1 + 2p`），默认 0.08 */
+  paddingRatio: number
+}
+
+/**
+ * 图像融合节点数据（产品文档 §6.23，2026-09-29）。
+ *
+ * **它自己不调模型、也不持有任何图片**：左侧接一张完整原图，右侧那只共用口接
+ * 1–16 张**带上下文的局部修改图**，本地像素合成后的产物**落成右侧一个新节点**
+ * （参考实现：「结果会通过连线生成在融合节点右侧，不覆盖任何输入图片」）。
+ *
+ * 所以这里只剩一份设置。早先版本把「选区」和「产物」都存在它身上，都是**错的**：
+ * 选区属于图片（`GenerationData.cropContext`，见「提取选区」），产物属于右侧那个新节点。
+ */
+export interface FusionData {
+  /**
+   * 是否启用**色彩匹配**（参考实现的融合卡片上就是这个复选框，默认开）。
+   *
+   * 缺省 / `undefined` = 开：与参考实现一致（它判的是 `node.colorMatch !== false`），
+   * 也让老数据自动落在「开」这一侧。关掉只影响这一层增强，羽化照常。
+   */
+  colorMatch?: boolean
+}
+
+/**
+ * **图片自带的裁剪上下文**（产品文档 §6.23「提取选区」）。
+ *
+ * 与 `FusionContext` 是同一件事的两种存法，差别只在**谁持有**：
+ * `FusionContext` 是融合节点自己那条选区记录（带 id），本类型是**这张图自己的属性** ——
+ * 所以没有 id，它就该跟着图片走：改图、放大、并发、分组、复制粘贴、刷新、导入导出。
+ *
+ * 两种形态：
+ * - `{ full: true }`：**完整图边界**（参考实现的同名标记）。融合产物已经是一张完整图，
+ *   从此**不再继承**任何局部上下文，否则第二轮会错误追溯到上一轮的选区；
+ *   它也正好让「拿融合结果再提取一个新选区」成为合法操作。
+ * - `Omit<FusionContext, 'id'>`：真正的局部图 —— 属于哪张原图、哪个矩形、外扩矩形。
+ */
+export type CropContext = { full: true } | Omit<FusionContext, 'id'>
+
 export type NodeData =
   | PromptData
   | GenerationData
@@ -177,6 +276,7 @@ export type NodeData =
   | BatchData
   | BoardData
   | LoopData
+  | FusionData
 
 export interface NodeSnapshot<TData extends NodeData = NodeData> extends NodeBase {
   data: TData

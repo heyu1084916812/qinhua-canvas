@@ -21,7 +21,8 @@ export const promptSpec: NodeSpec<PromptData> = {
    * 此前是 `upstream: []`——提示词节点**一条上游都连不进来**，与文档直接冲突。
    * 放开后上游图片 / 视频会进面板第一部分（缩略图）、上游提示词会出「已链接」胶囊。
    */
-  accepts: { upstream: ['prompt', 'generation'] },
+  /** `fusion` 一并接受（§6.23）：融合产物同样能作为「反推」的图片素材 */
+  accepts: { upstream: ['prompt', 'generation', 'fusion'] },
   createDefaultData(): PromptData {
     return { text: '', upstreamPromptLinked: false, channelId: '', model: '' }
   },

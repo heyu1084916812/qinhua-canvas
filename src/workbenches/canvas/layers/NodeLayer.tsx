@@ -3,7 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useGraph, useSelection, useCanvasStore } from '../storeContext'
 import { useNodeDrag } from '../../../features/canvas/useNodeDrag'
 import { useCanvasPageEvents } from '../../../features/canvas/useCanvasPageEvents'
-import { getNodeDefinition } from '../nodes/registry'
+import { getNodeDefinition, type InputPortAsset } from '../nodes/registry'
 import { NodeFrame } from '../frame/NodeFrame'
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { describeError } from '../../../shared/result'
@@ -17,7 +17,12 @@ import type { Viewport } from '../../../domain/canvas/geometry/coords'
 import type { CanvasStore } from '../../../state/workbenches/canvas/store'
 import type { NodeSnapshot, PromptData } from '../../../domain/canvas/model/node'
 import { promptSpec } from '../../../domain/canvas/nodeSpecs/prompt'
-import { resizeLockOf } from '../../../domain/canvas/nodeSpecs/resizeLock'
+import { heightFromContentOf, resizeLockOf } from '../../../domain/canvas/nodeSpecs/resizeLock'
+import { portDeclsOf } from '../../../domain/canvas/nodeSpecs/ports'
+import { resolveCropContext } from '../../../domain/canvas/fusion/cropContext'
+import { getSpec } from '../../../domain/canvas/nodeSpecs/registry'
+import { targetPortOf } from '../../../domain/canvas/model/edge'
+import { resultImagesOf } from '../../../domain/canvas/graph/resultImages'
 import { imageAssetInputsOf } from '../../../domain/shared/execution/inputs'
 import type { NodeInput } from '../../../domain/shared/execution/types'
 
@@ -165,7 +170,7 @@ export const NodeLayer = memo(function NodeLayer({
   onOpenSettings,
 }: {
   /** 端点按下开始拖线建连（§6.14），由 CanvasSurface 注入 */
-  onPortPointerDown?: (e: ReactPointerEvent, nodeId: string, side: 'input' | 'output') => void
+  onPortPointerDown?: (e: ReactPointerEvent, nodeId: string, portId: string) => void
   /** 画布表面容器：拖动松手时用它把屏幕坐标换回世界坐标（§6.11 归属判定）+ 裁剪取视口尺寸 */
   surfaceRef?: { current: HTMLElement | null }
   /** 宿主导航（去后台设置）：节点视图只 emit，路由由页面容器持有 */
@@ -264,6 +269,51 @@ export const NodeLayer = memo(function NodeLayer({
     }
     return out
   })
+  /**
+   * **按输入口分组**的上游素材（§6.23）：只有声明了多只输入口的节点会进这张表。
+   *
+   * 为什么不能复用 `upstreamHashes`：那份是「所有上游的并集」，fusion 用它会把
+   * 左侧原图算成第 1 张局部修改图，整条链路从第一张就错位。
+   */
+  const inputPortAssets = useStableGraphMemo(graph, (g) => {
+    const out = new Map<string, Record<string, InputPortAsset[]>>()
+    const idx = indexNodes(g.nodes)
+    /**
+     * 每个节点「这一路有没有局部选区上下文」（§6.23）。整图算一次 O(N·E)，
+     * 且只在这个 memo 重建时算（内容变了才重建）—— 不能放进每帧的渲染路径。
+     */
+    const hasContext = new Map<string, boolean>()
+    const contextOf = (id: string): boolean => {
+      const cached = hasContext.get(id)
+      if (cached !== undefined) return cached
+      const value = resolveCropContext(id, g, idx).kind === 'local'
+      hasContext.set(id, value)
+      return value
+    }
+    for (const n of g.nodes) {
+      const spec = getSpec(n.type)
+      if (!spec) continue
+      /**
+       * **共用口（`both`）也算输入口**：融合节点右侧那只口就是 `both`，
+       * 只认 `kind === 'input'` 会让它整条被跳过 ⇒ 视图拿不到按口分组的素材，
+       * 表现为「线连上了、节点里却写着『把一张完整原图连到左侧』」（实测踩到）。
+       */
+      const inputs = portDeclsOf(spec.ports).filter((p) => p.kind === 'input' || p.kind === 'both')
+      // 单口节点：upstreamAssetHashes 已经表达了同一件事，不必再算一份
+      if (inputs.length < 2) continue
+      const byPort: Record<string, InputPortAsset[]> = {}
+      for (const p of inputs) byPort[p.id] = []
+      for (const e of g.edges) {
+        if (e.target !== n.id) continue
+        const bucket = byPort[targetPortOf(e)]
+        if (!bucket) continue
+        const hash = resultImagesOf(idx.get(e.source))[0]
+        if (hash) bucket.push({ hash, hasContext: contextOf(e.source) })
+      }
+      out.set(n.id, byPort)
+    }
+    return out
+  })
   const zoom = vis.zoom
 
   /**
@@ -348,10 +398,11 @@ export const NodeLayer = memo(function NodeLayer({
         minSize={def.sizing.min}
         portsHidden={portsHidden}
         resizeLock={resizeLockOf(child)}
+        heightFromContent={heightFromContentOf(child)}
         onFramePointerDown={(e) => onNodePointerDown(e, child.id)}
         onResize={(rect, phase) => store.dispatch({ kind: 'node.resize', id: child.id, rect, phase })}
         onRename={(title) => store.dispatch({ kind: 'node.rename', id: child.id, title })}
-        onPortPointerDown={(e, side) => onPortPointerDown?.(e, child.id, side)}
+        onPortPointerDown={(e, portId) => onPortPointerDown?.(e, child.id, portId)}
       >
         <def.View
           node={child}
@@ -398,10 +449,11 @@ export const NodeLayer = memo(function NodeLayer({
             ports={def.ports}
             minSize={def.sizing.min}
             resizeLock={resizeLockOf(node)}
+            heightFromContent={heightFromContentOf(node)}
             onFramePointerDown={(e) => onNodePointerDown(e, node.id)}
             onResize={(rect, phase) => store.dispatch({ kind: 'node.resize', id: node.id, rect, phase })}
             onRename={(title) => store.dispatch({ kind: 'node.rename', id: node.id, title })}
-            onPortPointerDown={(e, side) => onPortPointerDown?.(e, node.id, side)}
+            onPortPointerDown={(e, portId) => onPortPointerDown?.(e, node.id, portId)}
           >
             <View
               node={node}
@@ -416,6 +468,7 @@ export const NodeLayer = memo(function NodeLayer({
               upstreamPromptCount={upstreamPromptCounts.get(node.id)}
               hasRunnableDownstream={runnableDownstream.get(node.id)}
               upstreamImageInputs={upstreamImageInputs.get(node.id)}
+              inputPortAssets={inputPortAssets.get(node.id)}
               childNodes={containerChildren}
               renderChild={containerChildren.length > 0 ? renderChild : undefined}
               emit={(ev) => {

@@ -4,6 +4,14 @@ import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import type { GraphSnapshot } from '../../domain/canvas/model/graph'
 import { canConnect } from '../../domain/canvas/graph/canConnect'
 import { getSpec } from '../../domain/canvas/nodeSpecs/registry'
+import {
+  INPUT_PORT,
+  OUTPUT_PORT,
+  portDeclOf,
+  portDeclsOf,
+  type PortDecl,
+} from '../../domain/canvas/nodeSpecs/ports'
+import { DEFAULT_SOURCE_PORT } from '../../domain/canvas/model/edge'
 import { screenToWorld, toWorldRect } from '../../domain/canvas/geometry/coords'
 import { coalescePointerMove } from '../../shared/rafThrottle'
 
@@ -13,6 +21,10 @@ export type PortSide = 'input' | 'output'
 export interface LinkDraft {
   side: PortSide
   nodeId: string
+  /** 被拖的那只口的 id（融合节点的 `patch` 与 `output` 同在右侧，只看 side 分不出来） */
+  portId: string
+  /** 被拖口所在的一侧：草稿曲线的控制点朝哪边伸由它决定（右侧的输入口朝右伸） */
+  fromSide: 'left' | 'right'
   /** 固定端的世界坐标（源端点或目标端点） */
   from: { x: number; y: number }
   /** 跟随指针的活动端世界坐标 */
@@ -28,21 +40,54 @@ interface Size {
   h: number
 }
 
-const PORT_ANCHOR: Record<PortSide, { x: 'left' | 'right'; y: 'center' }> = {
-  output: { x: 'right', y: 'center' },
-  input: { x: 'left', y: 'center' },
-}
-
-/** 端点世界坐标：左 = 输入，右 = 输出，取纵向中点（§6.14 端点位置） */
+/**
+ * 端点世界坐标（§6.14 端点位置 / §6.23 多端口）。
+ *
+ * 位置由**端口声明**给出（`side` + 纵向比例 `y`），不再写死「左中 / 右中」——
+ * 融合节点的 `patch` 就在右侧、但纵向偏上，写死的版本会把它画到中点、与
+ * `output` 重合。
+ *
+ * 兼容旧调用：传 `'input' / 'output'` 字符串时用默认口的位置。
+ */
 export function portAnchorWorld(
   node: { x: number; y: number; w: number; h: number },
-  side: PortSide,
+  port: PortDecl | PortSide,
 ): { x: number; y: number } {
-  const anchor = PORT_ANCHOR[side]
+  const decl = typeof port === 'string' ? (port === 'input' ? INPUT_PORT : OUTPUT_PORT) : port
   return {
-    x: anchor.x === 'left' ? node.x : node.x + node.w,
-    y: node.y + node.h / 2,
+    x: decl.side === 'left' ? node.x : node.x + node.w,
+    y: node.y + node.h * decl.y,
   }
+}
+
+/**
+ * 松手时落在**哪一只口**上（产品文档 §6.23）。
+ *
+ * 节点可能有不止一个输入口，而「松手」只给出一个节点 —— 必须再挑一只。
+ * 挑法：在候选口里取**离指针世界坐标最近**的那只。只有一只候选时就是它，
+ * 与历史行为完全一致（那时每个节点最多一只输入口）。
+ */
+export function nearestInputPort(
+  node: { x: number; y: number; w: number; h: number },
+  type: Parameters<typeof getSpec>[0],
+  point: { x: number; y: number },
+): PortDecl | null {
+  const spec = getSpec(type)
+  if (!spec) return null
+  /** 共用口（`both`）也算输入口：把线拖到它身上就是接进来（参考实现的共用口口径） */
+  const inputs = portDeclsOf(spec.ports).filter((p) => p.kind === 'input' || p.kind === 'both')
+  if (inputs.length === 0) return null
+  let best = inputs[0]
+  let bestDist = Infinity
+  for (const p of inputs) {
+    const a = portAnchorWorld(node, p)
+    const d = Math.hypot(a.x - point.x, a.y - point.y)
+    if (d < bestDist) {
+      bestDist = d
+      best = p
+    }
+  }
+  return best
 }
 
 /**
@@ -59,10 +104,20 @@ export function useEdgeDrag(store: CanvasStore) {
   const containerRef = useRef<HTMLElement | null>(null)
 
   const begin = useCallback(
-    (_e: ReactPointerEvent, nodeId: string, side: PortSide, container: HTMLElement) => {
+    (_e: ReactPointerEvent, nodeId: string, portId: string, container: HTMLElement) => {
       const graph = store.getSnapshot()
       const node = graph.nodes.find((n) => n.id === nodeId)
       if (!node) return
+      const decl = portDeclOf(getSpec(node.type)?.ports ?? { input: false, output: false }, portId)
+      if (!decl) return
+      /**
+       * 共用口（`both`）**从它往外拖 = 出**。
+       *
+       * 与参考实现一致：大雄那边给共用口的 `mousedown` 直接就是
+       * `startLink(..., 'out')`。要接「入」，由**上游**把线拖到这只口上
+       * （松手时按「离指针最近的输入口」判定，共用口算输入口）。
+       */
+      const side: PortSide = decl.kind === 'input' ? 'input' : 'output'
       containerRef.current = container
       // 新的一次拖线先收掉可能还开着的连线菜单（§6.14：菜单关闭不改变已有连线）
       store.closeLinkMenu()
@@ -71,11 +126,13 @@ export function useEdgeDrag(store: CanvasStore) {
       // 端点锚点用世界坐标：画板子节点的 local 坐标需叠加父级偏移（§6.13 画板内连线）
       const parent = node.parentId ? graph.nodes.find((n) => n.id === node.parentId) : undefined
       const world = toWorldRect(node, parent)
-      const anchor = portAnchorWorld(world, side)
+      const anchor = portAnchorWorld(world, decl)
 
       setDraft({
         side,
         nodeId,
+        portId,
+        fromSide: decl.side,
         from: anchor,
         to: anchor,
         hoverNodeId: null,
@@ -85,10 +142,12 @@ export function useEdgeDrag(store: CanvasStore) {
       const move = coalescePointerMove((ev: PointerEvent) => {
         const to = screenToWorld({ x: ev.clientX, y: ev.clientY }, store.getViewport(), worldRect)
         const hovered = nodeAtPoint(to, store.getSnapshot())
-        const ok = hovered ? checkConnect(store, nodeId, side, hovered) : null
+        const ok = hovered ? checkConnect(store, nodeId, decl, hovered, to) : null
         setDraft({
           side,
           nodeId,
+          portId,
+          fromSide: decl.side,
           from: anchor,
           to,
           hoverNodeId: ok?.ok ? hovered : null,
@@ -112,14 +171,19 @@ export function useEdgeDrag(store: CanvasStore) {
          * 坐标换成 surface 局部屏幕坐标（与右键菜单同口径：浮层不随画布变换）。
          */
         if (!hovered) {
-          store.setLinkMenu(ev.clientX - worldRect.x, ev.clientY - worldRect.y, nodeId, side)
+          store.setLinkMenu(ev.clientX - worldRect.x, ev.clientY - worldRect.y, nodeId, side, portId)
           return
         }
-        const check = checkConnect(store, nodeId, side, hovered)
+        const check = checkConnect(store, nodeId, decl, hovered, to)
         if (!check.ok) return
-        const source = side === 'output' ? nodeId : hovered
-        const target = side === 'output' ? hovered : nodeId
-        store.dispatch({ kind: 'edge.connect', source, target })
+        const wired = check.ports
+        store.dispatch({
+          kind: 'edge.connect',
+          source: wired.source,
+          target: wired.target,
+          sourcePort: wired.sourcePort,
+          targetPort: wired.targetPort,
+        })
       }
 
       window.addEventListener('pointermove', move)
@@ -161,29 +225,78 @@ export function nodeAtPoint(point: { x: number; y: number }, graph: GraphSnapsho
   return null
 }
 
-/** 复用 domain 规则判定连通性，并按拖线方向归一成 source → target */
+/**
+ * 复用 domain 规则判定连通性，并把方向归一成 source → target（含两端端口）。
+ *
+ * 两条方向语义（§6.14）：
+ * - 从**输出口**往外拖 → 被拖的节点是 source，落点是 target；落点那一侧用
+ *   `nearestInputPort` 在它的输入口里挑一只（融合节点的 `patch` 就是这么接上的）；
+ * - 从**输入口**反向拖 → 落点是 source（走它的默认输出口），被拖的节点是 target，
+ *   用的是**被拖的那只口**。
+ */
 function checkConnect(
   store: CanvasStore,
   dragNodeId: string,
-  side: PortSide,
+  dragPort: PortDecl,
   hoveredId: string,
-): { ok: true } | { ok: false; reason: string } {
+  point: { x: number; y: number },
+): { ok: true; ports: WiredPorts } | { ok: false; reason: string } {
   const graph = store.getSnapshot()
   const index = new Map(graph.nodes.map((n) => [n.id, n] as const))
   const dragNode = index.get(dragNodeId)
   const hovered = index.get(hoveredId)
   if (!dragNode || !hovered) return { ok: false, reason: '节点不存在' }
-  const source = side === 'output' ? dragNode : hovered
-  const target = side === 'output' ? hovered : dragNode
-  // 反向拖入时，hovered 必须有输出端点、dragNode 必须有输入端点，交由 canConnect 统一判定
-  return canConnect(source, target, graph)
+
+  let wired: WiredPorts
+  /**
+   * **只要不是纯输入口，从它往外拖就是「出」** —— 共用口（`both`）也算。
+   *
+   * 这与参考实现一致（共用口的 mousedown 直接是 `startLink(..., 'out')`）：
+   * 从融合节点右侧那只口拖到任意节点上，得到的是「融合结果 → 那个节点」。
+   * 反向（上游 → 融合）由**上游**出线、落在融合节点右半边来完成。
+   * 判反了的表现很隐蔽：线照样连上，只是方向反过来、语义完全错。
+   */
+  if (dragPort.kind !== 'input') {
+    const world = toWorldRect(hovered, hovered.parentId ? index.get(hovered.parentId) : undefined)
+    const targetPort = nearestInputPort(world, hovered.type, point)
+    if (!targetPort) return { ok: false, reason: `${hovered.type} 没有输入端点` }
+    wired = {
+      source: dragNode.id,
+      target: hovered.id,
+      sourcePort: dragPort.id,
+      targetPort: targetPort.id,
+    }
+  } else {
+    wired = {
+      source: hovered.id,
+      target: dragNode.id,
+      sourcePort: DEFAULT_SOURCE_PORT,
+      targetPort: dragPort.id,
+    }
+  }
+
+  const source = index.get(wired.source)
+  const target = index.get(wired.target)
+  if (!source || !target) return { ok: false, reason: '节点不存在' }
+  const check = canConnect(source, target, graph, {
+    sourcePort: wired.sourcePort,
+    targetPort: wired.targetPort,
+  })
+  return check.ok ? { ok: true, ports: wired } : check
+}
+
+export interface WiredPorts {
+  source: string
+  target: string
+  sourcePort: string
+  targetPort: string
 }
 
 /** 端点是否可拖线（无输出端点 / 无输入端点的节点不参与，§6.14 端点位置） */
 export function nodeHasPort(type: Parameters<typeof getSpec>[0], side: PortSide): boolean {
   const spec = getSpec(type)
   if (!spec) return false
-  return side === 'output' ? spec.ports.output : spec.ports.input
+  return portDeclsOf(spec.ports).some((p) => p.kind === side || p.kind === 'both')
 }
 
 export type { Size }

@@ -13,6 +13,7 @@ import {
   IconColumnArrange,
   IconCompare,
   IconGeneration,
+  IconFusion,
   IconGridArrange,
   IconGroup,
   IconImport,
@@ -60,6 +61,7 @@ const NODE_MENU: readonly { type: NodeType; label: string; icon: ReactNode }[] =
   { type: 'group', label: '分组节点', icon: <IconGroup size={ICON_SIZE} /> },
   { type: 'batch', label: '批量节点', icon: <IconBatch size={ICON_SIZE} /> },
   { type: 'loop', label: '循环节点', icon: <IconLoop size={ICON_SIZE} /> },
+  { type: 'fusion', label: '融合节点', icon: <IconFusion size={ICON_SIZE} /> },
   { type: 'board', label: '画板节点', icon: <IconBoard size={ICON_SIZE} /> },
 ]
 

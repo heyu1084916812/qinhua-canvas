@@ -106,9 +106,9 @@ export function CanvasSurface({
   // 端点在节点层内按下，拖线草稿在连线层绘制：这里把 begin 下发给节点层。
   // useCallback 保证引用稳定 → memo(NodeLayer) 在平移帧不被父级重渲打断
   const beginEdgeDrag = useCallback(
-    (e: ReactPointerEvent, nodeId: string, side: 'input' | 'output') => {
+    (e: ReactPointerEvent, nodeId: string, portId: string) => {
       if (!ref.current) return
-      edgeDragBegin(e, nodeId, side, ref.current)
+      edgeDragBegin(e, nodeId, portId, ref.current)
     },
     [edgeDragBegin],
   )

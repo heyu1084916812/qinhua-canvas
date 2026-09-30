@@ -97,6 +97,7 @@
 }
 
 .close {
+  flex: none;
   height: 32px;
   padding: 0 var(--space-4);
   border: var(--border);
@@ -111,4 +112,231 @@
 
 .close:hover {
   background: var(--bg-hover);
+}
+
+/*
+ * ── 提取选区模式（§6.23）──
+ *
+ * 选区框、比例档、确认按钮。颜色一律走 token（主题守卫拦字面量色值）。
+ */
+.cropRect {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid var(--text-1);
+  background: var(--accent);
+  /* 半透明靠 opacity 而不是 rgba —— 半透明色值在这里等于写死主题 */
+  opacity: 0.28;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/*
+ * 手柄层：与选框同几何、但不带 opacity（见 LightboxLayer.tsx 里那段注释）。
+ * 容器不吃指针，只有手柄自己吃 —— 否则这一层会盖住整个框，
+ * 按在框中间想「重新画一个」就再也画不出来了。
+ */
+.cropHandles {
+  position: absolute;
+  pointer-events: none;
+}
+
+/*
+ * 「搬框」层：铺满整个选框，接管框内的指针 —— 框内按下是**移动**选区，
+ * 不是重画一个（用户 2026-09-30 报的就是「在选取内拖动每次都会新建一个选取」）。
+ * 光标给 `move`，让「这里能拖」不用靠猜。
+ */
+.cropMove {
+  position: absolute;
+  inset: 0;
+  cursor: move;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.cropHandle {
+  position: absolute;
+  /* 手柄中心压在顶点上（margin 负半个身位），与「圆心在顶点」的视觉口径一致 */
+  margin: -6px 0 0 -6px;
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--text-1);
+  border-radius: 2px;
+  background: var(--bg-surface);
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.cropHandle:hover {
+  background: var(--accent);
+}
+
+.cropBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  /* 比例档有 9 个，窗口窄时允许这一组自己横向滚动，不去挤旁边的按钮 */
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.barDivider {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  background: var(--stroke);
+}
+
+/*
+ * ── 灯箱里的「对比原图」（§6.23，用户 2026-09-30）──
+ *
+ * 三档分段控件（结果 / 对比 / 原图）+ 可拖的分割线。分割线形态与对比节点（§6.10）
+ * 同一套：1px 竖线 + 圆形把手，拖动只改本地瞬时值。
+ */
+.compareGroup {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  box-sizing: border-box;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+}
+
+.compareOff,
+.compareOn {
+  flex: none;
+  height: 26px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.compareOn {
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+}
+
+.compareOff:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.compareDivider {
+  position: absolute;
+  width: 1px;
+  border-left: 1px solid var(--text-1);
+  cursor: ew-resize;
+  pointer-events: auto;
+  touch-action: none;
+  z-index: 2;
+}
+
+.compareKnob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  box-sizing: border-box;
+  border: 1px solid var(--text-1);
+  border-radius: 50%;
+  background: var(--bg-surface);
+}
+
+/* 画面顶部两角的「原图 / 结果」标签：不吃指针 */
+.compareTags {
+  position: absolute;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: var(--space-2);
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.compareTag {
+  height: 20px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+  font-size: var(--fs-chip);
+  font-weight: 700;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.ratioLabel {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  white-space: nowrap;
+  flex: none;
+}
+
+.ratio,
+.ratioActive {
+  flex: none;
+  height: 26px;
+  padding: 0 var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.ratioActive {
+  background: var(--control-inverse-bg);
+  border-color: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+}
+
+.ratio:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.confirm {
+  flex: none;
+  height: 32px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--control-inverse-bg);
+  border-radius: var(--radius-control);
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.confirm:not(:disabled):hover {
+  background: var(--control-inverse-bg-hover);
+}
+
+.confirm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }

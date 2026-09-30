@@ -14,7 +14,7 @@
  * 即纵向锚点 = 节点顶边再上移「栏高 + 间距」（用户 2026-09-17 起不再翻转到下方）。
  */
 import { useEffect, useSyncExternalStore } from 'react'
-import type { MouseEvent as ReactMouseEvent } from 'react'
+import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useCanvasStore, useGraph, useSelection, useViewportState } from '../storeContext'
 import { toWorldRectInGraph } from '../../../domain/canvas/geometry/coords'
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
@@ -25,6 +25,17 @@ import styles from './NodeFollowBar.module.css'
 import { FormatToolbar, type FormatAction } from '../text/FormatToolbar'
 import { applyInlineFormat, applyLineFormat, insertDivider, linePrefixOf } from '../../../domain/canvas/text/markdownFormat'
 import { toPlainText } from '../../../domain/canvas/text/markdownRender'
+import {
+  IconChevronDown,
+  IconDelete,
+  IconDownload,
+  IconDuplicate,
+  IconPlay,
+  IconRename,
+  IconScan,
+  IconSettings,
+  IconStop,
+} from './icons'
 
 /**
  * 出现跟随栏的节点类型。
@@ -32,7 +43,7 @@ import { toPlainText } from '../../../domain/canvas/text/markdownRender'
  * 与创作面板同一批（§6.1）——画板是「被收纳的工作区」，其内部工具条已经常驻，
  * 再叠一条跟随栏会与它抢位置。
  */
-const FOLLOW_TYPES = new Set<NodeType>(['prompt', 'generation', 'group', 'batch', 'compare'])
+const FOLLOW_TYPES = new Set<NodeType>(['prompt', 'generation', 'group', 'batch', 'compare', 'fusion'])
 
 /** 鼠标按下时阻止默认聚焦：按钮点击后不滞留焦点，否则空格会被按钮吃掉（§6.3） */
 const keepCanvasFocus = { onMouseDown: (e: ReactMouseEvent) => e.preventDefault() }
@@ -130,7 +141,6 @@ export function NodeFollowBar({ onClose, onOpenSettings, onDownload }: NodeFollo
         onOpenSettings={onOpenSettings}
         onDownload={onDownload}
       />
-      <span className={styles.arrow} data-node-follow-arrow aria-hidden="true" />
     </div>
   )
 }
@@ -174,7 +184,17 @@ function NodeActions({
 
   const state = exec.nodeStateOf(node.id)
   const busy = state?.kind === 'queued' || state?.kind === 'running'
-  const canRun = node.type === 'generation' || node.type === 'batch' || node.type === 'group'
+  /**
+   * 「生成」按钮出现的类型。
+   *
+   * 融合节点也在内（§6.23）：它的运行入口不止节点内那个按钮 —— 右键菜单、
+   * 快捷键 R 都会走到同一处，跟随栏少一个按钮只是少一个入口，不是少一条语义。
+   */
+  const canRun =
+    node.type === 'generation' ||
+    node.type === 'batch' ||
+    node.type === 'group' ||
+    node.type === 'fusion'
   /**
    * 「有可下载的素材」= 节点**自身**持有 `assetHash`。
    *
@@ -194,20 +214,20 @@ function NodeActions({
       {canRun && (
         <FollowButton
           action="run"
-          glyph={busy ? '■' : '▶'}
+          icon={busy ? <IconStop /> : <IconPlay />}
           label={busy ? '取消生成' : '生成'}
           onClick={onRun}
         />
       )}
       <FollowButton
         action="rename"
-        glyph="✎"
+        icon={<IconRename />}
         label="重命名"
         onClick={() => store.beginRename(node.id)}
       />
       <FollowButton
         action="duplicate"
-        glyph="⧉"
+        icon={<IconDuplicate />}
         label="复制"
         onClick={() =>
           store.dispatch({
@@ -221,6 +241,19 @@ function NodeActions({
         }
       />
       {/*
+        「提取选区」（§6.23，用户 2026-09-29）：**图片节点上方的功能栏**是这个入口的
+        主位置（右键菜单里也有同一项）。它与「下载」一样属于普通操作，故贴在复制之后、
+        危险操作之前；没有素材时不出现 —— 摆一个点了没反应的按钮比不摆更糟。
+      */}
+      {hasAsset && (
+        <FollowButton
+          action="extract"
+          icon={<IconScan />}
+          label="提取选区"
+          onClick={() => store.openCropLightbox(node.id)}
+        />
+      )}
+      {/*
         下载（用户 2026-09-18：加在跟随栏里）。
         只在**有素材**时出现——空节点没有可下载的内容，摆一个点了没反应的按钮
         比不摆更糟（与「上传只在无上游时出现」同一条口径）。
@@ -229,14 +262,14 @@ function NodeActions({
       {hasAsset && onDownload && (
         <FollowButton
           action="download"
-          glyph="⬇"
+          icon={<IconDownload />}
           label="下载"
           onClick={() => onDownload(node.id)}
         />
       )}
       <FollowButton
         action="delete"
-        glyph="✕"
+        icon={<IconDelete />}
         label="删除"
         onClick={() => {
           store.dispatch({ kind: 'node.delete', ids: [node.id] })
@@ -245,9 +278,9 @@ function NodeActions({
         }}
       />
       <span className={styles.divider} />
-      <FollowButton action="close" glyph="⌄" label="关闭" onClick={onClose} />
+      <FollowButton action="close" icon={<IconChevronDown />} label="关闭" onClick={onClose} />
       {onOpenSettings && !running && (
-        <FollowButton action="settings" glyph="⚙" label="渠道设置" onClick={onOpenSettings} />
+        <FollowButton action="settings" icon={<IconSettings />} label="渠道设置" onClick={onOpenSettings} />
       )}
     </div>
   )
@@ -309,15 +342,19 @@ function PromptFormatActions({ node, onClose }: { node: NodeSnapshot; onClose: (
  * 中文始终显示（不是 hover 才展开），鼠标移到按钮上只把它变成实色块——
  * 与创作面板参数 chip 的 hover 反馈同一条规则（透明 → `--bg-hover`）。
  * `title` 给完整中文，长悬停时与可见文案一致。
+ *
+ * 图标是**内联 SVG**（`toolbar/icons`），不是文本字形 —— 字形的落点由字体决定，
+ * 换台机器就可能偏上偏左（用户 2026-09-30：「节点功能栏的图标我不要符号，
+ * 我要真正的矢量图」，与工具栏那个全角「＋」是同一条教训）。
  */
 function FollowButton({
   action,
-  glyph,
+  icon,
   label,
   onClick,
 }: {
   action: string
-  glyph: string
+  icon: ReactNode
   label: string
   onClick: () => void
 }) {
@@ -331,7 +368,7 @@ function FollowButton({
       {...keepCanvasFocus}
     >
       <span className={styles.glyph} aria-hidden="true">
-        {glyph}
+        {icon}
       </span>
       <span className={styles.label} data-follow-label={action}>
         {label}

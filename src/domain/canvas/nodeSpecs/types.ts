@@ -4,6 +4,7 @@ import type { GraphSnapshot } from '../model/graph'
 // 请求与输入词表已上移共享执行 domain（M6-5 路径 B）。这里只做转出，
 // 使既有 `from '.../nodeSpecs/types'` 的引用路径保持可用；本文件只留画布专有的节点规格。
 import type { NodeInput, RunRequest } from '../../shared/execution/types'
+import type { NodePorts } from './ports'
 
 export type { NodeInput, RunRequest }
 
@@ -45,7 +46,11 @@ export interface NodeSpec<TData extends NodeData = NodeData> {
     lockAspect?: boolean
     freeScaleWhenEmpty?: boolean
   }
-  ports: { input: boolean; output: boolean }
+  /**
+   * 端点声明。多数节点只写 `{ input: true, output: true }`（左入右出，位置默认）；
+   * 需要额外口（如融合节点的 `patch`）时补 `extras`，位置由声明给出（见 `./ports`）。
+   */
+  ports: NodePorts
   accepts: {
     upstream: NodeType[]
     children?: NodeType[]

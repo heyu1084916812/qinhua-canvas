@@ -121,7 +121,8 @@
  * 溢出的内容画在上层（.body 之外还有 header 与选中描边），且节点本身透明，
  * 溢出不会挡住别的节点（画布按节点矩形做命中与选区，浮层只在 hover 时出现）。
  */
-.body:has([data-loop-node]) {
+.body:has([data-loop-node]),
+.body:has([data-fusion-node]) {
   overflow: visible;
 }
 
@@ -191,6 +192,17 @@
 .port.hot,
 .frame.selected .port {
   opacity: 1;
+}
+
+/*
+ * 共用口（§6.23 融合节点右侧那只）：**同一个点既是入也是出**。
+ *
+ * 用「实底挖空成环」与实心的入 / 出点区分开 —— 参考实现那边是给同一个点挂
+ * `in` + `out` 两个类；这里给一只口声明 `kind: 'both'`，视觉上做成环。
+ * 这是能一眼分辨「这只口两个方向都吃」的最省事的画法。
+ */
+.port[data-port-kind='both'] {
+  box-shadow: inset 0 0 0 3px var(--bg-surface);
 }
 
 /* 左右各外露半个直径，圆心落在节点边框上（视觉 14 ⇒ 偏移 7） */

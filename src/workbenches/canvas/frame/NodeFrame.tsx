@@ -6,6 +6,7 @@ import type { Rect } from '../../../domain/canvas/geometry/rect'
 import type { ResizeLock } from '../../../domain/canvas/nodeSpecs/resizeLock'
 import { lockedResize } from '../../../domain/canvas/nodeSpecs/resizeLock'
 import { portMagnet } from '../../../domain/canvas/geometry/portMagnet'
+import { portDeclsOf, type NodePorts } from '../../../domain/canvas/nodeSpecs/ports'
 import { useCanvasStore } from '../storeContext'
 import { assetPixelsOf, formatPixels } from './assetPixels'
 import styles from './NodeFrame.module.css'
@@ -28,7 +29,8 @@ export interface NodeFrameProps {
   selected: boolean
   /** 当前视口缩放，缩放手柄的屏幕位移需折算回世界单位 */
   scale: number
-  ports: { input: boolean; output: boolean }
+  /** 端点声明：默认那对 + 附加口（§6.23 融合节点的 `patch`） */
+  ports: NodePorts
   minSize: { w: number; h: number }
   /**
    * 缩放锁比（§6.16），由装配层经 `resizeLockOf` 注入（视图层不算比例）：
@@ -36,13 +38,20 @@ export interface NodeFrameProps {
    * （有内容的图片 / 视频节点 = `naturalSize`，分组 / 批量 = 5:4）。
    */
   resizeLock?: ResizeLock
+  /**
+   * 高度由内容决定（参数卡，见 `heightFromContentOf`）：缩放**只取横向位移**。
+   *
+   * 少了这一条，拖拽每帧写的 h 会与内容同步写的 h 互相覆盖 —— 用户看到的就是
+   * 「拖到某个高度、松手跳到另一个高度」（2026-09-30 实测：332 → 380）。
+   */
+  heightFromContent?: boolean
   /** 在节点任意位置按下：选中 + 发起拖动（由父层接线） */
   onFramePointerDown: (e: ReactPointerEvent) => void
   /** 缩放手柄提交绝对矩形（命令层 coalesce 合并） */
   onResize: (rect: Rect, phase: ResizePhase) => void
   onRename: (title: string) => void
-  /** 从端点按下开始拖线建连（§6.14）；不传则端点不可拖 */
-  onPortPointerDown?: (e: ReactPointerEvent, side: 'input' | 'output') => void
+  /** 从端点按下开始拖线建连（§6.14）；不传则端点不可拖。`portId` 是具体口（§6.23） */
+  onPortPointerDown?: (e: ReactPointerEvent, portId: string) => void
   /** 隐藏端点（分组 / 批量子节点不显示端点；画板子节点显示以构成子图连线，§6.13） */
   portsHidden?: boolean
   children?: ReactNode
@@ -67,7 +76,16 @@ export interface NodeFrameProps {
  * 将来嵌入选区型内容）。节点内的 `<img>` 本来就都是 `draggable={false}`。
  */
 export function NodeFrame(props: NodeFrameProps) {
-  const { node, selected, scale, ports, minSize } = props
+  const { node, selected, scale, minSize } = props
+  /**
+   * 节点的**最新快照**（每次渲染刷新）。
+   *
+   * 缩放的 `move` 回调闭包捕获的是**按下那一刻**的 props，读它拿到的是旧高度。
+   * 「高度归内容」的节点要把高度原样带回去（不加纵向位移），用旧值就会把视图
+   * 刚按内容写回的新高度又按回旧高度 —— 每帧来回一次，用户看到的是抽搐。
+   */
+  const nodeRef = useRef(props.node)
+  nodeRef.current = props.node
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(node.title)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -83,9 +101,16 @@ export function NodeFrame(props: NodeFrameProps) {
    * 已经生效」——用户觉得诡异。按**指针到圆心的距离**判定则完全由几何驱动：
    * 看得见的浮现范围 = 真正生效的范围，二者一致。
    */
-  const inputPortRef = useRef<HTMLSpanElement>(null)
-  const outputPortRef = useRef<HTMLSpanElement>(null)
-  const [hotPort, setHotPort] = useState<'input' | 'output' | null>(null)
+  /**
+   * 端口元素表：key = 端口 id。
+   *
+   * 之前是 `inputRef` / `outputRef` 两个具名 ref —— 只够两端口。融合节点有三只
+   * （左 `input`、右 `patch`、右 `output`），故改成按声明驱动的一张表，
+   * 端口再多也不必改这一段。
+   */
+  const decls = portDeclsOf(props.ports)
+  const portRefs = useRef(new Map<string, HTMLSpanElement | null>())
+  const [hotPort, setHotPort] = useState<string | null>(null)
   useEffect(() => {
     /**
      * 端点圆心 = 节点边框左右中点；用 getBoundingClientRect 拿实时位置，
@@ -117,27 +142,19 @@ export function NodeFrame(props: NodeFrameProps) {
        * 判定与位移量都在 domain（portMagnet，可单测），这里只做 DOM 读写。
        */
       const pointer = { x: e.clientX, y: e.clientY }
-      const magnets = (
-        [
-          ['input', inputPortRef.current],
-          ['output', outputPortRef.current],
-        ] as const
-      ).map(([side, el]) => {
+      const magnets = [...portRefs.current.entries()].map(([id, el]) => {
         const c = centerOf(el)
         if (!c) return null
-        return { side, el: el as HTMLElement, m: portMagnet(c, pointer, MAGNET_OPTS), dist: Math.hypot(pointer.x - c.x, pointer.y - c.y) }
+        return { id, el: el as HTMLElement, m: portMagnet(c, pointer, MAGNET_OPTS), dist: Math.hypot(pointer.x - c.x, pointer.y - c.y) }
       })
       const hot = magnets
         .filter((x): x is NonNullable<typeof x> => !!x && x.m.hot)
         .sort((a, b) => a.dist - b.dist)[0]
-      setHotPort(hot ? hot.side : null)
+      setHotPort(hot ? hot.id : null)
       /** 位移只作用在「热」的那个端点；另一个必须回到 0，否则会残留偏移 */
-      for (const [side, el] of [
-        ['input', inputPortRef.current],
-        ['output', outputPortRef.current],
-      ] as const) {
+      for (const [id, el] of portRefs.current.entries()) {
         if (!el) continue
-        const on = !!hot && side === hot.side
+        const on = !!hot && id === hot.id
         if (on) {
           el.dataset.snapShift = `${hot.m.dx},${hot.m.dy}`
           el.style.transform = `translate(${hot.m.dx}px, ${hot.m.dy}px)`
@@ -149,7 +166,7 @@ export function NodeFrame(props: NodeFrameProps) {
     }
     const onLeave = () => {
       setHotPort(null)
-      for (const el of [inputPortRef.current, outputPortRef.current]) {
+      for (const el of portRefs.current.values()) {
         if (!el) continue
         delete el.dataset.snapShift
         el.style.transform = ''
@@ -216,22 +233,29 @@ export function NodeFrame(props: NodeFrameProps) {
     props.onResize(latest, 'begin')
     // 锁比解析：数字 = 固定比例；'current' = 按下瞬间的容器比例；缺省 / 'free' = 自由
     const lock = props.resizeLock ?? 'free'
+    /**
+     * 高度归内容的节点（`heightFromContent`）：高度**整份交给视图按内容写回**。
+     *
+     * 这里不只是「忽略纵向位移」，而是**连最小高度也不夹**：循环节点声明的最小高度
+     * 380 其实是**开箱默认尺寸**（它由 `NODE_MINIMUMS` 兼任），而内容自适应会把它收到
+     * 内容真正需要的高度（实测 320）。若在这一步又按 380 夹一次，用户一碰右下角就
+     * 会看到节点「跳」到 380（2026-09-30 用户报的那个跳动就是它）。
+     */
+    const heightFromContent = props.heightFromContent === true
     const ratio = typeof lock === 'number' ? lock : lock === 'current' ? base.w / base.h : null
     const move = (ev: PointerEvent) => {
+      const dx = (ev.clientX - startX) / scale
+      /** 高度归内容的节点：纵向位移**整份丢掉**（不是取一半），高度交给内容同步 */
+      const dy = ((ev.clientY - startY) / scale) * (heightFromContent ? 0 : 1)
       if (ratio !== null) {
-        latest = lockedResize(
-          base,
-          (ev.clientX - startX) / scale,
-          (ev.clientY - startY) / scale,
-          minSize,
-          ratio,
-        )
+        latest = lockedResize(base, dx, dy, minSize, ratio)
       } else {
         latest = {
           x: base.x,
           y: base.y,
-          w: Math.max(minSize.w, base.w + (ev.clientX - startX) / scale),
-          h: Math.max(minSize.h, base.h + (ev.clientY - startY) / scale),
+          w: Math.max(minSize.w, base.w + dx),
+          /** 高度归内容时带**最新**高度回去（不是按下那一刻的），见 `nodeRef` 的说明 */
+          h: heightFromContent ? nodeRef.current.h : Math.max(minSize.h, base.h + dy),
         }
       }
       props.onResize(latest, 'move')
@@ -300,35 +324,41 @@ export function NodeFrame(props: NodeFrameProps) {
         </div>
       )}
 
-      {ports.input && !props.portsHidden && (
-        <span
-          ref={inputPortRef}
-          className={`${styles.port} ${styles.portLeft} ${hotPort === 'input' ? styles.hot : ''}`}
-          data-port="input"
-          onPointerDown={(e) => {
-            if (!props.onPortPointerDown) return
-            e.stopPropagation()
-            props.onPortPointerDown(e, 'input')
-          }}
-        />
-      )}
-      {ports.output && !props.portsHidden && (
-        <span
-          ref={outputPortRef}
-          className={`${styles.port} ${styles.portRight} ${hotPort === 'output' ? styles.hot : ''}`}
-          data-port="output"
-          onPointerDown={(e) => {
-            if (!props.onPortPointerDown) return
-            e.stopPropagation()
-            props.onPortPointerDown(e, 'output')
-          }}
-        />
-      )}
+      {!props.portsHidden &&
+        decls.map((decl) => (
+          <span
+            key={decl.id}
+            ref={(el) => {
+              portRefs.current.set(decl.id, el)
+            }}
+            className={`${styles.port} ${
+              decl.side === 'left' ? styles.portLeft : styles.portRight
+            } ${hotPort === decl.id ? styles.hot : ''}`}
+            /**
+             * 纵向位置由声明给：默认口是 0.5（中点），融合节点的 `patch` 是 0.22。
+             * 用 `top` 而不是 `margin-top`，否则多口之间的距离要靠手算像素。
+             */
+            style={{ top: `${decl.y * 100}%` }}
+            data-port={decl.id}
+            data-port-kind={decl.kind}
+            {...(decl.label ? { title: decl.label, 'aria-label': decl.label } : {})}
+            onPointerDown={(e) => {
+              if (!props.onPortPointerDown) return
+              e.stopPropagation()
+              props.onPortPointerDown(e, decl.id)
+            }}
+          />
+        ))}
 
       <div className={styles.body}>{props.children}</div>
 
       {!inContainer && (
-        <span className={styles.resizeHandle} onPointerDown={onResizePointerDown} />
+        // `data-node-resize-handle`：给自动化一个稳定锚点（别靠「最后一个 span」这种结构巧合）
+        <span
+          className={styles.resizeHandle}
+          data-node-resize-handle
+          onPointerDown={onResizePointerDown}
+        />
       )}
     </div>
   )

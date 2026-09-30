@@ -6,6 +6,7 @@ import { usePromptTools } from '../../../../features/shared/promptTools/usePromp
 import type { PromptToolAction } from '../../../../features/shared/promptTools/promptTools'
 import { parseMarkdown } from '../../../../domain/canvas/text/markdownRender'
 import { usePresetTextOptional } from '../../../../app/providers/PresetTextProvider'
+import { IconStop } from '../../toolbar/icons'
 import styles from './PromptNodeView.module.css'
 
 /**
@@ -138,7 +139,7 @@ export function PromptNodeView(props: NodeViewProps) {
         onClick={() => runTool(action)}
         title={isActive ? '取消' : tools.error ?? idleTitle}
       >
-        {isActive ? '■' : label}
+        {isActive ? <IconStop size={14} /> : label}
       </button>
     )
   }

@@ -25,8 +25,52 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
  * 断言「节点按素材原始比例」时 1:1 的素材与「一律按方框」的退化实现长得一模一样，
  * 断言恒真。故这里按指定宽高现造，比例想给多少给多少。
  */
-function solidPngBuffer(w, h) {
-  const row = Buffer.concat([Buffer.from([0]), Buffer.concat(Array.from({ length: w }, () => Buffer.from([200, 120, 60])))])
+/**
+ * 纯色 PNG。颜色可指定（默认 `200,120,60`）—— **G91 靠它验色彩匹配**：
+ * 原图与补丁用两种差别很大的纯色，融合后选区正中应当是「补丁色被拉回原图色
+ * 但只拉了 ±24」的那个确定值；两边同色的话，色彩匹配做没做都看不出来。
+ */
+function solidPngBuffer(w, h, color = [200, 120, 60]) {
+  const row = Buffer.concat([
+    Buffer.from([0]),
+    Buffer.concat(Array.from({ length: w }, () => Buffer.from(color))),
+  ])
+  const raw = Buffer.concat(Array.from({ length: h }, () => row))
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4)
+    len.writeUInt32BE(data.length)
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data])
+    const crc = Buffer.alloc(4)
+    crc.writeUInt32BE(crc32(body) >>> 0)
+    return Buffer.concat([len, body, crc])
+  }
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(w, 0)
+  ihdr.writeUInt32BE(h, 4)
+  ihdr[8] = 8 // bit depth
+  ihdr[9] = 2 // color type: truecolor
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', deflateSync(raw)),
+    chunk('IEND', Buffer.alloc(0)),
+  ])
+}
+
+/**
+ * 水平渐变 PNG：R 随 x 线性变化（0→255），G/B 固定。
+ *
+ * G92 用它验「提取选区 → 融合回来」的位置对不对：**纯色图放哪儿都一样**，
+ * 只有带变化的图才能在像素上证明「局部图被放回了它原来那一块」。
+ */
+function gradientPngBuffer(w, h) {
+  const px = Buffer.alloc(w * 3)
+  for (let x = 0; x < w; x += 1) {
+    px[x * 3] = Math.round((x / Math.max(1, w - 1)) * 255)
+    px[x * 3 + 1] = 90
+    px[x * 3 + 2] = 40
+  }
+  const row = Buffer.concat([Buffer.from([0]), px])
   const raw = Buffer.concat(Array.from({ length: h }, () => row))
   const chunk = (type, data) => {
     const len = Buffer.alloc(4)
@@ -353,6 +397,28 @@ async function setTextViaEditor(page, nodeLocator, text) {
  */
 function grabPoint(box) {
   return { x: Math.round(box.x + 14), y: Math.round(box.y + box.height - 14) }
+}
+
+/**
+ * 从指定的**把手**拖动节点到屏幕坐标 (x, y)（左上角落点口径同 `moveNode`）。
+ *
+ * 与 `moveNode` 的差别：抓取点由调用方给。
+ * `moveNode` 固定抓「左下角内 14px」——对融合节点那是**底栏的比例控件**，
+ * 控件自己 `stopPropagation`（不然点按钮就等于拖节点），于是拖不动。
+ * 融合节点用 `[data-fusion-chips]`（连接状态那一行）当把手 —— 它居中、任何情况下都不吃指针。
+ * 注意**不要**用预览行：那一行虽然也能拖动，但它是内容区，将来加交互（点击放大之类）就会失效。
+ */
+async function moveNodeVia(page, nodeLocator, handleLocator, x, y) {
+  const nb = await nodeLocator.boundingBox()
+  const hb = await handleLocator.boundingBox()
+  if (!nb || !hb) return false
+  const from = { x: hb.x + hb.width / 2, y: hb.y + hb.height / 2 }
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  await page.mouse.move(from.x + (x - nb.x), from.y + (y - nb.y), { steps: 12 })
+  await page.mouse.up()
+  await page.waitForTimeout(350)
+  return true
 }
 
 /**
@@ -2524,8 +2590,8 @@ async function g17(browser) {
   await page.locator('[data-toolbar-add]').click()
   await sleep(250)
   const menuItems = await page.locator('[data-toolbar-menu-item]').count()
-  // 7 项：6 种原有类型 + 循环节点（§6.22，2026-09-22 新增）
-  rec(g, '新建节点菜单展开 7 项', menuItems === 7, `items=${menuItems}`)
+  // 8 项：6 种原有类型 + 循环节点（§6.22，2026-09-22）+ 融合节点（§6.23，2026-09-29）
+  rec(g, '新建节点菜单展开 8 项', menuItems === 8, `items=${menuItems}`)
   await page.keyboard.press('Escape')
   await sleep(200)
   rec(g, 'Esc 关闭新建菜单', (await page.locator('[data-toolbar-menu]').count()) === 0)
@@ -2716,9 +2782,9 @@ async function g18(browser) {
   const canvasSet = new Set(canvasMenu)
   rec(
     g,
-    // 7 新建（含循环节点）+ 重置视图 = 8 项
-    '画布空白右键含 7 新建 + 重置视图（§4.1）',
-    canvasSet.size === 8 && canvasSet.has('重置视图'),
+    // 8 新建（含循环节点 §6.22、融合节点 §6.23）+ 重置视图 = 9 项
+    '画布空白右键含 8 新建 + 重置视图（§4.1）',
+    canvasSet.size === 9 && canvasSet.has('重置视图'),
     `items=${JSON.stringify(canvasMenu)}`,
   )
 
@@ -2744,9 +2810,9 @@ async function g18(browser) {
   const missing = iconState.filter((i) => !i.hasSvg).map((i) => i.id)
   rec(
     g,
-    '★ 每个新建项都有矢量图标（含循环节点；图标两侧菜单同源）',
-    iconState.length === 7 && missing.length === 0,
-    `带图标 ${iconState.length}/7${missing.length ? ` 缺=${missing.join(',')}` : ''}`,
+    '★ 每个新建项都有矢量图标（含循环 / 融合节点；图标两侧菜单同源）',
+    iconState.length === 8 && missing.length === 0,
+    `带图标 ${iconState.length}/8${missing.length ? ` 缺=${missing.join(',')}` : ''}`,
   )
   await page.keyboard.press('Escape')
   await sleep(150)
@@ -5369,6 +5435,35 @@ async function addGenNode(page) {
 }
 
 /**
+ * 建一个**带真实素材**的生成节点（G91 融合 / G92 提取选区的上游都要有图）。
+ *
+ * `buffer` 不给时用 `solidPngBuffer(w,h,color)`；要渐变之类的图案就自己传 buffer。
+ * 返回 `{ id, node }`：id 用来精确连线，node 是**按 id 收窄的 locator**
+ * （`.first()` 会拿到上一个同类节点，后面新建的越多越容易连错）。
+ */
+async function addGenWithImage(page, w, h, color, buffer) {
+  await page.locator('[data-toolbar-add]').click()
+  await sleep(250)
+  await page.locator('[data-toolbar-menu-item="generation"]').click()
+  await sleep(500)
+  const id = await page.locator('[data-node-type="generation"]').last().getAttribute('data-node-id')
+  const node = page.locator(`[data-node-id="${id}"]`)
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null),
+    node.locator('[data-node-upload]').first().click(),
+  ])
+  if (chooser) {
+    await chooser.setFiles({
+      name: 'seed.png',
+      mimeType: 'image/png',
+      buffer: buffer ?? solidPngBuffer(w, h, color),
+    })
+    await sleep(1200)
+  }
+  return { id, node }
+}
+
+/**
  * 设张数（§6.8，2026-09-19 改版）。
  *
  * 张数现在是**与画质 / 质量同形的 ParamPicker chip**，不再是并排按钮组，
@@ -6141,6 +6236,75 @@ async function g58(browser) {
     .locator('[data-follow-action]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-follow-action')))
   rec(g, '动作齐全（生成/重命名/复制/删除/关闭）', ['run', 'rename', 'duplicate', 'delete', 'close'].every((a) => actions.includes(a)), actions.join(','))
+  /**
+   * 图标必须是**内联 SVG**（用户 2026-09-30：「节点功能栏的图标我不要符号，我要真正的矢量图」）。
+   * 判据落在图标位那一格：里面有且只有一个 `svg`、且**没有文本** —— 塞回 `▶ ✎ ⧉`
+   * 这类字形就会当场变红（字形的问题不是好看，而是落点由用户机器上的字体决定）。
+   */
+  const iconAudit = await page.locator('[data-follow-action]').evaluateAll((els) =>
+    els.map((e) => {
+      const icon = e.firstElementChild
+      return {
+        action: e.getAttribute('data-follow-action'),
+        svg: icon ? icon.querySelectorAll('svg').length : 0,
+        text: (icon?.textContent ?? '').trim(),
+      }
+    }),
+  )
+  rec(
+    g,
+    '★★ 功能栏图标全是内联 SVG（图标位里没有文本字形）',
+    iconAudit.length > 0 && iconAudit.every((x) => x.svg === 1 && x.text === ''),
+    JSON.stringify(iconAudit),
+  )
+  /**
+   * 栏下方不再挂装饰小三角（用户 2026-09-30：「我不想要功能栏下方的小三角」）。
+   * 判据是**几何**：栏内所有非零尺寸子元素都不越出栏的底边 —— 再挂一个小三角就会越界。
+   */
+  const barOverflowBottom = await bar.evaluate((el) => {
+    const b = el.getBoundingClientRect()
+    let worst = 0
+    for (const kid of el.querySelectorAll('*')) {
+      const r = kid.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) continue
+      worst = Math.max(worst, r.bottom - b.bottom)
+    }
+    return worst
+  })
+  rec(
+    g,
+    '★★ 功能栏下方没有伸出的小三角（子元素不越出底边）',
+    barOverflowBottom <= 0.5,
+    `越出 ${barOverflowBottom.toFixed(1)}px`,
+  )
+  /**
+   * ★★ 图标与文字**贴住**（用户 2026-09-30 第 2 轮：「功能栏上图标和名称靠的太远了」）。
+   *
+   * 旧版图标位是个 26px 的格子，而图标墨迹只有 16px ⇒ 左右各 5px 死区，
+   * 视觉上「图标↔文字」被顶到 9px（比文字到右边缘还宽）。判据两条：
+   * 图标位宽度 == 图标宽度；图标右边缘到文字左边缘 ≤ 6px。
+   */
+  const spacingAudit = await page.locator('[data-follow-action]').evaluateAll((els) =>
+    els.map((b) => {
+      const glyph = b.firstElementChild
+      const label = b.lastElementChild
+      const g = glyph.getBoundingClientRect()
+      const s = glyph.querySelector('svg').getBoundingClientRect()
+      const l = label.getBoundingClientRect()
+      return {
+        action: b.getAttribute('data-follow-action'),
+        slot: +g.width.toFixed(1),
+        icon: +s.width.toFixed(1),
+        gap: +(l.left - g.right).toFixed(1),
+      }
+    }),
+  )
+  rec(
+    g,
+    '★★ 图标位贴住图标、到文字 ≤6px（不再浮在 26px 格子里）',
+    spacingAudit.length > 0 && spacingAudit.every((x) => Math.abs(x.slot - x.icon) <= 0.5 && x.gap <= 6),
+    JSON.stringify(spacingAudit),
+  )
   /*
    * 中文**常驻**（用户 2026-09-17）：不 hover 时中文就得看得见，
    * 且 hover 前后按钮宽度不变（中文藏起来再展开会让整条栏抖一下）。
@@ -12400,7 +12564,908 @@ async function g90(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90]
+/**
+ * G91 融合节点（产品文档 §6.23，2026-09-29）
+ *
+ * 这一组只测**浏览器里才成立**的东西，纯逻辑（几何、比例校验、计划组织）
+ * 已经在 `domain/canvas/fusion/fusionPlan.test.ts`（25 项）里逐条钉过：
+ *   - **两只口**（左原图 + 右侧一只共用口）的几何位置与「共用」属性；
+ *   - 局部图的线落在共用口上、结果也从共用口出（`data-edge-target-port`）；
+ *   - 框选能产出选区、选区编号与补丁编号对得上；
+ *   - 点「融合」真的产出一张图（本地像素合成走完整条落库链路）；
+ *   - 没输入时按钮禁用、且**说得出为什么**（不留「点了没反应」）。
+ */
+async function g91(browser) {
+  const g = 'G91 融合节点'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="blank"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(800)
+
+  /** 从一个端点拖到某个屏幕点（§6.14 拖线建连） */
+  const dragFromPortTo = async (portLocator, to) => {
+    const b = await portLocator.boundingBox()
+    if (!b) return false
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(to.x, to.y, { steps: 10 })
+    await page.mouse.up()
+    await sleep(450)
+    return true
+  }
+
+  // ── ① 建得出来 ──
+  await page.locator('[data-toolbar-add]').click()
+  await sleep(350)
+  const menuIds = await page
+    .locator('[data-toolbar-menu-item]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-toolbar-menu-item')))
+  rec(g, '新建菜单里有「融合节点」', menuIds.includes('fusion'), menuIds.join(','))
+  await page.locator('[data-toolbar-menu-item="fusion"]').click()
+  await sleep(600)
+
+  const fusion = page.locator('[data-node-type="fusion"]').first()
+  rec(g, '画布上建出了融合节点', (await fusion.count()) === 1)
+  if ((await fusion.count()) === 0) {
+    rec(g, '（后续断言跳过）', false, '节点没建出来')
+    await ctx.close()
+    return
+  }
+  /**
+   * 融合节点靠右放：它 280×420，左边留给两个上游生成节点。
+   *
+   * ⚠️ 位置必须**不重叠**：`nodeAtPoint` 取最上层命中的节点，若上游生成节点
+   * 压在融合节点上，拖线的落点会被**上游自己**吃掉（表现为「连不上、也不报错」）。
+   * 上传 64×36 的图后生成节点会自动变成 427×240（`assetNodeSize` 放大到盖住最小框），
+   * 比它看上去宽得多。
+   */
+  const fusionId = await fusion.getAttribute('data-node-id')
+  await moveNodeVia(page, fusion, page.locator('[data-fusion-chips]'), 840, 240)
+  await sleep(250)
+
+  // ── ② 两只口：左原图 + 右侧一只共用口 ──
+  const portGeo = await fusion.evaluate((el) => {
+    const nr = el.getBoundingClientRect()
+    return {
+      left: nr.left,
+      right: nr.right,
+      cy: nr.top + nr.height / 2,
+      ports: [...el.querySelectorAll('[data-port]')].map((p) => {
+        const r = p.getBoundingClientRect()
+        return {
+          id: p.getAttribute('data-port'),
+          kind: p.getAttribute('data-port-kind'),
+          cx: r.left + r.width / 2,
+          cy: r.top + r.height / 2,
+        }
+      }),
+    }
+  })
+  const portById = Object.fromEntries(portGeo.ports.map((p) => [p.id, p]))
+  rec(
+    g,
+    '★ 只有两只口：左原图 `input` + 右共用口 `patch`',
+    portGeo.ports.length === 2 && !!portById.input && !!portById.patch,
+    portGeo.ports.map((p) => p.id).join(','),
+  )
+  rec(
+    g,
+    '★★ 右端口是**共用口**（`kind=both`，入 / 出同一锚点）且贴在右边缘中点',
+    portById.patch?.kind === 'both' &&
+      Math.abs(portById.patch.cx - portGeo.right) <= 2 &&
+      Math.abs(portById.patch.cy - portGeo.cy) <= 2,
+    `kind=${portById.patch?.kind} cx=${portById.patch?.cx?.toFixed(1)} right=${portGeo.right.toFixed(1)} cy=${portById.patch?.cy?.toFixed(1)} mid=${portGeo.cy.toFixed(1)}`,
+  )
+  rec(
+    g,
+    '★ 原图口在**左边缘中点**（左入的口径没被挪走）',
+    Math.abs(portById.input?.cx - portGeo.left) <= 2 &&
+      Math.abs(portById.input?.cy - portGeo.cy) <= 2,
+    `in=(${portById.input?.cx?.toFixed(1)},${portById.input?.cy?.toFixed(1)}) left=${portGeo.left.toFixed(1)} mid=${portGeo.cy.toFixed(1)}`,
+  )
+
+  // ── ③ 空输入时：按钮禁用 + 说得出为什么 ──
+  rec(g, '★ 没有原图时「融合」按钮禁用（不留点了没反应的入口）', await page.locator('[data-fusion-run]').isDisabled())
+  const emptyTitle = await page.locator('[data-fusion-run]').getAttribute('title')
+  rec(g, '★ 禁用时说清了先接什么', /原图|局部修改图/.test(emptyTitle ?? ''), emptyTitle ?? '')
+
+  // ── ④ 原图：拖生成节点的输出口，落在融合节点**左半边** → 应该进 input ──
+  /**
+   * 素材用 **640×360**（16:9）而不是 64×36。
+   *
+   * 两个原因：① 选区有 32px 的最小边长，64px 宽的图上根本框不出合规的选区；
+   * ② 下面要验证「按模型比例提取」——选区吸附到 16:9 之后，补丁（同样是 16:9）
+   * 才过得了比例校验。图太小会把「功能正常」测成「功能不可用」。
+   */
+  const src = await addGenWithImage(page, 640, 360, [200, 120, 60])
+  await moveNode(page, src.id, 150, 240)
+  await sleep(300)
+  const fBox = await fusion.boundingBox()
+  const srcPort = src.node.locator('[data-port="output"]').first()
+  const srcPortBox = await srcPort.boundingBox()
+  rec(
+    g,
+    '★ 上游生成节点的输出口有可点的几何位置',
+    !!srcPortBox && srcPortBox.width > 0,
+    JSON.stringify(srcPortBox),
+  )
+  if (srcPortBox) {
+    await page.mouse.move(srcPortBox.x + srcPortBox.width / 2, srcPortBox.y + srcPortBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(fBox.x + 30, fBox.y + fBox.height / 2, { steps: 10 })
+    await sleep(120)
+    rec(
+      g,
+      '★ 端点按下后拖出草稿曲线（说明 pointerdown 真的命中了端点）',
+      (await page.locator('[data-edge-draft]').count()) === 1,
+      `draft=${await page.locator('[data-edge-draft]').count()}`,
+    )
+    await page.mouse.up()
+    await sleep(450)
+  }
+  const inputEdge = page.locator('[data-edge-target-port="input"]')
+  rec(g, '★ 拖到左半边 → 边落在 input 口', (await inputEdge.count()) === 1, `count=${await inputEdge.count()}`)
+
+  // ── ⑤ 入方向：上游出线、落在融合节点**右半边** → 应该落共用口 ──
+  /**
+   * 补丁用**另一种差别很大的纯色**（蓝）—— 见下面「色彩匹配」那几条像素断言：
+   * 若两边同色，色彩匹配做没做、羽化做没做，读出来都一样。
+   */
+  const patchSrc = await addGenWithImage(page, 640, 360, [60, 60, 200])
+  await moveNode(page, patchSrc.id, 150, 520)
+  await sleep(300)
+  /**
+   * 落点选**右半边**：节点可能有两只输入口（左原图 / 右共用口），松手时按
+   * 「离指针最近的输入口」判定 —— 这也是共用口作为**入口**的唯一接法。
+   */
+  await dragFromPortTo(patchSrc.node.locator('[data-port="output"]').first(), {
+    x: fBox.x + fBox.width - 30,
+    y: fBox.y + fBox.height / 2,
+  })
+  const patchEdge = page.locator('[data-edge-target-port="patch"]')
+  rec(
+    g,
+    '★★ 上游落在右半边 → 边落在共用口（左半边落原图口，各归各的）',
+    (await patchEdge.count()) === 1,
+    `count=${await patchEdge.count()}`,
+  )
+  rec(
+    g,
+    '★ 共用口上的边记的是上游生成节点 → 融合节点',
+    (await page.locator(`[data-edge-target-port="patch"][data-edge-source="${patchSrc.id}"]`).count()) === 1,
+    `source=${patchSrc.id}`,
+  )
+
+  /**
+   * ── ⑤b 出方向：从**共用口**拖到另一个节点 → 生成的是「融合 → 那个节点」 ──
+   *
+   * 参考实现里这就是「结果会通过连线生成在融合节点右侧」（README 第 6 条）。
+   * 判据落在边的两端与**源端口**上：`data-edge-source-port="patch"`、
+   * source = 融合节点、target = 被拖到的那个节点。
+   */
+  await page.locator('[data-toolbar-add]').click()
+  await sleep(250)
+  await page.locator('[data-toolbar-menu-item="generation"]').click()
+  await sleep(500)
+  const downId = await page.locator('[data-node-type="generation"]').last().getAttribute('data-node-id')
+  await moveNode(page, downId, 560, 620)
+  await sleep(300)
+  const downBox = await page.locator(`[data-node-id="${downId}"]`).boundingBox()
+  await dragFromPortTo(page.locator('[data-node-type="fusion"] [data-port="patch"]'), {
+    x: downBox.x + downBox.width / 2,
+    y: downBox.y + downBox.height / 2,
+  })
+  rec(
+    g,
+    '★★ 从共用口拖到别的节点 → 连出来的是「融合 → 那个节点」的**出边**',
+    (await page
+      .locator(`[data-edge-source-port="patch"][data-edge-source="${fusionId}"][data-edge-target="${downId}"]`)
+      .count()) === 1,
+    `fusion=${fusionId} down=${downId}`,
+  )
+
+  /**
+   * ★★ 共用口**拖出去必须算「出」**。
+   *
+   * 这是「一个端点两个方向」最容易被写反的地方：如果它只按 `kind: 'input'` 处理，
+   * 从它往外拖会被当成「找上游」，松手菜单给出的是上游候选。
+   * 参考实现给这个点的 `mousedown` 直接就是 `startLink(..., 'out')`，这里照同一条口径。
+   * 判据用菜单自带的 `data-link-menu-side`（它就是拖线方向的原样落点）。
+   */
+  const blankForMenu = await blankPoint(page)
+  await dragFromPortTo(page.locator('[data-node-type="fusion"] [data-port="patch"]'), blankForMenu)
+  const menuSide = await page.locator('[data-link-menu]').getAttribute('data-link-menu-side').catch(() => null)
+  rec(g, '★★ 从共用口往外拖 = 「出」（松手菜单按找下游给出）', menuSide === 'output', `side=${menuSide}`)
+  await page.keyboard.press('Escape')
+  await sleep(200)
+
+  // ── ⑥ 卡片结构（照用户给的参考图：原图 | 局部修改 + 连接提醒 + 颜色匹配 + 全宽按钮） ──
+  rec(
+    g,
+    '★★ 两块预览都在：原图 + 局部修改',
+    (await page.locator('[data-fusion-pane="original"]').count()) === 1 &&
+      (await page.locator('[data-fusion-pane="patch"]').count()) === 1,
+    `panes=${await page.locator('[data-fusion-pane]').count()}`,
+  )
+  rec(
+    g,
+    '★ 原图那块真的解码出来了（不是空壳）',
+    (await page
+      .locator('[data-fusion-pane="original"] img')
+      .evaluate((el) => el.naturalWidth)
+      .catch(() => 0)) > 0,
+  )
+  const chipOriginal = ((await page.locator('[data-fusion-chip="original"]').textContent()) ?? '').trim()
+  const chipPatch = ((await page.locator('[data-fusion-chip="patch"]').textContent()) ?? '').trim()
+  rec(g, '★ 连接提醒：原图已连接', chipOriginal === '原图', chipOriginal)
+  rec(g, '★ 连接提醒：局部修改 1 张', /局部修改 1 张/.test(chipPatch), chipPatch)
+  /**
+   * ★★ 这张局部图是普通生成节点（没有选区上下文）⇒ 按钮**应当**禁用并说明原因。
+   * 成功路径在 G92（用「提取选区」得到的局部图）。
+   */
+  rec(
+    g,
+    '★★ 局部图没有上下文时按钮禁用，且 title 说清是第几张、该怎么办',
+    (await page.locator('[data-fusion-run]').isDisabled()) &&
+      /第 1 张局部图没有选区上下文/.test((await page.locator('[data-fusion-run]').getAttribute('title')) ?? ''),
+    (await page.locator('[data-fusion-run]').getAttribute('title')) ?? '',
+  )
+  /**
+   * ★★ 反向断言：旧卡片那套（节点内框选 / 选区芯片 / 比例芯片 / 对比原图）**已经删干净**。
+   * 「删干净」也是需求的一部分 —— 用户原话：「之前的那个东西删掉，都不对」。
+   */
+  rec(
+    g,
+    '★★ 旧卡片那套已删干净（节点内框选 / 选区芯片 / 比例 / 对比原图）',
+    (await page.locator('[data-fusion-preview]').count()) === 0 &&
+      (await page.locator('[data-fusion-contexts]').count()) === 0 &&
+      (await page.locator('[data-fusion-ratio]').count()) === 0 &&
+      (await page.locator('[data-fusion-compare]').count()) === 0,
+  )
+
+  /**
+   * ── ⑦ 多张局部图**上下排列**（用户 2026-09-30） ──
+   *
+   * 用户口径：「融合节点右侧多个局部图要上下排列（参考大雄：左边原图、右边局部图区域，
+   * 两张局部图就上下两块），不是朝右横向新增」。
+   *
+   * 判据只能用**几何**（谁在谁下面、左右是否对齐），DOM 里两个 pane 长得多像都证明不了。
+   * 第二张走**同一个上游再连一条**（该口 `multi: true`）——顺带把「允许同源多条边」
+   * 这条也钉住，否则第二块预览永远只能靠新建节点才出得来。
+   */
+  const fBox2 = await fusion.boundingBox()
+  await dragFromPortTo(patchSrc.node.locator('[data-port="output"]').first(), {
+    x: fBox2.x + fBox2.width - 30,
+    y: fBox2.y + fBox2.height / 2,
+  })
+  const paneBoxes = await page
+    .locator(`[data-node-id="${fusionId}"] [data-fusion-pane="patch"]`)
+    .evaluateAll((els) =>
+      els.map((e) => {
+        const r = e.getBoundingClientRect()
+        return { x: r.x, y: r.y, w: r.width, h: r.height }
+      }),
+    )
+  rec(g, '★ 两张局部图 → 两个预览格（同源多条边也认）', paneBoxes.length === 2, `panes=${paneBoxes.length}`)
+  const [pane1, pane2] = paneBoxes
+  rec(
+    g,
+    '★★ 两张局部图**上下排列**（同一列、第二块在第一块正下方，不是往右排）',
+    !!pane1 &&
+      !!pane2 &&
+      Math.abs(pane1.x - pane2.x) <= 2 &&
+      Math.abs(pane1.w - pane2.w) <= 2 &&
+      pane2.y >= pane1.y + pane1.h - 2,
+    JSON.stringify(paneBoxes),
+  )
+  const origBox2 = await page
+    .locator(`[data-node-id="${fusionId}"] [data-fusion-pane="original"]`)
+    .boundingBox()
+  rec(
+    g,
+    '★ 原图仍在左、局部图区在右（两列不重叠）',
+    !!origBox2 && !!pane1 && origBox2.x + origBox2.width <= pane1.x + 1,
+    `orig=${JSON.stringify(origBox2)} patch=${JSON.stringify(pane1)}`,
+  )
+  /**
+   * ★★ 局部图区**锁在原图那一格的高度里**（用户 2026-09-30：「不要一直叠加叠高，
+   * 要自动适应缩小，保持整体的局部图外部容器不发生改变」）。
+   * 判据是几何：右列上下两端与左原图格对齐，且两张各占一半高。
+   */
+  rec(
+    g,
+    '★★ 局部图区锁在原图高度里（张数变多不撑高，每张等分变小）',
+    !!origBox2 &&
+      paneBoxes.length === 2 &&
+      Math.abs(pane1.y - origBox2.y) <= 2 &&
+      Math.abs(pane2.y + pane2.h - (origBox2.y + origBox2.height)) <= 4 &&
+      Math.abs(pane1.h - pane2.h) <= 2 &&
+      pane1.h < origBox2.height * 0.62,
+    `origH=${origBox2?.height?.toFixed(1)} p1=${JSON.stringify(pane1)} p2=${JSON.stringify(pane2)}`,
+  )
+  rec(
+    g,
+    '★ 原图那格是平铺铺满（cover，不留上下白边）',
+    (await page
+      .locator(`[data-node-id="${fusionId}"] [data-fusion-pane="original"] img`)
+      .evaluate((el) => getComputedStyle(el).objectFit)
+      .catch(() => '')) === 'cover',
+  )
+  /**
+   * 参考图（用户 2026-09-30 给的截图）里右列是有细滚动条的：张数多到每张低于可读高度
+   * 时，**列内滚动**接手，容器依旧不长高。这里钉住「有滚动能力 + 每张不低于地板 44px」。
+   */
+  const stackOverflow = await page
+    .locator(`[data-node-id="${fusionId}"] [data-fusion-patch-stack]`)
+    .evaluate((el) => getComputedStyle(el).overflowY)
+    .catch(() => '')
+  rec(
+    g,
+    '★ 局部图列：贴到可读高度地板后改为列内滚动（容器仍不长高）',
+    stackOverflow === 'auto' && paneBoxes.every((p) => p.h >= 44),
+    `overflowY=${stackOverflow} heights=${paneBoxes.map((p) => p.h.toFixed(1)).join(',')}`,
+  )
+  /**
+   * ★★ 双击预览大图（用户 2026-09-30：「局部融合节点里面的图片也可以进行双击灯箱预览」）。
+   * 断言要认到**具体是哪一张**（比对 `data-lightbox-hash` 与格里记的 hash），
+   * 只断言「灯箱开了」的话，双报到原图上也照样绿。
+   */
+  const firstPatch = page.locator(`[data-node-id="${fusionId}"] [data-fusion-pane="patch"]`).first()
+  const patchHash = await firstPatch.getAttribute('data-fusion-pane-hash')
+  await firstPatch.dblclick()
+  await sleep(700)
+  const lbHash = await page.locator('[data-lightbox]').getAttribute('data-lightbox-hash').catch(() => null)
+  rec(
+    g,
+    '★★ 双击局部图开灯箱，且预览的正是这一张',
+    !!patchHash && lbHash === patchHash,
+    `pane=${patchHash} lightbox=${lbHash}`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(400)
+  rec(g, '★ Esc 关掉预览', (await page.locator('[data-lightbox]').count()) === 0)
+  const chipPatch2 = ((await page.locator('[data-fusion-chip="patch"]').textContent()) ?? '').trim()
+  rec(g, '★ 连接提醒跟着更新为 2 张', /局部修改 2 张/.test(chipPatch2), chipPatch2)
+
+  /**
+   * ── ⑧ 内边距与「拖右下角放大」（用户 2026-09-30：「和容器边界的距离，有些大有些小」+
+   * 「右下角进行放大的时候会跳动」） ──
+   *
+   * 跳动是**两条规则互相顶**：`.panes` 用 `aspect-ratio` 撑出内容高，而节点又被
+   * `ResizeObserver` 按内容高写回尺寸 ⇒ 拖拽中高度被写回、松手再补一跳（实测 306 → 332）。
+   * 现在改成「内容跟节点」，判据是**松手前后高度一致**。
+   */
+  const gaps = await page.locator(`[data-node-id="${fusionId}"]`).evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    const box = (sel) => {
+      const n = el.querySelector(sel)
+      if (!n) return null
+      const b = n.getBoundingClientRect()
+      return { l: b.x - r.x, r: r.x + r.width - (b.x + b.width), t: b.y - r.y, b: r.y + r.height - (b.y + b.height) }
+    }
+    return { panes: box('[data-fusion-panes]'), run: box('[data-fusion-run]') }
+  })
+  const four = gaps.panes ? [gaps.panes.l, gaps.panes.r, gaps.panes.t, gaps.run?.b ?? 0] : []
+  rec(
+    g,
+    '★ 卡片四边内边距一致（不再「上下窄、左右宽」）',
+    four.length === 4 && Math.max(...four) - Math.min(...four) <= 2,
+    `左${gaps.panes?.l?.toFixed(1)} 右${gaps.panes?.r?.toFixed(1)} 上${gaps.panes?.t?.toFixed(1)} 下${gaps.run?.b?.toFixed(1)}`,
+  )
+  const handle = page.locator(`[data-node-id="${fusionId}"] [data-node-resize-handle]`)
+  const hb = await handle.boundingBox()
+  if (hb) {
+    await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(hb.x + hb.width / 2 + 120, hb.y + hb.height / 2 + 90, { steps: 10 })
+    await sleep(200)
+    const during = await fusion.boundingBox()
+    await page.mouse.up()
+    await sleep(500)
+    const after = await fusion.boundingBox()
+    rec(
+      g,
+      '★★ 拖右下角放大之后**不回弹、不跳动**（松手前后高度一致）',
+      Math.abs(after.height - during.height) <= 2 && after.height > 300 && after.width > 360,
+      `拖动中=${during.width.toFixed(0)}×${during.height.toFixed(0)} 松手后=${after.width.toFixed(0)}×${after.height.toFixed(0)}`,
+    )
+    const panesAfter = await page
+      .locator(`[data-node-id="${fusionId}"] [data-fusion-panes]`)
+      .boundingBox()
+    rec(
+      g,
+      '★ 预览区跟着节点一起长（内容跟节点，不是节点跟内容）',
+      !!panesAfter && panesAfter.height > 150,
+      `panes=${panesAfter?.height?.toFixed(1)}`,
+    )
+  }
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await page.screenshot({ path: `${OUT}/106-g91-fusion.png` })
+  await ctx.close()
+}
+
+/**
+ * G92 提取选区（产品文档 §6.23，2026-09-29）
+ *
+ * 用户口径：「图片素材，点击提取选取后，在素材的灯箱预览的界面框选局部图，
+ * 框选有比例的限制……框选后的局部图带持久性的上下文，通过模型进行改图后也有上下文，
+ * 能支持多轮改图」。这一组把这条链路走通，并且**用像素证明位置没跑偏**：
+ *
+ * 原图用**水平渐变**（`gradientPngBuffer`）—— 纯色图放哪儿都长一样，证明不了什么。
+ * 「提取出来的局部图」与「原图那一块」是同一份像素，所以融合结果应当与原图
+ * **逐点一致**；上下文要是错了（比如把整图当成了选区），渐变就会被拉伸，断言立刻红。
+ */
+async function g92(browser) {
+  const g = 'G92 提取选区'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  const dragFromPortTo = async (portLocator, to) => {
+    const b = await portLocator.boundingBox()
+    if (!b) return false
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(to.x, to.y, { steps: 10 })
+    await page.mouse.up()
+    await sleep(450)
+    return true
+  }
+  /** 取一张图（blob URL）中间那一行的几个采样点 */
+  const sampleRow = (url) =>
+    page.evaluate(async (u) => {
+      const img = new Image()
+      img.src = u
+      await img.decode()
+      const c = document.createElement('canvas')
+      c.width = img.naturalWidth
+      c.height = img.naturalHeight
+      const g2 = c.getContext('2d')
+      if (!g2) return null
+      g2.drawImage(img, 0, 0)
+      const y = Math.floor(img.naturalHeight / 2)
+      const at = (x) => Array.from(g2.getImageData(x, y, 1, 1).data).slice(0, 3)
+      return { w: img.naturalWidth, h: img.naturalHeight, p: [at(100), at(320), at(500)] }
+    }, url)
+  const near = (a, b, tol = 4) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= tol)
+
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="blank"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(800)
+
+  // ① 一张渐变原图
+  const source = await addGenWithImage(page, 640, 360, null, gradientPngBuffer(640, 360))
+  await moveNode(page, source.id, 180, 220)
+  await sleep(300)
+
+  // ② 图片节点**上方功能栏**里的入口
+  await page.locator(`[data-node-id="${source.id}"]`).click({ position: { x: 30, y: 10 } })
+  await sleep(350)
+  const extractBtn = page.locator('[data-follow-action="extract"]')
+  rec(g, '★ 图片节点上方功能栏有「提取选区」', (await extractBtn.count()) === 1)
+  if ((await extractBtn.count()) !== 1) {
+    rec(g, '（后续断言跳过）', false, '功能栏里没有提取入口')
+    await ctx.close()
+    return
+  }
+  await extractBtn.click()
+  await sleep(600)
+
+  // ③ 在**素材灯箱**里框选（不是另做一个裁剪器）
+  rec(
+    g,
+    '★ 在素材灯箱里打开框选（复用灯箱，不另做裁剪器）',
+    (await page.locator('[data-lightbox]').count()) === 1 &&
+      (await page.locator('[data-lightbox-crop-apply]').count()) === 1,
+  )
+  rec(
+    g,
+    '★ 比例档就在灯箱界面上',
+    (await page.locator('[data-lightbox-crop-ratio]').count()) >= 9,
+    `count=${await page.locator('[data-lightbox-crop-ratio]').count()}`,
+  )
+  rec(g, '★ 还没框选时「提取选区」禁用', await page.locator('[data-lightbox-crop-apply]').isDisabled())
+
+  // ④ 选 16:9 → 拖框 → 自动吸附
+  await page.locator('[data-lightbox-crop-ratio="16:9"]').click()
+  await sleep(250)
+  const stage = await page.locator('[data-lightbox-stage]').boundingBox()
+  /**
+   * 起点/终点取 0.35~0.65（不是 0.3~0.7）：灯箱是 **1:1 显示**（`fitViewport`
+   * 不放大），所以框的屏幕像素 = 原图像素。原图只有 640 宽，框到 512 再被手柄
+   * 放大、外扩 1.2 倍之后就盖满整张图，局部图会退化成「整张原图」（下面的
+   * 「局部图比原图窄」就断言不出来了）——这是**测例自己的口径**问题，不是产品行为。
+   */
+  await page.mouse.move(stage.x + stage.width * 0.35, stage.y + stage.height * 0.3)
+  await page.mouse.down()
+  await page.mouse.move(stage.x + stage.width * 0.65, stage.y + stage.height * 0.7, { steps: 12 })
+  await page.mouse.up()
+  await sleep(400)
+  const rectBox = await page.locator('[data-lightbox-crop-rect]').boundingBox().catch(() => null)
+  rec(g, '★★ 在灯箱里拖框画出了选区', !!rectBox)
+  const rectRatio = rectBox ? rectBox.width / rectBox.height : 0
+  rec(
+    g,
+    '★★ 选区被吸附到 16:9（比例限制真的生效）',
+    Math.abs(rectRatio - 16 / 9) < 0.08,
+    `ratio=${rectRatio.toFixed(3)}`,
+  )
+  rec(g, '★ 有合法选区后按钮可点', !(await page.locator('[data-lightbox-crop-apply]').isDisabled()))
+
+  /**
+   * ── ④b 框完之后还能**拖手柄二次修改**（用户 2026-09-30：「灯箱框选要能二次修改」） ──
+   *
+   * 首版只能**画**：框完之后想微调就得整个重画，而比例档又要求框严格贴比例，
+   * 重画十次也未必对得齐。这一段的判据是三条：手柄齐全、拖了真的变大、
+   * 而且**左上角钉死 + 比例不破**（少了任一条都等于没做对）。
+   */
+  const handles = await page
+    .locator('[data-lightbox-crop-handle]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-lightbox-crop-handle')))
+  rec(
+    g,
+    '★ 选框上八个手柄齐全（四角 + 四边）',
+    ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'].every((h) => handles.includes(h)),
+    handles.join(','),
+  )
+  const seBox = await page.locator('[data-lightbox-crop-handle="se"]').boundingBox().catch(() => null)
+  rec(g, '★ 右下角手柄有可点的几何位置', !!seBox && seBox.width > 0)
+  if (rectBox && seBox) {
+    await page.mouse.move(seBox.x + seBox.width / 2, seBox.y + seBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(seBox.x + 80, seBox.y + 40, { steps: 12 })
+    await page.mouse.up()
+    await sleep(350)
+    const grown = await page.locator('[data-lightbox-crop-rect]').boundingBox().catch(() => null)
+    rec(
+      g,
+      '★★ 拖右下角手柄把框改大了（不是只能重画一个）',
+      !!grown && grown.width > rectBox.width + 8 && grown.height > rectBox.height + 8,
+      `before=${rectBox.width.toFixed(1)}×${rectBox.height.toFixed(1)} after=${grown?.width?.toFixed(1)}×${grown?.height?.toFixed(1)}`,
+    )
+    rec(
+      g,
+      '★★ 拖手柄改完比例仍然贴在 16:9（改框不能把比例档改废）',
+      !!grown && Math.abs(grown.width / grown.height - 16 / 9) < 0.08,
+      grown ? `ratio=${(grown.width / grown.height).toFixed(3)}` : 'null',
+    )
+    rec(
+      g,
+      '★ 拖右下角时左上角钉死（对面那条边不动）',
+      !!grown && Math.abs(grown.x - rectBox.x) <= 2 && Math.abs(grown.y - rectBox.y) <= 2,
+      grown ? `nw ${rectBox.x.toFixed(1)},${rectBox.y.toFixed(1)} → ${grown.x.toFixed(1)},${grown.y.toFixed(1)}` : 'null',
+    )
+
+    /**
+     * ★★ 框内拖动 = **搬框**，不是重画（用户 2026-09-30：「在选取内拖动每次都会新建
+     * 一个选取」）。尺寸必须一分不变，位置按位移走。
+     */
+    const beforeMove = await page.locator('[data-lightbox-crop-rect]').boundingBox().catch(() => null)
+    const moveLayer = await page.locator('[data-lightbox-crop-move]').boundingBox().catch(() => null)
+    rec(g, '★ 选框上铺了「搬框」层（框内按下接手指针）', !!moveLayer && moveLayer.width > 0)
+    if (beforeMove && moveLayer) {
+      await page.mouse.move(beforeMove.x + beforeMove.width / 2, beforeMove.y + beforeMove.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(
+        beforeMove.x + beforeMove.width / 2 - 40,
+        beforeMove.y + beforeMove.height / 2 - 20,
+        { steps: 10 },
+      )
+      await page.mouse.up()
+      await sleep(350)
+      const afterMove = await page.locator('[data-lightbox-crop-rect]').boundingBox().catch(() => null)
+      rec(
+        g,
+        '★★ 框内拖动 = 平移选区（尺寸不变、位置跟着走，不再重画一个）',
+        !!afterMove &&
+          Math.abs(afterMove.width - beforeMove.width) <= 2 &&
+          Math.abs(afterMove.height - beforeMove.height) <= 2 &&
+          Math.abs(afterMove.x - (beforeMove.x - 40)) <= 3 &&
+          Math.abs(afterMove.y - (beforeMove.y - 20)) <= 3,
+        `before=${JSON.stringify(beforeMove)} after=${JSON.stringify(afterMove)}`,
+      )
+    }
+  }
+
+  /**
+   * ★★ 「提取选区」与比例档**挨在一起**（用户 2026-09-30）。
+   * 首版按钮在右下、比例档在左下，中间被 `spacer` 顶开 ~600px；现在同一组，
+   * 距离约等于「取消」那个按钮的宽度。用 200px 这道线把两种布局分得开。
+   */
+  const lastRatio = await page.locator('[data-lightbox-crop-ratio]').last().boundingBox().catch(() => null)
+  const applyBox = await page.locator('[data-lightbox-crop-apply]').boundingBox().catch(() => null)
+  const sameBar = await page.evaluate(() => {
+    const bar = document.querySelector('[data-lightbox-crop-bar]')
+    if (!bar) return false
+    return (
+      bar.querySelectorAll('[data-lightbox-crop-ratio]').length >= 9 &&
+      !!bar.querySelector('[data-lightbox-crop-apply]') &&
+      !!bar.querySelector('[data-lightbox-crop-cancel]')
+    )
+  })
+  rec(
+    g,
+    '★★ 比例档与「提取选区」在同一组里（不再被 spacer 拆到两头）',
+    sameBar && !!lastRatio && !!applyBox && applyBox.x - (lastRatio.x + lastRatio.width) < 200,
+    `gap=${lastRatio && applyBox ? (applyBox.x - (lastRatio.x + lastRatio.width)).toFixed(1) : 'null'}`,
+  )
+
+  // ⑤ 确认：关灯箱 + 在原图右侧生成局部图
+  const nodesBefore = await nodeCount(page)
+  await page.locator('[data-lightbox-crop-apply]').click()
+  await sleep(2000)
+  rec(g, '★ 提取后灯箱自动关闭', (await page.locator('[data-lightbox]').count()) === 0)
+  const nodesAfter = await nodeCount(page)
+  rec(g, '★★ 在原图右侧生成了一个新节点（原图不改动）', nodesAfter === nodesBefore + 1, `${nodesBefore} → ${nodesAfter}`)
+  const localId = await page.locator('[data-node-type="generation"]').last().getAttribute('data-node-id')
+  const localNode = page.locator(`[data-node-id="${localId}"]`)
+  const localTitle = ((await localNode.locator('[data-node-title]').textContent().catch(() => '')) ?? '').trim()
+  rec(g, '★ 新节点叫「局部图」', localTitle.includes('局部图'), localTitle)
+  const localNw = await localNode
+    .locator('[data-node-asset]')
+    .first()
+    .evaluate((el) => el.naturalWidth)
+    .catch(() => 0)
+  rec(g, '★ 局部图确实是裁出来的（比原图窄）', localNw > 0 && localNw < 640, `naturalWidth=${localNw}`)
+
+  // ⑥ 原图 → 融合节点左口；局部图 → 右侧共用口。**不在融合节点里框任何东西**
+  await page.locator('[data-toolbar-add]').click()
+  await sleep(250)
+  await page.locator('[data-toolbar-menu-item="fusion"]').click()
+  await sleep(600)
+  const fusionId = await page.locator('[data-node-type="fusion"]').first().getAttribute('data-node-id')
+  const fusion = page.locator(`[data-node-id="${fusionId}"]`)
+  await moveNodeVia(page, fusion, page.locator('[data-fusion-chips]'), 900, 200)
+  await sleep(300)
+  const fBox = await fusion.boundingBox()
+  await dragFromPortTo(source.node.locator('[data-port="output"]').first(), {
+    x: fBox.x + 30,
+    y: fBox.y + fBox.height / 2,
+  })
+  await dragFromPortTo(localNode.locator('[data-port="output"]').first(), {
+    x: fBox.x + fBox.width - 30,
+    y: fBox.y + fBox.height / 2,
+  })
+  rec(
+    g,
+    '★ 两条边落在不同口上（原图 → 左口；局部图 → 右共用口）',
+    (await page.locator('[data-edge-target-port="input"]').count()) === 1 &&
+      (await page.locator('[data-edge-target-port="patch"]').count()) === 1,
+  )
+  rec(g, '★ 融合节点里一个选区都没框（选区来自局部图自己）', (await page.locator('[data-fusion-context="1"]').count()) === 0)
+  rec(
+    g,
+    '★★ 没在融合节点里框任何选区，「融合」按钮依然可点（上下文跟着局部图来了）',
+    !(await page.locator('[data-fusion-run]').isDisabled()),
+    `disabled=${await page.locator('[data-fusion-run]').isDisabled()}`,
+  )
+
+  // ⑦ 融合 → 结果**落成右侧一个新节点**（参考实现：「结果会通过连线生成在融合节点右侧」）
+  const beforeRun = await nodeCount(page)
+  await page.locator('[data-fusion-run]').click()
+  await sleep(2800)
+  const afterRun = await nodeCount(page)
+  rec(
+    g,
+    '★★ 点「开始融合」在右侧生成了一个结果节点（不是写回融合节点自己）',
+    afterRun === beforeRun + 1,
+    `${beforeRun} → ${afterRun}`,
+  )
+  const resultId = await page.locator('[data-node-type="generation"]').last().getAttribute('data-node-id')
+  const resultNode = page.locator(`[data-node-id="${resultId}"]`)
+  const resultTitle = ((await resultNode.locator('[data-node-title]').textContent().catch(() => '')) ?? '').trim()
+  rec(g, '★ 结果节点叫「融合结果」', resultTitle.includes('融合结果'), resultTitle)
+  await sleep(600)
+  rec(
+    g,
+    '★★ 结果是从融合节点的**共用口**连出来的（出方向）',
+    (await page
+      .locator(`[data-edge-source-port="patch"][data-edge-source="${fusionId}"][data-edge-target="${resultId}"]`)
+      .count()) === 1,
+  )
+  rec(
+    g,
+    '★ 融合节点自己不存产物（卡片里仍是原图 / 局部修改两块）',
+    (await page.locator(`[data-node-id="${fusionId}"] [data-fusion-pane="original"]`).count()) === 1 &&
+      (await page.locator(`[data-node-id="${fusionId}"] [data-fusion-pane="patch"]`).count()) === 1,
+  )
+
+  // ⑧ 位置的硬证据：结果的渐变必须与原图**逐点一致**
+  const srcUrl = await source.node.locator('[data-node-asset]').first().getAttribute('src')
+  const outUrl = await resultNode.locator('[data-node-asset]').first().getAttribute('src')
+  const [snapSrc, snapOut] = await Promise.all([sampleRow(srcUrl), sampleRow(outUrl)])
+  rec(
+    g,
+    '★ 两张图尺寸一致（产物 = 原图尺寸）',
+    snapSrc && snapOut && snapSrc.w === snapOut.w && snapSrc.h === snapOut.h,
+    `${snapSrc?.w}×${snapSrc?.h} vs ${snapOut?.w}×${snapOut?.h}`,
+  )
+  rec(
+    g,
+    '★★ 融合结果的渐变与原图**逐点一致**（局部图被放回了它原来那一块）',
+    snapSrc && snapOut && snapSrc.p.every((c, i) => near(c, snapOut.p[i])),
+    `原图=${JSON.stringify(snapSrc?.p)} 结果=${JSON.stringify(snapOut?.p)}`,
+  )
+
+  /**
+   * ── ⑨ 融合结果双击 → 灯箱里**对比原图**（用户 2026-09-30：
+   * 「融合节点出的结果图双击出现灯箱后要有对比原图的功能」） ──
+   *
+   * 配对关系由产物节点自己的 `compareWith` 给出（产出那一刻写死的既成事实），
+   * 所以这里能断到**具体是哪一张**：切到「原图」档后展示的 hash 必须等于
+   * 融合节点左口那张原图的 hash，且**不等于**结果自己的 hash。
+   */
+  const origHash = await page
+    .locator(`[data-node-id="${fusionId}"] [data-fusion-pane="original"]`)
+    .getAttribute('data-fusion-pane-hash')
+  await resultNode.locator('[data-node-asset]').first().dblclick()
+  await sleep(700)
+  rec(
+    g,
+    '★★ 双击融合结果开灯箱，并给出「对比原图」三档',
+    (await page.locator('[data-lightbox]').count()) === 1 &&
+      (await page.locator('[data-lightbox-compare-group]').count()) === 1,
+  )
+  await page.locator('[data-lightbox-compare="split"]').click()
+  await sleep(400)
+  const ratioBefore = Number(
+    await page.locator('[data-lightbox-compare-divider]').getAttribute('data-lightbox-compare-ratio'),
+  )
+  rec(
+    g,
+    '★★ 「对比」档把原图叠在结果上，分割线默认在中线',
+    (await page.locator('[data-lightbox-compare-media]').count()) === 1 &&
+      Math.abs(ratioBefore - 0.5) < 0.02,
+    `ratio=${ratioBefore}`,
+  )
+  const dividerBox = await page.locator('[data-lightbox-compare-divider]').boundingBox()
+  const mediaBox = await page.locator('[data-lightbox-media]').boundingBox()
+  if (dividerBox && mediaBox) {
+    await page.mouse.move(dividerBox.x + dividerBox.width / 2, dividerBox.y + dividerBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(mediaBox.x + mediaBox.width * 0.25, dividerBox.y + dividerBox.height / 2, {
+      steps: 10,
+    })
+    await page.mouse.up()
+    await sleep(300)
+    const ratioAfter = Number(
+      await page.locator('[data-lightbox-compare-divider]').getAttribute('data-lightbox-compare-ratio'),
+    )
+    rec(
+      g,
+      '★★ 拖分割线真的改比例（0.5 → 约 0.25）',
+      Math.abs(ratioAfter - 0.25) < 0.06,
+      `before=${ratioBefore} after=${ratioAfter}`,
+    )
+    /** 留一张「对比档 + 分割线拖到左边」的截图：这类画面只有肉眼能判断好不好看 */
+    await page.screenshot({ path: `${OUT}/108-g92-compare.png` })
+  }
+  const resultHash = await page.locator('[data-lightbox]').getAttribute('data-lightbox-hash')
+  await page.locator('[data-lightbox-compare="original"]').click()
+  await sleep(400)
+  const shownHash = await page.locator('[data-lightbox]').getAttribute('data-lightbox-shown-hash')
+  rec(
+    g,
+    '★★ 「原图」档展示的确实是那张原图（不是结果自己）',
+    !!origHash && shownHash === origHash && shownHash !== resultHash,
+    `原图=${origHash} 展示=${shownHash} 结果=${resultHash}`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(400)
+  rec(g, '★ 对比完 Esc 关掉灯箱', (await page.locator('[data-lightbox]').count()) === 0)
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await page.screenshot({ path: `${OUT}/107-g92-extract.png` })
+  await ctx.close()
+}
+
+/**
+ * G93 节点缩放：三类语义 + 「松手不再变」不变式（§6.16 · 2026-09-30）
+ *
+ * 用户口径：「好像节点的缩放都会出现一些问题」。逐类型实测后，真正的缺陷只有一处
+ * （循环节点：内容高度写回与手动拉高度互相顶 ⇒ 拖到 332、松手跳到 380，而且再也回不来）。
+ * 这一组把三类缩放语义一起钉住，免得以后再改一处、坏另一处：
+ *  - `free`   —— 尺寸严格跟指针（提示词 / 画板 / 空态生成 / 融合）；
+ *  - `locked` —— 等比（分组 / 批量 5:4、对比节点按当前比例、有产物的生成节点按产物比例）；
+ *  - `width`  —— 只跟横向、高度由内容写回（循环节点）。
+ * 三类共同的不变式：**松手之后尺寸不再变化**（历史两次「跳动」都出在这里）。
+ */
+async function g93(browser) {
+  const g = 'G93 节点缩放'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="blank"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(800)
+
+  const cases = [
+    { type: 'prompt', mode: 'free' },
+    { type: 'board', mode: 'free' },
+    { type: 'generation', mode: 'free' },
+    { type: 'fusion', mode: 'free' },
+    { type: 'batch', mode: 'locked' },
+    { type: 'group', mode: 'locked' },
+    { type: 'compare', mode: 'locked' },
+    { type: 'loop', mode: 'width' },
+  ]
+
+  for (const c of cases) {
+    await page.locator('[data-toolbar-add]').click()
+    await sleep(250)
+    await page.locator(`[data-toolbar-menu-item="${c.type}"]`).click()
+    await sleep(650)
+    const node = page.locator(`[data-node-type="${c.type}"]`).last()
+    const id = await node.getAttribute('data-node-id')
+    const before = await page.locator(`[data-node-id="${id}"]`).boundingBox()
+    const hb = await page.locator(`[data-node-id="${id}"] [data-node-resize-handle]`).boundingBox()
+    if (!before || !hb) {
+      rec(g, `${c.type}：缩放手柄可点`, false, `before=${!!before} handle=${!!hb}`)
+      continue
+    }
+    await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(hb.x + hb.width / 2 + 100, hb.y + hb.height / 2 + 60, { steps: 8 })
+    await sleep(220)
+    const during = await page.locator(`[data-node-id="${id}"]`).boundingBox()
+    await page.mouse.up()
+    await sleep(500)
+    const after = await page.locator(`[data-node-id="${id}"]`).boundingBox()
+
+    rec(
+      g,
+      `★★ ${c.type}：松手之后尺寸不再变化（不跳动）`,
+      Math.abs(after.width - during.width) <= 2 && Math.abs(after.height - during.height) <= 2,
+      `拖动中 ${during.width.toFixed(0)}×${during.height.toFixed(0)} → 松手后 ${after.width.toFixed(0)}×${after.height.toFixed(0)}`,
+    )
+    if (c.mode === 'free') {
+      rec(
+        g,
+        `★ ${c.type}：自由缩放严格跟指针（+100/+60）`,
+        Math.abs(after.width - before.width - 100) <= 3 && Math.abs(after.height - before.height - 60) <= 3,
+        `实际 +${(after.width - before.width).toFixed(0)}/+${(after.height - before.height).toFixed(0)}`,
+      )
+    } else if (c.mode === 'locked') {
+      const r0 = before.width / before.height
+      const r1 = after.width / after.height
+      rec(
+        g,
+        `★ ${c.type}：锁比缩放保持比例`,
+        Math.abs(r1 - r0) < 0.03 && after.width - before.width > 40,
+        `${r0.toFixed(3)} → ${r1.toFixed(3)}（宽 +${(after.width - before.width).toFixed(0)}）`,
+      )
+    } else {
+      rec(
+        g,
+        `★★ ${c.type}：只跟横向、高度由内容决定（纵向位移整份丢掉）`,
+        Math.abs(after.width - before.width - 100) <= 3 && Math.abs(after.height - before.height) < 40,
+        `宽 +${(after.width - before.width).toFixed(0)} / 高 ${(after.height - before.height).toFixed(0)}`,
+      )
+    }
+    await page.keyboard.press('Delete')
+    await sleep(350)
+  }
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await page.screenshot({ path: `${OUT}/109-g93-resize.png` })
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g20, g21, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
@@ -12418,7 +13483,3 @@ if (fail) {
   for (const r of results.filter((x) => !x.pass)) console.log(` - [${r.group}] ${r.name} ${r.detail}`)
   process.exitCode = 1
 }
-
-
-
-

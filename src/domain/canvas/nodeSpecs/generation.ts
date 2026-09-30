@@ -26,7 +26,8 @@ export const generationSpec: NodeSpec<GenerationData> = {
    * `loop` 必须在内（§6.22）：循环节点正是通过"被下游连接"来把本轮输入交出去的，
    * 少了它，「循环 → 生成」这条主链路直接连不上（实测报「不接受来自 loop 的输入」）。
    */
-  accepts: { upstream: ['prompt', 'generation', 'batch', 'loop'] },
+  /** `fusion` 一并接受（§6.23）：融合产物是一张普通图片，能当参考图喂给下游模型 */
+  accepts: { upstream: ['prompt', 'generation', 'batch', 'loop', 'fusion'] },
   createDefaultData(): GenerationData {
     return {
       mode: 'image',

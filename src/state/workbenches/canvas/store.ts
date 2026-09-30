@@ -83,7 +83,7 @@ interface CanvasState {
    * 坐标与 `menu` 同口径：**surface 局部屏幕坐标**（浮层不随画布变换）。
    * 纯展示态：不进撤销栈、不落库。
    */
-  linkMenu: { x: number; y: number; nodeId: string; side: LinkSide } | null
+  linkMenu: { x: number; y: number; nodeId: string; side: LinkSide; portId?: string } | null
   /** 正在重命名标题的节点（§4.1 右键「重命名」/ §4.3 单击标题） */
   renamingId: string | null
   /**
@@ -98,7 +98,12 @@ interface CanvasState {
    * **不同的子树**里（画布表面 / 页面级日志面板），塞本地 state 就得把回调一路
    * 透传。它是瞬时态——关掉即忘，与 menu / notice 同口径。
    */
-  lightbox: { assetHash: string } | null
+  /**
+   * `cropFor` 有值 = 灯箱处于**提取选区模式**（§6.23）：在图上框选 + 选比例 + 确认，
+   * 确认后在原图**右侧**生成带上下文的局部图。值 = 发起提取的那个节点 id
+   * （新节点要挨着它放）。
+   */
+  lightbox: { assetHash: string; cropFor?: string } | null
   /**
    * 文本编辑灯箱（产品文档 §6.7，用户 2026-09-21）：提示词正文的**大编辑框**。
    *
@@ -159,7 +164,7 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
    * 打开连线菜单（§6.14「空白松手菜单」）：端点拖线在空白处松手时，
    * 于指针右侧 12px 打开。`side` 是被拖的那一端（output → 找下游）。
    */
-  setLinkMenu(x: number, y: number, nodeId: string, side: LinkSide): void
+  setLinkMenu(x: number, y: number, nodeId: string, side: LinkSide, portId?: string): void
   closeLinkMenu(): void
   getLinkMenu(): CanvasState['linkMenu']
   /** 进入重命名态（§4.1 右键「重命名」/ §4.3 单击标题） */
@@ -168,8 +173,10 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
     getRenamingId(): string | null
     /** 打开 / 关闭素材灯箱（§6.17）；只存 hash，本体由灯箱自己按 hash 读回 */
   openLightbox: (assetHash: string) => void
+  /** 以「提取选区」模式打开灯箱（用户口径：在素材灯箱里框选局部图） */
+  openCropLightbox: (nodeId: string) => void
   closeLightbox: () => void
-  getLightbox: () => { assetHash: string } | null
+  getLightbox: () => { assetHash: string; cropFor?: string } | null
   /** 打开 / 关闭文本编辑灯箱（§6.7）。与素材灯箱互斥 */
   openTextEditor: (nodeId: string) => void
   closeTextEditor: () => void
@@ -403,10 +410,10 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     setMenu: (x, y, target) => store.setState({ menu: { x, y, target } }),
     closeMenu: () => store.setState({ menu: null }),
     getMenu: () => store.getState().menu,
-    setLinkMenu: (x, y, nodeId, side) =>
+    setLinkMenu: (x, y, nodeId, side, portId) =>
       // 拖线期间与拖线结束到菜单关闭期间，创作面板保持隐藏（§6.14「拖线状态」）。
       // 复用 panelDismissed：它本来就表达「这次交互不弹面板，等下一次显式选中」。
-      store.setState({ linkMenu: { x, y, nodeId, side }, menu: null, panelDismissed: true }),
+      store.setState({ linkMenu: { x, y, nodeId, side, portId }, menu: null, panelDismissed: true }),
     closeLinkMenu: () => store.setState({ linkMenu: null }),
     getLinkMenu: () => store.getState().linkMenu,
     beginRename: (nodeId) => store.setState({ renamingId: nodeId }),
@@ -414,6 +421,16 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     getRenamingId: () => store.getState().renamingId,
     openLightbox: (assetHash) =>
       store.setState({ lightbox: { assetHash }, textEditor: null, menu: null }),
+    openCropLightbox: (nodeId) => {
+      const node = store.getState().graph.nodes.find((n) => n.id === nodeId)
+      const hash = (node?.data as { assetHash?: string } | undefined)?.assetHash
+      if (!hash) return
+      store.setState({
+        lightbox: { assetHash: hash, cropFor: nodeId },
+        textEditor: null,
+        menu: null,
+      })
+    },
     closeLightbox: () => store.setState({ lightbox: null }),
     getLightbox: () => store.getState().lightbox,
     /* 与素材灯箱互斥：同一个屏幕位置不可能同时看图和改字，两个都开着只会互相盖住 */
