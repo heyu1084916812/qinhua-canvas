@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
+import type {
+  CSSProperties,
+  PointerEvent as ReactPointerEvent,
+  WheelEvent as ReactWheelEvent,
+} from 'react'
 import { useCanvasStore } from '../storeContext'
 import { useAssetMeta } from '../hooks/useAsset'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
@@ -9,10 +13,13 @@ import { screenToWorld } from '../../../domain/canvas/geometry/coords'
 import { fitViewport, panBy, zoomAt } from '../../../domain/canvas/geometry/transform'
 import type { FusionRect } from '../../../domain/canvas/model/node'
 import {
+  CROP_HANDLES,
   FUSION_MIN_EDGE,
   clampRect,
   fitRectToRatio,
   ratioValueOf,
+  resizedCropRect,
+  type CropHandle,
 } from '../../../domain/canvas/fusion/fusionPlan'
 import { RATIO_CHOICES } from '../../../domain/canvas/layout/ratioChoices'
 import { extractSelection } from '../../../features/canvas/extractSelection'
@@ -38,6 +45,21 @@ const FIT_PADDING = 48
 const WHEEL_STEP = 1.12
 /** 超过这个位移就算「拖过」，不再当成「点击空白关闭」 */
 const DRAG_SLOP = 3
+
+/**
+ * 八个手柄在框内的位置（百分比 → 跟着框缩放）+ 各自的鼠标指针形状。
+ * 用内联几何而不是八个 CSS 类：位置与手柄 id 的一致性一眼可见，改起来只有一处。
+ */
+const HANDLE_POS: Record<CropHandle, CSSProperties> = {
+  nw: { left: 0, top: 0, cursor: 'nwse-resize' },
+  n: { left: '50%', top: 0, cursor: 'ns-resize' },
+  ne: { left: '100%', top: 0, cursor: 'nesw-resize' },
+  e: { left: '100%', top: '50%', cursor: 'ew-resize' },
+  se: { left: '100%', top: '100%', cursor: 'nwse-resize' },
+  s: { left: '50%', top: '100%', cursor: 'ns-resize' },
+  sw: { left: 0, top: '100%', cursor: 'nesw-resize' },
+  w: { left: 0, top: '50%', cursor: 'ew-resize' },
+}
 
 export function LightboxLayer() {
   const store = useCanvasStore()
@@ -155,6 +177,43 @@ export function LightboxLayer() {
           y: Math.min(start.y, cur.y),
           w: Math.abs(cur.x - start.x),
           h: Math.abs(cur.y - start.y),
+        }),
+      )
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  /**
+   * 拖手柄**改**已经画好的框（用户 2026-09-30：「灯箱框选要能二次修改」）。
+   *
+   * 基准取按下那一刻的 `cropRect`（不是每次 setState 的最新值）：整段拖拽都以
+   * 起点为参照，指针回到原位框就回到原样。若用「上一帧的框」当基准，误差会一帧
+   * 一帧累加，拖一会框就飘走了。
+   */
+  const startResize = (handle: CropHandle, e: ReactPointerEvent) => {
+    if (!cropRect || !natural) return
+    // 手柄在舞台里面：不拦这一下就会被当成「在空白处重新画框」，一拖就把原框擦掉
+    e.stopPropagation()
+    e.preventDefault()
+    movedRef.current = true
+    const base = cropRect
+    const bounds = { w: natural.w, h: natural.h }
+    const move = (ev: PointerEvent) => {
+      const cur = imgPointAt(ev.clientX, ev.clientY)
+      if (!cur) return
+      setCropRect(
+        resizedCropRect({
+          base,
+          handle,
+          pointer: cur,
+          bounds,
+          ratio: ratioValue,
+          minEdge: FUSION_MIN_EDGE,
         }),
       )
     }
@@ -309,7 +368,25 @@ export function LightboxLayer() {
               }}
             />
           ))}
+        {/*
+          * 手柄与选框**分成两层**：选框那层带 `opacity` 做半透明（主题守卫不许写
+          * `rgba`，半透明只能靠 opacity），子元素会连 opacity 一起继承 ——
+          * 手柄放进去就淡成 28%，等于看不见。所以手柄另起一层，几何同源。
+          */}
         {cropBox && <div className={styles.cropRect} data-lightbox-crop-rect style={cropBox} />}
+        {cropBox && (
+          <div className={styles.cropHandles} data-lightbox-crop-handles style={cropBox}>
+            {CROP_HANDLES.map((h) => (
+              <span
+                key={h}
+                className={styles.cropHandle}
+                data-lightbox-crop-handle={h}
+                style={HANDLE_POS[h]}
+                onPointerDown={(e) => startResize(h, e)}
+              />
+            ))}
+          </div>
+        )}
       </div>
       <div className={styles.hud}>
         <span className={styles.chip} data-lightbox-size>
@@ -318,8 +395,13 @@ export function LightboxLayer() {
         <span className={styles.chip} data-lightbox-zoom>
           {vp ? `${Math.round(vp.zoom * 100)}%` : '—'}
         </span>
-        {cropping && (
-          <>
+        <span className={styles.spacer} />
+        {cropping ? (
+          /**
+           * 比例档与两个按钮**放在同一组里**（用户 2026-09-30：「提取选区按钮与比例档
+           * 要放在一起」，首版被中间的 spacer 拆到左右两头，眼睛要来回跳）。
+           */
+          <div className={styles.cropBar} data-lightbox-crop-bar>
             <span className={styles.ratioLabel}>比例</span>
             {RATIO_CHOICES.map((c) => (
               <button
@@ -338,11 +420,7 @@ export function LightboxLayer() {
                 {c.label}
               </button>
             ))}
-          </>
-        )}
-        <span className={styles.spacer} />
-        {cropping ? (
-          <>
+            <span className={styles.barDivider} />
             <button
               type="button"
               className={styles.close}
@@ -365,7 +443,7 @@ export function LightboxLayer() {
             >
               {busy ? '提取中…' : '提取选区'}
             </button>
-          </>
+          </div>
         ) : (
           <button
             ref={closeRef}

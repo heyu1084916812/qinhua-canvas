@@ -12760,6 +12760,53 @@ async function g91(browser) {
       (await page.locator('[data-fusion-compare]').count()) === 0,
   )
 
+  /**
+   * ── ⑦ 多张局部图**上下排列**（用户 2026-09-30） ──
+   *
+   * 用户口径：「融合节点右侧多个局部图要上下排列（参考大雄：左边原图、右边局部图区域，
+   * 两张局部图就上下两块），不是朝右横向新增」。
+   *
+   * 判据只能用**几何**（谁在谁下面、左右是否对齐），DOM 里两个 pane 长得多像都证明不了。
+   * 第二张走**同一个上游再连一条**（该口 `multi: true`）——顺带把「允许同源多条边」
+   * 这条也钉住，否则第二块预览永远只能靠新建节点才出得来。
+   */
+  const fBox2 = await fusion.boundingBox()
+  await dragFromPortTo(patchSrc.node.locator('[data-port="output"]').first(), {
+    x: fBox2.x + fBox2.width - 30,
+    y: fBox2.y + fBox2.height / 2,
+  })
+  const paneBoxes = await page
+    .locator(`[data-node-id="${fusionId}"] [data-fusion-pane="patch"]`)
+    .evaluateAll((els) =>
+      els.map((e) => {
+        const r = e.getBoundingClientRect()
+        return { x: r.x, y: r.y, w: r.width, h: r.height }
+      }),
+    )
+  rec(g, '★ 两张局部图 → 两个预览格（同源多条边也认）', paneBoxes.length === 2, `panes=${paneBoxes.length}`)
+  const [pane1, pane2] = paneBoxes
+  rec(
+    g,
+    '★★ 两张局部图**上下排列**（同一列、第二块在第一块正下方，不是往右排）',
+    !!pane1 &&
+      !!pane2 &&
+      Math.abs(pane1.x - pane2.x) <= 2 &&
+      Math.abs(pane1.w - pane2.w) <= 2 &&
+      pane2.y >= pane1.y + pane1.h - 2,
+    JSON.stringify(paneBoxes),
+  )
+  const origBox2 = await page
+    .locator(`[data-node-id="${fusionId}"] [data-fusion-pane="original"]`)
+    .boundingBox()
+  rec(
+    g,
+    '★ 原图仍在左、局部图区在右（两列不重叠）',
+    !!origBox2 && !!pane1 && origBox2.x + origBox2.width <= pane1.x + 1,
+    `orig=${JSON.stringify(origBox2)} patch=${JSON.stringify(pane1)}`,
+  )
+  const chipPatch2 = ((await page.locator('[data-fusion-chip="patch"]').textContent()) ?? '').trim()
+  rec(g, '★ 连接提醒跟着更新为 2 张', /局部修改 2 张/.test(chipPatch2), chipPatch2)
+
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await page.screenshot({ path: `${OUT}/106-g91-fusion.png` })
   await ctx.close()
@@ -12854,9 +12901,15 @@ async function g92(browser) {
   await page.locator('[data-lightbox-crop-ratio="16:9"]').click()
   await sleep(250)
   const stage = await page.locator('[data-lightbox-stage]').boundingBox()
-  await page.mouse.move(stage.x + stage.width * 0.3, stage.y + stage.height * 0.3)
+  /**
+   * 起点/终点取 0.35~0.65（不是 0.3~0.7）：灯箱是 **1:1 显示**（`fitViewport`
+   * 不放大），所以框的屏幕像素 = 原图像素。原图只有 640 宽，框到 512 再被手柄
+   * 放大、外扩 1.2 倍之后就盖满整张图，局部图会退化成「整张原图」（下面的
+   * 「局部图比原图窄」就断言不出来了）——这是**测例自己的口径**问题，不是产品行为。
+   */
+  await page.mouse.move(stage.x + stage.width * 0.35, stage.y + stage.height * 0.3)
   await page.mouse.down()
-  await page.mouse.move(stage.x + stage.width * 0.7, stage.y + stage.height * 0.7, { steps: 12 })
+  await page.mouse.move(stage.x + stage.width * 0.65, stage.y + stage.height * 0.7, { steps: 12 })
   await page.mouse.up()
   await sleep(400)
   const rectBox = await page.locator('[data-lightbox-crop-rect]').boundingBox().catch(() => null)
@@ -12869,6 +12922,74 @@ async function g92(browser) {
     `ratio=${rectRatio.toFixed(3)}`,
   )
   rec(g, '★ 有合法选区后按钮可点', !(await page.locator('[data-lightbox-crop-apply]').isDisabled()))
+
+  /**
+   * ── ④b 框完之后还能**拖手柄二次修改**（用户 2026-09-30：「灯箱框选要能二次修改」） ──
+   *
+   * 首版只能**画**：框完之后想微调就得整个重画，而比例档又要求框严格贴比例，
+   * 重画十次也未必对得齐。这一段的判据是三条：手柄齐全、拖了真的变大、
+   * 而且**左上角钉死 + 比例不破**（少了任一条都等于没做对）。
+   */
+  const handles = await page
+    .locator('[data-lightbox-crop-handle]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-lightbox-crop-handle')))
+  rec(
+    g,
+    '★ 选框上八个手柄齐全（四角 + 四边）',
+    ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'].every((h) => handles.includes(h)),
+    handles.join(','),
+  )
+  const seBox = await page.locator('[data-lightbox-crop-handle="se"]').boundingBox().catch(() => null)
+  rec(g, '★ 右下角手柄有可点的几何位置', !!seBox && seBox.width > 0)
+  if (rectBox && seBox) {
+    await page.mouse.move(seBox.x + seBox.width / 2, seBox.y + seBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(seBox.x + 80, seBox.y + 40, { steps: 12 })
+    await page.mouse.up()
+    await sleep(350)
+    const grown = await page.locator('[data-lightbox-crop-rect]').boundingBox().catch(() => null)
+    rec(
+      g,
+      '★★ 拖右下角手柄把框改大了（不是只能重画一个）',
+      !!grown && grown.width > rectBox.width + 8 && grown.height > rectBox.height + 8,
+      `before=${rectBox.width.toFixed(1)}×${rectBox.height.toFixed(1)} after=${grown?.width?.toFixed(1)}×${grown?.height?.toFixed(1)}`,
+    )
+    rec(
+      g,
+      '★★ 拖手柄改完比例仍然贴在 16:9（改框不能把比例档改废）',
+      !!grown && Math.abs(grown.width / grown.height - 16 / 9) < 0.08,
+      grown ? `ratio=${(grown.width / grown.height).toFixed(3)}` : 'null',
+    )
+    rec(
+      g,
+      '★ 拖右下角时左上角钉死（对面那条边不动）',
+      !!grown && Math.abs(grown.x - rectBox.x) <= 2 && Math.abs(grown.y - rectBox.y) <= 2,
+      grown ? `nw ${rectBox.x.toFixed(1)},${rectBox.y.toFixed(1)} → ${grown.x.toFixed(1)},${grown.y.toFixed(1)}` : 'null',
+    )
+  }
+
+  /**
+   * ★★ 「提取选区」与比例档**挨在一起**（用户 2026-09-30）。
+   * 首版按钮在右下、比例档在左下，中间被 `spacer` 顶开 ~600px；现在同一组，
+   * 距离约等于「取消」那个按钮的宽度。用 200px 这道线把两种布局分得开。
+   */
+  const lastRatio = await page.locator('[data-lightbox-crop-ratio]').last().boundingBox().catch(() => null)
+  const applyBox = await page.locator('[data-lightbox-crop-apply]').boundingBox().catch(() => null)
+  const sameBar = await page.evaluate(() => {
+    const bar = document.querySelector('[data-lightbox-crop-bar]')
+    if (!bar) return false
+    return (
+      bar.querySelectorAll('[data-lightbox-crop-ratio]').length >= 9 &&
+      !!bar.querySelector('[data-lightbox-crop-apply]') &&
+      !!bar.querySelector('[data-lightbox-crop-cancel]')
+    )
+  })
+  rec(
+    g,
+    '★★ 比例档与「提取选区」在同一组里（不再被 spacer 拆到两头）',
+    sameBar && !!lastRatio && !!applyBox && applyBox.x - (lastRatio.x + lastRatio.width) < 200,
+    `gap=${lastRatio && applyBox ? (applyBox.x - (lastRatio.x + lastRatio.width)).toFixed(1) : 'null'}`,
+  )
 
   // ⑤ 确认：关灯箱 + 在原图右侧生成局部图
   const nodesBefore = await nodeCount(page)

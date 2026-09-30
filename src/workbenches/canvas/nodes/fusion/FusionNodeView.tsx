@@ -5,9 +5,11 @@
  *
  * ```
  * ┌──────────────────────────────┐
- * │  ┌──────────┬──────────┐     │  上：两块预览
- * │  │  原图    │ 局部修改  │     │     各自带深色胶囊标签
- * │  └──────────┴──────────┘     │
+ * │  ┌────────┬────────────┐     │  上：左边原图 | 右边局部修改
+ * │  │        │  局部修改 1 │     │     局部图**上下排列**、不往右长
+ * │  │  原图   ├────────────┤     │     （用户 2026-09-30，照大雄）
+ * │  │        │  局部修改 2 │     │     各自带深色胶囊标签
+ * │  └────────┴────────────┘     │
  * │  ✓ 原图   ○ 未连接局部修改 0 张 │  中：连接状态提醒
  * │  ☑ 颜色匹配                   │
  * │  ┌──────────────────────────┐ │
@@ -15,6 +17,10 @@
  * │  └──────────────────────────┘ │
  * └──────────────────────────────┘
  * ```
+ *
+ * 局部图**为什么纵向排**：一个「原图 + N 个局部选区」的语义就是「左右两块」，
+ * 横向铺开会把节点越撑越宽、把左边那张原图挤小；纵向排则节点只长高，
+ * 原图那一列的宽度稳定，多选区时也更像参考实现（左原图 / 右局部图区）。
  *
  * ## 这一版**删掉**了什么（用户：「之前的那个东西删掉，都不对」）
  *
@@ -88,16 +94,18 @@ export function FusionNodeView(props: NodeViewProps) {
   return (
     <div className={styles.card} data-fusion-node>
       <div className={styles.content} ref={contentRef} data-fusion-content>
-        {/* ① 两块预览：原图 | 局部修改 */}
+        {/* ① 两块预览：左原图 | 右局部修改（多张**上下排列**） */}
         <div className={styles.panes} data-fusion-panes>
-          <Pane label="原图" url={originalUrl} testId="original" />
-          {patches.length === 0 ? (
-            <Pane label="局部修改" url={null} testId="patch-empty" />
-          ) : (
-            patches.map((p, i) => (
-              <PatchPane key={`${p.hash}-${i}`} hash={p.hash} index={i + 1} />
-            ))
-          )}
+          <Pane label="原图" url={originalUrl} testId="original" extraClass={styles.paneOriginal} />
+          <div className={styles.patchStack} data-fusion-patch-stack>
+            {patches.length === 0 ? (
+              <Pane label="局部修改" url={null} testId="patch-empty" />
+            ) : (
+              patches.map((p, i) => (
+                <PatchPane key={`${p.hash}-${i}`} hash={p.hash} index={i + 1} />
+              ))
+            )}
+          </div>
         </div>
 
         {/* ② 连接状态提醒 */}
@@ -159,9 +167,19 @@ export function FusionNodeView(props: NodeViewProps) {
   )
 }
 
-function Pane({ label, url, testId }: { label: string; url: string | null; testId: string }) {
+function Pane({
+  label,
+  url,
+  testId,
+  extraClass,
+}: {
+  label: string
+  url: string | null
+  testId: string
+  extraClass?: string
+}) {
   return (
-    <div className={styles.pane} data-fusion-pane={testId}>
+    <div className={extraClass ? `${styles.pane} ${extraClass}` : styles.pane} data-fusion-pane={testId}>
       {url ? (
         <img className={styles.paneImg} src={url} alt="" draggable={false} />
       ) : (

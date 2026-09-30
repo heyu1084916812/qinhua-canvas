@@ -108,6 +108,104 @@ export function fitRectToRatio(rect: FusionRect, ratio: number): FusionRect {
   }
 }
 
+/** 选区框的八个拖拽手柄（四边 + 四角），与 CSS 里的位置一一对应 */
+export type CropHandle = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se'
+
+export const CROP_HANDLES: readonly CropHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
+
+export interface CropResizeInput {
+  /** 按下手柄那一刻的框：整段拖拽都以它为基准（不累加，避免抖动被放大） */
+  base: FusionRect
+  handle: CropHandle
+  /** 指针位置，**原图像素坐标** */
+  pointer: { x: number; y: number }
+  bounds: Size
+  /** 比例档；非空时保持这个长宽比，空则是自由框 */
+  ratio: number | null
+  /** 短边下限（`FUSION_MIN_EDGE`） */
+  minEdge: number
+}
+
+/**
+ * 拖手柄改框（产品文档 §6.23，2026-09-30）。
+ *
+ * 用户口径：「灯箱框选要能二次修改」—— 首版只能**画**一个新框，框完想微调
+ * 就得整个重画，而模型比例档又要求框严格贴比例，重画十次也未必对得齐。
+ *
+ * 规则（三条，缺一条手感就崩）：
+ * 1. **对面那条边钉死**：拖右下角时左上角不动。这是拖拽缩放的共识，
+ *    若改成「中心不动」，微调时整个框会跑走，反而更难对齐。
+ * 2. **比例档在位时两轴一起动**：单拖一条边（`n` / `s` / `e` / `w`）也要把
+ *    另一轴按比例推出去，否则一拖就把 16:9 拖成别的比例 —— 而补丁是按
+ *    模型比例出的图，比例一歪，融合时会直接被比例校验拒掉。
+ * 3. **贴边只夹不缩**：指针滑出图外时框停在图内（`clampRect` 负责平移回图内），
+ *    不把框压扁。压扁会让比例档失效，与第 2 条自相矛盾。
+ */
+export function resizedCropRect(input: CropResizeInput): FusionRect {
+  const { base, handle, pointer, ratio, minEdge } = input
+  const limits: Size = {
+    w: Math.max(1, Math.round(input.bounds.w)),
+    h: Math.max(1, Math.round(input.bounds.h)),
+  }
+  const min = Math.max(1, Math.round(minEdge))
+
+  const left0 = base.x
+  const top0 = base.y
+  const right0 = base.x + base.w
+  const bottom0 = base.y + base.h
+
+  const west = handle.includes('w')
+  const east = handle.includes('e')
+  const north = handle.includes('n')
+  const south = handle.includes('s')
+  const dragX = west || east
+  const dragY = north || south
+
+  /**
+   * 锚点 = 被拖的那条边**对面**。这一轴不参与拖动（上下手柄的横向、左右手柄的纵向）
+   * 时改用中线：那条轴本来就该两边对称地长，锚在任意一边都会让框往一侧跑。
+   */
+  const anchorX = west ? right0 : east ? left0 : left0 + base.w / 2
+  const anchorY = north ? bottom0 : south ? top0 : top0 + base.h / 2
+
+  let w = dragX ? Math.abs(pointer.x - anchorX) : base.w
+  let h = dragY ? Math.abs(pointer.y - anchorY) : base.h
+
+  if (ratio && ratio > 0) {
+    /**
+     * ⚠️ 下限必须**在反推另一轴之前**参与：指针正好落在锚点上时被拖的那一轴
+     * 算出来是 0，而 `0 × 任何比例 = 0`，再乘多少倍也长不回来（单测里有这条）。
+     */
+    if (dragX && dragY) {
+      // 角手柄：取「较大的那一侧」当主导，另一个轴按比例推出去
+      w = Math.max(w, h * ratio, min)
+      h = w / ratio
+    } else if (dragX) {
+      w = Math.max(w, min)
+      h = w / ratio
+    } else if (dragY) {
+      h = Math.max(h, min)
+      w = h * ratio
+    }
+    // 比例极端（比如 100:1）时另一轴仍可能低于下限：两轴一起抬，比例不变
+    const bump = Math.max(1, min / Math.max(w, 1e-6), min / Math.max(h, 1e-6))
+    w *= bump
+    h *= bump
+  } else {
+    if (dragX) w = Math.max(w, min)
+    if (dragY) h = Math.max(h, min)
+  }
+
+  // 出界：先按同一个系数缩小（比例档下这就等于等比缩），再靠 clampRect 平移回图内
+  const fit = Math.min(1, limits.w / w, limits.h / h)
+  w = Math.max(1, w * fit)
+  h = Math.max(1, h * fit)
+
+  const x = west ? anchorX - w : east ? anchorX : anchorX - w / 2
+  const y = north ? anchorY - h : south ? anchorY : anchorY - h / 2
+  return clampRect({ x, y, w, h }, limits)
+}
+
 /**
  * 外扩矩形（产品文档 §6.23「边缘选区」）。
  *

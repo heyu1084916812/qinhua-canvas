@@ -24,17 +24,24 @@
   width: 100%;
 }
 
-/* ── ① 预览：原图 | 局部修改（多张局部图时自动分摊宽度） ── */
+/*
+ * ── ① 预览：左原图 | 右局部修改 ──
+ *
+ * 多张局部图**上下排列**（用户 2026-09-30：「右边多个局部图要上下排列，
+ * 参考大雄：左边原图、右边局部图区域，两张局部图就上下两块，不是朝右横向新增」）。
+ * 横向铺开的话节点会越撑越宽、左原图越挤越小；纵向排只长高，原图那一列宽度稳定。
+ */
 .panes {
   display: flex;
   gap: 6px;
   width: 100%;
   min-width: 0;
+  /* 原图那一块跟着右列的高度走（等高对齐），而不是自己撑出一个正方形 */
+  align-items: stretch;
 }
 
 .pane {
   position: relative;
-  flex: 1 1 0;
   min-width: 0;
   /* 正方形格：两块并排时高度由宽度决定，节点宽高都不会被内容拉歪 */
   aspect-ratio: 1;
@@ -42,6 +49,33 @@
   border: 1px solid var(--stroke);
   background: var(--bg-subtle);
   overflow: hidden;
+}
+
+/* 原图：占左半列、高度跟右列一致 */
+.paneOriginal {
+  flex: 1 1 0;
+  aspect-ratio: auto;
+  align-self: stretch;
+}
+
+/*
+ * 原图用 `contain`：局部图多起来之后这一格会变成竖长条，
+ * `cover` 会把原图裁掉一半 —— 而「对比原图」正是这一格存在的理由。
+ */
+.paneOriginal .paneImg {
+  object-fit: contain;
+}
+
+.patchStack {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.patchStack .pane {
+  flex: none;
 }
 
 .paneImg {

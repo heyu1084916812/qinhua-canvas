@@ -97,6 +97,7 @@
 }
 
 .close {
+  flex: none;
   height: 32px;
   padding: 0 var(--space-4);
   border: var(--border);
@@ -129,15 +130,62 @@
   pointer-events: none;
 }
 
+/*
+ * 手柄层：与选框同几何、但不带 opacity（见 LightboxLayer.tsx 里那段注释）。
+ * 容器不吃指针，只有手柄自己吃 —— 否则这一层会盖住整个框，
+ * 按在框中间想「重新画一个」就再也画不出来了。
+ */
+.cropHandles {
+  position: absolute;
+  pointer-events: none;
+}
+
+.cropHandle {
+  position: absolute;
+  /* 手柄中心压在顶点上（margin 负半个身位），与「圆心在顶点」的视觉口径一致 */
+  margin: -6px 0 0 -6px;
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--text-1);
+  border-radius: 2px;
+  background: var(--bg-surface);
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.cropHandle:hover {
+  background: var(--accent);
+}
+
+.cropBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  /* 比例档有 9 个，窗口窄时允许这一组自己横向滚动，不去挤旁边的按钮 */
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.barDivider {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  background: var(--stroke);
+}
+
 .ratioLabel {
   color: var(--text-3);
   font-size: var(--fs-chip);
   font-weight: var(--fw-chip);
   white-space: nowrap;
+  flex: none;
 }
 
 .ratio,
 .ratioActive {
+  flex: none;
   height: 26px;
   padding: 0 var(--space-2);
   border: var(--border);
@@ -164,6 +212,7 @@
 }
 
 .confirm {
+  flex: none;
   height: 32px;
   padding: 0 var(--space-4);
   border: 1px solid var(--control-inverse-bg);

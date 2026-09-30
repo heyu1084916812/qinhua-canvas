@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  CROP_HANDLES,
   FUSION_MIN_EDGE,
   FUSION_MISSING_INPUT,
   clampRect,
@@ -13,6 +14,8 @@ import {
   ratioMatches,
   ratioValueOf,
   rectRatio,
+  resizedCropRect,
+  type CropHandle,
   type FusionPatchInput,
 } from './fusionPlan'
 import type { FusionContext } from '../model/node'
@@ -63,6 +66,98 @@ describe('融合几何 · fitRectToRatio', () => {
   it('只缩不放：比例已经符合时原样返回', () => {
     const r = { x: 10, y: 20, w: 300, h: 100 }
     expect(fitRectToRatio(r, 3)).toEqual(r)
+  })
+})
+
+/**
+ * 灯箱里「框完之后还能拖手柄改」的几何（用户 2026-09-30：
+ * 「灯箱框选要能二次修改」）。纯函数在这儿逐条钉，UI 只负责把指针喂进来。
+ */
+describe('融合几何 · resizedCropRect（拖手柄改选区）', () => {
+  const BOUNDS = { w: 1000, h: 1000 }
+  const BASE = { x: 200, y: 200, w: 400, h: 300 }
+  const resize = (handle: CropHandle, pointer: { x: number; y: number }, ratio: number | null = null) =>
+    resizedCropRect({ base: BASE, handle, pointer, bounds: BOUNDS, ratio, minEdge: FUSION_MIN_EDGE })
+
+  it('拖右下角：左上角钉死，另两侧跟到指针', () => {
+    expect(resize('se', { x: 700, y: 600 })).toEqual({ x: 200, y: 200, w: 500, h: 400 })
+  })
+
+  it('拖左上角：右下角钉死', () => {
+    expect(resize('nw', { x: 100, y: 100 })).toEqual({ x: 100, y: 100, w: 500, h: 400 })
+  })
+
+  it('拖右边 / 下边：只动被拖的那条边，另一轴不参与', () => {
+    expect(resize('e', { x: 900, y: 999 })).toEqual({ x: 200, y: 200, w: 700, h: 300 })
+    expect(resize('s', { x: 999, y: 550 })).toEqual({ x: 200, y: 200, w: 400, h: 350 })
+  })
+
+  it('拖左边 / 上边：对面那条边钉死', () => {
+    expect(resize('w', { x: 100, y: 0 })).toEqual({ x: 100, y: 200, w: 500, h: 300 })
+    expect(resize('n', { x: 0, y: 100 })).toEqual({ x: 200, y: 100, w: 400, h: 400 })
+  })
+
+  it('把手拖回原位 = 什么都不变（锚点口径自洽）', () => {
+    expect(resize('se', { x: 600, y: 500 })).toEqual(BASE)
+  })
+
+  it('★ 比例档在位时，拖角也保持比例（16:9），且锚点仍是左上角', () => {
+    const r = resize('se', { x: 840, y: 300 }, 16 / 9)
+    expect(r).toEqual({ x: 200, y: 200, w: 640, h: 360 })
+    expect(Math.abs(r.w / r.h - 16 / 9) / (16 / 9)).toBeLessThan(0.01)
+  })
+
+  /**
+   * ★★ 单拖一条边时，另一轴必须**跟着按比例推出去**。
+   * 少了这一步，用户拖一下 16:9 的框就变成别的比例，而补丁是按模型比例出的图，
+   * 融合时会被比例校验直接拒掉 —— 等于「框选一改，功能就废」。
+   */
+  it('★★ 比例档下拖下边：横向同步长出去，比例不破、上边钉死', () => {
+    const r = resize('s', { x: 0, y: 650 }, 4 / 3)
+    expect(r).toEqual({ x: 100, y: 200, w: 600, h: 450 })
+  })
+
+  it('★ 贴边不越界：指针滑出图外时框停在图内，且比例不破', () => {
+    const r = resize('se', { x: 5000, y: 5000 }, 16 / 9)
+    expect(r.x + r.w).toBeLessThanOrEqual(BOUNDS.w)
+    expect(r.y + r.h).toBeLessThanOrEqual(BOUNDS.h)
+    expect(Math.abs(r.w / r.h - 16 / 9) / (16 / 9)).toBeLessThan(0.01)
+  })
+
+  it('★ 短边守得住下限：往里拖过头也不会缩成一条线', () => {
+    const r = resize('se', { x: 201, y: 201 })
+    expect(r.w).toBeGreaterThanOrEqual(FUSION_MIN_EDGE)
+    expect(r.h).toBeGreaterThanOrEqual(FUSION_MIN_EDGE)
+  })
+
+  it('★ 比例档 + 短边下限：两轴一起抬到下限，比例仍然成立', () => {
+    const r = resize('se', { x: 205, y: 205 }, 1)
+    expect(r.w).toBe(FUSION_MIN_EDGE)
+    expect(r.h).toBe(FUSION_MIN_EDGE)
+  })
+
+  it('八个手柄在任何指针位置都给出合法框（不出 NaN、不越界、不破下限）', () => {
+    const pointers = [
+      { x: -500, y: -500 },
+      { x: 0, y: 0 },
+      { x: 500, y: 500 },
+      { x: 1200, y: 1200 },
+    ]
+    for (const handle of CROP_HANDLES) {
+      for (const pointer of pointers) {
+        for (const ratio of [null, 1, 16 / 9]) {
+          const r = resize(handle, pointer, ratio)
+          const label = `${handle} @${pointer.x},${pointer.y} r=${ratio}`
+          expect(Number.isFinite(r.x + r.y + r.w + r.h), label).toBe(true)
+          expect(r.x, label).toBeGreaterThanOrEqual(0)
+          expect(r.y, label).toBeGreaterThanOrEqual(0)
+          expect(r.x + r.w, label).toBeLessThanOrEqual(BOUNDS.w)
+          expect(r.y + r.h, label).toBeLessThanOrEqual(BOUNDS.h)
+          expect(r.w, label).toBeGreaterThanOrEqual(FUSION_MIN_EDGE)
+          expect(r.h, label).toBeGreaterThanOrEqual(FUSION_MIN_EDGE)
+        }
+      }
+    }
   })
 })
 
