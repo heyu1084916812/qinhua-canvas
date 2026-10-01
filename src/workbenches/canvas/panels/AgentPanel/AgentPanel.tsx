@@ -33,8 +33,10 @@ import {
   IconChevronDown,
   IconClose,
   IconDelete,
+  IconImage,
   IconPlus,
   IconRename,
+  IconSettings,
 } from '../../toolbar/icons'
 import { toConversation } from './conversation'
 import { useAsset } from '../../hooks/useAsset'
@@ -617,129 +619,6 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         )}
       </header>
 
-      <div className={styles.row}>
-        <select
-          className={styles.select}
-          value={current?.channelId ?? ''}
-          onChange={(e) => {
-            const channelId = e.target.value
-            void setModel({ channelId, model: chatModelsOf(channelId)[0]?.id ?? '' })
-          }}
-          data-agent-channel
-        >
-          {enabled.length === 0 && <option value="">（没有可用渠道）</option>}
-          {enabled.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <select
-          className={styles.select}
-          value={current?.model ?? ''}
-          onChange={(e) => void setModel({ model: e.target.value })}
-          data-agent-model
-        >
-          {chatModelsOf(current?.channelId ?? '').map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.id}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className={styles.smallBtn}
-          onClick={() => void saveDefault()}
-          title="把这个模型作为以后新建会话的默认值"
-          data-agent-set-default
-        >
-          {isDefault ? '已设默认' : '设默认'}
-        </button>
-      </div>
-
-      {/* 技能：选了它，agent 就按这份技能的阶段来规划（设计文档 §14 M4） */}
-      <div className={styles.row}>
-        <select
-          className={styles.select}
-          value={current?.skillId ?? ''}
-          onChange={(e) => void setSkill(e.target.value)}
-          data-agent-skill
-        >
-          <option value="">不使用技能</option>
-          {allSkills.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-              {s.source === 'builtin' ? '（内置）' : ''}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/*
-        随对话给的素材（设计文档 §8）：拖进面板、或点「加素材」。
-        落成画布节点后在这里显示成可移除的标签 —— 用户可以随时反悔。
-      */}
-      <div className={styles.row}>
-        <button
-          type="button"
-          className={styles.smallBtn}
-          onClick={() => fileRef.current?.click()}
-          data-agent-add-asset
-        >
-          加素材
-        </button>
-        {/*
-          画布上已经有的节点，不必再导一遍 —— 直接把选中的记进这次对话（§8）。
-          没选中时置灰而不是隐藏：隐藏了用户不知道有这个入口。
-        */}
-        <button
-          type="button"
-          className={styles.smallBtn}
-          onClick={() => void attachSelection()}
-          disabled={selection.length === 0}
-          title={selection.length === 0 ? '先在画布上选中节点' : '把选中的节点当作这次的素材'}
-          data-agent-pick-selection
-        >
-          {selection.length > 0 ? `取选中 ${selection.length}` : '取选中'}
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*,video/*"
-          multiple
-          hidden
-          data-agent-file
-          onChange={(e) => {
-            void attachFiles(e.target.files)
-            e.target.value = ''
-          }}
-        />
-      </div>
-
-      {/*
-        标签**单独占一整行**（不与上面两个按钮挤一排）。
-        挤一排时，按钮先吃掉固定宽度，标签只剩一条窄缝 —— 节点 id 又长，
-        实测标签右缘正好顶到面板外边界（padding 被吃穿），✕ 贴边。
-      */}
-      {(current?.pendingAssetIds ?? []).length > 0 && (
-        <div className={styles.chips}>
-          {(current?.pendingAssetIds ?? []).map((id) => (
-            <span key={id} className={styles.chip} data-agent-asset={id}>
-              <span className={styles.chipText}>{id}</span>
-              <button
-                type="button"
-                className={styles.chipBtn}
-                title="移除这张素材"
-                onClick={() => void dropAsset(id)}
-                data-agent-asset-remove={id}
-              >
-                ✕
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-
       <div className={styles.messages} ref={scrollRef} data-agent-messages>
         {items.length === 0 && (
           <p className={styles.hint}>
@@ -809,6 +688,121 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             {status.kind === 'error' ? `：${status.message}` : ''}
           </div>
         )}
+      </div>
+
+      {/*
+        输入区上方的一条工具栏：素材 / 参数都在这里。
+        参考产品（liblib.tv）的排法是「对话框在上、工具条贴在它下面」，
+        参数不占对话区 —— 用户要的是聊天，参数是「调」，不该站在面板开头。
+      */}
+      <div className={styles.toolbar}>
+        {/* 已挂素材的标签：一格一格收在工具条里，不再单独占一整行 */}
+        {(current?.pendingAssetIds ?? []).length > 0 && (
+          <div className={styles.chips}>
+            {(current?.pendingAssetIds ?? []).map((id) => (
+              <span key={id} className={styles.chip} data-agent-asset={id}>
+                <span className={styles.chipText}>{id}</span>
+                <button
+                  type="button"
+                  className={styles.chipBtn}
+                  title="移除这张素材"
+                  onClick={() => void dropAsset(id)}
+                  data-agent-asset-remove={id}
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          className={styles.iconBtn}
+          onClick={() => fileRef.current?.click()}
+          title="加素材（图片 / 视频）"
+          data-agent-add-asset
+        >
+          <IconPlus size={16} />
+        </button>
+        {/*
+          画布上已经有的节点，不必再导一遍 —— 直接把选中的记进这次对话（§8）。
+          没选中时置灰而不是隐藏：隐藏了用户不知道有这个入口。
+        */}
+        <button
+          type="button"
+          className={styles.iconBtn}
+          onClick={() => void attachSelection()}
+          disabled={selection.length === 0}
+          title={selection.length === 0 ? '先在画布上选中节点' : '把选中的节点当作这次的素材'}
+          data-agent-pick-selection
+        >
+          <IconImage size={16} />
+        </button>
+        {/* 技能：选了它，agent 就按这份技能的阶段来规划（设计文档 §14 M4） */}
+        <select
+          className={styles.pick}
+          value={current?.skillId ?? ''}
+          onChange={(e) => void setSkill(e.target.value)}
+          data-agent-skill
+        >
+          <option value="">不使用技能</option>
+          {allSkills.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+              {s.source === 'builtin' ? '（内置）' : ''}
+            </option>
+          ))}
+        </select>
+        {/* 渠道 + 模型：当前会话用哪个（§8「每个会话可单独选模型」） */}
+        <select
+          className={styles.pick}
+          value={current?.channelId ?? ''}
+          onChange={(e) => {
+            const channelId = e.target.value
+            void setModel({ channelId, model: chatModelsOf(channelId)[0]?.id ?? '' })
+          }}
+          data-agent-channel
+        >
+          {enabled.length === 0 && <option value="">（没有可用渠道）</option>}
+          {enabled.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        <select
+          className={styles.pick}
+          value={current?.model ?? ''}
+          onChange={(e) => void setModel({ model: e.target.value })}
+          data-agent-model
+        >
+          {chatModelsOf(current?.channelId ?? '').map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.id}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className={styles.iconBtn}
+          onClick={() => void saveDefault()}
+          title={isDefault ? '已是默认模型' : '把这个模型设为以后新建会话的默认值'}
+          data-agent-set-default
+        >
+          {isDefault ? <IconCheck size={16} /> : <IconSettings size={16} />}
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,video/*"
+          multiple
+          hidden
+          data-agent-file
+          onChange={(e) => {
+            void attachFiles(e.target.files)
+            e.target.value = ''
+          }}
+        />
       </div>
 
       {/*

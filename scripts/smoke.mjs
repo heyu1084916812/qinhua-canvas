@@ -13538,10 +13538,11 @@ async function g95(browser) {
 
   await page.locator('[data-agent-set-default]').click()
   await sleep(400)
+  /** 图标化之后按钮上不再有文字，改认 title（悬停提示）是否切到「已是默认模型」 */
   rec(
     g,
     '★ 能把当前模型设为默认',
-    (await page.locator('[data-agent-set-default]').innerText()).includes('已设默认'),
+    ((await page.locator('[data-agent-set-default]').getAttribute('title')) ?? '').includes('已是默认模型'),
   )
 
   /**
