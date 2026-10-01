@@ -256,6 +256,27 @@
   align-items: center;
   gap: var(--space-1);
   min-width: 0;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.chevronDown,
+.chevronUp {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--text-3);
+}
+.chevronDown svg {
+  transition: transform var(--dur-hover) ease;
+}
+.chevronUp svg {
+  transform: rotate(180deg);
+  transition: transform var(--dur-hover) ease;
 }
 
 .stepLabel {

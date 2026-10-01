@@ -13753,7 +13753,9 @@ async function g95(browser) {
    * 缩略图与明细都在展开层里 —— 默认收起时对话流只留一行行标题，
    * 点开「已运行生成」才看到产物图。
    */
-  const detailBtn = page.locator('[data-agent-step-detail="runNode"]').first()
+  const detailBtn = page
+    .locator('[data-agent-step="runNode"] [data-agent-step-detail="runNode"]')
+    .first()
   await detailBtn.click()
   await sleep(400)
   const thumbs = await page.locator('[data-agent-thumb] img').count()

@@ -15,7 +15,7 @@ import {
   isImportableMedia,
 } from '../../../../features/canvas/importAsset'
 import { useCanvasExecution } from '../../execution/CanvasExecutionProvider'
-import { useCanvasStore, useSelection } from '../../storeContext'
+import { useCanvasStore, useGraph, useSelection } from '../../storeContext'
 import { useViewportState } from '../../storeContext'
 import type { CanvasStore } from '../../../../state/workbenches/canvas/store'
 import type { TextRunRequest } from '../../../../platform/channels/types'
@@ -90,6 +90,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const [titleDraft, setTitleDraft] = useState('')
   /** 删除会话走两步：第一次点只是「准备好」，第二次点才真删（对齐库里其他删除入口） */
   const [confirmDelete, setConfirmDelete] = useState(false)
+  /** 「已设默认」的提示框只闪一次，用完即收 */
+  const [defaultSaved, setDefaultSaved] = useState(false)
   /** 展开看细节的步骤（工具调用 id 集合）。默认全收起 —— 对话流先保持干净 */
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement | null>(null)
@@ -431,6 +433,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     if (!current) return
     await presets.saveAgentDefault({ channelId: current.channelId, model: current.model })
     setIsDefault(true)
+    setDefaultSaved(true)
   }, [current, presets])
 
   /**
@@ -509,15 +512,16 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 因为「哪一步该说什么」是产品口径，得能断言。
    */
   const items = useMemo(() => toConversation(messages), [messages])
-  /** 节点 id → 产物 hash：步骤卡据此把这一步产出的图**内嵌**显示 */
+  /** 节点 id → 产物 hash：步骤卡据此把这一步产出的图**内嵌**显示（图变更时跟着刷） */
+  const graph = useGraph()
   const hashOfNode = useMemo(() => {
     const map = new Map<string, string>()
-    for (const n of store.getSnapshot().nodes) {
+    for (const n of graph.nodes) {
       const hash = (n.data as { assetHash?: unknown }).assetHash
       if (typeof hash === 'string' && hash) map.set(n.id, hash)
     }
     return map
-  }, [store, messages])
+  }, [graph])
   const pendingPlan = previewOf(status, store)
 
   return (
@@ -664,20 +668,20 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               className={item.failed ? styles.stepFailed : styles.step}
               data-agent-step={item.tool}
             >
-              <div className={styles.stepHead}>
+              <button
+                type="button"
+                className={styles.stepHead}
+                data-agent-step-detail={item.tool}
+                onClick={() => hasDetail && toggleStep(item.id)}
+                title={hasDetail ? (isOpen ? '收起细节' : '看这一步的细节') : item.label}
+              >
                 <span className={styles.stepLabel}>{item.label}</span>
                 {hasDetail && (
-                  <button
-                    type="button"
-                    className={styles.iconBtn}
-                    title={isOpen ? '收起细节' : '看这一步的细节'}
-                    onClick={() => toggleStep(item.id)}
-                    data-agent-step-detail={item.tool}
-                  >
+                  <span className={isOpen ? styles.chevronUp : styles.chevronDown}>
                     <IconChevronDown size={14} />
-                  </button>
+                  </span>
                 )}
-              </div>
+              </button>
               {isOpen && item.lines.length > 0 && (
                 <ul className={styles.stepLines}>
                   {item.lines.map((l, k) => (
@@ -804,7 +808,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           title={isDefault ? '已是默认模型' : '把这个模型设为以后新建会话的默认值'}
           data-agent-set-default
         >
-          {isDefault ? <IconCheck size={16} /> : <IconSettings size={16} />}
+          {defaultSaved ? <IconCheck size={16} /> : <IconSettings size={16} />}
         </button>
         <input
           ref={fileRef}
