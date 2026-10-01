@@ -5,6 +5,16 @@
 
 ---
 
+## 新增 · Agnes 自有模型显示名与官方图标（2026-10-01）
+
+- **纠正一处错误**：上一轮把 `Nano Banana 2` / `GPT-6 Astra` / `即梦 2.5` 这三个**别家厂商的**显示名映射到 Agnes 的 ID —— 面板写着 A、实际发 B。已撤掉。
+- Agnes 现在有自己的显示名：`Agnes 2.5 Pro` / `Agnes Image 2.5 Flash` / `Agnes Video 2.0`，排在模型清单最前，各带 alias 指向真实 ID。
+- 官方图标取自官网品牌图与 favicon，落成 `src/assets/model-logos/agnes.png`（192×192）。
+- **每类只留一个、只留实测通过的**：对话 `agnes-2.5-pro`（商业稳定版 Pro）、生图 `agnes-image-2.5-flash`（官方称综合超越 2.1 Flash）、视频 `agnes-video-v2.0`（三个视频模型里唯一真出过片；2.5 余额不足、2.5-flash 队列一直满）。
+- 映射表固定行数 15 → 18。
+
+---
+
 ## 变更 · 厂商图标抽到共享层，设置页模型映射行加图标（2026-10-01）
 
 - `ModelIcon` 从画布私有层（`workbenches/canvas/panels/`）迁到 `features/shared/modelIcon/`，让画布生成节点与设置页**共用一份实现**（两处不可能画出两个样）。

@@ -10644,11 +10644,15 @@ async function g79(browser) {
   const trimmedLabels = allRowLabels.map((s) => s.trim())
   rec(
     g,
-    '★ 映射区只列 15 个固定显示名，不含上游裸 ID 或重复项',
-    (await allRows.count()) === 15 &&
-      (await presetRows.count()) === 15 &&
+    '★ 映射区只列 18 个固定显示名（含 Agnes 自有三个），不含上游裸 ID 或重复项',
+    (await allRows.count()) === 18 &&
+      (await presetRows.count()) === 18 &&
       presetLabels.map((s) => s.trim()).includes('GPT Image 2') &&
+      // Agnes 有自己的显示名，不再把它的 ID 塞进别家的名字里
+      presetLabels.map((s) => s.trim()).includes('Agnes 2.5 Pro') &&
+      presetLabels.map((s) => s.trim()).includes('Agnes Video 2.0') &&
       !trimmedLabels.includes('gpt-image-2') &&
+      !trimmedLabels.includes('agnes-2.5-pro') &&
       !trimmedLabels.includes('gemini-3.1-pro-preview') &&
       !trimmedLabels.includes('gemini-3.5-flash') &&
       new Set(trimmedLabels).size === trimmedLabels.length,

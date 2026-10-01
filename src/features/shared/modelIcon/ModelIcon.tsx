@@ -31,6 +31,7 @@ import jimengLogo from '../../../assets/model-logos/jimeng.png'
 import falLogo from '../../../assets/model-logos/fal.png'
 import minimaxLogo from '../../../assets/model-logos/minimax.png'
 import wanLogo from '../../../assets/model-logos/wan.png'
+import agnesLogo from '../../../assets/model-logos/agnes.png'
 
 const LOGOS: Record<PresetVendor, string> = {
   openai: openaiLogo,
@@ -40,6 +41,7 @@ const LOGOS: Record<PresetVendor, string> = {
   fal: falLogo,
   minimax: minimaxLogo,
   alibaba: wanLogo,
+  agnes: agnesLogo,
 }
 
 /** 每个厂商的中文名，供悬停提示（图标本身是 `aria-hidden` 的装饰） */
@@ -51,6 +53,7 @@ const VENDOR_LABEL: Record<PresetVendor, string> = {
   fal: 'fal',
   minimax: 'MiniMax',
   alibaba: '阿里',
+  agnes: 'Agnes',
 }
 
 interface ModelIconProps extends Omit<SVGProps<SVGSVGElement>, 'children'> {

@@ -24,6 +24,7 @@ export type PresetVendor =
   | 'minimax'
   | 'fal'
   | 'alibaba'
+  | 'agnes'
 
 export interface PresetModel {
   /** 前端显示名 = 逻辑名（跨站点稳定，请求时经 `modelMap` 翻译） */
@@ -91,7 +92,33 @@ export const PRESET_VIDEO_MODELS: readonly PresetModel[] = [
   { id: 'Wan 3.0', category: 'video', vendor: 'alibaba' },
 ]
 
+/**
+ * Agnes 自有模型（用户 2026-10-01）。
+ *
+ * 为什么单独一组、还排在最前：Agnes 是用户当前的平台，而它的模型名**不属于**
+ * 上面那三组里的任何厂商（把 Agnes 的 ID 塞进 `GPT-6 Astra`、`Nano Banana 2`
+ * 这类别家显示名里是错的——面板写着 A、实际发 B）。所以给它**自己的显示名**。
+ *
+ * 只列**实测通过**的三个，每类一个（用户：「每个类别只保留一个就行，保留可以用的，
+ * 测试有结果的，最强的」）：
+ *   - 对话 → `agnes-2.5-pro`（6 个全测通，其中它是商业稳定版 Pro，非预览非轻量档）
+ *   - 生图 → `agnes-image-2.5-flash`（官方写明综合超越 2.1 Flash）
+ *   - 视频 → `agnes-video-v2.0`（三个视频模型里唯一真出过片的；
+ *     `agnes-video-2.5` 余额不足、`agnes-video-2.5-flash` 队列一直满）
+ */
+export const PRESET_AGNES_MODELS: readonly PresetModel[] = [
+  { id: 'Agnes 2.5 Pro', category: 'chat', vendor: 'agnes', aliases: ['agnes-2.5-pro'] },
+  {
+    id: 'Agnes Image 2.5 Flash',
+    category: 'image',
+    vendor: 'agnes',
+    aliases: ['agnes-image-2.5-flash'],
+  },
+  { id: 'Agnes Video 2.0', category: 'video', vendor: 'agnes', aliases: ['agnes-video-v2.0'] },
+]
+
 export const PRESET_MODELS: readonly PresetModel[] = [
+  ...PRESET_AGNES_MODELS,
   ...PRESET_IMAGE_MODELS,
   ...PRESET_CHAT_MODELS,
   ...PRESET_VIDEO_MODELS,
