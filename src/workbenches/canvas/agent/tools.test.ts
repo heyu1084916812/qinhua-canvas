@@ -1,0 +1,159 @@
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { registerAllSpecs } from '../../../domain/canvas/nodeSpecs'
+import { createMemoryPlatform } from '../../../platform/memory'
+import { createCanvasStore, type CanvasStore } from '../../../state/workbenches/canvas/store'
+import {
+  AGENT_TOOLS,
+  executeConfirmedTool,
+  executeReadTool,
+  readAssetInfo,
+  readGraphSummary,
+  readResults,
+  type AgentToolContext,
+} from './tools'
+
+/**
+ * 工具集（设计文档 §5）。
+ *
+ * 除了功能，这里盯一条结构性的规矩：**读类与写类是分开的执行器** ——
+ * 循环只能拿到读那个，所以「边想边把画布改了」在代码上就写不出来。
+ */
+
+beforeEach(() => registerAllSpecs())
+
+function setup() {
+  const store: CanvasStore = createCanvasStore({
+    platform: createMemoryPlatform() as never,
+    projectId: 'p1',
+  })
+  const runNodes = vi.fn(async (ids: string[]) => ids.map((nodeId) => ({ nodeId, ok: true })))
+  const ctx: AgentToolContext = { store, origin: { x: 0, y: 0 }, runNodes }
+  return { store, ctx, runNodes }
+}
+
+const addNode = (
+  store: CanvasStore,
+  type: 'prompt' | 'generation',
+  data: Record<string, unknown> = {},
+) => {
+  store.dispatch({ kind: 'node.create', projectId: 'p1', type, at: { x: 0, y: 0 }, data })
+  return store.getSnapshot().nodes.at(-1)!.id
+}
+
+describe('工具声明', () => {
+  it('★ 六个工具都在，且都带参数 schema（模型据此决定怎么调）', () => {
+    expect(AGENT_TOOLS.map((t) => t.name).sort()).toEqual([
+      'applyPlan',
+      'readAsset',
+      'readGraph',
+      'readResult',
+      'runNode',
+      'updateNode',
+    ])
+    for (const t of AGENT_TOOLS) expect(t.parameters).toMatchObject({ type: 'object' })
+  })
+})
+
+describe('读类工具', () => {
+  it('★ readGraph 报出节点、连线和「出过图没有」', async () => {
+    const { store, ctx } = setup()
+    const p = addNode(store, 'prompt', { text: '橘猫' })
+    const g = addNode(store, 'generation', { mode: 'image', assetHash: 'h1' })
+    store.dispatch({ kind: 'edge.connect', source: p, target: g })
+
+    const s = readGraphSummary(store, 'all')
+    expect(s.nodes).toHaveLength(2)
+    expect(s.nodes.find((n) => n.id === g)?.hasOutput).toBe(true)
+    expect(s.nodes.find((n) => n.id === p)?.hasOutput).toBe(false)
+    expect(s.edges).toEqual([{ source: p, target: g, sourcePort: 'output', targetPort: 'input' }])
+
+    // 通过执行器调也一样（循环走的就是这个入口）
+    expect(await executeReadTool('readGraph', { scope: 'all' }, ctx)).toMatchObject({
+      nodes: expect.any(Array),
+    })
+  })
+
+  it('★★ readAsset 只报节点记下来的真实像素，没记就不编', async () => {
+    const { store, ctx } = setup()
+    const withSize = addNode(store, 'generation', {
+      mode: 'image',
+      naturalSize: { width: 1024, height: 768 },
+    })
+    const noSize = addNode(store, 'generation', { mode: 'image' })
+
+    const out = readAssetInfo(store, [withSize, noSize, 'nope'])
+    expect(out[0]).toMatchObject({ nodeId: withSize, width: 1024, height: 768 })
+    // 没记录尺寸 → 不出现 width/height（编一个会让 agent 判断错）
+    expect(out[1]!.width).toBeUndefined()
+    expect(out[2]!.mime).toBe('unknown')
+
+    expect(await executeReadTool('readAsset', { nodeIds: [withSize] }, ctx)).toMatchObject({
+      assets: expect.any(Array),
+    })
+  })
+
+  it('★ readResult：有产物就是 ok，没有就是 empty，节点不存在就 missing', () => {
+    const { store } = setup()
+    const ok = addNode(store, 'generation', { mode: 'image', assetHash: 'h1' })
+    const empty = addNode(store, 'generation', { mode: 'image' })
+    const out = readResults(store, [ok, empty, 'gone'])
+    expect(out.map((r) => r.status)).toEqual(['ok', 'empty', 'missing'])
+  })
+})
+
+describe('写 / 花钱的工具（只由确认后调用）', () => {
+  it('★★ applyPlan 真的把图建出来，并回填自检结果', async () => {
+    const { store, ctx } = setup()
+    const r = (await executeConfirmedTool(
+      'applyPlan',
+      {
+        summary: '提示词 → 生成',
+        nodes: [
+          { localId: 'p1', type: 'prompt', data: { text: '橘猫' }, order: 0 },
+          { localId: 'g1', type: 'generation', data: { mode: 'image' }, order: 1 },
+        ],
+        edges: [{ source: 'p1', target: 'g1' }],
+      },
+      ctx,
+    )) as { ok: boolean; problems: string[]; createdNodeIds: string[] }
+
+    expect(r.ok).toBe(true)
+    expect(r.problems).toEqual([])
+    expect(r.createdNodeIds).toHaveLength(2)
+    expect(store.getSnapshot().nodes).toHaveLength(2)
+    expect(store.getSnapshot().edges).toHaveLength(1)
+  })
+
+  it('★★ 计划非法 → 不落地，把逐条错误回填（模型据此改）', async () => {
+    const { store, ctx } = setup()
+    const r = (await executeConfirmedTool(
+      'applyPlan',
+      { summary: 'x', nodes: [{ localId: 'a', type: '不存在的类型', data: {}, order: 0 }], edges: [] },
+      ctx,
+    )) as { ok: boolean; problems: string[] }
+
+    expect(r.ok).toBe(false)
+    expect(r.problems.join()).toContain('不认识')
+    expect(store.getSnapshot().nodes).toHaveLength(0)
+  })
+
+  it('★ updateNode 改参数；节点不存在则如实报错', async () => {
+    const { store, ctx } = setup()
+    const id = addNode(store, 'generation', { mode: 'image' })
+    expect(await executeConfirmedTool('updateNode', { nodeId: id, data: { ratio: '16:9' } }, ctx)).toEqual(
+      { ok: true },
+    )
+    const r = (await executeConfirmedTool('updateNode', { nodeId: 'gone', data: {} }, ctx)) as {
+      ok: boolean
+    }
+    expect(r.ok).toBe(false)
+  })
+
+  it('★★ runNode 走注入的执行层（agent 自己不直接发渠道请求）', async () => {
+    const { store, ctx, runNodes } = setup()
+    const id = addNode(store, 'generation', { mode: 'image' })
+    const r = (await executeConfirmedTool('runNode', { nodeIds: [id] }, ctx)) as { ok: boolean }
+    expect(r.ok).toBe(true)
+    expect(runNodes).toHaveBeenCalledWith([id])
+  })
+})
