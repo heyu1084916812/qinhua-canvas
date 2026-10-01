@@ -131,6 +131,26 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
           messages: [{ role: 'user', content }],
           // 温度刻意不设：让服务端用默认值。写死 0.7 会让「优化提示词」这类
           // 需要确定性的任务变得不稳定，而用户并没有要求可调温度。
+          /**
+           * 工具声明（Agent 用）。不传 tools 时不加任何字段 —— 与加这个能力之前
+           * 的请求**逐字节一致**，老路径的行为不受影响。
+           *
+           * `tool_choice: 'auto'`：让模型自己决定「这句话要不要动手」。
+           * 写 `required` 会逼它对「你好」这种纯聊天也去调工具。
+           */
+          ...(request.tools?.length
+            ? {
+                tools: request.tools.map((t) => ({
+                  type: 'function',
+                  function: {
+                    name: t.name,
+                    ...(t.description ? { description: t.description } : {}),
+                    parameters: t.parameters,
+                  },
+                })),
+                tool_choice: 'auto',
+              }
+            : {}),
         },
         timeoutMs: CHAT_TIMEOUT_MS,
       },
@@ -142,20 +162,41 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
       throw new ChannelError(error)
     }
     const body = await res
-      .json<{ choices?: { message?: { content?: unknown }; finish_reason?: string }[] }>()
+      .json<{
+        choices?: {
+          message?: {
+            content?: unknown
+            tool_calls?: { id?: unknown; function?: { name?: unknown; arguments?: unknown } }[]
+          }
+          finish_reason?: string
+        }[]
+      }>()
       .catch(() => null)
-    const text = body?.choices?.[0]?.message?.content
+    const message = body?.choices?.[0]?.message
+    const text = message?.content
+    /** 工具调用：`arguments` 保持原始字符串，解析交给 caller（见 TextResult 的说明） */
+    const toolCalls = (message?.tool_calls ?? [])
+      .map((c) => ({
+        id: typeof c.id === 'string' ? c.id : '',
+        name: typeof c.function?.name === 'string' ? c.function.name : '',
+        args: typeof c.function?.arguments === 'string' ? c.function.arguments : '',
+      }))
+      .filter((c) => c.name)
     /**
      * 没有 content 就如实报解析失败，不返回空串。
      * 空串会被上层当成「模型回答了，只是回答是空的」写回节点——把原文冲掉，
      * 用户看到提示词凭空消失却查不到原因（正是「看起来通了」那一类）。
+     *
+     * **例外**：带工具调用时 `content` 本来就是 `null`。早先这里只认字符串，
+     * 于是「模型正确地要求调工具」会被判成解析失败 —— 正是 M0 要填的坑。
      */
-    if (typeof text !== 'string') {
+    if (typeof text !== 'string' && toolCalls.length === 0) {
       throw new ChannelError({ kind: 'parse', raw: '聊天响应里没有 message.content' })
     }
     const reason = body?.choices?.[0]?.finish_reason
     return {
-      text,
+      text: typeof text === 'string' ? text : '',
+      ...(toolCalls.length > 0 ? { toolCalls } : {}),
       finishReason:
         reason === 'stop' || reason === 'length' || reason === 'tool_calls' ? reason : undefined,
     }

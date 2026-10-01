@@ -36,6 +36,14 @@ export interface GeneratedAsset {
 export interface TextResult {
   text: string
   finishReason?: 'stop' | 'length' | 'tool_calls'
+  /**
+   * 模型请求调用的工具（架构 §5.9 ④）。
+   *
+   * `args` 保持**原始 JSON 字符串**、不在这里 parse：解析失败要报给谁、
+   * 失败了怎么回给模型（把错误塞回去让它改），是 caller（agent）的决定，
+   * 适配器不该替它吞掉这个失败。
+   */
+  toolCalls?: { id: string; name: string; args: string }[]
 }
 
 export type VerifyResult =

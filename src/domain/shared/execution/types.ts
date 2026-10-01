@@ -84,12 +84,34 @@ export type NodeInput =
   /** 批量节点作为上游时的集合卡：下游遍历集合内每一项各生成一次 */
   | { kind: 'collection'; nodeId: string; items: NodeInput[] }
 
+/**
+ * 一次可调用的工具声明（Agent 用，架构 §5.9 ④）。
+ *
+ * 刻意只保留「名字 / 说明 / 参数 schema」三件：这是 OpenAI 兼容族的公共子集，
+ * 各家私有字段（缓存、严格模式等）由适配器按需补，**共享层不解释它**。
+ * 放在这里而不是渠道层：主体（agent）要产出它，渠道要消费它，两边共用一份形状。
+ */
+export interface ToolDeclaration {
+  name: string
+  description?: string
+  /** JSON Schema 形式的参数描述 */
+  parameters: Record<string, unknown>
+}
+
 interface RunRequestBase {
   channelId: string
   model: string
   prompt: string
   inputs: NodeInput[]
   params: Record<string, unknown>
+  /**
+   * 本次调用可用的工具。不传 = 普通文本调用（与加这个字段之前完全一致）。
+   *
+   * 为什么挂在请求上而不是 `params` 里：`params` 是**厂商参数**（比例、张数、
+   * 时长……），各渠道含义不同；而「能调哪些工具」是**执行语义**，与厂商无关，
+   * 混进 params 会让适配器既要知道它是谁、又要从一堆厂商字段里挑出来。
+   */
+  tools?: readonly ToolDeclaration[]
 }
 
 /**
