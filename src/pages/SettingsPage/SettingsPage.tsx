@@ -30,6 +30,7 @@ import {
   type RouteStrategy,
 } from '../../domain/project/modelRouting'
 import { PRESET_MODELS } from '../../domain/project/modelPresets'
+import { ModelIcon } from '../../features/shared/modelIcon/ModelIcon'
 import { ModelMapCombo, StrategyPicker } from './SettingsPicker'
 
 /**
@@ -1198,6 +1199,8 @@ export function SettingsPage() {
                     key: m.id,
                     label: m.id,
                     category: m.category,
+                    // 图标与画布那边的模型下拉同源（同一份 ModelIcon），两处不会画出两个样
+                    vendor: m.vendor,
                   }))
                   return (
                     <>
@@ -1232,7 +1235,7 @@ export function SettingsPage() {
                           <div key={category} className={styles.mapGroup} data-route-map-group={category}>
                             <div className={styles.mapGroupTitle}>{title}</div>
                             <div className={styles.mapList}>
-                              {groupRows.map(({ key: id, label }) => {
+                              {groupRows.map(({ key: id, label, vendor }) => {
                                 const saved = selected.modelMap[id] ?? ''
                                 const draft = mapDrafts[id]
                                 const value = draft ?? saved
@@ -1245,7 +1248,8 @@ export function SettingsPage() {
                                     data-route-map-preset={isPreset ? '1' : '0'}
                                   >
                                     <span className={styles.mapName} title={id} data-route-map-label>
-                                      {label}
+                                      <ModelIcon vendor={vendor} size={14} />
+                                      <span className={styles.mapLabelText}>{label}</span>
                                     </span>
                                     <ModelMapCombo
                                       rowId={id}

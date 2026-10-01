@@ -19,7 +19,7 @@ import {
 } from '../../../domain/project/modelCatalog'
 import { presetOf } from '../../../domain/project/modelCatalog'
 import { presetModelsOf } from '../../../domain/project/modelPresets'
-import { ModelIcon } from './ModelIcon'
+import { ModelIcon } from '../../../features/shared/modelIcon/ModelIcon'
 import { IconClose, IconSpinner, IconStop } from '../toolbar/icons'
 
 /** 生成数量：固定四项（§6.8「1张 / 2张 / 4张 / 9张，固定四项」） */

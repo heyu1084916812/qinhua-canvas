@@ -4044,6 +4044,13 @@ async function g44(browser) {
     capKeys.length > 0 && capKeys.every((k) => ['chat', 'image', 'video'].includes(k)),
     capKeys.join(','),
   )
+  // 模型映射行也要带厂商图标（与画布那边的模型下拉同源，一份实现两处引用）
+  const mapRowLogo = await page
+    .locator('[data-route-map-row] [data-model-logo]')
+    .first()
+    .getAttribute('data-model-logo')
+    .catch(() => null)
+  rec(g, '★★ 模型映射行带厂商图标', !!mapRowLogo, mapRowLogo ?? '未找到图标')
   await page.screenshot({ path: `${OUT}/44-a-channels.png` })
 
   // ② 选渠道乙 → 存令牌 → 尾 4 位可见（脱敏显示）

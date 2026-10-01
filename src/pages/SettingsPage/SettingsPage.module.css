@@ -857,8 +857,15 @@
 .mapName {
   flex: none;
   width: 200px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: var(--fs-label);
   color: var(--text-2);
+}
+/* 名字长了只省略文字本身，不把厂商图标挤掉（图标是识别厂商的第一眼线索） */
+.mapLabelText {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
