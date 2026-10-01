@@ -31,29 +31,35 @@ import {
  * 且内置协议目录里没有一条声明 `video` 能力。于是「视频」这个类别在真机上
  * **没有任何一条通路**，只能靠 mock 渠道自证。
  *
- * ## 形态依据（2026-10-01 实测，非推测）
+ * ## 形态依据（2026-10-01 核官方文档，非照搬别人的实现）
  *
- * 提交 `POST {base}/videos`（`{base}` 已含协议声明的版本段），JSON：
+ * 官方文档（`wiki.agnes-ai.com` 的 Agnes Video 2.5 / 2.5 Flash 页）给的是**专属参数**，
+ * 与「OpenAI 视频」不是一套：
  *
  * ```
- * { model, prompt, width, height, num_frames, frame_rate, image?, extra_body?, seed? }
+ * { model, prompt, mode: 'text'|'keyframe'|'reference', seconds, size, aspect_ratio, seed? }
+ * { mode:'keyframe',  first_frame?, last_frame? }
+ * { mode:'reference', images?:[], audios?:[], videos?:[] }
  * ```
+ *
+ * - `seconds` 是 `"4"`–`"12"` 的**字符串**；`size` 是**档位**（`720P`/`1080P`/`1K`/`2K`）
+ *   而不是像素；Flash 只支持 `720P`。这与 `width/height/num_frames/frame_rate`
+ *   完全是两回事，所以本适配器**优先发官方专属参数**。
+ * - 老式部署 / LiteLLM 中转只认 OpenAI 那套，故被 400 拒时**回落一次**再试
+ *   （回落是显式兼容，不是静默降级：两条都失败时抛的是第二条的真实错误）。
  *
  * 提交响应（实测）：
  *
  * ```json
  * { "id":"task_…", "task_id":"task_…", "video_id":"video_…",
- *   "object":"video", "model":"agnes-video-v2.0", "status":"queued",
- *   "progress":0, "seconds":"1.0", "size":"704x512" }
+ *   "object":"video", "model":"agnes-video-2.5", "status":"queued",
+ *   "progress":0, "seconds":"4", "size":"720P" }
  * ```
  *
- * **轮询必须用 `task_id`**：拿 `video_id` 去查会稳定返回
- * `{"code":"task_not_exist"}`（实测踩到过）。查 `GET {base}/videos/{task_id}`
- * 直到 `status: "completed"`，此时**顶层 `url`** 就是产物地址。
- *
- * 另一套部署（大雄那边）用的是 `GET {root}/agnesapi?video_id=…&model_name=…`
- * 且以 `video_id` 为键，故这里把它作为**第二候选**保留 —— 两种形态都试，
- * 谁先返回有效载荷用谁。`root` = 去掉版本段的基址（`/agnesapi` 不在 `/v1` 下）。
+ * 轮询**三种候选依次试**（不同部署认的键不同，实测踩过 `task_not_exist`）：
+ * ① 官方推荐的 `GET {root}/agnesapi?video_id=…&model_name=…`；
+ * ② `GET {base}/videos/{task_id}`（当前线上实际认它）；
+ * ③ `GET {base}/videos/{video_id}`。谁先给出有效载荷用谁。
  *
  * ## 参考图：走 data URL，不在浏览器里转存第三方图床
  *
@@ -126,6 +132,26 @@ function clampInt(value: unknown, min: number, max: number, fallback: number): n
   const n = typeof value === 'number' ? Math.round(value) : Number.parseInt(String(value ?? ''), 10)
   if (!Number.isFinite(n)) return fallback
   return Math.min(max, Math.max(min, n))
+}
+
+/**
+ * 时长 → 官方 `seconds`：`"4"`–`"12"` 的字符串。
+ *
+ * 面板给的是 3–15 秒，两边都夹一下：3 秒要补到 4（上游最短），15 秒要收到 12。
+ */
+export function agnesVideoSeconds(durationSec: unknown): number {
+  return clampInt(durationSec, 4, 12, 5)
+}
+
+/**
+ * 尺寸档 → 官方 `size`。
+ *
+ * 官方只认 `720P`/`1080P`/`1K`/`2K` 四个档位，**不是像素**；面板的 `480p`
+ * 上游没有对应档，按 `720P` 发（宁可比要求的清楚，也不要发一个它不认的值）。
+ * `auto` 同样落到 `720P`：Flash 只支持这一档，发别的会被 400 拒。
+ */
+export function agnesVideoSizeTier(size: unknown): string {
+  return size === '1080p' ? '1080P' : '720P'
 }
 
 /**
@@ -298,17 +324,23 @@ export function createOpenAiVideoAdapter(
     return (body.data ?? []).map((m) => toModelCapability(m.id))
   }
 
-  /** 素材字节 → `data:` URL。读不到就跳过（参考图是增强项，不该拖垮整次生成） */
-  const referenceImages = async (request: VideoRunRequest): Promise<string[]> => {
-    const wanted = imageInputsOf(request.inputs)
-    if (wanted.length === 0) return []
-    const out: string[] = []
-    for (const item of wanted) {
-      const payload = await deps.assets.read(item.assetHash)
-      if (!payload) continue
-      out.push(`data:${payload.mime};base64,${bytesToBase64(payload.bytes)}`)
-    }
-    return out
+  /**
+   * 参考图 / 首尾帧：官方**明文要求公网可访问的图片 URL**
+   * （"All media URLs must be publicly reachable by the Agnes AI service"）。
+   *
+   * 轻画的素材住在浏览器 IndexedDB 里，没有能被上游抓取的地址；塞 `data:` URL
+   * 上游同样取不到。故这里**如实拦住并说清原因**，而不是发出去换回一个
+   * 「图片下载失败」这种指不到病根的错误。
+   */
+  const assertNoLocalReferenceImages = (request: VideoRunRequest): void => {
+    if (imageInputsOf(request.inputs).length === 0) return
+    throw new ChannelError({
+      kind: 'http',
+      status: 400,
+      body:
+        '该视频渠道的参考图 / 首尾帧需要公网可访问的图片地址，浏览器里的本地素材无法直传。' +
+        '请改用纯文生视频，或先把图片上传到可公开访问的地址。',
+    })
   }
 
   const poll = async (
@@ -318,18 +350,22 @@ export function createOpenAiVideoAdapter(
     signal: AbortSignal,
   ): Promise<unknown> => {
     /**
-     * 顺序有讲究：先用**实测可用**的 `task_id` 路由，再回落到另一套部署的
-     * `/agnesapi?video_id=`。反过来会让本站在每次轮询里白撞一次 400。
+     * 候选顺序照官方推荐排：`/agnesapi?video_id=` 在前，再回落两条 REST 路由。
+     * 线上这一环实际认的是 `{base}/videos/{task_id}`，而它拿 `video_id` 查会回
+     * `task_not_exist` —— 所以是「谁先给出有效载荷用谁」，不写死一条。
      */
-    const taskUrl = `${submitUrl}/${encodeURIComponent(taskId)}`
-    const legacyUrl = videoId
-      ? `${root}/agnesapi?video_id=${encodeURIComponent(videoId)}&model_name=${encodeURIComponent(model)}`
-      : null
+    const candidates = [
+      videoId
+        ? `${root}/agnesapi?video_id=${encodeURIComponent(videoId)}&model_name=${encodeURIComponent(model)}`
+        : null,
+      `${submitUrl}/${encodeURIComponent(taskId)}`,
+      videoId ? `${submitUrl}/${encodeURIComponent(videoId)}` : null,
+    ].filter((u): u is string => !!u)
     const startedAt = now()
     for (;;) {
       let payload: unknown = null
       let lastError: unknown = null
-      for (const url of legacyUrl ? [taskUrl, legacyUrl] : [taskUrl]) {
+      for (const url of candidates) {
         try {
           const res = await deps.network.request(
             { url, method: 'GET', headers: authHeader(config.apiKey), timeoutMs: VERIFY_TIMEOUT_MS },
@@ -337,17 +373,26 @@ export function createOpenAiVideoAdapter(
           )
           if (res.status < 200 || res.status >= 300) {
             /**
-             * 400 `task_not_exist` 是「这条路走不通」，交给下一个候选；
-             * 其余状态（401 / 429 / 5xx）是真失败，原样抛出——继续轮询只会
-             * 把「令牌失效」拖成一个 10 分钟的超时。
+             * 「这条路走不通」有两种形态：这一环没有 `/agnesapi` 时是 **404**，
+             * 有它但不认这个键时是 **400 `task_not_exist`**。两种都交给下一个候选；
+             * 其余状态（401 / 429 / 5xx）是真失败，原样抛出——继续轮询只会把
+             * 「令牌失效」拖成一个 10 分钟的超时。
              */
             const detail = await res.text().catch(() => '')
-            if (res.status === 400 && /task_not_exist/i.test(detail)) continue
+            if (res.status === 404 || (res.status === 400 && /task_not_exist/i.test(detail))) continue
             const { error } = classifyError(null, res.status, detail)
             throw new ChannelError(error)
           }
-          payload = await res.json<unknown>().catch(() => null)
-          if (payload) break
+          const body = await res.json<unknown>().catch(() => null)
+          /**
+           * 200 不等于「这条路能查」：SPA / 网关对未知路径回 200 空体很常见。
+           * 只有真带状态或产物地址的响应才算数，否则继续试下一个候选
+           * ——否则会拿一个空对象当「任务还在排队」，一路空转到超时。
+           */
+          if (body && (videoTaskStatus(body) || collectVideoUrls(body).length > 0)) {
+            payload = body
+            break
+          }
         } catch (e) {
           if (e instanceof ChannelError) throw e
           lastError = e
@@ -375,29 +420,8 @@ export function createOpenAiVideoAdapter(
     }
   }
 
-  const generateVideo: ChannelAdapter['generateVideo'] = async (request, signal) => {
-    const { width, height } = agnesVideoDimensions(request.params.ratio, request.params.size)
-    const numFrames = agnesVideoFrameCount(request.params.durationSec)
-    const images = await referenceImages(request)
-
-    const body: Record<string, unknown> = {
-      model: request.model,
-      prompt: request.prompt,
-      width,
-      height,
-      num_frames: numFrames,
-      frame_rate: VIDEO_FPS,
-    }
-    if (images.length === 1) body.image = images[0]
-    else if (images.length > 1) {
-      body.extra_body = { image: images }
-      // 首尾帧语义由面板的 refMode 决定；多参考图默认按关键帧送
-      if (request.params.refMode !== 'all-purpose') {
-        ;(body.extra_body as Record<string, unknown>).mode = 'keyframes'
-      }
-    }
-
-    const res = await deps.network.request(
+  const submit = (body: Record<string, unknown>, signal: AbortSignal) =>
+    deps.network.request(
       {
         url: submitUrl,
         method: 'POST',
@@ -407,6 +431,36 @@ export function createOpenAiVideoAdapter(
       },
       signal,
     )
+
+  const generateVideo: ChannelAdapter['generateVideo'] = async (request, signal) => {
+    assertNoLocalReferenceImages(request)
+    const { width, height } = agnesVideoDimensions(request.params.ratio, request.params.size)
+    const numFrames = agnesVideoFrameCount(request.params.durationSec)
+
+    /** 官方文档给 Agnes Video 2.5 / 2.5 Flash 的专属参数（`mode` 为必填） */
+    const documented: Record<string, unknown> = {
+      model: request.model,
+      prompt: request.prompt,
+      mode: 'text',
+      seconds: String(agnesVideoSeconds(request.params.durationSec)),
+      size: agnesVideoSizeTier(request.params.size),
+      ...(typeof request.params.ratio === 'string' ? { aspect_ratio: request.params.ratio } : {}),
+    }
+    /** 老式部署 / LiteLLM 中转只认「OpenAI 视频」那套（像素 + 帧数） */
+    const legacy: Record<string, unknown> = {
+      model: request.model,
+      prompt: request.prompt,
+      width,
+      height,
+      num_frames: numFrames,
+      frame_rate: VIDEO_FPS,
+    }
+
+    let res = await submit(documented, signal)
+    if (res.status === 400) {
+      // 专属参数被拒才回落；这不是静默降级——两条都失败时抛的是第二条的真实错误
+      res = await submit(legacy, signal)
+    }
     if (res.status < 200 || res.status >= 300) {
       const detail = await res.text().catch(() => '')
       const { error } = classifyError(null, res.status, detail)
@@ -463,14 +517,4 @@ export function createOpenAiVideoAdapter(
       throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
     },
   }
-}
-
-/** 分块转 base64：`String.fromCharCode(...bytes)` 在几 MB 的图上会爆栈 */
-function bytesToBase64(bytes: Uint8Array): string {
-  const CHUNK = 0x8000
-  let binary = ''
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
-  }
-  return btoa(binary)
 }

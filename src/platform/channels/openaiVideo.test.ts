@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { createMemoryPlatform } from '../../platform/memory'
 import type { NetworkRequest, NetworkResponse } from '../../platform/ports'
 import {
+  agnesVideoSeconds,
+  agnesVideoSizeTier,
   agnesVideoDimensions,
   agnesVideoFrameCount,
   collectVideoUrls,
@@ -94,6 +96,20 @@ describe('视频参数映射（Agnes 形态）', () => {
     expect(agnesVideoFrameCount(0)).toBe(agnesVideoFrameCount(1))
     expect(agnesVideoFrameCount('nonsense')).toBe(agnesVideoFrameCount(5))
   })
+
+  it('★ 官方 seconds 是字符串且夹到 4–12（面板给的是 3–15）', () => {
+    expect(agnesVideoSeconds(3)).toBe(4)
+    expect(agnesVideoSeconds(15)).toBe(12)
+    expect(agnesVideoSeconds(8)).toBe(8)
+    expect(agnesVideoSeconds(undefined)).toBe(5)
+  })
+
+  it('★ 官方 size 是档位不是像素；480p / auto 都落到 720P', () => {
+    expect(agnesVideoSizeTier('1080p')).toBe('1080P')
+    expect(agnesVideoSizeTier('720p')).toBe('720P')
+    expect(agnesVideoSizeTier('480p')).toBe('720P')
+    expect(agnesVideoSizeTier('auto')).toBe('720P')
+  })
 })
 
 describe('任务响应解析', () => {
@@ -164,14 +180,13 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
     // 请求像素要如实记下来（§6.18 日志「请求像素」）
     expect(assets[0]!.requestedWidth).toBe(720)
     expect(assets[0]!.requestedHeight).toBe(408)
-    // 轮询键必须是 task_id
+    // 官方推荐的 /agnesapi 先被试一次（本站 404），真正出数据的是 task_id 路由
+    expect(calls.some((c) => c.includes('/agnesapi'))).toBe(true)
     expect(calls.some((c) => c.includes('/videos/task_1'))).toBe(true)
-    // 任务路由通则不该再去撞另一套部署的 /agnesapi（每轮白撞一次 400）
-    expect(calls.some((c) => c.includes('/agnesapi'))).toBe(false)
     expect(polls).toBe(2)
   })
 
-  it('★ 提交体用像素而不是比例字面量（该站按像素收）', async () => {
+  it('★★ 提交体优先用官方专属参数（mode / seconds / size / aspect_ratio）', async () => {
     let sent: Record<string, unknown> | null = null
     const platform = createMemoryPlatform({
       handler: async (req: NetworkRequest) => {
@@ -182,7 +197,7 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
         if (req.url.includes('/videos/t')) {
           return json(200, { status: 'completed', url: 'https://x/v.mp4' })
         }
-        return json(200, {})
+        return json(404, {})
       },
     })
     const adapter = createOpenAiVideoAdapter(config, platform, { sleep: async () => {}, now: () => 0 })
@@ -190,12 +205,48 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
 
     expect(sent).toMatchObject({
       model: 'agnes-video-v2.0',
-      width: 720,
-      height: 408,
-      frame_rate: 24,
+      mode: 'text',
+      seconds: '4',
+      size: '720P',
+      aspect_ratio: '16:9',
     })
-    expect(sent!.num_frames).toBe(25)
-    expect(sent!.ratio).toBeUndefined()
+    // 官方形态里没有像素字段——两套混着发是此前误实现的来源
+    expect(sent!.width).toBeUndefined()
+    expect(sent!.num_frames).toBeUndefined()
+  })
+
+  it('★ 专属参数被 400 拒时回落 OpenAI 形态（老部署只认那套）', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest) => {
+        if (req.method === 'POST') {
+          const body = req.body as Record<string, unknown>
+          bodies.push(body)
+          // 带 mode 的那次被拒；不带 mode 的像素形态才通过
+          return body.mode ? json(400, { error: 'bad params' }) : json(200, { task_id: 't', video_id: 'v' })
+        }
+        if (req.url === 'https://x/v.mp4') return json(200, {})
+        if (req.url.includes('/videos/t')) return json(200, { status: 'completed', url: 'https://x/v.mp4' })
+        return json(404, {})
+      },
+    })
+    const adapter = createOpenAiVideoAdapter(config, platform, { sleep: async () => {}, now: () => 0 })
+    const assets = await adapter.generateVideo(videoRequest, new AbortController().signal)
+
+    expect(bodies).toHaveLength(2)
+    expect(bodies[1]).toMatchObject({ width: 720, height: 408, frame_rate: 24 })
+    expect(assets).toHaveLength(1)
+  })
+
+  it('★★ 带本地参考图时明确拦住并说清原因（官方要求公网 URL，浏览器直传不了）', async () => {
+    const platform = createMemoryPlatform({ handler: async () => json(200, {}) })
+    const adapter = createOpenAiVideoAdapter(config, platform, { sleep: async () => {}, now: () => 0 })
+    await expect(
+      adapter.generateVideo(
+        { ...videoRequest, inputs: [{ kind: 'asset', nodeId: 'n1', assetHash: 'h1', mime: 'image/png' }] },
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ appError: { kind: 'http', status: 400 } })
   })
 
   it('★ 失败态把服务端原话带出来（只报「失败」等于没说）', async () => {
@@ -205,7 +256,7 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
         if (req.url.includes('/videos/t')) {
           return json(200, { status: 'failed', error: { message: '内容安全策略拦截' } })
         }
-        return json(200, {})
+        return json(404, {})
       },
     })
     const adapter = createOpenAiVideoAdapter(config, platform, { sleep: async () => {}, now: () => 0 })

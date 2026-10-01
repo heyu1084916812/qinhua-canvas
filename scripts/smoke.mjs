@@ -4029,6 +4029,21 @@ async function g44(browser) {
   rec(g, '新渠道排到列表末尾', JSON.stringify(before) === JSON.stringify(['渠道甲', '渠道乙']), JSON.stringify(before))
   const short = (await page.locator('[data-channel-proto]').first().innerText()).trim()
   rec(g, '列表项右侧协议短标签', short === 'MOCK', short)
+  // 列表项要能一眼看出「这条渠道能用什么」（用户 2026-10-01）
+  const capKeys = await page
+    .locator('[data-channel-cap]')
+    .first()
+    .evaluate((el) =>
+      [...el.parentElement.querySelectorAll('[data-channel-cap]')].map((c) =>
+        c.getAttribute('data-channel-cap'),
+      ),
+    )
+  rec(
+    g,
+    '★ 列表项显示这条渠道能用什么（对话 / 生图 / 视频）',
+    capKeys.length > 0 && capKeys.every((k) => ['chat', 'image', 'video'].includes(k)),
+    capKeys.join(','),
+  )
   await page.screenshot({ path: `${OUT}/44-a-channels.png` })
 
   // ② 选渠道乙 → 存令牌 → 尾 4 位可见（脱敏显示）

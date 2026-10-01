@@ -240,6 +240,22 @@
   font-size: var(--fs-chip);
   color: var(--text-3);
 }
+/* 这条渠道实际能用什么：对话 / 生图 / 视频三枚小标 */
+.itemCaps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+.capChip {
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  color: var(--text-2);
+  background: var(--bg-hover);
+  border-radius: var(--radius-pill);
+  padding: 1px var(--space-2);
+  line-height: 1.6;
+}
 
 .empty {
   font-size: var(--fs-label);

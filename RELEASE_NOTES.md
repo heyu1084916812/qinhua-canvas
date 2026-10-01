@@ -5,6 +5,32 @@
 
 ---
 
+## 修复 · 真实渠道 POST 的 Content-Type 被发成重复值（2026-10-01）
+
+**症状**：浏览器里所有走真实渠道的 POST 都可能被服务端判为「不是 JSON」并回 400。
+Agnes 的原话是「该接口仅支持 Content-Type: application/json，请发送 JSON 请求体」。
+
+**根因**：网络层默认补 `content-type: application/json`，渠道层普遍又写一个
+`Content-Type: application/json`。两处**键名大小写不同**，直接对象展开 ⇒ 两个键同时存在；
+`fetch` 把同名头**按逗号拼接** ⇒ 真发出去是
+`content-type: application/json, application/json`。
+
+mock 渠道不经网络层，所以整条冒烟一直没暴露它——这也是它活到今天的原因。
+
+**修法**：`fetchNetwork.requestInit` 改为**键名统一小写再合并**（调用方提供的头覆盖默认项）。
+补 3 条单测把「只有一个 content-type 键」钉死。
+
+---
+
+## 变更 · Agnes 视频改用官方专属参数 + 模型探活收敛 + 渠道能力显示（2026-10-01）
+
+- **专属参数**：官方 Video 2.5 / 2.5 Flash 用的是 `mode` + `seconds` + `size`（档位 `720P`/`1080P`/`1K`/`2K`）+ `aspect_ratio`，与「OpenAI 视频」的 `width/num_frames` 不是一套。适配器改为优先发专属参数，被 400 拒时回落老形态；轮询按官方推荐 `/agnesapi?video_id=&model_name=` 打头，再回落 `{base}/videos/{task_id}`。
+- **模型探活结论（实调）**：对话 6/6 可用；生图 3/3 可用（官方明示生图档当前免费）；视频 `agnes-video-2.5` 余额不足（剩 $0.06，4s 720P 需 $0.10）、`agnes-video-2.5-flash` 免费但只支持 720P、`agnes-video-v2.0` 早前成功过一次。渠道的模型列表已按「只留可用」收敛（摘掉 `agnes-video-2.5`）。
+- **渠道能力显示**：渠道列表项新增 `对话 / 生图 / 视频` 标记，判据是**勾选的模型类别**而非协议声明。
+- **已知边界**：参考图 / 首尾帧需要公网可访问的图片 URL，浏览器里的本地素材传不上去，已改成明确的错误提示。
+
+---
+
 ## 修复 · 视频链路打通：Agnes 新增视频分支（2026-10-01）
 
 **背景**：视频此前在真机上**完全没有通路** —— `GenerationData.mode='video'`、面板视频参数、

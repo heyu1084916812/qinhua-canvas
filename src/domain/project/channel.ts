@@ -126,6 +126,25 @@ export const OFFLINE_PROTOCOLS: readonly string[] = ['mock']
 export const PROBE_PROTOCOLS: { value: string; label: string; short: string }[] =
   BUILTIN_CATALOG.probe.map((p) => ({ value: p.id, label: p.name, short: p.short }))
 
+/**
+ * 渠道**实际**能做什么（§7.1）。
+ *
+ * 判据用**勾选的模型类别**，不是协议声明的能力：协议说「支持视频」不代表这条
+ * 渠道真的能出视频 —— 只有勾了视频模型才算数。用户 2026-10-01 要看的就是
+ * 「这条渠道能用什么」，答案应当来自它自己配了什么。
+ *
+ * 一条模型都没勾时回落协议声明：此时渠道还没配完，显示协议承诺的能力比显示
+ * 「什么都不能」更有指导意义（用户会照它去勾模型）。
+ */
+export function channelCapabilities(
+  channel: Pick<Channel, 'models'>,
+  declared: readonly ModelCapability['category'][] = [],
+): Record<ModelCapability['category'], boolean> {
+  const fromModels = new Set(channel.models.map((m) => m.category))
+  const set = fromModels.size > 0 ? fromModels : new Set<ModelCapability['category']>(declared)
+  return { chat: set.has('chat'), image: set.has('image'), video: set.has('video') }
+}
+
 export function createChannel(input: CreateChannelInput): Channel {
   return {
     id: createId('ch'),

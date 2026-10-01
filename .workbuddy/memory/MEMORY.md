@@ -2212,3 +2212,25 @@ stage-*.md 七份、prompt-*.md 九份）。判据是直接 grep 已内置正文
 
 另外：真跑一次是值得的 —— 这次拿到 `perf_infer_s 43.8`、产物 53KB、`size` 从请求的 720×408
 被服务端改成 704×512。这些只有真调用才看得到。
+
+### ★★ HTTP 头要用「不区分大小写」的方式合并，否则浏览器会拼成重复值（2026-10-01）
+
+接 Agnes 视频时，**同一段适配器代码在 PowerShell 里跑得通、在浏览器里一定 400**。
+服务端原话是「该接口仅支持 Content-Type: application/json，请发送 JSON 请求体」——
+看着像「没带 JSON 头」，实际是**带了两次**。
+
+根因在 `fetchNetwork.requestInit`：默认项写成 `content-type`，渠道层普遍写
+`Content-Type`，旧实现是 `{ ...base, ...req.headers }`。JS 对象**区分大小写**，
+两个键同时存在；交给 `fetch` 后浏览器把同名头**按逗号拼接**，真发出去的是
+`content-type: application/json, application/json`。服务端判定不是合法 JSON → 400。
+
+两条教训：
+
+1. **HTTP 头名不区分大小写，合并时必须先 `toLowerCase()`**。别用对象展开「覆盖」头，
+   那只能覆盖键名完全相同的那一种写法。
+2. **mock 渠道不走网络层，这类 bug 它照不到**。所以「冒烟全绿」不能证明真实渠道的
+   请求形态对——真渠道的第一次调用必须自己真跑一遍看响应。
+
+诊断手法值得复用：拿同一个端点，用 shell 试 `Content-Type: application/json` 与
+`application/json, application/json` 两种值。后者如果复现出服务端那句报错，
+就锁定是重复头，而不是「头没发出去」。

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useSyncExternalStore, useState } from 'react'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
 import {
+  channelCapabilities,
   maskTokenTail,
   protocolLabel,
   protocolShort,
@@ -549,7 +550,12 @@ export function SettingsPage() {
         <div className={styles.workarea} data-settings-workarea>
           <aside className={styles.sidebar}>
           <ul className={styles.list}>
-            {channelsList.map((ch: Channel) => (
+            {channelsList.map((ch: Channel) => {
+              const caps = channelCapabilities(
+                ch,
+                protocolById(ch.protocol, catalog)?.capabilities ?? [],
+              )
+              return (
               <li key={ch.id}>
                 <button
                   className={ch.id === selectedId ? `${styles.item} ${styles.itemActive}` : styles.item}
@@ -577,9 +583,20 @@ export function SettingsPage() {
                       {ch.models.length > 0 ? `${ch.models.length} 个模型` : '未选模型'}
                     </span>
                   </span>
+                  {/* 这条渠道**实际**能用什么（判据是勾选的模型，不是协议声明） */}
+                  <span className={styles.itemCaps}>
+                    {(['chat', 'image', 'video'] as const)
+                      .filter((k) => caps[k])
+                      .map((k) => (
+                        <span key={k} className={styles.capChip} data-channel-cap={k}>
+                          {CAPABILITY_LABEL[k]}
+                        </span>
+                      ))}
+                  </span>
                 </button>
               </li>
-            ))}
+              )
+            })}
             {channelsList.length === 0 && <li className={styles.empty}>还没有渠道，点下方「+ 新增渠道」</li>}
 
             {/* 列表级操作跟在**最后一条渠道**后面（用户 2026-09-28）：

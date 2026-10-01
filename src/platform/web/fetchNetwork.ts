@@ -32,10 +32,21 @@ function withoutContentType(headers: Record<string, string>): Record<string, str
   return out
 }
 
-function requestInit(req: NetworkRequest): { headers: Record<string, string>; body?: BodyInit } {
+export function requestInit(req: NetworkRequest): { headers: Record<string, string>; body?: BodyInit } {
   const raw = isRawBody(req.body)
-  const base: Record<string, string> = raw || req.body === undefined ? {} : { 'content-type': 'application/json' }
-  const merged: Record<string, string> = { ...base, ...req.headers }
+  /**
+   * 键名**一律小写再合并**（2026-10-01 修）。
+   *
+   * 原先是 `{ ...base, ...req.headers }`：默认项写作 `content-type`、渠道层传的是
+   * `Content-Type`，两个键大小写不同于是同时留在对象里。交给 `fetch` 后浏览器会把
+   * 同名头**按逗号拼起来**，真发出去的是
+   * `content-type: application/json, application/json` —— 服务端判定「不是 JSON」
+   * 并回 400，而错误文案指不到病根（Agnes 的原话是「该接口仅支持 Content-Type:
+   * application/json」）。mock 渠道不经网络层，所以整条冒烟一直没暴露它。
+   */
+  const merged: Record<string, string> = {}
+  if (!raw && req.body !== undefined) merged['content-type'] = 'application/json'
+  for (const [k, v] of Object.entries(req.headers ?? {})) merged[k.toLowerCase()] = v
   return {
     headers: raw ? withoutContentType(merged) : merged,
     body: raw ? (req.body as BodyInit) : req.body === undefined ? undefined : JSON.stringify(req.body),

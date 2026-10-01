@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  channelCapabilities,
   createChannel,
   maskTokenTail,
   OFFLINE_PROTOCOLS,
@@ -118,5 +119,44 @@ describe('tokenTailOf / maskTokenTail', () => {
   it('无尾号不渲染半个遮罩', () => {
     expect(maskTokenTail(null)).toBe('')
     expect(maskTokenTail('3f2a')).toBe('••••••••3f2a')
+  })
+})
+
+/**
+ * 渠道「能用什么」（用户 2026-10-01：前端要显示这条渠道能用的东西）。
+ *
+ * 判据刻意选**勾选的模型类别**而不是协议声明的能力：协议说支持视频，
+ * 但这条渠道一个视频模型都没勾时，它其实出不了视频 —— 显示成「能」就是骗人。
+ */
+describe('channelCapabilities · 渠道实际能用什么', () => {
+  const withModels = (...categories: ('chat' | 'image' | 'video')[]) => ({
+    models: categories.map((c) => ({
+      id: `m-${c}`,
+      category: c,
+      inputTypes: [],
+      aspectRatios: [],
+      resolutions: [],
+      qualities: [],
+      maxCount: 1,
+    })),
+  })
+
+  it('★ 只看勾选的模型类别', () => {
+    const caps = channelCapabilities(withModels('chat', 'video'))
+    expect(caps).toEqual({ chat: true, image: false, video: true })
+  })
+
+  it('★ 协议声明了视频、但一个视频模型都没勾 → 不算能用', () => {
+    const caps = channelCapabilities(withModels('chat'), ['chat', 'image', 'video'])
+    expect(caps.video).toBe(false)
+  })
+
+  it('一条模型都没勾时回落协议声明（此时还没配完，显示承诺更有指导意义）', () => {
+    const caps = channelCapabilities(withModels(), ['chat', 'image'])
+    expect(caps).toEqual({ chat: true, image: true, video: false })
+  })
+
+  it('既没模型也没声明 → 三个都是 false', () => {
+    expect(channelCapabilities(withModels())).toEqual({ chat: false, image: false, video: false })
   })
 })
