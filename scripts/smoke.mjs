@@ -10538,8 +10538,9 @@ async function g79(browser) {
   ]
   rec(
     g,
-    '★ 生图档列出用户拍板的固定六个（且排在渠道模型之前）',
-    JSON.stringify(imageValues.slice(0, 6)) === JSON.stringify(wantImage),
+    '★ 生图档列出固定显示名（Agnes 自有那个在最前，其余是用户拍板的六个）',
+    JSON.stringify(imageValues.slice(0, 7)) ===
+      JSON.stringify(['Agnes Image 2.5 Flash', ...wantImage]),
     `opts=${JSON.stringify(imageValues)}`,
   )
   rec(
@@ -10582,9 +10583,16 @@ async function g79(browser) {
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-option')))
   rec(
     g,
-    '★ 视频档列出用户挑的前五个（即梦 2.5 排在首位）',
-    JSON.stringify(videoValues.slice(0, 5)) ===
-      JSON.stringify(['即梦 2.5', 'Gemini Omni Flash 1.1', 'Minimax H3 Max', 'MiniMax H3', 'Wan 3.0']),
+    '★ 视频档列出固定显示名（Agnes 自有那个在最前）',
+    JSON.stringify(videoValues.slice(0, 6)) ===
+      JSON.stringify([
+        'Agnes Video 2.0',
+        '即梦 2.5',
+        'Gemini Omni Flash 1.1',
+        'Minimax H3 Max',
+        'MiniMax H3',
+        'Wan 3.0',
+      ]),
     `opts=${JSON.stringify(videoValues)}`,
   )
   await page.keyboard.press('Escape')
@@ -10615,9 +10623,15 @@ async function g79(browser) {
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-option')))
   rec(
     g,
-    '★ 对话档 = OpenAI 三个 + Gemini 3.8 Flash（Google 只留一个）',
-    JSON.stringify(chatValues.slice(0, 4)) ===
-      JSON.stringify(['GPT-6 Astra', 'GPT-6 Sol', 'GPT-6 Luna', 'Gemini 3.8 Flash']),
+    '★ 对话档 = Agnes 自有那个 + OpenAI 三个 + Gemini 3.8 Flash（Google 只留一个）',
+    JSON.stringify(chatValues.slice(0, 5)) ===
+      JSON.stringify([
+        'Agnes 2.5 Pro',
+        'GPT-6 Astra',
+        'GPT-6 Sol',
+        'GPT-6 Luna',
+        'Gemini 3.8 Flash',
+      ]),
     `opts=${JSON.stringify(chatValues)}`,
   )
   await page.keyboard.press('Escape')
