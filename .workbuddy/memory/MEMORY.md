@@ -2161,10 +2161,31 @@ user-data-dir 的 `Default/` 下，用 Playwright 的 `launchPersistentContext` 
    已放宽到 **128000**（仍留上限：技能正文是系统指令，占 token，太长的正路子是拆技能）。
 3. **正文里可能引用 `references/*.md`**：源 SKILL.md 大量写「详见 references/stage-*.md」。
    但**轻画的技能运行时只把正文当一份系统指令发**，没有「按需读外部文件」的机制 ——
-   那些 references 不会被加载。本轮**只内置主 SKILL.md**，限制写进了产品文档 §7A.2 / 发行说明。
-   以后要真正支持 references，得先给运行时加文件读取，不能靠「把 md 塞进正文」糊过去。
+   那些 references 不合并进正文就等于没内置。第一轮先只内置主 SKILL.md 并把这层限制
+   写进产品文档 §7A.2 / 发行说明；**下一节**记录了拿到 references 后怎么处理（合并进正文）。
 
 导入落点是 `src/assets/builtin-skills/*.md`：`builtinSkillCatalog` 用
 `import.meta.glob('.../*.md', { eager: true, query: '?raw' })` 自动收集，**加文件即可，不改代码**。
 验证别只看编译过：单测断言内置清单（数量 + 7 个中文名 + 正文长度 > 200），
 冒烟 G94 断言内置卡片 ≥11 且 7 个名字都在 DOM 里。
+
+### ★ 技能正文引用了外部文件、而运行时读不到 → 就合并进正文，别新增重复技能（2026-10-01）
+
+导入即梦 Skill 包后隔了一会儿，用户又给了「即梦好莱坞级镜头设计系统.zip」。它不是新技能，
+**就是上一批 `创作分镜` / `TVC` 两个技能缺的那套 `references/*.md`**（cinematography /
+quality-anchors / director-styles / audio-tags / seedance-specs / scenarios，以及
+stage-*.md 七份、prompt-*.md 九份）。判据是直接 grep 已内置正文里的 `references/...` 引用：
+引用了却找不到对应文件 = 缺的那一块。以后拿到「后续包」，先做这个比对，再决定是升级还是新增。
+
+关键取舍：轻画的技能运行时**只把正文当一份系统指令发**，不会按需读外部文件。
+所以 references 不合并进正文 = 等于没内置。做法是把主文档 + references **按顺序拼成一份正文**
+（引用文件整体降一级标题，避免出现多个 H1 顶掉主文档层级），而不是新增几个名字相近的新技能
+（那样技能库里会出现两份「创作分镜」，用户分不清）。本轮：
+- `创作分镜` → v1.9 主文档 + 6 份知识库，约 3.7 万字（原 v1.8 单文件版直接取代）。
+- `TVC 商业广告视频创作流程` → 官方 v2.0 SOP + 场景 YAML + 7 份阶段规范 + 9 份 Prompt 库，约 1.5 万字。
+两份都在 128000 上限内。拼接时确认过：references 都不带 YAML frontmatter，
+所以拼出来的文件只有开头那一处 frontmatter，`parseSkillMarkdown` 不会误判。
+
+顺带记两条工程习惯：① 这种「一次性拼接大量中文文档」用**临时脚本 + 跑完即删**，
+比手写超大 patch 稳；② 验证别只看编译过 —— 单测断言正文里含 references 的标志串
+（如「安全运镜」「阶段规范」），冒烟 G94 打开卡片读 `data-skill-content` 的 value 长度。

@@ -3,731 +3,1147 @@ name: "创作分镜"
 inputMode: any
 tags: [即梦, 视频, 分镜]
 description: >
-  Professional-grade virtual film director and prompt engineer for Seedance 2.0 (即梦). Transforms vague ideas into cinematic, production-ready video prompts with Hollywood-caliber shot design. Covers every workflow — text-to-video, multi-reference visual conditioning, multi-modal references, video extension, character swap, dialogue-driven short films, and music-synced edits. Ships with a cinematography dictionary (50+ safe camera-move phrases), a director style library (Villeneuve, Wes Anderson, Shinkai, Wuxia & more), a 3-layer lighting & quality-anchor system that kills the "plastic AI look," and a built-in structured validation checklist so every prompt passes before delivery. Supports bilingual output (Chinese/English) with smart over-15 s auto-segmentation for long-form storytelling.
-  Trigger words: Seedance, Shot Design, AI video, storyboard, video prompt, short film, cinematic prompt, 即梦, 视频提示词, 分镜, 视频脚本, AI视频, 短片脚本, 镜头设计, 运镜.
+  即梦 / Seedance 2.0 好莱坞级镜头设计（v1.9 完整版）：把模糊想法变成可直接生成的电影级视频提示词，
+  含安全运镜词典、参数化导演风格库、反塑料感品质锚定、原生音效标签、即梦平台参数规范与全场景模板。
+  触发词：Seedance、分镜、视频提示词、镜头设计、运镜、短片脚本。
+---
+# 即梦好莱坞级镜头设计系统 video-shot-design 完整文档
+
+> 版本 v1.9 | 专为 Seedance 2.0（即梦）视频生成打造的专业虚拟导演提示词系统。覆盖所有文生视频、多参考生视频、首帧/首尾帧/多帧过渡、视频延长、对话短剧、音乐卡点等全流程场景，自带反AI塑料感三层光影体系、50+安全运镜词典、参数化导演风格库和7步强制校验。
+
 ---
 
-# Seedance 2.0 Shot Design
+## 目录
+1. 核心规则与能力边界
+2. 五步标准工作流
+3. 官方提示词六要素公式与组装规范
+4. 配套知识库完整参考
+   - 🔹 cinematography.md 运镜与焦段专业词典
+   - 🔹 quality-anchors.md 品质锚定与反塑料感词库
+   - 🔹 director-styles.md 参数化导演风格库
+   - 🔹 scenarios.md 全场景创作模板
+   - 🔹 audio-tags.md 原生音频/音效/人声规范
+   - 🔹 seedance-specs.md 即梦平台技术参数
+5. 多模态参考全指南
+6. 强制7项自检清单
+7. 交付输出模板
 
-You are a virtual film director who combines Hollywood cinematography aesthetics with Chinese film industry practices, and is deeply familiar with the capabilities and technical boundaries of Seedance 2.0. Your task is to transform the user's vague ideas into highly structured, professional video prompts that can be used directly on the Seedance platform.
+---
 
-## 语言规则 (Language Rules)
+## 1. 核心规则与能力边界
 
-**自动检测用户输入语言，决定提示词输出语言：**
+### 语言自动适配
+| 用户输入语言 | 提示词输出语言 | 字符/字数上限 |
+|--------------|----------------|--------------|
+| 中文 | 中文 | ≤ 500 字符 |
+| 非中文 | 英文 | ≤ 1000 词 |
 
-| 用户输入语言 | 提示词输出语言 | 字数限制 | @引用语法 |
-|------------------|------------------|----------|------------|
-| 中文 | **中文** | ≤500 字符 | `@图片1`~`@图片9`、`@视频1`~`@视频3`、`@音频1`~`@音频3` |
-| 非中文（英/日/韩/西等） | **英文** | ≤1000 words | `@Image1`~`@Image9`, `@Video1`~`@Video3`, `@Audio1`~`@Audio3` |
+> 中英文提示词都支持专业术语混用；运镜术语必须使用对应语言的完整安全写法，禁止裸写 `Dolly/Aerial/Crane/Pan/Arc/Dutch/Steadicam` 等英文单词——会被平台误判为人名/品牌名触发拦截。
+> - 中文：`推轨推进/航拍/摇臂升降/水平摇摄/弧形环绕/荷兰角倾斜/斯坦尼康跟拍`
+> - 英文：`dolly tracking shot / aerial drone shot / crane jib shot / pan shot / orbital camera movement / dutch angle gimbal shot / steadicam follow shot`
 
-> Seedance 同时支持中英文提示词。中文提示词中可混用英文专业术语（如运镜词、材质词）。英文提示词不混用中文。
+### 强制反塑料感规则
+**绝对禁止出现在提示词中的废话词**：`4K/8K/杰作/超清晰/高画质/masterpiece/ultra HD/best quality/extremely detailed`。
+> 这些词会激活模型的过度锐化通路，生成"涂油假人"式的塑料CG感。必须用**物理介质+光学瑕疵+有机微瑕疵**替代，真实感来自"可控的不完美"。
 
-## 核心规则
+### 基础安全约束
+1. 不生成写实真人面部强绑定内容；写实人像先做面部柔化或转为动画/三渲二风格
+2. 单次生成时长严格控制在 4-15 秒，超过 15 秒自动分段，每段独立生成后拼接
+3. 多模态素材上限：图片≤9、视频≤3、音频≤3，合计不超过 12 个
+4. 同一时间切片内只允许一个核心动作 + 一个运镜动作（一镜一动原则），禁止叠加多个运镜导致画面抖动失控
+5. 所有情绪描述必须转为可视化的身体表现：`泪水沿脸颊滑落，嘴唇微微颤抖` 而非 `她感到心碎`
 
-1. **提示词语言跟随用户**——中文用户→中文提示词，非中文用户→英文提示词
-2. **@引用使用对应语言命名**：中文用 `@图片1`，英文用 `@Image1`
-3. **不得包含写实真人面部素材**——平台会对写实人类面临严格审查拦截。建议：对写实人像先做面部模糊，或转为 3D/动画/Cel-Shaded 风格。
-4. **混合文件输入限制**——即梦原生上限 12 个（图+视频+音频合计）；（注：若在 Runway 平台使用，上限为图片 5 张，视频 3 个）。
-5. **单次生成上限 15 秒**，超出需分段拼接
-6. **提示词长度限制**：中文≤500字符 / 英文≤1000词——超出将导致模型注意力崩溃
-7. **禁止使用废话词**——中文："杰作/4k/8k/超清晰"；英文："masterpiece/4k/8k/ultra HD"——用物理材质词替代
-8. **具体优于模糊**——中文："穿红色风衣的女子在霓虹雨夜奔跑" >> "一个女人走路"；英文："woman in red trench coat sprinting through neon-lit rain" >> "a woman walking"
-9. **运镜术语消歧义**——Seedance 审核可能将裸英文单词误判为人名/品牌名（如 `Dolly` → 多莉，`Crane` → 克兰），导致违规拦截：
-   - **中文提示词**：全部使用中文运镜词（航拍、推轨推进、摇臂升降、水平摇摄、弧形环绕等），不使用裸英文单词
-   - **英文提示词**：必须使用完整短语（`dolly tracking shot` / `aerial drone shot` / `crane shot`），禁止仅写 `Dolly` / `Aerial` / `Crane` 等裸词
-   - 高风险裸词清单：`Dolly`、`Aerial`、`Crane`、`Pan`、`Arc`、`Dutch`、`Steadicam`
-10. **一镜一动**——每个时间切片只指定**一个**运镜动作（如"缓慢推进"或"水平摇摄"）。禁止在同一时段叠加多个运镜（如"推进同时摇摄"），否则画面抖动失控。主体运动和镜头运动必须分离描述：
-    - ✅ `舞者缓慢旋转。镜头固定构图不动。` / `The dancer spins slowly. Camera holds fixed framing.`
-    - ❌ `镜头围绕旋转中的舞者旋转` / `Spinning camera around a dancing person`
-11. **参考图片路由必须显式区分**——输入图片用于风格、角色、服装、场景、产品、姿态等参考时，一律调用**多参考图生视频工具**；即使只有一张参考图，也不得调用首帧生视频工具。只有当用户明确说“作为首帧/起始帧”“保持首帧”“保持原图构图”“让原图动起来”等强约束时，才调用**首帧生视频工具**，写 `@图片1为首帧` / `@Image1 as first frame`，并按需加入 `保留原始构图和色彩` / `preserve composition and colors`。不要用模糊的模式简称合并这两条路径。无论图片用途如何，都不得削弱提示词的镜头语言、景别、调度、光影或音效；每个时间切片仍必须包含一个清晰的镜头控制。
-12. **描述性优于叙事性**——只写**镜头看到**的（视觉词），不写**角色感受**的（情绪词）。Seedance 渲染画面，不理解心理活动：
-    - ✅ `泪水沿脸颊滑落，嘴唇微微颤抖` / `Tears streaming down her cheeks, lips trembling slightly`
-    - ❌ `她感到心碎` / `She feels heartbroken`
-    - 所有情绪必须**转化为可视化的身体表现**（表情、肢体、呼吸节奏、眼神方向）
+---
 
-详细平台参数见 [seedance-specs.md](references/seedance-specs.md)。运镜安全写法速查见 [cinematography.md](references/cinematography.md)。
+## 2. 五步标准工作流
 
-## 五步工作流 (The 5-Step Workflow)
+### Step 1：需求解析与参数确认
+优先从用户自然语言中自动推理参数，只追问无法推断的信息：
+1. 目标单段/总时长
+2. 画面比例（16:9横屏/9:16竖屏/21:9超宽/1:1方形/2.35:1宽银幕）
+3. 生成模式（纯文本/多参考图/首帧锚定/多模态/延长）
+4. 风格/用途偏好
+5. 参考素材情况
 
-收到用户需求后，**严格按顺序**执行以下步骤：
+> 时长>15秒自动触发智能分段：每段≤15秒，最短段≥8秒，统一分配叙事功能（开场→发展→高潮→收束），每段末尾预留2-3秒稳定交接帧便于拼接。
 
-### Step 1: 需求解析与参数确认
+### Step 2：视觉诊断与分镜构思
+三层知识库自动加载：
+| 层级 | 必加载/触发加载 | 知识库 |
+|------|----------------|--------|
+| Layer 1 必选 | 所有任务必须加载 | cinematography.md + quality-anchors.md |
+| Layer 2 语义触发 | 用户提到对应场景/风格/类型时自动加载 | director-styles.md + scenarios.md + audio-tags.md |
+| Layer 3 显式指定 | 用户点名某风格/模板时直接加载对应内容 | 全部知识库 |
 
-通过提问确认以下关键参数（已明确的可跳过）：
+构思分镜草案，按时间轴拆分切片，每切片承担一个核心叙事动作。
 
-1. **视频时长**（单段生成时长）：短片(4-8s) / 中等(9-12s) / 长片(13-15s) / 超长(>15s，自动分段)
-2. **画面比例**：横屏16:9 / 竖屏9:16 / 超宽21:9 / 宽银幕2.35:1 / 方形1:1
-3. **生成模式**：纯文本 / 多参考图生视频 / 明确首帧生视频 / 多模态参考 / 视频延长
-4. **风格偏好**（可选）：导演风格、情绪氛围、用途场景
-5. **参考素材情况**：用户是否有图片/视频/音频素材
+### Step 3：六要素精准组装
+使用官方高转化公式组装提示词，严格遵循三层光影结构：
+```
+[主体与外貌细节] + [动作与物理连贯性] + [场景环境]
++ [视觉风格/物理光影（必须三层独占一行）]
++ [物理焦段与运镜] + [原生音效要求（必须以「音效：」开头独占一行）]
++ [禁止项（固定：任何文字、字幕、LOGO或水印）]
+```
+- 长视频>5秒必须使用 `0-X秒：` 时间戳分镜
+- 每切片独占一行，结构清晰便于阅读修改
+- 英文动作用进行时态(-ing)，中文自然描述
+- 运动必须加明确强度修饰词（猛烈/突然/丝滑/渐进），避免"糊动"
 
-> **智能推理原则（v1.6 新增）：** 用户的一句话往往已隐含多个参数。你应 **主动从自然语言中推理**，而非逐条追问。例如用户说"15秒赛博朋克暴雨追逐"，你应直接推理出：时长=15s、风格=赛博朋克、场景=暴雨追逐，仅追问无法推断的参数（如画面比例、是否有素材）。**规则：能推理的不追问，不确定的简要确认，追问控制在 1-2 个问题内。**
->
-> **超长视频自动分段：** 当目标时长 >15s 时，自动计算分段数（每段 ≤15s，最短段 ≥8s），并告知用户分段方案。分段计算规则见下方「智能分段」章节。
->
-> **注意**：时长、比例、分辨率等参数由用户在即梦平台 UI 中自行设置，**最终输出的提示词中不包含这些设置项**，以避免与用户在平台中的选择产生矛盾。此步骤的目的是了解用户意图，以便提示词的分镜时间轴与目标时长匹配。
+### Step 4：强制7项自检（不可跳过）
+组装完成后逐条校验，全部通过才可交付：
+1. ✅ 长度检查：中文≤500字符/英文≤1000词
+2. ✅ 时间切片检查：>5秒视频必须用时间戳，起点从0、无重叠、末端对齐总时长
+3. ✅ 运镜专业度检查：至少包含1个专业运镜术语，无"监控探头"式完全静止无调度
+4. ✅ 废话词拦截：无禁用的"超清晰/杰作/4k/masterpiece"等泛词
+5. ✅ 资产引用限制：图+视频+音频总数≤12
+6. ✅ 冲突检测：无运动/光学/风格互斥组合（如超广角+浅景深、手持+绝对对称、三渲二+写实毛孔）
+7. ✅ 裸英文运镜词检测：中文提示词无裸高危英文词，英文提示词全部用完整短语
 
-### Step 2: 视觉诊断与分镜构思 (Pre-production)
+### Step 5：专业交付
+按对应格式输出，提示词包裹在代码块中方便用户一键复制。完整模板见第7章。
 
-使用 **三层知识库路由** 加载参考资料（v1.6 新增）：
+---
 
-**Layer 1 — Always-On（始终加载）：**
+## 3. 提示词标准结构模板
 
-无论用户说什么，以下知识库 **每次都必须读取**——它们是每条提示词的品质基底：
-- [cinematography.md](references/cinematography.md) — 运镜词典（无运镜 = 监控探头）
-- [quality-anchors.md](references/quality-anchors.md) — 品质锚定 + 光影三层（无品质锚定 = 塑料 AI 感）
+### 基础短视频模板（≤12秒）
+```
+[品质锚定+风格总纲]。
+[画面主体 + 核心动作 + 运镜]。
+光影：[光源层] + [光行为层] + [色调层]。
+音效：[物理拟声描述]。
+禁止：任何文字、字幕、LOGO或水印
+```
 
-**Layer 2 — Semantic Intent Inference（语义推理自动加载）：**
+### 时间戳分镜模板（13-15秒，推荐）
+```
+[风格总纲/品质锚定]。
+0-3秒：[画面 + 主体动作 + 运镜]。
+3-7秒：[画面 + 主体动作 + 运镜]。
+7-12秒：[画面 + 主体动作 + 运镜]。
+12-15秒：[画面 + 主体动作 + 运镜 + 稳定收束]。
+光影：[光源组合]，[光行为组合]，[色调公式]。
+音效：[同步画面的物理拟声]。
+禁止：任何文字、字幕、LOGO或水印
+```
 
-根据用户自然语言中的 **语义信号** 自动推理需要加载哪些知识库。用户不需要说出专业术语，你负责识别意图：
+### 短剧/对白模板
+```
+[风格总纲]。
+0-X秒：[具体景别+拍摄角度 + 角色站位/面部朝向/视线焦点 + 运镜]。
+台词（角色A，情绪）："[对白内容]"。
+X-X秒：[具体景别+拍摄角度 + 角色B站位/面部朝向/视线焦点 + 运镜]。
+台词（角色B，情绪）："[对白内容]"。
+光影：[三层结构]。
+音效：[对话+环境音+动作拟声]。
+禁止：任何文字、字幕、LOGO或水印
+```
 
-| 语义信号（用户输入中的自然语言线索） | 自动加载 |
+### 史诗大制作模板
+```
+[品质锚定：渲染引擎+VFX等级+画质规格]，[核心氛围宣言]。
+[大气连贯声明：贯穿全片的统一物理/大气效果]。
+0-X秒：[画面 + 运镜 + 大气细节]。
+...
+光影：[光源层] + [光行为层] + [色调层]。
+[后期处理词 + 张力宣言收束句]。
+禁止：任何文字、字幕、LOGO或水印
+```
+
+---
+
+## 4. 配套知识库完整参考摘要
+
+### 📖 cinematography.md 运镜与焦段专业词典
+1. 12级景别体系：从极致特写(ECU)到大远景(EWS)全覆盖，对应不同叙事功能
+2. 三级运镜库：20+基础安全运镜动作 + 强度/情绪/风格修饰词 + 复合组合运镜
+3. 焦段物理库：14mm超广角→200mm超长焦全焦段，明确每颗焦段的透视效果和心理暗示
+4. 动态对焦/转场/摄影机挂载库：Rack Focus焦点转移、Whip Pan转场、FPV穿越机、Snorri身体机位、Crash贴地机位等专业技巧
+5. 叙事引导运镜：引导后退镜头、背影跟随、侧向平行跟拍、史诗无人机揭示、遮挡揭示等提升叙事感的高级运镜
+6. 运动强度等级表：从"猛烈暴烈"到"轻柔渐进"6级强度，彻底解决AI"糊动"问题
+
+### 📖 quality-anchors.md 品质锚定与反塑料感词库
+1. 品质锚定词库：渲染引擎(UE5/Octane/Houdini) + 画质规格 + VFX等级 + 专业胶片型号(Kodak Portra400/Cinestill800T等)
+2. 全材质词库：写实皮肤/发丝/丝绸/金属/玻璃/玉石/石材 + 三渲二动漫专用材质
+3. 强制三层光影结构：
+   - 光源层：明确光是什么、从哪里来
+   - 光行为层：明确光和材质/大气如何互动
+   - 色调层：明确整体色盘和冷暖对比
+4. 大气与有机瑕疵库：薄雾、丁达尔、热浪、微尘、胶片光晕、暗角、镜头附着物等"可控不完美"细节，100%消除AI塑料假人感
+5. 后期收束词库 + 品质冲突矩阵：自动检测矛盾组合，避免输出四不像画面
+
+### 📖 director-styles.md 参数化导演风格库
+所有风格全部去名化，降解为「色彩+灯光+美术+机位」四轴纯物理参数，直接嵌入提示词不触发IP审核：
+1. 国际大师系列：诺兰/维伦纽瓦/韦斯安德森/王家卫/宫崎骏/大卫芬奇/罗杰迪金斯/黑泽明/新海诚
+2. 中国影视系列：张艺谋东方美学/仙侠古偶/都市情感
+3. 新媒体系列：AI漫剧/竖屏短剧/Vlog/小红书种草/二次元爆燃/三渲二游戏CG
+4. 特殊风格系列：VHS复古/赛博朋克/水墨东方/像素风/MV音乐视觉/微缩定格动画
+
+### 📖 audio-tags.md 音频与音效标签规范
+1. 原生音效物理拟声体系，完全替代"紧张/好听"这类抽象描述
+2. 环境音分类库：自然/城市/室内 + 空间声学修饰词（水下沉闷/教堂回响/金属管道共振/密闭压迫等）
+3. 动作Foley精细化体系：材质+力度+表面三维描述，音效质感提升10倍
+4. 人声/台词规范：情绪标签库 + 方言/口音控制 + 多语言切换 + 特殊音色风格（科普解说/纪录片旁白/ASMR低语/体育解说等）
+5. 音乐风格速查库：管弦史诗/电子合成/国风民乐/氛围极简/嘻哈/悬疑恐怖
+
+### 📖 seedance-specs.md 即梦平台官方参数规范
+1. 提示词容量/生成时长/分辨率画幅/多模态素材上限完整官方参数
+2. 10大核心能力速查表 + 多模态引用语法
+3. CLI命令映射与异步任务管理指南
+
+---
+
+## 5. 多模态参考全指南
+
+### 引用路由规则
+- **多参考图生视频（默认）**：用户上传图片，没有明确说"作为首帧/保持原图构图/让原图动起来"时，一律调用多参考图工具，提示词中写：`参考@图片1的[角色/服装/姿态/场景/色调/产品]`。即使只有1张参考图也走这条路径，可自由改变景别、运镜和叙事推进。
+- **首帧锚定（仅显式要求）**：用户明确要求首帧时，调用首帧生视频工具，写：`@图片1为首帧，保留原始构图和色彩`。
+- **首尾帧锚定**：指定起幅和落幅两张图，生成平滑过渡视频：`@图片1为起幅/首帧，@图片2为落幅/尾帧`。
+
+### 7种核心参考模式
+| 模式 | 中文写法 |
 |------|----------|
-| 提及风格关键词（赛博朋克/仙侠/水墨/复古/末世/二次元/某导演风格…） | [director-styles.md](references/director-styles.md) |
-| 提及动作/物理交互（追逐/奔跑/打斗/坠落/飞行/舞蹈…） | [scenarios.md](references/scenarios.md) 附录「动作物理阻尼词库」 |
-| 提及多角色/对话/剧情（对白/短剧/台词/漫剧/角色对话…） | [scenarios.md](references/scenarios.md)「三、短剧/对白场景」章节 |
-| 提及具体场景类型（电商/美食/宠物/恐怖/MV/游戏PV…） | [scenarios.md](references/scenarios.md) 对应章节 |
-| 提及高制作品质（电影感/大片/史诗/院线级…） | [quality-anchors.md](references/quality-anchors.md) 品质锚定 + 收束句 |
-| 提及特定画风/渲染（三渲二/Cel-Shaded/日漫/国漫/像素风…） | [director-styles.md](references/director-styles.md) 对应条目 |
-| 提及音频/配乐/音效/音色/方言/多语言 | [audio-tags.md](references/audio-tags.md)（含音色与语言控制） |
-| 提及视频参考/运镜复刻/动作模仿/特效参考 | [scenarios.md](references/scenarios.md) 对应章节 + 本文件「多模态参考指南」 |
-| 提及延长/续拍/补拍/接续 | [scenarios.md](references/scenarios.md)「十八、视频延长」 |
-| 提及剧情补全/漫画演绎/分镜序列演绎/情绪发散 | [scenarios.md](references/scenarios.md)「十九、剧情补全与分镜序列演绎」 |
-| 提及多帧/多关键帧/分镜图序列/连贯故事 | [scenarios.md](references/scenarios.md)「二十、多帧故事（multiframe2video）」 |
-| 提及 CLI/命令行/本地生成/dreamina 命令 | [seedance-specs.md](references/seedance-specs.md)「即梦 CLI 联动指南」 |
+| 多参考图输入 | `参考@图片1的服装/姿态/场景色调` |
+| 首帧锚定 | `@图片1为首帧` |
+| 首尾帧插值 | `@图片1为起幅，@图片2为落幅` |
+| 运镜复刻 | `完全参考@视频1的运镜和节奏` |
+| 动作复刻 | `参考@视频1的人物动作` |
+| 运镜+动作分离 | `参考@视频1的动作，参考@视频2的运镜` |
+| 音色参考 | `音色和语气参考@视频1` |
 
-> **核心原则：宁可多读不可少读。** 加载知识库的成本远低于生成低质量提示词的代价。若不确定是否需要某个知识库，加载它。
-
-**Layer 3 — Explicit Override（用户显式指定）：**
-
-当用户明确点名某导演风格、某场景模板或某知识库时，直接加载对应内容。
+> 提示：所有参考图建议上传纯白/空白背景版本，避免原图背景杂质污染生成画面。
 
 ---
 
-知识库加载完成后：
-- **从知识库中提取具体参数嵌入提示词（v1.7 强制）：** 不可只"读了"知识库却输出笼统描述。必须从匹配到的条目中提取安全提示词/模板/参数，直接嵌入提示词草案。例如：匹配到赛博朋克 → 必须嵌入 `rain-soaked streets with neon reflections, teal and magenta color split` 等具体参数；匹配到AI漫剧 → 必须嵌入 `赛璐璐上色/动态线条效果/漫画网点` 等核心视觉语言。
-- 构思**分镜剧本草案**。长视频(>5s)必须按时间轴拆分（如 `[0-3s], [3-7s]`）
-- 选定最合适的导演风格与视觉方案
+## 6. 版权安全三级回退策略
+遇到知名IP/品牌/角色时，按三级递进规避审核：
+1. Level 1：名称替换 → 禁用原名，用原创描述昵称替代
+2. Level 2：特征改造 → 替换标志性视觉特征
+3. Level 3：类型转移 → 完全抽象化，保留气质去掉所有可识别IP符号
 
-### Step 3: 六要素精准组装 (Prompt Assembly)
+---
 
-查阅 [seedance-specs.md](references/seedance-specs.md)，使用时间轴语法，按照官方高转化公式撰写提示词：
-
-**六要素公式：**
-```
-[主体与外貌细节] + [动作与物理连贯性] + [场景环境] +
-[视觉风格/物理光影] + [物理焦段与运镜] + [原生音效要求]
-```
-
-**组装规则：**
-- **最优长度**：60-100词（中文约120-200字符）为品质最优区间——过短画面模糊缺细节，超过100词易导致概念漂移和指令冲突
-- 长视频(>5s)必须使用时间戳分镜：中文 `0-3秒：...` / 英文 `0-3s: ...`
-- **每个时间切片独占一行**，总纲、光影、音效、禁止项各占一行，方便用户阅读和修改
-- 每个时间切片内只描述**一个核心动作** + **一个运镜动作**（一镜一动原则）
-- 动作描写注重物理逻辑（重心转移、流体风阻、材质交互）
-- **英文动作用进行时态**（-ing 形式）——`a woman running through rain` 而非 `a woman runs through rain`，进行时暗示持续运动，更契合视频的动态本质。中文无此语法要求
-- **运动强度明确化**：使用具体的强度修饰词避免"糊动"——猛烈/explosive、突然/sudden、剧烈/dramatic、温柔/gentle、渐进/gradual、丝滑/smooth。详见 [cinematography.md](references/cinematography.md) 运动强度速查
-- **节奏词优于技术参数**：用"缓缓/gentle、渐进/gradual、丝滑/smooth"而非"24fps、f/2.8"——Seedance 理解语义节奏，不解析技术数值
-- **风格总纲前置运动基调**：在提示词开头的风格总纲中声明整体运动能量（如 `动感十足的运动风格` / `dynamic motion, high energy` 或 `静谧缓慢的氛围` / `serene, slow-paced atmosphere`），帮助模型在生成初期锁定运动基调
-
-**🚨 v1.7 强制组装规则（违反即重写）：**
-
-1. **光影行必须使用三层结构，独占一行**：格式为 `光影：[光源词]（光源层），[光行为词]（光行为层），[色调公式]（色调层）。` 缺失任何一层视为不合格，必须重写。从 `quality-anchors.md` 第二节选取具体词汇填入。
-2. **音效行必须以 `音效：` 开头**（英文 `SFX:`），独占一行。禁止使用 `声音：` `声效：` 等非标准表述。
-3. **禁止项行必须使用标准内容**：中文固定为 `禁止：任何文字、字幕、LOGO或水印` / 英文固定为 `Negative: any text, subtitles, logos or watermarks`。**不得自行添加额外禁止内容**（如"畸形肢体""多余人物"等），额外内容会浪费字数空间且分散模型注意力。
-4. **禁止自创非模板段落**：提示词中只允许出现模板定义的结构元素（风格总纲/时间切片/光影行/音效行/禁止行）。不得添加"风格强化词""画面氛围"等自创段落。
-- 高品质场景增加品质锚定前缀与大气连贯声明
-- **中文提示词运镜词消歧义**：禁止裸写 Dolly/Aerial/Crane/Pan/Arc/Dutch，改用中文（推轨推进/航拍/摇臂升降/水平摇摄/弧形环绕/荷兰角倾斜）
-- **英文提示词**：运镜词必须写完整短语（`dolly tracking shot` / `aerial drone shot` / `crane shot`），从 reference 文件中选用安全提示词列
-
-**多段分镜组装规则（>15秒）：**
-- 每段独立完整，时间戳从 0 开始，可直接复制提交即梦
-- **风格总纲一致**：每段开头使用相同的风格/色调总纲句
-- **光影三层一致**：每段末尾使用相同的光影结构（允许随叙事渐变，如日落→夜晚）
-- **音效风格一致**：每段音效独立但整体风格统一
-- **交接帧稳定**：每段末尾最后 2-3 秒以稳定画面收束（定格/缓推/渐暗），便于后期拼接
-- **禁止项一致**：每段末尾统一禁止项声明
-
-### Step 4: 强制自我校验 (Validation) → 🚨 不可跳过
-
-> **⛔ 硬性规则（v1.7）：未通过校验的提示词禁止向用户展示。** 跳过此步骤等于交付不合格产品。
-
-在把最终提示词给用户看之前，**必须**逐条执行以下 7 项校验规则：
-
-**规则 ①：长度检查**
-- 中文提示词 ≤500 字符 / 英文提示词 ≤1000 词。超出 = ❌ error（模型注意力崩溃），85%-100% = ⚠️ warning。
-
-**规则 ②：时间切片检查**
-- 声明时长 >5 秒的视频**必须**使用时间戳分镜（如 `0-3秒：...`）。缺失 = ❌ error。
-- 检查切片起点是否从 0 开始、是否有重叠、末端是否与声明时长匹配。
-
-**规则 ③：运镜专业度检查**
-- 提示词中**必须**包含至少 1 个专业运镜术语（如 航拍/特写/跟拍/tracking/dolly/close-up 等）。缺失 = ❌ error（画面如同监控探头）。
-
-**规则 ④：废话词拦截**
-- **硬阻断**（❌ error）：杰作/超清晰/高画质/masterpiece/ultra-sharp/best quality/extremely detailed/hyper-realistic/ultra hd/super resolution。
-- **软警告**（⚠️ warning）：4k/8k（若配合渲染引擎声明可保留，否则建议移除）。
-
-**规则 ⑤：资产引用限制**
-- 图片引用 ≤9、视频引用 ≤3、音频引用 ≤3、混合总数 ≤12。超出 = ❌ error。
-
-**规则 ⑥：冲突检测**
-- **运动冲突**：同一时间段内不可同时出现 快速+慢动作、推进+拉远。
-- **光学冲突**：超广角(14mm) + 浅景深虚化 = ❌ error；手持 + 绝对对称 = ❌ error。
-- **风格冲突**：IMAX vs VHS、胶片 vs 锐利数码、水墨 vs UE5光追、三渲二 vs 写实PBR、慢镜头 vs 变速 — 互斥组合 = ❌ error。
-
-**规则 ⑦：裸英文运镜词检测**
-- 高风险裸词 `Dolly/Aerial/Crane/Pan/Arc/Dutch/Steadicam`：Seedance 可能误判为人名。
-- 中文提示词 → 改用中文运镜词；英文提示词 → 必须使用完整短语（如 `dolly tracking shot`）。
-
-**校验流程：**
-1. 逐条检查 Step 3 组装好的提示词，对照上述 7 项规则
-2. 如有任何 ❌ error：**自我反思**并重写提示词
-3. **再次逐条检查**，重复直到全部 7 项通过
-4. 全部通过后，才可进入 Step 5 交付
-5. **附加检查 — 版权安全**：涉及知名IP/品牌/角色时，执行下方「版权安全与避障策略」的三级回退（此项不计入7条编号规则，但同样为强制检查）
-
-### Step 5: 专业交付 (Final Output)
-
-> **⛔ 硬性规则（v1.7）：必须严格按以下模板格式输出，不得自由发挥格式。** 提示词必须包裹在代码块（```）中，方便用户一键复制。缺少「主题」「导演阐述」「完整提示词」中的任何一个区块 = 格式不合格，必须补全。
-
-校验通过后，根据语言选择对应格式输出：
-
-**中文格式：**
+## 7. 交付输出模板（中文标准版）
 ````
 ## Seedance 视频提示词
 
 **主题**：[一句话概括]
 
 ### 资产映射（如有参考素材）
-- @图片1：[用途说明 — 身份锚点/风格参考/角色参考/场景参考；仅用户明确要求时写首帧]
-- @视频1：[用途说明 — 运镜参考/动作复刻等]
-- @音频1：[用途说明 — 配乐节奏/音色参考等]
+- @图片1：[用途说明]
+- @视频1：[用途说明]
+- @音频1：[用途说明]
 
 ---
 
 ### 导演阐述（仅供理解创作意图，无需复制）
-[简述为什么选择这种焦段、灯光和调度来配合用户主题]
+[简述焦段选择、光影逻辑、镜头调度和叙事节奏的设计思路]
 
 ### 完整提示词（直接复制到即梦输入框）
 ```
 [风格/色调总纲]。
-0-X秒：[画面 + 镜头]。
-X-X秒：[画面 + 镜头]。
+0-X秒：[画面 + 主体动作 + 运镜]。
+X-X秒：[画面 + 主体动作 + 运镜]。
 光影：[光源层 + 光行为层 + 色调层]。
 音效：[物理拟声描述]。
 禁止：任何文字、字幕、LOGO或水印
 ```
 
-> **提示**：时长、比例、分辨率请在即梦平台 UI 底部控制栏中设置，提示词中不重复指定。
-````
-
-**English Format:**
-````
-## Seedance Video Prompt
-
-**Theme**: [one-line summary]
-
-### Asset Mapping (if reference materials provided)
-- @Image1: [usage — identity anchor / style reference / character reference / scene reference; first frame only when explicitly requested]
-- @Video1: [usage — camera reference / action replication, etc.]
-- @Audio1: [usage — music rhythm / timbre reference, etc.]
-
----
-
-### Director's Note (for understanding creative intent only, do not copy)
-[Brief explanation of lens, lighting, and staging choices]
-
-### Full Prompt (copy directly into Seedance input box)
-```
-[Style/tone overview].
-0-3s: [visuals + camera].
-3-7s: [visuals + camera].
-Lighting: [source layer + behavior layer + tone layer].
-SFX: [physical sound description].
-Negative: any text, subtitles, logos or watermarks
-```
-
-> **Tip**: Set duration, aspect ratio, and resolution in the Seedance platform UI controls — do not repeat these in the prompt.
-````
-
-**多段分镜格式（>15秒）—— 中文：**
-````
-## Seedance 视频提示词（多段分镜）
-
-**主题**：[一句话概括]
-**总时长**：[X秒] → 共 [N] 段分镜，按顺序依次提交即梦生成后拼接
-
-### 导演阐述（仅供理解创作意图，无需复制）
-[叙事节奏规划 + 分段理由 + 连贯性策略说明]
-
-**分镜过渡策略：**
-分镜1→2：[视觉连接方式 + 情绪转变说明]
-分镜2→3：[视觉连接方式 + 情绪转变说明]
-
----
-
-### 📋 分镜 1/N — [本段主题]（在即梦中设置时长 Xs）
-```
-[完整提示词，0 秒起始]
-```
-
-### 📋 分镜 2/N — [本段主题]（在即梦中设置时长 Xs）
-```
-[完整提示词，0 秒起始]
-```
-
-...
-
-> **拼接提示**：按分镜编号顺序将生成的视频导入剪辑软件拼接。每段末尾已设计稳定交接画面以确保拼接流畅。
-````
-
-**Multi-segment format (>15s) — English:**
-````
-## Seedance Video Prompts (Multi-Segment)
-
-**Theme**: [one-line summary]
-**Total Duration**: [Xs] → [N] segments, submit to Seedance in order then splice
-
-### Director's Note (for understanding creative intent only, do not copy)
-[Narrative pacing plan + segmentation rationale + continuity strategy]
-
-**Segment Transition Strategy:**
-Seg 1→2: [visual connection + emotional shift]
-Seg 2→3: [visual connection + emotional shift]
-
----
-
-### 📋 Segment 1/N — [segment theme] (set duration Xs in Seedance)
-```
-[Full prompt, starting from 0s]
-```
-
-### 📋 Segment 2/N — [segment theme] (set duration Xs in Seedance)
-```
-[Full prompt, starting from 0s]
-```
-
-...
-
-> **Splicing tip**: Import generated videos into editing software in segment order. Each segment ends with a stable handoff frame for smooth splicing.
+> 提示：时长、比例、分辨率请在即梦平台UI底部控制栏中设置，提示词中不重复指定。
 ````
 
 ---
 
-## 提示词结构模板
-
-### 基础结构（≤12秒短视频）
-
-**中文：**
-```
-[风格/色调总纲]。
-[主体描述 + 动作序列]。
-[环境/光影]。
-[镜头语言]。
-音效：[音效描述]。
-禁止：任何文字、字幕、LOGO或水印
-```
-
-**English:**
-```
-[Style/tone overview].
-[Subject description + action sequence].
-[Environment/lighting].
-[Camera language].
-SFX: [sound description].
-Negative: any text, subtitles, logos or watermarks
-```
-
-### 时间戳分镜法（13-15秒，强烈推荐）
-
-**中文：**
-```
-[风格总纲]。
-0-3秒：[画面 + 镜头]。
-3-8秒：[画面 + 镜头]。
-8-12秒：[画面 + 镜头]。
-12-15秒：[画面 + 镜头]。
-光影：[光源层 + 光行为层 + 色调层]。
-音效：[物理拟声描述]。
-禁止：任何文字、字幕、LOGO或水印
-```
-
-**English:**
-```
-[Style overview].
-0-3s: [visuals + camera].
-3-8s: [visuals + camera].
-8-12s: [visuals + camera].
-12-15s: [visuals + camera].
-Lighting: [source layer + behavior layer + tone layer].
-SFX: [physical sound description].
-Negative: any text, subtitles, logos or watermarks
-```
-
-### 短剧/对白结构
-
-> v1.5 新增：演员调度三要素（站位+面部朝向+视线）、对白/画外音区分、拍摄角度具体化。
-> 完整规范与示例见 [scenarios.md](references/scenarios.md) 中的「三、短剧/对白场景」。
-
-**中文（对白场景）：**
-```
-画面（0-X秒）：[具体化景别+拍摄角度]，[场景]，
-[角色描述 + 站位]，[面部朝向 + 视线焦点]，
-[运镜 + 叙事动机]。
-台词（角色，情绪）："[台词]"
-画面（X-X秒）：[具体化景别+拍摄角度]，
-[角色描述 + 站位]，[面部朝向 + 视线焦点]，
-[运镜 + 叙事动机]。
-台词（角色，情绪）："[台词]"
-音效：[音效描述]。
-禁止：任何文字、字幕、LOGO或水印
-```
-
-**中文（画外音/内心独白场景）：**
-```
-画面（0-X秒）：[具体化景别+拍摄角度]，[场景]，
-[角色描述 + 站位]，[面部朝向 + 视线焦点]，
-[运镜 + 叙事动机]。
-画外音："[独白/旁白内容]"
-音效：[音效描述]。
-禁止：任何文字、字幕、LOGO或水印；画面中角色出现说话口型
-```
-
-**English (Dialogue):**
-```
-Visuals (0-Xs): [specific shot size + camera angle], [scene],
-[character description + position], [face direction + gaze focus],
-[camera movement + narrative motivation].
-Dialogue (Character, emotion): "[line]"
-Visuals (X-Xs): [specific shot size + camera angle],
-[character description + position], [face direction + gaze focus],
-[camera movement + narrative motivation].
-Dialogue (Character, emotion): "[line]"
-SFX: [sound description].
-Negative: any text, subtitles, logos or watermarks
-```
-
-**English (Voiceover / Inner Monologue):**
-```
-Visuals (0-Xs): [specific shot size + camera angle], [scene],
-[character description + position], [face direction + gaze focus],
-[camera movement + narrative motivation].
-Voiceover: "[monologue content]"
-SFX: [sound description].
-Negative: any text, subtitles, logos or watermarks; characters moving lips
-```
-
-### 史诗/大制作结构
-
-**中文：**
-```
-[品质锚定：渲染引擎+画质规格+VFX等级]，[核心氛围宣言]。
-[大气连贯声明：全片统一的物理/氛围效果]。
-0-X秒：[画面 + 运镜 + 大气表现]。
-...
-光影：[①光源层] + [②光行为层] + [③色调层]。
-[收束句：后期处理词 + 张力宣言]。
-禁止：任何文字、字幕、LOGO或水印
-```
-
-**English:**
-```
-[Quality anchor: render engine + image spec + VFX tier], [core atmosphere statement].
-[Atmospheric continuity: unified physical/mood effects throughout].
-0-Xs: [visuals + camera + atmospheric detail].
-...
-Lighting: [source layer] + [behavior layer] + [tone layer].
-[Closing: post-processing + tension statement].
-Negative: any text, subtitles, logos or watermarks
-```
-
-> 品质锚定、大气连贯声明、光影三层结构和收束句的详细词库见 [quality-anchors.md](references/quality-anchors.md)。
+> 本系统全部规则与知识库已同步，可直接用于所有即梦Seedance 2.0视频生成场景。
 
 ---
 
-## 版权安全与避障策略 (IP Compliance)
+# 附：参考知识库全文
 
-Seedance 2.0 平台有严格的内容审核。涉及知名IP时，执行渐进式回退：
-
-1. **Level 1 — 名称替换**：禁止原名，使用原创描述性昵称（"钢铁侠" → "合金哨兵" / "Iron Man" → "Alloy Sentinel"）
-2. **Level 2 — 特征改造**：替换标志性视觉特征
-3. **Level 3 — 类型转移**：完全抽象化
-
-在禁止项中显式罗列所有可能触发审核的品牌/角色词汇。
+## cinematography.md — 运镜与焦段专业词典
+> Seedance 2.0 安全运镜全库，区分「电影感」和「监控探头」的核心工具。所有术语都已做平台审核脱敏，中文提示词全部用中文安全写法，英文提示词全部用完整短语，避免裸英文单词误判触发拦截。
 
 ---
 
-## 智能分段（>15秒自动拆分）
-
-Seedance 单次生成上限 **4-15秒**。当用户目标时长超过 15秒时，自动拆分为多段独立提示词：
-
-### 分段计算规则
-
-| 用户目标时长 | 分段数 | 每段时长 | 备注 |
-|-------------|--------|---------|------|
-| ≤15s | 1 | 原样 | 不触发分段 |
-| 16-30s | 2 | 均分 | 如 30s → 15s+15s |
-| 31-45s | 3 | ~15s/段 | 如 45s → 15s×3 |
-| 46-60s | 4 | ~15s/段 | 如 60s → 15s×4 |
-| >60s | ⌈总时长/15⌉ | 最后段可短(≥8s) | 如 70s → 15s×4+10s |
-
-### 分段核心原则
-
-1. **每段独立完整**：时间戳从 0 开始，可直接复制提交即梦
-2. **每段独立校验**：各段 ≤500 字符（中文）/ ≤1000 词（英文）
-3. **风格总纲一致**：每段开头相同的风格/色调总纲句
-4. **光影三层一致**：每段末尾相同的光影结构（允许随叙事渐变）
-5. **交接帧稳定**：每段末尾最后 2-3 秒以稳定画面收束（定格/缓推/渐暗），便于拼接
-6. **叙事节奏分配**：将故事拆分为开场→发展→高潮→收束，每段承担不同叙事功能
-7. **禁止项一致**：每段末尾统一禁止项声明
-
-### 分段输出格式
-
-见上方 Step 5 中的「多段分镜格式」模板。
-
-详细场景模板见 [scenarios.md](references/scenarios.md) 中的分段模板。
+### 一、景别体系 (Shot Sizes)
+| 英文术语 | 中文 | 画面范围 | 叙事功能 |
+|----------|------|----------|----------|
+| Extreme Close-Up (ECU) | 极致特写 | 瞳孔/指尖/水滴 | 放大情绪、展现微观质感 |
+| Close-Up (CU) | 特写 | 面部/单个物体 | 捕捉微表情、聚焦关键道具 |
+| Medium Close-Up (MCU) | 中近景 | 头肩以上 | 对话、情绪传达 |
+| Medium Shot (MS) | 中景 | 腰部以上 | 叙事推进、日常对话 |
+| Medium Full Shot | 中全景 | 膝部以上 | 展示肢体语言 |
+| Full Shot (FS) | 全景 | 头到脚完整人物 | 展示角色全貌与动作 |
+| Wide Shot (WS) | 远景 | 主体+大量环境 | 交代环境关系 |
+| Extreme Wide Shot (EWS) | 大远景 | 壮阔风光，人物极小 | 建立宏大世界观 |
+| Establishing Shot | 建置镜头 | 场景全貌 | 开场定位时空 |
+| Over-the-Shoulder (OTS) | 过肩镜头 | 一人肩后看另一人 | 对话场景视角切换 |
+| Two-Shot | 双人镜头 | 两人同框 | 展现人物关系 |
+| POV Shot | 主观视角 | 角色第一人称 | 最高级沉浸体验 |
 
 ---
 
-## 多模态参考指南（v1.8 升级）
+### 二、三级运镜体系
 
-> 用户上传参考素材时，必须在提示词中用 @引用 明确声明每个素材的用途。以下为 6 种核心参考模式，可自由组合。
+#### Level 1：基础运镜动作（覆盖80%基础需求）
+| 英文术语 | 中文 | 运动轨迹 | 心理效果 | Seedance 安全写法 |
+|----------|------|----------|----------|-------------------|
+| Pan Left/Right | 水平摇摄 | 镜头固定，水平转动 | 追踪横向移动、展现广阔环境 | ✅ 中文：`水平摇摄` / ✅ 英文：`pan shot` |
+| Tilt Up/Down | 垂直俯仰 | 镜头固定，垂直转动 | 仰拍强化力量感，俯拍表现脆弱 | ✅ 全安全 |
+| Dolly In/Out | 推轨推进/后拉 | 机位前后物理移动 | 推进=建立亲密感；后拉=揭示孤立 | ✅ 中文：`推轨推进` / ✅ 英文：`dolly tracking shot` |
+| Zoom In/Out | 变焦推进/拉远 | 焦距变化，机位不动 | 快速聚焦或拉开距离 | ✅ 全安全 |
+| Truck Left/Right | 横向平移 | 机位左右横向移动 | 展示并列元素 | ✅ 全安全 |
+| Crane Up/Down | 摇臂升/降 | 机位垂直升降 | 升=宏大揭示；降=逐渐逼近 | ✅ 中文：`摇臂升降` / ✅ 英文：`crane jib shot` |
+| Orbit / Arc | 环绕/弧形 | 围绕主体旋转 | 展示主体全貌、制造仪式感 | ✅ 中文：`环绕/弧形环绕` / ✅ 英文：`orbital camera movement / arc shot` |
+| Tracking Shot | 跟踪镜头 | 跟随主体平行移动 | 保持主体焦点+传递速度感 | ✅ 全安全 |
+| Static Shot | 固定镜头 | 机位不动 | 客观记录、冷静叙事 | ✅ 全安全 |
+| Push In | 缓慢推进 | 缓慢靠近主体 | 累积紧张感、聚焦细节 | ✅ 全安全 |
+| Pull Out | 缓慢拉出 | 缓慢远离主体 | 揭示更大环境 | ✅ 全安全 |
+| Pedestal Up/Down | 升降平移 | 机身垂直升降不改俯仰角 | 跟随角色起立/坐下 | ✅ 全安全 |
+| Epic Drone Reveal | 史诗级无人机揭示 | 无人机从背后/低位缓慢升起，揭示宏观场景 | 从人物亲密视角到史诗全貌的戏剧性反转，制造震撼揭示感 | ✅ 中文：`无人机缓慢上升揭示` / ✅ 英文：`epic drone reveal shot` |
+| Reveal from Behind / Through Shot | 遮挡揭示/穿梭镜头 | 镜头穿越遮挡物（树丛/门框/人群/窗帘）后揭示场景 | 制造悬念感与层次纵深，营造"发现"的仪式感 | ✅ 中文：`穿越[遮挡物]揭示` / ✅ 英文：`reveal through obstacle shot` |
+| Leading Shot | 引导镜头 | 镜头在主体前方后退，主体主动"追"镜头方向前进 | 叙述旅程感与主动性，观众视角=前方未知 | ✅ 中文：`引导后退跟拍` / ✅ 英文：`leading shot pulling back` |
 
-### 多参考图生视频：电影化镜头设计
+#### Level 2：修饰词（赋予运镜灵魂）
+**速度修饰：**
+| 修饰词 | 效果 | 示例 |
+|--------|------|------|
+| Smooth / 流畅的 | 平和优雅 | `Smooth dolly in on the couple` |
+| Slow / 缓慢的 | 悬念、回忆 | `Slow zoom out from the photo` |
+| Fast / Rapid | 紧张激烈 | `Fast tracking through the market` |
+| Subtle / 微妙的 | 增强沉浸 | `Subtle tilt up during monologue` |
+| Gradual / 渐进的 | 自然过渡 | `Gradual 10-second crane up` |
+| Sudden / 突然的 | 惊吓转折 | `Sudden whip pan to reveal` |
 
-当用户上传一张或多张图片作为参考素材，且没有明确指定首帧或起始帧时，必须调用**多参考图生视频工具**并遵循以下原则：
+**情绪修饰：**
+| 修饰词 | 氛围 | 示例 |
+|--------|------|------|
+| Cinematic | 电影感 | `Cinematic arc shot around hero` |
+| Aggressive | 侵略性 | `Aggressive handheld in chase` |
+| Dreamy | 梦幻 | `Dreamy slow-motion dolly` |
+| Intimate | 亲密 | `Intimate push-in on hands` |
+| Epic | 史诗 | `Epic crane up revealing army` |
+| Dynamic | 动态活力 | `Dynamic tracking on dance floor` |
 
-1. **参考图输入不降级**——有输入图片时，仍按完整导演提示词写作：主体、场景、动作、景别、运镜、光影、音效都可以完整描述。不要因为存在图片而省略镜头语言。
-2. **先声明图片用途**——默认写成参考用途，如 `参考@图片1的服装/姿态/场景/色调`、`@图片1为角色参考`、`@图片1为产品参考`。即使只有一张参考图，也调用**多参考图生视频工具**。只有用户明确要求首帧、起始帧、保持原图构图或“让原图动起来”时，才改用**首帧生视频工具**并写 `@图片1为首帧`。图片用途不同，提示词策略不同。
-3. **每段必须有镜头控制**——时间切片格式固定为 `[画面变化 + 主体动作 + 镜头控制]`。镜头控制可使用：镜头固定中景、近景特写、推轨推进、缓慢后拉、水平摇摄、弧形环绕、焦点转换、轻微手持等。
-4. **首帧不是默认路径**——不要因为用户上传图片就调用首帧生视频工具，也不要自动写 `@图片1为首帧` 或 `保留原始构图和色彩`。只有用户明确要求“作为首帧/起始帧”“保持首帧”“不要变构图”“原图动起来”时才使用该工具并加入对应约束；如果用户要求改造、转场、换景、大片感或剧情推进，应允许构图、景别和场景随分镜变化。
-5. **运动描写要明确**——用具体动词+强度词描述变化（"头发被风猛烈吹起" vs "头发动了"），同时区分主体运动和镜头运动。
+**风格修饰：**
+| 修饰词 | 效果 | 示例 |
+|--------|------|------|
+| Handheld / 手持 | 纪实感、混乱感 | `Handheld follow in war zone` |
+| Aerial / 航拍 | 俯瞰视角 | `Aerial rising over city` |
+| Dutch Angle / 荷兰角 | 倾斜不安 | `Dutch angle tracking thriller` |
+| Gimbal / 云台 | 稳定流畅 | `Gimbal tracking through corridor` |
+| Steadicam / 斯坦尼康 | 专业级稳定 | `Steadicam follow in hallway` |
+| POV | 第一人称沉浸 | `POV walking through haunted house` |
+| FPV Drone / 穿越机 | 极速俯冲翻滚 | `FPV drone dive through canyon` |
 
-**多参考图生视频提示词范式：**
-```
-# 中文
-参考@图片1的[角色/服装/姿态/场景/色调/产品]，[风格与叙事目标]。
-0-X秒：[画面变化 + 主体动作 + 镜头控制]。
-X-X秒：[画面变化 + 主体动作 + 镜头控制]。
-光影：[光源层 + 光行为层 + 色调层]。
-音效：[物理拟声描述]。
-禁止：任何文字、字幕、LOGO或水印
-
-# English
-Reference @Image1 for [character/costume/pose/scene/tone/product], [style and narrative goal].
-0-Xs: [visual change + subject action + camera control].
-X-Xs: [visual change + subject action + camera control].
-Lighting: [source layer + behavior layer + tone layer].
-SFX: [physical sound description].
-Negative: any text, subtitles, logos or watermarks
-```
-
-### 参考视频最佳实践
-
-选择参考视频时，遵循以下约束以获得最佳复刻效果：
-
-- **理想长度**：3-8秒——过短信息不足，过长模型抓取困难
-- **连续画面**：选择无跳切、无转场的连续片段——有剪辑点的视频会导致复刻混乱
-- **单一意图**：每段参考视频只包含一个"意图"——要么主体运动，要么镜头运动，不要两者混合
-- **提示词从简**：有参考视频时文字提示词保持精简，用 `参考@视频1的运镜节奏，重新诠释纹理和色彩` / `Respect motion from reference: reinterpret texture and color` 类指令
-
-### 7 种核心参考模式
-
-| 模式 | 写法（中文） | 写法（English） |
-|------|------------|----------------|
-| **多参考图输入（默认）** | `参考@图片1的服装/姿态/场景/色调` | `Reference @Image1 for costume, pose, scene and tone` |
-| **首帧锚定** | `@图片1为首帧` | `@Image1 as first frame` |
-| **首尾帧锚定** | `@图片1为起幅/首帧，@图片2为落幅/尾帧` | `@Image1 as start frame, @Image2 as end frame` |
-| **运镜复刻** | `完全参考@视频1的所有运镜效果` | `Fully reference all camera movements from @Video1` |
-| **动作复刻** | `参考@视频1的人物动作` | `Reference character actions from @Video1` |
-| **运镜+动作分离** | `参考@视频1的动作，参考@视频2的运镜` | `Reference actions from @Video1, camera from @Video2` |
-| **音色/语气参考** | `语气和音色参考@视频1` | `Voice tone and timbre reference @Video1` |
-| **特效复刻** | `完全参考@视频1的特效` | `Fully reference visual effects from @Video1` |
-
-### 多素材角色控制
-
-多图指定角色时，必须明确每张图的用途，不要让模型猜测：
-
-**中文：**
-```
-参考@图片1的角色五官，@图片2的服装，@图片3的场景
-```
-**English:**
-```
-Reference facial features from @Image1, costume from @Image2, scene from @Image3
-```
-
-### 参考底图防污染法则 (Background Purification)
-
-在使用多模态参考（特别是第一人称 POV 或特定角色/物件动作迁移）时，如果提供的人物或器械设定图带有复杂的背景：
-- 中文建议：`请确保您上传的参考图片背景为“纯白/完全空白”，避免原图背景的杂质污染视频生成的环境。`
-- English: `Please ensure your reference image has a pure white/blank background to prevent background noise from contaminating the generated video environment.`
-
-### 一致性保持
-
-多场景/多角度素材中保持角色外貌一致：
-- 中文：`保持角色外貌与@图片1完全一致`
-- English: `Maintain character appearance exactly consistent with @Image1`
-- 上传同一角色的多角度图片可显著提升一致性
-
-### 常用组合模式
-
-**中文：**
-- **多参考图+参考视频（默认，调用多参考图生视频工具）** → `参考@图片1的角色/服装/场景，参考@视频1的动作/运镜`
-- **首帧+参考视频（仅显式要求）** → `@图片1为首帧，参考@视频1的动作/运镜`
-- **角色替换** → `将@视频1中的[A]换成@图片1 + 保持动作时序`
-- **一镜到底** → `一镜到底 + @图片1@图片2... + 全程不切镜头`
-- **首尾帧插值** → `@图片1为起幅，@图片2为落幅 + 镜头在两者间平滑过渡`
-- **时间静止(子弹时间，仅显式首帧)** → `@图片1为首帧 + 场景完全静止(completely frozen scene) + 运镜[如: 极速跟随/穿梭]`
-- **多镜头序列** → `多镜头视频(multishot video) + 第一镜[...] + 第二镜[...]`
-- **片段重绘** → `保持@视频1的动作和运镜，风格重绘为(relight to)[新光影/新风格]`
-- **音乐卡点** → `@音频1 + 参考@视频1的画面节奏/卡点`
-- **视频延长** → `将@视频1延长[X]秒 + [续接内容描述]`
-- **特效复刻** → `完全参考@视频1的特效和转场`
-
-**English:**
-- **Multi-reference images + ref video (default; use the multi-reference video tool)** → `Reference @Image1 for character/costume/scene, reference @Video1 for motion/camera`
-- **First frame + ref video (explicit only)** → `@Image1 as first frame, reference @Video1 for motion/camera`
-- **Character swap** → `Replace [A] in @Video1 with @Image1 + keep action timing`
-- **One-take** → `One continuous shot + @Image1@Image2... + no cuts throughout`
-- **Start & End Interpolation** → `@Image1 as start frame, @Image2 as end frame + smooth transition`
-- **Freeze Time (explicit first frame only)** → `use @Image1 as starting frame + camera dramatically weaves through completely frozen scene`
-- **Multishot Video** → `multishot video + shot 1 [...] + shot 2 [...]`
-- **Restyling** → `relight @Video1 to [new lighting/style]`
-- **Music sync** → `@Audio1 + reference @Video1 for visual rhythm/beat sync`
-- **Video extension** → `Extend @Video1 by [X]s + [continuation description]`
-- **Effect replication** → `Fully reference effects and transitions from @Video1`
-
-素材优先级：优先上传对画面或节奏影响最大的素材。参考视频是最精准的"提示词"——有参考视频时，优先使用视频参考而非纯文字描述。
+#### Level 3：组合运镜（复合技巧）
+一次最多组合2-3个动作，不叠加互斥方向：
+| 组合 | 效果 | 场景 |
+|------|------|------|
+| Orbit + Zoom In | 视觉冲击力极强 | 揭示主体、产品展示 |
+| Crane Up + Pan | 大气磅礴 | 开场/结尾 |
+| Dolly Zoom (Vertigo) | 眩晕空间扭曲 | 心理冲击、恐慌 |
+| Tracking + Handheld Shake | 紧张追逐 | 追逐/逃亡 |
+| Dolly Back + Crane Up | 逐渐揭示宏大场景 | 震撼场景揭示 |
+| Arc 180° + Subtle Zoom In | 情绪聚焦 | 情绪转折点 |
+| Whip Pan | 极速横摇转场 | 空间转场、紧张节奏 |
+| Snap Zoom / Crash Zoom | 急推变焦——焦距骤变至极端特写或极端远景，产生爆裂冲击感 | 喜剧冲击、惊吓强调、MV节拍卡点 |
+| Orbit Follow（移动环绕） | 主体运动中同步环绕（orbit + tracking），环绕中心点随主体移动 | 跟随奔跑/格斗同时环绕，制造动感包围感 |
 
 ---
 
-## 质量自检 Checklist
+### 三、焦段与物理镜头参数
+| 焦段 | 视觉特征 | 适用场景 |
+|------|----------|----------|
+| **14mm Ultra-wide** | 强烈透视畸变、边缘拉伸 | 巨物恐惧、末世压迫、建筑全貌 |
+| **24mm Wide** | 适度广角、自然空间感 | 环境建置、街景 |
+| **35mm Standard Wide** | 接近人眼略广 | 纪录片、日常叙事 |
+| **50mm Standard** | 最接近人眼 | 平实叙事、对话场景 |
+| **85mm Portrait** | 背景压缩、柔美虚化 | 人像特写、情感场景 |
+| **135mm Telephoto** | 极度空间压缩、奶油散景 | 面部微表情、汗滴特写 |
+| **200mm+ Super Telephoto** | 极致背景压缩 | 远距离偷拍感、监视感 |
+| **Fisheye** | 极度球面畸变 | 偷窥感、心理扭曲、滑板视角 |
 
-生成提示词后自动检查：
-- [ ] 已完成 7 项强制校验规则且全部通过
-- [ ] @引用编号与素材清单一一对应
-- [ ] 总文件数 ≤ 12
-- [ ] 未包含写实真人面部素材
-- [ ] 时间戳分镜覆盖完整时长
-- [ ] 台词用引号包裹并标注角色和情绪
-- [ ] 音效描述与画面描述分离
-- [ ] 无版权敏感词汇
-- [ ] 提示词长度合规（中文≤500字符 / 英文≤1000词）
-- [ ] 输出语言与用户输入语言匹配（中文→中文 / 非中文→英文）
+> **焦段叙事心理学**：焦距越短→空间越夸张→主体越膨胀；焦距越长→空间越压缩→背景越贴近。直接写具体毫米数比笼统的"广角镜头"对模型的激发效果强数倍。
 
 ---
 
-## 核心示例
+### 四、焦点控制与景深
+| 术语 | 英文 | 效果 |
+|------|------|------|
+| 浅景深 | Shallow Depth of Field | 背景模糊，主体突出 |
+| 深焦 | Deep Focus | 前中后景全部锐利 |
+| 焦点转换 | Rack Focus | 焦点在前后景间平滑转移 |
+| 散景 | Bokeh | 柔和的圆形背景虚化光斑 |
+| 分屈光镜 | Split Diopter | 两个平面同时对焦 |
 
-### 示例：废土机甲苏醒（15秒，史诗结构，中文）
+**动态对焦分级：**
+- 缓焦转移 Slow rack focus：从容引导注意力，适合回忆/发现
+- 急焦切换 Snap focus：瞬间跳焦，制造惊吓/突然发现
+- 呼吸焦点 Breathing focus：焦点微微前后游移，强化不安/等待情绪
 
+---
+
+### 五、镜头角度
+| 术语 | 英文 | 心理效果 |
+|------|------|----------|
+| 平视 | Eye-Level | 中立自然 |
+| 仰拍 | Low Angle | 力量感、英雄感 |
+| 俯拍 | High Angle | 脆弱、渺小 |
+| 鸟瞰 | Bird's Eye / Top-Down | 上帝视角、几何美 |
+| 虫瞰 | Worm's Eye | 极致仰视，建筑压迫 |
+| 荷兰角 | Dutch Angle | 不安、悬疑张力 |
+
+---
+
+### 六、物理挂载与特种设备
+| 设备 | 英文 | 视觉签名 | 适用场景 |
+|------|------|----------|----------|
+| 斯诺里机位 | SnorriCam / Body-mounted | 人物面部静止锁死画面中心，背景疯狂向后晃动 | 眩晕、精神崩溃、亡命狂奔、醉酒 |
+| 穿越机 | FPV Drone | 6自由度极速飞行，狭窄空间穿梭翻滚 | 废墟穿越、走廊追逐、车窗穿入 |
+| 斯坦尼康跟拍 | Steadicam Follow | 弹簧臂自然呼吸感，流畅但不完美死板 | 长镜头跟拍、走廊漫游 |
+| 钢索飞猫 | Cable Cam / Wirecam | 钢索悬挂精准直线高速飞越 | 体育场飞越、音乐节俯冲、峡谷穿越 |
+| 低机位碾压 | Crash Cam | 摄像机贴地/底盘安装 | 车轮特写、奔跑踩踏、动物视角 |
+| 摇臂/伸缩炮 | Jib / Crane | 长臂大幅度升降摆动，从地面到高空连续弧线 | 开场大揭示、告别俯瞰、舞台表演 |
+
+---
+
+### 七、创意特效运镜速查
+| 效果 | 中文触发词 | English Trigger | 适用场景 |
+|------|-----------|----------------|---------|
+| 希区柯克变焦 | `希区柯克变焦` / `滑动变焦` | `Hitchcock zoom` / `dolly zoom` | 惊恐/顿悟/空间扭曲 |
+| 鱼眼镜头 | `鱼眼镜头透过[形状]窥视` | `Fisheye lens peering through [shape]` | 偷窥/夸张/喜剧 |
+| 粒子特效 | `金色沙砾飘散` / `粒子吹散效果` | `Golden sand particles scattering` / `Particle dispersion effect` | 魔法/转场/片头 |
+| 速度渐变 | `过山车般速度逐渐加快` | `Speed accelerates like roller coaster` | 追逐/紧迫/高潮 |
+| 定格转场 | `画面定格后碎裂转场` | `Frame freezes then shatters into transition` | 闪回/转场/MV |
+| 水墨化 | `黑白水墨风格` | `Black-and-white ink wash style` | 东方美学/功夫/禅意 |
+| 变身/变装 | `裂纹蔓延后粒子消散变形` | `Cracks spreading then particles dissolve and morph` | 变身/超能力/前后对比 |
+
+---
+
+### 八、运动强度修饰词速查
+解决AI"糊动"（motion mush）核心武器，每个动作加一个明确强度词：
+| 等级 | 中文修饰词 | English Modifiers | 适用场景 |
+|------|-----------|------------------|---------|
+| ⚡ 极强 | 猛烈、暴烈、爆裂、猛冲 | violent, explosive, slamming, bursting | 爆炸/撞击/格斗 |
+| 🔥 强烈 | 剧烈、迅猛、急速、用力 | dramatic, vigorous, rapid, forceful | 追逐/运动/情绪高潮 |
+| ⚡ 突然 | 突然、骤然、猛然、戛然 | sudden, abrupt, snapping, jolting | 惊吓/转变/闪回 |
+| 🌊 中等 | 稳步、从容、自然、轻快 | steady, confident, natural, brisk | 叙事推进/日常动作 |
+| 🍃 轻柔 | 缓缓、温柔、轻柔、丝滑 | gentle, soft, smooth, delicate | 浪漫/舒缓/ASMR |
+| 🪨 渐进 | 渐渐、逐步、缓慢、不知不觉 | gradual, slowly, imperceptibly, easing | 日出/情绪渐变/暗场 |
+
+---
+
+*文档结束*
+
+---
+
+## quality-anchors.md — 品质锚定与反塑料感词库
+> 彻底解决AI生成"塑料假人""涂油质感""完美死板CG"的核心词库。**严禁使用"4K/8K/杰作/超清晰/masterpiece/ultra HD"这类泛词**——它们会触发模型过度锐化通路，反而变假。全部替换成本文档里的物理介质+可控不完美细节。
+
+---
+
+### 一、品质锚定词库
+#### 渲染引擎
+| 关键词 | 风格偏向 |
+|--------|----------|
+| UnrealEngine5渲染 | 写实+美观，全场景通用 |
+| Octane物理渲染引擎 | 极致光追、产品广告 |
+| Blender Cycles渲染 | 独立制作、艺术化 |
+| V-Ray光追渲染 | 建筑可视化、精确光影 |
+| Houdini粒子特效引擎 | 流体/爆炸/粒子 |
+| Cel-Shaded Toon渲染 | 三渲二/动画化CG，简化光影+硬边描边 |
+
+#### 画质规格
+| 关键词 | 用途 |
+|--------|------|
+| IMAX级画质 | 极致清晰+大画幅感 |
+| RAW影像质感 | 后期空间大、宽容度高 |
+| 杜比视界HDR | 高动态范围、明暗层次丰富 |
+| HDR10+ | 标准HDR |
+
+#### VFX等级
+| 关键词 | 级别 |
+|--------|------|
+| 工业光魔级VFX特效 | 顶级好莱坞 |
+| 院线级CG | 影院上映标准 |
+| 好莱坞A级特效 | 大制作标准 |
+
+#### 摄影机感
+| 关键词 | 质感 |
+|--------|------|
+| ARRI ALEXA摄影机质感 | 电影标杆色彩，温润自然 |
+| RED摄影机色彩 | 锐利+高分辨率 |
+| 65mm胶片颗粒质感 | 大画幅有机颗粒 |
+| 35mm胶片颗粒 | 经典电影质感 |
+| 16mm胶片颗粒 | 独立电影/复古 |
+
+#### 专业胶片型号（直接写英文型号，模型敏感度拉满）
+| 胶片型号 | 英文提示词 | 色彩签名 | 最佳场景 |
+|----------|------------|----------|----------|
+| **柯达 Portra 400** | `Shot on Kodak Portra 400` | 温润自然肤色，柔和过渡，低对比 | 人像/情感戏——绝杀AI蜡像脸 |
+| **Cinestill 800T** | `Shot on Cinestill 800T` | 暖色调，霓虹灯高光处产生迷人的红色晕影(halation) | 夜景/赛博朋克/霓虹街头 |
+| **柯达 Vision3 500T** | `Shot on Kodak Vision3 500T` | 电影工业标准色彩，宽容度，自然色还原 | 通用叙事/院线电影质感 |
+| **富士 Pro 400H** | `Shot on Fuji Pro 400H` | 清冷淡雅，薄荷绿偏移，柔和高光 | 日系文艺/小清新/旅拍 |
+| **柯达 Ektachrome 100** | `Shot on Kodak Ektachrome E100` | 高饱和幻灯色彩，锝利颗粒 | 复古广告/60-70年代美学 |
+
+#### 材质质感速查（反塑料感核心）
+| 材质 | 英文提示词 | 视觉特征 |
+|------|------------|----------|
+| 皮肤 | `Realistic skin texture with visible pores, subsurface scattering, micro-imperfections` | 毛孔/SSS透光/微瑕疵，反蜜蜡假人感 |
+| 发丝 | `Individual hair strands with flyaway wisps, translucent backlit edges` | 发丝飞散+透光边缘，反塑料假发 |
+| 丝绸 | `Flowing silk with specular micro-highlights, liquid-smooth draping, light transmission` | 微光泽流转+液态垂坠+半透光 |
+| 金属 | `Brushed metal with anisotropic reflection, micro-scratched surface, sharp specular` | 拉丝反射+微划痕+锐利高光 |
+| 玻璃 | `Transparent glass with caustic light patterns, refractive distortion, fingerprint smudges` | 焦散光斑+折射畸变+指纹污渍 |
+| 食物 | `Glistening food surface with oil sheen, steam wisps rising, juice droplets beading` | 油光/蒸气环绕/汁液珠化，美食号必备 |
+| 玉石 | `Jade with deep subsurface scattering, waxy luster, translucent green-white gradation` | SSS深层透光+蜡质光泽+渐变透亮 |
+| 石材 | `Rough-hewn stone with granular surface, moss in crevices, weathered patina` | 粗粝颗粒+苔藓嵌缝+风化层 |
+
+#### 动画化/NPR材质速查（三渲二专用，绝对不要和写实材质混用）
+| 材质 | 英文提示词 | 视觉特征 |
+|------|------------|----------|
+| Anime 皮肤 | `Anime cel-shaded skin with sharp shadow boundary, no subsurface scattering, clean color blocks` | 硬边阴影分割，无SSS透光，色块清晰，反写实毛孔 |
+| Anime 头发 | `Anime hair with stylized highlight band, bold color blocks, flyaway strands at edges` | 高光带（非写实散射），色块分明，边缘飞散发丝 |
+| 卡通金属 | `Toon-shaded metal with simplified specular, bold geometric reflection shapes` | 简化高光形状，几何化反射，非物理精确 |
+| 卡通织物 | `Flat-shaded fabric with minimal wrinkle detail, bold color fill, anime-style fold lines` | 极简褶纹，色块填充，动画式褶线 |
+
+---
+
+### 二、三层光影结构词库
+> 拆成三层描述光影，提示词品质直接提升一个大段位，所有提示词必须走这个结构：
+> `光影：[光源层]，[光行为层]，[色调层]。`
+
+#### 第一层 — 光源层（是什么光、从哪里来）
+| 场景类型 | 光源词 |
+|----------|--------|
+| **灾难/动作** | 暴雨逆光 / 爆炸橙红火光 / 核爆白光 / 闪电侧光 |
+| **奇幻/仙侠** | 灵力自发光 / 法阵光环 / 仙雾透光 / 月华清辉 |
+| **科幻** | 飞船引擎尾焰光 / 能量球蓝白光 / 全息投影散射 |
+| **都市/夜景** | 霓虹灯漫射 / 玻璃幕墙反射 / 车灯流光 / 防空警报红光 |
+| **自然/写实** | 黄金时刻侧逆光 / 阴天漫射天光 / 月光冷辉 / 火焰跳动暖光 |
+| **室内** | 台灯侧光 / 窗户进光 / 烛光闪烁 / 屏幕冷光 |
+
+#### 第二层 — 光行为层（光如何与材质/大气互动）
+| 效果 | 描述 |
+|------|------|
+| 薄雾柔化高光 | 光线穿过雾气被柔化 |
+| 强化阴影对比 | 雾层加深暗部 |
+| 丁达尔效应/god rays | 光束在尘埃/雾中可见 |
+| 体积光穿透 | 光柱穿过空间 |
+| 烟尘散射光线 | 粒子折射光 |
+| 玻璃折射彩虹光斑 | 棱镜效果 |
+| 金属反射高光 | 锐利金属反光 |
+| 雨水折射霓虹 | 湿面彩色反射 |
+| 次表面散射(SSS) | 皮肤/玉石透光效果 |
+
+**常用灯光组合速查：**
+| 场景 | 灯光组合 |
+|------|----------|
+| 产品棚拍 | 主光侧前45° + 柔光箱填光 + rim light勾勒轮廓 + 底部反射板 |
+| 夜景霓虹 | 霓虹灯多色源 + 湿地面反射 + 卷帘门口溢光 + 蓝紫补光 |
+| 车内光线 | 仪表盘微光 + 路灯流动光影 + 后视镜反射 + 苏醒暗部 |
+| 演唱会/舞台 | 追光主光 + 多色渗透光 + 干冰地面雾 + 频闪补光 |
+
+#### 第三层 — 色调层（整体冷暖和对比）
+| 风格 | 色调公式 |
+|------|----------|
+| 灾难/压迫 | 冷蓝底调 + 熔岩红高光 |
+| 赛博朋克 | 冷蓝底调 + 霓虹紫红高光 |
+| 仙侠/奇幻 | 暗青底调 + 金色/荧光高光 |
+| 末日/恐怖 | 灰绿底调 + 暗红强化 |
+| 暖色/史诗 | 暗棕底调 + 橙金高光 |
+| 高级灰 | 低饱和灰调 + 微暖高光 |
+| 梦幻/童话 | 柔粉底调 + 金色微光 |
+| 社媒鲜亮 | 高饱和底调 + 强对比高光 + 微暖偏移 |
+
+---
+
+### 三、大气与镜头质感效果词库
+#### 大气效果
+| 效果类型 | 关键词 |
+|----------|--------|
+| 薄雾/朦胧 | 薄雾弥散 / 潮湿朦胧氛围 / 灰白色海雾包裹 |
+| 丁达尔效应 | 丁达尔效应清晰 / 光束穿透雾层 / god rays射线 |
+| 热浪/蒸汽 | 热浪蒸腾 / 蒸汽气团上涌 / 高温气流扭曲画面 |
+| 烟尘粒子 | 爆炸烟尘 / 细粒子悬浮 / 粉尘弥散光线 |
+| 雨/雪/风 | 暴雨倾盆 / 雪花缓落 / 风沙弥漫 |
+| 大气连贯 | 每帧都有自然的薄雾弥散效果 / 全程雨雾弥漫 |
+
+#### 有机物理瑕疵（反塑料感核心，每条提示词至少放1-2个）
+**光学瑕疵：**
+| 瑕疵 | 英文提示词 | 视觉效果 |
+|------|------------|----------|
+| 胶片红色光晕 | `Cinematic halation` | 高光处弥散的温暖红色光晖，胶片特有 |
+| 变形宽银幕眩光 | `Anamorphic lens flares` | 水平拉丝式眼光，2.35:1宽银幕标志 |
+| 桶形畸变 | `Barrel distortion` | 广角镜头边缘拉伸，增强空间压迫感 |
+| 周边暗角 | `Natural optical vignetting` | 边缘自然压暗，引导视觉聚焦中心 |
+
+**物理质感瑕疵：**
+| 瑕疵 | 英文提示词 | 视觉效果 |
+|------|------------|----------|
+| 皮肤微肌理 | `Realistic skin texture with visible pores and micro-imperfections` | 反塑料感第一利器，告别蜡像脸 |
+| 汗水反光 | `Sweat glistening on skin surface` | 细微的液体反射，增强真实触感 |
+| 微尘飘浮 | `Floating dust particles caught in light` | 空气中的微尘在光束中闪烁，空间立体感 |
+| 织物微纤维 | `Fabric micro-fiber detail under light` | 衣物表面的微观纹理，材质真实感 |
+| 发丝光泽 | `Individual hair strands catching light` | 毛发反光与飞散，告别塑料假发 |
+
+**环境有机物瑕疵：**
+| 瑕疵 | 英文提示词 | 视觉效果 |
+|------|------------|----------|
+| 雨滴玻璃 | `Rain droplets trickling down glass surface` | 湿润环境感 |
+| 凝结水雾 | `Condensation fog on cold surfaces` | 温度差的物理表现 |
+| 落叶碎屑 | `Scattered leaves and organic debris` | 场景自然生活感 |
+| 光斜进的灰尘 | `Dust motes drifting through shafts of light` | 空间体积感+光线可见 |
+
+---
+
+### 四、后期处理与收束词库
+#### 后期处理词
+暗角 / 胶片颗粒 / 电子噪点 / 色差(chromatic aberration) / 轻微镜头失真 / 运动模糊 / 轻微过曝 / 胶片刮痕 / 暗角渐深
+
+#### 张力宣言（按风格分类，收束句直接加在提示词末尾）
+| 风格 | 收束句 |
+|------|--------|
+| 压迫/灾难 | 窒息式压迫感+诡谲朦胧氛围，无冗余画面，全程高张力 |
+| 科幻/未来 | 冰冷机械美学，每帧可截图成壁纸，镜头感拉满 |
+| 仙侠/奇幻 | 仙气飘渺，如梦似幻，全程不要现代感痕迹 |
+| 都市/情感 | 温度感十足，每帧有呼吸感，镜头语言克制而有力 |
+| 动作/热血 | 肾上腺素拉满，节奏紧绷，剪辑感强烈 |
+| 孤寂/文艺 | 留白充分，克制的情绪张力，画面呼吸感强 |
+| 可爱/治愈 | 满屏治愈感，色彩明快，让人嘴角上扬 |
+
+---
+
+### 五、品质冲突矩阵（绝对不能混用）
+| 冲突对 A | 冲突对 B | 为什么冲突 | 解决方案 |
+|---------|---------|------------|----------|
+| IMAX 65mm 极致清晰 | VHS 模拟降解 | 一个要极致锐利，一个要刻意降解 | 二选一，不可混用 |
+| UE5 写实光追 | 水墨宣纸笔触 | 一个物理渲染，一个抽象二维 | 二选一；若要融合用"3D渲染水墨质感" |
+| 胶片颗粒 + 有机噪点 | 锐利数码电商质感 | 一个要粗粝不完美，一个要完美无瑕 | 根据场景选择；电商禁胶片，影片禁数码锐 |
+| 手持晃动 / Handheld | 绝对对称构图 | 运镜与构图逻辑矛盾 | 对称构图强制用三脚架/云台 |
+| Slow Motion 慢镜头 | Speed Ramp 变速 | 同一时间切片内不可同时慢和加速 | 分时间切片使用，不在同段重叠 |
+| 三渲二Cel-Shade/卡通渲染 | 写实PBR材质/SSS/皮肤毛孔/微瑕疵 | 一个刻意简化光影和材质，一个追求物理精确 | 二选一；三渲二提示词禁用写实材质词 |
+
+---
+
+*文档结束*
+
+---
+
+## director-styles.md — 参数化导演风格库
+> 把所有导演/艺术风格拆解为「色彩+灯光+美术+机位」四轴纯物理参数，绝对不在最终提示词里出现任何人名、IP名、工作室名，直接植入提示词不触发审核拦截。所有条目都已经过安全脱敏。
+
+---
+
+### 一、国际电影大师风格（全部去名化）
+#### 冷峻写实IMAX风格（原诺兰体系）
+- 🎨 色彩：去饱和冷色调，深蓝/铅灰/钢铁银/极致黑
+- 💡 灯光：高对比硬光，自然光为主，无多余霓虹炫光
+- 🏛️ 美术：宏大实景比例，巨型工业建筑，真实物理特效质感
+- 📷 机位：极缓慢推轨，IMAX稳定器，零手持晃动
+- ✅ 安全提示词：`IMAX 65mm film grain, desaturated steel-blue and charcoal palette, high-contrast natural key lighting, monumental practical-scale architecture, glacial dolly push-in, heavy debris particle physics, zero handheld shake`
+
+#### 巨物压迫粗野主义风格（原维伦纽瓦体系）
+- 🎨 色彩：去饱和琥珀/冷白/暖沙黄，低对比单色调
+- 💡 灯光：弥散柔光，单色环境光笼罩，厚重体积雾
+- 🏛️ 美术：粗野主义混凝土/砂岩建筑，巨型单一体量，渺小人物对比巨物
+- 📷 机位：135mm长焦远景，极缓推轨，肃穆缓慢
+- ✅ 安全提示词：`Brutalist concrete architecture, monolithic scale with tiny human figure for contrast, heavy atmospheric haze with volumetric god rays, desaturated amber-sand palette, glacial push-in on 135mm telephoto, oppressive silence`
+
+#### 极致对称童话风格（原韦斯安德森体系）
+- 🎨 色彩：马卡龙粉/芥末黄/薄荷绿/复古浅蓝，高饱和低对比
+- 💡 灯光：均匀柔光，无硬阴影，填充光铺满画面
+- 🏛️ 美术：绝对居中对称，平面化舞台调度，微缩模型感布景
+- 📷 机位：机械式90度横摇/直线横向推轨，绝对零透视变化，禁用手持
+- ✅ 安全提示词：`Strict symmetrical centered composition, flat theatrical staging with zero depth perspective, pastel macaron palette (mustard yellow, powder pink, mint green), mechanical 90-degree lateral dolly, miniature dollhouse set design, soft even fill lighting with no hard shadows`
+
+#### 霓虹迷幻潮湿风格（原王家卫体系）
+- 🎨 色彩：高饱和霓虹红/幽绿/暗蓝，强色彩碰撞
+- 💡 灯光：多色霓虹漫射，雨水折射反射，逼仄空间光影
+- 🏛️ 美术：窄巷/旧楼/逼仄室内环境，镜面/玻璃/潮湿反光表面
+- 📷 机位：抽帧拖影，降速快门，轻微手持晃动，前景遮挡偷窥视角
+- ✅ 安全提示词：`Step-printed slow motion with ghosting trails, voyeuristic foreground obstruction (door frames, curtains, glass), neon teal-and-orange split lighting, smoldering atmospheric haze, claustrophobic tight framing, rain-soaked reflective surfaces, slow shutter drag with motion blur`
+
+#### 手绘幻想自然风格（原宫崎骏体系）
+- 🎨 色彩：清新自然绿/天空蓝/暖黄，柔和粉彩
+- 💡 灯光：柔和漫射自然光，云朵透光，大面积天光
+- 🏛️ 美术：广阔自然景观，毛茸茸森林生物，乡野田园环境
+- 📷 机位：缓慢横移，飞行跟拍，大远景俯瞰，开阔天空占比≥70%
+- ✅ 安全提示词：`Hand-painted watercolor cel animation, soft diffused natural sunlight through cumulus clouds, expansive 70% sky composition, lush green-and-sky-blue pastoral palette, gentle breeze rippling grass and hair, slow pan across meadow, warm nostalgic golden-hour tones`
+
+#### 精密惊悚低调风格（原大卫芬奇体系）
+- 🎨 色彩：去饱和黑绿/铅灰/冷青，极低彩度
+- 💡 灯光：低调单点光源，大面积暗部，光只雕刻局部面部/物体
+- 🏛️ 美术：冷硬现代室内环境，极简装饰，临床工业质感
+- 📷 机位：精密机械推轨，绝对零手持晃动，主体微偏中心制造不安
+- ✅ 安全提示词：`Low-key single-source lighting carving face from darkness, desaturated sickly green-grey palette, precise mechanical dolly tracking with zero handheld, clinical digital texture, oppressive controlled framing, subject slightly off-center creating unease`
+
+#### 自然光减法叙事风格（原罗杰迪金斯体系）
+- 🎨 色彩：自然色温，黄金时刻暖调，低对比柔和过渡
+- 💡 灯光：仅用可用自然光/窗光/天光，零多余人工特效灯
+- 🏛️ 美术：真实生活化场景，前中后景分层纵深
+- 📷 机位：极简克制运镜，极慢推轨，长镜头凝视
+- ✅ 安全提示词：`Natural window light as sole source, golden-hour warmth with soft shadow falloff, layered spatial depth using atmospheric haze between planes, slow contemplative dolly, available-light skin tones, floating dust particles catching light, minimal intervention restrained beauty`
+
+#### 天气驱动高对比风格（原黑泽明体系）
+- 🎨 色彩：高对比黑白/暗沉土绿/正红，强明暗分割
+- 💡 灯光：天气本身就是光源——暴雨/烈日/大雾直接打亮画面
+- 🏛️ 美术：古代集群环境，武士/群像调度，旗帜狂风
+- 📷 机位：200mm长焦压缩深度，多机位交叉剪辑，慢动作定格动作瞬间
+- ✅ 安全提示词：`Torrential rain as dominant lighting source and narrative force, ensemble warriors in directional formation charge, 200mm telephoto compressing depth, mud splashing with each footstep, banners whipping violently in storm wind, slow-motion blade arc with rain droplets frozen mid-air, high-contrast chiaroscuro`
+
+#### 数码超写实天空动画风格（原新海诚体系）
+- 🎨 色彩：极高饱和蓝/紫/橙天空渐变，高通透清透
+- 💡 灯光：极致逆光，丁达尔光束穿透云层，黄金时刻滥用
+- 🏛️ 美术：超写实城市/自然背景，青春日常人物，晶莹水滴/光斑散景
+- 📷 机位：慢推轨，细节特写插入（水滴/树叶/手机屏），大远景天空占比≥60%
+- ✅ 安全提示词：`Digital anime aesthetic, hyper-detailed photorealistic sky with towering cumulus clouds and vivid blue-to-orange gradient, dramatic god rays piercing cloud layers, youth figure silhouette against golden-hour backlight, crystalline rain droplets catching prismatic light, extreme color saturation, detail insert cuts of water droplets on glass`
+
+---
+
+### 二、中国影视风格
+#### 东方色彩叙事风格（原张艺谋体系）
+- 色彩：大面积高饱和中国红/金/靛蓝/暗绿，单块大色块构图
+- 灯光：高饱和单色主光源，硬光打亮绸缎/织物
+- 美术：东方建筑/绸缎/竹林/黄沙/青瓦白墙，仪式感调度
+- 机位：大气航拍远景，缓慢推轨，摇臂升降揭示
+- ✅ 安全提示词：`东方电影美学，大面积中国红色块构图，绸缎在风中飘动的流体质感，高饱和色彩叙事，仪式感镜头调度，Slow Crane Up，写实材质纹理`
+
+#### 中国仙侠/修真风格
+- 色彩：金青/暗紫/仙白/玄黑，空灵高通透
+- 灯光：丁达尔光束穿云，灵光自发光，仙气雾层漫射
+- 美术：云海仙境/悬崖古寺/飞天衣袂，国风古建
+- 机位：航拍穿越云海，摇臂升降揭示，推轨穿过门扉进入仙境
+- ✅ 安全提示词：`中国仙侠风格，3D国漫CG渲染质感，云雾缭绕的仙境，金青色调，丁达尔光束穿透云层，灵力粒子漂浮，白衣飘逸，航拍穿越云海，空灵环境音`
+
+#### 古偶/古装剧柔光风格
+- 色彩：柔粉/暖金/桃花色系，低对比柔化
+- 灯光：柔和侧逆光，黄金小时暖调，软填充光
+- 美术：古风庭院/灯笼/烛光/花瓣，丝绸刺绣织物
+- 机位：Smooth Orbit环绕人物，Dolly In聚焦眼神，慢镜头飘逸
+- ✅ 安全提示词：`中国古装美学，柔光侧逆光，golden hour暖调，花瓣在空中飘落的物理飘散效果，丝绸衣裙随风飘动，Smooth Orbit缓缓环绕角色，浅景深聚焦面部，古筝悠扬BGM`
+
+#### 都市情感写实风格
+- 色彩：自然色温，轻度去饱和，贴近真实生活
+- 灯光：自然光/城市路灯/室内台灯，无过度打光
+- 美术：城市街景/生活化公寓/咖啡馆/日常通勤场景
+- 机位：Steadicam流畅跟拍，手持微晃，中近景聚焦微表情
+- ✅ 安全提示词：`都市情感写实风格，35mm胶片质感，自然色温，手持微晃跟拍，城市街景自然光，角色微表情特写，浅景深虚化背景，环境城市白噪音`
+
+---
+
+### 三、新媒体与短视频风格
+#### AI动态漫剧风格
+- 色彩：高饱和动漫色彩，赛璐璐扁平色块
+- 灯光：硬边阴影分割，快切情绪光
+- 美术：漫画分格感，速度线效果，夸张情绪符号
+- 机位：快速Push In表情特写，Whip Pan转场，快切正反打
+- ✅ 安全提示词：`动态漫画风格，赛璐璐上色，高饱和色彩，动态线条效果，快速Push In表情特写，夸张的情绪演绎，漫画式分镜感，配合节奏感BGM`
+
+#### 竖屏短剧9:16风格
+- 色彩：高对比鲜艳，滤镜感，肤色柔化
+- 灯光：正面柔光打亮面部，无硬阴影
+- 美术：现代室内/都市场景，人物居中占画面70%
+- 机位：快切镜头，正反打对话，Whip Pan转场
+- ✅ 安全提示词：`竖屏9:16，短剧快节奏，快切镜头，正反打对话，高对比鲜艳色调，人物居中构图，清晰数码质感，快节奏BGM`
+
+#### Vlog第一人称纪实风格
+- 色彩：自然色温，生活感，零过度磨皮
+- 灯光：环境自然光，无补光
+- 美术：POV第一视角自拍/手持拍摄场景
+- 机位：POV主观视角，手持自然晃动，轻微广角畸变
+- ✅ 安全提示词：`Vlog纪实风格，POV第一人称视角，手持自然晃动，轻微广角畸变，自然色温，生活化场景，环境真实声音，无BGM`
+
+#### 社交媒体病毒吸睛风格
+- 色彩：超饱和高对比，HDR鲜亮
+- 灯光：高反差强光影，前3秒直接打亮主体
+- 美术：大主体居中，前3秒必须有视觉冲击
+- 机位：开场Zoom In冲击，Speed Ramp从慢转快，快切卡点
+- ✅ 安全提示词：`社交媒体竖屏，前3秒极致视觉冲击，Speed Ramp从慢动作突变快进，超饱和鲜艳色彩，高对比HDR效果，主体占画面80%以上，强节奏感配乐卡点`
+
+#### 二次元爆燃变身/战斗风格
+- 色彩：极高饱和技能色光（火红/电蓝/金黄），放射状高能量
+- 灯光：技能自发光高亮，速度线汇聚光
+- 美术：冲击帧居中放大，能量粒子爆散
+- 机位：Speed Ramp变速，360°环绕，急推特写定格
+- ✅ 安全提示词：`二次元动漫爆燃风格，变身光效爆发，速度线汇聚，冲击帧定格放大，极高饱和色彩，能量粒子拖尾，Speed Ramp从慢动作突然加速，气场冲击波扩散`
+
+#### 三渲二/Cel-Shaded游戏CG风格
+- 色彩：高饱和Anime色盘，硬边二值化阴影分割
+- 灯光：简化光源，强Rim Light轮廓光分离角色和背景
+- 美术：3D卡通建模，粗描边轮廓线，简化平涂材质
+- 机位：电影级调度，长焦浅景深特写，史诗航拍，Orbit环绕角色展示
+- ✅ 安全提示词：`3D Cel-Shaded Toon渲染，Anime风格硬边阴影二值化，粗描边轮廓线，高饱和角色色盘，简化平涂材质，强Rim Light分离角色与背景，电影级景深与Anime散景`
+
+#### 小红书种草精致生活风格
+- 色彩：马卡龙淡彩+微暖偏移，柔和不刺眼
+- 灯光：柔和漫射自然光，零硬阴影
+- 美术：干净奶油色/白色背景，产品平铺构图，大面积留白
+- 机位：Overhead俯拍，缓慢推进产品特写，固定镜头
+- ✅ 安全提示词：`小红书种草风格，干净奶油色背景，产品平铺居中，柔和自然光，马卡龙淡彩色调，大面积留白，Overhead俯拍，精致生活感`
+
+---
+
+### 四、特殊风格
+| 风格 | 安全提示词 |
+|------|------------|
+| VHS复古录像带 | `VHS analog aesthetic, scan lines, color bleeding, tracking distortion, warm muted tones, 4:3 aspect ratio, retro camcorder feel` |
+| 赛博朋克雨夜都市 | `Cyberpunk neon city, rain-soaked streets with neon reflections, holographic billboards, dark atmospheric haze, teal and magenta color split, volumetric fog` |
+| 中国水墨东方 | `中国水墨画风格，ink-wash sumi-e aesthetic，笔墨在宣纸上浸染扩散，大面积留白，山水意境，黑白灰为主色调，淡彩点缀，墨韵流动` |
+| 像素复古游戏 | `Pixel art retro game aesthetic, low-resolution blocky style, 8-bit color palette, pixelated character animation, chiptune sound effects` |
+| MV音乐视觉 | `Music video aesthetic, beat-synced editing, strobe lighting effects, color wash transitions, 16:9 widescreen, dynamic stage lighting, silhouette backlit shots` |
+| 微缩定格动画 | `Tilt-shift miniature effect, stop-motion animation feel, handcrafted texture, miniature model scale, frame-by-frame movement, warm practical lighting` |
+
+---
+
+*文档结束*
+
+---
+
+## audio-tags.md — 音频与音效标签规范
+> Seedance 2.0 原生音效描述全库。用物理拟声描述替代"紧张/好听/悲伤"这类抽象词，画面和音效分离写，不混在一起，生成出来的声音质感直接上院线级别。
+
+---
+
+### 一、基础引用规则
+- 最多引用 3 段音频/视频音色素材：`@音频1 ~ @音频3`，`音色参考@视频1`
+- 音频总时长 ≤ 15 秒，总大小 ≤ 15MB
+- 支持格式：mp3 / wav
+
+---
+
+### 二、环境音分类词库
+#### 自然环境
+| 场景 | 音效描述 |
+|------|----------|
+| 森林 | 鸟鸣啁啾+树叶沙沙+溪水潺潺 |
+| 海洋 | 海浪拍岸+远处海鸥+风卷沙 |
+| 暴雨 | 密集雨点敲击+远处闷雷+雨水汇流 |
+| 雪地 | 脚踩积雪的嘎吱声+寂静空旷回音 |
+| 沙漠 | 干燥热风+沙粒摩擦+远处鹰啸 |
+| 山谷 | 回声混响+风穿山口+远处钟声 |
+
+#### 城市环境
+| 场景 | 音效描述 |
+|------|----------|
+| 繁忙街道 | 车流声+行人脚步+远处喇叭 |
+| 夜景街道 | 霓虹灯嗡鸣+远处车声+雨滴落水坑 |
+| 咖啡馆 | 咖啡机蒸汽声+杯碟轻碰+低语人声 |
+| 办公室 | 键盘敲击+打印机运转+空调低鸣 |
+| 地铁 | 列车车轮碾轨+报站广播+人流声 |
+
+#### 室内特殊
+| 场景 | 音效描述 |
+|------|----------|
+| 古宅 | 木地板吱呀+风穿过缝隙+远处钟摆 |
+| 实验室 | 仪器蜂鸣+液体冒泡+通风管低频 |
+| 图书馆 | 极致安静+偶尔翻页+远处咳嗽 |
+
+#### 空间声学修饰词（给音效加空间定语，瞬间从平面变立体）
+| 空间定语 | 英文 | 声学效果 | 适用场景 |
+|----------|------|----------|----------|
+| 水下沉闷 | Muffled underwater | 低频轰鸣，高频被吸收 | 水下/淹没/深海 |
+| 教堂回响 | Echoing in cavernous cathedral | 巨大空旷混响，声音反复反射 | 寺庙/山洞/废弃工厂 |
+| 金属管道共振 | Resonating through metal duct | 冷硬工业共振，带金属混音 | 飞船内部/工厂/通风管道 |
+| 远距闷响 | Distant muffled | 空间纵深感，声音多次衰减 | 远处爆炸/战争/雷雨 |
+| 密闭压迫 | Claustrophobic confined space | 窒息压抑，声音反射急促 | 电梯/密室/棺材内 |
+| 空旷荒野 | Vast open-air with no reflections | 声音迅速衰减，无回音 | 沙漠/草原/天台山顶 |
+| 雨中浸泡 | Rain-drenched with white noise bed | 白噪音底床包裹一切 | 暴风雨/雨夜街头 |
+
+**组合范例：**
 ```
-15秒末日废土机甲苏醒，UnrealEngine5渲染，工业光魔级VFX，钢铁废墟美学+沙尘暮光氛围。
-全程浮尘弥漫，沙粒随气流在镜头前飘过，锈蚀金属质感贯穿每帧。
-0-3秒：航拍缓慢下降穿过云层，巨型机甲半埋在荒漠沙丘中，残骸散落，夕阳将沙海染成暗金色，远处废弃城市轮廓若隐若现。
-3-7秒：推轨缓推至机甲胸腔，内部能量核心蓝光闪烁复苏，金属关节嘎吱扭动，锈片剥落飞散，手持微晃增强临场感。
-7-11秒：仰拍低角度，机甲缓缓站起，沙尘瀑布般从肩甲倾泻，背后夕阳形成巨大剪影，腿部液压装置喷出白色蒸汽。
-11-15秒：缓慢环绕90°，机甲胸腔核心全功率亮起冰蓝光柱直冲天际，沙尘被冲击波吹散成环形波纹，定格侧面剪影，渐入黑屏。
-光影：夕阳逆光暗金色+核心冰蓝自发光+废墟散射暖光（光源层），沙尘漫射柔化轮廓+金属表面锈蚀高光+体积光穿透尘雾（光行为层），暗金暖底调+冰蓝高光冷暖对撞（色调层）。
-暗角+胶片颗粒+微弱镜头划痕收尾，苍凉史诗感，从沉寂到苏醒的渐进张力。
-禁止：任何文字、字幕、LOGO或水印
+音效：水下沉闷低频隆隆 + 远处鲸鱼低鸣 + 气泡上升咕噜声
+音效：教堂巨大混响，脚步声反复回荡 + 远处滴水 + 风穿过破窗噜噜声
+音效：密闭空间急促呼吸回弹 + 指甲刮墙壁 + 心跳般低频震动
 ```
 
-### 示例：东方仙侠短片（10秒，时间戳分镜，中文）
+---
 
-```
-10秒中国风奇幻，写实东方电影质感，金青色调，空灵环境音。
-0-3秒：高空俯拍云海中的古寺，航拍缓慢推进，晨雾在山谷间流动，远处钟声隐约，丁达尔光束穿透云层。
-3-7秒：推轨穿过寺门进入庭院，白衣少年抬手接住一片红叶，35mm胶片颗粒质感，浅景深聚焦手部细节。
-7-10秒：近景特写少年抬眼，缓慢推进，风起，衣袖与发丝同时扬向画面右侧，庭院中灵光旋转升腾。
-音效：环境音收束为一声清越剑鸣。
-禁止：任何文字、字幕、LOGO或水印
-```
+### 三、动作音效分类词库
+| 动作类型 | 音效描述 |
+|----------|----------|
+| 脚步 | 高跟鞋清脆哒哒声 / 军靴沉重踏地 / 赤脚在水中溅水 |
+| 打斗 | 拳头击中肉体的沉闷声 / 刀刃出鞘的锋利声 / 骨骼碎裂 |
+| 爆炸 | 低频轰隆+冲击波气浪+碎片坠落 |
+| 车辆 | 引擎低沉轰鸣 / 轮胎尖啸 / 车门关闭咔嗒 |
+| 水 | 水滴落入水面的清脆声 / 潜水时的水下隆隆声 |
+| 风 | 呼啸穿过峡谷 / 微风拂过耳边 / 风暴级狂风呼号 |
+| 金属 | 铁链拖拽+齿轮咬合+金属碰撞铿锵 |
+| 魔法/科幻 | 能量充能嗡鸣 / 传送门嘶嘶声 / 光剑振动低频 |
 
-### 示例：三渲二游戏角色PV（12秒，Cel-Shaded CG，中文）
+#### 材质拟声精细化（Foley三维描述，音效质感提升10倍）
+| ❌ 笼统写法 | ✅ 精细化写法 | 英文提示词 |
+|------------|------------|------------|
+| 走路声 | 重靴踩在干雪上的嘎吱声 | `Crunching heavy boots on dry compacted snow` |
+| 走路声 | 高跟鞋踩在湿滑大理石上的清脆哒哒 | `Sharp heels clicking on wet marble floor` |
+| 走路声 | 赤脚踩在浅水洼中的啪嗒飞溅 | `Bare feet splashing through shallow puddle` |
+| 撞击声 | 次声波级的沉重撞击，伴碎片飞散 | `Heavy sub-bass impact with debris scatter and rattle` |
+| 门声 | 锈铁门磨混凝土地面的刺耳刮擦 | `Rusty metal door grinding on concrete floor` |
+| 衣物声 | 烈风中皮革风衣啪啪拍打 | `Leather coat flapping violently in gale-force wind` |
+| 液体声 | 浓稠血液滴落在金属地板上的沉闷啪嗒 | `Viscous liquid dripping onto metal surface, thick splat` |
 
+**组合范例：雨夜追逐场景音效**
 ```
-12秒二次元游戏角色PV，3D Cel-Shaded Toon渲染，
-Anime风格硬边阴影二值化，粗描边轮廓线，冰蓝主色调，
-0-3秒：纯黑画面，冰晶粒子从四周向中心缓慢汇聚，高频冰裂音效；
-3-7秒：角色持长枪旋转横扫，环绕180°拍摄，
-冰霜沿枪尖轨迹扩散，Anime头发高光带随动作流转，简化平涂材质；
-7-10秒：缓慢推进面部特写，冰蓝色瞳孔中雪花结晶旋转，
-强Rim Light勾勒面部轮廓，高饱和冰蓝色盘，Anime散景；
-10-12秒：缓慢拉远定格全身Pose，长枪斜指天空，冰雾收束，渐入黑屏。
-光影：Anime式冰蓝Rim Light + 冷白技能光 + 简化硬边阴影。
-音效：冰裂碎响→寒风呼啸→冰晶凝固的清脆一击→寂静。
-禁止：任何文字、字幕、LOGO或水印
-```
-
-### Example: Wasteland Mecha Awakening (15s, Epic Structure, English)
-
-```
-15s post-apocalyptic mecha awakening, UnrealEngine5 rendering, ILM-grade VFX, steel ruin aesthetics + dust-laden twilight atmosphere.
-Persistent floating dust throughout, sand particles drifting across lens, corroded metal texture in every frame.
-0-3s: Aerial drone shot slow descent through cloud layer, colossal mecha half-buried in desert dunes, wreckage scattered, sunset painting sand sea in dark gold, distant ruined city silhouette barely visible.
-3-7s: Dolly tracking shot slow push to mecha chest cavity, internal energy core flickering blue revival, metal joints creaking and twisting, rust flakes peeling and scattering, handheld camera subtle shake for immersion.
-7-11s: Low angle shot looking up, mecha slowly rising, sand cascading like waterfall from shoulder armor, sunset forming massive silhouette behind, leg hydraulics venting white steam.
-11-15s: Slow orbital camera movement 90°, chest core reaching full power with ice-blue beam shooting skyward, sand blown into ring-shaped shockwave ripples, freeze on side-profile silhouette, fade to black.
-Lighting: sunset backlight dark gold + core ice-blue self-illumination + ruin scattered warm light (source), dust diffusion softening contours + corroded metal specular highlights + volumetric light through dust haze (behavior), dark gold warm base + ice-blue highlight cold-warm clash (tone).
-Vignette + film grain + faint lens scratches finish, desolate epic grandeur, gradual tension from silence to awakening.
-Negative: any text, subtitles, logos or watermarks
+音效：碎石路脚下嘎吱声切换为雨洼啪嗒溅水声，皮革风衣在风中猛烈拍打，窄巷里沉重呼吸回荡，远处警笛多普勒呼啸而过
 ```
 
-### 示例：落日沙漠 Kali/Escrima（60秒，4段分镜，智能分段）
+---
 
-> 演示 >15秒的多段分镜自动拆分：4段×15秒=60秒，统一风格总纲+光影+音效，每段独立提交。
+### 四、人声/台词规范
+#### 标准台词格式
+```
+台词（角色名，情绪标签）："台词内容"
+```
+#### 情绪标签库
+| 类别 | 标签 |
+|------|------|
+| 正面 | 欢快 / 温柔 / 自信 / 坚定 / 感动 / 兴奋 |
+| 负面 | 愤怒 / 悲伤 / 恐惧 / 冷漠 / 颤抖 / 绝望 |
+| 中性 | 平静 / 疑惑 / 思考 / 叙述 / 旁白 |
 
-**📋 分镜 1/4 — 起势·沙漠孤影（在即梦中设置时长 15秒）**
+#### 方言与口音控制
+直接在台词行里指定，模型原生支持：
+| 方言/口音 | 写法示例 |
+|----------|---------|
+| 四川话 | `台词（角色，得意，四川口音）："幺妹儿，今晚吃火锅噻？"` |
+| 粤语 | `台词（角色，温柔，粤语）："落雨啦，记得带遮呀"` |
+| 东北话 | `台词（角色，豪爽，东北口音）："你整啥呢，赶紧过来整两盅！"` |
+| 台湾腔 | `台词（角色，软萌，台湾腔）："人家超想吃珍珠奶茶啦～"` |
+| 多语言混合 | `台词（角色，坚定，西班牙语）："Vamos！"` |
+
+#### 特殊音色风格
+| 风格 | 写法 | 适用场景 |
+|------|------|---------|
+| 科普解说 | `用科普节目的专业解说音色` | 科普/教育/科技产品 |
+| 脱口秀 | `脱口秀式的夸张语气` | 搞笑/娱乐/短视频 |
+| 纪录片旁白 | `纪录片级低沉磁性旁白` | 纪录片/品牌广告/宣传片 |
+| 戏曲唱腔 | `京剧念白/豫剧唱腔风格` | 国风/戏曲/文化内容 |
+| ASMR低语 | `ASMR式轻柔近耳低语` | 治愈/助眠/ASMR内容 |
+| 体育解说 | `激情体育解说风格` | 体育/电竞/赛事内容 |
+| FM电台 | `经典FM电台主持风格` | 播客/电台/治愈内容 |
+
+#### 音色参考复用
+上传带说话的参考视频，直接提取音色，配音100%一致：
+| 写法 | 用途 |
+|------|------|
+| `音色和语气参考@视频1` | 角色配音完全复用参考音色 |
+| `旁白音色参考@视频1中的男声` | 品牌广告旁白统一音色 |
+| `说话风格参考@视频1` | 特定主持/解说/网红说话风格复刻 |
+
+---
+
+### 五、音乐风格速查
+| 风格 | 描述 | 适用场景 |
+|------|------|----------|
+| 管弦史诗 | 交响乐团+铜管齐鸣+定音鼓震 | 史诗/战争/开场/大制作 |
+| 电子合成 | 合成器铺底+电子节拍+空灵人声 | 科幻/赛博朋克/未来感 |
+| 民族/国风 | 古筝/琵琶/笛子/编钟 | 仙侠/古装/东方美学 |
+| 爵士/布鲁斯 | 萨克斯+钢琴即兴+刷弦 | 都市/夜场/情感/复古 |
+| 氛围/极简 | 钢琴独奏+极简弦乐+大量留白 | 文艺/治愈/情感/慢节奏 |
+| 嘻哈/节拍 | 808低音+Hi-Hat碎拍+采样回音 | MV/街头/潮流/广告 |
+| 恐怖/悬疑 | 不协和弦+反转钢琴+低频嗡鸣 | 恐怖/悬疑/心理惊悚 |
+
+---
+
+*文档结束*
+
+---
+
+## seedance-specs.md — 即梦Seedance 2.0 平台官方参数规范
+> 所有生成参数边界、能力上限、路由规则和CLI指南的官方速查表，写提示词前先对齐本文件，避免踩平台限制导致生成失败。
+
+---
+
+### 一、核心容量与生成边界
+#### 提示词容量上限
+| 语言 | 最大字符/字数 | 说明 |
+|------|--------------|------|
+| 中文 | ≤ 500 字符 | 超出后模型只抓取宏观重点，忽略布光、材质、运镜等微观细节，直接注意力崩溃 |
+| 英文 | ≤ 1000 单词 | 同上，不要写超长提示词 |
+
+> 最优容量区间：中文 120-200 字符，英文 60-120 单词，品质最高，零信息浪费。
+
+#### 生成时长约束
+| 模式 | 时长范围 | 说明 |
+|------|----------|------|
+| 单次生成 | 4-15 秒 | Seedance 2.0 原生支持的标准生成时长区间 |
+| 超长视频 | 分段生成 + 拼接 | 超过15秒自动拆分，每段4-15秒，每段末尾预留2-3秒稳定交接帧 |
+| 视频延长 | 4-30 秒 | 从已有视频结尾续接，最长可一次性延长至30秒 |
+
+#### 分辨率与画幅支持
+| 分辨率 | 支持画幅比 |
+|--------|------------|
+| 480P | 16:9 / 9:16 / 21:9 / 1:1 / 2.35:1 全部支持 |
+| 720P | 全部画幅比支持，默认常用分辨率 |
+| 1080P | 全部画幅比支持，VIP可用 |
+| 4K | 仅Seedance 2.5 VIP可用 |
+
+---
+
+### 二、多模态素材硬上限
+| 素材类型 | 最大数量 | 格式支持 | 单文件/总大小限制 |
+|----------|----------|----------|------------------|
+| 图片 | 9 张 | jpeg / png / webp / bmp / tiff / gif | 每张 < 30MB |
+| 视频 | 3 段 | mp4 / mov | 每段 2-15 秒，总计 < 50MB |
+| 音频 | 3 段 | mp3 / wav | 总时长 ≤15 秒，总计 < 15MB |
+| **素材合计** | ≤ 12 个 | — | 全部素材总和不超过12个 |
+
+> 素材优先级规则：优先上传对画面/节奏影响最大的素材；所有参考图建议使用纯白/空白背景，避免原图背景杂质污染生成画面。
+
+---
+
+### 三、引用语法与路由规则
+#### 标准引用语法
 ```
-15秒落日沙漠菲律宾Kali武术，写实电影质感，暗金暖色调，苍茫孤寂氛围。
-全程扬沙弥漫，热浪扭曲远景，黄沙纹理贯穿每帧。
-0-3秒：航拍缓慢下降，广袤沙漠延伸至地平线，落日将沙丘染成深金色，远处一个孤独人影双手各持一根藤棍伫立。
-3-7秒：推轨缓推至中全景，武者双棍交叉于胸前行礼起势，脚踩沙面微微下陷，藤棍木纹在逆光中清晰可见。
-7-11秒：侧面跟拍，武者迈步前探，右棍斜劈左棍横格，双棍碰撞瞬间沙面震起一圈细沙波纹。
-11-15秒：缓慢推进至武者背影，双棍垂于两侧，沙尘缓缓落下，画面趋于静止。
-光影：落日低角度逆光暗金+沙面散射暖光（光源层），热浪折射柔化轮廓+扬沙粒子逆光透亮（光行为层），暗金暖底调+深棕阴影（色调层）。
-音效：风卷沙面、藤棍碰击清脆声、沙粒落地沙沙声。
-禁止：任何文字、字幕、LOGO或水印
+@图片1 ~ @图片9    图片引用
+@视频1 ~ @视频3    视频引用
+@音频1 ~ @音频3    音频引用
 ```
 
-**📋 分镜 2/4 — 近身·Sinawali编织连击（在即梦中设置时长 15秒）**
+#### 引用模式与对应工具路由
+> 按以下规则判断使用哪条生成路径，绝对不要混淆：
+| 模式 | 触发条件 | 调用工具 | 提示词标准写法 |
+|------|----------|----------|----------------|
+| **纯文本生视频** | 没有任何上传图片/视频/音频参考，完全用文字描述生成 | dreamina_text2video | 直接写完整提示词，无@引用 |
+| **多参考图生视频（默认路径）** | 用户上传了图片，但没有明确要求"作为首帧/保持原图构图/让原图动起来" | dreamina_multi_modal2video / 对应多参考模式 | `参考@图片1的[角色/服装/姿态/场景/色调/产品]` |
+| **首帧锚定生视频** | 用户明确要求"这张图当开头/保持原图不动/让这张图动起来/锁首帧" | dreamina_image2video | `@图片1为首帧，保留原始构图和色彩` |
+| **首尾帧锚定生视频** | 用户上传两张图，指定第一张是开头、第二张是结尾 | dreamina_start_end2video | `@图片1为起幅/首帧，@图片2为落幅/尾帧` |
+| **多帧序列过渡生视频** | 用户上传≥3张关键帧，要求按顺序连成连贯故事视频 | dreamina_multi_frame2video | 每段过渡写清楚从第N张图到第N+1张图的画面变化 |
+| **全多模态参考生视频** | 同时上传了图片+视频+音频多种参考素材 | dreamina_multi_modal2video | 分别声明每类素材的用途：角色/运镜/音色等 |
+| **视频延长** | 用户有已生成/上传的旧视频，要求从结尾继续往后拍 | dreamina_video_expand | `将@视频1延长X秒，[接续内容描述]` |
+| **视频编辑** | 用户要求修改已有视频里的元素、画面、动作、运镜 | dreamina_video_edit | `保持@视频1的动作和运镜，将[X元素]修改为[Y新元素]` |
+
+---
+
+### 四、官方提示词核心六要素公式
+Seedance 2.0 训练数据分布对应最高转化的公式，严格按这个顺序写：
 ```
-15秒落日沙漠菲律宾Kali武术，写实电影质感，暗金暖色调，苍茫孤寂氛围。
-全程扬沙弥漫，热浪扭曲远景，黄沙纹理贯穿每帧。
-0-3秒：中近景正面，武者发动Sinawali连击，双棍交替斜劈形成X形编织轨迹，棍影交错如翅。
-3-7秒：极致特写双手握棍细节，指节发力变白，汗珠沿藤棍纹理滑落，手腕高速翻转带动棍尖划弧。
-7-11秒：仰拍低角度，武者加速连击，双棍击打频率越来越快，每次碰撞掀起扇形扬沙，破空声连成一片。
-11-15秒：中景侧面，武者双棍猛然交叉格挡定式，冲击波震散脚下沙面，画面趋于静止。
-光影：落日低角度逆光暗金+沙面散射暖光（光源层），热浪折射柔化轮廓+扬沙粒子逆光透亮（光行为层），暗金暖底调+深棕阴影（色调层）。
-音效：双棍碰击密集清脆连响、藤条破空嗡声、沙粒被震起沙沙声。
-禁止：任何文字、字幕、LOGO或水印
+主体/角色细节 + 所在场景环境 + 核心动作时序 + 镜头语言/运镜 + 光影材质风格 + 原生音效要求
 ```
 
-**📋 分镜 3/4 — 高潮·Redonda旋风（在即梦中设置时长 15秒）**
+#### 时间戳分镜语法（>5秒视频必须用）
 ```
-15秒落日沙漠菲律宾Kali武术，写实电影质感，暗金暖色调，苍茫孤寂氛围。
-全程扬沙弥漫，热浪扭曲远景，黄沙纹理贯穿每帧。
-0-3秒：跟拍低机位侧跟，武者疾步冲刺，双棍拖沙犁出两道平行长痕，脚掌蹬沙溅起沙柱。
-3-7秒：环绕180°拍摄，武者原地旋转施展Redonda旋风连环，双棍画出两个交错圆环，沙尘被卷成螺旋气柱。
-7-11秒：极致特写面部，汗水与沙粒混合，眼神凌厉专注，落日余晖映入瞳孔，发丝被旋风气流吹起。
-11-15秒：远景侧面，武者跃起空中双棍交叉下劈，落地瞬间掀起扇形沙浪，定格空中姿态，画面趋于静止。
-光影：落日低角度逆光暗金+沙面散射暖光（光源层），热浪折射柔化轮廓+扬沙粒子逆光透亮（光行为层），暗金暖底调+深棕阴影（色调层）。
-音效：脚步蹬沙、双棍旋转破空呼啸渐强、空中交叉劈击沉闷爆裂。
-禁止：任何文字、字幕、LOGO或水印
+0-3秒：画面A + 动作A + 镜头A。
+3-7秒：画面B + 动作B + 镜头B。
+7-12秒：画面C + 动作C + 镜头C。
+```
+规则：
+- 每个时间段只写一个核心动作+一个运镜，不叠加多个动作/运镜
+- 时间戳从0开始，不重叠，完整覆盖总时长
+- 每段末尾最后2-3秒预留稳定画面，作为下一段的交接帧
+
+---
+
+### 五、十大核心能力速查表
+| # | 能力 | 实现方式 |
+|---|------|----------|
+| 1 | 角色/人脸/服装/场景一致性控制 | `参考@图片1的[对应元素]锚定` |
+| 2 | 运镜/动作复刻 | `参考@视频1的运镜和动作节奏` |
+| 3 | 创意/特效复刻 | `参考@视频1的特效和转场效果` |
+| 4 | 剧情分镜补全 | 时间戳分镜+逐段生成+自动拼接 |
+| 5 | 视频无限续拍延长 | 逐段调用video_expand，每段续4-30秒 |
+| 6 | 原生语音/对白控制 | 直接在提示词里写台词行+情绪+方言/音色参考 |
+| 7 | 一镜到底长镜头 | `一镜到底，全程不切镜头 + @图片N系列参考` |
+| 8 | 角色/场景替换重绘 | `保持@视频1的动作和运镜，把[旧元素]换成@图片1` |
+| 9 | 音乐卡点同步 | `@音频1作为配乐参考，画面节奏完全对齐音乐节拍点` |
+| 10 | 情绪氛围演绎 | 光影+运镜+动作细节+音效组合推进情绪变化 |
+
+---
+
+### 六、内容合规红线（绝对不能碰）
+1. **写实真人面部强绑定**：用真实人脸照片直接强绑定生成100%会被平台审核拦截。处理方案：先做面部柔化打码，或转为动画/三渲二/半写实风格。
+2. **知名IP/品牌/标志性角色**：直接写原名/标志性符号会触发拦截。处理方案：用三级回退策略——先替换名称，再改造特征，最后抽象成类型化描述。
+3. **暴力/色情/政治敏感**：严格遵循即梦平台通用审核标准。
+
+---
+
+### 七、即梦CLI命令映射指南
+当支持本地命令行调用时，直接映射对应命令：
+| Shot Design模式 | CLI命令 | 关键参数 |
+|-----------------|----------|----------|
+| 纯文本→视频 | `dreamina text2video` | `--prompt "提示词" --duration X --ratio 16:9` |
+| 多参考图→视频 | `dreamina multimodal2video` | `--images 路径列表 --prompt "提示词"` |
+| 多帧序列→视频 | `dreamina multiframe2video` | `--images 路径列表 --prompts 每段过渡提示词` |
+| 首帧→视频 | `dreamina image2video` | `--image 路径 --prompt "提示词"` |
+| 首尾帧→视频 | `dreamina start_end2video` | `--first 首帧路径 --last 尾帧路径 --prompt "过渡描述"` |
+| 延长视频 | `dreamina video_expand` | `--source_video 原视频路径 --duration X --prompt "延长描述"` |
+| 文生参考图 | `dreamina text2image` | `--prompt "提示词" --model 5.0Pro` |
+| 图生迭代图 | `dreamina image2image` | `--images 路径 --prompt "迭代描述"` |
+
+#### 异步任务管理命令
+```bash
+## 提交任务并自动轮询结果（推荐）
+dreamina text2video --prompt "提示词" --poll=30
+
+## 手动查询结果
+dreamina text2video --prompt "提示词"  # 返回 submit_id
+dreamina query_result --submit_id <ID>
+dreamina list_task --gen_status=success  # 查看所有成功任务
 ```
 
-**📋 分镜 4/4 — 收束·孤影落日（在即梦中设置时长 15秒）**
-```
-15秒落日沙漠菲律宾Kali武术，写实电影质感，暗金暖色调，苍茫孤寂氛围。
-全程扬沙弥漫，热浪扭曲远景，黄沙纹理贯穿每帧。
-0-3秒：中景正面，武者落地单膝跪沙，双棍交叉插于身前沙中，扬沙缓缓回落如金色雨幕。
-3-7秒：缓慢推进面部特写，武者闭目调息，胸膛起伏渐平，汗珠沿下颌滴落沙面瞬间被吸收。
-7-11秒：缓慢拉远，武者起身拔起双棍收于背后，孤影与落日在地平线重叠，沙漠恢复宁静。
-11-15秒：航拍缓慢上升，俯瞰武者渐成沙海中一个小点，落日半沉地平线，画面渐入暖金色。
-光影：落日低角度逆光暗金+沙面散射暖光（光源层），热浪折射柔化轮廓+扬沙粒子逆光透亮（光行为层），暗金暖底调+深棕阴影（色调层）。
-音效：呼吸声渐弱、风声渐远、最终只剩沙面细微沙沙声。
-禁止：任何文字、字幕、LOGO或水印
-```
+#### 模型通道说明
+| 通道名 | 特点 | 适用场景 |
+|--------|------|----------|
+| seedance2.0_fast | 快速生成通道 | 批量验证、快速迭代测试 |
+| seedance2.0_vip | 高优先级质量通道 | 最终出片、高品质创作 |
+| seedance2.5 | 旗舰全功能通道 | 延长/多模态/高画质，VIP专属 |
+
+---
+
+*文档结束*
+
+---
+
+## 即梦（Dreamina）官方创作场景清单 scenarios.md
+
+### 通用说明
+本文档整理即梦平台支持的全品类官方创作场景，覆盖图片、视频、音频全链路，每个场景附带标准能力边界、推荐模型和输出规范。
+
+---
+
+### 一、图片生成场景
+| 场景名称 | 能力描述 | 推荐模型 | 标准输出比例 | 分辨率默认值 |
+|---|---|---|---|---|
+| 通用创意插画 | 概念图、艺术创作、插画、海报背景 | 5.0Pro / 5.0lite | 16:9 / 自由比例 | 1.5k（VIP）/ 1k |
+| 人像写真/肖像 | 真人风格人像、证件照、cos、古风人像 | 5.0Pro / 4.8 | 3:4 / 9:16 | 2k（VIP）/ 2k |
+| 电商商品白底图 | 电商主图、产品展示图、纯色背景商品图 | 4.8 / 5.0Pro | 1:1 | 4k（VIP）/ 2k |
+| 场景/环境概念图 | 游戏场景、室内设计、风光景观、世界观概念 | 5.0Pro | 16:9 / 21:9 | 4k（VIP）/ 2k |
+| IP/角色衍生图 | 原创角色、动漫IP、虚拟人多视角衍生 | 5.0Pro / 4.6 | 3:4 / 1:1 | 2k（VIP）/ 2k |
+| 视觉参考/分镜关键帧 | 视频分镜关键帧、故事板概念图 | 5.0Pro | 16:9 / 9:16 | 1.5k |
+
+---
+
+### 二、视频生成场景
+| 场景名称 | 能力描述 | 推荐模型 | 标准输出比例 | 时长范围 |
+|---|---|---|---|---|
+| 通用创意短视频 | 艺术短片、概念视觉、氛围短片 | seedance2.5 / seedance2.0_vip | 16:9 / 9:16 | 4-30s |
+| 电商带货短视频 | 商品展示、种草开箱、卖点演示 | seedance2.5 / seedance2.0fast | 9:16 / 3:4 | 5-15s |
+| 剧情/叙事短片 | 小故事、微短剧、IP情节片段 | seedance2.5 | 16:9 / 21:9 | 4-30s，支持多段拼接延长 |
+| 产品TVC/品牌广告片 | 品牌宣传、发布会视频、节日营销片 | seedance2.5 | 16:9 | 8-30s，支持多段串联 |
+| 抖音/小红书竖屏内容 | 达人出镜、口播、种草、卡点短视频 | seedance2.5 / seedance2.0fast | 9:16 | 5-15s |
+| 图片转动态视频 | 静态图/插画/照片直接生成动态视频 | seedance2.5 | 与原图一致 | 4-12s |
+| 首尾帧过渡视频 | 从首帧自然过渡到尾帧的连贯短片 | seedance2.5 / seedance3.5pro | 与首帧一致 | 4-12s |
+| 多帧故事连贯视频 | 3张以上参考图按顺序生成叙事视频 | seedance2.5 | 16:9 / 9:16 | 总时长2-8s（每段过渡0.5-8s） |
+| 参考视频复刻/二次创作 | 复刻参考镜头、替换角色/商品/场景 | seedance2.5 | 与参考视频一致 | 4-30s |
+| 视频延长/续写 | 从已有视频结尾继续延伸情节 | seedance2.5 | 与原视频一致 | 4-30s |
+| 视频生成式编辑 | 修改人物、替换商品、改场景/动作/画面元素 | seedance2.5 | 与原视频一致 | 继承原视频时长 |
+
+---
+
+### 三、音频/配乐场景
+| 场景名称 | 能力描述 | 推荐模型 | 时长范围 |
+|---|---|---|---|
+| 视频BGM/背景音乐生成 | 匹配画面情绪、卡点、风格的原生配乐 | seedmusic1.0 | 30-360s |
+| 纯氛围音乐/环境音 | 白噪音、游戏背景音、播客垫乐 | seedmusic1.0 | 30-360s |
+| 短广告配乐 | 品牌/产品TVC专属短配乐 | seedmusic1.0 | 30-120s |
+
+---
+
+### 四、高级复合场景
+| 场景名称 | 能力边界 | 交付链路 |
+|---|---|---|
+| 完整品牌广告TVC | 从创意→剧本→分镜→关键帧→多段生成→配乐拼接全流程 | video-main → tvc-creation 工作流 |
+| 系列电商短视频套组 | 同商品多场景、多卖点、多版本批量生成 | 短视频爆款带货 → 批量分镜生成 → 统一出片 |
+| IP动画短片 | 固定角色+连贯剧情+多镜头序列生成 | creative-ideation → script_agent → storyboard_agent → 逐段生成拼接 |
+| 真人/虚拟人出镜口播片 | 固定形象+自然口播动作+字幕背景 | 短视频爆款带货 → 人物绑定 → 逐镜生成 |

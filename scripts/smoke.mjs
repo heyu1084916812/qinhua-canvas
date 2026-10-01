@@ -13310,6 +13310,26 @@ async function g94(browser) {
     missingNames.length === 0 ? `共 ${builtinNames.length} 个内置` : `缺少=${missingNames.join('、')}`,
   )
 
+  // 两个「完整版」技能：正文里必须带 references 全文 —— 运行时只吃一份系统指令，
+  // 不合并的话那些 references 永远不会被加载。
+  for (const c of [
+    { name: '创作分镜', must: ['版本 v1.9', '安全运镜'] },
+    { name: 'TVC 商业广告视频创作流程', must: ['TVC 广告片全流程创作 Skill', '阶段规范'] },
+  ]) {
+    await page.locator('[data-skills-builtin-card]', { hasText: c.name }).first().click()
+    await sleep(400)
+    const content = await page.locator('[data-skill-content]').inputValue()
+    const missing = c.must.filter((m) => !content.includes(m))
+    rec(
+      g,
+      `★★「${c.name}」正文已内置 references 全文`,
+      missing.length === 0,
+      missing.length ? `缺=${missing.join('、')}` : `${content.length} 字`,
+    )
+    await page.locator('[data-skills-back]').click()
+    await sleep(350)
+  }
+
   const builtinCard = builtinCards.first()
   const builtinId = await builtinCard.getAttribute('data-skill-item')
   await builtinCard.click()

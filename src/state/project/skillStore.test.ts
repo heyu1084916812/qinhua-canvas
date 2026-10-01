@@ -79,6 +79,34 @@ describe('SkillStore · 内置与用户分表', () => {
     }
   })
 
+  it('★★ 创作分镜 / TVC 两个技能已带上 references 全文（运行时只吃一份正文）', async () => {
+    const s = createSkillStore(createMemoryPlatform().storage)
+    const byName = new Map((await s.loadBuiltin()).map((x) => [x.name, x]))
+
+    // 「创作分镜」= v1.9 主文档 + 运镜词典 / 导演风格库 / 品质锚定 / 音效标签 / 平台参数 / 场景
+    const shot = byName.get('创作分镜')!
+    expect(shot).toBeTruthy()
+    expect(shot.content).toContain('版本 v1.9')
+    for (const kw of [
+      '安全运镜',
+      '参数化导演风格库',
+      '品质锚定',
+      '音频与音效标签规范',
+      '官方创作场景清单',
+    ]) {
+      expect(shot.content, `创作分镜缺「${kw}」`).toContain(kw)
+    }
+
+    // 「TVC」= 官方 v2.0 SOP + 场景配置 + 阶段规范 + 视觉 Prompt 参考库
+    const tvc = byName.get('TVC 商业广告视频创作流程')!
+    expect(tvc).toBeTruthy()
+    for (const kw of ['TVC 广告片全流程创作 Skill', '场景配置', '阶段规范', '视觉 Prompt 参考库']) {
+      expect(tvc.content, `TVC 缺「${kw}」`).toContain(kw)
+    }
+    expect(tvc.content).toContain('scene_name')
+    expect(tvc.content).toContain('Brief 解析与定调标准模板')
+  })
+
   it('★★ 复制内置技能：只生成一个用户副本，重复点击不重复建', async () => {
     const platform = createMemoryPlatform()
     const s = createSkillStore(platform.storage)
