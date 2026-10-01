@@ -138,10 +138,16 @@ agent 只给 `order`（第几步），**坐标由我们算**：
 
 **工具调用能力**：agent 要么能多轮调工具，要么能一次性吐出结构化 JSON。
 
-- 现有渠道里 Agnes 是 OpenAI 兼容，理论上有 `tools` 参数，但**尚未实测**其支持程度
-- 若不支持 function calling → 走「结构化输出」：系统提示词要求它只输出符合
-  `AgentPlan` schema 的 JSON，我们解析 + 校验。这条路对模型要求更低
-- **这一条决定实现路线，先验再写代码**
+> ✅ **已实测通过（2026-10-01）**。用真实令牌打 `agnes-2.5-pro` 的
+> `/v1/chat/completions`，带一个 `tools` 定义（`apply_plan`，参数是 `{summary}`）、
+> `tool_choice: 'auto'`：HTTP 200，`choices[0].message.tool_calls` 返回了规范结构 ——
+> `{ id, type: 'function', function: { name: 'apply_plan', arguments: '{"summary": "…"}' } }`，
+> `arguments` 是合法 JSON 字符串。（当次 `finish_reason` 是 `length`，只因我把
+> `max_tokens` 限到 200、参数还没写完整，与能力本身无关。）
+>
+> **结论：走「多轮工具调用」路线，不必退回「一次性输出 JSON」。**
+> 保留 JSON 模式作为**降级备选**：用户若换了不支持 tools 的渠道，解析器仍要能吃
+> 纯 JSON 输出，且**两条路的产出一致**（都归一到 `AgentPlan`）。
 
 ## 10. 分期
 
