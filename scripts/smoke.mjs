@@ -13544,17 +13544,41 @@ async function g95(browser) {
     (await page.locator('[data-agent-set-default]').innerText()).includes('已设默认'),
   )
 
+  /**
+   * ★★ 这条是整件事的验收：**说一句话，画布上真的多出一张图**。
+   *
+   * mock 会演 agent（先 readGraph、再给 applyPlan），所以这条链能在离线环境跑穿：
+   * 循环 → 停在等确认 → 点确认 → 落地 → 自检 → 回填 → 收尾回答。
+   * 只验「有回答」是不够的 —— 那只证明它在聊天，不证明它能建图。
+   */
+  const nodesBefore = await page.locator('[data-node-type]').count()
   await page.locator('[data-agent-input]').fill('帮我建一个提示词到生成的流程')
   await page.locator('[data-agent-send]').click()
   await page
+    .waitForSelector('[data-agent-preview="applyPlan"]', { timeout: 20000 })
+    .catch(() => undefined)
+  rec(
+    g,
+    '★★ 一句话之后循环停在「等你确认」，并给出计划预览',
+    (await page.locator('[data-agent-preview="applyPlan"]').count()) === 1,
+  )
+
+  await page.locator('[data-agent-confirm]').click()
+  await page
     .waitForFunction(
-      () => document.querySelectorAll('[data-agent-message="assistant"]').length > 0,
-      null,
-      { timeout: 15000 },
+      (n) => document.querySelectorAll('[data-node-type]').length >= n + 2,
+      nodesBefore,
+      { timeout: 20000 },
     )
     .catch(() => undefined)
-  const replies = await page.locator('[data-agent-message="assistant"]').count()
-  rec(g, '★★ 说一句话能得到回答（多轮循环真的跑起来了）', replies > 0, `assistant=${replies}`)
+  const nodesAfter = await page.locator('[data-node-type]').count()
+  rec(
+    g,
+    '★★ 点确认后画布上真的多了两个节点（落地生效）',
+    nodesAfter >= nodesBefore + 2,
+    `前=${nodesBefore} 后=${nodesAfter}`,
+  )
+  rec(g, '★★ 落地后把自检结果回填，模型给出收尾回答（闭环）', (await page.locator('[data-agent-message="assistant"]').count()) > 0)
 
   /**
    * 切到**另一个**会话。

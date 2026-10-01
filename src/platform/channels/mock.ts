@@ -254,6 +254,44 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
       const images = imageInputsOf(request.inputs)
       const prefix = images.map((i) => `img:${i.assetHash.slice(0, 8)}`).join(',')
       /**
+       * **Agent 形态**：带 `tools` 时按「先看画布 → 再给计划 → 然后收尾」演一遍。
+       *
+       * 为什么 mock 要会这一手：真渠道会返回 tool_calls，而 mock 只会回文本的话，
+       * 「一句话变成画布上的图」这条主链在离线环境**根本验不了** ——
+       * 于是 agent 最有价值的那一段永远只能靠手点。这里让它确定性地产出
+       * `readGraph` → `applyPlan` 两次调用，冒烟就能把整条链跑穿（含确认与自检）。
+       *
+       * 计划内容由用户最后那句话当提示词，建最经典的「提示词 → 生成」两节点。
+       */
+      if (request.tools?.length && request.messages?.length) {
+        const toolMsgs = request.messages.filter((m) => m.role === 'tool').length
+        if (toolMsgs === 0) {
+          return {
+            text: '',
+            finishReason: 'tool_calls',
+            toolCalls: [{ id: 'mock-read', name: 'readGraph', args: '{"scope":"all"}' }],
+          }
+        }
+        if (toolMsgs === 1) {
+          const lastUser =
+            request.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '提示词'
+          const plan = {
+            summary: `据「${lastUser.slice(0, 20)}」建一个提示词到生成的流程`,
+            nodes: [
+              { localId: 'p1', type: 'prompt', data: { text: lastUser }, order: 0 },
+              { localId: 'g1', type: 'generation', data: { mode: 'image', prompt: lastUser }, order: 1 },
+            ],
+            edges: [{ source: 'p1', target: 'g1' }],
+          }
+          return {
+            text: '',
+            finishReason: 'tool_calls',
+            toolCalls: [{ id: 'mock-plan', name: 'applyPlan', args: JSON.stringify(plan) }],
+          }
+        }
+        return { text: '已经建好了，画布上应该能看到两个节点。', finishReason: 'stop' }
+      }
+      /**
        * Agent 那条路径发的是**消息数组**、`prompt` 为空（设计文档 §4）。
        * 真渠道当然会读消息数组，mock 也得分得清这两种形态，否则
        * 「agent 一问一答」在离线环境里根本验不了（回显一个空串）。
