@@ -89,6 +89,24 @@ export type Command =
   | { kind: 'edge.connect'; source: string; target: string; sourcePort?: string; targetPort?: string }
   | { kind: 'edge.remove'; id: string }
   | { kind: 'container.reorder'; containerId: string; orderedChildIds: string[] }
+  /**
+   * Agent 落计划：**多节点 + 连线一次落地**（设计文档 §3 / §5）。
+   *
+   * 与 `node.paste` 的关键差别：**连线可以一端指向画布上已有的节点**。
+   * paste 刻意只保留「两端都在本批内」的边（它的来源是剪贴板快照），
+   * 而 agent 的典型用法正是「从你已放好的素材节点连到我新生成的节点」——
+   * 拿 paste 会**静默丢掉这条边**，于是图看起来建好了、其实是断的。
+   *
+   * 另一点：paste 不校验连线合法性（原图既然合法，搬过来仍合法）；
+   * 这里的图是模型生成的，**必须**逐条过 `canConnect`。
+   */
+  | {
+      kind: 'agent.applyPlan'
+      /** 要新建的节点；id 与坐标由调用方算好（与 node.paste 同口径） */
+      nodes: NodeSnapshot[]
+      /** 连线：两端可在本批内，也可指向画布上已有节点 */
+      edges: { source: string; target: string; sourcePort?: string; targetPort?: string }[]
+    }
   // 生成产物落库：节点只持有 hash，媒体本体（字节）写 assets 表（产品文档 §8 hash 主键）
   | {
       kind: 'asset.put'

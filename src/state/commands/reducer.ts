@@ -226,6 +226,71 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
     }
 
     /**
+     * Agent 落计划（设计文档 §3 / §5）。
+     *
+     * 与 `node.paste` 的两点实质差别（见命令类型上的注释）：
+     * ① 连线允许一端指向**画布上已有的节点**（复用素材节点的场景）；
+     * ② 连线是模型生成的，**必须逐条过 `canConnect`**，不能像 paste 那样跳过校验。
+     *
+     * 整批一个 standalone 事务 ⇒ **一次撤销全部回退**。
+     */
+    case 'agent.applyPlan': {
+      if (cmd.nodes.length === 0) fail(cmd.kind, '计划里没有要建的节点')
+      const existing = new Set(graph.nodes.map((n) => n.id))
+      for (const n of cmd.nodes) {
+        if (existing.has(n.id)) fail(cmd.kind, `计划要建的节点 id 与现有节点冲突：${n.id}`)
+      }
+
+      const patches: Patch[] = cmd.nodes.map((n) => ({
+        op: 'upsert',
+        table: 'nodes',
+        row: { ...n, projectId: graph.projectId } as unknown as Row,
+      }))
+
+      /**
+       * 连线校验要用**含新节点的图**：`canConnect` 看的是上下游类型与端口，
+       * 只拿旧图去验，新节点之间的边会一律被判成「端点不存在」。
+       */
+      const virtual: GraphSnapshot = { ...graph, nodes: [...graph.nodes, ...cmd.nodes] }
+      const byId = new Map(virtual.nodes.map((n) => [n.id, n]))
+      const seen = new Set<string>()
+      for (const e of cmd.edges) {
+        const source = byId.get(e.source)
+        const target = byId.get(e.target)
+        if (!source) fail(cmd.kind, `连线的起点不存在：${e.source}`)
+        if (!target) fail(cmd.kind, `连线的终点不存在：${e.target}`)
+        const check = canConnect(source, target, virtual, {
+          sourcePort: e.sourcePort,
+          targetPort: e.targetPort,
+        })
+        if (!check.ok) fail(cmd.kind, `连线 ${e.source}→${e.target} 不合法：${check.reason}`)
+        const key = edgeKey(e.source, e.target, e.sourcePort, e.targetPort)
+        if (seen.has(key)) continue
+        if (graph.edges.some((x) => edgeKey(x.source, x.target, x.sourcePort, x.targetPort) === key)) {
+          continue
+        }
+        seen.add(key)
+        patches.push({
+          op: 'upsert',
+          table: 'edges',
+          row: {
+            id: createId('edge'),
+            projectId: graph.projectId,
+            source: e.source,
+            target: e.target,
+            ...(e.sourcePort && e.sourcePort !== DEFAULT_SOURCE_PORT ? { sourcePort: e.sourcePort } : {}),
+            ...(e.targetPort && e.targetPort !== DEFAULT_TARGET_PORT ? { targetPort: e.targetPort } : {}),
+          } as unknown as Row,
+        })
+      }
+
+      return {
+        patches,
+        transaction: { mode: 'standalone', label: `Agent 落地 ${cmd.nodes.length} 个节点` },
+      }
+    }
+
+    /**
      * 删除节点（§6.20 Delete / Backspace、§4.1 右键「删除」）。
      *
      * 一次 dispatch 处理全部级联：待删节点的后代、相连连线、结果组引用。
