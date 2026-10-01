@@ -857,6 +857,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           value={draft}
           placeholder="说一句你想要什么…"
           onChange={(e) => setDraft(e.target.value)}
+          onInput={(e) => {
+            /** 输入区自适应高度（有 max 托底）：像参考产品那样随内容长高，但不无限长 */
+            const el = e.currentTarget
+            el.style.height = 'auto'
+            el.style.height = `${Math.min(el.scrollHeight, 120)}px`
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
@@ -865,26 +871,32 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           }}
           data-agent-input
         />
+        {/*
+          发送钮的形态与**内容**有关（像参考产品：没写字就只是个圆点，写了才是可点的上箭头），
+          与「是否在执行」无关 —— 执行中它变成停止，这一层含义独立表达。
+        */}
         {status.kind === 'thinking' || status.kind === 'executing' ? (
           <button
             type="button"
-            className={styles.send}
+            className={`${styles.send} ${styles.sendBusy}`}
             onClick={stop}
             title="停止"
             data-agent-stop
           >
             <IconClose size={16} />
           </button>
-        ) : (
+        ) : draft.trim() ? (
           <button
             type="button"
-            className={styles.send}
+            className={`${styles.send} ${styles.sendActive}`}
             onClick={() => void send()}
             title="发送"
             data-agent-send
           >
             <IconArrowUp size={16} />
           </button>
+        ) : (
+          <span className={styles.sendIdle} data-agent-send-idle aria-hidden="true" />
         )}
       </div>
     </aside>

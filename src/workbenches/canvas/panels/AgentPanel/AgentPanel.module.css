@@ -392,3 +392,34 @@
   background: var(--control-inverse-bg-hover);
   color: var(--control-inverse-text-hover);
 }
+.sendActive {
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+}
+.sendActive:hover {
+  background: var(--control-inverse-bg-hover);
+  color: var(--control-inverse-text-hover);
+}
+.sendBusy {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+/**
+ * 空输入时的「待机」态：只是一枚浅色圆点（参考产品同款）。
+ * 不做成禁用按钮 —— 那会让人以为这个圆点能点；它只是状态显示。
+ */
+.sendIdle {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sendIdle::after {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-3);
+}
