@@ -27,6 +27,20 @@ import { ROUTE_STRATEGIES, type RouteStrategy } from '../../domain/project/model
  */
 const ROUTE_STRATEGY_ROW_ID = 'routing:strategy'
 
+/**
+ * Agent 默认模型的保留行 id（设计文档 §8）。
+ *
+ * 它是**UI 偏好**（新建会话时用哪个模型），所以按既有口径住 `presets`；
+ * 而会话历史是业务数据、会一直增长，住单独一张 `agentSessions`（§12）。
+ * 两者不要混为一谈 —— 混了就会出现「聊得越多，偏好表越大」。
+ */
+const AGENT_DEFAULT_ROW_ID = 'agent:default'
+
+export interface AgentDefaultModel {
+  channelId: string
+  model: string
+}
+
 /** 未知 / 缺字段 / 读失败时回落 `priority`（手工排的优先度，行为最可预测） */
 function routeStrategyFromRow(row: unknown): RouteStrategy {
   if (!row || typeof row !== 'object') return 'priority'
@@ -45,6 +59,10 @@ export interface PresetStore {
   loadRoutingStrategy(): Promise<RouteStrategy>
   /** 写入全局选路策略 */
   saveRoutingStrategy(strategy: RouteStrategy): Promise<void>
+  /** 读 Agent 默认模型；没设过返回 null（由界面回落「第一个可用」） */
+  loadAgentDefault(): Promise<AgentDefaultModel | null>
+  /** 写 Agent 默认模型。**只影响之后新建的会话**，不回头改已有会话（§8） */
+  saveAgentDefault(value: AgentDefaultModel): Promise<void>
 }
 
 export function createPresetStore(storage: StoragePort): PresetStore {
@@ -92,6 +110,25 @@ export function createPresetStore(storage: StoragePort): PresetStore {
         await storage.put('presets', { id: ROUTE_STRATEGY_ROW_ID, strategy } as never)
       } catch {
         // 偏好写不进去不该打断使用：最坏情况只是下次仍按缺省策略
+      }
+    },
+    async loadAgentDefault() {
+      try {
+        const rows = await storage.query('presets', { id: AGENT_DEFAULT_ROW_ID })
+        const row = rows[0] as { channelId?: unknown; model?: unknown } | undefined
+        if (!row || typeof row.channelId !== 'string' || typeof row.model !== 'string') return null
+        if (!row.channelId || !row.model) return null
+        return { channelId: row.channelId, model: row.model }
+      } catch {
+        // 表可能还不存在（老库未升级）：当作没设过
+        return null
+      }
+    },
+    async saveAgentDefault(value) {
+      try {
+        await storage.put('presets', { id: AGENT_DEFAULT_ROW_ID, ...value } as never)
+      } catch {
+        // 偏好写不进去不该打断对话：最坏情况只是下次还得重选
       }
     },
   }

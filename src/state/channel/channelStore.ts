@@ -27,7 +27,8 @@ import {
   createChannelAdapter,
   type ResolvedChannelConfig,
 } from '../../platform/channels/registry'
-import type { VerifyResult } from '../../platform/channels/types'
+import type { TextResult, VerifyResult } from '../../platform/channels/types'
+import type { ChatMessage, ToolDeclaration } from '../../domain/shared/execution/types'
 import { describeError, asAppError } from '../../shared/result'
 
 /**
@@ -164,6 +165,21 @@ export interface ChannelStoreActions {
     node: { channelId?: string; model?: string },
     category?: string,
   ): Promise<{ channelId: string; model: string; params: Record<string, unknown>; substituted: boolean } | null>
+  /**
+   * Agent 的带工具多轮调用（设计文档 §4）。
+   *
+   * 与 `CanvasExecutionProvider.completeText`（优化 / 翻译 / 反推那条）的分工：
+   * 那是「一段系统指令 + 一段正文」的单次调用，给提示词节点用；
+   * 这个要的是**完整消息数组 + 工具声明**，给 agent 循环用。
+   * 两者共用同一套适配器解析（渠道 → 令牌 → registry），不重复那份逻辑。
+   */
+  completeWithTools(req: {
+    channelId: string
+    model: string
+    tools: readonly ToolDeclaration[]
+    messages: readonly ChatMessage[]
+    signal: AbortSignal
+  }): Promise<TextResult>
 }
 
 export type ChannelStore = MiniStore<ChannelStoreState> & ChannelStoreActions
@@ -561,6 +577,30 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
     )
   }
 
+  /**
+   * Agent 的带工具多轮调用。
+   *
+   * 复用与 verify / refreshModels 同一套「渠道 → 令牌 → registry」解析，
+   * 不另写一份 —— 那两份迟早分叉（比如只在一处补了协议定义）。
+   */
+  const completeWithTools: ChannelStoreActions['completeWithTools'] = async ({
+    channelId,
+    model,
+    tools,
+    messages,
+    signal,
+  }) => {
+    const ch = store.getState().channels.find((c) => c.id === channelId)
+    if (!ch) throw new Error(`[channelStore] 渠道不存在：${channelId}`)
+    const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
+    const config: ResolvedChannelConfig = { ...toSafeConfig(ch, catalog()), apiKey }
+    const adapter = createChannelAdapter(config, platform)
+    return adapter.completeText(
+      { kind: 'text', channelId, model, prompt: '', inputs: [], params: {}, tools, messages },
+      signal,
+    )
+  }
+
   return {
     ...store,
     load,
@@ -585,5 +625,6 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
     enabledChannels,
     rememberRecipe: rememberRecipeOfChannel,
     defaultForNewNode,
+    completeWithTools,
   }
 }
