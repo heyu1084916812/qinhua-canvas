@@ -98,6 +98,23 @@ export interface ToolDeclaration {
   parameters: Record<string, unknown>
 }
 
+/**
+ * 一次对话里的一条消息（Agent 多轮用，架构 §5.9 ④）。
+ *
+ * 为什么需要它：`completeText` 原先只接受**一条 prompt 字符串**，
+ * 而带工具的多轮对话必然要回传「assistant 要求调工具」「tool 的执行结果」
+ * 这两种历史消息 —— 只发单条 user 消息的话，模型看不到自己上一步做过什么，
+ * 会反复调同一个工具（正是设计文档 §4「循环的刹车」要治的那个病）。
+ */
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content: string
+  /** `role:'assistant'` 时：它请求调用的工具 */
+  toolCalls?: { id: string; name: string; args: string }[]
+  /** `role:'tool'` 时：这条结果对应哪一次调用 */
+  toolCallId?: string
+}
+
 interface RunRequestBase {
   channelId: string
   model: string
@@ -112,6 +129,11 @@ interface RunRequestBase {
    * 混进 params 会让适配器既要知道它是谁、又要从一堆厂商字段里挑出来。
    */
   tools?: readonly ToolDeclaration[]
+  /**
+   * 完整消息历史（Agent 用）。给了它就以它为准，`prompt` 只作为「没有 messages 时」
+   * 的老路径 —— 这样既有调用点（优化 / 翻译 / 反推）一个字都不用改。
+   */
+  messages?: readonly ChatMessage[]
 }
 
 /**

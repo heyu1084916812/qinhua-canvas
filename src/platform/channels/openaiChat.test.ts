@@ -239,3 +239,61 @@ describe('openaiChat adapter / 工具调用', () => {
     })
   })
 })
+
+/**
+ * 多轮消息数组（Agent 循环用，设计文档 §4）。
+ *
+ * `completeText` 原先只发一条 user 消息 —— 那样模型看不到自己上一步调过什么工具，
+ * 会反复调同一个（设计文档 §4「循环的刹车」要治的正是这个）。
+ */
+describe('openaiChat adapter / 多轮消息', () => {
+  const capture = () => {
+    const bodies: Record<string, unknown>[] = []
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        bodies.push(req.body as Record<string, unknown>)
+        return resp(200, { choices: [{ message: { content: '好' }, finish_reason: 'stop' }] })
+      },
+    })
+    return { bodies, adapter: createOpenAiChatAdapter(cfg, { network: net, assets: platformWith([]).assets }) }
+  }
+
+  it('★★ 给了 messages 就按它发（assistant 的 tool_calls 与 tool 结果都要还原成 OpenAI 形状）', async () => {
+    const { bodies, adapter } = capture()
+    await adapter.completeText(
+      {
+        ...request([]),
+        messages: [
+          { role: 'system', content: '你在操作一张画布' },
+          { role: 'user', content: '建个流程' },
+          {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'call_1', name: 'readGraph', args: '{"scope":"all"}' }],
+          },
+          { role: 'tool', content: '{"nodes":[]}', toolCallId: 'call_1' },
+        ],
+      },
+      signal,
+    )
+
+    expect(bodies[0]!.messages).toEqual([
+      { role: 'system', content: '你在操作一张画布' },
+      { role: 'user', content: '建个流程' },
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          { id: 'call_1', type: 'function', function: { name: 'readGraph', arguments: '{"scope":"all"}' } },
+        ],
+      },
+      { role: 'tool', tool_call_id: 'call_1', content: '{"nodes":[]}' },
+    ])
+  })
+
+  it('★ 不给 messages 时仍是单条 user 消息（老路径一个字没变）', async () => {
+    const { bodies, adapter } = capture()
+    await adapter.completeText(request([], '你好'), signal)
+    expect(bodies[0]!.messages).toEqual([{ role: 'user', content: '你好' }])
+  })
+})

@@ -121,6 +121,41 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
     const content: string | ContentPart[] =
       parts.length > 0 ? [{ type: 'text', text: request.prompt }, ...parts] : request.prompt
 
+    /**
+     * 消息数组：给了 `messages` 就用它（Agent 多轮），否则退回「单条 user」老路径。
+     *
+     * 图片只拼进**最后一条 user 消息**：把图片挂到历史消息上会让模型重复看到同一张图，
+     * 既费 token 也可能让它以为有多张。
+     */
+    const toOpenAiMessage = (
+      m: { role: string; content: string; toolCalls?: { id: string; name: string; args: string }[]; toolCallId?: string },
+      isLastUser: boolean,
+    ): Record<string, unknown> => {
+      if (m.role === 'tool') return { role: 'tool', tool_call_id: m.toolCallId ?? '', content: m.content }
+      if (m.role === 'assistant' && m.toolCalls?.length) {
+        return {
+          role: 'assistant',
+          content: m.content || null,
+          tool_calls: m.toolCalls.map((c) => ({
+            id: c.id,
+            type: 'function',
+            function: { name: c.name, arguments: c.args },
+          })),
+        }
+      }
+      if (m.role === 'user' && isLastUser && parts.length > 0) {
+        return { role: 'user', content: [{ type: 'text', text: m.content }, ...parts] }
+      }
+      return { role: m.role, content: m.content }
+    }
+
+    const lastUserIndex = request.messages
+      ? [...request.messages].reduce((acc, m, i) => (m.role === 'user' ? i : acc), -1)
+      : -1
+    const messages: Record<string, unknown>[] = request.messages
+      ? request.messages.map((m, i) => toOpenAiMessage(m, i === lastUserIndex))
+      : [{ role: 'user', content }]
+
     const res = await deps.network.request(
       {
         url: chatUrl,
@@ -128,7 +163,7 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
         headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
         body: {
           model: request.model,
-          messages: [{ role: 'user', content }],
+          messages,
           // 温度刻意不设：让服务端用默认值。写死 0.7 会让「优化提示词」这类
           // 需要确定性的任务变得不稳定，而用户并没有要求可调温度。
           /**
