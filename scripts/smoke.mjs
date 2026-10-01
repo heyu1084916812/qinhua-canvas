@@ -13477,7 +13477,99 @@ async function g94(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94]
+/**
+ * G95 Agent 对话窗（设计文档 §7 / §8）。
+ *
+ * 验的是「用户能看见的那条链」：入口在画布上、面板贴右侧、会话能多开且互不串味、
+ * 说一句话真能拿到回答。最后一条最重要 —— 它意味着**多轮循环真的跑起来了**，
+ * 而不是只把界面摆在那儿。
+ */
+async function g95(browser) {
+  const g = 'G95 Agent 对话窗'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(800)
+
+  rec(g, '★ 画布上有「助手」入口', (await page.locator('[data-canvas-agent]').count()) === 1)
+  await page.locator('[data-canvas-agent]').click()
+  await sleep(600)
+  const panel = page.locator('[data-agent-panel]')
+  rec(g, '★ 点开出现对话窗', (await panel.count()) === 1)
+
+  const geom = await panel.boundingBox()
+  const vp = page.viewportSize()
+  rec(
+    g,
+    '★★ 对话窗贴在画布右侧',
+    geom !== null && vp !== null && Math.abs(geom.x + geom.width - vp.width) <= 2,
+    `右缘=${geom ? Math.round(geom.x + geom.width) : '?'} 视口=${vp?.width ?? '?'}`,
+  )
+
+  const count = () => page.locator('[data-agent-session-list] option').count()
+  rec(g, '★ 自动开了一个会话', (await count()) === 1, `会话=${await count()}`)
+  await page.locator('[data-agent-new]').click()
+  await sleep(600)
+  rec(g, '★★ 能开多个对话', (await count()) === 2, `会话=${await count()}`)
+
+  const models = await page.locator('[data-agent-model] option').count()
+  rec(g, '★ 能选模型（只列对话模型）', models >= 1, `可选=${models}`)
+
+  await page.locator('[data-agent-set-default]').click()
+  await sleep(400)
+  rec(
+    g,
+    '★ 能把当前模型设为默认',
+    (await page.locator('[data-agent-set-default]').innerText()).includes('已设默认'),
+  )
+
+  await page.locator('[data-agent-input]').fill('帮我建一个提示词到生成的流程')
+  await page.locator('[data-agent-send]').click()
+  await page
+    .waitForFunction(
+      () => document.querySelectorAll('[data-agent-message="assistant"]').length > 0,
+      null,
+      { timeout: 15000 },
+    )
+    .catch(() => undefined)
+  const replies = await page.locator('[data-agent-message="assistant"]').count()
+  rec(g, '★★ 说一句话能得到回答（多轮循环真的跑起来了）', replies > 0, `assistant=${replies}`)
+
+  /**
+   * 切到**另一个**会话。
+   *
+   * 不能写 `index: 0`：会话列表按更新时间倒序，刚聊过的那个永远在 0 ——
+   * 那样「切过去还是它」，断言会假装通过（或像这一轮一样误报失败）。
+   * 按 id 挑一个不等于当前的，才是真的换了一套上下文。
+   */
+  const sessionIds = await page
+    .locator('[data-agent-session-list] option')
+    .evaluateAll((els) => els.map((e) => e.value))
+  const currentSessionId = await page.locator('[data-agent-session-list]').inputValue()
+  const otherSessionId = sessionIds.find((id) => id !== currentSessionId)
+  rec(g, '★ 存在另一个会话可切', Boolean(otherSessionId), `共 ${sessionIds.length} 个`)
+  await page.locator('[data-agent-session-list]').selectOption(otherSessionId)
+  await sleep(500)
+  const other = await page.locator('[data-agent-message]').count()
+  rec(g, '★★ 切回另一个会话是另一套消息（记忆隔离）', other === 0, `另一个会话消息数=${other}`)
+
+  await page.locator('[data-agent-close]').click()
+  await sleep(400)
+  rec(g, '★ 能收起，收起后入口还在', (await panel.count()) === 0)
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await page.screenshot({ path: `${OUT}/111-g95-agent.png` })
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

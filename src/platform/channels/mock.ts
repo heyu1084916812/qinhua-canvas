@@ -253,8 +253,16 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
       await before()
       const images = imageInputsOf(request.inputs)
       const prefix = images.map((i) => `img:${i.assetHash.slice(0, 8)}`).join(',')
+      /**
+       * Agent 那条路径发的是**消息数组**、`prompt` 为空（设计文档 §4）。
+       * 真渠道当然会读消息数组，mock 也得分得清这两种形态，否则
+       * 「agent 一问一答」在离线环境里根本验不了（回显一个空串）。
+       */
+      const lastUser =
+        request.messages?.filter((m) => m.role === 'user').at(-1)?.content ?? request.prompt
+      const text = request.prompt || lastUser
       return {
-        text: prefix ? `mock:${prefix}|${request.prompt}` : `mock:${request.prompt}`,
+        text: prefix ? `mock:${prefix}|${text}` : `mock:${text}`,
         finishReason: 'stop',
       }
     },

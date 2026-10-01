@@ -72,6 +72,20 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     [channels],
   )
 
+  /**
+   * 新会话该用哪个模型：默认模型 → 该渠道第一个对话模型。
+   *
+   * **必须有这层回落**：只存了「默认模型」而没选过时，新会话会带着空模型开出来，
+   * 用户第一句话就被「还没选模型」挡住 —— 开箱即不能用。冒烟 G95 抓到过这一条。
+   */
+  const defaultModelFor = useCallback(
+    (channelId: string, saved?: string) =>
+      saved && chatModelsOf(channelId).some((m) => m.id === saved)
+        ? saved
+        : (chatModelsOf(channelId)[0]?.id ?? ''),
+    [chatModelsOf],
+  )
+
   /** 载入会话列表；没有就按默认模型建一个（设计文档 §8「新建会话用默认模型」） */
   const refresh = useCallback(async () => {
     const rows = await sessions.list(projectId)
@@ -91,12 +105,10 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       }
       const saved = await presets.loadAgentDefault()
       const fallbackChannel = saved?.channelId ?? enabled[0]?.id ?? ''
-      const fallbackModel =
-        saved?.model ?? chatModelsOf(fallbackChannel)[0]?.id ?? fallbackChannel ? '' : ''
       const created = await sessions.create({
         projectId,
         channelId: fallbackChannel,
-        model: fallbackModel || chatModelsOf(fallbackChannel)[0]?.id || '',
+        model: defaultModelFor(fallbackChannel, saved?.model),
       })
       if (!alive) return
       setList([created])
@@ -249,14 +261,15 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
 
   const newSession = useCallback(async () => {
     const saved = await presets.loadAgentDefault()
+    const channelId = saved?.channelId ?? enabled[0]?.id ?? ''
     const created = await sessions.create({
       projectId,
-      channelId: saved?.channelId ?? enabled[0]?.id ?? '',
-      model: saved?.model ?? '',
+      channelId,
+      model: defaultModelFor(channelId, saved?.model),
     })
     await refresh()
     await switchTo(created)
-  }, [presets, sessions, projectId, enabled, refresh, switchTo])
+  }, [presets, sessions, projectId, enabled, refresh, switchTo, defaultModelFor])
 
   const setModel = useCallback(
     async (patch: Partial<Pick<AgentSession, 'channelId' | 'model'>>) => {
