@@ -2,18 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { createMemoryPlatform } from '../../platform/memory'
 import { createSkillStore } from './skillStore'
 
-/**
- * 技能库的读写（用户 2026-09-24）。
- *
- * 重点在**与生成配方共用 `presets` 表**这件事上：两类数据同表不同前缀，
- * 越界读/写会让「技能」凭空出现在配方里、或反之 —— 那是数据层的事故，
- * 不是显示问题。所以这组的第一条就钉住隔离。
- */
 function store() {
   return createSkillStore(createMemoryPlatform().storage)
 }
 
-describe('SkillStore · 新建与读取', () => {
+describe('SkillStore · 用户技能 CRUD', () => {
   it('新建后能读回，字段完整', async () => {
     const s = store()
     await s.create({ name: '详情页策划', content: '你是资深策划……', description: '五段结构' })
@@ -24,6 +17,7 @@ describe('SkillStore · 新建与读取', () => {
       content: '你是资深策划……',
       description: '五段结构',
       inputMode: 'text',
+      source: 'user',
     })
     expect(list[0].id).toMatch(/^skill/)
   })
@@ -39,7 +33,7 @@ describe('SkillStore · 新建与读取', () => {
     expect((await s.loadAll())[0].id).toBe(a.id)
   })
 
-  it('★ 不合规的输入直接抛错（由界面转成提示，不静默存进去）', async () => {
+  it('★ 不合规的输入直接抛错，不静默存进去', async () => {
     const s = store()
     await expect(s.create({ name: '', content: 'x' })).rejects.toThrow(/名称/)
     await expect(s.create({ name: 'a', content: '  ' })).rejects.toThrow(/正文/)
@@ -54,10 +48,68 @@ describe('SkillStore · 新建与读取', () => {
   })
 })
 
-describe('SkillStore · 与生成配方同表隔离', () => {
-  it('★ 配方行（recipe: 前缀）不会被当成技能读出来', async () => {
+describe('SkillStore · 内置与用户分表', () => {
+  it('★★ 启动时同步内置技能，且内置只出现在 builtinSkills 表', async () => {
     const platform = createMemoryPlatform()
-    // 模拟一条生成配方行（presetStore 的写入形状）
+    const s = createSkillStore(platform.storage)
+    const builtins = await s.loadBuiltin()
+    expect(builtins.length).toBeGreaterThanOrEqual(3)
+    expect(builtins.every((x) => x.source === 'builtin')).toBe(true)
+    expect(await platform.storage.query('builtinSkills', {})).toHaveLength(builtins.length)
+    expect(await platform.storage.query('skills', {})).toHaveLength(0)
+  })
+
+  it('★★ 复制内置技能：只生成一个用户副本，重复点击不重复建', async () => {
+    const platform = createMemoryPlatform()
+    const s = createSkillStore(platform.storage)
+    const builtin = (await s.loadBuiltin())[0]!
+    const first = await s.copyBuiltin(builtin)
+    const second = await s.copyBuiltin(builtin)
+    expect(second.id).toBe(first.id)
+    expect(first).toMatchObject({ source: 'user', builtinId: builtin.id, name: builtin.name })
+    expect(await platform.storage.query('skills', {})).toHaveLength(1)
+    expect(await platform.storage.query('builtinSkills', {})).toHaveLength(
+      (await s.loadBuiltin()).length,
+    )
+  })
+
+  it('★★ 恢复默认只覆盖用户副本，不改内置正文', async () => {
+    const platform = createMemoryPlatform()
+    const s = createSkillStore(platform.storage)
+    const builtin = (await s.loadBuiltin())[0]!
+    const copy = await s.copyBuiltin(builtin)
+    await s.save({ ...copy, name: '被用户改过', content: '被用户改过' })
+    const restored = await s.restoreBuiltin(builtin)
+    expect(restored.name).toBe(builtin.name)
+    expect(restored.content).toBe(builtin.content)
+    expect((await s.loadUser())[0]).toMatchObject({ name: builtin.name, content: builtin.content })
+    expect((await s.loadBuiltin())[0]).toMatchObject({ name: builtin.name, content: builtin.content })
+  })
+})
+
+describe('SkillStore · 旧数据迁移与表隔离', () => {
+  it('★★ 旧版 presets 里的 skill: 行自动搬到 skills，不丢内容', async () => {
+    const platform = createMemoryPlatform()
+    await platform.storage.put('presets', {
+      id: 'skill:legacy-1',
+      skillId: 'legacy-1',
+      name: '旧技能',
+      description: '',
+      content: '旧正文',
+      inputMode: 'text',
+      tags: [],
+      updatedAt: 1,
+    } as never)
+    const s = createSkillStore(platform.storage)
+    const list = await s.loadUser()
+    expect(list).toHaveLength(1)
+    expect(list[0]).toMatchObject({ id: 'legacy-1', name: '旧技能', content: '旧正文' })
+    expect(await platform.storage.query('presets', {})).toHaveLength(0)
+    expect(await platform.storage.query('skills', { id: 'legacy-1' })).toHaveLength(1)
+  })
+
+  it('配方行不会被当成技能；新建技能也不会写回 presets', async () => {
+    const platform = createMemoryPlatform()
     await platform.storage.put('presets', {
       id: 'recipe:ch-1',
       channelId: 'ch-1',
@@ -67,25 +119,15 @@ describe('SkillStore · 与生成配方同表隔离', () => {
     } as never)
     const s = createSkillStore(platform.storage)
     await s.create({ name: '技能', content: 'x' })
-    const list = await s.loadAll()
-    expect(list).toHaveLength(1)
-    expect(list[0].name).toBe('技能')
+    expect(await s.loadUser()).toHaveLength(1)
+    expect(await platform.storage.query('presets', {})).toHaveLength(1)
+    expect(await platform.storage.query('skills', {})).toHaveLength(1)
   })
 
-  it('★ 技能行不会污染配方（id 带 skill: 前缀，与 recipe: 不冲突）', async () => {
-    const platform = createMemoryPlatform()
-    const s = createSkillStore(platform.storage)
-    await s.create({ name: '技能', content: 'x' })
-    const recipes = await platform.storage.query('presets', {})
-    // 表里只有技能那一行，且它的 id 是 skill: 开头
-    expect(recipes).toHaveLength(1)
-    expect(String((recipes[0] as { id: string }).id)).toMatch(/^skill:/)
-  })
-
-  it('字段残缺的行被丢弃，不产出半份技能', async () => {
+  it('字段残缺的旧行被丢弃，不产出半件技能', async () => {
     const platform = createMemoryPlatform()
     await platform.storage.put('presets', { id: 'skill:broken', skillId: 'broken' } as never)
     const s = createSkillStore(platform.storage)
-    expect(await s.loadAll()).toHaveLength(0)
+    expect(await s.loadUser()).toHaveLength(0)
   })
 })

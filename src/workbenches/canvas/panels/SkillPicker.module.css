@@ -142,6 +142,13 @@
   white-space: nowrap;
 }
 
+.itemSource {
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
 .itemDesc,
 .itemBlocked {
   font-size: 10px;

@@ -2,8 +2,9 @@ import { useMemo, useRef, useState } from 'react'
 import { useSkills } from '../../app/providers/SkillStoreProvider'
 import {
   parseSkillMarkdown,
-  type Skill,
+  type BuiltinSkill,
   type SkillInputMode,
+  type UserSkill,
 } from '../../domain/prompt/skill'
 import styles from './SkillsPage.module.css'
 
@@ -19,10 +20,15 @@ import styles from './SkillsPage.module.css'
  * 两层互不知道对方的内部状态 —— 那是「两层」与「一页两栏」的实质区别。
  */
 
-export type SkillFilter = 'all' | 'user' | 'preset'
+export type SkillFilter = 'all' | 'builtin' | 'user' | 'preset'
+
+export type SkillPick =
+  | { source: 'builtin'; skill: BuiltinSkill }
+  | { source: 'user'; skill: UserSkill }
 
 const FILTERS: readonly { id: SkillFilter; label: string }[] = [
   { id: 'all', label: '全部' },
+  { id: 'builtin', label: '内置' },
   { id: 'user', label: '我的' },
   { id: 'preset', label: '功能预设词' },
 ]
@@ -46,23 +52,31 @@ export function SkillsBrowser({
   query: string
   onFilter: (f: SkillFilter) => void
   onQuery: (q: string) => void
-  onPick: (skill: Skill) => void
-  onNew: (draft: Omit<Skill, 'id' | 'updatedAt'>) => void
+  onPick: (pick: SkillPick) => void
+  onNew: (draft: Omit<UserSkill, 'id' | 'updatedAt' | 'source'>) => void
   /** 打开「功能预设词」的第二层（它不是技能，没有 Skill 对象可传） */
   onOpenPresets: () => void
 }) {
-  const { skills, loading, create } = useSkills()
+  const { builtinSkills, userSkills, loading, create } = useSkills()
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
 
   /** 搜索：名称 / 说明 / 标签都算，用户记不清写在哪一处也能找到 */
-  const visible = useMemo(() => {
+  const visibleBuiltins = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return skills
-    return skills.filter((s) =>
+    if (!q) return builtinSkills
+    return builtinSkills.filter((s) =>
       [s.name, s.description, ...s.tags].some((t) => t.toLowerCase().includes(q)),
     )
-  }, [skills, query])
+  }, [builtinSkills, query])
+
+  const visibleUsers = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return userSkills
+    return userSkills.filter((s) =>
+      [s.name, s.description, ...s.tags].some((t) => t.toLowerCase().includes(q)),
+    )
+  }, [userSkills, query])
 
   /**
    * 导入 md（用户 2026-09-24：「上传 md 文件然后自动加载解析」）。
@@ -110,6 +124,7 @@ export function SkillsBrowser({
   }
 
   const showPresets = filter === 'all' || filter === 'preset'
+  const showBuiltins = filter === 'all' || filter === 'builtin'
   const showSkills = filter === 'all' || filter === 'user'
 
   return (
@@ -195,27 +210,49 @@ export function SkillsBrowser({
           </button>
         )}
 
+        {showBuiltins &&
+          (loading ? null : (
+            visibleBuiltins.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={styles.card}
+                data-skill-item={s.id}
+                data-skill-source="builtin"
+                data-skills-builtin-card
+                onClick={() => onPick({ source: 'builtin', skill: s })}
+              >
+                <span className={styles.cardSource}>内置技能</span>
+                <span className={styles.cardName}>{s.name}</span>
+                {s.description && <span className={styles.cardDesc}>{s.description}</span>}
+                <span className={styles.cardMeta}>内置 · {INPUT_MODE_LABEL[s.inputMode]}</span>
+              </button>
+            ))
+          ))}
+
         {showSkills &&
           (loading ? (
             <div className={styles.empty}>加载中…</div>
-          ) : visible.length === 0 ? (
+          ) : visibleUsers.length === 0 ? (
             <div className={styles.empty} data-skills-empty>
               还没有技能。
               <br />
               「新建」写一个，或「导入 md」。
             </div>
           ) : (
-            visible.map((s) => (
+            visibleUsers.map((s) => (
               <button
                 key={s.id}
                 type="button"
                 className={styles.card}
                 data-skill-item={s.id}
-                onClick={() => onPick(s)}
+                data-skill-source="user"
+                onClick={() => onPick({ source: 'user', skill: s })}
               >
+                <span className={styles.cardSource}>我的技能</span>
                 <span className={styles.cardName}>{s.name}</span>
                 {s.description && <span className={styles.cardDesc}>{s.description}</span>}
-                <span className={styles.cardMeta}>{INPUT_MODE_LABEL[s.inputMode]}</span>
+                <span className={styles.cardMeta}>我的 · {INPUT_MODE_LABEL[s.inputMode]}</span>
               </button>
             ))
           ))}

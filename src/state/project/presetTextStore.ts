@@ -10,12 +10,12 @@ import {
  *
  * ## 为什么复用 `presets` 表
  *
- * 与技能库同一条理由：`presets` 就是「按 id 存一条 JSON」，与预设词结构同构。
+ * `presets` 就是「按 id 存一条 JSON」，与预设词结构同构。
  * 新建表要动 Dexie schema，而 schema 升级是**不可逆**的一步 —— 为一张同构的表
  * 付这个代价不值得。用 id 前缀区分三类行：
  *
  *  - `recipe:|channelId` → 生成配方（既有）
- *  - `skill:|skillId`    → 技能（2026-09-24）
+ *  - `skill:|skillId`    → 旧技能行（2026-10-01 后由 skillStore 迁移到 `skills`）
  *  - `presetText:|action` → 功能预设词（本文件）
  *
  * ## 为什么一处只存一条、整体覆盖

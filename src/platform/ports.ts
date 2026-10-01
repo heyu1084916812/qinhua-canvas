@@ -24,6 +24,10 @@ export type TableName =
    * 素材字节仍在 `assets` 表；一张素材未被收藏时不会进入 `/assets`。
    */
   | 'assetLibrary'
+  /** 随应用内置、只读的技能默认正文。 */
+  | 'builtinSkills'
+  /** 用户技能：新建、导入、从内置复制而来。 */
+  | 'skills'
 
 export interface Row {
   id: string

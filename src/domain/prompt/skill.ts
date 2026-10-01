@@ -41,6 +41,20 @@ export interface Skill {
   updatedAt: number
 }
 
+/** 随应用内置、只读的技能。 */
+export interface BuiltinSkill extends Skill {
+  source: 'builtin'
+}
+
+/** 用户新建、导入，或从内置技能复制而来的技能。 */
+export interface UserSkill extends Skill {
+  source: 'user'
+  /** 若该条来自内置技能，记录来源内置 id；用于恢复默认与去重复制。 */
+  builtinId?: string
+}
+
+export type SkillEntity = BuiltinSkill | UserSkill
+
 /**
  * 硬限制（用户 2026-09-24 定的规格）。
  *

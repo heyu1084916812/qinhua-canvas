@@ -8975,7 +8975,11 @@ async function g73(browser) {
   await page.locator('[data-skill-content]').fill('把这段文字改写成一句诗。只输出结果。')
   await page.locator('[data-skill-save]').click()
   await sleep(900)
-  rec(g, '技能库里建出一条技能', (await page.locator('[data-skill-item]').count()) === 1)
+  rec(
+    g,
+    '技能库里建出一条技能',
+    (await page.locator('[data-skill-item][data-skill-source="user"]').count()) === 1,
+  )
 
   // ── 回画布，建提示词节点 ──
   await gotoProjects(page)
@@ -9008,8 +9012,14 @@ async function g73(browser) {
   await skillChip.click()
   await sleep(400)
   const items = panel.locator('[data-panel-skill-popup] [data-panel-skill-item]')
-  rec(g, '技能列表里有刚建的那条', (await items.count()) === 1, `${await items.count()} 条`)
-  await items.first().click()
+  const createdSkill = items.filter({ hasText: '冒烟技能' }).first()
+  rec(
+    g,
+    '技能列表里有刚建的那条（内置技能也同时在列）',
+    (await items.count()) >= 2 && (await createdSkill.count()) === 1,
+    `${await items.count()} 条`,
+  )
+  await createdSkill.click()
   await sleep(1200)
 
   rec(
@@ -10718,12 +10728,12 @@ async function g82(browser) {
   rec(g, '★★ 浏览层有居中舞台且水平居中', (await page.locator('[data-skills-browser-stage]').count()) === 1 && (await centerOffset('[data-skills-browser-stage]')) <= 2, `offset=${await centerOffset('[data-skills-browser-stage]')}`)
   rec(
     g,
-    '★ 分类筛选齐备（全部 / 我的 / 功能预设词）',
+    '★ 分类筛选齐备（全部 / 内置 / 我的 / 功能预设词）',
     JSON.stringify(
       await page
         .locator('[data-skills-filter]')
         .evaluateAll((els) => els.map((e) => e.getAttribute('data-skills-filter'))),
-    ) === JSON.stringify(['all', 'user', 'preset']),
+    ) === JSON.stringify(['all', 'builtin', 'user', 'preset']),
   )
   rec(g, '★ 有搜索框与新建 / 导入入口', (await page.locator('[data-skills-search]').count()) === 1 && (await page.locator('[data-skills-new]').count()) === 1 && (await page.locator('[data-skills-import]').count()) === 1)
   /**
@@ -10752,12 +10762,13 @@ async function g82(browser) {
   await page.locator('[data-skill-save]').click()
   await sleep(900)
   rec(g, '保存后回到浏览层', (await page.locator('[data-skills-browser]').count()) === 1)
-  rec(g, '★ 新技能以卡片形式出现', (await page.locator('[data-skill-item]').count()) === 1)
+  const userCards = page.locator('[data-skill-item][data-skill-source="user"]')
+  rec(g, '★ 新技能以卡片形式出现', (await userCards.count()) === 1)
   /**
    * ★★ 长名字 / 长说明不溢出容器：卡片本身与两个文本节点都要满足
    * `scrollWidth <= clientWidth + 1`（留 1px 给亚像素取整）。
    */
-  const overflow = await page.locator('[data-skill-item]').first().evaluate((el) => {
+  const overflow = await userCards.first().evaluate((el) => {
     const bad = []
     for (const node of [el, ...el.querySelectorAll('span')]) {
       if (node.scrollWidth > node.clientWidth + 1) {
@@ -10775,7 +10786,7 @@ async function g82(browser) {
   await page.locator('[data-skills-filter="user"]').click()
   await page.locator('[data-skills-search]').fill('两层冒烟')
   await sleep(350)
-  await page.locator('[data-skill-item]').first().click()
+  await userCards.first().click()
   await sleep(450)
   rec(g, '★ 点卡片进第二层编辑', (await page.locator('[data-skill-editor]').count()) === 1)
   await page.locator('[data-skills-back]').click()
@@ -10793,13 +10804,13 @@ async function g82(browser) {
   )
 
   // 删掉刚建的技能，避免污染后续组
-  await page.locator('[data-skill-item]').first().click()
+  await userCards.first().click()
   await sleep(450)
   await page.locator('[data-skill-remove]').click()
   await sleep(250)
   await page.locator('[data-skill-remove-yes]').click()
   await sleep(800)
-  rec(g, '删除后回浏览层且卡片消失', (await page.locator('[data-skills-browser]').count()) === 1 && (await page.locator('[data-skill-item]').count()) === 0)
+  rec(g, '删除后回浏览层且卡片消失', (await page.locator('[data-skills-browser]').count()) === 1 && (await page.locator('[data-skill-item][data-skill-source="user"]').count()) === 0)
 
   // 第三层（功能预设词）同样要居中
   // 先把筛选与搜索复位到「全部」，否则「我的」筛选下不渲染预设词卡片
@@ -13246,7 +13257,138 @@ async function g93(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93]
+/**
+ * G94 内置技能与用户技能分表（产品文档 §7A.2 / §7A.3，2026-10-01）。
+ */
+async function g94(browser) {
+  const g = 'G94 内置技能分表'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await page.goto(`${BASE}/skills`, { waitUntil: 'networkidle' })
+  await sleep(700)
+
+  const filters = await page
+    .locator('[data-skills-filter]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-skills-filter')))
+  rec(
+    g,
+    '★ 筛选含「内置」分类',
+    JSON.stringify(filters) === JSON.stringify(['all', 'builtin', 'user', 'preset']),
+    filters.join(','),
+  )
+
+  await page.locator('[data-skills-filter="builtin"]').click()
+  await sleep(400)
+  const builtinCards = page.locator('[data-skills-builtin-card]')
+  const builtinCount = await builtinCards.count()
+  rec(g, '★★ 随包内置技能已进入技能库', builtinCount >= 3, `内置=${builtinCount}`)
+  if (builtinCount === 0) {
+    await ctx.close()
+    return
+  }
+
+  const builtinCard = builtinCards.first()
+  const builtinId = await builtinCard.getAttribute('data-skill-item')
+  await builtinCard.click()
+  await sleep(450)
+
+  const nameInput = page.locator('[data-skill-name]')
+  const contentInput = page.locator('[data-skill-content]')
+  const defaultName = await nameInput.inputValue()
+  const defaultContent = await contentInput.inputValue()
+  const readonlyState = await page.evaluate(() => {
+    const name = document.querySelector('[data-skill-name]')
+    const content = document.querySelector('[data-skill-content]')
+    const mode = document.querySelector('[data-skill-inputmode]')
+    return {
+      readOnly: name instanceof HTMLInputElement && name.readOnly,
+      contentReadOnly: content instanceof HTMLTextAreaElement && content.readOnly,
+      selectDisabled: mode instanceof HTMLSelectElement && mode.disabled,
+    }
+  })
+  rec(
+    g,
+    '★★ 内置技能打开即只读（名称 / 正文 / 输入类型不可改）',
+    readonlyState.readOnly && readonlyState.contentReadOnly && readonlyState.selectDisabled,
+    JSON.stringify(readonlyState),
+  )
+  rec(
+    g,
+    '★ 内置技能提供「复制为我的技能」，不提供直接保存 / 删除',
+    (await page.locator('[data-skill-copy]').count()) === 1 &&
+      (await page.locator('[data-skill-save]').count()) === 0 &&
+      (await page.locator('[data-skill-remove]').count()) === 0,
+  )
+
+  await page.locator('[data-skill-copy]').click()
+  await sleep(700)
+  rec(
+    g,
+    '★★ 复制后切到我的技能编辑态（可编辑）',
+    (await page.locator('[data-skill-editor]').getAttribute('data-skill-readonly')) === 'false' &&
+      (await page.locator('[data-skill-save]').count()) === 1,
+  )
+
+  await page.locator('[data-skill-name]').fill('内置副本冒烟')
+  await page.locator('[data-skill-content]').fill('这是用户改过的副本正文。')
+  await page.locator('[data-skill-save]').click()
+  await sleep(900)
+  rec(g, '保存副本后回到浏览层', (await page.locator('[data-skills-browser]').count()) === 1)
+
+  await page.locator('[data-skills-filter="builtin"]').click()
+  await sleep(350)
+  await page.locator(`[data-skill-item="${builtinId}"]`).click()
+  await sleep(450)
+  rec(
+    g,
+    '★★ 用户副本已改，内置默认正文不变',
+    (await page.locator('[data-skill-content]').inputValue()) === defaultContent &&
+      (await page.locator('[data-skill-copy-note]').count()) === 1,
+    `内置=${defaultName}`,
+  )
+  rec(g, '★ 已有副本时出现「恢复默认」', (await page.locator('[data-skill-restore]').count()) === 1)
+
+  await page.locator('[data-skill-restore]').click()
+  await sleep(200)
+  await page.locator('[data-skill-restore-yes]').click()
+  await sleep(800)
+  rec(g, '恢复默认后给出状态提示', (await page.locator('[data-skill-notice]').count()) === 1)
+
+  await page.locator('[data-skills-back]').click()
+  await sleep(350)
+  await page.locator('[data-skills-filter="user"]').click()
+  await sleep(350)
+  await page.locator('[data-skill-item][data-skill-source="user"]').first().click()
+  await sleep(450)
+  rec(
+    g,
+    '★★ 用户副本恢复成内置默认（名称与正文都回到默认）',
+    (await page.locator('[data-skill-name]').inputValue()) === defaultName &&
+      (await page.locator('[data-skill-content]').inputValue()) === defaultContent,
+  )
+
+  await page.locator('[data-skill-remove]').click()
+  await sleep(200)
+  await page.locator('[data-skill-remove-yes]').click()
+  await sleep(700)
+  await page.locator('[data-skills-filter="builtin"]').click()
+  await sleep(350)
+  rec(
+    g,
+    '清理副本后内置技能仍在',
+    (await page.locator('[data-skill-item][data-skill-source="user"]').count()) === 0 &&
+      (await page.locator(`[data-skill-item="${builtinId}"]`).count()) >= 1,
+  )
+
+  await page.screenshot({ path: `${OUT}/110-g94-builtin-skills.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

@@ -9,31 +9,26 @@ import {
 } from 'react'
 import { usePlatform } from './PlatformProvider'
 import { createSkillStore, type SkillStore } from '../../state/project/skillStore'
-import type { Skill } from '../../domain/prompt/skill'
+import type { BuiltinSkill, SkillEntity, UserSkill } from '../../domain/prompt/skill'
 
 /**
- * 技能库（用户 2026-09-24）。
+ * 技能库共享状态。
  *
- * ## 为什么这里比渠道那层多一个「变更订阅」
- *
- * 渠道配置在设置页改完、回画布时通常已经重挂页面，**慢一拍看不出来**。
- * 技能不同：用户很可能在画布上选中技能试一下、回设置页改两个字、
- * 再切回画布 —— 若没有订阅，面板上还是旧内容（改了没生效，最难查的一类）。
- *
- * 所以这里用一个极简的版本号订阅：任何写操作 +1，消费方用
- * `useSkills()` 拿到的那份列表会在版本变化时重建。
- *
- * 不引状态库：技能总量小（软上限 100）、变更低频（人手动改），
- * 一次全量重读比维护增量状态更省心，也不会漂移。
+ * `builtinSkills` 与 `userSkills` 分开保存；`skills` 是画布选择器实际使用的
+ * 合并列表。这样设置页能看到来源，执行层只关心“有哪些技能可选”。
  */
-
 export interface SkillStoreApi {
-  skills: Skill[]
+  /** 内置 + 用户技能，供画布技能选择器直接消费。 */
+  skills: SkillEntity[]
+  builtinSkills: BuiltinSkill[]
+  userSkills: UserSkill[]
   loading: boolean
   reload: () => Promise<void>
   create: SkillStore['create']
   save: SkillStore['save']
   remove: SkillStore['remove']
+  copyBuiltin: SkillStore['copyBuiltin']
+  restoreBuiltin: SkillStore['restoreBuiltin']
 }
 
 export const SkillStoreContext = createContext<SkillStoreApi | null>(null)
@@ -41,20 +36,23 @@ export const SkillStoreContext = createContext<SkillStoreApi | null>(null)
 export function SkillStoreProvider({ children }: { children?: ReactNode }) {
   const platform = usePlatform()
   const store = useMemo(() => createSkillStore(platform.storage), [platform])
-  const [skills, setSkills] = useState<Skill[]>([])
+  const [builtinSkills, setBuiltinSkills] = useState<BuiltinSkill[]>([])
+  const [userSkills, setUserSkills] = useState<UserSkill[]>([])
   const [loading, setLoading] = useState(true)
 
   const reload = useCallback(async () => {
-    const list = await store.loadAll()
-    setSkills(list)
+    const [builtins, users] = await Promise.all([store.loadBuiltin(), store.loadUser()])
+    setBuiltinSkills(builtins)
+    setUserSkills(users)
   }, [store])
 
   useEffect(() => {
     let alive = true
     void (async () => {
-      const list = await store.loadAll()
+      const [builtins, users] = await Promise.all([store.loadBuiltin(), store.loadUser()])
       if (!alive) return
-      setSkills(list)
+      setBuiltinSkills(builtins)
+      setUserSkills(users)
       setLoading(false)
     })()
     return () => {
@@ -62,10 +60,11 @@ export function SkillStoreProvider({ children }: { children?: ReactNode }) {
     }
   }, [store])
 
-  /** 每次写操作后重读整表：内存态与库态同源，不做本地猜测（与渠道 store 同一条纪律） */
   const api = useMemo<SkillStoreApi>(
     () => ({
-      skills,
+      skills: [...builtinSkills, ...userSkills],
+      builtinSkills,
+      userSkills,
       loading,
       reload,
       create: async (input) => {
@@ -81,8 +80,18 @@ export function SkillStoreProvider({ children }: { children?: ReactNode }) {
         await store.remove(id)
         await reload()
       },
+      copyBuiltin: async (builtin) => {
+        const copied = await store.copyBuiltin(builtin)
+        await reload()
+        return copied
+      },
+      restoreBuiltin: async (builtin) => {
+        const restored = await store.restoreBuiltin(builtin)
+        await reload()
+        return restored
+      },
     }),
-    [skills, loading, reload, store],
+    [builtinSkills, userSkills, loading, reload, store],
   )
 
   return <SkillStoreContext.Provider value={api}>{children}</SkillStoreContext.Provider>
@@ -95,23 +104,17 @@ export function useSkills(): SkillStoreApi {
 }
 
 /**
- * 与 `useSkills` 相同的读取，但**Provider 缺席时返回空列表**而不是抛错。
+ * 与 `useSkills` 相同的读取，但 Provider 缺失时返回空列表而不是抛错。
  *
- * 给「技能只是可选增强」的消费方用（如画布执行层：没选技能就完全不走这条路）。
- * 好处有二：
- *  - 那些只关心节点渲染、不关心技能的单测不必为了一个可选依赖补 Provider
- *    （这是本项目吃过一次的坑：给共享组件加一个 context 依赖，
- *     等于给所有渲染它的测试加了前置条件）；
- *  - 真有漏挂 Provider 的路径也只是「技能列表为空」，
- *     而不是整棵树被一个 throw 带下去（那就是全屏黑屏）。
- *
- * 需要「必须挂载」语义的地方仍用 `useSkills`（技能库页自己）。
+ * 给“技能只是可选增强”的消费方用；真正依赖技能的技能库页仍用 `useSkills`。
  */
 export function useSkillsOptional(): SkillStoreApi {
   const s = useContext(SkillStoreContext)
   return (
     s ?? {
       skills: [],
+      builtinSkills: [],
+      userSkills: [],
       loading: false,
       reload: async () => {},
       create: async () => {
@@ -121,6 +124,12 @@ export function useSkillsOptional(): SkillStoreApi {
         throw new Error('SkillStoreProvider 未挂载')
       },
       remove: async () => {
+        throw new Error('SkillStoreProvider 未挂载')
+      },
+      copyBuiltin: async () => {
+        throw new Error('SkillStoreProvider 未挂载')
+      },
+      restoreBuiltin: async () => {
         throw new Error('SkillStoreProvider 未挂载')
       },
     }

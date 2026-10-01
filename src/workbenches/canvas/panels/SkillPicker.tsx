@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { skillGuard, type Skill } from '../../../domain/prompt/skill'
+import { skillGuard, type SkillEntity } from '../../../domain/prompt/skill'
 import styles from './SkillPicker.module.css'
 
 /**
@@ -23,7 +23,7 @@ export function SkillPicker({
   onSelect,
   onOpenLibrary,
 }: {
-  skills: Skill[]
+  skills: SkillEntity[]
   running: boolean
   text: string
   imageCount: number
@@ -64,7 +64,7 @@ export function SkillPicker({
         aria-haspopup="listbox"
         aria-expanded={open}
         disabled={running}
-        title={skills.length > 0 ? '用自己写的技能处理这段文本' : '还没有技能：去「后台设置 → 技能」添加'}
+        title={skills.length > 0 ? '选择一个技能处理这段文本' : '还没有技能：去技能库添加'}
         onClick={() => setOpen((v) => !v)}
       >
         {selected ? selected.name : '技能'}
@@ -139,6 +139,9 @@ export function SkillPicker({
                       setOpen(false)
                     }}
                   >
+                    <span className={styles.itemSource}>
+                      {s.source === 'builtin' ? '内置' : '我的'}
+                    </span>
                     <span className={styles.itemName}>{s.name}</span>
                     {s.description && <span className={styles.itemDesc}>{s.description}</span>}
                     {blocked && <span className={styles.itemBlocked}>{blocked}</span>}

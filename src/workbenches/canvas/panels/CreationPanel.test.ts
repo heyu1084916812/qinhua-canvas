@@ -35,6 +35,8 @@ const emptyModel: PanelModel = {
  */
 const emptySkills = {
   skills: [],
+  builtinSkills: [],
+  userSkills: [],
   loading: false,
   reload: async () => {},
   create: async () => {
@@ -42,6 +44,12 @@ const emptySkills = {
   },
   save: async () => {},
   remove: async () => {},
+  copyBuiltin: async () => {
+    throw new Error('unused')
+  },
+  restoreBuiltin: async () => {
+    throw new Error('unused')
+  },
 }
 
 function render(

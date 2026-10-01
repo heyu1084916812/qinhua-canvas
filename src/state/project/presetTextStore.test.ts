@@ -7,9 +7,9 @@ import { DEFAULT_PRESET_TEXT, PRESET_TEXT_MAX } from '../../domain/prompt/preset
 /**
  * 功能预设词的读写（后台中枢，用户 2026-09-25）。
  *
- * 重点在**与生成配方、技能共用 `presets` 表**这件事上：三类数据同表不同 id 前缀，
- * 越界读写会让技能变成预设词、或把配方当预设词读出来 —— 那是数据层事故。
- * 所以这组专门钉住隔离，以及「写坏值不进库」。
+ * 重点在 `presets` 仍与生成配方共表这件事上：两类数据同表不同 id 前缀，
+ * 越界读写会把配方当预设词读出来，所以这组专门钉住隔离，以及「写坏值不进库」。
+ * 技能从 2026-10-01 起已迁到独立 `skills` 表，旧 `skill:` 行只作为迁移输入。
  */
 function store() {
   return createPresetTextStore(createMemoryPlatform().storage)

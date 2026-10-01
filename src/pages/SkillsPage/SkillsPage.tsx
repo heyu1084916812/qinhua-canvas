@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { usePresetText } from '../../app/providers/PresetTextProvider'
 import { presetTextEntries } from '../../domain/prompt/presetText'
-import type { Skill } from '../../domain/prompt/skill'
+import type { BuiltinSkill, UserSkill } from '../../domain/prompt/skill'
 import { PresetTextSection } from './PresetTextSection'
 import { SkillEditor } from './SkillEditor'
-import { SkillsBrowser, type SkillFilter } from './SkillsBrowser'
+import { SkillsBrowser, type SkillFilter, type SkillPick } from './SkillsBrowser'
 import styles from './SkillsPage.module.css'
 
 /**
@@ -17,7 +17,7 @@ import styles from './SkillsPage.module.css'
  * 不丢筛选）。草稿也由本页持有 —— 新建时还没有 id，只有保存那一刻才落库，
  * 用户中途放弃不会在库里留下空技能。
  */
-type Draft = Omit<Skill, 'id' | 'updatedAt'>
+type Draft = Omit<UserSkill, 'id' | 'updatedAt' | 'source'>
 
 export function SkillsPage() {
   const presetText = usePresetText()
@@ -28,22 +28,26 @@ export function SkillsPage() {
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState<Draft | null>(null)
   const [originalId, setOriginalId] = useState<string | null>(null)
+  const [builtin, setBuiltin] = useState<BuiltinSkill | null>(null)
 
-  const openSkill = (skill: Skill) => {
+  const openSkill = ({ source, skill }: SkillPick) => {
     setDraft({
       name: skill.name,
       description: skill.description,
       content: skill.content,
       inputMode: skill.inputMode,
       tags: skill.tags,
+      builtinId: source === 'user' ? skill.builtinId : undefined,
     })
-    setOriginalId(skill.id)
+    setBuiltin(source === 'builtin' ? skill : null)
+    setOriginalId(source === 'user' ? skill.id : null)
     setLevel('edit')
   }
 
   const openNew = (empty: Draft) => {
     setDraft(empty)
     setOriginalId(null)
+    setBuiltin(null)
     setLevel('edit')
   }
 
@@ -51,6 +55,7 @@ export function SkillsPage() {
     setLevel('browse')
     setDraft(null)
     setOriginalId(null)
+    setBuiltin(null)
   }
 
   return (
@@ -61,14 +66,29 @@ export function SkillsPage() {
             <button type="button" className={styles.ghost} data-skills-back onClick={backToBrowse}>
               ← 返回浏览
             </button>
-            <span className={styles.levelTitle}>{originalId ? '编辑技能' : '新建技能'}</span>
+            <span className={styles.levelTitle}>
+              {builtin ? '内置技能（只读）' : originalId ? '编辑技能' : '新建技能'}
+            </span>
           </div>
           <SkillEditor
             draft={draft}
             originalId={originalId}
+            builtin={builtin}
             onChange={setDraft}
             onSaved={backToBrowse}
             onDeleted={backToBrowse}
+            onCopied={(copy) => {
+              setDraft({
+                name: copy.name,
+                description: copy.description,
+                content: copy.content,
+                inputMode: copy.inputMode,
+                tags: copy.tags,
+                builtinId: copy.builtinId,
+              })
+              setBuiltin(null)
+              setOriginalId(copy.id)
+            }}
           />
         </div>
       )}

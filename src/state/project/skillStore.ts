@@ -3,58 +3,88 @@ import { createId } from '../../shared/id'
 import {
   SKILL_LIMITS,
   validateSkill,
-  type Skill,
+  type BuiltinSkill,
   type SkillInputMode,
+  type UserSkill,
 } from '../../domain/prompt/skill'
+import { BUNDLED_BUILTIN_SKILLS } from './builtinSkillCatalog'
 
 /**
- * 技能库的读写（用户 2026-09-24）。
+ * 技能库读写。
  *
- * ## 为什么复用 `presets` 表而不是新建一张
- *
- * `presets` 与技能**结构完全同构**：都是「按 id 存一条 JSON」。
- * 新建表要动 Dexie schema（升到 v3），而数据迁移是**不可逆**的一步 ——
- * 老库升级出问题就是打不开。为一张同构的表付这个代价不值得。
- *
- * 用 id 前缀区分两类行：
- *  - `recipe:|channelId` → 生成配方（既有）
- *  - `skill:|skillId`    → 技能（本文件）
- *
- * 读的时候按前缀过滤，两边互不干扰。
+ * - `builtinSkills`：随包内置、只读。每次启动按 Markdown 清单幂等同步。
+ * - `skills`：用户技能。新建、导入、从内置复制都落这里。
+ * - `presets`：只保留旧版本的 `skill:` 行作迁移来源，读一次就搬到 `skills`。
  */
+const LEGACY_SKILL_ROW_PREFIX = 'skill:'
 
-/** 技能行的主键前缀（与 presets 里既有的 `recipe:` 并列） */
-const SKILL_ROW_PREFIX = 'skill:'
-
-function skillRowId(id: string): string {
-  return `${SKILL_ROW_PREFIX}${id}`
+function asInputMode(value: unknown): SkillInputMode {
+  return value === 'image' || value === 'any' ? value : 'text'
 }
 
-/** 表里的一行 → 技能；字段缺失 / 类型不对时**丢弃**（返回 null），不产出半份数据 */
-function skillFromRow(row: unknown): Skill | null {
+function asTags(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((t): t is string => typeof t === 'string') : []
+}
+
+/** `skills` 表的一行 → 用户技能；字段不全的行直接丢弃。 */
+function userSkillFromRow(row: unknown): UserSkill | null {
   if (!row || typeof row !== 'object') return null
   const r = row as Record<string, unknown>
-  const id = typeof r.skillId === 'string' ? r.skillId : ''
+  const id =
+    typeof r.id === 'string' && !r.id.startsWith(LEGACY_SKILL_ROW_PREFIX)
+      ? r.id
+      : typeof r.skillId === 'string'
+        ? r.skillId
+        : ''
   const name = typeof r.name === 'string' ? r.name : ''
   const content = typeof r.content === 'string' ? r.content : ''
-  // 名称与正文是技能的身份，缺任何一个这行都没有意义
   if (!id || !name || !content) return null
-  const mode = r.inputMode
   return {
     id,
+    source: 'user',
+    builtinId: typeof r.builtinId === 'string' && r.builtinId ? r.builtinId : undefined,
     name,
     content,
     description: typeof r.description === 'string' ? r.description : '',
-    inputMode: (mode === 'image' || mode === 'any' ? mode : 'text') as SkillInputMode,
-    tags: Array.isArray(r.tags) ? r.tags.filter((t): t is string => typeof t === 'string') : [],
+    inputMode: asInputMode(r.inputMode),
+    tags: asTags(r.tags),
     updatedAt: typeof r.updatedAt === 'number' ? r.updatedAt : 0,
   }
 }
 
-function skillToRow(skill: Skill): Record<string, unknown> {
+function userSkillToRow(skill: UserSkill): Record<string, unknown> {
   return {
-    id: skillRowId(skill.id),
-    skillId: skill.id,
+    id: skill.id,
+    builtinId: skill.builtinId,
+    name: skill.name,
+    description: skill.description,
+    content: skill.content,
+    inputMode: skill.inputMode,
+    tags: skill.tags,
+    updatedAt: skill.updatedAt,
+  }
+}
+
+function builtinSkillFromRow(row: Record<string, unknown>): BuiltinSkill | null {
+  const id = typeof row.id === 'string' ? row.id : ''
+  const name = typeof row.name === 'string' ? row.name : ''
+  const content = typeof row.content === 'string' ? row.content : ''
+  if (!id || !name || !content) return null
+  return {
+    id,
+    source: 'builtin',
+    name,
+    content,
+    description: typeof row.description === 'string' ? row.description : '',
+    inputMode: asInputMode(row.inputMode),
+    tags: asTags(row.tags),
+    updatedAt: typeof row.updatedAt === 'number' ? row.updatedAt : 0,
+  }
+}
+
+function builtinSkillToRow(skill: BuiltinSkill): Record<string, unknown> {
+  return {
+    id: skill.id,
     name: skill.name,
     description: skill.description,
     content: skill.content,
@@ -65,37 +95,117 @@ function skillToRow(skill: Skill): Record<string, unknown> {
 }
 
 export interface SkillStore {
-  /** 一次读回全部技能，按更新时间倒序（最近改的在前面） */
-  loadAll(): Promise<Skill[]>
-  /** 新建；名称与正文经过校验，不合规直接抛错（由调用方转成界面提示） */
+  /** 用户技能；保留旧调用名，便于渐进迁移。 */
+  loadAll(): Promise<UserSkill[]>
+  loadUser(): Promise<UserSkill[]>
+  loadBuiltin(): Promise<BuiltinSkill[]>
   create(input: {
     name: string
     content: string
     description?: string
     inputMode?: SkillInputMode
     tags?: string[]
-  }): Promise<Skill>
-  /** 整体覆盖保存（编辑走这条） */
-  save(skill: Skill): Promise<void>
+  }): Promise<UserSkill>
+  save(skill: UserSkill): Promise<void>
   remove(id: string): Promise<void>
+  /** 同一条内置只允许一个用户副本；重复调用返回已有副本。 */
+  copyBuiltin(builtin: BuiltinSkill): Promise<UserSkill>
+  /** 把用户副本恢复成当前内置正文；没有副本时等价于复制。 */
+  restoreBuiltin(builtin: BuiltinSkill): Promise<UserSkill>
 }
 
 export function createSkillStore(storage: StoragePort): SkillStore {
-  return {
-    async loadAll() {
-      try {
-        const rows = await storage.query('presets', {})
-        return rows
-          .filter((r) => typeof (r as { id?: unknown }).id === 'string')
-          .filter((r) => String((r as { id: string }).id).startsWith(SKILL_ROW_PREFIX))
-          .map(skillFromRow)
-          .filter((s): s is Skill => !!s)
-          .sort((a, b) => b.updatedAt - a.updatedAt)
-      } catch {
-        // 表可能还不存在（老库未升级到 v2）；读失败一律当「还没有技能」，不阻塞画布
-        return []
+  /**
+   * 把旧版 `presets` 里的 `skill:` 行搬到 `skills`。
+   *
+   * 旧数据没有内置来源字段，统一按用户技能处理；复制关系无法可靠反推，
+   * 因此不猜 `builtinId`，只保证内容不丢。
+   */
+  async function migrateLegacySkills(): Promise<void> {
+    let rows: Awaited<ReturnType<StoragePort['query']>>
+    try {
+      rows = await storage.query('presets', {})
+    } catch {
+      return
+    }
+    for (const row of rows) {
+      if (typeof row.id !== 'string' || !row.id.startsWith(LEGACY_SKILL_ROW_PREFIX)) continue
+      const legacy = userSkillFromRow(row)
+      if (legacy) {
+        const current = await storage.query('skills', { id: legacy.id })
+        if (current.length === 0) await storage.put('skills', userSkillToRow(legacy) as never)
       }
-    },
+      await storage.delete('presets', row.id)
+    }
+  }
+
+  async function loadUser(): Promise<UserSkill[]> {
+    await migrateLegacySkills()
+    const rows = await storage.query('skills', {})
+    return rows
+      .map(userSkillFromRow)
+      .filter((s): s is UserSkill => !!s)
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+  }
+
+  async function loadBuiltin(): Promise<BuiltinSkill[]> {
+    await storage.bulkPut('builtinSkills', BUNDLED_BUILTIN_SKILLS.map(builtinSkillToRow) as never)
+    const bundledIds = new Set(BUNDLED_BUILTIN_SKILLS.map((s) => s.id))
+    const existing = await storage.query('builtinSkills', {})
+    for (const row of existing) {
+      if (typeof row.id === 'string' && !bundledIds.has(row.id)) {
+        await storage.delete('builtinSkills', row.id)
+      }
+    }
+    return BUNDLED_BUILTIN_SKILLS
+      .map((s) => builtinSkillFromRow(builtinSkillToRow(s)))
+      .filter((s): s is BuiltinSkill => !!s)
+  }
+
+  async function copyBuiltin(builtin: BuiltinSkill): Promise<UserSkill> {
+    const current = await loadUser()
+    const existing = current.find((s) => s.builtinId === builtin.id)
+    if (existing) return existing
+
+    const skill: UserSkill = {
+      id: createId('skill'),
+      source: 'user',
+      builtinId: builtin.id,
+      name: builtin.name,
+      description: builtin.description,
+      content: builtin.content,
+      inputMode: builtin.inputMode,
+      tags: [...builtin.tags],
+      updatedAt: Date.now(),
+    }
+    await storage.put('skills', userSkillToRow(skill) as never)
+    return skill
+  }
+
+  async function restoreBuiltin(builtin: BuiltinSkill): Promise<UserSkill> {
+    const current = await loadUser()
+    const existing = current.find((s) => s.builtinId === builtin.id)
+    if (!existing) return copyBuiltin(builtin)
+
+    const next: UserSkill = {
+      ...existing,
+      source: 'user',
+      builtinId: builtin.id,
+      name: builtin.name,
+      description: builtin.description,
+      content: builtin.content,
+      inputMode: builtin.inputMode,
+      tags: [...builtin.tags],
+      updatedAt: Date.now(),
+    }
+    await storage.put('skills', userSkillToRow(next) as never)
+    return next
+  }
+
+  return {
+    loadAll: loadUser,
+    loadUser,
+    loadBuiltin,
 
     async create(input) {
       const err = validateSkill({
@@ -104,8 +214,9 @@ export function createSkillStore(storage: StoragePort): SkillStore {
         description: input.description,
       })
       if (err) throw new Error(err)
-      const skill: Skill = {
+      const skill: UserSkill = {
         id: createId('skill'),
+        source: 'user',
         name: input.name.trim().slice(0, SKILL_LIMITS.nameMax),
         content: input.content,
         description: (input.description ?? '').slice(0, SKILL_LIMITS.descriptionMax),
@@ -113,7 +224,7 @@ export function createSkillStore(storage: StoragePort): SkillStore {
         tags: (input.tags ?? []).slice(0, 8),
         updatedAt: Date.now(),
       }
-      await storage.put('presets', skillToRow(skill) as never)
+      await storage.put('skills', userSkillToRow(skill) as never)
       return skill
     },
 
@@ -121,17 +232,20 @@ export function createSkillStore(storage: StoragePort): SkillStore {
       const err = validateSkill(skill)
       if (err) throw new Error(err)
       await storage.put(
-        'presets',
-        skillToRow({ ...skill, updatedAt: Date.now() }) as never,
+        'skills',
+        userSkillToRow({ ...skill, source: 'user', updatedAt: Date.now() }) as never,
       )
     },
 
     async remove(id) {
       try {
-        await storage.delete('presets', skillRowId(id))
+        await storage.delete('skills', id)
       } catch {
-        // 删不掉就当已删（与配方存储同一口径：偏好写不进不该打断主流程）
+        // 删不掉就当已删：与配方存储同口径，不让一次删除打断主流程。
       }
     },
+
+    copyBuiltin,
+    restoreBuiltin,
   }
 }
