@@ -56,6 +56,40 @@ describe('parseSkillMarkdown · 带 frontmatter', () => {
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.skill.name).toBe('测试')
   })
+
+  it('★ frontmatter 的 description 支持 YAML 折叠块（`>` / `|` 多行）', () => {
+    // 外部导入的 SKILL.md 常用折叠块写法，折叠块行首有缩进、不能混进正文
+    const folded = [
+      '---',
+      'name: 创作分镜',
+      'description: >',
+      '  第一行说明这一份技能是做什么的，',
+      '  第二行继续补充触发词与适用范围。',
+      'inputMode: any',
+      '---',
+      '正文第一句。',
+    ].join('\n')
+    const r = parseSkillMarkdown(folded, 'fallback')
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.skill.name).toBe('创作分镜')
+    expect(r.skill.description).toContain('第一行说明')
+    expect(r.skill.description).toContain('第二行继续补充')
+    expect(r.skill.inputMode).toBe('any')
+    // 折叠块之后的键值不能被吞掉，正文也不该带上 frontmatter
+    expect(r.skill.content).toBe('正文第一句。')
+    expect(r.skill.content).not.toContain('description')
+    expect(r.skill.content).not.toContain('inputMode')
+  })
+
+  it('description 超长时截断到上限（tooltip 不该变成一段文章）', () => {
+    const long = 'x'.repeat(SKILL_LIMITS.descriptionMax + 40)
+    const r = parseSkillMarkdown(`---\ndescription: ${long}\n---\n正文`, 'x')
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.skill.description.length).toBe(SKILL_LIMITS.descriptionMax)
+    }
+  })
 })
 
 describe('parseSkillMarkdown · 不带 frontmatter', () => {

@@ -63,7 +63,8 @@ export type SkillEntity = BuiltinSkill | UserSkill
  */
 export const SKILL_LIMITS = {
   /** 正文上限：系统指令占 token，再长就该拆成多个技能 */
-  contentMax: 8000,
+  /** 内置技能来自外部工作流文档，允许较长；用户技能同样沿用此上限。 */
+  contentMax: 128000,
   /** 名称上限：按钮上要放得下 */
   nameMax: 24,
   /** 说明上限：tooltip 不该变成一段文章 */
@@ -116,11 +117,28 @@ export function parseSkillMarkdown(raw: string, fallbackName: string): SkillPars
   const fm = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text)
   if (fm) {
     body = text.slice(fm[0].length)
-    for (const line of fm[1].split(/\r?\n/)) {
+    const fmLines = fm[1].split(/\r?\n/)
+    for (let i = 0; i < fmLines.length; i += 1) {
+      const line = fmLines[i]!
       const m = /^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$/.exec(line.trim())
       if (!m) continue
       const key = m[1].toLowerCase()
-      const value = m[2].trim().replace(/^["']|["']$/g, '')
+      let value = m[2].trim().replace(/^["']|["']$/g, '')
+      if (key === 'description' && (value === '>' || value === '|')) {
+        const continuation: string[] = []
+        let j = i + 1
+        while (j < fmLines.length) {
+          const next = fmLines[j]!
+          if (/^\s+\S/.test(next)) {
+            continuation.push(next.trim())
+            j += 1
+            continue
+          }
+          break
+        }
+        value = continuation.join(' ').trim()
+        i = j - 1
+      }
       if (key === 'name' && value) name = value
       else if (key === 'description' && value) description = value
       else if (key === 'inputmode' && value) {

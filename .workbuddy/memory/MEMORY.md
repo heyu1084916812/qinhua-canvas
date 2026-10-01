@@ -2144,3 +2144,27 @@ user-data-dir 的 `Default/` 下，用 Playwright 的 `launchPersistentContext` 
 定稿：图标↔文字 **6px**、按钮↔按钮 **6px**、栏内距 **6px**（三级同档）。
 以后遇到「太挤/太散」这类反馈，先量出**所有相邻元素的距离**再改一个数 ——
 一次只调一级，另一级保持不动，用户才能指出到底是哪一级不对。
+
+### ★ 导入外部 SKILL.md 先查三件事：frontmatter 形状、正文长度、有没有 references（2026-10-01）
+
+用户把「即梦 Skill」压缩包丢进来要内置（`C:\Users\Administrator\Downloads\即梦Skll.zip`），
+打开才发现**一个包 = 7 个技能**（TVC / 创作分镜 / 即梦视频创作标准工作流 / 品牌 Logo /
+电商套图 / 营销海报 / 视频反解），不是 1 个。批量导入前先解包清点，别按「一个 zip 一个技能」想当然。
+
+外部 skill 与自家格式有三处不对板，导入前必须逐项查：
+
+1. **frontmatter 可能是 YAML 折叠块**：`description: >` / `|` 后面跟缩进的多行。原来的
+   `parseSkillMarkdown` 只认 `key: value` 单行，会把 `>` 当值、把后续缩进行漏掉甚至混进正文。
+   已补折叠块解析（`description` 键专属）。以后见到 `>` / `|` / `|-` / `>-` 都要想到这一条。
+2. **正文可能远超旧上限**：旧 `contentMax = 8000`，而这批最长 `video-sop.md` 57KB、
+   `image-ecommerce.md` 55KB。导入前先量字节数，别等解析报「超长」再回头改常量。
+   已放宽到 **128000**（仍留上限：技能正文是系统指令，占 token，太长的正路子是拆技能）。
+3. **正文里可能引用 `references/*.md`**：源 SKILL.md 大量写「详见 references/stage-*.md」。
+   但**轻画的技能运行时只把正文当一份系统指令发**，没有「按需读外部文件」的机制 ——
+   那些 references 不会被加载。本轮**只内置主 SKILL.md**，限制写进了产品文档 §7A.2 / 发行说明。
+   以后要真正支持 references，得先给运行时加文件读取，不能靠「把 md 塞进正文」糊过去。
+
+导入落点是 `src/assets/builtin-skills/*.md`：`builtinSkillCatalog` 用
+`import.meta.glob('.../*.md', { eager: true, query: '?raw' })` 自动收集，**加文件即可，不改代码**。
+验证别只看编译过：单测断言内置清单（数量 + 7 个中文名 + 正文长度 > 200），
+冒烟 G94 断言内置卡片 ≥11 且 7 个名字都在 DOM 里。

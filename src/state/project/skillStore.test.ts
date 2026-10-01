@@ -53,10 +53,30 @@ describe('SkillStore · 内置与用户分表', () => {
     const platform = createMemoryPlatform()
     const s = createSkillStore(platform.storage)
     const builtins = await s.loadBuiltin()
-    expect(builtins.length).toBeGreaterThanOrEqual(3)
+    expect(builtins.length).toBeGreaterThanOrEqual(11)
     expect(builtins.every((x) => x.source === 'builtin')).toBe(true)
     expect(await platform.storage.query('builtinSkills', {})).toHaveLength(builtins.length)
     expect(await platform.storage.query('skills', {})).toHaveLength(0)
+  })
+
+  it('★★ 随包内置技能含即梦 Skill 包 7 个（名称与正文都带过来）', async () => {
+    const s = createSkillStore(createMemoryPlatform().storage)
+    const builtins = await s.loadBuiltin()
+    const byName = new Map(builtins.map((x) => [x.name, x]))
+    for (const name of [
+      'TVC 商业广告视频创作流程',
+      '创作分镜',
+      '即梦视频创作标准工作流程',
+      '品牌 Logo 设计与生图',
+      '电商产品套图设计与生图',
+      '营销海报设计与生图',
+      '视频反解',
+    ]) {
+      const hit = byName.get(name)
+      expect(hit, `缺少内置技能「${name}」`).toBeTruthy()
+      expect(hit!.content.length).toBeGreaterThan(200)
+      expect(hit!.source).toBe('builtin')
+    }
   })
 
   it('★★ 复制内置技能：只生成一个用户副本，重复点击不重复建', async () => {

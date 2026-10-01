@@ -13284,11 +13284,31 @@ async function g94(browser) {
   await sleep(400)
   const builtinCards = page.locator('[data-skills-builtin-card]')
   const builtinCount = await builtinCards.count()
-  rec(g, '★★ 随包内置技能已进入技能库', builtinCount >= 3, `内置=${builtinCount}`)
+  rec(g, '★★ 随包内置技能已进入技能库（含即梦 Skill 包 7 个）', builtinCount >= 11, `内置=${builtinCount}`)
   if (builtinCount === 0) {
     await ctx.close()
     return
   }
+
+  const builtinNames = await builtinCards.evaluateAll((els) =>
+    els.map((e) => (e.querySelector('[class*="cardName"]')?.textContent ?? '').trim()),
+  )
+  const jimengNames = [
+    'TVC 商业广告视频创作流程',
+    '创作分镜',
+    '即梦视频创作标准工作流程',
+    '品牌 Logo 设计与生图',
+    '电商产品套图设计与生图',
+    '营销海报设计与生图',
+    '视频反解',
+  ]
+  const missingNames = jimengNames.filter((n) => !builtinNames.includes(n))
+  rec(
+    g,
+    '★★ 即梦 Skill 包 7 个技能名都在内置列表里',
+    missingNames.length === 0,
+    missingNames.length === 0 ? `共 ${builtinNames.length} 个内置` : `缺少=${missingNames.join('、')}`,
+  )
 
   const builtinCard = builtinCards.first()
   const builtinId = await builtinCard.getAttribute('data-skill-item')
