@@ -19,7 +19,7 @@ import { useCanvasStore, useSelection } from '../../storeContext'
 import { useViewportState } from '../../storeContext'
 import type { TextRunRequest } from '../../../../platform/channels/types'
 import { resumeAgentTurn, runAgentTurn, type AgentLoopOutcome, type AgentToolRequest } from '../../agent/agentLoop'
-import { buildAgentSystemPrompt } from '../../agent/agentSystemPrompt'
+import { buildAgentSystemPromptWithContext } from '../../agent/agentSystemPrompt'
 import {
   AGENT_TOOLS,
   executeConfirmedTool,
@@ -244,43 +244,24 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
 
     const summary = readGraphSummary(store, 'all', selection)
     /**
-     * 技能进系统提示词（设计文档 §14 M4）。
+     * 系统提示词（设计文档 §4.1 / §8 / §14 M4）= 通用三段 + 随对话给的素材 + 本会话启用的技能。
      *
      * 技能负责「怎么做」，agent 负责「真的去做」—— 所以不是让技能自己执行，
      * 而是把它当作**这次规划的规范**：技能里的阶段就是 agent 要建到画布上的步骤。
      * 按 id 现取正文，技能改了这里跟着变（与画布节点上的 `skillId` 同一口径）。
+     *
+     * 拼接本身放在 `buildAgentSystemPromptWithContext` 里，不在这儿现拼：
+     * 「技能正文到底进没进提示词」只能靠发出去的消息证明，抽成纯函数才有单测。
      */
     const skill = current.skillId ? allSkills.find((s) => s.id === current.skillId) : undefined
-    const base = buildAgentSystemPrompt(summary, { model: current.model })
-    /**
-     * 用户随对话给的素材（设计文档 §8）。
-     *
-     * 只报**节点 id**，并把「不要重复建」写死 —— 素材已经在画布上了，
-     * 模型该做的是在 `attach` 里指过去。不写这句它多半会再建一个，
-     * 画布上就出现两张一样的素材图。
-     */
-    const assets = current.pendingAssetIds ?? []
-    const withAssets =
-      assets.length > 0
-        ? [
-            base,
-            '',
-            '## 用户随这次对话给的素材（已经在画布上了）',
-            ...assets.map((id) => `- 素材节点 ${id}`),
-            '要用它们当参考图 / 首帧时，在计划的 attach 里指到这些节点，不要重复建。',
-          ].join('\n')
-        : base
-    const system = skill
-      ? [
-          withAssets,
-          '',
-          '## 本会话启用的技能',
-          `技能名：${skill.name}`,
-          '按这份技能的要求来规划；它里面的阶段就是你要建到画布上的步骤。',
-          '',
-          skill.content,
-        ].join('\n')
-      : withAssets
+    const system = buildAgentSystemPromptWithContext(
+      summary,
+      { model: current.model },
+      {
+        assetIds: current.pendingAssetIds ?? [],
+        ...(skill ? { skill: { name: skill.name, content: skill.content } } : {}),
+      },
+    )
     const withSystem: ChatMessage[] = [
       { role: 'system', content: system },
       ...messages,

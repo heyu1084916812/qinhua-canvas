@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach } from 'vitest'
 import { allSpecs, registerAllSpecs } from '../../../domain/canvas/nodeSpecs'
 import {
   buildAgentSystemPrompt,
+  buildAgentSystemPromptWithContext,
   buildCanvasVocabulary,
   buildCurrentState,
   summarizeForPrompt,
@@ -85,5 +86,54 @@ describe('组装', () => {
     expect(p).toContain('## 画布上有哪些节点')
     expect(p).toContain('## 现在这张画布上有什么')
     expect(p).toContain('让用户确认')
+  })
+})
+
+/**
+ * 素材段与技能段（设计文档 §8 / §14 M4）。
+ *
+ * 这两段是**界面上看不见的**：技能选没选中看得见，选了之后正文有没有真的发给模型
+ * 看不见。所以它们必须有断言钉住 —— 「入口在」不等于「生效了」。
+ */
+describe('素材段与技能段', () => {
+  const empty = { nodes: [], edges: [] }
+
+  it('★★ 选了技能 → 名字与正文真的进了系统提示词（不是只存在选择框里）', () => {
+    const p = buildAgentSystemPromptWithContext(empty, undefined, {
+      skill: { name: '电商详情页策划', content: '第一步：提炼卖点\n第二步：排布信息' },
+    })
+    expect(p).toContain('## 本会话启用的技能')
+    expect(p).toContain('电商详情页策划')
+    expect(p).toContain('第一步：提炼卖点')
+    expect(p).toContain('第二步：排布信息')
+  })
+
+  it('★ 没选技能时那一段不出现（不留空标题）', () => {
+    const p = buildAgentSystemPromptWithContext(empty)
+    expect(p).not.toContain('本会话启用的技能')
+  })
+
+  it('★★ 随对话给的素材：逐个报节点 id，并要求 attach 复用、不要重复建', () => {
+    const p = buildAgentSystemPromptWithContext(empty, undefined, {
+      assetIds: ['node_a', 'node_b'],
+    })
+    expect(p).toContain('## 用户随这次对话给的素材（已经在画布上了）')
+    expect(p).toContain('- 素材节点 node_a')
+    expect(p).toContain('- 素材节点 node_b')
+    expect(p).toContain('不要重复建')
+  })
+
+  it('★ 没给素材时那一段不出现', () => {
+    expect(buildAgentSystemPromptWithContext(empty)).not.toContain('随这次对话给的素材')
+  })
+
+  it('★ 素材 + 技能同时给 → 两段都在，且素材在前（先说你手里有什么）', () => {
+    const p = buildAgentSystemPromptWithContext(empty, undefined, {
+      assetIds: ['node_a'],
+      skill: { name: 'TVC 商业广告视频创作流程', content: '阶段一：脚本' },
+    })
+    expect(p.indexOf('随这次对话给的素材')).toBeGreaterThan(-1)
+    expect(p.indexOf('本会话启用的技能')).toBeGreaterThan(p.indexOf('随这次对话给的素材'))
+    expect(p).toContain('阶段一：脚本')
   })
 })

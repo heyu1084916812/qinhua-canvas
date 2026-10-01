@@ -102,6 +102,58 @@ export function buildAgentSystemPrompt(
   )
 }
 
+export interface AgentPromptExtras {
+  /**
+   * 随这次对话给的素材节点 id（§8）。
+   *
+   * 只报**节点 id**：素材已经落在画布上了，模型该做的是在 `attach` 里指过去。
+   * 不带这句它多半会再建一个，画布上就出现两张一样的素材图。
+   */
+  assetIds?: readonly string[]
+  /** 本会话启用的技能（§14 M4）。正文按 id 现取 —— 技能改了，这次规划跟着变 */
+  skill?: { name: string; content: string }
+}
+
+/**
+ * 完整系统提示词 = 通用三段 + 可选两段（素材 / 技能）。
+ *
+ * 为什么单独抽成纯函数：这两段**只能靠「发出去的消息」证明它真的生效了**，
+ * 界面上看不见。留在组件里就只能靠人工点一遍；抽出来就能用断言钉住
+ * 「选了技能 → 正文真的在系统提示词里」。
+ */
+export function buildAgentSystemPromptWithContext(
+  summary: GraphSummary,
+  inherited?: { ratio?: string; count?: number; model?: string },
+  extras: AgentPromptExtras = {},
+): string {
+  const parts = [buildAgentSystemPrompt(summary, inherited)]
+
+  const assets = extras.assetIds ?? []
+  if (assets.length > 0) {
+    parts.push(
+      [
+        '## 用户随这次对话给的素材（已经在画布上了）',
+        ...assets.map((id) => `- 素材节点 ${id}`),
+        '要用它们当参考图 / 首帧时，在计划的 attach 里指到这些节点，不要重复建。',
+      ].join('\n'),
+    )
+  }
+
+  if (extras.skill) {
+    parts.push(
+      [
+        '## 本会话启用的技能',
+        `技能名：${extras.skill.name}`,
+        '按这份技能的要求来规划；它里面的阶段就是你要建到画布上的步骤。',
+        '',
+        extras.skill.content,
+      ].join('\n'),
+    )
+  }
+
+  return parts.join('\n\n')
+}
+
 /** 供测试与诊断：把节点快照转成摘要（与 tools.readGraphSummary 同源语义） */
 export function summarizeForPrompt(nodes: NodeSnapshot[]): GraphSummary {
   return {
