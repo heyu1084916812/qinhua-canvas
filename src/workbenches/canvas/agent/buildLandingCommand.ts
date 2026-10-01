@@ -33,6 +33,19 @@ export interface BuildLandingInput {
   origin: { x: number; y: number }
   /** 新 id 由调用方给（reducer 必须纯函数，测试也好断言） */
   newId: (kind: 'node') => string
+  /**
+   * 「新建节点的默认数据」，按类型给。
+   *
+   * 为什么必须有这一项：别的建节点入口（`+` 菜单 / 右键 / 拖线到空白）都走
+   * `createNodeWithDefaults`，那里会从渠道 store 解出**默认渠道 + 模型**再落节点。
+   * agent 这条要是漏了它，建出来的生成节点 `channelId` / `model` 就是空的 ——
+   * `toRunRequest` 见到空渠道直接返回 null ⇒ 节点不进执行计划 ⇒
+   * 用户点「生成」只看到一句「还没选择渠道」。表现上像按钮坏了，
+   * 而 agent 的承诺正是「给需求 → 建工作流 → 出图」，那一步断了整件事就断了。
+   *
+   * 传函数而不是传值：解析默认值要读库（异步），而这支是纯函数。
+   */
+  dataFor?: (type: AgentNodeType) => Record<string, unknown>
 }
 
 export interface LandingPayload {
@@ -82,13 +95,20 @@ export function buildLandingCommand(input: BuildLandingInput): LandingPayload {
       title: node.title ?? spec?.label ?? node.type,
       disabled: false,
       /**
-       * 默认数据打底、计划数据覆盖。
+       * 三层打底：spec 默认 → 渠道解出来的默认（渠道 + 模型 + 生成参数）→ 计划数据。
        *
        * 与 `node.create` 同口径（有 data 用 data、没有用 createDefaultData），
        * 但这里**合并**而不是二选一：模型通常只给几个关键字段（比例、张数），
        * 其余（比如 generation 的 mode/count）由默认值补齐才是一份合法的节点数据。
+       *
+       * 顺序不能反：计划数据最后压上去 —— 用户在对话里点名要某条渠道 / 某个模型时，
+       * 它得盖过默认值。
        */
-      data: { ...(spec?.createDefaultData() ?? {}), ...node.data } as NodeData,
+      data: {
+        ...(spec?.createDefaultData() ?? {}),
+        ...(input.dataFor?.(node.type) ?? {}),
+        ...node.data,
+      } as NodeData,
     })
   }
 

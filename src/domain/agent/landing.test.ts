@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { AgentPlan } from './plan'
 import {
   AGENT_LAYOUT_GAP,
+  findFreeRect,
   layoutAgentPlan,
   verifyAgentPlanLanding,
   type AgentGraphView,
@@ -156,5 +157,38 @@ describe('verifyAgentPlanLanding · 逐条对账', () => {
     })
     expect(r.ok).toBe(false)
     expect(r.problems.join()).toContain('复用')
+  })
+})
+
+describe('findFreeRect · 单个节点的落位', () => {
+  /** 用户拖进对话窗的一张素材，尺寸按常见图片节点 */
+  const rect = { x: 100, y: 100, w: 300, h: 200 }
+
+  it('★ 不压人时原样返回（不改坐标）', () => {
+    const far = { x: 2000, y: 2000, w: 300, h: 200 }
+    expect(findFreeRect(rect, [far])).toEqual(rect)
+    expect(findFreeRect(rect, [])).toEqual(rect)
+  })
+
+  it('★★ 压人时往下让到不重叠（用户截图里的反例：素材盖在提示词节点上）', () => {
+    const occupied = { x: 0, y: 0, w: 400, h: 300 }
+    const spot = findFreeRect(rect, [occupied])
+    // 让过之后必须与占用块不相交
+    const clash =
+      spot.x < occupied.x + occupied.w &&
+      occupied.x < spot.x + spot.w &&
+      spot.y < occupied.y + occupied.h &&
+      occupied.y < spot.y + spot.h
+    expect(clash).toBe(false)
+    // 只往下顺、横向不动
+    expect(spot.x).toBe(rect.x)
+    expect(spot.y).toBe(occupied.y + occupied.h + AGENT_LAYOUT_GAP)
+  })
+
+  it('★ 连续两块挡路时继续往下让', () => {
+    const a = { x: 0, y: 0, w: 400, h: 300 }
+    const b = { x: 0, y: 348, w: 400, h: 300 }
+    const spot = findFreeRect(rect, [a, b])
+    expect(spot.y).toBe(b.y + b.h + AGENT_LAYOUT_GAP)
   })
 })

@@ -289,6 +289,40 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
             toolCalls: [{ id: 'mock-plan', name: 'applyPlan', args: JSON.stringify(plan) }],
           }
         }
+        /**
+         * 落地之后 → **真的去跑生成节点**。
+         *
+         * 为什么非要有这一步：出图那段（`runNode` + 确认 + 真渠道请求 + 产物写回）
+         * 是 agent 整件事的落点。mock 只演到「计划落地」的话，冒烟最多证明
+         * 「画布上多了两个节点」，证明不了「点确认后真出图」—— 而那恰恰是最容易
+         * 悄悄坏掉的一段（节点没渠道 / 没模型时它不报错，只是什么都不做）。
+         *
+         * 目标节点取 `createdNodeIds` 的最后一个：计划里 generation 写在 prompt 后面，
+         * 落地按计划顺序发 id。这是 mock 自己写的计划，顺序是它自己定的。
+         */
+        if (toolMsgs === 2) {
+          const landed = request.messages
+            .filter((m) => m.role === 'tool')
+            .map((m) => {
+              try {
+                return JSON.parse(m.content ?? '') as { createdNodeIds?: unknown }
+              } catch {
+                return null
+              }
+            })
+            .find((v) => v !== null && Array.isArray(v.createdNodeIds))
+          const ids = (landed?.createdNodeIds as string[] | undefined) ?? []
+          const target = ids.at(-1)
+          if (target) {
+            return {
+              text: '',
+              finishReason: 'tool_calls',
+              toolCalls: [
+                { id: 'mock-run', name: 'runNode', args: JSON.stringify({ nodeIds: [target] }) },
+              ],
+            }
+          }
+        }
         return { text: '已经建好了，画布上应该能看到两个节点。', finishReason: 'stop' }
       }
       /**

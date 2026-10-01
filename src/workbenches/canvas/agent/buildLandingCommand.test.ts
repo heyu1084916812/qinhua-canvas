@@ -109,4 +109,24 @@ describe('buildLandingCommand', () => {
     })
     expect(r.command.nodes[0]!.y).toBeGreaterThan(0)
   })
+
+  it('★★ dataFor 补上默认渠道 / 模型（不补的话 agent 建的节点点了生成没反应）', () => {
+    seq = 0
+    const plan: AgentPlan = {
+      summary: 'x',
+      nodes: [{ localId: 'g1', type: 'generation', data: {}, order: 0 }],
+      edges: [],
+    }
+    const r = buildLandingCommand({
+      plan,
+      graph: graph(),
+      origin: { x: 0, y: 0 },
+      newId,
+      dataFor: () => ({ channelId: 'ch-1', model: 'relay-img' }),
+    })
+    const data = r.command.nodes[0]!.data as Record<string, unknown>
+    expect(data.channelId).toBe('ch-1')
+    expect(data.model).toBe('relay-img')
+    expect(data.mode).toBeTruthy() // spec 默认值也还在
+  })
 })

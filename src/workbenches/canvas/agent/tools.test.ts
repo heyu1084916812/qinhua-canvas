@@ -137,6 +137,51 @@ describe('写 / 花钱的工具（只由确认后调用）', () => {
     expect(store.getSnapshot().nodes).toHaveLength(0)
   })
 
+  /**
+   * ★★ 落地前先取默认配方。
+   *
+   * 这条盯的是「agent 建的节点」与「手建的节点」同源：手建的走
+   * `createNodeWithDefaults` 会带上默认渠道 + 模型，agent 这条必须问同一件事，
+   * 否则建出来的生成节点是空的 —— 用户点生成只会看到「还没选择渠道」。
+   */
+  it('★★ applyPlan 会先问默认配方（只问计划里真用到的类型），并写进节点', async () => {
+    const { store } = setup()
+    const asked: string[][] = []
+    const ctx: AgentToolContext = {
+      store,
+      origin: { x: 0, y: 0 },
+      runNodes: vi.fn(async (ids: string[]) => ids.map((nodeId) => ({ nodeId, ok: true }))),
+      defaultsForNewNode: vi.fn(async (types: readonly string[]) => {
+        asked.push([...types])
+        return {
+          generation: { channelId: 'ch-1', model: 'relay-img', ratio: '16:9' },
+          prompt: { channelId: 'ch-2', model: 'relay-chat' },
+        }
+      }),
+    } as unknown as AgentToolContext
+
+    await executeConfirmedTool(
+      'applyPlan',
+      {
+        summary: '提示词 → 生成',
+        nodes: [
+          { localId: 'p1', type: 'prompt', data: { text: '橘猫' }, order: 0 },
+          { localId: 'g1', type: 'generation', data: { mode: 'image' }, order: 1 },
+        ],
+        edges: [{ source: 'p1', target: 'g1' }],
+      },
+      ctx,
+    )
+
+    // 两种类型各问一次（去重后一起问，不是逐个节点问）
+    expect(asked).toEqual([['prompt', 'generation']])
+    const nodes = store.getSnapshot().nodes
+    const gen = nodes.find((n) => n.type === 'generation')!.data as Record<string, unknown>
+    expect(gen.channelId).toBe('ch-1')
+    expect(gen.model).toBe('relay-img')
+    expect(gen.ratio).toBe('16:9')
+  })
+
   it('★ updateNode 改参数；节点不存在则如实报错', async () => {
     const { store, ctx } = setup()
     const id = addNode(store, 'generation', { mode: 'image' })

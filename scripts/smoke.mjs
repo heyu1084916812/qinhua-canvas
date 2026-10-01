@@ -13570,6 +13570,15 @@ async function g95(browser) {
    * 只把图片塞进上下文的话，模型指不到画布上的任何东西，最后会重复建一张。
    */
   const nodesBeforeAsset = await page.locator('[data-node-type]').count()
+  /** 落位几何：用来验「拖进来的素材不压在原有节点上」 */
+  const geomOf = () =>
+    page.locator('[data-node-type]').evaluateAll((els) =>
+      els.map((e) => {
+        const r = e.getBoundingClientRect()
+        return { id: e.getAttribute('data-node-id'), x: r.x, y: r.y, w: r.width, h: r.height }
+      }),
+    )
+  const rectsBeforeAsset = await geomOf()
   await page.locator('[data-agent-file]').setInputFiles({
     name: 'ref.png',
     mimeType: 'image/png',
@@ -13583,6 +13592,25 @@ async function g95(browser) {
     '★★ 给一张图 → 落成画布节点，并在对话窗里变成可移除的标签',
     assetChips === 1 && nodesAfterAsset === nodesBeforeAsset + 1,
     `标签=${assetChips} 节点 ${nodesBeforeAsset}→${nodesAfterAsset}`,
+  )
+
+  /**
+   * ★★ 落位不压人。
+   *
+   * 用户 2026-10-01 的截图里看到过反例：拖进来的素材正好盖在模板原有的
+   * 提示词节点上，两张图叠在一起。这条按**几何**验：新节点与所有旧节点都不相交。
+   */
+  const rectsAfterAsset = await geomOf()
+  const knownIds = new Set(rectsBeforeAsset.map((n) => n.id))
+  const freshNodes = rectsAfterAsset.filter((n) => !knownIds.has(n.id))
+  const intersects = (a, b) =>
+    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+  const overlapsOld = freshNodes.some((n) => rectsBeforeAsset.some((o) => intersects(n, o)))
+  rec(
+    g,
+    '★★ 拖进来的素材不压在原有节点上（两张图不会叠一起）',
+    freshNodes.length === 1 && !overlapsOld,
+    `新节点=${freshNodes.length} 压人=${overlapsOld}`,
   )
   await page.locator('[data-agent-asset-remove]').first().click()
   await sleep(500)
@@ -13611,6 +13639,12 @@ async function g95(browser) {
     (await page.locator('[data-agent-preview="applyPlan"]').count()) === 1,
   )
 
+  /** 落地前的节点 id 集合 —— 落地后拿它认哪两个是 agent 新建的 */
+  const idsBeforeLanding = new Set(
+    await page
+      .locator('[data-node-type]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id'))),
+  )
   await page.locator('[data-agent-confirm]').click()
   await page
     .waitForFunction(
@@ -13626,7 +13660,50 @@ async function g95(browser) {
     nodesAfter >= nodesBefore + 2,
     `前=${nodesBefore} 后=${nodesAfter}`,
   )
-  rec(g, '★★ 落地后把自检结果回填，模型给出收尾回答（闭环）', (await page.locator('[data-agent-message="assistant"]').count()) > 0)
+
+  /**
+   * ★★★ M3 的落点：**点确认之后真的出图**。
+   *
+   * 光验「画布上多了两个节点」是不够的 —— 建出来的生成节点如果没渠道没模型，
+   * 它照样会出现在画布上，只是点「生成」时什么都不发生（`toRunRequest` 返回 null）。
+   * 所以这条一路验到**产物**：agent 请求 runNode → 二次确认 → 真的发渠道请求 →
+   * 节点上出现 blob 图。
+   */
+  await page
+    .waitForSelector('[data-agent-preview="runNode"]', { timeout: 20000 })
+    .catch(() => undefined)
+  rec(
+    g,
+    '★★ 落地后 agent 请求真正执行（runNode 仍需二次确认 —— 花钱动作不自动跑）',
+    (await page.locator('[data-agent-preview="runNode"]').count()) === 1,
+  )
+
+  const plannedGenId = (
+    await page.locator('[data-node-type]').evaluateAll((els) =>
+      els.map((e) => ({ id: e.getAttribute('data-node-id'), type: e.getAttribute('data-node-type') })),
+    )
+  ).find((n) => n.type === 'generation' && !idsBeforeLanding.has(n.id))?.id
+
+  await page.locator('[data-agent-confirm]').click()
+  const genNode = page.locator(`[data-node-type="generation"][data-node-id="${plannedGenId}"]`)
+  let agentImage = ''
+  for (let i = 0; i < 80; i++) {
+    agentImage = (await genNode.locator('[data-node-asset]').first().getAttribute('src').catch(() => '')) ?? ''
+    if (agentImage.startsWith('blob:')) break
+    await sleep(250)
+  }
+  rec(
+    g,
+    '★★★ 确认后真的出图了（agent 建的生成节点拿到了产物，不是空转）',
+    agentImage.startsWith('blob:'),
+    `节点=${plannedGenId ?? '?'} src=${agentImage.slice(0, 12)}`,
+  )
+
+  rec(
+    g,
+    '★★ 落地与执行的结果都回填了，模型给出收尾回答（闭环）',
+    (await page.locator('[data-agent-message="assistant"]').count()) > 0,
+  )
 
   /**
    * 切到**另一个**会话。

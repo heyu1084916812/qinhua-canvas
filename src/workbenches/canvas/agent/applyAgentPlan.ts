@@ -42,6 +42,12 @@ export function applyAgentPlan(
   store: CanvasStore,
   plan: AgentPlan,
   origin: { x: number; y: number },
+  /**
+   * 新建节点的默认数据（渠道 + 模型 + 生成参数），由调用方从渠道 store 解好传进来。
+   * 不传也能跑，但那样建出来的生成节点没渠道没模型 —— 点了生成只会得到一句
+   * 「还没选择渠道」。所以这条链上**必须**由调用方传（见 buildLandingCommand 的 dataFor）。
+   */
+  opts?: { dataFor?: (type: AgentPlan['nodes'][number]['type']) => Record<string, unknown> },
 ): ApplyAgentPlanResult {
   const graph = store.getSnapshot()
   const before = toGraphView(graph)
@@ -51,6 +57,7 @@ export function applyAgentPlan(
     graph,
     origin,
     newId: () => createId('node'),
+    ...(opts?.dataFor ? { dataFor: opts.dataFor } : {}),
   })
 
   // 一次 dispatch = 一个 standalone 事务 = 一次撤销全回退

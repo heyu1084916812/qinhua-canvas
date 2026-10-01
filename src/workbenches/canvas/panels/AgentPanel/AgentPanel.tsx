@@ -5,6 +5,10 @@ import { useSkillsOptional } from '../../../../app/providers/SkillStoreProvider'
 import type { ChatMessage } from '../../../../domain/shared/execution/types'
 import { createAgentSessionStore, type AgentSession } from '../../../../state/agent/sessionStore'
 import { createPresetStore } from '../../../../state/project/presetStore'
+import { assetNodeSize } from '../../../../domain/canvas/layout/assetNodeSize'
+import { findFreeRect } from '../../../../domain/agent/landing'
+import type { AgentNodeType } from '../../../../domain/agent/plan'
+import { resolveDefaults } from '../../../../features/canvas/createNodeWithDefaults'
 import {
   createAssetNode,
   importAssetFile,
@@ -175,8 +179,19 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         }
         return out
       },
+      /**
+       * agent 建的节点要和**手建的**用同一套默认值（渠道 + 模型 + 生成参数）。
+       *
+       * 共用一个 `resolveDefaults`，不是抄一份逻辑：抄的那份迟早漂移，
+       * 而这条漂移的后果（agent 建的生成节点点了没反应）正是用户会当成 bug 报的。
+       */
+      defaultsForNewNode: async (types) => {
+        const out: Partial<Record<AgentNodeType, Record<string, unknown>>> = {}
+        for (const type of types) out[type] = await resolveDefaults({ channels, type })
+        return out
+      },
     }),
-    [store, selection, execution],
+    [store, selection, execution, channels],
   )
 
   const loopDeps = useCallback(
@@ -370,7 +385,16 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         if (!isImportableMedia(file.type)) continue
         const asset = await importAssetFile(deps, file)
         if (!asset) continue
-        const id = createAssetNode(deps, asset, originOf(viewport))
+        /**
+         * 落位要**避开已有节点**。不避的话，拖进来的素材会压在画布上原有的节点上 ——
+         * 实测过一次：素材盖在模板的提示词节点上，两张叠一起看不清。
+         */
+        const size = assetNodeSize({ width: asset.width, height: asset.height })
+        const existing = store
+          .getSnapshot()
+          .nodes.map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h }))
+        const spot = findFreeRect({ ...size, ...originOf(viewport) }, existing)
+        const id = createAssetNode(deps, asset, { x: spot.x, y: spot.y })
         if (id) added.push(id)
       }
       if (added.length === 0) return

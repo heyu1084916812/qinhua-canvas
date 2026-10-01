@@ -95,6 +95,31 @@ export function isAttached(plan: AgentPlan, localId: string): boolean {
   return (plan.attach ?? []).some((a) => a.localId === localId)
 }
 
+/**
+ * 给一个矩形找个**不压人**的位置：往下让到所有冲突节点的下方。
+ *
+ * 抽出来是因为它有两个消费方：计划里的整列布局，以及「用户拖进来一张素材」
+ * 这单个节点的落位。用户 2026-10-01 的截图里正好看到反例 ——
+ * 拖进来的素材压在了模板原有的提示词节点上，两张图叠在一起。
+ *
+ * 只往下让、不往右挪：单节点场景里「往下顺一点」比「横向挪走」更符合直觉，
+ * 也不会把新旧节点的左右关系搞乱。
+ */
+export function findFreeRect(
+  rect: Rect,
+  existing: readonly Rect[],
+  gap = AGENT_LAYOUT_GAP,
+): Rect {
+  let out: Rect = { ...rect }
+  // 有界循环：重叠关系是有限的，加个上限只是防「数据异常导致死循环」
+  for (let guard = 0; guard < 200; guard += 1) {
+    const clashes = existing.filter((e) => overlaps(out, e))
+    if (clashes.length === 0) return out
+    out = { ...out, y: Math.max(...clashes.map((e) => e.y + e.h)) + gap }
+  }
+  return out
+}
+
 export interface LandingCheckInput {
   plan: AgentPlan
   /** localId → 落地后的真实节点 id（attach 的那条指向既有节点 id） */

@@ -105,4 +105,54 @@ describe('applyAgentPlan · 落地并自检', () => {
     const v = toGraphView(s.getSnapshot())
     expect(Object.keys(v.nodes[0]!).sort()).toEqual(['h', 'id', 'type', 'w', 'x', 'y'])
   })
+
+  /**
+   * ★★ 补默认配方。
+   *
+   * 背景（本轮修的真 bug）：别的建节点入口都走 `createNodeWithDefaults`，会带上
+   * 默认渠道 + 模型；agent 这条只写 `spec.createDefaultData()`，于是建出来的生成
+   * 节点 `channelId` / `model` 是空的 —— `toRunRequest` 见空渠道返回 null ⇒ 节点
+   * 不进执行计划 ⇒ 用户点「生成」只看到「还没选择渠道」。
+   * 断言到**节点数据**上，而不是「函数被调过」：数据里没有渠道，功能就是坏的。
+   */
+  it('★★ 落地时把渠道和模型补进节点（不补的话 agent 建的节点点了生成没反应）', () => {
+    const s = store()
+    applyAgentPlan(s, twoStep, { x: 0, y: 0 }, {
+      dataFor: (type) =>
+        type === 'generation'
+          ? { channelId: 'ch-1', model: 'relay-img', ratio: '1:1' }
+          : { channelId: 'ch-2', model: 'relay-chat' },
+    })
+
+    const nodes = s.getSnapshot().nodes
+    const gen = nodes.find((n) => n.type === 'generation')!.data as Record<string, unknown>
+    const prompt = nodes.find((n) => n.type === 'prompt')!.data as Record<string, unknown>
+    expect(gen.channelId).toBe('ch-1')
+    expect(gen.model).toBe('relay-img')
+    // spec 默认值也还在（不是被默认配方整份顶掉）
+    expect(gen.mode).toBe('image')
+    expect(prompt.channelId).toBe('ch-2')
+    expect(prompt.model).toBe('relay-chat')
+  })
+
+  it('★ 计划自己点了渠道 / 模型时，以计划为准（默认值只是打底）', () => {
+    const s = store()
+    const withModel: AgentPlan = {
+      ...twoStep,
+      nodes: [
+        twoStep.nodes[0]!,
+        { localId: 'g1', type: 'generation', data: { channelId: 'ch-x', model: 'MJ' }, order: 1 },
+      ],
+    }
+    applyAgentPlan(s, withModel, { x: 0, y: 0 }, {
+      dataFor: () => ({ channelId: 'ch-default', model: 'default-model' }),
+    })
+
+    const gen = s.getSnapshot().nodes.find((n) => n.type === 'generation')!.data as Record<
+      string,
+      unknown
+    >
+    expect(gen.channelId).toBe('ch-x')
+    expect(gen.model).toBe('MJ')
+  })
 })

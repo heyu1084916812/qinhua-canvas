@@ -1,4 +1,4 @@
-import { validateAgentPlan, type AgentPlan } from '../../../domain/agent/plan'
+import { validateAgentPlan, type AgentNodeType, type AgentPlan } from '../../../domain/agent/plan'
 import type { ToolDeclaration } from '../../../domain/shared/execution/types'
 import type { CanvasStore } from '../../../state/workbenches/canvas/store'
 import { applyAgentPlan } from './applyAgentPlan'
@@ -176,6 +176,19 @@ export interface AgentToolContext {
   runNodes: (nodeIds: string[]) => Promise<{ nodeId: string; ok: boolean; error?: string }[]>
   /** 当前选中的节点 —— `readGraph` 的 `selection` 范围要用；不给就按全图算 */
   selectedIds?: () => readonly string[]
+  /**
+   * 新建节点要补的默认数据（渠道 + 模型 + 生成参数）。
+   *
+   * 解析默认值要读渠道库（异步），而工具执行器在画布层、拿不到渠道 store，
+   * 所以由界面层把「解析」这件事注入进来 —— 解出来的东西**与用户手建节点同源**
+   * （两条路都走 `channels.defaultForNewNode`），不会出现「手建的能用、agent 建的
+   * 点了没反应」这种分叉。
+   *
+   * 不给也能跑，但那意味着建出来的生成节点没渠道没模型。
+   */
+  defaultsForNewNode?: (
+    types: readonly AgentNodeType[],
+  ) => Promise<Partial<Record<AgentNodeType, Record<string, unknown>>>>
 }
 
 /** 读类执行器：循环里直接调（设计文档 §4） */
@@ -214,7 +227,17 @@ export async function executeConfirmedTool(
       const existing = ctx.store.getSnapshot().nodes.map((n) => n.id)
       const checked = validateAgentPlan(plan, existing)
       if (!checked.ok) return { ok: false, problems: checked.errors }
-      const applied = applyAgentPlan(ctx.store, checked.plan, ctx.origin)
+      /**
+       * 先把「新建节点的默认数据」解出来，再交给纯函数建命令。
+       *
+       * 只解**计划里真用到的类型**：一次对话可能只建生成节点，没必要去问聊天模型。
+       * 复用（attach）的节点不新建，也就不需要默认值。
+       */
+      const needed = [...new Set(checked.plan.nodes.map((n) => n.type))]
+      const defaults = ctx.defaultsForNewNode ? await ctx.defaultsForNewNode(needed) : undefined
+      const applied = applyAgentPlan(ctx.store, checked.plan, ctx.origin, {
+        ...(defaults ? { dataFor: (type: AgentNodeType) => defaults[type] ?? {} } : {}),
+      })
       // 自检结果整份回填：模型要靠它决定补连线还是改图（§6.1）
       return { ok: applied.ok, problems: applied.problems, createdNodeIds: applied.createdNodeIds }
     }
