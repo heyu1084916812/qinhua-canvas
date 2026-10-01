@@ -29,6 +29,7 @@ import {
   type AgentToolContext,
 } from '../../agent/tools'
 import {
+  IconArrowUp,
   IconCheck,
   IconChevronDown,
   IconClose,
@@ -89,6 +90,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const [titleDraft, setTitleDraft] = useState('')
   /** 删除会话走两步：第一次点只是「准备好」，第二次点才真删（对齐库里其他删除入口） */
   const [confirmDelete, setConfirmDelete] = useState(false)
+  /** 展开看细节的步骤（工具调用 id 集合）。默认全收起 —— 对话流先保持干净 */
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -357,6 +360,16 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     setConfirmDelete(false)
   }, [current])
 
+  /** 切某一步的展开态（参考产品的「图片节点已创建 ⌄」——细节默认收起） */
+  const toggleStep = useCallback((id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
   /**
    * 提交改名。
    *
@@ -522,7 +535,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         头部：会话名 + 一排图标钮（新建 / 改名 / 删除 / 收起）。
 
         参考产品（liblib.tv）就是这么排的：标题占左，动作收成图标。
-        本面板只有 340px 宽，四项文字按钮一排会把会话名挤到看不清 ——
+        本面板不到 400px 宽，四项文字按钮一排会把会话名挤到看不清 ——
         图标 + title 提示，鼠标停上去才知道是什么，这点与画布工具栏同一口径。
       */}
       <header className={styles.head}>
@@ -561,7 +574,6 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           </>
         ) : (
           <>
-            <span className={styles.brand} aria-hidden="true" />
             <select
               className={styles.titleSelect}
               value={current?.id ?? ''}
@@ -644,6 +656,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           const thumbs = item.nodeIds
             .map((id) => ({ id, hash: hashOfNode.get(id) }))
             .filter((x): x is { id: string; hash: string } => Boolean(x.hash))
+          const isOpen = expanded.has(item.id)
+          const hasDetail = item.lines.length > 0 || thumbs.length > 0
           return (
             <div
               key={i}
@@ -652,25 +666,26 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             >
               <div className={styles.stepHead}>
                 <span className={styles.stepLabel}>{item.label}</span>
-                {item.lines.length > 0 && (
+                {hasDetail && (
                   <button
                     type="button"
                     className={styles.iconBtn}
-                    title="看这一步的细节"
+                    title={isOpen ? '收起细节' : '看这一步的细节'}
+                    onClick={() => toggleStep(item.id)}
                     data-agent-step-detail={item.tool}
                   >
                     <IconChevronDown size={14} />
                   </button>
                 )}
               </div>
-              {item.lines.length > 0 && (
+              {isOpen && item.lines.length > 0 && (
                 <ul className={styles.stepLines}>
                   {item.lines.map((l, k) => (
                     <li key={k}>{l}</li>
                   ))}
                 </ul>
               )}
-              {thumbs.length > 0 && (
+              {isOpen && thumbs.length > 0 && (
                 <div className={styles.thumbs}>
                   {thumbs.map((t) => (
                     <span key={t.id} className={styles.thumb} data-agent-thumb={t.id}>
@@ -847,12 +862,24 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           data-agent-input
         />
         {status.kind === 'thinking' || status.kind === 'executing' ? (
-          <button type="button" className={styles.smallBtn} onClick={stop} data-agent-stop>
-            停止
+          <button
+            type="button"
+            className={styles.send}
+            onClick={stop}
+            title="停止"
+            data-agent-stop
+          >
+            <IconClose size={16} />
           </button>
         ) : (
-          <button type="button" className={styles.primary} onClick={() => void send()} data-agent-send>
-            发送
+          <button
+            type="button"
+            className={styles.send}
+            onClick={() => void send()}
+            title="发送"
+            data-agent-send
+          >
+            <IconArrowUp size={16} />
           </button>
         )}
       </div>

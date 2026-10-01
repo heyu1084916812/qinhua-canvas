@@ -71,10 +71,10 @@
   background: var(--bg-hover);
 }
 .pageAgentOpen .agentBtn {
-  right: calc(var(--space-3) + 340px + 68px);
+  right: calc(var(--space-3) + 380px + 68px);
 }
 .pageAgentOpen .logBtn {
-  right: calc(var(--space-3) + 340px);
+  right: calc(var(--space-3) + 380px);
 }
 
 /* 多标签写入提示（产品文档 §2.4） */

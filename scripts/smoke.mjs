@@ -13522,8 +13522,11 @@ async function g95(browser) {
   const vp = page.viewportSize()
   rec(
     g,
-    '★★ 对话窗贴在画布右侧',
-    geom !== null && vp !== null && Math.abs(geom.x + geom.width - vp.width) <= 2,
+    '★★ 对话窗悬在画布右侧（浮动卡片，四周留 12px）',
+    geom !== null &&
+      vp !== null &&
+      Math.abs(vp.width - (geom.x + geom.width) - 12) <= 2 &&
+      Math.abs(geom.y - 12) <= 2,
     `右缘=${geom ? Math.round(geom.x + geom.width) : '?'} 视口=${vp?.width ?? '?'}`,
   )
 
@@ -13744,9 +13747,17 @@ async function g95(browser) {
     dialogText.slice(0, 80).replace(/\n/g, '⏎'),
   )
 
-  /** ★ 步骤涉及到的节点，把产物缩略图直接嵌在卡里（出了图就看得见） */
+  /**
+   * ★★ 步骤卡默认收起、点开看细节（参考产品的「图片节点已创建 ⌄」）。
+   *
+   * 缩略图与明细都在展开层里 —— 默认收起时对话流只留一行行标题，
+   * 点开「已运行生成」才看到产物图。
+   */
+  const detailBtn = page.locator('[data-agent-step-detail="runNode"]').first()
+  await detailBtn.click()
+  await sleep(400)
   const thumbs = await page.locator('[data-agent-thumb] img').count()
-  rec(g, '★ 步骤卡里嵌了产物缩略图', thumbs >= 1, `缩略图=${thumbs}`)
+  rec(g, '★★ 点开步骤卡能看到产物缩略图（默认收起，点开才显示）', thumbs >= 1, `缩略图=${thumbs}`)
 
   /**
    * 切到**另一个**会话。

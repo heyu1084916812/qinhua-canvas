@@ -5,39 +5,42 @@
  */
 .panel {
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 340px;
+  top: var(--space-3);
+  right: var(--space-3);
+  bottom: var(--space-3);
+  width: 380px;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3);
+  gap: var(--space-1);
+  padding: var(--space-4);
   background: var(--bg-surface);
-  border-left: 1px solid var(--stroke);
-  box-shadow: var(--shadow-panel, none);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-node);
+  box-shadow: var(--shadow-float);
   z-index: 40;
 }
 
 .head {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  min-height: 34px;
+  gap: var(--space-2);
+  min-height: 30px;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--stroke);
 }
 
 /**
  * 会话名占满剩余宽度，图标钮排在它右边（参考产品 liblib.tv 的头部排法）。
- * 340px 的面板里放四个文字按钮会把名字挤没，所以动作一律收成图标 + title。
+ * 不到 400px 的面板里放四个文字按钮会把名字挤没，所以动作一律收成图标 + title。
  */
 .titleSelect,
 .titleInput {
   flex: 1 1 auto;
   min-width: 0;
-  height: 30px;
+  height: 26px;
   padding: 0 var(--space-1);
   border: 1px solid transparent;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--text-1);
   font-size: var(--fs-title);
@@ -46,18 +49,7 @@
 }
 .titleSelect:hover,
 .titleInput {
-  border-color: var(--stroke);
-  background: var(--bg-subtle);
-}
-
-/** 头部左侧的小圆点：一眼认出「这是助手那一块」，不占宽度 */
-.brand {
-  flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--control-inverse-bg);
-  margin-right: var(--space-1);
+  background: var(--bg-hover);
 }
 
 /** 两步删除的第二态：换成文字，让人看清「再点一次就真删」 */
@@ -115,18 +107,18 @@
 .pick {
   flex: 0 1 auto;
   min-width: 0;
-  max-width: 150px;
+  max-width: 140px;
   height: 26px;
   padding: 0 var(--space-2);
   border: 1px solid transparent;
   border-radius: var(--radius-pill);
-  background: var(--bg-subtle);
+  background: transparent;
   color: var(--text-2);
   font-size: var(--fs-chip);
   text-overflow: ellipsis;
 }
 .pick:hover {
-  border-color: var(--stroke);
+  background: var(--bg-hover);
   color: var(--text-1);
 }
 
@@ -201,8 +193,8 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-2) 0;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
 }
 
 .hint {
@@ -217,20 +209,22 @@
 .msgBot {
   max-width: 100%;
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-node);
   font-size: var(--fs-label);
-  line-height: 1.6;
+  line-height: 1.7;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 .msgUser {
   align-self: flex-end;
+  max-width: 85%;
   background: var(--bg-hover);
   color: var(--text-1);
 }
 .msgBot {
   align-self: flex-start;
   color: var(--text-2);
+  padding-right: var(--space-3);
 }
 
 .statusLine {
@@ -249,12 +243,12 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  padding: var(--space-2) var(--space-2);
-  border-radius: var(--radius-control);
-  background: var(--bg-subtle);
+  padding: var(--space-1) 0;
+  border-radius: 0;
+  background: transparent;
 }
 .stepFailed {
-  background: var(--bg-hover);
+  color: var(--danger);
 }
 
 .stepHead {
@@ -267,7 +261,7 @@
 .stepLabel {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: var(--fs-label);
+  font-size: var(--fs-chip);
   color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -277,7 +271,7 @@
 .stepLines {
   margin: 0;
   padding-left: 1em;
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   color: var(--text-2);
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -287,13 +281,14 @@
 .thumbs {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1);
+  gap: var(--space-2);
 }
 .thumb {
   flex: 0 0 auto;
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-control);
+  width: 168px;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-node);
   overflow: hidden;
   background: var(--bg-hover);
   display: inline-flex;
@@ -314,7 +309,8 @@
 .preview {
   /* 与步骤卡同一张皮的视觉，只是多了确认按钮 —— 参考产品把确认卡就当时间线里的步骤 */
   border: none;
-  background: var(--bg-subtle);
+  background: transparent;
+  padding: var(--space-1) 0;
 }
 
 .previewTitle {
@@ -337,19 +333,41 @@
   display: flex;
   align-items: flex-end;
   gap: var(--space-2);
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--stroke);
 }
 
 .input {
   flex: 1 1 auto;
   min-width: 0;
-  height: 64px;
+  height: auto;
+  min-height: 44px;
+  max-height: 120px;
   resize: none;
-  padding: var(--space-2);
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius-control);
-  background: var(--bg-surface);
+  padding: var(--space-2) 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   color: var(--text-1);
   font-size: var(--fs-label);
   font-family: inherit;
   line-height: 1.5;
+}
+
+.send {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+  cursor: pointer;
+}
+.send:hover {
+  background: var(--control-inverse-bg-hover);
+  color: var(--control-inverse-text-hover);
 }
