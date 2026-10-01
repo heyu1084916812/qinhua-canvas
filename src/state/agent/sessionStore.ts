@@ -30,6 +30,14 @@ export interface AgentSession {
    * 用户改完技能、老会话却还用旧版 —— 与画布节点上的 `skillId` 同一口径。
    */
   skillId?: string
+  /**
+   * 用户随对话给出的素材（设计文档 §8「输入：文字 + 可选图片」）。
+   *
+   * 存的是**画布上的节点 id**，不是文件字节：素材一进来就落成画布上的节点
+   * （复用既有的导入链路），这样 agent 能用 `attach` 复用同一条素材，
+   * 而不是把图片塞进对话上下文里再让它猜。
+   */
+  pendingAssetIds?: string[]
   /** **全部历史**（展示与回溯）。发给模型的是它的窗口，见 `contextFor` */
   messages: ChatMessage[]
   createdAt: number
@@ -66,6 +74,9 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
     channelId: String(row.channelId ?? ''),
     model: String(row.model ?? ''),
     ...(typeof row.skillId === 'string' && row.skillId ? { skillId: row.skillId } : {}),
+    ...(Array.isArray(row.pendingAssetIds) && row.pendingAssetIds.length > 0
+      ? { pendingAssetIds: row.pendingAssetIds.filter((x): x is string => typeof x === 'string') }
+      : {}),
     messages: asMessages(row.messages),
     createdAt: Number(row.createdAt ?? 0),
     updatedAt: Number(row.updatedAt ?? 0),

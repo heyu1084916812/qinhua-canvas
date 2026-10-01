@@ -5,6 +5,11 @@ import { useSkillsOptional } from '../../../../app/providers/SkillStoreProvider'
 import type { ChatMessage } from '../../../../domain/shared/execution/types'
 import { createAgentSessionStore, type AgentSession } from '../../../../state/agent/sessionStore'
 import { createPresetStore } from '../../../../state/project/presetStore'
+import {
+  createAssetNode,
+  importAssetFile,
+  isImportableMedia,
+} from '../../../../features/canvas/importAsset'
 import { useCanvasExecution } from '../../execution/CanvasExecutionProvider'
 import { useCanvasStore, useSelection } from '../../storeContext'
 import { useViewportState } from '../../storeContext'
@@ -62,6 +67,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const [draft, setDraft] = useState('')
   const [isDefault, setIsDefault] = useState(false)
+  const fileRef = useRef<HTMLInputElement | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
@@ -231,9 +237,27 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
      */
     const skill = current.skillId ? allSkills.find((s) => s.id === current.skillId) : undefined
     const base = buildAgentSystemPrompt(summary, { model: current.model })
+    /**
+     * 用户随对话给的素材（设计文档 §8）。
+     *
+     * 只报**节点 id**，并把「不要重复建」写死 —— 素材已经在画布上了，
+     * 模型该做的是在 `attach` 里指过去。不写这句它多半会再建一个，
+     * 画布上就出现两张一样的素材图。
+     */
+    const assets = current.pendingAssetIds ?? []
+    const withAssets =
+      assets.length > 0
+        ? [
+            base,
+            '',
+            '## 用户随这次对话给的素材（已经在画布上了）',
+            ...assets.map((id) => `- 素材节点 ${id}`),
+            '要用它们当参考图 / 首帧时，在计划的 attach 里指到这些节点，不要重复建。',
+          ].join('\n')
+        : base
     const system = skill
       ? [
-          base,
+          withAssets,
           '',
           '## 本会话启用的技能',
           `技能名：${skill.name}`,
@@ -241,7 +265,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           '',
           skill.content,
         ].join('\n')
-      : base
+      : withAssets
     const withSystem: ChatMessage[] = [
       { role: 'system', content: system },
       ...messages,
@@ -330,11 +354,63 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     [current, sessions],
   )
 
+  /**
+   * 用户给素材：**先落成画布上的节点**，再记进会话（设计文档 §8）。
+   *
+   * 为什么不把图片塞进对话上下文：agent 要用它时得能 `attach` 到那个节点上
+   * （复用、不重复建）。只塞上下文的话，模型只能「知道有这么一张图」，
+   * 却指不到画布上的任何东西，最后还是自己再建一个 —— 那就重复了。
+   */
+  const attachFiles = useCallback(
+    async (files: FileList | null) => {
+      if (!files || files.length === 0 || !current) return
+      const deps = { platform, store, projectId }
+      const added: string[] = []
+      for (const file of Array.from(files)) {
+        if (!isImportableMedia(file.type)) continue
+        const asset = await importAssetFile(deps, file)
+        if (!asset) continue
+        const id = createAssetNode(deps, asset, originOf(viewport))
+        if (id) added.push(id)
+      }
+      if (added.length === 0) return
+      const next: AgentSession = {
+        ...current,
+        pendingAssetIds: [...(current.pendingAssetIds ?? []), ...added],
+      }
+      setCurrent(next)
+      await sessions.save(next)
+    },
+    [current, platform, store, projectId, viewport, sessions],
+  )
+
+  const dropAsset = useCallback(
+    async (id: string) => {
+      if (!current) return
+      const next: AgentSession = {
+        ...current,
+        pendingAssetIds: (current.pendingAssetIds ?? []).filter((x) => x !== id),
+      }
+      setCurrent(next)
+      await sessions.save(next)
+    },
+    [current, sessions],
+  )
+
   const visible = messages.filter((m) => m.role !== 'system')
   const pendingPlan = previewOf(status)
 
   return (
-    <aside className={styles.panel} data-agent-panel>
+    <aside
+      className={styles.panel}
+      data-agent-panel
+      /* 拖图进来就是「给 agent 一张素材」（设计文档 §8） */
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => {
+        e.preventDefault()
+        void attachFiles(e.dataTransfer?.files ?? null)
+      }}
+    >
       <header className={styles.head}>
         <span className={styles.title}>助手</span>
         <button type="button" className={styles.iconBtn} onClick={onClose} title="收起" data-agent-close>
@@ -419,6 +495,49 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             </option>
           ))}
         </select>
+      </div>
+
+      {/*
+        随对话给的素材（设计文档 §8）：拖进面板、或点「加素材」。
+        落成画布节点后在这里显示成可移除的标签 —— 用户可以随时反悔。
+      */}
+      <div className={styles.row}>
+        <button
+          type="button"
+          className={styles.smallBtn}
+          onClick={() => fileRef.current?.click()}
+          data-agent-add-asset
+        >
+          加素材
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,video/*"
+          multiple
+          hidden
+          data-agent-file
+          onChange={(e) => {
+            void attachFiles(e.target.files)
+            e.target.value = ''
+          }}
+        />
+        <div className={styles.chips}>
+          {(current?.pendingAssetIds ?? []).map((id) => (
+            <span key={id} className={styles.chip} data-agent-asset={id}>
+              <span className={styles.chipText}>{id}</span>
+              <button
+                type="button"
+                className={styles.chipBtn}
+                title="移除这张素材"
+                onClick={() => void dropAsset(id)}
+                data-agent-asset-remove={id}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
       </div>
 
       <div className={styles.messages} ref={scrollRef} data-agent-messages>

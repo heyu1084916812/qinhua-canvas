@@ -81,6 +81,42 @@
   background: var(--bg-hover);
 }
 
+/* 已附素材的标签：可换行、可移除；id 长也不许撑破面板（窄容器里最容易出这事） */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  padding: 2px var(--space-1) 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+}
+
+.chipText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipBtn {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  line-height: 1;
+}
+
 .primary {
   flex: 1 1 auto;
   height: 30px;

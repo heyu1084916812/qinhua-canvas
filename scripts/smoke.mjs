@@ -13564,6 +13564,35 @@ async function g95(browser) {
   rec(g, '★ 选中后保留在选择框里（存进会话）', (await skillSelect.inputValue()) === firstSkillValue)
 
   /**
+   * ★★ 素材（设计文档 §8「输入：文字 + 可选图片」）。
+   *
+   * 关键是它**先落成画布上的节点**再记进会话 —— agent 要靠节点 id 去 attach，
+   * 只把图片塞进上下文的话，模型指不到画布上的任何东西，最后会重复建一张。
+   */
+  const nodesBeforeAsset = await page.locator('[data-node-type]').count()
+  await page.locator('[data-agent-file]').setInputFiles({
+    name: 'ref.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(PNG_IMPORT_BASE64, 'base64'),
+  })
+  await sleep(900)
+  const assetChips = await page.locator('[data-agent-asset]').count()
+  const nodesAfterAsset = await page.locator('[data-node-type]').count()
+  rec(
+    g,
+    '★★ 给一张图 → 落成画布节点，并在对话窗里变成可移除的标签',
+    assetChips === 1 && nodesAfterAsset === nodesBeforeAsset + 1,
+    `标签=${assetChips} 节点 ${nodesBeforeAsset}→${nodesAfterAsset}`,
+  )
+  await page.locator('[data-agent-asset-remove]').first().click()
+  await sleep(500)
+  rec(
+    g,
+    '★ 素材标签能移除（节点留在画布上，由用户自己在画布上处置）',
+    (await page.locator('[data-agent-asset]').count()) === 0,
+  )
+
+  /**
    * ★★ 这条是整件事的验收：**说一句话，画布上真的多出一张图**。
    *
    * mock 会演 agent（先 readGraph、再给 applyPlan），所以这条链能在离线环境跑穿：
