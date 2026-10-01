@@ -54,8 +54,6 @@ export interface AgentSessionStore {
   save(session: AgentSession): Promise<void>
   rename(id: string, title: string): Promise<void>
   remove(id: string): Promise<void>
-  /** 删项目时连带删它的会话（会话脱离项目没有意义） */
-  removeByProject(projectId: string): Promise<void>
   /**
    * 某个会话**此刻该发给模型的消息**。
    *
@@ -127,11 +125,6 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
 
     async remove(id) {
       await storage.delete('agentSessions', id)
-    },
-
-    async removeByProject(projectId) {
-      const rows = await storage.query('agentSessions', { projectId })
-      for (const row of rows) await storage.delete('agentSessions', String(row.id))
     },
 
     async contextFor(id, window = AGENT_CONTEXT_WINDOW) {

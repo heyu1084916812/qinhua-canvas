@@ -22,7 +22,30 @@ export interface ProjectRepository {
   removeMany(ids: readonly string[]): Promise<void>
 }
 
+/** 图数据：跟随项目**复制**，也跟随项目**删除** */
 const GRAPH_TABLES: TableName[] = ['nodes', 'edges']
+
+/**
+ * 删项目时要一起清掉的表：**凡「带 projectId 且脱离项目就没有意义」的都在这**。
+ *
+ * 为什么单独一个常量：`GRAPH_TABLES` 还兼着「复制项目时抄哪些表」的职责
+ * （副本不该继承执行日志与会话），两者**该抄的集合不一样** —— 合并成一个常量，
+ * 下一次加表就会有人按「复制」的语义判断，于是删除这条又漏。
+ *
+ * 2026-10-01 补：原先只有 nodes / edges，`tasks` / `runRecords` / `agentSessions`
+ * 都留在了库里。用户删掉项目后看不见它们（查询一律按 projectId 过滤），
+ * 但每次删项目都会留下一批**永远不会再被读到的行** —— 这种「看不见的堆积」
+ * 只能靠回读断言抓，读代码是读不出来的。
+ *
+ * 注意**刻意不包括** `assets` / `assetLibrary`：素材按内容哈希共享、素材库是全局收藏，
+ * 删一个项目不该把别的项目还在用的图一起删掉。
+ */
+const PROJECT_CASCADE_TABLES: TableName[] = [
+  ...GRAPH_TABLES,
+  'tasks',
+  'runRecords',
+  'agentSessions',
+]
 
 export function createProjectRepository(storage: StoragePort): ProjectRepository {
   const toProject = (row: Record<string, unknown>): Project => ({
@@ -103,9 +126,9 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
     },
 
     async remove(id: string) {
-      await storage.transaction(['projects', ...GRAPH_TABLES], async () => {
+      await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async () => {
         await storage.delete('projects', id)
-        for (const table of GRAPH_TABLES) {
+        for (const table of PROJECT_CASCADE_TABLES) {
           const rows = await storage.query(table, { projectId: id })
           for (const row of rows) await storage.delete(table, row.id)
         }
@@ -115,10 +138,10 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
     async removeMany(ids) {
       const unique = [...new Set(ids)]
       if (unique.length === 0) return
-      await storage.transaction(['projects', ...GRAPH_TABLES], async () => {
+      await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async () => {
         for (const id of unique) {
           await storage.delete('projects', id)
-          for (const table of GRAPH_TABLES) {
+          for (const table of PROJECT_CASCADE_TABLES) {
             const rows = await storage.query(table, { projectId: id })
             for (const row of rows) await storage.delete(table, row.id)
           }

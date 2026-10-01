@@ -2067,6 +2067,18 @@ user-data-dir 的 `Default/` 下，用 Playwright 的 `launchPersistentContext` 
 一拦（`route.abort()`），就能看到真实的请求体、又不会花用户的钱。
 这招也让「修前 / 修后」的对照变成硬证据（修前 0 请求 + 控制台抛错，修后请求真的发出去）。
 
+**2026-10-01 补两条（这次读渠道数据踩到的）**：
+
+1. **必须挑对库**：同一分区里有多个 IndexedDB —— `canvasflow`（**旧库，残留**）与 `qinghua`
+   （现用库），外加 `__flow_health__`。按「第一个有 `channels` 表的库」去读会读到**旧库**，
+   于是看到几年前的渠道、还以为用户数据就这样。正确做法：先 `indexedDB.databases()` 全列出来，
+   逐个读，并用**页面上真实渲染出的渠道条目**（DOM 锚点）交叉验证读到的是不是同一份。
+2. **登录态在 localStorage**：只拷 `IndexedDB` 仍能读到业务数据；但要让页面自己跑起来
+   （走 store 而不是裸读表），`Local Storage` 也得一起拷。
+
+现成的探针：`scripts/probe-user-channels.mjs`（`.gitignore` 已排除 `scripts/probe-*.mjs`）。
+读用户数据一律**只读副本**，并把外部网络全 abort —— 既不会写坏原件，也不会花用户的钱。
+
 ### ★ 参考图定的是**结果形态**，别用「更保守的实现」去顶替（2026-09-30 第 2 轮）
 
 用户给大雄融合卡片的截图，只说了一句「他就是铺满的，而且左右分区的」。上一版我为了

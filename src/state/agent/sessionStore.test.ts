@@ -69,13 +69,13 @@ describe('Agent 会话 · 隔离（最容易出错的地方）', () => {
     expect(ctx[0]!.content).toBe(`第${many.length - AGENT_CONTEXT_WINDOW}条`)
   })
 
-  it('★ 删项目连带删会话（会话脱离项目没有意义）', async () => {
-    const s = store()
-    await s.create({ projectId: 'p1', channelId: 'c', model: 'm' })
-    await s.create({ projectId: 'p1', channelId: 'c', model: 'm' })
-    await s.removeByProject('p1')
-    expect(await s.list('p1')).toHaveLength(0)
-  })
+  /*
+   * 「删项目连带删会话」**不在这层测**：那条规则现在只有一处实现 ——
+   * `state/project/repository.ts` 的 `PROJECT_CASCADE_TABLES`（删项目的唯一入口）。
+   * 会话 store 曾经也有一份 `removeByProject`，两处实现同一件事，
+   * 正是「规则写两遍必然漂移」的形状，故删掉那份，断言移去
+   * `repository.test.ts`「删项目连执行日志与 Agent 会话一起清」。
+   */
 
   it('★ 会话不存在时上下文是空的（不抛错，也不拿别人的顶上）', async () => {
     const s = store()

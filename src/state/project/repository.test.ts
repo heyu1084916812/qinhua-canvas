@@ -49,6 +49,35 @@ describe('ProjectRepository（内存存储）', () => {
     expect(await storage.query('edges', { projectId: p.id })).toHaveLength(0)
   })
 
+  /**
+   * ★★ 删项目要把**所有带 projectId 的行**一起清掉。
+   *
+   * 这条是补漏：原先级联只列了 nodes / edges，`tasks` / `runRecords` /
+   * `agentSessions` 全留在库里。用户看不见它们（查询一律按 projectId 过滤），
+   * 所以「删干净了没有」读代码看不出来 —— 只有回读断言能抓。
+   */
+  it('★★ 删项目连执行日志与 Agent 会话一起清，且不误伤别的项目', async () => {
+    const storage = createMemoryStorage()
+    const repo = createProjectRepository(storage)
+    const a = await repo.create({ name: 'A' })
+    const b = await repo.create({ name: 'B' })
+    for (const p of [a, b]) {
+      await storage.put('tasks', { id: `t-${p.id}`, projectId: p.id })
+      await storage.put('runRecords', { id: `r-${p.id}`, projectId: p.id, nodeId: 'n1' })
+      await storage.put('agentSessions', { id: `s-${p.id}`, projectId: p.id, messages: [] })
+    }
+
+    await repo.remove(a.id)
+
+    expect(await storage.query('tasks', { projectId: a.id })).toHaveLength(0)
+    expect(await storage.query('runRecords', { projectId: a.id })).toHaveLength(0)
+    expect(await storage.query('agentSessions', { projectId: a.id })).toHaveLength(0)
+    // 另一个项目的一行都不能少
+    expect(await storage.query('tasks', { projectId: b.id })).toHaveLength(1)
+    expect(await storage.query('runRecords', { projectId: b.id })).toHaveLength(1)
+    expect(await storage.query('agentSessions', { projectId: b.id })).toHaveLength(1)
+  })
+
   it('removeMany 一次级联删除多个项目，不影响未选项目', async () => {
     const storage = createMemoryStorage()
     const repo = createProjectRepository(storage)

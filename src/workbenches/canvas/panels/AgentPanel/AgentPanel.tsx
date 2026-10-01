@@ -71,6 +71,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const [draft, setDraft] = useState('')
   const [isDefault, setIsDefault] = useState(false)
+  /** 会话改名：就地编辑，Enter 提交 / Esc 取消（不弹原生 prompt —— 那会打断画布操作） */
+  const [renaming, setRenaming] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
+  /** 删除会话走两步：第一次点只是「准备好」，第二次点才真删（对齐库里其他删除入口） */
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -158,6 +163,9 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       setMessages(session.messages)
       setStatus({ kind: 'idle' })
       setDraft('')
+      // 换了会话，之前「准备好删了」的那个状态不该跟过来
+      setRenaming(false)
+      setConfirmDelete(false)
     },
     [],
   )
@@ -328,6 +336,71 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     [current, sessions],
   )
 
+  /** 开始改名：把当前标题放进草稿，选中整段方便直接覆盖 */
+  const startRename = useCallback(() => {
+    if (!current) return
+    setTitleDraft(current.title)
+    setRenaming(true)
+    setConfirmDelete(false)
+  }, [current])
+
+  /**
+   * 提交改名。
+   *
+   * 空标题**不改**（回到原名）：允许存成空串的话，会话列表里会出现一行看不见的条目 ——
+   * 那种「东西还在但认不出它是谁」的状态比拒绝一次输入糟得多。
+   */
+  const commitRename = useCallback(async () => {
+    if (!current) return
+    const title = titleDraft.trim()
+    setRenaming(false)
+    if (!title || title === current.title) return
+    await sessions.rename(current.id, title)
+    const rows = await refresh()
+    const hit = rows.find((s) => s.id === current.id)
+    if (hit) setCurrent(hit)
+  }, [current, titleDraft, sessions, refresh])
+
+  /**
+   * 删除会话（两步确认）。
+   *
+   * 删掉的正好是当前会话时，必须**当场换一个**：留着 current 指向一条已不存在的记录，
+   * 界面上会继续显示它、下一句话还会往它的 id 上写 —— 那是最难查的一类不一致。
+   * 一条都不剩时直接开一条新的，保证「至少有一个会话」这条不变式。
+   */
+  const deleteSession = useCallback(async () => {
+    if (!current) return
+    if (!confirmDelete) {
+      setConfirmDelete(true)
+      return
+    }
+    setConfirmDelete(false)
+    await sessions.remove(current.id)
+    const rows = await refresh()
+    if (rows.length > 0) await switchTo(rows[0]!)
+    else await newSession()
+  }, [current, confirmDelete, sessions, refresh, switchTo, newSession])
+
+  /**
+   * 把**画布上选中的节点**当素材给这次对话（设计文档 §8「输入：文字 + 可选图片」）。
+   *
+   * 与拖图不同：这些节点早就落库了，不需要再导一次，直接把 id 记进会话 ——
+   * agent 会用同一套 `attach` 复用它们。
+   */
+  const attachSelection = useCallback(async () => {
+    if (!current || selection.length === 0) return
+    const exist = new Set(store.getSnapshot().nodes.map((n) => n.id))
+    const picked = selection.filter((id) => exist.has(id))
+    if (picked.length === 0) {
+      store.notify('选中的不是画布上的节点')
+      return
+    }
+    const merged = [...new Set([...(current.pendingAssetIds ?? []), ...picked])]
+    const next: AgentSession = { ...current, pendingAssetIds: merged }
+    setCurrent(next)
+    await sessions.save(next)
+  }, [current, selection, store, sessions])
+
   const saveDefault = useCallback(async () => {
     if (!current) return
     await presets.saveAgentDefault({ channelId: current.channelId, model: current.model })
@@ -424,24 +497,82 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       </header>
 
       <div className={styles.row}>
-        <select
-          className={styles.select}
-          value={current?.id ?? ''}
-          onChange={(e) => {
-            const hit = list.find((s) => s.id === e.target.value)
-            if (hit) void switchTo(hit)
-          }}
-          data-agent-session-list
-        >
-          {list.map((s) => (
-            <option key={s.id} value={s.id} data-agent-session={s.id}>
-              {s.title}
-            </option>
-          ))}
-        </select>
-        <button type="button" className={styles.smallBtn} onClick={() => void newSession()} data-agent-new>
-          新建
-        </button>
+        {renaming ? (
+          <>
+            <input
+              className={styles.select}
+              value={titleDraft}
+              autoFocus
+              onFocus={(e) => e.currentTarget.select()}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void commitRename()
+                if (e.key === 'Escape') setRenaming(false)
+              }}
+              data-agent-title-input
+            />
+            <button
+              type="button"
+              className={styles.smallBtn}
+              onClick={() => void commitRename()}
+              data-agent-rename-save
+            >
+              保存
+            </button>
+            <button
+              type="button"
+              className={styles.smallBtn}
+              onClick={() => setRenaming(false)}
+              data-agent-rename-cancel
+            >
+              取消
+            </button>
+          </>
+        ) : (
+          <>
+            <select
+              className={styles.select}
+              value={current?.id ?? ''}
+              onChange={(e) => {
+                const hit = list.find((s) => s.id === e.target.value)
+                if (hit) void switchTo(hit)
+              }}
+              data-agent-session-list
+            >
+              {list.map((s) => (
+                <option key={s.id} value={s.id} data-agent-session={s.id}>
+                  {s.title}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className={styles.smallBtn}
+              onClick={() => void newSession()}
+              data-agent-new
+            >
+              新建
+            </button>
+            <button
+              type="button"
+              className={styles.smallBtn}
+              onClick={startRename}
+              disabled={!current}
+              data-agent-rename
+            >
+              改名
+            </button>
+            <button
+              type="button"
+              className={styles.smallBtn}
+              onClick={() => void deleteSession()}
+              disabled={!current}
+              data-agent-delete
+            >
+              {confirmDelete ? '确认删除' : '删除'}
+            </button>
+          </>
+        )}
       </div>
 
       <div className={styles.row}>
@@ -515,6 +646,20 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         >
           加素材
         </button>
+        {/*
+          画布上已经有的节点，不必再导一遍 —— 直接把选中的记进这次对话（§8）。
+          没选中时置灰而不是隐藏：隐藏了用户不知道有这个入口。
+        */}
+        <button
+          type="button"
+          className={styles.smallBtn}
+          onClick={() => void attachSelection()}
+          disabled={selection.length === 0}
+          title={selection.length === 0 ? '先在画布上选中节点' : '把选中的节点当作这次的素材'}
+          data-agent-pick-selection
+        >
+          {selection.length > 0 ? `取选中 ${selection.length}` : '取选中'}
+        </button>
         <input
           ref={fileRef}
           type="file"
@@ -527,6 +672,14 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             e.target.value = ''
           }}
         />
+      </div>
+
+      {/*
+        标签**单独占一整行**（不与上面两个按钮挤一排）。
+        挤一排时，按钮先吃掉固定宽度，标签只剩一条窄缝 —— 节点 id 又长，
+        实测标签右缘正好顶到面板外边界（padding 被吃穿），✕ 贴边。
+      */}
+      {(current?.pendingAssetIds ?? []).length > 0 && (
         <div className={styles.chips}>
           {(current?.pendingAssetIds ?? []).map((id) => (
             <span key={id} className={styles.chip} data-agent-asset={id}>
@@ -543,7 +696,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             </span>
           ))}
         </div>
-      </div>
+      )}
 
       <div className={styles.messages} ref={scrollRef} data-agent-messages>
         {visible.length === 0 && (

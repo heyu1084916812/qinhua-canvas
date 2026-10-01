@@ -13723,6 +13723,79 @@ async function g95(browser) {
   const other = await page.locator('[data-agent-message]').count()
   rec(g, '★★ 切回另一个会话是另一套消息（记忆隔离）', other === 0, `另一个会话消息数=${other}`)
 
+  /**
+   * ★★ 会话改名与删除（设计文档 §8：多个会话，可新建 / 切换 / 重命名 / 删除）。
+   *
+   * 放在最后验：前面几条断言依赖「当前有 2 个会话、其中一个是空的」这个状态，
+   * 先删会话会把它们的取样点搬走。删除走**两步确认**，第一次点只换文案、不真删。
+   */
+  const beforeRename = await page.locator('[data-agent-session-list] option').count()
+  await page.locator('[data-agent-rename]').click()
+  await page.locator('[data-agent-title-input]').fill('改过的名字')
+  await page.locator('[data-agent-rename-save]').click()
+  await sleep(600)
+  const titles = await page.locator('[data-agent-session-list] option').allTextContents()
+  rec(
+    g,
+    '★★ 会话能改名（列表里立刻是新名字，会话数不变）',
+    titles.includes('改过的名字') &&
+      (await page.locator('[data-agent-session-list] option').count()) === beforeRename,
+    `标题=${JSON.stringify(titles)}`,
+  )
+
+  await page.locator('[data-agent-delete]').click()
+  const confirmLabel = (await page.locator('[data-agent-delete]').innerText()).trim()
+  await page.locator('[data-agent-delete]').click()
+  await sleep(700)
+  const afterDelete = await page.locator('[data-agent-session-list] option').count()
+  rec(
+    g,
+    '★★ 会话能删除（两步确认：第一次只换文案，第二次才真删）',
+    confirmLabel.includes('确认') && afterDelete === beforeRename - 1,
+    `第一次点后=「${confirmLabel}」 删后会话数=${afterDelete}`,
+  )
+
+  /**
+   * ★★ 把**画布上选中的节点**当素材给这次对话（设计文档 §8 的输入口径）。
+   *
+   * 与拖图不同：这些节点已经在画布上了，只该把 id 记进会话，**不该再建节点** ——
+   * 所以这条同时断言「标签出现了」与「节点数没变」。
+   */
+  const nodesBeforePick = await page.locator('[data-node-type]').count()
+  await page.locator('[data-node-type="prompt"]').first().click()
+  await sleep(400)
+  await page.locator('[data-agent-pick-selection]').click()
+  await sleep(600)
+  const pickedChips = await page.locator('[data-agent-asset]').count()
+  const nodesAfterPick = await page.locator('[data-node-type]').count()
+  rec(
+    g,
+    '★★ 取画布上选中的节点当素材（记进会话，不重复建节点）',
+    pickedChips >= 1 && nodesAfterPick === nodesBeforePick,
+    `标签=${pickedChips} 节点 ${nodesBeforePick}→${nodesAfterPick}`,
+  )
+
+  /**
+   * ★ 标签不许越出面板。
+   *
+   * 节点 id 很长（`node_xxxxxxxx-…`），标签又是「按钮 + 可换行的标签堆」同排 ——
+   * 这正是最容易把文字挤出容器的形状。断言到几何上，不靠眼看。
+   */
+  const chipBox = await page.locator('[data-agent-asset]').first().boundingBox()
+  const panelBox = await panel.boundingBox()
+  rec(
+    g,
+    '★ 素材标签在面板内、不顶到外缘（长节点 id 用省略号收住）',
+    chipBox !== null &&
+      panelBox !== null &&
+      // 面板有 12px 内距：标签右缘至少要缩在内距里（留 8 的余量，不掉进亚像素）
+      chipBox.x + chipBox.width <= panelBox.x + panelBox.width - 8,
+    `标签右缘=${chipBox ? Math.round(chipBox.x + chipBox.width) : '?'} 面板右缘=${panelBox ? Math.round(panelBox.x + panelBox.width) : '?'}`,
+  )
+
+  /** 留一张**面板还开着**的截图：会话管理与取素材挤不挤，靠它眼看 */
+  await page.screenshot({ path: `${OUT}/111b-g95-agent-panel.png` })
+
   await page.locator('[data-agent-close]').click()
   await sleep(400)
   rec(g, '★ 能收起，收起后入口还在', (await panel.count()) === 0)
