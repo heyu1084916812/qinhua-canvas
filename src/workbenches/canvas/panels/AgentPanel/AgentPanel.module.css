@@ -1,0 +1,184 @@
+/*
+ * Agent 对话窗（设计文档 §8）：贴画布右侧、宽度固定、可收起。
+ *
+ * 宽度钉死（不随内容变）—— 它旁边就是画布，宽度跳动会让画布里的东西跟着抖。
+ */
+.panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg-surface);
+  border-left: 1px solid var(--stroke);
+  box-shadow: var(--shadow-panel, none);
+  z-index: 40;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  font-size: var(--fs-title);
+  font-weight: var(--fw-title);
+  color: var(--text-1);
+}
+
+.iconBtn {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.iconBtn:hover {
+  background: var(--bg-hover);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.select {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 30px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-size: var(--fs-label);
+}
+
+.smallBtn {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-label);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.smallBtn:hover {
+  background: var(--bg-hover);
+}
+
+.primary {
+  flex: 1 1 auto;
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--bg-hover);
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-title);
+  cursor: pointer;
+}
+
+.messages {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--text-3);
+  line-height: 1.6;
+}
+
+/* 消息气泡：只允许在容器内换行，长串（id / hash）也要能断 */
+.msgUser,
+.msgBot {
+  max-width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  font-size: var(--fs-label);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.msgUser {
+  align-self: flex-end;
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+.msgBot {
+  align-self: flex-start;
+  color: var(--text-2);
+}
+
+.statusLine {
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.preview {
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.previewTitle {
+  margin: 0;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-title);
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+}
+
+.previewList {
+  margin: 0;
+  padding-left: 1.1em;
+  font-size: var(--fs-chip);
+  color: var(--text-2);
+  line-height: 1.7;
+}
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 64px;
+  resize: none;
+  padding: var(--space-2);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  font-family: inherit;
+  line-height: 1.5;
+}

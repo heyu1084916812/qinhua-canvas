@@ -47,6 +47,36 @@
   background: var(--bg-hover);
 }
 
+/*
+ * Agent 对话窗的开关（设计文档 §8）。
+ *
+ * 它与日志按钮同排、在日志左边；面板展开时两个按钮整体左移一个面板宽度，
+ * 否则会被面板盖住 —— 盖住之后用户就只剩「收起」一条路，来回折腾。
+ */
+.agentBtn {
+  position: absolute;
+  top: var(--space-3);
+  right: calc(var(--space-3) + 68px);
+  z-index: 18;
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+.agentBtn:hover {
+  background: var(--bg-hover);
+}
+.pageAgentOpen .agentBtn {
+  right: calc(var(--space-3) + 340px + 68px);
+}
+.pageAgentOpen .logBtn {
+  right: calc(var(--space-3) + 340px);
+}
+
 /* 多标签写入提示（产品文档 §2.4） */
 .externalBanner {
   position: absolute;

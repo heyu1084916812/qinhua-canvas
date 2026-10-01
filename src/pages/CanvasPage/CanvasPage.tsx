@@ -13,6 +13,7 @@ import { CanvasSurface } from '../../workbenches/canvas/surface/CanvasSurface'
 import { fitCanvasView } from '../../workbenches/canvas/surface/fitView'
 import { CanvasExecutionProvider } from '../../workbenches/canvas/execution/CanvasExecutionProvider'
 import { LogPanel } from '../../workbenches/canvas/panels/LogPanel'
+import { AgentPanel } from '../../workbenches/canvas/panels/AgentPanel/AgentPanel'
 import { CanvasToolbar } from '../../workbenches/canvas/toolbar/CanvasToolbar'
 import { LightboxLayer } from '../../workbenches/canvas/lightbox/LightboxLayer'
 import { TextEditorLayer } from '../../workbenches/canvas/text/TextEditorLayer'
@@ -57,6 +58,7 @@ function CanvasProject({ projectId }: { projectId: string }) {
   const storeRef = useRef<CanvasStore | null>(null)
   const [externalEdit, setExternalEdit] = useState(false)
   const [logOpen, setLogOpen] = useState(false)
+  const [agentOpen, setAgentOpen] = useState(false)
   /*
    * 原来的「顶栏标签集合」（`openTabs`）随顶栏一并移除（产品文档 §6.2）：
    * 「已打开项目」这个能力整体迁到应用壳侧栏的「最近项目」列表，
@@ -253,7 +255,7 @@ function CanvasProject({ projectId }: { projectId: string }) {
       {/* 执行宿主上提一层包住整页：顶栏的「仅刷新陈旧 / 全图重跑」需要与画布共用同一份
           执行状态（原先只包住 Surface，顶栏拿不到 useCanvasExecution）。 */}
       <CanvasExecutionProvider>
-        <div className={styles.page}>
+        <div className={agentOpen ? `${styles.page} ${styles.pageAgentOpen}` : styles.page}>
           {/*
             ⛔ 顶部悬浮栏已整体去除（产品文档 §6.2 / 2026-09-27 应用壳改版）。
 
@@ -283,6 +285,21 @@ function CanvasProject({ projectId }: { projectId: string }) {
           >
             日志
           </button>
+          {/*
+            助手入口（设计文档 §8）：与日志同排、在它左边。
+            面板本身贴右侧、可收起 —— 收起后画布吃满，不长期占用画布宽度。
+          */}
+          <button
+            type="button"
+            className={styles.agentBtn}
+            data-canvas-agent
+            aria-pressed={agentOpen}
+            aria-label="助手"
+            title="助手"
+            onClick={() => setAgentOpen((v) => !v)}
+          >
+            助手
+          </button>
           {externalEdit && (
             <div className={styles.externalBanner} role="status">
               <span>项目已在其他标签页修改</span>
@@ -301,6 +318,7 @@ function CanvasProject({ projectId }: { projectId: string }) {
             onImportAsset={() => void importAssetAtCenter()}
           />
             {logOpen && <LogPanel onClose={() => setLogOpen(false)} />}
+            {agentOpen && <AgentPanel projectId={projectId} onClose={() => setAgentOpen(false)} />}
           {/* 素材灯箱（§6.17）挂在页面级：它的触发方有画布表面与日志面板两处，
               挂在任一子树里另一处都够不着；状态在 store，故放哪都能读 */}
           <LightboxLayer />
