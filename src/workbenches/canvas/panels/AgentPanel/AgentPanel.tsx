@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePlatform } from '../../../../app/providers/PlatformProvider'
 import { useChannels } from '../../../../app/providers/ChannelStoreProvider'
+import { useSkillsOptional } from '../../../../app/providers/SkillStoreProvider'
 import type { ChatMessage } from '../../../../domain/shared/execution/types'
 import { createAgentSessionStore, type AgentSession } from '../../../../state/agent/sessionStore'
 import { createPresetStore } from '../../../../state/project/presetStore'
@@ -50,6 +51,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const selection = useSelection()
   const viewport = useViewportState()
   const execution = useCanvasExecution()
+  const skills = useSkillsOptional()
 
   const sessions = useMemo(() => createAgentSessionStore(platform.storage), [platform])
   const presets = useMemo(() => createPresetStore(platform.storage), [platform])
@@ -64,6 +66,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
   const enabled = channels.enabledChannels()
+  /** 技能列表：内置 + 我的。放在 `send` 之前 —— 它要在拼系统提示词时用到 */
+  const allSkills = useMemo(
+    () => [...skills.builtinSkills, ...skills.userSkills],
+    [skills.builtinSkills, skills.userSkills],
+  )
   const chatModelsOf = useCallback(
     (channelId: string) =>
       (channels.getState().channels.find((c) => c.id === channelId)?.models ?? []).filter(
@@ -215,15 +222,35 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     setStatus({ kind: 'thinking' })
 
     const summary = readGraphSummary(store, 'all', selection)
+    /**
+     * 技能进系统提示词（设计文档 §14 M4）。
+     *
+     * 技能负责「怎么做」，agent 负责「真的去做」—— 所以不是让技能自己执行，
+     * 而是把它当作**这次规划的规范**：技能里的阶段就是 agent 要建到画布上的步骤。
+     * 按 id 现取正文，技能改了这里跟着变（与画布节点上的 `skillId` 同一口径）。
+     */
+    const skill = current.skillId ? allSkills.find((s) => s.id === current.skillId) : undefined
+    const base = buildAgentSystemPrompt(summary, { model: current.model })
+    const system = skill
+      ? [
+          base,
+          '',
+          '## 本会话启用的技能',
+          `技能名：${skill.name}`,
+          '按这份技能的要求来规划；它里面的阶段就是你要建到画布上的步骤。',
+          '',
+          skill.content,
+        ].join('\n')
+      : base
     const withSystem: ChatMessage[] = [
-      { role: 'system', content: buildAgentSystemPrompt(summary, { model: current.model }) },
+      { role: 'system', content: system },
       ...messages,
       { role: 'user', content: text },
     ]
     setMessages(withSystem)
     const outcome = await runAgentTurn(withSystem, loopDeps(current))
     await handleOutcome(current, outcome)
-  }, [draft, current, messages, store, selection, loopDeps, handleOutcome])
+  }, [draft, current, messages, store, selection, loopDeps, handleOutcome, allSkills])
 
   const confirm = useCallback(async () => {
     if (status.kind !== 'awaitingConfirm' || !current) return
@@ -286,6 +313,22 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     await presets.saveAgentDefault({ channelId: current.channelId, model: current.model })
     setIsDefault(true)
   }, [current, presets])
+
+  /**
+   * 本会话启用的技能（设计文档 §14 M4）。
+   *
+   * 存 **id** 不存正文：技能在库里改了，会话跟着用新版 ——
+   * 与画布节点上的 `skillId` 同一口径（存正文等于把那一刻冻结住）。
+   */
+  const setSkill = useCallback(
+    async (skillId: string) => {
+      if (!current) return
+      const next: AgentSession = { ...current, skillId: skillId || undefined }
+      setCurrent(next)
+      await sessions.save(next)
+    },
+    [current, sessions],
+  )
 
   const visible = messages.filter((m) => m.role !== 'system')
   const pendingPlan = previewOf(status)
@@ -358,6 +401,24 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         >
           {isDefault ? '已设默认' : '设默认'}
         </button>
+      </div>
+
+      {/* 技能：选了它，agent 就按这份技能的阶段来规划（设计文档 §14 M4） */}
+      <div className={styles.row}>
+        <select
+          className={styles.select}
+          value={current?.skillId ?? ''}
+          onChange={(e) => void setSkill(e.target.value)}
+          data-agent-skill
+        >
+          <option value="">不使用技能</option>
+          {allSkills.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+              {s.source === 'builtin' ? '（内置）' : ''}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className={styles.messages} ref={scrollRef} data-agent-messages>

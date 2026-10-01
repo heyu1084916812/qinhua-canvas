@@ -23,6 +23,13 @@ export interface AgentSession {
   /** 本会话用的渠道与模型（§8「每个会话可单独选模型」） */
   channelId: string
   model: string
+  /**
+   * 本会话启用的技能（设计文档 §14 M4）。
+   *
+   * 存 **id** 而不是正文快照：技能在技能库里可以随时改，存正文等于把那一刻冻结住，
+   * 用户改完技能、老会话却还用旧版 —— 与画布节点上的 `skillId` 同一口径。
+   */
+  skillId?: string
   /** **全部历史**（展示与回溯）。发给模型的是它的窗口，见 `contextFor` */
   messages: ChatMessage[]
   createdAt: number
@@ -58,6 +65,7 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
     title: String(row.title ?? '新对话'),
     channelId: String(row.channelId ?? ''),
     model: String(row.model ?? ''),
+    ...(typeof row.skillId === 'string' && row.skillId ? { skillId: row.skillId } : {}),
     messages: asMessages(row.messages),
     createdAt: Number(row.createdAt ?? 0),
     updatedAt: Number(row.updatedAt ?? 0),

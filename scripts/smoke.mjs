@@ -13545,6 +13545,25 @@ async function g95(browser) {
   )
 
   /**
+   * 技能（设计文档 §14 M4）：选了它，agent 就按这份技能的阶段来规划。
+   * 这里验的是「入口与清单在」，正文是否真进了系统提示词由单测覆盖
+   * （面板里看不到发出去了什么）。
+   */
+  const skillSelect = page.locator('[data-agent-skill]')
+  rec(g, '★ 对话窗能选技能', (await skillSelect.count()) === 1)
+  const skillOptions = await skillSelect.locator('option').count()
+  rec(
+    g,
+    '★ 技能清单里有「不使用技能」+ 已内置的技能',
+    skillOptions >= 12,
+    `可选项=${skillOptions}`,
+  )
+  const firstSkillValue = await skillSelect.locator('option').nth(1).getAttribute('value')
+  await skillSelect.selectOption(firstSkillValue)
+  await sleep(400)
+  rec(g, '★ 选中后保留在选择框里（存进会话）', (await skillSelect.inputValue()) === firstSkillValue)
+
+  /**
    * ★★ 这条是整件事的验收：**说一句话，画布上真的多出一张图**。
    *
    * mock 会演 agent（先 readGraph、再给 applyPlan），所以这条链能在离线环境跑穿：
