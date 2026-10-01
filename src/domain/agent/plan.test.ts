@@ -116,4 +116,16 @@ describe('validateAgentPlan · 非法计划要整份拒绝', () => {
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.errors.join()).toContain('summary')
   })
+
+  it('★ paramSources 合法时通过，来源写错则拒绝（别让非法值流到预览界面上）', () => {
+    const ok = validateAgentPlan({
+      ...good,
+      paramSources: { ratio: 'conversation', count: 'recipe' },
+    })
+    expect(ok.ok).toBe(true)
+
+    const bad = validateAgentPlan({ ...good, paramSources: { ratio: 'magic' } })
+    expect(bad.ok).toBe(false)
+    if (!bad.ok) expect(bad.errors.join()).toContain('paramSources.ratio')
+  })
 })

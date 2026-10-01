@@ -52,7 +52,16 @@ export interface AgentPlan {
   nodes: AgentPlanNode[]
   edges: AgentPlanEdge[]
   attach?: AgentPlanAttach[]
+  /**
+   * 每个参数取自哪一层（设计文档 §11）。**只用于预览展示，不进节点数据** ——
+   * 计划落地后参数就是参数，不需要在画布里留一串「这个值当时从哪继承来的」。
+   */
+  paramSources?: Record<string, ParamSource>
 }
+
+/** 参数来源的三层，优先级由高到低（设计文档 §11） */
+export const PARAM_SOURCES = ['conversation', 'sessionHistory', 'recipe'] as const
+export type ParamSource = (typeof PARAM_SOURCES)[number]
 
 export type AgentPlanValidation =
   | { ok: true; plan: AgentPlan; warnings: string[] }
@@ -150,6 +159,19 @@ export function validateAgentPlan(
     if (!ids.has(at.localId)) errors.push(`${where} 的 localId 不在计划里：${String(at.localId)}`)
     if (existingNodeIds.length > 0 && !existingNodeIds.includes(at.existingNodeId)) {
       errors.push(`${where} 指向的节点不在画布上：${String(at.existingNodeId)}`)
+    }
+  }
+
+  // paramSources 只影响预览展示，写错不致命 —— 但也别让非法值悄悄流到界面上
+  if (plan.paramSources !== undefined) {
+    if (typeof plan.paramSources !== 'object' || plan.paramSources === null) {
+      errors.push('paramSources 必须是对象')
+    } else {
+      for (const [field, source] of Object.entries(plan.paramSources)) {
+        if (!PARAM_SOURCES.includes(source as ParamSource)) {
+          errors.push(`paramSources.${field} 的来源不认识：${String(source)}`)
+        }
+      }
     }
   }
 
