@@ -85,6 +85,11 @@ class QinghuaDB extends Dexie {
       builtinSkills: 'id',
       skills: 'id, builtinId, updatedAt',
     })
+    // v7：Agent 会话。按 projectId 建索引 —— 会话列表总是「按当前项目过滤」
+    // （设计文档 §8：会话绑定项目，不能出现「在 A 项目问 B 项目的画布」）
+    this.version(7).stores({
+      agentSessions: 'id, projectId, updatedAt',
+    })
   }
 }
 

@@ -28,6 +28,11 @@ export type TableName =
   | 'builtinSkills'
   /** 用户技能：新建、导入、从内置复制而来。 */
   | 'skills'
+  /**
+   * Agent 会话（设计文档 §12）。**单独一张表**，不塞进 `presets`：
+   * 那是 UI 偏好表，而会话历史会一直增长，混进去会把偏好表撑大。
+   */
+  | 'agentSessions'
 
 export interface Row {
   id: string
