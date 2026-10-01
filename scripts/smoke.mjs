@@ -13706,6 +13706,34 @@ async function g95(browser) {
   )
 
   /**
+   * ★★★ 对话区不再打印原始 JSON。
+   *
+   * 这是「排版」里唯一能被断言钉住、且最影响可用性的一条：工具结果原先原样渲染，
+   * 用户看到的是一屏 `{"createdNodeIds":[…]}`。现在每步折成一张步骤卡。
+   * 断言两条：① 有步骤卡；② 对话区**任何一条文本**里都不出现 JSON 噪音
+   * （`createdNodeIds` / `problems` 这类键名一旦漏出来就是没翻成人话）。
+   */
+  const steps = await page.locator('[data-agent-step]').count()
+  const stepLabels = await page.locator('[data-agent-step]').allTextContents()
+  rec(
+    g,
+    '★★★ 每一步折成一张步骤卡（不再把工具结果原样打给用户）',
+    steps >= 1 && stepLabels.some((t) => /工作流已创建|已运行生成|已看画布/.test(t)),
+    `步骤卡=${steps} 标题=${JSON.stringify(stepLabels.map((t) => t.slice(0, 10)))}`,
+  )
+  const dialogText = await page.locator('[data-agent-messages]').innerText()
+  rec(
+    g,
+    '★★★ 对话区里没有 JSON 噪音（键名不能漏到界面上）',
+    !/createdNodeIds|problems|outcomes|\{"/.test(dialogText),
+    dialogText.slice(0, 80).replace(/\n/g, '⏎'),
+  )
+
+  /** ★ 步骤涉及到的节点，把产物缩略图直接嵌在卡里（出了图就看得见） */
+  const thumbs = await page.locator('[data-agent-thumb] img').count()
+  rec(g, '★ 步骤卡里嵌了产物缩略图', thumbs >= 1, `缩略图=${thumbs}`)
+
+  /**
    * 切到**另一个**会话。
    *
    * 不能写 `index: 0`：会话列表按更新时间倒序，刚聊过的那个永远在 0 ——

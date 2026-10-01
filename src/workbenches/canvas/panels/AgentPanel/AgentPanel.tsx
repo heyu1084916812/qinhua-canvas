@@ -27,6 +27,16 @@ import {
   readGraphSummary,
   type AgentToolContext,
 } from '../../agent/tools'
+import {
+  IconCheck,
+  IconChevronDown,
+  IconClose,
+  IconDelete,
+  IconPlus,
+  IconRename,
+} from '../../toolbar/icons'
+import { toConversation } from './conversation'
+import { useAsset } from '../../hooks/useAsset'
 import styles from './AgentPanel.module.css'
 
 /**
@@ -475,7 +485,23 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     [current, sessions],
   )
 
-  const visible = messages.filter((m) => m.role !== 'system')
+  /**
+   * 对话流：把原始消息翻成「气泡 / 正文 / 步骤卡」三种条目。
+   *
+   * 不直接用 `messages.filter(role !== 'system')` 渲染 —— 那样 `tool` 消息会把
+   * 一整屏 JSON 打给用户。翻成人话这件事放在 `conversation.ts` 的纯函数里，
+   * 因为「哪一步该说什么」是产品口径，得能断言。
+   */
+  const items = useMemo(() => toConversation(messages), [messages])
+  /** 节点 id → 产物 hash：步骤卡据此把这一步产出的图**内嵌**显示 */
+  const hashOfNode = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const n of store.getSnapshot().nodes) {
+      const hash = (n.data as { assetHash?: unknown }).assetHash
+      if (typeof hash === 'string' && hash) map.set(n.id, hash)
+    }
+    return map
+  }, [store, messages])
   const pendingPlan = previewOf(status)
 
   return (
@@ -489,18 +515,18 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         void attachFiles(e.dataTransfer?.files ?? null)
       }}
     >
-      <header className={styles.head}>
-        <span className={styles.title}>助手</span>
-        <button type="button" className={styles.iconBtn} onClick={onClose} title="收起" data-agent-close>
-          ✕
-        </button>
-      </header>
+      {/*
+        头部：会话名 + 一排图标钮（新建 / 改名 / 删除 / 收起）。
 
-      <div className={styles.row}>
+        参考产品（liblib.tv）就是这么排的：标题占左，动作收成图标。
+        本面板只有 340px 宽，四项文字按钮一排会把会话名挤到看不清 ——
+        图标 + title 提示，鼠标停上去才知道是什么，这点与画布工具栏同一口径。
+      */}
+      <header className={styles.head}>
         {renaming ? (
           <>
             <input
-              className={styles.select}
+              className={styles.titleInput}
               value={titleDraft}
               autoFocus
               onFocus={(e) => e.currentTarget.select()}
@@ -513,25 +539,28 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             />
             <button
               type="button"
-              className={styles.smallBtn}
+              className={styles.iconBtn}
               onClick={() => void commitRename()}
+              title="保存名字"
               data-agent-rename-save
             >
-              保存
+              <IconCheck size={16} />
             </button>
             <button
               type="button"
-              className={styles.smallBtn}
+              className={styles.iconBtn}
               onClick={() => setRenaming(false)}
+              title="放弃改名"
               data-agent-rename-cancel
             >
-              取消
+              <IconClose size={16} />
             </button>
           </>
         ) : (
           <>
+            <span className={styles.brand} aria-hidden="true" />
             <select
-              className={styles.select}
+              className={styles.titleSelect}
               value={current?.id ?? ''}
               onChange={(e) => {
                 const hit = list.find((s) => s.id === e.target.value)
@@ -547,33 +576,45 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             </select>
             <button
               type="button"
-              className={styles.smallBtn}
+              className={styles.iconBtn}
               onClick={() => void newSession()}
+              title="新建对话"
               data-agent-new
             >
-              新建
+              <IconPlus size={16} />
             </button>
             <button
               type="button"
-              className={styles.smallBtn}
+              className={styles.iconBtn}
               onClick={startRename}
               disabled={!current}
+              title="给这条对话改名"
               data-agent-rename
             >
-              改名
+              <IconRename size={16} />
             </button>
             <button
               type="button"
-              className={styles.smallBtn}
+              className={styles.iconBtn}
               onClick={() => void deleteSession()}
               disabled={!current}
+              title={confirmDelete ? '再点一次就删掉' : '删除这条对话'}
               data-agent-delete
             >
-              {confirmDelete ? '确认删除' : '删除'}
+              {confirmDelete ? <span className={styles.confirmText}>确认删除</span> : <IconDelete size={16} />}
+            </button>
+            <button
+              type="button"
+              className={styles.iconBtn}
+              onClick={onClose}
+              title="收起助手"
+              data-agent-close
+            >
+              <IconClose size={16} />
             </button>
           </>
         )}
-      </div>
+      </header>
 
       <div className={styles.row}>
         <select
@@ -699,16 +740,68 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       )}
 
       <div className={styles.messages} ref={scrollRef} data-agent-messages>
-        {visible.length === 0 && (
+        {items.length === 0 && (
           <p className={styles.hint}>
             说一句你想要什么，我会把它建成画布上的工作流。
           </p>
         )}
-        {visible.map((m, i) => (
-          <div key={i} className={m.role === 'user' ? styles.msgUser : styles.msgBot} data-agent-message={m.role}>
-            {m.content || (m.toolCalls?.length ? `（请求调用 ${m.toolCalls.map((c) => c.name).join('、')}）` : '')}
-          </div>
-        ))}
+        {items.map((item, i) => {
+          if (item.kind === 'user') {
+            return (
+              <div key={i} className={styles.msgUser} data-agent-message="user">
+                {item.text}
+              </div>
+            )
+          }
+          if (item.kind === 'text') {
+            return (
+              <div key={i} className={styles.msgBot} data-agent-message="assistant">
+                {item.text}
+              </div>
+            )
+          }
+          /** 步骤卡：一行标题 + 可展开的明细；涉及到的节点把产物缩略图直接嵌进来 */
+          const thumbs = item.nodeIds
+            .map((id) => ({ id, hash: hashOfNode.get(id) }))
+            .filter((x): x is { id: string; hash: string } => Boolean(x.hash))
+          return (
+            <div
+              key={i}
+              className={item.failed ? styles.stepFailed : styles.step}
+              data-agent-step={item.tool}
+            >
+              <div className={styles.stepHead}>
+                <span className={styles.stepLabel}>{item.label}</span>
+                {item.lines.length > 0 && (
+                  <button
+                    type="button"
+                    className={styles.iconBtn}
+                    title="看这一步的细节"
+                    data-agent-step-detail={item.tool}
+                  >
+                    <IconChevronDown size={14} />
+                  </button>
+                )}
+              </div>
+              {item.lines.length > 0 && (
+                <ul className={styles.stepLines}>
+                  {item.lines.map((l, k) => (
+                    <li key={k}>{l}</li>
+                  ))}
+                </ul>
+              )}
+              {thumbs.length > 0 && (
+                <div className={styles.thumbs}>
+                  {thumbs.map((t) => (
+                    <span key={t.id} className={styles.thumb} data-agent-thumb={t.id}>
+                      <StepThumb hash={t.hash} />
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
         {status.kind !== 'idle' && (
           <div className={styles.statusLine} data-agent-status={status.kind}>
             {STATUS_LABEL[status.kind]}
@@ -762,6 +855,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       </div>
     </aside>
   )
+}
+
+/** 步骤卡里嵌的一张小图：直接用画布那套「按 hash 取素材」的钩子，不另写一条取图链路 */
+function StepThumb({ hash }: { hash: string }) {
+  const url = useAsset(hash)
+  if (!url) return <span className={styles.thumbEmpty} />
+  return <img className={styles.thumbImg} src={url} alt="这一步的产物" />
 }
 
 /** 新节点落在视口中心偏左 —— 你正在看的地方，建出来的东西才在你眼前（§6） */

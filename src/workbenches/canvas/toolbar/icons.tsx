@@ -539,3 +539,39 @@ export function IconSpinner(props: IconProps) {
     </Svg>
   )
 }
+
+/**
+ * 发送：向上的箭头（Agent 对话窗的圆形发送钮）。
+ *
+ * 为什么是「向上」而不是纸飞机：参考产品（liblib.tv）就是这个形状，
+ * 而且它在本项目里不与任何现有图标撞形 —— 工具栏的 `IconPlay` 是三角、
+ * `IconImport` 是向下入盒，含义各不相干。
+ */
+export function IconArrowUp(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 19.5V5.2" />
+      <path d="m5.8 11.4 6.2-6.2 6.2 6.2" />
+    </Svg>
+  )
+}
+
+/** 图片：山与日。步骤卡上代表「这一步产出的是一张图」 */
+export function IconImage(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3.4" y="4.6" width="17.2" height="14.8" rx="2.6" />
+      <circle cx="8.6" cy="9.6" r="1.5" />
+      <path d="m4.4 17.4 4.6-4.6 3.4 3.4 3-3 4.2 4.2" />
+    </Svg>
+  )
+}
+
+/** 确认：对勾（就地改名的「保存」用它，不再用文字按钮） */
+export function IconCheck(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="m5.4 12.6 4.2 4.2 9-9.6" />
+    </Svg>
+  )
+}
