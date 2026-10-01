@@ -254,7 +254,23 @@ function pickModel(
    *     只有生图模型的渠道会「凭一个固定名」被选成对话节点的默认渠道。
    */
   if (hit && category === 'chat') {
-    const preset = presetModelsOf('chat')[0]
+    /**
+     * 挑哪个显示名当默认：**优先这条渠道真有的那个**（用户 2026-10-01 加了 Agnes 自有显示名之后）。
+     *
+     * 固定清单现在跨多个厂商（Agnes / OpenAI / Google…）。无脑取第一项，
+     * 会把「Agnes 2.5 Pro」塞给一条根本没有 Agnes 模型的渠道，
+     * 发出去就是一个它不认识的名字 —— 节点建出来看着正常，一跑就报错。
+     *
+     * 判据用 `aliases`（该显示名已知的上游 ID 写法）与渠道已勾选 / 已拉取的 ID 求交：
+     * 命中说明「这条渠道本来就以这个模型的形式存在」。都不命中才退回第一项
+     * （保持既有兜底：总要给个非空的默认值，让用户能改）。
+     */
+    const available = new Set(
+      [...channel.models, ...(channel.modelCache ?? [])].map((m) => m.id),
+    )
+    const presets = presetModelsOf('chat')
+    const preset =
+      presets.find((p) => (p.aliases ?? []).some((a) => available.has(a))) ?? presets[0]
     if (preset) return { id: preset.id }
   }
   return hit

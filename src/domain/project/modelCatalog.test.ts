@@ -10,6 +10,7 @@ import {
   type CatalogChannelLike,
 } from './modelCatalog'
 import type { ModelCapability } from '../shared/capability'
+import { PRESET_MODELS } from './modelPresets'
 
 const cap = (id: string, category: ModelCapability['category'] = 'image'): ModelCapability => ({
   id,
@@ -193,14 +194,12 @@ describe('panelModelOptions', () => {
   it('★ 固定显示名排在最前（用户拍板的那几个永远看得见）', () => {
     const c = ch({ id: 'A', models: [cap('mock-image-1')] })
     const opts = panelModelOptions([c], 'image')
-    expect(opts.slice(0, 6)).toEqual([
-      'GPT Image 2.5 Flare',
-      'GPT Image 2.5 Sunburst',
-      'GPT Image 2',
-      'Nano Banana Pro',
-      'Nano Banana 2',
-      'Midjourney',
-    ])
+    // 与清单本身对齐，不写死名字 —— 以后加显示名（Agnes 那三条）不用回来改断言，
+    // 但「固定名排在最前」这条性质仍然被钉住
+    const presetImage = PRESET_MODELS.filter((m) => m.category === 'image').map((m) => m.id)
+    expect(opts.slice(0, presetImage.length)).toEqual(presetImage)
+    expect(presetImage).toContain('GPT Image 2')
+    expect(presetImage).toContain('Midjourney')
   })
 
   it('★ 渠道勾过的其它模型跟在固定清单后面（没配映射的站不该一个都选不出来）', () => {
@@ -220,13 +219,16 @@ describe('panelModelOptions', () => {
     const image = panelModelOptions([], 'image')
     expect(image).not.toContain('GPT-6 Astra')
     expect(image).not.toContain('即梦 2.5')
-    expect(panelModelOptions([], 'chat')).toEqual([
-      'GPT-6 Astra',
-      'GPT-6 Sol',
-      'GPT-6 Luna',
-      'Gemini 3.8 Flash',
-    ])
-    expect(panelModelOptions([], 'video')).toHaveLength(5)
+    const chat = panelModelOptions([], 'chat')
+    // 对话档里不该出现生图 / 视频的名字
+    expect(chat).not.toContain('Midjourney')
+    expect(chat).not.toContain('即梦 2.5')
+    // 每档恰好是清单里该类别的那几个（顺序也一致）
+    for (const c of ['image', 'chat', 'video'] as const) {
+      expect(panelModelOptions([], c)).toEqual(
+        PRESET_MODELS.filter((m) => m.category === c).map((m) => m.id),
+      )
+    }
   })
 
   it('presetOf 取得到厂商（面板据此画图标），非固定名返回 undefined', () => {

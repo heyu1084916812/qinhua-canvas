@@ -256,13 +256,34 @@ describe('生成配方（新建节点的默认渠道 / 模型 / 参数）', () =
      * 因为渠道勾选顺序是上游给的，`advanced-voice` 这类与创作无关的条目
      * 恰好排在前面。固定清单是用户拍板的那几行，第一项才是合适的默认值。
      */
-    it('★ category=chat → 默认是固定清单第一个（GPT-6 Astra），不是渠道首条', () => {
+    it('★ category=chat → 默认取固定清单里**这条渠道真有的那个**，不是渠道首条', () => {
+      // 渠道勾的是 `advanced-voice`（上游给的顺序），固定清单里没有它 →
+      // 不拿它当默认，改为清单里第一个（现在第一条是 Agnes 自己的显示名）
       const withChat = [
         { id: 'img', models: [{ id: 'i1' }] },
         { id: 'chat', models: [{ id: 'advanced-voice', category: 'chat' }] },
       ] as unknown as PresetChannelLike[]
       expect(resolveForNode({}, withChat, noRecipes, 'chat')).toEqual({
         channelId: 'chat',
+        model: 'Agnes 2.5 Pro',
+        params: {},
+        substituted: true,
+      })
+    })
+
+    /**
+     * ★★ 用户 2026-10-01 加了 Agnes 自有显示名之后，固定清单跨多个厂商。
+     *
+     * 无脑取第一项会把「Agnes 2.5 Pro」塞给一条根本没有 Agnes 模型的渠道 ——
+     * 发出去是个它不认识的名字，节点看着正常、一跑就报错。
+     * 所以优先挑**这条渠道的已勾选 / 已拉取里真的出现过**的那个显示名。
+     */
+    it('★★ 清单跨厂商后：优先挑这条渠道真有的显示名（不发它没有的模型）', () => {
+      const chans = [
+        { id: 'c', models: [{ id: 'gpt-6-astra', category: 'chat' }] },
+      ] as unknown as PresetChannelLike[]
+      expect(resolveForNode({}, chans, noRecipes, 'chat')).toEqual({
+        channelId: 'c',
         model: 'GPT-6 Astra',
         params: {},
         substituted: true,

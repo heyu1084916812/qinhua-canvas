@@ -443,7 +443,7 @@ describe('channelStore', () => {
    *
    * 条件是**这个渠道确实有对话模型** —— 否则不该硬塞一个固定名进去。
    */
-  it('★ 传 category=chat 时默认取固定清单第一个（GPT-6 Astra），且要求渠道真有对话模型', async () => {
+  it('★ 传 category=chat 时默认取固定清单里的对话名，且要求渠道真有对话模型', async () => {
     const p = createMemoryPlatform()
     const store = createChannelStore(p)
     await store.load()
@@ -454,7 +454,9 @@ describe('channelStore', () => {
       { id: 'chat-1', category: 'chat', inputTypes: ['text'] },
     ])
     const picked = await store.defaultForNewNode({}, 'chat')
-    expect(picked?.model).toBe('GPT-6 Astra')
+    // 本 fixture 的 `chat-1` 不在任何固定显示名的别名里 → 回落到清单第一项。
+    // （清单里「渠道真有的那个优先」那条由 generationPreset.test 专门覆盖）
+    expect(picked?.model).toBe('Agnes 2.5 Pro')
   })
 })
 

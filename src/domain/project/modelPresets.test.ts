@@ -61,17 +61,24 @@ describe('固定模型目录', () => {
   })
 
   it('presetModelsOf 按分类返回，且保持清单顺序', () => {
-    expect(presetModelsOf('image').map((m) => m.id)).toEqual(
-      PRESET_IMAGE_MODELS.map((m) => m.id),
-    )
-    expect(presetModelsOf('video')).toHaveLength(5)
-    expect(presetModelsOf('chat')).toHaveLength(4)
+    // 与「PRESET_MODELS 里该类别的顺序」逐项对齐 —— 不写死数字，
+    // 这样以后加显示名（如 Agnes 那三条）时不必回来改断言
+    const ofCategory = (c: 'image' | 'chat' | 'video') =>
+      PRESET_MODELS.filter((m) => m.category === c).map((m) => m.id)
+    expect(presetModelsOf('image').map((m) => m.id)).toEqual(ofCategory('image'))
+    expect(presetModelsOf('chat').map((m) => m.id)).toEqual(ofCategory('chat'))
+    expect(presetModelsOf('video').map((m) => m.id)).toEqual(ofCategory('video'))
+    // 旧的固定清单仍是其子集（原有那几个名字一个都没丢）
+    for (const m of [...PRESET_IMAGE_MODELS]) {
+      expect(presetModelsOf('image').map((x) => x.id)).toContain(m.id)
+    }
   })
 
   it('presetModelsOf 返回的是副本，改它不影响常量', () => {
     const a = presetModelsOf('image')
+    const before = a.length
     a.pop()
-    expect(presetModelsOf('image')).toHaveLength(6)
+    expect(presetModelsOf('image')).toHaveLength(before)
   })
 
   it('isPresetModel 认固定名、不认别的（含两端空白归一）', () => {

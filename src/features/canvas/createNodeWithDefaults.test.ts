@@ -69,11 +69,14 @@ describe('resolveDefaults · 只有需要配方的类型才注入默认值', () 
     /**
      * 提示词节点要的是**文本模型**，不是图片模型（传错类别会让它拿到生图模型）。
      *
-     * 用户 2026-09-27 第 8 轮起，默认值是固定清单的第一个对话名
-     * （`GPT-6 Astra`）而不是渠道里排第一的文本模型 —— 后者实测是
+     * 默认值取固定清单里的对话名，不是渠道里排第一的文本模型 —— 后者实测是
      * `advanced-voice`，用户明确说「目前需要一个默认的显示，不是 advanced-voice」。
+     *
+     * 2026-10-01 起清单里多了 Agnes 自己的显示名并排在最前（用户当前平台），
+     * 故默认值是它；**渠道真有的那个优先**（见 generationPreset 的 pickModel），
+     * 本 fixture 的 `chat-1` 不在清单别名里，所以回落到清单第一项。
      */
-    expect(data.model).toBe('GPT-6 Astra')
+    expect(data.model).toBe('Agnes 2.5 Pro')
   })
 
   it('extraData 与默认值合并（提示词节点的 text 不会丢）', async () => {
