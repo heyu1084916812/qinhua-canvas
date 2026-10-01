@@ -3,6 +3,7 @@ import { ChannelError, type ChannelAdapter, type ChannelDeps } from './types'
 import { createMockChannel } from './mock'
 import { createOpenAiChatAdapter } from './openaiChat'
 import { createOpenAiImagesAdapter } from './openaiImages'
+import { createOpenAiVideoAdapter } from './openaiVideo'
 import { createAsyncTaskAdapter } from './asyncTask'
 import { createCliGatewayAdapter } from './cliGateway'
 
@@ -33,7 +34,7 @@ export function getChannelAdapterFactory(protocol: string): ChannelAdapterFactor
 /**
  * OpenAI 兼容族的组合适配器：一份协议同时声明对话与生图时，能力按声明裁剪。
  *
- * 对话与生图的请求形态、超时、内容解析完全不同，各自已有独立实现与单测；
+ * 对话 / 生图 / 生视频的请求形态、超时、内容解析完全不同，各自有独立实现与单测；
  * 这里只做能力分派，未声明某项能力就抛 unsupported，不悄悄发站不支持的请求。
  */
 function createOpenAiCompatibleAdapter(
@@ -43,8 +44,14 @@ function createOpenAiCompatibleAdapter(
   const capabilities = config.protocolDefinition?.capabilities ?? ['chat', 'image']
   const chat = capabilities.includes('chat') ? createOpenAiChatAdapter(config, deps) : null
   const images = capabilities.includes('image') ? createOpenAiImagesAdapter(config, deps) : null
+  /**
+   * 视频单独一条：形态是「提交 → 轮询 → 下载」，与同步的生图不是一条链路
+   * （见 `openaiVideo.ts` 文件头的依据）。此前这里无条件抛 unsupported，
+   * 于是声明了 `video` 的站也没有任何通路。
+   */
+  const video = capabilities.includes('video') ? createOpenAiVideoAdapter(config, deps) : null
   // verify / listModels 打的是同一个 /models，两条实现等价；优先用声明了的那条
-  const verifier = chat ?? images
+  const verifier = chat ?? images ?? video
   if (!verifier) throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
 
   return {
@@ -55,8 +62,9 @@ function createOpenAiCompatibleAdapter(
       if (!images) throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
       return images.generateImage(request, signal)
     },
-    generateVideo() {
-      throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
+    generateVideo(request, signal) {
+      if (!video) throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
+      return video.generateVideo(request, signal)
     },
     completeText(request, signal) {
       if (!chat) throw new ChannelError({ kind: 'channel', detail: 'unsupported' })

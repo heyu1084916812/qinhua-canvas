@@ -251,11 +251,17 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     family: 'openai-compatible',
     kind: 'station',
     status: 'ready',
-    capabilities: ['chat', 'image'],
+    /**
+     * 声明 `video`：该站的 `/v1/models` 实测会返回 `agnes-video-2.5` /
+     * `agnes-video-2.5-flash` / `agnes-video-v2.0` 三个视频模型
+     * （2026-10-01 用真实令牌核对），提交与轮询形态见 `channels/openaiVideo.ts`。
+     * 声明了却接不通才是问题——这里两端都有实现。
+     */
+    capabilities: ['chat', 'image', 'video'],
     defaultBaseUrl: 'https://apihub.agnes-ai.com',
     versionPath: '/v1',
     docUrl: 'https://agnes-ai.com/zh-Hans/docs/overview',
-    note: 'API 基址为 apihub.agnes-ai.com/v1（/v1/models 需鉴权）。',
+    note: 'API 基址为 apihub.agnes-ai.com/v1（/v1/models 需鉴权）；视频走 /v1/videos 提交后轮询。',
   },
   {
     id: 'apimart',

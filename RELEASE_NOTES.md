@@ -5,6 +5,32 @@
 
 ---
 
+## 修复 · 视频链路打通：Agnes 新增视频分支（2026-10-01）
+
+**背景**：视频此前在真机上**完全没有通路** —— `GenerationData.mode='video'`、面板视频参数、
+`runEngine` 按 `kind` 分派都齐了，但 OpenAI 兼容族的 `generateVideo` 一律抛 `unsupported`，
+协议目录里也没有一条声明 `video`。本轮补上。
+
+**新增**
+
+- `platform/channels/openaiVideo.ts`：提交 `POST {base}/videos` → 轮询
+  `GET {base}/videos/{task_id}` → 完成态顶层 `url` 下载产物。
+- OpenAI 兼容族的组合适配器按 `capabilities` 组合出视频分支；**Agnes** 协议补声明 `video`。
+- 实测（非推测）：`/v1/models` 返回 `agnes-video-2.5` / `agnes-video-2.5-flash` / `agnes-video-v2.0`；
+  提交回 `task_id` + `video_id`；**轮询必须用 `task_id`** —— 用 `video_id` 会稳定回 `task_not_exist`。
+
+**已知留白**
+
+- 参考图以 `data:` URL 直发。轻画是纯浏览器应用，不替用户把素材传到第三方图床（大雄那边走 litterbox / temp.sh）。
+  **这条路径尚未实证**，上游若拒收会如实报错，不静默丢图。
+
+**验证**
+
+- 单测新增 12 条（像素映射 / `num_frames ≡ 1 (mod 8)` / 产物地址提取 / 轮询键 / 失败带服务端原话 / 缺 `task_id` 报解析错）。
+- 冒烟 **G46** 新增 ★★「视频模式点生成真的产出视频」——「参数齐了」和「链路通了」是两件事，只有真跑一次才分得出来。
+
+---
+
 ## 新增 · 技能库内置技能与用户技能分表（2026-10-01）
 
 **范围**：技能库补上随包内置技能，和用户技能彻底分表。

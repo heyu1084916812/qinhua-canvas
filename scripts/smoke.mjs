@@ -4431,6 +4431,29 @@ async function g46(browser) {
   )
   rec(g, '刷新后时长读回', (await panel2.locator('[data-param-duration-input]').inputValue()) === '8')
 
+  /**
+   * ④ ★★ 真的跑一次视频。
+   *
+   * 为什么必须在浏览器里跑：改动前 `generateVideo` 这条分支在 OpenAI 兼容族里
+   * **一律抛 unsupported**，而面板参数、落库、刷新读回全都是通的 ——
+   * 「参数齐了」和「链路通了」是两件事，只有真的点一次生成才分得出来。
+   */
+  await panel2.locator('[data-panel-prompt]').fill('一只橘猫在草地上奔跑')
+  await sleep(250)
+  await panel2.locator('[data-panel-run]').click()
+  await page
+    .waitForFunction(() => !!document.querySelector('[data-node-type="generation"] video'), null, {
+      timeout: 15000,
+    })
+    .catch(() => {})
+  const hasVideo = (await page.locator('[data-node-type="generation"] video').count()) > 0
+  rec(
+    g,
+    '★★ 视频模式点生成真的产出视频（请求走到 adapter.generateVideo）',
+    hasVideo,
+    hasVideo ? 'video 元素已出现' : '未出现 video 元素',
+  )
+
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors[0] ?? '')
   await ctx.close()
 }
