@@ -13678,6 +13678,20 @@ async function g95(browser) {
     (await page.locator('[data-agent-preview="runNode"]').count()) === 1,
   )
 
+  /**
+   * ★★ runNode 的确认卡在**对话流里**（不在输入框上方另起一块）。
+   *
+   * 参考产品的问法就是「是否运行节点「小猫钓鱼」生成图片？」，且确认卡
+   * 是时间线里的一条步骤 —— 用户一眼知道「这段对话里有一次要花我的钱」。
+   */
+  const confirmText = (await page.locator('[data-agent-preview="runNode"]').innerText()).replace(/\s+/g, '')
+  rec(
+    g,
+    '★★ 确认卡问的是节点名（「是否运行节点「××」生成图片？」），在对话流里',
+    confirmText.includes('是否运行节点') && confirmText.includes('生成图片'),
+    `确认卡文案=${confirmText.slice(0, 40)}`,
+  )
+
   const plannedGenId = (
     await page.locator('[data-node-type]').evaluateAll((els) =>
       els.map((e) => ({ id: e.getAttribute('data-node-id'), type: e.getAttribute('data-node-type') })),

@@ -290,12 +290,9 @@
 }
 
 .preview {
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius-control);
-  padding: var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  /* 与步骤卡同一张皮的视觉，只是多了确认按钮 —— 参考产品把确认卡就当时间线里的步骤 */
+  border: none;
+  background: var(--bg-subtle);
 }
 
 .previewTitle {

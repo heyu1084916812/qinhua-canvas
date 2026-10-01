@@ -17,6 +17,7 @@ import {
 import { useCanvasExecution } from '../../execution/CanvasExecutionProvider'
 import { useCanvasStore, useSelection } from '../../storeContext'
 import { useViewportState } from '../../storeContext'
+import type { CanvasStore } from '../../../../state/workbenches/canvas/store'
 import type { TextRunRequest } from '../../../../platform/channels/types'
 import { resumeAgentTurn, runAgentTurn, type AgentLoopOutcome, type AgentToolRequest } from '../../agent/agentLoop'
 import { buildAgentSystemPromptWithContext } from '../../agent/agentSystemPrompt'
@@ -502,7 +503,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     }
     return map
   }, [store, messages])
-  const pendingPlan = previewOf(status)
+  const pendingPlan = previewOf(status, store)
 
   return (
     <aside
@@ -810,10 +811,18 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         )}
       </div>
 
+      {/*
+        确认卡：**放在对话流里、当一条步骤**，而不是贴在输入框上方的独立弹层。
+        参考产品（liblib.tv）就是把「是否运行节点「小猫钓鱼」生成图片？」
+        这条确认当成对话时间线的一部分，批准动作也是时间线里的一个小按钮 ——
+        确认过之后它留在原地（能看到「批准过」），而不是整个消失。
+      */}
       {pendingPlan && (
-        <div className={styles.preview} data-agent-preview={pendingPlan.tool}>
-          <p className={styles.previewTitle}>{pendingPlan.title}</p>
-          <ul className={styles.previewList}>
+        <div className={styles.step} data-agent-preview={pendingPlan.tool}>
+          <div className={styles.stepHead}>
+            <span className={styles.stepLabel}>{pendingPlan.title}</span>
+          </div>
+          <ul className={styles.stepLines}>
             {pendingPlan.lines.map((l, i) => (
               <li key={i}>{l}</li>
             ))}
@@ -872,6 +881,7 @@ function originOf(vp: { x: number; y: number }): { x: number; y: number } {
 /** 确认卡里要显示什么 —— 让用户**在花钱之前**看清将要发生什么（§9） */
 function previewOf(
   status: Status,
+  store: CanvasStore,
 ): { tool: string; title: string; lines: string[]; action: string } | null {
   if (status.kind !== 'awaitingConfirm') return null
   const { name, args } = status.request
@@ -892,7 +902,18 @@ function previewOf(
   }
   if (name === 'runNode') {
     const ids = Array.isArray(a.nodeIds) ? a.nodeIds.length : 0
-    return { tool: name, title: '要开始生成', lines: [`跑 ${ids} 个节点（会花钱）`], action: '开始生成' }
+    /**
+     * 要跑的是哪**一个**节点时，把它的名字报出来（参考产品的问法就是
+     * 「是否运行节点「小猫钓鱼」生成图片？」—— 用户认的是名字，不是 id）。
+     */
+    const nodeId = Array.isArray(a.nodeIds) && typeof a.nodeIds[0] === 'string' ? a.nodeIds[0] : ''
+    const node = store.getSnapshot().nodes.find((n) => n.id === nodeId)
+    return {
+      tool: name,
+      title: node ? `是否运行节点「${node.title ?? '未命名'}」生成图片？` : '要开始生成',
+      lines: [`跑 ${ids} 个节点（会花钱）`],
+      action: '批准运行',
+    }
   }
   if (name === 'updateNode') {
     return {
