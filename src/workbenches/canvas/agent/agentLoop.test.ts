@@ -17,7 +17,11 @@ interface Reply {
   toolCalls?: { id: string; name: string; args: string }[]
 }
 
-function depsWith(replies: Reply[], executeRead = vi.fn(async () => ({ nodes: [] }))) {
+function depsWith(
+  replies: Reply[],
+  executeRead = vi.fn(async () => ({ nodes: [] })),
+  executeWrite = vi.fn(async () => ({ ok: true, createdNodeIds: ['n1'] })),
+) {
   let i = 0
   const adapter = {
     completeText: vi.fn(async () => {
@@ -26,13 +30,56 @@ function depsWith(replies: Reply[], executeRead = vi.fn(async () => ({ nodes: []
     }),
   }
   return {
-    deps: { adapter, channelId: 'c', model: 'm', tools, executeRead, signal },
+    deps: { adapter, channelId: 'c', model: 'm', tools, executeRead, executeWrite, signal },
     adapter,
     executeRead,
+    executeWrite,
   }
 }
 
 const user = (content: string): ChatMessage[] => [{ role: 'user', content }]
+
+/**
+ * 确认**之前**的预检（用户 2026-10-02：「重复让我确认新建工作流，重复了三次，
+ * 但是我的画布中没有」）。
+ *
+ * 那条链路的毛病是：计划不合法时仍然先弹确认卡，用户点完才被告知不行，
+ * 模型再发一版差不多的 —— 确认卡一张接一张，画布一直空着。
+ * 预检就是把它挪到**问用户之前**。
+ */
+describe('runAgentTurn · 确认之前的预检', () => {
+  const runNodeCall = { toolCalls: [{ id: 'c1', name: 'runNode', args: '{"nodeIds":["n1"]}' }] }
+
+  it('★★ 预检不过 → 不弹确认卡，把问题回填给模型让它自己改', async () => {
+    const { deps } = depsWith([runNodeCall, { text: '好，我改一版' }])
+    let seen = 0
+    const r = await runAgentTurn(user('建个流程'), {
+      ...deps,
+      precheck: () => {
+        seen += 1
+        return { ok: false, result: { ok: false, problems: ['节点不存在：n1'] } }
+      },
+    })
+    expect(seen).toBe(1)
+    // 关键：**没有**停在 confirm —— 用户一次都不用点
+    expect(r.kind).toBe('message')
+    const toolMsg = r.messages.find((m) => m.role === 'tool')
+    expect(String(toolMsg?.content)).toContain('节点不存在：n1')
+  })
+
+  it('★★ 预检通过才弹确认卡（能落地的照常问，不许拿预检当挡箭牌）', async () => {
+    const { deps } = depsWith([runNodeCall])
+    const r = await runAgentTurn(user('建个流程'), { ...deps, precheck: () => ({ ok: true }) })
+    expect(r.kind).toBe('confirm')
+    if (r.kind === 'confirm') expect(r.request.name).toBe('runNode')
+  })
+
+  it('★ 没接预检时行为不变（不能变成静默丢弃）', async () => {
+    const { deps } = depsWith([runNodeCall])
+    const r = await runAgentTurn(user('建个流程'), deps)
+    expect(r.kind).toBe('confirm')
+  })
+})
 
 describe('runAgentTurn · 基本往复', () => {
   it('★ 模型直接回答 → message，历史里多一条 assistant', async () => {
@@ -61,25 +108,45 @@ describe('runAgentTurn · 基本往复', () => {
     }
   })
 
-  it('★★ 写 / 花钱的工具不执行，跳出循环等确认（否则「确认」是空话）', async () => {
-    const { deps, executeRead } = depsWith([
+  /**
+   * ★★ 建图**直接落地**（用户 2026-10-02：「他直接给我新建进去，但是生成与否
+   * 需要让我确认，取消后也不会撤回已经新建到画布中的工作流」）。
+   *
+   * 与「花钱才拦」配套看：建节点不花钱、且整份计划是一次原子 dispatch（一次撤销
+   * 全回退），拦它没有收益，只会把「批准建图」和「批准花钱」混成一件事。
+   */
+  it('★★ 建图类（applyPlan）直接执行，不停下来问', async () => {
+    const { deps, executeWrite, executeRead } = depsWith([
       { toolCalls: [{ id: 'c1', name: 'applyPlan', args: '{"summary":"x","nodes":[],"edges":[]}' }] },
+      { text: '建好了' },
     ])
     const r = await runAgentTurn(user('建个流程'), deps)
 
+    expect(executeWrite).toHaveBeenCalledWith('applyPlan', { summary: 'x', nodes: [], edges: [] })
+    expect(executeRead).not.toHaveBeenCalled()
+    expect(r.kind).toBe('message')
+  })
+
+  it('★★ 花钱的工具不执行，跳出循环等确认（否则「确认」是空话）', async () => {
+    const { deps, executeRead, executeWrite } = depsWith([
+      { toolCalls: [{ id: 'c1', name: 'runNode', args: '{"nodeIds":["n1"]}' }] },
+    ])
+    const r = await runAgentTurn(user('跑一下'), deps)
+
     expect(r.kind).toBe('confirm')
     if (r.kind === 'confirm') {
-      expect(r.request.name).toBe('applyPlan')
+      expect(r.request.name).toBe('runNode')
       expect(r.request.callId).toBe('c1')
-      expect(r.request.args).toEqual({ summary: 'x', nodes: [], edges: [] })
+      expect(r.request.args).toEqual({ nodeIds: ['n1'] })
     }
     expect(executeRead).not.toHaveBeenCalled()
+    expect(executeWrite).not.toHaveBeenCalled()
   })
 
   it('★★ 确认后用 resumeAgentTurn 把结果喂回去，模型能看到自己做过什么', async () => {
     const { deps } = depsWith([
-      { toolCalls: [{ id: 'c1', name: 'applyPlan', args: '{}' }] },
-      { text: '已经建好了' },
+      { toolCalls: [{ id: 'c1', name: 'runNode', args: '{"nodeIds":["n1"]}' }] },
+      { text: '跑完了' },
     ])
     const first = await runAgentTurn(user('建个流程'), deps)
     expect(first.kind).toBe('confirm')
@@ -87,7 +154,7 @@ describe('runAgentTurn · 基本往复', () => {
 
     const second = await resumeAgentTurn(first.messages, first.request.callId, { ok: true }, deps)
     expect(second.kind).toBe('message')
-    if (second.kind === 'message') expect(second.text).toBe('已经建好了')
+    if (second.kind === 'message') expect(second.text).toBe('跑完了')
   })
 })
 
@@ -129,6 +196,7 @@ describe('runAgentTurn · 刹车与失败回填', () => {
       model: 'm',
       tools,
       executeRead: async () => ({}),
+      executeWrite: async () => ({ ok: true }),
       signal,
       maxSteps: 3,
     })
@@ -149,6 +217,7 @@ describe('runAgentTurn · 刹车与失败回填', () => {
       model: 'm',
       tools,
       executeRead: async () => ({}),
+      executeWrite: async () => ({ ok: true }),
       signal,
     })
     expect(r.kind).toBe('error')

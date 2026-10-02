@@ -37,69 +37,6 @@
 }
 
 /*
- * 正文的 Markdown 渲染（用户 2026-09-21：看格式、不看符号）。
- *
- * 节点只有 240×160 起，所以这里的标题比灯箱预览里**收得小**——
- * 用灯箱那套 26px 会把节点撑爆。节点的定位是「一眼看出结构」，
- * 精读与长文本编辑走灯箱。
- */
-.mdH1 {
-  display: flex;
-  gap: var(--space-1);
-  font-size: 18px;
-  font-weight: 700;
-  line-height: 1.4;
-  margin: var(--space-1) 0;
-}
-
-.mdH2 {
-  display: flex;
-  gap: var(--space-1);
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.45;
-  margin: var(--space-1) 0;
-}
-
-.mdH3 {
-  display: flex;
-  gap: var(--space-1);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.5;
-  margin: var(--space-1) 0;
-}
-
-.mdParagraph {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-1);
-  margin: 0;
-}
-
-/* 列表标记固定宽度：让「•」与「12.」都能与正文对齐 */
-.mdMarker {
-  flex: none;
-  min-width: 14px;
-  color: var(--text-2);
-  font-variant-numeric: tabular-nums;
-}
-
-.mdDivider {
-  height: 1px;
-  margin: var(--space-2) 0;
-  background: var(--stroke);
-}
-
-.mdBold {
-  font-weight: 700;
-}
-
-.mdItalic {
-  font-style: italic;
-}
-
-/*
  * 节点内编辑态（双击进入，用户 2026-09-21）。
  *
  * 与 `.text` 占**同一块空间**（都是 `flex:1` + 同一组排版），切换时才不会跳。

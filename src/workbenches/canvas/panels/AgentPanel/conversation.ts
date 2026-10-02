@@ -40,8 +40,30 @@ const TOOL_LABEL: Record<string, string> = {
   runNode: '已运行生成',
 }
 
+/**
+ * 失败时的标题。
+ *
+ * 为什么必须有这一份：标题是**在结果回来之前**按工具名定下的（`toConversation`
+ * 先见到 assistant 的 toolCalls，再等到 tool 结果），所以一次失败的计划照样顶着
+ * 「工作流已创建」——用户看到的是一张自相矛盾的卡（用户 2026-10-02 那个「重复让我
+ * 确认、画布上什么都没有」的现场里，这就是最误导的一处）。失败要说失败。
+ */
+const TOOL_LABEL_FAILED: Record<string, string> = {
+  readGraph: '看画布失败',
+  readAsset: '读素材失败',
+  readResult: '读结果失败',
+  applyPlan: '工作流没建成',
+  updateNode: '改参数失败',
+  runNode: '生成失败',
+}
+
 export function toolLabel(tool: string): string {
   return TOOL_LABEL[tool] ?? `已调用 ${tool}`
+}
+
+export function toolLabelOf(tool: string, failed: boolean): string {
+  if (!failed) return toolLabel(tool)
+  return TOOL_LABEL_FAILED[tool] ?? `${toolLabel(tool)}（没成功）`
 }
 
 const asRecord = (v: unknown): Record<string, unknown> =>
@@ -170,7 +192,11 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
     const item = out[at]
     if (!item || item.kind !== 'step') continue
     const described = describeToolResult(item.tool, m.content)
-    out[at] = { ...item, ...described }
+    /**
+     * 标题也要跟着结果改：**先**见到 toolCalls 时只能按工具名猜，等结果回来
+     * 才知道成没成。失败还顶着「工作流已创建」是最误导人的一处。
+     */
+    out[at] = { ...item, ...described, label: toolLabelOf(item.tool, described.failed) }
   }
 
   return out

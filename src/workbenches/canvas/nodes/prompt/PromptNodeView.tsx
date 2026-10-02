@@ -4,58 +4,10 @@ import type { PromptData } from '../../../../domain/canvas/model/node'
 import { useCanvasExecution } from '../../execution/CanvasExecutionProvider'
 import { usePromptTools } from '../../../../features/shared/promptTools/usePromptTools'
 import type { PromptToolAction } from '../../../../features/shared/promptTools/promptTools'
-import { parseMarkdown } from '../../../../domain/canvas/text/markdownRender'
+import { MarkdownBlocks } from '../../text/MarkdownBlocks'
 import { usePresetTextOptional } from '../../../../app/providers/PresetTextProvider'
 import { IconStop } from '../../toolbar/icons'
 import styles from './PromptNodeView.module.css'
-
-/**
- * 正文的 Markdown 渲染（用户 2026-09-21：看格式、不看符号）。
- *
- * **认不出的语法原样显示**（由 `parseMarkdown` 保证）——用户写的每个字符
- * 都必须能看见，宁可少渲染一种格式，也不能吞掉内容。
- *
- * 用结构化块而不是 `dangerouslySetInnerHTML`：既免疫注入，也能被单测覆盖。
- */
-function MarkdownBody({ source }: { source: string }) {
-  const blocks = parseMarkdown(source)
-  return (
-    <>
-      {blocks.map((b, i) => {
-        if (b.kind === 'divider') return <div key={i} className={styles.mdDivider} data-md-block="divider" />
-        const cls =
-          b.kind === 'h1'
-            ? styles.mdH1
-            : b.kind === 'h2'
-              ? styles.mdH2
-              : b.kind === 'h3'
-                ? styles.mdH3
-                : styles.mdParagraph
-        return (
-          <div key={i} className={cls} data-md-block={b.kind}>
-            {(b.kind === 'bullet' || b.kind === 'ordered') && (
-              <span className={styles.mdMarker}>{b.kind === 'bullet' ? '•' : `${b.order ?? 1}.`}</span>
-            )}
-            <span>
-              {b.spans.length === 0 ? (
-                <br />
-              ) : (
-                b.spans.map((s, j) => (
-                  <span
-                    key={j}
-                    className={[s.bold ? styles.mdBold : '', s.italic ? styles.mdItalic : ''].filter(Boolean).join(' ')}
-                  >
-                    {s.text}
-                  </span>
-                ))
-              )}
-            </span>
-          </div>
-        )
-      })}
-    </>
-  )
-}
 
 /**
  * 提示词节点视图（M0-5 全链路的核心节点）。
@@ -201,7 +153,7 @@ export function PromptNodeView(props: NodeViewProps) {
       ) : (
         <div className={styles.text} ref={bodyRef} onDoubleClick={onBodyDoubleClick}>
           {data.text ? (
-            <MarkdownBody source={data.text} />
+            <MarkdownBlocks source={data.text} />
           ) : (
             <span className={styles.placeholder}>双击输入提示词…</span>
           )}

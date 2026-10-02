@@ -74,6 +74,229 @@ export type AgentPlanValidation =
 export const AGENT_PLAN_MAX_NODES = 80
 
 /**
+ * 把模型给的计划**归一化**成我们的形状（用户 2026-10-02 报的那个 bug 的正解）。
+ *
+ * ## 为什么要有这一步
+ *
+ * 用户原话：「流程都是对的，但是卡在了重复让我确认新建工作流上，重复了三次，
+ * 但是我的画布中没有」。链路是：模型给计划 → 界面出确认卡 → 用户点确认 →
+ * **这时才校验** → 校验不过（比如某个节点的 `order` 是字符串）→ 整份拒绝 →
+ * 错误回给模型 → 它再发一版差不多的 → 又一张确认卡……用户点了三次，画布上什么都没有。
+ *
+ * 两处都不对：
+ * ① 让用户确认一份我们自己会拒绝的计划（这条在 `agentLoop` 的 `precheck` 里解决）；
+ * ② 因为**形状细节**整份拒绝，而其中大部分细节我们完全能自己推出来。
+ *
+ * 这一版先把 ② 做掉：能从别处推出来的字段就补上，并且把「补了什么」记进 `notes`。
+ * 真推不出来的（不认识 `type`、`localId` 缺失、连线指向不存在的节点）照旧交给
+ * `validateAgentPlan` 拒绝 —— 归一化只补**语义上唯一确定**的那些。
+ */
+export function normalizeAgentPlan(raw: unknown): { plan: unknown; notes: string[] } {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { plan: raw, notes: [] }
+  const notes: string[] = []
+  const src = raw as Record<string, unknown>
+
+  const nodesRaw = Array.isArray(src.nodes) ? src.nodes : []
+  /** 缺 order 的节点：等连线读完再按拓扑深度补 */
+  const needOrder: string[] = []
+
+  const nodes = nodesRaw.map((n) => {
+    if (!n || typeof n !== 'object' || Array.isArray(n)) return n
+    const node = { ...(n as Record<string, unknown>) }
+    /**
+     * 别名：模型时不时把 `localId` 写成 `id` / `local_id` / `key`。
+     * 这不是「猜」—— 计划里那个字段的唯一含义就是「本地的临时 id」。
+     */
+    if (typeof node.localId !== 'string' || !node.localId.trim()) {
+      const alias = node.local_id ?? node.id ?? node.key
+      if (typeof alias === 'string' && alias.trim()) {
+        node.localId = alias.trim()
+        notes.push(`节点 ${node.localId}：localId 是从别名补的`)
+      }
+    }
+    /** data 缺了就给空对象：它的含义明确是「这个节点的参数」，空 = 用默认值 */
+    if (!node.data || typeof node.data !== 'object' || Array.isArray(node.data)) {
+      if (node.data !== undefined) notes.push(`节点 ${String(node.localId)}：data 不是对象，已按空对象处理`)
+      node.data = {}
+    }
+    /** order：数字直接用；数字字符串转成数字；其余留给拓扑推导 */
+    const order = node.order
+    if (typeof order === 'string' && /^\d+$/.test(order.trim())) {
+      node.order = Number(order.trim())
+      notes.push(`节点 ${String(node.localId)}：order 是字符串，已转成数字`)
+    } else if (typeof order !== 'number' || !Number.isInteger(order) || order < 0) {
+      delete node.order
+      if (typeof node.localId === 'string') needOrder.push(node.localId)
+    }
+    return node
+  })
+
+  const edgesRaw = Array.isArray(src.edges) ? src.edges : []
+  const edges = edgesRaw.map((e) => {
+    if (!e || typeof e !== 'object' || Array.isArray(e)) return e
+    const edge = { ...(e as Record<string, unknown>) }
+    /** 别名：`from` / `to` / `sourceId` / `targetId` 都是同一件事 */
+    if (edge.source === undefined) {
+      const alias = edge.from ?? edge.sourceId ?? edge.sourceLocalId
+      if (alias !== undefined) {
+        edge.source = alias
+        notes.push('连线：source 是从别名补的')
+      }
+    }
+    if (edge.target === undefined) {
+      const alias = edge.to ?? edge.targetId ?? edge.targetLocalId
+      if (alias !== undefined) {
+        edge.target = alias
+        notes.push('连线：target 是从别名补的')
+      }
+    }
+    if (edge.sourcePort === undefined && edge.source_port !== undefined) {
+      edge.sourcePort = edge.source_port
+    }
+    if (edge.targetPort === undefined && edge.target_port !== undefined) {
+      edge.targetPort = edge.target_port
+    }
+    return edge
+  })
+
+  /**
+   * 缺 order 的按**拓扑深度**补：列 = 第几步，与 `layoutAgentPlan` 的口径一致。
+   * 有环时那一支回落到 0 —— 布局挤一挤，也比整份拒绝强（反正连线还在，
+   * 用户看得出来哪里不对）。
+   */
+  if (needOrder.length > 0) {
+    const depth = topoDepth(nodes, edges)
+    for (const node of nodes) {
+      if (!node || typeof node !== 'object') continue
+      const at = node as Record<string, unknown>
+      if (typeof at.order === 'number') continue
+      const id = typeof at.localId === 'string' ? at.localId : ''
+      at.order = depth.get(id) ?? 0
+    }
+    notes.push(`${needOrder.length} 个节点没有可用的 order，已按连线推导`)
+  }
+
+  /**
+   * **节点名**：用户 2026-10-03 的要求 —— agent 建出来的节点要**照着提示词总结**出
+   * 一个名字，不能是「图片节点1」这种跟内容无关的通用名。
+   *
+   * 系统提示词里已经要求模型给 `title`，但它经常不给（尤其小模型）。不给就退回
+   * `spec.label`（「图片生成」「提示词」）—— 用户看到的正是这种没有信息量的名字。
+   * 所以这里**确定性地补一道**：从节点自己的提示词正文取头一句的前 12 个字；
+   * 自己没正文（比如下游的生成节点只靠上游的提示词）就顺着入边借上游那句。
+   *
+   * 只在前两步都拿不到时才轮到 `spec.label` —— 那是最差的一档，不是默认档。
+   */
+  const byLocalId = new Map<string, Record<string, unknown>>()
+  for (const n of nodes) {
+    if (!n || typeof n !== 'object') continue
+    const row = n as Record<string, unknown>
+    if (typeof row.localId === 'string') byLocalId.set(row.localId, row)
+  }
+  const parentsOf = (id: string): string[] => {
+    const out: string[] = []
+    for (const e of edges) {
+      if (!e || typeof e !== 'object') continue
+      const row = e as Record<string, unknown>
+      if (row.target === id && typeof row.source === 'string') out.push(row.source)
+    }
+    return out
+  }
+  let titled = 0
+  for (const n of nodes) {
+    if (!n || typeof n !== 'object') continue
+    const row = n as Record<string, unknown>
+    if (typeof row.title === 'string' && row.title.trim()) continue
+    const own = promptTextOf(row)
+    const borrowed =
+      own || parentsOf(String(row.localId ?? '')).map((p) => promptTextOf(byLocalId.get(p))).find(Boolean)
+    const title = summarizeTitle(borrowed ?? '')
+    if (title) {
+      row.title = title
+      titled += 1
+    }
+  }
+  if (titled > 0) notes.push(`${titled} 个节点没有名字，已按提示词总结`)
+
+  /** summary 缺了就补一句能读懂的话：它在确认卡上当标题，空着用户不知道在批什么 */
+  if (typeof src.summary !== 'string' || !src.summary.trim()) {
+    notes.push('缺 summary，已用兜底文案')
+  }
+
+  return {
+    plan: {
+      ...src,
+      ...(typeof src.summary === 'string' && src.summary.trim()
+        ? {}
+        : { summary: '按你的要求建一份工作流' }),
+      nodes,
+      edges,
+    },
+    notes,
+  }
+}
+
+/** 节点里能当「提示词正文」用的字段（提示词节点是 `text`，生成节点是 `prompt`） */
+function promptTextOf(node: Record<string, unknown> | undefined): string {
+  if (!node) return ''
+  const data = node.data
+  if (!data || typeof data !== 'object') return ''
+  const d = data as Record<string, unknown>
+  for (const key of ['text', 'prompt'] as const) {
+    const v = d[key]
+    if (typeof v === 'string' && v.trim()) return v
+  }
+  return ''
+}
+
+/**
+ * 提示词 → 节点名：取**第一行**、把空白收成单个空格、截到 12 个字。
+ *
+ * 为什么截 12：节点标题栏就那么宽（再长会被省略号吃掉，等于没有）。
+ * 为什么不加省略号：标题带省略号看起来像「还没起完名」，而它其实已经定稿了。
+ */
+export function summarizeTitle(text: string): string {
+  const firstLine = String(text ?? '').split('\n')[0] ?? ''
+  return firstLine.replace(/\s+/g, ' ').trim().slice(0, 12)
+}
+
+/** 节点 → 它所在的「第几步」：没有入边 = 0，否则 = max(前驱)+1 */
+function topoDepth(nodes: readonly unknown[], edges: readonly unknown[]): Map<string, number> {
+  const idOf = (n: unknown): string => {
+    if (!n || typeof n !== 'object') return ''
+    const v = (n as Record<string, unknown>).localId
+    return typeof v === 'string' ? v : ''
+  }
+  const preds = new Map<string, string[]>()
+  for (const n of nodes) {
+    const id = idOf(n)
+    if (id) preds.set(id, [])
+  }
+  for (const e of edges) {
+    if (!e || typeof e !== 'object') continue
+    const raw = e as Record<string, unknown>
+    const s = typeof raw.source === 'string' ? raw.source : ''
+    const t = typeof raw.target === 'string' ? raw.target : ''
+    if (preds.has(s) && preds.has(t)) preds.get(t)!.push(s)
+  }
+  const depth = new Map<string, number>()
+  const onStack = new Set<string>()
+  const walk = (id: string): number => {
+    const known = depth.get(id)
+    if (known !== undefined) return known
+    if (onStack.has(id)) return 0 // 环：就地兜底
+    onStack.add(id)
+    const parents = preds.get(id) ?? []
+    const value = parents.length === 0 ? 0 : Math.max(...parents.map((p) => walk(p) + 1))
+    onStack.delete(id)
+    depth.set(id, value)
+    return value
+  }
+  for (const id of preds.keys()) walk(id)
+  return depth
+}
+
+/**
  * 校验一份计划能不能落地。
  *
  * 原则：**整份拒绝，不做部分落地**。部分落地会让用户面对一个「建了一半」的画布，

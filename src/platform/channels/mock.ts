@@ -275,6 +275,30 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
         if (toolMsgs === 1) {
           const lastUser =
             request.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '提示词'
+          /**
+           * 测试钩子：用户话里带「坏计划」时**故意**给一份落不了地的计划。
+           *
+           * 用来验用户 2026-10-02 报的那条：「重复让我确认新建工作流，重复了三次，
+           * 但是我的画布中没有」—— 计划不合法时**不该弹确认卡**（用户一次都不该点），
+           * 原因要直接露在步骤卡上。这个场景用真渠道没法稳定复现，只能由 mock 造。
+           */
+          if (lastUser.includes('坏计划')) {
+            return {
+              text: '',
+              finishReason: 'tool_calls',
+              toolCalls: [
+                {
+                  id: 'mock-bad-plan',
+                  name: 'applyPlan',
+                  args: JSON.stringify({
+                    summary: '一份落不了地的计划',
+                    nodes: [{ localId: 'x1', type: 'not-a-node', data: {}, order: 0 }],
+                    edges: [],
+                  }),
+                },
+              ],
+            }
+          }
           const plan = {
             summary: `据「${lastUser.slice(0, 20)}」建一个提示词到生成的流程`,
             nodes: [
@@ -323,7 +347,16 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
             }
           }
         }
-        return { text: '已经建好了，画布上应该能看到两个节点。', finishReason: 'stop' }
+        /**
+         * 收尾回答故意带 Markdown（粗体 + 无序列表）：用户 2026-10-02 报
+         * 「他给我的解释功能给我的是 json 格式的吗？我不想要那些符号」——
+         * 界面原先把模型回的 `- **看看画布现状**` 连星号带杠原样打了出来。
+         * 假数据不写成这样，「助手气泡会渲染 Markdown」这条就永远验不了。
+         */
+        return {
+          text: '已经建好了，画布上应该能看到两个节点。\n\n- **提示词节点**：写下你要的画面\n- **生成节点**：点生成出图',
+          finishReason: 'stop',
+        }
       }
       /**
        * Agent 那条路径发的是**消息数组**、`prompt` 为空（设计文档 §4）。

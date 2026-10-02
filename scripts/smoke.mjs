@@ -13767,31 +13767,25 @@ async function g95(browser) {
   )
 
   /**
-   * ★★ 这条是整件事的验收：**说一句话，画布上真的多出一张图**。
+   * ★★★ 整件事的验收：**说一句话，画布上直接多出工作流，再问你要不要生成**。
    *
-   * mock 会演 agent（先 readGraph、再给 applyPlan），所以这条链能在离线环境跑穿：
-   * 循环 → 停在等确认 → 点确认 → 落地 → 自检 → 回填 → 收尾回答。
-   * 只验「有回答」是不够的 —— 那只证明它在聊天，不证明它能建图。
+   * 用户 2026-10-02 定的口径（对着参考产品的截图）：
+   * 「他直接给我新建进去，但是生成与否需要让我确认，取消后也不会撤回已经新建到
+   * 画布中的工作流」。
+   *
+   * mock 会演 agent（先 readGraph、再给 applyPlan、再请求 runNode），所以这条链
+   * 在离线环境能跑穿：循环 → **直接落地** → 自检 → 回填 → 请求执行 → 停下等确认。
    */
-  const nodesBefore = await page.locator('[data-node-type]').count()
-  await page.locator('[data-agent-input]').fill('帮我建一个提示词到生成的流程')
-  await page.locator('[data-agent-send]').click()
-  await page
-    .waitForSelector('[data-agent-preview="applyPlan"]', { timeout: 20000 })
-    .catch(() => undefined)
-  rec(
-    g,
-    '★★ 一句话之后循环停在「等你确认」，并给出计划预览',
-    (await page.locator('[data-agent-preview="applyPlan"]').count()) === 1,
-  )
-
   /** 落地前的节点 id 集合 —— 落地后拿它认哪两个是 agent 新建的 */
   const idsBeforeLanding = new Set(
     await page
       .locator('[data-node-type]')
       .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id'))),
   )
-  await page.locator('[data-agent-confirm]').click()
+  const nodesBefore = await page.locator('[data-node-type]').count()
+  await page.locator('[data-agent-input]').fill('帮我建一个提示词到生成的流程')
+  await page.locator('[data-agent-send]').click()
+  /** 建图**不问**：画布自己就该长出两个节点 */
   await page
     .waitForFunction(
       (n) => document.querySelectorAll('[data-node-type]').length >= n + 2,
@@ -13802,9 +13796,40 @@ async function g95(browser) {
   const nodesAfter = await page.locator('[data-node-type]').count()
   rec(
     g,
-    '★★ 点确认后画布上真的多了两个节点（落地生效）',
+    '★★ 一句话之后画布上**直接**多出工作流（建图不问用户）',
     nodesAfter >= nodesBefore + 2,
     `前=${nodesBefore} 后=${nodesAfter}`,
+  )
+  const planConfirm = await page.locator('[data-agent-preview="applyPlan"]').count()
+  rec(
+    g,
+    '★★ 建图**不弹确认卡**（该问的只有「要不要生成」）',
+    planConfirm === 0,
+    `applyPlan 确认卡=${planConfirm}`,
+  )
+
+  /**
+   * ★★ 新建节点的名字要**从提示词总结出来**（用户 2026-10-03：「节点上的名称要根据
+   * 我的提示词来总结成一个节点的名称，不能要是图片节点1这种」）。
+   *
+   * mock 给的计划**故意不带 title** —— 那正是真模型最常见的偷懒方式。
+   * 判据：两个新节点的名字都非空、都是那句提示词的前缀，且**不等于类型默认名**。
+   */
+  const newTitles = await page.locator('[data-node-type]').evaluateAll(
+    (els, known) =>
+      els
+        .filter((e) => !known.includes(e.getAttribute('data-node-id') ?? ''))
+        .map((e) => (e.querySelector('[data-node-title]')?.textContent ?? '').trim()),
+    [...idsBeforeLanding],
+  )
+  rec(
+    g,
+    '★★ 新建节点的名字来自提示词（不是「提示词」「图片生成」这类默认名）',
+    newTitles.length === 2 &&
+      newTitles.every((t) => t.length > 0 && '帮我建一个提示词到生成的流程'.startsWith(t)) &&
+      !newTitles.includes('提示词') &&
+      !newTitles.includes('图片生成'),
+    `名字=${JSON.stringify(newTitles)}`,
   )
 
   /**
@@ -13812,7 +13837,7 @@ async function g95(browser) {
    *
    * 光验「画布上多了两个节点」是不够的 —— 建出来的生成节点如果没渠道没模型，
    * 它照样会出现在画布上，只是点「生成」时什么都不发生（`toRunRequest` 返回 null）。
-   * 所以这条一路验到**产物**：agent 请求 runNode → 二次确认 → 真的发渠道请求 →
+   * 所以这条一路验到**产物**：agent 请求 runNode → 停下来问 → 点确认 → 真的发渠道请求 →
    * 节点上出现 blob 图。
    */
   await page
@@ -13820,7 +13845,7 @@ async function g95(browser) {
     .catch(() => undefined)
   rec(
     g,
-    '★★ 落地后 agent 请求真正执行（runNode 仍需二次确认 —— 花钱动作不自动跑）',
+    '★★ 建完之后 agent 请求执行，**这里**才停下问（花钱的动作不自动跑）',
     (await page.locator('[data-agent-preview="runNode"]').count()) === 1,
   )
 
@@ -13869,6 +13894,24 @@ async function g95(browser) {
     g,
     '★★ 落地与执行的结果都回填了，模型给出收尾回答（闭环）',
     (await page.locator('[data-agent-message="assistant"]').count()) > 0,
+  )
+
+  /**
+   * ★★ 助手回复按 **Markdown 渲染**（用户 2026-10-02：「他给我的解释功能给我的是
+   * json 格式的吗？我不想要那些符号」—— 截图里 `- **看看画布现状**` 把星号和杠
+   * 原样打了出来）。
+   *
+   * 判据两条：① 回复里的 `- ` 真的渲染成了列表块；② 气泡的可见文字里
+   * **一个 `**` 都不剩**（符号被吃掉才算数）。
+   */
+  const botBubble = page.locator('[data-agent-message="assistant"]').last()
+  const botText = await botBubble.innerText().catch(() => '')
+  const botBullets = await botBubble.locator('[data-md-block="bullet"]').count()
+  rec(
+    g,
+    '★★ 助手回复渲染成 Markdown 块，星号 / 杠不再原样出现',
+    botBullets >= 2 && !botText.includes('**'),
+    `列表块=${botBullets} 含星号=${botText.includes('**')}`,
   )
 
   /**
@@ -14042,6 +14085,99 @@ async function g95(browser) {
     '★★ 自动生成：一句话之后**不点任何确认**，画布上直接出图',
     autoImage.startsWith('blob:'),
     `自动产物=${autoImage.slice(0, 12)}`,
+  )
+
+  /**
+   * ★★ **取消生成不会撤回已经建好的工作流**（用户 2026-10-02 点名要的行为）。
+   *
+   * 这是「建图立刻生效、只有花钱才问」的另一半：用户点「拒绝」的意思是
+   * 「先别跑」，**不是**「把这些节点删掉」。判据分三样，缺一不可：
+   * ① 节点数不变（没被撤销）；② 节点之间的**连线**还在；③ 新建节点的**参数**还在
+   * （渠道 / 模型 —— 它们决定「以后自己点生成还能不能跑」）。
+   */
+  await page.locator('[data-agent-new]').click()
+  await sleep(600)
+  const idsBeforeCancel = await page
+    .locator('[data-node-type]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id') ?? ''))
+  const nodesBeforeCancel = await page.locator('[data-node-type]').count()
+  const edgesBeforeCancel = await page.locator('[data-edge]').count()
+  await page.locator('[data-agent-input]').fill('再建一条提示词到生成的流程')
+  await page.locator('[data-agent-send]').click()
+  await page
+    .waitForSelector('[data-agent-preview="runNode"]', { timeout: 20000 })
+    .catch(() => undefined)
+  const landedNodes = await page.locator('[data-node-type]').count()
+  const landedEdges = await page.locator('[data-edge]').count()
+  await page.locator('[data-agent-cancel]').click()
+  await sleep(900)
+  const nodesAfterCancel = await page.locator('[data-node-type]').count()
+  const edgesAfterCancel = await page.locator('[data-edge]').count()
+  /**
+   * 参数还在吗：直接读**落库的节点行**（新生成节点必须带渠道 + 模型，
+   * 否则「以后自己在面板上点生成」照样跑不起来）。DOM 上看不到这两个字段，
+   * 所以这条断言读的是 IndexedDB —— 那才是「参数真的存下来了」的证据。
+   */
+  const newGenParams = await page.evaluate(async (known) => {
+    const open = indexedDB.open('qinghua')
+    const db = await new Promise((res, rej) => {
+      open.onsuccess = () => res(open.result)
+      open.onerror = () => rej(open.error)
+    })
+    const rows = await new Promise((res, rej) => {
+      const tx = db.transaction('nodes', 'readonly')
+      const req = tx.objectStore('nodes').getAll()
+      req.onsuccess = () => res(req.result)
+      req.onerror = () => rej(req.error)
+    })
+    return rows
+      .filter((r) => r.type === 'generation' && !known.includes(String(r.id)))
+      .map((r) => ({ hasRecipe: Boolean(r.data?.channelId && r.data?.model) }))
+  }, idsBeforeCancel)
+  const newGenHasParams = newGenParams.length === 1 && newGenParams[0].hasRecipe === true
+  rec(
+    g,
+    '★★ 取消生成**不撤回**已建的工作流（节点 / 连线 / 参数都还在）',
+    landedNodes === nodesBeforeCancel + 2 &&
+      landedEdges >= edgesBeforeCancel + 1 &&
+      nodesAfterCancel === landedNodes &&
+      edgesAfterCancel === landedEdges &&
+      newGenHasParams,
+    `节点 ${nodesBeforeCancel}→${landedNodes}→${nodesAfterCancel}｜连线 ${edgesBeforeCancel}→${landedEdges}→${edgesAfterCancel}｜带配方=${newGenHasParams}`,
+  )
+
+  /**
+   * ★★ **落不了地的计划根本不弹确认卡**（用户 2026-10-02 报的那个 bug：
+   * 「我让 agent 帮我画个小猫钓鱼，流程都是对的，但是卡在了重复让我确认新建
+   * 工作流上，重复了三次，但是我的画布中没有」）。
+   *
+   * 老行为：先弹确认卡 → 用户点 → **这时才校验** → 整份拒绝 → 模型再发一版 →
+   * 又一张确认卡。新行为：确认**之前**先校验，不合法就把问题回给模型，
+   * 用户一次都不用点，而且原因**直接露在步骤卡上**（不再藏在折叠层里）。
+   *
+   * 场景由 mock 的 `坏计划` 钩子造：真渠道没法稳定复现「模型给了一份坏计划」。
+   */
+  await page.locator('[data-agent-new]').click()
+  await sleep(600)
+  await page.locator('[data-agent-input]').fill('坏计划')
+  await page.locator('[data-agent-send]').click()
+  await sleep(1800)
+  const badConfirm = await page.locator('[data-agent-preview="applyPlan"]').count()
+  const badStep = page.locator('[data-agent-step-failed]').first()
+  const badStepCount = await page.locator('[data-agent-step-failed]').count()
+  const badText = ((await badStep.innerText().catch(() => '')) ?? '').replace(/\s+/g, '')
+  rec(
+    g,
+    '★★ 落不了地的计划不弹确认卡，原因直接露在步骤卡上',
+    badConfirm === 0 && badStepCount === 1 && badText.includes('类型不认识'),
+    `确认卡=${badConfirm} 失败卡=${badStepCount} 文案=${badText.slice(0, 40)}`,
+  )
+  /** 失败还顶着「工作流已创建」是最误导人的一处 —— 标题也得跟着结果改 */
+  rec(
+    g,
+    '★★ 失败的计划不叫「工作流已创建」（标题跟着结果改）',
+    badText.includes('工作流没建成') && !badText.includes('工作流已创建'),
+    `标题片段=${badText.slice(0, 20)}`,
   )
 
   await page.locator('[data-agent-close]').click()

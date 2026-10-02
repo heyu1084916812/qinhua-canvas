@@ -213,6 +213,12 @@
   align-self: flex-start;
   color: var(--text-2);
   padding-right: var(--space-3);
+  /**
+   * 助手气泡里现在是**结构化 Markdown 块**（标题 / 列表 / 段落各是一个 div），
+   * 所以不再用 `pre-wrap` —— 那会把源码里的缩进与换行也原样画出来，
+   * 与块自己的 margin 叠成一片莫名空行。
+   */
+  white-space: normal;
 }
 
 .statusLine {

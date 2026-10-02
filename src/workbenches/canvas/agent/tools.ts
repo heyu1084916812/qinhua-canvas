@@ -1,4 +1,9 @@
-import { validateAgentPlan, type AgentNodeType, type AgentPlan } from '../../../domain/agent/plan'
+import {
+  normalizeAgentPlan,
+  validateAgentPlan,
+  type AgentNodeType,
+  type AgentPlan,
+} from '../../../domain/agent/plan'
 import type { ToolDeclaration } from '../../../domain/shared/execution/types'
 import type { CanvasStore } from '../../../state/workbenches/canvas/store'
 import { applyAgentPlan } from './applyAgentPlan'
@@ -37,7 +42,9 @@ export const AGENT_TOOLS: readonly ToolDeclaration[] = [
   {
     name: 'applyPlan',
     description:
-      '把一份工作流建到画布上：给出要建的节点与连线，一次性落地（会先让用户确认）。' +
+      '把一份工作流建到画布上：给出要建的节点与连线，一次性落地。' +
+      '**这一步立刻生效、不会问用户**（建节点不花钱，用户马上能在画布上看到）；' +
+      '随后要不要真的出图，系统会再问用户一次。' +
       '连线可以用 attach 复用画布上已有的节点。',
     parameters: {
       type: 'object',
@@ -215,6 +222,28 @@ export async function executeReadTool(
  *
  * 与读类分开导出，是为了让「循环里偷偷写」在代码结构上就写不出来。
  */
+/**
+ * `applyPlan` 的**落前检查**：先归一化、再校验，返回问题列表（空 = 可以落地）。
+ *
+ * 这是「计划 → 画布」的唯一关口，两个用处：
+ * ① 落地前把**形状差异**补齐（`normalizeAgentPlan`），别因为 `order` 写成字符串
+ *    这种事整份拒绝；
+ * ② 真推不出来的（不认识类型 / 连线指向不存在）整份拒绝，并把问题回给模型。
+ *
+ * 用户 2026-10-02 报的「重复让我确认新建工作流、重复了三次、画布上什么都没有」
+ * 就出在这一步：当时建图还排在确认卡后面，用户先点一次确认我们才发现计划不合法。
+ * 现在**建图根本不问**（见 `agentLoop` 的 `WRITE_TOOLS`），失败也直接以
+ * 步骤卡的形式露在对话里。
+ */
+export function planProblems(
+  args: unknown,
+  existingNodeIds: readonly string[],
+): { problems: string[]; plan: AgentPlan | null } {
+  const { plan } = normalizeAgentPlan(args)
+  const checked = validateAgentPlan(plan, existingNodeIds)
+  return checked.ok ? { problems: [], plan: checked.plan } : { problems: checked.errors, plan: null }
+}
+
 export async function executeConfirmedTool(
   name: string,
   args: unknown,
@@ -223,19 +252,18 @@ export async function executeConfirmedTool(
   const a = asRecord(args)
   switch (name) {
     case 'applyPlan': {
-      const plan = a as unknown as AgentPlan
       const existing = ctx.store.getSnapshot().nodes.map((n) => n.id)
-      const checked = validateAgentPlan(plan, existing)
-      if (!checked.ok) return { ok: false, problems: checked.errors }
+      const { problems, plan } = planProblems(a, existing)
+      if (!plan) return { ok: false, problems }
       /**
        * 先把「新建节点的默认数据」解出来，再交给纯函数建命令。
        *
        * 只解**计划里真用到的类型**：一次对话可能只建生成节点，没必要去问聊天模型。
        * 复用（attach）的节点不新建，也就不需要默认值。
        */
-      const needed = [...new Set(checked.plan.nodes.map((n) => n.type))]
+      const needed = [...new Set(plan.nodes.map((n) => n.type))]
       const defaults = ctx.defaultsForNewNode ? await ctx.defaultsForNewNode(needed) : undefined
-      const applied = applyAgentPlan(ctx.store, checked.plan, ctx.origin, {
+      const applied = applyAgentPlan(ctx.store, plan, ctx.origin, {
         ...(defaults ? { dataFor: (type: AgentNodeType) => defaults[type] ?? {} } : {}),
       })
       // 自检结果整份回填：模型要靠它决定补连线还是改图（§6.1）

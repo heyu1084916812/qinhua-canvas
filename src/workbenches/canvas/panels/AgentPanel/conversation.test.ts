@@ -126,4 +126,34 @@ describe('消息 → 对话条目', () => {
     ])
     expect(items).toEqual([{ kind: 'user', text: '你好' }])
   })
+
+  /**
+   * ★★ 失败时标题要跟着改（用户 2026-10-02 那个「重复让我确认、画布上什么都没有」
+   * 的现场里最误导的一处）。
+   *
+   * 标题是**先**见 assistant 的 `toolCalls` 时按工具名定下的，结果要等下一条
+   * tool 消息才到 —— 不改的话，一次彻底失败的计划照样顶着「工作流已创建」，
+   * 用户看着一张自相矛盾的卡片，只能得出「它骗我」。
+   */
+  it('★★ 失败的计划不叫「工作流已创建」（标题跟着结果改）', () => {
+    const items = toConversation([
+      { role: 'user', content: '建个流程' },
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 'c1', name: 'applyPlan', args: '{}' }],
+      },
+      {
+        role: 'tool',
+        toolCallId: 'c1',
+        content: JSON.stringify({ ok: false, problems: ['第 1 个节点的类型不认识：x'] }),
+      },
+    ])
+    const step = items.find((i) => i.kind === 'step')
+    expect(step?.kind).toBe('step')
+    if (step?.kind !== 'step') return
+    expect(step.failed).toBe(true)
+    expect(step.label).toBe('工作流没建成')
+    expect(step.lines.join()).toContain('类型不认识')
+  })
 })

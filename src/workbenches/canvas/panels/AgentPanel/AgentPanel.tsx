@@ -70,6 +70,7 @@ import {
   stripMentionMarkup,
   type MentionEditorHandle,
 } from '../../text/MentionEditor'
+import { MarkdownBlocks } from '../../text/MarkdownBlocks'
 import styles from './AgentPanel.module.css'
 
 /**
@@ -346,11 +347,35 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       channelId: session.channelId,
       model: session.model,
       tools: AGENT_TOOLS,
+      /**
+       * 确认**之前**的预检（用户 2026-10-02：「重复让我确认新建工作流，重复了三次，
+       * 但是我的画布中没有」）。计划本身落不了地时，别让用户白点一次确认 ——
+       * 直接把问题回给模型，让它在同一轮里自己改；同一轮里它要是还发同一版，
+       * 循环自己的指纹刹车会把这一轮停下来。
+       */
+      precheck: (name: string, args: unknown) => {
+        if (name !== 'runNode') return { ok: true as const }
+        /** 节点都不在画布上，就别让用户点「批准运行」了（他批的是一团空气） */
+        const args2 = (args ?? {}) as { nodeIds?: unknown }
+        const ids = Array.isArray(args2.nodeIds) ? args2.nodeIds.map(String) : []
+        const existing = new Set(store.getSnapshot().nodes.map((n) => n.id))
+        const missing = ids.filter((id) => !existing.has(id))
+        return missing.length > 0
+          ? { ok: false as const, result: { ok: false, problems: missing.map((id) => `节点不存在：${id}`) } }
+          : { ok: true as const }
+      },
+      /**
+       * 建图类（applyPlan）**直接落地**，不等确认 —— 用户 2026-10-02 的口径：
+       * 「他直接给我新建进去，但是生成与否需要让我确认，取消后也不会撤回
+       * 已经新建到画布中的工作流」。
+       */
+      executeWrite: (name: string, args: unknown) =>
+        executeConfirmedTool(name, args, toolCtx(originOf(viewport))),
       executeRead: (name: string, args: unknown) =>
         executeReadTool(name, args, toolCtx(originOf(viewport))),
       signal: abortRef.current?.signal ?? new AbortController().signal,
     }),
-    [channels, viewport, toolCtx],
+    [channels, viewport, toolCtx, store],
   )
 
   /** 把循环的结果落到界面上：回答就显示，要确认就出预览卡，刹车/报错就说清楚 */
@@ -865,7 +890,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           if (item.kind === 'text') {
             return (
               <div key={i} className={styles.msgBot} data-agent-message="assistant">
-                {item.text}
+                {/*
+                  助手回复走 Markdown 渲染（用户 2026-10-02：模型回的
+                  `- **看看画布现状**` 把星号和杠原样打在界面上）。
+                  与提示词节点**共用同一个渲染器** —— 见 `MarkdownBlocks` 的说明。
+                */}
+                <MarkdownBlocks source={item.text} />
               </div>
             )
           }
@@ -880,6 +910,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               key={i}
               className={item.failed ? styles.stepFailed : styles.step}
               data-agent-step={item.tool}
+              /* 失败与否不能只靠 CSS 类名 —— 那是哈希过的，断言不到 */
+              {...(item.failed ? { 'data-agent-step-failed': '' } : {})}
             >
               <button
                 type="button"
@@ -895,7 +927,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                   </span>
                 )}
               </button>
-              {isOpen && item.lines.length > 0 && (
+              {/*
+                **失败的那一条不折叠**：原因藏在折叠层里等于没报 —— 用户会以为是
+                「它又问了我一遍」而不是「这件事被拒了，因为……」（2026-10-02 报的
+                那个「重复确认」的现象里，被拒的理由就一直没露出来过）。
+              */}
+              {(isOpen || item.failed) && item.lines.length > 0 && (
                 <ul className={styles.stepLines}>
                   {item.lines.map((l, k) => (
                     <li key={k}>{l}</li>
@@ -1235,20 +1272,11 @@ function previewOf(
   if (status.kind !== 'awaitingConfirm') return null
   const { name, args } = status.request
   const a = (args ?? {}) as Record<string, unknown>
-  if (name === 'applyPlan') {
-    const nodes = Array.isArray(a.nodes) ? a.nodes.length : 0
-    const edges = Array.isArray(a.edges) ? a.edges.length : 0
-    const attach = Array.isArray(a.attach) ? a.attach.length : 0
-    return {
-      tool: name,
-      title: typeof a.summary === 'string' ? a.summary : '要建的工作流',
-      lines: [
-        `新建 ${nodes} 个节点、${edges} 条连线`,
-        ...(attach > 0 ? [`复用画布上已有的 ${attach} 个节点`] : []),
-      ],
-      action: '建到画布上',
-    }
-  }
+  /**
+   * ⚠️ 这里**没有 `applyPlan` 分支**：建图已经不等确认了（`agentLoop` 的
+   * `WRITE_TOOLS`），所以那种确认卡根本不会出现。别为了「万一」把它加回来 ——
+   * 一张永远走不到的分支，下次改这里的人会以为它还在生效。
+   */
   if (name === 'runNode') {
     const ids = Array.isArray(a.nodeIds) ? a.nodeIds.length : 0
     /**

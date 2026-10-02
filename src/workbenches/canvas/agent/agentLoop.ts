@@ -20,8 +20,21 @@ export const AGENT_DEFAULT_MAX_STEPS = 8
 
 /** 读类：循环里直接跑，结果回填给模型 */
 const READ_TOOLS = new Set(['readGraph', 'readAsset', 'readResult'])
-/** 写 / 花钱：跳出循环，等用户确认 */
-const CONFIRM_TOOLS = new Set(['applyPlan', 'updateNode', 'runNode'])
+/**
+ * 建图类：循环里**直接落地**，不问用户。
+ *
+ * 用户 2026-10-02 定了这条口径（对着参考产品的截图）：
+ * 「他直接给我新建进去，但是生成与否需要让我确认，取消后也不会撤回已经新建到
+ * 画布中的工作流（包括图片链接和提示词和新的节点的参数设置）」。
+ *
+ * 道理也站得住：**建节点不花钱**，而且整份计划是一次原子 dispatch（一次撤销全回退）。
+ * 真正该拦的是花钱那一步。此前把建图也拦在确认卡后面，反而把「点确认 = 批准建图」
+ * 和「点确认 = 批准花钱」混成了一件事 —— 用户点完发现画布还是空的（那是另一个
+ * bug），体验上完全分不清发生了什么。
+ */
+const WRITE_TOOLS = new Set(['applyPlan'])
+/** 花钱 / 改已有节点：跳出循环，等用户确认 */
+const CONFIRM_TOOLS = new Set(['updateNode', 'runNode'])
 
 export interface AgentToolRequest {
   callId: string
@@ -46,6 +59,20 @@ export interface AgentLoopDeps {
   tools: readonly ToolDeclaration[]
   /** 执行**读类**工具，返回要回填给模型的结果（失败也照常返回一个说明对象） */
   executeRead: (name: string, args: unknown) => Promise<unknown>
+  /** 执行**建图类**工具（`applyPlan`）：直接落到画布上，不等确认 */
+  executeWrite: (name: string, args: unknown) => Promise<unknown>
+  /**
+   * 确认**之前**的预检（可选）。
+   *
+   * 返回 `{ ok: false, result }` 时**不弹确认卡**，直接把 `result` 回填给模型，
+   * 让它在同一轮里自己改。存在的理由就是用户 2026-10-02 报的那件事：
+   * 「重复让我确认新建工作流，重复了三次，画布上什么都没有」—— 计划不合法时
+   * 还让用户先点一次确认，点完才告诉他不行，是最气人的那种交互。
+   *
+   * 为什么放在循环里而不是每个调用点自己记得：确认卡是**这里**弹的，
+   * 预检就该和它挨着；散在调用点迟早有一条路径漏掉。
+   */
+  precheck?: (name: string, args: unknown) => { ok: true } | { ok: false; result: unknown }
   signal: AbortSignal
   maxSteps?: number
 }
@@ -152,8 +179,31 @@ export async function runAgentTurn(
       }
 
       if (CONFIRM_TOOLS.has(call.name)) {
+        /**
+         * 先过预检：不合法的就**别让用户点**（见 `precheck` 的说明）。
+         * 预检只挡「根本落不了地」的请求；能落地的一律照常弹确认卡。
+         */
+        const pre = deps.precheck?.(call.name, args)
+        if (pre && pre.ok === false) {
+          messages.push(toolResult(call.id, pre.result))
+          continue
+        }
         // 写 / 花钱：跳出循环，交界面等确认（§9）
         return { kind: 'confirm', request: { callId: call.id, name: call.name, args }, messages }
+      }
+      /**
+       * 建图类：**直接执行**（不问用户），把自检结果回填 ——
+       * 模型靠它决定补连线还是改图。
+       */
+      if (WRITE_TOOLS.has(call.name)) {
+        let wrote: unknown
+        try {
+          wrote = await deps.executeWrite(call.name, args)
+        } catch (e) {
+          wrote = { ok: false, problems: [e instanceof Error ? e.message : String(e)] }
+        }
+        messages.push(toolResult(call.id, wrote))
+        continue
       }
       if (!READ_TOOLS.has(call.name)) {
         messages.push(toolResult(call.id, { ok: false, error: `没有这个工具：${call.name}` }))

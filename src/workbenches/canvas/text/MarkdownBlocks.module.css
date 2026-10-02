@@ -1,0 +1,62 @@
+/*
+ * Markdown 只读渲染（`MarkdownBlocks`）。
+ *
+ * 这套值原先长在提示词节点里（`PromptNodeView.module.css` 的 `.md*`），
+ * 2026-10-02 随组件一起搬出来给助手气泡共用，**数值一个都没改** ——
+ * 节点里的观感不该因为这次搬家而变化。
+ */
+.mdH1 {
+  display: flex;
+  gap: var(--space-1);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.4;
+  margin: var(--space-1) 0;
+}
+
+.mdH2 {
+  display: flex;
+  gap: var(--space-1);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.45;
+  margin: var(--space-1) 0;
+}
+
+.mdH3 {
+  display: flex;
+  gap: var(--space-1);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  margin: var(--space-1) 0;
+}
+
+.mdParagraph {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+/* 列表标记固定宽度：让「•」与「12.」都能与正文对齐 */
+.mdMarker {
+  flex: none;
+  min-width: 14px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.mdDivider {
+  height: 1px;
+  margin: var(--space-2) 0;
+  background: var(--stroke);
+}
+
+.mdBold {
+  font-weight: 700;
+}
+
+.mdItalic {
+  font-style: italic;
+}
