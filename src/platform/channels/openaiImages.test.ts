@@ -356,6 +356,64 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
   })
 
   /**
+   * **按模型自己的能力表发参数**（用户 2026-10-03：「把图片生成节点…每个模型有哪些配置
+   * 单独设置，不要通用设置，去官方文档找一下」）。
+   *
+   * 上面几条钉的是**没有能力表时**的 OpenAI 口径（一字未改）；下面这几条钉 Agnes 自己的口径：
+   * 官方文档里 Agnes 图片只有 `model / prompt / size / ratio / image / return_base64 /
+   * extra_body` —— **没有 `n`、没有 `quality`**，发了就是拿 400 换。
+   */
+  it('★★ Agnes Image 2.5 Flash：size 走档位、带 ratio、不发 n / quality', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    await adapter(calls).generateImage(
+      { ...request([], 1), model: 'agnes-image-2.5-flash', params: { count: 1, resolution: '2k', ratio: '16:9', quality: 'high' } },
+      signal,
+    )
+    const body = calls[0]!.body as Record<string, unknown>
+    expect(calls[0]!.url).toBe('https://x/v1/images/generations')
+    expect(body).toMatchObject({ model: 'agnes-image-2.5-flash', size: '2K', ratio: '16:9' })
+    expect(body.n).toBeUndefined()
+    expect(body.quality).toBeUndefined()
+  })
+
+  it('★★ Agnes Image 2.0 Flash：尺寸是像素、且不发 ratio（它没有 ratio 参数）', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    await adapter(calls).generateImage(
+      { ...request([], 1), model: 'agnes-image-2.0-flash', params: { count: 1, resolution: '1024x768', ratio: '16:9' } },
+      signal,
+    )
+    const body = calls[0]!.body as Record<string, unknown>
+    expect(body).toMatchObject({ model: 'agnes-image-2.0-flash', size: '1024x768' })
+    expect(body.ratio).toBeUndefined()
+  })
+
+  it('★ Agnes 图片带参考图时改为 JSON `image` + Data URI（文档明写支持 Base64）', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const platform = platformWithAssets([{ id: 'h1', bytes: new Uint8Array([1, 2, 3]), mime: 'image/png' }])
+    const a = createOpenAiImagesAdapter(cfg, {
+      network: networkSeeing('/v1/images/generations', calls),
+      assets: platform.assets,
+    })
+    await a.generateImage(
+      {
+        ...request([{ kind: 'asset', nodeId: 'up', assetHash: 'h1', mime: 'image/png' }], 1),
+        model: 'agnes-image-2.5-flash',
+        params: { count: 1, resolution: '1k', ratio: '1:1' },
+      },
+      signal,
+    )
+    const body = calls[0]!.body as Record<string, unknown>
+    expect(calls[0]!.url).toBe('https://x/v1/images/generations')
+    expect(body.image).toEqual([`data:image/png;base64,${bytesToB64(new Uint8Array([1, 2, 3]))}`])
+  })
+
+  it('★ 非 Agnes 模型完全不受影响（仍走 OpenAI 口径：n + quality）', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    await adapter(calls).generateImage(request([], 2, { ratio: '1:1', resolution: '1k', quality: 'medium' }), signal)
+    expect(calls[0]!.body).toMatchObject({ model: 'gpt-image-2', n: 2, size: '1024x1024', quality: 'medium' })
+  })
+
+  /**
    * ★ 关键：真实渠道下「请求像素」与「实际像素」**不能同源**。
    *
    * 早先实现把请求的 size 直接当产物宽高写上，于是日志里两个数恒等——

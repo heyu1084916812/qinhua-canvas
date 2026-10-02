@@ -81,15 +81,17 @@ export const VIDEO_PARAM_SPECS: Record<string, VideoParamSpec> = {
    * · 比例：用视频接口family 那 6 档（像素由 `agnesVideoDimensions(ratio,size)` 换算）；
    * · 尺寸：只留 720p / 1080p（480p / auto 没验证过，宁可不给）；
    * · 时长：4–12 秒（与官方 2.5 一致；我们唯一实测成功的那次是 4 秒）；
-   * · `mode`：**只有 text** —— keyframe / reference 需要公网可访问的素材 URL，
-   *   而浏览器里的本地素材直传不了（适配器会明确拒绝），摆出来就是死功能。
+   * · `mode`：三档都在 —— `text`（纯文字起片）、`keyframe`（首尾帧）、`reference`
+   *   （全能参考）。**2026-10-03 实测解锁**：2.0 的参考素材参数是 `image` 数组，
+   *   而且**直接吃 Data URI（Base64）**（`mode:keyframes` + `image:[data:image/png;base64,…] ×2`
+   *   → HTTP 200 排队），所以本地素材不必先上图床就能用（对账清单 #115）。
    */
   'agnes-video-v2.0': {
     ratios: AGNES_RATIOS,
     sizes: ['720p', '1080p'],
     seconds: { min: 4, max: 12, default: 5 },
     count: 1,
-    modes: ['text'],
+    modes: ['text', 'keyframe', 'reference'],
     dialect: 'pixel',
   },
 }

@@ -38,14 +38,14 @@ describe('videoParamsFor · 视频模型各自的参数能力', () => {
   /**
    * ★★ 用户手上的就是 **Agnes Video 2.0**（不是 Flash）。它跟 2.5 不是同一套形态：
    * 只认「像素 + 帧数」，官方那套 `mode` 会被 400 拒 —— 所以它的参数能力单独一条，
-   * 且 `mode` 只留 `text`（keyframe / reference 要公网素材 URL，本地素材传不上去）。
+   * 三档 mode 都在（2026-10-03 实测：2.0 的参考素材走 `image` 数组且吃 Data URI）。
    */
-  it('★★ Agnes Video 2.0 单独一条：6 档比例 / 720p·1080p / 4–12 秒 / 仅 text 模式', () => {
+  it('★★ Agnes Video 2.0 单独一条：6 档比例 / 720p·1080p / 4–12 秒 / 三档 mode', () => {
     const spec = videoParamsFor('Agnes Video 2.0')
     expect(spec?.ratios).toEqual(['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'])
     expect(spec?.sizes).toEqual(['720p', '1080p'])
     expect(spec?.seconds).toEqual({ min: 4, max: 12, default: 5 })
-    expect(spec?.modes).toEqual(['text'])
+    expect(spec?.modes).toEqual(['text', 'keyframe', 'reference'])
     expect(spec?.count).toBe(1)
   })
 

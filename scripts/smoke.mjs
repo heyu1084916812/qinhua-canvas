@@ -10723,14 +10723,14 @@ async function g79(browser) {
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-option')))
   rec(
     g,
-    '★ 对话档 = Agnes 自有那个 + OpenAI 三个 + Gemini 3.8 Flash（Google 只留一个）',
+    '★ 对话档 = Agnes 两个免费 Flash + OpenAI 三个 + Gemini 3.8 Flash（Google 只留一个）',
     JSON.stringify(chatValues.slice(0, 5)) ===
       JSON.stringify([
-        'Agnes 2.5 Pro',
+        'Agnes 2.0 Flash',
+        'Agnes 3.0 Flash',
         'GPT-6 Astra',
         'GPT-6 Sol',
         'GPT-6 Luna',
-        'Gemini 3.8 Flash',
       ]),
     `opts=${JSON.stringify(chatValues)}`,
   )
@@ -10758,14 +10758,16 @@ async function g79(browser) {
   const trimmedLabels = allRowLabels.map((s) => s.trim())
   rec(
     g,
-    '★ 映射区只列 18 个固定显示名（含 Agnes 自有三个），不含上游裸 ID 或重复项',
-    (await allRows.count()) === 18 &&
-      (await presetRows.count()) === 18 &&
+    '★ 映射区只列 19 个固定显示名（含 Agnes 自有四个），不含上游裸 ID 或重复项',
+    (await allRows.count()) === 19 &&
+      (await presetRows.count()) === 19 &&
       presetLabels.map((s) => s.trim()).includes('GPT Image 2') &&
       // Agnes 有自己的显示名，不再把它的 ID 塞进别家的名字里
-      presetLabels.map((s) => s.trim()).includes('Agnes 2.5 Pro') &&
+      presetLabels.map((s) => s.trim()).includes('Agnes 2.0 Flash') &&
+      presetLabels.map((s) => s.trim()).includes('Agnes 3.0 Flash') &&
       presetLabels.map((s) => s.trim()).includes('Agnes Video 2.0') &&
       !trimmedLabels.includes('gpt-image-2') &&
+      !trimmedLabels.includes('agnes-2.0-flash') &&
       !trimmedLabels.includes('agnes-2.5-pro') &&
       !trimmedLabels.includes('gemini-3.1-pro-preview') &&
       !trimmedLabels.includes('gemini-3.5-flash') &&
@@ -15111,7 +15113,79 @@ async function g96(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96]
+/**
+ * G97 素材传输（图床）设置页（用户 2026-10-03：「图床设置页单独设置一个页面出来，
+ * 然后给我找到可用的设置上去」）。
+ *
+ * 这一组验三件事：① 一级导航里真的有这个入口、页面能打开；② 默认「关闭」（不许偷偷上传），
+ * 选了服务之后**刷新仍在**（配置真的落库）；③ 点「测试上传」能拿到 `/dl/` 直链 ——
+ * 那才是上游抓得到的形态（`tmpfiles.org/<id>/<name>` 是 HTML 页面）。
+ *
+ * ③ 依赖外网：拿不到直链时只要求「如实报失败」，并把结果写进 detail，不让整组假绿。
+ */
+async function g97(browser) {
+  const g = 'G97 素材传输'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await page.goto(`${BASE}/hosting`, { waitUntil: 'networkidle' })
+  await sleep(700)
+
+  rec(
+    g,
+    '★★ 一级导航出现「素材传输」，且页面能打开',
+    /* 侧栏可能处于收起态（此时只有图标、没有文字）⇒ 认稳定锚点，不认文案 */
+    (await page.locator('[data-sidebar-item="/hosting"]').count()) === 1 &&
+      (await page.locator('[data-hosting-page]').count()) === 1,
+  )
+  rec(
+    g,
+    '★ 默认「关闭」（不会偷偷把素材传出去）',
+    (await page.locator('[data-hosting-provider="off"]').getAttribute('aria-pressed')) === 'true',
+  )
+
+  await page.locator('[data-hosting-provider="tmpfiles"]').click()
+  await sleep(600)
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(700)
+  rec(
+    g,
+    '★★ 选了服务之后刷新仍在（配置真的落库，不是只改了内存）',
+    (await page.locator('[data-hosting-provider="tmpfiles"]').getAttribute('aria-pressed')) === 'true',
+  )
+
+  await page.locator('[data-hosting-test]').click()
+  await sleep(6000)
+  const url = await page.locator('[data-hosting-url]').innerText().catch(() => '')
+  const status = await page.locator('[data-hosting-status]').innerText().catch(() => '')
+  rec(
+    g,
+    '★★ 测试上传拿到 `/dl/` 直链（页面地址换成直链形态）',
+    /https:\/\/tmpfiles\.org\/dl\//.test(url),
+    `url=${url.trim()} status=${status.trim()}`,
+  )
+  rec(
+    g,
+    '★ 失败时如实报错，不静默（外网依赖，失败会写在这里）',
+    /\/dl\//.test(url) || /上传失败/.test(status),
+    `url=${url.trim()} status=${status.trim()}`,
+  )
+
+  /** 验完切回「关闭」：不给用户留下一个默认开启的上传开关 */
+  await page.locator('[data-hosting-provider="off"]').click()
+  await sleep(500)
+  rec(
+    g,
+    '★ 能切回「关闭」（上传是可选项，不是开关就下不来的状态）',
+    (await page.locator('[data-hosting-provider="off"]').getAttribute('aria-pressed')) === 'true',
+  )
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

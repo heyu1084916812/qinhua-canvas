@@ -142,6 +142,17 @@ export interface FilePort {
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
+/**
+ * **素材传输端口**（用户 2026-10-03：单独一个「素材传输」设置页）。
+ *
+ * 把本地素材字节传到用户配置的图床，换回一条**能被上游抓到**的公网直链。
+ * 约定：没配图床（`provider: 'off'`）时返回 `null` —— 这不是失败，
+ * 调用方据此回落「内联 Base64」那条路（实测 Agnes 两边都认）。
+ */
+export interface HostingPort {
+  upload(input: { blob: Blob; name: string }): Promise<{ url: string } | null>
+}
+
 export interface LoggerPort {
   log(level: LogLevel, message: string, meta?: Record<string, unknown>): void
 }
@@ -150,6 +161,8 @@ export interface PlatformKit {
   storage: StoragePort
   network: NetworkPort
   assets: AssetPort
+  /** 素材传输（图床）：把本地字节换成公网直链；没配图床时 `upload` 返回 null */
+  hosting: HostingPort
   credentials: CredentialPort
   files: FilePort
   logger: LoggerPort

@@ -456,7 +456,7 @@ describe('channelStore', () => {
     const picked = await store.defaultForNewNode({}, 'chat')
     // 本 fixture 的 `chat-1` 不在任何固定显示名的别名里 → 回落到清单第一项。
     // （清单里「渠道真有的那个优先」那条由 generationPreset.test 专门覆盖）
-    expect(picked?.model).toBe('Agnes 2.5 Pro')
+    expect(picked?.model).toBe('Agnes 2.0 Flash')
   })
 })
 

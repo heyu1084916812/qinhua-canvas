@@ -8,11 +8,12 @@ import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { useSkills } from '../../../app/providers/SkillStoreProvider'
 import { useAsset } from '../hooks/useAsset'
 import type { PromptToolAction } from '../../../features/shared/promptTools/promptTools'
-import { ParamPicker } from './ParamPicker'
+import { ParamPicker, type ParamSection } from './ParamPicker'
 import { SkillPicker } from './SkillPicker'
 import styles from './CreationPanel.module.css'
 import { RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
 import { videoParamsFor } from '../../../domain/canvas/layout/videoParams'
+import { imageParamsFor } from '../../../domain/canvas/layout/imageParams'
 import {
   categoryOfLogical,
   panelModelOptions,
@@ -557,26 +558,18 @@ export function CreationPanel(props: CreationPanelProps) {
    * 语义修正：未声明 = 不知道上限 = 不设限，上限取最大的那个档位；
    * 只有模型明确报出更小的上限时才置灰它够不到的档位。
    */
-  const declaredMax = activeModel?.maxCount
-  const maxCount =
-    typeof declaredMax === 'number' && declaredMax > 0
-      ? Math.max(1, declaredMax)
-      : COUNT_OPTIONS[COUNT_OPTIONS.length - 1]
-  const count = Math.max(1, Math.min(data.count ?? 1, maxCount))
-
   /**
-   * 「生成参数」胶囊上的那一行摘要。
+   * **图片模型各自的参数能力**（用户 2026-10-03：「把图片生成节点和视频生成节点的模型
+   * 具体每个模型有哪些配置单独设置，不要通用设置，去官方文档找一下」）。
    *
-   * 顺序与胶囊里四段的顺序一致（比例 · 画质 · 质量 · 张数），也就是把原先
-   * 四枚 chip 的文案用「 · 」串起来 —— 用户 2026-10-02 的参考产品就是
-   * 「1:1 · 标准画质 · 1K · 1张」这种一行说法。
+   * 与 `videoParamsFor` 同一套做法：有规格就**只按规格渲染**（Agnes Image 2.0 只给像素尺寸、
+   * 2.1/2.5 给 1K–4K 档位 + 8 档画幅、都没有「张数 / 质量」），
+   * 没有规格才退回原来那套通用档位（其它厂商的显示名，参数以渠道上报为准）。
    */
-  const paramsLabel = [
-    data.ratio || '比例',
-    RESOLUTION_OPTIONS.find((r) => r.value === (data.resolution ?? 'auto'))?.label ?? '自动',
-    QUALITY_OPTIONS.find((q) => q.value === (data.quality ?? 'auto'))?.label ?? '质量',
-    `${count} 张`,
-  ].join(' · ')
+  const imageSpec =
+    !promptMode && !videoMode
+      ? imageParamsFor(shownLogicalModel || String(data.model ?? ''))
+      : undefined
 
   /**
    * **视频模型各自的参数能力**（用户 2026-10-03：「每个视频模型应该有的参数单独做，
@@ -586,9 +579,141 @@ export function CreationPanel(props: CreationPanelProps) {
   const videoSpec = videoMode
     ? videoParamsFor(shownLogicalModel || String(data.model ?? ''))
     : undefined
-  // 模型不支持的档位直接隐藏（§6.8「参数项随模型能力动态渲染」）
-  const ratios = videoSpec ? [...videoSpec.ratios] : ratiosOf(activeModel, props.hasSourceImage === true)
-  const resolutions = resolutionsOf(activeModel)
+
+  /**
+   * 比例 / 尺寸两段候选：**模型有能力表就只按能力表**（模型不支持的档位直接隐藏，
+   * §6.8「参数项随模型能力动态渲染」），没有才按渠道上报的能力。
+   */
+  const ratios = videoSpec
+    ? [...videoSpec.ratios]
+    : imageSpec
+      ? [...imageSpec.ratios]
+      : ratiosOf(activeModel, props.hasSourceImage === true)
+  const resolutions: readonly string[] = imageSpec
+    ? [...imageSpec.sizes]
+    : resolutionsOf(activeModel)
+
+  const declaredMax = activeModel?.maxCount
+  const maxCount =
+    imageSpec
+      ? Math.max(...imageSpec.counts)
+      : typeof declaredMax === 'number' && declaredMax > 0
+      ? Math.max(1, declaredMax)
+      : COUNT_OPTIONS[COUNT_OPTIONS.length - 1]
+  const count = Math.max(1, Math.min(data.count ?? 1, maxCount))
+  /** 张数候选：有规格就只摆规格里的（Agnes 图片只有 1 张 ⇒ 这一段整个不摆） */
+  const countChoices: readonly number[] = imageSpec ? imageSpec.counts : COUNT_OPTIONS
+  /** 质量候选：规格里没有就不摆（Agnes 图片们都没有 `quality`） */
+  const qualityChoices = imageSpec ? imageSpec.qualities : QUALITY_OPTIONS.map((q) => q.value)
+
+  /**
+   * 「生成参数」胶囊上的那一行摘要。
+   *
+   * 顺序与胶囊里四段的顺序一致（比例 · 画质 · 质量 · 张数），也就是把原先
+   * 四枚 chip 的文案用「 · 」串起来 —— 用户 2026-10-02 的参考产品就是
+   * 「1:1 · 标准画质 · 1K · 1张」这种一行说法。
+   */
+  const resolutionLabel = (value: string): string =>
+    RESOLUTION_OPTIONS.find((r) => r.value === value)?.label ?? value.toUpperCase()
+  const qualityLabelOf = (value: string): string =>
+    QUALITY_OPTIONS.find((q) => q.value === value)?.label ?? value
+  /**
+   * 摘要只串**这次真的摆出来的那几段**：模型没有「张数」就不该在摘要里写「1 张」，
+   * 否则用户会去找一个根本点不开的档位。
+   */
+  const paramsLabel = [
+    ratios.length > 0 ? data.ratio || '比例' : '',
+    resolutions.length > 0 ? resolutionLabel(data.resolution ?? 'auto') : '',
+    qualityChoices.length > 0 ? qualityLabelOf(data.quality ?? 'auto') : '',
+    countChoices.length > 1 ? `${count} 张` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
+  /**
+   * 图片模式的几段（比例 / 尺寸 / 质量 / 张数）。
+   *
+   * **每一段只有真的有候选才出现** —— 这就是「每个模型单独配置」的落点：
+   * Agnes 的图片模型既没有 `n` 也没有 `quality`，那两段整块不摆，
+   * 而不是摆一排点了没有任何作用的格子（本项目反复强调的「别做死控件」）。
+   */
+  const resolutionValueOf = (size: string): string =>
+    /^\d+k$/i.test(size) ? size.toLowerCase() : size
+  const paramSections: ParamSection[] = [
+    ...(ratios.length > 0
+      ? [
+          {
+            name: 'ratio',
+            label: '比例',
+            variant: 'ratioGrid' as const,
+            options: ratios.map((r) => ({ value: r, label: r })),
+            value: data.ratio ?? '',
+            onSelect: (v: string) =>
+              onEvent({ type: 'setRatio', ratio: v, recipe: recipeSnapshot({ ratio: v }) }),
+          },
+        ]
+      : []),
+    ...(resolutions.length > 0
+      ? [
+          {
+            name: 'resolution',
+            label: imageSpec?.dialect === 'tier' ? '尺寸' : '画质',
+            variant: 'pill' as const,
+            options: resolutions.map((v) => ({
+              value: resolutionValueOf(v),
+              label: resolutionLabel(v),
+            })),
+            value: data.resolution ?? 'auto',
+            onSelect: (v: string) =>
+              onEvent({
+                type: 'setResolution',
+                resolution: v,
+                recipe: recipeSnapshot({ resolution: v }),
+              }),
+          },
+        ]
+      : []),
+    ...(qualityChoices.length > 0
+      ? [
+          {
+            name: 'quality',
+            label: '质量',
+            variant: 'pill' as const,
+            options: qualityChoices.map((q) => ({ value: q, label: qualityLabelOf(q) })),
+            value: data.quality ?? 'auto',
+            onSelect: (v: string) =>
+              onEvent({
+                type: 'setQuality',
+                quality: v,
+                recipe: recipeSnapshot({ quality: v as NonNullable<GenerationData['quality']> }),
+              }),
+          },
+        ]
+      : []),
+    ...(countChoices.length > 1
+      ? [
+          {
+            name: 'count',
+            label: '张数',
+            variant: 'pill' as const,
+            options: countChoices.map((c) => ({
+              value: String(c),
+              label: `${c} 张`,
+              /** 模型明确声明的上限才置灰；未声明 = 不设限（见 maxCount 的注释） */
+              disabled: c > maxCount,
+              title: c > maxCount ? `当前模型最多 ${maxCount} 张` : `${c} 张`,
+            })),
+            value: String(count),
+            onSelect: (v: string) =>
+              onEvent({
+                type: 'setCount',
+                count: Number(v),
+                recipe: recipeSnapshot({ count: Number(v) }),
+              }),
+          },
+        ]
+      : []),
+  ]
 
   // 视频参数（§6.8 视频模式）：尺寸 / 时长 / 首尾帧·全能参考
   /** 尺寸档：有规格就按规格出（**去掉 auto / 480p 这种它不认的值**），否则用通用档 */
@@ -986,61 +1111,7 @@ export function CreationPanel(props: CreationPanelProps) {
                 name="gen-params"
                 ariaLabel={`生成参数（${paramsLabel}）`}
                 label={paramsLabel}
-                sections={[
-                  {
-                    name: 'ratio',
-                    label: '比例',
-                    variant: 'ratioGrid',
-                    options: ratios.map((r) => ({ value: r, label: r })),
-                    value: data.ratio ?? '',
-                    onSelect: (v) =>
-                      onEvent({ type: 'setRatio', ratio: v, recipe: recipeSnapshot({ ratio: v }) }),
-                  },
-                  {
-                    name: 'resolution',
-                    label: '画质',
-                    variant: 'pill',
-                    options: resolutions.map((v) => ({
-                      value: v,
-                      label: RESOLUTION_OPTIONS.find((r) => r.value === v)?.label ?? v,
-                    })),
-                    value: data.resolution ?? 'auto',
-                    onSelect: (v) =>
-                      onEvent({
-                        type: 'setResolution',
-                        resolution: v,
-                        recipe: recipeSnapshot({ resolution: v as NonNullable<GenerationData['resolution']> }),
-                      }),
-                  },
-                  {
-                    name: 'quality',
-                    label: '质量',
-                    variant: 'pill',
-                    options: QUALITY_OPTIONS.map((q) => ({ value: q.value, label: q.label })),
-                    value: data.quality ?? 'auto',
-                    onSelect: (v) =>
-                      onEvent({
-                        type: 'setQuality',
-                        quality: v,
-                        recipe: recipeSnapshot({ quality: v as NonNullable<GenerationData['quality']> }),
-                      }),
-                  },
-                  {
-                    name: 'count',
-                    label: '张数',
-                    variant: 'pill',
-                    options: COUNT_OPTIONS.map((c) => ({
-                      value: String(c),
-                      label: `${c} 张`,
-                      /** 模型明确声明的上限才置灰；未声明 = 不设限（见 maxCount 的注释） */
-                      disabled: c > maxCount,
-                      title: c > maxCount ? `当前模型最多 ${maxCount} 张` : `${c} 张`,
-                    })),
-                    value: String(count),
-                    onSelect: (v) =>
-                      onEvent({ type: 'setCount', count: Number(v), recipe: recipeSnapshot({ count: Number(v) }) }),
-                  },
-                ]}
+                sections={paramSections}
                 open={openPicker === 'gen-params'}
                 onToggle={() => togglePicker('gen-params')}
                 onClose={closePicker}

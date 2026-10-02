@@ -10,6 +10,7 @@ import {
   createOpenAiVideoAdapter,
   videoTaskStatus,
 } from './openaiVideo'
+import { bytesToBase64 } from './base64'
 
 /**
  * OpenAI 兼容族的视频分支。
@@ -66,7 +67,11 @@ const videoRequest = {
   model: 'agnes-video-v2.0',
   prompt: 'a red circle slowly rotating',
   inputs: [],
-  params: { ratio: '16:9', size: '480p', durationSec: 1, refMode: 'first-last-frame' },
+  /**
+   * `refMode: null` = 用户没选参考模式（面板默认显示「首尾帧」但不写进节点，
+   * `nodeSpecs/params.ts` 会把未设置发成 `null`）⇒ 走纯文字起片。
+   */
+  params: { ratio: '16:9', size: '480p', durationSec: 1, refMode: null },
 }
 
 describe('视频参数映射（Agnes 形态）', () => {
@@ -297,15 +302,167 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
     expect(assets).toHaveLength(1)
   })
 
-  it('★★ 带本地参考图时明确拦住并说清原因（官方要求公网 URL，浏览器直传不了）', async () => {
+  /**
+   * **2026-10-03 实测推翻旧口径**（对账清单 #115）：
+   *
+   * 原先这里钉的是「带本地参考图一律拦住」（依据是 2.5 文档要求公网 URL）。
+   * 真令牌实测：2.0 的 `mode:'keyframes'` **收下 `image:[data:image/png;base64,…]`**
+   * 并正常排队（HTTP 200）；参数要求是**数组至少 2 项**
+   * （错误原文：`mode=keyframes requires image as a list of at least 2 items`）。
+   */
+  it('★★ 首尾帧：本地素材读成 Data URI，按 2.0 口径发 `image` 数组（≥2 项）', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const platform = createMemoryPlatform({
+      rows: {
+        assets: [
+          { id: 'a1', bytes: new Uint8Array([1, 2, 3]), mime: 'image/png' },
+          { id: 'a2', bytes: new Uint8Array([4, 5, 6]), mime: 'image/png' },
+        ],
+      },
+      handler: async (req: NetworkRequest) => {
+        if (req.method === 'POST') {
+          bodies.push(req.body as Record<string, unknown>)
+          return json(200, { task_id: 't', video_id: 'v', status: 'queued' })
+        }
+        if (req.url === 'https://x/v.mp4') return json(200, {})
+        if (req.url.includes('/videos/t')) return json(200, { status: 'completed', url: 'https://x/v.mp4' })
+        return json(404, {})
+      },
+    })
+    const adapter = createOpenAiVideoAdapter(config, platform, { sleep: async () => {}, now: () => 0 })
+    await adapter.generateVideo(
+      {
+        ...videoRequest,
+        params: { ...videoRequest.params, refMode: 'first-last-frame' },
+        inputs: [
+          { kind: 'asset', nodeId: 'n1', assetHash: 'a1', mime: 'image/png' },
+          { kind: 'asset', nodeId: 'n2', assetHash: 'a2', mime: 'image/png' },
+        ],
+      },
+      new AbortController().signal,
+    )
+
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]).toMatchObject({ mode: 'keyframes', width: 720, height: 408, frame_rate: 24 })
+    const images = bodies[0]!.image as string[]
+    expect(images).toHaveLength(2)
+    expect(images[0]).toBe(`data:image/png;base64,${bytesToBase64(new Uint8Array([1, 2, 3]))}`)
+    expect(images[1]).toBe(`data:image/png;base64,${bytesToBase64(new Uint8Array([4, 5, 6]))}`)
+  })
+
+  it('★ 全能参考：多张本地素材进 `image` 数组（mode=multi_reference）', async () => {
+    let sent: Record<string, unknown> | null = null
+    const platform = createMemoryPlatform({
+      rows: { assets: [{ id: 'a1', bytes: new Uint8Array([9]), mime: 'image/png' }] },
+      handler: async (req: NetworkRequest) => {
+        if (req.method === 'POST') {
+          sent = req.body as Record<string, unknown>
+          return json(200, { task_id: 't', video_id: 'v', status: 'queued' })
+        }
+        if (req.url === 'https://x/v.mp4') return json(200, {})
+        if (req.url.includes('/videos/t')) return json(200, { status: 'completed', url: 'https://x/v.mp4' })
+        return json(404, {})
+      },
+    })
+    const adapter = createOpenAiVideoAdapter(config, platform, { sleep: async () => {}, now: () => 0 })
+    await adapter.generateVideo(
+      {
+        ...videoRequest,
+        params: { ...videoRequest.params, refMode: 'all-purpose' },
+        inputs: [{ kind: 'asset', nodeId: 'n1', assetHash: 'a1', mime: 'image/png' }],
+      },
+      new AbortController().signal,
+    )
+    expect(sent).toMatchObject({ mode: 'multi_reference' })
+    expect(sent!.image).toEqual([`data:image/png;base64,${bytesToBase64(new Uint8Array([9]))}`])
+  })
+
+  it('★ 选了参考模式却一张素材都没连 → 明确报错（不发一个必失败的请求）', async () => {
     const platform = createMemoryPlatform({ handler: async () => json(200, {}) })
     const adapter = createOpenAiVideoAdapter(config, platform, { sleep: async () => {}, now: () => 0 })
     await expect(
       adapter.generateVideo(
-        { ...videoRequest, inputs: [{ kind: 'asset', nodeId: 'n1', assetHash: 'h1', mime: 'image/png' }] },
+        { ...videoRequest, params: { ...videoRequest.params, refMode: 'first-last-frame' } },
         new AbortController().signal,
       ),
     ).rejects.toMatchObject({ appError: { kind: 'http', status: 400 } })
+  })
+
+  /**
+   * 素材传输（图床）是**可选加速项**（用户 2026-10-03 要求单独一个设置页）：
+   * 配了就先上传、用公网直链；没配或传挂了，回落内联 Base64 ——
+   * 两条路都必须能把参考图发出去，图床不能成为参考功能的单点。
+   */
+  it('★★ 配了图床：参考图先用图床直链（不再把 base64 塞进请求体）', async () => {
+    let sent: Record<string, unknown> | null = null
+    const platform = createMemoryPlatform({
+      rows: { assets: [{ id: 'a1', bytes: new Uint8Array([1, 2, 3]), mime: 'image/png' }] },
+      handler: async (req: NetworkRequest) => {
+        if (req.method === 'POST') {
+          sent = req.body as Record<string, unknown>
+          return json(200, { task_id: 't', video_id: 'v', status: 'queued' })
+        }
+        if (req.url === 'https://x/v.mp4') return json(200, {})
+        if (req.url.includes('/videos/t')) return json(200, { status: 'completed', url: 'https://x/v.mp4' })
+        return json(404, {})
+      },
+    })
+    const adapter = createOpenAiVideoAdapter(
+      config,
+      {
+        network: platform.network,
+        assets: platform.assets,
+        hosting: { upload: async () => ({ url: 'https://host.example/a1.png' }) },
+      },
+      { sleep: async () => {}, now: () => 0 },
+    )
+    await adapter.generateVideo(
+      {
+        ...videoRequest,
+        params: { ...videoRequest.params, refMode: 'all-purpose' },
+        inputs: [{ kind: 'asset', nodeId: 'n1', assetHash: 'a1', mime: 'image/png' }],
+      },
+      new AbortController().signal,
+    )
+    expect(sent!.image).toEqual(['https://host.example/a1.png'])
+  })
+
+  it('★ 图床传挂了 → 回落内联 Base64（参考功能不被图床拖死）', async () => {
+    let sent: Record<string, unknown> | null = null
+    const platform = createMemoryPlatform({
+      rows: { assets: [{ id: 'a1', bytes: new Uint8Array([7]), mime: 'image/png' }] },
+      handler: async (req: NetworkRequest) => {
+        if (req.method === 'POST') {
+          sent = req.body as Record<string, unknown>
+          return json(200, { task_id: 't', video_id: 'v', status: 'queued' })
+        }
+        if (req.url === 'https://x/v.mp4') return json(200, {})
+        if (req.url.includes('/videos/t')) return json(200, { status: 'completed', url: 'https://x/v.mp4' })
+        return json(404, {})
+      },
+    })
+    const adapter = createOpenAiVideoAdapter(
+      config,
+      {
+        network: platform.network,
+        assets: platform.assets,
+        hosting: {
+          upload: async () => {
+            throw new Error('图床挂了')
+          },
+        },
+      },
+      { sleep: async () => {}, now: () => 0 },
+    )
+    await adapter.generateVideo(
+      {
+        ...videoRequest,
+        params: { ...videoRequest.params, refMode: 'all-purpose' },
+        inputs: [{ kind: 'asset', nodeId: 'n1', assetHash: 'a1', mime: 'image/png' }],
+      },
+      new AbortController().signal,
+    )
+    expect(sent!.image).toEqual([`data:image/png;base64,${bytesToBase64(new Uint8Array([7]))}`])
   })
 
   it('★ 失败态把服务端原话带出来（只报「失败」等于没说）', async () => {

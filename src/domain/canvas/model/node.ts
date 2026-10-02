@@ -84,10 +84,17 @@ export interface GenerationData {
   // 图片模式
   ratio?: string
   /**
-   * `'auto'` = **不向渠道指定画质**，交给模型决定（与 `quality` 同一口径）。
-   * 未设置与显式 `'auto'` 等价——面板一律显示为「自动」。
+   * 图片**尺寸 / 画质档**，允许两种写法（用户 2026-10-03「每个图片模型单独配置」）：
+   *
+   * - `'auto'` = **不向渠道指定**，交给模型决定（与 `quality` 同一口径）；
+   * - 档位：`'1k' | '2k' | '3k' | '4k'`（Agnes Image 2.1 / 2.5 与多数渠道）；
+   * - **像素**：`'1024x768'` 这种（Agnes Image 2.0 Flash 只认像素尺寸，没有档位）。
+   *
+   * 故类型放宽成 `string`：**合法取值由各模型的 `imageParamsFor` 能力表约束**，
+   * 面板只摆该模型声明过的值。写死成四档联合会在遇到像素尺寸的模型时
+   * 逼着调用方到处 `as`（那正是「类型骗人」的开始）。
    */
-  resolution?: 'auto' | '1k' | '2k' | '4k'
+  resolution?: string
   quality?: 'auto' | 'low' | 'medium' | 'high'
   count?: number
   // 视频模式

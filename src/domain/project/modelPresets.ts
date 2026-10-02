@@ -99,15 +99,20 @@ export const PRESET_VIDEO_MODELS: readonly PresetModel[] = [
  * 上面那三组里的任何厂商（把 Agnes 的 ID 塞进 `GPT-6 Astra`、`Nano Banana 2`
  * 这类别家显示名里是错的——面板写着 A、实际发 B）。所以给它**自己的显示名**。
  *
- * 只列**实测通过**的三个，每类一个（用户：「每个类别只保留一个就行，保留可以用的，
- * 测试有结果的，最强的」）：
- *   - 对话 → `agnes-2.5-pro`（6 个全测通，其中它是商业稳定版 Pro，非预览非轻量档）
- *   - 生图 → `agnes-image-2.5-flash`（官方写明综合超越 2.1 Flash）
- *   - 视频 → `agnes-video-v2.0`（三个视频模型里唯一真出过片的；
- *     `agnes-video-2.5` 余额不足、`agnes-video-2.5-flash` 队列一直满）
+ * **对话改两个 Flash**（用户 2026-10-03：「免费的对话模型当前有两个，分别是 2.0flash
+ * 和 3.0flash，所以前端你需要改成这两个，当前是 2.5pro」）：
+ *   - 对话 → `agnes-2.0-flash`、`agnes-3.0-flash`（按用户指定；`agnes-2.5-pro` 属于
+ *     按 Pro 系列刊例价计费的那档，已从前端清单撤下）
+ *     ⚠️ **口径待复核**：官方 *pricing* 页当前把 `agnes-2.5-flash` 与 `agnes-3.0-flash`
+ *     列为 `$0`，而 `agnes-2.0-flash` 那一页标题写着 **Deprecated**（「新接入请用
+ *     `agnes-2.5-flash`」）。两者对不上，先按用户指令上；若 2.0 实际计费或下线，
+ *     把这一行换成 `Agnes 2.5 Flash`（`agnes-2.5-flash`）即可，其余不用动。
+ *   - 生图 → `agnes-image-2.5-flash`（官方写明综合超越 2.1 Flash，当前免费）
+ *   - 视频 → `agnes-video-v2.0`（三个视频模型里唯一真出过片的）
  */
 export const PRESET_AGNES_MODELS: readonly PresetModel[] = [
-  { id: 'Agnes 2.5 Pro', category: 'chat', vendor: 'agnes', aliases: ['agnes-2.5-pro'] },
+  { id: 'Agnes 2.0 Flash', category: 'chat', vendor: 'agnes', aliases: ['agnes-2.0-flash'] },
+  { id: 'Agnes 3.0 Flash', category: 'chat', vendor: 'agnes', aliases: ['agnes-3.0-flash'] },
   {
     id: 'Agnes Image 2.5 Flash',
     category: 'image',

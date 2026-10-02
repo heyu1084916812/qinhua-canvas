@@ -47,6 +47,11 @@ const NAV: NavItem[] = [
   { to: '/skills', label: '技能库', icon: IconSkills },
   { to: '/assets', label: '我的素材', icon: IconAssets },
   { to: '/settings', label: '渠道配置', icon: IconChannels },
+  /**
+   * 素材传输（图床）：用户 2026-10-03 要求「单独设置一个页面」。
+   * 排在渠道配置之后 —— 两者都是「连接类」配置，先连站、再管素材怎么出去。
+   */
+  { to: '/hosting', label: '素材传输', icon: IconAssets },
 ]
 
 /**

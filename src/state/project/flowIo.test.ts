@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { createMemoryStorage, createMemoryNetwork, createMemoryCredentials, createMemoryLogger } from '../../platform/memory'
+import {
+  createMemoryStorage,
+  createMemoryNetwork,
+  createMemoryCredentials,
+  createMemoryLogger,
+  createMemoryHosting,
+} from '../../platform/memory'
 import type { PlatformKit, FilePort, PickedFile, TableName, Row } from '../../platform/ports'
 import { createStorageAssetPort } from '../../platform/assets'
 import { createProjectRepository } from './repository'
@@ -29,6 +35,7 @@ function makePlatform(seedRows: Partial<Record<TableName, Row[]>> = {}) {
     storage,
     network: createMemoryNetwork(),
     assets: createStorageAssetPort(storage),
+    hosting: createMemoryHosting(),
     credentials: createMemoryCredentials(),
     files,
     logger: createMemoryLogger(),

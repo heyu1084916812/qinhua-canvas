@@ -1,0 +1,119 @@
+﻿/* 素材传输设置页（用户 2026-10-03）：单卡片、居中、只用主题令牌 */
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 48px 24px 64px;
+}
+
+.title {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 650;
+  color: var(--text-1);
+}
+
+.lead {
+  margin: 0 0 20px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-2);
+}
+
+.card {
+  border: 1px solid var(--stroke);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.rowLabel {
+  width: 72px;
+  flex: none;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.segmented {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.segOn,
+.segOff {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.segOn {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.segOff {
+  border: 1px solid var(--stroke);
+  background: transparent;
+  color: var(--text-1);
+}
+
+.segOff:hover {
+  background: var(--bg-hover);
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-3);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.primary {
+  height: 34px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.status {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.url {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  font-size: 12px;
+  color: var(--text-2);
+  word-break: break-all;
+}

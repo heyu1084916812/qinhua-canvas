@@ -68,7 +68,16 @@ export type VerifyResult =
  * 装配处（两个 ExecutionProvider / channelStore）可以直接把整个 `platform` 传进来，
  * 无需逐个字段搬运，也不会漏。
  */
-export type ChannelDeps = Pick<PlatformKit, 'network' | 'assets'>
+/**
+ * 适配器能用的平台能力。
+ *
+ * `hosting`（素材传输 / 图床）**可选**：多数调用方与单测只关心网络与素材，
+ * 显式传了就用它把参考图换成公网直链，没传就回落内联 Base64
+ * （用户 2026-10-03：图床是可选加速项，不是参考功能的必要条件）。
+ */
+export type ChannelDeps = Pick<PlatformKit, 'network' | 'assets'> & {
+  hosting?: PlatformKit['hosting']
+}
 
 export interface ChannelAdapter {
   protocol: string

@@ -17,9 +17,11 @@ import {
   isModelListBody,
   openAiBaseUrl,
   toModelCapability,
+  fileExtensionOf,
   GENERATE_TIMEOUT_MS,
   VERIFY_TIMEOUT_MS,
 } from './openaiCommon'
+import { bytesToBase64 } from './base64'
 
 /**
  * OpenAI 兼容族的**视频**分支。
@@ -338,22 +340,45 @@ export function createOpenAiVideoAdapter(
   }
 
   /**
-   * 参考图 / 首尾帧：官方**明文要求公网可访问的图片 URL**
-   * （"All media URLs must be publicly reachable by the Agnes AI service"）。
+   * 参考图 / 首尾帧 → **Data URI 列表**。
    *
-   * 轻画的素材住在浏览器 IndexedDB 里，没有能被上游抓取的地址；塞 `data:` URL
-   * 上游同样取不到。故这里**如实拦住并说清原因**，而不是发出去换回一个
-   * 「图片下载失败」这种指不到病根的错误。
+   * 这里原本是「一律拦住」：官方 2.5 文档明写媒体必须是公网可访问的 URL，
+   * 而轻画的素材住在 IndexedDB 里，所以我们当时判断本地素材传不上去。
+   *
+   * **2026-10-03 用真令牌实测推翻了这条**（对账清单 #115）：`agnes-video-v2.0`
+   * 的 `mode:keyframes` 收下 **`image: [data:image/png;base64,…]`** 并正常排队
+   * （HTTP 200）。也就是说上游这条链路自己会把 Data URI 解成素材，
+   * 不需要先有图床。故改为就地读字节、拼 Data URI。
+   *
+   * 读不到字节（素材已被清理 / 还没落库）时**如实报错**，不静默少发一张 ——
+   * 少发一张的后果是首尾帧变成「同一帧」，用户只会看到画面没动。
    */
-  const assertNoLocalReferenceImages = (request: VideoRunRequest): void => {
-    if (imageInputsOf(request.inputs).length === 0) return
-    throw new ChannelError({
-      kind: 'http',
-      status: 400,
-      body:
-        '该视频渠道的参考图 / 首尾帧需要公网可访问的图片地址，浏览器里的本地素材无法直传。' +
-        '请改用纯文生视频，或先把图片上传到可公开访问的地址。',
-    })
+  const referenceUrls = async (request: VideoRunRequest): Promise<string[]> => {
+    const out: string[] = []
+    for (const input of imageInputsOf(request.inputs)) {
+      const payload = await deps.assets.read(input.assetHash).catch(() => null)
+      if (!payload || payload.bytes.length === 0) {
+        throw new ChannelError({
+          kind: 'http',
+          status: 400,
+          body: `参考素材（${input.assetHash.slice(0, 8)}…）的字节不在本地素材库里，无法作为首尾帧 / 参考图发出。`,
+        })
+      }
+      const mime = payload.mime || input.mime
+      /**
+       * ① 配了图床就先传上去用公网直链（省请求体）；② 没配 / 传失败就内联 Base64。
+       * `upload` 在「没配图床」时返回 null、真失败时抛错 —— 两种都落回 ②，
+       * 于是**图床坏了也不会把参考功能一起拖死**。
+       */
+      const hosted = await deps.hosting
+        ?.upload({
+          blob: new Blob([new Uint8Array(payload.bytes) as BlobPart], { type: mime }),
+          name: `${input.assetHash.slice(0, 12)}.${fileExtensionOf(mime)}`,
+        })
+        .catch(() => null)
+      out.push(hosted?.url ?? `data:${mime};base64,${bytesToBase64(payload.bytes)}`)
+    }
+    return out
   }
 
   const poll = async (
@@ -468,7 +493,6 @@ export function createOpenAiVideoAdapter(
     )
 
   const generateVideo: ChannelAdapter['generateVideo'] = async (request, signal) => {
-    assertNoLocalReferenceImages(request)
     /**
      * **发出去之前按模型能力收口**（用户 2026-10-03：「每个视频模型应该有的参数单独做，
      * 因为有些模型他不支持」）。值域来自 `videoParamsFor`（Agnes 官方文档）。
@@ -490,6 +514,36 @@ export function createOpenAiVideoAdapter(
     const numFrames = agnesVideoFrameCount(safeSeconds)
 
     /**
+     * 参考模式 → 服务端的 `mode` 与素材字段（**2026-10-03 实测口径**，见 `referenceUrls`）：
+     *
+     * - `mode:'keyframes'` 要 **`image` 数组，且至少 2 项**。错误原文：
+     *   `mode=keyframes requires image as a list of at least 2 items`（param: image）
+     *   —— **不是** 2.5 文档里的 `first_frame` / `last_frame`；
+     * - `mode:'multi_reference'` 用同一个 `image` 数组，多张即多参考。
+     *
+     * 2.5 / 2.5 Flash 那一档仍按官方文档的 `first_frame` / `last_frame` / `images`
+     * （我们手上没有 2.5 的可用额度实测，先照文档；被 400 拒时下面的回落会换像素形态）。
+     */
+    const wantsFramePair = request.params.refMode === 'first-last-frame'
+    const wantsReference = request.params.refMode === 'all-purpose'
+    const allowedModes = spec?.modes ?? ['text', 'keyframe', 'reference']
+    const refMode = wantsFramePair && allowedModes.includes('keyframe')
+      ? 'keyframe'
+      : wantsReference && allowedModes.includes('reference')
+        ? 'reference'
+        : 'text'
+    const refUris = refMode === 'text' ? [] : await referenceUrls(request)
+    if (refMode !== 'text' && refUris.length === 0) {
+      throw new ChannelError({
+        kind: 'http',
+        status: 400,
+        body: `${request.params.refMode === 'first-last-frame' ? '首尾帧' : '全能参考'}需要至少一张上游素材：先给这个生成节点连一张图，再点生成。`,
+      })
+    }
+    /** 首尾帧至少要 2 张：只连了 1 张时同一张兼作首尾帧（画面近似静止，好过直接报错） */
+    const keyframeImages = refUris.length >= 2 ? refUris.slice(0, 2) : [refUris[0], refUris[0]]
+
+    /**
      * 官方文档给 Agnes Video 2.5 / 2.5 Flash 的专属参数（`mode` 为必填）。
      *
      * ⚠️ **2.0 不吃这一套**（2026-10-03 用真令牌实测）：这些参数它**收下但不生效** ——
@@ -509,10 +563,15 @@ export function createOpenAiVideoAdapter(
        *   `Input should be 'ti2vid', 'keyframes' or 'multi_reference'`（param: mode）
        * 参数名对上了、值没翻译，服务端只能拒。纯文字起片就是 `'ti2vid'`。
        */
-      mode: 'ti2vid',
+      mode: refMode === 'keyframe' ? 'keyframe' : refMode === 'reference' ? 'reference' : 'ti2vid',
       seconds: String(agnesVideoSeconds(safeSeconds)),
       size: agnesVideoSizeTier(safeSize),
       ...(safeRatio ? { aspect_ratio: safeRatio } : {}),
+      /** 2.5 文档那套：首尾帧一对、参考图一组 */
+      ...(refMode === 'keyframe'
+        ? { first_frame: keyframeImages[0], last_frame: keyframeImages[1] }
+        : {}),
+      ...(refMode === 'reference' ? { images: refUris } : {}),
     }
     /** 老式部署 / LiteLLM 中转只认「OpenAI 视频」那套（像素 + 帧数）；2.0 也认这套 */
     const pixelBody: Record<string, unknown> = {
@@ -522,6 +581,9 @@ export function createOpenAiVideoAdapter(
       height,
       num_frames: numFrames,
       frame_rate: VIDEO_FPS,
+      /** 实测：2.0 的参考素材走 `image` 数组（keyframes ≥2 项） */
+      ...(refMode === 'keyframe' ? { mode: 'keyframes', image: keyframeImages } : {}),
+      ...(refMode === 'reference' ? { mode: 'multi_reference', image: refUris } : {}),
     }
 
     const pixelFirst = spec?.dialect === 'pixel'

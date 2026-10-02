@@ -1,6 +1,8 @@
 import { fingerprintBytes } from '../../domain/shared/hash'
 import { imageInputsOf } from '../../domain/shared/execution/inputs'
 import { imageSizeFromHeader } from '../../domain/shared/imageSize'
+import { imageParamsFor, type ImageParamSpec } from '../../domain/canvas/layout/imageParams'
+import { bytesToBase64 } from './base64'
 import type { SafeChannelConfig, NetworkResponse } from '../ports'
 import {
   ChannelError,
@@ -100,6 +102,24 @@ const OPENAI_QUALITIES = new Set(['auto', 'low', 'medium', 'high'])
 
 export function openAiImageQuality(quality: unknown): string | null {
   return typeof quality === 'string' && OPENAI_QUALITIES.has(quality) ? quality : null
+}
+
+/**
+ * 按**模型自己的能力表**把用户选的档位翻译成该模型要的 `size`。
+ *
+ * 两种方言（见 `domain/canvas/layout/imageParams.ts`）：
+ * - `tier`：档位字符串（`'1k'` → `'1K'`；Agnes 2.1 / 2.5）；
+ * - `pixel`：像素（`'1024x768'` 原样；Agnes Image 2.0 Flash 只认这种）。
+ *
+ * 认不出来时回落到该模型的**第一档**（而不是发一个它不认的值去换 400）。
+ */
+export function specImageSize(resolution: unknown, spec: ImageParamSpec): string {
+  const wanted = typeof resolution === 'string' ? resolution.trim() : ''
+  if (spec.dialect === 'tier') {
+    const upper = wanted.toUpperCase()
+    return spec.sizes.find((s) => s.toUpperCase() === upper) ?? spec.sizes[0] ?? '1K'
+  }
+  return spec.sizes.includes(wanted) ? wanted : (spec.sizes[0] ?? '1024x1024')
 }
 
 /** 从 `1024x1536` 解出本次请求的像素；解不出返回空对象（不用 512 编造） */
@@ -312,15 +332,76 @@ export function createOpenAiImagesAdapter(
       signal,
     )
 
+  /** 参考素材 → Data URI（Agnes 图片接口文档明写 `image` 收 Data URI Base64） */
+  const toDataUris = async (request: ImageRunRequest): Promise<string[]> => {
+    const out: string[] = []
+    for (const item of imageInputsOf(request.inputs)) {
+      const payload = await deps.assets.read(item.assetHash).catch(() => null)
+      if (!payload || payload.bytes.length === 0) continue
+      out.push(`data:${payload.mime || item.mime};base64,${bytesToBase64(payload.bytes)}`)
+    }
+    return out
+  }
+
+  /**
+   * **按模型自己的能力表**发请求（Agnes 图片三档走这条）。
+   *
+   * 与 OpenAI 那套的区别就在「发什么」：这里只发表里声明过的字段 ——
+   * Agnes 图片接口没有 `n`、也没有 `quality`，所以一个都不发；
+   * 画幅用 `ratio`（档位方言）或直接给像素（像素方言）。
+   */
+  const postSpecGenerations = (
+    request: ImageRunRequest,
+    size: string,
+    spec: ImageParamSpec,
+    images: string[],
+    signal: AbortSignal,
+  ): Promise<NetworkResponse> => {
+    const wantedRatio = typeof request.params.ratio === 'string' ? request.params.ratio : ''
+    const ratio = spec.ratios.includes(wantedRatio) ? wantedRatio : spec.ratios[0]
+    return deps.network.request(
+      {
+        url: imagesUrl,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
+        body: {
+          model: request.model,
+          prompt: request.prompt,
+          size,
+          ...(spec.dialect === 'tier' && ratio ? { ratio } : {}),
+          ...(images.length > 0 ? { image: images } : {}),
+          /**
+           * 输出形态仍走既有的顶层 `response_format`（一路都在用、渠道也吃）。
+           * Agnes 文档把它写在 `extra_body.response_format` 下，但我们没有实证过那条，
+           * 不在这次改动里换路径。
+           */
+          response_format: 'b64_json',
+        },
+        timeoutMs: GENERATE_TIMEOUT_MS,
+      },
+      signal,
+    )
+  }
+
   const generateImage: ChannelAdapter['generateImage'] = async (request: ImageRunRequest, signal) => {
+    /**
+     * **模型自己的能力表**（用户 2026-10-03：「把图片生成节点…每个模型有哪些配置
+     * 单独设置，不要通用设置」）。
+     *
+     * 有表（Agnes 图片三档）⇒ 只发表里声明过的参数：`size` 按方言翻译、有 `ratio` 才发、
+     * 不发 `n` 与 `quality`（Agnes 图片接口根本没有这两个字段，发了只能换 400）；
+     * 没有表（其它厂商的固定显示名）⇒ 完全沿用原来那套 OpenAI 口径，行为一字不变。
+     */
+    const spec = imageParamsFor(request.model)
     const count = Math.max(1, typeof request.params.count === 'number' ? request.params.count : 1)
-    // 比例 → 合法像素 size（非法/未知比例宁可不发）；质量 → OpenAI 的 quality 取值
-    const size = openAiImageSize(request.params.ratio, request.params.resolution)
-    const quality = openAiImageQuality(request.params.quality)
+    const specSize = spec ? specImageSize(request.params.resolution, spec) : null
+    const size = specSize ?? openAiImageSize(request.params.ratio, request.params.resolution)
+    const quality = spec ? null : openAiImageQuality(request.params.quality)
     // 有参考图 → 图生图（multipart）；一张都没有 → 文生图（JSON，与 M6-12 前一致）
-    const files = await readImageFiles(request)
-    const res =
-      files.length > 0
+    const files = spec ? [] : await readImageFiles(request)
+    const res = spec && specSize
+      ? await postSpecGenerations(request, specSize, spec, await toDataUris(request), signal)
+      : files.length > 0
         ? await postEdits(request, count, size, quality, files, signal)
         : await postGenerations(request, count, size, quality, signal)
 

@@ -32,6 +32,14 @@ const SkillsPage = lazy(() =>
   import('../pages/SkillsPage/SkillsPage').then((m) => ({ default: m.SkillsPage })),
 )
 
+/**
+ * 素材传输（图床）单独一页（用户 2026-10-03：「图床设置页单独设置一个页面出来」）。
+ * 它回答的是「素材怎么变成公网地址」，与「某个渠道怎么连」是两件事，故不塞进设置页。
+ */
+const HostingPage = lazy(() =>
+  import('../pages/HostingPage/HostingPage').then((m) => ({ default: m.HostingPage })),
+)
+
 /** 懒加载回退：极简空屏，避免闪 logo（工作台 chunk 通常 < 100ms） */
 function RouteFallback() {
   return <div style={{ width: '100vw', height: '100vh' }} aria-busy="true" />
@@ -55,6 +63,7 @@ export function AppRoutes() {
         <Route path="/canvas" element={<CanvasPage />} />
         <Route path="/canvas/:projectId" element={<CanvasPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/hosting" element={<HostingPage />} />
         <Route path="/skills" element={<SkillsPage />} />
         {/* 「我的素材」暂为占位页（§2.1 #6 明写「交互后期补齐」） */}
         <Route path="/assets" element={<AssetsPage />} />

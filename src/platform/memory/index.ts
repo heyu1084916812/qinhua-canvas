@@ -4,6 +4,7 @@ import type {
   NetworkPort,
   CredentialPort,
   FilePort,
+  HostingPort,
   LoggerPort,
   TableName,
   Row,
@@ -139,6 +140,15 @@ export function createMemoryFiles(): FilePort {
   }
 }
 
+/** 内存实现不真的上传：按「没配图床」上报，调用方据此回落内联 Base64 */
+export function createMemoryHosting(): HostingPort {
+  return {
+    async upload() {
+      return null
+    },
+  }
+}
+
 export function createMemoryLogger(): LoggerPort {
   const entries: { level: string; message: string }[] = []
   const port: LoggerPort & { entries: typeof entries } = {
@@ -156,6 +166,7 @@ export function createMemoryPlatform(seed: MemorySeed = {}): PlatformKit {
     storage,
     network: createMemoryNetwork(seed),
     assets: createStorageAssetPort(storage),
+    hosting: createMemoryHosting(),
     credentials: createMemoryCredentials(),
     files: createMemoryFiles(),
     logger: createMemoryLogger(),
