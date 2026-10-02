@@ -126,14 +126,6 @@
 }
 
 /* 已附素材的标签：可换行、可移除；id 长也不许撑破面板（窄容器里最容易出这事） */
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  min-width: 0;
-  padding: 0 var(--space-1);
-}
-
 /**
  * 「加素材」那一枚要能挂浮层：两个菜单（本地上传 / 素材库添加 与素材库本身）
  * 都以它为锚点向上展开。
@@ -220,55 +212,12 @@
   cursor: pointer;
 }
 
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  max-width: 100%;
-  padding: 2px var(--space-1) 2px var(--space-2);
-  border-radius: var(--radius-pill);
-  background: var(--bg-hover);
-  color: var(--text-2);
-  font-size: var(--fs-chip);
-}
-
-.chipText {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/*
- * 素材标签上的**缩略图**（用户 2026-10-02：取选中的节点当素材时，输入框里
- * 要跟 @ 图片节点一样有图，不是一个 `node_xxx`）。
- *
- * 尺寸与 `MentionEditor` 里那枚引用 chip 的缩略图一致（16×12）——
- * 两处都是「一个名字前面挂一张小图」，长得不一样会显得是两个东西。
- */
-.chipThumb {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 12px;
-  border-radius: 2px;
-  object-fit: cover;
-}
-
 /* 「对话模型」那一行：agent 自己的 LLM，单独一处（不跟生成模型挤一个面板） */
 .llmRow {
   display: flex;
   align-items: center;
   gap: var(--space-1);
   padding: 0 var(--space-1);
-}
-
-.chipBtn {
-  flex: 0 0 auto;
-  border: none;
-  background: transparent;
-  color: var(--text-3);
-  cursor: pointer;
-  line-height: 1;
 }
 
 .primary {

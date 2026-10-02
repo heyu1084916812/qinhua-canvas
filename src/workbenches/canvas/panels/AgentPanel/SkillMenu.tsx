@@ -191,10 +191,6 @@ export function SkillMenu({
           className={styles.createWrap}
           ref={createWrapRef}
           onPointerEnter={() => setCreateOpen(true)}
-          onPointerLeave={() => {
-            setCreateOpen(false)
-            setImportOpen(false)
-          }}
         >
           <button
             type="button"

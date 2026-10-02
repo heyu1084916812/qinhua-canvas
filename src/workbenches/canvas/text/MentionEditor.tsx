@@ -16,7 +16,7 @@ import { readEditorText } from './TokenEditor'
  * | 组件 | 管什么 chip | 存储形态 |
  * | --- | --- | --- |
  * | `TokenEditor` | 循环 / 批量节点的变量 | `[计数]` |
- * | 本组件 | @ 引用（节点 / 模型） | `@[显示名](node:id)` / `@[显示名](model:名字)` |
+ * | 本组件 | @ 引用（节点 / 模型 / 技能） | `@[显示名](node:id)` / `@[显示名](model:名字)` / `@[显示名](skill:id)` |
  *
  * 两者的 chip 都把存储形态写进 `data-token`，于是「DOM → 可发送文本」直接复用
  * `readEditorText` **同一份实现**。这条最要紧：各写一份，迟早出现「界面看着有引用、
@@ -25,20 +25,24 @@ import { readEditorText } from './TokenEditor'
  * ## 为什么 chip 不带 ×
  *
  * 变量 chip 要能单独删（它是一整个语义单元）；引用是**句子里的一段**，
- * 用户自然会用退格删掉，多一个 × 反而在窄输入框里挤掉名字。
+ * 多一个 × 反而在窄输入框里挤掉名字。**退格 / Delete 由编辑器接管**
+ * （见 `chipSiblingOf`）：紧贴 chip 删一次就整块拿走 —— 用户 2026-10-02 报的
+ * 「艾特模型后删除不了」说的就是这件事，不能只靠浏览器的默认行为。
  */
 
-/** 引用的存储形态。`kind` 只允许 `node` / `model` 两种，别的一律不当引用 */
-const SPLIT_RE = /(@\[[^\]]*\]\((?:node|model):[^)]*\))/g
+/** 引用的存储形态。`kind` 只允许 `node` / `model` / `skill` 三种，别的一律不当引用 */
+const SPLIT_RE = /(@\[[^\]]*\]\((?:node|model|skill):[^)]*\))/g
 
-/** chip 里那个小图标：节点 = 一张图，模型 = 立体方块（与工具栏的图标同义） */
+/** chip 里那个小图标：节点 = 一张图，模型 = 立体方块，技能 = 魔杖（与工具栏同义） */
 const KIND_ICON: Record<MentionKind, string> = {
   node: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.4"/><path d="m4.5 17 4.5-4.5 3.4 3.4 3-3 4.1 4.1"/></svg>',
   model:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2 20.2 7.6v8.8L12 20.8 3.8 16.4V7.6z"/><path d="M3.8 7.6 12 12l8.2-4.4"/><path d="M12 12v8.8"/></svg>',
+  skill:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.2 19.8 13 11"/><path d="M16.6 3.2l1 2.6 2.6 1-2.6 1-1 2.6-1-2.6-2.6-1 2.6-1z"/><path d="M11.4 4.6l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6L9.2 6.8l1.6-.6z"/></svg>',
 }
 
-export type MentionKind = 'node' | 'model'
+export type MentionKind = 'node' | 'model' | 'skill'
 
 /**
  * 拼一条引用的存储形态。
@@ -58,13 +62,13 @@ export function mentionLabel(token: string): string {
 
 /** 存储形态 → 是节点还是模型（读不出来返回 null，不当引用处理） */
 export function mentionKindOf(token: string): MentionKind | null {
-  const m = /^@\[[^\]]*\]\((node|model):/.exec(token)
-  return m?.[1] === 'node' || m?.[1] === 'model' ? m[1] : null
+  const m = /^@\[[^\]]*\]\((node|model|skill):/.exec(token)
+  return m?.[1] === 'node' || m?.[1] === 'model' || m?.[1] === 'skill' ? m[1] : null
 }
 
-/** 存储形态 → 它指向的那个标识（节点 id / 模型名）；读不出来返回 null */
+/** 存储形态 → 它指向的那个标识（节点 id / 模型名 / 技能 id）；读不出来返回 null */
 export function mentionIdOf(token: string): string | null {
-  const m = /^@\[[^\]]*\]\((?:node|model):([^)]*)\)/.exec(token)
+  const m = /^@\[[^\]]*\]\((?:node|model|skill):([^)]*)\)/.exec(token)
   return m?.[1]?.trim() || null
 }
 
@@ -86,7 +90,7 @@ export interface MentionRef {
 export function parseMentions(text: string): MentionRef[] {
   const out: MentionRef[] = []
   const seen = new Set<string>()
-  for (const m of String(text ?? '').matchAll(/@\[([^\]]*)\]\((node|model):([^)]*)\)/g)) {
+  for (const m of String(text ?? '').matchAll(/@\[([^\]]*)\]\((node|model|skill):([^)]*)\)/g)) {
     const kind = m[2] as MentionKind
     const id = (m[3] ?? '').trim()
     if (!id) continue
@@ -106,7 +110,11 @@ export function parseMentions(text: string): MentionRef[] {
  * 免得模型在同一句话里读到两遍同一个 id。
  */
 export function stripMentionMarkup(text: string): string {
-  return String(text ?? '').replace(/@\[([^\]]*)\]\((?:node|model):[^)]*\)/g, '@$1')
+  return String(text ?? '')
+    /** 节点 / 模型：还原成 `@名字`（读起来就是「引用了谁」） */
+    .replace(/@\[([^\]]*)\]\((?:node|model):[^)]*\)/g, '@$1')
+    /** 技能：它就是「这次用哪条技能」，前面挂个 @ 反而像在引用一个对象，故直接去掉形态 */
+    .replace(/@\[([^\]]*)\]\(skill:[^)]*\)/g, '$1')
 }
 
 function makeChip(doc: Document, token: string): HTMLElement {
@@ -262,6 +270,71 @@ export const MentionEditor = forwardRef<
     onChange(next)
   }
 
+  /**
+   * 光标**紧贴**着的那个 chip（`side` 决定往前还是往后看）；没有就返回 null。
+   *
+   * 只在「光标与 chip 之间除了零宽字符什么都没有」时才算紧贴 —— 否则退格该删的是
+   * 普通文字，别把引用顺手吃掉。
+   */
+  const chipSiblingOf = (range: Range, side: 'before' | 'after'): HTMLElement | null => {
+    const root = ref.current
+    if (!root) return null
+    const isChip = (n: Node | null | undefined): n is HTMLElement =>
+      !!n && n.nodeType === Node.ELEMENT_NODE && Boolean((n as HTMLElement).dataset?.token)
+    /** 空白 = 没有，或只有零宽字符（插入 chip 时垫的那个落点） */
+    const blank = (n: Node | null | undefined) =>
+      !n || (n.nodeType === Node.TEXT_NODE && !(n.nodeValue ?? '').replace(/\u200b/g, ''))
+    const step = side === 'before' ? 'previousSibling' : 'nextSibling'
+
+    const { startContainer, startOffset } = range
+    if (startContainer.nodeType === Node.TEXT_NODE) {
+      const text = startContainer.nodeValue ?? ''
+      const rest = side === 'before' ? text.slice(0, startOffset) : text.slice(startOffset)
+      if (rest.replace(/\u200b/g, '') !== '') return null
+      let node: Node | null = startContainer
+      while (node && node !== root) {
+        let sib: Node | null = node[step]
+        while (sib && blank(sib)) sib = sib[step]
+        if (isChip(sib)) return sib
+        if (sib) return null
+        node = node.parentNode
+      }
+      return null
+    }
+    if (startContainer.nodeType === Node.ELEMENT_NODE) {
+      const kids = (startContainer as HTMLElement).childNodes
+      let i = side === 'before' ? startOffset - 1 : startOffset
+      while (i >= 0 && i < kids.length && blank(kids[i])) i += side === 'before' ? -1 : 1
+      const hit = kids[i]
+      return isChip(hit) ? hit : null
+    }
+    return null
+  }
+
+  /**
+   * 退格 / Delete 紧贴 chip → **整块拿走**，光标留在它原来的位置。
+   *
+   * 用户 2026-10-02：「艾特模型后删除不了」。不接管的话，浏览器对
+   * `contenteditable=false` 内联块的处理各版本不一致（有的先吃掉旁边的零宽字符、
+   * 有的干脆不动），用户看到的就是「删不掉」。
+   */
+  const removeAdjacentChip = (side: 'before' | 'after'): boolean => {
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0 || !sel.isCollapsed) return false
+    const chip = chipSiblingOf(sel.getRangeAt(0), side)
+    const parent = chip?.parentNode
+    if (!chip || !parent) return false
+    const idx = [...parent.childNodes].indexOf(chip)
+    chip.remove()
+    const r = document.createRange()
+    r.setStart(parent, Math.min(Math.max(idx, 0), parent.childNodes.length))
+    r.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(r)
+    emit()
+    return true
+  }
+
   useImperativeHandle(handleRef, () => ({
     insertMention(token: string) {
       const el = ref.current
@@ -334,6 +407,13 @@ export const MentionEditor = forwardRef<
         emit()
       }}
       onKeyDown={(e) => {
+        /** 紧贴 chip 的退格 / Delete = 删掉整块引用（见 `removeAdjacentChip`） */
+        if (e.key === 'Backspace' || e.key === 'Delete') {
+          if (removeAdjacentChip(e.key === 'Backspace' ? 'before' : 'after')) {
+            e.preventDefault()
+            return
+          }
+        }
         if (e.key !== 'Enter') return
         if (e.shiftKey) {
           /** Shift+Enter = 换行：插 `<br>`（readEditorText 认它），别让浏览器插 `<div>` */

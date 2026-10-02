@@ -50,4 +50,22 @@ describe('@ 引用 · 存储形态', () => {
     expect(parseMentions('@你一下 你好')).toEqual([])
     expect(stripMentionMarkup('@你一下 你好')).toBe('@你一下 你好')
   })
+
+  /**
+   * ★ 技能也是正文里的一枚 chip（用户 2026-10-02：「agent 的 skill 选择后不要出现在
+   * 图三的地方……我需要全部出现在正文里面，全部保持和艾特的出现的地方一样」）。
+   *
+   * 与节点 / 模型**同一条通道**（存储形态、解析、往返都是同一份实现），
+   * 差别只有两处：图标换成魔杖；发给模型时**不带 `@`**（它不是「引用了某个东西」，
+   * 而是「这次用哪条技能」，由系统提示词里技能那一段负责讲）。
+   */
+  it('★ 技能 chip 与节点 / 模型同一条通道；发出去时不带 @', () => {
+    const t = mentionToken('skill', 'skill_1', '画面提示词导演')
+    expect(t).toBe('@[画面提示词导演](skill:skill_1)')
+    expect(mentionKindOf(t)).toBe('skill')
+    expect(parseMentions(t)).toEqual([
+      { kind: 'skill', id: 'skill_1', label: '画面提示词导演' },
+    ])
+    expect(stripMentionMarkup(`用 ${t} 来写`)).toBe('用 画面提示词导演 来写')
+  })
 })

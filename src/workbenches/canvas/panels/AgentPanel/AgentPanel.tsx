@@ -77,6 +77,7 @@ import {
   parseMentions,
   stripMentionMarkup,
   type MentionEditorHandle,
+  type MentionRef,
 } from '../../text/MentionEditor'
 import { MarkdownBlocks } from '../../text/MarkdownBlocks'
 import styles from './AgentPanel.module.css'
@@ -211,11 +212,30 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 两处共用同一份搜索，不会出现「这里列得出来、那里选不动」。
    */
   const modelOptionsByKind = useMemo(() => {
-    const pick = (category: 'image' | 'video' | 'chat') =>
-      panelModelOptions(allChannels, category).filter(
-        (n) => channelIdForLogical(enabled, n) !== undefined,
-      )
-    return { image: pick('image'), video: pick('video'), chat: pick('chat') }
+    /**
+     * 生成模型（图片 / 视频）：**前端有什么就列什么**。
+     *
+     * 用户 2026-10-02 第四轮：「图一当中模型的选择面板，把前端所有的模型写上去，
+     * 除了对话模型」—— 这里与创作面板**同一份清单**（`panelModelOptions`：
+     * 固定显示名在前 + 渠道显示名在后），不再按「当下有没有渠道能提供」筛一道。
+     *
+     * 为什么改回来：筛过之后，用户还没配映射的那些固定显示名会**整个消失**，
+     * 面板看起来像「我的模型不见了」；而真正跑不动时执行层会报明确原因
+     * （渠道 / 映射那句），比「列表里没有」好排查得多。对话模型不在这里 ——
+     * 它是单独一行（agent 自己的 LLM）。
+     */
+    const pick = (category: 'image' | 'video') => panelModelOptions(allChannels, category)
+    /**
+     * 对话模型：仍然只列**真跑得起来**的。
+     *
+     * 与生成模型相反的理由：它下一句话就要发请求，列一个没有渠道能提供的模型，
+     * 用户选中之后只会得到一句「没有渠道提供模型」，白点一次（用户 2026-10-02
+     * 第二轮报的「agnes 的是不是多了」就是这条）。
+     */
+    const chat = panelModelOptions(allChannels, 'chat').filter(
+      (n) => channelIdForLogical(enabled, n) !== undefined,
+    )
+    return { image: pick('image'), video: pick('video'), chat }
   }, [allChannels, enabled])
   const chatModelOptions = modelOptionsByKind.chat
   /** 会话存的模型名 → 逻辑显示名（老会话存过上游 ID 的在这里归一） */
@@ -235,15 +255,6 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     if (!id) return '技能'
     return allSkills.find((s) => s.id === id)?.name ?? '技能'
   }, [current?.skillId, allSkills])
-
-  /**
-   * 输入区那两枚「生成模型」chip 的图标。
-   *
-   * 只有**固定显示名**才有厂商 logo（与下拉里同一份 `presetOf`）；渠道里没归一的
-   * 名字不硬塞一个图标，免得画出一个错的厂商。
-   */
-  const imageModelPreset = presetOf(current?.imageModel ?? '')
-  const videoModelPreset = presetOf(current?.videoModel ?? '')
 
   /**
    * 新会话该用哪个模型：默认模型 → 该渠道第一个对话模型。
@@ -473,8 +484,16 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
      * 「技能正文到底进没进提示词」只能靠发出去的消息证明，抽成纯函数才有单测。
      */
     const skill = current.skillId ? allSkills.find((s) => s.id === current.skillId) : undefined
-    /** 这句话里 @ 引用了什么（节点 / 模型）。空数组就不加那一段 */
-    const mentions = parseMentions(text)
+    /**
+     * 这句话里 @ 引用了什么（节点 / 模型）。空数组就不加那一段。
+     *
+     * **技能那枚 chip 不算「引用」**：它说的是「这次用哪条技能」，由下面 `skill`
+     * 那一段（正文 + 名字）负责讲清楚；再当成引用报一遍，模型会在同一句话里读到
+     * 两份同样的东西。正文里那个 token 也会被 `stripMentionMarkup` 还原成技能名。
+     */
+    const mentions = parseMentions(text).filter(
+      (m): m is MentionRef & { kind: 'node' | 'model' } => m.kind !== 'skill',
+    )
     /** 用户点选的三档模型里的图片 / 视频那两个（对话模型由 `inherited` 报） */
     const mediaModels = {
       ...(current.imageModel ? { image: current.imageModel } : {}),
@@ -658,9 +677,28 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 走编辑器自己的 `insertMention`，而不是往 `draft` 里拼字符串：
    * 引用要落在**光标处**、要带 chip 的存储形态，这两件事只有编辑器知道。
    */
-  const insertMention = useCallback((kind: 'node' | 'model', id: string, label: string) => {
-    editorRef.current?.insertMention(mentionToken(kind, id, label))
-  }, [])
+  const insertMention = useCallback(
+    (kind: 'node' | 'model' | 'skill', id: string, label: string) => {
+      /**
+       * 同一枚（kind + id）已经在正文里就**不再插第二枚**。
+       *
+       * 进会话时会按会话行把 chip 补回正文（技能 / 生成模型 / 素材），用户再点一次
+       * 同一项就会出现两枚一模一样的 chip —— 那不是「又用了一次」，是重复。
+       */
+      if (parseMentions(draft).some((m) => m.kind === kind && m.id === id)) return
+      editorRef.current?.insertMention(mentionToken(kind, id, label))
+    },
+    [draft],
+  )
+
+  /** 节点在正文里显示成什么名字（没起名就写「素材」，不露 `node_xxx`） */
+  const nodeLabelOf = useCallback(
+    (id: string) => {
+      const hit = store.getSnapshot().nodes.find((n) => n.id === id)
+      return (hit?.title ?? '').trim() || '素材'
+    },
+    [store],
+  )
 
   /** 开始改名：把当前标题放进草稿，选中整段方便直接覆盖 */
   const startRename = useCallback(() => {
@@ -731,9 +769,15 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       store.notify('选中的不是画布上的节点')
       return
     }
+    /**
+     * 落成**正文里的引用 chip**（用户 2026-10-02：「点击节点后出现的把选中的节点当作
+     * 此次的素材……全部出现在正文里面，全部保持和艾特的出现的地方一样」）——
+     * 与 @ 引用同一套锚点与呈现，不再是正文外面另起一行的标签。
+     */
+    for (const id of picked) insertMention('node', id, nodeLabelOf(id))
     const merged = [...new Set([...(current.pendingAssetIds ?? []), ...picked])]
     await patchSession({ pendingAssetIds: merged })
-  }, [current, selection, store, patchSession])
+  }, [current, selection, store, patchSession, insertMention, nodeLabelOf])
 
   const saveDefault = useCallback(async () => {
     if (!current) return
@@ -874,9 +918,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         height: asset.height,
       })
       if (!id) return
+      /** 同样落成正文里的引用 chip（与「取选中」同一条路） */
+      insertMention('node', id, nodeLabelOf(id))
       await patchSession({ pendingAssetIds: [...(current.pendingAssetIds ?? []), id] })
     },
-    [current, library, patchSession, placeAsset],
+    [current, library, patchSession, placeAsset, insertMention, nodeLabelOf],
   )
 
   /**
@@ -899,21 +945,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         if (id) added.push(id)
       }
       if (added.length === 0) return
+      for (const id of added) insertMention('node', id, nodeLabelOf(id))
       await patchSession({
         pendingAssetIds: [...(current.pendingAssetIds ?? []), ...added],
       })
     },
-    [current, platform, store, projectId, patchSession, placeAsset],
-  )
-
-  const dropAsset = useCallback(
-    async (id: string) => {
-      if (!current) return
-      await patchSession({
-        pendingAssetIds: (current.pendingAssetIds ?? []).filter((x) => x !== id),
-      })
-    },
-    [current, patchSession],
+    [current, platform, store, projectId, patchSession, placeAsset, insertMention, nodeLabelOf],
   )
 
   /**
@@ -980,15 +1017,46 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   }, [draft, hashOfNode, platform, current?.pendingAssetIds])
 
   /**
-   * 素材标签要显示的东西：**缩略图 + 节点名**（不是 `node_xxx` 那种裸 id）。
+   * 会话字段 → **正文 chip**（用户 2026-10-02：「我需要全部出现在正文里面，全部保持
+   * 和艾特的出现的地方一样」）。
    *
-   * 用户 2026-10-02：「把选中的节点当作这次的素材，放进输入框的时候应该也是和
-   * 艾特图片节点的功能是一样的，目前好像是一些节点 id 一样的东西」。
+   * 进一个会话时，把「这次挂着的技能 / 生成模型 / 素材」补成本文里的引用 chip：
+   * 正文是**看得见的记录**，会话行是**真正生效的设置**，两边必须对得上。
+   *
+   * 两条纪律：① 只在正文还空着的时候补（用户写了一半的那句话不能被冲掉）；
+   * ② 每个会话只补一次（发完消息正文会清空，不能把刚发走的那几枚引用又倒回来）。
    */
-  const assetChips = (current?.pendingAssetIds ?? []).map((id) => {
-    const node = graph.nodes.find((n) => n.id === id)
-    return { id, title: (node?.title ?? '').trim() || '素材', url: thumbOf(id) }
-  })
+  const restoredSessionRef = useRef('')
+  useEffect(() => {
+    if (!current || restoredSessionRef.current === current.id) return
+    restoredSessionRef.current = current.id
+    if (draft.trim()) return
+    const tokens: string[] = []
+    if (current.skillId) {
+      const hit = allSkills.find((s) => s.id === current.skillId)
+      tokens.push(mentionToken('skill', current.skillId, hit?.name ?? '技能'))
+    }
+    if (current.imageModel) tokens.push(mentionToken('model', current.imageModel, current.imageModel))
+    if (current.videoModel) tokens.push(mentionToken('model', current.videoModel, current.videoModel))
+    for (const id of current.pendingAssetIds ?? []) {
+      tokens.push(mentionToken('node', id, nodeLabelOf(id)))
+    }
+    if (tokens.length > 0) setDraft(tokens.join(''))
+  }, [current, draft, allSkills, nodeLabelOf])
+
+  /**
+   * 正文 chip → 会话字段（反向）：用户把技能那枚 chip 删掉 = **这次不用这个技能**。
+   *
+   * 只在正文非空时同步 —— 发送之后正文会被清空，那一瞬间不该把设置也一并清光
+   * （素材 / 技能是「本会话挂着的东西」，不是「这一条的附件」）。
+   */
+  useEffect(() => {
+    if (!current || !draft) return
+    const skillIds = parseMentions(draft)
+      .filter((m) => m.kind === 'skill')
+      .map((m) => m.id)
+    if (current.skillId && !skillIds.includes(current.skillId)) void setSkill('')
+  }, [draft, current, setSkill])
 
   /** 卸载时把建出来的 objectURL 回收掉（不回收就是一路泄漏） */
   useEffect(
@@ -1293,96 +1361,18 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       */}
       <div className={styles.composer} data-agent-composer>
         {/*
-          这一行装「这次对话挂上的东西」：**技能**与**素材**。
+          **没有独立的 chip 行了**（用户 2026-10-02：「agent 的 skill 选择后不要出现在
+          图三的地方……点击节点后出现的把选中的节点当作此次的素材的时候都会出现在那里，
+          我需要全部出现在正文里面，全部保持和艾特的出现的地方一样」）。
 
-          技能也显示成 chip（用户 2026-10-03：「选择后就能用这个 skill，也是在 agent
-          的对话框中显示出来代表我用了这个 skill」）—— 与 @ 引用同一套「用了什么，
-          一眼看得见」，而不是只在菜单里打个勾。
+          技能 / 生成模型 / 取选中素材现在**一律落成正文里的引用 chip**（`skill:` /
+          `model:` / `node:` 三种 token），与 @ 引用同一套锚点与呈现：
+          · 插入：`insertMention(...)`（见上面各处的 onSelect / attachSelection）；
+          · 会话字段仍然照写（技能、图片 / 视频模型、素材 id），因为提示词与落地配方
+            读的是它们 —— 正文是**看得见的记录**，会话行是**真正生效的设置**；
+          · 进一个会话时按会话行把 chip 补回正文（见下面那个 `restoredSessionRef` 的
+            effect），两边不会各说各话。
         */}
-        {(current?.skillId ||
-          (current?.pendingAssetIds ?? []).length > 0 ||
-          current?.imageModel ||
-          current?.videoModel) && (
-          <div className={styles.chips}>
-            {current?.skillId && (
-              <span className={styles.chip} data-agent-skill-chip={current.skillId}>
-                <IconSkill size={12} />
-                <span className={styles.chipText}>{skillLabel}</span>
-                <button
-                  type="button"
-                  className={styles.chipBtn}
-                  title="这次不用这个技能"
-                  onClick={() => void setSkill('')}
-                  data-agent-skill-chip-remove
-                >
-                  ✕
-                </button>
-              </span>
-            )}
-            {/*
-              选好的图片 / 视频模型也进输入区（用户 2026-10-02：「选择模型后也是要
-              加入到对话框中参与对话（和艾特模型的功能一样）」）—— 它们是「这一次
-              要说出去的东西」，与技能、素材并排，而不是只躺在菜单里打个勾。
-
-              对话模型不在这儿：它是 agent 自己的 LLM，单独一行（见下面的 `llmRow`）。
-            */}
-            {current?.imageModel && (
-              <span className={styles.chip} data-agent-model-chip="image">
-                {imageModelPreset && <ModelIcon vendor={imageModelPreset.vendor} />}
-                <span className={styles.chipText}>{current.imageModel}</span>
-                <button
-                  type="button"
-                  className={styles.chipBtn}
-                  title="这次不用这个图片模型"
-                  onClick={() => void setModelKind('imageModel', '')}
-                  data-agent-model-chip-remove="image"
-                >
-                  ✕
-                </button>
-              </span>
-            )}
-            {current?.videoModel && (
-              <span className={styles.chip} data-agent-model-chip="video">
-                {videoModelPreset && <ModelIcon vendor={videoModelPreset.vendor} />}
-                <span className={styles.chipText}>{current.videoModel}</span>
-                <button
-                  type="button"
-                  className={styles.chipBtn}
-                  title="这次不用这个视频模型"
-                  onClick={() => void setModelKind('videoModel', '')}
-                  data-agent-model-chip-remove="video"
-                >
-                  ✕
-                </button>
-              </span>
-            )}
-            {assetChips.map((a) => (
-              <span
-                key={a.id}
-                className={styles.chip}
-                data-agent-asset={a.id}
-                {...(a.url ? { 'data-has-thumb': '' } : {})}
-              >
-                {/* 有图就显示缩略图，没图退回一枚图片图标（与 @ 引用 chip 同一手法） */}
-                {a.url ? (
-                  <img className={styles.chipThumb} src={a.url} alt="" />
-                ) : (
-                  <IconImage size={12} />
-                )}
-                <span className={styles.chipText}>{a.title}</span>
-                <button
-                  type="button"
-                  className={styles.chipBtn}
-                  title="移除这张素材"
-                  onClick={() => void dropAsset(a.id)}
-                  data-agent-asset-remove={a.id}
-                >
-                  ✕
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
 
         <MentionEditor
           ref={editorRef}
@@ -1608,7 +1598,14 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                   options: withModelIcons(modelOptionsByKind.image),
                   value: current?.imageModel ?? '',
                   emptyHint: '没有可用的图片模型',
-                  onSelect: (v) => void setModelKind('imageModel', v),
+                  onSelect: (v) => {
+                    void setModelKind('imageModel', v)
+                    /**
+                     * 生成模型也进**正文**（用户 2026-10-02：「选择模型后也是要加入到
+                     * 对话框中参与对话（和艾特模型的功能一样）」）—— 与 @ 模型同一套 chip。
+                     */
+                    if (v) insertMention('model', v, v)
+                  },
                 },
                 {
                   name: 'video',
@@ -1618,7 +1615,10 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                   options: withModelIcons(modelOptionsByKind.video),
                   value: current?.videoModel ?? '',
                   emptyHint: '没有可用的视频模型',
-                  onSelect: (v) => void setModelKind('videoModel', v),
+                  onSelect: (v) => {
+                    void setModelKind('videoModel', v)
+                    if (v) insertMention('model', v, v)
+                  },
                 },
               ]}
               open={openPicker === 'agent-model'}
@@ -1650,6 +1650,17 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                   activeId={current?.skillId ?? null}
                   onSelect={(id) => {
                     void setSkill(id ?? '')
+                    /**
+                     * 技能也落成**正文里的一枚 chip**（用户 2026-10-02：「agent 的 skill
+                     * 选择后不要出现在图三的地方……我需要全部出现在正文里面，全部保持和
+                     * 艾特的出现的地方一样」）。取消选择时把那枚 chip 一并抹掉。
+                     */
+                    if (id) {
+                      const hit = allSkills.find((s) => s.id === id)
+                      insertMention('skill', id, hit?.name ?? '技能')
+                    } else {
+                      setDraft((prev) => prev.replace(/\s*@\[[^\]]*\]\(skill:[^)]*\)/g, '').trim())
+                    }
                     setOpenPicker(null)
                   }}
                   onToggleFavorite={(id) => void toggleSkillFavorite(id)}
