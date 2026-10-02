@@ -13770,6 +13770,37 @@ async function g95(browser) {
     await sleep(200)
 
     /**
+     * ★★ 真导一份 .md 进去 —— 「导入已有 skill」那条路**不能只验入口在**。
+     *
+     * 导完在「我的」页签里按**名字**找它（不是「列表非空」：那样导入串味也照样绿）。
+     */
+    await page.locator('[data-agent-skill-file]').setInputFiles({
+      name: 'smoke-imported-skill.md',
+      mimeType: 'text/markdown',
+      buffer: Buffer.from(
+        '---\nname: 冒烟导入的技能\ndescription: 由冒烟脚本导入的一条技能\n---\n你是测试用的技能正文。',
+        'utf8',
+      ),
+    })
+    await sleep(900)
+    /** 导入成功会顺手把菜单收起来，重新打开再看「我的」 */
+    await agentSkillChip.click()
+    await sleep(300)
+    await page.locator('[data-agent-skill-tab="user"]').click()
+    await sleep(300)
+    const mySkillNames = (await page.locator('[data-agent-skill-option]').allInnerTexts()).map(
+      (t) => t.trim().split('\n')[0] ?? '',
+    )
+    rec(
+      g,
+      '★★ 导入 .md 真的落进「我的」技能里（不是只看入口在）',
+      mySkillNames.includes('冒烟导入的技能'),
+      `我的=${JSON.stringify(mySkillNames)}`,
+    )
+    await page.locator('[data-agent-skill-tab="builtin"]').click()
+    await sleep(250)
+
+    /**
      * ★★ 「全部」= **在面板里摊开**（用户 2026-10-03 参考产品图五：「点全部会跳…面板，
      * 可以进行选择」）。
      *
