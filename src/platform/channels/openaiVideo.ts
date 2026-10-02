@@ -494,10 +494,24 @@ export function createOpenAiVideoAdapter(
       throw new ChannelError({ kind: 'parse', raw: '视频任务已完成，但结果里没有产物地址' })
     }
     const assets: GeneratedAsset[] = []
+    /**
+     * 取产物失败的原因（第一条）：**一条都没取到时必须抛出来**。
+     *
+     * 用户 2026-10-03 报的现象：日志显示「生成成功」，但画布上什么都不回落，
+     * 日志里点「发送到画布」也没反应。查库：那条 runRecord `status=succeeded`
+     * 而 `outputHashes: []` —— **任务成功、产物为空**，因为下面这个循环把
+     * 「下载失败」静默 `continue` 掉了，`return []` 又被上层当成成功。
+     *
+     * 「成功但没有东西」是最难查的一种：界面上看不出错，用户只会说「没反应」。
+     */
+    let firstFailure = ''
     for (const url of urls) {
       try {
         const dl = await deps.network.request({ url, method: 'GET', headers: {} }, signal)
-        if (dl.status < 200 || dl.status >= 300) continue
+        if (dl.status < 200 || dl.status >= 300) {
+          firstFailure ||= `产物地址返回 ${dl.status}`
+          continue
+        }
         const bytes = new Uint8Array(await dl.arrayBuffer())
         const hash = await fingerprintBytes(bytes)
         const actual = imageSizeFromHeader(bytes)
@@ -509,9 +523,19 @@ export function createOpenAiVideoAdapter(
           requestedWidth: width,
           requestedHeight: height,
         })
-      } catch {
-        /* 单个产物取不到就跳过：其余产物仍然可用 */
+      } catch (e) {
+        /**
+         * 单个产物取不到就跳过：其余产物仍然可用。
+         * 但**原因要留下来** —— 全部失败时它就是唯一能说明问题的东西。
+         */
+        firstFailure ||= e instanceof Error ? e.message : String(e)
       }
+    }
+    if (assets.length === 0) {
+      throw new ChannelError({
+        kind: 'parse',
+        raw: `视频任务成功，但产物一个都没取到${firstFailure ? `：${firstFailure}` : ''}（地址 ${urls.length} 个）`,
+      })
     }
     return assets
   }

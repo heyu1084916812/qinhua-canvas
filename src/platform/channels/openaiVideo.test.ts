@@ -197,6 +197,8 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
         if (req.url.includes('/videos/t')) {
           return json(200, { status: 'completed', url: 'https://x/v.mp4' })
         }
+        /** 产物下载：这一条是「成功但产物取不到必须报错」之后补的 —— 取不到会直接抛。 */
+        if (req.url.includes('v.mp4')) return json(200, {})
         return json(404, {})
       },
     })
