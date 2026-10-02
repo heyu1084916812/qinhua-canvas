@@ -29,7 +29,15 @@ export interface AssetMeta {
  */
 export async function loadAssetUrl(platform: PlatformKit, hash: string): Promise<AssetMeta> {
   const rows = await platform.storage.query('assets', { id: hash })
-  const row = rows[0] as { bytes?: Uint8Array | number[]; mime?: string } | undefined
+  const row = rows[0] as
+    | { bytes?: Uint8Array | number[]; mime?: string; url?: string }
+    | undefined
+  /**
+   * **远程产物**（视频成片）：直接用它的地址 —— 字节那一路在浏览器里会被 CORS 挡掉
+   * （`cos-platform-outputs.agnes-ai.cn` 实测 `net::ERR_FAILED`），而 `<video src>`
+   * 播放不受 CORS 限制。有 url 就用 url，没有才走原来的「bytes → objectURL」。
+   */
+  if (row?.url) return { url: row.url, mime: row.mime ?? null }
   if (!row?.bytes) return { url: null, mime: null }
   const buf = row.bytes instanceof Uint8Array ? row.bytes : new Uint8Array(row.bytes as number[])
   const blob = new Blob([buf as BlobPart], { type: row.mime ?? 'image/png' })

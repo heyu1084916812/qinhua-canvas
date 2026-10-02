@@ -24,6 +24,15 @@ export interface GeneratedAsset {
   width?: number
   height?: number
   /**
+   * **远程产物地址**（只有视频会用到）。
+   *
+   * 用户 2026-10-03 实测：Agnes 的成片放在 `cos-platform-outputs.agnes-ai.cn` 上，
+   * 浏览器去 fetch 字节会被 **CORS 拦掉（`net::ERR_FAILED`）** —— 任务明明成功、
+   * url 也有值，就是下不下来。而 `<video src>` **播放不受 CORS 限制**，
+   * 所以这一档允许「只给地址、不给字节」：界面上照常播，只有要读像素时才受限。
+   */
+  url?: string
+  /**
    * 本次**向渠道请求**的像素（§6.18 日志面板「请求像素」）。
    * 渠道把比例翻译成合法像素 `size` 后才填——它是「我们问渠道要了多大」，
    * 与 `width/height`（渠道实际给了多大）是两件事，故必须分成两组字段：

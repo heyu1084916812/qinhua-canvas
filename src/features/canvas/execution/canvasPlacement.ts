@@ -197,6 +197,8 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
           bytes: a.bytes,
           width: a.width,
           height: a.height,
+          /** 远程产物（视频成片）带上地址：字节取不到时靠它播放，见 `GeneratedAsset.url` */
+          ...(a.url ? { url: a.url } : {}),
           createdAt: Date.now(),
           projectId: getProjectId(),
         },

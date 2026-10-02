@@ -581,6 +581,22 @@ export function createOpenAiVideoAdapter(
       }
     }
     if (assets.length === 0) {
+      /**
+       * ★ **字节下不来时退回「远程 URL 资产」**（用户 2026-10-03 实测）。
+       *
+       * Agnes 把成片放在 `cos-platform-outputs.agnes-ai.cn`，浏览器 fetch 它会被 CORS
+       * 拦成 `net::ERR_FAILED` —— 但 `<video src>` 播放**不受 CORS 限制**。所以这里
+       * 不再整条判失败，而是把地址作为产物交出去（`bytes` 空、`url` 有值），
+       * 界面照常能播；真要读像素时才会受限，那时再报明确原因。
+       */
+      if (urls.length > 0) {
+        const out: GeneratedAsset[] = []
+        for (const url of urls) {
+          const hash = await fingerprintBytes(new TextEncoder().encode(url))
+          out.push({ hash, mime: 'video/mp4', bytes: new Uint8Array(0), url, requestedWidth: width, requestedHeight: height })
+        }
+        return out
+      }
       throw new ChannelError({
         kind: 'parse',
         raw: `视频任务成功，但产物一个都没取到${firstFailure ? `：${firstFailure}` : ''}（地址 ${urls.length} 个）`,
