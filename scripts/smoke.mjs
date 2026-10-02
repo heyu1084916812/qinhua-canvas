@@ -13546,10 +13546,25 @@ async function g95(browser) {
   const agentParamsChip = page.locator('[data-param-chip="agent-params"]')
   await agentModelChip.click()
   await sleep(250)
+  /**
+   * ★★ 模型**三档**（用户 2026-10-03：「我创作面板有什么模型就用什么模型，分了图片和
+   * 视频，然后给我加一个对话模型的选项…也就是说模型有三个选项」）。
+   * 判据取分段锚点：三档缺一档就红。
+   */
+  const modelSections = await page
+    .locator('[data-param-popup="agent-model"] [data-param-section]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-section')))
   const models = await page.locator('[data-param-popup="agent-model"] button').count()
-  rec(g, '★ 模型是创作面板那套参数菜单（浮层里列出可选模型）', models >= 1, `可选=${models}`)
-  await agentModelChip.click()
-  await sleep(200)
+  rec(
+    g,
+    '★★ 模型分三档：图片 / 视频 / 对话',
+    modelSections.join(',') === 'image,video,chat' && models >= 1,
+    `档=${modelSections.join(',')} 可选=${models}`,
+  )
+  /** 留一张**模型三档展开着**的截图：三个分组挤不挤，靠它眼看 */
+  await page.screenshot({ path: `${OUT}/114-g95-agent-models.png` })
+  await page.keyboard.press('Escape')
+  await sleep(250)
 
   /**
    * 用户 2026-10-02：「不要有选择渠道」——
@@ -13716,6 +13731,38 @@ async function g95(browser) {
    * 只把图片塞进上下文的话，模型指不到画布上的任何东西，最后会重复建一张。
    */
   const nodesBeforeAsset = await page.locator('[data-node-type]').count()
+  /**
+   * ★★ 「加素材」分**两条路**（用户 2026-10-03：「加素材是要的，他分两个功能，
+   * 点击后本地上传和素材库添加，也是要有图标」）。
+   */
+  await page.locator('[data-agent-add-asset]').click()
+  await sleep(300)
+  const addItems = await page.locator('[data-asset-menu-item]').allInnerTexts()
+  const addText = addItems.join('|')
+  rec(
+    g,
+    '★★ 加素材分两条路（本地上传 / 素材库添加），两条都带矢量图标',
+    addText.includes('本地上传') &&
+      addText.includes('素材库添加') &&
+      (await page.locator('[data-asset-menu-item="upload"] svg').count()) === 1 &&
+      (await page.locator('[data-asset-menu-item="library"] svg').count()) === 1,
+    `项=${JSON.stringify(addItems)}`,
+  )
+  /** 「素材库添加」要真打开素材库；空库时给出说明，而不是一块空白浮层 */
+  await page.locator('[data-asset-menu-item="library"]').click()
+  await sleep(400)
+  const libText = await page.locator('[data-agent-library]').innerText().catch(() => '')
+  rec(
+    g,
+    '★ 「素材库添加」打开素材库（空库时给出说明，不是空白浮层）',
+    (await page.locator('[data-agent-library]').count()) === 1 &&
+      (libText.includes('素材库还是空的') ||
+        (await page.locator('[data-agent-library-item]').count()) > 0),
+    `文案=${libText.slice(0, 24)}`,
+  )
+  await page.locator('[data-agent-library-close]').click()
+  await sleep(200)
+
   /** 落位几何：用来验「拖进来的素材不压在原有节点上」 */
   const geomOf = () =>
     page.locator('[data-node-type]').evaluateAll((els) =>

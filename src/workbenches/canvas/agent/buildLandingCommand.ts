@@ -45,7 +45,15 @@ export interface BuildLandingInput {
    *
    * 传函数而不是传值：解析默认值要读库（异步），而这支是纯函数。
    */
-  dataFor?: (type: AgentNodeType) => Record<string, unknown>
+  /**
+   * 第二个参数给**那个节点本身**：图片模型与视频模型是两个档（用户 2026-10-03），
+   * 而「用哪个」取决于该节点是文生图还是图生视频（`node.data.mode`）——
+   * 只知道类型就选不出该用哪一个。
+   */
+  dataFor?: (
+    type: AgentNodeType,
+    node: AgentPlan['nodes'][number],
+  ) => Record<string, unknown>
 }
 
 export interface LandingPayload {
@@ -106,7 +114,7 @@ export function buildLandingCommand(input: BuildLandingInput): LandingPayload {
        */
       data: {
         ...(spec?.createDefaultData() ?? {}),
-        ...(input.dataFor?.(node.type) ?? {}),
+        ...(input.dataFor?.(node.type, node) ?? {}),
         ...node.data,
       } as NodeData,
     })

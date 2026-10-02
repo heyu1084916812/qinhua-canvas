@@ -47,7 +47,13 @@ export function applyAgentPlan(
    * 不传也能跑，但那样建出来的生成节点没渠道没模型 —— 点了生成只会得到一句
    * 「还没选择渠道」。所以这条链上**必须**由调用方传（见 buildLandingCommand 的 dataFor）。
    */
-  opts?: { dataFor?: (type: AgentPlan['nodes'][number]['type']) => Record<string, unknown> },
+  opts?: {
+    /** 第二个参数是**那个节点本身**：图片 / 视频两档模型要按 `data.mode` 选（见 buildLandingCommand） */
+    dataFor?: (
+      type: AgentPlan['nodes'][number]['type'],
+      node: AgentPlan['nodes'][number],
+    ) => Record<string, unknown>
+  },
 ): ApplyAgentPlanResult {
   const graph = store.getSnapshot()
   const before = toGraphView(graph)

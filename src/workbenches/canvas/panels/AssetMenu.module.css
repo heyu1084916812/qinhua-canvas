@@ -38,6 +38,16 @@
   margin-top: 4px;
 }
 
+/*
+ * 向上展开（触发器在面板**底部**的工具条里）：向下会把菜单顶出视口。
+ * 左边缘与触发器左边缘对齐 —— 工具条第一枚按钮就在最左边，向左生长会出画布。
+ */
+.above {
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 4px;
+}
+
 .item {
   display: flex;
   align-items: center;

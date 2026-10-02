@@ -23,7 +23,13 @@ export interface AssetMenuItem {
    * 只认这几个具名图标，而不是让调用方传任意 ReactNode——
    * 图标集合收敛在一处，才不会每个调用点各画一套、粗细与尺寸互不相同。
    */
-  icon?: 'upload' | 'clear' | 'history'
+  /**
+   * 图标集合收敛在一处。
+   *
+   * `library` 是用户 2026-10-03 要的「素材库添加」那一项：画布 Agent 的 `+`
+   * 要分成本地上传与素材库两条路，两项都得带图标（参考产品图一）。
+   */
+  icon?: 'upload' | 'clear' | 'history' | 'library'
   onSelect: () => void
 }
 
@@ -53,6 +59,17 @@ function MenuIcon({ name }: { name: AssetMenuItem['icon'] }) {
       </svg>
     )
   }
+  if (name === 'library') {
+    return (
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+        {/* 一格一格收在架子上的素材：两条竖线 + 三个方块 */}
+        <rect x="2.4" y="3.2" width="4.4" height="4.4" rx="1" stroke="currentColor" strokeWidth="1.4" />
+        <rect x="9.2" y="3.2" width="4.4" height="4.4" rx="1" stroke="currentColor" strokeWidth="1.4" />
+        <rect x="2.4" y="9.4" width="4.4" height="4.4" rx="1" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M9.2 11.6h4.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    )
+  }
   return null
 }
 
@@ -67,7 +84,7 @@ export function AssetMenu({
    * 展开方向。默认向下——挂在**节点本体的右上角**时，向右展开会顶到节点右边界
    * 被压成竖排的一列字（实测菜单宽 96px 被压到只剩 20px）。
    */
-  anchor?: 'right' | 'below'
+  anchor?: 'right' | 'below' | 'above'
 }) {
   const wrapRef = useRef<HTMLDivElement>(null)
 
@@ -97,7 +114,10 @@ export function AssetMenu({
   return (
     <div
       ref={wrapRef}
-      className={anchor === 'right' ? `${styles.menu} ${styles.right}` : `${styles.menu} ${styles.below}`}
+      className={[
+        styles.menu,
+        anchor === 'right' ? styles.right : anchor === 'above' ? styles.above : styles.below,
+      ].join(' ')}
       data-asset-menu
       role="menu"
     >

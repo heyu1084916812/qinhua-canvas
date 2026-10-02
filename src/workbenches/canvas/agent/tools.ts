@@ -196,6 +196,19 @@ export interface AgentToolContext {
   defaultsForNewNode?: (
     types: readonly AgentNodeType[],
   ) => Promise<Partial<Record<AgentNodeType, Record<string, unknown>>>>
+  /**
+   * **生成节点该用哪个模型** —— 用户在对话窗上点选的图片 / 视频档
+   * （用户 2026-10-03：「我创作面板有什么模型就用什么模型…模型有三个选项」）。
+   *
+   * 按节点的 `data.mode` 选：视频节点给视频模型，其余给图片模型。
+   * 返回 undefined 就保持渠道默认配方不动。
+   *
+   * 与 `defaultsForNewNode` 一样由界面层注入：工具层认得节点，但不认得渠道 store。
+   */
+  recipeForGenerated?: (
+    type: AgentNodeType,
+    node: { data: Record<string, unknown> },
+  ) => { channelId: string; model: string } | undefined
 }
 
 /** 读类执行器：循环里直接调（设计文档 §4） */
@@ -264,7 +277,15 @@ export async function executeConfirmedTool(
       const needed = [...new Set(plan.nodes.map((n) => n.type))]
       const defaults = ctx.defaultsForNewNode ? await ctx.defaultsForNewNode(needed) : undefined
       const applied = applyAgentPlan(ctx.store, plan, ctx.origin, {
-        ...(defaults ? { dataFor: (type: AgentNodeType) => defaults[type] ?? {} } : {}),
+        /**
+         * 三层打底由 `buildLandingCommand` 负责，这里只把**用户点选的那一档**
+         * 叠进「渠道默认配方」这一层：计划里自己写了模型仍然以计划为准（§11）。
+         */
+        dataFor: (type: AgentNodeType, node) => {
+          const base = defaults?.[type] ?? {}
+          const picked = ctx.recipeForGenerated?.(type, node)
+          return picked ? { ...base, channelId: picked.channelId, model: picked.model } : base
+        },
       })
       // 自检结果整份回填：模型要靠它决定补连线还是改图（§6.1）
       return { ok: applied.ok, problems: applied.problems, createdNodeIds: applied.createdNodeIds }

@@ -182,6 +182,83 @@ describe('写 / 花钱的工具（只由确认后调用）', () => {
     expect(gen.ratio).toBe('16:9')
   })
 
+  /**
+   * ★★ 用户点选的**图片 / 视频模型**要按节点用途落到节点上
+   * （用户 2026-10-03：「我创作面板有什么模型就用什么模型，分了图片和视频…模型有三个
+   * 选项」）。两个档位一个都别串：文生图拿图片模型、图生视频拿视频模型。
+   */
+  it('★★ 图片 / 视频两档模型按节点用途分别落上（不串档）', async () => {
+    const { store } = setup()
+    const ctx: AgentToolContext = {
+      store,
+      origin: { x: 0, y: 0 },
+      runNodes: vi.fn(async () => []),
+      defaultsForNewNode: vi.fn(async () => ({
+        generation: { channelId: 'ch-default', model: 'default-model' },
+      })),
+      recipeForGenerated: (_type: string, node: { data: Record<string, unknown> }) =>
+        node.data.mode === 'video'
+          ? { channelId: 'ch-v', model: 'Video Model' }
+          : { channelId: 'ch-i', model: 'Image Model' },
+    } as unknown as AgentToolContext
+
+    await executeConfirmedTool(
+      'applyPlan',
+      {
+        summary: '一张图 + 一段视频',
+        nodes: [
+          { localId: 'g1', type: 'generation', data: { mode: 'image' }, order: 0 },
+          { localId: 'g2', type: 'generation', data: { mode: 'video' }, order: 1 },
+        ],
+        edges: [],
+      },
+      ctx,
+    )
+
+    const dataOf = (mode: string) =>
+      store
+        .getSnapshot()
+        .nodes.filter((n) => n.type === 'generation')
+        .map((n) => n.data as Record<string, unknown>)
+        .find((d) => d.mode === mode)
+    expect(dataOf('image')).toMatchObject({ channelId: 'ch-i', model: 'Image Model' })
+    expect(dataOf('video')).toMatchObject({ channelId: 'ch-v', model: 'Video Model' })
+  })
+
+  it('★ 计划里自己写了模型时以计划为准（他当场点名的优先，§11）', async () => {
+    const { store } = setup()
+    const ctx: AgentToolContext = {
+      store,
+      origin: { x: 0, y: 0 },
+      runNodes: vi.fn(async () => []),
+      defaultsForNewNode: vi.fn(async () => ({
+        generation: { channelId: 'ch-default', model: 'default-model' },
+      })),
+      recipeForGenerated: () => ({ channelId: 'ch-i', model: 'Image Model' }),
+    } as unknown as AgentToolContext
+
+    await executeConfirmedTool(
+      'applyPlan',
+      {
+        summary: 'x',
+        nodes: [
+          {
+            localId: 'g1',
+            type: 'generation',
+            data: { mode: 'image', model: 'Plan Model' },
+            order: 0,
+          },
+        ],
+        edges: [],
+      },
+      ctx,
+    )
+    const gen = store
+      .getSnapshot()
+      .nodes.find((n) => n.type === 'generation')!.data as Record<string, unknown>
+    expect(gen.model).toBe('Plan Model')
+  })
+
   it('★ updateNode 改参数；节点不存在则如实报错', async () => {
     const { store, ctx } = setup()
     const id = addNode(store, 'generation', { mode: 'image' })

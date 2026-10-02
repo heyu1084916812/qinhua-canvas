@@ -22,7 +22,17 @@ export interface AgentSession {
   title: string
   /** 本会话用的渠道与模型（§8「每个会话可单独选模型」） */
   channelId: string
+  /** 对话模型 = **agent 自己**跑的那个 LLM（用户 2026-10-03：「对话模型就是这个 agent 的 llm 模型」） */
   model: string
+  /**
+   * 用户点选的**图片 / 视频模型**（用户 2026-10-03：「我创作面板有什么模型就用什么模型，
+   * 分了图片和视频…也就是说模型有三个选项」）。
+   *
+   * 它们不参与 agent 自己的推理，而是**建生成节点时用的配方**：计划里那个节点是
+   * 文生图还是图生视频，就按对应这一类套上去（见 `modelForGenerated`）。
+   */
+  imageModel?: string
+  videoModel?: string
   /**
    * 本会话启用的技能（设计文档 §14 M4）。
    *
@@ -58,7 +68,16 @@ export const AGENT_CONTEXT_WINDOW = 20
 export interface AgentSessionStore {
   /** 列某个项目的会话（新的在前） */
   list(projectId: string): Promise<AgentSession[]>
-  create(input: { projectId: string; channelId: string; model: string; title?: string }): Promise<AgentSession>
+  create(input: {
+    projectId: string
+    channelId: string
+    /** 对话模型（agent 自己的 LLM） */
+    model: string
+    title?: string
+    /** 建生成节点时默认用的图片 / 视频模型（用户 2026-10-03 的三档选择） */
+    imageModel?: string
+    videoModel?: string
+  }): Promise<AgentSession>
   save(session: AgentSession): Promise<void>
   rename(id: string, title: string): Promise<void>
   remove(id: string): Promise<void>
@@ -79,6 +98,8 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
     title: String(row.title ?? '新对话'),
     channelId: String(row.channelId ?? ''),
     model: String(row.model ?? ''),
+    ...(typeof row.imageModel === 'string' && row.imageModel ? { imageModel: row.imageModel } : {}),
+    ...(typeof row.videoModel === 'string' && row.videoModel ? { videoModel: row.videoModel } : {}),
     ...(typeof row.skillId === 'string' && row.skillId ? { skillId: row.skillId } : {}),
     ...(row.autoRun === true ? { autoRun: true } : {}),
     ...(Array.isArray(row.pendingAssetIds) && row.pendingAssetIds.length > 0
@@ -100,7 +121,7 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
       return rows.map(toSession).sort((a, b) => b.updatedAt - a.updatedAt)
     },
 
-    async create({ projectId, channelId, model, title }) {
+    async create({ projectId, channelId, model, title, imageModel, videoModel }) {
       const now = Date.now()
       const session: AgentSession = {
         id: createId('chat'),
@@ -108,6 +129,8 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
         title: title?.trim() || '新对话',
         channelId,
         model,
+        ...(imageModel ? { imageModel } : {}),
+        ...(videoModel ? { videoModel } : {}),
         messages: [],
         createdAt: now,
         updatedAt: now,

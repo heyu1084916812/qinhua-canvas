@@ -138,6 +138,14 @@ export interface AgentPromptExtras {
    * 决定要拿它做什么。
    */
   mentions?: readonly { kind: 'node' | 'model'; id: string; label: string }[]
+  /**
+   * 用户在对话窗上点选的**图片 / 视频模型**（用户 2026-10-03：「模型有三个选项」）。
+   *
+   * 系统已经把它们当作建生成节点时的**默认配方**（`recipeForGenerated`），
+   * 所以这一段的作用是「让模型知道」而不是「让模型替我们记」：
+   * 它写计划时不必再猜用哪个模型，也不会自作主张换成别的。
+   */
+  mediaModels?: { image?: string; video?: string }
 }
 
 /**
@@ -195,6 +203,18 @@ export function buildAgentSystemPromptWithContext(
       '被引用的模型 = 这次就用它（与你按默认值挑的那个冲突时，以他引用的为准）。',
     )
     parts.push(lines.join('\n'))
+  }
+
+  const media = Object.entries(extras.mediaModels ?? {}).filter(([, v]) => Boolean(v))
+  if (media.length > 0) {
+    parts.push(
+      [
+        '## 这次建出来的生成节点用哪个模型',
+        ...media.map(([k, v]) => `- ${k === 'image' ? '图片' : '视频'}：${String(v)}`),
+        '系统会按这个配好新节点的默认模型，**你不必在计划里再写一遍**；',
+        '也不要用别的模型替掉它（除非用户在这条对话里明确点了另一个）。',
+      ].join('\n'),
+    )
   }
 
   return parts.join('\n\n')

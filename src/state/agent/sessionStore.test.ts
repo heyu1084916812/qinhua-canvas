@@ -28,6 +28,28 @@ describe('Agent 会话 · 基本 CRUD', () => {
     await s.remove(a.id)
     expect(await s.list('p1')).toHaveLength(0)
   })
+
+  /**
+   * ★ 图片 / 视频 / 对话**三档模型**都要存得住、读得回（用户 2026-10-03 的三档选择）。
+   *
+   * 这三档是各存各的：存错字段的表现不是报错，而是「切走再切回，模型自己变回去了」。
+   */
+  it('★ 图片 / 视频模型与对话模型分开存、都能读回', async () => {
+    const s = store()
+    const a = await s.create({
+      projectId: 'p1',
+      channelId: 'c1',
+      model: 'Agnes 2.5 Pro',
+      imageModel: 'Agnes Image 2.5 Flash',
+      videoModel: 'Agnes Video 2.0',
+    })
+    const row = (await s.list('p1')).find((x) => x.id === a.id)!
+    expect(row).toMatchObject({
+      model: 'Agnes 2.5 Pro',
+      imageModel: 'Agnes Image 2.5 Flash',
+      videoModel: 'Agnes Video 2.0',
+    })
+  })
 })
 
 describe('Agent 会话 · 隔离（最容易出错的地方）', () => {

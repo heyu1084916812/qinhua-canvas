@@ -169,4 +169,25 @@ describe('引用段', () => {
   it('★ 没引用时那一段不出现（不留空标题）', () => {
     expect(buildAgentSystemPromptWithContext(empty)).not.toContain('@ 引用到的')
   })
+
+  /**
+   * ★ 用户点选的图片 / 视频模型要**让模型知道**（用户 2026-10-03：「模型有三个选项」）。
+   *
+   * 系统已经把它们当默认配方落节点了（`recipeForGenerated`），所以这一段的作用是
+   * 「别让它猜、也别让它换掉」—— 不报的话，模型会在计划里自己挑一个模型，
+   * 而计划数据是**压过**默认配方的。
+   */
+  it('★ 图片 / 视频两档模型进了提示词，并写明「不必再写、也别换」', () => {
+    const p = buildAgentSystemPromptWithContext(empty, undefined, {
+      mediaModels: { image: 'Agnes Image 2.5 Flash', video: 'Agnes Video 2.0' },
+    })
+    expect(p).toContain('## 这次建出来的生成节点用哪个模型')
+    expect(p).toContain('- 图片：Agnes Image 2.5 Flash')
+    expect(p).toContain('- 视频：Agnes Video 2.0')
+    expect(p).toContain('不必在计划里再写一遍')
+  })
+
+  it('★ 没选图片 / 视频模型时那一段不出现', () => {
+    expect(buildAgentSystemPromptWithContext(empty)).not.toContain('生成节点用哪个模型')
+  })
 })

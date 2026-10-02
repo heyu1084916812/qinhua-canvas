@@ -20,7 +20,11 @@ import {
   createAssetNode,
   importAssetFile,
   isImportableMedia,
+  type ImportedAsset,
 } from '../../../../features/canvas/importAsset'
+import { AssetMenu } from '../AssetMenu'
+import { createAssetLibraryRepository } from '../../../../state/project/assetLibraryRepository'
+import { createAssetLibraryStore } from '../../../../state/project/assetLibraryStore'
 import { useCanvasExecution } from '../../execution/CanvasExecutionProvider'
 import { useCanvasStore, useGraph, useSelection } from '../../storeContext'
 import { useViewportState } from '../../storeContext'
@@ -116,6 +120,22 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
 
   const sessions = useMemo(() => createAgentSessionStore(platform.storage), [platform])
   const presets = useMemo(() => createPresetStore(platform.storage), [platform])
+  /**
+   * 素材库（用户 2026-10-03：「加素材…分两个功能，点击后本地上传和素材库添加」）。
+   *
+   * 素材库 store 原先只在素材页里就地建；这里按同一套工厂再建一份（同一个
+   * `platform.storage`、同一张 `assetLibrary` 表）—— 不新增全局 provider，
+   * 因为画布页与素材页本来就各用各的一份，读的是同一份数据。
+   */
+  const library = useMemo(
+    () => createAssetLibraryStore(createAssetLibraryRepository(platform.storage)),
+    [platform],
+  )
+  const libraryAssets = useSyncExternalStore(
+    library.subscribe,
+    () => library.getState().assets,
+    () => library.getState().assets,
+  )
 
   const [list, setList] = useState<AgentSession[]>([])
   const [current, setCurrent] = useState<AgentSession | null>(null)
@@ -181,13 +201,14 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 判据就是选模型时用的那一条（`channelIdForLogical`）：能解析出渠道 = 能跑。
    * 两处共用同一份搜索，不会出现「这里列得出来、那里选不动」。
    */
-  const chatModelOptions = useMemo(
-    () =>
-      panelModelOptions(allChannels, 'chat').filter(
+  const modelOptionsByKind = useMemo(() => {
+    const pick = (category: 'image' | 'video' | 'chat') =>
+      panelModelOptions(allChannels, category).filter(
         (n) => channelIdForLogical(enabled, n) !== undefined,
-      ),
-    [allChannels, enabled],
-  )
+      )
+    return { image: pick('image'), video: pick('video'), chat: pick('chat') }
+  }, [allChannels, enabled])
+  const chatModelOptions = modelOptionsByKind.chat
   /** 会话存的模型名 → 逻辑显示名（老会话存过上游 ID 的在这里归一） */
   const shownModel = useMemo(
     () => toLogicalName(allChannels, current?.model ?? ''),
@@ -252,15 +273,19 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
        */
       const liveChannels = channels.getState().channels
       const liveEnabled = liveChannels.filter((c) => c.enabled)
-      const liveModelOptions = panelModelOptions(liveChannels, 'chat').filter(
-        (n) => channelIdForLogical(liveEnabled, n) !== undefined,
-      )
+      const livePick = (category: 'image' | 'video' | 'chat') =>
+        panelModelOptions(liveChannels, category).filter(
+          (n) => channelIdForLogical(liveEnabled, n) !== undefined,
+        )
+      const liveModelOptions = livePick('chat')
       const saved = await presets.loadAgentDefault()
       const fallbackChannel = saved?.channelId ?? liveEnabled[0]?.id ?? ''
       const created = await sessions.create({
         projectId,
         channelId: fallbackChannel,
         model: defaultModelFor(liveModelOptions, saved?.model),
+        imageModel: livePick('image')[0] ?? '',
+        videoModel: livePick('video')[0] ?? '',
       })
       if (!alive) return
       setList([created])
@@ -328,8 +353,22 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         for (const type of types) out[type] = await resolveDefaults({ channels, type })
         return out
       },
+      /**
+       * 生成节点用哪个模型：按计划里那个节点的 `data.mode` 选图片档还是视频档。
+       *
+       * 渠道由模型名**反查**（`channelIdForLogical`）—— 换了模型就得跟着换渠道，
+       * 否则会发出「A 渠道 + B 渠道的模型」这种请求，报错还看不懂。
+       */
+      recipeForGenerated: (type, node) => {
+        if (type !== 'generation') return undefined
+        const kind = node.data.mode === 'video' ? 'video' : 'image'
+        const model = kind === 'video' ? current?.videoModel : current?.imageModel
+        if (!model) return undefined
+        const channelId = channelIdForLogical(enabled, model, current?.channelId)
+        return channelId ? { channelId, model } : undefined
+      },
     }),
-    [store, selection, execution, channels],
+    [store, selection, execution, channels, current, enabled],
   )
 
   const loopDeps = useCallback(
@@ -418,6 +457,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     const skill = current.skillId ? allSkills.find((s) => s.id === current.skillId) : undefined
     /** 这句话里 @ 引用了什么（节点 / 模型）。空数组就不加那一段 */
     const mentions = parseMentions(text)
+    /** 用户点选的三档模型里的图片 / 视频那两个（对话模型由 `inherited` 报） */
+    const mediaModels = {
+      ...(current.imageModel ? { image: current.imageModel } : {}),
+      ...(current.videoModel ? { video: current.videoModel } : {}),
+    }
     const system = buildAgentSystemPromptWithContext(
       summary,
       { model: current.model },
@@ -425,6 +469,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         assetIds: current.pendingAssetIds ?? [],
         ...(skill ? { skill: { name: skill.name, content: skill.content } } : {}),
         ...(mentions.length > 0 ? { mentions } : {}),
+        ...(Object.keys(mediaModels).length > 0 ? { mediaModels } : {}),
       },
     )
     const withSystem: ChatMessage[] = [
@@ -506,10 +551,22 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       projectId,
       channelId,
       model: defaultModelFor(chatModelOptions, saved?.model),
+      imageModel: modelOptionsByKind.image[0] ?? '',
+      videoModel: modelOptionsByKind.video[0] ?? '',
     })
     await refresh()
     await switchTo(created)
-  }, [presets, sessions, projectId, enabled, refresh, switchTo, defaultModelFor, chatModelOptions])
+  }, [
+    presets,
+    sessions,
+    projectId,
+    enabled,
+    refresh,
+    switchTo,
+    defaultModelFor,
+    chatModelOptions,
+    modelOptionsByKind,
+  ])
 
   /**
    * 存会话上的任意字段：模型、技能、素材标签、比例 / 画质 / 质量都走这一条。
@@ -548,6 +605,20 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       await patchSession({ model, channelId })
     },
     [current, enabled, patchSession],
+  )
+
+  /**
+   * 图片 / 视频模型的点选（用户 2026-10-03：「我创作面板有什么模型就用什么模型，
+   * 分了图片和视频…也就是说模型有三个选项」）。
+   *
+   * 只改会话上对应那一档 —— **对话模型不受影响**（那是 agent 自己跑的 LLM，
+   * 与「建出来的生成节点用哪个模型」是两件事）。
+   */
+  const setModelKind = useCallback(
+    async (key: 'imageModel' | 'videoModel', model: string) => {
+      await patchSession({ [key]: model })
+    },
+    [patchSession],
   )
 
   /**
@@ -667,6 +738,48 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   )
 
   /**
+   * 把一份素材落到画布上，**避开已有节点**。
+   *
+   * 抽出来是因为现在有**两条**入口：本地上传（`attachFiles`）与素材库添加
+   * （`addFromLibrary`）。两处各写一遍落位与建节点，迟早有一条忘了避让、
+   * 把新素材压在别人节点上 —— 那种「两张图叠一起」2026-10-01 实测踩过一次。
+   */
+  const placeAsset = useCallback(
+    (asset: ImportedAsset): string | null => {
+      const size = assetNodeSize({ width: asset.width, height: asset.height })
+      const existing = store
+        .getSnapshot()
+        .nodes.map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h }))
+      const spot = findFreeRect({ ...size, ...originOf(viewport) }, existing)
+      return createAssetNode({ platform, store, projectId }, asset, { x: spot.x, y: spot.y })
+    },
+    [platform, store, projectId, viewport],
+  )
+
+  /**
+   * 从**素材库**挑一个加进这次对话（用户 2026-10-03：「加素材…分两个功能，
+   * 点击后本地上传和素材库添加」）。
+   *
+   * 与本地导入走**同一条落位链路**（`placeAsset`），也记进 `pendingAssetIds` ——
+   * 对 agent 来说两者没有区别，都是「画布上那个素材节点」，用 attach 复用即可。
+   */
+  const addFromLibrary = useCallback(
+    async (hash: string) => {
+      const asset = library.getState().assets.find((a) => a.hash === hash)
+      if (!current || !asset) return
+      const id = placeAsset({
+        hash: asset.hash,
+        mime: asset.mime,
+        width: asset.width,
+        height: asset.height,
+      })
+      if (!id) return
+      await patchSession({ pendingAssetIds: [...(current.pendingAssetIds ?? []), id] })
+    },
+    [current, library, patchSession, placeAsset],
+  )
+
+  /**
    * 用户给素材：**先落成画布上的节点**，再记进会话（设计文档 §8）。
    *
    * 为什么不把图片塞进对话上下文：agent 要用它时得能 `attach` 到那个节点上
@@ -682,16 +795,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         if (!isImportableMedia(file.type)) continue
         const asset = await importAssetFile(deps, file)
         if (!asset) continue
-        /**
-         * 落位要**避开已有节点**。不避的话，拖进来的素材会压在画布上原有的节点上 ——
-         * 实测过一次：素材盖在模板的提示词节点上，两张叠一起看不清。
-         */
-        const size = assetNodeSize({ width: asset.width, height: asset.height })
-        const existing = store
-          .getSnapshot()
-          .nodes.map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h }))
-        const spot = findFreeRect({ ...size, ...originOf(viewport) }, existing)
-        const id = createAssetNode(deps, asset, { x: spot.x, y: spot.y })
+        const id = placeAsset(asset)
         if (id) added.push(id)
       }
       if (added.length === 0) return
@@ -699,7 +803,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         pendingAssetIds: [...(current.pendingAssetIds ?? []), ...added],
       })
     },
-    [current, platform, store, projectId, viewport, patchSession],
+    [current, platform, store, projectId, patchSession, placeAsset],
   )
 
   const dropAsset = useCallback(
@@ -1026,15 +1130,88 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
 
         <div className={styles.bar}>
           <div className={styles.barPills}>
-            <button
-              type="button"
-              className={styles.iconBtn}
-              onClick={() => fileRef.current?.click()}
-              title="加素材（图片 / 视频）"
-              data-agent-add-asset
-            >
-              <IconPlus size={16} />
-            </button>
+            {/*
+              加素材：**两条路**（用户 2026-10-03：「加素材是要的，他分两个功能，
+              点击后本地上传和素材库添加，也是要有图标」）。
+
+              菜单复用画布既有的 `AssetMenu`（图标 + 文案）—— 与节点素材右上角那个
+              是同一个组件，只是这次朝**上**展开（工具条在面板底部）。
+            */}
+            <span className={styles.addWrap}>
+              <button
+                type="button"
+                className={styles.iconBtn}
+                onClick={() => setOpenPicker(openPicker === 'agent-asset' ? null : 'agent-asset')}
+                title="加素材（本地上传 / 素材库）"
+                data-agent-add-asset
+              >
+                <IconPlus size={16} />
+              </button>
+              {openPicker === 'agent-asset' && (
+                <AssetMenu
+                  anchor="above"
+                  onClose={() => setOpenPicker(null)}
+                  items={[
+                    {
+                      id: 'upload',
+                      label: '本地上传',
+                      hint: '从这台电脑选图片或视频',
+                      icon: 'upload',
+                      onSelect: () => fileRef.current?.click(),
+                    },
+                    {
+                      id: 'library',
+                      label: '素材库添加',
+                      hint: '从「我的素材」里挑一个',
+                      icon: 'library',
+                      onSelect: () => {
+                        setOpenPicker('agent-library')
+                        void library.load()
+                      },
+                    },
+                  ]}
+                />
+              )}
+              {openPicker === 'agent-library' && (
+                <div
+                  className={styles.library}
+                  data-agent-library
+                  role="dialog"
+                  aria-label="从素材库添加"
+                >
+                  {libraryAssets.length === 0 ? (
+                    <span className={styles.libraryEmpty}>
+                      素材库还是空的：去「我的素材」收藏几张再用
+                    </span>
+                  ) : (
+                    libraryAssets.map((a) => (
+                      <button
+                        key={a.hash}
+                        type="button"
+                        className={styles.libraryItem}
+                        title={a.prompt ?? a.mime}
+                        data-agent-library-item={a.hash}
+                        onClick={() => {
+                          void addFromLibrary(a.hash)
+                          setOpenPicker(null)
+                        }}
+                      >
+                        <LibraryThumb hash={a.hash} />
+                      </button>
+                    ))
+                  )}
+                  <button
+                    type="button"
+                    className={styles.libraryClose}
+                    onClick={() => setOpenPicker(null)}
+                    aria-label="关闭素材库"
+                    data-agent-library-close
+                  >
+                    <IconClose size={12} />
+                  </button>
+                </div>
+              )}
+            </span>
             {/*
               画布上已经有的节点，不必再导一遍 —— 直接把选中的记进这次对话（§8）。
               没选中时置灰而不是隐藏：隐藏了用户不知道有这个入口。
@@ -1119,29 +1296,55 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               onClose={() => setOpenPicker(null)}
             />
 
-            {/* 模型：只显示立体方块图标；当前用哪个在列表里打勾，名字进 aria-label */}
+            {/*
+              模型**三档**（用户 2026-10-03：「我创作面板有什么模型就用什么模型，
+              分了图片和视频，然后给我加一个对话模型的选项…也就是说模型有三个选项」）：
+                · 图片 / 视频 = agent **建出来的生成节点**用哪个模型；
+                · 对话       = **agent 自己**跑的那个 LLM。
+              清单与创作面板**同一份数据源**（`panelModelOptions`：固定显示名在前 +
+              渠道勾选的归一显示名），再按「有没有渠道真能提供它」筛一道。
+            */}
             <ParamPicker
               name="agent-model"
-              ariaLabel={`这条对话用哪个模型（当前：${shownModel || '未选'}）`}
+              ariaLabel={`模型（图片 ${current?.imageModel || '未选'} / 视频 ${
+                current?.videoModel || '未选'
+              } / 对话 ${shownModel || '未选'}）`}
               label=""
               triggerIcon={<IconModelCube size={16} />}
               size="compact"
-              variant="list"
-              // 固定清单里的模型带厂商图标（与创作面板同源，不是另画一套）
-              options={chatModelOptions.map((n) => {
-                const preset = presetOf(n)
-                return {
-                  value: n,
-                  label: n,
-                  ...(preset ? { icon: <ModelIcon vendor={preset.vendor} /> } : {}),
-                }
-              })}
-              value={shownModel}
-              emptyHint="还没有可用的对话模型：去后台设置里勾选"
+              closeOnSelect
+              sections={[
+                {
+                  name: 'image',
+                  label: '图片',
+                  variant: 'list',
+                  options: withModelIcons(modelOptionsByKind.image),
+                  value: current?.imageModel ?? '',
+                  emptyHint: '没有可用的图片模型',
+                  onSelect: (v) => void setModelKind('imageModel', v),
+                },
+                {
+                  name: 'video',
+                  label: '视频',
+                  variant: 'list',
+                  options: withModelIcons(modelOptionsByKind.video),
+                  value: current?.videoModel ?? '',
+                  emptyHint: '没有可用的视频模型',
+                  onSelect: (v) => void setModelKind('videoModel', v),
+                },
+                {
+                  name: 'chat',
+                  label: '对话',
+                  variant: 'list',
+                  options: withModelIcons(chatModelOptions),
+                  value: shownModel,
+                  emptyHint: '没有可用的对话模型：去后台设置里勾选',
+                  onSelect: (v) => void pickModel(v),
+                },
+              ]}
               open={openPicker === 'agent-model'}
               onToggle={() => setOpenPicker(openPicker === 'agent-model' ? null : 'agent-model')}
               onClose={() => setOpenPicker(null)}
-              onSelect={(v) => void pickModel(v)}
             />
 
             {/* 技能：同样只显示图标；当前用哪份在列表里打勾 */}
@@ -1257,6 +1460,29 @@ function StepThumb({ hash }: { hash: string }) {
   const url = useAsset(hash)
   if (!url) return <span className={styles.thumbEmpty} />
   return <img className={styles.thumbImg} src={url} alt="这一步的产物" />
+}
+
+/** 素材库里的一个缩略图：同样走 `useAsset`，不另写一条取图链路 */
+function LibraryThumb({ hash }: { hash: string }) {
+  const url = useAsset(hash)
+  if (!url) return <span className={styles.libraryPlaceholder} />
+  return <img className={styles.libraryImg} src={url} alt="" />
+}
+
+/**
+ * 模型候选 → 带厂商图标的选项（固定清单里的那些才有图标）。
+ *
+ * 与创作面板同源：两处都只调 `presetOf` + `ModelIcon`，不各画一套 logo。
+ */
+function withModelIcons(names: readonly string[]) {
+  return names.map((n) => {
+    const preset = presetOf(n)
+    return {
+      value: n,
+      label: n,
+      ...(preset ? { icon: <ModelIcon vendor={preset.vendor} /> } : {}),
+    }
+  })
 }
 
 /** 新节点落在视口中心偏左 —— 你正在看的地方，建出来的东西才在你眼前（§6） */

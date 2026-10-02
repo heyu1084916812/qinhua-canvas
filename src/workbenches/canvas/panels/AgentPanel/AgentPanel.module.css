@@ -134,6 +134,92 @@
   padding: 0 var(--space-1);
 }
 
+/**
+ * 「加素材」那一枚要能挂浮层：两个菜单（本地上传 / 素材库添加 与素材库本身）
+ * 都以它为锚点向上展开。
+ */
+.addWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/**
+ * 素材库选择浮层（用户 2026-10-03：「素材库添加」）。
+ *
+ * 缩略图网格而不是列表：素材是靠眼睛认的，名字（`asset_x1y2…`）认不出来。
+ * 高度封顶 + 滚动，收藏多的时候不把输入区顶出屏幕。
+ */
+.library {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  box-sizing: border-box;
+  width: 244px;
+  max-height: 208px;
+  overflow-y: auto;
+  padding: var(--space-2);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-1);
+}
+
+.libraryItem {
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-control) - 4px);
+  background: var(--bg-hover);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.libraryItem:hover,
+.libraryItem:focus-visible {
+  border-color: var(--stroke-focus);
+}
+
+.libraryImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.libraryPlaceholder {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.libraryEmpty {
+  grid-column: 1 / -1;
+  padding: var(--space-2) 0;
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+  line-height: 1.5;
+}
+
+/** 关闭钮贴在右上角，不占网格的一格 */
+.libraryClose {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;
