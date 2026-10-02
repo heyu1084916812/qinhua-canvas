@@ -205,7 +205,14 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
 
     expect(sent).toMatchObject({
       model: 'agnes-video-v2.0',
-      mode: 'text',
+      /**
+       * `mode` 是**服务端枚举**：`'ti2vid' | 'keyframes' | 'multi_reference'`。
+       *
+       * 这里原本钉的是我们自己的叫法 `'text'` —— 用户 2026-10-03 手跑 Agnes Video 2.0
+       * 时收到 400：`Input should be 'ti2vid', 'keyframes' or 'multi_reference'`，
+       * 说明这条断言当初把 bug 也一起钉住了。纯文字起片就是 `'ti2vid'`。
+       */
+      mode: 'ti2vid',
       seconds: '4',
       size: '720P',
       aspect_ratio: '16:9',

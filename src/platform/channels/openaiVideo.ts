@@ -37,9 +37,12 @@ import {
  * 与「OpenAI 视频」不是一套：
  *
  * ```
- * { model, prompt, mode: 'text'|'keyframe'|'reference', seconds, size, aspect_ratio, seed? }
- * { mode:'keyframe',  first_frame?, last_frame? }
- * { mode:'reference', images?:[], audios?:[], videos?:[] }
+ * { model, prompt, mode: 'ti2vid'|'keyframes'|'multi_reference', seconds, size, aspect_ratio }
+ * { mode:'keyframes',       first_frame?, last_frame? }
+ * { mode:'multi_reference', images?:[], audios?:[], videos?:[] }
+ *
+ * ⚠️ `mode` 是**服务端枚举**，不是我们的内部叫法（用户 2026-10-03 手跑时的 400 原文：
+ * `Input should be 'ti2vid', 'keyframes' or 'multi_reference'`）。纯文字起片 = `ti2vid`。
  * ```
  *
  * - `seconds` 是 `"4"`–`"12"` 的**字符串**；`size` 是**档位**（`720P`/`1080P`/`1K`/`2K`）
@@ -441,7 +444,15 @@ export function createOpenAiVideoAdapter(
     const documented: Record<string, unknown> = {
       model: request.model,
       prompt: request.prompt,
-      mode: 'text',
+      /**
+       * ⚠️ **`mode` 的值域是服务端定的枚举**：`'ti2vid' | 'keyframes' | 'multi_reference'`。
+       *
+       * 这里原本写的是我们自己的叫法 `'text'` —— 用户 2026-10-03 手跑 Agnes Video 2.0
+       * 时收到 400 原文：
+       *   `Input should be 'ti2vid', 'keyframes' or 'multi_reference'`（param: mode）
+       * 参数名对上了、值没翻译，服务端只能拒。纯文字起片就是 `'ti2vid'`。
+       */
+      mode: 'ti2vid',
       seconds: String(agnesVideoSeconds(request.params.durationSec)),
       size: agnesVideoSizeTier(request.params.size),
       ...(typeof request.params.ratio === 'string' ? { aspect_ratio: request.params.ratio } : {}),
