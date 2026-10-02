@@ -192,7 +192,17 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
     expect(polls).toBe(2)
   })
 
-  it('★★ 提交体优先用官方专属参数（mode / seconds / size / aspect_ratio）', async () => {
+  /**
+   * 2026-10-03 用真令牌打 `apihub.agnes-ai.com` 实测（对账清单 #112）：
+   *
+   * - 给 `agnes-video-v2.0` 发官方档位那套（`size:"720P"` + `aspect_ratio:"16:9"`）：
+   *   **HTTP 200，但回填的 size 是默认 `1088x832`** —— 用户选的尺寸与比例被静默丢掉；
+   * - 发像素那套（`1280x720` + `num_frames`）：回填 `1280x704`（吸附到 32 的倍数），
+   *   时长也按帧数算。
+   *
+   * 所以 2.0 必须**先发像素形态**。这条断言就是那次的结论，谁把顺序调回去它就红。
+   */
+  it('★★ Agnes Video 2.0 先发像素形态（它收下档位参数却无视它们）', async () => {
     let sent: Record<string, unknown> | null = null
     const platform = createMemoryPlatform({
       handler: async (req: NetworkRequest) => {
@@ -213,6 +223,40 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
 
     expect(sent).toMatchObject({
       model: 'agnes-video-v2.0',
+      // 480p 在 16:9 下是 720×408（两边都吸附到 8 的倍数）
+      width: 720,
+      height: 408,
+      frame_rate: 24,
+    })
+    /** 时长 4 秒（低于 2.0 下限 1 秒被夹到 4）→ 帧数按 `≡1 (mod 8)` 吸附 */
+    expect(sent!.num_frames).toBe(97)
+    // 档位那套字段不许先发：发了就等于把用户选的尺寸与比例丢掉
+    expect(sent!.size).toBeUndefined()
+    expect(sent!.aspect_ratio).toBeUndefined()
+  })
+
+  it('★★ Agnes Video 2.5 仍先发官方档位形态（size / aspect_ratio）', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest) => {
+        if (req.method === 'POST') {
+          bodies.push(req.body as Record<string, unknown>)
+          return json(200, { task_id: 't', video_id: 'v', status: 'queued' })
+        }
+        if (req.url.includes('/videos/t')) return json(200, { status: 'completed', url: 'https://x/v.mp4' })
+        if (req.url.includes('v.mp4')) return json(200, {})
+        return json(404, {})
+      },
+    })
+    const adapter = createOpenAiVideoAdapter(config, platform, { sleep: async () => {}, now: () => 0 })
+    await adapter.generateVideo(
+      { ...videoRequest, model: 'agnes-video-2.5', params: { ...videoRequest.params, size: '720P' } },
+      new AbortController().signal,
+    )
+
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]).toMatchObject({
+      model: 'agnes-video-2.5',
       /**
        * `mode` 是**服务端枚举**：`'ti2vid' | 'keyframes' | 'multi_reference'`。
        *
@@ -225,20 +269,19 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
       size: '720P',
       aspect_ratio: '16:9',
     })
-    // 官方形态里没有像素字段——两套混着发是此前误实现的来源
-    expect(sent!.width).toBeUndefined()
-    expect(sent!.num_frames).toBeUndefined()
+    expect(bodies[0]!.width).toBeUndefined()
+    expect(bodies[0]!.num_frames).toBeUndefined()
   })
 
-  it('★ 专属参数被 400 拒时回落 OpenAI 形态（老部署只认那套）', async () => {
+  it('★ 先发的那套被 400 拒时，换另一套（老部署只认像素那套）', async () => {
     const bodies: Record<string, unknown>[] = []
     const platform = createMemoryPlatform({
       handler: async (req: NetworkRequest) => {
         if (req.method === 'POST') {
           const body = req.body as Record<string, unknown>
           bodies.push(body)
-          // 带 mode 的那次被拒；不带 mode 的像素形态才通过
-          return body.mode ? json(400, { error: 'bad params' }) : json(200, { task_id: 't', video_id: 'v' })
+          // 像素形态被拒；档位形态才通过（与 2.0 的第一顺位相反）
+          return body.width ? json(400, { error: 'bad params' }) : json(200, { task_id: 't', video_id: 'v' })
         }
         if (req.url === 'https://x/v.mp4') return json(200, {})
         if (req.url.includes('/videos/t')) return json(200, { status: 'completed', url: 'https://x/v.mp4' })
@@ -249,7 +292,8 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
     const assets = await adapter.generateVideo(videoRequest, new AbortController().signal)
 
     expect(bodies).toHaveLength(2)
-    expect(bodies[1]).toMatchObject({ width: 720, height: 408, frame_rate: 24 })
+    expect(bodies[0]).toMatchObject({ width: 720, height: 408, frame_rate: 24 })
+    expect(bodies[1]).toMatchObject({ mode: 'ti2vid', size: '720P', aspect_ratio: '16:9' })
     expect(assets).toHaveLength(1)
   })
 

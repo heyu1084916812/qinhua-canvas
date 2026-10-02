@@ -29,6 +29,21 @@ export interface VideoParamSpec {
   count: number
   /** 支持的 `mode`（不支持的要在面板上藏掉，也不许发） */
   modes: readonly ('text' | 'keyframe' | 'reference')[]
+  /**
+   * **参数方言**：这个模型认哪一套「尺寸 / 比例」写法。
+   *
+   * - `tier`：官方 2.5 文档那套 —— `size` 给档位字符串（`720P` / `1080P` / `1K` / `2K`）+
+   *   `aspect_ratio`；
+   * - `pixel`：老形态那套 —— `width` / `height` / `num_frames` / `frame_rate`，比例与尺寸
+   *   由 `agnesVideoDimensions(ratio, size)` 换算成像素。
+   *
+   * 为什么必须按模型分开（2026-10-03 用真令牌打 `apihub.agnes-ai.com` 实测）：
+   * 同一个 host 上 `agnes-video-v2.0` **收下**了 `size:"720P" + aspect_ratio:"16:9"` 却
+   * **无视它们**，任务回填的是默认 `1088x832`；换成像素形态发 `1280x720 + num_frames`，
+   * 回填的就是 `1280x704`（吸附到 32 的倍数）、时长也按帧数算。
+   * 也就是说：**给 2.0 发档位参数 = 用户选的尺寸和比例被静默丢掉**。
+   */
+  dialect: 'tier' | 'pixel'
 }
 
 /** Agnes 全系的通用档位（比例 6 档、时长 4–12 秒） */
@@ -46,6 +61,7 @@ export const VIDEO_PARAM_SPECS: Record<string, VideoParamSpec> = {
     seconds: AGNES_SECONDS,
     count: 1,
     modes: ['text', 'keyframe', 'reference'],
+    dialect: 'tier',
   },
   'agnes-video-2.5-flash': {
     ratios: AGNES_RATIOS,
@@ -53,6 +69,7 @@ export const VIDEO_PARAM_SPECS: Record<string, VideoParamSpec> = {
     seconds: AGNES_SECONDS,
     count: 1,
     modes: ['text', 'keyframe', 'reference'],
+    dialect: 'tier',
   },
   /**
    * **Agnes Video 2.0** —— 用户 2026-10-03：「我现在只有 agnes video 2.0，不是 flash」。
@@ -73,6 +90,7 @@ export const VIDEO_PARAM_SPECS: Record<string, VideoParamSpec> = {
     seconds: { min: 4, max: 12, default: 5 },
     count: 1,
     modes: ['text'],
+    dialect: 'pixel',
   },
 }
 

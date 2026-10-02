@@ -38,9 +38,18 @@
 - **参考类参数全是公网 URL**：`first_frame` / `last_frame` / `images[]` / `audios[]` /
   `videos[].url`，且文档明写「媒体链接须公开可访问、任务完成前保持有效」⇒ 本地字节
   必须先有公网地址（图床 / 后端中转），这就是 #106 / #113 的前置条件。
-- **2.0 不能照抄 2.5 的文档形态**（实测走的是老形态）；面板一律按
-  `domain/canvas/layout/videoParams.ts` 的能力表渲染。`seed` 只有 2.5 有官方承诺，
-  2.0 未验证 ⇒ **先不做**（#112）。
+- **2.0 与 2.5 是两套词表 —— 实机实测（2026-10-03，真令牌直打 `apihub.agnes-ai.com`）**：
+  `mode` 的服务端枚举 = `ti2vid` / `keyframes` / `multi_reference`（发别的 400 原话：
+  `Input should be 'ti2vid', 'keyframes' or 'multi_reference'`）；给 2.0 发
+  `size:"720P" + aspect_ratio:"16:9"` **HTTP 200 却不生效**，排队回填的是默认
+  `1088x832`；发像素那套（`width` / `height` / `num_frames` / `frame_rate`，**不带 mode**）
+  回填 `1280x704`、时长按帧数算 ⇒ **2.0 = 像素形态，2.5 = 档位形态**（#112）。
+  **教训：参数「发出去没报错」不等于「生效」** —— 200 的响应里可能已经把你选的尺寸丢掉，
+  判据要看**响应回填的 `size`**，不是只看状态码。
+- **发送顺序**由 `VideoParamSpec.dialect` 决定（2.0 = `pixel` 先发像素、2.5 / Flash = `tier`
+  先发档位），另一套留作 400 回落；谁把顺序调回去，`openaiVideo.test.ts` 里那三条会红。
+- 带 `seed` 的像素形态请求被接受并正常出片（是否真的影响结果未验证）；免费档连发几次就
+  `429 rate limit for free users`，别用连发的方式做探针。
 
 ### ★ 图床能不能用，卡在 CORS 与「直链是不是真图片」（2026-10-03）
 

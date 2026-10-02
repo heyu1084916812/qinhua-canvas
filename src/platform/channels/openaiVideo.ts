@@ -489,8 +489,16 @@ export function createOpenAiVideoAdapter(
     const { width, height } = agnesVideoDimensions(safeRatio, safeSize)
     const numFrames = agnesVideoFrameCount(safeSeconds)
 
-    /** 官方文档给 Agnes Video 2.5 / 2.5 Flash 的专属参数（`mode` 为必填） */
-    const documented: Record<string, unknown> = {
+    /**
+     * 官方文档给 Agnes Video 2.5 / 2.5 Flash 的专属参数（`mode` 为必填）。
+     *
+     * ⚠️ **2.0 不吃这一套**（2026-10-03 用真令牌实测）：这些参数它**收下但不生效** ——
+     * `size:"720P" + aspect_ratio:"16:9"` 排队后回填的是默认 `1088x832`；
+     * 换成像素形态（`width/height/num_frames/frame_rate`）才按我们给的来
+     * （发 `1280x720`，回填 `1280x704`）。所以**先发哪一套由模型的 `dialect` 决定**
+     * （见 `domain/canvas/layout/videoParams.ts`），另一套留作 400 时的回落。
+     */
+    const tierBody: Record<string, unknown> = {
       model: request.model,
       prompt: request.prompt,
       /**
@@ -506,8 +514,8 @@ export function createOpenAiVideoAdapter(
       size: agnesVideoSizeTier(safeSize),
       ...(safeRatio ? { aspect_ratio: safeRatio } : {}),
     }
-    /** 老式部署 / LiteLLM 中转只认「OpenAI 视频」那套（像素 + 帧数） */
-    const legacy: Record<string, unknown> = {
+    /** 老式部署 / LiteLLM 中转只认「OpenAI 视频」那套（像素 + 帧数）；2.0 也认这套 */
+    const pixelBody: Record<string, unknown> = {
       model: request.model,
       prompt: request.prompt,
       width,
@@ -516,10 +524,11 @@ export function createOpenAiVideoAdapter(
       frame_rate: VIDEO_FPS,
     }
 
-    let res = await submit(documented, signal)
+    const pixelFirst = spec?.dialect === 'pixel'
+    let res = await submit(pixelFirst ? pixelBody : tierBody, signal)
     if (res.status === 400) {
-      // 专属参数被拒才回落；这不是静默降级——两条都失败时抛的是第二条的真实错误
-      res = await submit(legacy, signal)
+      // 这一套被拒才换另一套；这不是静默降级——两条都失败时抛的是第二条的真实错误
+      res = await submit(pixelFirst ? tierBody : pixelBody, signal)
     }
     if (res.status < 200 || res.status >= 300) {
       const detail = await res.text().catch(() => '')

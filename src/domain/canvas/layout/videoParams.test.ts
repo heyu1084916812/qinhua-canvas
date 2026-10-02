@@ -48,4 +48,18 @@ describe('videoParamsFor · 视频模型各自的参数能力', () => {
     expect(spec?.modes).toEqual(['text'])
     expect(spec?.count).toBe(1)
   })
+
+  /**
+   * **参数方言**（2026-10-03 真令牌实测，对账清单 #112）：
+   *
+   * 同一个 host 上，2.0 收下 `size:"720P" + aspect_ratio` 却不生效（回填默认 1088×832），
+   * 只有像素形态（`width/height/num_frames`）才按我们给的来 ⇒ 2.0 = `pixel`，
+   * 2.5 / Flash = 官方文档那套档位 = `tier`。
+   */
+  it('★★ 参数方言按模型分家：2.0 走像素、2.5/Flash 走官方档位', () => {
+    expect(videoParamsFor('agnes-video-v2.0')?.dialect).toBe('pixel')
+    expect(videoParamsFor('Agnes Video 2.0')?.dialect).toBe('pixel')
+    expect(videoParamsFor('agnes-video-2.5')?.dialect).toBe('tier')
+    expect(videoParamsFor('agnes-video-2.5-flash')?.dialect).toBe('tier')
+  })
 })
