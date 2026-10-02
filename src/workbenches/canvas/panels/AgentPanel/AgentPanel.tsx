@@ -168,6 +168,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 会出现两个浮层同时挂在屏幕上、点哪个都不对。
    */
   const [openPicker, setOpenPicker] = useState<string | null>(null)
+  /** 技能收藏（用户 2026-10-03：技能菜单分「通用 / 收藏 / 我的」） */
+  const [skillFavs, setSkillFavs] = useState<readonly string[]>([])
   const fileRef = useRef<HTMLInputElement | null>(null)
   /** 技能导入的两个输入：**.md 文件**与**文件夹**（浏览器只允许二选一，故分成两个） */
   const skillFileRef = useRef<HTMLInputElement | null>(null)
@@ -795,6 +797,35 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     setOpenPicker(null)
     navigate('/skills')
   }, [navigate])
+
+  /** 一进面板就把收藏读回来（它是 UI 偏好，住 `presets`，与 Agent 默认模型同一套） */
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      const ids = await presets.loadSkillFavorites()
+      if (alive) setSkillFavs(ids)
+    })()
+    return () => {
+      alive = false
+    }
+  }, [presets])
+
+  /**
+   * 切换收藏。
+   *
+   * **先改界面、再落库**（与素材库取消收藏同一手法）：收藏是瞬时的视觉反馈，
+   * 等一次 IndexedDB 往返再打星会让人以为没点上；落库失败最坏也只是下次没记住。
+   */
+  const toggleSkillFavorite = useCallback(
+    async (id: string) => {
+      const next = skillFavs.includes(id)
+        ? skillFavs.filter((x) => x !== id)
+        : [...skillFavs, id]
+      setSkillFavs(next)
+      await presets.saveSkillFavorites(next)
+    },
+    [skillFavs, presets],
+  )
 
   /**
    * 把一份素材落到画布上，**避开已有节点**。
@@ -1497,11 +1528,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                 <SkillMenu
                   builtin={skills.builtinSkills}
                   user={skills.userSkills}
+                  favorites={skillFavs}
                   activeId={current?.skillId ?? null}
                   onSelect={(id) => {
                     void setSkill(id ?? '')
                     setOpenPicker(null)
                   }}
+                  onToggleFavorite={(id) => void toggleSkillFavorite(id)}
                   onCreateNew={openSkillLibrary}
                   onImportFiles={() => skillFileRef.current?.click()}
                   onImportFolder={() => skillDirRef.current?.click()}

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { SkillEntity } from '../../../../domain/prompt/skill'
-import { IconChevronDown, IconClose, IconSkill } from '../../toolbar/icons'
+import { IconChevronDown, IconClose, IconSkill, IconStar } from '../../toolbar/icons'
 import styles from './SkillMenu.module.css'
 
 /**
@@ -16,18 +16,21 @@ import styles from './SkillMenu.module.css'
  * md 解析（`parseSkillMarkdown`）、新建 / 导入的落库（`skillStore.create`）。
  */
 
-export type SkillTab = 'builtin' | 'user'
+export type SkillTab = 'builtin' | 'fav' | 'user'
 
 const TABS: readonly { id: SkillTab; label: string }[] = [
   { id: 'builtin', label: '通用' },
+  { id: 'fav', label: '收藏' },
   { id: 'user', label: '我的' },
 ]
 
 export function SkillMenu({
   builtin,
   user,
+  favorites,
   activeId,
   onSelect,
+  onToggleFavorite,
   onCreateNew,
   onImportFiles,
   onImportFolder,
@@ -36,9 +39,13 @@ export function SkillMenu({
 }: {
   builtin: readonly SkillEntity[]
   user: readonly SkillEntity[]
+  /** 收藏的技能 id（用户 2026-10-03：菜单分「通用 / 收藏 / 我的」） */
+  favorites: readonly string[]
   /** 当前启用的技能 id（`null` = 没选） */
   activeId: string | null
   onSelect: (id: string | null) => void
+  /** 切换一条技能的收藏状态 */
+  onToggleFavorite: (id: string) => void
   /** 「创建新的 Skill」：跳到技能库去写（那一页才有编辑器） */
   onCreateNew: () => void
   /** 「导入 .md 文件」 */
@@ -54,14 +61,20 @@ export function SkillMenu({
   const [createOpen, setCreateOpen] = useState(false)
 
   const list = useMemo(() => {
-    const src = tab === 'builtin' ? builtin : user
+    const src =
+      tab === 'builtin'
+        ? builtin
+        : tab === 'user'
+          ? user
+          : /** 收藏：内置与自建都可能被收藏，所以从两边合起来挑 */
+            [...builtin, ...user].filter((s) => favorites.includes(s.id))
     const q = query.trim().toLowerCase()
     const hit = q
       ? src.filter((s) => [s.name, s.description].some((t) => t.toLowerCase().includes(q)))
       : src
     // 按名字排：技能多起来之后，「我刚导入的那个」比「最近改的」更好找
     return [...hit].sort((a, b) => a.name.localeCompare(b.name, 'zh'))
-  }, [tab, builtin, user, query])
+  }, [tab, builtin, user, favorites, query])
 
   return (
     <div className={styles.menu} data-agent-skill-menu role="dialog" aria-label="选择技能">
@@ -164,29 +177,50 @@ export function SkillMenu({
           <span className={styles.empty} data-agent-skill-empty>
             {query.trim()
               ? '没有匹配的技能'
-              : tab === 'user'
-                ? '还没有自己的技能：点「创建」新建，或导入 .md'
-                : '没有内置技能'}
+              : tab === 'fav'
+                ? '还没有收藏的技能：在列表里点右边的星标'
+                : tab === 'user'
+                  ? '还没有自己的技能：点「创建」新建，或导入 .md'
+                  : '没有内置技能'}
           </span>
         ) : (
-          list.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className={s.id === activeId ? `${styles.row} ${styles.rowOn}` : styles.row}
-              title={s.description || s.name}
-              data-agent-skill-option={s.id}
-              onClick={() => onSelect(s.id === activeId ? null : s.id)}
-            >
-              <span className={styles.rowIcon}>
-                <IconSkill size={14} />
-              </span>
-              <span className={styles.rowBody}>
-                <span className={styles.rowName}>{s.name}</span>
-                {s.description && <span className={styles.rowDesc}>{s.description}</span>}
-              </span>
-            </button>
-          ))
+          list.map((s) => {
+            const fav = favorites.includes(s.id)
+            return (
+              /**
+               * 收藏钮**不能**塞进行那个 button 里（button 套 button 是非法 HTML，
+               * 点击行为在各浏览器上还不一致）—— 两者并排，行自己占满剩余宽度。
+               */
+              <div key={s.id} className={styles.rowWrap}>
+                <button
+                  type="button"
+                  className={s.id === activeId ? `${styles.row} ${styles.rowOn}` : styles.row}
+                  title={s.description || s.name}
+                  data-agent-skill-option={s.id}
+                  onClick={() => onSelect(s.id === activeId ? null : s.id)}
+                >
+                  <span className={styles.rowIcon}>
+                    <IconSkill size={14} />
+                  </span>
+                  <span className={styles.rowBody}>
+                    <span className={styles.rowName}>{s.name}</span>
+                    {s.description && <span className={styles.rowDesc}>{s.description}</span>}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={fav ? `${styles.star} ${styles.starOn}` : styles.star}
+                  aria-pressed={fav}
+                  aria-label={fav ? `取消收藏 ${s.name}` : `收藏 ${s.name}`}
+                  title={fav ? '取消收藏' : '收藏'}
+                  data-agent-skill-fav={s.id}
+                  onClick={() => onToggleFavorite(s.id)}
+                >
+                  <IconStar size={14} filled={fav} />
+                </button>
+              </div>
+            )
+          })
         )}
       </div>
     </div>

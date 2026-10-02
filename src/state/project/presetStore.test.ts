@@ -57,4 +57,23 @@ describe('Agent 默认模型 · UI 偏好', () => {
     expect([...all.keys()]).toEqual(['c1'])
     expect(all.get('c1')?.model).toBe('mock-image-1')
   })
+
+  /**
+   * ★★ 技能收藏（用户 2026-10-03：技能菜单分「通用 / 收藏 / 我的」）。
+   *
+   * 它是**第四样**住进 `presets` 的偏好，所以顺手把两件事一起钉住：
+   * ① 存得住、去重；② **不会被 `loadAll` 当成配方读进来** —— 那条路曾经真出过事
+   * （`agent:default` 被读成生成配方，导致画布新建的生成节点带上对话模型）。
+   */
+  it('★★ 技能收藏存得住、去重，且不会被 loadAll 当成配方', async () => {
+    const s = store()
+    await s.save({ channelId: 'c1', model: 'mock-image-1', params: {}, savedAt: 1 })
+    await s.saveSkillFavorites(['skill_a', 'skill_b', 'skill_a'])
+    expect(await s.loadSkillFavorites()).toEqual(['skill_a', 'skill_b'])
+    expect([...(await s.loadAll()).keys()]).toEqual(['c1'])
+  })
+
+  it('★ 没收藏过返回空数组（不返回 null，也不抛）', async () => {
+    expect(await store().loadSkillFavorites()).toEqual([])
+  })
 })

@@ -172,7 +172,16 @@
   gap: 2px;
 }
 
+/* 行 + 收藏钮并排（收藏钮不能塞进行里：button 套 button 是非法 HTML） */
+.rowWrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .row {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -188,6 +197,27 @@
 }
 .rowOn {
   background: var(--bg-hover);
+}
+
+.star {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.star:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+.starOn {
+  color: var(--text-1);
 }
 .rowIcon {
   flex: 0 0 auto;

@@ -37,6 +37,19 @@ const ROUTE_STRATEGY_ROW_ID = 'routing:strategy'
  */
 const AGENT_DEFAULT_ROW_ID = 'agent:default'
 
+/**
+ * **技能收藏**的保留行 id（用户 2026-10-03：对话窗的技能菜单要按参考产品分成
+ * 「通用 / 收藏 / 我的」）。
+ *
+ * 为什么收藏不放技能自己那一行：内置技能是**只读**的（随包同步，改了会被覆盖回去），
+ * 用户技能删了也不该把「收藏过」这件事一起删掉。收藏是**用户与技能的关系**，
+ * 和「素材库收藏」一样，单独记一份 id 列表最省事。
+ *
+ * 与前面两项同理：它是 UI 偏好，住 `presets`。读全量配方那支（`loadAll`）**只认
+ * `recipe:` 前缀**，所以这行不会被误当成配方（这条曾经真出过事，见那一处的注释）。
+ */
+const SKILL_FAVORITES_ROW_ID = 'skill:favorites'
+
 export interface AgentDefaultModel {
   channelId: string
   model: string
@@ -64,6 +77,10 @@ export interface PresetStore {
   loadAgentDefault(): Promise<AgentDefaultModel | null>
   /** 写 Agent 默认模型。**只影响之后新建的会话**，不回头改已有会话（§8） */
   saveAgentDefault(value: AgentDefaultModel): Promise<void>
+  /** 读技能收藏（技能 id 列表）；没收藏过返回空数组 */
+  loadSkillFavorites(): Promise<string[]>
+  /** 写技能收藏（整份覆盖） */
+  saveSkillFavorites(ids: readonly string[]): Promise<void>
 }
 
 export function createPresetStore(storage: StoragePort): PresetStore {
@@ -140,6 +157,25 @@ export function createPresetStore(storage: StoragePort): PresetStore {
         await storage.put('presets', { id: AGENT_DEFAULT_ROW_ID, ...value } as never)
       } catch {
         // 偏好写不进去不该打断对话：最坏情况只是下次还得重选
+      }
+    },
+    async loadSkillFavorites() {
+      try {
+        const rows = await storage.query('presets', { id: SKILL_FAVORITES_ROW_ID })
+        const row = rows[0] as { skillIds?: unknown } | undefined
+        if (!row || !Array.isArray(row.skillIds)) return []
+        return row.skillIds.filter((x): x is string => typeof x === 'string' && x !== '')
+      } catch {
+        // 表可能还不存在（老库未升级）：当作没收藏过
+        return []
+      }
+    },
+    async saveSkillFavorites(ids) {
+      try {
+        const clean = [...new Set(ids.filter((x) => typeof x === 'string' && x !== ''))]
+        await storage.put('presets', { id: SKILL_FAVORITES_ROW_ID, skillIds: clean } as never)
+      } catch {
+        // 同上：收藏写不进去不该打断使用
       }
     },
   }

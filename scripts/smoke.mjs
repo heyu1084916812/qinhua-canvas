@@ -13711,12 +13711,35 @@ async function g95(browser) {
     const skillRowCount = await skillRows.count()
     rec(
       g,
-      '★★ 技能菜单按「通用 / 我的」分类，且带搜索框与技能行',
-      skillTabs.join(',') === 'builtin,user' &&
+      '★★ 技能菜单按「通用 / 收藏 / 我的」分类，且带搜索框与技能行',
+      skillTabs.join(',') === 'builtin,fav,user' &&
         (await page.locator('[data-agent-skill-search]').count()) === 1 &&
         skillRowCount >= 5,
       `页签=${skillTabs.join(',')} 条数=${skillRowCount}`,
     )
+
+    /**
+     * ★★ 收藏（用户 2026-10-03 参考产品图三的第三个页签）：收藏一条 → 它出现在
+     * 「收藏」页签里。**判据用「同一条技能的名字」**，不是「收藏页非空」——
+     * 后者在收藏串味（收了 A 却显示 B）时照样绿。
+     */
+    const favCandidate = ((await skillRows.first().innerText()) ?? '').trim().split('\n')[0] ?? ''
+    await page.locator('[data-agent-skill-fav]').first().click()
+    await sleep(300)
+    await page.locator('[data-agent-skill-tab="fav"]').click()
+    await sleep(300)
+    const favNames = (await page.locator('[data-agent-skill-option]').allInnerTexts()).map(
+      (t) => t.trim().split('\n')[0] ?? '',
+    )
+    rec(
+      g,
+      '★★ 收藏一条技能后，它出现在「收藏」页签里',
+      favCandidate !== '' && favNames.includes(favCandidate),
+      `收藏=${JSON.stringify(favNames)} 期望含「${favCandidate}」`,
+    )
+    /** 回到「通用」继续下面那条「选中即用」的验收 */
+    await page.locator('[data-agent-skill-tab="builtin"]').click()
+    await sleep(250)
 
     /** 搜索要真的收窄列表（打个不存在的词 → 空态说明，而不是装作没坏） */
     await page.locator('[data-agent-skill-search]').fill('zzz-不存在的技能')

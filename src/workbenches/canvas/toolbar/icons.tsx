@@ -638,3 +638,15 @@ export function IconMention(props: IconProps) {
     </Svg>
   )
 }
+
+/**
+ * 星标（收藏用）。`filled` = 已收藏 —— 同一个形状两种填充，
+ * 比「实心星 / 空心星」画两遍更不容易走样。
+ */
+export function IconStar({ filled = false, ...props }: IconProps & { filled?: boolean }) {
+  return (
+    <Svg {...props} fill={filled ? 'currentColor' : 'none'}>
+      <path d="M12 3.6l2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z" />
+    </Svg>
+  )
+}
