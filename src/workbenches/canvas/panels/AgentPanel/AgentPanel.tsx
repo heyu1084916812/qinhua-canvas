@@ -1538,7 +1538,6 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                   onCreateNew={openSkillLibrary}
                   onImportFiles={() => skillFileRef.current?.click()}
                   onImportFolder={() => skillDirRef.current?.click()}
-                  onOpenLibrary={openSkillLibrary}
                   onClose={() => setOpenPicker(null)}
                 />
               )}

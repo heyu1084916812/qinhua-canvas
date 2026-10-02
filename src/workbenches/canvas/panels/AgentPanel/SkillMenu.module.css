@@ -21,6 +21,19 @@
   gap: var(--space-1);
 }
 
+/*
+ * 「全部」摊开后的尺寸：宽到能放两列卡片，高到能扫一遍。
+ *
+ * 同时**改成向左生长**（`left:auto` + `right:0`）：锚点是工具条中段的技能按钮，
+ * 460px 一路向右会顶出面板、被视口切掉右半边（实测过一眼就看得见）。
+ */
+.menuWide {
+  width: 460px;
+  max-height: 420px;
+  left: auto;
+  right: 0;
+}
+
 .head {
   display: flex;
   align-items: center;
@@ -161,6 +174,77 @@
 }
 .search::placeholder {
   color: var(--text-3);
+}
+
+/* 大面板的分类（取自技能自己的 tags） */
+.tagRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.tagChip {
+  height: 22px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+.tagChip:hover {
+  background: var(--bg-hover);
+}
+.tagOn {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+/* 大面板的卡片网格（参考产品图五）：一列一张，看出「有哪些、分别干什么」 */
+.cardGrid {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-1);
+  align-content: start;
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: var(--bg-hover);
+  text-align: left;
+  cursor: pointer;
+}
+.card:hover {
+  border-color: var(--stroke-focus);
+}
+.cardOn {
+  border-color: var(--stroke-focus);
+}
+.cardName {
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cardDesc {
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .list {

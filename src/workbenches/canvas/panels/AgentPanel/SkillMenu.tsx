@@ -34,7 +34,6 @@ export function SkillMenu({
   onCreateNew,
   onImportFiles,
   onImportFolder,
-  onOpenLibrary,
   onClose,
 }: {
   builtin: readonly SkillEntity[]
@@ -52,13 +51,39 @@ export function SkillMenu({
   onImportFiles: () => void
   /** 「导入文件夹」（整包 skill 目录） */
   onImportFolder: () => void
-  /** 「全部」：跳到技能库 */
-  onOpenLibrary: () => void
   onClose: () => void
 }) {
   const [tab, setTab] = useState<SkillTab>('builtin')
   const [query, setQuery] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
+  /**
+   * 「全部」= **在这个面板里摊开**（用户 2026-10-03 参考产品图五：全部会跳出一个
+   * 大面板，在那里**也能挑**）。
+   *
+   * 为什么不跳去技能库那一页：那一页是**管理**（浏览 → 进第二层编辑），
+   * 在里面点一条是「去改它」，不是「这次用它」。用户要的是后者。
+   */
+  const [wide, setWide] = useState(false)
+  /** 大面板里的分类（取自技能自己的 tags；没有标签的技能靠「全部」兜住） */
+  const [tag, setTag] = useState<string | null>(null)
+
+  /** 全库的标签清单，按出现次数排（常用的排前面） */
+  const tags = useMemo(() => {
+    const count = new Map<string, number>()
+    for (const s of [...builtin, ...user]) {
+      for (const t of s.tags) if (t) count.set(t, (count.get(t) ?? 0) + 1)
+    }
+    return [...count.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh')).map(([t]) => t)
+  }, [builtin, user])
+
+  /** 大面板的卡片清单：全库 + 分类 + 搜索 */
+  const cards = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return [...builtin, ...user]
+      .filter((s) => (tag ? s.tags.includes(tag) : true))
+      .filter((s) => (q ? [s.name, s.description, ...s.tags].some((t) => t.toLowerCase().includes(q)) : true))
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
+  }, [builtin, user, tag, query])
 
   const list = useMemo(() => {
     const src =
@@ -77,7 +102,12 @@ export function SkillMenu({
   }, [tab, builtin, user, favorites, query])
 
   return (
-    <div className={styles.menu} data-agent-skill-menu role="dialog" aria-label="选择技能">
+    <div
+      className={wide ? `${styles.menu} ${styles.menuWide}` : styles.menu}
+      data-agent-skill-menu
+      role="dialog"
+      aria-label="选择技能"
+    >
       <div className={styles.head}>
         <span className={styles.title}>Skill</span>
         <span className={styles.headGap} />
@@ -131,9 +161,10 @@ export function SkillMenu({
           type="button"
           className={styles.headBtn}
           data-agent-skill-all
-          onClick={onOpenLibrary}
+          aria-expanded={wide}
+          onClick={() => setWide((v) => !v)}
         >
-          全部
+          {wide ? '收起' : '全部'}
         </button>
         <button
           type="button"
@@ -147,21 +178,27 @@ export function SkillMenu({
       </div>
 
       <div className={styles.filterRow}>
-        <div className={styles.tabs} role="tablist">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              aria-selected={tab === t.id}
-              className={tab === t.id ? `${styles.tab} ${styles.tabOn}` : styles.tab}
-              data-agent-skill-tab={t.id}
-              onClick={() => setTab(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {/*
+          大面板里不再显示「通用 / 收藏 / 我的」—— 它把**全部**摊开了，
+          页签与它是两种视角，同时摆会让人不知道该点哪个。分类改用**标签**。
+        */}
+        {!wide && (
+          <div className={styles.tabs} role="tablist">
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.id}
+                className={tab === t.id ? `${styles.tab} ${styles.tabOn}` : styles.tab}
+                data-agent-skill-tab={t.id}
+                onClick={() => setTab(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
         <input
           className={styles.search}
           value={query}
@@ -172,6 +209,57 @@ export function SkillMenu({
         />
       </div>
 
+      {wide && tags.length > 0 && (
+        <div className={styles.tagRow} data-agent-skill-tags>
+          <button
+            type="button"
+            className={tag === null ? `${styles.tagChip} ${styles.tagOn}` : styles.tagChip}
+            data-agent-skill-tag="__all"
+            onClick={() => setTag(null)}
+          >
+            全部
+          </button>
+          {tags.slice(0, 8).map((t) => (
+            <button
+              key={t}
+              type="button"
+              className={tag === t ? `${styles.tagChip} ${styles.tagOn}` : styles.tagChip}
+              data-agent-skill-tag={t}
+              onClick={() => setTag(t === tag ? null : t)}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/*
+        大面板用**卡片网格**（参考产品图五）：一眼扫到「有哪些、分别干什么」。
+        点卡片 = **这次用它**（与上面列表里的行同一个动作），不是去编辑。
+      */}
+      {wide ? (
+        <div className={styles.cardGrid} data-agent-skill-cards>
+          {cards.length === 0 ? (
+            <span className={styles.empty} data-agent-skill-empty>
+              没有匹配的技能
+            </span>
+          ) : (
+            cards.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={s.id === activeId ? `${styles.card} ${styles.cardOn}` : styles.card}
+                title={s.description || s.name}
+                data-agent-skill-card={s.id}
+                onClick={() => onSelect(s.id === activeId ? null : s.id)}
+              >
+                <span className={styles.cardName}>{s.name}</span>
+                {s.description && <span className={styles.cardDesc}>{s.description}</span>}
+              </button>
+            ))
+          )}
+        </div>
+      ) : (
       <div className={styles.list} data-agent-skill-list>
         {list.length === 0 ? (
           <span className={styles.empty} data-agent-skill-empty>
@@ -223,6 +311,7 @@ export function SkillMenu({
           })
         )}
       </div>
+      )}
     </div>
   )
 }

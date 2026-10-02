@@ -13769,12 +13769,67 @@ async function g95(browser) {
     await page.locator('[data-agent-skill-create]').click()
     await sleep(200)
 
-    /** 「全部」是去技能库的入口（真跳转在下面点不了 —— 一离开画布这段就断了） */
-    rec(g, '★ 技能菜单有「全部」入口（去技能库）', (await page.locator('[data-agent-skill-all]').count()) === 1)
+    /**
+     * ★★ 「全部」= **在面板里摊开**（用户 2026-10-03 参考产品图五：「点全部会跳…面板，
+     * 可以进行选择」）。
+     *
+     * 与「跳去技能库那一页」的区别很实在：那一页是**管理**（点一条 = 去改它），
+     * 而这里要的是**这次就用它**。
+     */
+    await page.locator('[data-agent-skill-all]').click()
+    await sleep(300)
+    const cardCount = await page.locator('[data-agent-skill-card]').count()
+    const tagCount = await page.locator('[data-agent-skill-tag]').count()
+    rec(
+      g,
+      '★★ 「全部」摊开成大面板：分类标签 + 卡片网格，能直接挑',
+      cardCount >= 5 && tagCount >= 1,
+      `卡片=${cardCount} 分类=${tagCount}`,
+    )
+    /**
+     * 宽面板必须**留在视口里**。第一版向右生长，460px 一路顶出面板右边缘、
+     * 右半列直接被切掉（截图一眼就看得见）—— 浮层的尺寸一变大，
+     * 「它从哪儿长」就得重新想一次。
+     */
+    const wideBox = await page.locator('[data-agent-skill-menu]').boundingBox()
+    rec(
+      g,
+      '★ 摊开的大面板不出视口（宽面板向左生长）',
+      wideBox !== null &&
+        vp !== null &&
+        wideBox.x >= 0 &&
+        wideBox.x + wideBox.width <= vp.width + 1,
+      `面板 ${wideBox ? Math.round(wideBox.x) : '?'}..${wideBox ? Math.round(wideBox.x + wideBox.width) : '?'} 视口=${vp?.width ?? '?'}`,
+    )
+    await page.screenshot({ path: `${OUT}/117-g95-agent-skills-all.png` })
+    const cardName =
+      ((await page.locator('[data-agent-skill-card]').first().innerText()) ?? '')
+        .trim()
+        .split('\n')[0] ?? ''
+    await page.locator('[data-agent-skill-card]').first().click()
+    await sleep(400)
+    const chipFromCard =
+      ((await page.locator('[data-agent-skill-chip]').innerText().catch(() => '')) ?? '').trim()
+    rec(
+      g,
+      '★★ 在大面板里点一张卡片 = 用这个技能（不是去编辑）',
+      cardName !== '' && chipFromCard.includes(cardName),
+      `chip=「${chipFromCard}」期望含「${cardName}」`,
+    )
 
-    /** 选一条：当场生效，并在输入框里显示成 chip（用户要的「代表我用了这个 skill」） */
-    const firstSkillName = ((await skillRows.first().innerText()) ?? '').trim().split('\n')[0] ?? ''
-    await skillRows.first().click()
+    /** 再开一次，走「列表里选一行」那条路 —— 两种挑法都要能用 */
+    await agentSkillChip.click()
+    await sleep(300)
+    /**
+     * 取**第 2 行**而不是第 1 行：第 1 行正好是刚用卡片选中的那条，
+     * 再点它是「取消选择」（同一行点两次 = 切换），chip 会消失 ——
+     * 那是设计好的行为，不是 bug，但这儿要验的是「选中」这条路。
+     */
+    const firstSkillName =
+      ((await page.locator('[data-agent-skill-option]').nth(1).innerText()) ?? '')
+        .trim()
+        .split('\n')[0] ?? ''
+    await page.locator('[data-agent-skill-option]').nth(1).click()
     await sleep(400)
     const skillChipEl = page.locator('[data-agent-skill-chip]')
     const skillChipText = ((await skillChipEl.innerText().catch(() => '')) ?? '').trim()
