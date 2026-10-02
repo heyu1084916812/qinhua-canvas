@@ -9608,7 +9608,8 @@ async function g74(browser) {
  *
  * 缺口 #30 的落地验收。要钉住五件事：
  *  ① 刷新后**收起**（64px）、点开合按钮 → 240px，且右侧工作区**真的变窄**；
- *  ② 六个一级导航项的**顺序**（产品口径，不按字母重排）；
+ *  ② 七个一级导航项的**顺序**（产品口径，不按字母重排；第 7 项「素材传输」为用户
+ *     2026-10-03 新增的图床设置页）；
  *  ③ 侧栏**全路由常驻**；
  *  ④ 主题切换在侧栏底部、点了能换主题；
  *  ⑤ 画布页的旧顶栏**确实没了**，日志与缩放读数搬到新位置。
@@ -9665,9 +9666,9 @@ async function g80(browser) {
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-sidebar-item')))
   rec(
     g,
-    '★ 六个一级导航且顺序固定（首页/项目/画布/技能库/我的素材/渠道配置）',
+    '★ 七个一级导航且顺序固定（首页/项目/画布/技能库/我的素材/渠道配置/素材传输）',
     JSON.stringify(navIds) ===
-      JSON.stringify(['/', '/projects', '/canvas', '/skills', '/assets', '/settings']),
+      JSON.stringify(['/', '/projects', '/canvas', '/skills', '/assets', '/settings', '/hosting']),
     navIds.join(','),
   )
   // 展开态要有文字（收起态只有图标）
