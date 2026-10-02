@@ -254,30 +254,92 @@ async function configureGenPanel(page, panel, prompt) {
  * 都断言不了，只能读 `innerText`。现在展开层是 DOM 里的真元素，于是「点开 → 点选项」
  * 成了可断言的动作。锚点用 `data-param-chip` / `data-param-popup`（不是 CSS module 哈希类名）。
  */
+/*
+ * 图片模式的四个生成参数（比例 / 画质 / 质量 / 张数）自 2026-10-02 起**收进一枚胶囊**
+ * （`data-param-chip="gen-params"`，用户参考产品图五：「把比例，质量，画质，张数变成
+ * 一个胶囊显示」）。分段本身仍叫这四个名字，所以下面三个助手的调用方**不用改**：
+ *   · 单独一枚存在 → 用单独那枚（视频模式的「比例」「尺寸」「参考模式」就是这种）；
+ *   · 只有胶囊 → 用胶囊，选项从 `[data-param-in="名字"]` 里找。
+ */
+const GROUPED_PARAMS = new Set(['ratio', 'resolution', 'quality', 'count'])
+
+/** 参数 chip：优先单独一枚，否则落到那枚「生成参数」胶囊 */
+function chipOf(scope, name) {
+  const own = scope.locator(`[data-param-chip="${name}"]`)
+  if (!GROUPED_PARAMS.has(name)) return own
+  return own.or(scope.locator('[data-param-chip="gen-params"]')).first()
+}
+
+/** 当前这个参数展开后落在哪个浮层里（单独一枚 → 同名；胶囊 → `gen-params`） */
+async function popupNameOf(scope, name) {
+  if ((await scope.locator(`[data-param-chip="${name}"]`).count()) > 0) return name
+  if (GROUPED_PARAMS.has(name) && (await scope.locator('[data-param-chip="gen-params"]').count()) > 0) {
+    return 'gen-params'
+  }
+  return name
+}
+
+/**
+ * 那一段的**选项按钮**。
+ *
+ * `data-param-in` 是打在**按钮自己**身上的（`ParamOptionButton` 的 `sectionAttrs`），
+ * 不是打在一层容器上 —— 所以胶囊里的取法是 `button[data-param-in="…"]`，
+ * 而不是「拿着它去找里面的 button」（第一版就这么写错，读到 0 个选项）。
+ */
+function optionButtons(scope, popup, name) {
+  const pop = scope.locator(`[data-param-popup="${popup}"]`)
+  return popup === name ? pop.locator('button') : pop.locator(`button[data-param-in="${name}"]`)
+}
+
 async function pickParam(scope, name, optionText) {
-  await scope.locator(`[data-param-chip="${name}"]`).click()
+  await chipOf(scope, name).click()
+  const popup = await popupNameOf(scope, name)
   await scope
-    .locator(`[data-param-popup="${name}"]`)
+    .locator(`[data-param-popup="${popup}"]`)
     .waitFor({ state: 'visible', timeout: 3000 })
     .catch(() => {})
-  await scope.locator(`[data-param-popup="${name}"] button`, { hasText: optionText }).first().click()
+  await optionButtons(scope, popup, name).filter({ hasText: optionText }).first().click()
   await sleep(150)
+  /**
+   * 多组胶囊**选完不关**（一次要调好几样），但这一层用例是按「选完即关」写的。
+   * 这里补一次 Esc 把浮层收掉，免得挡住后面的点击 —— 关法本身由面板负责
+   * （Esc 是面板级按键策略）。
+   */
+  if (popup !== name && (await scope.locator(`[data-param-popup="${popup}"]`).count()) > 0) {
+    await scope.page().keyboard.press('Escape')
+    await sleep(150)
+  }
 }
 
 /** chip 当前文案（取代旧版 `select.inputValue()`） */
 async function paramLabel(scope, name) {
-  return (await scope.locator(`[data-param-chip="${name}"]`).innerText().catch(() => '')).trim()
+  return (await chipOf(scope, name).innerText().catch(() => '')).trim()
+}
+
+/**
+ * 确保某个参数的浮层**开着**并返回它的名字。
+ *
+ * 多组胶囊是「选完不关」的，所以「再点一次 chip」会把它**收起来** —— 那些
+ * 「选完再点开看一格」的老写法必须走这里，不能直接 click。
+ */
+async function ensureParamOpen(scope, name) {
+  const popup = await popupNameOf(scope, name)
+  if ((await scope.locator(`[data-param-popup="${popup}"]`).count()) === 0) {
+    await chipOf(scope, name).click()
+    await sleep(250)
+  }
+  return popup
 }
 
 /** 展开参数浮层并读出全部选项文案，然后收起（诊断与断言共用） */
 async function paramOptions(page, scope, name) {
-  await scope.locator(`[data-param-chip="${name}"]`).click()
+  await chipOf(scope, name).click()
   await sleep(150)
-  const texts = await scope
-    .locator(`[data-param-popup="${name}"] button`)
+  const popup = await popupNameOf(scope, name)
+  const texts = await optionButtons(scope, popup, name)
     .allInnerTexts()
     .catch(() => [])
-  const empty = await scope.locator(`[data-param-empty="${name}"]`).count()
+  const empty = await scope.locator(`[data-param-empty="${popup}"]`).count()
   await page.keyboard.press('Escape')
   await sleep(100)
   return empty > 0 ? [] : texts
@@ -1246,19 +1308,13 @@ async function g10(browser) {
    * 数量固定四项 1/2/4/9（§6.8）。
    * 张数已改成 chip + 弹层（2026-09-19），所以要先点开 chip 才能读到四项。
    */
-  await panel.locator('[data-param-chip="count"]').click()
-  await sleep(200)
-  const countBtns = await panel
-    .locator('[data-param-popup="count"] button')
-    .allInnerTexts()
+  const countBtns = await paramOptions(page, panel, 'count')
   rec(
     g,
     '数量固定四项 1/2/4/9',
     JSON.stringify(countBtns.map((t) => t.replace(/\s+/g, ''))) === '["1张","2张","4张","9张"]',
-    countBtns.join(','),
+    `按钮=${countBtns.join('|')}`,
   )
-  await page.keyboard.press('Escape')
-  await sleep(150)
 
   // 生成按钮空闲态：圆形 ↑ + aria-label「生成当前节点」（§6.8 三态之一）
   const idleLabel = await panel.locator(`button[aria-label="生成当前节点"]`).count()
@@ -4325,13 +4381,13 @@ async function g46(browser) {
   // 开新关旧（§6.8）：一个开着时点另一个 chip，应只剩新的那个
   await chip.click()
   await sleep(200)
-  await panel.locator('[data-param-chip="ratio"]').click()
+  await chipOf(panel, 'ratio').click()
   await sleep(250)
   rec(
     g,
     '开新关旧：同一时刻只有一个浮层',
     (await panel.locator('[data-param-popup]').count()) === 1 &&
-      (await panel.locator('[data-param-popup="ratio"]').count()) === 1,
+      (await panel.locator('[data-param-popup="gen-params"]').count()) === 1,
   )
   await page.keyboard.press('Escape')
   await sleep(150)
@@ -4349,26 +4405,51 @@ async function g46(browser) {
     `opts=${JSON.stringify(ratioOpts)}`,
   )
   await pickParam(panel, 'ratio', '16:9')
-  rec(g, '选比例后 chip 带出该值', (await paramLabel(panel, 'ratio')) === '16:9')
+  /**
+   * 胶囊文案是「16:9 · 自动 · 自动 · 1 张」这种一行摘要 —— 判据用 `includes`：
+   * 验的是「选的那个值带出来了」，不是「整行只有这一个值」。
+   */
+  const ratioChipText = await paramLabel(panel, 'ratio')
+  rec(g, '选比例后 chip 带出该值', ratioChipText.includes('16:9'), ratioChipText)
   // 九档兜底集（模型什么都没报时）由单测 `ratiosOf` 覆盖——SSR 与真机都拿不到
   // 「一个不报比例的模型」，与其造第四个 mock 模型去污染 G8 的计数，不如在函数层断言。
 
   // ② 形态：比例 = 图形化网格；质量 = 横排胶囊（§6.8「通用规则」）
-  await panel.locator('[data-param-chip="ratio"]').click()
+  await chipOf(panel, 'ratio').click()
   await sleep(200)
   rec(
     g,
-    '比例用图形化网格浮层',
-    (await panel.locator('[data-param-popup="ratio"][data-param-variant="ratioGrid"]').count()) === 1,
+    '比例用图形化网格浮层（在「生成参数」胶囊里）',
+    (await panel.locator('[data-param-popup="gen-params"] [data-param-section="ratio"]').count()) === 1 &&
+      (await panel
+        .locator('[data-param-popup="gen-params"] [data-param-section="ratio"] [data-ratio-glyph]')
+        .count()) >= 1,
   )
   await page.keyboard.press('Escape')
   await sleep(150)
-  await panel.locator('[data-param-chip="quality"]').click()
+  /** 四个参数在同一枚胶囊里：这里只是重新展开，再确认「质量」那段是横排胶囊 */
+  await chipOf(panel, 'quality').click()
   await sleep(200)
   rec(
     g,
-    '质量用横排胶囊浮层',
-    (await panel.locator('[data-param-popup="quality"][data-param-variant="pill"]').count()) === 1,
+    '质量用横排胶囊浮层（同一枚胶囊里的第二段）',
+    (await panel.locator('[data-param-popup="gen-params"] [data-param-section="quality"]').count()) === 1,
+  )
+  /**
+   * ★★ 一枚胶囊装下四段参数（用户 2026-10-02 参考产品图五 / 图六：
+   * 「把比例，质量，画质，张数变成一个胶囊显示，而且点击显示的面板……把所有的参数
+   * 都放上去」）。判据取**分段的名单**：四段缺一段、或又拆回四枚 chip，都会红。
+   */
+  const paramSectionNames = await panel
+    .locator('[data-param-popup="gen-params"] [data-param-section]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-section')))
+  rec(
+    g,
+    '★★ 生成参数收成一枚胶囊：点开是四段（比例 / 画质 / 质量 / 张数）',
+    paramSectionNames.join(',') === 'ratio,resolution,quality,count' &&
+      (await panel.locator('[data-param-chip="gen-params"]').count()) === 1 &&
+      (await panel.locator('[data-param-chip="ratio"]').count()) === 0,
+    `段=${paramSectionNames.join(',')}`,
   )
   await page.keyboard.press('Escape')
   await sleep(150)
@@ -4376,10 +4457,10 @@ async function g46(browser) {
   // ② 图片 → 视频：参数集整体更换
   rec(
     g,
-    '图片模式：画质 / 质量 / 数量在位',
-    (await panel.locator('[data-param-chip="resolution"]').count()) === 1 &&
-      (await panel.locator('[data-param-chip="quality"]').count()) === 1 &&
-      (await panel.locator('[data-param-chip="count"]').count()) === 1,
+    '图片模式：比例 / 画质 / 质量 / 张数收在一枚「生成参数」胶囊里',
+    (await panel.locator('[data-param-chip="gen-params"]').count()) === 1 &&
+      (await panel.locator('[data-param-chip="ratio"]').count()) === 0 &&
+      (await panel.locator('[data-param-chip="count"]').count()) === 0,
   )
   await panel.locator('[data-param-mode="video"]').click()
   await sleep(400)
@@ -4392,10 +4473,9 @@ async function g46(browser) {
   )
   rec(
     g,
-    '切到视频：画质 / 质量 / 数量整块退场',
-    (await panel.locator('[data-param-chip="resolution"]').count()) === 0 &&
-      (await panel.locator('[data-param-chip="quality"]').count()) === 0 &&
-      (await panel.locator('[data-param-chip="count"]').count()) === 0,
+    '切到视频：「生成参数」胶囊整块退场，比例回到单独一枚',
+    (await panel.locator('[data-param-chip="gen-params"]').count()) === 0 &&
+      (await panel.locator('[data-param-chip="ratio"]').count()) === 1,
   )
   /**
    * 切类别后**旧模型必须被清掉**——图片模型不能活到视频模式里。
@@ -4508,11 +4588,14 @@ async function g47(browser) {
   const panel = await genPanel(page)
   await configureGenPanel(page, panel, '一只猫')
   const res0 = await paramLabel(panel, 'resolution')
-  rec(g, '画质未设置时显示「自动」', res0 === '自动', `label=${res0}`)
+  /** 胶囊是一行摘要（「比例 · 自动 · 自动 · 1 张」），判据用 includes */
+  rec(g, '画质未设置时显示「自动」', res0.includes('自动'), `label=${res0}`)
   await pickParam(panel, 'resolution', '2K')
-  rec(g, '选 2K 后 chip 显示 2K', (await paramLabel(panel, 'resolution')) === '2K')
+  const res2k = await paramLabel(panel, 'resolution')
+  rec(g, '选 2K 后 chip 显示 2K', res2k.includes('2K'), res2k)
   await pickParam(panel, 'resolution', '自动')
-  rec(g, '能选回「自动」（它是档位，不是默认值占位）', (await paramLabel(panel, 'resolution')) === '自动')
+  const resAuto = await paramLabel(panel, 'resolution')
+  rec(g, '能选回「自动」（它是档位，不是默认值占位）', resAuto.includes('自动'), resAuto)
 
   // ② 先让生成节点真的出一张图——反推要有素材可送
   await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
@@ -4951,8 +5034,13 @@ async function g51(browser) {
    * 张数已改成 chip（2026-09-19），读 **chip 文案**即可知道当前档。
    * 旧写法读「整组按钮里 data-active 的那个」，现在没有那排按钮了。
    */
-  const countText = (await panel.locator('[data-param-chip="count"]').innerText().catch(() => '')).trim()
-  rec(g, '模板预置的「4 张」带进了创作面板且为选中态', countText === '4 张', `selected="${countText}"`)
+  const countText = await paramLabel(panel, 'count')
+  rec(
+    g,
+    '模板预置的「4 张」带进了创作面板且为选中态',
+    countText.includes('4 张'),
+    `selected="${countText}"`,
+  )
 
   const before51 = await page.locator('[data-node-type="generation"]').count()
   await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
@@ -5298,10 +5386,7 @@ async function addGenWithImage(page, w, h, color, buffer) {
  * 所以要先点开 chip，再在弹层里选。`text` 形如 `'4 张'`。
  */
 async function setCount(panel, text) {
-  await panel.locator('[data-param-chip="count"]').click()
-  await sleep(200)
-  await panel.locator('[data-param-popup="count"] button', { hasText: text }).first().click()
-  await sleep(150)
+  await pickParam(panel, 'count', text)
 }
 
 /** 配好渠道 / 模型 / 提示词 / 张数 / 比例，然后跑一次 */
@@ -6645,9 +6730,13 @@ async function g63(browser) {
   await sleep(800)
   const panel = await genPanel(page)
 
-  // 张数现在是 chip，与画质 / 质量同形
-  const countChip = panel.locator('[data-param-chip="count"]')
-  rec(g, '张数是 chip（不再是并排按钮组）', (await countChip.count()) === 1)
+  // 张数现在收在「生成参数」胶囊里（与画质 / 质量同一枚），不再是并排按钮组
+  const countChip = chipOf(panel, 'count')
+  rec(
+    g,
+    '张数收在「生成参数」胶囊里（不再是并排按钮组）',
+    (await panel.locator('[data-param-chip="gen-params"]').count()) === 1,
+  )
   rec(g, '旧的并排按钮组已移除', (await panel.locator('[data-param-count]').count()) === 0)
 
   /*
@@ -6659,7 +6748,9 @@ async function g63(browser) {
    * 锁住的是**可读性意图**而不是某一个具体像素值，下次再调字号不必重写这条。
    */
   rec(g, '参数 chip 不再画下拉箭头', (await panel.locator('.chevron, svg.chevron').count()) === 0)
-  const chipFont = await panel.locator('[data-param-chip="ratio"]').evaluate((el) => getComputedStyle(el).fontSize)
+  const chipFont = await panel
+    .locator('[data-param-chip="gen-params"]')
+    .evaluate((el) => getComputedStyle(el).fontSize)
   rec(g, '参数 chip 字号明显大于正文（≥16px）', parseFloat(chipFont) >= 16, chipFont)
 
   /**
@@ -6668,8 +6759,7 @@ async function g63(browser) {
    */
   await countChip.click()
   await sleep(250)
-  const opts = await panel
-    .locator('[data-param-popup="count"] button')
+  const opts = await optionButtons(panel, 'gen-params', 'count')
     .evaluateAll((els) => els.map((e) => ({ t: e.textContent.trim(), dis: e.disabled })))
   rec(g, '张数面板列出 1/2/4/9 四项', opts.length === 4, JSON.stringify(opts))
   const nine = opts.find((o) => o.t.includes('9'))
@@ -6680,7 +6770,7 @@ async function g63(browser) {
     JSON.stringify(nine),
   )
 
-  await panel.locator('[data-param-popup="count"] button', { hasText: '4' }).first().click()
+  await optionButtons(panel, 'gen-params', 'count').filter({ hasText: '4' }).first().click()
   await sleep(250)
   rec(g, '选 4 张后 chip 显示 4', (await countChip.innerText()).includes('4'))
 
@@ -8226,9 +8316,11 @@ async function g68(browser) {
   // ── 规则 2：改参数（**不生成**）就记 ──
   await page.locator(`[data-node-id="${idA}"]`).click()
   await sleep(700)
-  await page.locator('[data-creation-panel] [aria-label="画面比例"]').first().click()
+  /** 比例现在收在「生成参数」胶囊里（2026-10-02），胶囊选完**不关** —— 选完自己收 */
+  const recipePanel = page.locator('[data-creation-panel]')
+  await chipOf(recipePanel, 'ratio').click()
   await sleep(400)
-  const ratioOpts = page.locator('[role="option"]')
+  const ratioOpts = optionButtons(recipePanel, 'gen-params', 'ratio')
   const optCount = await ratioOpts.count()
   let pickedRatio = null
   if (optCount > 1) {
@@ -8236,6 +8328,8 @@ async function g68(browser) {
     await ratioOpts.nth(1).click()
     await sleep(800)
   }
+  await page.keyboard.press('Escape')
+  await sleep(200)
   const afterEdit = await readState()
   const editedA = afterEdit.nodes.find((n) => n.id === idA)
   rec(g, '★ 改了参数后节点自身确实变了', !!editedA?.ratio, `ratio=${editedA?.ratio}`)
@@ -8394,13 +8488,16 @@ async function g69(browser) {
   rec(g, '★ 节点已落在第二条渠道上（场景成立）', !!beforeEdit?.channelId && !!beforeEdit?.model, `ch=${beforeEdit?.channelId} model=${beforeEdit?.model}`)
 
   // 在该渠道上改比例
-  await page.locator('[data-creation-panel] [aria-label="画面比例"]').first().click()
+  const crossPanel = page.locator('[data-creation-panel]')
+  await chipOf(crossPanel, 'ratio').click()
   await sleep(400)
-  const ratioOpts = page.locator('[role="option"]')
+  const ratioOpts = optionButtons(crossPanel, 'gen-params', 'ratio')
   if ((await ratioOpts.count()) > 1) {
     await ratioOpts.nth(1).click()
     await sleep(800)
   }
+  await page.keyboard.press('Escape')
+  await sleep(200)
   const edited = (await readNodes()).find((n) => n.id === idA)
   rec(g, '改参数后节点自身变了', !!edited?.ratio, `ratio=${edited?.ratio}`)
 
@@ -8871,10 +8968,9 @@ async function g72(browser) {
   /** 读当前面板的比例候选（点开 chip 再关掉） */
   const ratioOptions = async () => {
     const panel = page.locator('[data-creation-panel]')
-    await panel.locator('[data-param-chip="ratio"]').click()
+    await chipOf(panel, 'ratio').click()
     await sleep(350)
-    const opts = await panel
-      .locator('[data-param-popup="ratio"] [data-param-option]')
+    const opts = await optionButtons(panel, 'gen-params', 'ratio')
       .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-option')))
     await page.keyboard.press('Escape')
     await sleep(200)
@@ -8947,12 +9043,14 @@ async function g72(browser) {
 
   // 选中示例：chip 文案要真的变成「跟随素材」
   const panel = page.locator('[data-creation-panel]')
-  await panel.locator('[data-param-chip="ratio"]').click()
+  await chipOf(panel, 'ratio').click()
   await sleep(350)
-  await panel.locator('[data-param-popup="ratio"] [data-param-option="跟随素材"]').click()
+  await panel
+    .locator('[data-param-popup="gen-params"] [data-param-in="ratio"][data-param-option="跟随素材"]')
+    .click()
   await sleep(500)
-  const chipText = (await panel.locator('[data-param-chip="ratio"]').innerText()).trim()
-  rec(g, '★ 选中后 chip 显示「跟随素材」', chipText === '跟随素材', `chip=${chipText}`)
+  const chipText = (await panel.locator('[data-param-chip="gen-params"]').innerText()).trim()
+  rec(g, '★ 选中后 chip 显示「跟随素材」', chipText.includes('跟随素材'), `chip=${chipText}`)
 
   /**
    * 图标不能和 1:1 撞脸：这一格画的应当是「叠两张纸」而不是一个方块。
@@ -8961,9 +9059,11 @@ async function g72(browser) {
    * 此时去查 `[data-param-popup]` 是查不到东西的（第一版就栽在这里，svg=0）。
    * 判据同时要求：存在 svg、且里面不是单个 rect（比例格是单 rect 的色块）。
    */
-  await panel.locator('[data-param-chip="ratio"]').click()
+  await ensureParamOpen(panel, 'ratio')
   await sleep(350)
-  const cell = panel.locator('[data-param-popup="ratio"] [data-param-option="跟随素材"]')
+  const cell = panel.locator(
+    '[data-param-popup="gen-params"] [data-param-in="ratio"][data-param-option="跟随素材"]',
+  )
   const glyph = await cell.locator('svg').count().catch(() => 0)
   const rects = await cell.locator('svg rect').count().catch(() => 0)
   rec(
@@ -13348,6 +13448,20 @@ async function g94(browser) {
   const builtinCards = page.locator('[data-skills-builtin-card]')
   const builtinCount = await builtinCards.count()
   rec(g, '★★ 随包内置技能已进入技能库（含即梦 Skill 包 7 个）', builtinCount >= 11, `内置=${builtinCount}`)
+  /**
+   * ★★ 技能卡要带**图片 / 效果位**（用户 2026-10-02：「我项目的 skill 菜单也要有图片、
+   * 效果的展示，不能单单是一个框里面加上内容」）。
+   *
+   * 图从技能 frontmatter 的 `image:` 来；现在都是占位（用户说「可以留空，后期我
+   * 自己添加」），所以判据是**每张卡都有一位**，不是「有图」。
+   */
+  const skillShots = await page.locator('[data-skill-shot]').count()
+  rec(
+    g,
+    '★★ 技能卡带图片 / 效果位（可留空，后期自己补图）',
+    skillShots >= builtinCount,
+    `图位=${skillShots} 卡片=${builtinCount}`,
+  )
   if (builtinCount === 0) {
     await ctx.close()
     return
@@ -13554,17 +13668,103 @@ async function g95(browser) {
   const modelSections = await page
     .locator('[data-param-popup="agent-model"] [data-param-section]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-section')))
+  const modelJumps = await page
+    .locator('[data-param-popup="agent-model"] [data-param-jump]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-jump')))
+  const modelScrolls = await page
+    .locator('[data-param-popup="agent-model"] [data-param-scroll]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-scroll')))
   const models = await page.locator('[data-param-popup="agent-model"] button').count()
   rec(
     g,
-    '★★ 模型分三档：图片 / 视频 / 对话',
-    modelSections.join(',') === 'image,video,chat' && models >= 1,
-    `档=${modelSections.join(',')} 可选=${models}`,
+    '★★ 生成模型面板只列「图片 / 视频」两档，顶部两枚跳转按钮（对话模型已挪走）',
+    modelSections.join(',') === 'image,video' && modelJumps.join(',') === 'image,video' && models >= 1,
+    `档=${modelSections.join(',')} 跳转=${modelJumps.join(',')} 可选=${models}`,
+  )
+  /**
+   * 每档**一屏只摆 5 行**（用户 2026-10-02：「模型选择面板太高了，只需要展示前五个
+   * 就行，可以下拉继续显示剩下的」）。判据取「这一段的容器被标了可滚」。
+   */
+  rec(
+    g,
+    '★★ 每档最多先摆 5 行，多的靠段内滚动',
+    modelScrolls.join(',') === 'image,video',
+    `可滚段=${modelScrolls.join(',')}`,
+  )
+  /**
+   * 跳转要**真的滚**（不是摆两枚装饰按钮）：点「视频」后该段的顶边要落在
+   * 弹层可视区顶部附近。
+   */
+  await page.locator('[data-param-jump="video"]').click()
+  await sleep(300)
+  const jump = await page.evaluate(() => {
+    const pop = document.querySelector('[data-param-popup="agent-model"]')
+    const sec = pop?.querySelector('[data-param-section="video"]')
+    if (!pop || !sec) return null
+    const pr = pop.getBoundingClientRect()
+    const sr = sec.getBoundingClientRect()
+    const delta = sr.top - pr.top
+    const sticky = pop.querySelector('[data-param-jumps]')?.getBoundingClientRect().height ?? 0
+    const want = Math.max(
+      0,
+      Math.min(pop.scrollHeight - pop.clientHeight, pop.scrollTop + delta - sticky),
+    )
+    return {
+      /** 内容本来就装得下 ⇒ 不需要滚，也算「跳转完成」 */
+      fits: pop.scrollHeight <= pop.clientHeight + 1,
+      got: Math.round(pop.scrollTop),
+      want: Math.round(want),
+      visible: sr.top >= pr.top - 1 && sr.bottom <= pr.bottom + 1,
+    }
+  })
+  rec(
+    g,
+    '★★ 点「视频」把那一档滚到顶部（跳转真的生效）',
+    jump !== null && jump.visible && (jump.fits || Math.abs(jump.got - jump.want) <= 2),
+    `scrollTop=${jump?.got ?? '?'} 期望=${jump?.want ?? '?'} 装得下=${jump?.fits ?? '?'} 可见=${jump?.visible ?? '?'}`,
   )
   /** 留一张**模型三档展开着**的截图：三个分组挤不挤，靠它眼看 */
   await page.screenshot({ path: `${OUT}/114-g95-agent-models.png` })
   await page.keyboard.press('Escape')
   await sleep(250)
+
+  /**
+   * ★★ 对话模型 = **agent 自己的 LLM**，单独一处（用户 2026-10-02：「对话模型是
+   * agent 的 llm，需要单独放在一个地方」）。
+   */
+  rec(
+    g,
+    '★★ 对话模型单独一行，且不在生成模型面板里',
+    (await page.locator('[data-agent-llm-row] [data-param-chip="agent-chat-model"]').count()) === 1 &&
+      (await page.locator('[data-param-popup="agent-model"] [data-param-section="chat"]').count()) === 0,
+  )
+
+  /**
+   * ★★ 选中的模型要**进输入区当 chip**（用户 2026-10-02：「选择模型后也是要加入到
+   * 对话框中参与对话（和艾特模型的功能一样）」）。
+   *
+   * 判据取「chip 上写着刚点的那一个模型名」——只验「有 chip」的话，
+   * 会话创建时预置的默认模型本来就会有一枚，证明不了「刚点的那个生效了」。
+   */
+  await agentModelChip.click()
+  await sleep(250)
+  const pickImageModel =
+    (await page
+      .locator('[data-param-popup="agent-model"] [data-param-in="image"]')
+      .first()
+      .getAttribute('data-param-option')) ?? ''
+  await page.locator('[data-param-popup="agent-model"] [data-param-in="image"]').first().click()
+  await sleep(400)
+  const imageModelChipText = (
+    (await page.locator('[data-agent-model-chip="image"]').innerText().catch(() => '')) ?? ''
+  ).trim()
+  rec(
+    g,
+    '★★ 选中的图片模型变成输入区里的一枚 chip（参与这次对话）',
+    pickImageModel !== '' && imageModelChipText.includes(pickImageModel),
+    `chip=「${imageModelChipText}」期望含「${pickImageModel}」`,
+  )
+  await page.screenshot({ path: `${OUT}/118-g95-agent-model-chip.png` })
 
   /**
    * 用户 2026-10-02：「不要有选择渠道」——
@@ -13719,6 +13919,42 @@ async function g95(browser) {
     )
 
     /**
+     * ★★ 面板**尺寸固定**（用户 2026-10-02：「agentskill 面板要固定尺寸比例，当前点击
+     * 收藏或者我的的时候会变短」）：切页签前后量同一个元素，高度不许变。
+     */
+    const menuBoxBuiltin = await page.locator('[data-agent-skill-menu]').boundingBox()
+    await page.locator('[data-agent-skill-tab="fav"]').click()
+    await sleep(250)
+    const menuBoxFav = await page.locator('[data-agent-skill-menu]').boundingBox()
+    await page.locator('[data-agent-skill-tab="builtin"]').click()
+    await sleep(200)
+    rec(
+      g,
+      '★★ 技能面板固定尺寸：切「收藏 / 我的」高度不变',
+      menuBoxBuiltin !== null &&
+        menuBoxFav !== null &&
+        Math.abs(menuBoxBuiltin.height - menuBoxFav.height) <= 1,
+      `通用=${menuBoxBuiltin ? Math.round(menuBoxBuiltin.height) : '?'} 收藏=${menuBoxFav ? Math.round(menuBoxFav.height) : '?'}`,
+    )
+
+    /**
+     * ★★ 浮层**不许越出对话窗右边**（用户 2026-10-02：「agentskill 面板朝右边超出了
+     * 画布的页面，显示不全」）。这条按**几何**验：300px 的浮层挂在工具条中段，
+     * 而对话窗贴着视口右边 —— 不推回来的话右半截就是被切掉。
+     */
+    const panelBoxForMenu = await page.locator('[data-agent-panel]').boundingBox()
+    const menuBoxNow = await page.locator('[data-agent-skill-menu]').boundingBox()
+    rec(
+      g,
+      '★★ 技能面板收在对话窗内（右边不越界）',
+      panelBoxForMenu !== null &&
+        menuBoxNow !== null &&
+        menuBoxNow.x >= panelBoxForMenu.x - 1 &&
+        menuBoxNow.x + menuBoxNow.width <= panelBoxForMenu.x + panelBoxForMenu.width + 1,
+      `浮层 ${menuBoxNow ? Math.round(menuBoxNow.x) : '?'}..${menuBoxNow ? Math.round(menuBoxNow.x + menuBoxNow.width) : '?'} 对话窗 ${panelBoxForMenu ? Math.round(panelBoxForMenu.x) : '?'}..${panelBoxForMenu ? Math.round(panelBoxForMenu.x + panelBoxForMenu.width) : '?'}`,
+    )
+
+    /**
      * ★★ 收藏（用户 2026-10-03 参考产品图三的第三个页签）：收藏一条 → 它出现在
      * 「收藏」页签里。**判据用「同一条技能的名字」**，不是「收藏页非空」——
      * 后者在收藏串味（收了 A 却显示 B）时照样绿。
@@ -13754,19 +13990,38 @@ async function g95(browser) {
     await sleep(250)
 
     /**
-     * ★★ 「创建」里的两条路（参考产品图四）：新建 skill、导入已有的 skill
-     * （.md 文件或文件夹）。
+     * ★★ 「创建」**悬停就展开**（用户 2026-10-02：「这个创建不用点击，悬停就会出现
+     * 选项」）——判据是**没点之前**菜单已经在。
      */
-    await page.locator('[data-agent-skill-create]').click()
+    await page.locator('[data-agent-skill-create]').hover()
     await sleep(250)
     rec(
       g,
-      '★★ 「创建」里有新建技能 + 导入 .md + 导入文件夹三条路',
+      '★★ 「创建」悬停即展开（不用点）',
+      (await page.locator('[data-agent-skill-create-menu]').count()) === 1,
+    )
+    /**
+     * ★★ 展开后是两条路：新建 skill、**导入 skill**（用户 2026-10-02：「导入的按钮把
+     * md 文件和文件夹变成一个按钮」）。「导入」点开再分文件 / 目录两把选取器 ——
+     * 浏览器不允许一个选择器同时选文件和目录，这一层分叉只能留在入口内部。
+     */
+    rec(
+      g,
+      '★★ 「创建」里有新建技能 + 一个合并后的「导入 Skill」入口',
       (await page.locator('[data-agent-skill-create-new]').count()) === 1 &&
-        (await page.locator('[data-agent-skill-import-file]').count()) === 1 &&
+        (await page.locator('[data-agent-skill-import]').count()) === 1 &&
+        (await page.locator('[data-agent-skill-import-file]').count()) === 0,
+    )
+    await page.locator('[data-agent-skill-import]').click()
+    await sleep(250)
+    rec(
+      g,
+      '★★ 「导入 Skill」点开才是 .md 文件 / Skill 目录两把选取器',
+      (await page.locator('[data-agent-skill-import-file]').count()) === 1 &&
         (await page.locator('[data-agent-skill-import-folder]').count()) === 1,
     )
-    await page.locator('[data-agent-skill-create]').click()
+    /** 收起来继续下面的用例：把指针移开就会收起 */
+    await page.mouse.move(5, 5)
     await sleep(200)
 
     /**
@@ -13818,25 +14073,36 @@ async function g95(browser) {
       `卡片=${cardCount} 分类=${tagCount}`,
     )
     /**
-     * 宽面板必须**留在视口里**。第一版向右生长，460px 一路顶出面板右边缘、
-     * 右半列直接被切掉（截图一眼就看得见）—— 浮层的尺寸一变大，
-     * 「它从哪儿长」就得重新想一次。
+     * 「全部」= **画布正中的固定尺寸模态**（用户 2026-10-02 参考产品图四：「放在整个
+     * 画布的中间，右上角关闭按钮……同时也要固定尺寸比例，当前的是靠近 agent 框，
+     * 而且不够大，并且不是固定比例的」）。
+     *
+     * 判据按**几何**：水平 / 垂直都居中（±2px）、有背板、尺寸够大。
      */
     const wideBox = await page.locator('[data-agent-skill-menu]').boundingBox()
+    const scrimCount = await page.locator('[data-agent-skill-scrim]').count()
+    const centered =
+      wideBox !== null &&
+      vp !== null &&
+      Math.abs(wideBox.x + wideBox.width / 2 - vp.width / 2) <= 2 &&
+      Math.abs(wideBox.y + wideBox.height / 2 - vp.height / 2) <= 2
     rec(
       g,
-      '★ 摊开的大面板不出视口（宽面板向左生长）',
-      wideBox !== null &&
-        vp !== null &&
-        wideBox.x >= 0 &&
-        wideBox.x + wideBox.width <= vp.width + 1,
-      `面板 ${wideBox ? Math.round(wideBox.x) : '?'}..${wideBox ? Math.round(wideBox.x + wideBox.width) : '?'} 视口=${vp?.width ?? '?'}`,
+      '★★ 「全部」是画布正中的固定尺寸模态（居中 + 背板 + 够大）',
+      centered && scrimCount === 1 && wideBox.width >= 600 && wideBox.height >= 400,
+      `面板 ${wideBox ? Math.round(wideBox.x) : '?'}..${wideBox ? Math.round(wideBox.x + wideBox.width) : '?'} 尺寸=${wideBox ? Math.round(wideBox.width) : '?'}×${wideBox ? Math.round(wideBox.height) : '?'} 视口=${vp?.width ?? '?'}×${vp?.height ?? '?'} 背板=${scrimCount}`,
+    )
+    rec(
+      g,
+      '★★ 技能卡带图片 / 效果位（可留空，后期自己补图）',
+      (await page.locator('[data-agent-skill-shot]').count()) >= 5,
+      `图位=${await page.locator('[data-agent-skill-shot]').count()}`,
     )
     await page.screenshot({ path: `${OUT}/117-g95-agent-skills-all.png` })
+    /** 名字读**名字自己的锚点**：卡片里还有分类与效果图，整张卡的第一行不再是名字 */
     const cardName =
-      ((await page.locator('[data-agent-skill-card]').first().innerText()) ?? '')
-        .trim()
-        .split('\n')[0] ?? ''
+      (await page.locator('[data-agent-skill-card-name]').first().innerText().catch(() => '')) ??
+      ''
     await page.locator('[data-agent-skill-card]').first().click()
     await sleep(400)
     const chipFromCard =
@@ -13982,6 +14248,39 @@ async function g95(browser) {
     )
   await agentMentionChip.click()
   await sleep(300)
+  /**
+   * ★★ @ 面板**先折叠**（用户 2026-10-02 参考产品图二：「不用显示全部可以艾特的
+   * 节点，下方有省略，点击之后才会显示所有的」）。
+   *
+   * 这一刻画布上只有几个节点，所以这里只验**折叠规则本身**（≤5 就全列、>5 才折叠）；
+   * 「真有得折叠」那一条放在下面节点多的那一步（见「大画布上 @ 面板先列 5 条」）。
+   */
+  const mentionRowCap = await page
+    .locator('[data-param-popup="agent-mention"] [data-param-in="node"]')
+    .count()
+  const nodesOnCanvasNow = await page.locator('[data-node-type]').count()
+  const mentionMore = page.locator('[data-param-more="node"]')
+  rec(
+    g,
+    '★ @ 面板的折叠规则：节点不多时全列、不出现「加载更多」',
+    nodesOnCanvasNow <= 5
+      ? mentionRowCap === nodesOnCanvasNow && (await mentionMore.count()) === 0
+      : mentionRowCap === 5 && (await mentionMore.count()) === 1,
+    `画布节点=${nodesOnCanvasNow} 先列=${mentionRowCap}`,
+  )
+  if ((await mentionMore.count()) === 1) {
+    await mentionMore.click()
+    await sleep(300)
+    const mentionRowAll = await page
+      .locator('[data-param-popup="agent-mention"] [data-param-in="node"]')
+      .count()
+    rec(
+      g,
+      '★ 点「加载更多」后节点全部列出来',
+      mentionRowAll === nodesOnCanvasNow,
+      `展开后=${mentionRowAll} 期望=${nodesOnCanvasNow}`,
+    )
+  }
   await page
     .locator(`[data-param-popup="agent-mention"] [data-param-option="node:${imageNodeId}"]`)
     .click()
@@ -14240,10 +14539,22 @@ async function g95(browser) {
    * 所以这条同时断言「标签出现了」与「节点数没变」。
    */
   const nodesBeforePick = await page.locator('[data-node-type]').count()
-  await page.locator('[data-node-type="prompt"]').first().click()
+  /**
+   * 挑一个**真有图**的生成节点：这一条要验的是标签上的缩略图，
+   * 拿一个没图的节点验，「没缩略图」本来就该如此、证明不了任何事。
+   */
+  const pickNodeId = await page
+    .locator('[data-node-type="generation"][data-node-id]')
+    .evaluateAll(
+      (els) =>
+        els
+          .filter((e) => e.querySelector('[data-node-asset]'))
+          .map((e) => e.getAttribute('data-node-id') ?? '')[0] ?? '',
+    )
+  await page.locator(`[data-node-id="${pickNodeId}"]`).click()
   await sleep(400)
   await page.locator('[data-agent-pick-selection]').click()
-  await sleep(600)
+  await sleep(900)
   const pickedChips = await page.locator('[data-agent-asset]').count()
   const nodesAfterPick = await page.locator('[data-node-type]').count()
   rec(
@@ -14252,18 +14563,31 @@ async function g95(browser) {
     pickedChips >= 1 && nodesAfterPick === nodesBeforePick,
     `标签=${pickedChips} 节点 ${nodesBeforePick}→${nodesAfterPick}`,
   )
+  /**
+   * ★★ 标签要跟 @ 图片节点**同一种**（用户 2026-10-02：「把选中的节点当作这次的
+   * 素材，放进输入框的时候应该也是和艾特图片节点的功能是一样的，目前好像是
+   * 一些节点 id 一样的东西」）—— 缩略图 + 名字，不留裸 id。
+   */
+  const pickedChipText = ((await page.locator('[data-agent-asset]').first().innerText()) ?? '').trim()
+  const pickedThumb = await page.locator('[data-agent-asset] img').count()
+  rec(
+    g,
+    '★★ 素材标签变成「缩略图 + 名字」（不再是 node_xxx 那种裸 id）',
+    pickedThumb >= 1 && !pickedChipText.includes('node_'),
+    `缩略图=${pickedThumb} 标签=「${pickedChipText}」`,
+  )
 
   /**
    * ★ 标签不许越出面板。
    *
-   * 节点 id 很长（`node_xxxxxxxx-…`），标签又是「按钮 + 可换行的标签堆」同排 ——
+   * 节点名可能很长（用户自己的命名），标签又是「缩略图 + 名字 + 移除钮」同排 ——
    * 这正是最容易把文字挤出容器的形状。断言到几何上，不靠眼看。
    */
   const chipBox = await page.locator('[data-agent-asset]').first().boundingBox()
   const panelBox = await panel.boundingBox()
   rec(
     g,
-    '★ 素材标签在面板内、不顶到外缘（长节点 id 用省略号收住）',
+    '★ 素材标签在面板内、不顶到外缘（长名字用省略号收住）',
     chipBox !== null &&
       panelBox !== null &&
       // 面板有 12px 内距：标签右缘至少要缩在内距里（留 8 的余量，不掉进亚像素）
@@ -14376,6 +14700,40 @@ async function g95(browser) {
       newGenHasParams,
     `节点 ${nodesBeforeCancel}→${landedNodes}→${nodesAfterCancel}｜连线 ${edgesBeforeCancel}→${landedEdges}→${edgesAfterCancel}｜带配方=${newGenHasParams}`,
   )
+
+  /**
+   * ★★ 大画布上 @ 面板**先只列 5 条**，点「加载更多」才放全（用户 2026-10-02 参考
+   * 产品图二：「不用显示全部可以艾特的节点，下方有省略，点击之后才会显示所有的」）。
+   *
+   * 刻意放在**这里**：上一个用例之后画布上已经有十几个节点 —— 折叠只有在
+   * 「真有得折叠」的画布上才验得出来（在只有 3 个节点时验，什么实现都能绿）。
+   */
+  await agentMentionChip.click()
+  await sleep(350)
+  const bigCanvasNodes = await page.locator('[data-node-type]').count()
+  const foldedRows = await page
+    .locator('[data-param-popup="agent-mention"] [data-param-in="node"]')
+    .count()
+  const foldedMore = page.locator('[data-param-more="node"]')
+  rec(
+    g,
+    '★★ 大画布上 @ 面板先只列 5 条，底部有「加载更多」',
+    bigCanvasNodes > 5 && foldedRows === 5 && (await foldedMore.count()) === 1,
+    `画布节点=${bigCanvasNodes} 先列=${foldedRows}`,
+  )
+  await foldedMore.click()
+  await sleep(350)
+  const unfoldedRows = await page
+    .locator('[data-param-popup="agent-mention"] [data-param-in="node"]')
+    .count()
+  rec(
+    g,
+    '★★ 点「加载更多」后节点全部列出来',
+    unfoldedRows === bigCanvasNodes,
+    `展开后=${unfoldedRows} 期望=${bigCanvasNodes}`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(200)
 
   /**
    * ★★ **落不了地的计划根本不弹确认卡**（用户 2026-10-02 报的那个 bug：
