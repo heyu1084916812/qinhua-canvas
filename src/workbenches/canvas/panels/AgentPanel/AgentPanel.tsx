@@ -12,6 +12,7 @@ import type { AgentNodeType } from '../../../../domain/agent/plan'
 import {
   channelIdForLogical,
   panelModelOptions,
+  presetOf,
   toLogicalName,
 } from '../../../../domain/project/modelCatalog'
 import { resolveDefaults } from '../../../../features/canvas/createNodeWithDefaults'
@@ -47,12 +48,16 @@ import {
 } from '../../toolbar/icons'
 import { toConversation } from './conversation'
 import { useAsset } from '../../hooks/useAsset'
+import { ModelIcon } from '../../../../features/shared/modelIcon/ModelIcon'
 /**
- * 比例 / 画质 / 质量的档位表与创作面板**共用同一份**（不各写一套）。
+ * 参数控件与档位表**与创作面板共用同一份**（不各写一套）。
  *
- * 这正是「两处必须同一批档位」那条老教训：各写一份的话，用户在生成节点上
- * 看到 21:9、到对话窗发现没有这一档，就会以为功能坏了。
+ * 这正是两条老教训：① 档位各写一份的话，用户在生成节点上看到 21:9、
+ * 到对话窗发现没有这一档，就会以为功能坏了；② 原生 `<select>` 的展开层由浏览器
+ * 绘制，既不受画布浮层规范约束、也点不动（用户 2026-10-02：「太简陋了」）——
+ * 所以对话窗直接复用 `ParamPicker` 那套「chip + 浮层」。
  */
+import { ParamPicker } from '../ParamPicker'
 import { QUALITY_OPTIONS, RATIO_OPTIONS, RESOLUTION_OPTIONS } from '../CreationPanel'
 import styles from './AgentPanel.module.css'
 
@@ -113,6 +118,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const [defaultSaved, setDefaultSaved] = useState(false)
   /** 展开看细节的步骤（工具调用 id 集合）。默认全收起 —— 对话流先保持干净 */
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  /**
+   * 当前展开的参数浮层（模型 / 技能 / 参数三选一）。
+   *
+   * 「开新关旧」由这一个 key 保证，与创作面板同一条口径 —— 各管各的 boolean
+   * 会出现两个浮层同时挂在屏幕上、点哪个都不对。
+   */
+  const [openPicker, setOpenPicker] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -146,6 +158,24 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     () => toLogicalName(allChannels, current?.model ?? ''),
     [allChannels, current?.model],
   )
+
+  /**
+   * 工具条上三枚 chip 的文案。
+   *
+   * 模型 / 技能显示**当前值**（与创作面板一致：chip 就是「现在的设置」）；
+   * 「参数」是一组三样，塞进一枚 chip 里必然要省略某样，所以 chip 只写「参数」，
+   * 三样的当前值放进 `aria-label`（悬停 / 读屏可见），具体档位在浮层里高亮。
+   */
+  const skillLabel = useMemo(() => {
+    const id = current?.skillId
+    if (!id) return '技能'
+    return allSkills.find((s) => s.id === id)?.name ?? '技能'
+  }, [current?.skillId, allSkills])
+  const ratioLabel = current?.ratio || '自动'
+  const resolutionLabel =
+    RESOLUTION_OPTIONS.find((o) => o.value === (current?.resolution ?? 'auto'))?.label ?? '自动'
+  const qualityLabel =
+    QUALITY_OPTIONS.find((o) => o.value === (current?.quality ?? 'auto'))?.label ?? '自动'
 
   /**
    * 新会话该用哪个模型：默认模型 → 该渠道第一个对话模型。
@@ -617,6 +647,21 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     <aside
       className={styles.panel}
       data-agent-panel
+      /**
+       * Esc **先关参数浮层**（与创作面板同一条口径：想收起下拉，结果把整块面板
+       * 一起关掉是最容易踩的那一脚）。
+       *
+       * 两条纪律，都是从创作面板那边学来的：
+       * ① 浮层开着的 Esc 只关浮层，**不关对话窗** —— 对话窗是常驻面板，
+       *    在输入框里按 Esc 本意多半是「算了」，不该把整块面板收走；
+       * ② 消费掉就 `preventDefault()` 声明出来。`NodeFollowBar` 挂在 window 上
+       *    监听 Esc 并清空选中，不声明的话一次 Esc 会做两件事。
+       */
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape' || !openPicker) return
+        e.preventDefault()
+        setOpenPicker(null)
+      }}
       /* 拖图进来就是「给 agent 一张素材」（设计文档 §8） */
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
@@ -690,6 +735,21 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               data-agent-new
             >
               <IconPlus size={16} />
+            </button>
+            {/*
+              「设为默认模型」放在**头部**、不留在输入区工具条里：
+              它是**会话级的偏好**（决定以后新建会话用哪个模型），不是「这一次
+              要发出去的东西」。用户 2026-10-02 明确要求工具条只留三件事
+              （模型 / 技能 / 参数），把它挪到会话动作那一排最自然。
+            */}
+            <button
+              type="button"
+              className={styles.iconBtn}
+              onClick={() => void saveDefault()}
+              title={isDefault ? '已是默认模型' : '把这个模型设为以后新建会话的默认值'}
+              data-agent-set-default
+            >
+              {defaultSaved ? <IconCheck size={16} /> : <IconSettings size={16} />}
             </button>
             <button
               type="button"
@@ -900,110 +960,102 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             </button>
 
             {/*
-              技能：选了它，agent 就按这份技能的阶段来规划（设计文档 §14 M4）。
-              放在模型前面 —— 它决定「怎么做」，模型决定「谁来做」。
+              工具条上**只留三件事**（用户 2026-10-02：「下方的面板只想要三个功能，
+              模型，技能，具体参数的设置」）：模型、技能、参数集合。
+
+              控件用创作面板那套 `ParamPicker`（chip + 浮层），不是原生 `<select>` ——
+              原生下拉的展开层由浏览器绘制，既不受画布浮层规范约束、也不好点
+              （用户原话：「太简陋了」）。同一个组件、同一批档位表，两处长得一样。
             */}
-            <label className={styles.pill} title="这份技能决定 agent 把哪些阶段建到画布上">
-              <span className={styles.pillLabel}>技能</span>
-              <select
-                className={styles.pillSelect}
-                value={current?.skillId ?? ''}
-                onChange={(e) => void setSkill(e.target.value)}
-                data-agent-skill
-              >
-                <option value="">不使用技能</option>
-                {allSkills.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                    {s.source === 'builtin' ? '（内置）' : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <ParamPicker
+              name="agent-model"
+              ariaLabel="这条对话用哪个模型"
+              label={shownModel || '模型'}
+              size="compact"
+              variant="list"
+              // 固定清单里的模型带厂商图标（与创作面板同源，不是另画一套）
+              options={chatModelOptions.map((n) => {
+                const preset = presetOf(n)
+                return {
+                  value: n,
+                  label: n,
+                  ...(preset ? { icon: <ModelIcon vendor={preset.vendor} /> } : {}),
+                }
+              })}
+              value={shownModel}
+              open={openPicker === 'agent-model'}
+              onToggle={() => setOpenPicker(openPicker === 'agent-model' ? null : 'agent-model')}
+              onClose={() => setOpenPicker(null)}
+              onSelect={(v) => void pickModel(v)}
+            />
+
+            <ParamPicker
+              name="agent-skill"
+              ariaLabel="这份技能决定 agent 把哪些阶段建到画布上"
+              label={skillLabel}
+              size="compact"
+              variant="list"
+              options={[
+                { value: '', label: '不使用技能' },
+                ...allSkills.map((s) => ({
+                  value: s.id,
+                  label: s.name + (s.source === 'builtin' ? '（内置）' : ''),
+                })),
+              ]}
+              value={current?.skillId ?? ''}
+              open={openPicker === 'agent-skill'}
+              onToggle={() => setOpenPicker(openPicker === 'agent-skill' ? null : 'agent-skill')}
+              onClose={() => setOpenPicker(null)}
+              onSelect={(v) => void setSkill(v)}
+            />
 
             {/*
-              模型：当前会话用哪个（§8「每个会话可单独选模型」）。
-              选它的同时由 `pickModel` 解析出渠道 —— 界面上**不再有渠道这一档**。
-            */}
-            <label className={styles.pill} title="这条对话用哪个模型">
-              <span className={styles.pillLabel}>模型</span>
-              <select
-                className={styles.pillSelect}
-                value={shownModel}
-                onChange={(e) => void pickModel(e.target.value)}
-                data-agent-model
-              >
-                {chatModelOptions.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </label>
+              参数集合（用户 2026-10-02：「多个参数集合在一起那种」）：
+              比例 / 画质 / 质量三段住**同一个浮层**，选完不关（一次调两样是常态）。
 
-            <button
-              type="button"
-              className={styles.iconBtn}
-              onClick={() => void saveDefault()}
-              title={isDefault ? '已是默认模型' : '把这个模型设为以后新建会话的默认值'}
-              data-agent-set-default
-            >
-              {defaultSaved ? <IconCheck size={16} /> : <IconSettings size={16} />}
-            </button>
-
-            {/*
-              生成参数三档：比例 / 画质 / 质量。
-
-              它们不是「装饰」：选完会随系统提示词发给 agent（只报用户真选过的），
+              它们不是「装饰」：选完会随系统提示词发给 agent（只报用户真选过的档位），
               它据此填生成节点的 data —— 用户选了 16:9 却拿到 1:1 是最典型的
-              「功能摆着不生效」，所以这一段必须有断言钉住（见单测）。
+              「功能摆着不生效」，所以这一段有单测钉住。
             */}
-            <label className={styles.pill} title="生成图片 / 视频的比例">
-              <span className={styles.pillLabel}>比例</span>
-              <select
-                className={styles.pillSelect}
-                value={current?.ratio ?? ''}
-                onChange={(e) => void setGenParam('ratio', e.target.value)}
-                data-agent-ratio
-              >
-                <option value="">自动</option>
-                {RATIO_OPTIONS.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className={styles.pill} title="出图分辨率（画质）">
-              <span className={styles.pillLabel}>画质</span>
-              <select
-                className={styles.pillSelect}
-                value={current?.resolution ?? 'auto'}
-                onChange={(e) => void setGenParam('resolution', e.target.value)}
-                data-agent-resolution
-              >
-                {RESOLUTION_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className={styles.pill} title="生成质量档位">
-              <span className={styles.pillLabel}>质量</span>
-              <select
-                className={styles.pillSelect}
-                value={current?.quality ?? 'auto'}
-                onChange={(e) => void setGenParam('quality', e.target.value)}
-                data-agent-quality
-              >
-                {QUALITY_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <ParamPicker
+              name="agent-params"
+              ariaLabel={`具体参数（比例 ${ratioLabel}、画质 ${resolutionLabel}、质量 ${qualityLabel}）`}
+              label="参数"
+              size="compact"
+              sections={[
+                {
+                  name: 'ratio',
+                  label: '比例',
+                  variant: 'ratioGrid',
+                  // 首项是「自动」= 不指定（值用空串，与 `setGenParam` 的清除口径一致）
+                  options: [
+                    { value: '', label: '自动' },
+                    ...RATIO_OPTIONS.map((r) => ({ value: r, label: r })),
+                  ],
+                  value: current?.ratio ?? '',
+                  onSelect: (v) => void setGenParam('ratio', v),
+                },
+                {
+                  name: 'resolution',
+                  label: '画质',
+                  variant: 'pill',
+                  options: RESOLUTION_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+                  value: current?.resolution ?? 'auto',
+                  onSelect: (v) => void setGenParam('resolution', v),
+                },
+                {
+                  name: 'quality',
+                  label: '质量',
+                  variant: 'pill',
+                  options: QUALITY_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
+                  value: current?.quality ?? 'auto',
+                  onSelect: (v) => void setGenParam('quality', v),
+                },
+              ]}
+              open={openPicker === 'agent-params'}
+              onToggle={() => setOpenPicker(openPicker === 'agent-params' ? null : 'agent-params')}
+              onClose={() => setOpenPicker(null)}
+            />
           </div>
 
           {/*

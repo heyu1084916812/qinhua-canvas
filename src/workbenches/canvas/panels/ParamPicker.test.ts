@@ -82,3 +82,87 @@ describe('ParamPicker · 展开层', () => {
     expect(html).toContain('disabled')
   })
 })
+
+/**
+ * 多组模式（用户 2026-10-02：「具体参数的设置（多个参数集合在一起那种）」）。
+ *
+ * 对话窗的工具条只留三件事：模型 / 技能 / 参数。其中「参数」是**一个浮层里的
+ * 三段**（比例 / 画质 / 质量），而不是三个各自独立的入口 —— 所以这里断言的是
+ * 「三段住在同一个 popup 里，且各带自己的锚点」，不是「渲染出三个按钮」。
+ */
+describe('ParamPicker · 多组模式', () => {
+  const sections = [
+    {
+      name: 'ratio',
+      label: '比例',
+      variant: 'ratioGrid' as const,
+      options: [
+        { value: '', label: '自动' },
+        { value: '16:9', label: '16:9' },
+      ],
+      value: '16:9',
+      onSelect: () => {},
+    },
+    {
+      name: 'resolution',
+      label: '画质',
+      variant: 'pill' as const,
+      options: [
+        { value: 'auto', label: '自动' },
+        { value: '2k', label: '2K' },
+      ],
+      value: '2k',
+      onSelect: () => {},
+    },
+    {
+      name: 'quality',
+      label: '质量',
+      variant: 'pill' as const,
+      options: [
+        { value: 'auto', label: '自动' },
+        { value: 'high', label: '高' },
+      ],
+      value: 'auto',
+      onSelect: () => {},
+    },
+  ]
+  const grouped = () => render({ sections, label: '参数', open: true })
+
+  it('★★ 三段住**同一个**浮层，各带自己的锚点与标题', () => {
+    const html = grouped()
+    expect(html).toContain('data-param-variant="grouped"')
+    for (const s of sections) {
+      expect(html).toContain(`data-param-section="${s.name}"`)
+      expect(html).toContain(`data-param-in="${s.name}"`)
+      expect(html).toContain(s.label)
+    }
+  })
+
+  /**
+   * 画质与质量都有「自动」这一档。没有分段锚点的话，自动化与用户都分不出
+   * 「高亮的是画质的自动还是质量的自动」—— 这正是分段要解决的问题。
+   */
+  it('★★ 同名的档位按**段**区分（画质与质量各有自己的「自动」）', () => {
+    const html = grouped()
+    expect((html.match(/data-param-option="auto"/g) ?? []).length).toBe(2)
+    expect((html.match(/data-param-in="quality"/g) ?? []).length).toBe(2)
+    // 三段各有一个当前值（16:9 / 2K / 自动）—— 互不干扰
+    expect((html.match(/aria-selected="true"/g) ?? []).length).toBe(3)
+  })
+
+  it('★ 「自动」那一格不画比例图（它不是宽高比，画成矩形会和 1:1 撞脸）', () => {
+    const html = grouped()
+    expect(html).toContain('data-ratio-glyph="16:9"')
+    expect(html).not.toContain('data-ratio-glyph=""')
+  })
+
+  /**
+   * 单组模式是**创作面板**在用的那条路，重构不许把它带坏：
+   * 浮层仍按自己的形态渲染，且不该冒出分段锚点。
+   */
+  it('★ 单组模式不受影响：没有分段锚点，形态还是原来那一档', () => {
+    const html = render({ open: true, variant: 'ratioGrid', value: '1:1' })
+    expect(html).toContain('data-param-variant="ratioGrid"')
+    expect(html).not.toContain('data-param-section')
+  })
+})

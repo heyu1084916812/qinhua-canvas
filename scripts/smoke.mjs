@@ -13536,8 +13536,20 @@ async function g95(browser) {
   await sleep(600)
   rec(g, '★★ 能开多个对话', (await count()) === 2, `会话=${await count()}`)
 
-  const models = await page.locator('[data-agent-model] option').count()
-  rec(g, '★ 能选模型（只列对话模型）', models >= 1, `可选=${models}`)
+  /**
+   * 用户 2026-10-02：「参数设置要创作面板的类似的参数菜单，目前的太简陋了」
+   * —— 控件从原生 `<select>` 换成创作面板那套 `ParamPicker`（chip + 真 DOM 浮层）。
+   * 原生下拉的展开层由浏览器绘制，界面糙且自动化看不见。
+   */
+  const agentModelChip = page.locator('[data-param-chip="agent-model"]')
+  const agentSkillChip = page.locator('[data-param-chip="agent-skill"]')
+  const agentParamsChip = page.locator('[data-param-chip="agent-params"]')
+  await agentModelChip.click()
+  await sleep(250)
+  const models = await page.locator('[data-param-popup="agent-model"] button').count()
+  rec(g, '★ 模型是创作面板那套参数菜单（浮层里列出可选模型）', models >= 1, `可选=${models}`)
+  await agentModelChip.click()
+  await sleep(200)
 
   /**
    * 用户 2026-10-02：「不要有选择渠道」——
@@ -13551,27 +13563,66 @@ async function g95(browser) {
   )
 
   /**
-   * 生成参数三档（比例 / 画质 / 质量）—— 用户 2026-10-02 点名要的。
-   * 「摆出来了」是一条，**选完存得住**是另一条：只验前者，会出现
-   * 「选了下拉自己变回去」而测试全绿的情况。
+   * 用户 2026-10-02：「下方的面板只想要三个功能：模型，技能，具体参数的设置」。
+   * 这条按**入口个数**验，不靠眼看 —— 上一版这里挤了五枚下拉。
    */
-  const ratioSel = page.locator('[data-agent-ratio]')
-  const hasGenParams =
-    (await ratioSel.count()) === 1 &&
-    (await page.locator('[data-agent-resolution]').count()) === 1 &&
-    (await page.locator('[data-agent-quality]').count()) === 1
-  rec(g, '★ 对话窗有比例 / 画质 / 质量三档参数', hasGenParams)
+  rec(
+    g,
+    '★★ 工具条只有三个参数入口（模型 / 技能 / 参数）',
+    (await agentModelChip.count()) === 1 &&
+      (await agentSkillChip.count()) === 1 &&
+      (await agentParamsChip.count()) === 1,
+  )
+
   /**
-   * 三档不在时**不能**硬调 `selectOption`：它要等满 30s 的动作超时才抛，
-   * 会把整轮冒烟直接打断（而不是记一条失败）。测试替身缺件时要记失败、接着跑。
+   * 「具体参数」是**一个浮层里的三段**（比例 / 画质 / 质量），不是三个各自独立的
+   * 入口 —— 用户点名要的形态是「多个参数集合在一起那种」。
    */
-  if (hasGenParams) {
-    await ratioSel.selectOption('16:9')
-    await sleep(400)
+  const hasParams = (await agentParamsChip.count()) === 1
+  /** 缺件时**不能**硬点：那要等满 30s 动作超时才抛，会把整轮冒烟打断而不是记一条失败 */
+  if (hasParams) {
+    await agentParamsChip.click()
+    await sleep(250)
+    const sectionIds = await page
+      .locator('[data-param-popup="agent-params"] [data-param-section]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-section')))
+    const ratioCell = await page
+      .locator('[data-param-popup="agent-params"] [data-param-in="ratio"][data-param-option="16:9"]')
+      .count()
+    rec(
+      g,
+      '★★ 具体参数是一个浮层里的三段（比例 / 画质 / 质量），不是三个独立入口',
+      sectionIds.join(',') === 'ratio,resolution,quality' && ratioCell === 1,
+      `段=${sectionIds.join(',')}`,
+    )
+    /** 留一张**参数浮层展开着**的截图：三段挤不挤、网格糊不糊，靠它眼看 */
+    await page.screenshot({ path: `${OUT}/112-g95-agent-params.png` })
+
+    await page
+      .locator('[data-param-popup="agent-params"] [data-param-in="ratio"][data-param-option="16:9"]')
+      .click()
+    await sleep(250)
+    rec(
+      g,
+      '★ 参数浮层选完不自动关（一次调两三样不用反复点开）',
+      (await page.locator('[data-param-popup="agent-params"]').count()) === 1,
+    )
+
+    await page
+      .locator('[data-param-popup="agent-params"] [data-param-in="resolution"][data-param-option="2k"]')
+      .click()
+    await sleep(250)
+    await page.keyboard.press('Escape')
+    await sleep(250)
+    rec(
+      g,
+      '★ Esc 能关掉参数浮层（键盘可达）',
+      (await page.locator('[data-param-popup="agent-params"]').count()) === 0,
+    )
+
     /**
-     * 切走再切回：选择框的值来自**会话行**（不是独立的 React state），
-     * 所以切回后还是 16:9 才证明它真存进了会话 —— 这也是「参数属于这次对话」
-     * 那条设计的落点。只看「inputValue 还是 16:9」证明不了这件事。
+     * 切走再切回：浮层里的选中态来自**会话行**（不是独立的 React state），
+     * 所以切回后还选着才证明它真存进了会话 —— 只看「此刻高亮着」证明不了这件事。
      */
     const sessionSelect = page.locator('[data-agent-session-list]')
     const agentSessionIds = await sessionSelect
@@ -13581,15 +13632,25 @@ async function g95(browser) {
     await sleep(400)
     await sessionSelect.selectOption(agentSessionIds[0])
     await sleep(400)
-    const kept = await ratioSel.inputValue()
+    await agentParamsChip.click()
+    await sleep(250)
+    const keptRatio = await page
+      .locator('[data-param-popup="agent-params"] [data-param-in="ratio"][data-param-option="16:9"]')
+      .getAttribute('aria-selected')
+    const keptRes = await page
+      .locator('[data-param-popup="agent-params"] [data-param-in="resolution"][data-param-option="2k"]')
+      .getAttribute('aria-selected')
+    await page.keyboard.press('Escape')
+    await sleep(200)
     rec(
       g,
-      '★★ 选好的比例切走再切回还在（存进了会话，不是只活在内存里）',
-      kept === '16:9',
-      `当前=${kept}`,
+      '★★ 选好的比例 / 画质切走再切回还在（存进了会话，不是只活在内存里）',
+      keptRatio === 'true' && keptRes === 'true',
+      `ratio=${keptRatio} resolution=${keptRes}`,
     )
   } else {
-    rec(g, '★★ 选好的比例切走再切回还在（存进了会话，不是只活在内存里）', false, '三档参数不存在')
+    rec(g, '★★ 具体参数是一个浮层里的三段（比例 / 画质 / 质量），不是三个独立入口', false, '参数入口不存在')
+    rec(g, '★★ 选好的比例 / 画质切走再切回还在（存进了会话，不是只活在内存里）', false, '参数入口不存在')
   }
 
   await page.locator('[data-agent-set-default]').click()
@@ -13606,19 +13667,30 @@ async function g95(browser) {
    * 这里验的是「入口与清单在」，正文是否真进了系统提示词由单测覆盖
    * （面板里看不到发出去了什么）。
    */
-  const skillSelect = page.locator('[data-agent-skill]')
-  rec(g, '★ 对话窗能选技能', (await skillSelect.count()) === 1)
-  const skillOptions = await skillSelect.locator('option').count()
-  rec(
-    g,
-    '★ 技能清单里有「不使用技能」+ 已内置的技能',
-    skillOptions >= 12,
-    `可选项=${skillOptions}`,
-  )
-  const firstSkillValue = await skillSelect.locator('option').nth(1).getAttribute('value')
-  await skillSelect.selectOption(firstSkillValue)
-  await sleep(400)
-  rec(g, '★ 选中后保留在选择框里（存进会话）', (await skillSelect.inputValue()) === firstSkillValue)
+  rec(g, '★ 对话窗能选技能', (await agentSkillChip.count()) === 1)
+  if ((await agentSkillChip.count()) === 1) {
+    await agentSkillChip.click()
+    await sleep(250)
+    const skillButtons = page.locator('[data-param-popup="agent-skill"] button')
+    const skillOptions = await skillButtons.count()
+    rec(
+      g,
+      '★ 技能清单里有「不使用技能」+ 已内置的技能',
+      skillOptions >= 12,
+      `可选项=${skillOptions}`,
+    )
+    /** 选第 2 项（第 1 项是「不使用技能」），再拿它与 chip 上的文案对一下 */
+    const firstSkillLabel = ((await skillButtons.nth(1).innerText()) ?? '').trim()
+    await skillButtons.nth(1).click()
+    await sleep(400)
+    const skillChipText = (await agentSkillChip.innerText()).trim()
+    rec(
+      g,
+      '★ 选中后留在 chip 上（存进会话）',
+      skillChipText !== '' && skillChipText !== '技能' && firstSkillLabel.includes(skillChipText),
+      `chip=${skillChipText} 选项=${firstSkillLabel}`,
+    )
+  }
 
   /**
    * ★★ 素材（设计文档 §8「输入：文字 + 可选图片」）。

@@ -109,61 +109,6 @@
   gap: var(--space-1);
 }
 
-/**
- * 工具条上的一枚胶囊：`标签 + 下拉`。
- *
- * 为什么标签要**常驻**而不是只在下拉里显示当前值：一排 `16:9` / `4K` / `高`
- * 单看分不出哪个是比例、哪个是画质。参考产品的胶囊也是「名字在前」。
- */
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  max-width: 100%;
-  height: 26px;
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--text-2);
-  font-size: var(--fs-chip);
-  cursor: pointer;
-}
-.pill:hover {
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
-.pillLabel {
-  flex: 0 0 auto;
-  color: var(--text-3);
-}
-/**
- * 下拉本体去掉自带的边框与底色（胶囊负责那层皮），只留原生箭头当「可点」的信号。
- * `max-width` 卡住长模型名：名字再长也只能截断自己，不许把同排的其它钮挤掉。
- *
- * 116px 这个数是**量出来的**，不是拍的：常见名字（`Agnes 2.5 Pro` 约 81px）
- * 加上原生箭头后要塞得下，同时「＋ / 取选中 / 技能 / 模型」四件还得在同一排 ——
- * 宽到 120 以上就会把模型挤到第二行，整条工具条从两排变三排。
- */
-.pillSelect {
-  min-width: 0;
-  max-width: 116px;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-/**
- * 焦点圈**不许抹掉**：这几枚是无边框的 `select`，`outline:none` 之后键盘用户
- * 就彻底看不出焦点在哪一格了。改成主题化的 `:focus-visible`（只在键盘导航时出现，
- * 鼠标点不闪），颜色取令牌，深色主题跟着换。
- */
-.pillSelect:focus-visible {
-  outline: 2px solid var(--stroke-focus);
-  outline-offset: 2px;
-  border-radius: var(--radius-pill);
-}
-
 .smallBtn {
   flex: 0 0 auto;
   height: 30px;
