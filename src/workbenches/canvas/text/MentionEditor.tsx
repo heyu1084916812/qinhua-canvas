@@ -62,6 +62,12 @@ export function mentionKindOf(token: string): MentionKind | null {
   return m?.[1] === 'node' || m?.[1] === 'model' ? m[1] : null
 }
 
+/** 存储形态 → 它指向的那个标识（节点 id / 模型名）；读不出来返回 null */
+export function mentionIdOf(token: string): string | null {
+  const m = /^@\[[^\]]*\]\((?:node|model):([^)]*)\)/.exec(token)
+  return m?.[1]?.trim() || null
+}
+
 export interface MentionRef {
   kind: MentionKind
   /** 节点 id / 模型显示名（`(node:xxx)` 冒号后面那一段） */
@@ -113,10 +119,21 @@ function makeChip(doc: Document, token: string): HTMLElement {
   const icon = doc.createElement('span')
   icon.className = styles.chipIcon ?? ''
   if (kind) icon.innerHTML = KIND_ICON[kind]
+  /**
+   * 缩略图槽：**节点**引用留给宿主往里填图（用户 2026-10-03：「艾特图片的时候需要
+   * 和图 6 一样有图片的缩略图，当前只有一个图标和名称」）。
+   *
+   * 编辑器**不自己去取图**：它是命令式建的 DOM，拿不到 `useAsset` 那类 hook；
+   * 宿主把「按节点 id 拿 objectURL」的能力从 `thumbOf` 传进来，再用同一份
+   * `thumbVersion` 触发 `fillThumbs` **就地**把图填进这个槽（不重建 DOM，不动光标）。
+   */
   const label = doc.createElement('span')
   label.className = styles.chipLabel ?? ''
   label.textContent = mentionLabel(token)
-  chip.append(icon, label)
+  const slot = doc.createElement('span')
+  slot.className = styles.chipThumb ?? ''
+  slot.setAttribute('data-mention-thumb-slot', mentionIdOf(token) ?? '')
+  chip.append(slot, icon, label)
   return chip
 }
 
@@ -156,9 +173,28 @@ export const MentionEditor = forwardRef<
     onEnter?: () => void
     /** 语义锚点（测试用），由调用方给 */
     anchorAttr?: Record<string, string>
+    /**
+     * 按**节点 id** 取缩略图的 objectURL（拿不到返回 null）。
+     *
+     * 编辑器自己不取图（它是命令式 DOM，拿不到 hook）；宿主负责加载并把结果
+     * 通过 `thumbVersion` 的递增通知这里。
+     */
+    thumbOf?: (nodeId: string) => string | null
+    /** 缩略图缓存版本号：变了就把已有的槽位**就地**补一遍图 */
+    thumbVersion?: number
   }
 >(function MentionEditor(
-  { value, onChange, onMentionTrigger, placeholder, className, onEnter, anchorAttr },
+  {
+    value,
+    onChange,
+    onMentionTrigger,
+    placeholder,
+    className,
+    onEnter,
+    anchorAttr,
+    thumbOf,
+    thumbVersion,
+  },
   handleRef,
 ) {
   const ref = useRef<HTMLDivElement | null>(null)
@@ -180,6 +216,32 @@ export const MentionEditor = forwardRef<
     currentRef.current = value
     // 仅在挂载时执行：后续同步由上面那个 effect 负责（与 TokenEditor 同一写法）
   }, [])
+
+  /**
+   * 把缩略图槽**就地**填上（不重建 DOM）。
+   *
+   * 为什么是「就地」而不是 `replaceChildren`：重建会**重置光标与输入法** ——
+   * 用户正打字时图刚好加载完、光标一跳，那是灾难（`TokenEditor` 里记过这条）。
+   * 这里只往槽里 append 一个 `<img>`，正文与光标一个字节都不动。
+   */
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !thumbOf) return
+    for (const slot of el.querySelectorAll<HTMLElement>('[data-mention-thumb-slot]')) {
+      if (slot.firstChild) continue
+      const id = slot.dataset.mentionThumbSlot ?? ''
+      const url = id ? thumbOf(id) : null
+      if (!url) continue
+      const img = document.createElement('img')
+      img.src = url
+      img.alt = ''
+      img.className = styles.chipThumbImg ?? ''
+      slot.append(img)
+      /** 有图就把那枚矢量图标收起来 —— 图 6 里就是「缩略图 + 名字」 */
+      slot.parentElement?.setAttribute('data-has-thumb', 'true')
+    }
+    // `value` 也要进依赖：新插进来的 chip 可能带着还没填的槽
+  }, [thumbVersion, thumbOf, value])
 
   const focusEnd = () => {
     const el = ref.current

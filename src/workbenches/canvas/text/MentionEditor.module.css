@@ -69,6 +69,32 @@
   height: 12px;
 }
 
+/*
+ * 缩略图槽：**节点**引用取到图之后，这里会多出一个 <img>，
+ * 同时 chip 上打 `data-has-thumb="true"` 把那枚矢量图标收起来 ——
+ * 参考产品图 6 里就是「缩略图 + 名字」。
+ */
+.chipThumb {
+  display: none;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 12px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.chip[data-has-thumb='true'] .chipThumb {
+  display: inline-flex;
+}
+.chip[data-has-thumb='true'] .chipIcon {
+  display: none;
+}
+.chipThumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 .chipLabel {
   min-width: 0;
   overflow: hidden;

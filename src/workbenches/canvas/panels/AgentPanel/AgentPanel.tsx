@@ -59,7 +59,7 @@ import {
   IconSkill,
 } from '../../toolbar/icons'
 import { toConversation } from './conversation'
-import { useAsset } from '../../hooks/useAsset'
+import { loadAssetUrl, useAsset } from '../../hooks/useAsset'
 import { ModelIcon } from '../../../../features/shared/modelIcon/ModelIcon'
 /**
  * 参数控件与档位表**与创作面板共用同一份**（不各写一套）。
@@ -893,6 +893,52 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     }
     return map
   }, [graph])
+
+  /**
+   * @ 引用里的**节点缩略图**（用户 2026-10-03，参考产品图六：chip 上要看得见那张图）。
+   *
+   * 编辑器是**命令式建的 DOM**、拿不到 `useAsset` 这类 hook，所以图在这里取：
+   * 按草稿里出现过的节点 id 去 `assets` 表读一次，缓存成 `nodeId → objectURL`，
+   * 再用版本号通知编辑器**就地**把图补进槽位。
+   */
+  const thumbCacheRef = useRef(new Map<string, string>())
+  const [thumbVersion, setThumbVersion] = useState(0)
+  const thumbOf = useCallback(
+    (nodeId: string) => thumbCacheRef.current.get(nodeId) ?? null,
+    [],
+  )
+
+  useEffect(() => {
+    const refs = parseMentions(draft).filter((m) => m.kind === 'node')
+    if (refs.length === 0) return
+    let alive = true
+    void (async () => {
+      let added = false
+      for (const r of refs) {
+        if (thumbCacheRef.current.has(r.id)) continue
+        const hash = hashOfNode.get(r.id)
+        if (!hash) continue
+        const meta = await loadAssetUrl(platform, hash)
+        if (!alive || !meta.url) continue
+        thumbCacheRef.current.set(r.id, meta.url)
+        added = true
+      }
+      if (added && alive) setThumbVersion((v) => v + 1)
+    })()
+    return () => {
+      alive = false
+    }
+  }, [draft, hashOfNode, platform])
+
+  /** 卸载时把建出来的 objectURL 回收掉（不回收就是一路泄漏） */
+  useEffect(
+    () => () => {
+      for (const url of thumbCacheRef.current.values()) URL.revokeObjectURL(url)
+      thumbCacheRef.current.clear()
+    },
+    [],
+  )
+
   const pendingPlan = previewOf(status, store)
 
   return (
@@ -1207,6 +1253,9 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           onEnter={() => void send()}
           /** 刚打出 `@` → 直接开引用菜单（参考产品就是「打 @ 就出」） */
           onMentionTrigger={() => setOpenPicker('agent-mention')}
+          /** 节点引用的缩略图：宿主取图，编辑器就地补进 chip 的槽位 */
+          thumbOf={thumbOf}
+          thumbVersion={thumbVersion}
         />
 
         <div className={styles.bar}>

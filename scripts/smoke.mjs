@@ -13857,6 +13857,38 @@ async function g95(browser) {
   )
 
   /**
+   * ★★ @ 引用**节点**时 chip 上要有**图片缩略图**（用户 2026-10-03，参考产品图六：
+   * 「艾特图片的时候需要和图 6 一样有图片的缩略图，当前只有一个图标和名称」）。
+   *
+   * 引的必须是**真有图的那个节点**（刚上传的素材）—— 拿一个没有图的节点验，
+   * 「没缩略图」是本来就该如此，证明不了任何事。
+   */
+  const imageNodeId = await page
+    .locator('[data-node-type="generation"][data-node-id]')
+    .evaluateAll(
+      (els) =>
+        els
+          .filter((e) => e.querySelector('[data-node-asset]'))
+          .map((e) => e.getAttribute('data-node-id') ?? '')[0] ?? '',
+    )
+  await agentMentionChip.click()
+  await sleep(300)
+  await page
+    .locator(`[data-param-popup="agent-mention"] [data-param-option="node:${imageNodeId}"]`)
+    .click()
+  await sleep(700)
+  const mentionThumb = await page
+    .locator('[data-agent-input] [data-mention-thumb-slot] img')
+    .count()
+  rec(
+    g,
+    '★★ @ 引用的节点在 chip 上显示**图片缩略图**（不只是图标 + 名字）',
+    imageNodeId !== '' && mentionThumb >= 1,
+    `节点=${imageNodeId.slice(0, 12)} 缩略图=${mentionThumb}`,
+  )
+  await page.screenshot({ path: `${OUT}/116-g95-agent-mention-thumb.png` })
+
+  /**
    * ★★★ 整件事的验收：**说一句话，画布上直接多出工作流，再问你要不要生成**。
    *
    * 用户 2026-10-02 定的口径（对着参考产品的截图）：

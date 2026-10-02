@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
+import type { PlatformKit } from '../../../platform/ports'
 
 /**
  * 按 hash 从 assets 表读回媒体本体并生成 objectURL（产品文档 §8：hash 即主键）。
@@ -12,6 +13,27 @@ export interface AssetMeta {
   url: string | null
   /** 素材的 mime；未落库时为空（灯箱靠它决定渲染 `<img>` 还是 `<video>`） */
   mime: string | null
+}
+
+/**
+ * **按 hash 取一次素材**（非 hook 版）：读 `assets` 行 → Blob → objectURL。
+ *
+ * 存在的理由：`useAsset` 是 hook，只能在 React 组件里用；而有一种消费方拿不到
+ * hook —— 比如 `MentionEditor` 里那些**命令式建的 chip**（`contenteditable` 的
+ * 子节点不是 React 渲染的）。用户 2026-10-03 要的「@ 引用图片时 chip 上要有缩略图」
+ * 正卡在这条缝上。
+ *
+ * **只取一次，不重试**：退避重试是 `useAssetMeta` 那层的事（它服务的是画布上
+ * 刚生成、字节还没落库的图）。调用方自己决定要不要重试。
+ * 调用方负责在不用时 `URL.revokeObjectURL`。
+ */
+export async function loadAssetUrl(platform: PlatformKit, hash: string): Promise<AssetMeta> {
+  const rows = await platform.storage.query('assets', { id: hash })
+  const row = rows[0] as { bytes?: Uint8Array | number[]; mime?: string } | undefined
+  if (!row?.bytes) return { url: null, mime: null }
+  const buf = row.bytes instanceof Uint8Array ? row.bytes : new Uint8Array(row.bytes as number[])
+  const blob = new Blob([buf as BlobPart], { type: row.mime ?? 'image/png' })
+  return { url: URL.createObjectURL(blob), mime: row.mime ?? null }
 }
 
 /**
@@ -45,20 +67,16 @@ export function useAssetMeta(hash: string | undefined): AssetMeta {
     const backoffOf = (attempt: number) => (attempt < 12 ? 250 : 500)
 
     const load = async (attempt: number) => {
-      const rows = await platform.storage.query('assets', { id: hash })
-      const row = rows[0] as { bytes?: Uint8Array | number[]; mime?: string } | undefined
-      if (!row?.bytes) {
+      const meta = await loadAssetUrl(platform, hash)
+      if (!meta.url) {
         // 素材尚未落库：退避重试，最多约 20s
         if (alive && attempt < MAX_ATTEMPTS) {
           timer = setTimeout(() => void load(attempt + 1), backoffOf(attempt))
         }
         return
       }
-      const buf = row.bytes instanceof Uint8Array ? row.bytes : new Uint8Array(row.bytes as number[])
-      const blob = new Blob([buf as BlobPart], { type: row.mime ?? 'image/png' })
-      const u = URL.createObjectURL(blob)
-      created = u
-      if (alive) setMeta({ url: u, mime: row.mime ?? null })
+      created = meta.url
+      if (alive) setMeta(meta)
     }
     void load(0)
 
