@@ -95,6 +95,49 @@ describe('logicalNames', () => {
     expect(logicalNames(channels)).toEqual(['image-2'])
     expect(categoryOfLogical(channels, 'image-2', 'A')).toBe('image')
   })
+
+  /**
+   * ★★ 用户 2026-10-02 报的真现象：**Agnes 的对话模型只有一个，agent 里却列了一串**。
+   *
+   * 数据来自只读探针（`scripts/probe-user-channels.mjs` 读用户浏览器那份真数据）：
+   * Agnes 渠道 `models` 只勾了 3 个，但「拉取模型」给 15 个模型各登记了一行映射 ——
+   * 其中 12 行是**恒等**（`agnes-3.0-flash → agnes-3.0-flash` 这种），
+   * 只有 3 行是真的重命名（`Agnes 2.5 Pro → agnes-2.5-pro`）。
+   *
+   * 恒等行会把**没勾选**的模型重新拽回下拉（它们躺在 `modelCache` 里，
+   * `findProvider` 找得到、分类也取得到），于是「筛选过」这件事被绕过。
+   */
+  it('★★ 恒等映射不贡献逻辑名：没勾选的模型不许从后门漏回下拉', () => {
+    const agnes = ch({
+      id: 'agnes',
+      models: [cap('agnes-2.5-pro', 'chat')],
+      modelCache: [
+        cap('agnes-2.5-pro', 'chat'),
+        cap('agnes-3.0-flash', 'chat'),
+        cap('agnes-2.0-flash', 'chat'),
+        cap('agnes-image-2.5-flash', 'image'),
+      ],
+      modelMap: {
+        'agnes-3.0-flash': 'agnes-3.0-flash',
+        'agnes-2.0-flash': 'agnes-2.0-flash',
+        'agnes-2.5-pro': 'agnes-2.5-pro',
+        'agnes-image-2.5-flash': 'agnes-image-2.5-flash',
+        'Agnes 2.5 Pro': 'agnes-2.5-pro',
+        'Agnes Image 2.5 Flash': 'agnes-image-2.5-flash',
+      },
+    })
+    expect(logicalNames([agnes]).sort()).toEqual(['Agnes 2.5 Pro', 'Agnes Image 2.5 Flash'])
+    expect(logicalOptions([agnes], 'chat')).toEqual(['Agnes 2.5 Pro'])
+  })
+
+  it('★★ 老节点 / 老会话里存的裸 ID 归一成显示名（不被恒等行先截胡）', () => {
+    const agnes = ch({
+      id: 'agnes',
+      models: [cap('agnes-2.5-pro', 'chat')],
+      modelMap: { 'agnes-2.5-pro': 'agnes-2.5-pro', 'Agnes 2.5 Pro': 'agnes-2.5-pro' },
+    })
+    expect(toLogicalName([agnes], 'agnes-2.5-pro')).toBe('Agnes 2.5 Pro')
+  })
 })
 
 describe('category / options', () => {

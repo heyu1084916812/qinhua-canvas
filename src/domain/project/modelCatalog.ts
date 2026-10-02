@@ -72,7 +72,25 @@ export function logicalNames(channels: readonly CatalogChannelLike[]): string[] 
   for (const c of channels) {
     for (const k of Object.keys(c.modelMap ?? {})) {
       const key = k.trim()
-      if (key) out.add(key)
+      if (!key) continue
+      /**
+       * ⚠️ **恒等映射（`agnes-2.5-pro → agnes-2.5-pro`）不贡献逻辑名**。
+       *
+       * 用户 2026-10-02 报的正是这一条：「agent 上的模型选择要从前端显示名映射来，
+       * 我的对话模型 Agnes 就只有一个，但 agent 里显示了很多个 agnes 的模型」。
+       *
+       * 现象的出处在**拉取模型**：设置页给每个拉回来的模型都登记了一行恒等映射
+       * （只是「这个名字存在」的登记，不是重命名）。下面第二个循环（勾选 / 缓存）
+       * 本来就按 `勾选优先，勾选为空才回落缓存` 收敛过一次，但第一个循环把
+       * **所有**映射键都收了进来 —— 于是那些用户**没有勾选**的模型从恒等映射
+       * 这条后门又漏回下拉里。
+       *
+       * 恒等映射本身不携带任何信息（键与值同名），模型一定由第二个循环覆盖；
+       * 跳过它不丢任何模型，只堵掉这条后门。
+       */
+      const value = (c.modelMap?.[k] ?? '').trim()
+      if (value === key) continue
+      out.add(key)
     }
   }
   for (const c of channels) {
@@ -267,7 +285,17 @@ export function toLogicalName(
   if (logicalNames(channels).includes(name)) return name
   for (const c of channels) {
     for (const [logical, upstream] of Object.entries(c.modelMap ?? {})) {
-      if (upstream.trim() === name) return logical.trim()
+      const key = logical.trim()
+      const target = upstream.trim()
+      /**
+       * 只认**真的重命名**那一行（键 ≠ 值）。
+       *
+       * 恒等行（`agnes-2.5-pro → agnes-2.5-pro`）是「拉取模型」顺手登记的，
+       * 先撞上它会把 `agnes-2.5-pro` 原样返回，下面那条
+       * 「已知上游 ID → 显示名」的兜底就永远走不到 —— 用户在老会话 / 老节点上
+       * 看到的仍是裸 ID，而同一下拉里列的是 `Agnes 2.5 Pro`，看起来像两个模型。
+       */
+      if (target === name && key !== target) return key
     }
   }
   /**
