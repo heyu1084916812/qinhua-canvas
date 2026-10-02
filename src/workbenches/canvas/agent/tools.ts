@@ -1,4 +1,5 @@
 import {
+  alignGenerationMode,
   normalizeAgentPlan,
   validateAgentPlan,
   type AgentNodeType,
@@ -209,6 +210,16 @@ export interface AgentToolContext {
     type: AgentNodeType,
     node: { data: Record<string, unknown> },
   ) => { channelId: string; model: string } | undefined
+
+  /**
+   * 模型名 → 它是哪一类（`image` / `video` / `chat`）。由界面层注入（那边有渠道目录）。
+   *
+   * 只为一件事：**生成节点的 `mode` 以模型为准**。真模型（Agnes 2.5 Pro）会把视频节点
+   * 写成 `mode: "image"`（它把「生成节点」当默认档），只写对 `model: "Agnes Video 2.0"`；
+   * 而执行层是按 `mode` 走图片 / 视频两条链的 —— 不纠正的话，视频模型被塞进生图链路，
+   * 点了生成**一个请求都发不出去**（用户 2026-10-03 让我用 agent 做视频时实测到的）。
+   */
+  categoryOfModel?: (model: string) => 'image' | 'video' | 'chat' | undefined
 }
 
 /** 读类执行器：循环里直接调（设计文档 §4） */
@@ -269,14 +280,22 @@ export async function executeConfirmedTool(
       const { problems, plan } = planProblems(a, existing)
       if (!plan) return { ok: false, problems }
       /**
+       * 生成节点的 `mode` **以模型自己的类别为准**（详见 `alignGenerationMode`）：
+       * 真模型常把视频节点写成 `mode:"image"`，不纠正的话请求都组不出来。
+       */
+      const aligned = ctx.categoryOfModel
+        ? alignGenerationMode(plan, ctx.categoryOfModel)
+        : { plan, notes: [] }
+      const finalPlan = aligned.plan
+      /**
        * 先把「新建节点的默认数据」解出来，再交给纯函数建命令。
        *
        * 只解**计划里真用到的类型**：一次对话可能只建生成节点，没必要去问聊天模型。
        * 复用（attach）的节点不新建，也就不需要默认值。
        */
-      const needed = [...new Set(plan.nodes.map((n) => n.type))]
+      const needed = [...new Set(finalPlan.nodes.map((n) => n.type))]
       const defaults = ctx.defaultsForNewNode ? await ctx.defaultsForNewNode(needed) : undefined
-      const applied = applyAgentPlan(ctx.store, plan, ctx.origin, {
+      const applied = applyAgentPlan(ctx.store, finalPlan, ctx.origin, {
         /**
          * 三层打底由 `buildLandingCommand` 负责，这里只把**用户点选的那一档**
          * 叠进「渠道默认配方」这一层：计划里自己写了模型仍然以计划为准（§11）。
@@ -288,7 +307,12 @@ export async function executeConfirmedTool(
         },
       })
       // 自检结果整份回填：模型要靠它决定补连线还是改图（§6.1）
-      return { ok: applied.ok, problems: applied.problems, createdNodeIds: applied.createdNodeIds }
+      return {
+        ok: applied.ok,
+        problems: applied.problems,
+        createdNodeIds: applied.createdNodeIds,
+        ...(aligned.notes.length > 0 ? { notes: aligned.notes } : {}),
+      }
     }
     case 'updateNode': {
       const id = typeof a.nodeId === 'string' ? a.nodeId : ''

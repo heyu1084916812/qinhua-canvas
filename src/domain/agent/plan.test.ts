@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   AGENT_PLAN_MAX_NODES,
+  alignGenerationMode,
   normalizeAgentPlan,
   summarizeTitle,
   validateAgentPlan,
@@ -308,5 +309,67 @@ describe('summarizeTitle', () => {
     expect(summarizeTitle('  a   b  ')).toBe('a b')
     expect(summarizeTitle('一二三四五六七八九十十一十二十三')).toHaveLength(12)
     expect(summarizeTitle('')).toBe('')
+  })
+})
+
+/**
+ * 生成节点的 `mode` 以**模型类别**为准。用户 2026-10-03：「你可以用 agent 帮我做一个视频吗」
+ * —— 计划建出来了，但视频节点点了生成**一个请求都不发**：真模型把它写成
+ * `mode:"image"`，只在 `model` 上写了视频模型，而执行层是按 `mode` 分链的。
+ */
+describe('alignGenerationMode · mode 跟着模型走', () => {
+  const categoryOf = (m: string) =>
+    m.includes('Video') ? ('video' as const) : m.includes('Image') ? ('image' as const) : undefined
+  const plan = (mode: string, model: string): AgentPlan => ({
+    summary: 's',
+    nodes: [{ localId: 'g1', type: 'generation', data: { mode, model }, order: 0 }],
+    edges: [],
+  })
+
+  it('★★ 视频模型 + mode:image → 纠正成 video（否则请求都组不出来）', () => {
+    const { plan: out, notes } = alignGenerationMode(plan('image', 'Agnes Video 2.0'), categoryOf)
+    expect(out.nodes[0]!.data.mode).toBe('video')
+    expect(notes).toHaveLength(1)
+  })
+
+  it('★ 反向也对：图片模型 + mode:video → 改回 image', () => {
+    const { plan: out } = alignGenerationMode(plan('video', 'Agnes Image 2.5 Flash'), categoryOf)
+    expect(out.nodes[0]!.data.mode).toBe('image')
+  })
+
+  it('认不出类别就不动（不猜）', () => {
+    const { plan: out, notes } = alignGenerationMode(plan('image', '某站的私有模型'), categoryOf)
+    expect(out.nodes[0]!.data.mode).toBe('image')
+    expect(notes).toEqual([])
+  })
+})
+
+/**
+ * 连线的**端点别名**：真模型用过 `sourceNode` / `targetNode` 这种写法。
+ * 只认四个老名字的话，整份计划会以「第 1 条连线的起点不存在：undefined」被拒 ——
+ * 用户看到的就是「工作流没建成」。
+ */
+describe('normalizeAgentPlan · 连线端点别名', () => {
+  const withEdges = (edges: unknown[]) => ({
+    summary: 's',
+    nodes: [
+      { localId: 'p1', type: 'prompt', data: { text: '一只猫' }, order: 0 },
+      { localId: 'g1', type: 'generation', data: { prompt: '一只猫' }, order: 1 },
+    ],
+    edges,
+  })
+
+  it('★★ sourceNode / targetNode 也认', () => {
+    const { plan } = normalizeAgentPlan(withEdges([{ sourceNode: 'p1', targetNode: 'g1' }]))
+    const edges = (plan as AgentPlan).edges
+    expect(edges[0]).toMatchObject({ source: 'p1', target: 'g1' })
+  })
+
+  it('★ 端点是对象（{ localId } / { id }）也认', () => {
+    const { plan } = normalizeAgentPlan(
+      withEdges([{ source: { localId: 'p1' }, target: { id: 'g1' } }]),
+    )
+    const edges = (plan as AgentPlan).edges
+    expect(edges[0]).toMatchObject({ source: 'p1', target: 'g1' })
   })
 })

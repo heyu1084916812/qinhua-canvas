@@ -132,19 +132,48 @@ export function normalizeAgentPlan(raw: unknown): { plan: unknown; notes: string
   })
 
   const edgesRaw = Array.isArray(src.edges) ? src.edges : []
+  /**
+   * 连线的端点：模型写过 `"p1"`、也写过 `{ localId: "p1" }` / `{ id: "p1" }`。
+   * 两种都认（只认「本地 id」这一个含义，不是猜）。
+   */
+  const endpointId = (v: unknown): string | undefined => {
+    if (typeof v === 'string') return v.trim() || undefined
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const o = v as Record<string, unknown>
+      const inner = o.localId ?? o.id ?? o.local_id ?? o.key
+      if (typeof inner === 'string' && inner.trim()) return inner.trim()
+    }
+    return undefined
+  }
   const edges = edgesRaw.map((e) => {
     if (!e || typeof e !== 'object' || Array.isArray(e)) return e
     const edge = { ...(e as Record<string, unknown>) }
-    /** 别名：`from` / `to` / `sourceId` / `targetId` 都是同一件事 */
-    if (edge.source === undefined) {
-      const alias = edge.from ?? edge.sourceId ?? edge.sourceLocalId
+    /**
+     * 别名：`from` / `to` / `sourceId` / `sourceNode` / `start` … 都是同一件事。
+     * 实测真模型（Agnes 2.5 Pro）会用 `sourceNode` / `targetNode` 这种写法，
+     * 只认四个名字的话整份计划会以「起点不存在：undefined」被拒。
+     */
+    if (edge.source === undefined || endpointId(edge.source) === undefined) {
+      const alias =
+        edge.from ??
+        edge.sourceId ??
+        edge.sourceLocalId ??
+        edge.sourceNode ??
+        edge.fromNode ??
+        edge.start
       if (alias !== undefined) {
         edge.source = alias
         notes.push('连线：source 是从别名补的')
       }
     }
-    if (edge.target === undefined) {
-      const alias = edge.to ?? edge.targetId ?? edge.targetLocalId
+    if (edge.target === undefined || endpointId(edge.target) === undefined) {
+      const alias =
+        edge.to ??
+        edge.targetId ??
+        edge.targetLocalId ??
+        edge.targetNode ??
+        edge.toNode ??
+        edge.end
       if (alias !== undefined) {
         edge.target = alias
         notes.push('连线：target 是从别名补的')
@@ -153,6 +182,14 @@ export function normalizeAgentPlan(raw: unknown): { plan: unknown; notes: string
     if (edge.sourcePort === undefined && edge.source_port !== undefined) {
       edge.sourcePort = edge.source_port
     }
+    /**
+     * 端点是对象时**取出里面的本地 id**（`{ localId }` / `{ id }` / `{ key }`）。
+     * 这一步放在别名处理之后：两种写法都要落到同一个字符串上。
+     */
+    const srcId = endpointId(edge.source)
+    if (srcId !== undefined) edge.source = srcId
+    const tgtId = endpointId(edge.target)
+    if (tgtId !== undefined) edge.target = tgtId
     if (edge.targetPort === undefined && edge.target_port !== undefined) {
       edge.targetPort = edge.target_port
     }
@@ -258,6 +295,40 @@ function promptTextOf(node: Record<string, unknown> | undefined): string {
 export function summarizeTitle(text: string): string {
   const firstLine = String(text ?? '').split('\n')[0] ?? ''
   return firstLine.replace(/\s+/g, ' ').trim().slice(0, 12)
+}
+
+/**
+ * 生成节点的 `mode` **以模型自己的类别为准**。
+ *
+ * 用户 2026-10-03 让我「用 agent 做一支视频」时实测到的：计划建出来了，但视频节点
+ * 点了生成**一个请求都不发**。根因是真模型（Agnes 2.5 Pro）把视频节点写成了
+ * `mode: "image"` —— 它把「生成节点」默认当图片档，只在 `model` 上写了
+ * `Agnes Video 2.0`；而**执行层是按 `mode` 分链的**，于是视频模型被塞进生图链路，
+ * 请求根本组不出来。
+ *
+ * 两种改法都对得上：模型是视频模型而 mode 不是 video → 改成 video；模型是图片模型
+ * 而 mode 却是 video → 改回 image。认不出类别（渠道没配、名字对不上）就**不动** —— 不猜。
+ */
+export function alignGenerationMode(
+  plan: AgentPlan,
+  categoryOf: (model: string) => 'image' | 'video' | 'chat' | undefined,
+): { plan: AgentPlan; notes: string[] } {
+  const notes: string[] = []
+  const nodes = plan.nodes.map((n) => {
+    if (n.type !== 'generation') return n
+    const data = (n.data ?? {}) as Record<string, unknown>
+    const model = typeof data.model === 'string' ? data.model.trim() : ''
+    if (!model) return n
+    const category = categoryOf(model)
+    if (category !== 'video' && category !== 'image') return n
+    const want = category === 'video' ? 'video' : 'image'
+    if (data.mode === want) return n
+    notes.push(
+      `节点「${n.title || n.localId}」：mode 由 ${String(data.mode ?? '(空)')} 改成 ${want}（跟着模型 ${model} 走）`,
+    )
+    return { ...n, data: { ...data, mode: want } }
+  })
+  return notes.length > 0 ? { plan: { ...plan, nodes }, notes } : { plan, notes }
 }
 
 /** 节点 → 它所在的「第几步」：没有入边 = 0，否则 = max(前驱)+1 */

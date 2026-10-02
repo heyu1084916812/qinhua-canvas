@@ -12,6 +12,7 @@ import { findFreeRect } from '../../../../domain/agent/landing'
 import type { AgentNodeType } from '../../../../domain/agent/plan'
 import {
   channelIdForLogical,
+  capabilityOfLogical,
   panelModelOptions,
   presetOf,
   toLogicalName,
@@ -396,6 +397,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         const channelId = channelIdForLogical(enabled, model, current?.channelId)
         return channelId ? { channelId, model } : undefined
       },
+      /**
+       * 模型名 → 类别：给 `applyPlan` 纠正 `mode` 用（见 `alignGenerationMode`）。
+       *
+       * 真模型会把视频节点写成 `mode:"image"`，只写对 `model`；执行层按 `mode` 分链，
+       * 不纠正就是「点了生成一个请求都不发」。
+       */
+      categoryOfModel: (model) => capabilityOfLogical(allChannels, model)?.category,
     }),
     [store, selection, execution, channels, current, enabled],
   )
