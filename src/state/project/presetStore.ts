@@ -10,6 +10,7 @@
  */
 import type { StoragePort } from '../../platform/ports'
 import {
+  isRecipeRowId,
   NO_RECIPE,
   presetRowId,
   recipeFromRow,
@@ -88,6 +89,16 @@ export function createPresetStore(storage: StoragePort): PresetStore {
       try {
         const rows = await storage.query('presets', {})
         for (const row of rows) {
+          /**
+           * ⚠️ **只认 `recipe:` 前缀的行**。
+           *
+           * 同表还住着 `routing:strategy` 与 `agent:default`，而后者恰好也带
+           * `channelId` + `model` —— 不挡的话它会被当成一条生成配方读进来，
+           * 于是用户点完「设为默认模型」，画布新建的**生成节点**就带上了那个
+           * 对话模型，点生成静默失败（2026-10-02 冒烟 G95 实测：出图那一步
+           * 报「没有渠道提供模型「Agnes 2.5 Pro」」）。
+           */
+          if (!isRecipeRowId((row as { id?: unknown }).id)) continue
           const recipe = recipeFromRow(row)
           if (recipe.channelId) out.set(recipe.channelId, recipe)
         }

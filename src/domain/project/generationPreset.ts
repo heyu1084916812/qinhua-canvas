@@ -135,8 +135,26 @@ export interface PresetRow {
 }
 
 /** 行主键由 channelId 派生：一个渠道一行 */
+/**
+ * 配方行的主键前缀。
+ *
+ * `presets` 是**一张表住三样偏好**：生成配方（`recipe:*`）、全局选路策略
+ * （`routing:strategy`）、Agent 默认模型（`agent:default`）。
+ * 全表扫描（`loadAll`）时**只能认自己那一类前缀** —— 不认前缀的话，
+ * `agent:default` 那行恰好也带 `channelId` + `model`，会被读成一条生成配方。
+ * 后果不是「少了一条偏好」而是**画布拿到对话模型去出图**：
+ * 用户点「设为默认模型」之后，新建的生成节点带着一个没有渠道能提供的对话模型，
+ * 点生成静默失败（2026-10-02 实测到的就是这个）。
+ */
+export const RECIPE_ROW_PREFIX = 'recipe:'
+
+/** 这一行的主键是不是配方行（`loadAll` 用它把同表的其它偏好挡在外面） */
+export function isRecipeRowId(id: unknown): boolean {
+  return typeof id === 'string' && id.startsWith(RECIPE_ROW_PREFIX)
+}
+
 export function presetRowId(channelId: string): string {
-  return `recipe:${channelId}`
+  return `${RECIPE_ROW_PREFIX}${channelId}`
 }
 
 /** 空配方（没生成过 / 数据不可信时的取值） */
