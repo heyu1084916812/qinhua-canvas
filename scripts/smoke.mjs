@@ -13916,6 +13916,46 @@ async function g95(browser) {
   /** 留一张**引用 chip 在输入框里**的截图：矩形像不像、挤不挤，靠它眼看 */
   await page.screenshot({ path: `${OUT}/113-g95-agent-mention.png` })
 
+  /**
+   * ★★ **在输入框里打 `@`** 触发的那条路，点**一次**选项就该插进来
+   * （用户 2026-10-02：「有些时候按艾特的时候要选择两下才能输入」）。
+   *
+   * 为什么单独立一条：上面那些用例走的都是「点工具条上的 @」——那条路进的是
+   * `else` 分支（直接 append），碰不到 bug。真用户是**在输入框里打 `@`**，
+   * 那条路要「吃掉触发符」：`deleteData()` 会把**活 Range** 的偏移一起往前挪，
+   * 于是 `setStart(node, startOffset - 1)` 送进 -1 抛 `IndexSizeError` ——
+   * 引用没插进来、`@` 还被删了，看着就是「要点第二下」。
+   */
+  await page.locator('[data-agent-input]').fill('')
+  await page.locator('[data-agent-input]').click()
+  await page.keyboard.type('@')
+  await sleep(400)
+  const typedRows = await page
+    .locator('[data-param-popup="agent-mention"] button[data-param-in="node"]')
+    .count()
+  await page
+    .locator('[data-param-popup="agent-mention"] button[data-param-in="node"]')
+    .first()
+    .click()
+  await sleep(400)
+  const typedChip = await page.locator('[data-agent-input] [data-mention-kind="node"]').count()
+  rec(
+    g,
+    '★★ 打 `@` 之后点**一次**选项就插进正文（不用点第二下）',
+    typedRows > 0 && typedChip === 1,
+    `选项=${typedRows} 点一次后的 chip=${typedChip}`,
+  )
+  /** 这一条是**回归锚点**：bug 的表现就是这里冒 `IndexSizeError` */
+  rec(
+    g,
+    '★ 打 `@` 那条路不再抛 IndexSizeError（Range 偏移已按删除点重算）',
+    !pageErrors.some((e) => e.includes('IndexSize')),
+    pageErrors.join(' | '),
+  )
+  /** 这一枚留在正文里会影响后面几条计数断言，先清掉 */
+  await page.locator('[data-agent-input]').fill('')
+  await sleep(250)
+
   await page.locator('[data-agent-set-default]').click()
   await sleep(400)
   /** 图标化之后按钮上不再有文字，改认 title（悬停提示）是否切到「已是默认模型」 */

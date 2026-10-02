@@ -2463,3 +2463,28 @@ Agent 的工具分类从「写类也要先确认」改成「**建图直落、只
    不查重就会在正文里并排出现两个一模一样的「Agnes Image 2.5 Flash」，看着像手滑。
 5. **冒烟里 `.first()` 要挑对类**：正文里现在混着 `node:` / `model:` / `skill:` 三类 chip，
    `[data-token]` 的第一枚未必是刚点的那一颗 —— 按 `data-mention-kind` 收窄。
+
+### ★★ Range 是「活的」：删一个字符，它自己的偏移也会跟着挪（2026-10-02）
+
+用户报「有些时候按艾特的时候要选择两下才能输入」。真因不在菜单，在**插入引用**那一步：
+
+```ts
+// 想「吃掉光标前那个触发用的 @」，于是：
+;(node as Text).deleteData(range.startOffset - 1, 1)
+range.setStart(node, range.startOffset - 1)   // ← 这里的 startOffset 已经变小了
+```
+
+`Range` 是**活对象**：`deleteData` 删掉一个字符时，覆盖到那段文字的所有 Range 偏移会
+**自己往前挪一格**（这是规范行为，不是浏览器 bug）。于是第二行的 `startOffset - 1`
+算出 `-1` → 浏览器抛 `IndexSizeError` → 后面的 `insertNode(chip)` 根本没跑，
+而 `@` 已经被删掉了。用户看到的就是「点一次没反应，得点第二下」。
+
+三条教训：
+
+1. **改完 DOM 之后要重新读 Range 的位置**，别拿改之前算好的偏移直接用；
+   拿不准就 `Math.max(0, Math.min(offset, node.length))` 夹一道。
+2. **测试要覆盖「真用户那条路」**：这个 bug 活了很久，因为所有 @ 用例走的都是
+   **点工具条按钮**——那条路进的是 `else` 分支（直接 append），压根碰不到这段代码。
+   补的一条是「在输入框里打 `@` → 点**一次**选项 → chip 必须在」＋「不再抛 IndexSizeError」。
+3. **`page.on('pageerror')` 是这类「静默半途失败」的唯一线索**：界面看不出报错，
+   只有 pageerror 里有 `IndexSizeError`。冒烟里那条断言就是盯它。

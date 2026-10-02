@@ -335,6 +335,29 @@ export const MentionEditor = forwardRef<
     return true
   }
 
+  /**
+   * 吃掉光标前那个用来触发菜单的 `@`。
+   *
+   * ⚠️ **Range 是「活的」**：`Text.deleteData()` 删掉一个字符时，所有覆盖到那段
+   * 文字的 Range 偏移**会自己往前挪一格**。所以「删完再用删之前的 `startOffset - 1`
+   * 去 `setStart`」会送进一个 -1 —— 浏览器抛 `IndexSizeError`，
+   * 后面的 `insertNode(chip)` 根本执行不到，而 `@` 已经被删掉了。
+   *
+   * 用户看到的就是：**按着艾特点一次引用没反应，得点第二下**（2026-10-02 报的）。
+   * 位置要用**删除点的下标重算**，并且夹在合法区间里。
+   */
+  const eatMentionTrigger = (range: Range) => {
+    const node = range.startContainer
+    if (node.nodeType !== Node.TEXT_NODE) return
+    const cut = range.startOffset - 1
+    const text = node.nodeValue ?? ''
+    if (cut < 0 || text[cut] !== '@') return
+    ;(node as Text).deleteData(cut, 1)
+    const len = (node.nodeValue ?? '').length
+    range.setStart(node, Math.max(0, Math.min(cut, len)))
+    range.collapse(true)
+  }
+
   useImperativeHandle(handleRef, () => ({
     insertMention(token: string) {
       const el = ref.current
@@ -359,15 +382,7 @@ export const MentionEditor = forwardRef<
          * 光标前若是一个刚打下的 `@`（它就是这次引用的触发符），先吃掉它 ——
          * 留着的话文本会变成 `@@[名字](node:x)`，看着像手滑。
          */
-        const node = range.startContainer
-        if (node.nodeType === Node.TEXT_NODE && range.startOffset > 0) {
-          const text = node.nodeValue ?? ''
-          if (text[range.startOffset - 1] === '@') {
-            ;(node as Text).deleteData(range.startOffset - 1, 1)
-            range.setStart(node, range.startOffset - 1)
-            range.collapse(true)
-          }
-        }
+        eatMentionTrigger(range)
         range.insertNode(chip)
         /**
          * chip 后放一个零宽字符并**把光标落进去**：紧贴着不可编辑的原子块，
