@@ -9,7 +9,11 @@ import { createPresetStore } from '../../../../state/project/presetStore'
 import { assetNodeSize } from '../../../../domain/canvas/layout/assetNodeSize'
 import { findFreeRect } from '../../../../domain/agent/landing'
 import type { AgentNodeType } from '../../../../domain/agent/plan'
-import { panelModelOptions, toLogicalName } from '../../../../domain/project/modelCatalog'
+import {
+  channelIdForLogical,
+  panelModelOptions,
+  toLogicalName,
+} from '../../../../domain/project/modelCatalog'
 import { resolveDefaults } from '../../../../features/canvas/createNodeWithDefaults'
 import {
   createAssetNode,
@@ -43,6 +47,13 @@ import {
 } from '../../toolbar/icons'
 import { toConversation } from './conversation'
 import { useAsset } from '../../hooks/useAsset'
+/**
+ * 比例 / 画质 / 质量的档位表与创作面板**共用同一份**（不各写一套）。
+ *
+ * 这正是「两处必须同一批档位」那条老教训：各写一份的话，用户在生成节点上
+ * 看到 21:9、到对话窗发现没有这一档，就会以为功能坏了。
+ */
+import { QUALITY_OPTIONS, RATIO_OPTIONS, RESOLUTION_OPTIONS } from '../CreationPanel'
 import styles from './AgentPanel.module.css'
 
 /**
@@ -106,7 +117,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
-  const enabled = channels.enabledChannels()
+  /**
+   * 已启用渠道。`useMemo` 不是为了省那一次 filter，而是为了让**依赖它的
+   * 回调**（选模型时要顺带定渠道）保持稳定 —— 不 memo 的话每次渲染都是新数组，
+   * `useCallback` 的依赖永不相等，回调每帧重建。
+   */
+  const enabled = useMemo(() => channels.enabledChannels(), [channels, allChannels])
   /** 技能列表：内置 + 我的。放在 `send` 之前 —— 它要在拼系统提示词时用到 */
   const allSkills = useMemo(
     () => [...skills.builtinSkills, ...skills.userSkills],
@@ -309,12 +325,23 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
      * 「技能正文到底进没进提示词」只能靠发出去的消息证明，抽成纯函数才有单测。
      */
     const skill = current.skillId ? allSkills.find((s) => s.id === current.skillId) : undefined
+    /**
+     * 面板上点选的比例 / 画质 / 质量。原样（机器可读形式：`16:9` / `2k` / `high`）
+     * 交给模型 —— 词表段就是从 `nodeSpecs` 生成的，它认得的正是这些值。
+     * 显示成「2K」反而要多一层翻译，翻译错了就是「选了 4K 却发 2k」。
+     */
+    const pickerParams = {
+      ...(current.ratio ? { ratio: current.ratio } : {}),
+      ...(current.resolution ? { resolution: current.resolution } : {}),
+      ...(current.quality ? { quality: current.quality } : {}),
+    }
     const system = buildAgentSystemPromptWithContext(
       summary,
       { model: current.model },
       {
         assetIds: current.pendingAssetIds ?? [],
         ...(skill ? { skill: { name: skill.name, content: skill.content } } : {}),
+        ...(Object.keys(pickerParams).length > 0 ? { params: pickerParams } : {}),
       },
     )
     const withSystem: ChatMessage[] = [
@@ -373,14 +400,58 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     await switchTo(created)
   }, [presets, sessions, projectId, enabled, refresh, switchTo, defaultModelFor])
 
-  const setModel = useCallback(
-    async (patch: Partial<Pick<AgentSession, 'channelId' | 'model'>>) => {
+  /**
+   * 存会话上的任意字段：模型、技能、素材标签、比例 / 画质 / 质量都走这一条。
+   *
+   * `list` 必须**跟着一起改**：切走再切回时 `switchTo` 取的是 `list` 里的那一行，
+   * 不同步的话「刚选好的模型 / 比例」会在切回时变回旧值 —— 而用户看到的是
+   * 「选了下拉自己变回去」，只会当成功能坏了。更糟的是那份旧行会被下一次保存
+   * 整份写回去，把库里的新值也冲掉。
+   */
+  const patchSession = useCallback(
+    async (patch: Partial<AgentSession>) => {
       if (!current) return
       const next = { ...current, ...patch }
       setCurrent(next)
+      setList((prev) => prev.map((s) => (s.id === next.id ? next : s)))
       await sessions.save(next)
     },
     [current, sessions],
+  )
+
+  /**
+   * 选模型：**同时**把渠道定下来。
+   *
+   * 用户 2026-10-02 拍板把「选渠道」这一档从对话窗去掉（「不要有选择渠道」）——
+   * 用户眼里只有模型名，渠道是实现细节。但发请求必须带渠道，所以这里在选模型
+   * 的同时解析出「哪条渠道能提供它」，而不是留个空让用户自己去配。
+   *
+   * 当前会话已经在用的渠道若能提供这个模型就**不换**（`preferChannelId`）：
+   * 同一个模型在多条渠道都有时，换渠道会让它突然走另一条线，用户没要求这件事。
+   */
+  const pickModel = useCallback(
+    async (model: string) => {
+      if (!current) return
+      const channelId =
+        channelIdForLogical(enabled, model, current.channelId) ?? current.channelId
+      await patchSession({ model, channelId })
+    },
+    [current, enabled, patchSession],
+  )
+
+  /**
+   * 生成参数（比例 / 画质 / 质量）。
+   *
+   * 「自动」与空串都存成 `undefined`：界面上它们都读作「没指定」，
+   * 而拼系统提示词时只报**用户真选过的档位**。存成 `'auto'` 会让每一轮
+   * 都往提示词里塞三条 `auto` —— 白白占掉模型的注意力，还容易被误读成
+   * 「用户明确要求在节点上写 auto」。
+   */
+  const setGenParam = useCallback(
+    async (key: 'ratio' | 'resolution' | 'quality', value: string) => {
+      await patchSession({ [key]: !value || value === 'auto' ? undefined : value })
+    },
+    [patchSession],
   )
 
   /** 开始改名：把当前标题放进草稿，选中整段方便直接覆盖 */
@@ -453,10 +524,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       return
     }
     const merged = [...new Set([...(current.pendingAssetIds ?? []), ...picked])]
-    const next: AgentSession = { ...current, pendingAssetIds: merged }
-    setCurrent(next)
-    await sessions.save(next)
-  }, [current, selection, store, sessions])
+    await patchSession({ pendingAssetIds: merged })
+  }, [current, selection, store, patchSession])
 
   const saveDefault = useCallback(async () => {
     if (!current) return
@@ -473,12 +542,9 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    */
   const setSkill = useCallback(
     async (skillId: string) => {
-      if (!current) return
-      const next: AgentSession = { ...current, skillId: skillId || undefined }
-      setCurrent(next)
-      await sessions.save(next)
+      await patchSession({ skillId: skillId || undefined })
     },
-    [current, sessions],
+    [patchSession],
   )
 
   /**
@@ -510,27 +576,21 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         if (id) added.push(id)
       }
       if (added.length === 0) return
-      const next: AgentSession = {
-        ...current,
+      await patchSession({
         pendingAssetIds: [...(current.pendingAssetIds ?? []), ...added],
-      }
-      setCurrent(next)
-      await sessions.save(next)
+      })
     },
-    [current, platform, store, projectId, viewport, sessions],
+    [current, platform, store, projectId, viewport, patchSession],
   )
 
   const dropAsset = useCallback(
     async (id: string) => {
       if (!current) return
-      const next: AgentSession = {
-        ...current,
+      await patchSession({
         pendingAssetIds: (current.pendingAssetIds ?? []).filter((x) => x !== id),
-      }
-      setCurrent(next)
-      await sessions.save(next)
+      })
     },
-    [current, sessions],
+    [current, patchSession],
   )
 
   /**
@@ -739,121 +799,6 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       </div>
 
       {/*
-        输入区上方的一条工具栏：素材 / 参数都在这里。
-        参考产品（liblib.tv）的排法是「对话框在上、工具条贴在它下面」，
-        参数不占对话区 —— 用户要的是聊天，参数是「调」，不该站在面板开头。
-      */}
-      <div className={styles.toolbar}>
-        {/* 已挂素材的标签：一格一格收在工具条里，不再单独占一整行 */}
-        {(current?.pendingAssetIds ?? []).length > 0 && (
-          <div className={styles.chips}>
-            {(current?.pendingAssetIds ?? []).map((id) => (
-              <span key={id} className={styles.chip} data-agent-asset={id}>
-                <span className={styles.chipText}>{id}</span>
-                <button
-                  type="button"
-                  className={styles.chipBtn}
-                  title="移除这张素材"
-                  onClick={() => void dropAsset(id)}
-                  data-agent-asset-remove={id}
-                >
-                  ✕
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-        <button
-          type="button"
-          className={styles.iconBtn}
-          onClick={() => fileRef.current?.click()}
-          title="加素材（图片 / 视频）"
-          data-agent-add-asset
-        >
-          <IconPlus size={16} />
-        </button>
-        {/*
-          画布上已经有的节点，不必再导一遍 —— 直接把选中的记进这次对话（§8）。
-          没选中时置灰而不是隐藏：隐藏了用户不知道有这个入口。
-        */}
-        <button
-          type="button"
-          className={styles.iconBtn}
-          onClick={() => void attachSelection()}
-          disabled={selection.length === 0}
-          title={selection.length === 0 ? '先在画布上选中节点' : '把选中的节点当作这次的素材'}
-          data-agent-pick-selection
-        >
-          <IconImage size={16} />
-        </button>
-        {/* 技能：选了它，agent 就按这份技能的阶段来规划（设计文档 §14 M4） */}
-        <select
-          className={styles.pick}
-          value={current?.skillId ?? ''}
-          onChange={(e) => void setSkill(e.target.value)}
-          data-agent-skill
-        >
-          <option value="">不使用技能</option>
-          {allSkills.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-              {s.source === 'builtin' ? '（内置）' : ''}
-            </option>
-          ))}
-        </select>
-        {/* 渠道 + 模型：当前会话用哪个（§8「每个会话可单独选模型」） */}
-        <select
-          className={styles.pick}
-          value={current?.channelId ?? ''}
-          onChange={(e) => {
-            const channelId = e.target.value
-            void setModel({ channelId, model: chatModelOptions[0] ?? '' })
-          }}
-          data-agent-channel
-        >
-          {enabled.length === 0 && <option value="">（没有可用渠道）</option>}
-          {enabled.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-        <select
-          className={styles.pick}
-          value={shownModel}
-          onChange={(e) => void setModel({ model: e.target.value })}
-          data-agent-model
-        >
-          {chatModelOptions.map((n) => (
-            <option key={n} value={n}>
-              {n}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className={styles.iconBtn}
-          onClick={() => void saveDefault()}
-          title={isDefault ? '已是默认模型' : '把这个模型设为以后新建会话的默认值'}
-          data-agent-set-default
-        >
-          {defaultSaved ? <IconCheck size={16} /> : <IconSettings size={16} />}
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*,video/*"
-          multiple
-          hidden
-          data-agent-file
-          onChange={(e) => {
-            void attachFiles(e.target.files)
-            e.target.value = ''
-          }}
-        />
-      </div>
-
-      {/*
         确认卡：**放在对话流里、当一条步骤**，而不是贴在输入框上方的独立弹层。
         参考产品（liblib.tv）就是把「是否运行节点「小猫钓鱼」生成图片？」
         这条确认当成对话时间线的一部分，批准动作也是时间线里的一个小按钮 ——
@@ -880,7 +825,34 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         </div>
       )}
 
-      <div className={styles.composer}>
+      {/*
+        输入区：一个圆角盒子，**上正文、下工具条**（参考产品 liblib.tv 的对话框形态）。
+
+        与上一版的区别有两处，都是用户 2026-10-02 明确提的：
+        ① 工具条从「输入框上面独立一行」挪进盒子内部，参数跟着输入走；
+        ② 去掉「选渠道」（用户要的是模型，渠道是实现细节），补上比例 / 画质 / 质量。
+        素材标签也收进盒子里 —— 它们是「这次要说出去的东西」，不是面板参数。
+      */}
+      <div className={styles.composer} data-agent-composer>
+        {(current?.pendingAssetIds ?? []).length > 0 && (
+          <div className={styles.chips}>
+            {(current?.pendingAssetIds ?? []).map((id) => (
+              <span key={id} className={styles.chip} data-agent-asset={id}>
+                <span className={styles.chipText}>{id}</span>
+                <button
+                  type="button"
+                  className={styles.chipBtn}
+                  title="移除这张素材"
+                  onClick={() => void dropAsset(id)}
+                  data-agent-asset-remove={id}
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         <textarea
           className={styles.input}
           value={draft}
@@ -900,33 +872,181 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           }}
           data-agent-input
         />
-        {/*
-          发送钮的形态与**内容**有关（像参考产品：没写字就只是个圆点，写了才是可点的上箭头），
-          与「是否在执行」无关 —— 执行中它变成停止，这一层含义独立表达。
-        */}
-        {status.kind === 'thinking' || status.kind === 'executing' ? (
-          <button
-            type="button"
-            className={`${styles.send} ${styles.sendBusy}`}
-            onClick={stop}
-            title="停止"
-            data-agent-stop
-          >
-            <IconClose size={16} />
-          </button>
-        ) : draft.trim() ? (
-          <button
-            type="button"
-            className={`${styles.send} ${styles.sendActive}`}
-            onClick={() => void send()}
-            title="发送"
-            data-agent-send
-          >
-            <IconArrowUp size={16} />
-          </button>
-        ) : (
-          <span className={styles.sendIdle} data-agent-send-idle aria-hidden="true" />
-        )}
+
+        <div className={styles.bar}>
+          <div className={styles.barPills}>
+            <button
+              type="button"
+              className={styles.iconBtn}
+              onClick={() => fileRef.current?.click()}
+              title="加素材（图片 / 视频）"
+              data-agent-add-asset
+            >
+              <IconPlus size={16} />
+            </button>
+            {/*
+              画布上已经有的节点，不必再导一遍 —— 直接把选中的记进这次对话（§8）。
+              没选中时置灰而不是隐藏：隐藏了用户不知道有这个入口。
+            */}
+            <button
+              type="button"
+              className={styles.iconBtn}
+              onClick={() => void attachSelection()}
+              disabled={selection.length === 0}
+              title={selection.length === 0 ? '先在画布上选中节点' : '把选中的节点当作这次的素材'}
+              data-agent-pick-selection
+            >
+              <IconImage size={16} />
+            </button>
+
+            {/*
+              技能：选了它，agent 就按这份技能的阶段来规划（设计文档 §14 M4）。
+              放在模型前面 —— 它决定「怎么做」，模型决定「谁来做」。
+            */}
+            <label className={styles.pill} title="这份技能决定 agent 把哪些阶段建到画布上">
+              <span className={styles.pillLabel}>技能</span>
+              <select
+                className={styles.pillSelect}
+                value={current?.skillId ?? ''}
+                onChange={(e) => void setSkill(e.target.value)}
+                data-agent-skill
+              >
+                <option value="">不使用技能</option>
+                {allSkills.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                    {s.source === 'builtin' ? '（内置）' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {/*
+              模型：当前会话用哪个（§8「每个会话可单独选模型」）。
+              选它的同时由 `pickModel` 解析出渠道 —— 界面上**不再有渠道这一档**。
+            */}
+            <label className={styles.pill} title="这条对话用哪个模型">
+              <span className={styles.pillLabel}>模型</span>
+              <select
+                className={styles.pillSelect}
+                value={shownModel}
+                onChange={(e) => void pickModel(e.target.value)}
+                data-agent-model
+              >
+                {chatModelOptions.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <button
+              type="button"
+              className={styles.iconBtn}
+              onClick={() => void saveDefault()}
+              title={isDefault ? '已是默认模型' : '把这个模型设为以后新建会话的默认值'}
+              data-agent-set-default
+            >
+              {defaultSaved ? <IconCheck size={16} /> : <IconSettings size={16} />}
+            </button>
+
+            {/*
+              生成参数三档：比例 / 画质 / 质量。
+
+              它们不是「装饰」：选完会随系统提示词发给 agent（只报用户真选过的），
+              它据此填生成节点的 data —— 用户选了 16:9 却拿到 1:1 是最典型的
+              「功能摆着不生效」，所以这一段必须有断言钉住（见单测）。
+            */}
+            <label className={styles.pill} title="生成图片 / 视频的比例">
+              <span className={styles.pillLabel}>比例</span>
+              <select
+                className={styles.pillSelect}
+                value={current?.ratio ?? ''}
+                onChange={(e) => void setGenParam('ratio', e.target.value)}
+                data-agent-ratio
+              >
+                <option value="">自动</option>
+                {RATIO_OPTIONS.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={styles.pill} title="出图分辨率（画质）">
+              <span className={styles.pillLabel}>画质</span>
+              <select
+                className={styles.pillSelect}
+                value={current?.resolution ?? 'auto'}
+                onChange={(e) => void setGenParam('resolution', e.target.value)}
+                data-agent-resolution
+              >
+                {RESOLUTION_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={styles.pill} title="生成质量档位">
+              <span className={styles.pillLabel}>质量</span>
+              <select
+                className={styles.pillSelect}
+                value={current?.quality ?? 'auto'}
+                onChange={(e) => void setGenParam('quality', e.target.value)}
+                data-agent-quality
+              >
+                {QUALITY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {/*
+            发送钮的形态与**内容**有关（像参考产品：没写字就只是个圆点，写了才是可点的上箭头），
+            与「是否在执行」无关 —— 执行中它变成停止，这一层含义独立表达。
+          */}
+          {status.kind === 'thinking' || status.kind === 'executing' ? (
+            <button
+              type="button"
+              className={`${styles.send} ${styles.sendBusy}`}
+              onClick={stop}
+              title="停止"
+              data-agent-stop
+            >
+              <IconClose size={16} />
+            </button>
+          ) : draft.trim() ? (
+            <button
+              type="button"
+              className={`${styles.send} ${styles.sendActive}`}
+              onClick={() => void send()}
+              title="发送"
+              data-agent-send
+            >
+              <IconArrowUp size={16} />
+            </button>
+          ) : (
+            <span className={styles.sendIdle} data-agent-send-idle aria-hidden="true" />
+          )}
+        </div>
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,video/*"
+          multiple
+          hidden
+          data-agent-file
+          onChange={(e) => {
+            void attachFiles(e.target.files)
+            e.target.value = ''
+          }}
+        />
       </div>
     </aside>
   )

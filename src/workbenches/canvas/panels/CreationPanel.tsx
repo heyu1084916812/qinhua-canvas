@@ -60,13 +60,13 @@ export { RATIO_FOLLOW_SOURCE }
  * 当占位——用户分不清这是档位名还是「没选」。补上它之后与 `quality` 完全一致：
  * 未设置即显示「自动」，语义是「交给模型决定」。
  */
-const RESOLUTION_OPTIONS: { value: 'auto' | '1k' | '2k' | '4k'; label: string }[] = [
+export const RESOLUTION_OPTIONS: { value: 'auto' | '1k' | '2k' | '4k'; label: string }[] = [
   { value: 'auto', label: '自动' },
   { value: '1k', label: '1K' },
   { value: '2k', label: '2K' },
   { value: '4k', label: '4K' },
 ]
-const QUALITY_OPTIONS: { value: 'auto' | 'low' | 'medium' | 'high'; label: string }[] = [
+export const QUALITY_OPTIONS: { value: 'auto' | 'low' | 'medium' | 'high'; label: string }[] = [
   { value: 'auto', label: '自动' },
   { value: 'low', label: '低' },
   { value: 'medium', label: '中' },

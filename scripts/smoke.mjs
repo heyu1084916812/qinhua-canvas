@@ -13539,6 +13539,59 @@ async function g95(browser) {
   const models = await page.locator('[data-agent-model] option').count()
   rec(g, '★ 能选模型（只列对话模型）', models >= 1, `可选=${models}`)
 
+  /**
+   * 用户 2026-10-02：「不要有选择渠道」——
+   * 渠道是实现细节，界面只留模型（选模型时由 `pickModel` 解析出渠道）。
+   * 这里验的是**它真的没了**，不是被藏起来或置灰。
+   */
+  rec(
+    g,
+    '★★ 对话窗上没有「选渠道」这一档（用户拍板去掉）',
+    (await page.locator('[data-agent-channel]').count()) === 0,
+  )
+
+  /**
+   * 生成参数三档（比例 / 画质 / 质量）—— 用户 2026-10-02 点名要的。
+   * 「摆出来了」是一条，**选完存得住**是另一条：只验前者，会出现
+   * 「选了下拉自己变回去」而测试全绿的情况。
+   */
+  const ratioSel = page.locator('[data-agent-ratio]')
+  const hasGenParams =
+    (await ratioSel.count()) === 1 &&
+    (await page.locator('[data-agent-resolution]').count()) === 1 &&
+    (await page.locator('[data-agent-quality]').count()) === 1
+  rec(g, '★ 对话窗有比例 / 画质 / 质量三档参数', hasGenParams)
+  /**
+   * 三档不在时**不能**硬调 `selectOption`：它要等满 30s 的动作超时才抛，
+   * 会把整轮冒烟直接打断（而不是记一条失败）。测试替身缺件时要记失败、接着跑。
+   */
+  if (hasGenParams) {
+    await ratioSel.selectOption('16:9')
+    await sleep(400)
+    /**
+     * 切走再切回：选择框的值来自**会话行**（不是独立的 React state），
+     * 所以切回后还是 16:9 才证明它真存进了会话 —— 这也是「参数属于这次对话」
+     * 那条设计的落点。只看「inputValue 还是 16:9」证明不了这件事。
+     */
+    const sessionSelect = page.locator('[data-agent-session-list]')
+    const agentSessionIds = await sessionSelect
+      .locator('option')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('value') ?? ''))
+    await sessionSelect.selectOption(agentSessionIds[1])
+    await sleep(400)
+    await sessionSelect.selectOption(agentSessionIds[0])
+    await sleep(400)
+    const kept = await ratioSel.inputValue()
+    rec(
+      g,
+      '★★ 选好的比例切走再切回还在（存进了会话，不是只活在内存里）',
+      kept === '16:9',
+      `当前=${kept}`,
+    )
+  } else {
+    rec(g, '★★ 选好的比例切走再切回还在（存进了会话，不是只活在内存里）', false, '三档参数不存在')
+  }
+
   await page.locator('[data-agent-set-default]').click()
   await sleep(400)
   /** 图标化之后按钮上不再有文字，改认 title（悬停提示）是否切到「已是默认模型」 */
@@ -13706,7 +13759,13 @@ async function g95(browser) {
   const genNode = page.locator(`[data-node-type="generation"][data-node-id="${plannedGenId}"]`)
   let agentImage = ''
   for (let i = 0; i < 80; i++) {
-    agentImage = (await genNode.locator('[data-node-asset]').first().getAttribute('src').catch(() => '')) ?? ''
+    /**
+     * 先 `count()` 再读 `src`：直接 `getAttribute` 在元素还没出现时会**等满
+     * 30s 的动作超时**才 reject —— 那样这个本该 20s 的轮询要跑 40 分钟，
+     * 失败了也看不出是「没出图」还是「测试卡住了」（踩过一次）。
+     */
+    const asset = genNode.locator('[data-node-asset]').first()
+    agentImage = (await asset.count()) > 0 ? ((await asset.getAttribute('src')) ?? '') : ''
     if (agentImage.startsWith('blob:')) break
     await sleep(250)
   }

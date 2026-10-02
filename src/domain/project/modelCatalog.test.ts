@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   aliasTargets,
   categoryOfLogical,
+  channelIdForLogical,
   logicalNames,
   logicalOptions,
   panelModelOptions,
@@ -261,5 +262,62 @@ describe('panelModelOptions', () => {
     expect(categoryOfLogical(channels, 'GPT Image 2.5 Flare', 'A')).toBe('image')
     expect(categoryOfLogical(channels, 'GPT-6 Astra', 'A')).toBe('chat')
     expect(categoryOfLogical(channels, '即梦 2.5', 'A')).toBe('video')
+  })
+})
+
+/**
+ * 用户 2026-10-02：「不要有选择渠道」——对话窗只让选模型。
+ *
+ * 但 `completeWithTools` 必须拿到 channelId 才能找到适配器与令牌，所以
+ * 「选模型」这一步要顺带解析出渠道。这份解析与 `capabilityOfLogical`
+ * **同一条搜索**：各写一份就会出现「模型在下拉里选得出来、渠道却找不到」
+ * 的幽灵项，表现是发消息报看不懂的渠道错误。
+ */
+describe('channelIdForLogical', () => {
+  it('★ 映射优先：逻辑名翻译成上游 ID 后，落在真勾了那条 ID 的渠道上', () => {
+    const channels = [
+      ch({ id: 'A', models: [cap('gpt-image-2')], modelMap: { 'image-2': 'gpt-image-2' } }),
+    ]
+    expect(channelIdForLogical(channels, 'image-2')).toBe('A')
+  })
+
+  it('★ 没有映射时按同名直配找（老渠道零迁移）', () => {
+    const channels = [ch({ id: 'B', models: [cap('mock-image-1')] })]
+    expect(channelIdForLogical(channels, 'mock-image-1')).toBe('B')
+  })
+
+  it('★ 两条渠道都能提供时取目录顺序的第一条，不许随机挑', () => {
+    const channels = [
+      ch({ id: 'A', models: [cap('shared-model')] }),
+      ch({ id: 'B', models: [cap('shared-model')] }),
+    ]
+    expect(channelIdForLogical(channels, 'shared-model')).toBe('A')
+  })
+
+  /**
+   * 当前会话**已经在用的**渠道若能提供这个模型就不要换 ——
+   * 换渠道会让同一个模型突然走另一条线（另一套令牌、另一份映射），
+   * 而用户只是在换模型，没要求换渠道。
+   */
+  it('★ preferChannelId 让在用渠道赢过目录顺序（换模型不该顺手换渠道）', () => {
+    const channels = [
+      ch({ id: 'A', models: [cap('shared-model')] }),
+      ch({ id: 'B', models: [cap('shared-model')] }),
+    ]
+    expect(channelIdForLogical(channels, 'shared-model', 'B')).toBe('B')
+  })
+
+  it('★ 在用的渠道提供不了它时才换（不许因为偏好就留在错的渠道上）', () => {
+    const channels = [
+      ch({ id: 'A', models: [cap('only-in-a')] }),
+      ch({ id: 'B', models: [cap('only-in-b')] }),
+    ]
+    expect(channelIdForLogical(channels, 'only-in-b', 'A')).toBe('B')
+  })
+
+  it('没有任何渠道提供它时返回 undefined（不猜、不硬塞一条）', () => {
+    const channels = [ch({ id: 'A', models: [cap('mock-image-1')] })]
+    expect(channelIdForLogical(channels, 'GPT-6 Astra')).toBeUndefined()
+    expect(channelIdForLogical(channels, '')).toBeUndefined()
   })
 })

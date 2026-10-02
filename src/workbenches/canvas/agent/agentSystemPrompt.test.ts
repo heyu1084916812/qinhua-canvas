@@ -137,3 +137,46 @@ describe('素材段与技能段', () => {
     expect(p).toContain('阶段一：脚本')
   })
 })
+
+/**
+ * 生成参数段（用户 2026-10-02：「要有模型的选择，技能的选择，比例尺寸，画质的选择」）。
+ *
+ * 与素材 / 技能同一个理由：选择器在界面上**看得见**，选完有没有真的生效**看不见**。
+ * 不告诉模型的话，它只会按自己的想法填节点 data，用户选了 16:9 却拿到 1:1 ——
+ * 那是最典型的「功能摆着不生效」。
+ */
+describe('生成参数段', () => {
+  const empty = { nodes: [], edges: [] }
+
+  it('★★ 面板上选过的比例 / 画质 / 质量真的进了系统提示词', () => {
+    const p = buildAgentSystemPromptWithContext(empty, undefined, {
+      params: { ratio: '16:9', resolution: '2k', quality: 'high' },
+    })
+    expect(p).toContain('## 用户在这条对话里指定的生成参数')
+    expect(p).toContain('- ratio: 16:9')
+    expect(p).toContain('- resolution: 2k')
+    expect(p).toContain('- quality: high')
+  })
+
+  it('★ 没选过参数时那一段不出现（不留空标题）', () => {
+    expect(buildAgentSystemPromptWithContext(empty)).not.toContain('指定的生成参数')
+  })
+
+  /**
+   * 「自动」= 用户没指定。若把 auto 也报给模型，每一轮都会塞三条 `auto`：
+   * 白白占掉模型的注意力，还容易被读成「用户要求在节点上写 auto」。
+   */
+  it('★ 空值与 auto 都不进提示词（只报用户真选过的档位）', () => {
+    const p = buildAgentSystemPromptWithContext(empty, undefined, {
+      params: { ratio: '16:9', resolution: '', quality: 'auto' },
+    })
+    expect(p).toContain('- ratio: 16:9')
+    expect(p).not.toContain('- resolution')
+    expect(p).not.toContain('- quality')
+  })
+
+  it('★ 写清优先级：这句对话里另有要求时以对话为准（§11）', () => {
+    const p = buildAgentSystemPromptWithContext(empty, undefined, { params: { ratio: '1:1' } })
+    expect(p).toContain('以他说的为准')
+  })
+})

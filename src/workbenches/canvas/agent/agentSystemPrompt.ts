@@ -114,6 +114,17 @@ export interface AgentPromptExtras {
   assetIds?: readonly string[]
   /** 本会话启用的技能（§14 M4）。正文按 id 现取 —— 技能改了，这次规划跟着变 */
   skill?: { name: string; content: string }
+  /**
+   * 用户在对话窗**工具条上点选**的生成参数（比例 / 画质 / 质量）。
+   *
+   * 与「素材」「技能」两段同一个理由：这三档是用户在界面上**明确选过**的值，
+   * 而界面上看不见「它到底有没有进提示词」。不告诉模型的话，它只会按自己的
+   * 想法填比例，用户选了 16:9 却拿到 1:1 —— 那是最典型的「功能摆着不生效」。
+   *
+   * 优先级与设计文档 §11 一致：用户在**这句对话里**另有要求时以对话为准，
+   * 所以文案写的是「照这个填」而不是「必须是这个」。
+   */
+  params?: { ratio?: string; resolution?: string; quality?: string }
 }
 
 /**
@@ -149,6 +160,31 @@ export function buildAgentSystemPromptWithContext(
         '按这份技能的要求来规划；它里面的阶段就是你要建到画布上的步骤。',
         '',
         extras.skill.content,
+      ].join('\n'),
+    )
+  }
+
+  /**
+   * 参数段只列**用户真的选过的**项。
+   *
+   * 空串与 `'auto'` 都是「没指定」（与生成节点的 `generationParams` 同一口径：
+   * `auto` 下发时会被换成 `null`）。不过滤的话，每轮都会塞三条 `auto` ——
+   * 白白占掉模型的注意力，还容易被读成「用户要求在节点上写 auto」，
+   * 于是它真的往节点 data 里写一个 `auto`。
+   *
+   * 面板那边已经把「自动」存成 undefined；这里再滤一次是**双保险**：
+   * 这段文案的契约是「只报选过的档位」，不能靠调用方的自觉来成立。
+   */
+  const params = Object.entries(extras.params ?? {}).filter(
+    ([, v]) => typeof v === 'string' && v.trim() !== '' && v.trim() !== 'auto',
+  )
+  if (params.length > 0) {
+    parts.push(
+      [
+        '## 用户在这条对话里指定的生成参数',
+        '生成节点按下面填（写进节点 data 里，不是写在提示词里）。',
+        '用户在这句对话里另有要求时，以他说的为准。',
+        ...params.map(([k, v]) => `- ${k}: ${String(v)}`),
       ].join('\n'),
     )
   }

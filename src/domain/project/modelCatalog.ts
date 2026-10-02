@@ -110,11 +110,11 @@ export function logicalNames(channels: readonly CatalogChannelLike[]): string[] 
  * 分类决定它出现在「生图 / 视频 / 文本」哪一档，取不到就返回 undefined
  * （调用方按「未知即不显示」处理，不猜）。
  */
-export function capabilityOfLogical(
+function findProvider(
   channels: readonly CatalogChannelLike[],
   logicalName: string,
   channelId?: string,
-): ModelCapability | undefined {
+): { channelId: string; capability: ModelCapability } | undefined {
   const name = logicalName.trim()
   if (!name) return undefined
   const ordered = channelId
@@ -133,14 +133,44 @@ export function capabilityOfLogical(
     const hit = [...c.models, ...(c.modelCache ?? [])].find(
       (m) => m.id === upstream || m.id === name,
     )
-    if (hit) return hit
+    if (hit) return { channelId: c.id, capability: hit }
   }
   // 没有映射（恒等）时按同名直配找
   for (const c of ordered) {
     const hit = [...c.models, ...(c.modelCache ?? [])].find((m) => m.id === name)
-    if (hit) return hit
+    if (hit) return { channelId: c.id, capability: hit }
   }
   return undefined
+}
+
+export function capabilityOfLogical(
+  channels: readonly CatalogChannelLike[],
+  logicalName: string,
+  channelId?: string,
+): ModelCapability | undefined {
+  return findProvider(channels, logicalName, channelId)?.capability
+}
+
+/**
+ * 逻辑名 → **哪条渠道**能提供它（用户 2026-10-02：「不要有选择渠道」）。
+ *
+ * 对话窗把「选渠道」这一档去掉了：用户眼里只有模型名，渠道是实现细节。
+ * 但请求必须带渠道（`completeWithTools` 拿 channelId 去找适配器与令牌），
+ * 所以这一步在**选模型的同时**把渠道定下来，而不是留个空让用户去配。
+ *
+ * 判据与 `capabilityOfLogical` **同一条搜索**（映射优先、同名直配兜底）——
+ * 各写一份的话，会出现「这个模型在下拉里选得出来、渠道却找不到」的幽灵项，
+ * 表现是发消息报看不懂的渠道错误。
+ *
+ * `preferChannelId`：当前会话已经在用的渠道若能提供它，就**不要换** ——
+ * 换渠道会让同一个模型突然走另一条线，用户没有要求这件事。
+ */
+export function channelIdForLogical(
+  channels: readonly CatalogChannelLike[],
+  logicalName: string,
+  preferChannelId?: string,
+): string | undefined {
+  return findProvider(channels, logicalName, preferChannelId)?.channelId
 }
 
 /**
