@@ -13,7 +13,11 @@ import {
   type ProtocolCatalog,
   type ProtocolDefinition,
 } from '../../domain/project/protocol'
-import { buildDefaultModelMap, setModelMapping } from '../../domain/project/modelMapping'
+import {
+  buildDefaultModelMap,
+  resolveUpstreamModel,
+  setModelMapping,
+} from '../../domain/project/modelMapping'
 import type { RouteStrategy } from '../../domain/project/modelRouting'
 import {
   NO_RECIPE,
@@ -595,8 +599,19 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
     const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
     const config: ResolvedChannelConfig = { ...toSafeConfig(ch, catalog()), apiKey }
     const adapter = createChannelAdapter(config, platform)
+    /**
+     * 逻辑名 → 上游 ID（M7-4 同一条映射）：调用方发的是**前端显示名**
+     * （「GPT-6 Astra」「Agnes 2.5 Pro」这种），真正发给上游的必须是渠道
+     * 映射后的真实 ID。图片 / 视频链路早就在 `toRunRequest` 里做这一步，
+     * 文本这条此前漏了 —— 直接把显示名当上游 ID 发出去。
+     */
+    /**
+     * `resolveUpstreamModel` 的 null 只发生在「传入的是空串」这一种情况；
+     * 上面已经拦过空模型，这里兜一层保持类型收窄 —— 不静默换模型。
+     */
+    const upstreamModel = resolveUpstreamModel(ch.modelMap, model) ?? model
     return adapter.completeText(
-      { kind: 'text', channelId, model, prompt: '', inputs: [], params: {}, tools, messages },
+      { kind: 'text', channelId, model: upstreamModel, prompt: '', inputs: [], params: {}, tools, messages },
       signal,
     )
   }

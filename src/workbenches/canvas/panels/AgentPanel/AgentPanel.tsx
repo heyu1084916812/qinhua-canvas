@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 import { usePlatform } from '../../../../app/providers/PlatformProvider'
 import { useChannels } from '../../../../app/providers/ChannelStoreProvider'
 import { useSkillsOptional } from '../../../../app/providers/SkillStoreProvider'
@@ -8,6 +9,7 @@ import { createPresetStore } from '../../../../state/project/presetStore'
 import { assetNodeSize } from '../../../../domain/canvas/layout/assetNodeSize'
 import { findFreeRect } from '../../../../domain/agent/landing'
 import type { AgentNodeType } from '../../../../domain/agent/plan'
+import { panelModelOptions, toLogicalName } from '../../../../domain/project/modelCatalog'
 import { resolveDefaults } from '../../../../features/canvas/createNodeWithDefaults'
 import {
   createAssetNode,
@@ -85,6 +87,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
   const [draft, setDraft] = useState('')
   const [isDefault, setIsDefault] = useState(false)
+  /** 订阅全量渠道：设置页改完立刻反映（与创作面板同一条口径） */
+  const allChannels = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().channels,
+    () => channels.getState().channels,
+  )
   /** 会话改名：就地编辑，Enter 提交 / Esc 取消（不弹原生 prompt —— 那会打断画布操作） */
   const [renaming, setRenaming] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
@@ -104,12 +112,23 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     () => [...skills.builtinSkills, ...skills.userSkills],
     [skills.builtinSkills, skills.userSkills],
   )
-  const chatModelsOf = useCallback(
-    (channelId: string) =>
-      (channels.getState().channels.find((c) => c.id === channelId)?.models ?? []).filter(
-        (m) => m.category === 'chat',
-      ),
-    [channels],
+  /**
+   * 对话模型下拉的**数据源**：与创作面板同一套「前端显示名」（§7.4.1 / modelCatalog）。
+   *
+   * 为什么不用「渠道里勾选的原始 ID」：用户在面板上看到的是「GPT-6 Astra」
+   * 「Agnes 2.5 Pro」这类显示名；这里要是一串 `agnes-2.5-pro`、`mock-chat-1`，
+   * 同一个模型就变成两个名字，还得让用户记住哪个 ID 对应哪条渠道 —— 这不是选模型，
+   * 是考古。`panelModelOptions` 本身就是「固定清单显示名在前 + 渠道勾选模型的
+   * 归一显示名在后」，与生成节点那侧完全同源。
+   */
+  const chatModelOptions = useMemo(
+    () => panelModelOptions(allChannels, 'chat'),
+    [allChannels],
+  )
+  /** 会话存的模型名 → 逻辑显示名（老会话存过上游 ID 的在这里归一） */
+  const shownModel = useMemo(
+    () => toLogicalName(allChannels, current?.model ?? ''),
+    [allChannels, current?.model],
   )
 
   /**
@@ -117,13 +136,16 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    *
    * **必须有这层回落**：只存了「默认模型」而没选过时，新会话会带着空模型开出来，
    * 用户第一句话就被「还没选模型」挡住 —— 开箱即不能用。冒烟 G95 抓到过这一条。
+   *
+   * 存的是**逻辑显示名**：发请求前由渠道映射翻译成上游 ID（channelStore 已接）。
+   * 显示名不在选项里（渠道模型被删 / 名单变了）才退到第一个选项。
    */
   const defaultModelFor = useCallback(
-    (channelId: string, saved?: string) =>
-      saved && chatModelsOf(channelId).some((m) => m.id === saved)
+    (_channelId: string, saved?: string) =>
+      saved && chatModelOptions.includes(saved)
         ? saved
-        : (chatModelsOf(channelId)[0]?.id ?? ''),
-    [chatModelsOf],
+        : (chatModelOptions[0] ?? ''),
+    [chatModelOptions],
   )
 
   /** 载入会话列表；没有就按默认模型建一个（设计文档 §8「新建会话用默认模型」） */
@@ -778,7 +800,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           value={current?.channelId ?? ''}
           onChange={(e) => {
             const channelId = e.target.value
-            void setModel({ channelId, model: chatModelsOf(channelId)[0]?.id ?? '' })
+            void setModel({ channelId, model: chatModelOptions[0] ?? '' })
           }}
           data-agent-channel
         >
@@ -791,13 +813,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         </select>
         <select
           className={styles.pick}
-          value={current?.model ?? ''}
+          value={shownModel}
           onChange={(e) => void setModel({ model: e.target.value })}
           data-agent-model
         >
-          {chatModelsOf(current?.channelId ?? '').map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.id}
+          {chatModelOptions.map((n) => (
+            <option key={n} value={n}>
+              {n}
             </option>
           ))}
         </select>
