@@ -13542,7 +13542,7 @@ async function g95(browser) {
    * 原生下拉的展开层由浏览器绘制，界面糙且自动化看不见。
    */
   const agentModelChip = page.locator('[data-param-chip="agent-model"]')
-  const agentSkillChip = page.locator('[data-param-chip="agent-skill"]')
+  const agentSkillChip = page.locator('[data-agent-skill-open]')
   const agentParamsChip = page.locator('[data-param-chip="agent-params"]')
   await agentModelChip.click()
   await sleep(250)
@@ -13696,32 +13696,75 @@ async function g95(browser) {
   rec(g, '★ 对话窗能选技能', (await agentSkillChip.count()) === 1)
   if ((await agentSkillChip.count()) === 1) {
     await agentSkillChip.click()
-    await sleep(250)
-    const skillButtons = page.locator('[data-param-popup="agent-skill"] button')
-    const skillOptions = await skillButtons.count()
-    rec(
-      g,
-      '★ 技能清单里有「不使用技能」+ 已内置的技能',
-      skillOptions >= 12,
-      `可选项=${skillOptions}`,
-    )
-    /** 选第 2 项（第 1 项是「不使用技能」），再拿它与 chip 的无障碍名对一下 */
-    const firstSkillLabel = ((await skillButtons.nth(1).innerText()) ?? '').trim()
-    await skillButtons.nth(1).click()
-    await sleep(400)
+    await sleep(300)
+    /** 留一张**技能菜单展开着**的截图：分类 / 搜索 / 行的密度，靠它眼看 */
+    await page.screenshot({ path: `${OUT}/115-g95-agent-skills.png` })
+
     /**
-     * 技能 chip 现在**只有图标**（用户 2026-10-02：「skill 也是用一个图标展示」），
-     * 所以判据从「chip 上写着名字」改成「它的 `aria-label` 换成了那份技能」——
-     * 名字没丢，只是不再占版面。
+     * ★★ 技能菜单的分类与搜索（用户 2026-10-03：参考产品图三「skill 的参数面板 ui
+     * 以及功能参考图三的给我进行分类」）。
      */
-    const skillAria = (await agentSkillChip.getAttribute('aria-label')) ?? ''
-    const firstSkillName = firstSkillLabel.split('\n')[0]?.trim() ?? ''
+    const skillTabs = await page
+      .locator('[data-agent-skill-tab]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-agent-skill-tab')))
+    const skillRows = page.locator('[data-agent-skill-option]')
+    const skillRowCount = await skillRows.count()
     rec(
       g,
-      '★ 选中后记进会话（chip 的无障碍名换成那份技能）',
-      firstSkillName !== '' && skillAria.includes(firstSkillName),
-      `aria=「${skillAria}」选项=「${firstSkillLabel}」`,
+      '★★ 技能菜单按「通用 / 我的」分类，且带搜索框与技能行',
+      skillTabs.join(',') === 'builtin,user' &&
+        (await page.locator('[data-agent-skill-search]').count()) === 1 &&
+        skillRowCount >= 5,
+      `页签=${skillTabs.join(',')} 条数=${skillRowCount}`,
     )
+
+    /** 搜索要真的收窄列表（打个不存在的词 → 空态说明，而不是装作没坏） */
+    await page.locator('[data-agent-skill-search]').fill('zzz-不存在的技能')
+    await sleep(250)
+    rec(
+      g,
+      '★ 搜索能把列表收窄到空并说明「没有匹配」',
+      (await page.locator('[data-agent-skill-empty]').count()) === 1 &&
+        (await skillRows.count()) === 0,
+    )
+    await page.locator('[data-agent-skill-search]').fill('')
+    await sleep(250)
+
+    /**
+     * ★★ 「创建」里的两条路（参考产品图四）：新建 skill、导入已有的 skill
+     * （.md 文件或文件夹）。
+     */
+    await page.locator('[data-agent-skill-create]').click()
+    await sleep(250)
+    rec(
+      g,
+      '★★ 「创建」里有新建技能 + 导入 .md + 导入文件夹三条路',
+      (await page.locator('[data-agent-skill-create-new]').count()) === 1 &&
+        (await page.locator('[data-agent-skill-import-file]').count()) === 1 &&
+        (await page.locator('[data-agent-skill-import-folder]').count()) === 1,
+    )
+    await page.locator('[data-agent-skill-create]').click()
+    await sleep(200)
+
+    /** 「全部」是去技能库的入口（真跳转在下面点不了 —— 一离开画布这段就断了） */
+    rec(g, '★ 技能菜单有「全部」入口（去技能库）', (await page.locator('[data-agent-skill-all]').count()) === 1)
+
+    /** 选一条：当场生效，并在输入框里显示成 chip（用户要的「代表我用了这个 skill」） */
+    const firstSkillName = ((await skillRows.first().innerText()) ?? '').trim().split('\n')[0] ?? ''
+    await skillRows.first().click()
+    await sleep(400)
+    const skillChipEl = page.locator('[data-agent-skill-chip]')
+    const skillChipText = ((await skillChipEl.innerText().catch(() => '')) ?? '').trim()
+    rec(
+      g,
+      '★★ 选中的技能在输入框里显示成 chip（代表这次用了它）',
+      (await skillChipEl.count()) === 1 &&
+        firstSkillName !== '' &&
+        skillChipText.includes(firstSkillName),
+      `chip=「${skillChipText}」期望含「${firstSkillName}」`,
+    )
+    /** 菜单选完要自己关掉，别挡着输入框 */
+    rec(g, '★ 选完技能菜单自动收起', (await page.locator('[data-agent-skill-menu]').count()) === 0)
   }
 
   /**

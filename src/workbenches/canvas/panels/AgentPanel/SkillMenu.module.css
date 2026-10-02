@@ -1,0 +1,225 @@
+/*
+ * 对话窗里的技能菜单（参考产品图三）。
+ *
+ * 与 ParamPicker 同属「画布工作区浮层」：1px 描边 + 圆角 + 无投影，
+ * 靠描边与背景明度分层。朝上展开（触发器在面板底部的工具条里）。
+ */
+.menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  box-sizing: border-box;
+  width: 300px;
+  max-height: 340px;
+  padding: var(--space-2);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.title {
+  font-size: var(--fs-label);
+  font-weight: var(--fw-title);
+  color: var(--text-1);
+}
+
+/* 把「创建 / 全部 / 关」推到右边 */
+.headGap {
+  flex: 1 1 auto;
+}
+
+.headBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+.headBtn:hover,
+.headBtn[aria-expanded='true'] {
+  background: var(--bg-hover);
+}
+
+.close {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.close:hover {
+  background: var(--bg-hover);
+}
+
+/* 「创建」的小菜单：两条路（新建 / 导入），导入再分文件与文件夹 */
+.createWrap {
+  position: relative;
+  display: inline-flex;
+}
+.createMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 31;
+  min-width: 208px;
+  padding: 4px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.createItem {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.createItem:hover {
+  background: var(--bg-hover);
+}
+.createLabel {
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  color: var(--text-1);
+}
+.createHint {
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.filterRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.tabs {
+  display: inline-flex;
+  gap: 2px;
+}
+.tab {
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+.tab:hover {
+  background: var(--bg-hover);
+}
+.tabOn {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.search {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+}
+.search::placeholder {
+  color: var(--text-3);
+}
+
+.list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-2);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.row:hover {
+  background: var(--bg-hover);
+}
+.rowOn {
+  background: var(--bg-hover);
+}
+.rowIcon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--text-2);
+}
+.rowBody {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.rowName {
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rowDesc {
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  padding: var(--space-2);
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+  line-height: 1.6;
+}

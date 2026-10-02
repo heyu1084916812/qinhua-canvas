@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSyncExternalStore } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { usePlatform } from '../../../../app/providers/PlatformProvider'
 import { useChannels } from '../../../../app/providers/ChannelStoreProvider'
 import { useSkillsOptional } from '../../../../app/providers/SkillStoreProvider'
@@ -25,6 +26,8 @@ import {
 import { AssetMenu } from '../AssetMenu'
 import { createAssetLibraryRepository } from '../../../../state/project/assetLibraryRepository'
 import { createAssetLibraryStore } from '../../../../state/project/assetLibraryStore'
+import { SkillMenu } from './SkillMenu'
+import { parseSkillMarkdown } from '../../../../domain/prompt/skill'
 import { useCanvasExecution } from '../../execution/CanvasExecutionProvider'
 import { useCanvasStore, useGraph, useSelection } from '../../storeContext'
 import { useViewportState } from '../../storeContext'
@@ -166,6 +169,9 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    */
   const [openPicker, setOpenPicker] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
+  /** 技能导入的两个输入：**.md 文件**与**文件夹**（浏览器只允许二选一，故分成两个） */
+  const skillFileRef = useRef<HTMLInputElement | null>(null)
+  const skillDirRef = useRef<HTMLInputElement | null>(null)
   const editorRef = useRef<MentionEditorHandle | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -737,6 +743,59 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     [patchSession],
   )
 
+  const navigate = useNavigate()
+
+  /**
+   * 导入技能（用户 2026-10-03：「导入已有 skill（通过设定好的 skill 流程去解析 md
+   * 文件或者文件夹）」）。
+   *
+   * 解析与落库**复用技能库那一页同一套**（`parseSkillMarkdown` + `skills.create`），
+   * 一处都没另写。逐个独立成败：一个文件格式不对，不该让同批的其余几个也失败。
+   */
+  const importSkills = useCallback(
+    async (files: FileList | null) => {
+      if (!files || files.length === 0) return
+      let ok = 0
+      const failed: string[] = []
+      for (const file of Array.from(files)) {
+        if (!/\.(md|markdown|txt)$/i.test(file.name)) continue
+        try {
+          const parsed = parseSkillMarkdown(
+            await file.text(),
+            file.name.replace(/\.(md|markdown|txt)$/i, ''),
+          )
+          if (!parsed.ok) {
+            failed.push(`${file.name}：${parsed.error}`)
+            continue
+          }
+          await skills.create(parsed.skill)
+          ok += 1
+        } catch (e) {
+          failed.push(`${file.name}：${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+      await skills.reload()
+      setOpenPicker(null)
+      store.notify(
+        failed.length === 0
+          ? `已导入 ${ok} 条技能`
+          : `导入 ${ok} 条，${failed.length} 条失败：${failed[0]}`,
+      )
+    },
+    [skills, store],
+  )
+
+  /**
+   * 去技能库。
+   *
+   * 「创建新的 Skill」与「全部」都走这里：**编辑一份技能**（写正文、改名字、
+   * 复制内置）只有在技能库那一页才有完整界面，在这里再搭一个编辑器是重复建设。
+   */
+  const openSkillLibrary = useCallback(() => {
+    setOpenPicker(null)
+    navigate('/skills')
+  }, [navigate])
+
   /**
    * 把一份素材落到画布上，**避开已有节点**。
    *
@@ -1099,8 +1158,30 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         素材标签也收在盒子里 —— 它们是「这次要说出去的东西」，不是面板参数。
       */}
       <div className={styles.composer} data-agent-composer>
-        {(current?.pendingAssetIds ?? []).length > 0 && (
+        {/*
+          这一行装「这次对话挂上的东西」：**技能**与**素材**。
+
+          技能也显示成 chip（用户 2026-10-03：「选择后就能用这个 skill，也是在 agent
+          的对话框中显示出来代表我用了这个 skill」）—— 与 @ 引用同一套「用了什么，
+          一眼看得见」，而不是只在菜单里打个勾。
+        */}
+        {(current?.skillId || (current?.pendingAssetIds ?? []).length > 0) && (
           <div className={styles.chips}>
+            {current?.skillId && (
+              <span className={styles.chip} data-agent-skill-chip={current.skillId}>
+                <IconSkill size={12} />
+                <span className={styles.chipText}>{skillLabel}</span>
+                <button
+                  type="button"
+                  className={styles.chipBtn}
+                  title="这次不用这个技能"
+                  onClick={() => void setSkill('')}
+                  data-agent-skill-chip-remove
+                >
+                  ✕
+                </button>
+              </span>
+            )}
             {(current?.pendingAssetIds ?? []).map((id) => (
               <span key={id} className={styles.chip} data-agent-asset={id}>
                 <span className={styles.chipText}>{id}</span>
@@ -1347,28 +1428,67 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               onClose={() => setOpenPicker(null)}
             />
 
-            {/* 技能：同样只显示图标；当前用哪份在列表里打勾 */}
-            <ParamPicker
-              name="agent-skill"
-              ariaLabel={`这份技能决定 agent 把哪些阶段建到画布上（当前：${skillLabel}）`}
-              label=""
-              triggerIcon={<IconSkill size={16} />}
-              size="compact"
-              variant="list"
-              options={[
-                { value: '', label: '不使用技能' },
-                ...allSkills.map((s) => ({
-                  value: s.id,
-                  label: s.name,
-                  ...(s.source === 'builtin' ? { hint: '内置' } : {}),
-                })),
-              ]}
-              value={current?.skillId ?? ''}
-              open={openPicker === 'agent-skill'}
-              onToggle={() => setOpenPicker(openPicker === 'agent-skill' ? null : 'agent-skill')}
-              onClose={() => setOpenPicker(null)}
-              onSelect={(v) => void setSkill(v)}
-            />
+            {/*
+              技能：图标按钮 + **技能菜单**（用户 2026-10-03，参考产品图三 / 图四）。
+              菜单里能按「通用 / 我的」分类、搜索、创建、导入（.md 或文件夹）；
+              「全部」去技能库那一页。
+            */}
+            <span className={styles.addWrap}>
+              <button
+                type="button"
+                className={styles.iconBtn}
+                title={current?.skillId ? `技能：${skillLabel}` : '选择技能'}
+                aria-label={`这份技能决定 agent 把哪些阶段建到画布上（当前：${skillLabel}）`}
+                data-agent-skill-open
+                onClick={() => setOpenPicker(openPicker === 'agent-skill' ? null : 'agent-skill')}
+              >
+                <IconSkill size={16} />
+              </button>
+              {openPicker === 'agent-skill' && (
+                <SkillMenu
+                  builtin={skills.builtinSkills}
+                  user={skills.userSkills}
+                  activeId={current?.skillId ?? null}
+                  onSelect={(id) => {
+                    void setSkill(id ?? '')
+                    setOpenPicker(null)
+                  }}
+                  onCreateNew={openSkillLibrary}
+                  onImportFiles={() => skillFileRef.current?.click()}
+                  onImportFolder={() => skillDirRef.current?.click()}
+                  onOpenLibrary={openSkillLibrary}
+                  onClose={() => setOpenPicker(null)}
+                />
+              )}
+              <input
+                ref={skillFileRef}
+                type="file"
+                accept=".md,.markdown,.txt,text/markdown"
+                multiple
+                hidden
+                data-agent-skill-file
+                onChange={(e) => {
+                  void importSkills(e.target.files)
+                  e.target.value = ''
+                }}
+              />
+              {/*
+                文件夹导入用 `webkitdirectory`：它与 `accept` 互斥（设了它就只能选目录），
+                所以和上面那个文件输入**分成两个**，而不是硬塞进一个。
+              */}
+              <input
+                ref={skillDirRef}
+                type="file"
+                multiple
+                hidden
+                data-agent-skill-dir
+                {...({ webkitdirectory: '' } as Record<string, string>)}
+                onChange={(e) => {
+                  void importSkills(e.target.files)
+                  e.target.value = ''
+                }}
+              />
+            </span>
 
             {/*
               手动 / 自动生成（参考产品图一那一档）：两个候选各带一句后果说明。
