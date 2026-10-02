@@ -239,6 +239,29 @@
   white-space: nowrap;
 }
 
+/*
+ * 素材标签上的**缩略图**（用户 2026-10-02：取选中的节点当素材时，输入框里
+ * 要跟 @ 图片节点一样有图，不是一个 `node_xxx`）。
+ *
+ * 尺寸与 `MentionEditor` 里那枚引用 chip 的缩略图一致（16×12）——
+ * 两处都是「一个名字前面挂一张小图」，长得不一样会显得是两个东西。
+ */
+.chipThumb {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 12px;
+  border-radius: 2px;
+  object-fit: cover;
+}
+
+/* 「对话模型」那一行：agent 自己的 LLM，单独一处（不跟生成模型挤一个面板） */
+.llmRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-1);
+}
+
 .chipBtn {
   flex: 0 0 auto;
   border: none;

@@ -374,14 +374,20 @@ describe('CreationPanel · 生成数量（chip 形态）', () => {
     ...(maxCount === undefined ? {} : { maxCount }),
   })
 
-  it('张数是 chip，不再是并排的固定按钮组', async () => {
+  /**
+   * 2026-10-02 起比例 / 画质 / 质量 / 张数**收进一枚胶囊**（`gen-params`），
+   * 四段仍在（名字不变：`ratio` / `resolution` / `quality` / `count`），
+   * 但面板上只该看到一枚 chip —— 「不再有并排的一排控件」这条口径没变。
+   */
+  it('张数收进「生成参数」胶囊，不再是并排的固定按钮组', async () => {
     const channels = await channelStore([{ enabled: true, models: [imgModel(4)] }])
     const html = render(channels, {
       ...generationSpec.createDefaultData(),
       channelId: 'ch-1',
       model: 'relay-img',
     })
-    expect(html).toContain('data-param-chip="count"')
+    expect(html).toContain('data-param-chip="gen-params"')
+    expect(html).not.toContain('data-param-chip="count"')
     expect(html).not.toContain('data-param-count')
   })
 
@@ -535,7 +541,7 @@ describe('CreationPanel · 画质「自动」档（§6.8）', () => {
       { ...generationSpec.createDefaultData(), channelId: 'ch-1', model: 'relay-img' },
       true,
     )
-    expect(html).toContain('data-param-chip="resolution"')
+    expect(html).toContain('data-param-chip="gen-params"')
     expect(html).toContain('自动')
     expect(html).not.toContain('>画质<')
   })
@@ -624,7 +630,7 @@ describe('CreationPanel · 功能类别切换（图片 / 视频）', () => {
   }
   const withBoth = () => channelStore([{ enabled: true, models: [imgModel, videoModel] }])
 
-  it('图片模式：参数是 画质 / 质量 / 数量，没有视频参数', async () => {
+  it('图片模式：参数收在「生成参数」胶囊里（比例 / 画质 / 质量 / 张数），没有视频参数', async () => {
     const html = render(
       await withBoth(),
       { ...generationSpec.createDefaultData(), channelId: 'ch-1', model: 'relay-img' },
@@ -632,14 +638,15 @@ describe('CreationPanel · 功能类别切换（图片 / 视频）', () => {
     )
     expect(html).toContain('data-param-mode="image"')
     expect(html).toContain('data-param-mode="video"')
-    expect(html).toContain('data-param-chip="resolution"')
-    expect(html).toContain('data-param-chip="quality"')
+    expect(html).toContain('data-param-chip="gen-params"')
+    /** 胶囊文案里带着四段：比例占位 + 两个「自动」+ 张数 */
+    expect(html).toContain('比例 · 自动')
     expect(html).toContain('张')
     expect(html).not.toContain('data-param-chip="size"')
     expect(html).not.toContain('data-param-duration')
   })
 
-  it('视频模式：换成 尺寸 / 时长 / 参考模式，画质 / 质量 / 数量整块退场', async () => {
+  it('视频模式：换成 尺寸 / 时长 / 参考模式，「生成参数」胶囊整块退场', async () => {
     const html = render(
       await withBoth(),
       { ...generationSpec.createDefaultData(), channelId: 'ch-1', model: 'relay-video', mode: 'video' },
@@ -649,8 +656,7 @@ describe('CreationPanel · 功能类别切换（图片 / 视频）', () => {
     expect(html).toContain('data-param-duration')
     expect(html).toContain('data-param-duration-range')
     expect(html).toContain('data-param-chip="refMode"')
-    expect(html).not.toContain('data-param-chip="resolution"')
-    expect(html).not.toContain('data-param-chip="quality"')
+    expect(html).not.toContain('data-param-chip="gen-params"')
     expect(html).not.toContain('张')
   })
 

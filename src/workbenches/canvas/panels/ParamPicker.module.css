@@ -58,6 +58,14 @@
   text-overflow: ellipsis;
 }
 
+/*
+ * 多段参数的胶囊（「生成参数」那一枚）：文案是四段串成的一行摘要，
+ * 160px 只够显示开头两段。放开上限，让「比例 · 画质 · 质量 · 张数」读得完。
+ */
+.chipWideLabel .chipLabel {
+  max-width: 320px;
+}
+
 /**
  * `compact` 尺寸（对话窗工具条）：26px / 小字。
  *
@@ -113,6 +121,60 @@
 .grouped .pill {
   max-height: none;
   overflow: visible;
+}
+
+/*
+ * `maxRows`（一屏最多几行）：高度由行内 `max-height` 给，这里只把「滚」补上 ——
+ * 上面那条 `.grouped .list` 把 `overflow` 关掉了，得同权重地再打开。
+ */
+.grouped .scrollBody {
+  overflow-y: auto;
+}
+
+/*
+ * 顶部跳转条（模型面板的「图片 / 视频」，用户 2026-10-02）。
+ * `sticky` 而不是普通行：跳第二次时按钮还在原地。
+ */
+.jumps {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  gap: var(--space-1);
+  padding: 2px 0;
+  background: var(--bg-surface);
+}
+
+.jumpBtn {
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+.jumpBtn:hover {
+  background: var(--bg-hover);
+}
+
+/* 「加载更多」：列表先折叠，点一下才放全（@ 面板的节点那一段） */
+.more {
+  align-self: flex-start;
+  padding: 2px var(--space-2);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+.more:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
 
 .popup {

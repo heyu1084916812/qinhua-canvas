@@ -563,6 +563,20 @@ export function CreationPanel(props: CreationPanelProps) {
       : COUNT_OPTIONS[COUNT_OPTIONS.length - 1]
   const count = Math.max(1, Math.min(data.count ?? 1, maxCount))
 
+  /**
+   * 「生成参数」胶囊上的那一行摘要。
+   *
+   * 顺序与胶囊里四段的顺序一致（比例 · 画质 · 质量 · 张数），也就是把原先
+   * 四枚 chip 的文案用「 · 」串起来 —— 用户 2026-10-02 的参考产品就是
+   * 「1:1 · 标准画质 · 1K · 1张」这种一行说法。
+   */
+  const paramsLabel = [
+    data.ratio || '比例',
+    RESOLUTION_OPTIONS.find((r) => r.value === (data.resolution ?? 'auto'))?.label ?? '自动',
+    QUALITY_OPTIONS.find((q) => q.value === (data.quality ?? 'auto'))?.label ?? '质量',
+    `${count} 张`,
+  ].join(' · ')
+
   // 模型不支持的档位直接隐藏（§6.8「参数项随模型能力动态渲染」）
   const ratios = ratiosOf(activeModel, props.hasSourceImage === true)
   const resolutions = resolutionsOf(activeModel)
@@ -858,21 +872,21 @@ export function CreationPanel(props: CreationPanelProps) {
 
        {!promptMode && (
           <>
-            {/* 比例：竖版列表选择器（§6.8） */}
-            <ParamPicker
-              name="ratio"
-              ariaLabel="画面比例"
-              label={data.ratio ?? '比例'}
-              options={ratios.map((r) => ({ value: r, label: r }))}
-              value={data.ratio ?? ''}
-              variant="ratioGrid"
-              open={openPicker === 'ratio'}
-              onToggle={() => togglePicker('ratio')}
-              onClose={closePicker}
-              onSelect={(v) => onEvent({ type: 'setRatio', ratio: v, recipe: recipeSnapshot({ ratio: v }) })}
-            />
             {videoMode ? (
               <>
+                {/* 比例：**视频模式**仍自己一枚（图片模式已并进「生成参数」胶囊，见下） */}
+                <ParamPicker
+                  name="ratio"
+                  ariaLabel="画面比例"
+                  label={data.ratio ?? '比例'}
+                  options={ratios.map((r) => ({ value: r, label: r }))}
+                  value={data.ratio ?? ''}
+                  variant="ratioGrid"
+                  open={openPicker === 'ratio'}
+                  onToggle={() => togglePicker('ratio')}
+                  onClose={closePicker}
+                  onSelect={(v) => onEvent({ type: 'setRatio', ratio: v, recipe: recipeSnapshot({ ratio: v }) })}
+                />
                 {/* 尺寸：竖版列表（§6.8 视频模式） */}
                 <ParamPicker
                   name="size"
@@ -935,64 +949,79 @@ export function CreationPanel(props: CreationPanelProps) {
                 )}
               </>
             ) : (
-              <>
-                {/* 画质 / 质量：横排胶囊选择器（§6.8） */}
-                <ParamPicker
-                  name="resolution"
-                  ariaLabel="画质"
-                  label={
-                    RESOLUTION_OPTIONS.find((r) => r.value === (data.resolution ?? 'auto'))?.label ??
-                    '自动'
-                  }
-                  options={resolutions.map((v) => ({
-                    value: v,
-                    label: RESOLUTION_OPTIONS.find((r) => r.value === v)?.label ?? v,
-                  }))}
-                  value={data.resolution ?? 'auto'}
-                  variant="pill"
-                  open={openPicker === 'resolution'}
-                  onToggle={() => togglePicker('resolution')}
-                  onClose={closePicker}
-                  onSelect={(v) => onEvent({ type: 'setResolution', resolution: v, recipe: recipeSnapshot({ resolution: v as NonNullable<GenerationData['resolution']> }) })}
-                />
-                <ParamPicker
-                  name="quality"
-                  ariaLabel="质量"
-                  label={QUALITY_OPTIONS.find((q) => q.value === (data.quality ?? 'auto'))?.label ?? '质量'}
-                  options={QUALITY_OPTIONS.map((q) => ({ value: q.value, label: q.label }))}
-                  value={data.quality ?? 'auto'}
-                  variant="pill"
-                  open={openPicker === 'quality'}
-                  onToggle={() => togglePicker('quality')}
-                  onClose={closePicker}
-                  onSelect={(v) => onEvent({ type: 'setQuality', quality: v, recipe: recipeSnapshot({ quality: v as NonNullable<GenerationData['quality']> }) })}
-                />
-                {/*
-                  张数改成与画质 / 质量同形的 chip + 弹层（用户 2026-09-19）。
+              /*
+                图片模式：**比例 · 画质 · 质量 · 张数**收进一枚胶囊
+                （用户 2026-10-02 参考产品图五 / 图六：「把比例，质量，画质，张数变成
+                一个胶囊显示，而且点击显示的面板……把所有的参数都放上去」）。
 
-                  早先是一排固定按钮（1张 / 2张 / 4张 / 9张 并排挂着），
-                  与旁边两个 chip 的形态不一致：参数行里三个控件长得像两套东西。
-                  收进 chip 后整行只有「画质 / 质量 / 张数」三个同形控件，扫视成本更低。
-                */}
-                <ParamPicker
-                  name="count"
-                  ariaLabel="生成张数"
-                  label={`${count} 张`}
-                  options={COUNT_OPTIONS.map((c) => ({
-                    value: String(c),
-                    label: `${c} 张`,
-                    /** 模型明确声明的上限才置灰；未声明 = 不设限（见 maxCount 的注释） */
-                    disabled: c > maxCount,
-                    title: c > maxCount ? `当前模型最多 ${maxCount} 张` : `${c} 张`,
-                  }))}
-                  value={String(count)}
-                  variant="pill"
-                  open={openPicker === 'count'}
-                  onToggle={() => togglePicker('count')}
-                  onClose={closePicker}
-                  onSelect={(v) => onEvent({ type: 'setCount', count: Number(v), recipe: recipeSnapshot({ count: Number(v) }) })}
-                />
-              </>
+                分段的名字仍是 `ratio / resolution / quality / count` —— 冒烟与单测的
+                锚点不必重学，只是从「四枚 chip」变成「一层的四段」。
+                选完**不关**（多组模式）：调参数常常一次要动两三样，每选一格就收起
+                会逼人重复点开三次。
+              */
+              <ParamPicker
+                name="gen-params"
+                ariaLabel={`生成参数（${paramsLabel}）`}
+                label={paramsLabel}
+                sections={[
+                  {
+                    name: 'ratio',
+                    label: '比例',
+                    variant: 'ratioGrid',
+                    options: ratios.map((r) => ({ value: r, label: r })),
+                    value: data.ratio ?? '',
+                    onSelect: (v) =>
+                      onEvent({ type: 'setRatio', ratio: v, recipe: recipeSnapshot({ ratio: v }) }),
+                  },
+                  {
+                    name: 'resolution',
+                    label: '画质',
+                    variant: 'pill',
+                    options: resolutions.map((v) => ({
+                      value: v,
+                      label: RESOLUTION_OPTIONS.find((r) => r.value === v)?.label ?? v,
+                    })),
+                    value: data.resolution ?? 'auto',
+                    onSelect: (v) =>
+                      onEvent({
+                        type: 'setResolution',
+                        resolution: v,
+                        recipe: recipeSnapshot({ resolution: v as NonNullable<GenerationData['resolution']> }),
+                      }),
+                  },
+                  {
+                    name: 'quality',
+                    label: '质量',
+                    variant: 'pill',
+                    options: QUALITY_OPTIONS.map((q) => ({ value: q.value, label: q.label })),
+                    value: data.quality ?? 'auto',
+                    onSelect: (v) =>
+                      onEvent({
+                        type: 'setQuality',
+                        quality: v,
+                        recipe: recipeSnapshot({ quality: v as NonNullable<GenerationData['quality']> }),
+                      }),
+                  },
+                  {
+                    name: 'count',
+                    label: '张数',
+                    variant: 'pill',
+                    options: COUNT_OPTIONS.map((c) => ({
+                      value: String(c),
+                      label: `${c} 张`,
+                      /** 模型明确声明的上限才置灰；未声明 = 不设限（见 maxCount 的注释） */
+                      disabled: c > maxCount,
+                      title: c > maxCount ? `当前模型最多 ${maxCount} 张` : `${c} 张`,
+                    })),
+                    value: String(count),
+                    onSelect: (v) =>
+                      onEvent({ type: 'setCount', count: Number(v), recipe: recipeSnapshot({ count: Number(v) }) }),
+                  },
+                ]}
+                open={openPicker === 'gen-params'}
+                onToggle={() => togglePicker('gen-params')}
+                onClose={closePicker}
+              />
             )}
           </>
         )}

@@ -49,6 +49,7 @@ import {
   IconChevronDown,
   IconClose,
   IconDelete,
+  IconChat,
   IconImage,
   IconManual,
   IconMention,
@@ -234,6 +235,15 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     if (!id) return '技能'
     return allSkills.find((s) => s.id === id)?.name ?? '技能'
   }, [current?.skillId, allSkills])
+
+  /**
+   * 输入区那两枚「生成模型」chip 的图标。
+   *
+   * 只有**固定显示名**才有厂商 logo（与下拉里同一份 `presetOf`）；渠道里没归一的
+   * 名字不硬塞一个图标，免得画出一个错的厂商。
+   */
+  const imageModelPreset = presetOf(current?.imageModel ?? '')
+  const videoModelPreset = presetOf(current?.videoModel ?? '')
 
   /**
    * 新会话该用哪个模型：默认模型 → 该渠道第一个对话模型。
@@ -940,7 +950,15 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   )
 
   useEffect(() => {
-    const refs = parseMentions(draft).filter((m) => m.kind === 'node')
+    /**
+     * 取图的两种来源：正文里的 @ 引用，以及「取选中当素材」挂上的标签。
+     *
+     * 后者原先不取图 ⇒ 标签上只能写 `node_xxx`（用户 2026-10-02 报的那一条）。
+     */
+    const refs = [
+      ...parseMentions(draft).filter((m) => m.kind === 'node'),
+      ...(current?.pendingAssetIds ?? []).map((id) => ({ kind: 'node' as const, id })),
+    ]
     if (refs.length === 0) return
     let alive = true
     void (async () => {
@@ -959,7 +977,18 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     return () => {
       alive = false
     }
-  }, [draft, hashOfNode, platform])
+  }, [draft, hashOfNode, platform, current?.pendingAssetIds])
+
+  /**
+   * 素材标签要显示的东西：**缩略图 + 节点名**（不是 `node_xxx` 那种裸 id）。
+   *
+   * 用户 2026-10-02：「把选中的节点当作这次的素材，放进输入框的时候应该也是和
+   * 艾特图片节点的功能是一样的，目前好像是一些节点 id 一样的东西」。
+   */
+  const assetChips = (current?.pendingAssetIds ?? []).map((id) => {
+    const node = graph.nodes.find((n) => n.id === id)
+    return { id, title: (node?.title ?? '').trim() || '素材', url: thumbOf(id) }
+  })
 
   /** 卸载时把建出来的 objectURL 回收掉（不回收就是一路泄漏） */
   useEffect(
@@ -1227,6 +1256,34 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       )}
 
       {/*
+        对话模型 = **agent 自己的 LLM**，单独一处（用户 2026-10-02：「对话模型是
+        agent 的 llm，需要单独放在一个地方」）。
+
+        为什么不跟「图片 / 视频」挤在同一个面板里：那两个决定 agent **建出来的
+        生成节点**用谁，这一个决定**跟谁说话** —— 混在一起时，用户以为换的是
+        画布上的模型，实际把对话模型也换掉了。
+      */}
+      <div className={styles.llmRow} data-agent-llm-row>
+        <ParamPicker
+          name="agent-chat-model"
+          ariaLabel={`对话模型（agent 自己的 LLM，当前：${shownModel || '未选'}）`}
+          label={shownModel || '选择对话模型'}
+          triggerIcon={<IconChat size={14} />}
+          size="compact"
+          options={withModelIcons(chatModelOptions)}
+          value={shownModel}
+          variant="list"
+          emptyHint="没有可用的对话模型：去后台设置里勾选"
+          open={openPicker === 'agent-chat-model'}
+          onToggle={() =>
+            setOpenPicker(openPicker === 'agent-chat-model' ? null : 'agent-chat-model')
+          }
+          onClose={() => setOpenPicker(null)}
+          onSelect={(v) => void pickModel(v)}
+        />
+      </div>
+
+      {/*
         输入区：一个圆角盒子，**上正文、下工具条**（参考产品 liblib.tv 的对话框形态）。
 
         正文用 `MentionEditor`（contenteditable）而不是 `textarea`：用户 2026-10-02
@@ -1242,7 +1299,10 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           的对话框中显示出来代表我用了这个 skill」）—— 与 @ 引用同一套「用了什么，
           一眼看得见」，而不是只在菜单里打个勾。
         */}
-        {(current?.skillId || (current?.pendingAssetIds ?? []).length > 0) && (
+        {(current?.skillId ||
+          (current?.pendingAssetIds ?? []).length > 0 ||
+          current?.imageModel ||
+          current?.videoModel) && (
           <div className={styles.chips}>
             {current?.skillId && (
               <span className={styles.chip} data-agent-skill-chip={current.skillId}>
@@ -1259,15 +1319,63 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                 </button>
               </span>
             )}
-            {(current?.pendingAssetIds ?? []).map((id) => (
-              <span key={id} className={styles.chip} data-agent-asset={id}>
-                <span className={styles.chipText}>{id}</span>
+            {/*
+              选好的图片 / 视频模型也进输入区（用户 2026-10-02：「选择模型后也是要
+              加入到对话框中参与对话（和艾特模型的功能一样）」）—— 它们是「这一次
+              要说出去的东西」，与技能、素材并排，而不是只躺在菜单里打个勾。
+
+              对话模型不在这儿：它是 agent 自己的 LLM，单独一行（见下面的 `llmRow`）。
+            */}
+            {current?.imageModel && (
+              <span className={styles.chip} data-agent-model-chip="image">
+                {imageModelPreset && <ModelIcon vendor={imageModelPreset.vendor} />}
+                <span className={styles.chipText}>{current.imageModel}</span>
+                <button
+                  type="button"
+                  className={styles.chipBtn}
+                  title="这次不用这个图片模型"
+                  onClick={() => void setModelKind('imageModel', '')}
+                  data-agent-model-chip-remove="image"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+            {current?.videoModel && (
+              <span className={styles.chip} data-agent-model-chip="video">
+                {videoModelPreset && <ModelIcon vendor={videoModelPreset.vendor} />}
+                <span className={styles.chipText}>{current.videoModel}</span>
+                <button
+                  type="button"
+                  className={styles.chipBtn}
+                  title="这次不用这个视频模型"
+                  onClick={() => void setModelKind('videoModel', '')}
+                  data-agent-model-chip-remove="video"
+                >
+                  ✕
+                </button>
+              </span>
+            )}
+            {assetChips.map((a) => (
+              <span
+                key={a.id}
+                className={styles.chip}
+                data-agent-asset={a.id}
+                {...(a.url ? { 'data-has-thumb': '' } : {})}
+              >
+                {/* 有图就显示缩略图，没图退回一枚图片图标（与 @ 引用 chip 同一手法） */}
+                {a.url ? (
+                  <img className={styles.chipThumb} src={a.url} alt="" />
+                ) : (
+                  <IconImage size={12} />
+                )}
+                <span className={styles.chipText}>{a.title}</span>
                 <button
                   type="button"
                   className={styles.chipBtn}
                   title="移除这张素材"
-                  onClick={() => void dropAsset(id)}
-                  data-agent-asset-remove={id}
+                  onClick={() => void dropAsset(a.id)}
+                  data-agent-asset-remove={a.id}
                 >
                   ✕
                 </button>
@@ -1419,6 +1527,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                   name: 'node',
                   label: '节点',
                   variant: 'list',
+                  /**
+                   * 只先摆 5 条 + 「加载更多」（用户 2026-10-02 参考产品图二：
+                   * 「不用显示全部可以艾特的节点，下方有省略，点击之后才会显示所有的」）。
+                   * 画布上几十个节点时，这一层不折叠会把模型那一段挤到看不见。
+                   */
+                  collapsedCount: 5,
                   options: graph.nodes.map((n) => ({
                     value: `node:${n.id}`,
                     label: (n.title ?? '').trim() || n.type,
@@ -1436,6 +1550,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                   name: 'model',
                   label: '模型',
                   variant: 'list',
+                  /** 同上：对话模型也可能有一长串，先摆 5 条 */
+                  collapsedCount: 5,
                   options: chatModelOptions.map((n) => {
                     const preset = presetOf(n)
                     return {
@@ -1467,18 +1583,28 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             */}
             <ParamPicker
               name="agent-model"
-              ariaLabel={`模型（图片 ${current?.imageModel || '未选'} / 视频 ${
+              ariaLabel={`生成模型（图片 ${current?.imageModel || '未选'} / 视频 ${
                 current?.videoModel || '未选'
-              } / 对话 ${shownModel || '未选'}）`}
+              }）`}
               label=""
               triggerIcon={<IconModelCube size={16} />}
               size="compact"
               closeOnSelect
+              /**
+               * 顶部两枚跳转（用户 2026-10-02：「上方需要有两个选项，分别是图片、视频，
+               * 点击按钮可以进行跳转到下面的选项，例如选图片就从图片的开头开始」）。
+               */
+              jumps={[
+                { section: 'image', label: '图片' },
+                { section: 'video', label: '视频' },
+              ]}
               sections={[
                 {
                   name: 'image',
                   label: '图片',
                   variant: 'list',
+                  /** 一屏只摆 5 条，多的在里面滚（用户 2026-10-02：「太高了」） */
+                  maxRows: 5,
                   options: withModelIcons(modelOptionsByKind.image),
                   value: current?.imageModel ?? '',
                   emptyHint: '没有可用的图片模型',
@@ -1488,19 +1614,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                   name: 'video',
                   label: '视频',
                   variant: 'list',
+                  maxRows: 5,
                   options: withModelIcons(modelOptionsByKind.video),
                   value: current?.videoModel ?? '',
                   emptyHint: '没有可用的视频模型',
                   onSelect: (v) => void setModelKind('videoModel', v),
-                },
-                {
-                  name: 'chat',
-                  label: '对话',
-                  variant: 'list',
-                  options: withModelIcons(chatModelOptions),
-                  value: shownModel,
-                  emptyHint: '没有可用的对话模型：去后台设置里勾选',
-                  onSelect: (v) => void pickModel(v),
                 },
               ]}
               open={openPicker === 'agent-model'}

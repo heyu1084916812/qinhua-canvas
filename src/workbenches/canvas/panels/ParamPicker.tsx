@@ -44,6 +44,21 @@ export interface ParamSection {
   onSelect: (value: string) => void
   /** 展开但这一段一个候选都没有时的说明 */
   emptyHint?: string
+  /**
+   * `list` 形态「一屏最多几行」：多出来的在这一段内部**滚动**。
+   *
+   * 用户 2026-10-02：「模型选择面板太高了，只需要展示前五个就行，可以下拉继续
+   * 显示剩下的」。与 `collapsedCount` 的区别：那个是「点一下才展开」，
+   * 这个是「一直都能滚动看到」。
+   */
+  maxRows?: number
+  /**
+   * `list` 形态「先折叠到前几条」，末尾一枚「加载更多」。
+   *
+   * 用户 2026-10-02：「@ 面板不用显示全部可以艾特的节点，下方有省略，点击之后
+   * 才会显示所有的」。
+   */
+  collapsedCount?: number
 }
 
 export interface ParamPickerProps {
@@ -108,7 +123,22 @@ export interface ParamPickerProps {
   disabled?: boolean
   /** 展开但一个候选都没有时的说明（如「该渠道还没勾选模型」） */
   emptyHint?: string
+  /**
+   * 顶部**跳转条**：点一枚就把对应的那一段滚进视野。
+   *
+   * 用户 2026-10-02：「上方需要有两个选项，分别是图片、视频，点击按钮可以进行
+   * 跳转到下面的选项，例如选图片就从图片的开头开始」。
+   */
+  jumps?: readonly { section: string; label: string }[]
 }
+
+/**
+ * `list` 形态一行的估算高度（px）：给 `maxRows` 换算 `max-height` 用。
+ *
+ * 行高由内容决定（名字 + 可选副标题），这里取一个**偏大**的估算值 ——
+ * 少显示半行比多显示半行难看，且用户要的就是「大约五条」。
+ */
+const LIST_ROW_H = 46
 
 /**
  * `useLayoutEffect` 在 SSR 下不执行且会告警；服务端退回 `useEffect`（同样是空操作），
@@ -161,6 +191,31 @@ export function ParamPicker(props: ParamPickerProps) {
   const wrapRef = useRef<HTMLSpanElement>(null)
   const popRef = useRef<HTMLDivElement>(null)
   const [below, setBelow] = useState(false)
+  /** 「加载更多」展开过的段（关掉浮层就忘掉：下次打开仍从收起态开始） */
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    if (!open) setExpanded({})
+  }, [open])
+
+  /**
+   * 跳到某一段（顶部那排「图片 / 视频」）。
+   *
+   * 直接改 `scrollTop` 而不是 `scrollIntoView`：后者会把**页面**也一起滚走
+   * （画布页可滚动时，点一下跳转整页都在动）。
+   *
+   * 用矩形相减而不是 `offsetTop`：各段的 `offsetParent` 未必是弹层本身，
+   * 相减是唯一不会算错的一种写法。再减去跳转条自身的高度 —— 它是 `sticky` 的，
+   * 不对齐的话目标段的标题会被它压住。
+   */
+  const scrollToSection = (section: string) => {
+    const pop = popRef.current
+    const el = pop?.querySelector(`[data-param-section="${section}"]`) as HTMLElement | null
+    if (!pop || !el) return
+    const delta = el.getBoundingClientRect().top - pop.getBoundingClientRect().top
+    const sticky = pop.querySelector('[data-param-jumps]')?.getBoundingClientRect().height ?? 0
+    pop.scrollTop = Math.max(0, pop.scrollTop + delta - sticky)
+  }
 
   // 绘制前测量：上方装不下且下方更宽裕 → 翻转到下方（§6.8）
   useIsoLayoutEffect(() => {
@@ -201,6 +256,11 @@ export function ParamPicker(props: ParamPickerProps) {
         className={[
           styles.chip,
           size === 'compact' ? styles.chipCompact : '',
+          /**
+           * 多段参数的胶囊文案是一行**摘要**（「1:1 · 标准画质 · 1K · 1张」），
+           * 单枚 chip 那 160px 上限装不下 —— 放开到能读完整的一行。
+           */
+          grouped ? styles.chipWideLabel : '',
           open ? styles.chipOpen : '',
         ]
           .filter(Boolean)
@@ -234,34 +294,77 @@ export function ParamPicker(props: ParamPickerProps) {
               {sections[0]?.emptyHint ?? '没有可选项'}
             </span>
           ) : grouped ? (
-            sections.map((s) => (
-              <div key={s.name} className={styles.section} data-param-section={s.name}>
-                <span className={styles.sectionTitle}>{s.label}</span>
-                <div className={VARIANT_CLASS[s.variant]}>
-                  {s.options.map((o) => (
-                    <ParamOptionButton
-                      key={o.value}
-                      option={o}
-                      variant={s.variant}
-                      value={s.value}
-                      inSection={s.name}
-                      onPick={() => {
-                        s.onSelect(o.value)
-                        /**
-                         * 多组模式**选完不关**：它是一个「参数集合」，用户多半一次要
-                         * 调两三样，每选一格就关掉会逼他重复点开三次。单组模式保持
-                         * 原行为（选完即关），创作面板的手感一点都不变。
-                         *
-                         * 例外是 `closeOnSelect`：引用（@）那种「一次只插一个」的
-                         * 多组菜单要关掉，留着浮层反而挡事。
-                         */
-                        if (props.closeOnSelect) onClose()
-                      }}
-                    />
+            <>
+              {/*
+                顶部跳转条（模型面板的「图片 / 视频」）：点一枚就把那一段滚到顶。
+                `position: sticky` 让它跟着滚 —— 否则跳第二次还得先滚回去找按钮。
+              */}
+              {props.jumps && props.jumps.length > 0 && (
+                <div className={styles.jumps} data-param-jumps={name}>
+                  {props.jumps.map((j) => (
+                    <button
+                      key={j.section}
+                      type="button"
+                      className={styles.jumpBtn}
+                      data-param-jump={j.section}
+                      onClick={() => scrollToSection(j.section)}
+                    >
+                      {j.label}
+                    </button>
                   ))}
                 </div>
-              </div>
-            ))
+              )}
+              {sections.map((s) => {
+                /** 折叠态只画前 `collapsedCount` 条，剩下的靠「加载更多」放出来 */
+                const showAll = !s.collapsedCount || expanded[s.name]
+                const visible = showAll ? s.options : s.options.slice(0, s.collapsedCount)
+                const hidden = s.options.length - visible.length
+                return (
+                  <div key={s.name} className={styles.section} data-param-section={s.name}>
+                    <span className={styles.sectionTitle}>{s.label}</span>
+                    <div
+                      className={[VARIANT_CLASS[s.variant], s.maxRows ? styles.scrollBody : '']
+                        .filter(Boolean)
+                        .join(' ')}
+                      style={s.maxRows ? { maxHeight: `${s.maxRows * LIST_ROW_H}px` } : undefined}
+                      {...(s.maxRows ? { 'data-param-scroll': s.name } : {})}
+                    >
+                      {visible.map((o) => (
+                        <ParamOptionButton
+                          key={o.value}
+                          option={o}
+                          variant={s.variant}
+                          value={s.value}
+                          inSection={s.name}
+                          onPick={() => {
+                            s.onSelect(o.value)
+                            /**
+                             * 多组模式**选完不关**：它是一个「参数集合」，用户多半一次要
+                             * 调两三样，每选一格就关掉会逼他重复点开三次。单组模式保持
+                             * 原行为（选完即关），创作面板的手感一点都不变。
+                             *
+                             * 例外是 `closeOnSelect`：引用（@）那种「一次只插一个」的
+                             * 多组菜单要关掉，留着浮层反而挡事。
+                             */
+                            if (props.closeOnSelect) onClose()
+                          }}
+                        />
+                      ))}
+                    </div>
+                    {hidden > 0 && (
+                      <button
+                        type="button"
+                        className={styles.more}
+                        data-param-more={s.name}
+                        onClick={() => setExpanded((prev) => ({ ...prev, [s.name]: true }))}
+                      >
+                        ··· 加载更多（还有 {hidden} 条）
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </>
           ) : (
             sections[0]!.options.map((o) => (
               <ParamOptionButton
