@@ -158,6 +158,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   useEffect(() => {
     let alive = true
     void (async () => {
+      /**
+       * 渠道 store 是应用级单例、挂载时统一 load；但**新建画布页**这条路径
+       * 可能先于 load 完成就读 enabledChannels —— 那一刻 enabled 为空，
+       * 新会话会带着空渠道开出来，第一句话就报「还没选模型」。
+       * 这里补一次 await load（幂等），把时序缝上。
+       */
+      await channels.load()
       const rows = await refresh()
       if (!alive) return
       if (rows.length > 0) {
