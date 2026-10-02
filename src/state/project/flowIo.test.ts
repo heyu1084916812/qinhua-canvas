@@ -20,6 +20,10 @@ function makePlatform(seedRows: Partial<Record<TableName, Row[]>> = {}) {
     async saveFile(_name, blob) {
       saved = blob as AnyBlob
     },
+    async saveFromUrl() {
+      /* 本组不测远端下载：按「已落盘」上报，免得测试替身缺方法编译不过 */
+      return 'saved'
+    },
   }
   const platform: PlatformKit = {
     storage,

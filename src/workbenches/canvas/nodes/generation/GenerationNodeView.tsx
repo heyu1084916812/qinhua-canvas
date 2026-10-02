@@ -1,13 +1,26 @@
 import { useState } from 'react'
 import type { GenerationData } from '../../../../domain/canvas/model/node'
 import type { NodeViewProps } from '../registry'
-import { useAsset } from '../../hooks/useAsset'
+import { useAssetMeta } from '../../hooks/useAsset'
 import { AssetMenu } from '../../panels/AssetMenu'
 import { IconPause, IconPlay } from '../../toolbar/icons'
 import styles from './GenerationNodeView.module.css'
 
 /** 生成数量：固定四项（产品文档 §6.8「1张 / 2张 / 4张 / 9张，固定四项」） */
 export const COUNT_OPTIONS = [1, 2, 4, 9] as const
+
+/**
+ * 这张素材到底是图还是视频：**以 assets 行的 mime 为准**，拿不到 mime 才退回节点
+ * 自己的 `mode`。
+ *
+ * 用户 2026-10-03：「刚刚生成的视频只有双击进灯箱才能看」——灯箱按 mime 渲染，
+ * 所以对；节点按 `data.mode` 渲染，只要 mode 与素材对不上（换过模型、Agent 落地、
+ * 老节点），就会拿 `<img>` 去显示 mp4 —— 页面上就是一块空白，双击反而正常。
+ */
+export function assetIsVideo(mime: string | null, mode: GenerationData['mode']): boolean {
+  if (mime) return mime.startsWith('video/')
+  return mode === 'video'
+}
 
 /**
  * 图片 / 视频生成节点 —— **节点本体**（产品文档 §6.8「状态 A / 状态 B」）。
@@ -25,7 +38,7 @@ export const COUNT_OPTIONS = [1, 2, 4, 9] as const
  */
 export function GenerationNodeView(props: NodeViewProps) {
   const data = props.node.data as GenerationData
-  const url = useAsset(data.assetHash)
+  const { url, mime } = useAssetMeta(data.assetHash)
   const [dropping, setDropping] = useState(false)
   /**
    * 素材操作菜单（清除 / 替换）挂在**本体那张图的右上角**（用户 2026-09-18 明确位置）。
@@ -35,7 +48,7 @@ export function GenerationNodeView(props: NodeViewProps) {
    */
   const [menuOpen, setMenuOpen] = useState(false)
 
-  const isVideo = data.mode === 'video'
+  const isVideo = assetIsVideo(mime, data.mode)
   /**
    * 居中覆盖层只表达**本节点自己**的状态：运行中 / 失败（§6.19.5）。
    *
@@ -203,12 +216,17 @@ function VideoBody({ url, onOpen }: { url: string; onOpen: () => void }) {
   const [playing, setPlaying] = useState(false)
   return (
     <div className={styles.videoWrap}>
+      {/*
+        先把元数据（含首帧）取回来：不写 `preload` 时，节点上可能只有一块黑 ——
+        用户看到的现象就是「只有双击进灯箱才能看」。
+      */}
       <video
         className={styles.asset}
         src={url}
         muted
         loop
         playsInline
+        preload="metadata"
         autoPlay={playing}
         data-node-asset
         onDoubleClick={onOpen}

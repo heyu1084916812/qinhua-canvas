@@ -37,7 +37,15 @@ export interface DownloadAssetDeps {
   files: FilePort
 }
 
-export type DownloadAssetResult = { ok: true } | { ok: false; reason: 'missing' | 'failed' }
+/**
+ * `via`：这次到底怎么存下来的（用户 2026-10-03，视频成片下载不了）。
+ * - `file`：字节到手，真落盘（本地素材走这条，远端托管域放行 CORS 时也走这条）；
+ * - `tab`：托管域不给 CORS 头，字节进不了页面，只能把地址交回浏览器
+ *   —— 调用方要说一句「已在新标签页打开」，不能默默当成功。
+ */
+export type DownloadAssetResult =
+  | { ok: true; via: 'file' | 'tab' }
+  | { ok: false; reason: 'missing' | 'failed' }
 
 /**
  * 读字节 → 落盘。
@@ -54,11 +62,28 @@ export async function downloadAsset(
   namePrefix?: string,
 ): Promise<DownloadAssetResult> {
   const payload = await deps.assets.read(hash).catch(() => null)
-  if (!payload) return { ok: false, reason: 'missing' }
+  /**
+   * 本地没字节**不等于**这张素材不存在：视频成片托管在远端，`assets` 行里
+   * 只有一条 `url`（见 `AssetPort.readUrl`）。此前这里直接判 `missing`，
+   * 于是用户看到的提示是「素材不在素材库」——而它明明就在。
+   */
+  if (!payload) {
+    const remote = await deps.assets.readUrl(hash).catch(() => null)
+    if (!remote) return { ok: false, reason: 'missing' }
+    try {
+      const via = await deps.files.saveFromUrl(
+        remote.url,
+        assetFileName(hash, remote.mime, namePrefix),
+      )
+      return { ok: true, via: via === 'opened' ? 'tab' : 'file' }
+    } catch {
+      return { ok: false, reason: 'failed' }
+    }
+  }
   try {
     const blob = new Blob([payload.bytes as unknown as BlobPart], { type: payload.mime })
     await deps.files.saveFile(assetFileName(hash, payload.mime, namePrefix), blob)
-    return { ok: true }
+    return { ok: true, via: 'file' }
   } catch {
     return { ok: false, reason: 'failed' }
   }

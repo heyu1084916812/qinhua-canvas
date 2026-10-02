@@ -87,7 +87,9 @@ export function AssetsPage() {
     const result = await downloadAsset({ assets: platform.assets, files: platform.files }, hash)
     setStatus(
       result.ok
-        ? '已下载'
+        ? result.via === 'tab'
+          ? '远端素材已在新标签页打开：用浏览器自带的下载保存'
+          : '已下载'
         : result.reason === 'missing'
           ? '这张素材已不在素材库里'
           : '下载失败',

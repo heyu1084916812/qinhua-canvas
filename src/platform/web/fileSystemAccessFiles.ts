@@ -67,6 +67,24 @@ function useInputFallback(accept?: string): Promise<PickedFile | null> {
 
 /** File System Access API 优先，不支持或出错时退回 <input type=file> */
 export function createFileAccessFiles(): FilePort {
+  /** 已有 Blob 的落盘：两条入口（本地字节 / 远端取回字节）共用一份 */
+  async function saveBlob(name: string, blob: Blob): Promise<void> {
+    const w = window as FilePickerWindow
+    if (w.showSaveFilePicker) {
+      const handle = await w.showSaveFilePicker({ suggestedName: name })
+      const writable = await handle.createWritable()
+      await writable.write(blob)
+      await writable.close()
+      return
+    }
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return {
     async pickFile(accept) {
       const w = window as FilePickerWindow
@@ -89,20 +107,40 @@ export function createFileAccessFiles(): FilePort {
     },
 
     async saveFile(name, blob) {
-      const w = window as FilePickerWindow
-      if (w.showSaveFilePicker) {
-        const handle = await w.showSaveFilePicker({ suggestedName: name })
-        const writable = await handle.createWritable()
-        await writable.write(blob)
-        await writable.close()
-        return
+      await saveBlob(name, blob)
+    },
+
+    /**
+     * 远端素材落盘（用户 2026-10-03：「节点的下载功能无法下载，显示素材不在素材库」）。
+     *
+     * 视频成片托管在 Agnes 的产物域（`cos-platform-outputs.agnes-ai.cn` /
+     * `platform-outputs.agnes-ai.space`），**没有 CORS 头**：页面里的 `fetch` 一律
+     * `net::ERR_FAILED`，字节进不来。所以这里两条路都要留：
+     *
+     * 1. 先试 `fetch` —— 托管域放行时能真拿到字节，走正常的「另存为」；
+     * 2. 拿不到就把地址交回浏览器（新标签页）：浏览器自己去取不受 CORS 限制，
+     *    用户在自带的播放器里点下载即可。
+     *
+     * **绝不能**用 `<a download>` 裸点：跨域时 `download` 会被忽略，等于把
+     * 整个画布页面导航走（浏览器实测：当前页直接跳到视频地址）。
+     */
+    async saveFromUrl(url, name) {
+      try {
+        const res = await fetch(url)
+        if (res.ok) {
+          await saveBlob(name, await res.blob())
+          return 'saved'
+        }
+      } catch {
+        /* 被 CORS 拦下：字节这条路走不通，落到下面的新标签页 */
       }
-      const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
+      a.target = '_blank'
+      a.rel = 'noopener'
       a.download = name
       a.click()
-      URL.revokeObjectURL(url)
+      return 'opened'
     },
   }
 }

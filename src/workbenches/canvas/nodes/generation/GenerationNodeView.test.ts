@@ -5,7 +5,7 @@ import { createMemoryPlatform } from '../../../../platform/memory'
 import { createCanvasStore } from '../../../../state/workbenches/canvas/store'
 import { CanvasStoreProvider } from '../../storeContext'
 import { PlatformProvider } from '../../../../app/providers/PlatformProvider'
-import { GenerationNodeView } from './GenerationNodeView'
+import { GenerationNodeView, assetIsVideo } from './GenerationNodeView'
 import { registerAllSpecs } from '../../../../domain/canvas/nodeSpecs'
 import { generationSpec } from '../../../../domain/canvas/nodeSpecs/generation'
 import type { NodeViewProps } from '../registry'
@@ -95,6 +95,22 @@ describe('GenerationNodeView · 状态 A（空态）', () => {
 })
 
 describe('GenerationNodeView · 状态 B（有内容）', () => {
+  /**
+   * 用户 2026-10-03：「刚刚生成的视频，只有双击进来（灯箱）才能看」。
+   *
+   * 灯箱按 `assets` 行的 mime 渲染所以是对的；节点此前只认 `data.mode`，
+   * 两者对不上时就会拿 `<img>` 去显示 mp4 —— 页面上是一块空白。
+   */
+  it('★★ 素材类型以 mime 为准：mp4 素材即使节点 mode 还是 image 也算视频', () => {
+    expect(assetIsVideo('video/mp4', 'image')).toBe(true)
+    expect(assetIsVideo('image/png', 'video')).toBe(false)
+  })
+
+  it('拿不到 mime 时才退回节点自己的 mode', () => {
+    expect(assetIsVideo(null, 'video')).toBe(true)
+    expect(assetIsVideo(null, 'image')).toBe(false)
+  })
+
   it('已有 assetHash 时不再显示 `+` 上传入口', () => {
     const node = genNode({ data: { ...generationSpec.createDefaultData(), assetHash: 'h1' } })
     const html = render(baseProps({ node }))

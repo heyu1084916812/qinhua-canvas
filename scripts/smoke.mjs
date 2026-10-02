@@ -14900,7 +14900,218 @@ async function g95(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95]
+/**
+ * G96 远端视频素材（用户 2026-10-03）。
+ *
+ * 背景：Agnes 的成片托管在 `cos-platform-outputs.agnes-ai.cn` /
+ * `platform-outputs.agnes-ai.space`，**没有 CORS 头**，页面里 `fetch` 字节一律
+ * `net::ERR_FAILED`。于是 `assets` 行里只有一条 `url`、`bytes` 是空的。
+ *
+ * 这一组钉两件事：
+ * ① 节点本体按素材 **mime** 认视频（不是按节点自己的 `mode`）—— 否则节点上用
+ *    `<img>` 显示 mp4，用户看到的就是「只有双击进灯箱才能看」；
+ * ② 下载按钮对「只有远端地址」的素材**不再报「素材不在素材库」**：能取字节就
+ *    真落盘，取不到就把地址交回浏览器（新标签页），并把这句话如实说给用户。
+ */
+async function g96(browser) {
+  const g = 'G96 远端视频素材'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  /**
+   * 「取不到字节」这条用**保证解析不了的主机**模拟（RFC 2606 的 `.invalid`），
+   * 不指望某家外网一直不给 CORS，也不占本地端口。
+   */
+  const blocked = '**/g96-blocked.invalid/**'
+  const abortBlocked = (route) => route.abort()
+  await ctx.route(blocked, abortBlocked)
+
+  await configureMockChannel(page)
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  /**
+   * 种一条「只有远端地址、没有字节」的素材，并让模板里的生成节点引用它。
+   *
+   * 直接改表而不是跑一次真生成：真生成要渠道 + 网络 + 好几分钟，一处抖动就分不清
+   * 是「下载坏了」还是「生成坏了」。这里要测的正是**素材只有 url 时**那一段。
+   */
+  const seeded = await page.evaluate(async () => {
+    const openDb = () =>
+      new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+    const db = await openDb()
+    const all = (table) =>
+      new Promise((resolve, reject) => {
+        const req = db.transaction(table, 'readonly').objectStore(table).getAll()
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+    const put = (table, rows) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(table, 'readwrite')
+        const store = tx.objectStore(table)
+        for (const row of rows) store.put(row)
+        tx.oncomplete = () => resolve(true)
+        tx.onerror = () => reject(tx.error)
+      })
+
+    const projectId = location.pathname.split('/').filter(Boolean).pop()
+    /**
+     * 模板建出来的节点是**防抖落库**的（生成节点排在提示词节点之后），
+     * 固定等一拍容易在忙一点的机器上落空 —— 这里明确轮询等它出现。
+     */
+    let target = null
+    for (let i = 0; i < 40 && !target; i += 1) {
+      const rows = await all('nodes')
+      target = rows.find((n) => n.projectId === projectId && n.type === 'generation') ?? null
+      if (!target) await new Promise((r) => setTimeout(r, 250))
+    }
+    if (!target) return { ok: false, nodeId: '' }
+
+    await put('assets', [
+      {
+        id: 'g96-remote-video',
+        hash: 'g96-remote-video',
+        mime: 'video/mp4',
+        /** 同源地址：fetch 得通，用于验「取到字节 → 真落盘」那条 */
+        url: `${location.origin}/`,
+        bytes: new Uint8Array(0),
+        width: 1280,
+        height: 720,
+      },
+    ])
+    await put('nodes', [
+      {
+        ...target,
+        /* 往下挪一点：跟随栏挂在节点上方，贴画布顶边时按钮会落在视口外点不到 */
+        y: 320,
+        title: '远端视频素材',
+        data: { ...target.data, mode: 'video', assetHash: 'g96-remote-video' },
+      },
+    ])
+    return { ok: true, nodeId: target.id }
+  })
+
+  rec(g, '★ 种下「只有远端地址」的视频素材与引用它的节点', seeded.ok, `node=${seeded.nodeId}`)
+  if (!seeded.ok) {
+    await ctx.close()
+    return
+  }
+
+  const reload = async () => {
+    await page.reload({ waitUntil: 'networkidle' })
+    await sleep(800)
+  }
+  const node = () => page.locator(`[data-node-id="${seeded.nodeId}"]`)
+  const media = () => node().locator('[data-node-asset]')
+
+  await reload()
+
+  /** ① 节点本体：按 mime 认视频 */
+  const tag = await media()
+    .first()
+    .evaluate((el) => el.tagName)
+    .catch(() => '')
+  rec(g, '★★ 远端视频素材在节点上按 `<video>` 渲染（不再是一块空白）', tag === 'VIDEO', `tag=${tag}`)
+  const preload = await media().first().getAttribute('preload').catch(() => null)
+  rec(g, '★ 视频节点带 preload=metadata（首帧能出来）', preload === 'metadata', `preload=${preload}`)
+
+  /** 选中节点 → 跟随栏的「下载」 */
+  const triggerDownload = async () => {
+    const n = node()
+    await n.click({ position: { x: 16, y: 16 } })
+    await sleep(400)
+    const btn = page.locator('[data-node-follow-bar] [data-follow-action="download"]')
+    if ((await btn.count()) === 0) return false
+    await btn.click()
+    return true
+  }
+
+  /** ② 取得到字节：真落盘（冒烟里 `showSaveFilePicker` 被摘掉，落到 <a download>） */
+  const gotBtn = await page
+    .locator(`[data-node-id="${seeded.nodeId}"]`)
+    .click({ position: { x: 16, y: 16 } })
+    .then(async () => {
+      await sleep(400)
+      return (await page.locator('[data-node-follow-bar] [data-follow-action="download"]').count()) === 1
+    })
+  rec(g, '★ 有素材的节点，跟随栏里有「下载」', gotBtn)
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 6000 }).catch(() => null),
+    page.locator('[data-node-follow-bar] [data-follow-action="download"]').click(),
+  ])
+  await sleep(300)
+  const okNotice = await page.locator('[data-canvas-notice]').innerText().catch(() => '')
+  rec(
+    g,
+    '★★ 远端能取到字节时下载真的落盘（触发浏览器下载，而不是一句错误提示）',
+    download !== null && !/不在素材库|下载失败/.test(okNotice),
+    `文件=${download ? download.suggestedFilename() : '（没有下载事件）'} notice="${okNotice.trim()}"`,
+  )
+
+  /** ③ 取不到字节（Agnes 成片域那种）：必须退到「交给浏览器」，且不再说不存在 */
+  await page.evaluate(async () => {
+    const openDb = () =>
+      new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+    const db = await openDb()
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('assets', 'readwrite')
+      tx.objectStore('assets').put({
+        id: 'g96-remote-video',
+        hash: 'g96-remote-video',
+        mime: 'video/mp4',
+        url: 'https://g96-blocked.invalid/v.mp4',
+        bytes: new Uint8Array(0),
+        width: 1280,
+        height: 720,
+      })
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = () => reject(tx.error)
+    })
+  })
+  await reload()
+
+  const popupWait = ctx.waitForEvent('page', { timeout: 6000 }).catch(() => null)
+  const clicked = await triggerDownload()
+  const popup = await popupWait
+  await sleep(400)
+  const notice = await page.locator('[data-canvas-notice]').innerText().catch(() => '')
+  rec(g, '（诊断）兜底这条路上「下载」按钮点得到', clicked)
+  rec(
+    g,
+    '★★ 远端取不到字节：不再报「素材不在素材库」，而是说明已交给浏览器',
+    /新标签页/.test(notice) && !/不在素材库/.test(notice),
+    `notice="${notice.trim()}"`,
+  )
+  rec(
+    g,
+    '★★ 兜底真的开了新标签页，且画布没有被导航走',
+    popup !== null && /\/canvas\//.test(page.url()),
+    `新开页=${popup ? '有' : '无'} 当前=${page.url().replace(BASE, '')}`,
+  )
+  if (popup) await popup.close().catch(() => {})
+  await ctx.unroute(blocked, abortBlocked)
+
+  await page.screenshot({ path: `${OUT}/115-g96-remote-video.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

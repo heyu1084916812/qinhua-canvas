@@ -103,6 +103,20 @@ export interface AssetPayload {
 export interface AssetPort {
   /** 素材不存在（尚未落库 / 已被清理）时返回 null */
   read(hash: string): Promise<AssetPayload | null>
+  /**
+   * **远端素材**（视频成片）的地址：Agnes 的产物托管域不带 CORS 头，
+   * 字节根本取不回来（实测 `net::ERR_FAILED`），`assets` 行里只有一条 `url`。
+   *
+   * 这类素材的**播放**靠 `<video src>`、**下载**靠把地址交回浏览器自己取
+   * —— 两条路都要先拿到这个地址，故单开一口；本地素材返回 null。
+   */
+  readUrl(hash: string): Promise<AssetUrlSource | null>
+}
+
+/** 远端素材：可播放/可交给浏览器下载的地址 + 它的类型 */
+export interface AssetUrlSource {
+  url: string
+  mime: string
 }
 
 export interface PickedFile {
@@ -115,6 +129,15 @@ export interface PickedFile {
 export interface FilePort {
   pickFile(accept?: string): Promise<PickedFile | null>
   saveFile(name: string, blob: Blob): Promise<void>
+  /**
+   * 把**远端地址**存成本地文件（用户 2026-10-03：节点下载按钮对视频成片无效）。
+   *
+   * 返回走了哪条路，调用方据此给用户一句话：
+   * - `saved`：取到了字节，已按 `saveFile` 落盘；
+   * - `opened`：托管域不给 CORS 头，字节进不了页面，只能把地址交给浏览器
+   *   （新标签页里用播放器自带的下载）—— 如实上报，别假装存好了。
+   */
+  saveFromUrl(url: string, name: string): Promise<'saved' | 'opened'>
 }
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
