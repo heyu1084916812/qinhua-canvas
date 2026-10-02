@@ -393,7 +393,21 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       recipeForGenerated: (type, node) => {
         if (type !== 'generation') return undefined
         const kind = node.data.mode === 'video' ? 'video' : 'image'
-        const model = kind === 'video' ? current?.videoModel : current?.imageModel
+        /**
+         * ⚠️ **渠道必须跟着「最终那个模型」走**。
+         *
+         * 用户 2026-10-03 报：「我选了模型，它就该用那个模型」——但 agent 建的节点
+         * 落成了 `model: "Agnes Video 2.0"` + `channelId: Comfy-gpt`，请求被中转站
+         * 转发到 Agnes，回的是 Agnes 的「预扣费不足」，画布上什么都拿不到。
+         *
+         * 根因就在这一行：原来只看**面板里选的那一档**（那次是空的，于是拿默认配方
+         * 的渠道），而**计划里模型自己写了 model** —— 计划数据在 `buildLandingCommand`
+         * 里最后压上去，于是「模型是计划的、渠道是默认的」，两半拼出一个不存在的组合。
+         *
+         * 现在：计划里写了模型就以它为准去**反查渠道**；没写才用面板里选的那一档。
+         */
+        const planned = typeof node.data.model === 'string' ? node.data.model.trim() : ''
+        const model = planned || (kind === 'video' ? current?.videoModel : current?.imageModel)
         if (!model) return undefined
         const channelId = channelIdForLogical(enabled, model, current?.channelId)
         return channelId ? { channelId, model } : undefined
