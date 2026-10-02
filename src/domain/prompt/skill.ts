@@ -37,6 +37,14 @@ export interface Skill {
   /** 需要的输入；不满足时按钮禁用并说明原因 */
   inputMode: SkillInputMode
   tags: string[]
+  /**
+   * 展示图（frontmatter 的 `image:`，可空）。
+   *
+   * 技能卡上的**图片 / 效果位**（用户 2026-10-02：卡片要有图片、效果的展示，
+   * 「可以留空，后期我自己添加」）。存 URL 而不是资产 hash —— 技能是可以整包
+   * 分享 / 导入的文本，挂到本站资产表上会一导出就断。
+   */
+  image?: string
   /** 记录时间，仅用于排序与诊断 */
   updatedAt: number
 }
@@ -69,6 +77,8 @@ export const SKILL_LIMITS = {
   nameMax: 24,
   /** 说明上限：tooltip 不该变成一段文章 */
   descriptionMax: 80,
+  /** 展示图 URL 上限：它是一行 frontmatter，不是图床 */
+  imageMax: 500,
   /** 单个导入文件上限 */
   fileSizeMax: 256 * 1024,
 } as const
@@ -89,6 +99,7 @@ export type SkillParseResult =
  *    ---
  *    name: 详情页策划
  *    description: 按母婴产品特性生成详情页结构
+ *    image: https://…/preview.png   # 可选：技能卡上的效果图（留空就是占位）
  *    inputMode: text
  *    tags: [电商, 策划]
  *    ---
@@ -112,6 +123,7 @@ export function parseSkillMarkdown(raw: string, fallbackName: string): SkillPars
   let description = ''
   let inputMode: SkillInputMode = 'text'
   let tags: string[] = []
+  let image = ''
   let body = text
 
   const fm = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text)
@@ -149,6 +161,9 @@ export function parseSkillMarkdown(raw: string, fallbackName: string): SkillPars
           .split(',')
           .map((t) => t.trim().replace(/^["']|["']$/g, ''))
           .filter(Boolean)
+      } else if ((key === 'image' || key === 'preview') && value) {
+        /** `preview` 是别名：从别处拿来的 skill 两种写法都见过 */
+        image = value.trim().slice(0, SKILL_LIMITS.imageMax)
       }
     }
   }
@@ -167,6 +182,7 @@ export function parseSkillMarkdown(raw: string, fallbackName: string): SkillPars
       content,
       inputMode,
       tags: tags.slice(0, 8),
+      ...(image ? { image } : {}),
     },
   }
 }

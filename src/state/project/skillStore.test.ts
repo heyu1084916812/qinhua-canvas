@@ -22,6 +22,27 @@ describe('SkillStore · 用户技能 CRUD', () => {
     expect(list[0].id).toMatch(/^skill/)
   })
 
+  /**
+   * ★ 展示图（技能卡上的图片 / 效果位）要**落库能读回**。
+   *
+   * 这两处是手写映射（`userSkillToRow` / `userSkillFromRow`），加字段时最容易漏 ——
+   * 漏了的表现是「导入时明明有图，进库就没了」，而界面上只是少一张图，不报错。
+   */
+  it('★ 展示图 image 落库能读回（没填就不补空串）', async () => {
+    const s = store()
+    await s.create({
+      name: '带图技能',
+      content: '正文',
+      image: 'https://example.com/preview.png',
+    })
+    await s.create({ name: '无图技能', content: '正文' })
+    const list = await s.loadAll()
+    const withImage = list.find((x) => x.name === '带图技能')
+    const without = list.find((x) => x.name === '无图技能')
+    expect(withImage?.image).toBe('https://example.com/preview.png')
+    expect(without && 'image' in without).toBe(false)
+  })
+
   it('★ 按更新时间倒序（刚改的排最前）', async () => {
     const s = store()
     const a = await s.create({ name: 'A', content: 'a' })

@@ -11,7 +11,12 @@
   z-index: 30;
   box-sizing: border-box;
   width: 300px;
-  max-height: 340px;
+  /*
+   * **固定高度**（用户 2026-10-02：「agentskill 面板要固定尺寸比例，当前点击收藏
+   * 或者我的的时候会变短」）。原先只有 `max-height`，列表长短不同 ⇒ 面板高度
+   * 跟着内容变：切个页签整块浮层就抽一下，点在左侧的星标都要重新找位置。
+   */
+  height: 340px;
   padding: var(--space-2);
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
@@ -22,16 +27,32 @@
 }
 
 /*
- * 「全部」摊开后的尺寸：宽到能放两列卡片，高到能扫一遍。
+ * 「全部」摊开 = **画布正中的模态**（用户 2026-10-02 参考产品图四：
+ * 「放在整个画布的中间，右上角关闭按钮……同时也要固定尺寸比例，当前的是靠近
+ * agent 框，而且不够大，并且不是固定比例的」）。
  *
- * 同时**改成向左生长**（`left:auto` + `right:0`）：锚点是工具条中段的技能按钮，
- * 460px 一路向右会顶出面板、被视口切掉右半边（实测过一眼就看得见）。
+ * 固定 760×570（4:3），视口装不下时按视口收窄。用 `position: fixed` 提到视口层，
+ * 而不是留在工具条旁边 —— 下面那个 `scrim` 负责「点空白处关掉」。
  */
-.menuWide {
-  width: 460px;
-  max-height: 420px;
-  left: auto;
-  right: 0;
+.menuModal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  bottom: auto;
+  transform: translate(-50%, -50%);
+  z-index: 61;
+  width: min(760px, calc(100vw - 64px));
+  height: min(570px, calc(100vh - 64px));
+  padding: var(--space-3);
+  gap: var(--space-2);
+}
+
+/* 模态背板：也当「点空白处关闭」的接面（与素材页、日志面板同一套 --scrim） */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--scrim);
 }
 
 .head {
@@ -131,6 +152,14 @@
   color: var(--text-3);
 }
 
+/* 「导入 Skill」展开后的两把选取器：缩进一格，表示从上一个入口分出来的 */
+.importSplit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: var(--space-2);
+}
+
 .filterRow {
   display: flex;
   align-items: center;
@@ -213,8 +242,8 @@
 }
 .card {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: var(--space-2);
   padding: var(--space-2);
   border: 1px solid transparent;
   border-radius: var(--radius-control);
@@ -227,6 +256,52 @@
 }
 .cardOn {
   border-color: var(--stroke-focus);
+}
+
+/*
+ * 卡片左侧的**图片 / 效果位**（用户 2026-10-02 参考产品图四）。
+ * 图来自技能 frontmatter 的 `image:`；没填就画一枚技能图标占位。
+ */
+.cardShot {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text-3);
+}
+.cardShotImg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cardBody {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cardTag {
+  margin-right: var(--space-1);
+  padding: 0 6px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+.cardUse {
+  flex: 0 0 auto;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-chip);
+  color: var(--text-2);
 }
 .cardName {
   font-family: var(--font-sans);

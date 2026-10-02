@@ -50,6 +50,24 @@ describe('parseSkillMarkdown · 带 frontmatter', () => {
     }
   })
 
+  /**
+   * ★ 技能卡的**图片 / 效果位**（用户 2026-10-02：「每个 skill 有图片、效果的展示
+   * （可以留空，后期我自己添加）」）。写 `image:` 就带上，不写就不带这个字段
+   * （不是空串 —— 「没填」与「填了个空的」在卡片上是同一种呈现，数据上也该是同一种）。
+   */
+  it('★ image / preview 认作展示图；不写就没这个字段', () => {
+    const withImage = parseSkillMarkdown(
+      '---\nname: 带图\nimage: https://example.com/a.png\n---\n正文',
+      'x',
+    )
+    expect(withImage.ok && withImage.skill.image).toBe('https://example.com/a.png')
+    /** `preview` 是别名：别处拿来的 skill 两种写法都见过 */
+    const withPreview = parseSkillMarkdown('---\npreview: https://example.com/b.png\n---\n正文', 'x')
+    expect(withPreview.ok && withPreview.skill.image).toBe('https://example.com/b.png')
+    const without = parseSkillMarkdown('---\nname: 无图\n---\n正文', 'x')
+    expect(without.ok && 'image' in without.skill).toBe(false)
+  })
+
   it('★ Windows 的 CRLF 与 BOM 都能处理（记事本写出来的文件）', () => {
     const crlf = '\uFEFF---\r\nname: 测试\r\n---\r\n正文内容'
     const r = parseSkillMarkdown(crlf, 'x')

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { SkillEntity } from '../../../../domain/prompt/skill'
 import { IconChevronDown, IconClose, IconSkill, IconStar } from '../../toolbar/icons'
 import styles from './SkillMenu.module.css'
@@ -17,6 +17,12 @@ import styles from './SkillMenu.module.css'
  */
 
 export type SkillTab = 'builtin' | 'fav' | 'user'
+
+/**
+ * `useLayoutEffect` 在 SSR 下不执行且会告警；服务端退回 `useEffect`（同样是空操作），
+ * 客户端仍是「绘制前测量」。与 `ParamPicker` 同一手法。
+ */
+const useIsoLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
 
 const TABS: readonly { id: SkillTab; label: string }[] = [
   { id: 'builtin', label: '通用' },
@@ -66,6 +72,25 @@ export function SkillMenu({
   const [wide, setWide] = useState(false)
   /** 大面板里的分类（取自技能自己的 tags；没有标签的技能靠「全部」兜住） */
   const [tag, setTag] = useState<string | null>(null)
+  /**
+   * 「导入」是**二级**：一个入口，两把具体的选取器（`.md` 文件 / Skill 目录）。
+   *
+   * 为什么不合并成一个原生输入：`webkitdirectory` 与 `accept` 互斥，同一个
+   * `<input type="file">` 不可能同时是「选文件」与「选目录」（浏览器层就做不到）。
+   * 所以合并发生在**入口**这一层，用户看到的是一个「导入 Skill」。
+   */
+  const [importOpen, setImportOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const createWrapRef = useRef<HTMLSpanElement | null>(null)
+  /**
+   * 浮层整体左右挪多少像素：**不许越出对话窗**。
+   *
+   * 用户 2026-10-02：「agentskill 面板朝右边超出了画布的页面，显示不全」——
+   * 技能按钮在工具条中段，300px 的浮层一路向右展开，而对话窗本身贴着视口右边，
+   * 于是右半截被切掉。这里量一次实际矩形，越界就往左推回来（`transform`，
+   * 不重排布局）。
+   */
+  const [shift, setShift] = useState(0)
 
   /** 全库的标签清单，按出现次数排（常用的排前面） */
   const tags = useMemo(() => {
@@ -101,29 +126,89 @@ export function SkillMenu({
     return [...hit].sort((a, b) => a.name.localeCompare(b.name, 'zh'))
   }, [tab, builtin, user, favorites, query])
 
+  /** 点别处收起「创建」二级菜单（悬停展开出去的，得有地方收回来） */
+  useEffect(() => {
+    if (!createOpen) return
+    const onDown = (e: PointerEvent) => {
+      if (!createWrapRef.current?.contains(e.target as Node)) {
+        setCreateOpen(false)
+        setImportOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    return () => document.removeEventListener('pointerdown', onDown, true)
+  }, [createOpen])
+
+  /**
+   * 越界就往左推回对话窗内（见 `shift` 的说明）。
+   *
+   * 量的是**含当前位移**的矩形，所以只把「还差多少」加上去；依赖里不含 `shift`，
+   * 不会自己绕圈。大面板是居中的模态，不参与这套。
+   */
+  useIsoLayoutEffect(() => {
+    if (wide) {
+      setShift(0)
+      return
+    }
+    const el = rootRef.current
+    if (!el) return
+    const bounds = (el.closest('[data-agent-panel]') ?? document.documentElement).getBoundingClientRect()
+    const rect = el.getBoundingClientRect()
+    const pad = 8
+    let dx = 0
+    if (rect.right > bounds.right - pad) dx = bounds.right - pad - rect.right
+    if (rect.left + dx < bounds.left + pad) dx = bounds.left + pad - rect.left
+    if (dx !== 0) setShift((prev) => prev + dx)
+  }, [wide, tab, query, cards.length, list.length])
+
   return (
-    <div
-      className={wide ? `${styles.menu} ${styles.menuWide}` : styles.menu}
-      data-agent-skill-menu
-      role="dialog"
-      aria-label="选择技能"
-    >
+    <>
+      {/*
+        「全部」摊开后是**画布正中的模态**（用户 2026-10-02，参考产品图四）：
+        固定尺寸比例、右上角关闭、点空白处也能关。
+        它挂在工具条里，但 `position: fixed` 会把它提到视口正中渲染。
+      */}
+      {wide && <div className={styles.scrim} data-agent-skill-scrim onPointerDown={onClose} />}
+      <div
+        ref={rootRef}
+        className={wide ? `${styles.menu} ${styles.menuModal}` : styles.menu}
+        style={shift !== 0 ? { transform: `translateX(${shift}px)` } : undefined}
+        data-agent-skill-menu
+        data-agent-skill-modal={wide ? '' : undefined}
+        role="dialog"
+        aria-label="选择技能"
+      >
       <div className={styles.head}>
         <span className={styles.title}>Skill</span>
         <span className={styles.headGap} />
-        <span className={styles.createWrap}>
+        {/*
+          「创建」**悬停就展开**（用户 2026-10-02：「这个创建不用点击，悬停就会出现选项」）。
+          悬停展开之后必须有地方收：`pointerleave` 收起，点面板别处由上面那个
+          document 监听收起。点一下也能开（键盘 / 触摸走这条路），只是不再「点一下关」——
+          指针刚进按钮就已经展开了，再点一下反而关掉会让人以为点坏了。
+        */}
+        <span
+          className={styles.createWrap}
+          ref={createWrapRef}
+          onPointerEnter={() => setCreateOpen(true)}
+          onPointerLeave={() => {
+            setCreateOpen(false)
+            setImportOpen(false)
+          }}
+        >
           <button
             type="button"
             className={styles.headBtn}
             aria-expanded={createOpen}
             data-agent-skill-create
-            onClick={() => setCreateOpen((v) => !v)}
+            onFocus={() => setCreateOpen(true)}
+            onClick={() => setCreateOpen(true)}
           >
             创建
             <IconChevronDown size={12} />
           </button>
           {createOpen && (
-            <div className={styles.createMenu} role="menu">
+            <div className={styles.createMenu} role="menu" data-agent-skill-create-menu>
               <button
                 type="button"
                 role="menuitem"
@@ -134,26 +219,47 @@ export function SkillMenu({
                 <span className={styles.createLabel}>创建新的 Skill</span>
                 <span className={styles.createHint}>去技能库里写一份新的</span>
               </button>
+              {/*
+                导入是**一个入口**（用户 2026-10-02：「导入的按钮把 md 文件和文件夹
+                变成一个按钮」）。点开才分「.md 文件 / Skill 目录」两把选取器 ——
+                浏览器不允许一个文件选择器同时选文件和目录，这一层分叉只能留在
+                入口内部，不能真的只留一个原生 input。
+              */}
               <button
                 type="button"
                 role="menuitem"
                 className={styles.createItem}
-                data-agent-skill-import-file
-                onClick={onImportFiles}
+                aria-expanded={importOpen}
+                data-agent-skill-import
+                onClick={() => setImportOpen(true)}
               >
-                <span className={styles.createLabel}>导入 .md 文件</span>
-                <span className={styles.createHint}>上传已有的 skill 文件</span>
+                <span className={styles.createLabel}>导入 Skill</span>
+                <span className={styles.createHint}>已有的 .md 文件，或整包 Skill 目录</span>
               </button>
-              <button
-                type="button"
-                role="menuitem"
-                className={styles.createItem}
-                data-agent-skill-import-folder
-                onClick={onImportFolder}
-              >
-                <span className={styles.createLabel}>导入文件夹</span>
-                <span className={styles.createHint}>整包 skill 目录一起导入</span>
-              </button>
+              {importOpen && (
+                <div className={styles.importSplit}>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={styles.createItem}
+                    data-agent-skill-import-file
+                    onClick={onImportFiles}
+                  >
+                    <span className={styles.createLabel}>导入 .md 文件</span>
+                    <span className={styles.createHint}>上传已有的 skill 文件</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={styles.createItem}
+                    data-agent-skill-import-folder
+                    onClick={onImportFolder}
+                  >
+                    <span className={styles.createLabel}>导入 Skill 目录</span>
+                    <span className={styles.createHint}>整包 skill 目录一起导入</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </span>
@@ -253,8 +359,32 @@ export function SkillMenu({
                 data-agent-skill-card={s.id}
                 onClick={() => onSelect(s.id === activeId ? null : s.id)}
               >
-                <span className={styles.cardName}>{s.name}</span>
-                {s.description && <span className={styles.cardDesc}>{s.description}</span>}
+                {/*
+                  **图片 / 效果位**（用户 2026-10-02 参考产品图四：「每个 skill 有图片、
+                  效果的展示（可以留空，后期我自己添加）」）。
+
+                  图从技能自己的 frontmatter `image:` 来（见 `skill.ts`），
+                  没填就画一枚技能图标占位 —— 位置先占住，用户以后往 md 里补一行就有图。
+                */}
+                <span className={styles.cardShot} data-agent-skill-shot={s.id}>
+                  {s.image ? (
+                    <img className={styles.cardShotImg} src={s.image} alt="" />
+                  ) : (
+                    <IconSkill size={18} />
+                  )}
+                </span>
+                <span className={styles.cardBody}>
+                  <span className={styles.cardName}>
+                    {s.tags[0] && <span className={styles.cardTag}>{s.tags[0]}</span>}
+                    {/**
+                     * 名字单独一个锚点：卡片里现在还有分类与效果图，
+                     * 「整张卡的 innerText 第一行」已经不等于名字了（冒烟踩过）。
+                     */}
+                    <span data-agent-skill-card-name={s.id}>{s.name}</span>
+                  </span>
+                  {s.description && <span className={styles.cardDesc}>{s.description}</span>}
+                </span>
+                <span className={styles.cardUse}>使用</span>
               </button>
             ))
           )}
@@ -312,6 +442,7 @@ export function SkillMenu({
         )}
       </div>
       )}
-    </div>
+      </div>
+    </>
   )
 }

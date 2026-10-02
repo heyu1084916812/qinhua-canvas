@@ -201,9 +201,10 @@
 
 .card {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-1);
+  /* 左边图片 / 效果位、右边文字（用户 2026-10-02：「也要有图片、效果的展示」） */
+  flex-direction: row;
+  align-items: stretch;
+  gap: var(--space-3);
   padding: var(--space-3);
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
@@ -217,6 +218,44 @@
 .card:hover {
   background: var(--bg-hover);
   border-color: var(--stroke-focus);
+}
+
+/*
+ * 卡片左侧的**图片 / 效果位**。
+ *
+ * 图来自技能 frontmatter 的 `image:`（URL）；没填就画一块占位把位置占住 ——
+ * 用户 2026-10-02：「可以留空，后期我自己添加」。
+ */
+.cardShot {
+  flex: 0 0 auto;
+  width: 96px;
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+.cardShotImg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cardShotEmpty {
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+.cardBody {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
 }
 
 .cardName {

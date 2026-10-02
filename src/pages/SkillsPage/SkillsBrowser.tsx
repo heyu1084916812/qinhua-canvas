@@ -222,10 +222,25 @@ export function SkillsBrowser({
                 data-skills-builtin-card
                 onClick={() => onPick({ source: 'builtin', skill: s })}
               >
-                <span className={styles.cardSource}>内置技能</span>
-                <span className={styles.cardName}>{s.name}</span>
-                {s.description && <span className={styles.cardDesc}>{s.description}</span>}
-                <span className={styles.cardMeta}>内置 · {INPUT_MODE_LABEL[s.inputMode]}</span>
+                {/*
+                  **图片 / 效果位**（用户 2026-10-02：「我项目的 skill 菜单也要有图片、
+                  效果的展示，不能单单是一个框里面加上内容」）。
+                  图从技能 frontmatter 的 `image:` 来；没填就画一枚占位，
+                  位置先占住，用户以后往 md 里补一行就有图。
+                */}
+                <span className={styles.cardShot} data-skill-shot={s.id}>
+                  {s.image ? (
+                    <img className={styles.cardShotImg} src={s.image} alt="" />
+                  ) : (
+                    <span className={styles.cardShotEmpty}>效果图</span>
+                  )}
+                </span>
+                <span className={styles.cardBody}>
+                  <span className={styles.cardSource}>内置技能</span>
+                  <span className={styles.cardName}>{s.name}</span>
+                  {s.description && <span className={styles.cardDesc}>{s.description}</span>}
+                  <span className={styles.cardMeta}>内置 · {INPUT_MODE_LABEL[s.inputMode]}</span>
+                </span>
               </button>
             ))
           ))}
@@ -249,10 +264,19 @@ export function SkillsBrowser({
                 data-skill-source="user"
                 onClick={() => onPick({ source: 'user', skill: s })}
               >
-                <span className={styles.cardSource}>我的技能</span>
-                <span className={styles.cardName}>{s.name}</span>
-                {s.description && <span className={styles.cardDesc}>{s.description}</span>}
-                <span className={styles.cardMeta}>我的 · {INPUT_MODE_LABEL[s.inputMode]}</span>
+                <span className={styles.cardShot} data-skill-shot={s.id}>
+                  {s.image ? (
+                    <img className={styles.cardShotImg} src={s.image} alt="" />
+                  ) : (
+                    <span className={styles.cardShotEmpty}>效果图</span>
+                  )}
+                </span>
+                <span className={styles.cardBody}>
+                  <span className={styles.cardSource}>我的技能</span>
+                  <span className={styles.cardName}>{s.name}</span>
+                  {s.description && <span className={styles.cardDesc}>{s.description}</span>}
+                  <span className={styles.cardMeta}>我的 · {INPUT_MODE_LABEL[s.inputMode]}</span>
+                </span>
               </button>
             ))
           ))}

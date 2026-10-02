@@ -48,6 +48,7 @@ function userSkillFromRow(row: unknown): UserSkill | null {
     description: typeof r.description === 'string' ? r.description : '',
     inputMode: asInputMode(r.inputMode),
     tags: asTags(r.tags),
+    ...(typeof r.image === 'string' && r.image ? { image: r.image } : {}),
     updatedAt: typeof r.updatedAt === 'number' ? r.updatedAt : 0,
   }
 }
@@ -61,6 +62,7 @@ function userSkillToRow(skill: UserSkill): Record<string, unknown> {
     content: skill.content,
     inputMode: skill.inputMode,
     tags: skill.tags,
+    ...(skill.image ? { image: skill.image } : {}),
     updatedAt: skill.updatedAt,
   }
 }
@@ -78,6 +80,7 @@ function builtinSkillFromRow(row: Record<string, unknown>): BuiltinSkill | null 
     description: typeof row.description === 'string' ? row.description : '',
     inputMode: asInputMode(row.inputMode),
     tags: asTags(row.tags),
+    ...(typeof row.image === 'string' && row.image ? { image: row.image } : {}),
     updatedAt: typeof row.updatedAt === 'number' ? row.updatedAt : 0,
   }
 }
@@ -90,6 +93,7 @@ function builtinSkillToRow(skill: BuiltinSkill): Record<string, unknown> {
     content: skill.content,
     inputMode: skill.inputMode,
     tags: skill.tags,
+    ...(skill.image ? { image: skill.image } : {}),
     updatedAt: skill.updatedAt,
   }
 }
@@ -105,6 +109,7 @@ export interface SkillStore {
     description?: string
     inputMode?: SkillInputMode
     tags?: string[]
+    image?: string
   }): Promise<UserSkill>
   save(skill: UserSkill): Promise<void>
   remove(id: string): Promise<void>
@@ -222,6 +227,7 @@ export function createSkillStore(storage: StoragePort): SkillStore {
         description: (input.description ?? '').slice(0, SKILL_LIMITS.descriptionMax),
         inputMode: input.inputMode ?? 'text',
         tags: (input.tags ?? []).slice(0, 8),
+        ...(input.image ? { image: input.image.slice(0, SKILL_LIMITS.imageMax) } : {}),
         updatedAt: Date.now(),
       }
       await storage.put('skills', userSkillToRow(skill) as never)
