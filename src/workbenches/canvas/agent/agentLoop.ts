@@ -130,7 +130,7 @@ export async function runAgentTurn(
       result = await askModel(messages, deps)
     } catch (e) {
       // 渠道错误（401 / 限流）**不回填**：那是配置问题，模型改不了（§4）
-      return { kind: 'error', message: e instanceof Error ? e.message : String(e), messages }
+      return { kind: 'error', message: e instanceof Error ? e.message : errText(e), messages }
     }
 
     const calls = result.toolCalls ?? []
@@ -200,7 +200,7 @@ export async function runAgentTurn(
         try {
           wrote = await deps.executeWrite(call.name, args)
         } catch (e) {
-          wrote = { ok: false, problems: [e instanceof Error ? e.message : String(e)] }
+          wrote = { ok: false, problems: [e instanceof Error ? e.message : errText(e)] }
         }
         messages.push(toolResult(call.id, wrote))
         continue
@@ -214,7 +214,7 @@ export async function runAgentTurn(
       try {
         outcome = await deps.executeRead(call.name, args)
       } catch (e) {
-        outcome = { ok: false, error: e instanceof Error ? e.message : String(e) }
+        outcome = { ok: false, error: e instanceof Error ? e.message : errText(e) }
       }
       messages.push(toolResult(call.id, outcome))
     }
@@ -241,4 +241,32 @@ export async function resumeAgentTurn(
   deps: AgentLoopDeps,
 ): Promise<AgentLoopOutcome> {
   return runAgentTurn([...history, toolResult(callId, payload)], deps)
+}
+
+/**
+ * 任意抛出物 → **人能读的一句话**。
+ *
+ * 用户 2026-10-03 报「agent 出错了但界面上只写 `出错：[object Object]`」——
+ * 因为错误对象不是 `Error` 实例（渠道层抛的是 `{kind, detail}` 这种普通对象），
+ * `String(e)` 就变成 `[object Object]`，等于**把真实原因吞了**。修图 / 修视频
+ * 全靠这句话，所以先把它修对。
+ */
+export function errText(e: unknown): string {
+  if (e instanceof Error) return e.message
+  if (typeof e === 'string') return e
+  if (e && typeof e === 'object') {
+    const o = e as Record<string, unknown>
+    for (const k of ['message', 'detail', 'raw', 'reason', 'error']) {
+      const v = o[k]
+      if (typeof v === 'string' && v.trim()) return v
+    }
+    try {
+      const s = JSON.stringify(e)
+      if (s && s !== '{}') return s.slice(0, 300)
+    } catch {
+      /* 循环引用之类，走最后的兜底 */
+    }
+    return '[错误对象没有可读信息]'
+  }
+  return String(e)
 }

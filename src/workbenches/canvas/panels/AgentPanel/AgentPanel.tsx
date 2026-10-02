@@ -61,6 +61,7 @@ import {
   IconSkill,
 } from '../../toolbar/icons'
 import { toConversation } from './conversation'
+import { errText } from '../../agent/agentLoop'
 import { loadAssetUrl, useAsset } from '../../hooks/useAsset'
 import { ModelIcon } from '../../../../features/shared/modelIcon/ModelIcon'
 /**
@@ -367,7 +368,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             await execution.runNode(id)
             out.push({ nodeId: id, ok: true })
           } catch (e) {
-            out.push({ nodeId: id, ok: false, error: e instanceof Error ? e.message : String(e) })
+            out.push({ nodeId: id, ok: false, error: e instanceof Error ? e.message : errText(e) })
           }
         }
         return out
@@ -835,7 +836,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           await skills.create(parsed.skill)
           ok += 1
         } catch (e) {
-          failed.push(`${file.name}：${e instanceof Error ? e.message : String(e)}`)
+          failed.push(`${file.name}：${e instanceof Error ? e.message : errText(e)}`)
         }
       }
       await skills.reload()
