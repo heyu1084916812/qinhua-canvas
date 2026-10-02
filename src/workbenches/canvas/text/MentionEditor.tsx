@@ -339,6 +339,16 @@ export const MentionEditor = forwardRef<
     insertMention(token: string) {
       const el = ref.current
       if (!el) return
+      /**
+       * 空编辑器里浏览器常垫一个**占位 `<br>`**（`contenteditable` 的默认行为）。
+       * 不清理的话 chip 会插在它后面 —— 读回来就是「先一个空行、再一个引用」，
+       * 用户看到的是「艾特之后上方多出一块空白」（2026-10-02 报的正是这个）。
+       *
+       * 只在「整段内容就是这个 `<br>`」时清：用户自己敲出来的空行一个都不动。
+       */
+      if (el.childNodes.length === 1 && (el.firstChild as HTMLElement)?.tagName === 'BR') {
+        el.replaceChildren()
+      }
       const sel = window.getSelection()
       const inside = sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)
       const chip = makeChip(document, token)

@@ -13785,6 +13785,18 @@ async function g95(browser) {
     `chip=「${imageModelChipText}」期望含「${pickImageModel}」`,
   )
   await page.screenshot({ path: `${OUT}/118-g95-agent-model-chip.png` })
+  /**
+   * ★★ 正文里**不许有多出来的空行**（用户 2026-10-02：「图二中我艾特模型之后上方出现
+   * 空白的区域」）。空编辑器里浏览器那个占位 `<br>` 不清掉的话，chip 会落在它后面，
+   * 读出来就是「先一个空行、再一个引用」。
+   */
+  const editorPlain = await page.locator('[data-agent-input]').innerText()
+  rec(
+    g,
+    '★★ 艾特 / 选模型之后正文里没有多出来的空行',
+    !editorPlain.startsWith('\n') && !editorPlain.includes('\n\n'),
+    JSON.stringify(editorPlain.slice(0, 40)),
+  )
 
   /**
    * 用户 2026-10-02：「不要有选择渠道」——
