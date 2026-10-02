@@ -290,3 +290,34 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
     ).rejects.toMatchObject({ appError: { kind: 'parse', raw: '提交响应里没有 task_id' } })
   })
 })
+
+describe('视频轮询 · 限流不该把任务判死（用户 2026-10-03 实测）', () => {
+  it('★★ 中途吃到 429「查询过于频繁」，仍应继续轮询直到 completed', async () => {
+    let polls = 0
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest): Promise<NetworkResponse> => {
+        const url = req.url
+        if (req.method === 'POST') {
+          return json(200, { id: 'task_1', video_id: 'video_1', status: 'queued' })
+        }
+        if (url.includes('/agnesapi')) {
+          polls += 1
+          /** 第 1 次轮询就限流（真实抓包里的形状）；第 2 次才 completed + url */
+          if (polls === 1) return json(429, { error: { code: 429, message: '查询过于频繁，请稍后重试' } })
+          return json(200, { status: 'completed', internal_status: 'completed', internal_progress: 100, url: 'https://x/v.mp4' })
+        }
+        if (url.includes('v.mp4')) return json(200, {})
+        return json(404, {})
+      },
+    })
+    const adapter = createOpenAiVideoAdapter(config, platform, {
+      sleep: async () => {},
+      now: () => 0,
+      pollIntervalMs: 0,
+      pollTimeoutMs: 60_000,
+    })
+    const assets = await adapter.generateVideo(videoRequest, new AbortController().signal)
+    expect(assets.length).toBe(1)
+    expect(polls).toBeGreaterThanOrEqual(2)
+  })
+})

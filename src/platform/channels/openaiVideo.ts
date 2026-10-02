@@ -374,9 +374,12 @@ export function createOpenAiVideoAdapter(
       videoId ? `${submitUrl}/${encodeURIComponent(videoId)}` : null,
     ].filter((u): u is string => !!u)
     const startedAt = now()
+    /** 本轮是否吃到限流（429）：限流**不是任务失败**，退避后再来 */
+    let backoffSteps = 0
     for (;;) {
       let payload: unknown = null
       let lastError: unknown = null
+      let rateLimited = false
       for (const url of candidates) {
         try {
           const res = await deps.network.request(
@@ -392,6 +395,22 @@ export function createOpenAiVideoAdapter(
              */
             const detail = await res.text().catch(() => '')
             if (res.status === 404 || (res.status === 400 && /task_not_exist/i.test(detail))) continue
+            /**
+             * ⚠️ **429 = 「查询过于频繁」，是限流，不是任务失败**。
+             *
+             * 用户 2026-10-03 实测（Agnes Video 2.0 手建节点）：任务明明已经
+             * `status:"completed"` + `progress:100` + **url 有值**，但我们中间吃到一个
+             * `429 {"code":429,"message":"查询过于频繁，请稍后重试"}` 就直接把整条运行
+             * 判成失败 —— 画布上于是「什么都没有」，日志写「失败 · 输出 0 个」。
+             *
+             * 现在：限流只记一笔、退避后再轮询，绝不因此终止任务。
+             */
+            if (res.status === 429) {
+              rateLimited = true
+              backoffSteps = Math.min(backoffSteps + 1, 3)
+              lastError = new ChannelError(classifyError(null, res.status, detail).error)
+              continue
+            }
             const { error } = classifyError(null, res.status, detail)
             throw new ChannelError(error)
           }
@@ -423,12 +442,15 @@ export function createOpenAiVideoAdapter(
           })
         }
       } else if (lastError) {
-        throw lastError
+        /** 只有「非限流」的错误才终止；限流退避后继续（见上面 429 那段） */
+        if (!rateLimited) throw lastError
       }
       if (now() - startedAt >= pollTimeout) {
         throw new ChannelError({ kind: 'network', detail: 'timeout' })
       }
-      await sleepFn(pollInterval, signal)
+      /** 吃到限流就翻倍等待（4s → 8s → 16s → 24s 封顶），把请求频率压下来 */
+      await sleepFn(pollInterval * (rateLimited ? 2 ** backoffSteps : 1), signal)
+      if (!rateLimited) backoffSteps = 0
     }
   }
 
