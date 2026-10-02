@@ -13682,6 +13682,23 @@ async function g95(browser) {
     `档=${modelSections.join(',')} 跳转=${modelJumps.join(',')} 可选=${models}`,
   )
   /**
+   * ★★ 图片档要把**前端所有**显示名列出来（用户 2026-10-02：「把前端所有的模型写上去，
+   * 除了对话模型」）—— 不再按「当下有没有渠道能提供」筛一道。
+   *
+   * 判据挑两个**mock 渠道提供不了**的固定显示名（GPT Image 2.5 Flare / Midjourney）：
+   * 只要它们还在，就说明「筛可用性」那条已经撤掉，而不是碰巧列表非空。
+   */
+  const imageNames = await page
+    .locator('[data-param-popup="agent-model"] button[data-param-in="image"]')
+    .allInnerTexts()
+  rec(
+    g,
+    '★★ 图片档列全前端显示名（含 mock 渠道提供不了的固定名）',
+    imageNames.some((t) => t.includes('GPT Image 2.5 Flare')) &&
+      imageNames.some((t) => t.includes('Midjourney')),
+    `图片档=${JSON.stringify(imageNames.map((t) => t.split('\n')[0]))}`,
+  )
+  /**
    * 每档**一屏只摆 5 行**（用户 2026-10-02：「模型选择面板太高了，只需要展示前五个
    * 就行，可以下拉继续显示剩下的」）。判据取「这一段的容器被标了可滚」。
    */
@@ -13756,11 +13773,14 @@ async function g95(browser) {
   await page.locator('[data-param-popup="agent-model"] [data-param-in="image"]').first().click()
   await sleep(400)
   const imageModelChipText = (
-    (await page.locator('[data-agent-model-chip="image"]').innerText().catch(() => '')) ?? ''
-  ).trim()
+    (await page
+      .locator('[data-agent-input] [data-mention-kind="model"]')
+      .allInnerTexts()
+      .catch(() => [])) ?? []
+  ).join('|')
   rec(
     g,
-    '★★ 选中的图片模型变成输入区里的一枚 chip（参与这次对话）',
+    '★★ 选中的图片模型变成**正文里**的一枚 chip（参与这次对话）',
     pickImageModel !== '' && imageModelChipText.includes(pickImageModel),
     `chip=「${imageModelChipText}」期望含「${pickImageModel}」`,
   )
@@ -13868,7 +13888,12 @@ async function g95(browser) {
     .first()
     .click()
   await sleep(400)
-  const mentionChip = page.locator('[data-agent-input] [data-token]').first()
+  /**
+   * 取**节点**那一枚：这次挑的就是节点引用。不能拿 `.first()` —— 前面选生成模型时
+   * 也会往正文里落一枚 `model:` chip（用户 2026-10-02：「选择模型后也是要加入到
+   * 对话框中参与对话」），第一枚未必是刚点的这一颗。
+   */
+  const mentionChip = page.locator('[data-agent-input] [data-mention-kind="node"]').first()
   const mentionTokenText = (await mentionChip.getAttribute('data-token').catch(() => '')) ?? ''
   rec(
     g,
@@ -14001,6 +14026,18 @@ async function g95(browser) {
       (await page.locator('[data-agent-skill-create-menu]').count()) === 1,
     )
     /**
+     * ★★ 展开之后**把指针移开也不会收**（用户 2026-10-02：「agentskill 面板的创建当前
+     * 悬停的时候会出现面板但是移开位置后就消失了」）。收起来的时机是「点到别处」——
+     * 否则用户想从按钮挪到菜单项上，半路就没了。
+     */
+    await page.mouse.move(5, 5)
+    await sleep(350)
+    rec(
+      g,
+      '★★ 「创建」移开指针仍留在原地（不会一点就飘走）',
+      (await page.locator('[data-agent-skill-create-menu]').count()) === 1,
+    )
+    /**
      * ★★ 展开后是两条路：新建 skill、**导入 skill**（用户 2026-10-02：「导入的按钮把
      * md 文件和文件夹变成一个按钮」）。「导入」点开再分文件 / 目录两把选取器 ——
      * 浏览器不允许一个选择器同时选文件和目录，这一层分叉只能留在入口内部。
@@ -14020,8 +14057,8 @@ async function g95(browser) {
       (await page.locator('[data-agent-skill-import-file]').count()) === 1 &&
         (await page.locator('[data-agent-skill-import-folder]').count()) === 1,
     )
-    /** 收起来继续下面的用例：把指针移开就会收起 */
-    await page.mouse.move(5, 5)
+    /** 收起来继续下面的用例：现在只有「点到别处」才收（这里整块技能菜单一起关） */
+    await page.keyboard.press('Escape')
     await sleep(200)
 
     /**
@@ -14105,11 +14142,16 @@ async function g95(browser) {
       ''
     await page.locator('[data-agent-skill-card]').first().click()
     await sleep(400)
-    const chipFromCard =
-      ((await page.locator('[data-agent-skill-chip]').innerText().catch(() => '')) ?? '').trim()
+    /** 技能 chip 现在**在正文里**（与 @ 引用同一处），不是正文外面单独一行 */
+    const chipFromCard = (
+      (await page
+        .locator('[data-agent-input] [data-mention-kind="skill"]')
+        .allInnerTexts()
+        .catch(() => [])) ?? []
+    ).join('|')
     rec(
       g,
-      '★★ 在大面板里点一张卡片 = 用这个技能（不是去编辑）',
+      '★★ 在大面板里点一张卡片 = 用这个技能（正文里落成 chip，不是去编辑）',
       cardName !== '' && chipFromCard.includes(cardName),
       `chip=「${chipFromCard}」期望含「${cardName}」`,
     )
@@ -14128,12 +14170,14 @@ async function g95(browser) {
         .split('\n')[0] ?? ''
     await page.locator('[data-agent-skill-option]').nth(1).click()
     await sleep(400)
-    const skillChipEl = page.locator('[data-agent-skill-chip]')
-    const skillChipText = ((await skillChipEl.innerText().catch(() => '')) ?? '').trim()
+    const skillChipEl = page.locator('[data-agent-input] [data-mention-kind="skill"]')
+    const skillChipText = (
+      (await skillChipEl.allInnerTexts().catch(() => [])) ?? []
+    ).join('|')
     rec(
       g,
-      '★★ 选中的技能在输入框里显示成 chip（代表这次用了它）',
-      (await skillChipEl.count()) === 1 &&
+      '★★ 选中的技能在输入框**正文里**显示成 chip（代表这次用了它）',
+      (await skillChipEl.count()) >= 1 &&
         firstSkillName !== '' &&
         skillChipText.includes(firstSkillName),
       `chip=「${skillChipText}」期望含「${firstSkillName}」`,
@@ -14190,19 +14234,26 @@ async function g95(browser) {
       }),
     )
   const rectsBeforeAsset = await geomOf()
+  /** 上传前正文里已有的节点引用数（前面 @ 引用留了一枚，别把它算成本次的） */
+  const nodeChipsBeforeUpload = await page
+    .locator('[data-agent-input] [data-mention-kind="node"]')
+    .count()
   await page.locator('[data-agent-file]').setInputFiles({
     name: 'ref.png',
     mimeType: 'image/png',
     buffer: Buffer.from(PNG_IMPORT_BASE64, 'base64'),
   })
   await sleep(900)
-  const assetChips = await page.locator('[data-agent-asset]').count()
+  /** 素材现在落成**正文里的一枚引用 chip**（与 @ 图片节点同一处） */
+  const assetChips = await page
+    .locator('[data-agent-input] [data-mention-kind="node"]')
+    .count()
   const nodesAfterAsset = await page.locator('[data-node-type]').count()
   rec(
     g,
-    '★★ 给一张图 → 落成画布节点，并在对话窗里变成可移除的标签',
-    assetChips === 1 && nodesAfterAsset === nodesBeforeAsset + 1,
-    `标签=${assetChips} 节点 ${nodesBeforeAsset}→${nodesAfterAsset}`,
+    '★★ 给一张图 → 落成画布节点，并在**正文里**变成一枚引用 chip',
+    assetChips === nodeChipsBeforeUpload + 1 && nodesAfterAsset === nodesBeforeAsset + 1,
+    `chip ${nodeChipsBeforeUpload}→${assetChips} 节点 ${nodesBeforeAsset}→${nodesAfterAsset}`,
   )
 
   /**
@@ -14223,12 +14274,25 @@ async function g95(browser) {
     freshNodes.length === 1 && !overlapsOld,
     `新节点=${freshNodes.length} 压人=${overlapsOld}`,
   )
-  await page.locator('[data-agent-asset-remove]').first().click()
-  await sleep(500)
+  /**
+   * ★★ 那枚 chip 要**删得掉**（用户 2026-10-02：「艾特模型后删除不了」）。
+   *
+   * 删法是退格：光标落在 chip 后面按一次退格 → 整块拿走。这条同时钉住两件事：
+   * ① 编辑器接管了紧贴 chip 的退格；② 删掉的是**引用 chip 本身**，不是它旁边的空白。
+   */
+  await page.locator('[data-agent-input]').click()
+  await page.keyboard.press('End')
+  await sleep(150)
+  await page.keyboard.press('Backspace')
+  await sleep(400)
+  const afterBackspace = await page
+    .locator('[data-agent-input] [data-mention-kind="node"]')
+    .count()
   rec(
     g,
-    '★ 素材标签能移除（节点留在画布上，由用户自己在画布上处置）',
-    (await page.locator('[data-agent-asset]').count()) === 0,
+    '★★ 正文里的引用 chip 用退格能整块删掉（节点留在画布上）',
+    afterBackspace === assetChips - 1,
+    `退格后 chip=${afterBackspace}（原 ${assetChips}）`,
   )
 
   /**
@@ -14555,21 +14619,24 @@ async function g95(browser) {
   await sleep(400)
   await page.locator('[data-agent-pick-selection]').click()
   await sleep(900)
-  const pickedChips = await page.locator('[data-agent-asset]').count()
+  const pickedChips = await page
+    .locator('[data-agent-input] [data-mention-kind="node"]')
+    .count()
   const nodesAfterPick = await page.locator('[data-node-type]').count()
   rec(
     g,
-    '★★ 取画布上选中的节点当素材（记进会话，不重复建节点）',
+    '★★ 取画布上选中的节点当素材（落成正文 chip，不重复建节点）',
     pickedChips >= 1 && nodesAfterPick === nodesBeforePick,
-    `标签=${pickedChips} 节点 ${nodesBeforePick}→${nodesAfterPick}`,
+    `chip=${pickedChips} 节点 ${nodesBeforePick}→${nodesAfterPick}`,
   )
   /**
    * ★★ 标签要跟 @ 图片节点**同一种**（用户 2026-10-02：「把选中的节点当作这次的
    * 素材，放进输入框的时候应该也是和艾特图片节点的功能是一样的，目前好像是
    * 一些节点 id 一样的东西」）—— 缩略图 + 名字，不留裸 id。
    */
-  const pickedChipText = ((await page.locator('[data-agent-asset]').first().innerText()) ?? '').trim()
-  const pickedThumb = await page.locator('[data-agent-asset] img').count()
+  const pickedChipEl = page.locator('[data-agent-input] [data-mention-kind="node"]').first()
+  const pickedChipText = ((await pickedChipEl.innerText().catch(() => '')) ?? '').trim()
+  const pickedThumb = await pickedChipEl.locator('img').count()
   rec(
     g,
     '★★ 素材标签变成「缩略图 + 名字」（不再是 node_xxx 那种裸 id）',
@@ -14583,7 +14650,10 @@ async function g95(browser) {
    * 节点名可能很长（用户自己的命名），标签又是「缩略图 + 名字 + 移除钮」同排 ——
    * 这正是最容易把文字挤出容器的形状。断言到几何上，不靠眼看。
    */
-  const chipBox = await page.locator('[data-agent-asset]').first().boundingBox()
+  const chipBox = await page
+    .locator('[data-agent-input] [data-mention-kind="node"]')
+    .first()
+    .boundingBox()
   const panelBox = await panel.boundingBox()
   rec(
     g,
