@@ -1,0 +1,76 @@
+/*
+ * @ 引用编辑器（MentionEditor）。
+ *
+ * 外壳**不带边框**：它住在对话窗那个圆角输入盒子里，边框由盒子给
+ * （`AgentPanel.module.css` 的 `.composer`）—— 再画一圈就是「盒子套盒子」。
+ */
+.editor {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  max-height: 120px;
+  overflow: auto;
+  padding: 0 var(--space-1);
+  border: none;
+  background: transparent;
+  color: var(--text-1);
+  outline: none;
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: text;
+  /* 画布节点框上的 user-select:none 会继承下来，编辑器里必须能选字 */
+  user-select: text;
+}
+
+/* contenteditable 没有 placeholder，用伪元素顶一个 */
+.editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+/*
+ * 引用芯片：用户 2026-10-02 点名要「呈现一个矩形作为文本内容的一部分」。
+ *
+ * 所以是**方角矩形 + 描边**，不是变量那种深色胶囊 —— 两者在同一套界面里
+ * 表示不同语义：变量是「会被替换掉的槽」，引用是「指到某个具体东西的名字」。
+ */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 180px;
+  height: 20px;
+  padding: 0 6px;
+  margin: 0 2px;
+  border: 1px solid var(--stroke);
+  border-radius: calc(var(--radius-control) - 6px);
+  background: var(--bg-hover);
+  color: var(--text-1);
+  font-size: var(--fs-chip);
+  line-height: 1;
+  vertical-align: baseline;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.chipIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  color: var(--text-2);
+}
+
+.chipIcon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.chipLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

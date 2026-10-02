@@ -13562,96 +13562,107 @@ async function g95(browser) {
     (await page.locator('[data-agent-channel]').count()) === 0,
   )
 
+  const agentMentionChip = page.locator('[data-param-chip="agent-mention"]')
+  const agentAutoChip = page.locator('[data-param-chip="agent-autorun"]')
+
   /**
-   * 用户 2026-10-02：「下方的面板只想要三个功能：模型，技能，具体参数的设置」。
-   * 这条按**入口个数**验，不靠眼看 —— 上一版这里挤了五枚下拉。
+   * 用户 2026-10-02 第二轮先把入口收成「模型 / 技能 / 参数」三枚，紧接着又改口：
+   * 「agent 把参数去掉，只保留模型的选项…skill 也是用一个图标展示」。
+   * 现在的口径是 **@ 引用 / 模型 / 技能 / 手动·自动** 四枚，「参数」那一枚整个撤掉。
    */
   rec(
     g,
-    '★★ 工具条只有三个参数入口（模型 / 技能 / 参数）',
-    (await agentModelChip.count()) === 1 &&
+    '★★ 工具条只有 @ / 模型 / 技能 / 手动·自动 四个入口，且「参数」已撤掉',
+    (await agentMentionChip.count()) === 1 &&
+      (await agentModelChip.count()) === 1 &&
       (await agentSkillChip.count()) === 1 &&
-      (await agentParamsChip.count()) === 1,
+      (await agentAutoChip.count()) === 1 &&
+      (await agentParamsChip.count()) === 0,
   )
 
   /**
-   * 「具体参数」是**一个浮层里的三段**（比例 / 画质 / 质量），不是三个各自独立的
-   * 入口 —— 用户点名要的形态是「多个参数集合在一起那种」。
+   * 用户 2026-10-02：「模型用一个 3d 建模的图标展示，立体的方形」「skill 也是用一个图标」。
+   * 判据取「chip 里的**可见文字为空**」—— 名字没丢，它进了 `aria-label`。
    */
-  const hasParams = (await agentParamsChip.count()) === 1
-  /** 缺件时**不能**硬点：那要等满 30s 动作超时才抛，会把整轮冒烟打断而不是记一条失败 */
-  if (hasParams) {
-    await agentParamsChip.click()
-    await sleep(250)
-    const sectionIds = await page
-      .locator('[data-param-popup="agent-params"] [data-param-section]')
-      .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-section')))
-    const ratioCell = await page
-      .locator('[data-param-popup="agent-params"] [data-param-in="ratio"][data-param-option="16:9"]')
-      .count()
-    rec(
-      g,
-      '★★ 具体参数是一个浮层里的三段（比例 / 画质 / 质量），不是三个独立入口',
-      sectionIds.join(',') === 'ratio,resolution,quality' && ratioCell === 1,
-      `段=${sectionIds.join(',')}`,
-    )
-    /** 留一张**参数浮层展开着**的截图：三段挤不挤、网格糊不糊，靠它眼看 */
-    await page.screenshot({ path: `${OUT}/112-g95-agent-params.png` })
+  const modelChipText = (await agentModelChip.innerText()).trim()
+  const skillChipTextBare = (await agentSkillChip.innerText()).trim()
+  rec(
+    g,
+    '★★ 模型 / 技能 chip 只显示图标、不显示文字（用户要求换成图标）',
+    modelChipText === '' &&
+      skillChipTextBare === '' &&
+      (await agentModelChip.locator('svg').count()) === 1 &&
+      (await agentSkillChip.locator('svg').count()) === 1,
+    `模型chip=「${modelChipText}」技能chip=「${skillChipTextBare}」`,
+  )
 
-    await page
-      .locator('[data-param-popup="agent-params"] [data-param-in="ratio"][data-param-option="16:9"]')
-      .click()
-    await sleep(250)
-    rec(
-      g,
-      '★ 参数浮层选完不自动关（一次调两三样不用反复点开）',
-      (await page.locator('[data-param-popup="agent-params"]').count()) === 1,
-    )
+  /**
+   * 手动 / 自动（参考产品图一）：「用图标进行替换，选中能替换」——
+   * 判据取 chip 的 `aria-label`：图标换了，无障碍名也得跟着换。
+   */
+  const autoLabelOf = async () => (await agentAutoChip.getAttribute('aria-label')) ?? ''
+  const autoBefore = await autoLabelOf()
+  await agentAutoChip.click()
+  await sleep(250)
+  const autoOptions = await page.locator('[data-param-popup="agent-autorun"] button').allInnerTexts()
+  const autoText = autoOptions.join('|')
+  rec(
+    g,
+    '★★ 手动 / 自动两档都在，且各带一句后果说明',
+    autoOptions.length === 2 && autoText.includes('手动生成') && autoText.includes('自动生成'),
+    `选项=${JSON.stringify(autoOptions)}`,
+  )
+  await page
+    .locator('[data-param-popup="agent-autorun"] button', { hasText: '自动生成' })
+    .first()
+    .click()
+  await sleep(400)
+  const autoAfter = await autoLabelOf()
+  rec(
+    g,
+    '★★ 选「自动生成」后 chip 换成自动那一枚（选中能替换）',
+    autoBefore.includes('手动') && autoAfter.includes('自动'),
+    `前=「${autoBefore}」后=「${autoAfter}」`,
+  )
+  /** 改回手动：下面那条「真出图」的验收要按手动的节奏走（点确认才跑） */
+  await agentAutoChip.click()
+  await sleep(250)
+  await page
+    .locator('[data-param-popup="agent-autorun"] button', { hasText: '手动生成' })
+    .first()
+    .click()
+  await sleep(400)
 
-    await page
-      .locator('[data-param-popup="agent-params"] [data-param-in="resolution"][data-param-option="2k"]')
-      .click()
-    await sleep(250)
-    await page.keyboard.press('Escape')
-    await sleep(250)
-    rec(
-      g,
-      '★ Esc 能关掉参数浮层（键盘可达）',
-      (await page.locator('[data-param-popup="agent-params"]').count()) === 0,
-    )
-
-    /**
-     * 切走再切回：浮层里的选中态来自**会话行**（不是独立的 React state），
-     * 所以切回后还选着才证明它真存进了会话 —— 只看「此刻高亮着」证明不了这件事。
-     */
-    const sessionSelect = page.locator('[data-agent-session-list]')
-    const agentSessionIds = await sessionSelect
-      .locator('option')
-      .evaluateAll((els) => els.map((e) => e.getAttribute('value') ?? ''))
-    await sessionSelect.selectOption(agentSessionIds[1])
-    await sleep(400)
-    await sessionSelect.selectOption(agentSessionIds[0])
-    await sleep(400)
-    await agentParamsChip.click()
-    await sleep(250)
-    const keptRatio = await page
-      .locator('[data-param-popup="agent-params"] [data-param-in="ratio"][data-param-option="16:9"]')
-      .getAttribute('aria-selected')
-    const keptRes = await page
-      .locator('[data-param-popup="agent-params"] [data-param-in="resolution"][data-param-option="2k"]')
-      .getAttribute('aria-selected')
-    await page.keyboard.press('Escape')
-    await sleep(200)
-    rec(
-      g,
-      '★★ 选好的比例 / 画质切走再切回还在（存进了会话，不是只活在内存里）',
-      keptRatio === 'true' && keptRes === 'true',
-      `ratio=${keptRatio} resolution=${keptRes}`,
-    )
-  } else {
-    rec(g, '★★ 具体参数是一个浮层里的三段（比例 / 画质 / 质量），不是三个独立入口', false, '参数入口不存在')
-    rec(g, '★★ 选好的比例 / 画质切走再切回还在（存进了会话，不是只活在内存里）', false, '参数入口不存在')
-  }
+  /**
+   * @ 引用（参考产品图三 / 图四）：菜单分「节点 / 模型」两段；选中之后
+   * **在输入框里落成一颗 chip**（是文本内容的一部分，不是外挂的标签）。
+   */
+  await agentMentionChip.click()
+  await sleep(250)
+  const mentionSections = await page
+    .locator('[data-param-popup="agent-mention"] [data-param-section]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-section')))
+  rec(
+    g,
+    '★★ @ 引用菜单分「节点 / 模型」两段',
+    mentionSections.join(',') === 'node,model',
+    `段=${mentionSections.join(',')}`,
+  )
+  await page
+    .locator('[data-param-popup="agent-mention"] button[data-param-in="node"]')
+    .first()
+    .click()
+  await sleep(400)
+  const mentionChip = page.locator('[data-agent-input] [data-token]').first()
+  const mentionTokenText = (await mentionChip.getAttribute('data-token').catch(() => '')) ?? ''
+  rec(
+    g,
+    '★★ 选中的引用落进输入框成为一颗 chip（文本内容的一部分）',
+    (await mentionChip.count()) === 1 && mentionTokenText.includes('(node:'),
+    `token=${mentionTokenText.slice(0, 48)}`,
+  )
+  /** 留一张**引用 chip 在输入框里**的截图：矩形像不像、挤不挤，靠它眼看 */
+  await page.screenshot({ path: `${OUT}/113-g95-agent-mention.png` })
 
   await page.locator('[data-agent-set-default]').click()
   await sleep(400)
@@ -13679,16 +13690,22 @@ async function g95(browser) {
       skillOptions >= 12,
       `可选项=${skillOptions}`,
     )
-    /** 选第 2 项（第 1 项是「不使用技能」），再拿它与 chip 上的文案对一下 */
+    /** 选第 2 项（第 1 项是「不使用技能」），再拿它与 chip 的无障碍名对一下 */
     const firstSkillLabel = ((await skillButtons.nth(1).innerText()) ?? '').trim()
     await skillButtons.nth(1).click()
     await sleep(400)
-    const skillChipText = (await agentSkillChip.innerText()).trim()
+    /**
+     * 技能 chip 现在**只有图标**（用户 2026-10-02：「skill 也是用一个图标展示」），
+     * 所以判据从「chip 上写着名字」改成「它的 `aria-label` 换成了那份技能」——
+     * 名字没丢，只是不再占版面。
+     */
+    const skillAria = (await agentSkillChip.getAttribute('aria-label')) ?? ''
+    const firstSkillName = firstSkillLabel.split('\n')[0]?.trim() ?? ''
     rec(
       g,
-      '★ 选中后留在 chip 上（存进会话）',
-      skillChipText !== '' && skillChipText !== '技能' && firstSkillLabel.includes(skillChipText),
-      `chip=${skillChipText} 选项=${firstSkillLabel}`,
+      '★ 选中后记进会话（chip 的无障碍名换成那份技能）',
+      firstSkillName !== '' && skillAria.includes(firstSkillName),
+      `aria=「${skillAria}」选项=「${firstSkillLabel}」`,
     )
   }
 
@@ -13982,6 +13999,50 @@ async function g95(browser) {
 
   /** 留一张**面板还开着**的截图：会话管理与取素材挤不挤，靠它眼看 */
   await page.screenshot({ path: `${OUT}/111b-g95-agent-panel.png` })
+
+  /**
+   * ★★ **自动生成真的不问**（用户 2026-10-02：「手动和自动…选中能替换」）。
+   *
+   * 只验「图标换了一枚」是不够的 —— 那证明不了它真的不再停下来问。这里开**新会话**
+   * （mock 的脚本按对话里 tool 消息的条数走，新会话才会重新出计划），切到自动，
+   * 然后**一次确认都不点**，等画布上直接冒出产物。
+   *
+   * 这条也顺带钉住「默认是手动」：上面那整段老流程仍然靠点确认才跑完。
+   */
+  await page.locator('[data-agent-new]').click()
+  await sleep(600)
+  await agentAutoChip.click()
+  await sleep(250)
+  await page
+    .locator('[data-param-popup="agent-autorun"] button', { hasText: '自动生成' })
+    .first()
+    .click()
+  await sleep(400)
+  const idsBeforeAuto = await page
+    .locator('[data-node-type]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id') ?? ''))
+  await page.locator('[data-agent-input]').fill('再来一张：屋顶的猫')
+  await page.locator('[data-agent-send]').click()
+  let autoImage = ''
+  for (let i = 0; i < 80; i++) {
+    autoImage = await page.evaluate((known) => {
+      const gens = [...document.querySelectorAll('[data-node-type="generation"][data-node-id]')]
+      for (const n of gens) {
+        if (known.includes(n.getAttribute('data-node-id') ?? '')) continue
+        const src = n.querySelector('[data-node-asset]')?.getAttribute('src') ?? ''
+        if (src.startsWith('blob:')) return src
+      }
+      return ''
+    }, idsBeforeAuto)
+    if (autoImage) break
+    await sleep(250)
+  }
+  rec(
+    g,
+    '★★ 自动生成：一句话之后**不点任何确认**，画布上直接出图',
+    autoImage.startsWith('blob:'),
+    `自动产物=${autoImage.slice(0, 12)}`,
+  )
 
   await page.locator('[data-agent-close]').click()
   await sleep(400)

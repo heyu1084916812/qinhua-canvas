@@ -115,16 +115,14 @@ export interface AgentPromptExtras {
   /** 本会话启用的技能（§14 M4）。正文按 id 现取 —— 技能改了，这次规划跟着变 */
   skill?: { name: string; content: string }
   /**
-   * 用户在对话窗**工具条上点选**的生成参数（比例 / 画质 / 质量）。
+   * 用户在这句话里 **@ 引用**到的画布节点 / 模型（用户 2026-10-02）。
    *
-   * 与「素材」「技能」两段同一个理由：这三档是用户在界面上**明确选过**的值，
-   * 而界面上看不见「它到底有没有进提示词」。不告诉模型的话，它只会按自己的
-   * 想法填比例，用户选了 16:9 却拿到 1:1 —— 那是最典型的「功能摆着不生效」。
-   *
-   * 优先级与设计文档 §11 一致：用户在**这句对话里**另有要求时以对话为准，
-   * 所以文案写的是「照这个填」而不是「必须是这个」。
+   * 与「素材」那段的区别：素材是随对话**给进去**的输入，引用是用户在句子里
+   * **指到**了某个已有东西 —— 可能是提醒你「就用这张图」，也可能只是
+   * 「那个节点改一下」。所以这一段只说清「他指的是谁（含 id）」，不替用户
+   * 决定要拿它做什么。
    */
-  params?: { ratio?: string; resolution?: string; quality?: string }
+  mentions?: readonly { kind: 'node' | 'model'; id: string; label: string }[]
 }
 
 /**
@@ -164,29 +162,24 @@ export function buildAgentSystemPromptWithContext(
     )
   }
 
-  /**
-   * 参数段只列**用户真的选过的**项。
-   *
-   * 空串与 `'auto'` 都是「没指定」（与生成节点的 `generationParams` 同一口径：
-   * `auto` 下发时会被换成 `null`）。不过滤的话，每轮都会塞三条 `auto` ——
-   * 白白占掉模型的注意力，还容易被读成「用户要求在节点上写 auto」，
-   * 于是它真的往节点 data 里写一个 `auto`。
-   *
-   * 面板那边已经把「自动」存成 undefined；这里再滤一次是**双保险**：
-   * 这段文案的契约是「只报选过的档位」，不能靠调用方的自觉来成立。
-   */
-  const params = Object.entries(extras.params ?? {}).filter(
-    ([, v]) => typeof v === 'string' && v.trim() !== '' && v.trim() !== 'auto',
-  )
-  if (params.length > 0) {
-    parts.push(
-      [
-        '## 用户在这条对话里指定的生成参数',
-        '生成节点按下面填（写进节点 data 里，不是写在提示词里）。',
-        '用户在这句对话里另有要求时，以他说的为准。',
-        ...params.map(([k, v]) => `- ${k}: ${String(v)}`),
-      ].join('\n'),
+  const mentions = extras.mentions ?? []
+  if (mentions.length > 0) {
+    const nodes = mentions.filter((m) => m.kind === 'node')
+    const models = mentions.filter((m) => m.kind === 'model')
+    const lines = ['## 用户在这句话里 @ 引用到的（他指的是这些东西）']
+    if (nodes.length > 0) {
+      lines.push('节点：')
+      for (const n of nodes) lines.push(`- ${n.id}（${n.label}）`)
+    }
+    if (models.length > 0) {
+      lines.push('模型：')
+      for (const m of models) lines.push(`- ${m.label}`)
+    }
+    lines.push(
+      '要复用它就在 attach 里指到那个节点 id，不要重复建同名的节点。',
+      '被引用的模型 = 这次就用它（与你按默认值挑的那个冲突时，以他引用的为准）。',
     )
+    parts.push(lines.join('\n'))
   }
 
   return parts.join('\n\n')

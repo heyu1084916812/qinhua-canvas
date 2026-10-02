@@ -17,6 +17,13 @@ export interface ParamOption {
   disabled?: boolean
   /** 置灰原因，鼠标悬停可见 */
   title?: string
+  /**
+   * 副标题（列表形态下显示在名字**下面**一行）。
+   *
+   * 用户 2026-10-02 的参考产品用它讲清每一档的**后果**：「手动生成 / 每次生成前询问」
+   * 与「自动生成 / 可直接消耗积分」。只写名字的话，用户得先试一次才知道会不会扣钱。
+   */
+  hint?: string
 }
 
 /**
@@ -82,6 +89,22 @@ export interface ParamPickerProps {
   onClose: () => void
   /** 单组模式的选择回调 */
   onSelect?: (value: string) => void
+  /**
+   * chip 上的**固定图标**（画在文案前面）。
+   *
+   * 对话窗那几枚用它做成「只有图标、不写字」的按钮（用户 2026-10-02：
+   * 「模型用一个 3d 建模的图标展示，立体的方形」「skill 也是用一个图标展示」）。
+   * 与 `options[].icon` 的区别：那个是**选中项**的图标（厂商 logo），
+   * 这个是**这一档自己**的图标（模型 / 技能 / 手动 / 引用），与选了什么无关。
+   */
+  triggerIcon?: ReactNode
+  /**
+   * 选完是否立刻关掉浮层。
+   *
+   * 默认：单组关、多组不关（见 `sections` 的说明）。引用（@）那种多组菜单要
+   * **选完即关** —— 它一次只插一个引用，留着浮层反而挡事。
+   */
+  closeOnSelect?: boolean
   disabled?: boolean
   /** 展开但一个候选都没有时的说明（如「该渠道还没勾选模型」） */
   emptyHint?: string
@@ -189,8 +212,8 @@ export function ParamPicker(props: ParamPickerProps) {
         disabled={props.disabled}
         onClick={onToggle}
       >
-        {currentIcon}
-        <span className={styles.chipLabel}>{label}</span>
+        {props.triggerIcon ?? currentIcon}
+        {label !== '' && <span className={styles.chipLabel}>{label}</span>}
       </button>
       {open && (
         <div
@@ -228,7 +251,11 @@ export function ParamPicker(props: ParamPickerProps) {
                          * 多组模式**选完不关**：它是一个「参数集合」，用户多半一次要
                          * 调两三样，每选一格就关掉会逼他重复点开三次。单组模式保持
                          * 原行为（选完即关），创作面板的手感一点都不变。
+                         *
+                         * 例外是 `closeOnSelect`：引用（@）那种「一次只插一个」的
+                         * 多组菜单要关掉，留着浮层反而挡事。
                          */
+                        if (props.closeOnSelect) onClose()
                       }}
                     />
                   ))}
@@ -321,7 +348,14 @@ function ParamOptionButton(props: {
       onClick={onPick}
     >
       {o.icon && <span className={styles.rowIcon}>{o.icon}</span>}
-      <span className={styles.rowText}>{o.label}</span>
+      {variant === 'list' && o.hint ? (
+        <span className={styles.rowBody}>
+          <span className={styles.rowText}>{o.label}</span>
+          <span className={styles.rowHint}>{o.hint}</span>
+        </span>
+      ) : (
+        <span className={styles.rowText}>{o.label}</span>
+      )}
       {variant === 'list' && o.value === value && (
         <span className={styles.check} aria-hidden="true">
           ✓

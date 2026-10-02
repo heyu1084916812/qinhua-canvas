@@ -91,8 +91,17 @@ export function readEditorText(root: HTMLElement): string {
     if (el.tagName === 'BR') return '\n'
     return [...el.childNodes].map(walk).join('')
   }
-  // contenteditable 会插入不换行空格，还原成普通空格（否则写回的文本里混进 \u00a0）
-  return [...root.childNodes].map(walk).join('').replace(/\u00a0/g, ' ')
+  /**
+   * 收尾清理，两条都是「浏览器塞进来的东西」：
+   * ① 不换行空格 → 普通空格（否则写回的文本里混进 \u00a0）；
+   * ② 零宽空格 → 删掉。它是 `MentionEditor` 在引用芯片**后面**放的落点
+   *    （紧贴原子块时光标会跑到块前面），只服务光标，不属于内容。
+   */
+  return [...root.childNodes]
+    .map(walk)
+    .join('')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\u200b/g, '')
 }
 
 export interface TokenEditorHandle {

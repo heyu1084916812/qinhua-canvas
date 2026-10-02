@@ -354,24 +354,6 @@
   background: var(--bg-subtle);
 }
 
-.input {
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  height: auto;
-  min-height: 44px;
-  max-height: 120px;
-  resize: none;
-  padding: 0 var(--space-1);
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  color: var(--text-1);
-  font-size: var(--fs-label);
-  font-family: inherit;
-  line-height: 1.5;
-}
-
 .send {
   flex: 0 0 auto;
   width: 34px;

@@ -575,3 +575,66 @@ export function IconCheck(props: IconProps) {
     </Svg>
   )
 }
+
+/**
+ * 模型：**立体方块**（用户 2026-10-02：「模型用一个 3d 建模的图标展示，立体的方形」。
+ * 参考产品那一排也是这个形状）。
+ *
+ * 画法就是等轴测立方体：六边形外框 + 顶部两条棱 + 中间一条竖线。
+ * 为什么不用「芯片」「大脑」那类通用 AI 图标：这里是**模型**这一档的固定符号，
+ * 它旁边还有技能 / 手动 / 自动三枚，形状必须一眼可分。
+ */
+export function IconModelCube(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 3.2 20.2 7.6v8.8L12 20.8 3.8 16.4V7.6z" />
+      <path d="M3.8 7.6 12 12l8.2-4.4" />
+      <path d="M12 12v8.8" />
+    </Svg>
+  )
+}
+
+/**
+ * 技能：一根魔杖 + 两颗星（用户 2026-10-02：「skill 也是用一个图标展示」）。
+ * 与「模型」的立体方块分开：那一个是「谁来做」，这一个是「怎么做」。
+ */
+export function IconSkill(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4.2 19.8 13 11" />
+      <path d="M16.6 3.2l1 2.6 2.6 1-2.6 1-1 2.6-1-2.6-2.6-1 2.6-1z" />
+      <path d="M11.4 4.6l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6L9.2 6.8l1.6-.6z" />
+    </Svg>
+  )
+}
+
+/** 手动生成：一只手（参考产品同一个符号）。语义 = 每次生成前问你一句 */
+export function IconManual(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M8.6 12.2V6.1a1.4 1.4 0 0 1 2.8 0V11" />
+      <path d="M11.4 11V5a1.4 1.4 0 0 1 2.8 0v6" />
+      <path d="M14.2 11V6.6a1.4 1.4 0 0 1 2.8 0V14a5.4 5.4 0 0 1-5.4 5.4h-.8a4.6 4.6 0 0 1-3.3-1.4l-2.6-2.7a1.5 1.5 0 0 1 2.1-2.1l1.6 1.6" />
+    </Svg>
+  )
+}
+
+/** 自动生成：循环箭头（同一个符号的「不必问你」那一档） */
+export function IconAuto(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M20.2 12a8.2 8.2 0 1 1-2.4-5.8" />
+      <path d="M20.4 4.4v4.2h-4.2" />
+    </Svg>
+  )
+}
+
+/** 引用（@）：在输入框里引用画布节点或模型 */
+export function IconMention(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="3.4" />
+      <path d="M15.4 12v1.5a2.4 2.4 0 0 0 4.8 0V12a8.2 8.2 0 1 0-3.4 6.6" />
+    </Svg>
+  )
+}

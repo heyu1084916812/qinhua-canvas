@@ -201,6 +201,23 @@
   text-overflow: ellipsis;
 }
 
+/* 名字 + 副标题：副标题解释这一档的后果（如「每次生成前询问」） */
+.rowBody {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.rowHint {
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  text-overflow: ellipsis;
+}
+
 .rowIcon {
   display: inline-flex;
   align-items: center;

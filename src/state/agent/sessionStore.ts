@@ -31,20 +31,13 @@ export interface AgentSession {
    */
   skillId?: string
   /**
-   * 本次会话在对话窗上点选的**生成参数**（用户 2026-10-02：「要有模型的选择，
-   * 技能的选择，比例尺寸，画质的选择」）。
+   * **自动生成**（用户 2026-10-02：参考产品图一的「手动生成 / 自动生成」）。
    *
-   * 为什么存在会话上、而不是只写进系统提示词：这些是**用户明确选过的值**，
-   * 跨轮次有效（设计文档 §11 的参数来源里，它比「画布上上次的配方」更优先）。
-   * 只塞进提示词的话，下一轮组装时就没处可读，用户会看到「选了下拉自己变回去」。
-   *
-   * 空值 = 用户没指定（与生成节点的 `auto` 同一口径：不指定，交给模型决定）。
+   * `false` / 缺省 = 手动：写与花钱的动作都停下等确认（设计文档 §9 的默认值，
+   * **必须是默认** —— 默认自动花钱不是本项目愿意替用户做的决定）。
+   * `true` = 自动：agent 请求执行 / 落地时不再打断，它自己往下跑。
    */
-  ratio?: string
-  /** 画质档位（1K / 2K / 4K），与生成节点的 `resolution` 同源 */
-  resolution?: string
-  /** 质量档位（低 / 中 / 高），与生成节点的 `quality` 同源 */
-  quality?: string
+  autoRun?: boolean
   /**
    * 用户随对话给出的素材（设计文档 §8「输入：文字 + 可选图片」）。
    *
@@ -87,9 +80,7 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
     channelId: String(row.channelId ?? ''),
     model: String(row.model ?? ''),
     ...(typeof row.skillId === 'string' && row.skillId ? { skillId: row.skillId } : {}),
-    ...(typeof row.ratio === 'string' && row.ratio ? { ratio: row.ratio } : {}),
-    ...(typeof row.resolution === 'string' && row.resolution ? { resolution: row.resolution } : {}),
-    ...(typeof row.quality === 'string' && row.quality ? { quality: row.quality } : {}),
+    ...(row.autoRun === true ? { autoRun: true } : {}),
     ...(Array.isArray(row.pendingAssetIds) && row.pendingAssetIds.length > 0
       ? { pendingAssetIds: row.pendingAssetIds.filter((x): x is string => typeof x === 'string') }
       : {}),

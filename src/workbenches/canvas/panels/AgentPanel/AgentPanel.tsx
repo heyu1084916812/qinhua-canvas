@@ -36,15 +36,20 @@ import {
   type AgentToolContext,
 } from '../../agent/tools'
 import {
+  IconAuto,
   IconArrowUp,
   IconCheck,
   IconChevronDown,
   IconClose,
   IconDelete,
   IconImage,
+  IconManual,
+  IconMention,
+  IconModelCube,
   IconPlus,
   IconRename,
   IconSettings,
+  IconSkill,
 } from '../../toolbar/icons'
 import { toConversation } from './conversation'
 import { useAsset } from '../../hooks/useAsset'
@@ -58,7 +63,13 @@ import { ModelIcon } from '../../../../features/shared/modelIcon/ModelIcon'
  * 所以对话窗直接复用 `ParamPicker` 那套「chip + 浮层」。
  */
 import { ParamPicker } from '../ParamPicker'
-import { QUALITY_OPTIONS, RATIO_OPTIONS, RESOLUTION_OPTIONS } from '../CreationPanel'
+import {
+  MentionEditor,
+  mentionToken,
+  parseMentions,
+  stripMentionMarkup,
+  type MentionEditorHandle,
+} from '../../text/MentionEditor'
 import styles from './AgentPanel.module.css'
 
 /**
@@ -84,6 +95,14 @@ const STATUS_LABEL: Record<Status['kind'], string> = {
   executing: '正在执行',
   error: '出错',
 }
+
+/**
+ * 自动模式下**一轮对话最多自动执行几次**。
+ *
+ * 「确认 → 执行 → 再确认」是可能绕圈的（模型每步都想再往下走一步）。
+ * 到顶就退回手动，把最后那张确认卡留给用户 —— 总比无限花钱好。
+ */
+const AUTO_RUN_LIMIT = 6
 
 export function AgentPanel({ projectId, onClose }: { projectId: string; onClose: () => void }) {
   const platform = usePlatform()
@@ -126,6 +145,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    */
   const [openPicker, setOpenPicker] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement | null>(null)
+  const editorRef = useRef<MentionEditorHandle | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
@@ -149,9 +169,23 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 是考古。`panelModelOptions` 本身就是「固定清单显示名在前 + 渠道勾选模型的
    * 归一显示名在后」，与生成节点那侧完全同源。
    */
+  /**
+   * 对话窗的模型清单：**只列当前真的跑得起来的那些**。
+   *
+   * 与创作面板的差别（用户 2026-10-02：「agnes 的是不是多了」）：那边留着一批
+   * 「固定显示名」是为了**先把名字选好、再去后台配映射**；对话窗不是这个场景 ——
+   * 这里的模型**下一句话就要发请求**。列一个没有渠道能提供的模型，用户选中之后
+   * 只会得到一句「没有渠道提供模型」，白点一次。
+   *
+   * 判据就是选模型时用的那一条（`channelIdForLogical`）：能解析出渠道 = 能跑。
+   * 两处共用同一份搜索，不会出现「这里列得出来、那里选不动」。
+   */
   const chatModelOptions = useMemo(
-    () => panelModelOptions(allChannels, 'chat'),
-    [allChannels],
+    () =>
+      panelModelOptions(allChannels, 'chat').filter(
+        (n) => channelIdForLogical(enabled, n) !== undefined,
+      ),
+    [allChannels, enabled],
   )
   /** 会话存的模型名 → 逻辑显示名（老会话存过上游 ID 的在这里归一） */
   const shownModel = useMemo(
@@ -160,22 +194,16 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   )
 
   /**
-   * 工具条上三枚 chip 的文案。
+   * 技能 chip 的文案：只进 `aria-label`（悬停 / 读屏可见）。
    *
-   * 模型 / 技能显示**当前值**（与创作面板一致：chip 就是「现在的设置」）；
-   * 「参数」是一组三样，塞进一枚 chip 里必然要省略某样，所以 chip 只写「参数」，
-   * 三样的当前值放进 `aria-label`（悬停 / 读屏可见），具体档位在浮层里高亮。
+   * 工具条上那两枚按用户 2026-10-02 的要求是**只有图标**的按钮，
+   * 名字不占地方，但无障碍名不能跟着省。
    */
   const skillLabel = useMemo(() => {
     const id = current?.skillId
     if (!id) return '技能'
     return allSkills.find((s) => s.id === id)?.name ?? '技能'
   }, [current?.skillId, allSkills])
-  const ratioLabel = current?.ratio || '自动'
-  const resolutionLabel =
-    RESOLUTION_OPTIONS.find((o) => o.value === (current?.resolution ?? 'auto'))?.label ?? '自动'
-  const qualityLabel =
-    QUALITY_OPTIONS.find((o) => o.value === (current?.quality ?? 'auto'))?.label ?? '自动'
 
   /**
    * 新会话该用哪个模型：默认模型 → 该渠道第一个对话模型。
@@ -187,11 +215,9 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 显示名不在选项里（渠道模型被删 / 名单变了）才退到第一个选项。
    */
   const defaultModelFor = useCallback(
-    (_channelId: string, saved?: string) =>
-      saved && chatModelOptions.includes(saved)
-        ? saved
-        : (chatModelOptions[0] ?? ''),
-    [chatModelOptions],
+    (options: readonly string[], saved?: string) =>
+      saved && options.includes(saved) ? saved : (options[0] ?? ''),
+    [],
   )
 
   /** 载入会话列表；没有就按默认模型建一个（设计文档 §8「新建会话用默认模型」） */
@@ -218,12 +244,22 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         setMessages(rows[0]!.messages)
         return
       }
+      /**
+       * 用**刚刚读到的**渠道，而不是本次渲染闭包里的 `enabled`：effect 只在
+       * projectId 变化时跑，那个 `enabled` 可能是挂载那一帧的快照 ——
+       * 渠道还没 load 完时它就是空的，新会话会带着空模型开出来。
+       */
+      const liveChannels = channels.getState().channels
+      const liveEnabled = liveChannels.filter((c) => c.enabled)
+      const liveModelOptions = panelModelOptions(liveChannels, 'chat').filter(
+        (n) => channelIdForLogical(liveEnabled, n) !== undefined,
+      )
       const saved = await presets.loadAgentDefault()
-      const fallbackChannel = saved?.channelId ?? enabled[0]?.id ?? ''
+      const fallbackChannel = saved?.channelId ?? liveEnabled[0]?.id ?? ''
       const created = await sessions.create({
         projectId,
         channelId: fallbackChannel,
-        model: defaultModelFor(fallbackChannel, saved?.model),
+        model: defaultModelFor(liveModelOptions, saved?.model),
       })
       if (!alive) return
       setList([created])
@@ -355,34 +391,54 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
      * 「技能正文到底进没进提示词」只能靠发出去的消息证明，抽成纯函数才有单测。
      */
     const skill = current.skillId ? allSkills.find((s) => s.id === current.skillId) : undefined
-    /**
-     * 面板上点选的比例 / 画质 / 质量。原样（机器可读形式：`16:9` / `2k` / `high`）
-     * 交给模型 —— 词表段就是从 `nodeSpecs` 生成的，它认得的正是这些值。
-     * 显示成「2K」反而要多一层翻译，翻译错了就是「选了 4K 却发 2k」。
-     */
-    const pickerParams = {
-      ...(current.ratio ? { ratio: current.ratio } : {}),
-      ...(current.resolution ? { resolution: current.resolution } : {}),
-      ...(current.quality ? { quality: current.quality } : {}),
-    }
+    /** 这句话里 @ 引用了什么（节点 / 模型）。空数组就不加那一段 */
+    const mentions = parseMentions(text)
     const system = buildAgentSystemPromptWithContext(
       summary,
       { model: current.model },
       {
         assetIds: current.pendingAssetIds ?? [],
         ...(skill ? { skill: { name: skill.name, content: skill.content } } : {}),
-        ...(Object.keys(pickerParams).length > 0 ? { params: pickerParams } : {}),
+        ...(mentions.length > 0 ? { mentions } : {}),
       },
     )
     const withSystem: ChatMessage[] = [
       { role: 'system', content: system },
       ...messages,
-      { role: 'user', content: text },
+      /**
+       * 发给模型的是**去掉存储形态**的正文：`@[小猫钓鱼](node:node_x)` → `@小猫钓鱼`。
+       * 引用指向谁由上面那段 mentions 讲清楚（带 id），正文里不必再夹一串括号。
+       */
+      { role: 'user', content: stripMentionMarkup(text) },
     ]
     setMessages(withSystem)
-    const outcome = await runAgentTurn(withSystem, loopDeps(current))
+    let outcome = await runAgentTurn(withSystem, loopDeps(current))
+    /**
+     * **自动生成**：agent 请求落地 / 执行时不再停下等确认，直接把这一步做完再继续。
+     *
+     * 与手动那条路（`handleOutcome` 里的 `awaitingConfirm` → 用户点确认）是同一件事，
+     * 区别只在**要不要问**。上限见 `AUTO_RUN_LIMIT`：到顶退回手动，把最后那张
+     * 确认卡留给用户。
+     */
+    let autoSteps = 0
+    while (outcome.kind === 'confirm' && current.autoRun === true && autoSteps < AUTO_RUN_LIMIT) {
+      autoSteps += 1
+      setStatus({ kind: 'executing' })
+      const done = await executeConfirmedTool(
+        outcome.request.name,
+        outcome.request.args,
+        toolCtx(originOf(viewport)),
+      )
+      setMessages(outcome.messages)
+      outcome = await resumeAgentTurn(
+        outcome.messages,
+        outcome.request.callId,
+        done,
+        loopDeps(current),
+      )
+    }
     await handleOutcome(current, outcome)
-  }, [draft, current, messages, store, selection, loopDeps, handleOutcome, allSkills])
+  }, [draft, current, messages, store, selection, loopDeps, handleOutcome, allSkills, toolCtx, viewport])
 
   const confirm = useCallback(async () => {
     if (status.kind !== 'awaitingConfirm' || !current) return
@@ -424,11 +480,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     const created = await sessions.create({
       projectId,
       channelId,
-      model: defaultModelFor(channelId, saved?.model),
+      model: defaultModelFor(chatModelOptions, saved?.model),
     })
     await refresh()
     await switchTo(created)
-  }, [presets, sessions, projectId, enabled, refresh, switchTo, defaultModelFor])
+  }, [presets, sessions, projectId, enabled, refresh, switchTo, defaultModelFor, chatModelOptions])
 
   /**
    * 存会话上的任意字段：模型、技能、素材标签、比例 / 画质 / 质量都走这一条。
@@ -470,19 +526,27 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   )
 
   /**
-   * 生成参数（比例 / 画质 / 质量）。
+   * 手动 / 自动生成（用户 2026-10-02，参考产品图一那一档）。
    *
-   * 「自动」与空串都存成 `undefined`：界面上它们都读作「没指定」，
-   * 而拼系统提示词时只报**用户真选过的档位**。存成 `'auto'` 会让每一轮
-   * 都往提示词里塞三条 `auto` —— 白白占掉模型的注意力，还容易被误读成
-   * 「用户明确要求在节点上写 auto」。
+   * 「自动」= agent 请求落地 / 执行时**不再停下等确认**。默认必须是手动 ——
+   * 默认替你花钱不是本项目愿意做的决定（设计文档 §9）。
    */
-  const setGenParam = useCallback(
-    async (key: 'ratio' | 'resolution' | 'quality', value: string) => {
-      await patchSession({ [key]: !value || value === 'auto' ? undefined : value })
+  const setAutoRun = useCallback(
+    async (autoRun: boolean) => {
+      await patchSession({ autoRun })
     },
     [patchSession],
   )
+
+  /**
+   * 在输入框里插入一个 @ 引用（引用菜单里选完之后调它）。
+   *
+   * 走编辑器自己的 `insertMention`，而不是往 `draft` 里拼字符串：
+   * 引用要落在**光标处**、要带 chip 的存储形态，这两件事只有编辑器知道。
+   */
+  const insertMention = useCallback((kind: 'node' | 'model', id: string, label: string) => {
+    editorRef.current?.insertMention(mentionToken(kind, id, label))
+  }, [])
 
   /** 开始改名：把当前标题放进草稿，选中整段方便直接覆盖 */
   const startRename = useCallback(() => {
@@ -888,10 +952,10 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       {/*
         输入区：一个圆角盒子，**上正文、下工具条**（参考产品 liblib.tv 的对话框形态）。
 
-        与上一版的区别有两处，都是用户 2026-10-02 明确提的：
-        ① 工具条从「输入框上面独立一行」挪进盒子内部，参数跟着输入走；
-        ② 去掉「选渠道」（用户要的是模型，渠道是实现细节），补上比例 / 画质 / 质量。
-        素材标签也收进盒子里 —— 它们是「这次要说出去的东西」，不是面板参数。
+        正文用 `MentionEditor`（contenteditable）而不是 `textarea`：用户 2026-10-02
+        要「@ 引用的节点 / 模型在输入框里呈现为一个矩形、作为文本内容的一部分」，
+        而 `textarea` 只能显示纯文本，做不到「一个矩形夹在文字中间」。
+        素材标签也收在盒子里 —— 它们是「这次要说出去的东西」，不是面板参数。
       */}
       <div className={styles.composer} data-agent-composer>
         {(current?.pendingAssetIds ?? []).length > 0 && (
@@ -913,24 +977,14 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           </div>
         )}
 
-        <textarea
-          className={styles.input}
+        <MentionEditor
+          ref={editorRef}
           value={draft}
-          placeholder="说一句你想要什么…"
-          onChange={(e) => setDraft(e.target.value)}
-          onInput={(e) => {
-            /** 输入区自适应高度（有 max 托底）：像参考产品那样随内容长高，但不无限长 */
-            const el = e.currentTarget
-            el.style.height = 'auto'
-            el.style.height = `${Math.min(el.scrollHeight, 120)}px`
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              void send()
-            }
-          }}
-          data-agent-input
+          onChange={setDraft}
+          placeholder="开始你的创作，或者 @ 引用工作流 / 节点 / 资源"
+          onEnter={() => void send()}
+          /** 刚打出 `@` → 直接开引用菜单（参考产品就是「打 @ 就出」） */
+          onMentionTrigger={() => setOpenPicker('agent-mention')}
         />
 
         <div className={styles.bar}>
@@ -960,17 +1014,80 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             </button>
 
             {/*
-              工具条上**只留三件事**（用户 2026-10-02：「下方的面板只想要三个功能，
-              模型，技能，具体参数的设置」）：模型、技能、参数集合。
+              工具条剩下的四件事（用户 2026-10-02 第二轮）：
+              **@ 引用 / 模型 / 技能 / 手动·自动**。
 
-              控件用创作面板那套 `ParamPicker`（chip + 浮层），不是原生 `<select>` ——
-              原生下拉的展开层由浏览器绘制，既不受画布浮层规范约束、也不好点
-              （用户原话：「太简陋了」）。同一个组件、同一批档位表，两处长得一样。
+              三处形态上的决定都是用户点名的：
+              ① 「模型用一个 3d 建模的图标展示，立体的方形」「skill 也是用一个图标展示」
+                 ⇒ 这两枚 chip **只显示图标、不写字**（`triggerIcon` + `label=""`），
+                 名字进 `aria-label`（悬停 / 读屏可见），列表里照旧带名字与厂商 logo；
+              ② 「参数去掉，只保留模型的选项」⇒ 比例 / 画质 / 质量那一枚**整个撤掉**
+                 （会话字段与提示词那段仍留着，见 §8：入口先撤、口径不撤，
+                 免得下次要加回来时又得从提示词一路重接）；
+              ③ 「手动和自动用图标进行替换，选中能替换」⇒ 图标本身跟着**当前档位**换
+                 （手 / 循环箭头），不是只在菜单里高亮。
+            */}
+
+            {/*
+              @ 引用：一个浮层里两段 —— **节点**（这张画布上的）与**模型**。
+              选完插进输入框成为一颗矩形 chip，是文本内容的一部分（`MentionEditor`）。
             */}
             <ParamPicker
+              name="agent-mention"
+              ariaLabel="引用画布里的节点或模型"
+              label=""
+              triggerIcon={<IconMention size={16} />}
+              size="compact"
+              closeOnSelect
+              sections={[
+                {
+                  name: 'node',
+                  label: '节点',
+                  variant: 'list',
+                  options: graph.nodes.map((n) => ({
+                    value: `node:${n.id}`,
+                    label: (n.title ?? '').trim() || n.type,
+                    hint: n.type,
+                  })),
+                  value: '',
+                  emptyHint: '这张画布上还没有节点',
+                  onSelect: (v) => {
+                    const id = v.slice('node:'.length)
+                    const hit = graph.nodes.find((n) => n.id === id)
+                    insertMention('node', id, (hit?.title ?? '').trim() || id)
+                  },
+                },
+                {
+                  name: 'model',
+                  label: '模型',
+                  variant: 'list',
+                  options: chatModelOptions.map((n) => {
+                    const preset = presetOf(n)
+                    return {
+                      value: `model:${n}`,
+                      label: n,
+                      ...(preset ? { icon: <ModelIcon vendor={preset.vendor} /> } : {}),
+                    }
+                  }),
+                  value: '',
+                  emptyHint: '还没有可用的对话模型',
+                  onSelect: (v) => {
+                    const name = v.slice('model:'.length)
+                    insertMention('model', name, name)
+                  },
+                },
+              ]}
+              open={openPicker === 'agent-mention'}
+              onToggle={() => setOpenPicker(openPicker === 'agent-mention' ? null : 'agent-mention')}
+              onClose={() => setOpenPicker(null)}
+            />
+
+            {/* 模型：只显示立体方块图标；当前用哪个在列表里打勾，名字进 aria-label */}
+            <ParamPicker
               name="agent-model"
-              ariaLabel="这条对话用哪个模型"
-              label={shownModel || '模型'}
+              ariaLabel={`这条对话用哪个模型（当前：${shownModel || '未选'}）`}
+              label=""
+              triggerIcon={<IconModelCube size={16} />}
               size="compact"
               variant="list"
               // 固定清单里的模型带厂商图标（与创作面板同源，不是另画一套）
@@ -983,23 +1100,27 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                 }
               })}
               value={shownModel}
+              emptyHint="还没有可用的对话模型：去后台设置里勾选"
               open={openPicker === 'agent-model'}
               onToggle={() => setOpenPicker(openPicker === 'agent-model' ? null : 'agent-model')}
               onClose={() => setOpenPicker(null)}
               onSelect={(v) => void pickModel(v)}
             />
 
+            {/* 技能：同样只显示图标；当前用哪份在列表里打勾 */}
             <ParamPicker
               name="agent-skill"
-              ariaLabel="这份技能决定 agent 把哪些阶段建到画布上"
-              label={skillLabel}
+              ariaLabel={`这份技能决定 agent 把哪些阶段建到画布上（当前：${skillLabel}）`}
+              label=""
+              triggerIcon={<IconSkill size={16} />}
               size="compact"
               variant="list"
               options={[
                 { value: '', label: '不使用技能' },
                 ...allSkills.map((s) => ({
                   value: s.id,
-                  label: s.name + (s.source === 'builtin' ? '（内置）' : ''),
+                  label: s.name,
+                  ...(s.source === 'builtin' ? { hint: '内置' } : {}),
                 })),
               ]}
               value={current?.skillId ?? ''}
@@ -1010,51 +1131,41 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             />
 
             {/*
-              参数集合（用户 2026-10-02：「多个参数集合在一起那种」）：
-              比例 / 画质 / 质量三段住**同一个浮层**，选完不关（一次调两样是常态）。
-
-              它们不是「装饰」：选完会随系统提示词发给 agent（只报用户真选过的档位），
-              它据此填生成节点的 data —— 用户选了 16:9 却拿到 1:1 是最典型的
-              「功能摆着不生效」，所以这一段有单测钉住。
+              手动 / 自动生成（参考产品图一那一档）：两个候选各带一句后果说明。
+              图标跟着当前档位换 —— 「选中能替换」指的就是这一枚。
             */}
             <ParamPicker
-              name="agent-params"
-              ariaLabel={`具体参数（比例 ${ratioLabel}、画质 ${resolutionLabel}、质量 ${qualityLabel}）`}
-              label="参数"
+              name="agent-autorun"
+              ariaLabel={
+                current?.autoRun
+                  ? '自动生成：不再逐步询问'
+                  : '手动生成：每次生成前问你一句'
+              }
+              label=""
+              triggerIcon={current?.autoRun ? <IconAuto size={16} /> : <IconManual size={16} />}
               size="compact"
-              sections={[
+              variant="list"
+              options={[
                 {
-                  name: 'ratio',
-                  label: '比例',
-                  variant: 'ratioGrid',
-                  // 首项是「自动」= 不指定（值用空串，与 `setGenParam` 的清除口径一致）
-                  options: [
-                    { value: '', label: '自动' },
-                    ...RATIO_OPTIONS.map((r) => ({ value: r, label: r })),
-                  ],
-                  value: current?.ratio ?? '',
-                  onSelect: (v) => void setGenParam('ratio', v),
+                  value: 'manual',
+                  label: '手动生成',
+                  hint: '每次生成前询问',
+                  icon: <IconManual size={16} />,
                 },
                 {
-                  name: 'resolution',
-                  label: '画质',
-                  variant: 'pill',
-                  options: RESOLUTION_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
-                  value: current?.resolution ?? 'auto',
-                  onSelect: (v) => void setGenParam('resolution', v),
-                },
-                {
-                  name: 'quality',
-                  label: '质量',
-                  variant: 'pill',
-                  options: QUALITY_OPTIONS.map((o) => ({ value: o.value, label: o.label })),
-                  value: current?.quality ?? 'auto',
-                  onSelect: (v) => void setGenParam('quality', v),
+                  value: 'auto',
+                  label: '自动生成',
+                  hint: '直接消耗积分',
+                  icon: <IconAuto size={16} />,
                 },
               ]}
-              open={openPicker === 'agent-params'}
-              onToggle={() => setOpenPicker(openPicker === 'agent-params' ? null : 'agent-params')}
+              value={current?.autoRun ? 'auto' : 'manual'}
+              open={openPicker === 'agent-autorun'}
+              onToggle={() =>
+                setOpenPicker(openPicker === 'agent-autorun' ? null : 'agent-autorun')
+              }
               onClose={() => setOpenPicker(null)}
+              onSelect={(v) => void setAutoRun(v === 'auto')}
             />
           </div>
 

@@ -139,44 +139,34 @@ describe('素材段与技能段', () => {
 })
 
 /**
- * 生成参数段（用户 2026-10-02：「要有模型的选择，技能的选择，比例尺寸，画质的选择」）。
+ * @ 引用段（用户 2026-10-02：图三 / 图四 —— 能引用画布里的节点或模型）。
  *
- * 与素材 / 技能同一个理由：选择器在界面上**看得见**，选完有没有真的生效**看不见**。
- * 不告诉模型的话，它只会按自己的想法填节点 data，用户选了 16:9 却拿到 1:1 ——
- * 那是最典型的「功能摆着不生效」。
+ * 与素材 / 技能同一个理由：引用在输入框里**看得见**，有没有真的送到模型那里
+ * **看不见**。不报给模型的话，那句「@ 小猫钓鱼 改一下」就只是一段普通文字，
+ * 模型不知道「小猫钓鱼」是画布上的哪个节点 —— 只能自己再建一个。
  */
-describe('生成参数段', () => {
+describe('引用段', () => {
   const empty = { nodes: [], edges: [] }
 
-  it('★★ 面板上选过的比例 / 画质 / 质量真的进了系统提示词', () => {
+  it('★★ @ 到的节点带 id 进提示词（只说名字等于没说）', () => {
     const p = buildAgentSystemPromptWithContext(empty, undefined, {
-      params: { ratio: '16:9', resolution: '2k', quality: 'high' },
+      mentions: [{ kind: 'node', id: 'node_a1', label: '小猫钓鱼' }],
     })
-    expect(p).toContain('## 用户在这条对话里指定的生成参数')
-    expect(p).toContain('- ratio: 16:9')
-    expect(p).toContain('- resolution: 2k')
-    expect(p).toContain('- quality: high')
+    expect(p).toContain('## 用户在这句话里 @ 引用到的（他指的是这些东西）')
+    expect(p).toContain('- node_a1（小猫钓鱼）')
+    expect(p).toContain('不要重复建同名的节点')
   })
 
-  it('★ 没选过参数时那一段不出现（不留空标题）', () => {
-    expect(buildAgentSystemPromptWithContext(empty)).not.toContain('指定的生成参数')
-  })
-
-  /**
-   * 「自动」= 用户没指定。若把 auto 也报给模型，每一轮都会塞三条 `auto`：
-   * 白白占掉模型的注意力，还容易被读成「用户要求在节点上写 auto」。
-   */
-  it('★ 空值与 auto 都不进提示词（只报用户真选过的档位）', () => {
+  it('★ @ 到的模型写成「这次就用它」，与默认值冲突时以它为准', () => {
     const p = buildAgentSystemPromptWithContext(empty, undefined, {
-      params: { ratio: '16:9', resolution: '', quality: 'auto' },
+      mentions: [{ kind: 'model', id: 'Agnes 2.5 Pro', label: 'Agnes 2.5 Pro' }],
     })
-    expect(p).toContain('- ratio: 16:9')
-    expect(p).not.toContain('- resolution')
-    expect(p).not.toContain('- quality')
+    expect(p).toContain('模型：')
+    expect(p).toContain('- Agnes 2.5 Pro')
+    expect(p).toContain('以他引用的为准')
   })
 
-  it('★ 写清优先级：这句对话里另有要求时以对话为准（§11）', () => {
-    const p = buildAgentSystemPromptWithContext(empty, undefined, { params: { ratio: '1:1' } })
-    expect(p).toContain('以他说的为准')
+  it('★ 没引用时那一段不出现（不留空标题）', () => {
+    expect(buildAgentSystemPromptWithContext(empty)).not.toContain('@ 引用到的')
   })
 })
