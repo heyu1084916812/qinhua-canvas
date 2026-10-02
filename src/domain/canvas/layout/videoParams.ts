@@ -54,10 +54,31 @@ export const VIDEO_PARAM_SPECS: Record<string, VideoParamSpec> = {
     count: 1,
     modes: ['text', 'keyframe', 'reference'],
   },
+  /**
+   * **Agnes Video 2.0** —— 用户 2026-10-03：「我现在只有 agnes video 2.0，不是 flash」。
+   *
+   * 它跟 2.5 不是同一套形态：实测**只认「OpenAI 视频」那套像素参数**
+   * （`width` / `height` / `num_frames` / `frame_rate`），发官方那套 `mode` 会被 400 拒
+   * （当时的错误里露出服务端的 mode 词表正是 `ti2vid/keyframes/multi_reference`）。
+   * 所以这里按**我们确实能发出去的东西**声明：
+   * · 比例：用视频接口family 那 6 档（像素由 `agnesVideoDimensions(ratio,size)` 换算）；
+   * · 尺寸：只留 720p / 1080p（480p / auto 没验证过，宁可不给）；
+   * · 时长：4–12 秒（与官方 2.5 一致；我们唯一实测成功的那次是 4 秒）；
+   * · `mode`：**只有 text** —— keyframe / reference 需要公网可访问的素材 URL，
+   *   而浏览器里的本地素材直传不了（适配器会明确拒绝），摆出来就是死功能。
+   */
+  'agnes-video-v2.0': {
+    ratios: AGNES_RATIOS,
+    sizes: ['720p', '1080p'],
+    seconds: { min: 4, max: 12, default: 5 },
+    count: 1,
+    modes: ['text'],
+  },
 }
 
 /** 前端显示名 → 上游 ID（只列我们真在用的 Agnes 视频档） */
 const ALIASES: Record<string, string> = {
+  'Agnes Video 2.0': 'agnes-video-v2.0',
   'Agnes Video 2.5': 'agnes-video-2.5',
   'Agnes Video 2.5 Flash': 'agnes-video-2.5-flash',
 }
