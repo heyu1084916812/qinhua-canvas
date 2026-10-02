@@ -1,6 +1,7 @@
 import { fingerprintBytes } from '../../domain/shared/hash'
 import { imageInputsOf } from '../../domain/shared/execution/inputs'
 import { imageSizeFromHeader } from '../../domain/shared/imageSize'
+import { videoParamsFor } from '../../domain/canvas/layout/videoParams'
 import type { SafeChannelConfig } from '../ports'
 import {
   ChannelError,
@@ -468,8 +469,25 @@ export function createOpenAiVideoAdapter(
 
   const generateVideo: ChannelAdapter['generateVideo'] = async (request, signal) => {
     assertNoLocalReferenceImages(request)
-    const { width, height } = agnesVideoDimensions(request.params.ratio, request.params.size)
-    const numFrames = agnesVideoFrameCount(request.params.durationSec)
+    /**
+     * **发出去之前按模型能力收口**（用户 2026-10-03：「每个视频模型应该有的参数单独做，
+     * 因为有些模型他不支持」）。值域来自 `videoParamsFor`（Agnes 官方文档）。
+     *
+     * 为什么在适配器这一层也拦一道：面板那条路能保证只给支持的档，但 agent 建的节点、
+     * 老项目里存下来的节点都可能带着老档位（3 秒、3:2、480p）—— 直接发就是 400，
+     * 用户看到的是「选了就报错」。这里换成**模型支持的最接近值**，请求照样能出去。
+     */
+    const spec = videoParamsFor(request.model)
+    const rawRatio = typeof request.params.ratio === 'string' ? request.params.ratio : ''
+    const safeRatio = spec && !spec.ratios.includes(rawRatio) ? '16:9' : rawRatio
+    const rawSeconds = request.params.durationSec
+    const safeSeconds = spec
+      ? Math.min(spec.seconds.max, Math.max(spec.seconds.min, Number(rawSeconds) || spec.seconds.default))
+      : rawSeconds
+    /** 只支持单一尺寸档的模型（如 2.5 Flash 只有 720P）就按它强制 */
+    const safeSize = spec && spec.sizes.length === 1 ? spec.sizes[0] : request.params.size
+    const { width, height } = agnesVideoDimensions(safeRatio, safeSize)
+    const numFrames = agnesVideoFrameCount(safeSeconds)
 
     /** 官方文档给 Agnes Video 2.5 / 2.5 Flash 的专属参数（`mode` 为必填） */
     const documented: Record<string, unknown> = {
@@ -484,9 +502,9 @@ export function createOpenAiVideoAdapter(
        * 参数名对上了、值没翻译，服务端只能拒。纯文字起片就是 `'ti2vid'`。
        */
       mode: 'ti2vid',
-      seconds: String(agnesVideoSeconds(request.params.durationSec)),
-      size: agnesVideoSizeTier(request.params.size),
-      ...(typeof request.params.ratio === 'string' ? { aspect_ratio: request.params.ratio } : {}),
+      seconds: String(agnesVideoSeconds(safeSeconds)),
+      size: agnesVideoSizeTier(safeSize),
+      ...(safeRatio ? { aspect_ratio: safeRatio } : {}),
     }
     /** 老式部署 / LiteLLM 中转只认「OpenAI 视频」那套（像素 + 帧数） */
     const legacy: Record<string, unknown> = {
