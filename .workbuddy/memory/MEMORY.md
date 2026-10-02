@@ -24,9 +24,21 @@
   不要写成「该服务坏了」**。
 - **0x0.st 已暂停上传**（原话：uploads disabled because it's been almost nothing but AI botnet spam）。
   这类免费图床寿命普遍很短，接的时候**别写死一家**。
-- **大雄能用 litterbox / temp.sh 的合理解释是桌面壳**：上传走原生进程就不受 CORS 约束，
-  直链那一步它和上游都不受影响。这正好对上用户「后期会封装软件」的方向（#107）——
-  **「现在能不能用」和「封装后能不能用」要分两笔账算。**
+- **大雄为什么能用 litterbox / temp.sh（已查源码，不是推测）**：它是
+  **FastAPI 本地服务 + 浏览器前端**，不是纯静态站点、也不是桌面壳。`main.py` 起
+  uvicorn（`app.mount("/static", StaticFiles(...))`），画布 UI 由它发给浏览器；
+  前端调的是**同源**接口 `fetch('/api/cloud-video/upload')`，真正的上传在服务端用
+  `httpx` 发（`upload_video_to_litterbox` / `upload_video_to_temp_sh`）。
+  **同源 + 服务端发起 ⇒ CORS 这件事根本不参与。**
+  ⚠ 我先前把这里猜成「桌面壳」，**方向蒙对了、形态说错了**，被用户一句
+  「大雄的我看也是浏览器的画布啊」纠正 —— **别把「推断出来的机制」当结论写进记录，
+  能读到源码就去读。**
+- **顺带查实一条，大雄自己也踩着的坑**：`temp.sh` **只有 POST 才返回图片**
+  （`Content-Type: image/png`），**GET 一律返回 HTML 下载页**（`/dl/` 变体 404、
+  带完整浏览器头/Referer/`Accept: image/*` 也一样）。所以大雄把 temp.sh 的返回值
+  直接当图片 URL 交给上游那段，**在上游按 GET 抓图时是坏的**；它排在 litterbox
+  之后，很可能正是长期没暴露的原因。**这条对轻画是现成的教训：选图床必须连
+  「上游拿到 URL 之后到底怎么取图」一起验，不能只验上传。**
 
 ### ★ 三类图片入口只有一条需要图床（2026-10-03）
 
