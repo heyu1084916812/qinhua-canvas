@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useSyncExternalStore, useState } from 'react'
+import { useEffect, useRef, useSyncExternalStore, useState } from 'react'
 import { clampDuration, type ModelCapability } from '../../../domain/shared/capability'
 import type { GenerationData } from '../../../domain/canvas/model/node'
 import type { PanelCollection, PanelModel, PanelThumb, RecipeSnapshot } from './panelModel'
@@ -12,6 +12,7 @@ import { ParamPicker } from './ParamPicker'
 import { SkillPicker } from './SkillPicker'
 import styles from './CreationPanel.module.css'
 import { RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
+import { videoParamsFor } from '../../../domain/canvas/layout/videoParams'
 import {
   categoryOfLogical,
   panelModelOptions,
@@ -577,13 +578,28 @@ export function CreationPanel(props: CreationPanelProps) {
     `${count} 张`,
   ].join(' · ')
 
+  /**
+   * **视频模型各自的参数能力**（用户 2026-10-03：「每个视频模型应该有的参数单独做，
+   * 因为有些模型他不支持」）。值域来自 `videoParamsFor`（Agnes 官方文档）——
+   * 有它就按它渲染，没有才退回原来那套通用档位。
+   */
+  const videoSpec = videoMode
+    ? videoParamsFor(shownLogicalModel || String(data.model ?? ''))
+    : undefined
   // 模型不支持的档位直接隐藏（§6.8「参数项随模型能力动态渲染」）
-  const ratios = ratiosOf(activeModel, props.hasSourceImage === true)
+  const ratios = videoSpec ? [...videoSpec.ratios] : ratiosOf(activeModel, props.hasSourceImage === true)
   const resolutions = resolutionsOf(activeModel)
 
   // 视频参数（§6.8 视频模式）：尺寸 / 时长 / 首尾帧·全能参考
-  const sizeLabel = SIZE_OPTIONS.find((s) => s.value === (data.size ?? 'auto'))?.label ?? '尺寸'
-  const [minSec, maxSec] = activeModel?.durations ?? [3, 15]
+  /** 尺寸档：有规格就按规格出（**去掉 auto / 480p 这种它不认的值**），否则用通用档 */
+  const sizeChoices = videoSpec
+    ? videoSpec.sizes.map((s) => ({ value: s.toLowerCase(), label: s.toUpperCase() }))
+    : SIZE_OPTIONS
+  const sizeLabel = sizeChoices.find((s) => s.value === (data.size ?? 'auto'))?.label ?? '尺寸'
+  /** 时长：规格说 4–12 就 4–12（原来写死兜底 3–15，超出范围会被服务端拒） */
+  const [minSec, maxSec] = videoSpec
+    ? [videoSpec.seconds.min, videoSpec.seconds.max]
+    : (activeModel?.durations ?? [3, 15])
   const duration = clampDuration(data.durationSec ?? DEFAULT_DURATION, activeModel)
   const refMode = data.refMode ?? 'first-last-frame'
   const refModeLabel = REF_MODE_OPTIONS.find((r) => r.value === refMode)?.label ?? '参考模式'
@@ -591,7 +607,14 @@ export function CreationPanel(props: CreationPanelProps) {
    * 参考模式是否展示：模型**显式声明**没有参考图时才隐藏，未声明不隐藏——
    * 与数量上限同一条道理（§6.8「未声明」不等于「不支持」）。
    */
-  const showRefMode = !activeModel || (activeModel.maxReferenceImages ?? 0) > 0
+  /**
+   * 参考模式：有规格时**只按规格说话** —— `Agnes Video 2.0` 只支持 text 模式
+   * （keyframe / reference 要公网素材 URL，浏览器里的本地素材传不上去），
+   * 那就别把这个选了也发不出去的档摆出来。
+   */
+  const showRefMode = videoSpec
+    ? videoSpec.modes.length > 1
+    : !activeModel || (activeModel.maxReferenceImages ?? 0) > 0
   /**
    * 切换功能类别时，**节点自己存的**模型是否属于目标类别；不属于就得清掉
    * （否则会把图片模型发给视频渠道）。
@@ -892,7 +915,7 @@ export function CreationPanel(props: CreationPanelProps) {
                   name="size"
                   ariaLabel="视频尺寸"
                   label={sizeLabel}
-                  options={SIZE_OPTIONS.map((s) => ({ value: s.value, label: s.label }))}
+                  options={sizeChoices.map((s) => ({ value: s.value, label: s.label }))}
                   value={data.size ?? 'auto'}
                   variant="list"
                   open={openPicker === 'size'}
