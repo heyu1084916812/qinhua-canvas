@@ -137,6 +137,12 @@ describe('任务响应解析', () => {
   it('状态取值优先 data.status，并统一大写', () => {
     expect(videoTaskStatus({ status: 'queued' })).toBe('QUEUED')
     expect(videoTaskStatus({ data: { status: 'completed' } })).toBe('COMPLETED')
+    /**
+     * ★★ Agnes 的原生形态：`/agnesapi` 返回的是 `internal_status`，**没有 `status`**。
+     * 只读 `status` 的话这里会得到空串 ⇒ 轮询把有效载荷当无效、改去试别的路由、
+     * 空转到放弃 —— 用户看到的就是「跑了几十秒然后失败、0 个产物」（2026-10-03）。
+     */
+    expect(videoTaskStatus({ internal_status: 'inference', internal_progress: 30 })).toBe('INFERENCE')
     expect(videoTaskStatus(null)).toBe('')
   })
 })

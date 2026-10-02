@@ -222,12 +222,21 @@ const FAILURE_STATUS = new Set([
   'EXPIRED',
 ])
 
-/** 任务状态取值：`data.status` 优先，其次顶层 `status`（两种部署都见过） */
+/**
+ * 任务状态取值：`data.status` 优先，其次**Agnes 原生的 `internal_status`**，
+ * 再其次顶层 `status`（几种部署都见过）。
+ *
+ * ⚠️ `internal_status` 这一支是 2026-10-03 补的：Agnes 的 `/agnesapi?video_id=…`
+ * 返回的是 `{"internal_status":"inference","internal_progress":30,…}` —— **没有
+ * `status` 字段**。原来只读 `status` ⇒ 状态永远读成空串 ⇒ 轮询里那句
+ * 「只有真带状态或产物地址的响应才算数」把它当成无效载荷、改去试别的候选路由，
+ * 空转到脚本放弃 ⇒ 用户看到「跑了几十秒然后失败、0 个产物」。
+ */
 export function videoTaskStatus(raw: unknown): string {
   if (!raw || typeof raw !== 'object') return ''
   const obj = raw as Record<string, unknown>
   const data = obj.data && typeof obj.data === 'object' ? (obj.data as Record<string, unknown>) : null
-  const value = data?.status ?? obj.status
+  const value = data?.status ?? obj.internal_status ?? obj.status
   return typeof value === 'string' ? value.trim().toUpperCase() : ''
 }
 
