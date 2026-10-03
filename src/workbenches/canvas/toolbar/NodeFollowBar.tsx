@@ -202,6 +202,17 @@ function NodeActions({
    */
   const hasAsset = !!(node.data as { assetHash?: string }).assetHash
 
+  /**
+   * **有素材时，功能栏只留「跟这张素材有关」的动作**（用户 2026-10-05 第 13 条：
+   * 「生成节点的功能栏有素材的时候……把目前的生成、重命名、复制、删除、关闭、渠道设置
+   * 的功能删掉」）。
+   *
+   * 那一栏在那张图出来之后就该围着图服务：生成 / 重命名 / 渠道设置与它无关，
+   * 删除 / 关闭又紧挨着容易误触。素材相关的（提取选区 / 下载）照旧保留；
+   * **正在生成时的「取消生成」例外**：那是这一栏唯一能中止它的入口，撤了就没处停。
+   */
+  const assetMode = hasAsset
+
   const onRun = () => {
     if (busy) exec.cancel()
     else if (node.type === 'generation') void exec.runNode(node.id)
@@ -210,7 +221,7 @@ function NodeActions({
 
   return (
     <div className={styles.actions}>
-      {canRun && (
+      {canRun && (!assetMode || busy) && (
         <FollowButton
           action="run"
           icon={busy ? <IconStop /> : <IconPlay />}
@@ -218,27 +229,31 @@ function NodeActions({
           onClick={onRun}
         />
       )}
-      <FollowButton
-        action="rename"
-        icon={<IconRename />}
-        label="重命名"
-        onClick={() => store.beginRename(node.id)}
-      />
-      <FollowButton
-        action="duplicate"
-        icon={<IconDuplicate />}
-        label="复制"
-        onClick={() =>
-          store.dispatch({
-            kind: 'node.duplicate',
-            ids: [node.id],
-            newIds: [createId('node')],
-            dx: 24,
-            dy: 24,
-            rewire: true,
-          })
-        }
-      />
+      {!assetMode && (
+        <FollowButton
+          action="rename"
+          icon={<IconRename />}
+          label="重命名"
+          onClick={() => store.beginRename(node.id)}
+        />
+      )}
+      {!assetMode && (
+        <FollowButton
+          action="duplicate"
+          icon={<IconDuplicate />}
+          label="复制"
+          onClick={() =>
+            store.dispatch({
+              kind: 'node.duplicate',
+              ids: [node.id],
+              newIds: [createId('node')],
+              dx: 24,
+              dy: 24,
+              rewire: true,
+            })
+          }
+        />
+      )}
       {/*
         「提取选区」（§6.23，用户 2026-09-29）：**图片节点上方的功能栏**是这个入口的
         主位置（右键菜单里也有同一项）。它与「下载」一样属于普通操作，故贴在复制之后、
@@ -266,19 +281,23 @@ function NodeActions({
           onClick={() => onDownload(node.id)}
         />
       )}
-      <FollowButton
-        action="delete"
-        icon={<IconDelete />}
-        label="删除"
-        onClick={() => {
-          store.dispatch({ kind: 'node.delete', ids: [node.id] })
-          store.setSelection([])
-          store.showUndoBar('已删除节点')
-        }}
-      />
-      <span className={styles.divider} />
-      <FollowButton action="close" icon={<IconChevronDown />} label="关闭" onClick={onClose} />
-      {onOpenSettings && !running && (
+      {!assetMode && (
+        <FollowButton
+          action="delete"
+          icon={<IconDelete />}
+          label="删除"
+          onClick={() => {
+            store.dispatch({ kind: 'node.delete', ids: [node.id] })
+            store.setSelection([])
+            store.showUndoBar('已删除节点')
+          }}
+        />
+      )}
+      {!assetMode && <span className={styles.divider} />}
+      {!assetMode && (
+        <FollowButton action="close" icon={<IconChevronDown />} label="关闭" onClick={onClose} />
+      )}
+      {!assetMode && onOpenSettings && !running && (
         <FollowButton action="settings" icon={<IconSettings />} label="渠道设置" onClick={onOpenSettings} />
       )}
     </div>

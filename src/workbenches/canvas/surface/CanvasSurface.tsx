@@ -8,6 +8,7 @@ import { useCanvasStore, useGraph, useViewportState } from '../storeContext'
 import { useViewport } from '../../../features/canvas/useViewport'
 import { useEdgeDrag } from '../../../features/canvas/useEdgeDrag'
 import { useClipboardHotkeys, rememberPointer } from '../../../features/canvas/useClipboard'
+import { groupNodes } from '../../../features/canvas/groupNodes'
 import { isTextEntryElement, isActivationTarget } from '../../../features/shared/textTarget'
 import { wheelBelongsToChain, wheelChainOf } from '../../../features/shared/wheelTarget'
 import { coalescePointerMove } from '../../../shared/rafThrottle'
@@ -165,6 +166,25 @@ export function CanvasSurface({
       store.setEdgeSelection([])
       // 删除是已落撤销栈的可恢复操作 → 弹撤销条（§6.12「底部撤销条保留 6 秒」）
       store.showUndoBar(sel.length > 0 ? '已删除节点' : '已删除连线')
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [store])
+
+  /**
+   * **Ctrl / Cmd + G：把选中的节点打成一组**（用户 2026-10-05 第 10 条）。
+   *
+   * 与多选功能栏里那枚「打组」共用 `groupNodes`（一次事务：建组 + 逐个收进去，
+   * 撤销一步全回来）。文本框里按 Ctrl+G 是浏览器 / 输入法的地盘，不抢。
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== 'g' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return
+      if (isTextEntryElement(e.target as { tagName?: string } | null)) return
+      const sel = store.getSelection()
+      if (sel.length === 0) return
+      e.preventDefault()
+      if (groupNodes(store, sel)) store.showUndoBar('已打组')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

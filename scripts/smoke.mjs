@@ -6601,6 +6601,33 @@ async function g58(browser) {
     `count=${await page.locator('[data-node-type="generation"]').count()}`,
   )
 
+  /**
+   * ★★ **Ctrl / Cmd + G 把选中的节点打成一组**（用户 2026-10-05 第 10 条）。
+   *
+   * 判据取「画布上真的多出一个分组节点」，并顺带确认**一步撤销**能把组与归属一起回退
+   * （打组是「建组 + 逐个收进去」两条以上命令，必须合成一个撤销单元）。
+   */
+  await page.locator('[data-node-type="generation"]').first().click({ position: { x: 16, y: 16 } })
+  await sleep(300)
+  const groupsBefore = await page.locator('[data-node-type="group"]').count()
+  await page.keyboard.press('Control+g')
+  await sleep(400)
+  const groupsAfter = await page.locator('[data-node-type="group"]').count()
+  rec(
+    g,
+    '★★ Ctrl+G 把选中的节点打成一组',
+    groupsAfter === groupsBefore + 1,
+    `分组 ${groupsBefore} → ${groupsAfter}`,
+  )
+  await page.keyboard.press('Control+z')
+  await sleep(400)
+  rec(
+    g,
+    '★★ 打组可一步撤销（建组与归属一起回退）',
+    (await page.locator('[data-node-type="group"]').count()) === groupsBefore,
+    `撤销后分组=${await page.locator('[data-node-type="group"]').count()}`,
+  )
+
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
 }
@@ -15847,6 +15874,22 @@ async function g96(browser) {
       return (await page.locator('[data-node-follow-bar] [data-follow-action="download"]').count()) === 1
     })
   rec(g, '★ 有素材的节点，跟随栏里有「下载」', gotBtn)
+
+  /**
+   * ★★ **有素材时功能栏只留素材相关动作**（用户 2026-10-05 第 13 条：「生成节点的功能栏
+   * 有素材的时候……把目前的生成、重命名、复制、删除、关闭、渠道设置的功能删掉」）。
+   */
+  const assetActions = await page
+    .locator('[data-node-follow-bar] [data-follow-action]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-follow-action')))
+  rec(
+    g,
+    '★★ 有素材的节点：功能栏不再有生成 / 重命名 / 复制 / 删除 / 关闭 / 渠道设置',
+    ['run', 'rename', 'duplicate', 'delete', 'close', 'settings'].every(
+      (a) => !assetActions.includes(a),
+    ) && assetActions.includes('download'),
+    `动作=${assetActions.join(',')}`,
+  )
 
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 6000 }).catch(() => null),
