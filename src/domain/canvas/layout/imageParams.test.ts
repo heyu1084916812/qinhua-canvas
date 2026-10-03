@@ -45,9 +45,30 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
   })
 
   it('非 Agnes 模型**故意没有规格**（参数以渠道上报为准，不凭猜写死）', () => {
-    expect(imageParamsFor('Nano Banana Pro')).toBeUndefined()
     expect(imageParamsFor('Midjourney')).toBeUndefined()
     expect(imageParamsFor('')).toBeUndefined()
+  })
+
+  /**
+   * **Nano Banana（Gemini 系）**：`chat` 方言 —— 只有 prompt 有参数，
+   * 尺寸 / 画幅 / 质量 / 张数**一个都不摆**（实测中转站把这些字段全部忽略，
+   * 而 `/images/generations` 对 Pro 直接 503，必须走 chat）。
+   */
+  it('★★ Nano Banana Pro / 2：chat 方言、没有尺寸 / 画幅 / 质量 / 张数', () => {
+    for (const name of ['Nano Banana Pro', 'Nano Banana 2', 'gemini-3-pro-image', 'gemini-3.1-flash-image']) {
+      const spec = imageParamsFor(name)
+      expect(spec?.dialect).toBe('chat')
+      expect(spec?.sizes).toEqual([])
+      expect(spec?.ratios).toEqual([])
+      expect(spec?.qualities).toEqual([])
+      expect(spec?.counts).toEqual([1])
+    }
+  })
+
+  it('★ 同一族的变体 ID（-2k / -4k / -preview）按前缀归一到同一份 chat 规格', () => {
+    for (const name of ['gemini-3-pro-image-2k', 'gemini-3-pro-image-4k', 'gemini-3.1-flash-image-preview']) {
+      expect(imageParamsFor(name)?.dialect).toBe('chat')
+    }
   })
 
   /**

@@ -1113,6 +1113,12 @@ export function CreationPanel(props: CreationPanelProps) {
                 选完**不关**（多组模式）：调参数常常一次要动两三样，每选一格就收起
                 会逼人重复点开三次。
               */
+              /**
+               * 一段都没有的模型（Nano Banana：只有 prompt 有参数）**整枚 chip 都不摆** ——
+               * 摆一个点开空空如也的「参数」比不摆更让人以为坏了（用户 2026-10-03
+               * 「不要通用设置」的同一条道理：没有的东西别装出来）。
+               */
+              paramSections.length > 0 ? (
               <ParamPicker
                 name="gen-params"
                 ariaLabel={`生成参数（${paramsLabel}）`}
@@ -1122,6 +1128,7 @@ export function CreationPanel(props: CreationPanelProps) {
                 onToggle={() => togglePicker('gen-params')}
                 onClose={closePicker}
               />
+              ) : null
             )}
           </>
         )}

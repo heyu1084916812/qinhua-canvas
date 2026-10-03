@@ -153,6 +153,22 @@ function sizeToDimensions(size: string | null): { width?: number; height?: numbe
 }
 
 /**
+ * 从 chat 回复正文里抠出**图片地址**。
+ *
+ * 中转站的 Gemini 系图片模型（Nano Banana）返回的是这样一段 markdown：
+ * `![image](https://files.xxx/output/....jpg)`（2026-10-03 实测两次，形状一致）。
+ * 先按 markdown 图片语法取，取不到再退一步找裸的图片链接 —— 都不中才算没有图，
+ * 不能把整段正文当成地址发出去。
+ */
+export function imageUrlFromChatContent(content: unknown): string | null {
+  if (typeof content !== 'string') return null
+  const md = /!\[[^\]]*\]\((https?:\/\/[^\s)]+)\)/.exec(content)
+  if (md?.[1]) return md[1]
+  const bare = /(https?:\/\/[^\s)]+\.(?:png|jpe?g|webp|gif))/i.exec(content)
+  return bare?.[1] ?? null
+}
+
+/**
  * 产物装配（§6.18「请求像素 / 实际像素」）。
  *
  * **实际像素一律从字节里读出来**（PNG/JPEG/GIF/WebP 的文件头即可，见
@@ -190,6 +206,12 @@ export function createOpenAiImagesAdapter(
   const imagesUrl = `${base}/images/generations`
   /** 图生图端点（M6-12）：带参考图时走这里，multipart 上传 */
   const editsUrl = `${base}/images/edits`
+  /**
+   * Gemini 系图片模型（Nano Banana）的出路：中转站把它们的图放在 **chat 回复正文**里
+   * （`![image](url)`），而 `/images/generations` 对 `gemini-3-pro-image` 直接 503。
+   * 2026-10-03 真机实测：chat 路径下 `gemini-3-pro-image` 与 `gemini-3.1-flash-image` 都出图。
+   */
+  const chatUrl = `${base}/chat/completions`
 
   const verify: ChannelAdapter['verify'] = async (_cfg, signal): Promise<VerifyResult> => {
     try {
@@ -416,6 +438,48 @@ export function createOpenAiImagesAdapter(
      * 没有表（其它厂商的固定显示名）⇒ 完全沿用原来那套 OpenAI 口径，行为一字不变。
      */
     const spec = imageParamsFor(request.model)
+    /**
+     * **`chat` 方言**（Nano Banana Pro / 2）：请求与解析都换一条路 ——
+     * 发 `/chat/completions`，从回复正文里抠出图片地址再取字节。
+     * 这条分支必须放在最前：`/images/generations` 对 `gemini-3-pro-image` 是 503。
+     */
+    if (spec?.dialect === 'chat') {
+      const res = await deps.network.request(
+        {
+          url: chatUrl,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
+          body: {
+            model: request.model,
+            messages: [{ role: 'user', content: request.prompt }],
+          },
+          timeoutMs: GENERATE_TIMEOUT_MS,
+        },
+        signal,
+      )
+      if (res.status < 200 || res.status >= 300) {
+        const detail = await res.text().catch(() => '')
+        const { error } = classifyError(null, res.status, detail)
+        throw new ChannelError(error)
+      }
+      const body = await res.json<{ choices?: { message?: { content?: unknown } }[] }>()
+      const url = imageUrlFromChatContent(body.choices?.[0]?.message?.content)
+      if (!url) {
+        throw new ChannelError({
+          kind: 'parse',
+          raw:
+            '模型回复里没有图片地址：' +
+            (typeof body.choices?.[0]?.message?.content === 'string'
+              ? body.choices[0]!.message!.content!.slice(0, 200)
+              : '（正文不是字符串）'),
+        })
+      }
+      const dl = await deps.network.request({ url, method: 'GET', headers: {} }, signal)
+      const bytes = new Uint8Array(await dl.arrayBuffer())
+      const hash = await fingerprintBytes(bytes)
+      const mime = /\.jpe?g(\?|$)/i.test(url) ? 'image/jpeg' : 'image/png'
+      return [toAsset(hash, mime, bytes, {})]
+    }
     /**
      * 三种方言走两条路：
      * - `tier` / `pixel`（Agnes 图片三个）⇒ **能力表 JSON**：`size` 按方言给，

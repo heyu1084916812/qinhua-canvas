@@ -15186,7 +15186,115 @@ async function g97(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97]
+/**
+ * G98 「按模型配参数」的界面验收（用户 2026-10-03：「每个模型有哪些配置单独设置，
+ * 不要通用设置」）。
+ *
+ * 单测证的是**能力表与请求体**，这一组证的是**面板真的按模型换了一副面孔**：
+ * - Comfy-gpt 的 `GPT Image 2.5 Flare` → 9 档画幅（含 21:9 / 9:21）+ 1K·2K + **六档质量**（含超高/最高）+ 1·2·4 张；
+ * - `Agnes Image 2.5 Flash` → 8 档画幅 + 1K–4K，**没有质量、没有张数**这两段。
+ *
+ * `Agnes Image 2.0 Flash`（像素尺寸、连比例段都没有）**不在前端清单里**（用户拍板
+ * Agnes 每类只留最强的一个），它的规格由 `imageParams.test.ts` 覆盖。
+ */
+async function g98(browser) {
+  const g = 'G98 按模型配图片参数'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  const node = page.locator('[data-node-type="generation"]').first()
+  const panel = await genPanel(page, node)
+  const popup = () => page.locator('[data-param-popup="gen-params"]')
+  const valuesOf = async (section) =>
+    popup()
+      .locator(`[data-param-in="${section}"]`)
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-option')))
+  const labelsOf = async (section) =>
+    popup()
+      .locator(`[data-param-in="${section}"]`)
+      .evaluateAll((els) => els.map((e) => (e.textContent ?? '').trim()))
+
+  const pickModel = async (name) => {
+    await panel.locator('[data-param-chip="model"]').click()
+    await sleep(350)
+    await panel.locator(`[data-param-popup="model"] button[data-param-option="${name}"]`).click()
+    await sleep(450)
+  }
+  const openParams = async () => {
+    if ((await popup().count()) === 0) {
+      await panel.locator('[data-param-chip="gen-params"]').click()
+      await sleep(400)
+    }
+  }
+
+  // ① Comfy-gpt 的 GPT Image 档
+  await pickModel('GPT Image 2.5 Flare')
+  await openParams()
+  const gptRatios = await valuesOf('ratio')
+  const gptRes = await valuesOf('resolution')
+  const gptQuality = await valuesOf('quality')
+  const gptQualityLabels = await labelsOf('quality')
+  const gptCounts = await valuesOf('count')
+  rec(
+    g,
+    '★★ GPT Image 2.5 Flare：9 档画幅 / 1K·2K / 六档质量（含超高·最高）/ 1·2·4 张',
+    gptRatios.length === 9 &&
+      gptRatios.includes('21:9') &&
+      gptRatios.includes('9:21') &&
+      JSON.stringify(gptRes) === JSON.stringify(['1k', '2k']) &&
+      JSON.stringify(gptQuality) === JSON.stringify(['auto', 'low', 'medium', 'high', 'xhigh', 'max']) &&
+      gptQualityLabels.includes('超高') &&
+      gptQualityLabels.includes('最高') &&
+      JSON.stringify(gptCounts) === JSON.stringify(['1', '2', '4']),
+    `比例=${gptRatios.length} 尺寸=${JSON.stringify(gptRes)} 质量=${JSON.stringify(gptQuality)} 标签=${JSON.stringify(gptQualityLabels)} 张数=${JSON.stringify(gptCounts)}`,
+  )
+  await page.screenshot({ path: `${OUT}/119-g98-gpt-image-params.png` })
+  await page.keyboard.press('Escape')
+  await sleep(250)
+
+  // ② Agnes Image 2.5 Flash：档位 + 画幅，但没有质量与张数
+  await pickModel('Agnes Image 2.5 Flash')
+  await openParams()
+  const agnesRatios = await valuesOf('ratio')
+  const agnesRes = await valuesOf('resolution')
+  const agnesQuality = await valuesOf('quality')
+  const agnesCounts = await valuesOf('count')
+  rec(
+    g,
+    '★★ Agnes Image 2.5 Flash：8 档画幅 + 1K–4K，且**没有质量 / 张数**两段',
+    agnesRatios.length === 8 &&
+      JSON.stringify(agnesRes) === JSON.stringify(['1k', '2k', '3k', '4k']) &&
+      agnesQuality.length === 0 &&
+      agnesCounts.length === 0,
+    `比例=${agnesRatios.length} 尺寸=${JSON.stringify(agnesRes)} 质量段=${agnesQuality.length} 张数段=${agnesCounts.length}`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(250)
+
+  // ③ Nano Banana（chat 方言）：只有 prompt 有参数 ⇒ 整枚「生成参数」chip 都不该出现
+  await pickModel('Nano Banana Pro')
+  rec(
+    g,
+    '★★ Nano Banana Pro：一段参数都没有 ⇒ 整枚「生成参数」chip 不出现（而不是点开是空的）',
+    (await panel.locator('[data-param-chip="gen-params"]').count()) === 0,
+  )
+  await page.screenshot({ path: `${OUT}/121-g98-nano-banana.png` })
+
+  await page.screenshot({ path: `${OUT}/120-g98-agnes-image-params.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

@@ -450,6 +450,65 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
   })
 
   /**
+   * **Nano Banana（Gemini 系）走 chat 端点**（2026-10-03 真机实测）：
+   * `/images/generations` 对 `gemini-3-pro-image` 回 503「不支持此 API 路径」，
+   * 而 `/chat/completions` 两张都出图 —— 图藏在回复正文的 markdown 里
+   * （`![image](https://…jpg)`），要抠出来再自己取字节。
+   */
+  it('★★ Nano Banana Pro：改打 chat/completions，并从正文 markdown 里取图', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        calls.push({ url: req.url, body: req.body })
+        if (req.url.endsWith('/chat/completions')) {
+          return resp(200, {
+            choices: [{ message: { content: '![image](https://files.example/a.jpg)' } }],
+          })
+        }
+        if (req.url === 'https://files.example/a.jpg') {
+          return {
+            status: 200,
+            headers: {},
+            async text() {
+              return ''
+            },
+            async json<T>(): Promise<T> {
+              return {} as T
+            },
+            async arrayBuffer() {
+              return new Uint8Array([9, 9, 9]).buffer
+            },
+          }
+        }
+        return resp(404, {})
+      },
+    })
+    const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
+    const assets = await a.generateImage(
+      { ...request([], 1), model: 'gemini-3-pro-image', prompt: '一只猫' },
+      signal,
+    )
+    expect(calls[0]!.url).toBe('https://x/v1/chat/completions')
+    expect(calls[0]!.body).toMatchObject({
+      model: 'gemini-3-pro-image',
+      messages: [{ role: 'user', content: '一只猫' }],
+    })
+    expect(calls[1]!.url).toBe('https://files.example/a.jpg')
+    expect(assets).toHaveLength(1)
+    expect(assets[0]!.mime).toBe('image/jpeg')
+  })
+
+  it('★ chat 回复里没有图片地址 → 如实报错（不把整段正文当地址）', async () => {
+    const net = createMemoryNetwork({
+      handler: async () => resp(200, { choices: [{ message: { content: '我不会画图' } }] }),
+    })
+    const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
+    await expect(
+      a.generateImage({ ...request([], 1), model: 'gemini-3.1-flash-image' }, signal),
+    ).rejects.toMatchObject({ appError: { kind: 'parse' } })
+  })
+
+  /**
    * ★ 关键：真实渠道下「请求像素」与「实际像素」**不能同源**。
    *
    * 早先实现把请求的 size 直接当产物宽高写上，于是日志里两个数恒等——
