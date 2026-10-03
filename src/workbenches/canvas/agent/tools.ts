@@ -265,7 +265,56 @@ export function planProblems(
 ): { problems: string[]; plan: AgentPlan | null } {
   const { plan } = normalizeAgentPlan(args)
   const checked = validateAgentPlan(plan, existingNodeIds)
-  return checked.ok ? { problems: [], plan: checked.plan } : { problems: checked.errors, plan: null }
+  if (!checked.ok) return { problems: checked.errors, plan: null }
+  /**
+   * 过形状这一关之后再看一眼**内容**：有没有节点按定义就永远跑不起来。
+   *
+   * 用户 2026-10-04 报的正是这一类：「结构全对，但是没有提示词」—— 计划能落地、
+   * 看着像模像样，可是下游生成节点一个提示词都拿不到（`toRunRequest` 直接返回 null）。
+   * 落地之后再让用户自己发现，比当场把话还给模型糟得多。
+   */
+  const promptless = promptlessGenerationProblems(checked.plan)
+  return promptless.length > 0
+    ? { problems: promptless, plan: null }
+    : { problems: [], plan: checked.plan }
+}
+
+/**
+ * 上游能**给文字**的节点类型（与 `generationSpec.collectInputs` 同口径）：
+ * 提示词节点给 `data.text`，循环节点每轮给 `__roundPrompt`，生成 / 批量 / 分组
+ * 自身也可能带着正文。判不出来的（attach 过来的既有节点）一律**当它能给**，
+ * 宁可放过、也不要冤枉一份正常计划。
+ */
+const TEXT_SOURCE_TYPES = new Set<AgentNodeType>(['prompt', 'loop', 'group', 'batch', 'generation'])
+
+/**
+ * 找「**永远跑不起来**的生成节点」：自己没有正文，上游也没有一个能给文字的节点。
+ *
+ * 为什么值得当场拦：`generationSpec.toRunRequest` 在提示词为空时直接返回 null，
+ * 也就是这个节点点多少次都不会发请求 —— 不拦的话用户只会看到一张建好的、跑不动的图。
+ */
+export function promptlessGenerationProblems(plan: AgentPlan): string[] {
+  const byId = new Map(plan.nodes.map((n) => [n.localId, n]))
+  const attached = new Set((plan.attach ?? []).map((a) => a.localId))
+  const out: string[] = []
+  for (const [i, node] of plan.nodes.entries()) {
+    if (node.type !== 'generation') continue
+    const own = node.data.prompt
+    if (typeof own === 'string' && own.trim()) continue
+    const upstream = plan.edges
+      .filter((e) => e.target === node.localId)
+      .map((e) => byId.get(e.source))
+    const hasTextSource = upstream.some(
+      (u) => u && (attached.has(u.localId) || TEXT_SOURCE_TYPES.has(u.type)),
+    )
+    if (hasTextSource) continue
+    out.push(
+      `第 ${i + 1} 个节点（generation「${node.title ?? node.localId}」）既没有自己的提示词，` +
+        '上游也没有能给它文字的节点 —— 这条链永远跑不出图。' +
+        '把用户要的画面写进它的 data.prompt，或建一个提示词节点（正文写在 data.text）连到它。',
+    )
+  }
+  return out
 }
 
 export async function executeConfirmedTool(

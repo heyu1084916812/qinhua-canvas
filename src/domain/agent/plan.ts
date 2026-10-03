@@ -214,6 +214,44 @@ export function normalizeAgentPlan(raw: unknown): { plan: unknown; notes: string
   }
 
   /**
+   * **正文写错字段名 → 搬回来**（用户 2026-10-04：「提示词节点连接两个生图节点，
+   * 整体的流程是对的，**但是没有提示词**」）。
+   *
+   * 真机数据实证（从应用 IndexedDB 里解出来的原始记录）：模型建了一个 `prompt` 节点，
+   * 结构完全正确，但正文落在 **`data.prompt`** 上 —— 而提示词节点读的是 **`data.text`**。
+   * 于是画布上那个框是空的、两个下游生成节点也拿不到词，整条链跑不出图。
+   *
+   * 字段名在语义上**唯一确定**（提示词节点没有 `prompt` 字段，生成节点没有 `text`
+   * 字段），所以这里确定性地搬一次；搬完在 `notes` 里记一句。
+   */
+  const TEXT_FIELD_FIX: Record<string, { from: string; to: string }> = {
+    prompt: { from: 'prompt', to: 'text' },
+    generation: { from: 'text', to: 'prompt' },
+    batch: { from: 'text', to: 'prompt' },
+    group: { from: 'text', to: 'prompt' },
+  }
+  let movedFields = 0
+  for (const n of nodes) {
+    if (!n || typeof n !== 'object') continue
+    const row = n as Record<string, unknown>
+    const rule = typeof row.type === 'string' ? TEXT_FIELD_FIX[row.type] : undefined
+    if (!rule) continue
+    const data = row.data
+    if (!data || typeof data !== 'object' || Array.isArray(data)) continue
+    const d = data as Record<string, unknown>
+    const from = d[rule.from]
+    const to = d[rule.to]
+    if (typeof from !== 'string' || !from.trim()) continue
+    if (typeof to === 'string' && to.trim()) continue
+    d[rule.to] = from
+    delete d[rule.from]
+    movedFields += 1
+  }
+  if (movedFields > 0) {
+    notes.push(`${movedFields} 个节点的提示词写错了字段名，已搬回正文该在的位置`)
+  }
+
+  /**
    * **把「提示词节点 → 生成节点」这种一步链路折成**一个生成节点**（用户 2026-10-04 第 4 条：
    * 「我用 agent 生图的时候卡在了没有写提示词在流程里面，单独生成图片应该是直接一个
    *  生成节点就可以了，然后把提示词输入进去再向我确认生成，当前是流程是新建了一个

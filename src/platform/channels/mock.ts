@@ -299,6 +299,68 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
               ],
             }
           }
+          /**
+           * 测试钩子：用户话里带「字段写错」时，给一份**结构对、正文落错字段**的计划。
+           *
+           * 复刻用户 2026-10-04 的真实事故（真机 IndexedDB 里解出来的记录）：
+           * 提示词节点读 `data.text`，而模型把正文写进了 `data.prompt` ——
+           * 画布上那个框是空的，两个下游生成节点一个词都拿不到。
+           * 归一化应当把正文**搬回** `data.text`。
+           */
+          if (lastUser.includes('字段写错')) {
+            return {
+              text: '',
+              finishReason: 'tool_calls',
+              toolCalls: [
+                {
+                  id: 'mock-wrong-field-plan',
+                  name: 'applyPlan',
+                  args: JSON.stringify({
+                    summary: '一份正文写错字段的计划',
+                    nodes: [
+                      {
+                        localId: 'p1',
+                        type: 'prompt',
+                        // ⚠️ 故意写进 prompt（提示词节点读的是 text）
+                        data: { prompt: '小狗钓鱼插画，1:1，2k' },
+                        order: 0,
+                      },
+                      { localId: 'g1', type: 'generation', data: { mode: 'image' }, order: 1 },
+                      { localId: 'g2', type: 'generation', data: { mode: 'image' }, order: 1 },
+                    ],
+                    edges: [
+                      { source: 'p1', target: 'g1' },
+                      { source: 'p1', target: 'g2' },
+                    ],
+                  }),
+                },
+              ],
+            }
+          }
+          /**
+           * 测试钩子：用户话里带「无提示词」时，给一份**永远跑不起来**的计划
+           * （生成节点自己没有正文、上游也没有能给文字的节点）。落地前应当被拦下，
+           * 把原因回给模型 —— 而不是建一张点多少次都不发请求的图。
+           */
+          if (lastUser.includes('无提示词')) {
+            return {
+              text: '',
+              finishReason: 'tool_calls',
+              toolCalls: [
+                {
+                  id: 'mock-promptless-plan',
+                  name: 'applyPlan',
+                  args: JSON.stringify({
+                    summary: '一份没有提示词的计划',
+                    nodes: [
+                      { localId: 'g1', type: 'generation', data: { mode: 'image' }, order: 0 },
+                    ],
+                    edges: [],
+                  }),
+                },
+              ],
+            }
+          }
           const plan = {
             summary: `据「${lastUser.slice(0, 20)}」建一个提示词到生成的流程`,
             nodes: [

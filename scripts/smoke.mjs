@@ -15504,6 +15504,61 @@ async function g95(browser) {
     `标题片段=${badText.slice(0, 20)}`,
   )
 
+  /**
+   * ★★ **正文写错字段名也要能救回来**（用户 2026-10-04 的真实事故：
+   * 「他给我的是一个提示词节点连接两个生图节点，整体的流程是对的，但是没有提示词」）。
+   *
+   * 从真机 IndexedDB 里解出来的原始记录看到：提示词节点的正文落在 **`data.prompt`**，
+   * 而它读的是 **`data.text`** —— 结构全对、正文落空，画布上就是个空框。
+   *
+   * 判据取**画布上那个提示词节点里渲染出来的字**。注意别去够
+   * `textarea[data-prompt-inline-input]` —— 那个框**只在编辑态存在**，
+   * 非编辑态渲染的是正文（§6.7 的两态语义），拿它当判据会永远读到空数组。
+   */
+  await page.locator('[data-agent-new]').click()
+  await sleep(600)
+  await page.locator('[data-agent-input]').fill('字段写错')
+  await page.locator('[data-agent-send]').click()
+  await sleep(2200)
+  /**
+   * ⚠️ 画布**会把视口外的节点从 DOM 里摘掉**（`NodeLayer` 的 `visibleTopLevelIds`），
+   * agent 新建的节点落在别处时，`locator` 会读到空 —— 先复位视图把整张图框进视口。
+   */
+  await resetView(page)
+  const promptNodeTexts = await page.locator('[data-node-type="prompt"]').allInnerTexts()
+  const wrongFieldFailed = await page.locator('[data-agent-step-failed]').count()
+  rec(
+    g,
+    '★★ 正文写进 data.prompt（提示词节点读 data.text）时自动搬回来',
+    promptNodeTexts.some((v) => v.includes('小狗钓鱼插画')) && wrongFieldFailed === 0,
+    `提示词节点=${JSON.stringify(promptNodeTexts.map((v) => v.replace(/\s+/g, ' ').slice(0, 16)))} 失败卡=${wrongFieldFailed}`,
+  )
+
+  /**
+   * ★★ **永远跑不起来的生成节点不许落地**（用户 2026-10-04 同一句的另一面：
+   * 「没有提示词」—— 生成节点自己没有正文、上游也没有能给文字的节点，
+   * `toRunRequest` 永远返回 null，点多少次都不发请求）。
+   */
+  await page.locator('[data-agent-new]').click()
+  await sleep(600)
+  await page.locator('[data-agent-input]').fill('无提示词')
+  await page.locator('[data-agent-send]').click()
+  await sleep(1800)
+  const promptlessConfirm = await page.locator('[data-agent-preview="applyPlan"]').count()
+  const promptlessStep = (
+    (await page
+      .locator('[data-agent-step-failed]')
+      .first()
+      .innerText()
+      .catch(() => '')) ?? ''
+  ).replace(/\s+/g, '')
+  rec(
+    g,
+    '★★ 没有提示词的生成节点不落地，原因直接说清',
+    promptlessConfirm === 0 && promptlessStep.includes('提示词'),
+    `确认卡=${promptlessConfirm} 文案=${promptlessStep.slice(0, 40)}`,
+  )
+
   await page.locator('[data-agent-close]').click()
   await sleep(400)
   rec(g, '★ 能收起，收起后入口还在', (await panel.count()) === 0)

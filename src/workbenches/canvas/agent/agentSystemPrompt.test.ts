@@ -39,6 +39,18 @@ describe('画布词表', () => {
       for (const up of spec.accepts?.upstream ?? []) expect(next).toContain(up)
     }
   })
+
+  /**
+   * 用户 2026-10-04 的事故：「结构全对、但是没有提示词」—— 模型把正文写进了
+   * `data.prompt`，而提示词节点读的是 `data.text`。原词表只说类型 / 上游 / 端口，
+   * **一个字没提 data 里该写什么键**，模型只能猜。
+   */
+  it('★★ data 字段与「正文写在哪个键」都报出来（别让模型猜字段名）', () => {
+    const vocab = buildCanvasVocabulary()
+    expect(vocab).toContain('data 字段')
+    expect(vocab).toContain('正文写在 data.text')
+    expect(vocab).toContain('正文写在 data.prompt')
+  })
 })
 
 describe('本次现状', () => {

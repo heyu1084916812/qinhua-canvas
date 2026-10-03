@@ -6,6 +6,7 @@ import {
   AGENT_TOOLS,
   executeConfirmedTool,
   executeReadTool,
+  planProblems,
   readAssetInfo,
   readGraphSummary,
   readResults,
@@ -266,8 +267,9 @@ describe('写 / 花钱的工具（只由确认后调用）', () => {
       {
         summary: '一张图 + 一段视频',
         nodes: [
-          { localId: 'g1', type: 'generation', data: { mode: 'image' }, order: 0 },
-          { localId: 'g2', type: 'generation', data: { mode: 'video' }, order: 1 },
+          /** 各带正文：这里要验的是**选路**，不然后面那条「跑不起来的生成节点」会把计划拦下 */
+          { localId: 'g1', type: 'generation', data: { mode: 'image', prompt: '一只猫' }, order: 0 },
+          { localId: 'g2', type: 'generation', data: { mode: 'video', prompt: '一段猫' }, order: 1 },
         ],
         edges: [],
       },
@@ -304,7 +306,7 @@ describe('写 / 花钱的工具（只由确认后调用）', () => {
           {
             localId: 'g1',
             type: 'generation',
-            data: { mode: 'image', model: 'Plan Model' },
+            data: { mode: 'image', model: 'Plan Model', prompt: '一只猫' },
             order: 0,
           },
         ],
@@ -336,5 +338,108 @@ describe('写 / 花钱的工具（只由确认后调用）', () => {
     const r = (await executeConfirmedTool('runNode', { nodeIds: [id] }, ctx)) as { ok: boolean }
     expect(r.ok).toBe(true)
     expect(runNodes).toHaveBeenCalledWith([id])
+  })
+})
+
+/**
+ * 落地前的**内容**把关：生成节点必须拿得到提示词。
+ *
+ * 用户 2026-10-04：「他给我的是一个提示词节点连接两个生图节点，整体的流程是对的，
+ * 但是没有提示词」。形状校验（类型 / 连线 / order）全过，可内容是空的 ——
+ * `generationSpec.toRunRequest` 在提示词为空时直接返回 null，
+ * 这种节点点多少次都不会发请求，落地了也只是给用户一张跑不动的图。
+ */
+describe('planProblems · 跑不起来的生成节点', () => {
+  const plan = (nodes: unknown[], edges: unknown[] = []) => ({
+    summary: 's',
+    nodes,
+    edges,
+  })
+
+  it('★★ 生成节点自己没有正文、上游也没有能给文字的节点 → 拦下，并说清怎么办', () => {
+    const r = planProblems(
+      plan([{ localId: 'g1', type: 'generation', data: { mode: 'image' }, order: 0 }]),
+      [],
+    )
+    expect(r.plan).toBeNull()
+    expect(r.problems.join()).toContain('提示词')
+    expect(r.problems.join()).toContain('data.prompt')
+  })
+
+  it('★ 上游接着提示词节点（模板形态，正文在上游）→ 放行', () => {
+    const r = planProblems(
+      plan(
+        [
+          { localId: 'p1', type: 'prompt', data: { text: '一只猫' }, order: 0 },
+          { localId: 'g1', type: 'generation', data: { mode: 'image' }, order: 1 },
+        ],
+        [{ source: 'p1', target: 'g1' }],
+      ),
+      [],
+    )
+    expect(r.problems).toEqual([])
+    expect(r.plan).not.toBeNull()
+  })
+
+  it('★ 自己带着正文 → 放行（不需要上游）', () => {
+    const r = planProblems(
+      plan([
+        { localId: 'g1', type: 'generation', data: { mode: 'image', prompt: '一只猫' }, order: 0 },
+      ]),
+      [],
+    )
+    expect(r.problems).toEqual([])
+  })
+
+  it('★ 上游是 attach 过来的既有节点 → 不去猜它的内容（放行）', () => {
+    const r = planProblems(
+      {
+        ...plan(
+          [
+            { localId: 'p_old', type: 'prompt', data: {}, order: 0 },
+            { localId: 'g1', type: 'generation', data: { mode: 'image' }, order: 1 },
+          ],
+          [{ source: 'p_old', target: 'g1' }],
+        ),
+        attach: [{ localId: 'p_old', existingNodeId: 'node_old' }],
+      },
+      ['node_old'],
+    )
+    expect(r.problems).toEqual([])
+  })
+
+  /**
+   * ★★ 真机事故那条路走一遍**完整落地链**：正文写错字段的计划，落地后提示词节点里
+   * 必须有字（而不是一个空框）。
+   *
+   * 形状与用户 2026-10-04 的实测一致：「提示词节点连接两个生图节点」，
+   * 正文落在 `data.prompt` 上（提示词节点读的是 `data.text`）。
+   */
+  it('★★ 正文写错字段的计划落地后，提示词节点里真的有字', async () => {
+    const { store, ctx } = setup()
+    const r = (await executeConfirmedTool(
+      'applyPlan',
+      {
+        summary: '一份正文写错字段的计划',
+        nodes: [
+          { localId: 'p1', type: 'prompt', data: { prompt: '小狗钓鱼插画，1:1，2k' }, order: 0 },
+          { localId: 'g1', type: 'generation', data: { mode: 'image' }, order: 1 },
+          { localId: 'g2', type: 'generation', data: { mode: 'image' }, order: 1 },
+        ],
+        edges: [
+          { source: 'p1', target: 'g1' },
+          { source: 'p1', target: 'g2' },
+        ],
+      },
+      ctx,
+    )) as { ok: boolean; createdNodeIds: string[] }
+
+    expect(r.ok).toBe(true)
+    const nodes = store.getSnapshot().nodes
+    const prompt = nodes.find((n) => n.type === 'prompt')!.data as Record<string, unknown>
+    expect(prompt.text).toBe('小狗钓鱼插画，1:1，2k')
+    /** 两个生成节点各留一句空正文、等上游喂词（模板形态），数量与连线都要在 */
+    expect(nodes.filter((n) => n.type === 'generation')).toHaveLength(2)
+    expect(store.getSnapshot().edges).toHaveLength(2)
   })
 })

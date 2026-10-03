@@ -40,6 +40,16 @@ const IDENTITY_AND_RULES = [
   '- **单步生成只建一个生成节点**：提示词直接写进它的 data.prompt。',
   '  不要再额外建一个提示词节点 —— 那个中间节点只在两种情况下才建：',
   '  ① 用户明确要一段可复用的提示词；② 同一段提示词要喂给多个下游节点。',
+  /**
+   * 用户 2026-10-04：「他给我的是一个提示词节点连接两个生图节点，整体的流程是对的，
+   * 但是**没有提示词**」。真机数据实证：模型把正文写进了 `data.prompt`，而提示词
+   * 节点读的是 `data.text` —— 结构全对、正文落空，画布上就是个空框。
+   *
+   * 词表里已经逐类型列出数据字段（见 `buildCanvasVocabulary`），这里再把最容易错的
+   * 那一对写死一遍：字段名写错**不会报错**，只会静默出个空节点，模型根本意识不到。
+   */
+  '- 节点正文的**字段名不能写错**：提示词节点写 `data.text`，生成 / 批量 / 分组节点写',
+  '  `data.prompt`。写错不会报错，但画布上那个框是空的、生成节点也跑不出图。',
   '- 想复用画布上已有的节点（比如用户先放好的素材图），用 attach 指过去，不要重复建。',
   '',
   '## 硬规则',
@@ -90,8 +100,35 @@ export function buildCanvasVocabulary(): string {
       }
       if (list.length > 0) lines.push(`  端口：${list.join('、')}`)
     }
+    /**
+     * **数据字段也报出来**（用户 2026-10-04 的字段名事故）。
+     *
+     * 原词表只说「有哪些类型 / 能接谁 / 有哪些端口」，一个字没提 `data` 里该写什么键 ——
+     * 模型只能猜，而它猜错了（正文写进 `data.prompt`，提示词节点读的却是 `data.text`），
+     * 结果是「结构全对、正文落空」：不报错、也看不出来。
+     *
+     * 字段名从 `createDefaultData()` 现取，与节点定义同源 —— 加了字段词表跟着变。
+     */
+    const data = spec.createDefaultData() as Record<string, unknown>
+    const keys = Object.keys(data)
+    if (keys.length > 0) lines.push(`  data 字段：${keys.join(' · ')}`)
+    const textKey = textFieldOf(data)
+    if (textKey) lines.push(`  正文写在 data.${textKey}`)
   }
   return lines.join('\n')
+}
+
+/**
+ * 这份 `data` 里哪个字段是**正文**（提示词节点是 `text`，生成 / 批量 / 分组是 `prompt`）。
+ *
+ * 从 `createDefaultData()` 的键里挑，不另写一份名单 —— 与词表同源，加了新节点也不会漏。
+ * 挑不出来（融合 / 对比 / 循环）就返回 undefined：那些节点的 data 里没有「一句话」。
+ */
+function textFieldOf(data: Record<string, unknown>): string | undefined {
+  for (const key of ['text', 'prompt'] as const) {
+    if (typeof data[key] === 'string') return key
+  }
+  return undefined
 }
 
 /**

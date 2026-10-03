@@ -476,6 +476,68 @@ describe('normalizeAgentPlan · 单步生成折成一个生成节点', () => {
   })
 })
 
+/**
+ * **正文写错字段名**（用户 2026-10-04 的真实事故：「他给我的是一个提示词节点连接
+ * 两个生图节点，整体的流程是对的，但是没有提示词」）。
+ *
+ * 从应用 IndexedDB 里解出来的原始记录实证：提示词节点的正文落在 `data.prompt`，
+ * 而提示词节点读的是 `data.text` —— 结构全对、正文落空，画布上就是个空框。
+ * 字段名在语义上唯一确定（提示词节点没有 `prompt` 字段，生成节点没有 `text` 字段），
+ * 所以由归一化确定性地搬一次。
+ */
+describe('normalizeAgentPlan · 正文写错字段名', () => {
+  it('★★ 提示词节点的正文落在 data.prompt 上 → 搬回 data.text（真机事故原样）', () => {
+    const { plan: out, notes } = normalizeAgentPlan({
+      summary: 's',
+      nodes: [
+        { localId: 'p1', type: 'prompt', data: { prompt: '小狗钓鱼插画，1:1，2k' }, order: 0 },
+        { localId: 'g1', type: 'generation', data: { mode: 'image' }, order: 1 },
+        { localId: 'g2', type: 'generation', data: { mode: 'image' }, order: 1 },
+      ],
+      edges: [
+        { source: 'p1', target: 'g1' },
+        { source: 'p1', target: 'g2' },
+      ],
+    })
+    const checked = validateAgentPlan(out)
+    expect(checked.ok).toBe(true)
+    if (!checked.ok) return
+    const p = checked.plan.nodes.find((n) => n.localId === 'p1')!
+    expect(p.data.text).toBe('小狗钓鱼插画，1:1，2k')
+    /** 搬完那个错键要**删掉**：留在节点上就是一条会漂移的副本 */
+    expect('prompt' in p.data).toBe(false)
+    expect(notes.join()).toContain('字段名')
+  })
+
+  it('★ 生成节点的正文落在 data.text 上 → 搬回 data.prompt', () => {
+    const { plan: out } = normalizeAgentPlan({
+      summary: 's',
+      nodes: [{ localId: 'g1', type: 'generation', data: { mode: 'image', text: '橘猫' }, order: 0 }],
+      edges: [],
+    })
+    const checked = validateAgentPlan(out)
+    expect(checked.ok).toBe(true)
+    if (!checked.ok) return
+    expect(checked.plan.nodes[0]!.data.prompt).toBe('橘猫')
+    expect('text' in checked.plan.nodes[0]!.data).toBe(false)
+  })
+
+  it('★ 正确字段已经有正文 → 一个字都不动（不覆盖、也不删）', () => {
+    const { plan: out } = normalizeAgentPlan({
+      summary: 's',
+      nodes: [
+        { localId: 'p1', type: 'prompt', data: { text: '正主', prompt: '副本' }, order: 0 },
+      ],
+      edges: [],
+    })
+    const checked = validateAgentPlan(out)
+    expect(checked.ok).toBe(true)
+    if (!checked.ok) return
+    expect(checked.plan.nodes[0]!.data.text).toBe('正主')
+    expect(checked.plan.nodes[0]!.data.prompt).toBe('副本')
+  })
+})
+
 describe('summarizeTitle', () => {
   it('★ 取第一行、空白收紧、截到 12 个字', () => {
     expect(summarizeTitle('小猫钓鱼')).toBe('小猫钓鱼')

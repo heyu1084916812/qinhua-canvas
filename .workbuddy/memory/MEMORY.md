@@ -2948,3 +2948,36 @@ Midjourney 的高级设置需要「一根滑杆」和「一个文本框」，而
 > 顺带：折叠这类兜底**必须配反例用例**（多下游不折 / 目标已有正文不折 / 有一端在 attach
 > 不折）。只测「该折的折了」的用例，在多折了的时候照样全绿 —— 而多折是把用户点名要的
 > 东西吃掉，画布上看不出少了什么。
+
+### ★★ 没有浏览器通道时，去 IndexedDB 的 leveldb 里捞真机数据（2026-10-04）
+
+用户报「agent 建的提示词节点是空的」，而 `cua` 在这台机器上不可用
+（`unsupported Codex auth method: apikey`）。**别就此停在猜测** —— 应用的存储就在
+`C:\Users\Administrator\AppData\Roaming\Codex\web\Codex\Default\Partitions\codex-browser-app\IndexedDB\http_127.0.0.1_1420.indexeddb.leveldb`，
+把 `.ldb` / `.log` 当字节流扫就行（`scripts/probe-agent-plan.mjs`，gitignore 的 `probe-*.mjs`）。
+
+三个坑，都踩过：
+
+1. **存的不是 JSON，是 V8 序列化**：`{` `:` `[` 都是控制字节，所以你能读到的形态是
+   `"type"generation"parentId0"title…"data"mode"image"prompt""` —— 键值之间**没有冒号**。
+   拿 `"data":{` 去匹配永远 0 命中。
+2. **字节序与编码混着来**：结构 / ASCII 是 UTF-16LE，中文在不同记录里时而是 UTF-8 裸字节。
+   单用一种解码会毁掉另一半 ⇒ 写个**混排解码**：能按 `xx 00` 读 ASCII 就读，否则试 UTF-8
+   多字节序列。四种整体解码各试一遍取「像人话」的那份，也能兜住大部分。
+3. **搜索关键字要按存储形态来**：中文按 `utf8` 搜是 0 命中，得按 `utf16le` 搜。
+
+**这条路的产出是决定性的**：实际记录是
+`"type"prompt … "data""text"""""…"model""GPT-6 Astra""prompt"<正文>` ——
+正文写进了 `data.prompt`，而提示词节点读 `data.text`。有了这一行，改哪里、加什么兜底
+就不再是猜的了。
+
+### ★★ 画布会把视口外的节点从 DOM 里摘掉（2026-10-04，冒烟假红一次）
+
+冒烟里查「新建的提示词节点里有没有字」，`locator('[data-node-type="prompt"]')` 读回一个
+**空数组** —— 而单测证明落地是对的。原因在 `NodeLayer`：它按 `visibleTopLevelIds`
+**只渲染视口内的顶层节点**，agent 把新节点放在了别处。
+
+- 断言画布内容前先 `resetView(page)`（左侧工具栏 `data-toolbar-reset`，等价于 `Z`），
+  把整张图框进视口；
+- 另一条同时踩到的坑：提示词节点的 `textarea[data-prompt-inline-input]` **只在编辑态存在**
+  （§6.7 两态语义），非编辑态渲染的是正文 —— 拿 textarea 当判据会永远读到空。
