@@ -14236,7 +14236,16 @@ async function g95(browser) {
     `日志右缘=${logBox ? Math.round(logBox.x + logBox.width) : '?'} 面板左缘=${geom ? Math.round(geom.x) : '?'}`,
   )
 
-  const count = () => page.locator('[data-agent-session-list] option').count()
+  /**
+   * 会话数从外壳上的 `data-agent-session-count` 读（用户 2026-10-05 第 8 条之后，
+   * 会话选择器是参数菜单那套 `ParamPicker`，不再有原生 `<option>` 可数）。
+   */
+  const count = async () =>
+    Number(
+      (await page
+        .locator('[data-agent-session-count]')
+        .getAttribute('data-agent-session-count')) ?? '0',
+    )
   rec(g, '★ 自动开了一个会话', (await count()) === 1, `会话=${await count()}`)
   await page.locator('[data-agent-new]').click()
   await sleep(600)
@@ -14257,6 +14266,20 @@ async function g95(browser) {
     '★★ 打开对话时输入框里没有凭空多出来的模型 chip',
     modelChipsOnOpen === 0,
     `model chip=${modelChipsOnOpen}`,
+  )
+
+  /**
+   * ★★ **会话记录下拉换成参数菜单那一套**（用户 2026-10-05 第 8 条：「agent 的记录下拉的
+   * ui 不是我项目中通用的那种，不好看，参考参数的菜单」）。
+   *
+   * 判据取「有参数菜单的 chip、且原生 `<select>` 真的没了」—— 只验「能切会话」证明不了
+   * 样式换过。
+   */
+  rec(
+    g,
+    '★★ 会话选择器 = 参数菜单那套（原生 select 已撤）',
+    (await page.locator('[data-param-chip="agent-session"]').count()) === 1 &&
+      (await page.locator('select[data-agent-session-list]').count()) === 0,
   )
 
   /**
@@ -15287,13 +15310,22 @@ async function g95(browser) {
    * 那样「切过去还是它」，断言会假装通过（或像这一轮一样误报失败）。
    * 按 id 挑一个不等于当前的，才是真的换了一套上下文。
    */
+  await page.locator('[data-param-chip="agent-session"]').click()
+  await sleep(250)
   const sessionIds = await page
-    .locator('[data-agent-session-list] option')
-    .evaluateAll((els) => els.map((e) => e.value))
-  const currentSessionId = await page.locator('[data-agent-session-list]').inputValue()
+    .locator('[data-param-popup="agent-session"] button[data-param-option]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-option') ?? ''))
+  /** 当前会话 = 列表里勾着的那一条（`value` 就是 current.id） */
+  const currentSessionId =
+    (await page
+      .locator('[data-param-popup="agent-session"] button[aria-selected="true"]')
+      .first()
+      .getAttribute('data-param-option').catch(() => '')) ?? ''
   const otherSessionId = sessionIds.find((id) => id !== currentSessionId)
   rec(g, '★ 存在另一个会话可切', Boolean(otherSessionId), `共 ${sessionIds.length} 个`)
-  await page.locator('[data-agent-session-list]').selectOption(otherSessionId)
+  await page
+    .locator(`[data-param-popup="agent-session"] [data-param-option="${otherSessionId}"]`)
+    .click()
   await sleep(500)
   const other = await page.locator('[data-agent-message]').count()
   rec(g, '★★ 切回另一个会话是另一套消息（记忆隔离）', other === 0, `另一个会话消息数=${other}`)
@@ -15304,17 +15336,25 @@ async function g95(browser) {
    * 放在最后验：前面几条断言依赖「当前有 2 个会话、其中一个是空的」这个状态，
    * 先删会话会把它们的取样点搬走。删除走**两步确认**，第一次点只换文案、不真删。
    */
-  const beforeRename = await page.locator('[data-agent-session-list] option').count()
+  const beforeRename = await count()
   await page.locator('[data-agent-rename]').click()
   await page.locator('[data-agent-title-input]').fill('改过的名字')
   await page.locator('[data-agent-rename-save]').click()
   await sleep(600)
-  const titles = await page.locator('[data-agent-session-list] option').allTextContents()
+  await page.locator('[data-param-chip="agent-session"]').click()
+  await sleep(250)
+  const titleRows = await page
+    .locator('[data-param-popup="agent-session"] [data-param-option]')
+    .allInnerTexts()
+  /** 行里还带选中态的 ✓（参数菜单的行样式），只取第一行文字比名字 */
+  const titles = titleRows.map((t) => t.trim().split('\n')[0] ?? '')
+  await page.keyboard.press('Escape')
+  await sleep(150)
   rec(
     g,
     '★★ 会话能改名（列表里立刻是新名字，会话数不变）',
     titles.includes('改过的名字') &&
-      (await page.locator('[data-agent-session-list] option').count()) === beforeRename,
+      (await count()) === beforeRename,
     `标题=${JSON.stringify(titles)}`,
   )
 
@@ -15322,7 +15362,7 @@ async function g95(browser) {
   const confirmLabel = (await page.locator('[data-agent-delete]').innerText()).trim()
   await page.locator('[data-agent-delete]').click()
   await sleep(700)
-  const afterDelete = await page.locator('[data-agent-session-list] option').count()
+  const afterDelete = await count()
   rec(
     g,
     '★★ 会话能删除（两步确认：第一次只换文案，第二次才真删）',

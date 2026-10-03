@@ -1246,21 +1246,43 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           </>
         ) : (
           <>
-            <select
-              className={styles.titleSelect}
-              value={current?.id ?? ''}
-              onChange={(e) => {
-                const hit = list.find((s) => s.id === e.target.value)
-                if (hit) void switchTo(hit)
-              }}
-              data-agent-session-list
-            >
-              {list.map((s) => (
-                <option key={s.id} value={s.id} data-agent-session={s.id}>
-                  {s.title}
-                </option>
-              ))}
-            </select>
+            {/*
+              会话选择器 = **项目里那套参数菜单**（用户 2026-10-05 第 8 条：「agent 的记录
+              下拉的 ui 不是我项目中通用的那种，不好看，参考参数的菜单」）。
+
+              原生 `<select>` 的展开层由浏览器绘制，样式不归我们管 —— 与创作面板的模型 /
+              比例菜单摆在一起就显得是两个世界。换成 `ParamPicker` 之后，行高、悬停底色、
+              勾选态、点外关闭全都和参数菜单同一套。
+            */}
+            <span className={styles.sessionPick} data-agent-session-count={list.length}>
+              <ParamPicker
+                name="agent-session"
+                ariaLabel={`切换对话（共 ${list.length} 条）`}
+                label={current?.title ?? '新对话'}
+                size="compact"
+                closeOnSelect
+                sections={[
+                  {
+                    name: 'session',
+                    label: '对话',
+                    variant: 'list',
+                    /** 一屏 8 条，多的在里面滚（与模型面板同一条口径） */
+                    maxRows: 8,
+                    options: list.map((s) => ({ value: s.id, label: s.title })),
+                    value: current?.id ?? '',
+                    onSelect: (id) => {
+                      const hit = list.find((s) => s.id === id)
+                      if (hit) void switchTo(hit)
+                    },
+                  },
+                ]}
+                open={openPicker === 'agent-session'}
+                onToggle={() =>
+                  setOpenPicker(openPicker === 'agent-session' ? null : 'agent-session')
+                }
+                onClose={() => setOpenPicker(null)}
+              />
+            </span>
             <button
               type="button"
               className={styles.iconBtn}

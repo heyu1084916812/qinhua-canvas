@@ -52,6 +52,22 @@
   background: var(--bg-hover);
 }
 
+/**
+ * 会话选择器的外壳（用户 2026-10-05 第 8 条：下拉换成参数菜单那套）。
+ *
+ * 它替掉原来的原生 `<select>`，所以**继承它占满剩余宽度**这条排布规则：
+ * 面板不到 400px，名字不 flex 就会被右边那排图标按钮挤没。
+ */
+.sessionPick {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+}
+
+.sessionPick > * {
+  min-width: 0;
+}
+
 /** 两步删除的第二态：换成文字，让人看清「再点一次就真删」 */
 .confirmText {
   font-size: var(--fs-chip);
