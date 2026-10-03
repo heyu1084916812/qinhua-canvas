@@ -355,15 +355,21 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
   })
 
   /**
-   * ★★ **全能参考：两个键名同值同时发**（用户 2026-10-03：
+   * ★★ **全能参考：参考素材走 `image`（单数）**（用户 2026-10-03：
    * 「我的 agnes video 2.0 好像生视频不是按照我的全能参考来的」）。
    *
-   * 原先只发 `image`（单数）—— 那是**首尾帧**实测出来的键，被顺手套用到这里，
-   * 而这条路径**从没和真上游对过**（这条用例当初只断言「发了 image」，
-   * 等于把猜测钉成了回归基线）。官方文档给 reference 模式写的是 `images`（复数）。
-   * 上游若只认复数，单数就被静默忽略 ⇒ 参考图等于没发。
+   * 曾经怀疑「文档写的是 `images`（复数），我们发 `image` 所以参考图白发」，
+   * 短暂改成两个键同值同时发 —— **真令牌判别实验推翻了这条**：
+   *
+   * | 发出去的形状 | 上游反应 |
+   * | --- | --- |
+   * | `image: [123]` | 转发到 LiteLLM，回**指名到参数**的错误 `param: "image.constrained-str"` ⇒ 上游认 `image`，且它是「字符串列表」 |
+   * | `images: [123]` | **网关层**直接 `invalid_json / Failed to read request body` ⇒ 网关不认这个键 |
+   *
+   * 所以复数键**会让整个请求挂掉**，必须只发单数。这条用例现在同时钉住两件事：
+   * 发对了 `image`，且**不许**出现 `images`。
    */
-  it('★★ 全能参考：`images`（文档）与 `image`（实测那套）同值同时发', async () => {
+  it('★★ 全能参考：参考素材走 `image`（单数），复数键不许出现', async () => {
     let sent: Record<string, unknown> | null = null
     const platform = createMemoryPlatform({
       rows: { assets: [{ id: 'a1', bytes: new Uint8Array([9]), mime: 'image/png' }] },
@@ -388,8 +394,9 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
     )
     expect(sent).toMatchObject({ mode: 'multi_reference' })
     const expected = [`data:image/png;base64,${bytesToBase64(new Uint8Array([9]))}`]
-    expect(sent!.images).toEqual(expected)
     expect(sent!.image).toEqual(expected)
+    /** 复数键在网关层会被拒（实测 `invalid_json`），一个字节都不该发出去 */
+    expect(sent!.images).toBeUndefined()
   })
 
   it('★ 选了参考模式却一张素材都没连 → 明确报错（不发一个必失败的请求）', async () => {

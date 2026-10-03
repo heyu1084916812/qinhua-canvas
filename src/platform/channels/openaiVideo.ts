@@ -654,32 +654,22 @@ export function createOpenAiVideoAdapter(
       num_frames: numFrames,
       frame_rate: VIDEO_FPS,
       ...(needsMedia ? { mode: serverMode } : {}),
-      /** 首尾帧：`image`（**实测过**的键，≥2 项） */
-      ...(isFramePair ? { image: keyframeImages } : {}),
       /**
-       * 全能参考：**两个键名同值同时发**（`images` 与 `image`）。
+       * **参考素材一律走 `image`（单数）** —— 2026-10-03 用真令牌把这件事问清楚了。
        *
-       * 用户 2026-10-03 报「Agnes Video 2.0 生视频不是按照我的全能参考来的」
-       * （插画风格的素材，出片却是写实风）—— 根因就在这个键名上：
+       * 曾经怀疑「全能参考发的是 `image` 而不是文档写的 `images`」是参考没生效的原因，
+       * 于是短暂改成两个键同值同时发。**真令牌判别实验推翻了这条**：
        *
-       * - `image`（**单数**）是**首尾帧 `keyframes`** 实测出来的键
-       *   （错误原文 `mode=keyframes requires image as a list of at least 2 items`），
-       *   当初把它**顺手套用**到了 `multi_reference` 上 —— 而这条路径**从没和真上游对过**
-       *   （单测只断言了「发了 `image`」，没有真令牌验证，等于把猜测钉成了回归基线）；
-       * - 官方文档（`agnes-video-25` 的 reference 模式）写的是 **`images`（复数）**
-       *   + `audios` / `videos`。
+       * | 发出去的形状 | 上游反应 |
+       * | --- | --- |
+       * | `image: [123]`（单数、元素类型错） | **转发到了 LiteLLM**，回的是**指名到参数**的校验错误：`param: "image.constrained-str"` ⇒ **上游的 schema 认 `image`，且它是「字符串列表」** |
+       * | `images: [123]`（复数） | 网关层直接回 `invalid_json / Failed to read request body` ⇒ **网关根本不认这个键**（不是键名选错，是这个键会被拒） |
        *
-       * 上游若只认 `images`，我们发 `image` 就被**静默忽略** ⇒ `multi_reference` 等于没有参考图
-       * ⇒ 实际退化成文生视频，正好解释「风格没跟过去」。
-       *
-       * 两个键同值同时发，它读哪个都拿得到同一组图；而这条链路**对多出来的字段是宽容的**
-       * （实测：`size` / `aspect_ratio` 发过去不报错，只是不生效），所以多一个键
-       * 不会换来 400，只多一次命中机会。万一真被拒，下面的 400 回落会换另一套形态再试。
-       *
-       * ⚠️ 这仍是**兼容写法而不是验证结论**：要确认上游真正读哪一个，
-       * 得用真令牌各发一次对比（见对账 #129 / 本轮）。
+       * 所以「同时发两个键」是**有害的**：复数键会让整个请求在网关层面挂掉。
+       * 结论回到原样 —— **`image` 就是对的键**，参考图并没有「因为键名发错而白发」。
+       * （首尾帧同理，共用这一个键、只是元素个数不同。）
        */
-      ...(isReference ? { images: refUris, image: refUris } : {}),
+      ...(needsMedia ? { image: isFramePair ? keyframeImages : refUris } : {}),
     }
 
     /**
