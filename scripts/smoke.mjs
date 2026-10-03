@@ -219,6 +219,18 @@ async function genPanel(page, nodeLocator) {
   return panel
 }
 
+/**
+ * 创作面板的**提示词框**。
+ *
+ * 它从 `textarea` 换成了带 `@` 引用的富文本框（用户 2026-10-05 第 15 条）——
+ * `click` / `fill` / `blur` 在 contenteditable 上一样能用，只有
+ * 「读回内容」要从 `inputValue()` 换成 `innerText()`（contenteditable 没有 `value`）。
+ * 凡是要动提示词的地方都走这两个 helper，别再写 `locator('textarea')` ——
+ * 那是换组件前的老写法，留着就是等着下一次集体超时。
+ */
+const panelPrompt = (panel) => panel.locator('[data-panel-prompt]')
+const readPanelPrompt = async (panel) => (await panelPrompt(panel).innerText()).trim()
+
 /** 面板内配置渠道 + 模型 + 提示词（等价于旧版在节点内直接操作三条） */
 async function configureGenPanel(page, panel, prompt) {
   /**
@@ -228,7 +240,7 @@ async function configureGenPanel(page, panel, prompt) {
   await pickParam(panel, 'model', 'mock-image-1')
   await sleep(200)
   if (prompt != null) {
-    const ta = panel.locator('textarea').first()
+    const ta = panelPrompt(panel)
     await ta.click()
     await ta.fill(prompt)
     /**
@@ -1342,7 +1354,7 @@ async function g10(browser) {
 
   // 选 2 张，输入提示词，生成
   await setCount(panel, '2 张')
-  const ta = panel.locator('textarea').first()
+  const ta = panelPrompt(panel)
   await ta.click()
   await ta.fill('两只会飞的猫')
   await sleep(200)
@@ -1458,9 +1470,9 @@ async function g11(browser) {
   const genId = await gen2.first().getAttribute('data-node-id')
   const genNode = page.locator(`[data-node-id="${genId}"]`)
   const panel3 = await genPanel(page, genNode)
-  await panel3.locator('textarea').first().fill('单张来源不被覆盖')
+  await panelPrompt(panel3).fill('单张来源不被覆盖')
   await sleep(400)
-  const srcPromptBefore = await panel3.locator('textarea').first().inputValue()
+  const srcPromptBefore = await readPanelPrompt(panel3)
   rec(g, 'E2E-03 提示词已写入来源节点', srcPromptBefore === '单张来源不被覆盖', srcPromptBefore)
   await page.screenshot({ path: `${OUT}/16a-g11-before-click.png` })
   // N=1：结果**回填到节点本体**，不新建节点（§6.16）—— 故这里不数新增节点
@@ -1481,7 +1493,7 @@ async function g11(browser) {
   rec(g, 'E2E-03 N=1 不建结果组', rg3 === 0, `groups=${rg3}`)
   // 来源提示词不被产物覆盖
   const panel3After = await genPanel(page, genNode)
-  const srcPromptAfter = await panel3After.locator('textarea').first().inputValue()
+  const srcPromptAfter = await readPanelPrompt(panel3After)
   rec(g, 'E2E-03 来源提示词未被产物覆盖', srcPromptAfter === '单张来源不被覆盖', srcPromptAfter)
 
   // ── E2E-04：同一节点改选 4 张 → 铺 4 个并列承载节点（N≥2 不建结果组）──
@@ -3182,8 +3194,8 @@ async function g23(browser) {
    *
    * 面板一打开就回显节点正文；两边不再是「草稿 vs 正文」两份。
    */
-  const panelTa = () => panel.locator('textarea').first()
-  rec(g, '面板回显节点正文（不再是空的草稿框）', (await panelTa().inputValue()).includes('一只猫'))
+  const panelTa = () => panelPrompt(panel)
+  rec(g, '面板回显节点正文（不再是空的草稿框）', (await readPanelPrompt(panel)).includes('一只猫'))
   rec(g, '节点正文仍是灯箱输入的文本', (await nodeText()).includes('一只猫'))
   rec(
     g,
@@ -3343,7 +3355,8 @@ async function g23(browser) {
   await sleep(900)
   const longPanel = await panel.evaluate((el) => {
     const b = el.getBoundingClientRect()
-    const ta = el.querySelector('textarea')
+    /** 提示词框现在是富文本框（`[data-panel-prompt]`），不再有 textarea */
+    const ta = el.querySelector('[data-panel-prompt]')
     return {
       h: Math.round(b.height),
       // 面板底部相对视口的位置：验证它没有伸到屏幕外
@@ -4387,7 +4400,7 @@ async function g46(browser) {
   // 点浮层外也关
   await chip.click()
   await sleep(200)
-  await panel.locator('textarea').first().click()
+  await panelPrompt(panel).click()
   await sleep(200)
   rec(g, '点浮层外关闭', (await panel.locator('[data-param-popup]').count()) === 0)
 
@@ -4845,11 +4858,11 @@ async function g47(browser) {
    * ⑤ 点下去：LLM 结果**直接进正文**（用户 2026-09-24 删掉「写入节点」后，
    * 面板与正文是同一份内容），且结果里带素材前缀 ⇒ 图真的进了请求。
    */
-  const pTa = () => pPanel.locator('textarea').first()
+  const pTa = () => panelPrompt(pPanel)
   await describeBtn.click().catch(() => {})
   let text = ''
   for (let i = 0; i < 60; i++) {
-    text = await pTa().inputValue().catch(() => '')
+  text = await pTa().innerText().catch(() => '')
     if (text.includes('mock:') && text.includes('img:')) break
     await sleep(250)
   }
@@ -4939,7 +4952,7 @@ async function g48(browser) {
   // ── ② 文本框内 Ctrl+C 归浏览器：此时剪贴板仍为空，粘不出东西才是对的 ──
   await page.locator('[data-node-type="prompt"]').first().click({ position: { x: 60, y: 10 } })
   await sleep(300)
-  const ta = page.locator('[data-creation-panel] textarea').first()
+  const ta = page.locator('[data-creation-panel] [data-panel-prompt]').first()
   await ta.click()
   await sleep(200)
   await page.keyboard.press('Control+c')
@@ -9131,7 +9144,7 @@ async function panelRunLabelOf(page) {
 async function fillPanelPromptViaTextarea(page, text) {
   const panel = page.locator('[data-creation-panel]')
   await panel.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
-  const ta = panel.locator('textarea').first()
+  const ta = panelPrompt(panel)
   if (!(await ta.count())) return
   await ta.click()
   await ta.fill(text)
@@ -9354,7 +9367,7 @@ async function g73(browser) {
 
   // 写正文
   {
-    const ta = panel.locator('textarea').first()
+    const ta = panelPrompt(panel)
     await ta.click()
     await ta.fill('今天天气很好')
     await ta.blur()
@@ -9763,7 +9776,7 @@ async function g74(browser) {
   await pickParam(panel, 'model', 'mock-chat-1')
   await sleep(300)
   {
-    const ta = panel.locator('textarea').first()
+    const ta = panelPrompt(panel)
     await ta.click()
     await ta.fill('原始正文')
     await ta.blur()
@@ -10133,7 +10146,7 @@ async function g81(browser) {
   }
   const panel = page.locator('[data-creation-panel]')
   {
-    const ta = panel.locator('textarea').first()
+    const ta = panelPrompt(panel)
     if (await ta.count()) {
       await ta.click()
       await ta.fill('封面冒烟')
@@ -10489,7 +10502,7 @@ async function g76(browser) {
   await page.mouse.click(Math.round(gb.x + 40), Math.max(100, Math.round(gb.y + 40)))
   await sleep(600)
   await page.locator('[data-creation-panel]').waitFor({ state: 'visible', timeout: 10000 })
-  const ta = panel.locator('textarea').first()
+  const ta = panelPrompt(panel)
   if ((await ta.count()) > 0) {
     await ta.click()
     await ta.fill('一只在屋顶上的猫')
@@ -10622,7 +10635,7 @@ async function g77(browser) {
   await sleep(800)
   await page.locator('[data-creation-panel]').waitFor({ state: 'visible', timeout: 10000 })
   const panel = page.locator('[data-creation-panel]')
-  const ta = panel.locator('textarea').first()
+  const ta = panelPrompt(panel)
   if ((await ta.count()) > 0) {
     await ta.click()
     await ta.fill('一只在屋顶上的猫')
@@ -10765,7 +10778,7 @@ async function g78(browser) {
     .first()
     .click()
   await sleep(400)
-  const ta = panel.locator('textarea').first()
+  const ta = panelPrompt(panel)
   if ((await ta.count()) > 0) {
     await ta.click()
     await ta.fill('一只在屋顶上的猫')
@@ -11030,7 +11043,7 @@ async function g79(browser) {
     (await paramLabel(panel2, 'model')) === 'GPT Image 2.5 Flare',
     await paramLabel(panel2, 'model'),
   )
-  const ta = panel2.locator('textarea').first()
+  const ta = panelPrompt(panel2)
   if ((await ta.count()) > 0) {
     await ta.click()
     await ta.fill('一只在屋顶上的猫')
@@ -16719,7 +16732,215 @@ async function g103(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103]
+// ────────────────────────────────────────────────────────────
+// G104 创作面板的 `@` 引用（用户 2026-10-05 第 15 条）：
+// 只能引用**本节点的上游**图 / 视频素材，落成「缩略图 + 省略名」的小框；
+// 而存储里只留纯文本 `@名字`（提示词还要发给模型、给下游，不能夹带机器形态）。
+// ────────────────────────────────────────────────────────────
+async function g104(browser) {
+  const g = 'G104 创作面板的 @ 引用'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  /** ① 先让一个生成节点真的出图 —— @ 的候选只认「有画面的节点」 */
+  const src = page.locator('[data-node-type="generation"]').first()
+  const srcId = await src.getAttribute('data-node-id')
+  const srcTitle = (await src.locator('[data-node-title]').first().innerText()).trim()
+  const panel1 = await genPanel(page, src)
+  await configureGenPanel(page, panel1, '底图：一只橘猫')
+  await panel1.locator('[data-panel-run]').click()
+  for (let i = 0; i < 80; i++) {
+    if ((await page.locator(`[data-node-id="${srcId}"] [data-node-asset]`).count()) > 0) break
+    await sleep(250)
+  }
+  const srcHasAsset =
+    (await page.locator(`[data-node-id="${srcId}"] [data-node-asset]`).count()) > 0
+  rec(g, '★ 上游生成节点已出图（@ 的候选来源）', srcHasAsset, `title=${srcTitle}`)
+  if (!srcHasAsset) {
+    await ctx.close()
+    return
+  }
+
+  /**
+   * ② 再复制一个**带素材、但不在上游**的节点：用它证明候选范围真的只有上游。
+   *
+   * 复制体连素材一起复制（`node.duplicate` 保 `assetHash`），所以画布上会有
+   * 两个「有画面的节点」；菜单里只该出现上游那一个。
+   */
+  /**
+   * 用**右键菜单**复制，不走跟随栏：跟随时跑完生成后可能不挂着单选项
+   * （刚出图那一下的选中态不是这条断言要测的东西），右键是稳的那条路。
+   */
+  const srcBox = await src.boundingBox()
+  await src.click({
+    button: 'right',
+    position: { x: 20, y: Math.min(60, Math.max(12, srcBox.height - 40)) },
+  })
+  await sleep(350)
+  await page.locator('[data-context-menu-item="duplicate"]').click()
+  await sleep(500)
+  const assetNodes = await page
+    .locator('[data-node-type="generation"]')
+    .evaluateAll((els) => els.filter((e) => e.querySelector('[data-node-asset]')).length)
+  rec(g, '★ 画布上有两个带素材的节点（其中只有一个在下游的上游）', assetNodes === 2, `带素材=${assetNodes}`)
+
+  /** ③ 建下游节点 + 连线 */
+  const beforeIds = await page
+    .locator('[data-node-id]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+  await addNodeViaToolbar(page, 'generation')
+  await sleep(500)
+  const dstId = (
+    await page
+      .locator('[data-node-id]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+  ).find((id) => !beforeIds.includes(id))
+  rec(g, '★ 新建一个下游生成节点', !!dstId, `id=${dstId}`)
+  const dst = page.locator(`[data-node-id="${dstId}"]`)
+  /** 新建的节点落在视口中心（与别的节点重叠），先挪开再连线 */
+  await moveNode(page, dstId, 830, 120)
+  await sleep(300)
+
+  await dst.hover()
+  await sleep(250)
+  {
+    const ob = await page
+      .locator(`[data-node-id="${srcId}"] [data-port="output"]`)
+      .boundingBox()
+    const ib = await dst.locator('[data-port="input"]').boundingBox()
+    await page.mouse.move(ob.x + ob.width / 2, ob.y + ob.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(ob.x + 40, ob.y + 8, { steps: 5 })
+    await page.mouse.move(ib.x + ib.width / 2, ib.y + ib.height / 2, { steps: 14 })
+    await page.mouse.up()
+    await sleep(600)
+  }
+  const panel = await genPanel(page, dst)
+
+  const openBtn = panel.locator('[data-panel-mention-open]')
+  rec(g, '★★ 有上游素材时提示词行出现 @ 入口', (await openBtn.count()) === 1, `count=${await openBtn.count()}`)
+  await openBtn.click()
+  await sleep(400)
+  const menu = panel.locator('[data-panel-mention-menu]')
+  const rowIds = await menu
+    .locator('[data-panel-mention]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-panel-mention')))
+  rec(
+    g,
+    '★★ 候选只有**上游**那一个（画布上另一个带素材的节点不在候选里）',
+    rowIds.length === 1 && rowIds[0] === srcId,
+    JSON.stringify(rowIds),
+  )
+  await menu
+    .locator('[data-panel-mention] img')
+    .first()
+    .waitFor({ state: 'attached', timeout: 6000 })
+    .catch(() => {})
+  rec(
+    g,
+    '★ 候选行 = 缩略图 + 名字',
+    (await menu.locator('[data-panel-mention] img').count()) === 1 &&
+      (await menu.innerText()).includes(srcTitle),
+    `名字=${srcTitle}`,
+  )
+  await page.screenshot({ path: `${OUT}/123-g104-mention-menu.png` })
+
+  /** Esc 只收菜单，别把整个创作面板一起关掉（面板自己也监听 Esc） */
+  await page.keyboard.press('Escape')
+  await sleep(300)
+  rec(
+    g,
+    '★★ Esc 只收起 @ 菜单（创作面板还在）',
+    (await panel.count()) === 1 && (await panel.locator('[data-panel-mention-menu]').count()) === 0,
+    `panel=${await panel.count()}`,
+  )
+
+  /** 打一个 `@` 就该开候选（参考对话窗那套交互） */
+  await panelPrompt(panel).click()
+  await page.keyboard.type('参考')
+  await page.keyboard.type('@')
+  await sleep(350)
+  rec(
+    g,
+    '★ 在正文里打出 @ 自动开候选',
+    (await panel.locator('[data-panel-mention-menu]').count()) === 1,
+    `count=${await panel.locator('[data-panel-mention-menu]').count()}`,
+  )
+
+  await panel.locator(`[data-panel-mention="${srcId}"]`).click()
+  await sleep(500)
+  const chip = panel.locator('[data-panel-prompt] [data-mention-kind="node"]')
+  rec(
+    g,
+    '★★ 选完在正文里落成引用小框（名字就是那个节点）',
+    (await chip.count()) === 1 && (await chip.innerText()).includes(srcTitle),
+    `chips=${await chip.count()} 文本=${(await chip.innerText().catch(() => '')).trim()}`,
+  )
+  await chip
+    .locator('img')
+    .first()
+    .waitFor({ state: 'attached', timeout: 6000 })
+    .catch(() => {})
+  rec(
+    g,
+    '★★ 小框里带素材缩略图（不是只有一个图标）',
+    (await chip.locator('img').count()) === 1,
+    `img=${await chip.locator('img').count()}`,
+  )
+  await page.screenshot({ path: `${OUT}/124-g104-mention-chip.png` })
+
+  /**
+   * ★★ 存储里只留纯文本 —— 这条是这一项的地基：提示词要原样发给模型、给下游节点、
+   * 给反推 / 优化，夹带 `@[名字](node:id)` 就是往请求里塞机器噪音。
+   */
+  await panelPrompt(panel).blur()
+  await sleep(700)
+  const stored = await page.evaluate(
+    (id) =>
+      new Promise((resolve) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => {
+          const db = req.result
+          const get = db.transaction('nodes', 'readonly').objectStore('nodes').get(id)
+          get.onsuccess = () => resolve(get.result?.data?.prompt ?? '')
+          get.onerror = () => resolve('')
+        }
+        req.onerror = () => resolve('')
+      }),
+    dstId,
+  )
+  rec(
+    g,
+    '★★ 落库的提示词是纯文本 `@名字`（没有引用形态）',
+    String(stored).includes(`@${srcTitle}`) && !String(stored).includes('@['),
+    `prompt=${JSON.stringify(stored)}`,
+  )
+
+  /** 重新打开面板：纯文本里的 `@名字` 又变回引用小框（chip 不靠存 id 活着） */
+  await page.keyboard.press('Escape')
+  await sleep(300)
+  const panel2 = await genPanel(page, dst)
+  rec(
+    g,
+    '★★ 重开面板：`@名字` 又展开成引用小框',
+    (await panel2.locator('[data-panel-prompt] [data-mention-kind="node"]').count()) === 1,
+    `chips=${await panel2.locator('[data-panel-prompt] [data-mention-kind="node"]').count()}`,
+  )
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

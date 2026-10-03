@@ -25,6 +25,7 @@ const emptyModel: PanelModel = {
   prompt: '',
   linkedPromptCount: 0,
   promptToggle: null,
+  mentionCandidates: [],
 }
 
 /**

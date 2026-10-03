@@ -11,6 +11,7 @@ import { describeError } from '../../../shared/result'
 import { clampDuration } from '../../../domain/shared/capability'
 import { CreationPanel } from './CreationPanel'
 import type { PanelEvent, PanelModel, PanelThumb, RecipeSnapshot } from './panelModel'
+import type { MentionCandidate } from '../text/mentionValue'
 import { useGraph, useViewportState, useCanvasStore, useSelection } from '../storeContext'
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { usePromptTools } from '../../../features/shared/promptTools/usePromptTools'
@@ -244,6 +245,31 @@ export function PanelLayer({
   )
 }
 
+/**
+ * 创作面板里 `@` 能引用谁（用户 2026-10-05 第 15 条）：**本节点上游里带素材的节点**。
+ *
+ * 只收有 `assetHash` 的：提示词节点没有画面、批量节点是集合卡 —— 引用它们，
+ * chip 上只能是个空框，用户点出来也认不出是哪个。名字取节点的标题，空标题的不进候选
+ * （正文里存的是纯文本 `@名字`，没有名字就没法还原成引用框）。
+ */
+function upstreamMentionCandidates(
+  node: NodeSnapshot,
+  graph: ReturnType<typeof useGraph>,
+): MentionCandidate[] {
+  const index = indexNodes(graph.nodes)
+  const out: MentionCandidate[] = []
+  for (const id of directUpstream(node.id, graph.edges)) {
+    const up = index.get(id)
+    if (!up) continue
+    if (!(up.data as Partial<GenerationData>).assetHash) continue
+    const label = (up.title ?? '').trim()
+    if (!label) continue
+    if (out.some((c) => c.id === up.id)) continue
+    out.push({ id: up.id, label })
+  }
+  return out
+}
+
 /** 组装面板数据：缩略图来源按节点类型分流（§6.8 / §6.11 / §6.12） */
 function buildPanelModel(node: NodeSnapshot, graph: ReturnType<typeof useGraph>): PanelModel {
   const index = indexNodes(graph.nodes)
@@ -306,6 +332,7 @@ function buildPanelModel(node: NodeSnapshot, graph: ReturnType<typeof useGraph>)
               title: '组内提示词是否参与本次生成',
             }
           : null,
+      mentionCandidates: upstreamMentionCandidates(node, graph),
     }
   }
 
@@ -335,6 +362,7 @@ function buildPanelModel(node: NodeSnapshot, graph: ReturnType<typeof useGraph>)
       prompt: data.prompt,
       linkedPromptCount: 0,
       promptToggle: null,
+      mentionCandidates: upstreamMentionCandidates(node, graph),
     }
   }
 
@@ -430,6 +458,7 @@ function buildPanelModel(node: NodeSnapshot, graph: ReturnType<typeof useGraph>)
      * 否则用户看不出当前用的是哪个技能。
      */
     selectedSkillId: node.type === 'prompt' ? ((node.data as PromptData).skillId ?? null) : null,
+    mentionCandidates: upstreamMentionCandidates(node, graph),
   }
 }
 

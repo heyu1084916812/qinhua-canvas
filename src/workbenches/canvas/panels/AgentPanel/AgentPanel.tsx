@@ -1540,6 +1540,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           ref={editorRef}
           value={draft}
           onChange={setDraft}
+          /** 语义锚点：冒烟按 `[data-agent-input]` 定位这个输入框 */
+          anchorAttr={{ 'data-agent-input': '' }}
           placeholder="开始你的创作，或者 @ 引用工作流 / 节点 / 资源"
           onEnter={() => void send()}
           /** 刚打出 `@` → 直接开引用菜单（参考产品就是「打 @ 就出」） */

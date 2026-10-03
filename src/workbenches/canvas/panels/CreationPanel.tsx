@@ -1,4 +1,4 @@
-import { useEffect, useRef, useSyncExternalStore, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, useState } from 'react'
 import { clampDuration, type ModelCapability } from '../../../domain/shared/capability'
 import type { GenerationData } from '../../../domain/canvas/model/node'
 import type { PanelCollection, PanelModel, PanelThumb, RecipeSnapshot } from './panelModel'
@@ -7,6 +7,12 @@ import { moveInOrder } from './panelModel'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { useSkills } from '../../../app/providers/SkillStoreProvider'
 import { useAsset } from '../hooks/useAsset'
+import { MentionEditor, mentionToken, type MentionEditorHandle } from '../text/MentionEditor'
+import {
+  collapseMentions,
+  expandMentions,
+  type MentionCandidate,
+} from '../text/mentionValue'
 import type { PromptToolAction } from '../../../features/shared/promptTools/promptTools'
 import { ParamPicker, type ParamSection } from './ParamPicker'
 import { SkillPicker } from './SkillPicker'
@@ -451,6 +457,67 @@ export function CreationPanel(props: CreationPanelProps) {
   const closePicker = () => setOpenPicker(null)
   const togglePicker = (key: string) => setOpenPicker((cur) => (cur === key ? null : key))
   const tools = promptMode ? (props.promptTools ?? null) : null
+
+  /**
+   * 创作面板里的 `@`（用户 2026-10-05 第 15 条）：能引用**本节点上游**的图 / 视频素材。
+   *
+   * 存储里只放纯文本（`@名字`），引用形态只活在编辑器那一层 —— 理由与两个方向的
+   * 转换都写在 `text/mentionValue.ts`（提示词还要发给模型、给下游，不能夹带机器形态）。
+   * 这里只管三件事：纯文本 → 编辑器 value、编辑器文本 → 纯文本、给 chip 备好缩略图。
+   */
+  const promptEditorRef = useRef<MentionEditorHandle | null>(null)
+  const [mentionOpen, setMentionOpen] = useState(false)
+  const mentionCandidates = model.mentionCandidates
+  const promptValue = useMemo(
+    () => expandMentions(promptDraft, mentionCandidates),
+    [promptDraft, mentionCandidates],
+  )
+
+  /** 候选节点 → 素材 hash（面板模型已经算过上游缩略图，这里不再扫一遍图） */
+  const mentionHashOf = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const t of model.thumbs) if (t.assetHash) map.set(t.id, t.assetHash)
+    return map
+  }, [model.thumbs])
+
+  /**
+   * chip 上的缩略图：编辑器是**命令式建的 DOM**、拿不到 hook，所以图由宿主取一次、
+   * 缓存成 `节点 id → objectURL`，再用版本号通知编辑器**就地**补进槽位
+   * （与对话窗那套同一招，见 `AgentPanel` 里那段说明）。
+   */
+  const mentionThumbRef = useRef(new Map<string, string>())
+  const [mentionThumbVersion, setMentionThumbVersion] = useState(0)
+  const mentionThumbOf = useCallback(
+    (id: string) => mentionThumbRef.current.get(id) ?? null,
+    [],
+  )
+  /**
+   * 点别处收起 @ 菜单。
+   *
+   * Esc **不在这里处理**：那个键要按「最上面那层」逐层收（菜单 → 参数浮层 → 面板），
+   * 而这一层手里没有那个顺序的信息 —— 交给面板自己的 keydown（它知道有没有浮层开着，
+   * 也知道怎么标记「这次 Esc 已被消费」）。这里再插一手只会变成两个地方抢同一个键。
+   */
+  useEffect(() => {
+    if (!mentionOpen) return
+    const onDown = (e: PointerEvent) => {
+      const el = e.target as HTMLElement | null
+      if (el?.closest('[data-panel-mention-menu]') || el?.closest('[data-panel-mention-open]')) {
+        return
+      }
+      setMentionOpen(false)
+    }
+    window.addEventListener('pointerdown', onDown)
+    return () => {
+      window.removeEventListener('pointerdown', onDown)
+    }
+  }, [mentionOpen])
+
+  /** 插进正文：走编辑器自己的 `insertMention`（落在光标处、带 chip 的存储形态） */
+  const insertMention = (c: MentionCandidate) => {
+    promptEditorRef.current?.insertMention(mentionToken('node', c.id, c.label))
+    setMentionOpen(false)
+  }
   /** 技能库（共享的全局单例，设置页改完这里会立刻反映） */
   const { skills } = useSkills()
   /**
@@ -1048,6 +1115,16 @@ export function CreationPanel(props: CreationPanelProps) {
            */
           e.preventDefault()
           setOpenPicker(null)
+        } else if (mentionOpen) {
+          /**
+           * 再往下才轮到 `@` 候选菜单。
+           *
+           * 顺序不能反：菜单是**浮在面板上的**一层，Esc 的语义按「最上面那层」来。
+           * 这一步也必须 `preventDefault()`（同下）—— 否则一次 Esc 会既收菜单
+           * 又关掉整个面板（实测：只点开菜单再按 Esc，面板一起没了）。
+           */
+          e.preventDefault()
+          setMentionOpen(false)
         } else {
           props.onClose()
         }
@@ -1125,21 +1202,62 @@ export function CreationPanel(props: CreationPanelProps) {
       {/* 第二部分：提示词 */}
       <section className={`${styles.section} ${styles.promptSection}`} data-panel-part="prompt">
         <div className={styles.promptRow}>
-          {model.linkedPromptCount > 0 && (
-            <span className={styles.linked} data-panel-linked-prompt>
-              上游已链接提示词节点 {model.linkedPromptCount}
-            </span>
+          {/*
+            提示词那一行的头：左边「上游已链接提示词节点」、右边 `@` 按钮。
+
+            `@` 挂在**这一行**而不是浮在文字框上：浮上去会盖住正文第一行的末尾
+            （面板里文字是 16px、行宽固定，盖住一个字用户就得挪光标去看）。
+          */}
+          {(model.linkedPromptCount > 0 || mentionCandidates.length > 0) && (
+            <div className={styles.promptHead}>
+              {model.linkedPromptCount > 0 && (
+                <span className={styles.linked} data-panel-linked-prompt>
+                  上游已链接提示词节点 {model.linkedPromptCount}
+                </span>
+              )}
+              {mentionCandidates.length > 0 && (
+                <button
+                  type="button"
+                  className={styles.mentionOpen}
+                  data-panel-mention-open
+                  title="引用上游素材（@）"
+                  aria-label="引用上游素材"
+                  aria-expanded={mentionOpen}
+                  onClick={() => setMentionOpen((v) => !v)}
+                >
+                  @
+                </button>
+              )}
+            </div>
           )}
-          <textarea
-            className={styles.prompt}
-            data-panel-prompt
-            value={promptDraft}
+          {/*
+            提示词框 = 带引用的富文本框（用户 2026-10-05 第 15 条）。
+
+            它仍然是**同一个 `[data-panel-prompt]`**：既有冒烟、探针都按这个锚点打字，
+            换组件不该让它们集体失灵。`.prompt` 那组样式（含细滚动条）照旧挂在它身上 ——
+            contenteditable 与 textarea 在「字多大、边距多少」上没有差别，
+            只有「高度跟内容长」这一条需要 `autoGrow`（textarea 有 `field-sizing`）。
+          */}
+          <MentionEditor
+            ref={promptEditorRef}
+            className={`${styles.prompt} ${styles.promptEditor}`}
+            anchorAttr={{ 'data-panel-prompt': '' }}
+            label={promptMode ? '提示词节点正文' : '生成提示词'}
+            autoGrow
+            value={promptValue}
             placeholder={
               promptMode
                 ? '输入提示词（下游生成节点读的就是这里）'
                 : '输入提示词，或连线上游提示词节点'
             }
-            onChange={(e) => onPromptChange(e.target.value)}
+            /** 存回去的是**纯文本**（引用形态在这里还原成 `@名字`，见 mentionValue.ts） */
+            onChange={(next) => onPromptChange(collapseMentions(next))}
+            /** 刚打出 `@` → 开候选（参考对话窗那套交互） */
+            onMentionTrigger={() => {
+              if (mentionCandidates.length > 0) setMentionOpen(true)
+            }}
+            thumbOf={mentionThumbOf}
+            thumbVersion={mentionThumbVersion}
             /* 失焦立即落库，不等那 300ms —— 用户点走就是「我打完了」 */
             onBlur={() => {
               if (!promptTimer.current) return
@@ -1148,6 +1266,40 @@ export function CreationPanel(props: CreationPanelProps) {
               onEvent({ type: 'setPrompt', text: promptDraft })
             }}
           />
+          {mentionOpen && (
+            <div className={styles.mentionMenu} data-panel-mention-menu>
+              <div className={styles.mentionHint}>引用本节点上游的素材</div>
+              {mentionCandidates.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={styles.mentionItem}
+                  data-panel-mention={c.id}
+                  onClick={() => insertMention(c)}
+                >
+                  <MentionThumb hash={mentionHashOf.get(c.id)} />
+                  <span className={styles.mentionName} title={c.label}>
+                    {c.label}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+          {/*
+            chip 上的缩略图：编辑器里那些 chip 是**命令式建的 DOM**、拿不到 hook，
+            所以由宿主替它们取图。一个候选渲染一个不可见的取图探针（一个候选一个
+            组件实例 ⇒ hook 规则安全），取到就写进 map、再用版本号通知编辑器
+            **就地**把图补进 chip 的槽位（与对话窗那套同一招）。
+          */}
+          {mentionCandidates.map((c) => (
+            <MentionThumbProbe
+              key={c.id}
+              id={c.id}
+              hash={mentionHashOf.get(c.id)}
+              sink={mentionThumbRef}
+              onLoaded={() => setMentionThumbVersion((v) => v + 1)}
+            />
+          ))}
           {model.promptToggle && (
             <button
               type="button"
@@ -1520,6 +1672,45 @@ export function CreationPanel(props: CreationPanelProps) {
       </section>
     </div>
   )
+}
+
+/**
+ * `@` 候选行左边那块小缩略图。
+ *
+ * 与 chip 上那张图是**两条路**：chip 的图由编辑器按 `thumbOf` 就地补（它是命令式 DOM）；
+ * 这里是普通 React 行，直接用 `useAsset` 拿 objectURL 就行 —— 别为了「统一」把
+ * 菜单也做成命令式，那只会多一份要维护的 DOM。
+ */
+function MentionThumb({ hash }: { hash: string | undefined }) {
+  const url = useAsset(hash)
+  return <span className={styles.mentionThumb}>{url ? <img src={url} alt="" /> : null}</span>
+}
+
+/**
+ * 不可见的取图探针（见调用处那段说明）。
+ *
+ * 存在的唯一理由是**hook 规则**：候选是运行期才定的，不能在一个组件里按数量循环
+ * 调 `useAsset`。一个候选一个实例就绕开了这件事，而且取到的还是同一个
+ * `useAsset`（缩略图行用的那条路），不另开一套取图逻辑。
+ */
+function MentionThumbProbe({
+  id,
+  hash,
+  sink,
+  onLoaded,
+}: {
+  id: string
+  hash: string | undefined
+  sink: { current: Map<string, string> }
+  onLoaded: () => void
+}) {
+  const url = useAsset(hash)
+  useEffect(() => {
+    if (!url || sink.current.get(id) === url) return
+    sink.current.set(id, url)
+    onLoaded()
+  }, [id, url, sink, onLoaded])
+  return null
 }
 
 function Thumb({

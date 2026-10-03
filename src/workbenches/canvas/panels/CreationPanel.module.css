@@ -619,6 +619,142 @@
   padding-right: 6px;
 }
 
+/* ── 提示词框：`@` 引用（用户 2026-10-05 第 15 条） ── */
+/*
+ * 提示词行那一行的头：左「上游已链接提示词节点」、右 `@`。
+ * 没有头那一行时整块不渲染（空行会在面板里多出 20 多像素的空白）。
+ */
+.promptHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 22px;
+}
+
+/*
+ * `@` 按钮：与参数 chip 同一档尺寸（22px 高、方角、描边），
+ * 面板整体挂着 `zoom: 0.75`，所以这里的 22px 在屏幕上是 ~16px。
+ */
+.mentionOpen {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mentionOpen:hover,
+.mentionOpen:focus-visible,
+.mentionOpen[aria-expanded='true'] {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+/*
+ * 候选菜单：面板**内部**的浮层（绝对定位，不跟着画布缩放）。
+ * 不用原生 select —— 它的展开层由浏览器绘制，既不受 `zoom: 0.75` 约束、
+ * 也不跟主题走（§3.3 里为参数菜单定的同一条理由）。
+ */
+.mentionMenu {
+  position: absolute;
+  z-index: 3;
+  top: 26px;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 220px;
+  max-height: 240px;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: var(--space-2);
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-float);
+}
+
+.mentionHint {
+  padding: 0 4px 2px;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.mentionItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 32px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mentionItem:hover {
+  background: var(--bg-hover);
+}
+
+.mentionThumb {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 22px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--bg-subtle);
+}
+
+.mentionThumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 名字过长时省略（用户原话：「小框图片缩略图加上省略的名称」） */
+.mentionName {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/*
+ * 富文本提示词框：`.prompt` 那组规则与 textarea 时期**共用**（字号 / 边距 /
+ * 细滚动条 / 高度上限都要一样），这里只补 contenteditable 与 textarea 的差异。
+ *
+ * 为什么把 `.prompt` 里那几条再写一遍：`MentionEditor.module.css` 的 `.editor`
+ * 自带 `min-height: 44px; max-height: 120px; font-size: var(--fs-label)`，
+ * 而两个 CSS module 的先后顺序由打包顺序决定 —— 各写一份、谁也别指望谁，
+ * 面板这边的效果才不会被一次无关的导入顺序调整掀翻。
+ */
+.promptEditor {
+  min-height: 72px;
+  max-height: min(
+    420px,
+    calc(var(--panel-available-h, 480px) - 160px)
+  );
+  padding: 0 6px 0 var(--space-1);
+  font-size: 16px;
+  line-height: var(--lh-body);
+  overflow-y: auto;
+  /* contenteditable 默认 `overflow: visible`：不写这条，超出上限的内容会画到面板外 */
+  overscroll-behavior: contain;
+}
+
   /**
    * ⚠️ 这是全局细滚动条（`ui/base.css` 里那套 4px）的**一个有理由的例外**，
    * 不是漏改的旧样式 —— 改之前先读这段。

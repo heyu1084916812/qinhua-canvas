@@ -177,8 +177,27 @@ export const MentionEditor = forwardRef<
     onMentionTrigger?: () => void
     placeholder?: string
     className?: string
-    /** 回车（不带 Shift）= 发送；带 Shift = 换行 */
+    /** 回车=做什么。**没给就是换行**（创作面板的提示词框要的是换行，不是发送） */
     onEnter?: () => void
+    /** 无障碍名（默认「给助手的消息」；创作面板传「提示词」） */
+    label?: string
+    /**
+     * 高度跟着内容长（创作面板的提示词框要这个）。
+     *
+     * 为什么不是纯 CSS：`textarea` 有 `field-sizing: content`，而 `contenteditable`
+     * 没有对应属性 —— 不写这一条，提示词区就固定一行高、内容全挤在滚动条里
+     * （用户 2026-09-24 明确定过「自适应就好，不要一条滚动条」）。
+     * 上限仍由宿主的 `max-height` 管：写进 `height` 的值会被 CSS 夹住，
+     * 超出部分才是滚动条。
+     */
+    autoGrow?: boolean
+    /**
+     * 失焦回调（创作面板靠它「点走即落库」，不等那 300ms 防抖）。
+     *
+     * 只报事件、不带值：编辑器里的值什么时候取都是最新的，
+     * 宿主拿自己那份草稿即可 —— 与 `onChange` 同一口径。
+     */
+    onBlur?: () => void
     /** 语义锚点（测试用），由调用方给 */
     anchorAttr?: Record<string, string>
     /**
@@ -199,6 +218,9 @@ export const MentionEditor = forwardRef<
     placeholder,
     className,
     onEnter,
+    label = '给助手的消息',
+    autoGrow = false,
+    onBlur,
     anchorAttr,
     thumbOf,
     thumbVersion,
@@ -216,6 +238,14 @@ export const MentionEditor = forwardRef<
     el.replaceChildren(buildFragment(value, document))
     currentRef.current = value
   }, [value])
+
+  /** 内容多高就多高（见 `autoGrow` 的说明；被 CSS 的 `max-height` 夹住后剩下的才是滚动） */
+  useEffect(() => {
+    const el = ref.current
+    if (!el || !autoGrow) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [value, autoGrow])
 
   useEffect(() => {
     const el = ref.current
@@ -411,10 +441,10 @@ export const MentionEditor = forwardRef<
       suppressContentEditableWarning
       role="textbox"
       aria-multiline="true"
-      aria-label="给助手的消息"
-      data-agent-input
+      aria-label={label}
       data-placeholder={placeholder}
       {...anchorAttr}
+      onBlur={onBlur}
       onInput={() => {
         const el = ref.current
         const sel = window.getSelection()
@@ -440,15 +470,21 @@ export const MentionEditor = forwardRef<
           }
         }
         if (e.key !== 'Enter') return
-        if (e.shiftKey) {
-          /** Shift+Enter = 换行：插 `<br>`（readEditorText 认它），别让浏览器插 `<div>` */
+        /**
+         * 换行的两种情况：显式 Shift+Enter，**以及宿主没给 `onEnter`**（没有「发送」
+         * 这回事的输入框，比如创作面板的提示词）。
+         *
+         * 用 `insertLineBreak` 而不是让浏览器自己插：默认会插 `<div>`（或 `<p>`），
+         * 而 `readEditorText` 只认 `<br>`，于是换行在往返一次之后就没了。
+         */
+        if (e.shiftKey || !onEnter) {
           e.preventDefault()
           document.execCommand('insertLineBreak')
           emit()
           return
         }
         e.preventDefault()
-        onEnter?.()
+        onEnter()
       }}
     />
   )

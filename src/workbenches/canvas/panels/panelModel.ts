@@ -1,4 +1,5 @@
 ﻿import type { NodeSnapshot } from '../../../domain/canvas/model/node'
+import type { MentionCandidate } from '../text/mentionValue'
 
 /**
  * 创作参数面板的数据模型（产品文档 §6.8 / §6.11 / §6.12）。
@@ -68,6 +69,14 @@ export interface PanelModel {
    * 正文归技能库管，节点只记「用哪一条」。
    */
   selectedSkillId?: string | null
+  /**
+   * 创作面板里 `@` 能引用谁（用户 2026-10-05 第 15 条）。
+   *
+   * 范围**只有本节点的上游**（整张画布由对话窗那个 @ 负责，两者别混）：
+   * 上游里带素材的节点才是「可以拿来当参考的图 / 视频」。带 `label` 是因为
+   * 正文里存的是纯文本 `@名字`，名字就是它展开回引用框的唯一线索。
+   */
+  mentionCandidates: MentionCandidate[]
 }
 
 /** 集合卡（§6.12）：不展开内部素材，只标注数量；隐藏的素材不计入 */
