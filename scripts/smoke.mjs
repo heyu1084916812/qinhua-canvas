@@ -4529,6 +4529,56 @@ async function g46(browser) {
   )
 
   /**
+   * ★★ **浮层不出横向滚动条**（用户 2026-10-03：「面板还是有左右的滚轮」）。
+   *
+   * 根因是 CSS 规范的一条暗礁：`overflow-y: auto` + 另一轴 `visible` 时，
+   * 那一轴会被**算成 `auto`** —— 于是内容比内容盒宽一点点（实测多 15px）
+   * 就冒出一条横向滚动条。判据同时看两个数：内容宽度不超、且 `overflow-x` 已显式关掉。
+   */
+  const popupW = await panel.locator('[data-param-popup="gen-params"]').evaluate((el) => ({
+    scrollWidth: el.scrollWidth,
+    clientWidth: el.clientWidth,
+    overflowX: getComputedStyle(el).overflowX,
+  }))
+  rec(
+    g,
+    '★★ 参数浮层没有横向滚动（左右不可滚）',
+    popupW.scrollWidth <= popupW.clientWidth + 1 && popupW.overflowX === 'hidden',
+    `scrollW=${popupW.scrollWidth} clientW=${popupW.clientWidth} overflow-x=${popupW.overflowX}`,
+  )
+
+  /**
+   * ★★ **比例一排 4 个 + 各段左右边距完全一致**（用户 2026-10-03：
+   * 「把比例替换成 4 个比例一排，当前是三个」「三个部分的参数和面板左右的边距要一样」）。
+   *
+   * 两个数都是几何事实，不看样式声明：
+   *  · 比例格按 y 分组——**第一行恰好 4 格**；
+   *  · 画质 / 清晰度 / 背景 / 比例 / 数量五段的左、右偏移**逐段相等**
+   *    （原先每段各按自己的内容定宽，一段比一段窄）。
+   */
+  const layoutProbe = await panel.locator('[data-param-popup="gen-params"]').evaluate((el) => {
+    /** 比例格本身就是 `role=option` 的按钮（带 `data-param-option`），不依赖 CSS module 哈希类名 */
+    const cells = [...el.querySelectorAll('[data-param-section="ratio"] [data-param-option]')]
+    const firstTop = cells[0]?.getBoundingClientRect().top
+    const firstRow = cells.filter((c) => Math.abs(c.getBoundingClientRect().top - firstTop) < 2)
+    const popRect = el.getBoundingClientRect()
+    const sections = [...el.querySelectorAll('[data-param-section]')].map((s) => {
+      const r = s.getBoundingClientRect()
+      return { name: s.getAttribute('data-param-section'), l: Math.round(r.left - popRect.left), r: Math.round(popRect.right - r.right) }
+    })
+    return { firstRow: firstRow.length, sections }
+  })
+  const sameMargins = layoutProbe.sections.every(
+    (s) => Math.abs(s.l - layoutProbe.sections[0].l) <= 1 && Math.abs(s.r - layoutProbe.sections[0].r) <= 1,
+  )
+  rec(
+    g,
+    '★★ 比例一排 4 个，且五段的左右边距逐段一致',
+    layoutProbe.firstRow === 4 && layoutProbe.sections.length >= 4 && sameMargins,
+    `首行=${layoutProbe.firstRow} 段=${JSON.stringify(layoutProbe.sections)}`,
+  )
+
+  /**
    * ★★ 浮层的**内距 / 段间距 / 字号层级**（用户 2026-10-03：
    * 「有点太挤了，距离边界的位置要适合……可能是英文都是一个大小的原因」）。
    *
@@ -13763,8 +13813,14 @@ async function g100(browser) {
   await page.waitForURL(/\/canvas\//)
   await sleep(900)
 
-  /** 矮窗口：锚点上方只剩很少空间 —— 这是「必须滚」的触发条件 */
-  await page.setViewportSize({ width: 1280, height: 520 })
+  /**
+   * 矮窗口：锚点上方只剩很少空间 —— 这是「必须滚」的触发条件。
+   *
+   * 高度取 400 而不是 520：浮层内容（画质 / 清晰度 / 背景 / 比例 / 数量）现在
+   * 是 **557px**，520 的窗口下锚点上方还有 ~606px 的余地，**装得下就不会滚** ——
+   * 那样这条用例会「因为不再需要滚动」而红，测的其实是另一件事。
+   */
+  await page.setViewportSize({ width: 1280, height: 400 })
   await sleep(500)
   const panel = await genPanel(page)
   await panel.locator('[data-param-chip="gen-params"]').click()
