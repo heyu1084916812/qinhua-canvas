@@ -16002,6 +16002,25 @@ async function g99(browser) {
     `模式=${JSON.stringify(agnesMode.vals)} 画幅=${JSON.stringify(agnesRatio.vals)} 清晰度=${JSON.stringify(agnesSize.vals)} 时长=${JSON.stringify(await durationRange())}`,
   )
 
+  /**
+   * ★★ Agnes 的「全能参考」要写清**怎么用**（用户 2026-10-03：
+   * 「我的 agnes video 2.0 好像生视频不是按照我的全能参考来的」）。
+   *
+   * 官方文档（`agnes-video-25` 的 reference 模式）明写用 `<Picture N>` 指代输入素材 ——
+   * 提示词里不点名第几张图，模型没有理由照搬它的风格。这条提示只给 Agnes 那两套方言。
+   */
+  await panel.locator('[data-param-chip="videoMode"]').click()
+  await sleep(350)
+  const modePopupText = (await panel.locator('[data-param-popup="videoMode"]').innerText()).replace(/\s+/g, ' ')
+  rec(
+    g,
+    '★★ Agnes 的「全能参考」带用法提示（<Picture 1> 指代第 1 张参考图）',
+    modePopupText.includes('Picture 1') && modePopupText.includes('连线顺序'),
+    modePopupText.slice(0, 120),
+  )
+  await page.keyboard.press('Escape')
+  await sleep(220)
+
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
 }

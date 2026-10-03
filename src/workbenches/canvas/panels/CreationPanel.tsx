@@ -868,9 +868,22 @@ export function CreationPanel(props: CreationPanelProps) {
   const showVideoMode = modeIds.length > 1
   const videoModeOptions = modeIds.map((id) => {
     const meta = VIDEO_MODE_LABELS[id]
+    /**
+     * Agnes 那条路的「全能参考」补一句**官方文档的用法**（`agnes-video-25`：
+     * reference 模式用 `<Picture N>` / `<Audio N>` / `<Video N>` 指代输入素材）。
+     *
+     * 为什么值得写在面板上：用户 2026-10-03 报「全能参考好像没按我的参考来」——
+     * 除了键名那个真 bug（见 `openaiVideo.ts`），另一半是**用法**：
+     * 提示词里不点名第几张图，模型没有理由照搬它的风格。
+     * 只对 Agnes 那两套方言给这条提示（别家没有这个占位符约定）。
+     */
+    const agnesReference = id === 'all-purpose' && videoSpec?.dialect !== 'openai-videos'
     return {
       value: id,
       label: meta.beta ? `${meta.label} Beta` : meta.label,
+      ...(agnesReference
+        ? { hint: '参考图按连线顺序编号；提示词里可用 <Picture 1> 指代第 1 张' }
+        : {}),
       ...(disabledModes.has(id)
         ? { disabled: true, title: `${meta.label}：当前模型不支持这一档` }
         : {}),

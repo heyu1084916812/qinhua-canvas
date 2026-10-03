@@ -350,9 +350,20 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
     expect(images).toHaveLength(2)
     expect(images[0]).toBe(`data:image/png;base64,${bytesToBase64(new Uint8Array([1, 2, 3]))}`)
     expect(images[1]).toBe(`data:image/png;base64,${bytesToBase64(new Uint8Array([4, 5, 6]))}`)
+    /** 首尾帧只发**单数**那个键（实测过的那一个）；复数键是给全能参考用的，这里不该冒出来 */
+    expect(bodies[0]!.images).toBeUndefined()
   })
 
-  it('★ 全能参考：多张本地素材进 `image` 数组（mode=multi_reference）', async () => {
+  /**
+   * ★★ **全能参考：两个键名同值同时发**（用户 2026-10-03：
+   * 「我的 agnes video 2.0 好像生视频不是按照我的全能参考来的」）。
+   *
+   * 原先只发 `image`（单数）—— 那是**首尾帧**实测出来的键，被顺手套用到这里，
+   * 而这条路径**从没和真上游对过**（这条用例当初只断言「发了 image」，
+   * 等于把猜测钉成了回归基线）。官方文档给 reference 模式写的是 `images`（复数）。
+   * 上游若只认复数，单数就被静默忽略 ⇒ 参考图等于没发。
+   */
+  it('★★ 全能参考：`images`（文档）与 `image`（实测那套）同值同时发', async () => {
     let sent: Record<string, unknown> | null = null
     const platform = createMemoryPlatform({
       rows: { assets: [{ id: 'a1', bytes: new Uint8Array([9]), mime: 'image/png' }] },
@@ -376,7 +387,9 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
       new AbortController().signal,
     )
     expect(sent).toMatchObject({ mode: 'multi_reference' })
-    expect(sent!.image).toEqual([`data:image/png;base64,${bytesToBase64(new Uint8Array([9]))}`])
+    const expected = [`data:image/png;base64,${bytesToBase64(new Uint8Array([9]))}`]
+    expect(sent!.images).toEqual(expected)
+    expect(sent!.image).toEqual(expected)
   })
 
   it('★ 选了参考模式却一张素材都没连 → 明确报错（不发一个必失败的请求）', async () => {
