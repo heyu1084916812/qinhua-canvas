@@ -15246,15 +15246,14 @@ async function g98(browser) {
   const gptCounts = await valuesOf('count')
   rec(
     g,
-    '★★ GPT Image 2.5 Flare：9 档画幅 / 1K·2K / 六档质量（含超高·最高）/ 1·2·4 张',
-    gptRatios.length === 9 &&
-      gptRatios.includes('21:9') &&
-      gptRatios.includes('9:21') &&
-      JSON.stringify(gptRes) === JSON.stringify(['1k', '2k']) &&
+    '★★ GPT Image 2.5 Flare：OpenAI 官方 size（auto + 三个像素）/ 六档质量 / 1·2·4·9 张 / 无独立画幅',
+    gptRatios.length === 0 &&
+      JSON.stringify(gptRes) ===
+        JSON.stringify(['auto', '1024x1024', '1536x1024', '1024x1536']) &&
       JSON.stringify(gptQuality) === JSON.stringify(['auto', 'low', 'medium', 'high', 'xhigh', 'max']) &&
       gptQualityLabels.includes('超高') &&
       gptQualityLabels.includes('最高') &&
-      JSON.stringify(gptCounts) === JSON.stringify(['1', '2', '4']),
+      JSON.stringify(gptCounts) === JSON.stringify(['1', '2', '4', '9']),
     `比例=${gptRatios.length} 尺寸=${JSON.stringify(gptRes)} 质量=${JSON.stringify(gptQuality)} 标签=${JSON.stringify(gptQualityLabels)} 张数=${JSON.stringify(gptCounts)}`,
   )
   await page.screenshot({ path: `${OUT}/119-g98-gpt-image-params.png` })
@@ -15280,12 +15279,24 @@ async function g98(browser) {
   await page.keyboard.press('Escape')
   await sleep(250)
 
-  // ③ Nano Banana（chat 方言）：只有 prompt 有参数 ⇒ 整枚「生成参数」chip 都不该出现
+  /**
+   * ③ Nano Banana（gemini 方言）：参数走**官方文档**那份 —— 14 档宽高比 + image_size
+   * （Pro 1K/2K/4K、Nano Banana 2 多一档 512）。这三档是 2026-10-03 从 Google
+   * 《Nano Banana 图片生成》文档里抄的，且实测只在 Gemini 原生端点上生效。
+   */
   await pickModel('Nano Banana Pro')
+  await openParams()
+  const nanoRatios = await valuesOf('ratio')
+  const nanoSizes = await valuesOf('resolution')
   rec(
     g,
-    '★★ Nano Banana Pro：一段参数都没有 ⇒ 整枚「生成参数」chip 不出现（而不是点开是空的）',
-    (await panel.locator('[data-param-chip="gen-params"]').count()) === 0,
+    '★★ Nano Banana Pro：官方 14 档宽高比 + 1K·2K·4K（不含 512）',
+    nanoRatios.length === 14 &&
+      nanoRatios.includes('1:8') &&
+      nanoRatios.includes('8:1') &&
+      nanoRatios.includes('21:9') &&
+      JSON.stringify(nanoSizes) === JSON.stringify(['1k', '2k', '4k']),
+    `比例=${nanoRatios.length} 尺寸=${JSON.stringify(nanoSizes)}`,
   )
   await page.screenshot({ path: `${OUT}/121-g98-nano-banana.png` })
 

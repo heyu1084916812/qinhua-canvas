@@ -246,11 +246,44 @@ describe('panelModelOptions', () => {
     expect(presetImage).toContain('Midjourney')
   })
 
-  it('★ 渠道勾过的其它模型跟在固定清单后面（没配映射的站不该一个都选不出来）', () => {
+  it('★ 整条渠道这一档都没被清单认领时，才补它的裸名字（新站不该一个都选不出来）', () => {
     const c = ch({ id: 'A', models: [cap('mock-image-1')] })
     const opts = panelModelOptions([c], 'image')
     expect(opts).toContain('mock-image-1')
     expect(opts.indexOf('mock-image-1')).toBeGreaterThan(opts.indexOf('Midjourney'))
+  })
+
+  /**
+   * 用户 2026-10-03：「提示词节点的模型和我前端的模型没有对应上，多了两个框住的模型
+   * ……项目中所有有模型的地方，都需要从前端选择，不要给我多余的东西」。
+   *
+   * 钉住的是**真实的那个场景**：Agnes 渠道里既有被清单认领的 `agnes-3.0-flash`，
+   * 又有没认领的 `agnes-2.5-flash`，还有一条**陈旧映射键** `Agnes 2.5 Pro`
+   * （它早已不在清单里）—— 后两者都不许再出现在下拉里。
+   */
+  it('★★ 渠道已有名字被清单认领 ⇒ 它的裸 ID 与陈旧映射键一律不进下拉（跨档也拦）', () => {
+    const agnes = ch({
+      id: 'agnes',
+      models: [
+        cap('agnes-3.0-flash', 'chat'),
+        cap('agnes-2.5-flash', 'chat'),
+        cap('agnes-image-2.5-flash', 'image'),
+      ],
+      modelMap: {
+        'Agnes 2.5 Pro': 'agnes-2.5-pro',
+        'agnes-3.0-flash': 'agnes-3.0-flash',
+        'agnes-2.5-flash': 'agnes-2.5-flash',
+        'agnes-image-2.5-flash': 'agnes-image-2.5-flash',
+      },
+    })
+    const chat = panelModelOptions([agnes], 'chat')
+    expect(chat).toContain('Agnes 3.0 Flash')
+    expect(chat).not.toContain('agnes-2.5-flash')
+    expect(chat).not.toContain('Agnes 2.5 Pro')
+    // 同一条渠道的图片档也不许因为「这一档没认领」而把裸 ID 放回来
+    const image = panelModelOptions([agnes], 'image')
+    expect(image).toContain('Agnes Image 2.5 Flash')
+    expect(image).not.toContain('agnes-image-2.5-flash')
   })
 
   it('★ 与固定名同名的渠道模型不重复出现', () => {

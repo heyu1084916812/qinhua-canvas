@@ -311,13 +311,23 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
       network: networkSeeing('/v1/images/generations', calls),
       assets: platformWithAssets([]).assets,
     })
+  /**
+   * 这一档测的是**没有能力表时**的通用 OpenAI 口径（比例 → 像素 size 那套）。
+   * `gpt-image-2` 现在有官方能力表（`openai-images` 方言），所以这些用例改用
+   * 一个清单里没有的模型名 —— 否则测的就不是「通用兜底」而是「官方尺寸表」了。
+   */
+  const legacy = (
+    inputs: ImageRunRequest['inputs'],
+    count = 1,
+    params: Record<string, unknown> = {},
+  ): ImageRunRequest => ({ ...request(inputs, count, params), model: 'legacy-image-x' })
 
   it('比例 → 合法像素 size；绝不发出 `1x1` 这类非法值', async () => {
     const calls: { url: string; body: unknown }[] = []
     const a = adapter(calls)
-    await a.generateImage(request([], 1, { ratio: '1:1' }), signal)
-    await a.generateImage(request([], 1, { ratio: '16:9' }), signal)
-    await a.generateImage(request([], 1, { ratio: '9:16' }), signal)
+    await a.generateImage(legacy([], 1, { ratio: '1:1' }), signal)
+    await a.generateImage(legacy([], 1, { ratio: '16:9' }), signal)
+    await a.generateImage(legacy([], 1, { ratio: '9:16' }), signal)
     expect(calls[0]!.body).toMatchObject({ size: '1024x1024' })
     // 1K 预算 1024²，16px 吸附：16:9 → 1360x768
     expect(calls[1]!.body).toMatchObject({ size: '1360x768' })
@@ -327,13 +337,13 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
 
   it('超 3:1 的比例 → 不发 size（文档明确拒绝长短边比超过 3:1）', async () => {
     const calls: { url: string; body: unknown }[] = []
-    await adapter(calls).generateImage(request([], 1, { ratio: '22:7' }), signal)
+    await adapter(calls).generateImage(legacy([], 1, { ratio: '22:7' }), signal)
     expect(calls[0]!.body).not.toHaveProperty('size')
   })
 
   it('画质档位（resolution）刻意不发 —— 本协议没有对应参数', async () => {
     const calls: { url: string; body: unknown }[] = []
-    await adapter(calls).generateImage(request([], 1, { ratio: '1:1', resolution: '2k' }), signal)
+    await adapter(calls).generateImage(legacy([], 1, { ratio: '1:1', resolution: '2k' }), signal)
     expect(calls[0]!.body).not.toHaveProperty('resolution')
     // resolution 不作为独立字段下发，但会并入 size：2K 1:1 → 2048x2048
     expect(calls[0]!.body).toMatchObject({ size: '2048x2048' })
@@ -342,15 +352,15 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
   it('质量 → quality 透传；非法档位不发', async () => {
     const calls: { url: string; body: unknown }[] = []
     const a = adapter(calls)
-    await a.generateImage(request([], 1, { quality: 'high' }), signal)
-    await a.generateImage(request([], 1, { quality: 'ultra' }), signal)
+    await a.generateImage(legacy([], 1, { quality: 'high' }), signal)
+    await a.generateImage(legacy([], 1, { quality: 'ultra' }), signal)
     expect(calls[0]!.body).toMatchObject({ quality: 'high' })
     expect(calls[1]!.body).not.toHaveProperty('quality')
   })
 
   it('产物宽高来自请求的 size（不再写死 512）', async () => {
     const calls: { url: string; body: unknown }[] = []
-    const assets = await adapter(calls).generateImage(request([], 1, { ratio: '2:3' }), signal)
+    const assets = await adapter(calls).generateImage(legacy([], 1, { ratio: '2:3' }), signal)
     expect(assets[0]!.requestedWidth).toBe(832)
     expect(assets[0]!.requestedHeight).toBe(1248)
   })
@@ -407,31 +417,45 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
     expect(body.image).toEqual([`data:image/png;base64,${bytesToB64(new Uint8Array([1, 2, 3]))}`])
   })
 
-  it('★ 非 Agnes 模型完全不受影响（仍走 OpenAI 口径：n + quality）', async () => {
+  it('★ 清单外的模型完全不受影响（仍走通用 OpenAI 口径：n + quality + 比例换算）', async () => {
     const calls: { url: string; body: unknown }[] = []
-    await adapter(calls).generateImage(request([], 2, { ratio: '1:1', resolution: '1k', quality: 'medium' }), signal)
-    expect(calls[0]!.body).toMatchObject({ model: 'gpt-image-2', n: 2, size: '1024x1024', quality: 'medium' })
+    await adapter(calls).generateImage(legacy([], 2, { ratio: '1:1', resolution: '1k', quality: 'medium' }), signal)
+    expect(calls[0]!.body).toMatchObject({ model: 'legacy-image-x', n: 2, size: '1024x1024', quality: 'medium' })
   })
 
   /**
-   * **Comfy-gpt 的 GPT Image 档是另一套白名单**（2026-10-03 真机问出来）：
-   * `size` 必须换算成 `WxH`（档位字符串会被拒）、`quality` 认 `xhigh` / `max`、
-   * 张数上限 4。这条钉住「能力表驱动的 OpenAI 口径」。
+   * **GPT Image 三档按 OpenAI 官方规范发**（用户 2026-10-03：「就走官方的」）：
+   * `size` 用官方那三个像素尺寸之一，`quality` 六档（含官方也有的 `xhigh` / `max`），
+   * `n` 最多 10（面板给到 9）。
    */
-  it('★★ GPT Image 2.5 Flare：size 换算 WxH、quality 走 xhigh、张数按能力表夹到 4', async () => {
+  it('★★ GPT Image 2.5 Flare：size 走官方像素尺寸、quality 走 xhigh、张数按能力表夹到 9', async () => {
     const calls: { url: string; body: unknown }[] = []
     await adapter(calls).generateImage(
       {
-        ...request([], 9),
+        ...request([], 12),
         model: 'gpt-image-2.5-flare',
-        params: { count: 9, ratio: '16:9', resolution: '2k', quality: 'xhigh' },
+        params: { count: 12, resolution: '1536x1024', quality: 'xhigh' },
       },
       signal,
     )
     const body = calls[0]!.body as Record<string, unknown>
-    expect(String(body.size)).toMatch(/^\d+x\d+$/)
+    expect(body.size).toBe('1536x1024')
     expect(body.quality).toBe('xhigh')
-    expect(body.n).toBe(4)
+    expect(body.n).toBe(9)
+  })
+
+  it('★ 选「自动」尺寸时不发 size（交给服务端默认），不是发一个字符串 auto', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    await adapter(calls).generateImage(
+      {
+        ...request([], 1),
+        model: 'gpt-image-2.5-flare',
+        params: { count: 1, resolution: 'auto', quality: 'auto' },
+      },
+      signal,
+    )
+    expect(calls[0]!.body).not.toHaveProperty('size')
+    expect(calls[0]!.body).toMatchObject({ quality: 'auto', n: 1 })
   })
 
   it('★ 能力表外的质量档不发（xhigh 只对该模型放行，别家仍是四档）', async () => {
@@ -455,11 +479,59 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
    * 而 `/chat/completions` 两张都出图 —— 图藏在回复正文的 markdown 里
    * （`![image](https://…jpg)`），要抠出来再自己取字节。
    */
-  it('★★ Nano Banana Pro：改打 chat/completions，并从正文 markdown 里取图', async () => {
+  it('★★ Nano Banana Pro：打 Gemini 原生端点，官方 imageConfig 真的发出去', async () => {
     const calls: { url: string; body: unknown }[] = []
     const net = createMemoryNetwork({
       handler: async (req) => {
         calls.push({ url: req.url, body: req.body })
+        return {
+          status: 200,
+          headers: {},
+          async text() {
+            return ''
+          },
+          async json<T>(): Promise<T> {
+            return {
+              candidates: [
+                {
+                  content: {
+                    parts: [{ inlineData: { mimeType: 'image/jpeg', data: btoa('jpegbytes') } }],
+                  },
+                },
+              ],
+            } as T
+          },
+          async arrayBuffer() {
+            return new ArrayBuffer(0)
+          },
+        }
+      },
+    })
+    const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
+    const assets = await a.generateImage(
+      { ...request([], 1), model: 'gemini-3-pro-image', prompt: '一只猫', params: { count: 1, ratio: '21:9', resolution: '2k' } },
+      signal,
+    )
+    expect(calls[0]!.url).toBe(
+      'https://x/v1beta/models/gemini-3-pro-image:generateContent',
+    )
+    expect(calls[0]!.body).toMatchObject({
+      contents: [{ parts: [{ text: '一只猫' }] }],
+      generationConfig: {
+        responseModalities: ['IMAGE'],
+        imageConfig: { aspectRatio: '21:9', imageSize: '2K' },
+      },
+    })
+    expect(assets).toHaveLength(1)
+    expect(assets[0]!.mime).toBe('image/jpeg')
+  })
+
+  it('★ 网关没有 /v1beta（404/503）时回落 chat 路径，并从正文 markdown 里取图', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        calls.push({ url: req.url, body: req.body })
+        if (req.url.includes('/v1beta/')) return resp(503, { error: { message: '不支持此 API 路径' } })
         if (req.url.endsWith('/chat/completions')) {
           return resp(200, {
             choices: [{ message: { content: '![image](https://files.example/a.jpg)' } }],
@@ -488,19 +560,23 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
       { ...request([], 1), model: 'gemini-3-pro-image', prompt: '一只猫' },
       signal,
     )
-    expect(calls[0]!.url).toBe('https://x/v1/chat/completions')
-    expect(calls[0]!.body).toMatchObject({
+    expect(calls[0]!.url).toContain('/v1beta/models/gemini-3-pro-image:generateContent')
+    expect(calls[1]!.url).toBe('https://x/v1/chat/completions')
+    expect(calls[1]!.body).toMatchObject({
       model: 'gemini-3-pro-image',
       messages: [{ role: 'user', content: '一只猫' }],
     })
-    expect(calls[1]!.url).toBe('https://files.example/a.jpg')
+    expect(calls[2]!.url).toBe('https://files.example/a.jpg')
     expect(assets).toHaveLength(1)
     expect(assets[0]!.mime).toBe('image/jpeg')
   })
 
   it('★ chat 回复里没有图片地址 → 如实报错（不把整段正文当地址）', async () => {
     const net = createMemoryNetwork({
-      handler: async () => resp(200, { choices: [{ message: { content: '我不会画图' } }] }),
+      handler: async (req) =>
+        req.url.includes('/v1beta/')
+          ? resp(503, {})
+          : resp(200, { choices: [{ message: { content: '我不会画图' } }] }),
     })
     const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
     await expect(
@@ -525,7 +601,11 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
       },
     })
     const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
-    const assets = await a.generateImage(request([], 1, { ratio: '2:3' }), signal)
+    /** 用清单外的模型：这条测的是「比例 → 像素 size」的通用兜底 */
+    const assets = await a.generateImage(
+      { ...request([], 1, { ratio: '2:3' }), model: 'legacy-image-x' },
+      signal,
+    )
     expect(assets[0]!.requestedWidth).toBe(832)
     expect(assets[0]!.requestedHeight).toBe(1248)
     expect(assets[0]!.width).toBe(3)
@@ -558,7 +638,10 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
       },
     })
     const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
-    const assets = await a.generateImage(request([], 1, { ratio: '1:1' }), signal)
+    const assets = await a.generateImage(
+      { ...request([], 1, { ratio: '1:1' }), model: 'legacy-image-x' },
+      signal,
+    )
     expect(assets[0]!.requestedWidth).toBe(1024)
     expect(assets[0]!.width).toBeUndefined()
   })

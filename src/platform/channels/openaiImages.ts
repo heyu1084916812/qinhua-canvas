@@ -133,15 +133,7 @@ export function specImageSize(resolution: unknown, spec: ImageParamSpec): string
     const upper = wanted.toUpperCase()
     return spec.sizes.find((s) => s.toUpperCase() === upper) ?? spec.sizes[0] ?? '1K'
   }
-  /**
-   * `ratio+resolution`：面板给的是**分辨率档**（`1k`/`2k`），真正的 `size` 要由
-   * 画幅 × 档位换算成 `WxH`（中转站实测只认这种写法）。换算交给调用方
-   * （`openAiImageSize`），这里只是「确认这一档合法」。
-   */
-  if (spec.dialect === 'ratio+resolution') {
-    const lower = wanted.toLowerCase()
-    return spec.sizes.find((s) => s.toLowerCase() === lower) ?? spec.sizes[0] ?? '1k'
-  }
+  /** `openai-images` / `pixel`：档位本身就是最终值（`auto`、`1024x768` 这种） */
   return spec.sizes.includes(wanted) ? wanted : (spec.sizes[0] ?? '1024x1024')
 }
 
@@ -166,6 +158,29 @@ export function imageUrlFromChatContent(content: unknown): string | null {
   if (md?.[1]) return md[1]
   const bare = /(https?:\/\/[^\s)]+\.(?:png|jpe?g|webp|gif))/i.exec(content)
   return bare?.[1] ?? null
+}
+
+/**
+ * 从 **Gemini 原生响应**里取出内联图片。
+ *
+ * 形态：`candidates[0].content.parts[]` 里的一项带 `inlineData: { mimeType, data }`
+ * （官方 camelCase；老网关常见 `inline_data` 蛇形写法，两种都认）。
+ */
+export function findInlineImage(
+  body: unknown,
+): { data: string; mimeType: string } | null {
+  const parts = (body as { candidates?: { content?: { parts?: unknown[] } }[] } | null)
+    ?.candidates?.[0]?.content?.parts
+  if (!Array.isArray(parts)) return null
+  for (const part of parts) {
+    const p = part as { inlineData?: { data?: unknown; mimeType?: unknown }; inline_data?: { data?: unknown; mime_type?: unknown } }
+    const data = p.inlineData?.data ?? p.inline_data?.data
+    const mimeType = p.inlineData?.mimeType ?? p.inline_data?.mime_type
+    if (typeof data === 'string' && data.length > 0) {
+      return { data, mimeType: typeof mimeType === 'string' ? mimeType : 'image/png' }
+    }
+  }
+  return null
 }
 
 /**
@@ -439,11 +454,66 @@ export function createOpenAiImagesAdapter(
      */
     const spec = imageParamsFor(request.model)
     /**
-     * **`chat` 方言**（Nano Banana Pro / 2）：请求与解析都换一条路 ——
+     * **`gemini` 方言**（Nano Banana Pro / 2）：走 **Gemini 原生端点**
+     * `/v1beta/models/<id>:generateContent`。
+     *
+     * 为什么非走这条不可（2026-10-03 实测）：官方参数 `imageConfig.aspectRatio` /
+     * `imageSize` 只在原生端点上生效 —— `1:1 + 2K` 回 2048×2048、`21:9 + 2K` 回
+     * 3168×1344（与官方尺寸表逐字对上）；同一模型走 chat / images 路径时，
+     * 这两个参数**被中转站吃掉**（三次请求都回同一张 1408×768），
+     * 而 `/images/generations` 对 Pro 更是直接 503。
+     */
+    if (spec?.dialect === 'gemini') {
+      const wantedRatio = typeof request.params.ratio === 'string' ? request.params.ratio : ''
+      const ratio = spec.ratios.includes(wantedRatio) ? wantedRatio : spec.ratios[0]
+      const wantedSize = String(request.params.resolution ?? '').toUpperCase()
+      const imageSize = spec.sizes.find((s) => s.toUpperCase() === wantedSize) ?? spec.sizes[0]
+      /** `base` 形如 `…/v1`，原生端点在同一主机的 `/v1beta` 上 */
+      const root = base.replace(/\/v1$/, '')
+      const res = await deps.network.request(
+        {
+          url: `${root}/v1beta/models/${encodeURIComponent(request.model)}:generateContent`,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
+          body: {
+            contents: [{ parts: [{ text: request.prompt }] }],
+            generationConfig: {
+              responseModalities: ['IMAGE'],
+              ...(ratio && imageSize
+                ? { imageConfig: { aspectRatio: ratio, imageSize } }
+                : {}),
+            },
+          },
+          timeoutMs: GENERATE_TIMEOUT_MS,
+        },
+        signal,
+      )
+      /**
+       * `404 / 503` = 这台网关**没有** `/v1beta`（不是参数错），落到下面的 chat 分支
+       * 兜底：chat 路径出图没问题，只是官方那两个尺寸参数会被吃掉。
+       * 其余非 2xx 才当真正的失败抛出去。
+       */
+      if (res.status !== 404 && res.status !== 503 && (res.status < 200 || res.status >= 300)) {
+        const detail = await res.text().catch(() => '')
+        const { error } = classifyError(null, res.status, detail)
+        throw new ChannelError(error)
+      }
+      if (res.status !== 404 && res.status !== 503) {
+        const inline = findInlineImage(await res.json<unknown>())
+        if (!inline) {
+          throw new ChannelError({ kind: 'parse', raw: 'Gemini 响应里没有内联图片' })
+        }
+        const bytes = Uint8Array.from(atob(inline.data), (c) => c.charCodeAt(0))
+        const hash = await fingerprintBytes(bytes)
+        return [toAsset(hash, inline.mimeType, bytes, {})]
+      }
+    }
+    /**
+     * **`chat` 方言 / `gemini` 的回退**：请求与解析都换一条路 ——
      * 发 `/chat/completions`，从回复正文里抠出图片地址再取字节。
      * 这条分支必须放在最前：`/images/generations` 对 `gemini-3-pro-image` 是 503。
      */
-    if (spec?.dialect === 'chat') {
+    if (spec?.dialect === 'chat' || spec?.dialect === 'gemini') {
       const res = await deps.network.request(
         {
           url: chatUrl,
@@ -487,15 +557,22 @@ export function createOpenAiImagesAdapter(
      * - `ratio+resolution`（Comfy-gpt 的 GPT Image 三个）⇒ **OpenAI 那套**，
      *   只是白名单/张数上限换成能力表里的（`size` 仍然换算成 `WxH`，中转站实测只认这种）。
      */
-    const openAiStyle = !spec || spec.dialect === 'ratio+resolution'
+    /**
+     * `openai-images`（GPT Image 三档）走 **OpenAI 那套端点**（`/images/edits` 走 multipart、
+     * 否则 `/images/generations`），只是 `size` / `quality` / `n` 按官方规范与能力表来；
+     * Agnes 的 `tier` / `pixel` 走下面的「能力表 JSON」分支。
+     */
+    const openAiStyle = !spec || spec.dialect === 'openai-images'
     const maxCount = spec ? Math.max(...spec.counts) : Number.POSITIVE_INFINITY
     const count = Math.min(
       maxCount,
       Math.max(1, typeof request.params.count === 'number' ? request.params.count : 1),
     )
-    const size = openAiStyle
-      ? openAiImageSize(request.params.ratio, request.params.resolution)
-      : specImageSize(request.params.resolution, spec)
+    const size = spec
+      ? specImageSize(request.params.resolution, spec)
+      : openAiImageSize(request.params.ratio, request.params.resolution)
+    /** OpenAI 官方也认 `size: "auto"`，但**我们这边不发它** —— 留给服务端默认 */
+    const sizeForBody = size === 'auto' ? null : size
     const quality = spec
       ? openAiImageQuality(
           request.params.quality,
@@ -507,8 +584,8 @@ export function createOpenAiImagesAdapter(
     const res = !openAiStyle && size
       ? await postSpecGenerations(request, size, spec as ImageParamSpec, await toDataUris(request), signal)
       : files.length > 0
-        ? await postEdits(request, count, size, quality, files, signal)
-        : await postGenerations(request, count, size, quality, signal)
+        ? await postEdits(request, count, sizeForBody, quality, files, signal)
+        : await postGenerations(request, count, sizeForBody, quality, signal)
 
     if (res.status < 200 || res.status >= 300) {
       /**
@@ -519,7 +596,7 @@ export function createOpenAiImagesAdapter(
       const { error } = classifyError(null, res.status, detail)
       throw new ChannelError(error)
     }
-    return toAssets(res, sizeToDimensions(size), signal)
+    return toAssets(res, sizeToDimensions(sizeForBody), signal)
   }
 
   return {

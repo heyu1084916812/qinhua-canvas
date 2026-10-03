@@ -34,10 +34,17 @@
   而 `gemini-3.1-flash-image` 能出图但**把 `size` 与 `aspect_ratio` 都忽略**（对账 #119）。
   ⇒ **同一个模型名在不同站点是不同协议**，参数表只能按站点实测，别照抄官方文档。
 - 非 Agnes 的固定显示名**只写实测过的**：Comfy-gpt 的三个 GPT Image 档（方言
-  `ratio+resolution`：画幅 × 分辨率 → `WxH`）与 **Nano Banana 两个**（方言 `chat`：
-  走 `/chat/completions`，图藏在回复正文的 `![image](url)` 里 —— `/images/generations`
-  对 Pro 是 503）都已写进 `imageParams.ts`；Midjourney 与非 Agnes 视频档**没有可测对象**
-  （渠道没勾选），继续按渠道上报的能力渲染，不拿官方文档去猜中转站字段（对账 #119 / #120）。
+  `openai-images`：官方 `size`（`auto`/`1024x1024`/`1536x1024`/`1024x1536`）+ 六档 `quality`
+  + `n` 1–10）与 **Nano Banana 两个**（方言 `gemini`：走 **Gemini 原生端点**
+  `/v1beta/models/<id>:generateContent` + `imageConfig.aspectRatio/imageSize` ——
+  官方 14 档宽高比、`1K/2K/4K`（Flash 多 512）；`/images/generations` 对 Pro 是 503，
+  chat 路径会把这两个参数**吃掉**）都已写进 `imageParams.ts`。
+  **官方文档怎么拿到**（Node 直连大多不行）：OpenAI / Midjourney 的站点 403（Cloudflare），
+  Google 站点在 Node 侧连接超时 —— 要**用系统 Chrome（走代理）**打开才能读；
+  OpenAI 的参数最好直接读它的**官方 OpenAPI 规范**（`raw.githubusercontent.com/openai/openai-openapi`
+  的 `CreateImageRequest`，一次 3.9MB，字段与枚举齐全、不依赖页面渲染）。
+  MiniMax 文档是 JS 壳（正文 46 字符）、Midjourney docs 403 ⇒ 这两家本轮没拿到正文，
+  对应模型仍按渠道上报的能力渲染，不凭猜写死（对账 #119 / #120）。
 - 一句话教训：**「发出去没报错」不等于「生效」** —— 判据要看响应回填的字段（尺寸 / 模式），
   不是只看 200。
 

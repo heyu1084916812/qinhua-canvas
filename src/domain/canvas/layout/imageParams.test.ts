@@ -50,51 +50,62 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
   })
 
   /**
-   * **Nano Banana（Gemini 系）**：`chat` 方言 —— 只有 prompt 有参数，
-   * 尺寸 / 画幅 / 质量 / 张数**一个都不摆**（实测中转站把这些字段全部忽略，
-   * 而 `/images/generations` 对 Pro 直接 503，必须走 chat）。
+   * **Nano Banana（Gemini 系）**：参数全部来自 Google 官方文档
+   * 《Nano Banana 图片生成》（2026-10-03 浏览器实读）—— 14 档宽高比 + `image_size`；
+   * 走 **Gemini 原生端点**才生效（`chat` / `images` 路径会把这两个参数吃掉）。
    */
-  it('★★ Nano Banana Pro / 2：chat 方言、没有尺寸 / 画幅 / 质量 / 张数', () => {
-    for (const name of ['Nano Banana Pro', 'Nano Banana 2', 'gemini-3-pro-image', 'gemini-3.1-flash-image']) {
+  it('★★ Nano Banana Pro / 2：gemini 方言、14 档宽高比、尺寸档按官方文档', () => {
+    const ratios = [
+      '1:1',
+      '1:4',
+      '1:8',
+      '2:3',
+      '3:2',
+      '3:4',
+      '4:1',
+      '4:3',
+      '4:5',
+      '5:4',
+      '8:1',
+      '9:16',
+      '16:9',
+      '21:9',
+    ]
+    for (const name of ['Nano Banana Pro', 'gemini-3-pro-image']) {
       const spec = imageParamsFor(name)
-      expect(spec?.dialect).toBe('chat')
-      expect(spec?.sizes).toEqual([])
-      expect(spec?.ratios).toEqual([])
+      expect(spec?.dialect).toBe('gemini')
+      expect(spec?.ratios).toEqual(ratios)
+      /** 官方：「512 像素 (0.5K) 仅限 Gemini 3.1 Flash Image」 ⇒ Pro 只有 1K/2K/4K */
+      expect(spec?.sizes).toEqual(['1K', '2K', '4K'])
+    }
+    for (const name of ['Nano Banana 2', 'gemini-3.1-flash-image']) {
+      const spec = imageParamsFor(name)
+      expect(spec?.dialect).toBe('gemini')
+      expect(spec?.sizes).toEqual(['512', '1K', '2K', '4K'])
       expect(spec?.qualities).toEqual([])
       expect(spec?.counts).toEqual([1])
     }
   })
 
-  it('★ 同一族的变体 ID（-2k / -4k / -preview）按前缀归一到同一份 chat 规格', () => {
+  it('★ 同一族的变体 ID（-2k / -4k / -preview）按前缀归一到同一份 gemini 规格', () => {
     for (const name of ['gemini-3-pro-image-2k', 'gemini-3-pro-image-4k', 'gemini-3.1-flash-image-preview']) {
-      expect(imageParamsFor(name)?.dialect).toBe('chat')
+      expect(imageParamsFor(name)?.dialect).toBe('gemini')
     }
   })
 
   /**
-   * **Comfy-gpt 的三个 GPT Image 档**（2026-10-03 真令牌问出来的口径，对账 #119）：
-   * `size` 必须是 `WxH` 像素（传档位字符串回 `size must be in WxH pixels format`），
-   * `quality` 合法值是 `auto/low/medium/high/xhigh/max`（服务端错误原文列出），
-   * 画幅 9 档（含 21:9 / 9:21）、分辨率 1k/2k 由渠道上报。
+   * **GPT Image 三档 = OpenAI 官方规范**（用户 2026-10-03：「就走官方的」）。
+   * 出处：官方 OpenAPI 的 `CreateImageRequest` —— `size` 四选一、`quality` 六档、`n` 1–10。
    */
-  it('★★ Comfy-gpt 的 GPT Image 三档：画幅 × 分辨率换算像素、quality 六档、最多 4 张', () => {
+  it('★★ GPT Image 三档：官方 size（auto + 三个像素）/ 六档 quality / 最多 9 张 / 无独立画幅', () => {
     for (const name of ['GPT Image 2', 'GPT Image 2.5 Flare', 'GPT Image 2.5 Sunburst']) {
       const spec = imageParamsFor(name)
-      expect(spec?.dialect).toBe('ratio+resolution')
-      expect(spec?.sizes).toEqual(['1k', '2k'])
-      expect(spec?.ratios).toEqual([
-        '1:1',
-        '4:3',
-        '3:4',
-        '3:2',
-        '2:3',
-        '16:9',
-        '9:16',
-        '21:9',
-        '9:21',
-      ])
+      expect(spec?.dialect).toBe('openai-images')
+      expect(spec?.sizes).toEqual(['auto', '1024x1024', '1536x1024', '1024x1536'])
+      /** 官方画幅由 size 表达 ⇒ 不再单独摆一档「比例」 */
+      expect(spec?.ratios).toEqual([])
       expect(spec?.qualities).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max'])
-      expect(spec?.counts).toEqual([1, 2, 4])
+      expect(spec?.counts).toEqual([1, 2, 4, 9])
     }
     // 上游 ID 与显示名查到同一份
     expect(imageParamsFor('gpt-image-2.5-flare')?.qualities).toEqual(

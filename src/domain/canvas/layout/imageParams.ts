@@ -38,15 +38,17 @@ export interface ImageParamSpec {
    * 尺寸方言（三种，都是**实测/文档**出来的，不是猜的）：
    * - `tier`：`size` 给档位（`1K`/`2K`…）+ `ratio` —— Agnes Image 2.1 / 2.5；
    * - `pixel`：`size` 直接给像素，**没有** `ratio` —— Agnes Image 2.0 Flash；
-   * - `ratio+resolution`：面板给「画幅 + 分辨率档」，发出去时**换算成 `WxH` 像素** ——
-   *   Comfy-gpt 那三个 GPT Image 档（2026-10-03 实测：`size` 必须是 `WxH`，
-   *   传档位字符串会回 `size must be in WxH pixels format`）。
+   * - `openai-images`：**OpenAI 官方 Images API** 那套 —— `size`（`auto` 或三个像素尺寸）
+   *   + `quality`（六档）+ `n`，见下面的 `OPENAI_IMAGE_*`。
    * - `chat`：**根本不走 `/images/generations`**，要走 `/chat/completions`，
-   *   图在回复正文里以 markdown 链接返回 —— 中转站的 Gemini 系图片模型
-   *   （`gemini-3-pro-image` / `gemini-3.1-flash-image`，即 Nano Banana Pro / 2）
-   *   实测就是这样：images 路径对 Pro 直接 503「不支持此 API 路径」，chat 路径两张都出图。
+   *   图在回复正文里以 markdown 链接返回。
+   * - `gemini`：走**Gemini 原生端点** `/v1beta/models/<id>:generateContent`，
+   *   官方参数 `imageConfig: { aspectRatio, imageSize }` 才生效 ——
+   *   2026-10-03 实测：`1:1 + 2K` → 2048×2048、`21:9 + 2K` → 3168×1344，
+   *   与官方尺寸表逐字对上；而同一模型的 chat / images 路径**把这两个参数吃掉了**
+   *   （三次请求都回同一张 1408×768）。
    */
-  dialect: 'tier' | 'pixel' | 'ratio+resolution' | 'chat'
+  dialect: 'tier' | 'pixel' | 'openai-images' | 'chat' | 'gemini'
 }
 
 /** Agnes 2.1 / 2.5 支持的 8 档画幅（官方尺寸表逐行都在） */
@@ -62,6 +64,40 @@ const AGNES_IMAGE_RATIOS = [
 ] as const
 
 const AGNES_IMAGE_TIERS = ['1K', '2K', '3K', '4K'] as const
+
+/**
+ * Gemini 图像模型的 14 档宽高比 —— **官方文档《Nano Banana 图片生成》里那张表逐行抄的**
+ * （`1:1 / 1:4 / 1:8 / 2:3 / 3:2 / 3:4 / 4:1 / 4:3 / 4:5 / 5:4 / 8:1 / 9:16 / 16:9 / 21:9`）。
+ * 注意它比 Agnes 那 6 档宽得多：竖长条（1:8）、横长条（8:1）都在内。
+ */
+const GEMINI_IMAGE_RATIOS = [
+  '1:1',
+  '1:4',
+  '1:8',
+  '2:3',
+  '3:2',
+  '3:4',
+  '4:1',
+  '4:3',
+  '4:5',
+  '5:4',
+  '8:1',
+  '9:16',
+  '16:9',
+  '21:9',
+] as const
+
+/**
+ * **OpenAI 官方 Images API 的尺寸与质量档**（出处：官方 OpenAPI 规范
+ * `openai/openai-openapi` 的 `CreateImageRequest`，2026-10-03 实读）。
+ *
+ * - `size`：`auto` 或三个像素尺寸；`256x256` / `512x512` / `1792x1024` 在规范里
+ *   标着「legacy … Check the selected GPT image model's supported sizes」⇒ 不摆；
+ * - `quality`：六档（`xhigh` / `max` **也是官方的**，`standard` / `hd` 才是废弃档）；
+ * - `n`：1–10。
+ */
+const OPENAI_IMAGE_SIZES = ['auto', '1024x1024', '1536x1024', '1024x1536'] as const
+const OPENAI_IMAGE_QUALITIES = ['auto', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 
 export const IMAGE_PARAM_SPECS: Record<string, ImageParamSpec> = {
   'agnes-image-2.0-flash': {
@@ -89,49 +125,57 @@ export const IMAGE_PARAM_SPECS: Record<string, ImageParamSpec> = {
     dialect: 'tier',
   },
   /**
-   * **Comfy-gpt（中转站）的三个 GPT Image 档** —— 2026-10-03 用真令牌问出来的口径：
+   * **GPT Image 三档 —— 直接用 OpenAI 官方规范**（用户 2026-10-03：「就走官方的，
+   * 你直接看前端是什么模型就去看什么官方的模型就行了」）。
    *
-   * - `size` **必须是 `WxH` 像素**：传 `bogus-size` 时服务端原话是
-   *   `size must be in WxH pixels format`（`gpt-image-2` 那条最宽松，非法值它直接忽略）；
-   * - `quality` 的合法值是 **`auto / low / medium / high / xhigh / max`**（错误原文列出），
-   *   比 OpenAI 官方那四档多两个 —— 所以我们不再只放行四档；
-   * - 画幅与分辨率档由**渠道上报**（9 档含 `21:9` / `9:21`，分辨率 `1k` / `2k`），
-   *   两者一起换算成像素（`openAiImageSize`），不是写死的 1024²。
+   * 出处：OpenAI 官方 OpenAPI 规范（`openai/openai-openapi` 仓库的 `CreateImageRequest`，
+   * 2026-10-03 实读）——
+   * - `size`：`auto / 1024x1024 / 1536x1024 / 1024x1536`（`256x256` / `512x512` /
+   *   `1792x1024` 在规范里已标为**废弃的老尺寸**，故不摆）；
+   * - `quality`：`low / medium / high / xhigh / max / auto`（`standard` / `hd` 已废弃）；
+   * - `n`：**1–10**（面板给 1 / 2 / 4 / 9，都在范围内）。
+   *
+   * 中转站实测与官方一致：它自己的报错原文也是这六个 quality 值；`size` 必须是
+   * `WxH`（官方这几个尺寸正好都是）。
    */
   ...Object.fromEntries(
     (['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'] as const).map((id) => [
       id,
       {
-        sizes: ['1k', '2k'],
-        ratios: ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16', '21:9', '9:21'],
-        qualities: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
-        counts: [1, 2, 4],
+        sizes: OPENAI_IMAGE_SIZES,
+        ratios: [],
+        qualities: OPENAI_IMAGE_QUALITIES,
+        counts: [1, 2, 4, 9],
         maxReferenceImages: 4,
-        dialect: 'ratio+resolution' as const,
+        dialect: 'openai-images' as const,
       },
     ]),
   ),
   /**
-   * **Nano Banana（中转站的 Gemini 系图片模型）**：只有 prompt，没有尺寸 / 画幅 / 质量 / 张数
-   * 这些档 —— 实测把 `size` 与 `aspect_ratio` 传进去它们**照单忽略**（照样 200 出图），
-   * 面板上摆出来就是一堆点了没用的格子。故这里的尺寸 / 画幅 / 质量都留空、张数固定 1，
-   * 走 `chat` 方言（图在回复正文的 markdown 里）。
+   * **Nano Banana Pro（`gemini-3-pro-image`）** —— 参数全部来自 Google 官方文档
+   * 《Nano Banana 图片生成》（2026-10-03 实读，浏览器抓的正文）：
+   * 宽高比 14 档、`image_size` 支持 `1K / 2K / 4K`（Pro 不含 512）。
+   * 文档特别注明 **`image_size` 必须大写 K**（小写会被拒）。
    */
   'gemini-3-pro-image': {
-    sizes: [],
-    ratios: [],
+    sizes: ['1K', '2K', '4K'],
+    ratios: GEMINI_IMAGE_RATIOS,
     qualities: [],
     counts: [1],
     maxReferenceImages: 0,
-    dialect: 'chat',
+    dialect: 'gemini',
   },
+  /**
+   * **Nano Banana 2（`gemini-3.1-flash-image`）**：同一份官方文档，多一档 `512`
+   * （「Gemini 3.1 Flash Image 新增了较小的 512 像素 (0.5K) 分辨率」）。
+   */
   'gemini-3.1-flash-image': {
-    sizes: [],
-    ratios: [],
+    sizes: ['512', '1K', '2K', '4K'],
+    ratios: GEMINI_IMAGE_RATIOS,
     qualities: [],
     counts: [1],
     maxReferenceImages: 0,
-    dialect: 'chat',
+    dialect: 'gemini',
   },
 }
 

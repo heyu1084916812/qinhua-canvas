@@ -222,14 +222,20 @@ export function logicalOptions(
 /**
  * 创作面板的模型下拉数据源（用户 2026-09-27 第 7 轮）。
  *
- * = **固定显示名清单**（用户拍板的 6 生图 / 4 对话 / 5 视频）**排在最前**，
- * 其后才是渠道里勾选过的其它模型。
+ * = **固定显示名清单**（用户拍板的那几档，按类别给）。
  *
- * 为什么固定清单在前、渠道模型在后（而不是只列固定清单）：
- *   ① 固定清单是用户认可的主名，排在最前便于反复取用；
- *   ② 渠道里那些**没有归一**的模型仍然可达 —— 否则用户手上还没配映射的站
- *      会突然「一个模型都选不出来」，那是比列表长更糟的失败；
- *   ③ 去重：某个渠道的模型恰好与固定名同名时只出一个。
+ * **2026-10-03 收窄口径**（用户：「提示词节点的模型和我前端的模型没有对应上，
+ * 多了两个框住的模型……项目中所有有模型的地方，都需要从前端选择，不要给我多余的东西」）：
+ *
+ * 一条渠道只要**有任何模型**被前端清单认领（例如 Agnes 给了 `agnes-3.0-flash`
+ * → `Agnes 3.0 Flash`），它贡献的**裸名字一律不进下拉** —— 既包括 `agnes-2.5-flash`
+ * 这种上游 ID、`Agnes 2.5 Pro` 这种已经不在清单里的陈旧映射键（用户反复看到的
+ * 「多出来的两个」），也包括同一站点里那一大串没归一过的 ID
+ * （Comfy-gpt 视频档有 40 多个 kling / grok / wan，全摆出来就是灾难）。
+ *
+ * 只有**整条渠道这一档一个都没被认领**时才补它的裸名字：否则用户新接一个站、
+ * 还没来得及配映射时，会出现「一个模型都选不出来」——那比列表长更糟。
+ * 去重：渠道模型恰好与固定名同名（或能归一成固定名）时只出一个。
  *
  * `logicalOptions` 保持原样（只按渠道算），单测与其它调用方不受影响 ——
  * 这条「面板数据源」的口径只在这里定义一次，面板与设置页共用。
@@ -246,16 +252,27 @@ export function panelModelOptions(
     seen.add(m.id)
     out.push(m.id)
   }
-  for (const n of logicalOptions(channels, category, channelId)) {
+  const scoped = channelId ? channels.filter((c) => c.id === channelId) : channels
+  for (const channel of scoped) {
+    const all = logicalNames([channel])
     /**
-     * 渠道模型的**上游 ID** 先归一成显示名（用户 2026-09-27 第 8 轮）：
-     * 渠道里勾的是 `gpt-image-2`，而固定清单里已经有 `GPT Image 2` ——
-     * 不归一的话用户会在下拉里同时看到这两行，看起来像两个模型。
+     * 这条渠道**有没有任何名字被前端清单认领**？有 ⇒ 它的裸名字全部让位
+     * （用户 2026-10-03：不许出现清单之外的多余项）。
      */
-    const display = presetIdForUpstream(n)
-    if (seen.has(display)) continue
-    seen.add(display)
-    out.push(display)
+    const recognized = all.some((n) => !!presetOf(presetIdForUpstream(n)))
+    if (recognized) continue
+    for (const n of all) {
+      if (categoryOfLogical([channel], n, channel.id) !== category) continue
+      /**
+       * 渠道模型的**上游 ID** 先归一成显示名（用户 2026-09-27 第 8 轮）：
+       * 渠道里勾的是 `gpt-image-2`，而固定清单里已经有 `GPT Image 2` ——
+       * 不归一的话用户会在下拉里同时看到这两行，看起来像两个模型。
+       */
+      const display = presetIdForUpstream(n)
+      if (seen.has(display)) continue
+      seen.add(display)
+      out.push(display)
+    }
   }
   return out
 }
