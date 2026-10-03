@@ -26,8 +26,17 @@
   —— 面板摆出来就是死格子，适配器发了就是换 400。
 - **视频**：同一个 host 上 **2.0 与 2.5 是两套形态**（对账 #112）。2.0 收下档位参数却**无视**它
   （回填默认 `1088x832`），只认**像素 + 帧数**；所以按 `dialect` 分家决定先发哪套。
-- 非 Agnes 的固定显示名（GPT Image / Nano Banana / Midjourney）**故意不写死参数**：
-  没核对过的官方口径不往代码里钉，仍按渠道上报的能力渲染。
+- **中转站那一侧又是另一套**（Comfy-gpt 实测，对账 #118）：`gpt-image-2.5-flare` / `-sunburst`
+  的 `size` **必须是 `WxH` 像素**（传档位字符串 → 原话 `size must be in WxH pixels format`），
+  `quality` 合法值是 **`auto / low / medium / high / xhigh / max`**（比 OpenAI 多两档，
+  我们此前只放行四档、把 `xhigh`/`max` 静默吞了）；`gemini-3-pro-image`（Nano Banana Pro）
+  **在这条 relay 上不吃 `/v1/images/generations`**（503「不支持此 API 路径」），
+  而 `gemini-3.1-flash-image` 能出图但**把 `size` 与 `aspect_ratio` 都忽略**（对账 #119）。
+  ⇒ **同一个模型名在不同站点是不同协议**，参数表只能按站点实测，别照抄官方文档。
+- 非 Agnes 的固定显示名**只写实测过的**：Comfy-gpt 的三个 GPT Image 档已按实测口径写进
+  `imageParams.ts`（第三种方言 `ratio+resolution`：画幅 × 分辨率 → `WxH`）；
+  Nano Banana / Midjourney / 非 Agnes 视频档**还没测**，就继续按渠道上报的能力渲染 ——
+  不拿官方文档去猜中转站的字段（对账 #119）。
 - 一句话教训：**「发出去没报错」不等于「生效」** —— 判据要看响应回填的字段（尺寸 / 模式），
   不是只看 200。
 

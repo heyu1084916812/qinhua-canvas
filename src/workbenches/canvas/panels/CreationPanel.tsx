@@ -615,8 +615,14 @@ export function CreationPanel(props: CreationPanelProps) {
    */
   const resolutionLabel = (value: string): string =>
     RESOLUTION_OPTIONS.find((r) => r.value === value)?.label ?? value.toUpperCase()
+  /**
+   * 质量档文案：通用四档之外，中转站还扩了 `xhigh` / `max`
+   * （Comfy-gpt 的 GPT Image 档实测合法值就是这六个）—— 只补文案，
+   * **不把它们塞进通用列表**，否则严格只认四档的模型会被摆上点不通的格子。
+   */
+  const QUALITY_EXTRA_LABELS: Record<string, string> = { xhigh: '超高', max: '最高' }
   const qualityLabelOf = (value: string): string =>
-    QUALITY_OPTIONS.find((q) => q.value === value)?.label ?? value
+    QUALITY_OPTIONS.find((q) => q.value === value)?.label ?? QUALITY_EXTRA_LABELS[value] ?? value
   /**
    * 摘要只串**这次真的摆出来的那几段**：模型没有「张数」就不该在摘要里写「1 张」，
    * 否则用户会去找一个根本点不开的档位。

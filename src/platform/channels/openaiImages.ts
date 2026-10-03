@@ -97,11 +97,25 @@ export function openAiImageSize(ratio: unknown, resolution?: unknown): string | 
   return `${w}x${h}`
 }
 
-/** OpenAI 图像协议接受的 `quality` 取值；其余档位一律不发（发了就是 400） */
+/**
+ * OpenAI 官方图像协议接受的 `quality` 取值。
+ *
+ * 另外四个（`xhigh` / `max`）不在这里 —— 它们是**中转站自己扩的档**，由模型的
+ * `imageParamsFor` 能力表（`spec.qualities`）放行，见 `openAiImageQuality` 的第二个参数。
+ */
 const OPENAI_QUALITIES = new Set(['auto', 'low', 'medium', 'high'])
 
-export function openAiImageQuality(quality: unknown): string | null {
-  return typeof quality === 'string' && OPENAI_QUALITIES.has(quality) ? quality : null
+/**
+ * 质量档透传：**只发自名单里的值**（发了它不认的就是 400）。
+ *
+ * `allowed` 由模型能力表给（用户 2026-10-03「每个模型单独配置」）：
+ * Comfy-gpt 的 GPT Image 档实测合法值是 `auto/low/medium/high/xhigh/max`
+ * （服务端错误原文列出），比 OpenAI 官方多两档。
+ */
+export function openAiImageQuality(quality: unknown, allowed?: readonly string[]): string | null {
+  if (typeof quality !== 'string') return null
+  if (allowed) return allowed.includes(quality) ? quality : null
+  return OPENAI_QUALITIES.has(quality) ? quality : null
 }
 
 /**
@@ -118,6 +132,15 @@ export function specImageSize(resolution: unknown, spec: ImageParamSpec): string
   if (spec.dialect === 'tier') {
     const upper = wanted.toUpperCase()
     return spec.sizes.find((s) => s.toUpperCase() === upper) ?? spec.sizes[0] ?? '1K'
+  }
+  /**
+   * `ratio+resolution`：面板给的是**分辨率档**（`1k`/`2k`），真正的 `size` 要由
+   * 画幅 × 档位换算成 `WxH`（中转站实测只认这种写法）。换算交给调用方
+   * （`openAiImageSize`），这里只是「确认这一档合法」。
+   */
+  if (spec.dialect === 'ratio+resolution') {
+    const lower = wanted.toLowerCase()
+    return spec.sizes.find((s) => s.toLowerCase() === lower) ?? spec.sizes[0] ?? '1k'
   }
   return spec.sizes.includes(wanted) ? wanted : (spec.sizes[0] ?? '1024x1024')
 }
@@ -393,14 +416,32 @@ export function createOpenAiImagesAdapter(
      * 没有表（其它厂商的固定显示名）⇒ 完全沿用原来那套 OpenAI 口径，行为一字不变。
      */
     const spec = imageParamsFor(request.model)
-    const count = Math.max(1, typeof request.params.count === 'number' ? request.params.count : 1)
-    const specSize = spec ? specImageSize(request.params.resolution, spec) : null
-    const size = specSize ?? openAiImageSize(request.params.ratio, request.params.resolution)
-    const quality = spec ? null : openAiImageQuality(request.params.quality)
+    /**
+     * 三种方言走两条路：
+     * - `tier` / `pixel`（Agnes 图片三个）⇒ **能力表 JSON**：`size` 按方言给，
+     *   不发 `n` / `quality`（那两个参数它根本没有）；
+     * - `ratio+resolution`（Comfy-gpt 的 GPT Image 三个）⇒ **OpenAI 那套**，
+     *   只是白名单/张数上限换成能力表里的（`size` 仍然换算成 `WxH`，中转站实测只认这种）。
+     */
+    const openAiStyle = !spec || spec.dialect === 'ratio+resolution'
+    const maxCount = spec ? Math.max(...spec.counts) : Number.POSITIVE_INFINITY
+    const count = Math.min(
+      maxCount,
+      Math.max(1, typeof request.params.count === 'number' ? request.params.count : 1),
+    )
+    const size = openAiStyle
+      ? openAiImageSize(request.params.ratio, request.params.resolution)
+      : specImageSize(request.params.resolution, spec)
+    const quality = spec
+      ? openAiImageQuality(
+          request.params.quality,
+          openAiStyle ? spec.qualities : [],
+        )
+      : openAiImageQuality(request.params.quality)
     // 有参考图 → 图生图（multipart）；一张都没有 → 文生图（JSON，与 M6-12 前一致）
-    const files = spec ? [] : await readImageFiles(request)
-    const res = spec && specSize
-      ? await postSpecGenerations(request, specSize, spec, await toDataUris(request), signal)
+    const files = openAiStyle ? await readImageFiles(request) : []
+    const res = !openAiStyle && size
+      ? await postSpecGenerations(request, size, spec as ImageParamSpec, await toDataUris(request), signal)
       : files.length > 0
         ? await postEdits(request, count, size, quality, files, signal)
         : await postGenerations(request, count, size, quality, signal)

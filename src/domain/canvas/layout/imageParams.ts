@@ -29,8 +29,15 @@ export interface ImageParamSpec {
   counts: readonly number[]
   /** 参考图上限（0 = 不支持参考图） */
   maxReferenceImages: number
-  /** 尺寸方言：`tier` = 档位 + ratio；`pixel` = 直接给像素 */
-  dialect: 'tier' | 'pixel'
+  /**
+   * 尺寸方言（三种，都是**实测/文档**出来的，不是猜的）：
+   * - `tier`：`size` 给档位（`1K`/`2K`…）+ `ratio` —— Agnes Image 2.1 / 2.5；
+   * - `pixel`：`size` 直接给像素，**没有** `ratio` —— Agnes Image 2.0 Flash；
+   * - `ratio+resolution`：面板给「画幅 + 分辨率档」，发出去时**换算成 `WxH` 像素** ——
+   *   Comfy-gpt 那三个 GPT Image 档（2026-10-03 实测：`size` 必须是 `WxH`，
+   *   传档位字符串会回 `size must be in WxH pixels format`）。
+   */
+  dialect: 'tier' | 'pixel' | 'ratio+resolution'
 }
 
 /** Agnes 2.1 / 2.5 支持的 8 档画幅（官方尺寸表逐行都在） */
@@ -72,6 +79,29 @@ export const IMAGE_PARAM_SPECS: Record<string, ImageParamSpec> = {
     maxReferenceImages: 4,
     dialect: 'tier',
   },
+  /**
+   * **Comfy-gpt（中转站）的三个 GPT Image 档** —— 2026-10-03 用真令牌问出来的口径：
+   *
+   * - `size` **必须是 `WxH` 像素**：传 `bogus-size` 时服务端原话是
+   *   `size must be in WxH pixels format`（`gpt-image-2` 那条最宽松，非法值它直接忽略）；
+   * - `quality` 的合法值是 **`auto / low / medium / high / xhigh / max`**（错误原文列出），
+   *   比 OpenAI 官方那四档多两个 —— 所以我们不再只放行四档；
+   * - 画幅与分辨率档由**渠道上报**（9 档含 `21:9` / `9:21`，分辨率 `1k` / `2k`），
+   *   两者一起换算成像素（`openAiImageSize`），不是写死的 1024²。
+   */
+  ...Object.fromEntries(
+    (['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'] as const).map((id) => [
+      id,
+      {
+        sizes: ['1k', '2k'],
+        ratios: ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16', '21:9', '9:21'],
+        qualities: ['auto', 'low', 'medium', 'high', 'xhigh', 'max'],
+        counts: [1, 2, 4],
+        maxReferenceImages: 4,
+        dialect: 'ratio+resolution' as const,
+      },
+    ]),
+  ),
 }
 
 /** 前端显示名 → 上游 ID（只列我们真在用的 Agnes 图片档） */
@@ -79,6 +109,9 @@ const ALIASES: Record<string, string> = {
   'Agnes Image 2.0 Flash': 'agnes-image-2.0-flash',
   'Agnes Image 2.1 Flash': 'agnes-image-2.1-flash',
   'Agnes Image 2.5 Flash': 'agnes-image-2.5-flash',
+  'GPT Image 2': 'gpt-image-2',
+  'GPT Image 2.5 Flare': 'gpt-image-2.5-flare',
+  'GPT Image 2.5 Sunburst': 'gpt-image-2.5-sunburst',
 }
 
 /** 按模型名取规格；认不出来返回 `undefined` ⇒ 面板退回「按渠道上报的能力渲染」 */

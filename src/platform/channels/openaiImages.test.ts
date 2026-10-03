@@ -414,6 +414,42 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
   })
 
   /**
+   * **Comfy-gpt 的 GPT Image 档是另一套白名单**（2026-10-03 真机问出来）：
+   * `size` 必须换算成 `WxH`（档位字符串会被拒）、`quality` 认 `xhigh` / `max`、
+   * 张数上限 4。这条钉住「能力表驱动的 OpenAI 口径」。
+   */
+  it('★★ GPT Image 2.5 Flare：size 换算 WxH、quality 走 xhigh、张数按能力表夹到 4', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    await adapter(calls).generateImage(
+      {
+        ...request([], 9),
+        model: 'gpt-image-2.5-flare',
+        params: { count: 9, ratio: '16:9', resolution: '2k', quality: 'xhigh' },
+      },
+      signal,
+    )
+    const body = calls[0]!.body as Record<string, unknown>
+    expect(String(body.size)).toMatch(/^\d+x\d+$/)
+    expect(body.quality).toBe('xhigh')
+    expect(body.n).toBe(4)
+  })
+
+  it('★ 能力表外的质量档不发（xhigh 只对该模型放行，别家仍是四档）', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const a = adapter(calls)
+    await a.generateImage(
+      { ...request([], 1), model: 'gpt-image-2.5-flare', params: { count: 1, quality: 'max' } },
+      signal,
+    )
+    await a.generateImage(
+      { ...request([], 1), model: 'some-other-image', params: { count: 1, quality: 'xhigh' } },
+      signal,
+    )
+    expect((calls[0]!.body as Record<string, unknown>).quality).toBe('max')
+    expect((calls[1]!.body as Record<string, unknown>).quality).toBeUndefined()
+  })
+
+  /**
    * ★ 关键：真实渠道下「请求像素」与「实际像素」**不能同源**。
    *
    * 早先实现把请求的 size 直接当产物宽高写上，于是日志里两个数恒等——

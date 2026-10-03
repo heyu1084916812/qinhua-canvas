@@ -45,9 +45,39 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
   })
 
   it('非 Agnes 模型**故意没有规格**（参数以渠道上报为准，不凭猜写死）', () => {
-    expect(imageParamsFor('GPT Image 2')).toBeUndefined()
     expect(imageParamsFor('Nano Banana Pro')).toBeUndefined()
     expect(imageParamsFor('Midjourney')).toBeUndefined()
     expect(imageParamsFor('')).toBeUndefined()
+  })
+
+  /**
+   * **Comfy-gpt 的三个 GPT Image 档**（2026-10-03 真令牌问出来的口径，对账 #119）：
+   * `size` 必须是 `WxH` 像素（传档位字符串回 `size must be in WxH pixels format`），
+   * `quality` 合法值是 `auto/low/medium/high/xhigh/max`（服务端错误原文列出），
+   * 画幅 9 档（含 21:9 / 9:21）、分辨率 1k/2k 由渠道上报。
+   */
+  it('★★ Comfy-gpt 的 GPT Image 三档：画幅 × 分辨率换算像素、quality 六档、最多 4 张', () => {
+    for (const name of ['GPT Image 2', 'GPT Image 2.5 Flare', 'GPT Image 2.5 Sunburst']) {
+      const spec = imageParamsFor(name)
+      expect(spec?.dialect).toBe('ratio+resolution')
+      expect(spec?.sizes).toEqual(['1k', '2k'])
+      expect(spec?.ratios).toEqual([
+        '1:1',
+        '4:3',
+        '3:4',
+        '3:2',
+        '2:3',
+        '16:9',
+        '9:16',
+        '21:9',
+        '9:21',
+      ])
+      expect(spec?.qualities).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max'])
+      expect(spec?.counts).toEqual([1, 2, 4])
+    }
+    // 上游 ID 与显示名查到同一份
+    expect(imageParamsFor('gpt-image-2.5-flare')?.qualities).toEqual(
+      imageParamsFor('GPT Image 2.5 Flare')?.qualities,
+    )
   })
 })
