@@ -217,3 +217,103 @@ describe('生成节点规格 / 请求参数按功能类别分支（§6.8）', ()
     })
   })
 })
+
+/**
+ * 预设 / 情绪拼进提示词（用户 2026-10-05 第 14 条）。
+ *
+ * 这一组盯的是「界面选了、请求里没有」——那是最容易漏的一环：面板把 id 写进节点
+ * 就完事了，而真正要发给模型的是**拼出来的那句话**。三种生成节点类型共用
+ * `presets.ts` 里的同一份拼接，所以这里三种都量一遍。
+ */
+describe('预设 / 情绪拼进提示词（用户 2026-10-05 第 14 条）', () => {
+  const reqOf = (type: NodeSnapshot['type'], data: Record<string, unknown>) => {
+    const g = graph([node({ id: 'n', type, data: data as never })])
+    return getSpec(type)!.toRunRequest!({
+      node: g.nodes[0]!,
+      inputs: [],
+      params: g.nodes[0]!.data,
+      graph: g,
+    })
+  }
+
+  it('★ 预设拼在正文**后面**（先描述画面，再给输出规格）', () => {
+    const req = reqOf('generation', {
+      mode: 'image',
+      channelId: 'c',
+      model: 'm',
+      prompt: '一只橘猫在码头上钓鱼',
+      preset: 'storyboard-25',
+    })
+    expect(req!.prompt.split('\n')).toEqual([
+      '一只橘猫在码头上钓鱼',
+      expect.stringContaining('25 格连贯分镜'),
+    ])
+  })
+
+  it('★ 情绪也进去（写在预设后面），文案里带那个情绪名', () => {
+    const req = reqOf('generation', {
+      mode: 'image',
+      channelId: 'c',
+      model: 'm',
+      prompt: '角色特写',
+      preset: 'portrait-texture',
+      presetOptions: {
+        fusion: 'deep',
+        light: 'mood',
+        skin: 'real',
+        grain: 'grainy',
+        sharp: 'high',
+      },
+      emotion: 'joyous',
+    })
+    const lines = req!.prompt.split('\n')
+    expect(lines[0]).toBe('角色特写')
+    expect(lines[1]).toContain('人景融合「深度融合」')
+    expect(lines[1]).toContain('锐度「高清锐化」')
+    expect(lines[2]).toBe('表情设定：欣然愉悦')
+  })
+
+  it('★ 没选预设 / 情绪时，提示词与从前一字不差（不追加空行）', () => {
+    const req = reqOf('generation', {
+      mode: 'image',
+      channelId: 'c',
+      model: 'm',
+      prompt: '  一只猫  ',
+    })
+    expect(req!.prompt).toBe('一只猫')
+  })
+
+  it('★ 没写正文、只选了预设 → 仍然是一个能跑的请求（预设本身就是指令）', () => {
+    const req = reqOf('generation', {
+      mode: 'image',
+      channelId: 'c',
+      model: 'm',
+      prompt: '',
+      preset: 'panorama-720',
+    })
+    expect(req).not.toBeNull()
+    expect(req!.prompt).toContain('360° 全景')
+  })
+
+  it('★ 批量 / 分组节点同样拼（三种节点类型共用一份实现）', () => {
+    const batch = reqOf('batch', {
+      mode: 'image',
+      channelId: 'c',
+      model: 'm',
+      prompt: '套图',
+      childIds: [],
+      preset: 'product-sheet',
+    })
+    expect(batch!.prompt.split('\n')).toEqual(['套图', expect.stringContaining('产品设定图')])
+
+    const group = reqOf('group', {
+      mode: 'image',
+      channelId: 'c',
+      model: 'm',
+      prompt: '拼一张',
+      childIds: [],
+      preset: 'cinematic-light',
+    })
+    expect(group!.prompt.split('\n')).toEqual(['拼一张', expect.stringContaining('电影感光影修正')])
+  })
+})

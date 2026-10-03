@@ -1,0 +1,169 @@
+/*
+ * 情绪调节（用户 2026-10-05 第 14 条后半，参考图二十）。
+ *
+ * 布局：头部（关闭 + 标题）／主体（左角色预览 · 右 5×5 点位）／脚部（情绪定位）。
+ * 尺寸都用设计值 —— 面板整体挂着 `zoom: 0.75`，屏幕上看起来是设计值的三分之二。
+ */
+.box {
+  flex: 0 0 auto;
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  box-sizing: border-box;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.close:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.title {
+  color: var(--text-1);
+  font-size: var(--fs-label);
+}
+
+.body {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.preview {
+  display: flex;
+  flex: 1 1 42%;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 170px;
+  overflow: hidden;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+}
+
+.preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.previewEmpty {
+  padding: 0 var(--space-3);
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  text-align: center;
+}
+
+.gridWrap {
+  position: relative;
+  flex: 1 1 58%;
+  min-width: 0;
+  padding: 20px 26px;
+  box-sizing: border-box;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+}
+
+/* 轴上四个词：上激动、下平静、左亲近、右疏离（顺序本身就是点位语义） */
+.axis {
+  position: absolute;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.axisTop {
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.axisBottom {
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.axisLeft {
+  top: 50%;
+  left: 4px;
+  transform: translateY(-50%);
+}
+
+.axisRight {
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-template-rows: repeat(5, 1fr);
+  gap: 4px;
+  height: 100%;
+}
+
+/* 点位：一小颗圆点；选中的那颗放大成实心大圆（参考图里的白点） */
+.dot {
+  width: 9px;
+  height: 9px;
+  margin: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--text-3);
+  cursor: pointer;
+}
+
+.dot:hover {
+  background: var(--text-2);
+}
+
+.dotOn {
+  width: 22px;
+  height: 22px;
+  background: var(--text-1);
+  box-shadow: 0 0 0 4px var(--bg-hover);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.footLabel {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.footValue {
+  color: var(--text-1);
+  font-size: var(--fs-label);
+}

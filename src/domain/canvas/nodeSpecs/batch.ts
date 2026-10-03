@@ -5,6 +5,7 @@ import { NODE_MINIMUMS } from '../layout/constants'
 import { directUpstream } from '../graph/upstreamOf'
 import { childIdsOf } from './group'
 import { generationParams } from './params'
+import { presetPromptSuffix } from '../layout/presets'
 
 /**
  * 批量节点规格（产品文档 §6.12）。
@@ -113,7 +114,8 @@ export const batchSpec: NodeSpec<BatchData> = {
         i.kind === 'asset' && !!i.collectionItemId,
     )
     const itemPrompt = picked?.prompt?.trim() ?? ''
-    const parts = [itemPrompt, ...commonText, own].filter(Boolean)
+    /** 末尾补「预设 / 情绪」（用户 2026-10-05 第 14 条）：它也是「对这批的统一要求」 */
+    const parts = [itemPrompt, ...commonText, own, presetPromptSuffix(data)].filter(Boolean)
     const prompt = parts.join('\n')
     if (!prompt) return null
 

@@ -7,6 +7,7 @@ import { directUpstream } from '../graph/upstreamOf'
 import { indexNodes } from '../model/graph'
 import { batchItemsOf } from './batch'
 import { generationParams } from './params'
+import { presetPromptSuffix } from '../layout/presets'
 
 /**
  * 生成节点规格。
@@ -123,7 +124,14 @@ export const generationSpec: NodeSpec<GenerationData> = {
       .filter((i): i is Extract<NodeInput, { kind: 'text' }> => i.kind === 'text')
       .map((i) => i.text)
       .join('\n')
-    const prompt = data.prompt.trim() || upstreamText.trim()
+    /**
+     * 「预设 / 情绪」（用户 2026-10-05 第 14 条）拼在提示词**后面**：
+     * 先描述画面，再给输出规格 —— 与批量节点「统一要求在尾部」同一条读法。
+     * 拼接规则只有 `presets.ts` 一处，三种生成节点类型共用。
+     */
+    const prompt = [data.prompt.trim() || upstreamText.trim(), presetPromptSuffix(data)]
+      .filter(Boolean)
+      .join('\n')
     if (!prompt) return null
 
     return {

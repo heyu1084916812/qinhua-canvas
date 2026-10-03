@@ -16940,7 +16940,248 @@ async function g104(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104]
+// ────────────────────────────────────────────────────────────
+// G105 预设与情绪（用户 2026-10-05 第 14 条）：
+// 参数右边那枚预设按钮 → 四大类菜单 → 选一条落在提示词上方；
+// 人像质感调节带二级搭配；情绪调节在素材下方开一个 5×5 点位面板。
+// 这一组钉的是**界面 → 节点数据**那一段；「id → 拼进提示词」由
+// `presets.test.ts` 与 `generation.test.ts` 的单测钉住（两边合起来才是一条链）。
+// ────────────────────────────────────────────────────────────
+async function g105(browser) {
+  const g = 'G105 预设与情绪'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  const gen = page.locator('[data-node-type="generation"]').first()
+  const nodeId = await gen.getAttribute('data-node-id')
+  const panel = await genPanel(page, gen)
+
+  /** 读节点落库的 data（面板写的那些字段） */
+  const storedData = async () =>
+    page.evaluate(
+      (id) =>
+        new Promise((resolve) => {
+          const req = indexedDB.open('qinghua')
+          req.onsuccess = () => {
+            const db = req.result
+            const q = db.transaction('nodes', 'readonly').objectStore('nodes').get(id)
+            q.onsuccess = () => resolve(q.result?.data ?? {})
+            q.onerror = () => resolve({})
+          }
+          req.onerror = () => resolve({})
+        }),
+      nodeId,
+    )
+
+  /** ① 入口：参数行右侧那枚预设按钮 */
+  const presetBtn = panel.locator('[data-panel-preset]')
+  rec(g, '★ 参数行出现预设按钮', (await presetBtn.count()) === 1, `count=${await presetBtn.count()}`)
+  {
+    /** 位置：在参数 chip 的右边（用户原话「在节点参数右边加一个预设功能的按钮」） */
+    const chip = panel.locator('[data-param-chip="model"]').first()
+    const cb = await chip.boundingBox()
+    const pb = await presetBtn.boundingBox()
+    rec(g, '★ 它在模型 / 参数那一排的右侧', !!cb && !!pb && pb.x > cb.x, `chip=${cb?.x} 预设=${pb?.x}`)
+  }
+
+  await presetBtn.click()
+  await sleep(300)
+  const menu = panel.locator('[data-preset-menu]')
+  rec(g, '★★ 点开出现预设菜单', (await menu.count()) === 1, `count=${await menu.count()}`)
+  const categories = await menu
+    .locator('[data-preset-category]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-preset-category')))
+  rec(
+    g,
+    '★★ 四大类齐全（分镜叙事 / 空间与机位 / 设定图 / 质感调节）',
+    JSON.stringify(categories) === JSON.stringify(['story', 'camera', 'design', 'texture']),
+    categories.join(','),
+  )
+  /** 条目数 = 15 条预设（分镜叙事 6 + 空间与机位 2 + 设定图 5 + 质感调节 2）+ 情绪调节 */
+  const itemCount = await menu.locator('[data-preset], [data-preset-emotion]').count()
+  rec(g, '★★ 条目一条不少（15 条预设 + 情绪调节）', itemCount === 16, `items=${itemCount}`)
+  const names = (await menu.innerText()).replace(/\s+/g, ' ')
+  rec(
+    g,
+    '★★ 用户点名的那些名字都在菜单里',
+    [
+      '调度故事板',
+      '25宫格连贯分镜',
+      '剧情推演四宫格',
+      '画面推演 — 3 秒后',
+      '画面推演 — 5 秒前',
+      '720 全景',
+      '多机位九宫格',
+      '角色脸部三视图',
+      '角色三视图',
+      '角色设定图',
+      '场景设定图',
+      '产品设定图',
+      '人像质感调节',
+      '电影级光影校正',
+    ].every((n) => names.includes(n)),
+    names.slice(0, 120),
+  )
+  await page.screenshot({ path: `${OUT}/125-g105-preset-menu.png` })
+
+  /** Esc 只收菜单，别把面板也关了（逐层收） */
+  await page.keyboard.press('Escape')
+  await sleep(300)
+  rec(
+    g,
+    '★★ Esc 只收起预设菜单（创作面板还在）',
+    (await panel.count()) === 1 && (await menu.count()) === 0,
+    `panel=${await panel.count()} menu=${await menu.count()}`,
+  )
+
+  /** ② 选一条：菜单收起 + 提示词上方出现「名称 + 示例小字」那一条 */
+  await presetBtn.click()
+  await sleep(250)
+  await panel.locator('[data-preset="storyboard-25"]').click()
+  await sleep(500)
+  const row = panel.locator('[data-panel-preset-row]')
+  rec(
+    g,
+    '★★ 选完菜单收起、提示词上方出现该预设',
+    (await menu.count()) === 0 &&
+      (await row.getAttribute('data-panel-preset-row')) === 'storyboard-25',
+    `row=${await row.getAttribute('data-panel-preset-row')}`,
+  )
+  const rowText = (await row.innerText()).replace(/\s+/g, ' ')
+  rec(
+    g,
+    '★★ 那一条 = 名称 + 示例小字（小字不进提示词）',
+    rowText.includes('25宫格连贯分镜') && rowText.includes('5×5'),
+    rowText.slice(0, 80),
+  )
+  rec(g, '★ 按钮上出现已选的小点', (await panel.locator('[data-preset-dot]').count()) === 1)
+  await sleep(900)
+  const afterPreset = await storedData()
+  rec(
+    g,
+    '★★ 落库：节点上只存预设 id（不存正文）',
+    afterPreset.preset === 'storyboard-25' && !('presetText' in afterPreset),
+    JSON.stringify(afterPreset.preset),
+  )
+  await page.screenshot({ path: `${OUT}/126-g105-preset-row.png` })
+
+  /** ③ 二级搭配：点齿轮不是「切换预设」，而是选具体搭配（图十九） */
+  await presetBtn.click()
+  await sleep(250)
+  await panel.locator('[data-preset="portrait-texture"]').click()
+  await sleep(400)
+  const gear = panel.locator('[data-panel-preset-gear]')
+  rec(g, '★★ 人像质感调节带搭配入口（齿轮）', (await gear.count()) === 1, `count=${await gear.count()}`)
+  await gear.click()
+  await sleep(300)
+  const options = panel.locator('[data-preset-options]')
+  const groups = await options
+    .locator('[data-preset-option-group]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-preset-option-group')))
+  rec(
+    g,
+    '★★ 搭配五组、每组三档（人景融合 / 光影融合 / 皮肤 / 纹理 / 锐度）',
+    JSON.stringify(groups) === JSON.stringify(['fusion', 'light', 'skin', 'grain', 'sharp']) &&
+      (await options.locator('[data-preset-choice]').count()) === 15,
+    `groups=${groups.join(',')} choices=${await options.locator('[data-preset-choice]').count()}`,
+  )
+  await page.screenshot({ path: `${OUT}/127-g105-preset-options.png` })
+  await options.locator('[data-preset-choice="fusion:deep"]').click()
+  await sleep(900)
+  const afterOption = await storedData()
+  rec(
+    g,
+    '★★ 选搭配：写进 presetOptions，且不改变当前预设',
+    afterOption.preset === 'portrait-texture' && afterOption.presetOptions?.fusion === 'deep',
+    JSON.stringify(afterOption.presetOptions),
+  )
+  rec(
+    g,
+    '★ 选搭配后菜单**不关**（五组通常要连着调）',
+    (await options.count()) === 1,
+    `count=${await options.count()}`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(250)
+
+  /** ④ 情绪调节：素材下方那块面板（5×5 点位 + 情绪定位） */
+  await presetBtn.click()
+  await sleep(250)
+  await panel.locator('[data-preset-emotion]').click()
+  await sleep(500)
+  const box = panel.locator('[data-panel-emotion]')
+  rec(g, '★★ 情绪调节：素材下方出现功能框', (await box.count()) === 1, `count=${await box.count()}`)
+  rec(
+    g,
+    '★★ 框在**素材下方**（几何：它的顶边在缩略图行下方）',
+    await (async () => {
+      const thumbs = panel.locator('[data-panel-part="assets"]').first()
+      const tb = await thumbs.boundingBox().catch(() => null)
+      const eb = await box.boundingBox()
+      return !!tb && !!eb && eb.y >= tb.y + tb.height - 2
+    })(),
+  )
+  rec(
+    g,
+    '★★ 25 个点位、五个一排（5×5）',
+    (await box.locator('[data-emotion]').count()) === 25,
+    `dots=${await box.locator('[data-emotion]').count()}`,
+  )
+  const firstRowCount = await box.locator('[data-emotion]').evaluateAll(
+    (els) => els.filter((e) => e.style.gridRow === '1').length,
+  )
+  rec(g, '★★ 五个一排', firstRowCount === 5, `firstRow=${firstRowCount}`)
+  const boxText = (await box.innerText()).replace(/\s+/g, ' ')
+  rec(
+    g,
+    '★★ 四轴文案齐全（激动 / 平静 / 亲近 / 疏离）',
+    ['激动', '平静', '亲近', '疏离'].every((t) => boxText.includes(t)),
+    boxText.slice(0, 60),
+  )
+  rec(
+    g,
+    '★★ 默认定位在正中间的「淡然自若」',
+    boxText.includes('情绪定位') && boxText.includes('淡然自若'),
+    boxText.slice(-24),
+  )
+  await box.locator('[data-emotion="joyous"]').click()
+  await sleep(900)
+  const boxText2 = (await box.innerText()).replace(/\s+/g, ' ')
+  rec(g, '★★ 点一个点位 → 底部定位跟着变', boxText2.includes('欣然愉悦'), boxText2.slice(-24))
+  const afterEmotion = await storedData()
+  rec(
+    g,
+    '★★ 落库：节点上存情绪 id',
+    afterEmotion.emotion === 'joyous',
+    JSON.stringify(afterEmotion.emotion),
+  )
+  await page.screenshot({ path: `${OUT}/128-g105-emotion.png` })
+
+  /** 关闭 = 清掉这次的情绪（面板显示与否只看这一个事实） */
+  await panel.locator('[data-emotion-close]').click()
+  await sleep(900)
+  const afterClose = await storedData()
+  rec(
+    g,
+    '★★ 关闭情绪面板 = 清掉情绪（不留「关掉了但还在提示词里」）',
+    (await box.count()) === 0 && afterClose.emotion === undefined,
+    `box=${await box.count()} emotion=${JSON.stringify(afterClose.emotion)}`,
+  )
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

@@ -18,6 +18,7 @@ import { usePromptTools } from '../../../features/shared/promptTools/usePromptTo
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { usePresetTextOptional } from '../../../app/providers/PresetTextProvider'
 import { isRecipeEdit } from '../../../domain/project/generationPreset'
+import { defaultPresetOptions, presetById } from '../../../domain/canvas/layout/presets'
 import { hasRunnableDownstream } from '../../../features/canvas/execution/loopRun'
 
 /** 面板与节点底边的间距 */
@@ -333,6 +334,7 @@ function buildPanelModel(node: NodeSnapshot, graph: ReturnType<typeof useGraph>)
             }
           : null,
       mentionCandidates: upstreamMentionCandidates(node, graph),
+      ...presetFieldsOf(data),
     }
   }
 
@@ -363,6 +365,7 @@ function buildPanelModel(node: NodeSnapshot, graph: ReturnType<typeof useGraph>)
       linkedPromptCount: 0,
       promptToggle: null,
       mentionCandidates: upstreamMentionCandidates(node, graph),
+      ...presetFieldsOf(data),
     }
   }
 
@@ -459,6 +462,24 @@ function buildPanelModel(node: NodeSnapshot, graph: ReturnType<typeof useGraph>)
      */
     selectedSkillId: node.type === 'prompt' ? ((node.data as PromptData).skillId ?? null) : null,
     mentionCandidates: upstreamMentionCandidates(node, graph),
+    ...presetFieldsOf(data),
+  }
+}
+
+/**
+ * 预设 / 情绪那三个字段从节点 data 直接读（用户 2026-10-05 第 14 条）。
+ *
+ * 抽出来的原因只是**三处 return 都要**（生成 / 分组 / 批量），分散写三遍迟早漏一处 ——
+ * 而漏一处的表现是「某种节点上预设选了不生效」，很难从界面上看出来。
+ */
+function presetFieldsOf(data: GenerationData): Pick<
+  PanelModel,
+  'preset' | 'presetOptions' | 'emotion'
+> {
+  return {
+    preset: data.preset ?? null,
+    presetOptions: data.presetOptions ?? {},
+    emotion: data.emotion ?? null,
   }
 }
 
@@ -673,6 +694,32 @@ function handlePanelEvent(
     case 'selectSkill':
       if (node.type !== 'prompt') break
       patch({ skillId: event.skillId ?? undefined } as Partial<GenerationData>)
+      break
+    /**
+     * 预设 / 情绪（用户 2026-10-05 第 14 条）。
+     *
+     * 走的是与比例 / 画质同一个 `patch`（**不进撤销栈**的瞬时参数编辑）——
+     * 选预设是「换个版式」，与改比例同类；能不能撤销与它们保持一致，
+     * 别为这一个参数单独开一条撤销语义。
+     *
+     * 三个字段存的全是 **id**，正文在那份唯一表 `domain/canvas/layout/presets.ts`。
+     */
+    case 'setPreset': {
+      const next = presetById(event.preset)
+      /** 换预设时把二级搭配重置成新预设的默认值：留着旧搭配会拼出一句用户没选过的话 */
+      patch({
+        preset: next?.id,
+        presetOptions: next ? defaultPresetOptions(next) : undefined,
+      } as Partial<GenerationData>)
+      break
+    }
+    case 'setPresetOption':
+      patch({
+        presetOptions: { ...(node.data as GenerationData).presetOptions, [event.group]: event.choice },
+      } as Partial<GenerationData>)
+      break
+    case 'setEmotion':
+      patch({ emotion: event.emotion ?? undefined } as Partial<GenerationData>)
       break
     case 'cancel':
       exec.cancel()

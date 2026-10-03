@@ -5,6 +5,7 @@ import { NODE_MINIMUMS } from '../layout/constants'
 import { indexNodes, isDescendantOf } from '../model/graph'
 import { directUpstream } from '../graph/upstreamOf'
 import { generationParams } from './params'
+import { presetPromptSuffix } from '../layout/presets'
 
 /**
  * 分组节点规格（产品文档 §6.11）。
@@ -89,7 +90,10 @@ export const groupSpec: NodeSpec<GroupData> = {
       .filter((i): i is Extract<NodeInput, { kind: 'text' }> => i.kind === 'text')
       .map((i) => i.text)
       .join('\n')
-    const prompt = data.prompt.trim() || upstreamText.trim()
+    /** 末尾补「预设 / 情绪」（用户 2026-10-05 第 14 条），与生成 / 批量同一份实现 */
+    const prompt = [data.prompt.trim() || upstreamText.trim(), presetPromptSuffix(data)]
+      .filter(Boolean)
+      .join('\n')
     if (!prompt) return null
 
     return {

@@ -26,6 +26,9 @@ const emptyModel: PanelModel = {
   linkedPromptCount: 0,
   promptToggle: null,
   mentionCandidates: [],
+  preset: null,
+  presetOptions: {},
+  emotion: null,
 }
 
 /**

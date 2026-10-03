@@ -77,6 +77,15 @@ export interface PanelModel {
    * 正文里存的是纯文本 `@名字`，名字就是它展开回引用框的唯一线索。
    */
   mentionCandidates: MentionCandidate[]
+  /**
+   * 预设与情绪（用户 2026-10-05 第 14 条）。
+   *
+   * 面板只读**当前选中的 id**（本体在 `domain/canvas/layout/presets.ts` 一份表里）——
+   * 名字与那句会拼进提示词的话都由那边给，面板不抄一份，免得改了预设文案而老节点还在旧文案。
+   */
+  preset: string | null
+  presetOptions: Record<string, string>
+  emotion: string | null
 }
 
 /** 集合卡（§6.12）：不展开内部素材，只标注数量；隐藏的素材不计入 */
@@ -173,6 +182,15 @@ export type PanelEvent =
    * 生效时机是**下一次点生成**（见 `CanvasExecutionProvider` 的提示词分支）。
    */
   | { type: 'selectSkill'; skillId: string | null }
+  /**
+   * 预设 / 情绪（用户 2026-10-05 第 14 条）。
+   *
+   * 传**id**，不传那句提示词：本体表在 `domain/canvas/layout/presets.ts`，
+   * 拼进请求也在那边统一做（`presetPromptSuffix`）—— 面板只表达「用户点了哪一个」。
+   */
+  | { type: 'setPreset'; preset: string | null }
+  | { type: 'setPresetOption'; group: string; choice: string }
+  | { type: 'setEmotion'; emotion: string | null }
   /**
    * 去后台设置配渠道（面板发现「没有可用平台」时的引导出口）。
    *

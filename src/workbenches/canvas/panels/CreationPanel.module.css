@@ -1124,3 +1124,110 @@
   font-size: var(--fs-label);
   color: var(--danger);
 }
+
+/* ── 预设与情绪（用户 2026-10-05 第 14 条） ── */
+/*
+ * 预设入口与它的菜单：菜单锚在这枚按钮的容器上（`position: relative`）。
+ * 菜单本体向上弹，见 `PresetMenu.module.css` —— 这里只负责给锚点。
+ */
+.presetAnchor {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.presetBtn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.presetBtn:hover,
+.presetBtnOn {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+/* 选了预设 → 按钮右上角一颗小点（参考图里那枚按钮上的蓝点，同一层意思） */
+.presetDot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/*
+ * 当前预设那一条（图五：名称 + 右侧示例小字）。
+ * 小字只做说明、不进提示词，长了就省略 —— 它旁边还有输入框，不能让它把行撑破。
+ */
+.presetRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.presetChip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+}
+
+.presetClear,
+.presetName,
+.presetGear {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: calc(var(--radius-control) - 4px);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.presetClear,
+.presetGear {
+  padding: 0 2px;
+  color: var(--text-2);
+}
+
+.presetClear:hover,
+.presetName:hover,
+.presetGear:hover {
+  background: var(--bg-hover);
+}
+
+.presetHint {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

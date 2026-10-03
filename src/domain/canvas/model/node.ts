@@ -115,6 +115,20 @@ export interface GenerationData {
   mjWeird?: number
   mjChaos?: number
   mjPersonalize?: string
+  /**
+   * **预设**与**情绪**（用户 2026-10-05 第 14 条）。
+   *
+   * 只存 **id**：预设本体（名字、示例小字、会拼进提示词的那句）全在
+   * `domain/canvas/layout/presets.ts` 一份表里。存正文的话，预设改一次文案，
+   * 老节点就永远停在旧文案上 —— 与技能、模型同一条口径（存 id 不存正文）。
+   *
+   * `presetOptions` 是二级搭配（目前只有「人像质感调节」的 5 组 × 3 档）。
+   * 两者都只影响**这一次生成的提示词**，不参与配方继承（那是画质 / 比例这类
+   * 与内容无关的参数）。
+   */
+  preset?: string
+  presetOptions?: Record<string, string>
+  emotion?: string
   count?: number
   // 视频模式
   /**

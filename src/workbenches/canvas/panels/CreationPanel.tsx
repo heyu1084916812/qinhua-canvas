@@ -34,7 +34,20 @@ import {
 import { presetOf } from '../../../domain/project/modelCatalog'
 import { presetModelsOf } from '../../../domain/project/modelPresets'
 import { ModelIcon } from '../../../features/shared/modelIcon/ModelIcon'
-import { IconClose, IconSpinner, IconStop } from '../toolbar/icons'
+import {
+  IconChevronDown,
+  IconClose,
+  IconPreset,
+  IconSettings,
+  IconSpinner,
+  IconStop,
+} from '../toolbar/icons'
+import {
+  DEFAULT_EMOTION_ID,
+  presetById,
+} from '../../../domain/canvas/layout/presets'
+import { PresetMenu, PresetOptions } from './PresetMenu'
+import { EmotionBox } from './EmotionBox'
 
 /** 生成数量：固定四项（§6.8「1张 / 2张 / 4张 / 9张，固定四项」） */
 export const COUNT_OPTIONS = [1, 2, 4, 9] as const
@@ -518,6 +531,38 @@ export function CreationPanel(props: CreationPanelProps) {
     promptEditorRef.current?.insertMention(mentionToken('node', c.id, c.label))
     setMentionOpen(false)
   }
+
+  /**
+   * 预设 / 情绪（用户 2026-10-05 第 14 条）。
+   *
+   * 两个浮层的开关是**面板自己的状态**（与参数菜单同一套「同一时刻只开一个」的思路），
+   * 但「选了哪一条」不在本地 —— 那是节点上的 `data.preset` / `data.emotion`，
+   * 面板只把它读出来显示。本地再存一份就会出现「面板显示 A、实际发出去 B」。
+   */
+  const [presetOpen, setPresetOpen] = useState(false)
+  const [presetOptionsOpen, setPresetOptionsOpen] = useState(false)
+  const activePreset = presetById(model.preset)
+  const emotionOn = !!model.emotion
+  /** 情绪面板左边那张预览图：上游第一张带素材的图（没有就显示一句提示） */
+  const characterThumb =
+    model.thumbs.find((t) => t.owner === 'upstream' && t.assetHash) ??
+    model.thumbs.find((t) => t.assetHash)
+  const closePresetMenus = () => {
+    setPresetOpen(false)
+    setPresetOptionsOpen(false)
+  }
+  /** 点别处收起预设菜单（与 @ 菜单同一套；Esc 交给面板自己逐层收，见下） */
+  useEffect(() => {
+    if (!presetOpen && !presetOptionsOpen) return
+    const onDown = (e: PointerEvent) => {
+      const el = e.target as HTMLElement | null
+      if (el?.closest('[data-preset-menu]') || el?.closest('[data-preset-options]')) return
+      if (el?.closest('[data-panel-preset-open]') || el?.closest('[data-panel-preset-gear]')) return
+      closePresetMenus()
+    }
+    window.addEventListener('pointerdown', onDown)
+    return () => window.removeEventListener('pointerdown', onDown)
+  }, [presetOpen, presetOptionsOpen])
   /** 技能库（共享的全局单例，设置页改完这里会立刻反映） */
   const { skills } = useSkills()
   /**
@@ -1125,6 +1170,10 @@ export function CreationPanel(props: CreationPanelProps) {
            */
           e.preventDefault()
           setMentionOpen(false)
+        } else if (presetOpen || presetOptionsOpen) {
+          /** 再往下是预设菜单 / 它的二级搭配（同一条「逐层收」的规则，见上） */
+          e.preventDefault()
+          closePresetMenus()
         } else {
           props.onClose()
         }
@@ -1199,6 +1248,20 @@ export function CreationPanel(props: CreationPanelProps) {
       </div>
       </section>
 
+      {/*
+        情绪调节（用户 2026-10-05 第 14 条后半）：「在素材下方出现一个功能框」——
+        位置就钉在素材区与提示词区之间。开着与否**只看有没有选情绪**（关闭 = 清掉），
+        不另存一个开关状态，免得出现「关掉了但表情还在提示词里」。
+      */}
+      {!promptMode && model.emotion && (
+        <EmotionBox
+          emotion={model.emotion}
+          characterHash={characterThumb?.assetHash}
+          onPick={(id) => onEvent({ type: 'setEmotion', emotion: id })}
+          onClose={() => onEvent({ type: 'setEmotion', emotion: null })}
+        />
+      )}
+
       {/* 第二部分：提示词 */}
       <section className={`${styles.section} ${styles.promptSection}`} data-panel-part="prompt">
         <div className={styles.promptRow}>
@@ -1223,11 +1286,73 @@ export function CreationPanel(props: CreationPanelProps) {
                   title="引用上游素材（@）"
                   aria-label="引用上游素材"
                   aria-expanded={mentionOpen}
-                  onClick={() => setMentionOpen((v) => !v)}
+                  onClick={() => {
+                    /** 与预设菜单互斥：两个浮层同时开着会互相盖住 */
+                    closePresetMenus()
+                    setMentionOpen((v) => !v)
+                  }}
                 >
                   @
                 </button>
               )}
+            </div>
+          )}
+          {/*
+            当前预设（用户 2026-10-05 第 14 条，参考图五）：左边名称 + 切换箭头，
+            右边那行是**示例小字**（只是说明，不进提示词 —— 用户原话「不是真实的小字」）。
+            名称左侧的 ✕ = 取消这个预设。
+          */}
+          {activePreset && !promptMode && (
+            <div className={styles.presetRow} data-panel-preset-row={activePreset.id}>
+              <span className={styles.presetChip}>
+                <button
+                  type="button"
+                  className={styles.presetClear}
+                  data-panel-preset-clear
+                  title="取消预设"
+                  aria-label="取消预设"
+                  onClick={() => {
+                    closePresetMenus()
+                    onEvent({ type: 'setPreset', preset: null })
+                  }}
+                >
+                  <IconClose size={12} />
+                </button>
+                <button
+                  type="button"
+                  className={styles.presetName}
+                  data-panel-preset-open
+                  aria-haspopup="menu"
+                  aria-expanded={presetOpen}
+                  title="换一个预设"
+                  onClick={() => {
+                    setMentionOpen(false)
+                    setPresetOptionsOpen(false)
+                    setPresetOpen((v) => !v)
+                  }}
+                >
+                  {activePreset.name}
+                  <IconChevronDown size={12} />
+                </button>
+                {activePreset.options && (
+                  <button
+                    type="button"
+                    className={styles.presetGear}
+                    data-panel-preset-gear
+                    title="选择具体搭配"
+                    aria-label="选择具体搭配"
+                    aria-expanded={presetOptionsOpen}
+                    onClick={() => {
+                      setMentionOpen(false)
+                      setPresetOpen(false)
+                      setPresetOptionsOpen((v) => !v)
+                    }}
+                  >
+                    <IconSettings size={12} />
+                  </button>
+                )}
+              </span>
+              <span className={styles.presetHint}>{activePreset.hint}</span>
             </div>
           )}
           {/*
@@ -1645,6 +1770,58 @@ export function CreationPanel(props: CreationPanelProps) {
           </span>
         )}
         {/* §6.7：提示词节点的第三部分同样以生成按钮收尾（触发下游生成，见 runLabel） */}
+        {/*
+          预设入口（用户 2026-10-05 第 14 条：「在节点参数右边加一个预设功能的按钮」）：
+          位置就在参数与生成按钮之间。菜单挂在这枚按钮的容器里 ——
+          它是面板里唯一的位置锚点，两个入口（这枚按钮、预设名称上的箭头）都开在同一个地方，
+          用户不会遇到「同一个菜单从两个方向弹出来」。
+        */}
+        {!promptMode && (
+          <span className={styles.presetAnchor}>
+            <button
+              type="button"
+              className={activePreset ? `${styles.presetBtn} ${styles.presetBtnOn}` : styles.presetBtn}
+              data-panel-preset
+              aria-label="预设"
+              aria-haspopup="menu"
+              aria-expanded={presetOpen}
+              title="预设：分镜叙事 / 空间与机位 / 设定图 / 质感调节"
+              onClick={() => {
+                setMentionOpen(false)
+                setPresetOptionsOpen(false)
+                setPresetOpen((v) => !v)
+              }}
+            >
+              <IconPreset size={16} />
+              {activePreset && <span className={styles.presetDot} data-preset-dot />}
+            </button>
+            {presetOpen && (
+              <PresetMenu
+                activeId={model.preset}
+                emotionOn={emotionOn}
+                onPick={(id) => {
+                  setPresetOpen(false)
+                  onEvent({ type: 'setPreset', preset: id })
+                }}
+                onPickEmotion={() => {
+                  closePresetMenus()
+                  /** 打开情绪面板 = 先落一个情绪（默认正中间那个），面板由它决定显示与否 */
+                  onEvent({ type: 'setEmotion', emotion: model.emotion ?? DEFAULT_EMOTION_ID })
+                }}
+              />
+            )}
+            {presetOptionsOpen && activePreset?.options && (
+              <PresetOptions
+                presetId={activePreset.id}
+                options={model.presetOptions}
+                onPick={(group, choice) =>
+                  /** 选完**不关**：五组搭配通常要连着调（参考图十九就是一屏五组） */
+                  onEvent({ type: 'setPresetOption', group, choice })
+                }
+              />
+            )}
+          </span>
+        )}
         <button
           className={[
             styles.run,

@@ -667,3 +667,32 @@ export function IconStar({ filled = false, ...props }: IconProps & { filled?: bo
     </Svg>
   )
 }
+
+/**
+ * 预设（用户 2026-10-05 第 14 条）：**四格模板**。
+ *
+ * 形状照参考产品那枚按钮（图十八里被黄框圈住的那一个）：两块两行的小格子，
+ * 读作「现成的版式」，与「排列」那枚三条横线刻意不同 —— 两个都长成格子的话，
+ * 用户在参数行里会分不清哪个是预设。
+ */
+export function IconPreset(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="4" y="4" width="7" height="7" rx="1.6" />
+      <rect x="13" y="4" width="7" height="7" rx="1.6" />
+      <rect x="4" y="13" width="7" height="7" rx="1.6" />
+      <rect x="13" y="13" width="7" height="7" rx="1.6" />
+    </Svg>
+  )
+}
+
+/** 情绪：一张脸（用户 2026-10-05 第 14 条后半那份「情绪调节」） */
+export function IconEmotion(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="8.4" />
+      <path d="M9.2 10.2h.01M14.8 10.2h.01" />
+      <path d="M8.8 14.4c.9 1.2 2 1.8 3.2 1.8s2.3-.6 3.2-1.8" />
+    </Svg>
+  )
+}

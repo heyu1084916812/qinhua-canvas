@@ -1,0 +1,128 @@
+/*
+ * 预设菜单（用户 2026-10-05 第 14 条）与它的二级搭配。
+ *
+ * 两者都是**面板内的浮层**：绝对定位、不随画布缩放、配色走 token。
+ * 向上弹（`bottom: 100%`）而不是向下：入口在参数行、那已经在面板最底部了，
+ * 往下弹必然出界被裁（本项目的浮层一律先算「有没有地方放」）。
+ */
+.menu {
+  position: absolute;
+  z-index: 4;
+  right: 0;
+  bottom: calc(100% + var(--space-2));
+  width: 430px;
+  box-sizing: border-box;
+  padding: var(--space-3);
+  /**
+   * 两栏排布照参考图（图十八）：左栏「分镜叙事 + 质感调节」、右栏「空间与机位 + 设定图」。
+   * 用多栏而不是写死两列 flex：分类块高度不一时，多栏会自动把后面的块顺下去，
+   * 写死两列就得手工决定「哪个分类进哪一栏」，加一条预设又要重新分。
+   */
+  column-count: 2;
+  column-gap: var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-float);
+}
+
+.group {
+  break-inside: avoid;
+  margin-bottom: var(--space-3);
+}
+
+.groupLabel {
+  padding: 0 4px 4px;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  text-align: left;
+  cursor: pointer;
+}
+
+.item:hover,
+.itemOn {
+  background: var(--bg-hover);
+}
+
+.itemIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--text-2);
+}
+
+.itemName {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.itemCheck {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.options {
+  position: absolute;
+  z-index: 5;
+  right: 0;
+  bottom: calc(100% + var(--space-2));
+  width: 300px;
+  box-sizing: border-box;
+  padding: var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-float);
+}
+
+.optionGroup + .optionGroup {
+  margin-top: var(--space-2);
+}
+
+.choices {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.choice {
+  flex: 1 1 0;
+  height: 28px;
+  padding: 0 4px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.choice:hover {
+  background: var(--bg-hover);
+}
+
+/* 选中的那一档 = 实色强调（与参数菜单里选中的档位同一套视觉） */
+.choiceOn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
