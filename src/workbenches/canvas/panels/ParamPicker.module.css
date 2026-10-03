@@ -87,7 +87,12 @@
  * 多组模式（用户 2026-10-02：「具体参数的设置（多个参数集合在一起那种）」）。
  *
  * 一个浮层里竖着排几段，每段自己的标题 + 自己的形态（比例是网格、画质/质量是胶囊）。
- * 加高度上限 + 滚动：13 档比例网格本身就有 5 行，加上画质 / 质量会超出一屏。
+ *
+ * ⚠️ 高度上限**不在这里写死**（曾经是 `max-height: 420px`）：13 档比例网格本身就有 5 行，
+ * 写死 420 等于把后几行**直接在边框内切掉**，用户看到的是「选项到一半就没了」
+ * （用户 2026-10-03：「参数面板里面的内容能完全显示吗？我不想要内容超出边界」）。
+ * 现在由 `ParamPicker` 按锚点剩余空间算出上限（内联 `max-height`），
+ * **装得下就完整显示**，只有窗口真的放不下时才滚 —— 滚动容器在下面那条 `.popup` 上。
  */
 .grouped {
   display: flex;
@@ -101,10 +106,6 @@
   gap: var(--space-3);
   width: max-content;
   max-width: 300px;
-  max-height: 420px;
-  overflow-y: auto;
-  /* 滚到头之后不再把滚轮传给外面（否则又会去缩放画布） */
-  overscroll-behavior: contain;
 }
 
 .section {
@@ -202,6 +203,15 @@
    * 与创作面板的 12px 内距仍在同一档观感里。
    */
   padding: var(--space-3);
+  /**
+   * 浮层**自己就是滚动容器**（高度上限由 `ParamPicker` 按剩余空间算好挂在内联样式上）。
+   *
+   * 放在这条基类上而不是各个形态上，是为了让「装得下就完整显示、装不下才滚」
+   * 只有一份规则 —— 分开写就会出现「这个形态的选项被切掉、那个形态的会滚」。
+   */
+  overflow-y: auto;
+  /* 滚到头之后不再把滚轮传给外面（否则又会去缩放画布） */
+  overscroll-behavior: contain;
   background: var(--bg-surface);
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
@@ -236,9 +246,8 @@
   width: max-content;
   min-width: 96px;
   max-width: 300px;
-  max-height: 420px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  /* 高度与滚动由外层 `.popup` 统一负责（见那里的说明） */
+  overflow: visible;
 }
 
 .row {

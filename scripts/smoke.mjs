@@ -4491,15 +4491,41 @@ async function g46(browser) {
   await page.mouse.move(popupBox.x + popupBox.width / 2, popupBox.y + popupBox.height / 2)
   await page.mouse.wheel(0, 240)
   await sleep(320)
-  const popupScrolled = await panel
-    .locator('[data-param-popup="gen-params"]')
-    .evaluate((el) => Math.round(el.scrollTop))
   const zoomAfter = (await page.locator('[data-canvas-zoom]').innerText()).trim()
   rec(
     g,
-    '★★ 滚轮在参数浮层里滚的是浮层，画布不缩放',
-    popupScrolled > 0 && zoomAfter === zoomBefore,
-    `scrollTop=${popupScrolled} zoom=${zoomBefore}→${zoomAfter}`,
+    '★★ 滚轮落在参数浮层里时画布不缩放（滚轮不穿过去）',
+    zoomAfter === zoomBefore,
+    `zoom=${zoomBefore}→${zoomAfter}`,
+  )
+
+  /**
+   * ★★ **浮层内容完整显示**（用户 2026-10-03：「参数面板里面的内容能完全显示吗？
+   * 我不想要内容超出边界」）。
+   *
+   * 原先浮层写死 `max-height: 420px`，13 档比例网格本身就有 5 行 ⇒ 后几行**在边框内被切掉**。
+   * 现在高度上限按锚点剩余空间算：**这一屏装得下 → `scrollHeight === clientHeight`**
+   * （完整显示、没有裁切），且浮层整体不出视口。
+   * 「装不下才滚」那一支由 G100 在矮窗口里单独验。
+   */
+  const popupFit = await panel.locator('[data-param-popup="gen-params"]').evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    return {
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+      top: Math.round(r.top),
+      bottom: Math.round(r.bottom),
+      viewportH: window.innerHeight,
+      maxHeight: getComputedStyle(el).maxHeight,
+    }
+  })
+  rec(
+    g,
+    '★★ 参数浮层内容完整显示（没有被边框裁掉，也没伸出视口）',
+    popupFit.scrollHeight <= popupFit.clientHeight + 1 &&
+      popupFit.top >= 0 &&
+      popupFit.bottom <= popupFit.viewportH + 1,
+    `scrollH=${popupFit.scrollHeight} clientH=${popupFit.clientHeight} top=${popupFit.top} bottom=${popupFit.bottom}/${popupFit.viewportH} max-height=${popupFit.maxHeight}`,
   )
 
   /**
@@ -13711,6 +13737,100 @@ async function g94(browser) {
 }
 
 /**
+ * G100 参数浮层的**高度与滚动**（用户 2026-10-03：
+ * 「参数面板里面的内容能完全显示吗？我不想要内容超出边界」）
+ *
+ * 两种正确形态都要钉住，缺一条就等于只修了一半：
+ *   · **装得下 → 完整显示**（G46 已断言 `scrollHeight === clientHeight`）；
+ *   · **装不下 → 在边框内滚**，而且滚轮归浮层、**不穿到底下的画布去缩放**。
+ *
+ * 这里用**矮窗口**造出第二种形态：窗口一矮，锚点上方的空间就不够，
+ * 13 档比例网格必然放不下 —— 于是「能不能滚」这件事变得可断言。
+ * 原先的 `max-height: 420px` 写死在 CSS 里，两个形态都不可控：
+ * 内容一高就在边框内被切掉（用户看到的正是「选项到一半就没了」）。
+ */
+async function g100(browser) {
+  const g = 'G100 参数浮层高度与滚动'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  /** 矮窗口：锚点上方只剩很少空间 —— 这是「必须滚」的触发条件 */
+  await page.setViewportSize({ width: 1280, height: 520 })
+  await sleep(500)
+  const panel = await genPanel(page)
+  await panel.locator('[data-param-chip="gen-params"]').click()
+  await sleep(450)
+
+  const boxOf = (loc) =>
+    loc.evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      return {
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+        scrollTop: Math.round(el.scrollTop),
+        top: Math.round(r.top),
+        bottom: Math.round(r.bottom),
+        viewportH: window.innerHeight,
+        maxHeight: getComputedStyle(el).maxHeight,
+      }
+    })
+  const popup = () => page.locator('[data-param-popup="gen-params"]')
+
+  const before = await boxOf(popup())
+  rec(
+    g,
+    '★★ 窗口装不下时：浮层在边框内滚，且整体不出视口',
+    before.scrollHeight > before.clientHeight + 1 &&
+      before.top >= 0 &&
+      before.bottom <= before.viewportH + 1,
+    `scrollH=${before.scrollHeight} clientH=${before.clientHeight} top=${before.top} bottom=${before.bottom}/${before.viewportH} max-height=${before.maxHeight}`,
+  )
+
+  /**
+   * ★★ 滚轮落在浮层里：**滚的是浮层，画布缩放纹丝不动**。
+   * 两个数都要看 —— 只看 scrollTop 或只看 zoom 都可能假通过。
+   */
+  const zoomBefore = (await page.locator('[data-canvas-zoom]').innerText()).trim()
+  const pb = await popup().boundingBox()
+  await page.mouse.move(pb.x + pb.width / 2, pb.y + pb.height / 2)
+  await page.mouse.wheel(0, 260)
+  await sleep(320)
+  const after = await boxOf(popup())
+  const zoomAfter = (await page.locator('[data-canvas-zoom]').innerText()).trim()
+  rec(
+    g,
+    '★★ 滚轮滚的是浮层本身，画布不缩放',
+    after.scrollTop > 0 && zoomAfter === zoomBefore,
+    `scrollTop=${before.scrollTop}→${after.scrollTop} zoom=${zoomBefore}→${zoomAfter}`,
+  )
+
+  /** 滚到底仍然不出视口（滚动只发生在浮层内部，不会把浮层撑长） */
+  await page.mouse.wheel(0, 3000)
+  await sleep(320)
+  const bottom = await boxOf(popup())
+  rec(
+    g,
+    '★ 滚到底之后浮层依然完整落在视口内',
+    bottom.top >= 0 && bottom.bottom <= bottom.viewportH + 1,
+    `top=${bottom.top} bottom=${bottom.bottom}/${bottom.viewportH}`,
+  )
+
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await sleep(400)
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+/**
  * G95 Agent 对话窗（设计文档 §7 / §8）。
  *
  * 验的是「用户能看见的那条链」：入口在画布上、面板贴右侧、会话能多开且互不串味、
@@ -15569,7 +15689,7 @@ async function g99(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

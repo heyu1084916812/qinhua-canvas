@@ -140,6 +140,18 @@ export interface ParamPickerProps {
  */
 const LIST_ROW_H = 46
 
+/** 浮层与所点 chip 之间的空隙（与 CSS 里 `.above` / `.below` 的 6px 对齐） */
+const POPUP_OFFSET = 6
+/** 浮层与视口边缘之间至少留的空白（**屏幕像素**） */
+const POPUP_EDGE = 12
+/**
+ * 浮层高度下限（**面板内部单位**）。
+ *
+ * 窗口极端矮的时候别把它压成一条缝 —— 那种尺寸下「装不下就滚」也是可接受的，
+ * 而一条只剩 20px 的浮层连点都点不准。
+ */
+const MIN_POPUP_H = 96
+
 /**
  * `useLayoutEffect` 在 SSR 下不执行且会告警；服务端退回 `useEffect`（同样是空操作），
  * 客户端仍是「绘制前测量」，翻转定位不会闪一帧。
@@ -191,6 +203,12 @@ export function ParamPicker(props: ParamPickerProps) {
   const wrapRef = useRef<HTMLSpanElement>(null)
   const popRef = useRef<HTMLDivElement>(null)
   const [below, setBelow] = useState(false)
+  /**
+   * 浮层的**高度上限**（面板内部单位，`null` = 不限）。
+   *
+   * 见下面那段 `useIsoLayoutEffect` 的说明：装得下就完整显示，装不下才滚。
+   */
+  const [maxHeight, setMaxHeight] = useState<number | null>(null)
   /** 「加载更多」展开过的段（关掉浮层就忘掉：下次打开仍从收起态开始） */
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
 
@@ -217,10 +235,25 @@ export function ParamPicker(props: ParamPickerProps) {
     pop.scrollTop = Math.max(0, pop.scrollTop + delta - sticky)
   }
 
-  // 绘制前测量：上方装不下且下方更宽裕 → 翻转到下方（§6.8）
+  /**
+   * 绘制前测量：① 上方装不下且下方更宽裕 → 翻转到下方（§6.8）；
+   * ② 按**锚点还剩多少空间**给浮层定高度上限（用户 2026-10-03：
+   * 「参数面板里面的内容能完全显示吗？我不想要内容超出边界」）。
+   *
+   * ② 之前浮层写死 `max-height: 420px`：只要内容比它高就在边框内被切掉，
+   * 用户看到的是「选项到一半就没了」。现在改成按真实剩余空间算 ——
+   * **装得下就完整显示**，只有窗口真的放不下时才在边框内滚（滚也是完整的格子，
+   * 不是被裁掉半个）。
+   *
+   * ⚠️ 单位：浮层住在创作面板里，而创作面板整体挂着 `zoom`（0.75）——
+   * `max-height` 是**面板内部单位**，量出来的矩形却是**屏幕像素**。
+   * 用「chip 的屏幕高 ÷ 它的 offsetHeight」把缩放比量出来再换算，
+   * 不去猜那个 0.75（猜了就会在别处复制一份常量）。
+   */
   useIsoLayoutEffect(() => {
     if (!open) {
       setBelow(false)
+      setMaxHeight(null)
       return
     }
     const wrap = wrapRef.current
@@ -228,9 +261,13 @@ export function ParamPicker(props: ParamPickerProps) {
     if (!wrap || !pop) return
     const anchor = wrap.getBoundingClientRect()
     const height = pop.getBoundingClientRect().height
-    const roomAbove = anchor.top
-    const roomBelow = window.innerHeight - anchor.bottom
-    setBelow(roomAbove < height + 12 && roomBelow > roomAbove)
+    const roomAbove = anchor.top - POPUP_OFFSET
+    const roomBelow = window.innerHeight - anchor.bottom - POPUP_OFFSET
+    const flipDown = roomAbove < height + POPUP_EDGE && roomBelow > roomAbove
+    setBelow(flipDown)
+    const scale = wrap.offsetHeight > 0 ? anchor.height / wrap.offsetHeight : 1
+    const room = Math.max(0, (flipDown ? roomBelow : roomAbove) - POPUP_EDGE)
+    setMaxHeight(Math.max(MIN_POPUP_H, Math.round(room / (scale || 1))))
   }, [open, totalOptions])
 
   /**
@@ -286,6 +323,8 @@ export function ParamPicker(props: ParamPickerProps) {
           data-param-popup={name}
           data-param-variant={grouped ? 'grouped' : sections[0]!.variant}
           data-param-placement={below ? 'below' : 'above'}
+          /* 高度上限按锚点剩余空间算（见上面的 layout effect）：装得下就完整显示 */
+          style={maxHeight ? { maxHeight: `${maxHeight}px` } : undefined}
           /*
            * 「这块自己吃滚轮」（见 `features/shared/wheelTarget`）：浮层开着的时候
            * 滚轮不该穿到底下的画布去缩放 —— 哪怕这个菜单当前没得滚。
