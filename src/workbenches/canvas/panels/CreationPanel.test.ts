@@ -6,7 +6,7 @@ import { SkillStoreContext } from '../../../app/providers/SkillStoreProvider'
 import { createMemoryPlatform } from '../../../platform/memory'
 import { createChannelStore, type ChannelStore } from '../../../state/channel/channelStore'
 import { generationSpec } from '../../../domain/canvas/nodeSpecs/generation'
-import { CreationPanel, ratiosOf, resolutionsOf } from './CreationPanel'
+import { CreationPanel, ratiosOf, resolutionsOf, withFollowRatio } from './CreationPanel'
 import type { PanelModel } from './panelModel'
 
 /**
@@ -471,6 +471,27 @@ describe('CreationPanel · 比例档位（§6.8）', () => {
   it('没有图片参考（纯文生图）→ 不给「跟随素材」', () => {
     expect(ratiosOf(undefined, false)).toEqual(THIRTEEN)
     expect(ratiosOf(undefined)).toEqual(THIRTEEN)
+  })
+
+  /**
+   * ★★ **有规格的模型也要给这一档**（用户 2026-10-03：「只有 mj 模型有这个跟随素材的
+   * 功能在比例的参数」）。
+   *
+   * 根因：比例的来源有三个（模型能力表 / 通用 13 档 / 视频那几档），而这条规则原先
+   * **只接在通用 13 档那一条路上** —— 于是有规格的模型（GPT Image / Nano Banana /
+   * Agnes 图片 / 四个视频档）一个都拿不到，只剩没有能力表的 Midjourney 有。
+   * 现在三个来源都过同一个 `withFollowRatio`，判据只剩「有没有参考图」。
+   */
+  it('★★ 有规格的模型同样按「有没有参考图」决定给不给（不再只有 Midjourney）', () => {
+    /** GPT Image 的 13 档比例（能力表来的那一份） */
+    const gptRatio = ['1:1', '9:16', '16:9']
+    expect(withFollowRatio(gptRatio, true)).toEqual([...gptRatio, '跟随素材'])
+    expect(withFollowRatio(gptRatio, false)).toEqual(gptRatio)
+    /** 视频那几档同理：9 档 + 跟随素材 */
+    const videoRatio = ['auto', '16:9', '9:16']
+    expect(withFollowRatio(videoRatio, true)).toEqual([...videoRatio, '跟随素材'])
+    /** 已经在里面就不重复补（幂等） */
+    expect(withFollowRatio([...gptRatio, '跟随素材'], true)).toEqual([...gptRatio, '跟随素材'])
   })
 })
 

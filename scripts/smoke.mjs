@@ -1,4 +1,4 @@
-﻿/**
+/**
  * M1 真机冒烟：把「单测 + SSR 冒烟」覆盖不到的浏览器内交互跑一遍。
  * 用法：先 `npm run dev`，再 `node scripts/smoke.mjs`
  * 产物：.playwright-verify/*.png 截图 + 控制台结果表
@@ -13887,6 +13887,118 @@ async function g100(browser) {
 }
 
 /**
+ * G101 「跟随素材」这一档的**出现条件**（用户 2026-10-03：
+ * 「这个跟随素材是什么时候才有的，我生成节点无论有没有素材的时候，
+ * 只有 mj 模型有这个跟随素材的功能在比例的参数，帮我修复一下这个问题」）
+ *
+ * 规则只有一条（用户 2026-09-24 定稿）：**这次生成有参考图才有这一档**。
+ * 出问题的是「有规格的模型拿不到」——比例的三个来源里只有「通用 13 档」那条接上了
+ * 这条规则，于是 GPT Image / Nano Banana / Agnes 图片 / 四个视频档都看不到它，
+ * **只剩 Midjourney**（它没有能力表，正好走的是那条路）。
+ *
+ * 这一组把「有没有素材 × 有没有能力表」四个格子都走一遍。
+ */
+async function g101(browser) {
+  const g = 'G101 跟随素材的出现条件'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  const FOLLOW = '跟随素材'
+  /** 打开比例那一段（有规格的模型收在「生成参数」胶囊里，没有才是单独一枚 chip） */
+  const ratioOptions = async (panel) => {
+    const own = (await panel.locator('[data-param-chip="ratio"]').count()) > 0
+    await panel
+      .locator(own ? '[data-param-chip="ratio"]' : '[data-param-chip="gen-params"]')
+      .first()
+      .click()
+    await sleep(420)
+    const popupName = own ? 'ratio' : 'gen-params'
+    const scope = own ? '' : '[data-param-in="ratio"]'
+    const opts = await panel
+      .locator(`[data-param-popup="${popupName}"] ${scope}[data-param-option]`)
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-option')))
+    await page.keyboard.press('Escape')
+    await sleep(200)
+    return opts
+  }
+  const pickModel = async (panel, name) => {
+    await panel.locator('[data-param-chip="model"]').click()
+    await sleep(350)
+    await page
+      .locator(`[data-param-popup="model"] button[data-param-option="${name}"]`)
+      .first()
+      .click()
+    await sleep(450)
+  }
+
+  /** ① 没有参考图：这一档谁都不该有（它没有可跟随的对象） */
+  const bare = await genPanel(page)
+  await pickModel(bare, 'Midjourney')
+  const bareMj = await ratioOptions(bare)
+  await pickModel(bare, 'GPT Image 2')
+  const bareGpt = await ratioOptions(bare)
+  rec(
+    g,
+    '★★ 没有参考图时：Midjourney 与 GPT 都**不出现**「跟随素材」',
+    !bareMj.includes(FOLLOW) && !bareGpt.includes(FOLLOW),
+    `MJ ${bareMj.length} 档（跟随=${bareMj.includes(FOLLOW)}）· GPT ${bareGpt.length} 档（跟随=${bareGpt.includes(FOLLOW)}）`,
+  )
+
+  /** ② 给一个新的生成节点挂上一张 800×600 的素材 —— 这就是「有参考图」 */
+  const { node } = await addGenWithImage(page, 800, 600, '#cc3333')
+  const withImg = await genPanel(page, node)
+  await pickModel(withImg, 'Midjourney')
+  const imgMj = await ratioOptions(withImg)
+  await pickModel(withImg, 'GPT Image 2')
+  const imgGpt = await ratioOptions(withImg)
+  rec(
+    g,
+    '★★ 有参考图时：**Midjourney 与 GPT 都有**「跟随素材」（不再只有 MJ）',
+    imgMj.includes(FOLLOW) && imgGpt.includes(FOLLOW),
+    `MJ ${imgMj.length} 档（跟随=${imgMj.includes(FOLLOW)}）· GPT ${imgGpt.length} 档（跟随=${imgGpt.includes(FOLLOW)}）`,
+  )
+
+  /** ③ 选中它之后，胶囊文案要真的带出这个值 */
+  await withImg.locator('[data-param-chip="gen-params"]').click()
+  await sleep(420)
+  await withImg
+    .locator(`[data-param-popup="gen-params"] [data-param-in="ratio"][data-param-option="${FOLLOW}"]`)
+    .click()
+  await sleep(300)
+  await page.keyboard.press('Escape')
+  await sleep(250)
+  const chipText = ((await withImg.locator('[data-param-chip="gen-params"]').innerText()) ?? '').replace(/\s+/g, ' ')
+  rec(g, '★ 选中「跟随素材」后胶囊文案带出它', chipText.includes(FOLLOW), chipText.trim())
+
+  /**
+   * ④ **视频档同理**：比例那三条来源里视频那条也接到了同一条规则上。
+   * 即梦 2.5 有自己的能力表（7 档画幅），有参考图时应当变成 8 档。
+   */
+  await withImg.locator('[data-param-mode="video"]').click()
+  await sleep(450)
+  await pickModel(withImg, '即梦 2.5')
+  const videoRatio = await ratioOptions(withImg)
+  rec(
+    g,
+    '★★ 视频档（有规格的即梦 2.5）同样给「跟随素材」',
+    videoRatio.includes(FOLLOW) && videoRatio.length === 8,
+    `共 ${videoRatio.length} 档，跟随=${videoRatio.includes(FOLLOW)}`,
+  )
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+/**
  * G95 Agent 对话窗（设计文档 §7 / §8）。
  *
  * 验的是「用户能看见的那条链」：入口在画布上、面板贴右侧、会话能多开且互不串味、
@@ -15745,7 +15857,7 @@ async function g99(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

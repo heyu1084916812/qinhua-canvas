@@ -147,7 +147,25 @@ export function resolutionsOf(cap?: ModelCapability): string[] {
  */
 export function ratiosOf(cap?: ModelCapability, withFollowSource = false): string[] {
   void cap
-  return withFollowSource ? [...RATIO_OPTIONS, RATIO_FOLLOW_SOURCE] : [...RATIO_OPTIONS]
+  return withFollowRatio(RATIO_OPTIONS, withFollowSource)
+}
+
+/**
+ * 给一组比例档**补上「跟随素材」**（已经有就不重复补）。
+ *
+ * 抽出来是因为比例的来源有三个：模型自己的能力表、通用 13 档、以及视频那几档 ——
+ * 而「有没有这一档」这件事**只该由一件事决定：这次生成有没有参考图**
+ * （用户 2026-09-24 定稿的规则）。
+ *
+ * ⚠️ 2026-10-03 修的 bug：这条规则原先只接在「通用 13 档」那一条路上 ——
+ * 有规格的模型（GPT Image / Nano Banana / Agnes 图片 / 四个视频档）走的是
+ * `spec.ratios`，压根不经过这里，于是**只有 Midjourney 看得到这一档**
+ * （用户报：「只有 mj 模型有这个跟随素材的功能」）。现在三个来源都过这道函数，
+ * 差别只剩「摆的是哪几档比例」，不再有「哪个模型才有跟随素材」这种漂移。
+ */
+export function withFollowRatio(ratios: readonly string[], withFollowSource: boolean): string[] {
+  if (!withFollowSource || ratios.includes(RATIO_FOLLOW_SOURCE)) return [...ratios]
+  return [...ratios, RATIO_FOLLOW_SOURCE]
 }
 
 export interface CreationPanelProps {
@@ -583,12 +601,26 @@ export function CreationPanel(props: CreationPanelProps) {
   /**
    * 比例 / 尺寸两段候选：**模型有能力表就只按能力表**（模型不支持的档位直接隐藏，
    * §6.8「参数项随模型能力动态渲染」），没有才按渠道上报的能力。
+   *
+   * 三条来源最后都过一遍 `withFollowRatio`：「跟随素材」这一档**只看有没有参考图**，
+   * 与模型有没有能力表无关（见该函数的说明）。
    */
-  const ratios = videoSpec
-    ? [...videoSpec.ratios]
-    : imageSpec
-      ? [...imageSpec.ratios]
-      : ratiosOf(activeModel, props.hasSourceImage === true)
+  /** 这次生成**有没有参考图**：有才有「跟随素材」可跟随 */
+  const hasSource = props.hasSourceImage === true
+  const ratios = withFollowRatio(
+    videoSpec ? videoSpec.ratios : imageSpec ? imageSpec.ratios : ratiosOf(activeModel),
+    hasSource,
+  )
+  /**
+   * 面板上**显示**的比例值。
+   *
+   * 节点上可能存着一个「跟随素材」（上一次选了它、或被配方记忆带过来），
+   * 而这一屏**没有参考图** —— 那就没有可跟随的对象。这时显示成未设置，
+   * 而不是摆一个此刻做不到的值（用户 2026-10-03：「无论有没有素材的时候」
+   * 都看到这一档）。**不写回节点**：接上参考图它就该重新生效。
+   */
+  const storedRatio = String(data.ratio ?? '')
+  const shownRatio = storedRatio === RATIO_FOLLOW_SOURCE && !hasSource ? '' : storedRatio
   const resolutions: readonly string[] = imageSpec
     ? [...imageSpec.sizes]
     : resolutionsOf(activeModel)
@@ -646,7 +678,7 @@ export function CreationPanel(props: CreationPanelProps) {
     qualityChoices.length > 0 ? qualityLabelOf(data.quality ?? 'auto') : '',
     resolutions.length > 0 ? resolutionLabel(data.resolution ?? 'auto') : '',
     backgroundChoices.length > 0 ? backgroundLabelOf(data.background ?? 'auto') : '',
-    ratios.length > 0 ? data.ratio || '比例' : '',
+    ratios.length > 0 ? shownRatio || '比例' : '',
     countChoices.length > 1 ? `${count} 张` : '',
   ]
     .filter(Boolean)
@@ -722,7 +754,7 @@ export function CreationPanel(props: CreationPanelProps) {
             label: '比例',
             variant: 'ratioGrid' as const,
             options: ratios.map((r) => ({ value: r, label: r })),
-            value: data.ratio ?? '',
+            value: shownRatio,
             onSelect: (v: string) =>
               onEvent({ type: 'setRatio', ratio: v, recipe: recipeSnapshot({ ratio: v }) }),
           },
@@ -1165,13 +1197,13 @@ export function CreationPanel(props: CreationPanelProps) {
                 <ParamPicker
                   name="ratio"
                   ariaLabel="画面比例"
-                  label={data.ratio ?? '比例'}
+                  label={shownRatio || '比例'}
                   options={ratios.map((r) => ({
                     value: r,
                     /* 「自适应」不是宽高比，画矩形示意只会和 1:1 撞脸 —— 只留文字 */
                     label: isAutoRatio(r) ? '自适应' : r,
                   }))}
-                  value={data.ratio ?? ''}
+                  value={shownRatio}
                   variant="ratioGrid"
                   open={openPicker === 'ratio'}
                   onToggle={() => togglePicker('ratio')}
