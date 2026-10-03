@@ -31,10 +31,10 @@ import { readEditorText } from './TokenEditor'
  */
 
 /** 引用的存储形态。`kind` 只允许 `node` / `model` / `skill` 三种，别的一律不当引用 */
-const SPLIT_RE = /(@\[[^\]]*\]\((?:node|model|skill):[^)]*\))/g
+export const MENTION_SPLIT_RE = /(@\[[^\]]*\]\((?:node|model|skill):[^)]*\))/g
 
 /** chip 里那个小图标：节点 = 一张图，模型 = 立体方块，技能 = 魔杖（与工具栏同义） */
-const KIND_ICON: Record<MentionKind, string> = {
+export const MENTION_ICON: Record<MentionKind, string> = {
   node: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.4"/><path d="m4.5 17 4.5-4.5 3.4 3.4 3-3 4.1 4.1"/></svg>',
   model:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2 20.2 7.6v8.8L12 20.8 3.8 16.4V7.6z"/><path d="M3.8 7.6 12 12l8.2-4.4"/><path d="M12 12v8.8"/></svg>',
@@ -126,7 +126,7 @@ function makeChip(doc: Document, token: string): HTMLElement {
   if (kind) chip.setAttribute('data-mention-kind', kind)
   const icon = doc.createElement('span')
   icon.className = styles.chipIcon ?? ''
-  if (kind) icon.innerHTML = KIND_ICON[kind]
+  if (kind) icon.innerHTML = MENTION_ICON[kind]
   /**
    * 缩略图槽：**节点**引用留给宿主往里填图（用户 2026-10-03：「艾特图片的时候需要
    * 和图 6 一样有图片的缩略图，当前只有一个图标和名称」）。
@@ -148,7 +148,7 @@ function makeChip(doc: Document, token: string): HTMLElement {
 /** 纯文本 → DOM（命中引用的切出来做成 chip，其余转成文本节点、换行转 `<br>`） */
 function buildFragment(text: string, doc: Document): DocumentFragment {
   const frag = doc.createDocumentFragment()
-  for (const part of String(text ?? '').split(SPLIT_RE)) {
+  for (const part of String(text ?? '').split(MENTION_SPLIT_RE)) {
     if (!part) continue
     if (part.startsWith('@[') && mentionKindOf(part)) {
       frag.appendChild(makeChip(doc, part))

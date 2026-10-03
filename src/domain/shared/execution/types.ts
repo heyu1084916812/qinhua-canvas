@@ -109,6 +109,15 @@ export interface ToolDeclaration {
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
+  /**
+   * 给**界面**看的原文（与 `content` 同一句话，但保留 `@[名字](node:id)` 这类 chip 标记）。
+   *
+   * 为什么要分开（用户 2026-10-05 第 5 条：「艾特的图片、模型或者 skill 在输入框内是有
+   * 一个自己的框的，但是发出去在对话中就没有了，这样会让我分辨不了」）：发给模型的正文
+   * 必须是**去掉标记**的纯文本（引用指向谁由系统提示词那段讲清），而界面上要还原成
+   * 用户写的那几个矩形框。一份数据两个用途，只能分开存。
+   */
+  display?: string
   /** `role:'assistant'` 时：它请求调用的工具 */
   toolCalls?: { id: string; name: string; args: string }[]
   /** `role:'tool'` 时：这条结果对应哪一次调用 */

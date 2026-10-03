@@ -10911,7 +10911,7 @@ async function g79(browser) {
     '★ 对话档 = Agnes 两个免费 Flash + OpenAI 三个 + Gemini 3.8 Flash（Google 只留一个）',
     JSON.stringify(chatValues.slice(0, 5)) ===
       JSON.stringify([
-        'Agnes 2.0 Flash',
+        'Agnes 2.5 Flash',
         'Agnes 3.0 Flash',
         'GPT-6 Astra',
         'GPT-6 Sol',
@@ -10948,11 +10948,12 @@ async function g79(browser) {
       (await presetRows.count()) === 19 &&
       presetLabels.map((s) => s.trim()).includes('GPT Image 2') &&
       // Agnes 有自己的显示名，不再把它的 ID 塞进别家的名字里
-      presetLabels.map((s) => s.trim()).includes('Agnes 2.0 Flash') &&
+      presetLabels.map((s) => s.trim()).includes('Agnes 2.5 Flash') &&
       presetLabels.map((s) => s.trim()).includes('Agnes 3.0 Flash') &&
       presetLabels.map((s) => s.trim()).includes('Agnes Video 2.0') &&
       !trimmedLabels.includes('gpt-image-2') &&
-      !trimmedLabels.includes('agnes-2.0-flash') &&
+      !trimmedLabels.includes('agnes-2.5-flash') &&
+      !trimmedLabels.includes('Agnes 2.0 Flash') &&
       !trimmedLabels.includes('agnes-2.5-pro') &&
       !trimmedLabels.includes('gemini-3.1-pro-preview') &&
       !trimmedLabels.includes('gemini-3.5-flash') &&
@@ -14186,11 +14187,50 @@ async function g95(browser) {
     `右缘=${geom ? Math.round(geom.x + geom.width) : '?'} 视口=${vp?.width ?? '?'}`,
   )
 
+  /**
+   * ★★ **日志按钮不能被对话窗盖住**（用户 2026-10-05 第 7 条：「助手打开后会把日志的
+   * 功能按钮遮住」）。
+   *
+   * 判据取两个矩形**真的不相交** —— 只读那个 `right` 偏移量证明不了：面板外框宽度里
+   * 还有内距与描边，偏移少了 30 多像素照样「看着移了、其实还在底下」。
+   */
+  const logBox = await page.locator('[data-canvas-log]').boundingBox()
+  const logCovered =
+    logBox !== null &&
+    geom !== null &&
+    logBox.x + logBox.width > geom.x &&
+    logBox.x < geom.x + geom.width &&
+    logBox.y + logBox.height > geom.y &&
+    logBox.y < geom.y + geom.height
+  rec(
+    g,
+    '★★ 对话窗打开时日志按钮不被盖住（两者矩形不相交）',
+    logBox !== null && !logCovered,
+    `日志右缘=${logBox ? Math.round(logBox.x + logBox.width) : '?'} 面板左缘=${geom ? Math.round(geom.x) : '?'}`,
+  )
+
   const count = () => page.locator('[data-agent-session-list] option').count()
   rec(g, '★ 自动开了一个会话', (await count()) === 1, `会话=${await count()}`)
   await page.locator('[data-agent-new]').click()
   await sleep(600)
   rec(g, '★★ 能开多个对话', (await count()) === 2, `会话=${await count()}`)
+
+  /**
+   * ★★ **打开对话不该凭空多出模型 chip**（用户 2026-10-05 第 1 条：「每次打开对话，
+   * 对话框会有两个模型」）。
+   *
+   * 那两个（imageModel / videoModel）是**会话设置**——「建生成节点时用哪一档」——
+   * 不是这句话要说出去的内容。进会话时只补技能与素材，模型不再往正文里补。
+   */
+  const modelChipsOnOpen = await page
+    .locator('[data-agent-input] [data-mention-kind="model"]')
+    .count()
+  rec(
+    g,
+    '★★ 打开对话时输入框里没有凭空多出来的模型 chip',
+    modelChipsOnOpen === 0,
+    `model chip=${modelChipsOnOpen}`,
+  )
 
   /**
    * 用户 2026-10-02：「参数设置要创作面板的类似的参数菜单，目前的太简陋了」
@@ -14545,13 +14585,15 @@ async function g95(browser) {
   await page.locator('[data-agent-input]').fill('')
   await sleep(250)
 
-  await page.locator('[data-agent-set-default]').click()
-  await sleep(400)
-  /** 图标化之后按钮上不再有文字，改认 title（悬停提示）是否切到「已是默认模型」 */
+  /**
+   * 用户 2026-10-05 第 9 条：「agent 最上方的默认按钮目前是没有用的，删掉」
+   * —— 判据取**它真的没了**，而不是被藏起来或置灰。
+   */
   rec(
     g,
-    '★ 能把当前模型设为默认',
-    ((await page.locator('[data-agent-set-default]').getAttribute('title')) ?? '').includes('已是默认模型'),
+    '★★ 头部那枚「设为默认模型」按钮已撤掉',
+    (await page.locator('[data-agent-set-default]').count()) === 0,
+    `按钮数=${await page.locator('[data-agent-set-default]').count()}`,
   )
 
   /**
@@ -15589,6 +15631,66 @@ async function g95(browser) {
     '★★ 比例写在 aspectRatio 上也要按用户说的来（不退回默认配方）',
     ratioChip.includes('3:4'),
     `参数胶囊=「${ratioChip}」`,
+  )
+
+  /**
+   * ★★ **互不依赖的两个生成要同时跑**（用户 2026-10-05 第 2 条：「我并行的要求没有给我
+   * 实现，应该是同时生成的，但是他是先生成一个再生成另外一个」）。
+   *
+   * 判据取**墙钟时间**：mock 对「并行测试图」每个慢 800ms 出图 ⇒ 串行 ≥1600ms、
+   * 并发 ≈800ms。阈值 1400ms 留了 600ms 余量：串行必红、并发必然绿。
+   */
+  await page.locator('[data-agent-new]').click()
+  await sleep(600)
+  const assetsBefore = await page.locator('[data-node-asset]').count()
+  await page.locator('[data-agent-input]').fill('并行')
+  await page.locator('[data-agent-send]').click()
+  await sleep(1800)
+  const parallelConfirm = page.locator('[data-agent-confirm]')
+  await parallelConfirm.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
+  const parallelStart = Date.now()
+  await parallelConfirm.click().catch(() => {})
+  await page
+    .waitForFunction(
+      (want) => document.querySelectorAll('[data-node-asset]').length >= want,
+      assetsBefore + 2,
+      { timeout: 8000 },
+    )
+    .catch(() => {})
+  const parallelMs = Date.now() - parallelStart
+  const assetsAfter = await page.locator('[data-node-asset]').count()
+  rec(
+    g,
+    '★★ 两个互不依赖的生成同时跑（耗时接近一个而不是两个）',
+    assetsAfter >= assetsBefore + 2 && parallelMs < 1400,
+    `出两张耗时=${parallelMs}ms（mock 每个 800ms：串行 ≥1600、并发 ≈800）`,
+  )
+
+  /**
+   * ★★ **一个会话在跑，另一个会话照常能发**（用户 2026-10-05 第 3 条：「两次不同的
+   * 对话会先完成一个再完成另外一个」）。
+   *
+   * 运行态原先只有**一份**（组件级 `status`）：A 在跑时切到 B，B 的输入区也跟着变成
+   * 「停止」，于是只能等 A 跑完。现在按会话各存一份，B 该显示发送钮。
+   */
+  await page.locator('[data-agent-new]').click()
+  await sleep(600)
+  await page.locator('[data-agent-input]').fill('并行')
+  await page.locator('[data-agent-send]').click()
+  await sleep(700)
+  const busyStatus =
+    (await page.locator('[data-agent-status]').getAttribute('data-agent-status').catch(() => '')) ?? ''
+  await page.locator('[data-agent-new]').click()
+  await sleep(600)
+  /** 在 B 里真的写一句：发送钮只在「有内容且这个会话不忙」时才出现（见 composer 注释） */
+  await page.locator('[data-agent-input]').fill('第二条')
+  const otherSend = await page.locator('[data-agent-send]').count()
+  const otherStop = await page.locator('[data-agent-stop]').count()
+  rec(
+    g,
+    '★★ 一个会话在跑时，另一个会话照常能发（不再被「停止」挡住）',
+    busyStatus !== '' && busyStatus !== 'idle' && otherSend === 1 && otherStop === 0,
+    `A 状态=${busyStatus || '（空）'} B 发送钮=${otherSend} 停止钮=${otherStop}`,
   )
 
   await page.locator('[data-agent-close]').click()

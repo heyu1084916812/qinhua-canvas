@@ -265,7 +265,7 @@ describe('生成配方（新建节点的默认渠道 / 模型 / 参数）', () =
       ] as unknown as PresetChannelLike[]
       expect(resolveForNode({}, withChat, noRecipes, 'chat')).toEqual({
         channelId: 'chat',
-        model: 'Agnes 2.0 Flash',
+        model: 'Agnes 2.5 Flash',
         params: {},
         substituted: true,
       })

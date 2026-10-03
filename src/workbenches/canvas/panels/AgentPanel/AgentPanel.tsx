@@ -29,6 +29,8 @@ import { AssetMenu } from '../AssetMenu'
 import { createAssetLibraryRepository } from '../../../../state/project/assetLibraryRepository'
 import { createAssetLibraryStore } from '../../../../state/project/assetLibraryStore'
 import { SkillMenu } from './SkillMenu'
+import { MentionRichText } from './MentionRichText'
+import { runWaves } from '../../../../domain/canvas/graph/runWaves'
 import { parseSkillMarkdown } from '../../../../domain/prompt/skill'
 import { useCanvasExecution } from '../../execution/CanvasExecutionProvider'
 import { useCanvasStore, useGraph, useSelection } from '../../storeContext'
@@ -58,7 +60,6 @@ import {
   IconModelCube,
   IconPlus,
   IconRename,
-  IconSettings,
   IconSkill,
 } from '../../toolbar/icons'
 import { toConversation } from './conversation'
@@ -99,6 +100,9 @@ type Status =
   | { kind: 'awaitingConfirm'; request: AgentToolRequest }
   | { kind: 'executing' }
   | { kind: 'error'; message: string }
+
+/** 单例的空闲态：按会话取状态时的兜底值，**必须是同一个对象**（否则每次都换引用，依赖数组炸） */
+const IDLE_STATUS: Status = { kind: 'idle' }
 
 const STATUS_LABEL: Record<Status['kind'], string> = {
   idle: '',
@@ -148,9 +152,32 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const [list, setList] = useState<AgentSession[]>([])
   const [current, setCurrent] = useState<AgentSession | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [status, setStatus] = useState<Status>({ kind: 'idle' })
+  /**
+   * **每个会话一份运行态**（用户 2026-10-05 第 3 条：「两次不同的对话会先完成一个再
+   * 完成另外一个」）。
+   *
+   * 原先是组件级**单份** `status`：会话 A 在跑时切到 B，B 的输入区也跟着变成「停止」，
+   * 想发第二条只能等 A 跑完 —— 看起来就是「两个对话排队」。记忆本来就是按会话隔离的
+   * （§8.2），运行态也该如此：`sessionId → Status`，各记各的。
+   *
+   * `status` 是**当前会话那一份**（下面 `current` 一定在 `statusBySession` 之后定义，
+   * 所以这里先取值、在 `current` 声明处再算）。
+   */
+  const [statusBySession, setStatusBySession] = useState<Record<string, Status>>({})
+  /** 当前会话那一份运行态（别的会话在跑不影响这里） */
+  const status: Status = (current && statusBySession[current.id]) || IDLE_STATUS
+  const setStatusFor = useCallback((sessionId: string, next: Status) => {
+    setStatusBySession((prev) => ({ ...prev, [sessionId]: next }))
+  }, [])
+  /**
+   * 「现在显示的是哪个会话」。
+   *
+   * 异步回调（一个回合跑完 / 报错）**不能直接用 `current`** —— A 的回合结束时用户可能
+   * 已经切到 B 去看别的了，那一份消息盖上去就把 B 的对话流冲掉了（§8.2 记忆隔离）。
+   */
+  const currentIdRef = useRef<string | null>(null)
+  currentIdRef.current = current?.id ?? null
   const [draft, setDraft] = useState('')
-  const [isDefault, setIsDefault] = useState(false)
   /** 订阅全量渠道：设置页改完立刻反映（与创作面板同一条口径） */
   const allChannels = useSyncExternalStore(
     channels.subscribe,
@@ -163,7 +190,6 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   /** 删除会话走两步：第一次点只是「准备好」，第二次点才真删（对齐库里其他删除入口） */
   const [confirmDelete, setConfirmDelete] = useState(false)
   /** 「已设默认」的提示框只闪一次，用完即收 */
-  const [defaultSaved, setDefaultSaved] = useState(false)
   /** 展开看细节的步骤（工具调用 id 集合）。默认全收起 —— 对话流先保持干净 */
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   /**
@@ -180,7 +206,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const skillFileRef = useRef<HTMLInputElement | null>(null)
   const skillDirRef = useRef<HTMLInputElement | null>(null)
   const editorRef = useRef<MentionEditorHandle | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
+  /**
+   * 中止用的控制器**按会话各存一个**（与 `statusBySession` 同一口径）。
+   *
+   * 早先只有一份 `abortRef`：在 B 里点发送会把 A 的那份覆盖掉，A 就再也停不下来；
+   * 反过来「停止」也只停得到最后发出去的那一条。两个会话各跑各的，控制器也得各是各的。
+   */
+  const abortRefs = useRef(new Map<string, AbortController>())
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
   /**
@@ -361,7 +393,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       setCurrent(session)
       // 记忆隔离：切会话就是**换一整套上下文**，不是接着上一个聊（§8.2）
       setMessages(session.messages)
-      setStatus({ kind: 'idle' })
+      /** 不再重置 status：每个会话有自己的运行态，切过去看到的是**它自己**那一份 */
       setDraft('')
       // 换了会话，之前「准备好删了」的那个状态不该跟过来
       setRenaming(false)
@@ -376,14 +408,28 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       origin,
       selectedIds: () => selection,
       runNodes: async (ids) => {
+        /**
+         * **互不依赖的节点同时跑**（用户 2026-10-05 第 2 条：「我并行的要求没有给我实现，
+         * 应该是同时生成的，但是他是先生成一个再生成另外一个」）。
+         *
+         * 原先是 `for (const id of ids) await …` —— 一次 `runNode([A, B])` 就算 A、B
+         * 毫无关系也要排成一条队，出两张图花两倍时间。现在按依赖切波：同一波 `Promise.all`
+         * 并发发请求，下一波等上一波（`A 出图 → B 优化` 这种真依赖仍然保序）。
+         */
+        const waves = runWaves(ids, store.getSnapshot().edges)
         const out: { nodeId: string; ok: boolean; error?: string }[] = []
-        for (const id of ids) {
-          try {
-            await execution.runNode(id)
-            out.push({ nodeId: id, ok: true })
-          } catch (e) {
-            out.push({ nodeId: id, ok: false, error: e instanceof Error ? e.message : errText(e) })
-          }
+        for (const wave of waves) {
+          const settled = await Promise.all(
+            wave.map(async (id) => {
+              try {
+                await execution.runNode(id)
+                return { nodeId: id, ok: true }
+              } catch (e) {
+                return { nodeId: id, ok: false, error: e instanceof Error ? e.message : errText(e) }
+              }
+            }),
+          )
+          out.push(...settled)
         }
         return out
       },
@@ -478,7 +524,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         executeConfirmedTool(name, args, toolCtx(originOf(viewport))),
       executeRead: (name: string, args: unknown) =>
         executeReadTool(name, args, toolCtx(originOf(viewport))),
-      signal: abortRef.current?.signal ?? new AbortController().signal,
+      signal: abortRefs.current.get(session.id)?.signal ?? new AbortController().signal,
     }),
     [channels, viewport, toolCtx, store],
   )
@@ -486,28 +532,33 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   /** 把循环的结果落到界面上：回答就显示，要确认就出预览卡，刹车/报错就说清楚 */
   const handleOutcome = useCallback(
     async (session: AgentSession, outcome: AgentLoopOutcome) => {
-      setMessages(outcome.messages)
+      /**
+       * 消息只写回**它自己那个会话的界面**：用户可能已经切走去看别的会话了，
+       * 这时候把 A 的消息盖到 B 的对话流上就是串味（§8.2）。
+       * 落库（`persist`）与是否切走无关，一律照做。
+       */
+      if (currentIdRef.current === session.id) setMessages(outcome.messages)
       await persist(session, outcome.messages)
-      if (outcome.kind === 'message') setStatus({ kind: 'idle' })
+      if (outcome.kind === 'message') setStatusFor(session.id, IDLE_STATUS)
       else if (outcome.kind === 'confirm') {
-        setStatus({ kind: 'awaitingConfirm', request: outcome.request })
+        setStatusFor(session.id, { kind: 'awaitingConfirm', request: outcome.request })
       } else if (outcome.kind === 'stopped') {
-        setStatus({ kind: 'error', message: outcome.reason })
-      } else setStatus({ kind: 'error', message: outcome.message })
+        setStatusFor(session.id, { kind: 'error', message: outcome.reason })
+      } else setStatusFor(session.id, { kind: 'error', message: outcome.message })
     },
-    [persist],
+    [persist, setStatusFor],
   )
 
   const send = useCallback(async () => {
     const text = draft.trim()
     if (!text || !current) return
     if (!current.channelId || !current.model) {
-      setStatus({ kind: 'error', message: '还没选模型：先在上面选一个对话模型' })
+      setStatusFor(current.id, { kind: 'error', message: '还没选模型：先在上面选一个对话模型' })
       return
     }
     setDraft('')
-    abortRef.current = new AbortController()
-    setStatus({ kind: 'thinking' })
+    abortRefs.current.set(current.id, new AbortController())
+    setStatusFor(current.id, { kind: 'thinking' })
 
     const summary = readGraphSummary(store, 'all', selection)
     /**
@@ -552,8 +603,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       /**
        * 发给模型的是**去掉存储形态**的正文：`@[小猫钓鱼](node:node_x)` → `@小猫钓鱼`。
        * 引用指向谁由上面那段 mentions 讲清楚（带 id），正文里不必再夹一串括号。
+       *
+       * `display` 存的是**用户写的那份原文**（带 chip 标记）：回看这条消息时要还原成
+       * 那几个矩形框（用户 2026-10-05 第 5 条）。一份数据两个用途，必须分开存
+       * —— 拿 `content` 去渲染，框就没了；拿原文去发请求，模型会读到一串机器标记。
        */
-      { role: 'user', content: stripMentionMarkup(text) },
+      { role: 'user', content: stripMentionMarkup(text), display: text },
     ]
     setMessages(withSystem)
     let outcome = await runAgentTurn(withSystem, loopDeps(current))
@@ -567,13 +622,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     let autoSteps = 0
     while (outcome.kind === 'confirm' && current.autoRun === true && autoSteps < AUTO_RUN_LIMIT) {
       autoSteps += 1
-      setStatus({ kind: 'executing' })
+      setStatusFor(current.id, { kind: 'executing' })
       const done = await executeConfirmedTool(
         outcome.request.name,
         outcome.request.args,
         toolCtx(originOf(viewport)),
       )
-      setMessages(outcome.messages)
+      if (currentIdRef.current === current.id) setMessages(outcome.messages)
       outcome = await resumeAgentTurn(
         outcome.messages,
         outcome.request.callId,
@@ -582,14 +637,26 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       )
     }
     await handleOutcome(current, outcome)
-  }, [draft, current, messages, store, selection, loopDeps, handleOutcome, allSkills, toolCtx, viewport])
+  }, [
+    draft,
+    current,
+    messages,
+    store,
+    selection,
+    loopDeps,
+    handleOutcome,
+    setStatusFor,
+    allSkills,
+    toolCtx,
+    viewport,
+  ])
 
   const confirm = useCallback(async () => {
     if (status.kind !== 'awaitingConfirm' || !current) return
     const { request } = status
-    setStatus({ kind: 'executing' })
+    setStatusFor(current.id, { kind: 'executing' })
     const result = await executeConfirmedTool(request.name, request.args, toolCtx(originOf(viewport)))
-    setStatus({ kind: 'thinking' })
+    setStatusFor(current.id, { kind: 'thinking' })
     const outcome = await resumeAgentTurn(
       messages,
       request.callId,
@@ -597,13 +664,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       loopDeps(current),
     )
     await handleOutcome(current, outcome)
-  }, [status, current, viewport, messages, toolCtx, loopDeps, handleOutcome])
+  }, [status, current, viewport, messages, toolCtx, loopDeps, handleOutcome, setStatusFor])
 
   /** 取消也要回填 —— 不回填模型会以为自己已经建好了（设计文档 §4） */
   const cancel = useCallback(async () => {
     if (status.kind !== 'awaitingConfirm' || !current) return
     const { request } = status
-    setStatus({ kind: 'thinking' })
+    setStatusFor(current.id, { kind: 'thinking' })
     const outcome = await resumeAgentTurn(
       messages,
       request.callId,
@@ -611,12 +678,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       loopDeps(current),
     )
     await handleOutcome(current, outcome)
-  }, [status, current, messages, loopDeps, handleOutcome])
+  }, [status, current, messages, loopDeps, handleOutcome, setStatusFor])
 
   const stop = useCallback(() => {
-    abortRef.current?.abort()
-    setStatus({ kind: 'idle' })
-  }, [])
+    if (!current) return
+    abortRefs.current.get(current.id)?.abort()
+    setStatusFor(current.id, IDLE_STATUS)
+  }, [current, setStatusFor])
 
   const newSession = useCallback(async () => {
     const saved = await presets.loadAgentDefault()
@@ -815,13 +883,6 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     const merged = [...new Set([...(current.pendingAssetIds ?? []), ...picked])]
     await patchSession({ pendingAssetIds: merged })
   }, [current, selection, store, patchSession, insertMention, nodeLabelOf])
-
-  const saveDefault = useCallback(async () => {
-    if (!current) return
-    await presets.saveAgentDefault({ channelId: current.channelId, model: current.model })
-    setIsDefault(true)
-    setDefaultSaved(true)
-  }, [current, presets])
 
   /**
    * 本会话启用的技能（设计文档 §14 M4）。
@@ -1032,6 +1093,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     const refs = [
       ...parseMentions(draft).filter((m) => m.kind === 'node'),
       ...(current?.pendingAssetIds ?? []).map((id) => ({ kind: 'node' as const, id })),
+      /**
+       * **历史消息里的引用也要取图**：用户消息现在按 chip 渲染（见 `MentionRichText`），
+       * 回看时要能看见当时引用的那张缩略图 —— 只按草稿取图的话，发出去就变回纯图标。
+       */
+      ...messages.flatMap((m) =>
+        parseMentions(m.display ?? m.content).filter((x) => x.kind === 'node'),
+      ),
     ]
     if (refs.length === 0) return
     let alive = true
@@ -1051,17 +1119,22 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     return () => {
       alive = false
     }
-  }, [draft, hashOfNode, platform, current?.pendingAssetIds])
+  }, [draft, hashOfNode, platform, current?.pendingAssetIds, messages])
 
   /**
    * 会话字段 → **正文 chip**（用户 2026-10-02：「我需要全部出现在正文里面，全部保持
    * 和艾特的出现的地方一样」）。
    *
-   * 进一个会话时，把「这次挂着的技能 / 生成模型 / 素材」补成本文里的引用 chip：
-   * 正文是**看得见的记录**，会话行是**真正生效的设置**，两边必须对得上。
+   * 进一个会话时，把「这次挂着的技能 / 素材」补成本文里的引用 chip：
+   * 正文是**看得见的记录**（「这次用它」），会话行是**真正生效的设置**。
    *
    * 两条纪律：① 只在正文还空着的时候补（用户写了一半的那句话不能被冲掉）；
    * ② 每个会话只补一次（发完消息正文会清空，不能把刚发走的那几枚引用又倒回来）。
+   *
+   * ⚠️ **图片 / 视频模型不补**（用户 2026-10-05 第 1 条：「每次打开对话，对话框会有
+   * 两个模型」）：那是**会话设置**（建生成节点时用哪一档），不是这句话要说出去的内容。
+   * 补进正文的副作用是每开一次会话就凭空多两枚 `model` chip，看起来像用户自己写的；
+   * 用户主动点模型时仍然会插 chip（那一次是「我这次要用它」），设置本身也照旧生效。
    */
   const restoredSessionRef = useRef('')
   useEffect(() => {
@@ -1073,8 +1146,6 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       const hit = allSkills.find((s) => s.id === current.skillId)
       tokens.push(mentionToken('skill', current.skillId, hit?.name ?? '技能'))
     }
-    if (current.imageModel) tokens.push(mentionToken('model', current.imageModel, current.imageModel))
-    if (current.videoModel) tokens.push(mentionToken('model', current.videoModel, current.videoModel))
     for (const id of current.pendingAssetIds ?? []) {
       tokens.push(mentionToken('node', id, nodeLabelOf(id)))
     }
@@ -1200,20 +1271,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
               <IconPlus size={16} />
             </button>
             {/*
-              「设为默认模型」放在**头部**、不留在输入区工具条里：
-              它是**会话级的偏好**（决定以后新建会话用哪个模型），不是「这一次
-              要发出去的东西」。用户 2026-10-02 明确要求工具条只留三件事
-              （模型 / 技能 / 参数），把它挪到会话动作那一排最自然。
+              「设为默认模型」**整个撤掉**（用户 2026-10-05 第 9 条：「agent 最上方的
+              默认按钮目前是没有用的，删掉」）。
+
+              它做的事（把当前模型写进 `agentDefault` 供**以后新建**会话用）用户看不出来
+              —— 建好的会话不跟着变、当前会话也不变，按下去像没反应，正是「点了没用」的
+              那种按钮。存量偏好仍然沿读路径生效（`loadAgentDefault`，新建会话时用它）。
             */}
-            <button
-              type="button"
-              className={styles.iconBtn}
-              onClick={() => void saveDefault()}
-              title={isDefault ? '已是默认模型' : '把这个模型设为以后新建会话的默认值'}
-              data-agent-set-default
-            >
-              {defaultSaved ? <IconCheck size={16} /> : <IconSettings size={16} />}
-            </button>
             <button
               type="button"
               className={styles.iconBtn}
@@ -1257,7 +1321,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           if (item.kind === 'user') {
             return (
               <div key={i} className={styles.msgUser} data-agent-message="user">
-                {item.text}
+                {/* 引用 chip 要**长得和输入框里一样**（用户 2026-10-05 第 5 条） */}
+                <MentionRichText text={item.text} thumbOf={thumbOf} />
               </div>
             )
           }

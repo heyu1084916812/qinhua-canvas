@@ -99,19 +99,27 @@ export const PRESET_VIDEO_MODELS: readonly PresetModel[] = [
  * 上面那三组里的任何厂商（把 Agnes 的 ID 塞进 `GPT-6 Astra`、`Nano Banana 2`
  * 这类别家显示名里是错的——面板写着 A、实际发 B）。所以给它**自己的显示名**。
  *
- * **对话改两个 Flash**（用户 2026-10-03：「免费的对话模型当前有两个，分别是 2.0flash
- * 和 3.0flash，所以前端你需要改成这两个，当前是 2.5pro」）：
- *   - 对话 → `agnes-2.0-flash`、`agnes-3.0-flash`（按用户指定；`agnes-2.5-pro` 属于
- *     按 Pro 系列刊例价计费的那档，已从前端清单撤下）
- *     ⚠️ **口径待复核**：官方 *pricing* 页当前把 `agnes-2.5-flash` 与 `agnes-3.0-flash`
- *     列为 `$0`，而 `agnes-2.0-flash` 那一页标题写着 **Deprecated**（「新接入请用
- *     `agnes-2.5-flash`」）。两者对不上，先按用户指令上；若 2.0 实际计费或下线，
- *     把这一行换成 `Agnes 2.5 Flash`（`agnes-2.5-flash`）即可，其余不用动。
+ * **对话两个 Flash**：用户 2026-10-03 先按「2.0flash + 3.0flash」上，2026-10-05 第 4 条
+ * 又明确「agnes 的对话模型前端**不是 2.0flash 了，是 2.5flash**」：
+ *   - 对话 → **`agnes-2.5-flash`**、`agnes-3.0-flash`（`agnes-2.5-pro` 属于按 Pro 系列
+ *     刊例价计费的那档，早已从前端清单撤下）。这一版与官方 *pricing* 页对齐：它把
+ *     `agnes-2.5-flash` / `agnes-3.0-flash` 列为 `$0`，而 `agnes-2.0-flash` 那页标着
+ *     **Deprecated**（「新接入请用 `agnes-2.5-flash`」）—— 上一版「按用户指令先上 2.0」
+ *     记的那条待复核，至此结掉。
+ *   - **旧写法留成别名**（`Agnes 2.0 Flash` / `agnes-2.0-flash`）：老会话里存过的逻辑名、
+ *     老映射表里配过的键、渠道自己上报的 ID，都会被 `presetIdForUpstream` 归一成新显示名
+ *     —— 不这么做它们会以「另一个模型」的身份漏回下拉（#121 报过的形态）。
  *   - 生图 → `agnes-image-2.5-flash`（官方写明综合超越 2.1 Flash，当前免费）
  *   - 视频 → `agnes-video-v2.0`（三个视频模型里唯一真出过片的）
  */
 export const PRESET_AGNES_MODELS: readonly PresetModel[] = [
-  { id: 'Agnes 2.0 Flash', category: 'chat', vendor: 'agnes', aliases: ['agnes-2.0-flash'] },
+  {
+    id: 'Agnes 2.5 Flash',
+    category: 'chat',
+    vendor: 'agnes',
+    /** 上游 id + **旧显示名**都当别名：老会话 / 老映射 / 渠道上报的旧名字一并归一 */
+    aliases: ['agnes-2.5-flash', 'Agnes 2.0 Flash', 'agnes-2.0-flash'],
+  },
   { id: 'Agnes 3.0 Flash', category: 'chat', vendor: 'agnes', aliases: ['agnes-3.0-flash'] },
   {
     id: 'Agnes Image 2.5 Flash',

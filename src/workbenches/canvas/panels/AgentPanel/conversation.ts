@@ -165,12 +165,27 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
     if (m.role === 'system') continue
 
     if (m.role === 'user') {
-      if (m.content.trim()) out.push({ kind: 'user', text: m.content })
+      /**
+       * 用户那条用**原文**（`display`，保留 chip 标记）渲染：回看时能看见自己引用了谁
+       * （用户 2026-10-05 第 5 条）。没有 `display` 的老消息按 `content` 显示。
+       */
+      const shown = m.display ?? m.content
+      if (shown.trim()) out.push({ kind: 'user', text: shown })
       continue
     }
 
     if (m.role === 'assistant') {
-      if (m.content.trim()) out.push({ kind: 'text', text: m.content })
+      /**
+       * **带工具调用的那一轮不显示正文**（用户 2026-10-05 第 6 条：对话里会冒出
+       * 「画布是空的。用户说继续……」这类中间叙述，用户看不出那是什么）。
+       *
+       * 那一轮的文字是模型**做事过程中的自言自语**（后面紧跟 toolCalls），对用户没有信息量；
+       * 真正要说的话在最后那条**不带工具调用**的收尾回复里。失败原因也不会因此丢 ——
+       * 它由步骤卡（`role:'tool'` 的结果）承担。
+       */
+      if (m.content.trim() && (m.toolCalls?.length ?? 0) === 0) {
+        out.push({ kind: 'text', text: m.content })
+      }
       for (const call of m.toolCalls ?? []) {
         stepAt.set(call.id, out.length)
         out.push({

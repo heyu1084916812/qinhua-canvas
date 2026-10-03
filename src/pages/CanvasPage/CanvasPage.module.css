@@ -17,6 +17,14 @@
    * 但两者必须一致 —— 否则画布留白处会露出另一种底色。
    */
   background: var(--bg-canvas);
+  /**
+   * 对话窗的**外框宽度**（用户 2026-10-05 第 7 条：「助手打开后会把日志的功能按钮遮住」）。
+   *
+   * 原先按 380px 平移按钮，但那是 `AgentPanel.module.css#.panel` 的 `width`，
+   * **不含内距与描边** —— 面板实际占 380 + 16×2 + 2 = 414px，于是「左移一个面板宽度」
+   * 之后按钮仍旧落在面板底下。宽度以面板的 `width` 为准，内距 / 描边在这里补上。
+   */
+  --agent-panel-outer: calc(380px + var(--space-4) * 2 + 2px);
 }
 
 /*
@@ -71,10 +79,10 @@
   background: var(--bg-hover);
 }
 .pageAgentOpen .agentBtn {
-  right: calc(var(--space-3) + 380px + 68px);
+  right: calc(var(--space-3) + var(--agent-panel-outer) + 68px);
 }
 .pageAgentOpen .logBtn {
-  right: calc(var(--space-3) + 380px);
+  right: calc(var(--space-3) + var(--agent-panel-outer));
 }
 
 /* 多标签写入提示（产品文档 §2.4） */

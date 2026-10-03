@@ -234,6 +234,13 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
     },
     async generateImage(request: ImageRunRequest, _signal: AbortSignal): Promise<GeneratedAsset[]> {
       await before()
+      /**
+       * 测试钩子：提示词带「并行测试图」时**慢 800ms** 出图。
+       *
+       * 冒烟靠它量「两条互不依赖的生成是不是真的在同时跑」：串行 ≈1600ms，
+       * 并发 ≈800ms（用户 2026-10-05 第 2 条报的就是这条被串起来跑了）。
+       */
+      if (request.prompt.includes('并行测试图')) await sleep(800)
       const cap = models[0] ?? DEFAULT_MODELS[0]!
       const count = clampCount(cap, typeof request.params.count === 'number' ? request.params.count : 1)
       return Array.from({ length: count }, (_, i) => asset(request, i))
@@ -293,6 +300,42 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
                   args: JSON.stringify({
                     summary: '一份落不了地的计划',
                     nodes: [{ localId: 'x1', type: 'not-a-node', data: {}, order: 0 }],
+                    edges: [],
+                  }),
+                },
+              ],
+            }
+          }
+          /**
+           * 测试钩子：用户话里带「并行」时，给**两个互不依赖**的生成节点（无边）。
+           *
+           * 用来量「一次 runNode([A,B]) 会不会并发跑」（用户 2026-10-05 第 2 条：
+           * 「我并行的要求没有给我实现，应该是同时生成的」）。
+           */
+          if (lastUser.includes('并行')) {
+            return {
+              text: '',
+              finishReason: 'tool_calls',
+              toolCalls: [
+                {
+                  id: 'mock-parallel-plan',
+                  name: 'applyPlan',
+                  args: JSON.stringify({
+                    summary: '两个互不依赖的生成',
+                    nodes: [
+                      {
+                        localId: 'g1',
+                        type: 'generation',
+                        data: { mode: 'image', prompt: '并行测试图 A' },
+                        order: 0,
+                      },
+                      {
+                        localId: 'g2',
+                        type: 'generation',
+                        data: { mode: 'image', prompt: '并行测试图 B' },
+                        order: 0,
+                      },
+                    ],
                     edges: [],
                   }),
                 },
@@ -430,13 +473,18 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
             })
             .find((v) => v !== null && Array.isArray(v.createdNodeIds))
           const ids = (landed?.createdNodeIds as string[] | undefined) ?? []
-          const target = ids.at(-1)
-          if (target) {
+          /**
+           * 「并行」那条要**一次把两个节点都交给 runNode**（它测的就是这条路上会不会
+           * 并发）；其余用例仍只跑最后一个 —— 保持既有断言的字面行为不变。
+           */
+          const lastUser = request.messages.filter((m) => m.role === 'user').at(-1)?.content ?? ''
+          const targets = lastUser.includes('并行') ? ids : ids.slice(-1)
+          if (targets.length > 0) {
             return {
               text: '',
               finishReason: 'tool_calls',
               toolCalls: [
-                { id: 'mock-run', name: 'runNode', args: JSON.stringify({ nodeIds: [target] }) },
+                { id: 'mock-run', name: 'runNode', args: JSON.stringify({ nodeIds: targets }) },
               ],
             }
           }
