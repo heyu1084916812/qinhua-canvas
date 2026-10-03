@@ -665,7 +665,10 @@ describe('CreationPanel · 功能类别切换（图片 / 视频）', () => {
      * 画质 · 清晰度 · 背景 · 比例 · 生成数量。没有规格的模型退回通用档位，
      * 所以这里看到的是「自动 · 自动 · 比例 · 1 张」。
      */
-    expect(html).toContain('自动 · 自动 · 比例 · 1 张')
+    /**
+     * 清晰度那一段的 `auto` 文案是**自适应**（与视频比例那档同词，用户 2026-10-03 图一）。
+     */
+    expect(html).toContain('自动 · 自适应 · 比例 · 1 张')
     expect(html).not.toContain('data-param-chip="size"')
     expect(html).not.toContain('data-param-duration')
   })

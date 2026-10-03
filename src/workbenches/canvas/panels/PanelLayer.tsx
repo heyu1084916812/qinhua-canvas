@@ -555,6 +555,26 @@ function handlePanelEvent(
       patch({ generateAudio: event.generateAudio })
       remember(event.type, event.recipe)
       break
+    /**
+     * Midjourney 独有的风格参数（用户 2026-10-03 图二）。
+     * 事件名与字段同名，落库就是一对一 —— 不做任何换算（面板那边已经收进官方区间）。
+     */
+    case 'setMjStylize':
+      patch({ mjStylize: event.value })
+      remember(event.type, event.recipe)
+      break
+    case 'setMjWeird':
+      patch({ mjWeird: event.value })
+      remember(event.type, event.recipe)
+      break
+    case 'setMjChaos':
+      patch({ mjChaos: event.value })
+      remember(event.type, event.recipe)
+      break
+    case 'setMjPersonalize':
+      patch({ mjPersonalize: event.value })
+      remember(event.type, event.recipe)
+      break
     case 'toggleThumb':
       toggleThumb(event.owner, event.id, node, store)
       break

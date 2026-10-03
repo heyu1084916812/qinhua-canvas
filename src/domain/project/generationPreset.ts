@@ -38,6 +38,11 @@ export const RECIPE_TRACKED_KEYS = [
   'videoMode',
   /** 视频「生成音频」开关 */
   'generateAudio',
+  /** Midjourney 独有的风格参数（图二那份「高级设置」） */
+  'mjStylize',
+  'mjWeird',
+  'mjChaos',
+  'mjPersonalize',
 ] as const
 
 export type RecipeTrackedKey = (typeof RECIPE_TRACKED_KEYS)[number]

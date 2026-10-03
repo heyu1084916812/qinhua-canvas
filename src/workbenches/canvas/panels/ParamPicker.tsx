@@ -38,12 +38,27 @@ export interface ParamSection {
   name: string
   /** 分组标题（多组模式显示；单组模式不显示） */
   label: string
-  variant: 'list' | 'pill' | 'ratioGrid'
+  /**
+   * 形态：
+   * - `list` / `pill` / `ratioGrid`：**一组选项**（`options` 里每一项都能点）；
+   * - `slider`：**一根滑杆**（Midjourney 的风格化程度那类，见 `mjParams.ts`）；
+   * - `text`：**一个输入框**（Midjourney 的个性化风格代码）。
+   *
+   * 后两种没有「选项」，值由 `value` + `onSelect(新值)` 走同一条路 ——
+   * 于是定位 / 翻转 / 点外关闭 / 「同一时刻只开一个」这些行为一个字都不用重写。
+   */
+  variant: 'list' | 'pill' | 'ratioGrid' | 'slider' | 'text'
   options: ParamOption[]
   value: string
   onSelect: (value: string) => void
   /** 展开但这一段一个候选都没有时的说明 */
   emptyHint?: string
+  /** `slider` 形态的取值范围（省略时 0–100、步长 1） */
+  min?: number
+  max?: number
+  step?: number
+  /** `text` 形态的占位文案 */
+  placeholder?: string
   /**
    * `list` 形态「一屏最多几行」：多出来的在这一段内部**滚动**。
    *
@@ -197,7 +212,16 @@ export function ParamPicker(props: ParamPickerProps) {
     },
   ]
   const grouped = Boolean(props.sections)
-  const totalOptions = sections.reduce((n, s) => n + s.options.length, 0)
+  /**
+   * 「这一段有没有内容」的计数。
+   *
+   * 滑杆 / 输入框那两种形态没有 `options`，按选项数算会得 0 ⇒ 浮层显示成
+   * 「没有可选项」。所以它们**各算一项**。
+   */
+  const totalOptions = sections.reduce(
+    (n, s) => n + (s.variant === 'slider' || s.variant === 'text' ? 1 : s.options.length),
+    0,
+  )
   /** 当前值对应的图标（没有就不占位），让 chip 与浮层里的那一行看起来是同一个东西 */
   const currentIcon = props.options?.find((o) => o.value === props.value)?.icon
   const wrapRef = useRef<HTMLSpanElement>(null)
@@ -366,35 +390,68 @@ export function ParamPicker(props: ParamPickerProps) {
                 return (
                   <div key={s.name} className={styles.section} data-param-section={s.name}>
                     <span className={styles.sectionTitle}>{s.label}</span>
-                    <div
-                      className={[VARIANT_CLASS[s.variant], s.maxRows ? styles.scrollBody : '']
-                        .filter(Boolean)
-                        .join(' ')}
-                      style={s.maxRows ? { maxHeight: `${s.maxRows * LIST_ROW_H}px` } : undefined}
-                      {...(s.maxRows ? { 'data-param-scroll': s.name } : {})}
-                    >
-                      {visible.map((o) => (
-                        <ParamOptionButton
-                          key={o.value}
-                          option={o}
-                          variant={s.variant}
-                          value={s.value}
-                          inSection={s.name}
-                          onPick={() => {
-                            s.onSelect(o.value)
-                            /**
-                             * 多组模式**选完不关**：它是一个「参数集合」，用户多半一次要
-                             * 调两三样，每选一格就关掉会逼他重复点开三次。单组模式保持
-                             * 原行为（选完即关），创作面板的手感一点都不变。
-                             *
-                             * 例外是 `closeOnSelect`：引用（@）那种「一次只插一个」的
-                             * 多组菜单要关掉，留着浮层反而挡事。
-                             */
-                            if (props.closeOnSelect) onClose()
-                          }}
+                    {/*
+                      滑杆 / 输入框两种形态**没有「选项」**：它们渲染的是一件控件，
+                      值沿 `value` + `onSelect(新值)` 走同一条路（见 `ParamSection` 的说明）。
+                    */}
+                    {s.variant === 'slider' ? (
+                      <span className={styles.sliderRow}>
+                        <input
+                          type="range"
+                          className={styles.slider}
+                          data-param-slider={s.name}
+                          aria-label={s.label}
+                          min={s.min ?? 0}
+                          max={s.max ?? 100}
+                          step={s.step ?? 1}
+                          value={Number(s.value) || 0}
+                          onChange={(e) => s.onSelect(e.target.value)}
                         />
-                      ))}
-                    </div>
+                        <span className={styles.sliderValue} data-param-slider-value={s.name}>
+                          {s.value}
+                        </span>
+                      </span>
+                    ) : s.variant === 'text' ? (
+                      <input
+                        type="text"
+                        className={styles.textInput}
+                        data-param-text={s.name}
+                        aria-label={s.label}
+                        value={s.value}
+                        placeholder={s.placeholder ?? ''}
+                        onChange={(e) => s.onSelect(e.target.value)}
+                      />
+                    ) : (
+                      <div
+                        className={[VARIANT_CLASS[s.variant], s.maxRows ? styles.scrollBody : '']
+                          .filter(Boolean)
+                          .join(' ')}
+                        style={s.maxRows ? { maxHeight: `${s.maxRows * LIST_ROW_H}px` } : undefined}
+                        {...(s.maxRows ? { 'data-param-scroll': s.name } : {})}
+                      >
+                        {visible.map((o) => (
+                          <ParamOptionButton
+                            key={o.value}
+                            option={o}
+                            variant={s.variant}
+                            value={s.value}
+                            inSection={s.name}
+                            onPick={() => {
+                              s.onSelect(o.value)
+                              /**
+                               * 多组模式**选完不关**：它是一个「参数集合」，用户多半一次要
+                               * 调两三样，每选一格就关掉会逼他重复点开三次。单组模式保持
+                               * 原行为（选完即关），创作面板的手感一点都不变。
+                               *
+                               * 例外是 `closeOnSelect`：引用（@）那种「一次只插一个」的
+                               * 多组菜单要关掉，留着浮层反而挡事。
+                               */
+                              if (props.closeOnSelect) onClose()
+                            }}
+                          />
+                        ))}
+                      </div>
+                    )}
                     {hidden > 0 && (
                       <button
                         type="button"
@@ -431,10 +488,13 @@ export function ParamPicker(props: ParamPickerProps) {
 }
 
 /** 形态 → CSS module 类名。浮层与分组内的那层容器共用同一份映射 */
-const VARIANT_CLASS = {
+const VARIANT_CLASS: Record<ParamSection['variant'], string> = {
   list: styles.list,
   pill: styles.pill,
   ratioGrid: styles.ratioGrid,
+  /** 滑杆 / 输入框不需要额外的布局类，占个位免得映射缺键时炸出 `undefined` 类名 */
+  slider: styles.plainBody,
+  text: styles.plainBody,
 } as const
 
 /**

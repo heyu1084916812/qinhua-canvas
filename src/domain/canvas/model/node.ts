@@ -103,6 +103,18 @@ export interface GenerationData {
    * 面板只负责中文标签。只有声明支持它的模型才摆这一段。
    */
   background?: string
+  /**
+   * **Midjourney 独有的风格参数**（用户 2026-10-03 图二那份「高级设置」）。
+   *
+   * 值域、默认值与「拼成提示词后缀」的规则都在 `domain/canvas/layout/mjParams.ts`
+   * （`--stylize` 0–1000 默认 100、`--weird` 0–3000 默认 0、`--chaos` 0–100 默认 0、
+   * `--p` 个性化代码）。只有 Midjourney 的面板会写这几个字段，
+   * 但**存下来不设限**：换了模型它们只是不参与请求（不静默改写用户数据）。
+   */
+  mjStylize?: number
+  mjWeird?: number
+  mjChaos?: number
+  mjPersonalize?: string
   count?: number
   // 视频模式
   /**

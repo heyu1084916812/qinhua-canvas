@@ -492,6 +492,38 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
     expect(calls[2]!.body).not.toHaveProperty('background')
   })
 
+  /**
+   * ★★ **Midjourney 的「高级设置」拼成提示词后缀**（用户 2026-10-03 图二）。
+   *
+   * MJ 的参数**本来就写在提示词里**（`a cat --stylize 500`），这是它唯一被官方支持的
+   * 传参方式；塞进 JSON 的某个自定义字段没有意义。
+   * 判据同时盯住三件事：拼对了、**默认值不写进去**（否则只是噪音）、
+   * 以及「分辨率 = 自适应」时不发 `size`。
+   */
+  it('★★ Midjourney：高级设置拼成提示词后缀（默认值不写、自适应不发 size）', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    await adapter(calls).generateImage(
+      {
+        ...request([], 1),
+        model: 'midjourney',
+        prompt: '一只猫',
+        params: {
+          count: 1,
+          ratio: '16:9',
+          /** `mj` 由 `nodeSpecs/params.ts` 从节点的四个字段拼出来 */
+          mj: { stylize: 500, weird: 50, chaos: 0, personalize: 'abc' },
+        },
+      },
+      signal,
+    )
+    const body = calls[0]!.body as Record<string, unknown>
+    expect(body.prompt).toBe('一只猫 --stylize 500 --weird 50 --p abc')
+    /** `chaos: 0` 是官方默认值 —— 不写进提示词 */
+    expect(String(body.prompt)).not.toContain('--chaos')
+    /** 「自适应」= 不向渠道指定尺寸 */
+    expect(body).not.toHaveProperty('size')
+  })
+
   it('★ 能力表外的质量档不发（xhigh 只对该模型放行，别家仍是四档）', async () => {
     const calls: { url: string; body: unknown }[] = []
     const a = adapter(calls)

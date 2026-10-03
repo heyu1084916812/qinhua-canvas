@@ -159,6 +159,68 @@
   color: var(--text-2);
 }
 
+/*
+ * `slider` / `text` 两种形态（Midjourney 的「高级设置」用它，见 `mjParams.ts`）。
+ *
+ * 它们不是「一组选项」，而是一件控件 —— 所以没有 `.list` / `.pill` 那套布局，
+ * 只是把整段铺满浮层的内容宽度（与其它段左右边距一致）。
+ */
+.plainBody {
+  display: block;
+  width: 100%;
+}
+
+/** 滑杆行：滑杆吃满剩余宽度，数值贴在右端（`tabular-nums` 让拖动时数字不左右跳） */
+.sliderRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  /* 滑杆的固有宽度只有 120 出头，不兜一个下限的话「高级设置」会缩成一根窄条 */
+  min-width: var(--picker-inner, 316px);
+}
+
+.slider {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.sliderValue {
+  flex: 0 0 auto;
+  min-width: 44px;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: var(--fw-chip);
+  color: var(--text-1);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.textInput {
+  width: 100%;
+  min-width: var(--picker-inner, 316px);
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--stroke);
+  border-radius: calc(var(--radius-control) - 4px);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: 15px;
+}
+
+.textInput::placeholder {
+  color: var(--text-3);
+}
+
+.textInput:focus-visible {
+  outline: none;
+  border-color: var(--stroke-focus);
+}
+
 /** 分组内的形态容器不需要再撑自己的边距（外层已经给过一圈） */
 .grouped .ratioGrid {
   padding: 0;
@@ -227,6 +289,15 @@
 .popup {
   position: absolute;
   left: 50%;
+  /**
+   * **浮层内容的标准宽度**（316px）。
+   *
+   * 多段浮层的宽度是 `max-content` 撑出来的：比例网格（4 × 73 + 3 × 8）正好是 316，
+   * 于是「有比例那一段」的浮层自然是这个宽度。而 Midjourney 的高级设置**没有比例网格**
+   * —— 三根滑杆的固有宽度只有 120 出头，浮层会缩成一根窄条（实测 167px）。
+   * 这里给内容定一个**下限**，两种浮层就一样宽了。
+   */
+  --picker-inner: 316px;
   /* 水平居中于所点参数（§6.8）。必须写在**基类**上：只写在 @keyframes 里的话，
      动画结束后 transform 会回落到 none，浮层左边缘就停在 chip 中线上。 */
   transform: translateX(-50%);

@@ -14,14 +14,19 @@
  *   · 参考图（`image[]`）都支持「公网 URL **或 Data URI Base64**」，2.1 / 2.5 最多 8 张
  *     （文档只对视频写了 8/5 的上限；图片这边给 4，与渠道层 `MAX_IMAGE_INPUTS` 对齐）。
  *
- * 非 Agnes 的固定显示名**只写实测过的**（对账 #118 / #119）：
+ * 非 Agnes 的固定显示名（对账 #118 / #119 / #129）：
  * - **Comfy-gpt 的三个 GPT Image 档**：`size` 必须是 `WxH`（档位字符串会被拒）、
- *   `quality` 认 `auto/low/medium/high/xhigh/max`、画幅 9 档 × 分辨率 `1k`/`2k`（渠道上报）；
- * - **Nano Banana Pro / 2**：只有 prompt 有参数，且必须走 `/chat/completions`（`chat` 方言）。
+ *   `quality` 认 `auto/low/medium/high/xhigh/max`；面板给的是**比例 × 清晰度**，
+ *   发请求时换算成像素（用户 2026-10-03 图一）；
+ * - **Nano Banana Pro / 2**：官方 14 档宽高比 + `image_size`，且必须走
+ *   **Gemini 原生端点**（`/chat/completions` 会把这两个参数吃掉）；
+ * - **Midjourney**（2026-10-03 用户两张参考图）：**只有三段** —— 分辨率（只有「自适应」）、
+ *   比例（七档）、生成数量；它独有的风格参数（`--stylize` 等）在另一枚「高级设置」里，
+ *   见 `mjParams.ts`。⚠️ 它的值域**不是从官网页面上读的**（三个域名都回 403），
+ *   是公开的官方参数表，出处的不确定性写在那份文件里。
  *
- * 剩下的（`Midjourney` 与非 Agnes 视频档）**还没写** —— 用户渠道里没有勾选可测对象，
- * 凭空按官方文档写一套等于把「猜的档位」钉进代码，那正是这个项目反复踩过的坑。
- * 它们仍按渠道上报的能力（`ModelCapability`）渲染。
+ * 认不出来的模型**仍然没有规格**（按渠道上报的能力渲染）—— 凭空按第三方文档写一套
+ * 等于把「猜的档位」钉进代码，那正是这个项目反复踩过的坑。
  */
 export interface ImageParamSpec {
   /**
@@ -66,8 +71,11 @@ export interface ImageParamSpec {
    *   2026-10-03 实测：`1:1 + 2K` → 2048×2048、`21:9 + 2K` → 3168×1344，
    *   与官方尺寸表逐字对上；而同一模型的 chat / images 路径**把这两个参数吃掉了**
    *   （三次请求都回同一张 1408×768）。
+   * - `midjourney`：**Midjourney 自己的那一套** —— 尺寸档在它这里没有意义
+   *   （面板只给一档「自适应」= 不下发），画幅走官方 `--ar`；它真正独有的风格参数
+   *   （`--stylize` / `--weird` / `--chaos` / `--p`）单独一张表，见 `mjParams.ts`。
    */
-  dialect: 'tier' | 'pixel' | 'openai-images' | 'chat' | 'gemini'
+  dialect: 'tier' | 'pixel' | 'openai-images' | 'chat' | 'gemini' | 'midjourney'
 }
 
 /** Agnes 2.1 / 2.5 支持的 8 档画幅（官方尺寸表逐行都在） */
@@ -142,6 +150,15 @@ const OPENAI_IMAGE_TIERS = ['1K', '2K', '4K'] as const
 
 /** 所有图片模型统一的生成数量（用户 2026-10-03：「数量…每个模型统一一下」） */
 const IMAGE_COUNTS = [1, 2, 4] as const
+
+/**
+ * **Midjourney 的比例档** —— 取用户 2026-10-03 图一那份面板里的七个。
+ *
+ * ⚠️ 与官方口径的差别要写明：Midjourney 官方 `--ar` 允许 **1:4 – 4:1** 之间的比例，
+ * 而这七个是参考产品（用户指定要照抄的那一版）摆出来的子集。之所以不按官方全开：
+ * 用户明确说「参考图一改一下」，图一就是这七格；要放开的话改这一个数组即可。
+ */
+const MIDJOURNEY_RATIOS = ['1:1', '9:16', '16:9', '3:4', '4:3', '3:2', '2:3'] as const
 
 export const IMAGE_PARAM_SPECS: Record<string, ImageParamSpec> = {
   'agnes-image-2.0-flash': {
@@ -227,6 +244,29 @@ export const IMAGE_PARAM_SPECS: Record<string, ImageParamSpec> = {
     maxReferenceImages: 0,
     dialect: 'gemini',
   },
+  /**
+   * **Midjourney**（用户 2026-10-03：「mj 的参数好像没有改，参考图一改一下」）。
+   *
+   * 图一那份面板只有三段，这里就照着给三段：
+   *  · **分辨率**只剩一档「自适应」—— Midjourney 没有尺寸档这种参数，
+   *    给「1K/2K/4K」等于摆一排点了没用的格子（`auto` = 不下发任何尺寸字段）；
+   *  · **比例**七档（见 `MIDJOURNEY_RATIOS`）；
+   *  · **生成数量 1 / 2 / 4** —— 按用户 2026-10-03 的另一条要求，
+   *    图片模型的数量**统一**成这一组，不因模型而异。
+   *
+   * 没有 `qualities` / `backgrounds`：那两段是 OpenAI 那几档才有的东西。
+   * 它独有的风格参数（`--stylize` 等）不在这一段里，而是**参数行末尾那枚
+   * 「高级设置」**，见 `mjParams.ts`。
+   */
+  midjourney: {
+    sizes: ['auto'],
+    ratios: MIDJOURNEY_RATIOS,
+    qualities: [],
+    backgrounds: [],
+    counts: IMAGE_COUNTS,
+    maxReferenceImages: 4,
+    dialect: 'midjourney',
+  },
 }
 
 /** 前端显示名 → 上游 ID（只列我们真在用的 Agnes 图片档） */
@@ -239,6 +279,8 @@ const ALIASES: Record<string, string> = {
   'GPT Image 2.5 Sunburst': 'gpt-image-2.5-sunburst',
   'Nano Banana Pro': 'gemini-3-pro-image',
   'Nano Banana 2': 'gemini-3.1-flash-image',
+  /** 前端显示名 → 上游 ID：中转站那边就叫 `midjourney`（小写） */
+  Midjourney: 'midjourney',
 }
 
 /** 按模型名取规格；认不出来返回 `undefined` ⇒ 面板退回「按渠道上报的能力渲染」 */

@@ -18,6 +18,7 @@ import {
   VIDEO_MODE_LABELS,
   type VideoModeId,
 } from '../../../domain/canvas/layout/videoParams'
+import { MJ_PERSONALIZE_MAX, MJ_SLIDERS, mjSettingsOf } from '../../../domain/canvas/layout/mjParams'
 import { imageParamsFor } from '../../../domain/canvas/layout/imageParams'
 import {
   categoryOfLogical,
@@ -68,7 +69,13 @@ export { RATIO_FOLLOW_SOURCE }
  * 未设置即显示「自动」，语义是「交给模型决定」。
  */
 const RESOLUTION_OPTIONS: { value: 'auto' | '1k' | '2k' | '4k'; label: string }[] = [
-  { value: 'auto', label: '自动' },
+  /**
+   * `auto` 的文案是**自适应**（用户 2026-10-03 图一那份面板里就叫「自适应」）。
+   *
+   * 语义与视频的比例那档一致：**不向渠道指定**，交给模型自己定。
+   * 只有「这个模型根本没有尺寸档」时才会看到它（如 Midjourney：只有这一档）。
+   */
+  { value: 'auto', label: '自适应' },
   { value: '1k', label: '1K' },
   { value: '2k', label: '2K' },
   { value: '4k', label: '4K' },
@@ -879,6 +886,66 @@ export function CreationPanel(props: CreationPanelProps) {
   /** 「生成音频」开关：图三/图六有，图八/图十没有 —— 只有声明支持的模型才摆 */
   const showGenerateAudio = videoSpec?.supportsAudio === true
   const generateAudio = data.generateAudio ?? true
+
+  /**
+   * **Midjourney 的「高级设置」**（用户 2026-10-03 图二）。
+   *
+   * 它独有、而且别家都没有的那几档风格参数（`--stylize` / `--weird` / `--chaos` / `--p`）
+   * 不塞进「生成参数」那枚胶囊里，而是**单独一枚 chip 摆在参数行末尾**
+   * （用户原话：「把 mj 的自己独有的参数设置面板做一个，放在参数的后面」）——
+   * 理由也是清楚的：它们是**风格**，不是「这次出几张、什么比例」那种每次都要动的量。
+   */
+  const isMj = !promptMode && imageSpec?.dialect === 'midjourney'
+  const mj = mjSettingsOf({
+    stylize: data.mjStylize,
+    weird: data.mjWeird,
+    chaos: data.mjChaos,
+    personalize: data.mjPersonalize,
+  })
+  /**
+   * 滑杆 → 事件。**事件名必须与节点字段同名**（`setMjStylize` ↔ `mjStylize`）——
+   * 配方记忆那条规则是靠「事件名剥掉 set 就是字段名」认出来的（见 `generationPreset`），
+   * 名字对不上就会「改了参数、新建节点却没记住」。
+   */
+  const onMjSlider = (key: 'stylize' | 'weird' | 'chaos', n: number) => {
+    if (!Number.isFinite(n)) return
+    if (key === 'stylize') {
+      onEvent({ type: 'setMjStylize', value: n, recipe: recipeSnapshot({ mjStylize: n }) })
+    } else if (key === 'weird') {
+      onEvent({ type: 'setMjWeird', value: n, recipe: recipeSnapshot({ mjWeird: n }) })
+    } else {
+      onEvent({ type: 'setMjChaos', value: n, recipe: recipeSnapshot({ mjChaos: n }) })
+    }
+  }
+  const mjSections: ParamSection[] = isMj
+    ? [
+        {
+          name: 'mj-personalize',
+          label: '个性化风格',
+          variant: 'text' as const,
+          options: [],
+          value: mj.personalize,
+          placeholder: `填写你的个性化风格代码（--p，最多 ${MJ_PERSONALIZE_MAX} 字）`,
+          onSelect: (v: string) =>
+            onEvent({
+              type: 'setMjPersonalize',
+              value: v,
+              recipe: recipeSnapshot({ mjPersonalize: v }),
+            }),
+        },
+        ...MJ_SLIDERS.map((spec) => ({
+          name: `mj-${spec.key}`,
+          label: spec.label,
+          variant: 'slider' as const,
+          options: [],
+          min: spec.min,
+          max: spec.max,
+          step: 1,
+          value: String(mj[spec.key]),
+          onSelect: (v: string) => onMjSlider(spec.key, Number(v)),
+        })),
+      ]
+    : []
   /**
    * 切换功能类别时，**节点自己存的**模型是否属于目标类别；不属于就得清掉
    * （否则会把图片模型发给视频渠道）。
@@ -1332,6 +1399,24 @@ export function CreationPanel(props: CreationPanelProps) {
                 onClose={closePicker}
               />
               ) : null
+            )}
+            {/*
+              **Midjourney 的高级设置**（用户 2026-10-03 图二：
+              「把 mj 的自己独有的参数设置面板做一个，放在参数的后面」）。
+
+              位置就在参数那一枚**之后**、生成按钮之前 —— 它是风格，不是每次都要动的量，
+              所以另起一枚而不是塞进「生成参数」胶囊里。
+            */}
+            {isMj && (
+              <ParamPicker
+                name="mj-params"
+                ariaLabel="Midjourney 高级设置"
+                label="高级设置"
+                sections={mjSections}
+                open={openPicker === 'mj-params'}
+                onToggle={() => togglePicker('mj-params')}
+                onClose={closePicker}
+              />
             )}
           </>
         )}

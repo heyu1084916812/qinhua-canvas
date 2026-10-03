@@ -44,8 +44,13 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
     )
   })
 
-  it('非 Agnes 模型**故意没有规格**（参数以渠道上报为准，不凭猜写死）', () => {
-    expect(imageParamsFor('Midjourney')).toBeUndefined()
+  /**
+   * 认不出来的模型**故意没有规格**（参数以渠道上报为准，不凭猜写死）。
+   *
+   * ⚠️ Midjourney 2026-10-03 起**有**规格了（用户：「mj 的参数好像没有改，参考图一改一下」），
+   * 不再是这一档的例子 —— 见本文件末尾那条。
+   */
+  it('认不出来的模型故意没有规格（参数以渠道上报为准，不凭猜写死）', () => {
     expect(imageParamsFor('')).toBeUndefined()
     expect(imageParamsFor('某站的私有图片模型')).toBeUndefined()
   })
@@ -149,5 +154,25 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
     expect(imageParamsFor('gpt-image-2.5-flare')?.qualities).toEqual(
       imageParamsFor('GPT Image 2.5 Flare')?.qualities,
     )
+  })
+
+  /**
+   * ★★ **Midjourney 只有三段**（用户 2026-10-03：「mj 的参数好像没有改，参考图一改一下」）。
+   *
+   * 图一那份面板就是这三段：分辨率（只有「自适应」）/ 比例（七格）/ 生成数量。
+   * 所以这里**没有** `qualities` 与 `backgrounds` —— 那是 OpenAI 那几档才有的东西，
+   * 摆到 MJ 上就是点了没用的死格子。它独有的风格参数走**另一枚「高级设置」**，
+   * 见 `mjParams.test.ts`。
+   */
+  it('★★ Midjourney：三段 —— 分辨率只有自适应 / 比例七档 / 数量 1·2·4，没有画质与背景', () => {
+    for (const name of ['Midjourney', 'midjourney']) {
+      const spec = imageParamsFor(name)
+      expect(spec?.dialect).toBe('midjourney')
+      expect(spec?.sizes).toEqual(['auto'])
+      expect(spec?.ratios).toEqual(['1:1', '9:16', '16:9', '3:4', '4:3', '3:2', '2:3'])
+      expect(spec?.qualities).toEqual([])
+      expect(spec?.backgrounds).toEqual([])
+      expect(spec?.counts).toEqual([1, 2, 4])
+    }
   })
 })

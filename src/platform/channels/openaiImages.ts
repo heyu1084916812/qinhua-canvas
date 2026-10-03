@@ -3,6 +3,7 @@ import { imageInputsOf } from '../../domain/shared/execution/inputs'
 import { imageSizeFromHeader } from '../../domain/shared/imageSize'
 import { imageParamsFor, type ImageParamSpec } from '../../domain/canvas/layout/imageParams'
 import { bytesToBase64 } from './base64'
+import { mjFlags } from '../../domain/canvas/layout/mjParams'
 import type { SafeChannelConfig, NetworkResponse } from '../ports'
 import {
   ChannelError,
@@ -574,7 +575,16 @@ export function createOpenAiImagesAdapter(
      * 否则 `/images/generations`），只是 `size` / `quality` / `n` 按官方规范与能力表来；
      * Agnes 的 `tier` / `pixel` 走下面的「能力表 JSON」分支。
      */
-    const openAiStyle = !spec || spec.dialect === 'openai-images'
+    /**
+     * 「走 OpenAI 那套端点」的三种情况：没有能力表（通用兜底）、`openai-images`（GPT Image）、
+     * 以及 **`midjourney`**。
+     *
+     * MJ 为什么也算这一档：它在面板上只有「分辨率（自适应）/ 比例 / 数量」三段，
+     * 尺寸字段本来就不发，但**参考图那条路必须留着** —— 走 `postSpecGenerations`
+     * 会把连进来的素材整个丢掉（那条分支不读文件）。
+     * 它独有的风格参数不走 JSON 字段，而是**拼成提示词后缀**（见下面的 `mjFlags`）。
+     */
+    const openAiStyle = !spec || spec.dialect === 'openai-images' || spec.dialect === 'midjourney'
     const maxCount = spec ? Math.max(...spec.counts) : Number.POSITIVE_INFINITY
     const count = Math.min(
       maxCount,
@@ -608,11 +618,21 @@ export function createOpenAiImagesAdapter(
       : openAiImageQuality(request.params.quality)
     // 有参考图 → 图生图（multipart）；一张都没有 → 文生图（JSON，与 M6-12 前一致）
     const files = openAiStyle ? await readImageFiles(request) : []
+    /**
+     * Midjourney：把「高级设置」拼成**提示词后缀**（`--stylize 100 --weird 50 …`）。
+     *
+     * MJ 的参数**本来就写在提示词里**，这是它唯一被官方支持的传参方式；
+     * 拼完只在**这一个模型**上生效（见 `mjParams.ts` 的说明与出处的注记）。
+     */
+    const mjSuffix = spec?.dialect === 'midjourney' ? mjFlags(request.params.mj) : ''
+    const outbound: ImageRunRequest = mjSuffix
+      ? { ...request, prompt: `${request.prompt} ${mjSuffix}`.trim() }
+      : request
     const res = !openAiStyle && size
       ? await postSpecGenerations(request, size, spec as ImageParamSpec, await toDataUris(request), signal)
       : files.length > 0
-        ? await postEdits(request, count, sizeForBody, quality, background, files, signal)
-        : await postGenerations(request, count, sizeForBody, quality, background, signal)
+        ? await postEdits(outbound, count, sizeForBody, quality, background, files, signal)
+        : await postGenerations(outbound, count, sizeForBody, quality, background, signal)
 
     if (res.status < 200 || res.status >= 300) {
       /**

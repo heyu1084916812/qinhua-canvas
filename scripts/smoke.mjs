@@ -4762,18 +4762,24 @@ async function g47(browser) {
   await page.waitForURL(/\/canvas\//)
   await sleep(700)
 
-  // ① 画质「自动」档（§6.8）：未设置显示「自动」，不是拿字段名当占位
+  /**
+   * ① 清晰度「自适应」档（§6.8）：未设置显示「自适应」，不是拿字段名当占位。
+   *
+   * ⚠️ 文案 2026-10-03 由「自动」改成「**自适应**」：用户给的 MJ 参考面板（图一）
+   * 里那一档就叫自适应，而语义也确实与视频比例那档的「自适应」一致 ——
+   * **不向渠道指定，交给模型自己定**。同一份档位表（`RESOLUTION_OPTIONS`）全应用共用。
+   */
   const panel = await genPanel(page)
   await configureGenPanel(page, panel, '一只猫')
   const res0 = await paramLabel(panel, 'resolution')
-  /** 胶囊是一行摘要（「比例 · 自动 · 自动 · 1 张」），判据用 includes */
-  rec(g, '画质未设置时显示「自动」', res0.includes('自动'), `label=${res0}`)
+  /** 胶囊是一行摘要（「自动 · 自适应 · 比例 · 1 张」），判据用 includes */
+  rec(g, '清晰度未设置时显示「自适应」', res0.includes('自适应'), `label=${res0}`)
   await pickParam(panel, 'resolution', '2K')
   const res2k = await paramLabel(panel, 'resolution')
   rec(g, '选 2K 后 chip 显示 2K', res2k.includes('2K'), res2k)
-  await pickParam(panel, 'resolution', '自动')
+  await pickParam(panel, 'resolution', '自适应')
   const resAuto = await paramLabel(panel, 'resolution')
-  rec(g, '能选回「自动」（它是档位，不是默认值占位）', resAuto.includes('自动'), resAuto)
+  rec(g, '能选回「自适应」（它是档位，不是默认值占位）', resAuto.includes('自适应'), resAuto)
 
   // ② 先让生成节点真的出一张图——反推要有素材可送
   await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
@@ -13787,6 +13793,149 @@ async function g94(browser) {
 }
 
 /**
+ * G102 Midjourney 的参数面板（用户 2026-10-03：
+ * 「mj 的参数好像没有改，参考图一改一下 …… 参考图二把 mj 的自己独有的参数设置面板
+ * 做一个，放在参数的后面」）
+ *
+ * 两件事各自钉住：
+ *  · **基础参数**照图一：只有三段 —— 分辨率（只有「自适应」）/ 比例（七格）/ 生成数量；
+ *    没有画质与背景（那是 OpenAI 那几档才有的东西，摆到 MJ 上是死格子）；
+ *  · **独有参数**照图二：另起一枚「高级设置」摆在参数**之后**，里面是
+ *    个性化风格（文本框）+ 风格化程度 / 怪异度 / 多样性（三根滑杆）。
+ */
+async function g102(browser) {
+  const g = 'G102 Midjourney 参数面板'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  const panel = await genPanel(page)
+  const pickModel = async (name) => {
+    await panel.locator('[data-param-chip="model"]').click()
+    await sleep(350)
+    await page.locator(`[data-param-popup="model"] button[data-param-option="${name}"]`).first().click()
+    await sleep(500)
+  }
+  const sectionsOf = (popup) =>
+    page.evaluate((name) => {
+      const pop = document.querySelector(`[data-param-popup="${name}"]`)
+      if (!pop) return null
+      return [...pop.querySelectorAll('[data-param-section]')].map((s) => ({
+        name: s.getAttribute('data-param-section'),
+        title: s.querySelector(':scope > span')?.textContent?.trim() ?? '',
+        options: [...s.querySelectorAll('[data-param-option]')].map((o) => o.getAttribute('data-param-option')),
+        slider: (() => {
+          const el = s.querySelector('[data-param-slider]')
+          return el ? { min: el.min, max: el.max, value: el.value } : null
+        })(),
+        text: !!s.querySelector('[data-param-text]'),
+      }))
+    }, popup)
+
+  await pickModel('Midjourney')
+
+  /** ① 「高级设置」这一枚必须摆在参数**之后**（用户原话：「放在参数的后面」） */
+  const chips = await panel
+    .locator('[data-param-chip]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-chip')))
+  rec(
+    g,
+    '★★ 参数行是「模型 → 参数 → 高级设置」，高级设置排在参数之后',
+    JSON.stringify(chips) === JSON.stringify(['model', 'gen-params', 'mj-params']),
+    JSON.stringify(chips),
+  )
+
+  /** ② 基础参数：图一那三段，且**没有**画质 / 背景 */
+  await panel.locator('[data-param-chip="gen-params"]').click()
+  await sleep(450)
+  const basic = await sectionsOf('gen-params')
+  rec(
+    g,
+    '★★ 基础参数只有三段（自适应 / 七档比例 / 1·2·4 张），没有画质与背景',
+    Array.isArray(basic) &&
+      basic.map((s) => s.name).join(',') === 'resolution,ratio,count' &&
+      JSON.stringify(basic[0].options) === JSON.stringify(['auto']) &&
+      basic[0].title === '清晰度' &&
+      JSON.stringify(basic[1].options) ===
+        JSON.stringify(['1:1', '9:16', '16:9', '3:4', '4:3', '3:2', '2:3']) &&
+      JSON.stringify(basic[2].options) === JSON.stringify(['1', '2', '4']),
+    JSON.stringify(basic),
+  )
+  await page.keyboard.press('Escape')
+  await sleep(220)
+
+  /** ③ 高级设置：一个文本框 + 三根滑杆，值域与默认值都要对 */
+  await panel.locator('[data-param-chip="mj-params"]').click()
+  await sleep(450)
+  const adv = await sectionsOf('mj-params')
+  rec(
+    g,
+    '★★ 高级设置 = 个性化风格（文本框）+ 风格化 0–1000/100 + 怪异 0–3000/0 + 多样性 0–100/0',
+    Array.isArray(adv) &&
+      adv.map((s) => s.name).join(',') === 'mj-personalize,mj-stylize,mj-weird,mj-chaos' &&
+      adv[0].text === true &&
+      JSON.stringify(adv[1].slider) === JSON.stringify({ min: '0', max: '1000', value: '100' }) &&
+      JSON.stringify(adv[2].slider) === JSON.stringify({ min: '0', max: '3000', value: '0' }) &&
+      JSON.stringify(adv[3].slider) === JSON.stringify({ min: '0', max: '100', value: '0' }),
+    JSON.stringify(adv),
+  )
+
+  /**
+   * ④ 拖一下滑杆 → 刷新后读回（证明它真的落到节点上，不是只改了内存里的控件）。
+   *
+   * 用**鼠标真拖**（按下 → 移到轨道中点 → 松开）而不是直接改 DOM：
+   * 那才是用户做出来的动作，也才能验到「原生 input 事件 → React onChange → 落库」整条链。
+   * 不断言绝对值（拖到中点未必正好是 500），只断言**拖完之后变了**、
+   * 并且**刷新后还是同一个数**。
+   */
+  const stylize = panel.locator('[data-param-slider="mj-stylize"]')
+  const sbox = await stylize.boundingBox()
+  await page.mouse.move(sbox.x + 4, sbox.y + sbox.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(sbox.x + sbox.width / 2, sbox.y + sbox.height / 2, { steps: 8 })
+  await page.mouse.up()
+  await sleep(400)
+  const afterKeys = await stylize.inputValue()
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(900)
+  const panel2 = await genPanel(page)
+  await panel2.locator('[data-param-chip="mj-params"]').click()
+  await sleep(450)
+  const persisted = await panel2.locator('[data-param-slider="mj-stylize"]').inputValue()
+  rec(
+    g,
+    '★★ 拖动风格化程度后刷新仍读回（真的落库）',
+    afterKeys !== '100' && afterKeys === persisted,
+    `改后=${afterKeys} 刷新后=${persisted}`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(220)
+
+  /** ⑤ 别的模型不该有这枚 chip（它只属于 MJ） */
+  await pickModel('GPT Image 2')
+  const chipsGpt = await panel2
+    .locator('[data-param-chip]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-chip')))
+  rec(
+    g,
+    '★ 换成 GPT Image 2 后没有「高级设置」（那是 MJ 独有的）',
+    !chipsGpt.includes('mj-params'),
+    JSON.stringify(chipsGpt),
+  )
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+/**
  * G100 参数浮层的**高度与滚动**（用户 2026-10-03：
  * 「参数面板里面的内容能完全显示吗？我不想要内容超出边界」）
  *
@@ -15857,7 +16006,7 @@ async function g99(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

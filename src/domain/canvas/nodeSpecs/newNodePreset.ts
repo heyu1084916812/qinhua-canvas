@@ -34,6 +34,10 @@ const PARAM_KEYS = [
   'refMode',
   'videoMode',
   'generateAudio',
+  'mjStylize',
+  'mjWeird',
+  'mjChaos',
+  'mjPersonalize',
 ] as const
 
 /**

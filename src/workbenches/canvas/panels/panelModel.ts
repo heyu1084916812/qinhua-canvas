@@ -127,6 +127,16 @@ export type PanelEvent =
   | { type: 'setVideoMode'; videoMode: string; recipe?: RecipeSnapshot }
   /** 视频「生成音频」开关（图三/图六） */
   | { type: 'setGenerateAudio'; generateAudio: boolean; recipe?: RecipeSnapshot }
+  /**
+   * **Midjourney 独有的风格参数**（用户 2026-10-03 图二那份「高级设置」）。
+   *
+   * ⚠️ 事件名与节点字段**同名**（`setMjStylize` ↔ `mjStylize`）：
+   * 配方记忆就是靠「剥掉 set 前缀即字段名」认出改动的（见 `generationPreset`）。
+   */
+  | { type: 'setMjStylize'; value: number; recipe?: RecipeSnapshot }
+  | { type: 'setMjWeird'; value: number; recipe?: RecipeSnapshot }
+  | { type: 'setMjChaos'; value: number; recipe?: RecipeSnapshot }
+  | { type: 'setMjPersonalize'; value: string; recipe?: RecipeSnapshot }
   | { type: 'toggleThumb'; owner: PanelThumb['owner']; id: string }
   /** 删除节点自身内容（§6.6「节点自身内容 → 删除」）；上游缩略图不可删，只有小眼睛 */
   | { type: 'removeOwnAsset' }

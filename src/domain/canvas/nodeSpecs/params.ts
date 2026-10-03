@@ -1,4 +1,6 @@
 import type { GenerationData } from '../model/node'
+import { imageParamsFor } from '../layout/imageParams'
+import { mjSettingsOf } from '../layout/mjParams'
 
 /**
  * 生成请求的参数集（产品文档 §6.8 第三部分）。
@@ -37,5 +39,22 @@ export function generationParams(data: GenerationData): Record<string, unknown> 
     quality: data.quality ?? null,
     /** 「背景」：同样地，`auto` = 不指定，不下发 */
     background: data.background && data.background !== 'auto' ? data.background : null,
+    /**
+     * **Midjourney 独有的风格参数**（用户 2026-10-03 图二那份「高级设置」）。
+     *
+     * 只在**这个模型就是 Midjourney** 时才带上：那串东西最终会拼成提示词后缀
+     * （`--stylize 100`），发给别家模型只会变成正文里莫名其妙的字样。
+     * 值已经在这里收进官方区间（`mjSettingsOf`），面板与适配器共用同一套默认值。
+     */
+    ...(imageParamsFor(data.model ?? '')?.dialect === 'midjourney'
+      ? {
+          mj: mjSettingsOf({
+            stylize: data.mjStylize,
+            weird: data.mjWeird,
+            chaos: data.mjChaos,
+            personalize: data.mjPersonalize,
+          }),
+        }
+      : {}),
   }
 }
