@@ -1,0 +1,136 @@
+/*
+ * 多选浮层（用户 2026-10-05 第 11 / 12 条，参考图四）。
+ *
+ * 三层各自独立：
+ *  - `.wrap` 只是选区外框的容器（屏幕坐标），**默认不吃事件**；
+ *  - `.box` 是那圈虚线（纯指示，永不接管事件）；
+ *  - `.bar` / `.endpoint` 是真正可点的两处，各自 `pointer-events: auto`。
+ * 少了这条分工，虚线框会把「框内框选 / 点节点」全吃掉。
+ */
+.wrap {
+  position: absolute;
+  z-index: 19;
+  pointer-events: none;
+}
+
+.box {
+  position: absolute;
+  inset: -8px;
+  border: 1px dashed var(--text-3);
+  border-radius: var(--radius-control);
+}
+
+.bar {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  box-sizing: border-box;
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-float);
+  font-family: var(--font-sans);
+  cursor: default;
+  user-select: none;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+
+.btn:hover,
+.btn:focus-visible {
+  background: var(--bg-hover);
+}
+
+.btnIcon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.btnLabel {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* 排列与整理的二级菜单：贴在按钮下方（与右键菜单同一套表面样式） */
+.arrangeMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 132px;
+  padding: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  box-shadow: var(--shadow-float);
+}
+
+.arrangeItem {
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  text-align: left;
+  cursor: pointer;
+}
+
+.arrangeItem:hover {
+  background: var(--bg-hover);
+}
+
+/*
+ * 「共有端点」：左右各一只，落在选区外沿的纵向中点。
+ * 形状照着节点端点那套（小圆 + 描边），hover 时实色 —— 用户一眼看出「可以拖出线」。
+ */
+.endpoint {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
+  padding: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--stroke);
+  border-radius: 50%;
+  background: var(--bg-surface);
+  cursor: crosshair;
+  pointer-events: auto;
+}
+
+.endpoint:hover {
+  background: var(--text-3);
+  border-color: var(--text-3);
+}
+
+.endpointLeft {
+  left: -15px;
+}
+
+.endpointRight {
+  right: -15px;
+}

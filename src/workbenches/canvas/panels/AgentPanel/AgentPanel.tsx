@@ -19,6 +19,7 @@ import {
 } from '../../../../domain/project/modelCatalog'
 import { presetModelsOf } from '../../../../domain/project/modelPresets'
 import { resolveDefaults } from '../../../../features/canvas/createNodeWithDefaults'
+import { subscribeAgentHandoff, takeAgentHandoff } from '../../../../features/canvas/agentHandoff'
 import {
   createAssetNode,
   importAssetFile,
@@ -883,6 +884,43 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     const merged = [...new Set([...(current.pendingAssetIds ?? []), ...picked])]
     await patchSession({ pendingAssetIds: merged })
   }, [current, selection, store, patchSession, insertMention, nodeLabelOf])
+
+  /**
+   * 多选浮层上那枚「添加到 agent」（用户 2026-10-05 第 11 条，参考图四第六个动作）。
+   *
+   * 画布侧与对话窗是**兄弟组件**，两边靠 `agentHandoff` 那个模块级单例交接（说明见
+   * 那个文件）。这里做两件事，顺序不能反：
+   * ① 先把 ids 落进**当前会话**（`pendingAssetIds`）并补成正文 chip —— 与
+   *    `attachSelection` 完全同一条口径，用户看到的就该是同一个东西；
+   * ② 取走即清空（`takeAgentHandoff`），否则每次切会话 / 重渲染都会再收一遍。
+   *
+   * 为什么用 ref 缓冲而不是直接消费：面板刚打开时 `current` 可能还没就绪
+   * （会话是异步读回来的），那一拍消费掉就等于**用户点了按钮却什么都没发生**。
+   * 所以 ids 先进 ref，能落会话了就落（`flushHandoff` 在 `current` 变好之后也会被
+   * 这个 effect 重新跑一次）。
+   */
+  const handoffRef = useRef<string[]>([])
+  const flushHandoff = useCallback(() => {
+    if (!current || handoffRef.current.length === 0) return
+    const exist = new Set(store.getSnapshot().nodes.map((n) => n.id))
+    const picked = handoffRef.current.filter((id) => exist.has(id))
+    handoffRef.current = []
+    if (picked.length === 0) return
+    for (const id of picked) insertMention('node', id, nodeLabelOf(id))
+    void patchSession({
+      pendingAssetIds: [...new Set([...(current.pendingAssetIds ?? []), ...picked])],
+    })
+  }, [current, store, insertMention, nodeLabelOf, patchSession])
+
+  useEffect(() => {
+    const queue = (ids: readonly string[]) => {
+      handoffRef.current = [...new Set([...handoffRef.current, ...ids])]
+      flushHandoff()
+    }
+    /** 面板可能是**后**挂载的（点按钮才打开），先把单例里存着的那批收下 */
+    queue(takeAgentHandoff())
+    return subscribeAgentHandoff(queue)
+  }, [flushHandoff])
 
   /**
    * 本会话启用的技能（设计文档 §14 M4）。

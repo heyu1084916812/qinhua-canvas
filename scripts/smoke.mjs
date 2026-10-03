@@ -16368,7 +16368,358 @@ async function g99(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102]
+// ────────────────────────────────────────────────────────────
+// G103 多选浮层（用户 2026-10-05 第 11 / 12 条，参考图四）：
+// 虚线框 + 上方六枚动作 + 左右两个「共有端点」（拖一次把每个选中节点都连上）
+// ────────────────────────────────────────────────────────────
+async function g103(browser) {
+  const g = 'G103 多选浮层'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+  await resetView(page)
+
+  /**
+   * 再补两个节点：**两个提示词 + 一个生成**才能验「拖一次端点多条线」——
+   * 模板自带的提示词→生成那条边已经在了，若拿它当目标，落点只会多出一条，
+   * 分不清「每个源各连一条」和「只连了被拖的那个」。
+   *
+   * 用**右键菜单在指定的空白点**建，而不是左侧「＋」菜单：后者的落点由
+   * `findFreeRect` 自己挑，实测两个新节点会叠在一起，后面点谁都点不中
+   * （先踩了这个坑：点击被另一个节点的占位层吃掉，30s 超时）。
+   */
+  await page.keyboard.press('Escape')
+  await sleep(250)
+  /** 找**当下**的空白点（每次重算：新节点自己也算障碍物，落点之间还要留够 340px） */
+  const freeSpots = async (count) => {
+    const rects = await page.locator('[data-node-id]').evaluateAll((els) =>
+      els.map((e) => {
+        const r = e.getBoundingClientRect()
+        return { x: r.x, y: r.y, w: r.width, h: r.height }
+      }),
+    )
+    const found = []
+    for (let y = 150; y <= 620 && found.length < count; y += 30) {
+      for (let x = 240; x <= 1000 && found.length < count; x += 30) {
+        /**
+         * 新节点是以落点为**中心**建出来的（约 240×180），所以「离节点 30px」
+         * 不够 —— 那样新节点会压到旁边的节点上，后面点谁都点不中（踩过一次）。
+         * 留出半个节点 + 边距。
+         */
+        const clash = rects.some(
+          (r) => x > r.x - 150 && x < r.x + r.w + 150 && y > r.y - 110 && y < r.y + r.h + 110,
+        )
+        if (clash) continue
+        if (!found.every((s) => Math.hypot(s.x - x, s.y - y) > 340)) continue
+        found.push({ x, y })
+      }
+    }
+    return found
+  }
+  const spots = await freeSpots(2)
+  rec(g, '★ 找到两个空白点放新节点', spots.length === 2, JSON.stringify(spots))
+  const createAt = async (type, spot) => {
+    await page.mouse.click(spot.x, spot.y, { button: 'right' })
+    await sleep(300)
+    await page.locator(`[data-context-menu-item="create:${type}"]`).click()
+    await sleep(450)
+  }
+  for (const [i, type] of ['prompt', 'generation'].entries()) await createAt(type, spots[i])
+  /**
+   * 新建的节点会被自动选中 → 创作面板弹在它下方，而那块面板是**浮层**、
+   * 会吃掉后面的点击（实测：点提示词节点的左上角被它拦下，30s 超时）。
+   * 先 Esc 清掉选中，让面板收起来再开始点选。
+   */
+  await page.keyboard.press('Escape')
+  await sleep(400)
+  rec(
+    g,
+    '新建节点后 Esc 收起创作面板',
+    (await page.locator('[data-creation-panel]').count()) === 0,
+    `panel=${await page.locator('[data-creation-panel]').count()}`,
+  )
+
+  const overlay = page.locator('[data-multi-select]')
+  const bar = page.locator('[data-multi-select-bar]')
+  const box = page.locator('[data-multi-select-box]')
+  const prompts = page.locator('[data-node-type="prompt"]')
+  const gens = page.locator('[data-node-type="generation"]')
+  const edges = () => page.locator('[data-edge]').count()
+
+  /** 连点两个提示词节点 = 多选两个（点一、Shift 点二） */
+  const selectTwo = async () => {
+    await page.keyboard.press('Escape')
+    await sleep(200)
+    await prompts.nth(0).click({ position: { x: 20, y: 20 } })
+    await sleep(250)
+    await page.keyboard.down('Shift')
+    await prompts.nth(1).click({ position: { x: 20, y: 20 } })
+    await page.keyboard.up('Shift')
+    await sleep(350)
+  }
+
+  rec(g, '未多选时没有浮层', (await overlay.count()) === 0, `count=${await overlay.count()}`)
+  await prompts.nth(0).click({ position: { x: 20, y: 20 } })
+  await sleep(300)
+  rec(
+    g,
+    '单选时不出多选浮层（跟随栏的地盘）',
+    (await overlay.count()) === 0 && (await page.locator('[data-node-follow-bar]').count()) === 1,
+    `overlay=${await overlay.count()} 跟随栏=${await page.locator('[data-node-follow-bar]').count()}`,
+  )
+
+  await selectTwo()
+  const selCount = await page
+    .locator('[data-node-id]')
+    .evaluateAll((els) => els.filter((e) => e.className.includes('selected')).length)
+  rec(g, 'Shift+点击加选成两个', selCount >= 2, `selected=${selCount}`)
+  rec(
+    g,
+    '★★ 多选出现浮层：虚线框 + 功能栏 + 左右端点',
+    (await overlay.count()) === 1 &&
+      (await box.count()) === 1 &&
+      (await bar.count()) === 1 &&
+      (await page.locator('[data-multi-endpoint="input"]').count()) === 1 &&
+      (await page.locator('[data-multi-endpoint="output"]').count()) === 1 &&
+      (await page.locator('[data-node-follow-bar]').count()) === 0,
+    `overlay=${await overlay.count()} box=${await box.count()} bar=${await bar.count()}`,
+  )
+
+  const actions = await page
+    .locator('[data-multi-action]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-multi-action')))
+  rec(
+    g,
+    '★★ 功能栏六枚动作齐全（排列整理 / 保存到资产 / 创建副本 / 打组 / 下载 / 添加到 agent）',
+    JSON.stringify(actions) ===
+      JSON.stringify(['arrange', 'library', 'duplicate', 'group', 'download', 'agent']),
+    actions.join(','),
+  )
+
+  /**
+   * 图标同样是**内联 SVG**（与跟随栏同一条口径：字形图标由机器上的字体决定落点）。
+   */
+  const iconAudit = await page.locator('[data-multi-action]').evaluateAll((els) =>
+    els.map((e) => {
+      const icon = e.firstElementChild
+      return {
+        action: e.getAttribute('data-multi-action'),
+        svg: icon ? icon.querySelectorAll('svg').length : 0,
+        text: (icon?.textContent ?? '').trim(),
+      }
+    }),
+  )
+  rec(
+    g,
+    '★ 六枚动作的图标都是内联 SVG（图标位里没有字形）',
+    iconAudit.length === 6 && iconAudit.every((x) => x.svg === 1 && x.text === ''),
+    JSON.stringify(iconAudit),
+  )
+
+  /**
+   * 几何：虚线框**包住整个选区**（不是只框住其中一个节点），
+   * 两个端点落在选区左右外沿的纵向中点。
+   */
+  const boxGeom = await box.boundingBox()
+  const p0 = await prompts.nth(0).boundingBox()
+  const p1 = await prompts.nth(1).boundingBox()
+  const union = {
+    left: Math.min(p0.x, p1.x),
+    top: Math.min(p0.y, p1.y),
+    right: Math.max(p0.x + p0.width, p1.x + p1.width),
+    bottom: Math.max(p0.y + p0.height, p1.y + p1.height),
+  }
+  rec(
+    g,
+    '★★ 虚线框包住整个选区（两个节点都在框内）',
+    !!boxGeom &&
+      boxGeom.x <= union.left + 1 &&
+      boxGeom.y <= union.top + 1 &&
+      boxGeom.x + boxGeom.width >= union.right - 1 &&
+      boxGeom.y + boxGeom.height >= union.bottom - 1,
+    `box=${JSON.stringify(boxGeom)} union=${JSON.stringify(union)}`,
+  )
+  const inEp = await page.locator('[data-multi-endpoint="input"]').boundingBox()
+  const outEp = await page.locator('[data-multi-endpoint="output"]').boundingBox()
+  const mid = boxGeom.y + boxGeom.height / 2
+  rec(
+    g,
+    '★ 左右端点落在选区外沿的纵向中点（左在左外、右在右外）',
+    Math.abs(inEp.y + inEp.height / 2 - mid) <= 2 &&
+      Math.abs(outEp.y + outEp.height / 2 - mid) <= 2 &&
+      inEp.x + inEp.width / 2 < union.left &&
+      outEp.x + outEp.width / 2 > union.right,
+    `mid=${mid.toFixed(1)} in=${(inEp.y + inEp.height / 2).toFixed(1)} out=${(outEp.y + outEp.height / 2).toFixed(1)}`,
+  )
+  await page.screenshot({ path: `${OUT}/120-g103-multi-select.png` })
+
+  /** ① 排列与整理：二级菜单能开、选一项后收起 */
+  await page.locator('[data-multi-action="arrange"]').click()
+  await sleep(300)
+  const arrangeMenu = page.locator('[data-multi-arrange-menu]')
+  rec(g, '★ 排列与整理展开二级菜单', (await arrangeMenu.count()) === 1, `count=${await arrangeMenu.count()}`)
+  await page.locator('[data-multi-arrange="tidy"]').click()
+  await sleep(400)
+  rec(
+    g,
+    '★ 选一项后二级菜单收起',
+    (await page.locator('[data-multi-arrange-menu]').count()) === 0,
+    `count=${await page.locator('[data-multi-arrange-menu]').count()}`,
+  )
+  rec(g, '整理节点不抛异常', pageErrors.length === 0, pageErrors.join(' | '))
+  /** 整理会把节点挪位置，撤销回去 —— 否则后面的点击落点全变（一次整理 = 一个撤销单元） */
+  await page.keyboard.press('Control+z')
+  await sleep(400)
+
+  /** ② 保存到资产：这两个节点没有素材 → 如实提示，不许静默 */
+  await selectTwo()
+  await page.locator('[data-multi-action="library"]').click()
+  await sleep(400)
+  const notice = (await page.locator('[data-canvas-notice]').innerText().catch(() => '')).trim()
+  rec(g, '★ 保存到资产：没有素材时如实提示', notice.includes('素材'), `notice=${notice}`)
+
+  /** ③ 创建副本：选中的**每个**节点各复制一份，且一步撤销 */
+  await selectTwo()
+  const beforeDup = await page.locator('[data-node-id]').count()
+  await page.locator('[data-multi-action="duplicate"]').click()
+  await sleep(500)
+  const afterDup = await page.locator('[data-node-id]').count()
+  rec(g, '★★ 创建副本：选中的每个节点各复制一份', afterDup === beforeDup + 2, `${beforeDup} → ${afterDup}`)
+  await page.keyboard.press('Control+z')
+  await sleep(500)
+  rec(
+    g,
+    '★★ 副本可一步撤销',
+    (await page.locator('[data-node-id]').count()) === beforeDup,
+    `count=${await page.locator('[data-node-id]').count()} 期望=${beforeDup}`,
+  )
+
+  /** ④ 打组：与 Ctrl+G 同一个实现（建组 + 逐个收进去，一步撤销） */
+  await selectTwo()
+  const groupsBefore = await page.locator('[data-node-type="group"]').count()
+  await page.locator('[data-multi-action="group"]').click()
+  await sleep(500)
+  const groupsAfter = await page.locator('[data-node-type="group"]').count()
+  rec(g, '★★ 打组：多选打成一个分组', groupsAfter === groupsBefore + 1, `分组 ${groupsBefore} → ${groupsAfter}`)
+  await page.keyboard.press('Control+z')
+  await sleep(500)
+  rec(
+    g,
+    '★★ 打组可一步撤销（建组与归属一起回退）',
+    (await page.locator('[data-node-type="group"]').count()) === groupsBefore,
+    `撤销后分组=${await page.locator('[data-node-type="group"]').count()}`,
+  )
+
+  /** ⑤ 下载：没有素材的节点点了不许抛异常（有素材那条在 G96） */
+  await selectTwo()
+  await page.locator('[data-multi-action="download"]').click()
+  await sleep(300)
+  rec(g, '★ 下载按钮对无素材节点不抛异常', pageErrors.length === 0, pageErrors.join(' | '))
+
+  /**
+   * ⑥ **左右共有端点**（用户 2026-10-05 第 12 条）：从选区拉一条线落到某个节点，
+   * **每个**选中节点都要连上它 —— 这才是「共有端点」与「节点自己的端点」的区别。
+   *
+   * 判据取**连线数**：两个源 → 一个目标 = 2 条（只连被拖的那个只会 +1）。
+   */
+  await selectTwo()
+  const beforeEdges = await edges()
+  const outGeom = await page.locator('[data-multi-endpoint="output"]').boundingBox()
+  const target = await gens.nth(1).boundingBox()
+  await page.mouse.move(outGeom.x + outGeom.width / 2, outGeom.y + outGeom.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 12 })
+  await sleep(250)
+  rec(
+    g,
+    '★ 从共有端点拖出时出现草稿线',
+    (await page.locator('[data-edge-draft]').count()) === 1,
+    `draft=${await page.locator('[data-edge-draft]').count()}`,
+  )
+  await page.mouse.up()
+  await sleep(500)
+  const afterEdges = await edges()
+  rec(
+    g,
+    '★★ 端点落在目标节点上：每个选中节点各连一条（2 条）',
+    afterEdges === beforeEdges + 2,
+    `${beforeEdges} → ${afterEdges}`,
+  )
+  await page.screenshot({ path: `${OUT}/121-g103-multi-endpoint.png` })
+
+  /**
+   * **左侧端点 = 连上游**（用户 2026-10-05 第 12 条要的正是「左右各一个」）。
+   *
+   * 判据取连线数：现建一个**没连过任何东西**的提示词节点当上游，两个选中的生成节点
+   * 都往它身上连 ⇒ 恰好 +2。这条能同时排除两种退化实现：只连被拖的那个（+1）、
+   * 因为被拖的那个不合法就整次放弃（+0，见 `useEdgeDrag` 里那段注释）。
+   */
+  const idsBefore = await page
+    .locator('[data-node-id]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+  const [upSpot] = await freeSpots(1)
+  await createAt('prompt', upSpot)
+  const upId = (
+    await page
+      .locator('[data-node-id]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+  ).find((id) => !idsBefore.includes(id))
+  rec(g, '★ 另建一个干净的上游提示词节点', !!upId, `id=${upId}`)
+
+  await page.keyboard.press('Escape')
+  await sleep(200)
+  await gens.nth(0).click({ position: { x: 20, y: 60 } })
+  await sleep(250)
+  await page.keyboard.down('Shift')
+  await gens.nth(1).click({ position: { x: 20, y: 60 } })
+  await page.keyboard.up('Shift')
+  await sleep(350)
+  const beforeIn = await edges()
+  const inGeom = await page.locator('[data-multi-endpoint="input"]').boundingBox()
+  const upTarget = await page.locator(`[data-node-id="${upId}"]`).boundingBox()
+  await page.mouse.move(inGeom.x + inGeom.width / 2, inGeom.y + inGeom.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(upTarget.x + upTarget.width / 2, upTarget.y + upTarget.height / 2, { steps: 12 })
+  await page.mouse.up()
+  await sleep(500)
+  const afterIn = await edges()
+  rec(
+    g,
+    '★★ 左端点连上游：每个选中节点各连一条（只连被拖的那个只会 +1）',
+    afterIn === beforeIn + 2,
+    `${beforeIn} → ${afterIn}`,
+  )
+
+  /**
+   * ⑦ 添加到 agent：面板自己弹出来，两个节点落成**正文里的引用 chip**
+   * （与「取选中当素材」同一条口径 —— 用户 2026-10-02 定过：都在正文里）。
+   */
+  await selectTwo()
+  await page.locator('[data-multi-action="agent"]').click()
+  await sleep(900)
+  const chips = page.locator('[data-agent-input] [data-mention-kind="node"]')
+  rec(g, '★★ 添加到 agent：对话窗自己打开', (await page.locator('[data-agent-panel]').count()) === 1)
+  rec(
+    g,
+    '★★ 添加的两个节点落成正文里的引用 chip',
+    (await chips.count()) >= 2,
+    `chips=${await chips.count()}`,
+  )
+  await page.screenshot({ path: `${OUT}/122-g103-multi-agent.png` })
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

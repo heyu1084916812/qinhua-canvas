@@ -104,7 +104,21 @@ export function useEdgeDrag(store: CanvasStore) {
   const containerRef = useRef<HTMLElement | null>(null)
 
   const begin = useCallback(
-    (_e: ReactPointerEvent, nodeId: string, portId: string, container: HTMLElement) => {
+    (
+      _e: ReactPointerEvent,
+      nodeId: string,
+      portId: string,
+      container: HTMLElement,
+      /**
+       * **同一条线要连的其它源节点**（用户 2026-10-05 第 12 条：多选虚线框左右两边的
+       * 「共有端点」——拖一次，把**每个**选中节点都连到同一个目标上）。
+       *
+       * 为什么不在这里自己循环画 N 条草稿线：草稿只画一条（视觉上就是「从选区拉出一根
+       * 线」），落点判定与合法性校验沿用既有的 `checkConnect`（同一份 `canConnect` 规则），
+       * 只是成功之后**对每个源各发一条 `edge.connect`**。
+       */
+      also?: readonly string[],
+    ) => {
       const graph = store.getSnapshot()
       const node = graph.nodes.find((n) => n.id === nodeId)
       if (!node) return
@@ -174,16 +188,40 @@ export function useEdgeDrag(store: CanvasStore) {
           store.setLinkMenu(ev.clientX - worldRect.x, ev.clientY - worldRect.y, nodeId, side, portId)
           return
         }
-        const check = checkConnect(store, nodeId, decl, hovered, to)
-        if (!check.ok) return
-        const wired = check.ports
-        store.dispatch({
-          kind: 'edge.connect',
-          source: wired.source,
-          target: wired.target,
-          sourcePort: wired.sourcePort,
-          targetPort: wired.targetPort,
-        })
+        /**
+         * 选区的「共有端点」：**逐个独立判定**，谁合法连谁。
+         *
+         * 不能写成「被拖的那个不合法就整次放弃」—— 多选里第一个节点常常已经连过
+         * 同一个上游 / 下游（模板自带的那条线就是这么来的），那样整次拖拽会**静默失效**：
+         * 草稿线画了、松手什么都没多（G103 实测踩到：连线数 3 → 3）。
+         */
+        const seen = new Set<string>()
+        const wired: WiredPorts[] = []
+        for (const id of [nodeId, ...(also ?? [])]) {
+          if (seen.has(id)) continue
+          seen.add(id)
+          const source = store.getSnapshot().nodes.find((n) => n.id === id)
+          if (!source) continue
+          const sourceDecl =
+            id === nodeId
+              ? decl
+              : portDeclOf(
+                  getSpec(source.type)?.ports ?? { input: false, output: false },
+                  portId,
+                )
+          if (!sourceDecl) continue
+          const result = checkConnect(store, id, sourceDecl, hovered, to)
+          if (result.ok) wired.push(result.ports)
+        }
+        for (const w of wired) {
+          store.dispatch({
+            kind: 'edge.connect',
+            source: w.source,
+            target: w.target,
+            sourcePort: w.sourcePort,
+            targetPort: w.targetPort,
+          })
+        }
       }
 
       window.addEventListener('pointermove', move)

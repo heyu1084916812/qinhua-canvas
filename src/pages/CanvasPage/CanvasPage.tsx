@@ -23,6 +23,7 @@ import { assetNodeSize } from '../../domain/canvas/layout/assetNodeSize'
 import { createNodeWithDefaults } from '../../features/canvas/createNodeWithDefaults'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
 import { createAssetNode, importAssetFile, isImportableMedia } from '../../features/canvas/importAsset'
+import { subscribeAgentHandoff } from '../../features/canvas/agentHandoff'
 import { seedTemplate, type TemplateId } from '../../state/project/templates'
 import type { NodeSnapshot, NodeType } from '../../domain/canvas/model/node'
 import type { Edge } from '../../domain/canvas/model/edge'
@@ -76,6 +77,14 @@ function CanvasProject({ projectId }: { projectId: string }) {
   }
   const store = storeRef.current
   const channels = useChannels()
+
+  /**
+   * 「画布多选 → 添加到 agent 作为素材」（用户 2026-10-05 第 11 条第六个动作）。
+   *
+   * 这一层只负责**把对话窗打开**；ids 由对话窗自己取走（见 `agentHandoff` 的说明）——
+   * 两件事分开，用户点按钮时面板一定会弹出来，而收素材那一步不会因为面板没挂载而丢。
+   */
+  useEffect(() => subscribeAgentHandoff(() => setAgentOpen(true)), [])
 
   // 从 IndexedDB 读回图数据（demo 不需要）；读回后若是模板新建的项目，套用模板预置节点
   useEffect(() => {

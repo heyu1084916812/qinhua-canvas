@@ -26,6 +26,7 @@ import { NodeLayer } from '../layers/NodeLayer'
 import { OverlayLayer } from '../layers/OverlayLayer'
 import { PanelLayer } from '../panels/PanelLayer'
 import { NodeFollowBar } from '../toolbar/NodeFollowBar'
+import { MultiSelectBar } from '../toolbar/MultiSelectBar'
 import { CanvasNotice } from './CanvasNotice'
 import { UndoBar } from './UndoBar'
 import { Minimap } from './Minimap'
@@ -114,9 +115,9 @@ export function CanvasSurface({
   // 端点在节点层内按下，拖线草稿在连线层绘制：这里把 begin 下发给节点层。
   // useCallback 保证引用稳定 → memo(NodeLayer) 在平移帧不被父级重渲打断
   const beginEdgeDrag = useCallback(
-    (e: ReactPointerEvent, nodeId: string, portId: string) => {
+    (e: ReactPointerEvent, nodeId: string, portId: string, also?: readonly string[]) => {
       if (!ref.current) return
-      edgeDragBegin(e, nodeId, portId, ref.current)
+      edgeDragBegin(e, nodeId, portId, ref.current, also)
     },
     [edgeDragBegin],
   )
@@ -544,6 +545,12 @@ const onPointerDown = (e: ReactPointerEvent) => {
       </div>
       <OverlayLayer marquee={marquee} />
       <NodeFollowBar onOpenSettings={onOpenSettings} onDownload={handleDownload} />
+      {/*
+        多选浮层（用户 2026-10-05 第 11 / 12 条）：虚线框 + 六键功能栏 + 左右共有端点。
+        它与单选跟随栏**互斥**（跟随栏只在 `selection.length === 1` 时渲染），两者可以
+        并排挂着、各管各的可见条件。
+      */}
+      <MultiSelectBar onDownload={handleDownload} onStartLink={beginEdgeDrag} />
       <PanelLayer onOpenSettings={onOpenSettings} onOpenSkills={onOpenSkills} />
       <ContextMenu />
       <LinkMenu />
