@@ -214,41 +214,48 @@ export function normalizeAgentPlan(raw: unknown): { plan: unknown; notes: string
   }
 
   /**
-   * **正文写错字段名 → 搬回来**（用户 2026-10-04：「提示词节点连接两个生图节点，
-   * 整体的流程是对的，**但是没有提示词**」）。
+   * **模型自己起的键名 → 我们的键名**：只在**我们的键为空 / 缺失**时搬，搬完删掉旧键。
    *
-   * 真机数据实证（从应用 IndexedDB 里解出来的原始记录）：模型建了一个 `prompt` 节点，
-   * 结构完全正确，但正文落在 **`data.prompt`** 上 —— 而提示词节点读的是 **`data.text`**。
-   * 于是画布上那个框是空的、两个下游生成节点也拿不到词，整条链跑不出图。
+   * 两次真机事故都是这一条（原始记录都从应用 IndexedDB 里解出来核过）：
+   * ① 提示词节点的正文落在 **`data.prompt`**，而它读 `data.text`
+   *    （用户 2026-10-04：「提示词节点连接两个生图节点，整体的流程是对的，但是没有提示词」）；
+   * ② 比例落在 **`data.aspectRatio`**，而它读 **`data.ratio`** —— 这一条更隐蔽：
+   *    `ratio` 因此是空的，**默认配方**（上一次生成留下的值）就把它填成 9:16，
+   *    于是用户明明说了 1:1，出图却是竖版 1152×2048
+   *    （用户 2026-10-04：「自检没有通过，比例不是按照我的要求」）。
    *
-   * 字段名在语义上**唯一确定**（提示词节点没有 `prompt` 字段，生成节点没有 `text`
-   * 字段），所以这里确定性地搬一次；搬完在 `notes` 里记一句。
+   * 为什么不只写进提示词：这两次的原始计划里，模型**确实**把用户的话听进去了
+   * （`aspectRatio: "1:1"`、正文一字不差），只是**键名按它自己的习惯起**。
+   * 字段名在语义上唯一确定，所以归一化里确定性地搬一次，并记进 `notes`。
    */
-  const TEXT_FIELD_FIX: Record<string, { from: string; to: string }> = {
-    prompt: { from: 'prompt', to: 'text' },
-    generation: { from: 'text', to: 'prompt' },
-    batch: { from: 'text', to: 'prompt' },
-    group: { from: 'text', to: 'prompt' },
+  const FIELD_ALIASES: Record<string, Record<string, readonly string[]>> = {
+    prompt: { text: ['prompt'] },
+    generation: { prompt: ['text'], ratio: ['aspectRatio', 'aspect_ratio', 'aspect'] },
+    batch: { prompt: ['text'], ratio: ['aspectRatio', 'aspect_ratio', 'aspect'] },
+    group: { prompt: ['text'], ratio: ['aspectRatio', 'aspect_ratio', 'aspect'] },
   }
   let movedFields = 0
   for (const n of nodes) {
     if (!n || typeof n !== 'object') continue
     const row = n as Record<string, unknown>
-    const rule = typeof row.type === 'string' ? TEXT_FIELD_FIX[row.type] : undefined
-    if (!rule) continue
+    const rules = typeof row.type === 'string' ? FIELD_ALIASES[row.type] : undefined
+    if (!rules) continue
     const data = row.data
     if (!data || typeof data !== 'object' || Array.isArray(data)) continue
     const d = data as Record<string, unknown>
-    const from = d[rule.from]
-    const to = d[rule.to]
-    if (typeof from !== 'string' || !from.trim()) continue
-    if (typeof to === 'string' && to.trim()) continue
-    d[rule.to] = from
-    delete d[rule.from]
-    movedFields += 1
+    for (const [to, froms] of Object.entries(rules)) {
+      const own = d[to]
+      if (typeof own === 'string' && own.trim()) continue
+      /** 同一个目标只认**第一个**有值的别名：两个都存在时它们本来也该是一致的 */
+      const hit = froms.find((from) => typeof d[from] === 'string' && (d[from] as string).trim())
+      if (!hit) continue
+      d[to] = d[hit]
+      delete d[hit]
+      movedFields += 1
+    }
   }
   if (movedFields > 0) {
-    notes.push(`${movedFields} 个节点的提示词写错了字段名，已搬回正文该在的位置`)
+    notes.push(`${movedFields} 个字段用了模型自己的键名（如 aspectRatio），已按画布的字段名归一`)
   }
 
   /**

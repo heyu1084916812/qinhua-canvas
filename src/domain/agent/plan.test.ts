@@ -477,15 +477,16 @@ describe('normalizeAgentPlan · 单步生成折成一个生成节点', () => {
 })
 
 /**
- * **正文写错字段名**（用户 2026-10-04 的真实事故：「他给我的是一个提示词节点连接
- * 两个生图节点，整体的流程是对的，但是没有提示词」）。
+ * **模型自己起的键名**（用户 2026-10-04 的两次真实事故）。
  *
- * 从应用 IndexedDB 里解出来的原始记录实证：提示词节点的正文落在 `data.prompt`，
- * 而提示词节点读的是 `data.text` —— 结构全对、正文落空，画布上就是个空框。
- * 字段名在语义上唯一确定（提示词节点没有 `prompt` 字段，生成节点没有 `text` 字段），
- * 所以由归一化确定性地搬一次。
+ * 两处的原始计划/记录都是从应用 IndexedDB 里解出来核过的：
+ * ① 正文落在 `data.prompt`（提示词节点读 `data.text`）——「结构全对，但是没有提示词」；
+ * ② 比例落在 `data.aspectRatio`（画布读 `data.ratio`）—— ratio 于是落回默认配方，
+ *    用户说了 1:1，出图却是 9:16 的竖版。
+ *
+ * 两处键名在语义上都唯一确定，所以由归一化确定性地搬一次。
  */
-describe('normalizeAgentPlan · 正文写错字段名', () => {
+describe('normalizeAgentPlan · 模型自己起的键名', () => {
   it('★★ 提示词节点的正文落在 data.prompt 上 → 搬回 data.text（真机事故原样）', () => {
     const { plan: out, notes } = normalizeAgentPlan({
       summary: 's',
@@ -535,6 +536,67 @@ describe('normalizeAgentPlan · 正文写错字段名', () => {
     if (!checked.ok) return
     expect(checked.plan.nodes[0]!.data.text).toBe('正主')
     expect(checked.plan.nodes[0]!.data.prompt).toBe('副本')
+  })
+
+  it('★★ 比例落在 data.aspectRatio 上 → 搬进 data.ratio（否则退回默认配方，出竖版）', () => {
+    const { plan: out, notes } = normalizeAgentPlan({
+      summary: 's',
+      nodes: [
+        {
+          localId: 'g1',
+          type: 'generation',
+          data: { mode: 'image', prompt: '插画绝世美女', aspectRatio: '1:1', resolution: '2k' },
+          order: 0,
+        },
+      ],
+      edges: [],
+    })
+    const checked = validateAgentPlan(out)
+    expect(checked.ok).toBe(true)
+    if (!checked.ok) return
+    const d = checked.plan.nodes[0]!.data
+    expect(d.ratio).toBe('1:1')
+    /** 同一个意思不许留两个键：错键留着，下一次合并又会跟它对不上 */
+    expect('aspectRatio' in d).toBe(false)
+    expect(notes.join()).toContain('键名')
+  })
+
+  it('★ snake_case 的 aspect_ratio 也认（不同模型的叫法不一样）', () => {
+    const { plan: out } = normalizeAgentPlan({
+      summary: 's',
+      nodes: [
+        {
+          localId: 'g1',
+          type: 'generation',
+          data: { mode: 'image', prompt: '猫', aspect_ratio: '16:9' },
+          order: 0,
+        },
+      ],
+      edges: [],
+    })
+    const checked = validateAgentPlan(out)
+    expect(checked.ok).toBe(true)
+    if (!checked.ok) return
+    expect(checked.plan.nodes[0]!.data.ratio).toBe('16:9')
+  })
+
+  it('★ 画布字段已经有值 → 别名一个字都不动（计划自己写的以计划为准）', () => {
+    const { plan: out } = normalizeAgentPlan({
+      summary: 's',
+      nodes: [
+        {
+          localId: 'g1',
+          type: 'generation',
+          data: { mode: 'image', prompt: '猫', ratio: '9:16', aspectRatio: '1:1' },
+          order: 0,
+        },
+      ],
+      edges: [],
+    })
+    const checked = validateAgentPlan(out)
+    expect(checked.ok).toBe(true)
+    if (!checked.ok) return
+    expect(checked.plan.nodes[0]!.data.ratio).toBe('9:16')
   })
 })
 

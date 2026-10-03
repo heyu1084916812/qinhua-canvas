@@ -2981,3 +2981,24 @@ Midjourney 的高级设置需要「一根滑杆」和「一个文本框」，而
   把整张图框进视口；
 - 另一条同时踩到的坑：提示词节点的 `textarea[data-prompt-inline-input]` **只在编辑态存在**
   （§6.7 两态语义），非编辑态渲染的是正文 —— 拿 textarea 当判据会永远读到空。
+
+### ★★ 「模型听懂了，键名猜错了」是一类 bug，不是两次意外（2026-10-04）
+
+同一天连着两起，形状一模一样，**都是键名**：
+
+1. 提示词节点的正文落在 `data.prompt`（画布读 `data.text`）⇒ 画布上是个空框；
+2. 比例落在 `data.aspectRatio`（画布读 `data.ratio`）⇒ `ratio` 为空 ⇒ **默认配方**
+   （上一次生成留下的 9:16）把它填上 ⇒ 用户说了 1:1、出图 1152×2048。
+
+第 2 起更阴：**坏的是「没写的那一项」**，而不是写错的那一项 —— 你不去比对默认值，
+根本看不出 9:16 是从哪儿冒出来的。两起的共同修法：
+
+- **词表报出真实键名**（正文键 + 生成参数键，后者从 `GENERATION_PARAM_KEYS` 现取）；
+- **归一化把常见别名搬回正位**（`prompt→text`、`aspectRatio/aspect_ratio→ratio`），
+  只在正主为空时搬，搬完删掉别名 —— 留着一个同义键，下次合并还会跟正主打架。
+
+**怎么拿到「原始计划」当证据**：`applyPlan` 的 tool 调用参数（`args`）会跟着会话消息
+落进 IndexedDB，`scripts/probe-agent-plan.mjs applyPlan <ctx>` 就能把它解出来。
+这一次解出来的原文是
+`{"data":{"aspectRatio":"1:1","model":"GPT Image 2.5 Sunburst","prompt":"…1:1 比例，2K 画质","resolution":"2k"},…}`
+—— 「模型到底写了什么」一目了然，不用再猜它是不是没听懂。

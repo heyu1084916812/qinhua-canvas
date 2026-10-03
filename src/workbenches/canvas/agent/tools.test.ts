@@ -442,4 +442,46 @@ describe('planProblems · 跑不起来的生成节点', () => {
     expect(nodes.filter((n) => n.type === 'generation')).toHaveLength(2)
     expect(store.getSnapshot().edges).toHaveLength(2)
   })
+
+  /**
+   * ★★ 参数键名写错的那一条：**用户说的比例不能被默认配方盖掉**。
+   *
+   * 真机原始计划里模型写的是 `aspectRatio: "1:1"`（画布读 `data.ratio`），
+   * 于是 `ratio` 落回上一层——默认配方里上一次生成留下的 9:16 ⇒ 出图 1152×2048。
+   */
+  it('★★ 比例写在 aspectRatio 上：落地后按用户说的走，不被默认配方盖掉', async () => {
+    const { store } = setup()
+    const ctx: AgentToolContext = {
+      store,
+      origin: { x: 0, y: 0 },
+      runNodes: vi.fn(async () => []),
+      /** 默认配方 = 上一次生成留下的 9:16 */
+      defaultsForNewNode: vi.fn(async () => ({
+        generation: { channelId: 'ch-1', model: 'm1', ratio: '9:16', count: 1 },
+      })),
+    } as unknown as AgentToolContext
+
+    const r = (await executeConfirmedTool(
+      'applyPlan',
+      {
+        summary: '插画绝世美女（1:1、2K）',
+        nodes: [
+          {
+            localId: 'g1',
+            type: 'generation',
+            data: { mode: 'image', prompt: '插画绝世美女', aspectRatio: '1:1', resolution: '2k' },
+            order: 0,
+          },
+        ],
+        edges: [],
+      },
+      ctx,
+    )) as { ok: boolean }
+
+    expect(r.ok).toBe(true)
+    const d = store.getSnapshot().nodes[0]!.data as Record<string, unknown>
+    expect(d.ratio).toBe('1:1')
+    expect(d.resolution).toBe('2k')
+    expect('aspectRatio' in d).toBe(false)
+  })
 })

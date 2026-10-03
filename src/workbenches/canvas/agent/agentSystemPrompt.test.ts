@@ -51,6 +51,22 @@ describe('画布词表', () => {
     expect(vocab).toContain('正文写在 data.text')
     expect(vocab).toContain('正文写在 data.prompt')
   })
+
+  /**
+   * 用户 2026-10-04 第二次事故：「自检没有通过，比例不是按照我的要求」——
+   * 原始计划里模型写的是 `aspectRatio: "1:1"`，而画布读 `data.ratio`，
+   * 于是比例落回默认配方（9:16），出图 1152×2048。
+   *
+   * 根因是**生成参数的键名从来没进过词表**（它们不在 `createDefaultData()` 里），
+   * 模型只能按自己的习惯起名。词表得把白名单里的键逐个报出来。
+   */
+  it('★★ 生成参数的键名也要报出来，并点名「比例是 data.ratio」', () => {
+    const vocab = buildCanvasVocabulary()
+    expect(vocab).toContain('生成参数')
+    expect(vocab).toContain('ratio')
+    expect(vocab).toContain('resolution')
+    expect(vocab).toContain('aspectRatio')
+  })
 })
 
 describe('本次现状', () => {

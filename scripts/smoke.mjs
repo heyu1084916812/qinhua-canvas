@@ -15559,6 +15559,38 @@ async function g95(browser) {
     `确认卡=${promptlessConfirm} 文案=${promptlessStep.slice(0, 40)}`,
   )
 
+  /**
+   * ★★ **比例写在别名键上也要按用户说的来**（用户 2026-10-04：「自检没有通过，
+   * 比例不是按照我的要求」，出图 1152×2048）。
+   *
+   * 真机原始计划里模型写的是 `aspectRatio: "1:1"`，而画布读 `data.ratio` ——
+   * 于是 `ratio` 落回**默认配方**（上一次生成留下的 9:16），用户说的比例被静默丢掉。
+   *
+   * 判据取**创作面板那枚参数胶囊里显示的比例**：那正是用户读数的地方。
+   */
+  await page.locator('[data-agent-new]').click()
+  await sleep(600)
+  await page.locator('[data-agent-input]').fill('比例别名')
+  await page.locator('[data-agent-send]').click()
+  await sleep(2200)
+  await resetView(page)
+  const ratioNode = page
+    .locator('[data-node-type="generation"]', { hasText: '比例别名测试图' })
+    .first()
+  const ratioPanel = await genPanel(page, ratioNode)
+  const ratioChip = (
+    (await ratioPanel
+      .locator('[data-param-chip="gen-params"]')
+      .innerText()
+      .catch(() => '')) ?? ''
+  ).replace(/\s+/g, ' ')
+  rec(
+    g,
+    '★★ 比例写在 aspectRatio 上也要按用户说的来（不退回默认配方）',
+    ratioChip.includes('3:4'),
+    `参数胶囊=「${ratioChip}」`,
+  )
+
   await page.locator('[data-agent-close]').click()
   await sleep(400)
   rec(g, '★ 能收起，收起后入口还在', (await panel.count()) === 0)

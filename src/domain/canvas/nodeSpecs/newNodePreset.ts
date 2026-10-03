@@ -23,7 +23,7 @@ const GENERATING: ReadonlySet<NodeType> = new Set<NodeType>(['generation', 'batc
  * （比如将来有人往 params 里塞东西），展开就会把**上一张图的内容**带进新节点。
  * 内容不继承是这条规则的硬边界，故用白名单把它钉死。
  */
-const PARAM_KEYS = [
+export const GENERATION_PARAM_KEYS = [
   'ratio',
   'resolution',
   'quality',
@@ -62,7 +62,7 @@ export function newGeneratingNodeData(
   const spec = getSpec(type)
   const base = (spec?.createDefaultData?.() ?? {}) as Record<string, unknown>
   const params: Record<string, unknown> = {}
-  for (const k of PARAM_KEYS) {
+  for (const k of GENERATION_PARAM_KEYS) {
     const v = recipe.params?.[k]
     if (v !== undefined && v !== null) params[k] = v
   }

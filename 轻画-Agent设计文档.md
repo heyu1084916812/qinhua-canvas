@@ -128,6 +128,23 @@ interface AgentPlan {
    或是个 attach 过来的既有节点，都算「拿得到」）—— 因为这种节点按定义**永远跑不起来**：
    `toRunRequest` 在提示词为空时直接返回 null，点多少次都不会发请求。
 
+**参数的键名也只有一套**（用户 2026-10-04 第二次报：「自检没有通过，比例不是按照我的
+要求」，出图 1152×2048）。真机原始计划里模型写的是 **`aspectRatio: "1:1"`**，而画布读
+**`data.ratio`** —— 这个键我们不认，`ratio` 于是落回**默认配方**（上一次生成留下的 9:16）。
+值得记一笔的是：模型**确实把用户的话听进去了**（提示词里就写着「1:1 比例，2K 画质」），
+它只是按自己的习惯给参数起了名。两处收口：
+
+1. **词表把生成参数的键名逐个报出来**（`ratio / resolution / quality / background / count /
+   size / durationSec / refMode / videoMode / generateAudio / mj*`，从「写进节点数据的
+   白名单」`nodeSpecs/newNodePreset.ts#GENERATION_PARAM_KEYS` 现取，不写第二份名单），
+   并点名「比例写 `data.ratio`，**不是** `aspectRatio`」；硬规则里再重复一遍；
+2. **归一化里把别名搬进正位**：`aspectRatio` / `aspect_ratio` / `aspect` → `data.ratio`
+   （只在 `ratio` 为空时搬，搬完删掉别名键）—— 与正文那条共用一张别名表，机制只有一套。
+
+> 一句话：**模型听懂了、键名猜错了**，这类事故的共同修法是「词表报出真实键名」+
+> 「归一化把常见别名搬回正位」。判据始终是**真机数据**（`scripts/probe-agent-plan.mjs`
+> 能从应用 IndexedDB 里把计划的原始参数解出来），不是猜。
+
 ## 4. Agent 循环（一轮对话到底发生什么）
 
 ```

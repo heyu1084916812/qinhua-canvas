@@ -1,4 +1,5 @@
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
+import { GENERATION_PARAM_KEYS } from '../../../domain/canvas/nodeSpecs/newNodePreset'
 import { allSpecs } from '../../../domain/canvas/nodeSpecs/registry'
 import type { GraphSummary } from './tools'
 
@@ -50,6 +51,9 @@ const IDENTITY_AND_RULES = [
    */
   '- 节点正文的**字段名不能写错**：提示词节点写 `data.text`，生成 / 批量 / 分组节点写',
   '  `data.prompt`。写错不会报错，但画布上那个框是空的、生成节点也跑不出图。',
+  '- 生成参数也用**画布的键名**：比例是 `data.ratio`（**不是** `aspectRatio`）、清晰度',
+  '  `data.resolution`、画质 `data.quality`、数量 `data.count` —— 自己起名等于没写，',
+  '  参数会悄悄退回默认值（用户说了 1:1 却出 9:16，就是这么来的）。',
   '- 想复用画布上已有的节点（比如用户先放好的素材图），用 attach 指过去，不要重复建。',
   '',
   '## 硬规则',
@@ -114,6 +118,20 @@ export function buildCanvasVocabulary(): string {
     if (keys.length > 0) lines.push(`  data 字段：${keys.join(' · ')}`)
     const textKey = textFieldOf(data)
     if (textKey) lines.push(`  正文写在 data.${textKey}`)
+    /**
+     * **生成参数也住在 `data` 里**，但它们的键**不在 `createDefaultData()` 里**
+     * （那些是「这一张怎么生成」的可选设置，由创作面板 / 配方补）——
+     * 于是词表原先一个字都没提，模型只能按自己的习惯起名：真机上两次都把比例写成
+     * `aspectRatio`（用户 2026-10-04：「比例不是按照我的要求」，出图 1152×2048）。
+     *
+     * 键名从 `GENERATION_PARAM_KEYS`（写进节点数据的**白名单**，与新建节点同源）现取，
+     * 再加一句最容易被猜错的：比例是 `ratio`。
+     */
+    if (spec.type === 'generation' || spec.type === 'batch' || spec.type === 'group') {
+      lines.push(`  生成参数（同样写在 data 里，键名照抄）：${GENERATION_PARAM_KEYS.join(' · ')}`)
+      lines.push('  比例写 data.ratio —— 不要写成 aspectRatio / aspect_ratio，那个键我们不读，')
+      lines.push('  比例会退回默认值（用户明明说了 1:1，出图却是 9:16，就是这么来的）。')
+    }
   }
   return lines.join('\n')
 }

@@ -300,6 +300,38 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
             }
           }
           /**
+           * 测试钩子：用户话里带「比例别名」时，把比例写在 **`aspectRatio`** 上
+           * （画布读的是 `data.ratio`）。
+           *
+           * 复刻用户 2026-10-04 的第二次事故（真机原始计划里就是这个形状）：
+           * 参数键名写错 ⇒ `ratio` 落回**默认配方**（上一次生成留下的值）⇒
+           * 用户说了 1:1，出图却是竖版。
+           */
+          if (lastUser.includes('比例别名')) {
+            return {
+              text: '',
+              finishReason: 'tool_calls',
+              toolCalls: [
+                {
+                  id: 'mock-ratio-alias-plan',
+                  name: 'applyPlan',
+                  args: JSON.stringify({
+                    summary: '比例写在别名键上的计划',
+                    nodes: [
+                      {
+                        localId: 'g1',
+                        type: 'generation',
+                        data: { mode: 'image', prompt: '比例别名测试图', aspectRatio: '3:4' },
+                        order: 0,
+                      },
+                    ],
+                    edges: [],
+                  }),
+                },
+              ],
+            }
+          }
+          /**
            * 测试钩子：用户话里带「字段写错」时，给一份**结构对、正文落错字段**的计划。
            *
            * 复刻用户 2026-10-04 的真实事故（真机 IndexedDB 里解出来的记录）：
