@@ -286,6 +286,11 @@ export function ParamPicker(props: ParamPickerProps) {
           data-param-popup={name}
           data-param-variant={grouped ? 'grouped' : sections[0]!.variant}
           data-param-placement={below ? 'below' : 'above'}
+          /*
+           * 「这块自己吃滚轮」（见 `features/shared/wheelTarget`）：浮层开着的时候
+           * 滚轮不该穿到底下的画布去缩放 —— 哪怕这个菜单当前没得滚。
+           */
+          data-wheel-owner="1"
           role="listbox"
           aria-label={ariaLabel}
         >

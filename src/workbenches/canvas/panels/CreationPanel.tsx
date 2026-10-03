@@ -1125,6 +1125,13 @@ export function CreationPanel(props: CreationPanelProps) {
             disabled={false}
         />
 
+        {/*
+          「模型」与后面那串参数是**两件事**：前者决定这次发给谁，后者决定怎么发。
+          六个 chip 平铺时它们看起来是同一类东西 —— 一条竖线就把这句话说明白了
+          （与「技能 / 优化 / 翻译」那组用的是同一个做法，见 `.toolGroup::before`）。
+        */}
+        {!promptMode && <span className={styles.paramDivider} data-param-divider aria-hidden="true" />}
+
        {!promptMode && (
           <>
             {videoMode ? (

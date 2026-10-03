@@ -92,11 +92,19 @@
 .grouped {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  /**
+   * 段与段之间留够缝（用户 2026-10-03：「有点太挤了」）。
+   *
+   * 8 → 12：面板整体挂着 `zoom: 0.75`，屏幕上只有 9px —— 这是**视觉分组的唯一线索**
+   * （两段之间既没有分割线也没有底色差），给少了看起来就是一大堆挤在一起的胶囊。
+   */
+  gap: var(--space-3);
   width: max-content;
-  max-width: 280px;
-  max-height: 440px;
+  max-width: 300px;
+  max-height: 420px;
   overflow-y: auto;
+  /* 滚到头之后不再把滚轮传给外面（否则又会去缩放画布） */
+  overscroll-behavior: contain;
 }
 
 .section {
@@ -106,7 +114,7 @@
 }
 
 .sectionTitle {
-  padding: 0 var(--space-1);
+  padding: 0 var(--space-1) 2px;
   font-family: var(--font-sans);
   font-size: var(--fs-chip);
   font-weight: var(--fw-title);
@@ -129,6 +137,7 @@
  */
 .grouped .scrollBody {
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /*
@@ -185,7 +194,14 @@
   transform: translateX(-50%);
   z-index: 30;
   box-sizing: border-box;
-  padding: var(--space-1);
+  /**
+   * 内距 4 → 12（用户 2026-10-03：「距离边界的位置要适合，当前不适合」）。
+   *
+   * 4px 是当初按「浮层是 chip 的延伸」定的，但浮层里装的是**一整排选项**：
+   * 段标题与格子紧贴描边，看着像被裁掉了一圈。屏幕上（×0.75）现在是 9px，
+   * 与创作面板的 12px 内距仍在同一档观感里。
+   */
+  padding: var(--space-3);
   background: var(--bg-surface);
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
@@ -219,9 +235,10 @@
   flex-direction: column;
   width: max-content;
   min-width: 96px;
-  max-width: 280px;
-  max-height: 440px;
+  max-width: 300px;
+  max-height: 420px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .row {
@@ -229,13 +246,17 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  height: 44px;
+  height: 46px;
   padding: 0 14px;
   border: none;
   border-radius: calc(var(--radius-control) - 4px);
   background: transparent;
   font-family: var(--font-sans);
-  font-size: 15px;
+  /**
+   * 行文字 15 → 16：面板挂 `zoom: 0.75`，16px 在屏幕上才 12px ——
+   * 15px 只有 11.25px，比正文还小，读起来发虚（用户 2026-10-03：「挤」）。
+   */
+  font-size: 16px;
   font-weight: 500;
   color: var(--text-1);
   text-align: left;
@@ -303,19 +324,26 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: var(--space-1);
+  gap: 6px;
   width: max-content;
-  max-width: 280px;
+  max-width: 300px;
 }
 
 .cap {
-  height: 30px;
+  /**
+   * 档位胶囊（画质 / 数量）：高 30 → 32、字号 12 → 15。
+   *
+   * 用户 2026-10-03：「可能是英文都是一个大小的原因」—— 指的正是这里：
+   * 段标题与档位文字原先**同为 12px**，谁主谁次全靠猜。现在标题留在 12px（弱），
+   * 档位文字提到 15px（强），层级一眼分得开。
+   */
+  height: 32px;
   padding: 0 14px;
   border: 1px solid var(--stroke);
   border-radius: var(--radius-pill);
   background: transparent;
   font-family: var(--font-sans);
-  font-size: var(--fs-chip);
+  font-size: 15px;
   font-weight: var(--fw-chip);
   color: var(--text-1);
   cursor: pointer;
@@ -345,9 +373,9 @@
  */
 .ratioGrid {
   display: grid;
-  grid-template-columns: repeat(3, 64px);
-  gap: var(--space-1);
-  padding: var(--space-2);
+  grid-template-columns: repeat(3, 72px);
+  gap: var(--space-2);
+  padding: var(--space-1);
   width: max-content;
 }
 
@@ -356,8 +384,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 58px;
+  gap: 8px;
+  height: 64px;
   padding: 0;
   border: 1px solid transparent;
   border-radius: calc(var(--radius-control) - 4px);
@@ -391,7 +419,8 @@
 
 .ratioText {
   font-family: var(--font-sans);
-  font-size: var(--fs-chip);
+  /** 比例数字 12 → 14：与档位胶囊（15）同一档，都比段标题（12）醒目 */
+  font-size: 14px;
   font-weight: var(--fw-chip);
   line-height: 1;
 }

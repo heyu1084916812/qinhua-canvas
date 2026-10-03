@@ -22,6 +22,20 @@ import { hasRunnableDownstream } from '../../../features/canvas/execution/loopRu
 /** 面板与节点底边的间距 */
 const PANEL_GAP = 12
 
+/**
+ * 创作面板的缩放（`.panel` 的 `zoom`）。
+ *
+ * **这是唯一来源**：值通过 `--panel-zoom` 挂到锚点上，由 `CreationPanel.module.css`
+ * 的 `zoom: var(--panel-zoom)` 消费 —— 于是「可用高度」那边做单位换算时
+ * 拿到的一定是同一个数，不会出现两处各写 0.75 然后某天只改了一处。
+ *
+ * 为什么需要它：`zoom` 会把面板内部的**长度单位一起缩小**，而下面算出来的
+ * `availableHeight` 是**屏幕像素**。不换算的话给面板 256px 的预算只会渲染成 192px
+ * （浪费三成空间），而 `min-height: 360px` 又大于这个预算 ⇒ 面板被顶出视口底部，
+ * 参数行与生成按钮直接看不见（用户 2026-10-03 报的「距边界的位置不合适」正是这个）。
+ */
+const PANEL_ZOOM = 0.75
+
 /** 出现创作参数面板的节点类型（§6.1「单选提示词 / 生成 / 分组 / 批量节点时出现」） */
 const PANEL_TYPES = new Set<NodeSnapshot['type']>(['prompt', 'generation', 'group', 'batch'])
 
@@ -173,7 +187,12 @@ export function PanelLayer({
         top: screenY,
         transform: 'translateX(-50%)',
         zIndex: 20,
-        ['--panel-available-h' as string]: `${availableHeight}px`,
+        ['--panel-zoom' as string]: String(PANEL_ZOOM),
+        /**
+         * ⚠️ 换算成**面板内部**的长度单位（屏幕像素 ÷ 缩放）。
+         * 见 `PANEL_ZOOM` 的说明：不换算就等于把预算打了七五折。
+         */
+        ['--panel-available-h' as string]: `${availableHeight / PANEL_ZOOM}px`,
       }}
       data-panel-anchor={selectedNode.id}
     >

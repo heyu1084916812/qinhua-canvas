@@ -1213,14 +1213,34 @@ async function g9(browser) {
    *
    * `zoom: 0.75` 是等比缩放，缩放前后比例不变，故直接量**渲染尺寸**即可：
    * 840 ÷ (21/9) = 360（未缩放）⇒ 渲染 630 × 270。容差 0.02 吸收亚像素取整。
+   *
+   * ⚠️ 2026-10-03 起这条比例**有前提**（用户报「距离边界的位置要适合，当前不适合」）：
+   * 面板挂在节点下方，可用高度 = 视口高 − 锚点位置 − 底部留白。
+   * **空间够** → 仍然是 840×360（渲染 630×270，正好 21:9）；
+   * **空间不够** → 老实收到可用高度（实测 256px），宁可矮一点，
+   * 也不能像以前那样让 `min-height: 360px` 把底部那一行（参数 + 生成按钮）顶出屏幕。
+   * 判据因此写成「高度 = min(360, 可用高度)」这一条**更准的规则**，再要求它落在视口内。
    */
   const panelBox = await panel.boundingBox()
   const panelRatio = panelBox ? panelBox.width / panelBox.height : NaN
+  const availLocal = await page
+    .locator('[data-panel-anchor]')
+    .evaluate((el) => parseFloat(getComputedStyle(el).getPropertyValue('--panel-available-h')))
+  const viewportSize9 = page.viewportSize()
+  /** 渲染高度 = min(360, 可用高度) × zoom(0.75) —— 可用高度是**面板内部单位** */
+  const expectHeight = Math.min(360, availLocal) * 0.75
+  const heightOk = !!panelBox && Math.abs(panelBox.height - expectHeight) <= 2
+  const insideViewport = !!panelBox && panelBox.y + panelBox.height <= viewportSize9.height + 1
   rec(
     g,
-    '★ 创作面板长宽比 = 21:9（宽度保持、高度加高）',
-    Number.isFinite(panelRatio) && Math.abs(panelRatio - 21 / 9) < 0.02,
-    panelBox ? `${Math.round(panelBox.width)}×${Math.round(panelBox.height)} 比例=${panelRatio.toFixed(3)}` : 'null',
+    '★ 创作面板高度 = min(21:9 的 360px, 可用高度)，且完整落在视口内',
+    Number.isFinite(panelRatio) &&
+      Math.abs(panelBox.width - 630) <= 2 &&
+      heightOk &&
+      insideViewport,
+    panelBox
+      ? `${Math.round(panelBox.width)}×${Math.round(panelBox.height)} 比例=${panelRatio.toFixed(3)} 可用=${Math.round(availLocal)} 期望高=${Math.round(expectHeight)} 底=${Math.round(panelBox.y + panelBox.height)}/${viewportSize9.height}`
+      : 'null',
   )
 
   // 3) 生成节点选 渠道 + 模型 + 提示词（用 data 属性而非 CSS module 哈希类名）
@@ -4453,6 +4473,80 @@ async function g46(browser) {
       (await panel.locator('[data-param-chip="gen-params"]').count()) === 1 &&
       (await panel.locator('[data-param-chip="ratio"]').count()) === 0,
     `段=${paramSectionNames.join(',')}`,
+  )
+
+  /**
+   * ★★ **滚轮落在参数浮层里：滚的是浮层，不是画布**（用户 2026-10-03：
+   * 「面板如果有多余的地方的话用滚轮无法下拉，而是缩放画布了」）。
+   *
+   * 根因：画布的滚轮监听器**无条件** `preventDefault()` —— 那恰好取消了
+   * 「滚到最近的滚动容器」这个默认行为，于是浮层里放不下的选项一个都滚不动，
+   * 画布反倒缩放了。
+   *
+   * 判据必须**同时看两个数**（`scrollTop` 变了 **且** 缩放读数没变）——
+   * 只看一个都可能假通过：浮层没滚、画布也没滚，看起来「没毛病」。
+   */
+  const zoomBefore = (await page.locator('[data-canvas-zoom]').innerText()).trim()
+  const popupBox = await panel.locator('[data-param-popup="gen-params"]').boundingBox()
+  await page.mouse.move(popupBox.x + popupBox.width / 2, popupBox.y + popupBox.height / 2)
+  await page.mouse.wheel(0, 240)
+  await sleep(320)
+  const popupScrolled = await panel
+    .locator('[data-param-popup="gen-params"]')
+    .evaluate((el) => Math.round(el.scrollTop))
+  const zoomAfter = (await page.locator('[data-canvas-zoom]').innerText()).trim()
+  rec(
+    g,
+    '★★ 滚轮在参数浮层里滚的是浮层，画布不缩放',
+    popupScrolled > 0 && zoomAfter === zoomBefore,
+    `scrollTop=${popupScrolled} zoom=${zoomBefore}→${zoomAfter}`,
+  )
+
+  /**
+   * ★★ 浮层的**内距 / 段间距 / 字号层级**（用户 2026-10-03：
+   * 「有点太挤了，距离边界的位置要适合……可能是英文都是一个大小的原因」）。
+   *
+   * 三个数都是设计值（面板挂着 `zoom`，算出来的也是缩放前的值）：
+   * 内距 12、段间距 12、档位文字至少比段标题大 2px。最后一条是**层级**的判据 ——
+   * 原先两者同为 12px，谁主谁次只能靠猜。
+   */
+  const popupMetrics = await panel.locator('[data-param-popup="gen-params"]').evaluate((el) => {
+    const cs = getComputedStyle(el)
+    const section = el.querySelector('[data-param-section="quality"]')
+    const title = section?.querySelector(':scope > span')
+    const option = section?.querySelector('button')
+    return {
+      padding: parseFloat(cs.paddingTop),
+      gap: parseFloat(cs.rowGap),
+      overscroll: cs.overscrollBehaviorY,
+      titleFont: title ? parseFloat(getComputedStyle(title).fontSize) : 0,
+      optionFont: option ? parseFloat(getComputedStyle(option).fontSize) : 0,
+    }
+  })
+  rec(
+    g,
+    '★★ 浮层内距 12 / 段间距 12，且档位文字明显大于段标题（不再是一个大小）',
+    popupMetrics.padding === 12 &&
+      popupMetrics.gap === 12 &&
+      popupMetrics.overscroll === 'contain' &&
+      popupMetrics.optionFont >= popupMetrics.titleFont + 2,
+    `内距=${popupMetrics.padding} 段距=${popupMetrics.gap} 标题=${popupMetrics.titleFont}px 档位=${popupMetrics.optionFont}px overscroll=${popupMetrics.overscroll}`,
+  )
+
+  /**
+   * ★★ 面板**完整落在视口里**（用户 2026-10-03：「距离边界的位置要适合，当前不适合」）。
+   *
+   * 根因是 `min-height: 360px` 无条件生效，而 `--panel-available-h` 可能比它小 ⇒
+   * 面板照样长到 360px、底部那一行（参数 + 生成按钮）被顶出屏幕，
+   * 用户既看不到也点不到。现在 `min-height` 取两者较小值。
+   */
+  const panelBox = await panel.boundingBox()
+  const viewportSize = page.viewportSize()
+  rec(
+    g,
+    '★★ 面板完整落在视口内（底部不越界）',
+    panelBox.y + panelBox.height <= viewportSize.height + 1,
+    `面板底=${Math.round(panelBox.y + panelBox.height)} 视口=${viewportSize.height}`,
   )
   await page.keyboard.press('Escape')
   await sleep(150)

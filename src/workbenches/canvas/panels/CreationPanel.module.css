@@ -15,7 +15,8 @@
    * 0.5 是 2026-09-16 定的「整体缩半」，实测偏小、参数 chip 有些挤；放大到 0.75 后
    * 仍是「比原始尺寸小一档」，但字号与点击区回到可用区间。
    */
-  zoom: 0.75;
+  /* 缩放值由 PanelLayer 注入（唯一来源，见那里的 PANEL_ZOOM）；兜底 0.75 只给 SSR / 单测 */
+  zoom: var(--panel-zoom, 0.75);
   width: 840px;
   /*
    * 高度**跟着内容走**（用户 2026-09-24 第 1 条）。
@@ -32,7 +33,14 @@
    * aspect-ratio 会顺着窄屏把高度一起缩掉，反而丢掉「保持长度」的语义。
    * 上界交给外层（面板是绝对定位的浮层，画布可视高度由它自己的计算约束）。
    */
-  min-height: 360px;
+  /*
+   * ⚠️ 下限**不能**是无条件的 360px（用户 2026-10-03 报的「距边界的位置不合适」）：
+   * 面板挂在节点下方、靠近屏幕底部时，`--panel-available-h` 会比 360 小，
+   * 而 `min-height` 优先于 `max-height` ⇒ 面板照样长到 360px、**底部（参数行与生成按钮）
+   * 被顶出视口**，用户连点生成都点不到。
+   * 现在取两者较小值：空间够 → 仍是原来那块大面板；空间不够 → 老实收下来。
+   */
+  min-height: min(360px, var(--panel-available-h, 480px));
   /**
    * 总高度**上限**（用户 2026-09-24 第 1 条的现实约束）。
    *
@@ -572,6 +580,8 @@
    * 既没用、又占着文本框右下角最碍事的那一格。故直接禁掉。
    */
   resize: none;
+  /* 滚到头之后不再把滚轮传给外面（画布就在下面，穿过去会变成缩放） */
+  overscroll-behavior: contain;
   border: none;
   outline: none;
   background: transparent;
@@ -695,7 +705,28 @@
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
+  /*
+   * 换行后的行距比列距大一档（用户 2026-10-03：「有点太挤了」）。
+   *
+   * 列距仍是 8：同一行的 chip 靠在一起是「一组参数」的直观表达；
+   * 而折到第二行时如果还是 8，两行会糊成一片 —— 12 让「换行了」看得出来。
+   */
+  column-gap: var(--space-2);
+  row-gap: var(--space-3);
+}
+
+/*
+ * 参数行里的**分组竖线**（用户 2026-09-24 定下的做法，与 `.toolGroup::before` 同一套）。
+ *
+ * 「模型」与后面那一串参数是两件事：前者决定这次发给谁，后者决定怎么发。
+ * 六个 chip 平铺时它们看起来是同一类东西 —— 一条竖线就把这句话说明白了，
+ * 也让整行不再是一堵密不透风的墙（用户 2026-10-03：「有点太挤了」）。
+ */
+.paramDivider {
+  flex: none;
+  width: 1px;
+  height: 22px;
+  background: var(--stroke);
 }
 
 /*
@@ -753,14 +784,15 @@
 
 .durationNum {
   width: 44px;
-  height: 26px;
+  height: 30px;
   box-sizing: border-box;
   padding: 0 var(--space-1);
   border: 1px solid var(--stroke);
   border-radius: calc(var(--radius-control) - 4px);
   background: var(--bg-surface);
   font-family: var(--font-sans);
-  font-size: var(--fs-chip);
+  /** 时长是**值**，要和 chip 上的其它值同一档（原来 12px 在屏幕上只有 9px） */
+  font-size: 15px;
   font-weight: var(--fw-chip);
   color: var(--text-1);
   text-align: center;
@@ -772,7 +804,7 @@
 }
 
 .durationUnit {
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   font-weight: var(--fw-chip);
   color: var(--text-2);
 }

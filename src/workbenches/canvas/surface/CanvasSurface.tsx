@@ -9,6 +9,7 @@ import { useViewport } from '../../../features/canvas/useViewport'
 import { useEdgeDrag } from '../../../features/canvas/useEdgeDrag'
 import { useClipboardHotkeys, rememberPointer } from '../../../features/canvas/useClipboard'
 import { isTextEntryElement, isActivationTarget } from '../../../features/shared/textTarget'
+import { wheelBelongsToChain, wheelChainOf } from '../../../features/shared/wheelTarget'
 import { coalescePointerMove } from '../../../shared/rafThrottle'
 import { screenToWorld, toWorldRect } from '../../../domain/canvas/geometry/coords'
 import {
@@ -271,6 +272,20 @@ export function CanvasSurface({
     const onWheel = (e: WheelEvent) => {
       // 指针位于节点 / 面板文本框内时，滚轮归文本框处理（§6.3）
       if (isTextEntryElement(e.target as { tagName?: string } | null)) return
+      /**
+       * **可滚动区域优先**（用户 2026-10-03：「面板如果有多余的地方的话用滚轮无法下拉，
+       * 而是缩放画布了」）。
+       *
+       * 参数浮层里那列选项放不下时是 `overflow-y: auto`，而本监听器无条件
+       * `preventDefault()` —— 那恰好取消了「滚到最近的滚动容器」这个默认行为，
+       * 于是**选项一个都滚不动、画布反倒缩放了**。
+       *
+       * 判据走 `wheelTarget`（纯函数 + 单测）：祖先链上**真能滚**才让路，
+       * 装得下的 `auto` 容器不让（否则画布缩放会莫名其妙地失灵）；
+       * 参数浮层这种菜单用 `data-wheel-owner` 声明「我吃滚轮」，
+       * 哪怕它当前没得滚也不把事件穿给画布。
+       */
+      if (wheelBelongsToChain(wheelChainOf(e.target, el))) return
       e.preventDefault()
       vp.onWheel(e, rectOf())
     }
