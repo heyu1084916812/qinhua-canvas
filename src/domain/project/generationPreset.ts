@@ -28,10 +28,16 @@ export const RECIPE_TRACKED_KEYS = [
   'ratio',
   'resolution',
   'quality',
+  /** 图片「背景」（图一）：`auto` / `opaque` / `transparent` */
+  'background',
   'count',
   'size',
   'durationSec',
   'refMode',
+  /** 视频「生成模式」（图四/图五/图七/图九那种下拉） */
+  'videoMode',
+  /** 视频「生成音频」开关 */
+  'generateAudio',
 ] as const
 
 export type RecipeTrackedKey = (typeof RECIPE_TRACKED_KEYS)[number]

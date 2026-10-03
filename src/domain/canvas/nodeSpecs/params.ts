@@ -21,6 +21,12 @@ export function generationParams(data: GenerationData): Record<string, unknown> 
       size: data.size ?? null,
       durationSec: data.durationSec ?? null,
       refMode: data.refMode ?? null,
+      /** 「生成数量」（图三/图六/图八/图十那排 1/2/4）：适配器据此发 `n` */
+      count: data.count ?? null,
+      /** 图四/图五那种「视频生成模式」；没设过就不发（渠道自己推断） */
+      videoMode: data.videoMode ?? null,
+      /** 「生成音频 开启/关闭」：未设置 = 不下发（交给模型默认） */
+      generateAudio: data.generateAudio ?? null,
     }
   }
   return {
@@ -29,5 +35,7 @@ export function generationParams(data: GenerationData): Record<string, unknown> 
     // `'auto'` 是「不指定」，不是「1K」——原样下发会让渠道收到一个它不认的档位值。
     resolution: data.resolution && data.resolution !== 'auto' ? data.resolution : null,
     quality: data.quality ?? null,
+    /** 「背景」：同样地，`auto` = 不指定，不下发 */
+    background: data.background && data.background !== 'auto' ? data.background : null,
   }
 }

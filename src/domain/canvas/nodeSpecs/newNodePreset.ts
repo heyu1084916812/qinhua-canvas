@@ -27,10 +27,13 @@ const PARAM_KEYS = [
   'ratio',
   'resolution',
   'quality',
+  'background',
   'count',
   'size',
   'durationSec',
   'refMode',
+  'videoMode',
+  'generateAudio',
 ] as const
 
 /**

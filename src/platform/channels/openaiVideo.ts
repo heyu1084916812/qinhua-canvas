@@ -1,7 +1,13 @@
 import { fingerprintBytes } from '../../domain/shared/hash'
 import { imageInputsOf } from '../../domain/shared/execution/inputs'
 import { imageSizeFromHeader } from '../../domain/shared/imageSize'
-import { videoParamsFor } from '../../domain/canvas/layout/videoParams'
+import {
+  isAutoRatio,
+  videoParamsFor,
+  VIDEO_MODE_LABELS,
+  type VideoModeId,
+  type VideoParamSpec,
+} from '../../domain/canvas/layout/videoParams'
 import type { SafeChannelConfig } from '../ports'
 import {
   ChannelError,
@@ -157,7 +163,41 @@ export function agnesVideoSeconds(durationSec: unknown): number {
  * `auto` 同样落到 `720P`：Flash 只支持这一档，发别的会被 400 拒。
  */
 export function agnesVideoSizeTier(size: unknown): string {
-  return size === '1080p' ? '1080P' : '720P'
+  const v = String(size ?? '').trim().toUpperCase()
+  /**
+   * `1K` / `2K` 是**真档位**（官方文档：「1K means 1024x1024」「2K dimensions are twice
+   * the corresponding 720P dimensions」），长度一样但语义完全不同 ——
+   * 早先只判 `1080p`，于是面板选了 `1K`/`2K` 也会被悄悄压回 720P（用户选的档位不生效）。
+   */
+  return v === '1080P' || v === '1K' || v === '2K' ? v : '720P'
+}
+
+/**
+ * 把面板选的比例**收口到模型真正认的档位**。
+ *
+ * 认不出来时优先落 `16:9`（各家都认、也是 Agnes 文档写的默认值），
+ * 没有 `16:9` 才退到第一条非 `auto` 的档 —— 绝不原样发一个模型不认的值
+ * （那正是「选了就 400」的来源）。
+ */
+export function ratioSupportedBy(spec: VideoParamSpec | undefined, raw: string): string {
+  if (!spec) return raw
+  if (spec.ratios.includes(raw)) return raw
+  if (spec.ratios.includes('16:9')) return '16:9'
+  return spec.ratios.find((r) => !isAutoRatio(r)) ?? ''
+}
+
+/**
+ * 面板 / 老节点上的**生成模式**。
+ *
+ * 新字段是 `videoMode`；老节点只有 `refMode`（这一档的前身，两个值），继续认它 ——
+ * 不认的话旧项目里选过「首尾帧」的节点会静默退回文生视频。
+ */
+export function videoModeOf(params: Record<string, unknown>): VideoModeId {
+  const raw = String(params.videoMode ?? '').trim()
+  if (raw) return raw as VideoModeId
+  if (params.refMode === 'first-last-frame') return 'first-last-frame'
+  if (params.refMode === 'all-purpose') return 'all-purpose'
+  return 'text'
 }
 
 /**
@@ -502,19 +542,43 @@ export function createOpenAiVideoAdapter(
      * 用户看到的是「选了就报错」。这里换成**模型支持的最接近值**，请求照样能出去。
      */
     const spec = videoParamsFor(request.model)
+    /**
+     * 比例：`'auto'`（自适应）**不是宽高比**，不能原样发出去。
+     * Agnes 2.5 官方文档把 `aspect_ratio: "auto"` 明文列进「会回 400」那一段，
+     * 而即梦 / MiniMax 的「自适应」是「这次不指定画幅」——两种语义都落到「不发这个字段」。
+     */
     const rawRatio = typeof request.params.ratio === 'string' ? request.params.ratio : ''
-    const safeRatio = spec && !spec.ratios.includes(rawRatio) ? '16:9' : rawRatio
+    const safeRatio = isAutoRatio(rawRatio) ? '' : ratioSupportedBy(spec, rawRatio)
     const rawSeconds = request.params.durationSec
-    const safeSeconds = spec
-      ? Math.min(spec.seconds.max, Math.max(spec.seconds.min, Number(rawSeconds) || spec.seconds.default))
-      : rawSeconds
+    /** 没有时长参数的模型（规格里没写 `seconds`）**什么都不发**，不编一个默认值。 */
+    const secondsRange = spec?.seconds
+    const safeSeconds: number | undefined = secondsRange
+      ? Math.min(secondsRange.max, Math.max(secondsRange.min, Number(rawSeconds) || secondsRange.default))
+      : Number(rawSeconds) > 0
+        ? Number(rawSeconds)
+        : undefined
     /** 只支持单一尺寸档的模型（如 2.5 Flash 只有 720P）就按它强制 */
     const safeSize = spec && spec.sizes.length === 1 ? spec.sizes[0] : request.params.size
     const { width, height } = agnesVideoDimensions(safeRatio, safeSize)
     const numFrames = agnesVideoFrameCount(safeSeconds)
 
     /**
-     * 参考模式 → 服务端的 `mode` 与素材字段（**2026-10-03 实测口径**，见 `referenceUrls`）：
+     * **生成模式**（用户 2026-10-03 图四/图五/图七/图九那种下拉）→ 各家接口的 `mode`。
+     *
+     * 老节点上只有 `refMode`（`first-last-frame` / `all-purpose` 两个值，是这一档的前身），
+     * 继续认它：不认的话，用户在旧项目里选过的东西会静默退回文生视频。
+     *
+     * 服务端枚举分两套（都写在 `videoParamsFor` 的注释里）：
+     * - Agnes 2.5 / 2.5 Flash：`text` / `keyframe` / `reference`（官方文档）；
+     * - Agnes 2.0：`ti2vid` / `keyframes` / `multi_reference`（真令牌实测的 400 原文）。
+     */
+    const requestedMode = videoModeOf(request.params)
+    const allowedModes = spec?.modes ?? ['text', 'all-purpose', 'first-last-frame']
+    const modeId: VideoModeId = allowedModes.includes(requestedMode) ? requestedMode : 'text'
+    const needsMedia = modeId !== 'text'
+
+    /**
+     * 参考素材 → Data URI 列表（**2026-10-03 实测口径**，见 `referenceUrls`）：
      *
      * - `mode:'keyframes'` 要 **`image` 数组，且至少 2 项**。错误原文：
      *   `mode=keyframes requires image as a list of at least 2 items`（param: image）
@@ -524,24 +588,40 @@ export function createOpenAiVideoAdapter(
      * 2.5 / 2.5 Flash 那一档仍按官方文档的 `first_frame` / `last_frame` / `images`
      * （我们手上没有 2.5 的可用额度实测，先照文档；被 400 拒时下面的回落会换像素形态）。
      */
-    const wantsFramePair = request.params.refMode === 'first-last-frame'
-    const wantsReference = request.params.refMode === 'all-purpose'
-    const allowedModes = spec?.modes ?? ['text', 'keyframe', 'reference']
-    const refMode = wantsFramePair && allowedModes.includes('keyframe')
-      ? 'keyframe'
-      : wantsReference && allowedModes.includes('reference')
-        ? 'reference'
-        : 'text'
-    const refUris = refMode === 'text' ? [] : await referenceUrls(request)
-    if (refMode !== 'text' && refUris.length === 0) {
+    const refUris = needsMedia ? await referenceUrls(request) : []
+    if (needsMedia && refUris.length === 0) {
       throw new ChannelError({
         kind: 'http',
         status: 400,
-        body: `${request.params.refMode === 'first-last-frame' ? '首尾帧' : '全能参考'}需要至少一张上游素材：先给这个生成节点连一张图，再点生成。`,
+        body: `${VIDEO_MODE_LABELS[modeId].label}需要至少一张上游素材：先给这个生成节点连一张图，再点生成。`,
       })
     }
     /** 首尾帧至少要 2 张：只连了 1 张时同一张兼作首尾帧（画面近似静止，好过直接报错） */
     const keyframeImages = refUris.length >= 2 ? refUris.slice(0, 2) : [refUris[0], refUris[0]]
+    /** Agnes 两套服务端枚举里的「首尾帧」 */
+    const isFramePair = modeId === 'first-last-frame'
+    const isReference = modeId === 'all-purpose'
+    /**
+     * `mode` 的**值域是服务端定的枚举，而且 2.5 与 2.0 不是同一套**：
+     * - 2.5 / 2.5 Flash 官方文档：`text` / `keyframe` / `reference`；
+     * - 2.0 真令牌实测的 400 原文：`Input should be 'ti2vid', 'keyframes' or 'multi_reference'`。
+     *
+     * 两套 body 都用这一个值：**先用哪套形态是「参数形状」的事，发哪个枚举是「模型」的事**
+     * —— 把枚举绑在 body 上就会出岔子，比如 2.0 回落档位形态时会被塞进 2.5 的 `text`
+     * （我们当初就是在这里把 bug 钉进了单测）。
+     */
+    const tierEnum = spec?.dialect === 'agnes-tier'
+    const serverMode = tierEnum
+      ? isFramePair
+        ? 'keyframe'
+        : isReference
+          ? 'reference'
+          : 'text'
+      : isFramePair
+        ? 'keyframes'
+        : isReference
+          ? 'multi_reference'
+          : 'ti2vid'
 
     /**
      * 官方文档给 Agnes Video 2.5 / 2.5 Flash 的专属参数（`mode` 为必填）。
@@ -555,23 +635,15 @@ export function createOpenAiVideoAdapter(
     const tierBody: Record<string, unknown> = {
       model: request.model,
       prompt: request.prompt,
-      /**
-       * ⚠️ **`mode` 的值域是服务端定的枚举**：`'ti2vid' | 'keyframes' | 'multi_reference'`。
-       *
-       * 这里原本写的是我们自己的叫法 `'text'` —— 用户 2026-10-03 手跑 Agnes Video 2.0
-       * 时收到 400 原文：
-       *   `Input should be 'ti2vid', 'keyframes' or 'multi_reference'`（param: mode）
-       * 参数名对上了、值没翻译，服务端只能拒。纯文字起片就是 `'ti2vid'`。
-       */
-      mode: refMode === 'keyframe' ? 'keyframe' : refMode === 'reference' ? 'reference' : 'ti2vid',
+      mode: serverMode,
       seconds: String(agnesVideoSeconds(safeSeconds)),
       size: agnesVideoSizeTier(safeSize),
       ...(safeRatio ? { aspect_ratio: safeRatio } : {}),
       /** 2.5 文档那套：首尾帧一对、参考图一组 */
-      ...(refMode === 'keyframe'
+      ...(isFramePair
         ? { first_frame: keyframeImages[0], last_frame: keyframeImages[1] }
         : {}),
-      ...(refMode === 'reference' ? { images: refUris } : {}),
+      ...(isReference ? { images: refUris } : {}),
     }
     /** 老式部署 / LiteLLM 中转只认「OpenAI 视频」那套（像素 + 帧数）；2.0 也认这套 */
     const pixelBody: Record<string, unknown> = {
@@ -582,15 +654,52 @@ export function createOpenAiVideoAdapter(
       num_frames: numFrames,
       frame_rate: VIDEO_FPS,
       /** 实测：2.0 的参考素材走 `image` 数组（keyframes ≥2 项） */
-      ...(refMode === 'keyframe' ? { mode: 'keyframes', image: keyframeImages } : {}),
-      ...(refMode === 'reference' ? { mode: 'multi_reference', image: refUris } : {}),
+      ...(needsMedia ? { mode: serverMode, image: isFramePair ? keyframeImages : refUris } : {}),
     }
 
-    const pixelFirst = spec?.dialect === 'pixel'
-    let res = await submit(pixelFirst ? pixelBody : tierBody, signal)
-    if (res.status === 400) {
+    /**
+     * **`openai-videos`**：即梦（Seedance）/ MiniMax 那种「比例 · 清晰度 · 时长 ·
+     * 音频 · 数量」的归一化形态（用户图三/图六/图八/图十那份菜单就是这套）。
+     *
+     * 字段名取各家官方文档的叫法（Seedance 官方：`ratio` / `resolution` / `duration` /
+     * `generate_audio`），素材沿用**我们已经实测过该站点会收的 `image` 数组**
+     * —— 与其猜一个没验证过的 `first_frame_image`，不如用同一 host 上已经跑通的那个键。
+     *
+     * `mode` 发我们的统一叫法（`image-to-video` 这种）。⚠️ 这一档**没有真令牌验证过**，
+     * 所以被 400 拒时会回落 Agnes 那套（见下面的 `bodies`）。
+     */
+    const countOptions = spec?.counts ?? [1]
+    const wantedCount = Math.max(1, Math.floor(Number(request.params.count) || 1))
+    const safeCount = countOptions.includes(wantedCount) ? wantedCount : countOptions[0] ?? 1
+    const rawAudio = request.params.generateAudio
+    const openAiVideosBody: Record<string, unknown> = {
+      model: request.model,
+      prompt: request.prompt,
+      mode: modeId,
+      ...(safeRatio ? { ratio: safeRatio } : {}),
+      ...(safeSize ? { resolution: String(safeSize).toUpperCase() } : {}),
+      ...(typeof safeSeconds === 'number' ? { duration: Math.round(safeSeconds) } : {}),
+      ...(spec?.supportsAudio && typeof rawAudio === 'boolean' ? { generate_audio: rawAudio } : {}),
+      ...(countOptions.length > 1 ? { n: safeCount } : {}),
+      ...(needsMedia ? { image: isFramePair ? keyframeImages : refUris } : {}),
+    }
+
+    /**
+     * 先发哪一套由模型的 `dialect` 决定，另一套留作 400 时的回落。
+     *
+     * `openai-videos` 是第一优先（用户点名「按官方文档抄」），Agnes 那两套方言本身就是
+     * 该站的官方形态，所以它们各自优先自己的那套。
+     */
+    const bodies: Record<string, unknown>[] =
+      spec?.dialect === 'agnes-pixel'
+        ? [pixelBody, tierBody]
+        : spec?.dialect === 'openai-videos'
+          ? [openAiVideosBody, tierBody]
+          : [tierBody, pixelBody]
+    let res = await submit(bodies[0]!, signal)
+    if (res.status === 400 && bodies[1]) {
       // 这一套被拒才换另一套；这不是静默降级——两条都失败时抛的是第二条的真实错误
-      res = await submit(pixelFirst ? tierBody : pixelBody, signal)
+      res = await submit(bodies[1], signal)
     }
     if (res.status < 200 || res.status >= 300) {
       const detail = await res.text().catch(() => '')

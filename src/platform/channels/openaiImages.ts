@@ -343,6 +343,7 @@ export function createOpenAiImagesAdapter(
     count: number,
     size: string | null,
     quality: string | null,
+    background: string | null,
     files: { blob: Blob; name: string }[],
     signal: AbortSignal,
   ): Promise<NetworkResponse> => {
@@ -352,6 +353,8 @@ export function createOpenAiImagesAdapter(
     form.append('n', String(count))
     if (size) form.append('size', size)
     if (quality) form.append('quality', quality)
+    /** 背景（图一）：只在用户显式选了非「自动」时才发 */
+    if (background) form.append('background', background)
     form.append('response_format', 'b64_json')
     for (const f of files) form.append('image', f.blob, f.name)
     return deps.network.request(
@@ -372,6 +375,7 @@ export function createOpenAiImagesAdapter(
     count: number,
     size: string | null,
     quality: string | null,
+    background: string | null,
     signal: AbortSignal,
   ): Promise<NetworkResponse> =>
     deps.network.request(
@@ -385,6 +389,7 @@ export function createOpenAiImagesAdapter(
           n: count,
           ...(size ? { size } : {}),
           ...(quality ? { quality } : {}),
+          ...(background ? { background } : {}),
           response_format: 'b64_json',
         },
         timeoutMs: GENERATE_TIMEOUT_MS,
@@ -466,6 +471,8 @@ export function createOpenAiImagesAdapter(
     if (spec?.dialect === 'gemini') {
       const wantedRatio = typeof request.params.ratio === 'string' ? request.params.ratio : ''
       const ratio = spec.ratios.includes(wantedRatio) ? wantedRatio : spec.ratios[0]
+      /** 面板第一档是 `auto`（自适应）= 不下发 aspectRatio，只给 imageSize */
+      const sendRatio = ratio && ratio !== 'auto' ? ratio : null
       const wantedSize = String(request.params.resolution ?? '').toUpperCase()
       const imageSize = spec.sizes.find((s) => s.toUpperCase() === wantedSize) ?? spec.sizes[0]
       /** `base` 形如 `…/v1`，原生端点在同一主机的 `/v1beta` 上 */
@@ -479,8 +486,13 @@ export function createOpenAiImagesAdapter(
             contents: [{ parts: [{ text: request.prompt }] }],
             generationConfig: {
               responseModalities: ['IMAGE'],
-              ...(ratio && imageSize
-                ? { imageConfig: { aspectRatio: ratio, imageSize } }
+              ...(sendRatio || imageSize
+                ? {
+                    imageConfig: {
+                      ...(sendRatio ? { aspectRatio: sendRatio } : {}),
+                      ...(imageSize ? { imageSize } : {}),
+                    },
+                  }
                 : {}),
             },
           },
@@ -568,11 +580,26 @@ export function createOpenAiImagesAdapter(
       maxCount,
       Math.max(1, typeof request.params.count === 'number' ? request.params.count : 1),
     )
-    const size = spec
-      ? specImageSize(request.params.resolution, spec)
-      : openAiImageSize(request.params.ratio, request.params.resolution)
+    /**
+     * 尺寸怎么来：`openai-images`（GPT Image）在面板上给的是**比例 + 清晰度**
+     * （用户 2026-10-03 图一），发请求时要按比例 × 清晰度换算成 OpenAI 认的像素 `size`；
+     * Agnes 那两个方言的面板值本身就是最终值（档位 / 像素）。
+     */
+    const size =
+      spec && spec.dialect !== 'openai-images'
+        ? specImageSize(request.params.resolution, spec)
+        : openAiImageSize(request.params.ratio, request.params.resolution)
     /** OpenAI 官方也认 `size: "auto"`，但**我们这边不发它** —— 留给服务端默认 */
     const sizeForBody = size === 'auto' ? null : size
+    /**
+     * 背景（图一）：`auto` = 不指定，不下发；只下发该模型声明的枚举值。
+     * OpenAI 官方 `background` 是 `transparent` / `opaque` / `auto`。
+     */
+    const rawBackground = typeof request.params.background === 'string' ? request.params.background : ''
+    const background =
+      rawBackground && rawBackground !== 'auto' && (spec ? spec.backgrounds : ['opaque', 'transparent']).includes(rawBackground)
+        ? rawBackground
+        : null
     const quality = spec
       ? openAiImageQuality(
           request.params.quality,
@@ -584,8 +611,8 @@ export function createOpenAiImagesAdapter(
     const res = !openAiStyle && size
       ? await postSpecGenerations(request, size, spec as ImageParamSpec, await toDataUris(request), signal)
       : files.length > 0
-        ? await postEdits(request, count, sizeForBody, quality, files, signal)
-        : await postGenerations(request, count, sizeForBody, quality, signal)
+        ? await postEdits(request, count, sizeForBody, quality, background, files, signal)
+        : await postGenerations(request, count, sizeForBody, quality, background, signal)
 
     if (res.status < 200 || res.status >= 300) {
       /**

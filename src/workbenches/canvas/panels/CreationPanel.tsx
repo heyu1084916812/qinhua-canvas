@@ -12,7 +12,12 @@ import { ParamPicker, type ParamSection } from './ParamPicker'
 import { SkillPicker } from './SkillPicker'
 import styles from './CreationPanel.module.css'
 import { RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
-import { videoParamsFor } from '../../../domain/canvas/layout/videoParams'
+import {
+  isAutoRatio,
+  videoParamsFor,
+  VIDEO_MODE_LABELS,
+  type VideoModeId,
+} from '../../../domain/canvas/layout/videoParams'
 import { imageParamsFor } from '../../../domain/canvas/layout/imageParams'
 import {
   categoryOfLogical,
@@ -80,11 +85,6 @@ const SIZE_OPTIONS: { value: 'auto' | '480p' | '720p' | '1080p'; label: string }
   { value: '480p', label: '480p' },
   { value: '720p', label: '720p' },
   { value: '1080p', label: '1080p' },
-]
-/** 视频参考模式（§6.8）：首尾帧 / 全能参考，二选一 */
-const REF_MODE_OPTIONS: { value: 'first-last-frame' | 'all-purpose'; label: string }[] = [
-  { value: 'first-last-frame', label: '首尾帧' },
-  { value: 'all-purpose', label: '全能参考' },
 ]
 /**
  * 功能类别（§6.8「右上角为图片 / 视频功能类别切换」）。
@@ -613,49 +613,68 @@ export function CreationPanel(props: CreationPanelProps) {
    * 四枚 chip 的文案用「 · 」串起来 —— 用户 2026-10-02 的参考产品就是
    * 「1:1 · 标准画质 · 1K · 1张」这种一行说法。
    */
+  /**
+   * 文案表：**值仍是各家接口的合法枚举**，只在这里换中文标签
+   * （用户 2026-10-03 图一：低 / 标准 / 高 / 超高 / 极致画质；自动 / 保留背景 / 透明背景）。
+   */
+  const QUALITY_LABELS: Record<string, string> = {
+    auto: '自动',
+    low: '低画质',
+    medium: '标准画质',
+    high: '高画质',
+    xhigh: '超高画质',
+    max: '极致画质',
+  }
+  const BACKGROUND_LABELS: Record<string, string> = {
+    auto: '自动',
+    opaque: '保留背景',
+    transparent: '透明背景',
+  }
   const resolutionLabel = (value: string): string =>
     RESOLUTION_OPTIONS.find((r) => r.value === value)?.label ?? value.toUpperCase()
-  /**
-   * 质量档文案：通用四档之外，中转站还扩了 `xhigh` / `max`
-   * （Comfy-gpt 的 GPT Image 档实测合法值就是这六个）—— 只补文案，
-   * **不把它们塞进通用列表**，否则严格只认四档的模型会被摆上点不通的格子。
-   */
-  const QUALITY_EXTRA_LABELS: Record<string, string> = { xhigh: '超高', max: '最高' }
   const qualityLabelOf = (value: string): string =>
-    QUALITY_OPTIONS.find((q) => q.value === value)?.label ?? QUALITY_EXTRA_LABELS[value] ?? value
+    QUALITY_LABELS[value] ?? QUALITY_OPTIONS.find((q) => q.value === value)?.label ?? value
+  const backgroundLabelOf = (value: string): string => BACKGROUND_LABELS[value] ?? value
+  /** 背景档：只有声明支持它的模型（GPT Image）才摆这一段 */
+  const backgroundChoices: readonly string[] = imageSpec ? imageSpec.backgrounds : []
+
   /**
-   * 摘要只串**这次真的摆出来的那几段**：模型没有「张数」就不该在摘要里写「1 张」，
-   * 否则用户会去找一个根本点不开的档位。
+   * 摘要只串**这次真的摆出来的那几段**，顺序与面板一致
+   * （图一那份：画质 · 清晰度 · 背景 · 比例 · 生成数量）。
    */
   const paramsLabel = [
-    ratios.length > 0 ? data.ratio || '比例' : '',
-    resolutions.length > 0 ? resolutionLabel(data.resolution ?? 'auto') : '',
     qualityChoices.length > 0 ? qualityLabelOf(data.quality ?? 'auto') : '',
+    resolutions.length > 0 ? resolutionLabel(data.resolution ?? 'auto') : '',
+    backgroundChoices.length > 0 ? backgroundLabelOf(data.background ?? 'auto') : '',
+    ratios.length > 0 ? data.ratio || '比例' : '',
     countChoices.length > 1 ? `${count} 张` : '',
   ]
     .filter(Boolean)
     .join(' · ')
 
   /**
-   * 图片模式的几段（比例 / 尺寸 / 质量 / 张数）。
+   * 图片模式的几段，**顺序照用户 2026-10-03 图一**：画质 → 清晰度 → 背景 → 比例 → 生成数量。
    *
-   * **每一段只有真的有候选才出现** —— 这就是「每个模型单独配置」的落点：
-   * Agnes 的图片模型既没有 `n` 也没有 `quality`，那两段整块不摆，
-   * 而不是摆一排点了没有任何作用的格子（本项目反复强调的「别做死控件」）。
+   * **每一段只有真的有候选才出现**：Agnes 的图片模型没有 `quality` / `background`，
+   * 那两段整块不摆，而不是摆一排点了没反应的格子。
    */
   const resolutionValueOf = (size: string): string =>
     /^\d+k$/i.test(size) ? size.toLowerCase() : size
   const paramSections: ParamSection[] = [
-    ...(ratios.length > 0
+    ...(qualityChoices.length > 0
       ? [
           {
-            name: 'ratio',
-            label: '比例',
-            variant: 'ratioGrid' as const,
-            options: ratios.map((r) => ({ value: r, label: r })),
-            value: data.ratio ?? '',
+            name: 'quality',
+            label: '画质',
+            variant: 'pill' as const,
+            options: qualityChoices.map((q) => ({ value: q, label: qualityLabelOf(q) })),
+            value: data.quality ?? 'auto',
             onSelect: (v: string) =>
-              onEvent({ type: 'setRatio', ratio: v, recipe: recipeSnapshot({ ratio: v }) }),
+              onEvent({
+                type: 'setQuality',
+                quality: v,
+                recipe: recipeSnapshot({ quality: v as NonNullable<GenerationData['quality']> }),
+              }),
           },
         ]
       : []),
@@ -663,7 +682,7 @@ export function CreationPanel(props: CreationPanelProps) {
       ? [
           {
             name: 'resolution',
-            label: imageSpec?.dialect === 'tier' ? '尺寸' : '画质',
+            label: '清晰度',
             variant: 'pill' as const,
             options: resolutions.map((v) => ({
               value: resolutionValueOf(v),
@@ -679,20 +698,33 @@ export function CreationPanel(props: CreationPanelProps) {
           },
         ]
       : []),
-    ...(qualityChoices.length > 0
+    ...(backgroundChoices.length > 0
       ? [
           {
-            name: 'quality',
-            label: '质量',
+            name: 'background',
+            label: '背景',
             variant: 'pill' as const,
-            options: qualityChoices.map((q) => ({ value: q, label: qualityLabelOf(q) })),
-            value: data.quality ?? 'auto',
+            options: backgroundChoices.map((b) => ({ value: b, label: backgroundLabelOf(b) })),
+            value: data.background ?? 'auto',
             onSelect: (v: string) =>
               onEvent({
-                type: 'setQuality',
-                quality: v,
-                recipe: recipeSnapshot({ quality: v as NonNullable<GenerationData['quality']> }),
+                type: 'setBackground',
+                background: v,
+                recipe: recipeSnapshot({ background: v }),
               }),
+          },
+        ]
+      : []),
+    ...(ratios.length > 0
+      ? [
+          {
+            name: 'ratio',
+            label: '比例',
+            variant: 'ratioGrid' as const,
+            options: ratios.map((r) => ({ value: r, label: r })),
+            value: data.ratio ?? '',
+            onSelect: (v: string) =>
+              onEvent({ type: 'setRatio', ratio: v, recipe: recipeSnapshot({ ratio: v }) }),
           },
         ]
       : []),
@@ -700,7 +732,7 @@ export function CreationPanel(props: CreationPanelProps) {
       ? [
           {
             name: 'count',
-            label: '张数',
+            label: '生成数量',
             variant: 'pill' as const,
             options: countChoices.map((c) => ({
               value: String(c),
@@ -721,31 +753,100 @@ export function CreationPanel(props: CreationPanelProps) {
       : []),
   ]
 
-  // 视频参数（§6.8 视频模式）：尺寸 / 时长 / 首尾帧·全能参考
-  /** 尺寸档：有规格就按规格出（**去掉 auto / 480p 这种它不认的值**），否则用通用档 */
-  const sizeChoices = videoSpec
-    ? videoSpec.sizes.map((s) => ({ value: s.toLowerCase(), label: s.toUpperCase() }))
-    : SIZE_OPTIONS
-  const sizeLabel = sizeChoices.find((s) => s.value === (data.size ?? 'auto'))?.label ?? '尺寸'
-  /** 时长：规格说 4–12 就 4–12（原来写死兜底 3–15，超出范围会被服务端拒） */
-  const [minSec, maxSec] = videoSpec
-    ? [videoSpec.seconds.min, videoSpec.seconds.max]
+  /**
+   * 视频参数（§6.8 视频模式；用户 2026-10-03 图三～图十一）：
+   * **生成模式 · 比例 · 清晰度 · 时长 · 生成音频 · 生成数量**。
+   *
+   * 这一段与图片模式**刻意不同**：图片那六枚参数收在一枚胶囊里，而视频这边
+   * 时长是滑块（`ParamPicker` 的三段形态都装不下它），所以仍是「几枚 chip + 一个滑块」。
+   * 每一枚都**只在模型真的声明了它的时候才摆** —— 摆一个点了没用的格子，
+   * 用户会以为功能坏了。
+   */
+  /** 清晰度档：有规格就只按规格出（**去掉 auto / 480P 这种它不认的值**），否则用通用档 */
+  const sizeChoices: { value: string; label: string }[] = videoSpec
+    ? videoSpec.sizes.map((s) => ({ value: s, label: s.toUpperCase() }))
+    : SIZE_OPTIONS.map((s) => ({ value: s.value, label: s.label }))
+  /**
+   * 显示值：**落在该模型认的档位里**。
+   *
+   * 节点上存的可能是上一个模型的档（同一节点换模型不换节点），
+   * 直接拿它去比对就会显示成占位文案「清晰度」—— 看着像「没选」，
+   * 而适配器那边其实会把它夹到最接近的合法档。这里同样落到第一条合法档，
+   * 让界面与实际发出去的值一致（§6.8「所见即所发」）。
+   */
+  const sizeValue =
+    data.size && sizeChoices.some((s) => s.value === data.size)
+      ? data.size
+      : videoSpec
+        ? (sizeChoices[0]?.value ?? 'auto')
+        : (data.size ?? 'auto')
+  const sizeLabel = sizeChoices.find((s) => s.value === sizeValue)?.label ?? '清晰度'
+  /**
+   * 时长：有规格就按规格（图三 4–15、图六 4–30、图八/图十 5–15），
+   * 没有规格才退回通用的 3–15（并按渠道声明的区间收）。
+   */
+  const secondsRange = videoSpec?.seconds
+  const [minSec, maxSec] = secondsRange
+    ? [secondsRange.min, secondsRange.max]
     : (activeModel?.durations ?? [3, 15])
-  const duration = clampDuration(data.durationSec ?? DEFAULT_DURATION, activeModel)
-  const refMode = data.refMode ?? 'first-last-frame'
-  const refModeLabel = REF_MODE_OPTIONS.find((r) => r.value === refMode)?.label ?? '参考模式'
+  const duration = secondsRange
+    ? Math.min(
+        secondsRange.max,
+        Math.max(secondsRange.min, Math.round(data.durationSec ?? secondsRange.default)),
+      )
+    : clampDuration(data.durationSec ?? DEFAULT_DURATION, activeModel)
+  /** **时长这一段只在模型真有这个参数时出现**（没有 `seconds` 的模型不摆滑块） */
+  const showDuration = Boolean(secondsRange) || !videoSpec
+
   /**
-   * 参考模式是否展示：模型**显式声明**没有参考图时才隐藏，未声明不隐藏——
-   * 与数量上限同一条道理（§6.8「未声明」不等于「不支持」）。
+   * 生成模式（图四/图五/图七/图九那种下拉）。
+   *
+   * 值优先取 `videoMode`，其次认老字段 `refMode`（这一档的前身，两个值）——
+   * 不认老字段的话，旧项目里选过「首尾帧」的节点打开就变成「文生视频」。
    */
+  const modeIds: readonly VideoModeId[] = videoSpec
+    ? videoSpec.modes
+    : (['text', 'all-purpose', 'first-last-frame'] as const)
+  const storedMode: VideoModeId | undefined =
+    (typeof data.videoMode === 'string' ? (data.videoMode as VideoModeId) : undefined) ??
+    (data.refMode === 'first-last-frame' || data.refMode === 'all-purpose'
+      ? data.refMode
+      : undefined)
+  const disabledModes = new Set<string>(videoSpec?.disabledModes ?? [])
   /**
-   * 参考模式：有规格时**只按规格说话** —— `Agnes Video 2.0` 只支持 text 模式
-   * （keyframe / reference 要公网素材 URL，浏览器里的本地素材传不上去），
-   * 那就别把这个选了也发不出去的档摆出来。
+   * **默认档要跳过置灰项**（用户 2026-10-03 图七/图九那份参考实现里，「文生视频」是灰的）。
+   *
+   * 不跳的话新节点一打开就停在「文生视频」上 —— 用户看到的是「默认选了一个选不了的档」，
+   * 而且他真点生成时才会发现这一档不给用。跳到第一个**可选**的档，
+   * 至少当场就能看出该模型是从哪一档起步的（H3 / H3 Max 都从「图生视频」起）。
    */
-  const showRefMode = videoSpec
-    ? videoSpec.modes.length > 1
-    : !activeModel || (activeModel.maxReferenceImages ?? 0) > 0
+  const enabledModes = modeIds.filter((id) => !disabledModes.has(id))
+  const videoModeValue: VideoModeId =
+    storedMode && enabledModes.includes(storedMode)
+      ? storedMode
+      : (enabledModes[0] ?? modeIds[0] ?? 'text')
+  /** 只有一档模式就别摆 chip 了（摆了也只能选它） */
+  const showVideoMode = modeIds.length > 1
+  const videoModeOptions = modeIds.map((id) => {
+    const meta = VIDEO_MODE_LABELS[id]
+    return {
+      value: id,
+      label: meta.beta ? `${meta.label} Beta` : meta.label,
+      ...(disabledModes.has(id)
+        ? { disabled: true, title: `${meta.label}：当前模型不支持这一档` }
+        : {}),
+    }
+  })
+
+  /** 生成数量（图三/图六/图八/图十那排 1/2/4）：**只有一档时整段不摆** */
+  const videoCounts: readonly number[] = videoSpec ? videoSpec.counts : [1]
+  const videoMaxCount = Math.max(...videoCounts)
+  const videoCount = Math.max(1, Math.min(Math.round(data.count ?? 1), videoMaxCount))
+  const showVideoCount = videoCounts.length > 1
+
+  /** 「生成音频」开关：图三/图六有，图八/图十没有 —— 只有声明支持的模型才摆 */
+  const showGenerateAudio = videoSpec?.supportsAudio === true
+  const generateAudio = data.generateAudio ?? true
   /**
    * 切换功能类别时，**节点自己存的**模型是否属于目标类别；不属于就得清掉
    * （否则会把图片模型发给视频渠道）。
@@ -1028,12 +1129,41 @@ export function CreationPanel(props: CreationPanelProps) {
           <>
             {videoMode ? (
               <>
+                {/*
+                  生成模式（用户 2026-10-03 图四/图五/图七/图九）：参考实现里那枚
+                  「视频生成模式」下拉，逐档照抄 —— 包括「超长视频 Beta」的角标，
+                  以及「文生视频 / 视频编辑」那种**看得见但选不了**的灰项。
+                */}
+                {showVideoMode && (
+                  <ParamPicker
+                    name="videoMode"
+                    ariaLabel="视频生成模式"
+                    label={VIDEO_MODE_LABELS[videoModeValue].label}
+                    options={videoModeOptions}
+                    value={videoModeValue}
+                    variant="list"
+                    open={openPicker === 'videoMode'}
+                    onToggle={() => togglePicker('videoMode')}
+                    onClose={closePicker}
+                    onSelect={(v) =>
+                      onEvent({
+                        type: 'setVideoMode',
+                        videoMode: v,
+                        recipe: recipeSnapshot({ videoMode: v }),
+                      })
+                    }
+                  />
+                )}
                 {/* 比例：**视频模式**仍自己一枚（图片模式已并进「生成参数」胶囊，见下） */}
                 <ParamPicker
                   name="ratio"
                   ariaLabel="画面比例"
                   label={data.ratio ?? '比例'}
-                  options={ratios.map((r) => ({ value: r, label: r }))}
+                  options={ratios.map((r) => ({
+                    value: r,
+                    /* 「自适应」不是宽高比，画矩形示意只会和 1:1 撞脸 —— 只留文字 */
+                    label: isAutoRatio(r) ? '自适应' : r,
+                  }))}
                   value={data.ratio ?? ''}
                   variant="ratioGrid"
                   open={openPicker === 'ratio'}
@@ -1041,63 +1171,97 @@ export function CreationPanel(props: CreationPanelProps) {
                   onClose={closePicker}
                   onSelect={(v) => onEvent({ type: 'setRatio', ratio: v, recipe: recipeSnapshot({ ratio: v }) })}
                 />
-                {/* 尺寸：竖版列表（§6.8 视频模式） */}
+                {/* 清晰度：竖版列表（§6.8 视频模式） */}
                 <ParamPicker
                   name="size"
-                  ariaLabel="视频尺寸"
+                  ariaLabel="视频清晰度"
                   label={sizeLabel}
-                  options={sizeChoices.map((s) => ({ value: s.value, label: s.label }))}
-                  value={data.size ?? 'auto'}
+                  options={sizeChoices}
+                  value={sizeValue}
                   variant="list"
                   open={openPicker === 'size'}
                   onToggle={() => togglePicker('size')}
                   onClose={closePicker}
-                  onSelect={(v) => onEvent({ type: 'setSize', size: v as NonNullable<GenerationData['size']>, recipe: recipeSnapshot({ size: v as NonNullable<GenerationData['size']> }) })}
+                  onSelect={(v) => onEvent({ type: 'setSize', size: v, recipe: recipeSnapshot({ size: v }) })}
                 />
-                {/* 时长：滑块 3–15 秒，支持直接键入数值（§6.8） */}
-                <span className={styles.duration} data-param-duration>
-                  <input
-                    type="range"
-                    className={styles.slider}
-                    data-param-duration-range
-                    aria-label="视频时长滑块"
-                    min={minSec}
-                    max={maxSec}
-                    step={1}
-                    value={duration}
-                    onChange={(e) => onEvent({ type: 'setDurationSec', sec: Number(e.target.value), recipe: recipeSnapshot({ durationSec: Number(e.target.value) }) })}
-                  />
-                  <input
-                    type="number"
-                    className={styles.durationNum}
-                    data-param-duration-input
-                    aria-label="视频时长秒数"
-                    min={minSec}
-                    max={maxSec}
-                    step={1}
-                    value={duration}
-                    onChange={(e) => {
-                      const n = Number(e.target.value)
-                      // 清空输入框时 Number('') === 0，直接夹回会把用户正在改的 8 变成 3
-                      if (!Number.isFinite(n) || e.target.value.trim() === '') return
-                      onEvent({ type: 'setDurationSec', sec: n, recipe: recipeSnapshot({ durationSec: n }) })
-                    }}
-                  />
-                  <span className={styles.durationUnit}>秒</span>
-                </span>
-                {showRefMode && (
+                {/*
+                  时长：滑块 + 可直接键入（§6.8）。
+                  区间按模型走 —— 图三 4–15、图六 4–30、图八/图十 5–15。
+                */}
+                {showDuration && (
+                  <span className={styles.duration} data-param-duration>
+                    <input
+                      type="range"
+                      className={styles.slider}
+                      data-param-duration-range
+                      aria-label="视频时长滑块"
+                      min={minSec}
+                      max={maxSec}
+                      step={1}
+                      value={duration}
+                      onChange={(e) => onEvent({ type: 'setDurationSec', sec: Number(e.target.value), recipe: recipeSnapshot({ durationSec: Number(e.target.value) }) })}
+                    />
+                    <input
+                      type="number"
+                      className={styles.durationNum}
+                      data-param-duration-input
+                      aria-label="视频时长秒数"
+                      min={minSec}
+                      max={maxSec}
+                      step={1}
+                      value={duration}
+                      onChange={(e) => {
+                        const n = Number(e.target.value)
+                        // 清空输入框时 Number('') === 0，直接夹回会把用户正在改的 8 变成 3
+                        if (!Number.isFinite(n) || e.target.value.trim() === '') return
+                        onEvent({ type: 'setDurationSec', sec: n, recipe: recipeSnapshot({ durationSec: n }) })
+                      }}
+                    />
+                    <span className={styles.durationUnit}>秒</span>
+                  </span>
+                )}
+                {/* 生成音频（图三/图六那枚「开启 / 关闭」）：只有声明支持的模型才摆 */}
+                {showGenerateAudio && (
                   <ParamPicker
-                    name="refMode"
-                    ariaLabel="参考模式"
-                    label={refModeLabel}
-                    options={REF_MODE_OPTIONS.map((r) => ({ value: r.value, label: r.label }))}
-                    value={refMode}
-                    variant="list"
-                    open={openPicker === 'refMode'}
-                    onToggle={() => togglePicker('refMode')}
+                    name="generateAudio"
+                    ariaLabel="生成音频"
+                    label={generateAudio ? '生成音频 · 开' : '生成音频 · 关'}
+                    options={[
+                      { value: 'on', label: '开启' },
+                      { value: 'off', label: '关闭' },
+                    ]}
+                    value={generateAudio ? 'on' : 'off'}
+                    variant="pill"
+                    open={openPicker === 'generateAudio'}
+                    onToggle={() => togglePicker('generateAudio')}
                     onClose={closePicker}
                     onSelect={(v) =>
-                      onEvent({ type: 'setRefMode', refMode: v as NonNullable<GenerationData['refMode']>, recipe: recipeSnapshot({ refMode: v as NonNullable<GenerationData['refMode']> }) })
+                      onEvent({
+                        type: 'setGenerateAudio',
+                        generateAudio: v === 'on',
+                        recipe: recipeSnapshot({ generateAudio: v === 'on' }),
+                      })
+                    }
+                  />
+                )}
+                {/* 生成数量（图三/图六/图八/图十那排 1/2/4）：只有一档时整段不摆 */}
+                {showVideoCount && (
+                  <ParamPicker
+                    name="count"
+                    ariaLabel="生成数量"
+                    label={`${videoCount} 个`}
+                    options={videoCounts.map((c) => ({ value: String(c), label: `${c} 个` }))}
+                    value={String(videoCount)}
+                    variant="pill"
+                    open={openPicker === 'count'}
+                    onToggle={() => togglePicker('count')}
+                    onClose={closePicker}
+                    onSelect={(v) =>
+                      onEvent({
+                        type: 'setCount',
+                        count: Number(v),
+                        recipe: recipeSnapshot({ count: Number(v) }),
+                      })
                     }
                   />
                 )}

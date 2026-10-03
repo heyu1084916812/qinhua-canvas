@@ -502,6 +502,14 @@ function RatioGlyph({ ratio }: { ratio: string }) {
       </svg>
     )
   }
+  /**
+   * **不是宽高比的哨兵值**（`auto` = 自适应）：不画矩形。
+   *
+   * 画了会得到一个和 1:1 一模一样的方块（`Number.parseFloat('auto')` 是 NaN，
+   * 下面的兜底就是「画成 1:1」）—— 用户分不清哪一格是方图、哪一格是「不指定」。
+   * 「自适应」那一格只留文字，这也正是参考产品（用户 2026-10-03 图二/图三）的做法。
+   */
+  if (!ratio.includes(':')) return null
   const [rawW, rawH] = ratio.split(':').map((s) => Number.parseFloat(s))
   const ok = Number.isFinite(rawW) && Number.isFinite(rawH) && rawW > 0 && rawH > 0
   const w = ok ? rawW : 1

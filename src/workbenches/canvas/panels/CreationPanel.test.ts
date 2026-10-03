@@ -639,14 +639,43 @@ describe('CreationPanel · 功能类别切换（图片 / 视频）', () => {
     expect(html).toContain('data-param-mode="image"')
     expect(html).toContain('data-param-mode="video"')
     expect(html).toContain('data-param-chip="gen-params"')
-    /** 胶囊文案里带着四段：比例占位 + 两个「自动」+ 张数 */
-    expect(html).toContain('比例 · 自动')
-    expect(html).toContain('张')
+    /**
+     * 胶囊文案是**这次真的摆出来的那几段**串起来的一行（用户 2026-10-03 图一那份顺序）：
+     * 画质 · 清晰度 · 背景 · 比例 · 生成数量。没有规格的模型退回通用档位，
+     * 所以这里看到的是「自动 · 自动 · 比例 · 1 张」。
+     */
+    expect(html).toContain('自动 · 自动 · 比例 · 1 张')
     expect(html).not.toContain('data-param-chip="size"')
     expect(html).not.toContain('data-param-duration')
   })
 
-  it('视频模式：换成 尺寸 / 时长 / 参考模式，「生成参数」胶囊整块退场', async () => {
+  it('★★ GPT Image：胶囊文案按图一那份顺序带上画质 / 清晰度 / 背景', async () => {
+    const html = render(
+      await withBoth(),
+      {
+        ...generationSpec.createDefaultData(),
+        channelId: 'ch-1',
+        model: 'GPT Image 2',
+        /*
+         * 每段都给一个**非默认值**：这才是「这一段真的摆出来了」的证据 ——
+         * 全留空的话三段都会显示成「自动」，看不出是画质还是背景。
+         */
+        quality: 'medium',
+        resolution: '1K',
+        background: 'opaque',
+        ratio: '1:1',
+        count: 2,
+      },
+      true,
+    )
+    /**
+     * 五段都在，且顺序就是图一那份：画质 · 清晰度 · 背景 · 比例 · 生成数量。
+     * 值也走中文标签（`medium` → 标准画质、`opaque` → 保留背景）。
+     */
+    expect(html).toContain('标准画质 · 1K · 保留背景 · 1:1 · 2 张')
+  })
+
+  it('视频模式：换成 生成模式 / 清晰度 / 时长，「生成参数」胶囊整块退场', async () => {
     const html = render(
       await withBoth(),
       { ...generationSpec.createDefaultData(), channelId: 'ch-1', model: 'relay-video', mode: 'video' },
@@ -655,7 +684,12 @@ describe('CreationPanel · 功能类别切换（图片 / 视频）', () => {
     expect(html).toContain('data-param-chip="size"')
     expect(html).toContain('data-param-duration')
     expect(html).toContain('data-param-duration-range')
-    expect(html).toContain('data-param-chip="refMode"')
+    /**
+     * 参考模式那一枚换成了**生成模式**（用户 2026-10-03 图四/图五那种下拉）——
+     * 它不再只有「首尾帧 / 全能参考」两个值，而是按模型摆子集。
+     */
+    expect(html).toContain('data-param-chip="videoMode"')
+    expect(html).not.toContain('data-param-chip="refMode"')
     expect(html).not.toContain('data-param-chip="gen-params"')
     expect(html).not.toContain('张')
   })
@@ -668,6 +702,29 @@ describe('CreationPanel · 功能类别切换（图片 / 视频）', () => {
     )
     expect(html).toContain('视频模型')
     expect(html).not.toContain('relay-img')
+  })
+
+  /**
+   * ★★ **默认档要跳过置灰项**（用户 2026-10-03 图七/图九：那两家模型的「文生视频」是灰的）。
+   *
+   * 不跳的话，新节点一打开就停在「文生视频」上 —— 默认选中一个**选不了**的档，
+   * 用户还得点开下拉才知道该换哪个。跳到第一个可选档之后，
+   * 面板当场就说明「这个模型是从图生视频起步的」。
+   */
+  it('★★ 默认生成模式跳过置灰项（H3 Max 从「图生视频」起步，不是「文生视频」）', async () => {
+    const html = render(
+      await withBoth(),
+      {
+        ...generationSpec.createDefaultData(),
+        channelId: 'ch-1',
+        model: 'Minimax H3 Max',
+        mode: 'video',
+      },
+      true,
+    )
+    expect(html).toContain('data-param-chip="videoMode"')
+    expect(html).toContain('图生视频')
+    expect(html).not.toMatch(/data-param-chip="videoMode"[^>]*><span[^>]*>文生视频</)
   })
 
   it('分组 / 批量共用本面板，但不给功能类别切换', async () => {

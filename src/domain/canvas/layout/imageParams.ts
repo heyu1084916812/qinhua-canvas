@@ -24,13 +24,32 @@
  * 它们仍按渠道上报的能力（`ModelCapability`）渲染。
  */
 export interface ImageParamSpec {
-  /** 尺寸档：`tier` 方言给 `1K` 这种档位，`pixel` 方言给 `1024x768` 这种像素 */
+  /**
+   * **清晰度档**（用户 2026-10-03 图一/图二那份：`1K` / `2K` / `4K`）。
+   * `pixel` 方言的模型（Agnes Image 2.0）这里是它唯一认的像素尺寸。
+   */
   sizes: readonly string[]
-  /** 比例档（**空数组 = 该模型不用 ratio**，面板上这一段不摆） */
+  /**
+   * **比例档**（**空数组 = 该模型不用 ratio**，面板上这一段不摆）。
+   * 图一/图二那份含 `1:2 / 2:1 / 5:4 / 4:5 / 9:21` 这些窄档，
+   * 香蕉那份还会带一个 `auto`（= 自适应，不向渠道指定画幅）。
+   */
   ratios: readonly string[]
-  /** 质量档（空数组 = 不摆） */
+  /**
+   * **画质档**（用户 2026-10-03 图一：低 / 标准 / 高 / 超高 / 极致）。
+   * 值仍用各家接口的合法枚举（OpenAI 官方是 `low/medium/high/xhigh/max`），
+   * 面板只负责把 `medium` 显示成「标准画质」。
+   */
   qualities: readonly string[]
-  /** 张数候选（Agnes 全系只支持 1，故只有一项） */
+  /**
+   * **背景档**（用户 2026-10-03 图一：自动 / 保留背景 / 透明背景）。
+   * 取 OpenAI 官方的 `background` 枚举；模型不支持时留空 ⇒ 面板不摆这一段。
+   */
+  backgrounds: readonly string[]
+  /**
+   * **生成数量**：用户 2026-10-03「数量这个我需要每个模型统一一下，不能有些有，有些没有」
+   * ⇒ **所有图片模型都是 1 / 2 / 4**，面板那一段一律存在。
+   */
   counts: readonly number[]
   /** 参考图上限（0 = 不支持参考图） */
   maxReferenceImages: number
@@ -87,24 +106,50 @@ const GEMINI_IMAGE_RATIOS = [
   '21:9',
 ] as const
 
+/** 香蕉面板那份（用户 2026-10-03 图二）：最前面多一个 `auto` = 自适应 */
+const GEMINI_RATIOS_WITH_AUTO = ['auto', ...GEMINI_IMAGE_RATIOS] as const
+
 /**
- * **OpenAI 官方 Images API 的尺寸与质量档**（出处：官方 OpenAPI 规范
- * `openai/openai-openapi` 的 `CreateImageRequest`，2026-10-03 实读）。
+ * **GPT Image 的面板档位**（用户 2026-10-03 图一）：
  *
- * - `size`：`auto` 或三个像素尺寸；`256x256` / `512x512` / `1792x1024` 在规范里
- *   标着「legacy … Check the selected GPT image model's supported sizes」⇒ 不摆；
- * - `quality`：六档（`xhigh` / `max` **也是官方的**，`standard` / `hd` 才是废弃档）；
- * - `n`：1–10。
+ * - 比例：**13 档**（`1:1 / 1:2 / 2:1 / 9:16 / 16:9 / 3:4 / 4:3 / 3:2 / 2:3 / 5:4 / 4:5 / 21:9 / 9:21`）
+ *   —— 用户原话「我不想用具体的像素标志，我想要比例那种档位」；
+ * - 清晰度：`1K / 2K / 4K`（与香蕉一致），发请求时按 `比例 × 清晰度` 换算成像素 `size`
+ *   （OpenAI 的 `size` 只认像素，官方规范里 `auto`/`1024x1024`/`1536x1024`/`1024x1536`）；
+ * - 画质：`low / medium / high / xhigh / max`（OpenAI 官方枚举，面板显示成
+ *   低 / 标准 / 高 / 超高 / 极致画质）；
+ * - 背景：`auto / opaque / transparent`（OpenAI 官方 `background` 枚举，
+ *   面板显示成 自动 / 保留背景 / 透明背景）。
  */
-const OPENAI_IMAGE_SIZES = ['auto', '1024x1024', '1536x1024', '1024x1536'] as const
-const OPENAI_IMAGE_QUALITIES = ['auto', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+const OPENAI_IMAGE_RATIOS = [
+  '1:1',
+  '1:2',
+  '2:1',
+  '9:16',
+  '16:9',
+  '3:4',
+  '4:3',
+  '3:2',
+  '2:3',
+  '5:4',
+  '4:5',
+  '21:9',
+  '9:21',
+] as const
+const OPENAI_IMAGE_QUALITIES = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+const OPENAI_IMAGE_BACKGROUNDS = ['auto', 'opaque', 'transparent'] as const
+const OPENAI_IMAGE_TIERS = ['1K', '2K', '4K'] as const
+
+/** 所有图片模型统一的生成数量（用户 2026-10-03：「数量…每个模型统一一下」） */
+const IMAGE_COUNTS = [1, 2, 4] as const
 
 export const IMAGE_PARAM_SPECS: Record<string, ImageParamSpec> = {
   'agnes-image-2.0-flash': {
     sizes: ['1024x1024', '1024x768', '768x1024'],
     ratios: [],
     qualities: [],
-    counts: [1],
+    backgrounds: [],
+    counts: IMAGE_COUNTS,
     maxReferenceImages: 4,
     dialect: 'pixel',
   },
@@ -112,7 +157,8 @@ export const IMAGE_PARAM_SPECS: Record<string, ImageParamSpec> = {
     sizes: AGNES_IMAGE_TIERS,
     ratios: AGNES_IMAGE_RATIOS,
     qualities: [],
-    counts: [1],
+    backgrounds: [],
+    counts: IMAGE_COUNTS,
     maxReferenceImages: 4,
     dialect: 'tier',
   },
@@ -120,7 +166,8 @@ export const IMAGE_PARAM_SPECS: Record<string, ImageParamSpec> = {
     sizes: AGNES_IMAGE_TIERS,
     ratios: AGNES_IMAGE_RATIOS,
     qualities: [],
-    counts: [1],
+    backgrounds: [],
+    counts: IMAGE_COUNTS,
     maxReferenceImages: 4,
     dialect: 'tier',
   },
@@ -142,10 +189,11 @@ export const IMAGE_PARAM_SPECS: Record<string, ImageParamSpec> = {
     (['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'] as const).map((id) => [
       id,
       {
-        sizes: OPENAI_IMAGE_SIZES,
-        ratios: [],
+        sizes: OPENAI_IMAGE_TIERS,
+        ratios: OPENAI_IMAGE_RATIOS,
         qualities: OPENAI_IMAGE_QUALITIES,
-        counts: [1, 2, 4, 9],
+        backgrounds: OPENAI_IMAGE_BACKGROUNDS,
+        counts: IMAGE_COUNTS,
         maxReferenceImages: 4,
         dialect: 'openai-images' as const,
       },
@@ -159,9 +207,10 @@ export const IMAGE_PARAM_SPECS: Record<string, ImageParamSpec> = {
    */
   'gemini-3-pro-image': {
     sizes: ['1K', '2K', '4K'],
-    ratios: GEMINI_IMAGE_RATIOS,
+    ratios: GEMINI_RATIOS_WITH_AUTO,
     qualities: [],
-    counts: [1],
+    backgrounds: [],
+    counts: IMAGE_COUNTS,
     maxReferenceImages: 0,
     dialect: 'gemini',
   },
@@ -171,9 +220,10 @@ export const IMAGE_PARAM_SPECS: Record<string, ImageParamSpec> = {
    */
   'gemini-3.1-flash-image': {
     sizes: ['512', '1K', '2K', '4K'],
-    ratios: GEMINI_IMAGE_RATIOS,
+    ratios: GEMINI_RATIOS_WITH_AUTO,
     qualities: [],
-    counts: [1],
+    backgrounds: [],
+    counts: IMAGE_COUNTS,
     maxReferenceImages: 0,
     dialect: 'gemini',
   },

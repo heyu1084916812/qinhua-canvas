@@ -96,9 +96,32 @@ export interface GenerationData {
    */
   resolution?: string
   quality?: 'auto' | 'low' | 'medium' | 'high'
+  /**
+   * **背景**（用户 2026-10-03 图一：自动 / 保留背景 / 透明背景）。
+   *
+   * 取值用 OpenAI 官方的 `background` 枚举（`auto` / `opaque` / `transparent`），
+   * 面板只负责中文标签。只有声明支持它的模型才摆这一段。
+   */
+  background?: string
   count?: number
   // 视频模式
-  size?: 'auto' | '480p' | '720p' | '1080p'
+  /**
+   * 视频**清晰度档**，允许各家自己的写法（用户 2026-10-03）：
+   * Agnes 是 `720P` / `1080P` / `1K` / `2K`，Seedance 是 `480P` / `720P` / `1080P` / `4K`，
+   * MiniMax 是 `480P` / `768P` / `2K`。合法取值由 `videoParamsFor` 的能力表约束，
+   * 面板只摆该模型声明过的值 —— 与 `resolution` 同一条口径（写死联合会逼着调用方到处 `as`）。
+   */
+  size?: string
+  /**
+   * **视频生成模式**（用户 2026-10-03 图四/图五/图七/图九那种下拉）。
+   *
+   * 值用各模型官方文档/参考产品里的模式名（`text` / `all-purpose` / `image-to-video` /
+   * `first-last-frame` / `image-reference` / `video-edit` / `video-extend` / `ultra-long`），
+   * **支持哪几个由模型自己的能力表决定**（`videoParamsFor().modes`）。
+   */
+  videoMode?: string
+  /** 生成音频（图三/图六的「生成音频 开启/关闭」）：只有支持它的模型才摆 */
+  generateAudio?: boolean
   durationSec?: number
   refMode?: 'first-last-frame' | 'all-purpose'
   // 缩略图状态

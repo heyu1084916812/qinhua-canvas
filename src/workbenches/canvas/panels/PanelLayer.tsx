@@ -501,6 +501,10 @@ function handlePanelEvent(
       patch({ quality: event.quality as GenerationData['quality'] })
       remember(event.type, event.recipe)
       break
+    case 'setBackground':
+      patch({ background: event.background })
+      remember(event.type, event.recipe)
+      break
     case 'setCount':
       patch({ count: event.count })
       remember(event.type, event.recipe)
@@ -522,6 +526,14 @@ function handlePanelEvent(
       break
     case 'setRefMode':
       patch({ refMode: event.refMode })
+      remember(event.type, event.recipe)
+      break
+    case 'setVideoMode':
+      patch({ videoMode: event.videoMode })
+      remember(event.type, event.recipe)
+      break
+    case 'setGenerateAudio':
+      patch({ generateAudio: event.generateAudio })
       remember(event.type, event.recipe)
       break
     case 'toggleThumb':

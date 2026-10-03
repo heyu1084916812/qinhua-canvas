@@ -117,7 +117,14 @@ describe('生成节点规格 / 请求参数按功能类别分支（§6.8）', ()
       size: '720p',
     })
     expect(req!.kind).toBe('image')
-    expect(req!.params).toEqual({ count: 4, ratio: '1:1', resolution: '2k', quality: 'high' })
+    expect(req!.params).toEqual({
+      count: 4,
+      ratio: '1:1',
+      resolution: '2k',
+      quality: 'high',
+      /** 背景（用户 2026-10-03 图一）：没设过 = 不下发 */
+      background: null,
+    })
   })
 
   it('画质 = 自动（或未设置）→ 不塞进 params：「自动」是不指定，不是 1K', () => {
@@ -129,7 +136,13 @@ describe('生成节点规格 / 请求参数按功能类别分支（§6.8）', ()
       prompt: 'p',
       resolution: 'auto',
     })
-    expect(auto!.params).toEqual({ count: 1, ratio: null, resolution: null, quality: null })
+    expect(auto!.params).toEqual({
+      count: 1,
+      ratio: null,
+      resolution: null,
+      quality: null,
+      background: null,
+    })
 
     const unset = reqOf('generation', {
       mode: 'image',
@@ -140,7 +153,7 @@ describe('生成节点规格 / 请求参数按功能类别分支（§6.8）', ()
     expect(unset!.params.resolution).toBeNull()
   })
 
-  it('视频模式：发 尺寸 / 时长 / 参考模式', () => {
+  it('视频模式：发 模式 / 清晰度 / 时长 / 参考模式 / 生成数量', () => {
     const req = reqOf('generation', {
       mode: 'video',
       channelId: 'c',
@@ -152,7 +165,15 @@ describe('生成节点规格 / 请求参数按功能类别分支（§6.8）', ()
       count: 4,
     })
     expect(req!.kind).toBe('video')
-    expect(req!.params).toEqual({ ratio: null, size: '720p', durationSec: 8, refMode: 'all-purpose' })
+    expect(req!.params).toEqual({
+      ratio: null,
+      size: '720p',
+      durationSec: 8,
+      refMode: 'all-purpose',
+      count: 4,
+      videoMode: null,
+      generateAudio: null,
+    })
   })
 
   it('视频模式不发图片参数：别让渠道收到 resolution 却不知道该不该用', () => {
@@ -167,7 +188,11 @@ describe('生成节点规格 / 请求参数按功能类别分支（§6.8）', ()
     })
     expect(req!.params).not.toHaveProperty('resolution')
     expect(req!.params).not.toHaveProperty('quality')
-    expect(req!.params).not.toHaveProperty('count')
+    /**
+     * ⚠️ `count` 现在**两边都有**：图片是「生成几张」，视频是图三/图六那排
+     * 「生成数量 1/2/4」（独立部署发 `n`），所以它不再是一条「图片专属参数」的判据。
+     */
+    expect(req!.params).not.toHaveProperty('background')
   })
 
   it('分组复用同一份参数构造（三处各抄一份是本洞的成因）', () => {
@@ -181,6 +206,14 @@ describe('生成节点规格 / 请求参数按功能类别分支（§6.8）', ()
       refMode: 'first-last-frame',
       childIds: [],
     })
-    expect(req!.params).toEqual({ ratio: null, size: '480p', durationSec: 5, refMode: 'first-last-frame' })
+    expect(req!.params).toEqual({
+      ratio: null,
+      size: '480p',
+      durationSec: 5,
+      refMode: 'first-last-frame',
+      count: null,
+      videoMode: null,
+      generateAudio: null,
+    })
   })
 })

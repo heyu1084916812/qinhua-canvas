@@ -424,24 +424,25 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
   })
 
   /**
-   * **GPT Image 三档按 OpenAI 官方规范发**（用户 2026-10-03：「就走官方的」）：
-   * `size` 用官方那三个像素尺寸之一，`quality` 六档（含官方也有的 `xhigh` / `max`），
-   * `n` 最多 10（面板给到 9）。
+   * **GPT Image 三档**：面板给的是**比例 + 清晰度**（用户 2026-10-03 图一：
+   * 「我不想用具体的像素标志，我想要比例那种档位」），发请求时换算成 OpenAI 认的像素 `size`；
+   * `quality` 走该模型能力表（含官方也有的 `xhigh` / `max`），`n` 按能力表夹到 4。
    */
-  it('★★ GPT Image 2.5 Flare：size 走官方像素尺寸、quality 走 xhigh、张数按能力表夹到 9', async () => {
+  it('★★ GPT Image 2.5 Flare：比例 × 清晰度 → 像素 size、quality 走 xhigh、张数夹到 4', async () => {
     const calls: { url: string; body: unknown }[] = []
     await adapter(calls).generateImage(
       {
         ...request([], 12),
         model: 'gpt-image-2.5-flare',
-        params: { count: 12, resolution: '1536x1024', quality: 'xhigh' },
+        params: { count: 12, ratio: '1:1', resolution: '1k', quality: 'xhigh' },
       },
       signal,
     )
     const body = calls[0]!.body as Record<string, unknown>
-    expect(body.size).toBe('1536x1024')
+    /** 1:1 × 1K = 1024×1024（`openAiImageSize` 按预算解出来再吸附到 16 的倍数） */
+    expect(body.size).toBe('1024x1024')
     expect(body.quality).toBe('xhigh')
-    expect(body.n).toBe(9)
+    expect(body.n).toBe(4)
   })
 
   it('★ 选「自动」尺寸时不发 size（交给服务端默认），不是发一个字符串 auto', async () => {
@@ -455,7 +456,40 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
       signal,
     )
     expect(calls[0]!.body).not.toHaveProperty('size')
-    expect(calls[0]!.body).toMatchObject({ quality: 'auto', n: 1 })
+    /**
+     * `quality: 'auto'` 同样**不下发**：图一那份画质菜单只有五档（低/标准/高/超高/极致），
+     * 没有「自动」；而 OpenAI 的 `auto` 语义就是「让服务端自己定」——
+     * 不发与发 `auto` 等价，不发更不容易被中转站拒。
+     */
+    expect(calls[0]!.body).not.toHaveProperty('quality')
+    expect(calls[0]!.body).toMatchObject({ n: 1 })
+  })
+
+  /**
+   * **背景**（用户 2026-10-03 图一：自动 / 保留背景 / 透明背景；「看看能否请求到」）。
+   *
+   * 取值就发 OpenAI 官方的 `background` 枚举（`opaque` / `transparent`）；
+   * 「自动」= 不指定 ⇒ **不发这个字段**。声明里没有这一段的模型（Agnes 图片那几档）
+   * 就算节点上带着旧值也不发 —— 这正是用户要的「每个模型只发它支持的参数」。
+   */
+  it('★★ 背景：声明支持的模型才发；「自动」与不支持的模型都不发', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const a = adapter(calls)
+    await a.generateImage(
+      { ...request([], 1), model: 'gpt-image-2', params: { count: 1, background: 'transparent' } },
+      signal,
+    )
+    await a.generateImage(
+      { ...request([], 1), model: 'gpt-image-2', params: { count: 1, background: 'auto' } },
+      signal,
+    )
+    await a.generateImage(
+      { ...request([], 1), model: 'agnes-image-2.5-flash', params: { count: 1, background: 'transparent' } },
+      signal,
+    )
+    expect(calls[0]!.body).toMatchObject({ background: 'transparent' })
+    expect(calls[1]!.body).not.toHaveProperty('background')
+    expect(calls[2]!.body).not.toHaveProperty('background')
   })
 
   it('★ 能力表外的质量档不发（xhigh 只对该模型放行，别家仍是四档）', async () => {

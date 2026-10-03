@@ -263,13 +263,15 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
     expect(bodies[0]).toMatchObject({
       model: 'agnes-video-2.5',
       /**
-       * `mode` 是**服务端枚举**：`'ti2vid' | 'keyframes' | 'multi_reference'`。
+       * `mode` 是**服务端枚举，而且 2.5 与 2.0 不是同一套**：
+       * Agnes Video 2.5 官方文档给的是 `text` / `keyframe` / `reference`
+       * （`wiki.agnes-ai.com/en/docs/agnes-video-25`，2026-10-03 实读）；
+       * 2.0 那一套是 `ti2vid` / `keyframes` / `multi_reference`（真令牌 400 原文）。
        *
-       * 这里原本钉的是我们自己的叫法 `'text'` —— 用户 2026-10-03 手跑 Agnes Video 2.0
-       * 时收到 400：`Input should be 'ti2vid', 'keyframes' or 'multi_reference'`，
-       * 说明这条断言当初把 bug 也一起钉住了。纯文字起片就是 `'ti2vid'`。
+       * 这条断言曾经钉的是 `ti2vid` —— 那是照着 **2.0** 的报错写进 **2.5** 的用例里，
+       * 于是「2.5 纯文字起片发 ti2vid、被 400 拒」这个 bug 被单测一起锁死了。
        */
-      mode: 'ti2vid',
+      mode: 'text',
       seconds: '4',
       size: '720P',
       aspect_ratio: '16:9',
@@ -520,5 +522,180 @@ describe('视频轮询 · 限流不该把任务判死（用户 2026-10-03 实测
     const assets = await adapter.generateVideo(videoRequest, new AbortController().signal)
     expect(assets.length).toBe(1)
     expect(polls).toBeGreaterThanOrEqual(2)
+  })
+})
+
+/**
+ * **每个视频模型各自的参数**（用户 2026-10-03 图三～图十一）。
+ *
+ * 这一组钉的是「面板选了什么 → 请求体里长什么样」这条链子。它不是锦上添花：
+ * 用户在这个项目上反复遇到的正是「面板上摆着、发出去却是另一套 / 根本不发」——
+ * 参数面板与请求体必须由**同一个规格**推出来，单测就守在这条缝上。
+ */
+describe('视频参数 · 按模型分派（用户 2026-10-03 图三～图十一）', () => {
+  /** 提交成功 → 立刻完成 + 给一个产物地址，只关心**第一次 POST 的 body** */
+  function adapterCapturing(bodies: Record<string, unknown>[]) {
+    const platform = createMemoryPlatform({
+      /** 参考素材库：图生视频那几档必须真有图可读，否则适配器会**如实报错** */
+      rows: {
+        assets: [
+          { id: 'h1', bytes: new Uint8Array([1, 2, 3]), mime: 'image/png' },
+          { id: 'h2', bytes: new Uint8Array([4, 5, 6]), mime: 'image/png' },
+        ],
+      },
+      handler: async (req: NetworkRequest): Promise<NetworkResponse> => {
+        if (req.method === 'POST') {
+          bodies.push(req.body as Record<string, unknown>)
+          return json(200, { task_id: 't', video_id: 'v', status: 'queued' })
+        }
+        if (req.url.includes('/videos/t')) return json(200, { status: 'completed', url: 'https://x/v.mp4' })
+        if (req.url.includes('v.mp4')) return json(200, {})
+        return json(404, {})
+      },
+    })
+    return createOpenAiVideoAdapter(config, platform, { sleep: async () => {}, now: () => 0 })
+  }
+
+  /** 两张上游图：图生视频 / 全能参考 / 首尾帧这几档的必备输入 */
+  const twoImages = [
+    { kind: 'asset' as const, nodeId: 'n1', assetHash: 'h1', mime: 'image/png' },
+    { kind: 'asset' as const, nodeId: 'n2', assetHash: 'h2', mime: 'image/png' },
+  ]
+
+  it('★★ 即梦 2.5 走「官方字段名」那套：ratio / resolution / duration / generate_audio / n', async () => {
+    const bodies: Record<string, unknown>[] = []
+    await adapterCapturing(bodies).generateVideo(
+      {
+        ...videoRequest,
+        model: '即梦 2.5',
+        inputs: twoImages,
+        params: {
+          ratio: '16:9',
+          size: '1080P',
+          durationSec: 30,
+          videoMode: 'image-to-video',
+          generateAudio: true,
+          count: 2,
+        },
+      },
+      new AbortController().signal,
+    )
+    expect(bodies[0]).toMatchObject({
+      model: '即梦 2.5',
+      mode: 'image-to-video',
+      ratio: '16:9',
+      resolution: '1080P',
+      duration: 30,
+      generate_audio: true,
+      n: 2,
+    })
+    /** 这一档不发 Agnes 那套字段名，两套混着发才最容易 400 */
+    expect(bodies[0]).not.toHaveProperty('seconds')
+    expect(bodies[0]).not.toHaveProperty('size')
+    expect(bodies[0]).not.toHaveProperty('aspect_ratio')
+  })
+
+  it('★ MiniMax H3 Max：只有「自适应」一档画幅 ⇒ 不发 ratio；没有音频开关 ⇒ 不发 generate_audio', async () => {
+    const bodies: Record<string, unknown>[] = []
+    await adapterCapturing(bodies).generateVideo(
+      {
+        ...videoRequest,
+        model: 'Minimax H3 Max',
+        inputs: twoImages,
+        params: {
+          ratio: 'auto',
+          size: '480P',
+          durationSec: 15,
+          videoMode: 'image-to-video',
+          generateAudio: true,
+          count: 4,
+        },
+      },
+      new AbortController().signal,
+    )
+    expect(bodies[0]).toMatchObject({ mode: 'image-to-video', resolution: '480P', duration: 15, n: 4 })
+    /** 自适应 = 这次不指定画幅（不是把 'auto' 当宽高比发出去） */
+    expect(bodies[0]).not.toHaveProperty('ratio')
+    /** 模型没有这个开关就不发 —— 发一个它不认的字段只会换 400 */
+    expect(bodies[0]).not.toHaveProperty('generate_audio')
+  })
+
+  it('★★ 时长按各模型的区间夹取（即梦 4–30、H3 5–15、Agnes 4–12）', async () => {
+    for (const [model, want] of [
+      ['即梦 2.5', 30],
+      ['MiniMax H3', 15],
+      ['Minimax H3 Max', 15],
+    ] as const) {
+      const bodies: Record<string, unknown>[] = []
+      await adapterCapturing(bodies).generateVideo(
+        { ...videoRequest, model, params: { ratio: '16:9', size: '1080P', durationSec: 99 } },
+        new AbortController().signal,
+      )
+      expect(bodies[0]!.duration, model).toBe(want)
+    }
+  })
+
+  it('★★ Agnes Video 2.5 的纯文字起片发 `mode: "text"`（不是 2.0 那套 ti2vid）', async () => {
+    const bodies: Record<string, unknown>[] = []
+    await adapterCapturing(bodies).generateVideo(
+      {
+        ...videoRequest,
+        model: 'Agnes Video 2.5',
+        params: { ratio: '16:9', size: '1080P', durationSec: 6, videoMode: 'text' },
+      },
+      new AbortController().signal,
+    )
+    expect(bodies[0]).toMatchObject({ mode: 'text', seconds: '6', size: '1080P', aspect_ratio: '16:9' })
+  })
+
+  it('★ Agnes Video 2.5 的「1K / 2K」是真档位，不被压回 720P', async () => {
+    for (const size of ['1K', '2K', '1080P', '720P']) {
+      const bodies: Record<string, unknown>[] = []
+      await adapterCapturing(bodies).generateVideo(
+        { ...videoRequest, model: 'agnes-video-2.5', params: { ratio: '16:9', size, durationSec: 5 } },
+        new AbortController().signal,
+      )
+      expect(bodies[0]!.size, size).toBe(size)
+    }
+  })
+
+  it('★★ 老节点只有 `refMode` 时仍认得出来（不静默退回文生视频）', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const platform = createMemoryPlatform({
+      rows: {
+        assets: [
+          { id: 'h1', bytes: new Uint8Array([1, 2, 3]), mime: 'image/png' },
+          { id: 'h2', bytes: new Uint8Array([4, 5, 6]), mime: 'image/png' },
+        ],
+      },
+      handler: async (req: NetworkRequest): Promise<NetworkResponse> => {
+        if (req.method === 'POST') {
+          bodies.push(req.body as Record<string, unknown>)
+          return json(200, { task_id: 't', video_id: 'v', status: 'queued' })
+        }
+        if (req.url.includes('/videos/t')) return json(200, { status: 'completed', url: 'https://x/v.mp4' })
+        if (req.url.includes('v.mp4')) return json(200, {})
+        return json(404, {})
+      },
+    })
+    const adapter = createOpenAiVideoAdapter(config, platform, { sleep: async () => {}, now: () => 0 })
+    await adapter.generateVideo(
+      {
+        ...videoRequest,
+        model: 'Agnes Video 2.0',
+        inputs: [
+          { kind: 'asset', nodeId: 'n1', assetHash: 'h1', mime: 'image/png' },
+          { kind: 'asset', nodeId: 'n2', assetHash: 'h2', mime: 'image/png' },
+        ],
+        params: { ratio: '16:9', size: '720p', durationSec: 5, refMode: 'first-last-frame' },
+      },
+      new AbortController().signal,
+    )
+    /** 2.0 是像素方言：先发像素那套，且 `mode` 用它认的 `keyframes` */
+    expect(bodies[0]).toMatchObject({ mode: 'keyframes' })
+    expect(Array.isArray(bodies[0]!.image)).toBe(true)
+    expect((bodies[0]!.image as string[]).length).toBe(2)
+    /** 首尾帧一定要两张：只连一张时同一张兼作首尾帧，但绝不是一张 */
+    expect(bodies[0]).not.toHaveProperty('seconds')
   })
 })

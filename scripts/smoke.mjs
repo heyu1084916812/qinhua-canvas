@@ -4439,14 +4439,17 @@ async function g46(browser) {
    * ★★ 一枚胶囊装下四段参数（用户 2026-10-02 参考产品图五 / 图六：
    * 「把比例，质量，画质，张数变成一个胶囊显示，而且点击显示的面板……把所有的参数
    * 都放上去」）。判据取**分段的名单**：四段缺一段、或又拆回四枚 chip，都会红。
+   *
+   * 段的顺序＝用户 2026-10-03 图一那份：**画质 → 清晰度 → 背景 → 比例 → 生成数量**
+   * （这个 mock 模型没有能力表，「背景」那一段不会出现，所以这里是四段）。
    */
   const paramSectionNames = await panel
     .locator('[data-param-popup="gen-params"] [data-param-section]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-section')))
   rec(
     g,
-    '★★ 生成参数收成一枚胶囊：点开是四段（比例 / 画质 / 质量 / 张数）',
-    paramSectionNames.join(',') === 'ratio,resolution,quality,count' &&
+    '★★ 生成参数收成一枚胶囊：点开是四段（画质 / 清晰度 / 比例 / 张数）',
+    paramSectionNames.join(',') === 'quality,resolution,ratio,count' &&
       (await panel.locator('[data-param-chip="gen-params"]').count()) === 1 &&
       (await panel.locator('[data-param-chip="ratio"]').count()) === 0,
     `段=${paramSectionNames.join(',')}`,
@@ -4466,10 +4469,10 @@ async function g46(browser) {
   await sleep(400)
   rec(
     g,
-    '切到视频：尺寸 / 时长滑块 / 参考模式出现',
-    (await panel.locator('[data-param-chip="size"]').count()) === 1 &&
-      (await panel.locator('[data-param-duration-range]').count()) === 1 &&
-      (await panel.locator('[data-param-chip="refMode"]').count()) === 1,
+    '切到视频：生成模式 / 清晰度 / 时长滑块出现',
+    (await panel.locator('[data-param-chip="videoMode"]').count()) === 1 &&
+      (await panel.locator('[data-param-chip="size"]').count()) === 1 &&
+      (await panel.locator('[data-param-duration-range]').count()) === 1,
   )
   rec(
     g,
@@ -4510,7 +4513,11 @@ async function g46(browser) {
   // ③ 视频参数写回并落库
   await pickParam(panel, 'model', 'mock-video-1')
   await pickParam(panel, 'size', '720p')
-  await pickParam(panel, 'refMode', '全能参考')
+  /**
+   * 参考模式那一枚已升级成**生成模式**（用户 2026-10-03 图四/图五那种下拉）：
+   * 不再只有「首尾帧 / 全能参考」两个值，而是按模型摆子集。
+   */
+  await pickParam(panel, 'videoMode', '全能参考')
   const durInput = panel.locator('[data-param-duration-input]')
   await durInput.fill('8')
   await sleep(300)
@@ -4528,8 +4535,9 @@ async function g46(browser) {
   )
   rec(
     g,
-    '刷新后尺寸 / 参考模式读回',
-    (await paramLabel(panel2, 'size')) === '720p' && (await paramLabel(panel2, 'refMode')) === '全能参考',
+    '刷新后清晰度 / 生成模式读回',
+    (await paramLabel(panel2, 'size')) === '720p' &&
+      (await paramLabel(panel2, 'videoMode')) === '全能参考',
   )
   rec(g, '刷新后时长读回', (await panel2.locator('[data-param-duration-input]').inputValue()) === '8')
 
@@ -15239,42 +15247,56 @@ async function g98(browser) {
   // ① Comfy-gpt 的 GPT Image 档
   await pickModel('GPT Image 2.5 Flare')
   await openParams()
+  /** 段的顺序也要断言：用户 2026-10-03 图一那份是「画质 → 清晰度 → 背景 → 比例 → 数量」 */
+  const gptSections = await popup()
+    .locator('[data-param-section]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-section')))
   const gptRatios = await valuesOf('ratio')
   const gptRes = await valuesOf('resolution')
   const gptQuality = await valuesOf('quality')
   const gptQualityLabels = await labelsOf('quality')
+  const gptBackground = await valuesOf('background')
+  const gptBackgroundLabels = await labelsOf('background')
   const gptCounts = await valuesOf('count')
   rec(
     g,
-    '★★ GPT Image 2.5 Flare：OpenAI 官方 size（auto + 三个像素）/ 六档质量 / 1·2·4·9 张 / 无独立画幅',
-    gptRatios.length === 0 &&
-      JSON.stringify(gptRes) ===
-        JSON.stringify(['auto', '1024x1024', '1536x1024', '1024x1536']) &&
-      JSON.stringify(gptQuality) === JSON.stringify(['auto', 'low', 'medium', 'high', 'xhigh', 'max']) &&
-      gptQualityLabels.includes('超高') &&
-      gptQualityLabels.includes('最高') &&
-      JSON.stringify(gptCounts) === JSON.stringify(['1', '2', '4', '9']),
-    `比例=${gptRatios.length} 尺寸=${JSON.stringify(gptRes)} 质量=${JSON.stringify(gptQuality)} 标签=${JSON.stringify(gptQualityLabels)} 张数=${JSON.stringify(gptCounts)}`,
+    '★★ GPT Image 2.5 Flare：五档画质 / 1K·2K·4K / 三档背景 / 13 档比例 / 1·2·4 张',
+    JSON.stringify(gptSections) ===
+      JSON.stringify(['quality', 'resolution', 'background', 'ratio', 'count']) &&
+      JSON.stringify(gptQuality) === JSON.stringify(['low', 'medium', 'high', 'xhigh', 'max']) &&
+      gptQualityLabels.includes('标准画质') &&
+      gptQualityLabels.includes('极致画质') &&
+      JSON.stringify(gptRes) === JSON.stringify(['1k', '2k', '4k']) &&
+      JSON.stringify(gptBackground) === JSON.stringify(['auto', 'opaque', 'transparent']) &&
+      gptBackgroundLabels.includes('保留背景') &&
+      gptBackgroundLabels.includes('透明背景') &&
+      gptRatios.length === 13 &&
+      gptRatios.includes('21:9') &&
+      gptRatios.includes('9:21') &&
+      JSON.stringify(gptCounts) === JSON.stringify(['1', '2', '4']),
+    `段=${JSON.stringify(gptSections)} 质量=${JSON.stringify(gptQuality)} 清晰度=${JSON.stringify(gptRes)} 背景=${JSON.stringify(gptBackground)} 比例=${gptRatios.length} 张数=${JSON.stringify(gptCounts)}`,
   )
   await page.screenshot({ path: `${OUT}/119-g98-gpt-image-params.png` })
   await page.keyboard.press('Escape')
   await sleep(250)
 
-  // ② Agnes Image 2.5 Flash：档位 + 画幅，但没有质量与张数
+  // ② Agnes Image 2.5 Flash：档位 + 画幅，但没有质量与背景
   await pickModel('Agnes Image 2.5 Flash')
   await openParams()
   const agnesRatios = await valuesOf('ratio')
   const agnesRes = await valuesOf('resolution')
   const agnesQuality = await valuesOf('quality')
+  const agnesBackground = await valuesOf('background')
   const agnesCounts = await valuesOf('count')
   rec(
     g,
-    '★★ Agnes Image 2.5 Flash：8 档画幅 + 1K–4K，且**没有质量 / 张数**两段',
+    '★★ Agnes Image 2.5 Flash：8 档画幅 + 1K–4K + 1·2·4 张，且**没有质量 / 背景**两段',
     agnesRatios.length === 8 &&
       JSON.stringify(agnesRes) === JSON.stringify(['1k', '2k', '3k', '4k']) &&
       agnesQuality.length === 0 &&
-      agnesCounts.length === 0,
-    `比例=${agnesRatios.length} 尺寸=${JSON.stringify(agnesRes)} 质量段=${agnesQuality.length} 张数段=${agnesCounts.length}`,
+      agnesBackground.length === 0 &&
+      JSON.stringify(agnesCounts) === JSON.stringify(['1', '2', '4']),
+    `比例=${agnesRatios.length} 尺寸=${JSON.stringify(agnesRes)} 质量段=${agnesQuality.length} 背景段=${agnesBackground.length} 张数=${JSON.stringify(agnesCounts)}`,
   )
   await page.keyboard.press('Escape')
   await sleep(250)
@@ -15290,13 +15312,21 @@ async function g98(browser) {
   const nanoSizes = await valuesOf('resolution')
   rec(
     g,
-    '★★ Nano Banana Pro：官方 14 档宽高比 + 1K·2K·4K（不含 512）',
-    nanoRatios.length === 14 &&
+    '★★ Nano Banana Pro：自适应 + 官方 14 档宽高比 + 1K·2K·4K（不含 512）',
+    nanoRatios.length === 15 &&
+      nanoRatios[0] === 'auto' &&
       nanoRatios.includes('1:8') &&
       nanoRatios.includes('8:1') &&
       nanoRatios.includes('21:9') &&
       JSON.stringify(nanoSizes) === JSON.stringify(['1k', '2k', '4k']),
     `比例=${nanoRatios.length} 尺寸=${JSON.stringify(nanoSizes)}`,
+  )
+
+  /** 「自适应」不是宽高比 ⇒ 网格里只出文字、不画矩形示意（画了会和 1:1 撞脸） */
+  rec(
+    g,
+    '★ 香蕉面板的「自适应」画的是文字格（没有比例图形）',
+    (await popup().locator('[data-param-in="ratio"][data-param-option="auto"] [data-ratio-glyph]').count()) === 0,
   )
   await page.screenshot({ path: `${OUT}/121-g98-nano-banana.png` })
 
@@ -15305,7 +15335,147 @@ async function g98(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98]
+/**
+ * G99 按模型配**视频**参数（用户 2026-10-03 图三～图十一）
+ *
+ * 为什么必须真在浏览器里跑一遍：这一轮的活是「把参数面板按模型重做」，而参数面板的
+ * 三个环节（能力表 → 面板渲染 → 请求体）任一处没接上，用户看到的都是
+ * 「面板上是这套、发出去是另一套」——单测能钉住规格，只有真机能钉住「面板真的照着渲染了」。
+ *
+ * 四个模型的档位**逐条照抄用户给的参考实现截图**，不是我们推断的：
+ *   · 即梦 2.5（图五/图六）：8 个模式（「视频编辑」灰）、7 档画幅（含自适应）、
+ *     480P/720P/1080P、4–30 秒、有生成音频、1/2/4 个；
+ *   · MiniMax H3（图七/图八）：4 个模式（「文生视频」灰）、7 档画幅、768P/2K、5–15 秒、无音频；
+ *   · H3 Max（图九/最后两张）：3 个模式、**只有自适应一档画幅**、480P/768P、5–15 秒、无音频；
+ *   · Agnes Video 2.0（官方站没有文档页，真令牌实测）：三个模式、**没有 auto**、
+ *     720p/1080p、4–12 秒、无音频、数量只有 1。
+ */
+async function g99(browser) {
+  const g = 'G99 按模型配视频参数'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  const node = page.locator('[data-node-type="generation"]').first()
+  const panel = await genPanel(page, node)
+  /** 视频是同一个生成节点的功能类别（§6.8），切一下就是视频参数集 */
+  await panel.locator('[data-param-mode="video"]').click()
+  await sleep(450)
+
+  const pickModel = async (name) => {
+    await panel.locator('[data-param-chip="model"]').click()
+    await sleep(350)
+    await panel.locator(`[data-param-popup="model"] button[data-param-option="${name}"]`).click()
+    await sleep(450)
+  }
+  /** 展开某一枚 chip，读回它的**选项值 / 文案 / 哪些被置灰**，然后 Esc 收起 */
+  const readChip = async (chip) => {
+    await panel.locator(`[data-param-chip="${chip}"]`).click()
+    await sleep(320)
+    const loc = panel.locator(`[data-param-popup="${chip}"] [data-param-option]`)
+    const vals = await loc.evaluateAll((els) => els.map((e) => e.getAttribute('data-param-option')))
+    const labels = await loc.evaluateAll((els) => els.map((e) => (e.textContent ?? '').trim()))
+    const disabled = await panel
+      .locator(`[data-param-popup="${chip}"] [data-param-option][disabled]`)
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-option')))
+    await page.keyboard.press('Escape')
+    await sleep(200)
+    return { vals, labels, disabled }
+  }
+  const durationRange = async () =>
+    panel.locator('[data-param-duration-range]').evaluate((el) => [el.min, el.max])
+  const hasChip = async (chip) => (await panel.locator(`[data-param-chip="${chip}"]`).count()) === 1
+
+  // ① 即梦 2.5（= Seedance 2.5）：图五 / 图六
+  await pickModel('即梦 2.5')
+  const sd25Mode = await readChip('videoMode')
+  const sd25Ratio = await readChip('ratio')
+  const sd25Size = await readChip('size')
+  const sd25Count = await readChip('count')
+  rec(
+    g,
+    '★★ 即梦 2.5：8 个模式（视频编辑灰 / 超长视频带 Beta）/ 7 档画幅（含自适应）/ 480P·720P·1080P / 4–30 秒 / 有音频 / 1·2·4 个',
+    sd25Mode.vals.length === 8 &&
+      JSON.stringify(sd25Mode.disabled) === JSON.stringify(['video-edit']) &&
+      sd25Mode.labels.some((t) => t.includes('超长视频') && t.includes('Beta')) &&
+      JSON.stringify(sd25Ratio.vals) ===
+        JSON.stringify(['auto', '16:9', '4:3', '1:1', '3:4', '9:16', '21:9']) &&
+      JSON.stringify(sd25Size.vals) === JSON.stringify(['480P', '720P', '1080P']) &&
+      JSON.stringify(await durationRange()) === JSON.stringify(['4', '30']) &&
+      (await hasChip('generateAudio')) &&
+      JSON.stringify(sd25Count.vals) === JSON.stringify(['1', '2', '4']),
+    `模式=${sd25Mode.vals.length} 灰=${JSON.stringify(sd25Mode.disabled)} 画幅=${JSON.stringify(sd25Ratio.vals)} 清晰度=${JSON.stringify(sd25Size.vals)} 时长=${JSON.stringify(await durationRange())} 音频=${await hasChip('generateAudio')} 数量=${JSON.stringify(sd25Count.vals)}`,
+  )
+  await page.screenshot({ path: `${OUT}/130-g99-seedance25.png` })
+
+  // ② MiniMax H3：图七 / 图八
+  await pickModel('MiniMax H3')
+  const h3Mode = await readChip('videoMode')
+  const h3Ratio = await readChip('ratio')
+  const h3Size = await readChip('size')
+  rec(
+    g,
+    '★★ MiniMax H3：4 个模式（文生视频灰）/ 7 档画幅 / 768P·2K / 5–15 秒 / 没有音频开关',
+    JSON.stringify(h3Mode.vals) ===
+      JSON.stringify(['text', 'all-purpose', 'image-to-video', 'first-last-frame']) &&
+      JSON.stringify(h3Mode.disabled) === JSON.stringify(['text']) &&
+      h3Ratio.vals.length === 7 &&
+      h3Ratio.vals[0] === 'auto' &&
+      JSON.stringify(h3Size.vals) === JSON.stringify(['768P', '2K']) &&
+      JSON.stringify(await durationRange()) === JSON.stringify(['5', '15']) &&
+      !(await hasChip('generateAudio')),
+    `模式=${JSON.stringify(h3Mode.vals)} 灰=${JSON.stringify(h3Mode.disabled)} 画幅=${JSON.stringify(h3Ratio.vals)} 清晰度=${JSON.stringify(h3Size.vals)} 时长=${JSON.stringify(await durationRange())} 音频=${await hasChip('generateAudio')}`,
+  )
+
+  // ③ MiniMax H3 Max：图九 / 最后两张
+  await pickModel('Minimax H3 Max')
+  const h3MaxMode = await readChip('videoMode')
+  const h3MaxRatio = await readChip('ratio')
+  const h3MaxSize = await readChip('size')
+  rec(
+    g,
+    '★★ H3 Max：3 个模式 / **画幅只有自适应一档** / 480P·768P / 5–15 秒',
+    JSON.stringify(h3MaxMode.vals) === JSON.stringify(['text', 'image-to-video', 'first-last-frame']) &&
+      JSON.stringify(h3MaxMode.disabled) === JSON.stringify(['text']) &&
+      JSON.stringify(h3MaxRatio.vals) === JSON.stringify(['auto']) &&
+      h3MaxRatio.labels.includes('自适应') &&
+      JSON.stringify(h3MaxSize.vals) === JSON.stringify(['480P', '768P']) &&
+      JSON.stringify(await durationRange()) === JSON.stringify(['5', '15']),
+    `模式=${JSON.stringify(h3MaxMode.vals)} 画幅=${JSON.stringify(h3MaxRatio.vals)} 清晰度=${JSON.stringify(h3MaxSize.vals)} 时长=${JSON.stringify(await durationRange())}`,
+  )
+  await page.screenshot({ path: `${OUT}/131-g99-h3-max.png` })
+
+  // ④ Agnes Video 2.0：官方站没有它的文档页（真令牌实测），**没有「自适应」这一档**
+  await pickModel('Agnes Video 2.0')
+  const agnesMode = await readChip('videoMode')
+  const agnesRatio = await readChip('ratio')
+  const agnesSize = await readChip('size')
+  rec(
+    g,
+    '★★ Agnes Video 2.0：3 个模式 / 6 档画幅（**没有自适应**，官方文档写明 auto 会 400）/ 720p·1080p / 4–12 秒 / 数量只有 1',
+    agnesMode.vals.length === 3 &&
+      agnesMode.disabled.length === 0 &&
+      JSON.stringify(agnesRatio.vals) ===
+        JSON.stringify(['21:9', '16:9', '4:3', '1:1', '3:4', '9:16']) &&
+      JSON.stringify(agnesSize.vals) === JSON.stringify(['720p', '1080p']) &&
+      JSON.stringify(await durationRange()) === JSON.stringify(['4', '12']) &&
+      !(await hasChip('count')),
+    `模式=${JSON.stringify(agnesMode.vals)} 画幅=${JSON.stringify(agnesRatio.vals)} 清晰度=${JSON.stringify(agnesSize.vals)} 时长=${JSON.stringify(await durationRange())}`,
+  )
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

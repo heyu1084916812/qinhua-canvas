@@ -105,6 +105,8 @@ export type PanelEvent =
   | { type: 'setRatio'; ratio: string; recipe?: RecipeSnapshot }
   | { type: 'setResolution'; resolution: string; recipe?: RecipeSnapshot }
   | { type: 'setQuality'; quality: string; recipe?: RecipeSnapshot }
+  /** 图片「背景」（图一）：`auto` / `opaque` / `transparent` */
+  | { type: 'setBackground'; background: string; recipe?: RecipeSnapshot }
   | { type: 'setCount'; count: number; recipe?: RecipeSnapshot }
   /**
    * 功能类别切换（§6.8「右上角为图片 / 视频功能类别切换」）。
@@ -117,9 +119,14 @@ export type PanelEvent =
    */
   | { type: 'setMode'; mode: 'image' | 'video'; keepModel: boolean; recipe?: RecipeSnapshot }
   /** 视频参数（§6.8 视频模式）：尺寸 / 时长 / 首尾帧·全能参考 */
-  | { type: 'setSize'; size: 'auto' | '480p' | '720p' | '1080p'; recipe?: RecipeSnapshot }
+  /** 视频清晰度档：取值由各模型的能力表约束（`720P` / `2K` / `480P` …），故不再写死联合 */
+  | { type: 'setSize'; size: string; recipe?: RecipeSnapshot }
   | { type: 'setDurationSec'; sec: number; recipe?: RecipeSnapshot }
   | { type: 'setRefMode'; refMode: 'first-last-frame' | 'all-purpose'; recipe?: RecipeSnapshot }
+  /** 视频「生成模式」（图四/图五/图七/图九那种下拉） */
+  | { type: 'setVideoMode'; videoMode: string; recipe?: RecipeSnapshot }
+  /** 视频「生成音频」开关（图三/图六） */
+  | { type: 'setGenerateAudio'; generateAudio: boolean; recipe?: RecipeSnapshot }
   | { type: 'toggleThumb'; owner: PanelThumb['owner']; id: string }
   /** 删除节点自身内容（§6.6「节点自身内容 → 删除」）；上游缩略图不可删，只有小眼睛 */
   | { type: 'removeOwnAsset' }
