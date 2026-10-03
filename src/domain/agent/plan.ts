@@ -100,7 +100,7 @@ export function normalizeAgentPlan(raw: unknown): { plan: unknown; notes: string
   /** 缺 order 的节点：等连线读完再按拓扑深度补 */
   const needOrder: string[] = []
 
-  const nodes = nodesRaw.map((n) => {
+  let nodes = nodesRaw.map((n) => {
     if (!n || typeof n !== 'object' || Array.isArray(n)) return n
     const node = { ...(n as Record<string, unknown>) }
     /**
@@ -145,7 +145,7 @@ export function normalizeAgentPlan(raw: unknown): { plan: unknown; notes: string
     }
     return undefined
   }
-  const edges = edgesRaw.map((e) => {
+  let edges = edgesRaw.map((e) => {
     if (!e || typeof e !== 'object' || Array.isArray(e)) return e
     const edge = { ...(e as Record<string, unknown>) }
     /**
@@ -211,6 +211,86 @@ export function normalizeAgentPlan(raw: unknown): { plan: unknown; notes: string
       at.order = depth.get(id) ?? 0
     }
     notes.push(`${needOrder.length} 个节点没有可用的 order，已按连线推导`)
+  }
+
+  /**
+   * **把「提示词节点 → 生成节点」这种一步链路折成**一个生成节点**（用户 2026-10-04 第 4 条：
+   * 「我用 agent 生图的时候卡在了没有写提示词在流程里面，单独生成图片应该是直接一个
+   *  生成节点就可以了，然后把提示词输入进去再向我确认生成，当前是流程是新建了一个
+   *  提示词节点和连接的生成节点」）。
+   *
+   * 为什么要在归一化里**确定性地**做，而不是只写进系统提示词：这条正是「模型照抄模板形状」
+   * 的表现 —— 文生图模板本身就是「提示词 + 生成」两个节点，模型照着它建。
+   * 提示词能引导，但不保证；而这条链路在语义上**唯一确定**：
+   * 一个提示词节点只喂一个生成节点、且那个生成节点自己没有提示词 ⇒
+   * 把正文搬到生成节点上、去掉中间那个节点，图的意思一模一样、还少一步。
+   *
+   * 只折**同时满足**下面全部条件的（少一条都不动 —— 宁可不折，也不要改错用户的图）：
+   * ① 提示词节点有正文；② 它**恰好一条出边**（多下游 = 用户在复用这段提示词，保留）；
+   * ③ 那条出边指向生成节点；④ 生成节点的提示词为空（有就不覆盖）；
+   * ⑤ 提示词节点不在 `attach` 里（那是用户指到的既有节点，不许动）；
+   * ⑥ **目标生成节点也不在 `attach` 里** —— `attach` 的节点落地时**不新建也不改写**
+   *    （见 `buildLandingCommand` 里那句 `if (isAttached(...)) continue`），折过去等于把
+   *    提示词写进一份**不会被使用**的计划数据：节点没了、正文也没了，比不折糟得多。
+   */
+  const attachedIds = new Set<string>()
+  for (const a of Array.isArray(src.attach) ? src.attach : []) {
+    if (!a || typeof a !== 'object' || Array.isArray(a)) continue
+    const id = (a as Record<string, unknown>).localId
+    if (typeof id === 'string' && id) attachedIds.add(id)
+  }
+  const nodeRowOf = new Map<string, Record<string, unknown>>()
+  for (const n of nodes) {
+    if (!n || typeof n !== 'object') continue
+    const row = n as Record<string, unknown>
+    if (typeof row.localId === 'string' && row.localId) nodeRowOf.set(row.localId, row)
+  }
+  const dropped = new Set<string>()
+  let folded = 0
+  for (const n of nodes) {
+    if (!n || typeof n !== 'object') continue
+    const row = n as Record<string, unknown>
+    const id = typeof row.localId === 'string' ? row.localId : ''
+    if (!id || row.type !== 'prompt' || attachedIds.has(id)) continue
+    const text = promptTextOf(row)
+    if (!text) continue
+    const outs = edges.filter(
+      (e) => e && typeof e === 'object' && (e as Record<string, unknown>).source === id,
+    )
+    if (outs.length !== 1) continue
+    const targetId = (outs[0] as Record<string, unknown>).target
+    if (typeof targetId !== 'string' || !targetId) continue
+    if (attachedIds.has(targetId)) continue
+    const target = nodeRowOf.get(targetId)
+    if (!target || target.type !== 'generation') continue
+    if (promptTextOf(target)) continue
+    const targetData = target.data
+    if (!targetData || typeof targetData !== 'object' || Array.isArray(targetData)) continue
+    ;(targetData as Record<string, unknown>).prompt = text
+    /** 提示词节点自己的上游（例如一张素材图）**转接到生成节点**上，语义不变 */
+    for (const e of edges) {
+      if (!e || typeof e !== 'object') continue
+      const edge = e as Record<string, unknown>
+      if (edge.target === id) edge.target = targetId
+    }
+    dropped.add(id)
+    folded += 1
+  }
+  if (folded > 0) {
+    nodes = nodes.filter((n) => {
+      if (!n || typeof n !== 'object') return true
+      const id = (n as Record<string, unknown>).localId
+      return !(typeof id === 'string' && dropped.has(id))
+    })
+    edges = edges.filter((e) => {
+      if (!e || typeof e !== 'object') return true
+      const { source, target } = e as Record<string, unknown>
+      return !(
+        (typeof source === 'string' && dropped.has(source)) ||
+        (typeof target === 'string' && dropped.has(target))
+      )
+    })
+    notes.push(`${folded} 组「提示词 → 生成」已合并成一个生成节点（提示词写在节点上）`)
   }
 
   /**

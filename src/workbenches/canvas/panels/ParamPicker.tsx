@@ -15,6 +15,15 @@ export interface ParamOption {
   icon?: ReactNode
   /** 模型明确不支持的档位（如数量超过 `maxCount`）；**未声明**不算不支持 */
   disabled?: boolean
+  /**
+   * 这一项**当前被选中**。
+   *
+   * 与 `ParamSection.value` 的区别：那个是「这一段只能选一个」的单选值；
+   * 这个选项让调用方自己决定某一项是否高亮 —— 用于**多选**场景
+   * （对话窗的模型面板：勾 = 这枚模型已经放进这次对话，可以同时勾好几枚，
+   * 用户 2026-10-04 第 3 条）。
+   */
+  selected?: boolean
   /** 置灰原因，鼠标悬停可见 */
   title?: string
   /**
@@ -510,6 +519,8 @@ function ParamOptionButton(props: {
   onPick: () => void
 }) {
   const { option: o, variant, value, inSection, onPick } = props
+  /** 高亮判据：**选项自己说了算优先**（多选场景），否则才是「这一段选中了它」 */
+  const on = o.selected ?? o.value === value
   /** 多组模式要能区分「同样是 auto 的画质与质量」，靠这个属性把选项限定到段内 */
   const sectionAttrs = inSection ? { 'data-param-in': inSection } : {}
 
@@ -518,10 +529,8 @@ function ParamOptionButton(props: {
       <button
         type="button"
         role="option"
-        aria-selected={o.value === value}
-        className={
-          o.value === value ? `${styles.ratioCell} ${styles.ratioCellOn}` : styles.ratioCell
-        }
+        aria-selected={on}
+        className={on ? `${styles.ratioCell} ${styles.ratioCellOn}` : styles.ratioCell}
         data-param-option={o.value}
         {...sectionAttrs}
         disabled={o.disabled}
@@ -538,13 +547,13 @@ function ParamOptionButton(props: {
     <button
       type="button"
       role="option"
-      aria-selected={o.value === value}
+      aria-selected={on}
       className={
         variant === 'list'
-          ? o.value === value
+          ? on
             ? `${styles.row} ${styles.rowOn}`
             : styles.row
-          : o.value === value
+          : on
             ? `${styles.cap} ${styles.capOn}`
             : styles.cap
       }
@@ -563,7 +572,7 @@ function ParamOptionButton(props: {
       ) : (
         <span className={styles.rowText}>{o.label}</span>
       )}
-      {variant === 'list' && o.value === value && (
+      {variant === 'list' && on && (
         <span className={styles.check} aria-hidden="true">
           ✓
         </span>

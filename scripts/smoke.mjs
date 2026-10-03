@@ -14341,6 +14341,28 @@ async function g95(browser) {
   )
 
   /**
+   * ★★ 模型面板那枚 ✓ = **「已经放进这次对话」**，不是「默认就用这两个」
+   * （用户 2026-10-04 第 3 条：「不是默认用这两个模型的意思，是把模型放在对话框中，
+   *   意思是用这些模型进行生成，能组成多个模型参与的流程」）。
+   *
+   * 判据取 `aria-selected` 落在**刚点过的那一枚**上 —— 它跟着正文里的引用走
+   * （正文解析出来的 model chip），不是跟着会话里存的默认值走。
+   */
+  await agentModelChip.click()
+  await sleep(300)
+  const checkedImageModels = await page
+    .locator('[data-param-popup="agent-model"] [data-param-in="image"][aria-selected="true"]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-option')))
+  rec(
+    g,
+    '★★ 模型面板的 ✓ 跟着正文引用走（刚放进对话的那一枚亮着，且只有它）',
+    checkedImageModels.length === 1 && checkedImageModels[0] === pickImageModel,
+    `亮着=${JSON.stringify(checkedImageModels)} 期望=「${pickImageModel}」`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(250)
+
+  /**
    * 用户 2026-10-02：「不要有选择渠道」——
    * 渠道是实现细节，界面只留模型（选模型时由 `pickModel` 解析出渠道）。
    * 这里验的是**它真的没了**，不是被藏起来或置灰。
@@ -14423,19 +14445,44 @@ async function g95(browser) {
   await sleep(400)
 
   /**
-   * @ 引用（参考产品图三 / 图四）：菜单分「节点 / 模型」两段；选中之后
+   * @ 引用（参考产品图三 / 图四）：菜单分「节点 / 图片 / 视频」三段；选中之后
    * **在输入框里落成一颗 chip**（是文本内容的一部分，不是外挂的标签）。
+   *
+   * 用户 2026-10-04 第 1 条：「艾特按钮我要能图片模型和视频模型，就是前端的那几个，
+   * 千万不要把渠道拉取的模型放上去」—— 所以模型那两段**只**列前端固定清单
+   * （`presetModelsOf`），且**不含对话模型**（那是 agent 自己的 LLM，另有一行）。
    */
   await agentMentionChip.click()
   await sleep(250)
   const mentionSections = await page
     .locator('[data-param-popup="agent-mention"] [data-param-section]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-section')))
+  const mentionImageNames = await page
+    .locator('[data-param-popup="agent-mention"] button[data-param-in="image"]')
+    .allInnerTexts()
+  const mentionVideoNames = await page
+    .locator('[data-param-popup="agent-mention"] button[data-param-in="video"]')
+    .allInnerTexts()
+  const mentionModelText = [...mentionImageNames, ...mentionVideoNames].join('|')
   rec(
     g,
-    '★★ @ 引用菜单分「节点 / 模型」两段',
-    mentionSections.join(',') === 'node,model',
+    '★★ @ 引用菜单分「节点 / 图片 / 视频」三段',
+    mentionSections.join(',') === 'node,image,video',
     `段=${mentionSections.join(',')}`,
+  )
+  /**
+   * mock 渠道拉回来的模型叫 `mock-image-1` / `mock-video-1` —— 它们正是「渠道拉取的
+   * 模型」。这两段里出现任何一个都说明口径错了（用户 2026-10-04 第 1 条）。
+   */
+  rec(
+    g,
+    '★★ @ 里的模型 = 前端固定清单（图片 / 视频），渠道拉回来的名字一枚都不进',
+    mentionImageNames.some((t) => t.includes('Nano Banana')) &&
+      mentionVideoNames.some((t) => t.includes('即梦 2.5')) &&
+      !mentionModelText.includes('mock-') &&
+      (await page.locator('[data-param-popup="agent-mention"] [data-param-section="chat"]').count()) ===
+        0,
+    `图片=${mentionImageNames.length} 视频=${mentionVideoNames.length} 含渠道名=${mentionModelText.includes('mock-')}`,
   )
   await page
     .locator('[data-param-popup="agent-mention"] button[data-param-in="node"]')
@@ -14518,6 +14565,30 @@ async function g95(browser) {
     await sleep(300)
     /** 留一张**技能菜单展开着**的截图：分类 / 搜索 / 行的密度，靠它眼看 */
     await page.screenshot({ path: `${OUT}/115-g95-agent-skills.png` })
+
+    /**
+     * ★★ 点面板外的空白处 → 整个技能面板收起（用户 2026-10-04：
+     * 「agent 的输入框的 skill 面板点出来，点击其他的空白区域它会不关闭」）。
+     *
+     * 判据取「菜单元素真的从 DOM 里消失」，不是「多了某个 class」—— 后者在面板
+     * 本来就没渲染时也会绿。
+     *
+     * 点的是**对话区左上角**（`data-agent-messages` 的一个固定角落）：它在面板里、
+     * 但在技能菜单外，而且离菜单足够远 —— 一旦菜单盖住它，Playwright 会因
+     * 「目标被拦截」而报错，不会静悄悄地假绿。
+     */
+    await page.locator('[data-agent-messages]').click({ position: { x: 30, y: 30 } })
+    await sleep(300)
+    const menuAfterOutsideClick = await page.locator('[data-agent-skill-menu]').count()
+    rec(
+      g,
+      '★★ 点面板外的空白处，技能面板自己收起',
+      menuAfterOutsideClick === 0,
+      `菜单=${menuAfterOutsideClick}`,
+    )
+    /** 收起来之后重新打开：下面那几条还指望它开着 */
+    await agentSkillChip.click()
+    await sleep(300)
 
     /**
      * ★★ 技能菜单的分类与搜索（用户 2026-10-03：参考产品图三「skill 的参数面板 ui

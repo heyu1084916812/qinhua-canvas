@@ -140,6 +140,31 @@ export function SkillMenu({
   }, [createOpen])
 
   /**
+   * **点面板外任意空白处，整个技能面板也收起**（用户 2026-10-04：
+   * 「agent 的输入框的 skill 面板点出来，点击其他的空白区域它会不关闭」）。
+   *
+   * 上面那条只管「创建」二级菜单，面板本身**没有**关的路径：只有再点一次那枚
+   * 技能按钮、或按关闭钮才收得起来 —— 而用户点别处时面板就悬在那里挡着画布。
+   *
+   * 两处细节：
+   * ① 监听挂在 **document 捕获阶段**：对话窗根节点会 `stopPropagation()`
+   *    （避免点面板误触画布取消选中），冒泡阶段的监听收不到面板内部的点击；
+   * ② **要放过那枚触发按钮**（`data-agent-skill-open`）：不放过的话，点它是
+   *    「先被这里关掉、再被它自己的 onClick 打开」—— 表现成点了没反应。
+   *    它自己的 onClick 已经是开关语义，交给它就行。
+   */
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as Element | null
+      if (rootRef.current?.contains(target as Node)) return
+      if (target?.closest?.('[data-agent-skill-open]')) return
+      onClose()
+    }
+    document.addEventListener('pointerdown', onDown, true)
+    return () => document.removeEventListener('pointerdown', onDown, true)
+  }, [onClose])
+
+  /**
    * 越界就往左推回对话窗内（见 `shift` 的说明）。
    *
    * 量的是**含当前位移**的矩形，所以只把「还差多少」加上去；依赖里不含 `shift`，

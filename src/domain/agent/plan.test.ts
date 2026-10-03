@@ -149,12 +149,17 @@ describe('validateAgentPlan · 非法计划要整份拒绝', () => {
  * 证明不了任何事。
  */
 describe('normalizeAgentPlan · 模型给的形状差异', () => {
-  /** 真模型最常见的一版：用 `id`、连线用 `from`/`to`、`order` 是字符串或没有 */
+  /**
+   * 真模型最常见的一版：用 `id`、连线用 `from`/`to`、`order` 是字符串或没有。
+   *
+   * 生成节点这里**自带正文**：不带的话就会被「单步生成折成一个生成节点」那条
+   * （见下面那个 describe）折掉，这一条就测不成「别名 + 缺 order 补得出来」了。
+   */
   const fromModel = {
     summary: '画一只小猫钓鱼',
     nodes: [
       { id: 'p1', type: 'prompt', data: { text: '小猫钓鱼' } },
-      { id: 'g1', type: 'generation', data: { mode: 'image' }, order: '1' },
+      { id: 'g1', type: 'generation', data: { mode: 'image', prompt: '小猫钓鱼' }, order: '1' },
     ],
     edges: [{ from: 'p1', to: 'g1' }],
   }
@@ -265,16 +270,25 @@ describe('normalizeAgentPlan · 模型给的形状差异', () => {
           order: 0,
         },
         { localId: 'g1', type: 'generation', data: { mode: 'image' }, order: 1 },
+        /**
+         * 两个下游：这段提示词被两张图复用 —— 也正是「不折」的那条（见折叠那组用例）。
+         * 借名字这条路要留一个**折不掉**的形状，否则它会跟着提示词节点一起消失。
+         */
+        { localId: 'g2', type: 'generation', data: { mode: 'video' }, order: 1 },
       ],
-      edges: [{ source: 'p1', target: 'g1' }],
+      edges: [
+        { source: 'p1', target: 'g1' },
+        { source: 'p1', target: 'g2' },
+      ],
     })
     const checked = validateAgentPlan(plan)
     expect(checked.ok).toBe(true)
     if (!checked.ok) return
-    const [p, g] = checked.plan.nodes
+    const [p, g, v] = checked.plan.nodes
     expect(p?.title).toBe('小猫钓鱼，湖边木码头，水')
     // 生成节点自己没有正文 → 顺着入边借上游那句
     expect(g?.title).toBe('小猫钓鱼，湖边木码头，水')
+    expect(v?.title).toBe('小猫钓鱼，湖边木码头，水')
     expect(notes.join()).toContain('按提示词总结')
   })
 
@@ -299,6 +313,166 @@ describe('normalizeAgentPlan · 模型给的形状差异', () => {
     const checked = validateAgentPlan(plan)
     expect(checked.ok).toBe(true)
     if (checked.ok) expect(checked.plan.nodes[0]?.title).toBeUndefined()
+  })
+})
+
+/**
+ * 单步生成：**「提示词 → 生成」折成一个生成节点**（用户 2026-10-04 第 4 条）。
+ *
+ * 用户原话：「我用 agent 生图的时候卡在了没有写提示词在流程里面，单独生成图片应该是
+ * 直接一个生成节点就可以了，然后把提示词输入进去再向我确认生成，当前是流程是新建了
+ * 一个提示词节点和连接的生成节点」。
+ *
+ * 折的条件写在 `normalizeAgentPlan` 里；这里**每条都钉一遍** —— 「多折了」比「不折」
+ * 危险得多：多折会把用户点名要的那个节点（或那段正文）吃掉，而画布上看不出少了什么。
+ */
+describe('normalizeAgentPlan · 单步生成折成一个生成节点', () => {
+  const raw = (nodes: unknown[], edges: unknown[], attach?: unknown) => ({
+    summary: 's',
+    nodes,
+    edges,
+    ...(attach ? { attach } : {}),
+  })
+  const gen = (id: string, data: Record<string, unknown> = {}, order = 1) => ({
+    localId: id,
+    type: 'generation',
+    data: { mode: 'image', ...data },
+    order,
+  })
+  const prompt = (id: string, text: string, order = 0) => ({
+    localId: id,
+    type: 'prompt',
+    data: { text },
+    order,
+  })
+
+  it('★★ 提示词只喂一个生成节点、那节点又没正文 → 合成一个，正文写进生成节点', () => {
+    const { plan: out, notes } = normalizeAgentPlan(
+      raw([prompt('p1', '橘猫在窗台上打盹'), gen('g1')], [{ source: 'p1', target: 'g1' }]),
+    )
+    const checked = validateAgentPlan(out)
+    expect(checked.ok).toBe(true)
+    if (!checked.ok) return
+    expect(checked.plan.nodes.map((n) => n.localId)).toEqual(['g1'])
+    expect(checked.plan.edges).toEqual([])
+    expect(checked.plan.nodes[0]!.data.prompt).toBe('橘猫在窗台上打盹')
+    expect(notes.join()).toContain('合并成一个生成节点')
+  })
+
+  it('★★ 折完名字照样从提示词来（不是「图片生成」这种跟内容无关的名字）', () => {
+    const { plan: out } = normalizeAgentPlan(
+      raw(
+        [prompt('p1', '小猫钓鱼，湖边木码头，水彩绘本风\n第二行不算'), gen('g1')],
+        [{ source: 'p1', target: 'g1' }],
+      ),
+    )
+    const checked = validateAgentPlan(out)
+    expect(checked.ok).toBe(true)
+    if (!checked.ok) return
+    expect(checked.plan.nodes[0]!.title).toBe('小猫钓鱼，湖边木码头，水')
+  })
+
+  it('★★ 提示词节点自己的上游（素材图那类）要**转接到生成节点**上，语义不变', () => {
+    const { plan: out } = normalizeAgentPlan(
+      raw(
+        [
+          { localId: 'c1', type: 'compare', data: {}, order: 0 },
+          prompt('p1', '照着这张图改', 1),
+          gen('g1', {}, 2),
+        ],
+        [
+          { source: 'c1', target: 'p1' },
+          { source: 'p1', target: 'g1' },
+        ],
+      ),
+    )
+    const checked = validateAgentPlan(out)
+    expect(checked.ok).toBe(true)
+    if (!checked.ok) return
+    expect(checked.plan.nodes.map((n) => n.localId)).toEqual(['c1', 'g1'])
+    expect(checked.plan.edges).toEqual([{ source: 'c1', target: 'g1' }])
+  })
+
+  it('★ 一段提示词喂**两个**下游 → 不折（那是在复用，不是多建了一个节点）', () => {
+    const { plan: out } = normalizeAgentPlan(
+      raw(
+        [prompt('p1', '一只猫'), gen('g1'), gen('g2', { mode: 'video' }, 2)],
+        [
+          { source: 'p1', target: 'g1' },
+          { source: 'p1', target: 'g2' },
+        ],
+      ),
+    )
+    const checked = validateAgentPlan(out)
+    expect(checked.ok).toBe(true)
+    if (!checked.ok) return
+    expect(checked.plan.nodes.map((n) => n.localId)).toEqual(['p1', 'g1', 'g2'])
+    expect(checked.plan.edges).toHaveLength(2)
+  })
+
+  it('★ 生成节点**自己已经有正文** → 不折（别覆盖模型写好的那句，也别删它的上游）', () => {
+    const { plan: out } = normalizeAgentPlan(
+      raw([prompt('p1', '一只猫'), gen('g1', { prompt: '一只橘色的猫' })], [
+        { source: 'p1', target: 'g1' },
+      ]),
+    )
+    const checked = validateAgentPlan(out)
+    expect(checked.ok).toBe(true)
+    if (!checked.ok) return
+    expect(checked.plan.nodes.map((n) => n.localId)).toEqual(['p1', 'g1'])
+    expect(checked.plan.nodes[1]!.data.prompt).toBe('一只橘色的猫')
+  })
+
+  it('★ 提示词节点自己没有正文 → 不折（空节点没有被搬的东西）', () => {
+    const { plan: out } = normalizeAgentPlan(
+      raw(
+        [{ localId: 'p1', type: 'prompt', data: {}, order: 0 }, gen('g1')],
+        [{ source: 'p1', target: 'g1' }],
+      ),
+    )
+    const checked = validateAgentPlan(out)
+    expect(checked.ok).toBe(true)
+    if (!checked.ok) return
+    expect(checked.plan.nodes.map((n) => n.localId)).toEqual(['p1', 'g1'])
+  })
+
+  it('★ 下游不是生成节点（例如对比节点）→ 不折', () => {
+    const { plan: out } = normalizeAgentPlan(
+      raw(
+        [prompt('p1', '一只猫'), { localId: 'c1', type: 'compare', data: {}, order: 1 }],
+        [{ source: 'p1', target: 'c1' }],
+      ),
+    )
+    const checked = validateAgentPlan(out)
+    expect(checked.ok).toBe(true)
+    if (!checked.ok) return
+    expect(checked.plan.nodes.map((n) => n.localId)).toEqual(['p1', 'c1'])
+    expect(checked.plan.edges).toHaveLength(1)
+  })
+
+  /**
+   * ★★ `attach` 里的节点一律不动 —— 它落地时**不新建也不改写**。
+   *
+   * 折到它身上等于把提示词写进一份不会被使用的数据里：节点没了、正文也没了。
+   */
+  it('★★ attach 里的节点一律不折（提示词节点是、目标生成节点也是）', () => {
+    const attachedPrompt = normalizeAgentPlan(
+      raw([prompt('p1', '一只猫'), gen('g1')], [{ source: 'p1', target: 'g1' }], [
+        { localId: 'p1', existingNodeId: 'node-exist-1' },
+      ]),
+    ).plan as AgentPlan
+    expect(attachedPrompt.nodes.map((n) => n.localId)).toEqual(['p1', 'g1'])
+    expect(attachedPrompt.edges).toHaveLength(1)
+
+    const attachedTarget = normalizeAgentPlan(
+      raw([prompt('p1', '一只猫'), gen('g1')], [{ source: 'p1', target: 'g1' }], [
+        { localId: 'g1', existingNodeId: 'node-exist-2' },
+      ]),
+    ).plan as AgentPlan
+    expect(attachedTarget.nodes.map((n) => n.localId)).toEqual(['p1', 'g1'])
+    expect(attachedTarget.edges).toHaveLength(1)
+    // 目标没被改写：提示词还在原节点上，没被搬进那份用不上的计划数据
+    expect(attachedTarget.nodes[1]!.data.prompt).toBeUndefined()
   })
 })
 

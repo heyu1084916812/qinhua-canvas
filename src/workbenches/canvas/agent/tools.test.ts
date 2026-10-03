@@ -107,6 +107,56 @@ describe('写 / 花钱的工具（只由确认后调用）', () => {
     const r = (await executeConfirmedTool(
       'applyPlan',
       {
+        /**
+         * 一段提示词喂**两个**生成节点：这是「不折」的那种形状（用户在复用这段提示词），
+         * 所以这里能同时验到「节点真建了 + 连线真连了 + 自检真跑了」。
+         * 单步生成会折掉提示词节点，那一条单独测（见下面那条）。
+         */
+        summary: '一段提示词出两张图',
+        nodes: [
+          { localId: 'p1', type: 'prompt', data: { text: '橘猫' }, order: 0 },
+          { localId: 'g1', type: 'generation', data: { mode: 'image' }, order: 1 },
+          { localId: 'g2', type: 'generation', data: { mode: 'image' }, order: 1 },
+        ],
+        edges: [
+          { source: 'p1', target: 'g1' },
+          { source: 'p1', target: 'g2' },
+        ],
+      },
+      ctx,
+    )) as { ok: boolean; problems: string[]; createdNodeIds: string[] }
+
+    expect(r.ok).toBe(true)
+    expect(r.problems).toEqual([])
+    expect(r.createdNodeIds).toHaveLength(3)
+    expect(store.getSnapshot().nodes).toHaveLength(3)
+    expect(store.getSnapshot().edges).toHaveLength(2)
+  })
+
+  /**
+   * ★★ 用户 2026-10-04 第 4 条：「我用 agent 生图的时候卡在了没有写提示词在流程里面，
+   * 单独生成图片应该是直接一个生成节点就可以了，然后把提示词输入进去再向我确认生成，
+   * 当前是流程是新建了一个提示词节点和连接的生成节点」。
+   *
+   * 这条走**完整的落地链**（归一化 → 校验 → 建节点 → 自检），不是只看归一化那一步 ——
+   * 用户能看到的只是落地之后的画布。
+   */
+  it('★★ 单步生成落地**只建一个节点**：提示词写在生成节点上，不留中间那个提示词节点', async () => {
+    const { store } = setup()
+    const asked: string[][] = []
+    const ctx: AgentToolContext = {
+      store,
+      origin: { x: 0, y: 0 },
+      runNodes: vi.fn(async () => []),
+      defaultsForNewNode: vi.fn(async (types: readonly string[]) => {
+        asked.push([...types])
+        return { generation: { channelId: 'ch-1', model: 'relay-img' } }
+      }),
+    } as unknown as AgentToolContext
+
+    const r = (await executeConfirmedTool(
+      'applyPlan',
+      {
         summary: '提示词 → 生成',
         nodes: [
           { localId: 'p1', type: 'prompt', data: { text: '橘猫' }, order: 0 },
@@ -115,13 +165,17 @@ describe('写 / 花钱的工具（只由确认后调用）', () => {
         edges: [{ source: 'p1', target: 'g1' }],
       },
       ctx,
-    )) as { ok: boolean; problems: string[]; createdNodeIds: string[] }
+    )) as { ok: boolean; createdNodeIds: string[] }
 
     expect(r.ok).toBe(true)
-    expect(r.problems).toEqual([])
-    expect(r.createdNodeIds).toHaveLength(2)
-    expect(store.getSnapshot().nodes).toHaveLength(2)
-    expect(store.getSnapshot().edges).toHaveLength(1)
+    expect(r.createdNodeIds).toHaveLength(1)
+    const g = store.getSnapshot()
+    expect(g.nodes).toHaveLength(1)
+    expect(g.edges).toHaveLength(0)
+    expect(g.nodes[0]!.type).toBe('generation')
+    expect((g.nodes[0]!.data as Record<string, unknown>).prompt).toBe('橘猫')
+    /** 折掉之后**只会问生成节点那一档**：提示词那条配方根本用不上 */
+    expect(asked).toEqual([['generation']])
   })
 
   it('★★ 计划非法 → 不落地，把逐条错误回填（模型据此改）', async () => {
@@ -163,12 +217,17 @@ describe('写 / 花钱的工具（只由确认后调用）', () => {
     await executeConfirmedTool(
       'applyPlan',
       {
-        summary: '提示词 → 生成',
+        /** 同上一组：一段提示词喂两个下游 → 不折，于是「提示词」那一档也真的用得上 */
+        summary: '一段提示词出两张图',
         nodes: [
           { localId: 'p1', type: 'prompt', data: { text: '橘猫' }, order: 0 },
           { localId: 'g1', type: 'generation', data: { mode: 'image' }, order: 1 },
+          { localId: 'g2', type: 'generation', data: { mode: 'image' }, order: 1 },
         ],
-        edges: [{ source: 'p1', target: 'g1' }],
+        edges: [
+          { source: 'p1', target: 'g1' },
+          { source: 'p1', target: 'g2' },
+        ],
       },
       ctx,
     )

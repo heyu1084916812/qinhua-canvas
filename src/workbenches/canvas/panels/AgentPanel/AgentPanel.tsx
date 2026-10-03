@@ -17,6 +17,7 @@ import {
   presetOf,
   toLogicalName,
 } from '../../../../domain/project/modelCatalog'
+import { presetModelsOf } from '../../../../domain/project/modelPresets'
 import { resolveDefaults } from '../../../../features/canvas/createNodeWithDefaults'
 import {
   createAssetNode,
@@ -240,6 +241,19 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     return { image: pick('image'), video: pick('video'), chat }
   }, [allChannels, enabled])
   const chatModelOptions = modelOptionsByKind.chat
+  /**
+   * **已经放进这次对话的模型**（正文里的 `model` chip）。
+   *
+   * 用户 2026-10-04 第 3 条把图一那枚 ✓ 的含义说清楚了：「不是默认用这两个模型的
+   * 意思，是把模型放在对话框中，意思是用这些模型进行生成，能组成多个模型参与的流程」。
+   * 所以模型面板里的高亮要跟着**正文里的引用**走，而不是跟着会话的默认模型走 ——
+   * 后者看起来就是「默认值」，正是用户否掉的那种读法。
+   * （会话那两个默认字段仍然保留：用户一枚都没 @ 时，新节点还得有个可用的模型。）
+   */
+  const mentionedModels = useMemo(
+    () => new Set(parseMentions(draft).filter((m) => m.kind === 'model').map((m) => m.id)),
+    [draft],
+  )
   /** 会话存的模型名 → 逻辑显示名（老会话存过上游 ID 的在这里归一） */
   const shownModel = useMemo(
     () => toLogicalName(allChannels, current?.model ?? ''),
@@ -1525,7 +1539,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             */}
 
             {/*
-              @ 引用：一个浮层里两段 —— **节点**（这张画布上的）与**模型**。
+              @ 引用：一个浮层里三段 —— **节点**（这张画布上的）/ **图片** / **视频**
+              （后两段只列前端固定清单，见下面各段自己的说明）。
               选完插进输入框成为一颗矩形 chip，是文本内容的一部分（`MentionEditor`）。
             */}
             <ParamPicker
@@ -1559,26 +1574,40 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                     insertMention('node', id, (hit?.title ?? '').trim() || id)
                   },
                 },
+                /**
+                 * **@ 里的模型 = 生图 / 生视频模型**（用户 2026-10-04：
+                 * 「艾特按钮我要能图片模型和视频模型，就是前端的那几个，
+                 *   千万不要把渠道拉取的模型放上去」）。
+                 *
+                 * 三条口径写死在这里：
+                 * ① **只用前端固定清单**（`presetModelsOf`）—— 不用 `panelModelOptions`，
+                 *    因为后者会把「渠道里勾选的模型」也并进来（中转站一次拉回几百个，
+                 *    全塞进 @ 面板就是灾难，而且那些名字不是用户在创作面板上认识的名字）；
+                 * ② **不含对话模型** —— agent 自己的 LLM 由工具条上那枚模型按钮管，
+                 *    @ 里的模型是「这次用哪些模型去生成」（用户 2026-10-04 第 3 条）；
+                 * ③ 选一枚 = **往正文里插一枚 chip**（与创作面板的模型 chip 同一套），
+                 *    可以连着插多枚 —— 那就是「多个模型参与的流程」的输入方式。
+                 */
                 {
-                  name: 'model',
-                  label: '模型',
+                  name: 'image',
+                  label: '图片',
                   variant: 'list',
-                  /** 同上：对话模型也可能有一长串，先摆 5 条 */
-                  collapsedCount: 5,
-                  options: chatModelOptions.map((n) => {
-                    const preset = presetOf(n)
-                    return {
-                      value: `model:${n}`,
-                      label: n,
-                      ...(preset ? { icon: <ModelIcon vendor={preset.vendor} /> } : {}),
-                    }
-                  }),
+                  /** 一屏 5 条，多的在里面滚（与模型面板同一口径） */
+                  maxRows: 5,
+                  options: withModelIcons(presetModelsOf('image').map((m) => m.id)),
                   value: '',
-                  emptyHint: '还没有可用的对话模型',
-                  onSelect: (v) => {
-                    const name = v.slice('model:'.length)
-                    insertMention('model', name, name)
-                  },
+                  emptyHint: '还没有图片模型',
+                  onSelect: (v) => insertMention('model', v, v),
+                },
+                {
+                  name: 'video',
+                  label: '视频',
+                  variant: 'list',
+                  maxRows: 5,
+                  options: withModelIcons(presetModelsOf('video').map((m) => m.id)),
+                  value: '',
+                  emptyHint: '还没有视频模型',
+                  onSelect: (v) => insertMention('model', v, v),
                 },
               ]}
               open={openPicker === 'agent-mention'}
@@ -1587,18 +1616,22 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             />
 
             {/*
-              模型**三档**（用户 2026-10-03：「我创作面板有什么模型就用什么模型，
-              分了图片和视频，然后给我加一个对话模型的选项…也就是说模型有三个选项」）：
-                · 图片 / 视频 = agent **建出来的生成节点**用哪个模型；
-                · 对话       = **agent 自己**跑的那个 LLM。
-              清单与创作面板**同一份数据源**（`panelModelOptions`：固定显示名在前 +
-              渠道勾选的归一显示名），再按「有没有渠道真能提供它」筛一道。
+              模型面板 = 「**这次用哪些模型去生成**」（用户 2026-10-04 第 3 条：
+              「不是默认用这两个模型的意思，是把模型放在对话框中，意思是用这些模型
+                进行生成，能组成多个模型参与的流程」）。
+
+              与旧口径的差别只有一处，但很要紧：**✓ 表示「已放进这次对话」**，
+              不表示「这是默认模型」。所以：
+                · 点一枚 = 往正文插一枚 `model` chip（与 @ 模型同一条路）+ 顺手把它
+                  记成该类的默认值（用户一枚都没 @ 时，新节点仍要有模型可用）；
+                · 勾选状态读**正文里的引用**（`mentionedModels`），可以同时勾好几枚；
+                · 图片 / 视频两段的清单仍是「前端固定清单 + 渠道已勾选模型的归一显示名」，
+                  与创作面板同源。
+              清单与创作面板**同一份数据源**（`panelModelOptions`），再按「有没有渠道真能提供它」筛一道。
             */}
             <ParamPicker
               name="agent-model"
-              ariaLabel={`生成模型（图片 ${current?.imageModel || '未选'} / 视频 ${
-                current?.videoModel || '未选'
-              }）`}
+              ariaLabel={`这次用哪些模型生成（已放进对话 ${mentionedModels.size} 枚）`}
               label=""
               triggerIcon={<IconModelCube size={16} />}
               size="compact"
@@ -1618,8 +1651,9 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                   variant: 'list',
                   /** 一屏只摆 5 条，多的在里面滚（用户 2026-10-02：「太高了」） */
                   maxRows: 5,
-                  options: withModelIcons(modelOptionsByKind.image),
-                  value: current?.imageModel ?? '',
+                  /** 高亮 = 「已放进这次对话」（见 `mentionedModels`），不是会话默认值 */
+                  options: withModelIcons(modelOptionsByKind.image, mentionedModels),
+                  value: '',
                   emptyHint: '没有可用的图片模型',
                   onSelect: (v) => {
                     void setModelKind('imageModel', v)
@@ -1635,8 +1669,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                   label: '视频',
                   variant: 'list',
                   maxRows: 5,
-                  options: withModelIcons(modelOptionsByKind.video),
-                  value: current?.videoModel ?? '',
+                  options: withModelIcons(modelOptionsByKind.video, mentionedModels),
+                  value: '',
                   emptyHint: '没有可用的视频模型',
                   onSelect: (v) => {
                     void setModelKind('videoModel', v)
@@ -1826,14 +1860,19 @@ function LibraryThumb({ hash }: { hash: string }) {
  * 模型候选 → 带厂商图标的选项（固定清单里的那些才有图标）。
  *
  * 与创作面板同源：两处都只调 `presetOf` + `ModelIcon`，不各画一套 logo。
+ *
+ * `selected`（已放进这次对话的模型集合）是可选的：对话窗那两段要按
+ * 「这枚模型是否已经在正文里」勾选（用户 2026-10-04 第 3 条），
+ * 而 @ 面板那两段不需要高亮 —— 插进去就成了正文里的 chip，正文自己就是反馈。
  */
-function withModelIcons(names: readonly string[]) {
+function withModelIcons(names: readonly string[], selected?: ReadonlySet<string>) {
   return names.map((n) => {
     const preset = presetOf(n)
     return {
       value: n,
       label: n,
       ...(preset ? { icon: <ModelIcon vendor={preset.vendor} /> } : {}),
+      ...(selected ? { selected: selected.has(n) } : {}),
     }
   })
 }
