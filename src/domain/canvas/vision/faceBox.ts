@@ -1,5 +1,6 @@
 import type { FusionRect } from '../model/node'
 import { FUSION_MIN_EDGE } from '../fusion/fusionPlan'
+import type { FaceBox } from '../../../shared/faceDetect'
 
 /**
  * 人脸框（用户 2026-10-05 第五批第 1 条：「情绪调节需要重新设计，需要先自动识别面部，
@@ -18,13 +19,11 @@ import { FUSION_MIN_EDGE } from '../fusion/fusionPlan'
  * 发请求、裁图、建节点在 `features/canvas/emotionEdit.ts`。
  */
 
-/** 归一化人脸框：`x/y` = 左上角，`w/h` = 宽高，全部 0–1 */
-export interface FaceBox {
-  x: number
-  y: number
-  w: number
-  h: number
-}
+/**
+ * 归一化人脸框的**形状**定义在 `shared/faceDetect`（平台层的本机检测也用同一个）。
+ * 这里只做转出，调用方继续从本模块拿 `FaceBox`。
+ */
+export type { FaceBox }
 
 /**
  * 让模型「只回一个 JSON 框」。
@@ -167,10 +166,21 @@ export function faceBoxFailureReason(input: {
   tried: readonly string[]
   lastError?: string
   lastAnswer?: string
+  /** 本机检测有没有跑过。跑过却没认到，是「图里可能真没脸」的重要线索，要写进话里 */
+  localRan?: boolean
 }): string {
-  const parts = [`没识别到人脸（试过 ${input.tried.join(' / ') || '没有可用的对话模型'}）`]
+  const who = input.tried.join(' / ')
+  const head = input.localRan
+    ? who
+      ? `本机与 ${who} 都没认到人脸`
+      : '本机没认到人脸，也没有可用的对话模型可以再试'
+    : `没识别到人脸（试过 ${who || '没有可用的对话模型'}）`
+  const parts = [head]
   if (input.lastError?.trim()) parts.push(`请求报错：${input.lastError.trim()}`)
   if (input.lastAnswer?.trim()) parts.push(`模型回的是：${input.lastAnswer.trim().slice(0, 60)}`)
   parts.push('换一个能看图的对话模型再试，或者先在素材灯箱里框选脸部（提取选区）')
   return parts.join('；')
 }
+
+/** 本机检测那条路的解析 / 归一化 / 选主脸在 `shared/faceDetect`，两条路共用一套判据 */
+export { normalizeDetectorBox, parseDetectorResponse, pickPrimaryFace } from '../../../shared/faceDetect'

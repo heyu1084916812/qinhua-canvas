@@ -11,7 +11,20 @@ export default tseslint.config(
      * 「assigned but never used」——那是脚本的常态，不是缺陷。
      * 正式脚本（scripts/smoke.mjs 等）仍照常检查。
      */
-    ignores: ['dist', 'node_modules', '.workbuddy', '.playwright-verify', 'scripts/probe-*.mjs'],
+    /**
+     * `public/` 是**静态资源目录**，原样搬到产物里，不经打包器也不参与业务代码规范：
+     * 里面是 MediaPipe 的第三方 bundle（`vision_bundle.js`，压缩过的）与在 Worker
+     * 里跑的人脸检测脚本（用 `self` / `importScripts` / `Vision` 这些 Worker 专有全局，
+     * 与 `src/` 的模块环境不是一套）。让 lint 扫它们只会得到一屏无意义的 `no-undef`。
+     */
+    ignores: [
+      'dist',
+      'node_modules',
+      '.workbuddy',
+      '.playwright-verify',
+      'public',
+      'scripts/probe-*.mjs',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

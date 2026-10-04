@@ -6,6 +6,7 @@ import { createFileAccessFiles } from './fileSystemAccessFiles'
 import { createConsoleLogger } from './consoleLogger'
 import { createStorageAssetPort } from '../assets'
 import { createWebHosting } from './tmpfilesHosting'
+import { createLocalFaceDetector } from './localFaceDetector'
 
 export function createWebPlatform(): PlatformKit {
   const storage = createIndexedDbStorage()
@@ -17,5 +18,6 @@ export function createWebPlatform(): PlatformKit {
     credentials: createWebCryptoCredentials(),
     files: createFileAccessFiles(),
     logger: createConsoleLogger(),
+    vision: createLocalFaceDetector(),
   }
 }

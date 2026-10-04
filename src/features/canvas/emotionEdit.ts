@@ -8,7 +8,9 @@ import {
   FACE_BOX_SYSTEM,
   faceBoxFailureReason,
   faceBoxToRect,
+  normalizeDetectorBox,
   parseFaceBox,
+  pickPrimaryFace,
   type FaceBox,
 } from '../../domain/canvas/vision/faceBox'
 import { emotionPromptOf } from '../../domain/canvas/layout/presets'
@@ -37,11 +39,16 @@ import { extractSelection } from './extractSelection'
  * 所以这里不加新机制，只把三步串起来：**识别人脸 → 裁那一块 → 建融合节点接回原图**。
  * 真正花钱的只有中间那次「改局部图」的生成，由调用方去跑。
  *
- * ## 识别人脸为什么是「问模型」
+ * ## 「脸在哪」按三条路依次找
+ *
+ * 1. **本机检测**（`platform.vision` → MediaPipe BlazeFace worker）：不联网、不花渠道、
+ *    不依赖任何模型能力。参照 VOZEB-PRO 的做法，这条路排在第一个。
+ * 2. **问看图模型**（`completeText` + `inputs`，与「反推提示词」同一条链路）：
+ *    本机没认出来时兜底。能不能出框取决于模型会不会看图、渠道通不通。
+ * 3. **用户已经框好的局部图**（`cropContext` 反查原图）：完全不识别，走快捷路径。
  *
  * 实测本机 Chrome `window.FaceDetector === undefined`（Shape Detection 在 Windows 未开放），
- * 浏览器不会帮我们认。项目里已有看图链路（「反推」= `completeText` 带 `inputs`），
- * 于是让对话模型回一个归一化人脸框，再由 `domain/canvas/vision/faceBox` 换算成像素矩形。
+ * 所以浏览器自带的那个 API 指望不上 —— 本机这条路是靠随包带走的 wasm + 模型跑的。
  */
 
 export type EmotionLook = (req: {
@@ -64,6 +71,9 @@ export interface EmotionEditDeps {
    * 为什么要一串：**不是每个对话模型都能看图**。真机上报过一次「识别人脸失败」，
    * 只试一个模型时要么它看不了图、要么那条渠道当天不通 —— 于是这里按顺序试到有人给出
    * 可解析的框为止（最多 4 个，够用且不会无限重试）。
+   *
+   * 可以是**空数组**：本机检测（`platform.vision`）不需要任何渠道。只有两条路都
+   * 走不通时才会报「认不到」。
    */
   candidates: readonly { channelId: string; model: string }[]
 }
@@ -82,8 +92,13 @@ export type EmotionEditOutcome =
       cropNodeId: string
       fusionNodeId: string
       box: FaceBox | null
-      /** true = 走的「用户已经框好局部图」那条快捷路径（没调模型） */
-      reusedSelection: boolean
+      /**
+       * 框是哪条路找到的（决定给用户看哪句话）：
+       * - `local`：本机检测（不花渠道）
+       * - `model`：问看图模型
+       * - `selection`：用户自己框好的局部图，没识别
+       */
+      detectedBy: 'local' | 'model' | 'selection'
     }
   | { ok: false; reason: string }
 
@@ -131,7 +146,7 @@ export async function buildEmotionEdit(
       sourceTitle: originalNode.title,
       emotion: input.emotion,
     })
-    return { ok: true, cropNodeId: node.id, fusionNodeId: fusionId, box: null, reusedSelection: true }
+    return { ok: true, cropNodeId: node.id, fusionNodeId: fusionId, box: null, detectedBy: 'selection' }
   }
 
   /** 素材的 mime 要跟着请求一起发（模型靠它知道这是张图） */
@@ -140,39 +155,66 @@ export async function buildEmotionEdit(
   const size = data.naturalSize ?? (await imageSizeOf(payload.bytes, payload.mime).catch(() => null))
   if (!size) return { ok: false, reason: '读不到这张图的尺寸' }
 
-  /** ① 自动识别人脸：按候选顺序试，谁给出可解析的框就用谁 */
-  const imageInput = {
-    kind: 'asset',
-    nodeId: node.id,
-    assetHash,
-    mime: payload.mime || 'image/png',
-  } satisfies NodeInput
-  const tried: string[] = []
+  const mime = payload.mime || 'image/png'
+
+  /**
+   * ① **先让本机认**（MediaPipe BlazeFace worker，随包走的 wasm + 模型）。
+   *
+   * 这一步不联网、不花渠道、不看模型脸色，所以排在最前面 —— 它成了的话，
+   * 整个「识别人脸」环节就没有失败面了。`platform.vision` 缺席（内存平台 / 老浏览器）
+   * 或认不出来，都只是「这一步没结果」，继续往下走。
+   */
   let box: FaceBox | null = null
+  const localRan = Boolean(deps.platform.vision)
+  let detectedByLocal = false
+  if (deps.platform.vision) {
+    const hit = await deps.platform.vision.detectFaces(payload.bytes, mime, input.signal)
+    if (hit) {
+      const boxes = hit.faces
+        .map((face) => normalizeDetectorBox(face, hit.imageWidth, hit.imageHeight))
+        .filter((face): face is FaceBox => face !== null)
+      box = pickPrimaryFace(boxes)
+      detectedByLocal = box !== null
+    }
+  }
+
+  /**
+   * ② 本机没结果 → 退回**问看图模型**：按候选顺序试，谁给出可解析的框就用谁。
+   * 候选为空是允许的（本机那条路不需要渠道），这时直接落到下面的失败分支。
+   */
+  const tried: string[] = []
   let lastAnswer = ''
   let lastError = ''
-  for (const cand of deps.candidates.slice(0, 4)) {
-    tried.push(cand.model)
-    try {
-      const answer = await deps.look({
-        channelId: cand.channelId,
-        model: cand.model,
-        system: FACE_BOX_SYSTEM,
-        text: FACE_BOX_INSTRUCTION,
-        inputs: [imageInput],
-        ...(input.signal ? { signal: input.signal } : {}),
-      })
-      lastAnswer = answer
-      box = parseFaceBox(answer, size)
-      if (box) break
-    } catch (e) {
-      const app = asAppError(e)
-      lastError = app ? describeError(app) : e instanceof Error ? e.message : String(e)
+  if (!box) {
+    const imageInput = {
+      kind: 'asset',
+      nodeId: node.id,
+      assetHash,
+      mime,
+    } satisfies NodeInput
+    for (const cand of deps.candidates.slice(0, 4)) {
+      tried.push(cand.model)
+      try {
+        const answer = await deps.look({
+          channelId: cand.channelId,
+          model: cand.model,
+          system: FACE_BOX_SYSTEM,
+          text: FACE_BOX_INSTRUCTION,
+          inputs: [imageInput],
+          ...(input.signal ? { signal: input.signal } : {}),
+        })
+        lastAnswer = answer
+        box = parseFaceBox(answer, size)
+        if (box) break
+      } catch (e) {
+        const app = asAppError(e)
+        lastError = app ? describeError(app) : e instanceof Error ? e.message : String(e)
+      }
     }
   }
   if (!box) {
-    /** 失败时把**证据一起给出来**（试过谁、报了什么、模型回了什么），见 `faceBoxFailureReason` */
-    return { ok: false, reason: faceBoxFailureReason({ tried, lastError, lastAnswer }) }
+    /** 失败时把**证据一起给出来**（谁试过、报了什么、模型回了什么），见 `faceBoxFailureReason` */
+    return { ok: false, reason: faceBoxFailureReason({ tried, lastError, lastAnswer, localRan }) }
   }
 
   /** ② 按框裁一块 → 原图右侧多一个局部节点（复用「提取选区」，上下文一起落好） */
@@ -194,7 +236,13 @@ export async function buildEmotionEdit(
     emotion: input.emotion,
   })
 
-  return { ok: true, cropNodeId: crop.nodeId, fusionNodeId: fusionId, box, reusedSelection: false }
+  return {
+    ok: true,
+    cropNodeId: crop.nodeId,
+    fusionNodeId: fusionId,
+    box,
+    detectedBy: detectedByLocal ? 'local' : 'model',
+  }
 }
 
 /**

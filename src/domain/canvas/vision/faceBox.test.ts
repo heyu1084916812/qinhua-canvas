@@ -129,4 +129,11 @@ describe('faceBoxFailureReason', () => {
   it('★ 一个模型都没试时也说得清', () => {
     expect(faceBoxFailureReason({ tried: [] })).toContain('没有可用的对话模型')
   })
+
+  it('★★ 本机识别跑过却没认到，话里要说得出来（否则用户以为没试过本机）', () => {
+    expect(faceBoxFailureReason({ tried: ['mock-chat-1'], localRan: true })).toContain(
+      '本机与 mock-chat-1 都没认到人脸',
+    )
+    expect(faceBoxFailureReason({ tried: [], localRan: true })).toContain('本机没认到人脸')
+  })
 })

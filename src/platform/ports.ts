@@ -1,4 +1,5 @@
 import type { AppError } from '../shared/result'
+import type { DetectorFaceRect } from '../shared/faceDetect'
 import type { ModelCapability } from '../domain/shared/capability'
 import type { ProtocolDefinition } from '../domain/project/protocol'
 
@@ -157,6 +158,44 @@ export interface LoggerPort {
   log(level: LogLevel, message: string, meta?: Record<string, unknown>): void
 }
 
+/**
+ * **本机人脸检测端口**。
+ *
+ * 与 `network` 那条路刻意分开：这件事**不出网**。它是 Web Worker 里的
+ * MediaPipe BlazeFace（wasm + tflite，随包走），不花渠道、不依赖模型能力。
+ *
+ * 契约里最要紧的一条是**「认不出来不算失败」**：没有脸、浏览器跑不了 wasm、
+ * 模型文件缺失，一律返回 `null`，由调用方走回退路径（问模型 / 手动框选）。
+ * 只有「用户主动取消」才抛 `AbortError`。
+ */
+export interface FaceDetectionPort {
+  /**
+   * @param bytes 图片字节（调用方从素材库读出来，见 `AssetPort.read`）
+   * @param mime  图片类型（解码时用得到）
+   * @returns 本机检测结果；跑不起来 / 认不出来都是 `null`（这不是失败，是「没有」）
+   */
+  detectFaces(
+    bytes: Uint8Array,
+    mime: string,
+    signal?: AbortSignal,
+  ): Promise<FaceDetectionResult | null>
+}
+
+/**
+ * 本机检测的**原始**结果：像素框 + 检测器实际解码出来的图片尺寸。
+ *
+ * 为什么把尺寸一起带回来：归一化（像素框 → 0–1）是**领域层**的事
+ * （`normalizeDetectorBox`，有单测），而只有这里知道解码后到底多大 ——
+ * 文件头读出来的尺寸与真正解码出来的可能差一点，用错那个会让框整体偏。
+ * 平台层因此只负责「如实取回」，不做业务判断。
+ */
+export interface FaceDetectionResult {
+  imageWidth: number
+  imageHeight: number
+  /** 像素框，相对图片左上角，可能多张 */
+  faces: DetectorFaceRect[]
+}
+
 export interface PlatformKit {
   storage: StoragePort
   network: NetworkPort
@@ -166,6 +205,11 @@ export interface PlatformKit {
   credentials: CredentialPort
   files: FilePort
   logger: LoggerPort
+  /**
+   * 本机人脸检测。**可选**：只有真浏览器跑得起来（要 Worker + wasm + ImageBitmap），
+   * 测试用的内存平台没有这一项 —— 调用方必须容忍它缺席。
+   */
+  vision?: FaceDetectionPort
 }
 
 /** 渠道配置的「安全形态」：明文令牌由凭据层在调用前注入，业务代码与 UI 全程不接触 */

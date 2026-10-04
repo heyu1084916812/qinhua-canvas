@@ -744,9 +744,9 @@ function handlePanelEvent(
       }
       void (async () => {
         /**
-         * 「识别人脸」需要一个**能看图的对话模型**（浏览器没有 FaceDetector，实测
-         * `window.FaceDetector === undefined`）：走渠道解析链拿一个对话品类配方，
-         * 与「反推提示词」用的是同一条 `completeText + inputs` 链路。
+         * 「脸在哪」优先**本机识别**（`platform.vision`，MediaPipe worker）——
+         * 那条路不花渠道，所以下面这串候选**允许为空**：一个对话模型都没配的
+         * 用户照样能用情绪调节。本机认不出来时才轮到问模型。
          *
          * **排一串候选**：不是每个对话模型都能看图 —— 真机上报过一次「识别人脸失败」，
          * 所以这里把「默认对话模型」排第一，后面跟上已启用渠道里的其它对话模型
@@ -768,10 +768,6 @@ function handlePanelEvent(
             if (candidates.length >= 4) break
             push(ch.id, m.id)
           }
-        }
-        if (candidates.length === 0) {
-          store.notify('没找到可用的对话模型：先在渠道里启用一个能看图的对话模型')
-          return
         }
         const out = await buildEmotionEdit(
           {
@@ -795,9 +791,11 @@ function handlePanelEvent(
           return
         }
         store.notify(
-          out.reusedSelection
+          out.detectedBy === 'selection'
             ? '按你框好的局部图改脸：只改这一块（其余不动）'
-            : '已识别人脸：正在只改这块脸部（其余不动）',
+            : out.detectedBy === 'local'
+              ? '已在本机识别人脸：正在只改这块脸部（其余不动）'
+              : '已识别人脸：正在只改这块脸部（其余不动）',
         )
         await exec.runNode(out.cropNodeId)
         const done = await waitForNodeAsset(store, out.cropNodeId, {

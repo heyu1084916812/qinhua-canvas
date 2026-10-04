@@ -4,7 +4,7 @@
  * 产物：.playwright-verify/*.png 截图 + 控制台结果表
  */
 import { chromium } from 'playwright'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { deflateSync, crc32 } from 'node:zlib'
 
 const BASE = process.env.SMOKE_BASE ?? 'http://127.0.0.1:1420'
@@ -17952,6 +17952,18 @@ async function g108(browser) {
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
+  /**
+   * 记下**本机人脸检测**那套静态文件的请求（worker / wasm / tflite 模型）。
+   *
+   * 为什么必须这么钉：本机检测是**新加的第一条路**，排在「问模型」前面。它要是
+   * 根本没被调用（worker 路径写错、平台端口忘了接），后面那条回退照样能把 G108
+   * 跑绿 —— 那就成了「代码写了、功能没启用」这种最难发现的假通过。
+   */
+  const mediapipeRequests = []
+  page.on('request', (r) => {
+    if (r.url().includes('/mediapipe/')) mediapipeRequests.push(r.url())
+  })
+
   await configureMockChannel(page)
   await gotoProjects(page)
   await sleep(400)
@@ -18041,6 +18053,13 @@ async function g108(browser) {
   }
   rec(g, '★★ 新建了一个**局部图节点**（不是改原节点重跑）', !!cropId, `crop=${cropId}`)
   rec(g, '★★ 新建了一个**融合节点**（把局部贴回原图）', !!fusionId, `fusion=${fusionId}`)
+  rec(
+    g,
+    '★★ 情绪调节真的起用了**本机人脸检测**（worker 与模型被加载，不是只走了「问模型」回退）',
+    mediapipeRequests.some((u) => u.includes('face-detector-worker.js')) &&
+      mediapipeRequests.some((u) => u.endsWith('.tflite')),
+    `本机检测请求 ${mediapipeRequests.length} 条`,
+  )
   if (!cropId || !fusionId) {
     await page.screenshot({ path: `${OUT}/136-g108-emotion-fail.png` })
     rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
@@ -18189,9 +18208,6 @@ async function g108(browser) {
     ).find((id) => !idsBeforeManual.includes(id))
     rec(g, '★ 手动框选产出了一张局部图', !!cropId2, `crop=${cropId2}`)
     if (cropId2) {
-      const idsBeforeManualRun = await page
-        .locator('[data-node-id]')
-        .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
       await genPanel(page, page.locator(`[data-node-id="${cropId2}"]`))
       await panel.locator('[data-panel-preset]').click()
       await sleep(300)
@@ -18252,7 +18268,107 @@ async function g108(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108]
+/**
+ * G109 本机人脸检测（MediaPipe BlazeFace，随包走的 wasm + tflite）
+ *
+ * 背景（用户 2026-10-06：「你看之前我给你看的那个 github 的项目，他也是识别人脸的」）：
+ * 参照 VOZEB-PRO，把「脸在哪」从**问对话模型**改成**本机检测** —— 不联网、不花渠道、
+ * 不依赖任何模型能力。它现在是「情绪调节」识别人脸的**第一条路**（G108）。
+ *
+ * 这一组直接打那条路本身：拿 MediaPipe 官方人像夹具，走应用自己那份
+ * worker + wasm + tflite，断言**真的认出了脸、框落在合理位置**。
+ *
+ * 为什么不能只靠 G108 覆盖：G108 的源图是 mock 现造的一整块纯色，本来就没有脸 ——
+ * 它只能证明「没认到时回退是对的」，证明不了「有脸时认得出来」。两条各管一半，
+ * 少一条就会留下「检测器其实一直返回 0 张脸」这种假通过。
+ */
+async function g109(browser) {
+  const g = 'G109 本机人脸检测'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const mediapipeRequests = []
+  page.on('request', (r) => {
+    if (r.url().includes('/mediapipe/')) mediapipeRequests.push(r.url())
+  })
+
+  await gotoProjects(page)
+
+  const b64 = readFileSync('scripts/fixtures/mediapipe-portrait.jpg').toString('base64')
+  const out = await page.evaluate(async (payload) => {
+    const blob = await (await fetch(`data:image/jpeg;base64,${payload}`)).blob()
+    const bitmap = await createImageBitmap(blob)
+    const size = { width: bitmap.width, height: bitmap.height }
+    const worker = new Worker('mediapipe/face-detector-worker.js')
+    const reply = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve({ timeout: true }), 45000)
+      worker.onmessage = (event) => {
+        clearTimeout(timer)
+        resolve(event.data)
+      }
+      worker.onerror = (event) => {
+        clearTimeout(timer)
+        resolve({ workerError: event.message || 'worker error' })
+      }
+      worker.postMessage({ id: 1, image: bitmap }, [bitmap])
+    })
+    worker.terminate()
+    return { size, reply }
+  }, b64)
+
+  rec(
+    g,
+    '★ 本机检测的三样静态文件都被真正加载（worker 脚本 / wasm / tflite 模型）',
+    mediapipeRequests.some((u) => u.includes('face-detector-worker.js')) &&
+      mediapipeRequests.some((u) => u.includes('vision_wasm_internal.wasm')) &&
+      mediapipeRequests.some((u) => u.endsWith('.tflite')),
+    mediapipeRequests.map((u) => u.split('/mediapipe/')[1] || u).join(' / '),
+  )
+
+  if (out.reply?.timeout || out.reply?.workerError || out.reply?.error) {
+    rec(
+      g,
+      '★★ 真人像上认出了人脸',
+      false,
+      out.reply.timeout ? 'worker 超时' : out.reply.workerError || out.reply.error,
+    )
+    rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+    await ctx.close()
+    return
+  }
+
+  const faces = out.reply?.faces ?? []
+  rec(g, '★★ 真人像上认出了人脸（不是 0 张）', faces.length >= 1, `faces=${faces.length}`)
+
+  const first = faces[0]
+  if (!first) {
+    rec(g, '★★ 框落在画面内、尺寸合理', false, '没有脸可判')
+    rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+    await ctx.close()
+    return
+  }
+
+  const { width: W, height: H } = out.size
+  const inside = first.x >= 0 && first.y >= 0 && first.x + first.width <= W && first.y + first.height <= H
+  const wRatio = first.width / W
+  const hRatio = first.height / H
+  rec(
+    g,
+    '★★ 框落在画面内，且占画面的比例是「一张脸」该有的样子（不是整张图）',
+    inside && wRatio > 0.05 && wRatio < 0.9 && hRatio > 0.05 && hRatio < 0.9,
+    `x=${first.x.toFixed(0)} y=${first.y.toFixed(0)} w=${first.width.toFixed(0)} h=${first.height.toFixed(0)} ` +
+      `(${W}x${H} → ${(wRatio * 100).toFixed(0)}% × ${(hRatio * 100).toFixed(0)}%)`,
+  )
+  rec(g, '★ 可信度够高（> 0.5）', (first.score ?? 0) > 0.5, `score=${first.score?.toFixed(3)}`)
+  /** 人像构图：脸在上半部。位置判据能挡住「框认出来了但坐标系搞反了」这类错 */
+  const centerY = (first.y + first.height / 2) / H
+  rec(g, '★ 脸的纵向中心落在上半部（坐标系没搞反）', centerY < 0.5, `centerY=${centerY.toFixed(2)}`)
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
