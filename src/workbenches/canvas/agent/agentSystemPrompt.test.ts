@@ -7,6 +7,8 @@ import {
   buildCurrentState,
   looksLikePreserveRequest,
   looksLikeStyleOnlyRequest,
+  looksLikeCombineRequest,
+  expectsPerImageFlows,
   summarizeForPrompt,
 } from './agentSystemPrompt'
 
@@ -346,5 +348,45 @@ describe('改图语义', () => {
     expect(p).toContain('绝对不要把节点名当内容')
     /** 正文可能过时这条也必须常驻（不是只有带了 extras 才说） */
     expect(p).toContain('图文不一致时以图为准')
+  })
+})
+
+/**
+ * ★★ 多张图时该不该「一张图一条流程」（用户 2026-10-06 第七批 #183）。
+ *
+ * 用户原话：「明明是单独的两个需求他给我替换成了一个需求」；图二里写的是
+ * 「把两张图片**单独**替换成 3d 材质」。默认该拆，只有他明说要合成才不拆。
+ */
+describe('多张图各自一条流程（#183）', () => {
+  it('★★ 说了「单独 / 分别 / 各自」→ 该拆', () => {
+    for (const t of ['把两张图片单独替换成3d材质', '这两张分别换成水彩', '各自改成3D材质']) {
+      expect(expectsPerImageFlows(t, 2)).toBe(true)
+    }
+  })
+
+  it('★★ 说了「合成 / 融合 / 放在一张图里 / 拼在一起」→ 不该拆（那是合法需求）', () => {
+    for (const t of [
+      '把这两张合成一张',
+      '两张融合成一张图',
+      '把两张放在一张图里',
+      '这两张拼在一起',
+    ]) {
+      expect(looksLikeCombineRequest(t)).toBe(true)
+      expect(expectsPerImageFlows(t, 2)).toBe(false)
+    }
+  })
+
+  it('★ 只有一张图 → 无所谓拆不拆', () => {
+    expect(expectsPerImageFlows('换成3D材质', 1)).toBe(false)
+  })
+
+  it('★★ 命中时加硬约束：每张各自一条流程、不许并成一个节点', () => {
+    const p = buildAgentSystemPromptWithContext({ nodes: [], edges: [] }, undefined, {
+      perImage: true,
+    })
+    expect(p).toContain('每张图**各自一条流程**')
+    expect(p).toContain('不要')
+    /** 没命中就不该出现（否则每轮都在喊狼来了） */
+    expect(buildAgentSystemPromptWithContext({ nodes: [], edges: [] })).not.toContain('各自一条流程')
   })
 })

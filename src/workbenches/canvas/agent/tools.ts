@@ -289,6 +289,13 @@ export interface AgentToolContext {
   /** 当前选中的节点 —— `readGraph` 的 `selection` 范围要用；不给就按全图算 */
   selectedIds?: () => readonly string[]
   /**
+   * 用户这次是不是「多张图各自一条流程」（见 `expectsPerImageFlows`）。
+   *
+   * 用户 2026-10-06 第七批 #183：「明明是单独的两个需求他给我替换成了一个需求」。
+   * 提示词里已经写了硬约束，这里再做一道**确定性检查** —— 不靠模型自觉。
+   */
+  perImage?: boolean
+  /**
    * 新建节点要补的默认数据（渠道 + 模型 + 生成参数）。
    *
    * 解析默认值要读渠道库（异步），而工具执行器在画布层、拿不到渠道 store，
@@ -403,6 +410,13 @@ export function promptlessGenerationProblems(plan: AgentPlan): string[] {
   const out: string[] = []
   for (const [i, node] of plan.nodes.entries()) {
     if (node.type !== 'generation') continue
+    /**
+     * **被 attach 的节点不用有提示词**：它本来就在画布上（是复用，不是新建），
+     * 这条检查管的是「这次**要建**的生成节点跑不跑得起来」。
+     * 以前没跳过：模型按规矩把既有图写成 attach 后，反而被这条判成「没有提示词」而整份退回
+     * （2026-10-06 第七批 #183 的排查里撞上）。
+     */
+    if (attached.has(node.localId)) continue
     const own = node.data.prompt
     if (typeof own === 'string' && own.trim()) continue
     const upstream = plan.edges
@@ -432,6 +446,33 @@ export async function executeConfirmedTool(
       const existing = ctx.store.getSnapshot().nodes.map((n) => n.id)
       const { problems, plan } = planProblems(a, existing)
       if (!plan) return { ok: false, problems }
+      /**
+       * **「每张图各自一条流程」的确定性检查**（用户 2026-10-06 第七批 #183）。
+       *
+       * 提示词里已经写了硬约束，但真机上模型照样把两张图并成一条 —— 于是两个需求被办成一个。
+       * 这一条不靠它自觉：用户 @ 了多张图、又没说「合成」时，**生成节点数少于图数**
+       * 就把计划退回给模型重做（`problems` 会回填给它，下一轮它会按这个改）。
+       */
+      if (ctx.perImage) {
+        const graph = ctx.store.getSnapshot()
+        const attachedIds = new Set((plan.attach ?? []).map((at) => at.localId))
+        const attachedImages = (plan.attach ?? []).filter((at) => {
+          const n = graph.nodes.find((x) => x.id === at.existingNodeId)
+          return Boolean((n?.data as { assetHash?: string } | undefined)?.assetHash)
+        }).length
+        const newGenerations = plan.nodes.filter(
+          (n) => n.type === 'generation' && !attachedIds.has(n.localId),
+        ).length
+        if (attachedImages >= 2 && newGenerations < attachedImages) {
+          return {
+            ok: false,
+            problems: [
+              `用户要的是每张图各自处理，但这份计划只建了 ${newGenerations} 个生成节点、@ 了 ${attachedImages} 张图。`,
+              '请**一张图配一个生成节点**：各自 attach、各自在 edges 里连线，不要并成一条流程。',
+            ],
+          }
+        }
+      }
       /**
        * 生成节点的 `mode` **以模型自己的类别为准**（详见 `alignGenerationMode`）：
        * 真模型常把视频节点写成 `mode:"image"`，不纠正的话请求都组不出来。

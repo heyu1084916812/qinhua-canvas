@@ -337,9 +337,20 @@ export interface AgentPromptExtras {
    *
    * 用户 2026-10-05 第六批：「换成 3d 风格…结果把内容也给我换成小猫去了」——
    * 与 `preserve` 同一类毛病（要求没进提示词），但**约束的内容不同**：
-   * 这里要的不是「保持不变」，而是「**以原来的提示词为内容主体，只追加风格**」。
+   * 这里要的不是「保持不变」，而是「**只改风格**」。
+   *
+   * ⚠️ 2026-10-06 改口径：原来写的是「以原来的提示词为内容主体」，真机取证推翻了它
+   * （那段正文本身已经过时、与画面不符，整段带上等于用文字抹掉图上的角色）。
+   * 现在是**不复述画面内容、以图为准**，只写风格要求 + 「其余严格按参考图保持不变」。
    */
   styleOnly?: boolean
+  /**
+   * 这次是「多张图各自一条流程」那一类（见 `expectsPerImageFlows`）。
+   *
+   * 用户 2026-10-06 第七批 #183：@ 了两张图，模型把它们并成一条流程，
+   * 两个需求被办成一个。这里给硬约束；`applyPlan` 那边还有一道确定性检查兜底。
+   */
+  perImage?: boolean
   /**
    * 随这次对话给的素材节点 id（§8）。
    *
@@ -420,6 +431,17 @@ export function buildAgentSystemPromptWithContext(
   }
 
   const assets = extras.assetIds ?? []
+  if (extras.perImage) {
+    parts.push(
+      [
+        '## 这一次的硬约束：每张图**各自一条流程**',
+        '用户同时 @ / 给了**多张**图，而他没有说要「合成 / 融合 / 放在一张图里」——',
+        '所以默认是**一张图配一条独立流程**：每张图各配一个生成节点，',
+        '各自 `attach`、**各自在 `edges` 里连线**。',
+        '**不要**把多张图并成一个生成节点或一条链 —— 那是把两件事办成一件（用户明确抱怨过）。',
+      ].join('\n'),
+    )
+  }
   if (assets.length > 0) {
     parts.push(
       [
@@ -518,6 +540,33 @@ export function looksLikeStyleOnlyRequest(text: string): boolean {
   )
   const changeWord = /换|改|变|转|做成|弄成|调成/.test(t)
   return styleWord && changeWord
+}
+
+/**
+ * 用户这句话是不是「把多张图**合成一张**」那一类。
+ *
+ * 与 `expectsPerImageFlows` 成对：有合成意图才允许把多张图并进一条流程。
+ */
+export function looksLikeCombineRequest(text: string): boolean {
+  const t = text.replace(/\s+/g, '')
+  if (!t) return false
+  return /合成|融合|拼成|拼在|组合|放在一起|放在同一张|同一张图|一张图里|一起生成|合起来/.test(t)
+}
+
+/**
+ * 「多张图时该不该**一张一条流程**」。
+ *
+ * 用户 2026-10-06 第七批 #183 原话：「明明是单独的两个需求他给我替换成了一个需求」；
+ * 图二里他写的是「把两张图片**单独**替换成 3d 材质」。
+ *
+ * 默认是**该拆**：@ 了几张图却只给「把图换成 X 材质」这种**逐张属性改动**时，
+ * 用户要的通常是每张各改一张。只有他明说「合成 / 融合 / 放在一张图里」才不拆。
+ *
+ * 判据要的是 `imageCount`：**单张图无所谓拆不拆**，所以 < 2 直接 false。
+ */
+export function expectsPerImageFlows(text: string, imageCount: number): boolean {
+  if (imageCount < 2) return false
+  return !looksLikeCombineRequest(text)
 }
 
 /** 供测试与诊断：把节点快照转成摘要（与 tools.readGraphSummary 同源语义） */

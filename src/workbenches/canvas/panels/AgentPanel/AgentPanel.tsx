@@ -43,6 +43,7 @@ import {
   buildAgentSystemPromptWithContext,
   looksLikePreserveRequest,
   looksLikeStyleOnlyRequest,
+  expectsPerImageFlows,
 } from '../../agent/agentSystemPrompt'
 import {
   AGENT_TOOLS,
@@ -182,6 +183,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 已经切到 B 去看别的了，那一份消息盖上去就把 B 的对话流冲掉了（§8.2 记忆隔离）。
    */
   const currentIdRef = useRef<string | null>(null)
+  /**
+   * 这次用户的话是不是「多张图各自一条流程」（`expectsPerImageFlows`）。
+   *
+   * 在**发消息那一刻**算好，留给工具执行时读 —— 工具执行可能发生在用户点「批准」之后，
+   * 那时闭包里已经拿不到当时的正文了（见 `toolCtx` 里那段说明）。
+   */
+  const perImageRef = useRef(false)
   currentIdRef.current = current?.id ?? null
   const [draft, setDraft] = useState('')
   /** 订阅全量渠道：设置页改完立刻反映（与创作面板同一条口径） */
@@ -413,6 +421,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       store,
       origin,
       selectedIds: () => selection,
+      /**
+       * 用 **ref** 而不是闭包变量：这个回调在发消息那一刻创建、在用户点「批准」时才真正执行
+       * （中间隔着一次确认），闭包里的旧值必然过期。ref 读的是**最新一次发消息**算出来的判断。
+       */
+      ...(perImageRef.current ? { perImage: true } : {}),
       runNodes: async (ids) => {
         /**
          * **互不依赖的节点同时跑**（用户 2026-10-05 第 2 条：「我并行的要求没有给我实现，
@@ -631,6 +644,23 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       ...(current.imageModel ? { image: current.imageModel } : {}),
       ...(current.videoModel ? { video: current.videoModel } : {}),
     }
+    /**
+     * 这次 @ 到了几张**有图**的节点 —— 「该不该一张图一条流程」要看**图数**
+     * （用户 2026-10-06 第七批 #183：「明明是单独的两个需求他给我替换成了一个需求」）。
+     *
+     * 单张图无所谓拆不拆，所以判据是「≥2 张、且他没说合并 / 融合」。
+     * 算好存进 ref：工具执行可能发生在用户点「批准」之后，那时这里已经出栈了。
+     */
+    const mentionedImageCount = mentions.filter(
+      (m) =>
+        m.kind === 'node' &&
+        Boolean(
+          (graph.nodes.find((n) => n.id === m.id)?.data as { assetHash?: string } | undefined)
+            ?.assetHash,
+        ),
+    ).length
+    const perImage = expectsPerImageFlows(plainText, mentionedImageCount)
+    perImageRef.current = perImage
     const system = buildAgentSystemPromptWithContext(
       summary,
       { model: current.model },
@@ -643,6 +673,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         ...(looksLikePreserveRequest(plainText) ? { preserve: true } : {}),
         /** 「换成 3D / 写实 / 卡通」= 只改风格：内容必须沿用原来的提示词（第六批） */
         ...(looksLikeStyleOnlyRequest(plainText) ? { styleOnly: true } : {}),
+        /** 多张图且没说合成 → 每张各自一条流程（第七批 #183） */
+        ...(perImage ? { perImage: true } : {}),
         assetIds: current.pendingAssetIds ?? [],
         ...(skill ? { skill: { name: skill.name, content: skill.content } } : {}),
         ...(mentions.length > 0 ? { mentions } : {}),

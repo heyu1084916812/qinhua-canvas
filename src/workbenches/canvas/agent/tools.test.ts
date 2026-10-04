@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { registerAllSpecs } from '../../../domain/canvas/nodeSpecs'
+import type { AgentPlan } from '../../../domain/agent/plan'
 import { createMemoryPlatform } from '../../../platform/memory'
 import { createCanvasStore, type CanvasStore } from '../../../state/workbenches/canvas/store'
 import {
@@ -634,5 +635,66 @@ describe('★★ updateNode 批量改（一次确认改完一批）', () => {
     expect(Object.keys(props)).toContain('nodeIds')
     expect(String(props.nodeIds?.description)).toContain('都改')
     expect(buildAgentSystemPrompt({ nodes: [], edges: [] })).toContain('nodeIds')
+  })
+})
+
+/**
+ * ★★ 「多张图各自一条流程」的**确定性检查**（用户 2026-10-06 第七批 #183）。
+ *
+ * 用户原话：「明明是单独的两个需求他给我替换成了一个需求」。
+ * 提示词里写了硬约束，但真机上模型照样把两张图并成一条 —— 所以这里再拦一道：
+ * 用户 @ 了 ≥2 张有图的节点、又没说「合成」时，**生成节点数少于图数**就把计划退回。
+ */
+describe('★★ applyPlan：多张图要各自一条流程（perImage）', () => {
+  /** 两张被复用的图 + N 个新建生成节点 */
+  const planFor = (generations: number, imageIds: readonly string[]): AgentPlan => ({
+    summary: '两张图各自换 3D 材质',
+    nodes: [
+      { localId: 's1', type: 'generation', data: {}, order: 0 },
+      { localId: 's2', type: 'generation', data: {}, order: 1 },
+      ...Array.from({ length: generations }, (_, i) => ({
+        localId: `g${i + 1}`,
+        type: 'generation' as const,
+        data: { prompt: `第 ${i + 1} 张换材质` },
+        order: 2 + i,
+      })),
+    ],
+    edges: [{ source: 's1', target: 'g1' }],
+    attach: [
+      { localId: 's1', existingNodeId: imageIds[0]! },
+      { localId: 's2', existingNodeId: imageIds[1]! },
+    ],
+  })
+
+  const twoImageCtx = () => {
+    const { store, ctx } = setup()
+    addNode(store, 'generation', { mode: 'image', assetHash: 'h1' })
+    addNode(store, 'generation', { mode: 'image', assetHash: 'h2' })
+    const ids = store.getSnapshot().nodes.map((n) => n.id)
+    return { store, ctx, ids }
+  }
+
+  it('★★ 只建 1 个生成节点 → 退回让模型重做（两个需求不能被办成一个）', async () => {
+    const { ctx, ids } = twoImageCtx()
+    const r = (await executeConfirmedTool('applyPlan', planFor(1, ids), {
+      ...ctx,
+      perImage: true,
+    })) as { ok: boolean; problems?: string[] }
+    expect(r.ok).toBe(false)
+    expect(r.problems?.join(' ')).toContain('一张图配一个生成节点')
+  })
+
+  it('★ 建够 2 个就放行（一张配一个）', async () => {
+    const { store, ctx, ids } = twoImageCtx()
+    const before = store.getSnapshot().nodes.length
+    await executeConfirmedTool('applyPlan', planFor(2, ids), { ...ctx, perImage: true })
+    /** 两个生成节点都真落地了（attach 的那两张不新建） */
+    expect(store.getSnapshot().nodes.length).toBe(before + 2)
+  })
+
+  it('★ 用户没说「各自」（perImage 未设）时不拦 —— 合并成一张是合法需求', async () => {
+    const { ctx, ids } = twoImageCtx()
+    const r = (await executeConfirmedTool('applyPlan', planFor(1, ids), ctx)) as { ok: boolean }
+    expect(r.ok).toBe(true)
   })
 })
