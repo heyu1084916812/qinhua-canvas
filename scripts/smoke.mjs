@@ -17978,7 +17978,6 @@ async function g108(browser) {
   const idsBefore = await page
     .locator('[data-node-id]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
-  const edgesBefore = await page.locator('[data-edge]').count()
 
   /** ② 打开情绪面板（预设菜单里的「情绪调节」） */
   await genPanel(page, src)
@@ -18157,6 +18156,98 @@ async function g108(browser) {
     `带图新节点=${fusionResultCount}`,
   )
   await page.screenshot({ path: `${OUT}/137-g108-emotion-result.png` })
+
+  /**
+   * ⑨ **手动路径**（真实兜底）：用户在素材灯箱里自己框一张局部图 → 在它上面选情绪 → 生成。
+   *
+   * 为什么必须有这条：**不是每个对话模型都能看图** —— 真机上报过「识别人脸失败」。
+   * 这条路上不调模型：局部图就是用户框好的脸，原图从 `cropContext.source.assetHash` 反查回来接进融合。
+   */
+  await page.keyboard.press('Escape')
+  await sleep(300)
+  const idsBeforeManual = await page
+    .locator('[data-node-id]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+  await genPanel(page, src)
+  const extractBtn = page.locator('[data-follow-action="extract"]')
+  rec(g, '★ 源节点功能栏里有「提取选区」（手动框脸的入口）', (await extractBtn.count()) === 1)
+  if ((await extractBtn.count()) === 1) {
+    await extractBtn.click()
+    await sleep(600)
+    const stage = await page.locator('[data-lightbox-stage]').boundingBox()
+    await page.mouse.move(stage.x + stage.width * 0.35, stage.y + stage.height * 0.25)
+    await page.mouse.down()
+    await page.mouse.move(stage.x + stage.width * 0.62, stage.y + stage.height * 0.62, { steps: 10 })
+    await page.mouse.up()
+    await sleep(350)
+    await page.locator('[data-lightbox-crop-apply]').click()
+    await sleep(900)
+    const cropId2 = (
+      await page
+        .locator('[data-node-id]')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+    ).find((id) => !idsBeforeManual.includes(id))
+    rec(g, '★ 手动框选产出了一张局部图', !!cropId2, `crop=${cropId2}`)
+    if (cropId2) {
+      const idsBeforeManualRun = await page
+        .locator('[data-node-id]')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+      await genPanel(page, page.locator(`[data-node-id="${cropId2}"]`))
+      await panel.locator('[data-panel-preset]').click()
+      await sleep(300)
+      await page.locator('[data-preset-emotion]').click()
+      await sleep(450)
+      await page.locator('[data-emotion="serene"]').click()
+      await sleep(200)
+      await page.locator('[data-emotion-run]').click()
+      let manualFusionId = null
+      for (let i = 0; i < 80; i += 1) {
+        const edged = await page.locator('[data-edge]').evaluateAll((els) =>
+          els.map((e) => ({
+            s: e.getAttribute('data-edge-source'),
+            t: e.getAttribute('data-edge-target'),
+            tp: e.getAttribute('data-edge-target-port'),
+          })),
+        )
+        const target = edged.find((e) => e.s === cropId2 && e.tp === 'patch')?.t
+        if (target && edged.some((e) => e.s === srcId && e.t === target && e.tp === 'input')) {
+          manualFusionId = target
+          break
+        }
+        await sleep(250)
+      }
+      rec(
+        g,
+        '★★ 手动路径：原图 → input、这张局部图 → patch（不调看图模型也能跑）',
+        !!manualFusionId,
+        `fusion=${manualFusionId}`,
+      )
+      rec(
+        g,
+        '★★ 手动路径用的就是你框的那张局部图（正文被写成情绪那句）',
+        String(
+          (
+            await page.evaluate(
+              (id) =>
+                new Promise((resolve) => {
+                  const req = indexedDB.open('qinghua')
+                  req.onsuccess = () => {
+                    const db = req.result
+                    const q = db.transaction('nodes', 'readonly').objectStore('nodes').get(id)
+                    q.onsuccess = () => resolve(q.result?.data?.prompt ?? '')
+                    q.onerror = () => resolve('')
+                  }
+                  req.onerror = () => resolve('')
+                }),
+              cropId2,
+            )
+          ),
+        ).includes('只改人物的面部表情'),
+        '局部图正文里带上了情绪约束',
+      )
+      await page.screenshot({ path: `${OUT}/138-g108-emotion-manual.png` })
+    }
+  }
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
 }

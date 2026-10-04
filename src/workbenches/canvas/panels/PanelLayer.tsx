@@ -747,9 +747,29 @@ function handlePanelEvent(
          * 「识别人脸」需要一个**能看图的对话模型**（浏览器没有 FaceDetector，实测
          * `window.FaceDetector === undefined`）：走渠道解析链拿一个对话品类配方，
          * 与「反推提示词」用的是同一条 `completeText + inputs` 链路。
+         *
+         * **排一串候选**：不是每个对话模型都能看图 —— 真机上报过一次「识别人脸失败」，
+         * 所以这里把「默认对话模型」排第一，后面跟上已启用渠道里的其它对话模型
+         * （优先用户勾选过的那批），最多 4 个，由 `buildEmotionEdit` 依次试。
          */
+        const candidates: { channelId: string; model: string }[] = []
+        const push = (channelId: string, model: string) => {
+          if (!channelId || !model) return
+          if (candidates.some((c) => c.channelId === channelId && c.model === model)) return
+          candidates.push({ channelId, model })
+        }
         const recipe = await channels.defaultForNewNode({}, 'chat').catch(() => null)
-        if (!recipe) {
+        if (recipe) push(recipe.channelId, recipe.model)
+        for (const ch of channels.getState().channels) {
+          if (!ch.enabled) continue
+          /** 先用户勾选过的那批，再补 modelCache 里拉到的其它对话模型 */
+          const chats = [...ch.models, ...ch.modelCache].filter((m) => m.category === 'chat')
+          for (const m of chats) {
+            if (candidates.length >= 4) break
+            push(ch.id, m.id)
+          }
+        }
+        if (candidates.length === 0) {
           store.notify('没找到可用的对话模型：先在渠道里启用一个能看图的对话模型')
           return
         }
@@ -759,13 +779,14 @@ function handlePanelEvent(
             store,
             look: (req) =>
               exec.completeText({
-                channelId: recipe.channelId,
-                model: recipe.model,
+                channelId: req.channelId,
+                model: req.model,
                 system: req.system,
                 text: req.text,
                 inputs: req.inputs,
                 signal: req.signal ?? new AbortController().signal,
               }),
+            candidates,
           },
           { nodeId: node.id, emotion: emotion.name },
         )
@@ -773,7 +794,11 @@ function handlePanelEvent(
           store.notify(out.reason)
           return
         }
-        store.notify('已识别人脸：正在只改这块脸部（其余不动）')
+        store.notify(
+          out.reusedSelection
+            ? '按你框好的局部图改脸：只改这一块（其余不动）'
+            : '已识别人脸：正在只改这块脸部（其余不动）',
+        )
         await exec.runNode(out.cropNodeId)
         const done = await waitForNodeAsset(store, out.cropNodeId, {
           isFailed: () => exec.nodeStateOf(out.cropNodeId)?.kind === 'failed',

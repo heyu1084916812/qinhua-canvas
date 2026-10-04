@@ -6,11 +6,13 @@ import { imageSizeFromHeader } from '../../domain/shared/imageSize'
 import {
   FACE_BOX_INSTRUCTION,
   FACE_BOX_SYSTEM,
+  faceBoxFailureReason,
   faceBoxToRect,
   parseFaceBox,
   type FaceBox,
 } from '../../domain/canvas/vision/faceBox'
 import { emotionPromptOf } from '../../domain/canvas/layout/presets'
+import { asAppError, describeError } from '../../shared/result'
 import { NODE_MINIMUMS } from '../../domain/canvas/layout/constants'
 import { fusionSpec, FUSION_PATCH_PORT } from '../../domain/canvas/nodeSpecs/fusion'
 import { createId } from '../../shared/id'
@@ -43,6 +45,8 @@ import { extractSelection } from './extractSelection'
  */
 
 export type EmotionLook = (req: {
+  channelId: string
+  model: string
   system: string
   text: string
   inputs: NodeInput[]
@@ -54,6 +58,14 @@ export interface EmotionEditDeps {
   store: CanvasStore
   /** 看图（与「反推提示词」同一条链路）：把源图发给对话模型，回一句话 */
   look: EmotionLook
+  /**
+   * 依次尝试的对话模型（第一个通常是渠道解析链选出的默认对话模型）。
+   *
+   * 为什么要一串：**不是每个对话模型都能看图**。真机上报过一次「识别人脸失败」，
+   * 只试一个模型时要么它看不了图、要么那条渠道当天不通 —— 于是这里按顺序试到有人给出
+   * 可解析的框为止（最多 4 个，够用且不会无限重试）。
+   */
+  candidates: readonly { channelId: string; model: string }[]
 }
 
 export interface EmotionEditInput {
@@ -65,7 +77,14 @@ export interface EmotionEditInput {
 }
 
 export type EmotionEditOutcome =
-  | { ok: true; cropNodeId: string; fusionNodeId: string; box: FaceBox }
+  | {
+      ok: true
+      cropNodeId: string
+      fusionNodeId: string
+      box: FaceBox | null
+      /** true = 走的「用户已经框好局部图」那条快捷路径（没调模型） */
+      reusedSelection: boolean
+    }
   | { ok: false; reason: string }
 
 /** 局部图与融合节点之间的间距（世界 px，与画布其它落位同档） */
@@ -89,40 +108,71 @@ export async function buildEmotionEdit(
   const assetHash = data.assetHash
   if (!assetHash) return { ok: false, reason: '这个节点还没有图片：先把有人物的图连到它上面' }
 
+  /**
+   * **快捷路径：这个节点本身就是一张局部图**（用户先在素材灯箱里框过脸 —— 「提取选区」）。
+   *
+   * 那就用不着再识别：要改的就是这张图，原图用 `cropContext.source.assetHash` 反查回来。
+   * 这条路的现实意义：**不是每个对话模型都能看图**（真机上报过「识别人脸失败」），
+   * 手动框一次照样能把「只改面部」跑通。
+   */
+  const cropCtx = data.cropContext
+  const originalNode =
+    cropCtx && 'source' in cropCtx
+      ? graph.nodes.find(
+          (n) =>
+            n.id !== node.id &&
+            (n.data as { assetHash?: string }).assetHash === cropCtx.source.assetHash,
+        )
+      : undefined
+  if (originalNode) {
+    const fusionId = await wirePatchToOriginal(deps, {
+      patchNodeId: node.id,
+      sourceNodeId: originalNode.id,
+      sourceTitle: originalNode.title,
+      emotion: input.emotion,
+    })
+    return { ok: true, cropNodeId: node.id, fusionNodeId: fusionId, box: null, reusedSelection: true }
+  }
+
   /** 素材的 mime 要跟着请求一起发（模型靠它知道这是张图） */
   const payload = await deps.platform.assets.read(assetHash)
   if (!payload) return { ok: false, reason: '读不到这张图的素材' }
   const size = data.naturalSize ?? (await imageSizeOf(payload.bytes, payload.mime).catch(() => null))
   if (!size) return { ok: false, reason: '读不到这张图的尺寸' }
 
-  /** ① 自动识别人脸 */
+  /** ① 自动识别人脸：按候选顺序试，谁给出可解析的框就用谁 */
+  const imageInput = {
+    kind: 'asset',
+    nodeId: node.id,
+    assetHash,
+    mime: payload.mime || 'image/png',
+  } satisfies NodeInput
+  const tried: string[] = []
   let box: FaceBox | null = null
-  try {
-    const answer = await deps.look({
-      system: FACE_BOX_SYSTEM,
-      text: FACE_BOX_INSTRUCTION,
-      inputs: [
-        {
-          kind: 'asset',
-          nodeId: node.id,
-          assetHash,
-          mime: payload.mime || 'image/png',
-        } satisfies NodeInput,
-      ],
-      ...(input.signal ? { signal: input.signal } : {}),
-    })
-    box = parseFaceBox(answer)
-  } catch (e) {
-    return {
-      ok: false,
-      reason: `识别人脸时请求失败：${e instanceof Error ? e.message : String(e)}`,
+  let lastAnswer = ''
+  let lastError = ''
+  for (const cand of deps.candidates.slice(0, 4)) {
+    tried.push(cand.model)
+    try {
+      const answer = await deps.look({
+        channelId: cand.channelId,
+        model: cand.model,
+        system: FACE_BOX_SYSTEM,
+        text: FACE_BOX_INSTRUCTION,
+        inputs: [imageInput],
+        ...(input.signal ? { signal: input.signal } : {}),
+      })
+      lastAnswer = answer
+      box = parseFaceBox(answer, size)
+      if (box) break
+    } catch (e) {
+      const app = asAppError(e)
+      lastError = app ? describeError(app) : e instanceof Error ? e.message : String(e)
     }
   }
   if (!box) {
-    return {
-      ok: false,
-      reason: '没识别到人脸：换一个能看图的对话模型再试，或者先在素材灯箱里手动框选脸部（提取选区）',
-    }
+    /** 失败时把**证据一起给出来**（试过谁、报了什么、模型回了什么），见 `faceBoxFailureReason` */
+    return { ok: false, reason: faceBoxFailureReason({ tried, lastError, lastAnswer }) }
   }
 
   /** ② 按框裁一块 → 原图右侧多一个局部节点（复用「提取选区」，上下文一起落好） */
@@ -134,35 +184,56 @@ export async function buildEmotionEdit(
   if (!crop.ok) return { ok: false, reason: crop.reason }
 
   /**
-   * ③ 局部节点的正文 = 情绪那句（**与整图路径共用同一句**，见 `emotionPromptOf`），
-   * 并把源节点的配方（渠道 / 模型 / 类别 / 比例）继承过来 —— 不继承的话，
-   * 用户点了「生成」会得到一句「还没选择渠道」。
-   *
-   * 同时把 `preset` / `emotion` 清掉：那一版说的是**整图**的语义，
-   * 局部图再用一次就会拼出两句意思重复的约束。
+   * ③④ 局部节点的正文 + 配方继承，再建融合节点接回原图 —— 都在 `wirePatchToOriginal` 里
+   * （与「用户自己框好的局部图」那条快捷路径共用同一份）。
    */
+  const fusionId = await wirePatchToOriginal(deps, {
+    patchNodeId: crop.nodeId,
+    sourceNodeId: node.id,
+    sourceTitle: node.title,
+    emotion: input.emotion,
+  })
+
+  return { ok: true, cropNodeId: crop.nodeId, fusionNodeId: fusionId, box, reusedSelection: false }
+}
+
+/**
+ * 把「局部图」接回「原图」：局部节点的正文 = 情绪那句 + 继承配方，
+ * 再建一个融合节点（原图 → `input`、局部 → `patch`）。返回融合节点 id。
+ *
+ * 两条路（识别出来的新局部图 / 用户自己框好的局部图）共用这一份 ——
+ * 各写一份必然会漂移成「一条接得上、另一条接不上」。
+ */
+async function wirePatchToOriginal(
+  deps: EmotionEditDeps,
+  args: { patchNodeId: string; sourceNodeId: string; sourceTitle?: string; emotion: string },
+): Promise<string> {
+  const graph = deps.store.getSnapshot()
+  const sourceNode = graph.nodes.find((n) => n.id === args.sourceNodeId)
+  const patchNode = graph.nodes.find((n) => n.id === args.patchNodeId)
+  const sourceData = (sourceNode?.data ?? {}) as GenerationData
+
+  /** 局部节点的正文 = 情绪那句，并把源节点的配方继承过来（不继承就会「点了生成说没选渠道」） */
   deps.store.dispatch({
     kind: 'node.updateData',
-    id: crop.nodeId,
+    id: args.patchNodeId,
     patch: {
-      prompt: emotionPromptOf(input.emotion),
-      ...(data.channelId ? { channelId: data.channelId } : {}),
-      ...(data.model ? { model: data.model } : {}),
-      mode: data.mode ?? 'image',
+      prompt: emotionPromptOf(args.emotion),
+      ...(sourceData.channelId ? { channelId: sourceData.channelId } : {}),
+      ...(sourceData.model ? { model: sourceData.model } : {}),
+      mode: sourceData.mode ?? 'image',
       count: 1,
-      ...(data.ratio ? { ratio: data.ratio } : {}),
+      ...(sourceData.ratio ? { ratio: sourceData.ratio } : {}),
       preset: undefined,
       presetOptions: undefined,
       emotion: undefined,
     } as Partial<GenerationData>,
   })
 
-  /** ④ 融合节点：原图 → `input`，局部图 → `patch`（一个 plan = 一步撤销） */
-  const cropNode = deps.store.getSnapshot().nodes.find((n) => n.id === crop.nodeId)
   const fusionId = createId('node')
-  const origin = cropNode
-    ? { x: cropNode.x + cropNode.w + GAP_X, y: cropNode.y }
-    : { x: node.x + node.w + GAP_X * 2, y: node.y }
+  const origin = patchNode
+    ? { x: patchNode.x + patchNode.w + GAP_X, y: patchNode.y }
+    : { x: (sourceNode?.x ?? 0) + (sourceNode?.w ?? 240) + GAP_X * 2, y: sourceNode?.y ?? 0 }
   const others = deps.store
     .getSnapshot()
     .nodes.filter((n) => n.id !== fusionId)
@@ -179,27 +250,26 @@ export async function buildEmotionEdit(
     id: fusionId,
     at: { x: origin.x + delta.dx, y: origin.y + delta.dy },
     size: { w: NODE_MINIMUMS.fusion.w, h: NODE_MINIMUMS.fusion.h },
-    title: `${node.title ?? '图片'} · 局部改脸`,
+    title: `${args.sourceTitle ?? '图片'} · 局部改脸`,
     data: fusionSpec.createDefaultData(),
   })
   deps.store.dispatch({
     kind: 'edge.connect',
-    source: node.id,
+    source: args.sourceNodeId,
     target: fusionId,
     sourcePort: 'output',
     targetPort: 'input',
   })
   deps.store.dispatch({
     kind: 'edge.connect',
-    source: crop.nodeId,
+    source: args.patchNodeId,
     target: fusionId,
     sourcePort: 'output',
     targetPort: FUSION_PATCH_PORT,
   })
   deps.store.endPlan()
   await deps.store.flush()
-
-  return { ok: true, cropNodeId: crop.nodeId, fusionNodeId: fusionId, box }
+  return fusionId
 }
 
 /** 从字节读像素尺寸（只读文件头那一套，不整张解码） */

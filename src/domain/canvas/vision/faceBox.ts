@@ -52,7 +52,10 @@ export const FACE_BOX_INSTRUCTION = '找出图中最主要那个人物的脸，�
  * 却以为是自己点错了。所以任何不合理（缺字段、数值离谱、框小到没有意义、
  * 超出画面太远）都判 null，由调用方如实告诉用户「没识别到，请手动框选」。
  */
-export function parseFaceBox(raw: string): FaceBox | null {
+export function parseFaceBox(
+  raw: string,
+  imageSize?: { width: number; height: number },
+): FaceBox | null {
   if (!raw) return null
   /** 从可能夹着解释的回话里抠出第一个 JSON 对象（模型偶尔还是会带一句话） */
   const match = raw.match(/\{[\s\S]*?\}/)
@@ -83,16 +86,35 @@ export function parseFaceBox(raw: string): FaceBox | null {
   if (x === null || y === null || w === null || h === null) return null
 
   /**
-   * 有的模型给 **0–100 的百分数**。判据取「有没有任何一项 > 1」：
-   * 归一化值不可能超过 1，超过了就一定是百分数（除以 100 再判）。
+   * 三个尺度都可能遇到，按「像哪一种」判：
+   * ① 0–1 归一化（我们要的）；② **0–100 百分数**；③ **像素坐标**。
+   *
+   * ③ 是最常见的一种（模型按原图像素给框），所以要把图片尺寸传进来才敢认 ——
+   * 实测失败过一次（真机报「识别人脸失败」）：模型回的是像素，解析器只认前两种，
+   * 直接判 null。现在只要四个数都在图片范围内，就按像素换算成归一化值。
    */
   const max = Math.max(x, y, w, h)
-  const scale = max <= 1.0001 ? 1 : max <= 100 ? 100 : null
-  if (!scale) return null
-  x /= scale
-  y /= scale
-  w /= scale
-  h /= scale
+  if (max > 1.0001) {
+    const looksLikePixels =
+      imageSize &&
+      imageSize.width > 0 &&
+      imageSize.height > 0 &&
+      x + w <= imageSize.width * 1.05 &&
+      y + h <= imageSize.height * 1.05
+    if (looksLikePixels) {
+      x /= imageSize!.width
+      y /= imageSize!.height
+      w /= imageSize!.width
+      h /= imageSize!.height
+    } else if (max <= 100) {
+      x /= 100
+      y /= 100
+      w /= 100
+      h /= 100
+    } else {
+      return null
+    }
+  }
 
   /** 合理性：框要有点面积、中心要落在画面附近（允许略微出界） */
   if (w <= 0.02 || h <= 0.02 || w > 1.2 || h > 1.2) return null
@@ -132,4 +154,23 @@ export function faceBoxToRect(
     w: Math.round(outW),
     h: Math.round(outH),
   }
+}
+
+/**
+ * 识别失败时要给用户看的那句话。
+ *
+ * 真机上只看到一句「识别人脸失败」时，谁都判断不出是**模型看不了图**、**渠道不通**、
+ * 还是**它回的格式我们不认** —— 所以这句必须把三样证据摆出来：试过谁、报了什么、
+ * 模型回了什么，最后给一条能走的路（换个能看图的模型 / 手动框选）。
+ */
+export function faceBoxFailureReason(input: {
+  tried: readonly string[]
+  lastError?: string
+  lastAnswer?: string
+}): string {
+  const parts = [`没识别到人脸（试过 ${input.tried.join(' / ') || '没有可用的对话模型'}）`]
+  if (input.lastError?.trim()) parts.push(`请求报错：${input.lastError.trim()}`)
+  if (input.lastAnswer?.trim()) parts.push(`模型回的是：${input.lastAnswer.trim().slice(0, 60)}`)
+  parts.push('换一个能看图的对话模型再试，或者先在素材灯箱里框选脸部（提取选区）')
+  return parts.join('；')
 }

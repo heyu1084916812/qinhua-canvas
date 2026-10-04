@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { FUSION_MIN_EDGE } from '../fusion/fusionPlan'
-import { faceBoxToRect, parseFaceBox } from './faceBox'
+import { faceBoxFailureReason, faceBoxToRect, parseFaceBox } from './faceBox'
 
 /**
  * 人脸框解析与换算（用户 2026-10-05 第五批第 1 条）。
@@ -32,6 +32,24 @@ describe('parseFaceBox', () => {
   it('★★ 给百分数（0–100）也要认：任何一项 > 1 就按 100 归一', () => {
     const box = parseFaceBox('{"x":10,"y":20,"w":30,"h":40}')
     expect(box).toEqual({ x: 0.1, y: 0.2, w: 0.3, h: 0.4 })
+  })
+
+  /**
+   * ★★ **像素坐标**是最常见的回法（模型按原图给框）。真机上「识别人脸失败」有一次
+   * 就是这里判了 null —— 所以知道图片尺寸时，只要四个数都落在图内，就按像素换算。
+   */
+  it('★★ 知道图片尺寸时，像素坐标也能认（真机失败过一次的形态）', () => {
+    const box = parseFaceBox('{"x":300,"y":160,"w":200,"h":240}', {
+      width: 1000,
+      height: 800,
+    })
+    expect(box).toEqual({ x: 0.3, y: 0.2, w: 0.2, h: 0.3 })
+  })
+
+  it('★★ 像素数超出图片范围 → 仍然判 null（不许把离谱值当坐标用）', () => {
+    expect(
+      parseFaceBox('{"x":3000,"y":160,"w":200,"h":240}', { width: 1000, height: 800 }),
+    ).toBeNull()
   })
 
   it('★ 宽高的别名 width / height 也认', () => {
@@ -85,5 +103,30 @@ describe('faceBoxToRect', () => {
     expect(r.y).toBeGreaterThanOrEqual(0)
     expect(r.x + r.w).toBeLessThanOrEqual(500)
     expect(r.y + r.h).toBeLessThanOrEqual(400)
+  })
+})
+
+/**
+ * 失败说明（用户 2026-10-05：「情绪说识别人脸失败，查一下」）。
+ *
+ * 只写一句「识别人脸失败」等于没说：用户不知道是模型看不了图、渠道不通，还是格式不认。
+ * 这条钉住「三样证据 + 一条出路」都在。
+ */
+describe('faceBoxFailureReason', () => {
+  it('★★ 带上试过的模型、报错、模型原话与替代做法', () => {
+    const text = faceBoxFailureReason({
+      tried: ['GPT-6 Astra', 'mock-chat-1'],
+      lastError: '服务端返回错误（HTTP 400）：image_url is not supported',
+      lastAnswer: '我无法查看图片',
+    })
+    expect(text).toContain('试过 GPT-6 Astra / mock-chat-1')
+    expect(text).toContain('HTTP 400')
+    expect(text).toContain('我无法查看图片')
+    expect(text).toContain('换一个能看图的对话模型')
+    expect(text).toContain('提取选区')
+  })
+
+  it('★ 一个模型都没试时也说得清', () => {
+    expect(faceBoxFailureReason({ tried: [] })).toContain('没有可用的对话模型')
   })
 })
