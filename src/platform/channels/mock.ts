@@ -241,6 +241,14 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
        * 并发 ≈800ms（用户 2026-10-05 第 2 条报的就是这条被串起来跑了）。
        */
       if (request.prompt.includes('并行测试图')) await sleep(800)
+      /**
+       * 测试钩子：提示词带「慢速测试图」时**慢 4000ms** 出图。
+       *
+       * 冒烟靠它验「切走项目再回来，正在跑的**状态与结果都还在**」（用户 2026-10-06：
+       * 「替换不同的项目的时候，之前正在进行中的生成节点的生成状态会消失」）。
+       * 上面那条 800ms 的钩子太短 —— 切一个来回就跑完了，两种实现长得一模一样。
+       */
+      if (request.prompt.includes('慢速测试图')) await sleep(4000)
       const cap = models[0] ?? DEFAULT_MODELS[0]!
       const count = clampCount(cap, typeof request.params.count === 'number' ? request.params.count : 1)
       return Array.from({ length: count }, (_, i) => asset(request, i))

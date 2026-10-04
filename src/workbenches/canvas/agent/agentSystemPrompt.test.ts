@@ -253,11 +253,21 @@ describe('改图语义', () => {
     }
   })
 
-  it('★★ 命中时加一段「这次的硬约束」：保留原描述 + 写出「其余保持不变」', () => {
+  /**
+   * ★★ 「其他保持不变」的硬约束（2026-10-06 改口径）。
+   *
+   * 原来是「把已有节点上那句提示词**整段带上**」。真机取证推翻了这一条：被 @ 的那个节点
+   * 正文是「小猫钓鱼，3D渲染风格，可爱，河边，猫拿着鱼竿…」，而那张图是**小猫和小狗一起**
+   * 钓鱼 —— 正文已经过时。整段带上等于用文字抹掉图上多出来的角色。
+   * 现在分两种写法：**改画面属性且带参考图 → 不复述内容，以图为准**；
+   * 改内容本身 → 写清改动 + 「其余照原样」。
+   */
+  it('★★ 命中时加一段「这次的硬约束」：属性改动不复述内容、内容改动才写清楚', () => {
     const p = buildAgentSystemPromptWithContext(empty, undefined, { preserve: true })
     expect(p).toContain('## 这一次的硬约束：用户说了「其他保持不变」')
-    expect(p).toContain('原来画面里该保留的全部描述')
-    expect(p).toContain('其余（构图、背景、光线、风格、姿态）保持不变')
+    expect(p).toContain('不要复述画面内容')
+    expect(p).toContain('参考图才是内容的准')
+    expect(p).toContain('改的是**内容本身**')
     /** 没命中就不该出现这一段（否则每轮都在喊狼来了） */
     expect(buildAgentSystemPromptWithContext(empty)).not.toContain('这一次的硬约束')
   })
@@ -314,15 +324,27 @@ describe('改图语义', () => {
     }
   })
 
-  it('★★ 命中「只换风格」时加硬约束：以原提示词为主体、不许拿节点名当内容', () => {
+  /**
+   * ★★ 只换风格时的硬约束（2026-10-06 改口径）。
+   *
+   * 原来是「以原提示词正文为内容主体、整段保留」。真机取证推翻了这一条：被 @ 的那个节点
+   * 正文是「小猫钓鱼，3D渲染风格，可爱，河边，猫拿着鱼竿…」，而那张图是**小猫和小狗一起**钓鱼——
+   * 正文本身已经过时（出图模型当时自己加了狗）。把过时正文整段带进新提示词，等于用文字
+   * 把图上多出来的角色抹掉。现在改成：**接了参考图就不复述内容，以图为准**。
+   */
+  it('★★ 命中「只换风格」时加硬约束：不复述画面内容、以图为准、不许拿节点名当内容', () => {
     const p = buildAgentSystemPromptWithContext(empty, undefined, { styleOnly: true })
     expect(p).toContain('## 这一次的硬约束：只换风格，内容照原样')
-    expect(p).toContain('以被 @ 引用 / 上游节点的**原始提示词正文**为内容主体')
+    expect(p).toContain('不要复述画面内容')
+    expect(p).toContain('图文不一致时以图为准')
     expect(p).toContain('绝对不要拿节点名当内容')
     expect(buildAgentSystemPromptWithContext(empty)).not.toContain('只换风格，内容照原样')
   })
 
   it('★ 硬规则里也写明了「节点名不是画面描述」', () => {
-    expect(buildAgentSystemPrompt(empty)).toContain('绝对不要把节点名当内容')
+    const p = buildAgentSystemPrompt(empty)
+    expect(p).toContain('绝对不要把节点名当内容')
+    /** 正文可能过时这条也必须常驻（不是只有带了 extras 才说） */
+    expect(p).toContain('图文不一致时以图为准')
   })
 })

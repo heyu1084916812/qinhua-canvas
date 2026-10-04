@@ -525,6 +525,96 @@ function presetFieldsOf(data: GenerationData): Pick<
   }
 }
 
+/**
+ * 「认脸」这件事需要的依赖：本机检测（`platform.vision`，不用配）+ 问看图模型的调用与候选。
+ *
+ * 两条路共用这一份：**打开面板时的后台识别** 与 **点生成时的识别**。
+ * 各写一份的话，「候选怎么排」迟早漂移成两种行为。
+ */
+async function faceDepsOf(input: {
+  platform: ReturnType<typeof usePlatform>
+  store: ReturnType<typeof useCanvasStore>
+  exec: ReturnType<typeof useCanvasExecution>
+  channels: ReturnType<typeof useChannels>
+}): Promise<Parameters<typeof resolveFaceBox>[0]> {
+  /**
+   * 候选**允许为空**：本机检测不需要任何渠道（一个对话模型都没配也能用情绪调节）。
+   * 排一串是因为**不是每个对话模型都能看图** —— 默认对话模型排第一，后面跟上
+   * 已启用渠道里的其它对话模型（优先用户勾选过的那批），最多 4 个。
+   */
+  const candidates: { channelId: string; model: string }[] = []
+  const push = (channelId: string, model: string) => {
+    if (!channelId || !model) return
+    if (candidates.some((c) => c.channelId === channelId && c.model === model)) return
+    candidates.push({ channelId, model })
+  }
+  const recipe = await input.channels.defaultForNewNode({}, 'chat').catch(() => null)
+  if (recipe) push(recipe.channelId, recipe.model)
+  for (const ch of input.channels.getState().channels) {
+    if (!ch.enabled) continue
+    const chats = [...ch.models, ...ch.modelCache].filter((m) => m.category === 'chat')
+    for (const m of chats) {
+      if (candidates.length >= 4) break
+      push(ch.id, m.id)
+    }
+  }
+  return {
+    platform: input.platform,
+    store: input.store,
+    candidates,
+    look: (req) =>
+      input.exec.completeText({
+        channelId: req.channelId,
+        model: req.model,
+        system: req.system,
+        text: req.text,
+        inputs: req.inputs,
+        signal: req.signal ?? new AbortController().signal,
+      }),
+  }
+}
+
+/** 正在后台认脸的节点（面板反复开关 / 快速切情绪时不要叠着跑同一张） */
+const faceDetectInFlight = new Set<string>()
+
+/**
+ * **打开面板就先把脸认出来**（用户 2026-10-06）：
+ * 「说是会把认出的人脸框在预览素材上，但是这是点击生成之后才会出现，我要的是生成之前就出现」。
+ *
+ * 所以识别**不再挂在「生成」上**：选中情绪（面板打开）时就在后台跑一次，认出来写进
+ * `data.faceBox`，预览上立刻把框画出来 —— 用户确认框对了，再点生成。
+ *
+ * 认不出来时只提示一句，**不主动弹框选灯箱**（刚打开就弹一个太唐突）；点「生成」时
+ * 那条路径照旧会开（见 `runEmotion`）。
+ */
+async function detectFaceInBackground(
+  nodeId: string,
+  deps: {
+    platform: ReturnType<typeof usePlatform>
+    store: ReturnType<typeof useCanvasStore>
+    exec: ReturnType<typeof useCanvasExecution>
+    channels: ReturnType<typeof useChannels>
+  },
+): Promise<void> {
+  if (faceDetectInFlight.has(nodeId)) return
+  const node = deps.store.getSnapshot().nodes.find((n) => n.id === nodeId)
+  const data = node?.data as GenerationData | undefined
+  /** 已经有框的不重认（那是个既成事实，重认既慢又可能跟用户看到的不一样）；没出图的无从认起 */
+  if (!node || !data?.assetHash || data.faceBox) return
+  faceDetectInFlight.add(nodeId)
+  try {
+    const out = await resolveFaceBox(await faceDepsOf(deps), { nodeId })
+    if (out.ok) {
+      deps.store.dispatch({ kind: 'node.updateData', id: nodeId, patch: { faceBox: out.box } })
+      deps.store.notify('已识别人脸：预览上已框出，确认后点「生成」')
+    } else {
+      deps.store.notify('没认到人脸：点「生成」可以自己框选')
+    }
+  } finally {
+    faceDetectInFlight.delete(nodeId)
+  }
+}
+
 /** 面板事件 → 命令 / 执行（架构 §4.7 ①：面板只能 emit，由这里翻译） */
 function handlePanelEvent(
   event: PanelEvent,
@@ -761,48 +851,13 @@ function handlePanelEvent(
           return
         }
         /**
-         * 「脸在哪」优先**本机识别**（`platform.vision`，MediaPipe worker）——
-         * 那条路不花渠道，所以下面这串候选**允许为空**：一个对话模型都没配的
-         * 用户照样能用情绪调节。本机认不出来时才轮到问模型。
-         *
-         * **排一串候选**：不是每个对话模型都能看图 —— 真机上报过一次「识别人脸失败」，
-         * 所以这里把「默认对话模型」排第一，后面跟上已启用渠道里的其它对话模型
-         * （优先用户勾选过的那批），最多 4 个，由 `resolveFaceBox` 依次试。
+         * 「脸在哪」：走 `resolveFaceBox`（本机检测 → 问看图模型）。
+         * 候选与调用都收在 `faceDepsOf` 里 —— 与**打开面板时的后台识别**共用同一份，
+         * 免得「候选怎么排」在两处漂移。
          */
-        const candidates: { channelId: string; model: string }[] = []
-        const push = (channelId: string, model: string) => {
-          if (!channelId || !model) return
-          if (candidates.some((c) => c.channelId === channelId && c.model === model)) return
-          candidates.push({ channelId, model })
-        }
-        const recipe = await channels.defaultForNewNode({}, 'chat').catch(() => null)
-        if (recipe) push(recipe.channelId, recipe.model)
-        for (const ch of channels.getState().channels) {
-          if (!ch.enabled) continue
-          /** 先用户勾选过的那批，再补 modelCache 里拉到的其它对话模型 */
-          const chats = [...ch.models, ...ch.modelCache].filter((m) => m.category === 'chat')
-          for (const m of chats) {
-            if (candidates.length >= 4) break
-            push(ch.id, m.id)
-          }
-        }
-        const out = await resolveFaceBox(
-          {
-            platform,
-            store,
-            look: (req) =>
-              exec.completeText({
-                channelId: req.channelId,
-                model: req.model,
-                system: req.system,
-                text: req.text,
-                inputs: req.inputs,
-                signal: req.signal ?? new AbortController().signal,
-              }),
-            candidates,
-          },
-          { nodeId: node.id },
-        )
+        const out = await resolveFaceBox(await faceDepsOf({ platform, store, exec, channels }), {
+          nodeId: node.id,
+        })
         if (!out.ok) {
           /**
            * 自动认不出来**不是死胡同**：说清为什么，并直接把框选灯箱开出来
@@ -859,6 +914,11 @@ function handlePanelEvent(
       break
     case 'setEmotion':
       patch({ emotion: event.emotion ?? undefined } as Partial<GenerationData>)
+      /**
+       * 选中情绪 = 情绪面板打开 —— **此刻就在后台认脸**，让框在「生成之前」就出现在预览上
+       * （用户 2026-10-06）。关掉情绪（null）时什么都不做。
+       */
+      if (event.emotion) void detectFaceInBackground(node.id, { platform, store, exec, channels })
       break
     /**
      * 「手动框脸」：不走生成，只开框选灯箱（确认后写 `data.faceBox`，见 `LightboxLayer`）。

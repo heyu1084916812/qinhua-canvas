@@ -3,6 +3,7 @@ import type { AgentNodeType, AgentPlan } from '../../../domain/agent/plan'
 import type { NodeData, NodeSnapshot } from '../../../domain/canvas/model/node'
 import { getSpec } from '../../../domain/canvas/nodeSpecs/registry'
 import { toWorldRectInGraph } from '../../../domain/canvas/geometry/coords'
+import { RECIPE_TRACKED_KEYS } from '../../../domain/project/generationPreset'
 import type { Command } from '../../../state/commands'
 
 /**
@@ -67,6 +68,49 @@ export interface LandingPayload {
 function sizeOf(type: AgentNodeType): { w: number; h: number } {
   const spec = getSpec(type)
   return { w: spec?.sizing.min.w ?? 200, h: spec?.sizing.min.h ?? 120 }
+}
+
+/**
+ * 「你 @ 的那张图当时用什么模型、什么参数，这次就照它来」。
+ *
+ * 用户 2026-10-06 定的口径：「先读我提供的节点素材是什么生成模型就用什么生成模型、
+ * 是什么参数就用什么参数；需要别的模型的话用户会在对话框里说 —— **只给了模型、没给参数时，
+ * 参数按之前那个模型的参数来**」。
+ *
+ * 为什么落在**确定性**这一层而不只是写进系统提示词：这是「同一份事实只允许一个来源」——
+ * 模型完全可能漏抄某一项（比例抄了、画质忘了），而这里读的是画布上**真实存在**的那份数据。
+ * 提示词那侧只说一句「系统会自动沿用，你不用重复写」。
+ *
+ * 取哪一张：优先取**作为上游连进来的**那张（`edges` 里 source 是被 attach 的节点）；
+ * 没有这样的边就取第一条 attach。多张图模型不同时以这条为准（先说的那张赢），不猜。
+ *
+ * 覆盖关系（`buildLandingCommand` 里那三层打底）：计划明确写的 > **这里继承的** >
+ * 渠道默认配方。所以用户点名换模型时，计划里那个 `model` 照样赢。
+ */
+function recipeFromAttached(input: {
+  plan: AgentPlan
+  graph: { nodes: NodeSnapshot[] }
+  node: AgentPlan['nodes'][number]
+}): Record<string, unknown> {
+  const attach = input.plan.attach ?? []
+  if (attach.length === 0) return {}
+  const existingIdOf = new Map(attach.map((a) => [a.localId, a.existingNodeId]))
+  const upstreamAttached = input.plan.edges
+    .filter((e) => e.target === input.node.localId)
+    .map((e) => e.source)
+    .find((source) => existingIdOf.has(source))
+  const pick = upstreamAttached ?? attach[0]!.localId
+  const existingId = existingIdOf.get(pick)
+  if (!existingId) return {}
+  const existing = input.graph.nodes.find((n) => n.id === existingId)
+  if (!existing) return {}
+
+  const data = existing.data as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  for (const key of RECIPE_TRACKED_KEYS) {
+    if (data[key] !== undefined) out[key] = data[key]
+  }
+  return out
 }
 
 export function buildLandingCommand(input: BuildLandingInput): LandingPayload {
@@ -135,6 +179,11 @@ export function buildLandingCommand(input: BuildLandingInput): LandingPayload {
       data: {
         ...(spec?.createDefaultData() ?? {}),
         ...(input.dataFor?.(node.type, node) ?? {}),
+        /**
+         * 「沿用你 @ 的那张图的模型与参数」——压在渠道默认**之上**、计划数据**之下**。
+         * 所以用户点名要换的东西照样赢，只有他没提的那些才继承。
+         */
+        ...recipeFromAttached({ plan, graph, node }),
         ...node.data,
       } as NodeData,
     })

@@ -18026,6 +18026,22 @@ async function g108(browser) {
   await sleep(500)
   rec(g, '★ 情绪面板打开（在素材下方）', (await page.locator('[data-emotion-panel]').count()) === 1)
 
+  /**
+   * ★★ 框要在**生成之前**就出现（用户 2026-10-06：
+   * 「说是会把认出的人脸框在预览素材上，但是这是点击生成之后才会出现，我要的是生成之前就出现」）。
+   *
+   * 面板一开（= 选中情绪）就在后台认脸，所以这里**还没点生成**，预览上就该有框。
+   */
+  let previewBoxBeforeRun = false
+  for (let i = 0; i < 40; i += 1) {
+    if ((await page.locator('[data-emotion-facebox]').count()) === 1) {
+      previewBoxBeforeRun = true
+      break
+    }
+    await sleep(250)
+  }
+  rec(g, '★★ 一打开情绪面板，预览上就框出了人脸（**不用先点生成**）', previewBoxBeforeRun)
+
   /** ③ 选一个情绪点位 → 点生成（走「局部改脸」那条路） */
   await page.locator('[data-emotion="joyous"]').click()
   await sleep(250)
@@ -18329,7 +18345,90 @@ async function g109(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109]
+/**
+ * G110 切走项目再回来：正在跑的生成**状态与结果都还在**（用户 2026-10-06）
+ *
+ * 用户原话：「我替换不同的项目的时候，之前正在进行中的生成节点的生成状态会消失，
+ * 不知道是否停止了还是怎么回事」。
+ *
+ * 根因两层，缺一层都解释不完整：
+ *  ① 画布子树用 `key={projectId}` 挂载 ⇒ 切项目 = **卸载重挂**，而「正在跑」的状态
+ *     原是组件 `useState` —— 一卸载就没了；
+ *  ② **运行并没有停**：引擎带着旧 store 的引用继续跑完、把结果写进旧实例。回来时拿到的是
+ *     另一个 store，于是既没有转圈、也等不到那张图，用户完全无从判断。
+ *
+ * 所以这一组必须先让生成**跑起来且还没跑完**再切走（mock 的「慢速测试图」4000ms 钩子）。
+ * 切一个来回只要几百毫秒 —— 用 800ms 那条钩子的话，修好前后长得一模一样。
+ *
+ * **必须是 SPA 内导航**（点侧栏「项目」再点回项目卡），不能 `page.goto`：
+ * 后者是整页刷新，运行时会真的重建，那是另一回事。
+ */
+async function g110(browser) {
+  const g = 'G110 切项目不丢生成状态'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  const projectId = page.url().split('/canvas/')[1]
+  await sleep(900)
+
+  /** ① 触发一次**慢**生成，并确认它真的进了「生成中」 */
+  const src = page.locator('[data-node-type="generation"]').first()
+  const srcId = await src.getAttribute('data-node-id')
+  const panel = await genPanel(page, src)
+  await configureGenPanel(page, panel, '慢速测试图 一只猫')
+  await panel.locator('[data-panel-run]').click()
+  const runningSel = `[data-node-id="${srcId}"] [data-node-status="running"]`
+  let started = false
+  for (let i = 0; i < 30; i += 1) {
+    if ((await page.locator(runningSel).count()) > 0) {
+      started = true
+      break
+    }
+    await sleep(100)
+  }
+  rec(g, '★ 生成真的跑起来了（节点上出现「生成中」）', started)
+
+  /** ② 切到项目页，再用项目卡切回来（SPA 内导航） */
+  await page.locator('[data-app-sidebar] a[href="/projects"]').click()
+  await page.waitForURL(/\/projects/)
+  rec(g, '★ 已经离开画布（切到项目页）', page.url().includes('/projects'))
+  await page.locator(`[data-project-card="${projectId}"]`).click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(400)
+
+  /**
+   * ③ **回来时状态还在** —— 这一条就是用户报的 bug。
+   * 老实现（「正在跑」是组件 `useState`）在这里必红：转圈已经没了。
+   */
+  rec(
+    g,
+    '★★ 切回来时节点**仍显示「生成中」**（不是静默消失）',
+    (await page.locator(runningSel).count()) > 0,
+  )
+
+  /** ④ 而且**不用刷新**，跑完的图会自己出现（结果写进了同一个 store 实例） */
+  let hasAsset = false
+  for (let i = 0; i < 80; i += 1) {
+    if ((await page.locator(`[data-node-id="${srcId}"] [data-node-asset]`).count()) > 0) {
+      hasAsset = true
+      break
+    }
+    await sleep(250)
+  }
+  rec(g, '★★ 不用刷新页面，跑完的图自己出现在回来后的画布上', hasAsset)
+  await page.screenshot({ path: `${OUT}/139-g110-switch-back.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

@@ -73,7 +73,7 @@ describe('validateAgentPlan · 非法计划要整份拒绝', () => {
   it('★ 连线指向不存在的节点 → 拒绝', () => {
     const r = bad({ edges: [{ source: 'p1', target: 'nope' }] })
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.errors.join()).toContain('终点不存在')
+    if (!r.ok) expect(r.errors.join()).toContain('终点不在计划里')
   })
 
   it('★ 自己连自己 / 重复连线 → 拒绝', () => {
@@ -98,6 +98,44 @@ describe('validateAgentPlan · 非法计划要整份拒绝', () => {
     )
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.errors.join()).toContain('不在画布上')
+  })
+
+  /**
+   * 缺键 vs 键填错，要说得出区别（用户 2026-10-06 真机事故）。
+   *
+   * 模型不知道键名时会写出 `undefined`。原来两条报错都只说「……：undefined」，
+   * 看不出是**键写错了**还是**id 不对**，模型只能盲目重试六轮。
+   */
+  it('★★ attach 缺键时要报出**该填哪个键**（不是只报 undefined）', () => {
+    const noLocal = validateAgentPlan({ ...good, attach: [{ existingNodeId: 'real-node' }] }, [
+      'real-node',
+    ])
+    expect(noLocal.ok).toBe(false)
+    if (!noLocal.ok) {
+      expect(noLocal.errors.join()).toContain('缺 localId')
+      /** 报错里要带上正确格式，模型照着改得出来 */
+      expect(noLocal.errors.join()).toContain('existingNodeId')
+    }
+
+    const noExisting = validateAgentPlan({ ...good, attach: [{ localId: 'p1' }] }, ['real-node'])
+    expect(noExisting.ok).toBe(false)
+    if (!noExisting.ok) expect(noExisting.errors.join()).toContain('缺 existingNodeId')
+  })
+
+  it('★★ 连线缺 source / target 时也要说清填什么（不能只说「起点不存在：undefined」）', () => {
+    const noSource = validateAgentPlan(
+      { ...good, edges: [{ target: good.nodes[0]!.localId } as never] },
+      [],
+    )
+    expect(noSource.ok).toBe(false)
+    if (!noSource.ok) expect(noSource.errors.join()).toContain('缺 source')
+
+    const noTarget = validateAgentPlan(
+      { ...good, edges: [{ source: good.nodes[0]!.localId } as never] },
+      [],
+    )
+    expect(noTarget.ok).toBe(false)
+    if (!noTarget.ok) expect(noTarget.errors.join()).toContain('缺 target')
   })
 
   it('★ 超过节点上限 → 拒绝并报「太大」（不是硬建几百个节点压垮画布）', () => {

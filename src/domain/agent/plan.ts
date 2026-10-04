@@ -39,10 +39,20 @@ export interface AgentPlanEdge {
   targetPort?: string
 }
 
-/** 把计划接到画布上**已有的**节点（例如用户先放了一张素材图），不重复建 */
+/**
+ * 「计划里的这个节点**不新建**，直接用画布上已有的那个」。
+ *
+ * 读法：`nodes[]` 里那个 `localId` 仍然要照常出现（`type` / `data` / `order` 都给），
+ * 但落地时**不会**建它，而是把 `existingNodeId` 当成它的真实 id（见 `buildLandingCommand`）。
+ * 典型场景：用户先放了一张素材图，你要拿它当新生成节点的上游。
+ *
+ * ⚠️ 这两个键名（`localId` / `existingNodeId`）**必须同时出现在工具 schema 与系统提示词里** ——
+ * 2026-10-06 真机事故就是「两处都只讲白话、从不写键名」，模型只能猜，连试六轮都建不成。
+ */
 export interface AgentPlanAttach {
-  /** 计划里那个节点的占位 id（不建它，改建到 existingNodeId 上？不——见下） */
+  /** 计划内部那个节点的临时 id（与 `nodes[]` 里的同名项对应） */
   localId: string
+  /** 画布上**真实**的节点 id（复用哪一张） */
   existingNodeId: string
 }
 
@@ -278,8 +288,46 @@ export function normalizeAgentPlan(raw: unknown): { plan: unknown; notes: string
    *    （见 `buildLandingCommand` 里那句 `if (isAttached(...)) continue`），折过去等于把
    *    提示词写进一份**不会被使用**的计划数据：节点没了、正文也没了，比不折糟得多。
    */
+  /**
+   * `attach` 的两个键名也吃别名 —— 与上面连线那条 `from` / `sourceNode` 的容忍同一个理由。
+   *
+   * 2026-10-06 真机事故的**根子**是契约没给（工具 schema 与系统提示词都已补齐，见 `tools.ts`），
+   * 这里再兜一层：真模型本来就各有各的写法，四个字的关键字猜不中太正常了。
+   *
+   * `id` 归给 `existingNodeId` 而不是 `localId`：在 attach 这一项里，「画布上的真实节点」
+   * 才可能被写成 `id`；计划内部的临时名模型会另起一个（`src1` 这种）。
+   */
+  const attachRaw = Array.isArray(src.attach) ? src.attach : []
+  const attach = attachRaw.map((a) => {
+    if (!a || typeof a !== 'object' || Array.isArray(a)) return a
+    const item = { ...(a as Record<string, unknown>) }
+    if (typeof item.localId !== 'string' || !item.localId) {
+      const alias =
+        item.local_id ?? item.localNodeId ?? item.planId ?? item.placeholderId ?? item.key
+      if (typeof alias === 'string' && alias.trim()) {
+        item.localId = alias.trim()
+        notes.push('attach：localId 是从别名补的')
+      }
+    }
+    if (typeof item.existingNodeId !== 'string' || !item.existingNodeId) {
+      const alias =
+        item.id ??
+        item.nodeId ??
+        item.existingId ??
+        item.existing_node_id ??
+        item.canvasNodeId ??
+        item.targetNodeId ??
+        item.realId
+      if (typeof alias === 'string' && alias.trim()) {
+        item.existingNodeId = alias.trim()
+        notes.push('attach：existingNodeId 是从别名补的')
+      }
+    }
+    return item
+  })
+
   const attachedIds = new Set<string>()
-  for (const a of Array.isArray(src.attach) ? src.attach : []) {
+  for (const a of attach) {
     if (!a || typeof a !== 'object' || Array.isArray(a)) continue
     const id = (a as Record<string, unknown>).localId
     if (typeof id === 'string' && id) attachedIds.add(id)
@@ -391,6 +439,8 @@ export function normalizeAgentPlan(raw: unknown): { plan: unknown; notes: string
       ...(typeof src.summary === 'string' && src.summary.trim()
         ? {}
         : { summary: '按你的要求建一份工作流' }),
+      /** 归一化过的 attach（键名别名已搬正）—— 没有就保持原样，不加一个空数组 */
+      ...(attachRaw.length > 0 ? { attach } : {}),
       nodes,
       edges,
     },
@@ -561,8 +611,22 @@ export function validateAgentPlan(
       errors.push(`${where} 不是对象`)
       continue
     }
-    if (!ids.has(edge.source)) errors.push(`${where} 的起点不存在：${String(edge.source)}`)
-    if (!ids.has(edge.target)) errors.push(`${where} 的终点不存在：${String(edge.target)}`)
+    /**
+     * 缺字段与「id 不存在」要分开说（2026-10-06 真机事故）。
+     *
+     * 模型不知道键名时，写出来的就是 `undefined`；原来那种「起点不存在：undefined」
+     * 看不出是**键写错了**还是**id 拼错了**，模型只能盲目重试。
+     */
+    if (typeof edge.source !== 'string' || !edge.source) {
+      errors.push(`${where} 缺 source（填计划里某个节点的 localId，不是画布上的真实 id）`)
+    } else if (!ids.has(edge.source)) {
+      errors.push(`${where} 的起点不在计划里：${edge.source}`)
+    }
+    if (typeof edge.target !== 'string' || !edge.target) {
+      errors.push(`${where} 缺 target（填计划里某个节点的 localId）`)
+    } else if (!ids.has(edge.target)) {
+      errors.push(`${where} 的终点不在计划里：${edge.target}`)
+    }
     if (edge.source === edge.target) errors.push(`${where} 自己连自己`)
     const key = `${edge.source}->${edge.target}:${edge.sourcePort ?? ''}:${edge.targetPort ?? ''}`
     if (seenEdges.has(key)) errors.push(`${where} 与之前的连线重复`)
@@ -575,9 +639,22 @@ export function validateAgentPlan(
       errors.push(`${where} 不是对象`)
       continue
     }
-    if (!ids.has(at.localId)) errors.push(`${where} 的 localId 不在计划里：${String(at.localId)}`)
-    if (existingNodeIds.length > 0 && !existingNodeIds.includes(at.existingNodeId)) {
-      errors.push(`${where} 指向的节点不在画布上：${String(at.existingNodeId)}`)
+    /**
+     * attach 的**两个键名**要报出来。真机事故（2026-10-06）里模型正是在这里连试六轮：
+     * 它不知道 `localId` / `existingNodeId` 叫什么，而原来的报错只说
+     * 「不在计划里：undefined」，看不出是键写错了还是 id 不对。
+     */
+    if (typeof at.localId !== 'string' || !at.localId) {
+      errors.push(
+        `${where} 缺 localId（格式：{ "localId": "计划里的临时名", "existingNodeId": "画布节点 id" }）`,
+      )
+    } else if (!ids.has(at.localId)) {
+      errors.push(`${where} 的 localId 不在计划里：${at.localId}`)
+    }
+    if (typeof at.existingNodeId !== 'string' || !at.existingNodeId) {
+      errors.push(`${where} 缺 existingNodeId（要填画布上那个节点的真实 id）`)
+    } else if (existingNodeIds.length > 0 && !existingNodeIds.includes(at.existingNodeId)) {
+      errors.push(`${where} 的 existingNodeId 不在画布上：${at.existingNodeId}`)
     }
   }
 

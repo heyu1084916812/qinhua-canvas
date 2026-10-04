@@ -1,4 +1,5 @@
 import {
+  AGENT_NODE_TYPES,
   alignGenerationMode,
   normalizeAgentPlan,
   validateAgentPlan,
@@ -46,14 +47,78 @@ export const AGENT_TOOLS: readonly ToolDeclaration[] = [
       '把一份工作流建到画布上：给出要建的节点与连线，一次性落地。' +
       '**这一步立刻生效、不会问用户**（建节点不花钱，用户马上能在画布上看到）；' +
       '随后要不要真的出图，系统会再问用户一次。' +
-      '连线可以用 attach 复用画布上已有的节点。',
+      '要用画布上已有的节点（例如用户先放好的素材图）当上游，就把那个节点写进 attach。',
+    /**
+     * ⚠️ **字段名必须写在 schema 里，不能只靠校验器事后拦。**
+     *
+     * 真机事故（用户 2026-10-06 截图）：`nodes` / `edges` / `attach` 原来都声明成
+     * 光秃秃的 `{ type: 'object' }`，系统提示词里也只有「用 attach 指过去」这种白话，
+     * **`localId` / `existingNodeId` 这两个真正的键名一次都没出现过**。于是模型只能猜：
+     * 猜错就得到「第 1 条 attach 的 localId 不在计划里：undefined」，猜不出来就自己编
+     * 一个 `cat_ref_1`，或者把画布节点 id 直接当连线起点 ⇒ 连试六轮都建不成。
+     *
+     * 当时的取舍是「形状靠校验器拦」（设计文档 §5.1 原话），但**校验器只会事后报错**，
+     * 模型事前不知道键名，报错就只能靠反复试。节点 `data` 里那几十个字段确实不适合塞进
+     * schema（会巨大且频繁漂移，那部分继续靠词表 + 校验器），但**计划自身的骨架只有几个键，
+     * 必须在这里说死** —— 这是模型唯一能提前看到结构化契约的地方。
+     */
     parameters: {
       type: 'object',
       properties: {
         summary: { type: 'string', description: '一句话说明这份计划在做什么' },
-        nodes: { type: 'array', items: { type: 'object' } },
-        edges: { type: 'array', items: { type: 'object' } },
-        attach: { type: 'array', items: { type: 'object' } },
+        nodes: {
+          type: 'array',
+          description: '要**新建**的节点。',
+          items: {
+            type: 'object',
+            properties: {
+              localId: {
+                type: 'string',
+                description: '计划内部的临时 id（自己起，计划里唯一）。连线与 attach 都引用它，落地时换成真实节点 id。',
+              },
+              type: { type: 'string', enum: [...AGENT_NODE_TYPES] },
+              title: { type: 'string', description: '节点标题（给人看的短名）' },
+              data: {
+                type: 'object',
+                description:
+                  '节点正文与参数，**必须用画布的键名**：提示词节点写 data.text，' +
+                  '生成 / 批量 / 分组节点写 data.prompt；比例 data.ratio、清晰度 data.resolution、' +
+                  '画质 data.quality、张数 data.count。写错不会报错，但那个框是空的、也跑不出图。',
+              },
+              order: { type: 'integer', description: '第几步，从 0 起（坐标不用给，系统自己排）' },
+            },
+            required: ['localId', 'type', 'data', 'order'],
+          },
+        },
+        edges: {
+          type: 'array',
+          description: '连线。两端都填**节点在计划里的 localId**（不是画布上的真实 id）。',
+          items: {
+            type: 'object',
+            properties: {
+              source: { type: 'string', description: '起点的 localId' },
+              target: { type: 'string', description: '终点的 localId' },
+              sourcePort: { type: 'string', description: '多口节点的输出口名；单口节点不用填' },
+              targetPort: { type: 'string', description: '多口节点的输入口名；单口节点不用填' },
+            },
+            required: ['source', 'target'],
+          },
+        },
+        attach: {
+          type: 'array',
+          description:
+            '把计划里的某个节点**接到画布上已有的节点**（复用用户先放好的素材图，不重复建）。' +
+            '写法：localId = 计划里那个节点的临时 id；existingNodeId = 画布上那个节点的真实 id' +
+            '（就是画布摘要里 `- node_xxx｜...` 那一串）。',
+          items: {
+            type: 'object',
+            properties: {
+              localId: { type: 'string', description: '计划里那个节点的 localId' },
+              existingNodeId: { type: 'string', description: '画布上已有的节点 id' },
+            },
+            required: ['localId', 'existingNodeId'],
+          },
+        },
       },
       required: ['summary', 'nodes', 'edges'],
     },

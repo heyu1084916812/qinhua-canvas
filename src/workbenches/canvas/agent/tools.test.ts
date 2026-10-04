@@ -12,6 +12,7 @@ import {
   readResults,
   type AgentToolContext,
 } from './tools'
+import { buildAgentSystemPrompt } from './agentSystemPrompt'
 
 /**
  * 工具集（设计文档 §5）。
@@ -529,5 +530,55 @@ describe('planProblems · 跑不起来的生成节点', () => {
     expect(d.ratio).toBe('1:1')
     expect(d.resolution).toBe('2k')
     expect('aspectRatio' in d).toBe(false)
+  })
+})
+
+/** 取 applyPlan 某个字段的 items.properties（JSON Schema 在类型上是宽泛的 Record） */
+function applyPlanItemProps(field: string): Record<string, unknown> {
+  const tool = AGENT_TOOLS.find((t) => t.name === 'applyPlan')!
+  const params = tool.parameters as {
+    properties?: Record<string, { items?: { properties?: Record<string, unknown> } }>
+  }
+  return params.properties?.[field]?.items?.properties ?? {}
+}
+
+/**
+ * ★★ **计划的字段名必须出现在模型能看到的地方**（用户 2026-10-06 真机事故）。
+ *
+ * 事故形态：`applyPlan` 的 `nodes` / `edges` / `attach` 原来都声明成光秃秃的
+ * `{ type: 'object' }`，系统提示词里也只有「用 attach 指过去」这种白话 ——
+ * **`localId` / `existingNodeId` 这两个真正要填的键名一次都没出现过**。
+ * 模型无处可查、只能猜：猜错得到「第 1 条 attach 的 localId 不在计划里：undefined」，
+ * 猜不出来就自己编 `cat_ref_1`，或者把画布节点 id 直接当连线起点，**连试六轮都建不成**。
+ *
+ * 这一组不是在校「schema 写得漂不漂亮」，而是在校**模型有没有可能知道要填什么**。
+ * 键名少一个，那条链路就会退化成反复试错 —— 这种缺陷单看运行时是看不出来的
+ * （计划能落地、冒烟全绿，因为冒烟里的计划是脚本写死的 JSON，不经过模型）。
+ */
+describe('★★ applyPlan 的字段名对模型可见', () => {
+  it('nodes / edges / attach 的每一项都声明了字段（不是空的 object）', () => {
+    for (const field of ['nodes', 'edges', 'attach']) {
+      expect(Object.keys(applyPlanItemProps(field)).length).toBeGreaterThan(0)
+    }
+  })
+
+  it('★ 计划自身要用的键名一个都不少', () => {
+    expect(Object.keys(applyPlanItemProps('nodes'))).toEqual(
+      expect.arrayContaining(['localId', 'type', 'data', 'order']),
+    )
+    expect(Object.keys(applyPlanItemProps('edges'))).toEqual(
+      expect.arrayContaining(['source', 'target']),
+    )
+    /** 复用画布已有节点靠的正是这两个键，缺一个模型就只能猜 */
+    expect(Object.keys(applyPlanItemProps('attach'))).toEqual(
+      expect.arrayContaining(['localId', 'existingNodeId']),
+    )
+  })
+
+  it('★ 系统提示词里也逐个写到（schema 支持不好的渠道靠它兜底）', () => {
+    const prompt = buildAgentSystemPrompt({ nodes: [], edges: [] })
+    for (const key of ['localId', 'existingNodeId', 'source', 'target']) {
+      expect(prompt).toContain(key)
+    }
   })
 })

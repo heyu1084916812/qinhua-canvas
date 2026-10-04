@@ -1,4 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react'
 import type { ChannelAdapter } from '../../../platform/channels/types'
 import { OFFLINE_PROTOCOLS } from '../../../domain/project/channel'
 import { adapterForChannel } from './channelAdapterConfig'
@@ -80,6 +89,55 @@ export interface CanvasExecutionApi {
 
 const Ctx = createContext<CanvasExecutionApi | null>(null)
 
+/**
+ * 「正在跑」状态按**项目**存，不按组件实例存。
+ *
+ * 用户 2026-10-06 报的 bug：「替换不同的项目的时候，之前正在进行中的生成节点的生成状态会消失，
+ * 不知道是否停止了还是怎么回事」。
+ *
+ * 根因有两层，缺一层都解释不完整：
+ *  ① `CanvasProject` 用 `key={projectId}` 挂载 ⇒ 切项目 = 整棵画布子树**卸载重挂**，
+ *     而这份状态原是组件 `useState` —— 一卸载就没了；
+ *  ② **运行并没有停**：引擎拿着旧 store 的引用继续跑完、把结果写进同一个项目，
+ *     只是界面上既不显示「在跑」，抬头也看不到结果（新挂载的页面是另一个 store 实例）。
+ * 于是用户完全无从判断：到底是停了、还是在跑、还是跑完了没保存。
+ *
+ * 把状态提到模块级、**按 projectId 分桶**之后：切走再回来，转圈还在；
+ * 旧实例里的回调照常更新它（闭包里那个 projectId 是同一个），新挂载的 provider 订阅收到。
+ * 配套的另一半在 `CanvasPage`：画布 store 也按项目缓存，否则结果仍会写进一个没人看的实例。
+ */
+const runStatesByProject = new Map<string, Map<string, RunTaskState>>()
+const runStateListeners = new Map<string, Set<() => void>>()
+
+function runStatesOf(projectId: string): Map<string, RunTaskState> {
+  const hit = runStatesByProject.get(projectId)
+  if (hit) return hit
+  const fresh = new Map<string, RunTaskState>()
+  runStatesByProject.set(projectId, fresh)
+  return fresh
+}
+
+/** 改一份状态并**换新 Map 引用**（`useSyncExternalStore` 靠引用比较判断要不要重渲） */
+function updateRunStates(
+  projectId: string,
+  update: (prev: Map<string, RunTaskState>) => Map<string, RunTaskState>,
+): void {
+  runStatesByProject.set(projectId, update(runStatesOf(projectId)))
+  for (const listener of runStateListeners.get(projectId) ?? []) listener()
+}
+
+function subscribeRunStates(projectId: string, listener: () => void): () => void {
+  let set = runStateListeners.get(projectId)
+  if (!set) {
+    set = new Set()
+    runStateListeners.set(projectId, set)
+  }
+  set.add(listener)
+  return () => {
+    set.delete(listener)
+  }
+}
+
 export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   const store = useCanvasStore()
   const channels = useChannels()
@@ -106,7 +164,18 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   /** 并发运行各自的 task → node 反查表；按 planId 分开，避免后发计划覆盖先发计划 */
   const taskToNodeMapsRef = useRef<Map<string, Map<string, string>>>(new Map())
   const planIdRef = useRef<string | null>(null)
-  const [nodeStates, setNodeStates] = useState<Map<string, RunTaskState>>(() => new Map())
+  /**
+   * 「正在跑」状态从**按项目**的那份读（见文件顶部 `runStatesByProject` 的说明）。
+   *
+   * 用 `useSyncExternalStore` 而不是 `useState`：切走再回来时，负责这次运行的是**旧实例**
+   * 里的回调 —— 它只会更新模块级那份，新挂载的 provider 必须能收到，否则转圈照样不显示。
+   */
+  const projectId = store.getSnapshot().projectId
+  const nodeStates = useSyncExternalStore(
+    useCallback((listener: () => void) => subscribeRunStates(projectId, listener), [projectId]),
+    () => runStatesOf(projectId),
+    () => runStatesOf(projectId),
+  )
 
   // 版本计数（§6.21「每次执行的版本号」）：nodeId → 已知最大 version。
   // 挂载时从 runRecords 表初始化；runEngine 经 nextVersion 递增；
@@ -163,7 +232,9 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
          */
         const m = taskToNodeMapsRef.current.get(planId)
         const nodeId = m?.get(taskId)
-        if (nodeId) setNodeStates((prev) => new Map(prev).set(nodeId, state))
+        if (nodeId) {
+          updateRunStates(store.getSnapshot().projectId, (prev) => new Map(prev).set(nodeId, state))
+        }
       },
       /**
        * 落点确定后立刻改绑：taskId 原本映射到**触发节点**，但画布可能为这次产出
@@ -194,7 +265,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
            *    等 `onTaskUpdate` 送来 running 才突然开始转圈，开头那段是空的。
            */
           if (from !== targetId) {
-            setNodeStates((prev) => {
+            updateRunStates(store.getSnapshot().projectId, (prev) => {
               const next = new Map(prev)
               const st = next.get(from)
               next.set(targetId, st ?? { kind: 'queued' })
@@ -336,7 +407,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
        *  - 其余（要另建承载的）由 `onTaskTarget` 在落点确定后补上（见下）。
        * 这样源节点再也不会平白进入生成态。
        */
-      setNodeStates((prev) => {
+      updateRunStates(store.getSnapshot().projectId, (prev) => {
         const n = new Map(prev)
         for (const t of plan.tasks) {
           if (t.slot.kind === 'reuse' && (t.seq ?? 0) === 0) n.set(t.nodeId, { kind: 'queued' })
@@ -366,7 +437,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
        * 下次很容易被当成修复对象加回来；这里说明它是**有意去掉的**。
        */
 
-      setNodeStates((prev) => {
+      updateRunStates(store.getSnapshot().projectId, (prev) => {
         const n = new Map(prev)
         /**
          * 清理本计划挂在节点上的状态。

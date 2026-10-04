@@ -316,9 +316,24 @@ agent 只负责「建对图」，调度交给既有引擎——这是画布本�
   }, "required": ["nodeIds"] }
 ```
 
-> `applyPlan` 的 `nodes` / `edges` 在 schema 里只声明成 `object`，具体形状靠**校验器**
-> （§3）拦。把 7 种节点的 `data` 全塞进 JSON Schema 会让声明巨大且频繁变动，
-> 而校验器本来就要做这件事 —— 一份规则放两处必然漂移。
+> **`applyPlan` 的骨架必须在 schema 里写死**（2026-10-06 修正，对账清单 #178）。
+>
+> 原来这里写的是「`nodes` / `edges` 只声明成 `object`，具体形状靠**校验器**拦」——
+> 这个判断是错的：**校验器只会事后报错，模型事前根本不知道键名**。
+> 真机上模型完全不知道 `attach` 要填 `localId` + `existingNodeId`，只能猜；
+> 猜错就得到「第 1 条 attach 的 localId 不在计划里：undefined」，猜不出来就自己编一个
+> `cat_ref_1`，或者把画布节点 id 直接当连线起点 —— **连试六轮都建不成**。
+>
+> 现在的分界是：
+> - **计划自身的骨架**（`nodes[].localId/type/data/order`、`edges[].source/target`、
+>   `attach[].localId/existingNodeId`）→ **写进 schema**，并在系统提示词里再列一遍
+>   （有些渠道对 schema 支持不好）。键名少一个，那条链路就退化成反复试错。
+> - **7 种节点 `data` 里的几十个字段** → 仍然靠词表（§5.2）+ 校验器 + `normalizeAgentPlan`
+>   的键名归一。那部分塞进 schema 会巨大且频繁漂移，而且大多**写错不会报错、只是静默出空节点**，
+>   靠的是词表与归一化，不是 schema。
+>
+> 回归钉子：`tools.test.ts` 的「applyPlan 的字段名对模型可见」三条（schema 有一份、
+> 提示词里也有一份）。这类缺陷平时跑不出来 —— 冒烟里的计划是脚本写死的 JSON，不经过模型。
 
 ### 5.2 画布词表：它怎么知道有哪些节点、端口和参数
 

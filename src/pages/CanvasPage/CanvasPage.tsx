@@ -52,13 +52,28 @@ export function CanvasPage() {
   return <CanvasProject key={projectId} projectId={projectId} />
 }
 
+/**
+ * 画布 store **按项目缓存**（用户 2026-10-06）。
+ *
+ * 原来 `CanvasProject` 被路由上的 `key={projectId}` 整棵重挂，store 随之重建 ——
+ * 而**正在跑的生成并没有停**：它带着旧 store 的引用继续跑完、把结果写进旧实例。
+ * 于是切走再回来时，看到的是一个「什么都没发生」的新实例：既没有转圈，也等不到那张图，
+ * 用户无从判断到底停了没（原话：「生成状态会消失，不知道是否停止了还是怎么回事」）。
+ *
+ * 缓存之后同一个项目永远是**同一个 store 实例**：运行中的写入落在同一个地方，
+ * 回来就能看到进度与结果。执行状态那一半在 `CanvasExecutionProvider`（按 projectId 分桶）。
+ *
+ * `hydrated` 也一起记下来：回来时**不要**再从库里 hydrate 一次 —— 那会把内存里
+ * 正在跑的改动（比如运行刚建出来的承载节点）盖回旧状态。
+ */
+const canvasStores = new Map<string, { store: CanvasStore; hydrated: boolean }>()
+
 function CanvasProject({ projectId }: { projectId: string }) {
   const platform = usePlatform()
   const location = useLocation()
   const navigate = useNavigate()
   const template = (location.state as { template?: TemplateId } | null)?.template
   const seededRef = useRef(false)
-  const storeRef = useRef<CanvasStore | null>(null)
   const [externalEdit, setExternalEdit] = useState(false)
   const [logOpen, setLogOpen] = useState(false)
   const [agentOpen, setAgentOpen] = useState(false)
@@ -70,14 +85,15 @@ function CanvasProject({ projectId }: { projectId: string }) {
    * 刻意**不**在这里继续维护一份打开列表：两份列表会有各自的顺序、
    * 各自的增删时机，很快就对不上。
    */
-  if (!storeRef.current) {
-    storeRef.current = createStore({
-      workbench: 'canvas',
-      platform,
-      projectId,
-    })
-  }
-  const store = storeRef.current
+  /** 同一个项目复用同一个 store 实例（见文件里 `canvasStores` 的说明） */
+  const cached =
+    canvasStores.get(projectId) ??
+    {
+      store: createStore({ workbench: 'canvas', platform, projectId }),
+      hydrated: false,
+    }
+  canvasStores.set(projectId, cached)
+  const store = cached.store
   const channels = useChannels()
 
   /**
@@ -91,6 +107,8 @@ function CanvasProject({ projectId }: { projectId: string }) {
   // 从 IndexedDB 读回图数据（demo 不需要）；读回后若是模板新建的项目，套用模板预置节点
   useEffect(() => {
     if (projectId === 'demo') return
+    /** 已经 hydrate 过（切走又回来）：**不要**再灌一次，那会把内存里正在跑的改动盖回去 */
+    if (cached.hydrated) return
     let cancelled = false
     void (async () => {
       await platform.storage.open()
@@ -99,6 +117,7 @@ function CanvasProject({ projectId }: { projectId: string }) {
         platform.storage.query('edges', { projectId }),
       ])
       if (cancelled) return
+      cached.hydrated = true
       store.hydrate({
         projectId,
         nodes: n as unknown as NodeSnapshot[],
@@ -123,7 +142,7 @@ function CanvasProject({ projectId }: { projectId: string }) {
     return () => {
       cancelled = true
     }
-  }, [platform, projectId, store, template])
+  }, [platform, projectId, store, template, cached])
 
   useEffect(() => () => store.dispose(), [store])
 

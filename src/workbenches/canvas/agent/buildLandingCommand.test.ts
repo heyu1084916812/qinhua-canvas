@@ -164,3 +164,101 @@ describe('buildLandingCommand', () => {
     expect(data.mode).toBeTruthy() // spec 默认值也还在
   })
 })
+
+/**
+ * ★★ 「你 @ 的那张图当时用什么模型、什么参数，这次就照它来」（用户 2026-10-06 定口径）。
+ *
+ * 用户原话：「先读我提供的节点素材是什么生成模型就用什么生成模型，是什么参数就用什么参数；
+ * 如果需要其他的模型生成的话，用户会在对话框中输入模型和参数；如果用户只提供了另外的模型的话，
+ * 参数就按照之前的模型的参数来设置」。
+ *
+ * 这三条正是三种覆盖关系，一条都不能少：
+ *   ① 计划什么都没写 → 模型与整套参数都沿用那张图；
+ *   ② 只点名换了模型 → 模型用新的，**其余参数照样沿用**（这条最容易做错成「全丢」）；
+ *   ③ 连参数一起说了 → 以用户说的为准。
+ */
+describe('buildLandingCommand：沿用被引用节点的模型与参数', () => {
+  const SRC_RECIPE = {
+    channelId: 'ch-a',
+    model: 'Nano Banana 2',
+    ratio: '1:1',
+    resolution: '2k',
+    quality: 'high',
+    count: 2,
+  }
+
+  const srcNode = (): NodeSnapshot =>
+    ({ ...existing('old-1', 'generation'), data: { ...SRC_RECIPE } }) as NodeSnapshot
+
+  const planWith = (planned: Record<string, unknown>): AgentPlan => ({
+    summary: '改材质',
+    nodes: [
+      { localId: 'src', type: 'generation', data: {}, order: 0 },
+      { localId: 'g1', type: 'generation', data: planned, order: 1 },
+    ],
+    edges: [{ source: 'src', target: 'g1' }],
+    attach: [{ localId: 'src', existingNodeId: 'old-1' }],
+  })
+
+  const landed = (planned: Record<string, unknown>) => {
+    seq = 0
+    const r = buildLandingCommand({
+      plan: planWith(planned),
+      graph: graph([srcNode()]),
+      origin: { x: 0, y: 0 },
+      newId,
+    })
+    return r.command.nodes[0]!.data as Record<string, unknown>
+  }
+
+  it('★★ 计划什么都没写 → 模型与整套参数都沿用那张图（不是渠道默认）', () => {
+    expect(landed({})).toMatchObject(SRC_RECIPE)
+  })
+
+  it('★★ 只点名换了模型 → 模型用新的，其余参数照样沿用', () => {
+    const data = landed({ model: 'GPT Image 2' })
+    expect(data.model).toBe('GPT Image 2')
+    expect(data.ratio).toBe('1:1')
+    expect(data.quality).toBe('high')
+    expect(data.count).toBe(2)
+    expect(data.resolution).toBe('2k')
+  })
+
+  it('★★ 连参数一起说了 → 以用户说的为准，没说的仍然沿用', () => {
+    const data = landed({ model: 'GPT Image 2', ratio: '16:9' })
+    expect(data.model).toBe('GPT Image 2')
+    expect(data.ratio).toBe('16:9')
+    expect(data.quality).toBe('high')
+  })
+
+  it('★★ 继承压在渠道默认**之上**：dataFor 给的那套不该盖掉那张图的参数', () => {
+    seq = 0
+    const r = buildLandingCommand({
+      plan: planWith({}),
+      graph: graph([srcNode()]),
+      origin: { x: 0, y: 0 },
+      newId,
+      dataFor: () => ({ channelId: 'ch-def', model: '默认模型', ratio: '9:16' }),
+    })
+    const data = r.command.nodes[0]!.data as Record<string, unknown>
+    expect(data.model).toBe('Nano Banana 2')
+    expect(data.ratio).toBe('1:1')
+  })
+
+  it('★ 没有 attach（纯文生图）时不继承，照旧走 dataFor 的默认', () => {
+    seq = 0
+    const plan: AgentPlan = {
+      summary: 'x',
+      nodes: [{ localId: 'g1', type: 'generation', data: {}, order: 0 }],
+      edges: [],
+    }
+    const r = buildLandingCommand({
+      plan,
+      graph: graph(),
+      origin: { x: 0, y: 0 },
+      newId,
+      dataFor: () => ({ channelId: 'ch-def', model: '默认模型' }),
+    })
+    expect(r.command.nodes[0]!.data).toMatchObject({ channelId: 'ch-def', model: '默认模型' })
+  })
+})
