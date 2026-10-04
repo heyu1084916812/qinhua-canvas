@@ -312,16 +312,25 @@ export function emotionById(id: string | undefined | null): EmotionDef | undefin
 /**
  * 情绪那一句（**唯一一份**）。
  *
- * 两个消费者必须共用它，否则同一件事会有两种说法：
- * ① `presetPromptSuffix` —— 整图生成时拼在正文后；
- * ② `features/canvas/emotionEdit` —— 局部改脸流水线里写进**局部节点**的正文
- *    （用户 2026-10-05 第五批第 1 条那条「只改面部、其余完全不变」）。
+ * 消费者只有 `presetPromptSuffix`（三种生成节点的 `toRunRequest` 都走它）——
+ * **别的地方不许再写一句**，否则同一件事会有两种说法。
+ *
+ * `faceBox` 有值时追加一句「要改的是哪张脸」：情绪调节的整条链路只有一次生成
+ * （用户 2026-10-06 定的口径），模型拿到的是**整张图**，所以「脸在画面哪个位置」
+ * 必须由这句话带过去，而不是指望它自己找。口径与参考实现（VOZEB-PRO 的
+ * `faceBoxPrompt`）一致：给**人脸外接框的中心**百分比。
  */
-export function emotionPromptOf(name: string): string {
-  return (
+export function emotionPromptOf(
+  name: string,
+  faceBox?: { x: number; y: number; w: number; h: number },
+): string {
+  const base =
     `表情设定：${name}（只改人物的面部表情，其余完全保持不变：` +
     '长相、发型、妆容、服装、姿态、背景、光线、风格、构图都照原样）'
-  )
+  if (!faceBox) return base
+  const cx = Math.round((faceBox.x + faceBox.w / 2) * 100)
+  const cy = Math.round((faceBox.y + faceBox.h / 2) * 100)
+  return `${base}\n要改的是画面中位于约 ${cx}% 横向、${cy}% 纵向的那个人物的脸。`
 }
 
 /**
@@ -334,6 +343,8 @@ export function presetPromptSuffix(data: {
   preset?: string
   presetOptions?: Record<string, string>
   emotion?: string
+  /** 人脸外接框（归一化 0–1）：有值时把「改哪张脸」一起写进提示词 */
+  faceBox?: { x: number; y: number; w: number; h: number }
 }): string {
   const parts: string[] = []
   const preset = presetPromptOf(data.preset, data.presetOptions)
@@ -344,10 +355,9 @@ export function presetPromptSuffix(data: {
    * 「情绪调节需要重新设计，需要先自动识别面部，然后只改变面部的情绪，
    * 其他的内容完全不变才对」）。
    *
-   * 局部改脸的完整流水线（识别人脸 → 裁局部 → 改图 → 融合回原图）是另一半；
-   * 但只要这句话进了提示词，**任何**一条生成路径都不会再把整张图重画一遍 ——
-   * 这是当前就能生效、且必须与那条流水线共用的一句。
+   * 识别脸（本机 → 模型 → 手动框）这件事的结果体现在 `data.faceBox` 上，见上面；
+   * 两段合起来才是完整的「只改这张脸、其余照原样」。
    */
-  if (emotion) parts.push(emotionPromptOf(emotion.name))
+  if (emotion) parts.push(emotionPromptOf(emotion.name, data.faceBox))
   return parts.join('\n')
 }

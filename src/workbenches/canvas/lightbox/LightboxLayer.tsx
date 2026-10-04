@@ -24,6 +24,7 @@ import {
 } from '../../../domain/canvas/fusion/fusionPlan'
 import { RATIO_CHOICES } from '../../../domain/canvas/layout/ratioChoices'
 import { extractSelection } from '../../../features/canvas/extractSelection'
+import { faceBoxFromRect } from '../../../features/canvas/emotionEdit'
 import styles from './LightboxLayer.module.css'
 
 /**
@@ -86,13 +87,19 @@ export function LightboxLayer() {
   const [vp, setVp] = useState<Viewport | null>(null)
 
   /**
-   * 提取选区模式（§6.23）：`cropFor` 有值就是它。
+   * 两种「框选模式」（见 store 里 `lightbox` 的注释）：
+   *
+   * - `cropFor` = 提取选区（§6.23）：确认后建一张带上下文的局部图；
+   * - `faceFor` = 给情绪调节框脸（2026-10-06）：确认后**只写 `data.faceBox`**。
+   *
+   * 两者共用同一套框选交互，只有「确认之后干什么」不同。
    *
    * 选区存**原图像素坐标**（不是屏幕坐标）：缩放 / 平移时选区跟着图走，
    * 不必在每次 setVp 时重算，关掉也不会串味。
    */
   const cropFor = lightbox?.cropFor
-  const cropping = !!cropFor
+  const faceFor = lightbox?.faceFor
+  const cropping = !!cropFor || !!faceFor
   const [cropRect, setCropRect] = useState<FusionRect | null>(null)
   const [cropRatio, setCropRatio] = useState('')
   const [busy, setBusy] = useState(false)
@@ -144,7 +151,7 @@ export function LightboxLayer() {
   useEffect(() => {
     setCropRect(null)
     setCropRatio('')
-  }, [assetHash, cropFor])
+  }, [assetHash, cropFor, faceFor])
 
   /** 换素材 = 对比回到「结果」那一档、分割线回中线（别把上一张的视角带过来） */
   useEffect(() => {
@@ -291,9 +298,29 @@ export function LightboxLayer() {
     window.addEventListener('pointerup', up)
   }
 
-  /** 确认提取：裁剪 + 落库 + 在原图右侧建局部图 + 写上下文（都在 features 里） */
+  /**
+   * 确认框选。两种模式**确认之后干的事完全不同**：
+   *
+   * - **框脸**（`faceFor`）：把框换算成归一化值写进节点的 `data.faceBox`，**不建任何节点**。
+   *   情绪调节的整条链路只有一次生成（用户 2026-10-06 定的口径），这里只是把
+   *   「脸在哪」补上，接着由用户点「生成」。
+   * - **提取选区**（`cropFor`）：裁剪 + 落库 + 在原图右侧建局部图 + 写上下文（都在 features 里）。
+   */
   const confirmCrop = async () => {
-    if (!cropFor || !cropRect) return
+    if (!cropRect) return
+    if (faceFor) {
+      if (!natural) return
+      const box = faceBoxFromRect(cropRect, natural)
+      if (!box) {
+        store.notify('这个框太小了，重新拖一个大一点的')
+        return
+      }
+      store.dispatch({ kind: 'node.updateData', id: faceFor, patch: { faceBox: box } })
+      close()
+      store.notify('已框好脸部：点「生成」开始')
+      return
+    }
+    if (!cropFor) return
     setBusy(true)
     const out = await extractSelection(
       { platform, store },
@@ -365,8 +392,13 @@ export function LightboxLayer() {
           height: cropRect.h * vp.zoom,
         }
       : undefined
-  const canExtract =
-    !!cropFor && !!cropRect && Math.min(cropRect.w, cropRect.h) >= FUSION_MIN_EDGE
+  /**
+   * 「确认」可用：两种框选模式共用同一套判据（拖了一个够大的框）。
+   * 短边下限仍是 `FUSION_MIN_EDGE` —— 它管的是「这个框是认真拖的，不是误触」，
+   * 与框完之后是建局部图还是写人脸框无关。
+   */
+  const canConfirm =
+    cropping && !!cropRect && Math.min(cropRect.w, cropRect.h) >= FUSION_MIN_EDGE
 
   /** 三档对比：只在「有配对 + 两边都是图 + 不在框选模式」时给入口 */
   const compareAvailable = !!compareHash && !!compareUrl && !isVideo && !compareIsVideo && !cropping
@@ -560,27 +592,34 @@ export function LightboxLayer() {
           /**
            * 比例档与两个按钮**放在同一组里**（用户 2026-09-30：「提取选区按钮与比例档
            * 要放在一起」，首版被中间的 spacer 拆到左右两头，眼睛要来回跳）。
+           *
+           * **框脸模式没有比例档**：那是「裁出来那张图的长宽比」的参数，对一个
+           * 「告诉你脸在哪」的框没有意义，比例吸附反而会把框拉扁。
            */
           <div className={styles.cropBar} data-lightbox-crop-bar>
-            <span className={styles.ratioLabel}>比例</span>
-            {RATIO_CHOICES.map((c) => (
-              <button
-                key={c.value || 'free'}
-                type="button"
-                className={c.value === cropRatio ? styles.ratioActive : styles.ratio}
-                data-lightbox-crop-ratio={c.value || 'free'}
-                aria-pressed={c.value === cropRatio}
-                onClick={() => {
-                  setCropRatio(c.value)
-                  const v = ratioValueOf(c.value)
-                  // 已经画好的框跟着新比例**就地吸附**（只缩不放），不用重画
-                  if (cropRect) setCropRect(lockCrop(v ? fitRectToRatio(cropRect, v) : cropRect))
-                }}
-              >
-                {c.label}
-              </button>
-            ))}
-            <span className={styles.barDivider} />
+            {!faceFor && (
+              <>
+                <span className={styles.ratioLabel}>比例</span>
+                {RATIO_CHOICES.map((c) => (
+                  <button
+                    key={c.value || 'free'}
+                    type="button"
+                    className={c.value === cropRatio ? styles.ratioActive : styles.ratio}
+                    data-lightbox-crop-ratio={c.value || 'free'}
+                    aria-pressed={c.value === cropRatio}
+                    onClick={() => {
+                      setCropRatio(c.value)
+                      const v = ratioValueOf(c.value)
+                      // 已经画好的框跟着新比例**就地吸附**（只缩不放），不用重画
+                      if (cropRect) setCropRect(lockCrop(v ? fitRectToRatio(cropRect, v) : cropRect))
+                    }}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+                <span className={styles.barDivider} />
+              </>
+            )}
             <button
               type="button"
               className={styles.close}
@@ -593,15 +632,17 @@ export function LightboxLayer() {
               type="button"
               className={styles.confirm}
               data-lightbox-crop-apply
-              disabled={!canExtract || busy}
+              disabled={!canConfirm || busy}
               title={
-                canExtract
-                  ? '按当前框提取局部图，并保留上下文'
+                canConfirm
+                  ? faceFor
+                    ? '用这个框当这张脸的位置，回到面板点「生成」'
+                    : '按当前框提取局部图，并保留上下文'
                   : `先在图上拖一个框（短边至少 ${FUSION_MIN_EDGE}px）`
               }
               onClick={() => void confirmCrop()}
             >
-              {busy ? '提取中…' : '提取选区'}
+              {busy ? '提取中…' : faceFor ? '用这个框' : '提取选区'}
             </button>
           </div>
         ) : (

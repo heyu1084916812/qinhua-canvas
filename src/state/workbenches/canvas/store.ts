@@ -113,11 +113,17 @@ interface CanvasState {
    * 透传。它是瞬时态——关掉即忘，与 menu / notice 同口径。
    */
   /**
-   * `cropFor` 有值 = 灯箱处于**提取选区模式**（§6.23）：在图上框选 + 选比例 + 确认，
-   * 确认后在原图**右侧**生成带上下文的局部图。值 = 发起提取的那个节点 id
-   * （新节点要挨着它放）。
+   * 灯箱的两种「框选模式」（值 = 发起它的那个节点 id；都不在 = 纯看图）：
+   *
+   * - `cropFor` = **提取选区**（§6.23）：框选 + 选比例 + 确认，确认后在原图**右侧**
+   *   生成带上下文的局部图。
+   * - `faceFor` = **给情绪调节框脸**（用户 2026-10-06）：框一块人脸 → 确认写进该节点的
+   *   `data.faceBox`（不建任何节点）。自动识别认不出来时由面板开它。
+   *
+   * 两者共用同一套框选交互（拖框 / 八向手柄 / 比例吸附），只有**确认之后干什么**不同 ——
+   * 所以是同一个模式的两种意图，而不是两套 UI。
    */
-  lightbox: { assetHash: string; cropFor?: string } | null
+  lightbox: { assetHash: string; cropFor?: string; faceFor?: string } | null
   /**
    * **旋转与镜像编辑**（用户 2026-10-05 第 10 条）：作用在**刚复制出来的那个节点**上。
    *
@@ -210,8 +216,9 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
   openLightbox: (assetHash: string) => void
   /** 以「提取选区」模式打开灯箱（用户口径：在素材灯箱里框选局部图） */
   openCropLightbox: (nodeId: string) => void
+  openFaceLightbox: (nodeId: string) => void
   closeLightbox: () => void
-  getLightbox: () => { assetHash: string; cropFor?: string } | null
+  getLightbox: () => { assetHash: string; cropFor?: string; faceFor?: string } | null
   /** 打开 / 关闭「旋转与镜像」编辑（第 10 条）：打开时关闭灯箱与文本编辑框（三者互斥） */
   openRotateEditor: (nodeId: string) => void
   closeRotateEditor: () => void
@@ -476,6 +483,22 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
       if (!hash) return
       store.setState({
         lightbox: { assetHash: hash, cropFor: nodeId },
+        textEditor: null,
+        menu: null,
+      })
+    },
+    /**
+     * 「给情绪调节框脸」：自动识别认不出来时由面板开。
+     *
+     * 与「提取选区」共用同一套框选交互，但**确认后不建任何节点** —— 只把这个框
+     * 写进该节点的 `data.faceBox`（见 `LightboxLayer`）。
+     */
+    openFaceLightbox: (nodeId) => {
+      const node = store.getState().graph.nodes.find((n) => n.id === nodeId)
+      const hash = (node?.data as { assetHash?: string } | undefined)?.assetHash
+      if (!hash) return
+      store.setState({
+        lightbox: { assetHash: hash, faceFor: nodeId },
         textEditor: null,
         menu: null,
       })

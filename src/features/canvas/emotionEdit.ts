@@ -1,57 +1,48 @@
 import type { PlatformKit } from '../../platform/ports'
 import type { CanvasStore } from '../../state/workbenches/canvas/store'
-import type { FusionRect, GenerationData } from '../../domain/canvas/model/node'
+import type { GenerationData } from '../../domain/canvas/model/node'
 import type { NodeInput } from '../../domain/shared/execution/types'
 import { imageSizeFromHeader } from '../../domain/shared/imageSize'
 import {
   FACE_BOX_INSTRUCTION,
   FACE_BOX_SYSTEM,
   faceBoxFailureReason,
-  faceBoxToRect,
   normalizeDetectorBox,
   parseFaceBox,
   pickPrimaryFace,
   type FaceBox,
 } from '../../domain/canvas/vision/faceBox'
-import { emotionPromptOf } from '../../domain/canvas/layout/presets'
 import { asAppError, describeError } from '../../shared/result'
-import { NODE_MINIMUMS } from '../../domain/canvas/layout/constants'
-import { fusionSpec, FUSION_PATCH_PORT } from '../../domain/canvas/nodeSpecs/fusion'
-import { createId } from '../../shared/id'
-import { noOverlapDelta } from './duplicatePlacement'
-import { extractSelection } from './extractSelection'
 
 /**
- * 情绪调节的**局部改脸**流水线（用户 2026-10-05 第五批第 1 条：
- * 「情绪调节需要重新设计，需要先自动识别面部，然后只改变面部的情绪，
- * 其他的内容完全不变才对」）。
+ * 「情绪调节」的第一步：**找出脸在哪**。
  *
- * ## 为什么是这四步
+ * 找到就写进节点数据（`GenerationData.faceBox`），由提示词带着它去生成；
+ * 找不到就如实说明为什么，由面板开灯箱让人自己框。
  *
- * 原来的做法是「把情绪那句话拼进提示词、整张图重画一遍」——模型当然会把整幅画都改掉。
- * 要「其余完全不变」，只能走**局部**：只把脸那一块交给模型，改完再**贴回原图**。
- * 项目里这两件事本来就都有：
+ * ## 为什么只有「找脸」这一步，没有第二条流水线
  *
- *  - 「提取选区」（`extractSelection`）= 按矩形裁一块 → 存成新素材 → 在原图右侧建局部节点，
- *    并把「它属于哪张原图、哪个矩形」记进 `cropContext`（多轮改图都跟着走）；
- *  - 「融合节点」（`FUSION_PATCH_PORT`）= 原图（`input`）+ 若干局部修改图（`patch`）→ 本地像素合成。
+ * 早先这里是「识别脸 → 裁局部 → 改局部 → 融合回原图」的四步流水线，会在画布上
+ * 多出**两个节点**（局部图 + 融合）。那是错的（用户 2026-10-06 明确）：
+ * 画布上的融合节点是**另一套工作流**（原图 + 若干带上下文的局部修改图 → 本地像素合成），
+ * 情绪调节借它去「贴回去」，等于把两件事焊死，用户莫名其妙多出两个节点。
  *
- * 所以这里不加新机制，只把三步串起来：**识别人脸 → 裁那一块 → 建融合节点接回原图**。
- * 真正花钱的只有中间那次「改局部图」的生成，由调用方去跑。
+ * 现在照参考实现（VOZEB-PRO）的做法：**识别脸 → 把位置写进提示词 → 点生成直接出图**。
+ * 整条链路只剩一次生成，产物是**源图右侧的一个新节点**（原图留着不动），
+ * 没有中间节点，也不碰融合。
  *
- * ## 「脸在哪」按三条路依次找
+ * ## 两条路的先后
  *
- * 1. **本机检测**（`platform.vision` → MediaPipe BlazeFace worker）：不联网、不花渠道、
- *    不依赖任何模型能力。参照 VOZEB-PRO 的做法，这条路排在第一个。
+ * 1. **本机检测**（`platform.vision` → MediaPipe BlazeFace）：不联网、不花渠道、
+ *    不依赖任何模型能力，所以排第一。它成了的话，这一步没有失败面。
  * 2. **问看图模型**（`completeText` + `inputs`，与「反推提示词」同一条链路）：
- *    本机没认出来时兜底。能不能出框取决于模型会不会看图、渠道通不通。
- * 3. **用户已经框好的局部图**（`cropContext` 反查原图）：完全不识别，走快捷路径。
+ *    本机没认出来时兜底。
  *
- * 实测本机 Chrome `window.FaceDetector === undefined`（Shape Detection 在 Windows 未开放），
- * 所以浏览器自带的那个 API 指望不上 —— 本机这条路是靠随包带走的 wasm + 模型跑的。
+ * 两条都没结果时返回 `ok: false` —— 面板据此开灯箱让人手动框，而不是给一个
+ * 「识别失败」的死胡同（用户 2026-10-06：识别不了就要能手动框）。
  */
 
-export type EmotionLook = (req: {
+export type FaceLook = (req: {
   channelId: string
   model: string
   system: string
@@ -60,121 +51,73 @@ export type EmotionLook = (req: {
   signal?: AbortSignal
 }) => Promise<string>
 
-export interface EmotionEditDeps {
+export interface FaceResolveDeps {
   platform: PlatformKit
   store: CanvasStore
   /** 看图（与「反推提示词」同一条链路）：把源图发给对话模型，回一句话 */
-  look: EmotionLook
+  look: FaceLook
   /**
    * 依次尝试的对话模型（第一个通常是渠道解析链选出的默认对话模型）。
    *
    * 为什么要一串：**不是每个对话模型都能看图**。真机上报过一次「识别人脸失败」，
-   * 只试一个模型时要么它看不了图、要么那条渠道当天不通 —— 于是这里按顺序试到有人给出
-   * 可解析的框为止（最多 4 个，够用且不会无限重试）。
+   * 只试一个模型时要么它看不了图、要么那条渠道当天不通 —— 于是这里按顺序试到有人
+   * 给出可解析的框为止（最多 4 个，够用且不会无限重试）。
    *
-   * 可以是**空数组**：本机检测（`platform.vision`）不需要任何渠道。只有两条路都
-   * 走不通时才会报「认不到」。
+   * **可以是空数组**：本机检测不需要任何渠道。
    */
   candidates: readonly { channelId: string; model: string }[]
 }
 
-export interface EmotionEditInput {
-  /** 源节点：要有素材（人物的那张图） */
-  nodeId: string
-  /** 情绪名（`EMOTIONS` 里的中文名），写进局部节点的正文 */
-  emotion: string
-  signal?: AbortSignal
-}
-
-export type EmotionEditOutcome =
+export type FaceResolveOutcome =
   | {
       ok: true
-      cropNodeId: string
-      fusionNodeId: string
-      box: FaceBox | null
-      /**
-       * 框是哪条路找到的（决定给用户看哪句话）：
-       * - `local`：本机检测（不花渠道）
-       * - `model`：问看图模型
-       * - `selection`：用户自己框好的局部图，没识别
-       */
-      detectedBy: 'local' | 'model' | 'selection'
+      box: FaceBox
+      /** 框是哪条路找到的（决定给用户看哪句话） */
+      detectedBy: 'local' | 'model'
     }
   | { ok: false; reason: string }
 
-/** 局部图与融合节点之间的间距（世界 px，与画布其它落位同档） */
-const GAP_X = 48
-
 /**
- * 建流水线（不跑生成）。
+ * 找出这张图里的主脸。
  *
- * 产出：① 源图右侧多一个**局部节点**（正文 = 情绪那句）；② 更右边多一个**融合节点**，
- * 已经把「原图 → input」「局部图 → patch」接好。调用方接着 `runNode(局部)`，
- * 等它出图后再 `runNode(融合)` 就得到结果。
+ * 一张图里有多张脸时取**面积最大**的那张：情绪调节是一键跑的，没有让人挑的那一步，
+ * 而一张图里最大的脸通常就是主体（合影里也是主角）。
  */
-export async function buildEmotionEdit(
-  deps: EmotionEditDeps,
-  input: EmotionEditInput,
-): Promise<EmotionEditOutcome> {
+export async function resolveFaceBox(
+  deps: FaceResolveDeps,
+  input: { nodeId: string; signal?: AbortSignal },
+): Promise<FaceResolveOutcome> {
   const graph = deps.store.getSnapshot()
   const node = graph.nodes.find((n) => n.id === input.nodeId)
   if (!node) return { ok: false, reason: '节点不存在' }
   const data = node.data as GenerationData
   const assetHash = data.assetHash
-  if (!assetHash) return { ok: false, reason: '这个节点还没有图片：先把有人物的图连到它上面' }
-
-  /**
-   * **快捷路径：这个节点本身就是一张局部图**（用户先在素材灯箱里框过脸 —— 「提取选区」）。
-   *
-   * 那就用不着再识别：要改的就是这张图，原图用 `cropContext.source.assetHash` 反查回来。
-   * 这条路的现实意义：**不是每个对话模型都能看图**（真机上报过「识别人脸失败」），
-   * 手动框一次照样能把「只改面部」跑通。
-   */
-  const cropCtx = data.cropContext
-  const originalNode =
-    cropCtx && 'source' in cropCtx
-      ? graph.nodes.find(
-          (n) =>
-            n.id !== node.id &&
-            (n.data as { assetHash?: string }).assetHash === cropCtx.source.assetHash,
-        )
-      : undefined
-  if (originalNode) {
-    const fusionId = await wirePatchToOriginal(deps, {
-      patchNodeId: node.id,
-      sourceNodeId: originalNode.id,
-      sourceTitle: originalNode.title,
-      emotion: input.emotion,
-    })
-    return { ok: true, cropNodeId: node.id, fusionNodeId: fusionId, box: null, detectedBy: 'selection' }
+  if (!assetHash) {
+    return { ok: false, reason: '这个节点还没有图片：先让它出一张图，再来调表情' }
   }
 
-  /** 素材的 mime 要跟着请求一起发（模型靠它知道这是张图） */
   const payload = await deps.platform.assets.read(assetHash)
   if (!payload) return { ok: false, reason: '读不到这张图的素材' }
-  const size = data.naturalSize ?? (await imageSizeOf(payload.bytes, payload.mime).catch(() => null))
+  const size =
+    data.naturalSize ?? (await imageSizeOf(payload.bytes, payload.mime).catch(() => null))
   if (!size) return { ok: false, reason: '读不到这张图的尺寸' }
-
   const mime = payload.mime || 'image/png'
 
   /**
    * ① **先让本机认**（MediaPipe BlazeFace worker，随包走的 wasm + 模型）。
    *
-   * 这一步不联网、不花渠道、不看模型脸色，所以排在最前面 —— 它成了的话，
-   * 整个「识别人脸」环节就没有失败面了。`platform.vision` 缺席（内存平台 / 老浏览器）
-   * 或认不出来，都只是「这一步没结果」，继续往下走。
+   * 这一步不联网、不花渠道、不看模型脸色。`platform.vision` 缺席（测试用的内存平台 /
+   * 老浏览器）或认不出来，都只是「这一步没结果」，继续往下走。
    */
-  let box: FaceBox | null = null
   const localRan = Boolean(deps.platform.vision)
-  let detectedByLocal = false
   if (deps.platform.vision) {
     const hit = await deps.platform.vision.detectFaces(payload.bytes, mime, input.signal)
     if (hit) {
       const boxes = hit.faces
         .map((face) => normalizeDetectorBox(face, hit.imageWidth, hit.imageHeight))
         .filter((face): face is FaceBox => face !== null)
-      box = pickPrimaryFace(boxes)
-      detectedByLocal = box !== null
+      const primary = pickPrimaryFace(boxes)
+      if (primary) return { ok: true, box: primary, detectedBy: 'local' }
     }
   }
 
@@ -185,139 +128,34 @@ export async function buildEmotionEdit(
   const tried: string[] = []
   let lastAnswer = ''
   let lastError = ''
-  if (!box) {
-    const imageInput = {
-      kind: 'asset',
-      nodeId: node.id,
-      assetHash,
-      mime,
-    } satisfies NodeInput
-    for (const cand of deps.candidates.slice(0, 4)) {
-      tried.push(cand.model)
-      try {
-        const answer = await deps.look({
-          channelId: cand.channelId,
-          model: cand.model,
-          system: FACE_BOX_SYSTEM,
-          text: FACE_BOX_INSTRUCTION,
-          inputs: [imageInput],
-          ...(input.signal ? { signal: input.signal } : {}),
-        })
-        lastAnswer = answer
-        box = parseFaceBox(answer, size)
-        if (box) break
-      } catch (e) {
-        const app = asAppError(e)
-        lastError = app ? describeError(app) : e instanceof Error ? e.message : String(e)
-      }
+  const imageInput = {
+    kind: 'asset',
+    nodeId: node.id,
+    assetHash,
+    mime,
+  } satisfies NodeInput
+  for (const cand of deps.candidates.slice(0, 4)) {
+    tried.push(cand.model)
+    try {
+      const answer = await deps.look({
+        channelId: cand.channelId,
+        model: cand.model,
+        system: FACE_BOX_SYSTEM,
+        text: FACE_BOX_INSTRUCTION,
+        inputs: [imageInput],
+        ...(input.signal ? { signal: input.signal } : {}),
+      })
+      lastAnswer = answer
+      const box = parseFaceBox(answer, size)
+      if (box) return { ok: true, box, detectedBy: 'model' }
+    } catch (e) {
+      const app = asAppError(e)
+      lastError = app ? describeError(app) : e instanceof Error ? e.message : String(e)
     }
   }
-  if (!box) {
-    /** 失败时把**证据一起给出来**（谁试过、报了什么、模型回了什么），见 `faceBoxFailureReason` */
-    return { ok: false, reason: faceBoxFailureReason({ tried, lastError, lastAnswer, localRan }) }
-  }
 
-  /** ② 按框裁一块 → 原图右侧多一个局部节点（复用「提取选区」，上下文一起落好） */
-  const rect: FusionRect = faceBoxToRect(box, size.width, size.height)
-  const crop = await extractSelection(
-    { platform: deps.platform, store: deps.store },
-    { nodeId: node.id, rect },
-  )
-  if (!crop.ok) return { ok: false, reason: crop.reason }
-
-  /**
-   * ③④ 局部节点的正文 + 配方继承，再建融合节点接回原图 —— 都在 `wirePatchToOriginal` 里
-   * （与「用户自己框好的局部图」那条快捷路径共用同一份）。
-   */
-  const fusionId = await wirePatchToOriginal(deps, {
-    patchNodeId: crop.nodeId,
-    sourceNodeId: node.id,
-    sourceTitle: node.title,
-    emotion: input.emotion,
-  })
-
-  return {
-    ok: true,
-    cropNodeId: crop.nodeId,
-    fusionNodeId: fusionId,
-    box,
-    detectedBy: detectedByLocal ? 'local' : 'model',
-  }
-}
-
-/**
- * 把「局部图」接回「原图」：局部节点的正文 = 情绪那句 + 继承配方，
- * 再建一个融合节点（原图 → `input`、局部 → `patch`）。返回融合节点 id。
- *
- * 两条路（识别出来的新局部图 / 用户自己框好的局部图）共用这一份 ——
- * 各写一份必然会漂移成「一条接得上、另一条接不上」。
- */
-async function wirePatchToOriginal(
-  deps: EmotionEditDeps,
-  args: { patchNodeId: string; sourceNodeId: string; sourceTitle?: string; emotion: string },
-): Promise<string> {
-  const graph = deps.store.getSnapshot()
-  const sourceNode = graph.nodes.find((n) => n.id === args.sourceNodeId)
-  const patchNode = graph.nodes.find((n) => n.id === args.patchNodeId)
-  const sourceData = (sourceNode?.data ?? {}) as GenerationData
-
-  /** 局部节点的正文 = 情绪那句，并把源节点的配方继承过来（不继承就会「点了生成说没选渠道」） */
-  deps.store.dispatch({
-    kind: 'node.updateData',
-    id: args.patchNodeId,
-    patch: {
-      prompt: emotionPromptOf(args.emotion),
-      ...(sourceData.channelId ? { channelId: sourceData.channelId } : {}),
-      ...(sourceData.model ? { model: sourceData.model } : {}),
-      mode: sourceData.mode ?? 'image',
-      count: 1,
-      ...(sourceData.ratio ? { ratio: sourceData.ratio } : {}),
-      preset: undefined,
-      presetOptions: undefined,
-      emotion: undefined,
-    } as Partial<GenerationData>,
-  })
-
-  const fusionId = createId('node')
-  const origin = patchNode
-    ? { x: patchNode.x + patchNode.w + GAP_X, y: patchNode.y }
-    : { x: (sourceNode?.x ?? 0) + (sourceNode?.w ?? 240) + GAP_X * 2, y: sourceNode?.y ?? 0 }
-  const others = deps.store
-    .getSnapshot()
-    .nodes.filter((n) => n.id !== fusionId)
-    .map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h }))
-  const delta = noOverlapDelta(
-    [{ x: origin.x, y: origin.y, w: NODE_MINIMUMS.fusion.w, h: NODE_MINIMUMS.fusion.h }],
-    others,
-  )
-  deps.store.beginPlan(`emotion:${fusionId}`, '情绪局部改脸')
-  deps.store.dispatch({
-    kind: 'node.create',
-    projectId: graph.projectId,
-    type: 'fusion',
-    id: fusionId,
-    at: { x: origin.x + delta.dx, y: origin.y + delta.dy },
-    size: { w: NODE_MINIMUMS.fusion.w, h: NODE_MINIMUMS.fusion.h },
-    title: `${args.sourceTitle ?? '图片'} · 局部改脸`,
-    data: fusionSpec.createDefaultData(),
-  })
-  deps.store.dispatch({
-    kind: 'edge.connect',
-    source: args.sourceNodeId,
-    target: fusionId,
-    sourcePort: 'output',
-    targetPort: 'input',
-  })
-  deps.store.dispatch({
-    kind: 'edge.connect',
-    source: args.patchNodeId,
-    target: fusionId,
-    sourcePort: 'output',
-    targetPort: FUSION_PATCH_PORT,
-  })
-  deps.store.endPlan()
-  await deps.store.flush()
-  return fusionId
+  /** 失败时把**证据一起给出来**（谁试过、报了什么、模型回了什么），见 `faceBoxFailureReason` */
+  return { ok: false, reason: faceBoxFailureReason({ tried, lastError, lastAnswer, localRan }) }
 }
 
 /** 从字节读像素尺寸（只读文件头那一套，不整张解码） */
@@ -333,33 +171,23 @@ async function imageSizeOf(
   return size
 }
 
-/** 某个节点现在有没有图 */
-export function nodeHasAsset(store: CanvasStore, nodeId: string): boolean {
-  return Boolean(
-    (store.getSnapshot().nodes.find((n) => n.id === nodeId)?.data as
-      | { assetHash?: string }
-      | undefined)?.assetHash,
-  )
-}
-
 /**
- * 等某个节点出图（局部图跑完才轮到融合）。
+ * 灯箱里手动框出来的矩形（**原图像素**）→ 归一化人脸框。
  *
- * 为什么是**轮询**而不是订阅 store：判断「该放弃了吗」还要看执行态
- * （`exec.nodeStateOf` 在另一个 store 里），两条来源不同的状态用订阅拼会漏事件；
- * 400ms 一轮、上限 3 分钟，简单且不会挂死。
+ * 为什么要有这一步：灯箱的选区存的是原图像素（缩放 / 平移时框跟着图走，不必重算），
+ * 而节点上存的是归一化值（换尺寸、复制粘贴都不会指错）。两边各说各的坐标，
+ * 换算是必须显式做一次的 —— 塞在组件里做，这条规则就没人测得到。
  */
-export async function waitForNodeAsset(
-  store: CanvasStore,
-  nodeId: string,
-  opts: { timeoutMs?: number; isFailed?: () => boolean } = {},
-): Promise<boolean> {
-  const timeoutMs = opts.timeoutMs ?? 3 * 60 * 1000
-  const startedAt = Date.now()
-  for (;;) {
-    if (nodeHasAsset(store, nodeId)) return true
-    if (opts.isFailed?.()) return false
-    if (Date.now() - startedAt > timeoutMs) return false
-    await new Promise((r) => setTimeout(r, 400))
-  }
+export function faceBoxFromRect(
+  rect: { x: number; y: number; w: number; h: number },
+  natural: { w: number; h: number },
+): FaceBox | null {
+  const safeW = Math.max(1, natural.w)
+  const safeH = Math.max(1, natural.h)
+  const w = Math.max(0, Math.min(1, rect.w / safeW))
+  const h = Math.max(0, Math.min(1, rect.h / safeH))
+  if (w <= 0 || h <= 0) return null
+  const x = Math.max(0, Math.min(1 - w, rect.x / safeW))
+  const y = Math.max(0, Math.min(1 - h, rect.y / safeH))
+  return { x, y, w, h }
 }

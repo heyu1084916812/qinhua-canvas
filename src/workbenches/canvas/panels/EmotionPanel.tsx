@@ -32,7 +32,14 @@ export function EmotionPanel({
   onClose,
 }: {
   model: PanelModel
-  data: { model?: string; channelId?: string; ratio?: string; count?: number }
+  data: {
+    model?: string
+    channelId?: string
+    ratio?: string
+    count?: number
+    assetHash?: string
+    faceBox?: { x: number; y: number; w: number; h: number }
+  }
   running: boolean
   onEvent: (event: PanelEvent) => void
   /** 关掉本面板（= 清掉情绪，回到创作面板） */
@@ -84,10 +91,19 @@ export function EmotionPanel({
         else onClose()
       }}
     >
+      {/*
+        预览取的是**本节点自己的素材**，不是「没有就退到第一张上游图」。
+        两者在「只连了上游、自己还没出图」时会不一样：旧写法会显示上游那张图，
+        而点生成改的是本节点自己的图 —— 预览承诺了一件生成不会做的事
+        （用户 2026-10-06 讲这套流程的口径时一并暴露）。没有自己那张图时，
+        `EmotionBox` 会显示一句引导文案，而不是拿别的图顶上。
+      */}
       <EmotionBox
         emotion={model.emotion ?? ''}
-        characterHash={model.thumbs.find((t) => t.assetHash)?.assetHash}
+        characterHash={data.assetHash}
+        faceBox={data.faceBox}
         onPick={(id) => onEvent({ type: 'setEmotion', emotion: id })}
+        onReframe={() => onEvent({ type: 'reframeFace' })}
         onClose={onClose}
         header={
           <>

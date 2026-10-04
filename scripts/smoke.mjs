@@ -365,6 +365,29 @@ async function paramOptions(page, scope, name) {
  * 改版后这一步的落点变了。散着改 50 多处必然漏几个，
  * 而漏掉的表现是「模板按钮找不到」的超时 —— 与真正的缺陷长得一模一样。
  */
+/**
+ * 读某个节点的 `data`（直连 IndexedDB）。
+ *
+ * 为什么不从 DOM 读：节点常常落在**视口外**（画布会剔除屏幕外的节点），
+ * 那种时候 `[data-node-id="..."]` 根本查不到 —— 而数据和视口无关。
+ */
+async function readNodeData(page, nodeId) {
+  return page.evaluate(
+    (id) =>
+      new Promise((resolve) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => {
+          const db = req.result
+          const q = db.transaction('nodes', 'readonly').objectStore('nodes').get(id)
+          q.onsuccess = () => resolve(q.result?.data ?? {})
+          q.onerror = () => resolve({})
+        }
+        req.onerror = () => resolve({})
+      }),
+    nodeId,
+  )
+}
+
 async function gotoProjects(page) {
   await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
   await sleep(400)
@@ -17938,15 +17961,19 @@ async function g107(browser) {
 }
 
 // ────────────────────────────────────────────────────────────
-// G108 情绪 = 局部改脸（用户 2026-10-05 第五批第 1 条）：
-// 「先自动识别面部，然后只改变面部的情绪，其他的内容完全不变」。
+// G108 情绪 = 识别人脸 → 点生成**直接出图**（用户 2026-10-06 定的口径）。
 //
-// 四步：识别人脸（问看图模型）→ 按框裁一块（复用「提取选区」）→ 改这块局部图
-// → 融合回原图（本地像素合成）。用 mock 渠道也走真链路：mock 的 `completeText`
-// 对「人脸外接框」那一问回一个固定框（测试夹具）。
+// 用户原话：「先自动识别出面部，识别不了的话要手动框选，然后就点击生成后就直接生成了，
+// 不用出局部图的节点然后再进行生成再通过融合节点融合，我的融合节点是另外一套工作流的逻辑」。
+//
+// 所以这一组要同时钉住两件事：**该有的有**（认脸 → 写 `faceBox` → 直接出图），
+// **不该有的没有**（整条流程只多一个节点，且没有 fusion）。
+//
+// 用的还是真链路：mock 渠道的 `completeText` 对「人脸外接框」那一问回一个固定框（测试夹具）；
+// 源图是 mock 现造的一整块纯色，本机检测认不出它，于是正常会走到「问模型」那条回退。
 // ────────────────────────────────────────────────────────────
 async function g108(browser) {
-  const g = 'G108 情绪局部改脸'
+  const g = 'G108 情绪改脸'
   const ctx = await newCtx(browser)
   const page = await ctx.newPage()
   const pageErrors = []
@@ -18010,49 +18037,55 @@ async function g108(browser) {
   await page.locator('[data-emotion-run]').click()
 
   /**
-   * ④ 等流水线建出两个节点：局部图 + 融合。
+   * ④ 等**直接出的那张图**。
    *
-   * ⚠️ 融合节点常常落在**视口外**（画布会剔除屏幕外的节点），所以「它在不在」
-   * 不能靠 DOM 判断 —— 用**连线**反查（同一个 id 上同时有 `input` 与 `patch` 两条入边）。
+   * 口径（用户 2026-10-06）：「点生成后就直接生成了」——不再有局部图节点，
+   * 也不再有融合节点。落位走 `Alt+R` 那条规则（保留源图、在它右侧铺一个新节点），
+   * 所以这里期望**恰好一个**新节点，而且它带图。
    */
-  let cropId = null
-  let fusionId = null
-  for (let i = 0; i < 120; i += 1) {
-    const added = (
+  let addedIds = []
+  let newWithAsset = []
+  for (let i = 0; i < 160; i += 1) {
+    addedIds = (
       await page
         .locator('[data-node-id]')
         .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
     ).filter((id) => !idsBefore.includes(id))
-    const crop = await page.evaluate(
+    newWithAsset = await page.evaluate(
       (ids) =>
-        ids.find((id) => {
-          const el = document.querySelector(`[data-node-id="${id}"]`)
-          if (!el) return false
-          const title = el.querySelector('[data-node-title]')?.textContent ?? ''
-          return el.getAttribute('data-node-type') === 'generation' && title.includes('局部图')
-        }) ?? null,
-      added,
+        ids.filter((id) =>
+          Boolean(document.querySelector(`[data-node-id="${id}"] [data-node-asset]`)),
+        ),
+      addedIds,
     )
-    if (crop) cropId = crop
-    /** 融合节点：两条入边（原图 input + 局部图 patch）指向同一个 id */
-    const wired = await page.locator('[data-edge]').evaluateAll((els) =>
-      els.map((e) => ({
-        s: e.getAttribute('data-edge-source'),
-        t: e.getAttribute('data-edge-target'),
-        tp: e.getAttribute('data-edge-target-port'),
-      })),
-    )
-    if (cropId) {
-      const target = wired.find((e) => e.s === cropId && e.tp === 'patch')?.t
-      if (target && wired.some((e) => e.s === srcId && e.t === target && e.tp === 'input')) {
-        fusionId = target
-      }
-    }
-    if (cropId && fusionId) break
+    if (newWithAsset.length > 0) break
     await sleep(250)
   }
-  rec(g, '★★ 新建了一个**局部图节点**（不是改原节点重跑）', !!cropId, `crop=${cropId}`)
-  rec(g, '★★ 新建了一个**融合节点**（把局部贴回原图）', !!fusionId, `fusion=${fusionId}`)
+  rec(
+    g,
+    '★★ 点生成**直接出图**：源图右侧多了一个带图的新节点',
+    newWithAsset.length > 0,
+    `新节点=${addedIds.length} · 带图=${newWithAsset.length}`,
+  )
+  rec(
+    g,
+    '★★ **没有**中间节点：整条流程只多出这一个节点（不建局部图、不建融合）',
+    addedIds.length === 1,
+    `added=${JSON.stringify(addedIds)}`,
+  )
+  const addedTypes = await page.evaluate(
+    (ids) =>
+      ids.map((id) =>
+        document.querySelector(`[data-node-id="${id}"]`)?.getAttribute('data-node-type'),
+      ),
+    addedIds,
+  )
+  rec(
+    g,
+    '★★ 多出来的节点里**一个 fusion 都没有**（融合节点是另一套工作流，不该被情绪调节借走）',
+    !addedTypes.includes('fusion'),
+    `types=${JSON.stringify(addedTypes)}`,
+  )
   rec(
     g,
     '★★ 情绪调节真的起用了**本机人脸检测**（worker 与模型被加载，不是只走了「问模型」回退）',
@@ -18060,210 +18093,138 @@ async function g108(browser) {
       mediapipeRequests.some((u) => u.endsWith('.tflite')),
     `本机检测请求 ${mediapipeRequests.length} 条`,
   )
-  if (!cropId || !fusionId) {
+  /** 源节点上要落下「脸在哪」—— 这是这次生成唯一多出来的信息，提示词靠它点名改哪张脸 */
+  const srcData = await readNodeData(page, srcId)
+  rec(
+    g,
+    '★★ 识别结果写进了源节点的 `faceBox`（提示词靠它说清「改哪张脸」）',
+    Boolean(srcData.faceBox && srcData.faceBox.w > 0 && srcData.faceBox.h > 0),
+    JSON.stringify(srcData.faceBox ?? null),
+  )
+  if (newWithAsset.length === 0) {
     await page.screenshot({ path: `${OUT}/136-g108-emotion-fail.png` })
     rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
     await ctx.close()
     return
   }
 
-  /** ⑤ 局部节点的正文 = 情绪那句（自带「只改面部、其余不变」）+ 继承了配方 */
-  const cropData = await page.evaluate(
-    (id) =>
-      new Promise((resolve) => {
-        const req = indexedDB.open('qinghua')
-        req.onsuccess = () => {
-          const db = req.result
-          const q = db.transaction('nodes', 'readonly').objectStore('nodes').get(id)
-          q.onsuccess = () => resolve(q.result?.data ?? {})
-          q.onerror = () => resolve({})
-        }
-        req.onerror = () => resolve({})
-      }),
-    cropId,
-  )
-  rec(
-    g,
-    '★★ 局部节点的提示词 = 情绪那句（含「只改人物的面部表情」与「保持不变」）',
-    String(cropData.prompt ?? '').includes('只改人物的面部表情') &&
-      String(cropData.prompt ?? '').includes('保持不变'),
-    String(cropData.prompt ?? '').slice(0, 60),
-  )
-  rec(
-    g,
-    '★★ 局部节点继承了源节点的渠道 / 模型（否则点生成只会说「还没选渠道」）',
-    Boolean(cropData.channelId && cropData.model),
-    `channel=${cropData.channelId} model=${cropData.model}`,
-  )
-
-  /** ⑥ 两条连线：原图 → input，局部图 → patch */
-  const newEdges = await page
-    .locator('[data-edge]')
-    .evaluateAll((els) =>
-      els.map((e) => ({
-        s: e.getAttribute('data-edge-source'),
-        t: e.getAttribute('data-edge-target'),
-        tp: e.getAttribute('data-edge-target-port'),
-      })),
-    )
-  rec(
-    g,
-    '★★ 原图接进融合节点的 input，局部图接进 patch（各一条）',
-    newEdges.some((e) => e.s === srcId && e.t === fusionId && e.tp === 'input') &&
-      newEdges.some((e) => e.s === cropId && e.t === fusionId && e.tp === 'patch'),
-    JSON.stringify(newEdges.filter((e) => e.t === fusionId)),
-  )
-
-  /** ⑦ 新节点不许压住原图（只量**屏幕上看得见**的：融合常常在视口外） */
+  /** ⑤ 新节点不许压住源图（`Alt+R` 的落位规则本来就让位，这里把它钉住） */
   const overlap = await page.evaluate(
     (arg) => {
       const rect = (id) => document.querySelector(`[data-node-id="${id}"]`)?.getBoundingClientRect()
-      const a = rect(arg.cropId)
+      const a = rect(arg.newId)
       const s = rect(arg.srcId)
       if (!a || !s) return null
       const hit = (x, y) => x.left < y.right && y.left < x.right && x.top < y.bottom && y.top < x.bottom
-      return { cropVsSrc: hit(a, s) }
+      return { newVsSrc: hit(a, s) }
     },
-    { cropId, srcId },
+    { newId: newWithAsset[0], srcId },
   )
   rec(
     g,
-    '★★ 局部图节点不压住原图',
-    !!overlap && !overlap.cropVsSrc,
+    '★★ 新出的那张图不压住源图',
+    !overlap || !overlap.newVsSrc,
     JSON.stringify(overlap),
-  )
-
-  /**
-   * ⑧ 融合真的跑完、出图（本地像素合成，不花钱）。
-   *
-   * 判据取「融合节点的**下游**多了一个带图的节点」：融合结果与生成一样落成承载节点，
-   * 而融合节点本身可能在视口外查不到。
-   */
-  for (let i = 0; i < 160; i += 1) {
-    const addedNow = (
-      await page
-        .locator('[data-node-id]')
-        .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
-    ).filter((id) => !idsBefore.includes(id))
-    const withAsset = await page.evaluate(
-      (ids) =>
-        ids.filter((id) => Boolean(document.querySelector(`[data-node-id="${id}"] [data-node-asset]`)))
-          .length,
-      addedNow,
-    )
-    if (withAsset > 0) break
-    await sleep(250)
-  }
-  const fusionResultCount = await page.evaluate(
-    (arg) =>
-      arg.ids.filter((id) => {
-        const el = document.querySelector(`[data-node-id="${id}"]`)
-        return Boolean(el && el.querySelector('[data-node-asset]'))
-      }).length,
-    {
-      ids: (
-        await page
-          .locator('[data-node-id]')
-          .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
-      ).filter((id) => !idsBefore.includes(id)),
-    },
-  )
-  rec(
-    g,
-    '★★ 融合出了结果图（新节点里至少一张带图）',
-    fusionResultCount > 0,
-    `带图新节点=${fusionResultCount}`,
   )
   await page.screenshot({ path: `${OUT}/137-g108-emotion-result.png` })
 
   /**
-   * ⑨ **手动路径**（真实兜底）：用户在素材灯箱里自己框一张局部图 → 在它上面选情绪 → 生成。
+   * ⑥ **手动框脸**（用户原话：「识别不了的话要手动框选」）。
    *
-   * 为什么必须有这条：**不是每个对话模型都能看图** —— 真机上报过「识别人脸失败」。
-   * 这条路上不调模型：局部图就是用户框好的脸，原图从 `cropContext.source.assetHash` 反查回来接进融合。
+   * 这条入口**常驻**在预览图上，不只用来兜「认不出来」：合影里自动取的是最大的那张脸，
+   * 未必是用户想改的那张 —— 认错了也得有地方改。
+   * 它**只写 `data.faceBox`**：不建节点、也不触发生成。
    */
   await page.keyboard.press('Escape')
   await sleep(300)
-  const idsBeforeManual = await page
+  await genPanel(page, src)
+  await panel.locator('[data-panel-preset]').click()
+  await sleep(300)
+  await page.locator('[data-preset-emotion]').click()
+  await sleep(450)
+  rec(
+    g,
+    '★ 面板预览上画出了识别到的人脸框（一眼看出认的是哪张脸）',
+    (await page.locator('[data-emotion-facebox]').count()) === 1,
+  )
+  const boxBefore = JSON.stringify((await readNodeData(page, srcId)).faceBox ?? null)
+  const idsBeforeReframe = await page
     .locator('[data-node-id]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
-  await genPanel(page, src)
-  const extractBtn = page.locator('[data-follow-action="extract"]')
-  rec(g, '★ 源节点功能栏里有「提取选区」（手动框脸的入口）', (await extractBtn.count()) === 1)
-  if ((await extractBtn.count()) === 1) {
-    await extractBtn.click()
+  const reframeBtn = page.locator('[data-emotion-reframe]')
+  rec(g, '★ 面板上有「手动框脸」入口（常驻，不是只在失败时才出现）', (await reframeBtn.count()) === 1)
+  if ((await reframeBtn.count()) === 1) {
+    await reframeBtn.click()
     await sleep(600)
-    const stage = await page.locator('[data-lightbox-stage]').boundingBox()
-    await page.mouse.move(stage.x + stage.width * 0.35, stage.y + stage.height * 0.25)
+    rec(
+      g,
+      '★★ 点它开的是**框脸灯箱**：有框选条、**没有**「比例」档（比例是裁图用的，框脸不需要）',
+      (await page.locator('[data-lightbox-crop-bar]').count()) === 1 &&
+        (await page.locator('[data-lightbox-crop-ratio]').count()) === 0,
+    )
+    /**
+     * 拖拽坐标必须按**图片自己的显示范围**算，不能按舞台。
+     *
+     * 舞台是整块灯箱，图在里面按比例适配（可能左右或上下留空）。
+     * 按舞台比例拖，落点会跑到图外 —— 框会被夹成「整张图」，
+     * 断言看着还是「变过了」，其实画的是错的框（第一版就是这么过的）。
+     */
+    const media = await page.locator('[data-lightbox-media]').first().boundingBox()
+    /**
+     * 框要**够大**才会解禁「用这个框」（短边下限 32px，按**原图像素**算）。
+     * mock 产物的长边只有 64px（`MOCK_LONGEST_SIDE`），所以要拖到七成左右 ——
+     * 拖三成的话换算回原图不到 32px，按钮是禁用的（那一版就卡在这）。
+     */
+    await page.mouse.move(media.x + media.width * 0.15, media.y + media.height * 0.15)
     await page.mouse.down()
-    await page.mouse.move(stage.x + stage.width * 0.62, stage.y + stage.height * 0.62, { steps: 10 })
+    await page.mouse.move(media.x + media.width * 0.85, media.y + media.height * 0.85, { steps: 10 })
     await page.mouse.up()
-    await sleep(350)
+    await sleep(300)
+    /**
+     * 先单独钉「拖出来的框够不够用」：按钮是**禁用**的就没法确认，
+     * 那时后面那条「faceBox 变了」会失败，但看不出是拖动没生效还是写入没生效。
+     */
+    rec(
+      g,
+      '★ 框够大之后「用这个框」才可点（太小的时候是禁用的）',
+      await page.locator('[data-lightbox-crop-apply]').isEnabled(),
+    )
     await page.locator('[data-lightbox-crop-apply]').click()
-    await sleep(900)
-    const cropId2 = (
-      await page
-        .locator('[data-node-id]')
-        .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
-    ).find((id) => !idsBeforeManual.includes(id))
-    rec(g, '★ 手动框选产出了一张局部图', !!cropId2, `crop=${cropId2}`)
-    if (cropId2) {
-      await genPanel(page, page.locator(`[data-node-id="${cropId2}"]`))
-      await panel.locator('[data-panel-preset]').click()
-      await sleep(300)
-      await page.locator('[data-preset-emotion]').click()
-      await sleep(450)
-      await page.locator('[data-emotion="serene"]').click()
-      await sleep(200)
-      await page.locator('[data-emotion-run]').click()
-      let manualFusionId = null
-      for (let i = 0; i < 80; i += 1) {
-        const edged = await page.locator('[data-edge]').evaluateAll((els) =>
-          els.map((e) => ({
-            s: e.getAttribute('data-edge-source'),
-            t: e.getAttribute('data-edge-target'),
-            tp: e.getAttribute('data-edge-target-port'),
-          })),
-        )
-        const target = edged.find((e) => e.s === cropId2 && e.tp === 'patch')?.t
-        if (target && edged.some((e) => e.s === srcId && e.t === target && e.tp === 'input')) {
-          manualFusionId = target
-          break
-        }
-        await sleep(250)
-      }
-      rec(
-        g,
-        '★★ 手动路径：原图 → input、这张局部图 → patch（不调看图模型也能跑）',
-        !!manualFusionId,
-        `fusion=${manualFusionId}`,
-      )
-      rec(
-        g,
-        '★★ 手动路径用的就是你框的那张局部图（正文被写成情绪那句）',
-        String(
-          (
-            await page.evaluate(
-              (id) =>
-                new Promise((resolve) => {
-                  const req = indexedDB.open('qinghua')
-                  req.onsuccess = () => {
-                    const db = req.result
-                    const q = db.transaction('nodes', 'readonly').objectStore('nodes').get(id)
-                    q.onsuccess = () => resolve(q.result?.data?.prompt ?? '')
-                    q.onerror = () => resolve('')
-                  }
-                  req.onerror = () => resolve('')
-                }),
-              cropId2,
-            )
-          ),
-        ).includes('只改人物的面部表情'),
-        '局部图正文里带上了情绪约束',
-      )
-      await page.screenshot({ path: `${OUT}/138-g108-emotion-manual.png` })
+    /**
+     * 轮询等落库，而不是 `sleep` 一个猜的时长。
+     *
+     * 节点数据是**防抖落库**的（800ms 一批）：确认之后立刻读 IndexedDB，
+     * 拿到的还是上一版 —— 这条断言最初就是栽在这上面（框写进去了，读得太早）。
+     */
+    let boxAfter = boxBefore
+    for (let i = 0; i < 20; i += 1) {
+      boxAfter = JSON.stringify((await readNodeData(page, srcId)).faceBox ?? null)
+      if (boxAfter !== boxBefore) break
+      await sleep(250)
     }
+    rec(
+      g,
+      '★★ 确认后 `faceBox` 真的换成了你框的那块（不是被夹成整张图）',
+      boxAfter !== 'null' &&
+        boxAfter !== boxBefore &&
+        (() => {
+          const b = JSON.parse(boxAfter)
+          return b.w > 0 && b.w < 1 && b.h > 0 && b.h < 1
+        })(),
+      `${boxBefore} → ${boxAfter}`,
+    )
+    const idsAfterReframe = await page
+      .locator('[data-node-id]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+    rec(
+      g,
+      '★★ 框脸**不新建任何节点**（它只是把「脸在哪」补上）',
+      idsAfterReframe.length === idsBeforeReframe.length,
+      `${idsBeforeReframe.length} → ${idsAfterReframe.length}`,
+    )
+    await page.screenshot({ path: `${OUT}/138-g108-emotion-reframe.png` })
   }
+
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
 }

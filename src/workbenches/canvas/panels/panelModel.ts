@@ -200,6 +200,13 @@ export type PanelEvent =
   | { type: 'setPresetOption'; group: string; choice: string }
   | { type: 'setEmotion'; emotion: string | null }
   /**
+   * 自己去框「要改的那张脸」（情绪面板上的「手动框脸」）。
+   *
+   * 自动识别会认错人（合影里可能不是你想改的那个），所以这条入口**常驻** ——
+   * 不只用来兜「认不出来」。面板只上报意图，开灯箱是宿主的事。
+   */
+  | { type: 'reframeFace' }
+  /**
    * 去后台设置配渠道（面板发现「没有可用平台」时的引导出口）。
    *
    * 这是**宿主导航**事件而非画布命令：面板只负责发现「配不出来」这件事并上报，

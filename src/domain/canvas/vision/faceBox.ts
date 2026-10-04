@@ -1,5 +1,3 @@
-import type { FusionRect } from '../model/node'
-import { FUSION_MIN_EDGE } from '../fusion/fusionPlan'
 import type { FaceBox } from '../../../shared/faceDetect'
 
 /**
@@ -121,38 +119,6 @@ export function parseFaceBox(
   const cy = y + h / 2
   if (cx < -0.1 || cx > 1.1 || cy < -0.1 || cy > 1.1) return null
   return { x, y, w, h }
-}
-
-/**
- * 归一化人脸框 → **原图像素矩形**（带外扩）。
- *
- * 为什么要外扩：只改脸、但要把**脸周一圈**交给模型 —— 紧贴五官的裁切会让模型
- * 没有上下文（发型、脖颈、背景边缘全被切断），改出来的局部接不回原图。
- * 这也是「提取选区」那边同一条口径（`FUSION_PADDING_RATIO`）。
- *
- * 贴边处理：先按目标尺寸算，再**整框挪进画面内**（而不是裁小）——
- * 裁小会让靠近边缘的脸只框到半张，挪进来至少内容是全的。
- */
-export function faceBoxToRect(
-  box: FaceBox,
-  imageW: number,
-  imageH: number,
-  padRatio = 0.35,
-): FusionRect {
-  const safeW = Math.max(1, Math.round(imageW))
-  const safeH = Math.max(1, Math.round(imageH))
-  const cx = (box.x + box.w / 2) * safeW
-  const cy = (box.y + box.h / 2) * safeH
-  const outW = Math.min(safeW, Math.max(FUSION_MIN_EDGE, box.w * safeW * (1 + padRatio * 2)))
-  const outH = Math.min(safeH, Math.max(FUSION_MIN_EDGE, box.h * safeH * (1 + padRatio * 2)))
-  const left = Math.min(Math.max(cx - outW / 2, 0), Math.max(0, safeW - outW))
-  const top = Math.min(Math.max(cy - outH / 2, 0), Math.max(0, safeH - outH))
-  return {
-    x: Math.round(left),
-    y: Math.round(top),
-    w: Math.round(outW),
-    h: Math.round(outH),
-  }
 }
 
 /**

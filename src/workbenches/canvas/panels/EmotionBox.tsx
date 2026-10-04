@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { DEFAULT_EMOTION_ID, EMOTIONS, emotionById } from '../../../domain/canvas/layout/presets'
 import { IconClose } from '../toolbar/icons'
 import { useAsset } from '../hooks/useAsset'
@@ -7,9 +7,8 @@ import styles from './EmotionBox.module.css'
 /**
  * 情绪调节（用户 2026-10-05 第 14 条后半，参考图二十）。
  *
- * 三块：左边**角色**（就直接用本节点上游那张参考图 —— 用户手上真正要被改成这个表情的
- * 就是它，再画一个 3D 头像只会多一个和生成无关的东西）、右边 **5×5 点位**、
- * 底部一行**当前情绪定位**。
+ * 三块：左边**这次要改的那张图**（本节点自己的素材 —— 再画一个 3D 头像只会多一个
+ * 和生成无关的东西）、右边 **5×5 点位**、底部一行**当前情绪定位**。
  *
  * 25 个名字与顺序在 `domain/canvas/layout/presets.ts` 的 `EMOTIONS` 里，
  * 五个一排（顺序本身就是语义：上激动下平静、左亲近右疏离）。这里不抄第二份名字。
@@ -20,14 +19,34 @@ import styles from './EmotionBox.module.css'
 export function EmotionBox({
   emotion,
   characterHash,
+  faceBox,
   onPick,
+  onReframe,
   onClose,
   header,
 }: {
   emotion: string
-  /** 上游第一张带素材的图（没有就显示一句提示，而不是空白） */
+  /**
+   * **本节点自己的那张图**（= 这次真正要改的对象）。
+   *
+   * 没有就显示一句引导文案，而不是拿上游的图顶上：预览必须承诺生成真会做的事。
+   */
   characterHash?: string
+  /**
+   * 已经认出来的那张脸在哪（归一化 0–1，`GenerationData.faceBox`）。
+   *
+   * 画在预览图上，让用户**一眼看到「系统认的是这张脸」**——识别这件事原本是隐形的，
+   * 认错了也只能等生成出来才发现。没有值时就不画框（不猜一个位置）。
+   */
+  faceBox?: { x: number; y: number; w: number; h: number }
   onPick: (emotionId: string) => void
+  /**
+   * 自己框「要改的那张脸」（开框选灯箱）。
+   *
+   * 常驻而不是只在失败时出现：自动识别会认错人 —— 合影里最大的那张脸
+   * 未必是用户想改的那张，认错了也得有地方改。
+   */
+  onReframe: () => void
   onClose: () => void
   /**
    * 头排右侧那两枚参数（比例 / 数量）。
@@ -40,6 +59,41 @@ export function EmotionBox({
 }) {
   const current = emotionById(emotion) ?? emotionById(DEFAULT_EMOTION_ID)!
   const characterUrl = useAsset(characterHash)
+  const previewRef = useRef<HTMLDivElement | null>(null)
+  const imgRef = useRef<HTMLImageElement | null>(null)
+  /**
+   * 图片**真正画在哪**（相对预览容器的像素矩形）。
+   *
+   * 图是 `object-fit: contain`：宽高比与容器不一致时四周会留空，
+   * 按容器百分比摆人脸框就会整体偏。这里量出实际显示区域，框按它算。
+   */
+  const [fit, setFit] = useState<{ dx: number; dy: number; dw: number; dh: number } | null>(null)
+
+  const measureFit = useCallback(() => {
+    const stage = previewRef.current
+    const img = imgRef.current
+    if (!stage || !img || !img.naturalWidth || !img.naturalHeight) return
+    const cw = stage.clientWidth
+    const ch = stage.clientHeight
+    if (!cw || !ch) return
+    const scale = Math.min(cw / img.naturalWidth, ch / img.naturalHeight)
+    const dw = img.naturalWidth * scale
+    const dh = img.naturalHeight * scale
+    setFit({ dx: (cw - dw) / 2, dy: (ch - dh) / 2, dw, dh })
+  }, [])
+
+  /** 容器尺寸会随面板伸缩变（`ResizeObserver` 而不是只量一次） */
+  useEffect(() => {
+    const stage = previewRef.current
+    if (!stage || !characterUrl) {
+      setFit(null)
+      return
+    }
+    measureFit()
+    const ro = new ResizeObserver(measureFit)
+    ro.observe(stage)
+    return () => ro.disconnect()
+  }, [characterUrl, measureFit])
 
   return (
     <div className={styles.box} data-panel-emotion>
@@ -59,11 +113,40 @@ export function EmotionBox({
       </div>
 
       <div className={styles.body}>
-        <div className={styles.preview}>
+        <div className={styles.preview} ref={previewRef}>
           {characterUrl ? (
-            <img src={characterUrl} alt="" data-emotion-character />
+            <img
+              ref={imgRef}
+              src={characterUrl}
+              alt=""
+              data-emotion-character
+              onLoad={measureFit}
+            />
           ) : (
-            <span className={styles.previewEmpty}>把一张有人物的图连到本节点，这里会显示它</span>
+            <span className={styles.previewEmpty}>先让这个节点出一张有人的图，这里会显示它</span>
+          )}
+          {faceBox && fit && (
+            <span
+              className={styles.faceBox}
+              data-emotion-facebox
+              style={{
+                left: fit.dx + faceBox.x * fit.dw,
+                top: fit.dy + faceBox.y * fit.dh,
+                width: faceBox.w * fit.dw,
+                height: faceBox.h * fit.dh,
+              }}
+            />
+          )}
+          {characterUrl && (
+            <button
+              type="button"
+              className={styles.reframe}
+              data-emotion-reframe
+              title="自己在图上框出要改的那张脸"
+              onClick={onReframe}
+            >
+              手动框脸
+            </button>
           )}
         </div>
 

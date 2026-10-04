@@ -100,4 +100,29 @@ describe('预设表（用户 2026-10-05 第 14 条）', () => {
   it('两个都没选 → 空串（拼在提示词后面时不该多出一个空行）', () => {
     expect(presetPromptSuffix({})).toBe('')
   })
+
+  /**
+   * 人脸框那一句（用户 2026-10-06：情绪调节改成「识别脸 → 点生成直接出图」）。
+   *
+   * 整条链路只剩一次生成，模型拿到的是**整张图**，所以「要改的是哪张脸」只能由
+   * 提示词带过去。口径与参考实现（VOZEB-PRO 的 `faceBoxPrompt`）一致：给框中心的百分比。
+   */
+  it('★★ 有脸框时追加「要改的是哪张脸」，位置给的是**中心**百分比', () => {
+    const text = presetPromptSuffix({
+      emotion: 'serene',
+      /** 中心 = 0.2 + 0.3/2 = 0.35；0.1 + 0.4/2 = 0.30 */
+      faceBox: { x: 0.2, y: 0.1, w: 0.3, h: 0.4 },
+    })
+    const lines = text.split('\n')
+    expect(lines[0]).toContain('表情设定：淡然自若')
+    expect(lines).toHaveLength(2)
+    expect(lines[1]).toContain('35% 横向')
+    expect(lines[1]).toContain('30% 纵向')
+  })
+
+  it('★ 没有脸框时**不出现**那句（认不出来 / 用户还没框过）', () => {
+    const text = presetPromptSuffix({ emotion: 'serene' })
+    expect(text).not.toContain('横向')
+    expect(text.split('\n')).toHaveLength(1)
+  })
 })

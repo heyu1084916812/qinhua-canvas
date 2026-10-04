@@ -22,7 +22,7 @@ import { usePresetTextOptional } from '../../../app/providers/PresetTextProvider
 import { isRecipeEdit } from '../../../domain/project/generationPreset'
 import { defaultPresetOptions, emotionById, presetById } from '../../../domain/canvas/layout/presets'
 import { hasRunnableDownstream } from '../../../features/canvas/execution/loopRun'
-import { buildEmotionEdit, waitForNodeAsset } from '../../../features/canvas/emotionEdit'
+import { resolveFaceBox } from '../../../features/canvas/emotionEdit'
 
 /** 面板与节点底边的间距 */
 const PANEL_GAP = 12
@@ -730,11 +730,20 @@ function handlePanelEvent(
       void exec.runNode(node.id)
       break
     /**
-     * 情绪 = **局部改脸**（用户 2026-10-05 第五批第 1 条：「先自动识别面部，
-     * 然后只改变面部的情绪，其他的内容完全不变才对」）。
+     * 情绪调节的「生成」（用户 2026-10-06 定的最终口径）。
      *
-     * 四步：识别人脸（问看图模型）→ 按框裁一块（复用「提取选区」）→ 改这块局部图
-     * → 融合回原图（本地像素合成）。真正花钱的只有中间那次生成。
+     * 只有一条链：**识别人脸 → 点生成 → 直接出图**（照参考实现 VOZEB-PRO 的做法）。
+     * 识别不出脸时开灯箱让人自己框（`store.openFaceLightbox`），框完再点生成。
+     *
+     * **不再经过「局部图 → 融合」那条流水线**（用户原话：「不用出局部图的节点然后再
+     * 进行生成再通过融合节点融合，我的融合节点是另外一套工作流的逻辑」）：
+     * 那张局部图与那个融合节点都会凭空多出来，而融合节点属于另一套工作流
+     * （原图 + 若干带上下文的局部修改图 → 本地像素合成），两者不该焊在一起。
+     *
+     * 产物落成**源图右侧的一个新节点**（`exec.runNode(node.id, { alt: true })`，
+     * 与 Alt+R 同一条落位规则）：原图留着不动，用户能对照；同时「落点不是源节点自己」
+     * 才会把**源图当参考图**带进这次请求（`buildRunPlan`），也就是真的图生图 ——
+     * 直接复用源节点自己跑的话，它的图不会被当成输入，那就变成按提示词重画一张了。
      */
     case 'runEmotion': {
       const emotion = emotionById((node.data as GenerationData).emotion)
@@ -744,13 +753,21 @@ function handlePanelEvent(
       }
       void (async () => {
         /**
+         * **已经框过脸**（面板上的小框 / 上次手动框的）就不重认：那是个既成事实，
+         * 重认既慢又可能跟用户看到的不一样。直接进生成。
+         */
+        if ((node.data as GenerationData).faceBox) {
+          await exec.runNode(node.id, { alt: true })
+          return
+        }
+        /**
          * 「脸在哪」优先**本机识别**（`platform.vision`，MediaPipe worker）——
          * 那条路不花渠道，所以下面这串候选**允许为空**：一个对话模型都没配的
          * 用户照样能用情绪调节。本机认不出来时才轮到问模型。
          *
          * **排一串候选**：不是每个对话模型都能看图 —— 真机上报过一次「识别人脸失败」，
          * 所以这里把「默认对话模型」排第一，后面跟上已启用渠道里的其它对话模型
-         * （优先用户勾选过的那批），最多 4 个，由 `buildEmotionEdit` 依次试。
+         * （优先用户勾选过的那批），最多 4 个，由 `resolveFaceBox` 依次试。
          */
         const candidates: { channelId: string; model: string }[] = []
         const push = (channelId: string, model: string) => {
@@ -769,7 +786,7 @@ function handlePanelEvent(
             push(ch.id, m.id)
           }
         }
-        const out = await buildEmotionEdit(
+        const out = await resolveFaceBox(
           {
             platform,
             store,
@@ -784,26 +801,25 @@ function handlePanelEvent(
               }),
             candidates,
           },
-          { nodeId: node.id, emotion: emotion.name },
+          { nodeId: node.id },
         )
         if (!out.ok) {
-          store.notify(out.reason)
+          /**
+           * 自动认不出来**不是死胡同**：说清为什么，并直接把框选灯箱开出来
+           * （用户 2026-10-06：「识别不了的话要手动框选」）。
+           */
+          store.notify(`${out.reason}。已在灯箱里打开这张图，框住脸再点「生成」`)
+          store.openFaceLightbox(node.id)
           return
         }
+        /** 认出脸 → 写进节点（提示词会带着它）→ 直接生成 */
+        store.dispatch({ kind: 'node.updateData', id: node.id, patch: { faceBox: out.box } })
         store.notify(
-          out.detectedBy === 'selection'
-            ? '按你框好的局部图改脸：只改这一块（其余不动）'
-            : out.detectedBy === 'local'
-              ? '已在本机识别人脸：正在只改这块脸部（其余不动）'
-              : '已识别人脸：正在只改这块脸部（其余不动）',
+          out.detectedBy === 'local'
+            ? '已在本机识别人脸：正在按这个表情重新出图'
+            : '已识别人脸：正在按这个表情重新出图',
         )
-        await exec.runNode(out.cropNodeId)
-        const done = await waitForNodeAsset(store, out.cropNodeId, {
-          isFailed: () => exec.nodeStateOf(out.cropNodeId)?.kind === 'failed',
-        })
-        /** 局部图没出来就不融合（失败原因由执行层的报错负责说清） */
-        if (!done) return
-        await exec.runNode(out.fusionNodeId)
+        await exec.runNode(node.id, { alt: true })
       })()
       break
     }
@@ -843,6 +859,13 @@ function handlePanelEvent(
       break
     case 'setEmotion':
       patch({ emotion: event.emotion ?? undefined } as Partial<GenerationData>)
+      break
+    /**
+     * 「手动框脸」：不走生成，只开框选灯箱（确认后写 `data.faceBox`，见 `LightboxLayer`）。
+     * 开灯箱是**宿主**的事 —— 面板只上报意图，与其它面板事件同一条口径。
+     */
+    case 'reframeFace':
+      store.openFaceLightbox(node.id)
       break
     case 'cancel':
       exec.cancel()

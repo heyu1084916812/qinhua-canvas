@@ -71,6 +71,8 @@
 }
 
 .preview {
+  /* 人脸框与「手动框脸」按钮都相对它定位（两者都叠在这块预览上） */
+  position: relative;
   display: flex;
   flex: 1 1 42%;
   align-items: center;
@@ -84,11 +86,61 @@
   background: var(--bg-surface);
 }
 
+/**
+ * 用 `contain`（整张图都看得到，不裁），代价是宽高比不一时四周留空。
+ *
+ * 空出来的那圈就是人脸框**不能**按容器百分比摆的原因 —— 见组件里 `measureFit`
+ * 那段：框的位置按图片**真正显示的区域**算，而不是按这块容器的尺寸算。
+ */
 .preview img {
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
+}
+
+/**
+ * 已识别的人脸框。
+ *
+ * 颜色走 `--overlay-text` + `--overlay-scrim` 这一对：素材是用户内容、亮度不可控，
+ * 这一对是专为「压在任何图上都要看得清」准备的，且**两套主题方向相反**
+ * （亮色白框加深圈、暗色近黑框加浅圈）。
+ * 不用半透明：这里的框只有两三个像素宽，再打折就看不见了。
+ */
+.faceBox {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid var(--overlay-text);
+  box-shadow: 0 0 0 1px var(--overlay-scrim);
+  pointer-events: none;
+}
+
+/**
+ * 「手动框脸」：压在预览图右下角。
+ *
+ * 常驻而不是只在自动识别失败时出现 —— 自动识别会认错人（合影里最大的那张脸
+ * 未必是用户想改的），认错了也得有地方改。
+ * 底色 / 字色走 `--overlay-*` 那一对：素材亮度不可控，这对是专为「压在任何图上
+ * 都看得清」准备的，且两套主题方向相反。
+ */
+.reframe {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  padding: 2px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--overlay-scrim);
+  color: var(--overlay-text);
+  font: inherit;
+  /* `font: inherit` 带不出字距（Chrome），要显式再声明一次 */
+  letter-spacing: inherit;
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+
+.reframe:hover {
+  opacity: 0.86;
 }
 
 .previewEmpty {

@@ -129,6 +129,17 @@ export interface GenerationData {
   preset?: string
   presetOptions?: Record<string, string>
   emotion?: string
+  /**
+   * 「情绪调节」认出来的**那张脸在哪里**（归一化：`x/y` 左上角、`w/h` 宽高，全 0–1）。
+   *
+   * 为什么存下来而不是每次现认：认一次要跑本机模型（认不出还得问模型、甚至让人手动框），
+   * 而「这张图里脸在哪」在一张图上是个**既成事实** —— 重复认既慢又可能前后不一致。
+   * 灯箱里手动框选写的就是它，面板上的小框也读它。
+   *
+   * 它进的是**提示词**（见 `presetPromptSuffix`）：把「要改的是哪张脸」说清楚，
+   * 而不是让模型自己在一整张图里找。
+   */
+  faceBox?: { x: number; y: number; w: number; h: number }
   count?: number
   // 视频模式
   /**
