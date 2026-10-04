@@ -5,18 +5,22 @@
  * 尺寸都用设计值 —— 面板整体挂着 `zoom: 0.75`，屏幕上看起来是设计值的三分之二。
  */
 .box {
-  flex: 0 0 auto;
-  margin-top: var(--space-2);
-  padding: var(--space-3);
-  box-sizing: border-box;
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius-control);
-  background: var(--bg-subtle);
+  /*
+   * 2026-10-05：它从「创作面板里的一个内嵌小框」升级成**独立面板的内容**
+   * （用户第 1 条：「情绪调节是单独的一个面板，不是放在创作面板里面」）——
+   * 所以这里不再自画边框 / 底色 / 外边距：外壳（`PanelShell.module.css`）已经给了。
+   */
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
 }
 
 .head {
   display: flex;
   align-items: center;
+  /** 头排里要塞「模型 / 比例 / 张数 / 生成」四件，窄的时候要能换行 */
+  flex-wrap: wrap;
   gap: var(--space-2);
 }
 
@@ -54,9 +58,16 @@
 
 .body {
   display: flex;
+  /**
+   * 主体**吃掉剩余高度**：面板挂在节点下方、可用高度有限（实测 256px），
+   * 而「角色预览 + 5×5 点位」如果写死高度就会把底部的「情绪定位」顶出屏幕。
+   * 这里让它随外壳伸缩（`min-height` 兜住一个下限），底行永远留在面板里。
+   */
+  flex: 1 1 auto;
   align-items: stretch;
   gap: var(--space-3);
   margin-top: var(--space-2);
+  min-height: 140px;
 }
 
 .preview {
@@ -65,7 +76,8 @@
   align-items: center;
   justify-content: center;
   min-width: 0;
-  height: 170px;
+  /** 高度跟 `.body`（不写死）：见上面那段说明 */
+  height: auto;
   overflow: hidden;
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
@@ -90,7 +102,7 @@
   position: relative;
   flex: 1 1 58%;
   min-width: 0;
-  padding: 20px 26px;
+  padding: 24px 30px;
   box-sizing: border-box;
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
@@ -138,8 +150,8 @@
 
 /* 点位：一小颗圆点；选中的那颗放大成实心大圆（参考图里的白点） */
 .dot {
-  width: 9px;
-  height: 9px;
+  width: 10px;
+  height: 10px;
   margin: auto;
   padding: 0;
   border: 0;
@@ -153,8 +165,8 @@
 }
 
 .dotOn {
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   background: var(--text-1);
   box-shadow: 0 0 0 4px var(--bg-hover);
 }

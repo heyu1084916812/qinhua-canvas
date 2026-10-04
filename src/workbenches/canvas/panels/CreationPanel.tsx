@@ -19,6 +19,8 @@ import type { PromptToolAction } from '../../../features/shared/promptTools/prom
 import { ParamPicker, type ParamSection } from './ParamPicker'
 import { SkillPicker } from './SkillPicker'
 import styles from './CreationPanel.module.css'
+/** 浮层外壳（与情绪面板共用一份，见那个文件） */
+import shell from './PanelShell.module.css'
 import { RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
 import {
   isAutoRatio,
@@ -47,7 +49,6 @@ import {
   presetById,
 } from '../../../domain/canvas/layout/presets'
 import { PresetMenu, PresetOptions } from './PresetMenu'
-import { EmotionBox } from './EmotionBox'
 
 /** 生成数量：固定四项（§6.8「1张 / 2张 / 4张 / 9张，固定四项」） */
 export const COUNT_OPTIONS = [1, 2, 4, 9] as const
@@ -592,10 +593,6 @@ export function CreationPanel(props: CreationPanelProps) {
     () => `${presetToken}${expandMentions(promptDraft, mentionCandidates)}`,
     [presetToken, promptDraft, mentionCandidates],
   )
-  /** 情绪面板左边那张预览图：上游第一张带素材的图（没有就显示一句提示） */
-  const characterThumb =
-    model.thumbs.find((t) => t.owner === 'upstream' && t.assetHash) ??
-    model.thumbs.find((t) => t.assetHash)
   const closePresetMenus = () => {
     setPresetOpen(false)
     setPresetOptionsOpen(false)
@@ -1186,7 +1183,7 @@ export function CreationPanel(props: CreationPanelProps) {
 
   return (
     <div
-      className={styles.panel}
+      className={shell.panel}
       data-creation-panel
       onPointerDown={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
@@ -1296,71 +1293,6 @@ export function CreationPanel(props: CreationPanelProps) {
         )}
       </div>
       </section>
-
-      {/*
-        情绪调节（用户 2026-10-05 第 14 条后半）：「在素材下方出现一个功能框」——
-        位置就钉在素材区与提示词区之间。开着与否**只看有没有选情绪**（关闭 = 清掉），
-        不另存一个开关状态，免得出现「关掉了但表情还在提示词里」。
-      */}
-      {!promptMode && model.emotion && (
-        <EmotionBox
-          emotion={model.emotion}
-          characterHash={characterThumb?.assetHash}
-          onPick={(id) => onEvent({ type: 'setEmotion', emotion: id })}
-          onClose={() => onEvent({ type: 'setEmotion', emotion: null })}
-          /**
-           * 头排右侧放**比例 / 数量**（参考图二十的头部就是「比例 · 数量 · 生成」）。
-           *
-           * 用的是与参数行**同一份状态**（`data.ratio` / `data.count`），只是换了
-           * 锚点名（`emotionRatio` / `emotionCount`）—— 同一个 `data-param-chip` 值
-           * 在面板里出现两次会让按锚点定位的冒烟直接报「匹配到多个」。
-           */
-          header={
-            <>
-              <ParamPicker
-                name="emotionRatio"
-                ariaLabel="画面比例"
-                label={shownRatio || '比例'}
-                options={ratios.map((r) => ({
-                  value: r,
-                  label: isAutoRatio(r) ? '自适应' : r,
-                }))}
-                value={shownRatio}
-                variant="ratioGrid"
-                open={openPicker === 'emotionRatio'}
-                onToggle={() => togglePicker('emotionRatio')}
-                onClose={closePicker}
-                onSelect={(v) =>
-                  onEvent({ type: 'setRatio', ratio: v, recipe: recipeSnapshot({ ratio: v }) })
-                }
-              />
-              <ParamPicker
-                name="emotionCount"
-                ariaLabel="生成数量"
-                label={
-                  videoMode ? `${videoCount} 个` : `${count} 张`
-                }
-                options={(videoMode ? videoCounts : countChoices).map((c) => ({
-                  value: String(c),
-                  label: videoMode ? `${c} 个` : `${c} 张`,
-                }))}
-                value={String(videoMode ? videoCount : count)}
-                variant="pill"
-                open={openPicker === 'emotionCount'}
-                onToggle={() => togglePicker('emotionCount')}
-                onClose={closePicker}
-                onSelect={(v) =>
-                  onEvent({
-                    type: 'setCount',
-                    count: Number(v),
-                    recipe: recipeSnapshot({ count: Number(v) }),
-                  })
-                }
-              />
-            </>
-          }
-        />
-      )}
 
       {/* 第二部分：提示词 */}
       <section className={`${styles.section} ${styles.promptSection}`} data-panel-part="prompt">

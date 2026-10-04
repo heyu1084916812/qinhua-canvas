@@ -10,6 +10,7 @@ import { imageAssetInputsOf } from '../../../domain/shared/execution/inputs'
 import { describeError } from '../../../shared/result'
 import { clampDuration } from '../../../domain/shared/capability'
 import { CreationPanel } from './CreationPanel'
+import { EmotionPanel } from './EmotionPanel'
 import type { PanelEvent, PanelModel, PanelThumb, RecipeSnapshot } from './panelModel'
 import type { MentionCandidate } from '../text/mentionValue'
 import { useGraph, useViewportState, useCanvasStore, useSelection } from '../storeContext'
@@ -160,6 +161,24 @@ export function PanelLayer({
    */
   const panelModel = buildPanelModel(selectedNode, graph)
 
+  /**
+   * 两种面板共用的**唯一出口**：面板只 emit 语义事件，由 `handlePanelEvent` 翻成命令
+   * （架构 §4.7 ①）。情绪面板与创作面板走同一个函数，因为它们的参数事件完全同源
+   * （`setModel` / `setRatio` / `setCount` / `run` / `setEmotion`）—— 各接一份必然漂移。
+   */
+  const emitPanelEvent = (ev: PanelEvent) =>
+    handlePanelEvent(
+      ev,
+      selectedNode,
+      store,
+      exec,
+      promptTools,
+      onOpenSettings,
+      (channelId, model, params) => {
+        void channels.rememberRecipe(channelId, model, params)
+      },
+    )
+
   const state = exec.nodeStateOf(selectedNode.id)
   const running = state?.kind === 'queued' || state?.kind === 'running'
   const error = state?.kind === 'failed' ? describeError(state.error) : null
@@ -210,25 +229,29 @@ export function PanelLayer({
       }}
       data-panel-anchor={selectedNode.id}
     >
+      {/**
+       * 节点下方这块浮层有**两种模式**（用户 2026-10-05 第 1 条）：
+       * - 选了情绪 → **情绪面板**（独立一块，头排带生图模型 / 比例 / 张数 / 生成）；
+       * - 其余情况 → 创作参数面板。
+       * 两者互斥、同一位置、同一套外壳几何（`PanelShell.module.css`），
+       * 所以这里只切内容，不各画一层。
+       */}
+      {panelModel.emotion ? (
+        <EmotionPanel
+          model={panelModel}
+          data={selectedNode.data as GenerationData}
+          running={running}
+          onEvent={emitPanelEvent}
+          onClose={() => emitPanelEvent({ type: 'setEmotion', emotion: null })}
+        />
+      ) : (
       <CreationPanel
         data={selectedNode.data as GenerationData}
         model={panelModel}
         running={running}
         globalRunning={exec.isRunning && !running}
         error={error}
-        onEvent={(ev) =>
-          handlePanelEvent(
-            ev,
-            selectedNode,
-            store,
-            exec,
-            promptTools,
-            onOpenSettings,
-            (channelId, model, params) => {
-              void channels.rememberRecipe(channelId, model, params)
-            },
-          )
-        }
+        onEvent={emitPanelEvent}
         onClose={() => store.setSelection([])}
         mode={selectedNode.type === 'prompt' ? 'prompt' : 'generation'}
         // 功能类别切换只给生成节点（§6.8）：分组 / 批量共用同一面板，但类别由内容决定
@@ -254,6 +277,7 @@ export function PanelLayer({
         onOpenSkills={onOpenSkills}
         promptImageCount={promptImageInputs.length}
       />
+      )}
     </div>
   )
 }

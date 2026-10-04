@@ -17182,22 +17182,23 @@ async function g105(browser) {
   await page.keyboard.press('Escape')
   await sleep(250)
 
-  /** ④ 情绪调节：素材下方那块面板（5×5 点位 + 情绪定位） */
+  /**
+   * ④ 情绪调节：**独立面板**（用户 2026-10-05 第 1 条：「情绪调节是单独的一个面板，
+   * 不是放在创作面板里面，参考图一，最上方参数旁边可以加上一个生成模型的选择」）。
+   */
   await presetBtn.click()
   await sleep(250)
   await panel.locator('[data-preset-emotion]').click()
   await sleep(500)
-  const box = panel.locator('[data-panel-emotion]')
-  rec(g, '★★ 情绪调节：素材下方出现功能框', (await box.count()) === 1, `count=${await box.count()}`)
+  const box = page.locator('[data-panel-emotion]')
+  rec(g, '★★ 情绪调节是**独立面板**（不再是创作面板里的一块）', (await box.count()) === 1 && (await panel.count()) === 0, `情绪=${await box.count()} 创作=${await panel.count()}`)
   rec(
     g,
-    '★★ 框在**素材下方**（几何：它的顶边在缩略图行下方）',
-    await (async () => {
-      const thumbs = panel.locator('[data-panel-part="assets"]').first()
-      const tb = await thumbs.boundingBox().catch(() => null)
-      const eb = await box.boundingBox()
-      return !!tb && !!eb && eb.y >= tb.y + tb.height - 2
-    })(),
+    '★★ 头排有**生成模型**选择 + 比例 / 数量 + 生成按钮（照参考图一）',
+    (await box.locator('[data-param-chip="emotionModel"]').count()) === 1 &&
+      (await box.locator('[data-param-chip="emotionRatio"]').count()) === 1 &&
+      (await box.locator('[data-param-chip="emotionCount"]').count()) === 1 &&
+      (await box.locator('[data-emotion-run]').count()) === 1,
   )
   rec(
     g,
@@ -17215,13 +17216,6 @@ async function g105(browser) {
    * 它们改的是**节点上同一份参数**：在这里选 1:1，参数行那枚胶囊与节点 data 都要跟着变
    * —— 只钉「这两个 chip 在」是弱证据，会漏掉「两个地方各存一份」那种错。
    */
-  rec(
-    g,
-    '★★ 情绪面板头排也有比例 / 数量',
-    (await box.locator('[data-param-chip="emotionRatio"]').count()) === 1 &&
-      (await box.locator('[data-param-chip="emotionCount"]').count()) === 1,
-    `ratio=${await box.locator('[data-param-chip="emotionRatio"]').count()} count=${await box.locator('[data-param-chip="emotionCount"]').count()}`,
-  )
   await pickParam(box, 'emotionRatio', '1:1')
   await sleep(900)
   const afterRatio = await storedData()
@@ -17258,14 +17252,16 @@ async function g105(browser) {
   await page.screenshot({ path: `${OUT}/128-g105-emotion.png` })
 
   /** 关闭 = 清掉这次的情绪（面板显示与否只看这一个事实） */
-  await panel.locator('[data-emotion-close]').click()
+  await box.locator('[data-emotion-close]').click()
   await sleep(900)
   const afterClose = await storedData()
   rec(
     g,
-    '★★ 关闭情绪面板 = 清掉情绪（不留「关掉了但还在提示词里」）',
-    (await box.count()) === 0 && afterClose.emotion === undefined,
-    `box=${await box.count()} emotion=${JSON.stringify(afterClose.emotion)}`,
+    '★★ 关闭情绪面板 = 清掉情绪 + 回到创作面板（不留「关掉了但还在提示词里」）',
+    (await box.count()) === 0 &&
+      (await panel.count()) === 1 &&
+      afterClose.emotion === undefined,
+    `情绪=${await box.count()} 创作=${await panel.count()} emotion=${JSON.stringify(afterClose.emotion)}`,
   )
 
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))

@@ -1,0 +1,23 @@
+/*
+ * 情绪面板（用户 2026-10-05 第 1 条）：外壳走共享的 `PanelShell.module.css`，
+ * 这里只管头排那一枚「生成」按钮。尺寸按屏幕值 ÷ 0.75 写成设计值。
+ */
+.run {
+  flex: 0 0 auto;
+  height: 46px;
+  padding: 0 22px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-family: var(--font-sans);
+  /* 屏幕 15.75px */
+  font-size: 21px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.run:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
