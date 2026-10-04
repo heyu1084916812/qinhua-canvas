@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ChatMessage } from '../../../domain/shared/execution/types'
-import { AGENT_DEFAULT_MAX_STEPS, resumeAgentTurn, runAgentTurn } from './agentLoop'
+import { AGENT_DEFAULT_MAX_STEPS, errText, resumeAgentTurn, runAgentTurn } from './agentLoop'
 
 /**
  * Agent 循环（设计文档 §4）。
@@ -11,6 +11,27 @@ import { AGENT_DEFAULT_MAX_STEPS, resumeAgentTurn, runAgentTurn } from './agentL
 
 const tools = [{ name: 'readGraph', parameters: { type: 'object' } }]
 const signal = new AbortController().signal
+
+/**
+ * 用户 2026-10-05 第 3 批：「他显示报错的时候能否把中文发我，而不是代码」。
+ *
+ * 渠道层抛的是 **AppError 字面量**（不是 Error），所以这条必须走
+ * `asAppError → describeError` 那条路 —— 否则会落到 `JSON.stringify`
+ * 把 `{"kind":"http","status":402,…}` 原样贴在对话里。
+ */
+describe('errText · 报错给人话', () => {
+  it('★★ AppError 字面量 → 中文一句话（不出现 kind / status 这些字段名）', () => {
+    const t = errText({ kind: 'http', status: 402, body: '{"error":{"message":"预扣费不足"}}' })
+    expect(t).toContain('预扣费不足')
+    expect(t).not.toContain('kind')
+    expect(t).not.toContain('[object Object]')
+  })
+
+  it('★ 没有可读字段的未知对象 → 也带中文前缀（不是裸 JSON）', () => {
+    const t = errText({ foo: 1 })
+    expect(t).toContain('没预料到')
+  })
+})
 
 interface Reply {
   text?: string

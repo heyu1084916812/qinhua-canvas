@@ -148,21 +148,31 @@ export const EdgeLayer = memo(function EdgeLayer({
 
   const removeEdge = (id: string) => store.dispatch({ kind: 'edge.remove', id })
 
-  const draftD = draft ? draftPath(draft) : null
+  /**
+   * 草稿线：多选「共有端点」时**每个源各画一条**（终点共用指针位置）。
+   *
+   * 以前只画 `draft.from` 那一条 —— 用户 2026-10-05 第 3 批报「框选多个节点之后
+   * 里面的节点不是全都有拉出线条」：功能上每个节点都连上了，但过程里只看得到一根线，
+   * 读起来就是「只连了一个」。
+   */
+  const draftDs = draft
+    ? [draft.from, ...(draft.alsoFrom ?? [])].map((from) => draftPath({ ...draft, from }))
+    : []
 
-  if (!edges.length && !draftD) return null
+  if (!edges.length && draftDs.length === 0) return null
 
   return (
     <svg className={styles.svg} aria-hidden>
       <EdgeWorld>
-        {draftD && (
+        {draftDs.map((d, i) => (
           <path
+            key={i}
             className={draft?.invalid ? `${styles.draft} ${styles.draftInvalid}` : styles.draft}
-            d={draftD}
+            d={d}
             vectorEffect="non-scaling-stroke"
             data-edge-draft
           />
-        )}
+        ))}
         {edges.map((e) => {
           const s = byId.get(e.source)
           const t = byId.get(e.target)

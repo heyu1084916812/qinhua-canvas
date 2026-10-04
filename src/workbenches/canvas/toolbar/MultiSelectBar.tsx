@@ -5,6 +5,7 @@ import { ARRANGE_MODES } from '../../../domain/canvas/layout/arrangeModes'
 import { useArrangeTools } from '../../../features/canvas/useArrangeTools'
 import { groupNodes } from '../../../features/canvas/groupNodes'
 import { saveAssetToLibrary } from '../../../features/canvas/saveAssetToLibrary'
+import { noOverlapDelta } from '../../../features/canvas/duplicatePlacement'
 import { sendSelectionToAgent } from '../../../features/canvas/agentHandoff'
 import { createId } from '../../../shared/id'
 import { useCanvasStore, useGraph, useSelection, useViewportState } from '../storeContext'
@@ -108,12 +109,19 @@ export function MultiSelectBar({
   const duplicate = useCallback(() => {
     const ids = selection
     if (ids.length === 0) return
+    /** 副本落位：整组往右让开（集合内部的节点不算「别人」，否则彼此判成撞上） */
+    const graph = store.getSnapshot()
+    const picked = graph.nodes.filter((n) => ids.includes(n.id))
+    const delta = noOverlapDelta(
+      picked,
+      graph.nodes.filter((n) => !ids.includes(n.id)),
+    )
     store.dispatch({
       kind: 'node.duplicate',
       ids: [...ids],
       newIds: ids.map(() => createId('node')),
-      dx: 24,
-      dy: 24,
+      dx: delta.dx,
+      dy: delta.dy,
       rewire: true,
     })
   }, [selection, store])

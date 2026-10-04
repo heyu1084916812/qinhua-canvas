@@ -6569,10 +6569,39 @@ async function g58(browser) {
   //    再 Shift + 点击原件加选（§6.15：Shift + 按下 = 增减选中）。
   await page.locator('[data-node-type="generation"]').first().click({ position: { x: 20, y: 60 } })
   await sleep(300)
+  const idsBeforeDup = await page
+    .locator('[data-node-id]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
   await page.locator('[data-follow-action="duplicate"]').click()
   await sleep(500)
   const genCount2 = await page.locator('[data-node-type="generation"]').count()
   rec(g, '跟随栏「复制」真的多出一个节点', genCount2 === 2, `count=${genCount2}`)
+  /**
+   * ★★ **副本不许压在别的节点上**（用户 2026-10-05 第 3 批：「创建副本……不要遮住
+   * 画布上的节点，当前复制节点是遮住了的」）。
+   *
+   * 判据是**几何**：把副本与画布上其余每个节点的屏幕矩形求交集，总面积必须是 0。
+   * 改前写死 `+24/+24` —— 240×240 的生成节点会重叠 216×216 = **46656 px²**，
+   * 用户看到的就是「点完复制好像什么都没发生」。
+   */
+  const dupId = (
+    await page.locator('[data-node-id]').evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+  ).find((id) => !idsBeforeDup.includes(id))
+  const dupOverlap = await page.evaluate((id) => {
+    const el = document.querySelector(`[data-node-id="${id}"]`)
+    const r = el?.getBoundingClientRect()
+    if (!r) return null
+    let area = 0
+    for (const other of document.querySelectorAll('[data-node-id]')) {
+      if (other.getAttribute('data-node-id') === id) continue
+      const o = other.getBoundingClientRect()
+      const w = Math.max(0, Math.min(r.right, o.right) - Math.max(r.left, o.left))
+      const h = Math.max(0, Math.min(r.bottom, o.bottom) - Math.max(r.top, o.top))
+      area += w * h
+    }
+    return Math.round(area)
+  }, dupId)
+  rec(g, '★★ 副本不覆盖画布上任何节点（重叠面积 = 0）', dupOverlap === 0, `重叠=${dupOverlap}px²`)
   const copyBox = await page.locator('[data-node-type="generation"]').nth(1).boundingBox()
   await page.keyboard.down('Shift')
   await page.locator('[data-node-type="generation"]').nth(1).click({ position: { x: 20, y: Math.min(60, copyBox.height - 14) } })
@@ -16657,10 +16686,15 @@ async function g103(browser) {
   await page.mouse.down()
   await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 12 })
   await sleep(250)
+  /**
+   * ★★ 草稿线**每个选中节点各一条**（用户 2026-10-05 第 3 批：「框选多个节点的时候
+   * 进行连线的时候里面的节点不是全都有拉出线条」）。两个源 ⇒ 两条草稿；终点是同一个指针位置。
+   * 改之前只画一条（功能上照样 +2，但过程看着像「只连了一个」）。
+   */
   rec(
     g,
-    '★ 从共有端点拖出时出现草稿线',
-    (await page.locator('[data-edge-draft]').count()) === 1,
+    '★★ 从共有端点拖出时：每个选中节点各一条草稿线（2 条）',
+    (await page.locator('[data-edge-draft]').count()) === 2,
     `draft=${await page.locator('[data-edge-draft]').count()}`,
   )
   await page.mouse.up()
@@ -17127,6 +17161,72 @@ async function g105(browser) {
     '★★ 每一条预设自带矢量图标（第 8 条：不是符号字）',
     menuGeom.rows > 0 && menuGeom.withIcon === menuGeom.rows,
     `${menuGeom.withIcon}/${menuGeom.rows} 条带图标`,
+  )
+
+  /**
+   * ★★ **点别处的空白要收起**（用户 2026-10-05 第 3 批：「创作面板上的功能预设点击其他
+   * 空白的区域需要取消，目前是需要重新点击那个按钮才会取消」）。
+   *
+   * 钉两个落点，它们各对应一个曾经漏掉的机制：
+   * ① **面板里的空白**（左缘那块）：面板内的控件在 `pointerdown` 上 `stopPropagation()`，
+   *    监听挂在冒泡阶段时根本收不到；
+   * ② **菜单自己的空白**（两栏高度差留下的右下角）：以前整块菜单都算「点在菜单里」。
+   *
+   * 每条都先证明「那一点真的不是菜单项」再断言收起 —— 否则点到某一条预设也会关菜单，
+   * 断言绿了却什么都没证明。
+   */
+  const closeByBlank = async (label, point, opts = {}) => {
+    const requireInPanel = opts.requireInPanel !== false
+    /** 这一下本来就该落在菜单**内部**（菜单自己的空白）还是外部（画布空白） */
+    const expectInMenu = opts.expectInMenu === true
+    /**
+     * 后面还要接着验 Esc 分层，所以这里先把面板与菜单开回来。
+     * 走 `genPanel` 而不是「直接点预设按钮」：点画布空白那次会把选中也清掉，
+     * 面板本身跟着卸载 —— 只点按钮会扑空（第一次跑就死在这儿）。
+     */
+    const reopen = async () => {
+      const p = await genPanel(page, gen)
+      await p.locator('[data-panel-preset]').click()
+      await sleep(300)
+    }
+    const hit = await page.evaluate((p) => {
+      const el = document.elementFromPoint(p[0], p[1])
+      return {
+        inPanel: !!el?.closest('[data-creation-panel]'),
+        inMenu: !!el?.closest('[data-preset-menu]'),
+        onMenuButton: !!el?.closest('[data-preset-menu] button'),
+      }
+    }, point)
+    await page.mouse.click(point[0], point[1])
+    await sleep(320)
+    const closed = (await panel.locator('[data-preset-menu]').count()) === 0
+    rec(
+      g,
+      `★★ ${label}（实测点到的不是菜单项）→ 预设菜单收起`,
+      (!requireInPanel || hit.inPanel) &&
+        (expectInMenu ? hit.inMenu : !hit.inMenu) &&
+        !hit.onMenuButton &&
+        closed,
+      `${JSON.stringify(hit)} @${point.map(Math.round).join(',')} → ${closed ? '已收起' : '仍开着'}`,
+    )
+    await reopen()
+  }
+  /**
+   * 「别处」取**菜单左沿再往左 60px**那一竖条 —— 实测菜单宽 519，往往比面板还宽，
+   * 面板里根本没有「菜单之外又还在面板里」的空白可点；那一竖条落在画布上
+   * （`inPanel:false`），点它等于**点画布空白**：菜单收起，面板也跟着收起
+   * （画布空白单击 = 取消选中的既定语义）。
+   *
+   * 不写死坐标：菜单是右对齐弹出的，位置随面板与视口变 —— 第一次写成
+   * `panel.x + 30` 就点到了菜单项上（断言当场红）。
+   */
+  const menuHead = await panel.locator('[data-preset-menu]').boundingBox()
+  await closeByBlank('点画布空白', [menuHead.x - 60, menuHead.y + 40], { requireInPanel: false })
+  const menuBox2 = await panel.locator('[data-preset-menu]').boundingBox()
+  await closeByBlank(
+    '点菜单自己的空白',
+    [menuBox2.x + menuBox2.width - 40, menuBox2.y + menuBox2.height - 30],
+    { expectInMenu: true },
   )
 
   /** Esc 只收菜单，别把面板也关了（逐层收） */

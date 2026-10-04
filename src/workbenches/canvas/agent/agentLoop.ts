@@ -1,5 +1,6 @@
 import type { ChatMessage, ToolDeclaration } from '../../../domain/shared/execution/types'
 import type { ChannelAdapter } from '../../../platform/channels/types'
+import { asAppError, describeError } from '../../../shared/result'
 
 /**
  * Agent 循环（设计文档 §4）。
@@ -255,6 +256,15 @@ export function errText(e: unknown): string {
   if (e instanceof Error) return e.message
   if (typeof e === 'string') return e
   if (e && typeof e === 'object') {
+    /**
+     * **先按 AppError 翻成人话**（用户 2026-10-05 第 3 批：「报错要中文，不要代码」）。
+     *
+     * 渠道层抛的正是 AppError 字面量（`{kind:'http', status:402, body:…}`）——
+     * 不先过这一层的话，下面那张 `message/detail/…` 的键都对不上，
+     * 会一路落到 `JSON.stringify` 把原始结构贴在界面上。
+     */
+    const app = asAppError(e)
+    if (app) return describeError(app)
     const o = e as Record<string, unknown>
     for (const k of ['message', 'detail', 'raw', 'reason', 'error']) {
       const v = o[k]
@@ -262,7 +272,7 @@ export function errText(e: unknown): string {
     }
     try {
       const s = JSON.stringify(e)
-      if (s && s !== '{}') return s.slice(0, 300)
+      if (s && s !== '{}') return `遇到了没预料到的错误（详情：${s.slice(0, 300)}）`
     } catch {
       /* 循环引用之类，走最后的兜底 */
     }

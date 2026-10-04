@@ -521,14 +521,25 @@ export function CreationPanel(props: CreationPanelProps) {
     if (!mentionOpen) return
     const onDown = (e: PointerEvent) => {
       const el = e.target as HTMLElement | null
-      if (el?.closest('[data-panel-mention-menu]') || el?.closest('[data-panel-mention-open]')) {
+      /**
+       * 只有「点在某一条候选上」才算操作菜单；菜单里的空白（内距 / 两栏高度差留下的空档）
+       * 一律按「点别处」处理 —— 用户 2026-10-05 第 3 批：「点击其他空白的区域需要取消」。
+       */
+      if (el?.closest('[data-panel-mention]')) {
         return
       }
       setMentionOpen(false)
     }
-    window.addEventListener('pointerdown', onDown)
+    /**
+     * **捕获阶段**（第三个参数 `true`）——这条不是保险，是必需：
+     * 面板里的素材条 / chip 等控件在自己的 `pointerdown` 上 `stopPropagation()`，
+     * 冒泡到 window 的那条路上听众收不到 ⇒ 用户点「看着是空白」的地方，菜单一直挂着。
+     * 捕获在**往下传的路上**就判，`stopPropagation` 拦不住它。
+     * （同一条教训写在 `.workbuddy/memory/INVARIANTS.md`：点外关闭必须挂捕获阶段。）
+     */
+    window.addEventListener('pointerdown', onDown, true)
     return () => {
-      window.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('pointerdown', onDown, true)
     }
   }, [mentionOpen])
 
@@ -602,12 +613,34 @@ export function CreationPanel(props: CreationPanelProps) {
     if (!presetOpen && !presetOptionsOpen) return
     const onDown = (e: PointerEvent) => {
       const el = e.target as HTMLElement | null
-      if (el?.closest('[data-preset-menu]') || el?.closest('[data-preset-options]')) return
-      if (el?.closest('[data-panel-preset-open]') || el?.closest('[data-panel-preset-gear]')) return
+      /**
+       * 菜单里「点在某一条 / 某一档按钮上」= 操作它，不收起；
+       * 点在菜单自己的**空白**上（行距、两栏高度差留下的空档、面板内距）
+       * 按「点别处」处理并收起 —— 用户要的就是这一下能取消。
+       */
+      if (
+        el?.closest('[data-preset-menu] button') ||
+        el?.closest('[data-preset-options] button')
+      ) {
+        return
+      }
+      /**
+       * 开关按钮自己不算「别处」：这一下交给它的 `onClick` 去 toggle。
+       *
+       * ⚠️ 这里以前写的是 `[data-panel-preset-open]` / `[data-panel-preset-gear]` ——
+       * 两个选择器**在代码里根本不存在**（按钮上的真名是 `data-panel-preset`，
+       * 那枚「齿轮」随预设 chip 改版一起删了），于是这条守卫从来没生效过。
+       */
+      if (el?.closest('[data-panel-preset]')) return
       closePresetMenus()
     }
-    window.addEventListener('pointerdown', onDown)
-    return () => window.removeEventListener('pointerdown', onDown)
+    /**
+     * 同上：**捕获阶段**。用户 2026-10-05 第 3 批报的「点其他空白区域不收起」
+     * 就是冒泡阶段收不到（素材条 stopPropagation）—— 实测点面板左缘空白会收、
+     * 点顶部素材条不收，差别就在这一层。
+     */
+    window.addEventListener('pointerdown', onDown, true)
+    return () => window.removeEventListener('pointerdown', onDown, true)
   }, [presetOpen, presetOptionsOpen])
   /** 技能库（共享的全局单例，设置页改完这里会立刻反映） */
   const { skills } = useSkills()

@@ -27,6 +27,15 @@ export interface LinkDraft {
   fromSide: 'left' | 'right'
   /** 固定端的世界坐标（源端点或目标端点） */
   from: { x: number; y: number }
+  /**
+   * **同一次拖拽里其它固定端**（多选「共有端点」：拖一次要连每个选中节点）。
+   *
+   * 用户 2026-10-05 第 3 批：「框选多个节点的时候进行连线的时候里面的节点不是全都有
+   * 拉出线条」——落地上每个节点确实都连上了（逐个独立判定），但**过程里只画了一条草稿**，
+   * 看着像「只连了一个」。这个字段就是给那几个节点各留一个起点，`EdgeLayer` 会
+   * 为每个起点画一条草稿线（终点同一个指针位置）。
+   */
+  alsoFrom?: { x: number; y: number }[]
   /** 跟随指针的活动端世界坐标 */
   to: { x: number; y: number }
   /** 悬停到的合法对端节点 id（用于「可连接时下游呈选中态」反馈） */
@@ -142,12 +151,28 @@ export function useEdgeDrag(store: CanvasStore) {
       const world = toWorldRect(node, parent)
       const anchor = portAnchorWorld(world, decl)
 
+      /**
+       * 其它源的固定端：每个选中节点各按**它自己的端口声明**取锚点
+       * （没有这只口的那种节点直接跳过，与落地时逐个独立判定同一条口径）。
+       */
+      const alsoFrom = (also ?? [])
+        .filter((id) => id !== nodeId)
+        .flatMap((id) => {
+          const n = graph.nodes.find((x) => x.id === id)
+          if (!n) return []
+          const d = portDeclOf(getSpec(n.type)?.ports ?? { input: false, output: false }, portId)
+          if (!d) return []
+          const p = n.parentId ? graph.nodes.find((x) => x.id === n.parentId) : undefined
+          return [portAnchorWorld(toWorldRect(n, p), d)]
+        })
+
       setDraft({
         side,
         nodeId,
         portId,
         fromSide: decl.side,
         from: anchor,
+        alsoFrom,
         to: anchor,
         hoverNodeId: null,
         invalid: false,
@@ -163,6 +188,7 @@ export function useEdgeDrag(store: CanvasStore) {
           portId,
           fromSide: decl.side,
           from: anchor,
+          alsoFrom,
           to,
           hoverNodeId: ok?.ok ? hovered : null,
           invalid: hovered !== null && ok !== null && !ok.ok,

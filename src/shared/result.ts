@@ -56,28 +56,67 @@ export function isOk<T>(r: Result<T>): r is { ok: true; value: T } {
   return r.ok
 }
 
+/**
+ * 枚举 → 中文。**这张表是「报错不许露代码」的唯一落点。**
+ *
+ * 用户 2026-10-05 第 3 批原话：「他显示报错的时候能否把中文发我，而不是代码」。
+ * 在这之前 `describeError` 是把枚举值原样拼进句子的 ——
+ * `网络错误：cors`、`渠道错误：missingKey`、`存储错误：quota` 这种，
+ * 用户看到的是一串英文标识符，既不知道出了什么事，也不知道该怎么办。
+ *
+ * 维护纪律：`AppError` 新增一个 kind / detail 时，**这里必须同时加一行**；
+ * `result.test.ts` 有一条「一条都不许漏」的断言（遍历全部取值、逐个断言译文非空且不含英文标识符）。
+ */
+const NETWORK_TEXT: Record<'dns' | 'tls' | 'cors' | 'timeout' | 'aborted', string> = {
+  dns: '解析不了对方的地址（检查网络或代理）',
+  tls: '安全连接建不起来（证书 / TLS 被拒）',
+  cors: '被对方的跨域策略挡下了（网页直连不被允许）',
+  timeout: '等太久，超时了',
+  aborted: '请求被取消',
+}
+
+const STORAGE_TEXT: Record<'quota' | 'corrupt' | 'permission', string> = {
+  quota: '本地空间不够了',
+  corrupt: '本地数据损坏了',
+  permission: '浏览器没给存储权限',
+}
+
+const CHANNEL_TEXT: Record<'missingKey' | 'missingModel' | 'unsupported', string> = {
+  missingKey: '还没填令牌（API Key）',
+  missingModel: '这个渠道里没有你选的那个模型',
+  unsupported: '这个渠道不支持这次请求',
+}
+
 export function describeError(e: AppError): string {
   switch (e.kind) {
     case 'network':
-      return `网络错误：${e.detail}`
-    case 'http':
+      return `连不上：${NETWORK_TEXT[e.detail]}`
+    case 'http': {
       /**
-       * 带上服务端原话（如果拿到了）。
+       * **服务端的原话优先**（它通常就是中文，比如「预扣费不足」）——
+       * 状态码只作为括号里的补充，原因看不清时也留一句人话，不把裸码丢给用户。
        *
-       * 此前只出「HTTP 403」这样的三个字符，用户看完仍然不知道发生了什么——
-       * 而 403 的成因远不止一种（模型未开通 / 额度用尽 / IP 白名单 / 渠道被禁），
-       * **真正的原因就写在响应体里**。适配器已经把 body 收进 AppError 了，
-       * 这里再不显示就等于白收。
+       * 为什么还留状态码：403 / 402 / 429 的成因差得远，用户拿这句去问客服时，
+       * 那个数字是唯一能对齐的东西（英文标识符没有这个作用）。
        */
-      return e.body ? `HTTP ${e.status}｜${serverReasonOf(e.body) ?? e.body.slice(0, 200)}` : `HTTP ${e.status}`
+      const reason = e.body ? serverReasonOf(e.body) : null
+      const head = `服务端返回错误（HTTP ${e.status}）`
+      if (!reason) return `${head}，而且没给原因`
+      /**
+       * 服务端给什么原话就带什么（它自己的话通常比我们编的准）。
+       * `serverReasonOf` 已经把 `{"error":{"message":…}}` 这类壳剥掉了，
+       * 剥不出来时才回一段截断原文 —— 那种情况下也仍然以中文句子开头。
+       */
+      return `${head}：${reason}`
+    }
     case 'parse':
-      return '解析失败'
+      return '看不懂服务端返回的内容（格式对不上）'
     case 'storage':
-      return `存储错误：${e.detail}`
+      return `本地存储出错：${STORAGE_TEXT[e.detail]}`
     case 'validation':
-      return `${e.field}：${e.reason}`
+      return `这个设置不对（${e.field}）：${e.reason}`
     case 'channel':
-      return `渠道错误：${e.detail}`
+      return `渠道还没配好：${CHANNEL_TEXT[e.detail]}`
   }
 }
 

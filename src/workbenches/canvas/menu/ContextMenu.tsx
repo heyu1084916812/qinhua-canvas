@@ -15,6 +15,7 @@ import { createId } from '../../../shared/id'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { createNodeWithDefaults } from '../../../features/canvas/createNodeWithDefaults'
+import { noOverlapDelta } from '../../../features/canvas/duplicatePlacement'
 import { saveAssetToLibrary } from '../../../features/canvas/saveAssetToLibrary'
 import styles from './ContextMenu.module.css'
 import {
@@ -141,12 +142,18 @@ export function ContextMenu() {
       if (a.kind === 'run') {
         void exec.runNode(nodeId)
       } else if (a.kind === 'duplicate') {
+        /** 副本落位：先让开画布上别的节点（用户 2026-10-05 第 3 批）——见 `duplicatePlacement` */
+        const src = graph.nodes.find((n) => n.id === nodeId)
+        const delta = noOverlapDelta(
+          src ? [src] : [],
+          graph.nodes.filter((n) => n.id !== nodeId),
+        )
         store.dispatch({
           kind: 'node.duplicate',
           ids: [nodeId],
           newIds: [createId('node')],
-          dx: 24,
-          dy: 24,
+          dx: delta.dx,
+          dy: delta.dy,
           rewire: true,
         })
       } else if (a.kind === 'rename') {

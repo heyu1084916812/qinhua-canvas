@@ -22,6 +22,7 @@ import type { NodeSnapshot, NodeType } from '../../../domain/canvas/model/node'
 import { createId } from '../../../shared/id'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { GRID_CUSTOM_MAX, GRID_PRESETS, splitNodeToGrid } from '../../../features/canvas/splitToGrid'
+import { noOverlapDelta } from '../../../features/canvas/duplicatePlacement'
 import { followBarAnchor } from './followBarAnchor'
 import styles from './NodeFollowBar.module.css'
 import { FormatToolbar, type FormatAction } from '../text/FormatToolbar'
@@ -296,16 +297,22 @@ function NodeActions({
           action="duplicate"
           icon={<IconDuplicate />}
           label="复制"
-          onClick={() =>
+          onClick={() => {
+            /** 副本落位：让开画布上别的节点（用户 2026-10-05 第 3 批，「复制节点遮住了」） */
+            const graph = store.getSnapshot()
+            const delta = noOverlapDelta(
+              [node],
+              graph.nodes.filter((n) => n.id !== node.id),
+            )
             store.dispatch({
               kind: 'node.duplicate',
               ids: [node.id],
               newIds: [createId('node')],
-              dx: 24,
-              dy: 24,
+              dx: delta.dx,
+              dy: delta.dy,
               rewire: true,
             })
-          }
+          }}
         />
       )}
       {/*
