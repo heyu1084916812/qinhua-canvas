@@ -105,6 +105,20 @@ interface CanvasState {
    */
   lightbox: { assetHash: string; cropFor?: string } | null
   /**
+   * **旋转与镜像编辑**（用户 2026-10-05 第 10 条）：作用在**刚复制出来的那个节点**上。
+   *
+   * 与灯箱同类瞬时态，只存 nodeId（图片本体按它的 `assetHash` 读）：关掉即忘，
+   * 不落库、不进撤销栈 —— 「保存」那一下才写数据（并作为一步撤销）。
+   */
+  rotate: { nodeId: string } | null
+  /**
+   * **标注（画笔）编辑**（用户 2026-10-05 第 10 条）：画在节点的素材上，
+   * 「保存」时把标注**合成进一张新图**并落到原图右侧的新节点（原图不动）。
+   *
+   * 同样是瞬时态：工具选择 / 笔画历史都在编辑层自己手里，关掉即忘。
+   */
+  annotate: { nodeId: string } | null
+  /**
    * 文本编辑灯箱（产品文档 §6.7，用户 2026-09-21）：提示词正文的**大编辑框**。
    *
    * 与素材灯箱 `lightbox` 分开存，而不是合成一个联合类型：两者的**内容形态
@@ -177,6 +191,14 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
   openCropLightbox: (nodeId: string) => void
   closeLightbox: () => void
   getLightbox: () => { assetHash: string; cropFor?: string } | null
+  /** 打开 / 关闭「旋转与镜像」编辑（第 10 条）：打开时关闭灯箱与文本编辑框（三者互斥） */
+  openRotateEditor: (nodeId: string) => void
+  closeRotateEditor: () => void
+  getRotate: () => { nodeId: string } | null
+  /** 打开 / 关闭「标注」编辑（与灯箱、文本编辑、旋转编辑互斥） */
+  openAnnotateEditor: (nodeId: string) => void
+  closeAnnotateEditor: () => void
+  getAnnotate: () => { nodeId: string } | null
   /** 打开 / 关闭文本编辑灯箱（§6.7）。与素材灯箱互斥 */
   openTextEditor: (nodeId: string) => void
   closeTextEditor: () => void
@@ -295,6 +317,8 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     renamingId: null,
     undoBar: null,
     lightbox: null,
+    rotate: null,
+    annotate: null,
     textEditor: null,
   }))
 
@@ -433,6 +457,27 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     },
     closeLightbox: () => store.setState({ lightbox: null }),
     getLightbox: () => store.getState().lightbox,
+    /** 三者互斥（灯箱 / 文本编辑 / 旋转编辑）：同时开着只会互相盖住 */
+    openRotateEditor: (nodeId) =>
+      store.setState({
+        rotate: { nodeId },
+        annotate: null,
+        lightbox: null,
+        textEditor: null,
+        menu: null,
+      }),
+    closeRotateEditor: () => store.setState({ rotate: null }),
+    getRotate: () => store.getState().rotate,
+    openAnnotateEditor: (nodeId) =>
+      store.setState({
+        annotate: { nodeId },
+        rotate: null,
+        lightbox: null,
+        textEditor: null,
+        menu: null,
+      }),
+    closeAnnotateEditor: () => store.setState({ annotate: null }),
+    getAnnotate: () => store.getState().annotate,
     /* 与素材灯箱互斥：同一个屏幕位置不可能同时看图和改字，两个都开着只会互相盖住 */
     openTextEditor: (nodeId) =>
       store.setState({ textEditor: { nodeId }, lightbox: null, menu: null }),

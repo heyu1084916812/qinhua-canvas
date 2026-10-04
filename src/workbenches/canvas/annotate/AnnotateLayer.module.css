@@ -1,0 +1,205 @@
+/*
+ * 标注编辑层（用户 2026-10-05 第 10 条）。与旋转层 / 素材灯箱同一档（全屏、z-index 50）。
+ * 尺寸都是屏幕值（这层不挂 zoom）。
+ */
+.layer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--space-4) var(--space-4);
+  box-sizing: border-box;
+  background: var(--bg-subtle);
+}
+
+.toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
+  max-width: 100%;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  background: var(--bg-surface);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-float);
+  font-family: var(--font-sans);
+  color: var(--text-1);
+}
+
+.close {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.close:hover {
+  background: var(--bg-hover);
+}
+
+.closeLabel {
+  white-space: nowrap;
+}
+
+.tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-1);
+  cursor: pointer;
+}
+
+.tool:hover {
+  background: var(--bg-hover);
+}
+
+.tool:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 当前工具：实色强调（与画布其它「选中」口径一致） */
+.toolOn {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.textInput {
+  width: 190px;
+  height: 28px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+}
+
+/* 颜色：六个圆点色样，选中的放大一圈并加描边 */
+.colors {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--stroke);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.swatchOn {
+  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent);
+}
+
+.sizeWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.sizeLabel {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.size {
+  width: 96px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.sizeValue {
+  min-width: 20px;
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  font-variant-numeric: tabular-nums;
+}
+
+.divider {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  background: var(--stroke);
+  margin: 0 2px;
+}
+
+.save {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.stage {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/*
+ * 画布：按图片原始像素定尺寸（JS 给 width/height 属性），
+ * 显示时用 `max-width/height: 100%` 自适应 —— 于是「屏幕坐标 → 图片像素」的换算
+ * 只需要按 rect 比例来一次，绘制与保存共用同一套坐标。
+ */
+.canvas {
+  max-width: 100%;
+  max-height: 100%;
+  background: var(--bg-surface);
+  border: var(--border);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+/* 底图只给 canvas 当绘制源，不上屏 */
+.hiddenImage {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}

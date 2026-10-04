@@ -703,3 +703,67 @@ export function IconEmotion(props: IconProps) {
     </Svg>
   )
 }
+
+/** 旋转：一个方块 + 绕它一圈的箭头（用户 2026-10-05 第 10 条的「旋转」入口） */
+export function IconRotate(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="8.4" y="8.4" width="7.2" height="7.2" rx="1.4" />
+      <path d="M19.4 12a7.4 7.4 0 1 1-2.2-5.2" />
+      <path d="M19.8 3.6v3.6h-3.6" />
+    </Svg>
+  )
+}
+
+/** 标注：一支笔 + 一道下划线（用户 2026-10-05 第 10 条的「标注」入口） */
+export function IconAnnotate(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4.4 15.8 14.2 6l3.8 3.8-9.8 9.8H4.4z" />
+      <path d="m12.8 7.4 2-2a1.6 1.6 0 0 1 2.3 0l1.5 1.5a1.6 1.6 0 0 1 0 2.3l-2 2" />
+      <path d="M4.4 21h15.2" />
+    </Svg>
+  )
+}
+
+/** 左右镜像：一条竖虚线 + 两侧的三角（用户 2026-10-05 第 10 条的「左右镜像」） */
+export function IconMirrorH(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 3.6v16.8" strokeDasharray="2.4 2.4" />
+      <path d="M9 7.6 4.6 12 9 16.4z" />
+      <path d="M15 7.6 19.4 12 15 16.4z" />
+    </Svg>
+  )
+}
+
+/** 上下镜像：一条横虚线 + 上下两个三角 */
+export function IconMirrorV(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3.6 12h16.8" strokeDasharray="2.4 2.4" />
+      <path d="M7.6 9 12 4.6 16.4 9z" />
+      <path d="M7.6 15 12 19.4 16.4 15z" />
+    </Svg>
+  )
+}
+
+/** 矩形（标注工具里那枚「画框」） */
+export function IconRect(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="4" y="5.4" width="16" height="13.2" rx="2" />
+    </Svg>
+  )
+}
+
+/** 文字（标注工具里那枚「T」） */
+export function IconText(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M5 6.4h14" />
+      <path d="M12 6.4v11.2" />
+      <path d="M9 17.6h6" />
+    </Svg>
+  )
+}

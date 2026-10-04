@@ -13,13 +13,15 @@
  * 差别只有纵向位置：面板在节点**下方**，本栏在节点**上方**（标题之上），
  * 即纵向锚点 = 节点顶边再上移「栏高 + 间距」（用户 2026-09-17 起不再翻转到下方）。
  */
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useCanvasStore, useGraph, useSelection, useViewportState } from '../storeContext'
 import { toWorldRectInGraph } from '../../../domain/canvas/geometry/coords'
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import type { NodeSnapshot, NodeType } from '../../../domain/canvas/model/node'
 import { createId } from '../../../shared/id'
+import { usePlatform } from '../../../app/providers/PlatformProvider'
+import { GRID_CUSTOM_MAX, GRID_PRESETS, splitNodeToGrid } from '../../../features/canvas/splitToGrid'
 import { followBarAnchor } from './followBarAnchor'
 import styles from './NodeFollowBar.module.css'
 import { FormatToolbar, type FormatAction } from '../text/FormatToolbar'
@@ -27,6 +29,10 @@ import { applyInlineFormat, applyLineFormat, insertDivider, linePrefixOf } from 
 import { toPlainText } from '../../../domain/canvas/text/markdownRender'
 import {
   IconChevronDown,
+  IconGridArrange,
+  IconRotate,
+  IconExpand,
+  IconAnnotate,
   IconDelete,
   IconDownload,
   IconDuplicate,
@@ -165,6 +171,15 @@ function NodeActions({
 }) {
   const store = useCanvasStore()
   const exec = useCanvasExecution()
+  const platform = usePlatform()
+  /**
+   * 宫格切分的两级菜单（用户 2026-10-05 第 9 条）：
+   * `presets` = 4 / 9 / 16 / 25 宫格 + 「自定义 ›」；`custom` = 点选行列的网格
+   * （参考截图里那块 4×4 的小方格；这里放宽到 6×6）。
+   */
+  const [splitMenu, setSplitMenu] = useState<'none' | 'presets' | 'custom'>('none')
+  const [customR, setCustomR] = useState(2)
+  const [customC, setCustomC] = useState(2)
 
   /**
    * 提示词节点走**正文格式工具栏**（用户 2026-09-21），而不是下面那套
@@ -201,6 +216,7 @@ function NodeActions({
    * 猜一个必然有人不满意。要下容器里的某张，选中那张子节点再下即可。
    */
   const hasAsset = !!(node.data as { assetHash?: string }).assetHash
+  const assetHash = (node.data as { assetHash?: string }).assetHash
 
   /**
    * **有素材时，功能栏只留「跟这张素材有关」的动作**（用户 2026-10-05 第 13 条：
@@ -217,6 +233,44 @@ function NodeActions({
     if (busy) exec.cancel()
     else if (node.type === 'generation') void exec.runNode(node.id)
     else void exec.runNode(node.id)
+  }
+
+  /** 切分：切完把新节点选中（`splitNodeToGrid` 内部已经 setSelection），失败就把原因说清楚 */
+  const runSplit = (rows: number, cols: number) => {
+    setSplitMenu('none')
+    void splitNodeToGrid({ platform, store }, { nodeId: node.id, rows, cols }).then((r) => {
+      if (!r.ok) store.notify(r.reason)
+    })
+  }
+
+  /**
+   * 旋转与镜像（用户 2026-10-05 第 10 条）：「点击后右边复制一个新的节点并且连接，
+   * 上方出现功能栏……最右边还有一个保存按钮」。
+   *
+   * 复制 + 连线走**一个 plan**（一步撤销）；复制的 `rewire: false` —— 旋转副本是
+   * 「这张图的又一版」，不该把原图的整条上游也复制一份。
+   */
+  const onRotate = () => {
+    if (!assetHash) return
+    const id = createId('node')
+    store.beginPlan(`rotate:${id}`, '旋转与镜像')
+    store.dispatch({
+      kind: 'node.duplicate',
+      ids: [node.id],
+      newIds: [id],
+      dx: node.w + 40,
+      dy: 0,
+      rewire: false,
+    })
+    store.dispatch({
+      kind: 'edge.connect',
+      source: node.id,
+      target: id,
+      sourcePort: 'output',
+      targetPort: 'input',
+    })
+    store.endPlan()
+    store.openRotateEditor(id)
   }
 
   return (
@@ -268,6 +322,72 @@ function NodeActions({
         />
       )}
       {/*
+        宫格切分（用户 2026-10-05 第 9 条）：切完在**原图右侧**排出一批新节点，
+        原图不动（与「提取选区」同一条约定）。只在有素材时出现 —— 没图可切。
+      */}
+      {hasAsset && (
+        <span className={styles.splitAnchor}>
+          <FollowButton
+            action="split"
+            icon={<IconGridArrange />}
+            label="宫格切分"
+            onClick={() => setSplitMenu((v) => (v === 'none' ? 'presets' : 'none'))}
+          />
+          {splitMenu === 'presets' && (
+            <div className={styles.splitMenu} data-split-menu>
+              {GRID_PRESETS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={styles.splitItem}
+                  data-split-preset={p.id}
+                  onClick={() => runSplit(p.rows, p.cols)}
+                >
+                  {p.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                className={styles.splitItem}
+                data-split-custom
+                onClick={() => setSplitMenu('custom')}
+              >
+                自定义 ›
+              </button>
+            </div>
+          )}
+          {splitMenu === 'custom' && (
+            <div className={styles.splitMenu} data-split-custom-menu>
+              <div className={styles.splitHint}>点一格 = 用它的行列</div>
+              <div className={styles.splitGrid}>
+                {Array.from({ length: GRID_CUSTOM_MAX * GRID_CUSTOM_MAX }, (_, i) => {
+                  const r = Math.floor(i / GRID_CUSTOM_MAX) + 1
+                  const c = (i % GRID_CUSTOM_MAX) + 1
+                  const on = r <= customR && c <= customC
+                  return (
+                    <button
+                      key={`${r}-${c}`}
+                      type="button"
+                      className={on ? `${styles.splitCell} ${styles.splitCellOn}` : styles.splitCell}
+                      data-split-cell={`${r}x${c}`}
+                      aria-label={`${r} 行 ${c} 列`}
+                      onMouseEnter={() => {
+                        setCustomR(r)
+                        setCustomC(c)
+                      }}
+                      onClick={() => runSplit(r, c)}
+                    />
+                  )
+                })}
+              </div>
+              <div className={styles.splitHint} data-split-custom-value>
+                {customR} × {customC}
+              </div>
+            </div>
+          )}
+        </span>
+      )}
+      {/*
         下载（用户 2026-09-18：加在跟随栏里）。
         只在**有素材**时出现——空节点没有可下载的内容，摆一个点了没反应的按钮
         比不摆更糟（与「上传只在无上游时出现」同一条口径）。
@@ -279,6 +399,29 @@ function NodeActions({
           icon={<IconDownload />}
           label="下载"
           onClick={() => onDownload(node.id)}
+        />
+      )}
+      {/*
+        第 10 条里那四个右边功能，按用户给的顺序排在下载前后：
+        标注 / 旋转 / 下载 / 预览。四个都只在**有素材**时出现（空节点没得标没得转）。
+      */}
+      {hasAsset && (
+        <FollowButton
+          action="annotate"
+          icon={<IconAnnotate />}
+          label="标注"
+          onClick={() => store.openAnnotateEditor(node.id)}
+        />
+      )}
+      {hasAsset && (
+        <FollowButton action="rotate" icon={<IconRotate />} label="旋转" onClick={onRotate} />
+      )}
+      {hasAsset && (
+        <FollowButton
+          action="preview"
+          icon={<IconExpand />}
+          label="预览"
+          onClick={() => assetHash && store.openLightbox(assetHash)}
         />
       )}
       {!assetMode && (

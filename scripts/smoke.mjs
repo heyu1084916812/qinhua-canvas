@@ -17268,7 +17268,380 @@ async function g105(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105]
+// ────────────────────────────────────────────────────────────
+// G106 宫格切分（用户 2026-10-05 第 9 条）：
+// 节点功能栏上的「宫格切分」→ 4 / 9 / 16 / 25 宫格 + 自定义；
+// 切完在**原图右侧**排出一批新节点（原图不动），一次撤销可回退。
+// ────────────────────────────────────────────────────────────
+async function g106(browser) {
+  const g = 'G106 宫格切分'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  /** ① 先让源节点出图（没图可切） */
+  const src = page.locator('[data-node-type="generation"]').first()
+  const srcId = await src.getAttribute('data-node-id')
+  const panel = await genPanel(page, src)
+  await configureGenPanel(page, panel, '底图：一只橘猫')
+  await panel.locator('[data-panel-run]').click()
+  for (let i = 0; i < 80; i++) {
+    if ((await page.locator(`[data-node-id="${srcId}"] [data-node-asset]`).count()) > 0) break
+    await sleep(250)
+  }
+  const hasAsset = (await page.locator(`[data-node-id="${srcId}"] [data-node-asset]`).count()) > 0
+  rec(g, '★ 源节点已出图', hasAsset)
+  if (!hasAsset) {
+    await ctx.close()
+    return
+  }
+
+  /** 跟随栏上应当出现「宫格切分」 */
+  await genPanel(page, src)
+  const splitBtn = page.locator('[data-follow-action="split"]')
+  rec(g, '★★ 功能栏出现「宫格切分」', (await splitBtn.count()) === 1, `count=${await splitBtn.count()}`)
+  await splitBtn.click()
+  await sleep(300)
+  const menu = page.locator('[data-split-menu]')
+  const presets = await menu
+    .locator('[data-split-preset]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-split-preset')))
+  rec(
+    g,
+    '★★ 菜单四档齐全（2×2 / 3×3 / 4×4 / 5×5）+ 自定义',
+    JSON.stringify(presets) === JSON.stringify(['2x2', '3x3', '4x4', '5x5']) &&
+      (await menu.locator('[data-split-custom]').count()) === 1,
+    presets.join(','),
+  )
+  await page.screenshot({ path: `${OUT}/129-g106-split-menu.png` })
+
+  /** ② 4 宫格：右侧多出 4 个带图的节点，原图不动 */
+  const beforeIds = await page
+    .locator('[data-node-id]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+  const srcBoxBefore = await src.boundingBox()
+  await menu.locator('[data-split-preset="2x2"]').click()
+  await sleep(1200)
+  const afterIds = await page
+    .locator('[data-node-id]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+  const added = afterIds.filter((id) => !beforeIds.includes(id))
+  rec(g, '★★ 4 宫格切出 4 个新节点', added.length === 4, `新增=${added.length}`)
+  const withAsset = await page.evaluate(
+    (ids) =>
+      ids.filter((id) => !!document.querySelector(`[data-node-id="${id}"] [data-node-asset]`))
+        .length,
+    added,
+  )
+  rec(g, '★★ 每一块都带自己的图（4/4）', withAsset === 4, `带图=${withAsset}`)
+  rec(
+    g,
+    '★★ 新节点排在**原图右侧**（原图本身不动）',
+    await (async () => {
+      const srcBoxAfter = await src.boundingBox()
+      const rightOfSource = await page.evaluate(
+        (arg) => {
+          const srcEl = document.querySelector(`[data-node-id="${arg.id}"]`)
+          const sr = srcEl?.getBoundingClientRect()
+          if (!sr) return false
+          return arg.ids.every((id) => {
+            const el = document.querySelector(`[data-node-id="${id}"]`)
+            const r = el?.getBoundingClientRect()
+            return r ? r.left >= sr.right - 2 : false
+          })
+        },
+        { id: srcId, ids: added },
+      )
+      return rightOfSource && Math.abs(srcBoxAfter.width - srcBoxBefore.width) < 2
+    })(),
+  )
+  await page.screenshot({ path: `${OUT}/130-g106-split-result.png` })
+
+  /** 一步撤销：四块与它们的素材一起回退 */
+  await page.keyboard.press('Control+z')
+  await sleep(900)
+  const afterUndo = await page
+    .locator('[data-node-id]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+  rec(
+    g,
+    '★★ 切分可一步撤销（4 个新节点一起回去）',
+    afterUndo.length === beforeIds.length,
+    `${beforeIds.length} → ${afterUndo.length}`,
+  )
+
+  /** ③ 自定义宫格：点 3×3 那格 = 切 9 块 */
+  await genPanel(page, src)
+  await page.locator('[data-follow-action="split"]').click()
+  await sleep(250)
+  await page.locator('[data-split-custom]').click()
+  await sleep(250)
+  const customMenu = page.locator('[data-split-custom-menu]')
+  rec(g, '★★ 自定义宫格打开一块可点方格', (await customMenu.count()) === 1)
+  const cells = customMenu.locator('[data-split-cell]')
+  rec(g, '★ 方格是 6×6（够切到 6 行 6 列）', (await cells.count()) === 36, `cells=${await cells.count()}`)
+  await customMenu.locator('[data-split-cell="3x3"]').click()
+  await sleep(1400)
+  const afterCustom = await page
+    .locator('[data-node-id]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+  rec(
+    g,
+    '★★ 自定义 3×3 切出 9 个新节点',
+    afterCustom.length === beforeIds.length + 9,
+    `${beforeIds.length} → ${afterCustom.length}`,
+  )
+ await page.screenshot({ path: `${OUT}/131-g106-split-custom.png` })
+
+ rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+ await ctx.close()
+}
+
+// ────────────────────────────────────────────────────────────
+// G107 节点右侧四件（用户 2026-10-05 第 10 条）：标注 / 旋转 / 下载 / 预览。
+//   · 四个都在**有素材**时出现（空节点没得标没得转）；
+//   · 旋转：点一下就在右边复制一个节点并连线，上方出现工具条
+//     （✕ 旋转与镜像 / 角度 + 步长 / 左右·上下镜像 / 保存），保存才写像素；
+//   · 标注：画笔 / 矩形 / 文字 / 颜色 / 粗细 / 撤销 / 重做 / 保存，
+//     保存把标注合成成**原图右侧的新节点**（原图不动）；
+//   · 预览：直接开灯箱，与双击同一条路。
+// ────────────────────────────────────────────────────────────
+async function g107(browser) {
+  const g = 'G107 标注/旋转/预览'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  /** 先让源节点出图（没图就没有这四个动作） */
+  const src = page.locator('[data-node-type="generation"]').first()
+  const srcId = await src.getAttribute('data-node-id')
+  const panel = await genPanel(page, src)
+  await configureGenPanel(page, panel, '底图：一只橘猫')
+  await panel.locator('[data-panel-run]').click()
+  for (let i = 0; i < 80; i++) {
+    if ((await page.locator(`[data-node-id="${srcId}"] [data-node-asset]`).count()) > 0) break
+    await sleep(250)
+  }
+  const srcAsset = page.locator(`[data-node-id="${srcId}"] [data-node-asset]`)
+  const hasSrcAsset = (await srcAsset.count()) > 0
+  rec(g, '★ 源节点已出图', hasSrcAsset)
+  if (!hasSrcAsset) {
+    await ctx.close()
+    return
+  }
+  const srcSrcBefore = await srcAsset.getAttribute('src')
+
+  const nodeIds = async () =>
+    page.locator('[data-node-id]').evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+
+  /** ① 四个动作齐全 */
+  await genPanel(page, src)
+  const actions = await page
+    .locator('[data-node-follow-bar] [data-follow-action]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-follow-action')))
+  rec(
+    g,
+    '★★ 有素材时四件齐全（标注 / 旋转 / 下载 / 预览）',
+    ['annotate', 'rotate', 'download', 'preview'].every((a) => actions.includes(a)),
+    `动作=${actions.join(',')}`,
+  )
+
+  /** ② 预览 = 开灯箱（与双击同一条路） */
+  await page.locator('[data-follow-action="preview"]').click()
+  await sleep(500)
+  rec(g, '★★ 「预览」直接开灯箱（和双击素材同一条路）', (await page.locator('[data-lightbox]').count()) === 1)
+  await page.screenshot({ path: `${OUT}/132-g107-preview.png` })
+  await page.locator('[data-lightbox-close]').click({ timeout: 3000 }).catch(() => {})
+  await sleep(400)
+
+  /** ③ 旋转：右边复制一个新节点 + 连线，上方出现工具条 */
+  const beforeIds = await nodeIds()
+  await genPanel(page, src)
+  await page.locator('[data-follow-action="rotate"]').click()
+  await sleep(900)
+  const afterIds = await nodeIds()
+  const added = afterIds.filter((id) => !beforeIds.includes(id))
+  rec(g, '★★ 点「旋转」在右边复制出一个新节点', added.length === 1, `新增=${added.length}`)
+  const copyId = added[0]
+  rec(
+    g,
+    '★★ 新节点与源节点之间有一条连线',
+    copyId
+      ? (await page
+          .locator(`[data-edge-source="${srcId}"][data-edge-target="${copyId}"]`)
+          .count()) === 1
+      : false,
+  )
+  const rot = page.locator('[data-rotate-layer]')
+  rec(g, '★★ 上方出现「旋转与镜像」工具条', (await rot.count()) === 1)
+  const rotParts = await page.evaluate(() => ({
+    close: !!document.querySelector('[data-rotate-close]'),
+    angle: (document.querySelector('[data-rotate-angle]')?.textContent ?? '').trim(),
+    step: !!document.querySelector('[data-rotate-step]'),
+    mirrorH: !!document.querySelector('[data-rotate-mirror-h]'),
+    mirrorV: !!document.querySelector('[data-rotate-mirror-v]'),
+    save: !!document.querySelector('[data-rotate-save]'),
+  }))
+  rec(
+    g,
+    '★★ 工具条三部分齐全（✕ 旋转与镜像 / 角度 + 步长 / 镜像 / 保存）',
+    rotParts.close && rotParts.step && rotParts.mirrorH && rotParts.mirrorV && rotParts.save,
+    JSON.stringify(rotParts),
+  )
+  rec(g, '★ 初始角度是 0°', rotParts.angle === '0°', `angle=${rotParts.angle}`)
+  await page.locator('[data-rotate-right]').click()
+  await sleep(250)
+  const angle90 = (await page.locator('[data-rotate-angle]').innerText()).trim()
+  rec(g, '★★ 右转一下 = 角度按步长（90°）走', angle90 === '90°', `angle=${angle90}`)
+  await page.locator('[data-rotate-mirror-h]').click()
+  await sleep(200)
+  rec(
+    g,
+    '★ 左右镜像可切换（按下态）',
+    (await page.locator('[data-rotate-mirror-h]').getAttribute('aria-pressed')) === 'true',
+  )
+  await page.screenshot({ path: `${OUT}/133-g107-rotate.png` })
+
+  const copySrcBefore = await page
+    .locator(`[data-node-id="${copyId}"] [data-node-asset]`)
+    .getAttribute('src')
+  await page.locator('[data-rotate-save]').click()
+  await page
+    .locator('[data-rotate-layer]')
+    .waitFor({ state: 'hidden', timeout: 8000 })
+    .catch(() => {})
+  await sleep(700)
+  const copySrcAfter = await page
+    .locator(`[data-node-id="${copyId}"] [data-node-asset]`)
+    .getAttribute('src')
+  const srcSrcAfterRotate = await srcAsset.getAttribute('src')
+  rec(
+    g,
+    '★★ 保存后复制节点真的换了图（源节点那张没动）',
+    !!copySrcAfter && copySrcAfter !== copySrcBefore && srcSrcAfterRotate === srcSrcBefore,
+    `copy=${copySrcBefore === copySrcAfter ? '未变' : '已变'} src=${srcSrcBefore === srcSrcAfterRotate ? '未变' : '变了'}`,
+  )
+  rec(g, '★ 保存后工具条收起来了', (await page.locator('[data-rotate-layer]').count()) === 0)
+
+  /** ④ 标注：工具条齐全 + 画一笔 + 撤销/重做 + 保存出**新节点** */
+  await genPanel(page, src)
+  await page.locator('[data-follow-action="annotate"]').click()
+  await sleep(700)
+  rec(g, '★★ 点「标注」打开标注层', (await page.locator('[data-annotate-layer]').count()) === 1)
+  const annParts = await page.evaluate(() => ({
+    close: !!document.querySelector('[data-annotate-close]'),
+    brush: !!document.querySelector('[data-annotate-tool="brush"]'),
+    rect: !!document.querySelector('[data-annotate-tool="rect"]'),
+    text: !!document.querySelector('[data-annotate-tool="text"]'),
+    colors: document.querySelectorAll('[data-annotate-color]').length,
+    size: !!document.querySelector('[data-annotate-size]'),
+    undo: !!document.querySelector('[data-annotate-tool="undo"]'),
+    redo: !!document.querySelector('[data-annotate-tool="redo"]'),
+    save: !!document.querySelector('[data-annotate-save]'),
+  }))
+  rec(
+    g,
+    '★★ 标注工具条齐全（画笔 / 矩形 / 文字 / 颜色 / 粗细 / 撤销 / 重做 / 保存）',
+    annParts.close &&
+      annParts.brush &&
+      annParts.rect &&
+      annParts.text &&
+      annParts.colors === 6 &&
+      annParts.size &&
+      annParts.undo &&
+      annParts.redo &&
+      annParts.save,
+    JSON.stringify(annParts),
+  )
+  /** 画布要等底图 onLoad 之后才拿到像素尺寸（宽 0 时画不了） */
+  for (let i = 0; i < 40; i++) {
+    const w = await page
+      .locator('[data-annotate-canvas]')
+      .evaluate((el) => el.width)
+      .catch(() => 0)
+    if (w > 0) break
+    await sleep(150)
+  }
+  const canvasBox = await page.locator('[data-annotate-canvas]').boundingBox()
+  rec(g, '★ 标注画布拿到了图片像素尺寸', !!canvasBox && canvasBox.width > 4 && canvasBox.height > 4)
+  if (canvasBox) {
+    await page.mouse.move(canvasBox.x + canvasBox.width * 0.25, canvasBox.y + canvasBox.height * 0.25)
+    await page.mouse.down()
+    await page.mouse.move(canvasBox.x + canvasBox.width * 0.6, canvasBox.y + canvasBox.height * 0.7, {
+      steps: 8,
+    })
+    await page.mouse.up()
+    await sleep(300)
+  }
+  const undoBtn = page.locator('[data-annotate-tool="undo"]')
+  const redoBtn = page.locator('[data-annotate-tool="redo"]')
+  rec(g, '★★ 画完一笔「撤销」可用', await undoBtn.isEnabled())
+  await undoBtn.click()
+  await sleep(250)
+  rec(g, '★★ 撤销后「重做」可用（撤销 / 重做是配对的）', await redoBtn.isEnabled())
+  await redoBtn.click()
+  await sleep(250)
+  rec(g, '★ 重做后「撤销」又可用', await undoBtn.isEnabled())
+  await page.screenshot({ path: `${OUT}/134-g107-annotate.png` })
+
+  const beforeAnnIds = await nodeIds()
+  const srcBoxForAnn = await src.boundingBox()
+  await page.locator('[data-annotate-save]').click()
+  await page
+    .locator('[data-annotate-layer]')
+    .waitFor({ state: 'hidden', timeout: 8000 })
+    .catch(() => {})
+  await sleep(900)
+  const afterAnnIds = await nodeIds()
+  const annAdded = afterAnnIds.filter((id) => !beforeAnnIds.includes(id))
+  rec(g, '★★ 保存标注出一个**新节点**（原图不被覆盖）', annAdded.length === 1, `新增=${annAdded.length}`)
+  const annId = annAdded[0]
+  const annPlacementOk = annId
+    ? await (async () => {
+        const el = page.locator(`[data-node-id="${annId}"]`)
+        const box = await el.boundingBox()
+        const hasImg = (await el.locator('[data-node-asset]').count()) === 1
+        return (
+          !!box && !!srcBoxForAnn && box.x >= srcBoxForAnn.x + srcBoxForAnn.width - 2 && hasImg
+        )
+      })()
+    : false
+  rec(g, '★★ 标注结果落在原图右侧且带着图', annPlacementOk)
+  await page.screenshot({ path: `${OUT}/135-g107-annotate-result.png` })
+
+  /** ⑤ 拿到新图之后，那两个动作仍然在（不是只对第一张有效） */
+  if (annId) await genPanel(page, page.locator(`[data-node-id="${annId}"]`))
+  const annActions = await page
+    .locator('[data-node-follow-bar] [data-follow-action]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-follow-action')))
+  rec(
+    g,
+    '★ 新出来的标注图同样带齐四件',
+    ['annotate', 'rotate', 'download', 'preview'].every((a) => annActions.includes(a)),
+    `动作=${annActions.join(',')}`,
+  )
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
