@@ -32,8 +32,12 @@
    * 为什么不该用 chip 那一档：这几个 chip 是用户**反复读写**的主要信息
    * （当前渠道 / 模型 / 比例 / 张数），不是角标或辅助标签；比正文还小会让人
    * 反复凑近看。
+   *
+   * `--picker-fs` 是**留给面板覆盖的口子**：创作面板整体挂 0.75 缩放，
+   * 它会在自己根上把这一档调大（用户 2026-10-05：「字太小，但别把面板放大」），
+   * 对话窗不覆盖，用的就是这里的 16px。
    */
-  font-size: 16px;
+  font-size: var(--picker-fs, 16px);
   font-weight: 500;
   color: var(--text-1);
   cursor: pointer;
@@ -77,7 +81,7 @@
   height: 26px;
   padding: 0 var(--space-2);
   gap: var(--space-1);
-  font-size: var(--fs-chip);
+  font-size: var(--picker-hint-fs, var(--fs-chip));
 }
 .chipCompact .chipLabel {
   max-width: 116px;
@@ -154,7 +158,7 @@
 .sectionTitle {
   padding: 0 var(--space-1) 2px;
   font-family: var(--font-sans);
-  font-size: var(--fs-chip);
+  font-size: var(--picker-hint-fs, var(--fs-chip));
   font-weight: var(--fw-title);
   color: var(--text-2);
 }
@@ -191,7 +195,7 @@
   flex: 0 0 auto;
   min-width: 44px;
   font-family: var(--font-sans);
-  font-size: 15px;
+  font-size: var(--picker-option-fs, 15px);
   font-weight: var(--fw-chip);
   color: var(--text-1);
   text-align: right;
@@ -209,7 +213,7 @@
   background: var(--bg-surface);
   color: var(--text-1);
   font-family: var(--font-sans);
-  font-size: 15px;
+  font-size: var(--picker-option-fs, 15px);
 }
 
 .textInput::placeholder {
@@ -262,7 +266,7 @@
   background: transparent;
   color: var(--text-1);
   font-family: var(--font-sans);
-  font-size: var(--fs-chip);
+  font-size: var(--picker-hint-fs, var(--fs-chip));
   cursor: pointer;
 }
 .jumpBtn:hover {
@@ -278,7 +282,7 @@
   background: transparent;
   color: var(--text-2);
   font-family: var(--font-sans);
-  font-size: var(--fs-chip);
+  font-size: var(--picker-hint-fs, var(--fs-chip));
   cursor: pointer;
 }
 .more:hover {
@@ -382,8 +386,9 @@
   /**
    * 行文字 15 → 16：面板挂 `zoom: 0.75`，16px 在屏幕上才 12px ——
    * 15px 只有 11.25px，比正文还小，读起来发虚（用户 2026-10-03：「挤」）。
+   * 与 chip 同理，走 `--picker-option-fs` 让面板再往上顶一档。
    */
-  font-size: 16px;
+  font-size: var(--picker-option-fs, 16px);
   font-weight: 500;
   color: var(--text-1);
   text-align: left;
@@ -423,7 +428,7 @@
 .rowHint {
   overflow: hidden;
   color: var(--text-3);
-  font-size: var(--fs-chip);
+  font-size: var(--picker-hint-fs, var(--fs-chip));
   font-weight: var(--fw-chip);
   text-overflow: ellipsis;
 }
@@ -470,7 +475,7 @@
   border-radius: var(--radius-pill);
   background: transparent;
   font-family: var(--font-sans);
-  font-size: 15px;
+  font-size: var(--picker-option-fs, 15px);
   font-weight: var(--fw-chip);
   color: var(--text-1);
   cursor: pointer;
@@ -554,7 +559,7 @@
 .ratioText {
   font-family: var(--font-sans);
   /** 比例数字 12 → 14：与档位胶囊（15）同一档，都比段标题（12）醒目 */
-  font-size: 14px;
+  font-size: var(--picker-option-fs, 14px);
   font-weight: var(--fw-chip);
   line-height: 1;
 }
@@ -563,7 +568,7 @@
   display: block;
   padding: var(--space-2) 10px;
   min-width: 96px;
-  font-size: var(--fs-chip);
+  font-size: var(--picker-hint-fs, var(--fs-chip));
   font-weight: var(--fw-chip);
   color: var(--text-2);
   white-space: nowrap;

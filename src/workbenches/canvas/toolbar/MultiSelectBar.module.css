@@ -15,7 +15,10 @@
 
 .box {
   position: absolute;
-  inset: -8px;
+  /*
+   * 外扩量由 TS 侧算好、以内联 `inset` 给进来（`MULTI_BOX_INSET`，唯一来源）——
+   * 这里不再写死一个值：写死就会出现「框放大了、端点还留在原地」。
+   */
   border: 1px dashed var(--text-3);
   border-radius: var(--radius-control);
 }
@@ -127,10 +130,7 @@
   border-color: var(--text-3);
 }
 
-.endpointLeft {
-  left: -15px;
-}
-
-.endpointRight {
-  right: -15px;
-}
+/*
+ * 左右端点的水平位置由 `MULTI_BOX_INSET` 算出来（居中到虚线框的左右沿）——
+ * 见 MultiSelectBar.tsx，这里不再写死。
+ */

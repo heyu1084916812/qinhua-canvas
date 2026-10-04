@@ -9,7 +9,12 @@
 import { describe, it, expect } from 'vitest'
 import type { Viewport } from '../../../domain/canvas/geometry/coords'
 import type { Rect } from '../../../domain/canvas/geometry/rect'
-import { followBarAnchor, FOLLOW_BAR_HEIGHT, FOLLOW_BAR_GAP } from './followBarAnchor'
+import {
+  followBarAnchor,
+  FOLLOW_BAR_HEIGHT,
+  FOLLOW_BAR_GAP,
+  NODE_TITLE_BAND,
+} from './followBarAnchor'
 
 const vp = (x: number, y: number, zoom = 1): Viewport => ({ x, y, zoom })
 const rect = (x: number, y: number, w = 240, h = 240): Rect => ({ x, y, w, h })
@@ -60,5 +65,20 @@ describe('followBarAnchor / 跟随栏锚点', () => {
     const a = followBarAnchor(rect(100, 200), vp(0, 0))
     expect(a).not.toHaveProperty('placement')
     expect(Object.keys(a).sort()).toEqual(['centerX', 'top'])
+  })
+
+  /**
+   * ★★ 栏必须落在**节点标题带之上**（用户 2026-10-05：「功能栏遮住了节点名称」）。
+   *
+   * 标题带 = 节点框上方那 24px（`.header` 22 + `margin-bottom` 2）。间距只要比它小，
+   * 栏底就会压进标题带、盖住节点名 —— 这条断言把「间距 ≥ 标题带」钉死，
+   * 以后谁把间距调小（比如为了「离节点近一点」）都会当场变红。
+   */
+  it('★★ 栏与节点的间距 ≥ 标题带高度（不遮节点名）', () => {
+    expect(FOLLOW_BAR_GAP).toBeGreaterThanOrEqual(NODE_TITLE_BAND)
+    const r = rect(100, 200)
+    const a = followBarAnchor(r, vp(0, 0))
+    /** 栏底（top + 栏高）落在标题带上沿之上 */
+    expect(a.top + FOLLOW_BAR_HEIGHT).toBeLessThanOrEqual(r.y - NODE_TITLE_BAND)
   })
 })

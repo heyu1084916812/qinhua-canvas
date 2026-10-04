@@ -7,12 +7,14 @@ import { moveInOrder } from './panelModel'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { useSkills } from '../../../app/providers/SkillStoreProvider'
 import { useAsset } from '../hooks/useAsset'
-import { MentionEditor, mentionToken, type MentionEditorHandle } from '../text/MentionEditor'
 import {
-  collapseMentions,
-  expandMentions,
-  type MentionCandidate,
-} from '../text/mentionValue'
+  MentionEditor,
+  mentionToken,
+  parseMentions,
+  stripMentionMarkup,
+  type MentionEditorHandle,
+} from '../text/MentionEditor'
+import { expandMentions, type MentionCandidate } from '../text/mentionValue'
 import type { PromptToolAction } from '../../../features/shared/promptTools/promptTools'
 import { ParamPicker, type ParamSection } from './ParamPicker'
 import { SkillPicker } from './SkillPicker'
@@ -35,10 +37,8 @@ import { presetOf } from '../../../domain/project/modelCatalog'
 import { presetModelsOf } from '../../../domain/project/modelPresets'
 import { ModelIcon } from '../../../features/shared/modelIcon/ModelIcon'
 import {
-  IconChevronDown,
   IconClose,
   IconPreset,
-  IconSettings,
   IconSpinner,
   IconStop,
 } from '../toolbar/icons'
@@ -480,12 +480,17 @@ export function CreationPanel(props: CreationPanelProps) {
    */
   const promptEditorRef = useRef<MentionEditorHandle | null>(null)
   const [mentionOpen, setMentionOpen] = useState(false)
+  /**
+   * 引用候选菜单的落点（相对提示词框的左上角）。
+   *
+   * 用户 2026-10-05 第 4 条：「艾特功能出现的面板需要在输入框艾特的位置，不要固定在右边」——
+   * 所以这里量的是**光标所在的那个矩形**（`Selection.getRangeAt(0)`），
+   * 菜单就贴在光标下面，跟用户在哪儿打 `@` 走。量不到光标（比如刚点完按钮）时退回 `null`，
+   * 菜单回到输入框左上角，而不是固定在右侧。
+   */
+  const [mentionPos, setMentionPos] = useState<{ left: number; top: number } | null>(null)
+  const promptBoxRef = useRef<HTMLDivElement | null>(null)
   const mentionCandidates = model.mentionCandidates
-  const promptValue = useMemo(
-    () => expandMentions(promptDraft, mentionCandidates),
-    [promptDraft, mentionCandidates],
-  )
-
   /** 候选节点 → 素材 hash（面板模型已经算过上游缩略图，这里不再扫一遍图） */
   const mentionHashOf = useMemo(() => {
     const map = new Map<string, string>()
@@ -533,6 +538,36 @@ export function CreationPanel(props: CreationPanelProps) {
   }
 
   /**
+   * 编辑器文本 → 节点字段。两件事一起做，顺序不能反：
+   * ① 正文存**纯文本**（引用还原成 `@名字`、预设那枚不留痕，见 `mentionValue` / `stripMentionMarkup`）；
+   * ② **预设跟着 chip 走** —— 用户在正文里删掉那枚 chip，等于取消预设；
+   *    点菜单换一条，chip 与 `data.preset` 一起换。这样「界面上看到的」与
+   *    「实际发出去的」（`presetPromptSuffix` 拼的那句）永远同源。
+   */
+  const onPromptValueChange = (next: string) => {
+    const presetRef = parseMentions(next).find((m) => m.kind === 'preset')
+    if ((presetRef?.id ?? null) !== (model.preset ?? null)) {
+      onEvent({ type: 'setPreset', preset: presetRef?.id ?? null })
+    }
+    onPromptChange(stripMentionMarkup(next))
+  }
+
+  /** 打出 `@`（或编辑器报「触发了引用」）时，把候选菜单落到光标下面 */
+  const openMentionAtCaret = () => {
+    if (mentionCandidates.length === 0) return
+    const box = promptBoxRef.current?.getBoundingClientRect()
+    const sel = window.getSelection()
+    const rect = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).getBoundingClientRect() : null
+    if (box && rect && (rect.width > 0 || rect.height > 0)) {
+      setMentionPos({ left: rect.left - box.left, top: rect.bottom - box.top + 4 })
+    } else {
+      setMentionPos(null)
+    }
+    closePresetMenus()
+    setMentionOpen(true)
+  }
+
+  /**
    * 预设 / 情绪（用户 2026-10-05 第 14 条）。
    *
    * 两个浮层的开关是**面板自己的状态**（与参数菜单同一套「同一时刻只开一个」的思路），
@@ -543,6 +578,20 @@ export function CreationPanel(props: CreationPanelProps) {
   const [presetOptionsOpen, setPresetOptionsOpen] = useState(false)
   const activePreset = presetById(model.preset)
   const emotionOn = !!model.emotion
+  /**
+   * 预设是**正文里的第一枚 chip**（用户 2026-10-05 第 3 条 + 同日追问
+   * 「预设还是单独放在最前方的第一排的继续改」）。
+   *
+   * 之前把它画在输入框上面单独一行 —— 那是「一个横条」，既不是 chip、也占掉一整行。
+   * 现在它就是一枚普通的引用 chip（kind = `preset`），跟着正文一起流过编辑器；
+   * 「chip 形态 ↔ 纯文本」的转换仍在 `mentionValue.ts` / `MentionEditor` 那两处。
+   */
+  const presetToken =
+    activePreset && !promptMode ? mentionToken('preset', activePreset.id, activePreset.name) : ''
+  const promptValue = useMemo(
+    () => `${presetToken}${expandMentions(promptDraft, mentionCandidates)}`,
+    [presetToken, promptDraft, mentionCandidates],
+  )
   /** 情绪面板左边那张预览图：上游第一张带素材的图（没有就显示一句提示） */
   const characterThumb =
     model.thumbs.find((t) => t.owner === 'upstream' && t.assetHash) ??
@@ -1317,95 +1366,26 @@ export function CreationPanel(props: CreationPanelProps) {
       <section className={`${styles.section} ${styles.promptSection}`} data-panel-part="prompt">
         <div className={styles.promptRow}>
           {/*
-            提示词那一行的头：左边「上游已链接提示词节点」、右边 `@` 按钮。
+            提示词那一行的头：只剩「上游已链接提示词节点」这个胶囊。
 
-            `@` 挂在**这一行**而不是浮在文字框上：浮上去会盖住正文第一行的末尾
-            （面板里文字是 16px、行宽固定，盖住一个字用户就得挪光标去看）。
+            ⚠️ 右下角那枚 `@` 按钮**已删掉**（用户 2026-10-05 第 4 条：
+            「不需要在素材框下面加一个艾特按钮，删掉它」）—— 引用入口就是**在正文里打 `@`**，
+            与对话窗一致；多一枚按钮既占地方，又会让「@ 只是个按钮」的误会成立。
           */}
-          {(model.linkedPromptCount > 0 || mentionCandidates.length > 0) && (
+          {model.linkedPromptCount > 0 && (
             <div className={styles.promptHead}>
-              {model.linkedPromptCount > 0 && (
-                <span className={styles.linked} data-panel-linked-prompt>
-                  上游已链接提示词节点 {model.linkedPromptCount}
-                </span>
-              )}
-              {mentionCandidates.length > 0 && (
-                <button
-                  type="button"
-                  className={styles.mentionOpen}
-                  data-panel-mention-open
-                  title="引用上游素材（@）"
-                  aria-label="引用上游素材"
-                  aria-expanded={mentionOpen}
-                  onClick={() => {
-                    /** 与预设菜单互斥：两个浮层同时开着会互相盖住 */
-                    closePresetMenus()
-                    setMentionOpen((v) => !v)
-                  }}
-                >
-                  @
-                </button>
-              )}
+              <span className={styles.linked} data-panel-linked-prompt>
+                上游已链接提示词节点 {model.linkedPromptCount}
+              </span>
             </div>
           )}
           {/*
-            当前预设（用户 2026-10-05 第 14 条，参考图五）：左边名称 + 切换箭头，
-            右边那行是**示例小字**（只是说明，不进提示词 —— 用户原话「不是真实的小字」）。
-            名称左侧的 ✕ = 取消这个预设。
+            提示词框 = **预设 chip + 正文**（用户 2026-10-05 第 3 条：「像 agent 那样插进正文的
+            chip，不是单独一行」）。
+
+            容器只负责「chip 与正文在同一块输入区里」，本身不画边框（与输入区一贯的无框口径一致）。
           */}
-          {activePreset && !promptMode && (
-            <div className={styles.presetRow} data-panel-preset-row={activePreset.id}>
-              <span className={styles.presetChip}>
-                <button
-                  type="button"
-                  className={styles.presetClear}
-                  data-panel-preset-clear
-                  title="取消预设"
-                  aria-label="取消预设"
-                  onClick={() => {
-                    closePresetMenus()
-                    onEvent({ type: 'setPreset', preset: null })
-                  }}
-                >
-                  <IconClose size={12} />
-                </button>
-                <button
-                  type="button"
-                  className={styles.presetName}
-                  data-panel-preset-open
-                  aria-haspopup="menu"
-                  aria-expanded={presetOpen}
-                  title="换一个预设"
-                  onClick={() => {
-                    setMentionOpen(false)
-                    setPresetOptionsOpen(false)
-                    setPresetOpen((v) => !v)
-                  }}
-                >
-                  {activePreset.name}
-                  <IconChevronDown size={12} />
-                </button>
-                {activePreset.options && (
-                  <button
-                    type="button"
-                    className={styles.presetGear}
-                    data-panel-preset-gear
-                    title="选择具体搭配"
-                    aria-label="选择具体搭配"
-                    aria-expanded={presetOptionsOpen}
-                    onClick={() => {
-                      setMentionOpen(false)
-                      setPresetOpen(false)
-                      setPresetOptionsOpen((v) => !v)
-                    }}
-                  >
-                    <IconSettings size={12} />
-                  </button>
-                )}
-              </span>
-              <span className={styles.presetHint}>{activePreset.hint}</span>
-            </div>
-          )}
+          <div className={styles.promptBox} ref={promptBoxRef} data-panel-prompt-box>
           {/*
             提示词框 = 带引用的富文本框（用户 2026-10-05 第 15 条）。
 
@@ -1422,15 +1402,32 @@ export function CreationPanel(props: CreationPanelProps) {
             autoGrow
             value={promptValue}
             placeholder={
-              promptMode
-                ? '输入提示词（下游生成节点读的就是这里）'
-                : '输入提示词，或连线上游提示词节点'
+              /**
+               * 选了预设时，占位就是那句**示例小字**（用户第 3 条：「右边的小字只是给用户
+               * 举例要输入什么内容，用户填写正文后就会隐藏」）—— 编辑器只在正文为空
+               * （含「只有一枚 chip」这种）时显示它，一打字自动让位。
+               */
+              activePreset && !promptMode
+                ? activePreset.hint
+                : promptMode
+                  ? '输入提示词（下游生成节点读的就是这里）'
+                  : '输入提示词，或连线上游提示词节点'
             }
-            /** 存回去的是**纯文本**（引用形态在这里还原成 `@名字`，见 mentionValue.ts） */
-            onChange={(next) => onPromptChange(collapseMentions(next))}
-            /** 刚打出 `@` → 开候选（参考对话窗那套交互） */
-            onMentionTrigger={() => {
-              if (mentionCandidates.length > 0) setMentionOpen(true)
+            /** 存回去的是**纯文本**，同时把预设与 chip 对齐（见 onPromptValueChange） */
+            onChange={onPromptValueChange}
+            /** 刚打出 `@` → 在**光标处**开候选（用户第 4 条：不要固定在右边） */
+            onMentionTrigger={openMentionAtCaret}
+            /** 点正文里那枚预设 chip → 打开预设菜单 / 它的搭配面板 */
+            onChipClick={(ref) => {
+              if (ref.kind !== 'preset') return
+              setMentionOpen(false)
+              if (presetById(ref.id)?.options) {
+                setPresetOpen(false)
+                setPresetOptionsOpen(true)
+              } else {
+                setPresetOptionsOpen(false)
+                setPresetOpen(true)
+              }
             }}
             thumbOf={mentionThumbOf}
             thumbVersion={mentionThumbVersion}
@@ -1443,7 +1440,12 @@ export function CreationPanel(props: CreationPanelProps) {
             }}
           />
           {mentionOpen && (
-            <div className={styles.mentionMenu} data-panel-mention-menu>
+            <div
+              className={styles.mentionMenu}
+              data-panel-mention-menu
+              /** 量不到光标时不写 inline 定位，退回 CSS 里的左上角兜底 */
+              style={mentionPos ? { left: mentionPos.left, top: mentionPos.top } : undefined}
+            >
               <div className={styles.mentionHint}>引用本节点上游的素材</div>
               {mentionCandidates.map((c) => (
                 <button
@@ -1461,6 +1463,7 @@ export function CreationPanel(props: CreationPanelProps) {
               ))}
             </div>
           )}
+          </div>
           {/*
             chip 上的缩略图：编辑器里那些 chip 是**命令式建的 DOM**、拿不到 hook，
             所以由宿主替它们取图。一个候选渲染一个不可见的取图探针（一个候选一个
@@ -1843,7 +1846,7 @@ export function CreationPanel(props: CreationPanelProps) {
                 setPresetOpen((v) => !v)
               }}
             >
-              <IconPreset size={16} />
+              <IconPreset size={22} />
               {activePreset && <span className={styles.presetDot} data-preset-dot />}
             </button>
             {presetOpen && (

@@ -1,14 +1,7 @@
-import type { ReactNode } from 'react'
-import type { PresetCategoryId } from '../../../domain/canvas/layout/presets'
 import { PRESETS, PRESET_CATEGORIES, presetById } from '../../../domain/canvas/layout/presets'
-import {
-  IconCheck,
-  IconEmotion,
-  IconGridArrange,
-  IconImage,
-  IconScan,
-  IconSkill,
-} from '../toolbar/icons'
+import type { PresetCategoryId } from '../../../domain/canvas/layout/presets'
+import { IconCheck, IconEmotion } from '../toolbar/icons'
+import { PRESET_ICON } from './presetIcons'
 import styles from './PresetMenu.module.css'
 
 /**
@@ -21,13 +14,18 @@ import styles from './PresetMenu.module.css'
  *   而是预设上那枚齿轮（图十九：点右边不是切换，是选具体搭配）。
  */
 
-/** 一个分类一枚图标：与菜单里的分栏一一对应（图十八里每一项各有图标，这里按类收拢） */
-const CATEGORY_ICON: Record<PresetCategoryId, ReactNode> = {
-  story: <IconGridArrange size={16} />,
-  camera: <IconScan size={16} />,
-  design: <IconImage size={16} />,
-  texture: <IconSkill size={16} />,
-}
+/**
+ * 菜单的**分栏**（用户 2026-10-05 第 2 条：「参考图二的位置以及大小还有分布」）。
+ *
+ * 参考图是：左栏「分镜叙事 + 质感调节」、右栏「空间与机位 + 设定图」。
+ * 用 `column-count: 2` 是做不到的 —— 浏览器按高度自己分（实测分成了
+ * 「分镜叙事 + 空间与机位 / 设定图 + 质感调节」），与参考图不一样。
+ * 所以两栏**显式写死**：分布是产品决定，不该交给自动平衡。
+ */
+const MENU_COLUMNS: readonly (readonly PresetCategoryId[])[] = [
+  ['story', 'texture'],
+  ['camera', 'design'],
+]
 
 export function PresetMenu({
   activeId,
@@ -43,58 +41,67 @@ export function PresetMenu({
 }) {
   return (
     <div className={styles.menu} data-preset-menu>
-      {PRESET_CATEGORIES.map((category) => (
-        <div key={category.id} className={styles.group} data-preset-category={category.id}>
-          <div className={styles.groupLabel}>{category.label}</div>
-          {PRESETS.filter((p) => p.category === category.id).map((preset) => {
-            const on = preset.id === activeId
+      {MENU_COLUMNS.map((column, i) => (
+        <div key={i} className={styles.column}>
+          {column.map((categoryId) => {
+            const category = PRESET_CATEGORIES.find((c) => c.id === categoryId)
+            if (!category) return null
             return (
-              <button
-                key={preset.id}
-                type="button"
-                className={on ? `${styles.item} ${styles.itemOn}` : styles.item}
-                data-preset={preset.id}
-                aria-pressed={on}
-                title={preset.hint}
-                onClick={() => onPick(preset.id)}
-              >
-                <span className={styles.itemIcon} aria-hidden="true">
-                  {CATEGORY_ICON[preset.category]}
-                </span>
-                <span className={styles.itemName}>{preset.name}</span>
-                {on && (
-                  <span className={styles.itemCheck} aria-hidden="true">
-                    <IconCheck size={14} />
+            <div key={categoryId} className={styles.group} data-preset-category={categoryId}>
+              <div className={styles.groupLabel}>{category.label}</div>
+              {PRESETS.filter((p) => p.category === categoryId).map((preset) => {
+                const on = preset.id === activeId
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className={on ? `${styles.item} ${styles.itemOn}` : styles.item}
+                    data-preset={preset.id}
+                    aria-pressed={on}
+                    title={preset.hint}
+                    onClick={() => onPick(preset.id)}
+                  >
+                    <span className={styles.itemIcon} aria-hidden="true">
+                      {/* 每条预设自己的矢量图（用户第 8 条），见 presetIcons.tsx */}
+                      {PRESET_ICON[preset.id]}
+                    </span>
+                    <span className={styles.itemName}>{preset.name}</span>
+                    {on && (
+                      <span className={styles.itemCheck} aria-hidden="true">
+                        <IconCheck size={14} />
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+              {/*
+                「情绪调节」跟在「质感调节」这一栏里（用户 2026-10-05 第 14 条后半）：
+                它**不是一条预设**（没有那句拼进提示词的话，而是一个独立的点位选择面板），
+                所以列在那份预设表之外，由素材下方那块独立面板（`EmotionBox`）承担。
+              */}
+              {categoryId === 'texture' && (
+                <button
+                  type="button"
+                  className={emotionOn ? `${styles.item} ${styles.itemOn}` : styles.item}
+                  data-preset-emotion
+                  aria-pressed={emotionOn}
+                  title="打开情绪面板，选一个表情"
+                  onClick={onPickEmotion}
+                >
+                  <span className={styles.itemIcon} aria-hidden="true">
+                    <IconEmotion size={16} />
                   </span>
-                )}
-              </button>
+                  <span className={styles.itemName}>情绪调节</span>
+                  {emotionOn && (
+                    <span className={styles.itemCheck} aria-hidden="true">
+                      <IconCheck size={14} />
+                    </span>
+                  )}
+                </button>
+              )}
+            </div>
             )
           })}
-          {/*
-            「情绪调节」跟在「质感调节」这一栏里（用户 2026-10-05 第 14 条后半）：
-            它**不是一条预设**（没有那句拼进提示词的话，而是一个独立的点位选择面板），
-            所以列在那份预设表之外，由对话窗之外的那块面板（`EmotionBox`）承担。
-          */}
-          {category.id === 'texture' && (
-            <button
-              type="button"
-              className={emotionOn ? `${styles.item} ${styles.itemOn}` : styles.item}
-              data-preset-emotion
-              aria-pressed={emotionOn}
-              title="打开素材下方的情绪面板，选一个表情"
-              onClick={onPickEmotion}
-            >
-              <span className={styles.itemIcon} aria-hidden="true">
-                <IconEmotion size={16} />
-              </span>
-              <span className={styles.itemName}>情绪调节</span>
-              {emotionOn && (
-                <span className={styles.itemCheck} aria-hidden="true">
-                  <IconCheck size={14} />
-                </span>
-              )}
-            </button>
-          )}
         </div>
       ))}
     </div>

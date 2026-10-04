@@ -30,8 +30,14 @@ import { readEditorText } from './TokenEditor'
  * 「艾特模型后删除不了」说的就是这件事，不能只靠浏览器的默认行为。
  */
 
-/** 引用的存储形态。`kind` 只允许 `node` / `model` / `skill` 三种，别的一律不当引用 */
-export const MENTION_SPLIT_RE = /(@\[[^\]]*\]\((?:node|model|skill):[^)]*\))/g
+/**
+ * 引用的存储形态。`kind` 只允许 `node` / `model` / `skill` / `preset` 四种，
+ * 别的一律不当引用。
+ *
+ * `preset` 是 2026-10-05 加的第四种：创作面板里的「预设」要像 @ 引用那样**插在正文里**
+ * （用户：「需要像 agent 一样的插入正文 chip 一样的大小和功能，不是单独在一行」）。
+ */
+export const MENTION_SPLIT_RE = /(@\[[^\]]*\]\((?:node|model|skill|preset):[^)]*\))/g
 
 /** chip 里那个小图标：节点 = 一张图，模型 = 立体方块，技能 = 魔杖（与工具栏同义） */
 export const MENTION_ICON: Record<MentionKind, string> = {
@@ -40,9 +46,12 @@ export const MENTION_ICON: Record<MentionKind, string> = {
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2 20.2 7.6v8.8L12 20.8 3.8 16.4V7.6z"/><path d="M3.8 7.6 12 12l8.2-4.4"/><path d="M12 12v8.8"/></svg>',
   skill:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.2 19.8 13 11"/><path d="M16.6 3.2l1 2.6 2.6 1-2.6 1-1 2.6-1-2.6-2.6-1 2.6-1z"/><path d="M11.4 4.6l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6L9.2 6.8l1.6-.6z"/></svg>',
+  /** 预设：四个小图形（菱形 / 圆 / 方 / 十字），与参数行那枚按钮同一套构成 */
+  preset:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8.8 4.6 12.2 8 8.8 11.4 5.4 8z"/><circle cx="15.2" cy="8" r="3.2"/><rect x="5.7" y="12.7" width="6.2" height="6.2" rx="1.2"/><path d="M15.2 12.7v6.2M12.1 15.8h6.2"/></svg>',
 }
 
-export type MentionKind = 'node' | 'model' | 'skill'
+export type MentionKind = 'node' | 'model' | 'skill' | 'preset'
 
 /**
  * 拼一条引用的存储形态。
@@ -62,13 +71,18 @@ export function mentionLabel(token: string): string {
 
 /** 存储形态 → 是节点还是模型（读不出来返回 null，不当引用处理） */
 export function mentionKindOf(token: string): MentionKind | null {
-  const m = /^@\[[^\]]*\]\((node|model|skill):/.exec(token)
-  return m?.[1] === 'node' || m?.[1] === 'model' || m?.[1] === 'skill' ? m[1] : null
+  const m = /^@\[[^\]]*\]\((node|model|skill|preset):/.exec(token)
+  return m?.[1] === 'node' ||
+    m?.[1] === 'model' ||
+    m?.[1] === 'skill' ||
+    m?.[1] === 'preset'
+    ? m[1]
+    : null
 }
 
 /** 存储形态 → 它指向的那个标识（节点 id / 模型名 / 技能 id）；读不出来返回 null */
 export function mentionIdOf(token: string): string | null {
-  const m = /^@\[[^\]]*\]\((?:node|model|skill):([^)]*)\)/.exec(token)
+  const m = /^@\[[^\]]*\]\((?:node|model|skill|preset):([^)]*)\)/.exec(token)
   return m?.[1]?.trim() || null
 }
 
@@ -90,7 +104,9 @@ export interface MentionRef {
 export function parseMentions(text: string): MentionRef[] {
   const out: MentionRef[] = []
   const seen = new Set<string>()
-  for (const m of String(text ?? '').matchAll(/@\[([^\]]*)\]\((node|model|skill):([^)]*)\)/g)) {
+  for (const m of String(text ?? '').matchAll(
+    /@\[([^\]]*)\]\((node|model|skill|preset):([^)]*)\)/g,
+  )) {
     const kind = m[2] as MentionKind
     const id = (m[3] ?? '').trim()
     if (!id) continue
@@ -115,6 +131,14 @@ export function stripMentionMarkup(text: string): string {
     .replace(/@\[([^\]]*)\]\((?:node|model):[^)]*\)/g, '@$1')
     /** 技能：它就是「这次用哪条技能」，前面挂个 @ 反而像在引用一个对象，故直接去掉形态 */
     .replace(/@\[([^\]]*)\]\(skill:[^)]*\)/g, '$1')
+    /**
+     * 预设：**整枚去掉、不留文字**。
+     *
+     * 它对应的那句提示词由 `domain/canvas/layout/presets.ts` 在发请求时统一拼
+     * （`presetPromptSuffix`）—— 正文里再留一份名字，等于同一件事写两遍：
+     * 改预设文案时正文那份就成了陈旧副本。
+     */
+    .replace(/@\[([^\]]*)\]\(preset:[^)]*\)/g, '')
 }
 
 function makeChip(doc: Document, token: string): HTMLElement {
@@ -198,6 +222,14 @@ export const MentionEditor = forwardRef<
      * 宿主拿自己那份草稿即可 —— 与 `onChange` 同一口径。
      */
     onBlur?: () => void
+    /**
+     * 点在某枚 chip 上时回调（目前只有创作面板用：点预设 chip 打开预设菜单）。
+     *
+     * chip 本身是 `contenteditable=false` 的原子块，浏览器不会给它发 click
+     * —— 所以这里在编辑器根上做一次**事件委托**：从 `event.target` 往上找
+     * 带 `data-token` 的那一层，解析出引用再交给宿主。
+     */
+    onChipClick?: (ref: MentionRef) => void
     /** 语义锚点（测试用），由调用方给 */
     anchorAttr?: Record<string, string>
     /**
@@ -221,6 +253,7 @@ export const MentionEditor = forwardRef<
     label = '给助手的消息',
     autoGrow = false,
     onBlur,
+    onChipClick,
     anchorAttr,
     thumbOf,
     thumbVersion,
@@ -292,13 +325,37 @@ export const MentionEditor = forwardRef<
     sel?.addRange(range)
   }
 
+  /**
+   * 「正文里有没有字」→ 决定 placeholder 显不显示。
+   *
+   * 判据是**去掉引用之后的纯文本**：只有一枚预设 chip、正文还空着时，
+   * 那行示例小字仍要显示（用户 2026-10-05 第 3 条：「右边的小字只是给用户举例
+   * 要输入什么内容，用户填写正文后就会隐藏」）；用户一打字，它就消失。
+   *
+   * 为什么不用 CSS 的 `:empty`：插了 chip 的编辑器**不是**空的（里面有 chip），
+   * 而「只有 chip」恰恰是最该显示示例的那一刻。
+   */
+  const syncPlaceholderFlag = () => {
+    const el = ref.current
+    if (!el) return
+    const plain = stripMentionMarkup(readEditorText(el)).replace(/\u200b/g, '').trim()
+    if (plain) delete el.dataset.empty
+    else el.dataset.empty = 'true'
+  }
+
   const emit = () => {
     const el = ref.current
     if (!el) return
     const next = readEditorText(el)
     currentRef.current = next
+    syncPlaceholderFlag()
     onChange(next)
   }
+
+  /** 外部 value 变了（切节点 / 撤销 / 宿主写入）→ placeholder 跟着重算 */
+  useEffect(() => {
+    syncPlaceholderFlag()
+  }, [value])
 
   /**
    * 光标**紧贴**着的那个 chip（`side` 决定往前还是往后看）；没有就返回 null。
@@ -445,6 +502,16 @@ export const MentionEditor = forwardRef<
       data-placeholder={placeholder}
       {...anchorAttr}
       onBlur={onBlur}
+      onClick={(e) => {
+        /** 事件委托：点在某枚 chip 上就把它解析成引用回调给宿主（见 `onChipClick`） */
+        if (!onChipClick) return
+        const chip = (e.target as HTMLElement | null)?.closest?.('[data-token]')
+        const token = chip?.getAttribute('data-token')
+        if (!token) return
+        const kind = mentionKindOf(token)
+        const id = mentionIdOf(token)
+        if (kind && id) onChipClick({ kind, id, label: mentionLabel(token) })
+      }}
       onInput={() => {
         const el = ref.current
         const sel = window.getSelection()

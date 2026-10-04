@@ -10,46 +10,64 @@
   z-index: 4;
   right: 0;
   bottom: calc(100% + var(--space-2));
-  width: 430px;
-  box-sizing: border-box;
-  padding: var(--space-3);
-  /**
-   * 两栏排布照参考图（图十八）：左栏「分镜叙事 + 质感调节」、右栏「空间与机位 + 设定图」。
-   * 用多栏而不是写死两列 flex：分类块高度不一时，多栏会自动把后面的块顺下去，
-   * 写死两列就得手工决定「哪个分类进哪一栏」，加一条预设又要重新分。
+  /*
+   * 2026-10-05 第 2 条：用户拿参考图比，「预设面板太小了」——
+   * 目标按**屏幕**定：宽 520、行高 44、条目字号 15、分类标题 13。
+   *
+   * ⚠️ 创作面板整体挂 `zoom: 0.75`，所以这里要写**设计值**（屏幕 ÷ 0.75）：
+   * 692 / 58 / 20 / 17。写屏幕值的话渲染出来只有四分之三，正是「太小」的原因。
    */
-  column-count: 2;
-  column-gap: var(--space-4);
+  width: 692px;
+  box-sizing: border-box;
+  padding: var(--space-8);
+  /**
+   * 两栏由 TSX 显式分好（`MENU_COLUMNS`）：左「分镜叙事 + 质感调节」、
+   * 右「空间与机位 + 设定图」，与参考图一致。**不用 `column-count`** ——
+   * 浏览器按高度自动平衡，实测分成了「分镜叙事 + 空间与机位 / 设定图 + 质感调节」，
+   * 与参考图不一样；分布是产品决定，不该交给自动平衡。
+   */
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
   background: var(--bg-surface);
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
   box-shadow: var(--shadow-float);
 }
 
+.column {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .group {
-  break-inside: avoid;
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-5);
 }
 
 .groupLabel {
-  padding: 0 4px 4px;
+  padding: 0 6px 6px;
   color: var(--text-3);
-  font-size: var(--fs-chip);
+  /* 屏幕 12.75px */
+  font-size: 17px;
 }
 
 .item {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 13px;
   width: 100%;
-  height: 30px;
-  padding: 0 6px;
+  /* 屏幕 ≈ 43.5px */
+  height: 58px;
+  padding: 0 14px;
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--text-1);
   font-family: var(--font-sans);
-  font-size: var(--fs-chip);
+  /* 屏幕 15px */
+  font-size: 20px;
   text-align: left;
   cursor: pointer;
 }
@@ -63,6 +81,12 @@
   display: inline-flex;
   flex: 0 0 auto;
   color: var(--text-2);
+}
+
+/** 图标统一 24px 设计值（屏幕 18px；各图标自带 16 的默认值，这里按参考图放大一档） */
+.itemIcon svg {
+  width: 24px;
+  height: 24px;
 }
 
 .itemName {
@@ -84,9 +108,10 @@
   z-index: 5;
   right: 0;
   bottom: calc(100% + var(--space-2));
-  width: 300px;
+  /* 屏幕 380px */
+  width: 506px;
   box-sizing: border-box;
-  padding: var(--space-3);
+  padding: var(--space-5);
   background: var(--bg-surface);
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
@@ -94,7 +119,7 @@
 }
 
 .optionGroup + .optionGroup {
-  margin-top: var(--space-2);
+  margin-top: var(--space-3);
 }
 
 .choices {
@@ -104,14 +129,16 @@
 
 .choice {
   flex: 1 1 0;
-  height: 28px;
-  padding: 0 4px;
+  /* 屏幕 36px */
+  height: 48px;
+  padding: 0 6px;
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
   background: var(--bg-surface);
   color: var(--text-1);
   font-family: var(--font-sans);
-  font-size: var(--fs-chip);
+  /* 屏幕 13.5px */
+  font-size: 18px;
   white-space: nowrap;
   cursor: pointer;
 }

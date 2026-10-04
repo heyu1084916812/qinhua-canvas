@@ -1223,12 +1223,14 @@ async function g9(browser) {
   /**
    * 面板基准比例 21:9（用户 2026-09-19 第 2 条）：「保持长度不变、高度加高到 21:9」。
    *
-   * `zoom: 0.75` 是等比缩放，缩放前后比例不变，故直接量**渲染尺寸**即可：
-   * 840 ÷ (21/9) = 360（未缩放）⇒ 渲染 630 × 270。容差 0.02 吸收亚像素取整。
+   * `zoom` 是等比缩放，缩放前后比例不变，故直接量**渲染尺寸**即可：
+   * 840 ÷ (21/9) = 360（设计值）⇒ 屏幕上 840×zoom × 360×zoom。
+   * ⚠️ 判据里的 zoom **现场读**（2026-10-05 面板缩放从 0.75 收回 1 时，
+   * 写死的 630 立刻变红 —— 那是缩放改了，不是面板坏了）。容差 0.02 吸收亚像素取整。
    *
    * ⚠️ 2026-10-03 起这条比例**有前提**（用户报「距离边界的位置要适合，当前不适合」）：
    * 面板挂在节点下方，可用高度 = 视口高 − 锚点位置 − 底部留白。
-   * **空间够** → 仍然是 840×360（渲染 630×270，正好 21:9）；
+   * **空间够** → 仍然是 840×360（设计值，正好 21:9）；
    * **空间不够** → 老实收到可用高度（实测 256px），宁可矮一点，
    * 也不能像以前那样让 `min-height: 360px` 把底部那一行（参数 + 生成按钮）顶出屏幕。
    * 判据因此写成「高度 = min(360, 可用高度)」这一条**更准的规则**，再要求它落在视口内。
@@ -1239,19 +1241,23 @@ async function g9(browser) {
     .locator('[data-panel-anchor]')
     .evaluate((el) => parseFloat(getComputedStyle(el).getPropertyValue('--panel-available-h')))
   const viewportSize9 = page.viewportSize()
-  /** 渲染高度 = min(360, 可用高度) × zoom(0.75) —— 可用高度是**面板内部单位** */
-  const expectHeight = Math.min(360, availLocal) * 0.75
+  /** 渲染高度 = min(360, 可用高度) × zoom —— 可用高度是**面板内部单位** */
+  const panelZoom9 = await panel.evaluate(
+    (el) => parseFloat(getComputedStyle(el).zoom) || 1,
+  )
+  const expectWidth = 840 * panelZoom9
+  const expectHeight = Math.min(360, availLocal) * panelZoom9
   const heightOk = !!panelBox && Math.abs(panelBox.height - expectHeight) <= 2
   const insideViewport = !!panelBox && panelBox.y + panelBox.height <= viewportSize9.height + 1
   rec(
     g,
     '★ 创作面板高度 = min(21:9 的 360px, 可用高度)，且完整落在视口内',
     Number.isFinite(panelRatio) &&
-      Math.abs(panelBox.width - 630) <= 2 &&
+      Math.abs(panelBox.width - expectWidth) <= 2 &&
       heightOk &&
       insideViewport,
     panelBox
-      ? `${Math.round(panelBox.width)}×${Math.round(panelBox.height)} 比例=${panelRatio.toFixed(3)} 可用=${Math.round(availLocal)} 期望高=${Math.round(expectHeight)} 底=${Math.round(panelBox.y + panelBox.height)}/${viewportSize9.height}`
+      ? `${Math.round(panelBox.width)}×${Math.round(panelBox.height)} 比例=${panelRatio.toFixed(3)} zoom=${panelZoom9} 可用=${Math.round(availLocal)} 期望宽=${Math.round(expectWidth)} 期望高=${Math.round(expectHeight)} 底=${Math.round(panelBox.y + panelBox.height)}/${viewportSize9.height}`
       : 'null',
   )
 
@@ -16826,11 +16832,33 @@ async function g104(browser) {
   }
   const panel = await genPanel(page, dst)
 
-  const openBtn = panel.locator('[data-panel-mention-open]')
-  rec(g, '★★ 有上游素材时提示词行出现 @ 入口', (await openBtn.count()) === 1, `count=${await openBtn.count()}`)
-  await openBtn.click()
+  /**
+   * ⚠️ 「素材框下面那枚 @ 按钮」**已删**（用户 2026-10-05 第 4 条明确要求：
+   * 「不需要在素材框下面加一个艾特按钮，删掉它」）。
+   * 引用入口就是在正文里打 `@` —— 这里改成打字打开，顺带钉住「菜单跟着光标走」。
+   */
+  rec(
+    g,
+    '★★ 素材框下面没有 @ 按钮（入口是在正文里打 @）',
+    (await panel.locator('[data-panel-mention-open]').count()) === 0,
+    `count=${await panel.locator('[data-panel-mention-open]').count()}`,
+  )
+  await panelPrompt(panel).click()
+  await page.keyboard.type('@')
   await sleep(400)
   const menu = panel.locator('[data-panel-mention-menu]')
+  rec(
+    g,
+    '★★ @ 菜单开在**光标处**（不是固定在右边）',
+    await page.evaluate(() => {
+      const menuEl = document.querySelector('[data-panel-mention-menu]')
+      const caret = window.getSelection()?.getRangeAt(0)?.getBoundingClientRect()
+      if (!menuEl || !caret) return false
+      const m = menuEl.getBoundingClientRect()
+      /** 左缘与光标对齐（±40px），且落在光标**下方** */
+      return Math.abs(m.left - caret.left) < 40 && m.top >= caret.bottom - 20
+    }),
+  )
   const rowIds = await menu
     .locator('[data-panel-mention]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-panel-mention')))
@@ -17003,7 +17031,13 @@ async function g105(browser) {
   rec(
     g,
     '★★ 四大类齐全（分镜叙事 / 空间与机位 / 设定图 / 质感调节）',
-    JSON.stringify(categories) === JSON.stringify(['story', 'camera', 'design', 'texture']),
+    /**
+     * 判据取**集合**而不是先后顺序：两栏的分布是布局决定（左「分镜叙事 + 质感调节」、
+     * 右「空间与机位 + 设定图」，与参考图一致），DOM 顺序是逐栏铺出来的。
+     * 拿顺序当契约会把「换一下分栏」误判成功能坏了。
+     */
+    JSON.stringify([...categories].sort()) ===
+      JSON.stringify(['camera', 'design', 'story', 'texture']),
     categories.join(','),
   )
   /** 条目数 = 15 条预设（分镜叙事 6 + 空间与机位 2 + 设定图 5 + 质感调节 2）+ 情绪调节 */
@@ -17043,25 +17077,57 @@ async function g105(browser) {
     `panel=${await panel.count()} menu=${await menu.count()}`,
   )
 
-  /** ② 选一条：菜单收起 + 提示词上方出现「名称 + 示例小字」那一条 */
+  /**
+   * ② 选一条：菜单收起 + **正文里多出一枚预设 chip**（用户 2026-10-05 追问：
+   * 「预设还是单独放在最前方的第一排的继续改」—— 它必须像 @ 引用那样插在正文里，
+   * 而不是输入框上面的一个横条）。
+   *
+   * 同时钉住示例小字的生命周期：正文还空着时它以**占位**形式显示，
+   * 用户一写正文就消失（用户原话：「右边的小字只是给用户举例要输入什么内容，
+   * 用户填写正文后就会隐藏」）。
+   */
   await presetBtn.click()
   await sleep(250)
   await panel.locator('[data-preset="storyboard-25"]').click()
   await sleep(500)
-  const row = panel.locator('[data-panel-preset-row]')
+  const presetChip = panel.locator('[data-panel-prompt] [data-mention-kind="preset"]')
   rec(
     g,
-    '★★ 选完菜单收起、提示词上方出现该预设',
+    '★★ 选完菜单收起、**正文里**出现预设 chip（不是单独一行）',
     (await menu.count()) === 0 &&
-      (await row.getAttribute('data-panel-preset-row')) === 'storyboard-25',
-    `row=${await row.getAttribute('data-panel-preset-row')}`,
+      (await presetChip.count()) === 1 &&
+      (await presetChip.innerText()).includes('25宫格连贯分镜'),
+    `chip=${await presetChip.count()} 文本=${(await presetChip.innerText().catch(() => '')).trim()}`,
   )
-  const rowText = (await row.innerText()).replace(/\s+/g, ' ')
   rec(
     g,
-    '★★ 那一条 = 名称 + 示例小字（小字不进提示词）',
-    rowText.includes('25宫格连贯分镜') && rowText.includes('5×5'),
-    rowText.slice(0, 80),
+    '★★ chip 与正文在**同一行**（不是自己占一行）',
+    await panel.locator('[data-panel-prompt]').evaluate((el) => {
+      const chip = el.querySelector('[data-token]')
+      if (!chip) return false
+      const range = document.createRange()
+      range.selectNodeContents(el)
+      /** 编辑器内容的顶边：chip 与它几乎同一 y ⇒ 同一条基线 */
+      return Math.abs(chip.getBoundingClientRect().top - range.getBoundingClientRect().top) < 6
+    }),
+  )
+  rec(
+    g,
+    '★★ 正文为空时显示**示例小字**（占位），一写正文就消失',
+    await (async () => {
+      const before = await panelPrompt(panel).evaluate((el) => el.dataset.empty === 'true')
+      await panelPrompt(panel).click()
+      await page.keyboard.type('一只猫')
+      await sleep(400)
+      const after = await panelPrompt(panel).evaluate((el) => el.dataset.empty === 'true')
+      /**
+       * 只删**刚打的那三个字**，不要用 `fill('')` —— 那会把正文连同预设 chip
+       * 一起清掉（等于顺手取消了预设），后面「按钮上有小点 / 节点存了 id」两条就全落空。
+       */
+      for (let i = 0; i < 3; i++) await page.keyboard.press('Backspace')
+      await sleep(300)
+      return before === true && after === false
+    })(),
   )
   rec(g, '★ 按钮上出现已选的小点', (await panel.locator('[data-preset-dot]').count()) === 1)
   await sleep(900)
@@ -17074,14 +17140,17 @@ async function g105(browser) {
   )
   await page.screenshot({ path: `${OUT}/126-g105-preset-row.png` })
 
-  /** ③ 二级搭配：点齿轮不是「切换预设」，而是选具体搭配（图十九） */
+  /** ③ 二级搭配：点**预设 chip**不是「切换预设」，而是选具体搭配（图十九） */
   await presetBtn.click()
   await sleep(250)
   await panel.locator('[data-preset="portrait-texture"]').click()
   await sleep(400)
-  const gear = panel.locator('[data-panel-preset-gear]')
-  rec(g, '★★ 人像质感调节带搭配入口（齿轮）', (await gear.count()) === 1, `count=${await gear.count()}`)
-  await gear.click()
+  rec(
+    g,
+    '★★ 人像质感调节的 chip 可点（点它开搭配面板）',
+    (await panel.locator('[data-panel-prompt] [data-mention-kind="preset"]').count()) === 1,
+  )
+  await panel.locator('[data-panel-prompt] [data-mention-kind="preset"]').click()
   await sleep(300)
   const options = panel.locator('[data-preset-options]')
   const groups = await options

@@ -34,11 +34,31 @@
  * `z-index` 与创作面板同级之下 —— 面板永远不会盖到右上角的这一小块，
  * 但浮层（日志 / 灯箱）要能盖住它。
  */
-.logBtn {
+/*
+ * 右上角那排入口（助手 / 日志）的**容器**。
+ *
+ * 2026-10-05 第 7 条：用户报「日志和助手的间距太小，要保持助手图标和日志图标之间的大小」。
+ * 原先是两个按钮各自绝对定位、`right: calc(... + 68px)` 硬凑间距 —— 68 是按当时按钮宽度
+ * 估的，文案一变间距就漂（实测 14px，而且两个按钮字重不一致：日志 600、助手 400）。
+ * 改成一个 flex 容器 + 一个间距 token（`--space-4` = 16px），两者还共用同一套按钮样式。
+ */
+.topRightActions {
   position: absolute;
   top: var(--space-3);
   right: var(--space-3);
   z-index: 18;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/* 面板展开时整排左移一个面板外框宽（否则会被盖住） */
+.pageAgentOpen .topRightActions {
+  right: calc(var(--space-3) + var(--agent-panel-outer));
+}
+
+/* 两个按钮共用一份外观：同一档字号 / 字重 / 内距，看上去才是一对 */
+.topBtn {
   height: 32px;
   padding: 0 var(--space-3);
   border: 1px solid var(--stroke);
@@ -51,38 +71,18 @@
   cursor: pointer;
 }
 
-.logBtn:hover {
+.topBtn:hover {
   background: var(--bg-hover);
 }
 
 /*
  * Agent 对话窗的开关（设计文档 §8）。
  *
- * 它与日志按钮同排、在日志左边；面板展开时两个按钮整体左移一个面板宽度，
- * 否则会被面板盖住 —— 盖住之后用户就只剩「收起」一条路，来回折腾。
+ * 外观与位置都由上面那两条 `.topRightActions` / `.topBtn` 给 —— 这里不再各写一份，
+ * 「两个按钮的样式与间距」因此只有一个来源。
  */
 .agentBtn {
-  position: absolute;
-  top: var(--space-3);
-  right: calc(var(--space-3) + 68px);
-  z-index: 18;
-  height: 32px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius-control);
-  background: var(--bg-surface);
-  color: var(--text-1);
-  font-size: var(--fs-label);
-  cursor: pointer;
-}
-.agentBtn:hover {
-  background: var(--bg-hover);
-}
-.pageAgentOpen .agentBtn {
-  right: calc(var(--space-3) + var(--agent-panel-outer) + 68px);
-}
-.pageAgentOpen .logBtn {
-  right: calc(var(--space-3) + var(--agent-panel-outer));
+  /* 语义钩子：冒烟与其它样式按它定位（外观无差异） */
 }
 
 /* 多标签写入提示（产品文档 §2.4） */

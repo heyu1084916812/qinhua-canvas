@@ -15,9 +15,34 @@
    * 0.5 是 2026-09-16 定的「整体缩半」，实测偏小、参数 chip 有些挤；放大到 0.75 后
    * 仍是「比原始尺寸小一档」，但字号与点击区回到可用区间。
    */
-  /* 缩放值由 PanelLayer 注入（唯一来源，见那里的 PANEL_ZOOM）；兜底 0.75 只给 SSR / 单测 */
+  /*
+   * 缩放值由 PanelLayer 注入（唯一来源，见那里的 PANEL_ZOOM）；兜底值只给 SSR / 单测。
+   *
+   * ⚠️ 这一条**不要动**：用户 2026-10-05 明确「我要的是文字，而不是创作面板放大」——
+   * 面板几何保持 0.75，字通过下面那组 token 覆盖值放大（见 `.panel` 里的
+   * `--fs-label` / `--fs-chip` / `--picker-*`）。
+   */
   zoom: var(--panel-zoom, 0.75);
   width: 840px;
+  /**
+   * **面板内的字号覆盖**（用户 2026-10-05 第 5 条）。
+   *
+   * 面板整体挂 0.75 的缩放，于是设计值 16px 的正文在屏幕上只有 12px、
+   * 12px 的标签只有 9px —— 用户拿 DevTools 比过参考产品（14px 正文）后问
+   * 「为什么我的看起来小很多」。既然面板尺寸不能动，就把**面板内**这几档字号
+   * 按 1/0.75 放大：20 × 0.75 = 屏幕上 15px，16 × 0.75 = 12px。
+   *
+   * 为什么用变量覆盖而不是逐条改 `font-size`：面板内大量规则写的是
+   * `var(--fs-label)` / `var(--fs-chip)`，覆盖这两个变量一处顶十处；
+   * 而它们是**局部覆盖**（只在这个面板子树里生效），对话窗与其它页面拿到的
+   * 仍是全局那两档 —— 不会「改这里、别处跟着变大」。
+   */
+  --fs-label: 20px;
+  --fs-chip: 16px;
+  /* 参数菜单（共享组件 ParamPicker）：面板里放大，对话窗里维持它自己的默认值 */
+  --picker-fs: 21px;
+  --picker-option-fs: 18px;
+  --picker-hint-fs: 16px;
   /*
    * 高度**跟着内容走**（用户 2026-09-24 第 1 条）。
    *
@@ -586,8 +611,11 @@
   outline: none;
   background: transparent;
   font: inherit;
-  /* 用户第 3 条：「参数文字加大」也覆盖提示词正文——它是面板里最主要的一块阅读内容 */
-  font-size: 16px;
+  /**
+   * 用户第 3 条：「参数文字加大」也覆盖提示词正文——它是面板里最主要的一块阅读内容。
+   * 2026-10-05 再加大一档：**屏幕**要 15px（对齐参考产品），面板挂 0.75 ⇒ 写 20px。
+   */
+  font-size: 20px;
   line-height: var(--lh-body);
   text-align: left;
   color: var(--text-1);
@@ -632,30 +660,13 @@
   min-height: 22px;
 }
 
-/*
- * `@` 按钮：与参数 chip 同一档尺寸（22px 高、方角、描边），
- * 面板整体挂着 `zoom: 0.75`，所以这里的 22px 在屏幕上是 ~16px。
- */
-.mentionOpen {
-  flex: 0 0 auto;
-  width: 24px;
-  height: 22px;
-  padding: 0;
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius-control);
-  background: var(--bg-surface);
-  color: var(--text-2);
-  font-family: var(--font-sans);
-  font-size: var(--fs-chip);
-  line-height: 1;
-  cursor: pointer;
-}
-
-.mentionOpen:hover,
-.mentionOpen:focus-visible,
-.mentionOpen[aria-expanded='true'] {
-  background: var(--bg-hover);
-  color: var(--text-1);
+/* 提示词框本体：预设 chip 与正文都在里面（chip 不再单独占一行） */
+.promptBox {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
 }
 
 /*
@@ -666,16 +677,25 @@
 .mentionMenu {
   position: absolute;
   z-index: 3;
-  top: 26px;
-  right: 0;
+  /*
+   * 默认落在输入框左上角（量不到光标时的兜底）；量到光标时由内联 style 顶到光标下面
+   * —— 用户 2026-10-05 第 4 条：「面板需要在输入框艾特的位置，不要固定在右边」。
+   */
+  top: 34px;
+  left: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  width: 220px;
-  max-height: 240px;
+  gap: 4px;
+  /*
+   * 与对话窗那套引用菜单同一档**屏幕**尺寸（第 4 条：「面板和文字都太小了，
+   * 需要像 agent 一样的插入正文 chip 一样的大小」）：行高 44、缩略图 40×30、字号 14。
+   * ⚠️ 面板挂 0.75 缩放，所以要写**设计值**（屏幕 ÷ 0.75）：400 / 320 / 58 / 53×40 / 18。
+   */
+  width: 400px;
+  max-height: 320px;
   overflow-y: auto;
   box-sizing: border-box;
-  padding: var(--space-2);
+  padding: var(--space-3);
   background: var(--bg-surface);
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
@@ -683,23 +703,26 @@
 }
 
 .mentionHint {
-  padding: 0 4px 2px;
+  padding: 0 4px 4px;
   color: var(--text-3);
-  font-size: var(--fs-chip);
+  /* 屏幕 12px */
+  font-size: 16px;
 }
 
 .mentionItem {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  height: 32px;
-  padding: 0 6px;
+  gap: 10px;
+  /* 屏幕 ≈ 44px */
+  height: 58px;
+  padding: 0 8px;
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--text-1);
   font-family: var(--font-sans);
-  font-size: var(--fs-chip);
+  /* 屏幕 13.5px */
+  font-size: 18px;
   text-align: left;
   cursor: pointer;
 }
@@ -710,8 +733,9 @@
 
 .mentionThumb {
   flex: 0 0 auto;
-  width: 28px;
-  height: 22px;
+  /* 屏幕 40×30 */
+  width: 53px;
+  height: 40px;
   border-radius: 3px;
   overflow: hidden;
   background: var(--bg-subtle);
@@ -748,7 +772,8 @@
     calc(var(--panel-available-h, 480px) - 160px)
   );
   padding: 0 6px 0 var(--space-1);
-  font-size: 16px;
+  /* 屏幕 15px（与 `.prompt` 同一条口径：面板 0.75 缩放，设计值写 20） */
+  font-size: 20px;
   line-height: var(--lh-body);
   overflow-y: auto;
   /* contenteditable 默认 `overflow: visible`：不写这条，超出上限的内容会画到面板外 */
@@ -1091,9 +1116,13 @@
  * 工具按钮与参数 chip 同形（用户要求「UI 一样」）。
  *
  * 数值对齐 `ParamPicker.module.css` 的 `.chip`：高 46px、左右 12px 内距、
- * `--radius-control` 圆角、16px / 字重 500、悬停浮现 `--bg-hover`。
+ * `--radius-control` 圆角、字重 500、悬停浮现 `--bg-hover`。
  * 写死数值而不是复用类名：CSS module 不跨文件组合，抄的是**同一套视觉参数**，
  * 哪边改了都要一起看（若将来抽成共享 token 更好）。
+ *
+ * 字号 16 → 21px（2026-10-05）：chip 那一档已由 `--picker-fs` 提到 21，
+ * 这一排工具按钮跟它同形，字号也得跟上，否则又成了「同一行两种字大小」。
+ * 屏幕上是 15.75px（面板挂 0.75 缩放）。
  */
 .toolBtn {
   border: none;
@@ -1141,19 +1170,26 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
   padding: 0;
-  border: 1px solid var(--stroke);
+  /*
+   * **没有外框**（用户 2026-10-05 第 11 条：「我不要外框」）——
+   * 它只是一枚图标按钮，悬停时才给一层底色作为反馈。
+   */
+  border: 0;
   border-radius: var(--radius-control);
-  background: var(--bg-surface);
-  color: var(--text-2);
+  background: transparent;
+  color: var(--text-1);
   cursor: pointer;
 }
 
-.presetBtn:hover,
-.presetBtnOn {
+.presetBtn:hover {
   background: var(--bg-hover);
+}
+
+/* 选中态**不加底**：只靠右上角那颗小点（参考图就是这么表达的） */
+.presetBtnOn {
   color: var(--text-1);
 }
 
@@ -1172,62 +1208,41 @@
  * 当前预设那一条（图五：名称 + 右侧示例小字）。
  * 小字只做说明、不进提示词，长了就省略 —— 它旁边还有输入框，不能让它把行撑破。
  */
-.presetRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
+/*
+ * 正文里那几枚 chip（预设 / @ 引用）。
+ *
+ * 用户 2026-10-05 第 3 条：「需要像 agent 一样的插入正文 chip 一样的大小和功能，
+ * 不是单独在一行」—— 所以预设现在**就是正文里的一枚 chip**（kind = `preset`），
+ * 不再有「单独一行」的那套 `.presetLine/.presetChip/...` 样式。
+ *
+ * 尺寸按**屏幕**定（对话窗那枚是 20px 高 / 12px 字；面板正文更大，chip 也放大一档）：
+ * 屏幕 24px 高 / 13.5px 字 ⇒ 设计值 32px / 18px（面板挂 0.75 缩放）。
+ *
+ * ⚠️ 这里用 `[data-token]` 这个**属性选择器**：chip 是编辑器命令式建的 DOM，
+ * 类名在 `MentionEditor.module.css` 里，跨文件选不到。
+ */
+.promptBox [data-token] {
+  height: 32px;
+  padding: 0 8px;
+  gap: 6px;
+  border-radius: 8px;
+  font-size: 18px;
 }
 
-.presetChip {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 2px;
-  height: 24px;
-  padding: 0 4px;
-  box-sizing: border-box;
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius-control);
-  background: var(--bg-surface);
+.promptBox [data-token] svg {
+  width: 18px;
+  height: 18px;
 }
 
-.presetClear,
-.presetName,
-.presetGear {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  height: 20px;
-  padding: 0 4px;
-  border: 0;
-  border-radius: calc(var(--radius-control) - 4px);
-  background: transparent;
-  color: var(--text-1);
-  font-family: var(--font-sans);
-  font-size: var(--fs-chip);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.presetClear,
-.presetGear {
-  padding: 0 2px;
+/*
+ * 预设 chip 右侧那枚小箭头：**纯装饰**（点整枚 chip 就是「换一条 / 调搭配」，见
+ * `onChipClick`）。用伪元素而不是写进 chip 的 label —— label 是存储形态的一部分，
+ * 混进一个 `⌄` 就会跟着进纯文本（虽然预设 chip 会被整枚 strip 掉，但没必要冒这个险）。
+ */
+.promptBox [data-mention-kind='preset']::after {
+  content: '⌄';
+  margin-left: 2px;
   color: var(--text-2);
-}
-
-.presetClear:hover,
-.presetName:hover,
-.presetGear:hover {
-  background: var(--bg-hover);
-}
-
-.presetHint {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-3);
-  font-size: var(--fs-chip);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 14px;
+  line-height: 1;
 }

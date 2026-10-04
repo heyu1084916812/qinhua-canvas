@@ -16,8 +16,12 @@
    *
    * 此前它是「24px 高 + 1px 描边 + 全圆角」的小胶囊，与旁边的参数 chip
    * 并排时明显是两种控件。现在对齐 `ParamPicker.module.css` 的 `.chip`：
-   * 46px 高、无边框、透明底、`--radius-control` 圆角、16px 字号，
+   * 46px 高、无边框、透明底、`--radius-control` 圆角、与参数 chip 同字号，
    * 仅靠背景明度变化表达悬停。
+   *
+   * 字号走 `--picker-fs`（与 `ParamPicker` 同一口子）：创作面板把它整体提一档，
+   * 这一排工具按钮必须跟着走，否则又成了「同一行两种字大小」——
+   * 冒烟 G23「工具行与参数 chip 同字号」正是钉这件事的。
    */
   height: 46px;
   padding: 0 12px;
@@ -26,7 +30,7 @@
   background: transparent;
   color: var(--text-1);
   font-family: var(--font-sans);
-  font-size: 16px;
+  font-size: var(--picker-fs, 16px);
   font-weight: 500;
   line-height: 1;
   white-space: nowrap;

@@ -16,8 +16,26 @@
 import type { Viewport } from '../../../domain/canvas/geometry/coords'
 import type { Rect } from '../../../domain/canvas/geometry/rect'
 
-/** 栏目与节点框的间距（屏幕 px） */
-export const FOLLOW_BAR_GAP = 10
+/**
+ * 节点**标题带**的高度（屏幕 px）。
+ *
+ * `NodeFrame.module.css` 的 `.header` 是 22px 高、挂在节点框**上方**
+ * （`bottom: 100%` + `margin-bottom: 2px`）⇒ 节点名与右上角像素读数占掉
+ * 节点顶边之上 24px。
+ *
+ * 为什么要在这里把它记下来：跟随栏的锚点是「节点顶边 − 栏高 − 间距」，
+ * 间距只要小于这条带的高度，栏就会**压在节点名上**（用户 2026-10-05：
+ * 「功能栏也遮住了节点名称」）。把它抽成常数，栏与标题带的关系就是可断言的。
+ */
+export const NODE_TITLE_BAND = 24
+
+/**
+ * 栏目与节点框的间距（屏幕 px）。
+ *
+ * 2026-10-05：10 → 30（= 标题带 24 + 6 呼吸）。用户报「功能栏遮住了节点名称」——
+ * 原先 10px 的间距让栏底落在标题带**中间**，节点名被压掉一半。
+ */
+export const FOLLOW_BAR_GAP = NODE_TITLE_BAND + 6
 /** 栏高（屏幕 px）：按钮 26 + 内距 4×2 + 描边 1×2 ≈ 36，取整以稳定翻转判定 */
 export const FOLLOW_BAR_HEIGHT = 36
 

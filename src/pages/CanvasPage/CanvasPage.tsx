@@ -283,32 +283,39 @@ function CanvasProject({ projectId }: { projectId: string }) {
             刻意做成一个朴素的小按钮而不是重做一套顶栏：
             顶栏被去掉要解决的是「它挡住画布内容」，不是「按钮本身不该存在」。
           */}
-          <button
-            type="button"
-            className={styles.logBtn}
-            data-canvas-log
-            aria-pressed={logOpen}
-            aria-label="日志"
-            title="日志"
-            onClick={() => setLogOpen((v) => !v)}
-          >
-            日志
-          </button>
           {/*
-            助手入口（设计文档 §8）：与日志同排、在它左边。
-            面板本身贴右侧、可收起 —— 收起后画布吃满，不长期占用画布宽度。
+            右上角那排入口：**助手 + 日志**（用户 2026-10-05 第 7 条：两者间距太小）。
+
+            两个按钮放进一个 flex 容器，间距由一个 token 给（`--space-4`）——
+            此前是各自绝对定位、`right: calc(... + 68px)` 硬凑，68 按当时的按钮宽度估的，
+            文案一变间距就漂（实测 14px，而且两个按钮的字重还不一致，看着不像一对）。
+
+            顺序：助手在前、日志在后 —— 与用户看到的「助手在左、日志在右」一致。
           */}
-          <button
-            type="button"
-            className={styles.agentBtn}
-            data-canvas-agent
-            aria-pressed={agentOpen}
-            aria-label="助手"
-            title="助手"
-            onClick={() => setAgentOpen((v) => !v)}
-          >
-            助手
-          </button>
+          <div className={styles.topRightActions}>
+            <button
+              type="button"
+              className={`${styles.topBtn} ${styles.agentBtn}`}
+              data-canvas-agent
+              aria-pressed={agentOpen}
+              aria-label="助手"
+              title="助手"
+              onClick={() => setAgentOpen((v) => !v)}
+            >
+              助手
+            </button>
+            <button
+              type="button"
+              className={styles.topBtn}
+              data-canvas-log
+              aria-pressed={logOpen}
+              aria-label="日志"
+              title="日志"
+              onClick={() => setLogOpen((v) => !v)}
+            >
+              日志
+            </button>
+          </div>
           {externalEdit && (
             <div className={styles.externalBanner} role="status">
               <span>项目已在其他标签页修改</span>

@@ -25,8 +25,16 @@
   user-select: text;
 }
 
-/* contenteditable 没有 placeholder，用伪元素顶一个 */
-.editor:empty::before {
+/*
+ * contenteditable 没有 placeholder，用伪元素顶一个。
+ *
+ * ⚠️ 判据不是 `:empty` 而是**编辑器自己打的标记**（`data-empty`）：
+ * 插了一枚引用 chip、正文还空着时，编辑器**不是空的**（里面有 chip），
+ * 而那一刻恰恰该显示示例文字 —— 用户 2026-10-05 第 3 条要的就是
+ * 「示例小字在正文为空时显示、用户一打字就隐藏」。用 `::after` 而不是 `::before`：
+ * 它要落在**已有内容的后面**（chip 之后），`::before` 会跑到 chip 前面。
+ */
+.editor[data-empty='true']::after {
   content: attr(data-placeholder);
   color: var(--text-3);
   pointer-events: none;

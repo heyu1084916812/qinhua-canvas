@@ -8,7 +8,7 @@ import { saveAssetToLibrary } from '../../../features/canvas/saveAssetToLibrary'
 import { sendSelectionToAgent } from '../../../features/canvas/agentHandoff'
 import { createId } from '../../../shared/id'
 import { useCanvasStore, useGraph, useSelection, useViewportState } from '../storeContext'
-import { FOLLOW_BAR_GAP, FOLLOW_BAR_HEIGHT } from './followBarAnchor'
+import { FOLLOW_BAR_HEIGHT } from './followBarAnchor'
 import {
   IconDownload,
   IconDuplicate,
@@ -18,6 +18,29 @@ import {
   IconStar,
 } from './icons'
 import styles from './MultiSelectBar.module.css'
+
+/**
+ * 虚线框相对选区**往外扩多少**（屏幕 px）——用户 2026-10-05 第 6 条：
+ * 「虚线框要大一点，不要遮住节点的名称还有左右的端点」。
+ *
+ * - 上边 30：让出节点标题带（节点框上方那 24px 的标题 + 读数，理由与跟随栏同一条，
+ *   见 `followBarAnchor.NODE_TITLE_BAND`）；
+ * - 左右下 22：把框整体推离节点内容，左右端点也随之落到框沿上，
+ *   不再压在节点自己的端口上。
+ *
+ * **这是唯一来源**：框的 `inset`、端点位置、功能栏的高度偏移都由它算出来，
+ * 不写进 CSS（散成两处就会出现「框放大了、端点还留在原地」）。
+ */
+export const MULTI_BOX_INSET = { top: 30, side: 22, bottom: 22 } as const
+/** 端点直径（与 `.endpoint` 的 width/height 一致）：居中到框沿要用它的一半 */
+const ENDPOINT_SIZE = 14
+/**
+ * 端点的纵向位置：**虚线框的纵向中点**，不是选区的中点。
+ *
+ * 框的外扩上下不对称（上面多让 30px 给标题带、下面 22px），两者的中点因此差
+ * `(bottom − top) / 2` —— 端点若不补这个差值，就会比框的中线低 4px（G103 抓到过）。
+ */
+const ENDPOINT_TOP_OFFSET = (MULTI_BOX_INSET.bottom - MULTI_BOX_INSET.top) / 2
 
 /**
  * **多选浮层**：虚线框 + 上方功能栏 + 左右两个「共有端点」（用户 2026-10-05 第 11 / 12 条，
@@ -123,12 +146,23 @@ export function MultiSelectBar({
       onPointerDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
     >
-      <div className={styles.box} data-multi-select-box />
+      <div
+        className={styles.box}
+        data-multi-select-box
+        /** 外扩量来自上面那个常量（框 / 端点 / 功能栏三者共用一份） */
+        style={{
+          inset: `-${MULTI_BOX_INSET.top}px -${MULTI_BOX_INSET.side}px -${MULTI_BOX_INSET.bottom}px`,
+        }}
+      />
 
       <div
         className={styles.bar}
         data-multi-select-bar
-        style={{ top: -FOLLOW_BAR_HEIGHT - FOLLOW_BAR_GAP }}
+        /**
+         * 功能栏挂在**虚线框上沿之上**再留 6px —— 原先只按「选区上沿」算，
+         * 框一放大，栏的底边就压在虚线上（用户 2026-10-05 第 6 条）。
+         */
+        style={{ top: -(MULTI_BOX_INSET.top + FOLLOW_BAR_HEIGHT + 6) }}
       >
         {/*
           六枚按钮都走「图标 + 常驻中文」——与单选跟随栏同一条口径（用户 2026-09-17：
@@ -197,6 +231,10 @@ export function MultiSelectBar({
       <button
         type="button"
         className={`${styles.endpoint} ${styles.endpointLeft}`}
+        style={{
+          left: -(MULTI_BOX_INSET.side + ENDPOINT_SIZE / 2),
+          top: `calc(50% + ${ENDPOINT_TOP_OFFSET}px)`,
+        }}
         data-multi-endpoint="input"
         title="连上游（把每个选中节点都接到它）"
         aria-label="连上游"
@@ -205,6 +243,10 @@ export function MultiSelectBar({
       <button
         type="button"
         className={`${styles.endpoint} ${styles.endpointRight}`}
+        style={{
+          right: -(MULTI_BOX_INSET.side + ENDPOINT_SIZE / 2),
+          top: `calc(50% + ${ENDPOINT_TOP_OFFSET}px)`,
+        }}
         data-multi-endpoint="output"
         title="连下游（每个选中节点都连到它）"
         aria-label="连下游"
