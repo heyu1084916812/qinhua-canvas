@@ -16859,6 +16859,35 @@ async function g104(browser) {
       return Math.abs(m.left - caret.left) < 40 && m.top >= caret.bottom - 20
     }),
   )
+  /**
+   * ★★ 候选菜单的**行高 / 字号**要和助手那份同一档（用户第 4 条：「面板和文字都太小了，
+   * 需要像 agent 一样的插入正文 chip 一样的大小」）。
+   *
+   * 助手那份实测是 **行高 46 / 字号 16**（屏幕值，它不挂缩放）；创作面板整体挂 `zoom .75`，
+   * 所以这里按**屏幕**比：`算出字号 × zoom`。改之前是 13.5px 屏幕（比助手小 2.5px），
+   * 正是用户看到的那句「文字太小」。
+   */
+  const mentionSize = await page.evaluate(() => {
+    const menuEl = document.querySelector('[data-panel-mention-menu]')
+    const row = menuEl?.querySelector('[data-panel-mention]')
+    const panelEl = document.querySelector('[data-creation-panel]')
+    if (!menuEl || !row) return null
+    const zoom = panelEl ? Number.parseFloat(getComputedStyle(panelEl).zoom) || 1 : 1
+    const img = menuEl.querySelector('img')
+    const ir = img?.getBoundingClientRect()
+    return {
+      rowH: Math.round(row.getBoundingClientRect().height),
+      fontScreen: Math.round(parseFloat(getComputedStyle(row).fontSize) * zoom * 100) / 100,
+      zoom,
+      thumb: ir ? `${Math.round(ir.width)}×${Math.round(ir.height)}` : null,
+    }
+  })
+  rec(
+    g,
+    '★★ 候选菜单的行高 / 字号与助手那份同档（行高 ≥44、字号 ≥15.5 屏幕）',
+    !!mentionSize && mentionSize.rowH >= 43 && mentionSize.fontScreen >= 15.5,
+    JSON.stringify(mentionSize),
+  )
   const rowIds = await menu
     .locator('[data-panel-mention]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-panel-mention')))
@@ -17067,6 +17096,39 @@ async function g105(browser) {
   )
   await page.screenshot({ path: `${OUT}/125-g105-preset-menu.png` })
 
+  /**
+   * ★★ **菜单尺寸**就是这一条的契约（用户 2026-10-05 第 2 条：「预设面板太小了，
+   * 需要参考图二的位置以及大小还有分布」）。判据按**屏幕**：宽 519（±12）、
+   * 条目行高 44（±3）、条目字号 20（设计值）。
+   *
+   * **高度刻意不钉**：以后加一条预设它必然变高，拿高度当契约会把正常迭代判成回归。
+   */
+  const menuGeom = await menu.evaluate((el) => {
+    const rows = [...el.querySelectorAll('[data-preset]')]
+    const first = rows[0]
+    return {
+      w: Math.round(el.getBoundingClientRect().width),
+      rowH: first ? Math.round(first.getBoundingClientRect().height) : 0,
+      rowFont: first ? getComputedStyle(first).fontSize : '',
+      rows: rows.length,
+      withIcon: rows.filter((r) => r.querySelector('svg')).length,
+    }
+  })
+  rec(
+    g,
+    '★★ 菜单尺寸对了：屏幕宽 519、行高 44、条目字号 20（设计值）',
+    Math.abs(menuGeom.w - 519) <= 12 &&
+      Math.abs(menuGeom.rowH - 44) <= 3 &&
+      menuGeom.rowFont === '20px',
+    JSON.stringify(menuGeom),
+  )
+  rec(
+    g,
+    '★★ 每一条预设自带矢量图标（第 8 条：不是符号字）',
+    menuGeom.rows > 0 && menuGeom.withIcon === menuGeom.rows,
+    `${menuGeom.withIcon}/${menuGeom.rows} 条带图标`,
+  )
+
   /** Esc 只收菜单，别把面板也关了（逐层收） */
   await page.keyboard.press('Escape')
   await sleep(300)
@@ -17162,6 +17224,29 @@ async function g105(browser) {
     JSON.stringify(groups) === JSON.stringify(['fusion', 'light', 'skin', 'grain', 'sharp']) &&
       (await options.locator('[data-preset-choice]').count()) === 15,
     `groups=${groups.join(',')} choices=${await options.locator('[data-preset-choice]').count()}`,
+  )
+  /**
+   * ★★ **搭配面板与菜单同宽同档**（用户第 2 条后半：「人像质感调节的面板也太小了」）。
+   *
+   * 判据取**相对**（与刚量过的那份菜单比），不写绝对值：两块是同一族的东西，
+   * 差一档就是当初那次反馈。菜单此时已经收起（两块互斥），所以比对的是
+   * 上面那次量到的 `menuGeom.w`。
+   */
+  const optsGeom = await options.evaluate((el) => {
+    const choice = el.querySelector('[data-preset-choice]')
+    return {
+      w: Math.round(el.getBoundingClientRect().width),
+      choiceH: choice ? Math.round(choice.getBoundingClientRect().height) : 0,
+      choiceFont: choice ? getComputedStyle(choice).fontSize : '',
+    }
+  })
+  rec(
+    g,
+    '★★ 人像质感搭配面板与预设菜单同宽同档（宽 519 / 行高 43.5 / 字号 20）',
+    Math.abs(optsGeom.w - menuGeom.w) <= 3 &&
+      Math.abs(optsGeom.choiceH - 44) <= 3 &&
+      optsGeom.choiceFont === '20px',
+    `${JSON.stringify(optsGeom)} vs 菜单宽 ${menuGeom.w}`,
   )
   await page.screenshot({ path: `${OUT}/127-g105-preset-options.png` })
   await options.locator('[data-preset-choice="fusion:deep"]').click()

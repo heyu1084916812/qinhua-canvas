@@ -108,10 +108,15 @@
   z-index: 5;
   right: 0;
   bottom: calc(100% + var(--space-2));
-  /* 屏幕 380px */
-  width: 506px;
+  /**
+   * 2026-10-05（第 2 条后半）：用户说「人像质感调节的面板也太小了」。
+   * 现在它**与上面那份预设菜单同宽**（692 设计 = 屏幕 519），
+   * 行高 / 字号也同步到菜单那一档（58 / 20 设计 = 屏幕 43.5 / 15）——
+   * 两块是同一族的东西，尺寸差一档看着就像两套 UI。
+   */
+  width: 692px;
   box-sizing: border-box;
-  padding: var(--space-5);
+  padding: var(--space-8);
   background: var(--bg-surface);
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
@@ -119,26 +124,26 @@
 }
 
 .optionGroup + .optionGroup {
-  margin-top: var(--space-3);
+  margin-top: var(--space-4);
 }
 
 .choices {
   display: flex;
-  gap: var(--space-1);
+  gap: var(--space-2);
 }
 
 .choice {
   flex: 1 1 0;
-  /* 屏幕 36px */
-  height: 48px;
-  padding: 0 6px;
+  /* 与预设菜单的行同档：屏幕 ≈ 43.5px */
+  height: 58px;
+  padding: 0 10px;
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
   background: var(--bg-surface);
   color: var(--text-1);
   font-family: var(--font-sans);
-  /* 屏幕 13.5px */
-  font-size: 18px;
+  /* 与预设菜单的行同档：屏幕 15px */
+  font-size: 20px;
   white-space: nowrap;
   cursor: pointer;
 }
