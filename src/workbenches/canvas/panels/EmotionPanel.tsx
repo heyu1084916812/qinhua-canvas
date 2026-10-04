@@ -134,7 +134,11 @@ export function EmotionPanel({
               disabled={running || !canRun}
               title={canRun ? '按当前情绪生成' : '先在渠道里选好模型'}
               aria-label="生成"
-              onClick={() => onEvent({ type: running ? 'cancel' : 'run' })}
+              /**
+               * 情绪走**局部改脸**（用户 2026-10-05 第五批第 1 条）：识别人脸 → 裁局部 →
+               * 改图 → 融合回原图，而不是把整张图重画一遍。
+               */
+              onClick={() => onEvent({ type: running ? 'cancel' : 'runEmotion' })}
             >
               {running ? '停止' : '生成'}
             </button>

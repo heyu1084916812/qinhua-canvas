@@ -172,6 +172,14 @@ export type PanelEvent =
   | { type: 'optimize' }
   | { type: 'translate' }
   | { type: 'run' }
+  /**
+   * 情绪面板的「生成」= **局部改脸**（用户 2026-10-05 第五批第 1 条）。
+   *
+   * 与 `run` 分开是刻意的：`run` 是「跑这个节点」（整图重画一遍），
+   * 而这条要走「识别人脸 → 裁局部 → 改图 → 融合回原图」四步。
+   * 共用一个事件名的话，两条语义会在这个 switch 里互相盖住。
+   */
+  | { type: 'runEmotion' }
   | { type: 'cancel' }
   | { type: 'close' }
   /**

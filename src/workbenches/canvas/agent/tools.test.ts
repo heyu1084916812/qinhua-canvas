@@ -66,6 +66,12 @@ describe('读类工具', () => {
     expect(s.nodes).toHaveLength(2)
     expect(s.nodes.find((n) => n.id === g)?.hasOutput).toBe(true)
     expect(s.nodes.find((n) => n.id === p)?.hasOutput).toBe(false)
+    /**
+     * ★★ 摘要要带**正文**（用户 2026-10-05 第六批：换风格时模型拿节点名当内容，
+     * 把「只换 3D 风格」做成了「重画一只钓鱼的小猫」）。
+     * 提示词节点读 `data.text`，生成节点读 `data.prompt`。
+     */
+    expect(s.nodes.find((n) => n.id === p)?.prompt).toBe('橘猫')
     expect(s.edges).toEqual([{ source: p, target: g, sourcePort: 'output', targetPort: 'input' }])
 
     // 通过执行器调也一样（循环走的就是这个入口）

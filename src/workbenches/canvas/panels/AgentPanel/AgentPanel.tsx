@@ -42,6 +42,7 @@ import { resumeAgentTurn, runAgentTurn, type AgentLoopOutcome, type AgentToolReq
 import {
   buildAgentSystemPromptWithContext,
   looksLikePreserveRequest,
+  looksLikeStyleOnlyRequest,
 } from '../../agent/agentSystemPrompt'
 import {
   AGENT_TOOLS,
@@ -583,9 +584,24 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
      * 那一段（正文 + 名字）负责讲清楚；再当成引用报一遍，模型会在同一句话里读到
      * 两份同样的东西。正文里那个 token 也会被 `stripMentionMarkup` 还原成技能名。
      */
-    const mentions = parseMentions(text).filter(
-      (m): m is MentionRef & { kind: 'node' | 'model' } => m.kind !== 'skill',
-    )
+    const plainText = stripMentionMarkup(text)
+    const mentions = parseMentions(text)
+      .filter((m): m is MentionRef & { kind: 'node' | 'model' } => m.kind !== 'skill')
+      /**
+       * 被 @ 的节点**连它上面的提示词一起报给模型**（用户 2026-10-05 第六批：
+       * 「换成 3d 风格，但是他前面给我加了前置词小猫钓鱼，结果把内容也换成小猫了」）。
+       *
+       * 只给节点名的话，模型手里唯一的文字就是那个短名，换风格时就只能拿它当内容 ——
+       * 于是「只换风格」变成「重画一只钓鱼的小猫」。带上正文，它才有东西可以「保留」。
+       */
+      .map((m) => {
+        if (m.kind !== 'node') return m
+        const n = graph.nodes.find((x) => x.id === m.id)
+        const d = (n?.data ?? {}) as { prompt?: unknown; text?: unknown }
+        const raw = typeof d.prompt === 'string' ? d.prompt : d.text
+        const prompt = typeof raw === 'string' ? raw.trim().slice(0, 160) : ''
+        return { ...m, ...(prompt ? { prompt } : {}) }
+      })
     /** 用户点选的三档模型里的图片 / 视频那两个（对话模型由 `inherited` 报） */
     const mediaModels = {
       ...(current.imageModel ? { image: current.imageModel } : {}),
@@ -600,7 +616,9 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
          * （用户 2026-10-05 第五批第 2 条：那句要求只留在对话里，没进提示词）。
          * 判据取**去掉引用标记之后**的原文，免得 `@[名字](node:id)` 这类机器标记干扰匹配。
          */
-        ...(looksLikePreserveRequest(stripMentionMarkup(text)) ? { preserve: true } : {}),
+        ...(looksLikePreserveRequest(plainText) ? { preserve: true } : {}),
+        /** 「换成 3D / 写实 / 卡通」= 只改风格：内容必须沿用原来的提示词（第六批） */
+        ...(looksLikeStyleOnlyRequest(plainText) ? { styleOnly: true } : {}),
         assetIds: current.pendingAssetIds ?? [],
         ...(skill ? { skill: { name: skill.name, content: skill.content } } : {}),
         ...(mentions.length > 0 ? { mentions } : {}),

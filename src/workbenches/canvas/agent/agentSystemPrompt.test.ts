@@ -6,6 +6,7 @@ import {
   buildCanvasVocabulary,
   buildCurrentState,
   looksLikePreserveRequest,
+  looksLikeStyleOnlyRequest,
   summarizeForPrompt,
 } from './agentSystemPrompt'
 
@@ -259,5 +260,69 @@ describe('改图语义', () => {
     expect(p).toContain('其余（构图、背景、光线、风格、姿态）保持不变')
     /** 没命中就不该出现这一段（否则每轮都在喊狼来了） */
     expect(buildAgentSystemPromptWithContext(empty)).not.toContain('这一次的硬约束')
+  })
+
+  /**
+   * 换风格 vs 换内容（用户 2026-10-05 第六批）：
+   * 「我让他换成 3d 风格，但是他前面给我加了前置词小猫钓鱼，结果把内容也给我换成小猫去了，
+   * 本来应该是只换成 3d 风格的」。
+   *
+   * 根因是**摘要里没有正文** —— 模型手上只有节点名，写提示词时只能拿它当内容。
+   * 所以这一组测两件事：① 摘要/引用里带上提示词；② 认出「只换风格」并加硬约束。
+   */
+  it('★★ 摘要带出节点正文（不带的话模型只能拿节点名当内容）', () => {
+    const state = buildCurrentState({
+      nodes: [
+        {
+          id: 'n1',
+          type: 'generation',
+          title: '小猫钓鱼',
+          hasOutput: true,
+          prompt: '一只橘色小猫坐在河边钓鱼，水彩画风',
+        },
+      ],
+      edges: [],
+    })
+    expect(state).toContain('提示词：一只橘色小猫坐在河边钓鱼，水彩画风')
+  })
+
+  it('★★ @ 引用那段也要带被引用节点的提示词', () => {
+    const p = buildAgentSystemPromptWithContext(empty, undefined, {
+      mentions: [
+        {
+          kind: 'node',
+          id: 'n1',
+          label: '小猫钓鱼的输出1',
+          prompt: '一只橘色小猫坐在河边钓鱼',
+        },
+      ],
+    })
+    expect(p).toContain('它上面的提示词：一只橘色小猫坐在河边钓鱼')
+  })
+
+  it('★★ 认出「只换风格」的说法（风格词 + 改动词 同时出现）', () => {
+    for (const t of [
+      '这两张单独给我换成3d风格',
+      '把画风改成水彩',
+      '换成写实渲染',
+      '改成像素风',
+    ]) {
+      expect(looksLikeStyleOnlyRequest(t)).toBe(true)
+    }
+    for (const t of ['生成一只在钓鱼的小猫', '把背景换成森林', '再来一张']) {
+      expect(looksLikeStyleOnlyRequest(t)).toBe(false)
+    }
+  })
+
+  it('★★ 命中「只换风格」时加硬约束：以原提示词为主体、不许拿节点名当内容', () => {
+    const p = buildAgentSystemPromptWithContext(empty, undefined, { styleOnly: true })
+    expect(p).toContain('## 这一次的硬约束：只换风格，内容照原样')
+    expect(p).toContain('以被 @ 引用 / 上游节点的**原始提示词正文**为内容主体')
+    expect(p).toContain('绝对不要拿节点名当内容')
+    expect(buildAgentSystemPromptWithContext(empty)).not.toContain('只换风格，内容照原样')
+  })
+
+  it('★ 硬规则里也写明了「节点名不是画面描述」', () => {
+    expect(buildAgentSystemPrompt(empty)).toContain('绝对不要把节点名当内容')
   })
 })

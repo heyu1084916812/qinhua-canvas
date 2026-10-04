@@ -17937,7 +17937,231 @@ async function g107(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107]
+// ────────────────────────────────────────────────────────────
+// G108 情绪 = 局部改脸（用户 2026-10-05 第五批第 1 条）：
+// 「先自动识别面部，然后只改变面部的情绪，其他的内容完全不变」。
+//
+// 四步：识别人脸（问看图模型）→ 按框裁一块（复用「提取选区」）→ 改这块局部图
+// → 融合回原图（本地像素合成）。用 mock 渠道也走真链路：mock 的 `completeText`
+// 对「人脸外接框」那一问回一个固定框（测试夹具）。
+// ────────────────────────────────────────────────────────────
+async function g108(browser) {
+  const g = 'G108 情绪局部改脸'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  /** ① 先让源节点出一张图（要被改表情的那张） */
+  const src = page.locator('[data-node-type="generation"]').first()
+  const srcId = await src.getAttribute('data-node-id')
+  const panel = await genPanel(page, src)
+  await configureGenPanel(page, panel, '一个女孩子站在窗边')
+  await panel.locator('[data-panel-run]').click()
+  for (let i = 0; i < 80; i++) {
+    if ((await page.locator(`[data-node-id="${srcId}"] [data-node-asset]`).count()) > 0) break
+    await sleep(250)
+  }
+  const hasSrc = (await page.locator(`[data-node-id="${srcId}"] [data-node-asset]`).count()) > 0
+  rec(g, '★ 源节点已出图（要被改表情的那张）', hasSrc)
+  if (!hasSrc) {
+    await ctx.close()
+    return
+  }
+  const idsBefore = await page
+    .locator('[data-node-id]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+  const edgesBefore = await page.locator('[data-edge]').count()
+
+  /** ② 打开情绪面板（预设菜单里的「情绪调节」） */
+  await genPanel(page, src)
+  await panel.locator('[data-panel-preset]').click()
+  await sleep(300)
+  await page.locator('[data-preset-emotion]').click()
+  await sleep(500)
+  rec(g, '★ 情绪面板打开（在素材下方）', (await page.locator('[data-emotion-panel]').count()) === 1)
+
+  /** ③ 选一个情绪点位 → 点生成（走「局部改脸」那条路） */
+  await page.locator('[data-emotion="joyous"]').click()
+  await sleep(250)
+  rec(
+    g,
+    '★ 选中一个情绪点位',
+    (await page.locator('[data-emotion="joyous"]').getAttribute('aria-pressed')) === 'true',
+  )
+  await page.locator('[data-emotion-run]').click()
+
+  /**
+   * ④ 等流水线建出两个节点：局部图 + 融合。
+   *
+   * ⚠️ 融合节点常常落在**视口外**（画布会剔除屏幕外的节点），所以「它在不在」
+   * 不能靠 DOM 判断 —— 用**连线**反查（同一个 id 上同时有 `input` 与 `patch` 两条入边）。
+   */
+  let cropId = null
+  let fusionId = null
+  for (let i = 0; i < 120; i += 1) {
+    const added = (
+      await page
+        .locator('[data-node-id]')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+    ).filter((id) => !idsBefore.includes(id))
+    const crop = await page.evaluate(
+      (ids) =>
+        ids.find((id) => {
+          const el = document.querySelector(`[data-node-id="${id}"]`)
+          if (!el) return false
+          const title = el.querySelector('[data-node-title]')?.textContent ?? ''
+          return el.getAttribute('data-node-type') === 'generation' && title.includes('局部图')
+        }) ?? null,
+      added,
+    )
+    if (crop) cropId = crop
+    /** 融合节点：两条入边（原图 input + 局部图 patch）指向同一个 id */
+    const wired = await page.locator('[data-edge]').evaluateAll((els) =>
+      els.map((e) => ({
+        s: e.getAttribute('data-edge-source'),
+        t: e.getAttribute('data-edge-target'),
+        tp: e.getAttribute('data-edge-target-port'),
+      })),
+    )
+    if (cropId) {
+      const target = wired.find((e) => e.s === cropId && e.tp === 'patch')?.t
+      if (target && wired.some((e) => e.s === srcId && e.t === target && e.tp === 'input')) {
+        fusionId = target
+      }
+    }
+    if (cropId && fusionId) break
+    await sleep(250)
+  }
+  rec(g, '★★ 新建了一个**局部图节点**（不是改原节点重跑）', !!cropId, `crop=${cropId}`)
+  rec(g, '★★ 新建了一个**融合节点**（把局部贴回原图）', !!fusionId, `fusion=${fusionId}`)
+  if (!cropId || !fusionId) {
+    await page.screenshot({ path: `${OUT}/136-g108-emotion-fail.png` })
+    rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+    await ctx.close()
+    return
+  }
+
+  /** ⑤ 局部节点的正文 = 情绪那句（自带「只改面部、其余不变」）+ 继承了配方 */
+  const cropData = await page.evaluate(
+    (id) =>
+      new Promise((resolve) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => {
+          const db = req.result
+          const q = db.transaction('nodes', 'readonly').objectStore('nodes').get(id)
+          q.onsuccess = () => resolve(q.result?.data ?? {})
+          q.onerror = () => resolve({})
+        }
+        req.onerror = () => resolve({})
+      }),
+    cropId,
+  )
+  rec(
+    g,
+    '★★ 局部节点的提示词 = 情绪那句（含「只改人物的面部表情」与「保持不变」）',
+    String(cropData.prompt ?? '').includes('只改人物的面部表情') &&
+      String(cropData.prompt ?? '').includes('保持不变'),
+    String(cropData.prompt ?? '').slice(0, 60),
+  )
+  rec(
+    g,
+    '★★ 局部节点继承了源节点的渠道 / 模型（否则点生成只会说「还没选渠道」）',
+    Boolean(cropData.channelId && cropData.model),
+    `channel=${cropData.channelId} model=${cropData.model}`,
+  )
+
+  /** ⑥ 两条连线：原图 → input，局部图 → patch */
+  const newEdges = await page
+    .locator('[data-edge]')
+    .evaluateAll((els) =>
+      els.map((e) => ({
+        s: e.getAttribute('data-edge-source'),
+        t: e.getAttribute('data-edge-target'),
+        tp: e.getAttribute('data-edge-target-port'),
+      })),
+    )
+  rec(
+    g,
+    '★★ 原图接进融合节点的 input，局部图接进 patch（各一条）',
+    newEdges.some((e) => e.s === srcId && e.t === fusionId && e.tp === 'input') &&
+      newEdges.some((e) => e.s === cropId && e.t === fusionId && e.tp === 'patch'),
+    JSON.stringify(newEdges.filter((e) => e.t === fusionId)),
+  )
+
+  /** ⑦ 新节点不许压住原图（只量**屏幕上看得见**的：融合常常在视口外） */
+  const overlap = await page.evaluate(
+    (arg) => {
+      const rect = (id) => document.querySelector(`[data-node-id="${id}"]`)?.getBoundingClientRect()
+      const a = rect(arg.cropId)
+      const s = rect(arg.srcId)
+      if (!a || !s) return null
+      const hit = (x, y) => x.left < y.right && y.left < x.right && x.top < y.bottom && y.top < x.bottom
+      return { cropVsSrc: hit(a, s) }
+    },
+    { cropId, srcId },
+  )
+  rec(
+    g,
+    '★★ 局部图节点不压住原图',
+    !!overlap && !overlap.cropVsSrc,
+    JSON.stringify(overlap),
+  )
+
+  /**
+   * ⑧ 融合真的跑完、出图（本地像素合成，不花钱）。
+   *
+   * 判据取「融合节点的**下游**多了一个带图的节点」：融合结果与生成一样落成承载节点，
+   * 而融合节点本身可能在视口外查不到。
+   */
+  for (let i = 0; i < 160; i += 1) {
+    const addedNow = (
+      await page
+        .locator('[data-node-id]')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+    ).filter((id) => !idsBefore.includes(id))
+    const withAsset = await page.evaluate(
+      (ids) =>
+        ids.filter((id) => Boolean(document.querySelector(`[data-node-id="${id}"] [data-node-asset]`)))
+          .length,
+      addedNow,
+    )
+    if (withAsset > 0) break
+    await sleep(250)
+  }
+  const fusionResultCount = await page.evaluate(
+    (arg) =>
+      arg.ids.filter((id) => {
+        const el = document.querySelector(`[data-node-id="${id}"]`)
+        return Boolean(el && el.querySelector('[data-node-asset]'))
+      }).length,
+    {
+      ids: (
+        await page
+          .locator('[data-node-id]')
+          .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+      ).filter((id) => !idsBefore.includes(id)),
+    },
+  )
+  rec(
+    g,
+    '★★ 融合出了结果图（新节点里至少一张带图）',
+    fusionResultCount > 0,
+    `带图新节点=${fusionResultCount}`,
+  )
+  await page.screenshot({ path: `${OUT}/137-g108-emotion-result.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

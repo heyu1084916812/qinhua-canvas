@@ -78,6 +78,17 @@ const IDENTITY_AND_RULES = [
   '- 用户的话里带「其他保持不变 / 其余不变 / 只改 X」时，**写进节点的提示词必须把这条约束说出来**：',
   '  把原来那句画面的描述整段保留，末尾追加一句「只把 X 改成 Y，其余（构图、背景、光线、风格、姿态）保持不变」。',
   '  只写「小狗钓鱼」这种重写句 = 把用户那句「保持不变」丢了。',
+  /**
+   * 换风格 vs 换内容（用户 2026-10-05 第六批：「我让他换成 3d 风格，但是他前面给我加了
+   * 前置词小猫钓鱼，结果把内容也给我换成小猫去了，本来应该是只换成 3d 风格的」）。
+   *
+   * 真机根因：摘要里原先**只有节点名、没有正文**，模型手上唯一的文字就是 title
+   * （「小猫钓鱼」），于是它把**节点名当成了画面内容** —— 换风格变成了重画一只猫。
+   * 现在摘要与 @ 引用那段都会带上正文（`readGraphSummary` 的 `prompt`），这条规则才有落脚点。
+   */
+  '- 换风格（「换成 3D / 写实 / 卡通 / 水彩」）是**只改风格**：新提示词要以参考图**原来那句提示词**',
+  '  为内容主体（整段保留），只追加风格要求，其余一字不改。',
+  '  **绝对不要把节点名当内容**：「小猫钓鱼」是给人看的短名，它既不是画面描述、也不该出现在新提示词里。',
   '',
   '## 硬规则',
   '- 只能用下面列出来的节点类型与端口。不要发明类型，也不要把线接到不存在的口上。',
@@ -189,7 +200,9 @@ export function buildCurrentState(
     lines.push(`共 ${summary.nodes.length} 个节点、${summary.edges.length} 条连线：`)
     for (const n of summary.nodes.slice(0, 40)) {
       lines.push(
-        `- ${n.id}｜${n.type}${n.title ? `｜${n.title}` : ''}${n.hasOutput ? '｜已出图' : ''}`,
+        `- ${n.id}｜${n.type}${n.title ? `｜${n.title}` : ''}${n.hasOutput ? '｜已出图' : ''}${
+          n.prompt ? `｜提示词：${n.prompt}` : ''
+        }`,
       )
     }
     if (summary.nodes.length > 40) {
@@ -225,6 +238,14 @@ export interface AgentPromptExtras {
    */
   preserve?: boolean
   /**
+   * 用户这句话是不是「只换风格」那一类（见 `looksLikeStyleOnlyRequest`）。
+   *
+   * 用户 2026-10-05 第六批：「换成 3d 风格…结果把内容也给我换成小猫去了」——
+   * 与 `preserve` 同一类毛病（要求没进提示词），但**约束的内容不同**：
+   * 这里要的不是「保持不变」，而是「**以原来的提示词为内容主体，只追加风格**」。
+   */
+  styleOnly?: boolean
+  /**
    * 随这次对话给的素材节点 id（§8）。
    *
    * 只报**节点 id**：素材已经落在画布上了，模型该做的是在 `attach` 里指过去。
@@ -241,7 +262,13 @@ export interface AgentPromptExtras {
    * 「那个节点改一下」。所以这一段只说清「他指的是谁（含 id）」，不替用户
    * 决定要拿它做什么。
    */
-  mentions?: readonly { kind: 'node' | 'model'; id: string; label: string }[]
+  mentions?: readonly {
+    kind: 'node' | 'model'
+    id: string
+    label: string
+    /** 被引用节点上的正文（带上了模型才可能「保留内容、只改风格」，见 §3 / 第六批） */
+    prompt?: string
+  }[]
   /**
    * 用户在对话窗上点选的**图片 / 视频模型**（用户 2026-10-03：「模型有三个选项」）。
    *
@@ -278,6 +305,20 @@ export function buildAgentSystemPromptWithContext(
     )
   }
 
+  if (extras.styleOnly) {
+    parts.push(
+      [
+        '## 这一次的硬约束：只换风格，内容照原样',
+        '用户要的是**换风格**，不是换内容。新节点的 `data.prompt` 必须这样写：',
+        '① 以被 @ 引用 / 上游节点的**原始提示词正文**为内容主体 —— 上面「现在这张画布上有什么」',
+        '   与「@ 引用到的」两段里已经带了每个节点的提示词；需要更全的正文就调 readGraph。',
+        '② 只在这段之后再追加风格要求（例如「3D 渲染风格」）。',
+        '③ **绝对不要拿节点名当内容**：节点名是给人看的短名（「小猫钓鱼」），不是画面描述。',
+        '④ **新建节点**承载这次的新提示词（参考图用 attach 接成上游），旧节点的正文一个字都不改。',
+      ].join('\n'),
+    )
+  }
+
   const assets = extras.assetIds ?? []
   if (assets.length > 0) {
     parts.push(
@@ -308,7 +349,9 @@ export function buildAgentSystemPromptWithContext(
     const lines = ['## 用户在这句话里 @ 引用到的（他指的是这些东西）']
     if (nodes.length > 0) {
       lines.push('节点：')
-      for (const n of nodes) lines.push(`- ${n.id}（${n.label}）`)
+      for (const n of nodes) {
+        lines.push(`- ${n.id}（${n.label}）${n.prompt ? `｜它上面的提示词：${n.prompt}` : ''}`)
+      }
     }
     if (models.length > 0) {
       lines.push('模型：')
@@ -358,15 +401,40 @@ export function looksLikePreserveRequest(text: string): boolean {
   )
 }
 
+/**
+ * 用户这句话是不是「只换风格」那一类。
+ *
+ * 判据：**同时**出现「风格类词」与「改动类词」。
+ * 只看其中一边都不够：「小猫钓鱼」这句画面描述里有「画」字但没有风格词；
+ * 而「换个背景」有改动词却没有风格词 —— 那种属于 `preserve`（只改一处、其余不变）。
+ *
+ * 宁可多命中：多一段硬约束没有副作用；漏掉的话模型会拿节点名当内容重画一张。
+ */
+export function looksLikeStyleOnlyRequest(text: string): boolean {
+  const t = text.replace(/\s+/g, '')
+  if (!t) return false
+  const styleWord = /风格|画风|质感|渲染|3d|三维|写实|卡通|动漫|水彩|油画|像素|赛博|国风|素描|手绘|黏土/i.test(
+    t,
+  )
+  const changeWord = /换|改|变|转|做成|弄成|调成/.test(t)
+  return styleWord && changeWord
+}
+
 /** 供测试与诊断：把节点快照转成摘要（与 tools.readGraphSummary 同源语义） */
 export function summarizeForPrompt(nodes: NodeSnapshot[]): GraphSummary {
   return {
-    nodes: nodes.map((n) => ({
-      id: n.id,
-      type: n.type,
-      title: n.title,
-      hasOutput: Boolean((n.data as { assetHash?: unknown }).assetHash),
-    })),
+    nodes: nodes.map((n) => {
+      const data = n.data as { assetHash?: unknown; prompt?: unknown; text?: unknown }
+      const raw = typeof data.prompt === 'string' ? data.prompt : data.text
+      const prompt = typeof raw === 'string' ? raw.trim().slice(0, 160) : ''
+      return {
+        id: n.id,
+        type: n.type,
+        title: n.title,
+        hasOutput: Boolean(data.assetHash),
+        ...(prompt ? { prompt } : {}),
+      }
+    }),
     edges: [],
   }
 }

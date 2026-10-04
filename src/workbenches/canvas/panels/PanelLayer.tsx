@@ -17,10 +17,12 @@ import { useGraph, useViewportState, useCanvasStore, useSelection } from '../sto
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { usePromptTools } from '../../../features/shared/promptTools/usePromptTools'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
+import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { usePresetTextOptional } from '../../../app/providers/PresetTextProvider'
 import { isRecipeEdit } from '../../../domain/project/generationPreset'
-import { defaultPresetOptions, presetById } from '../../../domain/canvas/layout/presets'
+import { defaultPresetOptions, emotionById, presetById } from '../../../domain/canvas/layout/presets'
 import { hasRunnableDownstream } from '../../../features/canvas/execution/loopRun'
+import { buildEmotionEdit, waitForNodeAsset } from '../../../features/canvas/emotionEdit'
 
 /** 面板与节点底边的间距 */
 const PANEL_GAP = 12
@@ -76,6 +78,8 @@ export function PanelLayer({
   const viewport = useViewportState()
   const store = useCanvasStore()
   const exec = useCanvasExecution()
+  /** 情绪那条流水线要读素材字节（裁局部）——平台端口在这一层拿 */
+  const platform = usePlatform()
   /** 配方记忆（用户 2026-09-23）：面板里改完参数即写回该渠道的配方 */
   const channels = useChannels()
   /** 功能预设词（后台中枢）：改了要立刻生效，见 PresetTextProvider 的注释 */
@@ -173,6 +177,8 @@ export function PanelLayer({
       store,
       exec,
       promptTools,
+      platform,
+      channels,
       onOpenSettings,
       (channelId, model, params) => {
         void channels.rememberRecipe(channelId, model, params)
@@ -526,6 +532,9 @@ function handlePanelEvent(
   store: ReturnType<typeof useCanvasStore>,
   exec: ReturnType<typeof useCanvasExecution>,
   promptTools: ReturnType<typeof usePromptTools>,
+  /** 情绪那条局部改脸流水线要读素材字节 / 解析「看图」用的对话模型 */
+  platform: ReturnType<typeof usePlatform>,
+  channels: ReturnType<typeof useChannels>,
   /** 宿主导航：由页面容器注入，工作台层不认识路由（见 panelModel.PanelEvent） */
   onOpenSettings?: () => void,
   /** 记录配方（用户 2026-09-23：改了参数就记，不等生成成功） */
@@ -720,6 +729,61 @@ function handlePanelEvent(
     case 'run':
       void exec.runNode(node.id)
       break
+    /**
+     * 情绪 = **局部改脸**（用户 2026-10-05 第五批第 1 条：「先自动识别面部，
+     * 然后只改变面部的情绪，其他的内容完全不变才对」）。
+     *
+     * 四步：识别人脸（问看图模型）→ 按框裁一块（复用「提取选区」）→ 改这块局部图
+     * → 融合回原图（本地像素合成）。真正花钱的只有中间那次生成。
+     */
+    case 'runEmotion': {
+      const emotion = emotionById((node.data as GenerationData).emotion)
+      if (!emotion) {
+        store.notify('先在面板上选一个情绪点位')
+        break
+      }
+      void (async () => {
+        /**
+         * 「识别人脸」需要一个**能看图的对话模型**（浏览器没有 FaceDetector，实测
+         * `window.FaceDetector === undefined`）：走渠道解析链拿一个对话品类配方，
+         * 与「反推提示词」用的是同一条 `completeText + inputs` 链路。
+         */
+        const recipe = await channels.defaultForNewNode({}, 'chat').catch(() => null)
+        if (!recipe) {
+          store.notify('没找到可用的对话模型：先在渠道里启用一个能看图的对话模型')
+          return
+        }
+        const out = await buildEmotionEdit(
+          {
+            platform,
+            store,
+            look: (req) =>
+              exec.completeText({
+                channelId: recipe.channelId,
+                model: recipe.model,
+                system: req.system,
+                text: req.text,
+                inputs: req.inputs,
+                signal: req.signal ?? new AbortController().signal,
+              }),
+          },
+          { nodeId: node.id, emotion: emotion.name },
+        )
+        if (!out.ok) {
+          store.notify(out.reason)
+          return
+        }
+        store.notify('已识别人脸：正在只改这块脸部（其余不动）')
+        await exec.runNode(out.cropNodeId)
+        const done = await waitForNodeAsset(store, out.cropNodeId, {
+          isFailed: () => exec.nodeStateOf(out.cropNodeId)?.kind === 'failed',
+        })
+        /** 局部图没出来就不融合（失败原因由执行层的报错负责说清） */
+        if (!done) return
+        await exec.runNode(out.fusionNodeId)
+      })()
+      break
+    }
     /**
      * 选中 / 取消**技能**（用户 2026-09-24）。
      *

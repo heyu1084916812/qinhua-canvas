@@ -93,7 +93,22 @@ export const AGENT_TOOLS: readonly ToolDeclaration[] = [
 
 /** 画布现状摘要 —— 结构与设计文档 §4.2 的回填格式一致 */
 export interface GraphSummary {
-  nodes: { id: string; type: string; title: string; hasOutput: boolean }[]
+  nodes: {
+    id: string
+    type: string
+    title: string
+    hasOutput: boolean
+    /**
+     * 节点上的**正文**（生成 / 批量 / 分组是 `data.prompt`，提示词节点是 `data.text`），
+     * 最多 160 字。
+     *
+     * 用户 2026-10-05 第六批：「我让他换成 3d 风格，但是他前面给我加了前置词小猫钓鱼，
+     * 结果把内容也给我换成小猫去了，本来应该是只换成 3d 风格的」—— 根因就是**摘要里没有正文**：
+     * 模型手上只有 `title`（「小猫钓鱼」），要写提示词时只能拿它当内容，
+     * 于是「换风格」变成了「画一只钓鱼的小猫」。给它正文，它才可能「保留内容、只换风格」。
+     */
+    prompt?: string
+  }[]
   edges: { source: string; target: string; sourcePort: string; targetPort: string }[]
 }
 
@@ -113,12 +128,18 @@ export function readGraphSummary(
   const only = scope === 'selection' ? new Set(selectedIds) : null
   const nodes = graph.nodes
     .filter((n) => !only || only.has(n.id))
-    .map((n) => ({
-      id: n.id,
-      type: n.type,
-      title: n.title,
-      hasOutput: typeof asRecord(n.data).assetHash === 'string',
-    }))
+    .map((n) => {
+      const data = asRecord(n.data)
+      const text = typeof data.prompt === 'string' ? data.prompt : data.text
+      const prompt = typeof text === 'string' ? text.trim().slice(0, 160) : ''
+      return {
+        id: n.id,
+        type: n.type,
+        title: n.title,
+        hasOutput: typeof data.assetHash === 'string',
+        ...(prompt ? { prompt } : {}),
+      }
+    })
   const ids = new Set(nodes.map((n) => n.id))
   return {
     nodes,

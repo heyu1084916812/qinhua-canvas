@@ -310,6 +310,21 @@ export function emotionById(id: string | undefined | null): EmotionDef | undefin
 }
 
 /**
+ * 情绪那一句（**唯一一份**）。
+ *
+ * 两个消费者必须共用它，否则同一件事会有两种说法：
+ * ① `presetPromptSuffix` —— 整图生成时拼在正文后；
+ * ② `features/canvas/emotionEdit` —— 局部改脸流水线里写进**局部节点**的正文
+ *    （用户 2026-10-05 第五批第 1 条那条「只改面部、其余完全不变」）。
+ */
+export function emotionPromptOf(name: string): string {
+  return (
+    `表情设定：${name}（只改人物的面部表情，其余完全保持不变：` +
+    '长相、发型、妆容、服装、姿态、背景、光线、风格、构图都照原样）'
+  )
+}
+
+/**
  * 生成节点上「预设 + 情绪」合起来要拼进提示词的那一段（`''` = 都没选）。
  *
  * **抽成一个函数**是因为三个节点类型（生成 / 批量 / 分组）的 `toRunRequest`
@@ -333,11 +348,6 @@ export function presetPromptSuffix(data: {
    * 但只要这句话进了提示词，**任何**一条生成路径都不会再把整张图重画一遍 ——
    * 这是当前就能生效、且必须与那条流水线共用的一句。
    */
-  if (emotion) {
-    parts.push(
-      `表情设定：${emotion.name}（只改人物的面部表情，其余完全保持不变：` +
-        '长相、发型、妆容、服装、姿态、背景、光线、风格、构图都照原样）',
-    )
-  }
+  if (emotion) parts.push(emotionPromptOf(emotion.name))
   return parts.join('\n')
 }

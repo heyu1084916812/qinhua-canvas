@@ -258,6 +258,16 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
      */
     async completeText(request: TextRunRequest, _signal: AbortSignal): Promise<TextResult> {
       await before()
+      /**
+       * **人脸识别那一问**（用户 2026-10-05 第五批第 1 条）：情绪面板会先用
+       * `completeText` + 图片问一次「脸在哪」。真实模型回一个归一化 JSON 框，mock 也照做 ——
+       * 否则「识别 → 裁局部 → 改图 → 融合」这条流水线在离线冒烟里永远走不到，只能靠手点。
+       *
+       * 认出它的方式是系统提示词里那句「人脸外接框」（`domain/canvas/vision/faceBox.ts`）。
+       */
+      if (request.prompt.includes('人脸外接框')) {
+        return { text: '{"x":0.3,"y":0.2,"w":0.3,"h":0.35}' }
+      }
       const images = imageInputsOf(request.inputs)
       const prefix = images.map((i) => `img:${i.assetHash.slice(0, 8)}`).join(',')
       /**
