@@ -214,5 +214,25 @@ export function toConversation(messages: readonly ChatMessage[]): ConversationIt
     out[at] = { ...item, ...described, label: toolLabelOf(item.tool, described.failed) }
   }
 
-  return out
+  /**
+   * **中间失败只是重试过程，不该留在对话里**（用户 2026-10-06 第七批 #182）。
+   *
+   * 用户原话：「图一 agent 给了我大量的报错（工作流没建成）这种报错不需要显示，
+   * 因为他后面给我实现了」。真机上那一次连续出现了五行「工作流没建成」，
+   * 最后才是「工作流已创建」—— 用户看到的是一屏红字加一个成功，
+   * 既不知道哪张卡是结论，也会以为事情一直没办成。
+   *
+   * 规则：**同一个工具只要有更靠后的成功，它之前的失败就丢掉**；
+   * 后面没有再成功过的失败**照旧留着** —— 那是真失败，必须让用户看见（这是这条的边界，
+   * 别顺手把所有失败都藏起来）。
+   */
+  const lastOkAt = new Map<string, number>()
+  out.forEach((item, i) => {
+    if (item.kind === 'step' && !item.failed) lastOkAt.set(item.tool, i)
+  })
+  return out.filter((item, i) => {
+    if (item.kind !== 'step' || !item.failed) return true
+    const okAt = lastOkAt.get(item.tool)
+    return okAt === undefined || okAt < i
+  })
 }

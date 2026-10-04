@@ -1,4 +1,9 @@
-import { isAttached, layoutAgentPlan, type AgentGraphView } from '../../../domain/agent/landing'
+import {
+  AGENT_LAYOUT_GAP,
+  isAttached,
+  layoutAgentPlan,
+  type AgentGraphView,
+} from '../../../domain/agent/landing'
 import type { AgentNodeType, AgentPlan } from '../../../domain/agent/plan'
 import type { NodeData, NodeSnapshot } from '../../../domain/canvas/model/node'
 import { getSpec } from '../../../domain/canvas/nodeSpecs/registry'
@@ -113,8 +118,92 @@ function recipeFromAttached(input: {
   return out
 }
 
+/** 被 attach 的、且**真的有图**的那些节点（按计划里的出现顺序） */
+function attachedImageLocalIds(plan: AgentPlan, graph: { nodes: NodeSnapshot[] }): string[] {
+  return (plan.attach ?? [])
+    .filter((a) => {
+      const node = graph.nodes.find((n) => n.id === a.existingNodeId)
+      return Boolean((node?.data as { assetHash?: string } | undefined)?.assetHash)
+    })
+    .map((a) => a.localId)
+}
+
+/**
+ * **补上「漏掉的参考图连线」**（用户 2026-10-06 第七批 #185）。
+ *
+ * 用户原话：「而且没有加到原素材的右边并且连线，**明确说明作为参考图之后才会有连线**」。
+ * 真机（图三）的表现是：@ 了一张图 + 「加一个小狗在旁边」，模型自己编了个 `cat_gpt`
+ * 当连线起点（`第 1 条连线的起点不在计划里: cat_gpt`），于是**一条线都没连上**，
+ * 那一次生成就退化成了「照提示词重画一张」——用户要的「其余参考参考图保持不变」根本没生效。
+ *
+ * 所以这里加一道**确定性兜底**：只要计划里 attach 过来的图**没有连到某个新建生成节点**，
+ * 就替它连上。语义上这是必然的 —— 你 @ 了它、计划里又写了 attach，就是要拿它当参考图。
+ *
+ * 配对规则（多张图 / 多个节点时）：
+ *  - 目标 = 新建的生成节点里**还没有任何 attach 图当上游**的那些，按 `order` 排；
+ *  - 图多于目标：前几个目标各配一张，其余图全部接到**最后一个**目标（用户 @ 了它们就是要用）；
+ *  - 目标多于图：按顺序循环配（每个目标都得有参考图，否则那条链等于没吃参考）。
+ *
+ * 只**补**不删、不改模型已经连好的边。
+ */
+function withReferenceEdges(plan: AgentPlan, graph: { nodes: NodeSnapshot[] }): AgentPlan {
+  const images = attachedImageLocalIds(plan, graph)
+  if (images.length === 0) return plan
+  const attachedLocalIds = new Set((plan.attach ?? []).map((a) => a.localId))
+  const alreadyFed = new Set(
+    plan.edges.filter((e) => attachedLocalIds.has(e.source)).map((e) => e.target),
+  )
+  const targets = plan.nodes
+    .filter((n) => n.type === 'generation' && !attachedLocalIds.has(n.localId) && !alreadyFed.has(n.localId))
+    .slice()
+    .sort((a, b) => a.order - b.order)
+  if (targets.length === 0) return plan
+
+  const added: AgentPlan['edges'] = []
+  if (images.length >= targets.length) {
+    targets.forEach((t, i) => added.push({ source: images[i]!, target: t.localId }))
+    const last = targets[targets.length - 1]!
+    for (let i = targets.length; i < images.length; i += 1) {
+      added.push({ source: images[i]!, target: last.localId })
+    }
+  } else {
+    targets.forEach((t, i) => added.push({ source: images[i % images.length]!, target: t.localId }))
+  }
+  return { ...plan, edges: [...plan.edges, ...added] }
+}
+
+/**
+ * 新节点的落位基准：**在你 @ 的那张素材右边**（用户 2026-10-06 第七批 #184）。
+ *
+ * 原来是「视口中心偏左」—— 与你 @ 的图在哪毫无关系，于是图二/图三里出现
+ * 「新建的节点不在原素材右边」，用户得满画布找。现在只要计划复用了既有节点，
+ * 就把基准定在那批节点的**右边缘**（纵向对齐它们最靠上的那张）。
+ *
+ * 没有 attach（纯新建）时仍用视口基准 —— 那种场景「建在你正看的地方」才对。
+ */
+function originBesideAttached(
+  plan: AgentPlan,
+  graph: { nodes: NodeSnapshot[] },
+  fallback: { x: number; y: number },
+): { x: number; y: number } {
+  const ids = (plan.attach ?? [])
+    .map((a) => a.existingNodeId)
+    .filter((id): id is string => Boolean(id))
+  const nodes = graph.nodes.filter((n) => ids.includes(n.id))
+  if (nodes.length === 0) return fallback
+  const right = Math.max(...nodes.map((n) => n.x + n.w))
+  const top = Math.min(...nodes.map((n) => n.y))
+  return { x: right + AGENT_LAYOUT_GAP, y: top }
+}
+
 export function buildLandingCommand(input: BuildLandingInput): LandingPayload {
-  const { plan, graph, origin, newId } = input
+  /**
+   * 先补「漏掉的参考图连线」，再用**修过的计划**算落位。
+   * 两步都只读计划 + 画布，不改用户的任何既有节点。
+   */
+  const plan = withReferenceEdges(input.plan, input.graph)
+  const origin = originBesideAttached(plan, input.graph, input.origin)
+  const { graph, newId } = input
 
   // ① 先把 localId → 真实 id 定下来（复用的指向既有节点，其余发新 id）
   const idOf: Record<string, string> = {}

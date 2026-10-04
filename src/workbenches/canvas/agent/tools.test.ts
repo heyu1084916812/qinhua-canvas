@@ -582,3 +582,57 @@ describe('★★ applyPlan 的字段名对模型可见', () => {
     }
   })
 })
+
+/**
+ * ★★ 批量改参数只要**一次确认**（用户 2026-10-06 第七批 #187）。
+ *
+ * 用户原话：「我说八张都改模型的时候还需要我一个一个的确认，这不符合逻辑，
+ * 这种改动应该一次性让我确认即可」。真机截图：「八张都改刚刚的那个模型」后面
+ * 跟了 7 次「已改节点参数」—— 每一次都要点确认。
+ */
+describe('★★ updateNode 批量改（一次确认改完一批）', () => {
+  const updateNodeProps = () => {
+    const tool = AGENT_TOOLS.find((t) => t.name === 'updateNode')!
+    const params = tool.parameters as {
+      properties?: Record<string, { description?: string }>
+      required?: string[]
+    }
+    return { props: params.properties ?? {}, required: params.required ?? [] }
+  }
+
+  it('★★ nodeIds 一次改完一批（不再是「一次一个节点」）', async () => {
+    const { store, ctx } = setup()
+    const ids = ['a', 'b', 'c'].map(() => addNode(store, 'generation', { mode: 'image' }))
+    const r = await executeConfirmedTool('updateNode', { nodeIds: ids, data: { model: 'MJ' } }, ctx)
+    expect(r).toEqual({ ok: true })
+    for (const id of ids) {
+      expect(
+        (store.getSnapshot().nodes.find((n) => n.id === id)!.data as { model?: string }).model,
+      ).toBe('MJ')
+    }
+  })
+
+  it('★★ 批量里只要有一个已出图节点要改正文 → **整批不动**（改一半更难收拾）', async () => {
+    const { store, ctx } = setup()
+    const draft = addNode(store, 'generation', { mode: 'image', prompt: '草稿' })
+    const done = addNode(store, 'generation', { mode: 'image', prompt: '旧版', assetHash: 'h1' })
+    const r = (await executeConfirmedTool(
+      'updateNode',
+      { nodeIds: [draft, done], data: { prompt: '新正文' } },
+      ctx,
+    )) as { ok: boolean; problems?: string[] }
+    expect(r.ok).toBe(false)
+    expect(r.problems?.join(' ')).toContain('新建')
+    /** 草稿那一个也**没被动**过 */
+    expect(
+      (store.getSnapshot().nodes.find((n) => n.id === draft)!.data as { prompt: string }).prompt,
+    ).toBe('草稿')
+  })
+
+  it('★★ schema 声明了 nodeIds 并写清「都改时用它」；提示词里也说了一遍', () => {
+    const { props } = updateNodeProps()
+    expect(Object.keys(props)).toContain('nodeIds')
+    expect(String(props.nodeIds?.description)).toContain('都改')
+    expect(buildAgentSystemPrompt({ nodes: [], edges: [] })).toContain('nodeIds')
+  })
+})

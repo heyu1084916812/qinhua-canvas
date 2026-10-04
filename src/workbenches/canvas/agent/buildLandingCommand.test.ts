@@ -262,3 +262,108 @@ describe('buildLandingCommand：沿用被引用节点的模型与参数', () => 
     expect(r.command.nodes[0]!.data).toMatchObject({ channelId: 'ch-def', model: '默认模型' })
   })
 })
+
+/**
+ * ★★ 落位与参考图连线（用户 2026-10-06 第七批 #184 / #185）。
+ *
+ * 用户原话：「节点出现的位置不是在原素材的右边」；
+ * 「他没有给我连线……**明确说明作为参考图之后才会有连线**」。
+ *
+ * 真机（图三）就是这个形态：@ 了一张图 +「加一个小狗在旁边」，模型自己编了个 `cat_gpt`
+ * 当连线起点（`第 1 条连线的起点不在计划里: cat_gpt`），结果**一条线都没连上**，
+ * 那次生成退化成「照提示词重画一张」——「其余参考参考图保持不变」根本没生效。
+ */
+describe('buildLandingCommand：落在原素材右边 + 参考图必须有连线', () => {
+  const imgNode = (id: string, x: number, y: number): NodeSnapshot =>
+    ({
+      ...existing(id, 'generation', x, y),
+      w: 300,
+      h: 300,
+      data: { assetHash: 'hash-' + id },
+    }) as NodeSnapshot
+
+  const planWith = (edges: AgentPlan['edges'], attachIds: string[]): AgentPlan => ({
+    summary: '改图',
+    nodes: [
+      ...attachIds.map((id, i) => ({
+        localId: id,
+        type: 'generation' as const,
+        data: {},
+        order: i,
+      })),
+      { localId: 'g1', type: 'generation', data: { prompt: '加一只小狗' }, order: attachIds.length },
+    ],
+    edges,
+    attach: attachIds.map((id) => ({ localId: id, existingNodeId: id })),
+  })
+
+  it('★★ 复用了既有素材时，新节点落在**它右边**（不再是视口中心）', () => {
+    seq = 0
+    const r = buildLandingCommand({
+      plan: planWith([{ source: 'src', target: 'g1' }], ['src']),
+      graph: graph([imgNode('src', 1000, 500)]),
+      /** 视口在原点 —— 老实现会落在这儿，与素材差着十万八千里 */
+      origin: { x: 0, y: 0 },
+      newId,
+    })
+    const created = r.command.nodes[0]!
+    expect(created.x).toBeGreaterThanOrEqual(1000 + 300)
+    expect(created.y).toBe(500)
+  })
+
+  it('★★ attach 了有图的节点却没有连线 → 自动补上（否则等于没吃参考图）', () => {
+    seq = 0
+    const r = buildLandingCommand({
+      plan: planWith([], ['src']),
+      graph: graph([imgNode('src', 0, 0)]),
+      origin: { x: 0, y: 0 },
+      newId,
+    })
+    expect(r.command.edges).toEqual([{ source: 'src', target: r.idOf.g1 }])
+  })
+
+  it('★ 模型已经连好的边不重复补', () => {
+    seq = 0
+    const r = buildLandingCommand({
+      plan: planWith([{ source: 'src', target: 'g1' }], ['src']),
+      graph: graph([imgNode('src', 0, 0)]),
+      origin: { x: 0, y: 0 },
+      newId,
+    })
+    expect(r.command.edges).toHaveLength(1)
+  })
+
+  it('★★ @ 了两张图、只建一个目标 → 两张都接上（用户 @ 了就是要用）', () => {
+    seq = 0
+    const r = buildLandingCommand({
+      plan: planWith([], ['a', 'b']),
+      graph: graph([imgNode('a', 0, 0), imgNode('b', 400, 0)]),
+      origin: { x: 0, y: 0 },
+      newId,
+    })
+    expect(r.command.edges).toEqual([
+      { source: 'a', target: r.idOf.g1 },
+      { source: 'b', target: r.idOf.g1 },
+    ])
+  })
+
+  it('★ 被 attach 的节点没有图（比如提示词节点）时不乱连线', () => {
+    seq = 0
+    const plan: AgentPlan = {
+      summary: 'x',
+      nodes: [
+        { localId: 'p1', type: 'prompt', data: { text: '…' }, order: 0 },
+        { localId: 'g1', type: 'generation', data: { prompt: 'y' }, order: 1 },
+      ],
+      edges: [{ source: 'p1', target: 'g1' }],
+      attach: [{ localId: 'p1', existingNodeId: 'p-old' }],
+    }
+    const r = buildLandingCommand({
+      plan,
+      graph: graph([existing('p-old', 'prompt')]),
+      origin: { x: 0, y: 0 },
+      newId,
+    })
+    expect(r.command.edges).toEqual([{ source: 'p-old', target: r.idOf.g1 }])
+  })
+})

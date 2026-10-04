@@ -132,8 +132,22 @@ export const AGENT_TOOLS: readonly ToolDeclaration[] = [
       '要改画面就新建一个生成节点、用 attach 把旧图接成它的上游，把新提示词写在新节点上。',
     parameters: {
       type: 'object',
-      properties: { nodeId: { type: 'string' }, data: { type: 'object' } },
-      required: ['nodeId', 'data'],
+      properties: {
+        nodeId: { type: 'string', description: '只改一个节点时用' },
+        /**
+         * 批量改（用户 2026-10-06 第七批 #187）：说「都改」时**一次改完**，
+         * 用户只确认一次。一次一个节点地改 = 让他确认八次。
+         */
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            '一次改多个节点（用户说「都改 / 全部 / 这几张都改」时**必须**用这个）。' +
+            '同一个 data 会应用到每一个节点上，用户只需要确认一次。',
+        },
+        data: { type: 'object' },
+      },
+      required: ['data'],
     },
   },
   {
@@ -454,9 +468,26 @@ export async function executeConfirmedTool(
       }
     }
     case 'updateNode': {
-      const id = typeof a.nodeId === 'string' ? a.nodeId : ''
-      const node = ctx.store.getSnapshot().nodes.find((n) => n.id === id)
-      if (!node) return { ok: false, problems: [`节点不存在：${id}`] }
+      /**
+       * **批量改：一次确认**（用户 2026-10-06 第七批 #187）。
+       *
+       * 用户原话：「我说八张都改模型的时候还需要我一个一个的确认，这不符合逻辑，
+       * 这种改动应该一次性让我确认即可」。原来只收单个 `nodeId`，模型只能一次改一个 ——
+       * 真机截图里「八张都改刚刚的那个模型」后面跟了 **7 次**「已改节点参数」和 7 次确认。
+       *
+       * 现在补上 `nodeIds`（复数）：同一个 patch **一次改完整批**，确认卡也只弹一次。
+       * 一次意图 = 一次确认。
+       */
+      const ids = [
+        ...new Set([
+          ...asStringArray(a.nodeIds),
+          ...(typeof a.nodeId === 'string' && a.nodeId ? [a.nodeId] : []),
+        ]),
+      ]
+      if (ids.length === 0) return { ok: false, problems: ['没有指定要改的节点'] }
+      const graph = ctx.store.getSnapshot()
+      const missing = ids.filter((id) => !graph.nodes.some((n) => n.id === id))
+      if (missing.length > 0) return { ok: false, problems: [`节点不存在：${missing.join('、')}`] }
       const patch = asRecord(a.data)
       /**
        * ★★ **出过图的节点，正文是历史记录，不许覆盖**（用户 2026-10-05 第五批第 4 条：
@@ -470,19 +501,27 @@ export async function executeConfirmedTool(
        *
        * 只拦**正文**（`prompt` / `text`）：比例 / 张数 / 模型这些参数本来就是我们让
        * 用户随时改的（用户也确实会点名要改）。
+       *
+       * 批量时**一个不合格就整批不动**：改一半比不改更难收拾。
        */
       const touchesText = 'prompt' in patch || 'text' in patch
-      const hasOutput = Boolean((node.data as { assetHash?: unknown }).assetHash)
-      if (touchesText && hasOutput) {
-        return {
-          ok: false,
-          problems: [
-            `节点「${node.title ?? id}」已经出过图：它的正文是上一版的记录，不能覆盖。`,
-            '要改就**新建一个生成节点**，用 attach 把这个节点接成它的上游，把新提示词写在新节点上，再 runNode 跑新节点。',
-          ],
+      if (touchesText) {
+        const blocked = graph.nodes.filter(
+          (n) => ids.includes(n.id) && Boolean((n.data as { assetHash?: unknown }).assetHash),
+        )
+        if (blocked.length > 0) {
+          return {
+            ok: false,
+            problems: [
+              `这些节点已经出过图，正文是上一版的记录，不能覆盖：${blocked
+                .map((n) => `「${n.title ?? n.id}」`)
+                .join('、')}`,
+              '要改就**新建生成节点**、用 attach 把它们接成上游，把新提示词写在新节点上，再 runNode 跑新节点。',
+            ],
+          }
         }
       }
-      ctx.store.dispatch({ kind: 'node.updateData', id, patch })
+      for (const id of ids) ctx.store.dispatch({ kind: 'node.updateData', id, patch })
       return { ok: true }
     }
     case 'runNode': {

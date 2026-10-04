@@ -66,6 +66,14 @@ export interface CanvasExecutionApi {
   runNode(nodeId: string, opts?: { alt?: boolean }): Promise<void>
   cancel(): void
   nodeStateOf(nodeId: string): RunTaskState | undefined
+  /**
+   * 全部节点状态（按项目维度）。
+   *
+   * 给自己人**按状态对账**用：执行失败是**记在状态里**的，不一定抛异常 ——
+   * 只看 `try/catch` 会把「图没出成」报成成功，用户拿不到任何原因
+   * （用户 2026-10-06 第七批 #188：「有图片失败了没有给我报错原因」）。
+   */
+  nodeStates: ReadonlyMap<string, RunTaskState>
   isRunning: boolean
   /** 追加 RunRecord（runEngine 之外的写入方，如版本恢复）并同步版本计数（§6.21） */
   appendRecord(record: RunRecord): Promise<void>
@@ -923,6 +931,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       runNode,
       cancel,
       nodeStateOf: (nodeId: string) => nodeStates.get(nodeId),
+      nodeStates,
       isRunning,
       appendRecord: async (record: RunRecord) => {
         const map = versionMaxRef.current

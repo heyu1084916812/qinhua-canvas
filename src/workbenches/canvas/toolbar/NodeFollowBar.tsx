@@ -42,7 +42,9 @@ import {
   IconScan,
   IconSettings,
   IconStop,
+  IconMention,
 } from './icons'
+import { sendSelectionToAgent } from '../../../features/canvas/agentHandoff'
 
 /**
  * 出现跟随栏的节点类型。
@@ -432,6 +434,20 @@ function NodeActions({
           onClick={() => assetHash && store.openLightbox(assetHash)}
         />
       )}
+      {/*
+        「添加到 agent」（用户 2026-10-06 第七批 #186：参考多选节点的发送功能）。
+
+        多选浮层上早就有这个动作，单张选中却没有 —— 同一件事两个入口不一致，
+        而「就这一张，交给 agent 改」恰恰是最常用的那一次。
+        机制复用同一个 `sendSelectionToAgent`（模块级单例交接：对话窗负责打开与收 chip），
+        不新增第二条链路。排在「删除」之前，与多选浮层里的位置一致。
+      */}
+      <FollowButton
+        action="agent"
+        icon={<IconMention />}
+        label="添加到 agent"
+        onClick={() => sendSelectionToAgent([node.id])}
+      />
       {!assetMode && (
         <FollowButton
           action="delete"

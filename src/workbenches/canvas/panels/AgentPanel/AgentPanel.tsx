@@ -69,6 +69,7 @@ import {
 } from '../../toolbar/icons'
 import { toConversation } from './conversation'
 import { errText } from '../../agent/agentLoop'
+import { describeError } from '../../../../shared/result'
 import { loadAssetUrl, useAsset } from '../../hooks/useAsset'
 import { ModelIcon } from '../../../../features/shared/modelIcon/ModelIcon'
 /**
@@ -423,11 +424,34 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
          */
         const waves = runWaves(ids, store.getSnapshot().edges)
         const out: { nodeId: string; ok: boolean; error?: string }[] = []
+        /**
+         * 「失败」在画布执行层是**记在节点状态里**的，不一定抛出来 ——
+         * 所以只 `try/catch` 会把「图没出成」报成成功，用户拿不到任何原因
+         * （用户 2026-10-06 第七批 #188：「有图片失败了没有给我报错原因」）。
+         * 这里按**状态对账**：跑之前记下已经失败的节点，跑完再看新冒出哪些 failed。
+         * 用「新冒出来的」而不是「现在有几个 failed」，是为了不把上一轮的旧失败算到这一次头上。
+         */
+        const failedBefore = new Set(
+          [...execution.nodeStates.entries()]
+            .filter(([, st]) => st.kind === 'failed')
+            .map(([nid]) => nid),
+        )
         for (const wave of waves) {
           const settled = await Promise.all(
             wave.map(async (id) => {
               try {
                 await execution.runNode(id)
+                const freshlyFailed = [...execution.nodeStates.entries()].find(
+                  ([nid, st]) => st.kind === 'failed' && !failedBefore.has(nid),
+                )
+                if (freshlyFailed) {
+                  const [, st] = freshlyFailed
+                  return {
+                    nodeId: id,
+                    ok: false,
+                    error: st.kind === 'failed' ? describeError(st.error) : '生成失败，但没有拿到原因',
+                  }
+                }
                 return { nodeId: id, ok: true }
               } catch (e) {
                 return { nodeId: id, ok: false, error: e instanceof Error ? e.message : errText(e) }

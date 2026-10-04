@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage } from '../../../../domain/shared/execution/types'
-import { describeToolResult, toConversation, toolLabel } from './conversation'
+import {
+  describeToolResult,
+  toConversation,
+  toolLabel,
+  type ConversationItem,
+} from './conversation'
 
 /**
  * 对话流映射（设计文档 §8）。
@@ -155,5 +160,69 @@ describe('消息 → 对话条目', () => {
     expect(step.failed).toBe(true)
     expect(step.label).toBe('工作流没建成')
     expect(step.lines.join()).toContain('类型不认识')
+  })
+})
+
+/**
+ * ★★ 中间失败的重试不该留在对话里（用户 2026-10-06 第七批 #182）。
+ *
+ * 用户原话：「agent 给了我大量的报错（工作流没建成）这种报错不需要显示，
+ * 因为他后面给我实现了」。真机连续五行「工作流没建成」之后才是「工作流已创建」，
+ * 用户看到的是一屏红字加一个成功。
+ *
+ * 边界同样要钉住：**后面没有再成功过的失败必须留着** —— 那是真失败，
+ * 藏起来会变成「看起来什么都没发生」，比多显示几行更糟。
+ */
+describe('重试过程不进对话（#182）', () => {
+  const call = (id: string): ChatMessage => ({
+    role: 'assistant',
+    content: '',
+    toolCalls: [{ id, name: 'applyPlan', args: '{}' }],
+  })
+  const result = (id: string, ok: boolean): ChatMessage => ({
+    role: 'tool',
+    toolCallId: id,
+    content: JSON.stringify(
+      ok ? { ok: true, problems: [], createdNodeIds: ['n1'] } : { ok: false, problems: ['没有新建节点'] },
+    ),
+  })
+  const stepsOf = (items: ConversationItem[]) =>
+    items.filter((i): i is Extract<ConversationItem, { kind: 'step' }> => i.kind === 'step')
+
+  it('★★ 失败在前、成功在后 → 那几次失败不再显示（只留成功那条）', () => {
+    const steps = stepsOf(
+      toConversation([
+        call('c1'),
+        result('c1', false),
+        call('c2'),
+        result('c2', false),
+        call('c3'),
+        result('c3', true),
+      ]),
+    )
+    expect(steps).toHaveLength(1)
+    expect(steps[0]!.label).toBe('工作流已创建')
+    expect(steps[0]!.failed).toBe(false)
+  })
+
+  it('★★ 后面没有再成功过 → 失败照旧留着（这是真失败，不能藏）', () => {
+    const steps = stepsOf(toConversation([call('c1'), result('c1', false)]))
+    expect(steps).toHaveLength(1)
+    expect(steps[0]!.failed).toBe(true)
+    expect(steps[0]!.label).toBe('工作流没建成')
+  })
+
+  it('★ 成功之后又失败 → 后一条要留（那是新问题，不是重试）', () => {
+    const steps = stepsOf(
+      toConversation([
+        call('c1'),
+        result('c1', false),
+        call('c2'),
+        result('c2', true),
+        call('c3'),
+        result('c3', false),
+      ]),
+    )
+    expect(steps.map((s) => s.label)).toEqual(['工作流已创建', '工作流没建成'])
   })
 })
