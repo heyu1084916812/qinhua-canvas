@@ -49,16 +49,25 @@
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  max-width: 180px;
-  height: 20px;
-  padding: 0 6px;
-  margin: 0 2px;
+  gap: 0.3em;
+  max-width: 220px;
+  /**
+   * 尺寸一律走 `em`，让它**跟着所在编辑器的正文字号走**：
+   * 创作面板正文 20px ⇒ chip 高 29px、图标 19px；对话窗正文 13px ⇒ chip 高 19px、图标 12px。
+   *
+   * 用户 2026-10-05 第 4 批第 3 条：「预设功能在输入框内的文字是否和正文一样的字号大小，
+   * 好像预设功能里面的文字是 18px，正文是 20px，我需要两个文字要一样的大小，
+   * 预设框能大一点没事，图标需要大一点」——所以 `font-size: inherit`（与正文同号）、
+   * 外框与图标按 `em` 放大。写死 px 的话，同一个组件在对话窗里会变成巨块。
+   */
+  height: 1.45em;
+  padding: 0 0.4em;
+  margin: 0 0.1em;
   border: 1px solid var(--stroke);
   border-radius: calc(var(--radius-control) - 6px);
   background: var(--bg-hover);
   color: var(--text-1);
-  font-size: var(--fs-chip);
+  font-size: inherit;
   line-height: 1;
   vertical-align: baseline;
   user-select: none;
@@ -73,8 +82,8 @@
 }
 
 .chipIcon svg {
-  width: 12px;
-  height: 12px;
+  width: 0.95em;
+  height: 0.95em;
 }
 
 /*
@@ -85,8 +94,8 @@
 .chipThumb {
   display: none;
   flex: 0 0 auto;
-  width: 16px;
-  height: 12px;
+  width: 1.25em;
+  height: 0.9em;
   border-radius: 2px;
   overflow: hidden;
 }

@@ -1049,8 +1049,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  /**
+   * 2026-10-05 第 4 批：「图四的这两个图标都太小了」。
+   * 按钮 32 → **36** 设计值（屏幕 24 → 27），里面的图标由 JSX 给到 28（屏幕 21，原来 17）。
+   */
+  width: 36px;
+  height: 36px;
   padding: 0;
   /*
    * **没有外框**（用户 2026-10-05 第 11 条：「我不要外框」）——
@@ -1094,23 +1098,26 @@
  * 不是单独在一行」—— 所以预设现在**就是正文里的一枚 chip**（kind = `preset`），
  * 不再有「单独一行」的那套 `.presetLine/.presetChip/...` 样式。
  *
- * 尺寸按**屏幕**定（对话窗那枚是 20px 高 / 12px 字；面板正文更大，chip 也放大一档）：
- * 屏幕 24px 高 / 13.5px 字 ⇒ 设计值 32px / 18px（面板挂 0.75 缩放）。
+ * 尺寸按**屏幕**定（面板挂 0.75 缩放，所以下面写的是设计值）：
+ * **字号与正文同为 20px**（用户 2026-10-05 第 4 批第 3 条：「预设功能里面的文字是 18px，
+ * 正文是 20px，我需要两个文字要一样的大小」）；
+ * 外框与图标各放大一档：高 38（屏幕 28.5）、图标 24（屏幕 18）——
+ * 同一批原话：「预设框能大一点没事，图标需要大一点」。
  *
  * ⚠️ 这里用 `[data-token]` 这个**属性选择器**：chip 是编辑器命令式建的 DOM，
  * 类名在 `MentionEditor.module.css` 里，跨文件选不到。
  */
 .promptBox [data-token] {
-  height: 32px;
-  padding: 0 8px;
-  gap: 6px;
+  height: 38px;
+  padding: 0 10px;
+  gap: 8px;
   border-radius: 8px;
-  font-size: 18px;
+  font-size: 20px;
 }
 
 .promptBox [data-token] svg {
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
 }
 
 /*

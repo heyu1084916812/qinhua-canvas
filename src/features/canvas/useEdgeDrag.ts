@@ -211,7 +211,19 @@ export function useEdgeDrag(store: CanvasStore) {
          * 坐标换成 surface 局部屏幕坐标（与右键菜单同口径：浮层不随画布变换）。
          */
         if (!hovered) {
-          store.setLinkMenu(ev.clientX - worldRect.x, ev.clientY - worldRect.y, nodeId, side, portId)
+          /**
+           * `also` 必须一起带进菜单：用户在菜单里选「新建节点并连接」时，
+           * 新节点要连的是**整个选区**，不只是被拖的那一个
+           * （2026-10-05 第 4 批：「框选多个节点新建节点然后连接，新建的节点只连接了一个上游」）。
+           */
+          store.setLinkMenu(
+            ev.clientX - worldRect.x,
+            ev.clientY - worldRect.y,
+            nodeId,
+            side,
+            portId,
+            also,
+          )
           return
         }
         /**
@@ -220,26 +232,11 @@ export function useEdgeDrag(store: CanvasStore) {
          * 不能写成「被拖的那个不合法就整次放弃」—— 多选里第一个节点常常已经连过
          * 同一个上游 / 下游（模板自带的那条线就是这么来的），那样整次拖拽会**静默失效**：
          * 草稿线画了、松手什么都没多（G103 实测踩到：连线数 3 → 3）。
+         *
+         * 判定逻辑抽到 `wireAll`：连线菜单里的「新建 / 选择目标」走**同一个函数**
+         * —— 两条路各写一份必然漂移成「拖到节点上能连全、从菜单建就连一个」。
          */
-        const seen = new Set<string>()
-        const wired: WiredPorts[] = []
-        for (const id of [nodeId, ...(also ?? [])]) {
-          if (seen.has(id)) continue
-          seen.add(id)
-          const source = store.getSnapshot().nodes.find((n) => n.id === id)
-          if (!source) continue
-          const sourceDecl =
-            id === nodeId
-              ? decl
-              : portDeclOf(
-                  getSpec(source.type)?.ports ?? { input: false, output: false },
-                  portId,
-                )
-          if (!sourceDecl) continue
-          const result = checkConnect(store, id, sourceDecl, hovered, to)
-          if (result.ok) wired.push(result.ports)
-        }
-        for (const w of wired) {
+        for (const w of wireAll(store, nodeId, portId, also, hovered, to)) {
           store.dispatch({
             kind: 'edge.connect',
             source: w.source,
@@ -257,6 +254,41 @@ export function useEdgeDrag(store: CanvasStore) {
   )
 
   return { draft, begin }
+}
+
+/**
+ * 把**每个源**都连到同一个目标上（逐个独立判定，跳过不合法的）。
+ *
+ * 两个调用方：① 多选共有端点拖到某个节点上松手（`begin` 的 `up`）；
+ * ② 空白松手后的连线菜单（选目标节点 / 新建节点后自动连）。**必须共用这一份** ——
+ * 各写一份的结果就是用户 2026-10-05 第 4 批看到的那样：拖到节点上能连全，
+ * 走菜单新建就连了一个。
+ *
+ * `portId` 是「被拖的那只口」的 id（多选端点是 `input` / `output`）：
+ * 其它源按**各自的端口声明**取同名口，没有这只口的直接跳过。
+ */
+export function wireAll(
+  store: CanvasStore,
+  dragNodeId: string,
+  portId: string,
+  also: readonly string[] | undefined,
+  hoveredId: string,
+  point: { x: number; y: number },
+): WiredPorts[] {
+  const graph = store.getSnapshot()
+  const seen = new Set<string>()
+  const wired: WiredPorts[] = []
+  for (const id of [dragNodeId, ...(also ?? [])]) {
+    if (seen.has(id)) continue
+    seen.add(id)
+    const source = graph.nodes.find((n) => n.id === id)
+    if (!source) continue
+    const decl = portDeclOf(getSpec(source.type)?.ports ?? { input: false, output: false }, portId)
+    if (!decl) continue
+    const result = checkConnect(store, id, decl, hoveredId, point)
+    if (result.ok) wired.push(result.ports)
+  }
+  return wired
 }
 
 /**

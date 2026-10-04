@@ -3200,3 +3200,26 @@ Midjourney 的高级设置需要「一根滑杆」和「一个文本框」，而
   渠道错误：`missingKey`），`rg errText` 看到 agent 那条对非 Error 抛出物会掉进 `JSON.stringify`。
   修法是「一张 kind/detail → 中文表 + 单测**遍历全部取值**断言不出现标识符」——
   这样以后 `AppError` 加取值时，漏配映射表会当场红。
+
+### ★★ 第四批四条（2026-10-05）：两条路 / 字距继承 / em 尺寸
+
+- **同一件事有两条路时，状态要一路带到底**：多选「共有端点」拖到**已有节点**上，连线由
+  `useEdgeDrag` 自己发；**空白松手**则把这次拖拽交给 `LinkMenu`（另一个组件里建边）。
+  而 `setLinkMenu(x, y, nodeId, side, portId)` **没有 `also`** ⇒ 菜单只认识被拖的那个 ⇒
+  「新建并连接」只连一个上游（用户第 4 批的图一 / 图二）。修法不只是补参数：把判定抽成
+  `wireAll(...)` 让**三条路共用**，并且**每条路各补一条冒烟断言**（拖到节点 +2、菜单新建 +2）——
+  只测一条路的话，另一条静默坏掉也看不出来。
+- **`font: inherit` 带不出字距（Chrome 实测）**：`html, body { letter-spacing: .04em }` 之后
+  `body` / 面板 / 正文都是 `0.64px`，而**按钮与输入框仍是 `normal`** —— 必须在
+  `button, input, select, textarea` 那条规则里显式补 `letter-spacing: inherit`。
+  用户报的「普通输入框里数字和文字结合也挤」就是这一档。**通则**：凡是靠继承生效的排版属性
+  （letter-spacing / word-spacing / font-variant-*），表单控件都要单独确认一次，
+  别假设 `font: inherit` 全带过来。
+- **同一个组件住在两个不同字号的宿主里 → 尺寸写 `em`**：`MentionEditor` 的 chip 同时在
+  创作面板（正文 20px）与对话窗（正文 13px）。写死 px 时面板里 18、对话窗里 12，永远差一档；
+  改成 `font-size: inherit` + `height: 1.45em` + 图标 `0.95em` 之后，「chip 与正文同号」
+  在两个宿主里同时成立。
+- **量「设计值 / 屏幕值」要用两把尺子**：创作面板整体挂 `zoom: .75` ——
+  `getComputedStyle()` 给**设计值**（未缩放），`getBoundingClientRect()` 给**屏幕值**。
+  这一批所有「图标多大 / 字多大」的判断都分别读两个数（例：菜单行图标 computed 32px 设计
+  ⇒ 屏幕 24px），断言按设计值写，免得乘一次 0.75 就误判成「没改」。

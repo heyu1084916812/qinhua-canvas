@@ -80,13 +80,18 @@
 .itemIcon {
   display: inline-flex;
   flex: 0 0 auto;
-  color: var(--text-2);
+  /**
+   * 图标颜色 = 文字颜色（用户 2026-10-05 第 4 批：「图五中预设面板里面的图标都有点小，
+   * 需要放大，但是面板大小够了，颜色都要文字的颜色」）。
+   * 原来走 `--text-2`（灰），同一行里图标比文字淡一档，看着像禁用。
+   */
+  color: var(--text-1);
 }
 
-/** 图标统一 24px 设计值（屏幕 18px；各图标自带 16 的默认值，这里按参考图放大一档） */
+/** 图标统一 32px 设计值（屏幕 24px；各图标自带 16 的默认值，这里按参考图放大一档） */
 .itemIcon svg {
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
 }
 
 .itemName {

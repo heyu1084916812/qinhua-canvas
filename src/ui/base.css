@@ -47,6 +47,19 @@ html {
 html,
 body {
   font-family: var(--font-sans);
+  /**
+   * ★ 字距（用户 2026-10-05 第 4 批：「图三这些文字字间距都很小，显示的很挤」）。
+   *
+   * 我们的字体栈第一个是 `Segoe UI Variable`，中文走系统回退 —— 汉字之间几乎**贴在一起**，
+   * 一屏密排的中文（低画质 / 极致画质 / 角色三视图…）读起来就是「挤」。
+   * 参考产品那套字距更松。
+   *
+   * 只做**正向**微调（0.04em：基准 16px 上约 0.64px），
+   * 不做负字距 —— 负字距是把字压在一起，与本条要的东西相反。
+   * 放在 html/body 上而不是逐个组件：表单控件不会自动继承字体（下一条 `font: inherit`），
+   * 但 `letter-spacing` 是**继承属性**，控件会跟着走。
+   */
+  letter-spacing: 0.04em;
 }
 
 /**
@@ -64,6 +77,12 @@ textarea,
 optgroup,
 option {
   font: inherit;
+  /**
+   * `font: inherit` **带不出**字距：Chrome 下表单控件的 `letter-spacing` 会回到 `normal`
+   * （实测：`body` / 面板 / 正文都是 0.64px，而参数 chip 与按钮是 `normal`）。
+   * 用户报的「普通输入框里数字和文字的结合也挤」正是这一档 —— 显式继承一次即可。
+   */
+  letter-spacing: inherit;
 }
 
 /*

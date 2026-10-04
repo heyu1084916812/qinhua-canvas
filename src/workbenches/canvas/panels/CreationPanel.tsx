@@ -1811,7 +1811,8 @@ export function CreationPanel(props: CreationPanelProps) {
                 setPresetOpen((v) => !v)
               }}
             >
-              <IconPreset size={22} />
+              {/* 图标 22 → 28：用户 2026-10-05 第 4 批说这枚图标太小 */}
+              <IconPreset size={28} />
               {activePreset && <span className={styles.presetDot} data-preset-dot />}
             </button>
             {presetOpen && (

@@ -3301,6 +3301,19 @@ async function g23(browser) {
       dividerW: divider.width,
       dividerH: divider.height,
       dividerContent: divider.content,
+      /**
+       * 字距：正文 / 参数 chip / 按钮要走**同一条**，而且不能是 `normal`
+       * （用户 2026-10-05 第 4 批：「图三这些文字字间距都很小，显示的很挤」）。
+       *
+       * ⚠️ 这三处必须一起比：`font: inherit` **带不出**字距（Chrome 下按钮会回到 `normal`），
+       * 所以 base.css 里额外写了 `letter-spacing: inherit` —— 少了那一句，
+       * chip / 按钮与正文就不是一个字距（实测过：body 0.64px、按钮 normal）。
+       */
+      tracking: {
+        prompt: getComputedStyle(panelEl.querySelector('[data-panel-prompt]')).letterSpacing,
+        chip: cs.letterSpacing,
+        btn: bs.letterSpacing,
+      },
       /** 字数行下沿到参数行上沿的距离：应当是常规间距，不是一整行空白 */
       gapAfterCount: countBox && paramsBox ? Math.round(paramsBox.top - countBox.bottom) : null,
       /** 工具组与生成按钮同一行（顶边接近） */
@@ -3313,6 +3326,15 @@ async function g23(browser) {
   })
   rec(g, '★ 工具行与参数 chip 同高', !!ui?.sameHeight, `h相同=${ui?.sameHeight}`)
   rec(g, '★ 工具行与参数 chip 同字号 / 字重', !!ui?.sameFont, `font同=${ui?.sameFont}`)
+  rec(
+    g,
+    '★★ 字距：正文 / 参数 chip / 按钮同一条且非 normal（字不许挤）',
+    !!ui &&
+      ui.tracking.prompt !== 'normal' &&
+      ui.tracking.prompt === ui.tracking.chip &&
+      ui.tracking.prompt === ui.tracking.btn,
+    JSON.stringify(ui?.tracking),
+  )
   rec(
     g,
     '★ 工具按钮与 chip 同为无边框圆角块（不再是小描边胶囊）',
@@ -16752,6 +16774,56 @@ async function g103(browser) {
   )
 
   /**
+   * ⑧ **多选拖到空白 → 菜单里「新建节点并连接」**：新节点要连上**整个选区**。
+   *
+   * 与上面那条是两条不同的代码路径：拖到**已有节点**上由 `useEdgeDrag` 直接连；
+   * 空白松手要先把这次拖拽交给 `LinkMenu`（菜单在另一个组件里建边）。
+   * 用户 2026-10-05 第 4 批报的正是后者：「框选多个节点新建节点然后连接，
+   * 新建的节点只连接了一个上游」—— 根因是 `also` 压根没传进菜单。
+   */
+  await page.keyboard.press('Escape')
+  await sleep(200)
+  await gens.nth(0).click({ position: { x: 20, y: 60 } })
+  await sleep(250)
+  await page.keyboard.down('Shift')
+  await gens.nth(1).click({ position: { x: 20, y: 60 } })
+  await page.keyboard.up('Shift')
+  await sleep(350)
+  const [dropSpot] = await freeSpots(1)
+  const linkEp = await page.locator('[data-multi-endpoint="output"]').boundingBox()
+  await page.mouse.move(linkEp.x + linkEp.width / 2, linkEp.y + linkEp.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(dropSpot.x, dropSpot.y, { steps: 12 })
+  await page.mouse.up()
+  await sleep(450)
+  rec(
+    g,
+    '★ 多选拖到空白 → 冒出「可连接菜单」',
+    (await page.locator('[data-link-menu]').count()) === 1,
+    `menu=${await page.locator('[data-link-menu]').count()}`,
+  )
+  const idsBeforeLink = await page
+    .locator('[data-node-id]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+  await page.locator('[data-link-menu-item="create:generation"]').click()
+  await sleep(800)
+  const newLinkedId = (
+    await page
+      .locator('[data-node-id]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+  ).find((id) => !idsBeforeLink.includes(id))
+  const incoming = newLinkedId
+    ? await page.locator(`[data-edge-target="${newLinkedId}"]`).count()
+    : 0
+  rec(
+    g,
+    '★★ 菜单里「新建生成节点并连接」：新节点连上**两个**选中节点（不是只连一个）',
+    incoming === 2,
+    `入边=${incoming}`,
+  )
+  await page.screenshot({ path: `${OUT}/121b-g103-linkmenu-multi.png` })
+
+  /**
    * ⑦ 添加到 agent：面板自己弹出来，两个节点落成**正文里的引用 chip**
    * （与「取选中当素材」同一条口径 —— 用户 2026-10-02 定过：都在正文里）。
    */
@@ -17140,12 +17212,18 @@ async function g105(browser) {
   const menuGeom = await menu.evaluate((el) => {
     const rows = [...el.querySelectorAll('[data-preset]')]
     const first = rows[0]
+    const icon = first?.querySelector('svg')
+    const label = first?.querySelector('span:last-child')
     return {
       w: Math.round(el.getBoundingClientRect().width),
       rowH: first ? Math.round(first.getBoundingClientRect().height) : 0,
       rowFont: first ? getComputedStyle(first).fontSize : '',
       rows: rows.length,
       withIcon: rows.filter((r) => r.querySelector('svg')).length,
+      /** 图标尺寸按**设计值**读（面板挂 0.75 缩放，rect 是屏幕值） */
+      iconW: icon ? Math.round(parseFloat(getComputedStyle(icon).width)) : 0,
+      iconColor: icon ? getComputedStyle(icon).color : '',
+      textColor: label ? getComputedStyle(label).color : '',
     }
   })
   rec(
@@ -17161,6 +17239,17 @@ async function g105(browser) {
     '★★ 每一条预设自带矢量图标（第 8 条：不是符号字）',
     menuGeom.rows > 0 && menuGeom.withIcon === menuGeom.rows,
     `${menuGeom.withIcon}/${menuGeom.rows} 条带图标`,
+  )
+  /**
+   * ★★ 图标**再放大一档**且**颜色 = 文字颜色**（用户 2026-10-05 第 4 批：「图五中预设面板
+   * 里面的图标都有点小，需要放大，但是面板大小够了，颜色都要文字的颜色」）。
+   * 改之前是 24 设计值 + `--text-2`（灰）—— 同一行里图标比文字淡一档，看着像禁用。
+   */
+  rec(
+    g,
+    '★★ 菜单每行图标放到 32（设计值），颜色与文字一致',
+    menuGeom.iconW >= 30 && menuGeom.iconColor === menuGeom.textColor,
+    `icon=${menuGeom.iconW}px iconColor=${menuGeom.iconColor} textColor=${menuGeom.textColor}`,
   )
 
   /**
@@ -17311,6 +17400,28 @@ async function g105(browser) {
     g,
     '★★ 人像质感调节的 chip 可点（点它开搭配面板）',
     (await panel.locator('[data-panel-prompt] [data-mention-kind="preset"]').count()) === 1,
+  )
+  /**
+   * ★★ **chip 的文字与正文同号**，外框与图标都放大
+   * （用户 2026-10-05 第 4 批第 3 条：「预设功能里面的文字是 18px，正文是 20px，
+   * 我需要两个文字要一样的大小，预设框能大一点没事，图标需要大一点」）。
+   */
+  const chipGeom = await panel.evaluate((el) => {
+    const editor = el.querySelector('[data-panel-prompt]')
+    const token = editor?.querySelector('[data-token]')
+    const svg = token?.querySelector('svg')
+    return {
+      chipFont: token ? getComputedStyle(token).fontSize : '',
+      bodyFont: editor ? getComputedStyle(editor).fontSize : '',
+      chipH: token ? Math.round(parseFloat(getComputedStyle(token).height)) : 0,
+      iconW: svg ? Math.round(parseFloat(getComputedStyle(svg).width)) : 0,
+    }
+  })
+  rec(
+    g,
+    '★★ 预设 chip 的字号 = 正文字号，外框 / 图标都放大（38 / 24 设计值）',
+    chipGeom.chipFont === chipGeom.bodyFont && chipGeom.chipH >= 34 && chipGeom.iconW >= 22,
+    JSON.stringify(chipGeom),
   )
   await panel.locator('[data-panel-prompt] [data-mention-kind="preset"]').click()
   await sleep(300)
