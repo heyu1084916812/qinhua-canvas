@@ -17140,6 +17140,28 @@ async function g105(browser) {
     (els) => els.filter((e) => e.style.gridRow === '1').length,
   )
   rec(g, '★★ 五个一排', firstRowCount === 5, `firstRow=${firstRowCount}`)
+  /**
+   * 头排右侧的「比例 / 数量」（参考图二十的头部就是「比例 · 数量 · 生成」）。
+   *
+   * 它们改的是**节点上同一份参数**：在这里选 1:1，参数行那枚胶囊与节点 data 都要跟着变
+   * —— 只钉「这两个 chip 在」是弱证据，会漏掉「两个地方各存一份」那种错。
+   */
+  rec(
+    g,
+    '★★ 情绪面板头排也有比例 / 数量',
+    (await box.locator('[data-param-chip="emotionRatio"]').count()) === 1 &&
+      (await box.locator('[data-param-chip="emotionCount"]').count()) === 1,
+    `ratio=${await box.locator('[data-param-chip="emotionRatio"]').count()} count=${await box.locator('[data-param-chip="emotionCount"]').count()}`,
+  )
+  await pickParam(box, 'emotionRatio', '1:1')
+  await sleep(900)
+  const afterRatio = await storedData()
+  rec(
+    g,
+    '★★ 在这里改比例 = 改节点参数（与参数行同一份状态）',
+    afterRatio.ratio === '1:1',
+    `ratio=${JSON.stringify(afterRatio.ratio)}`,
+  )
   const boxText = (await box.innerText()).replace(/\s+/g, ' ')
   rec(
     g,

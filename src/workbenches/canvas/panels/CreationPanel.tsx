@@ -1259,6 +1259,57 @@ export function CreationPanel(props: CreationPanelProps) {
           characterHash={characterThumb?.assetHash}
           onPick={(id) => onEvent({ type: 'setEmotion', emotion: id })}
           onClose={() => onEvent({ type: 'setEmotion', emotion: null })}
+          /**
+           * 头排右侧放**比例 / 数量**（参考图二十的头部就是「比例 · 数量 · 生成」）。
+           *
+           * 用的是与参数行**同一份状态**（`data.ratio` / `data.count`），只是换了
+           * 锚点名（`emotionRatio` / `emotionCount`）—— 同一个 `data-param-chip` 值
+           * 在面板里出现两次会让按锚点定位的冒烟直接报「匹配到多个」。
+           */
+          header={
+            <>
+              <ParamPicker
+                name="emotionRatio"
+                ariaLabel="画面比例"
+                label={shownRatio || '比例'}
+                options={ratios.map((r) => ({
+                  value: r,
+                  label: isAutoRatio(r) ? '自适应' : r,
+                }))}
+                value={shownRatio}
+                variant="ratioGrid"
+                open={openPicker === 'emotionRatio'}
+                onToggle={() => togglePicker('emotionRatio')}
+                onClose={closePicker}
+                onSelect={(v) =>
+                  onEvent({ type: 'setRatio', ratio: v, recipe: recipeSnapshot({ ratio: v }) })
+                }
+              />
+              <ParamPicker
+                name="emotionCount"
+                ariaLabel="生成数量"
+                label={
+                  videoMode ? `${videoCount} 个` : `${count} 张`
+                }
+                options={(videoMode ? videoCounts : countChoices).map((c) => ({
+                  value: String(c),
+                  label: videoMode ? `${c} 个` : `${c} 张`,
+                }))}
+                value={String(videoMode ? videoCount : count)}
+                variant="pill"
+                open={openPicker === 'emotionCount'}
+                onToggle={() => togglePicker('emotionCount')}
+                onClose={closePicker}
+                onSelect={(v) =>
+                  onEvent({
+                    type: 'setCount',
+                    count: Number(v),
+                    recipe: recipeSnapshot({ count: Number(v) }),
+                  })
+                }
+              />
+            </>
+          }
         />
       )}
 

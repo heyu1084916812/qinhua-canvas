@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { DEFAULT_EMOTION_ID, EMOTIONS, emotionById } from '../../../domain/canvas/layout/presets'
 import { IconClose } from '../toolbar/icons'
 import { useAsset } from '../hooks/useAsset'
@@ -21,12 +22,21 @@ export function EmotionBox({
   characterHash,
   onPick,
   onClose,
+  header,
 }: {
   emotion: string
   /** 上游第一张带素材的图（没有就显示一句提示，而不是空白） */
   characterHash?: string
   onPick: (emotionId: string) => void
   onClose: () => void
+  /**
+   * 头排右侧那两枚参数（比例 / 数量）。
+   *
+   * 由创作面板传进来，而不是在这里再造一个：那两个值属于节点参数的**同一份状态**
+   * （`data.ratio` / `data.count`），这里只是把它们的入口也摆到这一排
+   * —— 参考产品图二十的头部就是「比例 · 数量 · 生成」。
+   */
+  header?: ReactNode
 }) {
   const current = emotionById(emotion) ?? emotionById(DEFAULT_EMOTION_ID)!
   const characterUrl = useAsset(characterHash)
@@ -45,6 +55,7 @@ export function EmotionBox({
           <IconClose size={14} />
         </button>
         <span className={styles.title}>情绪调节</span>
+        {header && <span className={styles.headTools}>{header}</span>}
       </div>
 
       <div className={styles.body}>

@@ -20,6 +20,14 @@
   gap: var(--space-2);
 }
 
+/* 头排右侧那两枚参数（比例 / 数量）：推到最后，中间留白 */
+.headTools {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
 .close {
   display: inline-flex;
   align-items: center;
