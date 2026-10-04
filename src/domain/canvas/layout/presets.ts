@@ -324,6 +324,20 @@ export function presetPromptSuffix(data: {
   const preset = presetPromptOf(data.preset, data.presetOptions)
   if (preset) parts.push(preset)
   const emotion = emotionById(data.emotion)
-  if (emotion) parts.push(`表情设定：${emotion.name}`)
+  /**
+   * 情绪那句必须**自带约束**（用户 2026-10-05 第五批第 1 条：
+   * 「情绪调节需要重新设计，需要先自动识别面部，然后只改变面部的情绪，
+   * 其他的内容完全不变才对」）。
+   *
+   * 局部改脸的完整流水线（识别人脸 → 裁局部 → 改图 → 融合回原图）是另一半；
+   * 但只要这句话进了提示词，**任何**一条生成路径都不会再把整张图重画一遍 ——
+   * 这是当前就能生效、且必须与那条流水线共用的一句。
+   */
+  if (emotion) {
+    parts.push(
+      `表情设定：${emotion.name}（只改人物的面部表情，其余完全保持不变：` +
+        '长相、发型、妆容、服装、姿态、背景、光线、风格、构图都照原样）',
+    )
+  }
   return parts.join('\n')
 }

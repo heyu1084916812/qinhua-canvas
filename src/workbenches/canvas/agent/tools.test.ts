@@ -332,6 +332,46 @@ describe('写 / 花钱的工具（只由确认后调用）', () => {
     expect(r.ok).toBe(false)
   })
 
+  /**
+   * ★★ **出过图的节点，正文不许覆盖**（用户 2026-10-05 第五批第 4 条：
+   * 「agent 提出的需求应该先新建节点，然后把提示词放在新建节点上，而不是把提示词覆盖原有的节点，
+   * 这样才会有原本的记录，否则第一个图片的提示词直接被覆盖了」）。
+   *
+   * 这是**确定性拦截**：不指望模型自觉。真机上它就是用 updateNode 把
+   * 「小猫钓鱼」那句整句换成了「小狗钓鱼」——用户的上一版提示词永久消失。
+   * 参数（比例 / 张数 / 模型）仍然可以改：那本来就是让用户随时调的。
+   */
+  it('★★ updateNode 不许覆盖「已出图」节点的正文；改参数与草稿节点不受影响', async () => {
+    const { store, ctx } = setup()
+    const id = addNode(store, 'generation', {
+      mode: 'image',
+      prompt: '小猫钓鱼',
+      assetHash: 'h1',
+    })
+    const refused = (await executeConfirmedTool(
+      'updateNode',
+      { nodeId: id, data: { prompt: '小狗钓鱼' } },
+      ctx,
+    )) as { ok: boolean; problems?: string[] }
+    expect(refused.ok).toBe(false)
+    expect(refused.problems?.join(' ')).toContain('新建')
+    /** 正文一个字都没改 */
+    expect(
+      (store.getSnapshot().nodes.find((n) => n.id === id)!.data as { prompt: string }).prompt,
+    ).toBe('小猫钓鱼')
+
+    /** ① 参数照旧可改 */
+    expect(
+      await executeConfirmedTool('updateNode', { nodeId: id, data: { ratio: '16:9' } }, ctx),
+    ).toEqual({ ok: true })
+
+    /** ② 还没出图的节点：正文就是草稿，随便改 */
+    const draftId = addNode(store, 'generation', { mode: 'image', prompt: '草稿' })
+    expect(
+      await executeConfirmedTool('updateNode', { nodeId: draftId, data: { prompt: '改草稿' } }, ctx),
+    ).toEqual({ ok: true })
+  })
+
   it('★★ runNode 走注入的执行层（agent 自己不直接发渠道请求）', async () => {
     const { store, ctx, runNodes } = setup()
     const id = addNode(store, 'generation', { mode: 'image' })

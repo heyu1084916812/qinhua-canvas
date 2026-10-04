@@ -60,7 +60,11 @@ export const AGENT_TOOLS: readonly ToolDeclaration[] = [
   },
   {
     name: 'updateNode',
-    description: '改某个节点的参数（比如比例、张数、提示词），会先让用户确认。',
+    description:
+      '改某个节点的**生成参数**（比例 / 张数 / 模型 / 时长），会先让用户确认。' +
+      '**不要用它改画面内容（提示词）**：出过图的节点，正文就是上一版的记录，' +
+      '覆盖掉用户就再也看不到上次写了什么。' +
+      '要改画面就新建一个生成节点、用 attach 把旧图接成它的上游，把新提示词写在新节点上。',
     parameters: {
       type: 'object',
       properties: { nodeId: { type: 'string' }, data: { type: 'object' } },
@@ -365,10 +369,34 @@ export async function executeConfirmedTool(
     }
     case 'updateNode': {
       const id = typeof a.nodeId === 'string' ? a.nodeId : ''
-      if (!ctx.store.getSnapshot().nodes.some((n) => n.id === id)) {
-        return { ok: false, problems: [`节点不存在：${id}`] }
+      const node = ctx.store.getSnapshot().nodes.find((n) => n.id === id)
+      if (!node) return { ok: false, problems: [`节点不存在：${id}`] }
+      const patch = asRecord(a.data)
+      /**
+       * ★★ **出过图的节点，正文是历史记录，不许覆盖**（用户 2026-10-05 第五批第 4 条：
+       * 「agent 提出的需求应该先新建节点，然后把提示词放在新建节点上，而不是把提示词覆盖
+       * 原有的节点，这样才会有原本的记录，否则第一个图片的提示词直接被覆盖了」）。
+       *
+       * 这是**确定性拦截**，不靠提示词自觉：真机上模型就是走了 `updateNode` 把
+       * 「小猫钓鱼」那句提示词整句换成了「小狗钓鱼」，用户回头再也看不到上一版写了什么。
+       * 拦下来之后把「该怎么做」一并告诉它（循环会把 problems 回填给模型），
+       * 它下一轮就会改成「新建节点 + attach 旧图」。
+       *
+       * 只拦**正文**（`prompt` / `text`）：比例 / 张数 / 模型这些参数本来就是我们让
+       * 用户随时改的（用户也确实会点名要改）。
+       */
+      const touchesText = 'prompt' in patch || 'text' in patch
+      const hasOutput = Boolean((node.data as { assetHash?: unknown }).assetHash)
+      if (touchesText && hasOutput) {
+        return {
+          ok: false,
+          problems: [
+            `节点「${node.title ?? id}」已经出过图：它的正文是上一版的记录，不能覆盖。`,
+            '要改就**新建一个生成节点**，用 attach 把这个节点接成它的上游，把新提示词写在新节点上，再 runNode 跑新节点。',
+          ],
+        }
       }
-      ctx.store.dispatch({ kind: 'node.updateData', id, patch: asRecord(a.data) })
+      ctx.store.dispatch({ kind: 'node.updateData', id, patch })
       return { ok: true }
     }
     case 'runNode': {

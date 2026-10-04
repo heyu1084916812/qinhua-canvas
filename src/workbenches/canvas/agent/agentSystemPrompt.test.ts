@@ -5,6 +5,7 @@ import {
   buildAgentSystemPromptWithContext,
   buildCanvasVocabulary,
   buildCurrentState,
+  looksLikePreserveRequest,
   summarizeForPrompt,
 } from './agentSystemPrompt'
 
@@ -217,5 +218,46 @@ describe('引用段', () => {
 
   it('★ 没选图片 / 视频模型时那一段不出现', () => {
     expect(buildAgentSystemPromptWithContext(empty)).not.toContain('生成节点用哪个模型')
+  })
+})
+
+/**
+ * 「改图 / 再来一版」的语义（用户 2026-10-05 第五批第 2 / 3 / 4 条）。
+ *
+ * 真机表现：用户让 agent 出了一张「小猫钓鱼」，接着说「把小猫替换成小狗，其他保持不变」，
+ * 模型用 `updateNode` 把**已经出图的那个节点**的正文整句换掉（历史记录没了），
+ * 而且新提示词里根本没有「其余保持不变」这条约束。
+ */
+describe('改图语义', () => {
+  const empty = { nodes: [], edges: [] }
+
+  it('★★ 硬规则里写明「改图要新建节点、不要覆盖旧节点正文」', () => {
+    const p = buildAgentSystemPrompt(empty)
+    expect(p).toContain('## 改图 / 再来一版：新建节点，别动旧节点')
+    expect(p).toContain('不要**用 updateNode 去改一个已经出过图的节点的正文')
+    expect(p).toContain('保持不变')
+  })
+
+  it('★★ 认出「只改一处、其余保持」的说法（判据取用户原话）', () => {
+    for (const t of [
+      '把小猫替换成小狗，其他保持不变',
+      '只改背景，其余不变',
+      '其他都不要动',
+      '只换一下衣服颜色',
+    ]) {
+      expect(looksLikePreserveRequest(t)).toBe(true)
+    }
+    for (const t of ['生成一只在钓鱼的小猫', '再来一张', '把比例改成 1:1']) {
+      expect(looksLikePreserveRequest(t)).toBe(false)
+    }
+  })
+
+  it('★★ 命中时加一段「这次的硬约束」：保留原描述 + 写出「其余保持不变」', () => {
+    const p = buildAgentSystemPromptWithContext(empty, undefined, { preserve: true })
+    expect(p).toContain('## 这一次的硬约束：用户说了「其他保持不变」')
+    expect(p).toContain('原来画面里该保留的全部描述')
+    expect(p).toContain('其余（构图、背景、光线、风格、姿态）保持不变')
+    /** 没命中就不该出现这一段（否则每轮都在喊狼来了） */
+    expect(buildAgentSystemPromptWithContext(empty)).not.toContain('这一次的硬约束')
   })
 })

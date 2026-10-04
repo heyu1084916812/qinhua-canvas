@@ -86,10 +86,15 @@ describe('预设表（用户 2026-10-05 第 14 条）', () => {
 
   it('情绪与预设一起拼：两段之间换行，顺序是先预设后情绪', () => {
     const text = presetPromptSuffix({ preset: 'cinematic-light', emotion: 'serene' })
-    expect(text.split('\n')).toEqual([
-      presetById('cinematic-light')!.prompt,
-      '表情设定：淡然自若',
-    ])
+    const lines = text.split('\n')
+    expect(lines[0]).toBe(presetById('cinematic-light')!.prompt)
+    /**
+     * 情绪那段**必须自带「只改面部、其余不变」**（用户 2026-10-05 第五批第 1 条）。
+     * 判据不写死整句：那句话以后可能还会调措辞，但「只改面部 + 保持不变」这两层意思不能丢。
+     */
+    expect(lines[1]).toContain('表情设定：淡然自若')
+    expect(lines[1]).toContain('面部表情')
+    expect(lines[1]).toContain('保持不变')
   })
 
   it('两个都没选 → 空串（拼在提示词后面时不该多出一个空行）', () => {

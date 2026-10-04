@@ -39,7 +39,10 @@ import { useViewportState } from '../../storeContext'
 import type { CanvasStore } from '../../../../state/workbenches/canvas/store'
 import type { TextRunRequest } from '../../../../platform/channels/types'
 import { resumeAgentTurn, runAgentTurn, type AgentLoopOutcome, type AgentToolRequest } from '../../agent/agentLoop'
-import { buildAgentSystemPromptWithContext } from '../../agent/agentSystemPrompt'
+import {
+  buildAgentSystemPromptWithContext,
+  looksLikePreserveRequest,
+} from '../../agent/agentSystemPrompt'
 import {
   AGENT_TOOLS,
   executeConfirmedTool,
@@ -592,6 +595,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       summary,
       { model: current.model },
       {
+        /**
+         * 用户说了「其他保持不变 / 只改 X」→ 给这次规划加一段**硬约束**
+         * （用户 2026-10-05 第五批第 2 条：那句要求只留在对话里，没进提示词）。
+         * 判据取**去掉引用标记之后**的原文，免得 `@[名字](node:id)` 这类机器标记干扰匹配。
+         */
+        ...(looksLikePreserveRequest(stripMentionMarkup(text)) ? { preserve: true } : {}),
         assetIds: current.pendingAssetIds ?? [],
         ...(skill ? { skill: { name: skill.name, content: skill.content } } : {}),
         ...(mentions.length > 0 ? { mentions } : {}),

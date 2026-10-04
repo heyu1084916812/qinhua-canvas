@@ -2,6 +2,7 @@ import { isAttached, layoutAgentPlan, type AgentGraphView } from '../../../domai
 import type { AgentNodeType, AgentPlan } from '../../../domain/agent/plan'
 import type { NodeData, NodeSnapshot } from '../../../domain/canvas/model/node'
 import { getSpec } from '../../../domain/canvas/nodeSpecs/registry'
+import { toWorldRectInGraph } from '../../../domain/canvas/geometry/coords'
 import type { Command } from '../../../state/commands'
 
 /**
@@ -81,8 +82,27 @@ export function buildLandingCommand(input: BuildLandingInput): LandingPayload {
     }
   }
 
-  // ② 布局：agent 只给 order，坐标我们算（并避开已有节点）
-  const rects = layoutAgentPlan(plan, graph.nodes, sizeOf, origin)
+  /**
+   * ② 布局：agent 只给 order，坐标我们算（并避开已有节点）。
+   *
+   * ⚠️ 避让必须用**世界坐标**：容器（分组 / 批量）里的子节点 `x/y` 是**局部坐标**，
+   * 直接拿去比，等于把它当成「以原点为左上角的一个独立节点」——新节点算着「没撞」，
+   * 落到画布上却正压在那张图上（用户 2026-10-05 第五批第 3 条：
+   * 「生成的节点覆盖了第二张图片原有的位置」）。
+   */
+  const existingWorld = graph.nodes.map((n) => {
+    /**
+     * `graph` 的类型是 `AgentGraphView & { nodes: NodeSnapshot[] }` —— 交叉后
+     * 编译器把元素推成 `GraphNodeView`（没有 `parentId`）。这里实打实是 store 的
+     * 节点快照（调用方就是拿 `store.getSnapshot()` 传进来的），所以显式收窄。
+     */
+    const r = toWorldRectInGraph(
+      n as NodeSnapshot,
+      graph as unknown as { nodes: readonly NodeSnapshot[] },
+    )
+    return { id: n.id, type: n.type, x: r.x, y: r.y, w: r.w, h: r.h }
+  })
+  const rects = layoutAgentPlan(plan, existingWorld, sizeOf, origin)
 
   // ③ 建节点快照。**复用节点不在这里** —— 它已经在画布上，这里只建新的
   const nodes: NodeSnapshot[] = []

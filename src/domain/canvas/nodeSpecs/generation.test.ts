@@ -270,7 +270,14 @@ describe('预设 / 情绪拼进提示词（用户 2026-10-05 第 14 条）', () 
     expect(lines[0]).toBe('角色特写')
     expect(lines[1]).toContain('人景融合「深度融合」')
     expect(lines[1]).toContain('锐度「高清锐化」')
-    expect(lines[2]).toBe('表情设定：欣然愉悦')
+    /**
+     * 情绪那句**自带「只改面部」的约束**（用户 2026-10-05 第五批第 1 条：
+     * 「只改变面部的情绪，其他的内容完全不变才对」）—— 原来只写「表情设定：欣然愉悦」，
+     * 模型会连整张图一起重画。
+     */
+    expect(lines[2]).toContain('表情设定：欣然愉悦')
+    expect(lines[2]).toContain('只改人物的面部表情')
+    expect(lines[2]).toContain('保持不变')
   })
 
   it('★ 没选预设 / 情绪时，提示词与从前一字不差（不追加空行）', () => {

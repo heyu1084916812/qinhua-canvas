@@ -110,6 +110,40 @@ describe('buildLandingCommand', () => {
     expect(r.command.nodes[0]!.y).toBeGreaterThan(0)
   })
 
+  /**
+   * ★★ **容器里的子节点也要被避开**（用户 2026-10-05 第五批第 3 条：
+   * 「生成的节点覆盖了第二张图片原有的位置」）。
+   *
+   * 子节点的 `x/y` 是**局部坐标**：它自己写 (0,0)、父分组在世界坐标 (0,0) 时，
+   * 拿 local 去比会得出「没撞」；父分组挪到 (600,0) 之后，那张图其实就在
+   * 新节点要落的那一列上。判据取**世界坐标**：新节点必须被让到它下方。
+   */
+  it('★★ 避让用世界坐标：分组里的子节点也躲开（局部坐标会漏判）', () => {
+    seq = 0
+    const plan: AgentPlan = {
+      summary: 'x',
+      nodes: [{ localId: 'g1', type: 'generation', data: {}, order: 0 }],
+      edges: [],
+    }
+    /**
+     * 父分组落在 **(600,−500)、尺寸 200×400**（自身矩形 y ∈ [−500,−100]，不压 origin）；
+     * 子节点**局部 (0,500)** ⇒ 世界矩形 **(600,0,200,120)**，正好压住 origin。
+     *
+     * 这样两边就能区分开：按局部坐标判 =「(0,500) 不撞 (600,0)」（漏判）；
+     * 按世界坐标判 =「(600,0) 撞 (600,0)」（必须让开）。
+     */
+    const parent = { ...existing('grp-1', 'group', 600, -500), w: 200, h: 400 }
+    const child = { ...existing('child-1', 'generation', 0, 500), parentId: 'grp-1' }
+    const r = buildLandingCommand({
+      plan,
+      graph: graph([parent, child]),
+      origin: { x: 600, y: 0 },
+      newId,
+    })
+    /** 若按局部坐标判，这里会是 y=0（正压在那张图上）；按世界坐标必须落到它下方 */
+    expect(r.command.nodes[0]!.y).toBeGreaterThanOrEqual(120)
+  })
+
   it('★★ dataFor 补上默认渠道 / 模型（不补的话 agent 建的节点点了生成没反应）', () => {
     seq = 0
     const plan: AgentPlan = {
