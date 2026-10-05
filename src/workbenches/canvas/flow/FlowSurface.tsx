@@ -51,6 +51,7 @@ import { useSpaceHeld } from '../../../features/canvas/useSpaceHeld'
 /* 与 RF 自己的 `useViewport` 同名不同物：那个读 RF 视口，这个给「空格 + 拖拽」平移用 */
 import { useViewport as useCanvasViewport } from '../../../features/canvas/useViewport'
 import { describeLoadResult, loadAssetsFromFolder } from '../../../features/canvas/loadFromFolder'
+import { describeExportReport, exportAssetsToFolder } from '../../../features/canvas/exportAssetsToFolder'
 import { useNodeDownload } from '../../../features/canvas/useNodeDownload'
 import { draggedFiles, importDroppedFiles } from '../../../features/canvas/dropImport'
 import { dropPointOf, resolveDropOutcome } from '../../../features/canvas/dropReparent'
@@ -856,6 +857,7 @@ function Hud({
   const folder = platform.assetFolder
   const [folderName, setFolderName] = useState<string | null>(folder?.current()?.name ?? null)
   const [loading, setLoading] = useState(false)
+  const [exporting, setExporting] = useState<{ done: number; total: number } | null>(null)
   const canPick = folder?.supported() ?? false
 
   /** 画布里的「素材位置」入口（对账 #196）：选一个文件夹当素材位置；选了就是授权，刷新后要重选 */
@@ -891,6 +893,26 @@ function Hud({
       store.notify(`从文件夹加载失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setLoading(false)
+    }
+  }
+
+  /**
+   * 「导出素材到文件夹」（对账 #196 · 增量 5）：把内置库里的字节**一次性**写到选中的目录。
+   *
+   * 这是**桌面封装迁移的前置件**（《轻画-桌面封装方案.md》§3）：桌面壳是另一个 origin，
+   * 库里的字节不会自己跟过去；先落成一个目录，"从文件夹加载"就能在新壳里把它们读回来。
+   * 与"新素材自动镜像"共用同一份写盘实现 ⇒ **幂等**，重复点只是把已有的标成"盘上已有"。
+   */
+  const exportToFolder = async () => {
+    if (!folder?.current() || exporting) return
+    setExporting({ done: 0, total: 0 })
+    try {
+      const report = await exportAssetsToFolder(platform, (done, total) => setExporting({ done, total }))
+      store.notify(describeExportReport(report, folder.current()?.name ?? ''))
+    } catch (err) {
+      store.notify(`导出素材失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setExporting(null)
     }
   }
 
@@ -933,6 +955,19 @@ function Hud({
         onClick={() => void loadFromFolder()}
       >
         {loading ? '加载中…' : '从文件夹加载'}
+      </button>
+      <button
+        type="button"
+        data-asset-folder-export
+        disabled={!folderName || exporting !== null}
+        title={
+          folderName
+            ? '把内置库里的素材全部导出到这个文件夹（备份 / 换机器用；已有的不会重写）'
+            : '先选一个素材文件夹'
+        }
+        onClick={() => void exportToFolder()}
+      >
+        {exporting ? `导出中 ${exporting.done}/${exporting.total}…` : '导出素材到文件夹'}
       </button>
     </div>
   )

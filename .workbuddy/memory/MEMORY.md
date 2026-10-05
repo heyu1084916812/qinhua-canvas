@@ -3718,3 +3718,20 @@ Midjourney 的高级设置需要「一根滑杆」和「一个文本框」，而
   改法：这一类浮层必须**两层**（外层 `inset:0`+`overflow:hidden` 收溢出，内层挂 transform）。
   草稿层同理。**动手前先只关掉可疑那一层跑一遍**（我这次先把 `<FlowPortLayer>` 关掉，
   g76 立刻 5/5 ⇒ 一次定位，比继续推理快得多）。
+
+### ★★ 「导出全部素材」与「新素材自动镜像」必须是**同一份写盘实现**（2026-10-05，对账 #217）
+
+封装迁移的前置件：桌面壳是**另一个 origin / 另一个用户目录**，`assets` 表的字节不会自己跟过去，
+而"导出项目"默认不带素材字节 ⇒ 直接搬会"节点在、图全丢"。补的入口是 HUD「导出素材到文件夹」。
+
+- **写盘只留一份**：`platform/assetMirror.ts` 的 `writeAssetRow(folder, row)`（四态：
+  `written` / `exists` / `no-bytes` / `failed`），"落库后自动镜像"与"导出全部"都调它 ——
+  两条路各写一遍必然漂移（一边把"已在盘上"当失败、另一边当成功，用户看到两套说法）。
+- **四种状态不是凑数**：`exists`（内容寻址 ⇒ 同名即同 hash，跳过是对的）与 `no-bytes`
+  （远端行只有 url，**搬不动**）**都必须单独报**。混进一句"跳过 N 个"，
+  用户会以为素材都搬完了 —— 迁移对数时正是要看这个数。
+- **幂等是免费的**：命名 `<hash>.<ext>` ⇒ 再点一次不会写第二份，只是 `exists` 计数变了。
+- **真机怎么验**：真 FSA 需要用户手势、Playwright 驱动不了系统选择器 ⇒ 在页内**假一个
+  `window.showDirectoryPicker`**（假目录 + `Map<name, Blob>`）当"磁盘"，断言盘上真的出现了
+  `<hash>.png`（`scripts/probe-asset-export.mjs`）。⚠️ 同一次里**上传那条路仍要**
+  `delete window.showOpenFilePicker`（否则 `filechooser` 不派发、上传静默不落地）。
