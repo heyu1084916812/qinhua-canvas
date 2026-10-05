@@ -34,24 +34,13 @@ import { fitCanvasView } from './fitView'
 import { ContextMenu } from '../menu/ContextMenu'
 import { LinkMenu } from '../menu/LinkMenu'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
-import { createAssetNode, importAssetFile, isImportableMedia, IMPORT_ACCEPT } from '../../../features/canvas/importAsset'
+import { IMPORT_ACCEPT } from '../../../features/canvas/importAsset'
 import { useNodeDownload } from '../../../features/canvas/useNodeDownload'
-import type { ImportedAsset } from '../../../features/canvas/importAsset'
-import { assetNodeSize } from '../../../domain/canvas/layout/assetNodeSize'
+import { draggedFiles, importDroppedFiles } from '../../../features/canvas/dropImport'
 import styles from './CanvasSurface.module.css'
 
 /** 中键：拖拽平移（无视是否选中节点，产品文档 §6.3） */
 const MIDDLE_BUTTON = 1
-
-/** 拖入多个文件时，相邻节点的水平间距 */
-const IMPORT_GAP = 24
-
-/** dataTransfer 里带的是文件（而不是画布内的节点拖拽） */
-function draggedFiles(e: { dataTransfer: DataTransfer }): File[] {
-  const types = Array.from(e.dataTransfer.types ?? [])
-  if (!types.includes('Files')) return []
-  return Array.from(e.dataTransfer.files ?? [])
-}
 
 /**
  * 画布工作台表面：视口变换容器 + 事件总线。
@@ -315,41 +304,9 @@ export function CanvasSurface({
     const world = screenToWorld({ x: e.clientX, y: e.clientY }, store.getViewport(), container)
     const deps = { platform, store, projectId: store.getSnapshot().projectId }
 
-    // 先取齐素材（异步），再**同步**建节点：计划区间内不夹 await，
-    // 于是整批 import 真的合成一个撤销单元（§6.3「一次导入 = 一次撤销步骤」）
-    const assets: ImportedAsset[] = []
-    let rejected = 0
-    for (const file of files) {
-      if (file.type && !isImportableMedia(file.type)) {
-        rejected += 1
-        continue
-      }
-      const asset = await importAssetFile(deps, file)
-      if (asset) assets.push(asset)
-    }
+    // 批量导入的规则（跳过非素材 / 整批一个撤销单元 / 横向排开）两个表面共用一份实现
+    const { ids, rejected } = await importDroppedFiles(deps, files, world)
     if (rejected > 0) store.notify(`跳过 ${rejected} 个文件：只支持图片 / 视频素材`)
-    if (assets.length === 0) return
-
-    const ids: string[] = []
-    // `activePlan` 是单个变量 ⇒ 计划不可嵌套，故整批只开一次、createAssetNode 传 ownPlan=false
-    store.beginPlan(`import:${assets.map((a) => a.hash.slice(0, 8)).join('-')}`, '导入素材')
-    let offsetX = 0
-    for (const asset of assets) {
-      const size = assetNodeSize({ width: asset.width, height: asset.height })
-      const id = createAssetNode(
-        deps,
-        asset,
-        {
-          x: Math.round(world.x + offsetX - size.w / 2),
-          y: Math.round(world.y - size.h / 2),
-        },
-        false,
-      )
-      if (id) ids.push(id)
-      offsetX += size.w + IMPORT_GAP
-    }
-    store.endPlan()
-
     if (ids.length > 0) {
       store.setSelection(ids)
       store.showUndoBar(`已导入 ${ids.length} 个素材`)

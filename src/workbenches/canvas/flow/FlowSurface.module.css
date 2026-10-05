@@ -12,6 +12,16 @@
   height: 100%;
 }
 
+/* 拖入素材时的落点提示（与老表面同一套：1px 虚线内描边，无投影、不改底色） */
+.surface[data-import-hover='true']::after {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  border: 1px dashed var(--stroke);
+  border-radius: 8px;
+  pointer-events: none;
+}
+
 .hud {
   position: absolute;
   left: 12px;

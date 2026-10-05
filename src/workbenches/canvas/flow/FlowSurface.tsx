@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type DragEvent as ReactDragEvent } from 'react'
 import {
   Background,
   BackgroundVariant,
@@ -25,6 +25,9 @@ import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { screenToWorld } from '../../../domain/canvas/geometry/coords'
 import { describeLoadResult, loadAssetsFromFolder } from '../../../features/canvas/loadFromFolder'
 import { useNodeDownload } from '../../../features/canvas/useNodeDownload'
+import { draggedFiles, importDroppedFiles } from '../../../features/canvas/dropImport'
+import { useClipboardHotkeys, rememberPointer } from '../../../features/canvas/useClipboard'
+import { IMPORT_ACCEPT } from '../../../features/canvas/importAsset'
 import { PanelLayer } from '../panels/PanelLayer'
 import { NodeFollowBar } from '../toolbar/NodeFollowBar'
 import { ContextMenu } from '../menu/ContextMenu'
@@ -82,6 +85,29 @@ function FlowSurfaceInner({
   const { emitNodeEvent } = useCanvasPageEvents(store, onOpenSettings)
   const platform = usePlatform()
   const handleDownload = useNodeDownload(platform, store)
+  // Ctrl/Cmd + C/V（§4.2）：剪贴板是模块级单例、不订阅，故不参与本组件重渲染
+  useClipboardHotkeys(store)
+  const [importHover, setImportHover] = useState(false)
+
+  /** 从系统拖入图片 / 视频（§6.3）：与老表面共用同一份批量导入规则 */
+  const onDropFiles = async (e: ReactDragEvent<HTMLDivElement>) => {
+    const files = draggedFiles(e)
+    if (files.length === 0) return
+    e.preventDefault()
+    setImportHover(false)
+    const r = e.currentTarget.getBoundingClientRect()
+    const world = screenToWorld(
+      { x: e.clientX, y: e.clientY },
+      store.getViewport(),
+      { x: r.left, y: r.top, w: r.width, h: r.height },
+    )
+    const { ids, rejected } = await importDroppedFiles({ platform, store, projectId }, files, world)
+    if (rejected > 0) store.notify(`跳过 ${rejected} 个文件：只支持图片 / 视频素材`)
+    if (ids.length > 0) {
+      store.setSelection(ids)
+      store.showUndoBar(`已导入 ${ids.length} 个素材`)
+    }
+  }
 
   /**
    * 视口**受控**（`viewport` + `onViewportChange`），不用 `defaultViewport`：
@@ -241,7 +267,24 @@ function FlowSurfaceInner({
   )
 
   return (
-    <div className={styles.surface} data-canvas-surface data-canvas-engine="rf">
+    <div
+      className={styles.surface}
+      data-canvas-surface
+      data-canvas-engine="rf"
+      // 拖入素材：dragover 必须 preventDefault，否则浏览器按「不可放置」处理、根本不派发 drop
+      onDragOver={(e) => {
+        if (draggedFiles(e).length === 0) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'copy'
+        setImportHover(true)
+      }}
+      onDragLeave={() => setImportHover(false)}
+      onDrop={(e) => void onDropFiles(e)}
+      data-import-hover={importHover ? 'true' : 'false'}
+      data-import-accept={IMPORT_ACCEPT}
+      // 只记坐标、不 setState：粘贴落点要用「当前鼠标位置」（§4.2）
+      onPointerMove={(e) => rememberPointer({ x: e.clientX, y: e.clientY })}
+    >
       <ReactFlow
         className={styles.flow}
         nodes={nodes}
@@ -258,6 +301,8 @@ function FlowSurfaceInner({
          */
         selectionKeyCode={['Control', 'Meta']}
         multiSelectionKeyCode={['Shift']}
+        /* §6.3：中键拖拽也平移（左键拖拽是默认行为，空格 + 拖拽由 React Flow 自带） */
+        panOnDrag={[0, 1]}
         viewport={flowViewport}
         onViewportChange={(next) => store.setViewport(flowViewportToStore(next))}
         onNodesChange={onNodesChange}
