@@ -24,6 +24,13 @@ export default tseslint.config(
       '.playwright-verify',
       'public',
       'scripts/probe-*.mjs',
+      /**
+       * `src-tauri/` 是 **Rust 桌面壳**（Tauri 2）：那是另一套语言与构建链
+       * （`cargo` / `tauri.conf.json`），不归 TS 的 ESLint 管 —— 不忽略会直接
+       * 「Parsing error: Invalid character」（拿 JS 解析器去读 `.rs`）。
+       * ⚠️ `src-tauri/target/` 另有自己的 `.gitignore`，这里只是连源码一起排除。
+       */
+      'src-tauri',
     ],
   },
   js.configs.recommended,
