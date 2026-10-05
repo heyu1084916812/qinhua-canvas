@@ -3888,3 +3888,10 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   要 `img.naturalWidth > 0` 才算真的读出来了。
 - 顺带确认（同一条链路的另一头）：导入的素材会按 `<hash>.<ext>` **镜像回同一个目录**，且**同内容只写一份**
   （这次两张同字节的图只多出一个文件）—— 内容寻址去重与自动镜像在壳里同样成立。
+### ★ 没有截图工具时，怎么验证"窗口标题 / 安装器语言"（2026-10-05，对账 #226）
+
+- NSIS 安装器的语言可以**只用命令行**验：passive 安装（`/P` 会显示一个进度窗口）时轮询
+  `(Get-Process -Id $p.Id).MainWindowTitle` —— 拿到 **「轻画 安装 」** 就说明中文语言表生效了
+  （英文表下这里是 `轻画 Setup`）。装完记得静默卸载。
+- 配置：`bundle.windows.nsis.languages = ["SimpChinese"]` + `displayLanguageSelector: false`（不弹语言选择框）。
+- 同理，「装出来的东西对不对」也不要靠眼睛：装机后读 `(Get-Item …).VersionInfo.FileVersion` + 注册表 `DisplayVersion`。
