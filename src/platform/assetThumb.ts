@@ -1,5 +1,5 @@
-import type { PlatformKit, Row } from '../../platform/ports'
-import { imageSizeFromHeader, type ImageSize } from '../../domain/shared/imageSize'
+import type { PlatformKit, Row } from './ports'
+import { imageSizeFromHeader, type ImageSize } from '../domain/shared/imageSize'
 
 /**
  * **节点缩略图**（对账 #231 —— 收口 #195 里"应用侧放大"那一条）。
@@ -99,6 +99,82 @@ export async function ensureAssetThumb(platform: PlatformKit, row: Row, source: 
 const THUMB_CONCURRENCY = 2
 let running = 0
 const waiting: (() => void)[] = []
+
+/**
+ * 这一行**该不该补缩略图**（纯函数，可单测）。三种情况都不补：
+ * ① 已经有 `thumb`（补过了 —— 重挂载 / 重扫很常见）；② 不是图（视频走自己的路）；
+ * ③ 没有本地字节（只有远端地址的那种行，"搬不动"）。
+ */
+export function needsThumb(row: Row): boolean {
+  const mime = typeof row.mime === 'string' ? row.mime : ''
+  return !row.thumb && mime.startsWith('image/') && !!row.bytes
+}
+
+/** 行里的字节（两种克隆形态都要认）→ Blob */
+export function rowBytesBlob(row: Row): Blob | null {
+  if (!row.bytes) return null
+  const bytes = row.bytes instanceof Uint8Array ? row.bytes : new Uint8Array(row.bytes as number[])
+  const mime = typeof row.mime === 'string' ? row.mime : 'application/octet-stream'
+  return new Blob([bytes as unknown as BlobPart], { type: mime })
+}
+
+/**
+ * **一次性补图**（对账 #232）：把库里**还没有缩略图**的素材过一遍。
+ *
+ * 为什么必须有：懒生成只覆盖"用户看过的图"。**老项目第一次打开**时，可见的那几张仍按原图解码 ——
+ * 那正是 #195 那次崩溃的窗口。存量素材必须先被补上，第一次打开才是便宜的
+ * （新素材不用等它：落库那一刻就已经顺手补了，见 store 的 `writeOnce`）。
+ *
+ * 三条边界：
+ * - 用 `storage.scan` **分批**读（每批 4 行）——复用 #228 那条"别把整库拿在手里"；
+ * - 生成走**同一个限流槽**（同时最多 2 张），所以它和前台不会互相抢；
+ * - **可中断**（`signal`）：进画布 / 卸载就停，剩下的下次继续（缩略图是落库的，天然可续）。
+ */
+export async function backfillAssetThumbs(
+  platform: PlatformKit,
+  opts: { signal?: AbortSignal; onProgress?: (done: number, total: number) => void } = {},
+): Promise<{ scanned: number; generated: number; aborted: boolean }> {
+  const { signal, onProgress } = opts
+  let scanned = 0
+  let generated = 0
+  let aborted = false
+
+  /** 中断哨兵：`scan` 的回调没有"别读了"这个出口，只能靠抛（抛出去的不会进 DB） */
+  const ABORT = Symbol('thumb-backfill-abort')
+
+  const handle = async (rows: Row[]): Promise<void> => {
+    for (const row of rows) {
+      if (signal?.aborted) {
+        aborted = true
+        throw ABORT
+      }
+      scanned += 1
+      if (!needsThumb(row)) continue
+      const blob = rowBytesBlob(row)
+      if (!blob) continue
+      const made = await ensureAssetThumb(platform, row, blob)
+      if (made) generated += 1
+    }
+  }
+
+  const storage = platform.storage
+  try {
+    if (storage.scan) {
+      await storage.scan('assets', 4, async (rows, meta) => {
+        await handle(rows)
+        onProgress?.(scanned, meta.total)
+      })
+    } else {
+      // 没有 `scan` 的后端（少见）：整表 —— 小库两条路等价
+      const rows = (await storage.query('assets', {})) as unknown as Row[]
+      await handle(rows)
+      onProgress?.(scanned, rows.length)
+    }
+  } catch (err) {
+    if (err !== ABORT) throw err
+  }
+  return { scanned, generated, aborted }
+}
 
 async function inThumbSlot<T>(job: () => Promise<T>): Promise<T> {
   if (running >= THUMB_CONCURRENCY) await new Promise<void>((resolve) => waiting.push(resolve))

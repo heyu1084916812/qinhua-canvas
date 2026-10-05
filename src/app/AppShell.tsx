@@ -1,6 +1,7 @@
 import { useSyncExternalStore, type ReactNode } from 'react'
 import { AppSidebar } from './AppSidebar'
 import { UpdateNotice } from './UpdateNotice'
+import { ThumbBackfill } from './ThumbBackfill'
 import { getSidebarOpen, sidebarWidth, subscribeSidebar } from './sidebarState'
 import styles from './AppShell.module.css'
 
@@ -41,6 +42,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       </main>
       {/* 自动更新的右下角提示条（方案 §5）：浏览器里没有 updater 端口，自己就不渲染 */}
       <UpdateNotice />
+      {/* 存量素材缩略图的一次性补图（对账 #232）：没有界面，进画布自动让路 */}
+      <ThumbBackfill />
     </div>
   )
 }

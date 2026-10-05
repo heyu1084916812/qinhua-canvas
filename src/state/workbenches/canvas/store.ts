@@ -24,6 +24,7 @@ import { clampZoom } from '../../../domain/canvas/geometry/transform'
 import { applyGraphPatches, toPersistPlan } from './persist'
 import type { PlatformKit, Row } from '../../../platform/ports'
 import { mirrorAssetsToFolder } from '../../../platform/assetMirror'
+import { ensureAssetThumb, needsThumb, rowBytesBlob } from '../../../platform/assetThumb'
 
 export interface CanvasStoreOptions {
   platform: PlatformKit
@@ -310,6 +311,20 @@ function createPersister(platform: PlatformKit, debounceMs: number) {
       await mirrorAssetsToFolder(platform.assetFolder, assetRows, (message, meta) =>
         platform.logger.log('warn', message, meta),
       )
+      /**
+       * 落库之后**顺手补一张缩略图**（对账 #232）—— 刻意**不 await**：
+       * 这一行的字节刚在手上，而画布节点只显示约 240px；不补的话，每次打开项目都要按原图解码
+       * （一张 4K 图 ≈ 33MB，几十张就是 GB 级）。
+       *
+       * 这里是**所有素材行的唯一落库出口**（用户导入与模型产物都走它），所以在这里补一次就全覆盖；
+       * 生成在限流槽里排队（同时最多 2 张），一次导入几百张也不会把前台压垮。
+       * 补失败什么都不做 —— 缩略图是优化，不是功能。
+       */
+      for (const row of assetRows) {
+        if (!needsThumb(row)) continue
+        const blob = rowBytesBlob(row)
+        if (blob) void ensureAssetThumb(platform, row, blob)
+      }
     }
   }
 

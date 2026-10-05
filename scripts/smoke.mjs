@@ -5821,7 +5821,9 @@ const browser = await chromium.launch({ channel: 'chrome' })
  * 本组把「上传完立刻能看到图」钉成行为契约。前两条用**探针计数**断言而不是
  * 用耗时断言——耗时在 CI 上会飘，计数不会：
  *   - `crypto.subtle.digest` 被调用 ⇒ 哈希确实走了原生异步实现
- *   - `createImageBitmap` 未被调用 ⇒ 宽高确实读的文件头
+ *   - **不带 resize 选项**的 `createImageBitmap` 未被调用 ⇒ 宽高确实读的文件头
+ *     （带 resize 的是**缩略图生成**那条路（对账 #232）—— 它必然要解码，那是它的工作；
+ *     这里要钉的是"**取尺寸**不许靠解码"。两者必须分开数，否则这条断言会误伤缩略图。）
  *
  * 耗时只认**应用侧时钟**：起点取页面里第一次 `blob.arrayBuffer()`（`importAssetFile`
  * 的第一个动作），而不是 Node 侧点按钮的那一刻——后者含 Playwright 把几 MB 字节
@@ -5862,6 +5864,11 @@ async function g55(browser) {
     if (typeof ob === 'function') {
       window.createImageBitmap = function (...a) {
         window.__probe.bmp += 1
+        /**
+         * 分开数：`{ resizeWidth }` 那次是**缩略图生成**（对账 #232），必然要解码；
+         * 没有第二参数的那次才是"取宽高"——那一条**不许**出现（文件头里就有数字）。
+         */
+        if (!a[1] || !a[1].resizeWidth) window.__probe.bmpNoResize = (window.__probe.bmpNoResize ?? 0) + 1
         return ob.apply(this, a)
       }
     }
@@ -5934,9 +5941,9 @@ async function g55(browser) {
   )
   rec(
     g,
-    '★ 宽高读文件头、没做全量解码（createImageBitmap 一次都没被调用）',
-    probe.bmp === 0,
-    `createImageBitmap=${probe.bmp}`,
+    '★ 宽高读文件头 —— 取尺寸那条路一次解码都没有（缩略图那条解码算另一件事）',
+    (probe.bmpNoResize ?? 0) === 0,
+    `createImageBitmap=${probe.bmp}（其中不带 resize 的 ${probe.bmpNoResize ?? 0}）`,
   )
   // 只算「应用开工之后」的长任务：开工前那一段含 Playwright 灌字节的开销，不算产品的账
   const appLong = probe.long.filter((x) => probe.start > 0 && x.at >= probe.start - 1).map((x) => x.ms)

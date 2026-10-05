@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import type { PlatformKit } from '../../../platform/ports'
 import { assetFileName, expectedAssetPath } from '../../../domain/shared/assetLocation'
-import { ensureAssetThumb, THUMB_MIME } from '../../../features/canvas/assetThumb'
+import { ensureAssetThumb, THUMB_MIME } from '../../../platform/assetThumb'
 
 /**
  * 按 hash 从 assets 表读回媒体本体并生成 objectURL（产品文档 §8：hash 即主键）。
