@@ -1,4 +1,12 @@
-import { useCallback, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
 import {
   Background,
   BackgroundVariant,
@@ -138,6 +146,31 @@ function FlowSurfaceInner({
       store.showUndoBar(`已导入 ${ids.length} 个素材`)
     }
   }
+
+  /**
+   * 画布右键菜单（§4.1）：**空白的按下位置**决定弹哪一份 ——
+   * 落在节点上 → 选中它并弹节点菜单；否则弹画布菜单。
+   *
+   * 坐标必须是 surface 的**局部屏幕坐标**（菜单靠它定位），所以要用 `currentTarget` 的矩形换算。
+   * 关闭由 `ContextMenu` 自己处理（window pointerdown / Esc / 滚轮），这里只负责打开。
+   */
+  const onContextMenu = useCallback(
+    (e: ReactMouseEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      const r = e.currentTarget.getBoundingClientRect()
+      const x = e.clientX - r.left
+      const y = e.clientY - r.top
+      const nodeEl = (e.target as HTMLElement).closest('[data-node-id]')
+      const nodeId = nodeEl?.getAttribute('data-node-id') ?? null
+      if (nodeId) {
+        if (!store.getSelection().includes(nodeId)) store.setSelection([nodeId])
+        store.setMenu(x, y, { kind: 'node', nodeId })
+      } else {
+        store.setMenu(x, y, { kind: 'canvas' })
+      }
+    },
+    [store],
+  )
 
   /**
    * 视口**受控**（`viewport` + `onViewportChange`），不用 `defaultViewport`：
@@ -415,10 +448,29 @@ function FlowSurfaceInner({
   const onNodesDelete = useCallback(
     (deleted: RFNode[]) => {
       const ids = deleted.map((n) => n.id)
-      if (ids.length > 0) store.dispatch({ kind: 'node.delete', ids })
+      if (ids.length === 0) return
+      store.dispatch({ kind: 'node.delete', ids })
+      // 与右键菜单 / 跟随栏的删除同一句（老表面的键盘删除也会弹撤销条）
+      store.showUndoBar('已删除节点')
     },
     [store],
   )
+
+  /**
+   * 给 React Flow 的**视口层**挂上老锚点 `data-world`。
+   *
+   * 为什么值得专门接：冒烟的 `readViewport()` 读的就是 `[data-world]` 的 style，从中解析
+   * `translate(…px,…px) scale(…)` 来算坐标 —— 全量里大量组依赖它。而 RF 的
+   * `.react-flow__viewport` 用的**正是同一种格式**（`translate(x,y) scale(z)`，
+   * 其中 x = -vp.x*zoom，与老 `.world` 的 `translate(-vp.x*zoom,…)` 数值一致），
+   * 所以挂上锚点后，那套坐标数学**一个字都不用改**。
+   */
+  useEffect(() => {
+    const el = document.querySelector<HTMLElement>('[data-canvas-surface] .react-flow__viewport')
+    if (!el) return
+    el.setAttribute('data-world', '')
+    return () => el.removeAttribute('data-world')
+  }, [])
 
   const onEdgesDelete = useCallback(
     (deleted: { id: string }[]) => {
@@ -445,6 +497,7 @@ function FlowSurfaceInner({
       data-import-accept={IMPORT_ACCEPT}
       // 只记坐标、不 setState：粘贴落点要用「当前鼠标位置」（§4.2）
       onPointerMove={(e) => rememberPointer({ x: e.clientX, y: e.clientY })}
+      onContextMenu={onContextMenu}
     >
       <ReactFlow
         className={styles.flow}
