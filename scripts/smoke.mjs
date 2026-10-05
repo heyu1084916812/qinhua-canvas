@@ -3668,9 +3668,12 @@ async function g24(browser) {
   // 等落库防抖批写完成，避免与帧率采样重叠
   await sleep(1600)
 
-  // 2) 视口裁剪：DOM 挂载数远小于节点总数
+  // 2) 不裁剪：种子节点应全部挂载（见下方产品决策说明）
   const mounted0 = await nodeCount(page)
-  rec(g, '视口裁剪生效（挂载 DOM << 300）', mounted0 > 0 && mounted0 < 150, `mounted=${mounted0}`)
+  // 产品决策（2026-10-06，用户选 A）：**不做视口裁剪** —— 屏幕外的节点也留在页面里，
+  // 换来「在图上 = 在页面里」这条最简单的语义。所以这里断言的是"全都在"，不是"挂载很少"；
+  // 大画布的性能由下面两条帧率断言兜底（真撑不住再回来上裁剪）。
+  rec(g, '不裁剪：300 个节点全都在 DOM 里', mounted0 >= 300, `mounted=${mounted0}`)
   await page.screenshot({ path: `${OUT}/39-g24-seeded.png` })
 
   const box = await page.locator('[data-canvas-surface]').boundingBox()
@@ -3687,7 +3690,7 @@ async function g24(browser) {
   await page.keyboard.up('Space')
   await sleep(400)
   const mounted1 = await nodeCount(page)
-  rec(g, '平移后挂载数仍受限', mounted1 < 150, `mounted=${mounted1}`)
+  rec(g, '平移后节点仍全部在 DOM 里', mounted1 >= 300, `mounted=${mounted1}`)
 
   // 4) 平移帧率：空格 + 拖拽往复 ~1.4s，rAF 采样 1s
   const panFps = await sampleFpsDuring(page, async () => {

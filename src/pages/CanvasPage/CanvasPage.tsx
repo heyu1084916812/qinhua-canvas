@@ -162,13 +162,16 @@ function CanvasProject({ projectId }: { projectId: string }) {
   }, [projectId])
 
   // DEV-only 性能基准钩子（§1.6 画布性能）：window.__seedPerfGraph() 注入 300/500 拓扑。
+  // 可带参：__seedPerfGraph(150, 250) —— 用来量**真实规模**（项目里的节点数）下的帧率，
+  // 只跑 300 那一档回答不了"我自己的项目会不会卡"。
   // 动态 import 使生产构建完全不含该模块。
   useEffect(() => {
     if (!import.meta.env.DEV) return
     let alive = true
     void import('../../dev/seedPerf').then((m) => {
       if (!alive) return
-      ;(window as unknown as Record<string, unknown>).__seedPerfGraph = () => m.seedPerfGraph(store)
+      ;(window as unknown as Record<string, unknown>).__seedPerfGraph = (nodes?: number, edges?: number) =>
+        m.seedPerfGraph(store, nodes, edges)
     })
     return () => {
       alive = false
