@@ -173,7 +173,14 @@ export function ProjectsPage() {
     setBusy(true)
     setMenuId(null)
     try {
-      const { fileName } = await exportProject(platform, id, opts)
+      const { fileName } = await exportProject(platform, id, {
+        ...opts,
+        /**
+         * 带素材的导出可能要**几十秒**：进度直接写在状态行上。
+         * 没有读数时，用户会以为卡死并去点第二次（同对账 #229 那条口径）。
+         */
+        onProgress: (done, total) => setStatus(`导出中 ${done}/${total}…`),
+      })
       setStatus(`已导出「${name}」为 ${fileName}${opts?.embedAssets ? '（含素材）' : ''}`)
     } catch (err) {
       setStatus(`导出失败：${(err as Error).message}`)

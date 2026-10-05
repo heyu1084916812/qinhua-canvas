@@ -6,9 +6,9 @@ import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import { assetHashesOf } from '../../domain/canvas/graph/assetRefs'
 import {
   serializeProject,
+  serializeProjectStream,
   deserializeProject,
   type FlowFileV1,
-  type FlowGraph,
 } from '../../domain/project/flowFile'
 
 /**
@@ -22,30 +22,36 @@ import {
 export interface ExportOptions {
   /** 是否内嵌素材（assets 表）；默认 false（仅结构） */
   embedAssets?: boolean
+  /**
+   * 内嵌素材的进度（第几张 / 共几张）。
+   * 为什么要：带素材的导出可能要几十秒，没有读数用户会以为卡死（与对账 #229 同一条口径）。
+   */
+  onProgress?: (done: number, total: number) => void
 }
 
 export interface ExportResult {
-  flow: FlowFileV1
   fileName: string
 }
 
 /**
- * 按 hash 取素材行：`assets.id` 就是内容哈希，逐条查走主键索引 —— 只把**用得到的那几行**
- * 读进内存，大素材库也不会因为导出一次而全表过一遍。
+ * 按 hash **逐条**取素材行（`assets.id` 就是内容哈希，走主键索引）—— 一次只把**一张**交给调用方。
  *
- * 分小批并发只是别让一次导出排几百个请求；`Promise.all` 的顺序与入参一致，
- * 所以结果行的顺序仍然稳定。
+ * 为什么是"逐条"而不是"成批再返回数组"：数组意味着这些行的字节**同时**在内存里
+ * （一张 4K 图编码后几 MB，几百张就是几个 GB）。流式导出要的是"来一张、编一张、丢掉一张"。
  */
-async function queryAssetsByHashes(platform: PlatformKit, hashes: string[]): Promise<Row[]> {
-  const rows: Row[] = []
-  const CHUNK = 16
-  for (let i = 0; i < hashes.length; i += CHUNK) {
-    const part = await Promise.all(
-      hashes.slice(i, i + CHUNK).map((id) => platform.storage.query('assets', { id })),
-    )
-    for (const one of part) rows.push(...(one as unknown as Row[]))
+async function* assetRowsByHashes(
+  platform: PlatformKit,
+  hashes: string[],
+  onProgress?: (done: number, total: number) => void,
+): AsyncGenerator<Row> {
+  let done = 0
+  for (const id of hashes) {
+    const rows = await platform.storage.query('assets', { id })
+    const row = rows[0] as unknown as Row | undefined
+    if (row) yield row
+    done += 1
+    onProgress?.(done, hashes.length)
   }
-  return rows
 }
 
 export async function exportProject(
@@ -62,31 +68,46 @@ export async function exportProject(
   const project = projRows[0]
   if (!project) throw new Error(`[flowIo] 导出失败：项目不存在 ${projectId}`)
 
-  /**
-   * 内嵌素材**按节点引用到的 hash** 取，不按 `projectId`（对账 #222）。
-   * `assets.projectId` 只记「最后导入它的项目」：复制项目后同一张图两个项目共用，
-   * 按 projectId 取就会两边都漏 —— 而「导出原件」正是复制之后最常见的动作。
-   */
-  const assets = opts.embedAssets
-    ? await queryAssetsByHashes(platform, assetHashesOf(nodes as unknown as NodeSnapshot[]))
-    : []
-
-  const graph: FlowGraph = {
-    nodes: nodes as never,
-    edges: edges as never,
-    assets: assets as never,
-  }
-
-  const flow = serializeProject(project as unknown as Project, graph, {
-    exportedAt: Date.now(),
-  })
-
-  const blob = new Blob([JSON.stringify(flow, null, 2)], { type: 'application/json' })
   const safeName = (String(project.name) || 'project').replace(/[\\/:*?"<>|]/g, '_')
   const fileName = `${safeName}.flow.json`
-  await platform.files.saveFile(fileName, blob)
+  const exportedAt = Date.now()
 
-  return { flow, fileName }
+  if (opts.embedAssets) {
+    /**
+     * 内嵌素材这条路要同时满足两个约束：
+     *
+     * ① **按节点引用到的 hash 取**，不按 `projectId`（对账 #222）——
+     *    `assets.projectId` 只记「最后导入它的项目」，复制项目后按它取会两边都漏，
+     *    而「导出原件」正是复制之后最常见的动作。
+     * ② **流式拼**（对账 #230）—— 原来是"先攒齐所有素材行、再 `JSON.stringify` 整份"，
+     *    实测峰值内存是载荷的 **4.11 倍**（40MB 载荷 ⇒ 165MB 堆），
+     *    而这个入口自己宣传的量级是"几百 MB"，那就是一次必崩的导出。
+     *    现在逐条取 → 立刻编码 → 立刻交给 Blob，JS 侧同时只压着一张图的 base64。
+     */
+    const hashes = assetHashesOf(nodes as unknown as NodeSnapshot[])
+    const parts: BlobPart[] = []
+    for await (const part of serializeProjectStream(
+      project as unknown as Project,
+      { nodes: nodes as never, edges: edges as never },
+      { exportedAt },
+      assetRowsByHashes(platform, hashes, opts.onProgress),
+    )) {
+      // 立刻转成 Blob：字符串是 JS 堆里的，Blob 由浏览器管（可以落盘），下一段才不会叠加
+      parts.push(new Blob([part]))
+    }
+    await platform.files.saveFile(fileName, new Blob(parts, { type: 'application/json' }))
+    return { fileName }
+  }
+
+  const flow = serializeProject(
+    project as unknown as Project,
+    { nodes: nodes as never, edges: edges as never, assets: [] as never },
+    { exportedAt },
+  )
+  // 只带结构的这一档很小，缩进留着 —— 用户可能自己打开看一眼
+  const blob = new Blob([JSON.stringify(flow, null, 2)], { type: 'application/json' })
+  await platform.files.saveFile(fileName, blob)
+  return { fileName }
 }
 
 export interface ImportOptions {

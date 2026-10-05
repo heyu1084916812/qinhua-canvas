@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import {
   serializeProject,
+  serializeProjectStream,
   deserializeProject,
   type FlowFileV1,
   type FlowGraph,
+  type FlowRow,
 } from './flowFile'
 import type { Project } from './project'
 
@@ -167,5 +169,53 @@ describe('内嵌素材', () => {
     expect(out.assets.map((a) => a.id)).toEqual(['hash_local', 'hash_remote'])
     // 节点仍按哈希引用同一张图（若 id 被换成新随机 id，这里会跟着变，图片就再也找不到）
     expect(JSON.stringify(out.nodes.map((n) => n.data))).toContain('hash_local')
+  })
+})
+
+/**
+ * 流式版（对账 #230）：内嵌素材不能"先攒成一个对象、再 `JSON.stringify` 整份"——
+ * 实测那样峰值内存是载荷的 **4.11 倍**（40MB 载荷 ⇒ 165MB 堆），而这条路自己宣传的量级是"几百 MB"。
+ * 但**形状必须还是同一份**：这里用"解析后 deep-equal"钉死两条实现不许分叉。
+ */
+describe('serializeProjectStream', () => {
+  const rows: FlowRow[] = [
+    { id: 'hash_local', projectId: 'proj_old', mime: 'image/png', bytes: new Uint8Array([1, 2, 3]) },
+    { id: 'hash_remote', projectId: 'proj_old', mime: 'video/mp4', url: 'https://example.com/a.mp4' },
+  ]
+
+  async function read(assets: FlowRow[]): Promise<{ text: string; parts: string[] }> {
+    const parts: string[] = []
+    const source = (async function* () {
+      for (const row of assets) yield row
+    })()
+    for await (const part of serializeProjectStream(
+      project,
+      { nodes: graph.nodes, edges: graph.edges },
+      { exportedAt: 9999 },
+      source,
+    )) {
+      parts.push(part)
+    }
+    return { text: parts.join(''), parts }
+  }
+
+  it('★ 与 serializeProject 形状一致（解析后 deep-equal）', async () => {
+    const expected = serializeProject(project, { ...graph, assets: rows }, { exportedAt: 9999 })
+    const { text } = await read(rows)
+    expect(JSON.parse(text)).toEqual(expected)
+  })
+
+  it('没有素材时也是合法 JSON：assets 是空数组', async () => {
+    const { text } = await read([])
+    expect(JSON.parse(text).graph.assets).toEqual([])
+  })
+
+  it('★ 逐段产出：头 + 每张素材一段 + 尾（不是攒到最后一次吐出来）', async () => {
+    const { parts } = await read(rows)
+    expect(parts).toHaveLength(rows.length + 2)
+    expect(parts[0]!.startsWith('{"format":"qinghua.flow"')).toBe(true)
+    expect(parts.at(-1)).toBe(']}}')
+    // 素材段里带的是 base64（与 serializeProject 同一套编码）
+    expect(parts[1]).toContain('bytesBase64')
   })
 })

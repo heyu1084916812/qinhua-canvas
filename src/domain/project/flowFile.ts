@@ -71,6 +71,47 @@ export function serializeProject(
 }
 
 /**
+ * **流式版**：把 `.flow.json` 拆成几段吐出来，素材**来一张编一张**（对账 #230）。
+ *
+ * 为什么需要它：`serializeProject` 是"先攒成一个对象、再 `JSON.stringify`"，
+ * 内嵌素材时峰值内存 ≈ 载荷的 **4 倍**（字节 + base64 + 整份带缩进的 JSON 串 + 中间拷贝）。
+ * 实测 40MB 载荷 ⇒ 堆峰值 **165MB（4.11×）**；这个功能自己宣传的量级是"几百 MB"，
+ * 那就是一次必崩的导出 —— 而"含素材导出"正是**换机器的兜底备份**（最不能崩的一步）。
+ *
+ * 形状与 `serializeProject` **完全一致**（有单测钉着：解析后 deep-equal），
+ * 差别只在：不分缩进（机器读的）、素材逐段产出。
+ * 调用方把每段立刻交给 `Blob`，于是 JS 侧同时只压着一张图的 base64。
+ */
+export async function* serializeProjectStream(
+  project: Project,
+  graph: { nodes: FlowRow[]; edges: FlowRow[] },
+  meta: { exportedAt: number },
+  assets: AsyncIterable<FlowRow>,
+): AsyncGenerator<string> {
+  const projectPart = JSON.stringify({
+    id: project.id,
+    workbench: project.workbench,
+    name: project.name,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+    thumbnail: project.thumbnail ?? null,
+    extra: project.extra ?? {},
+  })
+  const nodesPart = JSON.stringify(graph.nodes.map((r) => ({ ...r })))
+  const edgesPart = JSON.stringify(graph.edges.map((r) => ({ ...r })))
+  yield (
+    `{"format":"qinghua.flow","version":1,"exportedAt":${meta.exportedAt},` +
+    `"project":${projectPart},"graph":{"nodes":${nodesPart},"edges":${edgesPart},"assets":[`
+  )
+  let first = true
+  for await (const row of assets) {
+    yield `${first ? '' : ','}${JSON.stringify(toFlowAssetRow(row))}`
+    first = false
+  }
+  yield ']}}'
+}
+
+/**
  * 内嵌素材的那一行：把 `bytes` 换成 `bytesBase64`。
  *
  * 为什么不原样带 `bytes`：`Uint8Array` 过 `JSON.stringify` 会变成 `{"0":137,"1":80,…}`
