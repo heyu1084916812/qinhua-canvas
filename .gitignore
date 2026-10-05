@@ -49,6 +49,8 @@ Thumbs.db
 .smoke-*
 .gate*
 .preview-*
+# `npm run tauri dev` / 预览服务器的输出转储（同上：看一眼就废，别入库）
+.tauri-dev-*
 .vitest*
 .tmp-*
 .ab-*
