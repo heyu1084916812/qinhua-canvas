@@ -1,7 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "轻画主窗口的默认能力（P0：只用核心 API；P1 加目录读写相关权限）",
+  "description": "轻画主窗口的默认能力：核心 API + 文件读写（路径由 Rust 侧对话框授权）+ 打开外部地址",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "fs:allow-read-file",
+    "fs:allow-write-file",
+    "fs:allow-exists",
+    "fs:allow-read-dir",
+    "opener:allow-open-url"
+  ]
 }

@@ -9,7 +9,7 @@ import { AppShell } from './AppShell'
 import { BootstrapGate } from './BootstrapGate'
 import { registerAllSpecs } from '../domain/canvas/nodeSpecs'
 import { registerAllViews } from '../workbenches/canvas/nodes'
-import type { RuntimeId } from '../platform'
+import { detectRuntime, type RuntimeId } from '../platform'
 
 // 启动注册：行为规格（domain）先注册，渲染绑定（workbenches）后注册，
 // registerAllViews() 末尾会校验两者数量一致（架构 §4.5）。
@@ -22,13 +22,17 @@ function ensureRegistered() {
 }
 
 export interface AppProps {
-  /** 运行时实现选择；默认 web。测试 / 无 DOM 环境传 memory。 */
+  /**
+   * 运行时实现选择。**不传就自动判别**（桌面壳里 = desktop，否则 web；见 `detectRuntime`）——
+   * 判据是壳注入的全局标志，因此同一份产物在浏览器与壳里都能选对自己那一档。
+   * 测试 / 无 DOM 环境显式传 memory。
+   */
   runtime?: RuntimeId
 }
 
 export function App(props: AppProps) {
   ensureRegistered()
-  const runtime = props.runtime ?? 'web'
+  const runtime = props.runtime ?? detectRuntime()
   return (
     <PlatformProvider runtime={runtime}>
       <ChannelStoreProvider>

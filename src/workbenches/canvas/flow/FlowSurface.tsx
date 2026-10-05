@@ -860,7 +860,11 @@ function Hud({
   const [exporting, setExporting] = useState<{ done: number; total: number } | null>(null)
   const canPick = folder?.supported() ?? false
 
-  /** 画布里的「素材位置」入口（对账 #196）：选一个文件夹当素材位置；选了就是授权，刷新后要重选 */
+  /**
+   * 画布里的「素材位置」入口（对账 #196）：选一个文件夹当素材位置。
+   * 选了就是授权 —— **浏览器里刷新后要重选**（浏览器不允许静默恢复目录权限）；
+   * **桌面壳里会记住**（路径存在前端，启动时由 Rust 侧重新授权），见《轻画-桌面封装方案.md》§8.1.1。
+   */
   const pickFolder = async () => {
     if (!folder) return
     try {

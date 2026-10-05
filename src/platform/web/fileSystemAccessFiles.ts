@@ -1,4 +1,5 @@
 import type { FilePort, PickedFile } from '../ports'
+import { ASSET_EXT_BY_MIME, assetExtensionsOfMime } from '../../domain/shared/assetLocation'
 
 interface FilePickerWindow extends Window {
   showOpenFilePicker?: (opts: unknown) => Promise<FileSystemFileHandleLike[]>
@@ -10,17 +11,20 @@ interface FileSystemFileHandleLike {
   createWritable(): Promise<{ write(data: Blob): Promise<void>; close(): Promise<void> }>
 }
 
-/** 常见 mime → 扩展名（File System Access 的 accept 要求「mime → 扩展名列表」，不是逗号串） */
+/**
+ * 常见 mime → 扩展名（File System Access 的 accept 要求「mime → 扩展名列表」，不是逗号串）。
+ *
+ * **素材那几类不在这里抄一遍**：扩展名表住在 `domain/shared/assetLocation`（与 `<hash>.<ext>`
+ * 命名同一份），这里只补本实现特有的两个非素材类型。抄第二张表的代价很具体 ——
+ * 一边认 `.webp` 另一边不认，用户就会"在自己的文件里选不到图"。
+ */
 const EXT_BY_MIME: Record<string, string[]> = {
-  'image/png': ['.png'],
-  'image/jpeg': ['.jpg', '.jpeg'],
-  'image/webp': ['.webp'],
-  'image/gif': ['.gif'],
-  'image/*': ['.png', '.jpg', '.jpeg', '.webp', '.gif'],
-  'video/mp4': ['.mp4'],
-  'video/webm': ['.webm'],
-  'video/quicktime': ['.mov'],
-  'video/*': ['.mp4', '.webm', '.mov'],
+  ...Object.fromEntries(
+    [...Object.keys(ASSET_EXT_BY_MIME), 'image/*', 'video/*'].map((mime) => [
+      mime,
+      assetExtensionsOfMime(mime).map((ext) => `.${ext}`),
+    ]),
+  ),
   'application/json': ['.json'],
   'text/plain': ['.txt'],
 }

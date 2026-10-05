@@ -3751,3 +3751,20 @@ Midjourney 的高级设置需要「一根滑杆」和「一个文本框」，而
   **隐藏窗口启动 12s**：看进程是否存活、以及 `%LOCALAPPDATA%\<identifier>`（WebView2 用户目录）
   有没有被创建 —— 被创建即"webview 真的起来了"。**看得见的那半**（画布能画、能导入素材）
   Playwright 进不了 Tauri webview，只能人眼确认；而那套前端正是 90 组冒烟覆盖的同一份。
+- **⭐ 上面最后一句是错的，已修正（P1）**：**Playwright 能接上 Tauri 的 webview** ——
+  WebView2 支持远程调试端口：
+  `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333` 启动 exe，
+  然后 `chromium.connectOverCDP('http://127.0.0.1:9333')` 就能拿到页面、照常断言
+  （`scripts/probe-tauri-shell.mjs`：壳里 `data-platform=desktop`、面板/画布渲染、记住的目录被认出）。
+  **真正点不了的只有系统原生对话框**（选目录 / 另存为）—— 别再笼统地说"壳里没法自动化"。
+- **桌面端口只换"必须动手"的那两个**：`AssetFolderPort` / `FilePort` 用 Tauri 的 dialog + fs + opener 插件，
+  **前端一行不改**（`createWebPlatform({ assetFolder, files })` 换个实现）；Read/Write 走 `tauri-plugin-fs`
+  时**必须**由 Rust 侧把用户选中的路径加进作用域（`fs_scope().allow_directory/file`）——
+  前端没有扩作用域的接口，这一步漏了就"读不到自己的文件"。
+- **壳里要记住素材目录**（与浏览器**刻意不同**）：浏览器不允许静默恢复目录权限，刷新必须重选；
+  壳里若不记住，每次启动素材全变「缺失」，整套"素材放文件夹"的承诺就成摆设。
+  做法：路径记 `localStorage` + 每次启动 `grant_folder` 重新授权（目录不在就当作没选）。
+- **文件选择器只要一张扩展名表**：`domain/shared/assetLocation` 的 `ASSET_EXT_BY_MIME` +
+  `assetExtensionsOfMime`（认 `image/*` 与 `image/jpeg;charset=…`，并带 `jpg→jpeg` 别名）。
+  浏览器侧（FSA `types`）与桌面侧（对话框 `filters`）都从它派生 —— 抄第二张表的代价很具体：
+  一边认 `.webp` 另一边不认，用户就会"在自己的文件里选不到图"。

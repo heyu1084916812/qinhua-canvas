@@ -27,7 +27,12 @@ export const DEFAULT_ASSET_LOCATION: AssetLocationConfig = { mode: 'library', fo
  * `id 即内容哈希` 是本项目既有约定，同一张图重复导入天然幂等、不会堆出 `图 1(1).png`；
  * 代价是文件名不可读 —— 可读性交给应用内的节点名与素材库，不交给文件系统。
  */
-const EXT_BY_MIME: Record<string, string> = {
+/**
+ * mime → 扩展名（**素材**那几类）。这张表有两个消费者，所以必须只有一份：
+ * ① `<hash>.<ext>` 的命名（`assetFileName`）；② 文件选择器的过滤器（浏览器侧的 FSA `types` / 桌面侧的对话框 `filters`）。
+ * 两处各写一张必然漂移：一边认 `.webp`、另一边不认，用户就会碰到"选不到自己的图"。
+ */
+export const ASSET_EXT_BY_MIME: Record<string, string> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
   'image/webp': 'webp',
@@ -53,8 +58,37 @@ export const ASSET_EXT_FALLBACK = 'bin'
 
 function extOf(mime: string): string {
   // MIME 可以带参数（`image/png;charset=binary`）——先把参数切掉再查表
-  const key = String(mime ?? '').split(';')[0].trim().toLowerCase()
-  return EXT_BY_MIME[key] ?? ASSET_EXT_FALLBACK
+  return ASSET_EXT_BY_MIME[mimeKey(mime)] ?? ASSET_EXT_FALLBACK
+}
+
+function mimeKey(mime: string): string {
+  return String(mime ?? '').split(';')[0].trim().toLowerCase()
+}
+
+/**
+ * 同一种 mime 在磁盘上的**常见后缀别名**（表里只留 canonical 那个，这里补上其余）。
+ * 只影响"文件选择器给不给选"，不影响 `<hash>.<ext>` 的命名 —— 命名必须唯一。
+ */
+const EXT_ALIASES: Record<string, string[]> = { jpg: ['jpg', 'jpeg'] }
+
+/**
+ * mime → 扩展名清单（**不含点**，供文件选择器用）。
+ *
+ * 三种输入都要认：精确 mime（`image/png`）、带参数（`image/png;charset=binary`）、
+ * 通配（`image/*` ⇒ 四类图片扩展名）。认不出来的返回**空数组** —— 调用方据此"不过滤"，
+ * 而不是塞一个猜的扩展名进去（那会让用户在自己的文件里选不到东西）。
+ */
+export function assetExtensionsOfMime(mime: string): string[] {
+  const key = mimeKey(mime)
+  const exact = ASSET_EXT_BY_MIME[key]
+  const base = exact
+    ? [exact]
+    : key.endsWith('/*')
+      ? Object.entries(ASSET_EXT_BY_MIME)
+          .filter(([m]) => m.startsWith(key.slice(0, -1))) // 'image/'
+          .map(([, ext]) => ext)
+      : []
+  return base.flatMap((ext) => EXT_ALIASES[ext] ?? [ext])
 }
 
 export function assetFileName(hash: string, mime: string): string {
