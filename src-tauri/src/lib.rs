@@ -338,6 +338,71 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![
+            pick_folder,
+            grant_folder,
+            pick_file,
+            save_file_dialog,
+            check_update,
+            install_update
+        ])
+        .setup(|app| {
+            /*
+             * 窗口在这里**手动建**（`tauri.conf.json` 那条窗口配了 `"create": false`），
+             * 唯一原因就是要赶在 webview 创建**之前**把它的数据目录指过去 ——
+             * `data_directory` 只能在建窗口时给，建完就改不了了。
+             */
+            let data_dir = resolve_data_dir(app.handle());
+            match &data_dir {
+                Some(dir) => {
+                    if let Ok(default_root) = app.path().app_local_data_dir() {
+                        migrate_profile(&default_root, dir);
+                    }
+                    eprintln!("[data] 数据目录：{}", dir.display());
+                }
+                None => eprintln!("[data] 数据目录：系统默认位置（%LOCALAPPDATA%\\com.qinghua.canvas）"),
+            }
+            /*
+             * 建窗口要能建**两次**（自定义数据目录那次失败还能回落），故包成一个闭包。
+             * 会失败的情形：数据目录在两次检查之间被删 / 网络盘掉线 / WebView2 起不来 ——
+             * 那些都不该让用户"双击了却没窗口"，所以失败就退回系统默认位置再建一次。
+             */
+            let build_window = |dir: Option<PathBuf>| -> tauri::Result<tauri::WebviewWindow> {
+                let config = app.config().app.windows.first().cloned();
+                let mut builder = match config {
+                    Some(cfg) => tauri::WebviewWindowBuilder::from_config(app.handle(), &cfg)?,
+                    None => tauri::WebviewWindowBuilder::new(
+                        app.handle(),
+                        "main",
+                        tauri::WebviewUrl::default(),
+                    ),
+                };
+                if let Some(dir) = dir {
+                    builder = builder.data_directory(dir);
+                }
+                builder.build()
+            };
+            if let Err(err) = build_window(data_dir.clone()) {
+                eprintln!("[data] 用自定义数据目录建窗口失败：{err} ⇒ 回落到系统默认位置");
+                if let Some(dir) = &data_dir {
+                    // 探针建出来的空目录顺手收掉（只有真的是空的才会成功，不会误删数据）
+                    let _ = std::fs::remove_dir(dir);
+                }
+                build_window(None)?;
+            }
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
+
 #[cfg(test)]
 mod data_dir_tests {
     use super::*;
@@ -421,69 +486,4 @@ mod data_dir_tests {
         let got = decide_data_dir(Path::new("C:\\Program Files\\轻画"), &roots, &always);
         assert_eq!(got, None);
     }
-}
-
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![
-            pick_folder,
-            grant_folder,
-            pick_file,
-            save_file_dialog,
-            check_update,
-            install_update
-        ])
-        .setup(|app| {
-            /*
-             * 窗口在这里**手动建**（`tauri.conf.json` 那条窗口配了 `"create": false`），
-             * 唯一原因就是要赶在 webview 创建**之前**把它的数据目录指过去 ——
-             * `data_directory` 只能在建窗口时给，建完就改不了了。
-             */
-            let data_dir = resolve_data_dir(app.handle());
-            match &data_dir {
-                Some(dir) => {
-                    if let Ok(default_root) = app.path().app_local_data_dir() {
-                        migrate_profile(&default_root, dir);
-                    }
-                    eprintln!("[data] 数据目录：{}", dir.display());
-                }
-                None => eprintln!("[data] 数据目录：系统默认位置（%LOCALAPPDATA%\\com.qinghua.canvas）"),
-            }
-            /*
-             * 建窗口要能建**两次**（自定义数据目录那次失败还能回落），故包成一个闭包。
-             * 会失败的情形：数据目录在两次检查之间被删 / 网络盘掉线 / WebView2 起不来 ——
-             * 那些都不该让用户"双击了却没窗口"，所以失败就退回系统默认位置再建一次。
-             */
-            let build_window = |dir: Option<PathBuf>| -> tauri::Result<tauri::WebviewWindow> {
-                let config = app.config().app.windows.first().cloned();
-                let mut builder = match config {
-                    Some(cfg) => tauri::WebviewWindowBuilder::from_config(app.handle(), &cfg)?,
-                    None => tauri::WebviewWindowBuilder::new(
-                        app.handle(),
-                        "main",
-                        tauri::WebviewUrl::default(),
-                    ),
-                };
-                if let Some(dir) = dir {
-                    builder = builder.data_directory(dir);
-                }
-                builder.build()
-            };
-            if let Err(err) = build_window(data_dir.clone()) {
-                eprintln!("[data] 用自定义数据目录建窗口失败：{err} ⇒ 回落到系统默认位置");
-                if let Some(dir) = &data_dir {
-                    // 探针建出来的空目录顺手收掉（只有真的是空的才会成功，不会误删数据）
-                    let _ = std::fs::remove_dir(dir);
-                }
-                build_window(None)?;
-            }
-            Ok(())
-        })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
 }
