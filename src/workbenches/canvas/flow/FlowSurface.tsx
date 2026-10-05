@@ -14,7 +14,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import styles from './FlowSurface.module.css'
-import { useCanvasStore, useGraph, useViewportState } from '../storeContext'
+import { useCanvasStore, useGraph, useSelection, useViewportState } from '../storeContext'
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { useCanvasPageEvents } from '../../../features/canvas/useCanvasPageEvents'
 import { FlowFlowNode, type FlowNodeData } from './FlowNode'
@@ -48,6 +48,7 @@ const EDGE_OPTIONS = { type: 'default' } as const
 function FlowSurfaceInner({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const store = useCanvasStore()
   const graph = useGraph()
+  const selection = useSelection()
   const viewport = useViewportState()
   /** 两套视口语义不同，必须显式换算（见 viewportBridge.ts；1:1 同步会让新节点落到视野外） */
   const flowViewport = useMemo(() => storeViewportToFlow(viewport), [viewport])
@@ -84,13 +85,14 @@ function FlowSurfaceInner({ onOpenSettings }: { onOpenSettings?: () => void }) {
             type: 'qh',
             position: { x: n.x, y: n.y },
             /*
-             * 尺寸必须写在**节点对象**上（官方文档：`width`/`height` 或 `initialWidth`/`initialHeight`），
-             * 不能只写 style。否则 React Flow 的 `measured` 是 0，配合 `onlyRenderVisibleElements`
-             * 会把新节点判成「不可见」而根本不渲染，于是永远没机会被测量 ——
-             * 实测症状：store 里 3 个节点、DOM 只画 2 个。
+             * 尺寸按官方文档写在**节点对象**上（`width`/`height`），省掉一次测量。
+             * ⚠️ 注意别把它当成"新节点不显示"的解药：那个症状的真因是**视口语义**
+             * （见 viewportBridge.ts），尺寸给不给都实测 12/12。
              */
             width: n.w,
             height: n.h,
+            /* 选中态由 store 决定（store 是唯一真相）：这样工具栏 / agent 程序化选中也能传到画布 */
+            selected: selection.includes(n.id),
             style: { width: n.w, height: n.h },
             data: {
               node: n,
@@ -111,7 +113,7 @@ function FlowSurfaceInner({ onOpenSettings }: { onOpenSettings?: () => void }) {
             } satisfies FlowNodeData,
           }
         }),
-    [graph, exec, emitNodeEvent],
+    [graph, selection, exec, emitNodeEvent],
   )
 
   const edges = useMemo(
@@ -216,6 +218,14 @@ function FlowSurfaceInner({ onOpenSettings }: { onOpenSettings?: () => void }) {
         defaultEdgeOptions={EDGE_OPTIONS}
         minZoom={0.1}
         maxZoom={5}
+        /*
+         * 手势对齐产品文档 §6.3（**不改现有习惯**）：
+         * - 空白处左键拖 = 平移（React Flow 的 `panOnDrag` 默认行为）
+         * - Ctrl / ⌘ + 拖 = 框选（默认是 Shift，这里改掉）
+         * - Shift = 增/减选中（默认是 ⌘/Ctrl，这里改掉）
+         */
+        selectionKeyCode={['Control', 'Meta']}
+        multiSelectionKeyCode={['Shift']}
         viewport={flowViewport}
         onViewportChange={(next) => store.setViewport(flowViewportToStore(next))}
         onNodesChange={onNodesChange}
@@ -223,6 +233,9 @@ function FlowSurfaceInner({ onOpenSettings }: { onOpenSettings?: () => void }) {
         onNodeDragStop={onNodeDragStop}
         onConnect={onConnect}
         onSelectionChange={onSelectionChange}
+        /* §6.15「单击画布空白 = 取消选中，收起面板」；「拖过就不算点空白」由 React Flow 自己区分点击与拖动 */
+        onPaneClick={() => store.setSelection([])}
+        onlyRenderVisibleElements
         onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
         deleteKeyCode={['Backspace', 'Delete']}
