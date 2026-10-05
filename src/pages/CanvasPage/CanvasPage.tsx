@@ -10,6 +10,7 @@ import { createStore } from '../../state/createStore'
 import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import { CanvasStoreProvider } from '../../workbenches/canvas/storeContext'
 import { CanvasSurface } from '../../workbenches/canvas/surface/CanvasSurface'
+import { FlowSurface } from '../../workbenches/canvas/flow/FlowSurface'
 import { fitCanvasView } from '../../workbenches/canvas/surface/fitView'
 import { CanvasExecutionProvider } from '../../workbenches/canvas/execution/CanvasExecutionProvider'
 import { LogPanel } from '../../workbenches/canvas/panels/LogPanel'
@@ -349,7 +350,12 @@ function CanvasProject({ projectId }: { projectId: string }) {
               </button>
             </div>
           )}
-          <CanvasSurface onOpenSettings={openSettings} onOpenSkills={() => navigate('/skills')} />
+          {/* 引擎替换（P0）：`?engine=rf` 走 React Flow 那套；不带参数仍是老画布 */}
+          {new URLSearchParams(window.location.search).get('engine') === 'rf' ? (
+            <FlowSurface onOpenSettings={openSettings} />
+          ) : (
+            <CanvasSurface onOpenSettings={openSettings} onOpenSkills={() => navigate('/skills')} />
+          )}
           <CanvasToolbar
             onCreateNode={addNodeAtCenter}
             onImportAsset={() => void importAssetAtCenter()}

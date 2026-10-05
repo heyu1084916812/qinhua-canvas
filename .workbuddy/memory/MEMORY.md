@@ -3496,6 +3496,28 @@ Midjourney 的高级设置需要「一根滑杆」和「一个文本框」，而
 - 探针进不去项目页时别猜：首页在 `/`，项目列表在 **`/projects`**（空库走 `[data-new-project]`，
   非空走 `[data-new-card]` → `[data-new-workbench="canvas"]`）。
 
+### ★★ 换画布引擎 P0：React Flow 的四个真行为（2026-10-05）
+
+用户 2026-10-05 拍板换引擎（对账 #195，方案见《轻画-画布引擎替换方案.md》）。
+**执行口径**：只换 `workbenches/canvas` 的**渲染与手势层**，`domain/*` 与 `state/*`
+（命令总线 / 事务 / 落库 / undo）一行不动 —— 这是七层架构的红利。开关是 `?engine=rf`，
+**默认仍是老画布**，所以换引擎期间产品始终可用。
+
+- **`onlyRenderVisibleElements` 会把"尺寸还没测到"的新节点吞掉**：`measured = 0` ⇒ 判不可见 ⇒
+  不渲染 ⇒ 永远没机会被测量（死循环）。症状：store 里 3 个节点、DOM 只画 2 个。
+  修法：尺寸写在**节点对象**上（`width`/`height`，官方文档也这么要求），不能只写 `style`。
+- **视口绝不能双源**：`defaultViewport` + `fitView` 会让 RF 与 store 各存一份 ⇒ 按 store 视口
+  新建的节点落在 RF 视野外。改成**受控视口**（`viewport` + `onViewportChange`）后两边恒等。
+  liblib.tv 自己也踩过这条（它包里有「ReactFlow/zustand 数据源不一致」的报错文案）。
+- **RF 的 handle 默认 `pointer-events: none`**，只有带 `connectionindicator` 类时才可交互；
+  自定义 handle 样式时别把它盖掉。另外**边的可点区是单独的 `.react-flow__edge-interaction`**，
+  可见 path 没有指针事件。
+- **`NodeFrame` 自带绝对定位**：交给 RF 前必须把 `node.x/y` 归零，否则位置翻倍
+  （与容器子节点同一处理）。
+- **探针别把"交互失败"当成"功能没写"**：这轮两次误判都源于**节点重叠**（新节点建在视口正中央，
+  压住原节点 ⇒ 点谁都点到它），最后靠"打印该点最上层元素 / 元素坐标"定位到真正原因
+  （新节点落在屏幕 1448,990，视口只有 1440×900）。**先怀疑几何，再怀疑代码。**
+
 ### ★★ Codex 内置浏览器 IndexedDB 膨胀到 5.4GB 会把主进程拖崩（2026-10-05）
 
 - **现象**：打开轻画项目页 `http://127.0.0.1:1420/canvas/proj_a8ac9c4c-...` 后 10–25 秒，Codex 主进程崩溃
