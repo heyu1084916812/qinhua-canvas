@@ -6,6 +6,7 @@ import {
   useState,
   type DragEvent as ReactDragEvent,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
 } from 'react'
 import {
   Background,
@@ -43,8 +44,12 @@ import { screenToWorld } from '../../../domain/canvas/geometry/coords'
 import { describeLoadResult, loadAssetsFromFolder } from '../../../features/canvas/loadFromFolder'
 import { useNodeDownload } from '../../../features/canvas/useNodeDownload'
 import { draggedFiles, importDroppedFiles } from '../../../features/canvas/dropImport'
+import { dropPointOf, resolveDropOutcome } from '../../../features/canvas/dropReparent'
+import { useNodeDrag } from '../../../features/canvas/useNodeDrag'
 import { useClipboardHotkeys, rememberPointer } from '../../../features/canvas/useClipboard'
 import { IMPORT_ACCEPT } from '../../../features/canvas/importAsset'
+import type { CanvasStore } from '../../../state/workbenches/canvas/store'
+import type { Point } from '../../../domain/canvas/geometry/rect'
 import { PanelLayer } from '../panels/PanelLayer'
 import { NodeFollowBar } from '../toolbar/NodeFollowBar'
 import { ContextMenu } from '../menu/ContextMenu'
@@ -102,6 +107,30 @@ function nodeAtWorldPoint(graph: GraphSnapshot, world: { x: number; y: number })
   return hit
 }
 
+/**
+ * 指针屏幕坐标 → **世界坐标**（用画布 surface 的矩形 + store 视口换算）。
+ *
+ * 与「新建节点」「拖入导入」「连线落点」同一条口径。拿不到事件或 surface 时返回 `null`，
+ * 由调用方决定是退回节点中心还是放弃 —— 不要在这里猜一个坐标出来。
+ */
+function pointerWorldPoint(
+  ev: MouseEvent | TouchEvent | null | undefined,
+  store: CanvasStore,
+): Point | null {
+  if (!ev || !('clientX' in ev)) return null
+  const { clientX, clientY } = ev
+  if (typeof clientX !== 'number' || typeof clientY !== 'number') return null
+  const el = document.querySelector<HTMLElement>('[data-canvas-surface]')
+  if (!el) return null
+  const r = el.getBoundingClientRect()
+  return screenToWorld({ x: clientX, y: clientY }, store.getViewport(), {
+    x: r.left,
+    y: r.top,
+    w: r.width,
+    h: r.height,
+  })
+}
+
 function FlowSurfaceInner({
   projectId,
   onOpenSettings,
@@ -126,6 +155,98 @@ function FlowSurfaceInner({
   const [importHover, setImportHover] = useState(false)
   /** 是否正在拉线（`onConnectStart` → `onConnectEnd`）：防止"在端点上随手一点"被当成落点 */
   const connectingRef = useRef(false)
+  /** 本次节点拖动是否**真的发生了位移**（§6.15：「有位移才让面板保持隐藏」） */
+  const dragMovedRef = useRef(false)
+  /**
+   * 拖动起点锚：`{ 指针屏幕坐标, 缩放, 各被拖节点的起始世界坐标 }`，在**我们自己的
+   * pointerdown** 上记（见 `onSurfacePointerDown`），不在 RF 的 `onNodeDragStart` 上记。
+   *
+   * 为什么不能用 `onNodeDragStart` 当基准：它触发时指针**已经走了一步**、而节点还没动
+   * （实测差一整步），拿它算"应该落在哪"会把节点整体放偏 —— G71 里正是这个偏移把批量
+   * 容器推到了创作面板底下。用途见 `onNodeDragStop` 的**终点对齐**。
+   */
+  const dragAnchorRef = useRef<{
+    clientX: number
+    clientY: number
+    zoom: number
+    nodes: Map<string, { x: number; y: number }>
+  } | null>(null)
+
+  /**
+   * 容器子节点的拖动**复用老表面的控制器**（`useNodeDrag`）。
+   *
+   * 容器子节点不是 React Flow 的节点（由容器 View 按网格渲染），RF 拖不动它们；
+   * 而「拖动改坐标 → 松手按落点判定归属（拖出容器 / 换容器）」这条语义本来就写在那个控制器里。
+   * 再写一遍只会得到两份迟早走样的判定，所以这里直接共用。
+   */
+  const surfaceEl = useCallback(
+    () => document.querySelector<HTMLElement>('[data-canvas-surface]'),
+    [],
+  )
+  const drag = useNodeDrag(store, surfaceEl)
+
+  /** 容器子节点按下：与老表面 `NodeLayer.onNodePointerDown` 同一套选中语义 + 拖动 */
+  const onChildPointerDown = useCallback(
+    (e: ReactPointerEvent, childId: string) => {
+      if (e.shiftKey) {
+        const sel = store.getSelection()
+        store.setSelection(
+          sel.includes(childId) ? sel.filter((id) => id !== childId) : [...sel, childId],
+        )
+        return
+      }
+      const sel = store.getSelection()
+      if (!(sel.length > 1 && sel.includes(childId))) store.setSelection([childId])
+      drag.begin(e, childId)
+    },
+    [store, drag],
+  )
+
+  /**
+   * 画布上的 pointerdown（**捕获阶段**）：两件老表面在 pointerdown 上就做完的事。
+   *
+   * ① §6.15「拖动后，要下一次**显式选中**面板才回来」——RF 对**已经选中**的节点再点一下
+   *    不产生任何 select 变更，标记就永远清不掉（G71 实测：拖动生成节点后点它，面板没开、
+   *    它自己那句提示词根本没写进去，下游那趟于是空跑）。
+   * ② 记**拖动起点锚**：终点对齐（见 `onNodeDragStop`）需要"按下时指针在哪、节点在哪"这对基准；
+   *    不能在 RF 的 `onNodeDragStart` 上记 —— 那时指针已经走了一步、节点还没动。
+   *
+   * 只清标记 / 只记账：**不改选区、不阻断事件**（React Flow 那边照常收得到）。
+   * ⚠️ 别改用 RF 的 `onNodeClick`：它会改变 RF 对节点的指针处理，
+   * G71 那条「从端点拖出去连线」的手势会直接失效（实测边数 2 → 2）。
+   */
+  const onSurfacePointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      const nodeId = (e.target as HTMLElement).closest('[data-node-id]')?.getAttribute('data-node-id')
+      if (!nodeId) return
+      if (store.isPanelDismissed()) store.setPanelDismissed(false)
+      const tops = new Set(topLevelNodes(store.getSnapshot()).map((n) => n.id))
+      if (!tops.has(nodeId)) return
+      // 多选整组拖动：按下的是选区内的一员 → 锚要覆盖整组（与 RF 的拖动集合一致）
+      const sel = store.getSelection().filter((id) => tops.has(id))
+      const ids = sel.length > 1 && sel.includes(nodeId) ? sel : [nodeId]
+      /**
+       * 锚点取**节点渲染出来的位置**（DOM 的 rect），**不取 store 的 x/y**：
+       * 两者在个别情况下会不一致（实测差 101px，见方案 §8.10.2），而"松手时节点该落在哪"
+       * 是「用户看到的位置 + 指针位移」—— 用 DOM 才是自洽的（顺带把不一致纠正回来）。
+       */
+      const vp = store.getViewport()
+      const zoom = vp.zoom || 1
+      const surface = e.currentTarget.getBoundingClientRect()
+      const nodes = new Map<string, { x: number; y: number }>()
+      for (const id of ids) {
+        const nodeEl = document.querySelector<HTMLElement>(`[data-node-id="${id}"]`)
+        if (!nodeEl) continue
+        const r = nodeEl.getBoundingClientRect()
+        nodes.set(id, {
+          x: (r.left - surface.left) / zoom + vp.x,
+          y: (r.top - surface.top) / zoom + vp.y,
+        })
+      }
+      dragAnchorRef.current = { clientX: e.clientX, clientY: e.clientY, zoom, nodes }
+    },
+    [store],
+  )
 
   /** 从系统拖入图片 / 视频（§6.3）：与老表面共用同一份批量导入规则 */
   const onDropFiles = async (e: ReactDragEvent<HTMLDivElement>) => {
@@ -240,11 +361,14 @@ function FlowSurfaceInner({
           error={error}
           runMode={runMode}
           emit={makeEmit(child.id)}
+          resize={(rect, phase) => store.dispatch({ kind: 'node.resize', id: child.id, rect, phase })}
+          zoom={viewport.zoom}
+          onFramePointerDown={(e) => onChildPointerDown(e, child.id)}
           derived={derivedFor(child.id)}
         />
       )
     },
-    [exec, selection, makeEmit, derivedFor],
+    [exec, selection, makeEmit, derivedFor, store, viewport.zoom, onChildPointerDown],
   )
 
   const nodes = useMemo<RFNode<FlowNodeData>[]>(
@@ -278,6 +402,8 @@ function FlowSurfaceInner({
               error,
               runMode,
               emit: makeEmit(n.id),
+              resize: (rect, phase) => store.dispatch({ kind: 'node.resize', id: n.id, rect, phase }),
+              zoom: viewport.zoom,
               ...derivedFor(n.id),
               /*
                * 容器（分组 / 批量）：把子节点连同渲染函数一起交给容器本体 ——
@@ -293,7 +419,7 @@ function FlowSurfaceInner({
             } satisfies FlowNodeData,
           }
         }),
-    [graph, selection, exec, makeEmit, childIndex, renderFlowChild, derivedFor],
+    [graph, selection, exec, makeEmit, childIndex, renderFlowChild, derivedFor, store, viewport.zoom],
   )
 
   const edges = useMemo(
@@ -316,8 +442,13 @@ function FlowSurfaceInner({
        * **选中在受控模式下走 `NodeChange('select')`，不是 `onSelectionChange`**（实测：后者一次都不触发）。
        * 我第一版只处理 `position`、把 `select` 丢掉，于是"点节点选中不了、创作面板打不开"。
        * 这里把选中的增删落到 store，store 再经 `nodes[].selected` 推回画布 —— 保持 store 唯一真相。
+       *
+       * **基准集合只取 React Flow 认识的节点（顶层）**：容器子节点不在 RF 的节点列表里，
+       * RF 就永远不会为它发 `select:false` —— 拖进容器后它会一直留在选中集合里，
+       * 再点别的节点就凑成 2 个 ⇒ 创作面板（只认单选）再也不开（G71 实测的红）。
        */
-      const selected = new Set(store.getSelection())
+      const rfIds = new Set(topLevelNodes(store.getSnapshot()).map((n) => n.id))
+      const selected = new Set(store.getSelection().filter((id) => rfIds.has(id)))
       let selectionChanged = false
       for (const change of changes) {
         if (change.type !== 'select') continue
@@ -342,14 +473,17 @@ function FlowSurfaceInner({
       const dx = first.position.x - base.x
       const dy = first.position.y - base.y
       if (dx === 0 && dy === 0) return
+      // 真有位移：松手后要让创作面板保持隐藏（§6.15），见 onNodeDragStop
+      dragMovedRef.current = true
       store.dispatch({ kind: 'node.move', ids, dx, dy, phase: 'move' })
     },
     [store],
   )
 
   const onNodeDragStart = useCallback(
-    (_e: unknown, _n: RFNode, dragged: RFNode[]) => {
+    (_e: MouseEvent | TouchEvent, _n: RFNode, dragged: RFNode[]) => {
       const ids = dragged.length > 0 ? dragged.map((n) => n.id) : [_n.id]
+      dragMovedRef.current = false
       store.setDragging(true)
       store.dispatch({ kind: 'node.move', ids, dx: 0, dy: 0, phase: 'begin' })
     },
@@ -357,10 +491,63 @@ function FlowSurfaceInner({
   )
 
   const onNodeDragStop = useCallback(
-    (_e: unknown, _n: RFNode, dragged: RFNode[]) => {
+    (e: MouseEvent | TouchEvent, _n: RFNode, dragged: RFNode[]) => {
       const ids = dragged.length > 0 ? dragged.map((n) => n.id) : [_n.id]
+      let moved = dragMovedRef.current
+      dragMovedRef.current = false
+      /**
+       * **终点对齐**：React Flow 的受控拖动会丢最后一帧位移 —— 实测节点停在倒数第二个采样点上，
+       * 快速甩一下差一整个采样步（≈30px），于是"松手在哪儿"与"节点落在哪儿"对不上
+       * （G71 里那一串下游连线就是被这点偏移带偏的；老表面在 pointerup 里 `move.flush()`
+       * 也是为同一件事）。
+       *
+       * 修正量 = 「起点锚 + 指针位移」 − 「React Flow 给的终点」，多选一起补同一位移。
+       * 补完再判定归属 / 落点，后面的几何才是用户看到的那一份。
+       */
+      const anchor = dragAnchorRef.current
+      dragAnchorRef.current = null
+      if (anchor && 'clientX' in e) {
+        const movedX = (e.clientX - anchor.clientX) / anchor.zoom
+        const movedY = (e.clientY - anchor.clientY) / anchor.zoom
+        const current = new Map(store.getSnapshot().nodes.map((n) => [n.id, n]))
+        for (const id of ids) {
+          const from = anchor.nodes.get(id)
+          const now = current.get(id)
+          if (!from || !now) continue
+          const fixX = from.x + movedX - now.x
+          const fixY = from.y + movedY - now.y
+          // 半像素以内不补：免得每次拖完都多落一条无意义的位移记录
+          if (Math.abs(fixX) < 0.5 && Math.abs(fixY) < 0.5) continue
+          moved = true
+          store.dispatch({ kind: 'node.move', ids: [id], dx: fixX, dy: fixY, phase: 'move' })
+        }
+      }
       store.dispatch({ kind: 'node.move', ids, dx: 0, dy: 0, phase: 'end' })
       store.setDragging(false)
+      // §6.15：有位移的拖动松手后创作面板保持隐藏，直到下一次显式选中（与老表面同一条口径）
+      if (moved) store.setPanelDismissed(true)
+
+      /**
+       * 归属判定（§6.11 / §6.12）：React Flow 自己接管拖动，老的 `resolveDropOutcome`
+       * **不在链路上** —— 不补这一步，"把节点拖进容器"就只会改坐标、不发生归属
+       * （P3 留下的最大缺口）。与老表面一致，**只在单节点拖动时判定**：
+       * 多选落进容器的归属有歧义（谁进谁不进），不做猜测。
+       */
+      if (ids.length !== 1) return
+      const graph = store.getSnapshot()
+      const node = graph.nodes.find((n) => n.id === ids[0])
+      if (!node) return
+      // 落点：指针位置（指针不在节点内 —— 真的甩出去了 —— 时退回节点中心），与老表面同一判定。
+      // 上面那步终点对齐保证了"节点已在松手的地方"，所以这里不会再被丢帧带偏。
+      const worldPoint = dropPointOf(pointerWorldPoint(e, store), node, graph)
+      const outcome = resolveDropOutcome(node.id, worldPoint, graph)
+      if (outcome.kind === 'rejected') {
+        store.notify(outcome.reason)
+        return
+      }
+      if (outcome.kind === 'ok') {
+        store.dispatch({ kind: 'node.reparent', id: node.id, toParent: outcome.drop.toParent })
+      }
     },
     [store],
   )
@@ -422,15 +609,8 @@ function FlowSurfaceInner({
         ? graph.nodes.find((n) => n.id === state.toNode?.id)
         : undefined
       if (!target) {
-        const ev = _event as MouseEvent
-        const el = document.querySelector<HTMLElement>('[data-canvas-surface]')
-        if (!el || typeof ev?.clientX !== 'number') return
-        const r = el.getBoundingClientRect()
-        const world = screenToWorld(
-          { x: ev.clientX, y: ev.clientY },
-          store.getViewport(),
-          { x: r.left, y: r.top, w: r.width, h: r.height },
-        )
+        const world = pointerWorldPoint(_event as MouseEvent | null, store)
+        if (!world) return
         target = nodeAtWorldPoint(graph, world) ?? undefined
       }
       if (!target || target.id === source.id) return
@@ -497,6 +677,8 @@ function FlowSurfaceInner({
       data-import-accept={IMPORT_ACCEPT}
       // 只记坐标、不 setState：粘贴落点要用「当前鼠标位置」（§4.2）
       onPointerMove={(e) => rememberPointer({ x: e.clientX, y: e.clientY })}
+      // 按下阶段：清「拖动后不弹面板」标记 + 记拖动起点锚（见 onSurfacePointerDown）
+      onPointerDownCapture={onSurfacePointerDown}
       onContextMenu={onContextMenu}
     >
       <ReactFlow

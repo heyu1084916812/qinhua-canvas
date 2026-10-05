@@ -1,4 +1,4 @@
-import { Fragment, memo, type ReactNode } from 'react'
+import { Fragment, memo, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { NodeFrame } from '../frame/NodeFrame'
 import { getNodeDefinition } from '../nodes/registry'
@@ -9,6 +9,7 @@ import type { RunMode } from '../../../domain/canvas/model/runRecord'
 import type { NodeViewEvent } from '../nodes/registry'
 import type { InputPortAsset } from '../nodes/registry'
 import type { NodeInput } from '../../../domain/shared/execution/types'
+import type { Rect } from '../../../domain/canvas/geometry/rect'
 
 /**
  * React Flow 的自定义节点（引擎替换 P0）。
@@ -35,6 +36,13 @@ export interface FlowNodeData extends FlowNodeDerivedProps, Record<string, unkno
   error: string | null
   runMode: RunMode
   emit: (event: NodeViewEvent) => void
+  /**
+   * 缩放提交（绝对矩形 + 阶段）。**阶段必须带上**：`node.resize` 用 `begin/move/end`
+   * 做事务合并，少了它拖动缩放每帧都会落一条撤销记录（老表面就是这么传的）。
+   */
+  resize: (rect: Rect, phase: 'begin' | 'move' | 'end') => void
+  /** 当前视口缩放：`NodeFrame` 要用它把屏幕位移换算回世界单位（缩放跟手 / 矢量内容按比例放大） */
+  zoom: number
   /** 容器（分组 / 批量）的子节点：沿用老表面那套 —— 由容器本体按网格渲染 */
   childNodes?: NodeSnapshot[]
   renderChild?: (child: NodeSnapshot) => ReactNode
@@ -45,7 +53,7 @@ function handlePosition(side: 'left' | 'right') {
 }
 
 function FlowNodeInner({ data, selected }: NodeProps) {
-  const { node, running, error, runMode, emit, childNodes, renderChild, ...derived } =
+  const { node, running, error, runMode, emit, resize, zoom, childNodes, renderChild, ...derived } =
     data as unknown as FlowNodeData
   const def = getNodeDefinition(node.type)
   const ports = portDeclsOf(def.ports)
@@ -85,7 +93,7 @@ function FlowNodeInner({ data, selected }: NodeProps) {
     <NodeFrame
       node={frameNode}
       selected={!!selected}
-      scale={1}
+      scale={zoom}
       ports={def.ports}
       minSize={def.sizing.min}
       resizeLock={resizeLockOf(node)}
@@ -94,7 +102,7 @@ function FlowNodeInner({ data, selected }: NodeProps) {
       portsHidden
       overlay={handleNodes}
       onFramePointerDown={() => {}}
-      onResize={() => {}}
+      onResize={resize}
       onRename={(title) => emit({ type: 'rename', title })}
     >
       <def.View
@@ -132,6 +140,9 @@ export function FlowChildFrame({
   error,
   runMode,
   emit,
+  resize,
+  zoom,
+  onFramePointerDown,
   derived,
 }: {
   child: NodeSnapshot
@@ -140,6 +151,14 @@ export function FlowChildFrame({
   error: string | null
   runMode: RunMode
   emit: (event: NodeViewEvent) => void
+  resize: (rect: Rect, phase: 'begin' | 'move' | 'end') => void
+  zoom: number
+  /**
+   * 子节点按下：**容器子节点不是 React Flow 的节点**（由容器 View 按网格渲染），
+   * React Flow 拖不动它们，所以"拖动子节点"这条链路要自己接
+   * （选中 + 用老表面那套拖动控制器，让"拖出容器"语义保持同一份实现）。
+   */
+  onFramePointerDown: (e: ReactPointerEvent) => void
   derived?: FlowNodeDerivedProps
 }) {
   const def = getNodeDefinition(child.type)
@@ -147,20 +166,20 @@ export function FlowChildFrame({
     <NodeFrame
       node={{ ...child, x: 0, y: 0 }}
       selected={selected}
-      scale={1}
+      scale={zoom}
       ports={def.ports}
       minSize={def.sizing.min}
       portsHidden
       resizeLock={resizeLockOf(child)}
       heightFromContent={heightFromContentOf(child)}
-      onFramePointerDown={() => {}}
-      onResize={() => {}}
+      onFramePointerDown={onFramePointerDown}
+      onResize={resize}
       onRename={(title) => emit({ type: 'rename', title })}
     >
       <def.View
         node={child}
         size={{ w: child.w, h: child.h }}
-        scale={1}
+        scale={zoom}
         selected={selected}
         running={running}
         globalRunning={false}

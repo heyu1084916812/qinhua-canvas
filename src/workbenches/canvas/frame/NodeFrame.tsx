@@ -365,7 +365,15 @@ export function NodeFrame(props: NodeFrameProps) {
       {!inContainer && (
         // `data-node-resize-handle`：给自动化一个稳定锚点（别靠「最后一个 span」这种结构巧合）
         <span
-          className={styles.resizeHandle}
+          /**
+           * `nodrag` 是 **React Flow 的免拖动类名**（`noDragClassName` 默认值），
+           * 必须带上：RF 的拖动是绑在**原生 pointerdown** 上的，而这里 `stopPropagation`
+           * 只挡得住 React 合成事件、挡不住它 —— 于是「拖右下角缩放」会顺手发起一次节点拖动：
+           * 节点一边缩放一边跟着指针跑，松手时还会被当成一次落点判定
+           * （G57 实测：提示词节点缩放到一半被"拖进"了旁边的容器，尺寸读出来只有格位大小）。
+           * 老表面没有这个坑（它的拖动是 React 事件，stopPropagation 就够）。
+           */
+          className={`${styles.resizeHandle} nodrag`}
           data-node-resize-handle
           onPointerDown={onResizePointerDown}
         />

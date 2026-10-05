@@ -21,6 +21,25 @@
 - **`canConnect` 的替身节点必须真的放进 `graph.nodes`**：它内部按 id 回溯父链（画板内外不建立边、容器内不外连）。替身不在表里 ⇒ `index.get(id)` 为 undefined ⇒ 被当成「无祖先」⇒ 画板内拖线时新建项整批消失。（`linkMenu.ts` 里造 `{...graph, nodes:[...graph.nodes, probe]}` 再判。）
 - **React 的 `onWheel` 是 passive**，`preventDefault()` 被静默忽略（控制台 `Unable to preventDefault inside passive event listener invocation`）。要阻止页面滚动必须 `addEventListener('wheel', fn, { passive: false })`；顺带把 `useViewport.onWheel` 的参数类型改成 `WheelLike{ deltaY, clientX, clientY }`，原生事件才能直接喂进去。**症状是「缩放时固定浮层跟着往上跳」——看着像定位 bug，实则是文档在滚**（`body` 默认 8px 外边距 + `.page` 100vh = 16px 可滚区，已由 `ui/base.css` 归零）。
 
+## canvas · React Flow 表面（2026-10-05，P5 第二批实测）
+
+老表面的手势是**我们自己的 React 事件**；RF 面的手势**有一部分绑在原生 `pointerdown` 上**，
+所以同一份组件的 `stopPropagation` 在两边不等价。以下四条是实测踩出来的（对账 #207 / 方案 §8.10.2）：
+
+- **`resizeHandle` 必须带 `nodrag`**（RF 的 `noDragClassName` 默认值）：RF 的拖动绑在**原生** `pointerdown` 上，
+  `NodeFrame` 里那句 React 的 `e.stopPropagation()` **挡不住它** ⇒ 「拖右下角缩放」会顺手发起一次节点拖动：
+ 节点边缩放边跟指针跑，松手还被当成一次落点判定（G57：提示词节点被"拖进"旁边容器、尺寸只读到格位大小）。
+- **不许用 RF 的 `onNodeClick`**：传了它，RF 会给节点挂 DOM `onClick`，**「从端点拖出去连线」当场失效**
+  （G71 实测边数 2 → 2）。要「普通单击 = 一次显式选中」（§6.15 面板复位）就在 surface 的
+  **捕获阶段 `pointerdown`** 里做：只清 `panelDismissed`、不改选区、**不阻断事件**。
+- **拖动起点锚只能在我们自己的 `pointerdown` 上记**（指针位置 + 该节点的**渲染位置** DOM rect）：
+  RF 的 `onNodeDragStart` 触发时**指针已经走了一步、节点还没动**（拿它当基准实测偏 101px）；
+  另外 RF 受控拖动会**丢最后一帧**（节点停在倒数第二个采样点），收尾要按"锚 + 指针位移"补一次 `node.move`。
+- **`onNodesChange` 的选中基准只取顶层节点**：容器子节点不在 RF 的节点列表里 ⇒ RF **永远不为它发
+  `select:false`** ⇒ 子节点拖进容器后选中集合恒 ≥2 ⇒ 只认单选的创作面板再也打不开。
+- **容器子节点的拖动复用 `useNodeDrag`**（老表面那份控制器）：它们不是 RF 节点、RF 拖不动，
+  而"拖出 / 拖入 / 松手归属"已经有一份实现，别再写第二份。
+
 ## canvas · 创作面板第一部分首行（2026-09-15，用户口径）
 
 - **首行 = 素材条 / 空态框（左，flex:1） + 「图片 / 视频」类别切换（右，贴最右端）**，二者**同一行等高 30px**（`--assets-row-h`，定义在 `.panel` 上，子选择器继承）。空态时左边是「拖入素材」虚线框（吃满剩余宽度、文字居中）；有素材时左边是缩略图条（30×30 方块 + 集合卡改同高横向胶囊），素材多时条内换行、切换垂直居中。
