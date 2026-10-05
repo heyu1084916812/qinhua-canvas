@@ -3735,3 +3735,19 @@ Midjourney 的高级设置需要「一根滑杆」和「一个文本框」，而
   `window.showDirectoryPicker`**（假目录 + `Map<name, Blob>`）当"磁盘"，断言盘上真的出现了
   `<hash>.png`（`scripts/probe-asset-export.mjs`）。⚠️ 同一次里**上传那条路仍要**
   `delete window.showOpenFilePicker`（否则 `filechooser` 不派发、上传静默不落地）。
+
+### ★★ 桌面壳开工：cargo 不读系统代理 / Rust 与 JS 包必须同 minor（2026-10-05，对账 #218）
+
+`src-tauri/`（Tauri 2 骨架）已就位，P0 的编译与启动自检都过了。两个坑记下来：
+
+- **cargo 不读 Windows 的系统（WinINET）代理**：本机走 `127.0.0.1:10808`，浏览器与 `Invoke-WebRequest`
+  都通，而 cargo 只看 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量 ⇒ 不加就"卡在 `Updating crates.io index`"
+  （实测卡 20 分钟、一个字节不下载）。**判据**：盯 `~/.cargo/registry/cache` 的**文件数**有没有涨；
+  **做法**：先 `cargo fetch` 再 build，别直接 build（否则白等两次超时）。
+- **`tauri`（Rust crate）与 `@tauri-apps/api`（JS）必须同 major.minor**，否则 `tauri build` 直接拒绝
+  （实测 `tauri 2.11.6` vs `@tauri-apps/api 2.12.1`）。对齐：`cargo update -p tauri --precise 2.12.1`。
+  发版时**三处版本号同步**：`package.json` / `tauri.conf.json` / `src-tauri/Cargo.toml`。
+- **P0 能自动化到哪**：`cargo check` + `tauri build --no-bundle`（产物 `qinghua.exe` ≈ 11.6MB）+
+  **隐藏窗口启动 12s**：看进程是否存活、以及 `%LOCALAPPDATA%\<identifier>`（WebView2 用户目录）
+  有没有被创建 —— 被创建即"webview 真的起来了"。**看得见的那半**（画布能画、能导入素材）
+  Playwright 进不了 Tauri webview，只能人眼确认；而那套前端正是 90 组冒烟覆盖的同一份。

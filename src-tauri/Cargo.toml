@@ -1,0 +1,23 @@
+[package]
+name = "qinghua"
+version = "0.1.0"
+description = "轻画 · 无限画布（桌面壳）"
+authors = ["轻画"]
+edition = "2021"
+rust-version = "1.77"
+
+# `tauri.conf.json` 的 `version` 必须与这里、以及 package.json 三处一致（发版时一起升）
+
+[lib]
+# Tauri 2 的模板布局：桌面入口 `main.rs` 只调 `lib.rs` 的 `run()`，
+# 好处是同一份 `run()` 将来能直接给移动端入口复用。
+name = "qinghua_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

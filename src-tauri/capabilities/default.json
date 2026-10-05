@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "轻画主窗口的默认能力（P0：只用核心 API；P1 加目录读写相关权限）",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
