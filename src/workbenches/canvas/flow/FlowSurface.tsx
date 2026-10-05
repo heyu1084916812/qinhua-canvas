@@ -14,10 +14,8 @@ import {
   ReactFlow,
   ReactFlowProvider,
   useViewport,
-  type Connection,
   type Edge as RFEdge,
   type EdgeChange,
-  type FinalConnectionState,
   type Node as RFNode,
   type NodeChange,
 } from '@xyflow/react'
@@ -36,17 +34,22 @@ import { FlowChildFrame, FlowFlowNode, type FlowNodeData } from './FlowNode'
 import { childrenByParent, isContainerType, topLevelNodes } from './flowGraph'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import type { RunMode } from '../../../domain/canvas/model/runRecord'
-import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import type { NodeViewEvent } from '../nodes/registry'
 import { useNodeDerivedMaps } from '../useNodeDerivedMaps'
 import type { FlowNodeDerivedProps } from './FlowNode'
-import { QhConnectionLine, QhEdge, type QhEdgeData } from './FlowEdge'
-import { canConnect } from '../../../domain/canvas/graph/canConnect'
+import { QhEdge, type QhEdgeData } from './FlowEdge'
+import { FlowPortLayer } from './FlowPortLayer'
+import { FlowDraftLayer } from './FlowDraftLayer'
+import { MultiSelectBar } from '../toolbar/MultiSelectBar'
 import { sourcePortOf, targetPortOf } from '../../../domain/canvas/model/edge'
 import { describeError } from '../../../shared/result'
 import { flowViewportToStore, storeViewportToFlow } from './viewportBridge'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { screenToWorld } from '../../../domain/canvas/geometry/coords'
+import { useEdgeDrag } from '../../../features/canvas/useEdgeDrag'
+import { useSpaceHeld } from '../../../features/canvas/useSpaceHeld'
+/* 与 RF 自己的 `useViewport` 同名不同物：那个读 RF 视口，这个给「空格 + 拖拽」平移用 */
+import { useViewport as useCanvasViewport } from '../../../features/canvas/useViewport'
 import { describeLoadResult, loadAssetsFromFolder } from '../../../features/canvas/loadFromFolder'
 import { useNodeDownload } from '../../../features/canvas/useNodeDownload'
 import { draggedFiles, importDroppedFiles } from '../../../features/canvas/dropImport'
@@ -98,22 +101,23 @@ const EDGE_TYPES = { qh: QhEdge }
 const EDGE_OPTIONS = { type: 'default' } as const
 
 /**
- * 世界坐标落在哪个节点身上（**连线**用的命中，与拖动归属是两件事）。
+ * 给这一次按下所在的节点打一帧 `nodrag`（松手自动摘掉）。
  *
- * 为什么需要自己算：React Flow 只在**手柄附近**（`connectionRadius`）才把 `toNode` 给你；
- * 产品文档 §6.14 要求"松手落在下游节点范围内也完成连接"，所以落在节点身上时得自己命中。
- * 后出现的节点优先（渲染时在上层）。结果组子节点的父不在 `nodes` 表 ⇒ 不作为边端点，跳过。
+ * 为什么需要它：RF 的节点拖动是 **d3-drag 挂在节点元素上的原生监听**，它的过滤条件里有一条
+ * 「目标的祖先里有没有 `nodrag`」；React 的 `stopPropagation` 挡不住它（`resizeHandle` 那条教训）。
+ * 捕获阶段早于节点上的原生监听 ⇒ 这一帧打上，它这次就判定"不可拖"。
+ *
+ * 两处用它：**Alt + 拖动**（原地复制）、**空格 + 拖动**（平移画布）。
  */
-function nodeAtWorldPoint(graph: GraphSnapshot, world: { x: number; y: number }): NodeSnapshot | null {
-  let hit: NodeSnapshot | null = null
-  for (const n of graph.nodes) {
-    const parent = n.parentId ? graph.nodes.find((p: NodeSnapshot) => p.id === n.parentId) : null
-    if (n.parentId && !parent) continue
-    const x = (parent?.x ?? 0) + n.x
-    const y = (parent?.y ?? 0) + n.y
-    if (world.x >= x && world.x <= x + n.w && world.y >= y && world.y <= y + n.h) hit = n
+function blockNativeNodeDrag(target: EventTarget | null): void {
+  const frame = target instanceof Element ? target.closest<HTMLElement>('[data-node-id]') : null
+  if (!frame) return
+  frame.classList.add('nodrag')
+  const cleanup = () => {
+    frame.classList.remove('nodrag')
+    window.removeEventListener('pointerup', cleanup)
   }
-  return hit
+  window.addEventListener('pointerup', cleanup)
 }
 
 /**
@@ -167,9 +171,13 @@ function FlowSurfaceInner({
      与老表面同一份实现（见 `useCanvasKeyboard` 的说明）。少了它，G12 那条"复位视图"
      以及所有依赖 Ctrl+Z 的组在 RF 面全部静默失效。 */
   useCanvasKeyboard(store)
+  /**
+   * 空格按住 = 平移模式（§6.3）。RF 自己不认这条（见 `onSurfacePointerDown` 的注释），
+   * 所以键位状态要在这里跟踪、平移要交给老表面那支 `useViewport.beginPan`。
+   */
+  const spaceHeld = useSpaceHeld()
+  const { beginPan } = useCanvasViewport(store)
   const [importHover, setImportHover] = useState(false)
-  /** 是否正在拉线（`onConnectStart` → `onConnectEnd`）：防止"在端点上随手一点"被当成落点 */
-  const connectingRef = useRef(false)
   /** 本次节点拖动是否**真的发生了位移**（§6.15：「有位移才让面板保持隐藏」） */
   const dragMovedRef = useRef(false)
   /**
@@ -199,6 +207,27 @@ function FlowSurfaceInner({
     [],
   )
   const drag = useNodeDrag(store, surfaceEl)
+  /**
+   * 端点拖线**也复用老表面那套控制器**（`useEdgeDrag`），理由比上面那条更硬：
+   *
+   * ① 语义只有一份 —— 方向（从输出口拖出 = 出 / 从输入口反拖 = 入）、落点选口
+   *    （`nearestInputPort`，融合节点左侧 `input` 与右侧 `patch` 靠它分）、空白松手菜单、
+   *    多选"共有端点"一次连多个，全都在这个控制器里，两个引擎不再各写一份；
+   * ② 端点命中不受层叠影响 —— RF 的 Handle 会被相邻节点整块盖住（见 `FlowPortLayer` 注释），
+   *    而这里由 `FlowPortLayer` 在最上层收指针，命中后调用本函数。
+   *
+   * 草稿曲线由 `FlowDraftLayer` 画（老表面是 `EdgeLayer` 画），锚点 `data-edge-draft` 不变。
+   */
+  const edgeDrag = useEdgeDrag(store)
+  const edgeDragBegin = edgeDrag.begin
+  const beginEdgeDrag = useCallback(
+    (e: ReactPointerEvent, nodeId: string, portId: string, also?: readonly string[]) => {
+      const surface = surfaceEl()
+      if (!surface) return
+      edgeDragBegin(e, nodeId, portId, surface, also)
+    },
+    [edgeDragBegin, surfaceEl],
+  )
 
   /** 容器子节点按下：与老表面 `NodeLayer.onNodePointerDown` 同一套选中语义 + 拖动 */
   const onChildPointerDown = useCallback(
@@ -232,6 +261,21 @@ function FlowSurfaceInner({
    */
   const onSurfacePointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
+      /**
+       * **空格 + 拖拽 = 平移画布**（§6.3）。这条必须在这里自己接：
+       * React Flow 的 `panActivationKeyCode='Space'` 只放宽 d3-zoom 的过滤条件，
+       * 指针落在**节点**上时 d3-drag 仍然先接管，而节点元素自带 `nopan`、连冒泡到画布的机会都没有
+       * ⇒ 空格 + 拖节点 = 拖节点，画布纹丝不动（G4 实测 `(0,0) → (0,0)`）。
+       * 老表面就是「捕获阶段 stopPropagation + 自己 `beginPan`」，这里照同一条：
+       * 停掉原生传播（RF 的 d3 监听收不到）+ 打一帧 `nodrag` 兜底 + 交给 `useViewport.beginPan`。
+       */
+      if (e.button === 0 && spaceHeld) {
+        e.preventDefault()
+        e.stopPropagation()
+        blockNativeNodeDrag(e.target)
+        beginPan(e)
+        return
+      }
       const nodeId = (e.target as HTMLElement).closest('[data-node-id]')?.getAttribute('data-node-id')
       if (!nodeId) return
       if (store.isPanelDismissed()) store.setPanelDismissed(false)
@@ -245,18 +289,8 @@ function FlowSurfaceInner({
        * 正好把这条交互做反。捕获阶段停掉**原生**传播，RF 的监听器就不会被调用。
        */
       if (e.altKey) {
-        /**
-         * 光停 React 的传播不够：RF 的节点拖动是 **d3-drag 挂在节点元素上的原生监听**，
-         * 它的过滤条件是「目标的祖先里有没有 `nodrag`」。所以先给这一帧打上 `nodrag`
-         * （捕获阶段早于节点上的原生监听 ⇒ 它这次会判定"不可拖"），松手时摘掉。
-         */
-        const frame = (e.target as HTMLElement).closest('[data-node-id]')
-        frame?.classList.add('nodrag')
-        const cleanup = () => {
-          frame?.classList.remove('nodrag')
-          window.removeEventListener('pointerup', cleanup)
-        }
-        window.addEventListener('pointerup', cleanup)
+        /** 光停 React 的传播不够（理由见 `blockNativeNodeDrag`）：先给这一帧打上 `nodrag` */
+        blockNativeNodeDrag(e.target)
         drag.begin(e, nodeId)
         return
       }
@@ -283,7 +317,7 @@ function FlowSurfaceInner({
       }
       dragAnchorRef.current = { clientX: e.clientX, clientY: e.clientY, zoom, nodes }
     },
-    [store],
+    [store, spaceHeld, beginPan],
   )
 
   /** 从系统拖入图片 / 视频（§6.3）：与老表面共用同一份批量导入规则 */
@@ -601,99 +635,13 @@ function FlowSurfaceInner({
     [store],
   )
 
-  const onConnect = useCallback(
-    (c: Connection) => {
-      if (!c.source || !c.target) return
-      store.dispatch({
-        kind: 'edge.connect',
-        source: c.source,
-        target: c.target,
-        sourcePort: c.sourceHandle ?? undefined,
-        targetPort: c.targetHandle ?? undefined,
-      })
-    },
-    [store],
-  )
-
-  /** 连线合法性：交给 `canConnect` 一条口径（RF 拿它决定"能不能松手"的视觉反馈） */
-  const isValidConnection = useCallback(
-    (c: { source?: string | null; target?: string | null; sourceHandle?: string | null; targetHandle?: string | null }) => {
-      if (!c.source || !c.target) return false
-      const graph = store.getSnapshot()
-      const source = graph.nodes.find((n) => n.id === c.source)
-      const target = graph.nodes.find((n) => n.id === c.target)
-      if (!source || !target) return false
-      return canConnect(source, target, graph, {
-        sourcePort: c.sourceHandle ?? undefined,
-        targetPort: c.targetHandle ?? undefined,
-      }).ok
-    },
-    [store],
-  )
-
-  /**
-   * 松手没落在手柄上时**按产品文档 §6.14 补一次归属**：「落在下游节点范围内也完成连接」。
-   * React Flow 只认"手柄到手柄"，这条产品行为要自己接 —— 否则用户从端点拖到节点身上松手会**什么都没发生**。
+  /*
+   * 端点拖线**不再走 React Flow 的连接手势**（`onConnect` / `isValidConnection` / `onConnectEnd`
+   * 三件套已删）：RF 的 Handle 会被相邻节点整块盖住（见 `FlowPortLayer`），而且它只认"手柄到手柄"，
+   * §6.14 的"松手落在节点范围内也完成连接""空白松手菜单""落点选最近输入口"都要自己再实现一遍。
+   * 现在统一由 `FlowPortLayer`（命中）+ `useEdgeDrag`（语义）+ `FlowDraftLayer`（草稿）这条链路负责，
+   * 两个引擎共用同一份建边规则 —— 不是"少接了一条"，是**刻意只留一份**。
    */
-  const onConnectEnd = useCallback(
-    (_event: unknown, state: FinalConnectionState) => {
-      // 只有"真的在拉线"才继续：否则在端点上随手一点也会被当成落点
-      if (!connectingRef.current) return
-      connectingRef.current = false
-      if (state.isValid) return // 已落在合法手柄上 → onConnect 会处理
-      /**
-       * ⚠️ `state.from` / `state.to` 是**坐标**（`XYPosition`），不是节点 id ——
-       * 起点节点要从 `state.fromNode` 取（类型文件里写得很清楚，别按名字猜）。
-       */
-      const fromNode = state.fromNode
-      if (!fromNode) return
-      const graph = store.getSnapshot()
-      const source = graph.nodes.find((n) => n.id === fromNode.id)
-      if (!source) return
-      /**
-       * 目标：先信 React Flow 给的 `toNode`（落在手柄附近），否则**自己按下落点命中**
-       * —— 产品文档 §6.14「松手落在下游节点范围内也完成连接」就是这么要求的。
-       */
-      let target: NodeSnapshot | undefined = state.toNode
-        ? graph.nodes.find((n) => n.id === state.toNode?.id)
-        : undefined
-      if (!target) {
-        const world = pointerWorldPoint(_event as MouseEvent | null, store)
-        if (!world) return
-        target = nodeAtWorldPoint(graph, world) ?? undefined
-      }
-      const sourcePort = state.fromHandle?.id ?? undefined
-      /**
-       * 落在**空白**（或落回自己身上）：不取消，改为在指针处弹出**可连接菜单**（§6.14
-       * 「空白松手菜单」）—— 与老表面 `useEdgeDrag` 的 up() 同一条语义、同一份坐标口径
-       * （surface 局部屏幕坐标；「指针右侧 12px」由 `LinkMenu` 自己加）。
-       *
-       * 菜单要的 `side` 取**被拖的那只口**：RF 的 Handle 有 `type`，
-       * `target` ⇒ 从输入口拖出（往上找上游），否则是输出口（往下找下游）。
-       */
-      if (!target || target.id === source.id) {
-        const ev = _event as MouseEvent | null
-        const surface = document.querySelector<HTMLElement>('[data-canvas-surface]')
-        if (!ev || typeof ev.clientX !== 'number' || !surface) return
-        const r = surface.getBoundingClientRect()
-        store.setLinkMenu(
-          ev.clientX - r.left,
-          ev.clientY - r.top,
-          source.id,
-          state.fromHandle?.type === 'target' ? 'input' : 'output',
-          sourcePort,
-        )
-        return
-      }
-      const check = canConnect(source, target, graph, { sourcePort })
-      if (!check.ok) {
-        store.notify(check.reason)
-        return
-      }
-      store.dispatch({ kind: 'edge.connect', source: source.id, target: target.id, sourcePort })
-    },
-    [store],
-  )
 
   const onNodesDelete = useCallback(
     (deleted: RFNode[]) => {
@@ -791,7 +739,7 @@ function FlowSurfaceInner({
 
   return (
     <div
-      className={styles.surface}
+      className={spaceHeld ? `${styles.surface} ${styles.spaceMode}` : styles.surface}
       data-canvas-surface
       data-canvas-engine="rf"
       // 拖入素材：dragover 必须 preventDefault，否则浏览器按「不可放置」处理、根本不派发 drop
@@ -811,6 +759,8 @@ function FlowSurfaceInner({
       onPointerDownCapture={onSurfacePointerDown}
       onContextMenu={onContextMenu}
     >
+      {/* 拖线草稿（§6.14）：画在节点层**下面**（与老表面 EdgeLayer 同序），层本身不吃指针 */}
+      <FlowDraftLayer draft={edgeDrag.draft} />
       <ReactFlow
         className={styles.flow}
         nodes={nodes}
@@ -831,20 +781,15 @@ function FlowSurfaceInner({
         /* §6.3：中键拖拽也平移（左键拖拽是默认行为，空格 + 拖拽由 React Flow 自带） */
         panOnDrag={[0, 1]}
         /*
-         * **关掉"点端点两次建连"**（RF 的 `connectOnClick` 默认开）。
-         * 产品口径是**拖**线（§6.14），没有"点一下这头、再点一下那头"这条交互；
-         * 而它会**残留状态**：一次被拒的连接松手后，RF 记着"你在等第二次点击"，
-         * 于是后面那一下从端点起手的拖动被它当成"完成点击连接"吃掉 —— 拖拽根本不开始，
-         * 表现为"拖不动线、也没有菜单"（G13 实测：类型不匹配 / 空白松手两次手势全被吞）。
-         */
-        connectOnClick={false}
-        /*
          * **关掉 RF 的三处自动平移**（拖线 / 拖节点 / 框选时指针贴边就自己滚画布）。
          * 老表面没有这个行为，而它会以两种方式咬人：
          * ① 落点判定失真 —— 用户明明"松在空白处"，画布已经在拖拽期间滚过，
          *    于是松手点下面滑来了一个节点 ⇒ 变成"连到那个节点上"或"被拒"，§6.14 的
          *    空白松手菜单永远不弹（G13 实测：菜单=0，而它上面一条"空白处松手不建边"照样绿）；
          * ② 换引擎不该顺手给用户加一套新动效 —— 要加，另开一轮单独定规则。
+         *
+         * 拖线相关的自动平移如今已无对象（RF 不再接管连线手势，见上面那段注释），
+         * 但拖节点 / 框选这两条仍然要关 —— 留住整条配置，免得日后有人只删一半。
          */
         autoPanOnConnect={false}
         autoPanOnNodeDrag={false}
@@ -854,12 +799,6 @@ function FlowSurfaceInner({
         onNodesChange={onNodesChange}
         onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
-        onConnect={onConnect}
-        onConnectStart={() => {
-          connectingRef.current = true
-        }}
-        isValidConnection={isValidConnection}
-        onConnectEnd={onConnectEnd}
         /*
          * 不自己接 `onPaneClick` 清选中：React Flow **默认就会**在点空白时清（且能区分"拖过不算点"）。
          * 我一度自己加了一条无条件清空 —— 结果**点节点也会被它清掉**（选中立刻变 0，创作面板打不开）。
@@ -873,8 +812,6 @@ function FlowSurfaceInner({
         onEdgesDelete={onEdgesDelete}
         onEdgesChange={onEdgesChange}
         onEdgeDoubleClick={onEdgeDoubleClick}
-        /* 拖线中的草稿曲线（§6.14）：接管 RF 官方那条线，挂上老锚点 `data-edge-draft` */
-        connectionLineComponent={QhConnectionLine}
         deleteKeyCode={['Backspace', 'Delete']}
       >
         <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="var(--grid-line)" />
@@ -883,16 +820,21 @@ function FlowSurfaceInner({
       {/*
        * 工作区浮层：**直接复用老表面那一套**（它们都自成一体、只读 store），
        * 换引擎不该把创作面板、跟随栏、右键菜单、提示与撤销条重写一遍。
-       * 仍未接的：多选浮层的左右端点（那要桥接自研拖线控制器）、标注/旋转/宫格（挂在跟随栏里，见 P4）。
+       * 仍未接的：标注/旋转/宫格（挂在跟随栏里，见 P4）。
        */}
       <PanelLayer onOpenSettings={onOpenSettings} onOpenSkills={onOpenSkills} />
       <NodeFollowBar onOpenSettings={onOpenSettings} onDownload={handleDownload} />
+      {/* 多选浮层（虚线框 + 六键栏 + 左右共有端点）：与老表面同一份实现，
+          `onStartLink` 接的就是上面那个「老表面拖线控制器」 */}
+      <MultiSelectBar onDownload={handleDownload} onStartLink={beginEdgeDrag} />
       <ContextMenu />
       <LinkMenu />
       <CanvasNotice />
       <UndoBar />
       {/* 小地图（§6.4）：复用老表面那份（自成一体、只读 store），最后渲染以免被别的浮层压住 */}
       <Minimap />
+      {/* 端点命中层：在所有节点之上收拖线手势（见 FlowPortLayer 里的长注释） */}
+      <FlowPortLayer onPortDown={beginEdgeDrag} />
     </div>
   )
 }

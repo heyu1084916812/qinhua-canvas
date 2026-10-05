@@ -2,7 +2,6 @@ import { memo } from 'react'
 import {
   getBezierPath,
   useStore,
-  type ConnectionLineComponentProps,
   type EdgeProps,
 } from '@xyflow/react'
 import styles from './FlowEdge.module.css'
@@ -86,38 +85,3 @@ function QhEdgeInner(props: EdgeProps) {
 }
 
 export const QhEdge = memo(QhEdgeInner)
-
-/**
- * 拖线过程中的**草稿曲线**（§6.14）。
- *
- * 老表面自己画（`data-edge-draft`，可见源各一条）；RF 面用官方入口 `connectionLineComponent`
- * 接管同一条曲线，锚点不变 —— 冒烟按 `[data-edge-draft]` 数它。
- * 可连接 = 常态高亮色，不可连接 = 危险色（`connectionStatus` 由 RF 按 `isValidConnection` 给出；
- * 指针在空白处时是 `null`，按常态色画）。
- */
-export function QhConnectionLine({
-  fromX,
-  fromY,
-  toX,
-  toY,
-  fromPosition,
-  toPosition,
-  connectionStatus,
-}: ConnectionLineComponentProps) {
-  const [path] = getBezierPath({
-    sourceX: fromX,
-    sourceY: fromY,
-    sourcePosition: fromPosition,
-    targetX: toX,
-    targetY: toY,
-    targetPosition: toPosition,
-  })
-  return (
-    <path
-      className={connectionStatus === 'invalid' ? `${styles.draft} ${styles.draftInvalid}` : styles.draft}
-      d={path}
-      vectorEffect="non-scaling-stroke"
-      data-edge-draft
-    />
-  )
-}

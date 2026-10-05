@@ -68,12 +68,32 @@ function FlowNodeInner({ data, selected }: NodeProps) {
    */
   const handleNodes = ports.map((port) => {
     const position = handlePosition(port.side)
-    const style = { top: `${port.y * 100}%` }
+    /**
+     * ⚠️ `pointerEvents: 'none'` 是**契约**：RF 的 Handle 只负责两件事 ——
+     * ① 给 RF 算边的端点位置；② 给冒烟 / 探针留 `[data-port]` 几何锚点。
+     * **手势不归它收**：RF 的节点带 transform（自己是层叠上下文），相邻节点会整块盖住它的
+     * Handle，端点于是拖不动（G91 ⑦ 实测：重叠 17px 就够）。收手势的是 `FlowPortLayer`
+     * ——在所有节点之上的一层，命中后交给老表面那套拖线控制器（两个引擎共用一份建边语义）。
+     */
+    const style = { top: `${port.y * 100}%`, pointerEvents: 'none' as const }
     if (port.kind === 'both') {
       return (
         <Fragment key={port.id}>
-          <Handle id={port.id} type="target" position={position} style={style} data-port={port.id} />
-          <Handle id={port.id} type="source" position={position} style={style} data-port={port.id} />
+          {/*
+            共用口（fusion 的 `patch`）只有一个锚点，但 RF 要两只 Handle 才能两个方向都收放。
+            契约：**只有一只带 `data-port`**（冒烟 / 探针按它取唯一锚点），另一只只留 RF 语义。
+            带锚点的那只必须是 **source 且在 DOM 里靠后**（靠后 = 盖在上面）：
+            从这里按下往外拖 = 出（与老表面 `kind !== 'input'` 归成"出"同一条口径）。
+          */}
+          <Handle id={port.id} type="target" position={position} style={style} />
+          <Handle
+            id={port.id}
+            type="source"
+            position={position}
+            style={style}
+            data-port={port.id}
+            data-port-kind={port.kind}
+          />
         </Fragment>
       )
     }
@@ -85,6 +105,7 @@ function FlowNodeInner({ data, selected }: NodeProps) {
         position={position}
         style={style}
         data-port={port.id}
+        data-port-kind={port.kind}
       />
     )
   })

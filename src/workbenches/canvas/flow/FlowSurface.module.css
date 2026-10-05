@@ -12,6 +12,14 @@
   height: 100%;
 }
 
+/* 空格按住 = 平移模式（§6.3，与老表面同一套光标反馈） */
+.spaceMode {
+  cursor: grab;
+}
+.spaceMode:active {
+  cursor: grabbing;
+}
+
 /* 拖入素材时的落点提示（与老表面同一套：1px 虚线内描边，无投影、不改底色） */
 .surface[data-import-hover='true']::after {
   content: '';

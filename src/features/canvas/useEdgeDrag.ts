@@ -114,7 +114,7 @@ export function useEdgeDrag(store: CanvasStore) {
 
   const begin = useCallback(
     (
-      _e: ReactPointerEvent,
+      e: ReactPointerEvent,
       nodeId: string,
       portId: string,
       container: HTMLElement,
@@ -133,6 +133,11 @@ export function useEdgeDrag(store: CanvasStore) {
       if (!node) return
       const decl = portDeclOf(getSpec(node.type)?.ports ?? { input: false, output: false }, portId)
       if (!decl) return
+      /**
+       * 掐掉这次按下的**默认行为**：不让浏览器把手势判成原生拖放（图片 / 选中文本默认可拖）
+       * 或开始文本选择 —— 前者会让后续 `pointerup` 直接消失（见下面 `on('pointercancel', ...)`）。
+       */
+      e.preventDefault()
       /**
        * 共用口（`both`）**从它往外拖 = 出**。
        *
@@ -195,10 +200,38 @@ export function useEdgeDrag(store: CanvasStore) {
         })
       })
 
+      /**
+       * 监听一律登记在册，收尾时按册摘。
+       *
+       * 为什么要三条出口（松手 / `pointercancel` / 原生 `dragstart`）：
+       * 一次拖线里指针要**掠过别的节点内容**，而浏览器可能在中途把这次手势判定成
+       * **原生拖放**（图片 / 选中文本的默认行为）——那一刻 Chromium 会发 `pointercancel`
+       * 并且**不再派发 `pointerup`**。只监听 pointerup 的版本于是把草稿线永远留在屏幕上：
+       * 松手什么也不发生、下一次拖拽还会被残留状态顶掉（G91 ⑦ 实测：同一个端点拖第二次必挂）。
+       * `dragstart` 上再加一道 `preventDefault` 兜底，从源头不让它夺走手势。
+       */
+      const attached: [string, EventListener, boolean?][] = []
+      const on = <K extends keyof WindowEventMap>(
+        type: K,
+        fn: (ev: WindowEventMap[K]) => void,
+        capture?: boolean,
+      ) => {
+        const listener = fn as EventListener
+        window.addEventListener(type, listener, capture)
+        attached.push([type, listener, capture])
+      }
+      const detach = () => {
+        for (const [type, fn, capture] of attached) window.removeEventListener(type, fn, capture)
+        attached.length = 0
+      }
+      const blockNativeDrag = (ev: DragEvent) => ev.preventDefault()
+      const cancel = () => {
+        detach()
+        setDraft(null)
+      }
       const up = (ev: PointerEvent) => {
         move.flush()
-        window.removeEventListener('pointermove', move)
-        window.removeEventListener('pointerup', up)
+        detach()
         const to = screenToWorld({ x: ev.clientX, y: ev.clientY }, store.getViewport(), worldRect)
         const hovered = nodeAtPoint(to, store.getSnapshot())
         setDraft(null)
@@ -247,8 +280,10 @@ export function useEdgeDrag(store: CanvasStore) {
         }
       }
 
-      window.addEventListener('pointermove', move)
-      window.addEventListener('pointerup', up)
+      on('pointermove', move)
+      on('pointerup', up)
+      on('pointercancel', cancel)
+      on('dragstart', blockNativeDrag, true)
     },
     [store],
   )

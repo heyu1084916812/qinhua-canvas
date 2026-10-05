@@ -1,0 +1,29 @@
+/*
+ * 拖线草稿层（屏幕空间 SVG，落在节点层**下面** —— 与老表面 `EdgeLayer` 的绘制顺序一致：
+ * 线不该盖住节点）。层本身不吃指针。
+ *
+ * `overflow: hidden`：草稿线可以画到 surface 之外，而"溢出"会被喂给最近的滚动容器
+ * （见 `FlowPortLayer.module.css` 里那段教训：溢出会让浏览器在滚动某个控件进视野时顺带滚画布）。
+ */
+.svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* 可连接：高亮色虚线；不可连接（`invalid`）：危险色 */
+.draft {
+  fill: none;
+  stroke: var(--edge-highlight);
+  stroke-width: 1.5px;
+  stroke-dasharray: 5 4;
+  pointer-events: none;
+}
+
+.draftInvalid {
+  stroke: var(--danger);
+}

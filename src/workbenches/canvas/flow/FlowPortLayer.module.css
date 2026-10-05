@@ -1,0 +1,43 @@
+/*
+ * 端点命中层（引擎替换 P5 收口）：铺满 surface、**本身不吃指针**，只有端口圆点可点。
+ *
+ * 为什么不让 React Flow 的 `Handle` 自己收手势：RF 的节点元素带 `transform`（自己就是一个层叠上下文），
+ * 相邻节点会整块盖住它的 Handle —— 实测两节点重叠 17px，端点就再也拖不出线（G91 ⑦ 复现）。
+ * 老表面没这个问题：它的端口是 `.frame` 里带 z-index 的定位元素，压不过就自己往上走。
+ * 这里用「所有节点之上的一层」达成同一件事：端点**永远**点得到。
+ *
+ * 层级取 13：在画布内容与 HUD(5) 之上、工具栏(15)/小地图(18)/跟随栏与多选栏(19)/菜单(40) 之下 ——
+ * 端口不该盖住临时作业面。
+ *
+ * 坐标：圆点写在**世界坐标**里（尺寸也是世界单位），整层挂一个 `translate + scale` 的 transform
+ * ⇒ 平移 / 缩放帧只改这一个 transform，圆点子树不重排（与老表面 `EdgeLayer` 的 `EdgeWorld` 同一条手法）。
+ * `transform-origin: 0 0` 是必需的：少了它缩放会以中心为锚，圆点整体漂移。
+ *
+ * ⚠️ **两层是必需的**（`.clip` 包 `.layer`）：圆点落在世界坐标里、又整层带着 transform，
+ * 单层版本会超出 surface 的盒子 ⇒ surface 就有了**可滚余量**（`overflow: hidden` 只是"不显示滚动条"，
+ * 依旧能被程序滚）⇒ 浏览器把面板里的控件 `scrollIntoView` 时会顺手把画布滚一下，
+ * 节点于是在屏幕上整体平移（G76 / G104 实测：节点矩形正好偏了一整个视口位移
+ * `translate(328px, 280px)`，而所有 transform 一个都没变）。`.clip` 把这份溢出收在自己身上，
+ * surface 就没有可滚的余量了。
+ */
+.clip {
+  position: absolute;
+  inset: 0;
+  z-index: 13;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.hit {
+  position: absolute;
+  border-radius: 999px;
+  cursor: crosshair;
+  pointer-events: auto;
+}

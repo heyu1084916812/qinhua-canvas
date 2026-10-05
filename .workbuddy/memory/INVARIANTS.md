@@ -57,6 +57,29 @@
 - **浮层不许压住端点**：端点被任何浮层盖住，用户就"拉不出线"，而且**当次拖拽连开始都不会开始**（`draft=0`）。
   已抓到的实例见对账 #209（跟随栏压邻节点端点，**老表面同样复现**）。排查手法：`elementFromPoint(端口中心)`。
 
+### 同一节 · P5 收口批次：端口手势整体离开 React Flow（2026-10-05，对账 #214 / 方案 §8.10.7）
+
+- **端口手势的唯一入口** = `flow/FlowPortLayer`（命中）→ `useEdgeDrag`（语义）→ `flow/FlowDraftLayer`（草稿）。
+  RF 的 `Handle` 只留两个职责：① 给 RF 算边的端点位置 ② 给冒烟 / 探针留 `[data-port]` 几何锚点 ⇒
+  它必须 `pointer-events: none`，**不要再给它接手势**。为什么：RF 的节点带 `transform`、**自身就是层叠上下文**，
+  Handle 的 z-index 出不去，相邻节点会**整块盖住**它（实测两节点重叠 **17px** 端点就拖不出线，
+  症状还是"拖出来的是覆盖它的那个节点"）。
+- **`[data-node-type] [data-port]` 必须唯一**：`kind: 'both'`（融合节点 `patch`）在 RF 面要两只 Handle，
+  但**只有 source 那只带 `data-port`**，且它必须在 DOM 里靠后（盖在上面）—— 从它按下往外拖 = 出
+  （与老表面 `kind !== 'input'` 归"出"同一条）。
+- **拖线控制器必须有三条出口**：`pointerup` 之外还要 `pointercancel`（清草稿）与 `dragstart`
+  （捕获阶段 `preventDefault` 兜底）。少一条 = "草稿线永久残留 + 同一个端点第二次必挂" ——
+  一次拖线里指针掠过别的节点内容时，浏览器可能判成**原生拖放** ⇒ 发 `pointercancel` 且**不再发 `pointerup`**。
+- **端口命中层是屏幕坐标的一层**：换算只许 `屏幕 = (世界 − 视口) × zoom`（`viewportBridge.ts` 的口径），
+  30px 圆点、随缩放、下限 10px；层 z=13（画布与 HUD 之上，工具栏 15 / 小地图 18 / 跟随栏与多选栏 19 / 菜单 40 之下）。
+- **空格 + 拖拽平移要自己接**：RF 的 `panActivationKeyCode='Space'` 只放宽 d3-zoom 的过滤条件，
+  落在节点上仍是节点拖动（节点自带 `nopan`，连冒泡到画布的机会都没有）。用
+  `features/canvas/useSpaceHeld` + 捕获阶段接管 + `useViewport.beginPan`（与老表面同一支平移实现）。
+- **"世界坐标 + 整层 transform"的浮层必须两层**（`.clip` 包 `.layer`）：外层 `inset: 0` + `overflow: hidden`
+  把溢出收在自己身上，内层才挂 transform。单层会让 surface 有**可滚余量** —— `overflow: hidden` 只是
+  "不显示滚动条"、依旧能被程序滚，浏览器把某个控件 `scrollIntoView` 时会顺手滚一下画布，
+  画布上的一切整体平移（G76/G104 实测：节点矩形偏了一整个视口位移，而所有 transform 一个都没变）。
+
 ## canvas · 创作面板第一部分首行（2026-09-15，用户口径）
 
 - **首行 = 素材条 / 空态框（左，flex:1） + 「图片 / 视频」类别切换（右，贴最右端）**，二者**同一行等高 30px**（`--assets-row-h`，定义在 `.panel` 上，子选择器继承）。空态时左边是「拖入素材」虚线框（吃满剩余宽度、文字居中）；有素材时左边是缩略图条（30×30 方块 + 集合卡改同高横向胶囊），素材多时条内换行、切换垂直居中。

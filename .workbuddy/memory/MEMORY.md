@@ -3684,3 +3684,37 @@ Midjourney 的高级设置需要「一根滑杆」和「一个文本框」，而
   定位手法：`elementFromPoint(端口中心)` 直接指出"谁压住了它"（这里是邻节点跟随栏的"添加到 agent"按钮，
   栏框 539×40）。**并且在 `?engine=legacy` 上跑同一组复现了同样的失败** ⇒ 证明**与换引擎无关**。
   **纪律：RF 面上红了先跑一遍 `?engine=legacy`**，十分钟就能把"换坏了"和"本来就坏"分开。
+
+### ★★ 换引擎 P5 收口：「端点拖不出线」的三层根因 + 一个共用控制器的真缺陷（2026-10-05）
+
+对账 #214 / #215，方案 §8.10.7。`g91` / `g92` / `g13` / `g103` / `g4` 五组红**不是五件事**，
+是同一件事的三个面 —— 而这轮最值钱的不是修好，是**看清"两份手势"才是根**。
+
+- **RF 的节点带 `transform` ⇒ 每个节点自己就是层叠上下文**：Handle 的 z-index 出不去，相邻节点会**整块盖住**它。
+  实测两节点重叠 **17px**，端点就再也拖不出线，而且症状很误导：**拖出来的是"覆盖它的那个节点"**（不是报错、不是没反应）。
+  `elementFromPoint(端口中心)` 一秒定位（又是这一招）。老表面没这问题：它的端口是 `.frame` 里带 z-index 的定位元素。
+  **结论**：端口手势**整体离开 RF**（`FlowPortLayer` 在所有节点之上收指针 → `useEdgeDrag` → `FlowDraftLayer` 画草稿），
+  RF 的 Handle 退化为几何/冒烟锚点（`pointer-events: none`）。三个坑（层叠上下文、`connectionRadius` 只认手柄、
+  `both` 口要两只 Handle 且叠在一起时方向判反）**全部来自"让 RF 再长一份手势"**——
+  换引擎的边界一直是"只换渲染 / 手势层"，手势层本来就有现成一份。
+- **"同一个端点第二次拖就挂"是共用控制器的真缺陷**：`useEdgeDrag` 原来只监听 `pointerup`。一次拖线里指针要
+  **掠过别的节点内容**，浏览器可能把这次手势判成**原生拖放** ⇒ 发 `pointercancel` 并且**不再发 `pointerup`**
+  ⇒ 草稿线永久留在屏幕上、下一次手势被残留状态顶掉。**埋点手法（值得记）**：`addInitScript` 里数 window 的
+  `pointerdown` / `pointerup`（**捕获 + 冒泡各一份**）+ `mousedown` / `mouseup` / `dragstart` / `dragend` / `pointercancel` ——
+  一眼分清"事件根本没派发"和"处理函数没跑"（这次就是**捕获阶段都没到 window**，直接指向"事件没派发"）。
+  修法：`begin` 里 `preventDefault()` + **三条出口**（`pointerup` / `pointercancel` / `dragstart` 兜底）一并摘除。
+  ⚠️ 探针要用上传路径时**必须先 `delete window.showOpenFilePicker`**（冒烟的 `disableFSA` 干的就是这个），
+  否则 Playwright 收不到 `filechooser`、上传静默不落地（我在这上面绕了两圈才发现 `upImgs: 0` 是探针自己的问题）。
+- **"空格 + 拖拽平移"RF 不认**：`panActivationKeyCode='Space'` 只改 d3-zoom 的 filter；指针落在节点上仍是节点拖动
+  （节点自带 `nopan`，冒泡到画布的机会都没有）。自己接：`useSpaceHeld`（文本框内 / 按钮上不接管）+
+  捕获阶段 `stopPropagation` + 打一帧 `nodrag` + `useViewport.beginPan`（老表面同一支）。
+- **纪律**：把三处手势收成一处之后，五组红同时转绿，`g13` 还顺带修好（#209 的第 ③ 条修法"端点抬到浮层之上"）。
+  **同一份用户手感只该有一个实现 —— 这比"少改一个文件"重要得多。**
+- **收口之后又抓到两组新红（`g76`/`g104`：点节点开面板"等不到 `[data-creation-panel]`"）**，
+  真因是**端点层的溢出**：命中层整层挂 transform、圆点又落在世界坐标里 ⇒ 溢出喂给了 surface ⇒
+  surface 有了**可滚余量**（`overflow: hidden` 只是"不显示滚动条"，依旧能被程序滚）⇒
+  浏览器把面板里的控件 `scrollIntoView` 时顺手把画布滚了一下。**判据很好记**：
+  **元素矩形变了、而祖先 transform 一个都没变 ⇒ 不是被变换了，是被滚了**。
+  改法：这一类浮层必须**两层**（外层 `inset:0`+`overflow:hidden` 收溢出，内层挂 transform）。
+  草稿层同理。**动手前先只关掉可疑那一层跑一遍**（我这次先把 `<FlowPortLayer>` 关掉，
+  g76 立刻 5/5 ⇒ 一次定位，比继续推理快得多）。
