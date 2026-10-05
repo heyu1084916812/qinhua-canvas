@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import type { PlatformKit } from '../../../platform/ports'
 import { assetFileName, expectedAssetPath } from '../../../domain/shared/assetLocation'
+import { ensureAssetThumb, THUMB_MIME } from '../../../features/canvas/assetThumb'
 
 /**
  * 按 hash 从 assets 表读回媒体本体并生成 objectURL（产品文档 §8：hash 即主键）。
@@ -24,6 +25,11 @@ export interface AssetMeta {
   missing?: boolean
   /** 缺失时"它本该在的位置"（`<目录名>/<hash>.<ext>`）；没选目录时为 null */
   expectedPath?: string | null
+  /**
+   * 这条 URL 是**缩略图**（`assets.thumb`），不是原图 —— 对账 #231。
+   * 要原图的地方（灯箱、旋转 / 标注要拿像素的那两层）**别**用带这个标记的 URL。
+   */
+  thumb?: boolean
 }
 
 /**
@@ -38,10 +44,14 @@ export interface AssetMeta {
  * 刚生成、字节还没落库的图）。调用方自己决定要不要重试。
  * 调用方负责在不用时 `URL.revokeObjectURL`。
  */
-export async function loadAssetUrl(platform: PlatformKit, hash: string): Promise<AssetMeta> {
+export async function loadAssetUrl(
+  platform: PlatformKit,
+  hash: string,
+  opts: { preferThumb?: boolean } = {},
+): Promise<AssetMeta> {
   const rows = await platform.storage.query('assets', { id: hash })
   const row = rows[0] as
-    | { bytes?: Uint8Array | number[]; mime?: string; url?: string }
+    | { bytes?: Uint8Array | number[]; mime?: string; url?: string; thumb?: Uint8Array | number[] }
     | undefined
   const mime = row?.mime ?? null
   /**
@@ -56,6 +66,23 @@ export async function loadAssetUrl(platform: PlatformKit, hash: string): Promise
    */
   if (row?.url) return { url: row.url, mime, expectedPath }
   /**
+   * **缩略图优先**（对账 #231）：画布节点只显示 240×192，拿原图解码是白烧内存 ——
+   * 一张 3840×2160 解码后 ≈ 33MB（宽 × 高 × 4），可见几十张就是 GB 级。
+   *
+   * `preferThumb` 由"小尺寸显示"那一类调用方打开；**灯箱 / 旋转 / 标注要原图，不要打开它**。
+   */
+  const preferThumb = opts.preferThumb === true
+  const isImage = (mime ?? '').startsWith('image/')
+  if (preferThumb && row?.thumb) {
+    const thumbBytes = row.thumb instanceof Uint8Array ? row.thumb : new Uint8Array(row.thumb as number[])
+    return {
+      url: URL.createObjectURL(new Blob([thumbBytes as unknown as BlobPart], { type: THUMB_MIME })),
+      mime,
+      expectedPath,
+      thumb: true,
+    }
+  }
+  /**
    * **素材文件夹优先**（对账 #196 · 增量 2）：用户把素材托管到自己的文件夹后，以磁盘上那份为准。
    * 命中条件 = 已授权目录 + 该 hash 的文件确实在目录里；否则回落内置库（IndexedDB）。
    *
@@ -65,12 +92,34 @@ export async function loadAssetUrl(platform: PlatformKit, hash: string): Promise
   const folder = platform.assetFolder
   if (folder?.current()) {
     const onDisk = await folder.read(assetFileName(hash, mime ?? 'image/png'))
-    if (onDisk) return { url: URL.createObjectURL(onDisk), mime, expectedPath }
+    if (onDisk) {
+      scheduleThumb(platform, row, onDisk, preferThumb && isImage)
+      return { url: URL.createObjectURL(onDisk), mime, expectedPath }
+    }
   }
   if (!row?.bytes) return { url: null, mime, expectedPath }
   const buf = row.bytes instanceof Uint8Array ? row.bytes : new Uint8Array(row.bytes as number[])
   const blob = new Blob([buf as BlobPart], { type: mime ?? 'image/png' })
+  scheduleThumb(platform, row, blob, preferThumb && isImage)
   return { url: URL.createObjectURL(blob), mime, expectedPath }
+}
+
+/**
+ * 后台补一张缩略图并落库（**不 await、不报错**）。
+ *
+ * 这一轮**仍然先用原图显示**（不闪空、观感不变），补好之后**下次挂载**就走小图 ——
+ * 于是"开过几次之后，整个项目的图都是小图"，日常使用不再压着几十张全分辨率解码。
+ * 真正的解码 / 重编码在**限流槽**里排队（见 `features/canvas/assetThumb.ts`），
+ * 不会因为"一屏几十个节点同时挂载"而几十张一起解码。
+ */
+function scheduleThumb(
+  platform: PlatformKit,
+  row: { thumb?: unknown } | undefined,
+  source: Blob,
+  want: boolean,
+): void {
+  if (!want || !row || row.thumb) return
+  void ensureAssetThumb(platform, row as never, source)
 }
 
 /**
@@ -79,8 +128,12 @@ export async function loadAssetUrl(platform: PlatformKit, hash: string): Promise
  * mime 只存在于 assets 行里，**猜不出来**：objectURL 是 `blob:`，扩展名没有，
  * 而「该用 `<img>` 还是 `<video>`」完全由它决定（猜错就是黑屏）。
  */
-export function useAssetMeta(hash: string | undefined): AssetMeta {
+export function useAssetMeta(
+  hash: string | undefined,
+  opts: { preferThumb?: boolean } = {},
+): AssetMeta {
   const platform = usePlatform()
+  const preferThumb = opts.preferThumb === true
   const [meta, setMeta] = useState<AssetMeta>({ url: null, mime: null })
 
   useEffect(() => {
@@ -104,7 +157,7 @@ export function useAssetMeta(hash: string | undefined): AssetMeta {
     const backoffOf = (attempt: number) => (attempt < 12 ? 250 : 500)
 
     const load = async (attempt: number) => {
-      const meta = await loadAssetUrl(platform, hash)
+      const meta = await loadAssetUrl(platform, hash, { preferThumb })
       if (!alive) return
       if (!meta.url) {
         if (attempt < MAX_ATTEMPTS) {
@@ -134,11 +187,20 @@ export function useAssetMeta(hash: string | undefined): AssetMeta {
     // effect 每帧重跑 —— 旧 URL 被 revoke、重查库建新 URL，<img> 每帧换 src
     // 触发重新解码，用户看到的就是「拖动时图片一闪一闪」。
     // 素材落库的时差由上面的退避重试兜住，不需要借 graph 变更来触发。
-  }, [hash, platform])
+  }, [hash, platform, preferThumb])
 
   return meta
 }
 
+/**
+ * **小尺寸显示**那条路（对账 #231）：优先给缩略图；还没有就先给原图，并**后台补一张落库**。
+ * 画布节点 / 面板缩略图 / @ 提及的小图都走它。
+ * 要原图的地方（灯箱、旋转、标注）用 `useAssetMeta` —— 那些地方要的是像素。
+ */
+export function useAssetThumb(hash: string | undefined): AssetMeta {
+  return useAssetMeta(hash, { preferThumb: true })
+}
+
 export function useAsset(hash: string | undefined): string | null {
-  return useAssetMeta(hash).url
+  return useAssetThumb(hash).url
 }

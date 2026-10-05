@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { GenerationData } from '../../../../domain/canvas/model/node'
 import type { NodeViewProps } from '../registry'
-import { useAssetMeta } from '../../hooks/useAsset'
+import { useAssetThumb } from '../../hooks/useAsset'
 import { AssetMenu } from '../../panels/AssetMenu'
 import { IconPause, IconPlay } from '../../toolbar/icons'
 import styles from './GenerationNodeView.module.css'
@@ -38,7 +38,12 @@ export function assetIsVideo(mime: string | null, mode: GenerationData['mode']):
  */
 export function GenerationNodeView(props: NodeViewProps) {
   const data = props.node.data as GenerationData
-  const { url, mime, missing, expectedPath } = useAssetMeta(data.assetHash)
+  /**
+   * 节点本体是**小尺寸显示**（约 240×192）⇒ 走缩略图那条路（对账 #231）：
+   * 拿 4K 原图解码给一个 240px 的框看，一张就是 33MB —— 可见几十张就是 GB 级。
+   * 灯箱要原图，它自己用 `useAssetMeta`，与此无关。
+   */
+  const { url, mime, missing, expectedPath } = useAssetThumb(data.assetHash)
   const [dropping, setDropping] = useState(false)
   /**
    * 素材操作菜单（清除 / 替换）挂在**本体那张图的右上角**（用户 2026-09-18 明确位置）。
