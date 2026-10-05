@@ -39,19 +39,30 @@ export function gridPoint(base: Point, index: number): Point {
   }
 }
 
-export async function loadAssetsFromFolder(deps: ImportDeps, at: Point): Promise<LoadFromFolderResult> {
+/**
+ * @param onProgress 每处理完**一个素材文件**报一次（读失败也算走了一步）。
+ *   为什么要它：几千张图的目录点下去是**长时间没反应**——用户分不清"在干活"还是"卡死了"。
+ *   分母刻意用**要处理的素材文件数**：
+ *   - 不用"成功导入数"——非素材多、失败多时进度会停住不动，比没有进度更吓人；
+ *   - 也不用"目录条目数"——`readme.md` / 缩略图缓存这类条目会让分母虚高，进度白白少一截。
+ */
+export async function loadAssetsFromFolder(
+  deps: ImportDeps,
+  at: Point,
+  onProgress?: (done: number, total: number) => void,
+): Promise<LoadFromFolderResult> {
   const result: LoadFromFolderResult = { imported: 0, skipped: 0, failed: 0, failures: [] }
   const folder = deps.platform.assetFolder
   if (!folder?.current()) return result
 
   const names = await folder.list()
+  /** 先过一遍扩展名：非素材文件**不占进度**（它们的数量在这里一次性记进 `skipped`） */
+  const files = names.filter(isAssetFileName)
+  result.skipped = names.length - files.length
+  let done = 0
   deps.store.beginPlan(`folder:${createId('plan')}`, '从文件夹加载素材')
   try {
-    for (const name of names) {
-      if (!isAssetFileName(name)) {
-        result.skipped += 1
-        continue
-      }
+    for (const name of files) {
       try {
         const blob = await folder.read(name)
         if (!blob) {
@@ -72,6 +83,10 @@ export async function loadAssetsFromFolder(deps: ImportDeps, at: Point): Promise
         // 单个文件失败不该中断整批（与"批量导入逐个独立成败"同一口径）
         result.failed += 1
         result.failures.push({ name, reason: err instanceof Error ? err.message : String(err) })
+      } finally {
+        // 三条出口（跳过 / 失败 / 成功）都走这里 ⇒ 进度不会因为 `continue` 而漏报
+        done += 1
+        onProgress?.(done, files.length)
       }
     }
   } finally {

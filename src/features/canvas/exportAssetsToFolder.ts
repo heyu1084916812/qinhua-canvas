@@ -45,11 +45,46 @@ export async function exportAssetsToFolder(
   const folder = platform.assetFolder
   if (!folder?.current()) return report
 
-  let rows: Row[]
+  let done = 0
+
+  /** 逐行写盘 + 计数：分批、整表两条路**共用这一份**，免得两套口径慢慢分叉 */
+  const writeRows = async (rows: Row[]): Promise<void> => {
+    for (const row of rows) {
+      const result = await writeAssetRow(folder, row)
+      if (result.status === 'written') report.written += 1
+      else if (result.status === 'exists') report.exists += 1
+      else if (result.status === 'no-bytes') report.noBytes += 1
+      else {
+        report.failed += 1
+        report.failures.push({ name: result.name, reason: result.reason ?? '未知原因' })
+      }
+      done += 1
+      onProgress?.(done, report.total)
+    }
+  }
+
   try {
-    rows = (await platform.storage.query('assets', {})) as unknown as Row[]
+    const storage = platform.storage
+    if (storage.scan) {
+      /**
+       * **分批读**（对账 #228）：峰值内存只跟 `BATCH` 有关，**与素材库多大无关**。
+       *
+       * 为什么不是"一次查出来再写"：`assets` 每行都带全分辨率字节，整表拿在手里
+       * 就等于把整个素材库塞进内存 —— 库涨到几个 GB 时那条路会直接把页面搞崩，
+       * 而"导出素材到文件夹"正是迁移的主路径（绝不能在最要紧的一步崩）。
+       */
+      await storage.scan('assets', BATCH, async (rows, meta) => {
+        report.total = meta.total
+        await writeRows(rows)
+      })
+    } else {
+      // 没有 `scan` 的后端：退回整表（小库两条路等价；大库吃内存这件事写在端口注释里）
+      const rows = (await storage.query('assets', {})) as unknown as Row[]
+      report.total = rows.length
+      await writeRows(rows)
+    }
   } catch (err) {
-    // 读库失败也如实报（同 `describeError` 的口径：不许静默）
+    // 读库失败也如实报（同 `describeError` 的口径：不许静默）；中途失败时**已写的那些照实留在报告里**
     report.failed += 1
     report.failures.push({
       name: '内置库',
@@ -58,22 +93,17 @@ export async function exportAssetsToFolder(
     return report
   }
 
-  report.total = rows.length
-  let done = 0
-  for (const row of rows) {
-    const result = await writeAssetRow(folder, row)
-    if (result.status === 'written') report.written += 1
-    else if (result.status === 'exists') report.exists += 1
-    else if (result.status === 'no-bytes') report.noBytes += 1
-    else {
-      report.failed += 1
-      report.failures.push({ name: result.name, reason: result.reason ?? '未知原因' })
-    }
-    done += 1
-    onProgress?.(done, report.total)
-  }
   return report
 }
+
+/**
+ * 一批读几行。
+ *
+ * 8 行一批的理由：一张 4K 图的**编码后字节**也有几 MB，批太大峰值就难看；
+ * 太小则把磁盘 I/O 拆得太碎（每次 `write` 都是一次真写盘 + `has()` 查询）。
+ * 这个数字**不是**正确性参数 —— 改它只影响内存峰值与来回次数。
+ */
+const BATCH = 8
 
 /** 给用户一句话（界面只需要一句能读懂的结果，与 `describeLoadResult` 同一副面孔） */
 export function describeExportReport(report: ExportAssetsReport, folderName: string): string {

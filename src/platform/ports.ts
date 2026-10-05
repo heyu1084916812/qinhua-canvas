@@ -49,6 +49,22 @@ export interface StoragePort {
   bulkPut<K extends TableName>(table: K, rows: RowOf<K>[]): Promise<void>
   delete<K extends TableName>(table: K, id: string): Promise<void>
   query<K extends TableName>(table: K, filter: Partial<RowOf<K>>): Promise<RowOf<K>[]>
+  /**
+   * **整表流式扫描**（可选）：一次只把 `batchSize` 行交给 `onBatch`，**不把整表拿在手里**；
+   * 第二参数带着**总数**（进度要分母）。返回一共扫过多少行。
+   *
+   * 为什么需要它：`assets` 表**每行都带全分辨率字节**，而"导出素材到文件夹"正是迁移主路径。
+   * 若先 `query('assets', {})` 再逐行写盘，库涨到几个 GB 时那一下就是**内存峰值 = 整个库**（浏览器直接崩）。
+   * 分批之后峰值只跟 `batchSize` 有关，与库多大无关。
+   *
+   * 只做**整表**：要过滤就走 `query`（结果集小，内存不痛）。
+   * **可选**：没实现的后端（如有）由调用方退回 `query` —— 小库两条路等价。
+   */
+  scan?<K extends TableName>(
+    table: K,
+    batchSize: number,
+    onBatch: (rows: RowOf<K>[], meta: { total: number }) => Promise<void>,
+  ): Promise<number>
   estimateUsage(): Promise<{ used: number; quota: number }>
 }
 

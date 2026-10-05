@@ -856,7 +856,8 @@ function Hud({
   const platform = usePlatform()
   const folder = platform.assetFolder
   const [folderName, setFolderName] = useState<string | null>(folder?.current()?.name ?? null)
-  const [loading, setLoading] = useState(false)
+  /** 加载进度（对账 #229）：大目录要能看见"走到第几个"，否则分不清在干活还是卡死 */
+  const [loading, setLoading] = useState<{ done: number; total: number } | null>(null)
   const [exporting, setExporting] = useState<{ done: number; total: number } | null>(null)
   const canPick = folder?.supported() ?? false
 
@@ -888,15 +889,17 @@ function Hud({
       store.getViewport(),
       { x: r.left, y: r.top, w: r.width, h: r.height },
     )
-    setLoading(true)
+    setLoading({ done: 0, total: 0 })
     try {
-      const result = await loadAssetsFromFolder({ platform, store, projectId }, center)
+      const result = await loadAssetsFromFolder({ platform, store, projectId }, center, (done, total) =>
+        setLoading({ done, total }),
+      )
       // 结果如实说：加载几张、跳过几个、失败几个（失败带第一个原因）
       store.notify(describeLoadResult(result))
     } catch (err) {
       store.notify(`从文件夹加载失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
-      setLoading(false)
+      setLoading(null)
     }
   }
 
@@ -954,11 +957,11 @@ function Hud({
       <button
         type="button"
         data-asset-folder-load
-        disabled={!folderName || loading}
+        disabled={!folderName || loading !== null}
         title={folderName ? '把该文件夹里的图片 / 视频批量加载到画布' : '先选一个素材文件夹'}
         onClick={() => void loadFromFolder()}
       >
-        {loading ? '加载中…' : '从文件夹加载'}
+        {loading ? `加载中 ${loading.done}/${loading.total}…` : '从文件夹加载'}
       </button>
       <button
         type="button"

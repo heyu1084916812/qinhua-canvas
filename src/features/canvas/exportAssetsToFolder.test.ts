@@ -87,4 +87,51 @@ describe('导出内置库素材到文件夹', () => {
       ),
     ).toBe('已导出 1 个素材到「我的素材」，2 个盘上已有，1 个只有远端地址、没有本地字节（搬不动）')
   })
+
+  /**
+   * ★★ 这两条锁的是**大库不崩**（对账 #228）：`assets` 每行都带全分辨率字节，
+   * "把整表查出来再写"的峰值内存 = 整个素材库 —— 库到几个 GB 时页面直接崩。
+   * 判据不能只是"结果对"：结果对但内存炸过一次，用户看到的还是崩。
+   */
+  it('★★ 走的分批读，**不再**整表查一次（大库内存峰值只跟批大小有关）', async () => {
+    const platform = createMemoryPlatform({ rows })
+    await platform.assetFolder!.pick()
+
+    const queried: string[] = []
+    const rawQuery = platform.storage.query.bind(platform.storage)
+    platform.storage.query = (async (table: never, filter: never) => {
+      queried.push(`${table}:${JSON.stringify(filter)}`)
+      return rawQuery(table, filter)
+    }) as typeof platform.storage.query
+
+    // 这一条同时是"能力存在"的前置：memory 侧必须真的实现了 `scan`
+    expect(typeof platform.storage.scan).toBe('function')
+
+    const report = await exportAssetsToFolder(platform)
+    expect(report).toMatchObject({ total: 2, written: 2 })
+    expect(queried).toEqual([]) // 一次整表查询都不该发生
+  })
+
+  it('★ 素材比一批多时：分批写、总额是全部、进度按文件数走到最后', async () => {
+    // 20 行 > 每批 8 行 ⇒ 必须跑满 3 批；漏批/重复批都会在这里露出来
+    const many = {
+      assets: Array.from({ length: 20 }, (_, i) => ({
+        id: `h${i}`,
+        mime: 'image/png',
+        bytes: new Uint8Array([i]),
+      })),
+    }
+    const platform = createMemoryPlatform({ rows: many })
+    await platform.assetFolder!.pick()
+
+    const seen: string[] = []
+    const report = await exportAssetsToFolder(platform, (done, total) => seen.push(`${done}/${total}`))
+
+    expect(report).toMatchObject({ total: 20, written: 20, failed: 0 })
+    expect((await platform.assetFolder!.list())).toHaveLength(20)
+    // 进度是**中途**就给分母的（第一批就要知道 20），且单调走到 20/20
+    expect(seen[0]).toBe('1/20')
+    expect(seen.at(-1)).toBe('20/20')
+    expect(seen).toHaveLength(20)
+  })
 })

@@ -49,6 +49,40 @@ describe('从文件夹加载素材', () => {
     expect((await platform.storage.query('assets', {})).length).toBe(1)
   })
 
+  /**
+   * ★ 进度（对账 #229）：几千张的目录点下去不能"长时间没反应"。
+   * 分母是**要处理的素材文件数**：非素材文件不占步（它们只记进"跳过"），
+   * 否则 readme / 缓存文件一多，进度会白白少走一截、看着像卡住。
+   */
+  it('★ 大目录有进度：两步走完，分母只算素材文件（非素材不占步）', async () => {
+    const platform = createMemoryPlatform({
+      assetFolderFiles: {
+        'a.png': new Blob([solidPng(8, 6, [9, 9, 9], 'folder-progress') as unknown as BlobPart], {
+          type: 'image/png',
+        }),
+        'notes.md': new Blob(['x'], { type: 'text/markdown' }),
+        'b.png': new Blob([solidPng(8, 6, [1, 2, 3], 'folder-progress-2') as unknown as BlobPart], {
+          type: 'image/png',
+        }),
+      },
+    })
+    await platform.assetFolder!.pick()
+    const store = createCanvasStore({ platform, projectId: 'p1', debounceMs: 0 })
+
+    const seen: string[] = []
+    const result = await loadAssetsFromFolder(
+      { platform, store, projectId: 'p1' },
+      { x: 0, y: 0 },
+      (done, total) => seen.push(`${done}/${total}`),
+    )
+
+    expect(result).toMatchObject({ imported: 2, skipped: 1 })
+    expect(seen).toHaveLength(2) // 两张图 ⇒ 两步；`notes.md` 不占步
+    expect(seen.every((s) => s.endsWith('/2'))).toBe(true)
+    expect(seen.at(-1)).toBe('2/2')
+    expect(new Set(seen).size).toBe(2) // 每一步都往前走，不会重复报同一步
+  })
+
   it('同一张图重复加载 → 内容寻址去重（素材不新增、节点各自成节点）', async () => {
     const png = solidPng(8, 6, [0, 128, 255], 'folder-dup')
     const folderFiles = {

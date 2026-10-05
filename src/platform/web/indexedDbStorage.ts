@@ -147,6 +147,24 @@ export function createIndexedDbStorage(dbName?: string): StoragePort {
       if (entries.length === 0) return tableOf(table).toArray()
       return tableOf(table).where(entries[0]![0]).equals(entries[0]![1] as never).toArray()
     },
+    async scan(table, batchSize, onBatch) {
+      if (needsOpen()) await db.open()
+      const t = tableOf(table)
+      /**
+       * 先要**总数**（进度要分母）：`count()` 走 IDB 的计数，只过键、**不反序列化值** ——
+       * 这正是它与 `toArray()` 的差别，大表上差的就是"崩不崩"。
+       */
+      const total = await t.count()
+      let offset = 0
+      while (offset < total) {
+        // 一次只把这一批反序列化进内存（`offset/limit` 走 IDB 游标，不是先全查再切片）
+        const rows = await t.offset(offset).limit(batchSize).toArray()
+        if (rows.length === 0) break
+        offset += rows.length
+        await onBatch(rows, { total })
+      }
+      return offset
+    },
     async estimateUsage() {
       const estimate = navigator.storage?.estimate
         ? await navigator.storage.estimate()

@@ -66,6 +66,21 @@ export function createMemoryStorage(seed: MemorySeed = {}): StoragePort {
     async query(table, filter) {
       return [...tableOf(table).values()].filter((r) => matches(r, filter)).map((r) => ({ ...r }))
     },
+    /**
+     * 内存实现的"分批"是**语义上的**：它本来就整表在内存里，分批只保证**交给调用方的形状**
+     * 与 web 侧一致 —— 于是"分批写盘 + 进度"这条逻辑在单测里可以真跑（而不是只测一个小库）。
+     */
+    async scan(table, batchSize, onBatch) {
+      const all = [...tableOf(table).values()]
+      const total = all.length
+      let offset = 0
+      while (offset < total) {
+        const rows = all.slice(offset, offset + batchSize).map((r) => ({ ...r }))
+        offset += rows.length
+        await onBatch(rows, { total })
+      }
+      return offset
+    },
     async estimateUsage() {
       return seed.usage ?? { used: 0, quota: 1024 * 1024 * 1024 }
     },
