@@ -3860,3 +3860,23 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   "高清度没有'旧糊新清'这个差"要写进文档，否则下一次会话会拿着"用户说糊"再查一遍同一个 `will-change` 老坑。
 - **量具在对比工程**（`轻画-画布引擎对比/scripts/measure-sharpness.mjs`），不在本仓库：
   别再说"这个工具不存在"，是"不在这个仓库"。
+### ★ 发版脚本必须按版本号挑产物：`bundle/` 会留着上一次的包（2026-10-05，对账 #224）
+
+- `src-tauri/target/release/bundle/nsis/` **不清理**上一次的输出：第二次发版时 0.1.0 与 0.1.1 两个安装包同时在场。
+  按"第一个 `*-setup.exe`"取 ⇒ 新版本的 `latest.json` 里指向**旧版本的安装包**；
+  因为签名是真的，**验签照样通过** ⇒ 用户点"升级"装回旧版，界面上一切正常（最坏的一类：静默错）。
+- 判据：产物名里必须带当前版本号（`_${version}_`）；找不到就**报错停下**，别退化成"随便拿一个"。
+- **固定动作**：发版后看一眼签名 trusted comment 里的 `file:` / `version:` 与清单 `version` 是否一致 —— 这次就是它暴露的。
+- 这个 bug 只有**真跑第二次发版**才会出现：一次性演练永远抓不到。
+
+### ★ 自动更新真机演练怎么做、以及演练残留必须清（2026-10-05，对账 #223）
+
+- 没有正式地址也能真跑一遍升级：本地静态服务 + 临时把 `endpoints` 指到
+  `http://127.0.0.1:<port>/latest.json` + 开 `dangerousInsecureTransportProtocol`
+  （发行版默认拒绝 http ⇒ 这条**只用于本地演练**，演练完复位）。
+  脚本：`scripts/probe-update-serve.mjs`（发目录）+ `scripts/probe-update-e2e.mjs`（点按钮）。
+- Windows 上**应用必须自己退出**（安装器接手）：`download_and_install` 返回后**不要**再 `app.restart()`，否则启动两次。
+  前端也别把"没等到 Promise 返回"当失败。
+- 演练完三件事必做：**endpoints 复位**、**带 localhost 地址的产物删掉**（那种包发出去 = 别人永远收不到更新）、
+  卸掉测试版本。卸载顺带验证 P4 两条：程序目录 / 快捷方式 / 注册表条目全清，
+  而**用户数据在程序目录之外**（`%LOCALAPPDATA%\com.qinghua.canvas` vs 程序目录 `%LOCALAPPDATA%\轻画`）⇒ 换版本与卸载都不碰数据。

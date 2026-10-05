@@ -99,8 +99,22 @@ else console.log('[release] --skip-build：复用已有构建产物')
 
 const nsisDir = path.join(ROOT, 'src-tauri/target/release/bundle/nsis')
 if (!existsSync(nsisDir)) throw new Error(`没有构建产物：${nsisDir}`)
-const setupName = readdirSync(nsisDir).find((f) => f.endsWith('-setup.exe'))
-if (!setupName) throw new Error(`${nsisDir} 里没有 *-setup.exe`)
+/**
+ * ⚠️ 必须**按版本号**挑产物，不能"第一个 `*-setup.exe` 就是它"。
+ *
+ * makensis 不会清理上一次的输出 ⇒ `bundle/nsis/` 里会同时躺着 0.1.0 和 0.1.1 两个安装包。
+ * 按第一个匹配拿，就会把**旧版本**的包装进新版本的 `latest.json`：
+ * 客户端拉到"0.1.1 有新版本"、下下来却是 0.1.0 ⇒ 用户"升级"回了旧版，而且因为签名是真的，**验签也会通过**。
+ * （这不是推演：本地演练第二次发版时就拿到了 0.1.0 的包与签名，是签名里的 `file:`/`version:` 把它暴露出来的。）
+ */
+const candidates = readdirSync(nsisDir).filter((f) => f.endsWith('-setup.exe'))
+const setupName = candidates.find((f) => f.includes(`_${version}_`))
+if (!setupName) {
+  throw new Error(
+    `bundle/nsis 里没有 ${version} 的安装包（现有：${candidates.join(' / ') || '（空）'}）。\n` +
+      '先确认这次构建真的成功了、且三处版本号一致 —— **别拿上一次的旧产物当新版本发**。',
+  )
+}
 const setupPath = path.join(nsisDir, setupName)
 const sigPath = `${setupPath}.sig`
 if (!existsSync(sigPath)) {
