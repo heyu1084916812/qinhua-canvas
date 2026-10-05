@@ -22,6 +22,8 @@ import { sourcePortOf, targetPortOf } from '../../../domain/canvas/model/edge'
 import { describeError } from '../../../shared/result'
 import { flowViewportToStore, storeViewportToFlow } from './viewportBridge'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
+import { screenToWorld } from '../../../domain/canvas/geometry/coords'
+import { describeLoadResult, loadAssetsFromFolder } from '../../../features/canvas/loadFromFolder'
 
 /**
  * 引擎替换 P0：用 React Flow 渲染**真实图**。
@@ -35,10 +37,16 @@ import { usePlatform } from '../../../app/providers/PlatformProvider'
  * 面板 / 工具栏 / 标注 / 旋转 / 宫格 / 跟随栏 / 右键菜单 / 拖入导入 / 快捷键 / 容器与结果组。
  * 因此它挂在 `?engine=rf` 后面，默认仍是老画布。
  */
-export function FlowSurface({ onOpenSettings }: { onOpenSettings?: () => void }) {
+export function FlowSurface({
+  projectId,
+  onOpenSettings,
+}: {
+  projectId: string
+  onOpenSettings?: () => void
+}) {
   return (
     <ReactFlowProvider>
-      <FlowSurfaceInner onOpenSettings={onOpenSettings} />
+      <FlowSurfaceInner projectId={projectId} onOpenSettings={onOpenSettings} />
     </ReactFlowProvider>
   )
 }
@@ -46,7 +54,13 @@ export function FlowSurface({ onOpenSettings }: { onOpenSettings?: () => void })
 const NODE_TYPES = { qh: FlowFlowNode }
 const EDGE_OPTIONS = { type: 'default' } as const
 
-function FlowSurfaceInner({ onOpenSettings }: { onOpenSettings?: () => void }) {
+function FlowSurfaceInner({
+  projectId,
+  onOpenSettings,
+}: {
+  projectId: string
+  onOpenSettings?: () => void
+}) {
   const store = useCanvasStore()
   const graph = useGraph()
   const selection = useSelection()
@@ -245,17 +259,28 @@ function FlowSurfaceInner({ onOpenSettings }: { onOpenSettings?: () => void }) {
         <Controls showInteractive={false} />
         <MiniMap pannable zoomable nodeColor="var(--stroke)" maskColor="transparent" />
       </ReactFlow>
-      <Hud count={graph.nodes.length} ids={nodes.map((n) => n.id)} />
+      <Hud store={store} projectId={projectId} count={graph.nodes.length} ids={nodes.map((n) => n.id)} />
     </div>
   )
 }
 
-function Hud({ count, ids }: { count: number; ids: string[] }) {
+function Hud({
+  store,
+  projectId,
+  count,
+  ids,
+}: {
+  store: ReturnType<typeof useCanvasStore>
+  projectId: string
+  count: number
+  ids: string[]
+}) {
   const { x, y, zoom } = useViewport()
   const storeVp = useViewportState()
   const platform = usePlatform()
   const folder = platform.assetFolder
   const [folderName, setFolderName] = useState<string | null>(folder?.current()?.name ?? null)
+  const [loading, setLoading] = useState(false)
   const canPick = folder?.supported() ?? false
 
   /** 画布里的「素材位置」入口（对账 #196）：选一个文件夹当素材位置；选了就是授权，刷新后要重选 */
@@ -266,6 +291,31 @@ function Hud({ count, ids }: { count: number; ids: string[] }) {
       setFolderName(picked?.name ?? folder.current()?.name ?? null)
     } catch (err) {
       platform.logger.log('warn', '[assetFolder] 选目录失败', { error: String(err) })
+    }
+  }
+
+  /**
+   * 「从文件夹加载」：把目录里的素材批量建成节点（对账 #196 · 增量 3）。
+   * 落点用**当前视口中心**，换算与工具栏的「新建节点」同一条口径（`screenToWorld` + surface 矩形）。
+   */
+  const loadFromFolder = async () => {
+    const el = document.querySelector<HTMLElement>('[data-canvas-surface]')
+    if (!el || !folder?.current()) return
+    const r = el.getBoundingClientRect()
+    const center = screenToWorld(
+      { x: r.left + r.width / 2, y: r.top + r.height / 2 },
+      store.getViewport(),
+      { x: r.left, y: r.top, w: r.width, h: r.height },
+    )
+    setLoading(true)
+    try {
+      const result = await loadAssetsFromFolder({ platform, store, projectId }, center)
+      // 结果如实说：加载几张、跳过几个、失败几个（失败带第一个原因）
+      store.notify(describeLoadResult(result))
+    } catch (err) {
+      store.notify(`从文件夹加载失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -292,6 +342,15 @@ function Hud({ count, ids }: { count: number; ids: string[] }) {
         onClick={() => void pickFolder()}
       >
         素材：{folderName ?? '内置库'}
+      </button>
+      <button
+        type="button"
+        data-asset-folder-load
+        disabled={!folderName || loading}
+        title={folderName ? '把该文件夹里的图片 / 视频批量加载到画布' : '先选一个素材文件夹'}
+        onClick={() => void loadFromFolder()}
+      >
+        {loading ? '加载中…' : '从文件夹加载'}
       </button>
     </div>
   )

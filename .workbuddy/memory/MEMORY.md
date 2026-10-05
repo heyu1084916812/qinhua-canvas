@@ -3538,6 +3538,12 @@ Midjourney 的高级设置需要「一根滑杆」和「一个文本框」，而
   且写盘失败只记日志 —— 磁盘只读/被拔/没权限都不该让"素材入库"失败。
 - **别用 `blob:` URL 判内容**：node 里取不回 blob 内容，所以测"用磁盘那份还是内置库那份"时，
   断言要落在**查了哪一边、文件名怎么拼**（包一层 spy 数 `read` 的入参），而不是去读返回的 URL。
+- **单测里要用节点命令，必须先 `registerAllSpecs()`**：节点规格是**渲染层导入时注册**的副作用，
+  单测没有渲染层 ⇒ `node.create` 会报「未知节点类型：generation」。写法见
+  `createNodeWithDefaults.test.ts` / `loadFromFolder.test.ts`。**这个报错很容易被误读成"命令写错了"。**
+- **批量操作别把失败吞掉**：`loadAssetsFromFolder` 第一版只记 `failed: 1`，结果连自己都查不出原因
+  （真实原因就是上面那条"未知节点类型"）。改成 `failures: { name, reason }[]` 之后一眼看到根因 ——
+  **"N 个失败"不带原因等于没报**，这与项目里 `describeError` 那条口径是同一条。
 - **视口字段同名不同义（最容易静默出错的一条）**：轻画 `Viewport.x/y` = 「视口左上角对应的
   **世界坐标**」（`screenToWorld = (screen-rect)/zoom + vp.x`；老画布 transform 是
   `translate(-vp.x*zoom,…) scale(zoom)`）；React Flow 的 `viewport.x/y` = 「**屏幕像素位移**」
