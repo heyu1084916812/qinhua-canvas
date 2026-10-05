@@ -4057,3 +4057,12 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   在仓库根下 + 没被 git 跟踪 + 命中一条 ignore 规则，任一不满足就跳过并打印原因 —— 别靠人记性。
 - 不能顺手删的：`src-tauri/target`（4.1 GB 编译缓存，热缓存打包只要 1 分 11 秒）、
   `轻画-漫剧形态调研.md`（刻意 gitignore 的本地稿）、`RELEASE_NOTES.md` 与被跟踪的脚本。
+### ★ PowerShell 5.1 发请求带字符串 body：**中文会变成 `?`**（2026-10-06，对账 #256）
+- 症状：GitHub Release 的标题和正文里中文全变成 `??`（页面上就是一片问号），而同一批上传的
+  **文件**（`latest.json`）中文好好的 —— 因为文件是字节流、字符串 body 走的是另一条编码路径。
+- 根因：PS 5.1 的 `Invoke-RestMethod -Body "<字符串>"` 按**单字节**送出，非 ASCII 直接落成 `?`，
+  而且**请求是成功的**（不报错）⇒ 只能靠"再看一眼结果"发现。
+- 做法：**body 一律显式转字节** —— `$bytes = [System.Text.Encoding]::UTF8.GetBytes($json)`，
+  再 `-Body $bytes -ContentType "application/json; charset=utf-8"`。
+- 纪律：**凡是"写出去就收不回来"的调用（发布、改可见性、发 Release），发完必须匿名复读一遍**，
+  比对的判据要能抓住编码问题（例如 `$rel.name -ceq "轻画 0.1.0"` 与 `-match "\?\?"` 两个方向各查一次）。
