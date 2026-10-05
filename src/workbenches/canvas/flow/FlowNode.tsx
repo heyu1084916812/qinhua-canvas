@@ -1,4 +1,4 @@
-import { Fragment, memo } from 'react'
+import { Fragment, memo, type ReactNode } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { NodeFrame } from '../frame/NodeFrame'
 import { getNodeDefinition } from '../nodes/registry'
@@ -24,6 +24,9 @@ export interface FlowNodeData extends Record<string, unknown> {
   error: string | null
   runMode: RunMode
   emit: (event: NodeViewEvent) => void
+  /** 容器（分组 / 批量）的子节点：沿用老表面那套 —— 由容器本体按网格渲染 */
+  childNodes?: NodeSnapshot[]
+  renderChild?: (child: NodeSnapshot) => ReactNode
 }
 
 function handlePosition(side: 'left' | 'right') {
@@ -31,7 +34,7 @@ function handlePosition(side: 'left' | 'right') {
 }
 
 function FlowNodeInner({ data, selected }: NodeProps) {
-  const { node, running, error, runMode, emit } = data as unknown as FlowNodeData
+  const { node, running, error, runMode, emit, childNodes, renderChild } = data as unknown as FlowNodeData
   const def = getNodeDefinition(node.type)
   const ports = portDeclsOf(def.ports)
   const frameNode = { ...node, x: 0, y: 0 }
@@ -62,6 +65,8 @@ function FlowNodeInner({ data, selected }: NodeProps) {
           runMode={runMode}
           error={error}
           emit={emit}
+          childNodes={childNodes}
+          renderChild={renderChild}
         />
       </NodeFrame>
       {/*
@@ -96,3 +101,56 @@ function FlowNodeInner({ data, selected }: NodeProps) {
 }
 
 export const FlowFlowNode = memo(FlowNodeInner)
+
+/**
+ * 容器（分组 / 批量）里的子节点：与顶层节点**共用同一个 `NodeFrame` + `def.View`**，
+ * 只有两条差别 —— 坐标由容器网格决定（归零）、端点隐藏（§6.11「组内节点端点隐藏」）。
+ *
+ * 关键：子节点**不进 React Flow 的节点列表**，而是作为容器 `View` 的 `renderChild` 结果
+ * 渲染在容器内部。这与老表面 `NodeLayer.renderChild` 完全一致，因此容器的网格布局、
+ * 拖出归属等语义不用重写。
+ */
+export function FlowChildFrame({
+  child,
+  selected,
+  running,
+  error,
+  runMode,
+  emit,
+}: {
+  child: NodeSnapshot
+  selected: boolean
+  running: boolean
+  error: string | null
+  runMode: RunMode
+  emit: (event: NodeViewEvent) => void
+}) {
+  const def = getNodeDefinition(child.type)
+  return (
+    <NodeFrame
+      node={{ ...child, x: 0, y: 0 }}
+      selected={selected}
+      scale={1}
+      ports={def.ports}
+      minSize={def.sizing.min}
+      portsHidden
+      resizeLock={resizeLockOf(child)}
+      heightFromContent={heightFromContentOf(child)}
+      onFramePointerDown={() => {}}
+      onResize={() => {}}
+      onRename={(title) => emit({ type: 'rename', title })}
+    >
+      <def.View
+        node={child}
+        size={{ w: child.w, h: child.h }}
+        scale={1}
+        selected={selected}
+        running={running}
+        globalRunning={false}
+        runMode={runMode}
+        error={error}
+        emit={emit}
+      />
+    </NodeFrame>
+  )
+}

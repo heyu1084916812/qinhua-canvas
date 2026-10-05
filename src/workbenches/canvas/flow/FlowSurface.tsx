@@ -17,7 +17,11 @@ import styles from './FlowSurface.module.css'
 import { useCanvasStore, useGraph, useSelection, useViewportState } from '../storeContext'
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { useCanvasPageEvents } from '../../../features/canvas/useCanvasPageEvents'
-import { FlowFlowNode, type FlowNodeData } from './FlowNode'
+import { FlowChildFrame, FlowFlowNode, type FlowNodeData } from './FlowNode'
+import { childrenByParent, isContainerType, topLevelNodes } from './flowGraph'
+import type { NodeSnapshot } from '../../../domain/canvas/model/node'
+import type { RunMode } from '../../../domain/canvas/model/runRecord'
+import type { NodeViewEvent } from '../nodes/registry'
 import { sourcePortOf, targetPortOf } from '../../../domain/canvas/model/edge'
 import { describeError } from '../../../shared/result'
 import { flowViewportToStore, storeViewportToFlow } from './viewportBridge'
@@ -121,10 +125,56 @@ function FlowSurfaceInner({
     return () => cancelAnimationFrame(id)
   }, [rf])
 
+  /** 节点事件出口：视图只能 emit，由这一层翻译成命令（架构 §4.7） */
+  const makeEmit = useCallback(
+    (nodeId: string) => (event: NodeViewEvent) => {
+      if (event.type === 'requestRun') {
+        void exec.runNode(nodeId)
+        return
+      }
+      if (event.type === 'requestRunCancel') {
+        exec.cancel()
+        return
+      }
+      emitNodeEvent(nodeId, event)
+    },
+    [exec, emitNodeEvent],
+  )
+
+  /** 父 → 子索引（整图一次）：容器本体要拿它把自己的子节点画出来 */
+  const childIndex = useMemo(() => childrenByParent(graph), [graph])
+
+  /**
+   * 容器子节点的渲染：与顶层节点**同一套** `NodeFrame` + `def.View`，
+   * 差别只有坐标归零（由容器网格定位）与端点隐藏（§6.11）。
+   */
+  const renderFlowChild = useCallback(
+    (child: NodeSnapshot) => {
+      const state = exec.nodeStateOf(child.id)
+      const running = state?.kind === 'queued' || state?.kind === 'running'
+      const error = state?.kind === 'failed' ? describeError(state.error) : null
+      const runMode: RunMode =
+        state && (state.kind === 'queued' || state.kind === 'running' || state.kind === 'canceled')
+          ? 'single'
+          : 'idle'
+      return (
+        <FlowChildFrame
+          key={child.id}
+          child={child}
+          selected={selection.includes(child.id)}
+          running={running}
+          error={error}
+          runMode={runMode}
+          emit={makeEmit(child.id)}
+        />
+      )
+    },
+    [exec, selection, makeEmit],
+  )
+
   const nodes = useMemo<RFNode<FlowNodeData>[]>(
     () =>
-      graph.nodes
-        .filter((n) => !n.parentId)
+      topLevelNodes(graph)
         .map((n) => {
           const state = exec.nodeStateOf(n.id)
           const running = state?.kind === 'queued' || state?.kind === 'running'
@@ -152,21 +202,22 @@ function FlowSurfaceInner({
               running,
               error,
               runMode,
-              emit: (event) => {
-                if (event.type === 'requestRun') {
-                  void exec.runNode(n.id)
-                  return
-                }
-                if (event.type === 'requestRunCancel') {
-                  exec.cancel()
-                  return
-                }
-                emitNodeEvent(n.id, event)
-              },
+              emit: makeEmit(n.id),
+              /*
+               * 容器（分组 / 批量）：把子节点连同渲染函数一起交给容器本体 ——
+               * 与老表面 `NodeLayer.renderChild` 同一套语义，网格布局与拖出归属都不用重写。
+               */
+              ...(isContainerType(n.type)
+                ? {
+                    childNodes: childIndex.get(n.id) ?? [],
+                    renderChild:
+                      (childIndex.get(n.id)?.length ?? 0) > 0 ? renderFlowChild : undefined,
+                  }
+                : {}),
             } satisfies FlowNodeData,
           }
         }),
-    [graph, selection, exec, emitNodeEvent],
+    [graph, selection, exec, makeEmit, childIndex, renderFlowChild],
   )
 
   const edges = useMemo(
