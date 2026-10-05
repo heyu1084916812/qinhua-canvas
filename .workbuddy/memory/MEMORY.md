@@ -3544,6 +3544,16 @@ Midjourney 的高级设置需要「一根滑杆」和「一个文本框」，而
 - **批量操作别把失败吞掉**：`loadAssetsFromFolder` 第一版只记 `failed: 1`，结果连自己都查不出原因
   （真实原因就是上面那条"未知节点类型"）。改成 `failures: { name, reason }[]` 之后一眼看到根因 ——
   **"N 个失败"不带原因等于没报**，这与项目里 `describeError` 那条口径是同一条。
+- **React Flow 受控模式下，选中走 `NodeChange('select')` 而不是 `onSelectionChange`**：
+  传了 `nodes` 就是受控模式，点击产生的选中变更在 `onNodesChange` 里派发；只处理 `position`、
+  丢掉 `select` ⇒ **点节点选不上、创作面板打不开**（而拖拽/框选看起来还正常，特别容易误判）。
+  正确姿势：`onNodesChange` 里把选中增删落到 store，再由 `nodes[].selected` 推回画布。
+- **默认行为已经对时，别再加"显式"实现**：RF 默认就会「点空白清选中、拖过不算点」，
+  我多加的一条无条件 `onPaneClick={setSelection([])}` 反而**把点节点的选中也清了** ——
+  症状与上一条一模一样，两条同时存在时极难分辨。**先确认默认行为，再决定要不要接管。**
+- **新表面别重写浮层**：创作面板 / 跟随栏 / 右键菜单 / 提示 / 撤销条**都自成一体、只读 store**，
+  换画布引擎时直接挂同一批组件即可（这次一行没重写）。只有当某个能力要跨表面共享时（如"下载"）
+  才抽出来 —— 抽的是**实现**，不是把组件搬过去。
 - **视口字段同名不同义（最容易静默出错的一条）**：轻画 `Viewport.x/y` = 「视口左上角对应的
   **世界坐标**」（`screenToWorld = (screen-rect)/zoom + vp.x`；老画布 transform 是
   `translate(-vp.x*zoom,…) scale(zoom)`）；React Flow 的 `viewport.x/y` = 「**屏幕像素位移**」

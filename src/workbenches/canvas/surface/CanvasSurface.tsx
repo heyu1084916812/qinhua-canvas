@@ -35,7 +35,7 @@ import { ContextMenu } from '../menu/ContextMenu'
 import { LinkMenu } from '../menu/LinkMenu'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { createAssetNode, importAssetFile, isImportableMedia, IMPORT_ACCEPT } from '../../../features/canvas/importAsset'
-import { downloadAsset } from '../../../features/canvas/downloadAsset'
+import { useNodeDownload } from '../../../features/canvas/useNodeDownload'
 import type { ImportedAsset } from '../../../features/canvas/importAsset'
 import { assetNodeSize } from '../../../domain/canvas/layout/assetNodeSize'
 import styles from './CanvasSurface.module.css'
@@ -87,26 +87,7 @@ export function CanvasSurface({
    * 而跟随栏是 Surface 的子层。多绕一层页面只会让「谁能下载」这件事
    * 在两个文件里各说一半。
    */
-  const handleDownload = useCallback(
-    (nodeId: string) => {
-      const node = store.getSnapshot().nodes.find((n) => n.id === nodeId)
-      const hash = (node?.data as { assetHash?: string } | undefined)?.assetHash
-      if (!hash) return
-      void downloadAsset({ assets: platform.assets, files: platform.files }, hash).then((r) => {
-        // 如实反馈：静默失败会让用户以为「下载坏了」，而其实是素材已不在表里
-        if (!r.ok) {
-          store.notify(r.reason === 'missing' ? '这张素材已不在素材库里' : '下载失败')
-          return
-        }
-        /**
-         * 视频成片托管在远端、不给 CORS 头，字节进不了页面 —— 那条路是把地址
-         * 交回浏览器（新标签页）。这也是**成功**，但必须说清去哪儿拿文件。
-         */
-        if (r.via === 'tab') store.notify('远端素材已在新标签页打开：用浏览器自带的下载保存')
-      })
-    },
-    [platform, store],
-  )
+  const handleDownload = useNodeDownload(platform, store)
   const edgeDrag = useEdgeDrag(store)
   const edgeDragBegin = edgeDrag.begin
   // Ctrl/Cmd + C/V（§4.2）：剪贴板是模块级单例、不订阅，故不参与本组件重渲染

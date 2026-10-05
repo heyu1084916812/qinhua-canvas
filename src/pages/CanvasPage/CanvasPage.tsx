@@ -356,7 +356,11 @@ function CanvasProject({ projectId }: { projectId: string }) {
            * （`App.render.test.ts` 在无 DOM 环境跑 `renderToReadableStream`），读 window 会直接抛。
            */}
           {new URLSearchParams(location.search).get('engine') === 'rf' ? (
-            <FlowSurface projectId={projectId} onOpenSettings={openSettings} />
+            <FlowSurface
+              projectId={projectId}
+              onOpenSettings={openSettings}
+              onOpenSkills={() => navigate('/skills')}
+            />
           ) : (
             <CanvasSurface onOpenSettings={openSettings} onOpenSkills={() => navigate('/skills')} />
           )}

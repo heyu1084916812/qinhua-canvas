@@ -24,6 +24,12 @@ import { flowViewportToStore, storeViewportToFlow } from './viewportBridge'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { screenToWorld } from '../../../domain/canvas/geometry/coords'
 import { describeLoadResult, loadAssetsFromFolder } from '../../../features/canvas/loadFromFolder'
+import { useNodeDownload } from '../../../features/canvas/useNodeDownload'
+import { PanelLayer } from '../panels/PanelLayer'
+import { NodeFollowBar } from '../toolbar/NodeFollowBar'
+import { ContextMenu } from '../menu/ContextMenu'
+import { CanvasNotice } from '../surface/CanvasNotice'
+import { UndoBar } from '../surface/UndoBar'
 
 /**
  * 引擎替换 P0：用 React Flow 渲染**真实图**。
@@ -40,13 +46,15 @@ import { describeLoadResult, loadAssetsFromFolder } from '../../../features/canv
 export function FlowSurface({
   projectId,
   onOpenSettings,
+  onOpenSkills,
 }: {
   projectId: string
   onOpenSettings?: () => void
+  onOpenSkills?: () => void
 }) {
   return (
     <ReactFlowProvider>
-      <FlowSurfaceInner projectId={projectId} onOpenSettings={onOpenSettings} />
+      <FlowSurfaceInner projectId={projectId} onOpenSettings={onOpenSettings} onOpenSkills={onOpenSkills} />
     </ReactFlowProvider>
   )
 }
@@ -57,9 +65,11 @@ const EDGE_OPTIONS = { type: 'default' } as const
 function FlowSurfaceInner({
   projectId,
   onOpenSettings,
+  onOpenSkills,
 }: {
   projectId: string
   onOpenSettings?: () => void
+  onOpenSkills?: () => void
 }) {
   const store = useCanvasStore()
   const graph = useGraph()
@@ -70,6 +80,8 @@ function FlowSurfaceInner({
   const rf = useReactFlow()
   const exec = useCanvasExecution()
   const { emitNodeEvent } = useCanvasPageEvents(store, onOpenSettings)
+  const platform = usePlatform()
+  const handleDownload = useNodeDownload(platform, store)
 
   /**
    * 视口**受控**（`viewport` + `onViewportChange`），不用 `defaultViewport`：
@@ -146,6 +158,21 @@ function FlowSurfaceInner({
   /** 位置变化 → 翻译成 `node.move`（React Flow 给的是绝对坐标，这里换成增量） */
   const onNodesChange = useCallback(
     (changes: NodeChange<RFNode<FlowNodeData>>[]) => {
+      /**
+       * **选中在受控模式下走 `NodeChange('select')`，不是 `onSelectionChange`**（实测：后者一次都不触发）。
+       * 我第一版只处理 `position`、把 `select` 丢掉，于是"点节点选中不了、创作面板打不开"。
+       * 这里把选中的增删落到 store，store 再经 `nodes[].selected` 推回画布 —— 保持 store 唯一真相。
+       */
+      const selected = new Set(store.getSelection())
+      let selectionChanged = false
+      for (const change of changes) {
+        if (change.type !== 'select') continue
+        if (change.selected) selected.add(change.id)
+        else selected.delete(change.id)
+        selectionChanged = true
+      }
+      if (selectionChanged) store.setSelection([...selected])
+
       const positions: { id: string; position: { x: number; y: number } }[] = []
       for (const change of changes) {
         if (change.type === 'position' && change.position) {
@@ -198,16 +225,6 @@ function FlowSurfaceInner({
     [store],
   )
 
-  const onSelectionChange = useCallback(
-    ({ nodes: selected }: { nodes: RFNode[] }) => {
-      const ids = selected.map((n) => n.id)
-      const cur = store.getSelection()
-      if (ids.length === cur.length && ids.every((id, i) => id === cur[i])) return
-      store.setSelection(ids)
-    },
-    [store],
-  )
-
   const onNodesDelete = useCallback(
     (deleted: RFNode[]) => {
       const ids = deleted.map((n) => n.id)
@@ -247,9 +264,11 @@ function FlowSurfaceInner({
         onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onConnect={onConnect}
-        onSelectionChange={onSelectionChange}
-        /* §6.15「单击画布空白 = 取消选中，收起面板」；「拖过就不算点空白」由 React Flow 自己区分点击与拖动 */
-        onPaneClick={() => store.setSelection([])}
+        /*
+         * 不自己接 `onPaneClick` 清选中：React Flow **默认就会**在点空白时清（且能区分"拖过不算点"）。
+         * 我一度自己加了一条无条件清空 —— 结果**点节点也会被它清掉**（选中立刻变 0，创作面板打不开）。
+         * 教训：默认行为已经对时，多余的"显式"实现只会引入偏差。
+         */
         onlyRenderVisibleElements
         onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
@@ -260,6 +279,16 @@ function FlowSurfaceInner({
         <MiniMap pannable zoomable nodeColor="var(--stroke)" maskColor="transparent" />
       </ReactFlow>
       <Hud store={store} projectId={projectId} count={graph.nodes.length} ids={nodes.map((n) => n.id)} />
+      {/*
+       * 工作区浮层：**直接复用老表面那一套**（它们都自成一体、只读 store），
+       * 换引擎不该把创作面板、跟随栏、右键菜单、提示与撤销条重写一遍。
+       * 仍未接的：多选浮层的左右端点（那要桥接自研拖线控制器）、标注/旋转/宫格（挂在跟随栏里，见 P4）。
+       */}
+      <PanelLayer onOpenSettings={onOpenSettings} onOpenSkills={onOpenSkills} />
+      <NodeFollowBar onOpenSettings={onOpenSettings} onDownload={handleDownload} />
+      <ContextMenu />
+      <CanvasNotice />
+      <UndoBar />
     </div>
   )
 }
