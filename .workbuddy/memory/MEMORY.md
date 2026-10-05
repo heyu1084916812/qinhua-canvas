@@ -3526,6 +3526,12 @@ Midjourney 的高级设置需要「一根滑杆」和「一个文本框」，而
 - **换引擎时"照抄旧实现"不一定对，要回产品文档**：§6.15 定的是「**单击**画布空白 = 取消选中」
   +「**拖过就不算点空白**」（3px 容差）。老画布是"按下就清"（`onBgDown` 里 `setSel(new Set())`），
   其实**偏离文档**；React Flow 的 `onPaneClick` 正好是文档语义。**以文档为准，别以旧代码为准。**
+- **组件里不能直接读 `window`**：`App.render.test.ts` 在**无 DOM 环境**用
+  `renderToReadableStream` 整树渲染（Node 里没有 `window`）。我给画布页加 `?engine=rf` 开关时写了
+  `window.location.search` ⇒ 该测试从"通过"变成只拿到半截 HTML。改用路由的 `useLocation().search`
+  （MemoryRouter 下也成立、SSR 安全）。**这个仓库的组件必须能在无 DOM 环境渲染。**
+- **加端口时把它设成可选**（`PlatformKit.assetFolder?`）：受限环境本来就没有这项能力，
+  设成必填会逼出一堆假实现；可选 + 调用方容错，才与既有的 `vision?` 一致。
 - **视口字段同名不同义（最容易静默出错的一条）**：轻画 `Viewport.x/y` = 「视口左上角对应的
   **世界坐标**」（`screenToWorld = (screen-rect)/zoom + vp.x`；老画布 transform 是
   `translate(-vp.x*zoom,…) scale(zoom)`）；React Flow 的 `viewport.x/y` = 「**屏幕像素位移**」

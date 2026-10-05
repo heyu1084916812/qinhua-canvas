@@ -11,6 +11,7 @@ import type {
   NetworkRequest,
   NetworkResponse,
   StreamChunk,
+  AssetFolderPort,
 } from '../ports'
 import { parseSSELine, createLineSplitter } from '../sse'
 import { createStorageAssetPort } from '../assets'
@@ -20,6 +21,8 @@ export interface MemorySeed {
   /** 自定义请求处理；未提供时返回 200 空响应 */
   handler?: (req: NetworkRequest) => Promise<NetworkResponse>
   usage?: { used: number; quota: number }
+  /** 假的"素材文件夹"内容（key = 文件名，如 `abc.png`） */
+  assetFolderFiles?: Record<string, Blob>
 }
 
 function matches(row: Row, filter: Partial<Row>): boolean {
@@ -160,12 +163,46 @@ export function createMemoryLogger(): LoggerPort {
   return port
 }
 
+/**
+ * 内存版素材文件夹：只给测试与预览页用。
+ * 行为刻意与浏览器实现对齐（`read` 缺失返回 null、`write` 覆盖、`list` 只列文件）。
+ */
+export function createMemoryAssetFolder(seed: MemorySeed = {}): AssetFolderPort {
+  const files = new Map<string, Blob>(Object.entries(seed.assetFolderFiles ?? {}))
+  let name: string | null = null
+  return {
+    supported() {
+      return true
+    },
+    current() {
+      return name ? { name } : null
+    },
+    async pick() {
+      name = name ?? 'memory-assets'
+      return { name }
+    },
+    async has(file) {
+      return files.has(file)
+    },
+    async read(file) {
+      return files.get(file) ?? null
+    },
+    async write(file, blob) {
+      files.set(file, blob)
+    },
+    async list() {
+      return [...files.keys()]
+    },
+  }
+}
+
 export function createMemoryPlatform(seed: MemorySeed = {}): PlatformKit {
   const storage = createMemoryStorage(seed)
   return {
     storage,
     network: createMemoryNetwork(seed),
     assets: createStorageAssetPort(storage),
+    assetFolder: createMemoryAssetFolder(seed),
     hosting: createMemoryHosting(),
     credentials: createMemoryCredentials(),
     files: createMemoryFiles(),

@@ -196,10 +196,47 @@ export interface FaceDetectionResult {
   faces: DetectorFaceRect[]
 }
 
+/**
+ * 素材文件夹（对账 #196 / 方案 §7）。约定：
+ *
+ * - 文件名统一按 `assetFileName(hash, mime)` = `<hash>.<ext>`（`domain/shared/assetLocation`），
+ *   **重传同一张图天然幂等**；
+ * - `read` 返回 `null` 表示「这个文件不在文件夹里」——**必须与"读取失败"区分开**，
+ *   因为这决定了界面该说「素材缺失」还是「读取出错」（不假装有图）；
+ * - 目录句柄**只在内存里**：刷新 / 重启后要用户重新授权（浏览器安全模型如此），
+ *   所以 `current()` 只回名字，`pick()` 是唯一的授权入口。
+ */
+export interface AssetFolderPort {
+  /** 当前环境能不能选目录（没有 FSA 时为 false，调用方据此禁用入口） */
+  supported(): boolean
+  /** 本次会话已授权的目录（只有名字）；没授权过 = null */
+  current(): { name: string } | null
+  /** 打开目录选择器；用户取消返回 null（取消不是错误） */
+  pick(): Promise<{ name: string } | null>
+  has(name: string): Promise<boolean>
+  /** 文件不存在返回 null（＝素材缺失，而不是读取失败） */
+  read(name: string): Promise<Blob | null>
+  /** 写入（已存在则覆盖）；同名即同 hash ⇒ 覆盖是幂等的 */
+  write(name: string, blob: Blob): Promise<void>
+  /** 目录里的文件名清单（不含子目录）——「加载某个文件夹的内容」用 */
+  list(): Promise<string[]>
+}
+
 export interface PlatformKit {
   storage: StoragePort
   network: NetworkPort
   assets: AssetPort
+  /**
+   * **素材文件夹端口**（对账 #196）：把「素材放在哪个位置 / 从哪个文件夹加载」抽出来。
+   *
+   * 与 `AssetPort` 的分工：`AssetPort` 是「hash → 字节」（内置库那条路，一直在），
+   * 这里管的是「字节存在**磁盘上的哪个文件夹**」。浏览器实现走 File System Access
+   * （选目录需要用户手势）；封装成桌面壳后换成原生目录读写 —— **同一端口两个实现**，
+   * 与「只换平台层」那条架构约定一致。
+   *
+   * **可选**：受限环境（无 FSA / 无权限）没有这一项，调用方必须容错并禁用入口。
+   */
+  assetFolder?: AssetFolderPort
   /** 素材传输（图床）：把本地字节换成公网直链；没配图床时 `upload` 返回 null */
   hosting: HostingPort
   credentials: CredentialPort

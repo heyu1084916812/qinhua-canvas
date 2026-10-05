@@ -350,8 +350,12 @@ function CanvasProject({ projectId }: { projectId: string }) {
               </button>
             </div>
           )}
-          {/* 引擎替换（P0）：`?engine=rf` 走 React Flow 那套；不带参数仍是老画布 */}
-          {new URLSearchParams(window.location.search).get('engine') === 'rf' ? (
+          {/*
+           * 引擎替换：`?engine=rf` 走 React Flow 那套；不带参数仍是老画布。
+           * 用路由的 `location.search` 而不是 `window.location`：本页有 SSR 渲染测试
+           * （`App.render.test.ts` 在无 DOM 环境跑 `renderToReadableStream`），读 window 会直接抛。
+           */}
+          {new URLSearchParams(location.search).get('engine') === 'rf' ? (
             <FlowSurface onOpenSettings={openSettings} />
           ) : (
             <CanvasSurface onOpenSettings={openSettings} onOpenSkills={() => navigate('/skills')} />
