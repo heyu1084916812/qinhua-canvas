@@ -3517,6 +3517,15 @@ Midjourney 的高级设置需要「一根滑杆」和「一个文本框」，而
 - **探针别把"交互失败"当成"功能没写"**：这轮两次误判都源于**节点重叠**（新节点建在视口正中央，
   压住原节点 ⇒ 点谁都点到它），最后靠"打印该点最上层元素 / 元素坐标"定位到真正原因
   （新节点落在屏幕 1448,990，视口只有 1440×900）。**先怀疑几何，再怀疑代码。**
+- **视口字段同名不同义（最容易静默出错的一条）**：轻画 `Viewport.x/y` = 「视口左上角对应的
+  **世界坐标**」（`screenToWorld = (screen-rect)/zoom + vp.x`；老画布 transform 是
+  `translate(-vp.x*zoom,…) scale(zoom)`）；React Flow 的 `viewport.x/y` = 「**屏幕像素位移**」
+  （`screen = world*zoom + x`）。**1:1 互传 = 双重计数**，症状是新节点落到视野外。
+  已建 `flow/viewportBridge.ts` 显式换算，并用单测钉住**具体数值**（只测往返一致，
+  把公式整体写反也照样通过）。
+- **RF 的 Handle 不能放进会被裁剪的容器**：`NodeFrame` 的内容区是 `.body { overflow: clip }`，
+  Handle 有一半本来就在框外 ⇒ 被裁掉那一半、可点区只剩一条缝，拉线手势根本起不来
+  （`connecting=0`）。Handle 要与 `NodeFrame` **同级**。
 
 ### ★★ Codex 内置浏览器 IndexedDB 膨胀到 5.4GB 会把主进程拖崩（2026-10-05）
 

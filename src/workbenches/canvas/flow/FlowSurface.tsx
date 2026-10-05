@@ -20,6 +20,7 @@ import { useCanvasPageEvents } from '../../../features/canvas/useCanvasPageEvent
 import { FlowFlowNode, type FlowNodeData } from './FlowNode'
 import { sourcePortOf, targetPortOf } from '../../../domain/canvas/model/edge'
 import { describeError } from '../../../shared/result'
+import { flowViewportToStore, storeViewportToFlow } from './viewportBridge'
 
 /**
  * 引擎替换 P0：用 React Flow 渲染**真实图**。
@@ -48,6 +49,8 @@ function FlowSurfaceInner({ onOpenSettings }: { onOpenSettings?: () => void }) {
   const store = useCanvasStore()
   const graph = useGraph()
   const viewport = useViewportState()
+  /** 两套视口语义不同，必须显式换算（见 viewportBridge.ts；1:1 同步会让新节点落到视野外） */
+  const flowViewport = useMemo(() => storeViewportToFlow(viewport), [viewport])
   const rf = useReactFlow()
   const exec = useCanvasExecution()
   const { emitNodeEvent } = useCanvasPageEvents(store, onOpenSettings)
@@ -213,8 +216,8 @@ function FlowSurfaceInner({ onOpenSettings }: { onOpenSettings?: () => void }) {
         defaultEdgeOptions={EDGE_OPTIONS}
         minZoom={0.1}
         maxZoom={5}
-        viewport={viewport}
-        onViewportChange={(next) => store.setViewport(next)}
+        viewport={flowViewport}
+        onViewportChange={(next) => store.setViewport(flowViewportToStore(next))}
         onNodesChange={onNodesChange}
         onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}

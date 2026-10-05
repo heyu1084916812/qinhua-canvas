@@ -37,31 +37,39 @@ function FlowNodeInner({ data, selected }: NodeProps) {
   const frameNode = { ...node, x: 0, y: 0 }
 
   return (
-    <NodeFrame
-      node={frameNode}
-      selected={!!selected}
-      scale={1}
-      ports={def.ports}
-      minSize={def.sizing.min}
-      resizeLock={resizeLockOf(node)}
-      heightFromContent={heightFromContentOf(node)}
-      /* 老画布那份端点交给 React Flow 的 Handle 画，避免两套端点叠在一起 */
-      portsHidden
-      onFramePointerDown={() => {}}
-      onResize={() => {}}
-      onRename={(title) => emit({ type: 'rename', title })}
-    >
-      <def.View
-        node={node}
-        size={{ w: node.w, h: node.h }}
-        scale={1}
+    <>
+      <NodeFrame
+        node={frameNode}
         selected={!!selected}
-        running={running}
-        globalRunning={false}
-        runMode={runMode}
-        error={error}
-        emit={emit}
-      />
+        scale={1}
+        ports={def.ports}
+        minSize={def.sizing.min}
+        resizeLock={resizeLockOf(node)}
+        heightFromContent={heightFromContentOf(node)}
+        /* 老画布那份端点交给 React Flow 的 Handle 画，避免两套端点叠在一起 */
+        portsHidden
+        onFramePointerDown={() => {}}
+        onResize={() => {}}
+        onRename={(title) => emit({ type: 'rename', title })}
+      >
+        <def.View
+          node={node}
+          size={{ w: node.w, h: node.h }}
+          scale={1}
+          selected={!!selected}
+          running={running}
+          globalRunning={false}
+          runMode={runMode}
+          error={error}
+          emit={emit}
+        />
+      </NodeFrame>
+      {/*
+       * 端点必须放在 NodeFrame **外面**（同级）：NodeFrame 的内容区是 `.body { overflow: clip }`，
+       * 手柄本来就有一半伸在节点框外，放进去会被裁掉那一半 —— 可点区域只剩一条缝，
+       * 于是"从端口拉线"这个手势根本起不来（探针实测 connecting=0）。
+       * React Flow 只要求 Handle 在节点子树里，同级即可；坐标仍以同一个框为基准。
+       */}
       {ports.map((port) => {
         const position = handlePosition(port.side)
         const style = { top: `${port.y * 100}%` }
@@ -83,7 +91,7 @@ function FlowNodeInner({ data, selected }: NodeProps) {
           />
         )
       })}
-    </NodeFrame>
+    </>
   )
 }
 
