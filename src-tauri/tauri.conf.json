@@ -47,7 +47,9 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": [],
+      "endpoints": [
+        "https://github.com/heyu1084916812/qinhua-canvas/releases/latest/download/latest.json"
+      ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJGODIxQjI1RTE5OEVDN0MKUldSODdKamhKUnVDdnpYejBXcXVlaTdubGVIRWRIQ1dZVkVOSWVvTUpzNlRtajBxM2JBMTRRMlgK"
     }
   }

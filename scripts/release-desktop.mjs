@@ -89,6 +89,26 @@ function defaultBaseUrl(version) {
   return null
 }
 
+/**
+ * 更新清单的**稳定**地址（要写进 `tauri.conf.json` 的那一行）。
+ *
+ * ⚠️ 它和上面那个 `defaultBaseUrl(version)` 是**两件事**，别混：
+ *   - `defaultBaseUrl(version)` 是**这一次**安装包的下载前缀 ⇒ 写进 `latest.json` 的 `url`，**必须带版本号**；
+ *   - 这里是**客户端去查"有没有新版"的地址** ⇒ 它被**写死在每个已装出去的包里**，老版本只认自己那一个。
+ *     带上版本号的话，用户装的那一版就永远只看得见那一版的清单、永远发现不了新版。
+ * 故这里用 GitHub 的 `releases/latest/download` **别名**：永远指向最新一次 Release 的同名资产。
+ */
+function defaultEndpointUrl() {
+  try {
+    const remote = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: ROOT, encoding: 'utf8' }).trim()
+    const m = /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/.exec(remote)
+    if (m) return `https://github.com/${m[1]}/${m[2]}/releases/latest/download/latest.json`
+  } catch {
+    /* 没有 origin：回落到本次地址，并在下面提醒 */
+  }
+  return null
+}
+
 const versions = readVersions()
 const version = assertVersionsAligned(versions)
 console.log(`[release] 版本 ${version}（三处一致）`)
@@ -172,8 +192,9 @@ for (const f of [asset, `${asset}.sig`, 'latest.json']) console.log(`  - ${f}`)
 
 console.log('\n[release] 接下来（都在发布机外，脚本不代做）：')
 console.log(`  1. 把 release/${version}/ 里的 ${asset} 与 latest.json 上传到 tag v${version} 的 Release`)
-console.log(`  2. 让「更新地址」指向清单：src-tauri/tauri.conf.json`)
-console.log(`     plugins.updater.endpoints = ["${base}/latest.json"]`)
+console.log(`  2. 让「更新地址」指向**稳定**清单：src-tauri/tauri.conf.json`)
+console.log(`     plugins.updater.endpoints = ["${defaultEndpointUrl() ?? `${base}/latest.json`}"]`)
+console.log('     （别用带版本号的地址：客户端只认**装包时写死**的那一个，带了版本号就永远发现不了新版）')
 console.log('  3. 之后每次发版：升三处版本号 → node scripts/release-desktop.mjs → 重复第 1 步')
 if (!baseUrl) {
   console.log('\n⚠️ 没能从 git origin 推出下载地址：latest.json 里的 url 还是占位符，上传前用 --base-url 重跑一次。')
