@@ -4028,3 +4028,9 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   两者是两件事 —— 发版脚本原先打印的提示就混了这一条，已改。
 - **改仓库为公开之前，先证明没东西可漏**：`git grep -I -n -E 'sk-[A-Za-z0-9]{20,}|ghp_|AKIA|PRIVATE KEY' $(git rev-list --all)`
   扫**全部提交**（不只看工作区），再看有没有 `.env`/`.key`/`.pem` 进过库。公开是不可逆的，这一步不能省。
+### ★ 体积底账：安装包 6.52 MB，大头是 mediapipe（2026-10-06，对账 #241）
+- 安装包 **6.52 MB**、程序本体 `qinghua.exe` **17.3 MB**（前端资源**内嵌**在 exe 里）；
+  `dist` 13.38 MB 里 **11.89 MB 是 `mediapipe`**（人脸识别，情绪局部改脸）、自己的代码只 **1.49 MB**。
+- 不进包的：`node_modules` 145.7 MB、`src-tauri/target` **4.1 GB**（编译缓存，可删）、`.git` 121.6 MB。
+- 所以"这个软件很大吗"的答案是**很小** —— Electron 系 80–150 MB 起步，差的是"不打包浏览器内核、复用系统 WebView2"。
+- 唯一能再瘦的是 mediapipe（按需下载），代价是首次使用要等下载 ⇒ **不做**。底账见桌面方案 §5.6。
