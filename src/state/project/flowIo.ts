@@ -132,13 +132,22 @@ export async function importProjectFile(
   const picked = await platform.files.pickFile('.json,application/json')
   if (!picked) return { cancelled: true, missingModels: [], flowName: '' }
 
-  const text = await picked.blob.text()
-  let flow: FlowFileV1
-  try {
-    flow = JSON.parse(text) as FlowFileV1
-  } catch {
-    throw new Error('[flowIo] 解析失败：文件不是合法的 JSON')
-  }
+  /**
+   * ⚠️ **解析完立刻丢掉原文**（对账 #233）。
+   *
+   * 含素材的文件是几十 ~ 几百 MB 级，而下面还要把 base64 解回字节、再逐行写库。
+   * 原文（整份文件那么大的字符串）如果活到函数结束，峰值就凭空多出一份完整文件 ——
+   * 实测 53MB 的文件峰值 181MB（3.4×），其中一份就是这个字符串。
+   * 把它关在一个立刻返回的异步块里：**出块即可回收**，后面几步不必再背着它。
+   */
+  const flow: FlowFileV1 = await (async () => {
+    const raw = await picked.blob.text()
+    try {
+      return JSON.parse(raw) as FlowFileV1
+    } catch {
+      throw new Error('[flowIo] 解析失败：文件不是合法的 JSON')
+    }
+  })()
   if (flow?.format !== 'qinghua.flow' || flow?.version !== 1) {
     throw new Error('[flowIo] 不支持的 .flow.json 格式（缺少 format/version）')
   }
