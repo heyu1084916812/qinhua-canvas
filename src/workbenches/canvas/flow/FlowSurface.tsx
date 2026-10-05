@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type DragEvent as ReactDragEvent } from 'react'
+import { useCallback, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from 'react'
 import {
   Background,
   BackgroundVariant,
@@ -6,9 +6,9 @@ import {
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
-  useReactFlow,
   useViewport,
   type Connection,
+  type FinalConnectionState,
   type Node as RFNode,
   type NodeChange,
 } from '@xyflow/react'
@@ -21,7 +21,12 @@ import { FlowChildFrame, FlowFlowNode, type FlowNodeData } from './FlowNode'
 import { childrenByParent, isContainerType, topLevelNodes } from './flowGraph'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import type { RunMode } from '../../../domain/canvas/model/runRecord'
+import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import type { NodeViewEvent } from '../nodes/registry'
+import { useNodeDerivedMaps } from '../useNodeDerivedMaps'
+import type { FlowNodeDerivedProps } from './FlowNode'
+import { QhEdge } from './FlowEdge'
+import { canConnect } from '../../../domain/canvas/graph/canConnect'
 import { sourcePortOf, targetPortOf } from '../../../domain/canvas/model/edge'
 import { describeError } from '../../../shared/result'
 import { flowViewportToStore, storeViewportToFlow } from './viewportBridge'
@@ -67,7 +72,27 @@ export function FlowSurface({
 }
 
 const NODE_TYPES = { qh: FlowFlowNode }
+const EDGE_TYPES = { qh: QhEdge }
 const EDGE_OPTIONS = { type: 'default' } as const
+
+/**
+ * 世界坐标落在哪个节点身上（**连线**用的命中，与拖动归属是两件事）。
+ *
+ * 为什么需要自己算：React Flow 只在**手柄附近**（`connectionRadius`）才把 `toNode` 给你；
+ * 产品文档 §6.14 要求"松手落在下游节点范围内也完成连接"，所以落在节点身上时得自己命中。
+ * 后出现的节点优先（渲染时在上层）。结果组子节点的父不在 `nodes` 表 ⇒ 不作为边端点，跳过。
+ */
+function nodeAtWorldPoint(graph: GraphSnapshot, world: { x: number; y: number }): NodeSnapshot | null {
+  let hit: NodeSnapshot | null = null
+  for (const n of graph.nodes) {
+    const parent = n.parentId ? graph.nodes.find((p: NodeSnapshot) => p.id === n.parentId) : null
+    if (n.parentId && !parent) continue
+    const x = (parent?.x ?? 0) + n.x
+    const y = (parent?.y ?? 0) + n.y
+    if (world.x >= x && world.x <= x + n.w && world.y >= y && world.y <= y + n.h) hit = n
+  }
+  return hit
+}
 
 function FlowSurfaceInner({
   projectId,
@@ -84,7 +109,6 @@ function FlowSurfaceInner({
   const viewport = useViewportState()
   /** 两套视口语义不同，必须显式换算（见 viewportBridge.ts；1:1 同步会让新节点落到视野外） */
   const flowViewport = useMemo(() => storeViewportToFlow(viewport), [viewport])
-  const rf = useReactFlow()
   const exec = useCanvasExecution()
   const { emitNodeEvent } = useCanvasPageEvents(store, onOpenSettings)
   const platform = usePlatform()
@@ -92,6 +116,8 @@ function FlowSurfaceInner({
   // Ctrl/Cmd + C/V（§4.2）：剪贴板是模块级单例、不订阅，故不参与本组件重渲染
   useClipboardHotkeys(store)
   const [importHover, setImportHover] = useState(false)
+  /** 是否正在拉线（`onConnectStart` → `onConnectEnd`）：防止"在端点上随手一点"被当成落点 */
+  const connectingRef = useRef(false)
 
   /** 从系统拖入图片 / 视频（§6.3）：与老表面共用同一份批量导入规则 */
   const onDropFiles = async (e: ReactDragEvent<HTMLDivElement>) => {
@@ -120,10 +146,12 @@ function FlowSurfaceInner({
    * （第一次跑就实测到了：store 3 个节点、DOM 只画 2 个）。
    * 这里 store 是唯一真相，React Flow 只是它的一个视图。
    */
-  useEffect(() => {
-    const id = requestAnimationFrame(() => rf.fitView({ padding: 0.2, maxZoom: 1 }))
-    return () => cancelAnimationFrame(id)
-  }, [rf])
+  /**
+   * **故意不调 `fitView`**：老表面是"按项目存储的视口打开"，不自动重框。
+   * 我一度在挂载时 fit 了一次 —— 结果缩放被改成 0.75，同样的屏幕坐标落到节点上的位置变了
+   * （G66 里那一下点在了「上传素材」按钮上，而它 `stopPropagation` ⇒ 节点没选中、面板没开，
+   * 表现为"上游缩略图 0"）。换引擎不该顺手改掉"打开时的取景"。
+   */
 
   /** 节点事件出口：视图只能 emit，由这一层翻译成命令（架构 §4.7） */
   const makeEmit = useCallback(
@@ -143,6 +171,19 @@ function FlowSurfaceInner({
 
   /** 父 → 子索引（整图一次）：容器本体要拿它把自己的子节点画出来 */
   const childIndex = useMemo(() => childrenByParent(graph), [graph])
+
+  /** 图级派生数据（上游素材 / 提示词数 / 可运行判定 / 图像输入 / 按口分组素材）：与老表面同一批口径 */
+  const derived = useNodeDerivedMaps(graph)
+  const derivedFor = useCallback(
+    (id: string): FlowNodeDerivedProps => ({
+      upstreamAssetHashes: derived.upstreamHashes.get(id),
+      upstreamPromptCount: derived.upstreamPromptCounts.get(id),
+      hasRunnableDownstream: derived.runnableDownstream.get(id),
+      upstreamImageInputs: derived.upstreamImageInputs.get(id),
+      inputPortAssets: derived.inputPortAssets.get(id),
+    }),
+    [derived],
+  )
 
   /**
    * 容器子节点的渲染：与顶层节点**同一套** `NodeFrame` + `def.View`，
@@ -166,10 +207,11 @@ function FlowSurfaceInner({
           error={error}
           runMode={runMode}
           emit={makeEmit(child.id)}
+          derived={derivedFor(child.id)}
         />
       )
     },
-    [exec, selection, makeEmit],
+    [exec, selection, makeEmit, derivedFor],
   )
 
   const nodes = useMemo<RFNode<FlowNodeData>[]>(
@@ -203,6 +245,7 @@ function FlowSurfaceInner({
               error,
               runMode,
               emit: makeEmit(n.id),
+              ...derivedFor(n.id),
               /*
                * 容器（分组 / 批量）：把子节点连同渲染函数一起交给容器本体 ——
                * 与老表面 `NodeLayer.renderChild` 同一套语义，网格布局与拖出归属都不用重写。
@@ -217,13 +260,14 @@ function FlowSurfaceInner({
             } satisfies FlowNodeData,
           }
         }),
-    [graph, selection, exec, makeEmit, childIndex, renderFlowChild],
+    [graph, selection, exec, makeEmit, childIndex, renderFlowChild, derivedFor],
   )
 
   const edges = useMemo(
     () =>
       graph.edges.map((e) => ({
         id: e.id,
+        type: 'qh',
         source: e.source,
         target: e.target,
         sourceHandle: sourcePortOf(e),
@@ -302,6 +346,72 @@ function FlowSurfaceInner({
     [store],
   )
 
+  /** 连线合法性：交给 `canConnect` 一条口径（RF 拿它决定"能不能松手"的视觉反馈） */
+  const isValidConnection = useCallback(
+    (c: { source?: string | null; target?: string | null; sourceHandle?: string | null; targetHandle?: string | null }) => {
+      if (!c.source || !c.target) return false
+      const graph = store.getSnapshot()
+      const source = graph.nodes.find((n) => n.id === c.source)
+      const target = graph.nodes.find((n) => n.id === c.target)
+      if (!source || !target) return false
+      return canConnect(source, target, graph, {
+        sourcePort: c.sourceHandle ?? undefined,
+        targetPort: c.targetHandle ?? undefined,
+      }).ok
+    },
+    [store],
+  )
+
+  /**
+   * 松手没落在手柄上时**按产品文档 §6.14 补一次归属**：「落在下游节点范围内也完成连接」。
+   * React Flow 只认"手柄到手柄"，这条产品行为要自己接 —— 否则用户从端点拖到节点身上松手会**什么都没发生**。
+   */
+  const onConnectEnd = useCallback(
+    (_event: unknown, state: FinalConnectionState) => {
+      // 只有"真的在拉线"才继续：否则在端点上随手一点也会被当成落点
+      if (!connectingRef.current) return
+      connectingRef.current = false
+      if (state.isValid) return // 已落在合法手柄上 → onConnect 会处理
+      /**
+       * ⚠️ `state.from` / `state.to` 是**坐标**（`XYPosition`），不是节点 id ——
+       * 起点节点要从 `state.fromNode` 取（类型文件里写得很清楚，别按名字猜）。
+       */
+      const fromNode = state.fromNode
+      if (!fromNode) return
+      const graph = store.getSnapshot()
+      const source = graph.nodes.find((n) => n.id === fromNode.id)
+      if (!source) return
+      /**
+       * 目标：先信 React Flow 给的 `toNode`（落在手柄附近），否则**自己按下落点命中**
+       * —— 产品文档 §6.14「松手落在下游节点范围内也完成连接」就是这么要求的。
+       */
+      let target: NodeSnapshot | undefined = state.toNode
+        ? graph.nodes.find((n) => n.id === state.toNode?.id)
+        : undefined
+      if (!target) {
+        const ev = _event as MouseEvent
+        const el = document.querySelector<HTMLElement>('[data-canvas-surface]')
+        if (!el || typeof ev?.clientX !== 'number') return
+        const r = el.getBoundingClientRect()
+        const world = screenToWorld(
+          { x: ev.clientX, y: ev.clientY },
+          store.getViewport(),
+          { x: r.left, y: r.top, w: r.width, h: r.height },
+        )
+        target = nodeAtWorldPoint(graph, world) ?? undefined
+      }
+      if (!target || target.id === source.id) return
+      const sourcePort = state.fromHandle?.id ?? undefined
+      const check = canConnect(source, target, graph, { sourcePort })
+      if (!check.ok) {
+        store.notify(check.reason)
+        return
+      }
+      store.dispatch({ kind: 'edge.connect', source: source.id, target: target.id, sourcePort })
+    },
+    [store],
+  )
+
   const onNodesDelete = useCallback(
     (deleted: RFNode[]) => {
       const ids = deleted.map((n) => n.id)
@@ -341,6 +451,7 @@ function FlowSurfaceInner({
         nodes={nodes}
         edges={edges}
         nodeTypes={NODE_TYPES}
+        edgeTypes={EDGE_TYPES}
         defaultEdgeOptions={EDGE_OPTIONS}
         minZoom={0.1}
         maxZoom={5}
@@ -360,12 +471,20 @@ function FlowSurfaceInner({
         onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onConnect={onConnect}
+        onConnectStart={() => {
+          connectingRef.current = true
+        }}
+        isValidConnection={isValidConnection}
+        onConnectEnd={onConnectEnd}
         /*
          * 不自己接 `onPaneClick` 清选中：React Flow **默认就会**在点空白时清（且能区分"拖过不算点"）。
          * 我一度自己加了一条无条件清空 —— 结果**点节点也会被它清掉**（选中立刻变 0，创作面板打不开）。
          * 教训：默认行为已经对时，多余的"显式"实现只会引入偏差。
+         *
+         * ⚠️ `onlyRenderVisibleElements` **暂不开**：开着时"生成 4 张"这类**刚创建、落在视口外**的节点
+         * 不进 DOM，G9 实测当场只画 2 个（数据是对的、刷新后 4 个都在）。老表面的裁剪带 280px 预热，
+         * 语义上更接近"都挂上"。等 P5 收口、冒烟全部按 RF 面改写之后再作为规模优化单独评估。
          */
-        onlyRenderVisibleElements
         onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
         deleteKeyCode={['Backspace', 'Delete']}
@@ -454,7 +573,10 @@ function Hud({
     >
       <span>引擎 React Flow（P1）</span>
       <span>节点 {count}</span>
-      <span data-flow-zoom>{Math.round(zoom * 100)}%</span>
+      {/* `data-canvas-zoom` 是老表面的既有锚点（缩放读数），冒烟按它读画布缩放，故两份都挂 */}
+      <span data-flow-zoom data-canvas-zoom>
+        {Math.round(zoom * 100)}%
+      </span>
       <button
         type="button"
         data-asset-folder

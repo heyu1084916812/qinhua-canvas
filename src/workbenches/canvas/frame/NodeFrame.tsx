@@ -55,6 +55,15 @@ export interface NodeFrameProps {
   /** 隐藏端点（分组 / 批量子节点不显示端点） */
   portsHidden?: boolean
   children?: ReactNode
+  /**
+   * 画在**框上**（`.body` 之外、`overflow: visible`）的额外内容。
+   *
+   * 存在的理由：React Flow 的 `Handle` 有一半伸在节点框外，放进 `.body`（`overflow: clip`）
+   * 会被裁掉那半边、可点区域只剩一条缝；但手柄又必须待在 `[data-node-type]` **内部** ——
+   * 冒烟与探针都按 `[data-node-type] [data-port]` 这种后代选择器找端点。
+   * 这个插槽同时满足两条：在框内、不被裁。
+   */
+  overlay?: ReactNode
 }
 
 /**
@@ -350,6 +359,8 @@ export function NodeFrame(props: NodeFrameProps) {
         ))}
 
       <div className={styles.body}>{props.children}</div>
+
+      {props.overlay}
 
       {!inContainer && (
         // `data-node-resize-handle`：给自动化一个稳定锚点（别靠「最后一个 span」这种结构巧合）

@@ -351,18 +351,19 @@ function CanvasProject({ projectId }: { projectId: string }) {
             </div>
           )}
           {/*
-           * 引擎替换：`?engine=rf` 走 React Flow 那套；不带参数仍是老画布。
+           * 引擎替换（2026-10-05）：**默认已是 React Flow 面**；`?engine=legacy` 回落到老画布。
+           * 老画布保留到全量冒烟在 RF 面跑通为止（P5 收口时删掉这条分支）。
            * 用路由的 `location.search` 而不是 `window.location`：本页有 SSR 渲染测试
            * （`App.render.test.ts` 在无 DOM 环境跑 `renderToReadableStream`），读 window 会直接抛。
            */}
-          {new URLSearchParams(location.search).get('engine') === 'rf' ? (
+          {new URLSearchParams(location.search).get('engine') === 'legacy' ? (
+            <CanvasSurface onOpenSettings={openSettings} onOpenSkills={() => navigate('/skills')} />
+          ) : (
             <FlowSurface
               projectId={projectId}
               onOpenSettings={openSettings}
               onOpenSkills={() => navigate('/skills')}
             />
-          ) : (
-            <CanvasSurface onOpenSettings={openSettings} onOpenSkills={() => navigate('/skills')} />
           )}
           <CanvasToolbar
             onCreateNode={addNodeAtCenter}
