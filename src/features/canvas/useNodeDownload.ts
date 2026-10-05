@@ -6,7 +6,7 @@ import { downloadAsset } from './downloadAsset'
 /**
  * 单节点下载（节点跟随栏 / 多选浮层的「下载」共用）。
  *
- * 抽成一份实现是因为**两个画布表面都要用**：老表面（CanvasSurface）与 React Flow 表面
+ * 抽成一份实现是因为换引擎期间**两个画布表面都要用**（老画布已删，现在只有 React Flow 面）
  * （FlowSurface）。各写一遍的代价在 M6-29 那类改动里已经见过 —— 修一处、另一处照旧。
  */
 export function useNodeDownload(platform: PlatformKit, store: CanvasStore) {

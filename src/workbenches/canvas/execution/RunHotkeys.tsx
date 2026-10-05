@@ -20,7 +20,7 @@ import { isTextEntryElement, isActivationTarget } from '../../../features/shared
  * - **文本框 / 激活控件内不接管**（无障碍 §4.5：按钮上的按键归按钮）；
  * - **运行中不响应** `R` / `Alt+R`，避免打断进行中的计划。
  *
- * 独立小组件而非塞进 CanvasSurface：它要订阅执行状态（isRunning），
+ * 独立小组件而非塞进画布表面：它要订阅执行状态（isRunning），
  * 挂在 Surface 上会让整个画布随每个 task 状态变化重渲。
  */
 export function RunHotkeys() {

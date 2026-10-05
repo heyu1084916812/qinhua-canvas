@@ -76,7 +76,7 @@ export function EmotionPanel({
       className={shell.panel}
       data-emotion-panel
       /**
-       * ⚠️ **必须吃掉 pointerdown**：这块面板与创作面板都渲染在 `CanvasSurface` 内部
+       * ⚠️ **必须吃掉 pointerdown**：这块面板与创作面板都渲染在 `FlowSurface` 内部
        * （浮层要靠 surface 的局部屏幕坐标定位），而 surface 的 `onPointerDown` 把
        * 「不在菜单里的按下」当成**空白单击** —— 点面板上的任何按钮都会清空选中 ⇒
        * 面板当场消失（实测：点比例 chip 后面板没了，浮层自然也没开）。

@@ -9,7 +9,6 @@ import {
 import { createStore } from '../../state/createStore'
 import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import { CanvasStoreProvider } from '../../workbenches/canvas/storeContext'
-import { CanvasSurface } from '../../workbenches/canvas/surface/CanvasSurface'
 import { FlowSurface } from '../../workbenches/canvas/flow/FlowSurface'
 import { fitCanvasView } from '../../workbenches/canvas/surface/fitView'
 import { CanvasExecutionProvider } from '../../workbenches/canvas/execution/CanvasExecutionProvider'
@@ -275,7 +274,7 @@ function CanvasProject({ projectId }: { projectId: string }) {
   }
 
   /** 去后台设置：带上来来源路径，设置页据此把返回按钮指回本项目（而不是丢回首页） */
-  // useCallback：NodeLayer 是 memo 组件，回调引用不稳会让它在每次父级重渲时白跑一轮
+  // useCallback：回调引用稳定，画布表面（memo 子树）不会因为父级重渲被白跑一轮
   const openSettings = useCallback(
     () => navigate('/settings', { state: { from: location.pathname } }),
     [navigate, location.pathname],
@@ -351,20 +350,15 @@ function CanvasProject({ projectId }: { projectId: string }) {
             </div>
           )}
           {/*
-           * 引擎替换（2026-10-05）：**默认已是 React Flow 面**；`?engine=legacy` 回落到老画布。
-           * 老画布保留到全量冒烟在 RF 面跑通为止（P5 收口时删掉这条分支）。
-           * 用路由的 `location.search` 而不是 `window.location`：本页有 SSR 渲染测试
-           * （`App.render.test.ts` 在无 DOM 环境跑 `renderToReadableStream`），读 window 会直接抛。
+           * 引擎替换（2026-10-05）：画布就是 React Flow 面 —— **老画布已按 P5 收口删掉**
+           * （`CanvasSurface` / `画布表面` / `EdgeLayer` / `OverlayLayer` 与其 `?engine=legacy` 分支，
+           * 见《轻画-画布引擎替换方案.md》§8.11）。这里不再有第二条渲染路径。
            */}
-          {new URLSearchParams(location.search).get('engine') === 'legacy' ? (
-            <CanvasSurface onOpenSettings={openSettings} onOpenSkills={() => navigate('/skills')} />
-          ) : (
-            <FlowSurface
-              projectId={projectId}
-              onOpenSettings={openSettings}
-              onOpenSkills={() => navigate('/skills')}
-            />
-          )}
+          <FlowSurface
+            projectId={projectId}
+            onOpenSettings={openSettings}
+            onOpenSkills={() => navigate('/skills')}
+          />
           <CanvasToolbar
             onCreateNode={addNodeAtCenter}
             onImportAsset={() => void importAssetAtCenter()}

@@ -60,7 +60,7 @@ export function MultiSelectBar({
   onDownload,
   onStartLink,
 }: {
-  /** 单个节点的下载（与单选跟随栏同一个实现，由 CanvasSurface 注入） */
+  /** 单个节点的下载（与单选跟随栏同一个实现，由画布表面注入） */
   onDownload?: (nodeId: string) => void
   /** 拖端点建连：`side` 决定「连下游（output）」还是「连上游（input）」 */
   onStartLink: (

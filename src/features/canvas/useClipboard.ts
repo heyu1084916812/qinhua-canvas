@@ -46,7 +46,7 @@ export function clearClipboard(): void {
   payload = null
 }
 
-/** 由 CanvasSurface 的指针移动持续喂入；供「落位在当前鼠标位置」使用 */
+/** 由画布表面（`FlowSurface`）的指针移动持续喂入；供「落位在当前鼠标位置」使用 */
 export function rememberPointer(client: Point): void {
   pointerClient = client
 }

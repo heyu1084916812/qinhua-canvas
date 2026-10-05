@@ -1,7 +1,0 @@
-.marquee {
-  position: absolute;
-  border: 1px dashed var(--stroke-focus);
-  background: var(--accent);
-  opacity: 0.06;
-  pointer-events: none;
-}

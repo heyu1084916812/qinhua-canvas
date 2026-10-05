@@ -35,7 +35,8 @@ export interface PortHit {
  *
  * 这里只算**世界坐标**（节点不动就不变）；「世界 → 屏幕」交给命中层的
  * `translate(−视口×zoom) scale(zoom)`（`transform-origin: 0 0`），
- * 于是平移 / 缩放帧只改这一层的 transform、圆点子树不重排 —— 与老表面 `EdgeLayer` 的 `EdgeWorld` 同一条手法。
+ * 于是平移 / 缩放帧只改这一层的 transform、圆点子树不重排 —— 与老画布 `EdgeLayer` 的 `EdgeWorld` 同一条手法
+ * （那个文件已随 P5 收口删除，这条手法本身留了下来）。
  */
 export function portHitsOf(graph: GraphSnapshot): PortHit[] {
   const out: PortHit[] = []

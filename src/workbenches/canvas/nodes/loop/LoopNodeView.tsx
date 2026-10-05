@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 循环节点视图（产品文档 §6.22）。
  *
  * 2026-09-23：按用户要求**复刻「大雄无限画布」的 smart-loop UI**。
@@ -51,7 +51,7 @@ const QUICK_VALUES = [1, 2, 3, 4, 5, 6, 8, 10] as const
 
 export function LoopNodeView(props: NodeViewProps) {
   const data = props.node.data as LoopData
-  /** 上游素材数（NodeLayer 注入）；上游提示词节点数（NodeLayer 注入） */
+  /** 上游素材数（画布表面 注入）；上游提示词节点数（画布表面 注入） */
   const upstreamImages = (props.upstreamAssetHashes ?? []).length
   const upstreamPrompts = props.upstreamPromptCount ?? 0
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
@@ -114,7 +114,7 @@ export function LoopNodeView(props: NodeViewProps) {
     : '可使用 [计数] 作为变量'
 
   /**
-   * 能否一键运行：**下游要有可运行的生成节点**（由 NodeLayer 按图算好注入）。
+   * 能否一键运行：**下游要有可运行的生成节点**（由 画布表面 按图算好注入）。
    *
    * 循环节点不产图，它的产物来自下游那一趟。下游没配好渠道 / 模型时，
    * 跑起来只会得到「无法构建请求」——那种情况按钮该是禁用的。

@@ -56,7 +56,7 @@ export function GenerationNodeView(props: NodeViewProps) {
    * `LoaderCircle` 并禁用），不属于节点本体。此前把 `globalRunning` 也画成本体覆盖层，
    * 于是跑任意一个节点时，画布上**所有**未参与的生成节点都跟着转圈——
    * 用户看到的是「我没让它生成，它却在生成」。
-   * 节点是否在跑，只认 `props.running`（由执行宿主按 nodeId 反查，见 NodeLayer）。
+   * 节点是否在跑，只认 `props.running`（由执行宿主按 nodeId 反查，见 画布表面）。
    */
   const overlay = props.error ? 'error' : props.running ? 'running' : null
 

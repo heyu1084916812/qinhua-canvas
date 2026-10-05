@@ -37,24 +37,24 @@ export interface NodeViewProps<TData extends NodeData = NodeData> {
   emit: (event: NodeViewEvent) => void
   /**
    * 直接上游节点已产出的素材 hash，按上游顺序排列（§6.10 对比节点取前 2 张）。
-   * 由 NodeLayer（持有 graph）算好注入，视图层不直接读图（架构 §4.7）。
+   * 由 画布表面（持有 graph）算好注入，视图层不直接读图（架构 §4.7）。
    */
   upstreamAssetHashes?: string[]
   /**
-   * 直接上游里**提示词节点**的数量，由 NodeLayer（持有 graph）算好注入（§6.7）。
+   * 直接上游里**提示词节点**的数量，由 画布表面（持有 graph）算好注入（§6.7）。
    * 提示词节点据此在文本区上方显示胶囊「上游已链接提示词节点」——
    * 视图层不直接读图（架构 §4.7）。
    */
   upstreamPromptCount?: number
   /**
-   * 下游是否有**可运行的生成节点**（由 NodeLayer 按图算好注入）。
+   * 下游是否有**可运行的生成节点**（由 画布表面 按图算好注入）。
    *
    * 循环节点的「一键运行」靠它决定可不可点：循环自己不出图，下游没有生成节点
    * 时点它等于空跑。视图层不读图（架构 §4.7），所以这份判断由图持有者给。
    */
   hasRunnableDownstream?: boolean
   /**
-   * 直接上游的**图像素材项**（含 `nodeId` / `assetHash` / `mime`），由 NodeLayer 注入。
+   * 直接上游的**图像素材项**（含 `nodeId` / `assetHash` / `mime`），由 画布表面 注入。
    *
    * 用途是提示词节点的「反推」（§6.7）：把上游那张图**当素材送进 LLM**，
    * 而不只是画一条线、显示一张缩略图。取的是 `promptSpec.collectInputs` 的结果，
@@ -63,7 +63,7 @@ export interface NodeViewProps<TData extends NodeData = NodeData> {
    */
   upstreamImageInputs?: NodeInput[]
   /**
-   * **按输入口分组**的上游素材 hash（由 NodeLayer 注入，产品文档 §6.23）。
+   * **按输入口分组**的上游素材 hash（由 画布表面 注入，产品文档 §6.23）。
    *
    * 单口节点用 `upstreamAssetHashes` 就够了；融合节点有三只口（左 `input` 是原图、
    * 右上 `patch` 是局部修改图），混在一起读会把原图当成第 1 张补丁。只有声明了
@@ -71,7 +71,7 @@ export interface NodeViewProps<TData extends NodeData = NodeData> {
    */
   inputPortAssets?: Record<string, InputPortAsset[]>
   /**
-   * 容器类节点（分组 / 批量）自己的子节点快照，由 NodeLayer 注入（视图层不读图）。
+   * 容器类节点（分组 / 批量）自己的子节点快照，由 画布表面 注入（视图层不读图）。
    * 非容器类型为空数组。
    */
   childNodes?: NodeSnapshot[]
@@ -89,7 +89,7 @@ export interface NodeViewProps<TData extends NodeData = NodeData> {
  *
  * `hasContext` = 这张图（或它的上游链上）带着**局部选区上下文**（§6.23 提取选区产生）。
  * 视图据此判断「第 i 张局部图能不能回贴」：自带上下文的局部图**不需要**在融合节点里
- * 再框一次；没有的才要求节点自己框。这层判断必须由**持有图**的 NodeLayer 算好注入 ——
+ * 再框一次；没有的才要求节点自己框。这层判断必须由**持有图**的 画布表面 算好注入 ——
  * 视图拿不到图，自己推不出来（架构 §4.7）。
  */
 export interface InputPortAsset {

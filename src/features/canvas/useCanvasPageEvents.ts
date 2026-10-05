@@ -78,7 +78,7 @@ export function useCanvasPageEvents(store: CanvasStore, onOpenSettings?: () => v
         case 'openLightbox':
           store.openLightbox(event.assetHash)
           break
-        // 以下属于执行引擎 / 上游开关，由各自的接线方接住（执行宿主 / NodeLayer / PanelLayer）
+        // 以下属于执行引擎 / 上游开关，由各自的接线方接住（执行宿主 / 画布表面 / PanelLayer）
         case 'requestRun':
         case 'requestRunCancel':
         case 'requestPanel':

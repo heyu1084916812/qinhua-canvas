@@ -19,7 +19,7 @@ import type { Rect } from '../../../domain/canvas/geometry/rect'
  *
  * ⚠️ `NodeFrame` 自己会按 `node.x/y` 绝对定位（那是给老的 `.world` 图层用的），
  * 而 React Flow 已经把节点摆在 `position` 上了，所以这里必须**把坐标归零**再交给它，
- * 否则位置会翻倍偏移（与 `NodeLayer.renderChild` 对容器子节点做的事一样）。
+ * 否则位置会翻倍偏移（与容器子节点按网格渲染那套做法一样）。
  */
 /** 图级派生数据（由 `useNodeDerivedMaps` 算好注入；两个表面共用同一批字段） */
 export interface FlowNodeDerivedProps {
@@ -151,7 +151,7 @@ export const FlowFlowNode = memo(FlowNodeInner)
  * 只有两条差别 —— 坐标由容器网格决定（归零）、端点隐藏（§6.11「组内节点端点隐藏」）。
  *
  * 关键：子节点**不进 React Flow 的节点列表**，而是作为容器 `View` 的 `renderChild` 结果
- * 渲染在容器内部。这与老表面 `NodeLayer.renderChild` 完全一致，因此容器的网格布局、
+ * 渲染在容器内部。这与老画布那套容器渲染完全一致，因此容器的网格布局、
  * 拖出归属等语义不用重写。
  */
 export function FlowChildFrame({

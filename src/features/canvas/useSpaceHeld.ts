@@ -4,7 +4,7 @@ import { isTextEntryElement, isActivationTarget } from '../shared/textTarget'
 /**
  * 「空格键被按住」的跟踪（产品文档 §6.3：空格 + 拖拽 = 平移画布）。
  *
- * 为什么要有这个 hook：老表面把这段逻辑写在自己组件里（`CanvasSurface` 的 effect），
+ * 为什么要有这个 hook：老画布把这段逻辑写在自己组件里（那个组件已随 P5 收口删除），
  * 而 React Flow **不带**这条语义 —— 它的 `panActivationKeyCode='Space'` 只影响 d3-zoom
  * 的过滤条件（见 `createFilter`），指针落在**节点**上时照样走节点拖动：空格 + 拖节点 = 拖节点，
  * 画布纹丝不动（G4 实测 `(0,0) → (0,0)`）。

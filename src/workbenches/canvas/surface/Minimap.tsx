@@ -211,7 +211,7 @@ export function Minimap() {
       ref={hostRef}
       className={styles.minimap}
       data-canvas-minimap
-      // **刻意不进 Tab 序列**：画布的 Tab 已被 §6.3「逐个选中节点」占用（CanvasSurface
+      // **刻意不进 Tab 序列**：画布的 Tab 已被 §6.3「逐个选中节点」占用（画布表面
       // 直接 preventDefault），小地图挂 tabIndex=0 只是多出一个永远走不到的停靠点，
       // 却会在焦点从顶栏进来时把 Tab 吃掉一站。键盘导航不靠 Tab —— 点击后即聚焦
       // （下面 onPointerDown 里 focus()），方向键 / Home 立刻可用。

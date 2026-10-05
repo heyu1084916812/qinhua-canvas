@@ -8,9 +8,9 @@ export interface ContainerBodyProps {
   node: NodeSnapshot
   /** 容器类型，决定空态最小尺寸与 data-* 前缀 */
   kind: 'group' | 'batch'
-  /** 子节点快照（由 NodeLayer 注入，视图层不读图） */
+  /** 子节点快照（由 画布表面 注入，视图层不读图） */
   children?: NodeSnapshot[]
-  /** 把子渲染成完整 frame（NodeLayer 注入） */
+  /** 把子渲染成完整 frame（画布表面 注入） */
   renderChild?: (child: NodeSnapshot) => ReactNode
   /** 空态主文案 */
   emptyText: string
@@ -25,8 +25,8 @@ export interface ContainerBodyProps {
  * 只有收纳物语义不同。因此形态逻辑（3×3 行优先网格、5:4 单元、动态最小尺寸、空态）
  * 只写一份，两个视图各自注入自己的空态文案与 data-* 前缀。
  *
- * 子节点由 NodeLayer 递归渲染成完整 frame 后注入，这里只负责按网格摆位；
- * 子节点的 local x/y 由网格决定，故渲染时归零（见 NodeLayer）。
+ * 子节点由 画布表面 递归渲染成完整 frame 后注入，这里只负责按网格摆位；
+ * 子节点的 local x/y 由网格决定，故渲染时归零（见 画布表面）。
  */
 export function ContainerBody(props: ContainerBodyProps) {
   const { node, kind, children = [], renderChild } = props

@@ -118,7 +118,7 @@ function Card({
   const def = getNodeDefinition(node.type)
   const View = def.View
   const graph = useGraph()
-  // 容器类节点需要真实的子节点快照（视图不读图，由这里充当 NodeLayer 的角色注入）
+  // 容器类节点需要真实的子节点快照（视图不读图，由这里充当 画布表面 的角色注入）
   const childNodes = graph.nodes.filter((n) => n.parentId === node.id)
   return (
     <div className={styles.card}>

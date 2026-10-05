@@ -72,7 +72,7 @@ export function convertOnReparent(
   return { ...node, x: next.x, y: next.y, parentId: to ? to.id : null }
 }
 
-/** 视口裁剪：判断世界矩形是否落在当前视口内（NodeLayer 虚拟化用） */
+/** 视口裁剪：判断世界矩形是否落在当前视口内（画布表面 虚拟化用） */
 export function isRectVisible(rect: Rect, vp: Viewport, containerRect: Rect): boolean {
   const viewWorld: Rect = {
     x: vp.x,

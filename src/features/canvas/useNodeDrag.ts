@@ -19,7 +19,7 @@ interface DragState {
 export interface NodeDragController {
   /** 开始拖动；e 只需提供指针坐标与修饰键（便于单测直接构造） */
   begin(e: DragStartEvent, nodeId: string): void
-  /** 本次拖动要移动的节点集合（单测与 NodeLayer 共用同一判定） */
+  /** 本次拖动要移动的节点集合（单测与 画布表面 共用同一判定） */
   resolveDragIds(nodeId: string): string[]
   /** Alt 复制：原地生成副本并把选中切到副本，返回副本 id */
   duplicateForDrag(ids: string[]): string[]
@@ -55,7 +55,7 @@ export function createNodeDragController(
    * 纯判定：已在多选集合内 → 整组一起动（选区保持不变，否则拖一下选区就散了）。
    *
    * 结果组子节点（M6-25）有两条特例：
-   * - 按下的就是它 → 只拖它一个（走「取出」语义，见 NodeLayer 的阈值提取）；
+   * - 按下的就是它 → 只拖它一个（走「取出」语义，见 画布表面 的阈值提取）；
    * - 它只是**混在**多选里 → 从集合里剔除。组内没有位置语义，整体拖动会改它的
    *   local 坐标、把组内版面拖乱，而松手的归属判定又只对单节点生效——两头都不对。
    */

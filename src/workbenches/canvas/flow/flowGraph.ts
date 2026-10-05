@@ -5,7 +5,7 @@ import type { NodeSnapshot, NodeType } from '../../../domain/canvas/model/node'
  * 画布图层面的小helper（纯函数，可单测）。
  *
  * 为什么要有：React Flow 面只把**顶层节点**交给库摆位，容器里的子节点必须由容器本体渲染
- * （与老表面 `NodeLayer.renderChild` 同一套语义）—— 于是"谁是顶层、谁是谁的孩子"这件事
+ * （与老画布那套「容器子节点按网格渲染」同一套语义）—— 于是"谁是顶层、谁是谁的孩子"这件事
  * 值得抽出来单独钉住，而不是埋在两层 `useMemo` 里。
  */
 

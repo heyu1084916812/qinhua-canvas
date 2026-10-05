@@ -9,7 +9,7 @@ import { coalescePointerMove } from '../../shared/rafThrottle'
  * 缩放只需要滚轮的三个数。
  *
  * 刻意不收 `React.WheelEvent`：缩放要挂**非 passive** 的原生监听器才能
- * `preventDefault()`（见 CanvasSurface 的注释），原生事件不是 React 合成事件，
+ * `preventDefault()`（滚轮缩放要能 `preventDefault()`，所以必须挂**非 passive** 的原生监听器；RF 面由 React Flow 自己处理滚轮），原生事件不是 React 合成事件，
  * 用 React 的类型描述它会把调用方锁死在 `onWheel` prop 上——而那个 prop 恰恰
  * 是 passive 的、preventDefault 无效。
  */

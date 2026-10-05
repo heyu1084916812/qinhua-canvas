@@ -9,7 +9,7 @@ import { ContainerBody } from '../../frame/ContainerBody'
  * 形态逻辑（3×3 行优先网格、动态最小尺寸）在 ContainerBody 里与批量共用；
  * 这里只提供分组语义的空态文案。
  *
- * 组内节点由 NodeLayer 递归渲染成完整 frame 后注入，端点已由 NodeFrame 按 parentId 隐藏；
+ * 组内节点由 画布表面 递归渲染成完整 frame 后注入，端点已由 NodeFrame 按 parentId 隐藏；
  * 素材增删 / 隐藏 / 排序都从创作面板完成（§6.11「素材增删、隐藏、排序从创作面板完成」），
  * 本体不放编辑控件。
  */

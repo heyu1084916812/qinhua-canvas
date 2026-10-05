@@ -15,7 +15,7 @@
 
 ## canvas · 浮层菜单与指针事件（2026-09-15 实测）
 
-- **★★ 浮层菜单（ContextMenu / LinkMenu）渲染在 `[data-canvas-surface]` 内部** ⇒ 点菜单项的 `pointerdown` 会一路冒泡到 surface 的手势处理。**判定「这一下点在菜单上」必须落到 `e.target.closest('[data-link-menu], [data-context-menu]')`，绝不能只看「菜单是否开着」**——后者会让菜单在自己的 `click` 到达前被卸载，表现为「点了只关菜单、什么都不执行」，还不报错（`CanvasSurface.tsx#isInsideMenu`）。
+- **★★ 浮层菜单（ContextMenu / LinkMenu）渲染在 `[data-canvas-surface]` 内部** ⇒ 点菜单项的 `pointerdown` 会一路冒泡到 surface 的手势处理。**判定「这一下点在菜单上」必须落到 `e.target.closest('[data-link-menu], [data-context-menu]')`，绝不能只看「菜单是否开着」**——后者会让菜单在自己的 `click` 到达前被卸载，表现为「点了只关菜单、什么都不执行」，还不报错（这条规则原先实现在老画布的 `isInsideMenu`；老画布已随 P5 收口删除，规则本身对任何"渲染在 surface 内的浮层"都成立）。
 - **★★ 测菜单项一律用物理鼠标点击，别用 `btn.click()`**：程序化 click 只派发 `click`、不产生 `pointerdown`，恰好绕开上面那类 bug。曾因此把「新建并连接点了没反应」测成「功能正常」。
 - **`beginPlan` / `endPlan` 的合并靠 `activePlan` 非空** ⇒ `endPlan()` 必须写在**最后一个命令之后**。写在中间等于白开：撤销会分成两步，留下一个孤立新节点。（与「不可嵌套」并列的两条纪律。）
 - **`canConnect` 的替身节点必须真的放进 `graph.nodes`**：它内部按 id 回溯父链（画板内外不建立边、容器内不外连）。替身不在表里 ⇒ `index.get(id)` 为 undefined ⇒ 被当成「无祖先」⇒ 画板内拖线时新建项整批消失。（`linkMenu.ts` 里造 `{...graph, nodes:[...graph.nodes, probe]}` 再判。）

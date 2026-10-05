@@ -72,7 +72,7 @@ const MENU_ICON: Record<string, ReactNode> = {
  * 受画布可视区边界约束：下方/右侧/左侧空间不足时贴边翻转。
  *
  * 状态由 store.menu 持有（瞬时态，不进撤销栈不落库）；Esc / 空白单击 / 滚轮 / 平移时关闭。
- * 只渲染浮层本身，节点与画布空白的「打开」由 CanvasSurface 的 onContextMenu 负责。
+ * 只渲染浮层本身，节点与画布空白的「打开」由画布表面的 `onContextMenu` 负责。
  */
 export function ContextMenu() {
   const store = useCanvasStore()

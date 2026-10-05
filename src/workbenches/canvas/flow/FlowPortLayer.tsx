@@ -23,7 +23,7 @@ export function FlowPortLayer({ onPortDown }: { onPortDown: PortDown }) {
 
 /**
  * 只订阅视口的一层：平移 / 缩放帧只改**一个 transform**，圆点子树的 props 不变
- * ⇒ `memo` 直接跳过整棵子树（与老表面 `EdgeLayer` 的 `EdgeWorld` 同一条手法）。
+ * ⇒ `memo` 直接跳过整棵子树（与老画布 `EdgeLayer` 的 `EdgeWorld` 同一条手法；那个文件已随 P5 收口删除）。
  *
  * 换算口径：`屏幕 = (世界 − 视口) × zoom`（`storeViewport` 的语义，见 `viewportBridge.ts`）。
  * **不要**照抄 RF 视口的 `x/y`（那是屏幕像素位移，同名不同义）。

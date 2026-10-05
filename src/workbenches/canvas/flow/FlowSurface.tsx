@@ -230,7 +230,7 @@ function FlowSurfaceInner({
     [edgeDragBegin, surfaceEl],
   )
 
-  /** 容器子节点按下：与老表面 `NodeLayer.onNodePointerDown` 同一套选中语义 + 拖动 */
+  /** 容器子节点按下：与老表面 `画布表面.onNodePointerDown` 同一套选中语义 + 拖动 */
   const onChildPointerDown = useCallback(
     (e: ReactPointerEvent, childId: string) => {
       if (e.shiftKey) {
@@ -480,7 +480,7 @@ function FlowSurfaceInner({
               ...derivedFor(n.id),
               /*
                * 容器（分组 / 批量）：把子节点连同渲染函数一起交给容器本体 ——
-               * 与老表面 `NodeLayer.renderChild` 同一套语义，网格布局与拖出归属都不用重写。
+               * 与老画布那套「容器子节点按网格渲染」同一套语义，网格布局与拖出归属都不用重写。
                */
               ...(isContainerType(n.type)
                 ? {

@@ -44,7 +44,7 @@ export function FusionNodeView(props: NodeViewProps) {
 
   /**
    * 上游素材**按口**取：`input` = 完整原图，`patch` = 局部修改图。
-   * 由 NodeLayer 按端口分组注入（多口节点才有这个字段）。
+   * 由 画布表面 按端口分组注入（多口节点才有这个字段）。
    */
   const portAssets = props.inputPortAssets ?? {}
   const original = (portAssets.input ?? [])[0] ?? null
@@ -59,7 +59,7 @@ export function FusionNodeView(props: NodeViewProps) {
    */
   const openPane = (hash: string) => props.emit({ type: 'openLightbox', assetHash: hash })
 
-  /** 每张局部图能不能回贴：上下文跟着图片走（NodeLayer 沿上游解析后注入） */
+  /** 每张局部图能不能回贴：上下文跟着图片走（画布表面 沿上游解析后注入） */
   const missingContextAt = patches.findIndex((p) => !p.hasContext)
   const canRun = !!original && patches.length > 0 && missingContextAt < 0 && !props.running
   const hint = !original

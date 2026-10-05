@@ -1,4 +1,4 @@
-﻿import { useMemo, useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import type { NodeSnapshot, GenerationData, GroupData, BatchData, PromptData } from '../../../domain/canvas/model/node'
 import { directUpstream } from '../../../domain/canvas/graph/upstreamOf'
 import { indexNodes } from '../../../domain/canvas/model/graph'
@@ -62,7 +62,7 @@ const PANEL_TYPES = new Set<NodeSnapshot['type']>(['prompt', 'generation', 'grou
  * 定位：**屏幕坐标**下挂在所选节点正下方、水平居中对齐（§6.8「始终在节点下方，水平中心与节点对齐」），
  * 因此本层放在 [data-world] 之外——缩放画布时面板大小不变（§6.8「缩放独立性」）。
  *
- * 数据：NodeLayer 持有 graph，本层同样读图算好 PanelModel 注入面板，
+ * 数据：画布表面 持有 graph，本层同样读图算好 PanelModel 注入面板，
  * 面板组件本身不读图（视图层不读图，架构 §4.7）。
  */
 export function PanelLayer({
@@ -193,7 +193,7 @@ export function PanelLayer({
   // 它的父不在 nodes 表，直接查会把 local 坐标当世界坐标——面板飞到画布左上角
   // （M6-25：组内子结果成为可交互节点后，创作面板能力随之打通，§6.9）。
   const rect = toWorldRectInGraph(selectedNode, graph)
-  // world → screen：屏幕 = (世界 - 视口平移) × zoom（与 CanvasSurface 的 transform 互逆）
+  // world → screen：屏幕 = (世界 - 视口平移) × zoom（与画布视口的 transform 互逆）
   const screenX = (rect.x + rect.w / 2 - viewport.x) * viewport.zoom
   const screenY = (rect.y + rect.h - viewport.y) * viewport.zoom + PANEL_GAP
 

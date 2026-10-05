@@ -44,7 +44,7 @@ export function PromptNodeView(props: NodeViewProps) {
   }, [editing])
 
   /**
-   * 上游图片素材（§6.7 反推）：由 NodeLayer 用 `promptSpec.collectInputs` 算好注入，
+   * 上游图片素材（§6.7 反推）：由 画布表面 用 `promptSpec.collectInputs` 算好注入，
    * 与真正发出去的请求同源——不在这里另扫一遍图。
    */
   const imageInputs = props.upstreamImageInputs ?? []
@@ -124,7 +124,7 @@ export function PromptNodeView(props: NodeViewProps) {
   return (
     <div className={styles.body}>
       {/* §6.7：上游连了提示词节点时，文本区上方出现胶囊——它是「上游文本不会自动带进来」
-          这件事唯一的界面说明（数量由 NodeLayer 注入，视图层不读图，架构 §4.7） */}
+          这件事唯一的界面说明（数量由 画布表面 注入，视图层不读图，架构 §4.7） */}
       {(props.upstreamPromptCount ?? 0) > 0 && (
         <span className={styles.linked} data-prompt-linked>
           上游已链接提示词节点
