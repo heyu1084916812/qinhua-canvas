@@ -3495,3 +3495,12 @@ Midjourney 的高级设置需要「一根滑杆」和「一个文本框」，而
   但"用户说卡"也**不能**直接等同于"架构有瓶颈"。**两边都用数字说话，测不出来就说没复现。**
 - 探针进不去项目页时别猜：首页在 `/`，项目列表在 **`/projects`**（空库走 `[data-new-project]`，
   非空走 `[data-new-card]` → `[data-new-workbench="canvas"]`）。
+
+### ★★ Codex 内置浏览器 IndexedDB 膨胀到 5.4GB 会把主进程拖崩（2026-10-05）
+
+- **现象**：打开轻画项目页 `http://127.0.0.1:1420/canvas/proj_a8ac9c4c-...` 后 10–25 秒，Codex 主进程崩溃
+  （Crashpad `capture_kind=crash`、`ptype=browser`）。当天 7 次，全部发生在内置浏览器加载该 URL 之后。
+- **取证**：`%APPDATA%\Codex\web\Codex\Default\Partitions\codex-browser-app\IndexedDB\http_127.0.0.1_1420.indexeddb.leveldb`
+  已达 **5.4 GB**，`MANIFEST-000676` **4.02 GB**（正常应是 KB 级）；崩溃时刻正在写 0 字节的 `MANIFEST-000998`。
+- **应用侧放大**：`useAsset` 对 `assets` 全分辨率字节 `createObjectURL`，节点缩略图也按原图解码；4K 图约 33MB/张。
+- **纪律**：用户数据只在这一份 IndexedDB 里 ⇒ **任何修复/压缩前先整目录备份**；别把「删除浏览器数据」当修法。
