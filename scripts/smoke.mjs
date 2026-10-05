@@ -1425,26 +1425,58 @@ async function g10(browser) {
     rec(g, '日志含发送到画布按钮', /发送到画布/.test(text))
     await page.screenshot({ path: `${OUT}/15-g10-log.png` })
 
-    // §6.18「请求1024x1024  实际1024x1024」：两个数字都要在，且是**真读出来的**。
-    // 判据不写死期望值，而是拿缩略图 <img> 的实际 naturalWidth/Height 去比对文案里的
-    // 「实际」一侧——只有界面真的显示了产物尺寸时两边才对得上（G49 同款手法）。
+    /**
+     * §6.18「请求1024x1024  实际1024x1024」：两个数字都要在，且是**真读出来的**。
+     *
+     * ⚠️ 判据在 #235 换了口径：原来拿日志缩略图 `<img>` 的 naturalWidth 当"产物真实像素"，
+     * 而缩略图化之后它变成 640（**那是好事**，一张 30px 的小图不该按 4K 解码）。
+     * 现在改成**从库里的字节读文件头** —— 与界面上那行文字是两个独立来源，
+     * 交叉验证反而更硬：文案若是照抄请求，这里就对不上。
+     */
     const pxText = (await page.locator('[data-log-pixels]').first().innerText().catch(() => '')).trim()
     rec(g, '日志含请求像素与实际像素（§6.18）', /请求\d+x\d+/.test(pxText) && /实际\d+x\d+/.test(pxText), `text="${pxText}"`)
     const logThumb = page.locator('[data-log-thumb] img').first()
     const thumbSize = await logThumb
       .evaluate((el) => ({ w: el.naturalWidth ?? 0, h: el.naturalHeight ?? 0 }))
       .catch(() => ({ w: 0, h: 0 }))
+    // 把所有图片素材的**文件头尺寸**都读出来（不指定是哪一张：本组可能不止一张产物）
+    const bytesSizes = await page.evaluate(async () => {
+      const db = await new Promise((res) => {
+        const r = indexedDB.open('qinghua')
+        r.onsuccess = () => res(r.result)
+        r.onerror = () => res(null)
+      })
+      if (!db) return null
+      const rows = await new Promise((res) => {
+        const g2 = db.transaction('assets', 'readonly').objectStore('assets').getAll()
+        g2.onsuccess = () => res(g2.result ?? [])
+        g2.onerror = () => res([])
+      })
+      return rows
+        .filter((r) => r.bytes && String(r.mime ?? '').startsWith('image/'))
+        .map((r) => {
+          const b = r.bytes instanceof Uint8Array ? r.bytes : new Uint8Array(r.bytes)
+          if (b[0] !== 0x89 || b[1] !== 0x50) return null // 只认 PNG（本组产物是 PNG）
+          return {
+            w: (b[16] << 24) | (b[17] << 16) | (b[18] << 8) | b[19],
+            h: (b[20] << 24) | (b[21] << 16) | (b[22] << 8) | b[23],
+          }
+        })
+        .filter(Boolean)
+    })
     const actualText = /实际(\d+)x(\d+)/.exec(pxText)
-    const actualMatchesPixels =
-      thumbSize.w > 0 &&
+    const bytesMatch =
       actualText !== null &&
-      Number(actualText[1]) === thumbSize.w &&
-      Number(actualText[2]) === thumbSize.h
+      bytesSizes.some((s) => s.w === Number(actualText[1]) && s.h === Number(actualText[2]))
+    const actualMatchesPixels =
+      bytesSizes.length > 0 &&
+      actualText !== null &&
+      bytesMatch
     rec(
       g,
       '★ 日志实际像素与产物真实像素一致（不是照抄请求）',
       actualMatchesPixels,
-      `shown=${actualText ? `${actualText[1]}x${actualText[2]}` : 'none'} img=${thumbSize.w}x${thumbSize.h}`,
+      `shown=${actualText ? `${actualText[1]}x${actualText[2]}` : 'none'} 字节头=${bytesSizes.map((s) => `${s.w}x${s.h}`).join('/') || 'none'} 缩略图=${thumbSize.w}x${thumbSize.h}`,
     )
 
     // 清空

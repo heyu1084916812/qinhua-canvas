@@ -194,23 +194,25 @@ export function useAssetMeta(
 
 /**
  * **小尺寸显示**那条路（对账 #231）：优先给缩略图；还没有就先给原图，并**后台补一张落库**。
- * **画布上的节点本体**（一屏几十张、每张都按原图解码就是 GB 级）走它。
  * 要原图的地方（灯箱、旋转、标注）用 `useAssetMeta` —— 那些地方要的是像素。
  *
- * ⚠️ 面板 / @ 提及的小图**暂时仍走 `useAsset`（原图）**：它们数量有限（一屏十几张），
- * 而"缩略图会让 `img.naturalWidth` 变成 640"这件事会撞上以它为判据的断言
- * （日志面板那条「实际像素与产物真实像素一致」就是拿缩略图的 naturalWidth 当证据的）。
- * 要一起收，得先把那几条断言换个口径 —— 那是单独一件事。
+ * **凡是"显示尺寸远小于原图"的地方都该走它**：画布节点本体（一屏几十张）、面板缩略图、
+ * 日志面板里一排排历史产物、@ 提及的小图 —— 每张按原图解码，4K 就是 33MB，几十张就是 GB 级。
+ *
+ * ⚠️ 面板那条**曾经被一条断言挡过**：日志面板的「实际像素与产物真实像素一致」原来拿
+ * `img.naturalWidth` 当证据，而缩略图会让它变成 640。**改的是断言的口径**（改成从库里的字节读
+ * 文件头 —— 与界面上那行文字是两个来源，交叉验证反而更硬），不是把这条能力砍掉。见对账 #235。
  */
 export function useAssetThumb(hash: string | undefined): AssetMeta {
   return useAssetMeta(hash, { preferThumb: true })
 }
 
-/** 只要 URL 的那条（同 `useAsset`，但走**缩略图**）—— 画布节点媒体框用 */
+/** 只要 URL 的那条（走**缩略图**）—— 画布节点媒体框与各类小图都用它 */
 export function useAssetThumbUrl(hash: string | undefined): string | null {
   return useAssetThumb(hash).url
 }
 
+/** 小图那条路（等价于 `useAssetThumbUrl`，保留旧名给"面板里的小图"读） */
 export function useAsset(hash: string | undefined): string | null {
-  return useAssetMeta(hash).url
+  return useAssetThumbUrl(hash)
 }

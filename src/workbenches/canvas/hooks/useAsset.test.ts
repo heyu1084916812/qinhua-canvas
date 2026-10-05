@@ -32,6 +32,9 @@ function kitWithFolder(folder: ReturnType<typeof createMemoryAssetFolder>): Plat
               : filter.id === 'badthumb'
                 ? // 坏缩略图：被 JSON 化过的普通对象（对账 #234 那个真回归）
                   [{ id: 'badthumb', mime: 'image/png', bytes: new Uint8Array([1, 2, 3]), thumb: { 0: 82, 1: 73 } }]
+                : filter.id === 'thumbed'
+                  ? // 正常缩略图：真字节（面板 / 节点的小图都该走它）
+                    [{ id: 'thumbed', mime: 'image/png', bytes: new Uint8Array([1, 2, 3]), thumb: new Uint8Array([82, 73, 70, 70]) }]
               : []
       },
       async estimateUsage() {
@@ -126,5 +129,16 @@ describe('坏缩略图回落原图（对账 #234）', () => {
     const meta = await loadAssetUrl(platform, 'badthumb', { preferThumb: true })
     expect(meta.url).toBeTruthy()
     expect(meta.thumb).toBeFalsy()
+  })
+
+  it('★ 有正常的 thumb 就走它（`thumb: true` 是"这条 URL 是小图"的标记）', async () => {
+    const platform = kitWithFolder(createMemoryAssetFolder())
+    const small = await loadAssetUrl(platform, 'thumbed', { preferThumb: true })
+    expect(small.url).toBeTruthy()
+    expect(small.thumb).toBe(true)
+    // 不打开 preferThumb 的（灯箱 / 旋转 / 标注）仍然拿原图
+    const full = await loadAssetUrl(platform, 'thumbed')
+    expect(full.url).toBeTruthy()
+    expect(full.thumb).toBeFalsy()
   })
 })
