@@ -180,9 +180,9 @@ export function deserializeProject(
    * 为什么 id 保持原样：这张表是**内容寻址**的（`id = 内容哈希`），而节点引用素材也按哈希
    * （`data.assetHash`）。给素材换新 id 会同时踩两件事：① 同一张图换个项目再导一次就多存一份字节；
    * ② "素材文件夹"按 `<hash>.<ext>` 找文件的那套对导入的素材失效（它找不到新 id 命名的文件）。
-   * ⏳ 已知未解（对账 #221）：`assets.projectId` 因此变成"最后一次导入它的项目"，
-   * 于是**同一个 hash 进过两个项目**时，靠 `projectId` 取素材的那条导出路径会漏掉它 ——
-   * 正确修法是导出改成"按节点引用到的 hash 取素材"，但没有测试前先不动。
+   * 所以这里的 `projectId` **只当"这笔字节落在哪张项目名下"的记账用**，
+   * 不能当"这张图属于哪个项目"来查素材：同一个 hash 进过两个项目时它只剩最后那个。
+   * 导出侧因此**按节点引用到的 hash 取素材**（`domain/canvas/graph/assetRefs.ts`，对账 #222）。
    */
   const assets = (flow.graph.assets ?? []).map((row) => {
     const { bytesBase64, ...rest } = row as FlowRow & { bytesBase64?: unknown }

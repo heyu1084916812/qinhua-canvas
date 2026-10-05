@@ -216,4 +216,74 @@ describe('flowIo 导出 / 导入', () => {
     await exportProject(platform, 'proj1')
     expect(await (getSaved() as Blob).text()).not.toContain('hash_png')
   })
+
+  /**
+   * 对账 #222：素材行按**节点引用到的 hash** 取，不按 `projectId`。
+   *
+   * 真实事故路径：用户复制了一个项目 → 两个项目的节点都指着同一个哈希，
+   * 而 `assets.projectId` 只剩最后一个项目名。此时导出**原件**，
+   * 按 projectId 取就是一行都取不到 ⇒ 文件看着正常、搬过去图全丢。
+   */
+  it('★ 复制项目后导出原件：图挂在别的项目名下也照样带走', async () => {
+    const pngBytes = new Uint8Array([137, 80, 78, 71, 9, 9])
+    const seed: Partial<Record<TableName, Row[]>> = {
+      projects: [baseProject as unknown as Row],
+      nodes: [
+        {
+          id: 'n1',
+          projectId: 'proj1',
+          type: 'generation',
+          parentId: null,
+          x: 0,
+          y: 0,
+          w: 1,
+          h: 1,
+          title: 'G',
+          disabled: false,
+          data: { model: 'gpt-image', mode: 'image', assetHash: 'hash_shared' },
+        } as unknown as Row,
+      ],
+      edges: [],
+      assets: [
+        { id: 'hash_shared', projectId: 'proj2', mime: 'image/png', bytes: pngBytes } as unknown as Row,
+      ],
+    }
+    const { platform, getSaved } = makePlatform(seed)
+    await exportProject(platform, 'proj1', { embedAssets: true })
+
+    const flow = JSON.parse(await (getSaved() as Blob).text()) as FlowFileV1
+    expect(flow.graph.assets?.map((a) => a.id)).toEqual(['hash_shared'])
+    expect(String(flow.graph.assets?.[0]?.bytesBase64 ?? '')).not.toBe('')
+  })
+
+  it('导出只带画布上引用到的图：素材库里其它图不跟着走（含素材导出本来就要控体积）', async () => {
+    const seed: Partial<Record<TableName, Row[]>> = {
+      projects: [baseProject as unknown as Row],
+      nodes: [
+        {
+          id: 'n1',
+          projectId: 'proj1',
+          type: 'generation',
+          parentId: null,
+          x: 0,
+          y: 0,
+          w: 1,
+          h: 1,
+          title: 'G',
+          disabled: false,
+          data: { model: 'gpt-image', mode: 'image', assetHash: 'hash_used' },
+        } as unknown as Row,
+      ],
+      edges: [],
+      assets: [
+        { id: 'hash_used', projectId: 'proj1', mime: 'image/png', bytes: new Uint8Array([1, 2]) } as unknown as Row,
+        { id: 'hash_orphan', projectId: 'proj1', mime: 'image/png', bytes: new Uint8Array([3, 4]) } as unknown as Row,
+      ],
+    }
+    const { platform, getSaved } = makePlatform(seed)
+    await exportProject(platform, 'proj1', { embedAssets: true })
+
+    const flow = JSON.parse(await (getSaved() as Blob).text()) as FlowFileV1
+    expect(flow.graph.assets?.map((a) => a.id)).toEqual(['hash_used'])
+  })
 })

@@ -1,7 +1,9 @@
-import type { PlatformKit } from '../../platform/ports'
+import type { PlatformKit, Row } from '../../platform/ports'
 import type { ProjectRepository } from './repository'
 import type { Project, ProjectListItem } from '../../domain/project/project'
 import { createId } from '../../shared/id'
+import type { NodeSnapshot } from '../../domain/canvas/model/node'
+import { assetHashesOf } from '../../domain/canvas/graph/assetRefs'
 import {
   serializeProject,
   deserializeProject,
@@ -27,6 +29,25 @@ export interface ExportResult {
   fileName: string
 }
 
+/**
+ * 按 hash 取素材行：`assets.id` 就是内容哈希，逐条查走主键索引 —— 只把**用得到的那几行**
+ * 读进内存，大素材库也不会因为导出一次而全表过一遍。
+ *
+ * 分小批并发只是别让一次导出排几百个请求；`Promise.all` 的顺序与入参一致，
+ * 所以结果行的顺序仍然稳定。
+ */
+async function queryAssetsByHashes(platform: PlatformKit, hashes: string[]): Promise<Row[]> {
+  const rows: Row[] = []
+  const CHUNK = 16
+  for (let i = 0; i < hashes.length; i += CHUNK) {
+    const part = await Promise.all(
+      hashes.slice(i, i + CHUNK).map((id) => platform.storage.query('assets', { id })),
+    )
+    for (const one of part) rows.push(...(one as unknown as Row[]))
+  }
+  return rows
+}
+
 export async function exportProject(
   platform: PlatformKit,
   projectId: string,
@@ -41,8 +62,13 @@ export async function exportProject(
   const project = projRows[0]
   if (!project) throw new Error(`[flowIo] 导出失败：项目不存在 ${projectId}`)
 
+  /**
+   * 内嵌素材**按节点引用到的 hash** 取，不按 `projectId`（对账 #222）。
+   * `assets.projectId` 只记「最后导入它的项目」：复制项目后同一张图两个项目共用，
+   * 按 projectId 取就会两边都漏 —— 而「导出原件」正是复制之后最常见的动作。
+   */
   const assets = opts.embedAssets
-    ? await platform.storage.query('assets', { projectId })
+    ? await queryAssetsByHashes(platform, assetHashesOf(nodes as unknown as NodeSnapshot[]))
     : []
 
   const graph: FlowGraph = {
