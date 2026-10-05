@@ -29,6 +29,9 @@ function kitWithFolder(folder: ReturnType<typeof createMemoryAssetFolder>): Plat
             : filter.id === 'nobytes'
               ? // 有库行（知道 mime ⇒ 拼得出文件名）但**没有字节** —— 缺失策略要的分支
                 [{ id: 'nobytes', mime: 'image/png' }]
+              : filter.id === 'badthumb'
+                ? // 坏缩略图：被 JSON 化过的普通对象（对账 #234 那个真回归）
+                  [{ id: 'badthumb', mime: 'image/png', bytes: new Uint8Array([1, 2, 3]), thumb: { 0: 82, 1: 73 } }]
               : []
       },
       async estimateUsage() {
@@ -111,5 +114,17 @@ describe('素材读回：文件夹优先、内置库回落', () => {
     const meta = await loadAssetUrl(kitWithFolder(createMemoryAssetFolder()), 'gone')
     expect(meta.url).toBeNull()
     expect(meta.expectedPath).toBeNull()
+  })
+})
+/**
+ * ★★ 坏缩略图不能当缩略图用（对账 #234）：`thumb` 是个被 `JSON.stringify` 过的普通对象时，
+ * 必须**回落原图**（`meta.thumb` 不为真，说明没走缩略图那条路），而不是拿它去造一张 0 字节的破图。
+ */
+describe('坏缩略图回落原图（对账 #234）', () => {
+  it('★ 库里那份 thumb 是坏的话，回落原图（不显示破图）', async () => {
+    const platform = kitWithFolder(createMemoryAssetFolder())
+    const meta = await loadAssetUrl(platform, 'badthumb', { preferThumb: true })
+    expect(meta.url).toBeTruthy()
+    expect(meta.thumb).toBeFalsy()
   })
 })

@@ -1,4 +1,4 @@
-import type { PlatformKit, Row } from '../../platform/ports'
+import type { PickedFile, PlatformKit, Row } from '../../platform/ports'
 import type { ProjectRepository } from './repository'
 import type { Project, ProjectListItem } from '../../domain/project/project'
 import { createId } from '../../shared/id'
@@ -131,7 +131,22 @@ export async function importProjectFile(
 ): Promise<ImportResult> {
   const picked = await platform.files.pickFile('.json,application/json')
   if (!picked) return { cancelled: true, missingModels: [], flowName: '' }
+  return importProjectFromFile(platform, repo, picked, opts)
+}
 
+/**
+ * **已经拿到文件**时的导入（对账 #234）。
+ *
+ * 为什么单独抽出来：入口不止"菜单 → 系统文件框"这一条 —— 项目页支持**把 .flow.json 拖进来**，
+ * 而拖拽手里直接就有 `File`，不该再弹一次系统框。两条入口共用这一份实现，就不会出现
+ * "拖进来解析得不一样"这种事。
+ */
+export async function importProjectFromFile(
+  platform: PlatformKit,
+  repo: ProjectRepository,
+  picked: PickedFile,
+  opts: ImportOptions = {},
+): Promise<ImportResult> {
   /**
    * ⚠️ **解析完立刻丢掉原文**（对账 #233）。
    *

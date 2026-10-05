@@ -7,7 +7,12 @@ import {
   type ProjectListStore,
   type ProjectSort,
 } from '../../state/project/listStore'
-import { exportProject, importProjectFile } from '../../state/project/flowIo'
+import {
+  exportProject,
+  importProjectFile,
+  importProjectFromFile,
+  type ImportResult,
+} from '../../state/project/flowIo'
 import { projectRoute, WORKBENCHES, WORKBENCH_ORDER, type WorkbenchId } from '../../domain/shared/workbench'
 import { formatRelative } from '../../domain/shared/time'
 import { TEMPLATES, type TemplateId } from '../../state/project/templates'
@@ -58,6 +63,8 @@ export function ProjectsPage() {
   const [renameValue, setRenameValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
+  /** 正拖着文件停在这一页上（决定要不要显那层「松开即导入」的提示） */
+  const [dragging, setDragging] = useState(false)
   /** 项目多选模式（用户 2026-09-28）：选择态下卡片点击不再进入画布 */
   const [selecting, setSelecting] = useState(false)
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set())
@@ -143,17 +150,59 @@ export function ProjectsPage() {
     if (busy) return
     setBusy(true)
     try {
-      const res = await importProjectFile(platform, repo)
-      if (res.cancelled) return
-      await store.load()
-      /**
-       * 陈旧标记下线后（用户 2026-09-17），缺失的模型不再往节点上「标记」——
-       * 文案里的「已标记」会指向一个不存在的视觉信号，故改成直说事实。
-       */
-      const modelNote = res.missingModels.length
-        ? `（${res.missingModels.length} 个节点引用了本机没有的模型）`
-        : ''
-      setStatus(`已导入「${res.project?.name}」${modelNote}`)
+      await applyImportResult(await importProjectFile(platform, repo))
+    } catch (err) {
+      setStatus(`导入失败：${(err as Error).message}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * 导入结果的**统一收尾**（对账 #234）：菜单选文件与"拖进来"两条入口共用，
+   * 免得出现"拖进来不播报 / 播报得不一样"这类分叉。
+   */
+  const applyImportResult = async (res: ImportResult) => {
+    if (res.cancelled) return
+    await store.load()
+    /**
+     * 陈旧标记下线后（用户 2026-09-17），缺失的模型不再往节点上「标记」——
+     * 文案里的「已标记」会指向一个不存在的视觉信号，故改成直说事实。
+     */
+    const modelNote = res.missingModels.length
+      ? `（${res.missingModels.length} 个节点引用了本机没有的模型）`
+      : ''
+    setStatus(`已导入「${res.project?.name}」${modelNote}`)
+  }
+
+  /**
+   * **把一个 `.flow.json` 拖到项目页 = 导入**（对账 #234）。
+   *
+   * 为什么值得做：换机器时用户手里就是一个文件，"拖进来"是最自然的动作 ——
+   * 而在此之前拖上去**毫无反应**（页面没有 drop 处理），那很容易被当成"文件坏了"。
+   * 它同时让这条路可以被**自动化验收**（拖拽可脚本化，系统文件框不行），
+   * 于是"迁移"这件事不再只能靠手点。
+   */
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    const file = e.dataTransfer?.files?.[0]
+    setDragging(false)
+    if (!file) return
+    if (!/\.json$/i.test(file.name)) {
+      setStatus('这里只接受 .flow.json 项目文件（拖进来的是别的类型）')
+      return
+    }
+    e.preventDefault()
+    if (busy) return
+    setBusy(true)
+    try {
+      await applyImportResult(
+        await importProjectFromFile(platform, repo, {
+          name: file.name,
+          size: file.size,
+          mime: file.type || 'application/json',
+          blob: file,
+        }),
+      )
     } catch (err) {
       setStatus(`导入失败：${(err as Error).message}`)
     } finally {
@@ -205,7 +254,30 @@ export function ProjectsPage() {
   }
 
   return (
-    <div className={styles.page}>
+    <div
+      className={styles.page}
+      data-projects-drop
+      /**
+       * 拖一个 `.flow.json` 进来就导入（对账 #234）。
+       * `onDragOver` 必须 `preventDefault`，否则浏览器**根本不发 drop**（默认是"不接收"）。
+       */
+      onDragOver={(e) => {
+        if (!e.dataTransfer?.types.includes('Files')) return
+        e.preventDefault()
+        if (!dragging) setDragging(true)
+      }}
+      onDragLeave={(e) => {
+        // 只在真的离开这一页时收起提示：进出子元素也会触发 dragleave
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+        setDragging(false)
+      }}
+      onDrop={(e) => void handleDrop(e)}
+    >
+      {dragging && (
+        <div className={styles.dropHint} data-projects-drop-hint>
+          松开即导入这个 .flow.json
+        </div>
+      )}
       {/*
         ⛔ 这里原来有一条自己的顶栏（品牌 + 后台设置 + 主题切换）。
         产品文档 §5.2 明写「首页不再有自己的顶栏」：品牌与一级导航归应用壳侧栏，

@@ -9,7 +9,7 @@ import {
 import type { PlatformKit, FilePort, PickedFile, TableName, Row } from '../../platform/ports'
 import { createStorageAssetPort } from '../../platform/assets'
 import { createProjectRepository } from './repository'
-import { exportProject, importProjectFile } from './flowIo'
+import { exportProject, importProjectFile, importProjectFromFile } from './flowIo'
 import { serializeProject, type FlowFileV1, type FlowGraph } from '../../domain/project/flowFile'
 import type { Project } from '../../domain/project/project'
 
@@ -117,6 +117,33 @@ describe('flowIo 导出 / 导入', () => {
 
     const res = await importProjectFile(platform, repo)
     expect(res.project?.name).toBe('目标名 (1)')
+  })
+
+  /**
+   * ★ 拖拽入口（对账 #234）：手里直接有 `File`，**不该再弹一次系统文件框** ——
+   * 项目页把拖进来的文件交给这个函数，与"菜单选文件"共用同一份实现。
+   */
+  it('★ 直接给文件（拖入入口）走同一条导入实现', async () => {
+    const flow: FlowFileV1 = serializeProject(
+      { ...baseProject, id: 'pD', name: '拖入' },
+      { nodes: baseGraph.nodes, edges: baseGraph.edges } as never,
+      { exportedAt: 1 },
+    )
+    const { platform, storage } = makePlatform()
+    const repo = createProjectRepository(storage)
+    const file: PickedFile = {
+      name: 'dropped.flow.json',
+      size: 1,
+      mime: 'application/json',
+      blob: new Blob([JSON.stringify(flow)]),
+    }
+
+    const res = await importProjectFromFile(platform, repo, file)
+
+    expect(res.cancelled).toBeFalsy()
+    expect(res.project?.name).toBe('拖入')
+    expect(res.flowName).toBe('dropped.flow.json')
+    expect((await storage.query('nodes', { projectId: res.project!.id })).length).toBe(2)
   })
 
   it('用户取消文件选择时返回 cancelled', async () => {

@@ -117,9 +117,14 @@ export async function* serializeProjectStream(
  * 为什么不原样带 `bytes`：`Uint8Array` 过 `JSON.stringify` 会变成 `{"0":137,"1":80,…}`
  * —— 体积比 base64 还大一倍（每个字节写成十进制加逗号），而导入时**还原不回字节**，
  * 于是"含素材导出"看起来能用、真搬过去图全丢。这是对账 #221 抓到的真因。
+ *
+ * ⚠️ `thumb`（缩略图）**同样不能带出去**（对账 #234）：它是 `Uint8Array`，过 `JSON.stringify`
+ * 会变成 `{"0":82,…}` 这种**普通对象**；导回来时 `row.thumb` 真值判断为"有缩略图"，
+ * 而按对象读出来是**空的** ⇒ 节点显示一张 0 字节的破图。
+ * 缩略图是**本机缓存**（换台机器重新生成即可，代价很小），不属于"项目内容"。
  */
 function toFlowAssetRow(row: FlowRow): FlowRow {
-  const { bytes, ...rest } = row
+  const { bytes, thumb: _droppedThumb, ...rest } = row
   const encoded = encodeBytes(bytes)
   return encoded === null ? { ...rest } : { ...rest, bytesBase64: encoded }
 }
@@ -226,7 +231,12 @@ export function deserializeProject(
    * 导出侧因此**按节点引用到的 hash 取素材**（`domain/canvas/graph/assetRefs.ts`，对账 #222）。
    */
   const assets = (flow.graph.assets ?? []).map((row) => {
-    const { bytesBase64, ...rest } = row as FlowRow & { bytesBase64?: unknown }
+    /**
+     * ⚠️ **顺手丢掉外来文件里的 `thumb`**（对账 #234）：修好之前导出的文件里可能带着一份
+     * 被 `JSON.stringify` 成 `{"0":82,…}` 的缩略图。留着它，节点会"以为有缩略图"却读到空的，
+     * 显示成一张破图 —— 而真相只是"这份缓存对本机没意义"。本机的缩略图会重新生成。
+     */
+    const { bytesBase64, thumb: _foreignThumb, ...rest } = row as FlowRow & { bytesBase64?: unknown }
     const bytes = decodeBytes(bytesBase64)
     return { ...rest, projectId: newProjectId, ...(bytes ? { bytes } : {}) }
   })

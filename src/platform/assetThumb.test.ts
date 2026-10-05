@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createMemoryPlatform } from './memory/index'
 import { ensureAssetThumb, makeThumbBytes, thumbPlan } from './assetThumb'
-import { backfillAssetThumbs, needsThumb } from './assetThumb'
+import { backfillAssetThumbs, needsThumb, thumbBytesOf } from './assetThumb'
 
 /**
  * 缩略图（对账 #231）的**护栏**测试。
@@ -111,5 +111,34 @@ describe('backfillAssetThumbs：存量补图', () => {
     const result = await backfillAssetThumbs(platform, { signal: controller.signal })
     expect(result.aborted).toBe(true)
     expect(result.scanned).toBe(0)
+  })
+})
+/**
+ * ★★ `thumbBytesOf`：**认不出来的 thumb 一律当作没有**（对账 #234）。
+ *
+ * 这条防的是"看着有、其实是空的"：被 `JSON.stringify` 过的缩略图是个普通对象
+ * （`{"0":82,…}`），若照着 `new Uint8Array(obj)` 去读就得到**空数组** ⇒ 节点显示 0 字节的破图。
+ * 宁可当作"没有缩略图"（继续用原图，并把坏的那份重生成）。
+ */
+describe('thumbBytesOf：只认真字节', () => {
+  it('三种真形态都认；空的（长度 0）等于没有', () => {
+    const bytes = new Uint8Array([1, 2, 3])
+    expect(thumbBytesOf(bytes)).toBe(bytes)
+    expect(Array.from(thumbBytesOf(new Uint8Array([1, 2]).buffer)!)).toEqual([1, 2])
+    expect(Array.from(thumbBytesOf([1, 2, 3])!)).toEqual([1, 2, 3])
+    expect(thumbBytesOf(new Uint8Array(0))).toBeNull()
+    expect(thumbBytesOf(new ArrayBuffer(0))).toBeNull()
+    expect(thumbBytesOf([])).toBeNull()
+  })
+
+  it('★ 被 JSON 化过的缩略图（普通对象）⇒ null，**不是**空数组', () => {
+    expect(thumbBytesOf({ 0: 82, 1: 73 })).toBeNull()
+    expect(thumbBytesOf(undefined)).toBeNull()
+    expect(thumbBytesOf(null)).toBeNull()
+    expect(thumbBytesOf('RIFF')).toBeNull()
+  })
+
+  it('★ 坏 thumb 会被判成"该补" ⇒ 补图逻辑重新生成并覆盖（自愈）', () => {
+    expect(needsThumb({ id: 'a', mime: 'image/png', bytes: new Uint8Array([1]), thumb: { 0: 82 } })).toBe(true)
   })
 })

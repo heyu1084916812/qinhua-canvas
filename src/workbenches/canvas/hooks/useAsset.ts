@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import type { PlatformKit } from '../../../platform/ports'
 import { assetFileName, expectedAssetPath } from '../../../domain/shared/assetLocation'
-import { ensureAssetThumb, THUMB_MIME } from '../../../platform/assetThumb'
+import { ensureAssetThumb, THUMB_MIME, thumbBytesOf } from '../../../platform/assetThumb'
 
 /**
  * 按 hash 从 assets 表读回媒体本体并生成 objectURL（产品文档 §8：hash 即主键）。
@@ -73,8 +73,8 @@ export async function loadAssetUrl(
    */
   const preferThumb = opts.preferThumb === true
   const isImage = (mime ?? '').startsWith('image/')
-  if (preferThumb && row?.thumb) {
-    const thumbBytes = row.thumb instanceof Uint8Array ? row.thumb : new Uint8Array(row.thumb as number[])
+  const thumbBytes = preferThumb ? thumbBytesOf(row?.thumb) : null
+  if (thumbBytes) {
     return {
       url: URL.createObjectURL(new Blob([thumbBytes as unknown as BlobPart], { type: THUMB_MIME })),
       mime,
@@ -118,7 +118,7 @@ function scheduleThumb(
   source: Blob,
   want: boolean,
 ): void {
-  if (!want || !row || row.thumb) return
+  if (!want || !row || thumbBytesOf(row.thumb)) return
   void ensureAssetThumb(platform, row as never, source)
 }
 

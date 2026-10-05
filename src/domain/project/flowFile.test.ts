@@ -219,3 +219,37 @@ describe('serializeProjectStream', () => {
     expect(parts[1]).toContain('bytesBase64')
   })
 })
+/**
+ * ★★ 缩略图**不进导出文件，也不认外来文件里的那一份**（对账 #234）。
+ *
+ * 这条抓的是一个**真回归**：`thumb` 是 `Uint8Array`，过 `JSON.stringify` 会变成 `{"0":82,…}`
+ * 这种普通对象；导回来时"真值判断为有缩略图"，但按对象读出来是**空的** ⇒
+ * 节点显示一张 0 字节的破图（而真相只是"这份缓存对本机没意义"）。
+ */
+describe('缩略图不进项目文件（对账 #234）', () => {
+  const rowWithThumb: FlowRow = {
+    id: 'hash_thumb',
+    projectId: 'proj_old',
+    mime: 'image/png',
+    bytes: new Uint8Array([1, 2, 3]),
+    thumb: new Uint8Array([82, 73, 70, 70]),
+  }
+
+  it('导出：`thumb` 与 `bytes` 都不写出去（只留 bytesBase64）', () => {
+    const flow = serializeProject(project, { ...graph, assets: [rowWithThumb] }, { exportedAt: 1 })
+    const row = flow.graph.assets![0]!
+    expect(row.thumb).toBeUndefined()
+    expect(row.bytes).toBeUndefined()
+    expect(typeof row.bytesBase64).toBe('string')
+  })
+
+  it('★ 导入：外来文件里那份被 JSON 化的 `thumb` 一律丢掉（本机重新生成即可）', () => {
+    const flow = serializeProject(project, { ...graph, assets: [] }, { exportedAt: 1 })
+    // 模拟"修好之前导出的文件"：那一行里的 thumb 是被 JSON 化过的普通对象
+    flow.graph.assets = [
+      { id: 'hash_x', projectId: 'p', mime: 'image/png', thumb: { 0: 82, 1: 73 } } as FlowRow,
+    ]
+    const out = deserializeProject(flow, 'proj_new')
+    expect(out.assets[0]!.thumb).toBeUndefined()
+  })
+})

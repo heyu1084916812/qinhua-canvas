@@ -18,6 +18,8 @@
   font-family: var(--font-sans);
   font-size: var(--fs-body);
   line-height: var(--lh-body);
+  /* 拖入提示层要相对**这一页**定位（对账 #234）。卡片自己有 `position: relative`，不受影响 */
+  position: relative;
 }
 
 .topbar {
@@ -686,4 +688,24 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+}
+/*
+ * 拖入 `.flow.json` 时的提示层（对账 #234）。
+ * 关键：**pointer-events: none** —— 它只负责"说话"，不能挡事件；
+ * 一旦它接住 drop，事件就不会冒到页面那层处理器上（页面才是接收方）。
+ */
+.dropHint {
+  position: absolute;
+  inset: var(--space-4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--stroke-focus);
+  border-radius: var(--radius-node);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  pointer-events: none;
+  z-index: 5;
 }

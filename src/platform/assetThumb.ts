@@ -76,10 +76,10 @@ export async function makeThumbBytes(blob: Blob, maxPx = THUMB_MAX_PX): Promise<
  */
 export async function ensureAssetThumb(platform: PlatformKit, row: Row, source: Blob): Promise<boolean> {
   try {
-    if (row.thumb) return false // 已经补过（重挂载 / 并发常见）——别重复解码
+    if (thumbBytesOf(row.thumb)) return false // 已经补过（重挂载 / 并发常见）——别重复解码
     return await inThumbSlot(async () => {
       // 排队期间可能已经被另一次挂载补上了，进槽后再确认一次
-      if (row.thumb) return false
+      if (thumbBytesOf(row.thumb)) return false
       const thumb = await makeThumbBytes(source)
       if (!thumb) return false
       await platform.storage.put('assets', { ...row, thumb } as never)
@@ -107,7 +107,24 @@ const waiting: (() => void)[] = []
  */
 export function needsThumb(row: Row): boolean {
   const mime = typeof row.mime === 'string' ? row.mime : ''
-  return !row.thumb && mime.startsWith('image/') && !!row.bytes
+  return !thumbBytesOf(row.thumb) && mime.startsWith('image/') && !!row.bytes
+}
+
+/**
+ * 把行里的 `thumb` 读成字节；**认不出来就当作没有**（返回 `null`）。
+ *
+ * ⚠️ 为什么必须这么严（对账 #234）：修好之前导出的 `.flow.json` 里可能带着一份被
+ * `JSON.stringify` 的缩略图（`{"0":82,…}` 这种**普通对象**）。若照着 `new Uint8Array(obj)` 去读，
+ * 会得到一个**空数组** ⇒ 节点显示一张 0 字节的破图 —— 比"没有缩略图、继续用原图"糟糕得多。
+ * 这里只认三种真字节形态（`Uint8Array` / `ArrayBuffer` / 数字数组），其余一律 `null`。
+ *
+ * 顺带带来一个**自愈**：那种坏 thumb 会被判成"没有"，于是补图逻辑会重新生成并覆盖它。
+ */
+export function thumbBytesOf(value: unknown): Uint8Array | null {
+  if (value instanceof Uint8Array) return value.length > 0 ? value : null
+  if (value instanceof ArrayBuffer) return value.byteLength > 0 ? new Uint8Array(value) : null
+  if (Array.isArray(value) && value.length > 0) return new Uint8Array(value as number[])
+  return null
 }
 
 /** 行里的字节（两种克隆形态都要认）→ Blob */
