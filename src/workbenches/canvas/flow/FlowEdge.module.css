@@ -1,0 +1,65 @@
+/*
+ * 连线（React Flow 自定义边）。
+ *
+ * 这里的每条规则都与老表面 `layers/EdgeLayer.module.css` **逐条一致**（§6.14 常态 1.5px
+ * `--edge`、选中/相关 2px `--edge-highlight`、命中区 14px、删除按钮、草稿曲线）——
+ * 老表面在 P5 收口时会被删掉，所以这不是"抄一份"，是把视觉规范**搬到新的家**。
+ * 颜色一律走令牌（主题守卫禁止字面量）。
+ */
+
+.edge {
+  fill: none;
+  stroke: var(--edge);
+  stroke-width: 1.5px;
+  transition: stroke var(--dur-edge) var(--ease-out);
+}
+
+/* 高亮（选中的连线 / 与选中节点相连的连线，§6.14） */
+.edgeActive {
+  stroke: var(--edge-highlight);
+  stroke-width: 2px;
+}
+
+/* 透明加宽命中区：线太细不好点，用 stroke 命中（pointer-events: stroke）。
+   宽度由 RF 的 `interactionWidth` 给（写在属性上），这里只管命中方式与光标。 */
+.hit {
+  fill: none;
+  stroke: transparent;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.deleteBtn {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.deleteCircle {
+  fill: var(--bg-surface);
+  stroke: var(--stroke);
+  stroke-width: 1px;
+}
+
+.deleteCross {
+  stroke: var(--text-1);
+  stroke-width: 1.5px;
+  stroke-linecap: round;
+  fill: none;
+}
+
+.deleteBtn:hover .deleteCircle {
+  fill: var(--bg-hover);
+}
+
+/* 拖线中的草稿曲线（§6.14「建立连接」）：可连接常态色，不可连接转危险色 */
+.draft {
+  fill: none;
+  stroke: var(--edge-highlight);
+  stroke-width: 1.5px;
+  stroke-dasharray: 5 4;
+  pointer-events: none;
+}
+
+.draftInvalid {
+  stroke: var(--danger);
+}

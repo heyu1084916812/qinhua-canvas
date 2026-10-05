@@ -11,19 +11,25 @@ import {
 import {
   Background,
   BackgroundVariant,
-  Controls,
-  MiniMap,
   ReactFlow,
   ReactFlowProvider,
   useViewport,
   type Connection,
+  type Edge as RFEdge,
+  type EdgeChange,
   type FinalConnectionState,
   type Node as RFNode,
   type NodeChange,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import styles from './FlowSurface.module.css'
-import { useCanvasStore, useGraph, useSelection, useViewportState } from '../storeContext'
+import {
+  useCanvasStore,
+  useEdgeSelection,
+  useGraph,
+  useSelection,
+  useViewportState,
+} from '../storeContext'
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { useCanvasPageEvents } from '../../../features/canvas/useCanvasPageEvents'
 import { FlowChildFrame, FlowFlowNode, type FlowNodeData } from './FlowNode'
@@ -34,7 +40,7 @@ import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import type { NodeViewEvent } from '../nodes/registry'
 import { useNodeDerivedMaps } from '../useNodeDerivedMaps'
 import type { FlowNodeDerivedProps } from './FlowNode'
-import { QhEdge } from './FlowEdge'
+import { QhConnectionLine, QhEdge, type QhEdgeData } from './FlowEdge'
 import { canConnect } from '../../../domain/canvas/graph/canConnect'
 import { sourcePortOf, targetPortOf } from '../../../domain/canvas/model/edge'
 import { describeError } from '../../../shared/result'
@@ -47,13 +53,16 @@ import { draggedFiles, importDroppedFiles } from '../../../features/canvas/dropI
 import { dropPointOf, resolveDropOutcome } from '../../../features/canvas/dropReparent'
 import { useNodeDrag } from '../../../features/canvas/useNodeDrag'
 import { useClipboardHotkeys, rememberPointer } from '../../../features/canvas/useClipboard'
+import { useCanvasKeyboard } from '../useCanvasKeyboard'
 import { IMPORT_ACCEPT } from '../../../features/canvas/importAsset'
 import type { CanvasStore } from '../../../state/workbenches/canvas/store'
 import type { Point } from '../../../domain/canvas/geometry/rect'
 import { PanelLayer } from '../panels/PanelLayer'
 import { NodeFollowBar } from '../toolbar/NodeFollowBar'
 import { ContextMenu } from '../menu/ContextMenu'
+import { LinkMenu } from '../menu/LinkMenu'
 import { CanvasNotice } from '../surface/CanvasNotice'
+import { Minimap } from '../surface/Minimap'
 import { UndoBar } from '../surface/UndoBar'
 
 /**
@@ -143,6 +152,8 @@ function FlowSurfaceInner({
   const store = useCanvasStore()
   const graph = useGraph()
   const selection = useSelection()
+  /** 选中的连线（§6.14）：选中态由 store 决定，RF 只是它的视图 */
+  const edgeSelection = useEdgeSelection()
   const viewport = useViewportState()
   /** 两套视口语义不同，必须显式换算（见 viewportBridge.ts；1:1 同步会让新节点落到视野外） */
   const flowViewport = useMemo(() => storeViewportToFlow(viewport), [viewport])
@@ -152,6 +163,10 @@ function FlowSurfaceInner({
   const handleDownload = useNodeDownload(platform, store)
   // Ctrl/Cmd + C/V（§4.2）：剪贴板是模块级单例、不订阅，故不参与本组件重渲染
   useClipboardHotkeys(store)
+  /* 画布级快捷键（Z 复位视图 / Ctrl+Z 撤销 / Tab 与方向键导航 / Ctrl+G 打组）：
+     与老表面同一份实现（见 `useCanvasKeyboard` 的说明）。少了它，G12 那条"复位视图"
+     以及所有依赖 Ctrl+Z 的组在 RF 面全部静默失效。 */
+  useCanvasKeyboard(store)
   const [importHover, setImportHover] = useState(false)
   /** 是否正在拉线（`onConnectStart` → `onConnectEnd`）：防止"在端点上随手一点"被当成落点 */
   const connectingRef = useRef(false)
@@ -222,6 +237,29 @@ function FlowSurfaceInner({
       if (store.isPanelDismissed()) store.setPanelDismissed(false)
       const tops = new Set(topLevelNodes(store.getSnapshot()).map((n) => n.id))
       if (!tops.has(nodeId)) return
+      /**
+       * **Alt + 拖动 = 原地复制**（§4.2）。这条**交给老表面那套控制器**（`useNodeDrag` 里已经
+       * 有"先原地复制、再把副本拖走、松手按落点归属"的完整语义），并且要**掐断 RF 的原生拖动**：
+       * RF 的拖动绑在原生 `pointerdown` 上，只靠 React 的 `stopPropagation` 拦不住
+       * （见 `resizeHandle` 那条 `nodrag` 的教训）—— 不拦的话原件会被 RF 拖走、副本留在原地，
+       * 正好把这条交互做反。捕获阶段停掉**原生**传播，RF 的监听器就不会被调用。
+       */
+      if (e.altKey) {
+        /**
+         * 光停 React 的传播不够：RF 的节点拖动是 **d3-drag 挂在节点元素上的原生监听**，
+         * 它的过滤条件是「目标的祖先里有没有 `nodrag`」。所以先给这一帧打上 `nodrag`
+         * （捕获阶段早于节点上的原生监听 ⇒ 它这次会判定"不可拖"），松手时摘掉。
+         */
+        const frame = (e.target as HTMLElement).closest('[data-node-id]')
+        frame?.classList.add('nodrag')
+        const cleanup = () => {
+          frame?.classList.remove('nodrag')
+          window.removeEventListener('pointerup', cleanup)
+        }
+        window.addEventListener('pointerup', cleanup)
+        drag.begin(e, nodeId)
+        return
+      }
       // 多选整组拖动：按下的是选区内的一员 → 锚要覆盖整组（与 RF 的拖动集合一致）
       const sel = store.getSelection().filter((id) => tops.has(id))
       const ids = sel.length > 1 && sel.includes(nodeId) ? sel : [nodeId]
@@ -423,16 +461,27 @@ function FlowSurfaceInner({
   )
 
   const edges = useMemo(
-    () =>
-      graph.edges.map((e) => ({
+    () => {
+      const selectedNodes = new Set(selection)
+      return graph.edges.map((e) => ({
         id: e.id,
         type: 'qh',
         source: e.source,
         target: e.target,
         sourceHandle: sourcePortOf(e),
         targetHandle: targetPortOf(e),
-      })),
-    [graph.edges],
+        /* 选中态从 store 推回来（与节点同一条：store 是唯一真相） */
+        selected: edgeSelection.includes(e.id),
+        data: {
+          sourcePort: sourcePortOf(e),
+          targetPort: targetPortOf(e),
+          /* 选中节点时，与它相连的线一并高亮 + 出现删除按钮（§6.14，与老表面同一判据） */
+          related: selectedNodes.has(e.source) || selectedNodes.has(e.target),
+          onDelete: (id: string) => store.dispatch({ kind: 'edge.remove', id }),
+        } satisfies QhEdgeData,
+      }))
+    },
+    [graph.edges, selection, edgeSelection, store],
   )
 
   /** 位置变化 → 翻译成 `node.move`（React Flow 给的是绝对坐标，这里换成增量） */
@@ -613,8 +662,29 @@ function FlowSurfaceInner({
         if (!world) return
         target = nodeAtWorldPoint(graph, world) ?? undefined
       }
-      if (!target || target.id === source.id) return
       const sourcePort = state.fromHandle?.id ?? undefined
+      /**
+       * 落在**空白**（或落回自己身上）：不取消，改为在指针处弹出**可连接菜单**（§6.14
+       * 「空白松手菜单」）—— 与老表面 `useEdgeDrag` 的 up() 同一条语义、同一份坐标口径
+       * （surface 局部屏幕坐标；「指针右侧 12px」由 `LinkMenu` 自己加）。
+       *
+       * 菜单要的 `side` 取**被拖的那只口**：RF 的 Handle 有 `type`，
+       * `target` ⇒ 从输入口拖出（往上找上游），否则是输出口（往下找下游）。
+       */
+      if (!target || target.id === source.id) {
+        const ev = _event as MouseEvent | null
+        const surface = document.querySelector<HTMLElement>('[data-canvas-surface]')
+        if (!ev || typeof ev.clientX !== 'number' || !surface) return
+        const r = surface.getBoundingClientRect()
+        store.setLinkMenu(
+          ev.clientX - r.left,
+          ev.clientY - r.top,
+          source.id,
+          state.fromHandle?.type === 'target' ? 'input' : 'output',
+          sourcePort,
+        )
+        return
+      }
       const check = canConnect(source, target, graph, { sourcePort })
       if (!check.ok) {
         store.notify(check.reason)
@@ -652,9 +722,69 @@ function FlowSurfaceInner({
     return () => el.removeAttribute('data-world')
   }, [])
 
+  /**
+   * 给 RF 的**框选矩形**挂上老锚点 `data-marquee`（冒烟按它确认"Ctrl+拖 = 框选"真的画出来了）。
+   *
+   * 老表面那个矩形是自己的 div；RF 用内部类名 `.react-flow__selection`，而且元素随框选**动态增删**，
+   * 所以不能像 `data-world` 那样挂一次就走 —— 用 MutationObserver 在它出现时打标（消失时随元素一起没了）。
+   */
+  useEffect(() => {
+    const surface = document.querySelector<HTMLElement>('[data-canvas-surface]')
+    if (!surface) return
+    const tag = () => {
+      for (const el of surface.querySelectorAll('.react-flow__selection')) {
+        if (!el.hasAttribute('data-marquee')) el.setAttribute('data-marquee', '')
+      }
+    }
+    tag()
+    const observer = new MutationObserver(tag)
+    observer.observe(surface, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [])
+
   const onEdgesDelete = useCallback(
     (deleted: { id: string }[]) => {
       for (const edge of deleted) store.dispatch({ kind: 'edge.remove', id: edge.id })
+    },
+    [store],
+  )
+
+  /**
+   * 边的**选中**：与节点同一条路（受控模式下走 `EdgeChange('select')`，见 `onNodesChange` 的注释）。
+   *
+   * 为什么必须自己接：不接的话 RF 内部知道"这条边选中了"，而我们的 store 不知道
+   * ⇒ `edges[].selected` 一直是 false ⇒ §6.14 的删除按钮永远不出现（G12 实测）。
+   * 选中连线时 store 会**清掉节点选中**（`setEdgeSelection` 的既有语义，与老表面一致）。
+   */
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange<RFEdge>[]) => {
+      let next: string[] | null = null
+      const selected = new Set(store.getEdgeSelection())
+      for (const change of changes) {
+        if (change.type !== 'select') continue
+        if (change.selected) selected.add(change.id)
+        else selected.delete(change.id)
+        next = [...selected]
+      }
+      /**
+       * ⚠️ `setEdgeSelection` 会**连节点选中一起清空**（既有语义：选中连线 = 取消节点选中）。
+       * 而"点节点"这一下，RF 会同时发「节点选中」与「上一条连线取消选中」两批变更；
+       * 若照单全收，后到的 `setEdgeSelection([])` 会把刚落下的节点选中清掉 ⇒
+       * 相关连线的高亮/删除按钮随即消失（G12「节点选中时相关连线出现删除按钮」实测 btn=0）。
+       * 既然结果与当前一致（多半是节点选中已经把它清了），就**不要重复下发**。
+       */
+      if (!next) return
+      const before = store.getEdgeSelection()
+      const same = next.length === before.length && next.every((id, i) => id === before[i])
+      if (!same) store.setEdgeSelection(next)
+    },
+    [store],
+  )
+
+  /** 双击连线直接删除（§6.14）。RF 把 `dblclick` 挂在 `<g class="react-flow__edge">` 上，冒泡即达 */
+  const onEdgeDoubleClick = useCallback(
+    (_e: ReactMouseEvent, edge: RFEdge) => {
+      store.dispatch({ kind: 'edge.remove', id: edge.id })
     },
     [store],
   )
@@ -700,6 +830,25 @@ function FlowSurfaceInner({
         multiSelectionKeyCode={['Shift']}
         /* §6.3：中键拖拽也平移（左键拖拽是默认行为，空格 + 拖拽由 React Flow 自带） */
         panOnDrag={[0, 1]}
+        /*
+         * **关掉"点端点两次建连"**（RF 的 `connectOnClick` 默认开）。
+         * 产品口径是**拖**线（§6.14），没有"点一下这头、再点一下那头"这条交互；
+         * 而它会**残留状态**：一次被拒的连接松手后，RF 记着"你在等第二次点击"，
+         * 于是后面那一下从端点起手的拖动被它当成"完成点击连接"吃掉 —— 拖拽根本不开始，
+         * 表现为"拖不动线、也没有菜单"（G13 实测：类型不匹配 / 空白松手两次手势全被吞）。
+         */
+        connectOnClick={false}
+        /*
+         * **关掉 RF 的三处自动平移**（拖线 / 拖节点 / 框选时指针贴边就自己滚画布）。
+         * 老表面没有这个行为，而它会以两种方式咬人：
+         * ① 落点判定失真 —— 用户明明"松在空白处"，画布已经在拖拽期间滚过，
+         *    于是松手点下面滑来了一个节点 ⇒ 变成"连到那个节点上"或"被拒"，§6.14 的
+         *    空白松手菜单永远不弹（G13 实测：菜单=0，而它上面一条"空白处松手不建边"照样绿）；
+         * ② 换引擎不该顺手给用户加一套新动效 —— 要加，另开一轮单独定规则。
+         */
+        autoPanOnConnect={false}
+        autoPanOnNodeDrag={false}
+        autoPanOnSelection={false}
         viewport={flowViewport}
         onViewportChange={(next) => store.setViewport(flowViewportToStore(next))}
         onNodesChange={onNodesChange}
@@ -722,11 +871,13 @@ function FlowSurfaceInner({
          */
         onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
+        onEdgesChange={onEdgesChange}
+        onEdgeDoubleClick={onEdgeDoubleClick}
+        /* 拖线中的草稿曲线（§6.14）：接管 RF 官方那条线，挂上老锚点 `data-edge-draft` */
+        connectionLineComponent={QhConnectionLine}
         deleteKeyCode={['Backspace', 'Delete']}
       >
         <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="var(--grid-line)" />
-        <Controls showInteractive={false} />
-        <MiniMap pannable zoomable nodeColor="var(--stroke)" maskColor="transparent" />
       </ReactFlow>
       <Hud store={store} projectId={projectId} count={graph.nodes.length} ids={nodes.map((n) => n.id)} />
       {/*
@@ -737,8 +888,11 @@ function FlowSurfaceInner({
       <PanelLayer onOpenSettings={onOpenSettings} onOpenSkills={onOpenSkills} />
       <NodeFollowBar onOpenSettings={onOpenSettings} onDownload={handleDownload} />
       <ContextMenu />
+      <LinkMenu />
       <CanvasNotice />
       <UndoBar />
+      {/* 小地图（§6.4）：复用老表面那份（自成一体、只读 store），最后渲染以免被别的浮层压住 */}
+      <Minimap />
     </div>
   )
 }
@@ -808,10 +962,14 @@ function Hud({
     >
       <span>引擎 React Flow（P1）</span>
       <span>节点 {count}</span>
-      {/* `data-canvas-zoom` 是老表面的既有锚点（缩放读数），冒烟按它读画布缩放，故两份都挂 */}
-      <span data-flow-zoom data-canvas-zoom>
-        {Math.round(zoom * 100)}%
-      </span>
+      {/*
+       * ⚠️ **不要再挂 `data-canvas-zoom`**：那是 §6.2 定的「小地图附近的缩放读数」，
+       * 而小地图已经换回老表面那份 `Minimap`（它自带该锚点）。挂两处会让冒烟
+       * `page.locator('[data-canvas-zoom]')` 变成 strict-mode violation（解析到 2 个元素直接抛）
+       * —— G46 实测从 33/33 崩成「等不到 [data-canvas-zoom]」，真因其实是"拿到了两个"。
+       * 这里的 `data-flow-zoom` 只给探针读，不再冒充产品锚点。
+       */}
+      <span data-flow-zoom>{Math.round(zoom * 100)}%</span>
       <button
         type="button"
         data-asset-folder

@@ -57,22 +57,11 @@
   cursor: not-allowed;
 }
 
-/* —— React Flow 自带控件深色化（全部走令牌，主题守卫要求） —— */
-.flow :global(.react-flow__controls-button) {
-  background: var(--bg-app);
-  border-bottom: 1px solid var(--stroke);
-}
-.flow :global(.react-flow__controls-button:hover) {
-  background: var(--bg-hover);
-}
-.flow :global(.react-flow__controls-button svg) {
-  fill: var(--text-1);
-}
-.flow :global(.react-flow__minimap) {
-  background: var(--bg-app);
-  border: 1px solid var(--stroke);
-  border-radius: 8px;
-}
+/* —— React Flow 自带控件深色化（全部走令牌，主题守卫要求） ——
+   ⚠️ 缩放控件（`<Controls>`）**已按老表面的口径移除**：老画布没有这套按钮
+   （缩放靠滚轮 + 工具栏「重置视图」），而它默认停在左下角，既压住 HUD，
+   又在"右下角空白拖拽平移"这类验收里占掉起点（G56 实测：拖到了 zoom-out 按钮上）。
+   若以后要补缩放按钮，应放进工具栏与其它工具同处，而不是把 RF 的默认控件搬回来。 */
 .flow :global(.react-flow__attribution) {
   background: transparent;
 }
@@ -84,11 +73,4 @@
   height: 11px;
   background: var(--port);
   border: 1px solid var(--port-stroke);
-}
-.flow :global(.react-flow__edge-path) {
-  stroke: var(--edge);
-  stroke-width: 1.6;
-}
-.flow :global(.react-flow__edge.selected .react-flow__edge-path) {
-  stroke: var(--edge-highlight);
 }
