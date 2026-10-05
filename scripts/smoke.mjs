@@ -1019,7 +1019,8 @@ async function g5(browser) {
   // 导出
   const dlPromise = page.waitForEvent('download', { timeout: 8000 }).catch(() => null)
   await page.locator('[data-project-card] button[aria-label="项目菜单"]').first().click()
-  await page.getByRole('menuitem', { name: '导出' }).click()
+  // ⚠️ 必须 `exact`：菜单里现在还有一条「导出（含素材，体积大）」，而 name 默认是**子串**匹配
+  await page.getByRole('menuitem', { name: '导出', exact: true }).click()
   const dl = await dlPromise
   if (!dl) {
     rec(g, '导出触发下载', false, '未捕获 download 事件')
@@ -18428,7 +18429,101 @@ async function g110(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110]
+// ────────────────────────────────────────────────────────────
+// G111 含素材导出往返（.flow.json 里带字节 —— 方案 §3 的第 ② 条兜底）
+// ────────────────────────────────────────────────────────────
+async function g111(browser) {
+  const g = 'G111 含素材导出'
+  const ctx = await newCtx(browser, { acceptDownloads: true })
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await createProject(page)
+  await sleep(400)
+  /** 造一份**真素材**：给生成节点上传一张小图（与 G91 同一手法） */
+  const src = await addGenWithImage(page, 64, 36, [12, 200, 90])
+  await sleep(1200)
+  rec(
+    g,
+    '★ 画布上确实有一份素材（节点里带图）',
+    (await page.locator(`[data-node-id="${src.id}"] [data-node-asset]`).count()) > 0,
+  )
+
+  await gotoProjects(page)
+  await sleep(400)
+
+  /** ① 默认导出（只结构）：**不含**字节 —— 这是"节点在、图全丢"的那一档，必须有对比 */
+  const plainDl = page.waitForEvent('download', { timeout: 8000 }).catch(() => null)
+  await page.locator('[data-project-card] button[aria-label="项目菜单"]').first().click()
+  await page.getByRole('menuitem', { name: '导出', exact: true }).click()
+  const plain = await plainDl
+  if (!plain) {
+    rec(g, '结构导出触发下载', false, '未捕获 download')
+    await ctx.close()
+    return
+  }
+  const plainFile = `${OUT}/${plain.suggestedFilename()}`
+  await plain.saveAs(plainFile)
+  const plainText = readFileSync(plainFile, 'utf8')
+  rec(g, '★★ 默认导出不含素材字节（文件里没有 bytesBase64）', !plainText.includes('bytesBase64'))
+
+  /** ② 含素材导出：文件里**真有**字节 */
+  const embedDl = page.waitForEvent('download', { timeout: 20000 }).catch(() => null)
+  await page.locator('[data-project-card] button[aria-label="项目菜单"]').first().click()
+  const embedItems = await page.locator('[data-project-export-embed]').count()
+  await page.locator('[data-project-export-embed]').click()
+  const embed = await embedDl
+  if (!embed) {
+    const status = await page
+      .getByRole('status')
+      .innerText()
+      .catch(() => '（读不到状态）')
+    rec(g, '含素材导出触发下载', false, `未捕获 download；菜单项=${embedItems}；状态=${status}`)
+    await ctx.close()
+    return
+  }
+  const embedFile = `${OUT}/${embed.suggestedFilename()}`
+  await embed.saveAs(embedFile)
+  const embedText = readFileSync(embedFile, 'utf8')
+  rec(g, '★★ 含素材导出：文件里真的有 bytesBase64', embedText.includes('bytesBase64'))
+  rec(
+    g,
+    '★ 含素材的文件明显更大（字节真的在里面对，不是空壳）',
+    embedText.length > plainText.length + 100,
+    `${plainText.length} → ${embedText.length}`,
+  )
+
+  /** ③ 删掉原项目 → 导入那个文件 → **图还在** */
+  await page.locator('[data-project-card] button[aria-label="项目菜单"]').first().click()
+  await page.getByRole('menuitem', { name: '删除' }).click()
+  await page.getByRole('button', { name: '确认' }).click()
+  await sleep(500)
+  const fcPromise = page.waitForEvent('filechooser', { timeout: 8000 })
+  await page.getByRole('button', { name: '导入' }).click()
+  const fc = await fcPromise.catch(() => null)
+  if (!fc) {
+    rec(g, '导入触发文件选择', false, '未捕获 filechooser')
+    await ctx.close()
+    return
+  }
+  await fc.setFiles(embedFile)
+  await sleep(1200)
+  await page.locator('[data-project-card]').first().click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(1500)
+  const imgOk = await page
+    .locator('[data-node-type="generation"] img')
+    .first()
+    .evaluate((el) => el.naturalWidth > 0)
+    .catch(() => false)
+  rec(g, '★★ 导入后图真的在（不是空框、不是「素材缺失」）', imgOk)
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

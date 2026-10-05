@@ -230,6 +230,7 @@ function HomeCard({
           onStartRename={() => setRenaming(true)}
           onDuplicate={() => {}}
           onExport={() => {}}
+          onExportWithAssets={() => {}}
         />
       </div>
     </div>

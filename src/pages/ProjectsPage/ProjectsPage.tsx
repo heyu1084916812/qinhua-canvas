@@ -161,13 +161,20 @@ export function ProjectsPage() {
     }
   }
 
-  const handleExport = async (id: string, name: string) => {
+  /**
+   * 导出 .flow.json。`embedAssets` = **连素材字节一起带走**（方案 §3 的第 ② 条兜底）。
+   *
+   * 为什么要有这一档：默认导出只有结构，搬到另一台机器 / 桌面壳时"节点在、图全丢"；
+   * 素材多时文件会很大，所以**不默认打开**、也不并进同一个入口 —— 用户明确点那一条才带素材。
+   * （日常备份仍推荐「素材文件夹」那条路：字节留在盘上，JSON 只带结构。）
+   */
+  const handleExport = async (id: string, name: string, opts?: { embedAssets?: boolean }) => {
     if (busy) return
     setBusy(true)
     setMenuId(null)
     try {
-      const { fileName } = await exportProject(platform, id)
-      setStatus(`已导出「${name}」为 ${fileName}`)
+      const { fileName } = await exportProject(platform, id, opts)
+      setStatus(`已导出「${name}」为 ${fileName}${opts?.embedAssets ? '（含素材）' : ''}`)
     } catch (err) {
       setStatus(`导出失败：${(err as Error).message}`)
     } finally {
@@ -296,6 +303,7 @@ export function ProjectsPage() {
                   onStartRename={() => startRename(p)}
                   onDuplicate={() => void handleDuplicate(p.id)}
                   onExport={() => void handleExport(p.id, p.name)}
+                  onExportWithAssets={() => void handleExport(p.id, p.name, { embedAssets: true })}
                 />
               ))}
             </div>
@@ -496,12 +504,14 @@ export function ProjectCard(props: {
   onStartRename: () => void
   onDuplicate: () => void
   onExport: () => void
+  /** 导出**含素材**的那一档（方案 §3 的兜底路：文件大、不默认打开） */
+  onExportWithAssets: () => void
 }) {
   const {
     project, selecting, selected, confirming, menuOpen, renaming, renameValue,
     onOpen, onRenameChange, onRenameCommit, onCancelRename,
     onRequestDelete, onConfirmDelete, onCancelDelete,
-    onToggleMenu, onStartRename, onDuplicate, onExport,
+    onToggleMenu, onStartRename, onDuplicate, onExport, onExportWithAssets,
   } = props
   const name = selecting && selected ? `${project.name}，已选择` : project.name
 
@@ -620,12 +630,28 @@ export function ProjectCard(props: {
             <button
               className={styles.menuItem}
               role="menuitem"
+              data-project-export
               onClick={(e) => {
                 e.stopPropagation()
                 onExport()
               }}
             >
               导出
+            </button>
+            {/*
+              「含素材」是**另一条入口**，不是同一个里加勾选：它的产物可能几百 MB，
+              默认摆在那里容易被误点；而日常备份该走「素材文件夹」那条（结构 + 盘上字节）。
+            */}
+            <button
+              className={styles.menuItem}
+              role="menuitem"
+              data-project-export-embed
+              onClick={(e) => {
+                e.stopPropagation()
+                onExportWithAssets()
+              }}
+            >
+              导出（含素材，体积大）
             </button>
           </div>
         )}

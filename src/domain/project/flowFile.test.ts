@@ -110,3 +110,62 @@ describe('flowFile 序列化 / 反序列化', () => {
     expect(flow.exportedAt).toBe(9999)
   })
 })
+
+/**
+ * 内嵌素材（「含素材导出」/ 方案 §3 的第 ② 条，对账 #221）。
+ *
+ * 这一档此前**只是看起来能用**：`serializeProject` 原样把 `bytes`（`Uint8Array`）交给
+ * `JSON.stringify` ⇒ 落成 `{"0":137,…}`（体积更大），而导入时又还原不回字节 ⇒ 图全丢。
+ * 所以判据必须是"**过一遍真实 JSON 再回来，字节还一样**"。
+ */
+describe('内嵌素材', () => {
+  const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3])
+
+  /** 每次现造（节点 data 会被改写，别污染上面那份共享的 `graph`） */
+  const withAssets = (): FlowFileV1 =>
+    serializeProject(
+      project,
+      {
+        nodes: [
+          { id: 'node_a', projectId: 'proj_old', type: 'prompt', parentId: null, x: 0, y: 0, w: 1, h: 1, title: 'P', disabled: false, data: { text: 'hi' } },
+          { id: 'node_b', projectId: 'proj_old', type: 'generation', parentId: null, x: 1, y: 0, w: 1, h: 1, title: 'G', disabled: false, data: { model: 'gpt-image', assetHash: 'hash_local' } },
+        ] as never,
+        edges: [] as never,
+        assets: [
+          { id: 'hash_local', projectId: 'proj_old', mime: 'image/png', bytes },
+          { id: 'hash_remote', projectId: 'proj_old', mime: 'video/mp4', url: 'https://example.com/a.mp4' },
+        ] as never,
+      },
+      { exportedAt: 1 },
+    )
+
+  it('★ 有字节的行写成 `bytesBase64`，且不带原始 `bytes`（Uint8Array 过 JSON 会变数字键对象）', () => {
+    const row = withAssets().graph.assets![0]!
+    expect(typeof row.bytesBase64).toBe('string')
+    expect(row.bytes).toBeUndefined()
+    expect(JSON.stringify(row)).not.toContain('"bytes"')
+  })
+
+  it('★ 远端行（只有 url）不写 `bytesBase64`：没有字节可写，别编一个空的', () => {
+    const row = withAssets().graph.assets![1]!
+    expect(row.bytesBase64).toBeUndefined()
+    expect(row.url).toBe('https://example.com/a.mp4')
+  })
+
+  it('★★ 过一遍真实 JSON（stringify → parse）后字节原样回来，且不留 base64', () => {
+    const text = JSON.stringify(withAssets())
+    const out = deserializeProject(JSON.parse(text) as FlowFileV1, 'proj_new')
+    const local = out.assets.find((a) => a.id === 'hash_local')!
+    expect(local.bytes).toBeInstanceOf(Uint8Array)
+    expect(Array.from(local.bytes as Uint8Array)).toEqual(Array.from(bytes))
+    expect(local.bytesBase64).toBeUndefined()
+    expect(local.projectId).toBe('proj_new')
+  })
+
+  it('★★ 素材 id 保持原样（它就是内容哈希），节点里的 `assetHash` 也不能被改', () => {
+    const out = deserializeProject(withAssets(), 'proj_new')
+    expect(out.assets.map((a) => a.id)).toEqual(['hash_local', 'hash_remote'])
+    // 节点仍按哈希引用同一张图（若 id 被换成新随机 id，这里会跟着变，图片就再也找不到）
+    expect(JSON.stringify(out.nodes.map((n) => n.data))).toContain('hash_local')
+  })
+})

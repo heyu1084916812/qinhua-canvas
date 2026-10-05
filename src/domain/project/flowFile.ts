@@ -1,5 +1,6 @@
 import type { Project } from './project'
 import { createId } from '../../shared/id'
+import { base64ToBytes, bytesToBase64 } from '../shared/base64'
 
 /**
  * .flow.json 文件格式（产品文档 §5.7 / §8 数据模型）。
@@ -64,9 +65,35 @@ export function serializeProject(
     graph: {
       nodes: graph.nodes.map((r) => ({ ...r })),
       edges: graph.edges.map((r) => ({ ...r })),
-      assets: graph.assets?.map((r) => ({ ...r })),
+      assets: graph.assets?.map(toFlowAssetRow),
     },
   }
+}
+
+/**
+ * 内嵌素材的那一行：把 `bytes` 换成 `bytesBase64`。
+ *
+ * 为什么不原样带 `bytes`：`Uint8Array` 过 `JSON.stringify` 会变成 `{"0":137,"1":80,…}`
+ * —— 体积比 base64 还大一倍（每个字节写成十进制加逗号），而导入时**还原不回字节**，
+ * 于是"含素材导出"看起来能用、真搬过去图全丢。这是对账 #221 抓到的真因。
+ */
+function toFlowAssetRow(row: FlowRow): FlowRow {
+  const { bytes, ...rest } = row
+  const encoded = encodeBytes(bytes)
+  return encoded === null ? { ...rest } : { ...rest, bytesBase64: encoded }
+}
+
+/** `Uint8Array` / `ArrayBuffer` 都认（表里的字节两种形态都出现过）；都不是就返回 null */
+function encodeBytes(value: unknown): string | null {
+  if (value instanceof Uint8Array) return bytesToBase64(value)
+  if (value instanceof ArrayBuffer) return bytesToBase64(new Uint8Array(value))
+  return null
+}
+
+/** `bytesBase64` → 字节；没有这一项就返回 null（结构导出 / 远端行本来就没有字节） */
+function decodeBytes(value: unknown): Uint8Array | null {
+  if (typeof value !== 'string' || value === '') return null
+  return base64ToBytes(value)
 }
 
 export interface DeserializeResult {
@@ -97,7 +124,12 @@ export function deserializeProject(
   const idMap = new Map<string, string>()
   for (const n of flow.graph.nodes) idMap.set(String(n.id), createId('node'))
   for (const e of flow.graph.edges) idMap.set(String(e.id), createId('edge'))
-  for (const a of flow.graph.assets ?? []) idMap.set(String(a.id), createId('asset'))
+  /**
+   * ⚠️ **素材 id 不进 `idMap`**：它就是内容哈希，节点靠 `data.assetHash` 引用它。
+   * 若把素材 id 换成新的，`deepRemapRefs` 会顺手把节点的 `assetHash` 也改成那个新 id
+   * （看起来一致、其实是自洽的空引用：真正按哈希找字节的地方全都找不到）——
+   * 详见下面 `assets` 那段注释与对账 #221。
+   */
   /**
    * 老文件里那些**指向结果组的 parentId**必须认出来并清空。
    *
@@ -142,11 +174,21 @@ export function deserializeProject(
     target: remap(String(e.target)),
   }))
 
-  const assets = (flow.graph.assets ?? []).map((a) => ({
-    ...a,
-    id: remap(String(a.id)),
-    projectId: newProjectId,
-  }))
+  /**
+   * 素材行：**id 不重映射**（它本来就是内容哈希），`bytesBase64` 解回字节。
+   *
+   * 为什么 id 保持原样：这张表是**内容寻址**的（`id = 内容哈希`），而节点引用素材也按哈希
+   * （`data.assetHash`）。给素材换新 id 会同时踩两件事：① 同一张图换个项目再导一次就多存一份字节；
+   * ② "素材文件夹"按 `<hash>.<ext>` 找文件的那套对导入的素材失效（它找不到新 id 命名的文件）。
+   * ⏳ 已知未解（对账 #221）：`assets.projectId` 因此变成"最后一次导入它的项目"，
+   * 于是**同一个 hash 进过两个项目**时，靠 `projectId` 取素材的那条导出路径会漏掉它 ——
+   * 正确修法是导出改成"按节点引用到的 hash 取素材"，但没有测试前先不动。
+   */
+  const assets = (flow.graph.assets ?? []).map((row) => {
+    const { bytesBase64, ...rest } = row as FlowRow & { bytesBase64?: unknown }
+    const bytes = decodeBytes(bytesBase64)
+    return { ...rest, projectId: newProjectId, ...(bytes ? { bytes } : {}) }
+  })
 
   const project: FlowProject = {
     ...flow.project,

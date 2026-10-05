@@ -90,6 +90,17 @@ class QinghuaDB extends Dexie {
     this.version(7).stores({
       agentSessions: 'id, projectId, updatedAt',
     })
+    /**
+     * v8：给 `assets` 补 `projectId` 索引（对账 #221）。
+     *
+     * 起因：「含素材导出」要**按项目**取素材（`query('assets', { projectId })`），
+     * 而 Dexie 的 `.where()` 要求该字段建过索引 —— 没有索引会直接抛
+     * `KeyPath projectId on object store assets is not indexed`，表现为"导出失败"。
+     * 只加索引、不动数据；assets 是大表，升级时 Dexie 会重建这份索引（一次性开销）。
+     */
+    this.version(8).stores({
+      assets: 'id, projectId, bytes',
+    })
   }
 }
 
