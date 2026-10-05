@@ -3,9 +3,26 @@ import {
   ASSET_EXT_FALLBACK,
   assetFileName,
   assetMimeOfName,
+  expectedAssetPath,
   isAssetFileName,
   normalizeAssetLocationConfig,
 } from './assetLocation'
+
+describe('素材缺失时"它本该在哪"（对账 #196 · 增量 4）', () => {
+  it('有目录 + 有 mime：给出确切文件路径（用户照着去找就行）', () => {
+    expect(expectedAssetPath('我的素材', 'abc123', 'image/png')).toBe('我的素材/abc123.png')
+    expect(expectedAssetPath('my-assets', 'h1', 'video/mp4')).toBe('my-assets/h1.mp4')
+  })
+
+  it('mime 未知时写 `<hash>.*`，**不猜扩展名**（猜错等于让人找一个不存在的文件）', () => {
+    expect(expectedAssetPath('我的素材', 'abc123', null)).toBe('我的素材/abc123.*')
+  })
+
+  it('没选目录时返回 null：没有目录语境，"原路径"是编出来的', () => {
+    expect(expectedAssetPath(null, 'abc123', 'image/png')).toBeNull()
+    expect(expectedAssetPath('   ', 'abc123', 'image/png')).toBeNull()
+  })
+})
 
 describe('素材文件名规则', () => {
   it('按 mime 起扩展名（hash 即内容哈希 ⇒ 重传同图幂等）', () => {

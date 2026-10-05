@@ -26,7 +26,10 @@ function kitWithFolder(folder: ReturnType<typeof createMemoryAssetFolder>): Plat
           ? [{ id: 'h1', mime: 'image/png', bytes: new Uint8Array([1, 2, 3]) }]
           : filter.id === 'remote'
             ? [{ id: 'remote', mime: 'video/mp4', url: 'https://example.com/a.mp4' }]
-            : []
+            : filter.id === 'nobytes'
+              ? // 有库行（知道 mime ⇒ 拼得出文件名）但**没有字节** —— 缺失策略要的分支
+                [{ id: 'nobytes', mime: 'image/png' }]
+              : []
       },
       async estimateUsage() {
         return { used: 0, quota: 0 }
@@ -77,5 +80,36 @@ describe('素材读回：文件夹优先、内置库回落', () => {
     const meta = await loadAssetUrl(kitWithFolder(folder), 'remote')
     expect(meta.url).toBe('https://example.com/a.mp4')
     expect(meta.mime).toBe('video/mp4')
+  })
+
+  /**
+   * 缺失时的"去哪儿找"（对账 #196 · 增量 4）。
+   *
+   * `loadAssetUrl` 只负责**把路径算出来**（库行有 mime 就拼确切文件名，没有就写 `<hash>.*`）；
+   * "到底算不算缺失"是 hook 的事 —— 它要等退避重试窗口走完（刚生成的图字节可能还在路上），
+   * 那一段在 SSR 里跑不到，故这里只钉住喂给它的这一份输入。
+   */
+  it('库与文件夹都没有字节 → url 为 null，并给出"本该在哪"（含目录名）', async () => {
+    const folder = createMemoryAssetFolder()
+    await folder.pick()
+    // 'nobytes' 的库行有 mime（image/png）但没有字节，夹具里也没有这个文件
+    const meta = await loadAssetUrl(kitWithFolder(folder), 'nobytes')
+    expect(meta.url).toBeNull()
+    expect(meta.expectedPath).toBe('memory-assets/nobytes.png')
+  })
+
+  it('连库行都没有（mime 未知）→ 路径写 `<hash>.*`，不猜扩展名', async () => {
+    const folder = createMemoryAssetFolder()
+    await folder.pick()
+    const meta = await loadAssetUrl(kitWithFolder(folder), 'gone')
+    expect(meta.url).toBeNull()
+    expect(meta.mime).toBeNull()
+    expect(meta.expectedPath).toBe('memory-assets/gone.*')
+  })
+
+  it('没选目录 → 没有目录语境就不给路径（只说缺失，不编一个出来）', async () => {
+    const meta = await loadAssetUrl(kitWithFolder(createMemoryAssetFolder()), 'gone')
+    expect(meta.url).toBeNull()
+    expect(meta.expectedPath).toBeNull()
   })
 })

@@ -128,6 +128,50 @@
   animation: shimmer 1.4s linear infinite;
 }
 
+/*
+ * 素材缺失（对账 #196 · 增量 4）：库与文件夹里都找不到字节。
+ * 样式上刻意**不像骨架屏**（不闪、不渐变）——它表达的是"到此为止"，不是"再等等"。
+ * 底色压深一档 + 虚线描边，与空态（`+` 上传）也区分开：那是"还没有内容"，这是"内容本该在、但找不到了"。
+ */
+.assetMissing {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px;
+  box-sizing: border-box;
+  background: var(--bg-subtle);
+  border: 1px dashed var(--stroke);
+  border-radius: var(--radius-control);
+  text-align: center;
+  overflow: hidden;
+}
+
+.missingTitle {
+  font-size: var(--fs-label);
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+/* 路径可能很长：单行省略 + `title` 里给全文（用户要的是"去哪儿找"，不是看一段乱码折行） */
+.missingPath {
+  max-width: 100%;
+  font-size: var(--fs-label);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+}
+
+.missingHint {
+  font-size: var(--fs-label);
+  color: var(--text-3);
+}
+
 @keyframes shimmer {
   to {
     background-position: -200% 0;

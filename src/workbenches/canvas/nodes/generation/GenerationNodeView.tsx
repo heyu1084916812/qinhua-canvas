@@ -38,7 +38,7 @@ export function assetIsVideo(mime: string | null, mode: GenerationData['mode']):
  */
 export function GenerationNodeView(props: NodeViewProps) {
   const data = props.node.data as GenerationData
-  const { url, mime } = useAssetMeta(data.assetHash)
+  const { url, mime, missing, expectedPath } = useAssetMeta(data.assetHash)
   const [dropping, setDropping] = useState(false)
   /**
    * 素材操作菜单（清除 / 替换）挂在**本体那张图的右上角**（用户 2026-09-18 明确位置）。
@@ -95,10 +95,28 @@ export function GenerationNodeView(props: NodeViewProps) {
             />
           )
         ) : (
-          /* 已有内容、但素材本体还在从 assets 表读回（读取带退避重试）：
-             此时**不能**退回「`+` 上传」——那会让用户以为内容丢了并再传一次。
-             用一块中立骨架占位即可。 */
-          <div className={styles.assetLoading} data-node-asset-loading />
+          <>
+            {/*
+              已有内容、但字节读不到。两种情形要分清楚（对账 #196 · 增量 4）：
+              - **还在读**（刚生成、字节尚未落库）：中立骨架占位。此时**不能**退回
+                「`+` 上传」——那会让用户以为内容丢了并再传一次。
+              - **确实缺失**（库 + 文件夹都没有，且退避重试已用尽）：如实说「素材缺失」，
+                并给出"它本该在哪"。留骨架屏等于让用户一直等一张永远不会出现的图。
+            */}
+            {missing ? (
+              <div className={styles.assetMissing} data-node-asset-missing>
+                <span className={styles.missingTitle}>素材缺失</span>
+                {expectedPath ? (
+                  <span className={styles.missingPath} data-node-asset-missing-path title={expectedPath}>
+                    {expectedPath}
+                  </span>
+                ) : null}
+                <span className={styles.missingHint}>把文件放回这个位置，或重新拖入素材</span>
+              </div>
+            ) : (
+              <div className={styles.assetLoading} data-node-asset-loading />
+            )}
+          </>
         )
       ) : (
         /* 状态 A：占位框 + 中间一个 `+`。

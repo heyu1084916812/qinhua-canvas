@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import type { PlatformKit } from '../../../platform/ports'
-import { assetFileName } from '../../../domain/shared/assetLocation'
+import { assetFileName, expectedAssetPath } from '../../../domain/shared/assetLocation'
 
 /**
  * 按 hash 从 assets 表读回媒体本体并生成 objectURL（产品文档 §8：hash 即主键）。
@@ -14,6 +14,16 @@ export interface AssetMeta {
   url: string | null
   /** 素材的 mime；未落库时为空（灯箱靠它决定渲染 `<img>` 还是 `<video>`） */
   mime: string | null
+  /**
+   * 素材**确实找不到了**（对账 #196 · 增量 4）——不是"还在读"。
+   *
+   * 判定：库里的字节没有、远端地址没有、已授权目录里也没有，且**退避重试窗口已经用尽**。
+   * 界面据此如实显示「素材缺失 + 原路径」，而不是留一块永远转圈的骨架屏
+   * （那会让用户以为"再等等就出来了"，实际等到的是永久空白）。
+   */
+  missing?: boolean
+  /** 缺失时"它本该在的位置"（`<目录名>/<hash>.<ext>`）；没选目录时为 null */
+  expectedPath?: string | null
 }
 
 /**
@@ -33,12 +43,18 @@ export async function loadAssetUrl(platform: PlatformKit, hash: string): Promise
   const row = rows[0] as
     | { bytes?: Uint8Array | number[]; mime?: string; url?: string }
     | undefined
+  const mime = row?.mime ?? null
+  /**
+   * 缺失时给界面一个"去哪儿找"的落点。**mime 只认库里的那一份**：库行没了就写 `<hash>.*`，
+   * 不按"大概是个图"猜扩展名（猜错会让用户去找一个根本不存在的文件名）。
+   */
+  const expectedPath = expectedAssetPath(platform.assetFolder?.current()?.name, hash, mime)
   /**
    * **远程产物**（视频成片）：直接用它的地址 —— 字节那一路在浏览器里会被 CORS 挡掉
    * （`cos-platform-outputs.agnes-ai.cn` 实测 `net::ERR_FAILED`），而 `<video src>`
    * 播放不受 CORS 限制。有 url 就用 url，没有才走原来的「bytes → objectURL」。
    */
-  if (row?.url) return { url: row.url, mime: row.mime ?? null }
+  if (row?.url) return { url: row.url, mime, expectedPath }
   /**
    * **素材文件夹优先**（对账 #196 · 增量 2）：用户把素材托管到自己的文件夹后，以磁盘上那份为准。
    * 命中条件 = 已授权目录 + 该 hash 的文件确实在目录里；否则回落内置库（IndexedDB）。
@@ -48,13 +64,13 @@ export async function loadAssetUrl(platform: PlatformKit, hash: string): Promise
    */
   const folder = platform.assetFolder
   if (folder?.current()) {
-    const onDisk = await folder.read(assetFileName(hash, row?.mime ?? 'image/png'))
-    if (onDisk) return { url: URL.createObjectURL(onDisk), mime: row?.mime ?? null }
+    const onDisk = await folder.read(assetFileName(hash, mime ?? 'image/png'))
+    if (onDisk) return { url: URL.createObjectURL(onDisk), mime, expectedPath }
   }
-  if (!row?.bytes) return { url: null, mime: null }
+  if (!row?.bytes) return { url: null, mime, expectedPath }
   const buf = row.bytes instanceof Uint8Array ? row.bytes : new Uint8Array(row.bytes as number[])
-  const blob = new Blob([buf as BlobPart], { type: row.mime ?? 'image/png' })
-  return { url: URL.createObjectURL(blob), mime: row.mime ?? null }
+  const blob = new Blob([buf as BlobPart], { type: mime ?? 'image/png' })
+  return { url: URL.createObjectURL(blob), mime, expectedPath }
 }
 
 /**
@@ -89,15 +105,23 @@ export function useAssetMeta(hash: string | undefined): AssetMeta {
 
     const load = async (attempt: number) => {
       const meta = await loadAssetUrl(platform, hash)
+      if (!alive) return
       if (!meta.url) {
-        // 素材尚未落库：退避重试，最多约 20s
-        if (alive && attempt < MAX_ATTEMPTS) {
+        if (attempt < MAX_ATTEMPTS) {
+          // 素材尚未落库：退避重试，最多约 20s
           timer = setTimeout(() => void load(attempt + 1), backoffOf(attempt))
+        } else {
+          /**
+           * 重试用尽还读不到 ⇒ **如实标记缺失**（对账 #196 · 增量 4）。
+           * 这条**不能省**：界面拿不到这个标记就只能一直显示骨架屏，
+           * 而真相是"文件没了"——用户会一直等一张永远不会出现的图。
+           */
+          setMeta({ url: null, mime: meta.mime, missing: true, expectedPath: meta.expectedPath })
         }
         return
       }
       created = meta.url
-      if (alive) setMeta(meta)
+      setMeta(meta)
     }
     void load(0)
 

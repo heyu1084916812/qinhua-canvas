@@ -61,6 +61,24 @@ export function assetFileName(hash: string, mime: string): string {
   return `${hash}.${extOf(mime)}`
 }
 
+/**
+ * 素材**本该在哪**的可读路径（对账 #196 · 增量 4）：`<目录名>/<hash>.<ext>`。
+ *
+ * 只在**素材缺失**时给用户看（"文件被外部删掉了"要如实说，并告诉他去哪儿找）。
+ * 两条刻意的规矩：
+ * - **没选目录就返回 `null`**：没有目录的语境下"原路径"是编出来的，不如只说"缺失"；
+ * - **mime 未知时写 `<hash>.*`**，不猜扩展名 —— 猜错等于让用户去找一个不存在的文件。
+ */
+export function expectedAssetPath(
+  folderName: string | null | undefined,
+  hash: string,
+  mime: string | null,
+): string | null {
+  const dir = String(folderName ?? '').trim()
+  if (!dir) return null
+  return `${dir}/${mime ? assetFileName(hash, mime) : `${hash}.*`}`
+}
+
 /** 从文件名反推 mime（"加载外部文件夹"时要靠它决定渲染 `<img>` 还是 `<video>`） */
 export function assetMimeOfName(name: string): string | null {
   const ext = String(name ?? '').trim().toLowerCase().split('.').pop() ?? ''
