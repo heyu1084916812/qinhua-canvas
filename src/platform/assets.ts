@@ -10,7 +10,7 @@ import type { AssetPort, AssetPayload, AssetUrlSource, StoragePort } from './por
  * 字节形态兼容：IndexedDB 结构化克隆可能把 `Uint8Array` 还原成 `ArrayBuffer`，
  * 而 `flowIo` 导入导出路径上还可能出现普通数组，三种都归一成 `Uint8Array`。
  */
-function toBytes(value: unknown): Uint8Array | null {
+export function toBytes(value: unknown): Uint8Array | null {
   if (value instanceof Uint8Array) return value
   if (value instanceof ArrayBuffer) return new Uint8Array(value)
   if (Array.isArray(value)) return new Uint8Array(value as number[])

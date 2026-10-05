@@ -28,6 +28,25 @@
   font-size: 12px;
 }
 
+.hud button {
+  padding: 2px 8px;
+  border: 1px solid var(--stroke);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.hud button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.hud button:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
 /* —— React Flow 自带控件深色化（全部走令牌，主题守卫要求） —— */
 .flow :global(.react-flow__controls-button) {
   background: var(--bg-app);

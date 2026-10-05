@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Background,
   BackgroundVariant,
@@ -21,6 +21,7 @@ import { FlowFlowNode, type FlowNodeData } from './FlowNode'
 import { sourcePortOf, targetPortOf } from '../../../domain/canvas/model/edge'
 import { describeError } from '../../../shared/result'
 import { flowViewportToStore, storeViewportToFlow } from './viewportBridge'
+import { usePlatform } from '../../../app/providers/PlatformProvider'
 
 /**
  * 引擎替换 P0：用 React Flow 渲染**真实图**。
@@ -252,6 +253,22 @@ function FlowSurfaceInner({ onOpenSettings }: { onOpenSettings?: () => void }) {
 function Hud({ count, ids }: { count: number; ids: string[] }) {
   const { x, y, zoom } = useViewport()
   const storeVp = useViewportState()
+  const platform = usePlatform()
+  const folder = platform.assetFolder
+  const [folderName, setFolderName] = useState<string | null>(folder?.current()?.name ?? null)
+  const canPick = folder?.supported() ?? false
+
+  /** 画布里的「素材位置」入口（对账 #196）：选一个文件夹当素材位置；选了就是授权，刷新后要重选 */
+  const pickFolder = async () => {
+    if (!folder) return
+    try {
+      const picked = await folder.pick()
+      setFolderName(picked?.name ?? folder.current()?.name ?? null)
+    } catch (err) {
+      platform.logger.log('warn', '[assetFolder] 选目录失败', { error: String(err) })
+    }
+  }
+
   return (
     <div
       className={styles.hud}
@@ -260,9 +277,22 @@ function Hud({ count, ids }: { count: number; ids: string[] }) {
       data-flow-rf-vp={`${Math.round(x)},${Math.round(y)}@${zoom.toFixed(2)}`}
       data-flow-rf-nodes={ids.join(',')}
     >
-      <span>引擎 React Flow（P0）</span>
+      <span>引擎 React Flow（P1）</span>
       <span>节点 {count}</span>
       <span data-flow-zoom>{Math.round(zoom * 100)}%</span>
+      <button
+        type="button"
+        data-asset-folder
+        disabled={!canPick}
+        title={
+          canPick
+            ? '选一个文件夹作为素材位置：新素材会镜像进去，读回时优先用它'
+            : '当前环境不支持选择文件夹'
+        }
+        onClick={() => void pickFolder()}
+      >
+        素材：{folderName ?? '内置库'}
+      </button>
     </div>
   )
 }

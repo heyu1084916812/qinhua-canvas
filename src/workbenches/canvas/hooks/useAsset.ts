@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import type { PlatformKit } from '../../../platform/ports'
+import { assetFileName } from '../../../domain/shared/assetLocation'
 
 /**
  * 按 hash 从 assets 表读回媒体本体并生成 objectURL（产品文档 §8：hash 即主键）。
@@ -38,6 +39,18 @@ export async function loadAssetUrl(platform: PlatformKit, hash: string): Promise
    * 播放不受 CORS 限制。有 url 就用 url，没有才走原来的「bytes → objectURL」。
    */
   if (row?.url) return { url: row.url, mime: row.mime ?? null }
+  /**
+   * **素材文件夹优先**（对账 #196 · 增量 2）：用户把素材托管到自己的文件夹后，以磁盘上那份为准。
+   * 命中条件 = 已授权目录 + 该 hash 的文件确实在目录里；否则回落内置库（IndexedDB）。
+   *
+   * 为什么先查 `assets` 行再去问磁盘：**DB 行是索引** —— 文件名要 mime 才拼得出来、
+   * 界面也要靠 mime 决定渲染 `<img>` 还是 `<video>`。没有行就没有类型，也就无从找文件。
+   */
+  const folder = platform.assetFolder
+  if (folder?.current()) {
+    const onDisk = await folder.read(assetFileName(hash, row?.mime ?? 'image/png'))
+    if (onDisk) return { url: URL.createObjectURL(onDisk), mime: row?.mime ?? null }
+  }
   if (!row?.bytes) return { url: null, mime: null }
   const buf = row.bytes instanceof Uint8Array ? row.bytes : new Uint8Array(row.bytes as number[])
   const blob = new Blob([buf as BlobPart], { type: row.mime ?? 'image/png' })

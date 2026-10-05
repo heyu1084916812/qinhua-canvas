@@ -22,7 +22,8 @@ import { createId } from '../../../shared/id'
 import { reduce } from '../../commands/reducer'
 import { clampZoom } from '../../../domain/canvas/geometry/transform'
 import { applyGraphPatches, toPersistPlan } from './persist'
-import type { PlatformKit } from '../../../platform/ports'
+import type { PlatformKit, Row } from '../../../platform/ports'
+import { mirrorAssetsToFolder } from '../../../platform/assetMirror'
 
 export interface CanvasStoreOptions {
   platform: PlatformKit
@@ -290,14 +291,25 @@ function createPersister(platform: PlatformKit, debounceMs: number) {
     const plan = pending
     pending = { tables: [], upserts: [], deletes: [] }
     if (!plan.upserts.length && !plan.deletes.length) return
+    /** 素材行：**落库成功后**再镜像到素材文件夹（把写盘塞进 DB 事务里是错的语义） */
+    const assetRows: Row[] = []
     try {
       await platform.storage.transaction(plan.tables as TableName[], async () => {
-        for (const u of plan.upserts) await platform.storage.bulkPut(u.table, u.rows as never)
+        for (const u of plan.upserts) {
+          await platform.storage.bulkPut(u.table, u.rows as never)
+          if (u.table === 'assets') assetRows.push(...u.rows)
+        }
         for (const d of plan.deletes) for (const id of d.ids) await platform.storage.delete(d.table, id)
       })
     } catch (err) {
       // 落库失败是数据问题（配额 / 表损坏），不该让交互链路抛异常
       console.error('[persist] flush failed', err)
+      return
+    }
+    if (assetRows.length > 0) {
+      await mirrorAssetsToFolder(platform.assetFolder, assetRows, (message, meta) =>
+        platform.logger.log('warn', message, meta),
+      )
     }
   }
 
