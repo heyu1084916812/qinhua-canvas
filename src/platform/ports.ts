@@ -222,6 +222,42 @@ export interface AssetFolderPort {
   list(): Promise<string[]>
 }
 
+/** 自动更新的四档状态（《轻画-桌面封装方案.md》§5 / 对账 #223） */
+export type UpdateState = 'not-configured' | 'up-to-date' | 'available' | 'failed'
+
+export interface UpdateStatus {
+  state: UpdateState
+  /** 装在用户机器上的版本（**不是**清单上的） */
+  current: string
+  /** 有新版时：清单上写的版本号 */
+  version: string | null
+  /** 有新版时：更新说明（可以没有） */
+  notes: string | null
+  /** `failed` 时的原话，如实显示、不吞 */
+  error: string | null
+}
+
+/**
+ * **自动更新端口**（方案 §5）。
+ *
+ * ⚠️ **可选**：只有桌面壳有 —— 浏览器里没有"安装新版本"这回事，
+ * 调用方必须容忍它缺席（入口藏起来即可，别当错误）。
+ *
+ * 为什么"没配更新地址"要单独占一档：更新包放哪（GitHub Releases / 自有地址）还没定，
+ * 这时候若回"已是最新"，用户会以为自动更新在守着 —— 其实一次都没查过。
+ */
+export interface UpdatePort {
+  /** 查有没有新版（只查，不下载） */
+  check(): Promise<UpdateStatus>
+  /**
+   * 下载 → 验签 → 安装。
+   *
+   * Windows 上安装器一起来**应用就会自己退出**（NSIS 会带 `/R` 重启），
+   * 所以这个 Promise 通常**不会**正常返回 —— 调用方别把"没等到返回"当失败。
+   */
+  install(): Promise<void>
+}
+
 export interface PlatformKit {
   storage: StoragePort
   network: NetworkPort
@@ -237,6 +273,8 @@ export interface PlatformKit {
    * **可选**：受限环境（无 FSA / 无权限）没有这一项，调用方必须容错并禁用入口。
    */
   assetFolder?: AssetFolderPort
+  /** 自动更新。**可选**：只有桌面壳有（浏览器里没有"安装新版本"这回事） */
+  updater?: UpdatePort
   /** 素材传输（图床）：把本地字节换成公网直链；没配图床时 `upload` 返回 null */
   hosting: HostingPort
   credentials: CredentialPort

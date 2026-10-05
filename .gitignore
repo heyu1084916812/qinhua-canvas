@@ -57,3 +57,6 @@ yarn-error.log*
 .env
 .env.*
 !.env.example
+
+# 发版出品：`scripts/release-desktop.mjs` 的产物（安装包 + latest.json），只在发布机上有
+/release/

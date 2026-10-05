@@ -1,0 +1,124 @@
+/**
+ * 「检查更新」两个界面（侧栏入口 + 右下提示条）的样式。
+ * 颜色一律走令牌（方案 §3.1）：四种语气只换左边那条竖线，不改底色 ——
+ * 底色的明暗在明 / 暗两套主题下方向相反，换底色就会有一档看不清。
+ */
+
+.bar {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 40;
+  max-width: 380px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border: 1px solid var(--stroke);
+  border-left: 3px solid var(--text-3);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  line-height: 1.4;
+  color: var(--text-1);
+}
+
+.toneInfo {
+  border-left-color: var(--accent);
+}
+
+.toneOk {
+  border-left-color: var(--success);
+}
+
+.toneWarn {
+  border-left-color: var(--warn);
+}
+
+.toneError {
+  border-left-color: var(--danger);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.action {
+  flex: none;
+  padding: 6px var(--space-3);
+  border: none;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  cursor: pointer;
+  transition: opacity var(--dur-hover) ease;
+}
+
+.action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.close {
+  flex: none;
+  padding: 2px var(--space-1);
+  border: none;
+  border-radius: calc(var(--radius-control) - 4px);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.close:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+/* —— 侧栏底部入口：与「主题」同一列、同一种按钮形态 —— */
+
+.sideBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 6px var(--space-2);
+  box-sizing: border-box;
+  border: none;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--sidebar-nav);
+  font-family: var(--font-sans);
+  font-size: var(--fs-nav);
+  line-height: var(--lh-nav);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sideBtn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.sideBtn:disabled {
+  color: var(--text-3);
+  cursor: default;
+}
+
+.sideIcon {
+  flex: none;
+  display: inline-flex;
+}
+
+/* 收起态：只剩一个图标位，宽度收窄后不要溢出 */
+.sideBtnCollapsed {
+  justify-content: center;
+  padding: 6px 0;
+}

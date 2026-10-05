@@ -1,0 +1,144 @@
+#!/usr/bin/env node
+/**
+ * 桌面版发版（《轻画-桌面封装方案.md》§5.2 / 对账 #223）。
+ *
+ * 干三件事，**只在本机产出文件，不推任何东西**：
+ *  1. 三方版本号对齐检查（`package.json` / `tauri.conf.json` / `Cargo.toml`）——
+ *     它们不一致时安装包的版本、界面显示的版本、更新比较用的版本会各说各话；
+ *  2. 构建 + **签名**（`npm run tauri build`，私钥来自 `TAURI_SIGNING_PRIVATE_KEY`）；
+ *  3. 把安装包 + `latest.json`（Tauri 更新清单）整理进 `release/<版本>/`，可直接上传。
+ *
+ * 用法：
+ *   node scripts/release-desktop.mjs                     # 构建 + 出品
+ *   node scripts/release-desktop.mjs --skip-build        # 复用已有产物，只出品
+ *   node scripts/release-desktop.mjs --notes "改了啥"     # 写进清单，客户端会看到
+ *   node scripts/release-desktop.mjs --base-url <地址>    # 覆盖下载地址前缀
+ */
+import { execFileSync, execSync } from 'node:child_process'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import path from 'node:path'
+import process from 'node:process'
+
+const ROOT = path.resolve(import.meta.dirname, '..')
+const args = process.argv.slice(2)
+const has = (name) => args.includes(name)
+const valueOf = (name) => {
+  const i = args.indexOf(name)
+  return i >= 0 ? args[i + 1] : null
+}
+
+/** 产物名**必须 ASCII**：中文名在 URL 里要百分号编码，换一个宿主就可能取不到文件 */
+const assetName = (version) => `qinghua_${version}_x64-setup.exe`
+const TARGET = 'windows-x86_64'
+
+function readVersions() {
+  const pkg = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
+  const conf = JSON.parse(readFileSync(path.join(ROOT, 'src-tauri/tauri.conf.json'), 'utf8'))
+  const cargo = readFileSync(path.join(ROOT, 'src-tauri/Cargo.toml'), 'utf8')
+  const cargoVersion = /^\s*version\s*=\s*"([^"]+)"/m.exec(cargo.split('[dependencies]')[0])?.[1] ?? null
+  return { pkg: pkg.version, conf: conf.version, cargo: cargoVersion, conf_json: conf }
+}
+
+function assertVersionsAligned({ pkg, conf, cargo }) {
+  const all = [pkg, conf, cargo]
+  if (all.some((v) => !v)) {
+    throw new Error(`版本号读不全：package.json=${pkg} tauri.conf.json=${conf} Cargo.toml=${cargo}`)
+  }
+  if (new Set(all).size !== 1) {
+    throw new Error(
+      `三处版本号不一致：package.json=${pkg} / tauri.conf.json=${conf} / Cargo.toml=${cargo}\n` +
+        '先统一（发版时一起升），否则安装包版本、界面显示、更新比较会各说各话。',
+    )
+  }
+  return pkg
+}
+
+function privateKeyPath() {
+  const fromEnv = process.env.TAURI_SIGNING_PRIVATE_KEY
+  if (fromEnv && existsSync(fromEnv)) return fromEnv
+  if (fromEnv) return fromEnv // 也可能直接是密钥字符串
+  return path.join(homedir(), '.tauri', 'qinghua-updater.key')
+}
+
+function runBuild(key) {
+  if (typeof key === 'string' && path.isAbsolute(key) && !existsSync(key)) {
+    throw new Error(
+      `找不到更新私钥：${key}\n` +
+        '没有它签不出更新包 —— 而**已经装出去的老版本只认这一对密钥**。\n' +
+        '找回来再发版；实在丢了，用户只能手动重装一次新版本（那是唯一一次必须手动的更新）。',
+    )
+  }
+  console.log('[release] 构建中（前端 + Rust + NSIS 安装包 + 签名）…')
+  execSync('npm run tauri build -- --bundles nsis', {
+    cwd: ROOT,
+    stdio: 'inherit',
+    env: { ...process.env, TAURI_SIGNING_PRIVATE_KEY: key },
+  })
+}
+
+/** 从 origin 推出下载地址前缀（GitHub Releases 的固定形态）；推不出就返回 null */
+function defaultBaseUrl(version) {
+  try {
+    const remote = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: ROOT, encoding: 'utf8' }).trim()
+    const m = /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/.exec(remote)
+    if (m) return `https://github.com/${m[1]}/${m[2]}/releases/download/v${version}`
+  } catch {
+    /* 没有 origin：回落到占位符，并大声提醒 */
+  }
+  return null
+}
+
+const versions = readVersions()
+const version = assertVersionsAligned(versions)
+console.log(`[release] 版本 ${version}（三处一致）`)
+
+const key = privateKeyPath()
+if (!has('--skip-build')) runBuild(key)
+else console.log('[release] --skip-build：复用已有构建产物')
+
+const nsisDir = path.join(ROOT, 'src-tauri/target/release/bundle/nsis')
+if (!existsSync(nsisDir)) throw new Error(`没有构建产物：${nsisDir}`)
+const setupName = readdirSync(nsisDir).find((f) => f.endsWith('-setup.exe'))
+if (!setupName) throw new Error(`${nsisDir} 里没有 *-setup.exe`)
+const setupPath = path.join(nsisDir, setupName)
+const sigPath = `${setupPath}.sig`
+if (!existsSync(sigPath)) {
+  throw new Error(
+    `没有签名文件：${sigPath}\n` +
+      '说明这次构建没带更新私钥（TAURI_SIGNING_PRIVATE_KEY）—— 没有签名的包**不能**用于自动更新。',
+  )
+}
+
+const baseUrl = valueOf('--base-url') ?? defaultBaseUrl(version)
+const base = baseUrl ?? `https://REPLACE-ME.example.com/v${version}`
+const outDir = path.join(ROOT, 'release', version)
+mkdirSync(outDir, { recursive: true })
+
+const asset = assetName(version)
+copyFileSync(setupPath, path.join(outDir, asset))
+copyFileSync(sigPath, path.join(outDir, `${asset}.sig`))
+
+const manifest = {
+  version,
+  notes: valueOf('--notes') ?? `轻画 ${version}`,
+  pub_date: new Date().toISOString(),
+  platforms: {
+    [TARGET]: { signature: readFileSync(sigPath, 'utf8').trim(), url: `${base}/${asset}` },
+  },
+}
+writeFileSync(path.join(outDir, 'latest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+
+console.log(`\n[release] 出品目录：release/${version}`)
+for (const f of [asset, `${asset}.sig`, 'latest.json']) console.log(`  - ${f}`)
+
+console.log('\n[release] 接下来（都在发布机外，脚本不代做）：')
+console.log(`  1. 把 release/${version}/ 里的 ${asset} 与 latest.json 上传到 tag v${version} 的 Release`)
+console.log(`  2. 让「更新地址」指向清单：src-tauri/tauri.conf.json`)
+console.log(`     plugins.updater.endpoints = ["${base}/latest.json"]`)
+console.log('  3. 之后每次发版：升三处版本号 → node scripts/release-desktop.mjs → 重复第 1 步')
+if (!baseUrl) {
+  console.log('\n⚠️ 没能从 git origin 推出下载地址：latest.json 里的 url 还是占位符，上传前用 --base-url 重跑一次。')
+}
+console.log('⚠️ 走 GitHub Releases 时仓库必须**公开**；私有仓库的直链要带 token，不能给客户端用。')
+console.log(`⚠️ 更新私钥（${key}）丢一次，所有已装出去的版本就再也收不到自动更新 —— 备份它。`)

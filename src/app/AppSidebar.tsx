@@ -9,6 +9,7 @@ import {
   toggleSidebar,
 } from './sidebarState'
 import { ThemeToggle } from './ThemeToggle'
+import { UpdateButton } from './UpdateNotice'
 import { CatLogo } from './CatLogo'
 import {
   IconAssets,
@@ -244,6 +245,8 @@ export function AppSidebar() {
 
       {/* 底部：主题切换常驻（用户 2026-09-27：主题放侧栏底部；收起态也保留图标位） */}
       <div className={styles.foot}>
+        {/* 自动更新入口（方案 §5）：浏览器里没有这一项，按钮自己消失 */}
+        <UpdateButton open={open} />
         <ThemeToggle compact={!open} className={styles.themeBtn} />
       </div>
 

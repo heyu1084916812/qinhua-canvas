@@ -1,5 +1,6 @@
 import { useSyncExternalStore, type ReactNode } from 'react'
 import { AppSidebar } from './AppSidebar'
+import { UpdateNotice } from './UpdateNotice'
 import { getSidebarOpen, sidebarWidth, subscribeSidebar } from './sidebarState'
 import styles from './AppShell.module.css'
 
@@ -38,6 +39,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className={styles.workspace} data-app-workspace>
         {children}
       </main>
+      {/* 自动更新的右下角提示条（方案 §5）：浏览器里没有 updater 端口，自己就不渲染 */}
+      <UpdateNotice />
     </div>
   )
 }

@@ -2,6 +2,7 @@ import type { PlatformKit } from '../ports'
 import { createWebPlatform } from '../web/index'
 import { createTauriAssetFolder } from './tauriAssetFolder'
 import { createTauriFiles } from './tauriFiles'
+import { createTauriUpdater } from './tauriUpdater'
 
 /**
  * **桌面壳（Tauri 2）的平台装配**（《轻画-桌面封装方案.md》§4.3）。
@@ -15,5 +16,10 @@ import { createTauriFiles } from './tauriFiles'
  * ⇒ 上层（画布、素材、导入导出）**一行都不用改**：它们只认端口。
  */
 export function createDesktopPlatform(): PlatformKit {
-  return createWebPlatform({ assetFolder: createTauriAssetFolder(), files: createTauriFiles() })
+  return createWebPlatform({
+    assetFolder: createTauriAssetFolder(),
+    files: createTauriFiles(),
+    // 壳里多出来的一档能力（方案 §5）：自动更新
+    updater: createTauriUpdater(),
+  })
 }

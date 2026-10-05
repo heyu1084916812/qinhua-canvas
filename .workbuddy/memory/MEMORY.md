@@ -3819,3 +3819,31 @@ Midjourney 的高级设置需要「一根滑杆」和「一个文本框」，而
   就得改成从**引用方**反查 —— 那才是唯一真相。
 - **纪律**：改这类查询口径时，**先把最容易被忽略的路径写成单测**（这里是"复制项目 → 导出原件"），
   再动实现；否则这个 bug 会一路活到用户手上（它不改显示、不改结构导出，只在最后一步丢图）。
+### ★ 自动更新（Tauri 2）：密钥只生成一次，"没配地址"必须与"失败"分开说（2026-10-05，对账 #223）
+
+把「改动之后软件能自动更新」接通，真正花时间的不是接线，而是三件**不可逆 / 容易说错话**的事：
+
+- **更新私钥只能生成一次**：`npx tauri signer generate --password="" -w <仓库外的路径>`。
+  已经装到用户机器上的老版本**只认公钥里那一把**，私钥丢了 ⇒ 所有人再也收不到自动更新，
+  只能手动重装一次。所以：私钥放仓库外（这里是 `%USERPROFILE%\.tauri\qinghua-updater.key`），
+  并且**必须备份**；公钥才进 `tauri.conf.json`。
+  ⚠️ PowerShell 里 `-p ''` 会被吞掉（clap 报 "a value is required"），要写 `--password=""`。
+- **四档状态必须分开**：`not-configured` / `up-to-date` / `available` / `failed`。
+  把「更新地址还没配」和「网络不通」糊成一句"检查失败"，用户就会去查自己的网 —— 而其实是我们没接完。
+  ⚠️ **真坑**：endpoints 为空时，**`app.updater()` 这一步就返回 `Error::EmptyEndpoints`**，
+  根本走不到 `check()`。只在 `check()` 那处认这一档，真机上看到的就是「检查失败：Updater does not have any endpoints set.」
+  —— 前后两处都要认（判据：把 `is_not_configured()` 用在**每一个** `Result` 出口上）。
+- **端口"可选"就不该报错**：`platform.updater` 是可选端口，浏览器里没有 ⇒ 界面（侧栏入口 + 右下提示条）
+  自动消失。这与 `assetFolder` 同一套思路：**能力分层靠"有没有这个端口"，不靠 UA 判断**。
+- **发版产物名要 ASCII**：`轻画_0.1.0_x64-setup.exe` 在 URL 里要百分号编码，换个宿主就可能取不到；
+  发布时改名成 `qinghua_<版本>_x64-setup.exe`（签名不依赖文件名，改上传名不破坏验签）。
+- **三方版本号必须一致**（`package.json` / `tauri.conf.json` / `Cargo.toml`）：不一致时安装包版本、
+  界面显示的版本、更新比较用的版本会各说各话 ⇒ `scripts/release-desktop.mjs` 直接停下。
+- **验签边界**：自签的更新密钥只保证"包没被篡改"，**不等于**去掉 Windows 的「未知发布者」（那要代码签名证书）。
+
+### ★ 把"还没配好"的那条路也放进真机验收（同轮）
+
+`scripts/probe-tauri-shell.mjs` 第 ④ 步故意去点「检查更新」并断言
+`data-update-tone=warn` + 文案含「还没接更新地址」——**这条"坏路径"才是真正串起整链路的证据**：
+React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 → 分档 → 回填界面。
+只断言"按钮在"是看不出 `EmptyEndpoints` 走错分支的（第一版就是这么漏的）。

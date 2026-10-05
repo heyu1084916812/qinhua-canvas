@@ -29,6 +29,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "msi"],
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -40,6 +41,12 @@
       "nsis": {
         "installMode": "currentUser"
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJGODIxQjI1RTE5OEVDN0MKUldSODdKamhKUnVDdnpYejBXcXVlaTdubGVIRWRIQ1dZVkVOSWVvTUpzNlRtajBxM2JBMTRRMlgK"
     }
   }
 }
