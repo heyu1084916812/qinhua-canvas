@@ -97,6 +97,30 @@ const key = privateKeyPath()
 if (!has('--skip-build')) runBuild(key)
 else console.log('[release] --skip-build：复用已有构建产物')
 
+/**
+ * 发布门禁：`dist/` 里不该有"清数据 / 重置"这类**危险的一次性页面**。
+ *
+ * 背景：`public/` 会被原样拷进 `dist` ⇒ 一个临时做来清库的 `__cleanup_195.html`
+ * （点一下删 nodes / edges / assets / …）会**跟着安装包发出去**。它没有界面入口，
+ * 但没必要让用户机器上多一个"清库按钮"。
+ * 这里**不替谁删文件**（开发期可能还要用）——只在发布时拦住，并说清怎么处理。
+ */
+const RISKY_PAGE = /cleanup|reset|wipe|清库|清空|清理/i
+const riskyPages = []
+for (const dir of ['public', 'dist']) {
+  const abs = path.join(ROOT, dir)
+  if (!existsSync(abs)) continue
+  for (const f of readdirSync(abs)) if (RISKY_PAGE.test(f)) riskyPages.push(`${dir}/${f}`)
+}
+if (riskyPages.length > 0) {
+  throw new Error(
+    `这些页面不该随包发布：${riskyPages.join(' / ')}\n` +
+      '理由：`public/` 会被原样拷进 dist，再被打进安装包；“清库 / 重置”这类一次性工具会让用户机器上' +
+      '多一个按钮一点就删数据的入口（它不在界面上暴露，但没必要带着发货）。\n' +
+      '处理办法：把它移出 public/（挪到 scripts/ 或项目根都行），确认无用就直接删掉；然后重新构建再发版。',
+  )
+}
+
 const nsisDir = path.join(ROOT, 'src-tauri/target/release/bundle/nsis')
 if (!existsSync(nsisDir)) throw new Error(`没有构建产物：${nsisDir}`)
 /**

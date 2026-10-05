@@ -3895,3 +3895,12 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   （英文表下这里是 `轻画 Setup`）。装完记得静默卸载。
 - 配置：`bundle.windows.nsis.languages = ["SimpChinese"]` + `displayLanguageSelector: false`（不弹语言选择框）。
 - 同理，「装出来的东西对不对」也不要靠眼睛：装机后读 `(Get-Item …).VersionInfo.FileVersion` + 注册表 `DisplayVersion`。
+### ★ "提醒"会被忘，"门禁"不会：别让一次性调试页跟着安装包发货（2026-10-05，对账 #227）
+
+- `public/` 里的**任何**文件都会被原样拷进 `dist/`、再打进安装包。一个临时做来清库的
+  `public/__cleanup_195.html`（点一下删 nodes / edges / assets / …）就这么上了船 ——
+  它没有界面入口，但"点一下就删数据"的页面没有理由出现在用户机器上。
+- 做法：`release-desktop.mjs` 出包前扫 `public/` 与 `dist/`，命中
+  `cleanup|reset|wipe|清库|清空|清理` 就**报错停下**并给出处理办法（不替谁删文件）。
+- **做成硬门禁而不是一句提醒**：同一件事在交接摘要里"每轮提醒"了三轮，文件还是躺在包里。
+- 可推广的判据：凡是"开发期造的一次性东西"落进**会被打包的目录**，要么挪走、要么加门禁。
