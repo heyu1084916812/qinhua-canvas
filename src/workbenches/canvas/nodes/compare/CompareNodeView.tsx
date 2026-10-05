@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { CompareData } from '../../../../domain/canvas/model/node'
 import type { NodeViewProps } from '../registry'
-import { useAsset } from '../../hooks/useAsset'
+import { useAssetThumbUrl } from '../../hooks/useAsset'
 import styles from './CompareNodeView.module.css'
 
 /**
@@ -16,8 +16,9 @@ export function CompareNodeView(props: NodeViewProps) {
   const hashes = props.upstreamAssetHashes ?? []
   const leftFallback = hashes[0] ?? data.leftAssetHash
   const rightFallback = hashes[1] ?? data.rightAssetHash
-  const leftUrl = useAsset(leftFallback)
-  const rightUrl = useAsset(rightFallback)
+  // 对比区是**节点尺寸**的小图 ⇒ 走缩略图那条路（对账 #231）：拿 4K 原图解码给这么小的框看不划算
+  const leftUrl = useAssetThumbUrl(leftFallback)
+  const rightUrl = useAssetThumbUrl(rightFallback)
 
   const [ratio, setRatio] = useState(data.splitRatio)
   const [dragging, setDragging] = useState(false)

@@ -37,7 +37,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { NodeViewProps } from '../registry'
 import type { LoopData } from '../../../../domain/canvas/model/node'
 import { normalizeLoopParams } from '../../../../domain/canvas/loop/loopPlan'
-import { useAsset } from '../../hooks/useAsset'
+import { useAssetThumbUrl } from '../../hooks/useAsset'
 import { TokenEditor, type TokenEditorHandle } from '../../text/TokenEditor'
 import styles from './LoopNodeView.module.css'
 
@@ -425,7 +425,7 @@ export function LoopNodeView(props: NodeViewProps) {
 
 /** 上游素材缩略图（大雄：`smartNodeInputThumbsHtml`，带序号角标） */
 function UpstreamThumb({ hash, index }: { hash: string; index: number }) {
-  const url = useAsset(hash)
+  const url = useAssetThumbUrl(hash)
   return (
     <span className={styles.thumb} data-loop-thumb={hash}>
       {url ? <img src={url} alt="" draggable={false} /> : <span className={styles.thumbEmpty} />}

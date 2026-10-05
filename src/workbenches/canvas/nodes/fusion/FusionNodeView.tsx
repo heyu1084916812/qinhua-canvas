@@ -36,7 +36,7 @@
  */
 import type { NodeViewProps } from '../registry'
 import type { FusionData } from '../../../../domain/canvas/model/node'
-import { useAsset } from '../../hooks/useAsset'
+import { useAssetThumbUrl } from '../../hooks/useAsset'
 import styles from './FusionNodeView.module.css'
 
 export function FusionNodeView(props: NodeViewProps) {
@@ -51,7 +51,7 @@ export function FusionNodeView(props: NodeViewProps) {
   const patches = portAssets.patch ?? []
   const colorMatch = data.colorMatch !== false
   /** 原图预览（单张，直接在这里取；局部图数量会变，必须在子组件里取，否则违反 hook 规则） */
-  const originalUrl = useAsset(original?.hash)
+  const originalUrl = useAssetThumbUrl(original?.hash)
   /**
    * 双击预览大图（用户 2026-09-30：「局部融合节点里面的图片也可以进行双击灯箱预览」）。
    * 与生成节点同一个事件口径（`emit({ type:'openLightbox' })` → `useCanvasPageEvents` 翻译成
@@ -217,7 +217,7 @@ function PatchPane({
   index: number
   onOpen: (hash: string) => void
 }) {
-  const url = useAsset(hash)
+  const url = useAssetThumbUrl(hash)
   return (
     <div
       className={styles.pane}
