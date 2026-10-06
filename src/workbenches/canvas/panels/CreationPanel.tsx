@@ -1811,9 +1811,14 @@ export function CreationPanel(props: CreationPanelProps) {
                 setPresetOpen((v) => !v)
               }}
             >
-              {/* 图标 22 → 28：用户 2026-10-05 第 4 批说这枚图标太小 */}
+              {/*
+                图标 22 → 28（用户 2026-10-05 第 4 批「这枚图标太小」）；
+                2026-10-06 又重画了一版并把图形**占满画布**（用户：「四个部件显得太拥挤了」），
+                同样的 28 现在看起来明显更大 —— 见 `icons/presetGlyph.tsx`。
+                右上角那颗"已选小点"**已删**（用户：「那个小点没有任何意义」），
+                选中态改由底色表达（`.presetBtnOn`）。
+              */}
               <IconPreset size={28} />
-              {activePreset && <span className={styles.presetDot} data-preset-dot />}
             </button>
             {presetOpen && (
               <PresetMenu

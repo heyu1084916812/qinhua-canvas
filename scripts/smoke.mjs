@@ -17727,7 +17727,76 @@ async function g105(browser) {
       return before === true && after === false
     })(),
   )
-  rec(g, '★ 按钮上出现已选的小点', (await panel.locator('[data-preset-dot]').count()) === 1)
+  /**
+   * 用户 2026-10-06 第 7 条：「功能预设右上角的小点删掉 —— 那个小点没有任何意义」。
+   *
+   * 断言从"小点在不在"翻成"小点**没了**、而选中态改由**底色**表达"：
+   * 只钉"小点没了"会让"于是也看不出选没选"这种退步悄悄通过。
+   */
+  const presetBtnBg = await presetBtn.evaluate((el) => getComputedStyle(el).backgroundColor)
+  rec(
+    g,
+    '★★ 右上角那颗"已选小点"已删（用户要求：它没有任何意义）',
+    (await panel.locator('[data-preset-dot]').count()) === 0 && (await presetBtn.locator('span').count()) === 0,
+    `dot=${await panel.locator('[data-preset-dot]').count()}`,
+  )
+  rec(
+    g,
+    '★★ 选中态改由**底色**表达（删了小点，得看得出当前有没有预设）',
+    presetBtnBg !== 'rgba(0, 0, 0, 0)' && presetBtnBg !== 'transparent',
+    `背景=${presetBtnBg}`,
+  )
+  /**
+   * 图标重画（用户 2026-10-06 第 7 条：四个部件太挤、要按参考图重画、并放大）。
+   *
+   * 判据取**部件数与填充率**：新画法是四枚圆角方块、且铺满画布；
+   * 旧画法（菱形 / 圆 / 方 / 十字）会同时踩中"有 circle"和"只占 61%"两条。
+   */
+  const glyphGeom = await presetBtn.evaluate((el) => {
+    const svg = el.querySelector('svg')
+    if (!svg) return null
+    const box = svg.getBBox()
+    const scale = svg.getBoundingClientRect().width / 24
+    return {
+      rects: svg.querySelectorAll('rect').length,
+      circles: svg.querySelectorAll('circle').length,
+      fill: box.width / 24,
+      /** 画出来的实际大小（屏幕像素）：这才是用户眼里"图标多大" */
+      painted: Math.round(box.width * scale * 10) / 10,
+    }
+  })
+  /**
+   * ⚠️ 填充率阈值取 **0.70**（实测 0.73）：旧画法实测 **0.61**（四个部件挤在画布中间），
+   * 这一档刚好把两者分开；写 0.77 会把"已经完全铺开"的新图标判红（第一版就这么红过）。
+   */
+  rec(
+    g,
+    '★★ 预设图标按参考图重画：四个圆角方块（没有旧的圆 / 十字），且铺满画布（≥ 70%，旧版只有 61%）',
+    !!glyphGeom && glyphGeom.rects === 4 && glyphGeom.circles === 0 && glyphGeom.fill >= 0.7,
+    `rects=${glyphGeom?.rects} circles=${glyphGeom?.circles} 填充率=${glyphGeom?.fill?.toFixed(2)} 实际画出来=${glyphGeom?.painted}px`,
+  )
+  /** 正文里那枚 chip 用**同一份几何**（编辑器是命令式建 DOM，另一条渲染路径） */
+  const chipGeomNow = await presetChip.evaluate((el) => {
+    const svg = el.querySelector('svg')
+    if (!svg) return null
+    const box = svg.getBBox()
+    return {
+      rects: svg.querySelectorAll('rect').length,
+      circles: svg.querySelectorAll('circle').length,
+      fill: box.width / 24,
+      caret: getComputedStyle(el, '::after').content,
+    }
+  })
+  rec(
+    g,
+    '★★ chip 里是同一枚图标（4 个 rect、铺满画布），且右侧**没有下箭头**（用户：「不要右边的那个下方向符号了」）',
+    !!chipGeomNow &&
+      chipGeomNow.rects === 4 &&
+      chipGeomNow.circles === 0 &&
+      chipGeomNow.fill >= 0.7 &&
+      (chipGeomNow.caret === 'none' || chipGeomNow.caret === 'normal'),
+    `rects=${chipGeomNow?.rects} 填充率=${chipGeomNow?.fill?.toFixed(2)} ::after=${chipGeomNow?.caret}`,
+  )
   await sleep(900)
   const afterPreset = await storedData()
   rec(

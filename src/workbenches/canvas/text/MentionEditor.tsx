@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import styles from './MentionEditor.module.css'
 import { readEditorText } from './TokenEditor'
+import { presetGlyphSvg } from '../icons/presetGlyph'
 
 /**
  * 带「@ 引用芯片」的输入框（用户 2026-10-02：参考产品图三 / 图四 ——
@@ -46,9 +47,13 @@ export const MENTION_ICON: Record<MentionKind, string> = {
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2 20.2 7.6v8.8L12 20.8 3.8 16.4V7.6z"/><path d="M3.8 7.6 12 12l8.2-4.4"/><path d="M12 12v8.8"/></svg>',
   skill:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.2 19.8 13 11"/><path d="M16.6 3.2l1 2.6 2.6 1-2.6 1-1 2.6-1-2.6-2.6-1 2.6-1z"/><path d="M11.4 4.6l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6L9.2 6.8l1.6-.6z"/></svg>',
-  /** 预设：四个小图形（菱形 / 圆 / 方 / 十字），与参数行那枚按钮同一套构成 */
-  preset:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8.8 4.6 12.2 8 8.8 11.4 5.4 8z"/><circle cx="15.2" cy="8" r="3.2"/><rect x="5.7" y="12.7" width="6.2" height="6.2" rx="1.2"/><path d="M15.2 12.7v6.2M12.1 15.8h6.2"/></svg>',
+  /**
+   * 预设：**与参数行那枚按钮同一个图形**（四个圆角方块、右上转 45°）。
+   *
+   * 不再在这里另写一份路径：几何在 `../icons/presetGlyph` 定义一次，
+   * 这里拿字符串形态（命令式建 DOM 吃不了 React 元素）。改形状只改那一个文件。
+   */
+  preset: presetGlyphSvg(),
 }
 
 export type MentionKind = 'node' | 'model' | 'skill' | 'preset'

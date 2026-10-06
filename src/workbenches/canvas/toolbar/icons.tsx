@@ -13,6 +13,10 @@
  *   - `viewBox` 一律 24×24、`strokeLinecap/Join = round`，保证视觉重量一致。
  */
 import type { ReactNode, SVGProps } from 'react'
+import {
+  PRESET_GLYPH_STROKE_WIDTH,
+  PresetGlyphShapes,
+} from '../icons/presetGlyph'
 
 interface IconProps extends Omit<SVGProps<SVGSVGElement>, 'children'> {
   size?: number
@@ -669,26 +673,21 @@ export function IconStar({ filled = false, ...props }: IconProps & { filled?: bo
 }
 
 /**
- * 预设（用户 2026-10-05 第 11 条）：**四个小图形拼成的一枚图标**。
+ * 预设（**第三版**，用户 2026-10-06 再次给了参考图）：四个圆角方块、右上一个转 45°。
  *
- * 用户给了参考图并点名构成：**四边菱形 / 圆形 / 正方形 / 十字架**，两行两列摆好
- * （左上菱形、右上圆形、左下方形、右下十字），描边 1.6、端点圆头 ——
- * 与图标集里其它图标同一套笔画口径。
+ * 三版演进值得记一笔，因为它说明"参考图"与"可读性"是两件事：
+ *  - 第 1 版：四格方块 —— 用户说「不要」（还与工具栏的「排列」图标撞脸）；
+ *  - 第 2 版：菱形 / 圆 / 方 / 十字（用户当时那张构成图）—— 四个部件**挤在画布中间一半**，
+ *    缩到 18~21px 就成了一小撮（用户 2026-10-06：「里面的四个部件显得太拥挤了」）；
+ *  - 第 3 版（本版）：**占满画布**的四枚圆角方块 + 右上转 45°，线宽按方块边长的 1/6。
  *
- * 为什么不是「四格方块」（上一版的画法）：用户明确说那版「不要」，并给了这张构成图；
- * 四格方块还与左侧工具栏的「排列」图标（同样是格子）撞脸。
+ * 几何定义在 `icons/presetGlyph.tsx`（**单一来源**）：同一个图形还要以 SVG 字符串的形式
+ * 进正文里那枚 chip（编辑器是命令式建 DOM），两处必须逐字一致。
  */
 export function IconPreset(props: IconProps) {
   return (
-    <Svg {...props}>
-      {/* 左上：四边菱形 */}
-      <path d="M8.8 4.6 12.2 8 8.8 11.4 5.4 8z" />
-      {/* 右上：圆形 */}
-      <circle cx="15.2" cy="8" r="3.2" />
-      {/* 左下：正方形 */}
-      <rect x="5.7" y="12.7" width="6.2" height="6.2" rx="1.2" />
-      {/* 右下：十字架 */}
-      <path d="M15.2 12.7v6.2M12.1 15.8h6.2" />
+    <Svg {...props} strokeWidth={PRESET_GLYPH_STROKE_WIDTH}>
+      <PresetGlyphShapes />
     </Svg>
   )
 }

@@ -1071,20 +1071,16 @@
   background: var(--bg-hover);
 }
 
-/* 选中态**不加底**：只靠右上角那颗小点（参考图就是这么表达的） */
+/*
+ * 选中态：**底色**（用户 2026-10-06：「那个小点没有任何意义」⇒ 右上角那颗小点已删）。
+ *
+ * 小点原本是"已选"的唯一信号，删掉之后必须换个表达，否则用户看不出当前有没有预设。
+ * 换成的就是面板里既有的那套语言 —— 预设菜单里"当前那一条"（`.itemOn`）与参数 chip
+ * 展开态（`.chipOpen`）都用同一个底色，三处一致。
+ */
 .presetBtnOn {
   color: var(--text-1);
-}
-
-/* 选了预设 → 按钮右上角一颗小点（参考图里那枚按钮上的蓝点，同一层意思） */
-.presetDot {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
+  background: var(--bg-hover);
 }
 
 /*
@@ -1121,14 +1117,9 @@
 }
 
 /*
- * 预设 chip 右侧那枚小箭头：**纯装饰**（点整枚 chip 就是「换一条 / 调搭配」，见
- * `onChipClick`）。用伪元素而不是写进 chip 的 label —— label 是存储形态的一部分，
- * 混进一个 `⌄` 就会跟着进纯文本（虽然预设 chip 会被整枚 strip 掉，但没必要冒这个险）。
+ * 预设 chip 右侧那枚小箭头**已删**（用户 2026-10-06：「不要右边的那个下方向符号了」）。
+ *
+ * 它原本是"点这枚 chip 能换一条 / 调搭配"的暗示，但 chip 整枚可点、点上去就出菜单，
+ * 箭头属于冗余装饰；而且它是拿 `⌄` 这个**字形**画的（位置随字体飘，与仓库
+ * 「不拿字形当图标」那条相悖）—— 一起清掉。
  */
-.promptBox [data-mention-kind='preset']::after {
-  content: '⌄';
-  margin-left: 2px;
-  color: var(--text-2);
-  font-size: 14px;
-  line-height: 1;
-}
