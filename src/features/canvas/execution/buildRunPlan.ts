@@ -226,6 +226,10 @@ export function buildRunPlan(
   let slotCursor = 0
   ordered.forEach((node) => {
     const spec = getSpec(node.type)!
+    /**
+     * 分组（不做生成）在这一步照常拿到空输入；真正的"不能跑"由下面 `toRunRequest` 的缺失决定 ——
+     * 组没有那个入口，于是在这里被跳过。**别用分支特判类型**：能力在哪就断在哪。
+     */
     const inputs = spec.collectInputs({ node, graph: working })
     const expansions = expandInputs(inputs)
 

@@ -30,18 +30,33 @@ beforeEach(() => {
 })
 
 describe('分组规格（§6.11）', () => {
-  it('是生成类节点：有端点、可生成、接受提示词与生成上游', () => {
+  /**
+   * ★★ 组**不做生成**（用户 2026-10-06 第 13 批第 5 条：「就不是把他当成生成节点了」）。
+   *
+   * 这条口径在 spec 上的落点是**能力缺失**：没有输入端点、没有 toRunRequest / generate
+   * ⇒ 它进不了执行计划（buildRunPlan 靠"有没有生成入口"判定），最多是"整组执行"时
+   * 被当成"没有可跑的东西"。
+   */
+  it('★★ 不是生成节点：只有右端点，没有 toRunRequest / generate', () => {
     const spec = getSpec('group')!
-    expect(spec.ports).toEqual({ input: true, output: true })
-    // loop 于 2026-09-22 并入（§6.22）：循环节点分发的输入也能进分组
-    // fusion 于 2026-09-29 并入（§6.23）：融合产物同样是「一张图」
-    expect(spec.accepts.upstream).toEqual(['prompt', 'generation', 'loop', 'fusion'])
+    expect(spec.ports).toEqual({ input: false, output: true })
+    expect(spec.toRunRequest).toBeUndefined()
+    expect(spec.generate).toBeUndefined()
+    /** 不接上游：要让组内节点吃到上游，直接连到那个成员上（规则 4 已按新口径放宽） */
+    expect(spec.accepts.upstream).toEqual([])
     expect(spec.accepts.children).toEqual(['prompt', 'generation'])
-    // 有 toRunRequest 才会进入 buildRunPlan（isGeneratableType 已含 group）
-    expect(typeof spec.toRunRequest).toBe('function')
   })
 
-  it('默认数据是空的 GroupData（含 childIds / hiddenIds / hiddenPromptIds）', () => {
+  it('★ collectInputs 如实返回空数组（组自己什么都不吃）', () => {
+    const g = graph([
+      node({ id: 'grp', type: 'group', data: { childIds: ['img', 'txt'] } as never }),
+      node({ id: 'img', type: 'generation', parentId: 'grp', data: { assetHash: 'h1' } as never }),
+      node({ id: 'txt', type: 'prompt', parentId: 'grp', data: { text: '一只猫' } as never }),
+    ])
+    expect(getSpec('group')!.collectInputs({ node: g.nodes[0]!, graph: g })).toEqual([])
+  })
+
+  it('默认数据仍是空的 GroupData（含 childIds / hiddenIds / hiddenPromptIds —— 认识旧工程）', () => {
     const data = getSpec('group')!.createDefaultData() as GroupData
     expect(data).toMatchObject({
       mode: 'image',
@@ -52,71 +67,6 @@ describe('分组规格（§6.11）', () => {
       hiddenIds: [],
       hiddenPromptIds: [],
     })
-  })
-
-  it('collectInputs 按 childIds 顺序取组内素材与提示词', () => {
-    const g = graph([
-      node({ id: 'grp', type: 'group', data: { childIds: ['img', 'txt'] } as never }),
-      node({ id: 'img', type: 'generation', parentId: 'grp', data: { assetHash: 'h1' } as never }),
-      node({ id: 'txt', type: 'prompt', parentId: 'grp', data: { text: '一只猫' } as never }),
-    ])
-    const inputs = getSpec('group')!.collectInputs({ node: g.nodes[0]!, graph: g })
-    expect(inputs).toEqual([
-      { kind: 'asset', nodeId: 'img', assetHash: 'h1', mime: 'image/png' },
-      { kind: 'text', nodeId: 'txt', text: '一只猫' },
-    ])
-  })
-
-  it('collectInputs 跳过被隐藏的素材与提示词（§6.11 小眼睛）', () => {
-    const g = graph([
-      node({
-        id: 'grp',
-        type: 'group',
-        data: { childIds: ['a', 'b', 'p'], hiddenIds: ['a'], hiddenPromptIds: ['p'] } as never,
-      }),
-      node({ id: 'a', type: 'generation', parentId: 'grp', data: { assetHash: 'ha' } as never }),
-      node({ id: 'b', type: 'generation', parentId: 'grp', data: { assetHash: 'hb' } as never }),
-      node({ id: 'p', type: 'prompt', parentId: 'grp', data: { text: '不参与' } as never }),
-    ])
-    const inputs = getSpec('group')!.collectInputs({ node: g.nodes[0]!, graph: g })
-    expect(inputs).toEqual([{ kind: 'asset', nodeId: 'b', assetHash: 'hb', mime: 'image/png' }])
-  })
-
-  it('collectInputs 同时收取外部上游（组内 + 组外，§6.11「与生成节点完全一致」）', () => {
-    const g = graph(
-      [
-        node({ id: 'grp', type: 'group', data: { childIds: ['img'] } as never }),
-        node({ id: 'img', type: 'generation', parentId: 'grp', data: { assetHash: 'in' } as never }),
-        node({ id: 'out', type: 'generation', data: { assetHash: 'up' } as never }),
-      ],
-      [{ id: 'e1', projectId: 'p1', source: 'out', target: 'grp' }],
-    )
-    const inputs = getSpec('group')!.collectInputs({ node: g.nodes[0]!, graph: g })
-    expect(inputs.map((i) => (i.kind === 'asset' ? i.assetHash : i.kind === 'text' ? i.text : ''))).toEqual([
-      'in',
-      'up',
-    ])
-  })
-
-  it('toRunRequest 未配渠道 / 模型时返回 null；配好时把组内文本拼成提示词', () => {
-    const spec = getSpec('group')!
-    const base = graph([node({ id: 'grp', type: 'group', data: { childIds: [] } as never })])
-    expect(spec.toRunRequest!({ node: base.nodes[0]!, inputs: [], params: base.nodes[0]!.data, graph: base })).toBeNull()
-
-    const ok = graph([
-      node({
-        id: 'grp',
-        type: 'group',
-        data: { childIds: [], mode: 'image', channelId: 'ch1', model: 'm1', prompt: '' } as never,
-      }),
-    ])
-    const req = spec.toRunRequest!({
-      node: ok.nodes[0]!,
-      inputs: [{ kind: 'text', nodeId: 't', text: '写实风格' }],
-      params: ok.nodes[0]!.data,
-      graph: ok,
-    })
-    expect(req).toMatchObject({ kind: 'image', channelId: 'ch1', model: 'm1', prompt: '写实风格' })
   })
 })
 

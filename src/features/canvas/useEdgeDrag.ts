@@ -15,7 +15,6 @@ import { DEFAULT_SOURCE_PORT } from '../../domain/canvas/model/edge'
 import { screenToWorld, toWorldRect } from '../../domain/canvas/geometry/coords'
 import { coalescePointerMove } from '../../shared/rafThrottle'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
-import { isContainerType } from '../../domain/canvas/model/node'
 import { childIdsOfNode } from '../../domain/canvas/nodeSpecs/group'
 
 /**
@@ -24,7 +23,12 @@ import { childIdsOfNode } from '../../domain/canvas/nodeSpecs/group'
  * 用户 2026-10-06 第 13 批第 5 条：「打组后的组右边有端点，拉端点后是把组内的下游
  * 都拉一条线出来，就和多选节点的拉线功能一样」。
  *
- * 为什么容器自己不出边：组**不做生成**（同批：「就不是把他当成生成节点了」）——
+ * ⚠️ **只展开"分组"**：批量节点**不能**展开 —— 它自己就是一个集合
+ * （§6.12「集合本体包成一个 collection 项，下游按项展开」），
+ * `批量 → 下游生成节点` 这条边是**批量语义本身**，展开成"每个素材各连一条"会把它拆散
+ * （G71 实测：一展开，下游按钮就不再说"生成下游节点"了、承载节点也铺错了位置）。
+ *
+ * 为什么分组要展开：组**不做生成**（同批：「就不是把他当成生成节点了」）——
  * 它没有产物，该连到下游的是组里的每个成员。展开只在这里做一次，
  * 锚点（草稿线）/ 合法性校验 / 落边三处就都不必各自记得这件事。
  *
@@ -39,7 +43,7 @@ export function expandContainers(
   for (const id of ids) {
     const n = graph.nodes.find((x) => x.id === id)
     if (!n) continue
-    for (const s of isContainerType(n.type) ? childIdsOfNode(n, graph) : [n.id]) {
+    for (const s of n.type === 'group' ? childIdsOfNode(n, graph) : [n.id]) {
       if (seen.has(s)) continue
       seen.add(s)
       out.push(s)

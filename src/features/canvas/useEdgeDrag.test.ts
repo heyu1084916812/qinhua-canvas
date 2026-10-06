@@ -3,7 +3,7 @@ import { expandContainers, portAnchorWorld, nodeHasPort, nodeAtPoint, wireAll } 
 import { registerAllSpecs, resetSpecs } from '../../domain/canvas/nodeSpecs'
 import { createMemoryPlatform } from '../../platform/memory'
 import { createCanvasStore, type CanvasStore } from '../../state/workbenches/canvas/store'
-import { groupNodes } from './groupNodes'
+import { batchNodes, groupNodes } from './groupNodes'
 import type { GraphSnapshot } from '../../domain/canvas/model/graph'
 import type { NodeSnapshot, NodeType } from '../../domain/canvas/model/node'
 
@@ -25,11 +25,21 @@ describe('端点拖线（§6.14）', () => {
       registerAllSpecs()
     })
 
-    it('提示词 / 生成 / 对比 / 分组 都有输入与输出端点', () => {
-      for (const t of ['prompt', 'generation', 'compare', 'group'] as const) {
+    it('提示词 / 生成 / 对比 都有输入与输出端点', () => {
+      for (const t of ['prompt', 'generation', 'compare'] as const) {
         expect(nodeHasPort(t, 'input')).toBe(true)
         expect(nodeHasPort(t, 'output')).toBe(true)
       }
+    })
+
+    /**
+     * ★ 组**只有右端点**（用户 2026-10-06 第 13 批第 5 条：组不做生成）。
+     * 右端点拖出来 = 组内成员各连一条到目标（见本文件末尾那组用例）；
+     * 左端点撤掉是因为没有生成语义 ⇒ 也没有"喂给它"这件事。
+     */
+    it('★ 分组只有输出端点（没有输入）', () => {
+      expect(nodeHasPort('group', 'input')).toBe(false)
+      expect(nodeHasPort('group', 'output')).toBe(true)
     })
 
     it('未注册类型不报错，返回 false', () => {
@@ -115,6 +125,23 @@ describe('容器端点拉线：展开成成员（#317 ⑤）', () => {
     expect(expandContainers(graph, [gid])).toEqual([a, b])
     expect(expandContainers(graph, [other, other])).toEqual([other])
     expect(expandContainers(graph, [other, gid, a])).toEqual([other, a, b])
+  })
+
+  /**
+   * ★ 批量节点**不展开**（G71 抓到的真实回归）。
+   *
+   * 批量自己就是一个集合（§6.12「集合本体包成一个 collection 项、下游按项展开」）——
+   * `批量 → 下游生成节点` 这条边是**批量语义本身**。若把批量也"展开成成员各连一条"，
+   * 下游面板就不再是"生成下游节点"、承载节点也铺错位置（G71 两条断言当场红）。
+   */
+  it('★ 批量节点不展开（它自己就是集合）', () => {
+    const s = store()
+    const p1 = add(s, 'prompt', 0)
+    const p2 = add(s, 'prompt', 300)
+    const r = batchNodes(s, [p1, p2])
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(expandContainers(s.getSnapshot(), [r.containerId])).toEqual([r.containerId])
   })
 
   it('★★ wireAll 从组端点拉线：连的是**成员**，容器自己一条都不出', () => {

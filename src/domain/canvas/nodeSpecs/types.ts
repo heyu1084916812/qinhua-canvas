@@ -57,6 +57,13 @@ export interface NodeSpec<TData extends NodeData = NodeData> {
     parent?: NodeType[]
   }
   createDefaultData(): TData
+  /**
+   * 收集本次生成要用的输入。
+   *
+   * ⚠️ **"能不能跑"由 `generate` / `toRunRequest` 的缺失表达**，不是由这个方法 ——
+   * 分组（2026-10-06 第 13 批第 5 条：不是生成节点）就没有那两个入口，
+   * 于是在执行计划里自然被跳过；它的 `collectInputs` 如实返回空数组（它自己什么都不吃）。
+   */
   collectInputs(ctx: InputContext<TData>): NodeInput[]
   /** 生成行为主入口；返回 null 表示该类型不可生成 */
   generate?(ctx: GenerateContext<TData>): GenerationPlan | null

@@ -54,7 +54,7 @@ const PANEL_GAP = 12
 const PANEL_ZOOM = 0.75
 
 /** 出现创作参数面板的节点类型（§6.1「单选提示词 / 生成 / 分组 / 批量节点时出现」） */
-const PANEL_TYPES = new Set<NodeSnapshot['type']>(['prompt', 'generation', 'group', 'batch'])
+const PANEL_TYPES = new Set<NodeSnapshot['type']>(['prompt', 'generation', 'batch'])
 
 /**
  * 创作参数面板层（架构 §4.7）。
@@ -318,67 +318,14 @@ function buildPanelModel(node: NodeSnapshot, graph: ReturnType<typeof useGraph>)
   const index = indexNodes(graph.nodes)
   const data = node.data as GenerationData
 
-  if (node.type === 'group') {
-    const g = node.data as GroupData
-    const hidden = new Set(g.hiddenIds ?? [])
-    const hiddenPrompts = new Set(g.hiddenPromptIds ?? [])
-    const thumbs: PanelThumb[] = []
-    const collections: PanelModel['collections'] = []
-    // 组内素材 / 提示词（顺序即 childIds，面板拖动排序靠它生效）
-    for (const id of childIdsOf(node as NodeSnapshot<GroupData>, graph)) {
-      const child = index.get(id)
-      if (!child) continue
-      if (child.type === 'prompt') {
-        thumbs.push({
-          owner: 'self',
-          id: child.id,
-          text: (child.data as { text: string }).text,
-          visible: !hiddenPrompts.has(child.id),
-        })
-        continue
-      }
-      const hash = (child.data as Partial<GenerationData>).assetHash
-      if (hash) thumbs.push({ owner: 'self', id: child.id, assetHash: hash, visible: !hidden.has(child.id) })
-    }
-    // 分组自身的上游缩略图（§6.11「同时显示分组自身的上游缩略图与组内素材缩略图」）；
-    // 上游若是批量节点则折叠成集合卡
-    const upstreamHidden = new Set(data.upstreamHidden ?? [])
-    for (const id of directUpstream(node.id, graph.edges)) {
-      const up = index.get(id)
-      if (!up) continue
-      if (up.type === 'batch') {
-        const b = up.data as BatchData
-        collections.push({
-          id: up.id,
-          count: batchItemsOf(up as NodeSnapshot<BatchData>, graph).length,
-          kind: b.contentType ?? 'media',
-          visible: !upstreamHidden.has(up.id),
-        })
-        continue
-      }
-      const hash = (up.data as Partial<GenerationData>).assetHash
-      if (hash) thumbs.push({ owner: 'upstream', id: up.id, assetHash: hash, visible: !upstreamHidden.has(up.id) })
-    }
-    const promptChildren = childIdsOf(node as NodeSnapshot<GroupData>, graph)
-      .map((id) => index.get(id))
-      .filter((n): n is NodeSnapshot => n?.type === 'prompt')
-    return {
-      thumbs,
-      collections,
-      emptyHint: '拖入提示词或生成结果，作为本次生成的输入',
-      prompt: data.prompt,
-      linkedPromptCount: promptChildren.filter((n) => !hiddenPrompts.has(n.id)).length,
-      promptToggle:
-        promptChildren.length > 0
-          ? {
-              visible: promptChildren.some((n) => !hiddenPrompts.has(n.id)),
-              title: '组内提示词是否参与本次生成',
-            }
-          : null,
-      mentionCandidates: upstreamMentionCandidates(node, graph),
-      ...presetFieldsOf(data),
-    }
-  }
+  /**
+   * ⚠️ 组**没有创作面板**（用户 2026-10-06 第 13 批第 5 条：「就不是把他当成生成节点了」）。
+   * 面板的意义是"配参数然后生成"，而组不生成 —— 它的操作全在功能栏上
+   *（背景色 / 整理节点 / 整组执行 / 解组 / 下载）。
+   * 老工程里组的 data 字段（channelId / model / hiddenIds…）原样留着不动：
+   * 认识旧数据，但不给它们任何入口。
+   */
+
 
   if (node.type === 'batch') {
     const b = node.data as BatchData

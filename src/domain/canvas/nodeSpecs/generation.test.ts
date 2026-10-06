@@ -195,8 +195,9 @@ describe('生成节点规格 / 请求参数按功能类别分支（§6.8）', ()
     expect(req!.params).not.toHaveProperty('background')
   })
 
-  it('分组复用同一份参数构造（三处各抄一份是本洞的成因）', () => {
-    const req = reqOf('group', {
+  /** 组不再是生成节点（2026-10-06 第 13 批第 5 条）⇒ 这里改验**批量**：它同样走 `generationParams` */
+  it('批量复用同一份参数构造（多处各抄一份是本洞的成因）', () => {
+    const req = reqOf('batch', {
       mode: 'video',
       channelId: 'c',
       model: 'm',
@@ -222,8 +223,8 @@ describe('生成节点规格 / 请求参数按功能类别分支（§6.8）', ()
  * 预设 / 情绪拼进提示词（用户 2026-10-05 第 14 条）。
  *
  * 这一组盯的是「界面选了、请求里没有」——那是最容易漏的一环：面板把 id 写进节点
- * 就完事了，而真正要发给模型的是**拼出来的那句话**。三种生成节点类型共用
- * `presets.ts` 里的同一份拼接，所以这里三种都量一遍。
+ * 就完事了，而真正要发给模型的是**拼出来的那句话**。生成 / 批量共用
+ * `presets.ts` 里的同一份拼接，所以两种都量一遍（分组 2026-10-06 起不生成，见文末那条）。
  */
 describe('预设 / 情绪拼进提示词（用户 2026-10-05 第 14 条）', () => {
   const reqOf = (type: NodeSnapshot['type'], data: Record<string, unknown>) => {
@@ -313,14 +314,11 @@ describe('预设 / 情绪拼进提示词（用户 2026-10-05 第 14 条）', () 
     })
     expect(batch!.prompt.split('\n')).toEqual(['套图', expect.stringContaining('产品设定图')])
 
-    const group = reqOf('group', {
-      mode: 'image',
-      channelId: 'c',
-      model: 'm',
-      prompt: '拼一张',
-      childIds: [],
-      preset: 'cinematic-light',
-    })
-    expect(group!.prompt.split('\n')).toEqual(['拼一张', expect.stringContaining('电影感光影修正')])
+    /**
+     * ⚠️ 分组**不在这条线上了**（用户 2026-10-06 第 13 批第 5 条：组不做生成）——
+     * 它的 spec 连 `toRunRequest` 都没有。这里顺手把"分组不参与生成"钉住：
+     * 谁哪天又给组补上一个生成入口，这一条会红。
+     */
+    expect(getSpec('group')!.toRunRequest).toBeUndefined()
   })
 })
