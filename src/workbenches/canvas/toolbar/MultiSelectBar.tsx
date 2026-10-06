@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { ARRANGE_MODES } from '../../../domain/canvas/layout/arrangeModes'
@@ -81,6 +81,18 @@ export function MultiSelectBar({
   const nodes = selection
     .map((id) => graph.nodes.find((n) => n.id === id))
     .filter((n): n is NonNullable<typeof n> => Boolean(n))
+
+  /**
+   * 选中集合一变就把展开的菜单收掉（用户 2026-10-06 第 13 批第 8 条：
+   * 「点击空白区域取消多选功能后，再次多选的时候那个整理节点的功能菜单依然打开」）。
+   *
+   * 根因：选中不足 2 个时这个组件只是 `return null`（**没有卸载**），于是 `menuOpen`
+   * 那份组件内状态活到了下一次多选。状态跟着"这次选的是谁"走，才是它该有的生命周期。
+   */
+  const selectionKey = selection.join('|')
+  useEffect(() => {
+    setMenuOpen(false)
+  }, [selectionKey])
 
   const run = useCallback(
     (mode?: (typeof ARRANGE_MODES)[number]['mode']) => {

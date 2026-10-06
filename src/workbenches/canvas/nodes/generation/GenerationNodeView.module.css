@@ -224,13 +224,86 @@
   box-sizing: border-box;
 }
 
-.spinner {
-  width: 22px;
-  height: 22px;
+/*
+ * 生成中的动效（用户 2026-10-06 第 13 批第 9 条：要「好看一点的」动画 + 时长）。
+ * 两层叠出来的：**静止的轨道**（::before）+ **在转的弧线**（::after），
+ * 外面再套一层慢节拍的呼吸（`.orbit` 自己的 animation）。
+ */
+.running {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  animation: rise var(--dur-panel) var(--ease-out);
+}
+
+.orbit {
+  position: relative;
+  width: 34px;
+  height: 34px;
   border-radius: var(--radius-pill);
-  border: 2px solid var(--stroke);
+  /* 慢节拍（2.4s）与自转（1.1s）错开，才不机械 */
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+/* 轨道：静止那圈底色 */
+.orbit::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-pill);
+  border: 3px solid var(--stroke);
+}
+
+/* 弧线：只给两条边着色，转起来就是一道渐隐的弧 */
+.orbit::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-pill);
+  border: 3px solid transparent;
   border-top-color: var(--accent);
-  animation: spin 0.9s linear infinite;
+  border-left-color: var(--accent);
+  animation: spin 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.runningText {
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  /* 秒数跳动时后面的字符不许跟着挪 */
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 系统设了"减少动态效果"：停转、留信息（光环 + 秒数仍看得见） */
+@media (prefers-reduced-motion: reduce) {
+  .orbit,
+  .orbit::after,
+  .running {
+    animation: none;
+  }
 }
 
 .errorText {

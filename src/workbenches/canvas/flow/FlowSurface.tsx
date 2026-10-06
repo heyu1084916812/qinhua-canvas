@@ -13,6 +13,7 @@ import {
   BackgroundVariant,
   ReactFlow,
   ReactFlowProvider,
+  SelectionMode,
   useViewport,
   type Edge as RFEdge,
   type EdgeChange,
@@ -856,6 +857,15 @@ function FlowSurfaceInner({
          */
         selectionKeyCode={['Control', 'Meta']}
         multiSelectionKeyCode={['Shift']}
+        /*
+         * 框选「碰到就选中」（用户 2026-10-06 第 13 批第 10 条：「多选功能不需要把节点全部选中，
+         * 只需要触碰到就能多选」）。
+         *
+         * React Flow 默认是 `'full'`：矩形必须**完全包住**节点才算选中 —— 于是"拖一个框划过去"
+         * 经常一个都选不上，用户读到的是"框选坏了"（第 3 条报的"两个上游选不上"大概率就是这一条：
+         * 包不严 = 没选中，与"有没有下游连线"无关）。
+         */
+        selectionMode={SelectionMode.Partial}
         /* §6.3：中键拖拽也平移（左键拖拽是默认行为，空格 + 拖拽由 React Flow 自带） */
         panOnDrag={[0, 1]}
         /*

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { GenerationData } from '../../../../domain/canvas/model/node'
 import { assetBoxCorrection } from '../../../../domain/canvas/layout/assetBoxCorrection'
 import type { NodeViewProps } from '../registry'
@@ -91,6 +91,29 @@ export function GenerationNodeView(props: NodeViewProps) {
    */
   const overlay = props.error ? 'error' : props.running ? 'running' : null
 
+  /**
+   * 这次生成**已经跑了多少秒**（用户 2026-10-06 第 13 批第 9 条：
+   * 「改成生成中的动画，同时显示时长」）。
+   *
+   * 只认 `props.running` 的**边沿**：从"没跑"到"在跑"的那一刻起算，跑完/失败立刻归零 ——
+   * 这样它显示的是**这一次**的耗时，而不是"这个节点被打开多久了"。
+   * 500ms 一跳（而不是 1000ms）：整秒切换时不会因为取整时刻漂移而"跳两格"。
+   */
+  const [elapsed, setElapsed] = useState(0)
+  const running = props.running === true
+  useEffect(() => {
+    if (!running) {
+      setElapsed(0)
+      return
+    }
+    const startedAt = Date.now()
+    setElapsed(0)
+    const timer = window.setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startedAt) / 1000))
+    }, 500)
+    return () => window.clearInterval(timer)
+  }, [running])
+
   return (
     <div
       className={`${styles.media} ${dropping ? styles.dropping : ''}`}
@@ -154,10 +177,14 @@ export function GenerationNodeView(props: NodeViewProps) {
             )}
           </>
         )
-      ) : (
+      ) : overlay ? null : (
         /* 状态 A：占位框 + 中间一个 `+`。
            框本身**不是按钮**（否则点击节点任意处都会弹上传、且无法拖动节点）；
-           只有中间的 `+` 是上传入口，其余区域照常选中 / 拖动（§6.8） */
+           只有中间的 `+` 是上传入口，其余区域照常选中 / 拖动（§6.8）。
+           ⚠️ **生成中 / 失败时不渲染它**（用户 2026-10-06 第 13 批第 9 条：
+           「盖住的时候他还是会显示出来，我不想要他显示出来」）——
+           覆盖层是半透明的（要能看见上一次的图），只盖不改结构的话，
+           「上传素材 / 支持音频、视频、图片素材」会从底下透出来。 */
         <div className={styles.placeholder} data-node-placeholder>
           <button
             type="button"
@@ -190,7 +217,23 @@ export function GenerationNodeView(props: NodeViewProps) {
               {props.error}
             </span>
           ) : (
-            <span className={styles.spinner} aria-label="生成中" />
+            /*
+             * 生成中（用户 2026-10-06 第 13 批第 9 条：「改成生成中的动画，同时显示时长」
+             * +「动画用一些动效吧，好看一点的，你设计一个出来」）。
+             *
+             * 形态：一圈**呼吸的光环** + 一段**在转的双色弧线** + 下面「生成中 12s」。
+             * 三条设计口径：
+             * ① 自转 1.1s、呼吸 2.4s —— 两个节拍错开，读起来是"在做事"而不是"卡住了"，
+             *    也比系统默认的 0.9s 匀速圈多一点呼吸感；
+             * ② 秒数用**等宽数字**（`tabular-nums`）：不然每跳一秒，后面的 `s` 都会跟着挪一下；
+             * ③ 系统开了"减少动态效果"就停转、只留光环与秒数 —— 信息不丢，动效听系统的。
+             */
+            <div className={styles.running} data-node-running>
+              <span className={styles.orbit} aria-hidden="true" />
+              <span className={styles.runningText} data-node-elapsed={elapsed}>
+                生成中 {elapsed}s
+              </span>
+            </div>
           )}
         </div>
       )}
