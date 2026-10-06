@@ -4,9 +4,13 @@ import { usePlatform } from './providers/PlatformProvider'
 import { createProjectRepository, type ProjectRepository } from '../state/project/repository'
 import {
   SIDEBAR_COLLAPSED_W,
+  SIDEBAR_HOVER_IN_MS,
+  SIDEBAR_HOVER_OUT_MS,
+  getSidebarPinned,
   getSidebarOpen,
+  setSidebarHovering,
   subscribeSidebar,
-  toggleSidebar,
+  toggleSidebarPin,
 } from './sidebarState'
 import { ThemeToggle } from './ThemeToggle'
 import { UpdateButton } from './UpdateNotice'
@@ -63,6 +67,35 @@ export function AppSidebar() {
    * 渲染整棵树时没有订阅能力，第三参就是那条路径的取值 —— 缺了它会直接抛。
    */
   const open = useSyncExternalStore(subscribeSidebar, getSidebarOpen, getSidebarOpen)
+  /*
+   * 常驻态单独订阅一次：它是**另一个真相源**（悬停已经展开时，点"常驻"不会改变
+   * `getSidebarOpen()`，只订阅 `open` 的话按钮的 `aria-pressed` 会停在旧值）。
+   */
+  const pinned = useSyncExternalStore(subscribeSidebar, getSidebarPinned, getSidebarPinned)
+
+  /**
+   * 悬停展开 / 收起的**延迟计时器**（用户 2026-10-06：要"顺滑"，不要 0 延迟）。
+   *
+   * 进出都用同一个 ref：后一次操作必须先取消前一次，否则"进→出→进"三次快速移动
+   * 会留下一个没人管的计时器，把状态改回错的档位（这类竞态在真机上表现为"偶发不收"）。
+   */
+  const hoverTimer = useRef<number | null>(null)
+  const clearHoverTimer = () => {
+    if (hoverTimer.current !== null) {
+      window.clearTimeout(hoverTimer.current)
+      hoverTimer.current = null
+    }
+  }
+  useEffect(() => clearHoverTimer, [])
+
+  const onRailEnter = () => {
+    clearHoverTimer()
+    hoverTimer.current = window.setTimeout(() => setSidebarHovering(true), SIDEBAR_HOVER_IN_MS)
+  }
+  const onRailLeave = () => {
+    clearHoverTimer()
+    hoverTimer.current = window.setTimeout(() => setSidebarHovering(false), SIDEBAR_HOVER_OUT_MS)
+  }
 
   /**
    * 「最近项目」的数据。
@@ -112,9 +145,13 @@ export function AppSidebar() {
       style={width ? { width: `${width}px` } : undefined}
       data-app-sidebar
       data-sidebar-open={open ? 'true' : 'false'}
+      data-sidebar-pinned={pinned ? 'true' : 'false'}
+      /* 悬停即展开（带延迟），移开即收回（延迟更长）—— 见 sidebarState 的两个常量 */
+      onMouseEnter={onRailEnter}
+      onMouseLeave={onRailLeave}
       aria-label="一级导航"
     >
-      {/* 顶部：Logo + 展开 / 收起 */}
+      {/* 顶部：Logo + 常驻开关 */}
       <div className={styles.head}>
         {/*
           猫画动态 Logo（用户 2026-09-27）。收起态下它与开合按钮**同一格**：
@@ -125,17 +162,22 @@ export function AppSidebar() {
         </span>
         {/*
           收起态下这个按钮只在悬停时浮现（否则 64px 宽里塞不下 logo + 按钮）。
-          它是**唯一的开合入口**，所以不能纯靠 hover 才可点 —— 用 `:focus-visible`
-          一并放行，键盘用户 Tab 过来就能看见并打开。
+          它是**唯一的"常驻"入口**，所以不能纯靠 hover 才可点 —— 用 `:focus-visible`
+          一并放行，键盘用户 Tab 过来就能看见并操作。
+
+          ⚠️ 语义在 2026-10-06 变了：以前是"开 / 合侧栏"，现在是**常驻开关**（用户原话
+          「折叠按钮只是控制他是否常驻折叠或者展开」）。日常开合由**悬停**负责，
+          按钮只回答"离开鼠标时它该不该留在这儿"。
         */}
         <button
           type="button"
           className={styles.toggle}
           data-sidebar-toggle
-          aria-expanded={open}
-          aria-label={open ? '收起侧栏' : '展开侧栏'}
-          title={open ? '收起侧栏' : '展开侧栏'}
-          onClick={() => toggleSidebar()}
+          data-sidebar-pin
+          aria-pressed={pinned}
+          aria-label={pinned ? '取消常驻展开（移开鼠标后自动收起）' : '常驻展开侧栏'}
+          title={pinned ? '取消常驻展开' : '常驻展开'}
+          onClick={() => toggleSidebarPin()}
         >
           <IconSidebarToggle size={20} />
         </button>

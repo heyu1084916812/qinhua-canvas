@@ -9979,16 +9979,86 @@ async function g80(browser) {
 
   // ── ① 收起 / 展开 + 工作区跟随 ──
   rec(g, '首屏有应用壳与侧栏', (await page.locator('[data-app-shell]').count()) === 1 && (await rail.count()) === 1)
+  /**
+   * 侧栏口径在 2026-10-06 改过（对账 #258），这三条一起换：
+   *  - 旧：不记忆状态、刷新永远收起；
+   *  - 新：**悬停即展开**（临时、不落盘）＋**折叠按钮 = 常驻开关**（落盘、跨重启记住）。
+   * 所以"刷新后是收起态"只在**没锁过**时成立，判据要连 `data-sidebar-pinned` 一起看。
+   */
   rec(
     g,
-    '★ 刷新后侧栏是收起态（产品口径：不记忆上次状态）',
-    (await rail.getAttribute('data-sidebar-open')) === 'false',
-    `open=${await rail.getAttribute('data-sidebar-open')}`,
+    '★ 刷新后未锁定时是收起态（常驻才记忆）',
+    (await rail.getAttribute('data-sidebar-open')) === 'false' &&
+      (await rail.getAttribute('data-sidebar-pinned')) === 'false',
+    `open=${await rail.getAttribute('data-sidebar-open')} pinned=${await rail.getAttribute('data-sidebar-pinned')}`,
   )
   const collapsed = await rail.boundingBox()
   const wsCollapsed = await workspace.boundingBox()
   rec(g, '★ 收起宽度 64px（§5.10）', Math.round(collapsed.width) === 64, `${Math.round(collapsed.width)}px`)
 
+  /**
+   * ★★ 悬停展开 / 移开收回 —— 本次改动的**核心手感**。
+   * 延迟常量在 `sidebarState`（进 100ms / 出 220ms），这里多等一截余量再量，
+   * 免得把"动画还没完"当成"没生效"。
+   */
+  await rail.hover()
+  await sleep(450)
+  const hoveredW = Math.round((await rail.boundingBox()).width)
+  rec(g, '★★ 悬停侧栏自动展开到 240px（不用点任何按钮）', hoveredW === 240, `${hoveredW}px`)
+
+  await page.mouse.move(900, 500)
+  await sleep(600)
+  const leftW = Math.round((await rail.boundingBox()).width)
+  rec(g, '★★ 移开鼠标自动收回 64px', leftW === 64, `${leftW}px`)
+  rec(
+    g,
+    '★ 悬停不留痕（不写常驻键）',
+    (await page.evaluate(() => localStorage.getItem('flow:sidebar-pinned'))) === null,
+    String(await page.evaluate(() => localStorage.getItem('flow:sidebar-pinned'))),
+  )
+
+  // ── 折叠按钮 = 常驻开关（用户 2026-10-06：它只回答"离开鼠标时留不留在这儿"）──
+  await page.locator('[data-sidebar-toggle]').click()
+  await sleep(600)
+  rec(
+    g,
+    '★★ 点折叠按钮 = 常驻展开（aria-pressed=true，落盘=1）',
+    (await rail.getAttribute('data-sidebar-pinned')) === 'true' &&
+      (await page.locator('[data-sidebar-toggle]').getAttribute('aria-pressed')) === 'true' &&
+      (await page.evaluate(() => localStorage.getItem('flow:sidebar-pinned'))) === '1',
+    `pinned=${await rail.getAttribute('data-sidebar-pinned')}`,
+  )
+  await page.mouse.move(900, 500)
+  await sleep(600)
+  rec(
+    g,
+    '★★ 常驻后移开鼠标仍然展开（这才是"常驻"的意思）',
+    Math.round((await rail.boundingBox()).width) === 240,
+    `${Math.round((await rail.boundingBox()).width)}px`,
+  )
+
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(900)
+  rec(
+    g,
+    '★★ 刷新后常驻仍展开（跨重启记住）',
+    (await rail.getAttribute('data-sidebar-open')) === 'true',
+    `open=${await rail.getAttribute('data-sidebar-open')}`,
+  )
+
+  // 取消常驻 → 刷新应回到收起（证明"记的是用户锁没锁"，不是"上次开着就开着"）
+  await page.locator('[data-sidebar-toggle]').click()
+  await sleep(400)
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(900)
+  rec(
+    g,
+    '★★ 取消常驻后刷新回到收起态',
+    (await rail.getAttribute('data-sidebar-open')) === 'false',
+    `open=${await rail.getAttribute('data-sidebar-open')}`,
+  )
+
+  // 后面的段落（导航文字 / 切页保持）需要"展开态"前提 ⇒ 重新常驻一次
   await page.locator('[data-sidebar-toggle]').click()
   await sleep(600)
   const expanded = await rail.boundingBox()
@@ -10207,7 +10277,7 @@ async function g81(browser) {
   )
     rec(
       g,
-      '★★ 折叠按钮与 Logo 垂直同心、落在同一 Logo 格（悬停互换）',
+      '★★ 折叠按钮与 Logo 垂直同心、落在同一 Logo 格（收起态）',
       Math.abs(geo.btn.cy - geo.logo.cy) <= 1 && Math.abs(geo.btn.cx - geo.logo.cx) <= 1,
       `按钮(${geo.btn.cx},${geo.btn.cy}) Logo(${geo.logo.cx},${geo.logo.cy})`,
     )
@@ -10218,22 +10288,32 @@ async function g81(browser) {
     `logo=${geo.logoOp} btn=${geo.btnOp}`,
   )
 
-  // 悬停 Logo 位 → 互换
+  /**
+   * 悬停 Logo 位 → **侧栏自动展开**（2026-10-06 起，对账 #258）。
+   *
+   * ⚠️ 这里**换掉了旧断言**「悬停时 Logo 隐去、按钮出现（同格互换）」：
+   * 那条属于"收起态 + 悬停"的稳态，而现在的悬停会在 100ms 后把侧栏**展开** ——
+   * 那个互换态只存在于展开前的一瞬（CSS 过渡还没跑完），**按稳态去断言必然不稳**。
+   * 现在的判据换成真正可观测、也真正有用的那条：**悬停后侧栏展开、折叠按钮可见可点**
+   * （用户要的是"悬停就能拿到按钮"，不是"100ms 内换过图标"）。
+   */
   const logoBox = await page.locator('[data-sidebar-logo]').boundingBox()
   await page.mouse.move(logoBox.x + logoBox.width / 2, logoBox.y + logoBox.height / 2)
   await sleep(450)
   const hovered = await page.evaluate(() => {
     const rail = document.querySelector('[data-app-sidebar]')
     return {
+      width: Math.round(rail.getBoundingClientRect().width),
+      open: rail.getAttribute('data-sidebar-open'),
       logoOp: getComputedStyle(rail.querySelector('[data-sidebar-logo]')).opacity,
       btnOp: getComputedStyle(rail.querySelector('[data-sidebar-toggle]')).opacity,
     }
   })
   rec(
     g,
-    '★★ 悬停时 Logo 隐去、按钮出现',
-    hovered.logoOp === '0' && hovered.btnOp === '1',
-    `logo=${hovered.logoOp} btn=${hovered.btnOp}`,
+    '★★ 悬停后侧栏展开、折叠按钮可见（新的可达路径）',
+    hovered.open === 'true' && hovered.width === 240 && hovered.btnOp === '1',
+    `open=${hovered.open} w=${hovered.width} btn=${hovered.btnOp}`,
   )
 
   // 移开 → Logo 回来
