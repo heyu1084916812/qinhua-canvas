@@ -163,6 +163,85 @@ export function AssetsPage() {
   return (
     <div className={styles.page} data-assets-page>
       {/*
+        ── 三排结构（用户 2026-10-06 第 11 条 + 参考图十二，对账 #291）──
+        ① 标题区；② **整行**筛选规则（横跨全宽、下面一条分隔线）；③ 左侧筛选 + 右侧内容。
+
+        改之前是"标题与左栏并排"（左栏从标题那一行就开始），所以看着不像三排。
+        现在标题与工具行都搬到 `.page` 这一层（不再是 `.main` 的子元素），
+        左栏与内容一起下移到 `.body` 那一排里。
+      */}
+      <header className={styles.head}>
+        {/* 标题仍是「我的素材」（用户 2026-10-06 明确保留） */}
+        <h1 className={styles.title} data-assets-heading>
+          我的素材
+        </h1>
+        <p className={styles.subtitle}>每一次创作，都在这里。浏览、整理与复用你的生成素材。</p>
+      </header>
+
+      {/* 第 2 排：整行筛选规则。`data-assets-*` 锚点一个不动 —— 它们是既有接口 */}
+      <div className={styles.toolbar}>
+        <input
+          className={styles.search}
+          type="search"
+          placeholder="搜索素材、提示词或模型…"
+          aria-label="搜索素材"
+          value={query}
+          data-assets-search
+          onChange={(event) => store.setQuery(event.target.value)}
+        />
+        <div className={styles.segmented} role="tablist" aria-label="素材类型">
+          {KIND_FILTERS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={filter === item.id}
+              className={filter === item.id ? `${styles.chip} ${styles.chipOn}` : styles.chip}
+              data-assets-filter={item.id}
+              onClick={() => store.setFilter(item.id)}
+            >
+              {item.label}
+              <span className={styles.chipCount} data-assets-kind-count={item.id}>
+                {counts[item.id]}
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className={styles.segmented} data-assets-group>
+          {GROUP_MODES.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={group === item.id ? `${styles.chip} ${styles.chipOn}` : styles.chip}
+              data-assets-group-mode={item.id}
+              aria-pressed={group === item.id}
+              onClick={() => store.setGroup(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <div className={styles.segmented} data-assets-view>
+          {(['grid', 'list'] as AssetsView[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              className={view === mode ? `${styles.chip} ${styles.chipOn}` : styles.chip}
+              data-assets-view-mode={mode}
+              aria-pressed={view === mode}
+              aria-label={mode === 'grid' ? '网格视图' : '列表视图'}
+              title={mode === 'grid' ? '网格视图' : '列表视图'}
+              onClick={() => store.setView(mode)}
+            >
+              {mode === 'grid' ? '网格' : '列表'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 第 3 排：左筛选 + 右内容 */}
+      <div className={styles.body} data-assets-body>
+      {/*
         左侧栏（参考图五）：快速筛选 + 模型生成分组。
         两个区块都对**全量**计数 —— 数字不随当前筛选跳，用户才能拿它当"库里有什么"的读表。
       */}
@@ -220,74 +299,6 @@ export function AssetsPage() {
       </aside>
 
       <main className={styles.main} data-assets-stage>
-        <header className={styles.head}>
-          {/* 标题仍是「我的素材」（用户 2026-10-06 明确保留） */}
-          <h1 className={styles.title} data-assets-heading>
-            我的素材
-          </h1>
-          <p className={styles.subtitle}>每一次创作，都在这里。浏览、整理与复用你的生成素材。</p>
-        </header>
-
-        <div className={styles.toolbar}>
-          <input
-            className={styles.search}
-            type="search"
-            placeholder="搜索素材、提示词或模型…"
-            aria-label="搜索素材"
-            value={query}
-            data-assets-search
-            onChange={(event) => store.setQuery(event.target.value)}
-          />
-          <div className={styles.segmented} role="tablist" aria-label="素材类型">
-            {KIND_FILTERS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={filter === item.id}
-                className={filter === item.id ? `${styles.chip} ${styles.chipOn}` : styles.chip}
-                data-assets-filter={item.id}
-                onClick={() => store.setFilter(item.id)}
-              >
-                {item.label}
-                <span className={styles.chipCount} data-assets-kind-count={item.id}>
-                  {counts[item.id]}
-                </span>
-              </button>
-            ))}
-          </div>
-          <div className={styles.segmented} data-assets-group>
-            {GROUP_MODES.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={group === item.id ? `${styles.chip} ${styles.chipOn}` : styles.chip}
-                data-assets-group-mode={item.id}
-                aria-pressed={group === item.id}
-                onClick={() => store.setGroup(item.id)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <div className={styles.segmented} data-assets-view>
-            {(['grid', 'list'] as AssetsView[]).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                className={view === mode ? `${styles.chip} ${styles.chipOn}` : styles.chip}
-                data-assets-view-mode={mode}
-                aria-pressed={view === mode}
-                aria-label={mode === 'grid' ? '网格视图' : '列表视图'}
-                title={mode === 'grid' ? '网格视图' : '列表视图'}
-                onClick={() => store.setView(mode)}
-              >
-                {mode === 'grid' ? '网格' : '列表'}
-              </button>
-            ))}
-          </div>
-        </div>
-
         <nav className={styles.tabs} role="tablist" aria-label="素材分组">
           {TABS.map((item) => (
             <button
@@ -411,6 +422,7 @@ export function AssetsPage() {
         </section>
         )}
       </main>
+      </div>
 
       <div aria-live="polite" className={styles.status} role="status">
         {status}

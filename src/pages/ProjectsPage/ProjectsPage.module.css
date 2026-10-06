@@ -1,10 +1,19 @@
 .page {
   /*
-   * `min-height: 100%` 而非 `100vh`（2026-09-27 应用壳改版）：
-   * 首页在壳右侧工作区里，`100vh` 会比可用区高一截（那块是减去侧栏的场景），
-   * 于是永远多出一条纵向滚动。内容更高时仍靠 `min-height` 自然长高。
+   * 高度跟随工作区（不是 `100vh`：那会比可用区高一截，永远多一条纵向滚动）。
+   *
+   * ⚠️ **滚动从"工作区那一层"下沉到本页**（用户 2026-10-06，对账 #287）。
+   *
+   * 此前是 `min-height: 100%` + 由 `[data-app-workspace]` 滚动 —— 于是滚动条画在
+   * **卡片最右沿**，而卡片是圆角的：它的上下两端正好落在圆角上，看起来"漏出来"。
+   * 现在这一层定高、不滚，滚动交给 `.main`（并且 `.main` 用透明右边框把滚动条
+   * 从卡片边缘推进来 16px），滚动条因此完全落在卡片内部。
    */
-  min-height: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  /* 这层只负责"填满 + 给状态行留位"；滚动在 `.main` 里 */
+  overflow: hidden;
   /*
    * 工作区底色取 `--bg-canvas`，**不是 `--bg-app`**（用户 2026-09-27 定色后修正）。
    *
@@ -88,6 +97,28 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-8);
+  /*
+   * 本页的**滚动容器**（对账 #287）：撑满 `.page` 剩下的高度、自己滚。
+   *
+   * `min-height: 0` 是 flex 子项能被压缩的前提 —— 少了它这一层会被内容顶高，
+   * 于是它既不滚、又去顶工作区（老毛病原样复现）。
+   */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /*
+   * **透明右边框**把滚动条从卡片右沿推进来 16px。
+   *
+   * 为什么不是 `padding-right`：滚动条画在**内边框边缘**（padding 之外），
+   * 加内边距它照样贴着卡片边。只有 border 能让它挪进来。
+   * 为什么是透明而不是留白：底色默认画到 border-box，卡片看上去仍是原来的宽度。
+   *
+   * 左边那条同宽是**为了对称**：只推右边的话，内容盒整体左移 8px ——
+   * 实测"内容在工作区里居中"那条断言会红（差的就是半个滚动条）。
+   * 两边同宽 ⇒ 内容盒在卡片里始终居中，有没有滚动条都一样。
+   */
+  border-right: var(--space-4) solid transparent;
+  border-left: var(--space-4) solid transparent;
 }
 
 .section {
@@ -481,6 +512,8 @@
   max-width: 1520px;
   margin-inline: auto;
   box-sizing: border-box;
+  /* 它是 `.page` 这一列 flex 里的固定一行：不参与伸缩，永远可见（对账 #287 顺带） */
+  flex: none;
   min-height: var(--space-5);
   padding: 0 var(--space-6) var(--space-6);
   font-size: var(--fs-label);

@@ -1,38 +1,39 @@
 import { useCallback, useEffect, useState } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { createProjectRepository } from '../../state/project/repository'
+import { useAssetFolderActions } from '../canvas/useAssetFolderActions'
 import styles from './StoragePanel.module.css'
 
 /**
- * 「全局设置 → 存储」面板（用户 2026-10-06 定，对账 #261）。
+ * 「全局设置 → 存储」面板（用户 2026-10-06 定，对账 #261 / #285 / #293）。
  *
- * ## 为什么是这些、不是参考图里那些
+ * ## 四块，每一块都回答一个用户真的会问的问题
  *
- * 用户拿来的参考图里有六项，我逐条评估后**只做其中四项**（用户认可）：
- *  - ✅ **存储概况**（数量 / 占用 / 位置）—— 让用户知道"我的东西在哪、占多少"；
- *  - ✅ **打开数据目录** —— 我们没给"改数据目录"的 UI（它是编译期规则，见桌面方案 §5.11），
- *    所以至少要让人**找得到**它；
- *  - ✅ **清网页缓存** —— 这是真的会涨的（实测一次开发使用就 13.7 MB 的 Cache），
- *    而它清掉**没有任何副作用**（WebView2 会重建）；
- *  - ✅ **素材文件夹**（当前目录 / 换位置 / 打开）—— 这条与画布 HUD 上那三个按钮同源，
- *    只是把入口也放到设置里（用户不用先回画布才能改）；
- *  - ❌ **自动保存开关**：**不做**。我们本来就是自动保存（防抖 800ms 落库 + 关闭时强制落一次），
- *    给一个开关只会制造"忘了打开 = 丢了"的事故 —— 那是把默认做对的事又开个口子。
+ *  - **存储概况**：我的东西有多少、占多大；
+ *  - **数据目录**：它们在哪（并且**找得到** —— 我们没给"改数据目录"的 UI，它是编译期规则）；
+ *  - **网页缓存**：那堆能清的东西是什么、清了**有没有用**；
+ *  - **素材文件夹**：素材除了在库里，还能在哪有一个副本（导出 / 备份 / 换机器）。
  *
- * ⚠️ 与 `updater` 同一口径：**数据目录 / 网页缓存这两块只有桌面壳能做**
- * （浏览器里没有"目录"这回事）⇒ 没有 `storageAdmin` 端口时，如实说"仅在桌面应用可用"，
- * **不装作没这个功能、也不报错**。
+ * ## 两条口径
+ *
+ * 1. **桌面专属的项也显示出来**（用户 2026-10-06 第 5 条：「不管是桌面才可以用的，
+ *    但是 UI 需要给我显示出来」）—— 浏览器里给出"仅在桌面应用可用"的说明，
+ *    而不是把整块删掉（删掉的话用户根本不知道有这个能力）。
+ * 2. **"清理"要如实说清有什么用**（用户追问过「那那个清理缓存不就对我的画布没啥用吗？」）——
+ *    答案就是"没用，它只省磁盘、不会更快"，所以下面那段文字**不写"加速/优化"**
+ *    （实测：Cache 48.9MB + Code Cache 19.5MB + GPUCache 1.6MB ≈ 70MB 系统垃圾，
+ *    而真正占地方的 91.8MB 是数据库里的素材字节，那属于**数据**，不在这一块清）。
  */
 export function StoragePanel() {
   const platform = usePlatform()
   const admin = platform.storageAdmin
-  const folder = platform.assetFolder
+  /** 素材文件夹三件事（选 / 打开 / 导出）——与画布右键那条「从素材文件夹加载」同一份实现 */
+  const folderActions = useAssetFolderActions()
 
   const [counts, setCounts] = useState<{ projects: number; assets: number; saved: number } | null>(null)
   const [usage, setUsage] = useState<{ used: number; quota: number } | null>(null)
   const [dataDir, setDataDir] = useState<string>('')
   const [cacheBytes, setCacheBytes] = useState<number | null>(null)
-  const [folderPath, setFolderPath] = useState<string>('')
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
 
@@ -56,29 +57,11 @@ export function StoragePanel() {
       setDataDir(await admin.dataDir())
       setCacheBytes(await admin.cacheUsage())
     }
-    if (folder?.supported) {
-      // 端口只暴露**目录名**（浏览器拿不到路径）；路径只用来"在资源管理器里打开"
-      setFolderPath(folder.current()?.name ?? '')
-    }
-  }, [platform, admin, folder])
+  }, [platform, admin])
 
   useEffect(() => {
     void refresh().catch((err: unknown) => setStatus(`读取失败：${String(err)}`))
   }, [refresh])
-
-  const pickFolder = async () => {
-    if (!folder) return
-    setBusy(true)
-    try {
-      const dir = await folder.pick()
-      setFolderPath(dir?.name ?? '')
-      setStatus(dir ? `素材文件夹已切到「${dir.name}」` : '已取消')
-    } catch (err) {
-      setStatus(`选择失败：${String(err)}`)
-    } finally {
-      setBusy(false)
-    }
-  }
 
   const clearCache = async () => {
     if (!admin) return
@@ -145,9 +128,16 @@ export function StoragePanel() {
 
       <section className={styles.block}>
         <h3 className={styles.title}>网页缓存</h3>
+        {/*
+          ⚠️ 这段**不写"加速 / 优化"**：清了不会更快（下次用到的还会重建，第一次反而更慢）。
+          它唯一的好处是**省磁盘**（网页缓存 + 代码缓存 + GPU 缓存，实测一次开发使用约 70MB）
+          与"更新之后界面还是旧的"这类残留。用户专门追问过这一条，所以话必须说准。
+        */}
         <p className={styles.desc}>
-          应用外壳（WebView2）的临时缓存。清掉它<strong>不会</strong>影响项目与素材 ——
-          下次用到时会自动重建，只是第一次稍慢。
+          应用外壳（WebView2）的临时缓存：网页缓存、代码缓存、GPU 缓存。
+          清掉它<strong>只省磁盘空间</strong> —— 不会让应用变快（下次用到会重建，第一次稍慢），
+          也<strong>不会</strong>动你的项目、素材与令牌（那些在数据库里，不在这儿）。
+          顺带能治好"更新之后界面还是旧的"这类残留。
         </p>
         {admin ? (
           <>
@@ -174,34 +164,51 @@ export function StoragePanel() {
       <section className={styles.block}>
         <h3 className={styles.title}>素材文件夹</h3>
         <p className={styles.desc}>
-          选一个目录后，新素材会<strong>同时</strong>在库里和那个目录各存一份（文件名是内容哈希，重复导入
-          不会重复落盘）。换机器或想用资源管理器直接看，就走它。
+          素材默认存在<strong>应用自己的库里</strong>（数据库内）。选一个目录之后，新素材会
+          <strong>同时</strong>在库里和那个目录各存一份（文件名是内容哈希，重复导入不会重复落盘）；
+          想备份、换机器、或用资源管理器直接看图，就走它。
+          <br />
+          把<strong>文件夹里的素材放回画布</strong>：在画布空白处<strong>右键 → 从素材文件夹加载</strong>
+          （那是"往当前画布加节点"的动作，所以留在画布上）。
         </p>
-        {folder?.supported ? (
+        {folderActions.canPick ? (
           <>
             <code className={styles.path} data-storage-asset-dir>
-              {folderPath || '（未选择：素材只存在库里）'}
+              {folderActions.folderName || '（未选择：素材只存在库里）'}
             </code>
             <div className={styles.actions}>
-              <button type="button" className={styles.btn} disabled={busy} onClick={() => void pickFolder()}>
-                {folderPath ? '更换位置' : '选择素材文件夹'}
+              <button
+                type="button"
+                className={styles.btn}
+                data-storage-pick-folder
+                disabled={busy}
+                onClick={() => void folderActions.pick().then(setStatus)}
+              >
+                {folderActions.folderName ? '更换位置' : '选择素材文件夹'}
               </button>
-              {/* 「打开」只有桌面壳能给：浏览器拿不到目录路径（端口 `path?()` 是壳专属） */}
-              {folder.path && admin ? (
-                <button
-                  type="button"
-                  className={styles.btn}
-                  disabled={busy || !folder.path()}
-                  onClick={() => {
-                    const target = folder.path?.() ?? ''
-                    void admin
-                      .openDir(target)
-                      .catch((err: unknown) => setStatus(`打不开：${String(err)}`))
-                  }}
-                >
-                  打开文件夹
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className={styles.btn}
+                data-storage-open-folder
+                onClick={() => void folderActions.openFolder().then(setStatus)}
+              >
+                打开文件夹
+              </button>
+              {/*
+                「导出素材到文件夹」从画布状态条搬到这里（用户 2026-10-06 第 13 条：
+                状态条只留节点数与缩放）—— 它本来就是"把库写一份到磁盘"的存储动作。
+              */}
+              <button
+                type="button"
+                className={styles.btn}
+                data-storage-export-assets
+                disabled={busy || !folderActions.folderName || folderActions.exporting !== null}
+                onClick={() => void folderActions.exportAll().then(setStatus)}
+              >
+                {folderActions.exporting
+                  ? `导出中 ${folderActions.exporting.done}/${folderActions.exporting.total}…`
+                  : '导出素材到文件夹'}
+              </button>
             </div>
           </>
         ) : (

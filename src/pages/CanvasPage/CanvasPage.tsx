@@ -312,26 +312,17 @@ function CanvasProject({ projectId }: { projectId: string }) {
             顶栏被去掉要解决的是「它挡住画布内容」，不是「按钮本身不该存在」。
           */}
           {/*
-            右上角那排入口：**助手 + 日志**（用户 2026-10-05 第 7 条：两者间距太小）。
+            右上角那排入口（用户 2026-10-06 第 6 条改过三处）：
+            ① **顺序换过来**：现在是「日志 → Agent」（原来「助手 → 日志」）；
+            ② **间距减半**：`--space-4`(16) → `--space-2`(8) —— 用户原话「目前助手和日志之间的距离太远」；
+            ③ **面板打开时只隐藏 Agent 那一个按钮**，日志始终在（用户原话：
+               「整排隐藏的是 agent 那个按钮，不是日志」）—— 所以下面 Agent 按钮是条件渲染，
+               而 `.pageAgentOpen` 那条"整排左移"的规则保留：剩下的日志仍要躲开面板。
 
-            两个按钮放进一个 flex 容器，间距由一个 token 给（`--space-4`）——
-            此前是各自绝对定位、`right: calc(... + 68px)` 硬凑，68 按当时的按钮宽度估的，
-            文案一变间距就漂（实测 14px，而且两个按钮的字重还不一致，看着不像一对）。
-
-            顺序：助手在前、日志在后 —— 与用户看到的「助手在左、日志在右」一致。
+            名字也改了：**助手 → Agent**（用户第 6 条：「助手改个名称叫 Agent」）。
+            锚点 `data-canvas-agent` 不变（冒烟与样式都靠它定位，名字是给人看的）。
           */}
           <div className={styles.topRightActions}>
-            <button
-              type="button"
-              className={`${styles.topBtn} ${styles.agentBtn}`}
-              data-canvas-agent
-              aria-pressed={agentOpen}
-              aria-label="助手"
-              title="助手"
-              onClick={() => setAgentOpen((v) => !v)}
-            >
-              助手
-            </button>
             <button
               type="button"
               className={styles.topBtn}
@@ -343,6 +334,19 @@ function CanvasProject({ projectId }: { projectId: string }) {
             >
               日志
             </button>
+            {!agentOpen && (
+              <button
+                type="button"
+                className={`${styles.topBtn} ${styles.agentBtn}`}
+                data-canvas-agent
+                aria-pressed={agentOpen}
+                aria-label="Agent"
+                title="Agent"
+                onClick={() => setAgentOpen((v) => !v)}
+              >
+                Agent
+              </button>
+            )}
           </div>
           {externalEdit && (
             <div className={styles.externalBanner} role="status">

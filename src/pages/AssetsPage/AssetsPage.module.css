@@ -1,5 +1,4 @@
 .page {
-  min-height: 100%;
   box-sizing: border-box;
   background: var(--bg-canvas);
   color: var(--text-1);
@@ -7,9 +6,28 @@
   font-size: var(--fs-body);
   line-height: var(--lh-body);
   /*
-   * 两栏：左栏"快速筛选 / 模型生成分组"固定 240，主区自适应（对账 #264，参考图五）。
-   * 默认的 `align-items: stretch` 让左栏底色一路通到页面底部 —— 分栏才像分栏。
+   * ── 三排（用户 2026-10-06 第 11 条 + 参考图十二，对账 #291）──
+   *
+   * ```
+   * ① 标题区            （.head）
+   * ② 整行筛选规则       （.toolbar，横跨全宽 + 下一条分隔线）
+   * ③ 左筛选 | 右内容    （.body > .rail + .main）
+   * ```
+   *
+   * ⚠️ 高度与滚动：**本页自己当滚动容器链**（对账 #287，与项目页同一口径）——
+   * 页面定高、不滚；`.rail` 与 `.main` 各自滚。滚动条因此落在页面内部，
+   * 不会像原来那样贴着卡片的圆角。
    */
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 第 3 排：左栏 + 内容。`align-items: stretch` 让左栏底色一路通到这一排的底 —— 分栏才像分栏 */
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   align-items: stretch;
 }
@@ -19,10 +37,16 @@
   flex: 0 0 auto;
   width: 240px;
   box-sizing: border-box;
-  padding: var(--space-6) var(--space-4);
+  padding: var(--space-4) var(--space-4) var(--space-6);
   display: flex;
   flex-direction: column;
   gap: var(--space-6);
+  /*
+   * 左栏自己滚：筛选条目多起来时不该把整页顶高（内容那一列才是主滚动区）。
+   * `min-height: 0` 是 flex 行子项能被压缩的前提。
+   */
+  min-height: 0;
+  overflow-y: auto;
   /*
    * 底色 = **页面底色**，不是 `--bg-subtle`（用户 2026-10-06：「快速筛选应该也在我的素材那一页里面」）。
    *
@@ -102,7 +126,9 @@
 
 /* ── 页头与工具行 ── */
 .head {
-  margin-bottom: var(--space-4);
+  /* 第 1 排：标题区。固定高度（不参与伸缩），下方留一点与工具行的间距 */
+  flex: none;
+  padding: var(--space-6) var(--space-6) var(--space-3);
 }
 
 .title {
@@ -119,11 +145,14 @@
 }
 
 .toolbar {
+  /* 第 2 排：整行筛选规则（横跨全宽），下面一条分隔线把它与内容分开 */
+  flex: none;
+  padding: 0 var(--space-6) var(--space-3);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
-  margin-bottom: var(--space-4);
+  border-bottom: var(--border);
 }
 
 .segmented {
@@ -251,11 +280,24 @@
 }
 
 .main {
+  /*
+   * 第 3 排右半边：**本页的主滚动区**。
+   * 撑满 `.body` 剩下的高度自己滚；`min-height: 0` 是 flex 子项能被压缩的前提。
+   */
+  flex: 1 1 auto;
   width: 100%;
   max-width: 1520px;
   margin-inline: auto;
   box-sizing: border-box;
-  padding: var(--space-8);
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-6);
+  /*
+   * 透明边框把滚动条从卡片右沿推进来 16px（对账 #287，与项目页同口径）。
+   * 左边同宽是为了让内容盒保持对称（只推右边会让内容整体左移半个滚动条）。
+   */
+  border-right: var(--space-4) solid transparent;
+  border-left: var(--space-4) solid transparent;
 }
 
 .section {
@@ -533,6 +575,8 @@
   max-width: 1520px;
   margin-inline: auto;
   box-sizing: border-box;
+  /* `.page` 这一列 flex 的固定一行：不参与伸缩（对账 #291 三排之外的播报行） */
+  flex: none;
   min-height: var(--space-5);
   padding: 0 var(--space-6) var(--space-6);
   font-size: var(--fs-label);
@@ -713,6 +757,37 @@
   border-radius: var(--radius-pill);
 }
 
+/* 色块 + 那枚"已复制"对勾的定位盒（对账 #290）：对勾绝对定位 ⇒ 不占排版 */
+.swatchWrap {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+}
+
+.swatchCheck {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  /*
+   * 垫一层半透明的表面色：色块本身可能是白的也可能是黑的，
+   * 直接画对勾必然有一半看不见 —— 垫底之后在任何颜色上都读得出来。
+   */
+  background: color-mix(in srgb, var(--bg-surface) 82%, transparent);
+  color: var(--text-1);
+  animation: swatchCheckIn var(--dur-hover) var(--ease-out);
+}
+
+@keyframes swatchCheckIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .swatchText {
   color: var(--text-2);
   font-size: var(--fs-chip);
@@ -739,6 +814,14 @@
   overflow-wrap: anywhere;
   /* 整块可点即复制 ⇒ 给出手势提示（块本体仍是 div，语义靠 role/tabIndex 补） */
   cursor: copy;
+}
+
+/*
+ * 复制成功的反馈（对账 #290）：**只加一圈内描边**，不加内边距、不改文字 ——
+ * 任何改变盒子尺寸的写法都会让整块跳一下（那正是用户报的"排版一直变"）。
+ */
+.promptBlockCopied {
+  box-shadow: inset 0 0 0 1px var(--focus-ring);
 }
 
 /* 提示词那一段：块 + 右上角那枚复制按钮（按钮浮在块的上方，不占排版） */

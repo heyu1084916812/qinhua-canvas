@@ -102,7 +102,12 @@ export function UpdateButton({ open }: { open: boolean }) {
       <span className={styles.sideIcon} aria-hidden="true">
         <IconUpdate />
       </span>
-      {open && <span>{label}</span>}
+      {/*
+        标签**常驻**（对账 #281）：收起时由 `data-sidebar-text` 那条规则淡出，
+        不再瞬间卸载 —— 卸载会让图标在宽度动画里被重排（旧的 `justify-content:center`
+        会把图标推到侧栏外）。`open` 只留给上面的类名切换。
+      */}
+      <span data-sidebar-text>{label}</span>
     </button>
   )
 }

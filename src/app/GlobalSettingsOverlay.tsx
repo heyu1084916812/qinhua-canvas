@@ -27,6 +27,15 @@ import styles from './GlobalSettingsOverlay.module.css'
  * - **模态**：遮罩铺满整窗，点击遮罩即关闭（用户："需要关掉才能点击其他的功能"）；
  * - **Esc 关闭**（浮层的通行约定）；
  * - 打开时**滚动锁在浮层内**：面板自己滚，底下的页面收不到滚轮（遮罩挡住了指针）。
+ *
+ * ## 布局：左侧一列导航 + 右侧内容（用户 2026-10-06，对账 #284）
+ *
+ * 原来是一排顶部标签（图四），用户给了参考图五：**左侧一列**，右侧是具体区域。
+ * 同时修掉「素材传输无法下拉」—— 病根是那一栏的内容**没有滚动容器**：
+ * `HostingPage` 是照"整页工作区"写的（自己没有 `overflow`，靠外层壳滚），
+ * 而浮层里它的外层是 `overflow: hidden` 的 flex 列 ⇒ 多出来的字段被直接裁掉、
+ * 滚轮无处可滚。现在右栏**自带 `overflow-y: auto`**，两页各按自己的方式滚：
+ * `HostingPage` 交给这层滚，`SettingsPage` 内部两栏自己滚（它本来就是这么写的）。
  */
 export function GlobalSettingsOverlay() {
   const { open, section } = useSyncExternalStore(
@@ -64,20 +73,6 @@ export function GlobalSettingsOverlay() {
       <div className={styles.panel} data-global-settings-panel>
         <header className={styles.head}>
           <span className={styles.title}>全局设置</span>
-          <nav className={styles.tabs} aria-label="设置栏目">
-            {GLOBAL_SETTINGS_SECTIONS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={section === item.id ? `${styles.tab} ${styles.tabOn}` : styles.tab}
-                data-global-settings-tab={item.id}
-                aria-pressed={section === item.id}
-                onClick={() => openGlobalSettings(item.id)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </nav>
           <button
             type="button"
             className={styles.close}
@@ -89,16 +84,38 @@ export function GlobalSettingsOverlay() {
             <IconClose size={18} />
           </button>
         </header>
-        {/* 内容按栏目挂载两个既有页面之一。key 让切栏目时组件重新挂载 —— 两页的状态互不串味 */}
         <div className={styles.body} data-global-settings-body>
           {/*
+            左：一列导航（用户要的形态）。
+            `data-global-settings-tab` 这个锚点**没变** —— 它是"栏目切换"的既有接口，
+            冒烟与页内跳转（画布里那处"去后台设置"）都按它找人，换布局不该换锚点。
+          */}
+          <nav className={styles.nav} aria-label="设置栏目">
+            {GLOBAL_SETTINGS_SECTIONS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={section === item.id ? `${styles.navItem} ${styles.navItemOn}` : styles.navItem}
+                data-global-settings-tab={item.id}
+                aria-pressed={section === item.id}
+                onClick={() => openGlobalSettings(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+          {/*
+            右：具体内容。**这一层是滚动容器**（`overflow-y: auto`）—— 没有它，
+            `HostingPage` 那段"靠外层滚"的内容就会被裁掉（用户报的无法下拉）。
             三个栏目各自的实现：前两个直接复用页面组件（见文件头注释），
-            「存储」是本次新增的面板（对账 #261）—— 它没有对应页面，只活在设置里。
+            「存储」是新增的面板（对账 #261）—— 它没有对应页面，只活在设置里。
             `key` 让切栏时重新挂载：两页各自的状态不该跨栏串味。
           */}
-          {section === 'channels' && <SettingsPage key="channels" />}
-          {section === 'hosting' && <HostingPage key="hosting" />}
-          {section === 'storage' && <StoragePanel key="storage" />}
+          <div className={styles.content} data-global-settings-content>
+            {section === 'channels' && <SettingsPage key="channels" />}
+            {section === 'hosting' && <HostingPage key="hosting" />}
+            {section === 'storage' && <StoragePanel key="storage" />}
+          </div>
         </div>
       </div>
     </div>

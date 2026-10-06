@@ -21,6 +21,7 @@ export type ContextMenuAction =
   | { kind: 'delete' }
   | { kind: 'create'; type: NodeType }
   | { kind: 'paste' }
+  | { kind: 'loadFromFolder' }
   | { kind: 'resetView' }
 
 export interface ContextMenuItem {
@@ -115,7 +116,9 @@ export function nodeMenuItems(
  * 空剪贴板时不列「粘贴」——列出点了没反应的死项比不列更糟（与
  * `hasRunnableDownstream` 同口径：菜单只列当下真能做的事）。
  */
-export function canvasMenuItems(opts: { canPaste?: boolean } = {}): ContextMenuItem[] {
+export function canvasMenuItems(
+  opts: { canPaste?: boolean; canLoadFromFolder?: boolean } = {},
+): ContextMenuItem[] {
   const items: ContextMenuItem[] = CREATABLE_TYPES.map((t) => ({
     id: `create:${t.type}`,
     label: t.label,
@@ -124,6 +127,22 @@ export function canvasMenuItems(opts: { canPaste?: boolean } = {}): ContextMenuI
   items[items.length - 1].separatorAfter = true
   if (opts.canPaste) {
     items.push({ id: 'paste', label: '粘贴', action: { kind: 'paste' } })
+  }
+  /**
+   * 「从素材文件夹加载」（对账 #293）：从画布左下角状态条搬到这里。
+   *
+   * 为什么搬进右键菜单而不是搬进设置页：它做的事是**往当前画布批量建节点**，
+   * 必须有一个画布 store 才成立（设置浮层里没有）—— 所以留在画布上，
+   * 只是从"常驻状态条"降级为"右键才出现"（用户要状态条只留节点数与缩放）。
+   *
+   * 只在**选过素材文件夹**时列出（与本文件既有口径一致：菜单只列当下真能做的事）。
+   */
+  if (opts.canLoadFromFolder) {
+    items.push({
+      id: 'loadFromFolder',
+      label: '从素材文件夹加载',
+      action: { kind: 'loadFromFolder' },
+    })
   }
   items.push({ id: 'resetView', label: '重置视图', action: { kind: 'resetView' } })
   return items

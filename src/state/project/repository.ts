@@ -1,6 +1,7 @@
 import type { StoragePort, TableName } from '../../platform/ports'
 import type { Project, ProjectListItem, CreateProjectInput } from '../../domain/project/project'
 import { createProject } from '../../domain/project/project'
+import { readCoverMark, resolveProjectCover } from '../../domain/project/cover'
 import { createId } from '../../shared/id'
 
 /**
@@ -71,16 +72,21 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
         projects.map(async (p) => {
           const nodes = await storage.query('nodes', { projectId: p.id })
           /**
-           * 封面 = **最近一次生成出的最后一张图**（用户 2026-09-27）。
+           * 封面 = **最后一次出现在画布中的图片**（用户 2026-10-06 明确的口径，对账 #289）。
            *
-           * 为什么不用 `project.thumbnail`：那个字段一直没被写过
-           * （domain 注释写着「M1 暂未生成，留空」），既没有生产者、
-           * 也没人维护它。**加一个真正的来源**比让一个空字段复活更可靠。
+           * 两个候选、一个判据（谁更晚谁当封面，规则与容错都在 `domain/project/cover.ts`）：
            *
-           * 数据来源是 `runRecords`，不是节点：节点上只有 `assetHash`（当前那张），
-           * 没有「什么时候生成的」。而 RunRecord 带 `createdAt` 与 `outputHashes`，
-           * 天然就是「生成历史」——按时间倒序取第一条有产物的，
-           * 再取它的**最后一张**（一次生成多张时，用户看到的是最后落下的那张）。
+           * 1. **生成产物**：数据来源是 `runRecords`，不是节点 —— 节点上只有 `assetHash`
+           *    （当前那张），没有「什么时候生成的」。而 RunRecord 带 `createdAt` 与
+           *    `outputHashes`，天然就是「生成历史」：按时间倒序取第一条有产物的，
+           *    再取它的**最后一张**（一次生成多张时，用户看到的是最后落下的那张）。
+           * 2. **上传 / 导入**：`projects.extra.cover` 那一笔（由 `importAssetFile` 记下）。
+           *    之所以不在**这里**实时扫 `assets` 表：那表每行带全分辨率字节，
+           *    对每个项目查一次 = 打开首页就把几百 MB 拉进内存（见 cover.ts 的长注释）。
+           *
+           * 为什么不用 `project.thumbnail`（dataURL）：那张图会让项目列表背上几 MB 的
+           * base64，而这里只需要一个 hash，卡片侧用既有的 `useAsset` 取字节
+           * （那条链路有退避重试与内容寻址缓存）。
            */
           const records = (await storage.query('runRecords', { projectId: p.id })) as unknown as {
             createdAt: number
@@ -89,16 +95,14 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
           const latest = records
             .filter((r) => (r.outputHashes?.length ?? 0) > 0)
             .sort((a, b) => b.createdAt - a.createdAt)[0]
-          const coverHash = latest?.outputHashes?.[latest.outputHashes.length - 1] ?? null
+          const generatedHash = latest?.outputHashes?.[latest.outputHashes.length - 1]
+          const coverHash = resolveProjectCover({
+            generated: generatedHash ? { hash: generatedHash, at: latest.createdAt } : null,
+            marked: readCoverMark(p.extra),
+          })
           return {
             ...p,
             nodeCount: nodes.length,
-            /**
-             * 传的是**素材 hash**而不是 dataURL：
-             * 素材本体在 assets 表里，卡片侧用既有的 `useAsset` 取字节 ——
-             * 那条链路有退避重试与内容寻址缓存，比在这里塞 base64 好得多
-             * （一张图几百 KB，全塞进项目列表会让首页首屏多背几 MB）。
-             */
             coverHash,
           }
         }),

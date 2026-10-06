@@ -8,6 +8,7 @@ import type { PlatformKit } from '../../platform/ports'
 import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import type { Point } from '../../domain/canvas/geometry/rect'
 import type { GenerationData } from '../../domain/canvas/model/node'
+import { rememberCanvasCover } from '../../state/project/cover'
 
 /** 导入可接受的类型（§6.8 状态 A：图片 png/jpg/webp；视频 mp4/webm/mov） */
 export const IMPORT_ACCEPT = 'image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime'
@@ -69,10 +70,24 @@ export async function importAssetFile(deps: ImportDeps, file?: File): Promise<Im
    * 上传是最直接的一次归属 —— 用户正站在某个画布里，来源不存在歧义。
    * 生成产物那边的 projectId 由争议的挂载点决定（见 canvasPlacement）。
    */
+  const now = Date.now()
   deps.store.dispatch({
     kind: 'asset.put',
-    asset: { hash, mime, bytes, ...(size ?? {}), createdAt: Date.now(), projectId: deps.projectId },
+    asset: { hash, mime, bytes, ...(size ?? {}), createdAt: now, projectId: deps.projectId },
   })
+  /**
+   * 顺手把"这一张刚进了这个项目的画布"记到项目行上（对账 #289：项目卡封面）。
+   *
+   * 为什么在这里：`importAssetFile` 是**所有导入路径的唯一咽喉**
+   * （点选 / 拖入 / 从文件夹加载 / Agent 面板都汇到它），记一处就等于全覆盖 ——
+   * 分散到各个调用点迟早漏一个（本项目在"三个新建入口"上栽过同一个跟头）。
+   *
+   * 只记图片与视频：`asset.put` 也承接旋转 / 切格 / 融合这类**派生**产物，
+   * 那些走的是别的入口；而导入进来的只可能是媒体。
+   */
+  if (isImportableMedia(mime)) {
+    await rememberCanvasCover(deps.platform.storage, deps.projectId, hash, now)
+  }
   return { hash, mime, name, ...(size ?? {}) }
 }
 

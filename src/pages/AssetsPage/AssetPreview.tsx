@@ -188,14 +188,29 @@ export function AssetPreview({
                     aria-label={`复制色值 ${color}`}
                     onClick={() => copyText(color, `color:${color}`)}
                   >
-                    <span
-                      className={styles.swatch}
-                      style={{ backgroundColor: color }}
-                      title={color}
-                    />
-                    <span className={styles.swatchText}>
-                      {copiedKey === `color:${color}` ? '已复制' : color}
+                    {/*
+                      ⚠️ 反馈**不占排版**（用户 2026-10-06 第 10 条，对账 #290）：
+                      原来把色值文字换成"已复制"，宽度一变就把后面的色块挤动。
+                      现在文字**始终是色值**，反馈改成"色块上浮一枚对勾"——
+                      那枚对勾是绝对定位的（不参与排版），所以整行纹丝不动。
+                    */}
+                    <span className={styles.swatchWrap}>
+                      <span
+                        className={styles.swatch}
+                        style={{ backgroundColor: color }}
+                        title={color}
+                      />
+                      {copiedKey === `color:${color}` && (
+                        <span
+                          className={styles.swatchCheck}
+                          data-asset-color-copied={color}
+                          aria-hidden="true"
+                        >
+                          <IconCheck />
+                        </span>
+                      )}
                     </span>
+                    <span className={styles.swatchText}>{color}</span>
                   </button>
                 ))
               )}
@@ -221,7 +236,11 @@ export function AssetPreview({
                 {copiedKey === 'prompt' ? '已复制' : '复制'}
               </button>
               <div
-                className={styles.promptBlock}
+                className={
+                  copiedKey === 'prompt'
+                    ? `${styles.promptBlock} ${styles.promptBlockCopied}`
+                    : styles.promptBlock
+                }
                 data-asset-preview-prompt
                 data-asset-copy-prompt
                 role="button"
@@ -234,7 +253,11 @@ export function AssetPreview({
                   copyText(asset.prompt ?? '', 'prompt')
                 }}
               >
-                {copiedKey === 'prompt' ? '已复制到剪贴板' : displayMeta(asset.prompt)}
+                {/*
+                  正文**始终是提示词本身**（对账 #290）：原来复制后整块变成"已复制到剪贴板"，
+                  高度一缩、整页往上跳。反馈挪到「右上角那枚按钮」+ 这一圈描边高亮上。
+                */}
+                {displayMeta(asset.prompt)}
               </div>
             </div>
           </section>
@@ -284,5 +307,30 @@ export function AssetPreview({
         </aside>
       </div>
     </div>
+  )
+}
+
+/**
+ * 复制成功的对勾（对账 #290）。
+ *
+ * 单独画一枚矢量图，而不是用 `✓` 字形：字形在不同字体下的基线 / 宽度都不一样，
+ * 而它要**居中压在一个 28px 的色块上** —— 那是几何要求，字形给不了确定的中心
+ * （同 §3.3「图标一律用矢量图」那条口径）。
+ */
+function IconCheck({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2.2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m3 8.3 3.1 3.1L13 4.7" />
+    </svg>
   )
 }

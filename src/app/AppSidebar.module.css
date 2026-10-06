@@ -285,10 +285,49 @@
   text-overflow: ellipsis;
 }
 
-/* 收起态：只剩图标、方形按钮，居中 */
+/**
+ * ── 收起 / 展开时"文字进出"的做法（用户 2026-10-06：「折叠和收起来会闪」·对账 #281）──
+ *
+ * **病因**：宽度有 180ms 过渡，而文字原来是跟着 `open` **瞬间挂载 / 卸载**的。
+ * 展开那一帧，8 个标签已经就位、侧栏却还只有 64px —— 每个标签都被裁出半截字，
+ * 看起来就是"闪一下"；收起时反过来（文字先消失、宽度再慢慢收）。
+ *
+ * **做法**：所有"只在展开时才该看见"的文字 / 列表**常驻 DOM**，只做淡入淡出，
+ * 且节奏与宽度对齐 —— 展开时等宽度走出去一段（60ms）再淡入，170ms 淡完
+ * （与 `--dur-panel` 的 180ms 一起收尾）；收起时先淡出，淡完再真正 `visibility: hidden`
+ * （`visibility` 的延迟 = 淡出时长，否则"人还在淡、元素已经没了"）。
+ *
+ * **为什么可以跨模块**：选择器认的是 `data-sidebar-text` 这个**属性**，
+ * 所以 `ThemeToggle` / `UpdateButton` 里的标签也能被同一条规则管住 ——
+ * 它们既不该为了这一处改结构，也不该各写一套淡出。
+ */
+.rail:not(.railOpen) [data-sidebar-text] {
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    opacity var(--dur-hover, 120ms) var(--ease-out, ease-out),
+    visibility 0s linear var(--dur-hover, 120ms);
+}
+
+.rail.railOpen [data-sidebar-text] {
+  visibility: visible;
+  opacity: 1;
+  transition:
+    opacity var(--dur-panel, 180ms) var(--ease-out, ease-out) 60ms,
+    visibility 0s linear 60ms;
+}
+
+/*
+ * 收起态：只剩图标，**但不能用 `justify-content: center`**。
+ *
+ * 上面那条改动让标签常驻了 —— 居中的话，按钮的"内容宽度"会算上那个（仍占位的）
+ * 标签，图标被整体推出侧栏（实测 `x` 从 23 掉到 -10，即"图标被挤出去"）。
+ * 保持 `flex-start` + 原内距，图标就永远钉在导航图标那一列（x=21 / 20），
+ * 文字溢出的部分由 `.rail` 的 `overflow-x: clip` 裁掉、并被上面那条规则淡出。
+ */
 .rail:not(.railOpen) .newBtn {
-  justify-content: center;
-  padding: 0;
+  justify-content: flex-start;
+  padding: 0 var(--space-2);
 }
 
 /* ── 一级导航 ── */
@@ -484,13 +523,29 @@
   font-weight: 600;
 }
 
+/* 收起态：同 `.newBtn` —— 图标钉在列上，不跟着文字居中 */
 .rail:not(.railOpen) .footBtn {
-  justify-content: center;
-  padding: 0;
+  justify-content: flex-start;
+  padding: 0 var(--space-2);
 }
 
 .footBtnText {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * 收起态的主题按钮：**定宽 40px 的方钮 + 左内距**，而不是换一套紧凑形状
+ * （对账 #281 的另一半）。
+ *
+ * 原因同上：换形状会让图标与文字一起重排。这里让两种状态的**图标落点完全一致**
+ * （实测收起 / 展开都在 x=25），变化只剩"标签淡出"。
+ * 选择器带 `.rail:not(.railOpen)` 前缀，所以它的优先级高于 `ThemeToggle.module.css`
+ * 里的 `.compact`（那一份是画布顶栏在用的，不能动）。
+ */
+.rail:not(.railOpen) .themeBtn {
+  width: 40px;
+  padding: 0 var(--space-3);
+  justify-content: flex-start;
 }

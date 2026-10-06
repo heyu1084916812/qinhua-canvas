@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { useLocation } from 'react-router-dom'
 import { getVersion } from '@tauri-apps/api/app'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { isTauri } from '@tauri-apps/api/core'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { IconSidebarToggle } from './AppSidebarIcons'
-import { navTitleOf } from './nav'
 import { getSidebarPinned, subscribeSidebar, toggleSidebarPin } from './sidebarState'
+import { AppMenuContent, EditShortcuts } from './titleBarMenus'
 import styles from './TitleBar.module.css'
 
 /** 项目主页：设置里「应用 → GitHub 项目地址」用它（与自动更新的仓库同一个）。 */
@@ -18,20 +17,6 @@ const REPO_URL = 'https://github.com/heyu1084916812/qinhua-canvas'
  * ⚠️ **只列真实存在的那几条**（来源：`workbenches/canvas/useCanvasKeyboard.ts` 与 `RunHotkeys`）——
  * 快捷键表最容易变成"写给人看的样子货"：抄一份别人的，用户按了没反应，比不写更糟。
  */
-const SHORTCUTS: { keys: string; what: string }[] = [
-  { keys: 'Ctrl + Z', what: '撤销' },
-  { keys: 'Ctrl + Shift + Z', what: '重做' },
-  { keys: 'Z', what: '复位视图（缩放到全部节点）' },
-  { keys: 'Ctrl + G', what: '把选中的节点打成一组' },
-  { keys: 'Tab', what: '选中下一个节点' },
-  { keys: '方向键', what: '在节点之间移动选中' },
-  { keys: 'Home / End', what: '跳到最前 / 最后一个节点' },
-  { keys: 'R', what: '运行选中的节点' },
-  { keys: 'Delete', what: '删除选中的节点或连线' },
-  { keys: '空格 + 拖拽', what: '平移画布' },
-  { keys: '滚轮 / 触控板', what: '缩放画布' },
-]
-
 /**
  * **自绘的 Windows 标题栏**（用户 2026-10-06 明确：「我说的顶栏就是 windows 标题栏」）。
  *
@@ -53,7 +38,6 @@ const SHORTCUTS: { keys: string; what: string }[] = [
  * 3. **最大化状态**：跟着窗口尺寸事件更新，否则按钮图标会停在旧状态。
  */
 export function TitleBar() {
-  const location = useLocation()
   const [maximized, setMaximized] = useState(false)
   const [menu, setMenu] = useState<null | 'app' | 'edit'>(null)
   const [version, setVersion] = useState('')
@@ -99,8 +83,6 @@ export function TitleBar() {
 
   if (!inShell) return null
 
-  const page = navTitleOf(location.pathname)
-
   return (
     <header className={styles.bar} data-title-bar data-tauri-drag-region>
       {/*
@@ -121,11 +103,14 @@ export function TitleBar() {
         <IconSidebarToggle size={16} />
       </button>
 
-      <span className={styles.brand} data-tauri-drag-region>
-        <span className={styles.name}>轻画</span>
-        {page && <span className={styles.sep}>·</span>}
-        {page && <span className={styles.page}>{page}</span>}
-      </span>
+      {/*
+        ⚠️ 这里**没有品牌 / 页面名**（用户 2026-10-06 第 2 条：「这个不要显示框出来的区域」，
+        并补充「去掉标题栏品牌后，页面名称也不用了，左边有导航栏，所以不需要」）。
+
+        于是标题栏从左到右只剩三件东西：**折叠键 → 应用 → 编辑**（再往右是窗口三键）。
+        页面名确实不需要：每个页面内容区自己有大标题，侧栏也标着当前位置 —— 一根 49px 的
+        标题栏再重复一次，只是把"这是轻画"这句话说了第三遍。
+      */}
 
       {/* ②③ 菜单：应用（版本 + 仓库地址）/ 编辑（常用快捷键） */}
       <div className={styles.menus} ref={menuRef}>
@@ -135,22 +120,14 @@ export function TitleBar() {
           open={menu === 'app'}
           onToggle={() => setMenu(menu === 'app' ? null : 'app')}
         >
-          <div className={styles.menuHead} data-title-version>
-            轻画 {version ? `v${version}` : '（开发预览）'}
-          </div>
-          <button
-            type="button"
-            role="menuitem"
-            className={styles.menuItem}
-            data-title-open-repo
-            onClick={() => {
+          <AppMenuContent
+            version={version}
+            onOpenRepo={() => {
               setMenu(null)
               // 交给系统默认浏览器打开（壳里这才是"用户自己去看看"的正确出口）
               void openUrl(REPO_URL).catch(() => {})
             }}
-          >
-            GitHub 项目地址 ↗
-          </button>
+          />
         </TitleMenu>
 
         <TitleMenu
@@ -159,15 +136,7 @@ export function TitleBar() {
           open={menu === 'edit'}
           onToggle={() => setMenu(menu === 'edit' ? null : 'edit')}
         >
-          <div className={styles.menuHead}>常用快捷键</div>
-          <ul className={styles.shortcuts}>
-            {SHORTCUTS.map((row) => (
-              <li key={row.keys} className={styles.shortcutRow}>
-                <span className={styles.shortcutWhat}>{row.what}</span>
-                <kbd className={styles.kbd}>{row.keys}</kbd>
-              </li>
-            ))}
-          </ul>
+          <EditShortcuts />
         </TitleMenu>
       </div>
 

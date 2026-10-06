@@ -768,8 +768,14 @@ async function g1(browser) {
   await gotoProjects(page)
   // 项目列表要等 IndexedDB 读回后才渲染，冷启动（全量跑的第一组）可能晚于 networkidle；
   // isVisible() 不自动等待，若直接判定会把「还没渲染」误报成「没有空状态」。显式等一拍（仍会在真缺时超时失败）。
-  await page.getByText('还没有项目').waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
-  const empty = await page.getByText('还没有项目').isVisible()
+  /*
+   * ⚠️ **必须限定在项目页内**（2026-10-06）：侧栏「最近项目 / 还没有项目」自 #281 起
+   * **常驻 DOM**（收起时只是 `visibility: hidden` + 淡出，为的是不闪），
+   * 而 `getByText` 不看可见性 ⇒ 全局查询会命中两个同文案节点（严格模式直接报错）。
+   */
+  const emptyState = page.locator('[data-projects-drop]')
+  await emptyState.getByText('还没有项目').waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
+  const empty = await emptyState.getByText('还没有项目').isVisible()
   rec(g, '空状态出现', empty)
   await page.screenshot({ path: `${OUT}/01-home-empty.png` })
 
@@ -810,6 +816,18 @@ async function g2(browser) {
 
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
+  /*
+   * ⚠️ **等画布真的挂上，而不是死等 600ms**（2026-10-06 修）。
+   *
+   * `CanvasPage` 是路由级 lazy chunk：冷启动 / 机器在忙时，600ms 内它可能还没挂载，
+   * 于是节点数读到 0 —— 那是**测试的等待太短**，不是模板没灌（实测同一路径
+   * 单独跑必过、与全量冒烟并跑时约 2/3 概率读到 `surface:false`）。
+   * 判据是"要断言的那个东西出现了没有"，不是墙钟时间。
+   */
+  await page
+    .locator('[data-canvas-surface]')
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .catch(() => {})
   await sleep(600)
   const n = await nodeCount(page)
   const types = await page.locator('[data-node-id]').evaluateAll((els) =>
@@ -3742,6 +3760,11 @@ async function g37(browser) {
   await sleep(400)
   await page.locator('[data-template="img2img"]').click()
   await page.waitForURL(/\/canvas\//)
+  /* 同 G2：等画布真的挂上，别用墙钟时间赌（路由级 lazy chunk + 机器忙时 700ms 会读空） */
+  await page
+    .locator('[data-canvas-surface]')
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .catch(() => {})
   await sleep(700)
 
   const up = page.locator('[data-node-id]').filter({ hasText: '底图' }).first()
@@ -5918,6 +5941,36 @@ async function g53(browser) {
         .evaluate((el) => el.naturalWidth)
         .catch(() => 0)
       rec(g, '上传的图真被解码（naturalWidth=64）', nw === 64, `naturalWidth=${nw}`)
+
+      /**
+       * ★★ 上传的图成为**项目卡封面**（用户 2026-10-06 第 9 条，对账 #289）。
+       *
+       * 规则是"**最后一次出现在画布中的图片**"，生成与上传都算 ——
+       * 而封面的旧实现只看生成记录（`runRecords`），上传进来的图不会成为封面。
+       *
+       * 这条走**真浏览器 + 真库**：上传 → 去项目页 → 那张卡上必须有图。
+       * 判据必须落在**卡片渲染出的媒体元素**上，而不是"封面字段有值"
+       * （字段有值、卡片不认，正是这个仓库栽过的"文档写了≠界面上有"）。
+       */
+      const canvasId = /\/canvas\/([^/?#]+)/.exec(page.url())?.[1] ?? ''
+      await gotoProjects(page)
+      await sleep(900)
+      const cover = await page.evaluate((id) => {
+        const card = document.querySelector(`[data-project-card="${id}"]`)
+        if (!card) return null
+        const media = card.querySelector('img, video')
+        return {
+          hasCard: true,
+          tag: media ? media.tagName.toLowerCase() : null,
+          src: media ? String(media.getAttribute('src') ?? '').slice(0, 12) : null,
+        }
+      }, canvasId)
+      rec(
+        g,
+        '★★ 上传的图成为项目卡封面（最后出现在画布中的图片 —— 对账 #289）',
+        !!cover && !!cover.tag && !!cover.src,
+        JSON.stringify(cover),
+      )
     } else {
       rec(g, '点 `+` 上传调起了文件选择（filechooser）', false, 'no filechooser event')
     }
@@ -10282,6 +10335,35 @@ async function g80(browser) {
   await page.keyboard.press('Escape')
   await sleep(300)
   rec(g, '★ 缩放读数在小地图附近（§6.2 迁移）', (await page.locator('[data-canvas-zoom]').count()) === 1)
+  /**
+   * ★★ 状态条**只留节点数与缩放**（对账 #293，用户 2026-10-06 第 13 条）。
+   *
+   * 去掉的两样都有去处，所以这里连"旧入口不在原地"一起钉：
+   * 「引擎 React Flow（P1）」是开发期标签（直接删）；素材那三个入口搬走
+   * （选 / 导出 → 全局设置·存储；从文件夹加载 → 画布空白处右键菜单）。
+   */
+  const hudText = await page.locator('[data-flow-hud]').innerText().catch(() => '')
+  rec(
+    g,
+    '★★ 状态条只留「节点数 + 缩放」（引擎标签与素材入口都不在了）',
+    /节点\s*\d+/.test(hudText) &&
+      /%/.test(hudText) &&
+      !hudText.includes('引擎') &&
+      !hudText.includes('内置库'),
+    hudText.replace(/\s+/g, ' ').trim(),
+  )
+  rec(
+    g,
+    '★ 素材入口不再挂在状态条上（[data-asset-folder*] 应为 0）',
+    (await page.locator('[data-asset-folder]').count()) === 0 &&
+      (await page.locator('[data-asset-folder-load]').count()) === 0 &&
+      (await page.locator('[data-asset-folder-export]').count()) === 0,
+  )
+  rec(
+    g,
+    '★ React Flow 的署名水印已关（右下角不再有 `.react-flow__attribution`）',
+    (await page.locator('.react-flow__attribution').count()) === 0,
+  )
   rec(
     g,
     '★ 画布左侧竖向工具条保留（§6.1）',
@@ -11882,6 +11964,47 @@ async function g85(browser) {
       layout.grid.right <= layout.workspace.left + layout.workspace.width + 1,
     layout.grid ? `grid=${layout.grid.left}..${layout.grid.right}; workspace=${layout.workspace.left}..${layout.workspace.left + layout.workspace.width}` : 'null',
   )
+
+  /**
+   * ★★ 滚动在**项目页内部**、且滚动条内推 16px（用户 2026-10-06，对账 #287）。
+   *
+   * 用户看到的是"滚动条的上下两端漏在卡片圆角外面"。根因：滚动发生在上游的
+   * `[data-app-workspace]`（那张**圆角卡**）自己身上，滚动条自然贴在卡片最右沿。
+   * 现在滚动下沉到 `.main`，并用**透明右边框**把滚动条推进来 16px。
+   *
+   * 判据里"工作区滚动高度 = 客户区高度"是关键：它证明**卡片这一层已经没有滚动条**，
+   * 只比 border 宽度不足以说明这条（那可能只是加了个边框、滚动还在上游）。
+   */
+  const pageScroll = await page.evaluate(() => {
+    const pageEl = document.querySelector('[data-projects-drop]')
+    const main = pageEl?.querySelector('main')
+    const ws = document.querySelector('[data-app-workspace]')
+    if (!main || !ws) return null
+    const before = main.scrollTop
+    main.scrollTop = 240
+    const out = {
+      overflowY: getComputedStyle(main).overflowY,
+      borderRight: getComputedStyle(main).borderRightWidth,
+      sh: main.scrollHeight,
+      ch: main.clientHeight,
+      scrolled: main.scrollTop > before,
+      wsSh: ws.scrollHeight,
+      wsCh: ws.clientHeight,
+    }
+    /* 量完复位：后面还有"悬浮出菜单"这类依赖位置的断言，别把它滚跑 */
+    main.scrollTop = before
+    return out
+  })
+  rec(
+    g,
+    '★★ 项目页滚动在页面内部（工作区这层不滚）+ 滚动条内推 16px —— 对账 #287',
+    !!pageScroll &&
+      pageScroll.overflowY === 'auto' &&
+      pageScroll.borderRight === '16px' &&
+      pageScroll.wsSh === pageScroll.wsCh &&
+      (pageScroll.sh <= pageScroll.ch || pageScroll.scrolled),
+    JSON.stringify(pageScroll),
+  )
   rec(
     g,
     '★★ 网格在工作区内水平居中',
@@ -11964,7 +12087,24 @@ async function g85(browser) {
   await sleep(400)
 
   // 默认菜单隐藏；悬浮卡片后出现在右下角，并向上展开避免被卡片裁掉
-  await page.mouse.move(0, 0)
+  /**
+   * ⚠️ **鼠标停靠点不能落在侧栏上**（2026-10-06 修）。
+   *
+   * 原来的停靠点是 `(0, 0)` —— 那正是**收起态侧栏的位置**，而侧栏现在
+   * 「悬停即展开」（对账 #271）：鼠标一进去，100ms 后侧栏展开、工作区变窄、
+   * 卡片整体左移 176px；再 220ms 后（鼠标已不在侧栏上）它又收回、卡片移回来。
+   * 下面那条"悬浮卡片 → 菜单出现"的断言正好落在这段移动里：卡片从鼠标底下走掉，
+   * 悬浮丢失、菜单开始淡出 ⇒ 读到 `opacity ≈ 0.6` 而不是 1（实测值）。
+   *
+   * 停到工作区**空白处**（卡片网格下方）就同等地"离开所有卡片"，但不惊动侧栏。
+   */
+  await page.mouse.move(640, 780)
+  /*
+   * 再把鼠标**停稳**：上一步的点击让鼠标留在侧栏上，离开后它要 220ms 才收回、
+   * 收的过程还有 180ms 宽度过渡。不收完就悬浮卡片，卡片会在鼠标底下平移
+   * （工作区宽度一变，卡片整体挪 176px），悬浮随之丢失。
+   */
+  await sleep(500)
   const firstCard = projectCards.first()
   const firstMenu = firstCard.locator('button[aria-label="项目菜单"]')
   const menuHidden = await firstCard.locator('button[aria-label="项目菜单"]').evaluate((el) => {
@@ -12057,10 +12197,21 @@ async function g86(browser) {
       const r = el.getBoundingClientRect()
       return { left: Math.round(r.left), top: Math.round(r.top), right: Math.round(r.right), cx: Math.round(r.left + r.width / 2) }
     }
+    /** 文字标签的"看不看得见"：收起态应当是**还在 DOM 里、但被淡出**（对账 #281） */
+    const labelOf = (sel) => {
+      const el = document.querySelector(sel)
+      if (!el) return null
+      const cs = getComputedStyle(el)
+      return { opacity: Number(cs.opacity), visibility: cs.visibility }
+    }
     return {
       logo: box('[data-sidebar-logo]'),
       toggle: box('[data-sidebar-toggle]'),
       firstIcon: box('[data-sidebar-item="/"] span'),
+      newIcon: box('[data-sidebar-new] span'),
+      settingsIcon: box('[data-sidebar-settings] span'),
+      themeGlyph: box('[data-theme-toggle] span'),
+      navLabel: labelOf('[data-sidebar-item="/"] span + span'),
     }
   })
 
@@ -12092,6 +12243,15 @@ async function g86(browser) {
       toggle: box('[data-sidebar-toggle]'),
       toggleSvg: svg ? { width: Math.round(svg.width), height: Math.round(svg.height) } : null,
       firstIcon: box('[data-sidebar-item="/"] span'),
+      newIcon: box('[data-sidebar-new] span'),
+      settingsIcon: box('[data-sidebar-settings] span'),
+      themeGlyph: box('[data-theme-toggle] span'),
+      navLabel: (() => {
+        const el = document.querySelector('[data-sidebar-item="/"] span + span')
+        if (!el) return null
+        const cs = getComputedStyle(el)
+        return { opacity: Number(cs.opacity), visibility: cs.visibility }
+      })(),
       navRight: navRect ? Math.round(navRect.right) : null,
       groups: {
         head: head ? { top: Math.round(head.top), bottom: Math.round(head.bottom) } : null,
@@ -12128,6 +12288,41 @@ async function g86(browser) {
     '★ 折叠图标 20×20',
     JSON.stringify(expanded.toggleSvg) === JSON.stringify({ width: 20, height: 20 }),
     JSON.stringify(expanded.toggleSvg),
+  )
+
+  /**
+   * ── 折叠 / 展开"不闪"（用户 2026-10-06：「折叠和收起来会闪」，对账 #281）──
+   *
+   * 两条判据，缺一不可：
+   *  ① **文字不卸载**：收起态它仍在 DOM 里（只是 `visibility: hidden` + `opacity: 0`）。
+   *     老实现是跟着 `open` 瞬间挂载 / 卸载，而宽度有 180ms 过渡 ——
+   *     展开那一帧 8 个标签已经就位、侧栏还只有 64px，每个都被裁出半截字，那就是"闪"。
+   *  ② **图标落点不动**：收起 / 展开两种状态下，底部那几个"居中排"的按钮
+   *     （新建 / 全局设置 / 主题）图标 x 必须一致 —— 它们原先用 `justify-content: center`，
+   *     文字一挂上就被挤走（实测 x 从 23 掉到 -10，即图标被推出侧栏）。
+   */
+  rec(
+    g,
+    '★★ 收起态导航文字仍在 DOM 里（淡出而非卸载 —— 对账 #281）',
+    !!collapsed.navLabel && collapsed.navLabel.visibility === 'hidden' && collapsed.navLabel.opacity === 0,
+    JSON.stringify(collapsed.navLabel),
+  )
+  rec(
+    g,
+    '★★ 展开态导航文字淡入完成（可见）',
+    !!expanded.navLabel && expanded.navLabel.visibility === 'visible' && expanded.navLabel.opacity === 1,
+    JSON.stringify(expanded.navLabel),
+  )
+  const iconXs = [
+    ['新建', collapsed.newIcon?.left, expanded.newIcon?.left],
+    ['全局设置', collapsed.settingsIcon?.left, expanded.settingsIcon?.left],
+    ['主题', collapsed.themeGlyph?.left, expanded.themeGlyph?.left],
+  ]
+  rec(
+    g,
+    '★★ 折叠 / 展开时图标落点不动（新建 / 全局设置 / 主题三个都不跳）',
+    iconXs.every(([, a, b]) => a != null && a === b),
+    iconXs.map(([n, a, b]) => `${n} ${a}→${b}`).join(' / '),
   )
 
   // ② 配色：深色下导航图标/文字统一近白，最近项目标题走二级文字色
@@ -13159,6 +13354,67 @@ async function g90(browser) {
   )
   await page.keyboard.press('Escape')
   await sleep(300)
+
+  /**
+   * ── 三排结构 + 页面内部滚动（用户 2026-10-06 第 11 条，对账 #291 / #287）──
+   *
+   * 三排 = ① 标题 / ② **整行**筛选规则 / ③ 左筛选 + 右内容。
+   * 判据同样是**几何**："页面上有标题、有工具行、有左栏"在旧结构下也成立
+   * （旧结构的病正是左栏从标题那一行就开始、看着不像三排）。
+   */
+  const rows = await page.evaluate(() => {
+    const box = (el) => {
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      return {
+        x: Math.round(r.x),
+        y: Math.round(r.y),
+        w: Math.round(r.width),
+        right: Math.round(r.right),
+        bottom: Math.round(r.bottom),
+      }
+    }
+    const pageEl = document.querySelector('[data-assets-page]')
+    const toolbar = pageEl?.querySelector(':scope > [class*="toolbar"]')
+    const main = document.querySelector('[data-assets-stage]')
+    const ws = document.querySelector('[data-app-workspace]')
+    return {
+      page: box(pageEl),
+      title: box(document.querySelector('[data-assets-heading]')),
+      toolbar: box(toolbar),
+      rail: box(document.querySelector('[data-assets-rail]')),
+      stage: box(main),
+      mainOverflowY: main ? getComputedStyle(main).overflowY : null,
+      mainBorderRight: main ? getComputedStyle(main).borderRightWidth : null,
+      wsScroll: ws ? { sh: ws.scrollHeight, ch: ws.clientHeight } : null,
+    }
+  })
+  rec(
+    g,
+    '★★ 素材页是三排：标题 → 整行筛选 → 左筛选 + 右内容',
+    !!rows.title &&
+      !!rows.toolbar &&
+      !!rows.rail &&
+      rows.title.bottom <= rows.toolbar.y + 1 &&
+      rows.toolbar.bottom <= rows.rail.y + 1 &&
+      rows.rail.x < rows.stage.x,
+    JSON.stringify({ title: rows.title, toolbar: rows.toolbar, rail: rows.rail, stage: rows.stage }),
+  )
+  rec(
+    g,
+    '★★ 筛选规则那一行**横跨全宽**（含左栏那一段，不是塞在右半边）',
+    !!rows.toolbar && !!rows.page && Math.abs(rows.toolbar.right - rows.page.right) <= 2,
+    `工具栏右缘 ${rows.toolbar?.right} / 页面右缘 ${rows.page?.right}`,
+  )
+  rec(
+    g,
+    '★★ 滚动在页面内部（工作区不滚；内容列自己滚且滚动条内推 16px —— 对账 #287）',
+    !!rows.wsScroll &&
+      rows.wsScroll.sh === rows.wsScroll.ch &&
+      rows.mainOverflowY === 'auto' &&
+      rows.mainBorderRight === '16px',
+    JSON.stringify({ wsScroll: rows.wsScroll, mainOverflowY: rows.mainOverflowY, border: rows.mainBorderRight }),
+  )
 
   /**
    * ── 几何：内容在**含左栏之后**仍居中（与技能库 / 设置页同一口径）──
@@ -14661,22 +14917,76 @@ async function g95(browser) {
   await page.waitForURL(/\/canvas\//)
   await sleep(800)
 
-  rec(g, '★ 画布上有「助手」入口', (await page.locator('[data-canvas-agent]').count()) === 1)
-  await page.locator('[data-canvas-agent]').click()
+  const agentBtn = page.locator('[data-canvas-agent]')
+  const logBtn = page.locator('[data-canvas-log]')
+  rec(g, '★ 画布上有「Agent」入口', (await agentBtn.count()) === 1)
+
+  /**
+   * 右上角那排（对账 #286，用户 2026-10-06 第 6 条）：
+   * ① 顺序换成「日志 → Agent」；② 间距减半（16 → 8px）。
+   */
+  const logBoxBefore = await logBtn.boundingBox()
+  const agentBoxBefore = await agentBtn.boundingBox()
+  rec(
+    g,
+    '★★ 右上角从左到右是「日志 → Agent」（用户要求换位）',
+    !!logBoxBefore &&
+      !!agentBoxBefore &&
+      logBoxBefore.x + logBoxBefore.width <= agentBoxBefore.x + 1,
+    `日志右缘=${logBoxBefore ? Math.round(logBoxBefore.x + logBoxBefore.width) : '?'} Agent 左缘=${agentBoxBefore ? Math.round(agentBoxBefore.x) : '?'}`,
+  )
+  rec(
+    g,
+    '★★ 两个按钮的间距 = 8px（原来 16px，用户说太远）',
+    !!logBoxBefore &&
+      !!agentBoxBefore &&
+      Math.abs(agentBoxBefore.x - (logBoxBefore.x + logBoxBefore.width) - 8) <= 1,
+    `间距=${logBoxBefore && agentBoxBefore ? Math.round(agentBoxBefore.x - (logBoxBefore.x + logBoxBefore.width)) : '?'}px`,
+  )
+
+  await agentBtn.click()
   await sleep(600)
   const panel = page.locator('[data-agent-panel]')
   rec(g, '★ 点开出现对话窗', (await panel.count()) === 1)
-
-  const geom = await panel.boundingBox()
-  const vp = page.viewportSize()
+  /**
+   * ★★ **只隐藏 Agent 按钮，日志照旧**（用户原话：「画布那个整排隐藏的是 agent 那个按钮，
+   * 不是日志」）—— 关掉面板后 Agent 按钮要回来（下面那条在关闭之后断言）。
+   */
   rec(
     g,
-    '★★ 对话窗悬在画布右侧（浮动卡片，四周留 12px）',
+    '★★ 面板打开时只隐藏 Agent 按钮，日志仍然在（且可见）',
+    (await agentBtn.count()) === 0 && (await logBtn.count()) === 1 && (await logBtn.isVisible()),
+    `agent=${await agentBtn.count()} log=${await logBtn.count()}`,
+  )
+  /** 关掉面板 ⇒ Agent 按钮**回来**（用户：「关掉 agent 后再出现」）；随后重开，继续后面那串交互 */
+  await page.locator('[data-agent-close]').click()
+  await sleep(400)
+  rec(
+    g,
+    '★★ 关掉面板后 Agent 按钮回来（不是一去不回）',
+    (await agentBtn.count()) === 1 && (await panel.count()) === 0,
+    `agent=${await agentBtn.count()} panel=${await panel.count()}`,
+  )
+  await agentBtn.click()
+  await sleep(500)
+
+  const geom = await panel.boundingBox()
+  /**
+   * ⚠️ 判据的参照系是**画布工作区**，不是视口。
+   *
+   * 2026-10-06 的包围式外壳（对账 #269/#270）之后，画布不再铺满视口：它是一张
+   * 从 x=64 起、右侧留 15px 的圆角卡（实测 1201 宽 / 视口 1280）。面板的 12px 内距
+   * 是相对**这张卡**的，所以拿视口去减会差 27px —— 那是参照系错了，不是面板跑偏。
+   */
+  const surfaceBox = await page.locator('[data-canvas-surface]').boundingBox()
+  rec(
+    g,
+    '★★ 对话窗悬在画布工作区右侧（浮动卡片，四周留 12px）',
     geom !== null &&
-      vp !== null &&
-      Math.abs(vp.width - (geom.x + geom.width) - 12) <= 2 &&
-      Math.abs(geom.y - 12) <= 2,
-    `右缘=${geom ? Math.round(geom.x + geom.width) : '?'} 视口=${vp?.width ?? '?'}`,
+      surfaceBox !== null &&
+      Math.abs(surfaceBox.x + surfaceBox.width - (geom.x + geom.width) - 12) <= 2 &&
+      Math.abs(geom.y - surfaceBox.y - 12) <= 2,
+    `右缘=${geom ? Math.round(geom.x + geom.width) : '?'} 工作区右缘=${surfaceBox ? Math.round(surfaceBox.x + surfaceBox.width) : '?'}`,
   )
 
   /**
@@ -15340,6 +15650,12 @@ async function g95(browser) {
      */
     const wideBox = await page.locator('[data-agent-skill-menu]').boundingBox()
     const scrimCount = await page.locator('[data-agent-skill-scrim]').count()
+    /*
+     * ⚠️ 这条**用视口**做参照系（与上面那条浮动卡片不同）：技能大面板是 `position: fixed`、
+     * 挂在页面级，居中于**视口**（实测中心 640 = 1280/2，而工作区中心是 664.5）。
+     * 我一度把它也改成按工作区量，当场红 —— 两条断言的参照系本来就不同，别图省事合并。
+     */
+    const vp = page.viewportSize()
     const centered =
       wideBox !== null &&
       vp !== null &&
@@ -16502,6 +16818,107 @@ async function g97(browser) {
     (await page.locator('[data-global-settings-tab="hosting"]').getAttribute('aria-pressed')) ===
       'true' && (await page.locator('[data-global-settings-panel] [data-hosting-page]').count()) === 1,
   )
+
+  /**
+   * ★★ 浮层布局 = **左侧一列导航 + 右侧内容**（用户 2026-10-06 第 3 条，对账 #284）。
+   *
+   * 判据必须是**几何**：用户要的是"菜单在左边、一列"这个**位置**，
+   * 而"页面上有个 <nav>"在顶部一排标签那种旧形态下也成立 —— 那样断言等于没测。
+   */
+  const overlayLayout = await page.evaluate(() => {
+    const nav = document.querySelector('[data-global-settings-body] nav')
+    const content = document.querySelector('[data-global-settings-content]')
+    if (!nav || !content) return null
+    const n = nav.getBoundingClientRect()
+    const c = content.getBoundingClientRect()
+    const items = [...nav.querySelectorAll('[data-global-settings-tab]')].map((el) => {
+      const r = el.getBoundingClientRect()
+      return { x: Math.round(r.left), w: Math.round(r.width), y: Math.round(r.top) }
+    })
+    return {
+      navRight: Math.round(n.right),
+      contentLeft: Math.round(c.left),
+      navTop: Math.round(n.top),
+      contentTop: Math.round(c.top),
+      columnX: items[0]?.x ?? null,
+      sameColumn: items.length >= 2 && items.every((it) => it.x === items[0].x),
+      stacked: items.every((it, i) => i === 0 || it.y > items[i - 1].y),
+    }
+  })
+  rec(
+    g,
+    '★★ 设置浮层是「左侧一列导航 + 右侧内容」（左栏贴着内容区左边缘、条目同列竖排）',
+    !!overlayLayout &&
+      overlayLayout.navRight <= overlayLayout.contentLeft + 1 &&
+      overlayLayout.sameColumn &&
+      overlayLayout.stacked,
+    JSON.stringify(overlayLayout),
+  )
+
+  /**
+   * ★★ 「素材传输无法下拉」= 真 bug（用户 2026-10-06 第 3 条，对账 #284）。
+   *
+   * 根因：这一栏的内容是照"整页工作区"写的（自己没有 overflow，靠外层壳滚），
+   * 放进浮层后外层是 `overflow: hidden` 的 flex ⇒ 多出来的字段被裁掉、滚轮无处可滚。
+   * 判据要**滚一下**：光比 scrollHeight 与 clientHeight 只能证明"内容更长"，
+   * 证明不了"滚得动"。
+   */
+  /*
+   * ⚠️ 必须**限定在浮层内**点：这一页的底座是 `/hosting` 路由的同名页面
+   * （浮层是盖在它上面的），不限定就会命中两个同名按钮 —— 严格模式下直接报错，
+   * 即使侥幸选中底座那个，它也被浮层挡着点不到。
+   */
+  await page.locator('[data-global-settings-panel] [data-hosting-provider="s3"]').click()
+  await sleep(400)
+  const overlayScroll = await page.evaluate(() => {
+    const el = document.querySelector('[data-global-settings-content]')
+    if (!el) return null
+    const before = el.scrollTop
+    el.scrollTop = 500
+    return {
+      sh: el.scrollHeight,
+      ch: el.clientHeight,
+      before,
+      after: el.scrollTop,
+      scrolled: el.scrollTop > before,
+    }
+  })
+  rec(
+    g,
+    '★★ 素材传输能下拉（字段最多的那家 S3：内容比可视区高且滚得动）',
+    !!overlayScroll && overlayScroll.sh > overlayScroll.ch && overlayScroll.scrolled,
+    JSON.stringify(overlayScroll),
+  )
+
+  /**
+   * 「存储」那一栏（对账 #285 / #293）：素材文件夹三件事搬进来了，
+   * 并且**网页缓存的说明要如实** —— 用户专门追问过「那那个清理缓存不就对我的画布没啥用吗？」，
+   * 所以文案必须写清"只省磁盘、不会更快、不动数据"，不能含糊成"优化性能"。
+   */
+  await page.locator('[data-global-settings-tab="storage"]').click()
+  await sleep(500)
+  rec(
+    g,
+    '★★ 存储栏有「素材文件夹」三件事：选 / 打开 / 导出（导出是从画布状态条搬来的）',
+    (await page.locator('[data-storage-pick-folder]').count()) === 1 &&
+      (await page.locator('[data-storage-open-folder]').count()) === 1 &&
+      (await page.locator('[data-storage-export-assets]').count()) === 1,
+  )
+  const cacheCopy = await page.locator('[data-storage-panel]').innerText().catch(() => '')
+  rec(
+    g,
+    '★★ 网页缓存的说明如实：只省磁盘 / 不会更快 / 不动项目素材',
+    /只省磁盘/.test(cacheCopy) && /不会让应用变快/.test(cacheCopy) && /不会[\s\S]{0,12}动你的项目/.test(cacheCopy),
+    `含"只省磁盘"=${/只省磁盘/.test(cacheCopy)} 含"不会让应用变快"=${/不会让应用变快/.test(cacheCopy)}`,
+  )
+  rec(
+    g,
+    '★ 素材文件夹那块写明「从文件夹加载」在画布右键菜单（不然用户找不到）',
+    /右键[\s\S]{0,20}从素材文件夹加载/.test(cacheCopy),
+  )
+  await page.locator('[data-global-settings-tab="hosting"]').click()
+  await sleep(400)
+
   await page.keyboard.press('Escape')
   await sleep(300)
   rec(
@@ -19789,6 +20206,7 @@ async function g114(browser) {
   await sleep(600)
   const swatch = page.locator('[data-asset-copy-color]').first()
   const swatchColor = await swatch.getAttribute('data-asset-copy-color')
+  const swatchW0 = (await swatch.boundingBox())?.width ?? 0
   await swatch.click()
   await sleep(300)
   const clipboardColor = await page.evaluate(() => navigator.clipboard.readText())
@@ -19799,10 +20217,41 @@ async function g114(browser) {
     `期望=${swatchColor} 实际=${clipboardColor}`,
   )
 
+  /**
+   * ★★ 复制反馈**不占排版**（用户 2026-10-06 第 10 条，对账 #290）。
+   *
+   * 老实现把色值文字换成"已复制"：宽度一变，后面的色块整排被挤动 —— 用户的原话是
+   * 「不然他的框一直会变排版」。所以判据是**像素级**的：文字原样还在、按钮宽度一分不变。
+   */
+  const swatchAfter = await swatch.evaluate((el) => ({
+    text: el.innerText.trim(),
+    w: Math.round(el.getBoundingClientRect().width),
+    check: document.querySelectorAll('[data-asset-color-copied]').length,
+  }))
+  rec(
+    g,
+    '★★ 点色值后的反馈不占排版：色值文字原样保留、按钮宽度不变、色块上出现对勾',
+    swatchAfter.text === swatchColor &&
+      Math.abs(swatchAfter.w - Math.round(swatchW0)) <= 1 &&
+      swatchAfter.check === 1,
+    `文字=${swatchAfter.text} 宽 ${Math.round(swatchW0)}→${swatchAfter.w} 对勾=${swatchAfter.check}`,
+  )
+
+  const promptH0 = (await page.locator('[data-asset-copy-prompt]').boundingBox())?.height ?? 0
   await page.locator('[data-asset-copy-prompt]').click()
   await sleep(300)
   const clipboardPrompt = await page.evaluate(() => navigator.clipboard.readText())
   rec(g, '★★ 点提示词即复制', clipboardPrompt.trim() === '月光下的猫', clipboardPrompt.trim())
+  const promptAfter = await page.locator('[data-asset-copy-prompt]').evaluate((el) => ({
+    text: el.innerText.trim(),
+    h: Math.round(el.getBoundingClientRect().height),
+  }))
+  rec(
+    g,
+    '★★ 点提示词的反馈同样不占排版：正文仍是提示词本身、高度不变',
+    promptAfter.text === '月光下的猫' && Math.abs(promptAfter.h - Math.round(promptH0)) <= 1,
+    `文字=${promptAfter.text} 高 ${Math.round(promptH0)}→${promptAfter.h}`,
+  )
 
   await page.locator('[data-asset-copy-prompt-btn]').click()
   await sleep(300)
@@ -19823,7 +20272,20 @@ const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14,
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
-    await gfn(browser)
+    /**
+     * ⚠️ **每组各自兜异常**（2026-10-06 加）。
+     *
+     * 组里任何一次 `locator.click` 超时（`TimeoutError`）原先会**直接中断整轮** ——
+     * 实测 G58 崩在"点击被 `AppShell` 的 `.body` 拦截"上（节点中心落在了工作区
+     * 下面那条 15px 留白里），后面五十多组一条都没跑，而末行的 Node 报错看起来
+     * 像"环境问题"。判据很清楚：**"这组没跑过" 不等于 "这组通过"**，
+     * 静默中断会让人以为跑完了。这里记一条失败、继续下一组。
+     */
+    try {
+      await gfn(browser)
+    } catch (err) {
+      rec(gfn.name, '★ 组内异常（该组没跑完 → 结果不算数）', false, String(err?.message ?? err).slice(0, 200))
+    }
   }
 } finally {
   await browser.close()

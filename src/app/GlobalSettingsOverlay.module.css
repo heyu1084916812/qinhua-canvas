@@ -46,34 +46,6 @@
   color: var(--text-1);
 }
 
-.tabs {
-  display: flex;
-  gap: var(--space-1);
-}
-
-.tab {
-  border: none;
-  background: transparent;
-  border-radius: var(--radius-control);
-  padding: var(--space-1) var(--space-3);
-  font: inherit;
-  font-size: var(--fs-nav);
-  color: var(--text-2);
-  cursor: pointer;
-  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
-}
-
-.tab:hover {
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
-
-.tabOn {
-  background: var(--bg-subtle);
-  color: var(--text-1);
-  font-weight: 600;
-}
-
 .close {
   margin-left: auto;
   display: inline-flex;
@@ -96,9 +68,71 @@
 
 .body {
   flex: 1 1 auto;
-  /* 两个页面自己管内部滚动；这一层只负责"填满 + 裁圆角" */
+  min-height: 0;
+  display: flex;
+  /* 左导航 + 右内容（对账 #284）。原来是顶部一排标签，用户给的是参考图五那种形态 */
+  overflow: hidden;
+}
+
+/*
+ * 左侧一列导航。
+ *
+ * 定宽 200px、自己可滚（栏目将来变多也不会把面板撑坏）；
+ * 与右侧之间只有一条 1px 分隔线 —— 内容区自带底色，不需要再加第二层卡片。
+ */
+.nav {
+  flex: none;
+  width: 200px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3);
+  border-right: var(--border);
+  overflow-y: auto;
+}
+
+.navItem {
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-control);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: var(--fs-nav);
+  color: var(--text-2);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+}
+
+.navItem:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+/* 选中态与侧栏一级导航同一口径：底色 + 字重，不描边 */
+.navItemOn {
+  background: var(--bg-subtle);
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+/*
+ * 右侧内容区 —— **这一层就是滚动容器**（用户报的「素材传输无法下拉」，对账 #284）。
+ *
+ * `HostingPage` 是照"整页工作区"写的：它自己**没有** `overflow`（靠外层壳滚）。
+ * 放进浮层之后，外层是 `overflow: hidden` 的 flex ⇒ 多出来的字段被裁掉、滚轮无处可滚。
+ * 这里给它一个真正能滚的父级即可（`min-height: 0` 是 flex 列子项能被压缩的前提，
+ * 少了它这个盒子会被内容顶开、永远不出现滚动条）。
+ *
+ * `SettingsPage` 不受影响：它自己 `height: 100%` + 内部两栏各自滚，
+ * 在这一层里高度仍是确定的。
+ */
+.content {
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
 }

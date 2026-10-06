@@ -184,11 +184,15 @@ export function AppSidebar() {
         <span className={styles.logo} data-sidebar-logo>
           <CatLogo size={28} />
         </span>
-        {open && (
-          <span className={styles.wordmark} data-sidebar-wordmark>
-            <QinghuaWordmark className={styles.wordmarkSvg} />
-          </span>
-        )}
+        {/*
+          ⚠️ **文字标不再跟着 `open` 挂载 / 卸载**（对账 #281，用户「折叠和收起来会闪」）。
+          宽度有 180ms 过渡，而挂载是**瞬间**的 —— 展开那一帧文字已经就位、侧栏还只有
+          64px 宽，于是 8 个标签同时被塞进窄条里露出半截字，看起来就是"闪一下"。
+          现在它常驻，由 CSS 按 `data-sidebar-text` 跟着宽度淡入淡出（见 module.css）。
+        */}
+        <span className={styles.wordmark} data-sidebar-wordmark data-sidebar-text>
+          <QinghuaWordmark className={styles.wordmarkSvg} />
+        </span>
         {/*
           语义在 2026-10-06 变过一次：以前是"开 / 合侧栏"，现在是**常驻开关**
           （用户原话「折叠按钮只是控制他是否常驻折叠或者展开」）。日常开合由**悬停**负责，
@@ -222,7 +226,9 @@ export function AppSidebar() {
         <span className={styles.newIcon} aria-hidden="true">
           <IconNewProject />
         </span>
-        {open && <span className={styles.newText}>新建项目</span>}
+        <span className={styles.newText} data-sidebar-text>
+          新建项目
+        </span>
       </button>
 
       <nav className={styles.nav}>
@@ -250,41 +256,44 @@ export function AppSidebar() {
               <span className={styles.itemIcon} aria-hidden="true">
                 <Icon size={20} />
               </span>
-              {open && <span className={styles.itemText}>{item.label}</span>}
+              <span className={styles.itemText} data-sidebar-text>
+                {item.label}
+              </span>
             </Link>
           )
         })}
       </nav>
 
-      {/* 最近项目：只在展开态出现（收起态 64px 放不下文字） */}
-      {open && (
-        <div className={styles.recent} data-sidebar-recent>
-          <div className={styles.recentHead}>最近项目</div>
-          {recent.length === 0 ? (
-            <div className={styles.recentEmpty}>还没有项目</div>
-          ) : (
-            <ul className={styles.recentList}>
-              {recent.map((p) => (
-                <li key={p.id}>
-                  <button
-                    type="button"
-                    className={
-                      p.id === activeProjectId
-                        ? `${styles.recentItem} ${styles.recentItemOn}`
-                        : styles.recentItem
-                    }
-                    data-sidebar-recent-item={p.id}
-                    title={p.title}
-                    onClick={() => navigate(`/canvas/${p.id}`)}
-                  >
-                    {p.title}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+      {/*
+        最近项目：**常驻挂载**，收起态只是被 `data-sidebar-text` 淡出（同上）。
+        读库那一步仍以 `open` 为门槛（见上面的 effect）—— 收起时不必查表。
+      */}
+      <div className={styles.recent} data-sidebar-recent data-sidebar-text>
+        <div className={styles.recentHead}>最近项目</div>
+        {recent.length === 0 ? (
+          <div className={styles.recentEmpty}>还没有项目</div>
+        ) : (
+          <ul className={styles.recentList}>
+            {recent.map((p) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  className={
+                    p.id === activeProjectId
+                      ? `${styles.recentItem} ${styles.recentItemOn}`
+                      : styles.recentItem
+                  }
+                  data-sidebar-recent-item={p.id}
+                  title={p.title}
+                  onClick={() => navigate(`/canvas/${p.id}`)}
+                >
+                  {p.title}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       {/* 底部：主题切换常驻（用户 2026-09-27：主题放侧栏底部；收起态也保留图标位） */}
       <div className={styles.foot}>
@@ -307,11 +316,18 @@ export function AppSidebar() {
           <span className={styles.itemIcon} aria-hidden="true">
             <IconSettings size={20} />
           </span>
-          {open && <span className={styles.footBtnText}>全局设置</span>}
+          <span className={styles.footBtnText} data-sidebar-text>
+            全局设置
+          </span>
         </button>
         {/* 自动更新入口（方案 §5）：浏览器里没有这一项，按钮自己消失 */}
         <UpdateButton open={open} />
-        <ThemeToggle compact={!open} className={styles.themeBtn} />
+        {/*
+          ⚠️ **这里不再传 `compact`**（对账 #281）：紧凑态是"换个形状"，换形状时
+          图标与文字会一起重排 —— 而侧栏这一处只需要"文字跟着宽度淡出"，
+          形状保持不变、靠 CSS 把收起态的宽度定成 40px 方钮（见 module.css）。
+        */}
+        <ThemeToggle className={styles.themeBtn} />
       </div>
 
     </aside>

@@ -51,8 +51,11 @@ import { useEdgeDrag } from '../../../features/canvas/useEdgeDrag'
 import { useSpaceHeld } from '../../../features/canvas/useSpaceHeld'
 /* 与 RF 自己的 `useViewport` 同名不同物：那个读 RF 视口，这个给「空格 + 拖拽」平移用 */
 import { useViewport as useCanvasViewport } from '../../../features/canvas/useViewport'
-import { describeLoadResult, loadAssetsFromFolder } from '../../../features/canvas/loadFromFolder'
-import { describeExportReport, exportAssetsToFolder } from '../../../features/canvas/exportAssetsToFolder'
+/*
+ * 「素材文件夹」那四个动作已抽到 `features/canvas/useAssetFolderActions`：
+ * 选目录 / 导出在「全局设置 → 存储」，从文件夹加载在空白处右键菜单（对账 #293）。
+ * 这里不再直接 import 那两个实现 —— 否则同一件事会在两处各接线一次。
+ */
 import { useNodeDownload } from '../../../features/canvas/useNodeDownload'
 import { draggedFiles, importDroppedFiles } from '../../../features/canvas/dropImport'
 import { dropPointOf, resolveDropOutcome } from '../../../features/canvas/dropReparent'
@@ -888,10 +891,18 @@ function FlowSurfaceInner({
         onEdgesChange={onEdgesChange}
         onEdgeDoubleClick={onEdgeDoubleClick}
         deleteKeyCode={['Backspace', 'Delete']}
+        /*
+         * **关掉 React Flow 的署名水印**（用户 2026-10-06 第 13 条：「水印关掉，关掉后记得把小地图改好位置」）。
+         *
+         * 它默认画在画布右下角（正好在小地图下方），而这一款是**自用工具**、不是对外分发的产品；
+         * xyflow 是 MIT 许可、技术上允许移除（官方只是请求保留署名）。写在这里，是为了下一个人
+         * 知道"这不是漏了，是刻意关的"——想恢复就把这一行删掉。
+         */
+        proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="var(--grid-line)" />
       </ReactFlow>
-      <Hud store={store} projectId={projectId} count={graph.nodes.length} ids={nodes.map((n) => n.id)} />
+      <Hud count={graph.nodes.length} ids={nodes.map((n) => n.id)} />
       {/*
        * 工作区浮层：**直接复用老表面那一套**（它们都自成一体、只读 store），
        * 换引擎不该把创作面板、跟随栏、右键菜单、提示与撤销条重写一遍。
@@ -914,89 +925,20 @@ function FlowSurfaceInner({
   )
 }
 
-function Hud({
-  store,
-  projectId,
-  count,
-  ids,
-}: {
-  store: ReturnType<typeof useCanvasStore>
-  projectId: string
-  count: number
-  ids: string[]
-}) {
+function Hud({ count, ids }: { count: number; ids: string[] }) {
   const { x, y, zoom } = useViewport()
   const storeVp = useViewportState()
-  const platform = usePlatform()
-  const folder = platform.assetFolder
-  const [folderName, setFolderName] = useState<string | null>(folder?.current()?.name ?? null)
-  /** 加载进度（对账 #229）：大目录要能看见"走到第几个"，否则分不清在干活还是卡死 */
-  const [loading, setLoading] = useState<{ done: number; total: number } | null>(null)
-  const [exporting, setExporting] = useState<{ done: number; total: number } | null>(null)
-  const canPick = folder?.supported() ?? false
 
   /**
-   * 画布里的「素材位置」入口（对账 #196）：选一个文件夹当素材位置。
-   * 选了就是授权 —— **浏览器里刷新后要重选**（浏览器不允许静默恢复目录权限）；
-   * **桌面壳里会记住**（路径存在前端，启动时由 Rust 侧重新授权），见《轻画-桌面封装方案.md》§8.1.1。
-   */
-  const pickFolder = async () => {
-    if (!folder) return
-    try {
-      const picked = await folder.pick()
-      setFolderName(picked?.name ?? folder.current()?.name ?? null)
-    } catch (err) {
-      platform.logger.log('warn', '[assetFolder] 选目录失败', { error: String(err) })
-    }
-  }
-
-  /**
-   * 「从文件夹加载」：把目录里的素材批量建成节点（对账 #196 · 增量 3）。
-   * 落点用**当前视口中心**，换算与工具栏的「新建节点」同一条口径（`screenToWorld` + surface 矩形）。
-   */
-  const loadFromFolder = async () => {
-    const el = document.querySelector<HTMLElement>('[data-canvas-surface]')
-    if (!el || !folder?.current()) return
-    const r = el.getBoundingClientRect()
-    const center = screenToWorld(
-      { x: r.left + r.width / 2, y: r.top + r.height / 2 },
-      store.getViewport(),
-      { x: r.left, y: r.top, w: r.width, h: r.height },
-    )
-    setLoading({ done: 0, total: 0 })
-    try {
-      const result = await loadAssetsFromFolder({ platform, store, projectId }, center, (done, total) =>
-        setLoading({ done, total }),
-      )
-      // 结果如实说：加载几张、跳过几个、失败几个（失败带第一个原因）
-      store.notify(describeLoadResult(result))
-    } catch (err) {
-      store.notify(`从文件夹加载失败：${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      setLoading(null)
-    }
-  }
-
-  /**
-   * 「导出素材到文件夹」（对账 #196 · 增量 5）：把内置库里的字节**一次性**写到选中的目录。
+   * ⚠️ 这里**只留节点数与缩放**（用户 2026-10-06 第 13 条：「只保留节点和缩放」）。
    *
-   * 这是**桌面封装迁移的前置件**（《轻画-桌面封装方案.md》§3）：桌面壳是另一个 origin，
-   * 库里的字节不会自己跟过去；先落成一个目录，"从文件夹加载"就能在新壳里把它们读回来。
-   * 与"新素材自动镜像"共用同一份写盘实现 ⇒ **幂等**，重复点只是把已有的标成"盘上已有"。
+   * 去掉的两样与它们的去向：
+   *  · 「引擎 React Flow（P1）」—— 开发期标签（引擎名 + 阶段），给用户看没有意义；
+   *  · 「素材：内置库 / 从文件夹加载 / 导出素材到文件夹」—— 它们是**功能入口**，不是状态读数：
+   *    前两个（选文件夹 / 导出）搬去了「全局设置 → 存储」（`useAssetFolderActions`），
+   *    「从文件夹加载」留在画布但降级为**空白处右键菜单**里的一项（那是"往当前画布加节点"的动作，
+   *    设置浮层里没有 canvas store 可用）。
    */
-  const exportToFolder = async () => {
-    if (!folder?.current() || exporting) return
-    setExporting({ done: 0, total: 0 })
-    try {
-      const report = await exportAssetsToFolder(platform, (done, total) => setExporting({ done, total }))
-      store.notify(describeExportReport(report, folder.current()?.name ?? ''))
-    } catch (err) {
-      store.notify(`导出素材失败：${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      setExporting(null)
-    }
-  }
-
   return (
     <div
       className={styles.hud}
@@ -1005,51 +947,14 @@ function Hud({
       data-flow-rf-vp={`${Math.round(x)},${Math.round(y)}@${zoom.toFixed(2)}`}
       data-flow-rf-nodes={ids.join(',')}
     >
-      <span>引擎 React Flow（P1）</span>
       <span>节点 {count}</span>
       {/*
        * ⚠️ **不要再挂 `data-canvas-zoom`**：那是 §6.2 定的「小地图附近的缩放读数」，
-       * 而小地图已经换回老表面那份 `Minimap`（它自带该锚点）。挂两处会让冒烟
-       * `page.locator('[data-canvas-zoom]')` 变成 strict-mode violation（解析到 2 个元素直接抛）
-       * —— G46 实测从 33/33 崩成「等不到 [data-canvas-zoom]」，真因其实是"拿到了两个"。
-       * 这里的 `data-flow-zoom` 只给探针读，不再冒充产品锚点。
+       * 而小地图自带该锚点。挂两处会让冒烟 `page.locator('[data-canvas-zoom]')`
+       * 变成 strict-mode violation（解析到 2 个元素直接抛）—— G46 实测崩过一次。
+       * 这里的 `data-flow-zoom` 只给探针读，不冒充产品锚点。
        */}
       <span data-flow-zoom>{Math.round(zoom * 100)}%</span>
-      <button
-        type="button"
-        data-asset-folder
-        disabled={!canPick}
-        title={
-          canPick
-            ? '选一个文件夹作为素材位置：新素材会镜像进去，读回时优先用它'
-            : '当前环境不支持选择文件夹'
-        }
-        onClick={() => void pickFolder()}
-      >
-        素材：{folderName ?? '内置库'}
-      </button>
-      <button
-        type="button"
-        data-asset-folder-load
-        disabled={!folderName || loading !== null}
-        title={folderName ? '把该文件夹里的图片 / 视频批量加载到画布' : '先选一个素材文件夹'}
-        onClick={() => void loadFromFolder()}
-      >
-        {loading ? `加载中 ${loading.done}/${loading.total}…` : '从文件夹加载'}
-      </button>
-      <button
-        type="button"
-        data-asset-folder-export
-        disabled={!folderName || exporting !== null}
-        title={
-          folderName
-            ? '把内置库里的素材全部导出到这个文件夹（备份 / 换机器用；已有的不会重写）'
-            : '先选一个素材文件夹'
-        }
-        onClick={() => void exportToFolder()}
-      >
-        {exporting ? `导出中 ${exporting.done}/${exporting.total}…` : '导出素材到文件夹'}
-      </button>
     </div>
   )
 }

@@ -117,8 +117,15 @@
   display: inline-flex;
 }
 
-/* 收起态：只剩一个图标位，宽度收窄后不要溢出 */
+/*
+ * 收起态：只剩一个图标位。
+ *
+ * ⚠️ **不要用 `justify-content: center`**（对账 #281）：标签现在常驻 DOM（只是被
+ * 侧栏那条 `data-sidebar-text` 规则淡出），居中会让图标跟着"标签占位"一起挪 ——
+ * 实测图标 x 从 22 掉到 -10（被挤出侧栏）。保持左对齐 + 原内距，图标就永远在
+ * 导航图标那一列（x=20）。
+ */
 .sideBtnCollapsed {
-  justify-content: center;
-  padding: 6px 0;
+  justify-content: flex-start;
+  padding: 6px var(--space-2);
 }

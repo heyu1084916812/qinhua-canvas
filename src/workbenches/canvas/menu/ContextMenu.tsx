@@ -15,6 +15,7 @@ import { createId } from '../../../shared/id'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { createNodeWithDefaults } from '../../../features/canvas/createNodeWithDefaults'
+import { useAssetFolderActions } from '../../../features/canvas/useAssetFolderActions'
 import { noOverlapDelta } from '../../../features/canvas/duplicatePlacement'
 import { saveAssetToLibrary } from '../../../features/canvas/saveAssetToLibrary'
 import styles from './ContextMenu.module.css'
@@ -24,6 +25,7 @@ import {
   IconFusion,
   IconGeneration,
   IconGroup,
+  IconImport,
   IconLoop,
   IconPrompt,
   IconReset,
@@ -65,6 +67,8 @@ const MENU_ICON: Record<string, ReactNode> = {
     </svg>
   ),
   resetView: <IconReset size={MENU_ICON_SIZE} />,
+  /** 从素材文件夹加载：与功能栏的「导入素材」同义，共用一枚图标 */
+  loadFromFolder: <IconImport size={MENU_ICON_SIZE} />,
 }
 
 /**
@@ -81,6 +85,8 @@ export function ContextMenu() {
   const platform = usePlatform()
   /** 新建节点要带默认配方（用户 2026-09-23：三个入口必须同源） */
   const channels = useChannels()
+  /** 素材文件夹那套动作（选 / 打开 / 导出在「存储」设置里，加载在下面那条菜单项里） */
+  const folderActions = useAssetFolderActions()
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ w: 180, h: 0 })
 
@@ -122,7 +128,11 @@ export function ContextMenu() {
   const items: ContextMenuItem[] = nodeId
     ? nodeMenuItems(node?.type ?? 'prompt', { hasAsset })
     // 剪贴板是模块级单例、不触发重渲染；菜单每次打开都会重算这里，故读到的即当前值
-    : canvasMenuItems({ canPaste: hasClipboard() })
+    : canvasMenuItems({
+        canPaste: hasClipboard(),
+        /* 没选过素材文件夹就不列那条（菜单只列当下真能做的事，见 `canvasMenuItems` 的注释） */
+        canLoadFromFolder: !!folderActions.folderName,
+      })
 
   // 边界约束：菜单锚点在 surface 局部屏幕坐标 (menu.x, menu.y)
   const surface = document.querySelector<HTMLElement>('[data-canvas-surface]')
@@ -220,6 +230,24 @@ export function ContextMenu() {
       } else if (a.kind === 'resetView') {
         // 重置视图（§6.3）：缩放到全部节点可见并居中 —— 与 Z 键 / 工具栏按钮共用一份实现
         fitCanvasView(store)
+      } else if (a.kind === 'loadFromFolder') {
+        /**
+         * 从素材文件夹加载（对账 #293）：落点就是**右键那一点**（与 `paste` 同口径）。
+         * 实现放在 `useAssetFolderActions` 里 —— 它和"选文件夹 / 导出"共用同一份代码，
+         * 那两条搬去了「全局设置 → 存储」（用户第 13 条）。
+         */
+        const el = document.querySelector<HTMLElement>('[data-canvas-surface]')
+        if (el) {
+          const r = el.getBoundingClientRect()
+          const at = screenToWorld(
+            { x: r.left + menu.x, y: r.top + menu.y },
+            store.getViewport(),
+            { x: r.left, y: r.top, w: r.width, h: r.height },
+          )
+          void folderActions
+            .loadIntoCanvas({ store, projectId: graph.projectId, at })
+            .then((message) => store.notify(message))
+        }
       }
     }
     store.closeMenu()

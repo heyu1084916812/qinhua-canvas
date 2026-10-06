@@ -56,7 +56,17 @@ export function ThemeToggle({
       <span className={styles.glyph} aria-hidden="true">
         {GLYPH[setting]}
       </span>
-      {!compact && <span className={styles.label}>{themeSettingLabel(setting)}</span>}
+      {/*
+        `data-sidebar-text`：这个标签住在侧栏底部时，要跟着侧栏宽度淡入淡出，
+        而不是被挂载 / 卸载（对账 #281）。这个属性本身没有副作用 ——
+        那条淡出规则只写在「侧栏收起」这个语境下（`AppSidebar.module.css`），
+        画布顶栏那一处（`compact`）吃不到。
+      */}
+      {!compact && (
+        <span className={styles.label} data-sidebar-text>
+          {themeSettingLabel(setting)}
+        </span>
+      )}
     </button>
   )
 }
