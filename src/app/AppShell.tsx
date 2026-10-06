@@ -1,8 +1,15 @@
 import { useSyncExternalStore, type ReactNode } from 'react'
+import { useLocation } from 'react-router-dom'
 import { AppSidebar } from './AppSidebar'
 import { UpdateNotice } from './UpdateNotice'
 import { ThumbBackfill } from './ThumbBackfill'
-import { getSidebarOpen, sidebarWidth, subscribeSidebar } from './sidebarState'
+import { navTitleOf } from './nav'
+import {
+  SIDEBAR_COLLAPSED_W,
+  getSidebarOpen,
+  sidebarWidth,
+  subscribeSidebar,
+} from './sidebarState'
 import styles from './AppShell.module.css'
 
 /**
@@ -20,6 +27,7 @@ import styles from './AppShell.module.css'
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const open = useSyncExternalStore(subscribeSidebar, getSidebarOpen, getSidebarOpen)
+  const location = useLocation()
 
   return (
     <div
@@ -29,17 +37,33 @@ export function AppShell({ children }: { children: ReactNode }) {
        * 当前侧栏宽度以 CSS 变量暴露：测试与未来需要它的组件都能读，
        * 不必再去问 JS 状态。它保证「壳层宽度」只有一个来源（sidebarState）。
        */
-      style={{ ['--sidebar-w' as string]: `${sidebarWidth(open)}px` }}
+      style={{
+        ['--sidebar-w' as string]: `${sidebarWidth(open)}px`,
+        // 顶栏高度要与「侧栏折叠宽度」同值（用户 2026-10-06 定的节奏）：
+        // 值来自同一个常量，避免 CSS 里再写死一个 64。
+        ['--sidebar-collapsed-w' as string]: `${SIDEBAR_COLLAPSED_W}px`,
+      }}
     >
-      <AppSidebar />
       {/*
-        工作区。`min-width: 0` 是关键 —— flex 子项的默认 `min-width: auto`
-        会让内容把这一块顶宽，于是侧栏展开时右侧不是变窄，
-        而是把整个窗口撑出一条横向滚动条。
+        顶栏（用户 2026-10-06）：横跨整窗、高度 = 侧栏折叠宽度。
+        现在只放「当前页面名」，两侧留白等用户看过效果再定放什么
+        （品牌 / 搜索 / 全局按钮都可以，但都不该我替他决定）。
       */}
-      <main className={styles.workspace} data-app-workspace>
-        {children}
-      </main>
+      <header className={styles.topBar} data-app-topbar>
+        <span className={styles.topTitle}>{navTitleOf(location.pathname)}</span>
+      </header>
+      {/* 侧栏与工作区并排（`.body` 左侧不留白：工作区紧贴侧栏，用户 2026-10-06 定） */}
+      <div className={styles.body}>
+        <AppSidebar />
+        {/*
+          工作区。`min-width: 0` 是关键 —— flex 子项的默认 `min-width: auto`
+          会让内容把这一块顶宽，于是侧栏展开时右侧不是变窄，
+          而是把整个窗口撑出一条横向滚动条。
+        */}
+        <main className={styles.workspace} data-app-workspace>
+          {children}
+        </main>
+      </div>
       {/* 自动更新的右下角提示条（方案 §5）：浏览器里没有 updater 端口，自己就不渲染 */}
       <UpdateNotice />
       {/* 存量素材缩略图的一次性补图（对账 #232）：没有界面，进画布自动让路 */}

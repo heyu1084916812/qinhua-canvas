@@ -11,15 +11,10 @@ import {
 import { ThemeToggle } from './ThemeToggle'
 import { UpdateButton } from './UpdateNotice'
 import { CatLogo } from './CatLogo'
+import { NAV, type NavItem } from './nav'
 import {
-  IconAssets,
-  IconCanvas,
-  IconChannels,
-  IconHome,
   IconNewProject,
-  IconProjects,
   IconSidebarToggle,
-  IconSkills,
 } from './AppSidebarIcons'
 import styles from './AppSidebar.module.css'
 
@@ -33,27 +28,6 @@ import styles from './AppSidebar.module.css'
  *     顺序写死在 `NAV` 里 —— 它是产品口径，不该由数据驱动。
  *  3. **不许 import `workbenches/canvas/*`**：图标因此自建在 `AppSidebarIcons`。
  */
-
-interface NavItem {
-  to: string
-  label: string
-  icon: (p: { size?: number }) => JSX.Element
-}
-
-/** 一级导航。顺序即产品口径（§2.2），不要按字母或任何其它规则重排。 */
-const NAV: NavItem[] = [
-  { to: '/', label: '首页', icon: IconHome },
-  { to: '/projects', label: '项目', icon: IconProjects },
-  { to: '/canvas', label: '画布', icon: IconCanvas },
-  { to: '/skills', label: '技能库', icon: IconSkills },
-  { to: '/assets', label: '我的素材', icon: IconAssets },
-  { to: '/settings', label: '渠道配置', icon: IconChannels },
-  /**
-   * 素材传输（图床）：用户 2026-10-03 要求「单独设置一个页面」。
-   * 排在渠道配置之后 —— 两者都是「连接类」配置，先连站、再管素材怎么出去。
-   */
-  { to: '/hosting', label: '素材传输', icon: IconAssets },
-]
 
 /**
  * 导航项是否高亮。
