@@ -24,7 +24,6 @@ import {
   IconCompare,
   IconFusion,
   IconGeneration,
-  IconGroup,
   IconImport,
   IconLoop,
   IconPrompt,
@@ -45,7 +44,6 @@ const MENU_ICON: Record<string, ReactNode> = {
   'create:prompt': <IconPrompt size={MENU_ICON_SIZE} />,
   'create:generation': <IconGeneration size={MENU_ICON_SIZE} />,
   'create:compare': <IconCompare size={MENU_ICON_SIZE} />,
-  'create:group': <IconGroup size={MENU_ICON_SIZE} />,
   'create:batch': <IconBatch size={MENU_ICON_SIZE} />,
   /**
    * 循环节点（用户 2026-09-25 报）：`loop` 进 `CREATABLE_TYPES` 时只补了左侧

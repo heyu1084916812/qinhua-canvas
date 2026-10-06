@@ -39,12 +39,17 @@ export interface ContextMenuItem {
  * 而功能栏是「提示词节点 / 生成节点 / …」——同一件事在两个入口叫不同名字，
  * 用户会以为它们是两种东西。统一带上「节点」，并保持同样顺序。
  * 图标由 UI 层按 `type` 映射（领域层不持有渲染物）。
+ *
+ * ⚠️ **「分组节点」已从这里撤掉**（用户 2026-10-06 第 13 批第 5 条：
+ * 「我不想要分组节点了，我想要打组功能」）。分组**不是"新建"出来的**，
+ * 而是对已有节点的操作（多选工具栏「打组」/ `Ctrl+G`），所以它不该出现在任何
+ * "新建节点"的入口里。`group` 这个**类型**仍然存在且必须认识 —— 旧项目里已有分组，
+ * 打组也在建它（`groupNodes` 走 `node.create`，不经这份清单）。
  */
 export const CREATABLE_TYPES: readonly { type: NodeType; label: string }[] = [
   { type: 'prompt', label: '提示词节点' },
   { type: 'generation', label: '生成节点' },
   { type: 'compare', label: '对比节点' },
-  { type: 'group', label: '分组节点' },
   { type: 'batch', label: '批量节点' },
   { type: 'loop', label: '循环节点' },
   { type: 'fusion', label: '融合节点' },

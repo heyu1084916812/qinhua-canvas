@@ -50,7 +50,9 @@ describe('linkMenuSections / 空白松手菜单（§6.14）', () => {
   it('输出侧：只列「建出来就连得上」的类型', () => {
     const g = graphOf([node('a', 'prompt')])
     // loop 于 2026-09-22 并入（§6.22）：循环节点也能被新建并连接
-    expect(idsOf('output', 'a', g, 'create')).toEqual(['prompt', 'generation', 'group', 'batch', 'loop'])
+    // ⚠️ 2026-10-06（第 13 批 #317）：分组已从「可新建」撤掉（菜单 / 拖线两侧同源），
+    //    打组只从多选工具栏 / Ctrl+G 来，故这里不再列 group。
+    expect(idsOf('output', 'a', g, 'create')).toEqual(['prompt', 'generation', 'batch', 'loop'])
   })
 
   it('输出侧：对比节点不接受提示词上游，故不出现在新建列表（不是建好却连不上的死项）', () => {

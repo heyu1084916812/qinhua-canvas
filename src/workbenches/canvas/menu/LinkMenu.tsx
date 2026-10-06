@@ -13,7 +13,6 @@ import {
   IconBatch,
   IconCompare,
   IconGeneration,
-  IconGroup,
   IconLink,
   IconPrompt,
 } from '../toolbar/icons'
@@ -32,7 +31,6 @@ const CREATE_ICONS: Record<string, ReactNode> = {
   prompt: <IconPrompt size={MENU_ICON_SIZE} />,
   generation: <IconGeneration size={MENU_ICON_SIZE} />,
   compare: <IconCompare size={MENU_ICON_SIZE} />,
-  group: <IconGroup size={MENU_ICON_SIZE} />,
   batch: <IconBatch size={MENU_ICON_SIZE} />,
 }
 

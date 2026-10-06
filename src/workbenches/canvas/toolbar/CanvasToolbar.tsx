@@ -14,7 +14,6 @@ import {
   IconGeneration,
   IconFusion,
   IconGridArrange,
-  IconGroup,
   IconImport,
   IconLoop,
   IconPlus,
@@ -54,6 +53,14 @@ const keepCanvasFocus = { onMouseDown: (e: ReactMouseEvent) => e.preventDefault(
  */
 const ICON_SIZE = 18
 
+/**
+ * 「＋ 新建节点」里能建的类型（§6.5 ①）。
+ *
+ * ⚠️ **没有「分组节点」**（用户 2026-10-06 第 13 批第 5 条）。分组是对已有节点的
+ * **操作**（多选工具栏「打组」/ `Ctrl+G`），不是一种能凭空新建的节点；旧项目里的
+ * 分组仍照常渲染、照常收纳。领域侧同一口径见 `domain/canvas/menu/contextMenu.ts`
+ * 的 `CREATABLE_TYPES`（右键菜单与拖线菜单共用它）。
+ */
 const NODE_MENU: readonly { type: NodeType; label: string; icon: ReactNode }[] = [
   { type: 'prompt', label: '提示词节点', icon: <IconPrompt size={ICON_SIZE} /> },
   /**
@@ -62,7 +69,6 @@ const NODE_MENU: readonly { type: NodeType; label: string; icon: ReactNode }[] =
    */
   { type: 'generation', label: '生成节点', icon: <IconGeneration size={ICON_SIZE} /> },
   { type: 'compare', label: '对比节点', icon: <IconCompare size={ICON_SIZE} /> },
-  { type: 'group', label: '分组节点', icon: <IconGroup size={ICON_SIZE} /> },
   { type: 'batch', label: '批量节点', icon: <IconBatch size={ICON_SIZE} /> },
   { type: 'loop', label: '循环节点', icon: <IconLoop size={ICON_SIZE} /> },
   { type: 'fusion', label: '融合节点', icon: <IconFusion size={ICON_SIZE} /> },

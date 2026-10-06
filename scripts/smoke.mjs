@@ -2197,11 +2197,47 @@ async function g15(browser) {
   await createProject(page)
   await sleep(500)
 
-  await addNodeViaToolbar(page, 'group')
-  await sleep(400)
-  const groupCount = await page.locator('[data-node-type="group"]').count()
-  rec(g, '工具栏「＋ 分组」创建分组节点', groupCount === 1, `分组=${groupCount}`)
+  /*
+   * 分组**不再能"新建"**（用户 2026-10-06 第 13 批第 5 条）⇒ 唯一入口是"打组"。
+   * 这一组因此从"建空组再拖入"改成"选两个 → 打组 → 再拖第三个进/出一个"。
+   */
+  await page.locator('[data-toolbar-add]').click()
+  await sleep(250)
+  rec(
+    g,
+    '★ 新建节点菜单里没有「分组节点」（分组只从「打组」来）',
+    (await page.locator('[data-toolbar-menu-item="group"]').count()) === 0,
+    `菜单项=${await page.locator('[data-toolbar-menu-item]').count()}`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(250)
 
+  // 两个提示词，错开摆放（新建的节点都落视口中心，会完全重叠）
+  for (let k = 0; k < 2; k += 1) {
+    await addNodeViaToolbar(page, 'prompt')
+    await sleep(450)
+    const list = await page.locator('[data-node-type="prompt"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+    const nb = await page.locator(`[data-node-id="${list[list.length - 1]}"]`).boundingBox()
+    await page.mouse.move(nb.x + nb.width / 2, nb.y + 10)
+    await page.mouse.down()
+    await page.mouse.move(220 + k * 380, 220, { steps: 10 })
+    await page.mouse.up()
+    await sleep(350)
+  }
+  await page.keyboard.press('Escape')
+  await sleep(250)
+  const promptList = page.locator('[data-node-type="prompt"]')
+  await promptList.nth(0).click({ position: { x: 20, y: 20 } })
+  await sleep(250)
+  await page.keyboard.down('Shift')
+  await promptList.nth(1).click({ position: { x: 20, y: 20 } })
+  await page.keyboard.up('Shift')
+  await sleep(350)
+  await page.locator('[data-multi-action="group"]').click()
+  await sleep(600)
+
+  const groupCount = await page.locator('[data-node-type="group"]').count()
+  rec(g, '★★ 打组生成分组节点（新建入口已撤，只剩这一条路）', groupCount === 1, `分组=${groupCount}`)
   if (groupCount !== 1) {
     await ctx.close()
     return
@@ -2209,74 +2245,50 @@ async function g15(browser) {
 
   const group = page.locator('[data-node-type="group"]').first()
   const groupId = await group.getAttribute('data-node-id')
-
-  // 空容器：虚线框 + 空态提示，无端点悬停需求
-  // 容器状态属性挂在视图 body 上（外框是通用的 NodeFrame），故用 [data-group-body] 读出
   const groupBody = group.locator('[data-group-body]')
-  rec(g, '空容器显示空态提示', (await group.locator('[data-group-empty]').count()) === 1)
-  rec(g, '空容器子节点计数为 0', (await groupBody.getAttribute('data-group-child-count')) === '0')
+  const childCount = () => groupBody.getAttribute('data-group-child-count')
+  rec(g, '打组把两个提示词都收进去了（子节点计数 2）', (await childCount()) === '2', `childCount=${await childCount()}`)
+  rec(g, '有内容时不显示空态提示', (await group.locator('[data-group-empty]').count()) === 0)
+  /**
+   * ★★ 动态最小尺寸 = 内容 + 四边等距 20px（2026-10-06 #319 起；此前是 5:4 归一）。
+   * 两个单元：宽 2×200+16+2×20 = 456，高 160+2×20 = 200。
+   */
   rec(
     g,
-    '空容器最小尺寸为 240×192（§6.11）',
-    (await groupBody.getAttribute('data-group-min')) === '240x192',
-    String(await groupBody.getAttribute('data-group-min')),
+    '★★ 分组动态最小尺寸 = 内容 + 四边等距（456×200）',
+    (await groupBody.getAttribute('data-group-min')) === '456x200',
+    `min=${await groupBody.getAttribute('data-group-min')}`,
   )
-  rec(g, '分组容器本体有输入输出端点', (await group.locator('[data-port]').count()) === 2)
-
-  // 把分组拖到左上，腾出中间放提示词
-  const gb0 = await group.boundingBox()
-  await page.mouse.move(gb0.x + gb0.width / 2, gb0.y + 10)
-  await page.mouse.down()
-  await page.mouse.move(120, 120, { steps: 8 })
-  await page.mouse.up()
-  await sleep(400)
-
-  // 再建一个提示词节点，拖进分组
-  await addNodeViaToolbar(page, 'prompt')
-  await sleep(400)
-  const promptId = await page.locator('[data-node-type="prompt"]').first().getAttribute('data-node-id')
-  const promptNode = page.locator(`[data-node-id="${promptId}"]`)
-  const pb0 = await promptNode.boundingBox()
-  await page.mouse.move(pb0.x + pb0.width / 2, pb0.y + 10)
-  await page.mouse.down()
-  // 拖到分组中心
-  const gb1 = await page.locator(`[data-node-id="${groupId}"]`).boundingBox()
-  await page.mouse.move(gb1.x + gb1.width / 2, gb1.y + gb1.height / 2, { steps: 12 })
-  await page.mouse.up()
-  await sleep(500)
-
-  const afterDragCount = await groupBody.getAttribute('data-group-child-count')
-  rec(g, '提示词拖入分组（子节点计数 → 1）', afterDragCount === '1', `childCount=${afterDragCount}`)
-  rec(g, '组内出现 1 个嵌套节点', (await group.locator('[data-node-id]').count()) === 1)
-  rec(g, '拖入后空态提示消失', (await group.locator('[data-group-empty]').count()) === 0)
-
-  // 组内子节点端点隐藏、缩放手柄隐藏（§6.11）
-  const childInGroup = page.locator(`[data-node-id="${promptId}"]`)
-  rec(g, '组内节点端点隐藏', (await childInGroup.locator('[data-port]').count()) === 0)
-
-  // 组内节点计数增加后，动态最小尺寸应大于空态
-  const minAfter = await groupBody.getAttribute('data-group-min')
-  rec(
-    g,
-    '有内容后动态最小尺寸提高（§6.11 尺寸）',
-    minAfter !== '240x192',
-    `min=${minAfter}`,
-  )
+  rec(g, '组内节点端点隐藏（§6.11）', (await group.locator('[data-node-id] [data-port]').count()) === 0)
   await page.screenshot({ path: `${OUT}/25-g15-group-filled.png` })
 
-  // 拖出：把组内提示词拖到画布空白
-  // 子节点被 NodeFrame 以 parentId 嵌套渲染，注意别被 group 自身命中
-  const cb0 = await childInGroup.first().boundingBox()
-  await page.mouse.move(cb0.x + cb0.width / 2, cb0.y + 10)
-  await page.mouse.down()
-  await page.mouse.move(900, 620, { steps: 12 })
-  await page.mouse.up()
-  await sleep(500)
+  // 再拖一个进组：子节点计数 → 3
+  await addNodeViaToolbar(page, 'prompt')
+  await sleep(450)
+  const all3 = await page.locator('[data-node-type="prompt"]').evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+  const thirdId = all3[all3.length - 1]
+  {
+    const nb = await page.locator(`[data-node-id="${thirdId}"]`).boundingBox()
+    await page.mouse.move(nb.x + nb.width / 2, nb.y + 10)
+    await page.mouse.down()
+    const cb = await page.locator(`[data-node-id="${groupId}"]`).boundingBox()
+    await page.mouse.move(cb.x + cb.width / 2, cb.y + cb.height / 2, { steps: 12 })
+    await page.mouse.up()
+    await sleep(600)
+  }
+  rec(g, '再拖一个进组（子节点计数 → 3）', (await childCount()) === '3', `childCount=${await childCount()}`)
 
-  const afterOut = await groupBody.getAttribute('data-group-child-count')
-  rec(g, '拖出后分组子节点计数回到 0（§6.11 拖出）', afterOut === '0', `childCount=${afterOut}`)
-  const detached = await page.locator(`[data-node-id="${promptId}"]`).getAttribute('data-node-id')
-  rec(g, '拖出的节点仍在画布上', detached === promptId)
+  // 拖出：把刚拖进去的那个拖到画布空白
+  {
+    const cb0 = await page.locator(`[data-node-id="${thirdId}"]`).first().boundingBox()
+    await page.mouse.move(cb0.x + cb0.width / 2, cb0.y + 10)
+    await page.mouse.down()
+    await page.mouse.move(980, 700, { steps: 12 })
+    await page.mouse.up()
+    await sleep(600)
+  }
+  rec(g, '拖出后分组子节点计数回到 2（§6.11 拖出）', (await childCount()) === '2', `childCount=${await childCount()}`)
+  rec(g, '拖出的节点仍在画布上', (await page.locator(`[data-node-id="${thirdId}"]`).count()) === 1)
   await page.screenshot({ path: `${OUT}/26-g15-group-dragout.png` })
 
   await ctx.close()
@@ -2813,7 +2825,7 @@ async function g17(browser) {
   await sleep(250)
   const menuItems = await page.locator('[data-toolbar-menu-item]').count()
   // 7 项：提示词 / 生成 / 对比 / 分组 / 批量 / 循环 / 融合（画板节点已下线）
-  rec(g, '新建节点菜单展开 7 项', menuItems === 7, `items=${menuItems}`)
+  rec(g, '新建节点菜单展开 6 项（分组节点已撤，第 13 批 #317）', menuItems === 6, `items=${menuItems}`)
   await page.keyboard.press('Escape')
   await sleep(200)
   rec(g, 'Esc 关闭新建菜单', (await page.locator('[data-toolbar-menu]').count()) === 0)
@@ -3004,9 +3016,9 @@ async function g18(browser) {
   const canvasSet = new Set(canvasMenu)
   rec(
     g,
-    // 7 新建（含循环节点 §6.22、融合节点 §6.23）+ 重置视图 = 8 项
-    '画布空白右键含 7 新建 + 重置视图（§4.1）',
-    canvasSet.size === 8 && canvasSet.has('重置视图'),
+    // 6 新建（含循环节点 §6.22、融合节点 §6.23）+ 重置视图 = 7 项（分组节点已撤，第 13 批 #317）
+    '画布空白右键含 6 新建 + 重置视图（§4.1）',
+    canvasSet.size === 7 && canvasSet.has('重置视图'),
     `items=${JSON.stringify(canvasMenu)}`,
   )
 
@@ -3033,8 +3045,8 @@ async function g18(browser) {
   rec(
     g,
     '★ 每个新建项都有矢量图标（含循环 / 融合节点；图标两侧菜单同源）',
-    iconState.length === 7 && missing.length === 0,
-    `带图标 ${iconState.length}/7${missing.length ? ` 缺=${missing.join(',')}` : ''}`,
+    iconState.length === 6 && missing.length === 0,
+    `带图标 ${iconState.length}/6${missing.length ? ` 缺=${missing.join(',')}` : ''}`,
   )
   await page.keyboard.press('Escape')
   await sleep(150)
@@ -3054,9 +3066,13 @@ async function g18(browser) {
   // 8. 重命名：右键 → 重命名 → 出现编辑输入框
   await page.locator('[data-toolbar-add]').click()
   await sleep(200)
-  await page.locator('[data-toolbar-menu-item="group"]').click()
+  /*
+   * 这里只需要"随便一个节点"来验重命名 —— 原本用分组节点建，而分组已不能新建
+   * （用户 2026-10-06 第 13 批第 5 条）⇒ 改成提示词节点，验的东西没变。
+   */
+  await page.locator('[data-toolbar-menu-item="prompt"]').click()
   await sleep(400)
-  const grId = await page.locator('[data-node-type="group"]').last().getAttribute('data-node-id')
+  const grId = await page.locator('[data-node-type="prompt"]').last().getAttribute('data-node-id')
   // 把重复节点挪开，确保右键命中原节点而非重叠副本
   await moveNode(page, grId, 480, 300)
   await rightClickNode(grId)
@@ -6505,6 +6521,24 @@ async function g57(browser) {
     await sleep(400)
     return { just, settled: await boxOf(id) }
   }
+  /**
+   * 打组造一个组（分组**不再能"新建"**：用户 2026-10-06 第 13 批第 5 条撤掉了那个入口，
+   * 只保留"选一批节点 → 打组"这一条路）。选两个既有节点 → 多选工具栏「打组」。
+   */
+  const makeGroup = async () => {
+    await page.keyboard.press('Escape')
+    await sleep(250)
+    const all = await ids()
+    await page.locator(`[data-node-id="${all[0]}"]`).click({ position: { x: 20, y: 20 } })
+    await sleep(250)
+    await page.keyboard.down('Shift')
+    await page.locator(`[data-node-id="${all[1]}"]`).click({ position: { x: 20, y: 20 } })
+    await page.keyboard.up('Shift')
+    await sleep(350)
+    await page.locator('[data-multi-action="group"]').click()
+    await sleep(600)
+    return page.locator('[data-node-type="group"]').first().getAttribute('data-node-id')
+  }
   const ratioOk = (box, want) => Math.abs(box.width / box.height - want) < 0.01
   const noRebound = (a, b) => Math.abs(a.width - b.width) <= 0.6 && Math.abs(a.height - b.height) <= 0.6
 
@@ -6519,7 +6553,8 @@ async function g57(browser) {
    * NodeFrame 用的），于是每次缩放都把节点**写回世界原点** —— 用户说的「缩放的时候
    * 会位移」就是它。当时所有断言都只看尺寸，所以它一直是绿的。
    */
-  let id = await addNode('group')
+  const groupId = await makeGroup()
+  let id = groupId
   const g0 = await boxOf(id)
   let r = await dragResize(id, 80, 10)
   rec(
@@ -6592,7 +6627,8 @@ async function g57(browser) {
       },
       { id, sel },
     )
-  id = await addNode('group')
+  // 半径断言复用同一个组（分组不再能新建）
+  id = groupId
   /*
    * ⚠️ 用 `[data-container-body]` 这个**契约锚点**，不要再按 class 猜：
    * 组视图在标题条那次改版后多了一层外框 `div[class*="body"]`，旧选择器
