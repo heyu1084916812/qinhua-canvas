@@ -52,20 +52,41 @@ export function EditShortcuts() {
   )
 }
 
-/** 「应用」菜单的内容：版本号 + 仓库地址 */
+/**
+ * 「应用」菜单的内容：版本号 + 仓库地址 + **全屏**。
+ *
+ * 用户 2026-10-06 第 11 批第 7 条：「就补那五条权限，**顺手加全屏**，记住上次窗口尺寸和位置」。
+ * 全屏与 F11 同一个动作（两条入口，一个人抬手、一个人找菜单 —— 与 §2.1 里
+ * 「点整块 / 点按钮」那种双入口同一考虑）。
+ */
 export function AppMenuContent({
   version,
   onOpenRepo,
+  fullscreen,
+  onToggleFullscreen,
 }: {
   /** 壳自己的版本号；拿不到时给"（开发预览）" */
   version: string
   onOpenRepo: () => void
+  /** 当前是不是全屏（菜单文案跟着变） */
+  fullscreen: boolean
+  onToggleFullscreen: () => void
 }) {
   return (
     <>
       <div className={styles.menuHead} data-title-version>
         轻画 {version ? `v${version}` : '（开发预览）'}
       </div>
+      <button
+        type="button"
+        role="menuitem"
+        className={styles.menuItem}
+        data-title-fullscreen
+        aria-pressed={fullscreen}
+        onClick={onToggleFullscreen}
+      >
+        {fullscreen ? '退出全屏（F11）' : '全屏（F11）'}
+      </button>
       <button
         type="button"
         role="menuitem"

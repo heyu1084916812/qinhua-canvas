@@ -107,7 +107,7 @@ export function UpdateButton({ open }: { open: boolean }) {
         不再瞬间卸载 —— 卸载会让图标在宽度动画里被重排（旧的 `justify-content:center`
         会把图标推到侧栏外）。`open` 只留给上面的类名切换。
       */}
-      <span className={styles.sideLabel} data-sidebar-text>
+      <span className={styles.sideLabel} data-sidebar-text data-sidebar-label>
         {label}
       </span>
     </button>

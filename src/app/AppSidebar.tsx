@@ -226,7 +226,7 @@ export function AppSidebar() {
         <span className={styles.newIcon} aria-hidden="true">
           <IconNewProject />
         </span>
-        <span className={styles.newText} data-sidebar-text>
+        <span className={styles.newText} data-sidebar-text data-sidebar-label>
           新建项目
         </span>
       </button>
@@ -256,7 +256,7 @@ export function AppSidebar() {
               <span className={styles.itemIcon} aria-hidden="true">
                 <Icon size={20} />
               </span>
-              <span className={styles.itemText} data-sidebar-text>
+              <span className={styles.itemText} data-sidebar-text data-sidebar-label>
                 {item.label}
               </span>
             </Link>
@@ -316,7 +316,7 @@ export function AppSidebar() {
           <span className={styles.itemIcon} aria-hidden="true">
             <IconSettings size={20} />
           </span>
-          <span className={styles.footBtnText} data-sidebar-text>
+          <span className={styles.footBtnText} data-sidebar-text data-sidebar-label>
             全局设置
           </span>
         </button>

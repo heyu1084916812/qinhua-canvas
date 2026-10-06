@@ -196,9 +196,14 @@
 .rail:not(.railOpen) .logo {
   position: absolute;
   top: 50%;
-  /* Equals the expanded state margin-left: var(--space-2). */
-  left: var(--space-2);
-  transform: translateY(-50%);
+  /*
+   * **水平居中**（用户 2026-10-06 第 11 批补：「注意：图标不居中了」）——
+   * 收起态 64px 的侧栏里，Logo 中心要落在中轴（32px）。
+   * 展开态仍按原来的"与导航图标左对齐"（`margin-left: var(--space-2)`）⇒
+   * 两态之间 Logo 会移动 2px，那是"居中"与"左对齐"两套口径的必然差，肉眼不可辨。
+   */
+  left: 50%;
+  transform: translate(-50%, -50%);
   margin: 0;
 }
 
@@ -211,11 +216,14 @@
  * 于是文字标成了 `.head` 里**第一个参与布局**的子项 ⇒ 它从展开态的位置滑到内容盒最左（x=0），
  * 正好压在猫标上，边滑边淡出。
  *
- * **修法**：把猫标那份占位补回来 —— 左边距 = 猫标的左距 + 猫标宽 + 原来的间距
- * （`--space-2` 8 + 28 + `--space-3` 12 = 48px），与展开态**完全同值** ⇒ 原地淡出、纹丝不动。
+ * **修法**：把猫标那份占位补回来 —— 左边距 = 猫标的左距 + 猫标宽 + **`.head` 的 `gap`**
+ * + 文字标自己的左距（`--space-2` 8 + 28 + `--space-1` 4 + `--space-3` 12 = **52px**）。
+ * ⚠️ 那 4px 的 `gap` 别漏：收起态猫标是绝对定位、**不产生 gap**，而展开态有 ——
+ * 只补 48 的话文字标会与展开态差 4px（实测 60 vs 64），淡出时仍是一次"抖一下"。
+ * 补成 52 之后实测两态**都是 64**：原地淡出、纹丝不动。
  */
 .rail:not(.railOpen) .wordmark {
-  margin-left: calc(var(--space-2) + 28px + var(--space-3));
+  margin-left: calc(var(--space-2) + 28px + var(--space-1) + var(--space-3));
 }
 
 .rail:not(.railOpen) .toggle {
@@ -228,8 +236,10 @@
    * 这正是用户看到的「不在正中心 / 位置不对」。`right: 0` 让按钮右边缘
    * 与 `.item` 右边缘重合，同时保持 Logo ↔ 按钮在同一格里悬停互换。
    */
-  right: 0;
-  transform: translateY(-50%);
+  right: auto;
+  /* 与 Logo 同心：两者都居中（改自 `right: 0`，见 `.logo` 那条的说明） */
+  left: 50%;
+  transform: translate(-50%, -50%);
   margin: 0;
   /*
    * 收起态用 34×34 的可见/命中区，尺寸与展开态 40px 不同是有意为之：
@@ -334,6 +344,22 @@
 }
 
 /*
+ * 收起态：**内联标签不占宽度**（用户 2026-10-06 第 11 批补：「注意：图标不居中了」）。
+ *
+ * 这一条是"收起态图标居中"与"标签常驻不闪"能同时成立的前提 —— 两个要求本来冲突：
+ * 标签常驻才谈得上淡出（不闪），可标签一占宽度，`justify-content: center`
+ * 就会把"图标 + 标签"整体当内容居中（实测图标被推出侧栏，x 从 23 掉到 -10）。
+ * 压成零宽之后：它仍在 DOM 里、仍按上面那条规则淡出，但不参与宽度计算 ⇒ 居中的就是图标本身。
+ *
+ * 只认 `data-sidebar-label`（内联文字）：品牌文字标与「最近项目」不在此列
+ * （前者要**原地**淡出，后者整块淡出，各有各的规则）。
+ */
+.rail:not(.railOpen) [data-sidebar-label] {
+  flex: 0 0 0;
+  overflow: hidden;
+}
+
+/*
  * 收起态：只剩图标，**但不能用 `justify-content: center`**。
  *
  * 上面那条改动让标签常驻了 —— 居中的话，按钮的"内容宽度"会算上那个（仍占位的）
@@ -342,8 +368,9 @@
  * 文字溢出的部分由 `.rail` 的 `overflow-x: clip` 裁掉、并被上面那条规则淡出。
  */
 .rail:not(.railOpen) .newBtn {
-  justify-content: flex-start;
-  padding: 0 var(--space-2);
+  justify-content: center;
+  gap: 0;
+  padding: 0;
 }
 
 /* ── 一级导航 ── */
@@ -413,7 +440,9 @@
 
 /* 收起态：图标居中、文字让位 */
 .rail:not(.railOpen) .item {
-  justify-content: flex-start;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
 }
 
 /* ── 最近项目 ── */
@@ -541,8 +570,9 @@
 
 /* 收起态：同 `.newBtn` —— 图标钉在列上，不跟着文字居中 */
 .rail:not(.railOpen) .footBtn {
-  justify-content: flex-start;
-  padding: 0 var(--space-2);
+  justify-content: center;
+  gap: 0;
+  padding: 0;
 }
 
 .footBtnText {
@@ -562,6 +592,8 @@
  */
 .rail:not(.railOpen) .themeBtn {
   width: 40px;
-  padding: 0 var(--space-3);
-  justify-content: flex-start;
+  padding: 0;
+  /* 间距也要归零：`gap` 会算进"居中"的宽度里（实测字形会偏 2px） */
+  gap: 0;
+  justify-content: center;
 }

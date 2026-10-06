@@ -39,6 +39,8 @@ const REPO_URL = 'https://github.com/heyu1084916812/qinhua-canvas'
  */
 export function TitleBar() {
   const [maximized, setMaximized] = useState(false)
+  /** 全屏态（用户 2026-10-06 第 11 批第 7 条「顺手加全屏」）：F11 / 「应用」菜单两条入口共用 */
+  const [fullscreen, setFullscreen] = useState(false)
   const [menu, setMenu] = useState<null | 'app' | 'edit'>(null)
   const [version, setVersion] = useState('')
   const inShell = useSyncExternalStore(
@@ -73,13 +75,47 @@ export function TitleBar() {
     // 版本号取**壳自己**的（不是清单上的）：菜单里显示的就是"你装的这一版"
     void getVersion().then(setVersion).catch(() => setVersion(''))
     void win.isMaximized().then(setMaximized)
+    void win.isFullscreen().then(setFullscreen)
     const unlisten = win.onResized(() => {
       void win.isMaximized().then(setMaximized)
+      void win.isFullscreen().then(setFullscreen)
     })
+    /*
+     * **F11 = 全屏开关**（用户 2026-10-06 第 11 批第 7 条「顺手加全屏」）。
+     * 只认 F11、不认 Esc：Esc 在这个应用里已经被"关浮层 / 退出编辑态"占满了
+     * （灯箱、设置浮层、提示词编辑…），再让它退全屏会和那些抢。
+     */
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F11') return
+      e.preventDefault()
+      void win
+        .isFullscreen()
+        .then((on) => win.setFullscreen(!on))
+        .catch(() => {})
+    }
+    window.addEventListener('keydown', onKey)
     return () => {
+      window.removeEventListener('keydown', onKey)
       void unlisten.then((off) => off())
     }
   }, [inShell])
+
+  /**
+   * 全屏开关（菜单与 F11 共用）。
+   *
+   * ⚠️ 这里**必须 `.catch`**：`setFullscreen` 是 Tauri 的窗口命令，能力没给时会被拒
+   * （`core:window:allow-set-fullscreen`）—— 不接住就是一个静默的未处理拒绝，
+   * 表现成"点了没反应"，而对面的错误连日志里都看不到。
+   */
+  const toggleFullscreen = () => {
+    setMenu(null)
+    const win = getCurrentWindow()
+    void win
+      .isFullscreen()
+      .then((on) => win.setFullscreen(!on))
+      .then(() => win.isFullscreen().then(setFullscreen))
+      .catch(() => {})
+  }
 
   if (!inShell) return null
 
@@ -122,6 +158,8 @@ export function TitleBar() {
         >
           <AppMenuContent
             version={version}
+            fullscreen={fullscreen}
+            onToggleFullscreen={toggleFullscreen}
             onOpenRepo={() => {
               setMenu(null)
               // 交给系统默认浏览器打开（壳里这才是"用户自己去看看"的正确出口）
@@ -147,7 +185,13 @@ export function TitleBar() {
           data-title-minimize
           aria-label="最小化"
           title="最小化"
-          onClick={() => void getCurrentWindow().minimize()}
+          /*
+           * ⚠️ 三个窗口键都要 `.catch`：它们是 Tauri 的窗口命令，能力没给时会被拒
+           * （`core:window:allow-minimize` / `allow-toggle-maximize` / `allow-close`）
+           * —— 不接住就是静默的未处理拒绝，表现成"点了没反应"。
+           * 这正是用户 2026-10-06 第 11 批第 7 条报的那件事（"不能放大、缩小"）。
+           */
+          onClick={() => void getCurrentWindow().minimize().catch(() => {})}
         >
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
             <path d="M0 5h10" stroke="currentColor" strokeWidth="1" />
@@ -159,7 +203,7 @@ export function TitleBar() {
           data-title-maximize
           aria-label={maximized ? '还原' : '最大化'}
           title={maximized ? '还原' : '最大化'}
-          onClick={() => void getCurrentWindow().toggleMaximize()}
+          onClick={() => void getCurrentWindow().toggleMaximize().catch(() => {})}
         >
           {maximized ? (
             <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
@@ -178,7 +222,7 @@ export function TitleBar() {
           data-title-close
           aria-label="关闭"
           title="关闭"
-          onClick={() => void getCurrentWindow().close()}
+          onClick={() => void getCurrentWindow().close().catch(() => {})}
         >
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
             <path d="M0.5 0.5l9 9M9.5 0.5l-9 9" stroke="currentColor" strokeWidth="1" />

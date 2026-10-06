@@ -63,7 +63,7 @@ export function ThemeToggle({
         画布顶栏那一处（`compact`）吃不到。
       */}
       {!compact && (
-        <span className={styles.label} data-sidebar-text>
+        <span className={styles.label} data-sidebar-text data-sidebar-label>
           {themeSettingLabel(setting)}
         </span>
       )}
