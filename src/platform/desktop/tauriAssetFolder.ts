@@ -88,6 +88,10 @@ export function createTauriAssetFolder(): AssetFolderPort {
     current() {
       return root ? { name: folderNameOf(root) } : null
     },
+    /** 壳里知道绝对路径 ⇒ 设置里的「打开文件夹」才能真的打开（浏览器没有这一项） */
+    path() {
+      return root
+    },
 
     async pick() {
       const picked = await invoke<string | null>('pick_folder')

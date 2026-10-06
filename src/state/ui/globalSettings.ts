@@ -17,7 +17,7 @@
  * 架构 §2.1 的分层图里本来就留了 `state/ui` 这个切片，这里就落在它身上。
  */
 
-export type GlobalSettingsSection = 'channels' | 'hosting'
+export type GlobalSettingsSection = 'channels' | 'hosting' | 'storage'
 
 export interface GlobalSettingsState {
   open: boolean
@@ -29,6 +29,8 @@ export interface GlobalSettingsState {
 export const GLOBAL_SETTINGS_SECTIONS: { id: GlobalSettingsSection; label: string }[] = [
   { id: 'channels', label: '渠道配置' },
   { id: 'hosting', label: '素材传输' },
+  // 「存储」（对账 #261）：存储概况 / 数据目录 / 网页缓存 / 素材文件夹
+  { id: 'storage', label: '存储' },
 ]
 
 let state: GlobalSettingsState = { open: false, section: 'channels' }

@@ -2,6 +2,7 @@ import type { PlatformKit } from '../ports'
 import { createWebPlatform } from '../web/index'
 import { createTauriAssetFolder } from './tauriAssetFolder'
 import { createTauriFiles } from './tauriFiles'
+import { createTauriStorageAdmin } from './tauriStorageAdmin'
 import { createTauriUpdater } from './tauriUpdater'
 
 /**
@@ -21,5 +22,7 @@ export function createDesktopPlatform(): PlatformKit {
     files: createTauriFiles(),
     // 壳里多出来的一档能力（方案 §5）：自动更新
     updater: createTauriUpdater(),
+    // 壳里多出来的一档能力（对账 #261）：数据目录 / 打开目录 / 网页缓存
+    storageAdmin: createTauriStorageAdmin(),
   })
 }

@@ -12,6 +12,7 @@
  */
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FsExt;
+use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_updater::UpdaterExt;
 use std::path::{Path, PathBuf};
 use tauri::Manager;
@@ -338,6 +339,170 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+// ─────────────────────────────────────────────────────────────
+// 存储：数据目录 / 打开目录 / 网页缓存（对账 #261）
+// ─────────────────────────────────────────────────────────────
+
+/// **可清理的网页缓存目录名**（白名单）。
+///
+/// ⚠️ 这份名单是**唯一**决定"哪些目录能删"的地方，所以它必须是**白名单**：
+/// `EBWebView/Default` 下面同时躺着 `IndexedDB`（项目 / 素材 / 素材库）与
+/// `Local Storage`（令牌密文 + 设置）—— 用黑名单去"排掉"数据目录，
+/// 漏一个就是**删用户数据**。
+const CACHE_DIR_NAMES: [&str; 8] = [
+    "Cache",
+    "Code Cache",
+    "GPUCache",
+    "DawnCache",
+    "DawnGraphiteCache",
+    "DawnWebGPUCache",
+    "GrShaderCache",
+    "ShaderCache",
+];
+
+fn is_cache_dir_name(name: &str) -> bool {
+    CACHE_DIR_NAMES.contains(&name)
+}
+
+/// 当前数据目录（与 #250 同一条规则：程序隔壁的 `data`，否则系统默认位置）。
+fn current_data_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    resolve_data_dir(app).or_else(|| app.path().app_local_data_dir().ok())
+}
+
+/// WebView2 的 profile 默认区（网页缓存就在它下面）。
+fn profile_default_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    Some(current_data_dir(app)?.join("EBWebView").join("Default"))
+}
+
+fn dir_size(dir: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut total = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        match entry.file_type() {
+            Ok(kind) if kind.is_dir() => total += dir_size(&path),
+            Ok(kind) if kind.is_file() => {
+                total += entry.metadata().map(|meta| meta.len()).unwrap_or(0)
+            }
+            _ => {}
+        }
+    }
+    total
+}
+
+/// 可清理的网页缓存现在占多少字节。
+fn cache_bytes(app: &tauri::AppHandle) -> u64 {
+    let Some(default) = profile_default_dir(app) else {
+        return 0;
+    };
+    let Ok(entries) = std::fs::read_dir(&default) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .filter(|entry| entry.file_name().to_str().is_some_and(is_cache_dir_name))
+        .map(|entry| dir_size(&entry.path()))
+        .sum()
+}
+
+/// 数据目录的绝对路径（项目 / 令牌 / 素材库都在里面）。
+#[tauri::command]
+fn data_dir_path(app: tauri::AppHandle) -> String {
+    current_data_dir(&app)
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+/// 在系统文件管理器里打开一个目录（壳里的「打开数据目录 / 打开素材目录」用它）。
+#[tauri::command]
+fn open_dir(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    if !std::path::Path::new(&path).is_dir() {
+        return Err("目录不存在或已被移动".into());
+    }
+    app.opener()
+        .open_path(path, None::<String>)
+        .map_err(|err| err.to_string())
+}
+
+/// 网页缓存占用（字节）。
+#[tauri::command]
+fn cache_usage(app: tauri::AppHandle) -> u64 {
+    cache_bytes(&app)
+}
+
+/// 清网页缓存，返回**实际**释放的字节数。
+///
+/// 三条刻意做法：
+/// 1. **只删白名单里的目录**（见 `CACHE_DIR_NAMES`）；
+/// 2. **先量、再删、再量**，用差值报成绩 —— 正在被 WebView2 占用的文件删不掉，
+///    拿"删之前的大小"当成绩就是虚报；
+/// 3. **删不掉不算错**：缓存本来就能重建，锁住的文件下次再删就是。
+#[tauri::command]
+fn clear_cache(app: tauri::AppHandle) -> u64 {
+    let before = cache_bytes(&app);
+    if let Some(default) = profile_default_dir(&app) {
+        if let Ok(entries) = std::fs::read_dir(&default) {
+            for entry in entries.flatten() {
+                let name_ok = entry.file_name().to_str().is_some_and(is_cache_dir_name);
+                if name_ok && entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                    let _ = std::fs::remove_dir_all(entry.path());
+                }
+            }
+        }
+    }
+    before.saturating_sub(cache_bytes(&app))
+}
+
+#[cfg(test)]
+mod storage_tests {
+    use super::*;
+
+    #[test]
+    fn cache_whitelist_covers_browser_caches() {
+        for name in [
+            "Cache",
+            "Code Cache",
+            "GPUCache",
+            "DawnWebGPUCache",
+            "ShaderCache",
+        ] {
+            assert!(is_cache_dir_name(name), "{name} 应当算可清理的网页缓存");
+        }
+    }
+
+    #[test]
+    fn cache_whitelist_never_touches_user_data() {
+        // 这条是**护栏**：哪天有人把它改成"黑名单式"（"除了这几个都删"），先在这里红
+        for name in [
+            "IndexedDB",
+            "Local Storage",
+            "WebStorage",
+            "Session Storage",
+            "Network",
+            "Cookies",
+            "Preferences",
+            "blob_storage",
+        ] {
+            assert!(!is_cache_dir_name(name), "{name} 是用户数据，绝不能当缓存删");
+        }
+    }
+
+    #[test]
+    fn dir_size_counts_nested_files() {
+        let dir = std::env::temp_dir().join("qinghua-dir-size-test");
+        let nested = dir.join("a").join("b");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(dir.join("one.bin"), vec![0u8; 10]).unwrap();
+        std::fs::write(nested.join("two.bin"), vec![0u8; 25]).unwrap();
+        assert_eq!(dir_size(&dir), 35);
+        std::fs::remove_dir_all(&dir).unwrap();
+        // 量不到的目录返回 0 而不是抛 —— 调用方只看差值，"没有"与"零字节"在这里等价
+        assert_eq!(dir_size(&dir), 0);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -351,7 +516,11 @@ pub fn run() {
             pick_file,
             save_file_dialog,
             check_update,
-            install_update
+            install_update,
+            data_dir_path,
+            open_dir,
+            cache_usage,
+            clear_cache
         ])
         .setup(|app| {
             /*

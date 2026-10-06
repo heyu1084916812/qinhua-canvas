@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { HostingPage } from '../pages/HostingPage/HostingPage'
 import { SettingsPage } from '../pages/SettingsPage/SettingsPage'
+import { StoragePanel } from '../features/settings/StoragePanel'
 import { IconClose } from './AppSidebarIcons'
 import {
   GLOBAL_SETTINGS_SECTIONS,
@@ -90,7 +91,14 @@ export function GlobalSettingsOverlay() {
         </header>
         {/* 内容按栏目挂载两个既有页面之一。key 让切栏目时组件重新挂载 —— 两页的状态互不串味 */}
         <div className={styles.body} data-global-settings-body>
-          {section === 'channels' ? <SettingsPage key="channels" /> : <HostingPage key="hosting" />}
+          {/*
+            三个栏目各自的实现：前两个直接复用页面组件（见文件头注释），
+            「存储」是本次新增的面板（对账 #261）—— 它没有对应页面，只活在设置里。
+            `key` 让切栏时重新挂载：两页各自的状态不该跨栏串味。
+          */}
+          {section === 'channels' && <SettingsPage key="channels" />}
+          {section === 'hosting' && <HostingPage key="hosting" />}
+          {section === 'storage' && <StoragePanel key="storage" />}
         </div>
       </div>
     </div>

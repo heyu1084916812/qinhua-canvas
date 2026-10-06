@@ -1,0 +1,101 @@
+/**
+ * 「存储」面板（对账 #261）：四块 —— 概况 / 数据目录 / 网页缓存 / 素材文件夹。
+ * 全部走令牌，深浅色自动跟随；不写死颜色与时长（主题守卫会拦）。
+ */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding: var(--space-6) var(--space-5) var(--space-8);
+  overflow-y: auto;
+  height: 100%;
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-bottom: var(--space-5);
+  border-bottom: var(--border);
+}
+
+.block:last-of-type {
+  border-bottom: none;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--fs-nav);
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.desc {
+  margin: 0;
+  max-width: 62ch;
+  font-size: var(--fs-nav);
+  line-height: var(--lh-body);
+  color: var(--text-2);
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  font-size: var(--fs-nav);
+  color: var(--text-1);
+}
+
+/* 路径用等宽字并允许换行：中文目录名很长，塞一行会顶破面板 */
+.path {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  word-break: break-all;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.btn {
+  height: 32px;
+  padding: 0 var(--space-4);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-nav);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out), border-color var(--dur-hover) var(--ease-out);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--stroke-focus);
+}
+
+.btn:disabled {
+  color: var(--text-3);
+  cursor: default;
+}
+
+/* 「仅在桌面应用可用」这类如实说明：不装成错误、也不装成按钮 */
+.only {
+  margin: 0;
+  font-size: var(--fs-nav);
+  color: var(--text-3);
+}
+
+.status {
+  margin: 0;
+  font-size: var(--fs-nav);
+  color: var(--text-2);
+}

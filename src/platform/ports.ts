@@ -227,6 +227,11 @@ export interface AssetFolderPort {
   supported(): boolean
   /** 本次会话已授权的目录（只有名字）；没授权过 = null */
   current(): { name: string } | null
+  /**
+   * 目录的**绝对路径**。**可选**：只有桌面壳有 —— 浏览器拿到的 FSA 句柄不给路径
+   * （那是有意的隐私设计），所以也只有桌面壳能"在资源管理器里打开它"。
+   */
+  path?(): string | null
   /** 打开目录选择器；用户取消返回 null（取消不是错误） */
   pick(): Promise<{ name: string } | null>
   has(name: string): Promise<boolean>
@@ -274,6 +279,25 @@ export interface UpdatePort {
   install(): Promise<void>
 }
 
+/**
+ * **存储管理端口**（对账 #261）：只有桌面壳有。
+ *
+ * 四件事都是"只有壳能做"的：知道**数据目录的真实路径**、**在文件管理器里打开它**、
+ * 量**网页缓存占用**、清掉它。浏览器里这些要么没有、要么不该做
+ * （网页版的数据就活在浏览器里，没有"目录"这回事）⇒ 与 `updater` 一样是**可选端口**，
+ * 调用方必须容错（界面上如实说"仅在桌面应用可用"，别当错误）。
+ */
+export interface StorageAdminPort {
+  /** 数据目录绝对路径（项目 / 令牌 / 素材库都在里面） */
+  dataDir(): Promise<string>
+  /** 在系统文件管理器里打开一个目录（目录没了就抛错，由调用方如实展示） */
+  openDir(path: string): Promise<void>
+  /** 网页缓存占用（字节） */
+  cacheUsage(): Promise<number>
+  /** 清网页缓存，返回**实际**释放的字节数（删不掉的占用不算成绩） */
+  clearCache(): Promise<number>
+}
+
 export interface PlatformKit {
   storage: StoragePort
   network: NetworkPort
@@ -291,6 +315,8 @@ export interface PlatformKit {
   assetFolder?: AssetFolderPort
   /** 自动更新。**可选**：只有桌面壳有（浏览器里没有"安装新版本"这回事） */
   updater?: UpdatePort
+  /** 存储管理（数据目录路径 / 打开目录 / 网页缓存）。**可选**：只有桌面壳有 */
+  storageAdmin?: StorageAdminPort
   /** 素材传输（图床）：把本地字节换成公网直链；没配图床时 `upload` 返回 null */
   hosting: HostingPort
   credentials: CredentialPort

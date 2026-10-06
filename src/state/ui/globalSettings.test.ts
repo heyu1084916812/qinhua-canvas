@@ -67,8 +67,9 @@ describe('globalSettings · 全局设置浮层', () => {
     off()
   })
 
-  it('★ 子菜单两栏与内容一一对应（标签与内容一处定义）', () => {
-    expect(GLOBAL_SETTINGS_SECTIONS.map((s) => s.id)).toEqual(['channels', 'hosting'])
-    expect(GLOBAL_SETTINGS_SECTIONS.map((s) => s.label)).toEqual(['渠道配置', '素材传输'])
+  it('★ 子菜单三栏与内容一一对应（标签与内容一处定义）', () => {
+    // 顺序即浮层里那排标签的顺序：渠道配置 / 素材传输 / 存储（#259 + #261）
+    expect(GLOBAL_SETTINGS_SECTIONS.map((s) => s.id)).toEqual(['channels', 'hosting', 'storage'])
+    expect(GLOBAL_SETTINGS_SECTIONS.map((s) => s.label)).toEqual(['渠道配置', '素材传输', '存储'])
   })
 })
