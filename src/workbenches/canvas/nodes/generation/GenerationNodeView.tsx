@@ -67,11 +67,7 @@ export function GenerationNodeView(props: NodeViewProps) {
    * 决策本身是纯函数（`assetBoxCorrection`，带单测），这里只负责把元数据喂给它。
    */
   const reportNatural = (width: number, height: number) => {
-    const fix = assetBoxCorrection(
-      { w: props.node.w, h: props.node.h },
-      data,
-      { width, height },
-    )
+    const fix = assetBoxCorrection({ w: props.node.w, h: props.node.h }, { width, height })
     if (!fix) return
     props.emit({
       type: 'updateData',

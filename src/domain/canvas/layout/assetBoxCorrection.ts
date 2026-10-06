@@ -1,5 +1,5 @@
 import type { Size } from '../geometry/rect'
-import { ASSET_NODE_MAX_SIDE, assetNodeSize, ratioNodeSize } from './assetNodeSize'
+import { ASSET_NODE_MAX_SIDE, assetNodeSize } from './assetNodeSize'
 import { NODE_MINIMUMS } from './constants'
 
 /** 比例一致到这一档就不再动（`assetNodeSize` 会把像素四舍五入，比像素更严会反复纠正） */
@@ -43,7 +43,6 @@ export interface AssetBoxCorrection {
  */
 export function assetBoxCorrection(
   box: Size,
-  data: { naturalSize?: LearnedSize; ratio?: string } | null | undefined,
   learned: LearnedSize | null | undefined,
   type: keyof typeof NODE_MINIMUMS = 'generation',
   maxSide: number = ASSET_NODE_MAX_SIDE,
@@ -53,7 +52,6 @@ export function assetBoxCorrection(
   if (!w || !h || w <= 0 || h <= 0) return null
   const naturalSize = { width: Math.round(w), height: Math.round(h) }
 
-  const min = NODE_MINIMUMS[type]
   const target = assetNodeSize(naturalSize, type, maxSide)
 
   /**
@@ -67,16 +65,17 @@ export function assetBoxCorrection(
   if (Math.abs(box.w / box.h - w / h) <= RATIO_TOLERANCE) return null
 
   /**
-   * 只纠**机器给的框**，不碰用户手拉的框。三个可判定的"机器形状"：
-   *  ① 就是该类型的默认框（`NODE_MINIMUMS`）；
-   *  ② 按**请求比例**算出来的框（`ratioNodeSize(data.ratio)`）；
-   *  ③ **宽度恰好等于默认宽度** —— 用户拉手柄会同时改两个方向，宽度分毫不动说明没人拉过。
+   * **一律纠正**，不再区分"机器给的框 / 用户手拉的框"（2026-10-06 第三版修正）。
+   *
+   * 上一版只纠"机器形状"的框（默认框 / 请求比例框 / 宽度恰为 240），理由是"别碰用户的决定"。
+   * 但用户实测「长图仍然上下游漏白」——复现出来正是**框宽不是 240** 的那一种
+   * （260×470 的框配 944×1665 的图 ⇒ 上下各 6.5px 白边）。
+   *
+   * 而那类框**不可能来自用户**：§6.16 的 `resizeLockOf` 对有内容的图片 / 视频节点
+   * 一律按产物真实像素锁比（拖手柄也只能等比缩放），所以错误比例只可能来自旧版本或某条创建路径。
+   * 换句话说这里的"纠正"**没有对手** —— 它不是推翻用户的决定，而是补齐 §6.16 已经承诺、
+   * 却只有"拖动"那一条路兑现了的规则。用户的原话也点得很准：
+   * 「长图漏白是在画布节点内部漏白，灯箱是正常展示整张图」——灯箱按真实比例，节点就该一样。
    */
-  const requested =
-    data?.ratio && data.ratio !== 'auto' ? ratioNodeSize(data.ratio, type, maxSide) : null
-  const machineMade =
-    (box.w === min.w && box.h === min.h) ||
-    (requested !== null && box.w === requested.w && box.h === requested.h) ||
-    box.w === min.w
-  return machineMade ? { naturalSize, size: target } : { naturalSize }
+  return { naturalSize, size: target }
 }

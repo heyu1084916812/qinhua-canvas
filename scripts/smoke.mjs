@@ -19090,7 +19090,7 @@ async function g112(browser) {
   await sleep(500)
 
   const seeded = await page.evaluate(
-    async ({ pngB64 }) => {
+    async ({ pngB64, tallPngB64 }) => {
       const openDb = () =>
         new Promise((resolve, reject) => {
           const req = indexedDB.open('qinghua')
@@ -19108,6 +19108,9 @@ async function g112(browser) {
         })
 
       const png = new Uint8Array(await (await fetch(`data:image/png;base64,${pngB64}`)).arrayBuffer())
+      const tallPng = new Uint8Array(
+        await (await fetch(`data:image/png;base64,${tallPngB64}`)).arrayBuffer(),
+      )
 
       // 16:9 的 webm：canvas 画一帧 → MediaRecorder 录约 0.7s
       let videoBytes = null
@@ -19140,6 +19143,15 @@ async function g112(browser) {
       const assets = [
         { id: 'ratio-img', hash: 'ratio-img', mime: 'image/png', bytes: png, width: 64, height: 36 },
       ]
+      /** 长图替身：与用户那张 944×1665 同比例（236/416 ≈ 0.567） */
+      assets.push({
+        id: 'ratio-tall',
+        hash: 'ratio-tall',
+        mime: 'image/png',
+        bytes: tallPng,
+        width: 236,
+        height: 416,
+      })
       if (videoBytes) {
         assets.push({ id: 'ratio-vid', hash: 'ratio-vid', mime: 'video/webm', bytes: videoBytes })
       }
@@ -19185,11 +19197,28 @@ async function g112(browser) {
       wrongBox.h = 460
       wrongBox.data.naturalSize = { width: 64, height: 36 }
       nodes.push(wrongBox)
+
+      /**
+       * 第五个：**用户实测那张长图**（对账 #288 的复现）。
+       *
+       * 944×1665 的竖图配一个**宽度不是 240** 的框（260×470）——这正是 v2 判据漏掉的那一档：
+       * 上一版只纠"默认框 / 请求比例框 / 宽度恰为 240 的框"，于是这种框一条都不纠，
+       * 上下各留 ~6.5px 白边（用户看到的"长图上下游漏白"）。
+       * 这里用同比例（236×416 ≈ 0.567）的小图替身，省得冒烟拖一张 4.7MB 的图。
+       */
+      const tall = node('n-g112-tall', 2100, '长图', 'image', 'ratio-tall')
+      tall.w = 260
+      tall.h = 470
+      tall.data.naturalSize = { width: 236, height: 416 }
+      nodes.push(tall)
       if (videoBytes) nodes.push(node('n-g112-vid', 900, '导入的视频', 'video', 'ratio-vid'))
       await put('nodes', nodes)
       return { video: !!videoBytes, videoBytes: videoBytes?.length ?? 0 }
     },
-    { pngB64: solidPngBuffer(64, 36).toString('base64') },
+    {
+      pngB64: solidPngBuffer(64, 36).toString('base64'),
+      tallPngB64: solidPngBuffer(236, 416).toString('base64'),
+    },
   )
 
   await page.goto(`${BASE}/canvas/p-g112`, { waitUntil: 'networkidle' })
@@ -19223,7 +19252,12 @@ async function g112(browser) {
         bands,
       }
     }
-    return { img: of('n-g112-img'), vid: of('n-g112-vid'), wrongbox: of('n-g112-wrongbox') }
+    return {
+      img: of('n-g112-img'),
+      vid: of('n-g112-vid'),
+      wrongbox: of('n-g112-wrongbox'),
+      tall: of('n-g112-tall'),
+    }
   })
   /**
    * 上下白边 < 2px 才算"没有空隙"（1px 是框描边，肉眼看不见也说不上是留白）；
@@ -19256,6 +19290,18 @@ async function g112(browser) {
     '★★ 记录对、框错（240×460）也要纠正 —— 白边只看框的比例，跟记录写没写对无关',
     ratio169(boxes.wrongbox) && bandFree(boxes.wrongbox),
     `node=${boxes.wrongbox?.node?.w}×${boxes.wrongbox?.node?.h} 白边=${boxes.wrongbox?.bands}px`,
+  )
+
+  /**
+   * ★★ 长图（对账 #288 的复现档）：框宽**不是 240** 时上一版不纠，于是上下各留 ~6.5px 白边
+   * —— 用户画布上那张 944×1665 就是这一档。现在一律按真实比例纠正。
+   */
+  const tallRatio = boxes.tall ? boxes.tall.node.w / boxes.tall.node.h : 0
+  rec(
+    g,
+    '★★ 长图（框宽不是 240 的那一档）也按真实比例纠正：白边 ≈ 0',
+    bandFree(boxes.tall) && Math.abs(tallRatio - 236 / 416) < 0.01,
+    `node=${boxes.tall?.node?.w}×${boxes.tall?.node?.h} 比例=${tallRatio.toFixed(4)} 期望≈${(236 / 416).toFixed(4)} 白边=${boxes.tall?.bands}px`,
   )
 
   /** 真实像素也要**记下来**：以后"复制 / 脱容器 / 按原比例重排"都靠它，不能只改框不记 */
