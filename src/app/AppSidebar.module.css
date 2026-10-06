@@ -422,3 +422,48 @@
 .themeBtn {
   width: 100%;
 }
+
+/*
+ * 底部「全局设置」按钮（用户 2026-10-06，对账 #259）：
+ * 外观与一级导航项**同源**（40px 高、同圆角、同色），因为它在语义上也是一次"去哪儿"，
+ * 只是走的不是路由而是浮层。收起态与「新建项目」同一处理：只剩图标、居中。
+ */
+.footBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 40px;
+  padding: 0 var(--space-2);
+  box-sizing: border-box;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--sidebar-nav);
+  font-family: var(--font-sans);
+  font-size: var(--fs-nav);
+  line-height: var(--lh-nav);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.footBtn:hover {
+  background: var(--bg-hover);
+}
+
+/* 浮层开着时点亮 —— 它没有路由，高亮只能靠这个状态 */
+.footBtnOn {
+  background: var(--bg-hover);
+  font-weight: 600;
+}
+
+.rail:not(.railOpen) .footBtn {
+  justify-content: center;
+  padding: 0;
+}
+
+.footBtnText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -18,8 +18,14 @@ import { CatLogo } from './CatLogo'
 import { NAV, type NavItem } from './nav'
 import {
   IconNewProject,
+  IconSettings,
   IconSidebarToggle,
 } from './AppSidebarIcons'
+import {
+  getGlobalSettings,
+  openGlobalSettings,
+  subscribeGlobalSettings,
+} from '../state/ui/globalSettings'
 import styles from './AppSidebar.module.css'
 
 /**
@@ -72,6 +78,12 @@ export function AppSidebar() {
    * `getSidebarOpen()`，只订阅 `open` 的话按钮的 `aria-pressed` 会停在旧值）。
    */
   const pinned = useSyncExternalStore(subscribeSidebar, getSidebarPinned, getSidebarPinned)
+  /** 「全局设置」按钮的高亮：浮层开着就算选中（它没有路由，判据只能来自这份状态）。 */
+  const settingsOpen = useSyncExternalStore(
+    subscribeGlobalSettings,
+    () => getGlobalSettings().open,
+    () => getGlobalSettings().open,
+  )
 
   /**
    * 悬停展开 / 收起的**延迟计时器**（用户 2026-10-06：要"顺滑"，不要 0 延迟）。
@@ -261,6 +273,27 @@ export function AppSidebar() {
 
       {/* 底部：主题切换常驻（用户 2026-09-27：主题放侧栏底部；收起态也保留图标位） */}
       <div className={styles.foot}>
+        {/*
+          全局设置（用户 2026-10-06，对账 #259）：**排在「检查更新」上方**，
+          打开的是浮层而不是跳页 —— 所以在侧栏底部这一组里，它跟"检查更新 / 主题"
+          一样属于"全局入口"，而不是一级导航。
+        */}
+        <button
+          type="button"
+          className={
+            settingsOpen ? `${styles.footBtn} ${styles.footBtnOn}` : styles.footBtn
+          }
+          data-sidebar-settings
+          aria-haspopup="dialog"
+          aria-expanded={settingsOpen}
+          title="全局设置"
+          onClick={() => openGlobalSettings('channels')}
+        >
+          <span className={styles.itemIcon} aria-hidden="true">
+            <IconSettings size={20} />
+          </span>
+          {open && <span className={styles.footBtnText}>全局设置</span>}
+        </button>
         {/* 自动更新入口（方案 §5）：浏览器里没有这一项，按钮自己消失 */}
         <UpdateButton open={open} />
         <ThemeToggle compact={!open} className={styles.themeBtn} />

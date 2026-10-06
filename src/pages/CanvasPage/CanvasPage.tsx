@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import { usePlatform } from '../../app/providers/PlatformProvider'
+import { openGlobalSettings } from '../../state/ui/globalSettings'
 import {
   flushOnPageHide,
   broadcastWrite,
@@ -276,12 +277,15 @@ function CanvasProject({ projectId }: { projectId: string }) {
     }
   }
 
-  /** 去后台设置：带上来来源路径，设置页据此把返回按钮指回本项目（而不是丢回首页） */
-  // useCallback：回调引用稳定，画布表面（memo 子树）不会因为父级重渲被白跑一轮
-  const openSettings = useCallback(
-    () => navigate('/settings', { state: { from: location.pathname } }),
-    [navigate, location.pathname],
-  )
+  /**
+   * 去后台设置（用户 2026-10-06 改，对账 #259）：现在是**打开全局设置浮层并直接落到
+   * 「渠道配置」**，而不是跳页 —— 用户明确「不单单是打开浮层」。
+   *
+   * 顺带清掉一处**死参数**：旧实现带 `state.from` 说"设置页据此把返回指回来"，
+   * 但设置页的返回按钮早在 2026-09-27 就去掉了（导航归侧栏）—— 那个参数没有任何地方读。
+   * 改成浮层之后，"从哪来的"这个问题本身消失了：关掉浮层就回到画布，无需记来源。
+   */
+  const openSettings = useCallback(() => openGlobalSettings('channels'), [])
 
   return (
     <CanvasStoreProvider store={store}>

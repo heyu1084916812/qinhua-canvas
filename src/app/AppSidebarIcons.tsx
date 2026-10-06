@@ -108,3 +108,24 @@ export function IconNewProject({ size = 18 }: IconProps) {
     </svg>
   )
 }
+
+/** 全局设置：两条带旋钮的滑块（比齿轮更好认、也更好画） */
+export function IconSettings({ size = 20 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <path d="M4 8h9M19 8h1" />
+      <path d="M4 16h1M11 16h9" />
+      <circle cx="16" cy="8" r="2.1" />
+      <circle cx="8" cy="16" r="2.1" />
+    </svg>
+  )
+}
+
+/** 关闭（浮层右上角）：一个叉 */
+export function IconClose({ size = 18 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" />
+    </svg>
+  )
+}

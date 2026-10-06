@@ -3868,30 +3868,53 @@ async function g42(browser) {
     await sleep(600)
   }
 
-  // 1) 侧栏「渠道配置」→ 设置页
   /*
-   * ⚠️ 2026-09-27 应用壳改版（产品文档 §2.1 / §6.2）：
-   * 各页自己的全局顶栏已去掉，导航出口统一由**应用壳左侧功能栏**承担。
-   * 所以这里不再找「首页顶栏的后台设置按钮」，改为点侧栏的一级导航项。
-   * 断言的**意图不变**：这个入口存在、且能到 `/settings`。
+   * 1) 侧栏底部「全局设置」→ 打开浮层里的设置
+   *
+   * 这个入口搬过两次家，但**断言的意图一直没变**：它存在、且能到设置。
+   *  - 2026-09-27：从"首页顶栏的后台设置按钮" → 侧栏一级导航「渠道配置」（跳页）；
+   *  - 2026-10-06（对账 #259）：→ 侧栏底部「全局设置」**浮层**（不跳页）。
+   *    所以判据从"URL 变成 /settings"换成"浮层里出现设置卡片 + URL 没变"。
    */
   await page.goto(BASE, { waitUntil: 'networkidle' })
   await sleep(400)
   await ensureSidebarOpen(page)
-  await page.locator('[data-sidebar-item="/settings"]').click()
-  await page.waitForURL(/\/settings/)
-  rec(g, '侧栏「渠道配置」可进入设置页', page.url().includes('/settings'))
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(500)
+  rec(
+    g,
+    '侧栏底部「全局设置」能到设置（浮层形态，**不跳页**）',
+    (await page.locator('[data-global-settings-panel] [data-settings-card]').count()) >= 1 &&
+      !page.url().includes('/settings'),
+    `url=${page.url()}`,
+  )
   /*
    * ★ 设置页的「← 返回」按钮**已按用户要求移除**（2026-09-27）：
    * 「工作区的返回按钮都可以不用了，目前可以直接在侧边栏进行替换了」。
    *
    * 所以这里**反过来断言它不存在** —— 少了这条，将来有人「顺手加回去」
-   * 就会多出第二套导航，而没有断言会拦住它。
+   * 就会多出第二套导航，而没有断言会拦住它。（浮层形态下更彻底：
+   * 用户 2026-10-06 明确「关掉就是返回当前的浏览了，所以不需要返回浏览」。）
    */
   rec(
     g,
-    '★ 设置页不再有自己的「← 返回」（导航归侧栏）',
+    '★ 设置里不再有自己的「← 返回」（关掉浮层即返回）',
     (await page.locator('[data-settings-back]').count()) === 0,
+  )
+  // 关掉浮层，后面的步骤照常往下走
+  await page.keyboard.press('Escape')
+  await sleep(300)
+  rec(g, '关掉浮层后回到原页面（Esc 有效）', (await page.locator('[data-global-settings]').count()) === 0)
+  /*
+   * ★ 顺带钉住"路由保留"这条决定（对账 #259）：书签 / 深链 / 自动化探针都还在用它，
+   * 删掉是把一条可用入口打断。浮层是**新的主入口**，不是"唯一入口"。
+   */
+  await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+  await sleep(500)
+  rec(
+    g,
+    '★ /settings 深链仍可达（路由保留）',
+    (await page.locator('[data-settings-card]').count()) >= 1,
   )
 
   // 2) 模板建一个画布项目，记住 URL 供后面比对
@@ -3910,16 +3933,35 @@ async function g42(browser) {
    *
    * 能力本身没有消失，只是换了宿主（§6.2 的迁移表）：
    *   品牌 / 返回首页 → 侧栏 Logo（此处不承担返回职责，回首页走导航项）
-   *   后台设置        → 一级导航「渠道配置」
+   *   后台设置        → 侧栏底部「全局设置」（2026-10-06 起是浮层，见 #259）
    * 所以改为断言**新宿主**，并补一条「旧顶栏确实不在」的护栏。
    */
   await ensureSidebarOpen(page)
   rec(g, '应用壳侧栏在全路由常驻', (await page.locator('[data-app-sidebar]').count()) === 1)
+  /**
+   * 后台设置入口在 2026-10-06 又搬了一次家（对账 #259）：
+   * 从「一级导航『渠道配置』」→ **侧栏底部的「全局设置」按钮**（打开浮层，不跳页）。
+   * 所以这条断言换成新宿主 + 新形态，并把它**真的打开一次**当作证据。
+   */
   rec(
     g,
-    '★ 侧栏「渠道配置」就是原来的后台设置入口',
-    (await page.locator('[data-sidebar-item="/settings"]').count()) === 1,
+    '★ 侧栏底部的「全局设置」是后台设置入口（不再是某个一级导航项）',
+    (await page.locator('[data-sidebar-settings]').count()) === 1 &&
+      (await page.locator('[data-sidebar-item="/settings"]').count()) === 0,
   )
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(400)
+  rec(
+    g,
+    '★★ 点它打开全局设置浮层，且落在「渠道配置」',
+    (await page.locator('[data-global-settings]').count()) === 1 &&
+      (await page.locator('[data-global-settings-panel] [data-settings-card]').count()) >= 1 &&
+      (await page.locator('[data-global-settings-tab="channels"]').getAttribute('aria-pressed')) ===
+        'true',
+  )
+  await page.keyboard.press('Escape')
+  await sleep(300)
+  rec(g, '★ Esc 能关掉浮层（关掉即回到刚才的页面）', (await page.locator('[data-global-settings]').count()) === 0)
   rec(
     g,
     '★ 画布页不再有旧的顶部悬浮栏（§6.2 已去除）',
@@ -3976,10 +4018,36 @@ async function g42(browser) {
       (await page.locator('[data-node-setup-hint]').count()) === 0,
   )
 
-  // 5) 面板上的出口能直接进设置
+  /*
+   * 5) 面板上的出口能直接进设置
+   *
+   * 2026-10-06 起（对账 #259）它是**打开浮层并落到「渠道配置」**，不再跳页；
+   * 而且浮层是**模态** —— "必须关掉才能点击其他的功能"（用户原话），下面两条各验一半。
+   */
   await hint.first().click()
-  await page.waitForURL(/\/settings/)
-  rec(g, '面板上的出口可进后台设置', page.url().includes('/settings'))
+  await sleep(500)
+  rec(
+    g,
+    '★★ 面板上的出口打开「全局设置」浮层并落在渠道配置（不跳页）',
+    (await page.locator('[data-global-settings]').count()) === 1 &&
+      (await page
+        .locator('[data-global-settings-tab="channels"]')
+        .getAttribute('aria-pressed')) === 'true' &&
+      page.url().includes('/canvas/'),
+    `url=${page.url()}`,
+  )
+  const modalUrl = page.url()
+  await page
+    .locator('[data-sidebar-item="/projects"]')
+    .click({ timeout: 1500 })
+    .catch(() => {})
+  await sleep(300)
+  rec(
+    g,
+    '★★ 模态：浮层开着时点侧栏导航不生效（必须关掉才能点别的）',
+    page.url() === modalUrl,
+    `url=${page.url()}`,
+  )
 
   // 6) 建渠道但**不启用** → 文案必须切换。
   //    这两种情况用户最容易混淆：以为「建过」就等于「配好了」。
@@ -3994,9 +4062,27 @@ async function g42(browser) {
    * 必须有别的路 —— 如果侧栏最近项目不可用，用户就被困在设置页了。
    * 断言的是**回到同一个项目**（URL 相等），不只是「回到了画布」。
    */
+  /*
+   * 浮层形态下"怎么回去"这个问题本身就消失了：**关掉浮层即回到原来那个画布**
+   * （用户 2026-10-06：「本身就是关掉就是返回当前的浏览了」）—— 这条比"找返回按钮"更硬。
+   */
+  await page.keyboard.press('Escape')
+  await sleep(400)
+  rec(
+    g,
+    '★★ 关掉浮层就回到原来那个画布（不需要任何"返回"按钮）',
+    page.url() === canvasUrl,
+    `期望=${canvasUrl} 实际=${page.url()}`,
+  )
+  /*
+   * 而**深链**进 `/settings`（路由按 #259 保留）时，回到画布这条老路径仍然要靠侧栏
+   * 「最近项目」—— 继续钉住它，免得哪天路由还在、回来的路却断了。
+   */
+  await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+  await sleep(500)
   await ensureSidebarOpen(page)
   const recentLink = page.locator('[data-sidebar-recent-item]').first()
-  rec(g, '设置页可从侧栏「最近项目」回画布（替代已删的返回按钮）', (await recentLink.count()) >= 1)
+  rec(g, '深链进设置页后，可从侧栏「最近项目」回画布（替代已删的返回按钮）', (await recentLink.count()) >= 1)
   await recentLink.click()
   await page.waitForURL(/\/canvas\//)
   rec(g, '回到的是原来那个项目（不是新建一个）', page.url() === canvasUrl, `期望=${canvasUrl} 实际=${page.url()}`)
@@ -4006,19 +4092,17 @@ async function g42(browser) {
   const hint2Text = hint2 ? norm(await page.locator('[data-panel-setup-hint]').first().innerText()) : ''
   rec(g, '渠道未启用时文案切换为「都未启用」', hint2Text.includes('未启用'), hint2Text)
 
-  // 7) 侧栏「渠道配置」→ 启用 → 回画布：引导消失，平台下拉出现该渠道
-  //    （原为顶栏的「后台设置」，2026-09-27 起入口归一级导航，见 §6.2 迁移表）
+  // 7) 侧栏底部「全局设置」→ 启用 → 关掉浮层回画布：引导消失，平台下拉出现该渠道
+  //    （入口沿革：顶栏「后台设置」→ 一级导航「渠道配置」→ 侧栏底部「全局设置」浮层）
   await ensureSidebarOpen(page)
-  await page.locator('[data-sidebar-item="/settings"]').click()
-  await page.waitForURL(/\/settings/)
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(500)
   await page.getByText('新建渠道').first().click()
   await sleep(300)
   await page.locator('input[type="checkbox"]').first().check()
   await sleep(400)
-  // 同上：用侧栏最近项目回画布（设置页的返回按钮已移除）
-  await ensureSidebarOpen(page)
-  await page.locator('[data-sidebar-recent-item]').first().click()
-  await page.waitForURL(/\/canvas\//)
+  // 同上：关掉浮层即回到原来的画布（模态形态下这是唯一的"回去"动作）
+  await page.keyboard.press('Escape')
   await sleep(700)
   rec(g, '渠道启用后节点本体仍无参数控件（参数只在面板）', (await page.locator('[data-node-type="generation"] select').count()) === 0)
   await selectGenNode()
@@ -4071,13 +4155,19 @@ async function g42(browser) {
   await ensureSidebarOpen(page)
   rec(
     g,
-    '画布页可从侧栏进入「渠道配置」',
-    (await page.locator('[data-sidebar-item="/settings"]').count()) === 1,
+    '★ 画布页可从侧栏底部「全局设置」进设置（浮层形态）',
+    (await page.locator('[data-sidebar-settings]').count()) === 1,
   )
-  // 点了确实到设置页，才算「入口真的通」
-  await page.locator('[data-sidebar-item="/settings"]').click()
-  await page.waitForURL(/\/settings/, { timeout: 6000 }).catch(() => {})
-  rec(g, '点它确实到设置页', page.url().includes('/settings'), page.url())
+  // 点了确实开出设置面板（浮层），才算「入口真的通」
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(500)
+  rec(
+    g,
+    '★ 点它确实开出设置（浮层，落在渠道配置）',
+    (await page.locator('[data-global-settings-panel] [data-settings-card]').count()) >= 1,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(300)
   rec(
     g,
     '画布页不再有旧的顶部悬浮栏（§6.2）',
@@ -8855,10 +8945,9 @@ async function g69(browser) {
    * B 继承的是最近改过的第二条，而不是列表第一的那条」。
    * 只恢复一条渠道的话，B 只能落到它身上，断言会退化成恒真。
    */
-  // 入口从顶栏换成一级导航（§6.2 迁移表）
+  // 入口沿革：顶栏 → 一级导航 → **侧栏底部「全局设置」浮层**（2026-10-06，对账 #259）
   await ensureSidebarOpen(page)
-  await page.locator('[data-sidebar-item="/settings"]').click()
-  await page.waitForURL(/\/settings/)
+  await page.locator('[data-sidebar-settings]').click()
   await sleep(600)
   await page.locator('[data-channel-item]').first().click()
   await sleep(500)
@@ -8870,12 +8959,10 @@ async function g69(browser) {
     }
   }
   /*
-   * 回画布：设置页的返回按钮已删（2026-09-27），改走侧栏「最近项目」——
-   * 同样保证回到**同一个项目**（最近项目第一条就是刚编辑的那个）。
+   * 回画布：浮层是**模态**，先关掉它 —— 关掉即回到原来的画布（比"找返回按钮"更直接）。
+   * ⚠️ 不关掉的话，侧栏那些按钮全在遮罩底下点不动。
    */
-  await ensureSidebarOpen(page)
-  await page.locator('[data-sidebar-recent-item]').first().click()
-  await page.waitForURL(/\/canvas\//)
+  await page.keyboard.press('Escape')
   await sleep(900)
 
   // 新建 B：必须继承**第二条渠道**那套，而不是列表第一条
@@ -10083,10 +10170,33 @@ async function g80(browser) {
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-sidebar-item')))
   rec(
     g,
-    '★ 七个一级导航且顺序固定（首页/项目/画布/技能库/我的素材/渠道配置/素材传输）',
+    '★ 五个一级导航且顺序固定（首页/项目/画布/技能库/我的素材）',
     JSON.stringify(navIds) ===
-      JSON.stringify(['/', '/projects', '/canvas', '/skills', '/assets', '/settings', '/hosting']),
+      JSON.stringify(['/', '/projects', '/canvas', '/skills', '/assets']),
     navIds.join(','),
+  )
+  /**
+   * 「渠道配置 / 素材传输」在同一轮从一级导航**降级成全局设置浮层的子菜单**（用户 #259），
+   * 入口改到侧栏底部、且**排在「检查更新」上方**（用户明确的位置）。用 y 坐标断言顺序，
+   * 而不是只看有没有那两个元素 —— 位置本身就是需求。
+   */
+  /*
+   * ⚠️ 判据用"**底部那一组的第一个**"，而不是跟 `[data-update-check]` 比 y 坐标：
+   * 「检查更新」是**壳里才有**的按钮（浏览器里没有 updater 端口，它自己不渲染），
+   * 拿它当参照在浏览器里恒为 null。而"全局设置是底部组的第一个子元素"这条
+   * **在任何环境都成立且可验**，等价于用户要的"排在检查更新上方"。
+   */
+  const settingsIsFirstInFoot = await page.evaluate(() => {
+    const btn = document.querySelector('[data-sidebar-settings]')
+    return btn !== null && btn.parentElement?.firstElementChild === btn
+  })
+  rec(
+    g,
+    '★★ 全局设置在侧栏底部，且是底部组的第一个（= 检查更新 / 主题之上）',
+    settingsIsFirstInFoot &&
+      (await page.locator('[data-sidebar-item="/settings"]').count()) === 0 &&
+      (await page.locator('[data-sidebar-item="/hosting"]').count()) === 0,
+    `firstInFoot=${settingsIsFirstInFoot}`,
   )
   // 展开态要有文字（收起态只有图标）
   const firstLabel = (await page.locator('[data-sidebar-item="/"]').innerText()).trim()
@@ -16234,11 +16344,27 @@ async function g97(browser) {
 
   rec(
     g,
-    '★★ 一级导航出现「素材传输」，且页面能打开',
-    /* 侧栏可能处于收起态（此时只有图标、没有文字）⇒ 认稳定锚点，不认文案 */
-    (await page.locator('[data-sidebar-item="/hosting"]').count()) === 1 &&
+    '★★ 素材传输已降级为「全局设置」的子菜单（不再占一级导航），页面照旧能开',
+    /*
+     * 2026-10-06（对账 #259）：它和「渠道配置」一起从一级导航搬进全局设置浮层。
+     * 所以断言从"侧栏有这一项"换成"侧栏**没有**它、但浮层里有这一栏、页面仍可达"。
+     */
+    (await page.locator('[data-sidebar-item="/hosting"]').count()) === 0 &&
       (await page.locator('[data-hosting-page]').count()) === 1,
   )
+  await ensureSidebarOpen(page)
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(500)
+  await page.locator('[data-global-settings-tab="hosting"]').click()
+  await sleep(600)
+  rec(
+    g,
+    '★★ 从「全局设置」浮层能切到「素材传输」那一栏',
+    (await page.locator('[data-global-settings-tab="hosting"]').getAttribute('aria-pressed')) ===
+      'true' && (await page.locator('[data-global-settings-panel] [data-hosting-page]').count()) === 1,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(300)
   rec(
     g,
     '★ 默认「关闭」（不会偷偷把素材传出去）',

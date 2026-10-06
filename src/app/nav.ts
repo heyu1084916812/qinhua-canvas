@@ -1,7 +1,6 @@
 import {
   IconAssets,
   IconCanvas,
-  IconChannels,
   IconHome,
   IconProjects,
   IconSkills,
@@ -26,17 +25,27 @@ export const NAV: NavItem[] = [
   { to: '/canvas', label: '画布', icon: IconCanvas },
   { to: '/skills', label: '技能库', icon: IconSkills },
   { to: '/assets', label: '我的素材', icon: IconAssets },
-  { to: '/settings', label: '渠道配置', icon: IconChannels },
-  /**
-   * 素材传输（图床）：用户 2026-10-03 要求「单独设置一个页面」。
-   * 排在渠道配置之后 —— 两者都是「连接类」配置，先连站、再管素材怎么出去。
-   */
-  { to: '/hosting', label: '素材传输', icon: IconAssets },
 ]
+
+/**
+ * **不再出现在侧栏、但顶栏标题仍要认**的路径（用户 2026-10-06，对账 #259）。
+ *
+ * 「渠道配置」与「素材传输」已降级为**全局设置浮层的子菜单**，故从 `NAV` 里拿掉；
+ * 两条**路由保留** —— 书签、深链与自动化探针都在用它们，删掉是把一条可用入口打断，
+ * 成本为零、收益也为零。
+ */
+const EXTRA_TITLES: Record<string, string> = {
+  '/settings': '全局设置 · 渠道配置',
+  '/hosting': '全局设置 · 素材传输',
+}
 
 /** 当前路径对应的一级标题（顶栏用）。`/canvas/xxx` 这类子路径按前缀匹配。 */
 export function navTitleOf(pathname: string): string {
   if (pathname === '/') return NAV[0].label
+  const extra = Object.entries(EXTRA_TITLES).find(
+    ([to]) => pathname === to || pathname.startsWith(`${to}/`),
+  )
+  if (extra) return extra[1]
   /*
    * 判据与侧栏高亮（`AppSidebar` 的 `isItemActive`）保持一致：
    * 精确相等或「以 `to + /` 开头」——只用 `startsWith(to)` 会让 `/projectsX` 这种

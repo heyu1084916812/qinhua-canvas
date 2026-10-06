@@ -1,0 +1,104 @@
+/**
+ * 全局设置浮层（对账 #259）。
+ *
+ * 层级取 `60`：**高于**所有页面内浮层（灯箱 50 / 素材页 40 / 画布顶栏 10）——
+ * 用户的口径是"必须关掉才能点别的"，那就得压得住它们。
+ */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 遮罩色走令牌：亮色 18% / 暗色 52%（与其它浮层同一来源） */
+  background: var(--scrim);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  /*
+   * 面板尺寸：留出四周的呼吸（与壳层留白同族），并给上下限 ——
+   * 小窗不至于把面板挤扁、大屏不至于铺成整屏（那就不像"浮层"了）。
+   */
+  width: min(1120px, calc(100vw - var(--space-8) * 2));
+  height: min(720px, calc(100vh - var(--space-8) * 2));
+  background: var(--bg-canvas);
+  border-radius: var(--radius-node);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+}
+
+.head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: 0 var(--space-4) 0 var(--space-5);
+  height: 56px;
+  border-bottom: var(--border);
+}
+
+.title {
+  font-size: var(--fs-nav);
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.tab {
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-control);
+  padding: var(--space-1) var(--space-3);
+  font: inherit;
+  font-size: var(--fs-nav);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+}
+
+.tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.tabOn {
+  background: var(--bg-subtle);
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.close {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-control);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+}
+
+.close:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.body {
+  flex: 1 1 auto;
+  /* 两个页面自己管内部滚动；这一层只负责"填满 + 裁圆角" */
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}

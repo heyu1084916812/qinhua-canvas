@@ -1,6 +1,7 @@
 import { useSyncExternalStore, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 import { AppSidebar } from './AppSidebar'
+import { GlobalSettingsOverlay } from './GlobalSettingsOverlay'
 import { UpdateNotice } from './UpdateNotice'
 import { ThumbBackfill } from './ThumbBackfill'
 import { navTitleOf } from './nav'
@@ -66,6 +67,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
       {/* 自动更新的右下角提示条（方案 §5）：浏览器里没有 updater 端口，自己就不渲染 */}
       <UpdateNotice />
+      {/* 全局设置浮层（对账 #259）：挂在这一层，任何路由都能打开 */}
+      <GlobalSettingsOverlay />
       {/* 存量素材缩略图的一次性补图（对账 #232）：没有界面，进画布自动让路 */}
       <ThumbBackfill />
     </div>

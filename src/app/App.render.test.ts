@@ -90,7 +90,14 @@ describe('App 路由整树渲染冒烟', () => {
     /* 新宿主：应用壳侧栏（产品文档 §2.1 / §2.2） */
     expect(html).toContain('data-app-shell')
     expect(html).toContain('data-app-sidebar')
-    expect(html).toContain('data-sidebar-item="/settings"')
+    /*
+     * 后台设置入口 2026-10-06 又搬了一次（对账 #259）：从"一级导航项"变成
+     * **侧栏底部的「全局设置」按钮**（打开浮层）。这条断言守的意图没变 ——
+     * "画布路由下也能摸到设置入口" —— 只把锚点换成新宿主；
+     * 顺带钉住旧锚点**确实不在**（免得两个入口并存、导航出现两套）。
+     */
+    expect(html).toContain('data-sidebar-settings')
+    expect(html).not.toContain('data-sidebar-item="/settings"')
     /* 日志那件事搬到了画布右上角（§6.2） */
     expect(html).toContain('data-canvas-log')
     /*
