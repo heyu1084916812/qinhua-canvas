@@ -47,8 +47,21 @@ export async function importAssetFile(deps: ImportDeps, file?: File): Promise<Im
   const mime = blob.type || 'application/octet-stream'
   // 哈希走 crypto.subtle（异步）：同步 SHA-1 会在几 MB 的图上阻塞主线程几百毫秒
   const hash = await fingerprintBytes(bytes)
-  // 图片补 naturalSize（供「有内容锁原始比例」与节点初始尺寸）；视频尺寸交给解码时再取
-  const size = mime.startsWith('image/') ? await readImageSize(blob, bytes) : null
+  /**
+   * 表 naturalSize（供「有内容锁原始比例」与节点初始尺寸）。
+   *
+   * ⚠️ **视频也要读**（对账 #266）：旧实现这里只处理图片，注释写着「视频尺寸交给解码时再取」，
+   * 而 `assetNodeSize(null)` 的规则是「没有尺寸就别猜，用最小框」⇒ 视频节点一律建成长方 / 方框，
+   * 用户看到的就是「导入视频不按原视频比例」。视频读的是**元数据**（`<video>` 的
+   * `videoWidth/videoHeight`，只解 moov、不解整段），几十毫秒的事。
+   * 读不出来（罕见容器 / 编码）也不会卡住导入：超时即放弃，交给节点显示层的
+   * `assetBoxCorrection` 去补（那条路对图片和视频都成立）。
+   */
+  const size = mime.startsWith('image/')
+    ? await readImageSize(blob, bytes)
+    : mime.startsWith('video/')
+      ? await readVideoSize(blob)
+      : null
   /**
    * 素材库的两个字段在这里带上：`createdAt` 是「这张图什么时候进的库」，
    * `projectId` 是「它属于当前这个项目」。
@@ -133,5 +146,52 @@ async function readImageSize(blob: Blob, bytes: Uint8Array): Promise<ImageSize |
     return size
   } catch {
     return null
+  }
+}
+
+
+/** 读视频元数据的超时：读不出来就放弃，别让「导入」卡在文件选择之后 */
+const VIDEO_META_TIMEOUT_MS = 4000
+
+/**
+ * 取视频的真实像素：挂一个**离屏 `<video>`**，只等 `loadedmetadata`。
+ *
+ * 为什么不自己解析 mp4 盒子：`moov` 可能在文件尾部（未 faststart 的录制文件），
+ * 还得自己处理 webm / mov 三种容器 —— 那等于手写一个解析器，而浏览器本来就带着。
+ * 为什么不是解码：`preload: 'metadata'` 只取头部，不取整段。
+ *
+ * 失败（超时 / 浏览器不吃这个容器）返回 `null` —— 调用方照旧建节点，
+ * 尺寸由节点显示层的纠错补上（对账 #266）。
+ */
+async function readVideoSize(blob: Blob): Promise<ImageSize | null> {
+  if (typeof document === 'undefined' || typeof URL.createObjectURL !== 'function') return null
+  const url = URL.createObjectURL(blob)
+  try {
+    const video = document.createElement('video')
+    video.preload = 'metadata'
+    video.muted = true
+    video.playsInline = true
+    video.src = url
+    return await new Promise<ImageSize | null>((resolve) => {
+      let settled = false
+      const finish = (size: ImageSize | null) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        video.onloadedmetadata = null
+        video.onerror = null
+        resolve(size)
+      }
+      const timer = setTimeout(() => finish(null), VIDEO_META_TIMEOUT_MS)
+      video.onloadedmetadata = () => {
+        const width = video.videoWidth
+        const height = video.videoHeight
+        finish(width > 0 && height > 0 ? { width, height } : null)
+      }
+      video.onerror = () => finish(null)
+    })
+  } finally {
+    // 元数据已经取到（或已放弃）⇒ objectURL 可以放了，`<video>` 不再需要它
+    URL.revokeObjectURL(url)
   }
 }

@@ -13009,6 +13009,54 @@ async function g90(browser) {
   await sleep(700)
   const saveNode = page.locator('[data-node-id="n-g90-save"]')
   rec(g, '保存链路节点已装载', (await saveNode.count()) === 1)
+
+  /**
+   * ★★ 素材操作（清除 / 替换）那颗按钮的图标（用户 2026-10-06 给的参考图）。
+   *
+   * 判据取**几何与部件数**，不取"有没有一个 <svg>"——上一版是两条细描边箭头，
+   * 那样断言也会绿。图标尺寸 = 按钮直径 26px：按原来的 14px 画，箭头会缩成一小撮。
+   */
+  const swapIcon = saveNode.locator('[data-asset-swap-icon]')
+  const swapParts = await swapIcon.evaluate((el) => ({
+    rects: el.querySelectorAll('rect').length,
+    heads: el.querySelectorAll('path[fill="currentColor"]').length,
+  }))
+  /**
+   * ⚠️ 尺寸必须用 **`getBoundingClientRect()`**，不能用 Playwright 的 `boundingBox()`：
+   * 后者对 inline `<svg>` 给的是**绘制内容的盒**（这里正好等于两条箭头的外接矩形 ≈ 14px），
+   * 于是"图标 = 按钮直径"会被误判成失败（第一版就这么红过，还差点以为 CSS 在捣鬼）。
+   */
+  const swapSizes = await saveNode.evaluate((node) => {
+    const icon = node.querySelector('[data-asset-swap-icon]')
+    const btn = node.querySelector('[data-node-asset-menu]')
+    if (!icon || !btn) return null
+    const i = icon.getBoundingClientRect()
+    const b = btn.getBoundingClientRect()
+    return {
+      icon: Math.round(i.width * 10) / 10,
+      btn: Math.round(b.width * 10) / 10,
+      attr: icon.getAttribute('width'),
+    }
+  })
+  rec(
+    g,
+    '★★ 素材操作按钮的图标是实心双箭头（两根轴 + 两个实心头，不是细描边符号）',
+    (await swapIcon.count()) === 1 && swapParts.rects === 2 && swapParts.heads === 2,
+    `rects=${swapParts.rects} heads=${swapParts.heads}`,
+  )
+  rec(
+    g,
+    /*
+     * 图标与按钮**等大**：SVG 取 26（= 按钮直径）、viewBox 16，箭头因此正好占圆的六成出头。
+     * ⚠️ 判据要**相对**，不能写死 26 —— 画布有缩放（G90 这组是缩放后的），
+     * 写死像素就成了"在某个特定缩放下才成立"的断言（第一版这么写，绿得靠运气）。
+     */
+    '★ 图标尺寸 = 按钮直径（按 14px 画，箭头会缩成一小撮）',
+    !!swapSizes &&
+      swapSizes.attr === '26' &&
+      Math.abs(swapSizes.icon / swapSizes.btn - 1) < 0.02,
+    `attr=${swapSizes?.attr} icon=${swapSizes?.icon} btn=${swapSizes?.btn}`,
+  )
   await saveNode.click({ position: { x: 120, y: 20 } })
   await page.waitForTimeout(250)
   await saveNode.locator('[data-node-asset-menu]').click()
@@ -18798,7 +18846,221 @@ async function g111(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111]
+/**
+ * G112 导入素材的节点框必须按**原始比例**（对账 #266）。
+ *
+ * 用户报的两条症状其实是同一件事：导入的图片「上下会有空隙」、视频「不是按照原视频的比例」。
+ * 根因是**尺寸读不到时退化成最小方框 240×240**（`NODE_MINIMUMS.generation`）——
+ * 16:9 的素材落在方框里就上下各留一条白边。
+ *
+ * 种子里**刻意不写 `naturalSize`**：那正是"当年落库时没带宽高的老素材"与
+ * "视频解码前的那一瞬"共同的形状。于是这里验的就是**显示层的纠错链路**：
+ *   ① 图片走 `<img>` 的 `onLoad`；
+ *   ② 视频走 `<video>` 的 `onLoadedMetadata`（导入那一刻读不出尺寸，只能靠它）。
+ *
+ * 判据取**几何**（媒体框的宽高比），不取"有没有写库"：写进库但框没变，用户看到的还是白边。
+ * 视频素材用 `canvas → MediaRecorder` 现场造一段 16:9 的 webm；造不出来就如实跳过并写进详情。
+ */
+async function g112(browser) {
+  const g = 'G112 素材框按原始比例'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  // 先落地一次，让 Dexie 建库（否则直接写表会失败）
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(500)
+
+  const seeded = await page.evaluate(
+    async ({ pngB64 }) => {
+      const openDb = () =>
+        new Promise((resolve, reject) => {
+          const req = indexedDB.open('qinghua')
+          req.onsuccess = () => resolve(req.result)
+          req.onerror = () => reject(req.error)
+        })
+      const db = await openDb()
+      const put = (table, rows) =>
+        new Promise((resolve, reject) => {
+          const tx = db.transaction(table, 'readwrite')
+          const store = tx.objectStore(table)
+          for (const r of rows) store.put(r)
+          tx.oncomplete = () => resolve(true)
+          tx.onerror = () => reject(tx.error)
+        })
+
+      const png = new Uint8Array(await (await fetch(`data:image/png;base64,${pngB64}`)).arrayBuffer())
+
+      // 16:9 的 webm：canvas 画一帧 → MediaRecorder 录约 0.7s
+      let videoBytes = null
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = 320
+        canvas.height = 180
+        const c2d = canvas.getContext('2d')
+        c2d.fillStyle = '#3a7bd5'
+        c2d.fillRect(0, 0, canvas.width, canvas.height)
+        const rec = new MediaRecorder(canvas.captureStream(10), { mimeType: 'video/webm' })
+        const chunks = []
+        const stopped = new Promise((resolve) => {
+          rec.onstop = resolve
+        })
+        rec.ondataavailable = (e) => {
+          if (e.data.size) chunks.push(e.data)
+        }
+        rec.start()
+        await new Promise((r) => setTimeout(r, 700))
+        rec.stop()
+        await stopped
+        const bytes = new Uint8Array(await new Blob(chunks, { type: 'video/webm' }).arrayBuffer())
+        videoBytes = bytes.length > 0 ? bytes : null
+      } catch {
+        videoBytes = null
+      }
+
+      const now = Date.now()
+      const assets = [
+        { id: 'ratio-img', hash: 'ratio-img', mime: 'image/png', bytes: png, width: 64, height: 36 },
+      ]
+      if (videoBytes) {
+        assets.push({ id: 'ratio-vid', hash: 'ratio-vid', mime: 'video/webm', bytes: videoBytes })
+      }
+      await put('assets', assets)
+      await put('projects', [
+        { id: 'p-g112', name: '比例', workbench: 'canvas', createdAt: now, updatedAt: now },
+      ])
+
+      /** 框刻意给**最小方框** 240×240，且 `data` 里**没有** `naturalSize` —— 这就是要修的形状 */
+      const node = (id, x, title, mode, hash) => ({
+        id,
+        projectId: 'p-g112',
+        type: 'generation',
+        parentId: null,
+        x,
+        y: 180,
+        w: 240,
+        h: 240,
+        title,
+        disabled: false,
+        data: {
+          mode,
+          assetHash: hash,
+          prompt: '',
+          linkedPromptNodeIds: [],
+          ratio: '1:1',
+          count: 1,
+          thumbOrder: [hash],
+          upstreamHidden: [],
+        },
+      })
+      const nodes = [node('n-g112-img', 200, '导入的图', 'image', 'ratio-img')]
+      if (videoBytes) nodes.push(node('n-g112-vid', 900, '导入的视频', 'video', 'ratio-vid'))
+      await put('nodes', nodes)
+      return { video: !!videoBytes, videoBytes: videoBytes?.length ?? 0 }
+    },
+    { pngB64: solidPngBuffer(64, 36).toString('base64') },
+  )
+
+  await page.goto(`${BASE}/canvas/p-g112`, { waitUntil: 'networkidle' })
+  await sleep(3200)
+
+  /**
+   * 量两样东西：
+   * ① **节点框**（纠正有没有发生）——期望 427×240（16:9）；
+   * ② **上下白边**（用户看到的症状）——`object-fit: contain` 下，
+   *    图像实际画出来的高度 = 短边受限的等比高度，白边 = (框高 − 画出来高) / 2。
+   *    这一条是**直接量症状**：只断言"框的比例对了"会被 1px 描边之类的巧合蒙过去。
+   */
+  const boxes = await page.evaluate(() => {
+    const of = (id) => {
+      const node = document.querySelector(`[data-node-id="${id}"]`)
+      if (!node) return null
+      const nodeRect = node.getBoundingClientRect()
+      const media = node.querySelector('[data-generation-media]')
+      const mediaRect = media?.getBoundingClientRect()
+      const asset = media?.querySelector('[data-node-asset]')
+      const nw = asset?.naturalWidth || asset?.videoWidth || 0
+      const nh = asset?.naturalHeight || asset?.videoHeight || 0
+      let bands = null
+      if (mediaRect && nw > 0 && nh > 0) {
+        const painted = nh * Math.min(mediaRect.width / nw, mediaRect.height / nh)
+        bands = Math.round(((mediaRect.height - painted) / 2) * 10) / 10
+      }
+      return {
+        node: { w: Math.round(nodeRect.width), h: Math.round(nodeRect.height) },
+        media: mediaRect ? { w: Math.round(mediaRect.width), h: Math.round(mediaRect.height) } : null,
+        bands,
+      }
+    }
+    return { img: of('n-g112-img'), vid: of('n-g112-vid') }
+  })
+  /**
+   * 上下白边 < 2px 才算"没有空隙"（1px 是框描边，肉眼看不见也说不上是留白）；
+   * 比例那条用**相对**判据 —— 画布可能处在非 100% 缩放下，写死像素等于把断言绑在缩放上。
+   */
+  const bandFree = (box) => box?.bands !== null && box.bands < 2
+  const ratio169 = (box) =>
+    !!box?.node?.h && Math.abs(box.node.w / box.node.h - 16 / 9) / (16 / 9) < 0.02
+
+  rec(
+    g,
+    '★★ 图片：尺寸未知 + 默认方框 ⇒ 框自动纠正成 16:9 且**上下没有白边**',
+    ratio169(boxes.img) && bandFree(boxes.img),
+    `node=${boxes.img?.node?.w}×${boxes.img?.node?.h} media=${boxes.img?.media?.w}×${boxes.img?.media?.h} 白边=${boxes.img?.bands}px`,
+  )
+
+  if (seeded.video) {
+    rec(
+      g,
+      '★★ 视频：解码出元数据后框也跟着纠正，且上下没有白边（"视频不按原比例"那条）',
+      ratio169(boxes.vid) && bandFree(boxes.vid),
+      `node=${boxes.vid?.node?.w}×${boxes.vid?.node?.h} 白边=${boxes.vid?.bands}px`,
+    )
+  } else {
+    rec(g, '（本机 MediaRecorder 造不出 webm，视频那条未验）', true, `bytes=${seeded.videoBytes}`)
+  }
+
+  /** 真实像素也要**记下来**：以后"复制 / 脱容器 / 按原比例重排"都靠它，不能只改框不记 */
+  const stored = await page.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('qinghua')
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+    const read = (id) =>
+      new Promise((resolve) => {
+        const tx = db.transaction('nodes', 'readonly')
+        const req = tx.objectStore('nodes').get(id)
+        req.onsuccess = () => resolve(req.result ?? null)
+        req.onerror = () => resolve(null)
+      })
+    return { img: await read('n-g112-img'), vid: await read('n-g112-vid') }
+  })
+  rec(
+    g,
+    '★★ 真实像素回写进节点，且**框的尺寸也落库**（图片：naturalSize 64×36、框 427×240）',
+    stored.img?.data?.naturalSize?.width === 64 &&
+      stored.img?.data?.naturalSize?.height === 36 &&
+      stored.img?.w === 427 &&
+      stored.img?.h === 240,
+    `naturalSize=${JSON.stringify(stored.img?.data?.naturalSize ?? null)} box=${stored.img?.w}×${stored.img?.h}`,
+  )
+  if (seeded.video) {
+    rec(
+      g,
+      '★ 视频的真实像素也回写（320×180）',
+      stored.vid?.data?.naturalSize?.width === 320 && stored.vid?.data?.naturalSize?.height === 180,
+      JSON.stringify(stored.vid?.data?.naturalSize ?? null),
+    )
+  }
+
+  await page.screenshot({ path: `${OUT}/112-g112-ratio.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

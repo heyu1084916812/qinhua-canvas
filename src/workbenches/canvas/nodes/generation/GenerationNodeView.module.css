@@ -277,6 +277,15 @@
   position: relative;
   width: 26px;
   height: 26px;
+  /*
+   * ⚠️ **必须显式给 0**（2026-10-06 实测踩到）：`<button>` 有 UA 默认内边距
+   * （Chrome 是 `1px 6px`），不写这一条时 26px 的按钮**内容区只剩 14px** ——
+   * 图标因此被横向压扁（高度 26、宽度 14），圆里那两条箭头会变形。
+   *
+   * 上一版没暴露是因为图标本身就画成 14px，正好填满被压窄的内容区；
+   * 换成"图标 = 圆底直径"（26）之后立刻就显形了。
+   */
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;

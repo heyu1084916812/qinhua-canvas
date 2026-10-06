@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { GenerationData } from '../../../../domain/canvas/model/node'
+import { assetBoxCorrection } from '../../../../domain/canvas/layout/assetBoxCorrection'
 import type { NodeViewProps } from '../registry'
 import { useAssetThumb } from '../../hooks/useAsset'
 import { AssetMenu } from '../../panels/AssetMenu'
@@ -53,6 +54,35 @@ export function GenerationNodeView(props: NodeViewProps) {
    */
   const [menuOpen, setMenuOpen] = useState(false)
 
+  /**
+   * 媒体**真实像素到手之后**纠正节点框（对账 #266）。
+   *
+   * 用户报的两条症状其实是同一件事：导入的图"上下有空隙"、视频"不按原视频比例"——
+   * 都是**尺寸未知时退化成 240×240 方框**（`NODE_MINIMUMS.generation`），
+   * 宽图落在方框里就上下各留一条白边。
+   *
+   * 为什么在**显示这一层**补而不是在每条导入路径上各修一遍：路径有四条
+   *（拖入画布 / 节点上的上传 / 素材库拖入 / 从生成产物落位），旧实现里视频那条
+   * 就是漏掉的那个 —— 尺寸读不到的那些素材，无论从哪进来，**一张图都逃不过这里**。
+   * 决策本身是纯函数（`assetBoxCorrection`，带单测），这里只负责把元数据喂给它。
+   */
+  const reportNatural = (width: number, height: number) => {
+    const fix = assetBoxCorrection(
+      { w: props.node.w, h: props.node.h },
+      data,
+      { width, height },
+    )
+    if (!fix) return
+    props.emit({
+      type: 'updateData',
+      patch: { naturalSize: fix.naturalSize },
+      ...(fix.size ? { size: fix.size } : {}),
+      // 这是**后台纠错**，不是用户的一次操作：不进撤销栈（否则 Ctrl+Z 会先"撤销尺寸"），
+      // 但仍照常落库（store 对 transient 的语义就是"不建撤销点、照样写"）
+      transient: true,
+    })
+  }
+
   const isVideo = assetIsVideo(mime, data.mode)
   /**
    * 居中覆盖层只表达**本节点自己**的状态：运行中 / 失败（§6.19.5）。
@@ -88,7 +118,11 @@ export function GenerationNodeView(props: NodeViewProps) {
       {data.assetHash ? (
         url ? (
           isVideo ? (
-            <VideoBody url={url} onOpen={() => props.emit({ type: 'openLightbox', assetHash: data.assetHash! })} />
+            <VideoBody
+              url={url}
+              onOpen={() => props.emit({ type: 'openLightbox', assetHash: data.assetHash! })}
+              onNatural={reportNatural}
+            />
           ) : (
             <img
               className={styles.asset}
@@ -96,6 +130,7 @@ export function GenerationNodeView(props: NodeViewProps) {
               alt=""
               draggable={false}
               data-node-asset
+              onLoad={(e) => reportNatural(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)}
               onDoubleClick={() => props.emit({ type: 'openLightbox', assetHash: data.assetHash! })}
             />
           )
@@ -187,22 +222,7 @@ export function GenerationNodeView(props: NodeViewProps) {
               setMenuOpen((v) => !v)
             }}
           >
-            {/*
-              替换素材图标（用户 2026-09-18 参考设计）：两条反向箭头。
-              用内联 SVG 而不是字符——字符在不同字体下形状会飘，
-              而这个图标承担「换一张」的唯一含义，形状必须稳定。
-            */}
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
-              <path
-                d="M3 6.5h7.5a2.5 2.5 0 0 1 0 5H8"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-              />
-              <path d="M5.2 4.2 2.8 6.5l2.4 2.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M13 9.5H5.5a2.5 2.5 0 0 1 0-5H8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              <path d="M10.8 11.8 13.2 9.5l-2.4-2.3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <AssetSwapIcon />
             <span className={styles.tooltip} role="tooltip">
               素材操作
             </span>
@@ -235,7 +255,15 @@ export function GenerationNodeView(props: NodeViewProps) {
 }
 
 /** 视频本体：hover 显示播放 / 暂停（§6.8「视频 hover 显示播放 / 暂停控件」） */
-function VideoBody({ url, onOpen }: { url: string; onOpen: () => void }) {
+function VideoBody({
+  url,
+  onOpen,
+  onNatural,
+}: {
+  url: string
+  onOpen: () => void
+  onNatural: (width: number, height: number) => void
+}) {
   const [playing, setPlaying] = useState(false)
   return (
     <div className={styles.videoWrap}>
@@ -252,6 +280,11 @@ function VideoBody({ url, onOpen }: { url: string; onOpen: () => void }) {
         preload="metadata"
         autoPlay={playing}
         data-node-asset
+        /*
+         * 视频的尺寸**只能在解码到元数据之后才知道**（导入那一刻读不出来），
+         * 所以节点框的纠正必须由这里喂 —— 这就是"视频不按原视频比例"那条的落点。
+         */
+        onLoadedMetadata={(e) => onNatural(e.currentTarget.videoWidth, e.currentTarget.videoHeight)}
         onDoubleClick={onOpen}
       />
       <button
@@ -269,5 +302,54 @@ function VideoBody({ url, onOpen }: { url: string; onOpen: () => void }) {
         {playing ? <IconPause size={14} /> : <IconPlay size={14} />}
       </button>
     </div>
+  )
+}
+
+
+/**
+ * 素材操作（清除 / 替换）那颗按钮的图标 —— **实心圆底 + 两条粗白箭头**，
+ * 按用户 2026-10-06 给的参考图矢量复刻（上一版是两条细描边箭头，用户说"不像换"）。
+ *
+ * 为什么单独导出一个组件而不是内联在 JSX 里：内联的 SVG 只在大组件渲染时才存在，
+ * 而"素材操作"这一段要等 `useAssetThumb` 在 effect 里把 URL 解析出来才挂载 ——
+ * 单测跑的是 SSR（`renderToString`，effect 不执行），内联写法**根本断言不到**
+ * （第一版就这么写过，得到一条永远拿不到目标的红）。抽出来之后形状契约可以单独钉。
+ *
+ * 三个刻意的决定：
+ * 1. **圆底不画在这里** —— 它就是按钮自己的 `--accent` 实底 + `--radius-pill`
+ *    （`.assetMenuTrigger`，26px）。图标再画一遍等于叠第二层，深色主题下会多出
+ *    一圈同色描边，按钮自己的 hover 反馈也会被盖住；
+ * 2. **尺寸取 26 = 按钮直径、viewBox 16**：箭头组横跨 2.9→13.1（= 64% 直径），
+ *    与参考图里"箭头占圆的六成出头"一致；按原来的 14px 画会缩成一小撮；
+ * 3. 颜色**只用 `currentColor`**（= `--accent-text`）⇒ 两套主题自动反转，
+ *    不必为深色主题另画一版（与仓库既有图标同一口径）。
+ *
+ * 形状：轴是带圆角的粗矩形（rx = 半个厚度），头是实心三角 + 同色 `stroke-linejoin: round`
+ * （用描边给填充多边形倒圆角 —— SVG 里最省事的一条路）。头的半高 1.7 ＞ 轴厚 0.9，
+ * 才有"箭头"的形；两条轴心相距 4.8、圆角各吃掉 0.3，**净空隙 0.8** ——
+ * 第一版轴心只相距 4.2，圆角一磨两条就粘在一起（放大对照图里看得出来）。
+ */
+export function AssetSwapIcon() {
+  return (
+    <svg width="26" height="26" viewBox="0 0 16 16" aria-hidden data-asset-swap-icon>
+      {/* 上：向左（轴的外端圆角 + 实心头） */}
+      <rect x="6.6" y="4.7" width="5.8" height="1.8" rx="0.9" fill="currentColor" />
+      <path
+        d="M2.8 5.6 7.4 3.9v3.4z"
+        fill="currentColor"
+        stroke="currentColor"
+        strokeWidth="0.6"
+        strokeLinejoin="round"
+      />
+      {/* 下：向右（与上一条上下镜像，两条轴心相距 4.8） */}
+      <rect x="3.6" y="9.5" width="5.8" height="1.8" rx="0.9" fill="currentColor" />
+      <path
+        d="M13.2 10.4 8.6 8.7v3.4z"
+        fill="currentColor"
+        stroke="currentColor"
+        strokeWidth="0.6"
+        strokeLinejoin="round"
+      />
+    </svg>
   )
 }
