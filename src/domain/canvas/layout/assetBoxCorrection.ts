@@ -1,9 +1,9 @@
 import type { Size } from '../geometry/rect'
-import { ASSET_NODE_MAX_SIDE, assetNodeSize } from './assetNodeSize'
+import { ASSET_NODE_MAX_SIDE, assetNodeSize, ratioNodeSize } from './assetNodeSize'
 import { NODE_MINIMUMS } from './constants'
 
 /** 比例一致到这一档就不再动（`assetNodeSize` 会把像素四舍五入，比像素更严会反复纠正） */
-const RATIO_TOLERANCE = 0.01
+const RATIO_TOLERANCE = 0.005
 
 export interface LearnedSize {
   width: number
@@ -43,7 +43,7 @@ export interface AssetBoxCorrection {
  */
 export function assetBoxCorrection(
   box: Size,
-  data: { naturalSize?: LearnedSize } | null | undefined,
+  data: { naturalSize?: LearnedSize; ratio?: string } | null | undefined,
   learned: LearnedSize | null | undefined,
   type: keyof typeof NODE_MINIMUMS = 'generation',
   maxSide: number = ASSET_NODE_MAX_SIDE,
@@ -53,13 +53,30 @@ export function assetBoxCorrection(
   if (!w || !h || w <= 0 || h <= 0) return null
   const naturalSize = { width: Math.round(w), height: Math.round(h) }
 
-  const known = data?.naturalSize
-  if (known && known.width > 0 && known.height > 0) {
-    const drift = Math.abs(known.width / known.height - w / h)
-    if (drift <= RATIO_TOLERANCE) return null
-  }
-
   const min = NODE_MINIMUMS[type]
-  const boxIsDefault = box.w === min.w && box.h === min.h
-  return boxIsDefault ? { naturalSize, size: assetNodeSize(naturalSize, type, maxSide) } : { naturalSize }
+  const target = assetNodeSize(naturalSize, type, maxSide)
+
+  /**
+   * 判据取**框的比例**（而不是"记着的 naturalSize 比例"）——
+   * 有白边与否只取决于框的比例跟图的比例如不一致，跟记录是否写入无关。
+   *
+   * ⚠️ 第一版拿 `data.naturalSize` 比，于是漏掉一整档真实现象：
+   * **记录是对的、框是错的**（例如渠道没回报宽高时，`commit` 只能用**请求比例**
+   * 定框、`naturalSize` 留空；图回来后框仍是请求比例，`contain` 就露出白边）。
+   */
+  if (Math.abs(box.w / box.h - w / h) <= RATIO_TOLERANCE) return null
+
+  /**
+   * 只纠**机器给的框**，不碰用户手拉的框。三个可判定的"机器形状"：
+   *  ① 就是该类型的默认框（`NODE_MINIMUMS`）；
+   *  ② 按**请求比例**算出来的框（`ratioNodeSize(data.ratio)`）；
+   *  ③ **宽度恰好等于默认宽度** —— 用户拉手柄会同时改两个方向，宽度分毫不动说明没人拉过。
+   */
+  const requested =
+    data?.ratio && data.ratio !== 'auto' ? ratioNodeSize(data.ratio, type, maxSide) : null
+  const machineMade =
+    (box.w === min.w && box.h === min.h) ||
+    (requested !== null && box.w === requested.w && box.h === requested.h) ||
+    box.w === min.w
+  return machineMade ? { naturalSize, size: target } : { naturalSize }
 }

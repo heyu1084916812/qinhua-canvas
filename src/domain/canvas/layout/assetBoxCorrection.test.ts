@@ -51,6 +51,36 @@ describe('assetBoxCorrection', () => {
     expect(fix?.size).toEqual({ w: 427, h: 240 })
   })
 
+  /**
+   * 下面两条是**第二版补上的真空档**（用户 2026-10-06 那张"上下有空隙"的截图逼出来的）：
+   * 第一版只看"记着的 naturalSize 跟真实比例如不一致"，于是**记录正确、框却错**的情况
+   * 一条都不纠 —— 而画布上留不留白边只取决于**框的比例**，跟记录写没写对无关。
+   */
+  it('★★ 框按**请求比例**给的（9:16 → 240×427），真实产物是 16:9 ⇒ 照样纠正', () => {
+    const fix = assetBoxCorrection(
+      { w: 240, h: 427 },
+      { ratio: '9:16' },
+      { width: 1920, height: 1080 },
+    )
+    expect(fix?.size).toEqual({ w: 427, h: 240 })
+  })
+
+  it('★★ 记录是对的、框是错的（240×460）⇒ 也要纠正成产物比例', () => {
+    const fix = assetBoxCorrection(
+      { w: 240, h: 460 },
+      { naturalSize: { width: 944, height: 1664 } },
+      { width: 944, height: 1664 },
+    )
+    expect(fix?.size).toEqual({ w: 240, h: 423 })
+    expect(fix!.size!.w / fix!.size!.h).toBeCloseTo(944 / 1664, 3)
+  })
+
+  it('★ 宽度被拉过（≠ 默认宽度）就是用户的框：只记像素，绝不改', () => {
+    const fix = assetBoxCorrection({ w: 620, h: 400 }, null, { width: 1920, height: 1080 })
+    expect(fix).toEqual({ naturalSize: { width: 1920, height: 1080 } })
+    expect(fix?.size).toBeUndefined()
+  })
+
   it('元数据不可用（0 / 缺失）⇒ 不猜，返回 null', () => {
     expect(assetBoxCorrection({ ...DEFAULT_BOX }, null, { width: 0, height: 1080 })).toBeNull()
     expect(assetBoxCorrection({ ...DEFAULT_BOX }, null, { width: 1920, height: 0 })).toBeNull()

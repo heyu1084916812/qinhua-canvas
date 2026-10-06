@@ -18955,6 +18955,19 @@ async function g112(browser) {
         },
       })
       const nodes = [node('n-g112-img', 200, '导入的图', 'image', 'ratio-img')]
+      /**
+       * 第三个：**记录是对的、框是错的**（用户那张截图逼出来的第二档）。
+       *
+       * 形状取自真实现象：渠道没回报宽高时 `commit` 只能用**请求比例**定框，
+       * 之后也没有人再纠正过 —— 框宽恰好是默认宽度 240（说明用户没拉过手柄），
+       * 但高度是"机器给的错值"460。第一版纠正逻辑只看"记着的 naturalSize 对不对"，
+       * 于是这种框**一条都不纠**，白边照旧。
+       */
+      const wrongBox = node('n-g112-wrongbox', 1500, '框给错了', 'image', 'ratio-img')
+      wrongBox.w = 240
+      wrongBox.h = 460
+      wrongBox.data.naturalSize = { width: 64, height: 36 }
+      nodes.push(wrongBox)
       if (videoBytes) nodes.push(node('n-g112-vid', 900, '导入的视频', 'video', 'ratio-vid'))
       await put('nodes', nodes)
       return { video: !!videoBytes, videoBytes: videoBytes?.length ?? 0 }
@@ -18993,7 +19006,7 @@ async function g112(browser) {
         bands,
       }
     }
-    return { img: of('n-g112-img'), vid: of('n-g112-vid') }
+    return { img: of('n-g112-img'), vid: of('n-g112-vid'), wrongbox: of('n-g112-wrongbox') }
   })
   /**
    * 上下白边 < 2px 才算"没有空隙"（1px 是框描边，肉眼看不见也说不上是留白）；
@@ -19020,6 +19033,13 @@ async function g112(browser) {
   } else {
     rec(g, '（本机 MediaRecorder 造不出 webm，视频那条未验）', true, `bytes=${seeded.videoBytes}`)
   }
+
+  rec(
+    g,
+    '★★ 记录对、框错（240×460）也要纠正 —— 白边只看框的比例，跟记录写没写对无关',
+    ratio169(boxes.wrongbox) && bandFree(boxes.wrongbox),
+    `node=${boxes.wrongbox?.node?.w}×${boxes.wrongbox?.node?.h} 白边=${boxes.wrongbox?.bands}px`,
+  )
 
   /** 真实像素也要**记下来**：以后"复制 / 脱容器 / 按原比例重排"都靠它，不能只改框不记 */
   const stored = await page.evaluate(async () => {
