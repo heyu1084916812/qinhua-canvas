@@ -9,6 +9,7 @@ import {
   getSidebarPinned,
   setSidebarHovering,
   setSidebarPinned,
+  sidebarReservedWidth,
   sidebarWidth,
   subscribeSidebar,
   toggleSidebarPin,
@@ -79,6 +80,23 @@ describe('sidebarState · 应用壳侧栏', () => {
     setSidebarHovering(false)
     expect(getSidebarOpen()).toBe(false)
     expect(storage.getItem(SIDEBAR_PIN_STORAGE_KEY)).toBeNull()
+  })
+
+  it('★★ 悬停不改"布局占位"：只有钉住才推挤工作区（第 13 批「侧栏闪动」的守门人）', () => {
+    // 起手：收起 + 没钉 ⇒ 可见 64 / 占位 64
+    expect(sidebarReservedWidth()).toBe(SIDEBAR_COLLAPSED_W)
+    /*
+     * **悬停展开：可见 240，占位仍是 64** —— 这一条就是"画布不再被推着滑 176px"的全部依据。
+     * 少了它，鼠标一碰侧栏整块画布就会滑一下（用户 2026-10-06 第 13 批第 1 条）。
+     */
+    setSidebarHovering(true)
+    expect(sidebarWidth()).toBe(SIDEBAR_EXPANDED_W)
+    expect(sidebarReservedWidth()).toBe(SIDEBAR_COLLAPSED_W)
+    setSidebarHovering(false)
+    // 钉住：两个量一起变 240（推挤是用户按下去的一次明确动作）
+    setSidebarPinned(true)
+    expect(sidebarWidth()).toBe(SIDEBAR_EXPANDED_W)
+    expect(sidebarReservedWidth()).toBe(SIDEBAR_EXPANDED_W)
   })
 
   it('★★ 常驻优先：锁上之后移开鼠标仍然展开', () => {

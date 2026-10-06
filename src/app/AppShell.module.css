@@ -49,11 +49,28 @@
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
+  /* 侧栏在"悬停预览"时是浮层（absolute）—— 它的定位基准就是这一块 */
+  position: relative;
   /*
    * 这里**不加内边距**：留白只属于工作区（见 `.workspace` 的 margin）。
    * 若加在这一层，侧栏也会跟着缩进 —— 而用户的口径是「左边那一栏不动他」，
    * 侧栏要从顶栏下沿一直贴到窗口底部。
    */
+}
+
+/**
+ * 侧栏的**布局占位**：只占宽、不画东西。
+ *
+ * 为什么需要一个空盒子：侧栏在悬停预览时是 `position: absolute`（浮在画布上，
+ * **不推挤它** —— 见 `AppSidebar.module.css` 里 `data-sidebar-floating` 那一段），
+ * 于是"工作区从哪儿开始"就没人撑着了。宽度取 `--sidebar-w`（= 占位宽度：
+ * 钉住 240 / 否则 64），与侧栏自身的宽度过渡**同节奏**，钉住时两边一起动。
+ */
+.railSlot {
+  /* 带兜底值：`--sidebar-w` 是运行期由 AppShell 内联给的，主题守卫只认"有定义/有兜底"的 var() */
+  flex: 0 0 var(--sidebar-w, 64px);
+  width: var(--sidebar-w, 64px);
+  transition: width var(--dur-panel, 180ms) var(--ease-out, ease-out);
 }
 
 .workspace {

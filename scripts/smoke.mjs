@@ -10186,10 +10186,59 @@ async function g80(browser) {
   const hoveredW = Math.round((await rail.boundingBox()).width)
   rec(g, '★★ 悬停侧栏自动展开到 240px（不用点任何按钮）', hoveredW === 240, `${hoveredW}px`)
 
+  /**
+   * #313 的两条守门断言（用户 2026-10-06 第 13 批第 1 条：
+   * 「左边的菜单栏变成闪动了…我要的是图标不动，…折叠的时候会跳」）。
+   *
+   * ① **悬停不许推挤工作区**：预览是浮层 —— 工作区左缘必须原地不动；
+   * ② **图标一个都不许动**：展开态与收起态量到的图标中心 x 必须逐个相等。
+   *    以前收起态用 `justify-content: center`（跟着**实时宽度**算），折叠一开头
+   *    图标就被甩到 ~113px，再随宽度滑回来 —— 那正是用户看到的那一跳。
+   */
+  const iconCenters = () =>
+    page.evaluate(() =>
+      [
+        '[data-sidebar-logo]',
+        '[data-sidebar-new] span',
+        '[data-sidebar-item="/projects"] span',
+        '[data-sidebar-settings] span',
+        '[data-theme-toggle] span',
+      ].map((sel) => {
+        const el = document.querySelector(sel)
+        if (!el) return null
+        const r = el.getBoundingClientRect()
+        return Math.round((r.left + r.width / 2) * 10) / 10
+      }),
+    )
+  const wsLeft = () =>
+    page.evaluate(() => Math.round(document.querySelector('[data-app-workspace]')?.getBoundingClientRect().left ?? -1))
+  const expandedIcons = await iconCenters()
+  const expandedWsLeft = await wsLeft()
+
   await page.mouse.move(900, 500)
   await sleep(600)
   const leftW = Math.round((await rail.boundingBox()).width)
   rec(g, '★★ 移开鼠标自动收回 64px', leftW === 64, `${leftW}px`)
+  const collapsedIcons = await iconCenters()
+  const collapsedWsLeft = await wsLeft()
+  rec(
+    g,
+    '★★ 悬停预览**不推挤**工作区（#313：展开 64→240 时工作区左缘原地不动）',
+    expandedWsLeft === collapsedWsLeft,
+    `悬停时=${expandedWsLeft} 移开后=${collapsedWsLeft}`,
+  )
+  rec(
+    g,
+    '★★ 折叠时图标**一个都不动**（#313：两态图标中心逐个相等）',
+    /*
+     * 容差 1px：图标自己的**字形宽**会有亚像素差（实测主题那枚 31.2 vs 32 —— 字形是 14.64px，
+     * 两态取整方向不同），而用户报的"跳"是 2px 起步、且动画中途会甩到 ~113px。
+     * 卡到 0.5 会把这种无害的亚像素差当成红。
+     */
+    expandedIcons.length === collapsedIcons.length &&
+      expandedIcons.every((x, i) => x !== null && Math.abs(x - (collapsedIcons[i] ?? -1)) <= 1),
+    `展开=${JSON.stringify(expandedIcons)} 收起=${JSON.stringify(collapsedIcons)}`,
+  )
   rec(
     g,
     '★ 悬停不留痕（不写常驻键）',
@@ -12153,7 +12202,16 @@ async function g85(browser) {
   const buttonRect = await firstMenu.boundingBox()
   rec(g, '★ 菜单向上展开、不被卡片裁掉', !!menuRect && !!buttonRect && menuRect.y + menuRect.height <= buttonRect.y + 1, JSON.stringify({ menuRect, buttonRect }))
   await page.keyboard.press('Escape')
-  await page.mouse.click(0, 0)
+  /*
+   * ⚠️ 别再用 `mouse.click(0, 0)` 当"点空白关菜单"（2026-10-06 第 13 批改，对账 #313）：
+   * 浏览器里**没有标题栏** ⇒ (0,0) 就是侧栏的左上角。侧栏改成"悬停时是浮层、不推挤工作区"
+   * 之后，这一点等于把鼠标停在侧栏上：预览铺到 240px，正好盖住「选择项目」按钮（实测它在 x≈168），
+   * 下一次点击会被它拦下 —— Playwright 原话是 `aside … intercepts pointer events`。
+   * 语义不变（还是"点空白关菜单"），只是把落点挪到**真正空着的**工作区左上角，并且先把鼠标移开。
+   */
+  await page.mouse.move(900, 750)
+  await sleep(400)
+  await page.locator('[data-app-workspace]').click({ position: { x: 30, y: 30 } })
   await sleep(200)
 
   await page.locator('[data-project-select-toggle]').click()
@@ -20507,7 +20565,12 @@ try {
     try {
       await gfn(browser)
     } catch (err) {
-      rec(gfn.name, '★ 组内异常（该组没跑完 → 结果不算数）', false, String(err?.message ?? err).slice(0, 200))
+      /**
+       * 细节留 1600 字（原来 200）：Playwright 的点击超时里**最有用的那句**
+       * （谁 intercept 了、元素可不可见）通常在第 6–12 行，截到 200 就正好把它切掉，
+       * 于是"组内异常"只剩一句 Timeout（2026-10-06 实测：靠它定位 #313 的浮层遮挡时白跑一轮）。
+       */
+      rec(gfn.name, '★ 组内异常（该组没跑完 → 结果不算数）', false, String(err?.message ?? err).slice(0, 1600))
     }
   }
 } finally {

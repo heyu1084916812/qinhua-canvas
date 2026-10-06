@@ -6,8 +6,8 @@ import { UpdateNotice } from './UpdateNotice'
 import { ThumbBackfill } from './ThumbBackfill'
 import {
   SIDEBAR_COLLAPSED_W,
-  getSidebarOpen,
-  sidebarWidth,
+  getSidebarPinned,
+  sidebarReservedWidth,
   subscribeSidebar,
 } from './sidebarState'
 import styles from './AppShell.module.css'
@@ -26,7 +26,12 @@ import styles from './AppShell.module.css'
  * 若在壳层里手动「开合时通知画布重算」，反而会漏掉过渡动画中间那几帧。
  */
 export function AppShell({ children }: { children: ReactNode }) {
-  const open = useSyncExternalStore(subscribeSidebar, getSidebarOpen, getSidebarOpen)
+  /*
+   * 只订阅**钉住态**：它才是"要不要推挤工作区"的判据（见下面 `--sidebar-w` 的说明）。
+   * 悬停/展开的可见宽度由侧栏自己管 —— 壳层对"鼠标在不在侧栏上"应该一无所知，
+   * 这样布局就不可能跟着鼠标抖（用户 2026-10-06 第 13 批第 1 条）。
+   */
+  const pinned = useSyncExternalStore(subscribeSidebar, getSidebarPinned, getSidebarPinned)
 
   return (
     <div
@@ -37,7 +42,14 @@ export function AppShell({ children }: { children: ReactNode }) {
        * 不必再去问 JS 状态。它保证「壳层宽度」只有一个来源（sidebarState）。
        */
       style={{
-        ['--sidebar-w' as string]: `${sidebarWidth(open)}px`,
+        /**
+         * ⚠️ 这里是**布局占位**宽度：只有"钉住"才推挤工作区，悬停预览不推。
+         *
+         * 用户 2026-10-06 第 13 批第 1 条「左边的菜单栏变成闪动了」的根因就在这一行：
+         * 悬停也改占位 ⇒ 鼠标一碰侧栏，整块画布被推着滑 176px（实测节点屏幕 x 1668 → 1844），
+         * 移开再滑回来 —— 看着就是"闪"。悬停只是"顺手看一眼"，不该重排整个应用。
+         */
+        ['--sidebar-w' as string]: `${sidebarReservedWidth(pinned)}px`,
         // 顶栏高度要与「侧栏折叠宽度」同值（用户 2026-10-06 定的节奏）：
         // 值来自同一个常量，避免 CSS 里再写死一个 64。
         ['--sidebar-collapsed-w' as string]: `${SIDEBAR_COLLAPSED_W}px`,
@@ -52,6 +64,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       <TitleBar />
       {/* 侧栏与工作区并排（`.body` 左侧不留白：工作区紧贴侧栏，用户 2026-10-06 定） */}
       <div className={styles.body}>
+        {/*
+          侧栏的**布局占位**（只占宽、不画东西）。
+          悬停预览时侧栏是浮层（见 `data-sidebar-floating`），不参与布局 ——
+          位置就由这个空盒子撑着；少了它，工作区会一直顶到窗口最左边。
+        */}
+        <div className={styles.railSlot} aria-hidden="true" />
         <AppSidebar />
         {/*
           工作区。`min-width: 0` 是关键 —— flex 子项的默认 `min-width: auto`

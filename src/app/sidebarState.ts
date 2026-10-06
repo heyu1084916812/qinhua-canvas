@@ -127,6 +127,25 @@ export function sidebarWidth(openState: SidebarOpen = getSidebarOpen()): number 
 }
 
 /**
+ * 布局里**真正占位**的宽度（px）。
+ *
+ * 与 `sidebarWidth` 的分工，是用户 2026-10-06 第 13 批第 1 条逼出来的：
+ * 那条报「左边的菜单栏变成闪动了」—— 实测根因是**悬停展开也把工作区挤窄**，
+ * 于是鼠标一碰侧栏，整块画布就被推着滑 176px（节点屏幕 x 1668 → 1844），
+ * 移开又滑回来。悬停只是"顺手看一眼"，不该重排整个应用。
+ *
+ * 所以拆成两个量：
+ * - **占位**（本函数）：只有**钉住**才推挤工作区 —— 那是用户按下去的一次明确动作；
+ * - **可见**（`sidebarWidth`）：悬停预览照样铺到 240，但它浮在画布上（见侧栏的
+ *   `data-sidebar-floating` 样式）。
+ *
+ * 不传参时按落盘的钉住态算：布局对"鼠标在不在上面"不敏感，才谈得上稳定。
+ */
+export function sidebarReservedWidth(pinned: SidebarOpen = getSidebarPinned()): number {
+  return pinned ? SIDEBAR_EXPANDED_W : SIDEBAR_COLLAPSED_W
+}
+
+/**
  * 仅供测试：把状态复位成「收起 + 未锁定」，并**清掉落盘的那一条**。
  *
  * 为什么需要它：模块级状态会**跨测试用例存活**，一个用例展开了侧栏，

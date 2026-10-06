@@ -169,6 +169,12 @@ export function AppSidebar() {
       data-app-sidebar
       data-sidebar-open={open ? 'true' : 'false'}
       data-sidebar-pinned={pinned ? 'true' : 'false'}
+      /*
+       * 「悬停预览」= 开着但**没钉住**。它决定侧栏是**浮层**还是布局的一部分：
+       * 悬停若也推挤工作区，鼠标一碰侧栏整块画布就滑 176px（实测），
+       * 那正是用户 2026-10-06 第 13 批第 1 条说的「左边的菜单栏变成闪动了」。
+       */
+      data-sidebar-floating={open && !pinned ? 'true' : 'false'}
       /* 悬停即展开（带延迟），移开即收回（延迟更长）—— 见 sidebarState 的两个常量 */
       onMouseEnter={onRailEnter}
       onMouseLeave={onRailLeave}

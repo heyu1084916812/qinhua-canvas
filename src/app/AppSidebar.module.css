@@ -8,15 +8,39 @@
  */
 
 .rail {
-  position: relative;
+  /*
+   * **视觉上的侧栏是浮层，占位由壳层那个空盒子负责**（`AppShell.module.css` 的 `.railSlot`）。
+   *
+   * 为什么不让它自己占位：悬停预览要"铺开但不推挤画布"，而布局占位必须只跟**钉住**走。
+   * 两件事一旦绑在同一个元素上，就只能二选一（让它占位 ⇒ 悬停推画布，实测节点滑 176px；
+   * 让它不占位 ⇒ 钉住时工作区顶到窗口左边）。拆成"占位盒 + 浮层"两个元素，两边都成立：
+   * 占位盒宽度 = 钉住 240 / 否则 64（有过渡），浮层宽度 = 可见宽度（悬停也铺到 240）。
+   */
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  height: auto;
+  z-index: 20;
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   /* 收起态宽度由内联 style 给（来自 sidebarState），这里只兜底 */
   width: 64px;
-  height: 100%;
   box-sizing: border-box;
   padding: var(--space-4) var(--space-3);
+  /**
+   * **图标列的固定左距**（对账 #313，用户 2026-10-06 第 13 批第 1 条：「我要的是图标不动…折叠的时候会跳」）。
+   *
+   * 病灶：收起态的图标靠 `justify-content: center` 居中 —— 而"居中"是**跟着侧栏实时宽度**算的。
+   * 折叠那一瞬宽度还是 240，居中就把图标甩到 ~113px 处，再随宽度一路滑回 32；
+   * 展开态则按左内距 8px 停在 30（差 2px）。实测：折叠后 nav/+/设置/skills 各跳 +2、Logo 跳 −2。
+   *
+   * 修法：**两态改用同一个固定左距**（不再依赖实时宽度），落点 = 收起态"居中"时那个位置
+   * （20px 图标槽 ⇒ 内容盒左 10px ⇒ 图标中心正好压在侧栏中轴 32px）。
+   * 于是图标在整个开合动画里**一动不动**，而收起态看起来仍然是居中的（几何上等价）。
+   */
+  --rail-icon-left: calc((var(--sidebar-collapsed-w, 64px) - var(--space-3) * 2 - 20px) / 2);
   /*
    * Four groups: logo + toggle / new project / nav / recent.
    * Keep gap at 0 so only each group margin-top controls spacing.
@@ -57,6 +81,28 @@
   width: 240px;
 }
 
+/*
+ * **悬停预览：浮在画布上，不推挤它**（用户 2026-10-06 第 13 批第 1 条：
+ * 「左边的菜单栏变成闪动了」）。
+ *
+ * 实测根因：悬停展开也改"布局占位宽"⇒ 鼠标一碰侧栏，工作区左缘从 64 跳到 240、
+ * 画布里的节点屏幕 x 从 1668 滑到 1844；移开再滑回来。用户看到的就是"闪"。
+ *
+ * 口径拆开：
+ * - **悬停**（本规则）= 顺手看一眼 ⇒ 浮层，不重排任何东西；
+ * - **钉住**（按钮按下去的）= 明确动作 ⇒ 照旧推挤工作区（文档 §2.2 的"包围式"不变，
+ *   那条"侧栏是布局的一部分、不能 absolute / 不能有阴影"针对的正是钉住态）。
+ *
+ * 代价（有意为之）：悬浮期间它盖住画布左沿 176px —— 抽屉本来就该是这样；
+ * 而它只在鼠标停着时存在（移开 220ms 后收回）。
+ */
+.rail[data-sidebar-floating='true'] {
+  /* 浮起来就得有"边界感"：与工作区卡片同档圆角 + 一档极轻的投影（令牌，跟随主题） */
+  border-top-right-radius: var(--radius-node);
+  border-bottom-right-radius: var(--radius-node);
+  box-shadow: var(--shadow-float);
+}
+
 /* ── 顶部：Logo + 开合按钮 ── */
 
 .head {
@@ -85,10 +131,13 @@
   width: 28px;
   height: 28px;
   /*
-   * In the expanded state the logo left edge must match the nav icons.
-   * Nav icons sit at --space-2 inside .item, so the logo uses the same value.
+   * 展开态的 Logo 左距要**与收起态落在同一根轴上**（对账 #313）。
+   *
+   * 收起态是"28px 的 Logo 在 40px 内容盒里居中"⇒ 左距 6px；而导航图标那套轴对齐口径
+   * 对 20px 图标槽给出的是 10px —— 所以这里不能直接套 `--rail-icon-left`，
+   * 得把"槽宽差的一半"还回去（`--rail-icon-left - (28 - 20) / 2`），两态才对得齐。
    */
-  margin-left: var(--space-2);
+  margin-left: calc(var(--rail-icon-left) - 4px);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -197,13 +246,20 @@
   position: absolute;
   top: 50%;
   /*
-   * **水平居中**（用户 2026-10-06 第 11 批补：「注意：图标不居中了」）——
-   * 收起态 64px 的侧栏里，Logo 中心要落在中轴（32px）。
-   * 展开态仍按原来的"与导航图标左对齐"（`margin-left: var(--space-2)`）⇒
-   * 两态之间 Logo 会移动 2px，那是"居中"与"左对齐"两套口径的必然差，肉眼不可辨。
+   * **固定左距**，不用 `left: 50%`（对账 #313）。
+   *
+   * 原来这里是 `left: 50%` + `translate(-50%)` —— "居中"算的是**实时宽度**，
+   * 于是折叠动画刚起步（宽度还是 240）时 Logo 被甩到 ~113px，再随宽度滑回来：
+   * 用户看到的就是"折叠的时候会跳"。改成固定值后，位置与宽度无关，全程不动，
+   * 而落点仍然是"28px Logo 在 40px 内容盒里居中"（中心 = 侧栏中轴 32px）。
    */
-  left: 50%;
-  transform: translate(-50%, -50%);
+  /*
+   * ⚠️ 这里的定位基准是 **`.head`**（收起态给它 `position: relative`），
+   * 而 `.head` 已经落在侧栏的内容盒里（左侧内距 12px 之外）——
+   * 所以只算"内容盒内的左距"，别再把这 12px 加一遍（加了就正好多 12px，实测过）。
+   */
+  left: calc((var(--sidebar-collapsed-w, 64px) - var(--space-3) * 2 - 28px) / 2);
+  transform: translateY(-50%);
   margin: 0;
 }
 
@@ -237,9 +293,12 @@
    * 与 `.item` 右边缘重合，同时保持 Logo ↔ 按钮在同一格里悬停互换。
    */
   right: auto;
-  /* 与 Logo 同心：两者都居中（改自 `right: 0`，见 `.logo` 那条的说明） */
-  left: 50%;
-  transform: translate(-50%, -50%);
+  /*
+   * 与 Logo 同心，而且是**固定值**（同样为了"折叠时不跳"，见 `.logo` 那条）。
+   * 34px 的按钮要落在中轴 32px ⇒ 内容盒内左距 = 40/2 − 17 = 3px（同样别再减那 12px 内距）。
+   */
+  left: calc((var(--sidebar-collapsed-w, 64px) - var(--space-3) * 2) / 2 - 17px);
+  transform: translateY(-50%);
   margin: 0;
   /*
    * 收起态用 34×34 的可见/命中区，尺寸与展开态 40px 不同是有意为之：
@@ -282,7 +341,8 @@
   height: 40px;
   /* Group 2: keep 20px below the logo row. */
   margin-top: var(--space-sidebar-group);
-  padding: 0 var(--space-2);
+  /* 左距用"轴对齐"那一档（两态一致 ⇒ 折叠时不动，见 `--rail-icon-left` 的说明） */
+  padding: 0 var(--space-2) 0 var(--rail-icon-left);
   box-sizing: border-box;
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
@@ -368,9 +428,7 @@
  * 文字溢出的部分由 `.rail` 的 `overflow-x: clip` 裁掉、并被上面那条规则淡出。
  */
 .rail:not(.railOpen) .newBtn {
-  justify-content: center;
   gap: 0;
-  padding: 0;
 }
 
 /* ── 一级导航 ── */
@@ -387,7 +445,11 @@
   align-items: center;
   gap: var(--space-2);
   height: 40px;
-  padding: 0 var(--space-2);
+  /*
+   * 左距用"轴对齐"那一档（对账 #313）：展开态与收起态落点相同 ⇒ 折叠时图标不动。
+   * 收起态不再用 `justify-content: center`（那是跟着实时宽度算的，折叠一开头就会把图标甩出去）。
+   */
+  padding: 0 var(--space-2) 0 var(--rail-icon-left);
   box-sizing: border-box;
   border-radius: var(--radius-control);
   color: var(--sidebar-nav);
@@ -440,9 +502,7 @@
 
 /* 收起态：图标居中、文字让位 */
 .rail:not(.railOpen) .item {
-  justify-content: center;
   gap: 0;
-  padding: 0;
 }
 
 /* ── 最近项目 ── */
@@ -521,7 +581,12 @@
   border-top: 1px solid var(--stroke);
   display: flex;
   flex-direction: column;
-  align-items: center;
+  /*
+   * 收起态**左对齐**（不是 center）：里面那枚 40px 的主题方钮要落在内容盒左缘，
+   * 它的中心才正好压在侧栏中轴（12 + 20 = 32）。用 `center` 的话，
+   * 那枚按钮的位置会跟着**侧栏实时宽度**走 —— 折叠动画一开始就从 120px 滑回 32px（对账 #313 实测）。
+   */
+  align-items: flex-start;
   gap: var(--space-1);
 }
 
@@ -545,7 +610,8 @@
   gap: var(--space-2);
   width: 100%;
   height: 40px;
-  padding: 0 var(--space-2);
+  /* 左距用"轴对齐"那一档（两态一致 ⇒ 折叠时不动） */
+  padding: 0 var(--space-2) 0 var(--rail-icon-left);
   box-sizing: border-box;
   border: none;
   border-radius: var(--radius-control);
@@ -570,9 +636,7 @@
 
 /* 收起态：同 `.newBtn` —— 图标钉在列上，不跟着文字居中 */
 .rail:not(.railOpen) .footBtn {
-  justify-content: center;
   gap: 0;
-  padding: 0;
 }
 
 .footBtnText {
@@ -595,5 +659,12 @@
   padding: 0;
   /* 间距也要归零：`gap` 会算进"居中"的宽度里（实测字形会偏 2px） */
   gap: 0;
+  /*
+   * 字形在**这枚 40px 方钮内部**居中（中轴 = 12 + 20 = 32 ✓）。
+   *
+   * 关键不在这条，而在 `.foot` 的 `align-items: flex-start`（对账 #313）：
+   * 只要**按钮自己**的位置与侧栏实时宽度无关，它内部的居中就永远是同一个 32px；
+   * 之前是"按钮被 `align-items: center` 居中在侧栏里" ⇒ 折叠一开头字形从 120px 滑回 32px。
+   */
   justify-content: center;
 }
