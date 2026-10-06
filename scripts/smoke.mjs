@@ -17976,9 +17976,9 @@ async function g103(browser) {
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-multi-action')))
   rec(
     g,
-    '★★ 功能栏六枚动作齐全（排列整理 / 保存到资产 / 创建副本 / 打组 / 下载 / 添加到 agent）',
+    '★★ 功能栏七枚动作齐全（排列整理 / 保存到资产 / 创建副本 / 打组 / 批量 / 下载 / 添加到 agent）',
     JSON.stringify(actions) ===
-      JSON.stringify(['arrange', 'library', 'duplicate', 'group', 'download', 'agent']),
+      JSON.stringify(['arrange', 'library', 'duplicate', 'group', 'batch', 'download', 'agent']),
     actions.join(','),
   )
 
@@ -17997,8 +17997,9 @@ async function g103(browser) {
   )
   rec(
     g,
-    '★ 六枚动作的图标都是内联 SVG（图标位里没有字形）',
-    iconAudit.length === 6 && iconAudit.every((x) => x.svg === 1 && x.text === ''),
+    /* 判据按"每一枚都合规"写，不写死枚数：加一枚动作（如「批量」）时这条不该红 */
+    '★ 每一枚动作的图标都是内联 SVG（图标位里没有字形）',
+    iconAudit.length >= 6 && iconAudit.every((x) => x.svg === 1 && x.text === ''),
     JSON.stringify(iconAudit),
   )
 
@@ -18095,6 +18096,79 @@ async function g103(browser) {
     (await page.locator('[data-node-type="group"]').count()) === groupsBefore,
     `撤销后分组=${await page.locator('[data-node-type="group"]').count()}`,
   )
+
+  /**
+   * ⑥ 批量：把选中的收进一个**批量节点**（用户 2026-10-06 第 13 批第 5 条：
+   * 「需要加一个批量的功能」——「点了把这些变成批量节点」）。
+   * 与打组同一份实现（`wrapSelection`），差别只在容器类型与二选一校验。
+   */
+  await selectTwo()
+  const batchesBefore = await page.locator('[data-node-type="batch"]').count()
+  await page.locator('[data-multi-action="batch"]').click()
+  await sleep(600)
+  const batchesAfter = await page.locator('[data-node-type="batch"]').count()
+  const batchKids = batchesAfter > batchesBefore ? await page.locator(`[data-batch-child-count]`).first().getAttribute('data-batch-child-count') : null
+  rec(
+    g,
+    '★★ 批量：多选收进一个批量节点（子节点计数 2）',
+    batchesAfter === batchesBefore + 1 && batchKids === '2',
+    `批量 ${batchesBefore} → ${batchesAfter} childCount=${batchKids}`,
+  )
+  await page.keyboard.press('Control+z')
+  await sleep(600)
+  rec(
+    g,
+    '★★ 批量可一步撤销（容器与归属一起回退）',
+    (await page.locator('[data-node-type="batch"]').count()) === batchesBefore,
+    `撤销后批量=${await page.locator('[data-node-type="batch"]').count()}`
+  )
+
+  /**
+   * ⑦ 组与节点**同时多选**（用户第 13 批第 5 条：「打组后的分组同样可以被多选，
+   * 例如一个分组和一个节点同时选中的时候，出现的也是多选节点时候的工具栏」）。
+   *
+   * 用**根层节点**配组，别用组内子节点：容器子节点点下去选中的是**容器**
+   * （分组在这里就是"一个整体"，与 Figma 的 group 语义一致 —— 实测：点组内子节点
+   * 选中的是组本身）。所以要凑"组 + 节点"，另一个节点得在组外。
+   */
+  await selectTwo()
+  await page.locator('[data-multi-action="group"]').click()
+  await sleep(700)
+  const mixedGid = await page.locator('[data-node-type="group"]').first().getAttribute('data-node-id')
+  /** 再建一个根层提示词（新建后它自己被选中） */
+  await page.locator('[data-toolbar-add]').click()
+  await sleep(250)
+  await page.locator('[data-toolbar-menu-item="prompt"]').click()
+  await sleep(500)
+  /**
+   * Shift 点**组本体**把组加进选中集合。落点取"底边往内 6px 的中间"：
+   * 四角手柄在四个**角**上、端点在左右边**中点** ⇒ 底边中间那一带是干净的，
+   * 一定命中组本体（点左内边距或标题都可能撞上端点 / 被上方功能栏挡住）。
+   */
+  const gb7 = await page.locator(`[data-node-id="${mixedGid}"]`).boundingBox()
+  await page.keyboard.down('Shift')
+  await page.mouse.click(gb7.x + gb7.width / 2, gb7.y + gb7.height - 6)
+  await page.keyboard.up('Shift')
+  await sleep(450)
+  const mixedSel = await page
+    .locator('[data-node-id]')
+    .evaluateAll((els) => els.filter((e) => e.className.includes('selected')).map((e) => e.getAttribute('data-node-id')))
+  rec(
+    g,
+    '★★ 组与节点同时多选：仍走多选工具栏（不是跟随栏）',
+    mixedSel.includes(mixedGid) &&
+      mixedSel.length >= 2 &&
+      (await page.locator('[data-multi-select-bar]').count()) === 1 &&
+      (await page.locator('[data-node-follow-bar]').count()) === 0,
+    `选中=${mixedSel.join(',')}`,
+  )
+  /** 收尾：撤销上面新建的那个节点 + 打组（后面几段还要用"根层两个提示词"这个前提） */
+  for (let i = 0; i < 2; i += 1) {
+    await page.keyboard.press('Control+z')
+    await sleep(600)
+  }
+  await page.keyboard.press('Escape')
+  await sleep(400)
 
   /** ⑤ 下载：没有素材的节点点了不许抛异常（有素材那条在 G96） */
   await selectTwo()

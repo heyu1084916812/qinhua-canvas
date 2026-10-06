@@ -4,6 +4,7 @@ import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { ARRANGE_MODES } from '../../../domain/canvas/layout/arrangeModes'
 import { useArrangeTools } from '../../../features/canvas/useArrangeTools'
 import { groupNodes } from '../../../features/canvas/groupNodes'
+import { batchNodes } from '../../../features/canvas/groupNodes'
 import { saveAssetToLibrary } from '../../../features/canvas/saveAssetToLibrary'
 import { noOverlapDelta } from '../../../features/canvas/duplicatePlacement'
 import { sendSelectionToAgent } from '../../../features/canvas/agentHandoff'
@@ -15,6 +16,7 @@ import {
   IconDuplicate,
   IconGridArrange,
   IconGroup,
+  IconBatch,
   IconMention,
   IconStar,
 } from './icons'
@@ -142,6 +144,20 @@ export function MultiSelectBar({
     if (groupNodes(store, selection)) store.showUndoBar('已打组')
   }, [selection, store])
 
+  /**
+   * 「批量」（用户 2026-10-06 第 13 批第 5 条：「需要加一个批量的功能」——
+   * 点了把选中的收进一个**批量节点**）。
+   *
+   * 与「打组」挨着放：两者都是"把这一批收进一个容器"，差别只在容器语义
+   * （分组 = 打包成一次请求；批量 = 每个素材各来一次）。混装提示词与素材时
+   * 整批拒绝并说明原因（`canAcceptIntoBatch` 的二选一），不静默收一半。
+   */
+  const batch = useCallback(() => {
+    const r = batchNodes(store, selection)
+    if (r.ok) store.showUndoBar('已收进批量节点')
+    else store.notify(r.reason)
+  }, [selection, store])
+
   if (nodes.length < 2) return null
 
   /** 选区在**屏幕坐标**下的外框（与跟随栏同一套换算：屏幕 =（世界 − 视口）× zoom） */
@@ -207,6 +223,7 @@ export function MultiSelectBar({
           onClick={duplicate}
         />
         <BarButton action="group" label="打组" icon={<IconGroup size={16} />} onClick={group} />
+        <BarButton action="batch" label="批量" icon={<IconBatch size={16} />} onClick={batch} />
         <BarButton
           action="download"
           label="下载"
