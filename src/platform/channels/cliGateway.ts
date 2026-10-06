@@ -35,6 +35,17 @@ export interface CliGatewayConfig extends SafeChannelConfig {
 export const CLI_GATEWAY_NOTE =
   'CLI 类协议需要你先跑一个网关（把本机 CLI 包成 OpenAI 兼容 HTTP），这里填它的地址。'
 
+/**
+ * 浏览器里那条路必须有网关地址（对账 #308）。
+ *
+ * 为什么单独写这条：CLI 族现在是**双形态**的 —— 桌面壳直接起本机命令（不需要地址），
+ * 浏览器只能连自建网关（必须有地址）。所以"地址为空"这件事不能含糊过去
+ * （去 fetch 一个空地址只会得到一句看不懂的 `Failed to fetch`），
+ * 而要明确告诉用户：**要么填网关地址，要么用桌面版**。
+ */
+const GATEWAY_MISSING =
+  '浏览器里跑不了本机命令：这里要填你自建网关的地址；用桌面版则不用填，它会直接跑本机命令。'
+
 export function createCliGatewayAdapter(
   config: CliGatewayConfig,
   deps: ChannelDeps,
@@ -47,12 +58,30 @@ export function createCliGatewayAdapter(
   const verifier = chat ?? images
   if (!verifier) throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
 
+  const gatewayMissing = () => !config.baseUrl.trim()
+  const assertGateway = () => {
+    if (gatewayMissing()) {
+      throw new ChannelError({ kind: 'validation', field: '地址', reason: GATEWAY_MISSING })
+    }
+  }
+
   return {
     protocol: config.protocol,
-    verify: (cfg, signal) => verifier.verify(cfg, signal),
-    listModels: (cfg, signal) => verifier.listModels(cfg, signal),
+    verify: (cfg, signal) =>
+      gatewayMissing()
+        ? Promise.resolve({
+            ok: false as const,
+            error: { kind: 'validation' as const, field: '地址', reason: GATEWAY_MISSING },
+            message: GATEWAY_MISSING,
+          })
+        : verifier.verify(cfg, signal),
+    listModels: (cfg, signal) => {
+      assertGateway()
+      return verifier.listModels(cfg, signal)
+    },
     generateImage(request, signal) {
       if (!images) throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
+      assertGateway()
       return images.generateImage(request, signal)
     },
     async generateVideo() {
@@ -60,6 +89,7 @@ export function createCliGatewayAdapter(
     },
     completeText(request, signal) {
       if (!chat) throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
+      assertGateway()
       return chat.completeText(request, signal)
     },
   }

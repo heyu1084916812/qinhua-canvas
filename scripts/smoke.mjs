@@ -12671,29 +12671,74 @@ async function g89(browser) {
   )
 
   /*
-   * ③ CLI / RunningHub 四条**已从渠道协议下拉里撤走**（对账 #308）：
-   * 用户第 11 批第 4 条把它们的配置搬到了「全局设置 → CLI」。
-   * 所以判据从"灰着不可选"换成"下拉里根本没有它"。
-   * ⚠ 目录条目**不许删**：老渠道存的就是这些 id，删了会变「未知协议」——
-   * 这条只验"新渠道选不到"，识别能力由协议目录的单测兜着。
+   * ③ 四条 CLI 协议**真的可选**了（对账 #308 的后半段：桌面壳里直接起本机命令，
+   * 浏览器里回落自建网关）。判据三件：在「本机 CLI」组、**没被禁用**、文案里没有「待支持」。
+   * 此前它们是 `pending` + 灰掉 —— 挂着一个点不动的入口，比没有更糟。
    */
   const cliStates = await page.evaluate(() => {
     const sel = document.querySelector('[data-settings-protocol]')
     const out = {}
     for (const id of ['jimeng-cli', 'gpt-cli', 'gemini-cli', 'runninghub']) {
       const opt = sel?.querySelector(`option[value="${id}"]`)
-      out[id] = opt ? opt.textContent.trim() : null
+      out[id] = opt
+        ? {
+            disabled: opt.disabled,
+            text: opt.textContent.trim(),
+            group: opt.parentElement ? opt.parentElement.getAttribute('label') : '',
+          }
+        : null
     }
     return out
   })
   for (const id of ['jimeng-cli', 'gpt-cli', 'gemini-cli', 'runninghub']) {
+    const st = cliStates[id]
     rec(
       g,
-      `★ ${id} 已从渠道协议下拉里移走（配置改在「全局设置 → CLI」）`,
-      cliStates[id] === null,
-      `下拉里读到=${JSON.stringify(cliStates[id])}`,
+      `★★ ${id} 在「本机 CLI」组里可选（不再是"待支持"）`,
+      !!st && st.disabled === false && st.group === '本机 CLI' && !st.text.includes('待支持'),
+      JSON.stringify(st),
     )
   }
+  rec(
+    g,
+    '★ 用户点名的改名：GPT CLI → Codex',
+    (cliStates['gpt-cli']?.text ?? '').includes('Codex'),
+    cliStates['gpt-cli']?.text ?? '',
+  )
+  /*
+   * ★★ **浏览器里如实说"用不了"**：本机命令只有桌面壳跑得了。
+   * 选 Codex 那条点验证，状态行要给出"填自建网关地址 / 用桌面版"，
+   * 而不是一句看不懂的 `Failed to fetch`（地址为空时最容易这样）。
+   */
+  await page.locator('[data-settings-protocol]').selectOption('gpt-cli')
+  await sleep(400)
+  /*
+   * 把地址清空：本组前面选过 apimart，那一栏的地址会被自动填上
+   * （留着的话浏览器这条会去打那个地址，验证"成功"，就测不到"没有本机命令也没有网关"这一档）。
+   */
+  await page.locator('[data-settings-baseurl]').fill('')
+  await sleep(200)
+  /*
+   * ⚠️ 点的是**验证地址**（`getByRole('button', { name: '验证地址' })`），不是 `[data-settings-detect]`
+   * —— 后者是「验证协议」（探测候选 HTTP 协议），点它会把这个 CLI 渠道改成命中到的某个站点协议，
+   * 于是下面那句"浏览器里跑不了本机命令"永远等不到（我第一次就是这么写错、被这条断言抓出来的）。
+   */
+  await page.getByRole('button', { name: '验证地址' }).click()
+  await sleep(800)
+  /* 状态行就地读（`statusText` 是别的组自己作用域里的助手，G89 没有它） */
+  const cliText = (
+    await page
+      .locator('[role="status"]')
+      .first()
+      .innerText()
+      .catch(() => '')
+  ).trim()
+  rec(
+    g,
+    '★★ 浏览器里点「验证」⇒ 如实说"要填自建网关地址，或者用桌面版"',
+    cliText.includes('浏览器里跑不了本机命令'),
+    cliText.slice(0, 140),
+  )
   // ④ 旧协议不再出现在新渠道的下拉里（保留识别能力，但不给新用户选）
   const legacyShown = await page.locator('[data-settings-protocol] option[value="openai-images"]').count()
   rec(g, '★★ 旧协议对新渠道隐藏（不重复提供同一套能力）', legacyShown === 0, `count=${legacyShown}`)

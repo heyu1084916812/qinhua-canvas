@@ -38,6 +38,7 @@ describe('asAppError', () => {
       { kind: 'storage', detail: 'quota' },
       { kind: 'validation', field: 'name', reason: '空' },
       { kind: 'channel', detail: 'missingKey' },
+      { kind: 'cli', detail: 'failed' },
     ] as const
     for (const e of all) expect(describeError(e).length).toBeGreaterThan(0)
   })
@@ -67,6 +68,10 @@ describe('asAppError', () => {
       { kind: 'channel', detail: 'missingKey' },
       { kind: 'channel', detail: 'missingModel' },
       { kind: 'channel', detail: 'unsupported' },
+      { kind: 'cli', detail: 'notfound' },
+      { kind: 'cli', detail: 'failed', message: 'not logged in' },
+      { kind: 'cli', detail: 'timeout' },
+      { kind: 'cli', detail: 'canceled' },
     ]
     const banned = [
       'dns',
@@ -79,6 +84,8 @@ describe('asAppError', () => {
       'missingKey',
       'missingModel',
       'unsupported',
+      'notfound',
+      'canceled',
       '[object Object]',
       'undefined',
     ]

@@ -4266,3 +4266,41 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   而**短锚点**（`rg -c` 先确认唯一）配上 node 的 `String.replace` 一次就中，还能顺手断言"命中恰好 1 次"。
 - ⚠️ PowerShell `Out-File -Encoding ascii` 会把临时脚本里的中文变成 `?`（本轮踩到：探针里写的中文
   参数被换成问号，差点误判成 CLI 通道丢字）。临时 `.mjs` 一律**用 `apply_patch` 落盘**（它按 UTF-8 写）。
+
+### ★★ `localhost:1420` 与 `127.0.0.1:1420` 是**两个 origin**（2026-10-06，对账 #308）
+- 在桌面壳里用 CDP 探针做端到端时，我习惯性 `page.goto('http://localhost:1420/...')` —— 结果
+  **掉进了另一个 origin**：① IndexedDB 是另一份（探针"看到的"渠道/项目全是它自己的，
+  与应用真实数据毫无关系）；② Tauri 的 ACL 把页面判成"远程"，`invoke` 一律拒
+  （实测 `cli_out_dir not allowed. Plugin not found`，连 `data_dir_path` 都拒）。
+- 两个后果都极具欺骗性：**in-app 命令"全坏"** + **数据"看起来对、其实不是那一份"**。
+  我当时先怀疑"是不是新命令没注册"，绕了好几圈。
+- 纪律：探针里一律用 `tauri.conf.json` 的 `devUrl`（本项目是 `127.0.0.1:1420`），
+  并且**每一个 `goto` 都带上它**；报错里出现 "not allowed ... Plugin not found" 时，
+  第一件事是核对 `location.origin`，而不是怀疑代码。
+### ★★ 选路里的 `hasToken` 会拦住"根本不需要令牌"的渠道（同上一轮）
+- `selectRoute` 有一条「没令牌的渠道不选」（本意是避开没配好的站）。而**本机 CLI 用的是本机登录态**，
+  我们手里永远没有它的令牌 ⇒ CLI 渠道永远选不中，用户看到的是
+  「没有渠道提供模型「X」：请到后台设置的模型管理里勾选并配置映射」——**指错了地方**。
+- 修法：domain 出纯函数 `protocolNeedsNoToken(protocol, hasLocalCli)`（离线协议 + 桌面壳里的 CLI 族），
+  执行宿主只提供"这台机器有没有本机 CLI"这个平台事实。
+- 一般教训：**"必须有什么"这类前置条件，每加一个就多一道会把新形态挡在门外的门**；
+  新增一种渠道形态时，把所有 `&& hasToken` / `&& requiresBaseUrl` 一类判据过一遍。
+### ★ 媒体产物只能落文件：模板里没有 `{out}` 就别跑（同上一轮）
+- 图 / 视频拿不到 stdout（各家 CLI 都写文件），所以参数模板必须包含 `{out}`。
+  RunningHub 的默认模板原本只有 `--workflow/--prompt` ⇒ 产物无处落地。
+- 适配器现在的做法是**当场拒绝并指出去哪儿补**：等它跑完再报"读不到产物"，
+  那句话里没有"去改模板"这个信息，用户只能干瞪眼。
+### ★ 同一个文件连着两次 `apply_patch` ⇒ vite 可能只转译了前一次（同上一轮）
+- 现象：改了 `SettingsPage.tsx`（第一次补了 `isCli` 的用法、第二次补上声明），
+  应用里报 `ReferenceError: isCli is not defined` 并**白屏**，而源码、`tsc`、eslint 全是对的。
+- 原因：两次写文件的时间戳太近，dev server 的 watcher 只拿到一次变更、缓存了**半应用**的转译结果；
+  重启应用也没用（`?t=` 参数没变，拿的还是同一份缓存）。
+- 修法：碰一下 mtime（`(Get-Item f).LastWriteTime = (Get-Date).AddSeconds(2)`）再刷新；
+  预防：**同一个文件的两处修改合并成一次 patch**，别拆成两次连击。
+- 教训的另一半：**"源码对但运行不对"时，先怀疑转译/缓存，再去怀疑代码**。
+### ★ 端到端探针的三条纪律（同上一轮）
+- 进度写**文件**：stdout 在这个 harness 里会被缓冲到进程结束，"没输出"经常只是没刷出来。
+- 用 `page.evaluate` **轮询 DOM**（`document.querySelector(...)`）代替 locator 的等待：
+  元素还没出现时 locator 会静默等 8s，一个 40 轮的循环能被拖成 5 分钟。
+- 创建类动作**要断言真的创建了**（比 id 集合）：只点"新增渠道"就往下走，
+  会静默地改到上一条渠道上（我就这样把一条渠道的协议改成了 jimeng-cli）。

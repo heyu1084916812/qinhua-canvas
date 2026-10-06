@@ -117,6 +117,30 @@ export const SUPPORTED_PROTOCOLS: { value: string; label: string; short: string 
 export const OFFLINE_PROTOCOLS: readonly string[] = ['mock']
 
 /**
+ * 这条协议**不需要令牌**吗？（对账 #308）
+ *
+ * 两种情形：
+ * 1. **离线协议**（mock）：根本不发请求，谈不上凭据；
+ * 2. **本机 CLI**（桌面壳里）：它起的是本机命令，花的是用户自己那台机器上的登录态 ——
+ *    我们手里压根没有它的令牌（新建渠道时那个 `credentialRef` 是空的），
+ *    而选路有一条「没令牌的渠道不选」（`modelRouting.selectRoute`）。
+ *    不放行这一族的话，CLI 渠道**永远选不中**，用户点生成只会看到
+ *    「没有渠道提供模型 —— 请到后台设置的模型管理里勾选并配置映射」，
+ *    而那个提示把他引向了完全无关的地方。
+ *
+ * `hasLocalCli` 由调用方按平台传（只有桌面壳有子进程能力）。浏览器里这条协议走的是
+ * 「访问用户自建网关」，要不要密钥由那个网关决定 ⇒ 保持原口径，不在这里放行。
+ */
+export function protocolNeedsNoToken(
+  protocol: string,
+  hasLocalCli: boolean,
+  catalog: ProtocolCatalog = BUILTIN_CATALOG,
+): boolean {
+  if (OFFLINE_PROTOCOLS.includes(protocol)) return true
+  return hasLocalCli && protocolById(protocol, catalog)?.family === 'cli-gateway'
+}
+
+/**
  * 「验证协议」的候选表（兼容层）：只含进入探测序列的**通用模板**（`probe: true`）。
  *
  * 与改造前不同，候选表不再等于「全部非离线协议」——站点协议是手选的便利入口，

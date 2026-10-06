@@ -33,6 +33,7 @@ import { PRESET_MODELS } from '../../domain/project/modelPresets'
 import { ModelIcon } from '../../features/shared/modelIcon/ModelIcon'
 import { ModelMapCombo, StrategyPicker } from './SettingsPicker'
 import { openGlobalSettings } from '../../state/ui/globalSettings'
+import { usePlatform } from '../../app/providers/PlatformProvider'
 
 /**
  * 模型映射区的三个分组（用户 2026-09-27 第 9 轮）。
@@ -57,6 +58,12 @@ const MAP_GROUPS = [
 const PROTOCOL_GROUPS: { kind: ProtocolKind; label: string }[] = [
   { kind: 'offline', label: '离线 / 测试' },
   { kind: 'station', label: '站点' },
+  /*
+   * 「本机 CLI」（对账 #308）：四条 CLI 协议**真的能跑**了 —— 桌面壳里直接起本机命令
+   * （浏览器里回落自建网关）。所以它们从"待支持"那一堆里挪出来，单独一组排在最前，
+   * 用户一眼能看到"我本机的 Codex / 即梦可以接进来"。命令与参数在「全局设置 → CLI」里配。
+   */
+  { kind: 'cli', label: '本机 CLI' },
   { kind: 'public', label: '公开协议' },
   { kind: 'legacy', label: '旧协议' },
   { kind: 'custom', label: '自定义协议' },
@@ -151,6 +158,9 @@ export function SettingsPage() {
    */
   const [catalogVersion, setCatalogVersion] = useState(0)
   const catalog = useMemo(() => channels.protocolCatalog(), [channels, catalogVersion])
+  const platform = usePlatform()
+  /** 桌面壳里才有本机命令（对账 #308）：状态行文案据此区分"本机命令"与"地址" */
+  const hasLocalCli = platform.cli != null
   /** 下拉里的全部协议（含 pending：它们显示为“待支持”且不可选，见协议区渲染） */
   const protocolOptions = catalog.all
   /** 当前所选协议的说明（CLI 网关等有前提的协议必须显示出来，否则用户会填错地址） */
@@ -519,12 +529,23 @@ export function SettingsPage() {
       if (modelsResult.status === 'error') return `✗ 拉取失败 · ${modelsResult.message ?? '未知错误'}`
       return null
     }
-    if (verify.status === 'checking') return '正在验证地址…'
+    /*
+     * CLI 族没有"地址"这回事（对账 #308）：它的验证是"本机命令在不在"。
+     * 文案必须跟着走 —— 一条本机命令的渠道回「地址可达」，用户会去找那个根本不存在的地址。
+     */
+    /*
+     * 判据是**这次走的是哪条路**，不只看协议族：桌面壳里 CLI 渠道起的是本机命令，
+     * 浏览器里同一条协议走的是"访问自建网关"（那时它确实是在验地址）。
+     * 只看 `family` 的话，浏览器里网关验证成功也会显示「本机命令就绪」—— 一句假的。
+     */
+    const isCli =
+      hasLocalCli && verifiedFor ? protocolById(verifiedFor.protocol, catalog)?.family === 'cli-gateway' : false
+    if (verify.status === 'checking') return isCli ? '正在检查本机命令…' : '正在验证地址…'
     if (verify.status === 'ok')
-      return `✓ 地址可达 · ${label}${typeof verify.latency === 'number' ? ` · ${verify.latency}ms` : ''}`
-    if (verify.status === 'error') return `✗ ${verify.message ?? '地址不可达'}`
+      return `${isCli ? '✓ 本机命令就绪' : '✓ 地址可达'} · ${label}${typeof verify.latency === 'number' ? ` · ${verify.latency}ms` : ''}`
+    if (verify.status === 'error') return `✗ ${verify.message ?? (isCli ? '本机命令有问题' : '地址不可达')}`
     return null
-  }, [action, verifiedFor, verify, modelsResult, detect, catalog])
+  }, [action, verifiedFor, verify, modelsResult, detect, catalog, hasLocalCli])
 
   // mock 提示只在**真的拿 mock 验了地址**时出现（探测的候选表不含 mock，故不受其影响）。
   const showMockNote = action === 'verify' && verify.status === 'ok' && verifiedFor?.protocol === 'mock'
@@ -1028,7 +1049,7 @@ export function SettingsPage() {
                       data-settings-open-cli
                       onClick={() => openGlobalSettings('cli')}
                     >
-                      去「全局设置 → CLI」配置
+                      配置命令与参数
                     </button>
                   </div>
                 </div>

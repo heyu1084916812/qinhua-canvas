@@ -77,6 +77,20 @@ export type VerifyResult =
  */
 export type ChannelDeps = Pick<PlatformKit, 'network' | 'assets'> & {
   hosting?: PlatformKit['hosting']
+  /**
+   * **本机 CLI**（对账 #308）。可选：浏览器里没有它，那条路（`cli-gateway` 族）
+   * 就回落到"访问用户自建网关"的老实现 —— 两条路并存，谁在就用谁。
+   */
+  cli?: PlatformKit['cli']
+  /**
+   * 读「全局设置 → CLI」里那份工具配置（`presets` 表一行）。
+   *
+   * 为什么适配器要读库而不是从别处拿：命令名 / 参数模板是**用户随时会改**的东西，
+   * 而适配器是建渠道时构造一次、长期存活的。与其在内存里缓存一份（改完不生效，
+   * 或者要引一套失效通知），不如**每次调用现读** —— 一行小 JSON 的查询，
+   * 与一次动辄几十秒的生成相比可以忽略。
+   */
+  storage?: PlatformKit['storage']
 }
 
 export interface ChannelAdapter {

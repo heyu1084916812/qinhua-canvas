@@ -1,3 +1,5 @@
+import type { ModelCapability } from './capability'
+
 /**
  * 本机 CLI 工具目录（用户 2026-10-06 第 11 批第 4 条，对账 #308）。
  *
@@ -26,6 +28,23 @@
 /** 这个工具能干什么（给用户看的两三个字，也是"去哪儿用"的依据） */
 export type CliCapability = 'image' | 'video' | 'chat'
 
+/**
+ * 这个工具对外**能报出来的模型**（对账 #308 后半段的关键一条）。
+ *
+ * 为什么需要它：渠道的模型下拉里有什么，是由「渠道能列出的模型」决定的
+ * （`listModels` → 模型映射 → 节点面板）。CLI 没法真的"列模型"（各家要么没有
+ * 这个子命令、要么列出来的是云上的名字），所以这里给**逻辑名**：
+ * 用户在渠道的「模型映射」里把它改成真正的上游名（例如 `codex` → `gpt-5-codex`），
+ * 那个名字就会经 `{model}` 占位符进到参数模板里。
+ *
+ * ⇒ 一处也不编造模型：编造的名字会以"配好了却跑不通"的形式出现在用户面前。
+ */
+export interface CliModel {
+  /** 逻辑名（会出现在节点的模型下拉里） */
+  id: string
+  category: CliCapability
+}
+
 export interface CliTool {
   id: string
   name: string
@@ -36,7 +55,8 @@ export interface CliTool {
    * 占位符见 `CLI_PLACEHOLDERS`，执行前由 `buildArgs` 替换。
    */
   argsTemplate: string
-  capabilities: CliCapability[]
+  /** 这个工具能报出来的模型（见 `CliModel` 的说明） */
+  models: CliModel[]
   /** 单次调用最长等多久（毫秒）。Rust 侧还会再夹一次 [1s, 30min] */
   timeoutMs: number
   /** 是否需要在某个目录里跑（工作流 / 项目文件那类） */
@@ -54,6 +74,14 @@ export type CliPlaceholder = (typeof CLI_PLACEHOLDERS)[number]
 export const CLI_MIN_TIMEOUT_MS = 1_000
 export const CLI_MAX_TIMEOUT_MS = 30 * 60 * 1000
 
+/**
+ * 用户改过的工具配置存在哪一行（`presets` 表）。
+ *
+ * **放在这里而不是各层各写一个字面量**：写库的（设置面板）与读库的（渠道适配器）
+ * 必须认同一个 id，两处各写一遍迟早会漂移成"配置存进去、执行时读不到"。
+ */
+export const CLI_TOOLS_ROW_ID = 'cli:tools'
+
 const MINUTE = 60 * 1000
 
 /**
@@ -69,7 +97,7 @@ export function defaultCliTools(): CliTool[] {
       name: 'Codex',
       program: 'codex',
       argsTemplate: 'exec {prompt}',
-      capabilities: ['chat'],
+      models: [{ id: 'codex', category: 'chat' }],
       timeoutMs: 5 * MINUTE,
       needsCwd: true,
       docUrl: 'https://github.com/openai/codex',
@@ -80,7 +108,10 @@ export function defaultCliTools(): CliTool[] {
       name: '即梦',
       program: 'jimeng',
       argsTemplate: 'generate --prompt {prompt} --out {out}',
-      capabilities: ['image', 'video'],
+      models: [
+        { id: 'jimeng-image', category: 'image' },
+        { id: 'jimeng-video', category: 'video' },
+      ],
       timeoutMs: 10 * MINUTE,
       needsCwd: false,
       docUrl: '',
@@ -91,7 +122,7 @@ export function defaultCliTools(): CliTool[] {
       name: 'Gemini',
       program: 'gemini',
       argsTemplate: '-p {prompt}',
-      capabilities: ['image', 'chat'],
+      models: [{ id: 'gemini', category: 'chat' }],
       timeoutMs: 5 * MINUTE,
       needsCwd: true,
       docUrl: 'https://github.com/google-gemini/gemini-cli',
@@ -101,8 +132,16 @@ export function defaultCliTools(): CliTool[] {
       id: 'runninghub',
       name: 'RunningHub',
       program: 'runninghub',
-      argsTemplate: 'run --workflow {workflow} --prompt {prompt}',
-      capabilities: ['image', 'video'],
+      /*
+       * ⚠️ `{out}` **不能省**：RunningHub 出的是图 / 视频，而媒体只能落在文件里 ——
+       * 模板里没有 `{out}`，产物就无处落地（适配器会直接拒绝并指出这一点，
+       * 而不是让你等到"命令跑完了但读不到产物"）。
+       */
+      argsTemplate: 'run --workflow {workflow} --out {out} --prompt {prompt}',
+      models: [
+        { id: 'runninghub-image', category: 'image' },
+        { id: 'runninghub-video', category: 'video' },
+      ],
       timeoutMs: 20 * MINUTE,
       needsCwd: false,
       docUrl: 'https://www.runninghub.cn/',
@@ -116,6 +155,67 @@ export function capabilityLabel(cap: CliCapability): string {
   if (cap === 'image') return '出图'
   if (cap === 'video') return '出视频'
   return '对话'
+}
+
+/** 这个工具实际能干什么 —— 由它报出的模型推出来（**不写第二份能力清单**） */
+export function capabilitiesOfTool(tool: CliTool): CliCapability[] {
+  const seen: CliCapability[] = []
+  for (const model of tool.models) {
+    if (!seen.includes(model.category)) seen.push(model.category)
+  }
+  return seen
+}
+
+/** 给渠道 `listModels` 用的形态（`domain/shared/capability` 的公共形状） */
+export function modelCapabilitiesOf(tool: CliTool): ModelCapability[] {
+  return tool.models.map((model) => {
+    const category = model.category
+    return {
+      id: model.id,
+      category,
+      // 三类输入都收：提示词 + 参考图（视频还可能要首尾帧），由参数模板怎么用决定
+      inputTypes: category === 'video' ? ['text', 'image', 'video'] : ['text', 'image'],
+    }
+  })
+}
+
+/**
+ * 「渠道协议 id → 工具 id」。
+ *
+ * 一条协议对一个工具：用户在渠道里选「即梦 CLI」，就等价于说"这条渠道用即梦那个工具"，
+ * 而**工具本身怎么调用**（命令名、参数模板、超时）只在「全局设置 → CLI」那一处填 ——
+ * 这正是用户"CLI 单独设置在全局设置里、不要在每条渠道里各填一遍"的口径。
+ *
+ * ⚠️ 键是**协议 id**，不是工具 id：老渠道存的就是这些协议 id，改名会让它们变「未知协议」。
+ * `gpt-cli` 对应工具 `codex`，是为了对应用户"GPT CLI 改成 Codex"那句改名。
+ */
+export const CLI_PROTOCOL_TOOL: Record<string, string> = {
+  'gpt-cli': 'codex',
+  'jimeng-cli': 'jimeng',
+  'gemini-cli': 'gemini',
+  runninghub: 'runninghub',
+}
+
+/** 这条协议该用哪个工具；不是 CLI 协议就返回 null（调用方据此走别的链路） */
+export function toolIdForProtocol(protocolId: string): string | null {
+  return CLI_PROTOCOL_TOOL[protocolId] ?? null
+}
+
+/** 用默认配置取一个工具（读不到用户覆盖值时用；找不到返回 null） */
+export function defaultToolForProtocol(protocolId: string): CliTool | null {
+  const toolId = toolIdForProtocol(protocolId)
+  if (!toolId) return null
+  return defaultCliTools().find((tool) => tool.id === toolId) ?? null
+}
+
+/**
+ * 产物文件的扩展名。
+ *
+ * 它只是给 CLI 的一个**提示**（各家按 `--out` 的后缀决定格式），真正落地时
+ * 以字节魔数为准 —— 万一它写了 JPEG 却叫 `.png`，我们不跟着错（见 `mimeSniff`）。
+ */
+export function outExtFor(kind: 'image' | 'video'): string {
+  return kind === 'video' ? 'mp4' : 'png'
 }
 
 /**

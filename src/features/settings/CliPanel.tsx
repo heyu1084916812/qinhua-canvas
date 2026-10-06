@@ -3,6 +3,7 @@ import { usePlatform } from '../../app/providers/PlatformProvider'
 import {
   buildArgs,
   capabilityLabel,
+  capabilitiesOfTool,
   clampToolTimeout,
   defaultCliTools,
   type CliTool,
@@ -139,7 +140,7 @@ export function CliPanel() {
           <header className={styles.cardHead}>
             <span className={styles.cardName}>{tool.name}</span>
             <span className={styles.caps}>
-              {tool.capabilities.map((cap) => (
+              {capabilitiesOfTool(tool).map((cap) => (
                 <span className={styles.cap} key={cap}>
                   {capabilityLabel(cap)}
                 </span>

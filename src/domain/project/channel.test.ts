@@ -4,6 +4,7 @@ import {
   createChannel,
   maskTokenTail,
   OFFLINE_PROTOCOLS,
+  protocolNeedsNoToken,
   PROBE_PROTOCOLS,
   protocolShort,
   requiresBaseUrl,
@@ -55,6 +56,24 @@ describe('protocolShort', () => {
 
   it('每个受支持协议都有非空短标签（新增协议时别漏）', () => {
     for (const p of SUPPORTED_PROTOCOLS) expect(p.short.length).toBeGreaterThan(0)
+  })
+})
+
+describe('protocolNeedsNoToken（谁不需要令牌）· 对账 #308', () => {
+  it('★★ 本机 CLI 与离线协议一样不需要令牌', () => {
+    // 离线协议：任何环境都不发请求
+    expect(protocolNeedsNoToken('mock', false)).toBe(true)
+    expect(protocolNeedsNoToken('mock', true)).toBe(true)
+    // CLI 族：桌面壳里起的是本机命令（用本机登录态，我们手里没有它的令牌）
+    expect(protocolNeedsNoToken('gpt-cli', true)).toBe(true)
+    expect(protocolNeedsNoToken('jimeng-cli', true)).toBe(true)
+    expect(protocolNeedsNoToken('gemini-cli', true)).toBe(true)
+    expect(protocolNeedsNoToken('runninghub', true)).toBe(true)
+    // 浏览器里这条路是访问自建网关：密钥由那个网关决定，不放行
+    expect(protocolNeedsNoToken('gpt-cli', false)).toBe(false)
+    // 别把特例放大：普通 HTTP 协议一律要令牌
+    expect(protocolNeedsNoToken('openai-compatible', true)).toBe(false)
+    expect(protocolNeedsNoToken('不存在的协议', true)).toBe(false)
   })
 })
 

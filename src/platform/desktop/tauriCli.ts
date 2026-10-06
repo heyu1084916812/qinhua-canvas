@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { base64ToBytes } from '../../domain/shared/base64'
 import type { CliOutcome, CliPort, CliRunRequest } from '../ports'
 
 /**
@@ -28,5 +29,7 @@ export function createTauriCli(): CliPort {
         stdin: req.stdin,
       }),
     kill: (id) => invoke<boolean>('cli_kill', { id }),
+    outDir: () => invoke<string>('cli_out_dir'),
+    readOut: async (path) => base64ToBytes(await invoke<string>('cli_read_out', { path })),
   }
 }

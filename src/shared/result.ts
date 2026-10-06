@@ -8,6 +8,15 @@ export type AppError =
   | { kind: 'storage'; detail: 'quota' | 'corrupt' | 'permission' }
   | { kind: 'validation'; field: string; reason: string }
   | { kind: 'channel'; detail: 'missingKey' | 'missingModel' | 'unsupported' }
+  /**
+   * **本机命令行**（对账 #308）：桌面壳里真的起了一条 CLI 进程，它不认账时用这个。
+   *
+   * 为什么单独一个 kind 而不是塞进 `channel`：它压根不是渠道的事 ——
+   * 没网也能发生（命令没装、没登录、参数写错），而 `channel` 那三个 detail
+   * 说的是"渠道没配好"。混进去会让用户照着"检查令牌"去修一个"命令名写错"的问题。
+   * `message` 带**命令自己的原话**（stderr 尾部），那句通常就是答案。
+   */
+  | { kind: 'cli'; detail: 'notfound' | 'failed' | 'timeout' | 'canceled'; message?: string }
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: AppError }
 
@@ -87,6 +96,13 @@ const CHANNEL_TEXT: Record<'missingKey' | 'missingModel' | 'unsupported', string
   unsupported: '这个渠道不支持这次请求',
 }
 
+const CLI_TEXT: Record<'notfound' | 'failed' | 'timeout' | 'canceled', string> = {
+  notfound: '本机上找不到这个命令（去「全局设置 → CLI」里改命令名或填完整路径）',
+  failed: '命令跑失败了',
+  timeout: '命令跑太久，已经掐掉',
+  canceled: '命令被取消了',
+}
+
 export function describeError(e: AppError): string {
   switch (e.kind) {
     case 'network':
@@ -117,6 +133,11 @@ export function describeError(e: AppError): string {
       return `这个设置不对（${e.field}）：${e.reason}`
     case 'channel':
       return `渠道还没配好：${CHANNEL_TEXT[e.detail]}`
+    case 'cli': {
+      /* 命令自己的原话优先（`stderr` 里通常就是答案，例如「not logged in」） */
+      const head = `本机命令行出错：${CLI_TEXT[e.detail]}`
+      return e.message ? `${head} —— ${e.message}` : head
+    }
   }
 }
 

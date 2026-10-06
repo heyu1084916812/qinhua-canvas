@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react'
 import type { ChannelAdapter } from '../../../platform/channels/types'
-import { OFFLINE_PROTOCOLS } from '../../../domain/project/channel'
+import { protocolNeedsNoToken } from '../../../domain/project/channel'
 import { adapterForChannel } from './channelAdapterConfig'
 import { buildRunPlan, type CanvasRunTask, type RunPlan } from '../../../features/canvas/execution/buildRunPlan'
 import { createId } from '../../../shared/id'
@@ -320,8 +320,14 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
        * 会因没存令牌而永远进不了选路，本地离线跑的路径直接断掉。
        */
       const tokenFlags = new Map<string, boolean>()
+      /*
+       * 本机 CLI（对账 #308）与离线协议一样**不需要令牌**：命令跑在本机、用的是
+       * 本机登录态。判据由 domain 给（`protocolNeedsNoToken`），这里只提供
+       * "这台机器有没有本机 CLI"这个平台事实。
+       */
+      const hasLocalCli = platform.cli != null
       for (const c of all) {
-        if (OFFLINE_PROTOCOLS.includes(c.protocol)) {
+        if (protocolNeedsNoToken(c.protocol, hasLocalCli)) {
           tokenFlags.set(c.id, true)
           continue
         }

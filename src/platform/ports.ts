@@ -355,6 +355,16 @@ export interface CliPort {
   which(program: string): Promise<string | null>
   run(req: CliRunRequest): Promise<CliOutcome>
   kill(id: string): Promise<boolean>
+  /**
+   * 给产物准备一个**可写**的目录（绝对路径）。
+   *
+   * 图 / 视频没法从 stdout 拿（各家 CLI 都写文件），所以参数模板里的 `{out}`
+   * 要指向一个真实路径。壳里给的是 `<数据目录>/cli-out`，并且**只允许读回这个目录**
+   * —— 前端拼的路径不能变成"任意文件读取"（见 Rust 侧 `cli_read_out` 的边界说明）。
+   */
+  outDir(): Promise<string>
+  /** 把 CLI 写出来的产物读回来（base64 在壳内部解决，这里直接给字节） */
+  readOut(path: string): Promise<Uint8Array>
 }
 
 export interface PlatformKit {

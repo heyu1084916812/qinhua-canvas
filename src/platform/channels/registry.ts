@@ -6,6 +6,7 @@ import { createOpenAiImagesAdapter } from './openaiImages'
 import { createOpenAiVideoAdapter } from './openaiVideo'
 import { createAsyncTaskAdapter } from './asyncTask'
 import { createCliGatewayAdapter } from './cliGateway'
+import { createCliRunAdapter } from './cliRun'
 
 /** 调用前由凭据层注入明文令牌的渠道配置（业务代码与 UI 全程不接触明文） */
 export interface ResolvedChannelConfig extends SafeChannelConfig {
@@ -101,11 +102,15 @@ export function createChannelAdapter(
     case 'async-task':
       return createAsyncTaskAdapter(config, deps)
     /**
-     * CLI 网关族：浏览器跑不了本机命令，只能访问用户自己跑的网关。
-     * 网关对外是 OpenAI 兼容形态，故按能力分派到既有两个适配器（见 cliGateway.ts）。
+     * CLI 族（对账 #308）：**桌面壳里真的起本机命令**（`cliRun.ts`），
+     * 浏览器里没有子进程、只能访问用户自己跑的网关（`cliGateway.ts`）。
+     *
+     * 选择点刻意只在这一处：适配器工厂是纯函数，两边各自"以为自己是唯一实现"
+     * 会让"到底跑了哪条路"变得看代码也说不清。用户那句「链接后能用里面的额度
+     * 调用模型生成图片或者视频，或者对话」靠的正是前一条。
      */
     case 'cli-gateway':
-      return createCliGatewayAdapter(config, deps)
+      return deps.cli ? createCliRunAdapter(config, deps) : createCliGatewayAdapter(config, deps)
     default:
       throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
   }

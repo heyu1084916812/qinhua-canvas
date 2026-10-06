@@ -1,5 +1,10 @@
 import type { StoragePort } from '../../platform/ports'
-import { mergeTools, toolPatchOf, type CliTool } from '../../domain/shared/cliTools'
+import {
+  CLI_TOOLS_ROW_ID,
+  mergeTools,
+  toolPatchOf,
+  type CliTool,
+} from '../../domain/shared/cliTools'
 
 /**
  * 本机 CLI 工具配置的读写（对账 #308）。
@@ -21,7 +26,7 @@ import { mergeTools, toolPatchOf, type CliTool } from '../../domain/shared/cliTo
  * 面板如实说"本机 CLI 只在桌面应用里可用"。
  */
 
-const CLI_TOOLS_ROW_ID = 'cli:tools'
+/* 行 id 从 domain 引：**读它的那条链路（渠道适配器）也必须认同一个字面量**（对账 #308） */
 
 export interface CliToolStore {
   /** 读回工具列表（库里没有 = 全默认） */

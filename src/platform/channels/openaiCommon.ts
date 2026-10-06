@@ -1,4 +1,4 @@
-import { asAppError, serverReasonOf, type AppError } from '../../shared/result'
+import { asAppError, describeError, serverReasonOf, type AppError } from '../../shared/result'
 import type { ModelCapability } from '../../domain/shared/capability'
 import type { ProtocolDefinition } from '../../domain/project/protocol'
 import { resolveProtocolBaseUrl } from '../../domain/project/protocol'
@@ -110,6 +110,13 @@ export function appErrorMessage(e: AppError): string {
       return `存储错误：${e.detail}`
     case 'validation':
       return `${e.field}：${e.reason}`
+    /*
+     * 本机命令行（对账 #308）：措辞直接借用 `shared/result.describeError` ——
+     * 那边是"报错不许露代码"的唯一落点（它带中文话术表 + 一条"不许出现枚举标识符"的断言）。
+     * 在这里再写一遍同样的句子，就等于给自己造一个"以后改一边忘一边"的机会。
+     */
+    case 'cli':
+      return describeError(e)
   }
 }
 

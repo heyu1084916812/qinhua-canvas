@@ -875,6 +875,130 @@ fn run_cli_blocking(
     })
 }
 
+// ── 本机 CLI 的产物文件 ──
+//
+// 用户同一句的后半段：「**链接后能用里面的额度调用模型生成图片或者视频**，或者对话」。
+// 对话只要 stdout，产物（图 / 视频）却只能落在**文件**里 —— 各家 CLI 都用 `--out <路径>`
+// 这类参数。所以这一层回答两件事：给它一个能写的目录（`cli_out_dir`）、
+// 把写出来的字节读回来（`cli_read_out`）。
+//
+// **安全边界**：`cli_read_out` 只认 `<数据目录>/cli-out/` **里面**的文件。
+// 路径是前端拼的，若允许它读任意文件，这个命令就等于给页面开了一个"任意文件读取"原语
+// —— 拿到那种 IPC，`%APPDATA%` 下的令牌与数据库都能被读走。
+// 产物本来就只该落在这个目录，所以把范围收死：越界一律拒。
+
+const CLI_OUT_DIR_NAME: &str = "cli-out";
+
+/// 标准 base64 编码（含 `=` 补齐）。
+///
+/// 手写而不引依赖：整个壳只有这一个用途，而它必须与前端
+/// `domain/shared/base64.ts` 的 `base64ToBytes` 精确对上（单测按 RFC 4648 的向量钉住）。
+fn base64_encode(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(TABLE[((n >> 18) & 63) as usize] as char);
+        out.push(TABLE[((n >> 12) & 63) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            TABLE[((n >> 6) & 63) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[(n & 63) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+/// 目标是否在根目录**里面**。
+///
+/// 两道关：
+/// 1. **含 `..` 的一律拒** —— `Path::starts_with` 是逐段比较、**不做规范化**，
+///    于是 `cli-out/../secret.txt` 会被判成"在里面"；
+/// 2. 逐段比较（Windows 大小写不敏感 ⇒ 两边都小写化，`lower()` 是既有工具）。
+fn is_inside(root: &Path, target: &Path) -> bool {
+    if target
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return false;
+    }
+    let root = lower(root);
+    let target = lower(target);
+    target != root && target.starts_with(&root)
+}
+
+/// 产物目录：`<数据目录>/cli-out`（没有就建）。
+fn cli_out_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = current_data_dir(app)
+        .ok_or_else(|| "拿不到数据目录，无法给本机 CLI 准备输出位置".to_string())?
+        .join(CLI_OUT_DIR_NAME);
+    std::fs::create_dir_all(&dir).map_err(|err| format!("建 CLI 产物目录失败：{err}"))?;
+    Ok(dir)
+}
+
+/// 给前端一个可以写产物、也允许被读回的目录（绝对路径）。
+#[tauri::command]
+fn cli_out_dir(app: tauri::AppHandle) -> Result<String, String> {
+    Ok(cli_out_root(&app)?.to_string_lossy().to_string())
+}
+
+/// 把 CLI 写出来的文件读回 base64（前端要把它变成素材字节）。
+#[tauri::command]
+fn cli_read_out(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    let root = cli_out_root(&app)?;
+    let target = PathBuf::from(&path);
+    if !is_inside(&root, &target) {
+        return Err("只能读本机 CLI 产物目录里的文件".to_string());
+    }
+    let bytes = std::fs::read(&target).map_err(|err| {
+        format!("读不到本机 CLI 的产物（{err}）：确认参数模板里给了 `{{out}}`，且命令真的把文件写出来了")
+    })?;
+    Ok(base64_encode(&bytes))
+}
+
+#[cfg(test)]
+mod cli_out_tests {
+    use super::*;
+
+    #[test]
+    fn base64_matches_rfc4648_vectors() {
+        // RFC 4648 §10 的官方向量：三种余数长度都覆盖到
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
+        assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+        // 高位字节（>127）：PNG / JPEG 的头就是这种，编码表用错会在这里露馅
+        assert_eq!(base64_encode(&[0x89, 0x50, 0x4e, 0x47]), "iVBORw==");
+    }
+
+    #[test]
+    fn only_files_inside_the_out_dir_are_readable() {
+        let root = Path::new(r"C:\data\cli-out");
+        assert!(is_inside(root, Path::new(r"C:\data\cli-out\a.png")));
+        assert!(is_inside(root, Path::new(r"C:\DATA\CLI-OUT\b.mp4")));
+        // 目录本身不是文件
+        assert!(!is_inside(root, Path::new(r"C:\data\cli-out")));
+        // `..` 一律拒：starts_with 不做规范化，不挡这条就能读到隔壁
+        assert!(!is_inside(root, Path::new(r"C:\data\cli-out\..\secret.txt")));
+        assert!(!is_inside(root, Path::new(r"C:\data\cli-out\sub\..\..\secret.txt")));
+        // 前缀相同但不是同一层（`cli-out2` 不是 `cli-out` 的子目录）
+        assert!(!is_inside(root, Path::new(r"C:\data\cli-out2\a.png")));
+        // 完全无关的盘
+        assert!(!is_inside(root, Path::new(r"D:\other\a.png")));
+    }
+}
+
 // ─────────────────────────────────────────────────────────────
 // 窗口几何：记住上次的尺寸与位置（用户 2026-10-06 第 11 批第 7 条）
 // ─────────────────────────────────────────────────────────────
@@ -1219,7 +1343,9 @@ pub fn run() {
             clear_cache,
             cli_which,
             cli_run,
-            cli_kill
+            cli_kill,
+            cli_out_dir,
+            cli_read_out
         ])
         .setup(|app| {
             /*

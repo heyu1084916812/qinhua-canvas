@@ -28,6 +28,8 @@
  * 纯度：纯数据 + 纯函数，不依赖 platform / state / React（架构 §2.2）。
  */
 
+import { capabilitiesOfTool, defaultToolForProtocol } from '../shared/cliTools'
+
 /** 协议能力：与 `ModelCapability.category` 同字面，新增能力必须两处同步 */
 export type ProtocolCapability = 'chat' | 'image' | 'video'
 
@@ -40,6 +42,18 @@ export const CAPABILITY_LABEL: Record<ProtocolCapability, string> = {
 
 /** 能力展示与存储的稳定顺序，避免勾选顺序影响协议定义 */
 export const CAPABILITY_ORDER: ProtocolCapability[] = ['chat', 'image', 'video']
+
+/**
+ * CLI 类协议的能力**由它的工具推出来**（对账 #308）。
+ *
+ * 为什么不在这里再写一份 `['chat','image']`：能力决定"这条渠道会不会出现在生成面板的
+ * 模型下拉里"，而工具那边的模型表才是"这个工具到底能出什么"的唯一事实。
+ * 两处各写一遍，改了工具没改协议就会出现「下拉里有它、点开发现它什么都干不了」。
+ */
+function cliCapabilities(protocolId: string): ProtocolCapability[] {
+  const tool = defaultToolForProtocol(protocolId)
+  return tool ? capabilitiesOfTool(tool) : []
+}
 
 /**
  * 适配器族：决定「这条协议由哪个适配器实现」。
@@ -62,7 +76,7 @@ export type ProtocolFamily = 'mock' | 'openai-compatible' | 'async-task' | 'cli-
  * - `station`：某个具体中转站（用户 2026-09-28 点名的这几家）
  * - `custom`：用户自建（定义不在这张内置表里，见 customProtocols 表）
  */
-export type ProtocolKind = 'offline' | 'legacy' | 'public' | 'station' | 'custom' | 'hidden'
+export type ProtocolKind = 'offline' | 'legacy' | 'public' | 'station' | 'custom' | 'cli' | 'hidden'
 
 /**
  * `ready` = 注册表里有适配器、可以真的发请求；
@@ -284,58 +298,49 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
   },
   {
     id: 'runninghub',
-    name: 'RunningHub（异步任务）',
+    name: 'RunningHub（本机 CLI）',
     short: 'RH',
-    family: 'async-task',
     /*
-     * `hidden`（用户 2026-10-06 第 11 批第 4 条，对账 #308）：RunningHub 与三条 CLI
-     * 一起从「渠道协议」里撤走，配置改在**全局设置 → CLI**（本机 CLI 一栏）里做。
-     * 目录条目**不许删** —— 老渠道存的就是这个 id，删了会变成「未知协议」；
-     * `hidden` 只是"新渠道的下拉里不再出现"，识别与适配器兜底照旧。
+     * `family: 'cli-gateway'`（2026-10-06 改）：桌面壳里由 `cliRun.ts` **直接起本机命令**，
+     * 浏览器里回落到"访问用户自建网关"（`cliGateway.ts`）。此前是 `async-task` + pending
+     * —— 那条 HTTP 适配器从未实现，等于挂着一个跑不通的入口。
      */
-    kind: 'hidden',
-    status: 'pending',
-    capabilities: [],
+    family: 'cli-gateway',
+    kind: 'cli',
+    status: 'ready',
+    capabilities: cliCapabilities('runninghub'),
     docUrl: 'https://www.runninghub.cn/',
-    note: '已移到「全局设置 → CLI」：走你本机的命令，而不是把它的 HTTP 协议接进来。',
+    note: '桌面壳里直接跑你本机那条命令（命令名与参数在「全局设置 → CLI」里配）；浏览器里要自建网关。',
   },
   {
     id: 'jimeng-cli',
-    name: '即梦 CLI',
+    name: '即梦（本机 CLI）',
     short: 'JM',
     family: 'cli-gateway',
-    kind: 'hidden',
-    status: 'pending',
-    capabilities: [],
-    /**
-     * 2026-09-29 退回 pending（用户明确不要「先跑网关」这条路）。
-     *
-     * 适配器已经写好（`platform/channels/cliGateway.ts`），但它成立的前提是
-     * 用户自己跑一个网关 —— 纯前端起不了子进程，浏览器也拿不到 CLI 的登录态。
-     * 前提不成立就该如实标「待支持」，而不是挂着让人以为能用。
-     * 等有了桌面壳（Tauri）或内建本地桥，把 status 改回 ready 即可。
-     */
-    note: '已移到「全局设置 → CLI」：由桌面壳直接起本机命令，不再需要自建网关。',
+    kind: 'cli',
+    status: 'ready',
+    capabilities: cliCapabilities('jimeng-cli'),
+    note: '桌面壳里直接跑你本机的即梦命令（命令名与参数在「全局设置 → CLI」里配）。',
   },
   {
     id: 'gpt-cli',
-    name: 'GPT CLI',
-    short: 'GPT',
+    name: 'Codex（本机 CLI）',
+    short: 'Codex',
     family: 'cli-gateway',
-    kind: 'hidden',
-    status: 'pending',
-    capabilities: [],
-    note: '已移到「全局设置 → CLI」（那一栏现在叫 Codex）：由桌面壳直接起本机命令。',
+    kind: 'cli',
+    status: 'ready',
+    capabilities: cliCapabilities('gpt-cli'),
+    note: '用户点名把「GPT CLI」改名为 Codex。桌面壳里直接跑本机 codex 命令，花你自己的额度。',
   },
   {
     id: 'gemini-cli',
-    name: 'Gemini CLI',
+    name: 'Gemini（本机 CLI）',
     short: 'GEM',
     family: 'cli-gateway',
-    kind: 'hidden',
-    status: 'pending',
-    capabilities: [],
-    note: '已移到「全局设置 → CLI」：由桌面壳直接起本机命令，不再需要自建网关。',
+    kind: 'cli',
+    status: 'ready',
+    capabilities: cliCapabilities('gemini-cli'),
+    note: '桌面壳里直接跑本机的 gemini 命令（命令名与参数在「全局设置 → CLI」里配）。',
   },
 ]
 /**
@@ -411,7 +416,16 @@ export function protocolRequiresBaseUrl(
   id: string,
   catalog: ProtocolCatalog = BUILTIN_CATALOG,
 ): boolean {
-  return protocolById(id, catalog)?.family !== 'mock'
+  const def = protocolById(id, catalog)
+  if (!def) return true
+  /*
+   * CLI 族**不需要地址**（对账 #308）：桌面壳里它是"起一条本机命令"，
+   * 没有可填的 HTTP 地址；浏览器里那条路才需要网关地址，而那种情况下
+   * 由 `cliGateway.ts` 自己给出"要填网关地址（或用桌面版）"的说明 ——
+   * 比在保存按钮上写死"地址必填"更准确，因为 desktop 下它确实是多余字段。
+   */
+  if (def.family === 'cli-gateway') return false
+  return def.family !== 'mock'
 }
 
 /** 协议短标签（列表项用）；未知协议回落原串，不吞信息 */

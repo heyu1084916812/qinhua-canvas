@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   BUILTIN_PROTOCOLS,
   buildProtocolCatalog,
+  protocolById,
   protocolCapabilities,
   protocolIsReady,
   protocolLabel,
@@ -85,9 +86,28 @@ describe('能力查询', () => {
     expect(protocolLabel('anthropic')).toBe('anthropic')
   })
 
+  it('★★ CLI 类协议的能力由它的工具推出来（一处口径，不写第二份）', () => {
+    // 即梦那个工具报得出图 + 出视频 ⇒ 协议就有这两项能力（对账 #308）
+    expect(protocolSupports('jimeng-cli', 'image')).toBe(true)
+    expect(protocolSupports('jimeng-cli', 'video')).toBe(true)
+    expect(protocolSupports('jimeng-cli', 'chat')).toBe(false)
+    // Codex 只有对话（它是个写代码的 agent，不产图）
+    expect(protocolSupports('gpt-cli', 'chat')).toBe(true)
+    expect(protocolSupports('gpt-cli', 'image')).toBe(false)
+    // 四条都是 ready 且单独一组（`cli`），不再是"待支持 + 灰掉"
+    for (const id of ['jimeng-cli', 'gpt-cli', 'gemini-cli', 'runninghub']) {
+      expect(protocolById(id)?.status).toBe('ready')
+      expect(protocolById(id)?.kind).toBe('cli')
+    }
+  })
+
   it('requiresBaseUrl：mock 不用地址，其余都要（空地址会被 SPA 兜底页骗过）', () => {
     expect(protocolRequiresBaseUrl('mock')).toBe(false)
     expect(protocolRequiresBaseUrl('openai-compatible')).toBe(true)
+    // CLI 族不要地址：桌面壳里它起的是本机命令（对账 #308）
+    expect(protocolRequiresBaseUrl('gpt-cli')).toBe(false)
+    expect(protocolRequiresBaseUrl('jimeng-cli')).toBe(false)
+    expect(protocolRequiresBaseUrl('runninghub')).toBe(false)
     expect(protocolRequiresBaseUrl('unknown')).toBe(true)
   })
 
