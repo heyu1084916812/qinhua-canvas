@@ -38,6 +38,34 @@ export function AssetPreview({
   const closeRef = useRef<HTMLButtonElement>(null)
   const [colors, setColors] = useState<string[]>([])
 
+  /**
+   * 复制反馈（用户 2026-10-06 第 8 条）：色值点击即复制、提示词点击即复制，
+   * 提示词框右上角另给一枚复制按钮。
+   *
+   * 反馈用**同一个瞬态键**（`copiedKey`）而不是每个色块各存一个布尔：
+   * 用户一次只会复制一样东西，多点几次也只是把高亮挪过去；
+   * 每个色块各留一个 state 会在关闭灯箱后留下一串没人清理的计时器。
+   */
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const copyText = (text: string, key: string) => {
+    if (!text) return
+    void navigator.clipboard
+      ?.writeText(text)
+      .then(() => {
+        setCopiedKey(key)
+        if (copiedTimer.current) clearTimeout(copiedTimer.current)
+        copiedTimer.current = setTimeout(() => setCopiedKey(null), 1200)
+      })
+      .catch(() => setCopiedKey(null))
+  }
+  useEffect(
+    () => () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current)
+    },
+    [],
+  )
+
   useEffect(() => {
     closeRef.current?.focus()
     const onKey = (event: KeyboardEvent) => {
@@ -150,14 +178,25 @@ export function AssetPreview({
                 <span className={styles.metaMuted}>{paletteText}</span>
               ) : (
                 colors.map((color) => (
-                  <span key={color} className={styles.swatchItem}>
+                  /* 点一下就复制色值（用户 2026-10-06 第 8 条：「颜色色值需要能点击复制」） */
+                  <button
+                    key={color}
+                    type="button"
+                    className={styles.swatchItem}
+                    data-asset-copy-color={color}
+                    title={`点击复制 ${color}`}
+                    aria-label={`复制色值 ${color}`}
+                    onClick={() => copyText(color, `color:${color}`)}
+                  >
                     <span
                       className={styles.swatch}
                       style={{ backgroundColor: color }}
                       title={color}
                     />
-                    <span className={styles.swatchText}>{color}</span>
-                  </span>
+                    <span className={styles.swatchText}>
+                      {copiedKey === `color:${color}` ? '已复制' : color}
+                    </span>
+                  </button>
                 ))
               )}
             </div>
@@ -165,8 +204,38 @@ export function AssetPreview({
 
           <section className={styles.detailSection}>
             <h4 className={styles.detailLabel}>原提示词</h4>
-            <div className={styles.promptBlock} data-asset-preview-prompt>
-                {displayMeta(asset.prompt)}
+            {/*
+              提示词**整块可点即复制**，右上角另给一枚按钮（用户原话：「提示词也是一样能点击复制
+              + 提示词框右上角有一个复制按钮」）—— 点整块是老手的手感，按钮是新手的路标，两者都要。
+            */}
+            <div className={styles.promptWrap}>
+              <button
+                type="button"
+                className={styles.copyBtn}
+                data-asset-copy-prompt-btn
+                onClick={() => copyText(asset.prompt ?? '', 'prompt')}
+                disabled={!asset.prompt}
+                aria-label="复制提示词"
+                title="复制提示词"
+              >
+                {copiedKey === 'prompt' ? '已复制' : '复制'}
+              </button>
+              <div
+                className={styles.promptBlock}
+                data-asset-preview-prompt
+                data-asset-copy-prompt
+                role="button"
+                tabIndex={0}
+                title={asset.prompt ? '点击复制提示词' : undefined}
+                onClick={() => copyText(asset.prompt ?? '', 'prompt')}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter' && event.key !== ' ') return
+                  event.preventDefault()
+                  copyText(asset.prompt ?? '', 'prompt')
+                }}
+              >
+                {copiedKey === 'prompt' ? '已复制到剪贴板' : displayMeta(asset.prompt)}
+              </div>
             </div>
           </section>
 

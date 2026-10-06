@@ -12657,6 +12657,36 @@ async function g90(browser) {
     !(await page.locator('[data-assets-page]').innerText()).includes('还没开始做'),
   )
 
+  /**
+   * 页面结构在 2026-10-06 改过（对账 #264，用户第 8 条 + 参考图五）：
+   * 默认落在**「全部历史」页签**（含未收藏、含失败），左侧是快速筛选 + 模型生成分组，
+   * 顶部是搜索 / 类型 / 分组方式 / 视图切换。
+   *
+   * 下面那一串"素材库只列收藏的"**判据一个字没改**，只是要先切到「素材库」页签 ——
+   * 页面形态变了、断言跟着走，而不是把旧断言删掉（删掉就等于这块没人守了）。
+   */
+  rec(
+    g,
+    '★★ 默认落在「全部历史」页签（用户："下面分全部历史和素材库"）',
+    (await page.locator('[data-assets-tab="history"]').getAttribute('aria-selected')) === 'true',
+  )
+  rec(
+    g,
+    '★★ 历史里列的是**生成记录**：种子那条产出（未收藏）也在列表里',
+    (await page.locator('[data-asset-card="g90-save-me"]').count()) === 1,
+  )
+  rec(
+    g,
+    '★ 左侧栏＝快速筛选 + 模型生成分组（参考图五那一栏）',
+    (await page.locator('[data-assets-rail]').count()) === 1 &&
+      (await page.locator('[data-assets-quick="saved"]').count()) === 1 &&
+      (await page.locator('[data-assets-model]').count()) >= 1,
+  )
+
+  /** 切到素材库页签：以下全部是既有的"收藏关系"断言 */
+  await page.locator('[data-assets-tab="library"]').click()
+  await sleep(400)
+
   // ── ① 数据层：两张都读回来了 ──
   const cards = page.locator('[data-asset-card]')
   let count = 0
@@ -13082,11 +13112,32 @@ async function g90(browser) {
 
   await page.goto(`${BASE}/assets`, { waitUntil: 'networkidle' })
   await sleep(700)
+  /** 重新进页面 ⇒ 落回默认的「全部历史」页签；这一段的判据是**收藏关系**，先切过去 */
+  await page.locator('[data-assets-tab="library"]').click()
+  await sleep(400)
   rec(
     g,
     '★★ 保存后素材进入收藏库',
     (await page.locator('[data-asset-card="g90-save-me"]').count()) === 1,
   )
+  /**
+   * 顺手钉住"卡片知道自己收藏了没有"（对账 #264）：历史里同一张卡未收藏时菜单是
+   * 「收藏到素材库」，收藏后才是「取消收藏」—— 两处同名动作语义相反，最该被守住。
+   */
+  await page.locator('[data-asset-card="g90-save-me"] [data-asset-menu]').click()
+  await sleep(250)
+  const savedMenuText = await page
+    .locator('[data-asset-card="g90-save-me"] [role="menu"]')
+    .innerText()
+    .catch(() => '')
+  rec(
+    g,
+    '★ 收藏过的卡片菜单是「取消收藏」（而不是「收藏到素材库」）',
+    savedMenuText.includes('取消收藏') && !savedMenuText.includes('收藏到素材库'),
+    savedMenuText.replace(/\s+/g, ' ').trim(),
+  )
+  await page.locator('[data-assets-page] [class*="backdrop"]').click({ force: true }).catch(() => {})
+  await sleep(200)
   await page.locator('[data-asset-card="g90-save-me"] [data-asset-open]').dblclick()
   await sleep(500)
   const savedDetails = await page.evaluate(() => ({
@@ -13109,24 +13160,37 @@ async function g90(browser) {
   await page.keyboard.press('Escape')
   await sleep(300)
 
-  // ── 几何：内容随工作区居中（与技能库 / 设置页同一口径）──
+  /**
+   * ── 几何：内容在**含左栏之后**仍居中（与技能库 / 设置页同一口径）──
+   *
+   * 2026-10-06 加了左侧栏（对账 #264，参考图五）⇒ "主区中心"要从
+   * **工作区左侧 + 左栏宽** 算到工作区右侧；仍拿工作区整体中心比，会差出半个左栏
+   * （实测差 120 = 240/2），那是结构变了、不是没居中。
+   */
   const geo = await page.evaluate(() => {
     const stage = document.querySelector('[data-assets-stage]')
+    const rail = document.querySelector('[data-assets-rail]')
     const ws = document.querySelector('[data-app-workspace]')
     if (!stage || !ws) return null
     const s = stage.getBoundingClientRect()
     const w = ws.getBoundingClientRect()
-    return { stageCx: Math.round(s.left + s.width / 2), wsCx: Math.round(w.left + w.width / 2), sw: Math.round(s.width), ww: Math.round(w.width) }
+    const mainLeft = rail ? rail.getBoundingClientRect().right : w.left
+    return {
+      stageCx: Math.round(s.left + s.width / 2),
+      mainCx: Math.round(mainLeft + (w.right - mainLeft) / 2),
+      sw: Math.round(s.width),
+      ww: Math.round(w.right - mainLeft),
+    }
   })
   rec(
     g,
-    '★ 素材库内容在工作区水平居中（±2px）',
-    !!geo && Math.abs(geo.stageCx - geo.wsCx) <= 2,
+    '★ 素材页内容在主区（工作区去掉左栏）水平居中（±2px）',
+    !!geo && Math.abs(geo.stageCx - geo.mainCx) <= 2,
     JSON.stringify(geo),
   )
   rec(
     g,
-    '★ 内容不横向溢出工作区',
+    '★ 内容不横向溢出主区',
     !!geo && geo.sw <= geo.ww,
     geo ? `stage=${geo.sw} workspace=${geo.ww}` : 'no geo',
   )
@@ -19350,7 +19414,282 @@ async function g113(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113]
+/**
+ * G114 我的素材页 · 全部历史与复制（对账 #264）。
+ *
+ * 用户第 8 条 + 同日答复定下的东西，逐条验：
+ * ① 生成历史**含未收藏**、也含**生成失败**；
+ * ② 顶部类型档带数量（全部 / 图 / 视频 / 音频）；
+ * ③ 左侧快速筛选（收藏内容 / 最近 7 天 / 生成失败）与模型生成分组（**能当筛选器用**）；
+ * ④ 分组方式：日期分组 / 模型分组；
+ * ⑤ 网格 / 列表切换；
+ * ⑥ 历史里的图能**顺手收藏**；
+ * ⑦ 详情里**色值与提示词都能点击复制**，提示词框右上角另有复制按钮。
+ *
+ * 种子刻意铺开：两个模型（Veo 1 张成图 + 1 条失败、Nano Banana 2 两张，其中一张 10 天前），
+ * 收藏 1 张、未收藏 2 张 —— 这样"快捷筛选 / 模型筛选 / 日期分组 / 计数"四件事都有真数据可比。
+ */
+async function g114(browser) {
+  const g = 'G114 全部历史'
+  const ctx = await newCtx(browser, {
+    // 剪贴板断言要读回写进去的内容（用户要的"点击复制"必须能验到底，而不是只看按钮在不在）
+    permissions: ['clipboard-read', 'clipboard-write'],
+  })
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(500)
+
+  await page.evaluate(async ({ pngB64 }) => {
+    const openDb = () =>
+      new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+    const db = await openDb()
+    const put = (table, rows) =>
+      new Promise((resolve) => {
+        const tx = db.transaction(table, 'readwrite')
+        for (const r of rows) tx.objectStore(table).put(r)
+        tx.oncomplete = () => resolve(true)
+      })
+    const bytes = new Uint8Array(await (await fetch(`data:image/png;base64,${pngB64}`)).arrayBuffer())
+    const now = Date.now()
+    const hour = 60 * 60 * 1000
+    const day = 24 * hour
+
+    await put('projects', [{ id: 'p-h', name: '画布', workbench: 'canvas', createdAt: now, updatedAt: now }])
+    await put('assets', [
+      { id: 'h-img', hash: 'h-img', mime: 'image/png', bytes, width: 1024, height: 576 },
+      { id: 'h-vid', hash: 'h-vid', mime: 'video/mp4', bytes, width: 1280, height: 720 },
+      { id: 'h-old', hash: 'h-old', mime: 'image/png', bytes, width: 512, height: 512 },
+    ])
+    await put('assetLibrary', [
+      {
+        id: 'h-img',
+        hash: 'h-img',
+        mime: 'image/png',
+        bytes: 100,
+        width: 1024,
+        height: 576,
+        savedAt: now - hour,
+        prompt: '月光下的猫',
+        model: 'Nano Banana 2',
+        ratio: '16:9',
+        quality: 'high',
+        channelId: 'ch-a',
+      },
+    ])
+    const run = (id, outputHashes, sentModel, createdAt, prompt, status = 'succeeded') => ({
+      id,
+      nodeId: `n-${id}`,
+      projectId: 'p-h',
+      version: 1,
+      createdAt,
+      status,
+      inputs: [],
+      params: { prompt, model: sentModel, ratio: '16:9', quality: 'high' },
+      outputHashes,
+      fingerprint: `fp-${id}`,
+      taskId: `t-${id}`,
+      durationMs: 10,
+      sentChannelId: 'ch-a',
+      sentModel,
+    })
+    await put('runRecords', [
+      run('r1', ['h-img'], 'Nano Banana 2', now - hour, '月光下的猫'),
+      run('r2', ['h-vid'], 'Veo', now - 2 * hour, '奔跑的狗'),
+      run('r3', [], 'Veo', now - 30 * 60 * 1000, '被拦截的提示词', 'failed'),
+      run('r4', ['h-old'], 'Nano Banana 2', now - 10 * day, '很久以前的一张'),
+    ])
+  }, { pngB64: solidPngBuffer(64, 36).toString('base64') })
+
+  await page.goto(`${BASE}/assets`, { waitUntil: 'networkidle' })
+  await sleep(900)
+
+  const cardCount = () => page.locator('[data-asset-card]').count()
+  rec(
+    g,
+    '★★ 默认在「全部历史」，且**含未收藏与失败**（3 张产物 + 1 条失败）',
+    (await cardCount()) === 3 && (await page.locator('[data-history-failed]').count()) === 1,
+    `cards=${await cardCount()} failed=${await page.locator('[data-history-failed]').count()}`,
+  )
+  await page.screenshot({ path: `${OUT}/114-g114-history-list.png` })
+
+  /** ② 顶部类型档带数量（对全量算：全部 4 / 图 2 / 视频 1 / 音频 0） */
+  const kindCounts = await page.evaluate(() =>
+    Object.fromEntries(
+      [...document.querySelectorAll('[data-assets-kind-count]')].map((el) => [
+        el.getAttribute('data-assets-kind-count'),
+        el.textContent?.trim(),
+      ]),
+    ),
+  )
+  rec(
+    g,
+    '★★ 顶部类型档带数量（全部 4 / 图 2 / 视频 1 / 音频 0）',
+    kindCounts.all === '4' && kindCounts.image === '2' && kindCounts.video === '1' && kindCounts.audio === '0',
+    JSON.stringify(kindCounts),
+  )
+
+  /** ③ 快速筛选：收藏内容 */
+  await page.locator('[data-assets-quick="saved"]').click()
+  await sleep(300)
+  rec(
+    g,
+    '★★ 快捷筛选「收藏内容」只剩收藏过的那张',
+    (await cardCount()) === 1 && (await page.locator('[data-asset-card="h-img"]').count()) === 1,
+    `cards=${await cardCount()}`,
+  )
+
+  /** ③ 快速筛选：最近 7 天（10 天前那张出局，失败的仍在） */
+  await page.locator('[data-assets-quick="recent"]').click()
+  await sleep(300)
+  rec(
+    g,
+    '★★ 快捷筛选「最近 7 天」把 10 天前那张排除（并且与前面的筛选互斥切换）',
+    (await cardCount()) === 2 && (await page.locator('[data-asset-card="h-old"]').count()) === 0,
+    `cards=${await cardCount()}`,
+  )
+
+  /** ③ 快速筛选：生成失败 */
+  await page.locator('[data-assets-quick="failed"]').click()
+  await sleep(300)
+  const failedText = await page.locator('[data-history-failed]').innerText().catch(() => '')
+  rec(
+    g,
+    '★★ 快捷筛选「生成失败」列出失败那一次（带提示词，不是空白卡）',
+    (await cardCount()) === 0 &&
+      (await page.locator('[data-history-failed]').count()) === 1 &&
+      failedText.includes('被拦截的提示词'),
+    failedText.replace(/\s+/g, ' ').trim().slice(0, 60),
+  )
+
+  /** ③ 模型分组当筛选器：点 Veo ⇒ 只剩 Veo 的（成图 1 + 失败 1） */
+  await page.locator('[data-assets-quick="all"]').click()
+  await sleep(200)
+  await page.locator('[data-assets-model="Veo"]').click()
+  await sleep(300)
+  rec(
+    g,
+    '★★ 左侧「模型生成分组」能当筛选器用（点 Veo ⇒ 只剩 Veo 的产出与失败）',
+    (await cardCount()) === 1 && (await page.locator('[data-asset-card="h-vid"]').count()) === 1,
+    `cards=${await cardCount()}`,
+  )
+  await page.locator('[data-assets-model="Veo"]').click() // 再点一次 = 取消这一档
+  await sleep(250)
+  rec(g, '★ 再点同一档取消筛选（不然没有"退回全部"的路）', (await cardCount()) === 3, `cards=${await cardCount()}`)
+
+  /** ④ 分组方式：模型分组 */
+  await page.locator('[data-assets-group-mode="model"]').click()
+  await sleep(300)
+  const modelSections = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-assets-group-section]')].map((el) =>
+      el.getAttribute('data-assets-group-section'),
+    ),
+  )
+  rec(
+    g,
+    /*
+     * 两组张数**打平**（各 2 条：Nano Banana 2 = 两张图，Veo = 一张图 + 一条失败）
+     * ⇒ 平手时按名字排（顺序稳定，不然每次渲染都跳）。所以要断言的是**分组本身**，
+     * 不是某一组的先后 —— 第一版拿"Veo 在前"当期望，是我想当然。
+     */
+    '★★ 切「模型分组」后按模型成组（两个模型各一组，含失败那条）',
+    modelSections.length === 2 &&
+      modelSections.includes('Nano Banana 2') &&
+      modelSections.includes('Veo'),
+    JSON.stringify(modelSections),
+  )
+  await page.locator('[data-assets-group-mode="date"]').click()
+  await sleep(300)
+  const dateSections = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-assets-group-section]')].map((el) =>
+      el.getAttribute('data-assets-group-section'),
+    ),
+  )
+  rec(
+    g,
+    '★★ 切回「日期分组」：今天 / 10月某日 两组，最新那组在最上面',
+    dateSections.length === 2 && dateSections[0] === '今天',
+    JSON.stringify(dateSections),
+  )
+
+  /** ⑤ 视图切换 */
+  await page.locator('[data-assets-view-mode="list"]').click()
+  await sleep(300)
+  const listDir = await page
+    .locator('[data-assets-grid]')
+    .first()
+    .evaluate((el) => getComputedStyle(el).flexDirection)
+  rec(g, '★ 切「列表」视图后是纵向排列（不是只换了个按钮态）', listDir === 'column', listDir)
+  await page.locator('[data-assets-view-mode="grid"]').click()
+  await sleep(250)
+
+  /** ⑥ 历史里顺手收藏（未收藏那张） */
+  await page.locator('[data-asset-card="h-vid"] [data-asset-menu]').click()
+  await sleep(250)
+  const freshMenu = await page
+    .locator('[data-asset-card="h-vid"] [role="menu"]')
+    .innerText()
+    .catch(() => '')
+  rec(
+    g,
+    '★★ 未收藏的历史卡片菜单是「收藏到素材库」（不是「取消收藏」）',
+    freshMenu.includes('收藏到素材库'),
+    freshMenu.replace(/\s+/g, ' ').trim(),
+  )
+  await page.locator('[data-asset-card="h-vid"] [data-asset-save]').click()
+  await sleep(600)
+  await page.locator('[data-assets-tab="library"]').click()
+  await sleep(400)
+  rec(
+    g,
+    '★★ 收藏后进素材库（页签计数也跟着 +1）',
+    (await page.locator('[data-asset-card="h-vid"]').count()) === 1 &&
+      (await page.locator('[data-asset-card]').count()) === 2,
+    `library=${await page.locator('[data-asset-card]').count()}`,
+  )
+
+  /** ⑦ 复制：色值 / 提示词 / 提示词右上角按钮 */
+  await page.locator('[data-asset-card="h-img"] [data-asset-open]').dblclick()
+  await sleep(600)
+  const swatch = page.locator('[data-asset-copy-color]').first()
+  const swatchColor = await swatch.getAttribute('data-asset-copy-color')
+  await swatch.click()
+  await sleep(300)
+  const clipboardColor = await page.evaluate(() => navigator.clipboard.readText())
+  rec(
+    g,
+    '★★ 点色值即复制（剪贴板里就是那个色值）',
+    !!swatchColor && clipboardColor.trim().toLowerCase() === swatchColor.toLowerCase(),
+    `期望=${swatchColor} 实际=${clipboardColor}`,
+  )
+
+  await page.locator('[data-asset-copy-prompt]').click()
+  await sleep(300)
+  const clipboardPrompt = await page.evaluate(() => navigator.clipboard.readText())
+  rec(g, '★★ 点提示词即复制', clipboardPrompt.trim() === '月光下的猫', clipboardPrompt.trim())
+
+  await page.locator('[data-asset-copy-prompt-btn]').click()
+  await sleep(300)
+  const clipboardBtn = await page.evaluate(() => navigator.clipboard.readText())
+  rec(
+    g,
+    '★★ 提示词框右上角的复制按钮也能用（新手的那条路）',
+    clipboardBtn.trim() === '月光下的猫',
+    clipboardBtn.trim(),
+  )
+
+  await page.screenshot({ path: `${OUT}/114-g114-history.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

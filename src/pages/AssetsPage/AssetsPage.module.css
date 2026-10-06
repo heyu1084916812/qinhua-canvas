@@ -6,6 +6,237 @@
   font-family: var(--font-sans);
   font-size: var(--fs-body);
   line-height: var(--lh-body);
+  /*
+   * 两栏：左栏"快速筛选 / 模型生成分组"固定 240，主区自适应（对账 #264，参考图五）。
+   * 默认的 `align-items: stretch` 让左栏底色一路通到页面底部 —— 分栏才像分栏。
+   */
+  display: flex;
+  align-items: stretch;
+}
+
+/* ── 左侧栏（参考图五）── */
+.rail {
+  flex: 0 0 auto;
+  width: 240px;
+  box-sizing: border-box;
+  padding: var(--space-6) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  background: var(--bg-subtle);
+}
+
+.railGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.railLabel {
+  margin-bottom: var(--space-1);
+  padding: 0 var(--space-3);
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+}
+
+.railItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-title);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+}
+
+.railItem:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.railItemOn {
+  background: var(--bg-surface);
+  color: var(--text-1);
+  box-shadow: var(--shadow-float);
+}
+
+.railItemLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.railItemCount {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.railEmpty {
+  margin: 0;
+  padding: 0 var(--space-3);
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+/* ── 页头与工具行 ── */
+.head {
+  margin-bottom: var(--space-4);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--fs-page-title);
+  font-weight: var(--fw-page-title);
+  line-height: var(--lh-page-title);
+}
+
+.subtitle {
+  margin: var(--space-1) 0 0;
+  color: var(--text-3);
+  font-size: var(--fs-label);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.segmented {
+  display: inline-flex;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+}
+
+.chipCount {
+  margin-left: var(--space-1);
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+/* ── 两个页签（全部历史 / 素材库）── */
+.tabs {
+  display: flex;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+  border-bottom: var(--border);
+}
+
+.tab {
+  position: relative;
+  padding: var(--space-2) 0;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-title);
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--text-1);
+}
+
+.tabOn {
+  color: var(--text-1);
+}
+
+/* 选中页签的下划线：贴住那一行的底边（`bottom: -1px` 压在 border 上） */
+.tabOn::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+}
+
+.tabCount {
+  margin-left: var(--space-1);
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+/* ── 分组 ── */
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.groupLabel {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-title);
+}
+
+/* 列表视图：一行一张 —— 在"找某一张"这件事上比网格快 */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/*
+ * 失败卡（对账 #264）：没有产物可显示，所以不摆图 ——
+ * 摆一个灰框只会让人以为"图没加载出来"。它要讲清的是"哪一次失败了"。
+ */
+.failedCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: var(--border);
+  border-radius: var(--radius-node);
+  background: var(--bg-surface);
+}
+
+.failedBadge {
+  align-self: flex-start;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--danger);
+  color: var(--accent-text);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+}
+
+.failedPrompt {
+  margin: 0;
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  overflow-wrap: anywhere;
+}
+
+.failedMeta {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
 }
 
 .main {
@@ -446,8 +677,21 @@
   gap: var(--space-2);
   min-width: 0;
   padding: 4px 8px 4px 4px;
+  /* 现在是一枚 <button>（点击复制色值）⇒ 把按钮的默认外观全抹平，回到它原来的样子 */
+  border: none;
   border-radius: var(--radius-pill);
   background: var(--bg-surface);
+  font-family: var(--font-sans);
+  cursor: pointer;
+}
+
+.swatchItem:hover {
+  background: var(--bg-hover);
+}
+
+.swatchItem:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }
 
 .swatch {
@@ -482,6 +726,43 @@
   white-space: pre-wrap;
   overflow: auto;
   overflow-wrap: anywhere;
+  /* 整块可点即复制 ⇒ 给出手势提示（块本体仍是 div，语义靠 role/tabIndex 补） */
+  cursor: copy;
+}
+
+/* 提示词那一段：块 + 右上角那枚复制按钮（按钮浮在块的上方，不占排版） */
+.promptWrap {
+  position: relative;
+}
+
+.promptWrap .promptBlock {
+  padding-right: 64px;
+}
+
+.copyBtn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 1;
+  padding: 2px var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  cursor: pointer;
+}
+
+.copyBtn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.copyBtn:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
 }
 
 .metaGrid {

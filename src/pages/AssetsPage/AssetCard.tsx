@@ -10,27 +10,39 @@ import styles from './AssetsPage.module.css'
  * 卡片只承担两件事：把完整素材摆出来，以及接收选中 / 双击。
  * 项目、时间、体积等溯源信息全部移入双击后的灯箱，避免封面下方再出现一层
  * 与图片争夺注意力的文字。
+ *
+ * ## `saved` / `onSave`（对账 #264）
+ *
+ * 「全部生成历史」里绝大多数卡片**还没收藏**，那时菜单里该出现的是「收藏素材库」而不是
+ * 「取消收藏」—— 同一个动作在不同状态下语义相反，菜单必须跟着状态走（否则用户点了
+ * "取消收藏"，实际做的是收藏）。所以这两个 prop 由宿主按 `item.saved` 传进来。
  */
 export function AssetCard({
   asset,
+  saved = true,
   selected,
   onSelect,
   onOpen,
   confirming,
   menuOpen,
   onToggleMenu,
+  onSave,
   onRequestRemove,
   onConfirmRemove,
   onCancelRemove,
   onDownload,
 }: {
   asset: LibraryAsset
+  /** 这张收藏了没有（默认 true：素材库里的卡片当然都收藏过） */
+  saved?: boolean
   selected: boolean
   onSelect: () => void
   onOpen: () => void
   confirming: boolean
   menuOpen: boolean
   onToggleMenu: () => void
+  /** 「收藏素材库」——只有 `saved === false` 时才会被点到 */
+  onSave?: () => void
   onRequestRemove: () => void
   onConfirmRemove: () => void
   onCancelRemove: () => void
@@ -96,7 +108,7 @@ export function AssetCard({
       </button>
 
       <div className={styles.cardActions}>
-        {confirming ? (
+        {confirming && saved ? (
           <div className={styles.confirm}>
             <span className={styles.confirmText}>取消收藏？</span>
             <button
@@ -154,18 +166,33 @@ export function AssetCard({
             >
               下载
             </button>
-            <button
-              type="button"
-              className={`${styles.menuItem} ${styles.menuDanger}`}
-              role="menuitem"
-              data-asset-remove={asset.hash}
-              onClick={(event) => {
-                event.stopPropagation()
-                onRequestRemove()
-              }}
-            >
-              取消收藏
-            </button>
+            {saved ? (
+              <button
+                type="button"
+                className={`${styles.menuItem} ${styles.menuDanger}`}
+                role="menuitem"
+                data-asset-remove={asset.hash}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onRequestRemove()
+                }}
+              >
+                取消收藏
+              </button>
+            ) : (
+              <button
+                type="button"
+                className={styles.menuItem}
+                role="menuitem"
+                data-asset-save={asset.hash}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onSave?.()
+                }}
+              >
+                收藏到素材库
+              </button>
+            )}
           </div>
         )}
       </div>
