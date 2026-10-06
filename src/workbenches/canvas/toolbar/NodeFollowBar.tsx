@@ -18,7 +18,10 @@ import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useCanvasStore, useGraph, useSelection, useViewportState } from '../storeContext'
 import { toWorldRectInGraph } from '../../../domain/canvas/geometry/coords'
 import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
-import type { NodeSnapshot, NodeType } from '../../../domain/canvas/model/node'
+import { GROUP_BG_TONES } from '../../../domain/canvas/model/node'
+import type { GroupBgTone, GroupData, NodeSnapshot, NodeType } from '../../../domain/canvas/model/node'
+import { childIdsOf, groupBgOf } from '../../../domain/canvas/nodeSpecs/group'
+import { arrangeGroupMembers, ungroupNodes } from '../../../features/canvas/ungroupNodes'
 import { createId } from '../../../shared/id'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { GRID_CUSTOM_MAX, GRID_PRESETS, splitNodeToGrid } from '../../../features/canvas/splitToGrid'
@@ -43,6 +46,9 @@ import {
   IconSettings,
   IconStop,
   IconMention,
+  IconPalette,
+  IconTidy,
+  IconUngroup,
 } from './icons'
 import { sendSelectionToAgent } from '../../../features/canvas/agentHandoff'
 
@@ -52,6 +58,26 @@ import { sendSelectionToAgent } from '../../../features/canvas/agentHandoff'
  * 与创作面板同一批（§6.1）。
  */
 const FOLLOW_TYPES = new Set<NodeType>(['prompt', 'generation', 'group', 'batch', 'compare', 'fusion'])
+
+/**
+ * 「整组执行」里算"能跑"的类型。
+ *
+ * 组**不做生成**（用户 2026-10-06 第 13 批第 5 条：「就不是把他当成生成节点了」），
+ * 所以组的执行语只有一个：把**组内能跑的节点**跑起来。组内子节点按 §6.11 只收
+ * 提示词与生成节点，其中只有生成节点够格（提示词自己不会出图）。
+ * 批量 / 循环 / 融合一并列上：它们若将来能被收进组，语义也一样成立。
+ */
+const GROUP_RUNNABLE = new Set<NodeType>(['generation', 'batch', 'loop', 'fusion'])
+
+/** 六档的中文名（给人看；档位名本身是给数据与样式用的） */
+const GROUP_BG_LABEL: Record<GroupBgTone, string> = {
+  slate: '灰',
+  blue: '蓝',
+  green: '绿',
+  amber: '琥珀',
+  rose: '玫红',
+  violet: '紫',
+}
 
 /** 鼠标按下时阻止默认聚焦：按钮点击后不滞留焦点，否则空格会被按钮吃掉（§6.3） */
 const keepCanvasFocus = { onMouseDown: (e: ReactMouseEvent) => e.preventDefault() }
@@ -199,6 +225,18 @@ function NodeActions({
     return <PromptFormatActions node={node} onClose={onClose} />
   }
 
+  /**
+   * 组走**自己的功能栏**（用户 2026-10-06 第 13 批第 5 条）：
+   * 改背景色（六档）/ 整理节点 / 整组执行 / 解组 / 下载。
+   *
+   * 它在语义上就**不是生成节点**（同上：「就不是把他当成生成节点了」），
+   * 所以这里没有「生成 / 渠道设置」；「重命名 / 复制 / 删除」也不重复占位 ——
+   * 那三件在组的右键菜单里各有一份。
+   */
+  if (node.type === 'group') {
+    return <GroupActions node={node} onClose={onClose} onDownload={onDownload} />
+  }
+
   const state = exec.nodeStateOf(node.id)
   const busy = state?.kind === 'queued' || state?.kind === 'running'
   /**
@@ -210,7 +248,6 @@ function NodeActions({
   const canRun =
     node.type === 'generation' ||
     node.type === 'batch' ||
-    node.type === 'group' ||
     node.type === 'fusion'
   /**
    * 「有可下载的素材」= 节点**自身**持有 `assetHash`。
@@ -483,6 +520,111 @@ function NodeActions({
  * 按钮走的是完整的「按光标 / 选区变换」。两处共用同一份纯函数，
  * 差别只在「作用范围」（整段 vs 光标处）。
  */
+/**
+ * 组的"整组"功能栏（用户 2026-10-06 第 13 批第 5 条）：
+ * **改背景色（六档）/ 整理节点 / 整组执行 / 解组 / 下载**。
+ *
+ * 三条口径写在这里，别在别处再实现一遍：
+ * ① **背景色是"档位名 → 令牌"**（`data.bg` 存 `slate` / `blue`…，色值在 `ui/tokens.css`），
+ *    所以深色主题跟着一起变；当前档在菜单里点亮。
+ * ② 「整理节点」= **按依赖重排组内顺序**（组内位置由 3×3 网格决定，挪坐标看不出来），
+ *    逻辑在 `features/canvas/ungroupNodes.ts`（可单测）。
+ * ③ 「整组执行」= 把**组内能跑的节点**逐个跑起来（组自己不出图）；一个都不能跑时如实说，
+ *    不摆一个点了没反应的按钮。
+ */
+function GroupActions({
+  node,
+  onClose,
+  onDownload,
+}: {
+  node: NodeSnapshot
+  onClose: () => void
+  onDownload?: (nodeId: string) => void
+}) {
+  const store = useCanvasStore()
+  const graph = useGraph()
+  const exec = useCanvasExecution()
+  const [bgOpen, setBgOpen] = useState(false)
+
+  const tone = groupBgOf({ data: node.data as Partial<GroupData> })
+  const members = childIdsOf({ id: node.id, data: node.data as { childIds?: string[] } }, graph)
+    .map((id) => graph.nodes.find((n) => n.id === id))
+    .filter((n): n is NodeSnapshot => !!n)
+
+  const setTone = (t: GroupBgTone) => {
+    setBgOpen(false)
+    store.dispatch({ kind: 'node.updateData', id: node.id, patch: { bg: t } })
+  }
+
+  const arrange = () => {
+    const r = arrangeGroupMembers(store, node.id)
+    /** 没得收也说一句：按钮点了要有反馈（组框本来就贴住内容时最常见） */
+    if (!r.ok) store.notify(r.reason ?? '整理失败')
+    else if (!r.changed) store.notify('组内已经很整齐了')
+  }
+
+  const runAll = () => {
+    const runnable = members.filter((m) => GROUP_RUNNABLE.has(m.type))
+    if (runnable.length === 0) {
+      store.notify('组内没有能单独执行的节点（生成节点才能跑）')
+      return
+    }
+    for (const m of runnable) void exec.runNode(m.id)
+  }
+
+  const ungroup = () => {
+    const n = ungroupNodes(store, node.id)
+    store.notify(n > 0 ? `已解组，放回 ${n} 个节点` : '组是空的，已移除')
+  }
+
+  const download = () => {
+    const withAsset = members.filter((m) => (m.data as { assetHash?: string }).assetHash)
+    if (withAsset.length === 0) {
+      store.notify('组内没有可下载的素材')
+      return
+    }
+    withAsset.forEach((m) => onDownload?.(m.id))
+  }
+
+  return (
+    <div className={styles.actions} data-group-actions>
+      <span className={styles.splitAnchor}>
+        <FollowButton
+          action="group-bg"
+          icon={<IconPalette />}
+          label="背景色"
+          onClick={() => setBgOpen((v) => !v)}
+        />
+        {bgOpen && (
+          <div className={styles.splitMenu} data-group-bg-menu>
+            {GROUP_BG_TONES.map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={
+                  t === tone ? `${styles.splitItem} ${styles.swatchItem} ${styles.swatchItemOn}` : `${styles.splitItem} ${styles.swatchItem}`
+                }
+                data-group-bg-tone={t}
+                data-on={t === tone ? '' : undefined}
+                onClick={() => setTone(t)}
+              >
+                <span className={styles.swatch} data-group-bg-swatch={t} aria-hidden />
+                {GROUP_BG_LABEL[t]}
+              </button>
+            ))}
+          </div>
+        )}
+      </span>
+      <FollowButton action="group-arrange" icon={<IconTidy />} label="整理节点" onClick={arrange} />
+      <FollowButton action="group-run" icon={<IconPlay />} label="整组执行" onClick={runAll} />
+      <FollowButton action="group-ungroup" icon={<IconUngroup />} label="解组" onClick={ungroup} />
+      <FollowButton action="group-download" icon={<IconDownload />} label="下载" onClick={download} />
+      <span className={styles.divider} />
+      <FollowButton action="close" icon={<IconChevronDown />} label="关闭" onClick={onClose} />
+    </div>
+  )
+}
+
 function PromptFormatActions({ node, onClose }: { node: NodeSnapshot; onClose: () => void }) {
   const store = useCanvasStore()
   const text = (node.data as { text?: string }).text ?? ''

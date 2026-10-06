@@ -2296,6 +2296,76 @@ async function g15(browser) {
       .map(([k, v]) => `${k}:${v}`)
       .join(' '),
   )
+
+  /*
+   * 组的功能栏（用户 2026-10-06 第 13 批第 5 条）：
+   * **改背景色（六档）/ 整理节点 / 整组执行 / 解组 / 下载**，且**不做生成**。
+   */
+  const groupBar = page.locator('[data-group-actions]')
+  rec(g, '★★ 组有自己那条功能栏（不是通用那套）', (await groupBar.count()) === 1)
+  const barActions = await groupBar.locator('[data-follow-action]').evaluateAll((els) => els.map((e) => e.getAttribute('data-follow-action')))
+  rec(
+    g,
+    '★★ 功能栏 = 背景色 / 整理节点 / 整组执行 / 解组 / 下载',
+    ['group-bg', 'group-arrange', 'group-run', 'group-ungroup', 'group-download'].every((a) => barActions.includes(a)),
+    barActions.join(','),
+  )
+  rec(
+    g,
+    '★★ 组不做生成：栏里没有「生成 / 渠道设置」（用户：就不是把他当成生成节点了）',
+    !barActions.includes('run') && !barActions.includes('settings'),
+    barActions.join(','),
+  )
+
+  // 背景色：六档菜单 + 点一档真的换色（档位进数据、色值走令牌）
+  await page.locator('[data-follow-action="group-bg"]').click()
+  await sleep(350)
+  const toneItems = await page.locator('[data-group-bg-tone]').evaluateAll((els) => els.map((e) => e.getAttribute('data-group-bg-tone')))
+  rec(g, '★ 背景色菜单是六档', toneItems.length === 6, toneItems.join(','))
+  await page.locator('[data-group-bg-tone="blue"]').click()
+  await sleep(400)
+  const bgAfter = await group.locator('[data-group-body]').evaluate((el) => ({
+    attr: el.getAttribute('data-container-bg'),
+    color: getComputedStyle(el).backgroundColor,
+  }))
+  rec(
+    g,
+    '★★ 点「蓝」真的换了底色（档位写进节点数据）',
+    bgAfter.attr === 'blue' && bgAfter.color !== 'rgb(245, 245, 245)',
+    `${bgAfter.attr} ${bgAfter.color}`,
+  )
+
+  // 整组执行：组里只有提示词 ⇒ 如实提示（不是点了没反应）
+  await page.locator('[data-follow-action="group-run"]').click()
+  await sleep(500)
+  const runNotice = await page.locator('[data-canvas-notice]').innerText().catch(() => '')
+  rec(g, '★ 组内没有能跑的节点时给提示（不静默）', runNotice.includes('没有能单独执行'), runNotice)
+
+  /**
+   * 整理节点 = **把组框贴回内容**（组内位置本来就由 3×3 网格自动整理，用户 2026-10-06
+   * 答复：「容器内不做吸附 —— 容器本身有自动整理」；而容器内不建边 ⇒ 没有依赖可排）。
+   * 打组给的是"包住内容"的包装框（比贴合尺寸大），所以点一下该**看得见地收一圈**，
+   * 且**位置不动**。
+   */
+  const beforeTidy = await page.locator(`[data-node-id="${groupId}"]`).boundingBox()
+  /** 先等上一条提示自己消失（2.4s 后自动清），否则断言可能读到上一条文案 */
+  await sleep(2600)
+  await page.locator('[data-follow-action="group-arrange"]').click()
+  await sleep(600)
+  const afterTidy = await page.locator(`[data-node-id="${groupId}"]`).boundingBox()
+  rec(
+    g,
+    '★★ 整理节点：组框收回到"内容 + 四边等距"，位置不动',
+    !!beforeTidy &&
+      !!afterTidy &&
+      Math.abs(afterTidy.width - 456) <= 2 &&
+      Math.abs(afterTidy.height - 200) <= 2 &&
+      Math.abs(afterTidy.x - beforeTidy.x) <= 1 &&
+      Math.abs(afterTidy.y - beforeTidy.y) <= 1,
+    beforeTidy && afterTidy
+      ? `${beforeTidy.width.toFixed(0)}×${beforeTidy.height.toFixed(0)} → ${afterTidy.width.toFixed(0)}×${afterTidy.height.toFixed(0)}`
+      : 'null',
+  )
   rec(g, '组内节点端点隐藏（§6.11）', (await group.locator('[data-node-id] [data-port]').count()) === 0)
   await page.screenshot({ path: `${OUT}/25-g15-group-filled.png` })
 
@@ -2327,6 +2397,32 @@ async function g15(browser) {
   rec(g, '拖出后分组子节点计数回到 2（§6.11 拖出）', (await childCount()) === '2', `childCount=${await childCount()}`)
   rec(g, '拖出的节点仍在画布上', (await page.locator(`[data-node-id="${thirdId}"]`).count()) === 1)
   await page.screenshot({ path: `${OUT}/26-g15-group-dragout.png` })
+
+  /*
+   * 解组（用户第 13 批第 5 条）：组消失、节点留下，**一步撤销**。
+   * 放在最后：前面几段都要组还在。
+   * ⚠️ 拖出子节点之后**选中集合已经变了**（那次拖动选了子节点）⇒ 组的功能栏不在，
+   *    必须先重新选中组（点它左内边距那一带：8px 处还在 padding 里，不会落在子节点上）。
+   */
+  {
+    /**
+     * 点**标题**重新选中组（`data-node-title` 是组自己的 DOM，一定命中）。
+     * 别点左内边距那一带：左端点正好在左边框中点，点上去会落在端点上、选中不了。
+     */
+    await page.locator(`[data-node-id="${groupId}"] [data-node-title]`).first().click()
+    await sleep(400)
+  }
+  rec(g, '★ 重新点选后组的功能栏回来了', (await page.locator('[data-group-actions]').count()) === 1)
+  await page.locator('[data-follow-action="group-ungroup"]').click()
+  await sleep(700)
+  const groupsLeft = await page.locator('[data-node-type="group"]').count()
+  const nodesLeft = await page.locator('[data-node-id]').count()
+  /** 3 = 组内 2 个 + 前面拖出去那个（解组不该动它） */
+  rec(g, '★★ 解组：组消失、节点都留在画布上', groupsLeft === 0 && nodesLeft === 3, `组=${groupsLeft} 节点=${nodesLeft}`)
+  await page.keyboard.press('Control+z')
+  await sleep(700)
+  rec(g, '★★ 解组可一步撤销', (await page.locator('[data-node-type="group"]').count()) === 1)
+  rec(g, '撤销后组内仍是 2 个子节点', (await groupBody.getAttribute('data-group-child-count')) === '2')
 
   await ctx.close()
 }

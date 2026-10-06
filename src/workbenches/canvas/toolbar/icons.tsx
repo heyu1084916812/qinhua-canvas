@@ -88,6 +88,32 @@ export function IconGroup(props: IconProps) {
   )
 }
 
+/** 背景色：一块色卡 + 三颗色点（"挑一块底色"） */
+export function IconPalette(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="3" />
+      <circle cx="8" cy="9.5" r="1.4" />
+      <circle cx="12" cy="9.5" r="1.4" />
+      <circle cx="8" cy="14.5" r="1.4" />
+      <path d="M12 14.5h5" />
+    </Svg>
+  )
+}
+
+/** 解组：三个角撑 + 一个"走出来"的箭头（分组的反面） */
+export function IconUngroup(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8" />
+      <path d="M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8" />
+      <path d="M4 16v2.5A1.5 1.5 0 0 0 5.5 20H8" />
+      <path d="M14 14h6v6" />
+      <path d="M20 14l-5 5" />
+    </Svg>
+  )
+}
+
 /** 批量：叠起来的多份文件 */
 export function IconBatch(props: IconProps) {
   return (

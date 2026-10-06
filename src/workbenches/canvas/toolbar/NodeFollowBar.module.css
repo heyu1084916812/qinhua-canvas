@@ -199,6 +199,56 @@
   font-size: var(--fs-chip);
 }
 
+/*
+ * 组「背景色」那一档（用户 2026-10-06 第 13 批第 5 条：「背景色给六档」）。
+ *
+ * `.splitItem` 是纯文字项（左对齐、不 flex），这一项要"色块 + 中文名"一行两件，
+ * 故加两条修饰类；色块的颜色按档位名六条映射，色值本身在 `ui/tokens.css`。
+ */
+.swatchItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 当前档：底色点亮（与其它浮层"选中项"同一口径） */
+.swatchItemOn {
+  background: var(--bg-hover);
+}
+
+.swatch {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border: 1px solid var(--stroke);
+  border-radius: 4px;
+}
+
+.swatch[data-group-bg-swatch='slate'] {
+  background: var(--group-bg-slate);
+}
+
+.swatch[data-group-bg-swatch='blue'] {
+  background: var(--group-bg-blue);
+}
+
+.swatch[data-group-bg-swatch='green'] {
+  background: var(--group-bg-green);
+}
+
+.swatch[data-group-bg-swatch='amber'] {
+  background: var(--group-bg-amber);
+}
+
+.swatch[data-group-bg-swatch='rose'] {
+  background: var(--group-bg-rose);
+}
+
+.swatch[data-group-bg-swatch='violet'] {
+  background: var(--group-bg-violet);
+}
+
 /* 自定义宫格：一块 6×6 的可点方格，点哪一格就用它的行列 */
 .splitGrid {
   display: grid;
