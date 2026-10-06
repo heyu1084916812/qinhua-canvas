@@ -2398,6 +2398,68 @@ async function g15(browser) {
   rec(g, '拖出的节点仍在画布上', (await page.locator(`[data-node-id="${thirdId}"]`).count()) === 1)
   await page.screenshot({ path: `${OUT}/26-g15-group-dragout.png` })
 
+  /**
+   * ⑤ 组右端点拉线 = **组内成员各连一条**（用户第 13 批第 5 条：
+   * 「打组后的组右边有端点，拉端点后是把组内的下游都拉一条线出来，就和多选节点的拉线功能一样」）。
+   * 一并验**画得出来**：容器子节点不是 RF 节点，这类边由 `FlowChildEdgeLayer` 补画
+   *（`data-child-edge`）—— 只建不画等于"拖了一下什么都没发生"。
+   */
+  await addNodeViaToolbar(page, 'generation')
+  await sleep(550)
+  const targetId = await page.locator('[data-node-type="generation"]').last().getAttribute('data-node-id')
+  {
+    const tb = await page.locator(`[data-node-id="${targetId}"]`).boundingBox()
+    await page.mouse.move(tb.x + tb.width / 2, tb.y + 10)
+    await page.mouse.down()
+    await page.mouse.move(980, 430, { steps: 10 })
+    await page.mouse.up()
+    await sleep(450)
+  }
+  const groupPort = page.locator(`[data-flow-port-hit="${groupId}:output"]`)
+  const gpb = await groupPort.boundingBox()
+  const tb2 = await page.locator(`[data-node-id="${targetId}"]`).boundingBox()
+  await page.mouse.move(gpb.x + gpb.width / 2, gpb.y + gpb.height / 2)
+  await sleep(200)
+  await page.mouse.down()
+  await page.mouse.move(tb2.x + tb2.width / 2, tb2.y + tb2.height / 2, { steps: 12 })
+  await sleep(250)
+  const draftN = await page.locator('[data-edge-draft]').count()
+  await page.mouse.up()
+  await sleep(700)
+  const childEdgeN = await page.locator('[data-child-edge]').count()
+  const edgeN = await page.locator('[data-edge]').count()
+  rec(
+    g,
+    '★★ 从组右端点拖出：**每个成员各一条**草稿线（2 条）',
+    draftN === 2,
+    `draft=${draftN}`,
+  )
+  rec(
+    g,
+    '★★ 松手落成 2 条边（成员 → 目标）且都画得出来',
+    childEdgeN === 2 && edgeN === 2,
+    `child=${childEdgeN} 全部=${edgeN}`,
+  )
+  await page.screenshot({ path: `${OUT}/28b-g15-group-link.png` })
+  /**
+   * 收尾：撤销这 2 条边 + 刚建的那个目标节点。
+   *
+   * ⚠️ **别写死撤销几次**：一次拖线落成几条边、它们是否被合并成一个撤销单元，
+   * 都是实现细节（改一次就红）。这里按**目标状态**收敛：
+   * "没有边了、节点数回到 4（组 + 组内 2 个 + 前面拖出的那 1 个；`[data-node-id]`
+   *  把容器子节点也数进去）"就停。
+   */
+  for (let i = 0; i < 6; i += 1) {
+    if (
+      (await page.locator('[data-edge]').count()) === 0 &&
+      (await page.locator('[data-node-id]').count()) === 4
+    ) {
+      break
+    }
+    await page.keyboard.press('Control+z')
+    await sleep(600)
+  }
+
   /*
    * 解组（用户第 13 批第 5 条）：组消失、节点留下，**一步撤销**。
    * 放在最后：前面几段都要组还在。
@@ -2422,7 +2484,12 @@ async function g15(browser) {
   await page.keyboard.press('Control+z')
   await sleep(700)
   rec(g, '★★ 解组可一步撤销', (await page.locator('[data-node-type="group"]').count()) === 1)
-  rec(g, '撤销后组内仍是 2 个子节点', (await groupBody.getAttribute('data-group-child-count')) === '2')
+  rec(
+    g,
+    '撤销后组内仍是 2 个子节点',
+    (await groupBody.getAttribute('data-group-child-count')) === '2',
+    `childCount=${await groupBody.getAttribute('data-group-child-count')} 节点=${await page.locator('[data-node-id]').count()}`,
+  )
 
   await ctx.close()
 }

@@ -62,14 +62,26 @@ export function canConnect(
     return { ok: false, reason: '这条连线已存在' }
   }
 
-  // 规则 4：子节点与外部、子节点之间不建立边
-  const childOfContainer = (n: NodeSnapshot): boolean => {
-    if (!n.parentId) return false
+  /**
+   * 规则 4（2026-10-06 第 13 批第 5 条后放宽）：**同一个容器里的两个子节点之间**不建立边。
+   *
+   * 原口径是"子节点与外部、子节点之间都不连"，那是**分组=请求打包器**时代的产物
+   * （组把内部素材打包成一次请求，所以内部不需要连线、对外也只能走组自己的端点）。
+   * 用户把打组改成"就是一个包住内容的容器、不做生成"之后，
+   * 「组的右端点拉出来 = 组内成员各连一条到目标」成了明确需求 —— 子节点**对外**必须能连。
+   *
+   * 只放宽这一处：**同容器内**的两个子节点之间仍然不连（组内顺序由网格决定，
+   * 组内连线既画不出来也没语义）。
+   */
+  const containerIdOf = (n: NodeSnapshot): string | null => {
+    if (!n.parentId) return null
     const parent = indexNodes(graph.nodes).get(n.parentId)
-    return parent ? parent.type === 'group' || parent.type === 'batch' : false
+    return parent && (parent.type === 'group' || parent.type === 'batch') ? parent.id : null
   }
-  if (childOfContainer(source) || childOfContainer(target)) {
-    return { ok: false, reason: '容器内节点不直接与外部连线' }
+  const sourceContainer = containerIdOf(source)
+  const targetContainer = containerIdOf(target)
+  if (sourceContainer && sourceContainer === targetContainer) {
+    return { ok: false, reason: '同一个容器内的节点之间不需要连线' }
   }
 
   if (targetSpec && !targetSpec.accepts.upstream.includes(source.type)) {

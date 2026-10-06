@@ -129,6 +129,17 @@ export interface ContainerLike {
 }
 
 /**
+ * `childIdsOf` 的 `NodeSnapshot` 便捷入口。
+ *
+ * `NodeSnapshot['data']` 是个联合类型（提示词 / 生成 / 分组…各一套），直接传进
+ * `ContainerLike` 过不了类型检查。与其在三个调用点各写一遍 cast，不如在这里抹一次 ——
+ * 而且"谁能当容器"这件事只该由本文件回答（`CONTAINER_TYPES` 也在这条线上）。
+ */
+export function childIdsOfNode(node: NodeSnapshot, graph: { nodes: NodeSnapshot[] }): string[] {
+  return childIdsOf({ id: node.id, data: node.data as { childIds?: string[] } }, graph)
+}
+
+/**
  * 组的子节点 id。
  * 以图为准（parentId），`data.childIds` 只作为排序依据——
  * 这样拖入拖出后即使 childIds 还没来得及同步，也不会漏掉刚进组的节点。

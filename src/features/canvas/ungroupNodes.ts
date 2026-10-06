@@ -1,17 +1,6 @@
 import type { CanvasStore } from '../../state/workbenches/canvas/store'
-import type { NodeSnapshot } from '../../domain/canvas/model/node'
-import { childIdsOf } from '../../domain/canvas/nodeSpecs/group'
+import { childIdsOfNode } from '../../domain/canvas/nodeSpecs/group'
 import { containerMinSize, packContainerChildren } from '../../domain/canvas/layout/packContainer'
-
-/**
- * 容器排序键的适配：`childIdsOf` 只认 `{ id, data.childIds }`（它同时服务分组与批量，
- * 见 `nodeSpecs/group.ts` 的 `ContainerLike`），而 `NodeSnapshot.data` 是个联合类型。
- * 只在这一层抹平，别去放宽 domain 的签名（那会把"谁都能当容器"混进来）。
- */
-const asContainer = (n: NodeSnapshot): { id: string; data: { childIds?: string[] } } => ({
-  id: n.id,
-  data: n.data as { childIds?: string[] },
-})
 
 /**
  * 组的两个"整组"动作（用户 2026-10-06 第 13 批第 5 条：组的功能栏里要有
@@ -40,7 +29,7 @@ export function arrangeGroupMembers(
   const graph = store.getSnapshot()
   const group = graph.nodes.find((n) => n.id === groupId)
   if (!group) return { ok: false, reason: '分组不存在', changed: false }
-  const count = childIdsOf(asContainer(group), graph).length
+  const count = childIdsOfNode(group, graph).length
   const fit = containerMinSize('group', count)
   if (group.w === fit.w && group.h === fit.h) return { ok: true, changed: false }
   /**
@@ -64,7 +53,7 @@ export function ungroupNodes(store: CanvasStore, groupId: string): number {
   const graph = store.getSnapshot()
   const group = graph.nodes.find((n) => n.id === groupId)
   if (!group) return 0
-  const ordered = childIdsOf(asContainer(group), graph)
+  const ordered = childIdsOfNode(group, graph)
 
   if (ordered.length === 0) {
     store.dispatch({ kind: 'node.delete', ids: [groupId] })

@@ -1,0 +1,42 @@
+/*
+ * **牵涉容器子节点的边**的绘制层（屏幕空间 SVG）。
+ *
+ * 为什么要有这一层：React Flow 的边按 `source / target` 找**它自己的节点**，而容器子节点
+ * 不是 RF 节点（由容器网格渲染）⇒ 这类边在 RF 里找不到端点、会静默消失。
+ * 打组改口径之后（用户 2026-10-06 第 13 批第 5 条：组的右端点拉出来 = 组内成员各连一条）
+ * 这类边必须画得出来，于是按 `FlowDraftLayer` / `FlowPortLayer` 同一套办法补一层。
+ *
+ * 视觉与 `FlowEdge` **逐条一致**（常态 1.5px `--edge`、相关高亮 2px `--edge-highlight`）：
+ * 同一种东西在画布上只该有一种样子。
+ */
+.svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: hidden;
+  /* 层本身不吃指针，只有线的加宽命中区吃（点线删除 / 选中用） */
+  pointer-events: none;
+}
+
+.edge {
+  fill: none;
+  stroke: var(--edge);
+  stroke-width: 1.5px;
+  transition: stroke var(--dur-edge) var(--ease-out);
+}
+
+.edgeActive {
+  stroke: var(--edge-highlight);
+  stroke-width: 2px;
+}
+
+/* 透明加宽命中区（与 `FlowEdge` 的 `.hit` 同一条：线太细不好点） */
+.hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14px;
+  pointer-events: stroke;
+  cursor: pointer;
+}

@@ -50,9 +50,23 @@ describe('连线合法性', () => {
     expect(canConnect(g.nodes[0]!, g.nodes[1]!, g).ok).toBe(false)
   })
 
-  it('容器内子节点不与外部连线', () => {
+  /**
+   * 规则 4 在 2026-10-06（第 13 批第 5 条）**放宽了一处**：
+   * 打组不再是"请求打包器"，而是"包住内容的容器" ⇒ 组的右端点拉出来要能把
+   * **组内成员**各连一条到目标（子节点**对外**必须能连）。
+   * 仍然禁止的只有"**同一个容器内**的两个子节点之间"（组内顺序由网格决定，这类边既画不出来也没语义）。
+   */
+  it('容器内子节点**可以**与外部连线（打组改口径后）', () => {
     const g = graph([node('a', 'generation', 'g1'), node('g1', 'group'), node('out')])
-    expect(canConnect(g.nodes[0]!, g.nodes[2]!, g)).toEqual({ ok: false, reason: '容器内节点不直接与外部连线' })
+    expect(canConnect(g.nodes[0]!, g.nodes[2]!, g).ok).toBe(true)
+  })
+
+  it('同一个容器内的两个子节点之间仍然不连线', () => {
+    const g = graph([node('a', 'generation', 'g1'), node('g1', 'group'), node('b', 'generation', 'g1')])
+    expect(canConnect(g.nodes[0]!, g.nodes[2]!, g)).toEqual({
+      ok: false,
+      reason: '同一个容器内的节点之间不需要连线',
+    })
   })
 
   it('会成环的连接被拒绝', () => {

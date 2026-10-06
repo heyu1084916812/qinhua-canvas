@@ -39,6 +39,8 @@ import type { NodeViewEvent } from '../nodes/registry'
 import { useNodeDerivedMaps } from '../useNodeDerivedMaps'
 import type { FlowNodeDerivedProps } from './FlowNode'
 import { QhEdge, type QhEdgeData } from './FlowEdge'
+import { FlowChildEdgeLayer } from './FlowChildEdgeLayer'
+import { isChildEdge } from './childEdges'
 import { FlowPortLayer } from './FlowPortLayer'
 import { FlowDraftLayer } from './FlowDraftLayer'
 import { FlowSnapLayer } from './FlowSnapLayer'
@@ -504,23 +506,30 @@ function FlowSurfaceInner({
   const edges = useMemo(
     () => {
       const selectedNodes = new Set(selection)
-      return graph.edges.map((e) => ({
-        id: e.id,
-        type: 'qh',
-        source: e.source,
-        target: e.target,
-        sourceHandle: sourcePortOf(e),
-        targetHandle: targetPortOf(e),
-        /* 选中态从 store 推回来（与节点同一条：store 是唯一真相） */
-        selected: edgeSelection.includes(e.id),
-        data: {
-          sourcePort: sourcePortOf(e),
-          targetPort: targetPortOf(e),
-          /* 选中节点时，与它相连的线一并高亮 + 出现删除按钮（§6.14，与老表面同一判据） */
-          related: selectedNodes.has(e.source) || selectedNodes.has(e.target),
-          onDelete: (id: string) => store.dispatch({ kind: 'edge.remove', id }),
-        } satisfies QhEdgeData,
-      }))
+      return graph.edges
+        /**
+         * 牵涉容器子节点的边**摘出去**交给 `FlowChildEdgeLayer` 画：
+         * RF 按 `source / target` 找它自己的节点，子节点不在其中 ⇒ 这类边在 RF 里
+         * 找不到端点、会静默消失（图上连着、屏幕上看不见）。
+         */
+        .filter((e) => !isChildEdge(graph, e))
+        .map((e) => ({
+          id: e.id,
+          type: 'qh',
+          source: e.source,
+          target: e.target,
+          sourceHandle: sourcePortOf(e),
+          targetHandle: targetPortOf(e),
+          /* 选中态从 store 推回来（与节点同一条：store 是唯一真相） */
+          selected: edgeSelection.includes(e.id),
+          data: {
+            sourcePort: sourcePortOf(e),
+            targetPort: targetPortOf(e),
+            /* 选中节点时，与它相连的线一并高亮 + 出现删除按钮（§6.14，与老表面同一判据） */
+            related: selectedNodes.has(e.source) || selectedNodes.has(e.target),
+            onDelete: (id: string) => store.dispatch({ kind: 'edge.remove', id }),
+          } satisfies QhEdgeData,
+        }))
     },
     [graph.edges, selection, edgeSelection, store],
   )
@@ -931,6 +940,12 @@ function FlowSurfaceInner({
       <Minimap />
       {/* 端点命中层：在所有节点之上收拖线手势（见 FlowPortLayer 里的长注释） */}
       <FlowPortLayer onPortDown={beginEdgeDrag} />
+      {/*
+        牵涉容器子节点的边：RF 画不了它们（子节点不是 RF 节点）⇒ 补一层屏幕空间 SVG。
+        与端口层同序（在节点**之上**）只为让"点线删除"收得到指针；
+        层本身 `pointer-events: none`，只有线的加宽命中区吃手势。
+      */}
+      <FlowChildEdgeLayer />
     </div>
   )
 }

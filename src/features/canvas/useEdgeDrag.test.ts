@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { portAnchorWorld, nodeHasPort, nodeAtPoint } from './useEdgeDrag'
+import { expandContainers, portAnchorWorld, nodeHasPort, nodeAtPoint, wireAll } from './useEdgeDrag'
 import { registerAllSpecs, resetSpecs } from '../../domain/canvas/nodeSpecs'
+import { createMemoryPlatform } from '../../platform/memory'
+import { createCanvasStore, type CanvasStore } from '../../state/workbenches/canvas/store'
+import { groupNodes } from './groupNodes'
 import type { GraphSnapshot } from '../../domain/canvas/model/graph'
 import type { NodeSnapshot, NodeType } from '../../domain/canvas/model/node'
 
@@ -77,5 +80,53 @@ describe('端点拖线（§6.14）', () => {
       const graph = g([n('prompt', 0, 0, 'prompt'), n('result', 0, 0, 'generation', 'rg1')], ['rg1'])
       expect(nodeAtPoint({ x: 20, y: 20 }, graph)).toBe('prompt')
     })
+  })
+})
+
+/**
+ * 从**容器**端点拉线：换成组内成员各连一条（用户 2026-10-06 第 13 批第 5 条：
+ * 「打组后的组右边有端点，拉端点后是把组内的下游都拉一条线出来，就和多选节点的拉线功能一样」）。
+ *
+ * 组不做生成、没有产物 ⇒ 容器自己**不出边**，该连到下游的是它的每个成员。
+ */
+describe('容器端点拉线：展开成成员（#317 ⑤）', () => {
+  const store = (): CanvasStore =>
+    createCanvasStore({ platform: createMemoryPlatform() as never, projectId: 'p1' })
+
+  function add(s: CanvasStore, type: 'prompt' | 'generation', x: number): string {
+    const id = `n_${type}_${x}`
+    s.dispatch({ kind: 'node.create', projectId: 'p1', type, id, at: { x, y: 0 } })
+    return id
+  }
+
+  beforeEach(() => {
+    resetSpecs()
+    registerAllSpecs()
+  })
+
+  it('★ 容器展开成成员；普通节点原样；重复 id 去重', () => {
+    const s = store()
+    const a = add(s, 'prompt', 0)
+    const b = add(s, 'prompt', 300)
+    const gid = groupNodes(s, [a, b])!
+    const other = add(s, 'generation', 900)
+    const graph = s.getSnapshot()
+
+    expect(expandContainers(graph, [gid])).toEqual([a, b])
+    expect(expandContainers(graph, [other, other])).toEqual([other])
+    expect(expandContainers(graph, [other, gid, a])).toEqual([other, a, b])
+  })
+
+  it('★★ wireAll 从组端点拉线：连的是**成员**，容器自己一条都不出', () => {
+    const s = store()
+    const a = add(s, 'prompt', 0)
+    const b = add(s, 'prompt', 300)
+    const target = add(s, 'generation', 900)
+    const gid = groupNodes(s, [a, b])!
+
+    const wired = wireAll(s, gid, 'output', [], target, { x: 1000, y: 100 })
+    expect(wired.map((w) => w.source)).toEqual([a, b])
+    expect(wired.every((w) => w.target === target)).toBe(true)
+    expect(wired.some((w) => w.source === gid)).toBe(false)
   })
 })

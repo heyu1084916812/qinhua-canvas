@@ -14,6 +14,39 @@ import {
 import { DEFAULT_SOURCE_PORT } from '../../domain/canvas/model/edge'
 import { screenToWorld, toWorldRect } from '../../domain/canvas/geometry/coords'
 import { coalescePointerMove } from '../../shared/rafThrottle'
+import type { NodeSnapshot } from '../../domain/canvas/model/node'
+import { isContainerType } from '../../domain/canvas/model/node'
+import { childIdsOfNode } from '../../domain/canvas/nodeSpecs/group'
+
+/**
+ * 把源集合里的**容器**（分组 / 批量）换成它的**成员**。
+ *
+ * 用户 2026-10-06 第 13 批第 5 条：「打组后的组右边有端点，拉端点后是把组内的下游
+ * 都拉一条线出来，就和多选节点的拉线功能一样」。
+ *
+ * 为什么容器自己不出边：组**不做生成**（同批：「就不是把他当成生成节点了」）——
+ * 它没有产物，该连到下游的是组里的每个成员。展开只在这里做一次，
+ * 锚点（草稿线）/ 合法性校验 / 落边三处就都不必各自记得这件事。
+ *
+ * 去重也在这里做：多选端点拖出来的集合里同一个成员可能被重复请求。
+ */
+export function expandContainers(
+  graph: { nodes: NodeSnapshot[] },
+  ids: readonly string[],
+): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const id of ids) {
+    const n = graph.nodes.find((x) => x.id === id)
+    if (!n) continue
+    for (const s of isContainerType(n.type) ? childIdsOfNode(n, graph) : [n.id]) {
+      if (seen.has(s)) continue
+      seen.add(s)
+      out.push(s)
+    }
+  }
+  return out
+}
 
 export type PortSide = 'input' | 'output'
 
@@ -129,7 +162,16 @@ export function useEdgeDrag(store: CanvasStore) {
       also?: readonly string[],
     ) => {
       const graph = store.getSnapshot()
-      const node = graph.nodes.find((n) => n.id === nodeId)
+      /**
+       * 先把源集合里的**容器展开成成员**（见 `expandContainers`）：组不做生成、没有产物，
+       * 从它的端点拉出来的是**组内每个成员各一条线**。展开后重新定"主轴" ——
+       * 草稿线从展开后的第一个源拉起，锚点 / 校验 / 落边都用展开后的集合。
+       */
+      const sources = expandContainers(graph, [nodeId, ...(also ?? [])])
+      const fromId = sources[0]
+      if (!fromId) return
+      const fromAlso = sources.slice(1)
+      const node = graph.nodes.find((n) => n.id === fromId)
       if (!node) return
       const decl = portDeclOf(getSpec(node.type)?.ports ?? { input: false, output: false }, portId)
       if (!decl) return
@@ -160,8 +202,8 @@ export function useEdgeDrag(store: CanvasStore) {
        * 其它源的固定端：每个选中节点各按**它自己的端口声明**取锚点
        * （没有这只口的那种节点直接跳过，与落地时逐个独立判定同一条口径）。
        */
-      const alsoFrom = (also ?? [])
-        .filter((id) => id !== nodeId)
+      const alsoFrom = fromAlso
+        .filter((id) => id !== fromId)
         .flatMap((id) => {
           const n = graph.nodes.find((x) => x.id === id)
           if (!n) return []
@@ -173,7 +215,7 @@ export function useEdgeDrag(store: CanvasStore) {
 
       setDraft({
         side,
-        nodeId,
+        nodeId: fromId,
         portId,
         fromSide: decl.side,
         from: anchor,
@@ -186,10 +228,10 @@ export function useEdgeDrag(store: CanvasStore) {
       const move = coalescePointerMove((ev: PointerEvent) => {
         const to = screenToWorld({ x: ev.clientX, y: ev.clientY }, store.getViewport(), worldRect)
         const hovered = nodeAtPoint(to, store.getSnapshot())
-        const ok = hovered ? checkConnect(store, nodeId, decl, hovered, to) : null
+        const ok = hovered ? checkConnect(store, fromId, decl, hovered, to) : null
         setDraft({
           side,
-          nodeId,
+          nodeId: fromId,
           portId,
           fromSide: decl.side,
           from: anchor,
@@ -252,10 +294,10 @@ export function useEdgeDrag(store: CanvasStore) {
           store.setLinkMenu(
             ev.clientX - worldRect.x,
             ev.clientY - worldRect.y,
-            nodeId,
+            fromId,
             side,
             portId,
-            also,
+            fromAlso,
           )
           return
         }
@@ -269,7 +311,7 @@ export function useEdgeDrag(store: CanvasStore) {
          * 判定逻辑抽到 `wireAll`：连线菜单里的「新建 / 选择目标」走**同一个函数**
          * —— 两条路各写一份必然漂移成「拖到节点上能连全、从菜单建就连一个」。
          */
-        for (const w of wireAll(store, nodeId, portId, also, hovered, to)) {
+        for (const w of wireAll(store, fromId, portId, fromAlso, hovered, to)) {
           store.dispatch({
             kind: 'edge.connect',
             source: w.source,
@@ -311,11 +353,12 @@ export function wireAll(
   point: { x: number; y: number },
 ): WiredPorts[] {
   const graph = store.getSnapshot()
-  const seen = new Set<string>()
   const wired: WiredPorts[] = []
-  for (const id of [dragNodeId, ...(also ?? [])]) {
-    if (seen.has(id)) continue
-    seen.add(id)
+  /**
+   * 同 `begin`：把容器展开成成员（两处都展开是刻意的 —— 这条路也能被连线菜单
+   * 直接调到，只靠调用方记得展开迟早在某一条入口漏掉）。
+   */
+  for (const id of expandContainers(graph, [dragNodeId, ...(also ?? [])])) {
     const source = graph.nodes.find((n) => n.id === id)
     if (!source) continue
     const decl = portDeclOf(getSpec(source.type)?.ports ?? { input: false, output: false }, portId)
