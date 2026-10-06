@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { base64ToBytes } from '../../domain/shared/base64'
-import type { CliOutcome, CliPort, CliRunRequest } from '../ports'
+import type { CliOutcome, CliPort, CliRunRequest, CliWindowRequest } from '../ports'
 
 /**
  * 「本机 CLI」的**壳实现**（对账 #308）：三个动作各自对应一条 Rust 命令
@@ -29,6 +29,9 @@ export function createTauriCli(): CliPort {
         stdin: req.stdin,
       }),
     kill: (id) => invoke<boolean>('cli_kill', { id }),
+    spawnWindow: async (req: CliWindowRequest) => {
+      await invoke('cli_spawn_window', { program: req.program, args: req.args, cwd: req.cwd })
+    },
     outDir: () => invoke<string>('cli_out_dir'),
     readOut: async (path) => base64ToBytes(await invoke<string>('cli_read_out', { path })),
   }

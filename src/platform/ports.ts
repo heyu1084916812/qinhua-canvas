@@ -356,6 +356,14 @@ export interface CliPort {
   run(req: CliRunRequest): Promise<CliOutcome>
   kill(id: string): Promise<boolean>
   /**
+   * 在一个**可见的控制台窗口**里跑命令（一键登录用）。
+   *
+   * 与 `run` 的区别是刻意的：不捕获输出、**不等它结束** —— 登录要么在浏览器里点授权、
+   * 要么在终端里输密码，我们只需要把它"递到用户面前"，剩下的他自己在那个窗口里完成。
+   * 立刻 resolve；起不来时抛一句人话（与 `run` 的 NotFound 文案同一套）。
+   */
+  spawnWindow(req: CliWindowRequest): Promise<void>
+  /**
    * 给产物准备一个**可写**的目录（绝对路径）。
    *
    * 图 / 视频没法从 stdout 拿（各家 CLI 都写文件），所以参数模板里的 `{out}`
@@ -365,6 +373,13 @@ export interface CliPort {
   outDir(): Promise<string>
   /** 把 CLI 写出来的产物读回来（base64 在壳内部解决，这里直接给字节） */
   readOut(path: string): Promise<Uint8Array>
+}
+
+/** 可见窗口里那条命令（一键登录 / 打开工具的交互界面） */
+export interface CliWindowRequest {
+  program: string
+  args: string[]
+  cwd?: string
 }
 
 export interface PlatformKit {

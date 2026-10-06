@@ -708,6 +708,39 @@ fn cli_kill(app: tauri::AppHandle, id: String) -> bool {
     }
 }
 
+/// 在一个**可见的控制台窗口**里跑命令 —— 给"一键登录"用（用户 2026-10-06 第 13 批第 2 条：
+/// 「我希望是我一键设置，然后输入密码或者其他的就可以保持登录」）。
+///
+/// 与 `cli_run` 的三点不同，每一点都是有意为之：
+/// 1. **要一个自己的窗口**（`CREATE_NEW_CONSOLE`）—— 登录要么在浏览器里点授权、要么在终端里
+///    输密码，而我们的 `cli_run` 恰恰是 `CREATE_NO_WINDOW`（不弹框）。这里反过来；
+/// 2. **不捕获输出** —— 输出是给用户看的，不是给我们解析的；
+/// 3. **不等待它结束** —— 交互登录没有"跑完"这一说（用户可能几分钟后才点完授权），
+///    等它只会把界面卡住。所以这个命令**立刻返回**，用户在那个窗口里自己完成登录。
+///
+/// 安全边界与 `cli_run` **完全一致**：`Command::new(program).args(args)`、不过 shell、
+/// 参数是数组 ⇒ 命令注入不成立；命令与参数都是用户在设置里填的。
+#[tauri::command]
+fn cli_spawn_window(program: String, args: Vec<String>, cwd: Option<String>) -> Result<(), String> {
+    use std::process::Command;
+
+    let mut cmd = Command::new(&program);
+    cmd.args(&args);
+    if let Some(dir) = cwd.as_deref().filter(|d| !d.is_empty()) {
+        cmd.current_dir(dir);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // 0x0000_0010 = CREATE_NEW_CONSOLE：**故意**给它一个可见窗口（见上面的说明）。
+        // 注意别顺手加上 0x0800_0000（CREATE_NO_WINDOW）—— 两个标志一起加就等于又藏起来了。
+        cmd.creation_flags(0x0000_0010);
+    }
+    cmd.spawn()
+        .map(|_| ())
+        .map_err(|err| describe_spawn_error(&program, err))
+}
+
 fn run_cli_blocking(
     app: tauri::AppHandle,
     id: String,
@@ -1344,6 +1377,7 @@ pub fn run() {
             cli_which,
             cli_run,
             cli_kill,
+            cli_spawn_window,
             cli_out_dir,
             cli_read_out
         ])

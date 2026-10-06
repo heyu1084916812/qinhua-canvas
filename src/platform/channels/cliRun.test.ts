@@ -81,6 +81,8 @@ function fakeCli(options: FakeOptions = {}) {
     async kill() {
       return true
     },
+    /* 适配器不用它（那是"一键登录"的通道，见 CliPanel）；这里给个空实现凑齐端口形状 */
+    async spawnWindow() {},
     async outDir() {
       return 'C:\\data\\cli-out'
     },
@@ -328,6 +330,7 @@ describe('本机 CLI 适配器 · 出错如实说', () => {
         finish?.({ code: null, stdout: '', stderr: '', timedOut: false, cancelled: true, ms: 30 })
         return true
       },
+      async spawnWindow() {},
       async outDir() {
         return 'C:\\data\\cli-out'
       },

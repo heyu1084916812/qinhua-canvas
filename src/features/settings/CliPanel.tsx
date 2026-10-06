@@ -13,27 +13,28 @@ import { createCliToolStore } from '../../state/project/cliToolStore'
 import styles from './CliPanel.module.css'
 
 /**
- * 「全局设置 → CLI」面板（用户 2026-10-06 第 11 批第 4 条，对账 #308）。
+ * 「全局设置 → CLI」面板（用户 2026-10-06 第 11 批第 4 条 + 第 13 批第 2 条）。
  *
- * ## 用户口径（原话）
+ * ## 用户口径
  *
- * - 「CLI 可以单独设置在全局设置里面了，就在渠道配置的下面，重新设计界面，保持整体的风格统一，
- *   当前是在每个渠道的页面里面」；
- * - 「我的要求和目的就是**链接后能用里面的额度调用模型生成图片或者视频，或者对话**，
- *   runninghub 也要，**需要真的能跑本机的 cli**」。
+ * - 第 11 批：「CLI 可以单独设置在全局设置里面了，就在渠道配置的下面…我的要求和目的就是
+ *   链接后能用里面的额度调用模型生成图片或者视频，或者对话，runninghub 也要，需要真的能跑本机的 cli」；
+ * - 第 13 批：「codex 的 cli 我想要读取到额度，即梦的我想要读取到积分，我试了一下测试 gemini
+ *   和即梦都不行，runninghub 也不行，是我还需要什么嘛？」＋「如果查不了额度，我如何显示额度，
+ *   我要解决这个问题，还有我如何使用的问题，我不太懂怎么设置这个 cli，
+ *   我希望是我一键设置，然后输入密码或者其他的就可以保持登录」。
  *
- * ## 这一版**真的能跑**：不是表单摆设
+ * ## 于是每一张卡按"用户会问的顺序"排
  *
- * - 「检测」→ `CliPort.which`（只看文件在不在，不执行任何东西）；
- * - 「测试运行」→ `CliPort.run`（真起子进程，把退出码 / stdout / stderr 原样贴出来）。
+ * 1. **装没装**（检测）—— 没装就直接告诉他怎么装（`installHint`）；
+ * 2. **登录**——「一键登录」在可见窗口里跑它自己的登录命令（浏览器授权 / 输密码都行），
+ *    或用密钥登录（密钥走 stdin，不进 argv、不落我们的库）；
+ * 3. **查状态 / 额度**——能查就把工具的原话贴出来（含 stderr：很多 CLI 把有效信息打在那儿）；
+ *    查不到就直说，并写明去哪儿看（`quotaWhere`）——绝不编一个余额数字；
+ * 4. **高级**（默认折起）——命令名 / 参数模板 / 超时 / 各条命令，以及"测试运行"。
  *
- * 两条都给**如实**结论：找不到就说找不到，退码非零就贴非零，超时就写"已掐掉"。
- *
- * ## 浏览器里怎么办
- *
- * 端口缺席时（浏览器、测试用的内存平台）**界面照旧显示**、配置照旧能改能存
- * —— 这是用户定过的口径（「不管是桌面才可以用的，但是 UI 需要给我显示出来」），
- * 但两个按钮禁用并写明"只在桌面应用里可用"，不假装能跑。
+ * 浏览器里没有子进程：整块照旧显示（用户要的"桌面专属也要看得见"），
+ * 但按钮禁用并写明"只在桌面应用里可用"，不假装能跑。
  */
 export function CliPanel() {
   const platform = usePlatform()
@@ -43,7 +44,10 @@ export function CliPanel() {
   const [tools, setTools] = useState<CliTool[]>(() => defaultCliTools())
   const [probes, setProbes] = useState<Record<string, string>>({})
   const [runs, setRuns] = useState<Record<string, string>>({})
-  /** 正在跑的那件小事（`<toolId>:which` / `<toolId>:run`）；空串 = 空闲 */
+  const [statusOut, setStatusOut] = useState<Record<string, string>>({})
+  const [loginMsg, setLoginMsg] = useState<Record<string, string>>({})
+  const [keys, setKeys] = useState<Record<string, string>>({})
+  /** 正在跑的那件小事（`<toolId>:<action>`）；空串 = 空闲 */
   const [busy, setBusy] = useState('')
 
   useEffect(() => {
@@ -56,10 +60,7 @@ export function CliPanel() {
     }
   }, [store])
 
-  /**
-   * 改一个字段：**先改内存、再写库**。
-   * 反过来的话输入框要等一次异步落库才更新，打字会一顿一顿的。
-   */
+  /** 改一个字段：先改内存、再写库（反过来的话打字会等一次异步落库、一顿一顿） */
   const patchTool = (id: string, patch: Partial<CliTool>) => {
     const next = tools.map((tool) => (tool.id === id ? { ...tool, ...patch } : tool))
     setTools(next)
@@ -71,12 +72,7 @@ export function CliPanel() {
     setBusy(`${tool.id}:which`)
     try {
       const found = await cli.which(tool.program)
-      setProbes((prev) => ({
-        ...prev,
-        [tool.id]: found
-          ? `找到了：${found}`
-          : `没找到「${tool.program}」：确认名字，或者改填完整路径（.cmd / .exe 都行）`,
-      }))
+      setProbes((prev) => ({ ...prev, [tool.id]: found ? `找到了：${found}` : '没找到' }))
     } catch (err) {
       setProbes((prev) => ({ ...prev, [tool.id]: `检测失败：${String(err)}` }))
     } finally {
@@ -84,50 +80,74 @@ export function CliPanel() {
     }
   }
 
-  const testRun = async (tool: CliTool) => {
+  /** 跑一条命令并把输出原样写进指定槽位（测试运行 / 查状态 共用） */
+  const runInto = async (tool: CliTool, slot: 'run' | 'status', args: string[], stdin?: string) => {
     if (!cli || busy) return
-    const args = buildArgs(tool.argsTemplate, { prompt: TEST_PROMPT })
-    setBusy(`${tool.id}:run`)
-    setRuns((prev) => ({ ...prev, [tool.id]: `$ ${tool.program} ${args.join(' ')}\n…正在跑` }))
+    const head = `$ ${tool.program} ${args.join(' ')}`
+    const write = (text: string) => {
+      const setter = slot === 'status' ? setStatusOut : setRuns
+      setter((prev) => ({ ...prev, [tool.id]: text }))
+    }
+    setBusy(`${tool.id}:${slot}`)
+    write(`${head}\n…正在跑`)
     try {
       const out = await cli.run({
-        id: `cli-test-${tool.id}`,
+        id: `cli-${slot}-${tool.id}`,
         program: tool.program,
         args,
+        ...(stdin === undefined ? {} : { stdin }),
         timeoutMs: tool.timeoutMs,
       })
-      const lines = [
-        `$ ${tool.program} ${args.join(' ')}`,
-        describeOutcome(out),
-        out.stdout.trim() ? `— 输出 —\n${tail(out.stdout)}` : '',
-        out.stderr.trim() ? `— 错误输出 —\n${tail(out.stderr)}` : '',
-      ].filter(Boolean)
-      setRuns((prev) => ({ ...prev, [tool.id]: lines.join('\n') }))
+      write(describeRun(head, out))
     } catch (err) {
-      setRuns((prev) => ({ ...prev, [tool.id]: `跑不起来：${String(err)}` }))
+      write(`${head}\n跑不起来：${String(err)}`)
     } finally {
       setBusy('')
     }
   }
+
+  /** 一键登录：把它自己的登录命令丢进一个可见窗口，用户在那边完成 */
+  const openLogin = async (tool: CliTool) => {
+    if (!cli || busy) return
+    setBusy(`${tool.id}:login`)
+    try {
+      const args = tool.loginArgs.trim() ? buildArgs(tool.loginArgs, {}) : []
+      await cli.spawnWindow({ program: tool.program, args })
+      setLoginMsg((prev) => ({
+        ...prev,
+        [tool.id]: `已经打开一个窗口跑「${[tool.program, ...args].join(' ')}」——在那里完成登录（浏览器授权或输密码都行）；完成后回来点「检测 / 查状态」确认。`,
+      }))
+    } catch (err) {
+      setLoginMsg((prev) => ({ ...prev, [tool.id]: `打不开登录窗口：${String(err)}` }))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  /** 用密钥登录：密钥走 stdin（不进 argv、不落库、用完即清） */
+  const loginWithKey = async (tool: CliTool) => {
+    const secret = (keys[tool.id] ?? '').trim()
+    if (!cli || busy || !secret) return
+    const args = buildArgs(tool.keyLoginArgs, {})
+    setKeys((prev) => ({ ...prev, [tool.id]: '' }))
+    await runInto(tool, 'status', args, `${secret}\n`)
+  }
+
+  const hasLocalCli = cli !== undefined
 
   return (
     <div className={styles.panel} data-cli-panel>
       <section className={styles.block}>
         <h3 className={styles.title}>本机 CLI</h3>
         <p className={styles.desc}>
-          这里配的是你本机已经装好的命令行工具：轻画负责把它跑起来、把输出原样给你看，
+          这里配的是你本机装着的命令行工具：轻画负责把它跑起来、把输出原样给你看，
           花的是你自己那份额度。命令不经过 shell（参数是一个数组），
           所以提示词里带引号、分号、$ 都不会被当成别的命令。
         </p>
         <p className={styles.desc}>
-          填好后先点「检测」（只看命令在不在），再点「测试运行」（真跑一条命令看输出）。
-          参数模板里可以写占位符：<code className={styles.code}>{'{prompt}'}</code>
-          <code className={styles.code}>{'{out}'}</code>
-          <code className={styles.code}>{'{model}'}</code>
-          <code className={styles.code}>{'{workflow}'}</code>
-          ，跑之前会被换掉；没给值的占位符原样留着，好在输出里一眼看出缺什么。
+          每张卡的顺序就是你要做的事：检测 → 登录 → 查状态。命令名与参数放在「高级」里，一般不用动。
         </p>
-        {!cli && (
+        {!hasLocalCli && (
           <p className={styles.notice} data-cli-desktop-only>
             本机 CLI 只在桌面应用里可用（浏览器打不开子进程）。这里的配置照旧能改、能存，
             换到桌面版就生效。
@@ -154,77 +174,184 @@ export function CliPanel() {
           </header>
           <p className={styles.note}>{tool.note}</p>
 
-          <div className={styles.grid}>
-            <label className={styles.field}>
-              <span className={styles.label}>命令名或完整路径</span>
-              <input
-                className={styles.input}
-                data-cli-program={tool.id}
-                value={tool.program}
-                spellCheck={false}
-                onChange={(e) => patchTool(tool.id, { program: e.target.value })}
-              />
-            </label>
-            <label className={styles.field}>
-              <span className={styles.label}>超时（秒）</span>
-              <input
-                className={styles.input}
-                type="number"
-                min={1}
-                max={1800}
-                data-cli-timeout={tool.id}
-                value={Math.round(tool.timeoutMs / 1000)}
-                onChange={(e) =>
-                  patchTool(tool.id, {
-                    timeoutMs: clampToolTimeout(Number(e.target.value) * 1000, tool.timeoutMs),
-                  })
-                }
-              />
-            </label>
-          </div>
-
-          <label className={styles.field}>
-            <span className={styles.label}>参数模板</span>
-            <input
-              className={styles.input}
-              data-cli-args={tool.id}
-              value={tool.argsTemplate}
-              spellCheck={false}
-              onChange={(e) => patchTool(tool.id, { argsTemplate: e.target.value })}
-            />
-          </label>
-
-          <div className={styles.actions}>
+          {/* ① 装没装 */}
+          <div className={styles.row}>
             <button
               type="button"
               className={styles.btn}
               data-cli-detect={tool.id}
-              disabled={!cli || busy !== ''}
+              disabled={!hasLocalCli || busy !== ''}
               onClick={() => void detect(tool)}
             >
               检测
             </button>
+            {probes[tool.id] && (
+              <span className={styles.result} data-cli-probe={tool.id}>
+                {probes[tool.id]}
+              </span>
+            )}
+          </div>
+          {probes[tool.id] === '没找到' && (
+            <p className={styles.hint} data-cli-install-hint={tool.id}>
+              {tool.installHint}
+            </p>
+          )}
+
+          {/* ② 登录 */}
+          <div className={styles.row}>
             <button
               type="button"
               className={styles.btn}
-              data-cli-run={tool.id}
-              disabled={!cli || busy !== ''}
-              onClick={() => void testRun(tool)}
+              data-cli-login={tool.id}
+              disabled={!hasLocalCli || busy !== ''}
+              onClick={() => void openLogin(tool)}
             >
-              测试运行
+              一键登录（打开窗口）
             </button>
+            {tool.keyLoginArgs.trim() !== '' && (
+              <>
+                <input
+                  className={styles.input}
+                  type="password"
+                  placeholder="粘贴密钥（走 stdin，不落库）"
+                  data-cli-key={tool.id}
+                  value={keys[tool.id] ?? ''}
+                  onChange={(e) => setKeys((prev) => ({ ...prev, [tool.id]: e.target.value }))}
+                />
+                <button
+                  type="button"
+                  className={styles.btn}
+                  data-cli-key-login={tool.id}
+                  disabled={!hasLocalCli || busy !== '' || !(keys[tool.id] ?? '').trim()}
+                  onClick={() => void loginWithKey(tool)}
+                >
+                  用密钥登录
+                </button>
+              </>
+            )}
           </div>
-
-          {probes[tool.id] && (
-            <p className={styles.result} data-cli-probe={tool.id}>
-              {probes[tool.id]}
+          {loginMsg[tool.id] && (
+            <p className={styles.result} data-cli-login-msg={tool.id}>
+              {loginMsg[tool.id]}
             </p>
           )}
-          {runs[tool.id] && (
-            <pre className={styles.output} data-cli-runout={tool.id}>
-              {runs[tool.id]}
+
+          {/* ③ 查状态 / 额度 */}
+          <div className={styles.row}>
+            <button
+              type="button"
+              className={styles.btn}
+              data-cli-status={tool.id}
+              disabled={!hasLocalCli || busy !== '' || tool.statusArgs.trim() === ''}
+              onClick={() => void runInto(tool, 'status', buildArgs(tool.statusArgs, {}))}
+            >
+              查状态 / 额度
+            </button>
+            {tool.statusArgs.trim() === '' && (
+              <span className={styles.result} data-cli-status-none={tool.id}>
+                这个工具没有可查的命令
+              </span>
+            )}
+          </div>
+          <p className={styles.hint} data-cli-quota-where={tool.id}>
+            {tool.quotaWhere}
+          </p>
+          {statusOut[tool.id] && (
+            <pre className={styles.output} data-cli-statusout={tool.id}>
+              {statusOut[tool.id]}
             </pre>
           )}
+
+          {/* ④ 高级 */}
+          <details className={styles.advanced} data-cli-advanced={tool.id}>
+            <summary className={styles.summary}>高级（命令与参数）</summary>
+            <div className={styles.grid}>
+              <label className={styles.field}>
+                <span className={styles.label}>命令名或完整路径</span>
+                <input
+                  className={styles.input}
+                  data-cli-program={tool.id}
+                  value={tool.program}
+                  spellCheck={false}
+                  onChange={(e) => patchTool(tool.id, { program: e.target.value })}
+                />
+              </label>
+              <label className={styles.field}>
+                <span className={styles.label}>超时（秒）</span>
+                <input
+                  className={styles.input}
+                  type="number"
+                  min={1}
+                  max={1800}
+                  data-cli-timeout={tool.id}
+                  value={Math.round(tool.timeoutMs / 1000)}
+                  onChange={(e) =>
+                    patchTool(tool.id, {
+                      timeoutMs: clampToolTimeout(Number(e.target.value) * 1000, tool.timeoutMs),
+                    })
+                  }
+                />
+              </label>
+            </div>
+            <label className={styles.field}>
+              <span className={styles.label}>参数模板（生成 / 对话用）</span>
+              <input
+                className={styles.input}
+                data-cli-args={tool.id}
+                value={tool.argsTemplate}
+                spellCheck={false}
+                onChange={(e) => patchTool(tool.id, { argsTemplate: e.target.value })}
+              />
+            </label>
+            <label className={styles.field}>
+              <span className={styles.label}>查状态命令（留空 = 这个工具没有）</span>
+              <input
+                className={styles.input}
+                data-cli-status-args={tool.id}
+                value={tool.statusArgs}
+                spellCheck={false}
+                onChange={(e) => patchTool(tool.id, { statusArgs: e.target.value })}
+              />
+            </label>
+            <label className={styles.field}>
+              <span className={styles.label}>登录窗口命令（留空 = 直接运行它自己）</span>
+              <input
+                className={styles.input}
+                data-cli-login-args={tool.id}
+                value={tool.loginArgs}
+                spellCheck={false}
+                onChange={(e) => patchTool(tool.id, { loginArgs: e.target.value })}
+              />
+            </label>
+            <label className={styles.field}>
+              <span className={styles.label}>密钥登录命令（留空 = 不支持密钥登录）</span>
+              <input
+                className={styles.input}
+                data-cli-key-args={tool.id}
+                value={tool.keyLoginArgs}
+                spellCheck={false}
+                onChange={(e) => patchTool(tool.id, { keyLoginArgs: e.target.value })}
+              />
+            </label>
+            <div className={styles.actions}>
+              <button
+                type="button"
+                className={styles.btn}
+                data-cli-run={tool.id}
+                disabled={!hasLocalCli || busy !== ''}
+                onClick={() =>
+                  void runInto(tool, 'run', buildArgs(tool.argsTemplate, { prompt: TEST_PROMPT }))
+                }
+              >
+                测试运行
+              </button>
+            </div>
+            {runs[tool.id] && (
+              <pre className={styles.output} data-cli-runout={tool.id}>
+                {runs[tool.id]}
+              </pre>
+            )}
+          </details>
         </section>
       ))}
     </div>
@@ -237,7 +364,9 @@ const TEST_PROMPT = '用一句话介绍你自己'
 const OUTPUT_TAIL = 2_000
 
 function tail(text: string): string {
-  return text.length <= OUTPUT_TAIL ? text : `…（前 ${text.length - OUTPUT_TAIL} 字已省略）\n${text.slice(-OUTPUT_TAIL)}`
+  return text.length <= OUTPUT_TAIL
+    ? text
+    : `…（前 ${text.length - OUTPUT_TAIL} 字已省略）\n${text.slice(-OUTPUT_TAIL)}`
 }
 
 function describeOutcome(out: CliOutcome): string {
@@ -245,4 +374,22 @@ function describeOutcome(out: CliOutcome): string {
   if (out.timedOut) return `超时（${out.ms}ms）：已经掐掉它`
   if (out.code === 0) return `退出码 0（成功）· ${out.ms}ms`
   return `退出码 ${out.code ?? '（系统没给）'} · ${out.ms}ms`
+}
+
+/**
+ * 一次运行的结果块。
+ *
+ * `stderr` 单独一段：很多 CLI 把**有效信息**（例如 `codex login status` 的
+ * 「Logged in using an API key - ***」）打在 stderr 上 —— 只看 stdout 会误判成"什么都没输出"。
+ */
+function describeRun(head: string, out: CliOutcome): string {
+  return [
+    head,
+    describeOutcome(out),
+    out.stdout.trim() ? `— 输出 —\n${tail(out.stdout)}` : '',
+    out.stderr.trim() ? `— stderr —\n${tail(out.stderr)}` : '',
+    !out.stdout.trim() && !out.stderr.trim() ? '（没有任何输出）' : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
 }

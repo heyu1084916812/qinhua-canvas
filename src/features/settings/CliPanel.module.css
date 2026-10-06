@@ -176,6 +176,47 @@
   word-break: break-all;
 }
 
+/* 一行动作（检测 / 登录 / 查状态）：按钮与结果同一行，窄了就换行 */
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* 「没找到命令」旁边那句怎么装：比正文轻一档，但要说清去哪 */
+.hint {
+  margin: 0;
+  font-size: var(--fs-label);
+  line-height: var(--lh-body);
+  color: var(--text-3);
+}
+
+/*
+ * 「高级」（命令与参数）：默认折起。
+ * 用户原话是"我不太懂怎么设置这个 cli" —— 该先给他"检测 / 登录 / 查状态"三件事，
+ * 命令名与参数只在工具子命令不标准时才需要动。
+ */
+.advanced {
+  border-top: var(--border);
+  padding-top: var(--space-3);
+}
+
+.summary {
+  cursor: pointer;
+  font-size: var(--fs-label);
+  color: var(--text-2);
+}
+
+.summary:hover {
+  color: var(--text-1);
+}
+
+/* 高级展开后，内部与卡片一样是竖排 */
+.advanced > *:not(summary) {
+  margin-top: var(--space-2);
+}
+
 /* 命令输出：等宽 + 可滚，**不要把面板顶宽**（长行必须自己横向滚） */
 .output {
   margin: 0;

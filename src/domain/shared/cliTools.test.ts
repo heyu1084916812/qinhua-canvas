@@ -112,8 +112,35 @@ describe('CLI 工具配置的归一化', () => {
     expect(Object.keys(toolPatchOf(tool)).sort()).toEqual([
       'argsTemplate',
       'id',
+      'keyLoginArgs',
+      'loginArgs',
       'program',
+      'statusArgs',
       'timeoutMs',
     ])
+  })
+
+  it('★★ 空串是合法值：用户把「查状态命令」清空后，不许自己长回默认（对账 #314）', () => {
+    /*
+     * 这三条字段里空串的语义是"这个工具没有这条命令"。
+     * 若按 `str()` 的写法把空串当坏值回落默认，用户**永远关不掉**一条自己不支持的子命令。
+     */
+    const tools = mergeTools({ tools: [{ id: 'gemini', statusArgs: '', keyLoginArgs: '' }] })
+    const gemini = tools.find((t) => t.id === 'gemini')
+    expect(gemini?.statusArgs).toBe('')
+    expect(gemini?.keyLoginArgs).toBe('')
+    // 没动过的字段仍是默认（codex 的查状态命令是实测过的 `login status`）
+    expect(defaultCliTools().find((t) => t.id === 'codex')?.statusArgs).toBe('login status')
+  })
+
+  it('★ 每个工具都写明"额度去哪儿看"，没有可查命令的要能一眼看出来（对账 #314）', () => {
+    for (const tool of defaultCliTools()) {
+      expect(tool.quotaWhere.trim().length).toBeGreaterThan(10)
+    }
+    // 即梦 / RunningHub 本机没有官方 CLI ⇒ 默认不给"查状态"命令（面板会直说，而不是给个假按钮）
+    expect(defaultCliTools().find((t) => t.id === 'jimeng')?.statusArgs).toBe('')
+    expect(defaultCliTools().find((t) => t.id === 'runninghub')?.statusArgs).toBe('')
+    // Codex 支持密钥登录（官方 help 里写明 `login --with-api-key` 从 stdin 读）
+    expect(defaultCliTools().find((t) => t.id === 'codex')?.keyLoginArgs).toContain('--with-api-key')
   })
 })

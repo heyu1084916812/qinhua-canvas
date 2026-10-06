@@ -100,7 +100,13 @@
    * 浏览器冒烟够不到这一条：更新按钮只在装了更新器的壳里渲染。
    */
   height: 40px;
-  padding: 6px var(--space-2);
+  /*
+   * 左距用侧栏那套"轴对齐"口径（`--rail-icon-left`，= 收起态居中时图标所在的 10px）：
+   * 两态用同一个值，折叠时图标才**一动不动**（对账 #313：用户报「差一个图标，
+   * 自动更新那个图标还是闪的」——就是这里还在按 8px 排，而别的行已经改齐了）。
+   * 兜底 8px：这个组件在侧栏外（例如开发预览页）单独渲染时变量取不到，别让整条 padding 作废。
+   */
+  padding: 6px var(--space-2) 6px var(--rail-icon-left, 8px);
   box-sizing: border-box;
   border: none;
   border-radius: calc(var(--radius-control) - 2px);
@@ -141,7 +147,5 @@
  * 不会出现"标签占位把图标挤出去"（实测过的 x 22 → -10）。
  */
 .sideBtnCollapsed {
-  justify-content: center;
   gap: 0;
-  padding: 6px 0;
 }

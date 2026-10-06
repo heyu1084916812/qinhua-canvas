@@ -64,6 +64,29 @@ export interface CliTool {
   docUrl: string
   /** 给用户的一句话：这个工具的坑在哪、要先做什么 */
   note: string
+  /**
+   * 「查状态 / 查额度」的命令参数（用户 2026-10-06 第 13 批第 2 条：
+   * 「codex 的 cli 我想要读取到额度…如果查不了额度，我如何显示额度」）。
+   *
+   * ⚠️ 现实是：**多数 CLI 不报余额**。所以这一档能查到什么就显示什么（原话照贴），
+   * 查不到的由 `quotaWhere` 说清"去哪儿看"——**不许编一个数字**。
+   */
+  statusArgs: string
+  /**
+   * 「一键登录」在**可见窗口**里跑的命令参数（交互式：浏览器授权 / 输密码）。
+   *
+   * 空串 = 直接跑这个程序本身（有些工具没有 `login` 子命令，第一次运行就是登录）。
+   */
+  loginArgs: string
+  /**
+   * 用**密钥**登录的命令参数：密钥走 `stdin`，**不进 argv**（不进命令行历史、也不进日志）。
+   * 空串 = 这个工具不支持密钥登录（那就只能走可见窗口那条路）。
+   */
+  keyLoginArgs: string
+  /** 怎么把它装上（一句话：官网 / 安装命令），显示在"没找到命令"旁边 */
+  installHint: string
+  /** 额度 / 余额**到底在哪儿看** —— 工具自己不报时，这句话就是答案 */
+  quotaWhere: string
 }
 
 /** 参数模板里认得的占位符 */
@@ -102,6 +125,13 @@ export function defaultCliTools(): CliTool[] {
       needsCwd: true,
       docUrl: 'https://github.com/openai/codex',
       note: '用你登录的 Codex 额度跑对话 / 写代码。先在本机终端登录一次，子命令以 `codex --help` 为准。',
+      /* 实测：`codex login status` 回「Logged in using an API key - ***」，它只报登录态。 */
+      statusArgs: 'login status',
+      loginArgs: 'login',
+      /* `codex login --with-api-key` 从 stdin 读密钥（官方 help 里写明的） */
+      keyLoginArgs: 'login --with-api-key',
+      installHint: '已装的话 `codex --version` 能看到版本；没装去 https://github.com/openai/codex 按说明装。',
+      quotaWhere: 'Codex 的**额度不在命令行里**（CLI 只能报"登录态"）——余额去 ChatGPT 的用量页看。',
     },
     {
       id: 'jimeng',
@@ -116,6 +146,11 @@ export function defaultCliTools(): CliTool[] {
       needsCwd: false,
       docUrl: '',
       note: '即梦没有官方 CLI，能跑的是社区那层封装：命令名与子命令按你装的那份 `--help` 填。',
+      statusArgs: '',
+      loginArgs: '',
+      keyLoginArgs: '',
+      installHint: '即梦官方没有命令行工具：要接就先弄一层封装（社区脚本 / 自己写），再把命令名填上面。',
+      quotaWhere: '即梦的积分在**即梦 App / 网页的「我的」**里看，CLI 这条链路读不到它。',
     },
     {
       id: 'gemini',
@@ -127,6 +162,12 @@ export function defaultCliTools(): CliTool[] {
       needsCwd: true,
       docUrl: 'https://github.com/google-gemini/gemini-cli',
       note: 'Google 官方 Gemini CLI，走你本机登录的账号额度。',
+      statusArgs: '--version',
+      /* 它没有 login 子命令：第一次运行就会引导登录（浏览器授权） */
+      loginArgs: '',
+      keyLoginArgs: '',
+      installHint: '装它：`npm i -g @google/gemini-cli`（需要 Node 18+），装完先运行一次 `gemini` 完成登录。',
+      quotaWhere: 'Gemini 的用量在 **Google 账号的用量页**看；CLI 只报版本与登录态。',
     },
     {
       id: 'runninghub',
@@ -146,6 +187,11 @@ export function defaultCliTools(): CliTool[] {
       needsCwd: false,
       docUrl: 'https://www.runninghub.cn/',
       note: 'RunningHub 是在线工作流平台，官方没有 CLI：这里填你本机那层封装脚本 / 工具的命令名。',
+      statusArgs: '',
+      loginArgs: '',
+      keyLoginArgs: '',
+      installHint: '官方没有 CLI：先在它网站拿到 API Key，再用社区 SDK / 自己写一个小脚本，把命令名填上面。',
+      quotaWhere: 'RunningHub 的余额在**它网站的「个人中心」**里看。',
     },
   ]
 }
@@ -298,6 +344,17 @@ function str(value: unknown, fallback: string): string {
 }
 
 /**
+ * 与 `str` 的区别：**空串算合法值**（原样返回）。
+ *
+ * 用在 `statusArgs` / `loginArgs` / `keyLoginArgs` 上：空串在这些字段里有明确语义
+ * ——「这个工具没有这条命令」。若按 `str` 的写法把空串当坏值回落默认，
+ * 用户**永远关不掉**一条自己不支持的子命令（删了又自己长回来）。
+ */
+function text(value: unknown, fallback: string): string {
+  return typeof value === 'string' ? value : fallback
+}
+
+/**
  * 落库的一行 → 工具列表。
  *
  * 三条口径：
@@ -323,6 +380,14 @@ export function mergeTools(row: unknown): CliTool[] {
       program: str(patch.program, tool.program),
       argsTemplate: str(patch.argsTemplate, tool.argsTemplate),
       timeoutMs: clampToolTimeout(patch.timeoutMs, tool.timeoutMs),
+      /*
+       * 这三条也允许用户改（他装的那份 CLI 子命令可能不同）。
+       * 注意"空串是**合法值**"——它的意思是"这个工具没有这条命令"，所以这里不能用
+       * `str()`（那个会把空串当坏值回落默认），要用一个允许空串的读法。
+       */
+      statusArgs: text(patch.statusArgs, tool.statusArgs),
+      loginArgs: text(patch.loginArgs, tool.loginArgs),
+      keyLoginArgs: text(patch.keyLoginArgs, tool.keyLoginArgs),
     }
   })
 }
@@ -334,5 +399,9 @@ export function toolPatchOf(tool: CliTool): Record<string, unknown> {
     program: tool.program,
     argsTemplate: tool.argsTemplate,
     timeoutMs: tool.timeoutMs,
+    /* 这三条用户也改得动（他装的那份 CLI 子命令可能不同）；空串是合法值，见 `text()` */
+    statusArgs: tool.statusArgs,
+    loginArgs: tool.loginArgs,
+    keyLoginArgs: tool.keyLoginArgs,
   }
 }

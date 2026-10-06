@@ -10203,6 +10203,8 @@ async function g80(browser) {
         '[data-sidebar-item="/projects"] span',
         '[data-sidebar-settings] span',
         '[data-theme-toggle] span',
+        /* 「检查更新」只在**装了更新器的壳**里渲染 —— 浏览器里恒为 null，下面按"存在的那些"比 */
+        '[data-update-check] span',
       ].map((sel) => {
         const el = document.querySelector(sel)
         if (!el) return null
@@ -10235,8 +10237,14 @@ async function g80(browser) {
      * 两态取整方向不同），而用户报的"跳"是 2px 起步、且动画中途会甩到 ~113px。
      * 卡到 0.5 会把这种无害的亚像素差当成红。
      */
+    /*
+     * 只比**两个状态里都存在**的那些元素：更新按钮是壳专属（浏览器里不渲染），
+     * 它在真机上的"两态恒定"由 `scripts/.tmp-iconjump2.mjs` 那条探针量过（七枚全程 32）。
+     * `>= 5` 是防止有人把选择器全写坏、让这条断言退化成"空集也算过"。
+     */
     expandedIcons.length === collapsedIcons.length &&
-      expandedIcons.every((x, i) => x !== null && Math.abs(x - (collapsedIcons[i] ?? -1)) <= 1),
+      expandedIcons.filter((x) => x !== null).length >= 5 &&
+      expandedIcons.every((x, i) => x === null || Math.abs(x - (collapsedIcons[i] ?? -1)) <= 1),
     `展开=${JSON.stringify(expandedIcons)} 收起=${JSON.stringify(collapsedIcons)}`,
   )
   rec(
@@ -17118,13 +17126,52 @@ async function g97(browser) {
       (await page.locator('[data-cli-detect="codex"]').isDisabled()) &&
       (await page.locator('[data-cli-run="codex"]').isDisabled()),
   )
+  /**
+   * ★★ 三件事各就各位（对账 #314：用户问「是我还需要什么嘛」「我如何使用」「怎么显示额度」）：
+   * 每个工具都要给出「检测 / 一键登录 / 查状态」三条路；没有可查命令的要**直说**，
+   * 并且**必须**写明额度去哪儿看（`quotaWhere`）—— 不能只回一句"查不到"。
+   */
+  const cliRoutes = await page.evaluate(() =>
+    ['codex', 'jimeng', 'gemini', 'runninghub'].map((id) => ({
+      id,
+      detect: document.querySelectorAll(`[data-cli-detect="${id}"]`).length,
+      login: document.querySelectorAll(`[data-cli-login="${id}"]`).length,
+      status: document.querySelectorAll(`[data-cli-status="${id}"]`).length,
+      quotaWhere: (document.querySelector(`[data-cli-quota-where="${id}"]`)?.textContent ?? '').trim().length,
+      keyInput: document.querySelectorAll(`[data-cli-key="${id}"]`).length,
+    })),
+  )
+  rec(
+    g,
+    '★★ 每个工具都有「检测 / 一键登录 / 查状态」三条路，且都写明额度去哪儿看',
+    cliRoutes.every((t) => t.detect === 1 && t.login === 1 && t.status === 1 && t.quotaWhere > 10),
+    JSON.stringify(cliRoutes),
+  )
+  rec(
+    g,
+    '★★ 查不到额度的工具直说「没有可查的命令」（不假装能查）',
+    (await page.locator('[data-cli-status-none="jimeng"]').count()) === 1 &&
+      (await page.locator('[data-cli-status-none="runninghub"]').count()) === 1 &&
+      (await page.locator('[data-cli-status="jimeng"]').isDisabled()) &&
+      (await page.locator('[data-cli-status-none="codex"]').count()) === 0,
+  )
+  rec(
+    g,
+    '★ Codex 那条带「用密钥登录」（密钥走 stdin，不进命令行）',
+    (await page.locator('[data-cli-key="codex"]').count()) === 1,
+  )
   // 配置真的落库：改一下命令名 → 切走 → 切回来还在（只比"输入框里还是我打的字"证明不了它存过）
+  // ⚠️ 命令/参数现在收在「高级」里（默认折起）⇒ 要先展开再填（对账 #314 的界面重排）
+  await page.locator('[data-cli-advanced="codex"] summary').click()
+  await sleep(300)
   await page.locator('[data-cli-program="codex"]').fill('D:/tools/codex.cmd')
   await sleep(600)
   await page.locator('[data-global-settings-tab="storage"]').click()
   await sleep(300)
   await page.locator('[data-global-settings-tab="cli"]').click()
   await sleep(500)
+  await page.locator('[data-cli-advanced="codex"] summary').click()
+  await sleep(300)
   rec(
     g,
     '★ CLI 配置真的落库（改完命令名，切走再切回来还在）',
