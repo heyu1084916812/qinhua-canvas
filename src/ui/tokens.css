@@ -124,6 +124,18 @@
   --space-8: 32px;
   --space-sidebar-group: 20px;
 
+  /* —— 应用壳几何（对账 #269 / #274）——
+     `--shell-gap`：工作区四周留白，**只在上 / 下 / 右**（左侧紧贴侧栏）。
+     15px 是用户 2026-10-06 亲自比出来的值（先看了 8px 说"太少"）。
+     `--title-bar-h`：**自绘 Windows 标题栏**的高度 —— 用户的口径是
+     「标题栏 + 上方留白 = 侧栏折叠宽度」，所以它是算出来的，不是随手写的数。
+     ⚠️ 那个 `64` 必须与 `SIDEBAR_COLLAPSED_W`（`app/sidebarState.ts`）一致，
+     `scripts/check-shell-geometry.mjs`（挂在 `npm run check` 里）专门钉这个等式。
+     ⚠️ 这件事**不能靠单测**：单测跑在 node 环境，`?raw` 导入的 CSS 会被 vitest
+     stub 成空串，读到的令牌永远是空的 —— 那样的断言是假绿灯（第一版就这么写过）。 */
+  --shell-gap: 15px;
+  --title-bar-h: calc(64px - var(--shell-gap));
+
   /* —— 描边与浮层投影（§3.3） —— */
   --border-width: 1px;
   --border: var(--border-width) solid var(--stroke);

@@ -15,6 +15,8 @@ import {
 import { ThemeToggle } from './ThemeToggle'
 import { UpdateButton } from './UpdateNotice'
 import { CatLogo } from './CatLogo'
+import { QinghuaWordmark } from './QinghuaWordmark'
+import { isTauri } from '@tauri-apps/api/core'
 import { NAV, type NavItem } from './nav'
 import {
   IconNewProject,
@@ -83,6 +85,15 @@ export function AppSidebar() {
     subscribeGlobalSettings,
     () => getGlobalSettings().open,
     () => getGlobalSettings().open,
+  )
+  /**
+   * 是否跑在桌面壳里。用途只有一个：**常驻开关的家**。
+   * 壳里有标题栏 ⇒ 开关住标题栏；浏览器里没有 ⇒ 退回侧栏头部（见渲染处的注释）。
+   */
+  const inShell = useSyncExternalStore(
+    () => () => {},
+    () => isTauri(),
+    () => false,
   )
 
   /**
@@ -163,36 +174,40 @@ export function AppSidebar() {
       onMouseLeave={onRailLeave}
       aria-label="一级导航"
     >
-      {/* 顶部：Logo + 常驻开关 */}
+      {/*
+        顶部品牌位（用户 2026-10-06）：**收起时只有 logo，展开时 logo 后面接文字标**。
+        常驻开关搬去标题栏了（壳里）—— 所以这里不再有"悬停互换"那套。
+        ⚠️ 但**浏览器里没有标题栏** ⇒ 开关退回这里显示（能力在哪，控件在哪），
+        锚点两边都叫 `data-sidebar-toggle`，冒烟因此不必分环境写两份。
+      */}
       <div className={styles.head}>
-        {/*
-          猫画动态 Logo（用户 2026-09-27）。收起态下它与开合按钮**同一格**：
-          平时显示 Logo，鼠标悬停时 Logo 隐去、按钮显现（见 CSS）。
-        */}
         <span className={styles.logo} data-sidebar-logo>
           <CatLogo size={28} />
         </span>
+        {open && (
+          <span className={styles.wordmark} data-sidebar-wordmark>
+            <QinghuaWordmark className={styles.wordmarkSvg} />
+          </span>
+        )}
         {/*
-          收起态下这个按钮只在悬停时浮现（否则 64px 宽里塞不下 logo + 按钮）。
-          它是**唯一的"常驻"入口**，所以不能纯靠 hover 才可点 —— 用 `:focus-visible`
-          一并放行，键盘用户 Tab 过来就能看见并操作。
-
-          ⚠️ 语义在 2026-10-06 变了：以前是"开 / 合侧栏"，现在是**常驻开关**（用户原话
-          「折叠按钮只是控制他是否常驻折叠或者展开」）。日常开合由**悬停**负责，
-          按钮只回答"离开鼠标时它该不该留在这儿"。
+          语义在 2026-10-06 变过一次：以前是"开 / 合侧栏"，现在是**常驻开关**
+          （用户原话「折叠按钮只是控制他是否常驻折叠或者展开」）。日常开合由**悬停**负责，
+          它只回答"离开鼠标时侧栏该不该留在这儿"。
         */}
-        <button
-          type="button"
-          className={styles.toggle}
-          data-sidebar-toggle
-          data-sidebar-pin
-          aria-pressed={pinned}
-          aria-label={pinned ? '取消常驻展开（移开鼠标后自动收起）' : '常驻展开侧栏'}
-          title={pinned ? '取消常驻展开' : '常驻展开'}
-          onClick={() => toggleSidebarPin()}
-        >
-          <IconSidebarToggle size={20} />
-        </button>
+        {!inShell && (
+          <button
+            type="button"
+            className={styles.toggle}
+            data-sidebar-toggle
+            data-sidebar-pin
+            aria-pressed={pinned}
+            aria-label={pinned ? '取消常驻展开（移开鼠标后自动收起）' : '常驻展开侧栏'}
+            title={pinned ? '取消常驻展开' : '常驻展开'}
+            onClick={() => toggleSidebarPin()}
+          >
+            <IconSidebarToggle size={20} />
+          </button>
+        )}
       </div>
 
       {/* 新建项目：独立按钮，与导航项区分开（参考图里它在导航之上、单独一行） */}

@@ -1,0 +1,201 @@
+/**
+ * 自绘标题栏（对账 #274）。高度 = 侧栏折叠宽度 − 上方留白：
+ * 64 − 15 = **49px**，与 `.shell` 的 `--shell-gap` 一处呼应（见 AppShell.module.css）。
+ */
+.bar {
+  flex: none;
+  /* 高度来自令牌（= 侧栏折叠宽度 − 上方留白），见 tokens.css 的壳几何那一段 */
+  height: var(--title-bar-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* 左内距与侧栏图标列对齐（侧栏 64px 宽、图标居中 ⇒ 视觉起点一致） */
+  padding-left: var(--space-4);
+  background: var(--bg-app);
+  /* 拖动区自己不要选中文字（拖窗口时选中标题很难看） */
+  user-select: none;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* ① 折叠 / 常驻：与窗口按钮同高的方形图标键，靠左、紧邻品牌位 */
+.iconBtn {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  margin-right: var(--space-3);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+}
+
+.iconBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+/* 常驻态点亮（与侧栏那个开关同一语义：亮 = 锁住了） */
+.iconBtn[aria-pressed='true'] {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+/* ── ②③ 菜单 ── */
+.menus {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: var(--space-5);
+}
+
+.menuWrap {
+  position: relative;
+}
+
+.menuBtn {
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-nav);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+}
+
+.menuBtn:hover,
+.menuBtnOn {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  z-index: 70;
+  min-width: 220px;
+  padding: var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.menuHead {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--fs-label);
+  color: var(--text-3);
+}
+
+.menuItem {
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  padding: var(--space-2);
+  text-align: left;
+  font: inherit;
+  font-size: var(--fs-nav);
+  color: var(--text-1);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.menuItem:hover {
+  background: var(--bg-hover);
+}
+
+.shortcuts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.shortcutRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--fs-nav);
+  color: var(--text-1);
+}
+
+.shortcutWhat {
+  white-space: nowrap;
+}
+
+.kbd {
+  flex: none;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text-2);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-label);
+}
+
+.name {
+  font-size: var(--fs-nav);
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.sep,
+.page {
+  font-size: var(--fs-nav);
+  color: var(--text-3);
+}
+
+.controls {
+  display: flex;
+  align-items: stretch;
+  /* 窗口按钮贴右上角：这是 Windows 的肌肉记忆，不跟应用留白走 */
+  height: 100%;
+}
+
+.btn {
+  width: 46px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+}
+
+.btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+/*
+ * 关闭键悬停用**令牌**（`--danger` + `--accent-text`），不用写死的系统红：
+ * 主题守卫要求"组件样式只引用令牌"，而且深色主题下这份红本来就该跟着调。
+ * （代价：与 Windows 原生那口"固定红"略有差别 —— 换来的是两套主题都成对。）
+ */
+.close:hover {
+  background: var(--danger);
+  color: var(--accent-text);
+}

@@ -10084,6 +10084,33 @@ async function g80(browser) {
   rec(g, '★ 收起宽度 64px（§5.10）', Math.round(collapsed.width) === 64, `${Math.round(collapsed.width)}px`)
 
   /**
+   * ★★ 自绘标题栏（对账 #274 / #265）——冒烟只能钉**浏览器这一侧**。
+   *
+   * 用户说的「顶栏」= **Windows 标题栏**，壳里由 `app/TitleBar.tsx` 自绘
+   * （`tauri.conf.json` 已 `decorations: false`）。浏览器里窗口装饰归浏览器，
+   * 应用再画一根就是**两根标题栏** ⇒ 这里钉的就是「不画」。
+   * 壳里的样子（标题栏 49px、左侧折叠键、应用 / 编辑菜单、右上三键）由真窗口截图
+   * `.playwright-verify/shell-titlebar.png` 作证 —— 冒烟跑在浏览器里拿不到
+   * `isTauri()` 为真的环境，硬凑一条「壳里有标题栏」的断言只会是假绿灯。
+   */
+  rec(
+    g,
+    '★★ 浏览器里不渲染自绘标题栏（窗口装饰归浏览器，画了就是两根）',
+    (await page.locator('[data-title-bar]').count()) === 0,
+  )
+  rec(
+    g,
+    '★ 没有标题栏时，折叠键退回侧栏（能力在哪、控件在哪）',
+    (await rail.locator('[data-sidebar-toggle]').count()) === 1,
+  )
+  rec(
+    g,
+    '★ 浏览器里上留白就是那一份 15px（不把标题栏那份重复算上）',
+    Math.round(wsCollapsed.y) === 15,
+    `y=${Math.round(wsCollapsed.y)}`,
+  )
+
+  /**
    * ★★ 悬停展开 / 移开收回 —— 本次改动的**核心手感**。
    * 延迟常量在 `sidebarState`（进 100ms / 出 220ms），这里多等一截余量再量，
    * 免得把"动画还没完"当成"没生效"。

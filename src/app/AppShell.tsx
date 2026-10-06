@@ -1,10 +1,9 @@
 import { useSyncExternalStore, type ReactNode } from 'react'
-import { useLocation } from 'react-router-dom'
 import { AppSidebar } from './AppSidebar'
 import { GlobalSettingsOverlay } from './GlobalSettingsOverlay'
+import { TitleBar } from './TitleBar'
 import { UpdateNotice } from './UpdateNotice'
 import { ThumbBackfill } from './ThumbBackfill'
-import { navTitleOf } from './nav'
 import {
   SIDEBAR_COLLAPSED_W,
   getSidebarOpen,
@@ -28,7 +27,6 @@ import styles from './AppShell.module.css'
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const open = useSyncExternalStore(subscribeSidebar, getSidebarOpen, getSidebarOpen)
-  const location = useLocation()
 
   return (
     <div
@@ -46,13 +44,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       }}
     >
       {/*
-        顶栏（用户 2026-10-06）：横跨整窗、高度 = 侧栏折叠宽度。
-        现在只放「当前页面名」，两侧留白等用户看过效果再定放什么
-        （品牌 / 搜索 / 全局按钮都可以，但都不该我替他决定）。
+        ⚠️ **这里没有"应用内顶栏"** —— 用户 2026-10-06 明确纠正过：
+        他说的「顶栏」就是 **Windows 标题栏**，而那根要**自绘**（见 `TitleBar`，
+        壳里渲染、高度 64−15=49px）。我第一版自作主张加了一条应用内顶栏（带页面名），
+        那既不是他说的东西、还和页面自己的大标题重复 ⇒ 已删。
       */}
-      <header className={styles.topBar} data-app-topbar>
-        <span className={styles.topTitle}>{navTitleOf(location.pathname)}</span>
-      </header>
+      <TitleBar />
       {/* 侧栏与工作区并排（`.body` 左侧不留白：工作区紧贴侧栏，用户 2026-10-06 定） */}
       <div className={styles.body}>
         <AppSidebar />

@@ -23,8 +23,14 @@
    */
   gap: 0;
   background: var(--bg-app);
-  /* 与右侧工作区之间一条细线：两块是并列关系，靠 1px 描边划分，不用阴影（§3.3） */
-  border-right: 1px solid var(--stroke);
+  /*
+   * ⚠️ **这里刻意没有右描边**（用户 2026-10-06：「不要这条边，这样看起来不像包围了」）。
+   *
+   * 上一版靠 1px 描边划分"侧栏 / 工作区"，理由是两块并列、不用阴影（§3.3）。
+   * 但改成"包围式"之后，**那根线正好把包围切开**：工作区是一张浮在壳底色上的圆角卡，
+   * 侧栏与卡片之间只该有**底色差 + 留白**，多一条线就变成"两个平铺的区块"。
+   * 所以删掉它 —— 分隔交给工作区自己的圆角与白底（`.workspace` 的 border-radius）。
+   */
   /**
    * ⚠️ **`overflow: hidden` 会切掉 Logo**（用户 2026-09-27 第 4 条）。
    *
@@ -104,6 +110,27 @@
   width: calc(100% - 4px);
   height: calc(100% - 4px);
   object-fit: contain;
+}
+
+/*
+ * 文字标（用户 2026-10-06：展开后 logo 后面加上我的文字 logo）。
+ * 高度取 16px：与 28px 的猫标同排时视觉重心齐平，也不至于把 240px 侧栏挤满。
+ * 颜色跟随 `--sidebar-nav`（与导航文字同色，见 §2.2 的明暗一致那条）。
+ */
+.wordmark {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--space-3);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--sidebar-nav);
+}
+
+.wordmarkSvg {
+  display: block;
+  width: auto;
+  height: 16px;
 }
 
 /*

@@ -39,28 +39,10 @@
   background: var(--bg-app);
   /* 四周留白（同一份值给上/下/右）：一个数改全局 */
   /*
-   * 四周留白（同一份值给上/下/右）：一个数改全局。
-   *
-   * ⚠️ **15px 是用户 2026-10-06 亲自定的** —— 它不在我们的 4px 网格上
-   * （网格值 4/8/12/16…）。不硬凑成 16 是因为这是**看着比**出来的值：
-   * 用户先看了 8px 说"太少"，才定的 15。要回到网格，最接近的是 16（`--space-4`）。
+   * 四周留白（上 / 下 / 右）来自 `ui/tokens.css` 的 `--shell-gap` ——
+   * 令牌只有一份来源，且**自绘标题栏的高度与它是同一个算式**
+   * （`--title-bar-h = 64px - --shell-gap`，见 tokens.css）。
    */
-  --shell-gap: 15px;
-}
-
-.topBar {
-  /* 顶栏 + 上方留白 = 侧栏折叠宽度（64px）⇒ 顶栏高度这里算出来，不写死第二个 64 */
-  flex: none;
-  height: calc(var(--sidebar-collapsed-w, 64px) - var(--shell-gap));
-  display: flex;
-  align-items: center;
-  padding: 0 var(--space-6);
-}
-
-.topTitle {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-2);
 }
 
 .body {
