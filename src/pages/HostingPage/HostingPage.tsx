@@ -3,10 +3,14 @@ import { usePlatform } from '../../app/providers/PlatformProvider'
 import {
   DEFAULT_HOSTING,
   HOSTING_EXPIRES,
+  HOSTING_FIELDS,
   HOSTING_PROVIDERS,
   HOSTING_ROW_ID,
   hostingConfigOf,
+  hostingNeedsSecret,
+  hostingReadiness,
   hostingRowOf,
+  hostingSecretRef,
   type HostingConfig,
   type HostingProviderId,
 } from '../../domain/shared/hosting'
@@ -31,6 +35,10 @@ export function HostingPage() {
   const [status, setStatus] = useState('')
   const [testedUrl, setTestedUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  /** 密钥只在**凭据层**：这里只记"存过没有"，用来提示用户（绝不把明文放进 state） */
+  const [secretSaved, setSecretSaved] = useState(false)
+  const [probeResult, setProbeResult] = useState<{ ok: boolean; message: string } | null>(null)
+  const [probing, setProbing] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -47,15 +55,61 @@ export function HostingPage() {
     }
   }, [platform])
 
+  /** 换服务时重查一次"这家存过密钥没有"（密钥按服务分开引用，不串用） */
+  useEffect(() => {
+    let alive = true
+    void platform.credentials
+      .load(hostingSecretRef(config.provider))
+      .then((value) => {
+        if (alive) setSecretSaved(!!value)
+      })
+      .catch(() => {
+        if (alive) setSecretSaved(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [platform, config.provider])
+
   const save = async (next: HostingConfig) => {
     setConfig(next)
     setTestedUrl(null)
+    setProbeResult(null)
     setStatus('')
     try {
       await platform.storage.put('presets', hostingRowOf(next))
       setStatus('已保存')
     } catch {
       setStatus('保存失败')
+    }
+  }
+
+  /** 密钥不进 `presets`：单独写进凭据层（桌面端是 OS 加密库） */
+  const saveSecret = async (secret: string) => {
+    try {
+      if (secret.trim() === '') {
+        await platform.credentials.remove(hostingSecretRef(config.provider))
+        setSecretSaved(false)
+        setStatus('已清除密钥')
+        return
+      }
+      await platform.credentials.save(hostingSecretRef(config.provider), secret.trim())
+      setSecretSaved(true)
+      setStatus('密钥已保存到本机凭据库')
+    } catch {
+      setStatus('密钥保存失败')
+    }
+  }
+
+  const runProbe = async () => {
+    setProbing(true)
+    setProbeResult(null)
+    try {
+      setProbeResult(await platform.hosting.test())
+    } catch (err) {
+      setProbeResult({ ok: false, message: `测不了：${String((err as Error)?.message ?? err).slice(0, 120)}` })
+    } finally {
+      setProbing(false)
     }
   }
 
@@ -83,6 +137,9 @@ export function HostingPage() {
   }
 
   const active = HOSTING_PROVIDERS.find((p) => p.id === config.provider)
+  /** 这家要填哪些字段 / 还缺什么 —— 都来自 domain，页面不重复判断 */
+  const fields = HOSTING_FIELDS[config.provider]
+  const readiness = hostingReadiness(config)
 
   return (
     <div className={styles.page} data-hosting-page>
@@ -113,7 +170,8 @@ export function HostingPage() {
         </div>
         {active && <p className={styles.hint}>{active.hint}</p>}
 
-        {config.provider !== 'off' && (
+        {/* 「保留时长」只有 tmpfiles 认（其余服务是永久对象，寿命由用户自己的生命周期规则管） */}
+        {config.provider === 'tmpfiles' && (
           <div className={styles.row}>
             <span className={styles.rowLabel}>保留时长</span>
             <div className={styles.segmented} role="group" aria-label="保留时长">
@@ -133,12 +191,82 @@ export function HostingPage() {
           </div>
         )}
 
+        {/*
+          各家的字段（用户 2026-10-06 第 4 条：「其他的可以自己填写」）。
+          字段表在 domain（`HOSTING_FIELDS`）—— 页面不为六家各写一遍表单。
+          密钥类字段：输入框**不回显**，只显示"存过没有"；值直接写进凭据层。
+        */}
+        {fields.length > 0 && (
+          <div className={styles.fields} data-hosting-fields>
+            {fields.map((field) => (
+              <label className={styles.field} key={field.key}>
+                <span className={styles.fieldLabel}>
+                  {field.label}
+                  {field.optional && <span className={styles.fieldOptional}>选填</span>}
+                </span>
+                {field.secret ? (
+                  <input
+                    className={styles.input}
+                    type="password"
+                    autoComplete="off"
+                    placeholder={secretSaved ? '已保存（留空即不改动）' : field.placeholder}
+                    data-hosting-field={field.key}
+                    onBlur={(event) => void saveSecret(event.target.value)}
+                  />
+                ) : (
+                  <input
+                    className={styles.input}
+                    type="text"
+                    spellCheck={false}
+                    placeholder={field.placeholder}
+                    value={(config[field.key as keyof HostingConfig] as string | undefined) ?? ''}
+                    data-hosting-field={field.key}
+                    onChange={(event) => void save({ ...config, [field.key]: event.target.value })}
+                  />
+                )}
+                {field.hint && <span className={styles.fieldHint}>{field.hint}</span>}
+              </label>
+            ))}
+          </div>
+        )}
+
+        {/*
+          「缺什么」明着说（不是把按钮灰掉让用户猜）：就绪校验在 domain，
+          这里只是把它的 `missing` 打出来。
+        */}
+        {config.provider !== 'off' && readiness.missing.length > 0 && (
+          <p className={styles.readiness} data-hosting-readiness>
+            还缺：{readiness.missing.join('、')}
+          </p>
+        )}
+        {config.provider !== 'off' && hostingNeedsSecret(config.provider) && !secretSaved && readiness.missing.length === 0 && (
+          <p className={styles.readiness} data-hosting-readiness>
+            还缺：密钥（{config.provider === 'cloudinary' ? 'API Secret' : 'AccessKey Secret'}）
+          </p>
+        )}
+
         <div className={styles.actions}>
+          {/*
+            两个按钮分工不同，`title` 里写清：
+            ① 测连通 —— **只读**探测（不上传，不在用户桶里留东西）；
+            ② 测试上传 —— 真的传一张 32×32 上去，会占桶里一个对象（tmpfiles 那种匿名图床适合它）。
+          */}
+          <button
+            type="button"
+            className={styles.secondary}
+            data-hosting-probe
+            disabled={probing || !loaded || config.provider === 'off'}
+            title="只发一次只读请求：验端点 / 桶 / 云名与凭据格式，不往桶里写东西"
+            onClick={() => void runProbe()}
+          >
+            {probing ? '测试中…' : '测连通性'}
+          </button>
           <button
             type="button"
             className={styles.primary}
             data-hosting-test
             disabled={busy || !loaded}
+            title="真的上传一张 32×32 的测试图（会在你的桶里留下一个对象）"
             onClick={() => void runTest()}
           >
             {busy ? '上传中…' : '测试上传'}
@@ -149,6 +277,15 @@ export function HostingPage() {
             </span>
           )}
         </div>
+
+        {probeResult && (
+          <p
+            className={probeResult.ok ? styles.probeOk : styles.probeBad}
+            data-hosting-probe-result={probeResult.ok ? 'ok' : 'fail'}
+          >
+            {probeResult.message}
+          </p>
+        )}
 
         {testedUrl && (
           <p className={styles.url} data-hosting-url>

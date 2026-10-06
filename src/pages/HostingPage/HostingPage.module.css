@@ -117,3 +117,109 @@
   color: var(--text-2);
   word-break: break-all;
 }
+
+/* ── 各家的字段（对账 #260）── */
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fieldLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+/* 「选填」用弱一档的胶囊标出来：六家里只有少数几项可留空 */
+.fieldOptional {
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.input {
+  height: 34px;
+  padding: 0 10px;
+  border: var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.fieldHint {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* 「还缺什么」：用警示色，但它不是错误 —— 只是还没填完 */
+.readiness {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* 次要按钮（测连通性）：描边不实底，与主按钮拉开层级 */
+.secondary {
+  height: 34px;
+  padding: 0 16px;
+  border: var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.secondary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.probeOk,
+.probeBad {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.probeOk {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.probeBad {
+  background: var(--bg-subtle);
+  color: var(--danger);
+}

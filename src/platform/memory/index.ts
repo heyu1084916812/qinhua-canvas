@@ -164,6 +164,10 @@ export function createMemoryHosting(): HostingPort {
     async upload() {
       return null
     },
+    /** 内存平台没有网络：如实说"测不了"，而不是假装连通（假绿比没有更糟） */
+    async test() {
+      return { ok: false, message: '内存平台不发网络请求：测连通要在浏览器或桌面壳里做' }
+    },
   }
 }
 

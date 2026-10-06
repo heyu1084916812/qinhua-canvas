@@ -11,7 +11,7 @@ import { createWebCryptoCredentials } from './webCryptoCredentials'
 import { createFileAccessFiles } from './fileSystemAccessFiles'
 import { createConsoleLogger } from './consoleLogger'
 import { createStorageAssetPort } from '../assets'
-import { createWebHosting } from './tmpfilesHosting'
+import { createWebHosting } from './hosting'
 import { createLocalFaceDetector } from './localFaceDetector'
 import { createWebAssetFolder } from './assetFolder'
 
@@ -29,15 +29,22 @@ export function createWebPlatform(
   } = {},
 ): PlatformKit {
   const storage = createIndexedDbStorage()
+  const network = createFetchNetwork()
+  const credentials = createWebCryptoCredentials()
   return {
     storage,
-    network: createFetchNetwork(),
+    network,
     assets: createStorageAssetPort(storage),
     assetFolder: overrides.assetFolder ?? createWebAssetFolder(),
     // 自动更新只有壳里有：浏览器侧传空即"没有这一项"（端口是可选字段）
     updater: overrides.updater,
-    hosting: createWebHosting(storage),
-    credentials: createWebCryptoCredentials(),
+    /**
+     * 素材传输要三样：配置行（storage）、密钥（credentials）、发请求（network）。
+     * 三者都由这里装配 —— **不在端口实现里各自 new 一份**（凭据层换实现时，
+     * 渠道与图床必须拿到同一份，否则"加密存的密钥"和"明文读的密钥"会分叉）。
+     */
+    hosting: createWebHosting({ storage, credentials, network }),
+    credentials,
     files: overrides.files ?? createFileAccessFiles(),
     logger: createConsoleLogger(),
     vision: createLocalFaceDetector(),

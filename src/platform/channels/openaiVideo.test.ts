@@ -434,7 +434,9 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
       {
         network: platform.network,
         assets: platform.assets,
-        hosting: { upload: async () => ({ url: 'https://host.example/a1.png' }) },
+        hosting: {
+    test: async () => ({ ok: false, message: '测试替身：不发网络' }),
+    upload: async () => ({ url: 'https://host.example/a1.png' }) },
       },
       { sleep: async () => {}, now: () => 0 },
     )
@@ -469,7 +471,8 @@ describe('视频适配器：提交 → 轮询 → 下载', () => {
         network: platform.network,
         assets: platform.assets,
         hosting: {
-          upload: async () => {
+    test: async () => ({ ok: false, message: '测试替身：不发网络' }),
+    upload: async () => {
             throw new Error('图床挂了')
           },
         },

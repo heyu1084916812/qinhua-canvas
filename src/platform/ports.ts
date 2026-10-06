@@ -70,7 +70,8 @@ export interface StoragePort {
 
 export interface NetworkRequest {
   url: string
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  /** `HEAD` 是给「测连通性」用的（对账 #260）：只要响应头，不取正文 */
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'HEAD'
   headers?: Record<string, string>
   body?: unknown
   timeoutMs?: number
@@ -168,6 +169,14 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
  */
 export interface HostingPort {
   upload(input: { blob: Blob; name: string }): Promise<{ url: string } | null>
+  /**
+   * **测连通性**（对账 #260，用户点名要的按钮）。
+   *
+   * 只发**只读**请求（`domain/shared/hosting.ts` 的 `hostingProbe` 决定打哪儿），
+   * 绝不为了测一下就在用户桶里留垃圾对象。`message` 是给用户看的中文话术
+   * （含 HTTP 状态码与"这一发到底验了什么/没验什么"）。
+   */
+  test(): Promise<{ ok: boolean; message: string }>
 }
 
 export interface LoggerPort {

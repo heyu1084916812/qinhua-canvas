@@ -16510,6 +16510,90 @@ async function g97(browser) {
     (await page.locator('[data-hosting-provider="off"]').getAttribute('aria-pressed')) === 'true',
   )
 
+  /**
+   * 多服务（对账 #260）：用户第 4 条要「阿里云 OSS / 七牛云 / Cloudinary(免费) / S3 兼容 ——
+   * 其它的可以自己填写」，并且点名要一个**测连通性**按钮。
+   *
+   * 这一组只钉**不需要外网**的判据：六家都在、选哪家出哪家的字段、缺什么能明说、
+   * 缺配置时"测连通性"回的是"还缺…"（不转圈、不假成功）。真实上传由下面 tmpfiles 那条覆盖。
+   */
+  const providerIds = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-hosting-provider]')].map((el) =>
+      el.getAttribute('data-hosting-provider'),
+    ),
+  )
+  rec(
+    g,
+    '★★ 六家服务都在（含阿里云 OSS / 七牛 / Cloudinary / S3 兼容自填）',
+    ['off', 'tmpfiles', 'aliyun-oss', 'qiniu', 'cloudinary', 's3'].every((id) =>
+      providerIds.includes(id),
+    ),
+    JSON.stringify(providerIds),
+  )
+
+  await page.locator('[data-hosting-provider="aliyun-oss"]').click()
+  await sleep(500)
+  const ossFields = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-hosting-field]')].map((el) =>
+      el.getAttribute('data-hosting-field'),
+    ),
+  )
+  rec(
+    g,
+    '★★ 选阿里云 OSS ⇒ 出现可自填的字段（endpoint / region / 桶 / AK / 密钥…）',
+    ossFields.includes('endpoint') &&
+      ossFields.includes('region') &&
+      ossFields.includes('bucket') &&
+      ossFields.includes('accessKeyId') &&
+      ossFields.includes('secretAccessKey'),
+    JSON.stringify(ossFields),
+  )
+  const readinessText = await page.locator('[data-hosting-readiness]').innerText().catch(() => '')
+  rec(g, '★★ 缺什么明着说（不是把按钮灰掉让人猜）', /还缺/.test(readinessText), readinessText.trim())
+
+  await page.locator('[data-hosting-probe]').click()
+  await sleep(900)
+  const probeText = await page.locator('[data-hosting-probe-result]').innerText().catch(() => '')
+  const probeKind = await page
+    .locator('[data-hosting-probe-result]')
+    .getAttribute('data-hosting-probe-result')
+    .catch(() => '')
+  rec(
+    g,
+    '★★ 缺配置时点「测连通性」⇒ 如实回「还缺…」（不转圈、也不假成功）',
+    probeKind === 'fail' && /还缺/.test(probeText),
+    `${probeKind} ${probeText.trim()}`,
+  )
+
+  await page.locator('[data-hosting-provider="qiniu"]').click()
+  await sleep(400)
+  const qiniuReady = await page.locator('[data-hosting-readiness]').innerText().catch(() => '')
+  rec(
+    g,
+    '★ 七牛把「公网访问前缀」算进必填（对象地址 = 你的域名 + key，没域名拿不到直链）',
+    /公网访问前缀/.test(qiniuReady),
+    qiniuReady.trim(),
+  )
+
+  await page.locator('[data-hosting-provider="cloudinary"]').click()
+  await sleep(400)
+  const cloudFields = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-hosting-field]')].map((el) =>
+      el.getAttribute('data-hosting-field'),
+    ),
+  )
+  rec(
+    g,
+    '★ Cloudinary 只要三样（cloud name / api key / api secret）',
+    cloudFields.includes('cloudName') &&
+      cloudFields.includes('apiKey') &&
+      cloudFields.includes('apiSecret'),
+    JSON.stringify(cloudFields),
+  )
+
+  await page.locator('[data-hosting-provider="off"]').click()
+  await sleep(400)
+
   await page.locator('[data-hosting-provider="tmpfiles"]').click()
   await sleep(600)
   await page.reload({ waitUntil: 'networkidle' })

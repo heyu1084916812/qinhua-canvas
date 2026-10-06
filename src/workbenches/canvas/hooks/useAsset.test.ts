@@ -44,7 +44,9 @@ function kitWithFolder(folder: ReturnType<typeof createMemoryAssetFolder>): Plat
     network: { request: async () => ({}) as never, async *stream() {} },
     assets: { read: async () => null, readUrl: async () => null },
     assetFolder: folder,
-    hosting: { upload: async () => null },
+    hosting: {
+    test: async () => ({ ok: false, message: '测试替身：不发网络' }),
+    upload: async () => null },
     credentials: { save: async () => {}, load: async () => null, remove: async () => {}, mask: (s) => s },
     files: { pickFile: async () => null, saveFile: async () => {}, saveFromUrl: async () => 'saved' },
     logger: { log: () => {} },
