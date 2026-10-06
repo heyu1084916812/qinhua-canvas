@@ -817,16 +817,18 @@ async function g2(browser) {
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
   /*
-   * ⚠️ **等画布真的挂上，而不是死等 600ms**（2026-10-06 修）。
+   * ⚠️ **等模板真的灌进去，而不是死等 600ms**（2026-10-06 修）。
    *
-   * `CanvasPage` 是路由级 lazy chunk：冷启动 / 机器在忙时，600ms 内它可能还没挂载，
-   * 于是节点数读到 0 —— 那是**测试的等待太短**，不是模板没灌（实测同一路径
-   * 单独跑必过、与全量冒烟并跑时约 2/3 概率读到 `surface:false`）。
-   * 判据是"要断言的那个东西出现了没有"，不是墙钟时间。
+   * `CanvasPage` 是路由级 lazy chunk、模板预置又发生在 hydrate **之后**（两次异步），
+   * 冷启动 / 机器忙时 600ms 内可能一步都没走完，于是节点数读到 0 —— 那是**测试的等待太短**，
+   * 不是模板没灌（实测同一路径单独跑必过、有别的负载时约 2/3 概率读到 `surface:false`）。
+   * 判据是"要断言的那个东西出现了没有"（这里就是节点元素），不是墙钟时间。
+   * 注意 `catch` 之后**照常断言**：灌不进去时这里会等到超时，随后的断言照样红 —— 不会假绿。
    */
   await page
-    .locator('[data-canvas-surface]')
-    .waitFor({ state: 'visible', timeout: 10000 })
+    .locator('[data-node-id]')
+    .first()
+    .waitFor({ state: 'attached', timeout: 10000 })
     .catch(() => {})
   await sleep(600)
   const n = await nodeCount(page)
@@ -1888,6 +1890,16 @@ async function g13(browser) {
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
+  /*
+   * 同 G2 / G37：**等模板灌进去**（节点 + 那条自带边），不要死等 700ms ——
+   * 路由级 lazy chunk + hydrate 之后才 seedTemplate，机器一忙就两步都没跑完，
+   * 于是"连线=0"这条本来是**模板对不对**的断言，变成了"这 700ms 够不够"。
+   */
+  await page
+    .locator('[data-edge]')
+    .first()
+    .waitFor({ state: 'attached', timeout: 10000 })
+    .catch(() => {})
   await sleep(700)
   rec(g, '模板已带 1 条连线', (await page.locator('[data-edge]').count()) === 1, `连线=${await page.locator('[data-edge]').count()}`)
 
@@ -3760,10 +3772,11 @@ async function g37(browser) {
   await sleep(400)
   await page.locator('[data-template="img2img"]').click()
   await page.waitForURL(/\/canvas\//)
-  /* 同 G2：等画布真的挂上，别用墙钟时间赌（路由级 lazy chunk + 机器忙时 700ms 会读空） */
+  /* 同 G2：等模板预置的节点真的出现，别用墙钟时间赌（路由级 lazy chunk + hydrate 后才灌模板） */
   await page
-    .locator('[data-canvas-surface]')
-    .waitFor({ state: 'visible', timeout: 10000 })
+    .locator('[data-node-id]')
+    .first()
+    .waitFor({ state: 'attached', timeout: 10000 })
     .catch(() => {})
   await sleep(700)
 

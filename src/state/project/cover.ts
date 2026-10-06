@@ -21,15 +21,22 @@ export async function rememberCanvasCover(
 ): Promise<void> {
   if (!hash) return
   try {
-    const rows = (await storage.query('projects', { id: projectId })) as RowOf<'projects'>[]
-    const row = rows[0]
-    if (!row) return
-    const extra = (row as Record<string, unknown>).extra
-    if (readCoverMark(extra)?.hash === hash) return
-    await storage.put(
-      'projects',
-      { ...(row as Record<string, unknown>), extra: withCoverMark(extra, hash, at) } as never,
-    )
+    /**
+     * **读 + 改 + 写放进一个事务**：项目行是"整行覆盖写"，裸 `put` 会把读之后发生的一切
+     * （改名 / 删除 / 又一次导入）覆盖掉。放进事务后 Dexie 会在同一个 store 上串行化，
+     * 于是这个"读旧值再写回"的窗口对其它写者不再可见。
+     */
+    await storage.transaction(['projects'], async () => {
+      const rows = (await storage.query('projects', { id: projectId })) as RowOf<'projects'>[]
+      const row = rows[0]
+      if (!row) return
+      const extra = (row as Record<string, unknown>).extra
+      if (readCoverMark(extra)?.hash === hash) return
+      await storage.put(
+        'projects',
+        { ...(row as Record<string, unknown>), extra: withCoverMark(extra, hash, at) } as never,
+      )
+    })
   } catch {
     /* 封面记不上不影响这次导入：卡片回落上一张封面或网格占位 */
   }

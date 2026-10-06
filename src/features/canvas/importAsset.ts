@@ -84,9 +84,15 @@ export async function importAssetFile(deps: ImportDeps, file?: File): Promise<Im
    *
    * 只记图片与视频：`asset.put` 也承接旋转 / 切格 / 融合这类**派生**产物，
    * 那些走的是别的入口；而导入进来的只可能是媒体。
+   *
+   * ⚠️ **刻意不 `await`**（2026-10-06 改）：这是**记账**，不是用户等的那件事 ——
+   * 挡在这里就是一次多余的 IndexedDB 读 + 写，而"图什么时候出现"正是冒烟 G55
+   * 在量的那条路径（用户也实测过"上传进去很卡，等好几秒都没显示"）。
+   * 安全性由 `rememberCanvasCover` 自己给：读 + 改 + 写在一个事务里
+   * （不会覆盖并发的改名 / 删除），内部已 catch ⇒ 不会漏出未处理的拒绝。
    */
   if (isImportableMedia(mime)) {
-    await rememberCanvasCover(deps.platform.storage, deps.projectId, hash, now)
+    void rememberCanvasCover(deps.platform.storage, deps.projectId, hash, now)
   }
   return { hash, mime, name, ...(size ?? {}) }
 }
