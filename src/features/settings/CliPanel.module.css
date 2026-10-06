@@ -1,0 +1,193 @@
+/**
+ * 「CLI」面板（对账 #308）：一张卡一个工具，一列到底。
+ * 全部走令牌，深浅色自动跟随；不写死颜色与时长（主题守卫会拦）。
+ */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--space-5) var(--space-8);
+  overflow-y: auto;
+  height: 100%;
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--fs-nav);
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.desc {
+  margin: 0;
+  max-width: 68ch;
+  font-size: var(--fs-nav);
+  line-height: var(--lh-body);
+  color: var(--text-2);
+}
+
+/* 占位符写成代码块：它们是"要照抄的东西"，不该混进正文里读 */
+.code {
+  display: inline-block;
+  margin: 0 2px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg-subtle);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-label);
+  color: var(--text-1);
+}
+
+/* 「只在桌面应用里可用」这类如实说明：底色区分，不当成错误 */
+.notice {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  font-size: var(--fs-nav);
+  line-height: var(--lh-body);
+  color: var(--text-2);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-4) var(--space-5);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.cardName {
+  font-size: var(--fs-nav);
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.caps {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.cap {
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  background: var(--bg-hover);
+  font-size: var(--fs-label);
+  color: var(--text-2);
+}
+
+/* 文档链接推到最右：它是"次要出口"，不该挤在名字旁边 */
+.link {
+  margin-left: auto;
+  font-size: var(--fs-label);
+  color: var(--text-2);
+}
+
+.note {
+  margin: 0;
+  font-size: var(--fs-label);
+  line-height: var(--lh-body);
+  color: var(--text-3);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.label {
+  font-size: var(--fs-label);
+  color: var(--text-2);
+}
+
+.input {
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-app);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-nav);
+  /* 命令 / 参数是"照抄的东西"：等宽字好对 */
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.btn {
+  height: 32px;
+  padding: 0 var(--space-4);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-nav);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.result {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  word-break: break-all;
+}
+
+/* 命令输出：等宽 + 可滚，**不要把面板顶宽**（长行必须自己横向滚） */
+.output {
+  margin: 0;
+  padding: var(--space-3);
+  max-height: 220px;
+  overflow: auto;
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-label);
+  line-height: var(--lh-body);
+  color: var(--text-1);
+  white-space: pre-wrap;
+  word-break: break-all;
+}

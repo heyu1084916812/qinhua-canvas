@@ -62,7 +62,7 @@ export type ProtocolFamily = 'mock' | 'openai-compatible' | 'async-task' | 'cli-
  * - `station`：某个具体中转站（用户 2026-09-28 点名的这几家）
  * - `custom`：用户自建（定义不在这张内置表里，见 customProtocols 表）
  */
-export type ProtocolKind = 'offline' | 'legacy' | 'public' | 'station' | 'custom'
+export type ProtocolKind = 'offline' | 'legacy' | 'public' | 'station' | 'custom' | 'hidden'
 
 /**
  * `ready` = 注册表里有适配器、可以真的发请求；
@@ -287,18 +287,24 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     name: 'RunningHub（异步任务）',
     short: 'RH',
     family: 'async-task',
-    kind: 'station',
+    /*
+     * `hidden`（用户 2026-10-06 第 11 批第 4 条，对账 #308）：RunningHub 与三条 CLI
+     * 一起从「渠道协议」里撤走，配置改在**全局设置 → CLI**（本机 CLI 一栏）里做。
+     * 目录条目**不许删** —— 老渠道存的就是这个 id，删了会变成「未知协议」；
+     * `hidden` 只是"新渠道的下拉里不再出现"，识别与适配器兜底照旧。
+     */
+    kind: 'hidden',
     status: 'pending',
     capabilities: [],
     docUrl: 'https://www.runninghub.cn/',
-    note: '自有异步协议（openapi/v2，自有鉴权头），适配器尚未实现，暂不可选。',
+    note: '已移到「全局设置 → CLI」：走你本机的命令，而不是把它的 HTTP 协议接进来。',
   },
   {
     id: 'jimeng-cli',
     name: '即梦 CLI',
     short: 'JM',
     family: 'cli-gateway',
-    kind: 'station',
+    kind: 'hidden',
     status: 'pending',
     capabilities: [],
     /**
@@ -309,27 +315,27 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
      * 前提不成立就该如实标「待支持」，而不是挂着让人以为能用。
      * 等有了桌面壳（Tauri）或内建本地桥，把 status 改回 ready 即可。
      */
-    note: '需要本机网关把 CLI 包成 HTTP：浏览器跑不了本机命令、也拿不到 CLI 登录态。待支持。',
+    note: '已移到「全局设置 → CLI」：由桌面壳直接起本机命令，不再需要自建网关。',
   },
   {
     id: 'gpt-cli',
     name: 'GPT CLI',
     short: 'GPT',
     family: 'cli-gateway',
-    kind: 'station',
+    kind: 'hidden',
     status: 'pending',
     capabilities: [],
-    note: '需要本机网关把 CLI 包成 HTTP：浏览器跑不了本机命令、也拿不到 CLI 登录态。待支持。',
+    note: '已移到「全局设置 → CLI」（那一栏现在叫 Codex）：由桌面壳直接起本机命令。',
   },
   {
     id: 'gemini-cli',
     name: 'Gemini CLI',
     short: 'GEM',
     family: 'cli-gateway',
-    kind: 'station',
+    kind: 'hidden',
     status: 'pending',
     capabilities: [],
-    note: '需要本机网关把 CLI 包成 HTTP：浏览器跑不了本机命令、也拿不到 CLI 登录态。待支持。',
+    note: '已移到「全局设置 → CLI」：由桌面壳直接起本机命令，不再需要自建网关。',
   },
 ]
 /**

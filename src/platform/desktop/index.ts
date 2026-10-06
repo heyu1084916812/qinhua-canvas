@@ -1,6 +1,7 @@
 import type { PlatformKit } from '../ports'
 import { createWebPlatform } from '../web/index'
 import { createTauriAssetFolder } from './tauriAssetFolder'
+import { createTauriCli } from './tauriCli'
 import { createTauriFiles } from './tauriFiles'
 import { createTauriStorageAdmin } from './tauriStorageAdmin'
 import { createTauriUpdater } from './tauriUpdater'
@@ -24,5 +25,7 @@ export function createDesktopPlatform(): PlatformKit {
     updater: createTauriUpdater(),
     // 壳里多出来的一档能力（对账 #261）：数据目录 / 打开目录 / 网页缓存
     storageAdmin: createTauriStorageAdmin(),
+    // 壳里多出来的一档能力（对账 #308）：真的起本机 CLI 子进程
+    cli: createTauriCli(),
   })
 }

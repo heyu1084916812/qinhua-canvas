@@ -67,9 +67,21 @@ describe('globalSettings · 全局设置浮层', () => {
     off()
   })
 
-  it('★ 子菜单三栏与内容一一对应（标签与内容一处定义）', () => {
-    // 顺序即浮层里那排标签的顺序：渠道配置 / 素材传输 / 存储（#259 + #261）
-    expect(GLOBAL_SETTINGS_SECTIONS.map((s) => s.id)).toEqual(['channels', 'hosting', 'storage'])
-    expect(GLOBAL_SETTINGS_SECTIONS.map((s) => s.label)).toEqual(['渠道配置', '素材传输', '存储'])
+  it('★ 子菜单四栏与内容一一对应（标签与内容一处定义）', () => {
+    // 顺序即浮层里那排标签的顺序：渠道配置 / CLI / 素材传输 / 存储（#259 + #261 + #308）。
+    // CLI 必须**紧跟在渠道配置下面** —— 用户 2026-10-06 第 11 批第 4 条的原话就是
+    // 「就在渠道配置的下面」，所以这条断言也锁顺序，不只是锁"有没有"。
+    expect(GLOBAL_SETTINGS_SECTIONS.map((s) => s.id)).toEqual([
+      'channels',
+      'cli',
+      'hosting',
+      'storage',
+    ])
+    expect(GLOBAL_SETTINGS_SECTIONS.map((s) => s.label)).toEqual([
+      '渠道配置',
+      'CLI',
+      '素材传输',
+      '存储',
+    ])
   })
 })

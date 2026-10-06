@@ -1,5 +1,6 @@
 import type {
   AssetFolderPort,
+  CliPort,
   FilePort,
   PlatformKit,
   StorageAdminPort,
@@ -26,6 +27,11 @@ export function createWebPlatform(
     files?: FilePort
     updater?: UpdatePort
     storageAdmin?: StorageAdminPort
+    /**
+     * 本机 CLI（对账 #308）：浏览器侧**没有**这一项（端口可选、字段就是 undefined），
+     * 只有壳把它换成 `tauriCli`。界面按"端口在不在"决定显示"仅在桌面应用可用"。
+     */
+    cli?: CliPort
   } = {},
 ): PlatformKit {
   const storage = createIndexedDbStorage()
@@ -36,6 +42,8 @@ export function createWebPlatform(
     network,
     assets: createStorageAssetPort(storage),
     assetFolder: overrides.assetFolder ?? createWebAssetFolder(),
+    // 浏览器里没有"起子进程"这回事：不传就是"没有这一项"
+    cli: overrides.cli,
     // 自动更新只有壳里有：浏览器侧传空即"没有这一项"（端口是可选字段）
     updater: overrides.updater,
     /**

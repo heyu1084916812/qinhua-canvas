@@ -17,7 +17,7 @@
  * 架构 §2.1 的分层图里本来就留了 `state/ui` 这个切片，这里就落在它身上。
  */
 
-export type GlobalSettingsSection = 'channels' | 'hosting' | 'storage'
+export type GlobalSettingsSection = 'channels' | 'cli' | 'hosting' | 'storage'
 
 export interface GlobalSettingsState {
   open: boolean
@@ -28,6 +28,8 @@ export interface GlobalSettingsState {
 /** 子菜单（浮层内那一排标签）。**标签与内容一处定义**，免得"标签写 A、内容是 B"。 */
 export const GLOBAL_SETTINGS_SECTIONS: { id: GlobalSettingsSection; label: string }[] = [
   { id: 'channels', label: '渠道配置' },
+  // 「CLI」（对账 #308）：用户点名"就在渠道配置的**下面**"——顺序即口径，别往后挪
+  { id: 'cli', label: 'CLI' },
   { id: 'hosting', label: '素材传输' },
   // 「存储」（对账 #261）：存储概况 / 数据目录 / 网页缓存 / 素材文件夹
   { id: 'storage', label: '存储' },

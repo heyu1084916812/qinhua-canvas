@@ -2,6 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { HostingPage } from '../pages/HostingPage/HostingPage'
 import { SettingsPage } from '../pages/SettingsPage/SettingsPage'
 import { StoragePanel } from '../features/settings/StoragePanel'
+import { CliPanel } from '../features/settings/CliPanel'
 import { IconClose } from './AppSidebarIcons'
 import {
   GLOBAL_SETTINGS_SECTIONS,
@@ -113,6 +114,7 @@ export function GlobalSettingsOverlay() {
           */}
           <div className={styles.content} data-global-settings-content>
             {section === 'channels' && <SettingsPage key="channels" />}
+            {section === 'cli' && <CliPanel key="cli" />}
             {section === 'hosting' && <HostingPage key="hosting" />}
             {section === 'storage' && <StoragePanel key="storage" />}
           </div>

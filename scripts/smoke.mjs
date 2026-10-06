@@ -12671,54 +12671,52 @@ async function g89(browser) {
   )
 
   /*
-   * ③ CLI 三条退回 pending：没有本机网关就没有可用路径，不该显示为可选。
-   *
-   * ⚠ 刻意不用 Playwright 的 `isDisabled()`：它对 `<optgroup>` 里的 `<option>`
-   * 判定不可靠（实测把 disabled 的选项报成可用）。这里直接读 DOM 属性 ——
-   * 「不可选」这件事只能由浏览器自己的状态证明。
+   * ③ CLI / RunningHub 四条**已从渠道协议下拉里撤走**（对账 #308）：
+   * 用户第 11 批第 4 条把它们的配置搬到了「全局设置 → CLI」。
+   * 所以判据从"灰着不可选"换成"下拉里根本没有它"。
+   * ⚠ 目录条目**不许删**：老渠道存的就是这些 id，删了会变「未知协议」——
+   * 这条只验"新渠道选不到"，识别能力由协议目录的单测兜着。
    */
   const cliStates = await page.evaluate(() => {
     const sel = document.querySelector('[data-settings-protocol]')
     const out = {}
-    for (const id of ['jimeng-cli', 'gpt-cli', 'gemini-cli']) {
+    for (const id of ['jimeng-cli', 'gpt-cli', 'gemini-cli', 'runninghub']) {
       const opt = sel?.querySelector(`option[value="${id}"]`)
-      out[id] = opt ? { disabled: opt.disabled, text: opt.textContent.trim() } : null
+      out[id] = opt ? opt.textContent.trim() : null
     }
     return out
   })
-  for (const id of ['jimeng-cli', 'gpt-cli', 'gemini-cli']) {
-    const st = cliStates[id]
+  for (const id of ['jimeng-cli', 'gpt-cli', 'gemini-cli', 'runninghub']) {
     rec(
       g,
-      `★ ${id} 标为待支持且不可选（无本机网关则不成立）`,
-      !!st && st.disabled === true && st.text.includes('待支持'),
-      JSON.stringify(st),
+      `★ ${id} 已从渠道协议下拉里移走（配置改在「全局设置 → CLI」）`,
+      cliStates[id] === null,
+      `下拉里读到=${JSON.stringify(cliStates[id])}`,
     )
   }
   // ④ 旧协议不再出现在新渠道的下拉里（保留识别能力，但不给新用户选）
   const legacyShown = await page.locator('[data-settings-protocol] option[value="openai-images"]').count()
   rec(g, '★★ 旧协议对新渠道隐藏（不重复提供同一套能力）', legacyShown === 0, `count=${legacyShown}`)
   /*
-   * ⑤ 待支持协议要在渠道菜单下方**看得见**：下拉里灰掉的 option 几乎无人看见，
-   * 用户只会以为「根本没有这一项」。这里断言既列出了名字、也写明了原因。
+   * ⑤ 撤走了就要给出路（对账 #308）：渠道页留一行**能点**的入口，
+   * 点它直接落到「全局设置 → CLI」。只把条目删掉、不说去哪儿配，
+   * 用户会以为这个能力没了 —— 那是比"待支持"更糟的沟通。
    */
-  const pendingList = await page.evaluate(() => {
-    const box = document.querySelector('[data-proto-pending]')
-    if (!box) return null
-    return [...box.querySelectorAll('[data-proto-pending-item]')].map((el) => el.innerText.replace(/\s+/g, ' ').trim())
-  })
   rec(
     g,
-    '★★ 待支持协议在渠道菜单下方列出（不是只灰在下拉里）',
-    Array.isArray(pendingList) && pendingList.length >= 3,
-    `items=${pendingList?.length ?? 0}`,
+    '★★ 渠道页给出「本机 CLI 去全局设置里配」的入口',
+    (await page.locator('[data-proto-cli-link] [data-settings-open-cli]').count()) === 1,
   )
+  await page.locator('[data-settings-open-cli]').click()
+  await sleep(700)
   rec(
     g,
-    '★ 列出时写明为什么不支持（不是只写「待支持」）',
-    !!pendingList && pendingList.every((t) => t.length > 10),
-    pendingList?.[0]?.slice(0, 60) ?? '',
+    '★★ 点它直接落到「全局设置 → CLI」那一栏（不是只把浮层打开）',
+    (await page.locator('[data-global-settings-tab="cli"]').getAttribute('aria-pressed')) ===
+      'true' && (await page.locator('[data-cli-panel]').count()) === 1,
   )
+  await page.keyboard.press('Escape')
+  await sleep(300)
 
   await page.screenshot({ path: `${OUT}/104-g89-async-cli.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
@@ -16978,6 +16976,58 @@ async function g97(browser) {
     '★ 素材文件夹那块写明「从文件夹加载」在画布右键菜单（不然用户找不到）',
     /右键[\s\S]{0,20}从素材文件夹加载/.test(cacheCopy),
   )
+
+  /**
+   * 「CLI」那一栏（对账 #308）。用户第 4 条原话：「CLI 可以单独设置在全局设置里面了，
+   * **就在渠道配置的下面**，重新设计界面……当前是在每个渠道的页面里面」+「需要真的能跑本机的 cli」。
+   *
+   * 这里钉三件**浏览器里能验的**事：① 栏目紧跟在渠道配置后面（顺序即口径）；
+   * ② 四个工具都在；③ 浏览器里**如实**说"只在桌面应用里可用"、两个按钮都禁用
+   * （不假装能跑 —— "桌面专属也要显示出来"与"不许假装"这两条同时成立）。
+   * "真的能跑"那一条浏览器里验不了，由桌面壳的 CDP 探针负责（见对账 #308 的证据列）。
+   */
+  const cliTabOrder = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-global-settings-tab]')].map((el) =>
+      el.getAttribute('data-global-settings-tab'),
+    ),
+  )
+  rec(
+    g,
+    '★★ CLI 栏紧跟在「渠道配置」下面（顺序即用户口径）',
+    cliTabOrder[0] === 'channels' && cliTabOrder[1] === 'cli',
+    JSON.stringify(cliTabOrder),
+  )
+  await page.locator('[data-global-settings-tab="cli"]').click()
+  await sleep(500)
+  const cliTools = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-cli-tool]')].map((el) => el.getAttribute('data-cli-tool')),
+  )
+  rec(
+    g,
+    '★★ CLI 栏四个工具都在（Codex / 即梦 / Gemini / RunningHub）',
+    JSON.stringify(cliTools) === JSON.stringify(['codex', 'jimeng', 'gemini', 'runninghub']),
+    JSON.stringify(cliTools),
+  )
+  rec(
+    g,
+    '★★ 浏览器里如实说「只在桌面应用里可用」，检测 / 测试运行都禁用（不假装能跑）',
+    (await page.locator('[data-cli-desktop-only]').count()) === 1 &&
+      (await page.locator('[data-cli-detect="codex"]').isDisabled()) &&
+      (await page.locator('[data-cli-run="codex"]').isDisabled()),
+  )
+  // 配置真的落库：改一下命令名 → 切走 → 切回来还在（只比"输入框里还是我打的字"证明不了它存过）
+  await page.locator('[data-cli-program="codex"]').fill('D:/tools/codex.cmd')
+  await sleep(600)
+  await page.locator('[data-global-settings-tab="storage"]').click()
+  await sleep(300)
+  await page.locator('[data-global-settings-tab="cli"]').click()
+  await sleep(500)
+  rec(
+    g,
+    '★ CLI 配置真的落库（改完命令名，切走再切回来还在）',
+    (await page.locator('[data-cli-program="codex"]').inputValue()) === 'D:/tools/codex.cmd',
+  )
+
   await page.locator('[data-global-settings-tab="hosting"]').click()
   await sleep(400)
 

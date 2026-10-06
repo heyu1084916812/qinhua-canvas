@@ -504,6 +504,378 @@ mod storage_tests {
 }
 
 // ─────────────────────────────────────────────────────────────
+// 本机 CLI：真的起一个子进程（用户 2026-10-06 第 11 批第 4 条）
+// ─────────────────────────────────────────────────────────────
+//
+// 用户原话：「……能用里面的额度调用模型生成图片或者视频，或者对话，runninghub 也要，
+// 需要真的能跑本机的 cli」。
+//
+// **安全边界**（写在这里，免得以后被"顺手改成 shell 更灵活"）：
+// 走 `Command::new(program).args(args)`，**不经过 shell**（没有 `cmd /c`、没有 `sh -c`），
+// 参数是数组、不拼字符串 ⇒ 命令注入不成立。命令由**用户自己**在设置里填 ——
+// 那等价于他自己开一个终端，这正是他要的能力；壳这边不额外加白名单，也不替他拼字符串。
+//
+// **一次调用拿到什么**：退出码 / stdout / stderr / 是否超时 / 是否被取消 / 耗时。
+// 没有"假装成功"这一档：起不来就是 `Err`，跑起来退码非零就如实回 `code`。
+
+/// 一次 CLI 调用的结果。
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CliOutcome {
+    /// 退出码。被信号杀掉、或系统没给码时为 `None`
+    code: Option<i32>,
+    stdout: String,
+    stderr: String,
+    timed_out: bool,
+    /// 被 `cli_kill` 主动掐掉的（用户点了"停止"）
+    cancelled: bool,
+    ms: u64,
+}
+
+/// 单条输出（stdout / stderr 各一份）最多回传这么多字节：CLI 可能吐几百 MB。
+const CLI_MAX_OUTPUT: usize = 200 * 1024;
+const CLI_DEFAULT_TIMEOUT_MS: u64 = 120_000;
+const CLI_MAX_TIMEOUT_MS: u64 = 30 * 60 * 1000;
+
+/// 超时夹在 [1s, 30min]：`Some(0)` 会让它在下一轮轮询就被杀，比不填更糟。
+fn clamp_timeout(ms: Option<u64>) -> u64 {
+    ms.unwrap_or(CLI_DEFAULT_TIMEOUT_MS)
+        .clamp(1_000, CLI_MAX_TIMEOUT_MS)
+}
+
+/// 只留**尾部**：CLI 的报错与结果永远在最后。
+///
+/// 必须按 **char 边界**裁 —— `&text[start..]` 落在字符中间会直接 panic，
+/// 而这类 CLI 的输出里有中文是常态。
+fn tail_of(text: String, max: usize) -> String {
+    if text.len() <= max {
+        return text;
+    }
+    let mut start = text.len() - max;
+    while start < text.len() && !text.is_char_boundary(start) {
+        start += 1;
+    }
+    format!("…（前 {} 字节已省略）\n{}", start, &text[start..])
+}
+
+/// 在 PATH 里找可执行文件。
+///
+/// `exists` 是注入的（单测不碰真实文件系统）；Windows 上还要按 `PATHEXT` 逐个后缀试
+/// —— 用户填的往往是 `codex` 而不是 `codex.cmd`。
+fn find_in_path(program: &str, path_var: &str, exists: &dyn Fn(&Path) -> bool) -> Option<PathBuf> {
+    // 带路径分隔符的一律当"用户已经给全了"，**不再去 PATH 里找**
+    if program.contains('/') || program.contains('\\') {
+        let direct = Path::new(program);
+        return if exists(direct) {
+            Some(direct.to_path_buf())
+        } else {
+            None
+        };
+    }
+    let mut exts: Vec<String> = vec![String::new()];
+    if cfg!(windows) {
+        let pathext =
+            std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+        for ext in pathext.split(';').filter(|s| !s.is_empty()) {
+            exts.push(ext.to_lowercase());
+            exts.push(ext.to_uppercase());
+        }
+    }
+    for dir in std::env::split_paths(path_var) {
+        if dir.as_os_str().is_empty() {
+            continue;
+        }
+        for ext in &exts {
+            let cand = dir.join(format!("{program}{ext}"));
+            if exists(&cand) {
+                return Some(cand);
+            }
+        }
+    }
+    None
+}
+
+/// 起子进程失败时**说人话**（用户看到的是这一句，不是 io error）。
+fn describe_spawn_error(program: &str, err: std::io::Error) -> String {
+    match err.kind() {
+        std::io::ErrorKind::NotFound => format!(
+            "找不到命令「{program}」：先在设置里确认它的命令名或完整路径，并确保它在系统 PATH 里"
+        ),
+        std::io::ErrorKind::PermissionDenied => format!("没有权限执行「{program}」"),
+        _ => format!("启动「{program}」失败：{err}"),
+    }
+}
+
+/// 正在跑的 CLI 进程。`cli_kill` 与超时都按 `id` 找它 —— 同一时刻可以有多个在跑。
+#[derive(Default)]
+struct CliRegistry(std::sync::Mutex<std::collections::HashMap<String, std::process::Child>>);
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    #[test]
+    fn timeout_is_clamped_to_sane_bounds() {
+        assert_eq!(clamp_timeout(None), CLI_DEFAULT_TIMEOUT_MS);
+        assert_eq!(clamp_timeout(Some(0)), 1_000);
+        assert_eq!(clamp_timeout(Some(999)), 1_000);
+        assert_eq!(clamp_timeout(Some(5_000)), 5_000);
+        assert_eq!(clamp_timeout(Some(CLI_MAX_TIMEOUT_MS + 1)), CLI_MAX_TIMEOUT_MS);
+    }
+
+    #[test]
+    fn tail_keeps_the_end_and_never_splits_a_char() {
+        let short = "abc".to_string();
+        assert_eq!(tail_of(short.clone(), 16), short);
+        // 64 个汉字 = 192 字节，从 (len - 10) 起必然落在某个汉字中间
+        let text = "汉".repeat(64);
+        let cut = tail_of(text, 10);
+        assert!(cut.starts_with("…（前 "));
+        assert!(cut.ends_with('汉'));
+        let tail = cut.split('\n').nth(1).unwrap();
+        assert!(tail.len() <= 10, "尾部实际长度 {}", tail.len());
+    }
+
+    #[test]
+    fn path_with_separator_is_never_searched_in_path() {
+        let hits = |p: &Path| p.to_string_lossy().contains("tools");
+        assert!(find_in_path(r"C:\tools\a.exe", "", &hits).is_some());
+        assert!(find_in_path("/opt/tools/a", "/nope", &hits).is_some());
+        assert!(find_in_path("/opt/tools/a", "/nope", &|_| false).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn finds_executable_by_pathext_extension() {
+        let hit = |p: &Path| {
+            // 目录也要判：只认文件名的话 `C:\missing\tool.exe` 也会被当成"存在"
+            p.to_string_lossy().to_lowercase().contains(r"c:\bin")
+                && p.file_name()
+                    .map(|n| n.to_string_lossy().to_lowercase())
+                    .unwrap_or_default()
+                    == "tool.exe"
+        };
+        let found = find_in_path("tool", r"C:\missing;C:\bin", &hit);
+        assert_eq!(
+            found.map(|p| p.to_string_lossy().to_string()),
+            Some(r"C:\bin\tool.exe".to_string())
+        );
+        assert!(find_in_path("nope", r"C:\bin", &hit).is_none());
+    }
+}
+
+/// 「这个命令到底能不能跑」——只看文件在不在，**不执行任何东西**。
+#[tauri::command]
+fn cli_which(program: String) -> Option<String> {
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    find_in_path(&program, &path_var, &|p| p.is_file()).map(|p| p.to_string_lossy().to_string())
+}
+
+/// 真的跑一条命令。**异步**：耗时可到 30 分钟，不能占着 IPC 线程。
+#[tauri::command]
+async fn cli_run(
+    app: tauri::AppHandle,
+    id: String,
+    program: String,
+    args: Vec<String>,
+    cwd: Option<String>,
+    timeout_ms: Option<u64>,
+    stdin: Option<String>,
+) -> Result<CliOutcome, String> {
+    // 阻塞式的 `spawn` + 轮询放到阻塞线程池：直接写在 async 命令里会占住运行时线程，
+    // 期间别的 IPC 都得排队。
+    tauri::async_runtime::spawn_blocking(move || {
+        run_cli_blocking(app, id, program, args, cwd, timeout_ms, stdin)
+    })
+    .await
+    .map_err(|err| format!("CLI 任务没能跑起来：{err}"))?
+}
+
+/// 掐掉一条正在跑的命令（用户点"停止"）。找不到 = 它已经自己结束了 ⇒ 返回 false。
+#[tauri::command]
+fn cli_kill(app: tauri::AppHandle, id: String) -> bool {
+    let registry = app.state::<CliRegistry>();
+    let Ok(mut map) = registry.0.lock() else {
+        return false;
+    };
+    match map.remove(&id) {
+        Some(mut child) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            true
+        }
+        None => false,
+    }
+}
+
+fn run_cli_blocking(
+    app: tauri::AppHandle,
+    id: String,
+    program: String,
+    args: Vec<String>,
+    cwd: Option<String>,
+    timeout_ms: Option<u64>,
+    stdin: Option<String>,
+) -> Result<CliOutcome, String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+
+    /// 一轮轮询的结论（写成枚举是为了**先出借用块再动 map**，见下面的两段式）
+    enum Poll {
+        Running,
+        Exited(Option<i32>),
+        /// 表里已经没有它 = 被 `cli_kill` 拿走并杀掉了
+        Gone,
+        Broken(String),
+    }
+
+    let started = std::time::Instant::now();
+    let timeout = clamp_timeout(timeout_ms);
+
+    let mut cmd = Command::new(&program);
+    cmd.args(&args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        // 没有 stdin 就不给管道：给了却不写，CLI 会一直等输入（"卡住"的经典成因）
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        });
+    if let Some(dir) = cwd.as_deref().filter(|d| !d.is_empty()) {
+        cmd.current_dir(dir);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW：别为一次调用弹一个黑框（会闪一下还抢焦点）
+        cmd.creation_flags(0x0800_0000);
+    }
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|err| describe_spawn_error(&program, err))?;
+
+    if let Some(text) = stdin {
+        if let Some(mut pipe) = child.stdin.take() {
+            use std::io::Write;
+            // 写完就出作用域 ⇒ 管道被 drop。**必须** drop，否则 CLI 一直等输入
+            let _ = pipe.write_all(text.as_bytes());
+        }
+    }
+
+    // 两条读管道**必须先被读走**：管道缓冲写满后子进程会卡在 write 上，
+    // 而我们正等着它退出 ⇒ 两边互相等，死锁。所以各起一个线程读到底。
+    let mut out_pipe = child.stdout.take();
+    let mut err_pipe = child.stderr.take();
+    let out_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(pipe) = out_pipe.as_mut() {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let err_reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(pipe) = err_pipe.as_mut() {
+            let _ = pipe.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    // 登记进来，`cli_kill` 才找得到它
+    {
+        let registry = app.state::<CliRegistry>();
+        let mut map = registry
+            .0
+            .lock()
+            .map_err(|_| "CLI 进程表被上一次崩溃污染了，请重启应用".to_string())?;
+        map.insert(id.clone(), child);
+    }
+
+    let mut code: Option<i32> = None;
+    let mut timed_out = false;
+    let mut cancelled = false;
+
+    loop {
+        // 两段式：第一个块里只"问状态"并把结论带出来，出了块才动 `map`
+        // （在 `get_mut` 的借用里再 `remove` 会被借用检查拦住）
+        let poll = {
+            let registry = app.state::<CliRegistry>();
+            let mut map = match registry.0.lock() {
+                Ok(map) => map,
+                Err(_) => return Err("CLI 进程表被上一次崩溃污染了，请重启应用".to_string()),
+            };
+            let mut exit: Option<std::process::ExitStatus> = None;
+            let mut broken: Option<String> = None;
+            let mut gone = false;
+            match map.get_mut(&id) {
+                None => gone = true,
+                Some(child) => match child.try_wait() {
+                    Ok(status) => exit = status,
+                    Err(err) => broken = Some(err.to_string()),
+                },
+            }
+            if gone {
+                Poll::Gone
+            } else if let Some(message) = broken {
+                if let Some(mut dead) = map.remove(&id) {
+                    let _ = dead.kill();
+                    let _ = dead.wait();
+                }
+                Poll::Broken(format!("等待「{program}」结束失败：{message}"))
+            } else if let Some(status) = exit {
+                let exit_code = status.code();
+                map.remove(&id);
+                Poll::Exited(exit_code)
+            } else {
+                Poll::Running
+            }
+        };
+
+        match poll {
+            Poll::Running => {}
+            Poll::Exited(exit_code) => {
+                code = exit_code;
+                break;
+            }
+            Poll::Gone => {
+                // 不在了 ≠ 失败：这是用户点了"停止"
+                cancelled = true;
+                break;
+            }
+            Poll::Broken(message) => return Err(message),
+        }
+
+        if started.elapsed().as_millis() as u64 >= timeout {
+            timed_out = true;
+            let registry = app.state::<CliRegistry>();
+            if let Ok(mut map) = registry.0.lock() {
+                if let Some(mut child) = map.remove(&id) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    // 进程已退（或被掐）⇒ 写端关闭，两个读线程会把剩余输出读完返回
+    let stdout = out_reader.join().unwrap_or_default();
+    let stderr = err_reader.join().unwrap_or_default();
+
+    Ok(CliOutcome {
+        code,
+        stdout: tail_of(String::from_utf8_lossy(&stdout).to_string(), CLI_MAX_OUTPUT),
+        stderr: tail_of(String::from_utf8_lossy(&stderr).to_string(), CLI_MAX_OUTPUT),
+        timed_out,
+        cancelled,
+        ms: started.elapsed().as_millis() as u64,
+    })
+}
+
+// ─────────────────────────────────────────────────────────────
 // 窗口几何：记住上次的尺寸与位置（用户 2026-10-06 第 11 批第 7 条）
 // ─────────────────────────────────────────────────────────────
 //
@@ -799,6 +1171,11 @@ pub fn run() {
          */
         .manage(WindowSaveClock(std::sync::Mutex::new(std::time::Instant::now())))
         /*
+         * 本机 CLI 的进程表（见上面「本机 CLI」那一段）。
+         * 进的是 `AppHandle` 的受管状态，所以 `cli_run` 与 `cli_kill` 看到的是同一张表。
+         */
+        .manage(CliRegistry::default())
+        /*
          * 窗口几何的自动记盘（用户 2026-10-06 第 11 批第 7 条："记住上次窗口尺寸和位置"）。
          *
          * 两种时机都记：
@@ -839,7 +1216,10 @@ pub fn run() {
             data_dir_path,
             open_dir,
             cache_usage,
-            clear_cache
+            clear_cache,
+            cli_which,
+            cli_run,
+            cli_kill
         ])
         .setup(|app| {
             /*

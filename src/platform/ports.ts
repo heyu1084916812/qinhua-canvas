@@ -307,10 +307,70 @@ export interface StorageAdminPort {
   clearCache(): Promise<number>
 }
 
+/** 一次本机 CLI 调用的请求（对账 #308） */
+export interface CliRunRequest {
+  /** 调用方给的编号：`kill` 按它找人；同一时刻可以并存多条 */
+  id: string
+  /** 命令名或完整路径。**不经过 shell**，所以带空格的路径要原样给、不要加引号 */
+  program: string
+  args: string[]
+  /** 在哪个目录里跑；不填 = 应用当前目录 */
+  cwd?: string
+  /** 最长等多久；缺省 2 分钟，壳里再夹一次 [1s, 30min] */
+  timeoutMs?: number
+  /** 要喂给 stdin 的内容；不填就不给 stdin 管道（免得 CLI 一直等输入） */
+  stdin?: string
+}
+
+/**
+ * 一次调用的**如实**结果。
+ *
+ * 没有"假装成功"这一档：起不来就是 Promise reject（带一句人话），
+ * 跑起来退码非零就如实回 `code` —— 调用方据此决定怎么说给用户听。
+ */
+export interface CliOutcome {
+  /** 退出码；被信号杀掉、或系统没给码时为 null */
+  code: number | null
+  stdout: string
+  stderr: string
+  /** 到点被杀（不是失败，是"太久了"） */
+  timedOut: boolean
+  /** 被 `kill` 主动掐掉 */
+  cancelled: boolean
+  /** 实际耗时（毫秒） */
+  ms: number
+}
+
+/**
+ * **本机 CLI 端口**（对账 #308）。
+ *
+ * 三条约定：
+ * 1. `which` **只看文件在不在，不执行任何东西** —— 它是"我填的命令对不对"的即时回答；
+ * 2. `run` 的参数是一个数组、由壳直接交给 `Command::new(program).args(args)`，
+ *    **不拼字符串、不过 shell** ⇒ 提示词里带引号 / 分号 / `$` 都不会变成命令注入；
+ * 3. `kill` 找不到那条 = 它已经自己结束了 ⇒ 返回 `false`，**不算错误**。
+ */
+export interface CliPort {
+  /** 找到就返回绝对路径，找不到返回 null（"没装"不是异常） */
+  which(program: string): Promise<string | null>
+  run(req: CliRunRequest): Promise<CliOutcome>
+  kill(id: string): Promise<boolean>
+}
+
 export interface PlatformKit {
   storage: StoragePort
   network: NetworkPort
   assets: AssetPort
+  /**
+   * **本机 CLI**（用户 2026-10-06 第 11 批第 4 条，对账 #308）：
+   * 「我的要求和目的就是链接后能用里面的额度调用模型生成图片或者视频，或者对话，
+   * runninghub 也要，**需要真的能跑本机的 cli**」。
+   *
+   * **可选**：只有桌面壳能起子进程 —— 浏览器里没有"子进程"这回事。
+   * 缺席时界面**照旧显示**（用户要的"桌面专属能力也要看得见"），
+   * 但如实写明"仅在桌面应用可用"，并且不去假装能跑。
+   */
+  cli?: CliPort
   /**
    * **素材文件夹端口**（对账 #196）：把「素材放在哪个位置 / 从哪个文件夹加载」抽出来。
    *

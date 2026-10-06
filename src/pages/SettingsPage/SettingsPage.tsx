@@ -32,6 +32,7 @@ import {
 import { PRESET_MODELS } from '../../domain/project/modelPresets'
 import { ModelIcon } from '../../features/shared/modelIcon/ModelIcon'
 import { ModelMapCombo, StrategyPicker } from './SettingsPicker'
+import { openGlobalSettings } from '../../state/ui/globalSettings'
 
 /**
  * 模型映射区的三个分组（用户 2026-09-27 第 9 轮）。
@@ -162,10 +163,34 @@ export function SettingsPage() {
    * 但新渠道不该再选到 —— 它们与「OpenAI 兼容」是同一套适配器，只是能力被写死成单项。
    */
   const visibleProtocolOptions = protocolOptions.filter(
-    (p) => p.kind !== 'legacy' || p.id === protocol,
+    /*
+     * `hidden`（对账 #308）：CLI / RunningHub 四条已搬到「全局设置 → CLI」，
+     * 新渠道的下拉里不再出现；但**当前渠道正在用的那条**仍要留着 ——
+     * 否则老渠道一打开下拉就是空白，用户以为协议丢了。
+     */
+    (p) => (p.kind !== 'legacy' && p.kind !== 'hidden') || p.id === protocol,
   )
-  /** 待支持的协议（CLI / RunningHub）：下拉里灰掉几乎看不见，故在渠道菜单下方单列说明 */
-  const pendingProtocols = protocolOptions.filter((p) => p.status === 'pending')
+  /**
+   * 还留在**渠道下拉**里的待支持协议。`hidden` 的不算 —— 它们已经搬到
+   * 「全局设置 → CLI」（对账 #308），再在这儿列一遍就成了两个说法。
+   */
+  const pendingProtocols = protocolOptions.filter(
+    (p) => p.status === 'pending' && p.kind !== 'hidden',
+  )
+
+  /**
+   * 下拉里的分组。正常就是 `PROTOCOL_GROUPS` 那五组；
+   * 例外：当前渠道用的是一条**已隐藏**的协议（老渠道）—— 那种 kind 不在分组表里，
+   * 需要临时补一组，否则那个 option 根本渲染不出来，下拉会显示空白。
+   */
+  const protocolGroups = useMemo(() => {
+    const groups: { kind: ProtocolKind; label: string }[] = [...PROTOCOL_GROUPS]
+    const current = protocolOptions.find((p) => p.id === protocol)
+    if (current && !groups.some((gr) => gr.kind === current.kind)) {
+      groups.push({ kind: current.kind, label: '当前协议（已移到全局设置 → CLI）' })
+    }
+    return groups
+  }, [protocol, protocolOptions])
 
   // —— 添加自定义协议（用户 2026-09-28）：只开放 OpenAI 兼容族的对话 / 生图声明 ——
   const [newProtoOpen, setNewProtoOpen] = useState(false)
@@ -766,7 +791,7 @@ export function SettingsPage() {
                       {!visibleProtocolOptions.some((p) => p.id === protocol) && (
                         <option value={protocol}>未知协议（{protocol}）</option>
                       )}
-                      {PROTOCOL_GROUPS.map(({ kind, label }) => {
+                      {protocolGroups.map(({ kind, label }) => {
                         const items = visibleProtocolOptions.filter((p) => p.kind === kind)
                         if (items.length === 0) return null
                         return (
@@ -987,6 +1012,26 @@ export function SettingsPage() {
                     ))}
                   </div>
                 )}
+
+                {/*
+                  本机 CLI（对账 #308）：这四条协议已从「渠道协议」下拉里撤走，
+                  配置改在「全局设置 → CLI」。这里留一行**能点的入口** ——
+                  只在渠道页说"没有了"却不给出路，用户会以为这个能力被删了。
+                */}
+                <div className={styles.protoMine} data-proto-cli-link>
+                  <span className={styles.label}>本机 CLI</span>
+                  <div className={styles.protoMineRow}>
+                    <span className={styles.protoMineName}>Codex / 即梦 / Gemini / RunningHub</span>
+                    <button
+                      type="button"
+                      className={styles.ghostBtn}
+                      data-settings-open-cli
+                      onClick={() => openGlobalSettings('cli')}
+                    >
+                      去「全局设置 → CLI」配置
+                    </button>
+                  </div>
+                </div>
 
                 {showMockNote && (
                   <p className={styles.offlineNote} data-settings-mock-note>
