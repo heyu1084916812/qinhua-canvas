@@ -551,11 +551,16 @@
 }
 .tplThumb {
   aspect-ratio: 16 / 9;
+  /*
+   * **纯色封面**（用户 2026-10-06：不要网格占位图，也不放内容/文字）。
+   * 原来的方格线是为了"看起来像张图"；试过之后用户明确不要 —— 空就空着，
+   * 免得六张卡都在喊"这里什么都没有"。
+   */
   background: var(--bg-subtle);
-  background-image:
-    linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: 24px 24px;
+}
+/* 模板卡是有边框的盒子 ⇒ 文字离边框留出内边距（项目卡不带这个类，保持与封面左对齐） */
+.tplBody {
+  padding: var(--space-3);
 }
 
 /* 「+ 新建」的工作台选择浮层（屏幕坐标，向上展开） */

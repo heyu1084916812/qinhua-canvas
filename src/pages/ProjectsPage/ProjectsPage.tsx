@@ -401,7 +401,12 @@ export function ProjectsPage() {
                 onClick={() => void createFromTemplate(t.id, t.name)}
               >
                 <div className={styles.tplThumb} aria-hidden />
-                <div className={styles.cardBody}>
+                {/*
+                  单独加一个 `tplBody`：模板卡是**有边框的盒子**，内容必须离边框有内边距；
+                  而项目卡（`card`）是**无边框、文字与封面左对齐**，两者共用 `.cardBody`
+                  却不能共用内边距 —— 用户 2026-10-06 报的"文字贴边"就是这个。
+                */}
+                <div className={`${styles.cardBody} ${styles.tplBody}`}>
                   <div className={styles.cardName}>{t.name}</div>
                   <div className={styles.cardMeta}>{t.hint}</div>
                 </div>
