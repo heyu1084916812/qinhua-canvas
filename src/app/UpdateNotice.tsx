@@ -89,11 +89,17 @@ export function UpdateButton({ open }: { open: boolean }) {
   if (!updater) return null
 
   const label = state.busy ? '正在检查…' : '检查更新'
+  /*
+   * `data-busy` 是给样式侧的钩子（对账 #323）：忙态由它启动"箭头转圈"。
+   * 不留这个钩子的话，样式就只剩 `:disabled` 可认 —— 而 `:disabled` 天然
+   * 诱导出"变灰表示不可用"的写法，那正是用户看到的"闪"。
+   */
   return (
     <button
       type="button"
       className={open ? styles.sideBtn : `${styles.sideBtn} ${styles.sideBtnCollapsed}`}
       data-update-check
+      data-busy={state.busy ? 'true' : undefined}
       aria-label={label}
       title={label}
       disabled={state.busy}
