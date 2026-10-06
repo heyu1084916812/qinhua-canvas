@@ -17,6 +17,7 @@ import type { Command } from '../../commands'
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import type { Patch, PersistPlan, TableName } from '../../../domain/patch/types'
 import type { Viewport } from '../../../domain/canvas/geometry/coords'
+import type { SnapGap, SnapGuide } from '../../../domain/canvas/layout/snap'
 import type { LinkSide } from '../../../domain/canvas/menu/linkMenu'
 import { createId } from '../../../shared/id'
 import { reduce } from '../../commands/reducer'
@@ -33,6 +34,16 @@ export interface CanvasStoreOptions {
   debounceMs?: number
 }
 
+/**
+ * 拖动吸附要画的东西（对账 #257）：参考线 + 间距读数。
+ *
+ * 只取 `SnapResult` 的这两项 —— 位移（`dx`/`dy`）是**命令层**的事，
+ * 界面层不该也不需要知道"吸了多远"。
+ */
+export interface SnapHints {
+  guides: SnapGuide[]
+  gaps: SnapGap[]
+}
 interface UndoGroup {
   key: string
   label: string
@@ -68,6 +79,8 @@ interface CanvasState {
    * 纯展示态：不进撤销栈、不落库。
    */
   panelDismissed: boolean
+  /** 拖动吸附的提示（参考线 + 间距读数，对账 #257）。纯展示态，见 `setSnapHints` */
+  snapHints: SnapHints | null
   /**
    * 右键菜单（§4.1）。纯展示态：不进撤销栈、不落库。
    * 坐标是**屏幕坐标**（菜单浮层不随画布变换，与创作面板 §6.8 同理）。
@@ -187,6 +200,14 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
    */
   setPanelDismissed(on: boolean): void
   isPanelDismissed(): boolean
+  /**
+   * 拖动吸附的**参考线与间距读数**（对账 #257）。
+   *
+   * 纯展示态：不进撤销栈、不落库，拖动一结束（`node.move` 的 `end` 阶段）就清空。
+   * 只放"画什么"（线 + 数字），不放"位移"——位移是命令层的事（见 `domain/.../snap.ts`）。
+   */
+  setSnapHints(hints: SnapHints | null): void
+  getSnapHints(): SnapHints | null
   /** 打开右键菜单（§4.1）；坐标是屏幕坐标 */
   setMenu(
     x: number,
@@ -367,6 +388,7 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     notice: null,
     dragging: false,
     panelDismissed: false,
+    snapHints: null,
     menu: null,
     linkMenu: null,
     renamingId: null,
@@ -486,6 +508,8 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     isDragging: () => store.getState().dragging,
     setPanelDismissed: (on) => store.setState({ panelDismissed: on }),
     isPanelDismissed: () => store.getState().panelDismissed,
+    setSnapHints: (hints) => store.setState({ snapHints: hints }),
+    getSnapHints: () => store.getState().snapHints,
     setMenu: (x, y, target) => store.setState({ menu: { x, y, target } }),
     closeMenu: () => store.setState({ menu: null }),
     getMenu: () => store.getState().menu,

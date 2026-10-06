@@ -1,0 +1,53 @@
+/*
+ * 吸附提示层（对账 #257）：屏幕空间的 SVG 参考线 + HTML 徽标。
+ *
+ * 铺满整个画布表面、但**不吃指针**：它只在拖动期间出现，
+ * 一旦能接收事件，拖动就会在按下参考线的那一帧断掉。
+ */
+.layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* 线在节点之下、底图之上更稳妥；徽标靠 z-index 抬回来（见下） */
+  z-index: 3;
+}
+
+.svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* 参考线：1px 实线，走"高亮连线"那枚令牌（与拖线草稿同源） */
+.guide {
+  stroke: var(--edge-highlight);
+  stroke-width: 1px;
+  stroke-dasharray: 4 3;
+  opacity: 0.75;
+}
+
+/*
+ * 间距徽标（参考图里那个"108"）。
+ *
+ * 底色 / 文字走 `--accent` + `--accent-text`：与项目里其它"实色小标签"同一套，
+ * 两套主题自动反转（深底浅字），不需要为浅色主题另配一版。
+ * 圆角用 `--radius-pill`（胶囊），数字用等宽感的 11px + 600。
+ */
+.badge {
+  position: absolute;
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: var(--fw-chip);
+  line-height: 1.3;
+  white-space: nowrap;
+  /* 比参考线再抬一层：数字必须盖在线与内容之上 */
+  z-index: 1;
+}

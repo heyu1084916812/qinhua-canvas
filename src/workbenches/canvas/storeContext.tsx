@@ -1,5 +1,5 @@
 import { createContext, useContext, useSyncExternalStore, type ReactNode } from 'react'
-import type { CanvasStore } from '../../state/workbenches/canvas/store'
+import type { CanvasStore, SnapHints } from '../../state/workbenches/canvas/store'
 import type { GraphSnapshot } from '../../domain/canvas/model/graph'
 import type { Viewport } from '../../domain/canvas/geometry/coords'
 
@@ -65,4 +65,13 @@ export function useNotice(): { id: string; text: string } | null {
 export function useUndoBar(): { id: string; text: string } | null {
   const store = useCanvasStore()
   return useSyncExternalStore(store.subscribe, store.getUndoBar, store.getUndoBar)
+}
+
+/**
+ * 拖动吸附的提示（对账 #257）：参考线 + 间距读数。
+ * 纯展示态：拖动一结束就被清空（`node.move` 的 `end` 阶段），因此这里不需要做任何缓存。
+ */
+export function useSnapHints(): SnapHints | null {
+  const store = useCanvasStore()
+  return useSyncExternalStore(store.subscribe, store.getSnapHints, store.getSnapHints)
 }

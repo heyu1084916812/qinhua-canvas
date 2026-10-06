@@ -19149,7 +19149,208 @@ async function g112(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112]
+/**
+ * G113 节点吸附对齐（对账 #257）。
+ *
+ * 用户口径（同日答复）：吸附对象 = **边缘**；提示形式 = **参考线 + 间距数字都要**；
+ * 触发距离 = **默认 8px**；**容器内不做吸附**。
+ *
+ * 这一组刻意复刻用户那张参考图：两个节点横向并排、顶边差一点点，
+ * 松手后应当 **顶边对齐 + 中间出现"108"**（那个数就是他截图里的数）。
+ *
+ * 判据里的每一个数都是**先算好再断言**的（种子坐标 + 拖动位移 ⇒ 期望值）：
+ * 只断言"有参考线"会被"吸错 3px 也算过"蒙过去。
+ */
+async function g113(browser) {
+  const g = 'G113 节点吸附对齐'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(500)
+
+  await page.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('qinghua')
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+    const put = (table, rows) =>
+      new Promise((resolve) => {
+        const tx = db.transaction(table, 'readwrite')
+        for (const r of rows) tx.objectStore(table).put(r)
+        tx.oncomplete = () => resolve(true)
+      })
+    const now = Date.now()
+    await put('projects', [
+      { id: 'p-snap', name: '吸附', workbench: 'canvas', createdAt: now, updatedAt: now },
+    ])
+    const node = (id, x, y) => ({
+      id,
+      projectId: 'p-snap',
+      type: 'generation',
+      parentId: null,
+      x,
+      y,
+      w: 240,
+      h: 240,
+      title: id,
+      disabled: false,
+      data: {
+        mode: 'image',
+        prompt: '',
+        linkedPromptNodeIds: [],
+        ratio: '1:1',
+        count: 1,
+        thumbOrder: [],
+        upstreamHidden: [],
+      },
+    })
+    /**
+     * A 在 (200,200)；B 在 (700,206) —— B 的顶边比 A 低 6px，**在 8px 阈值内**。
+     * 把 B 水平拖到 x = 548 ⇒ 与 A 的右沿（440）相距 **108**（用户参考图里那个数）。
+     */
+    await put('nodes', [node('n-a', 200, 200), node('n-b', 700, 206)])
+  })
+
+  await page.goto(`${BASE}/canvas/p-snap`, { waitUntil: 'networkidle' })
+  await sleep(1500)
+
+  const boxA = await page.locator('[data-node-id="n-a"]').boundingBox()
+  const boxB = await page.locator('[data-node-id="n-b"]').boundingBox()
+  rec(g, '两个节点都装载了（吸附要有邻居可吸）', !!boxA && !!boxB)
+  if (!boxA || !boxB) {
+    await ctx.close()
+    return
+  }
+
+  /** 起点取节点左上角内侧一点（正中间是"上传素材"按钮，会吃掉这次按下） */
+  const from = { x: boxB.x + 24, y: boxB.y + 18 }
+  const to = { x: from.x - 152, y: from.y }
+
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  await page.mouse.move(to.x, to.y, { steps: 12 })
+  await sleep(250)
+
+  /** 拖动**进行中**（还没松手）就该看到提示 */
+  const during = await page.evaluate(() => {
+    const layer = document.querySelector('[data-snap-layer]')
+    if (!layer) return null
+    const guides = [...layer.querySelectorAll('[data-snap-guide]')].map((el) => ({
+      axis: el.getAttribute('data-snap-guide'),
+      x1: Number(el.getAttribute('x1')),
+      y1: Number(el.getAttribute('y1')),
+      x2: Number(el.getAttribute('x2')),
+      y2: Number(el.getAttribute('y2')),
+    }))
+    const gaps = [...layer.querySelectorAll('[data-snap-gap]')].map((el) => ({
+      axis: el.getAttribute('data-snap-gap'),
+      text: (el.textContent ?? '').trim(),
+    }))
+    return { guides, gaps }
+  })
+
+  rec(
+    g,
+    '★★ 拖动中画出了参考线（用户："参考线 + 间距数字都要"）',
+    !!during && during.guides.length >= 1,
+    JSON.stringify(during?.guides ?? null),
+  )
+  rec(
+    g,
+    '★★ 参考线落在 A 的**顶边**（吸的是边缘，且线要横跨两个节点）',
+    await (async () => {
+      /**
+       * 参考线是**表面局部坐标**（`FlowSnapLayer` 自己换算），节点矩形是**页面坐标** ——
+       * 拿两者直接比会差出一个外壳偏移（第一版就这么错了一次）。所以先统一到表面坐标系。
+       */
+      const rel = await page.evaluate(() => {
+        const surface = document.querySelector('[data-canvas-surface]')?.getBoundingClientRect()
+        const a = document.querySelector('[data-node-id="n-a"]')?.getBoundingClientRect()
+        const b = document.querySelector('[data-node-id="n-b"]')?.getBoundingClientRect()
+        if (!surface || !a || !b) return null
+        return { top: a.top - surface.top, right: a.right - surface.left, span: b.right - a.left }
+      })
+      const line = during?.guides.find((x) => x.axis === 'y')
+      if (!rel || !line) return false
+      return Math.abs(line.y1 - rel.top) <= 1.5 && line.x2 - line.x1 >= rel.span - 2
+    })(),
+    `guideY=${during?.guides.find((x) => x.axis === 'y')?.y1}`,
+  )
+  rec(
+    g,
+    /*
+     * ★★ 数字必须是**真话**：徽标上的值要等于那一刻两节点的真实间隙。
+     *
+     * 为什么不直接断言"拖动中是 108"：React Flow 的拖动位置按 pointermove 增量推进，
+     * 自动化里成串的 move 会被合帧、末尾那一格要等松手时的"终点对齐"才补上
+     * （实测拖动中读到 121 而松手后是 108）—— 那是**采样时刻**的差别，不是吸附错了。
+     * "参考图里那个 108"由下面松手后的几何断言（间隙 108 + 顶边对齐）钉住。
+     */
+    '★★ 间距数字 == 当时两节点的真实间隙（不是估的）',
+    await (async () => {
+      const live = await page.evaluate(() => {
+        const surface = document.querySelector('[data-canvas-surface]')?.getBoundingClientRect()
+        const a = document.querySelector('[data-node-id="n-a"]')?.getBoundingClientRect()
+        const b = document.querySelector('[data-node-id="n-b"]')?.getBoundingClientRect()
+        const badge = document.querySelector('[data-snap-gap="x"]')?.textContent?.trim() ?? null
+        if (!surface || !a || !b) return null
+        return { gap: Math.round(b.left - a.right), badge }
+      })
+      return !!live && live.badge !== null && Math.abs(Number(live.badge) - live.gap) <= 1
+    })(),
+    JSON.stringify(during?.gaps ?? null),
+  )
+  /** 拖动**进行中**存一张图：参考线 + 间距徽标同框（用户要的就是这个观感） */
+  await page.screenshot({ path: `${OUT}/113-g113-snap-during.png` })
+
+  await page.mouse.up()
+  await sleep(700)
+
+  const boxA2 = await page.locator('[data-node-id="n-a"]').boundingBox()
+  const boxB2 = await page.locator('[data-node-id="n-b"]').boundingBox()
+  rec(
+    g,
+    '★★ 松手后**顶边对齐**（差 6px 被吸成 0）—— 吸附结果真的落库了',
+    !!boxA2 && !!boxB2 && Math.abs(boxA2.y - boxB2.y) <= 1,
+    `A.y=${boxA2?.y} B.y=${boxB2?.y}`,
+  )
+  rec(
+    g,
+    '★ 横向间距落成 108（拖到哪儿就是哪儿，没被横向吸附挪走）',
+    !!boxA2 && !!boxB2 && Math.abs(boxB2.x - (boxA2.x + boxA2.width) - 108) <= 1,
+    `间隙=${boxB2 && boxA2 ? Math.round(boxB2.x - (boxA2.x + boxA2.width)) : '?'}`,
+  )
+  rec(g, '★ 松手后提示层撤掉（不留残影）', (await page.locator('[data-snap-layer]').count()) === 0)
+
+  /**
+   * ★★ 差分检查：**离得远就不该吸**（阈值 8px 是用户点的"默认"，不该悄悄放宽）。
+   * 把 B 拖到离 A 明显很远的位置，顶边差 6px 也不该被拉齐。
+   */
+  const boxB3 = await page.locator('[data-node-id="n-b"]').boundingBox()
+  await page.mouse.move(boxB3.x + 24, boxB3.y + 18)
+  await page.mouse.down()
+  await page.mouse.move(boxB3.x + 24, boxB3.y + 18 + 400, { steps: 10 })
+  await sleep(200)
+  const layerFar = await page.locator('[data-snap-layer]').count()
+  await page.mouse.up()
+  await sleep(500)
+  rec(
+    g,
+    '★★ 拖到没有邻居的地方 ⇒ 不吸、也不画提示（"不吸"同样是正确结果）',
+    layerFar === 0,
+    `layer=${layerFar}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/113-g113-snap.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

@@ -40,6 +40,7 @@ import type { FlowNodeDerivedProps } from './FlowNode'
 import { QhEdge, type QhEdgeData } from './FlowEdge'
 import { FlowPortLayer } from './FlowPortLayer'
 import { FlowDraftLayer } from './FlowDraftLayer'
+import { FlowSnapLayer } from './FlowSnapLayer'
 import { MultiSelectBar } from '../toolbar/MultiSelectBar'
 import { sourcePortOf, targetPortOf } from '../../../domain/canvas/model/edge'
 import { describeError } from '../../../shared/result'
@@ -55,6 +56,7 @@ import { describeExportReport, exportAssetsToFolder } from '../../../features/ca
 import { useNodeDownload } from '../../../features/canvas/useNodeDownload'
 import { draggedFiles, importDroppedFiles } from '../../../features/canvas/dropImport'
 import { dropPointOf, resolveDropOutcome } from '../../../features/canvas/dropReparent'
+import { computeSnap, SNAP_THRESHOLD_SCREEN_PX } from '../../../domain/canvas/layout/snap'
 import { useNodeDrag } from '../../../features/canvas/useNodeDrag'
 import { useClipboardHotkeys, rememberPointer } from '../../../features/canvas/useClipboard'
 import { useCanvasKeyboard } from '../useCanvasKeyboard'
@@ -519,6 +521,41 @@ function FlowSurfaceInner({
     [graph.edges, selection, edgeSelection, store],
   )
 
+  /**
+   * **吸附判定**（对账 #257）：喂"没有吸附的原始位移"，拿回"修正量 + 要画的提示"。
+   *
+   * 三件事按用户口径定死：
+   * 1. **只吸同级顶层节点**（`topLevelNodes`）—— 容器子节点不参与，也不吸它：
+   *    用户明确说「容器内节点本身有自动整理功能」，两套排布规则叠在一起只会打架；
+   * 2. **触发距离 8px 是屏幕像素** ⇒ 除以缩放换成世界单位（缩到 50% 时不该只吸 4 个屏幕像素）；
+   * 3. 拖动起点取 `dragAnchorRef`（pointerdown 那一刻的位置）—— 吸附是"对着起点算绝对位置"，
+   *    拿上一帧的位置累积会漂。
+   */
+  const snapAt = useCallback(
+    (
+      ids: string[],
+      starts: Map<string, { x: number; y: number }>,
+      raw: { dx: number; dy: number },
+      zoom: number,
+    ) => {
+      const graph = store.getSnapshot()
+      const byId = new Map(graph.nodes.map((n) => [n.id, n]))
+      const moving = ids.flatMap((id) => {
+        const start = starts.get(id)
+        const node = byId.get(id)
+        return start && node
+          ? [{ x: start.x + raw.dx, y: start.y + raw.dy, w: node.w, h: node.h }]
+          : []
+      })
+      const dragging = new Set(ids)
+      const others = topLevelNodes(graph)
+        .filter((n) => !dragging.has(n.id))
+        .map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h }))
+      return computeSnap({ moving, others, threshold: SNAP_THRESHOLD_SCREEN_PX / zoom })
+    },
+    [store],
+  )
+
   /** 位置变化 → 翻译成 `node.move`（React Flow 给的是绝对坐标，这里换成增量） */
   const onNodesChange = useCallback(
     (changes: NodeChange<RFNode<FlowNodeData>>[]) => {
@@ -554,8 +591,29 @@ function FlowSurfaceInner({
       const first = positions[0]
       const base = current.get(first.id)
       if (!base) return
-      const dx = first.position.x - base.x
-      const dy = first.position.y - base.y
+      let dx = first.position.x - base.x
+      let dy = first.position.y - base.y
+
+      /**
+       * **吸附**（对账 #257）：以"拖动起点 → 现在"这段**原始位移**算该吸到哪，
+       * 再把修正量并进这一帧的位移。
+       *
+       * 没有起点锚时（程序化改位、容器子节点那条路）**不吸也不猜** ——
+       * 用户口径本来就是"容器内不做吸附"。
+       */
+      const anchor = dragAnchorRef.current
+      const start = anchor?.nodes.get(first.id)
+      if (anchor && start) {
+        const snap = snapAt(
+          ids,
+          anchor.nodes,
+          { dx: first.position.x - start.x, dy: first.position.y - start.y },
+          anchor.zoom,
+        )
+        dx += snap.dx
+        dy += snap.dy
+        store.setSnapHints(snap.guides.length > 0 || snap.gaps.length > 0 ? { guides: snap.guides, gaps: snap.gaps } : null)
+      }
       if (dx === 0 && dy === 0) return
       // 真有位移：松手后要让创作面板保持隐藏（§6.15），见 onNodeDragStop
       dragMovedRef.current = true
@@ -605,9 +663,23 @@ function FlowSurfaceInner({
           moved = true
           store.dispatch({ kind: 'node.move', ids: [id], dx: fixX, dy: fixY, phase: 'move' })
         }
+
+        /**
+         * **终点也要吸附一次**：上面那步是"把节点拉回指针处"，它会把拖动中吸好的位置
+         * 原样抹掉 —— 用户看到的是"松手瞬间又跳开了"。
+         *
+         * 所以松手前用**同一份起点锚 + 同一套判定**再吸一次，落到最终位置。
+         */
+        const snap = snapAt(ids, anchor.nodes, { dx: movedX, dy: movedY }, anchor.zoom)
+        if (snap.dx !== 0 || snap.dy !== 0) {
+          moved = true
+          store.dispatch({ kind: 'node.move', ids, dx: snap.dx, dy: snap.dy, phase: 'move' })
+        }
       }
       store.dispatch({ kind: 'node.move', ids, dx: 0, dy: 0, phase: 'end' })
       store.setDragging(false)
+      /* 参考线 / 间距徽标只属于"拖动进行中"：松手即撤，不留残影 */
+      store.setSnapHints(null)
       // §6.15：有位移的拖动松手后创作面板保持隐藏，直到下一次显式选中（与老表面同一条口径）
       if (moved) store.setPanelDismissed(true)
 
@@ -762,6 +834,8 @@ function FlowSurfaceInner({
     >
       {/* 拖线草稿（§6.14）：画在节点层**下面**（与老表面 EdgeLayer 同序），层本身不吃指针 */}
       <FlowDraftLayer draft={edgeDrag.draft} />
+      {/* 吸附提示（对账 #257）：参考线 + 间距数字。屏幕空间、不吃指针，拖动结束即消失 */}
+      <FlowSnapLayer />
       <ReactFlow
         className={styles.flow}
         nodes={nodes}
