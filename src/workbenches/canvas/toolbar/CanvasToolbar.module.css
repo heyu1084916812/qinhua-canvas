@@ -6,6 +6,18 @@
  *   2. 只有第一个按钮是常驻实色，其余是隐性按钮（无边框、无底色）；
  *   3. 鼠标进入某个按钮范围时，右侧浮出它的名称（圆角矩形标签）。
  */
+/*
+ * ★ 口径更新（2026-10-07，对账 #318）：用户第 13 批第 6 条「画布区域左边的工具栏可以缩小三分之一了」
+ * ⇒ 整套从"zoom:1.5 的换算值"回到 **1×**：按钮 54 → **36**、图标 27 → **18**、
+ * 内距 9 → **6**、间距 12 → **8**、加号留白 9 → **6**、菜单 240/6 → **160/4**、
+ * 菜单项 12/18 → **8/12**、菜单图标槽 24 → **16**；标签与菜单文字从换算值 18px 回到
+ * **`--fs-label`**（设计系统那一档），不再跟着 1.5 倍走。
+ *
+ * 同心关系仍然成立：容器宽 = 36 + 2×6 = 48，半宽 24 正是 `--radius-pill` 的弧心。
+ *
+ * ⚠️ 下面各段注释里出现的 54 / 27 / 9 / 12 / 18 / 240 都是 **×1.5 那一版的历史值**，
+ * 保留它们是为了留住"为什么当初要那么写"的由来，**不是现行尺寸**。
+ */
 .bar {
   position: absolute;
   left: var(--space-4);
@@ -32,7 +44,7 @@
   flex-direction: column;
   align-items: center;
   /* 间距 8 × 1.5 = 12（原 zoom 后的观感） */
-  gap: 12px;
+  gap: 8px;
   /**
    * 内距（四边**同一个值**）必须与按钮直径配合，首尾两个圆才与胶囊同心。
    *
@@ -45,7 +57,7 @@
    * 和顶部的距离偏大」）：圆角同心了、**间距却不匀**，肉眼读成「偏心 / 顶得太多」。
    * 同心与间距匀是两件事，这里两者都要满足。
    */
-  padding: 9px;
+  padding: 6px;
   background: var(--bg-surface);
   /* 长胶囊而不是圆角矩形：容器宽度固定、圆角取半宽即成一整条胶囊 */
   border-radius: var(--radius-pill);
@@ -86,8 +98,8 @@
    * 圆形按钮（用户要求不要圆角矩形）；直径与胶囊内宽一致，看着齐整。
    * 54 = 原 36 × 1.5（取消 zoom 后的显式尺寸，见 `.bar` 的说明）。
    */
-  width: 54px;
-  height: 54px;
+  width: 36px;
+  height: 36px;
   /* 绝对定位的图标容器以本按钮为包含块（见 `.iconSpin` 的说明） */
   position: relative;
   /* 兜底居中：万一图标容器没铺满，也不至于跑到角落 */
@@ -220,7 +232,7 @@
 .solid .rotated > svg {
   width: 100%;
   height: 100%;
-  padding: 9px;
+  padding: 6px;
   box-sizing: border-box;
 }
 
@@ -245,8 +257,8 @@
    * 按钮（36→54）与图标（18→27），**文字漏了** ⇒ 掉回 12，看着明显变小。
    * 现在写死 18：等于原 12 × 1.5，与按钮 / 图标的换算口径一致。
    */
-  font-size: 18px;
-  padding: 6px 18px;
+  font-size: var(--fs-label);
+  padding: 4px 12px;
   border-radius: var(--radius-control);
   background: var(--bg-surface);
   color: var(--text-1);
@@ -286,8 +298,8 @@
   display: flex;
   flex-direction: column;
   /* 原 160 / 4 挂在 zoom:1.5 下 ⇒ 现 240 / 6（与 `.menuItem` 同批换算） */
-  min-width: 240px;
-  padding: 6px;
+  min-width: 160px;
+  padding: 4px;
   background: var(--bg-surface);
   border: var(--border);
   border-radius: var(--radius-control);
@@ -300,20 +312,20 @@
    * 菜单项的排版值原本也挂在 `zoom: 1.5` 下，取消 zoom 时必须一并 × 1.5。
    * 原：内距 8/12、字号 12、间距 8 ⇒ 现：12/18、18、12。
    */
-  padding: 12px 18px;
+  padding: 8px 12px;
   border: none;
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--text-1);
   font-family: var(--font-sans);
-  font-size: 18px;
+  font-size: var(--fs-label);
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
   /* 排列面板用「图标 + 文案」两列，与参考产品的排列菜单同形 */
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   transition: background var(--dur-hover) var(--ease-out);
 }
 
@@ -334,10 +346,10 @@
 /* 菜单项左侧图标：定宽，保证多行文案左边缘对齐 */
 .menuIcon {
   /* 原 16 × 1.5 = 24：图标槽也要跟着图标（27）一起放大，否则左边缘对不齐 */
-  width: 24px;
+  width: 16px;
   flex: none;
   text-align: center;
-  font-size: 18px;
+  font-size: var(--fs-label);
   line-height: 1;
   color: var(--text-2);
   /* SVG 与文本字形共用这一格；flex 居中保证图标不因基线偏移 */

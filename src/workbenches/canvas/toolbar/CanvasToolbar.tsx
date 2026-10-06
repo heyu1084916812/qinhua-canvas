@@ -47,7 +47,12 @@ const keepCanvasFocus = { onMouseDown: (e: ReactMouseEvent) => e.preventDefault(
  *
  * 现在换算口径与按钮统一：显式值 = 原设计值 × 1.5（36→54、18→27、内距 6→9）。
  */
-const ICON_SIZE = 27
+/*
+ * ★ 2026-10-07（对账 #318）：用户第 13 批第 6 条「缩小三分之一」⇒ 回到 **1×**。
+ * 图标 27 → **18**（与按钮 36 的比例仍是 0.5，冒烟那条比例断言就锁这个）；
+ * 加号的兜底 `size` 从 24 → 16。上面几段注释里的 54 / 27 / 9 是 ×1.5 那版的历史值。
+ */
+const ICON_SIZE = 18
 
 const NODE_MENU: readonly { type: NodeType; label: string; icon: ReactNode }[] = [
   { type: 'prompt', label: '提示词节点', icon: <IconPrompt size={ICON_SIZE} /> },
@@ -205,7 +210,7 @@ export function CanvasToolbar({
      * 这里写 `size` 只是给一份**无 CSS 时的兜底**；实际尺寸由 CSS 的 100% 决定，
      * 让「按钮 → 容器 → svg」每一层都是**同一个盒**，中间没有独立取整的机会。
      */
-    { key: 'add', icon: <IconPlus size={24} />, label: '新建节点', menu: 'add', solid: true, attr: 'data-toolbar-add' },
+    { key: 'add', icon: <IconPlus size={16} />, label: '新建节点', menu: 'add', solid: true, attr: 'data-toolbar-add' },
     {
       key: 'arrange-modes',
       icon: <IconGridArrange size={ICON_SIZE} />,

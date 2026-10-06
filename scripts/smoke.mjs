@@ -2501,7 +2501,7 @@ async function g17(browser) {
 
   /**
    * 工具栏加大一半（用户 2026-09-19 第 7 条）。与顶栏同理：`zoom` 不改
-   * `clientWidth`，必须量屏幕矩形。48×280 → 72×420，按钮 36 → 54。
+   * `clientWidth`，必须量屏幕矩形。48×280、按钮 **36**（2026-10-07 第 13 批 #6：由 54 缩回 1×）。
    */
   const tbRect = await page.evaluate(() => {
     const el = document.querySelector('[data-canvas-toolbar]')
@@ -2523,8 +2523,8 @@ async function g17(browser) {
   })
   rec(
     g,
-    '★ 工具栏加大一半（按钮 36 → 54px）',
-    !!tbRect && Math.abs(tbRect.btnW - 54) <= 1,
+    '★ 左侧工具栏是 1× 尺寸（按钮 36px；用户第 13 批 #6「缩小三分之一」）',
+    !!tbRect && Math.abs(tbRect.btnW - 36) <= 1,
     tbRect ? `${tbRect.w}×${tbRect.h} 按钮=${tbRect.btnW}` : 'null',
   )
   /**
@@ -2699,7 +2699,7 @@ async function g17(browser) {
       others.length > 0 &&
       addBtnIcon.icon > Math.max(...others.map((o) => o.icon)) &&
       /*
-       * 阈值取 **0.7**（不是 0.5）：正常比例就是 0.5（图标 27 / 按钮 54），
+   * 阈值取 **0.7**（不是 0.5）：正常比例就是 0.5（图标 18 / 按钮 36），
        * 用 `< 0.5` 会把**正确实现**判失败（实测踩过）。
        * 要拦的是「被撑满成 1.0」那种失误，0.7 留足余量。
        */
@@ -2732,8 +2732,8 @@ async function g17(browser) {
    * 取消 `.bar` 的 `zoom: 1.5` 时，这是**第二处漏换算**：按钮（36→54）与图标
    * （18→27）换了，**文字没换** ⇒ 名称标签与菜单项从 `12 × 1.5 = 18` 掉回 12。
    *
-   * 判据用「字号 ≥ 16」而不是写死 18：这条要锁的是**可读性意图**
-   * （文字明显大于旧 token 的 12px），以后微调字号不必重写。
+   * 判据用「字号 ≥ 12」而不是写死字号：这条要锁的是**可读性意图**
+   * （文字不再跟着 1.5 倍走，而是回到设计系统那一档 `--fs-label` = 13px），以后微调字号不必重写。
    */
   await page.locator('[data-toolbar-reset]').hover()
   await sleep(450)
@@ -2744,9 +2744,9 @@ async function g17(browser) {
     .catch(() => 0)
   rec(
     g,
-    '★ 按钮名称标签的字号已随 zoom 取消一起换算（≥16px）',
-    tipFont >= 16,
-    `${tipFont}px（旧 token 为 12px；原 zoom 下渲染 18px）`,
+    '★ 按钮名称标签的字号回到设计系统那一档（--fs-label，不再跟 1.5 倍）',
+    tipFont >= 12,
+    `${tipFont}px（= --fs-label；×1.5 那版渲染 18px）`,
   )
 
   await page.locator('[data-toolbar-arrange-modes]').hover()
@@ -2758,8 +2758,8 @@ async function g17(browser) {
     .catch(() => 0)
   rec(
     g,
-    '★ 弹出菜单项的字号同样已换算（≥16px）',
-    menuFont >= 16,
+    '★ 弹出菜单项的字号同上（≥12px）',
+    menuFont >= 12,
     `${menuFont}px`,
   )
   await page.mouse.move(760, 760)
