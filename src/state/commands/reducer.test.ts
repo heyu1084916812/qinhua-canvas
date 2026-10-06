@@ -6,6 +6,7 @@ import { promptSpec } from '../../domain/canvas/nodeSpecs/prompt'
 import { generationSpec } from '../../domain/canvas/nodeSpecs/generation'
 import { groupSpec } from '../../domain/canvas/nodeSpecs/group'
 import { clipboardFromSelection, pasteEdges, pasteNodes } from '../../domain/canvas/clipboard'
+import { containerMinSize } from '../../domain/canvas/layout/packContainer'
 
 function emptyGraph(projectId = 'p1'): GraphSnapshot {
   return { projectId, nodes: [], edges: [], }
@@ -420,3 +421,77 @@ describe('reduce / 执行与版本历史命令（M0-11）', () => {
 
 })
 
+
+/**
+ * 容器（分组 / 批量）的"自适应"（用户 2026-10-06 第 13 批第 7 条）。
+ *
+ * 口径：**尺寸 = 内容 + 四边等距 20px**；只在装不下时贴一次（两轴一起贴），
+ * 装得下就不动 —— 手工拖大的框、打组那个"包住内容"的包装框都必须留住。
+ * 少子节点时只收**自动尺寸**的框（尺寸正好等于上一个子节点数对应的贴内容尺寸）。
+ */
+describe('容器随内容自适应（#319）', () => {
+  /** 建一个容器 + n 个子节点（子节点先在容器外，由调用方逐个 reparent） */
+  function withKids(size?: { w: number; h: number }) {
+    let g = emptyGraph()
+    g = reduce({ kind: 'node.create', projectId: 'p1', type: 'group', at: { x: 0, y: 0 }, ...(size ? { size } : {}) }, g).next
+    for (let i = 0; i < 3; i += 1) {
+      g = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 600 + i * 260, y: 0 } }, g).next
+    }
+    const groupId = g.nodes.find((n) => n.type === 'group')!.id
+    const kidIds = g.nodes.filter((n) => n.type === 'prompt').map((n) => n.id)
+    return { g, groupId, kidIds }
+  }
+  const sizeOf = (g: ReturnType<typeof withKids>['g'], id: string) => {
+    const n = g.nodes.find((x) => x.id === id)!
+    return { w: n.w, h: n.h }
+  }
+
+  it('第一个子节点进来：高度贴到内容（192 → 200），不是 5:4 的 300', () => {
+    const { g, groupId, kidIds } = withKids()
+    expect(sizeOf(g, groupId)).toEqual({ w: 240, h: 192 })
+    const next = reduce({ kind: 'node.reparent', id: kidIds[0]!, toParent: groupId }, g).next
+    expect(sizeOf(next, groupId)).toEqual(containerMinSize('group', 1))
+    expect(sizeOf(next, groupId)).toEqual({ w: 240, h: 200 })
+  })
+
+  it('两个子节点：两轴一起贴（456×200），不是旧口径的 456×365（下方空 183px）', () => {
+    let g = withKids().g
+    const groupId = g.nodes.find((n) => n.type === 'group')!.id
+    const kidIds = g.nodes.filter((n) => n.type === 'prompt').map((n) => n.id)
+    for (const id of kidIds.slice(0, 2)) g = reduce({ kind: 'node.reparent', id, toParent: groupId }, g).next
+    expect(sizeOf(g, groupId)).toEqual({ w: 456, h: 200 })
+  })
+
+  it('装得下就不动：打组的包装框 / 用户手工拖大的框都留住', () => {
+    const { g, groupId, kidIds } = withKids({ w: 800, h: 600 })
+    const next = reduce({ kind: 'node.reparent', id: kidIds[0]!, toParent: groupId }, g).next
+    expect(sizeOf(next, groupId)).toEqual({ w: 800, h: 600 })
+  })
+
+  it('自动尺寸的框在子节点拖出时收回（手工尺寸不收）', () => {
+    let g = withKids().g
+    const groupId = g.nodes.find((n) => n.type === 'group')!.id
+    const kidIds = g.nodes.filter((n) => n.type === 'prompt').map((n) => n.id)
+    for (const id of kidIds.slice(0, 2)) g = reduce({ kind: 'node.reparent', id, toParent: groupId }, g).next
+    expect(sizeOf(g, groupId)).toEqual({ w: 456, h: 200 })
+    const out = reduce({ kind: 'node.reparent', id: kidIds[0]!, toParent: null }, g).next
+    expect(sizeOf(out, groupId)).toEqual(containerMinSize('group', 1))
+
+    // 手工尺寸（800×600）拖出一个子节点：不动
+    const manual = withKids({ w: 800, h: 600 })
+    let mg = reduce({ kind: 'node.reparent', id: manual.kidIds[0]!, toParent: manual.groupId }, manual.g).next
+    mg = reduce({ kind: 'node.reparent', id: manual.kidIds[1]!, toParent: manual.groupId }, mg).next
+    const out2 = reduce({ kind: 'node.reparent', id: manual.kidIds[0]!, toParent: null }, mg).next
+    expect(sizeOf(out2, manual.groupId)).toEqual({ w: 800, h: 600 })
+  })
+
+  it('删掉子节点：自动尺寸收回 + childIds 里的死引用清掉', () => {
+    let g = withKids().g
+    const groupId = g.nodes.find((n) => n.type === 'group')!.id
+    const kidIds = g.nodes.filter((n) => n.type === 'prompt').map((n) => n.id)
+    for (const id of kidIds.slice(0, 2)) g = reduce({ kind: 'node.reparent', id, toParent: groupId }, g).next
+    const next = reduce({ kind: 'node.delete', ids: [kidIds[1]!] }, g).next
+    expect(sizeOf(next, groupId)).toEqual(containerMinSize('group', 1))
+    expect((next.nodes.find((n) => n.id === groupId)!.data as { childIds: string[] }).childIds).toEqual([kidIds[0]!])
+  })
+})

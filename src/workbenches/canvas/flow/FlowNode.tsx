@@ -4,7 +4,9 @@ import { NodeFrame } from '../frame/NodeFrame'
 import { getNodeDefinition } from '../nodes/registry'
 import { portDeclsOf } from '../../../domain/canvas/nodeSpecs/ports'
 import { heightFromContentOf, resizeLockOf } from '../../../domain/canvas/nodeSpecs/resizeLock'
+import { isContainerType } from '../../../domain/canvas/model/node'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
+import { containerMinSize } from '../../../domain/canvas/layout/packContainer'
 import type { RunMode } from '../../../domain/canvas/model/runRecord'
 import type { NodeViewEvent } from '../nodes/registry'
 import type { InputPortAsset } from '../nodes/registry'
@@ -18,8 +20,9 @@ import type { Rect } from '../../../domain/canvas/geometry/rect'
  * 换的只是"谁负责摆位、谁负责连线、谁负责手势"。
  *
  * ⚠️ `NodeFrame` 自己会按 `node.x/y` 绝对定位（那是给老的 `.world` 图层用的），
- * 而 React Flow 已经把节点摆在 `position` 上了，所以这里必须**把坐标归零**再交给它，
- * 否则位置会翻倍偏移（与容器子节点按网格渲染那套做法一样）。
+ * 而 React Flow 已经把节点摆在 `position` 上了 ⇒ 交给它 `selfPositioned={false}`
+ * 关掉那套定位。**注意不要再用"把坐标归零"的老办法**：那会让缩放手柄把节点写回
+ * 世界原点（2026-10-06 第 13 批第 7 条，见 `NodeFrame.selfPositioned` 的说明）。
  */
 /** 图级派生数据（由 `useNodeDerivedMaps` 算好注入；两个表面共用同一批字段） */
 export interface FlowNodeDerivedProps {
@@ -57,7 +60,14 @@ function FlowNodeInner({ data, selected }: NodeProps) {
     data as unknown as FlowNodeData
   const def = getNodeDefinition(node.type)
   const ports = portDeclsOf(def.ports)
-  const frameNode = { ...node, x: 0, y: 0 }
+  /**
+   * 容器（分组 / 批量）的最小尺寸**随内容走**（= 内容 + 四边等距 20px，见 `packContainer.ts`）：
+   * 少了这一条，缩小手柄能一直往里拖，把子节点**压住**（用户 2026-10-06 第 13 批第 7 条：
+   * 「缩小的时候会掩盖一些节点…可以规则为保持四周的边距」）。
+   */
+  const minSize = isContainerType(node.type)
+    ? containerMinSize(node.type as 'group' | 'batch', childNodes?.length ?? 0)
+    : def.sizing.min
 
   /**
    * 端点（React Flow 的 `Handle`）走 `NodeFrame.overlay`，**不放在 `children` 里**：
@@ -112,11 +122,17 @@ function FlowNodeInner({ data, selected }: NodeProps) {
 
   return (
     <NodeFrame
-      node={frameNode}
+      /*
+       * ⚠️ 传**真实坐标** + `selfPositioned={false}`（2026-10-06 第 13 批第 7 条）：
+       * 以前传的是 `{...node, x: 0, y: 0}`（为了不被 RF 二次偏移），结果缩放手柄算出的
+       * 矩形 x/y 恒为 0 ⇒ `node.resize` 把节点写回世界原点（"缩放时会位移"）。
+       */
+      node={node}
+      selfPositioned={false}
       selected={!!selected}
       scale={zoom}
       ports={def.ports}
-      minSize={def.sizing.min}
+      minSize={minSize}
       resizeLock={resizeLockOf(node)}
       heightFromContent={heightFromContentOf(node)}
       /* 老画布那份端点交给 React Flow 的 Handle 画，避免两套端点叠在一起 */
@@ -185,7 +201,9 @@ export function FlowChildFrame({
   const def = getNodeDefinition(child.type)
   return (
     <NodeFrame
-      node={{ ...child, x: 0, y: 0 }}
+      /* 同 `FlowNodeInner`：真实坐标 + 不自我定位（子节点的 x/y 是**相对父容器**的） */
+      node={child}
+      selfPositioned={false}
       selected={selected}
       scale={zoom}
       ports={def.ports}

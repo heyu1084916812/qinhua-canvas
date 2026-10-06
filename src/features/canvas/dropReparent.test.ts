@@ -76,8 +76,8 @@ describe('拖拽落点归属（§6.11 拖入 / 拖出）', () => {
 })
 
 describe('容器动态最小尺寸与打包结果一致', () => {
-  it('分组 4 个孩子的最小尺寸与 packContainerChildren(4) 一致', () => {
+  it('分组 4 个孩子的最小尺寸 = 内容 + 四边等距（不再归一 5:4）', () => {
     const { containerMin } = packContainerChildren(4)
-    expect(containerMin.w / containerMin.h).toBeCloseTo(5 / 4, 2)
+    expect(containerMin).toEqual({ w: 3 * 200 + 2 * 16 + 40, h: 2 * 160 + 16 + 40 })
   })
 })

@@ -2352,6 +2352,50 @@ async function g16(browser) {
     // 容器应随子节点数量长大（§6.12「有内容时按当前网格动态提高最小尺寸」）
     const minAfter = await body.getAttribute('data-batch-min')
     rec(g, '批量容器随内容长大（最小尺寸 > 240x192）', minAfter !== '240x192', `min=${minAfter}`)
+    /*
+     * ★★ #319：容器**贴住内容**（四边留白相等）＋ 缩小时**停在留白上、不遮住子节点**。
+     * 用户原话：「节点素材进入批量节点的时候批量节点没有自适应，下方空出很多位置；
+     * 缩小的时候会掩盖一些节点（可以规则为保持四周的边距…右边和下方没有保持）」。
+     * 旧口径把容器撑成 5:4（2 个单元 → 456×365，下方空 183px），且最小尺寸是固定的
+     * 240×192（能一直往里拖到盖住子节点）。
+     */
+    const gaps = () =>
+      page.evaluate((bid) => {
+        const c = document.querySelector(`[data-node-id="${bid}"]`)
+        const kids = [...c.querySelectorAll('[data-node-id]')]
+        const r = c.getBoundingClientRect()
+        const bs = kids.map((k) => k.getBoundingClientRect())
+        return {
+          w: Math.round(r.width),
+          h: Math.round(r.height),
+          left: Math.round(Math.min(...bs.map((b) => b.left)) - r.left),
+          top: Math.round(Math.min(...bs.map((b) => b.top)) - r.top),
+          right: Math.round(r.right - Math.max(...bs.map((b) => b.right))),
+          bottom: Math.round(r.bottom - Math.max(...bs.map((b) => b.bottom))),
+        }
+      }, batchId)
+    const gap1 = await gaps()
+    rec(
+      g,
+      '★★ 容器贴住内容：下方不再空一大块（#319）',
+      gap1.h <= 240 && Math.abs(gap1.bottom - gap1.top) <= 6 && Math.abs(gap1.bottom - gap1.left) <= 8,
+      `容器 ${gap1.w}×${gap1.h}；四边留白 上${gap1.top} 下${gap1.bottom} 左${gap1.left} 右${gap1.right}`
+    )
+
+    // 往内猛拖缩放手柄：必须停在"内容 + 四边留白"上，子节点一个都不许被盖住
+    const hnd = await page.locator(`[data-node-id="${batchId}"] [data-node-resize-handle]`).boundingBox()
+    await page.mouse.move(hnd.x + hnd.width / 2, hnd.y + hnd.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(hnd.x + hnd.width / 2 - 300, hnd.y + hnd.height / 2 - 240, { steps: 14 })
+    await page.mouse.up()
+    await sleep(400)
+    const gap2 = await gaps()
+    rec(
+      g,
+      '★★ 缩到最小仍保持四边留白（不遮住子节点，#319）',
+      gap2.bottom >= 12 && gap2.left >= 12 && gap2.right >= 12 && gap2.top >= 12 && Math.abs(gap2.bottom - gap2.right) <= 8,
+      `缩后 容器 ${gap2.w}×${gap2.h}；四边 上${gap2.top} 下${gap2.bottom} 左${gap2.left} 右${gap2.right}`
+    )
   }
   await page.screenshot({ path: `${OUT}/28-g16-batch-filled.png` })
 
@@ -6464,14 +6508,33 @@ async function g57(browser) {
   const ratioOk = (box, want) => Math.abs(box.width / box.height - want) < 0.01
   const noRebound = (a, b) => Math.abs(a.width - b.width) <= 0.6 && Math.abs(a.height - b.height) <= 0.6
 
-  // 锁比 5:4：分组 / 批量（sizing.lockAspect 声明了很久，直到本次才有消费者）
+  /*
+   * 分组 / 批量：**自由缩放 + 位置不动**（2026-10-06 第 13 批第 7 条）。
+   *
+   * 这两条以前锁的是"5:4 固定比例"（§6.16）。那个口径把容器撑成 5:4、内容挂在左上角，
+   * 用户报「批量节点没有自适应，下方空出很多位置」；现在容器**贴住内容**
+   * （内容 + 四边等距 20px，见 `packContainer.ts`），比例不再锁。
+   *
+   * 更要紧的是**位置**：缩放手柄算出的矩形 x/y 曾经恒为 0（调用方把坐标归零交给
+   * NodeFrame 用的），于是每次缩放都把节点**写回世界原点** —— 用户说的「缩放的时候
+   * 会位移」就是它。当时所有断言都只看尺寸，所以它一直是绿的。
+   */
   let id = await addNode('group')
+  const g0 = await boxOf(id)
   let r = await dragResize(id, 80, 10)
   rec(
     g,
-    '★ 分组横向主导拖动保持 5:4（§6.16）',
-    !!r.settled && ratioOk(r.settled, 5 / 4),
-    r.settled ? `${r.settled.width.toFixed(0)}×${r.settled.height.toFixed(0)} (${(r.settled.width / r.settled.height).toFixed(3)})` : 'null',
+    '★★ 缩放不位移（#319：手柄的矩形曾把节点写回世界原点）',
+    !!g0 && !!r.settled && Math.abs(r.settled.x - g0.x) <= 1 && Math.abs(r.settled.y - g0.y) <= 1,
+    g0 && r.settled
+      ? `左上 (${g0.x.toFixed(0)},${g0.y.toFixed(0)}) → (${r.settled.x.toFixed(0)},${r.settled.y.toFixed(0)})；尺寸 ${g0.width.toFixed(0)}×${g0.height.toFixed(0)} → ${r.settled.width.toFixed(0)}×${r.settled.height.toFixed(0)}`
+      : 'null',
+  )
+  rec(
+    g,
+    '★ 分组自由缩放：两轴各跟各的（不再锁 5:4）',
+    !!g0 && !!r.settled && Math.abs(r.settled.width - (g0.width + 80)) <= 2 && Math.abs(r.settled.height - (g0.height + 10)) <= 2,
+    g0 && r.settled ? `${g0.width.toFixed(0)}×${g0.height.toFixed(0)} → ${r.settled.width.toFixed(0)}×${r.settled.height.toFixed(0)}` : 'null',
   )
   rec(
     g,
@@ -6479,21 +6542,13 @@ async function g57(browser) {
     !!r.just && !!r.settled && noRebound(r.just, r.settled),
     r.just && r.settled ? `${r.just.width.toFixed(0)}×${r.just.height.toFixed(0)} → ${r.settled.width.toFixed(0)}×${r.settled.height.toFixed(0)}` : 'null',
   )
+  const g1 = await boxOf(id)
   r = await dragResize(id, 10, 80)
   rec(
     g,
-    '分组纵向主导拖动同样保持 5:4',
-    !!r.settled && ratioOk(r.settled, 5 / 4),
-    r.settled ? `${r.settled.width.toFixed(0)}×${r.settled.height.toFixed(0)}` : 'null',
-  )
-
-  id = await addNode('batch')
-  r = await dragResize(id, 60, 60)
-  rec(
-    g,
-    '批量对角拖动保持 5:4',
-    !!r.settled && ratioOk(r.settled, 5 / 4),
-    r.settled ? `${r.settled.width.toFixed(0)}×${r.settled.height.toFixed(0)}` : 'null',
+    '分组纵向拖动同样自由（宽只跟 10、高跟 80）',
+    !!g1 && !!r.settled && Math.abs(r.settled.height - (g1.height + 80)) <= 2 && Math.abs(r.settled.width - (g1.width + 10)) <= 2,
+    g1 && r.settled ? `${g1.width.toFixed(0)}×${g1.height.toFixed(0)} → ${r.settled.width.toFixed(0)}×${r.settled.height.toFixed(0)}` : 'null',
   )
 
   // 'current'：对比节点锁按下瞬间的比例
@@ -6538,7 +6593,13 @@ async function g57(browser) {
       { id, sel },
     )
   id = await addNode('group')
-  rec(g, '分组内容区圆角 13px（14 − 1px 描边）', (await radiusOf(id, 'div[class*="body"] div[class*="body"]')) === '13px', await radiusOf(id, 'div[class*="body"] div[class*="body"]'))
+  /*
+   * ⚠️ 用 `[data-container-body]` 这个**契约锚点**，不要再按 class 猜：
+   * 组视图在标题条那次改版后多了一层外框 `div[class*="body"]`，旧选择器
+   * `div[class*="body"] div[class*="body"]` 于是抓到**外层**（0px），长期假红；
+   * 真正的内容区（ContainerBody）一直是 13px ✓。
+   */
+  rec(g, '分组内容区圆角 13px（14 − 1px 描边）', (await radiusOf(id, '[data-container-body]')) === '13px', await radiusOf(id, '[data-container-body]'))
   id = await addNode('compare')
   rec(g, '对比节点舞台圆角 7px（14 − 1px 描边 − 6px 内边距）', (await radiusOf(id, '[class*="stage"]')) === '7px', await radiusOf(id, '[class*="stage"]'))
   id = await addNode('generation')

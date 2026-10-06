@@ -45,9 +45,9 @@ describe('resizeLockOf / 锁比解析（§6.16）', () => {
     expect(resizeLockOf(node('generation', gen({ assetHash: 'h1' })))).toBe('current')
   })
 
-  it('分组 / 批量锁 5:4', () => {
-    expect(resizeLockOf(node('group', {}))).toBe(5 / 4)
-    expect(resizeLockOf(node('batch', {}))).toBe(5 / 4)
+  it('分组 / 批量自由缩放（容器贴住内容，尺寸由动态最小尺寸守）', () => {
+    expect(resizeLockOf(node('group', {}))).toBe('free')
+    expect(resizeLockOf(node('batch', {}))).toBe('free')
   })
 
   it('对比节点锁按下时比例；提示词自由', () => {

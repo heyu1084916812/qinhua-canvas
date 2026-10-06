@@ -1,9 +1,7 @@
 import type { Size } from '../geometry/rect'
-import { clampSize } from '../geometry/rect'
 import {
   CONTAINER_GAP,
   CONTAINER_PADDING,
-  CONTAINER_ASPECT,
   PACKED_CELL,
   PACKED_MAX_COLUMNS,
   NODE_MINIMUMS,
@@ -13,23 +11,22 @@ export interface PackResult {
   columns: number
   rows: number
   cellSize: Size
-  /** 外部容器动态最小尺寸，已归一为 5:4 */
+  /** 外部容器尺寸 = 内容 + 四边等距内边距（空容器 = 类型最小尺寸） */
   containerMin: Size
   /** 每个单元的 local 坐标，行优先 */
   positions: { x: number; y: number }[]
 }
 
-/** 向外取大：得到「能装下 size 且符合比例」的最小尺寸 */
-function growToAspect(size: Size, ratioW: number, ratioH: number): Size {
-  const target = ratioW / ratioH
-  if (size.w / size.h > target) return { w: size.w, h: Math.ceil(size.w / target) }
-  return { w: Math.ceil(size.h * target), h: size.h }
-}
-
 /**
  * 分组 / 批量的 3×3 行优先打包（产品文档 §6.11）。
  * 单元固定 200×160（5:4），间距 16，内边距 20；
- * 外部容器最小尺寸由当前列数、行数动态算出并归一为 5:4。
+ * **外部容器尺寸 = 内容包围盒 + 四边等距的 20px**。
+ *
+ * ⚠️ 这里曾经"归一为 5:4"（把容器撑到 5:4，内容挂在左上角）。用户 2026-10-06
+ * 第 13 批第 7 条报掉的就是它：「节点素材进入批量节点的时候批量节点没有自适应，
+ * **下方空出很多位置**」——2 个单元（2×200+16 = 416 宽、160 高）被撑成 456×365，
+ * 下方实测空 **183px**。容器是"装东西的框"，就该**贴住内容**；
+ * 单元自身的 5:4 不受影响（那才是文档要的"单元 5:4"）。
  */
 export function packContainerChildren(childCount: number, minContainer?: Size): PackResult {
   const count = Math.max(0, Math.floor(childCount))
@@ -54,15 +51,14 @@ export function packContainerChildren(childCount: number, minContainer?: Size): 
   }
 
   const base = minContainer ?? (count === 0 ? NODE_MINIMUMS.group : { w: 0, h: 0 })
-  const target: Size = {
+  /**
+   * 贴住内容：四边各留 `CONTAINER_PADDING`，不额外撑高、不额外撑宽。
+   * 空容器仍用类型最小尺寸（240×192）——那是"空态文案"的落位尺寸。
+   */
+  const containerMin: Size = {
     w: Math.max(needed.w, base.w),
     h: Math.max(needed.h, base.h),
   }
-  // 空容器用类型最小尺寸（240×192）；有内容时归一为 5:4 且必须装得下内容
-  const containerMin =
-    count === 0
-      ? clampSize(target, base)
-      : growToAspect(target, CONTAINER_ASPECT[0], CONTAINER_ASPECT[1])
 
   return { columns, rows, cellSize: { ...PACKED_CELL }, containerMin, positions }
 }
@@ -79,25 +75,17 @@ export function packedCellAt(index: number): { x: number; y: number } {
 }
 
 /**
- * 容器有内容时的动态最小尺寸（§6.11「尺寸」）。
- * 参数是**当前容器尺寸**：增长时放大到装得下内容并归一 5:4；
- * 缩小到最小网格时停在能容纳当前内容的尺寸（即拖不动为止）。
- * 视图层只能算尺寸、不能改数据——喂同一个函数即可与 domain 保持一致。
+ * 容器的动态最小尺寸（§6.11「尺寸」）：**= 内容 + 四边等距内边距**。
+ *
+ * 拖缩小手柄时停在这里（拖不动为止）——用户 2026-10-06 第 13 批第 7 条要的
+ * 「保持四周的边距」就是它：再往里拖就会**遮住子节点**（子节点坐标以容器左上角
+ * 为原点，右 / 下缩过去必然压住它们）。
  */
-export function packedMinSize(current: Size, childCount: number): Size {
-  const { containerMin } = packContainerChildren(childCount)
-  const grown = growToAspect(
-    { w: Math.max(current.w, containerMin.w), h: Math.max(current.h, containerMin.h) },
-    CONTAINER_ASPECT[0],
-    CONTAINER_ASPECT[1],
-  )
-  return {
-    w: Math.min(grown.w, containerMin.w),
-    h: Math.min(grown.h, containerMin.h),
-  }
+export function packedMinSize(childCount: number): Size {
+  return packContainerChildren(childCount).containerMin
 }
 
-/** 外部容器最小尺寸（空容器 = 类型最小尺寸，有内容 = 动态网格尺寸） */
+/** 外部容器尺寸（空容器 = 类型最小尺寸，有内容 = 内容 + 四边等距） */
 export function containerMinSize(type: 'group' | 'batch', childCount: number): Size {
   const { containerMin } = packContainerChildren(childCount, NODE_MINIMUMS[type])
   return containerMin

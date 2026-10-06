@@ -317,6 +317,30 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
         }
       }
 
+      /*
+       * 少了子节点的容器要**重新贴合内容**（自适应是两个方向，同 `node.reparent`）：
+       * 顺手把 `data.childIds` 里的死引用清掉——留着它虽不致命（渲染按图为准），
+       * 但会让"子清单"越攒越长，将来按它做批量操作就会读到幽灵 id。
+       */
+      for (const c of graph.nodes) {
+        if (doomed.has(c.id) || !CONTAINER_TYPES.has(c.type)) continue
+        const goneKids = graph.nodes.filter((n) => n.parentId === c.id && doomed.has(n.id))
+        if (goneKids.length === 0) continue
+        const left = graph.nodes.filter((n) => n.parentId === c.id && !doomed.has(n.id)).length
+        const kind = c.type as 'group' | 'batch'
+        const fit = containerMinSize(kind, left)
+        const prevFit = containerMinSize(kind, left + goneKids.length)
+        const changes: Record<string, unknown> = {
+          data: { ...c.data, childIds: ((c.data as Partial<GroupData>).childIds ?? []).filter((id) => !doomed.has(id)) },
+        }
+        /** 同 `node.reparent`：只收**自动尺寸**的框，手工尺寸 / 打组包装框不动 */
+        if (c.w === prevFit.w && c.h === prevFit.h && (c.w !== fit.w || c.h !== fit.h)) {
+          changes.w = fit.w
+          changes.h = fit.h
+        }
+        patches.push({ op: 'patch', table: 'nodes', id: c.id, changes })
+      }
+
       return {
         patches,
         transaction: {
@@ -402,11 +426,28 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
       const to = containerOf(moved.parentId)
       if (from && from.id !== moved.parentId) {
         const remaining = childIdsOf(from).filter((cid) => cid !== cmd.id)
+        const changes: Record<string, unknown> = { data: { ...from.data, childIds: remaining } }
+        /*
+         * 容器随内容**收缩**（自适应是两个方向，用户 2026-10-06 第 13 批第 7 条）。
+         *
+         * 只收**自动尺寸**的框：手里这个尺寸等于"上一个子节点数对应的贴内容尺寸"⇒ 它是自动长出来的，
+         * 少一个子节点就该收回去。手工拖过（打组那个"包住内容"的包装框、用户自己拖大的框）
+         * 一律不动 —— 否则"打组"刚算好的包装框会在第一个子节点 reparent 时被压成 240×200。
+         */
+        const leftCount = graph.nodes.filter((n) => n.parentId === from.id && n.id !== cmd.id).length
+        const kind = from.type as 'group' | 'batch'
+        const fit = containerMinSize(kind, leftCount)
+        const prevFit = containerMinSize(kind, leftCount + 1)
+        const wasAuto = from.w === prevFit.w && from.h === prevFit.h
+        if (wasAuto && (from.w !== fit.w || from.h !== fit.h)) {
+          changes.w = fit.w
+          changes.h = fit.h
+        }
         patches.push({
           op: 'patch',
           table: 'nodes',
           id: from.id,
-          changes: { data: { ...from.data, childIds: remaining } },
+          changes,
         })
       }
       if (to) {
@@ -424,17 +465,26 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
             changes: { data: nextData },
           })
         }
-        // 容器长大到装得下新的子节点（§6.11 / §6.12「有内容时按当前网格动态提高最小尺寸」）。
-        // 这里只「放大不缩小」，缩小留给用户拖手柄（否则手柄一拖就被命令层拉回去）。
+        /*
+         * 容器**贴住内容**（§6.11 / §6.12「有内容时按当前网格动态算尺寸」）：
+         * 尺寸 = 内容 + 四边等距 20px（`containerMinSize`）。这是"自适应"的落点 ——
+         * 以前这里只「放大不缩小」且目标是 5:4 归一尺寸，于是两个单元就撑出
+         * 365 高、**下方空 183px**（用户第 13 批第 7 条的现场）。
+         *
+         * 只在**装不下**时贴一次，且两轴一起贴：
+         *  - 装得下就不动 ⇒ 手工拖大的框、打组那个包装框都不会被子节点变化改掉；
+         *  - 两轴一起贴 ⇒ 旧数据里"高被 5:4 撑过头"的框，下次塞进子节点就一并收回
+         *    （只按缺的那一轴补，会留下另一轴的空档，正是用户报的那个"下方空出很多位置"）。
+         */
         if (to.type === 'group' || to.type === 'batch') {
           const childCount = graph.nodes.filter((n) => n.parentId === to.id && n.id !== cmd.id).length + 1
-          const min = containerMinSize(to.type, childCount)
-          if (to.w < min.w || to.h < min.h) {
+          const fit = containerMinSize(to.type, childCount)
+          if (to.w < fit.w || to.h < fit.h) {
             patches.push({
               op: 'patch',
               table: 'nodes',
               id: to.id,
-              changes: { w: Math.max(to.w, min.w), h: Math.max(to.h, min.h) },
+              changes: { w: fit.w, h: fit.h },
             })
           }
         }

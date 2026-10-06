@@ -47,6 +47,19 @@ export interface NodeFrameProps {
   heightFromContent?: boolean
   /** 在节点任意位置按下：选中 + 发起拖动（由父层接线） */
   onFramePointerDown: (e: ReactPointerEvent) => void
+  /**
+   * 位置由**宿主**决定（React Flow 已把节点摆在 `position` 上；容器子节点由网格单元摆位）。
+   *
+   * 此时本组件不再写 `left/top`（写了就是二次偏移），但 `node.x / node.y` **仍按真实值使用** ——
+   * 缩放矩形必须落在宿主的坐标系里。
+   *
+   * ⚠️ 以前靠调用方把 `x / y` **归零**来达到"不二次偏移"，代价是缩放手柄算出的矩形成了
+   * `(0, 0, w, h)` ⇒ `node.resize` 把节点**写回世界原点**。用户 2026-10-06 第 13 批第 7 条
+   * 报的「点击批量节点右下角的缩放的时候会位移」就是它：实测一次 +60/+48 的拖拽，
+   * 节点从 (40,150) 被搬到 (64,15)（= 世界原点在屏幕上的位置），而尺寸是对的 ——
+   * 所以只看尺寸的断言全都绿着。
+   */
+  selfPositioned?: boolean
   /** 缩放手柄提交绝对矩形（命令层 coalesce 合并） */
   onResize: (rect: Rect, phase: ResizePhase) => void
   onRename: (title: string) => void
@@ -283,7 +296,12 @@ export function NodeFrame(props: NodeFrameProps) {
   return (
     <div
       className={`${styles.frame} ${selected ? styles.selected : ''}`}
-      style={{ left: node.x, top: node.y, width: node.w, height: node.h }}
+      style={{
+        left: props.selfPositioned === false ? 0 : node.x,
+        top: props.selfPositioned === false ? 0 : node.y,
+        width: node.w,
+        height: node.h,
+      }}
       data-node-id={node.id}
       data-node-type={node.type}
       /**

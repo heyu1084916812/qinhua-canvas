@@ -9,10 +9,14 @@ export const RESULT_GROUP_OFFSET = 32
 export const RESULT_GROUP_PADDING = 16
 export const RESULT_GROUP_GAP = 16
 
-/** 分组 / 批量的固定比例单元（5:4） */
+/**
+ * 分组 / 批量的单元（5:4）。
+ *
+ * ⚠️ 5:4 是**单元**的比例，不是容器的：容器 2026-10-06 起改为**贴住内容**
+ * （内容 + 四边等距 20px，见 `packContainer.ts`），故不再有 `CONTAINER_ASPECT`。
+ */
 export const PACKED_CELL: Size = { w: 200, h: 160 }
 export const PACKED_MAX_COLUMNS = 3
-export const CONTAINER_ASPECT: readonly [number, number] = [5, 4]
 
 /** 结果组内结果节点单元 */
 export const RESULT_CELL: Size = { w: 200, h: 200 }

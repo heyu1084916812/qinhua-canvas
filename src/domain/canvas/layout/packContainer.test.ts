@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { packContainerChildren, packedCellAt, packedMinSize, containerMinSize } from './packContainer'
-import { PACKED_CELL, NODE_MINIMUMS } from './constants'
+import { PACKED_CELL, NODE_MINIMUMS, CONTAINER_PADDING, CONTAINER_GAP } from './constants'
 
 describe('分组 / 批量打包', () => {
   it('空容器给出类型最小尺寸', () => {
@@ -34,15 +34,25 @@ describe('分组 / 批量打包', () => {
     }
   })
 
-  it('容器最小尺寸装得下全部单元，且保持 5:4', () => {
+  it('容器尺寸 = 内容 + 四边等距 20px（贴住内容，不再归一 5:4）', () => {
     for (let n = 1; n <= 12; n += 1) {
       const r = packContainerChildren(n)
       const maxX = Math.max(...r.positions.map((p) => p.x + PACKED_CELL.w))
       const maxY = Math.max(...r.positions.map((p) => p.y + PACKED_CELL.h))
       expect(r.containerMin.w).toBeGreaterThanOrEqual(maxX)
       expect(r.containerMin.h).toBeGreaterThanOrEqual(maxY)
-      expect(r.containerMin.w / r.containerMin.h).toBeCloseTo(5 / 4, 2)
+      // 四周留白相等 —— 这正是用户第 13 批第 7 条要的"保持四周的边距"
+      expect(r.containerMin.w - maxX).toBe(CONTAINER_PADDING)
+      expect(r.containerMin.h - maxY).toBe(CONTAINER_PADDING)
+      expect(Math.min(...r.positions.map((p) => p.x))).toBe(CONTAINER_PADDING)
+      expect(Math.min(...r.positions.map((p) => p.y))).toBe(CONTAINER_PADDING)
     }
+  })
+
+  it('两个单元不再被撑成 5:4（用户实测的"下方空 183px"现场）', () => {
+    const r = packContainerChildren(2)
+    expect(r.containerMin).toEqual({ w: 2 * PACKED_CELL.w + CONTAINER_GAP + CONTAINER_PADDING * 2, h: PACKED_CELL.h + CONTAINER_PADDING * 2 })
+    expect(r.containerMin.h).toBe(200)
   })
 })
 
@@ -66,15 +76,11 @@ describe('packedCellAt / packedMinSize（§6.11 尺寸）', () => {
     expect(one.h).toBeGreaterThanOrEqual(PACKED_CELL.h)
   })
 
-  it('packedMinSize 增长时吃下内容、收缩时停在最小，且始终 5:4', () => {
-    // 内容比容器大：最小尺寸放大
-    const grew = packedMinSize({ w: 240, h: 192 }, 4)
-    expect(grew.w).toBeGreaterThan(240)
-    // 已被拉得很大后再缩：停在能容纳内容的动态最小值
-    const shrank = packedMinSize({ w: 2000, h: 1600 }, 2)
-    const target = containerMinSize('group', 2)
-    expect(shrank.w).toBeCloseTo(target.w, 0)
-    expect(shrank.h).toBeCloseTo(target.h, 0)
-    for (const s of [grew, shrank]) expect(s.w / s.h).toBeCloseTo(5 / 4, 2)
+  it('packedMinSize = 内容 + 四边等距（拖缩小手柄停在这里，再拖会遮住子节点）', () => {
+    const four = packedMinSize(4)
+    expect(four.w).toBeGreaterThan(240)
+    expect(four).toEqual(containerMinSize('group', 4))
+    // 2 个单元：456×200（而不是 5:4 归一后的 456×365）
+    expect(packedMinSize(2)).toEqual({ w: 456, h: 200 })
   })
 })

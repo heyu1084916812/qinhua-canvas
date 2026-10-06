@@ -9,8 +9,8 @@ import type { Rect } from '../geometry/rect'
  *   但未存产物像素，拿不到「内容比例」，用拖动起点的容器比例代替）；
  *   有内容却缺 `naturalSize` 的生成节点同样走这条（model 注释「字段缺失即
  *   退回节点当前尺寸」）——仍等比，只是基准是容器而非产物；
- * - 数字：锁定该 w/h 比例——分组 / 批量 5:4（spec `lockAspect`）、
- *   有内容的图片 / 视频节点按产物真实像素 `naturalSize`。
+ * - 数字：锁定该 w/h 比例——有内容的图片 / 视频节点按产物真实像素 `naturalSize`。
+ *   （分组 / 批量**不再**走这条：容器贴住内容，比例交给左上角锚点 + 动态最小尺寸，见下。）
  *
  * 此前 `sizing.lockAspect` 只在 spec 里声明、没有任何消费者，`node.resize`
  * 一律自由缩放——「文档写了 = 已实现」的又一例（§6.16 表格标 ✅ 但从未兑现）。
@@ -29,9 +29,17 @@ export function resizeLockOf(node: NodeSnapshot): ResizeLock {
       }
       return d.assetHash ? 'current' : 'free' // 有内容退当前比例；空态自由缩放（§6.16）
     }
+    /**
+     * 分组 / 批量：**自由缩放**（2026-10-06 第 13 批第 7 条后改）。
+     *
+     * 曾经锁 5:4 —— 但容器现在**贴住内容**（内容 + 四边等距 20px，见
+     * `packContainer.ts`），锁比会在拖拽第一帧就把贴好的矩形掰成 5:4
+     * （用户刚报的"下方空出很多位置"正是那个 5:4 撑出来的）。
+     * 尺寸的边界改由**动态最小尺寸**守（拖到"四边等距"就停，再拖会遮住子节点）。
+     */
     case 'group':
     case 'batch':
-      return 5 / 4 // §6.16「5:4 固定比例」（sizing.lockAspect 的落地值）
+      return 'free'
     case 'compare':
       return 'current'
     default:
