@@ -4,9 +4,9 @@
  * 分组与批量的容器形态完全一致（文档明确「固定比例容器布局规则与分组节点一致」），
  * 因此样式只写一份、两处复用；语义差异（收纳物种类、空态文案）留在各自视图里。
  *
- * - 5:4 由 domain 的 sizing.lockAspect = true 保证，这里不写死宽高
+ * - 尺寸由 domain 算（内容 + 四边等距 20px），这里不写死宽高
  * - 虚线边框默认透明，hover / 选中时显形
- * - 背景为半透明 --bg-subtle 60%
+ * - 背景**常显**，档位由 `data-container-bg` 选（六档色值在 ui/tokens.css）
  */
 .body {
   position: relative;
@@ -15,10 +15,38 @@
   /* 同心圆角（§3.2）：本层铺满外框内容盒，内缩仅 1px（外框描边），半径必须跟外框走。
      沿用 --radius-control（10px）时角上会留下两条不同弧——与生成节点的素材框同一个毛病 */
   border-radius: var(--radius-node-inner);
-  background: color-mix(in srgb, var(--bg-subtle) 60%, transparent);
+  /* 常显背景（用户 2026-10-06 第 13 批第 5 条：「打组后要有个背景」）。默认档 = slate */
+  background: var(--group-bg-slate);
   border: 1px dashed transparent;
   overflow: hidden;
   transition: border-color var(--dur-edge) var(--ease-out);
+}
+
+/*
+ * 背景色六档（用户 2026-10-06：「背景色给六档」）。
+ *
+ * 档位名 → 令牌的映射只写在这里，色值本身在 `ui/tokens.css`（明 / 暗各一套）——
+ * 组件里写死色值会被主题守卫拦下，而"六档"必须是**跟着主题一起变**的六档。
+ * `data-container-bg` 由 `ContainerBody` 按 `groupBgOf(node)` 写上（缺字段 / 非法值已归一）。
+ */
+.body[data-container-bg='blue'] {
+  background: var(--group-bg-blue);
+}
+
+.body[data-container-bg='green'] {
+  background: var(--group-bg-green);
+}
+
+.body[data-container-bg='amber'] {
+  background: var(--group-bg-amber);
+}
+
+.body[data-container-bg='rose'] {
+  background: var(--group-bg-rose);
+}
+
+.body[data-container-bg='violet'] {
+  background: var(--group-bg-violet);
 }
 
 :global([data-node-type='group']:hover) .body,

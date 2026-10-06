@@ -4,7 +4,7 @@ import { useSyncExternalStore } from 'react'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import type { Rect } from '../../../domain/canvas/geometry/rect'
 import type { ResizeLock } from '../../../domain/canvas/nodeSpecs/resizeLock'
-import { lockedResize } from '../../../domain/canvas/nodeSpecs/resizeLock'
+import { freeResize, lockedResize, type ResizeCorner } from '../../../domain/canvas/nodeSpecs/resizeLock'
 import { portMagnet } from '../../../domain/canvas/geometry/portMagnet'
 import { portDeclsOf, type NodePorts } from '../../../domain/canvas/nodeSpecs/ports'
 import { useCanvasStore } from '../storeContext'
@@ -23,6 +23,19 @@ export type ResizePhase = 'begin' | 'move' | 'end'
  * 吸得太远会脱离节点边框，反而看不出它属于哪个节点。
  */
 const MAGNET_OPTS = { radius: 68, maxPull: 8 }
+
+/**
+ * 四角手柄各自的定位类（CSS 里一只角一条：位置 + 光标方向 + 同心圆角）。
+ *
+ * 写成查表而不是拼字符串：CSS Modules 的类名只在构建时存在，
+ * 拼出来的 `styles['corner' + x]` 拿不到（也就没有编译期检查）。
+ */
+const CORNER_CLASS: Record<ResizeCorner, string> = {
+  se: styles.cornerSe,
+  sw: styles.cornerSw,
+  ne: styles.cornerNe,
+  nw: styles.cornerNw,
+}
 
 export interface NodeFrameProps {
   node: NodeSnapshot
@@ -45,6 +58,14 @@ export interface NodeFrameProps {
    * 「拖到某个高度、松手跳到另一个高度」（2026-09-30 实测：332 → 380）。
    */
   heightFromContent?: boolean
+  /**
+   * 渲染哪几角的缩放手柄（缺省 `['se']` = 只有右下那只，与历史行为一致）。
+   *
+   * 用户 2026-10-06 第 13 批第 5 条：「组给…**四角可缩放**」⇒ 容器传 `RESIZE_CORNERS`。
+   * 比例锁 / 高度归内容的节点**强制只有右下**（等比锚点与"高度不吃纵向位移"两条
+   * 都只按右下角推导，多给几只角会给出没被验证过的矩形）。
+   */
+  resizeCorners?: readonly ResizeCorner[]
   /** 在节点任意位置按下：选中 + 发起拖动（由父层接线） */
   onFramePointerDown: (e: ReactPointerEvent) => void
   /**
@@ -108,6 +129,16 @@ export function NodeFrame(props: NodeFrameProps) {
    */
   const nodeRef = useRef(props.node)
   nodeRef.current = props.node
+  /** 缩放锁的**解析值**（与手柄的 `move` 里保持一致：组件内只解析一次） */
+  const resizeLock = props.resizeLock ?? 'free'
+  /**
+   * 实际渲染哪几只角的手柄。比例锁 / 高度归内容的节点强制只有右下：
+   * 等比锚点与"高度不吃纵向位移"两条都只按右下角推导（见 `resizeCorners` 的说明）。
+   */
+  const resizeCorners: readonly ResizeCorner[] =
+    resizeLock !== 'free' || props.heightFromContent === true
+      ? ['se']
+      : props.resizeCorners ?? ['se']
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(node.title)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -244,7 +275,7 @@ export function NodeFrame(props: NodeFrameProps) {
     setEditing(false)
   }
 
-  const onResizePointerDown = (e: ReactPointerEvent) => {
+  const onResizePointerDown = (e: ReactPointerEvent, corner: ResizeCorner) => {
     e.stopPropagation()
     const startX = e.clientX
     const startY = e.clientY
@@ -253,7 +284,7 @@ export function NodeFrame(props: NodeFrameProps) {
     let latest: Rect = base
     props.onResize(latest, 'begin')
     // 锁比解析：数字 = 固定比例；'current' = 按下瞬间的容器比例；缺省 / 'free' = 自由
-    const lock = props.resizeLock ?? 'free'
+    const lock = resizeLock
     /**
      * 高度归内容的节点（`heightFromContent`）：高度**整份交给视图按内容写回**。
      *
@@ -270,14 +301,20 @@ export function NodeFrame(props: NodeFrameProps) {
       const dy = ((ev.clientY - startY) / scale) * (heightFromContent ? 0 : 1)
       if (ratio !== null) {
         latest = lockedResize(base, dx, dy, minSize, ratio)
-      } else {
+      } else if (heightFromContent) {
+        /** 高度归内容的节点只吃横向位移（纵向由内容写回），且只可能拖右下角 */
         latest = {
           x: base.x,
           y: base.y,
           w: Math.max(minSize.w, base.w + dx),
-          /** 高度归内容时带**最新**高度回去（不是按下那一刻的），见 `nodeRef` 的说明 */
-          h: heightFromContent ? nodeRef.current.h : Math.max(minSize.h, base.h + dy),
+          h: nodeRef.current.h,
         }
+      } else {
+        /**
+         * 自由缩放走**四角通用**的那只函数（对角固定、被拖的角跟手）——
+         * 容器（分组 / 批量）有四只角，锚点不能写死成左上。见 `freeResize`。
+         */
+        latest = freeResize(base, corner, dx, dy, minSize)
       }
       props.onResize(latest, 'move')
     }
@@ -381,20 +418,30 @@ export function NodeFrame(props: NodeFrameProps) {
       {props.overlay}
 
       {!inContainer && (
-        // `data-node-resize-handle`：给自动化一个稳定锚点（别靠「最后一个 span」这种结构巧合）
-        <span
-          /**
-           * `nodrag` 是 **React Flow 的免拖动类名**（`noDragClassName` 默认值），
-           * 必须带上：RF 的拖动是绑在**原生 pointerdown** 上的，而这里 `stopPropagation`
-           * 只挡得住 React 合成事件、挡不住它 —— 于是「拖右下角缩放」会顺手发起一次节点拖动：
-           * 节点一边缩放一边跟着指针跑，松手时还会被当成一次落点判定
-           * （G57 实测：提示词节点缩放到一半被"拖进"了旁边的容器，尺寸读出来只有格位大小）。
-           * 老表面没有这个坑（它的拖动是 React 事件，stopPropagation 就够）。
-           */
-          className={`${styles.resizeHandle} nodrag`}
-          data-node-resize-handle
-          onPointerDown={onResizePointerDown}
-        />
+        <>
+          {resizeCorners.map((corner) => (
+            /*
+             * 锚点：`data-node-resize-handle` **只挂在右下那只**上（历史契约：自动化脚本、
+             * `audit-doc.mjs`、SSR 守门都按它取"那个手柄"）；四只角都能用
+             * `data-node-resize-corner="<se|sw|ne|nw>"` 精确点到某一角。
+             */
+            <span
+              key={corner}
+              /**
+               * `nodrag` 是 **React Flow 的免拖动类名**（`noDragClassName` 默认值），
+               * 必须带上：RF 的拖动是绑在**原生 pointerdown** 上的，而这里 `stopPropagation`
+               * 只挡得住 React 合成事件、挡不住它 —— 于是「拖右下角缩放」会顺手发起一次节点拖动：
+               * 节点一边缩放一边跟着指针跑，松手时还会被当成一次落点判定
+               * （G57 实测：提示词节点缩放到一半被"拖进"了旁边的容器，尺寸读出来只有格位大小）。
+               * 老表面没有这个坑（它的拖动是 React 事件，stopPropagation 就够）。
+               */
+              className={`${styles.resizeHandle} ${CORNER_CLASS[corner]} nodrag`}
+              {...(corner === 'se' ? { 'data-node-resize-handle': '' } : {})}
+              data-node-resize-corner={corner}
+              onPointerDown={(e) => onResizePointerDown(e, corner)}
+            />
+          ))}
+        </>
       )}
     </div>
   )

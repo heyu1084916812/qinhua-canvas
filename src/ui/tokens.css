@@ -22,6 +22,17 @@
   --bg-subtle: #f5f5f5;
   --bg-hover: #e2e2e2;
 
+  /* —— 容器的背景色档位（六档，用户 2026-10-06 第 13 批第 5 条：「背景色给六档」） ——
+     容器（分组）要给一块**常显**的底色，且用户可以挑；六档都是**低饱和的浅色**——
+     它们要垫在白色 / 浅灰的节点卡下面，浓一点就会把节点本身淹掉。
+     第 1 档 `slate` 是默认（≈ 原来的 `--bg-subtle` 60%，故老项目观感不变）。 */
+  --group-bg-slate: #f5f5f5;
+  --group-bg-blue: #eef2fb;
+  --group-bg-green: #eef6f0;
+  --group-bg-amber: #fbf4e8;
+  --group-bg-rose: #fbeeee;
+  --group-bg-violet: #f2eefb;
+
   --stroke: #e2e2e2;
   --grid-line: #ececef;
 
@@ -187,6 +198,15 @@
   --bg-surface: #222222;
   --bg-subtle: #1f1f1f;
   --bg-hover: #333333;
+
+  /* 容器背景六档（深色）：同色相、压暗到「比画布 #161616 亮一点」——
+     深色下容器要**浮起来**，不能再往暗走。第 1 档仍是默认。 */
+  --group-bg-slate: #202020;
+  --group-bg-blue: #1b2230;
+  --group-bg-green: #18241f;
+  --group-bg-amber: #292217;
+  --group-bg-rose: #2a1c1f;
+  --group-bg-violet: #211c2d;
 
   --stroke: #3a3a3a;
   --grid-line: #262626;

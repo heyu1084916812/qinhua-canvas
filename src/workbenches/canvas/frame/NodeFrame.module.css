@@ -215,18 +215,50 @@
 }
 
 .resizeHandle {
+  /*
+   * 四角通用部分：尺寸 + 透明的拖拽提示（悬停才浮现）。
+   * 位置 / 光标方向 / 同心圆角由 `.cornerSe` 等四条各写一条 ——
+   * 一只角一套（右下 `nwse`、右上 `nesw`…），别在一处里用 `:nth-child` 猜。
+   */
   position: absolute;
-  right: 0;
-  bottom: 0;
   width: 14px;
   height: 14px;
-  cursor: nwse-resize;
-  border-bottom-right-radius: var(--radius-node);
-  /* 弱化的拖拽提示，悬停浮现 */
   background: transparent;
 }
 
 .resizeHandle:hover {
   background: var(--bg-hover);
+}
+
+/* 右下（历史唯一的那只）：对角是左上 */
+.cornerSe {
+  right: 0;
+  bottom: 0;
+  cursor: nwse-resize;
+  border-bottom-right-radius: var(--radius-node);
+}
+
+/* 左下：对角是右上 */
+.cornerSw {
+  left: 0;
+  bottom: 0;
+  cursor: nesw-resize;
+  border-bottom-left-radius: var(--radius-node);
+}
+
+/* 右上：对角是左下 */
+.cornerNe {
+  right: 0;
+  top: 0;
+  cursor: nesw-resize;
+  border-top-right-radius: var(--radius-node);
+}
+
+/* 左上：对角是右下 */
+.cornerNw {
+  left: 0;
+  top: 0;
+  cursor: nwse-resize;
+  border-top-left-radius: var(--radius-node);
 }
 

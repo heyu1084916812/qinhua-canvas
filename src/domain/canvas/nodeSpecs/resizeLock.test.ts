@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { resizeLockOf, lockedResize } from './resizeLock'
+import { freeResize } from './resizeLock'
 import type { NodeSnapshot, GenerationData } from '../model/node'
 
 /**
@@ -94,5 +95,61 @@ describe('lockedResize / 等比换算', () => {
     const square = { x: 0, y: 0, w: 200, h: 200 }
     const r = lockedResize(square, 0, 0, min, 5 / 4)
     expect(r.w / r.h).toBeCloseTo(5 / 4, 6)
+  })
+})
+
+/**
+ * 四角自由缩放（用户 2026-10-06 第 13 批第 5 条：「组给…四角可缩放」）。
+ *
+ * 判据的核心是**对角固定**：拖 `nw` 时右下角一个像素都不许动 —— 这条错了，
+ * 用户看到的就是"拖左上角、整块跟着跑"。
+ */
+describe('freeResize / 四角自由缩放', () => {
+  const base = { x: 100, y: 100, w: 400, h: 200 }
+
+  it('右下：左上角不动', () => {
+    const r = freeResize(base, 'se', 40, 20, min)
+    expect(r).toEqual({ x: 100, y: 100, w: 440, h: 220 })
+  })
+
+  it('左上：右下角不动（x/y 跟着移，w/h 反向变）', () => {
+    const r = freeResize(base, 'nw', 40, 20, min)
+    expect(r.x + r.w).toBe(base.x + base.w)
+    expect(r.y + r.h).toBe(base.y + base.h)
+    expect(r).toEqual({ x: 140, y: 120, w: 360, h: 180 })
+  })
+
+  it('右上：左下角不动', () => {
+    const r = freeResize(base, 'ne', 40, 20, min)
+    expect(r.y + r.h).toBe(base.y + base.h)
+    expect(r.x).toBe(base.x)
+    expect(r).toEqual({ x: 100, y: 120, w: 440, h: 180 })
+  })
+
+  it('左下：右上角不动', () => {
+    const r = freeResize(base, 'sw', 40, 20, min)
+    expect(r.x + r.w).toBe(base.x + base.w)
+    expect(r.y).toBe(base.y)
+    expect(r).toEqual({ x: 140, y: 100, w: 360, h: 220 })
+  })
+
+  it('缩到最小：夹住尺寸但**对角仍不动**（不是拖到最小之后开始位移）', () => {
+    /** 每一角"不动"的那一点：拖 se ⇒ 左上不动；拖 sw ⇒ 右上不动；拖 ne ⇒ 左下；拖 nw ⇒ 右下 */
+    const fixed = {
+      se: { x: base.x, y: base.y },
+      sw: { x: base.x + base.w, y: base.y },
+      ne: { x: base.x, y: base.y + base.h },
+      nw: { x: base.x + base.w, y: base.y + base.h },
+    } as const
+    for (const corner of ['se', 'sw', 'ne', 'nw'] as const) {
+      const west = corner === 'sw' || corner === 'nw'
+      const north = corner === 'ne' || corner === 'nw'
+      // "缩到最小"的位移方向逐角不同：往**节点内侧**推的是西/北那两条边
+      const r = freeResize(base, corner, west ? 9999 : -9999, north ? 9999 : -9999, min)
+      expect(r.w).toBe(min.w)
+      expect(r.h).toBe(min.h)
+      const anchor = { x: west ? r.x + r.w : r.x, y: north ? r.y + r.h : r.y }
+      expect(anchor).toEqual(fixed[corner])
+    }
   })
 })

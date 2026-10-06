@@ -4,6 +4,7 @@ import { NodeFrame } from '../frame/NodeFrame'
 import { getNodeDefinition } from '../nodes/registry'
 import { portDeclsOf } from '../../../domain/canvas/nodeSpecs/ports'
 import { heightFromContentOf, resizeLockOf } from '../../../domain/canvas/nodeSpecs/resizeLock'
+import { RESIZE_CORNERS } from '../../../domain/canvas/nodeSpecs/resizeLock'
 import { isContainerType } from '../../../domain/canvas/model/node'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import { containerMinSize } from '../../../domain/canvas/layout/packContainer'
@@ -134,6 +135,8 @@ function FlowNodeInner({ data, selected }: NodeProps) {
       ports={def.ports}
       minSize={minSize}
       resizeLock={resizeLockOf(node)}
+      /* 容器四角可缩放（用户 2026-10-06 第 13 批第 5 条）；其它类型仍是右下那一只 */
+      resizeCorners={isContainerType(node.type) ? RESIZE_CORNERS : undefined}
       heightFromContent={heightFromContentOf(node)}
       /* 老画布那份端点交给 React Flow 的 Handle 画，避免两套端点叠在一起 */
       portsHidden

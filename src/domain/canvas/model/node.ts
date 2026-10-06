@@ -191,10 +191,24 @@ export interface CompareData {
   splitRatio: number
 }
 
+/**
+ * 容器（分组）背景色的六档（用户 2026-10-06 第 13 批第 5 条：「背景色给六档」）。
+ *
+ * 取值是**档位名**而不是色值：色值按主题两套写在 `ui/tokens.css`
+ * （`--group-bg-*`），领域层只描述"有哪几档、缺省是哪一档"。
+ * 这样深色主题才跟着一起变（组件里写死色值就被主题守卫拦下了）。
+ */
+export const GROUP_BG_TONES = ['slate', 'blue', 'green', 'amber', 'rose', 'violet'] as const
+export type GroupBgTone = (typeof GROUP_BG_TONES)[number]
+/** 缺省档（= 打组后没挑过色时的样子，观感与"打组就给一块常显底色"这条一致） */
+export const GROUP_BG_DEFAULT: GroupBgTone = 'slate'
+
 export interface GroupData extends GenerationData {
   childIds: string[]
   hiddenIds: string[]
   hiddenPromptIds: string[]
+  /** 常显背景的档位；缺省 / 非法值一律按 `GROUP_BG_DEFAULT` 渲染（老数据没有这个字段） */
+  bg?: GroupBgTone
 }
 
 export interface BatchData extends GenerationData {

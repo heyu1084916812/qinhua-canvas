@@ -17,6 +17,18 @@ import type { Rect } from '../geometry/rect'
  */
 export type ResizeLock = 'free' | 'current' | number
 
+/**
+ * 缩放手柄所在的角（`se` = 右下，就是最早只有一只的那只）。
+ *
+ * 顺序按"先横后纵"的反向写：`sw` 是左下的那只、`ne` 右上的那只、`nw` 左上。
+ * 用户 2026-10-06 第 13 批第 5 条：「组给…**四角可缩放**」（参考图二）——
+ * 之前全项目只有右下角一只。
+ */
+export type ResizeCorner = 'se' | 'sw' | 'ne' | 'nw'
+
+/** 四角，右下在前（缺省那只；SSR 守门断言与老探针都按"先命中右下"取） */
+export const RESIZE_CORNERS: readonly ResizeCorner[] = ['se', 'sw', 'ne', 'nw']
+
 /** 按节点类型与内容解析缩放锁（§6.16 表格的代码化） */
 export function resizeLockOf(node: NodeSnapshot): ResizeLock {
   switch (node.type) {
@@ -90,4 +102,38 @@ export function lockedResize(
   const h = byWidth ? along / ratio : along
   const f = Math.max(1, min.w / w, min.h / h)
   return { x: base.x, y: base.y, w: w * f, h: h * f }
+}
+
+/**
+ * 自由缩放的**四角**数学：**对角固定**，被拖的那一角跟手。
+ *
+ * 与 `lockedResize` 的关系：那只负责"比例锁"（主导轴定尺寸、另一轴跟随），
+ * 且只按右下角写死（左上角固定）。容器是自由缩放（不锁比例），四角各要一只，
+ * 故锚点不能再写死 —— 这只函数把"哪一角不动"参数化：
+ * 拖 `nw` ⇒ 右下角固定；拖 `ne` ⇒ 左下角固定；以此类推。
+ *
+ * 最小尺寸的夹法：**先夹尺寸、再回推坐标** —— 反过来（先算坐标再夹）会让被夹住的那一帧
+ * 把对角也带偏，用户看到的是"拖到最小之后整块开始位移"。
+ *
+ * @param dx,dy 指针相对按下点的位移（世界单位，调用方已按 zoom 折算）
+ */
+export function freeResize(
+  base: Rect,
+  corner: ResizeCorner,
+  dx: number,
+  dy: number,
+  min: { w: number; h: number },
+): Rect {
+  const right = base.x + base.w
+  const bottom = base.y + base.h
+  const west = corner === 'sw' || corner === 'nw'
+  const north = corner === 'ne' || corner === 'nw'
+  const w = Math.max(min.w, west ? base.w - dx : base.w + dx)
+  const h = Math.max(min.h, north ? base.h - dy : base.h + dy)
+  return {
+    x: west ? right - w : base.x,
+    y: north ? bottom - h : base.y,
+    w,
+    h,
+  }
 }

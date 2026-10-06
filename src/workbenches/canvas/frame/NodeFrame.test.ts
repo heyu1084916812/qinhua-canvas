@@ -19,7 +19,10 @@ import type { NodeSnapshot } from '../../../domain/canvas/model/node'
  * 所以最省事的守门人就是这条 SSR 断言。项目测试环境是 node，没有 testing-library，
  * 故与 `PromptNodeView.crash.test.ts` 同一做法：`renderToString` + 查 class。
  */
-function renderFrame({ parentId = null }: { parentId?: string | null } = {}): string {
+function renderFrame({
+  parentId = null,
+  corners,
+}: { parentId?: string | null; corners?: readonly ('se' | 'sw' | 'ne' | 'nw')[] } = {}): string {
   const node = {
     id: 'node_test',
     projectId: 'proj_test',
@@ -44,6 +47,7 @@ function renderFrame({ parentId = null }: { parentId?: string | null } = {}): st
         scale: 1,
         ports: { input: true, output: true },
         minSize: { w: 200, h: 160 },
+        ...(corners ? { resizeCorners: corners } : {}),
         onFramePointerDown: () => {},
         onResize: () => {},
         onRename: () => {},
@@ -63,5 +67,22 @@ describe('NodeFrame 缩放手柄', () => {
 
   it('容器子节点不渲染缩放手柄（§6.11：组内节点不可缩放）', () => {
     expect(renderFrame({ parentId: 'node_parent' })).not.toContain('data-node-resize-handle')
+  })
+
+  /**
+   * 四角手柄（用户 2026-10-06 第 13 批第 5 条：「组给…四角可缩放」）。
+   *
+   * 两条一起钉：**传了四角** ⇒ 四个角各一只；**不传** ⇒ 仍然只有右下那一只
+   * （其它节点类型的行为不能被这次改动顺手改掉）。
+   * `data-node-resize-handle`（无值）**只在右下那只上**是契约 ——
+   * 老探针 / `audit-doc.mjs` / 冒烟都按它取"那个手柄"，四只都挂会让它们命中多元素。
+   */
+  it('传 resizeCorners 时四角各一只手柄；缺省仍只有右下', () => {
+    const four = renderFrame({ corners: ['se', 'sw', 'ne', 'nw'] })
+    expect([...four.matchAll(/data-node-resize-corner="(\w+)"/g)].map((m) => m[1])).toEqual(['se', 'sw', 'ne', 'nw'])
+    expect([...four.matchAll(/data-node-resize-handle/g)]).toHaveLength(1)
+
+    const one = renderFrame()
+    expect([...one.matchAll(/data-node-resize-corner="(\w+)"/g)].map((m) => m[1])).toEqual(['se'])
   })
 })

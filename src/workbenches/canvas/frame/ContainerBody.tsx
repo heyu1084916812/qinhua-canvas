@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from 'react'
+import type { GroupBgTone } from '../../../domain/canvas/model/node'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import { packContainerChildren, containerMinSize } from '../../../domain/canvas/layout/packContainer'
 import styles from './ContainerBody.module.css'
@@ -16,6 +17,11 @@ export interface ContainerBodyProps {
   emptyText: string
   /** 空态副文案 */
   emptyHint: string
+  /**
+   * 背景色档位（只有分组用；批量不挑色 ⇒ 不传，样式里回落到缺省档）。
+   * 值来自 `groupBgOf(node)`（缺字段 / 非法值已经在那边归一过）。
+   */
+  bg?: GroupBgTone
 }
 
 /**
@@ -29,7 +35,7 @@ export interface ContainerBodyProps {
  * 子节点的 local x/y 由网格决定，故渲染时归零（见 画布表面）。
  */
 export function ContainerBody(props: ContainerBodyProps) {
-  const { node, kind, children = [], renderChild } = props
+  const { node, kind, children = [], renderChild, bg } = props
   const childIds = (node.data as { childIds?: string[] }).childIds ?? []
   const ordered = useMemo(() => orderChildren(children, childIds), [children, childIds])
   const packs = useMemo(() => packContainerChildren(ordered.length), [ordered.length])
@@ -39,6 +45,7 @@ export function ContainerBody(props: ContainerBodyProps) {
     <div
       className={styles.body}
       data-container-body
+      {...(bg ? { 'data-container-bg': bg } : {})}
       {...{ [`data-${kind}-body`]: '' }}
       {...{ [`data-${kind}-child-count`]: ordered.length }}
       {...{ [`data-${kind}-min`]: `${min.w}x${min.h}` }}

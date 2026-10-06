@@ -116,7 +116,11 @@ async function measureMinSize(page, nodeType) {
   const node = page.locator('[data-node-id]').last()
   const id = await node.getAttribute('data-node-id')
   if (!id) throw new Error('没建出节点')
-  const handle = page.locator(`[data-node-id="${id}"] span[class*="resizeHandle"]`)
+  /*
+   * 按"右下那一角"取：容器有四只手柄（用户 2026-10-06 第 13 批第 5 条），
+   * 用 `[class*="resizeHandle"]` 会命中四只 ⇒ 严格模式报错。
+   */
+  const handle = page.locator(`[data-node-id="${id}"] [data-node-resize-corner="se"]`)
   if ((await handle.count()) === 0) throw new Error('找不到缩放手柄')
   const hb = await handle.boundingBox()
   const nb = await node.boundingBox()

@@ -1,4 +1,5 @@
-import type { GenerationData, GroupData, NodeSnapshot, PromptData } from '../model/node'
+import { GROUP_BG_TONES, GROUP_BG_DEFAULT } from '../model/node'
+import type { GenerationData, GroupBgTone, GroupData, NodeSnapshot, PromptData } from '../model/node'
 import type { NodeInput } from '../model/runRecord'
 import type { InputContext, NodeSpec, RunContext, RunRequest } from './types'
 import { NODE_MINIMUMS } from '../layout/constants'
@@ -105,6 +106,17 @@ export const groupSpec: NodeSpec<GroupData> = {
       params: generationParams(data),
     }
   },
+}
+
+/**
+ * 组的**背景色档位**（渲染值）：缺字段 / 非法值（老工程、手改过的文件）一律回落到缺省档。
+ *
+ * 与 `containerMinSize` 同一条思路：视图层只调用、不自己判 —— 判定口径写一份，
+ * 主题色值写在 `ui/tokens.css`，两者都不落在组件里。
+ */
+export function groupBgOf(node: { data: Partial<GroupData> }): GroupBgTone {
+  const bg = node.data.bg
+  return bg && (GROUP_BG_TONES as readonly string[]).includes(bg) ? bg : GROUP_BG_DEFAULT
 }
 
 /**

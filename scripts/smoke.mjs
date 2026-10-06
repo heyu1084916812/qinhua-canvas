@@ -2259,6 +2259,43 @@ async function g15(browser) {
     (await groupBody.getAttribute('data-group-min')) === '456x200',
     `min=${await groupBody.getAttribute('data-group-min')}`,
   )
+  /*
+   * 组的观感（用户 2026-10-06 第 13 批第 5 条：**常显背景 + 标题 + 四角可缩放**）。
+   * 三条都在这里钉住 —— 它们全是"看得见但摸不着"的东西，没有断言就只能靠眼睛。
+   */
+  rec(
+    g,
+    '★★ 组四角都有缩放手柄（#5「四角可缩放」）',
+    (await group.locator('[data-node-resize-corner]').count()) === 4,
+    `手柄=${await group.locator('[data-node-resize-corner]').count()}`,
+  )
+  const groupBg = await group.locator('[data-group-body]').getAttribute('data-container-bg')
+  rec(g, '★★ 组有常显背景（默认档 slate）', groupBg === 'slate', `档位=${groupBg}`)
+  const bgColor = await group.locator('[data-group-body]').evaluate((el) => getComputedStyle(el).backgroundColor)
+  rec(g, '背景真的画出来了（不是 transparent）', !/rgba?\(0, 0, 0, 0\)/.test(bgColor), bgColor)
+  rec(g, '组标题在（§6.6 标题浮在框外左上）', (await group.locator('[class*="title"]').count()) >= 1)
+  /**
+   * ★★ 六档背景**各不相同**（用户：「背景色给六档」）——逐档改写属性、读算出来的颜色，
+   * 六个值必须互不相同。这样"档位名 → 令牌"的映射漏一条（两档同色）会被当场逮住。
+   */
+  const toneColors = await page.evaluate(() => {
+    const el = document.querySelector('[data-group-body]')
+    const out = {}
+    for (const t of ['slate', 'blue', 'green', 'amber', 'rose', 'violet']) {
+      el.setAttribute('data-container-bg', t)
+      out[t] = getComputedStyle(el).backgroundColor
+    }
+    el.setAttribute('data-container-bg', 'slate')
+    return out
+  })
+  rec(
+    g,
+    '★★ 背景色六档互不相同（六档都接上了令牌）',
+    new Set(Object.values(toneColors)).size === 6,
+    Object.entries(toneColors)
+      .map(([k, v]) => `${k}:${v}`)
+      .join(' '),
+  )
   rec(g, '组内节点端点隐藏（§6.11）', (await group.locator('[data-node-id] [data-port]').count()) === 0)
   await page.screenshot({ path: `${OUT}/25-g15-group-filled.png` })
 
@@ -6509,7 +6546,11 @@ async function g57(browser) {
 
   /** 拖右下缩放手柄（zoom=1：屏幕位移=世界位移），返回松手瞬间与 400ms 后两拍尺寸 */
   const dragResize = async (id, dx, dy) => {
-    const h = await page.locator(`[data-node-id="${id}"] [class*="resizeHandle"]`).boundingBox()
+    /*
+     * 右下那一角：容器有**四只**手柄（用户 2026-10-06 第 13 批第 5 条），
+     * 这里按"哪一角"取，别用 `[class*="resizeHandle"]`（那会命中四只 ⇒ 严格模式报错）。
+     */
+    const h = await page.locator(`[data-node-id="${id}"] [data-node-resize-corner="se"]`).boundingBox()
     if (!h) throw new Error('resize handle 不可见')
     const sx = h.x + h.width / 2
     const sy = h.y + h.height / 2

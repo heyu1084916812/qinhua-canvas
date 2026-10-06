@@ -1,4 +1,6 @@
 import type { NodeViewProps } from '../registry'
+import type { GroupData } from '../../../../domain/canvas/model/node'
+import { groupBgOf } from '../../../../domain/canvas/nodeSpecs/group'
 import { ContainerBody } from '../../frame/ContainerBody'
 
 /**
@@ -18,6 +20,8 @@ export function GroupNodeView(props: NodeViewProps) {
     <ContainerBody
       node={props.node}
       kind="group"
+      /** 常显背景的档位（用户 2026-10-06 第 13 批第 5 条「背景色给六档」） */
+      bg={groupBgOf({ data: props.node.data as Partial<GroupData> })}
       children={props.childNodes}
       renderChild={props.renderChild}
       emptyText="拖入提示词或生成结果"
