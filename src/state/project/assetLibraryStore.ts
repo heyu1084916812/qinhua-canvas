@@ -20,7 +20,7 @@ import {
   sortLibraryAssets,
 } from '../../domain/shared/assetLibrary'
 import {
-  countHistory,
+  countAssets,
   filterHistory,
   groupHistory,
   modelCounts,
@@ -128,7 +128,13 @@ function derive(state: AssetLibraryState): Derived {
     ),
     historyVisible,
     groups: groupHistory(historyVisible, state.group, state.now),
-    counts: countHistory(state.history, state.now),
+    /*
+     * ⚠️ **整个库的全量**（生成历史 ∪ 素材库、按 hash 去重），不是只数生成历史 ——
+     * 用户 2026-10-06 第 11 批第 5 条：素材库里有图、但生成历史为空时，
+     * 那些数字**全成了 0**（"明明有图，但是有些数字还是 0"）。
+     * 口径由用户拍定：「生成历史没用收藏的算全部素材，整个库的全量」⇒ 见 `countAssets`。
+     */
+    counts: countAssets(state.history, state.assets, state.now),
     models: modelCounts(state.history),
   }
 }

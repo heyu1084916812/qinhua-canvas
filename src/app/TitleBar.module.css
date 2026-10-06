@@ -8,7 +8,14 @@
   height: var(--title-bar-h);
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /*
+   * ⚠️ **`flex-start` + `.controls { margin-left: auto }`，不能用 `space-between`**
+   * （用户 2026-10-06 第 11 批第 3 条：「上方的应用和编辑设置居中了，我要的是靠左」）。
+   * `space-between` 会把三个子项（折叠键 / 菜单 / 窗口三键）**平均撑开** ——
+   * 中间那组于是正好落在窗口正中（实测：应用 x≈645、编辑 x≈712，窗口宽 1456 ⇒ 中心 728）。
+   * 改成"从左往右排、只把窗口三键推到最右"之后，顺序就是折叠 → 应用 → 编辑。
+   */
+  justify-content: flex-start;
   /* 左内距与侧栏图标列对齐（侧栏 64px 宽、图标居中 ⇒ 视觉起点一致） */
   padding-left: var(--space-4);
   background: var(--bg-app);
@@ -176,6 +183,8 @@
   align-items: stretch;
   /* 窗口按钮贴右上角：这是 Windows 的肌肉记忆，不跟应用留白走 */
   height: 100%;
+  /* 唯一的 `auto` 外边距 —— 把这一组顶到最右（见 `.bar` 的注释：不能再用 space-between） */
+  margin-left: auto;
 }
 
 .btn {

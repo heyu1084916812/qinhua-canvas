@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildHistory,
+  countAssets,
   countHistory,
   dateLabelOf,
   filterHistory,
@@ -209,6 +210,74 @@ describe('countHistory / modelCounts', () => {
       { model: 'video-x', count: 2 },
       { model: 'image-pro', count: 1 },
     ])
+  })
+
+  /**
+   * ★★ 整个库的全量（用户 2026-10-06 第 11 批第 5 条）：
+   * 「生成历史没用收藏的算全部素材，**整个库的全量**」。
+   *
+   * 用户报的正是这一档：图里**素材库有 1 张、全部历史 0**，于是顶部与左侧的数字**全是 0**
+   * —— 因为旧实现只统计生成历史（`runRecords`），素材库里"上传/导入保存进来的"那张
+   * 根本没有生成记录、一张都没被算上。
+   */
+  describe('countAssets（生成历史 ∪ 素材库）', () => {
+    it('★★ 库里有图但生成历史为空 ⇒ 数字**不是 0**（用户报的那一档）', () => {
+      const lib = [{ hash: 'up-1', mime: 'image/png', savedAt: NOW - 60 * 60 * 1000 }]
+      expect(countAssets([], lib, NOW)).toEqual({
+        all: 1,
+        image: 1,
+        video: 0,
+        audio: 0,
+        saved: 1,
+        recent: 1,
+        failed: 0,
+      })
+    })
+
+    it('★★ 同一张既在生成历史里、又在素材库里 ⇒ **只算一次**（按 hash 去重）', () => {
+      const lib = [{ hash: 'i1', mime: 'image/png', savedAt: NOW - 60 * 60 * 1000 }]
+      expect(countAssets(items, lib, NOW)).toEqual({
+        /*
+         * `all` **只数素材**（图/视频/音频三家之和 = all，口径自洽）；
+         * 失败那一条进 `failed`，不再混进"全部" —— 参考图五里它本来就是独立一档
+         * （左侧「生成失败 N」），旧实现把它算进"全部"才让 4 ≠ 2+1+0。
+         */
+        all: 3,
+        image: 2,
+        video: 1,
+        audio: 0,
+        saved: 1,
+        recent: 2,
+        failed: 1,
+      })
+    })
+
+    it('★ 库与历史取**更晚**的时间决定"最近 7 天"（30 天前生成的今天被收藏 ⇒ 算最近）', () => {
+      const lib = [{ hash: 'old', mime: 'image/png', savedAt: NOW - 60 * 60 * 1000 }]
+      const union = countAssets(items, lib, NOW)
+      expect(union.all).toBe(3)
+      expect(union.recent).toBe(3) // 原来 2：30 天前那张被"今天收藏"拉进窗口
+    })
+
+    it('★ 素材库多张（含未在历史里的）⇒ saved 与 all 一起长', () => {
+      const lib = [
+        { hash: 'i1', mime: 'image/png', savedAt: NOW },
+        { hash: 'up-1', mime: 'image/png', savedAt: NOW },
+        { hash: 'up-2', mime: 'video/mp4', savedAt: NOW },
+        { hash: 'i1', mime: 'image/png', savedAt: NOW }, // 重复行只算一次
+      ]
+      expect(countAssets(items, lib, NOW)).toMatchObject({
+        all: 5,
+        image: 3,
+        video: 2,
+        saved: 3,
+      })
+    })
+
+    it('★ 失败记录仍然只来自生成历史（素材库没有这一档）', () => {
+      expect(countAssets(items, [], NOW).failed).toBe(1)
+      expect(countAssets([], [{ hash: 'up-1', mime: 'image/png' }], NOW).failed).toBe(0)
+    })
   })
 })
 

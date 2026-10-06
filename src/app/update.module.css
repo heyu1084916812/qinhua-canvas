@@ -89,6 +89,17 @@
   align-items: center;
   gap: var(--space-2);
   width: 100%;
+  /*
+   * 定高 40px，与侧栏别的行同高（导航项 / 全局设置 / 新建项目都是 40）。
+   *
+   * ⚠️ 这里还有一个**只有真窗口才暴露**的坑（用户 2026-10-06 第 11 批第 1 条：
+   * 「左边的设置以及更新按钮在折叠的时候错位了，拉高了」）：收起态侧栏内容盒只有 40px，
+   * 图标 20 + 间距 8 之后留给标签的只有 ~12px，于是「检查更新」被压成**一行一个字、折成 4 行**，
+   * 整行被撑到 4 倍高（实测两枚图标之间空出 ~70px，正常行距只有 ~44px）。
+   * 根因是标签**没有 `white-space: nowrap`** —— 见下面的 `.sideLabel`。
+   * 浏览器冒烟够不到这一条：更新按钮只在装了更新器的壳里渲染。
+   */
+  height: 40px;
   padding: 6px var(--space-2);
   box-sizing: border-box;
   border: none;
@@ -115,6 +126,11 @@
 .sideIcon {
   flex: none;
   display: inline-flex;
+}
+
+/* 标签不许换行：收起态容器再窄，它也只该溢出（被侧栏裁掉 + 淡出），不该折行撑高按钮 */
+.sideLabel {
+  white-space: nowrap;
 }
 
 /*

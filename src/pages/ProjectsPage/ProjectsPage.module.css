@@ -107,18 +107,25 @@
   min-height: 0;
   overflow-y: auto;
   /*
-   * **透明右边框**把滚动条从卡片右沿推进来 16px。
+   * ⚠️ **这里曾经有两条 16px 的透明边框**，把滚动条从卡片右沿推进来（上一轮的 #287）。
+   * 用户 2026-10-06 第 11 批第 6 条改了口径：「靠近工作区的边缘即可，应该就是**第一个紧贴卡片（工作区）右沿**」
+   * ⇒ 边框去掉，滚动条回到卡片右沿。
    *
-   * 为什么不是 `padding-right`：滚动条画在**内边框边缘**（padding 之外），
-   * 加内边距它照样贴着卡片边。只有 border 能让它挪进来。
-   * 为什么是透明而不是留白：底色默认画到 border-box，卡片看上去仍是原来的宽度。
-   *
-   * 左边那条同宽是**为了对称**：只推右边的话，内容盒整体左移 8px ——
-   * 实测"内容在工作区里居中"那条断言会红（差的就是半个滚动条）。
-   * 两边同宽 ⇒ 内容盒在卡片里始终居中，有没有滚动条都一样。
+   * 不用边框之后，"两端穿出圆角"那件事交给**滚动条本体自己**解决：
+   * 给拇指做**上下 8px 内缩** + 大圆角（见下面的 `::-webkit-scrollbar-thumb`）——
+   * 卡片圆角 14px，在 x = 右沿 − 4px 处圆弧的最低点约 y=4.2px，所以拇指从 8px 处开始就已完全在卡片内。
+   * 左右**不缩**，它才读得出"紧贴右沿"。
    */
-  border-right: var(--space-4) solid transparent;
-  border-left: var(--space-4) solid transparent;
+}
+
+/*
+ * 滚动条拇指：上下各缩 8px（`border-*: transparent` + `background-clip: padding-box`），
+ * 圆角沿用全局那条 `999px`。颜色仍来自 `base.css` 的全局规则，这里只加"内缩"。
+ */
+.main::-webkit-scrollbar-thumb {
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  background-clip: padding-box;
 }
 
 .section {

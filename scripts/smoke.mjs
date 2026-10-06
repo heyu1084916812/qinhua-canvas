@@ -11979,14 +11979,19 @@ async function g85(browser) {
   )
 
   /**
-   * ★★ 滚动在**项目页内部**、且滚动条内推 16px（用户 2026-10-06，对账 #287）。
+   * ★★ 滚动在**项目页内部**、滚动条**紧贴卡片右沿**（用户 2026-10-06 第 11 批第 6 条，对账 #287 → #310）。
    *
    * 用户看到的是"滚动条的上下两端漏在卡片圆角外面"。根因：滚动发生在上游的
    * `[data-app-workspace]`（那张**圆角卡**）自己身上，滚动条自然贴在卡片最右沿。
-   * 现在滚动下沉到 `.main`，并用**透明右边框**把滚动条推进来 16px。
+   * 修法两步：① 滚动**下沉**到 `.main`（工作区那层不再滚）；② 滚动条**紧贴卡片右沿**
+   * （用户 2026-10-06 第 11 批第 6 条：「靠近工作区的边缘即可，应该就是第一个紧贴卡片（工作区）右沿」——
+   * 于是上一轮那两条 16px 透明边框去掉了）。
+   * "两端穿出圆角"改由**滚动条本体**解决：拇指做上下 8px 内缩（`::-webkit-scrollbar-thumb` 的透明边框）。
+   * ⚠️ 那条内缩**没法用 `getComputedStyle` 断言**（伪元素不在元素的计算样式里）——
+   * 它的判据是真窗口**像素扫描**（记在对账 #310：拇指首个灰点 y=57，卡片顶边 48 ⇒ 内缩 9px，完全在卡片内）。
    *
    * 判据里"工作区滚动高度 = 客户区高度"是关键：它证明**卡片这一层已经没有滚动条**，
-   * 只比 border 宽度不足以说明这条（那可能只是加了个边框、滚动还在上游）。
+   * 只比 border 宽度不足以说明这条（那可能只是加/去掉了边框、滚动还在上游）。
    */
   const pageScroll = await page.evaluate(() => {
     const pageEl = document.querySelector('[data-projects-drop]')
@@ -12010,10 +12015,10 @@ async function g85(browser) {
   })
   rec(
     g,
-    '★★ 项目页滚动在页面内部（工作区这层不滚）+ 滚动条内推 16px —— 对账 #287',
+    '★★ 项目页滚动在页面内部（工作区这层不滚）+ 滚动条紧贴卡片右沿（无透明边框）—— 对账 #287 / #310',
     !!pageScroll &&
       pageScroll.overflowY === 'auto' &&
-      pageScroll.borderRight === '16px' &&
+      pageScroll.borderRight === '0px' &&
       pageScroll.wsSh === pageScroll.wsCh &&
       (pageScroll.sh <= pageScroll.ch || pageScroll.scrolled),
     JSON.stringify(pageScroll),
@@ -13421,11 +13426,11 @@ async function g90(browser) {
   )
   rec(
     g,
-    '★★ 滚动在页面内部（工作区不滚；内容列自己滚且滚动条内推 16px —— 对账 #287）',
+    '★★ 滚动在页面内部（工作区不滚；内容列自己滚且滚动条紧贴卡片右沿 —— 对账 #287 / #310）',
     !!rows.wsScroll &&
       rows.wsScroll.sh === rows.wsScroll.ch &&
       rows.mainOverflowY === 'auto' &&
-      rows.mainBorderRight === '16px',
+      rows.mainBorderRight === '0px',
     JSON.stringify({ wsScroll: rows.wsScroll, mainOverflowY: rows.mainOverflowY, border: rows.mainBorderRight }),
   )
 
@@ -20079,7 +20084,14 @@ async function g114(browser) {
   )
   await page.screenshot({ path: `${OUT}/114-g114-history-list.png` })
 
-  /** ② 顶部类型档带数量（对全量算：全部 4 / 图 2 / 视频 1 / 音频 0） */
+  /**
+   * ② 顶部类型档带数量（对整个库的全量算：全部 3 / 图 2 / 视频 1 / 音频 0）。
+   *
+   * ⚠️ **"全部"现在只数素材**（图+视频+音频 = 全部，口径自洽）——
+   * 用户 2026-10-06 第 11 批第 5 条改的口径：那些数字要按「生成历史 ∪ 素材库」的**整个库**算；
+   * 顺带把旧实现的一个不自洽修掉：它把**生成失败**也计进"全部"（4 ≠ 2+1+0），
+   * 而参考图五里失败本来就是独立一档（左侧「生成失败 N」）。
+   */
   const kindCounts = await page.evaluate(() =>
     Object.fromEntries(
       [...document.querySelectorAll('[data-assets-kind-count]')].map((el) => [
@@ -20090,8 +20102,8 @@ async function g114(browser) {
   )
   rec(
     g,
-    '★★ 顶部类型档带数量（全部 4 / 图 2 / 视频 1 / 音频 0）',
-    kindCounts.all === '4' && kindCounts.image === '2' && kindCounts.video === '1' && kindCounts.audio === '0',
+    '★★ 顶部类型档带数量（整个库的全量：全部 3 / 图 2 / 视频 1 / 音频 0；失败不混进"全部"）',
+    kindCounts.all === '3' && kindCounts.image === '2' && kindCounts.video === '1' && kindCounts.audio === '0',
     JSON.stringify(kindCounts),
   )
 
@@ -20274,6 +20286,65 @@ async function g114(browser) {
     '★★ 提示词框右上角的复制按钮也能用（新手的那条路）',
     clipboardBtn.trim() === '月光下的猫',
     clipboardBtn.trim(),
+  )
+
+  /**
+   * ⑤b ★★ 素材库里有图、生成历史里没有它时，数字也必须算上
+   * （用户 2026-10-06 第 11 批第 5 条：「明明有图，但是有些数字还是 0」）。
+   *
+   * 用户图四那一档就是：**素材库 1、全部历史 0** —— 然后顶部与左侧的数字**全是 0**，
+   * 因为旧实现只数生成历史。这里往库里塞一条**没有 runRecord** 的收藏
+   * （等价于"从上传/导入保存进素材库的那张"），刷新后数字必须跟着涨。
+   */
+  await page.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('qinghua')
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+    await new Promise((resolve) => {
+      const tx = db.transaction('assetLibrary', 'readwrite')
+      tx.objectStore('assetLibrary').put({
+        id: 'h-lib-only',
+        hash: 'h-lib-only',
+        mime: 'image/png',
+        bytes: 100,
+        width: 64,
+        height: 36,
+        savedAt: Date.now(),
+        prompt: '只有库里有的一张',
+      })
+      tx.oncomplete = () => resolve(true)
+    })
+  })
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(900)
+  const kindCountsLibOnly = await page.evaluate(() =>
+    Object.fromEntries(
+      [...document.querySelectorAll('[data-assets-kind-count]')].map((el) => [
+        el.getAttribute('data-assets-kind-count'),
+        el.textContent?.trim(),
+      ]),
+    ),
+  )
+  const quickCountsLibOnly = await page.evaluate(() =>
+    Object.fromEntries(
+      [...document.querySelectorAll('[data-assets-quick-count]')].map((el) => [
+        el.getAttribute('data-assets-quick-count'),
+        el.textContent?.trim(),
+      ]),
+    ),
+  )
+  rec(
+    g,
+    '★★ 库里那张"没有生成记录"的图也进数字（不再是有图但 0）',
+    kindCountsLibOnly.all === '4' &&
+      kindCountsLibOnly.image === '3' &&
+      quickCountsLibOnly.all === '4' &&
+      /* 库里这时候有 3 条：种子里的 h-img + 前面 UI 收藏的 h-vid + 刚塞进去的 h-lib-only */
+      quickCountsLibOnly.saved === '3' &&
+      quickCountsLibOnly.recent === '3',
+    `顶部=${JSON.stringify(kindCountsLibOnly)} 左侧=${JSON.stringify(quickCountsLibOnly)}`,
   )
 
   await page.screenshot({ path: `${OUT}/114-g114-history.png` })

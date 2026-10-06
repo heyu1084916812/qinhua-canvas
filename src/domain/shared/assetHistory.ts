@@ -274,6 +274,92 @@ export function countHistory(items: readonly HistoryItem[], now: number): Histor
   return counts
 }
 
+/** 素材库里那一行，计数时只用到这几个字段（故意宽松：`assetLibrary` 的行结构可能演进） */
+export interface LibraryCountRow {
+  hash?: unknown
+  id?: unknown
+  mime?: unknown
+  savedAt?: unknown
+  createdAt?: unknown
+}
+
+/**
+ * **整个库**的计数：生成历史 ∪ 素材库，按素材 hash 去重（用户 2026-10-06 第 11 批第 5 条）。
+ *
+ * ## 为什么不再只用 `countHistory`
+ *
+ * 用户报的是「明明有图，但是有些数字还是 0」：图里**素材库有 1 张、全部历史 0**，
+ * 于是顶部"全部 / 图 / 视频 / 音频"和左侧"全部素材 / 收藏内容 / 最近 7 天"**全是 0**。
+ * 根因是那些数字**只统计生成历史**（`runRecords`），而素材库里那些
+ * 「手动收藏的」和「上传/导入保存进来的」是另一份列表 —— 它们没有生成记录，
+ * 于是一张都没被算上。
+ *
+ * 用户确认的口径：**「生成历史没用收藏的算全部素材，整个库的全量」**。于是：
+ *
+ * - `all` / `image` / `video` / `audio` = 两份列表的**并集**（同 hash 只算一次，
+ *   取更晚的那个时间 —— 它决定这条算不算"最近 7 天"）；
+ * - `saved` = 素材库里去重后的条数（"收藏内容"就是它）；
+ * - `failed` = 失败的生成记录数（素材库里没有这一档）；
+ * - `recent` = 并集里 7 天内的。
+ *
+ * 仍然是"**不随当前筛选跳**"的全量口径（那是 #264 定下的，没变）。
+ */
+export function countAssets(
+  items: readonly HistoryItem[],
+  library: readonly LibraryCountRow[],
+  now: number,
+): HistoryCounts {
+  const recentFrom = now - RECENT_DAYS * DAY_MS
+  /** hash → { 类型, 时间 }。时间取两份来源里**更晚**的那个 */
+  const seen = new Map<string, { kind: HistoryKind; at: number }>()
+  const savedHashes = new Set<string>()
+  let failed = 0
+
+  for (const item of items) {
+    if (item.kind === 'failed') {
+      failed += 1
+      continue
+    }
+    const prev = seen.get(item.hash)
+    seen.set(item.hash, {
+      kind: historyKindOf(item.mime),
+      at: Math.max(prev?.at ?? 0, item.createdAt),
+    })
+  }
+
+  for (const row of library) {
+    const hash = normalizeMetaString(row.hash ?? row.id)
+    if (!hash) continue
+    savedHashes.add(hash)
+    const at = asNumber(row.savedAt) ?? asNumber(row.createdAt) ?? 0
+    const prev = seen.get(hash)
+    if (!prev) {
+      seen.set(hash, { kind: historyKindOf(normalizeMetaString(row.mime)), at })
+      continue
+    }
+    /* 两边都有：兜底换类型（同一份字节被标成别类型的极端情况），时间取更晚的 */
+    seen.set(hash, {
+      kind: prev.kind === 'audio' ? prev.kind : historyKindOf(normalizeMetaString(row.mime)),
+      at: Math.max(prev.at, at),
+    })
+  }
+
+  const counts: HistoryCounts = {
+    all: seen.size,
+    image: 0,
+    video: 0,
+    audio: 0,
+    saved: savedHashes.size,
+    recent: 0,
+    failed,
+  }
+  for (const { kind, at } of seen.values()) {
+    counts[kind] += 1
+    if (at >= recentFrom) counts.recent += 1
+  }
+  return counts
+}
+
 export interface HistoryGroup {
   key: string
   label: string

@@ -293,11 +293,16 @@
   overflow-y: auto;
   padding: var(--space-6);
   /*
-   * 透明边框把滚动条从卡片右沿推进来 16px（对账 #287，与项目页同口径）。
-   * 左边同宽是为了让内容盒保持对称（只推右边会让内容整体左移半个滚动条）。
+   * 滚动条**紧贴卡片（工作区）右沿**（用户 2026-10-06 第 11 批第 6 条，与项目页同口径）——
+   * 上一轮那两条 16px 透明边框已去掉；"两端穿出圆角"改由下面给拇指做上下内缩来保证。
    */
-  border-right: var(--space-4) solid transparent;
-  border-left: var(--space-4) solid transparent;
+}
+
+/* 滚动条拇指：上下各缩 8px，左右不缩（详见 ProjectsPage 的同名注释） */
+.main::-webkit-scrollbar-thumb {
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  background-clip: padding-box;
 }
 
 .section {
