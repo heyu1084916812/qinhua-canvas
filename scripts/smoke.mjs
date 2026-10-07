@@ -19,6 +19,32 @@ function rec(group, name, pass, detail = '') {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /**
+ * **用户自己建的渠道**这一组选择器（2026-10-08 加）。
+ *
+ * 背景：三条内置渠道（`ch_builtin_*`）常驻列表最前、**不可删、名称与协议固定**
+ * （用户第 20 批口径）。于是凡是要验「新增 / 排序 / 删除 / 改名」的组，
+ * 都不能再用 `.first()` / `.nth(1)` 去指"刚建的那条"—— 实测 G8 与 G45
+ * 拿到的都是 ModelScope 那一行（断言去看别人的协议标签），G44 更是直接
+ * 对着内置行做拖动与删除（内置行没有删除按钮 ⇒ 点击超时、整组中断）。
+ *
+ * 判据用 id 前缀而不是"名字里没有 MS"这类特征：`ch_builtin_` 是
+ * `isBuiltinChannelId()` 的**同一份判据**（`domain/project/builtinChannels.ts`）。
+ */
+const USER_CHANNEL = '[data-channel-item]:not([data-channel-id^="ch_builtin_"])'
+
+/**
+ * **正在编辑那条渠道的启用开关**（2026-10-08 加）。
+ *
+ * 用户第 21 批第 2 条把启用开关从「详情面板的基本信息」搬进了**左侧列表项**，
+ * 于是 `input[type="checkbox"]').first()` 的含义整个变了：它现在命中的是
+ * **列表第一行**（内置的 ModelScope），而不是"我正在编辑的那条"。
+ * 后果很隐蔽 —— 开关本身会正常切换（只是切错了对象），而被编辑的那条
+ * 始终没启用 ⇒ 选路拿不到候选 ⇒ 画布上"点生成毫无反应、日志 0 条"
+ * （实测 G76 就是这么红的，看着像生成链路坏了）。
+ */
+const enableSwitch = (page) => page.locator('[data-channel-selected] [data-channel-enabled]')
+
+/**
  * 现造一张**真能解码**的纯色 PNG 字节（G53 用）。
  *
  * 为什么不用仓库里现成的 base64：那些是 8×8 的 1:1 图，**看不出比例差异**——
@@ -615,9 +641,66 @@ const disableFSA = `delete window.showOpenFilePicker; delete window.showSaveFile
  *
  * 返回 `{ verified, pulled, enabled }` 供调用方自行断言（各组断言的粒度不同，不在这里替它们判）。
  */
+/**
+ * 把三条**内置渠道停用**（2026-10-08 加，`configureMockChannel` 自动调用）。
+ *
+ * 为什么所有"自带一条 mock 渠道"的组都必须做这一步：内置渠道常驻列表最前，
+ * 且**新建即启用**（用户第 20 批口径）。于是「这台机器上只有我刚建的那条渠道」
+ * 这个前提不再天然成立，而各组的断言几乎全都建立在这个前提上。
+ * 实测踩到的两处（都不是功能缺陷，是场景没搭对）：
+ *
+ *  - **G74**：提示词节点走 `resolveForNode` 第 3 档「第一个可用渠道」，
+ *    那里对**对话模型**有一条固定清单兜底（渠道没有对话模型时取第一个预设名）。
+ *    内置 ModelScope 无模型无缓存 ⇒ 命中兜底 ⇒ 新节点被写成
+ *    `channelId=ModelScope / model=Agnes 2.5 Flash`；而创作面板的模型下拉是
+ *    **按节点渠道过滤**的 ⇒ 列表里只剩预设名，`mock-chat-1` 根本不在其中，
+ *    断言等到 30s 超时。
+ *  - **G76 / G77**：内置渠道参与选路后，日志里的平台名与预期对不上。
+ *
+ * 停用而非删除：内置渠道**不可删**（产品口径），停用是用户本来就有的动作；
+ * 列表里它们照旧在（G74 那条「新增/删除跟在最后一条渠道后面」仍数得到 4 条）。
+ */
+/**
+ * 把**所有**渠道停用（G42 用）。
+ *
+ * 创作面板的引导条有两档文案（`CreationPanel`）：
+ *   `allChannels.length === 0` → 「还没有配置任何渠道」；
+ *   否则若一条都没启用 → 「已配置的渠道都未启用」。
+ *
+ * 内置三条渠道**恒常驻**（用户第 20 批）之后，第一档从界面上**不可达**了 ——
+ * 所以 G42 那条从「无渠道」改成验**第二档**（那才是用户真会遇到的情形：
+ * 渠道建了、令牌没填、开关还开着或没开）。第一档留着做防御分支，由面板单测覆盖。
+ */
+async function disableAllChannels(page) {
+  const boxes = page.locator('[data-channel-enabled]')
+  const n = await boxes.count()
+  for (let i = 0; i < n; i += 1) {
+    const box = boxes.nth(i)
+    if (await box.isChecked().catch(() => false)) {
+      await box.uncheck({ timeout: 5000 }).catch(() => {})
+      await sleep(120)
+    }
+  }
+}
+
+async function disableBuiltinChannels(page) {
+  const ids = await page
+    .locator('[data-channel-item][data-channel-id^="ch_builtin_"]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-channel-id')))
+  for (const id of ids) {
+    const box = page.locator(`[data-channel-enabled="${id}"]`)
+    if (await box.isChecked().catch(() => false)) {
+      await box.uncheck({ timeout: 5000 }).catch(() => {})
+      await sleep(150)
+    }
+  }
+}
+
 async function configureMockChannel(page, { token = null, enable = true, pick = true } = {}) {
   await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
   await sleep(400)
+  /* 内置渠道会抢默认值、也会抢选路：先停掉它们，"只有这条 mock 渠道"才是真的 */
+  await disableBuiltinChannels(page)
   await page.getByRole('button', { name: /新增渠道/ }).click()
   await sleep(400)
   await page.getByText('新建渠道').first().click()
@@ -657,11 +740,17 @@ async function configureMockChannel(page, { token = null, enable = true, pick = 
 
   let enabled = false
   if (enable) {
-    await page.locator('input[type="checkbox"]').first().check().catch(() => {})
+    await enableSwitch(page).check({ timeout: 5000 }).catch(() => {})
     await sleep(400)
+    /*
+     * 「已启用」文案在**刚建的那条渠道**（正在编辑的那行）上读。
+     *
+     * 2026-10-08 修两处：① 列表项已从 `<button>` 换成 `role="button"` 的 div，
+     * `locator('button')` 从此找不到它；② 用名字过滤也会被内置渠道干扰。
+     * 换成 `[data-channel-selected]` —— 渠道建完即被选中，这一行就是它。
+     */
     enabled = await page
-      .locator('button')
-      .filter({ hasText: '新建渠道' })
+      .locator('[data-channel-selected]')
       .first()
       .getByText('已启用')
       .isVisible()
@@ -1148,7 +1237,18 @@ async function g8(browser) {
   await sleep(400)
   const created = await page.getByText('新建渠道').first().isVisible().catch(() => false)
   rec(g, '新增渠道出现在列表', created)
-  const protoShort = await page.locator('[data-channel-proto]').first().getAttribute('data-channel-proto').catch(() => '')
+  /**
+   * ⚠️ 定位到**正在编辑的那条**（`data-channel-selected`），不是 `.first()`。
+   * 2026-10-08：列表最前常驻三条内置渠道，`.first()` 拿到的是 ModelScope（MS）——
+   * 这条断言会变成"去看别人家的协议标签"，新渠道对不对根本没验。
+   * 短标签同时已从可见文字改成属性（用户第 21 批：「后面的缩写文字删掉」）。
+   */
+  const protoShort =
+    (await page
+      .locator('[data-channel-selected]')
+      .first()
+      .getAttribute('data-channel-proto')
+      .catch(() => '')) ?? ''
   rec(g, '列表项显示协议短标签（§7.2）', protoShort.trim() === 'MOCK', protoShort)
   await page.screenshot({ path: `${OUT}/10-settings-new.png` })
 
@@ -4417,14 +4517,27 @@ async function g42(browser) {
     await sleep(300)
   }
 
-  // 4) 无渠道：**创作面板**给出引导条。
-  //    M6-16 起节点本体减重为媒体框（§6.8），参数与引导都不在节点里——
-  //    所以这里同时断言「面板有引导」与「本体无参数控件、只有占位框 + `+`」。
+  /**
+   * 4) 渠道都停用：**创作面板**给出引导条。
+   *
+   * ⚠️ 场景改过（2026-10-08）：原来是「一条渠道都没有」，而三条内置渠道**恒常驻**
+   * （用户第 20 批）⇒ 那一档在界面上已经不可达。改成验它的隔壁那一档
+   * ——「渠道都在、但一条都没启用」，那才是用户真会遇到的情形
+   * （渠道建了、令牌没填 / 开关没开）。
+   *
+   * M6-16 起节点本体减重为媒体框（§6.8），参数与引导都不在节点里——
+   * 所以这里同时断言「面板有引导」与「本体无参数控件、只有占位框 + `+`」。
+   */
+  await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+  await sleep(500)
+  await disableAllChannels(page)
+  await page.goto(canvasUrl, { waitUntil: 'networkidle' })
+  await sleep(900)
   await selectGenNode()
   const hint = page.locator('[data-panel-setup-hint]')
-  rec(g, '无渠道时创作面板显示引导条', (await hint.count()) === 1)
+  rec(g, '渠道都没启用时创作面板显示引导条', (await hint.count()) === 1)
   const hintText = norm(await hint.first().innerText())
-  rec(g, '引导文案为「还没有配置任何渠道」', hintText.includes('还没有配置任何渠道'), hintText)
+  rec(g, '引导文案为「已配置的渠道都未启用」', hintText.includes('已配置的渠道都未启用'), hintText)
   rec(
     g,
     '节点本体为媒体框（占位框 + `+`，无任何参数控件）',
@@ -4472,6 +4585,13 @@ async function g42(browser) {
   await page.getByText('新建渠道').first().click()
   await sleep(300)
   /**
+   * ⚠️ 2026-10-08：新建渠道**默认就是启用的**（对账 #353）⇒ 要复现「建过、但没启用」
+   * 这一档，必须显式把它关掉。断言的意图一点没变（用户最容易把「建过」当成「配好了」），
+   * 只是动作补了一步。
+   */
+  await enableSwitch(page).uncheck({ timeout: 8000 }).catch(() => {})
+  await sleep(400)
+  /**
    * 回画布改走**侧栏「最近项目」**（用户 2026-09-27 移除设置页返回按钮后的替代路径）。
    *
    * 这一点值得单独断言：返回按钮删掉之后，「配完渠道怎么回到刚才那个画布」
@@ -4515,7 +4635,8 @@ async function g42(browser) {
   await sleep(500)
   await page.getByText('新建渠道').first().click()
   await sleep(300)
-  await page.locator('input[type="checkbox"]').first().check()
+  /* 开的是**这条新建渠道**的启用开关（不能用 `input[type=checkbox]').first()`：那是列表第一行＝内置渠道） */
+  await enableSwitch(page).check({ timeout: 8000 })
   await sleep(400)
   // 同上：关掉浮层即回到原来的画布（模态形态下这是唯一的"回去"动作）
   await page.keyboard.press('Escape')
@@ -4683,7 +4804,8 @@ async function g44(browser) {
   page.on('pageerror', (e) => rec(g, '无未捕获异常', false, String(e).slice(0, 120)))
 
   const names = async () => {
-    const items = page.locator('[data-channel-item]')
+    /* 只数**用户自己建的**：内置那三条永远在最前，混进来会把这组断言全带偏（见 USER_CHANNEL） */
+    const items = page.locator(USER_CHANNEL)
     const n = await items.count()
     const out = []
     for (let i = 0; i < n; i += 1) out.push((await items.nth(i).innerText()).split('\n')[0].trim())
@@ -4692,8 +4814,14 @@ async function g44(browser) {
 
   await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
   await sleep(400)
-  const emptyHint = await page.locator('[data-channel-item]').count()
-  rec(g, '起始无渠道（本组自带状态）', emptyHint === 0, `渠道=${emptyHint}`)
+  /**
+   * ⚠️ 口径改过（2026-10-08）：不再是「起始无渠道」——三条内置渠道常驻列表，
+   * 起始状态是**内置三条 + 用户 0 条**。断言拆成两条，各自守一件事：
+   * 内置确实在（且是三条），用户侧确实是干净的（本组做的排序 / 删除才有意义）。
+   */
+  const builtinRows = await page.locator('[data-channel-item][data-channel-id^="ch_builtin_"]').count()
+  const emptyHint = await page.locator(USER_CHANNEL).count()
+  rec(g, '起始：内置三条常驻 + 用户侧无渠道（本组自带状态）', builtinRows === 3 && emptyHint === 0, `内置=${builtinRows} 用户=${emptyHint}`)
 
   // ① 建两条：新渠道排在**末尾**（与下方「+ 新增渠道」按钮的位置一致）
   await page.getByRole('button', { name: /新增渠道/ }).click()
@@ -4709,7 +4837,8 @@ async function g44(browser) {
 
   const before = await names()
   rec(g, '新渠道排到列表末尾', JSON.stringify(before) === JSON.stringify(['渠道甲', '渠道乙']), JSON.stringify(before))
-  const short = (await page.locator('[data-channel-proto]').first().getAttribute('data-channel-proto')).trim()
+  /* 同 G8：`.first()` 会落在内置行上，必须问「正在编辑的那条」 */
+  const short = ((await page.locator('[data-channel-selected]').first().getAttribute('data-channel-proto')) ?? '').trim()
   rec(g, '列表项右侧协议短标签', short === 'MOCK', short)
   // 列表项要能一眼看出「这条渠道能用什么」（用户 2026-10-01）
   /**
@@ -4718,7 +4847,7 @@ async function g44(browser) {
    * `data-channel-caps="chat,image"` 属性。这条断言要守的是"列表项带得出这条渠道能用什么"，
    * 不是"屏幕上有没有那三枚小标"，所以跟着改成读属性。
    */
-  const capsText = await page.locator('[data-channel-caps]').first().getAttribute('data-channel-caps')
+  const capsText = await page.locator('[data-channel-selected]').first().getAttribute('data-channel-caps')
   const capKeys = (capsText ?? '').split(',').filter(Boolean)
   rec(
     g,
@@ -4766,11 +4895,16 @@ async function g44(browser) {
   const afterRemove =
     (await page.locator('[data-settings-token-tail]').getAttribute('placeholder').catch(() => '')) ?? ''
   rec(g, '删除令牌后回到「粘贴 API Key」（尾号不再出现）', !norm0(afterRemove).includes('3f2a'), afterRemove)
-  rec(g, '删除令牌不删渠道', (await page.locator('[data-channel-item]').count()) === 2)
+  rec(g, '删除令牌不删渠道', (await page.locator(USER_CHANNEL).count()) === 2)
 
   // ④ 拖动排序：把「渠道乙」拖到「渠道甲」之前 → 顺序翻转并落库
-  const idFirst = await page.locator('[data-channel-item]').nth(0).getAttribute('data-channel-id')
-  const idSecond = await page.locator('[data-channel-item]').nth(1).getAttribute('data-channel-id')
+  /**
+   * ⚠️ 只在**用户渠道**之间拖（`USER_CHANNEL`）。用 `nth(0)/nth(1)` 的话拿到的是
+   * 内置的 ModelScope 与 Agnes：拖动它们会被 store 的 `reorder` 重新钉回队首，
+   * 顺序看起来"没变"，断言红得莫名其妙（实测就是这个）。
+   */
+  const idFirst = await page.locator(USER_CHANNEL).nth(0).getAttribute('data-channel-id')
+  const idSecond = await page.locator(USER_CHANNEL).nth(1).getAttribute('data-channel-id')
   await page.dragAndDrop(`[data-channel-id="${idSecond}"]`, `[data-channel-id="${idFirst}"]`)
   await sleep(500)
   const after = await names()
@@ -4888,7 +5022,8 @@ async function g45(browser) {
   rec(
     g,
     '左栏协议短标签同步为 OAI+',
-    norm(await page.locator('[data-channel-proto]').first().getAttribute('data-channel-proto')) === 'OAI+',
+    /* 问**正在编辑的那一行**（`.first()` 会落在内置的 ModelScope 上，见 USER_CHANNEL） */
+    norm(await page.locator('[data-channel-selected]').first().getAttribute('data-channel-proto')) === 'OAI+',
   )
 
   // 空地址必须被拒绝：否则空串会退化成相对当前页的路径，被 SPA 的 200 兜底页骗成「通了」
@@ -4902,23 +5037,28 @@ async function g45(browser) {
   // ③ 删除二次确认：点一下不删，确认才删
   await page.getByRole('button', { name: /新增渠道/ }).click()
   await sleep(400)
-  const before = await page.locator('[data-channel-item]').count()
-  await page.locator('[data-channel-item]').nth(1).click()
+  /**
+   * ⚠️ 只对**用户渠道**计数 / 点击。
+   * 内置那三条不可删，`nth(1)` 点中的是 Agnes：它没有删除按钮 ⇒
+   * 下面 `[data-channel-remove]` 点击超时，整组中断（2026-10-08 实测）。
+   */
+  const before = await page.locator(USER_CHANNEL).count()
+  await page.locator(USER_CHANNEL).nth(0).click()
   await sleep(250)
   await page.locator('[data-channel-remove]').click()
   await sleep(250)
   const confirmShown = await page.locator('[data-channel-remove-confirm]').isVisible().catch(() => false)
-  const stillThere = (await page.locator('[data-channel-item]').count()) === before
+  const stillThere = (await page.locator(USER_CHANNEL).count()) === before
   rec(g, '删除需二次确认（点一下不删）', confirmShown && stillThere, `确认框=${confirmShown} 渠道数=${before}`)
   await page.screenshot({ path: `${OUT}/45-b-remove-confirm.png` })
   await page.locator('[data-channel-remove-no]').click()
   await sleep(250)
-  rec(g, '取消后确认框收起且渠道仍在', (await page.locator('[data-channel-item]').count()) === before)
+  rec(g, '取消后确认框收起且渠道仍在', (await page.locator(USER_CHANNEL).count()) === before)
   await page.locator('[data-channel-remove]').click()
   await sleep(250)
   await page.locator('[data-channel-remove-yes]').click()
   await sleep(800)
-  rec(g, '确认后渠道真的被删除', (await page.locator('[data-channel-item]').count()) === before - 1)
+  rec(g, '确认后渠道真的被删除', (await page.locator(USER_CHANNEL).count()) === before - 1)
 
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors[0] ?? '')
   await ctx.close()
@@ -9334,10 +9474,10 @@ async function g69(browser) {
   await page.getByRole('button', { name: '拉取模型' }).click()
   await page.getByText(/已拉取模型/).waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
   await pickAllModels(page)
-  await page.locator('input[type="checkbox"]').first().check().catch(() => {})
+  await enableSwitch(page).check({ timeout: 5000 }).catch(() => {})
   await sleep(400)
 
-  const secondChannelCount = await page.locator('[data-channel-item]').count()
+  const secondChannelCount = await page.locator(USER_CHANNEL).count()
   rec(g, '已建出两条渠道（场景成立）', secondChannelCount >= 2, `渠道项=${secondChannelCount}`)
 
   /**
@@ -9351,10 +9491,10 @@ async function g69(browser) {
    * 本组真正要守的那条不变式没变：**新建 B 继承的是「最近改过配方」的那条渠道，
    * 而不是列表里排第一的那条**；所以恢复第一条必须在建 B 之前做完。
    */
-  await page.locator('[data-channel-item]').first().click()
+  await page.locator(USER_CHANNEL).first().click()
   await sleep(500)
   {
-    const enabledBox = page.locator('input[type="checkbox"]').first()
+    const enabledBox = enableSwitch(page)
     if (await enabledBox.isChecked().catch(() => false)) {
       await enabledBox.uncheck()
       await sleep(600)
@@ -9457,10 +9597,10 @@ async function g69(browser) {
   await ensureSidebarOpen(page)
   await page.locator('[data-sidebar-settings]').click()
   await sleep(600)
-  await page.locator('[data-channel-item]').first().click()
+  await page.locator(USER_CHANNEL).first().click()
   await sleep(500)
   {
-    const enabledBox = page.locator('input[type="checkbox"]').first()
+    const enabledBox = enableSwitch(page)
     if (!(await enabledBox.isChecked().catch(() => true))) {
       await enabledBox.check()
       await sleep(600)
@@ -10254,7 +10394,7 @@ async function g74(browser) {
    * 不选中时右侧只渲染 `<div class="placeholder">`，`[data-settings-form]`
    * 根本不存在 —— 直接量会拿到 `missing`，而不是「没居中」。
    */
-  await page.locator('[data-channel-item]').first().click()
+  await page.locator(USER_CHANNEL).first().click()
   await sleep(300)
   const centered = await page.evaluate(() => {
     const form = document.querySelector('[data-settings-form]')?.getBoundingClientRect()
@@ -11227,7 +11367,7 @@ async function g75(browser) {
    * 少了这一步，后面的按钮根本不存在 —— 这是「断言写对了但场景没搭起来」，
    * 不是功能缺陷。
    */
-  await page.locator('[data-channel-item]').first().click()
+  await page.locator(USER_CHANNEL).first().click()
   await sleep(600)
   rec(
     g,
@@ -11255,7 +11395,7 @@ async function g75(browser) {
   await sleep(600)
   await page.reload({ waitUntil: 'networkidle' })
   await sleep(700)
-  await page.locator('[data-channel-item]').first().click()
+  await page.locator(USER_CHANNEL).first().click()
   await sleep(600)
   rec(
     g,
@@ -11285,7 +11425,7 @@ async function g75(browser) {
     await sleep(700)
     await page.reload({ waitUntil: 'networkidle' })
     await sleep(700)
-    await page.locator('[data-channel-item]').first().click()
+    await page.locator(USER_CHANNEL).first().click()
     await sleep(600)
     rec(
       g,
@@ -11301,7 +11441,7 @@ async function g75(browser) {
     await sleep(700)
     await page.reload({ waitUntil: 'networkidle' })
     await sleep(700)
-    await page.locator('[data-channel-item]').first().click()
+    await page.locator(USER_CHANNEL).first().click()
     await sleep(600)
     rec(
       g,
@@ -11338,7 +11478,7 @@ async function g76(browser) {
   // ① 后台：给已选模型改一个可识别的上游 ID
   await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
   await sleep(700)
-  await page.locator('[data-channel-item]').first().click()
+  await page.locator(USER_CHANNEL).first().click()
   await sleep(600)
   await page.locator('button', { hasText: '拉取模型' }).first().click()
   await sleep(900)
@@ -11386,7 +11526,7 @@ async function g76(browser) {
     try {
       await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
       await sleep(600)
-      await page.locator('[data-channel-item]').first().click()
+      await page.locator(USER_CHANNEL).first().click()
       await sleep(500)
       const input = page.locator(`[data-route-map-input="${logical}"]`)
       if ((await input.count()) > 0) {
@@ -11517,7 +11657,7 @@ async function g77(browser) {
    */
   await page.locator('[data-channel-add]').click()
   await sleep(800)
-  const items = page.locator('[data-channel-item]')
+  const items = page.locator(USER_CHANNEL)
   const count = await items.count()
   rec(g, '★ 已建出第二条渠道（多渠道场景成立）', count >= 2, `渠道数=${count}`)
 
@@ -11547,7 +11687,7 @@ async function g77(browser) {
   await sleep(800)
 
   // 优先度拉到最高；启用开关打开
-  const enabledBox = page.locator('input[type="checkbox"]').first()
+  const enabledBox = enableSwitch(page)
   if ((await enabledBox.count()) > 0 && !(await enabledBox.isChecked())) {
     await enabledBox.check()
     await sleep(500)
@@ -11637,7 +11777,7 @@ async function g78(browser) {
   await sleep(700)
 
   // ① 给第一条渠道：把 mock-image-1 映射成另一个名字（模拟「同模型不同站 ID」）
-  await page.locator('[data-channel-item]').first().click()
+  await page.locator(USER_CHANNEL).first().click()
   await sleep(600)
   await page.locator('button', { hasText: '拉取模型' }).first().click()
   await sleep(900)
@@ -11663,7 +11803,7 @@ async function g78(browser) {
     try {
       await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
       await sleep(600)
-      await page.locator('[data-channel-item]').first().click()
+      await page.locator(USER_CHANNEL).first().click()
       await sleep(500)
       const input = page.locator(`[data-route-map-input="${logical}"]`)
       if ((await input.count()) > 0) {
@@ -11908,7 +12048,7 @@ async function g79(browser) {
   // ④ 后台能逐条映射固定显示名 → 本站真实 ID
   await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
   await sleep(700)
-  await page.locator('[data-channel-item]').first().click()
+  await page.locator(USER_CHANNEL).first().click()
   await sleep(600)
   const presetRow = page.locator('[data-route-map-row="GPT Image 2.5 Flare"]')
   rec(g, '★ 后台为固定显示名给出可填写的映射行', (await presetRow.count()) === 1)
@@ -11952,7 +12092,7 @@ async function g79(browser) {
     try {
       await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
       await sleep(600)
-      await page.locator('[data-channel-item]').first().click()
+      await page.locator(USER_CHANNEL).first().click()
       await sleep(500)
       const input = page.locator('[data-route-map-input="GPT Image 2.5 Flare"]')
       if ((await input.count()) > 0) {
@@ -13077,7 +13217,8 @@ async function g88(browser) {
   // ③ 保存渠道 → 左栏短标签显示自建协议 → 引用中的协议删不掉
   await page.locator('[data-settings-save]').click()
   await sleep(400)
-  const shortTag = (await page.locator('[data-channel-proto]').first().getAttribute('data-channel-proto')).trim()
+  /* 同 G8：必须问「正在编辑的那一行」，`.first()` 是内置的 ModelScope（MS） */
+  const shortTag = ((await page.locator('[data-channel-selected]').first().getAttribute('data-channel-proto')) ?? '').trim()
   rec(g, '★ 渠道短标签显示自建协议', shortTag === 'MY', shortTag)
 
   await page.locator('[data-proto-remove="my-private"]').click()
@@ -13260,20 +13401,31 @@ async function g89(browser) {
   const legacyShown = await page.locator('[data-settings-protocol] option[value="openai-images"]').count()
   rec(g, '★★ 旧协议对新渠道隐藏（不重复提供同一套能力）', legacyShown === 0, `count=${legacyShown}`)
   /*
-   * ⑤ 撤走了就要给出路（对账 #308）：渠道页留一行**能点**的入口，
-   * 点它直接落到「全局设置 → CLI」。只把条目删掉、不说去哪儿配，
-   * 用户会以为这个能力没了 —— 那是比"待支持"更糟的沟通。
+   * ⑤ ⚠️ 口径掉了头（用户第 21 批第 1 条、对账 #356）：
+   *   「每个渠道的这里的cli都不需要了，cli有单独的位置了」
+   * 原断言是「渠道页留一行**能点**的入口 → 全局设置 → CLI」（对账 #308 的过渡形态）；
+   * 现在那块**整块删掉了** ⇒ 断言改成守「渠道页不再重复提供这个入口」，
+   * 并**就地验一次**它新的独立位置（全局设置浮层里的「CLI」栏）确实在。
+   * 只删断言不补这一条的话，将来「顺手加回去」没人拦得住。
    */
   rec(
     g,
-    '★★ 渠道页给出「本机 CLI 去全局设置里配」的入口',
-    (await page.locator('[data-proto-cli-link] [data-settings-open-cli]').count()) === 1,
+    '★★ 渠道页不再提供「本机 CLI」入口（CLI 已搬去全局设置，用户第 21 批）',
+    (await page.locator('[data-proto-cli-link]').count()) === 0 &&
+      (await page.locator('[data-settings-open-cli]').count()) === 0,
   )
-  await page.locator('[data-settings-open-cli]').click()
-  await sleep(700)
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(600)
   rec(
     g,
-    '★★ 点它直接落到「全局设置 → CLI」那一栏（不是只把浮层打开）',
+    '★★ 它的独立位置在「全局设置 → CLI」那一栏',
+    (await page.locator('[data-global-settings-tab="cli"]').count()) === 1,
+  )
+  await page.locator('[data-global-settings-tab="cli"]').click()
+  await sleep(600)
+  rec(
+    g,
+    '★★ 点它直接落到 CLI 栏（面板真的挂上）',
     (await page.locator('[data-global-settings-tab="cli"]').getAttribute('aria-pressed')) ===
       'true' && (await page.locator('[data-cli-panel]').count()) === 1,
   )
@@ -14918,25 +15070,70 @@ async function g93(browser) {
   await page.waitForURL(/\/canvas\//)
   await sleep(800)
 
+  /**
+   * ⚠️ 「分组节点」**已从新建菜单撤掉**（用户第 21 批第 5 条、对账 #317：
+   * 「我不想要分组节点了，我想要打组功能」）—— 组框从此只能从「多选 → 打组」来。
+   * 本组原先把 `group` 当菜单项，菜单项没了就卡在点击上（实测 30s 超时、整组作废）。
+   * 改成按**真实入口**先打一个组，再把它当成本组的一个用例（组框的手柄锚点是
+   * `data-node-resize-corner`，与其它类型的 `data-node-resize-handle` 不是同一个）。
+   */
+  for (let k = 0; k < 2; k += 1) {
+    await addNodeViaToolbar(page, 'prompt')
+    await sleep(450)
+  }
+  /* 新建的节点都落视口中心、会完全重叠 ⇒ 先把后一个挪开，否则 Shift 多选点到的永远是同一个 */
+  {
+    const ids2 = await page
+      .locator('[data-node-type="prompt"]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+    const nb = await page.locator(`[data-node-id="${ids2[ids2.length - 1]}"]`).boundingBox()
+    await page.mouse.move(nb.x + nb.width / 2, nb.y + 10)
+    await page.mouse.down()
+    await page.mouse.move(nb.x + nb.width / 2 + 460, nb.y + 40, { steps: 10 })
+    await page.mouse.up()
+    await sleep(400)
+  }
+  await page.keyboard.press('Escape')
+  await sleep(250)
+  const twoPrompts = page.locator('[data-node-type="prompt"]')
+  await twoPrompts.nth(0).click({ position: { x: 20, y: 20 } })
+  await sleep(250)
+  await page.keyboard.down('Shift')
+  await twoPrompts.nth(1).click({ position: { x: 20, y: 20 } })
+  await page.keyboard.up('Shift')
+  await sleep(350)
+  await page.locator('[data-multi-action="group"]').click()
+  await sleep(700)
+  rec(g, '★ 组框已按真实入口（多选 → 打组）建出', (await page.locator('[data-node-type="group"]').count()) === 1)
+
   const cases = [
     { type: 'prompt', mode: 'free' },
     { type: 'generation', mode: 'free' },
     { type: 'fusion', mode: 'free' },
     { type: 'batch', mode: 'locked' },
-    { type: 'group', mode: 'locked' },
+    /*
+     * 组框**不锁比**（2026-10-08 实测：拖角 (+100,+60) ⇒ 宽高比 3.217 → 2.897）。
+     * 原来这一档写的是 `locked`，那是「分组节点从新建菜单来」那个年代的口径；
+     * 现在组框就是一块可自由拉的背景板（§6.11 口径：「打组其实就是个背景板」）。
+     */
+    { type: 'group', mode: 'free' },
     { type: 'compare', mode: 'locked' },
     { type: 'loop', mode: 'width' },
   ]
 
   for (const c of cases) {
-    await page.locator('[data-toolbar-add]').click()
-    await sleep(250)
-    await page.locator(`[data-toolbar-menu-item="${c.type}"]`).click()
-    await sleep(650)
+    if (c.type !== 'group') {
+      await page.locator('[data-toolbar-add]').click()
+      await sleep(250)
+      await page.locator(`[data-toolbar-menu-item="${c.type}"]`).click()
+      await sleep(650)
+    }
     const node = page.locator(`[data-node-type="${c.type}"]`).last()
     const id = await node.getAttribute('data-node-id')
     const before = await page.locator(`[data-node-id="${id}"]`).boundingBox()
-    const hb = await page.locator(`[data-node-id="${id}"] [data-node-resize-handle]`).boundingBox()
+    const handleSel =
+      c.type === 'group' ? '[data-node-resize-corner="se"]' : '[data-node-resize-handle]'
+    const hb = await page.locator(`[data-node-id="${id}"] ${handleSel}`).boundingBox()
     if (!before || !hb) {
       rec(g, `${c.type}：缩放手柄可点`, false, `before=${!!before} handle=${!!hb}`)
       continue
