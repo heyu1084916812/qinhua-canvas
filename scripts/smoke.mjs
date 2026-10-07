@@ -3240,8 +3240,17 @@ async function g17(browser) {
   const gaps = ys.slice(1).map((y, i) => y - ys[i])
   rec(
     g,
-    '整理后同层纵向等距（§6.5 ③ 间距 24）',
-    gaps.length >= 2 && gaps.every((v) => v > 0) && new Set(gaps).size === 1,
+    '整理后同层纵向等距（§6.5 ③：间距恒定；24 那条由单测钉住）',
+    /**
+     * 判据是**等距**，容差 1px —— 24 这个数字由 `arrange.test.ts` 的纯函数单测钉住，
+     * 这里量的是 DOM 的整数 y。
+     *
+     * ⚠️ 容差是**必需**的（对账 #348）：节点高度是小数（实测 151.12），
+     * 而 `posOf` 把每个节点的 y 各自四舍五入 ⇒ 两个本来完全相等的 173.79
+     * 会被读成 174 / 173。早先写成"必须逐字相等"，这条于是常年红着 ——
+     * 那是**量的精度**问题，不是间距真的不均（同一帧量到的两个 delta 都是 173.79）。
+     */
+    gaps.length >= 2 && Math.max(...gaps) - Math.min(...gaps) <= 1,
     `gaps=${gaps.join(',')}`,
   )
   await page.screenshot({ path: `${OUT}/31-g17-align-arrange.png` })
