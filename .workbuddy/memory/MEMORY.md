@@ -4645,3 +4645,12 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
 - **界面上撤掉的信息，可以改成属性留给断言**：协议短标签与能力小标从可见元素挪成
   data-channel-proto / data-channel-caps 属性 —— 冒烟只改「读哪儿」，不用改断言语义。
 - **隐藏 input 不能用 click() 点**：switchInput 是视觉隐藏的，Playwright 会超时；要按坐标点可见的 track。这一批就卡在这儿（见 #357 待查）。
+
+## 2026-10-08 第 22 批（渠道列表项收尾 + RunningHub 摸底）
+
+- **`button` → `div` 会丢掉 `box-sizing: border-box`**：表单控件在 UA 样式里天生 border-box，
+  换成 div 后 `width: 100%` 变成内容盒 + 内距 + 描边 ⇒ 外框超出容器（第 21 批换 div、第 22 批用户当场看见）。
+  凡是把 button/input/select 换成普通元素，**第一件事就是补 box-sizing**。
+- **RunningHub 的东西**：CLI = `HM-RunningHub/RH_CLI`（`rh auth set-key` / `rh check` 看余额 / `rh image -p` / `--json`）；
+  API 文档地址 = `https://www.runninghub.cn/call-api/standard-api`（从同作者的 ComfyUI_RH_OpenAPI 描述里拿到的）。
+- **用户贴的明文 key 一律不进仓库**：只在当次命令里用，不写文件、不提交，收工提醒轮换。
