@@ -39,6 +39,9 @@ const toChannel = (row: Record<string, unknown>): Channel => {
     baseUrl: (row.baseUrl as string) ?? '',
     credentialRef: (row.credentialRef as string | null) ?? null,
     tokenTail: (row.tokenTail as string | null) ?? null,
+    /** 第二把钥匙（第 22 批 #358）：老行没有这两键 → null（= 只用主槽） */
+    altCredentialRef: (row.altCredentialRef as string | null) ?? null,
+    altTokenTail: (row.altTokenTail as string | null) ?? null,
     enabled: (row.enabled as boolean) ?? false,
     // `models` 引入前写下的行没有这个键 → 读回**回落为全部缓存**，即「沿用旧行为」：
     // 加本字段之前，画布 / 漫画的模型下拉列的就是 modelCache 全集。
@@ -95,6 +98,7 @@ export function createChannelRepository(storage: StoragePort, credentials: Crede
       const ch = createBuiltinChannel(spec, BUILTIN_CHANNELS.indexOf(spec))
       /** 凭据引用走与普通渠道同一条路（不然"存令牌"没有落点） */
       ch.credentialRef = createId('cred')
+      ch.altCredentialRef = createId('cred')
       await storage.put('channels', ch as unknown as RowOf<TableName>)
     }
     return list()
@@ -112,6 +116,8 @@ export function createChannelRepository(storage: StoragePort, credentials: Crede
     const order = mine.length === 0 ? 0 : Math.max(...mine.map((c) => c.order)) + 1
     const ch = createChannel({ ...input, order })
     ch.credentialRef = createId('cred')
+    /** 第二把钥匙也要有自己的引用（第 22 批 #358）：不然那个槽位没有落点 */
+    ch.altCredentialRef = createId('cred')
     await storage.put('channels', ch as unknown as RowOf<TableName>)
     return ch
   }

@@ -44,6 +44,15 @@ export interface Channel {
    * （「显示」切换的只是本次输入框的可见性）。整串令牌依旧只存在于凭据层密文里。
    */
   tokenTail: string | null
+  /**
+   * **第二把钥匙**（用户第 22 批 #358）：只有声明了多把凭据的协议（如 RunningHub）才会用。
+   *
+   * 槽位映射：主槽 = `credentialRef` / `tokenTail`，备用槽 = 这两个字段。
+   * 没有做成"凭据数组"是因为仓库里到处都在读 `credentialRef`（选路、适配器、老数据），
+   * 改成数组要连着迁移全链路；两把足够覆盖当前需求，真要第三把时再统一成列表。
+   */
+  altCredentialRef: string | null
+  altTokenTail: string | null
   /** 仅已启用渠道出现在画布创作面板的平台选择中（产品文档 §7.1） */
   enabled: boolean
   /**
@@ -101,6 +110,12 @@ export interface Channel {
   lastTestLatency: number | null
   createdAt: number
 }
+
+/**
+ * 凭据槽位（用户第 22 批 #358）：`primary` = 主槽（`credentialRef`），
+ * `alt` = 备用槽（`altCredentialRef`）。声明多把凭据的协议（RunningHub）两槽都用。
+ */
+export type CredentialSlot = 'primary' | 'alt'
 
 export interface CreateChannelInput {
   name: string
@@ -189,6 +204,8 @@ export function createChannel(input: CreateChannelInput): Channel {
     baseUrl: input.baseUrl.trim(),
     credentialRef: null,
     tokenTail: null,
+    altCredentialRef: null,
+    altTokenTail: null,
     /**
      * **新建即启用**（用户第 19 批 #3：「新建的渠道默认启用」）。
      *

@@ -112,12 +112,32 @@ export interface ProtocolDefinition {
   /** 待实现 / 局限说明，原样展示给用户（不写就表示这条协议没有已知限制） */
   note?: string
   /**
+   * 这条协议要**几把钥匙**（用户第 22 批：RunningHub 的币 Key 与金额 Key）。
+  /**
    * 是否进入「验证协议」的探测序列（产品文档 §7.3）。
    *
    * 只有**通用模板**才该被探测：站点类协议是用户手选的便利入口，把它们放进
    * 候选表会让探测连打十几个请求，而且同一个 200 会被十几条协议同时命中。
    */
   probe?: boolean
+  credentials?: ProtocolCredential[]
+}
+
+/**
+ * 协议声明的**一把凭据**（用户第 22 批 #358）：
+ * 界面据此渲染令牌行，渠道里按 `id` 分槽存（第一把 = 主槽，第二把 = 备用槽）。
+ *
+ * 为什么放在协议上而不是按渠道类型写死：**"这条协议要几把钥匙"是协议的属性**，
+ * 与"哪条渠道"无关；写在协议目录里，界面与命令层读同一份，才不会两处漂。
+ */
+export interface ProtocolCredential {
+  id: string
+  /** 令牌行的标题（如「账户余额 Key（金额）」） */
+  label: string
+  /** 一句话说明这把钥匙管什么（填在输入框旁边） */
+  hint?: string
+  /** 缺这把就跑不了（界面上标「必填」；校验留给各协议自己） */
+  required?: boolean
 }
 
 /**
@@ -340,6 +360,21 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
       defaultBaseUrl: 'https://www.runninghub.cn',
       docUrl: 'https://www.runninghub.cn/',
       note: 'RunningHub 的 OpenAPI（提交任务 + 轮询取结果）。适配器尚未实现 —— 目前只能用 CLI 那条跑通本机。',
+      /**
+       * RunningHub 要**两把钥匙**（用户第 22 批第 3 条：「有两个令牌，一个是币的，一个是金额的」）：
+       * - `balance`（主槽）：**账户余额 Key（金额）** ⇒ 标准模型 API，出图 / 出片按金额计费；
+       * - `coin`（备用槽）：**RH 币 Key** ⇒ 工作流 API（跑工作流按币扣）。
+       * 两把都存进同一条渠道，用哪把由适配器按任务类型决定（见 §7.3 的口径）。
+       */
+      credentials: [
+        {
+          id: 'balance',
+          label: '账户余额 Key（金额）',
+          hint: '标准模型 API：出图 / 出片按金额计费',
+          required: true,
+        },
+        { id: 'coin', label: 'RH 币 Key', hint: '工作流 API：跑工作流按币扣', required: false },
+      ],
     },
   {
     id: 'jimeng-cli',

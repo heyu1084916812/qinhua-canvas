@@ -27,6 +27,7 @@ import {
 import type { ModelCapability } from '../../domain/shared/capability'
 import { createChannelRepository, type ChannelRepository } from '../project/channelRepository'
 import { BUILTIN_CHANNEL_IDS, isBuiltinChannelId } from '../../domain/project/builtinChannels'
+import type { CredentialSlot } from '../../domain/project/channel'
 import { createPresetStore, type PresetStore } from '../project/presetStore'
 import {
   createChannelAdapter,
@@ -111,9 +112,13 @@ export interface ChannelStoreActions {
   remove(id: string): Promise<void>
   /** 拖动排序（§7.2）：整表重编号 */
   reorder(orderedIds: string[]): Promise<void>
-  saveToken(id: string, token: string): Promise<void>
+  /**
+   * 存 / 删 / 查令牌（§7.3）。`slot` 缺省 = **主槽**（老调用方零改动）；
+   * `'alt'` = **备用槽** —— 声明了多把凭据的协议（RunningHub：金额 Key + 币 Key）才用得到。
+   */
+  saveToken(id: string, token: string, slot?: CredentialSlot): Promise<void>
   /** 删除令牌（§7.3）：只清密文，渠道保留、可再存 */
-  removeToken(id: string): Promise<void>
+  removeToken(id: string, slot?: CredentialSlot): Promise<void>
   setEnabled(id: string, enabled: boolean): Promise<void>
   /** 「应用到模型列表」（§7.4）：把面板勾选结果写进 `models` */
   setModels(id: string, models: ModelCapability[]): Promise<void>
@@ -129,7 +134,7 @@ export interface ChannelStoreActions {
   setRouteTuning(id: string, patch: { priority?: number; weight?: number }): Promise<void>
   /** 全局选路策略（跨渠道比较用的那把尺子），落库到 `presets` 的保留行 */
   setRouteStrategy(strategy: RouteStrategy): Promise<void>
-  hasToken(id: string): Promise<boolean>
+  hasToken(id: string, slot?: CredentialSlot): Promise<boolean>
   /** 「验证地址」（§7.3）：只测通不通 + 延迟，不碰 models / modelCache */
   verify(id: string): Promise<void>
   /**
@@ -322,20 +327,28 @@ export function createChannelStore(
     store.setState({ channels })
   }
 
-  const saveToken: ChannelStoreActions['saveToken'] = async (id, token) => {
+  /** 槽位 → 该槽在渠道行上存的引用与尾号字段（见 `Channel` 的 `altCredentialRef` 注释） */
+  const slotFields = (ch: Channel, slot: CredentialSlot) =>
+    slot === 'alt'
+      ? { ref: ch.altCredentialRef, tail: 'altTokenTail' as const }
+      : { ref: ch.credentialRef, tail: 'tokenTail' as const }
+
+  const saveToken: ChannelStoreActions['saveToken'] = async (id, token, slot = 'primary') => {
     const ch = await repo.get(id)
-    if (!ch?.credentialRef) throw new Error(`[channelStore] 渠道无凭据引用：${id}`)
-    await repo.saveToken(ch.credentialRef, token)
+    const f = ch ? slotFields(ch, slot) : null
+    if (!ch || !f?.ref) throw new Error(`[channelStore] 渠道无凭据引用：${id}`)
+    await repo.saveToken(f.ref, token)
     // 明文此刻唯一一次在手：顺手把尾号算出来存下，供设置页显示「存的是哪把钥匙」。
     // 之后再没有任何路径能拿到明文（除非用户重新输入）。
-    await update(id, { tokenTail: tokenTailOf(token) })
+    await update(id, { [f.tail]: tokenTailOf(token) })
   }
 
-  const removeToken: ChannelStoreActions['removeToken'] = async (id) => {
+  const removeToken: ChannelStoreActions['removeToken'] = async (id, slot = 'primary') => {
     const ch = await repo.get(id)
-    if (!ch?.credentialRef) return
-    await repo.removeToken(ch.credentialRef)
-    await update(id, { tokenTail: null })
+    const f = ch ? slotFields(ch, slot) : null
+    if (!ch || !f?.ref) return
+    await repo.removeToken(f.ref)
+    await update(id, { [f.tail]: null })
   }
 
   const setEnabled: ChannelStoreActions['setEnabled'] = async (id, enabled) => {
@@ -382,10 +395,11 @@ export function createChannelStore(
     store.setState({ routeStrategy: strategy })
   }
 
-  const hasToken: ChannelStoreActions['hasToken'] = async (id) => {
+  const hasToken: ChannelStoreActions['hasToken'] = async (id, slot = 'primary') => {
     const ch = await repo.get(id)
-    if (!ch?.credentialRef) return false
-    return (await repo.loadToken(ch.credentialRef)) != null
+    const ref = ch ? slotFields(ch, slot).ref : null
+    if (!ref) return false
+    return (await repo.loadToken(ref)) != null
   }
 
   const verify: ChannelStoreActions['verify'] = async (id) => {
