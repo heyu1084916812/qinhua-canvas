@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useGraph, useViewportState } from '../storeContext'
 import {
+  PORT_EDGE_GAP,
   PORT_MIN_SCALE,
   PORT_REVEAL_FULL,
   PORT_SIZE,
@@ -130,10 +131,19 @@ const PortDots = memo(function PortDots({
         const el = refs.current.get(hit.key)
         if (!el) continue
         const r = el.getBoundingClientRect()
-        const cx = r.left + r.width / 2
-        const cy = r.top + r.height / 2
-        if (Math.abs(x - cx) > r.width / 2 || Math.abs(y - cy) > r.height / 2) continue
-        const d = Math.hypot(x - cx, y - cy)
+        /** 命中块是"世界单位"画的 ⇒ 它的屏幕宽度 ÷ 声明宽度 = 缩放 */
+        const zoom = hit.size > 0 ? r.width / hit.size || 1 : 1
+        /**
+         * 距离从**锚点**（节点边缘上、线的起点）算，**不是**从命中块的中心算：
+         * 命中块为了罩住"从边缘起拖"往节点里探了一段（`PORT_HIT_INNER_PAD`），圆点又浮在边缘外面 ⇒
+         * 它的几何中心两头不靠。按中心算会把"按住 A 的输出端起拖"判给
+         * **隔壁那个面对面节点的输入口**（实测：融合节点那组第二张局部图连不上）。
+         * 锚点才是这次手势真正的起点（冒烟 / 探针也正是按它起拖的）。
+         */
+        const ax = r.left + Number(el.dataset.portAnchorX ?? 0) * zoom
+        const ay = r.top + Number(el.dataset.portAnchorY ?? 0) * zoom
+        if (x < r.left || x > r.right || y < r.top || y > r.bottom) continue
+        const d = Math.hypot(x - ax, y - ay)
         if (d < bestDist) {
           bestDist = d
           best = hit
@@ -150,6 +160,7 @@ const PortDots = memo(function PortDots({
         if (!el) continue
         el.dataset.portOpen = '0'
         delete el.dataset.portHot
+        el.style.removeProperty('--port-pop')
         el.style.removeProperty('--port-progress')
         el.style.removeProperty('--port-scale')
         el.style.removeProperty('--port-pull-x')
@@ -189,7 +200,14 @@ const PortDots = memo(function PortDots({
       const active = activePortNode(
         world,
         [...rects.values()],
-        hits.map((h) => ({ nodeId: h.nodeId, x: h.x, y: h.y })),
+        /**
+         * ⚠️ 交**锚点**（节点边缘上、线的起点），**不是圆点圆心**：
+         * 圆点自第 16 批起浮在边缘外面 20px，用户（和冒烟 / 探针）却是**按住节点边缘**
+         * 起拖的 —— 拿圆心当判据，那一下就会离圆心 30px 开外、判给"指针所在的别的节点"
+         *（实测：下游节点压在端点上时，`activePortNode` 选了压在下面的那个，
+         *  这只口于是**不展开**（`pointer-events: none`），整段拖线手势静默失效）。
+         */
+        hits.map((h) => ({ nodeId: h.nodeId, x: h.edgeX, y: h.y })),
       )
 
       for (const hit of hits) {
@@ -203,9 +221,14 @@ const PortDots = memo(function PortDots({
                 nodeTop: hit.nodeTop,
                 nodeBottom: hit.nodeBottom,
               })
-            : { progress: 0, hot: false, scale: PORT_MIN_SCALE }
+          : { progress: 0, hot: false, scale: PORT_MIN_SCALE, pop: PORT_EDGE_GAP }
         el.dataset.portOpen = reveal.progress > 0 ? '1' : '0'
-        /** 出场 = **原地放大 + 渐显**（圆心骑在节点边缘上，再往外滑就会离开边缘） */
+        /**
+         * 出场 = **从节点边缘沿横向渐显弹出**（用户第 14 批第 4 条，第 16 批第 3 条要它回来）：
+         * `--port-pop` 把圆点从静止位**朝节点边缘**推回去（收回量），左右两侧方向相反；
+         * `--port-progress` 管不透明度、`--port-scale` 管尺寸。
+         */
+        el.style.setProperty('--port-pop', `${(hit.side === 'left' ? 1 : -1) * reveal.pop}px`)
         el.style.setProperty('--port-progress', String(reveal.progress))
         el.style.setProperty('--port-scale', String(reveal.scale))
 
@@ -235,48 +258,65 @@ const PortDots = memo(function PortDots({
 
   return (
     <>
-      {hits.map((hit) => (
-        <span
-          key={hit.key}
-          className={styles.hit}
-          data-flow-port-hit={`${hit.nodeId}:${hit.portId}`}
-          data-port-side={hit.side}
-          data-port-kind={hit.kind}
-          data-port-open="0"
-          title={hit.label}
-          aria-label={hit.label}
-          ref={(el) => {
-            if (el) refs.current.set(hit.key, el)
-            else refs.current.delete(hit.key)
-          }}
-          style={{
-            left: hit.x - hit.size / 2,
-            top: hit.y - hit.size / 2,
-            width: hit.size,
-            height: hit.size,
-          }}
-          onPointerDown={(e) => {
-            e.stopPropagation()
-            /** 叠在一起时按"离指针最近"的那只算（见 `nearestPortAt` 的说明） */
-            const target = nearestPortAt(e.clientX, e.clientY) ?? hit
-            onPortDown(e, target.nodeId, target.portId)
-          }}
-        >
-          {/* 看得见的那颗圆点（含中间的加号）：尺寸与 `portReveal.PORT_SIZE` 同一份口径 */}
+      {hits.map((hit) => {
+        /** 命中块左上角（世界坐标）—— 圆点与锚点都按它算相对偏移 */
+        const hitLeft = hit.hitX - hit.size / 2
+        const hitTop = hit.hitY - hit.size / 2
+        return (
           <span
-            className={styles.dot}
-            data-port-dot={hit.portId}
-            style={{ width: PORT_SIZE, height: PORT_SIZE }}
-            aria-hidden="true"
+            key={hit.key}
+            className={styles.hit}
+            data-flow-port-hit={`${hit.nodeId}:${hit.portId}`}
+            data-port-side={hit.side}
+            data-port-kind={hit.kind}
+            data-port-open="0"
+            /** 锚点（节点边缘上、线的起点）相对命中块左上角的偏移（**世界单位**，命中手势按它算远近） */
+            data-port-anchor-x={hit.edgeX - hitLeft}
+            data-port-anchor-y={hit.y - hitTop}
+            title={hit.label}
+            aria-label={hit.label}
+            ref={(el) => {
+              if (el) refs.current.set(hit.key, el)
+              else refs.current.delete(hit.key)
+            }}
+            style={{
+              left: hitLeft,
+              top: hitTop,
+              width: hit.size,
+              height: hit.size,
+            }}
+            onPointerDown={(e) => {
+              e.stopPropagation()
+              /** 叠在一起时按"离指针最近"的那只算（见 `nearestPortAt` 的说明） */
+              const target = nearestPortAt(e.clientX, e.clientY) ?? hit
+              onPortDown(e, target.nodeId, target.portId)
+            }}
           >
-            {/*
-              加号是**真矢量**，与画布左工具栏那个「新建节点」按钮**同一个 `IconPlus`**
-              —— 用户第 15 批：「你直接参考我画布工作区左侧功能栏的第一个按钮的静态显示」。
-            */}
-            <IconPlus size={PORT_PLUS_SIZE} />
+            {/* 看得见的那颗圆点（含中间的加号）：尺寸与 `portReveal.PORT_SIZE` 同一份口径 */}
+            <span
+              className={styles.dot}
+              data-port-dot={hit.portId}
+              /**
+               * 圆点**不居中**在命中块里（命中块为了罩住"从边缘起拖"往节点那边多探了一段）：
+               * 位置按圆心算 —— 它才是用户看到的那颗点，命中块只是手势范围。
+               */
+              style={{
+                width: PORT_SIZE,
+                height: PORT_SIZE,
+                left: hit.x - hitLeft - PORT_SIZE / 2,
+                top: hit.y - hitTop - PORT_SIZE / 2,
+              }}
+              aria-hidden="true"
+            >
+              {/*
+                加号是**真矢量**，与画布左工具栏那个「新建节点」按钮**同一个 `IconPlus`**
+                —— 用户第 15 批：「你直接参考我画布工作区左侧功能栏的第一个按钮的静态显示」。
+              */}
+              <IconPlus size={PORT_PLUS_SIZE} />
+            </span>
           </span>
-        </span>
-      ))}
+        )
+      })}
     </>
   )
 })

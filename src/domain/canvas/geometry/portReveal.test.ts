@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  PORT_EDGE_GAP,
   PORT_HIT_RADIUS,
   PORT_MIN_SCALE,
   PORT_REVEAL_END,
@@ -14,9 +15,9 @@ import {
 /** 一个 240×160 的节点，屏幕上下边在 y = 100 / 260 */
 const node = { nodeTop: 100, nodeBottom: 260, pointerY: 180 }
 
-describe('端点的尺寸与命中（第 15 批第 1 条：放大三倍）', () => {
-  it('★ 直径 42（= 第 14 批的 14 × 3），命中半径 = 半直径 + 8', () => {
-    expect(PORT_SIZE).toBe(14 * 3)
+describe('端点的尺寸与命中（第 15 批放大三倍 → 第 16 批缩小一半）', () => {
+  it('★ 直径 21（= 第 15 批 42 的一半），命中半径 = 半直径 + 8', () => {
+    expect(PORT_SIZE).toBe(14 * 3 / 2)
     expect(PORT_HIT_RADIUS).toBe(PORT_SIZE / 2 + 8)
   })
 })
@@ -28,7 +29,16 @@ describe('端点出场（靠近弹出 / 离开收回）', () => {
       expect(r.progress).toBe(1)
       expect(r.hot).toBe(true)
       expect(r.scale).toBe(1)
+      /** 完全弹出 = 停在静止位，不再往边缘收 */
+      expect(r.pop).toBe(0)
     }
+  })
+
+  it('★★ 出场是"从节点边缘滑出来"：收回量 pop = 20 ×（1 − progress）', () => {
+    expect(portReveal({ ...node, edgeGap: 60 }).pop).toBeCloseTo(PORT_EDGE_GAP / 2)
+    /** 完全收回时正好收回 `PORT_EDGE_GAP`（圆点贴住节点边缘） */
+    expect(portReveal({ ...node, edgeGap: PORT_REVEAL_END }).pop).toBe(PORT_EDGE_GAP)
+    expect(portReveal({ ...node, edgeGap: 0, pointerY: 0 }).pop).toBe(PORT_EDGE_GAP)
   })
 
   it('★★ 50 → 70 线性收回：60 正好收到中间（用户点名的 10px 缓冲）', () => {

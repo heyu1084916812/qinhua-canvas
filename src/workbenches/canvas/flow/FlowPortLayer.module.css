@@ -53,24 +53,22 @@
 }
 
 /*
- * 看得见的端点（用户 2026-10-07 第 15 批）：
+ * 看得见的端点（用户 2026-10-07 第 15 批 + 第 16 批）：
  * **照画布左工具栏第一个按钮（「新建节点」）的静态显示** —— 实色圆 + 居中的加号，
- * 直径 = `portReveal.PORT_SIZE`（**42**，是第 14 批那版 14 的**三倍**）。
+ * 直径 = `portReveal.PORT_SIZE`（**21**：第 15 批放大三倍之后，第 16 批又缩小一半）。
  *
  * 三件事在这里定死：
- * - **圆心骑在节点边缘上**（位置由 `portHits.portHitsOf` 给，就是节点的边缘 x）——
- *   它只是"动效连接点"，而**线也从同一条边缘起步**（用户第 15 批澄清），两者重合；
+ * - **静止时浮在节点边缘外面 20px**（位置由 `portHits.portHitsOf` 算好：边缘 ± `PORT_CENTER_OFFSET`）——
+ *   它只是"动效连接点"，而**线从节点边缘起步、不跟它走**（用户第 15 批澄清 + 第 16 批第 3 条）；
  * - 颜色走 `--accent` / `--accent-text`（与工具栏那个主按钮同一对令牌）：
  *   这对令牌在两套主题下整体反转 ⇒ 端点永远是与所在底色相反的实色圆，
  *   不像第 14 批那样还得自己配"填充 + 描边"两色；
- * - 出场：`--port-progress`（0..1）管不透明度、`--port-scale` 管尺寸 ——
- *   **原地放大 + 渐显**（圆心已在边缘上，再往外滑就离开边界了）；
+ * - 出场：`--port-pop` 管"从节点边缘滑出来"的位移、`--port-progress`（0..1）管不透明度、
+ *   `--port-scale` 管尺寸 —— **从节点边缘向左 / 右渐显弹出**；
  *   `--port-pull-x/y` 是吸附鼠标的那一点点位移，叠加在同一个 `transform` 上。
  */
 .dot {
   position: absolute;
-  inset: 0;
-  margin: auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -79,7 +77,12 @@
   background: var(--accent);
   color: var(--accent-text);
   opacity: var(--port-progress, 0);
-  transform: scale(var(--port-scale, 0.45))
+  /*
+   * 出场：`--port-pop` 是"这一帧沿横向收回了多少"（从静止位朝节点边缘推，左右方向由组件定符号），
+   * 收回到底时圆点正好**贴住节点边缘**且不可见 ⇒ 用户看到的是一颗点"从边缘滑出来"。
+   * `translate` 写在 `scale` 左边 ⇒ 先缩放、后位移（顺序别换）。
+   */
+  transform: translate(var(--port-pop, 0px), 0) scale(var(--port-scale, 0.45))
     translate(var(--port-pull-x, 0px), var(--port-pull-y, 0px));
   transition:
     opacity var(--dur-edge) var(--ease-out),

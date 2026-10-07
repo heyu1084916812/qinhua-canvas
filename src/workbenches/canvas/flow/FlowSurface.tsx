@@ -118,16 +118,33 @@ const EDGE_OPTIONS = { type: 'default' } as const
  * 捕获阶段早于节点上的原生监听 ⇒ 这一帧打上，它这次就判定"不可拖"。
  *
  * 两处用它：**Alt + 拖动**（原地复制）、**空格 + 拖动**（平移画布）。
+ *
+ * ⚠️ **必须盯着它被抹掉再补回来**：`nodrag` 是手写在 DOM 上的类，而 React 每次提交都会把
+ * 那个元素的 `className` 整块重写（这一帧正好会重渲染：`node.duplicate` / 选中变化都会改
+ * 节点元素的类名）—— 而 d3-drag 的过滤条件是在**它自己的按下监听器**里才读这个类，
+ * 那时 React 已经提交过一轮。漏了这一步的实测后果（第 16 批探针）：按下瞬间类还在、
+ * 一进拖动就没了 ⇒ 原件被 RF 拖走、副本留在原地，正好把「Alt 复制」做反
+ *（用户看到的是"两个节点都跑到新位置去了"）。
+ * `MutationObserver` 的回调与 React 的提交在**同一个微任务检查点**里跑，
+ * 补回去的时刻仍早于 d3 的按下监听器。
  */
 function blockNativeNodeDrag(target: EventTarget | null): void {
   const frame = target instanceof Element ? target.closest<HTMLElement>('[data-node-id]') : null
   if (!frame) return
-  frame.classList.add('nodrag')
+  const ensure = () => {
+    if (!frame.classList.contains('nodrag')) frame.classList.add('nodrag')
+  }
+  ensure()
+  const observer = new MutationObserver(ensure)
+  observer.observe(frame, { attributes: true, attributeFilter: ['class'] })
   const cleanup = () => {
+    observer.disconnect()
     frame.classList.remove('nodrag')
     window.removeEventListener('pointerup', cleanup)
+    window.removeEventListener('pointercancel', cleanup)
   }
   window.addEventListener('pointerup', cleanup)
+  window.addEventListener('pointercancel', cleanup)
 }
 
 /**
@@ -288,9 +305,34 @@ function FlowSurfaceInner({
    */
   const onSurfaceClick = useCallback(
     (e: ReactMouseEvent<HTMLDivElement>) => {
-      const hit = (e.target as HTMLElement).closest('[data-node-id]')
+      const target = e.target as HTMLElement
+      const hit = target.closest('[data-node-id]')
       const childId = hit?.getAttribute('data-node-id')
-      if (!childId) return
+      if (!childId) {
+        /**
+         * ★★ 点**画布空白**：把选中清掉（用户第 16 批 #4：「批量节点和分组背景里面的节点
+         * 选中后弹出的框点击画布空白区域无法隐藏」）。
+         *
+         * 为什么必须自己清：容器子节点**不是 RF 节点**，RF 的"点空白清选中"只清它自己
+         * 认得的那些 ⇒ 子节点会一直赖在选中集合里，创作面板也就一直开着。
+         * 只在**画布本身**上清：点面板 / 菜单 / 跟随栏 / 连线等浮层一律不插手
+         *（那是它们自己的交互，清了反而坏事）。
+         */
+        const floating =
+          '[data-creation-panel], [data-node-follow-bar], [data-multi-select-bar], [data-context-menu],' +
+          ' [data-link-menu], [data-canvas-notice], [data-undo-bar], [data-lightbox], [data-minimap],' +
+          ' [data-flow-hud], [data-canvas-toolbar], [data-edge], .react-flow__edge, .react-flow__handle,' +
+          /**
+           * ⚠️ **端点命中层也算"不是空白"**（`[data-flow-port-hit]`）：它挂在节点**外面**
+           * （和节点元素是兄弟），所以 `closest('[data-node-id]')` 找不到节点 ——
+           * 不排除它的话，"点一下端点没拖动"会被当成"点空白"，把选中清掉。
+           * 实测（G15）：组被清空选中 ⇒ 跟随栏整条消失，后面「排列与整理」再也点不到。
+           */
+          ' [data-flow-port-hit]'
+        if (target.closest(floating)) return
+        if (store.getSelection().length > 0) store.setSelection([])
+        return
+      }
       const graph = store.getSnapshot()
       const node = graph.nodes.find((n) => n.id === childId)
       /** 顶层节点：RF 自己就选对了，不插手 */
@@ -559,7 +601,7 @@ function FlowSurfaceInner({
   const edges = useMemo(
     () => {
       const selectedNodes = new Set(selection)
-      return graph.edges
+      const list = graph.edges
         /**
          * 牵涉容器子节点的边**摘出去**交给 `FlowChildEdgeLayer` 画：
          * RF 按 `source / target` 找它自己的节点，子节点不在其中 ⇒ 这类边在 RF 里
@@ -583,8 +625,18 @@ function FlowSurfaceInner({
             onDelete: (id: string) => store.dispatch({ kind: 'edge.remove', id }),
           } satisfies QhEdgeData,
         }))
+      return list
     },
-    [graph.edges, selection, edgeSelection, store],
+    /*
+     * ⚠️ 依赖里必须是**整个 `graph`**，不能只写 `graph.edges`：
+     * 上面那个 `isChildEdge` 读的是**节点**的 `parentId`（"这条边牵涉容器子节点吗"），
+     * 而"节点进出容器"只换 `graph.nodes`、**`graph.edges` 这个数组还是原来那一个引用**
+     * ⇒ 只依赖 `graph.edges` 的话这份列表**不会重算**，用户会看到
+     * 「拖出分组的节点连着的线整条消失，直到下次点空白（选中变化）才回来」
+     *（第 16 批 #7 探针实测：拖出后 `list.length = 0`、`childEdges = 2`；
+     *  点一下空白才变成 `2 / 0` —— 差的就是这一次重算）。
+     */
+    [graph, selection, edgeSelection, store],
   )
 
   /**
@@ -843,6 +895,39 @@ function FlowSurfaceInner({
   )
 
   /**
+   * ★★ **Del / Backspace 统一在这里处理**（用户第 16 批 #6：
+   * 「批量节点和分组背景的里面的节点无法按 del 删除键删除」）。
+   *
+   * 原来这一键交给 React Flow 的 `deleteKeyCode` —— 而它只认 **RF 节点**，
+   * 容器（分组 / 批量）里的子节点**不是** RF 节点 ⇒ 选中子节点按 Del 什么都不会发生。
+   * 所以改成自己听一次键盘，选区里有什么就删什么：
+   * 节点走 `node.delete`（容器会级联处理后代与它的框），选中的连线走 `edge.remove`；
+   * RF 那侧的 `deleteKeyCode` 同时关掉，免得同一个键删两遍。
+   *
+   * 焦点在输入框 / 文本域里时**不接管**（那里 Backspace 是打字，不是删节点）。
+   */
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      const el = e.target as HTMLElement | null
+      const tag = el?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || el?.isContentEditable) return
+      const nodes = store.getSelection()
+      const edges = store.getEdgeSelection()
+      if (nodes.length === 0 && edges.length === 0) return
+      e.preventDefault()
+      for (const id of edges) store.dispatch({ kind: 'edge.remove', id })
+      if (nodes.length > 0) {
+        store.dispatch({ kind: 'node.delete', ids: nodes })
+        store.setSelection([])
+        store.showUndoBar('已删除节点')
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [store])
+
+  /**
    * 边的**选中**：与节点同一条路（受控模式下走 `EdgeChange('select')`，见 `onNodesChange` 的注释）。
    *
    * 为什么必须自己接：不接的话 RF 内部知道"这条边选中了"，而我们的 store 不知道
@@ -980,11 +1065,16 @@ function FlowSurfaceInner({
          * 不进 DOM，G9 实测当场只画 2 个（数据是对的、刷新后 4 个都在）。老表面的裁剪带 280px 预热，
          * 语义上更接近"都挂上"。等 P5 收口、冒烟全部按 RF 面改写之后再作为规模优化单独评估。
          */
+        /**
+         * ⚠️ 这一键**不再交给 RF**（`deleteKeyCode={null}`）：RF 只认它自己的节点，
+         * 而容器里的子节点不是 RF 节点 ⇒ 选中子节点按 Del 会"什么都不发生"
+         *（用户第 16 批 #6）。改成 surface 自己听键盘（见 `onKeyDown` 那段 effect）。
+         */
         onNodesDelete={onNodesDelete}
         onEdgesDelete={onEdgesDelete}
         onEdgesChange={onEdgesChange}
         onEdgeDoubleClick={onEdgeDoubleClick}
-        deleteKeyCode={['Backspace', 'Delete']}
+        deleteKeyCode={null}
         /*
          * **关掉 React Flow 的署名水印**（用户 2026-10-06 第 13 条：「水印关掉，关掉后记得把小地图改好位置」）。
          *

@@ -1,7 +1,12 @@
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import { portDeclsOf } from '../../../domain/canvas/nodeSpecs/ports'
 import { getSpec } from '../../../domain/canvas/nodeSpecs/registry'
-import { PORT_HIT_RADIUS } from '../../../domain/canvas/geometry/portReveal'
+import {
+  PORT_CENTER_OFFSET,
+  PORT_HIT_INNER_PAD,
+  PORT_HIT_RADIUS,
+  PORT_SIZE,
+} from '../../../domain/canvas/geometry/portReveal'
 import { topLevelNodes } from './flowGraph'
 
 /**
@@ -11,7 +16,19 @@ import { topLevelNodes } from './flowGraph'
  * ⚠️ 单位是**世界坐标**：命中层整体挂一个 `translate + scale` 的 transform，
  * 所以圆点随缩放一起缩（与端口视觉同比例，也与老表面一致）——**不要**在这里乘 `zoom`。
  */
-export const PORT_HIT_SIZE = PORT_HIT_RADIUS * 2
+/**
+ * 命中方块要同时罩住两处，所以边长取两者的**较大者**：
+ * ① 圆点自己那一圈（`2 × 命中半径`，按住圆点旁边的容错）；
+ * ② **从节点边缘一直铺到圆点外沿**（`外移量 + 半直径`）——
+ *    圆点第 14 批起就浮在边缘外面 20px（第 16 批要回来了），
+ *    只罩圆点的话，"从节点边缘往外拖"这一手势会落在节点身体上（拖不动线）。
+ *    冒烟（G91/G92）正是从节点边缘那只 `[data-port]` 锚点起拖的，所以这条是硬约束。
+ * 命中块的**中心**跟着它自己的跨度走（见 `PortHit.hitX` 的注释），不是圆点圆心。
+ */
+/** 命中块从节点边缘往**外**铺多远（世界单位）：一直铺到圆点的外沿 */
+export const PORT_HIT_REACH = PORT_CENTER_OFFSET + PORT_SIZE / 2
+/** 命中块边长 = max(圆点容错圈, 边缘**内侧** 18.5px → 圆点外沿) */
+export const PORT_HIT_SIZE = Math.max(PORT_HIT_RADIUS * 2, PORT_HIT_INNER_PAD + PORT_HIT_REACH)
 
 export interface PortHit {
   key: string
@@ -23,11 +40,24 @@ export interface PortHit {
   /** `input` / `output` / `both`（`both` 的圆点换个画法，见 `FlowPortLayer.module.css`） */
   kind: string
   /**
-   * 圆心（**世界坐标**）：**就落在节点的边缘上**（第 15 批澄清：端点是动效点，
-   * 线也从这条边缘起步 ⇒ 两者重合，不再有"线从边缘起、点却在外面飘"的错位）。
+   * 圆心（**世界坐标**）：静止位在节点边缘**外面** `PORT_CENTER_OFFSET`（= 20 + 半直径），
+   * 即"近边距节点边缘 20px"（用户第 14 批第 4 条；第 16 批第 3 条点名要它回来）。
+   *
+   * ⚠️ 这只是**圆点**的位置。**连线锚点不吃它** —— 线一律从 `edgeX`（节点边缘）起步
+   *（用户第 15 批澄清 + 第 16 批「线没有在边界」）。
    */
   x: number
   y: number
+  /**
+   * **命中方块**的中心（世界坐标）：不是圆心，而是它自己那一跨度的中点 ——
+   * 跨度 = 节点边缘**往里** `PORT_HIT_INNER_PAD`、往外到圆点外沿。
+   *
+   * 为什么单独给一个：圆点浮在边缘外面，而"从边缘往外拖"也得能起手势 ⇒ 命中块比圆点
+   * **往里多探一段**。往哪个方向探由 `side` 决定（左口往右探、右口往左探）。
+   * 视图层按 `hitX/hitY` 摆命中块、按 `x/y` 摆那颗看得见的圆点。
+   */
+  hitX: number
+  hitY: number
   /** 节点边缘在这一侧的 **x**（世界坐标）—— 横向距离从它算起，不是从圆心 */
   edgeX: number
   /** 节点左右边（世界坐标 x）：`activePortNode` 判"指针在不在这个节点里"要用 */
@@ -61,6 +91,15 @@ export function portHitsOf(graph: GraphSnapshot): PortHit[] {
     if (!spec) continue
     for (const decl of portDeclsOf(spec.ports)) {
       const edgeX = decl.side === 'left' ? node.x : node.x + node.w
+      const outward = decl.side === 'left' ? -1 : 1
+      const cx = edgeX + outward * PORT_CENTER_OFFSET
+      const cy = node.y + node.h * decl.y
+      /**
+       * 命中块：从节点边缘**内侧** `PORT_HIT_INNER_PAD` 铺到圆点外沿（见 `PORT_HIT_SIZE`）——
+       * 于是"按住节点边缘往外拖"与"按住圆点往外拖"是同一条手势。
+       */
+      const inner = -outward * PORT_HIT_INNER_PAD
+      const hitX = edgeX + (inner + outward * PORT_HIT_REACH) / 2
       out.push({
         key: `${node.id}:${decl.id}`,
         nodeId: node.id,
@@ -68,9 +107,10 @@ export function portHitsOf(graph: GraphSnapshot): PortHit[] {
         label: decl.label ?? '拖出连线',
         side: decl.side,
         kind: decl.kind,
-        /** 圆心就在边缘上（第 15 批：端点是动效点，线也从边缘起步） */
-        x: edgeX,
-        y: node.y + node.h * decl.y,
+        x: cx,
+        y: cy,
+        hitX,
+        hitY: cy,
         edgeX,
         nodeLeft: node.x,
         nodeRight: node.x + node.w,

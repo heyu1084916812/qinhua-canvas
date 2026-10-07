@@ -77,21 +77,33 @@
   color: var(--text-3);
 }
 /*
- * React Flow 的 `Handle` 在这里**只是"线该从哪儿出去"的锚点**，不兼任可见的端点：
+ * React Flow 的 `Handle` 在这里**只是"线该从哪儿出去"的锚点**，不兼任可见的端点
+ *（看得见的那颗圆点画在 `FlowPortLayer` 上，它在所有节点之上，否则会被相邻节点盖住）。
  *
- * - 看得见的那颗圆点画在 `FlowPortLayer` 上 —— 它在**所有节点之上**，
- *   否则相邻节点（尤其是贴边对齐过的那些）会把它整块盖住，用户又会说"端点看不见"；
- * - 锚点仍留在 `Handle` 上（带 `data-port`，冒烟与探针按它取几何），
- *   位置与尺寸必须与那颗圆点重合：**圆心落在节点边缘上**（用户 2026-10-07 澄清：
- *   「线的起始位置是节点的边缘，而不是端点」），尺寸 = `portReveal.PORT_SIZE`（42）。
+ * ## ⚠️ 这个盒子的尺寸与位置是被 **React Flow 的端点公式** 决定的，不能随手改
  *
- * ⚠️ 横向写 **0**、不是 ±(半直径)：RF 给左右两只手柄各挂了一条 `translate(±50%, -50%)`
- * （把圆心从"自己的边"推到"节点的边"上），所以 `right: 0` 的最终圆心正好是「节点右边缘」——
- * 与 `portAnchorWorld` / `portHits.portHitsOf` 算出来的是同一个点。
+ * `@xyflow/system` 的 `getHandlePosition` 取的是盒子的**外沿**、不是圆心：
+ * - 右手柄（`Position.Right`）⇒ `x = handle.x + handle.width`（盒子的**右侧外沿**）
+ * - 左手柄（`Position.Left`） ⇒ `x = handle.x`（盒子的**左侧外沿**）
+ *
+ * 箱子的**纵向**由 RF 自己那条 `translate(-50%)` 居中，横向不吃 —— 所以横向位置由
+ * `left/right` 说了算：取 **0** 时盒子的**外沿正好落在节点边缘上**（这就是用户要的
+ * "线接在边界上"），盒子整体贴在内侧 2px（它的中心离边界 1px，端点命中块往内探了 4px，
+ * 所以"从边缘起拖"照样点得到，见 `portReveal.PORT_HIT_INNER_PAD`）。
+ *
+ * 反面教材（2026-10-07 第 16 批实测）：把宽度写成 42（跟着可见圆点走）却没动位置 ⇒
+ *   RF 算出来的端点 = 节点右边缘 **+20px**、左边缘 **−20px** —— 用户看到的就是
+ *   「连线没接在边界上、隔空一截」（图一），而"从组里拖出来的线"走的是另一套锚点
+ *   （`portAnchorWorld`）所以是准的（图三那个"例外"就是这么来的）。
+ * 另一个 1px 的小坑：位置写 `1px` 时外沿会落在边界**内侧** 1px（探针量到 395 / 396）——
+ *   用户口径是"接在边界上"，所以取 0。
  */
 .flow :global(.react-flow__handle) {
-  width: 42px;
-  height: 42px;
+  width: 2px;
+  height: 2px;
+  /* RF 自带 `min-width/min-height: 5px`：不覆盖掉，盒子就还是 5px，端点又会偏 */
+  min-width: 2px;
+  min-height: 2px;
   background: transparent;
   border: 0;
   opacity: 0;
