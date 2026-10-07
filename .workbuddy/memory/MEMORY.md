@@ -4638,3 +4638,10 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   仓库里几条"一个渠道都没有"的空态用例会被内置数据填满 —— 与其改断言语义，不如给测试一个显式开关。
 - **pending 协议不许声明能力**（protocol.test.ts 守着）：声明了就等于告诉选路"这条能用"，
   而适配器没写 ⇒ 用户配出一条跑不通的路。新协议一律先 pending + 空能力，适配器落地再转 ready。
+## 2026-10-07 第 21 批（渠道列表瘦身）
+
+- **按钮里不许再放交互元素**：列表项原来是个 button，启用开关（label + input）塞进去属于非法 HTML，
+  点击派发会被搞乱 ⇒ 换成 role=button 的 div + tabIndex。凡是「项内还要放开关 / 小按钮」的列表项，一开始就别用 button。
+- **界面上撤掉的信息，可以改成属性留给断言**：协议短标签与能力小标从可见元素挪成
+  data-channel-proto / data-channel-caps 属性 —— 冒烟只改「读哪儿」，不用改断言语义。
+- **隐藏 input 不能用 click() 点**：switchInput 是视觉隐藏的，Playwright 会超时；要按坐标点可见的 track。这一批就卡在这儿（见 #357 待查）。
