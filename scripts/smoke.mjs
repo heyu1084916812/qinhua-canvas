@@ -1148,7 +1148,7 @@ async function g8(browser) {
   await sleep(400)
   const created = await page.getByText('新建渠道').first().isVisible().catch(() => false)
   rec(g, '新增渠道出现在列表', created)
-  const protoShort = await page.locator('[data-channel-proto]').first().innerText().catch(() => '')
+  const protoShort = await page.locator('[data-channel-proto]').first().getAttribute('data-channel-proto').catch(() => '')
   rec(g, '列表项显示协议短标签（§7.2）', protoShort.trim() === 'MOCK', protoShort)
   await page.screenshot({ path: `${OUT}/10-settings-new.png` })
 
@@ -4709,17 +4709,17 @@ async function g44(browser) {
 
   const before = await names()
   rec(g, '新渠道排到列表末尾', JSON.stringify(before) === JSON.stringify(['渠道甲', '渠道乙']), JSON.stringify(before))
-  const short = (await page.locator('[data-channel-proto]').first().innerText()).trim()
+  const short = (await page.locator('[data-channel-proto]').first().getAttribute('data-channel-proto')).trim()
   rec(g, '列表项右侧协议短标签', short === 'MOCK', short)
   // 列表项要能一眼看出「这条渠道能用什么」（用户 2026-10-01）
-  const capKeys = await page
-    .locator('[data-channel-cap]')
-    .first()
-    .evaluate((el) =>
-      [...el.parentElement.querySelectorAll('[data-channel-cap]')].map((c) =>
-        c.getAttribute('data-channel-cap'),
-      ),
-    )
+  /**
+   * ⚠️ 用户第 21 批第 2 条把「对话 / 生图 / 视频」那排小标从列表项上**撤掉了**
+   * （「渠道下方的对话、生图那些展示也去掉」）—— 信息还在，改成列表项上的
+   * `data-channel-caps="chat,image"` 属性。这条断言要守的是"列表项带得出这条渠道能用什么"，
+   * 不是"屏幕上有没有那三枚小标"，所以跟着改成读属性。
+   */
+  const capsText = await page.locator('[data-channel-caps]').first().getAttribute('data-channel-caps')
+  const capKeys = (capsText ?? '').split(',').filter(Boolean)
   rec(
     g,
     '★ 列表项显示这条渠道能用什么（对话 / 生图 / 视频）',
@@ -4888,7 +4888,7 @@ async function g45(browser) {
   rec(
     g,
     '左栏协议短标签同步为 OAI+',
-    norm(await page.locator('[data-channel-proto]').first().innerText()) === 'OAI+',
+    norm(await page.locator('[data-channel-proto]').first().getAttribute('data-channel-proto')) === 'OAI+',
   )
 
   // 空地址必须被拒绝：否则空串会退化成相对当前页的路径，被 SPA 的 200 兜底页骗成「通了」
@@ -13077,7 +13077,7 @@ async function g88(browser) {
   // ③ 保存渠道 → 左栏短标签显示自建协议 → 引用中的协议删不掉
   await page.locator('[data-settings-save]').click()
   await sleep(400)
-  const shortTag = (await page.locator('[data-channel-proto]').first().innerText()).trim()
+  const shortTag = (await page.locator('[data-channel-proto]').first().getAttribute('data-channel-proto')).trim()
   rec(g, '★ 渠道短标签显示自建协议', shortTag === 'MY', shortTag)
 
   await page.locator('[data-proto-remove="my-private"]').click()

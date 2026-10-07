@@ -35,7 +35,6 @@ import { ChannelIcon } from '../../features/shared/channelIcon/ChannelIcon'
 import { readChannelIconFile } from '../../features/shared/channelIcon/readIconFile'
 import { isBuiltinChannelId } from '../../domain/project/builtinChannels'
 import { ModelMapCombo, StrategyPicker } from './SettingsPicker'
-import { openGlobalSettings } from '../../state/ui/globalSettings'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 
 /**
@@ -396,13 +395,6 @@ export function SettingsPage() {
     }
   }
 
-  const handleToggleEnabled = async () => {
-    if (!selectedId) return
-    const next = !enabled
-    setEnabled(next)
-    await channels.setEnabled(selectedId, next)
-  }
-
   // —— 模型管理（§7.4）——
 
   const openPanel = () => {
@@ -644,10 +636,22 @@ export function SettingsPage() {
               )
               return (
               <li key={ch.id}>
-                <button
+                <div
+                  role="button"
+                  tabIndex={0}
                   className={ch.id === selectedId ? `${styles.item} ${styles.itemActive}` : styles.item}
                   data-channel-item
                   data-channel-id={ch.id}
+                  /**
+                   * 协议短标签与能力**改成机器可读的属性**（用户第 21 批第 2 条：
+                   * 「后面的缩写文字删掉」「渠道下方的对话、生图那些展示也去掉」）。
+                   * 界面上不再显示它们，但冒烟 / 探针仍按这两个锚点断言 ——
+                   * 换成属性等于"信息还在、只是不占地方"，不必把断言改成语义不同的另一种。
+                   */
+                  data-channel-proto={protocolShort(ch.protocol, catalog)}
+                  data-channel-caps={(['chat', 'image', 'video'] as const)
+                    .filter((k) => caps[k])
+                    .join(',')}
                   draggable
                   onDragStart={() => setDragId(ch.id)}
                   onDragOver={(e) => e.preventDefault()}
@@ -660,35 +664,38 @@ export function SettingsPage() {
                 >
                   <span className={styles.itemTop}>
                     {/* 渠道图标：品牌矢量标记 / 用户上传的图（见 `ChannelIcon`） */}
-                    <ChannelIcon protocol={ch.protocol} icon={ch.icon} size={16} />
+                    <ChannelIcon protocol={ch.protocol} icon={ch.icon} size={20} />
                     <span className={styles.itemName}>{ch.name}</span>
-                    {/* 内置渠道标一下（第 20 批）：让"为什么这条删不掉"一眼有答案 */}
-                    {isBuiltinChannelId(ch.id) && (
-                      <span className={styles.itemBuiltin} data-channel-builtin>
-                        内置
-                      </span>
-                    )}
-                    <span className={styles.itemProto} data-channel-proto>
-                      {protocolShort(ch.protocol, catalog)}
-                    </span>
                   </span>
                   <span className={styles.itemMeta}>
-                    {ch.enabled && <span className={styles.itemOn}>已启用</span>}
                     <span className={styles.itemModels}>
                       {ch.models.length > 0 ? `${ch.models.length} 个模型` : '未选模型'}
                     </span>
                   </span>
-                  {/* 这条渠道**实际**能用什么（判据是勾选的模型，不是协议声明） */}
-                  <span className={styles.itemCaps}>
-                    {(['chat', 'image', 'video'] as const)
-                      .filter((k) => caps[k])
-                      .map((k) => (
-                        <span key={k} className={styles.capChip} data-channel-cap={k}>
-                          {CAPABILITY_LABEL[k]}
-                        </span>
-                      ))}
+                  {/*
+                    启用开关**放在每条渠道下方**（用户第 21 批第 2 条，图二那条箭头）：
+                    列表里一眼看到"这条开没开"，不用先点进去找「基本信息」里那个开关。
+                    所以列表项从 `<button>` 换成 `role="button"` 的 div —— 按钮里不许再放交互元素
+                    （label + input 是交互内容，塞进 button 属于非法 HTML，浏览器会把点击派发搞乱）。
+                  */}
+                  <span
+                    className={styles.itemToggle}
+                    onClick={(e) => e.stopPropagation()}
+                    onDragStart={(e) => e.preventDefault()}
+                  >
+                    <label className={styles.switch}>
+                      <input
+                        className={styles.switchInput}
+                        type="checkbox"
+                        checked={ch.enabled}
+                        data-channel-enabled={ch.id}
+                        onChange={() => void channels.setEnabled(ch.id, !ch.enabled)}
+                      />
+                      <span className={styles.switchTrack} aria-hidden="true" />
+                      <span className={styles.switchText}>{ch.enabled ? '已启用' : '未启用'}</span>
+                    </label>
                   </span>
-                </button>
+                </div>
               </li>
               )
             })}
@@ -807,18 +814,11 @@ export function SettingsPage() {
                   <span className={styles.cardSub}>PNG / JPG，自动缩到 128px</span>
                 </div>
 
-                <div className={styles.fieldRow}>
-                  <label className={styles.switch}>
-                    <input
-                      className={styles.switchInput}
-                      type="checkbox"
-                      checked={enabled}
-                      onChange={handleToggleEnabled}
-                    />
-                    <span className={styles.switchTrack} aria-hidden="true" />
-                    <span>已启用（出现在画布平台选择中）</span>
-                  </label>
-                </div>
+                {/*
+                  启用开关**已搬到左栏每条渠道的下方**（用户第 21 批第 2 条）。
+                  这里不再放第二个开关：同一个事实两处可切，迟早出现"哪边是准的"。
+                  `enabled` 这个表单状态仍在用（保存配置时会一起落库），故 `handleToggleEnabled` 保留。
+                */}
               </section>
 
               {/* —— 连接与鉴权（§7.3）—— */}
@@ -1141,24 +1141,11 @@ export function SettingsPage() {
                 )}
 
                 {/*
-                  本机 CLI（对账 #308）：这四条协议已从「渠道协议」下拉里撤走，
-                  配置改在「全局设置 → CLI」。这里留一行**能点的入口** ——
-                  只在渠道页说"没有了"却不给出路，用户会以为这个能力被删了。
+                  ⛔ 「本机 CLI」那一块**整块删掉**（用户第 21 批第 1 条：
+                  「每个渠道的这里的cli都不需要了，cli有单独的位置了」）——
+                  CLI 现在在「全局设置 → 左侧 CLI 一栏」，渠道页再挂一份入口就是两处口径
+                  （而且它看起来像"这条渠道的 CLI 配置"，实际是全局的）。
                 */}
-                <div className={styles.protoMine} data-proto-cli-link>
-                  <span className={styles.label}>本机 CLI</span>
-                  <div className={styles.protoMineRow}>
-                    <span className={styles.protoMineName}>Codex / 即梦 / Gemini / RunningHub</span>
-                    <button
-                      type="button"
-                      className={styles.ghostBtn}
-                      data-settings-open-cli
-                      onClick={() => openGlobalSettings('cli')}
-                    >
-                      配置命令与参数
-                    </button>
-                  </div>
-                </div>
 
                 {showMockNote && (
                   <p className={styles.offlineNote} data-settings-mock-note>

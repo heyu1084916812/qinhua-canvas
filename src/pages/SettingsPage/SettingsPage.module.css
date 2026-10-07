@@ -301,7 +301,12 @@
   gap: var(--space-2);
 }
 .itemName {
-  font-size: var(--fs-label);
+  /**
+   * 名称放大到与图标同级（用户第 21 批第 2 条：「让图标和文字一样大小放大文字」）——
+   * 图标从 16 提到 20、文字从 `--fs-label`(13) 提到 `--fs-panel-title`(15)，
+   * 两者视觉重量才配得上；列表项也才在一眼扫过时读得清。
+   */
+  font-size: var(--fs-panel-title);
   font-weight: var(--fw-title);
 }
 .itemProto {
@@ -320,6 +325,20 @@
   color: var(--success);
 }
 .itemModels {
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+/* 列表项里的启用开关（用户第 21 批第 2 条：开关搬到每条渠道下方） */
+.itemToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* 开关自己收指针（见 JSX 的 stopPropagation）：点它只切开关，不选渠道、也不起拖动 */
+  cursor: default;
+}
+
+.switchText {
   font-size: var(--fs-chip);
   color: var(--text-3);
 }
