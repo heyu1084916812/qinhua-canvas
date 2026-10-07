@@ -14032,6 +14032,8 @@ async function g91(browser) {
     const b = await portLocator.boundingBox()
     if (!b) return false
     await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+    /* 端点要"看见"才收手势（第 14 批第 4 条起）：先靠近、等它展开，再按下 */
+    await sleep(180)
     await page.mouse.down()
     await page.mouse.move(to.x, to.y, { steps: 10 })
     await page.mouse.up()
@@ -14095,16 +14097,17 @@ async function g91(browser) {
   )
   rec(
     g,
-    '★★ 右端口是**共用口**（`kind=both`，入 / 出同一锚点）且停在右边缘外 27px',
+    '★★ 右端口是**共用口**（`kind=both`，入 / 出同一锚点）且圆心就在右边缘上',
     portById.patch?.kind === 'both' &&
-      Math.abs(portById.patch.cx - (portGeo.right + 27)) <= 2 &&
+      /** 端点圆心骑在节点边缘上（第 15 批：线从节点边缘起步，端点是动效点） */
+      Math.abs(portById.patch.cx - portGeo.right) <= 2 &&
       Math.abs(portById.patch.cy - portGeo.cy) <= 2,
     `kind=${portById.patch?.kind} cx=${portById.patch?.cx?.toFixed(1)} right=${portGeo.right.toFixed(1)} cy=${portById.patch?.cy?.toFixed(1)} mid=${portGeo.cy.toFixed(1)}`,
   )
   rec(
     g,
-    '★ 原图口停在**左边缘外 27px**（左入的口径没被挪走）',
-    Math.abs(portById.input?.cx - (portGeo.left - 27)) <= 2 &&
+    '★ 原图口的圆心在**左边缘**上（左入的口径没被挪走）',
+    Math.abs(portById.input?.cx - portGeo.left) <= 2 &&
       Math.abs(portById.input?.cy - portGeo.cy) <= 2,
     `in=(${portById.input?.cx?.toFixed(1)},${portById.input?.cy?.toFixed(1)}) left=${portGeo.left.toFixed(1)} mid=${portGeo.cy.toFixed(1)}`,
   )

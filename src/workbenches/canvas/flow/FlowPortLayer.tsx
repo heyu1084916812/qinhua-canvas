@@ -1,8 +1,16 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useGraph, useViewportState } from '../storeContext'
-import { PORT_REVEAL_FULL, PORT_SIZE, portReveal } from '../../../domain/canvas/geometry/portReveal'
+import {
+  PORT_MIN_SCALE,
+  PORT_REVEAL_FULL,
+  PORT_SIZE,
+  activePortNode,
+  portReveal,
+  type PortNodeRect,
+} from '../../../domain/canvas/geometry/portReveal'
 import { NO_MAGNET, portMagnet } from '../../../domain/canvas/geometry/portMagnet'
+import { IconPlus } from '../toolbar/icons'
 import { portHitsOf, type PortHit } from './portHits'
 import styles from './FlowPortLayer.module.css'
 
@@ -65,6 +73,15 @@ const PortHitViewport = memo(function PortHitViewport({
  * 一起缩放（缩得很小时吸 8px 会显得整个点在乱窜）。
  */
 const MAX_PULL = 8
+
+/**
+ * 端点里那个加号的尺寸。
+ *
+ * 画布左工具栏的「新建节点」按钮是 **36px 的圆 + 26px 的加号**（比例 0.72）——
+ * 用户第 15 批说"照它的静态显示来"，所以这里按同一比例换算到 42px 的端点：
+ * `42 × 0.72 ≈ 30`。
+ */
+const PORT_PLUS_SIZE = Math.round(PORT_SIZE * (26 / 36))
 
 /**
  * 圆点本身：props 只在图变化时变 ⇒ 平移 / 缩放帧不重排（`hits` 与 `onPortDown` 都是稳定引用）。
@@ -133,7 +150,8 @@ const PortDots = memo(function PortDots({
         if (!el) continue
         el.dataset.portOpen = '0'
         delete el.dataset.portHot
-        el.style.removeProperty('--port-pop')
+        el.style.removeProperty('--port-progress')
+        el.style.removeProperty('--port-scale')
         el.style.removeProperty('--port-pull-x')
         el.style.removeProperty('--port-pull-y')
       }
@@ -151,18 +169,45 @@ const PortDots = memo(function PortDots({
       /** 指针在**世界坐标**下的位置（只算这一次，逐个端点复用） */
       const world = { x: (e.clientX - box.left) / zoom, y: (e.clientY - box.top) / zoom }
 
+      /**
+       * ★★ 先定出**唯一的活动节点**（用户 2026-10-07 图二：「我选择悬停左边的节点的时候，
+       * 右边也会出现端点」）——挨得近的两个节点各自按"指针到自己边缘的距离"判断，
+       * 就会一起冒端点；定了活动节点，其余节点一律不露。
+       */
+      const rects = new Map<string, PortNodeRect>()
+      for (const hit of hits) {
+        if (rects.has(hit.nodeId)) continue
+        rects.set(hit.nodeId, {
+          id: hit.nodeId,
+          left: hit.nodeLeft,
+          right: hit.nodeRight,
+          top: hit.nodeTop,
+          bottom: hit.nodeBottom,
+        })
+      }
+      /** 端点也一起交进去：指针正戳在端点上时，那只端点所属的节点优先（见 `activePortNode`） */
+      const active = activePortNode(
+        world,
+        [...rects.values()],
+        hits.map((h) => ({ nodeId: h.nodeId, x: h.x, y: h.y })),
+      )
+
       for (const hit of hits) {
         const el = map.get(hit.key)
         if (!el) continue
-        const reveal = portReveal({
-          edgeGap: hit.side === 'left' ? hit.edgeX - world.x : world.x - hit.edgeX,
-          pointerY: world.y,
-          nodeTop: hit.nodeTop,
-          nodeBottom: hit.nodeBottom,
-        })
+        const reveal =
+          hit.nodeId === active
+            ? portReveal({
+                edgeGap: hit.side === 'left' ? hit.edgeX - world.x : world.x - hit.edgeX,
+                pointerY: world.y,
+                nodeTop: hit.nodeTop,
+                nodeBottom: hit.nodeBottom,
+              })
+            : { progress: 0, hot: false, scale: PORT_MIN_SCALE }
         el.dataset.portOpen = reveal.progress > 0 ? '1' : '0'
-        /** 收回 = 沿横向朝节点边缘挪；左右两侧方向相反 */
-        el.style.setProperty('--port-pop', `${(hit.side === 'left' ? 1 : -1) * reveal.pop}px`)
+        /** 出场 = **原地放大 + 渐显**（圆心骑在节点边缘上，再往外滑就会离开边缘） */
+        el.style.setProperty('--port-progress', String(reveal.progress))
+        el.style.setProperty('--port-scale', String(reveal.scale))
 
         const magnet = reveal.hot ? portMagnet(hit, world, { radius: PORT_REVEAL_FULL, maxPull: MAX_PULL }) : NO_MAGNET
         if (magnet.hot) {
@@ -223,7 +268,13 @@ const PortDots = memo(function PortDots({
             data-port-dot={hit.portId}
             style={{ width: PORT_SIZE, height: PORT_SIZE }}
             aria-hidden="true"
-          />
+          >
+            {/*
+              加号是**真矢量**，与画布左工具栏那个「新建节点」按钮**同一个 `IconPlus`**
+              —— 用户第 15 批：「你直接参考我画布工作区左侧功能栏的第一个按钮的静态显示」。
+            */}
+            <IconPlus size={PORT_PLUS_SIZE} />
+          </span>
         </span>
       ))}
     </>

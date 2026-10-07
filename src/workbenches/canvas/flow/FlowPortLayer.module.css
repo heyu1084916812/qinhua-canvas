@@ -53,58 +53,48 @@
 }
 
 /*
- * 看得见的端点（用户 2026-10-06 第 14 批第 4 条）：
- * **圆形填充 + 描边，中间一个和描边同色的加号**。
+ * 看得见的端点（用户 2026-10-07 第 15 批）：
+ * **照画布左工具栏第一个按钮（「新建节点」）的静态显示** —— 实色圆 + 居中的加号，
+ * 直径 = `portReveal.PORT_SIZE`（**42**，是第 14 批那版 14 的**三倍**）。
  *
- * 三件事都在这里定死：
- * - 尺寸 = `portReveal.PORT_SIZE`（14，内联写死一份在组件里）；
- * - 静止时它的**近边距节点边缘 20px**：这是**位置**，不是边距 —— 位置由
- *   `portHits.portHitsOf` 把圆心外移 `PORT_CENTER_OFFSET`（27）算好，
- *   这里只管把它画在圆心处（`inset: 0; margin: auto`）；
- * - 出场：`--port-pop` 把它沿横向收回"贴住节点边缘"的位置（0 可见度），
- *   `--port-pull-x/y` 是吸附鼠标的那一点点位移，两者叠加在同一个 `transform` 上。
+ * 三件事在这里定死：
+ * - **圆心骑在节点边缘上**（位置由 `portHits.portHitsOf` 给，就是节点的边缘 x）——
+ *   它只是"动效连接点"，而**线也从同一条边缘起步**（用户第 15 批澄清），两者重合；
+ * - 颜色走 `--accent` / `--accent-text`（与工具栏那个主按钮同一对令牌）：
+ *   这对令牌在两套主题下整体反转 ⇒ 端点永远是与所在底色相反的实色圆，
+ *   不像第 14 批那样还得自己配"填充 + 描边"两色；
+ * - 出场：`--port-progress`（0..1）管不透明度、`--port-scale` 管尺寸 ——
+ *   **原地放大 + 渐显**（圆心已在边缘上，再往外滑就离开边界了）；
+ *   `--port-pull-x/y` 是吸附鼠标的那一点点位移，叠加在同一个 `transform` 上。
  */
 .dot {
   position: absolute;
   inset: 0;
   margin: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   box-sizing: border-box;
-  border: 1px solid var(--port-stroke);
   border-radius: 999px;
-  background: var(--port);
-  opacity: 0;
-  transform: translate(var(--port-pop, 0px), 0) translate(var(--port-pull-x, 0px), var(--port-pull-y, 0px));
+  background: var(--accent);
+  color: var(--accent-text);
+  opacity: var(--port-progress, 0);
+  transform: scale(var(--port-scale, 0.45))
+    translate(var(--port-pull-x, 0px), var(--port-pull-y, 0px));
   transition:
     opacity var(--dur-edge) var(--ease-out),
     transform var(--dur-edge) var(--ease-out);
 }
 
-/* 中间的加号：两条实心细条拼一个十字，颜色就是描边色（用户点名的"和描边一样颜色"） */
-.dot::before {
-  content: '';
-  position: absolute;
-  inset: 3px;
-  background:
-    linear-gradient(var(--dot-plus, var(--port-stroke)) 0 0) center / 100% 1.5px no-repeat,
-    linear-gradient(var(--dot-plus, var(--port-stroke)) 0 0) center / 1.5px 100% no-repeat;
-}
-
-/* 展开度 > 0 就可见（50→70 之间是渐隐，不跳变） */
-.hit[data-port-open='1'] .dot {
-  opacity: 1;
-}
-
 /*
  * 共用口（§6.23 融合节点右侧那只，`kind: both`）：同一个点既是入也是出。
- * 与"实心的入 / 出点"区分开：**反过来画** —— 底色用面板色、描边与加号用端口色，
- * 于是同一个节点右侧的 `patch` 与 `output` 一眼能分开（老表面那套是"实底挖空成环"，
- * 目的相同，画法跟着新样式一起翻过来）。
+ * 与"实心点"区分开：**反过来画**（面板色底 + 端口色描边与加号），
+ * 于是同一个节点右侧的 `patch` 与 `output` 一眼能分开。
  */
 .hit[data-port-kind='both'] .dot {
-  border-width: 2px;
-  border-color: var(--port);
+  border: 2px solid var(--accent);
   background: var(--bg-surface);
-  --dot-plus: var(--port);
+  color: var(--accent);
 }
 
 @media (prefers-reduced-motion: reduce) {

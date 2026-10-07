@@ -1,7 +1,7 @@
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import { portDeclsOf } from '../../../domain/canvas/nodeSpecs/ports'
 import { getSpec } from '../../../domain/canvas/nodeSpecs/registry'
-import { PORT_CENTER_OFFSET, PORT_HIT_RADIUS } from '../../../domain/canvas/geometry/portReveal'
+import { PORT_HIT_RADIUS } from '../../../domain/canvas/geometry/portReveal'
 import { topLevelNodes } from './flowGraph'
 
 /**
@@ -22,11 +22,17 @@ export interface PortHit {
   side: 'left' | 'right'
   /** `input` / `output` / `both`（`both` 的圆点换个画法，见 `FlowPortLayer.module.css`） */
   kind: string
-  /** 圆心（**世界坐标**；视口换算由命中层的 transform 承担） */
+  /**
+   * 圆心（**世界坐标**）：**就落在节点的边缘上**（第 15 批澄清：端点是动效点，
+   * 线也从这条边缘起步 ⇒ 两者重合，不再有"线从边缘起、点却在外面飘"的错位）。
+   */
   x: number
   y: number
   /** 节点边缘在这一侧的 **x**（世界坐标）—— 横向距离从它算起，不是从圆心 */
   edgeX: number
+  /** 节点左右边（世界坐标 x）：`activePortNode` 判"指针在不在这个节点里"要用 */
+  nodeLeft: number
+  nodeRight: number
   /** 节点的上下边（世界坐标 y）—— 纵向范围判定用 */
   nodeTop: number
   nodeBottom: number
@@ -62,13 +68,12 @@ export function portHitsOf(graph: GraphSnapshot): PortHit[] {
         label: decl.label ?? '拖出连线',
         side: decl.side,
         kind: decl.kind,
-        /**
-         * 圆心**在节点外面**：近边距节点边缘 20px（用户 2026-10-06 第 14 批第 4 条），
-         * 于是圆心外移 `PORT_CENTER_OFFSET`（= 20 + 半直径）。
-         */
-        x: decl.side === 'left' ? edgeX - PORT_CENTER_OFFSET : edgeX + PORT_CENTER_OFFSET,
+        /** 圆心就在边缘上（第 15 批：端点是动效点，线也从边缘起步） */
+        x: edgeX,
         y: node.y + node.h * decl.y,
         edgeX,
+        nodeLeft: node.x,
+        nodeRight: node.x + node.w,
         nodeTop: node.y,
         nodeBottom: node.y + node.h,
         size: PORT_HIT_SIZE,

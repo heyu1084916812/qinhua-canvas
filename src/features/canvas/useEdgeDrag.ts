@@ -13,7 +13,7 @@ import {
 } from '../../domain/canvas/nodeSpecs/ports'
 import { DEFAULT_SOURCE_PORT } from '../../domain/canvas/model/edge'
 import { screenToWorld, toWorldRect } from '../../domain/canvas/geometry/coords'
-import { PORT_CENTER_OFFSET, PORT_HIT_RADIUS } from '../../domain/canvas/geometry/portReveal'
+import { PORT_HIT_RADIUS } from '../../domain/canvas/geometry/portReveal'
 import { coalescePointerMove } from '../../shared/rafThrottle'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import { childIdsOfNode } from '../../domain/canvas/nodeSpecs/group'
@@ -99,22 +99,18 @@ interface Size {
 export function portAnchorWorld(
   node: { x: number; y: number; w: number; h: number },
   port: PortDecl | PortSide,
-  /**
-   * 端点圆心相对节点边缘**往外**多少（世界单位）。
-   *
-   * 默认 `PORT_CENTER_OFFSET`（= 20 的间隙 + 半直径）：**看得见的端点**都停在节点外面
-   * 一点点（用户 2026-10-06 第 14 批第 4 条：「位置不在节点的边缘，需要和端点的边缘
-   * 距离节点的边缘 20PX」）。连线必须从端点出发，所以锚点也得跟着外移 ——
-   * 否则线从节点边缘起步，端点旁边会留一段 20px 的空白。
-   *
-   * 传 0 的场合：**容器子节点**的端口是隐藏的（§6.11），它的边要贴住节点本体，
-   * 不该凭空留出那 20px（见 `childEdges.ts`）。
-   */
-  out: number = PORT_CENTER_OFFSET,
 ): { x: number; y: number } {
   const decl = typeof port === 'string' ? (port === 'input' ? INPUT_PORT : OUTPUT_PORT) : port
   return {
-    x: decl.side === 'left' ? node.x - out : node.x + node.w + out,
+    /**
+     * **就在节点边缘上**（用户 2026-10-07 澄清：端点只是动效点，
+     * 「线的起始位置是节点的边缘，而不是端点」）。
+     *
+     * 第 14 批那一版把圆心外移了 27px、锚点也跟着外移，于是"线从节点外 27px 处起步"；
+     * 用户这次明确否掉它 ⇒ 锚点回到边缘，端点的圆点也改成**骑在边缘上**（圆心也在边缘），
+     * 两者重合、不再有错位。
+     */
+    x: decl.side === 'left' ? node.x : node.x + node.w,
     y: node.y + node.h * decl.y,
   }
 }

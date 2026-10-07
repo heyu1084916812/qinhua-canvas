@@ -6,7 +6,7 @@ import { createCanvasStore, type CanvasStore } from '../../state/workbenches/can
 import { batchNodes, groupNodes } from './groupNodes'
 import type { GraphSnapshot } from '../../domain/canvas/model/graph'
 import type { NodeSnapshot, NodeType } from '../../domain/canvas/model/node'
-import { PORT_CENTER_OFFSET } from '../../domain/canvas/geometry/portReveal'
+import { PORT_HIT_RADIUS } from '../../domain/canvas/geometry/portReveal'
 
 /**
  * 拖线建连的纯逻辑（§6.14「建立连接」）：
@@ -16,18 +16,12 @@ describe('端点拖线（§6.14）', () => {
   const rect = { x: 100, y: 200, w: 240, h: 160 }
 
   /**
-   * 端点**停在节点外面**：近边距节点边缘 20px ⇒ 圆心外移 27（20 + 半直径 7），
-   * 见 `portReveal`（用户 2026-10-06 第 14 批第 4 条）。连线锚点必须跟着外移，
-   * 否则线从节点边缘起步、端点旁边会留一段 20px 的空白。
+   * ★ 锚点**就在节点边缘上**（用户 2026-10-07 第 15 批澄清：「线的起始位置是节点的边缘，
+   * 而不是端点」）。第 14 批那版曾把锚点外移 27px，这次否掉。
    */
-  it('输出端点停在右边 27px 处、输入端点在左边 27px 处（纵向仍是中线）', () => {
-    expect(portAnchorWorld(rect, 'output')).toEqual({ x: 340 + PORT_CENTER_OFFSET, y: 280 })
-    expect(portAnchorWorld(rect, 'input')).toEqual({ x: 100 - PORT_CENTER_OFFSET, y: 280 })
-  })
-
-  it('★ 传 out=0 时回到节点边缘（容器子节点的端点隐藏，线要贴住本体）', () => {
-    expect(portAnchorWorld(rect, 'output', 0)).toEqual({ x: 340, y: 280 })
-    expect(portAnchorWorld(rect, 'input', 0)).toEqual({ x: 100, y: 280 })
+  it('输出锚点在右边缘、输入锚点在左边缘（纵向仍是中线）', () => {
+    expect(portAnchorWorld(rect, 'output')).toEqual({ x: 340, y: 280 })
+    expect(portAnchorWorld(rect, 'input')).toEqual({ x: 100, y: 280 })
   })
 
   describe('端点可用性跟随规格注册表', () => {
@@ -110,22 +104,21 @@ describe('端点拖线（§6.14）', () => {
     })
 
     /**
-     * ★★ 端点停在节点**外面** 20px（用户 2026-10-06 第 14 批第 4 条）⇒
-     * 「把线拖到对方的端点上半」必须算"落在这个节点上"。
+     * ★★ 「把线拖到对方的端点上半」必须算"落在这个节点上"。
      *
-     * 少了这一条，最自然的连线手势会落进"空白"：既连不上、还会弹出空白松手菜单
-     *（实测：G71 的「批量 → 生成节点」就是这么断的 —— 下游生成节点的输入端点
-     * 正好落在它自己的矩形**外面**）。
+     * 端点的圆心现在就在边缘上（第 15 批澄清），所以**端点命中区仍然有一半在节点外**：
+     * 少了这一条兜底，从外侧对着端点松手会落进"空白"：既连不上、还会弹出空白松手菜单
+     *（实测：G71 的「批量 → 生成节点」就是这么断的）。
      */
     it('★★ 落点在端点命中区里 = 落在那个节点上（哪怕它在节点矩形之外）', () => {
       const graph = g([n('a', 100, 200, 'generation')])
       const anchor = portAnchorWorld({ x: 100, y: 200, w: 200, h: 200 }, 'input')
-      /** 锚点在节点左边 27px ⇒ 本来"谁也没命中" */
-      expect(anchor.x).toBe(100 - PORT_CENTER_OFFSET)
-      expect(nodeAtPoint(anchor, graph)).toBe('a')
-      /** 命中半径 15（14 的圆点再外扩 8，与看得见的命中方块同一份） */
+      /** 锚点就在左边缘上：边界点先被矩形判中（闭区间），这里要测的是**框外那一半** */
+      expect(anchor.x).toBe(100)
       expect(nodeAtPoint({ x: anchor.x - 14, y: anchor.y }, graph)).toBe('a')
-      expect(nodeAtPoint({ x: anchor.x - 40, y: anchor.y }, graph)).toBe(null)
+      expect(nodeAtPoint({ x: anchor.x + 14, y: anchor.y }, graph)).toBe('a')
+      /** 命中半径 = 半直径 + 8（与看得见的命中方块同一份），超出就不算 */
+      expect(nodeAtPoint({ x: anchor.x - (PORT_HIT_RADIUS + 6), y: anchor.y }, graph)).toBe(null)
     })
   })
 })

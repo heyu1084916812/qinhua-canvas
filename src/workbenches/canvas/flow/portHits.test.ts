@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { PORT_HIT_SIZE, portHitsOf } from './portHits'
-import { PORT_CENTER_OFFSET } from '../../../domain/canvas/geometry/portReveal'
+import { PORT_SIZE } from '../../../domain/canvas/geometry/portReveal'
 import { registerAllSpecs, resetSpecs } from '../../../domain/canvas/nodeSpecs'
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import type { NodeSnapshot, NodeType } from '../../../domain/canvas/model/node'
@@ -33,14 +33,14 @@ describe('端点命中层几何', () => {
   })
 
   /**
-   * 端点**停在节点外面**（用户 2026-10-06 第 14 批第 4 条）：圆心离节点边缘
-   * `PORT_CENTER_OFFSET`（= 20 的间隙 + 半直径 7），纵向仍是各口声明的中线。
+   * 端点的圆心**就在节点边缘上**（用户 2026-10-07 第 15 批澄清：端点只是动效点，
+   * 「线的起始位置是节点的边缘」）⇒ 圆点是"骑"在边缘上的，纵向仍是各口声明的中线。
    */
-  it('单口节点：输出口停在右边缘外、输入口停在左边缘外（世界坐标）', () => {
+  it('单口节点：输出口圆心在右边缘、输入口圆心在左边缘（世界坐标）', () => {
     const hits = portHitsOf(graphOf([node('a', 100, 200, 240, 160)]))
     expect(hits.map((h) => [h.portId, h.x, h.y])).toEqual([
-      ['input', 100 - PORT_CENTER_OFFSET, 280],
-      ['output', 340 + PORT_CENTER_OFFSET, 280],
+      ['input', 100, 280],
+      ['output', 340, 280],
     ])
     // 命中方块按世界单位给（随缩放一起缩，与端口视觉同比例）
     expect(hits[0].size).toBe(PORT_HIT_SIZE)
@@ -49,7 +49,11 @@ describe('端点命中层几何', () => {
   it('融合节点：右侧共用口 `patch` 在右中线（一个锚点，不按方向拆成两个）', () => {
     const hits = portHitsOf(graphOf([node('f', 840, 160, 280, 420, 'fusion')]))
     expect(hits.map((h) => h.portId)).toEqual(['input', 'patch'])
-    expect(hits[1]).toMatchObject({ x: 1120 + PORT_CENTER_OFFSET, y: 370 })
+    expect(hits[1]).toMatchObject({ x: 1120, y: 370 })
+  })
+
+  it('★ 命中区随端点尺寸放大（42 的圆点 ⇒ 命中方块 2×(21+8) = 58）', () => {
+    expect(PORT_HIT_SIZE).toBe(PORT_SIZE + 16)
   })
 
   it('容器子节点不给端点（§6.11 组内节点端点隐藏）', () => {

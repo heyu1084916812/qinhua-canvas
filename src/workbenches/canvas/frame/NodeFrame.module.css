@@ -24,6 +24,22 @@
   outline-offset: 0;
 }
 
+/*
+ * ★ 分组：**节点框自己不许画底**（用户 2026-10-07 第 15 批图三：
+ * 「打组的页面层级要在连线的下层，它遮住了连线」）。
+ *
+ * 为什么必须在这里改、而不是把底色层再往下挪：底色**已经**在独立层里
+ * （`FlowGroupBoardLayer`，渲染在 `<ReactFlow>` 之前 ⇒ 在连线之下），
+ * 但分组节点自己还是一个 **React Flow 节点**，而 RF 的节点层在连线层**之上** ——
+ * 于是 `.frame` 上那层 `--bg-surface` 把穿过分组的连线整段盖掉了。
+ * 把底与描边交给背景板（它画 `--group-bg-*` 与虚线边），分组节点自己保持透明：
+ * 透明不等于不可点，点分组空白仍然选中分组。
+ */
+.frame[data-node-type='group'] {
+  background: transparent;
+  border-color: transparent;
+}
+
 /* 标题浮在节点**外**左上方（§6.6 通用规则）。
    绝对定位在 frame 上沿之外，因此不占用节点内部空间——节点框整体就是内容区。
    留在 DOM 里作 frame 的子元素：单击 / 双击仍冒泡到 frame 的 onPointerDown（选中 + 拖动）。 */
