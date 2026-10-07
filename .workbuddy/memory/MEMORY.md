@@ -4715,3 +4715,17 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   改用官方目录名「全能图片G-2.0（GPT Image 2）」避开，并加一条不变量断言守着（`presetIdForUpstream(id) === id`）。
 - **改模型 id 要留兼容**：`resolveRunningHubEndpoint` 同时认「显示名」与「`endpoint:<端点 id>`」，
   老节点（存着旧 id）不会因为改显示名而打不通 —— 改这类 id 时先把兼容那一条写好。
+
+## 2026-10-08 #369（情绪面板点哪儿关哪儿）
+
+- **「同一个位置的两种模式」最容易漏豁免**：情绪面板与创作面板在 `PanelLayer` 里是互斥的两块
+  （按 `panelModel.emotion` 切），从创作面板里搬出来时只带了 `onPointerDown` 的 `stopPropagation`，
+  而画布那份「点空白才清选中」的**枚举式豁免名单**里没加它 ⇒ 点它里面**任何东西**都被判成点空白 ⇒
+  清选中 ⇒ 面板随 `selectedNode` 卸载。表现为「点情绪点位之后，连它选中的是哪一个都读不到」。
+- **stopPropagation 拦不住 capture 阶段的记账**：surface 的按下锚是 `onPointerDownCapture` 记的，
+  子面板在冒泡阶段 `stopPropagation` **改变不了**那次记账 ⇒ 后面的 `click` 照样被当成空白点击。
+  凡是「我要挡住外层那套空白逻辑」，得先看外层是在**捕获**还是**冒泡**上挂的。
+- **枚举式豁免名单是债**：这已经是第二次被它咬（上一次是 `[data-flow-port-hit]`）。
+  新增「浮在画布上」的面板 / 菜单时，第一件事就是回 `FlowSurface` 那个 `floating` 选择器加一笔。
+- **一条修复治好 54 条断言**：g105(37) 与 g108(17) 看起来是两个不相干的功能（比例浮层 / 情绪点位），
+  根因却是同一行 —— 两条红一起看，比分别猜快得多。

@@ -343,8 +343,24 @@ function FlowSurfaceInner({
          * 只在**画布本身**上清：点面板 / 菜单 / 跟随栏 / 连线等浮层一律不插手
          *（那是它们自己的交互，清了反而坏事）。
          */
+        /**
+         * ⚠️ **情绪面板也必须在这份名单里**（`[data-emotion-panel]`，2026-10-08 补）。
+         *
+         * 它与创作面板是**同一个位置上的两种模式**（`PanelLayer` 按 `panelModel.emotion`
+         * 切哪一块），但从创作面板里搬出来时漏了这一笔 —— 后果不是少点一下，而是
+         * **点它里面任何东西都会把它自己关掉**：
+         * 面板虽然在自己的 `onPointerDown` 里停掉了传播，可**按下锚是在捕获阶段记的**
+         * （`onPointerDownCapture`）⇒ 松手时那个 `click` 照样落到这里，被判成「点空白」⇒
+         * 清选中 ⇒ 面板随 `selectedNode` 一起卸载。
+         *
+         * 实测（冒烟 g105 / g108 两条红，同一个根因）：点比例 chip ⇒ 面板没了、浮层自然没开；
+         * 点情绪点位 ⇒ `[data-emotion="joyous"]` 当场消失（连"选中的是哪一个"都读不到）。
+         *
+         * 这份名单是**枚举式豁免**，容易被漏：以后新增"浮在画布上"的面板/菜单，记得回来加一笔
+         * （`[data-flow-port-hit]` 那次也是同一个坑）。
+         */
         const floating =
-          '[data-creation-panel], [data-node-follow-bar], [data-multi-select-bar], [data-context-menu],' +
+          '[data-creation-panel], [data-emotion-panel], [data-node-follow-bar], [data-multi-select-bar], [data-context-menu],' +
           ' [data-link-menu], [data-canvas-notice], [data-undo-bar], [data-lightbox], [data-minimap],' +
           ' [data-flow-hud], [data-canvas-toolbar], [data-edge], .react-flow__edge, .react-flow__handle,' +
           /**
