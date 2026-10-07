@@ -57,15 +57,24 @@ export function arrangeGroupMembers(
 }
 
 /**
- * 把组框**贴合**到孩子们现在的包围盒（`hug` = 只长不缩；原点与尺寸一起算）。
+ * 把组框**贴合**到孩子们现在的包围盒（原点与尺寸一起算）。
  *
- * 两个调用方，都是"内容动过之后把板跟上去"：
- * - 组内「排列」（宫格 / 水平 / 垂直）会把整块内容的包围盒挪位，排完必须跟上；
- * - 拖动组内某个节点松手时（#334-④：只拖出一半 ⇒ **分组背景适应节点**）。
+ * 两个调用方要的**模式不同**（别合成一条）：
+ * - 组内「排列」（宫格 / 水平 / 垂直）⇒ **`'tight'`**：排列把整块内容重排成新尺寸，
+ *   框必须**连收缩带上**，否则"内容 + 四边等距 20"这条规则当场破掉
+ *（用户第 18 批：宫格排列后 940×280 的框留在 940 宽、内容只占 504 ⇒ 左右留白 **219 / 217**，
+ *   而规格是 20 —— 因为这条一直走的是只长不缩的 `hug`）。
+ * - 拖动组内某个节点松手时（#334-④：只拖出一半 ⇒ **分组背景适应节点**）⇒ **`'hug'`**：
+ *   那一趟只该"长上去包住它"，绝不能因为别的节点被挪走就把板缩掉。
  */
-export function refitGroupBox(store: CanvasStore, groupId: string, planId?: string): void {
+export function refitGroupBox(
+  store: CanvasStore,
+  groupId: string,
+  planId?: string,
+  mode: 'hug' | 'tight' = 'hug',
+): void {
   store.dispatch(
-    { kind: 'node.refitContainer', id: groupId, mode: 'hug' },
+    { kind: 'node.refitContainer', id: groupId, mode },
     planId ? { mode: 'multi-step', planId, label: '排列节点' } : undefined,
   )
 }

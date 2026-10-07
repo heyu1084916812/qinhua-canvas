@@ -574,8 +574,9 @@ function GroupActions({
    * 「功能需要有**排列与整理**，不单单是整理功能」）。
    *
    * 两个必须一起做的收尾，缺一个都会留下怪状态：
-   * ① 排列把整块内容的包围盒**挪位**（`computeArrangeMode` 保持中心不动）⇒ 排完立刻
-   *    把组框收回去，否则成员就"探出组框"了 —— 而探出组框 = 移出分组；
+   * ① 排列把整块内容的包围盒**挪位 / 改尺寸**（`computeArrangeMode` 保持中心不动）⇒ 排完立刻
+   *    把组框**贴合**回去（`'tight'`，不是"只长不缩"）——
+   *    否则"内容 + 四边等距 20"这条规则当场破掉（用户第 18 批：宫格排完左右留白 219/217）。
    * ② 收框与排列共用**同一个 planId** ⇒ 一次撤销完整退回（分开就是"撤销只退一半"）。
    */
   const arrange = (mode: (typeof ARRANGE_MODES)[number]['mode']) => {
@@ -591,7 +592,7 @@ function GroupActions({
       store.notify('组内至少 2 个节点才能排列')
       return
     }
-    refitGroupBox(store, node.id, planId)
+    refitGroupBox(store, node.id, planId, 'tight')
   }
 
   const runAll = () => {

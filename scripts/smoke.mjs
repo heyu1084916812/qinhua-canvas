@@ -2290,6 +2290,37 @@ async function g15(browser) {
   rec(g, '背景真的画出来了（不是 transparent）', !/rgba?\(0, 0, 0, 0\)/.test(bgColor), bgColor)
   rec(g, '组标题在（§6.6 标题浮在框外左上）', (await group.locator('[class*="title"]').count()) >= 1)
   /**
+   * 组框四边到「组内成员包围盒」的留白（世界单位，与 §6.11 的 `CONTAINER_PADDING = 20` 同口径）。
+   * 用**几何**判：DOM 的框与子节点都换算回世界坐标再相减，不依赖任何实现细节。
+   */
+  const groupPaddings = (gid) =>
+    page.evaluate((g) => {
+      const style = document.querySelector('[data-world]')?.getAttribute('style') ?? ''
+      const t = /translate\(([-\d.]+)px,\s*([-\d.]+)px\)/.exec(style)
+      const s = /scale\(([-\d.]+)\)/.exec(style)
+      const vp = { x: t ? +t[1] : 0, y: t ? +t[2] : 0, zoom: s ? +s[1] : 1 }
+      const surface = document.querySelector('[data-canvas-surface]').getBoundingClientRect()
+      const world = (el) => {
+        const r = el.getBoundingClientRect()
+        return {
+          x: (r.left - surface.left) / vp.zoom + vp.x,
+          y: (r.top - surface.top) / vp.zoom + vp.y,
+          w: r.width / vp.zoom,
+          h: r.height / vp.zoom,
+        }
+      }
+      const frame = document.querySelector(`[data-node-id="${g}"]`)
+      const kids = [...document.querySelectorAll(`[data-node-id="${g}"] [data-node-id]`)].map(world)
+      if (!frame || kids.length === 0) return null
+      const f = world(frame)
+      return {
+        左: Math.round(Math.min(...kids.map((k) => k.x)) - f.x),
+        上: Math.round(Math.min(...kids.map((k) => k.y)) - f.y),
+        右: Math.round(f.x + f.w - Math.max(...kids.map((k) => k.x + k.w))),
+        下: Math.round(f.y + f.h - Math.max(...kids.map((k) => k.y + k.h))),
+      }
+    }, gid)
+  /**
    * ★★ 六档背景**各不相同**（用户：「背景色给六档」）——逐档改写属性、读算出来的颜色，
    * 六个值必须互不相同。这样"档位名 → 令牌"的映射漏一条（两档同色）会被当场逮住。
    */
@@ -2411,6 +2442,33 @@ async function g15(browser) {
   )
   rec(g, '组内节点端点隐藏（§6.11）', (await group.locator('[data-node-id] [data-port]').count()) === 0)
   await page.screenshot({ path: `${OUT}/25-g15-group-filled.png` })
+
+  /**
+   * ★★ **排列之后，组的留白也要按规则**（用户第 18 批：
+   * 「这个bug排列的时候分组留白没有按照规则来」—— 宫格排列后框留在旧宽度上，
+   * 左右留白实测 **219 / 217**，而规格是四边等距 20）。
+   *
+   * 根因是排完走的是「只长不缩」的 `hug`（框永远缩不回新内容）。这里钉住"排完必须贴合"：
+   * 宫格排列把 3 个节点重排成更窄的形状 ⇒ 框也该跟着变窄。
+   */
+  {
+    const gb1 = await page.locator(`[data-node-id="${groupId}"]`).boundingBox()
+    if (gb1) {
+      await page.mouse.click(gb1.x + gb1.width - 8, gb1.y + gb1.height / 2)
+      await sleep(350)
+    }
+    await page.locator('[data-follow-action="group-arrange"]').click()
+    await sleep(300)
+    await page.locator('[data-group-arrange="grid"]').click()
+    await sleep(700)
+    const pads = await groupPaddings(groupId)
+    rec(
+      g,
+      '★★ 宫格排列后四边留白仍是 20（框跟着新内容一起缩回来）',
+      !!pads && Object.values(pads).every((v) => Math.abs(v - 20) <= 3),
+      JSON.stringify(pads),
+    )
+  }
 
   // 再拖一个进组：子节点计数 → 3
   await addNodeViaToolbar(page, 'prompt')
