@@ -162,6 +162,16 @@
   gap: var(--space-3);
 }
 
+/* 必填标记（多把凭据的协议才有：RunningHub 的「账户余额 Key」） */
+.tokenRequired {
+  margin-left: var(--space-1);
+  padding: 0 var(--space-1);
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
 .docLink {
   color: var(--accent);
   font-size: var(--fs-label);
@@ -500,6 +510,14 @@
   font-size: var(--fs-label);
   color: var(--text-2);
   cursor: pointer;
+  /**
+   * **必须有**：`.switchInput` 是 `position: absolute`（隐形但保持在命中层，见下）。
+   * 缺了它，包含块会一路往上落到最近的定位祖先 —— 2026-10-08 实测落点是
+   * `x=0, y=350`，即**页面最左侧的导航栏上**：开关看着好好的，实际命中的
+   * 是一块 36×20 的透明层压在导航栏上（自动化按坐标点它当然点不动开关）。
+   * 补上之后隐形 checkbox 正好铺在轨道上，代码注释里写的那件事才真的成立。
+   */
+  position: relative;
 }
 
 /**
@@ -529,6 +547,16 @@
   opacity: 0;
   cursor: pointer;
   transform: translateY(-50%);
+  /**
+   * **必须压在轨道之上**（2026-10-08）。
+   *
+   * 两个都是定位元素、`z-index` 都是 auto ⇒ 按 DOM 顺序画：输入框在前、轨道在后，
+   * 于是**轨道盖住了输入框**。后果不是"看着不对"，而是自动化 `check()` /
+   * `uncheck()` **永远点不中**：它们会先做一次命中判定，发现落点的元素不是目标就
+   * 一直重试到超时（实测 G69 卡在 `uncheck` 30s，整组中断）。
+   * 上面注释写着「保持在命中层」，这一行才是真的让它进命中层。
+   */
+  z-index: 1;
   -webkit-appearance: none;
   appearance: none;
 }

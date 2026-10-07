@@ -58,6 +58,34 @@ describe('channelStore', () => {
     expect(store.enabledChannels().map((c) => c.id)).toEqual([a.id])
   })
 
+  it('★ 启用开关是乐观更新：await 之前 store 就已是新值，且最终真的落库', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p, { seedBuiltins: false })
+    const a = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
+    const enabledOf = (s: typeof store) => s.getState().channels.find((c) => c.id === a.id)?.enabled
+
+    const pending = store.setEnabled(a.id, false)
+    /**
+     * **同步**读：此刻索引写还没完成。这一条是本次修复的全部意义 ——
+     * 开关是受控的，若等到写库才 setState，中间任何一次重渲染都会把
+     * 旧值写回 DOM（开关先弹回去再弹过来）。G69 实测因此卡死。
+     */
+    expect(enabledOf(store)).toBe(false)
+    await pending
+    expect(enabledOf(store)).toBe(false)
+
+    /** 落库也是真的：换一个 store 重新 load，读回来的仍是不启用 */
+    const other = createChannelStore(p, { seedBuiltins: false })
+    await other.load()
+    expect(other.getState().channels.find((c) => c.id === a.id)?.enabled).toBe(false)
+  })
+
+  it('★ 乐观更新不吞失败：落库报错时抛出去（并回滚显示）', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p, { seedBuiltins: false })
+    await expect(store.setEnabled('ch-not-in-db', true)).rejects.toThrow()
+  })
+
   it('remove 后列表更新', async () => {
     const p = createMemoryPlatform()
     const store = createChannelStore(p)

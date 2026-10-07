@@ -330,7 +330,7 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     status: 'ready',
     capabilities: cliCapabilities('runninghub'),
     docUrl: 'https://www.runninghub.cn/',
-      note: '桌面壳里直接跑你本机那条命令（命令名与参数在「全局设置 → CLI」里配）；浏览器里要自建网关。',
+    note: '桌面壳里直接跑你本机那条命令（命令名与参数在「全局设置 → CLI」里配）；浏览器里要自建网关。',
     },
     {
       /**
@@ -340,26 +340,26 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
        * CLI 那条跑你本机命令，这一条按站点走网络 —— 对用户来说就是"又一条普通渠道"，
        * 与 ModelScope / Agnes 同一类（固定三条内置渠道里，RunningHub 用**这一条**）。
        *
-       * ⚠️ `status: 'pending'`：适配器还没写（RunningHub 的 OpenAPI 是
-       * `POST /task/openapi/create` 提交 + `GET /task/openapi/status` 轮询，与
-       * `openai-compatible` / 现有 `async-task` 的取结果路径都不同，不能靠复用蒙过去）。
-       * 按仓库既有口径：**只登记"有这么回事"，界面上显示为待支持**，不假装能跑
-       *（"声明了却没有适配器分支，等于给用户一条跑不通的路"）。适配器是下一步的事。
+       * `status: 'ready'`（2026-10-08 起）：适配器已落地（`platform/channels/runninghub.ts`），
+       * 且是**独立实现**而非复用 `async-task`：RunningHub 取结果是
+       * `POST /openapi/v2/query`（body 给 taskId），结果字段是 `results[]`，
+       * 与 APIMART 那套 `/tasks/{id}` + `result.images[].url` 完全不通用。
        */
       id: 'runninghub-api',
       name: 'RunningHub（API）',
       short: 'RH+',
       family: 'async-task',
       kind: 'station',
-      status: 'pending',
+      status: 'ready',
       /**
-       * `pending` 协议**一律不给能力**（`protocol.test.ts` 那条"不给半成品留假能力"）：
-       * 声明了 image/video 就等于告诉选路"这条能用"，而适配器还没写 ⇒ 用户会配出一条跑不通的路。
+       * 适配器只做了**图片**（端点的文生图 / 图生图，以及 AI 应用那条路）。
+       * 目录里那 198 个视频端点尚未逐一核过参数，故**视频先不声明** ——
+       * 声明了就等于告诉选路「这条能出片」，而跑起来只会报「不认识这个模型」。
        */
-      capabilities: [],
+      capabilities: ['image'],
       defaultBaseUrl: 'https://www.runninghub.cn',
       docUrl: 'https://www.runninghub.cn/',
-      note: 'RunningHub 的 OpenAPI（提交任务 + 轮询取结果）。适配器尚未实现 —— 目前只能用 CLI 那条跑通本机。',
+      note: 'RunningHub 的 OpenAPI（提交任务 + 轮询取结果）。模型 id 带前缀分流：endpoint: 走标准模型（扣金额），app: 走 AI 应用（扣 RH 币）。',
       /**
        * RunningHub 要**两把钥匙**（用户第 22 批第 3 条：「有两个令牌，一个是币的，一个是金额的」）：
        * - `balance`（主槽）：**账户余额 Key（金额）** ⇒ 标准模型 API，出图 / 出片按金额计费；

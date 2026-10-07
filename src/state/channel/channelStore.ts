@@ -351,8 +351,32 @@ export function createChannelStore(
     await update(id, { [f.tail]: null })
   }
 
+  /**
+   * 启用开关：**先改内存，再落库**（乐观更新，2026-10-08 修）。
+   *
+   * ## 为什么不能直接 `await update(...)`
+   *
+   * 开关是**受控**的（`checked={ch.enabled}` 读的是 store）。走 `update` 时
+   * 「点击改 DOM → 等 IndexedDB 写完 → 才 setState」这段窗口里，任何一次
+   * 无关的重渲染（实测：点开关会顺带冒泡触发列表项的 `setSelectedId`）
+   * 都会拿**还没更新的** `ch.enabled` 把 DOM 写回去 —— 表现为开关"弹回去再弹过来"，
+   * 用户看到的是闪一下；自动化 `check()/uncheck()` 更直接：它们在点击后**立刻**
+   * 读状态，读到回弹那一帧就判定"点了没变"，重试到超时（G69 实测卡死 30s）。
+   *
+   * 落库失败则**回滚**并把错误抛出去 —— 乐观更新只提前"显示"，不吞掉失败。
+   */
   const setEnabled: ChannelStoreActions['setEnabled'] = async (id, enabled) => {
-    await update(id, { enabled })
+    const flip = (value: boolean) =>
+      store.setState((s) => ({
+        channels: s.channels.map((c) => (c.id === id ? { ...c, enabled: value } : c)),
+      }))
+    flip(enabled)
+    try {
+      await update(id, { enabled })
+    } catch (e) {
+      flip(!enabled)
+      throw e
+    }
   }
 
   const setModels: ChannelStoreActions['setModels'] = async (id, models) => {

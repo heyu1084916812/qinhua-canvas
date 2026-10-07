@@ -77,6 +77,39 @@ describe('channel registry', () => {
     expect(a.protocol).toBe('apimart')
   })
 
+  it('async-task 族里 RunningHub 走自己的适配器（端点清单带 endpoint: 前缀）', async () => {
+    const platform = createMemoryPlatform({
+      handler: async () => resp(200, { code: 0, data: { records: [] } }),
+    })
+    const a = createChannelAdapter(
+      {
+        ...base,
+        protocol: 'runninghub-api',
+        baseUrl: 'https://www.runninghub.cn',
+        apiKey: 'k',
+        protocolDefinition: {
+          id: 'runninghub-api',
+          name: 'RunningHub（API）',
+          short: 'RH+',
+          family: 'async-task',
+          kind: 'station',
+          status: 'ready',
+          capabilities: ['image'],
+        },
+      },
+      platform,
+    )
+    const models = await a.listModels(
+      { id: 'c', protocol: 'runninghub-api', baseUrl: 'https://www.runninghub.cn', credentialRef: null, modelCache: [] },
+      new AbortController().signal,
+    )
+    /**
+     * 同族分流的判据：`asyncTask` 的清单来自 `/v1/models`，不可能出现 `endpoint:`
+     * 前缀（它根本不认识这个形状）。出现即证明路由到了 RunningHub 适配器。
+     */
+    expect(models.some((m) => m.id.startsWith('endpoint:'))).toBe(true)
+  })
+
   it('cli-gateway 族分派到网关适配器（不再是 unsupported）', () => {
     const a = createChannelAdapter(
       {

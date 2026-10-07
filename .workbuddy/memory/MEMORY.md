@@ -4644,7 +4644,9 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   点击派发会被搞乱 ⇒ 换成 role=button 的 div + tabIndex。凡是「项内还要放开关 / 小按钮」的列表项，一开始就别用 button。
 - **界面上撤掉的信息，可以改成属性留给断言**：协议短标签与能力小标从可见元素挪成
   data-channel-proto / data-channel-caps 属性 —— 冒烟只改「读哪儿」，不用改断言语义。
-- **隐藏 input 不能用 click() 点**：switchInput 是视觉隐藏的，Playwright 会超时；要按坐标点可见的 track。这一批就卡在这儿（见 #357 待查）。
+- **隐藏 input 点不动时，先怀疑「它在哪儿」**：这一批猜的是「视觉隐藏所以点不到」（错的）。
+  真根因两条都在几何上，2026-10-08 查出：父 label 缺 `position: relative` ⇒ 隐形 input 的包含块落到页面级定位祖先
+  （实测 x=0,y=350，一块透明层压在左侧导航栏上）；以及 input 缺 `z-index` ⇒ 可见轨道盖住它。详见下面「第 22 批（续）」。
 
 ## 2026-10-08 第 22 批（渠道列表项收尾 + RunningHub 摸底）
 
@@ -4654,3 +4656,37 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
 - **RunningHub 的东西**：CLI = `HM-RunningHub/RH_CLI`（`rh auth set-key` / `rh check` 看余额 / `rh image -p` / `--json`）；
   API 文档地址 = `https://www.runninghub.cn/call-api/standard-api`（从同作者的 ComfyUI_RH_OpenAPI 描述里拿到的）。
 - **用户贴的明文 key 一律不进仓库**：只在当次命令里用，不写文件、不提交，收工提醒轮换。
+
+## 2026-10-08 第 22 批（续：RunningHub 适配器 + 冒烟回填）
+
+- **接别人写的适配器，先看端口类型再写**：这一批初稿是照「想象的 API」写的，编译一次性报 30 处 ——
+  `network.fetch(url, init, signal)`（真端口是 `network.request({url, method, headers, body, timeoutMs}, signal)`）、
+  `ref.bytes`（`imageInputsOf` 只给 `{assetHash, mime}`，字节要经 `deps.assets.read(hash)`）、
+  以及一批不存在的 `AppError`（`{kind:'auth'}` / `{kind:'timeout'}` / `{kind:'canceled'}`）。
+  **`AppError` 的 kind/detail 是封闭枚举**：渠道侧只有 `channel/{missingKey|missingModel|unsupported}`（英文标识符不进 UI），
+  上游自己的话一律走 `{kind:'http', status, body}` —— `describeError` 会拼成「服务端返回错误（HTTP xxx）：<它的原话>」。
+  取消 / 超时走 `{kind:'network', detail:'aborted'|'timeout'}`，非 JSON 回包走 `{kind:'parse', raw}`。
+- **同一 family 内可以按协议分流**：RunningHub 归在 `async-task` 族，但取结果形状（`POST /openapi/v2/query` + `results[]`）
+  与 APIMART（`GET /tasks/{id}` + `result.images[].url`）完全不通用 ⇒ 在 `case 'async-task'` 里按 `config.protocol` 分流，
+  既有行为一字不动。新开一族要动 protocol 目录的类型与守卫，改动面更大。
+- **协议从 pending 转 ready 时，要顺手改掉「靠 pending 成立」的老断言**：`protocol.test.ts` 里那条
+  「pending 站点协议不参与反查」原本拿 runninghub.cn 当例子，转 ready 后就失效了 ——
+  改成用**合成目录**验规则本身，别再依赖「恰好还有一条 pending 协议」。
+- **隐形但要在命中层的 input，三件事缺一不可**（#357「开关点不动」的真根因，之前那条记错了）：
+  ① 父 label 要 `position: relative`（否则 `position:absolute` 的包含块落到**页面级**定位祖先，实测 x=0,y=350）；
+  ② input 要 `z-index: 1`（否则可见轨道盖住它，`check()/uncheck()` 的命中判定永远不过，表现为 30s 超时）；
+  ③ 受控开关要**乐观更新**（先改内存再落库；若 `await` 完写库才 setState，中间任何一次重渲染都会把旧值写回 DOM
+  ⇒ 开关回弹，自动化读到那一帧就判「点了没变」）。
+- **新增一批「常驻数据」（内置渠道）之后必须回头跑全量冒烟**：这一批才发现 8 组
+  （G8/G44/G45/G69/G74/G75/G77/G88）从内置渠道上线那天起就是红的，只是没人跑过。
+  三种失效模式值得背下来：`[data-channel-item]').first()`（命中内置行）、
+  `input[type="checkbox"]').first()`（命中列表第一行的开关）、`locator('button').filter({hasText:'新建渠道'})`
+  （列表项已从 button 变成 div，找不到）。修法不是改断言语义，而是给「我正在编辑的那一条」
+  一个稳定锚点（`data-channel-selected`）+ 一个 `USER_CHANNEL` 选择器（按 id 前缀排除内置）
+  + 让 `configureMockChannel` 先**停用**三条内置渠道（停用而非删除：它们仍常在列表里）。
+- **「断言写对了、场景没搭对」长什么样**：G76 那两条红是「点生成毫无反应、日志 0 条」，
+  看着像生成链路坏了，实际是被编辑的那条渠道**始终没启用**（开关切到了内置行上）⇒ 选路没有候选。
+  查这类问题的顺序：**先读被测对象的真实状态**（IndexedDB 里的 channels / nodes），再怀疑链条 ——
+  探针里把那两张表打出来，一眼就看见 `channelId=ch_builtin_modelscope`。
+- **提示词节点的模型下拉是「按节点渠道过滤」的**：节点一旦默认落到一条没有模型的渠道上（内置的 ModelScope），
+  下拉里就只剩固定清单的预设名 —— mock 渠道的模型再全也看不见。这是 G74 卡 30s 超时的原因。

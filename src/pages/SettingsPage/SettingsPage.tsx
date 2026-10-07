@@ -78,6 +78,120 @@ const PROTOCOL_GROUPS: { kind: ProtocolKind; label: string }[] = [
  * + 模型管理（§7.4：拉取 → 勾选 → 已选三行分组）。
  * 所有写操作经 useChannels() 的 channel store，直连 storage + 凭据层，不进画布 undo 栈。
  */
+/**
+ * **一行令牌**（用户第 22 批 #358：「RunningHub有两个令牌，一个是币的，一个是金额的，做在一个渠道里面」）。
+ *
+ * 为什么抽成组件：原来那段内联 JSX 只服务"一把钥匙"，再接一把就得复制一份 ——
+ * 两份迟早分叉。这里按 `slot` 驱动，**协议声明了几把就渲染几行**。
+ *
+ * "已保存"的判据是外面传进来的**尾号**（`savedTail`）：它是 store 里的真相，
+ * 组件自己不再存一份 `tokenSaved`；存完 / 删完由 store 变化把新尾号推下来。
+ * 明文依旧只在保存那一瞬间经手（`saveToken` 之后本地清空输入框）。
+ */
+function ChannelTokenField({
+  channels,
+  channelId,
+  slot,
+  label,
+  hint,
+  required,
+  docUrl,
+  savedTail,
+}: {
+  channels: ReturnType<typeof useChannels>
+  channelId: string
+  slot: 'primary' | 'alt'
+  label: string
+  hint?: string
+  required?: boolean
+  docUrl: string
+  /** 已保存令牌的尾 4 位；null = 这一槽没存过 */
+  savedTail: string | null
+}) {
+  const [token, setToken] = useState('')
+  const [show, setShow] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const saved = !!savedTail
+  const masked = savedTail ? maskTokenTail(savedTail) : ''
+
+  const save = async () => {
+    if (!token) return
+    setBusy(true)
+    try {
+      await channels.saveToken(channelId, token, slot)
+      setToken('')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const remove = async () => {
+    setBusy(true)
+    try {
+      await channels.removeToken(channelId, slot)
+      setToken('')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className={styles.field} data-settings-token-row={slot}>
+      <span className={styles.labelRow}>
+        <span className={styles.label}>
+          {label}
+          {required && <span className={styles.tokenRequired}>必填</span>}
+        </span>
+        {docUrl && (
+          <a
+            className={styles.docLink}
+            data-settings-doc-link={slot}
+            href={docUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            去官网获取令牌 ↗
+          </a>
+        )}
+      </span>
+      <div className={styles.tokenRow}>
+        <input
+          className={styles.input}
+          data-settings-token-tail={slot}
+          type={show ? 'text' : 'password'}
+          /**
+           * 已存过时，输入框**直接显示存好的那一把（中间打码）**（用户第 19 批 #3、
+           * 参考图五 `••••••••Sm3a`）。用 `placeholder` 不是 `value`：整串明文不进界面，
+           * 放进 value 的话用户一按保存就会把那串圆点当成新令牌存进去。
+           */
+          placeholder={saved ? masked : '粘贴 API Key'}
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+        />
+        <button className={styles.ghostBtn} onClick={() => setShow((v) => !v)}>
+          {show ? '隐藏' : '显示'}
+        </button>
+        <button
+          className={styles.ghostBtn}
+          data-settings-token-save={slot}
+          disabled={!token || busy}
+          onClick={() => void save()}
+        >
+          保存
+        </button>
+        <button
+          className={styles.ghostBtn}
+          data-settings-token-remove={slot}
+          disabled={!saved || busy}
+          onClick={() => void remove()}
+        >
+          删除
+        </button>
+      </div>
+      {hint && <span className={styles.cardSub}>{hint}</span>}
+    </div>
+  )
+}
+
 export function SettingsPage() {
   const channels = useChannels()
   const channelsList = useSyncExternalStore(
@@ -117,9 +231,7 @@ export function SettingsPage() {
   const [protocol, setProtocol] = useState('mock')
   const [baseUrl, setBaseUrl] = useState('')
   const [enabled, setEnabled] = useState(false)
-  const [token, setToken] = useState('')
-  const [showToken, setShowToken] = useState(false)
-  const [tokenSaved, setTokenSaved] = useState(false)
+  /** 令牌的输入 / 显示 / 已存状态都在 `ChannelTokenField` 里（一行一份，见上面的组件） */
   const [busy, setBusy] = useState(false)
   /** 删除渠道的就地二次确认（§7.2）：删除不可逆，点一下就走太容易误触 */
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -244,9 +356,6 @@ export function SettingsPage() {
     setProtocol(ch.protocol)
     setBaseUrl(ch.baseUrl)
     setEnabled(ch.enabled)
-    setToken('')
-    setShowToken(false)
-    void channels.hasToken(ch.id).then(setTokenSaved)
   }, [selectedId, channels])
 
   const handleCreate = async () => {
@@ -300,30 +409,6 @@ export function SettingsPage() {
     setBusy(true)
     try {
       await persistForm()
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const handleSaveToken = async () => {
-    if (!selectedId || !token) return
-    setBusy(true)
-    try {
-      await channels.saveToken(selectedId, token)
-      setTokenSaved(true)
-      setToken('')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const handleRemoveToken = async () => {
-    if (!selectedId) return
-    setBusy(true)
-    try {
-      await channels.removeToken(selectedId)
-      setTokenSaved(false)
-      setToken('')
     } finally {
       setBusy(false)
     }
@@ -570,7 +655,11 @@ export function SettingsPage() {
 
   // mock 提示只在**真的拿 mock 验了地址**时出现（探测的候选表不含 mock，故不受其影响）。
   const showMockNote = action === 'verify' && verify.status === 'ok' && verifiedFor?.protocol === 'mock'
-  const tokenHint = selected?.tokenTail ? maskTokenTail(selected.tokenTail) : ''
+  /**
+   * 这条协议**要几把钥匙**（用户第 22 批 #358）：协议目录声明（RunningHub 两把），
+   * 没声明的协议回落到"一把"，见下面令牌区的渲染。
+   */
+  const credentialSlots = protocolById(protocol, catalog)?.credentials ?? []
   /**
    * 这一条协议官网的**取令牌页**（用户第 19 批 #2：「需要有点击就跳转到官网，获取令牌的选项」）。
    * 地址来自协议目录的 `docUrl`（唯一来源）—— 没写就**不出现**这个链接，不猜地址。
@@ -642,6 +731,15 @@ export function SettingsPage() {
                   className={ch.id === selectedId ? `${styles.item} ${styles.itemActive}` : styles.item}
                   data-channel-item
                   data-channel-id={ch.id}
+                  /**
+                   * 「当前正在编辑哪一条」的机器可读锚点。
+                   *
+                   * 2026-10-08 加：三条内置渠道常驻置顶之后，冒烟里凡是用
+                   * `.first()` 找"我刚建的那条"的断言都会落在内置行上（G8 / G45
+                   * 实测就是去看 ModelScope 的协议标签）。有了这个属性，
+                   * 断言可以直接问"**正在编辑的**那行"长什么样。
+                   */
+                  data-channel-selected={ch.id === selectedId ? 'true' : undefined}
                   /**
                    * 协议短标签与能力**改成机器可读的属性**（用户第 21 批第 2 条：
                    * 「后面的缩写文字删掉」「渠道下方的对话、生图那些展示也去掉」）。
@@ -839,67 +937,31 @@ export function SettingsPage() {
                   />
                 </label>
 
-                <div className={styles.field}>
-                  <span className={styles.labelRow}>
-                    <span className={styles.label}>令牌（API Key）</span>
-                    {/* 「去官网获取令牌」（用户第 19 批 #2）：地址取协议目录的 docUrl */}
-                    {docUrl && (
-                      <a
-                        className={styles.docLink}
-                        data-settings-doc-link={protocol}
-                        href={docUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        去官网获取令牌 ↗
-                      </a>
-                    )}
-                  </span>
-                  <div className={styles.tokenRow}>
-                    <input
-                      className={styles.input}
-                      data-settings-token-tail
-                      type={showToken ? 'text' : 'password'}
-                      /**
-                       * ★★ 已存过令牌时，输入框**直接显示存好的那一把（中间打码）**，
-                       * 而不是"已保存（重新输入可覆盖）"这句词（用户第 19 批 #3：
-                       * 「令牌框里面的已保存着几个字替换成保存好的令牌（隐藏中间的号码），
-                       *  参考图五」—— 图五就是 `••••••••Sm3a` 这种样式）。
-                       *
-                       * 用 `placeholder` 而不是 `value`：整串明文**不进界面**
-                       *（凭据层只在调用前注入，见 `channel.ts` 的 `tokenTail` 注释），
-                       * 而且放进 `value` 的话，用户一按「保存」就会把那串圆点当成新令牌存进去。
-                       */
-                      placeholder={tokenSaved && tokenHint ? tokenHint : '粘贴 API Key'}
-                      value={token}
-                      onChange={(e) => setToken(e.target.value)}
-                    />
-                    <button className={styles.ghostBtn} onClick={() => setShowToken((v) => !v)}>
-                      {showToken ? '隐藏' : '显示'}
-                    </button>
-                    <button
-                      className={styles.ghostBtn}
-                      data-settings-token-save
-                      disabled={!token || busy}
-                      onClick={handleSaveToken}
-                    >
-                      保存
-                    </button>
-                    <button
-                      className={styles.ghostBtn}
-                      data-settings-token-remove
-                      disabled={!tokenSaved || busy}
-                      onClick={handleRemoveToken}
-                    >
-                      删除
-                    </button>
-                  </div>
-                  {/*
-                    原来这里还有一行「● 令牌已加密保存 · ••••••••3f2a」。用户第 19 批 #3 明确去掉：
-                    「保存令牌后下面的小字不要了」—— 那把钥匙的样子已经写在输入框里了
-                    （见上面 placeholder 那一段），再挂一行小字只是重复一遍。
-                  */}
-                </div>
+                {/*
+                  **令牌行按协议声明渲染**（用户第 22 批 #358）：声明一把就一行（绝大多数协议），
+                  声明两把就两行（RunningHub = 账户余额 Key「金额」+ RH 币 Key），
+                  每行各自 显示 / 保存 / 删除 —— 一把钥匙一套动作，互不干扰。
+                  没声明的协议仍按老样子渲染一行「令牌（API Key）」（零迁移）。
+                */}
+                {(credentialSlots.length > 0
+                  ? credentialSlots
+                  : [{ id: 'primary', label: '令牌（API Key）' }]
+                ).map((cred, i) => (
+                  <ChannelTokenField
+                    key={cred.id}
+                    channels={channels}
+                    /* 用 `selected.id` 而不是 `selectedId`：这一段只在"选中了渠道"时渲染，
+                       前者是同一个东西且类型非空（`selectedId` 是 `string | null`） */
+                    channelId={selected.id}
+                    /* 第一把 = 主槽（老数据那个 credentialRef），第二把 = 备用槽 */
+                    slot={i === 0 ? 'primary' : 'alt'}
+                    label={cred.label}
+                    hint={cred.hint}
+                    required={cred.required}
+                    docUrl={docUrl}
+                    savedTail={i === 0 ? selected.tokenTail : selected.altTokenTail}
+                  />
+                ))}
 
                 {/* 协议区（§7.3）：协议下拉 + 三个动作按钮。
                     「验证地址」只回答地址通不通；「验证协议」按候选表试打并把命中的协议填进下拉；

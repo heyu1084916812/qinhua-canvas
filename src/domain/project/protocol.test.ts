@@ -160,8 +160,22 @@ describe('stationProtocolForUrl', () => {
     expect(stationProtocolForUrl('')).toBeUndefined()
   })
 
-  it('pending 站点协议不参与反查（否则会命中一条跑不通的协议）', () => {
-    expect(stationProtocolForUrl('https://www.runninghub.cn')).toBeUndefined()
+  it('反查只认「已就绪」的站点协议（待支持的即使 host 对上也不命中）', () => {
+    /** RunningHub 2026-10-08 接上适配器 ⇒ 已就绪，可以命中 */
+    expect(stationProtocolForUrl('https://www.runninghub.cn')?.id).toBe('runninghub-api')
+    /**
+     * 规则本身用**合成目录**验，不依赖"恰好还有一条 pending 协议"：
+     * 一旦哪天所有内置协议都就绪了，这条断言仍然守得住。
+     */
+    const notReady = {
+      ...BUILTIN_PROTOCOLS[0]!,
+      id: 'pending-station',
+      status: 'pending' as const,
+      capabilities: [],
+      defaultBaseUrl: 'https://pending.test',
+    }
+    const catalog = { all: [notReady], ready: [], probe: [] }
+    expect(stationProtocolForUrl('https://pending.test', catalog)).toBeUndefined()
   })
 })
 

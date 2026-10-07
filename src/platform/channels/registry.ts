@@ -5,6 +5,7 @@ import { createOpenAiChatAdapter } from './openaiChat'
 import { createOpenAiImagesAdapter } from './openaiImages'
 import { createOpenAiVideoAdapter } from './openaiVideo'
 import { createAsyncTaskAdapter } from './asyncTask'
+import { createRunningHubAdapter } from './runninghub'
 import { createCliGatewayAdapter } from './cliGateway'
 import { createCliRunAdapter } from './cliRun'
 
@@ -100,6 +101,13 @@ export function createChannelAdapter(
      * 与同步族是两条不同的链路，故单独一个适配器（依据见 asyncTask.ts 文件头）。
      */
     case 'async-task':
+      /**
+       * RunningHub 是这一族里的**特例**：提交 / 轮询 / 结果字段全是它自己的一套
+       * （`POST /openapi/v2/{endpoint}` → `POST /openapi/v2/query` → `results[]`），
+       * 与 `asyncTask.ts` 的 OpenAI 兼容形状（`/images/generations` + `/tasks/{id}`）
+       * 不通用。故**同族内按协议分流**，既有 async-task 行为一字不动。
+       */
+      if (config.protocol === 'runninghub-api') return createRunningHubAdapter(config, deps)
       return createAsyncTaskAdapter(config, deps)
     /**
      * CLI 族（对账 #308）：**桌面壳里真的起本机命令**（`cliRun.ts`），
