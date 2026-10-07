@@ -6,6 +6,7 @@ import {
   capabilitiesOfTool,
   clampToolTimeout,
   defaultCliTools,
+  parseArgs,
   type CliTool,
 } from '../../domain/shared/cliTools'
 import type { CliOutcome } from '../../platform/ports'
@@ -26,7 +27,10 @@ import styles from './CliPanel.module.css'
  *
  * ## 于是每一张卡按"用户会问的顺序"排
  *
- * 1. **装没装**（检测）—— 没装就直接告诉他怎么装（`installHint`）；
+ * 0. **一键设置**（第 14 批第 3 条：「cli 的那我做成一键安装并且登录不就行了吗？」）——
+ *    一个按钮把"装 + 登录"串起来：没装就开一个安装窗口，装好了就开登录窗口。
+ *    每一步都**如实说**它这一刻在做什么、做完要回来点哪里；
+ * 1. **装没装**（检测）—— 没装就直接告诉他怎么装（`installHint`），能自动装的给「一键安装」；
  * 2. **登录**——「一键登录」在可见窗口里跑它自己的登录命令（浏览器授权 / 输密码都行），
  *    或用密钥登录（密钥走 stdin，不进 argv、不落我们的库）；
  * 3. **查状态 / 额度**——能查就把工具的原话贴出来（含 stderr：很多 CLI 把有效信息打在那儿）；
@@ -124,6 +128,69 @@ export function CliPanel() {
     }
   }
 
+  /**
+   * **一键设置**（用户 2026-10-06 第 14 批第 3 条：「我希望能一键设置，然后输入密码或者
+   * 其他的就可以保持登录」）。
+   *
+   * 三步如实走：① 检测 → ② 没装就开**安装窗口**（`installCommand`，可见窗口，进度与
+   * 交互提示都在那儿）→ ③ 装好了就开**登录窗口**（工具自己的登录命令，浏览器授权 / 输密码）。
+   *
+   * 为什么走完安装要**回来再点一次**：安装是另一个窗口里的事，我们不知道它什么时候完
+   * —— 等它就会把界面卡住（登录动辄几分钟）。所以这里只在消息里写清"装完再点一次"，
+   * 不假装一步到位。
+   */
+  const oneClickSetup = async (tool: CliTool) => {
+    if (!cli || busy) return
+    setBusy(`${tool.id}:setup`)
+    const say = (text: string) => setLoginMsg((prev) => ({ ...prev, [tool.id]: text }))
+    try {
+      const found = await cli.which(tool.program)
+      setProbes((prev) => ({ ...prev, [tool.id]: found ? `找到了：${found}` : '没找到' }))
+      if (!found) {
+        const cmd = parseArgs(tool.installCommand.trim())
+        if (cmd.length === 0) {
+          say(`本机没有「${tool.program}」，而这个工具没有能自动装的官方途径 —— ${tool.installHint}`)
+          return
+        }
+        await cli.spawnWindow({ program: cmd[0], args: cmd.slice(1) })
+        say(
+          `没装「${tool.program}」→ 已经打开安装窗口跑「${tool.installCommand}」。` +
+            `等那个窗口跑完（可能要一两分钟），回来**再点一次「一键设置」**就会进下一步（登录）。`,
+        )
+        return
+      }
+      const args = tool.loginArgs.trim() ? buildArgs(tool.loginArgs, {}) : []
+      await cli.spawnWindow({ program: tool.program, args })
+      say(
+        `已经装好了 → 打开了登录窗口「${[tool.program, ...args].join(' ')}」：` +
+          `在那里完成登录（浏览器授权或输密码都行），完成后点「查状态」确认。`,
+      )
+    } catch (err) {
+      say(`一键设置没走通：${String(err)}`)
+    } finally {
+      setBusy('')
+    }
+  }
+
+  /** 只装：跳过登录，直接开安装窗口（已经装过的人不用它，但"重装 / 升级"时有用） */
+  const installOnly = async (tool: CliTool) => {
+    if (!cli || busy) return
+    const cmd = parseArgs(tool.installCommand.trim())
+    if (cmd.length === 0) return
+    setBusy(`${tool.id}:install`)
+    try {
+      await cli.spawnWindow({ program: cmd[0], args: cmd.slice(1) })
+      setLoginMsg((prev) => ({
+        ...prev,
+        [tool.id]: `已经打开安装窗口跑「${tool.installCommand}」；装完回来点「检测」确认。`,
+      }))
+    } catch (err) {
+      setLoginMsg((prev) => ({ ...prev, [tool.id]: `打不开安装窗口：${String(err)}` }))
+    } finally {
+      setBusy('')
+    }
+  }
+
   /** 用密钥登录：密钥走 stdin（不进 argv、不落库、用完即清） */
   const loginWithKey = async (tool: CliTool) => {
     const secret = (keys[tool.id] ?? '').trim()
@@ -174,6 +241,22 @@ export function CliPanel() {
           </header>
           <p className={styles.note}>{tool.note}</p>
 
+          {/* ⓿ 一键设置：装 + 登录（第 14 批第 3 条） */}
+          <div className={styles.row}>
+            <button
+              type="button"
+              className={`${styles.btn} ${styles.primary}`}
+              data-cli-setup={tool.id}
+              disabled={!hasLocalCli || busy !== ''}
+              onClick={() => void oneClickSetup(tool)}
+            >
+              一键设置（安装 + 登录）
+            </button>
+            <span className={styles.result}>
+              装没装、登没登录，它自己判；一步走完会告诉你下一步点哪儿。
+            </span>
+          </div>
+
           {/* ① 装没装 */}
           <div className={styles.row}>
             <button
@@ -185,6 +268,17 @@ export function CliPanel() {
             >
               检测
             </button>
+            {tool.installCommand.trim() !== '' && (
+              <button
+                type="button"
+                className={styles.btn}
+                data-cli-install={tool.id}
+                disabled={!hasLocalCli || busy !== ''}
+                onClick={() => void installOnly(tool)}
+              >
+                一键安装（打开窗口）
+              </button>
+            )}
             {probes[tool.id] && (
               <span className={styles.result} data-cli-probe={tool.id}>
                 {probes[tool.id]}
@@ -331,6 +425,17 @@ export function CliPanel() {
                 value={tool.keyLoginArgs}
                 spellCheck={false}
                 onChange={(e) => patchTool(tool.id, { keyLoginArgs: e.target.value })}
+              />
+            </label>
+            <label className={styles.field}>
+              <span className={styles.label}>安装命令（留空 = 没有能自动装的途径）</span>
+              <input
+                className={styles.input}
+                data-cli-install-args={tool.id}
+                placeholder="例如 npm install -g 包名"
+                value={tool.installCommand}
+                spellCheck={false}
+                onChange={(e) => patchTool(tool.id, { installCommand: e.target.value })}
               />
             </label>
             <div className={styles.actions}>

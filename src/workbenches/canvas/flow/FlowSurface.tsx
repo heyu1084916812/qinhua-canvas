@@ -40,6 +40,7 @@ import { useNodeDerivedMaps } from '../useNodeDerivedMaps'
 import type { FlowNodeDerivedProps } from './FlowNode'
 import { QhEdge, type QhEdgeData } from './FlowEdge'
 import { FlowChildEdgeLayer } from './FlowChildEdgeLayer'
+import { FlowGroupBoardLayer } from './FlowGroupBoardLayer'
 import { isChildEdge } from './childEdges'
 import { FlowPortLayer } from './FlowPortLayer'
 import { FlowDraftLayer } from './FlowDraftLayer'
@@ -846,6 +847,16 @@ function FlowSurfaceInner({
       onContextMenu={onContextMenu}
     >
       {/* 拖线草稿（§6.14）：画在节点层**下面**（与老表面 EdgeLayer 同序），层本身不吃指针 */}
+      {/*
+        分组背景板（第 14 批第 1 条）：**最早渲染 = 最底层** ⇒ 分组底色在连线之下。
+        分组节点自己是透明的，见 `FlowGroupBoardLayer` 里的说明。
+      */}
+      <FlowGroupBoardLayer />
+      {/*
+        牵涉容器子节点的边（视觉层）：与 RF 自带边同一层序（节点之下），
+        命中区在下面单独再画一层（`hitOnly`）。
+      */}
+      <FlowChildEdgeLayer />
       <FlowDraftLayer draft={edgeDrag.draft} />
       {/* 吸附提示（对账 #257）：参考线 + 间距数字。屏幕空间、不吃指针，拖动结束即消失 */}
       <FlowSnapLayer />
@@ -940,12 +951,8 @@ function FlowSurfaceInner({
       <Minimap />
       {/* 端点命中层：在所有节点之上收拖线手势（见 FlowPortLayer 里的长注释） */}
       <FlowPortLayer onPortDown={beginEdgeDrag} />
-      {/*
-        牵涉容器子节点的边：RF 画不了它们（子节点不是 RF 节点）⇒ 补一层屏幕空间 SVG。
-        与端口层同序（在节点**之上**）只为让"点线删除"收得到指针；
-        层本身 `pointer-events: none`，只有线的加宽命中区吃手势。
-      */}
-      <FlowChildEdgeLayer />
+      {/* 子节点连线的**命中区**（双击删线）：必须在最上层才收得到指针，视觉是透明的 */}
+      <FlowChildEdgeLayer hitOnly />
     </div>
   )
 }

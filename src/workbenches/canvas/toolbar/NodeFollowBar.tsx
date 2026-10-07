@@ -21,7 +21,9 @@ import { useCanvasExecution } from '../execution/CanvasExecutionProvider'
 import { GROUP_BG_TONES } from '../../../domain/canvas/model/node'
 import type { GroupBgTone, GroupData, NodeSnapshot, NodeType } from '../../../domain/canvas/model/node'
 import { childIdsOf, groupBgOf } from '../../../domain/canvas/nodeSpecs/group'
-import { arrangeGroupMembers, ungroupNodes } from '../../../features/canvas/ungroupNodes'
+import { ARRANGE_MODES } from '../../../domain/canvas/layout/arrangeModes'
+import { arrangeGroupMembers, refitGroupBox, ungroupNodes } from '../../../features/canvas/ungroupNodes'
+import { useArrangeTools } from '../../../features/canvas/useArrangeTools'
 import { createId } from '../../../shared/id'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { GRID_CUSTOM_MAX, GRID_PRESETS, splitNodeToGrid } from '../../../features/canvas/splitToGrid'
@@ -544,7 +546,9 @@ function GroupActions({
   const store = useCanvasStore()
   const graph = useGraph()
   const exec = useCanvasExecution()
+  const { arrangeMode } = useArrangeTools(store)
   const [bgOpen, setBgOpen] = useState(false)
+  const [arrangeOpen, setArrangeOpen] = useState(false)
 
   const tone = groupBgOf({ data: node.data as Partial<GroupData> })
   const members = childIdsOf({ id: node.id, data: node.data as { childIds?: string[] } }, graph)
@@ -556,11 +560,38 @@ function GroupActions({
     store.dispatch({ kind: 'node.updateData', id: node.id, patch: { bg: t } })
   }
 
-  const arrange = () => {
+  /** 「整理节点」= 把组框贴回内容（组内不建边 ⇒ 没有依赖可排，见 `arrangeGroupMembers`） */
+  const tidy = () => {
+    setArrangeOpen(false)
     const r = arrangeGroupMembers(store, node.id)
     /** 没得收也说一句：按钮点了要有反馈（组框本来就贴住内容时最常见） */
     if (!r.ok) store.notify(r.reason ?? '整理失败')
     else if (!r.changed) store.notify('组内已经很整齐了')
+  }
+
+  /**
+   * 「排列」= 宫格 / 水平 / 垂直，作用在**组内成员**上（用户 2026-10-06 第 14 批第 1 条：
+   * 「功能需要有**排列与整理**，不单单是整理功能」）。
+   *
+   * 两个必须一起做的收尾，缺一个都会留下怪状态：
+   * ① 排列把整块内容的包围盒**挪位**（`computeArrangeMode` 保持中心不动）⇒ 排完立刻
+   *    把组框收回去，否则成员就"探出组框"了 —— 而探出组框 = 移出分组；
+   * ② 收框与排列共用**同一个 planId** ⇒ 一次撤销完整退回（分开就是"撤销只退一半"）。
+   */
+  const arrange = (mode: (typeof ARRANGE_MODES)[number]['mode']) => {
+    setArrangeOpen(false)
+    const memberIds = members.map((m) => m.id)
+    if (memberIds.length < 2) {
+      store.notify('组内至少 2 个节点才能排列')
+      return
+    }
+    const planId = createId('arrangeGroup')
+    const r = arrangeMode(mode, memberIds, planId)
+    if (r.kind === 'too-few') {
+      store.notify('组内至少 2 个节点才能排列')
+      return
+    }
+    refitGroupBox(store, node.id, memberIds[0], planId)
   }
 
   const runAll = () => {
@@ -615,7 +646,37 @@ function GroupActions({
           </div>
         )}
       </span>
-      <FollowButton action="group-arrange" icon={<IconTidy />} label="整理节点" onClick={arrange} />
+      <span className={styles.splitAnchor}>
+        <FollowButton
+          action="group-arrange"
+          icon={<IconTidy />}
+          label="排列与整理"
+          onClick={() => setArrangeOpen((v) => !v)}
+        />
+        {arrangeOpen && (
+          <div className={styles.splitMenu} data-group-arrange-menu>
+            {ARRANGE_MODES.map((m) => (
+              <button
+                key={m.mode}
+                type="button"
+                className={styles.splitItem}
+                data-group-arrange={m.mode}
+                onClick={() => arrange(m.mode)}
+              >
+                {m.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              className={styles.splitItem}
+              data-group-arrange="tidy"
+              onClick={tidy}
+            >
+              整理节点
+            </button>
+          </div>
+        )}
+      </span>
       <FollowButton action="group-run" icon={<IconPlay />} label="整组执行" onClick={runAll} />
       <FollowButton action="group-ungroup" icon={<IconUngroup />} label="解组" onClick={ungroup} />
       <FollowButton action="group-download" icon={<IconDownload />} label="下载" onClick={download} />

@@ -1,6 +1,7 @@
 import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import { childIdsOfNode } from '../../domain/canvas/nodeSpecs/group'
-import { containerMinSize, packContainerChildren } from '../../domain/canvas/layout/packContainer'
+import { groupFitSize } from '../../domain/canvas/layout/packContainer'
+import { CONTAINER_PADDING } from '../../domain/canvas/layout/constants'
 
 /**
  * 组的两个"整组"动作（用户 2026-10-06 第 13 批第 5 条：组的功能栏里要有
@@ -29,23 +30,65 @@ export function arrangeGroupMembers(
   const graph = store.getSnapshot()
   const group = graph.nodes.find((n) => n.id === groupId)
   if (!group) return { ok: false, reason: '分组不存在', changed: false }
-  const count = childIdsOfNode(group, graph).length
-  const fit = containerMinSize('group', count)
-  if (group.w === fit.w && group.h === fit.h) return { ok: true, changed: false }
   /**
-   * `node.updateData` + `size`：只改尺寸、**位置一个字都不动**（正是这里要的语义，
-   * 用 `node.resize` 还得自己把当前位置原样带回去）。
+   * 打组改成"背景板"之后（用户 2026-10-06 第 14 批第 1 条），组的贴合尺寸是
+   * **孩子们的包围盒 + 四边等距**（`groupFitSize`），不是批量的 200×160 网格贴合 ——
+   * 早先这里用的是 `containerMinSize('group', 个数)`，会把自由于画布坐标上的
+   * 孩子们算成一个跟谁都不贴的框。
    */
-  store.dispatch({ kind: 'node.updateData', id: groupId, patch: {}, size: fit })
+  const kids = graph.nodes.filter((n) => n.parentId === groupId)
+  if (kids.length === 0) return { ok: false, reason: '组里还没有节点', changed: false }
+  const fit = groupFitSize(kids)
+  const minX = Math.min(...kids.map((k) => k.x))
+  const minY = Math.min(...kids.map((k) => k.y))
+  const tight =
+    group.w === fit.w &&
+    group.h === fit.h &&
+    minX === CONTAINER_PADDING &&
+    minY === CONTAINER_PADDING
+  if (tight) return { ok: true, changed: false }
+  /**
+   * 收紧走 `node.reparent`（把某个成员"重新放进"它已经在的那个组）。
+   *
+   * 为什么复用这条路径而不是在这里自己算：帧里那份数学（`refitGroupPatches`）
+   * 不只改尺寸 —— 孩子跑到原点左上时还要**连组原点一起挪**、并把每个孩子的
+   * local 坐标同步修正（世界位置零变化），这份数学只该有一份，且它已被单测钉住。
+   * 这里再抄一遍，就是第二份迟早漂移的实现。
+   */
+  refitGroupBox(store, groupId, kids[0].id)
   return { ok: true, changed: true }
+}
+
+/**
+ * 把组框收紧到"孩子们现在的包围盒 + 四边等距"（原点与尺寸一起算）。
+ *
+ * 单独导出：组内「排列」（宫格 / 水平 / 垂直）会把整块内容的包围盒挪位，
+ * 排完必须立刻把框收回去，否则被排出去的成员就"探出组框"了
+ * （而探出组框 = 移出分组，见 `dropReparent`）。
+ */
+export function refitGroupBox(
+  store: CanvasStore,
+  groupId: string,
+  childId: string,
+  /** 要与别的命令（组内「排列」）合成**同一个撤销单元**时传进来 */
+  planId?: string,
+): void {
+  store.dispatch(
+    { kind: 'node.reparent', id: childId, toParent: groupId },
+    planId ? { mode: 'multi-step', planId, label: '排列节点' } : undefined,
+  )
 }
 
 /**
  * 解组：把组内节点**原地**放回世界层，再删掉组本身 —— 一步撤销。
  *
- * "原地"是指**看起来原地**：组内节点的 `x/y` 存的是"拖进去那一刻"的坐标（与网格无关），
- * 直接 reparent 会让它们叠在一角。所以逐个按**网格单元**算出世界坐标与格位尺寸
- * （`packContainerChildren` 与 `ContainerBody` 同一份数学），解组后节点落在它刚才显示的位置上。
+ * 「原地」如今是**字面意义的原地**（用户 2026-10-06 第 14 批第 1 条把打组改成"背景板"之后）：
+ * 组内的子节点本来就按自己的 local 坐标显示（`GroupBody`，不排网格、不缩放），
+ * 而 `node.reparent` 的 `convertOnReparent` 天然保持世界位置不变 ⇒
+ * 逐个 reparent 出去，它们**一个像素都不动**。
+ *
+ * ⚠️ 早先这里按 3×3 网格算"格位坐标 + 格位尺寸"（那是"组内走网格"时代的产物）：
+ * 在新布局下它会把节点**搬到格子去、还改成 200×160** —— 解组会让用户的排版散架。
  *
  * @returns 放出去的子节点个数（0 = 组本来就空）
  */
@@ -60,31 +103,13 @@ export function ungroupNodes(store: CanvasStore, groupId: string): number {
     return 0
   }
 
-  const { positions, cellSize } = packContainerChildren(ordered.length)
   /**
    * ⚠️ 事务边界必须**显式**传 `multi-step`（与 `useArrangeTools.applyTargets` 同一手法）：
-   * 这里逐个子节点要发两条命令，其中 `node.resize` 自带的是 `coalesce`（key = `resize:<id>`）
-   * —— 与计划 key 不同 ⇒ 会被拆成**另一个撤销单元**，用户按一次撤销只退掉一半
-   * （实测：组回来了、子节点还在外面）。`multi-step` 让所有命令共用同一个 planId。
+   * 这里每个子节点一条 reparent、外加删组，命令自带的事务边界各不相同
+   * ⇒ 不锁成同一个 planId 就会被拆成好几个撤销单元，用户按一次撤销只退掉一半。
    */
   const tx = { mode: 'multi-step' as const, planId: `ungroup:${groupId}`, label: '解组' }
-  ordered.forEach((id, i) => {
-      const cell = positions[i] ?? { x: 0, y: 0 }
-      /**
-       * 先 reparent（把 local 换算成 world），再 `node.resize` **绝对矩形**落到格位 ——
-       * 这是唯一能同时定位置与尺寸的既有命令（`node.updateData` 只改尺寸、不动位置）。
-       */
-    store.dispatch({ kind: 'node.reparent', id, toParent: null }, tx)
-    store.dispatch(
-      {
-        kind: 'node.resize',
-        id,
-        rect: { x: group.x + cell.x, y: group.y + cell.y, w: cellSize.w, h: cellSize.h },
-        phase: 'end',
-      },
-      tx,
-    )
-  })
+  for (const id of ordered) store.dispatch({ kind: 'node.reparent', id, toParent: null }, tx)
   /**
    * 子节点这时已经不在组里（上一步逐个 reparent），所以删组不会级联删掉它们。
    * 选中**放出来的这批**：紧接着拖动 / 下载 / 再打组的都是它们。

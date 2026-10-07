@@ -13,6 +13,7 @@ import {
 } from '../../domain/canvas/nodeSpecs/ports'
 import { DEFAULT_SOURCE_PORT } from '../../domain/canvas/model/edge'
 import { screenToWorld, toWorldRect } from '../../domain/canvas/geometry/coords'
+import { PORT_CENTER_OFFSET, PORT_HIT_RADIUS } from '../../domain/canvas/geometry/portReveal'
 import { coalescePointerMove } from '../../shared/rafThrottle'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import { childIdsOfNode } from '../../domain/canvas/nodeSpecs/group'
@@ -98,10 +99,22 @@ interface Size {
 export function portAnchorWorld(
   node: { x: number; y: number; w: number; h: number },
   port: PortDecl | PortSide,
+  /**
+   * 端点圆心相对节点边缘**往外**多少（世界单位）。
+   *
+   * 默认 `PORT_CENTER_OFFSET`（= 20 的间隙 + 半直径）：**看得见的端点**都停在节点外面
+   * 一点点（用户 2026-10-06 第 14 批第 4 条：「位置不在节点的边缘，需要和端点的边缘
+   * 距离节点的边缘 20PX」）。连线必须从端点出发，所以锚点也得跟着外移 ——
+   * 否则线从节点边缘起步，端点旁边会留一段 20px 的空白。
+   *
+   * 传 0 的场合：**容器子节点**的端口是隐藏的（§6.11），它的边要贴住节点本体，
+   * 不该凭空留出那 20px（见 `childEdges.ts`）。
+   */
+  out: number = PORT_CENTER_OFFSET,
 ): { x: number; y: number } {
   const decl = typeof port === 'string' ? (port === 'input' ? INPUT_PORT : OUTPUT_PORT) : port
   return {
-    x: decl.side === 'left' ? node.x : node.x + node.w,
+    x: decl.side === 'left' ? node.x - out : node.x + node.w + out,
     y: node.y + node.h * decl.y,
   }
 }
@@ -398,6 +411,30 @@ export function nodeAtPoint(point: { x: number; y: number }, graph: GraphSnapsho
     const r = toWorldRect(n, n.parentId ? index.get(n.parentId) : null)
     if (point.x >= r.x && point.x <= r.x + r.w && point.y >= r.y && point.y <= r.y + r.h) {
       return n.id
+    }
+  }
+
+  /**
+   * 第二遍（**兜底**）：端点命中区也算"落在它身上"。
+   *
+   * 端点停在节点**外面** 20px（用户 2026-10-06 第 14 批第 4 条），而"把线拖到对方的端点
+   * 上松手"是最自然的连线手势 —— 只判矩形的话那一下会落进"空白"：既连不上、
+   * 还会弹出空白松手菜单（实测：G71 的「批量 → 生成节点」就是这么断的）。
+   *
+   * ⚠️ 必须是**兜底**、不能和矩形混在同一遍里：端点停在框外，那一圈 15px 会越出节点、
+   * 盖到**旁边的**节点身上。混在一起、又按"后添加的在上层"往回找，就会出现
+   * 「上游的端点把落在下游节点上的落点抢走」（实测：G92 的「生成 → 融合左口」有一条边
+   * 就是这么丢的）。先矩形、后端点，两条判据互不抢。
+   */
+  for (let i = graph.nodes.length - 1; i >= 0; i--) {
+    const n = graph.nodes[i]
+    if (n.parentId) continue
+    const r = toWorldRect(n, null)
+    const spec = getSpec(n.type)
+    if (!spec) continue
+    for (const decl of portDeclsOf(spec.ports)) {
+      const a = portAnchorWorld(r, decl)
+      if (Math.hypot(a.x - point.x, a.y - point.y) <= PORT_HIT_RADIUS) return n.id
     }
   }
   return null

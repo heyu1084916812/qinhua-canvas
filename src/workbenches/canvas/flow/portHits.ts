@@ -1,6 +1,7 @@
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import { portDeclsOf } from '../../../domain/canvas/nodeSpecs/ports'
 import { getSpec } from '../../../domain/canvas/nodeSpecs/registry'
+import { PORT_CENTER_OFFSET, PORT_HIT_RADIUS } from '../../../domain/canvas/geometry/portReveal'
 import { topLevelNodes } from './flowGraph'
 
 /**
@@ -10,16 +11,25 @@ import { topLevelNodes } from './flowGraph'
  * ⚠️ 单位是**世界坐标**：命中层整体挂一个 `translate + scale` 的 transform，
  * 所以圆点随缩放一起缩（与端口视觉同比例，也与老表面一致）——**不要**在这里乘 `zoom`。
  */
-export const PORT_HIT_SIZE = 30
+export const PORT_HIT_SIZE = PORT_HIT_RADIUS * 2
 
 export interface PortHit {
   key: string
   nodeId: string
   portId: string
   label: string
+  /** 这只口在节点的哪一侧（出场判定按"指针离**这一侧**边缘多远"算） */
+  side: 'left' | 'right'
+  /** `input` / `output` / `both`（`both` 的圆点换个画法，见 `FlowPortLayer.module.css`） */
+  kind: string
   /** 圆心（**世界坐标**；视口换算由命中层的 transform 承担） */
   x: number
   y: number
+  /** 节点边缘在这一侧的 **x**（世界坐标）—— 横向距离从它算起，不是从圆心 */
+  edgeX: number
+  /** 节点的上下边（世界坐标 y）—— 纵向范围判定用 */
+  nodeTop: number
+  nodeBottom: number
   /** 命中方块的边长（世界单位） */
   size: number
 }
@@ -44,13 +54,23 @@ export function portHitsOf(graph: GraphSnapshot): PortHit[] {
     const spec = getSpec(node.type)
     if (!spec) continue
     for (const decl of portDeclsOf(spec.ports)) {
+      const edgeX = decl.side === 'left' ? node.x : node.x + node.w
       out.push({
         key: `${node.id}:${decl.id}`,
         nodeId: node.id,
         portId: decl.id,
         label: decl.label ?? '拖出连线',
-        x: decl.side === 'left' ? node.x : node.x + node.w,
+        side: decl.side,
+        kind: decl.kind,
+        /**
+         * 圆心**在节点外面**：近边距节点边缘 20px（用户 2026-10-06 第 14 批第 4 条），
+         * 于是圆心外移 `PORT_CENTER_OFFSET`（= 20 + 半直径）。
+         */
+        x: decl.side === 'left' ? edgeX - PORT_CENTER_OFFSET : edgeX + PORT_CENTER_OFFSET,
         y: node.y + node.h * decl.y,
+        edgeX,
+        nodeTop: node.y,
+        nodeBottom: node.y + node.h,
         size: PORT_HIT_SIZE,
       })
     }

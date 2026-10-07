@@ -1,16 +1,18 @@
 import { createId } from '../../shared/id'
 import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import { isContainerType } from '../../domain/canvas/model/node'
+import { CONTAINER_PADDING } from '../../domain/canvas/layout/constants'
 
 /**
- * 容器包装框在选中内容四周留的边距（顶部多留一点：容器标题条在那儿）。
+ * 容器包装框在选中内容四周留的边距。
  *
- * ⚠️ 这个框是"包住内容"的包装框，**不是**贴内容尺寸（内容 + 20）：贴尺寸由
- * `containerMinSize` 算，是缩放手柄的下限与"整理节点"的目标；两者的差是刻意留的
- * 呼吸感（用户要的"打组后要有个背景"里那块留白）。
+ * ⚠️ 现在与"贴内容尺寸"（内容 + `CONTAINER_PADDING` = 20）**同一个值**：
+ * 2026-10-06 第 14 批第 1 条之后，**打组 = 一块背景板**（子节点保持原位、不排网格），
+ * 框就是"孩子的包围盒 + 四边等距"，多余的呼吸感会被紧接着的贴合逻辑抹掉 ——
+ * 与其先给一个 40/68 的大框再缩回，不如一开始就按贴合值建。
  */
-const PAD = 40
-const PAD_TOP = 68
+const PAD = CONTAINER_PADDING
+const PAD_TOP = CONTAINER_PADDING
 
 export type WrapOutcome = { ok: true; containerId: string } | { ok: false; reason: string }
 

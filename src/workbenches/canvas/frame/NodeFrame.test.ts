@@ -45,7 +45,6 @@ function renderFrame({
         node,
         selected: false,
         scale: 1,
-        ports: { input: true, output: true },
         minSize: { w: 200, h: 160 },
         ...(corners ? { resizeCorners: corners } : {}),
         onFramePointerDown: () => {},

@@ -15,11 +15,11 @@ import styles from './FlowChildEdgeLayer.module.css'
  * 分两段算（与 `FlowPortLayer` 同一条手法）：**路径只跟图与选中走**，
  * 视口换算挂在一个 `transform` 上 —— 平移 / 缩放帧只改一个属性，子树的 props 不变。
  */
-export function FlowChildEdgeLayer() {
-  return <ChildEdgeViewport />
+export function FlowChildEdgeLayer({ hitOnly = false }: { hitOnly?: boolean }) {
+  return <ChildEdgeViewport hitOnly={hitOnly} />
 }
 
-const ChildEdgeViewport = memo(function ChildEdgeViewport() {
+const ChildEdgeViewport = memo(function ChildEdgeViewport({ hitOnly }: { hitOnly: boolean }) {
   const graph = useGraph()
   const selection = useSelection()
   const viewport = useViewportState()
@@ -30,16 +30,24 @@ const ChildEdgeViewport = memo(function ChildEdgeViewport() {
   )
   if (drawn.length === 0) return null
   return (
-    <svg className={styles.svg} aria-hidden={false}>
+    <svg className={styles.svg} aria-hidden={hitOnly}>
       {drawn.map((p) => (
         <g key={p.id}>
-          <path
-            className={p.related ? `${styles.edge} ${styles.edgeActive}` : styles.edge}
-            d={p.d}
-            vectorEffect="non-scaling-stroke"
-            data-edge
-            data-child-edge
-          />
+          {/*
+            **视觉一层、命中一层**（`hitOnly` 分开渲染）：
+            线要画在**节点之下**（与 RF 自带边的层序一致），而"双击删线"的命中区
+            得在所有节点**之上**才收得到指针 —— 同一份路径画两遍，是最省的解法。
+          */}
+          {!hitOnly && (
+            <path
+              className={p.related ? `${styles.edge} ${styles.edgeActive}` : styles.edge}
+              d={p.d}
+              vectorEffect="non-scaling-stroke"
+              data-edge
+              data-child-edge
+            />
+          )}
+          {hitOnly && (
           <path
             className={styles.hit}
             d={p.d}
@@ -47,6 +55,7 @@ const ChildEdgeViewport = memo(function ChildEdgeViewport() {
             data-child-edge-hit
             onDoubleClick={() => store.dispatch({ kind: 'edge.remove', id: p.id })}
           />
+          )}
         </g>
       ))}
     </svg>

@@ -1,0 +1,24 @@
+/*
+ * 分组本体（用户 2026-10-06 第 14 批第 1 条：**打组 = 一块背景板**）。
+ *
+ * ⚠️ 这里**没有背景**：组的底色由 `FlowGroupBoardLayer` 画在**连线之下**
+ *（用户明确要求"显示优先级要低于连线"，用 RF 的节点层做不到 —— 节点层在连线之上）。
+ * 本层只负责把子节点按它们的 local 坐标摆回去，其余一律透明。
+ */
+.body {
+  position: relative;
+  height: 100%;
+  box-sizing: border-box;
+  /* 子节点可能被拖到容器外一角（还没松手），别把它们裁掉 */
+  overflow: visible;
+}
+
+/*
+ * 一个子节点的落位盒：**只给 left/top**，尺寸交给子节点自己的 NodeFrame
+ *（它按 `child.w / child.h` 写 style）——
+ * 这里若像批量那样强制 `width/height: 100%`，就等于把子节点缩到格位大小，
+ * 而用户要的正是"保持在画布中的比例"。
+ */
+.placed {
+  position: absolute;
+}

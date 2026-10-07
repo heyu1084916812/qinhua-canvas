@@ -76,9 +76,38 @@
 .flow :global(.react-flow__attribution a) {
   color: var(--text-3);
 }
+/*
+ * React Flow 的 `Handle` 在这里**只是"线该从哪儿出去"的锚点**，不再兼任可见的端点
+ * （用户 2026-10-06 第 14 批第 4 条换了端点样式与出场规则）：
+ *
+ * - 看得见的那颗圆点画在 `FlowPortLayer` 上 —— 它在**所有节点之上**，
+ *   否则相邻节点（尤其是贴边对齐过的那些）会把它整块盖住，用户又会说"端点看不见"；
+ * - 锚点仍留在 `Handle` 上（带 `data-port`，冒烟与探针按它取几何），
+ *   所以它的**位置与尺寸必须与那一颗圆点重合**：尺寸 = `portReveal.PORT_SIZE`（14），
+ *   横向外移 = `PORT_EDGE_GAP + PORT_SIZE`（20 + 14 = 34）⇒ 圆心离节点边缘 27，
+ *   与 `portHits.portHitsOf` / `portAnchorWorld` 算出来的是同一个点。
+ */
 .flow :global(.react-flow__handle) {
-  width: 11px;
-  height: 11px;
-  background: var(--port);
-  border: 1px solid var(--port-stroke);
+  width: 14px;
+  height: 14px;
+  background: transparent;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/*
+ * 横向外移 = `PORT_CENTER_OFFSET`（27）。
+ *
+ * ⚠️ **不是 20 + 14 = 34**：RF 给左右两只手柄各挂了一条 `translate(±50%, -50%)`
+ * （把圆心从"自己的边"推到"节点的边"上），所以 `right: -N` 的最终圆心其实是 `节点右边缘 + N`。
+ * 写 34 会让锚点比看得见的那颗圆点再往右 7px —— 线从圆点右侧 7px 起步，
+ * 而冒烟按 `[data-port]` 取几何时也会整体偏 7px（实测踩过：断言里端口位置对不上）。
+ */
+.flow :global(.react-flow__handle-left) {
+  left: -27px;
+}
+
+.flow :global(.react-flow__handle-right) {
+  right: -27px;
 }

@@ -1,7 +1,7 @@
 import type { NodeViewProps } from '../registry'
-import type { GroupData } from '../../../../domain/canvas/model/node'
-import { groupBgOf } from '../../../../domain/canvas/nodeSpecs/group'
-import { ContainerBody } from '../../frame/ContainerBody'
+import type { GroupData, NodeSnapshot } from '../../../../domain/canvas/model/node'
+import { GroupBody } from '../../frame/GroupBody'
+import { orderChildren } from '../../frame/ContainerBody'
 
 /**
  * 分组节点视图（产品文档 §6.11）。
@@ -16,16 +16,14 @@ import { ContainerBody } from '../../frame/ContainerBody'
  * 本体不放编辑控件。
  */
 export function GroupNodeView(props: NodeViewProps) {
+  const data = props.node.data as Partial<GroupData>
+  /** 子节点按 `data.childIds` 排（表达 z 序；位置仍是各自的 local 坐标） */
+  const ordered = orderChildren(props.childNodes ?? [], (data.childIds ?? []) as string[])
   return (
-    <ContainerBody
-      node={props.node}
-      kind="group"
-      /** 常显背景的档位（用户 2026-10-06 第 13 批第 5 条「背景色给六档」） */
-      bg={groupBgOf({ data: props.node.data as Partial<GroupData> })}
-      children={props.childNodes}
+    <GroupBody
+      node={props.node as NodeSnapshot}
+      children={ordered}
       renderChild={props.renderChild}
-      emptyText="拖入提示词或生成结果"
-      emptyHint="组内素材与提示词都作为本次生成的输入"
     />
   )
 }

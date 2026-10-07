@@ -4523,3 +4523,13 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   空数组是**真的**（它自己确实什么都不吃），比删字段更不容易被当成"忘了实现"。
 - 判据：能力入口（`toRunRequest` / `generate` / `ports.input`）缺失 = 不能做；
   数据字段（`collectInputs` 返回什么）如实给。两者别混着用。
+
+## 2026-10-07 第 14 批（打组背景板 / 端点新样式）
+
+- **端点离开节点边缘之后，一共要改三处**：连线锚点（`portAnchorWorld` 的 `out`）、
+  落点命中（`nodeAtPoint` 必须把"端点在命中区里"当命中，且**先矩形后端点**做兜底）、
+  以及"两只端点命中区重叠时谁赢"（按**离指针最近**算，别按 DOM 层序）。只改位置必出三个假偶发 bug。
+- **容器子节点要带 `nodrag`**：它是容器的 DOM 后代，RF 的拖动绑在原生 pointerdown 上、从事件目标往上找容器 ⇒ 不加就会"拖子节点连容器一起拖"。
+- **RF 的 `Handle` 横向偏移**：左右两只都带 `translate(±50%, -50%)`，所以 `right: -N` 的最终圆心是「节点右边缘 + N」；要与 27px 的端点圆点重合就写 27，不是 20+14。
+- **分组与批量是两套布局**：贴合尺寸分别是 `groupFitSize` / `containerMinSize`，别再共用一份。
+- 冒烟里取节点清单要**限定根层**（`.react-flow__node > [data-node-type=…]`）：容器子节点也带 `[data-node-type]`，混进来会点到组里或屏幕外。

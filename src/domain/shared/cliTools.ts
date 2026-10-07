@@ -85,6 +85,17 @@ export interface CliTool {
   keyLoginArgs: string
   /** 怎么把它装上（一句话：官网 / 安装命令），显示在"没找到命令"旁边 */
   installHint: string
+  /**
+   * **一键安装**要跑的那条命令（用户 2026-10-06 第 14 批第 3 条：
+   * 「cli 的那我做成一键安装并且登录不就行了吗？」）。
+   *
+   * 空格分隔、`"引号"` 可包住含空格的一段（与 `argsTemplate` 同一套切词，走 `parseArgs`）；
+   * 第一个 token 是程序名（`npm` / `winget` / `brew`…），其余是参数。
+   *
+   * **空串是有意义的值**：「这个工具没有能自动装的官方途径」（即梦 / RunningHub 都是
+   * 社区封装或纯网站），这时面板只显示 `installHint`，不给一个按下去必然失败的按钮。
+   */
+  installCommand: string
   /** 额度 / 余额**到底在哪儿看** —— 工具自己不报时，这句话就是答案 */
   quotaWhere: string
 }
@@ -131,6 +142,7 @@ export function defaultCliTools(): CliTool[] {
       /* `codex login --with-api-key` 从 stdin 读密钥（官方 help 里写明的） */
       keyLoginArgs: 'login --with-api-key',
       installHint: '已装的话 `codex --version` 能看到版本；没装去 https://github.com/openai/codex 按说明装。',
+      installCommand: 'npm install -g @openai/codex',
       quotaWhere: 'Codex 的**额度不在命令行里**（CLI 只能报"登录态"）——余额去 ChatGPT 的用量页看。',
     },
     {
@@ -150,6 +162,7 @@ export function defaultCliTools(): CliTool[] {
       loginArgs: '',
       keyLoginArgs: '',
       installHint: '即梦官方没有命令行工具：要接就先弄一层封装（社区脚本 / 自己写），再把命令名填上面。',
+      installCommand: '',
       quotaWhere: '即梦的积分在**即梦 App / 网页的「我的」**里看，CLI 这条链路读不到它。',
     },
     {
@@ -167,6 +180,7 @@ export function defaultCliTools(): CliTool[] {
       loginArgs: '',
       keyLoginArgs: '',
       installHint: '装它：`npm i -g @google/gemini-cli`（需要 Node 18+），装完先运行一次 `gemini` 完成登录。',
+      installCommand: 'npm install -g @google/gemini-cli',
       quotaWhere: 'Gemini 的用量在 **Google 账号的用量页**看；CLI 只报版本与登录态。',
     },
     {
@@ -191,6 +205,7 @@ export function defaultCliTools(): CliTool[] {
       loginArgs: '',
       keyLoginArgs: '',
       installHint: '官方没有 CLI：先在它网站拿到 API Key，再用社区 SDK / 自己写一个小脚本，把命令名填上面。',
+      installCommand: '',
       quotaWhere: 'RunningHub 的余额在**它网站的「个人中心」**里看。',
     },
   ]
@@ -388,6 +403,8 @@ export function mergeTools(row: unknown): CliTool[] {
       statusArgs: text(patch.statusArgs, tool.statusArgs),
       loginArgs: text(patch.loginArgs, tool.loginArgs),
       keyLoginArgs: text(patch.keyLoginArgs, tool.keyLoginArgs),
+      /* 同上：空串 = "这个工具没有能自动装的途径"，也是合法值 */
+      installCommand: text(patch.installCommand, tool.installCommand),
     }
   })
 }
@@ -403,5 +420,6 @@ export function toolPatchOf(tool: CliTool): Record<string, unknown> {
     statusArgs: tool.statusArgs,
     loginArgs: tool.loginArgs,
     keyLoginArgs: tool.keyLoginArgs,
+    installCommand: tool.installCommand,
   }
 }

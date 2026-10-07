@@ -73,7 +73,7 @@ export function ContainerBody(props: ContainerBodyProps) {
  * 子节点顺序：`data.childIds` 是排序依据，但以图（parentId）为准——
  * 这样刚拖入、childIds 还没同步的节点也不会漏掉（§6.11 / §6.12「内部拖动改顺序」）。
  */
-function orderChildren<T extends Pick<NodeSnapshot, 'id'>>(children: T[], childIds: string[]): T[] {
+export function orderChildren<T extends Pick<NodeSnapshot, 'id'>>(children: T[], childIds: string[]): T[] {
   const byId = new Map(children.map((c) => [c.id, c] as const))
   const out: T[] = []
   for (const id of childIds) {

@@ -1,4 +1,4 @@
-import type { Point } from '../../domain/canvas/geometry/rect'
+import type { Point, Rect } from '../../domain/canvas/geometry/rect'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import { CONTAINER_TYPES } from '../../domain/canvas/model/node'
 import type { GraphSnapshot } from '../../domain/canvas/model/graph'
@@ -19,7 +19,7 @@ import { canReparent } from '../../domain/canvas/graph/reparent'
  */
 export interface DropReparent {
   toParent: string | null
-  /** 容器内的 local 坐标 */
+  /** 目标归属下的左上角坐标：有父级 = 它的 local；`null` = 世界坐标 */
   at: Point
 }
 
@@ -50,6 +50,21 @@ export function dropPointOf(
 /** 点是否落在矩形内（含边界） */
 function contains(r: { x: number; y: number; w: number; h: number }, p: Point): boolean {
   return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h
+}
+
+/**
+ * 外框是否**完整**包住内框（含边界）。
+ *
+ * 「移出分组」的判据（用户 2026-10-06 第 14 批第 1 条）：节点的边缘只要有一部分
+ * 探出组框就算出去了 —— 所以进门 / 出门都用"完整包含"，两侧同一条边界、不会抖。
+ */
+function covers(outer: Rect, inner: Rect): boolean {
+  return (
+    inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.w <= outer.x + outer.w &&
+    inner.y + inner.h <= outer.y + outer.h
+  )
 }
 
 /** 指针（world）下最靠上的容器（分组 / 批量）：后添加的在上层 */
@@ -102,32 +117,64 @@ export function resolveDropOutcome(
   if (CONTAINER_TYPES.has(dragged.type)) return { kind: 'none' }
 
   /**
-   * 结果组子节点（父不在 nodes 表）落在**组内** → 不动。
+   * ① **已在分组里**：归属由**节点矩形**（不是指针位置）决定。
    *
-   * 两条理由，缺一不可：
-   * 1. 组内没有位置语义——格位是算出来的，「在组内挪个位」无从谈起；
-   * 2. 更实际的坑：**单击**也会走一遍松手判定（按下即注册、无位移也会走到这），
-   *    若照「有 parentId + 落在空白 = 脱离容器」处理，点一下就把结果甩出组了。
-   * 「取出」由拖动阈值（画布表面）负责，那里才是用户真的想拿走的时候。
+   * 「移出分组」只有三种情形（用户 2026-10-06 第 14 批第 1 条）：选中节点拖出分组 /
+   * 节点的边缘超出分组边缘（有一部分在外面）/ 解散分组。前两种是**同一件事** ——
+   * 只要节点不再完整落在组框里，就算它出去了。
+   *
+   * 这条口径同时消掉「单击组内节点就被甩出组」那个 bug：按住点一下矩形没动，
+   * 判定结果与按下前逐字一致。旧口径看的是**指针落在哪**：节点只要有一部分探出组框
+   * （打组的包装框比内容大时很常见），点在探出的那一块上就被当成"落在组外的空白"，
+   * 于是**单击**也能把它逐出 —— 完全不是用户做的动作。
+   *
+   * ⚠️ 只对**分组**生效。批量的单元是固定的 200×160 网格位（拖进去按空位吸附），
+   * 拿"完整包含"当进门条件会把大素材永远挡在门外。
    */
+  const rect = toWorldRectInGraph(dragged, graph)
+  const parent = dragged.parentId ? index.get(dragged.parentId) ?? null : null
+  /** 容器不做嵌套 ⇒ 父级的世界矩形就是它自己 */
+  const worldRectOf = (n: NodeSnapshot): Rect => toWorldRect(n, null)
+
+  if (parent?.type === 'group') {
+    if (covers(worldRectOf(parent), rect)) return { kind: 'none' }
+    return { kind: 'ok', drop: { toParent: null, at: { x: rect.x, y: rect.y } } }
+  }
+
   // 落点所在容器：与自己当前归属相同 → 不重复 reparent（否则每拖一次都吸到新单元）
   const container = hitContainer(worldPoint, graph)
   if (container) {
     if (container.id === dragged.parentId) return { kind: 'none' }
+    /**
+     * **进组**按落点判（指针 / 节点中心落在组框里就算，与历史口径一致），
+     * 不像"出组"那样要求整个矩形都在里面 —— 进组之后组框会自己长到包住它
+     *（`refitGroupPatches` 按孩子的包围盒算），所以"进去时差一点点"会立刻被抹平；
+     * 反过来要求"完整落进去才收"，会让"把一个大节点拖进小框"变成一件做不到的事。
+     */
     const check = canReparent(dragged, container, graph)
     if (!check.ok) return { kind: 'rejected', reason: check.reason, containerId: container.id }
+    /**
+     * `at` 是"目标归属下面的左上角坐标"：进**分组**就是它被拖到的世界位置
+     * （组不排网格、不吸附，"落在哪就是哪"）；进**批量**才吸到空的网格位。
+     */
+    if (container.type === 'group') {
+      return { kind: 'ok', drop: { toParent: container.id, at: { x: rect.x, y: rect.y } } }
+    }
     // 吸附：空闲单元 = 现有子节点数（已在容器内的不算新增）
     const existing = childrenOfContainer(container, graph).filter((c) => c.id !== nodeId)
     const cell = packedCellAt(existing.length)
-    const rect = toWorldRect(container, container.parentId ? index.get(container.parentId) ?? null : null)
-    return { kind: 'ok', drop: { toParent: container.id, at: { x: rect.x + cell.x, y: rect.y + cell.y } } }
+    const hostRect = worldRectOf(container)
+    return {
+      kind: 'ok',
+      drop: { toParent: container.id, at: { x: hostRect.x + cell.x, y: hostRect.y + cell.y } },
+    }
   }
 
   // 落点不在任何容器内：已在容器里的节点脱离回根层
   if (!dragged.parentId) return { kind: 'none' }
   return {
     kind: 'ok',
-    drop: { toParent: null, at: { x: worldPoint.x - dragged.w / 2, y: worldPoint.y - dragged.h / 2 } },
+    drop: { toParent: null, at: { x: rect.x, y: rect.y } },
   }
 }
 

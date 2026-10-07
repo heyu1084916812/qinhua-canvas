@@ -11,7 +11,8 @@ import { canConnect } from '../../domain/canvas/graph/canConnect'
 import { canReparent, applyReparent, edgesToDropOnReparent } from '../../domain/canvas/graph/reparent'
 import { createId } from '../../shared/id'
 import { toPersistPlan, applyGraphPatches } from '../workbenches/canvas/persist'
-import { containerMinSize } from '../../domain/canvas/layout/packContainer'
+import { containerMinSize, groupFitSize } from '../../domain/canvas/layout/packContainer'
+import { CONTAINER_PADDING } from '../../domain/canvas/layout/constants'
 import { DEFAULT_SOURCE_PORT, DEFAULT_TARGET_PORT, edgeKey } from '../../domain/canvas/model/edge'
 
 export interface ReduceOutput {
@@ -21,6 +22,41 @@ export interface ReduceOutput {
 
 function findNode(graph: GraphSnapshot, id: string): NodeSnapshot | undefined {
   return graph.nodes.find((n) => n.id === id)
+}
+
+/**
+ * 组：把框收紧到"孩子们的包围盒 + 四边等距"，必要时**把组原点一起挪**
+ * （孩子跑到原点左上时），并同步修正每个孩子的 local 坐标 ——
+ * 世界位置一个像素都不变（用户 2026-10-06 第 14 批第 1 条：
+ * 「原本在画布中是什么位置…就是什么位置」）。
+ *
+ * 提到模块级：`node.reparent`（拖进 / 拖出）与 `node.delete`（删掉组内节点）都要用，
+ * 两处各写一份迟早漂移。
+ */
+function refitGroupPatches(
+  patches: Patch[],
+  g: NodeSnapshot,
+  kids: readonly { id: string; x: number; y: number; w: number; h: number }[],
+): void {
+  const fit = groupFitSize(kids)
+  const shiftX = kids.length > 0 ? Math.min(...kids.map((k) => k.x)) - CONTAINER_PADDING : 0
+  const shiftY = kids.length > 0 ? Math.min(...kids.map((k) => k.y)) - CONTAINER_PADDING : 0
+  patches.push({
+    op: 'patch',
+    table: 'nodes',
+    id: g.id,
+    changes: { x: g.x + shiftX, y: g.y + shiftY, w: fit.w, h: fit.h },
+  })
+  if (shiftX !== 0 || shiftY !== 0) {
+    for (const k of kids) {
+      patches.push({
+        op: 'patch',
+        table: 'nodes',
+        id: k.id,
+        changes: { x: k.x - shiftX, y: k.y - shiftY },
+      })
+    }
+  }
 }
 
 function fail(kind: Command['kind'], reason: string): never {
@@ -326,19 +362,20 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
         if (doomed.has(c.id) || !CONTAINER_TYPES.has(c.type)) continue
         const goneKids = graph.nodes.filter((n) => n.parentId === c.id && doomed.has(n.id))
         if (goneKids.length === 0) continue
-        const left = graph.nodes.filter((n) => n.parentId === c.id && !doomed.has(n.id)).length
-        const kind = c.type as 'group' | 'batch'
-        const fit = containerMinSize(kind, left)
-        const prevFit = containerMinSize(kind, left + goneKids.length)
         const changes: Record<string, unknown> = {
           data: { ...c.data, childIds: ((c.data as Partial<GroupData>).childIds ?? []).filter((id) => !doomed.has(id)) },
         }
-        /** 同 `node.reparent`：只收**自动尺寸**的框，手工尺寸 / 打组包装框不动 */
-        if (c.w === prevFit.w && c.h === prevFit.h && (c.w !== fit.w || c.h !== fit.h)) {
-          changes.w = fit.w
-          changes.h = fit.h
-        }
         patches.push({ op: 'patch', table: 'nodes', id: c.id, changes })
+        const left = graph.nodes.filter((n) => n.parentId === c.id && !doomed.has(n.id))
+        if (c.type === 'group') {
+          /** 组：按剩下的孩子重新收紧（可能连原点一起挪），与 `node.reparent` 同一份实现 */
+          refitGroupPatches(patches, c, left)
+        } else {
+          const fit = containerMinSize('batch', left.length)
+          if (c.w !== fit.w || c.h !== fit.h) {
+            patches.push({ op: 'patch', table: 'nodes', id: c.id, changes: { w: fit.w, h: fit.h } })
+          }
+        }
       }
 
       return {
@@ -422,6 +459,9 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
       /** 容器子清单：缺失时按空处理 */
       const childIdsOf = (n: NodeSnapshot): string[] =>
         (n.data as Partial<GroupData>).childIds ?? []
+      /** 容器当前的子节点（图为准；`exclude` 用来排除正在移动的那个） */
+      const kidsOf = (containerId: string, exclude?: string) =>
+        graph.nodes.filter((n) => n.parentId === containerId && n.id !== exclude)
       const from = containerOf(node.parentId)
       const to = containerOf(moved.parentId)
       if (from && from.id !== moved.parentId) {
@@ -434,21 +474,21 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
          * 少一个子节点就该收回去。手工拖过（打组那个"包住内容"的包装框、用户自己拖大的框）
          * 一律不动 —— 否则"打组"刚算好的包装框会在第一个子节点 reparent 时被压成 240×200。
          */
-        const leftCount = graph.nodes.filter((n) => n.parentId === from.id && n.id !== cmd.id).length
-        const kind = from.type as 'group' | 'batch'
-        const fit = containerMinSize(kind, leftCount)
-        const prevFit = containerMinSize(kind, leftCount + 1)
-        const wasAuto = from.w === prevFit.w && from.h === prevFit.h
-        if (wasAuto && (from.w !== fit.w || from.h !== fit.h)) {
-          changes.w = fit.w
-          changes.h = fit.h
-        }
         patches.push({
           op: 'patch',
           table: 'nodes',
           id: from.id,
           changes,
         })
+        if (from.type === 'group') {
+          /** 组：把框收紧（可能连原点一起挪）—— 位置与尺寸都由孩子们的包围盒算 */
+          refitGroupPatches(patches, from, kidsOf(from.id, cmd.id))
+        } else {
+          const fit = containerMinSize('batch', kidsOf(from.id, cmd.id).length)
+          if (from.w !== fit.w || from.h !== fit.h) {
+            patches.push({ op: 'patch', table: 'nodes', id: from.id, changes: { w: fit.w, h: fit.h } })
+          }
+        }
       }
       if (to) {
         const current = childIdsOf(to)
@@ -467,29 +507,41 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
         }
         /*
          * 容器**贴住内容**（§6.11 / §6.12「有内容时按当前网格动态算尺寸」）：
-         * 尺寸 = 内容 + 四边等距 20px（`containerMinSize`）。这是"自适应"的落点 ——
-         * 以前这里只「放大不缩小」且目标是 5:4 归一尺寸，于是两个单元就撑出
-         * 365 高、**下方空 183px**（用户第 13 批第 7 条的现场）。
+         * 尺寸 = 内容 + 四边等距 20px（`containerMinSize`）。
          *
-         * 只在**装不下**时贴一次，且两轴一起贴：
-         *  - 装得下就不动 ⇒ 手工拖大的框、打组那个包装框都不会被子节点变化改掉；
-         *  - 两轴一起贴 ⇒ 旧数据里"高被 5:4 撑过头"的框，下次塞进子节点就一并收回
-         *    （只按缺的那一轴补，会留下另一轴的空档，正是用户报的那个"下方空出很多位置"）。
+         * ⚠️ **每次都贴**（2026-10-06 第 14 批第 2 条改）：原来只"放大不缩小"，
+         * 于是"打组/收进批量时那个包住内容的包装框"会一直留着 —— 用户实测：
+         * 两个节点进批量（其中一个还是 944×1655 的长图），框按包装框算成很高，
+         * 网格内容却只有 456×200 ⇒ **下方空一大片**。
+         * 现在子节点增删一律把框收到贴合尺寸；手工拖大的框会在下次增删时收回
+         *（这是"自适应"的定义，功能栏的「排列与整理」也能随时手动贴回）。
          */
-        if (to.type === 'group' || to.type === 'batch') {
-          const childCount = graph.nodes.filter((n) => n.parentId === to.id && n.id !== cmd.id).length + 1
-          const fit = containerMinSize(to.type, childCount)
-          if (to.w < fit.w || to.h < fit.h) {
-            patches.push({
-              op: 'patch',
-              table: 'nodes',
-              id: to.id,
-              changes: { w: fit.w, h: fit.h },
-            })
+        if (to.type === 'group') {
+          /**
+           * 组：框＝孩子们的包围盒 + 四边等距。被拖进来的那个用**它换算后的 local 坐标**
+           * （`moved`）参与计算 —— 于是"拖进去落在哪就是哪"，不会被吸附或网格挪走。
+           */
+          refitGroupPatches(patches, to, [
+            ...kidsOf(to.id, cmd.id),
+            { id: cmd.id, x: moved.x, y: moved.y, w: node.w, h: node.h },
+          ])
+        } else {
+          const fit = containerMinSize('batch', kidsOf(to.id, cmd.id).length + 1)
+          if (to.w !== fit.w || to.h !== fit.h) {
+            patches.push({ op: 'patch', table: 'nodes', id: to.id, changes: { w: fit.w, h: fit.h } })
           }
         }
       }
-      for (const eid of edgesToDropOnReparent(cmd.id, graph.edges)) {
+      /**
+       * 连线：**打组不动连线**（用户 2026-10-06 第 14 批第 1 条：
+       * 「原本在画布中是什么位置，什么连线就是什么连线」）——
+       * 进组 / 出组之后，原来连的那条边还在原处，只是端点跟着节点走。
+       *
+       * 批量仍按旧口径清连线：它是"集合"，成员带着自己的边进去会让"集合项"的语义含糊
+       *（§6.12 的口径是集合本体打包成一项，成员的边另有出处）。
+       */
+      const touchesGroup = from?.type === 'group' || to?.type === 'group'
+      for (const eid of touchesGroup ? [] : edgesToDropOnReparent(cmd.id, graph.edges)) {
         patches.push({ op: 'delete', table: 'edges', id: eid })
       }
       return { patches, transaction: { mode: 'standalone', label: '移动归属' } }

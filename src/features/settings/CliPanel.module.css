@@ -169,6 +169,21 @@
   cursor: not-allowed;
 }
 
+/*
+ * 「一键设置」是这张卡的主动作（第 14 批第 3 条）——用实色让它一眼跳出来，
+ * 与别的次要按钮（检测 / 查状态 / 测试运行）分开。色值走令牌，明暗主题各自成立。
+ */
+.primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--accent);
+  opacity: 0.88;
+}
+
 .result {
   margin: 0;
   font-size: var(--fs-label);

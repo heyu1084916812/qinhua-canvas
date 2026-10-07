@@ -2250,14 +2250,24 @@ async function g15(browser) {
   rec(g, '打组把两个提示词都收进去了（子节点计数 2）', (await childCount()) === '2', `childCount=${await childCount()}`)
   rec(g, '有内容时不显示空态提示', (await group.locator('[data-group-empty]').count()) === 0)
   /**
-   * ★★ 动态最小尺寸 = 内容 + 四边等距 20px（2026-10-06 #319 起；此前是 5:4 归一）。
-   * 两个单元：宽 2×200+16+2×20 = 456，高 160+2×20 = 200。
+   * ★★ 组框**贴着内容**（用户 2026-10-06 第 14 批第 1 条：「打组其实就是一个背景板而已」）。
+   *
+   * 口径在 #14-1 改过：组内子节点**保持它们在画布上的位置与尺寸**（不排 3×3 网格、
+   * 不缩放），所以贴合尺寸只能按**内容包围盒 + 四边 20** 算 —— 不再是"2 个单元 = 456×200"。
+   * 这里验的是**不变量**：`data-group-min`（视图按内容算出的贴合尺寸）与组框本身
+   * 的世界尺寸一致 ⇒ 框既不裁内容、也不空一圈。
    */
+  const minAttr15 = ((await groupBody.getAttribute('data-group-min')) ?? '').split('x').map(Number)
+  const groupBox15 = await group.boundingBox()
+  const vp15 = await readViewport(page)
   rec(
     g,
-    '★★ 分组动态最小尺寸 = 内容 + 四边等距（456×200）',
-    (await groupBody.getAttribute('data-group-min')) === '456x200',
-    `min=${await groupBody.getAttribute('data-group-min')}`,
+    '★★ 组框贴着内容：世界尺寸 = 内容包围盒 + 四边 20（= data-group-min）',
+    !!groupBox15 &&
+      Number.isFinite(vp15.zoom) &&
+      Math.abs(groupBox15.width / vp15.zoom - minAttr15[0]) <= 1.5 &&
+      Math.abs(groupBox15.height / vp15.zoom - minAttr15[1]) <= 1.5,
+    `min=${minAttr15.join('x')} 框=${groupBox15?.width.toFixed(0)}×${groupBox15?.height.toFixed(0)} zoom=${vp15.zoom}`,
   )
   /*
    * 组的观感（用户 2026-10-06 第 13 批第 5 条：**常显背景 + 标题 + 四角可缩放**）。
@@ -2269,9 +2279,14 @@ async function g15(browser) {
     (await group.locator('[data-node-resize-corner]').count()) === 4,
     `手柄=${await group.locator('[data-node-resize-corner]').count()}`,
   )
-  const groupBg = await group.locator('[data-group-body]').getAttribute('data-container-bg')
-  rec(g, '★★ 组有常显背景（默认档 slate）', groupBg === 'slate', `档位=${groupBg}`)
-  const bgColor = await group.locator('[data-group-body]').evaluate((el) => getComputedStyle(el).backgroundColor)
+  /**
+   * 底色**不在分组节点自己身上**，而在 `FlowGroupBoardLayer` 那一层（画在连线**之下**，
+   * 用户第 14 批第 1 条：「显示优先级要低于连线」）⇒ 断言要看背景板元素。
+   */
+  const board = page.locator(`[data-group-board="${groupId}"]`)
+  const groupBg = await board.getAttribute('data-group-bg')
+  rec(g, '★★ 组有常显背景板（默认档 slate）', groupBg === 'slate', `档位=${groupBg}`)
+  const bgColor = await board.evaluate((el) => getComputedStyle(el).backgroundColor)
   rec(g, '背景真的画出来了（不是 transparent）', !/rgba?\(0, 0, 0, 0\)/.test(bgColor), bgColor)
   rec(g, '组标题在（§6.6 标题浮在框外左上）', (await group.locator('[class*="title"]').count()) >= 1)
   /**
@@ -2279,13 +2294,13 @@ async function g15(browser) {
    * 六个值必须互不相同。这样"档位名 → 令牌"的映射漏一条（两档同色）会被当场逮住。
    */
   const toneColors = await page.evaluate(() => {
-    const el = document.querySelector('[data-group-body]')
+    const el = document.querySelector('[data-group-board]')
     const out = {}
     for (const t of ['slate', 'blue', 'green', 'amber', 'rose', 'violet']) {
-      el.setAttribute('data-container-bg', t)
+      el.setAttribute('data-group-bg', t)
       out[t] = getComputedStyle(el).backgroundColor
     }
-    el.setAttribute('data-container-bg', 'slate')
+    el.setAttribute('data-group-bg', 'slate')
     return out
   })
   rec(
@@ -2324,8 +2339,8 @@ async function g15(browser) {
   rec(g, '★ 背景色菜单是六档', toneItems.length === 6, toneItems.join(','))
   await page.locator('[data-group-bg-tone="blue"]').click()
   await sleep(400)
-  const bgAfter = await group.locator('[data-group-body]').evaluate((el) => ({
-    attr: el.getAttribute('data-container-bg'),
+  const bgAfter = await page.locator(`[data-group-board="${groupId}"]`).evaluate((el) => ({
+    attr: el.getAttribute('data-group-bg'),
     color: getComputedStyle(el).backgroundColor,
   }))
   rec(
@@ -2342,28 +2357,56 @@ async function g15(browser) {
   rec(g, '★ 组内没有能跑的节点时给提示（不静默）', runNotice.includes('没有能单独执行'), runNotice)
 
   /**
-   * 整理节点 = **把组框贴回内容**（组内位置本来就由 3×3 网格自动整理，用户 2026-10-06
-   * 答复：「容器内不做吸附 —— 容器本身有自动整理」；而容器内不建边 ⇒ 没有依赖可排）。
-   * 打组给的是"包住内容"的包装框（比贴合尺寸大），所以点一下该**看得见地收一圈**，
-   * 且**位置不动**。
+   * 「排列与整理」（用户 2026-10-06 第 14 批第 1 条：「功能需要有**排列与整理**，
+   * 不单单是整理功能」）：
+   * ① 菜单里必须是**三档排列 + 一条整理节点**；
+   * ② 「整理节点」= 把组框贴回内容（组内不建边 ⇒ 没有依赖可排，见 `arrangeGroupMembers`）。
+   *
+   * ⚠️ 顺序有讲究：**先**把框拖大（打组给的框本来就贴着内容，不拖大就没有可收的），
+   * 拖完跟随栏会按 §6.15 隐藏 ⇒ 要再点一下组把它唤回来，菜单才点得到。
    */
-  const beforeTidy = await page.locator(`[data-node-id="${groupId}"]`).boundingBox()
-  /** 先等上一条提示自己消失（2.4s 后自动清），否则断言可能读到上一条文案 */
-  await sleep(2600)
+  {
+    const hb = await page.locator(`[data-node-id="${groupId}"] [data-node-resize-corner="se"]`).boundingBox()
+    if (hb) {
+      await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(hb.x + 180, hb.y + 130, { steps: 8 })
+      await page.mouse.up()
+      await sleep(400)
+    }
+    /** 点组框的**空白处**（右下角那圈留白）把组重新选中 ⇒ 跟随栏回来 */
+    const gb0 = await page.locator(`[data-node-id="${groupId}"]`).boundingBox()
+    if (gb0) {
+      await page.mouse.click(gb0.x + gb0.width - 8, gb0.y + gb0.height / 2)
+      await sleep(400)
+    }
+  }
   await page.locator('[data-follow-action="group-arrange"]').click()
+  await sleep(300)
+  const arrangeItems = await page
+    .locator('[data-group-arrange]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-group-arrange')))
+  rec(
+    g,
+    '★★「排列与整理」菜单 = 宫格 / 水平 / 垂直 + 整理节点',
+    ['grid', 'row', 'column', 'tidy'].every((m) => arrangeItems.includes(m)),
+    arrangeItems.join(','),
+  )
+  const beforeTidy = await page.locator(`[data-node-id="${groupId}"]`).boundingBox()
+  await page.locator('[data-group-arrange="tidy"]').click()
   await sleep(600)
   const afterTidy = await page.locator(`[data-node-id="${groupId}"]`).boundingBox()
   rec(
     g,
-    '★★ 整理节点：组框收回到"内容 + 四边等距"，位置不动',
+    '★★ 整理节点：组框收回到"内容 + 四边 20"，位置不动',
     !!beforeTidy &&
       !!afterTidy &&
-      Math.abs(afterTidy.width - 456) <= 2 &&
-      Math.abs(afterTidy.height - 200) <= 2 &&
+      Math.abs(afterTidy.width / vp15.zoom - minAttr15[0]) <= 2 &&
+      Math.abs(afterTidy.height / vp15.zoom - minAttr15[1]) <= 2 &&
       Math.abs(afterTidy.x - beforeTidy.x) <= 1 &&
       Math.abs(afterTidy.y - beforeTidy.y) <= 1,
     beforeTidy && afterTidy
-      ? `${beforeTidy.width.toFixed(0)}×${beforeTidy.height.toFixed(0)} → ${afterTidy.width.toFixed(0)}×${afterTidy.height.toFixed(0)}`
+      ? `${beforeTidy.width.toFixed(0)}×${beforeTidy.height.toFixed(0)} → ${afterTidy.width.toFixed(0)}×${afterTidy.height.toFixed(0)}（期望 ${minAttr15.join('x')}×${vp15.zoom}）`
       : 'null',
   )
   rec(g, '组内节点端点隐藏（§6.11）', (await group.locator('[data-node-id] [data-port]').count()) === 0)
@@ -2419,7 +2462,17 @@ async function g15(browser) {
   const gpb = await groupPort.boundingBox()
   const tb2 = await page.locator(`[data-node-id="${targetId}"]`).boundingBox()
   await page.mouse.move(gpb.x + gpb.width / 2, gpb.y + gpb.height / 2)
-  await sleep(200)
+  await sleep(150)
+  /**
+   * 端点**要"看见"才收手势**（用户 2026-10-06 第 14 批第 4 条：0-50 才展开）⇒
+   * 靠近之后先轻微挪一下，等它真的展开再按下；顺手把这一刻的状态带进断言信息里，
+   * 免得下次"没连上"时只能靠猜（是没展开，还是展开了但不收手势）。
+   */
+  await page.mouse.move(gpb.x + gpb.width / 2 + 1, gpb.y + gpb.height / 2)
+  await sleep(180)
+  const portState = await groupPort.evaluate(
+    (el) => `open=${el.dataset.portOpen} pe=${getComputedStyle(el).pointerEvents}`,
+  )
   await page.mouse.down()
   await page.mouse.move(tb2.x + tb2.width / 2, tb2.y + tb2.height / 2, { steps: 12 })
   await sleep(250)
@@ -2432,7 +2485,7 @@ async function g15(browser) {
     g,
     '★★ 从组右端点拖出：**每个成员各一条**草稿线（2 条）',
     draftN === 2,
-    `draft=${draftN}`,
+    `draft=${draftN} ${portState}`,
   )
   rec(
     g,
@@ -5762,9 +5815,18 @@ async function g51(browser) {
   await page.waitForURL(/\/canvas\//)
   await sleep(700)
 
-  const types2 = await page
-    .locator('[data-node-type]')
-    .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-type')))
+  /**
+   * 等模板把节点建出来再比（模板是异步落库的）：直接读一次会撞上"还没渲染"，
+   * 报出来的是"类型列表空"，看着像模板坏了 —— 而紧随其后的边数断言又是对的（实测踩过）。
+   */
+  let types2 = []
+  for (let i = 0; i < 24; i += 1) {
+    types2 = await page
+      .locator('[data-node-type]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-type')))
+    if (types2.length >= 2) break
+    await sleep(250)
+  }
   rec(
     g,
     '批量套图模板预置 批量容器 → 生成 两节点（§5.4）',
@@ -6833,13 +6895,17 @@ async function g57(browser) {
     )
   // 半径断言复用同一个组（分组不再能新建）
   id = groupId
-  /*
-   * ⚠️ 用 `[data-container-body]` 这个**契约锚点**，不要再按 class 猜：
-   * 组视图在标题条那次改版后多了一层外框 `div[class*="body"]`，旧选择器
-   * `div[class*="body"] div[class*="body"]` 于是抓到**外层**（0px），长期假红；
-   * 真正的内容区（ContainerBody）一直是 13px ✓。
+  /**
+   * ⚠️ 组的圆角**搬到背景板上了**（用户 2026-10-06 第 14 批第 1 条：底色要画在**连线之下**，
+   * 所以底色从分组节点挪去了 `FlowGroupBoardLayer`）。分组节点本体从此是透明的 ——
+   * 读它的 `[data-container-body]` 得到 0px 是**对的**（那层已经不画圆角了），
+   * 圆角在背景板元素上。
    */
-  rec(g, '分组内容区圆角 13px（14 − 1px 描边）', (await radiusOf(id, '[data-container-body]')) === '13px', await radiusOf(id, '[data-container-body]'))
+  const groupRadius = await page.evaluate((gid) => {
+    const el = document.querySelector(`[data-group-board="${gid}"]`)
+    return el ? getComputedStyle(el).borderTopLeftRadius : null
+  }, groupId)
+  rec(g, '分组背景板圆角 14px（--radius-node）', groupRadius === '14px', String(groupRadius))
   id = await addNode('compare')
   rec(g, '对比节点舞台圆角 7px（14 − 1px 描边 − 6px 内边距）', (await radiusOf(id, '[class*="stage"]')) === '7px', await radiusOf(id, '[class*="stage"]'))
   id = await addNode('generation')
@@ -9610,6 +9676,15 @@ async function g71(browser) {
     const ob = await batch.locator('[data-port="output"]').boundingBox()
     const ib = await gen.locator('[data-port="input"]').boundingBox()
     await page.mouse.move(ob.x + ob.width / 2, ob.y + ob.height / 2)
+    const batchIdDbg = await batch.getAttribute('data-node-id')
+    const hitDbg = page.locator(`[data-flow-port-hit="${batchIdDbg}:output"]`)
+    console.log(
+      '  [dbg71] port',
+      JSON.stringify(ob),
+      'hit',
+      JSON.stringify(await hitDbg.boundingBox()),
+      await hitDbg.evaluate((el) => `open=${el.dataset.portOpen} pe=${getComputedStyle(el).pointerEvents}`),
+    )
     await page.mouse.down()
     await page.mouse.move(ob.x + 40, ob.y + 8, { steps: 5 })
     await page.mouse.move(ib.x + ib.width / 2, ib.y + ib.height / 2, { steps: 14 })
@@ -14020,16 +14095,16 @@ async function g91(browser) {
   )
   rec(
     g,
-    '★★ 右端口是**共用口**（`kind=both`，入 / 出同一锚点）且贴在右边缘中点',
+    '★★ 右端口是**共用口**（`kind=both`，入 / 出同一锚点）且停在右边缘外 27px',
     portById.patch?.kind === 'both' &&
-      Math.abs(portById.patch.cx - portGeo.right) <= 2 &&
+      Math.abs(portById.patch.cx - (portGeo.right + 27)) <= 2 &&
       Math.abs(portById.patch.cy - portGeo.cy) <= 2,
     `kind=${portById.patch?.kind} cx=${portById.patch?.cx?.toFixed(1)} right=${portGeo.right.toFixed(1)} cy=${portById.patch?.cy?.toFixed(1)} mid=${portGeo.cy.toFixed(1)}`,
   )
   rec(
     g,
-    '★ 原图口在**左边缘中点**（左入的口径没被挪走）',
-    Math.abs(portById.input?.cx - portGeo.left) <= 2 &&
+    '★ 原图口停在**左边缘外 27px**（左入的口径没被挪走）',
+    Math.abs(portById.input?.cx - (portGeo.left - 27)) <= 2 &&
       Math.abs(portById.input?.cy - portGeo.cy) <= 2,
     `in=(${portById.input?.cx?.toFixed(1)},${portById.input?.cy?.toFixed(1)}) left=${portGeo.left.toFixed(1)} mid=${portGeo.cy.toFixed(1)}`,
   )
@@ -14592,6 +14667,13 @@ async function g92(browser) {
   await moveNodeVia(page, fusion, page.locator('[data-fusion-chips]'), 900, 200)
   await sleep(300)
   const fBox = await fusion.boundingBox()
+  /*
+   * ⚠️ 这一段的坑（别顺手改回去）：**上游的输出端口与下游的输入端口会挨到一起**。
+   * 端点停在节点外面 20px 之后，两个节点只要隔不到 54px，这两只端点的命中方块就叠上了
+   * —— 实测：裁剪出来的「局部图」正好放在原图右边，于是"从原图的输出端拖"实际点到了
+   * 「局部图」的输入端，那条边整个丢掉。修法在端点层：按**离指针最近**的那只算
+   *（`FlowPortLayer.nearestPortAt`），不按 DOM 层序。
+   */
   await dragFromPortTo(source.node.locator('[data-port="output"]').first(), {
     x: fBox.x + 30,
     y: fBox.y + fBox.height / 2,
@@ -14605,6 +14687,7 @@ async function g92(browser) {
     '★ 两条边落在不同口上（原图 → 左口；局部图 → 右共用口）',
     (await page.locator('[data-edge-target-port="input"]').count()) === 1 &&
       (await page.locator('[data-edge-target-port="patch"]').count()) === 1,
+    `input=${await page.locator('[data-edge-target-port="input"]').count()} patch=${await page.locator('[data-edge-target-port="patch"]').count()} 全部=${await page.locator('[data-edge]').count()}`,
   )
   rec(g, '★ 融合节点里一个选区都没框（选区来自局部图自己）', (await page.locator('[data-fusion-context="1"]').count()) === 0)
   rec(
@@ -17995,8 +18078,15 @@ async function g103(browser) {
   const overlay = page.locator('[data-multi-select]')
   const bar = page.locator('[data-multi-select-bar]')
   const box = page.locator('[data-multi-select-box]')
-  const prompts = page.locator('[data-node-type="prompt"]')
-  const gens = page.locator('[data-node-type="generation"]')
+  /**
+   * ⚠️ 只认**根层**节点：容器（分组 / 批量）的子节点也带 `[data-node-type]`，
+   * 但它们在 DOM 里排在容器的框里、位置由容器决定 —— 拿它们凑"两个提示词"会点到
+   * 组里的节点（点下去选中的是**组**），甚至点在屏幕外（实测：⑦ 之后 `nth(1)`
+   * 落在画布之外，点击直接超时）。根层节点的直接父级是 React Flow 的节点外壳，
+   * 容器子节点的父级是容器内部的落位盒 ⇒ 用 `>` 就能只取根层。
+   */
+  const prompts = page.locator('.react-flow__node > [data-node-type="prompt"]')
+  const gens = page.locator('.react-flow__node > [data-node-type="generation"]')
   const edges = () => page.locator('[data-edge]').count()
 
   /** 连点两个提示词节点 = 多选两个（点一、Shift 点二） */
@@ -18208,13 +18298,16 @@ async function g103(browser) {
   await page.locator('[data-toolbar-menu-item="prompt"]').click()
   await sleep(500)
   /**
-   * Shift 点**组本体**把组加进选中集合。落点取"底边往内 6px 的中间"：
-   * 四角手柄在四个**角**上、端点在左右边**中点** ⇒ 底边中间那一带是干净的，
-   * 一定命中组本体（点左内边距或标题都可能撞上端点 / 被上方功能栏挡住）。
+   * Shift 点**组本体**把组加进选中集合。落点取"左内边距的中点"：
+   * 四角手柄在四个**角**上，而端点停在节点**外面** 27px（第 14 批第 4 条）
+   * ⇒ 内侧这一条 20px 的留白带是干净的，一定命中组本体。
+   *
+   * ⚠️ 别改回"底边中间"：新建的那个提示词**创作面板就挂在那附近**（屏幕坐标浮层、
+   * 压在画布之上），实测点在底边中间命中的是面板里的 `<section>`，组压根没被选中。
    */
   const gb7 = await page.locator(`[data-node-id="${mixedGid}"]`).boundingBox()
   await page.keyboard.down('Shift')
-  await page.mouse.click(gb7.x + gb7.width / 2, gb7.y + gb7.height - 6)
+  await page.mouse.click(gb7.x + 10, gb7.y + gb7.height / 2)
   await page.keyboard.up('Shift')
   await sleep(450)
   const mixedSel = await page

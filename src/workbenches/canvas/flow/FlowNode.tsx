@@ -7,7 +7,7 @@ import { heightFromContentOf, resizeLockOf } from '../../../domain/canvas/nodeSp
 import { RESIZE_CORNERS } from '../../../domain/canvas/nodeSpecs/resizeLock'
 import { isContainerType } from '../../../domain/canvas/model/node'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
-import { containerMinSize } from '../../../domain/canvas/layout/packContainer'
+import { containerMinSize, groupFitSize } from '../../../domain/canvas/layout/packContainer'
 import type { RunMode } from '../../../domain/canvas/model/runRecord'
 import type { NodeViewEvent } from '../nodes/registry'
 import type { InputPortAsset } from '../nodes/registry'
@@ -60,15 +60,26 @@ function FlowNodeInner({ data, selected }: NodeProps) {
   const { node, running, error, runMode, emit, resize, zoom, childNodes, renderChild, ...derived } =
     data as unknown as FlowNodeData
   const def = getNodeDefinition(node.type)
+  /**
+   * 端点声明：只用来画 **React Flow 的 `Handle` 锚点**（`handleNodes`）。
+   * 看得见的那颗圆点在 `FlowPortLayer` 上（见那里的说明），`NodeFrame` 不参与。
+   */
   const ports = portDeclsOf(def.ports)
   /**
    * 容器（分组 / 批量）的最小尺寸**随内容走**（= 内容 + 四边等距 20px，见 `packContainer.ts`）：
    * 少了这一条，缩小手柄能一直往里拖，把子节点**压住**（用户 2026-10-06 第 13 批第 7 条：
    * 「缩小的时候会掩盖一些节点…可以规则为保持四周的边距」）。
    */
-  const minSize = isContainerType(node.type)
-    ? containerMinSize(node.type as 'group' | 'batch', childNodes?.length ?? 0)
-    : def.sizing.min
+  /**
+   * 缩放下限按容器类型分流（2026-10-06 第 14 批第 1 条起**两套布局**）：
+   * - **分组**：子节点自由摆放 ⇒ 下限 = 它们的包围盒 + 四边等距（`groupFitSize`）；
+   * - **批量**：子节点走 3×3 网格 ⇒ 下限 = 网格尺寸（`containerMinSize`）。
+   */
+  const minSize = node.type === 'group'
+    ? groupFitSize(childNodes ?? [])
+    : isContainerType(node.type)
+      ? containerMinSize(node.type as 'group' | 'batch', childNodes?.length ?? 0)
+      : def.sizing.min
 
   /**
    * 端点（React Flow 的 `Handle`）走 `NodeFrame.overlay`，**不放在 `children` 里**：
@@ -132,14 +143,12 @@ function FlowNodeInner({ data, selected }: NodeProps) {
       selfPositioned={false}
       selected={!!selected}
       scale={zoom}
-      ports={def.ports}
       minSize={minSize}
       resizeLock={resizeLockOf(node)}
       /* 容器四角可缩放（用户 2026-10-06 第 13 批第 5 条）；其它类型仍是右下那一只 */
       resizeCorners={isContainerType(node.type) ? RESIZE_CORNERS : undefined}
       heightFromContent={heightFromContentOf(node)}
       /* 老画布那份端点交给 React Flow 的 Handle 画，避免两套端点叠在一起 */
-      portsHidden
       overlay={handleNodes}
       onFramePointerDown={() => {}}
       onResize={resize}
@@ -209,9 +218,7 @@ export function FlowChildFrame({
       selfPositioned={false}
       selected={selected}
       scale={zoom}
-      ports={def.ports}
       minSize={def.sizing.min}
-      portsHidden
       resizeLock={resizeLockOf(child)}
       heightFromContent={heightFromContentOf(child)}
       onFramePointerDown={onFramePointerDown}

@@ -35,9 +35,80 @@
   pointer-events: none;
 }
 
+/*
+ * 命中方块（世界单位 30×30，见 `portHits.PORT_HIT_SIZE`）：透明，比看得见的圆点大一圈，
+ * 方便按住拖线。**只有端点露出来的时候才收指针**（`data-port-open`）——
+ * 隐形的端点还能点，用户读到的是"点到空气也会拉出一条线"，与老表面那条
+ * 「看得见的范围 = 真正生效的范围」是同一条口径。
+ */
 .hit {
   position: absolute;
   border-radius: 999px;
   cursor: crosshair;
+  pointer-events: none;
+}
+
+.hit[data-port-open='1'] {
   pointer-events: auto;
+}
+
+/*
+ * 看得见的端点（用户 2026-10-06 第 14 批第 4 条）：
+ * **圆形填充 + 描边，中间一个和描边同色的加号**。
+ *
+ * 三件事都在这里定死：
+ * - 尺寸 = `portReveal.PORT_SIZE`（14，内联写死一份在组件里）；
+ * - 静止时它的**近边距节点边缘 20px**：这是**位置**，不是边距 —— 位置由
+ *   `portHits.portHitsOf` 把圆心外移 `PORT_CENTER_OFFSET`（27）算好，
+ *   这里只管把它画在圆心处（`inset: 0; margin: auto`）；
+ * - 出场：`--port-pop` 把它沿横向收回"贴住节点边缘"的位置（0 可见度），
+ *   `--port-pull-x/y` 是吸附鼠标的那一点点位移，两者叠加在同一个 `transform` 上。
+ */
+.dot {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  box-sizing: border-box;
+  border: 1px solid var(--port-stroke);
+  border-radius: 999px;
+  background: var(--port);
+  opacity: 0;
+  transform: translate(var(--port-pop, 0px), 0) translate(var(--port-pull-x, 0px), var(--port-pull-y, 0px));
+  transition:
+    opacity var(--dur-edge) var(--ease-out),
+    transform var(--dur-edge) var(--ease-out);
+}
+
+/* 中间的加号：两条实心细条拼一个十字，颜色就是描边色（用户点名的"和描边一样颜色"） */
+.dot::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  background:
+    linear-gradient(var(--dot-plus, var(--port-stroke)) 0 0) center / 100% 1.5px no-repeat,
+    linear-gradient(var(--dot-plus, var(--port-stroke)) 0 0) center / 1.5px 100% no-repeat;
+}
+
+/* 展开度 > 0 就可见（50→70 之间是渐隐，不跳变） */
+.hit[data-port-open='1'] .dot {
+  opacity: 1;
+}
+
+/*
+ * 共用口（§6.23 融合节点右侧那只，`kind: both`）：同一个点既是入也是出。
+ * 与"实心的入 / 出点"区分开：**反过来画** —— 底色用面板色、描边与加号用端口色，
+ * 于是同一个节点右侧的 `patch` 与 `output` 一眼能分开（老表面那套是"实底挖空成环"，
+ * 目的相同，画法跟着新样式一起翻过来）。
+ */
+.hit[data-port-kind='both'] .dot {
+  border-width: 2px;
+  border-color: var(--port);
+  background: var(--bg-surface);
+  --dot-plus: var(--port);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot {
+    transition: none;
+  }
 }

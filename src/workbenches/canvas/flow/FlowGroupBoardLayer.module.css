@@ -1,0 +1,52 @@
+/*
+ * 分组"背景板"层（用户 2026-10-06 第 14 批第 1 条）。
+ *
+ * 位置很关键：它渲染在 `<ReactFlow>` **之前** ⇒ 在**连线之下**。
+ * 分组节点本身是透明的，所以穿过分组背景的连线看得见（用户要求"显示优先级低于连线"）。
+ *
+ * 视觉与旧的 `ContainerBody` 一致（常显底色 + 细虚线边），只是**换了层**：
+ * 底色跟令牌走（`--group-bg-*`），六档映射写在下面，明暗主题各一套。
+ */
+.clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+}
+
+.board {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: var(--radius-node);
+  border: 1px dashed var(--stroke);
+  background: var(--group-bg-slate);
+}
+
+.board[data-group-bg='blue'] {
+  background: var(--group-bg-blue);
+}
+
+.board[data-group-bg='green'] {
+  background: var(--group-bg-green);
+}
+
+.board[data-group-bg='amber'] {
+  background: var(--group-bg-amber);
+}
+
+.board[data-group-bg='rose'] {
+  background: var(--group-bg-rose);
+}
+
+.board[data-group-bg='violet'] {
+  background: var(--group-bg-violet);
+}

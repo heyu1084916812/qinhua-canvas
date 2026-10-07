@@ -128,7 +128,6 @@ function Card({
           node={node}
           selected={!!selected}
           scale={1}
-          ports={def.ports}
           minSize={def.sizing.min}
           onFramePointerDown={() => {}}
           onResize={() => {}}
@@ -153,7 +152,6 @@ function Card({
                       node={{ ...child, x: 0, y: 0 }}
                       selected={false}
                       scale={1}
-                      ports={getNodeDefinition(child.type).ports}
                       minSize={getNodeDefinition(child.type).sizing.min}
                       onFramePointerDown={() => {}}
                       onResize={() => {}}

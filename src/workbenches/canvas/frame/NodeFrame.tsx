@@ -5,24 +5,11 @@ import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import type { Rect } from '../../../domain/canvas/geometry/rect'
 import type { ResizeLock } from '../../../domain/canvas/nodeSpecs/resizeLock'
 import { freeResize, lockedResize, type ResizeCorner } from '../../../domain/canvas/nodeSpecs/resizeLock'
-import { portMagnet } from '../../../domain/canvas/geometry/portMagnet'
-import { portDeclsOf, type NodePorts } from '../../../domain/canvas/nodeSpecs/ports'
 import { useCanvasStore } from '../storeContext'
 import { assetPixelsOf, formatPixels } from './assetPixels'
 import styles from './NodeFrame.module.css'
 
 export type ResizePhase = 'begin' | 'move' | 'end'
-
-/**
- * 端点磁吸参数（§6.14，用户 2026-09-19）。
- *
- * `radius`：感应圈半径（视觉像素，从圆心算）。命中区是 15（14 直径 + ::after 扩 8），
- * 首版取 34（命中区再外放一圈），用户实测「太小、要凑很近才浮现」，
- * 故放大到 68——命中区的四倍多，隔一段距离就能感觉得到，不必精确对上去。
- * `maxPull`：最大吸附位移。刻意取小值——端点要**跟手但不出格**，
- * 吸得太远会脱离节点边框，反而看不出它属于哪个节点。
- */
-const MAGNET_OPTS = { radius: 68, maxPull: 8 }
 
 /**
  * 四角手柄各自的定位类（CSS 里一只角一条：位置 + 光标方向 + 同心圆角）。
@@ -42,8 +29,6 @@ export interface NodeFrameProps {
   selected: boolean
   /** 当前视口缩放，缩放手柄的屏幕位移需折算回世界单位 */
   scale: number
-  /** 端点声明：默认那对 + 附加口（§6.23 融合节点的 `patch`） */
-  ports: NodePorts
   minSize: { w: number; h: number }
   /**
    * 缩放锁比（§6.16），由装配层经 `resizeLockOf` 注入（视图层不算比例）：
@@ -84,10 +69,6 @@ export interface NodeFrameProps {
   /** 缩放手柄提交绝对矩形（命令层 coalesce 合并） */
   onResize: (rect: Rect, phase: ResizePhase) => void
   onRename: (title: string) => void
-  /** 从端点按下开始拖线建连（§6.14）；不传则端点不可拖。`portId` 是具体口（§6.23） */
-  onPortPointerDown?: (e: ReactPointerEvent, portId: string) => void
-  /** 隐藏端点（分组 / 批量子节点不显示端点） */
-  portsHidden?: boolean
   children?: ReactNode
   /**
    * 画在**框上**（`.body` 之外、`overflow: visible`）的额外内容。
@@ -144,98 +125,6 @@ export function NodeFrame(props: NodeFrameProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const store = useCanvasStore()
   /**
-   * 端点的「磁吸」状态（用户 2026-09-19）。
-   *
-   * 语义：指针进入端点附近的**感应圈**时，端点浮现并朝指针方向吸过去（像磁铁），
-   * 离开感应圈则弹回原位、淡出。左右两个端点各自独立。
-   *
-   * 为什么用 JS 算距离、而不是 CSS `:hover` 放大命中区：
-   * 端点隐形时 `opacity:0` 但**仍占位、仍可命中**，`:hover` 会让「看不见的东西
-   * 已经生效」——用户觉得诡异。按**指针到圆心的距离**判定则完全由几何驱动：
-   * 看得见的浮现范围 = 真正生效的范围，二者一致。
-   */
-  /**
-   * 端口元素表：key = 端口 id。
-   *
-   * 之前是 `inputRef` / `outputRef` 两个具名 ref —— 只够两端口。融合节点有三只
-   * （左 `input`、右 `patch`、右 `output`），故改成按声明驱动的一张表，
-   * 端口再多也不必改这一段。
-   */
-  const decls = portDeclsOf(props.ports)
-  const portRefs = useRef(new Map<string, HTMLSpanElement | null>())
-  const [hotPort, setHotPort] = useState<string | null>(null)
-  useEffect(() => {
-    /**
-     * 端点圆心 = 节点边框左右中点；用 getBoundingClientRect 拿实时位置，
-     * 这样画布缩放 / 平移 / 节点拖动都不用重算——每次都问 DOM 要真值。
-     */
-    /**
-     * 端点**未位移时**的圆心。
-     *
-     * 必须减掉当前挂着的吸附位移：`getBoundingClientRect` 会把 `transform` 算进去，
-     * 直接用它会在「已吸过去的位置」上再算一次距离——越吸越偏，是个自我放大的回路。
-     * 读 `offsetWidth` / `offsetHeight` 拿的是布局尺寸（不含 transform），正是我们想要的。
-     */
-    const centerOf = (el: HTMLElement | null) => {
-      if (!el) return null
-      const r = el.getBoundingClientRect()
-      const shift = el.dataset.snapShift
-      let sx = 0
-      let sy = 0
-      if (shift) {
-        const [tx, ty] = shift.split(',').map(Number)
-        sx = Number.isFinite(tx) ? tx : 0
-        sy = Number.isFinite(ty) ? ty : 0
-      }
-      return { x: r.left + r.width / 2 - sx, y: r.top + r.height / 2 - sy }
-    }
-    const onMove = (e: PointerEvent) => {
-      /**
-       * 逐个端点问几何层要「吸不吸、吸多少」，取最近的那个生效。
-       * 判定与位移量都在 domain（portMagnet，可单测），这里只做 DOM 读写。
-       */
-      const pointer = { x: e.clientX, y: e.clientY }
-      const magnets = [...portRefs.current.entries()].map(([id, el]) => {
-        const c = centerOf(el)
-        if (!c) return null
-        return { id, el: el as HTMLElement, m: portMagnet(c, pointer, MAGNET_OPTS), dist: Math.hypot(pointer.x - c.x, pointer.y - c.y) }
-      })
-      const hot = magnets
-        .filter((x): x is NonNullable<typeof x> => !!x && x.m.hot)
-        .sort((a, b) => a.dist - b.dist)[0]
-      setHotPort(hot ? hot.id : null)
-      /** 位移只作用在「热」的那个端点；另一个必须回到 0，否则会残留偏移 */
-      for (const [id, el] of portRefs.current.entries()) {
-        if (!el) continue
-        const on = !!hot && id === hot.id
-        if (on) {
-          el.dataset.snapShift = `${hot.m.dx},${hot.m.dy}`
-          el.style.transform = `translate(${hot.m.dx}px, ${hot.m.dy}px)`
-        } else {
-          delete el.dataset.snapShift
-          el.style.transform = ''
-        }
-      }
-    }
-    const onLeave = () => {
-      setHotPort(null)
-      for (const el of portRefs.current.values()) {
-        if (!el) continue
-        delete el.dataset.snapShift
-        el.style.transform = ''
-      }
-    }
-    window.addEventListener('pointermove', onMove)
-    /** 指针离开窗口（切标签 / 移出视口）也要复位，否则端点停在吸附位置 */
-    window.addEventListener('pointerleave', onLeave)
-    window.addEventListener('blur', onLeave)
-    return () => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerleave', onLeave)
-      window.removeEventListener('blur', onLeave)
-    }
-  }, [])
-  /**
    * 产物像素（用户 2026-09-17）：**挂在节点外**的右上角、与节点名同一排。
    *
    * 为什么在标题排而不是节点内部：标题按 §6.6 浮在节点框之外，
@@ -244,8 +133,7 @@ export function NodeFrame(props: NodeFrameProps) {
    */
   const pixels = assetPixelsOf(node)
 
-  // 容器（分组 / 批量）的子节点：缩放手柄不渲染（尺寸由容器布局决定）。
-  // 端点：分组 / 批量子节点隐藏（§6.11「组内节点端点隐藏」）。
+  // 容器（分组 / 批量）的子节点：缩放手柄与标题都不渲染（尺寸由容器布局决定）。
   const inContainer = node.parentId !== null
 
   // 右键菜单「重命名」（§4.1）/ 标题单击进入编辑：store 置 renamingId 时本节点切入编辑态
@@ -332,7 +220,15 @@ export function NodeFrame(props: NodeFrameProps) {
 
   return (
     <div
-      className={`${styles.frame} ${selected ? styles.selected : ''}`}
+      /**
+       * ⚠️ **容器子节点要带 `nodrag`**：它是容器的 DOM 后代，而 React Flow 的拖动绑在
+       * **原生 pointerdown** 上、从事件目标一路往上找（`hasSelector` 走到本节点的根为止）
+       * —— 少了它，"拖子节点"会**同时把整个容器拖走**（实测：子节点位移 +440/+394 时
+       * 组框也位移了 +440/+394，松手后子节点被弹到 (1019,1033)，组框飞出去）。
+       * 子节点自己的拖动由画布表面那套控制器负责（`FlowChildFrame.onFramePointerDown`），
+       * 不需要 RF 插手。
+       */
+      className={`${styles.frame} ${selected ? styles.selected : ''} ${inContainer ? 'nodrag' : ''}`}
       style={{
         left: props.selfPositioned === false ? 0 : node.x,
         top: props.selfPositioned === false ? 0 : node.y,
@@ -387,31 +283,6 @@ export function NodeFrame(props: NodeFrameProps) {
         </div>
       )}
 
-      {!props.portsHidden &&
-        decls.map((decl) => (
-          <span
-            key={decl.id}
-            ref={(el) => {
-              portRefs.current.set(decl.id, el)
-            }}
-            className={`${styles.port} ${
-              decl.side === 'left' ? styles.portLeft : styles.portRight
-            } ${hotPort === decl.id ? styles.hot : ''}`}
-            /**
-             * 纵向位置由声明给：默认口是 0.5（中点），融合节点的 `patch` 是 0.22。
-             * 用 `top` 而不是 `margin-top`，否则多口之间的距离要靠手算像素。
-             */
-            style={{ top: `${decl.y * 100}%` }}
-            data-port={decl.id}
-            data-port-kind={decl.kind}
-            {...(decl.label ? { title: decl.label, 'aria-label': decl.label } : {})}
-            onPointerDown={(e) => {
-              if (!props.onPortPointerDown) return
-              e.stopPropagation()
-              props.onPortPointerDown(e, decl.id)
-            }}
-          />
-        ))}
 
       <div className={styles.body}>{props.children}</div>
 

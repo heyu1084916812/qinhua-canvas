@@ -26,9 +26,16 @@ export interface ArrangeOutcome {
 }
 
 export interface ArrangeTools {
-  arrange(): ArrangeOutcome
+  /**
+   * 整理（按连线依赖重排）。`ids` 缺省 = 当前选中集合。
+   *
+   * 为什么允许显式给集合：组功能栏要对**组内成员**排列与整理，而组内的子节点
+   * 不在选中集合里（点它选中是它自己）。多一份"按 id 集合"的入口，
+   * 比让调用方临时改选区再改回来安全得多（选区一动，多选工具栏 / 面板都会跟着抖）。
+   */
+  arrange(ids?: readonly string[]): ArrangeOutcome
   /** 宫格 / 水平 / 垂直排列（§6.5 ②）。与 arrange() 的区别：它不看连线，纯按位置重排 */
-  arrangeMode(mode: ArrangeMode): ArrangeOutcome
+  arrangeMode(mode: ArrangeMode, ids?: readonly string[], planId?: string): ArrangeOutcome
 }
 
 export function createArrangeTools(store: CanvasStore): ArrangeTools {
@@ -40,10 +47,9 @@ export function createArrangeTools(store: CanvasStore): ArrangeTools {
     return toWorldRect(node, parent)
   }
 
-  function selectedNodes(): NodeSnapshot[] {
+  function selectedNodes(ids?: readonly string[]): NodeSnapshot[] {
     const index = indexNodes(store.getSnapshot().nodes)
-    return store
-      .getSelection()
+    return (ids ?? store.getSelection())
       .map((id) => index.get(id))
       .filter((n): n is NodeSnapshot => !!n)
   }
@@ -65,6 +71,7 @@ export function createArrangeTools(store: CanvasStore): ArrangeTools {
   function applyTargets(
     targets: Map<string, { x: number; y: number }>,
     label: string,
+    planId?: string,
   ): number {
     if (targets.size === 0) return 0
     const index = indexNodes(store.getSnapshot().nodes)
@@ -85,18 +92,18 @@ export function createArrangeTools(store: CanvasStore): ArrangeTools {
       count += 1
     }
     /** 本次操作 = 一个撤销单元：所有分组共享同一个 planId */
-    const planId = createId('arrange')
+    const plan = planId ?? createId('arrange')
     for (const g of groups.values()) {
       store.dispatch(
         { kind: 'node.move', ids: g.ids, dx: g.dx, dy: g.dy, phase: 'end' },
-        { mode: 'multi-step', planId, label },
+        { mode: 'multi-step', planId: plan, label },
       )
     }
     return count
   }
 
-  function arrange(): ArrangeOutcome {
-    const nodes = selectedNodes()
+  function arrange(ids?: readonly string[]): ArrangeOutcome {
+    const nodes = selectedNodes(ids)
     if (!canArrange(nodes.length)) return { kind: 'too-few', moved: 0 }
     const result = computeArrange(
       nodes.map((n) => ({ id: n.id, rect: worldRectOf(n) })),
@@ -108,15 +115,15 @@ export function createArrangeTools(store: CanvasStore): ArrangeTools {
     return { kind: 'ok', moved: applyTargets(result.targets, '整理节点') }
   }
 
-  function arrangeMode(mode: ArrangeMode): ArrangeOutcome {
-    const nodes = selectedNodes()
+  function arrangeMode(mode: ArrangeMode, ids?: readonly string[], planId?: string): ArrangeOutcome {
+    const nodes = selectedNodes(ids)
     /** ≥ 2 才可用，与对齐 / 整理同一门槛（§6.5） */
     if (nodes.length < 2) return { kind: 'too-few', moved: 0 }
     const targets = computeArrangeMode(
       nodes.map((n) => ({ id: n.id, rect: worldRectOf(n) })),
       mode,
     )
-    return { kind: 'ok', moved: applyTargets(targets, '排列节点') }
+    return { kind: 'ok', moved: applyTargets(targets, '排列节点', planId) }
   }
 
   return { arrange, arrangeMode }

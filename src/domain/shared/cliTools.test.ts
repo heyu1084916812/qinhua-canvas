@@ -107,17 +107,40 @@ describe('CLI 工具配置的归一化', () => {
     }
   })
 
-  it('写库只写三个字段（别的不许落盘，免得下一次升级被旧值钉住）', () => {
+  it('写库只写"用户改得动"的那几个字段（别的不许落盘，免得下一次升级被旧值钉住）', () => {
     const tool = defaultCliTools()[0]!
     expect(Object.keys(toolPatchOf(tool)).sort()).toEqual([
       'argsTemplate',
       'id',
+      'installCommand',
       'keyLoginArgs',
       'loginArgs',
       'program',
       'statusArgs',
       'timeoutMs',
     ])
+  })
+
+  it('★★ 「一键安装」的命令：能自动装的给命令，不能的给空串（第 14 批第 3 条）', () => {
+    const tools = defaultCliTools()
+    /* npm 装得上的两个：命令的第一段是程序名、后面是参数 */
+    expect(parseArgs(tools.find((t) => t.id === 'codex')!.installCommand)[0]).toBe('npm')
+    expect(parseArgs(tools.find((t) => t.id === 'gemini')!.installCommand)).toEqual([
+      'npm',
+      'install',
+      '-g',
+      '@google/gemini-cli',
+    ])
+    /* 即梦 / RunningHub 官方没有 CLI ⇒ 空串（面板据此不给"一键安装"按钮） */
+    expect(tools.find((t) => t.id === 'jimeng')!.installCommand).toBe('')
+    expect(tools.find((t) => t.id === 'runninghub')!.installCommand).toBe('')
+  })
+
+  it('★ 安装命令也是"空串合法"：用户清空后不许自己长回默认', () => {
+    const tools = mergeTools({ tools: [{ id: 'codex', installCommand: '' }] })
+    expect(tools.find((t) => t.id === 'codex')?.installCommand).toBe('')
+    /* 没动过的仍是默认 */
+    expect(tools.find((t) => t.id === 'gemini')?.installCommand).toContain('@google/gemini-cli')
   })
 
   it('★★ 空串是合法值：用户把「查状态命令」清空后，不许自己长回默认（对账 #314）', () => {

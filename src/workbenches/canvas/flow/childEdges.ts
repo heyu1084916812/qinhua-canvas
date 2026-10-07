@@ -5,6 +5,7 @@ import { toWorldRectInGraph } from '../../../domain/canvas/geometry/coords'
 import { getSpec } from '../../../domain/canvas/nodeSpecs/registry'
 import { portDeclOf } from '../../../domain/canvas/nodeSpecs/ports'
 import { portAnchorWorld } from '../../../features/canvas/useEdgeDrag'
+import { PORT_CENTER_OFFSET } from '../../../domain/canvas/geometry/portReveal'
 
 export interface ChildEdgePath {
   id: string
@@ -63,8 +64,13 @@ export function childEdgePaths(
     const tgtDecl = portDeclOf(getSpec(tgt.type)?.ports ?? { input: false, output: false }, e.targetPort ?? 'input')
     if (!srcDecl || !tgtDecl) continue
 
-    const from = portAnchorWorld(toWorldRectInGraph(src, graph), srcDecl)
-    const to = portAnchorWorld(toWorldRectInGraph(tgt, graph), tgtDecl)
+    /**
+     * 端点的外移量按**这一头**是不是顶层节点分流：顶层节点的端点看得见、停在节点外
+     * 20px（第 14 批第 4 条），线要跟着过去；容器子节点的端点**是隐藏的**（§6.11），
+     * 它的线就该贴住节点本体，不能凭空留出那 20px 的空白。
+     */
+    const from = portAnchorWorld(toWorldRectInGraph(src, graph), srcDecl, src.parentId ? 0 : PORT_CENTER_OFFSET)
+    const to = portAnchorWorld(toWorldRectInGraph(tgt, graph), tgtDecl, tgt.parentId ? 0 : PORT_CENTER_OFFSET)
     const a = { x: (from.x - viewport.x) * zoom, y: (from.y - viewport.y) * zoom }
     const b = { x: (to.x - viewport.x) * zoom, y: (to.y - viewport.y) * zoom }
     /** 曲线形状与 `FlowDraftLayer.draftPath` / `FlowEdge` 同一套：两端横向延展 */

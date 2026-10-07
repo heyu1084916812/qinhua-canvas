@@ -18,6 +18,37 @@ export interface PackResult {
 }
 
 /**
+ * 组的贴合尺寸（用户 2026-10-06 第 14 批第 1 条：**打组 = 一块背景板**）。
+ *
+ * 与批量的"网格贴合"（`containerMinSize`）刻意分开：
+ * - **批量**：子节点进网格（固定 200×160 单元），尺寸由列数 / 行数算；
+ * - **分组**：子节点**保持它们在画布上的位置与尺寸**（不重排、不缩放、不吸附），
+ *   所以尺寸只能由它们的**实际矩形并集**算：包围盒 + 四边等距 `CONTAINER_PADDING`。
+ *
+ * 空组回落到类型最小尺寸（`NODE_MINIMUMS.group`）—— 一块空背景板也得有地方站。
+ */
+export function groupFitSize(
+  children: readonly { x: number; y: number; w: number; h: number }[],
+  type: 'group' | 'batch' = 'group',
+): Size {
+  if (children.length === 0) return { ...NODE_MINIMUMS[type] }
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const c of children) {
+    minX = Math.min(minX, c.x)
+    minY = Math.min(minY, c.y)
+    maxX = Math.max(maxX, c.x + c.w)
+    maxY = Math.max(maxY, c.y + c.h)
+  }
+  return {
+    w: Math.max(NODE_MINIMUMS[type].w, Math.ceil(maxX - minX + CONTAINER_PADDING * 2)),
+    h: Math.max(NODE_MINIMUMS[type].h, Math.ceil(maxY - minY + CONTAINER_PADDING * 2)),
+  }
+}
+
+/**
  * 分组 / 批量的 3×3 行优先打包（产品文档 §6.11）。
  * 单元固定 200×160（5:4），间距 16，内边距 20；
  * **外部容器尺寸 = 内容包围盒 + 四边等距的 20px**。

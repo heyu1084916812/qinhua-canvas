@@ -120,4 +120,29 @@ describe('linkMenuSections / 空白松手菜单（§6.14）', () => {
     ])
   })
 
+  /**
+   * 用户 2026-10-06 第 14 批第 1 条实测报过：「由组拉出的线**没有新建菜单**」。
+   *
+   * 根因：替身节点跟着起点进了同一个容器 ⇒ 撞上 `canConnect` 规则 4
+   * （同一个容器里的两个子节点不建立边）⇒ 新建项整批被滤掉，菜单空掉。
+   * 语义上「新建并连接」的那个节点本来就在容器**外面**（从组拉出去的线）。
+   */
+  it('★★ 从组内成员往外拉线（空白松手）→ 新建项照旧列出来', () => {
+    const g = graphOf([
+      node('grp', 'group', { w: 400, h: 300 }),
+      node('kid', 'generation', { parentId: 'grp' }),
+    ])
+    expect(idsOf('output', 'kid', g, 'create').length).toBeGreaterThan(0)
+  })
+
+  it('★ 组内成员拉线时，新建项的落点替身在**根层**（否则就是上面那个空菜单）', () => {
+    const dragged = node('kid', 'generation', { parentId: 'grp' })
+    const g = graphOf([node('grp', 'group', { w: 400, h: 300 }), dragged])
+    for (const item of linkMenuSections({ nodeId: 'kid', side: 'output', graph: g })[0]?.items ?? []) {
+      if (item.action.kind !== 'create') continue
+      const probe = node('__probe__', item.action.type)
+      expect(canConnect(dragged, { ...probe, parentId: null }, { ...g, nodes: [...g.nodes, probe] }).ok).toBe(true)
+    }
+  })
+
 })

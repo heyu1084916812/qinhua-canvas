@@ -5,8 +5,8 @@ import { registerSpec, resetSpecs } from '../../domain/canvas/nodeSpecs/registry
 import { promptSpec } from '../../domain/canvas/nodeSpecs/prompt'
 import { generationSpec } from '../../domain/canvas/nodeSpecs/generation'
 import { groupSpec } from '../../domain/canvas/nodeSpecs/group'
+import { batchSpec } from '../../domain/canvas/nodeSpecs/batch'
 import { clipboardFromSelection, pasteEdges, pasteNodes } from '../../domain/canvas/clipboard'
-import { containerMinSize } from '../../domain/canvas/layout/packContainer'
 
 function emptyGraph(projectId = 'p1'): GraphSnapshot {
   return { projectId, nodes: [], edges: [], }
@@ -17,6 +17,7 @@ beforeEach(() => {
   registerSpec(promptSpec)
   registerSpec(generationSpec)
   registerSpec(groupSpec)
+  registerSpec(batchSpec)
 })
 
 describe('reduce / node.create', () => {
@@ -109,21 +110,42 @@ describe('reduce / 连线与归属', () => {
     expect(next.edges).toHaveLength(0)
   })
 
-  it('node.reparent 跨容器换算坐标并清掉连线', () => {
+  /**
+   * ⚠️ 口径在 2026-10-06（第 14 批第 1 条）改过：**打组不动连线**
+   *（用户：「原本在画布中是什么位置，什么连线就是什么连线」）——
+   * 这条边进组之后还在，只是端点跟着节点走。批量仍是旧口径（清连线），见下面那条。
+   */
+  it('node.reparent 跨容器换算坐标；**进组不清连线**', () => {
     let g = twoNodes()
     const pId = g.nodes.find((n) => n.type === 'prompt')!.id
     const gId = g.nodes.find((n) => n.type === 'generation')!.id
     g = reduce({ kind: 'edge.connect', source: pId, target: gId }, g).next
     g = reduce({ kind: 'node.create', projectId: 'p1', type: 'group', at: { x: 100, y: 100 } }, g).next
     const groupId = g.nodes.find((n) => n.type === 'group')!.id
+    const before = g.nodes.find((n) => n.id === gId)!
+
     const { next } = reduce({ kind: 'node.reparent', id: gId, toParent: groupId }, g)
     const moved = next.nodes.find((n) => n.id === gId)!
-    expect(moved.parentId).toBe(groupId)
-    expect(moved.x).toBe(100)
-    expect(moved.y).toBe(-100)
-    expect(next.edges).toHaveLength(0)
     const group = next.nodes.find((n) => n.id === groupId)!
+    expect(moved.parentId).toBe(groupId)
+    /** **世界位置与尺寸都不变**（局部坐标会变：组原点可能为了贴合孩子而挪） */
+    expect({ x: group.x + moved.x, y: group.y + moved.y }).toEqual({ x: before.x, y: before.y })
+    expect({ w: moved.w, h: moved.h }).toEqual({ w: before.w, h: before.h })
+    /** 连线留着 */
+    expect(next.edges).toHaveLength(1)
     expect((group.data as { childIds: string[] }).childIds).toEqual([gId])
+  })
+
+  it('进**批量**仍然清连线（集合语义，旧口径）', () => {
+    let g = twoNodes()
+    const pId = g.nodes.find((n) => n.type === 'prompt')!.id
+    const gId = g.nodes.find((n) => n.type === 'generation')!.id
+    g = reduce({ kind: 'edge.connect', source: pId, target: gId }, g).next
+    g = reduce({ kind: 'node.create', projectId: 'p1', type: 'batch', at: { x: 100, y: 100 } }, g).next
+    const batchId = g.nodes.find((n) => n.type === 'batch')!.id
+    const { next } = reduce({ kind: 'node.reparent', id: gId, toParent: batchId }, g)
+    expect(next.nodes.find((n) => n.id === gId)!.parentId).toBe(batchId)
+    expect(next.edges).toHaveLength(0)
   })
 
   it('node.reparent 拖入分组写入 childIds、拖出移除（§6.11）', () => {
@@ -419,79 +441,4 @@ describe('reduce / 执行与版本历史命令（M0-11）', () => {
     expect(result.persist.upserts.find((u) => u.table === 'runRecords')?.rows[0]).toMatchObject({ id: 'r1' })
   })
 
-})
-
-
-/**
- * 容器（分组 / 批量）的"自适应"（用户 2026-10-06 第 13 批第 7 条）。
- *
- * 口径：**尺寸 = 内容 + 四边等距 20px**；只在装不下时贴一次（两轴一起贴），
- * 装得下就不动 —— 手工拖大的框、打组那个"包住内容"的包装框都必须留住。
- * 少子节点时只收**自动尺寸**的框（尺寸正好等于上一个子节点数对应的贴内容尺寸）。
- */
-describe('容器随内容自适应（#319）', () => {
-  /** 建一个容器 + n 个子节点（子节点先在容器外，由调用方逐个 reparent） */
-  function withKids(size?: { w: number; h: number }) {
-    let g = emptyGraph()
-    g = reduce({ kind: 'node.create', projectId: 'p1', type: 'group', at: { x: 0, y: 0 }, ...(size ? { size } : {}) }, g).next
-    for (let i = 0; i < 3; i += 1) {
-      g = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 600 + i * 260, y: 0 } }, g).next
-    }
-    const groupId = g.nodes.find((n) => n.type === 'group')!.id
-    const kidIds = g.nodes.filter((n) => n.type === 'prompt').map((n) => n.id)
-    return { g, groupId, kidIds }
-  }
-  const sizeOf = (g: ReturnType<typeof withKids>['g'], id: string) => {
-    const n = g.nodes.find((x) => x.id === id)!
-    return { w: n.w, h: n.h }
-  }
-
-  it('第一个子节点进来：高度贴到内容（192 → 200），不是 5:4 的 300', () => {
-    const { g, groupId, kidIds } = withKids()
-    expect(sizeOf(g, groupId)).toEqual({ w: 240, h: 192 })
-    const next = reduce({ kind: 'node.reparent', id: kidIds[0]!, toParent: groupId }, g).next
-    expect(sizeOf(next, groupId)).toEqual(containerMinSize('group', 1))
-    expect(sizeOf(next, groupId)).toEqual({ w: 240, h: 200 })
-  })
-
-  it('两个子节点：两轴一起贴（456×200），不是旧口径的 456×365（下方空 183px）', () => {
-    let g = withKids().g
-    const groupId = g.nodes.find((n) => n.type === 'group')!.id
-    const kidIds = g.nodes.filter((n) => n.type === 'prompt').map((n) => n.id)
-    for (const id of kidIds.slice(0, 2)) g = reduce({ kind: 'node.reparent', id, toParent: groupId }, g).next
-    expect(sizeOf(g, groupId)).toEqual({ w: 456, h: 200 })
-  })
-
-  it('装得下就不动：打组的包装框 / 用户手工拖大的框都留住', () => {
-    const { g, groupId, kidIds } = withKids({ w: 800, h: 600 })
-    const next = reduce({ kind: 'node.reparent', id: kidIds[0]!, toParent: groupId }, g).next
-    expect(sizeOf(next, groupId)).toEqual({ w: 800, h: 600 })
-  })
-
-  it('自动尺寸的框在子节点拖出时收回（手工尺寸不收）', () => {
-    let g = withKids().g
-    const groupId = g.nodes.find((n) => n.type === 'group')!.id
-    const kidIds = g.nodes.filter((n) => n.type === 'prompt').map((n) => n.id)
-    for (const id of kidIds.slice(0, 2)) g = reduce({ kind: 'node.reparent', id, toParent: groupId }, g).next
-    expect(sizeOf(g, groupId)).toEqual({ w: 456, h: 200 })
-    const out = reduce({ kind: 'node.reparent', id: kidIds[0]!, toParent: null }, g).next
-    expect(sizeOf(out, groupId)).toEqual(containerMinSize('group', 1))
-
-    // 手工尺寸（800×600）拖出一个子节点：不动
-    const manual = withKids({ w: 800, h: 600 })
-    let mg = reduce({ kind: 'node.reparent', id: manual.kidIds[0]!, toParent: manual.groupId }, manual.g).next
-    mg = reduce({ kind: 'node.reparent', id: manual.kidIds[1]!, toParent: manual.groupId }, mg).next
-    const out2 = reduce({ kind: 'node.reparent', id: manual.kidIds[0]!, toParent: null }, mg).next
-    expect(sizeOf(out2, manual.groupId)).toEqual({ w: 800, h: 600 })
-  })
-
-  it('删掉子节点：自动尺寸收回 + childIds 里的死引用清掉', () => {
-    let g = withKids().g
-    const groupId = g.nodes.find((n) => n.type === 'group')!.id
-    const kidIds = g.nodes.filter((n) => n.type === 'prompt').map((n) => n.id)
-    for (const id of kidIds.slice(0, 2)) g = reduce({ kind: 'node.reparent', id, toParent: groupId }, g).next
-    const next = reduce({ kind: 'node.delete', ids: [kidIds[1]!] }, g).next
-    expect(sizeOf(next, groupId)).toEqual(containerMinSize('group', 1))
-    expect((next.nodes.find((n) => n.id === groupId)!.data as { childIds: string[] }).childIds).toEqual([kidIds[0]!])
-  })
 })

@@ -19,6 +19,7 @@
 import type { NodeType } from '../model/node'
 import type { NodeSnapshot } from '../model/node'
 import type { GraphSnapshot } from '../model/graph'
+import { isContainerType } from '../model/node'
 import { canConnect } from '../graph/canConnect'
 import { CREATABLE_TYPES } from './contextMenu'
 import { portDeclsOf } from '../nodeSpecs/ports'
@@ -131,8 +132,21 @@ export function linkMenuSections(input: {
     }
   }
 
-  // 新建节点落在与拖线起点同一个父级下，保持容器内外的连线边界一致。
-  const probeParent = dragged.parentId
+  /**
+   * 「新建并连接」的那个节点落在**哪一层**。
+   *
+   * 起点的归属不能照抄：容器（分组 / 批量）的子节点**只能连到容器外**
+   * （`canConnect` 规则 4 —— 同容器内不建立边），所以替身若也放进容器里，
+   * 每一项都会被判成「同一个容器内」而整批消失。
+   *
+   * 用户 2026-10-06 第 14 批第 1 条实测报的就是它：「由组拉出的线**没有新建菜单**」——
+   * 从组的右端点往外拖（源被展开成组内成员），空白松手后菜单里空空如也。
+   * 语义上也该如此：从组拉出去的线，下游节点本来就在组**外面**。
+   */
+  const fromParent = dragged.parentId
+    ? graph.nodes.find((n) => n.id === dragged.parentId) ?? null
+    : null
+  const probeParent = fromParent && isContainerType(fromParent.type) ? null : dragged.parentId
 
   const createItems: LinkMenuItem[] = []
   for (const t of CREATABLE_TYPES) {
