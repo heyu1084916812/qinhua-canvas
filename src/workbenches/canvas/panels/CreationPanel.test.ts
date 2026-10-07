@@ -123,7 +123,8 @@ async function channelStore(
       })),
     },
   })
-  const store = createChannelStore(platform)
+  /** 本组测的是"**一个渠道都没有**"的空态 ⇒ 不补内置渠道（第 20 批的三条常驻渠道） */
+  const store = createChannelStore(platform, { seedBuiltins: false })
   await store.load()
   return store
 }

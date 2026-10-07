@@ -2,6 +2,23 @@ import type { SVGProps } from 'react'
 import styles from './ChannelIcon.module.css'
 
 /**
+ * **内置品牌彩色图**（用户第 20 批：「换成彩色版」）—— 三条固定渠道用官网图，
+ * 不跟我画的那套单色矢量标记混。Agnes 用的是仓库里早就有的那张（`model-logos/agnes.png`）。
+ * 想换图只动这一份映射与 `assets/channel-logos/`。
+ */
+import modelscopeLogo from '../../../assets/channel-logos/modelscope.ico'
+import agnesLogo from '../../../assets/channel-logos/agnes.png'
+import runninghubLogo from '../../../assets/channel-logos/runninghub.ico'
+
+const LOGOS: Record<string, string> = {
+  modelscope: modelscopeLogo,
+  agnes: agnesLogo,
+  /** API 那条与 CLI 那条是同一个品牌，共用一张图 */
+  'runninghub-api': runninghubLogo,
+  runninghub: runninghubLogo,
+}
+
+/**
  * 渠道图标（用户第 19 批 #4/#5）。
  *
  * 三种来源，优先级从高到低：① 用户上传的图（`channel.icon` 是 data URL）；
@@ -16,22 +33,13 @@ import styles from './ChannelIcon.module.css'
  * 放工作台私有层会被依赖方向守卫拦下。
  */
 
-/** 内置品牌标记：键 = 协议 id（`domain/project/protocol.ts` 的 `id`） */
-const MARKS: Record<string, string> = {
-  /** ModelScope 魔搭：圆角方框里一道"山 / M"形 */
-  modelscope: 'M4 8.2 8 12l4-3.8L16 12l4-3.8V16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z',
-  /** Agnes：六边形里的 A（三角 + 横杠） */
-  agnes: 'M12 4l7 4v8l-7 4-7-4V8zM9.2 15.4h5.6M12 9.2l2.6 6',
-  /** RunningHub：圆环 + 播放三角（"跑起来"的意象） */
-  runninghub: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM10.4 8.6 15.6 12l-5.2 3.4z',
-}
-
-/** 通用标记（自定义 / 未知协议）：插头意象 */
+/** 通用矢量标记（自定义 / 认不出协议时兜底）：插头意象 —— 用户要的「默认有一个矢量图标」 */
 const FALLBACK = 'M12 3v5M8.5 8h7v4.5a3.5 3.5 0 0 1-7 0zM12 16v5'
 
 const LABEL: Record<string, string> = {
   modelscope: 'ModelScope 魔搭',
   agnes: 'Agnes',
+  'runninghub-api': 'RunningHub',
   runninghub: 'RunningHub',
 }
 
@@ -44,19 +52,30 @@ export interface ChannelIconProps extends Omit<SVGProps<SVGSVGElement>, 'childre
 }
 
 export function ChannelIcon({ protocol, icon, size = 18 }: ChannelIconProps) {
-  if (icon) {
+  /**
+   * 优先级：**用户上传的图** → **内置品牌彩色图** → 单色矢量标记（兜底）。
+   * 内置那三张是颜色图，跟"上传一张图"是同一种画法（都进 `<img>`），
+   * 所以两者共用同一段渲染，不再分叉。
+   */
+  const src = icon ?? LOGOS[protocol] ?? ''
+  if (src) {
     return (
-      <span className={styles.plate} data-channel-icon={protocol} data-channel-icon-kind="image" aria-hidden>
-        <img className={styles.image} src={icon} alt="" width={size} height={size} data-channel-icon-img />
+      <span
+        className={styles.plate}
+        data-channel-icon={protocol}
+        data-channel-icon-kind={icon ? 'image' : 'brand'}
+        title={LABEL[protocol] ?? '自定义渠道'}
+        aria-hidden
+      >
+        <img className={styles.image} src={src} alt="" width={size} height={size} data-channel-icon-img />
       </span>
     )
   }
-  const path = MARKS[protocol]
   return (
     <span
       className={styles.plate}
       data-channel-icon={protocol}
-      data-channel-icon-kind={path ? 'brand' : 'default'}
+      data-channel-icon-kind="default"
       title={LABEL[protocol] ?? '自定义渠道'}
       aria-hidden
     >
@@ -71,7 +90,7 @@ export function ChannelIcon({ protocol, icon, size = 18 }: ChannelIconProps) {
         strokeLinejoin="round"
         aria-hidden
       >
-        <path d={path ?? FALLBACK} />
+        <path d={FALLBACK} />
       </svg>
     </span>
   )

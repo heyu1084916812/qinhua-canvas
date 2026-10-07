@@ -1,6 +1,7 @@
 import type { StoragePort, CredentialPort, RowOf, TableName } from '../../platform/ports'
 import type { Channel, CreateChannelInput } from '../../domain/project/channel'
 import { createChannel } from '../../domain/project/channel'
+import { BUILTIN_CHANNELS, createBuiltinChannel, isBuiltinChannelId, builtinSpecOf } from '../../domain/project/builtinChannels'
 import { createId } from '../../shared/id'
 import { normalizeModelMap } from '../../domain/project/modelMapping'
 import { ROUTE_STRATEGIES } from '../../domain/project/modelRouting'
@@ -12,6 +13,8 @@ import { ROUTE_STRATEGIES } from '../../domain/project/modelRouting'
  */
 export interface ChannelRepository {
   list(): Promise<Channel[]>
+  /** 补齐**三条内置渠道**后返回整表（用户第 20 批：它们常驻列表最上方） */
+  seedBuiltins(): Promise<Channel[]>
   get(id: string): Promise<Channel | null>
   create(input: CreateChannelInput): Promise<Channel>
   update(id: string, patch: Partial<Channel>): Promise<Channel>
@@ -79,11 +82,34 @@ export function createChannelRepository(storage: StoragePort, credentials: Crede
     return rows[0] ? toChannel(rows[0]) : null
   }
 
+  /**
+   * 补齐三条内置渠道（**只补不改**）：缺哪条建哪条，已存在的一律原样留着
+   *（用户配过的令牌 / 启用 / 地址都不动）。返回补完之后的整表。
+   */
+  const seedBuiltins = async (): Promise<Channel[]> => {
+    const current = await list()
+    const have = new Set(current.map((c) => c.id))
+    const missing = BUILTIN_CHANNELS.filter((spec) => !have.has(spec.id))
+    if (missing.length === 0) return current
+    for (const spec of missing) {
+      const ch = createBuiltinChannel(spec, BUILTIN_CHANNELS.indexOf(spec))
+      /** 凭据引用走与普通渠道同一条路（不然"存令牌"没有落点） */
+      ch.credentialRef = createId('cred')
+      await storage.put('channels', ch as unknown as RowOf<TableName>)
+    }
+    return list()
+  }
+
   const create = async (input: CreateChannelInput): Promise<Channel> => {
     // 新渠道排在**末尾**（排序位取最大 +1），位置与下方「+ 新增渠道」按钮一致，
     // 也不去和用户手工拖出来的顺序抢位置。
     const existing = await list()
-    const order = existing.length === 0 ? 0 : Math.max(...existing.map((c) => c.order)) + 1
+    /**
+     * 取 max+1 时**跳过内置渠道的负排序位**（它们恒在最前）——
+     * 否则第一条用户渠道会拿到 -999，看起来像"排在内置渠道中间"。
+     */
+    const mine = existing.filter((c) => !isBuiltinChannelId(c.id))
+    const order = mine.length === 0 ? 0 : Math.max(...mine.map((c) => c.order)) + 1
     const ch = createChannel({ ...input, order })
     ch.credentialRef = createId('cred')
     await storage.put('channels', ch as unknown as RowOf<TableName>)
@@ -93,7 +119,14 @@ export function createChannelRepository(storage: StoragePort, credentials: Crede
   const update = async (id: string, patch: Partial<Channel>): Promise<Channel> => {
     const existing = await get(id)
     if (!existing) throw new Error(`[channelRepo] 渠道不存在：${id}`)
-    const next: Channel = { ...existing, ...patch, id }
+    const spec = builtinSpecOf(id)
+    /**
+     * 内置渠道的**名称与协议固定**（用户第 20 批：「固定字段是的」）：
+     * 把这两键从补丁里剔掉，谁调 `update` 都改不动它们 —— 界面禁用只是第一道，
+     * 拦在这里才是"改不动"本身。**地址不剔**（用户：「站点地址留口子」）。
+     */
+    const safe: Partial<Channel> = spec ? { ...patch, name: spec.name, protocol: spec.protocol } : patch
+    const next: Channel = { ...existing, ...safe, id }
     await storage.put('channels', next as unknown as RowOf<TableName>)
     return next
   }
@@ -116,6 +149,8 @@ export function createChannelRepository(storage: StoragePort, credentials: Crede
   }
 
   const remove = async (id: string): Promise<void> => {
+    /** 内置渠道**不能删**（用户第 20 批）—— 界面禁用之外，这里也拒绝 */
+    if (isBuiltinChannelId(id)) throw new Error('这是内置渠道，不能删除')
     const ch = await get(id)
     if (ch?.credentialRef) await credentials.remove(ch.credentialRef)
     await storage.delete('channels', id)
@@ -131,5 +166,5 @@ export function createChannelRepository(storage: StoragePort, credentials: Crede
     await credentials.remove(ref)
   }
 
-  return { list, get, create, update, reorder, remove, saveToken, loadToken, removeToken }
+  return { list, seedBuiltins, get, create, update, reorder, remove, saveToken, loadToken, removeToken }
 }

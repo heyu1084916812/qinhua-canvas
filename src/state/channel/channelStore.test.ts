@@ -24,7 +24,8 @@ function jsonResponse(status: number, body: unknown): NetworkResponse {
 describe('channelStore', () => {
   it('create / saveToken / verify 只测通不通，不顺手刷模型缓存', async () => {
     const p = createMemoryPlatform()
-    const store = createChannelStore(p)
+    /** 这条用例数的是"自己建的渠道"的条数 ⇒ 不补内置渠道（第 20 批的三条常驻渠道） */
+    const store = createChannelStore(p, { seedBuiltins: false })
 
     await store.load()
     expect(store.getState().channels).toHaveLength(0)

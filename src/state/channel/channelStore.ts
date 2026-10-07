@@ -26,6 +26,7 @@ import {
 } from '../../domain/project/generationPreset'
 import type { ModelCapability } from '../../domain/shared/capability'
 import { createChannelRepository, type ChannelRepository } from '../project/channelRepository'
+import { BUILTIN_CHANNEL_IDS, isBuiltinChannelId } from '../../domain/project/builtinChannels'
 import { createPresetStore, type PresetStore } from '../project/presetStore'
 import {
   createChannelAdapter,
@@ -206,7 +207,16 @@ function toSafeConfig(ch: Channel, catalog: ProtocolCatalog): ResolvedChannelCon
   }
 }
 
-export function createChannelStore(platform: PlatformKit): ChannelStore {
+/**
+ * @param opts.seedBuiltins 读表时是否补齐**三条内置渠道**（默认 `true`，用户第 20 批）。
+ *   测试里那几条"一个渠道都没有"的用例传 `false` —— 它们测的是空态，不该被内置渠道填满；
+ *   真实运行时永远用默认值（内置渠道必须常驻）。
+ */
+export function createChannelStore(
+  platform: PlatformKit,
+  opts: { seedBuiltins?: boolean } = {},
+): ChannelStore {
+  const seedBuiltins = opts.seedBuiltins !== false
   const repo: ChannelRepository = createChannelRepository(platform.storage, platform.credentials)
   const presets: PresetStore = createPresetStore(platform.storage)
   const store = createVanillaStore<ChannelStoreState>(() => ({
@@ -249,7 +259,11 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
      * 改成 `defaultForNewNode(projectId)` 时按需读一次（结果进 recipeCache）。
      */
     const [channels, customRows, routeStrategy] = await Promise.all([
-      repo.list(),
+      /**
+       * ★ 读表时**补齐三条内置渠道**（用户第 20 批）：它们常驻、置顶、不可删。
+       * 补齐放在仓储里（写行的唯一入口），这里只负责取"补完之后的整表"。
+       */
+      seedBuiltins ? repo.seedBuiltins() : repo.list(),
       platform.storage.query('customProtocols', {}),
       presets.loadRoutingStrategy(),
     ])
@@ -297,7 +311,14 @@ export function createChannelStore(platform: PlatformKit): ChannelStore {
   }
 
   const reorder: ChannelStoreActions['reorder'] = async (orderedIds) => {
-    const channels = await repo.reorder(orderedIds)
+    /**
+     * **内置渠道永远在最前**（用户第 20 批：「那三个渠道是一直在最上面」）：
+     * 把传入的顺序按"内置在前、其余照用户拖的次序"重排一遍 ——
+     * 用户拖不动它们，别人也挤不到它们上面。
+     */
+    const front = [...BUILTIN_CHANNEL_IDS]
+    const rest = orderedIds.filter((id) => !isBuiltinChannelId(id))
+    const channels = await repo.reorder([...front, ...rest])
     store.setState({ channels })
   }
 

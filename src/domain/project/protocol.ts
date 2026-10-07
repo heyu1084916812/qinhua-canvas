@@ -310,8 +310,37 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     status: 'ready',
     capabilities: cliCapabilities('runninghub'),
     docUrl: 'https://www.runninghub.cn/',
-    note: '桌面壳里直接跑你本机那条命令（命令名与参数在「全局设置 → CLI」里配）；浏览器里要自建网关。',
-  },
+      note: '桌面壳里直接跑你本机那条命令（命令名与参数在「全局设置 → CLI」里配）；浏览器里要自建网关。',
+    },
+    {
+      /**
+       * RunningHub 的 **HTTP API**（用户第 20 批：「runninghub它也有api」）。
+       *
+       * 与上面那条 `runninghub`（本机 CLI）**并存**、各管一种用法：
+       * CLI 那条跑你本机命令，这一条按站点走网络 —— 对用户来说就是"又一条普通渠道"，
+       * 与 ModelScope / Agnes 同一类（固定三条内置渠道里，RunningHub 用**这一条**）。
+       *
+       * ⚠️ `status: 'pending'`：适配器还没写（RunningHub 的 OpenAPI 是
+       * `POST /task/openapi/create` 提交 + `GET /task/openapi/status` 轮询，与
+       * `openai-compatible` / 现有 `async-task` 的取结果路径都不同，不能靠复用蒙过去）。
+       * 按仓库既有口径：**只登记"有这么回事"，界面上显示为待支持**，不假装能跑
+       *（"声明了却没有适配器分支，等于给用户一条跑不通的路"）。适配器是下一步的事。
+       */
+      id: 'runninghub-api',
+      name: 'RunningHub（API）',
+      short: 'RH+',
+      family: 'async-task',
+      kind: 'station',
+      status: 'pending',
+      /**
+       * `pending` 协议**一律不给能力**（`protocol.test.ts` 那条"不给半成品留假能力"）：
+       * 声明了 image/video 就等于告诉选路"这条能用"，而适配器还没写 ⇒ 用户会配出一条跑不通的路。
+       */
+      capabilities: [],
+      defaultBaseUrl: 'https://www.runninghub.cn',
+      docUrl: 'https://www.runninghub.cn/',
+      note: 'RunningHub 的 OpenAPI（提交任务 + 轮询取结果）。适配器尚未实现 —— 目前只能用 CLI 那条跑通本机。',
+    },
   {
     id: 'jimeng-cli',
     name: '即梦（本机 CLI）',

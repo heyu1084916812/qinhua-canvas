@@ -106,6 +106,17 @@
  * 固定三条预设渠道（用户第 19 批 #2）：竖排一小列，紧挨「+ 新增渠道」之上 ——
  * 它们也是"列表级"的建渠道入口，和新增 / 删除同处一列。
  */
+/* 内置渠道的小标签（用户第 20 批）：让"这条为什么删不掉"一眼有答案 */
+.itemBuiltin {
+  flex: 0 0 auto;
+  padding: 1px var(--space-1);
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  line-height: 1.4;
+}
+
 .presetCol {
   display: flex;
   flex-direction: column;

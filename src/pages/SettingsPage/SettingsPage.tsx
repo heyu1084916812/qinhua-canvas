@@ -33,6 +33,7 @@ import { PRESET_MODELS } from '../../domain/project/modelPresets'
 import { ModelIcon } from '../../features/shared/modelIcon/ModelIcon'
 import { ChannelIcon } from '../../features/shared/channelIcon/ChannelIcon'
 import { readChannelIconFile } from '../../features/shared/channelIcon/readIconFile'
+import { isBuiltinChannelId } from '../../domain/project/builtinChannels'
 import { ModelMapCombo, StrategyPicker } from './SettingsPicker'
 import { openGlobalSettings } from '../../state/ui/globalSettings'
 import { usePlatform } from '../../app/providers/PlatformProvider'
@@ -50,19 +51,6 @@ const MAP_GROUPS = [
   { category: 'video' as const, title: '视频模型' },
 ]
 
-/**
- * **固定的三条预设渠道**（用户第 19 批 #2：「参考图三大雄画布的这个固定三个渠道
- * MODELSCOPE Agnes RuningHub，需要有他们的图标」）。
- *
- * 一条 = 一次点击建好：名字、协议、站点默认地址都从协议目录取（`defaultBaseUrl`），
- * 图标由 `ChannelIcon` 按协议 id 给（品牌矢量标记）—— 所以这里**不写图标**，
- * 免得"预设里的图标"与"列表里的图标"变成两处口径。
- */
-const CHANNEL_PRESETS: { protocol: string; name: string }[] = [
-  { protocol: 'modelscope', name: 'ModelScope 魔搭' },
-  { protocol: 'agnes', name: 'Agnes' },
-  { protocol: 'runninghub', name: 'RunningHub' },
-]
 
 /**
  * 协议下拉的分组顺序（用户 2026-09-28「一站一协议」）。
@@ -267,20 +255,6 @@ export function SettingsPage() {
     setSelectedId(ch.id)
   }
 
-  /**
-   * 建一条**预设渠道**（用户第 19 批 #2 的三个固定渠道）。
-   * 名字 / 协议 / 站点默认地址都从协议目录取，图标由 `ChannelIcon` 按协议给。
-   */
-  const handleCreatePreset = async (protocol: string) => {
-    const preset = CHANNEL_PRESETS.find((p) => p.protocol === protocol)
-    const ch = await channels.create({
-      name: preset?.name ?? protocol,
-      protocol,
-      baseUrl: protocolById(protocol, catalog)?.defaultBaseUrl ?? '',
-    })
-    setSelectedId(ch.id)
-  }
-
   /** 上传渠道图标（用户第 19 批 #4/#5）：读图 → 压到 ≤128px → 落库 */
   const handlePickIcon = async (file: File | undefined) => {
     if (!file || !selectedId) return
@@ -412,6 +386,10 @@ export function SettingsPage() {
     try {
       await channels.remove(selectedId)
       setSelectedId(null)
+      setConfirmDelete(false)
+    } catch (err) {
+      /** 内置渠道会被命令层拒绝（界面也已禁用）—— 如实说一句，别静默失败 */
+      alert(err instanceof Error ? err.message : '删除失败')
       setConfirmDelete(false)
     } finally {
       setBusy(false)
@@ -606,6 +584,12 @@ export function SettingsPage() {
    * 地址来自协议目录的 `docUrl`（唯一来源）—— 没写就**不出现**这个链接，不猜地址。
    */
   const docUrl = protocolById(protocol, catalog)?.docUrl ?? ''
+  /**
+   * 选中的是不是**内置渠道**（用户第 20 批：三条常驻渠道「固定字段」= 名称 + 协议）。
+   * 界面据此禁用名称 / 协议与删除；命令层（仓储）另有一道同样的拦截，
+   * 所以"禁不掉"这件事不靠界面自觉。
+   */
+  const builtinSelected = !!selectedId && isBuiltinChannelId(selectedId)
 
   return (
     <div className={styles.page}>
@@ -678,6 +662,12 @@ export function SettingsPage() {
                     {/* 渠道图标：品牌矢量标记 / 用户上传的图（见 `ChannelIcon`） */}
                     <ChannelIcon protocol={ch.protocol} icon={ch.icon} size={16} />
                     <span className={styles.itemName}>{ch.name}</span>
+                    {/* 内置渠道标一下（第 20 批）：让"为什么这条删不掉"一眼有答案 */}
+                    {isBuiltinChannelId(ch.id) && (
+                      <span className={styles.itemBuiltin} data-channel-builtin>
+                        内置
+                      </span>
+                    )}
                     <span className={styles.itemProto} data-channel-proto>
                       {protocolShort(ch.protocol, catalog)}
                     </span>
@@ -712,25 +702,6 @@ export function SettingsPage() {
               {/* 拖动提示放在新增按钮**上方**（用户浏览器批注）：它描述的是上方列表，
                   夹在「新增」与「删除」之间会让人以为在说下面那组按钮。 */}
               {channelsList.length > 0 && <p className={styles.dragHint}>按住条目上下拖动可排序</p>}
-              {/*
-                固定的三条预设渠道（用户第 19 批 #2）：ModelScope / Agnes / RunningHub，
-                一次点击建好（名字 / 协议 / 站点默认地址全从协议目录取），图标是品牌矢量标记。
-              */}
-              <div className={styles.presetCol} data-channel-presets>
-                {CHANNEL_PRESETS.map((p) => (
-                  <button
-                    key={p.protocol}
-                    className={styles.presetBtn}
-                    data-channel-preset={p.protocol}
-                    disabled={busy}
-                    onClick={() => void handleCreatePreset(p.protocol)}
-                    title={`新建「${p.name}」渠道`}
-                  >
-                    <ChannelIcon protocol={p.protocol} size={14} />
-                    <span className={styles.presetBtnText}>{p.name}</span>
-                  </button>
-                ))}
-              </div>
               <button className={styles.addBtn} data-channel-add onClick={handleCreate}>
                 + 新增渠道
               </button>
@@ -740,7 +711,8 @@ export function SettingsPage() {
                   <button
                     className={styles.dangerBtn}
                     data-channel-remove
-                    disabled={!selectedId || busy}
+                    disabled={!selectedId || busy || builtinSelected}
+                    title={builtinSelected ? '内置渠道不能删除' : undefined}
                     onClick={() => setConfirmDelete(true)}
                   >
                     删除渠道
@@ -789,6 +761,8 @@ export function SettingsPage() {
                     <input
                       className={styles.input}
                       data-settings-name
+                      /* 内置渠道：名称固定（用户第 20 批「固定字段是的」） */
+                      disabled={builtinSelected}
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                     />
@@ -936,6 +910,8 @@ export function SettingsPage() {
                     <select
                       className={styles.input}
                       data-settings-protocol
+                      /* 内置渠道：协议固定（同上）；**地址不锁**（用户：「站点地址留口子」） */
+                      disabled={builtinSelected}
                       value={protocol}
                       onChange={(e) => handleProtocolChange(e.target.value)}
                     >
