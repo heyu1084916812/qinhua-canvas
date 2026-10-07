@@ -14,9 +14,14 @@ import {
 import { BUILTIN_CATALOG } from './protocol'
 
 describe('createChannel', () => {
-  it('默认未启用、无模型缓存、无凭据引用', () => {
+  /**
+   * **新建即启用**（用户第 19 批 #3：「新建的渠道默认启用」）。
+   * 早先默认关着，用户建完渠道、存了令牌却在画布上选不出模型 —— 默认开更少踩坑。
+   */
+  it('默认**启用**、无模型缓存、无凭据引用、图标用内置矢量', () => {
     const ch = createChannel({ name: '默认', protocol: 'mock', baseUrl: '' })
-    expect(ch.enabled).toBe(false)
+    expect(ch.enabled).toBe(true)
+    expect(ch.icon).toBeNull()
     expect(ch.modelCache).toEqual([])
     expect(ch.credentialRef).toBeNull()
     expect(ch.id.startsWith('ch_')).toBe(true)

@@ -48,8 +48,12 @@ describe('channelStore', () => {
     const p = createMemoryPlatform()
     const store = createChannelStore(p)
     const a = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
-    await store.create({ name: 'B', protocol: 'mock', baseUrl: '' })
-    await store.setEnabled(a.id, true)
+    const b = await store.create({ name: 'B', protocol: 'mock', baseUrl: '' })
+    /**
+     * 新建即启用（用户第 19 批 #3）⇒ 要测"只返回启用的"，得**显式关掉一条**，
+     * 不能再靠"新建默认是关的"。
+     */
+    await store.setEnabled(b.id, false)
     expect(store.enabledChannels().map((c) => c.id)).toEqual([a.id])
   })
 
@@ -428,7 +432,8 @@ describe('channelStore', () => {
     await store.load()
     const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
     await store.setModels(ch.id, [{ id: 'm', category: 'image', inputTypes: ['text'] }])
-    // 刻意不 setEnabled
+    // 新建默认是启用的（第 19 批 #3），所以这里要**显式关掉**才是"未启用"这一档
+    await store.setEnabled(ch.id, false)
     expect(await store.defaultForNewNode({})).toBeNull()
   })
 

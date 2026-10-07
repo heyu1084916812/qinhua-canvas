@@ -77,6 +77,14 @@
 .globalRoute {
   width: 100%;
   max-width: 1120px;
+  /**
+   * ⚠️ **必须显式写 `border-box`**（用户第 19 批第 1 条：「最上方的比下方的宽，我要一样宽」）。
+   *
+   * 这一格本身有左右各 20px 内距，而 `width: 100%` 在**默认的 content-box** 下算的是内容盒
+   * ⇒ 实际外框 = 100% + 40px，比同为 `100%` 的 `.workarea`（它没有内距）**宽 40px**。
+   * 实测：浮层内容 920 ⇒ 选路条 912 / 工作区 872。
+   */
+  box-sizing: border-box;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -92,6 +100,70 @@
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+
+/*
+ * 固定三条预设渠道（用户第 19 批 #2）：竖排一小列，紧挨「+ 新增渠道」之上 ——
+ * 它们也是"列表级"的建渠道入口，和新增 / 删除同处一列。
+ */
+.presetCol {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.presetBtn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control, 8px);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-label);
+  text-align: left;
+  cursor: pointer;
+}
+
+.presetBtn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.presetBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.presetBtnText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 「令牌（API Key）」一行右边挂「去官网获取令牌」 */
+.labelRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.docLink {
+  color: var(--accent);
+  font-size: var(--fs-label);
+  text-decoration: none;
+}
+
+.docLink:hover {
+  text-decoration: underline;
+}
+
+/* 图标上传：真文件选择器藏起来，点外面那个 label 按钮 */
+.fileInput {
+  display: none;
 }
 
 /* —— 真正被观察的两栏工作区：定宽、整体居中 —— */

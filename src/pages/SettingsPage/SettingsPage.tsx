@@ -31,6 +31,8 @@ import {
 } from '../../domain/project/modelRouting'
 import { PRESET_MODELS } from '../../domain/project/modelPresets'
 import { ModelIcon } from '../../features/shared/modelIcon/ModelIcon'
+import { ChannelIcon } from '../../features/shared/channelIcon/ChannelIcon'
+import { readChannelIconFile } from '../../features/shared/channelIcon/readIconFile'
 import { ModelMapCombo, StrategyPicker } from './SettingsPicker'
 import { openGlobalSettings } from '../../state/ui/globalSettings'
 import { usePlatform } from '../../app/providers/PlatformProvider'
@@ -46,6 +48,20 @@ const MAP_GROUPS = [
   { category: 'image' as const, title: '生图模型' },
   { category: 'chat' as const, title: '对话模型' },
   { category: 'video' as const, title: '视频模型' },
+]
+
+/**
+ * **固定的三条预设渠道**（用户第 19 批 #2：「参考图三大雄画布的这个固定三个渠道
+ * MODELSCOPE Agnes RuningHub，需要有他们的图标」）。
+ *
+ * 一条 = 一次点击建好：名字、协议、站点默认地址都从协议目录取（`defaultBaseUrl`），
+ * 图标由 `ChannelIcon` 按协议 id 给（品牌矢量标记）—— 所以这里**不写图标**，
+ * 免得"预设里的图标"与"列表里的图标"变成两处口径。
+ */
+const CHANNEL_PRESETS: { protocol: string; name: string }[] = [
+  { protocol: 'modelscope', name: 'ModelScope 魔搭' },
+  { protocol: 'agnes', name: 'Agnes' },
+  { protocol: 'runninghub', name: 'RunningHub' },
 ]
 
 /**
@@ -249,6 +265,41 @@ export function SettingsPage() {
   const handleCreate = async () => {
     const ch = await channels.create({ name: '新建渠道', protocol: 'mock', baseUrl: '' })
     setSelectedId(ch.id)
+  }
+
+  /**
+   * 建一条**预设渠道**（用户第 19 批 #2 的三个固定渠道）。
+   * 名字 / 协议 / 站点默认地址都从协议目录取，图标由 `ChannelIcon` 按协议给。
+   */
+  const handleCreatePreset = async (protocol: string) => {
+    const preset = CHANNEL_PRESETS.find((p) => p.protocol === protocol)
+    const ch = await channels.create({
+      name: preset?.name ?? protocol,
+      protocol,
+      baseUrl: protocolById(protocol, catalog)?.defaultBaseUrl ?? '',
+    })
+    setSelectedId(ch.id)
+  }
+
+  /** 上传渠道图标（用户第 19 批 #4/#5）：读图 → 压到 ≤128px → 落库 */
+  const handlePickIcon = async (file: File | undefined) => {
+    if (!file || !selectedId) return
+    setBusy(true)
+    try {
+      const icon = await readChannelIconFile(file)
+      await channels.update(selectedId, { icon })
+    } catch {
+      /* 读图失败（不是图片 / 画布不可用）：如实提示，不改动已有图标 */
+      alert('这张图片读不出来，换一张试试')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 恢复默认矢量图标 */
+  const handleClearIcon = async () => {
+    if (!selectedId) return
+    await channels.update(selectedId, { icon: null })
   }
 
   /** 表单字段 → 落库值（名兜底、地址去空白以库为准） */
@@ -550,6 +601,11 @@ export function SettingsPage() {
   // mock 提示只在**真的拿 mock 验了地址**时出现（探测的候选表不含 mock，故不受其影响）。
   const showMockNote = action === 'verify' && verify.status === 'ok' && verifiedFor?.protocol === 'mock'
   const tokenHint = selected?.tokenTail ? maskTokenTail(selected.tokenTail) : ''
+  /**
+   * 这一条协议官网的**取令牌页**（用户第 19 批 #2：「需要有点击就跳转到官网，获取令牌的选项」）。
+   * 地址来自协议目录的 `docUrl`（唯一来源）—— 没写就**不出现**这个链接，不猜地址。
+   */
+  const docUrl = protocolById(protocol, catalog)?.docUrl ?? ''
 
   return (
     <div className={styles.page}>
@@ -619,6 +675,8 @@ export function SettingsPage() {
                   onClick={() => setSelectedId(ch.id)}
                 >
                   <span className={styles.itemTop}>
+                    {/* 渠道图标：品牌矢量标记 / 用户上传的图（见 `ChannelIcon`） */}
+                    <ChannelIcon protocol={ch.protocol} icon={ch.icon} size={16} />
                     <span className={styles.itemName}>{ch.name}</span>
                     <span className={styles.itemProto} data-channel-proto>
                       {protocolShort(ch.protocol, catalog)}
@@ -654,6 +712,25 @@ export function SettingsPage() {
               {/* 拖动提示放在新增按钮**上方**（用户浏览器批注）：它描述的是上方列表，
                   夹在「新增」与「删除」之间会让人以为在说下面那组按钮。 */}
               {channelsList.length > 0 && <p className={styles.dragHint}>按住条目上下拖动可排序</p>}
+              {/*
+                固定的三条预设渠道（用户第 19 批 #2）：ModelScope / Agnes / RunningHub，
+                一次点击建好（名字 / 协议 / 站点默认地址全从协议目录取），图标是品牌矢量标记。
+              */}
+              <div className={styles.presetCol} data-channel-presets>
+                {CHANNEL_PRESETS.map((p) => (
+                  <button
+                    key={p.protocol}
+                    className={styles.presetBtn}
+                    data-channel-preset={p.protocol}
+                    disabled={busy}
+                    onClick={() => void handleCreatePreset(p.protocol)}
+                    title={`新建「${p.name}」渠道`}
+                  >
+                    <ChannelIcon protocol={p.protocol} size={14} />
+                    <span className={styles.presetBtnText}>{p.name}</span>
+                  </button>
+                ))}
+              </div>
               <button className={styles.addBtn} data-channel-add onClick={handleCreate}>
                 + 新增渠道
               </button>
@@ -726,6 +803,36 @@ export function SettingsPage() {
                   </button>
                 </div>
 
+                {/*
+                  渠道图标（用户第 19 批 #4/#5）：
+                  默认是**内置矢量标记**（按协议给，认不出给通用标记），
+                  也可以**上传一张图**盖掉它 —— 上传功能刻意做成一个小方块，
+                  以后要换成别的图标来源只动这一个区块与 `readChannelIconFile`。
+                */}
+                <div className={styles.fieldRow} data-channel-icon-row>
+                  <span className={styles.label}>图标</span>
+                  <ChannelIcon protocol={protocol} icon={selected.icon} size={28} />
+                  <label className={styles.ghostBtn} data-channel-icon-upload>
+                    上传图标
+                    <input
+                      className={styles.fileInput}
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => void handlePickIcon(e.target.files?.[0])}
+                    />
+                  </label>
+                  {selected.icon && (
+                    <button
+                      className={styles.ghostBtn}
+                      data-channel-icon-reset
+                      onClick={() => void handleClearIcon()}
+                    >
+                      恢复默认
+                    </button>
+                  )}
+                  <span className={styles.cardSub}>PNG / JPG，自动缩到 128px</span>
+                </div>
+
                 <div className={styles.fieldRow}>
                   <label className={styles.switch}>
                     <input
@@ -759,12 +866,37 @@ export function SettingsPage() {
                 </label>
 
                 <div className={styles.field}>
-                  <span className={styles.label}>令牌（API Key）</span>
+                  <span className={styles.labelRow}>
+                    <span className={styles.label}>令牌（API Key）</span>
+                    {/* 「去官网获取令牌」（用户第 19 批 #2）：地址取协议目录的 docUrl */}
+                    {docUrl && (
+                      <a
+                        className={styles.docLink}
+                        data-settings-doc-link={protocol}
+                        href={docUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        去官网获取令牌 ↗
+                      </a>
+                    )}
+                  </span>
                   <div className={styles.tokenRow}>
                     <input
                       className={styles.input}
+                      data-settings-token-tail
                       type={showToken ? 'text' : 'password'}
-                      placeholder={tokenSaved ? '已保存（重新输入可覆盖）' : '粘贴 API Key'}
+                      /**
+                       * ★★ 已存过令牌时，输入框**直接显示存好的那一把（中间打码）**，
+                       * 而不是"已保存（重新输入可覆盖）"这句词（用户第 19 批 #3：
+                       * 「令牌框里面的已保存着几个字替换成保存好的令牌（隐藏中间的号码），
+                       *  参考图五」—— 图五就是 `••••••••Sm3a` 这种样式）。
+                       *
+                       * 用 `placeholder` 而不是 `value`：整串明文**不进界面**
+                       *（凭据层只在调用前注入，见 `channel.ts` 的 `tokenTail` 注释），
+                       * 而且放进 `value` 的话，用户一按「保存」就会把那串圆点当成新令牌存进去。
+                       */
+                      placeholder={tokenSaved && tokenHint ? tokenHint : '粘贴 API Key'}
                       value={token}
                       onChange={(e) => setToken(e.target.value)}
                     />
@@ -788,13 +920,11 @@ export function SettingsPage() {
                       删除
                     </button>
                   </div>
-                  {/* 尾 4 位是唯一的身份线索：看不出来存的是哪把钥匙，就只能靠「删了重存」来确认。
-                      整串明文不回显（凭据层只在调用前注入），所以这里只给尾号。 */}
-                  {tokenSaved && (
-                    <span className={styles.saved} data-settings-token-tail>
-                      ● 令牌已加密保存{tokenHint ? ` · ${tokenHint}` : ''}
-                    </span>
-                  )}
+                  {/*
+                    原来这里还有一行「● 令牌已加密保存 · ••••••••3f2a」。用户第 19 批 #3 明确去掉：
+                    「保存令牌后下面的小字不要了」—— 那把钥匙的样子已经写在输入框里了
+                    （见上面 placeholder 那一段），再挂一行小字只是重复一遍。
+                  */}
                 </div>
 
                 {/* 协议区（§7.3）：协议下拉 + 三个动作按钮。

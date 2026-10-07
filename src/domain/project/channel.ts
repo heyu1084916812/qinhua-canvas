@@ -18,6 +18,15 @@ import {
 export interface Channel {
   id: string
   name: string
+  /**
+   * 渠道图标（用户第 19 批 #4/#5）：
+   * - `null` = 用**内置矢量图标**（按协议取品牌标记，认不出协议就给通用标记）；
+   * - 非空 = 用户上传的图片（`data:` URL，界面已压到 ≤128px 再转，见 `ChannelIcon`）。
+   *
+   * 为什么不另开一张表 / 不落文件：它只是一张 ≤128px 的小图（几 KB），
+   * 跟着渠道行走最省事，也不会出现"图标丢了、渠道还在"的半截状态。
+   */
+  icon: string | null
   /** 协议决定走哪个适配器（platform/channels/registry 注册） */
   protocol: string
   baseUrl: string
@@ -97,6 +106,8 @@ export interface CreateChannelInput {
   name: string
   protocol: string
   baseUrl: string
+  /** 图标（数据 URL）；不给就用内置矢量图标 */
+  icon?: string | null
   /** 新建时的排序位；不给则 0（排在最后，见 list 的排序口径） */
   order?: number
 }
@@ -173,11 +184,18 @@ export function createChannel(input: CreateChannelInput): Channel {
   return {
     id: createId('ch'),
     name: input.name.trim() || '新建渠道',
+    icon: input.icon ?? null,
     protocol: input.protocol,
     baseUrl: input.baseUrl.trim(),
     credentialRef: null,
     tokenTail: null,
-    enabled: false,
+    /**
+     * **新建即启用**（用户第 19 批 #3：「新建的渠道默认启用」）。
+     *
+     * 早先默认关着，理由是"配完再开"；但实际用起来多一步——用户建完渠道、存了令牌，
+     * 画布里却选不出模型，得回来找那个开关。默认开 + 用户要关自己关，少一次踩坑。
+     */
+    enabled: true,
     // 新建渠道一份模型都没有：先拉取（进 modelCache）、再勾选（进 models）。
     // 刻意**不**把 modelCache 抄成 models —— §7.4「拉取到的模型默认全部未勾选，由用户自行勾选」。
     models: [],

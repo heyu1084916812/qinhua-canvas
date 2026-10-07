@@ -4749,15 +4749,23 @@ async function g44(browser) {
    */
   await page.locator('[data-settings-token-save]').click()
   await sleep(400)
-  const tailText = await page.locator('[data-settings-token-tail]').innerText().catch(() => '')
-  rec(g, '令牌保存后显示尾 4 位（脱敏）', norm0(tailText).includes('3f2a'), tailText)
+  /**
+   * 用户第 19 批 #3 改了口径：**输入框里直接显示存好的令牌（中间打码）**，
+   * 原来那行「令牌已加密保存 · ••••••••3f2a」小字已删。
+   * 所以这里改读输入框的 `placeholder`（锚点 `data-settings-token-tail` 也挂在它身上）。
+   */
+  const tailText =
+    (await page.locator('[data-settings-token-tail]').getAttribute('placeholder').catch(() => '')) ?? ''
+  rec(g, '令牌保存后在输入框里显示尾 4 位（脱敏）', norm0(tailText).includes('3f2a'), tailText)
   rec(g, '页面不出现令牌明文', !(await page.locator('body').innerText()).includes('sk-1234567890abcdef3f2a'))
   await page.screenshot({ path: `${OUT}/44-b-token-tail.png` })
 
   // ③ 删除令牌 → 提示消失、渠道还在、可再存（用锚点避开「删除渠道」）
   await page.locator('[data-settings-token-remove]').click()
   await sleep(400)
-  rec(g, '删除令牌后尾号提示消失', (await page.locator('[data-settings-token-tail]').count()) === 0)
+  const afterRemove =
+    (await page.locator('[data-settings-token-tail]').getAttribute('placeholder').catch(() => '')) ?? ''
+  rec(g, '删除令牌后回到「粘贴 API Key」（尾号不再出现）', !norm0(afterRemove).includes('3f2a'), afterRemove)
   rec(g, '删除令牌不删渠道', (await page.locator('[data-channel-item]').count()) === 2)
 
   // ④ 拖动排序：把「渠道乙」拖到「渠道甲」之前 → 顺序翻转并落库

@@ -1,0 +1,25 @@
+/*
+ * 渠道图标的外壳（用户第 19 批 #4/#5）。
+ *
+ * 与 `ModelIcon` 的底板同一条口径：不写字面量颜色，颜色一律走 `currentColor`
+ * （由所在行 / 卡片的文字色决定，两套主题自动反转）。
+ */
+.plate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--text-2);
+  overflow: hidden;
+}
+
+/* 上传的图：铺满底板，等比裁切（圆角裁掉四角，与矢量标记同一外形） */
+.image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}

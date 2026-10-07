@@ -30,6 +30,8 @@ const toChannel = (row: Record<string, unknown>): Channel => {
   return {
     id: String(row.id),
     name: (row.name as string) || '新建渠道',
+    /** 图标（用户第 19 批 #4/#5）：老行没有这一键 → null = 用内置矢量图标 */
+    icon: (row.icon as string | null) ?? null,
     protocol: (row.protocol as string) ?? 'mock',
     baseUrl: (row.baseUrl as string) ?? '',
     credentialRef: (row.credentialRef as string | null) ?? null,
