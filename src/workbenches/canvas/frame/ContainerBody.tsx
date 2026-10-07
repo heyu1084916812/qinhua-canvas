@@ -1,8 +1,13 @@
 import { useMemo, type ReactNode } from 'react'
 import type { GroupBgTone } from '../../../domain/canvas/model/node'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
-import { packContainerChildren, containerMinSize } from '../../../domain/canvas/layout/packContainer'
+import {
+  packContainerChildren,
+  containerMinSize,
+  containerScale,
+} from '../../../domain/canvas/layout/packContainer'
 import styles from './ContainerBody.module.css'
+import { useDraggingId } from '../storeContext'
 
 export interface ContainerBodyProps {
   /** 容器节点自身（取类型与 data.childIds 作排序键） */
@@ -40,6 +45,27 @@ export function ContainerBody(props: ContainerBodyProps) {
   const ordered = useMemo(() => orderChildren(children, childIds), [children, childIds])
   const packs = useMemo(() => packContainerChildren(ordered.length), [ordered.length])
   const min = containerMinSize(kind, ordered.length)
+  /**
+   * ★★ 放大容器 ⇒ **里面的单元与素材同步放大**（用户第 15 批 #335-①：
+   * 「随时随地都要保持里面子容器和边缘的留白规则，一直保持那个数值的留白，
+   *  如果放大批量节点的话，里面的子节点和素材同步放大，这样才能保持规则」）。
+   *
+   * 做法：单元仍按**基准网格**摆（`packContainerChildren` 的 200×160 + 16 间距 + 20 内边距），
+   * 整层再乘一个**等比**系数 `k = min(宽比, 高比)`。这样四边的留白**比例**恒定不变
+   *（不乘 `k` 的话，把框拉大只会多出一圈空白，"留白规则"就破了）；
+   * 取 `min` 是保证**不变形**——某一轴多出来的部分表现为那一边更宽的留白，
+   * 总比把素材拉扁好（缩放锁是自由的，用户可能只往一个方向拉）。
+   *
+   * 基准尺寸 = `min`（该子节点数下的网格贴合尺寸）⇒ `k ≥ 1`（下限就是基准，拉不小）。
+   */
+  const k = containerScale(kind, ordered.length, { w: node.w, h: node.h })
+  /**
+   * ★ 批量：单元位置由**格位**决定（不是子节点自己的 x/y）⇒ 直接画看不出拖动
+   * （用户第 15 批 #335-③：「子节点可以点击+拖动出批量节点，但是我看不到拖动」）。
+   * 把"正在拖的那一个"的位移叠上去：拖动开始时坐标已被归一成格位
+   * （见 `onChildPointerDown`）⇒ `child.x - cell.x` 就是**这一趟**的真实位移。
+   */
+  const draggingId = useDraggingId()
 
   return (
     <div
@@ -49,15 +75,34 @@ export function ContainerBody(props: ContainerBodyProps) {
       {...{ [`data-${kind}-body`]: '' }}
       {...{ [`data-${kind}-child-count`]: ordered.length }}
       {...{ [`data-${kind}-min`]: `${min.w}x${min.h}` }}
+      {...{ [`data-${kind}-scale`]: k.toFixed(3) }}
     >
-      {ordered.map((child, i) => {
-        const cell = packs.positions[i] ?? { x: 0, y: 0 }
-        return (
-          <div key={child.id} className={styles.cell} style={{ left: cell.x, top: cell.y }}>
-            {renderChild?.(child)}
-          </div>
-        )
-      })}
+      {/* 缩放层：基准网格写在里面，整体乘 `k`（`transform-origin: 0 0` ⇒ 从左上角长出去） */}
+      <div
+        className={styles.scaleLayer}
+        data-container-scale-layer
+        style={{ width: min.w, height: min.h, transform: `scale(${k})` }}
+      >
+        {ordered.map((child, i) => {
+          const cell = packs.positions[i] ?? { x: 0, y: 0 }
+          const dragging = kind === 'batch' && draggingId === child.id
+          return (
+            <div
+              key={child.id}
+              className={styles.cell}
+              style={{
+                left: cell.x,
+                top: cell.y,
+                ...(dragging
+                  ? { transform: `translate(${child.x - cell.x}px, ${child.y - cell.y}px)` }
+                  : {}),
+              }}
+            >
+              {renderChild?.(child)}
+            </div>
+          )
+        })}
+      </div>
 
       {ordered.length === 0 && (
         <div className={styles.empty} data-container-empty {...{ [`data-${kind}-empty`]: '' }}>

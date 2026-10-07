@@ -25,10 +25,17 @@ function findNode(graph: GraphSnapshot, id: string): NodeSnapshot | undefined {
 }
 
 /**
- * 组：把框收紧到"孩子们的包围盒 + 四边等距"，必要时**把组原点一起挪**
- * （孩子跑到原点左上时），并同步修正每个孩子的 local 坐标 ——
+ * 组：把框调成"孩子们的包围盒 + 四边等距"，必要时**把组原点一起挪**
+ * （孩子跑到原点外时），并同步修正每个孩子的 local 坐标 ——
  * 世界位置一个像素都不变（用户 2026-10-06 第 14 批第 1 条：
  * 「原本在画布中是什么位置…就是什么位置」）。
+ *
+ * 两种模式（用户第 15 批 #334-④ 定死了二者的分工）：
+ * - **`hug`（默认，自动路径用）**：框 = 当前框 ⊎ 贴合框 —— **只长不缩**。
+ *   用户原话：「如果把其中一个节点拖出去，分组面板也**不需要**去自适应剩下的节点的大小」
+ *   ⇒ 自动路径永不缩框（缩框是「排列与整理 → 整理节点」那个手动动作，见 `tight`）；
+ *   而"只拖出一半"要「分组背景适应节点」⇒ 自动路径要能长。
+ * - **`tight`（「整理节点」用）**：框 = 贴合框（该缩就缩）—— 这是唯一会缩框的路径。
  *
  * 提到模块级：`node.reparent`（拖进 / 拖出）与 `node.delete`（删掉组内节点）都要用，
  * 两处各写一份迟早漂移。
@@ -37,23 +44,42 @@ function refitGroupPatches(
   patches: Patch[],
   g: NodeSnapshot,
   kids: readonly { id: string; x: number; y: number; w: number; h: number }[],
+  mode: 'hug' | 'tight' = 'hug',
 ): void {
   const fit = groupFitSize(kids)
-  const shiftX = kids.length > 0 ? Math.min(...kids.map((k) => k.x)) - CONTAINER_PADDING : 0
-  const shiftY = kids.length > 0 ? Math.min(...kids.map((k) => k.y)) - CONTAINER_PADDING : 0
+  /** 贴合框在**世界坐标**下的左上角（孩子存的是 local ⇒ 加组原点） */
+  const tightX = kids.length > 0 ? g.x + Math.min(...kids.map((k) => k.x)) - CONTAINER_PADDING : g.x
+  const tightY = kids.length > 0 ? g.y + Math.min(...kids.map((k) => k.y)) - CONTAINER_PADDING : g.y
+  /**
+   * 只长不缩：自动路径把"当前框"也并进来（负方向要挪原点、正方向只改尺寸）。
+   * 空组不参与"长"（它是 240×192 的空板，不该被一个 0×0 的并集撑成 0）。
+   */
+  const useHug = mode === 'hug' && kids.length > 0
+  const x = useHug ? Math.min(g.x, tightX) : tightX
+  const y = useHug ? Math.min(g.y, tightY) : tightY
+  const right = useHug ? Math.max(g.x + g.w, tightX + fit.w) : tightX + fit.w
+  const bottom = useHug ? Math.max(g.y + g.h, tightY + fit.h) : tightY + fit.h
+  const nextW = Math.max(1, Math.ceil(right - x))
+  const nextH = Math.max(1, Math.ceil(bottom - y))
+  const shiftX = g.x - x
+  const shiftY = g.y - y
+  /** 框与孩子都没动 ⇒ 一条补丁都不发（免得每次拖拽松手都压一条无意义的撤销记录） */
+  const moved = shiftX !== 0 || shiftY !== 0
+  const resized = nextW !== g.w || nextH !== g.h
+  if (!moved && !resized) return
   patches.push({
     op: 'patch',
     table: 'nodes',
     id: g.id,
-    changes: { x: g.x + shiftX, y: g.y + shiftY, w: fit.w, h: fit.h },
+    changes: { x, y, w: nextW, h: nextH },
   })
-  if (shiftX !== 0 || shiftY !== 0) {
+  if (moved) {
     for (const k of kids) {
       patches.push({
         op: 'patch',
         table: 'nodes',
         id: k.id,
-        changes: { x: k.x - shiftX, y: k.y - shiftY },
+        changes: { x: k.x + shiftX, y: k.y + shiftY },
       })
     }
   }
@@ -61,6 +87,32 @@ function refitGroupPatches(
 
 function fail(kind: Command['kind'], reason: string): never {
   throw new Error(`[command ${kind}] ${reason}`)
+}
+
+/**
+ * **批量**节点的框：自动尺寸 vs 手工缩放（用户第 15 批 #335-①）。
+ *
+ * 批量的位置语义是格位 ⇒ 框天然 = 网格 + 四边 20（`containerMinSize`）。
+ * 但用户把框拉大 = **把整套单元与素材一起放大**（`containerScale`），那是**手工尺寸**，
+ * 自动路径不许把它按回网格：只有"当前框正好等于**上一个子节点数**的网格尺寸"
+ *（⇒ 它是自动长出来的）才跟着子节点数变化；否则保持不动。
+ *
+ * 这条判据在批 14 的 #325 里被撤过一次 —— 当时"两个节点进批量下方空一片"的根因是
+ * **打批量时那个包住内容的包装框**（比网格大得多、永远不等于网格尺寸）没被清掉；
+ * 现在包装框改成直接按**网格尺寸**建（见 `wrapSelection`），判据于是成立。
+ */
+function batchFitPatches(
+  patches: Patch[],
+  c: NodeSnapshot,
+  prevCount: number,
+  nextCount: number,
+): void {
+  const prev = containerMinSize('batch', prevCount)
+  const next = containerMinSize('batch', nextCount)
+  /** 手工缩放过的框：自动路径一个字都不动它 */
+  if (c.w !== prev.w || c.h !== prev.h) return
+  if (c.w === next.w && c.h === next.h) return
+  patches.push({ op: 'patch', table: 'nodes', id: c.id, changes: { w: next.w, h: next.h } })
 }
 
 /** 跨表求逆：表之间相互独立，逐表调用 domain 的 invertPatches 后拼接 */
@@ -145,13 +197,45 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
       for (let i = 0; i < cmd.ids.length; i += 1) {
         const src = findNode(graph, cmd.ids[i])
         if (!src) fail(cmd.kind, `节点不存在：${cmd.ids[i]}`)
+        /**
+         * **容器（分组 / 批量）的成员要一起复制**（用户第 15 批 #336：
+         * 「alt+拖动…复制分组面板和批量节点的时候没有把里面的节点素材复制，是一个bug」）。
+         *
+         * 成员的 local 坐标**照抄**（它们本来就是相对容器原点的），父级改指副本；
+         * `assetHash` 只引用不复制字节（与"素材存在库里、节点只记 hash"同一条口径）。
+         * 先算成员、再算容器：容器副本的 `data.childIds` 要按新旧 id 对照表改写，
+         * 否则副本的顺序表指向的还是原节点（副本会"有子节点但排序表是空的"）。
+         */
+        const kidIdOf = new Map<string, string>()
+        if (CONTAINER_TYPES.has(src.type)) {
+          for (const kid of graph.nodes.filter((n) => n.parentId === src.id)) {
+            const kidId = createId('node')
+            kidIdOf.set(kid.id, kidId)
+            const kidCopy: NodeSnapshot = {
+              ...kid,
+              id: kidId,
+              parentId: cmd.newIds[i],
+              data: structuredClone(kid.data),
+            }
+            /** 成员的 id 也进 `idMap`：它的外部连线按同一条规则重建（与普通节点一致） */
+            idMap.set(kid.id, kidId)
+            copies.set(kidCopy.id, kidCopy)
+            patches.push({ op: 'upsert', table: 'nodes', row: kidCopy as unknown as Row })
+          }
+        }
+        const data = structuredClone(src.data)
+        if (kidIdOf.size > 0) {
+          const keep = (data as { childIds?: string[] }).childIds ?? []
+          /** 顺序表里可能还有没进图的老 id：只映射存在的那些（与 `childIdsOf` 同一口径） */
+          ;(data as { childIds?: string[] }).childIds = keep.map((id) => kidIdOf.get(id) ?? id)
+        }
         const copy: NodeSnapshot = {
           ...src,
           id: cmd.newIds[i],
           x: src.x + dx,
           y: src.y + dy,
           // 数据深拷贝：避免副本与原节点共享同一个 data 对象引用
-          data: structuredClone(src.data),
+          data,
         }
         idMap.set(src.id, cmd.newIds[i])
         copies.set(copy.id, copy)
@@ -371,10 +455,7 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
           /** 组：按剩下的孩子重新收紧（可能连原点一起挪），与 `node.reparent` 同一份实现 */
           refitGroupPatches(patches, c, left)
         } else {
-          const fit = containerMinSize('batch', left.length)
-          if (c.w !== fit.w || c.h !== fit.h) {
-            patches.push({ op: 'patch', table: 'nodes', id: c.id, changes: { w: fit.w, h: fit.h } })
-          }
+          batchFitPatches(patches, c, left.length + goneKids.length, left.length)
         }
       }
 
@@ -425,13 +506,60 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
       }
     }
 
+    case 'node.refitContainer': {
+      const c = findNode(graph, cmd.id)
+      if (!c) fail(cmd.kind, `容器不存在：${cmd.id}`)
+      if (!CONTAINER_TYPES.has(c.type)) fail(cmd.kind, `${c.type} 不是容器`)
+      const kids = graph.nodes.filter((n) => n.parentId === c.id)
+      const patches: Patch[] = []
+      if (c.type === 'group') {
+        refitGroupPatches(patches, c, kids, cmd.mode ?? 'hug')
+      } else {
+        /**
+         * 批量：单元是固定网格 ⇒ 尺寸只有两档含义 ——
+         * `hug`（自动路径）**只长不缩**（手工放大的框不许被按回去），
+         * `tight`（手动「整理节点」）才回到网格尺寸。
+         */
+        const fit = containerMinSize('batch', kids.length)
+        const next =
+          cmd.mode === 'tight'
+            ? fit
+            : { w: Math.max(c.w, fit.w), h: Math.max(c.h, fit.h) }
+        if (c.w !== next.w || c.h !== next.h) {
+          patches.push({ op: 'patch', table: 'nodes', id: c.id, changes: { w: next.w, h: next.h } })
+        }
+      }
+      /**
+       * 本来就已经贴合 ⇒ 一条补丁都不发，并且**别往撤销栈里压一条空记录**
+       * （自动路径每次拖动松手都会调它）。
+       */
+      return {
+        patches,
+        transaction: patches.length === 0
+          ? { mode: 'silent' }
+          : { mode: 'standalone', label: cmd.mode === 'tight' ? '整理节点' : '贴合容器' },
+      }
+    }
+
     case 'node.reparent': {
       const node = findNode(graph, cmd.id)
       if (!node) fail(cmd.kind, `节点不存在：${cmd.id}`)
       const toParent = cmd.toParent ? findNode(graph, cmd.toParent) ?? null : null
       const check = canReparent(node, toParent, graph)
       if (!check.ok) fail(cmd.kind, check.reason)
-      const moved = applyReparent(node, cmd.toParent, graph)
+      const converted = applyReparent(node, cmd.toParent, graph)
+      /**
+       * `at`：**容器给的落位**（只有批量用得上）。
+       *
+       * 批量的位置语义是"格位"（3×3 网格，行优先），不是"画布上的位置" ——
+       * 世界位置不变那条口径对它没意义：拖进批量就该**吸到空位**。
+       * 用户第 15 批 #335-③ 的"拖动看不见"根因也在这：只有把格位写进子节点坐标，
+       * 视图才能用"坐标 − 格位"算出拖动位移。分组不吃这一套（它要保持画布位置）。
+       */
+      const moved =
+        cmd.at && toParent?.type === 'batch'
+          ? { ...converted, x: cmd.at.x, y: cmd.at.y }
+          : converted
       /**
        * 结果组下线后，`parentId` 只剩**容器节点**（分组 / 批量）一种含义，
        * 而容器是**真节点**，`applyReparent` 在节点表里查得到它、会自己换算坐标。
@@ -484,10 +612,7 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
           /** 组：把框收紧（可能连原点一起挪）—— 位置与尺寸都由孩子们的包围盒算 */
           refitGroupPatches(patches, from, kidsOf(from.id, cmd.id))
         } else {
-          const fit = containerMinSize('batch', kidsOf(from.id, cmd.id).length)
-          if (from.w !== fit.w || from.h !== fit.h) {
-            patches.push({ op: 'patch', table: 'nodes', id: from.id, changes: { w: fit.w, h: fit.h } })
-          }
+          batchFitPatches(patches, from, kidsOf(from.id, cmd.id).length + 1, kidsOf(from.id, cmd.id).length)
         }
       }
       if (to) {
@@ -526,10 +651,7 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
             { id: cmd.id, x: moved.x, y: moved.y, w: node.w, h: node.h },
           ])
         } else {
-          const fit = containerMinSize('batch', kidsOf(to.id, cmd.id).length + 1)
-          if (to.w !== fit.w || to.h !== fit.h) {
-            patches.push({ op: 'patch', table: 'nodes', id: to.id, changes: { w: fit.w, h: fit.h } })
-          }
+          batchFitPatches(patches, to, kidsOf(to.id, cmd.id).length, kidsOf(to.id, cmd.id).length + 1)
         }
       }
       /**

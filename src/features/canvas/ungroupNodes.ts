@@ -48,33 +48,24 @@ export function arrangeGroupMembers(
     minY === CONTAINER_PADDING
   if (tight) return { ok: true, changed: false }
   /**
-   * 收紧走 `node.reparent`（把某个成员"重新放进"它已经在的那个组）。
-   *
-   * 为什么复用这条路径而不是在这里自己算：帧里那份数学（`refitGroupPatches`）
-   * 不只改尺寸 —— 孩子跑到原点左上时还要**连组原点一起挪**、并把每个孩子的
-   * local 坐标同步修正（世界位置零变化），这份数学只该有一份，且它已被单测钉住。
-   * 这里再抄一遍，就是第二份迟早漂移的实现。
+   * 收紧走 `node.refitContainer(mode:'tight')`：那份数学（`refitGroupPatches`）不只改尺寸 ——
+   * 孩子跑到原点外时还要**连组原点一起挪**、并把每个孩子的 local 坐标同步修正
+   * （世界位置零变化）。它是**唯一会缩框的路径**（自动路径只长不缩，见 `hug`）。
    */
-  refitGroupBox(store, groupId, kids[0].id)
+  store.dispatch({ kind: 'node.refitContainer', id: groupId, mode: 'tight' })
   return { ok: true, changed: true }
 }
 
 /**
- * 把组框收紧到"孩子们现在的包围盒 + 四边等距"（原点与尺寸一起算）。
+ * 把组框**贴合**到孩子们现在的包围盒（`hug` = 只长不缩；原点与尺寸一起算）。
  *
- * 单独导出：组内「排列」（宫格 / 水平 / 垂直）会把整块内容的包围盒挪位，
- * 排完必须立刻把框收回去，否则被排出去的成员就"探出组框"了
- * （而探出组框 = 移出分组，见 `dropReparent`）。
+ * 两个调用方，都是"内容动过之后把板跟上去"：
+ * - 组内「排列」（宫格 / 水平 / 垂直）会把整块内容的包围盒挪位，排完必须跟上；
+ * - 拖动组内某个节点松手时（#334-④：只拖出一半 ⇒ **分组背景适应节点**）。
  */
-export function refitGroupBox(
-  store: CanvasStore,
-  groupId: string,
-  childId: string,
-  /** 要与别的命令（组内「排列」）合成**同一个撤销单元**时传进来 */
-  planId?: string,
-): void {
+export function refitGroupBox(store: CanvasStore, groupId: string, planId?: string): void {
   store.dispatch(
-    { kind: 'node.reparent', id: childId, toParent: groupId },
+    { kind: 'node.refitContainer', id: groupId, mode: 'hug' },
     planId ? { mode: 'multi-step', planId, label: '排列节点' } : undefined,
   )
 }

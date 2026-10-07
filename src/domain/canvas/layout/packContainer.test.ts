@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { packContainerChildren, packedCellAt, packedMinSize, containerMinSize } from './packContainer'
+import {
+  packContainerChildren,
+  packedCellAt,
+  packedMinSize,
+  containerMinSize,
+  containerScale,
+} from './packContainer'
 import { PACKED_CELL, NODE_MINIMUMS, CONTAINER_PADDING, CONTAINER_GAP } from './constants'
 
 describe('分组 / 批量打包', () => {
@@ -82,5 +88,28 @@ describe('packedCellAt / packedMinSize（§6.11 尺寸）', () => {
     expect(four).toEqual(containerMinSize('group', 4))
     // 2 个单元：456×200（而不是 5:4 归一后的 456×365）
     expect(packedMinSize(2)).toEqual({ w: 456, h: 200 })
+  })
+
+  /**
+   * ★★ 放大容器 ⇒ **里面同步等比放大**（用户第 15 批 #335-①：
+   * 「放大批量节点的话，里面的子节点和素材同步放大，这样才能保持留白规则」）。
+   */
+  describe('containerScale（放大时单元与素材一起放大）', () => {
+    it('★ 正好等于基准网格 ⇒ 1（缩不到更小）', () => {
+      const base = containerMinSize('batch', 2)
+      expect(containerScale('batch', 2, base)).toBe(1)
+      expect(containerScale('batch', 2, { w: base.w - 100, h: base.h - 100 })).toBe(1)
+    })
+
+    it('★★ 等比拉大 ⇒ 系数就是那个倍率（两轴同时满足才是等比）', () => {
+      const base = containerMinSize('batch', 2)
+      expect(containerScale('batch', 2, { w: base.w * 2, h: base.h * 2 })).toBe(2)
+    })
+
+    it('★ 只往一轴拉大 ⇒ 取 min（**不变形**：多出来的那一轴表现为更宽的留白）', () => {
+      const base = containerMinSize('batch', 2)
+      expect(containerScale('batch', 2, { w: base.w * 3, h: base.h })).toBe(1)
+      expect(containerScale('batch', 2, { w: base.w * 3, h: base.h * 2 })).toBe(2)
+    })
   })
 })

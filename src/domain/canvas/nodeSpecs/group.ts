@@ -22,7 +22,15 @@ export const groupSpec: NodeSpec<GroupData> = {
   type: 'group',
   label: '分组',
   sizing: { min: NODE_MINIMUMS.group, lockAspect: true },
-  ports: { input: false, output: true },
+  /**
+   * **两侧各一只端点**（用户第 15 批 #334-②：「两侧的端点能把里面节点同时拉线出来
+   * 连接节点或者新建节点」）。
+   *
+   * ⚠️ 口径在批 14 之后又改回来了：那时按"组不做生成"把左端点撤了，现在用户明确要
+   * **左侧也能拉**（往上游连：上游 → 组内每个成员各一条）。两侧拉线的语义都由
+   * `useEdgeDrag.expandContainers` 负责 —— 组**自己不出边**，出边的是它的成员。
+   */
+  ports: { input: true, output: true },
   accepts: {
     /**
      * **不接上游**：没有输入端点（同上），上游直接连组内成员。

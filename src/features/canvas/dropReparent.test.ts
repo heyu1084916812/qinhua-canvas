@@ -53,17 +53,35 @@ describe('拖拽落点归属 · 分组（§6.11 拖入 / 拖出）', () => {
     expect(resolveDropReparent('gen', { x: 900, y: 600 }, g)).toBeNull()
   })
 
-  it('★★ 组内节点的边缘探出组框（有一部分在外面）→ 这就是第 ② 种"移出"', () => {
-    /** 局部 (170, 60)：世界右边 = 100 + 170 + 200 = 470 > 组框右边 340 ⇒ 露出去了 */
+  /**
+   * ★★ 口径在用户第 15 批 #334-④ 改过：
+   * 「节点拖出去要**完整的**拖出去才会是真正的离开了分组，如果只拖了一半的话要适应分组边缘
+   *  与节点的留白规则」⇒「探出一半」不再是移出，节点**留在组里**，由调用方把框贴上去
+   *（`node.refitContainer(mode:'hug')`，见 `useNodeDrag` 的收尾）。
+   */
+  it('★★ 只拖出一半（边缘探出组框）→ **留在组里**，不脱离', () => {
+    /** 局部 (170, 60) ⇒ 世界 (270,160)-(470,320)，与组框（100..340）仍然重叠 */
     const g = graph([group(), gen({ parentId: 'grp', x: 170, y: 60 })])
-    const drop = resolveDropReparent('gen', { x: 100 + 170, y: 100 + 60 }, g)
-    expect(drop).toEqual({ toParent: null, at: { x: 270, y: 160 } })
+    expect(resolveDropReparent('gen', { x: 270, y: 160 }, g)).toBeNull()
   })
 
-  it('★ 组内节点被拖到框外 → 脱离回根层（世界位置原样带出去）', () => {
-    const g = graph([group(), gen({ parentId: 'grp', x: -60, y: 20 })])
+  it('★ 组内节点被**完整**拖出去（与组框一点都不重叠）→ 脱离回根层（世界位置原样带出去）', () => {
+    /** 局部 (-250, 20) ⇒ 世界 (-150,120)-(50,280)，与组框（100..340）完全不相交 */
+    const g = graph([group(), gen({ parentId: 'grp', x: -250, y: 20 })])
     const drop = resolveDropReparent('gen', { x: 900, y: 600 }, g)
-    expect(drop).toEqual({ toParent: null, at: { x: 40, y: 120 } })
+    expect(drop).toEqual({ toParent: null, at: { x: -150, y: 120 } })
+  })
+
+  /**
+   * ★★ 口径在用户第 15 批 #334-④ 改过：
+   * 「节点拖出去要**完整的**拖出去才会是真正的离开了分组，如果只拖了一半的话要适应分组边缘
+   *  与节点的留白规则」⇒ 「探出一半」不再是移出，节点**留在组里**，由调用方把框贴上去
+   *（`node.refitContainer(mode:'hug')`，见 `useNodeDrag` 的收尾）。
+   */
+  it('★★ 只拖出一半（边缘探出组框）→ **留在组里**，不脱离', () => {
+    /** 局部 (170, 60) ⇒ 世界 (270,160)-(470,320)，与组框（100..340）仍然重叠 */
+    const g = graph([group(), gen({ parentId: 'grp', x: 170, y: 60 })])
+    expect(resolveDropReparent('gen', { x: 270, y: 160 }, g)).toBeNull()
   })
 
   it('★★ 单击组内节点（矩形一点没动）→ 判定与按下前一致，绝不会被甩出组', () => {

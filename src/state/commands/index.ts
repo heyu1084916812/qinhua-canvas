@@ -78,7 +78,25 @@ export type Command =
    * 只想改尺寸、位置一个字都不该动（§6.16）。
    */
   | { kind: 'node.updateData'; id: string; patch: Record<string, unknown>; transient?: boolean; size?: Size }
-  | { kind: 'node.reparent'; id: string; toParent: string | null; index?: number }
+  /**
+   * 改归属（拖进 / 拖出容器）。
+   *
+   * `at` = **容器给的落位**（local 坐标）：只有**批量**用得上 —— 它的位置语义是
+   * 3×3 格位，拖进去就该吸到空位（而不是保持世界位置）。分组不吃它（要保画布位置）。
+   */
+  | { kind: 'node.reparent'; id: string; toParent: string | null; index?: number; at?: Point }
+  /**
+   * 把容器（分组 / 批量）的框按内容重算（用户第 15 批 #334-④）。
+   *
+   * 两种模式，**分工是定死的**（别在别处再算一遍）：
+   * - `hug`（缺省，自动路径用）：框 = 当前框 ⊎ 贴合框，**只长不缩**
+   *   ——「把其中一个节点拖出去，分组面板也不需要在自适应剩下的节点的大小」，
+   *   而"只拖出一半"要「分组背景适应节点」；
+   * - `tight`：「排列与整理 → 整理节点」用，框 = 贴合框（该缩就缩）。
+   *
+   * 两种都**保持孩子的世界位置不变**：需要时连原点一起挪，并同步改写每个孩子的 local 坐标。
+   */
+  | { kind: 'node.refitContainer'; id: string; mode?: 'hug' | 'tight' }
   /**
    * 建一条边。
    *

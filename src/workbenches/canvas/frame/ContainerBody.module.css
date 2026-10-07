@@ -56,6 +56,18 @@
   border-color: var(--stroke);
 }
 
+/*
+ * 缩放层（用户第 15 批 #335-①）：基准网格写在里面（尺寸 = `containerMinSize`），
+ * 整层乘一个等比系数 —— 拉大容器时"单元 + 素材 + 留白"一起等比放大，
+ * 留白比例因此恒定不变。`transform-origin: 0 0` 保证是从左上角长出去（与单元坐标同源）。
+ */
+.scaleLayer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
 /* 单元：固定 200×160（5:4），位置由 domain 的打包结果给出 */
 .cell {
   position: absolute;

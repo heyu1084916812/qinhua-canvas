@@ -591,7 +591,7 @@ function GroupActions({
       store.notify('组内至少 2 个节点才能排列')
       return
     }
-    refitGroupBox(store, node.id, memberIds[0], planId)
+    refitGroupBox(store, node.id, planId)
   }
 
   const runAll = () => {

@@ -40,6 +40,17 @@ export function useSelection(): string[] {
   return useSyncExternalStore(store.subscribe, store.getSelection, store.getSelection)
 }
 
+/**
+ * 正在被拖的那个节点 id（没有在拖就是 null）。
+ *
+ * 容器（批量 / 分组）的视图用它把"子节点正在被拖"这件事画出来
+ * （用户第 15 批 #335-③：「子节点可以点击+拖动出批量节点，但是我看不到拖动」）。
+ */
+export function useDraggingId(): string | null {
+  const store = useCanvasStore()
+  return useSyncExternalStore(store.subscribe, store.getDraggingId, store.getDraggingId)
+}
+
 /** 当前选中的连线 id 列表（§6.14） */
 export function useEdgeSelection(): string[] {
   const store = useCanvasStore()

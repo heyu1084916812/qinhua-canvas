@@ -70,6 +70,15 @@ interface CanvasState {
    */
   dragging: boolean
   /**
+   * 正在被拖的那个节点 id（`dragging` 为 false 时是 null）。
+   *
+   * 为什么需要"是哪一个"：容器里的子节点**位置由容器决定**（批量是格位、分组是 local 坐标），
+   * 视图要让"拖动看得见"就得知道**谁在拖**（用户第 15 批 #335-③：
+   * 「批量节点内部的子节点可以点击+拖动出批量节点，但是我看不到拖动」）。
+   * 纯展示态：不进撤销栈、不落库。
+   */
+  draggingId: string | null
+  /**
    * 面板是否因**真实拖动**被收起（§6.15）。
    *
    * 与 `dragging` 的分工：`dragging` 只管「进行中」；这个标记管「拖过之后的后遗症」——
@@ -191,8 +200,10 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
   getUndoBar(): { id: string; text: string } | null
   /** 关闭撤销条（当前条不是预期的 id 时忽略，避免竞态误关新条） */
   clearUndoBar(id?: string): void
-  /** 拖动进行中（§6.15：拖动期间隐藏创作参数面板） */
-  setDragging(on: boolean): void
+  /** 拖动进行中（§6.15：拖动期间隐藏创作参数面板）；`id` = 正在拖的那个节点 */
+  setDragging(on: boolean, id?: string | null): void
+  /** 正在被拖的节点 id（没有在拖就是 null） */
+  getDraggingId(): string | null
   isDragging(): boolean
   /**
    * 拖动收尾（§6.15）：发生过位移的拖动，松手后面板保持隐藏，直到下一次显式选中。
@@ -387,6 +398,7 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     viewport: { x: 0, y: 0, zoom: 1 },
     notice: null,
     dragging: false,
+    draggingId: null,
     panelDismissed: false,
     snapHints: null,
     menu: null,
@@ -504,8 +516,9 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     clearUndoBar: (id) => {
       store.setState((s) => (id && s.undoBar?.id !== id ? {} : { undoBar: null }))
     },
-    setDragging: (on) => store.setState({ dragging: on }),
+    setDragging: (on, id) => store.setState({ dragging: on, draggingId: on ? id ?? null : null }),
     isDragging: () => store.getState().dragging,
+    getDraggingId: () => store.getState().draggingId,
     setPanelDismissed: (on) => store.setState({ panelDismissed: on }),
     isPanelDismissed: () => store.getState().panelDismissed,
     setSnapHints: (hints) => store.setState({ snapHints: hints }),

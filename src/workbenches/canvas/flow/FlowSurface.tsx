@@ -62,7 +62,7 @@ import { useViewport as useCanvasViewport } from '../../../features/canvas/useVi
  */
 import { useNodeDownload } from '../../../features/canvas/useNodeDownload'
 import { draggedFiles, importDroppedFiles } from '../../../features/canvas/dropImport'
-import { dropPointOf, resolveDropOutcome } from '../../../features/canvas/dropReparent'
+import { batchSlotOf, dropPointOf, resolveDropOutcome } from '../../../features/canvas/dropReparent'
 import { computeSnap, SNAP_THRESHOLD_SCREEN_PX } from '../../../domain/canvas/layout/snap'
 import { useNodeDrag } from '../../../features/canvas/useNodeDrag'
 import { useClipboardHotkeys, rememberPointer } from '../../../features/canvas/useClipboard'
@@ -251,9 +251,61 @@ function FlowSurfaceInner({
       }
       const sel = store.getSelection()
       if (!(sel.length > 1 && sel.includes(childId))) store.setSelection([childId])
+      /**
+       * ★ **批量**里的子节点：位置由格位决定 ⇒ 拖动开始时先把坐标**归一成它的格位**。
+       * 这样"拖动位移 = 坐标 − 格位"成立，视图才画得出拖动（用户第 15 批 #335-③：
+       * 「批量节点内部的子节点可以点击+拖动出批量节点，但是我看不到拖动」）。
+       * 事务与随后那串 `node.move` 合并（同一个 coalesce key）⇒ 一次撤销全退。
+       */
+      const slot = batchSlotOf(childId, store.getSnapshot())
+      if (slot) {
+        store.dispatch(
+          { kind: 'node.reparent', id: childId, toParent: slot.parentId, at: slot.at },
+          { mode: 'coalesce', groupId: `move:${childId}`, label: '移动节点' },
+        )
+      }
       drag.begin(e, childId)
     },
     [store, drag],
+  )
+
+  /**
+   * ★★ 点容器（分组 / 批量）里的子节点：**选中判给子节点，不是容器**
+   * （用户第 15 批 #333：「分组功能选择不了里面的节点…我需要的是分组里面的节点也可以单独操作」；
+   *  #335-②：「批量节点也无法真正的选中里面的子节点，会跳转到选中批量节点上」）。
+   *
+   * 为什么必须在这一层兜：子节点是容器节点的 **DOM 后代**，而 React Flow 的
+   * `handleNodeClick` 绑在**容器**那个节点元素上（它只知道"这次点击属于哪个 RF 节点"）
+   * ⇒ 点子节点时 RF 一定会把容器选上。按下阶段我们已经按子节点规则选过一次
+   *（`onChildPointerDown`），这里是**等 RF 覆盖之后再改回来**：
+   * React 的合成事件按 React 树的深度派发，容器节点比这层 surface **更深、先跑**，
+   * 所以挂在 surface 上的 `onClick` 天然是"最后一个说话的人"。
+   *
+   * 三条口径（与 `onChildPointerDown` 完全一致，别各写一份）：
+   * ① 普通点 = 选中这一个子节点；② Shift 点 = 增 / 减选；
+   * ③ 顺带把**被点节点的父容器**从选中集合里摘掉 —— RF 刚才把它选上了。
+   *（容器不嵌套 ⇒ 祖先最多一层，直接看 `parentId` 就够。）
+   */
+  const onSurfaceClick = useCallback(
+    (e: ReactMouseEvent<HTMLDivElement>) => {
+      const hit = (e.target as HTMLElement).closest('[data-node-id]')
+      const childId = hit?.getAttribute('data-node-id')
+      if (!childId) return
+      const graph = store.getSnapshot()
+      const node = graph.nodes.find((n) => n.id === childId)
+      /** 顶层节点：RF 自己就选对了，不插手 */
+      if (!node?.parentId) return
+      const sel = store.getSelection()
+      const kept = node.parentId ? sel.filter((id) => id !== node.parentId) : sel
+      const next = kept.includes(childId)
+        ? kept
+        : e.shiftKey
+          ? [...kept, childId]
+          : [childId]
+      const same = next.length === sel.length && next.every((id, i) => id === sel[i])
+      if (!same) store.setSelection(next)
+    },
+    [store],
   )
 
   /**
@@ -640,7 +692,7 @@ function FlowSurfaceInner({
     (_e: MouseEvent | TouchEvent, _n: RFNode, dragged: RFNode[]) => {
       const ids = dragged.length > 0 ? dragged.map((n) => n.id) : [_n.id]
       dragMovedRef.current = false
-      store.setDragging(true)
+      store.setDragging(true, ids[0] ?? null)
       store.dispatch({ kind: 'node.move', ids, dx: 0, dy: 0, phase: 'begin' })
     },
     [store],
@@ -716,7 +768,13 @@ function FlowSurfaceInner({
         return
       }
       if (outcome.kind === 'ok') {
-        store.dispatch({ kind: 'node.reparent', id: node.id, toParent: outcome.drop.toParent })
+        /** `at` 一起带上：进**批量**要吸到格位（分组会忽略它 —— 它保的是世界位置） */
+        store.dispatch({
+          kind: 'node.reparent',
+          id: node.id,
+          toParent: outcome.drop.toParent,
+          at: outcome.drop.at,
+        })
       }
     },
     [store],
@@ -840,6 +898,12 @@ function FlowSurfaceInner({
       onDrop={(e) => void onDropFiles(e)}
       data-import-hover={importHover ? 'true' : 'false'}
       data-import-accept={IMPORT_ACCEPT}
+      /*
+       * 点容器里的子节点：把选中判给**子节点**（见 `onSurfaceClick`）。
+       * 必须挂在 surface 上 —— React 的合成事件从内往外派发，容器节点比这层更深、先跑，
+       * 所以这里是"最后一个说话的人"，能把 RF 刚选上的容器改回来。
+       */
+      onClick={onSurfaceClick}
       // 只记坐标、不 setState：粘贴落点要用「当前鼠标位置」（§4.2）
       onPointerMove={(e) => rememberPointer({ x: e.clientX, y: e.clientY })}
       // 按下阶段：清「拖动后不弹面板」标记 + 记拖动起点锚（见 onSurfacePointerDown）

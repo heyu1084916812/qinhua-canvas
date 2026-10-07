@@ -39,12 +39,12 @@ describe('端点拖线（§6.14）', () => {
     })
 
     /**
-     * ★ 组**只有右端点**（用户 2026-10-06 第 13 批第 5 条：组不做生成）。
-     * 右端点拖出来 = 组内成员各连一条到目标（见本文件末尾那组用例）；
-     * 左端点撤掉是因为没有生成语义 ⇒ 也没有"喂给它"这件事。
-     */
-    it('★ 分组只有输出端点（没有输入）', () => {
-      expect(nodeHasPort('group', 'input')).toBe(false)
+      * ★ 组**两侧都有端点**（用户第 15 批 #334-②：「两侧的端点能把里面节点同时拉线出来
+      * 连接节点或者新建节点」）。无论往哪边拉，出边的都是**组内成员**（组自己不出边）——
+      * 见 `expandContainers` 与本文件末尾那组用例。
+      */
+    it('★ 分组两侧都有端点（左连上游、右连下游，都是成员各一条）', () => {
+      expect(nodeHasPort('group', 'input')).toBe(true)
       expect(nodeHasPort('group', 'output')).toBe(true)
     })
 
@@ -185,5 +185,26 @@ describe('容器端点拉线：展开成成员（#317 ⑤）', () => {
     expect(wired.map((w) => w.source)).toEqual([a, b])
     expect(wired.every((w) => w.target === target)).toBe(true)
     expect(wired.some((w) => w.source === gid)).toBe(false)
+  })
+
+  /**
+   * ★★ **左侧端点**同理（用户第 15 批 #334-②：「**两侧**的端点能把里面节点同时拉线出来
+   * 连接节点或者新建节点」）。
+   *
+   * 反向拖（从输入口往外拖 = 找上游）时，`expandContainers` 展开的仍是**被拖的那一方**
+   * ⇒ 落成的边是「上游 → 每个成员各一条」，容器自己依旧一条不出。
+   */
+  it('★★ wireAll 从组**左**端点反拖：上游 → 每个成员各一条', () => {
+    const s = store()
+    const a = add(s, 'prompt', 0)
+    const b = add(s, 'prompt', 300)
+    const upstream = add(s, 'generation', 900)
+    const gid = groupNodes(s, [a, b])!
+
+    const wired = wireAll(s, gid, 'input', [], upstream, { x: 1000, y: 100 })
+    expect(wired.map((w) => w.target)).toEqual([a, b])
+    expect(wired.every((w) => w.source === upstream)).toBe(true)
+    expect(wired.every((w) => w.targetPort === 'input')).toBe(true)
+    expect(wired.some((w) => w.target === gid)).toBe(false)
   })
 })

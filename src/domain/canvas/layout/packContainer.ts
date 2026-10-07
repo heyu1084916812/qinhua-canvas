@@ -121,3 +121,23 @@ export function containerMinSize(type: 'group' | 'batch', childCount: number): S
   const { containerMin } = packContainerChildren(childCount, NODE_MINIMUMS[type])
   return containerMin
 }
+
+/**
+ * 容器当前的**等比放大系数**（用户第 15 批 #335-①）。
+ *
+ * 用户原话：「随时随地都要保持里面子容器和边缘的留白规则，一直保持那个数值的留白，
+ * 如果放大批量节点的话，里面的子节点和素材同步放大，这样才能保持规则」。
+ * ⇒ 拉大容器不能只是"多出一圈空白"，而要让**单元 + 素材 + 留白一起等比放大**，
+ * 留白的**比例**才恒定。返回 `1` 表示"正好等于基准网格"（下限，缩不到更小）。
+ *
+ * 取 `min(宽比, 高比)` 是为了**不变形**：缩放的锁是自由的，用户可能只往一个方向拉，
+ * 那时多出来的那一轴表现为更宽的留白 —— 总比把素材拉扁好。
+ */
+export function containerScale(
+  type: 'group' | 'batch',
+  childCount: number,
+  size: Size,
+): number {
+  const base = containerMinSize(type, childCount)
+  return Math.max(1, Math.min(size.w / base.w, size.h / base.h))
+}

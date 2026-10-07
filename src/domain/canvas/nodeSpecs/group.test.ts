@@ -39,7 +39,8 @@ describe('分组规格（§6.11）', () => {
    */
   it('★★ 不是生成节点：只有右端点，没有 toRunRequest / generate', () => {
     const spec = getSpec('group')!
-    expect(spec.ports).toEqual({ input: false, output: true })
+    /** 两侧各一只端点（第 15 批 #334-②：左端往上游连、右端往下游连，都是"成员各一条"） */
+    expect(spec.ports).toEqual({ input: true, output: true })
     expect(spec.toRunRequest).toBeUndefined()
     expect(spec.generate).toBeUndefined()
     /** 不接上游：要让组内节点吃到上游，直接连到那个成员上（规则 4 已按新口径放宽） */

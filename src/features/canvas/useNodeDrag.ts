@@ -5,7 +5,7 @@ import { screenToWorld } from '../../domain/canvas/geometry/coords'
 import { indexNodes } from '../../domain/canvas/model/graph'
 import { createId } from '../../shared/id'
 import { coalescePointerMove } from '../../shared/rafThrottle'
-import { resolveDropOutcome, dropPointOf } from './dropReparent'
+import { batchSlotOf, resolveDropOutcome, dropPointOf } from './dropReparent'
 
 interface DragState {
   ids: string[]
@@ -93,7 +93,7 @@ export function createNodeDragController(
     const ids = e.altKey ? duplicateForDrag(resolveDragIds(nodeId)) : resolveDragIds(nodeId)
 
     current = { ids, prevX: e.clientX, prevY: e.clientY, zoom, moved: false }
-    store.setDragging(true)
+    store.setDragging(true, ids[0] ?? null)
     store.dispatch({ kind: 'node.move', ids, dx: 0, dy: 0, phase: 'begin' })
 
     // pointermove 经 rAF 合帧（§1.7）：同一帧多次移动只派发一次最新位置
@@ -138,7 +138,43 @@ export function createNodeDragController(
         return
       }
       if (outcome.kind === 'ok') {
-        store.dispatch({ kind: 'node.reparent', id: d.ids[0], toParent: outcome.drop.toParent })
+        /** `at` 一起带上：进**批量**要吸到格位（分组会忽略它 —— 它保的是世界位置） */
+        store.dispatch({
+          kind: 'node.reparent',
+          id: d.ids[0],
+          toParent: outcome.drop.toParent,
+          at: outcome.drop.at,
+        })
+        return
+      }
+      /**
+       * ★★ 停在组里没出去：把组框**贴上去**
+       * （用户第 15 批 #334-④：「如果只拖了一半的话要适应分组边缘与节点的留白规则」）。
+       *
+       * 组框是**只长不缩**的（`hug`）⇒ 这一条不会把板缩小；"拖出去"那一下走上面的
+       * `node.reparent`，板保持原样（用户："拖出去…分组面板也不需要去自适应剩下的节点的大小"）。
+       *
+       * 事务与本次拖动**合并**（同一个 coalesce key）⇒ 一次撤销就把"移动 + 贴框"全退掉；
+       * 完全贴合时那条命令是静默 no-op（不发补丁、不进撤销栈）。
+       */
+      const parentId = node.parentId
+      if (parentId && graph.nodes.find((n) => n.id === parentId)?.type === 'group') {
+        store.dispatch(
+          { kind: 'node.refitContainer', id: parentId, mode: 'hug' },
+          { mode: 'coalesce', groupId: `move:${d.ids.join(',')}`, label: '移动节点' },
+        )
+      } else {
+        /**
+         * 批量：格位是"位置"的唯一表达 ⇒ 松手**贴回自己的格位**
+         * （用户第 15 批 #335-③ 要的是"拖得看得见 + 能拖出批量"，格内重排不在这一批）。
+         */
+        const slot = batchSlotOf(d.ids[0], graph)
+        if (slot) {
+          store.dispatch(
+            { kind: 'node.reparent', id: d.ids[0], toParent: slot.parentId, at: slot.at },
+            { mode: 'coalesce', groupId: `move:${d.ids.join(',')}`, label: '移动节点' },
+          )
+        }
       }
     }
     window.addEventListener('pointermove', move)

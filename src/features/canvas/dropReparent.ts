@@ -6,6 +6,7 @@ import { indexNodes } from '../../domain/canvas/model/graph'
 import { toWorldRect, toWorldRectInGraph } from '../../domain/canvas/geometry/coords'
 import { packedCellAt } from '../../domain/canvas/layout/packContainer'
 import { canReparent } from '../../domain/canvas/graph/reparent'
+import { childIdsOfNode } from '../../domain/canvas/nodeSpecs/group'
 
 /**
  * 拖拽落点 → 归属判定（产品文档 §6.11「拖入 / 拖出」）。
@@ -52,19 +53,9 @@ function contains(r: { x: number; y: number; w: number; h: number }, p: Point): 
   return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h
 }
 
-/**
- * 外框是否**完整**包住内框（含边界）。
- *
- * 「移出分组」的判据（用户 2026-10-06 第 14 批第 1 条）：节点的边缘只要有一部分
- * 探出组框就算出去了 —— 所以进门 / 出门都用"完整包含"，两侧同一条边界、不会抖。
- */
-function covers(outer: Rect, inner: Rect): boolean {
-  return (
-    inner.x >= outer.x &&
-    inner.y >= outer.y &&
-    inner.x + inner.w <= outer.x + outer.w &&
-    inner.y + inner.h <= outer.y + outer.h
-  )
+/** 两个矩形有没有**重叠**（"完整拖出去"的判据：一点都不重叠才算出去了） */
+function intersects(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
 }
 
 /** 指针（world）下最靠上的容器（分组 / 批量）：后添加的在上层 */
@@ -137,7 +128,13 @@ export function resolveDropOutcome(
   const worldRectOf = (n: NodeSnapshot): Rect => toWorldRect(n, null)
 
   if (parent?.type === 'group') {
-    if (covers(worldRectOf(parent), rect)) return { kind: 'none' }
+    /**
+     * 「拖出分组」的判据（用户第 15 批 #334-④）：
+     * **完整拖出去**（节点的矩形与组框**完全不重叠**）才算离开；
+     * 只拖出一半 ⇒ **留在组里**，松手时由调用方把框**长到包住它**
+     * （「如果只拖了一半的话要适应分组边缘与节点的留白规则」+「分组背景适应节点」）。
+     */
+    if (intersects(worldRectOf(parent), rect)) return { kind: 'none' }
     return { kind: 'ok', drop: { toParent: null, at: { x: rect.x, y: rect.y } } }
   }
 
@@ -179,3 +176,27 @@ export function resolveDropOutcome(
 }
 
 export { packedCellAt }
+
+/**
+ * 批量里的**格位归属**：这个子节点该待在哪个格位（返回值是"重投一次归属"的落位）。
+ *
+ * 批量的位置语义是 3×3 格位（按 `childIds` 顺序），不是画布位置，所以有三处要用它：
+ * ① 拖进来自动吸空位（`resolveDropOutcome` 已经算好 `at`）；
+ * ② 在批量里拖完**贴回自己的格位**（第 15 批 #335-③ 只要求"看得见拖动"，格内重排不是这一批的事）；
+ * ③ **拖动开始时先归一**（把坐标写成格位）—— 视图才能用"坐标 − 格位"算出这一趟的真实位移，
+ *    否则批量里的子节点坐标是历史残留（可能是世界坐标），一拖就会出现莫名其妙的偏移。
+ *
+ * 不是批量的子节点（含分组子节点、顶层节点）返回 null。
+ */
+export function batchSlotOf(
+  childId: string,
+  graph: GraphSnapshot,
+): { parentId: string; at: Point } | null {
+  const child = graph.nodes.find((n) => n.id === childId)
+  if (!child?.parentId) return null
+  const parent = graph.nodes.find((n) => n.id === child.parentId)
+  if (!parent || parent.type !== 'batch') return null
+  const idx = childIdsOfNode(parent, graph).indexOf(childId)
+  if (idx < 0) return null
+  return { parentId: parent.id, at: packedCellAt(idx) }
+}

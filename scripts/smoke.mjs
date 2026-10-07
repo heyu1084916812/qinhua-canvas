@@ -18301,16 +18301,17 @@ async function g103(browser) {
   await page.locator('[data-toolbar-menu-item="prompt"]').click()
   await sleep(500)
   /**
-   * Shift 点**组本体**把组加进选中集合。落点取"左内边距的中点"：
-   * 四角手柄在四个**角**上，而端点停在节点**外面** 27px（第 14 批第 4 条）
-   * ⇒ 内侧这一条 20px 的留白带是干净的，一定命中组本体。
+   * Shift 点**组本体**把组加进选中集合。落点取**左下角那圈留白**：
+   * 四角手柄只在四个角上（各 14×14），端点骑在**左右边缘的纵向中点**上
+   *（第 15 批起**两侧都有**端点）—— 底下这条 20px 的留白带、往内 30px 处是干净的。
    *
-   * ⚠️ 别改回"底边中间"：新建的那个提示词**创作面板就挂在那附近**（屏幕坐标浮层、
-   * 压在画布之上），实测点在底边中间命中的是面板里的 `<section>`，组压根没被选中。
+   * ⚠️ 两个别改回去的位置：① "底边中间"会撞上**创作面板**（屏幕坐标浮层压在画布上，
+   * 实测命中的是面板里的 `<section>`）；② "左边中点"会撞上**左端点**（第 15 批加的，
+   * 命中它 = 从端点拉线，组压根没被选中）。
    */
   const gb7 = await page.locator(`[data-node-id="${mixedGid}"]`).boundingBox()
   await page.keyboard.down('Shift')
-  await page.mouse.click(gb7.x + 10, gb7.y + gb7.height / 2)
+  await page.mouse.click(gb7.x + 30, gb7.y + gb7.height - 10)
   await page.keyboard.up('Shift')
   await sleep(450)
   const mixedSel = await page

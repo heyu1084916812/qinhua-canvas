@@ -2,6 +2,7 @@ import { createId } from '../../shared/id'
 import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import { isContainerType } from '../../domain/canvas/model/node'
 import { CONTAINER_PADDING } from '../../domain/canvas/layout/constants'
+import { containerMinSize } from '../../domain/canvas/layout/packContainer'
 
 /**
  * 容器包装框在选中内容四周留的边距。
@@ -59,6 +60,19 @@ export function wrapSelection(
   const maxX = Math.max(...tops.map((n) => n.x + n.w)) + PAD
   const maxY = Math.max(...tops.map((n) => n.y + n.h)) + PAD
 
+  /**
+   * 包装框的尺寸**按类型分流**（第 15 批 #335-① 的关键一环）：
+   * - **分组**：子节点保持画布位置 ⇒ 框 = 内容包围盒（`maxX/minX`）；
+   * - **批量**：位置语义是 3×3 格位 ⇒ 框就该**等于网格尺寸**（`containerMinSize`）。
+   *   以前批量也用包围盒建框（比网格大得多），于是"进批量下方空一片"（对账 #325），
+   *   而"自动尺寸才跟着子节点数变"那条判据（`batchFitPatches`）也就永远不成立
+   *   —— 手工放大过的框会被下一次增删按回网格。两处一起改才闭环。
+   */
+  const size =
+    type === 'batch'
+      ? containerMinSize('batch', tops.length)
+      : { w: maxX - minX, h: maxY - minY }
+
   const containerId = createId('node')
   store.beginPlan(containerId, label)
   try {
@@ -68,7 +82,7 @@ export function wrapSelection(
       type,
       id: containerId,
       at: { x: minX, y: minY },
-      size: { w: maxX - minX, h: maxY - minY },
+      size,
     })
     for (const n of tops) store.dispatch({ kind: 'node.reparent', id: n.id, toParent: containerId })
     /** 选中的是**新容器**：紧接着的拖动 / 删除都作用在它上，而不是里面某个节点 */

@@ -4533,3 +4533,17 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
 - **RF 的 `Handle` 横向偏移**：左右两只都带 `translate(±50%, -50%)`，所以 `right: -N` 的最终圆心是「节点右边缘 + N」；要与 27px 的端点圆点重合就写 27，不是 20+14。
 - **分组与批量是两套布局**：贴合尺寸分别是 `groupFitSize` / `containerMinSize`，别再共用一份。
 - 冒烟里取节点清单要**限定根层**（`.react-flow__node > [data-node-type=…]`）：容器子节点也带 `[data-node-type]`，混进来会点到组里或屏幕外。
+
+## 2026-10-07 第 15 批（端点动效点 / 容器两套位置语义）
+
+- **端点 = 动效点，线从节点边缘起步**：改了圆点位置就一定要同步四样东西 —— `portHits` 的圆心、
+  RF `Handle` 的 `left/right`（RF 的左右手柄自带 `translate(±50%)`，写 0 才是"圆心落在边界上"）、
+  `portAnchorWorld`（连线锚点）、`nodeAtPoint` 的端点命中兜底。
+- **端点越出节点 ⇒ 三件配套**：只露活动节点（`activePortNode`）、"指针戳在端点上"优先级最高、
+  命中框重叠时按离指针最近算（否则会出现"拖 A 的输出变拖 B 的输入"这种假偶发）。
+- **容器两套位置语义**：分组 = 画布位置（`convertOnReparent` 保世界位置）；批量 = 格位（`packedCellAt`）。
+  批量的框拉大 = **缩放倍率**（`containerScale`），所以自动路径不许把手工放大的框按回网格（`batchFitPatches`）。
+- **组框只长不缩**（`refitGroupPatches` 的 `hug`）；只有手动「整理节点」（`tight`）会缩。
+- **子节点是容器的 DOM 后代** ⇒ RF 会把"点子节点"记成"点容器"。修法是**在 surface 上再兜一道**：
+  React 合成事件按树深度派发，容器比 surface 深、先跑，所以 surface 的 `onClick` 是最后说话的人。
+- **冒烟里点组框留白要避开两个东西**：左右边缘**中点**（那是端点）与节点**正下方**（那是创作面板）。
