@@ -17810,8 +17810,16 @@ async function g97(browser) {
     g,
     '★★ 查不到额度的工具直说「没有可查的命令」（不假装能查）',
     (await page.locator('[data-cli-status-none="jimeng"]').count()) === 1 &&
-      (await page.locator('[data-cli-status-none="runninghub"]').count()) === 1 &&
       (await page.locator('[data-cli-status="jimeng"]').isDisabled()) &&
+      /**
+       * ⚠️ 口径**反转**（2026-10-08）：RunningHub 以前被归在"没有官方 CLI"那一档，
+       * 实测推翻 —— 官方有 `HM-RunningHub/RH_CLI`（装完注册 `rh`），而且
+       * `rh --json check` 是四个工具里**唯一真能读到额度**的（余额 + RH 币）。
+       * 所以它不再显示"没有可查命令"，而是挂着查额度命令那一档；
+       * "没有就是没有"这条规则本身仍由上面那句 jimeng 守着。
+       */
+      (await page.locator('[data-cli-status-none="runninghub"]').count()) === 0 &&
+      (await page.locator('[data-cli-status="runninghub"]').count()) === 1 &&
       (await page.locator('[data-cli-status-none="codex"]').count()) === 0,
   )
   rec(
