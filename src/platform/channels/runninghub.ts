@@ -13,6 +13,13 @@ import {
   type VideoRunRequest,
   type VerifyResult,
 } from './types'
+import {
+  RUNNINGHUB_ENDPOINT_SPECS,
+  RUNNINGHUB_MODELS,
+  type RunningHubDrivenParam,
+  type RunningHubModel,
+  type RunningHubEndpointSpec,
+} from './runninghubEndpoints'
 
 /**
  * RunningHub 适配器（用户第 22 批第 3 条：「RunningHub有两个令牌…他的协议也给我做一下」）。
@@ -42,6 +49,29 @@ import {
  *
  * 所以模型 id 带前缀把两条路分开（`endpoint:` / `app:`），生成时按前缀分派 —— 不需要
  * 用户去理解"这次扣哪本账"，也不会把请求发到它走不通的那条路上。
+ *
+ * ## 模型 / 端点两层（2026-10-08 补）
+ *
+ * 下拉里的一行是**一个模型**（全能图片PRO / 可灵 v3.0 Pro…），请求却要打到**具体端点**上。
+ * 同一个模型有文生 / 图生两个端点，选哪个只看这次带不带参考图 —— 与官方 CLI 的
+ * `endpoint_for_choice(choice, has_input_image=…)` 同一口径。
+ *
+ * 端点的参数规格（必填、默认值、档位可选项、媒体键名与是否多值）**由官方目录生成**：
+ * `node scripts/gen-runninghub-models.mjs <RH_CLI>/src/rh_cli/catalog/data/capabilities.json`
+ * → `runninghubEndpoints.ts`。建请求体的规则照官方 `model/payload.py` 逐条对齐（见 `buildPayload`）。
+ *
+ * ## 真机实测（2026-10-08，本机 Key：金额 0 / 币 473）
+ *
+ * 五条请求打到真实接口，回的都是**服务端自己的话**：
+ *  - 文生图 n-pro / 文生视频 v3.1-fast / 可灵（补了必填 `sound`+`duration`）→ `812 企业版余额不足`
+ *    ⇒ 端点 id、鉴权、请求体形状都被接受，只差钱；
+ *  - 图生图 n-pro/edit（`imageUrls` **数组**）、g-3（**单值**）、g-2（数组）→ 同样 `812`
+ *    ⇒ 这次修掉的「单值 / 多值」两种形状**都对**（早先写死发数组，g-3 那条是错的）；
+ *  - 图生视频 v3.1-fast → `1007 参数校验`（提示词只有 3 个字，服务端要求 ≥5）——
+ *    图片与档位都过了，这条错误由 `describeRhError` 翻成人话。
+ *
+ * 没有一条是网络 / 鉴权 / 端点不存在 —— 这是当前余额下能拿到的最强验证；
+ * **真正出图**要等「金额」充值（或走 `app:` 那条币路）。
  */
 
 const DEFAULT_HOST = 'https://www.runninghub.cn'
@@ -59,91 +89,60 @@ const POLL_MAX_MS = 20 * 60 * 1000
 const VERIFY_TIMEOUT_MS = 20000
 const SUBMIT_TIMEOUT_MS = 60000
 
-export interface RunningHubEndpoint {
-  /** 端点 id（原样发给 RunningHub） */
-  id: string
-  /** 模型下拉里显示的名字 */
-  label: string
-  kind: 'image' | 'video'
-  /** 提示词参数的键名 */
-  promptKey: string
-  /** 参考图参数的键名（没有= 这个端点不吃图） */
-  imageKey?: string
-  imageMultiple?: boolean
-  /** 比例 / 分辨率参数的键名（有就给，没有就留服务端默认） */
-  ratioKey?: string
-  resolutionKey?: string
-  /** 该端点**必填**但界面上没有对应档位的参数（原样带上，避免"必填缺失"被拒） */
-  required?: Record<string, unknown>
+export { RUNNINGHUB_ENDPOINT_SPECS, RUNNINGHUB_MODELS }
+
+const specById = new Map(RUNNINGHUB_ENDPOINT_SPECS.map((s) => [s.id, s]))
+const modelById = new Map(RUNNINGHUB_MODELS.map((m) => [m.id, m]))
+
+/** 标准模型端点 id 的前缀（`app:` 那条走 AI 应用，见 `APP_PREFIX`） */
+const ENDPOINT_PREFIX = 'endpoint:'
+
+/**
+ * 模型 id → 这次该打哪个端点。
+ *
+ * **有参考图 + 该模型有图生档 ⇒ 走图生档**，否则走文生档 —— 与官方 CLI 同一口径
+ * （`menus.py` 的 `endpoint_for_choice(choice, has_input_image=…)`）。
+ * 模型表里没有的 id 再按「裸端点 id」兜一层（排查 / 兼容老节点用），仍然找不到才报 missingModel。
+ */
+export function resolveRunningHubEndpoint(
+  modelId: string,
+  hasReferenceImage: boolean,
+): RunningHubEndpointSpec | null {
+  const model = modelById.get(modelId)
+  if (model) {
+    const id = hasReferenceImage && model.imageEndpoint ? model.imageEndpoint : model.textEndpoint
+    return specById.get(id) ?? null
+  }
+  const raw = modelId.startsWith(ENDPOINT_PREFIX) ? modelId.slice(ENDPOINT_PREFIX.length) : modelId
+  return specById.get(raw) ?? null
 }
 
 /**
- * 标准模型端点精选表（**金额**路，用户第 22 批 #358）。
+ * 模型 → 轻画的模型能力表。
  *
- * 来源：官方 CLI 仓库里的 `catalog/data/capabilities.json`（2026-10-08 取，共 356 个端点），
- * 这里只留**我核过参数**的几条常用项（热度 99 的低价渠道版 + 官方稳定版）。
- * 为什么不用运行时拉目录：那是一份 625KB 的静态表，为"选几条模型"每次去 GitHub 取不划算；
- * 需要更多端点时往这张表里加一行即可（`endpoint:` 前缀的模型 id 自动生效）。
+ * 档位照**文生档**报（那是没有参考图时的默认路径）；图生档少某一档时，
+ * 适配器**不会**把那个档位发出去（见 `buildPayload` 第 ③ 条）—— 发一个端点不认的值
+ * 只会换来一句看不懂的服务端报错。
+ *
+ * `inputTypes` 里带 image 的两种情况：模型有图生档，或者它的端点**本身就必填参考图**
+ * （「只吃参考图」的那两个模型）—— 后者如果报成 text-only，用户会在画布上选中它、
+ * 连图都懒得连，然后收到一句“必须带参考图”。
  */
-export const RUNNINGHUB_ENDPOINTS: readonly RunningHubEndpoint[] = [
-  {
-    id: 'rhart-image-g-2/text-to-image',
-    label: '全能图片 G-2.0 文生图（低价）',
-    kind: 'image',
-    promptKey: 'prompt',
-    ratioKey: 'aspectRatio',
-    resolutionKey: 'resolution',
-  },
-  {
-    id: 'alibaba/qwen-image-2.0/text-to-image',
-    label: '千问 2.0 文生图',
-    kind: 'image',
-    promptKey: 'prompt',
-  },
-  {
-    id: 'bytedance/jimeng-4.6/text-to-image',
-    label: '即梦图片 4.6 文生图',
-    kind: 'image',
-    promptKey: 'prompt',
-  },
-  {
-    id: 'rhart-image-g-3/image-to-image',
-    label: '全能图片 X-3 图生图',
-    kind: 'image',
-    promptKey: 'prompt',
-    imageKey: 'imageUrls',
-    imageMultiple: true,
-  },
-  {
-    id: 'rhart-image-n-pro-official/edit',
-    label: '全能图片 PRO 图生图（官方稳定版）',
-    kind: 'image',
-    promptKey: 'prompt',
-    imageKey: 'imageUrls',
-    imageMultiple: true,
-    ratioKey: 'aspectRatio',
-    resolutionKey: 'resolution',
-  },
-]
-
-/** 把 RunningHub 的比例档换成它的字面量（它自己就认 `1:1` 这种，故只做校验） */
-function ratioLiteral(value: unknown, allowed: readonly string[]): string | null {
-  if (typeof value !== 'string') return null
-  const normalized = value.replace(/\s+/g, '')
-  return allowed.includes(normalized) ? normalized : null
-}
-
-const IMAGE_RATIOS = ['3:2', '1:1', '2:3', '5:4', '4:5', '16:9', '9:16', '21:9', '3:4', '4:3']
-const IMAGE_RESOLUTIONS = ['1k', '2k', '4k']
-
-/** 端点 → 轻画的模型能力（比例 / 分辨率档位照抄目录里的 `options`） */
-function endpointCapability(e: RunningHubEndpoint): ModelCapability {
+export function runningHubCapability(model: RunningHubModel): ModelCapability {
+  const spec = specById.get(model.textEndpoint)
+  const needsImage = model.imageEndpoint !== undefined || spec?.media?.required === true
+  const durations = spec?.duration?.options
+    ?.map((v) => Number(v))
+    .filter((v) => Number.isFinite(v))
   return {
-    id: `endpoint:${e.id}`,
-    category: e.kind,
-    inputTypes: e.imageKey ? ['text', 'image'] : ['text'],
-    ...(e.kind === 'image' && e.ratioKey ? { aspectRatios: IMAGE_RATIOS } : {}),
-    ...(e.kind === 'image' && e.resolutionKey ? { resolutions: IMAGE_RESOLUTIONS } : {}),
+    id: model.id,
+    category: model.kind,
+    inputTypes: needsImage ? ['text', 'image'] : ['text'],
+    ...(spec?.ratio?.options ? { aspectRatios: [...spec.ratio.options] } : {}),
+    ...(spec?.resolution?.options ? { resolutions: [...spec.resolution.options] } : {}),
+    ...(durations && durations.length > 0
+      ? { durations: [Math.min(...durations), Math.max(...durations)] as [number, number] }
+      : {}),
     maxCount: 1,
   }
 }
@@ -201,6 +200,18 @@ function describeRhError(res: RhResponse, fallback: string): string {
   }
   if (/auth|token|key|401|403/i.test(`${code} ${message}`)) {
     return `${message}（检查这一行的 Key；金额 Key 与币 Key 是两把，别混用）`
+  }
+  /**
+   * `1007` = **输入没过服务端的参数校验**（2026-10-08 实测两次：坏掉的 base64 图
+   * →「Failed to upload Base64 image」、提示词只有 3 个字 →「field 'prompt' length 3
+   * is less than the minimum length 5」）。这句原话是英文且看不出该改哪儿，
+   * 所以前面补一句中文：**问题出在这次请求的参数上，不是网络也不是 Key**。
+   *
+   * 注意：这类约束（比如提示词最短 5 字）**官方目录里一个字都没写**，
+   * 是服务端自己判的 —— 所以这里只做"翻译"，**不自己编一个字数门槛**。
+   */
+  if (code === '1007') {
+    return `这次请求的参数没通过服务端校验：${message}`
   }
   return message
 }
@@ -313,24 +324,26 @@ export function createRunningHubAdapter(
   }
 
   /**
-   * 参考图 → 端点认的值（<5MB 内联 data URI；否则上传换 `download_url`）。
+   * 参考图 → 端点认的值。两条规则照搬官方 CLI 的 `media.py`：
+   *  ① **视频档一律上传**（它是 `force_upload=True`：视频端点不吃 data URI）；
+   *  ② 其余 < 5MB 内联成 data URI，超过才先上传换 `download_url`。
    *
    * 素材本体要经 `deps.assets.read(hash)` 读——渠道层只拿得到 hash（M6-12）。
    * 读不到的**静默跳过**（与 `openaiImages.readImageFiles` 同一口径）：参考图是增强项，
    * 少一张还能出图，为此让整次生成失败得不偿失。
    */
-  const resolveImage = async (
+  const resolveImages = async (
+    spec: RunningHubEndpointSpec,
     request: ImageRunRequest | VideoRunRequest,
     signal: AbortSignal,
   ): Promise<string[]> => {
-    const refs = imageInputsOf(request.inputs)
     const values: string[] = []
-    for (const ref of refs) {
+    for (const ref of imageInputsOf(request.inputs)) {
       const payload = await deps.assets.read(ref.assetHash).catch(() => null)
       if (!payload || payload.bytes.length === 0) continue
       const bytes = new Uint8Array(payload.bytes)
       const mime = payload.mime || ref.mime
-      if (bytes.byteLength < INLINE_LIMIT_BYTES) {
+      if (spec.kind !== 'video' && bytes.byteLength < INLINE_LIMIT_BYTES) {
         values.push(`data:${mime};base64,${bytesToBase64(bytes)}`)
         continue
       }
@@ -356,26 +369,68 @@ export function createRunningHubAdapter(
     return values
   }
 
-  const runEndpoint = async (
-    endpoint: RunningHubEndpoint,
+  /**
+   * 建请求体：四条规则逐条对齐官方 CLI 的 `model/payload.py`。
+   *
+   *  ① 提示词写进端点的 prompt 键；
+   *  ② 参考图写进端点的媒体键，**多值 / 单值由目录的 `multiple` 决定** —— 这里以前写死
+   *     「`imageUrls` 且多值」，而 `rhart-image-g-3/image-to-image` 收的是**单值**；
+   *  ③ 界面能驱动的档位（比例 / 清晰度 / 时长）**只在该端点真的声明了那一档、
+   *     且取值在它的可选项里**时才发：发一个端点不认的值，换来的只有一句看不懂的服务端报错；
+   *  ④ 最后：**必填 + 有默认值**而还没填的，一律补官方目录给的默认值 ——
+   *     少了这一步，`rhart-image-n-pro-official/edit` 这种「resolution 必填」的端点必然被拒。
+   */
+  const buildPayload = (
+    spec: RunningHubEndpointSpec,
+    request: ImageRunRequest | VideoRunRequest,
+    images: string[],
+  ): Record<string, unknown> => {
+    const payload: Record<string, unknown> = {}
+    payload[spec.promptKey ?? 'prompt'] = request.prompt
+
+    const media = spec.media
+    if (media && media.type === 'IMAGE') {
+      if (images.length === 0) {
+        /** 必填的参考图缺了：当场说清「这个模型必须连一张图」，别让服务端回一句看不懂的 4xx */
+        if (media.required) {
+          throw new ChannelError({
+            kind: 'validation',
+            field: '参考图',
+            reason: '这个模型必须带一张参考图（把图片 / 生成节点连到它左边）',
+          })
+        }
+      } else {
+        payload[media.key] = media.multiple ? images : images[0]
+      }
+    }
+
+    const put = (declared: RunningHubDrivenParam | undefined, raw: unknown) => {
+      if (!declared) return
+      const value = typeof raw === 'number' ? String(raw) : typeof raw === 'string' ? raw : ''
+      if (value === '') return
+      if (declared.options && !declared.options.includes(value)) return
+      payload[declared.key] = value
+    }
+    put(spec.ratio, request.params?.ratio)
+    put(spec.resolution, request.params?.resolution)
+    put(spec.duration, request.params?.duration)
+
+    for (const [k, v] of Object.entries(spec.requiredDefaults ?? {})) {
+      if (!(k in payload)) payload[k] = v
+    }
+    return payload
+  }
+
+  /** 标准模型端点：建请求体 → 提交 → 轮询 → 下载（两条计费路里的**金额**那条） */
+  const runSpec = async (
+    spec: RunningHubEndpointSpec,
     request: ImageRunRequest | VideoRunRequest,
     signal: AbortSignal,
   ): Promise<GeneratedAsset[]> => {
-    const payload: Record<string, unknown> = { [endpoint.promptKey]: request.prompt }
-    const ratio = ratioLiteral(request.params?.ratio, IMAGE_RATIOS)
-    if (ratio && endpoint.ratioKey) payload[endpoint.ratioKey] = ratio
-    if (endpoint.resolutionKey) {
-      const res = typeof request.params?.resolution === 'string' ? request.params.resolution.toLowerCase() : ''
-      if (IMAGE_RESOLUTIONS.includes(res)) payload[endpoint.resolutionKey] = res
-    }
-    if (endpoint.imageKey) {
-      const images = await resolveImage(request, signal)
-      if (images.length > 0) payload[endpoint.imageKey] = endpoint.imageMultiple ? images : images[0]
-    }
-    if (endpoint.required) Object.assign(payload, endpoint.required)
-
+    const images = await resolveImages(spec, request, signal)
+    const payload = buildPayload(spec, request, images)
     const submitted = await readJson(
-      await json(`${host}${STD_PATH}/${endpoint.id}`, payload, signal, SUBMIT_TIMEOUT_MS),
+      await json(`${host}${STD_PATH}/${spec.id}`, payload, signal, SUBMIT_TIMEOUT_MS),
     )
     if (submitted.code !== 0) {
       throw upstreamError(null, describeRhError(submitted, '提交失败'))
@@ -415,10 +470,17 @@ export function createRunningHubAdapter(
       if (target) target.fieldValue = value
     }
     setField('prompt', request.prompt)
-    const ratio = ratioLiteral(request.params?.ratio, IMAGE_RATIOS)
-    if (ratio) setField('aspectRatio', ratio)
-    const res = typeof request.params?.resolution === 'string' ? request.params.resolution.toLowerCase() : ''
-    if (IMAGE_RESOLUTIONS.includes(res)) setField('resolution', res)
+    /**
+     * AI 应用的**节点字段名**各家不同（都是应用作者起的），所以这边不设白名单：
+     * 非空就写进去，认不认识由应用自己判定 —— 写死了反而会把某些应用能改的档位挡在外面。
+     */
+    const putField = (fieldName: string, raw: unknown) => {
+      const value = typeof raw === 'number' ? String(raw) : typeof raw === 'string' ? raw : ''
+      if (value !== '') setField(fieldName, value)
+    }
+    putField('aspectRatio', request.params?.ratio)
+    putField('resolution', request.params?.resolution)
+    putField('duration', request.params?.duration)
 
     /** 参考图：应用要吃**上传后的文件名**（与端点路的内联不同，见 `media.py`） */
     const refs = imageInputsOf(request.inputs)
@@ -470,24 +532,27 @@ export function createRunningHubAdapter(
     if (request.model.startsWith(APP_PREFIX)) {
       return runApp(request.model.slice(APP_PREFIX.length), request, signal)
     }
-    const endpointId = request.model.startsWith('endpoint:')
-      ? request.model.slice('endpoint:'.length)
-      : request.model
-    const endpoint = RUNNINGHUB_ENDPOINTS.find((e) => e.id === endpointId)
-    if (!endpoint) {
+    /**
+     * **有参考图就走图生档**（模型表里成对），没有就走文生档 —— 这一步是
+     * 「用户不用理解 t2i / i2i」的关键，与官方 CLI 同一口径
+     * （`menus.py` 的 `endpoint_for_choice(choice, has_input_image=…)`）。
+     */
+    const hasImage = imageInputsOf(request.inputs).length > 0
+    const spec = resolveRunningHubEndpoint(request.model, hasImage)
+    if (!spec) {
       throw new ChannelError({ kind: 'channel', detail: 'missingModel' })
     }
-    return runEndpoint(endpoint, request, signal)
+    return runSpec(spec, request, signal)
   }
 
   /**
-   * 模型清单 = **标准模型端点**（金额）+ **推荐 AI 应用**（币）。
+   * 模型清单 = **标准模型**（金额路，来自官方目录）+ **推荐 AI 应用**（币路）。
    *
-   * 应用那一拉是 best-effort：拉不到就只给端点，不让整次验证失败 ——
-   * 用户手里若是"金额 Key"，`aiapp/list` 本来就是空的，那不该被当成"渠道没配好"。
+   * 应用那一拉是 best-effort：拉不到就只给模型，不让整次验证失败 ——
+   * 用户手里若是「金额 Key」，`aiapp/list` 本来就是空的，那不该被当成「渠道没配好」。
    */
   const listModels = async (signal: AbortSignal): Promise<ModelCapability[]> => {
-    const models: ModelCapability[] = RUNNINGHUB_ENDPOINTS.map(endpointCapability)
+    const models: ModelCapability[] = RUNNINGHUB_MODELS.map(runningHubCapability)
     try {
       const res = await readJson(
         await json(`${host}${APP_LIST_PATH}`, { current: 1, size: 30, sort: 'RECOMMEND' }, signal, VERIFY_TIMEOUT_MS),

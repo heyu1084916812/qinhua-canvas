@@ -186,27 +186,54 @@ export function defaultCliTools(): CliTool[] {
     {
       id: 'runninghub',
       name: 'RunningHub',
-      program: 'runninghub',
-      /*
-       * ⚠️ `{out}` **不能省**：RunningHub 出的是图 / 视频，而媒体只能落在文件里 ——
-       * 模板里没有 `{out}`，产物就无处落地（适配器会直接拒绝并指出这一点，
-       * 而不是让你等到"命令跑完了但读不到产物"）。
+      /**
+       * 命令名是 **`rh`**（官方 CLI 装完注册的就是它）。
+       *
+       * ⚠️ 这一条以前写的是 `runninghub` + 「官方没有 CLI」—— **2026-10-08 实测推翻了**：
+       * 官方有了（`HM-RunningHub/RH_CLI`，Apache-2.0），`python -m pip install .` 装完注册 `rh`，
+       * 本机已装并跑通 `rh --json check`（读到余额与 RH 币）。故照实改。
        */
-      argsTemplate: 'run --workflow {workflow} --out {out} --prompt {prompt}',
+      program: 'rh',
+      /*
+       * 走 `model run --task {model}`（不写 `--endpoint`）：
+       *  - `--task` 由**官方目录**挑该任务下最优的端点，用户不必记端点 id；
+       *  - 关键是它**不会弹交互式选择** —— 而 `rh image` / `rh video` 在没给 `-m` 时走
+       *    `typer.prompt`，非交互调用会被挂住（集成到应用里就是「点了没反应」）。
+       *
+       * ⚠️ `{out}` **不能省**：出的是图 / 视频，媒体只能落在文件里 ——
+       * 模板里没有 `{out}`，产物就无处落地（适配器会直接拒绝并指出这一点，
+       * 而不是让你等到「命令跑完了但读不到产物」）。
+       */
+      argsTemplate: 'model run --task {model} --prompt {prompt} --output {out}',
+      /**
+       * 模型 = 它自己的**任务名**（`--task` 的取值）。只列文生两类：
+       * 图生那两类要 `-i 参考图`，而本机的参数模板还没有图片占位符 ——
+       * 列出来只会让用户选中一个必然失败的档。
+       */
       models: [
-        { id: 'runninghub-image', category: 'image' },
-        { id: 'runninghub-video', category: 'video' },
+        { id: 'text-to-image', category: 'image' },
+        { id: 'text-to-video', category: 'video' },
       ],
       timeoutMs: 20 * MINUTE,
       needsCwd: false,
-      docUrl: 'https://www.runninghub.cn/',
-      note: 'RunningHub 是在线工作流平台，官方没有 CLI：这里填你本机那层封装脚本 / 工具的命令名。',
-      statusArgs: '',
+      docUrl: 'https://github.com/HM-RunningHub/RH_CLI',
+      note: '官方 CLI（`rh`）。模型那两行是它的任务名，`--task` 会按官方目录自动挑端点；要图生图 / 图生视频得带 `-i 参考图`，本机模板暂时没有图片占位符。',
+      /**
+       * 实测（2026-10-08）：`rh --json check` 回 `balance` 与 `coins` ——
+       * 四个默认工具里**唯一真能读到额度的**（Codex 只报登录态、Gemini 只报版本、
+       * 即梦没有官方 CLI）。用 `--json` 而不是默认输出：那行中文在非 UTF-8 控制台会乱码。
+       */
+      statusArgs: '--json check',
+      /**
+       * 一键登录：**空串**是如实回答 —— 官方 CLI 的 `rh auth set-key <KEY>` 把 Key 当
+       * **位置参数**读（不是 stdin），而本机的约定是「密钥只走 stdin、不进 argv」，
+       * 所以这条路走不通，只能由用户在本机跑一次那条命令（跑完即持久化，见下）。
+       */
       loginArgs: '',
       keyLoginArgs: '',
-      installHint: '官方没有 CLI：先在它网站拿到 API Key，再用社区 SDK / 自己写一个小脚本，把命令名填上面。',
-      installCommand: '',
-      quotaWhere: 'RunningHub 的余额在**它网站的「个人中心」**里看。',
+      installHint: '装它：先有 Python 3.10+，再 `python -m pip install git+https://github.com/HM-RunningHub/RH_CLI.git`；装完在本机跑一次 `rh auth set-key <你的Key>`（Key 在 https://www.runninghub.cn/enterprise-api/sharedApi 取），之后一直是登录态。',
+      installCommand: 'python -m pip install git+https://github.com/HM-RunningHub/RH_CLI.git',
+      quotaWhere: 'RunningHub 是**唯一能直接读到额度**的：`rh check` 报余额与 RH 币（面板上的「查额度」跑的就是 `rh --json check`）。',
     },
   ]
 }

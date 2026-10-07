@@ -4690,3 +4690,28 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   探针里把那两张表打出来，一眼就看见 `channelId=ch_builtin_modelscope`。
 - **提示词节点的模型下拉是「按节点渠道过滤」的**：节点一旦默认落到一条没有模型的渠道上（内置的 ModelScope），
   下拉里就只剩固定清单的预设名 —— mock 渠道的模型再全也看不见。这是 G74 卡 30s 超时的原因。
+
+## 2026-10-08 第 22 批（续 2：RunningHub 官方 CLI + 标准模型表按官方目录重建）
+
+- **「官方没有 X」这种结论要定期复核**：仓库里三处都写死着「RunningHub 官方没有 CLI」，
+  而它**有**（`HM-RunningHub/RH_CLI`，Apache-2.0，pip 装完注册 `rh`）。这类结论最坑的地方是**它同时被断言固化**：
+  单测三条 + 冒烟一条都按旧结论写死，改产品代码时必须连着改，否则「按实测改了代码」反而把测试弄红。
+- **能生成的表就别手抄**：RunningHub 的端点规格（必填 / 默认值 / 档位可选项 / 媒体键名与是否多值）
+  全部来自官方随包目录 `capabilities.json`，写个 `scripts/gen-runninghub-models.mjs` 生成 ——
+  顺带照出两个真 bug：`rhart-image-g-3/image-to-image` 的 `imageUrls` 是**单值**、
+  `rhart-image-n-pro-official/edit` 的 `resolution` 是**必填**。手抄 25 个端点 × 六七个参数必错。
+- **官方目录里没写的约束，只有真机能发现**：`rhart-video-v3.1-fast/image-to-video` 要求提示词 ≥ 5 字，
+  目录里一个字都没写。这类只能把服务端的参数校验错误码**翻成人话**（`1007` → 「这次请求的参数没通过服务端校验：…」），
+  **不要自己编一个门槛**（编了就是在猜）。
+- **CLI 集成要先看它会不会弹交互**：`rh image` / `rh video` 不给 `-m` 就走 `typer.prompt` 让人选数字 ——
+  非交互调用会被**挂住**（表现为「点了没反应」）。要用 `model run --task <任务名>` 那条，它按目录自动选端点。
+  凡是往应用里塞第三方 CLI，先把每条子命令在**无 TTY** 下跑一遍。
+- **Windows GBK 控制台下这个 CLI 会崩**：`rh --json model list` 抛 `UnicodeEncodeError: 'gbk' codec`（rich 写控制台时），
+  `PYTHONUTF8=1` 可解；另外它的 `--json` 长字段会被 rich **折行**写进 JSON，直接 `JSON.parse` 会炸。
+  要读目录就读随包文件，不要从控制台输出里解析。
+- **模型显示名和固定清单精确撞名 = 整条渠道的模型全消失**：`panelModelOptions` 有一条规则 ——
+  「渠道里只要有一个名字被固定清单认领，这条渠道的裸名字就全部让位」。
+  RunningHub 的 17 个模型里 `GPT Image 2` 正好撞上 ⇒ 一个都选不到（不是少一行，是整片）。
+  改用官方目录名「全能图片G-2.0（GPT Image 2）」避开，并加一条不变量断言守着（`presetIdForUpstream(id) === id`）。
+- **改模型 id 要留兼容**：`resolveRunningHubEndpoint` 同时认「显示名」与「`endpoint:<端点 id>`」，
+  老节点（存着旧 id）不会因为改显示名而打不通 —— 改这类 id 时先把兼容那一条写好。

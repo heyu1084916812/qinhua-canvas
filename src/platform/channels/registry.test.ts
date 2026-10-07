@@ -107,7 +107,7 @@ describe('channel registry', () => {
      * 同族分流的判据：`asyncTask` 的清单来自 `/v1/models`，不可能出现 `endpoint:`
      * 前缀（它根本不认识这个形状）。出现即证明路由到了 RunningHub 适配器。
      */
-    expect(models.some((m) => m.id.startsWith('endpoint:'))).toBe(true)
+    expect(models.some((m) => m.id === '全能图片PRO')).toBe(true)
   })
 
   it('cli-gateway 族分派到网关适配器（不再是 unsupported）', () => {

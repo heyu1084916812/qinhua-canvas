@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { fingerprintBytes } from '../../domain/shared/hash'
 import { createMemoryPlatform } from '../../platform/memory'
 import type { NetworkRequest, NetworkResponse } from '../../platform/ports'
-import { createRunningHubAdapter, RUNNINGHUB_ENDPOINTS } from './runninghub'
+import { createRunningHubAdapter, RUNNINGHUB_ENDPOINT_SPECS, RUNNINGHUB_MODELS } from './runninghub'
 import { ChannelError, type ImageRunRequest } from './types'
 import type { ResolvedChannelConfig } from './registry'
+import { presetIdForUpstream } from '../../domain/project/modelPresets'
 
 /** 真实 PNG 头（`imageSizeFromHeader` 要能读出来，产物才有像素） */
 const PNG_BYTES = new Uint8Array([
@@ -96,7 +97,7 @@ describe('RunningHub 适配器 / 标准模型（金额路）', () => {
 
     const adapter = createRunningHubAdapter(config, platform, FAST)
     const assets = await adapter.generateImage(
-      imageRequest('endpoint:rhart-image-g-2/text-to-image'),
+      imageRequest('全能图片G-2.0（GPT Image 2）'),
       signal,
     )
 
@@ -129,7 +130,7 @@ describe('RunningHub 适配器 / 标准模型（金额路）', () => {
     })
     const adapter = createRunningHubAdapter(config, platform, FAST)
     const err = await adapter
-      .generateImage(imageRequest('endpoint:rhart-image-g-2/text-to-image'), signal)
+      .generateImage(imageRequest('全能图片G-2.0（GPT Image 2）'), signal)
       .then(() => null)
       .catch((e: unknown) => e as ChannelError)
     expect(err).toBeInstanceOf(ChannelError)
@@ -140,16 +141,40 @@ describe('RunningHub 适配器 / 标准模型（金额路）', () => {
     expect(body).toContain('app:')
   })
 
+  it('服务端的参数校验错误（1007）翻成人话：问题在参数上，不是网络也不是 Key', async () => {
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest) => {
+        if (req.url.endsWith('/openapi/v2/query')) {
+          return json(200, { status: 'SUCCESS', results: [{ url: 'https://files.runninghub.cn/a.png' }] })
+        }
+        return json(200, {
+          errorCode: '1007',
+          errorMessage: "field 'prompt' length 3 is less than the minimum length 5",
+        })
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    const err = await adapter
+      .generateImage(imageRequest('全能图片G-2.0（GPT Image 2）'), signal)
+      .then(() => null)
+      .catch((e: unknown) => e as ChannelError)
+    expect(err).toBeInstanceOf(ChannelError)
+    const body = 'body' in err!.appError ? String(err!.appError.body) : ''
+    expect(body).toContain('参数没通过服务端校验')
+    /** 服务端原话照留：它才是唯一说得出"差在哪儿"的那句 */
+    expect(body).toContain('minimum length 5')
+  })
+
   it('不认识模型 → channel/missingModel；没填 Key → channel/missingKey', async () => {
     const platform = createMemoryPlatform({ handler: async () => json(200, {}) })
     const adapter = createRunningHubAdapter(config, platform, FAST)
-    await expect(adapter.generateImage(imageRequest('endpoint:没有这条'), signal)).rejects.toThrow(
+    await expect(adapter.generateImage(imageRequest('这个模型不存在'), signal)).rejects.toThrow(
       ChannelError,
     )
 
     const noKey = createRunningHubAdapter({ ...config, apiKey: null }, platform, FAST)
     const err = await noKey
-      .generateImage(imageRequest('endpoint:rhart-image-g-2/text-to-image'), signal)
+      .generateImage(imageRequest('全能图片G-2.0（GPT Image 2）'), signal)
       .then(() => null)
       .catch((e: unknown) => e as ChannelError)
     expect(err!.appError).toEqual({ kind: 'channel', detail: 'missingKey' })
@@ -179,14 +204,18 @@ describe('RunningHub 适配器 / 标准模型（金额路）', () => {
     })
     const adapter = createRunningHubAdapter(config, platform, FAST)
     await adapter.generateImage(
-      imageRequest('endpoint:rhart-image-g-3/image-to-image', [
+      imageRequest('全能图片X-3（图生图）', [
         { kind: 'asset', nodeId: 'n1', assetHash: 'h1', mime: 'image/png' },
       ]),
       signal,
     )
-    const images = (submitBody as unknown as { imageUrls: string[] }).imageUrls
-    expect(images).toHaveLength(1)
-    expect(images[0]!.startsWith('data:image/png;base64,')).toBe(true)
+    /**
+     * ⚠️ `rhart-image-g-3/image-to-image` 的 `imageUrls` 在官方目录里**没有 `multiple`**
+     * ⇒ 收的是**单值**。适配器早先写死"永远发数组"，正是这一批按目录修掉的。
+     */
+    const image = (submitBody as unknown as { imageUrls: string }).imageUrls
+    expect(typeof image).toBe('string')
+    expect(image.startsWith('data:image/png;base64,')).toBe(true)
   })
 })
 
@@ -264,7 +293,7 @@ describe('RunningHub 适配器 / verify 与模型清单', () => {
     const r = await adapter.verify(config, signal)
     expect(calls[0]!.endsWith('/uc/openapi/accountStatus')).toBe(true)
     expect(r.ok).toBe(true)
-    if (r.ok) expect(r.models.length).toBeGreaterThanOrEqual(RUNNINGHUB_ENDPOINTS.length)
+    if (r.ok) expect(r.models.length).toBeGreaterThanOrEqual(RUNNINGHUB_MODELS.length)
   })
 
   it('Key 不认账 → ok:false，且消息带服务端原话', async () => {
@@ -298,7 +327,7 @@ describe('RunningHub 适配器 / verify 与模型清单', () => {
     })
     const adapter = createRunningHubAdapter(config, platform, FAST)
     const models = await adapter.listModels(config, signal)
-    expect(models.length).toBe(RUNNINGHUB_ENDPOINTS.length)
+    expect(models.length).toBe(RUNNINGHUB_MODELS.length)
   })
 
   it('没有对话能力（RunningHub 就不做 chat）', async () => {
@@ -310,5 +339,201 @@ describe('RunningHub 适配器 / verify 与模型清单', () => {
         signal,
       ),
     ).rejects.toThrow(ChannelError)
+  })
+})
+describe('RunningHub 适配器 / 模型表与端点规格（按官方目录建的请求体）', () => {
+  it('★ 模型表自洽：每个模型的端点都在规格表里，规格 id 不重复', () => {
+    const specIds = RUNNINGHUB_ENDPOINT_SPECS.map((s) => s.id)
+    expect(new Set(specIds).size).toBe(specIds.length)
+    expect(RUNNINGHUB_MODELS.length).toBeGreaterThan(10)
+    for (const model of RUNNINGHUB_MODELS) {
+      expect(specIds).toContain(model.textEndpoint)
+      if (model.imageEndpoint) expect(specIds).toContain(model.imageEndpoint)
+    }
+  })
+
+  it('★★ 模型显示名不许和固定清单撞名（撞了会把这条渠道的模型整片顶掉）', () => {
+    /**
+     * 应用里模型下拉 = 「固定清单 + 渠道自己的模型」，而 `panelModelOptions` 有一条规则：
+     * **渠道里只要有一个名字被固定清单认领，这条渠道的裸名字就全部让位** ——
+     * 后果不是少一行，而是 17 个模型**一个都选不到**。
+     * 判据就是 `presetIdForUpstream`（对 id 与 aliases 做**精确**匹配）。
+     *
+     * 2026-10-08 实测：`GPT Image 2` 正是固定清单里的一个显示名 ⇒ 那一个改用官方目录名
+     * 「全能图片G-2.0（GPT Image 2）」避开。这条断言守住「以后加模型别再撞上」。
+     */
+    for (const model of RUNNINGHUB_MODELS) {
+      expect(presetIdForUpstream(model.id)).toBe(model.id)
+    }
+  })
+
+  it('★ 兼容：老的「裸端点 id」写法仍认，改显示名不会把老节点打断', async () => {
+    const urls: string[] = []
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest) => {
+        urls.push(req.url)
+        if (req.url.endsWith('/openapi/v2/query')) {
+          return json(200, { status: 'SUCCESS', results: [{ url: 'https://files.runninghub.cn/a.png' }] })
+        }
+        if (req.url.startsWith('https://files.runninghub.cn/')) return bytes(200, PNG_BYTES)
+        return json(200, { code: 0, taskId: 't1' })
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    await adapter.generateImage(imageRequest('endpoint:rhart-image-g-2/text-to-image'), signal)
+    expect(urls.some((u) => u.endsWith('/openapi/v2/rhart-image-g-2/text-to-image'))).toBe(true)
+  })
+
+  it('★★ 有参考图就自动走图生档（同一个模型 id，打到两个不同端点）', async () => {
+    const urls: string[] = []
+    const platform = createMemoryPlatform({
+      rows: { assets: [{ id: 'h1', bytes: new Uint8Array([1, 2, 3]), mime: 'image/png' }] },
+      handler: async (req: NetworkRequest) => {
+        urls.push(req.url)
+        if (req.url.endsWith('/openapi/v2/query')) {
+          return json(200, { status: 'SUCCESS', results: [{ url: 'https://files.runninghub.cn/a.png' }] })
+        }
+        if (req.url.startsWith('https://files.runninghub.cn/')) return bytes(200, PNG_BYTES)
+        return json(200, { code: 0, taskId: 't1' })
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    const model = '全能图片G-2.0（GPT Image 2）'
+
+    await adapter.generateImage(imageRequest(model), signal)
+    await adapter.generateImage(
+      imageRequest(model, [{ kind: 'asset', nodeId: 'n1', assetHash: 'h1', mime: 'image/png' }]),
+      signal,
+    )
+
+    expect(urls.some((u) => u.endsWith('/openapi/v2/rhart-image-g-2/text-to-image'))).toBe(true)
+    expect(urls.some((u) => u.endsWith('/openapi/v2/rhart-image-g-2/image-to-image'))).toBe(true)
+  })
+
+  it('★★ 必填参数的官方默认值会自动补上（不补的话这个端点必然被拒）', async () => {
+    let body: Record<string, unknown> | null = null
+    const platform = createMemoryPlatform({
+      rows: { assets: [{ id: 'h1', bytes: new Uint8Array([9]), mime: 'image/png' }] },
+      handler: async (req: NetworkRequest) => {
+        if (req.url.includes('n-pro-official/edit')) {
+          body = req.body as Record<string, unknown>
+          return json(200, { code: 0, taskId: 't1' })
+        }
+        if (req.url.endsWith('/openapi/v2/query')) {
+          return json(200, { status: 'SUCCESS', results: [{ url: 'https://files.runninghub.cn/a.png' }] })
+        }
+        if (req.url.startsWith('https://files.runninghub.cn/')) return bytes(200, PNG_BYTES)
+        return json(200, {})
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    const request = (params: Record<string, unknown>) => ({
+      kind: 'image' as const,
+      channelId: 'c1',
+      model: '全能图片PRO（图生图·官方稳定版）',
+      prompt: '一只橘猫',
+      inputs: [{ kind: 'asset' as const, nodeId: 'n1', assetHash: 'h1', mime: 'image/png' }],
+      params,
+    })
+
+    /** ① 界面没给这一档 ⇒ 补官方默认值（目录里 `resolution` 必填、默认 1k） */
+    await adapter.generateImage(request({}), signal)
+    expect((body as unknown as { resolution?: string }).resolution).toBe('1k')
+    /** `imageUrls` 在目录里带 `multiple` ⇒ 发数组 */
+    expect(Array.isArray((body as unknown as { imageUrls?: string[] }).imageUrls)).toBe(true)
+
+    /** ② 用户选过的档位优先于默认值（2k 在该端点的可选项里） */
+    await adapter.generateImage(request({ resolution: '2k' }), signal)
+    expect((body as unknown as { resolution?: string }).resolution).toBe('2k')
+  })
+
+  it('★★ 必填参考图缺失时当场报「参考图」，不等服务端回一句看不懂的 4xx', async () => {
+    const platform = createMemoryPlatform({ handler: async () => json(200, { code: 0, taskId: 't1' }) })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    const err = await adapter
+      .generateImage(imageRequest('全能图片X-3（图生图）'), signal)
+      .then(() => null)
+      .catch((e: unknown) => e as ChannelError)
+    expect(err).toBeInstanceOf(ChannelError)
+    expect(err!.appError).toEqual({
+      kind: 'validation',
+      field: '参考图',
+      reason: '这个模型必须带一张参考图（把图片 / 生成节点连到它左边）',
+    })
+  })
+
+  it('★★ 端点不认的档位不发（发出去只会换来一句服务端报错），此时用官方默认值兜底', async () => {
+    let body: Record<string, unknown> | null = null
+    const platform = createMemoryPlatform({
+      handler: async (req: NetworkRequest) => {
+        if (req.url.includes('video-v3.1-fast/text-to-video')) {
+          body = req.body as Record<string, unknown>
+          return json(200, { code: 0, taskId: 't1' })
+        }
+        if (req.url.endsWith('/openapi/v2/query')) {
+          return json(200, { status: 'SUCCESS', results: [{ url: 'https://files.runninghub.cn/v.mp4' }] })
+        }
+        if (req.url.startsWith('https://files.runninghub.cn/')) return bytes(200, PNG_BYTES)
+        return json(200, {})
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    await adapter.generateVideo(
+      {
+        kind: 'video',
+        channelId: 'c1',
+        model: '全能视频V3.1 Fast',
+        prompt: '一只橘猫',
+        inputs: [],
+        /** 21:9 不在该端点的比例档里（它只认 16:9 / 9:16）；12 秒也不在它的时长档里（只有 8） */
+        params: { ratio: '21:9', duration: 12 },
+      },
+      signal,
+    )
+    const payload = body as unknown as Record<string, unknown>
+    expect('duration' in payload).toBe(false)
+    /** 比例没发出去 ⇒ 由 `requiredDefaults` 补官方默认（16:9 是图生档默认，文生档是 9:16） */
+    expect(payload.aspectRatio).toBe('9:16')
+  })
+
+  it('★ 视频档的参考图走**上传**（官方 media.py 对视频是 force_upload），且必填布尔值补默认', async () => {
+    const urls: string[] = []
+    let body: Record<string, unknown> | null = null
+    const platform = createMemoryPlatform({
+      rows: { assets: [{ id: 'h1', bytes: new Uint8Array([1, 2, 3]), mime: 'image/png' }] },
+      handler: async (req: NetworkRequest) => {
+        urls.push(req.url)
+        if (req.url.endsWith('/media/upload/binary')) {
+          return json(200, { code: 0, data: { download_url: 'https://files.runninghub.cn/up.png' } })
+        }
+        if (req.url.includes('video-v3.1-fast/image-to-video')) {
+          body = req.body as Record<string, unknown>
+          return json(200, { code: 0, taskId: 't1' })
+        }
+        if (req.url.endsWith('/openapi/v2/query')) {
+          return json(200, { status: 'SUCCESS', results: [{ url: 'https://files.runninghub.cn/v.mp4' }] })
+        }
+        if (req.url.startsWith('https://files.runninghub.cn/')) return bytes(200, PNG_BYTES)
+        return json(200, {})
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    await adapter.generateVideo(
+      {
+        kind: 'video',
+        channelId: 'c1',
+        model: '全能视频V3.1 Fast',
+        prompt: '一只橘猫在动',
+        inputs: [{ kind: 'asset', nodeId: 'n1', assetHash: 'h1', mime: 'image/png' }],
+        params: {},
+      },
+      signal,
+    )
+    expect(urls.some((u) => u.endsWith('/media/upload/binary'))).toBe(true)
+    const payload = body as unknown as Record<string, unknown>
+    /** 图生档收多值（目录里带 multiple） */
+    expect(payload.imageUrls).toEqual(['https://files.runninghub.cn/up.png'])
+    /** `resolution` 在这个端点上是必填（默认 720p） */
+    expect(payload.resolution).toBe('720p')
   })
 })

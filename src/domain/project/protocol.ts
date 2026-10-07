@@ -329,7 +329,7 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     kind: 'cli',
     status: 'ready',
     capabilities: cliCapabilities('runninghub'),
-    docUrl: 'https://www.runninghub.cn/',
+    docUrl: 'https://www.runninghub.cn/enterprise-api/sharedApi',
     note: '桌面壳里直接跑你本机那条命令（命令名与参数在「全局设置 → CLI」里配）；浏览器里要自建网关。',
     },
     {
@@ -352,14 +352,15 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
       kind: 'station',
       status: 'ready',
       /**
-       * 适配器只做了**图片**（端点的文生图 / 图生图，以及 AI 应用那条路）。
-       * 目录里那 198 个视频端点尚未逐一核过参数，故**视频先不声明** ——
-       * 声明了就等于告诉选路「这条能出片」，而跑起来只会报「不认识这个模型」。
+       * 能力 = **图片 + 视频**（2026-10-08 补视频）：目录里精挑的 29 个端点里既有文生图 / 图生图，
+       * 也有文生视频 / 图生视频，请求形状同一条链路（提交 → 轮询 → 下载），
+       * 参数与档位按官方目录逐端点建（见 `platform/channels/runninghubEndpoints.ts`）。
+       * 音频 / 3D 那两类做得出来再说 —— 领域层目前没有这两档能力，声明了也没地方用。
        */
-      capabilities: ['image'],
+      capabilities: ['image', 'video'],
       defaultBaseUrl: 'https://www.runninghub.cn',
-      docUrl: 'https://www.runninghub.cn/',
-      note: 'RunningHub 的 OpenAPI（提交任务 + 轮询取结果）。模型 id 带前缀分流：endpoint: 走标准模型（扣金额），app: 走 AI 应用（扣 RH 币）。',
+      docUrl: 'https://www.runninghub.cn/enterprise-api/sharedApi',
+      note: 'RunningHub 的 OpenAPI（提交任务 + 轮询取结果）。模型 id 带前缀分流：endpoint: 走标准模型（扣金额），app: 走 AI 应用（扣 RH 币）；有参考图时自动走该模型的图生档。',
       /**
        * RunningHub 要**两把钥匙**（用户第 22 批第 3 条：「有两个令牌，一个是币的，一个是金额的」）：
        * - `balance`（主槽）：**账户余额 Key（金额）** ⇒ 标准模型 API，出图 / 出片按金额计费；

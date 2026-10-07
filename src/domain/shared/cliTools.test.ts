@@ -82,8 +82,12 @@ describe('CLI 工具配置的归一化', () => {
     // 没存过的字段：默认值原样
     expect(codex?.timeoutMs).toBe(defaultCliTools()[0]?.timeoutMs)
     expect(codex?.name).toBe('Codex')
-    // 没被改过的其它工具也在（目录以代码为准）
-    expect(tools.find((t) => t.id === 'runninghub')?.program).toBe('runninghub')
+    /**
+     * 没被改过的其它工具也在（目录以代码为准）。
+     * ⚠️ 这里量的程序名 2026-10-08 从 `runninghub` 改成 **`rh`** ——
+     * 官方 CLI（`HM-RunningHub/RH_CLI`）装完注册的就是 `rh`，本机已装上跑通。
+     */
+    expect(tools.find((t) => t.id === 'runninghub')?.program).toBe('rh')
   })
 
   it('坏值回落默认，认不出的 id 直接丢掉', () => {
@@ -131,9 +135,18 @@ describe('CLI 工具配置的归一化', () => {
       '-g',
       '@google/gemini-cli',
     ])
-    /* 即梦 / RunningHub 官方没有 CLI ⇒ 空串（面板据此不给"一键安装"按钮） */
+    /* 即梦官方没有 CLI ⇒ 空串（面板据此不给「一键安装」按钮） */
     expect(tools.find((t) => t.id === 'jimeng')!.installCommand).toBe('')
-    expect(tools.find((t) => t.id === 'runninghub')!.installCommand).toBe('')
+    /**
+     * ⚠️ RunningHub **有**官方 CLI（2026-10-08 实测推翻旧结论）：`HM-RunningHub/RH_CLI`，
+     * pip 装、注册 `rh`。所以它从"空串"改成真命令 —— 而"空串合法"这条规则本身
+     * 仍由上面那句 jimeng 与下一条用例守着。
+     */
+    expect(parseArgs(tools.find((t) => t.id === 'runninghub')!.installCommand).slice(0, 3)).toEqual([
+      'python',
+      '-m',
+      'pip',
+    ])
   })
 
   it('★ 安装命令也是"空串合法"：用户清空后不许自己长回默认', () => {
@@ -160,9 +173,13 @@ describe('CLI 工具配置的归一化', () => {
     for (const tool of defaultCliTools()) {
       expect(tool.quotaWhere.trim().length).toBeGreaterThan(10)
     }
-    // 即梦 / RunningHub 本机没有官方 CLI ⇒ 默认不给"查状态"命令（面板会直说，而不是给个假按钮）
+    /**
+     * 即梦没有官方 CLI ⇒ 不给「查状态」命令（面板会直说，而不是给个假按钮）。
+     * ⚠️ RunningHub 相反：官方 CLI 的 `rh --json check` **真能读到额度**
+     * （余额 + RH 币，2026-10-08 本机实测），所以这里断言的是"它必须挂着查额度命令"。
+     */
     expect(defaultCliTools().find((t) => t.id === 'jimeng')?.statusArgs).toBe('')
-    expect(defaultCliTools().find((t) => t.id === 'runninghub')?.statusArgs).toBe('')
+    expect(defaultCliTools().find((t) => t.id === 'runninghub')?.statusArgs).toBe('--json check')
     // Codex 支持密钥登录（官方 help 里写明 `login --with-api-key` 从 stdin 读）
     expect(defaultCliTools().find((t) => t.id === 'codex')?.keyLoginArgs).toContain('--with-api-key')
   })
