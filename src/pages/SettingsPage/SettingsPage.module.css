@@ -265,6 +265,15 @@
 
 .item {
   width: 100%;
+  /**
+   * ⚠️ **必须写 `border-box`**（用户第 22 批：「右边是超出了吗？容器，修复他」）。
+   *
+   * 表单控件（`button` / `input` / `select`）在 UA 样式里**天生就是 `border-box`**，
+   * 而列表项第 21 批从 `<button>` 换成了 `role=button` 的 `<div>` ⇒ 这一格退回默认的
+   * `content-box`：`width: 100%` 算的是**内容盒**，再加上左右各 `--space-3` 内距与 1px 描边，
+   * 外框比容器宽 26px —— 表现就是选中态那个白框**戳出卡片右沿**。
+   */
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: stretch;

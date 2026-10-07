@@ -667,11 +667,11 @@ export function SettingsPage() {
                     <ChannelIcon protocol={ch.protocol} icon={ch.icon} size={20} />
                     <span className={styles.itemName}>{ch.name}</span>
                   </span>
-                  <span className={styles.itemMeta}>
-                    <span className={styles.itemModels}>
-                      {ch.models.length > 0 ? `${ch.models.length} 个模型` : '未选模型'}
-                    </span>
-                  </span>
+                  {/*
+                    「未选模型 / N 个模型」**已删**（用户第 22 批：「图一的未选择模型这个也不要了」）——
+                    列表项现在只有：图标 + 名称 + 启用开关。模型挑没挑在右侧「模型列表」那一栏里看得到，
+                    列表上再挂一行只是噪声。
+                  */}
                   {/*
                     启用开关**放在每条渠道下方**（用户第 21 批第 2 条，图二那条箭头）：
                     列表里一眼看到"这条开没开"，不用先点进去找「基本信息」里那个开关。
