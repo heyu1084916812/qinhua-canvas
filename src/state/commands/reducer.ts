@@ -46,15 +46,24 @@ function refitGroupPatches(
   kids: readonly { id: string; x: number; y: number; w: number; h: number }[],
   mode: 'hug' | 'tight' = 'hug',
 ): void {
+  /**
+   * ★★ **空组：框一点都不动**（用户第 17 批 #2：「分组里面的节点全部拖出去之后，
+   * 那个分组背景板也不需要变…但是全部节点出去后就不行了，就给我缩小了」）。
+   *
+   * 少了这一条，最后一个孩子走掉时 `useHug` 会因为 `kids.length > 0` 不成立而翻成 false
+   * ⇒ 落到"贴合"路径 ⇒ 框被 `groupFitSize([])` 的空板默认尺寸顶掉
+   *（实测：570×280 的框，两个成员都出去之后变成 240×192）。
+   *
+   * 「只长不缩」的语义本来就是"自动路径不缩框"，空组是它的极端情况：
+   * 没有孩子就没有"贴合"可言，框留在原地等用户继续用（要缩只剩手动「整理节点」）。
+   */
+  if (kids.length === 0) return
   const fit = groupFitSize(kids)
   /** 贴合框在**世界坐标**下的左上角（孩子存的是 local ⇒ 加组原点） */
   const tightX = kids.length > 0 ? g.x + Math.min(...kids.map((k) => k.x)) - CONTAINER_PADDING : g.x
   const tightY = kids.length > 0 ? g.y + Math.min(...kids.map((k) => k.y)) - CONTAINER_PADDING : g.y
-  /**
-   * 只长不缩：自动路径把"当前框"也并进来（负方向要挪原点、正方向只改尺寸）。
-   * 空组不参与"长"（它是 240×192 的空板，不该被一个 0×0 的并集撑成 0）。
-   */
-  const useHug = mode === 'hug' && kids.length > 0
+  /** 只长不缩：自动路径把"当前框"也并进来（负方向要挪原点、正方向只改尺寸）。空组在上面的早退里已经排除 */
+  const useHug = mode === 'hug'
   const x = useHug ? Math.min(g.x, tightX) : tightX
   const y = useHug ? Math.min(g.y, tightY) : tightY
   const right = useHug ? Math.max(g.x + g.w, tightX + fit.w) : tightX + fit.w

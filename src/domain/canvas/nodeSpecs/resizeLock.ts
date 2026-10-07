@@ -137,3 +137,35 @@ export function freeResize(
     h,
   }
 }
+
+/**
+ * 把一次自由缩放的结果**按基准比例归位**（等比锁），**锚点 = 被拖角的对角**。
+ *
+ * 用户第 17 批 #3：「批量节点还是不是等比例放大的」。
+ *
+ * 批量的内容是 3×3 **网格**（单元 200×160 + 16 间距 + 20 内边距），而框一直是自由缩放 ⇒
+ * 框一旦不是网格的比例，`containerScale` 只能取 `min(宽比, 高比)`，长的那一轴就空出一大片
+ * （用户给的图二：框 920×550、格子只放大 1.37 倍，下半截全是空的）。
+ * 所以批量的框**永远 = 网格 × 一个等比系数**：拖四角 = 整体等比缩放，格子随时铺满。
+ *
+ * 与 `lockedResize` 的分工：那只锁的是"节点自己的内容比例"（图片 / 视频按产物像素），
+ * 锚点写死左上；这只锁的是"**容器网格**的比例"，锚点跟着四角走（`freeResize` 已经算好
+ * 被拖角跟手、对角固定，这里只把尺寸归位到网格比例、再把坐标按同一个对角回推）。
+ *
+ * `k` 下限取 1：网格尺寸本身就是最小尺寸（再小会遮住子节点，与 `freeResize` 的 `min` 同源）。
+ */
+export function aspectLockedResize(
+  rect: Rect,
+  corner: ResizeCorner,
+  base: { w: number; h: number },
+): Rect {
+  if (base.w <= 0 || base.h <= 0) return rect
+  const k = Math.max(1, Math.min(rect.w / base.w, rect.h / base.h))
+  const w = Math.max(base.w, Math.round(base.w * k))
+  const h = Math.max(base.h, Math.round(base.h * k))
+  const right = rect.x + rect.w
+  const bottom = rect.y + rect.h
+  const west = corner === 'sw' || corner === 'nw'
+  const north = corner === 'ne' || corner === 'nw'
+  return { x: west ? right - w : rect.x, y: north ? bottom - h : rect.y, w, h }
+}

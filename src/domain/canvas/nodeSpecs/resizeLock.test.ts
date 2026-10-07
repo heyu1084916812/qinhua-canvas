@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { resizeLockOf, lockedResize } from './resizeLock'
-import { freeResize } from './resizeLock'
+import { aspectLockedResize, freeResize } from './resizeLock'
 import type { NodeSnapshot, GenerationData } from '../model/node'
+import type { Rect } from '../geometry/rect'
 
 /**
  * 只声明被测字段：缩放锁的解析与换算都只看 type / data 里的几个字段，
@@ -151,5 +152,53 @@ describe('freeResize / 四角自由缩放', () => {
       const anchor = { x: west ? r.x + r.w : r.x, y: north ? r.y + r.h : r.y }
       expect(anchor).toEqual(fixed[corner])
     }
+  })
+})
+
+/**
+ * 等比锁（用户第 17 批 #3：「批量节点还是不是等比例放大的」）：
+ * 批量的框**永远等于网格 × 一个等比系数** —— 长的那一轴不再空出一大片。
+ */
+describe('aspectLockedResize / 批量框的等比锁', () => {
+  /** 3 格的网格基准（= `containerMinSize('batch', 3)`）*/
+  const grid = { w: 672, h: 200 }
+  const start: Rect = { x: 100, y: 100, w: 672, h: 200 }
+
+  it('★★ 只有一轴被拉长时，另一轴按网格比例跟着长（不留死白）', () => {
+    /** 往右拉 328、往下拉 400：宽比 1.488、高比 3 ⇒ 取小的那个（宽比） */
+    const free = freeResize(start, 'se', 328, 400, grid)
+    const r = aspectLockedResize(free, 'se', grid)
+    expect(r.w / r.h).toBeCloseTo(grid.w / grid.h, 2)
+    expect(r.w).toBe(Math.round(grid.w * (1000 / 672)))
+    /** 框的宽高都跟着变大，但比例恒等于网格 */
+    expect(r.w).toBeGreaterThan(start.w)
+    expect(r.h).toBeGreaterThan(start.h)
+  })
+
+  it('★ 锚点 = 被拖角的对角（四角都试一遍）', () => {
+    for (const corner of ['se', 'sw', 'ne', 'nw'] as const) {
+      const free = freeResize(start, corner, -200, -80, grid)
+      const r = aspectLockedResize(free, corner, grid)
+      const west = corner === 'sw' || corner === 'nw'
+      const north = corner === 'ne' || corner === 'nw'
+      const anchor = { x: west ? r.x + r.w : r.x, y: north ? r.y + r.h : r.y }
+      const fixed = {
+        se: { x: start.x, y: start.y },
+        sw: { x: start.x + start.w, y: start.y },
+        ne: { x: start.x, y: start.y + start.h },
+        nw: { x: start.x + start.w, y: start.y + start.h },
+      }[corner]
+      /** 取整会带来 <1px 的误差 ⇒ 比"比例相对误差 < 1%" */
+      expect(Math.abs(r.w / r.h / (grid.w / grid.h) - 1)).toBeLessThan(0.01)
+      expect(anchor.x).toBeCloseTo(fixed.x, 6)
+      expect(anchor.y).toBeCloseTo(fixed.y, 6)
+    }
+  })
+
+  it('★ 缩不到网格以下（下限就是基准，与最小尺寸同源）', () => {
+    const free = freeResize(start, 'se', -9999, -9999, grid)
+    const r = aspectLockedResize(free, 'se', grid)
+    expect(r.w).toBe(grid.w)
+    expect(r.h).toBe(grid.h)
   })
 })

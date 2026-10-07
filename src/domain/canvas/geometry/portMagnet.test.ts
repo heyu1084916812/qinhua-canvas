@@ -20,7 +20,9 @@ describe('端点磁吸（§6.14）', () => {
   it('★ 正好落在感应圈上 → 算感应到（闭区间，避免边界漂移）', () => {
     const r = portMagnet(CENTER, { x: 100 + 68, y: 100 }, OPTS)
     expect(r.hot).toBe(true)
-    expect(r.dx).toBeCloseTo(0, 5)
+    /** 吸附量恒定（第 17 批 #4）⇒ 圈边上也是吸满一整份 */
+    expect(r.dx).toBeCloseTo(OPTS.maxPull, 6)
+    expect(r.dy).toBeCloseTo(0, 6)
   })
 
   it('★ 吸附方向 = 从圆心指向指针（取反会变成「躲开指针」）', () => {
@@ -32,13 +34,15 @@ describe('端点磁吸（§6.14）', () => {
     expect(left.dx).toBeLessThan(0)
   })
 
-  it('★ 吸附量随距离衰减：越靠近圆心吸得越多', () => {
-    const near = portMagnet(CENTER, { x: 105, y: 100 }, OPTS)
-    const mid = portMagnet(CENTER, { x: 134, y: 100 }, OPTS)
-    const far = portMagnet(CENTER, { x: 160, y: 100 }, OPTS)
-    expect(near.dx).toBeGreaterThan(mid.dx)
-    expect(mid.dx).toBeGreaterThan(far.dx)
-    expect(far.dx).toBeGreaterThanOrEqual(0)
+  it('★★ 吸附量**恒定**：感应圈内无论远近，吸的量一样（用户第 17 批 #4）', () => {
+    for (const x of [105, 134, 160, 167]) {
+      const r = portMagnet(CENTER, { x, y: 100 }, OPTS)
+      expect(r.hot).toBe(true)
+      expect(Math.hypot(r.dx, r.dy)).toBeCloseTo(OPTS.maxPull, 6)
+    }
+    /** 斜向也一样：位移长度恒为 maxPull，只是方向跟着指针 */
+    const diag = portMagnet(CENTER, { x: 148, y: 148 }, OPTS)
+    expect(Math.hypot(diag.dx, diag.dy)).toBeCloseTo(OPTS.maxPull, 6)
   })
 
   it('★ 位移不超过上限（否则端点会离节点边框太远、读不出归属）', () => {

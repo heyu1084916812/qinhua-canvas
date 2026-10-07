@@ -145,6 +145,12 @@ function FlowNodeInner({ data, selected }: NodeProps) {
       scale={zoom}
       minSize={minSize}
       resizeLock={resizeLockOf(node)}
+      /**
+       * **批量的框永远等于网格 × 一个等比系数**（用户第 17 批 #3）：
+       * 自由缩放会让框偏离网格比例，`containerScale` 只能取 `min(宽比, 高比)` ⇒
+       * 长的那一轴空出一大片。基准就是它的动态最小尺寸（= 网格尺寸）。
+       */
+      lockAspect={node.type === 'batch' ? minSize : undefined}
       /* 容器四角可缩放（用户 2026-10-06 第 13 批第 5 条）；其它类型仍是右下那一只 */
       resizeCorners={isContainerType(node.type) ? RESIZE_CORNERS : undefined}
       heightFromContent={heightFromContentOf(node)}

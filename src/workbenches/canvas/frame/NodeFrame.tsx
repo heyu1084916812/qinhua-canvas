@@ -4,7 +4,12 @@ import { useSyncExternalStore } from 'react'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import type { Rect } from '../../../domain/canvas/geometry/rect'
 import type { ResizeLock } from '../../../domain/canvas/nodeSpecs/resizeLock'
-import { freeResize, lockedResize, type ResizeCorner } from '../../../domain/canvas/nodeSpecs/resizeLock'
+import {
+  aspectLockedResize,
+  freeResize,
+  lockedResize,
+  type ResizeCorner,
+} from '../../../domain/canvas/nodeSpecs/resizeLock'
 import { useCanvasStore } from '../storeContext'
 import { assetPixelsOf, formatPixels } from './assetPixels'
 import styles from './NodeFrame.module.css'
@@ -36,6 +41,15 @@ export interface NodeFrameProps {
    * （有内容的图片 / 视频节点 = `naturalSize`，分组 / 批量 = 5:4）。
    */
   resizeLock?: ResizeLock
+  /**
+   * **等比锁**（可选）：给了基准尺寸就说明"这个节点的比例要永远等于它" ——
+   * 拖动四角 = 整体等比缩放，锚点仍是被拖角的对角。
+   *
+   * 现在只有**批量**用它（基准 = 网格尺寸 `containerMinSize`）：用户第 17 批 #3
+   * 「批量节点还是不是等比例放大的」—— 批量是网格，框一旦不是网格的比例，
+   * 格子就只能按较短那一轴缩放、长的那轴空出一大片（见 `aspectLockedResize` 的说明）。
+   */
+  lockAspect?: { w: number; h: number }
   /**
    * 高度由内容决定（参数卡，见 `heightFromContentOf`）：缩放**只取横向位移**。
    *
@@ -204,6 +218,8 @@ export function NodeFrame(props: NodeFrameProps) {
          */
         latest = freeResize(base, corner, dx, dy, minSize)
       }
+      /** 等比锁（批量）：尺寸归位到网格比例，锚点仍是刚才那只对角 */
+      if (props.lockAspect) latest = aspectLockedResize(latest, corner, props.lockAspect)
       props.onResize(latest, 'move')
     }
     const up = () => {

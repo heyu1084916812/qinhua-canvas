@@ -11,6 +11,7 @@ import {
   type PortNodeRect,
 } from '../../../domain/canvas/geometry/portReveal'
 import { NO_MAGNET, portMagnet } from '../../../domain/canvas/geometry/portMagnet'
+import { useSelectionKeyHeld } from '../../../features/canvas/useSelectionKeyHeld'
 import { IconPlus } from '../toolbar/icons'
 import { portHitsOf, type PortHit } from './portHits'
 import styles from './FlowPortLayer.module.css'
@@ -48,13 +49,18 @@ const PortHitViewport = memo(function PortHitViewport({
 }) {
   const viewport = useViewportState()
   const zoom = viewport.zoom || 1
+  /**
+   * 按住 Ctrl / ⌘（框选键）时，命中层**整层不吃指针** —— 这一层挂在 `.react-flow__pane` 外面，
+   * 它一旦接住按下，RF 的框选就不会启动（见 `useSelectionKeyHeld` 的说明）。
+   */
+  const selecting = useSelectionKeyHeld()
   return (
     /**
      * 两层是**必需**的（别合成一层）：外层 `inset: 0` + `overflow: hidden` 把内层的溢出**收在这里**。
      * 单层版本会让整层（连同它的 transform）超出 surface ⇒ surface 就有了可滚余量，
      * 浏览器在"把某个控件 scrollIntoView"时会顺手把它滚一下 ⇒ 画布上的节点整体平移（G76/G104 实测）。
      */
-    <div className={styles.clip} data-flow-port-layer>
+    <div className={styles.clip} data-flow-port-layer data-port-selecting={selecting ? '1' : undefined}>
       <div
         className={styles.layer}
         style={{

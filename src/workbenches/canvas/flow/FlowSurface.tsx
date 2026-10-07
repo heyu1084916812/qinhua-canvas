@@ -221,6 +221,18 @@ function FlowSurfaceInner({
     zoom: number
     nodes: Map<string, { x: number; y: number }>
   } | null>(null)
+  /**
+   * 这一次按下的**屏幕坐标**：给 `onSurfaceClick` 判"是点了一下还是拖过一段"用
+   *（见那里的注释：框选 / 平移松手后浏览器仍会补一个 `click`）。
+   */
+  const pressAtRef = useRef<{ x: number; y: number } | null>(null)
+  /**
+   * 本次事件里**刚落下过"节点选中"变更**。
+   *
+   * 框选时 RF 会先发"选中这些节点"、**紧接着**再发"选中挂在这些节点上的线"
+   * （`commitUserSelectionRect` 里那两段是连着调的）—— 见 `onEdgesChange` 里为什么需要它。
+   */
+  const nodeSelectStampRef = useRef(false)
 
   /**
    * 容器子节点的拖动**复用老表面的控制器**（`useNodeDrag`）。
@@ -305,6 +317,19 @@ function FlowSurfaceInner({
    */
   const onSurfaceClick = useCallback(
     (e: ReactMouseEvent<HTMLDivElement>) => {
+      /**
+       * ★★ **拖过一段就不算"点空白"**（用户第 17 批 #1：「上面三个图**有时候**框选多选不了」）。
+       *
+       * 浏览器的 `click` 只要**按下与松手在同一个元素**上就会触发，不管中间拖了多远 ——
+       * 而框选（Ctrl+拖）与平移（空白处拖）都恰好是"按在画布上、松手也在画布上"
+       * ⇒ 松手那一瞬间会跟着来一个 `click`，把刚框好的选中**整片清掉**。
+       * 用户说的"有时候"就是这么来的：起点与终点落在同一个元素上才触发
+       *（落在连线上 / 落在另一个节点上就不触发 —— 于是看起来像"跟连线有关"）。
+       *
+       * 阈值取 4px，与 RF 自己的 `paneClickDistance` 同一口径（它也是拿"有没有移动过"区分点击）。
+       */
+      const press = pressAtRef.current
+      if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 4) return
       const target = e.target as HTMLElement
       const hit = target.closest('[data-node-id]')
       const childId = hit?.getAttribute('data-node-id')
@@ -365,6 +390,7 @@ function FlowSurfaceInner({
    */
   const onSurfacePointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
+      pressAtRef.current = { x: e.clientX, y: e.clientY }
       /**
        * **空格 + 拖拽 = 平移画布**（§6.3）。这条必须在这里自己接：
        * React Flow 的 `panActivationKeyCode='Space'` 只放宽 d3-zoom 的过滤条件，
@@ -695,7 +721,18 @@ function FlowSurfaceInner({
         else selected.delete(change.id)
         selectionChanged = true
       }
-      if (selectionChanged) store.setSelection([...selected])
+      if (selectionChanged) {
+        store.setSelection([...selected])
+        /**
+         * 打一个"这一帧刚选过节点"的戳：RF 紧接着还会发一批"选中挂在这些节点上的线"，
+         * 而"选线"会把节点选中清掉（见 `onEdgesChange`）⇒ 那批必须丢掉。
+         * 戳在微任务里清掉 —— RF 那两个回调是**同一次**同步调用里连着来的。
+         */
+        nodeSelectStampRef.current = true
+        queueMicrotask(() => {
+          nodeSelectStampRef.current = false
+        })
+      }
 
       const positions: { id: string; position: { x: number; y: number } }[] = []
       for (const change of changes) {
@@ -954,7 +991,23 @@ function FlowSurfaceInner({
       if (!next) return
       const before = store.getEdgeSelection()
       const same = next.length === before.length && next.every((id, i) => id === before[i])
-      if (!same) store.setEdgeSelection(next)
+      if (same) return
+      /**
+       * ★★ **框选捎带上的"连线选中"要丢掉**（用户第 17 批 #1：
+       * 「图一上面三个图**有时候**框选多选不了，好像是因为连线的原因」—— 猜对了）。
+       *
+       * RF 的框选不只选节点：`commitUserSelectionRect` 里还会**把选中节点挂着的线一起选中**
+       * 并调 `onEdgesChange`。而我们的 `setEdgeSelection` 契约是「选线 = 取消节点选中」
+       *（§6.14 互斥，见 store 里那条）⇒ 后到的这一批把**刚框好的节点整片清掉**，
+       * 用户读到的是"框选没反应"。有没有连线决定成不成功 —— 所以症状看着像"跟连线有关"。
+       *
+       * 判据取"同一帧里刚处理过节点选中"（`nodeSelectStampRef`），而不是"这批全是新增"：
+       * 后者会把"点一条线"也误伤（那也是新增，但语义就是"改选线"）。
+       * 丢掉这批**不丢任何画面**：连线该有的高亮与删除按钮走 `related`
+       *（选中任一端节点即算相关，见 `edges` 那份装配）。
+       */
+      if (nodeSelectStampRef.current) return
+      store.setEdgeSelection(next)
     },
     [store],
   )
