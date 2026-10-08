@@ -46,6 +46,8 @@ const MODELS = [
   {
     slug: 'image-pro',
     label: '全能图片PRO',
+    /** 官方 CLI 原话「香蕉Pro同款」⇒ 挂到用户固定清单的显示名下（界面上只有那里有它的位置） */
+    preset: 'Nano Banana Pro',
     hint: '香蕉Pro同款，默认推荐，综合效果最好',
     kind: 'image',
     text: 'rhart-image-n-pro/text-to-image',
@@ -54,6 +56,8 @@ const MODELS = [
   {
     slug: 'image-v2',
     label: '全能图片V2',
+    /** 官方 CLI 原话「香蕉2同款」 */
+    preset: 'Nano Banana 2',
     hint: '香蕉2同款，最快最便宜',
     kind: 'image',
     text: 'rhart-image-n-g31-flash/text-to-image',
@@ -62,6 +66,8 @@ const MODELS = [
   {
     slug: 'image-youchuan',
     label: '悠船 v7',
+    /** 官方 CLI 原话「Midjourney 风格」 */
+    preset: 'Midjourney',
     hint: 'Midjourney 风格，欧美大片质感；本身不支持图生图，带参考图时自动走全能图片PRO',
     kind: 'image',
     text: 'youchuan/text-to-image-v7',
@@ -70,6 +76,8 @@ const MODELS = [
   {
     slug: 'image-gpt2',
     label: '全能图片G-2.0（GPT Image 2）',
+    /** 官方 CLI 原话「GPT Image 2 同款」 */
+    preset: 'GPT Image 2',
     hint: 'GPT Image 2 同款，语义理解强，改图也稳',
     kind: 'image',
     text: 'rhart-image-g-2/text-to-image',
@@ -315,7 +323,9 @@ lines.push('')
 lines.push('export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [')
 for (const m of MODELS) {
   lines.push('  {')
-  lines.push('    id: ' + q(m.label) + ',')
+  /* id = 前端显示名（有对应的就用它，见 MODELS 里的 preset）；官方目录名留一行注释备查 */
+  lines.push('    // 官方目录：' + m.label)
+  lines.push('    id: ' + q(m.preset ?? m.label) + ',')
   lines.push('    hint: ' + q(m.hint) + ',')
   lines.push('    kind: ' + q(m.kind) + ',')
   lines.push('    textEndpoint: ' + q(m.text) + ',')

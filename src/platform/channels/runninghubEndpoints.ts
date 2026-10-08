@@ -352,34 +352,39 @@ export interface RunningHubModel {
 
 export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
   {
-    id: '全能图片PRO',
+    // 官方目录：全能图片PRO
+    id: 'Nano Banana Pro',
     hint: '香蕉Pro同款，默认推荐，综合效果最好',
     kind: 'image',
     textEndpoint: 'rhart-image-n-pro/text-to-image',
     imageEndpoint: 'rhart-image-n-pro/edit',
   },
   {
-    id: '全能图片V2',
+    // 官方目录：全能图片V2
+    id: 'Nano Banana 2',
     hint: '香蕉2同款，最快最便宜',
     kind: 'image',
     textEndpoint: 'rhart-image-n-g31-flash/text-to-image',
     imageEndpoint: 'rhart-image-n-g31-flash/image-to-image',
   },
   {
-    id: '悠船 v7',
+    // 官方目录：悠船 v7
+    id: 'Midjourney',
     hint: 'Midjourney 风格，欧美大片质感；本身不支持图生图，带参考图时自动走全能图片PRO',
     kind: 'image',
     textEndpoint: 'youchuan/text-to-image-v7',
     imageEndpoint: 'rhart-image-n-pro/edit',
   },
   {
-    id: '全能图片G-2.0（GPT Image 2）',
+    // 官方目录：全能图片G-2.0（GPT Image 2）
+    id: 'GPT Image 2',
     hint: 'GPT Image 2 同款，语义理解强，改图也稳',
     kind: 'image',
     textEndpoint: 'rhart-image-g-2/text-to-image',
     imageEndpoint: 'rhart-image-g-2/image-to-image',
   },
   {
+    // 官方目录：Seedream v5
     id: 'Seedream v5',
     hint: '字节出品，写实照片感强',
     kind: 'image',
@@ -387,30 +392,35 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
     imageEndpoint: 'seedream-v5-lite/image-to-image',
   },
   {
+    // 官方目录：全能图片X-3（图生图）
     id: '全能图片X-3（图生图）',
     hint: '只吃参考图（必须连一张图进来），按提示词改图',
     kind: 'image',
     textEndpoint: 'rhart-image-g-3/image-to-image',
   },
   {
+    // 官方目录：全能图片PRO（图生图·官方稳定版）
     id: '全能图片PRO（图生图·官方稳定版）',
     hint: '只吃参考图（必须连一张图进来），官方稳定版',
     kind: 'image',
     textEndpoint: 'rhart-image-n-pro-official/edit',
   },
   {
+    // 官方目录：千问 2.0 文生图
     id: '千问 2.0 文生图',
     hint: '通义千问图片模型；尺寸档位官方写作像素（应用里暂不发尺寸，服务端默认）',
     kind: 'image',
     textEndpoint: 'alibaba/qwen-image-2.0/text-to-image',
   },
   {
+    // 官方目录：即梦图片 4.6
     id: '即梦图片 4.6',
     hint: '字节即梦 4.6；宽高档位官方写作像素（应用里暂不发尺寸，服务端默认）',
     kind: 'image',
     textEndpoint: 'bytedance/jimeng-4.6/text-to-image',
   },
   {
+    // 官方目录：全能视频V3.1 Fast
     id: '全能视频V3.1 Fast',
     hint: '又快又好，性价比之王',
     kind: 'video',
@@ -418,6 +428,7 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
     imageEndpoint: 'rhart-video-v3.1-fast/image-to-video',
   },
   {
+    // 官方目录：全能视频X
     id: '全能视频X',
     hint: 'Grok 驱动，画面想象力强',
     kind: 'video',
@@ -425,6 +436,7 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
     imageEndpoint: 'rhart-video-g/image-to-video',
   },
   {
+    // 官方目录：可灵 v3.0 Pro
     id: '可灵 v3.0 Pro',
     hint: '运动自然，拍人物选它',
     kind: 'video',
@@ -432,6 +444,7 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
     imageEndpoint: 'kling-v3.0-pro/image-to-video',
   },
   {
+    // 官方目录：全能视频V3.1 Pro
     id: '全能视频V3.1 Pro',
     hint: '电影感拉满，适合风景大片',
     kind: 'video',
@@ -439,6 +452,7 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
     imageEndpoint: 'rhart-video-v3.1-pro/image-to-video',
   },
   {
+    // 官方目录：Vidu Q3 Pro
     id: 'Vidu Q3 Pro',
     hint: '风格化独特，适合创意短片',
     kind: 'video',
@@ -446,6 +460,7 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
     imageEndpoint: 'vidu/image-to-video-q3-pro',
   },
   {
+    // 官方目录：全能视频S
     id: '全能视频S',
     hint: 'Sora 同款引擎，模型负载高时可能要多等一会儿',
     kind: 'video',
@@ -453,6 +468,7 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
     imageEndpoint: 'rhart-video-s/image-to-video',
   },
   {
+    // 官方目录：海螺 Hailuo
     id: '海螺 Hailuo',
     hint: '速度快画面细腻',
     kind: 'video',
@@ -460,6 +476,7 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
     imageEndpoint: 'minimax/hailuo-2.3-fast/image-to-video',
   },
   {
+    // 官方目录：Seedance 2.0
     id: 'Seedance 2.0',
     hint: '最长 15 秒＋自动配音，最高 4K，价格偏高',
     kind: 'video',

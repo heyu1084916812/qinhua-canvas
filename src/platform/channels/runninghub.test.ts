@@ -97,7 +97,7 @@ describe('RunningHub 适配器 / 标准模型（金额路）', () => {
 
     const adapter = createRunningHubAdapter(config, platform, FAST)
     const assets = await adapter.generateImage(
-      imageRequest('全能图片G-2.0（GPT Image 2）'),
+      imageRequest('GPT Image 2'),
       signal,
     )
 
@@ -130,7 +130,7 @@ describe('RunningHub 适配器 / 标准模型（金额路）', () => {
     })
     const adapter = createRunningHubAdapter(config, platform, FAST)
     const err = await adapter
-      .generateImage(imageRequest('全能图片G-2.0（GPT Image 2）'), signal)
+      .generateImage(imageRequest('GPT Image 2'), signal)
       .then(() => null)
       .catch((e: unknown) => e as ChannelError)
     expect(err).toBeInstanceOf(ChannelError)
@@ -155,7 +155,7 @@ describe('RunningHub 适配器 / 标准模型（金额路）', () => {
     })
     const adapter = createRunningHubAdapter(config, platform, FAST)
     const err = await adapter
-      .generateImage(imageRequest('全能图片G-2.0（GPT Image 2）'), signal)
+      .generateImage(imageRequest('GPT Image 2'), signal)
       .then(() => null)
       .catch((e: unknown) => e as ChannelError)
     expect(err).toBeInstanceOf(ChannelError)
@@ -174,7 +174,7 @@ describe('RunningHub 适配器 / 标准模型（金额路）', () => {
 
     const noKey = createRunningHubAdapter({ ...config, apiKey: null }, platform, FAST)
     const err = await noKey
-      .generateImage(imageRequest('全能图片G-2.0（GPT Image 2）'), signal)
+      .generateImage(imageRequest('GPT Image 2'), signal)
       .then(() => null)
       .catch((e: unknown) => e as ChannelError)
     expect(err!.appError).toEqual({ kind: 'channel', detail: 'missingKey' })
@@ -352,19 +352,26 @@ describe('RunningHub 适配器 / 模型表与端点规格（按官方目录建�
     }
   })
 
-  it('★★ 模型显示名不许和固定清单撞名（撞了会把这条渠道的模型整片顶掉）', () => {
+  it('★★ 有前端显示名对应的模型，id 就**是**那个显示名（挂错名 = 界面上选得到、发出去找不到渠道）', () => {
     /**
-     * 应用里模型下拉 = 「固定清单 + 渠道自己的模型」，而 `panelModelOptions` 有一条规则：
-     * **渠道里只要有一个名字被固定清单认领，这条渠道的裸名字就全部让位** ——
-     * 后果不是少一行，而是 17 个模型**一个都选不到**。
-     * 判据就是 `presetIdForUpstream`（对 id 与 aliases 做**精确**匹配）。
+     * 口径（用户 2026-10-08 拍板，对账 #371）：画布下拉**只列前端显示名**。
+     * 所以渠道要能被选到，它的模型 id 就必须是那个显示名 —— 选路认两种提供方式
+     * （渠道模型列表里有这个显示名，或该渠道映射表里有这一行，见 `routeCandidatesFor`）。
      *
-     * 2026-10-08 实测：`GPT Image 2` 正是固定清单里的一个显示名 ⇒ 那一个改用官方目录名
-     * 「全能图片G-2.0（GPT Image 2）」避开。这条断言守住「以后加模型别再撞上」。
+     * 挂名的依据是**官方 CLI 自己写的**：
+     * 「香蕉Pro同款」「香蕉2同款」「Midjourney 风格」「GPT Image 2 同款」。
+     * 反过来，剩下几个官方目录名在前端清单里**没有位置**（Seedream v5 / 千问 / 即梦 /
+     * X-3 / PRO官方版 + 8 个视频），它们保留自己的名字：渠道里照常勾选、映射、选路，
+     * 只是不会出现在画布下拉里（这是那个口径的直接代价，想要就先加进清单）。
      */
-    for (const model of RUNNINGHUB_MODELS) {
-      expect(presetIdForUpstream(model.id)).toBe(model.id)
+    const ids = RUNNINGHUB_MODELS.map((m) => m.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const name of ['Nano Banana Pro', 'Nano Banana 2', 'Midjourney', 'GPT Image 2']) {
+      expect(ids).toContain(name)
+      /** 这四个必须真能被固定清单认领 —— 认不出就说明名字挂错了 */
+      expect(presetIdForUpstream(name)).toBe(name)
     }
+    expect(presetIdForUpstream('Seedream v5')).toBe('Seedream v5')
   })
 
   it('★ 只认模型表里的显示名：裸端点 id（`endpoint:…`）不再认（用户 2026-10-08 拍板去掉这条兼容路）', async () => {
@@ -396,7 +403,7 @@ describe('RunningHub 适配器 / 模型表与端点规格（按官方目录建�
       },
     })
     const adapter = createRunningHubAdapter(config, platform, FAST)
-    const model = '全能图片G-2.0（GPT Image 2）'
+    const model = 'GPT Image 2'
 
     await adapter.generateImage(imageRequest(model), signal)
     await adapter.generateImage(

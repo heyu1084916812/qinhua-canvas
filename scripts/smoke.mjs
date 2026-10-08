@@ -263,7 +263,7 @@ async function configureGenPanel(page, panel, prompt) {
    * 生成节点**没有平台 chip**了（用户 2026-09-27）：渠道由选路决定，
    * 面板的解析链会自动把首个可用渠道写进节点，所以这里直接选模型即可。
    */
-  await pickParam(panel, 'model', 'mock-image-1')
+  await pickParam(panel, 'model', 'GPT Image 2')
   await sleep(200)
   if (prompt != null) {
     const ta = panelPrompt(panel)
@@ -329,6 +329,43 @@ function optionButtons(scope, popup, name) {
   return popup === name ? pop.locator('button') : pop.locator(`button[data-param-in="${name}"]`)
 }
 
+/** 归一：去空白与「已选中」标记，并**不区分大小写**（清晰度档位界面写 `720P`、脚本里写 `720p`） */
+const normOption = (s) => String(s).replace(/[\s✓✔]/g, '').toLowerCase()
+
+/**
+ * 在**已经展开**的浮层里**精确**点中一个选项。
+ *
+ * ⚠️ **必须精确匹配**（2026-10-08 修）。原来用 `filter({ hasText })` 是**子串**匹配：
+ * 选 `GPT Image 2` 会命中列表里排在前面的 `GPT Image 2.5 Flare`（前者是后者的子串），
+ * 于是「选中的是另一个模型」——而那个模型没有任何渠道提供 ⇒ 点生成毫无反应、
+ * 日志 0 条（G9/G10 实测就这么红的，看着像生成链路坏了）。
+ *
+ * 归一后**全等**；找不到就当场报错，别让它静默点错一个。
+ * 抽成公共助手的理由：G46 那类用例要**自己开浮层**（验的是 chip 与浮层的交互），
+ * 不能走 `pickParam`（它顺带关浮层），但匹配规则必须与 `pickParam` 同一条。
+ */
+async function clickOptionExact(scope, popup, name, optionText) {
+  const wanted = normOption(optionText)
+  const buttons = optionButtons(scope, popup, name)
+  const total = await buttons.count()
+  let idx = -1
+  for (let i = 0; i < total; i += 1) {
+    if (normOption(await buttons.nth(i).innerText().catch(() => '')) === wanted) {
+      idx = i
+      break
+    }
+  }
+  if (idx < 0) {
+    const all = []
+    for (let i = 0; i < total; i += 1) {
+      all.push(normOption(await buttons.nth(i).innerText().catch(() => '')))
+    }
+    throw new Error(`[pickParam] 列表里没有「${optionText}」（共 ${total} 项：${all.join(' / ')}）`)
+  }
+  await buttons.nth(idx).click()
+  await sleep(150)
+}
+
 async function pickParam(scope, name, optionText) {
   await chipOf(scope, name).click()
   const popup = await popupNameOf(scope, name)
@@ -336,8 +373,7 @@ async function pickParam(scope, name, optionText) {
     .locator(`[data-param-popup="${popup}"]`)
     .waitFor({ state: 'visible', timeout: 3000 })
     .catch(() => {})
-  await optionButtons(scope, popup, name).filter({ hasText: optionText }).first().click()
-  await sleep(150)
+  await clickOptionExact(scope, popup, name, optionText)
   /**
    * 多组胶囊**选完不关**（一次要调好几样），但这一层用例是按「选完即关」写的。
    * 这里补一次 Esc 把浮层收掉，免得挡住后面的点击 —— 关法本身由面板负责
@@ -738,6 +774,8 @@ async function configureMockChannel(page, { token = null, enable = true, pick = 
     await pickAllModels(page)
   }
 
+  await mapMockModels(page)
+
   let enabled = false
   if (enable) {
     await enableSwitch(page).check({ timeout: 5000 }).catch(() => {})
@@ -756,6 +794,33 @@ async function configureMockChannel(page, { token = null, enable = true, pick = 
       .isVisible()
       .catch(() => false)
   }
+/**
+ * 给 mock 渠道登记「前端显示名 → mock 模型 ID」的映射。
+ *
+ * ⚠️ 2026-10-08（用户拍板的 A 口径，对账 #371）：画布下拉**只列前端显示名**，
+ * 渠道拉回来的 ID（`mock-image-1` 这些）不再出现在列表里。所以 mock 渠道要能被选到，
+ * 就得像真实渠道那样在**模型映射**里登记一行 —— 这也正是新站接入的标准用法。
+ *
+ * 三个显示名各覆盖一类：生图 / 对话 / 视频。映射之后：
+ *  - 画布下拉里选「GPT Image 2」⇒ 请求带 `mock-image-1`（日志里看到的仍是它）；
+ *  - 面板的档位（比例 / 清晰度 / 张数）经 `capabilityOfLogical` 按映射找到 mock 的能力表。
+ */
+async function mapMockModels(page) {
+  const rows = [
+    ['GPT Image 2', 'mock-image-1'],
+    ['GPT-6 Astra', 'mock-chat-1'],
+    ['即梦 2.5', 'mock-video-1'],
+  ]
+  for (const [logical, upstream] of rows) {
+    const input = page.locator(`[data-route-map-input="${logical}"]`)
+    if ((await input.count()) === 0) continue
+    await input.fill(upstream)
+    await sleep(200)
+    await page.locator(`[data-route-map-save="${logical}"]`).click().catch(() => {})
+    await sleep(250)
+  }
+}
+
   return { verified, pulled, enabled }
 }
 
@@ -1483,18 +1548,21 @@ async function g10(browser) {
 
   // 参数与数量胶囊都在创作面板里（节点本体只剩媒体框，§6.8）
   const panel = await genPanel(page)
-  await pickParam(panel, 'model', 'mock-image-1')
+  await pickParam(panel, 'model', 'GPT Image 2')
   await sleep(200)
 
   /**
-   * 数量固定四项 1/2/4/9（§6.8）。
-   * 张数已改成 chip + 弹层（2026-09-19），所以要先点开 chip 才能读到四项。
+   * 数量档位：**按所选模型的能力表来**（对账 #122 —— 用户 2026-10-03「数量这个我需要
+   * 每个模型统一一下，不能有些有，有些没有」⇒ 图片模型的能力表里张数统一是 1/2/4；
+   * 而 §6.8 那套 1/2/4/9 是**没有能力表**时的通用档位，由 G63 覆盖）。
+   *
+   * 张数已改成 chip + 弹层（2026-09-19），所以要先点开 chip 才能读到。
    */
   const countBtns = await paramOptions(page, panel, 'count')
   rec(
     g,
-    '数量固定四项 1/2/4/9',
-    JSON.stringify(countBtns.map((t) => t.replace(/\s+/g, ''))) === '["1张","2张","4张","9张"]',
+    '数量按模型能力表：GPT Image 2 = 1/2/4 张',
+    JSON.stringify(countBtns.map((t) => t.replace(/\s+/g, ''))) === '["1张","2张","4张"]',
     `按钮=${countBtns.join('|')}`,
   )
 
@@ -1632,14 +1700,14 @@ async function g11(browser) {
   await page.waitForURL(/\/canvas\//)
   await sleep(700)
   const panel = await genPanel(page)
-  await pickParam(panel, 'model', 'mock-image-1')
+  await pickParam(panel, 'model', 'GPT Image 2')
   await sleep(600)
   await page.reload({ waitUntil: 'networkidle' })
   await sleep(800)
   // 重载后选中态丢失，必须重新选中节点，才谈得上从面板读回参数
   const panelAfter = await genPanel(page)
   const modelAfterReload = await paramLabel(panelAfter, 'model').catch(() => '')
-  rec(g, 'E2E-02 重载后模型仍选中', modelAfterReload === 'mock-image-1', modelAfterReload)
+  rec(g, 'E2E-02 重载后模型仍选中', modelAfterReload === 'GPT Image 2', modelAfterReload)
   const bodyText = await page.locator('body').innerText().catch(() => '')
   rec(g, 'E2E-02 页面不含明文密钥', !bodyText.includes('SECRET-TOKEN-SHOULD-NOT-LEAK'))
 
@@ -3748,9 +3816,9 @@ async function g23(browser) {
    * 渠道由面板的解析链自动落到节点上，这里直接选模型。
    */
   await sleep(250)
-  await pickParam(panel, 'model', 'mock-chat-1')
+  await pickParam(panel, 'model', 'GPT-6 Astra')
   await sleep(250)
-  rec(g, 'prompt 模式模型 chip 带出所选文本模型', (await paramLabel(panel, 'model')) === 'mock-chat-1')
+  rec(g, 'prompt 模式模型 chip 带出所选文本模型', (await paramLabel(panel, 'model')) === 'GPT-6 Astra')
   // §6.7 第三部分：提示词节点面板同样以生成按钮收尾。
   // 提示词节点自己不发请求（执行计划里写死「它的语义是让下游生成节点出图」），
   // 所以这个按钮点下去是**触发下游生成**，文案必须说清，否则等于按了个寂寞。
@@ -5145,12 +5213,17 @@ async function g46(browser) {
   await sleep(200)
   rec(g, '点浮层外关闭', (await panel.locator('[data-param-popup]').count()) === 0)
 
-  // 真正选中一个渠道模型（上面几轮都只是在开合浮层，从没选过值）
+  /**
+   * 真正选中一个模型（上面几轮都只是在开合浮层，从没选过值）。
+   *
+   * ⚠️ 这一处**曾经是子串匹配**（`hasText` + `first()`）：`GPT Image 2` 会先命中
+   * `GPT Image 2.5 Flare`，于是 chip 上带出的是另一个名字 —— 2026-10-08 统一走
+   * `clickOptionExact`（与 `pickParam` 同一套全等匹配）。
+   */
   await chip.click()
   await sleep(220)
-  await panel.locator('[data-param-popup="model"] button', { hasText: 'mock-image-1' }).first().click()
-  await sleep(200)
-  rec(g, '模型 chip 带出所选值', (await paramLabel(panel, 'model')) === 'mock-image-1')
+  await clickOptionExact(panel, 'model', 'model', 'GPT Image 2')
+  rec(g, '模型 chip 带出所选值', (await paramLabel(panel, 'model')) === 'GPT Image 2')
 
   // 开新关旧（§6.8）：一个开着时点另一个 chip，应只剩新的那个
   await chip.click()
@@ -5210,20 +5283,22 @@ async function g46(browser) {
     (await panel.locator('[data-param-popup="gen-params"] [data-param-section="quality"]').count()) === 1,
   )
   /**
-   * ★★ 一枚胶囊装下四段参数（用户 2026-10-02 参考产品图五 / 图六：
+   * ★★ 一枚胶囊装下**五段**参数（用户 2026-10-02 参考产品图五 / 图六：
    * 「把比例，质量，画质，张数变成一个胶囊显示，而且点击显示的面板……把所有的参数
-   * 都放上去」）。判据取**分段的名单**：四段缺一段、或又拆回四枚 chip，都会红。
+   * 都放上去」）。判据取**分段的名单**：缺一段、多一段、或又拆回多枚 chip，都会红。
    *
-   * 段的顺序＝用户 2026-10-03 图一那份：**画质 → 清晰度 → 背景 → 比例 → 生成数量**
-   * （这个 mock 模型没有能力表，「背景」那一段不会出现，所以这里是四段）。
+   * 段的顺序＝用户 2026-10-03 图一那份：**画质 → 清晰度 → 背景 → 比例 → 生成数量**。
+   * 「背景」那段由**模型的能力表**决定（对账 #122）：没有能力表的模型不摆它。
+   * 2026-10-08 起画布下拉只列前端显示名（对账 #371），而六个显示名**都有能力表**，
+   * 所以这条用例里就是五段 —— 之前它挑的是无能力表的 mock 模型，才写成四段。
    */
   const paramSectionNames = await panel
     .locator('[data-param-popup="gen-params"] [data-param-section]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-section')))
   rec(
     g,
-    '★★ 生成参数收成一枚胶囊：点开是四段（画质 / 清晰度 / 比例 / 张数）',
-    paramSectionNames.join(',') === 'quality,resolution,ratio,count' &&
+    '★★ 生成参数收成一枚胶囊：点开是五段（画质 / 清晰度 / 背景 / 比例 / 张数）',
+    paramSectionNames.join(',') === 'quality,resolution,background,ratio,count' &&
       (await panel.locator('[data-param-chip="gen-params"]').count()) === 1 &&
       (await panel.locator('[data-param-chip="ratio"]').count()) === 0,
     `段=${paramSectionNames.join(',')}`,
@@ -5416,7 +5491,7 @@ async function g46(browser) {
   rec(
     g,
     '切类别后旧模型被清空（图片模型不属于视频类）',
-    modelAfterSwitch !== 'mock-image-1',
+    modelAfterSwitch !== 'GPT Image 2',
     `chip=${modelAfterSwitch}`,
   )
   const videoOpts = await paramOptions(page, panel, 'model')
@@ -5429,13 +5504,13 @@ async function g46(browser) {
   rec(
     g,
     '视频类别只列视频模型',
-    optHas('mock-video-1') && !optHas('mock-image-1'),
+    optHas('即梦 2.5') && !optHas('GPT Image 2'),
     `opts=${JSON.stringify(videoOpts)}`,
   )
   await page.screenshot({ path: `${OUT}/46-b-video-params.png` })
 
   // ③ 视频参数写回并落库
-  await pickParam(panel, 'model', 'mock-video-1')
+  await pickParam(panel, 'model', '即梦 2.5')
   await pickParam(panel, 'size', '720p')
   /**
    * 参考模式那一枚已升级成**生成模式**（用户 2026-10-03 图四/图五那种下拉）：
@@ -5447,7 +5522,17 @@ async function g46(browser) {
   await sleep(300)
   rec(g, '时长可直接键入数值（§6.8）', (await durInput.inputValue()) === '8')
   const rangeAttrs = await panel.locator('[data-param-duration-range]').evaluate((el) => [el.min, el.max])
-  rec(g, '滑块边界取模型能力（3–15 秒）', rangeAttrs[0] === '3' && rangeAttrs[1] === '15', rangeAttrs.join('–'))
+  /**
+   * 滑块边界取**模型自己的能力表**（对账 #122：即梦 2.5 = Seedance 2.5，4–30 秒自定义）。
+   * 这里以前是 3–15 —— 那是**没有能力表**时的通用档位，当时挑的 mock 视频模型正好没有表。
+   * 2026-10-08 起画布下拉只列前端显示名（对账 #371），挑到的 `即梦 2.5` 有表，故是 4–30。
+   */
+  rec(
+    g,
+    '滑块边界取模型能力（即梦 2.5 = 4–30 秒）',
+    rangeAttrs[0] === '4' && rangeAttrs[1] === '30',
+    rangeAttrs.join('–'),
+  )
 
   await page.reload({ waitUntil: 'networkidle' })
   await sleep(900)
@@ -5460,8 +5545,9 @@ async function g46(browser) {
   rec(
     g,
     '刷新后清晰度 / 生成模式读回',
-    (await paramLabel(panel2, 'size')) === '720p' &&
+    (await paramLabel(panel2, 'size')) === '720P' &&
       (await paramLabel(panel2, 'videoMode')) === '全能参考',
+    `清晰度=${await paramLabel(panel2, 'size')} 生成模式=${await paramLabel(panel2, 'videoMode')}`,
   )
   rec(g, '刷新后时长读回', (await panel2.locator('[data-param-duration-input]').inputValue()) === '8')
 
@@ -5531,9 +5617,18 @@ async function g47(browser) {
   await pickParam(panel, 'resolution', '2K')
   const res2k = await paramLabel(panel, 'resolution')
   rec(g, '选 2K 后 chip 显示 2K', res2k.includes('2K'), res2k)
-  await pickParam(panel, 'resolution', '自适应')
-  const resAuto = await paramLabel(panel, 'resolution')
-  rec(g, '能选回「自适应」（它是档位，不是默认值占位）', resAuto.includes('自适应'), resAuto)
+  /**
+   * ⚠️ 2026-10-08 更新：这个模板现在默认落在 `GPT Image 2`（画布下拉只列前端显示名，
+   * 对账 #371），而**它的能力表里清晰度就是 1K / 2K / 4K 三档、没有 `auto`**
+   * （用户 2026-10-03 图一那份）。所以「自适应」在这一档里是**未设置时的占位文案**
+   * （= 不向渠道指定尺寸），而不是可选项；「自适应」真作为**档位**可选的是
+   * 能力表里声明了 `auto` 的模型（Midjourney，由 MJ 面板那组用例覆盖）。
+   *
+   * 第三条因此改成「能选回 1K」—— 验的还是同一件事：**档位能在面板里来回改**。
+   */
+  await pickParam(panel, 'resolution', '1K')
+  const res1k = await paramLabel(panel, 'resolution')
+  rec(g, '能选回 1K（档位能来回改）', res1k.includes('1K'), res1k)
 
   // ② 先让生成节点真的出一张图——反推要有素材可送
   await page.locator('[data-creation-panel] button[aria-label="生成当前节点"]').click()
@@ -5584,7 +5679,7 @@ async function g47(browser) {
   const pPanel = await genPanel(page, promptNode)
   // 提示词节点已无平台 chip（用户 2026-09-27 第 8 轮）
   await sleep(200)
-  await pickParam(pPanel, 'model', 'mock-chat-1')
+  await pickParam(pPanel, 'model', 'GPT-6 Astra')
   await sleep(250)
   const describeBtn = pPanel.locator('[data-panel-prompt-tool="describe"]')
   rec(g, '面板里有「反推」入口', (await describeBtn.count()) === 1)
@@ -7839,24 +7934,29 @@ async function g63(browser) {
   rec(g, '参数 chip 字号明显大于正文（≥16px）', parseFloat(chipFont) >= 16, chipFont)
 
   /**
-   * mock 的 `mock-image-1` **声明了** `maxCount: 4`，所以 9 张在这里本就该置灰
-   * （这条先钉住「明确声明的上限确实生效」，与下面的未声明场景成对）。
+   * 张数档位**按所选模型的能力表来**（对账 #122：图片模型统一 1/2/4）。
+   *
+   * 2026-10-08 起画布下拉只列前端显示名（对账 #371），而六个显示名**都有能力表**
+   * ⇒ 面板上**再也不会出现「9 张」这一档** —— §6.8 那条「选不了 9 张」的历史问题
+   * 至此在界面上不可复现。原来这里还有一条「mock 声明 maxCount=4 ⇒ 9 张置灰」，
+   * 现在**没有任何界面可达的模型走「无能力表」那条路**，那条断言已无从触发，故撤掉；
+   * 「未声明 maxCount = 不设限 / 声明了才收窄」的语义仍由 `capability.test.ts` 与
+   * CreationPanel 的 SSR 单测守着（那里用的是没有能力表的中转模型 id）。
    */
   await countChip.click()
   await sleep(250)
   const opts = await optionButtons(panel, 'gen-params', 'count')
     .evaluateAll((els) => els.map((e) => ({ t: e.textContent.trim(), dis: e.disabled })))
-  rec(g, '张数面板列出 1/2/4/9 四项', opts.length === 4, JSON.stringify(opts))
-  const nine = opts.find((o) => o.t.includes('9'))
   rec(
     g,
-    '模型明确声明 maxCount=4 时，9 张置灰（声明生效）',
-    !!nine && nine.dis === true,
-    JSON.stringify(nine),
+    '张数档位按模型能力表（1/2/4，界面上没有 9 张）',
+    opts.length === 3 &&
+      opts.map((o) => o.t.replace(/\s+/g, '')).join('|') === '1张|2张|4张' &&
+      opts.every((o) => o.dis === false),
+    JSON.stringify(opts),
   )
 
-  await optionButtons(panel, 'gen-params', 'count').filter({ hasText: '4' }).first().click()
-  await sleep(250)
+  await clickOptionExact(panel, 'gen-params', 'count', '4 张')
   rec(g, '选 4 张后 chip 显示 4', (await countChip.innerText()).includes('4'))
 
   // 真跑一次：产物节点数应等于 4（复现「面板选了 N、实际只出 1」的整条链路）
@@ -10229,7 +10329,7 @@ async function g73(browser) {
   const panel = page.locator('[data-creation-panel]')
   // 提示词节点已无平台 chip（用户 2026-09-27 第 8 轮）
   await sleep(200)
-  await pickParam(panel, 'model', 'mock-chat-1')
+  await pickParam(panel, 'model', 'GPT-6 Astra')
   await sleep(250)
 
   // 写正文
@@ -10640,7 +10740,7 @@ async function g74(browser) {
   const panel = page.locator('[data-creation-panel]')
   // 提示词节点已无平台 chip（用户 2026-09-27 第 8 轮）
   await sleep(250)
-  await pickParam(panel, 'model', 'mock-chat-1')
+  await pickParam(panel, 'model', 'GPT-6 Astra')
   await sleep(300)
   {
     const ta = panelPrompt(panel)

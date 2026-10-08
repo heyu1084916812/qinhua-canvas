@@ -266,14 +266,15 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
      *
      * 用户 2026-10-02 第四轮：「图一当中模型的选择面板，把前端所有的模型写上去，
      * 除了对话模型」—— 这里与创作面板**同一份清单**（`panelModelOptions`：
-     * 固定显示名在前 + 渠道显示名在后），不再按「当下有没有渠道能提供」筛一道。
+     * 只有前端显示名，渠道模型不进这个列表，见对账 #371），
+     * 不再按「当下有没有渠道能提供」筛一道。
      *
      * 为什么改回来：筛过之后，用户还没配映射的那些固定显示名会**整个消失**，
      * 面板看起来像「我的模型不见了」；而真正跑不动时执行层会报明确原因
      * （渠道 / 映射那句），比「列表里没有」好排查得多。对话模型不在这里 ——
      * 它是单独一行（agent 自己的 LLM）。
      */
-    const pick = (category: 'image' | 'video') => panelModelOptions(allChannels, category)
+    const pick = (category: 'image' | 'video') => panelModelOptions(category)
     /**
      * 对话模型：仍然只列**真跑得起来**的。
      *
@@ -281,7 +282,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
      * 用户选中之后只会得到一句「没有渠道提供模型」，白点一次（用户 2026-10-02
      * 第二轮报的「agnes 的是不是多了」就是这条）。
      */
-    const chat = panelModelOptions(allChannels, 'chat').filter(
+    const chat = panelModelOptions('chat').filter(
       (n) => channelIdForLogical(enabled, n) !== undefined,
     )
     return { image: pick('image'), video: pick('video'), chat }
@@ -365,7 +366,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       const liveChannels = channels.getState().channels
       const liveEnabled = liveChannels.filter((c) => c.enabled)
       const livePick = (category: 'image' | 'video' | 'chat') =>
-        panelModelOptions(liveChannels, category).filter(
+        panelModelOptions(category).filter(
           (n) => channelIdForLogical(liveEnabled, n) !== undefined,
         )
       const liveModelOptions = livePick('chat')

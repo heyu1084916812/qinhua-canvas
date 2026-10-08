@@ -56,8 +56,8 @@ export function EmotionPanel({
   const togglePicker = (key: string) => setOpenPicker((cur) => (cur === key ? null : key))
   const shownModel = data.model ?? ''
   const shownLogicalModel = toLogicalName(allChannels, shownModel)
-  /** 与创作面板同一份「前端生图模型清单」（固定显示名在前，渠道模型在后） */
-  const modelOptions = panelModelOptions(allChannels, 'image', data.channelId || undefined).map(
+  /** 与创作面板同一份「前端生图模型清单」（只有前端显示名，渠道模型不进这里 —— 对账 #371） */
+  const modelOptions = panelModelOptions('image').map(
     (name) => {
       const preset = presetOf(name)
       return {

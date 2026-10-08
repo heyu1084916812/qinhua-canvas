@@ -229,83 +229,56 @@ describe('toLogicalName', () => {
 })
 
 /**
- * 创作面板的模型下拉数据源（用户 2026-09-27 第 7 轮）。
+ * 面板的模型下拉数据源（用户 2026-09-27 第 7 轮）。
  *
- * 用户要的是「前端只显示我定好的那几个名字」：
- * 固定清单排在**最前**，其后才是渠道里勾选过的其它模型。
+ * 用户要的是「前端只显示我定好的那几个名字」——（2026-10-08 起）**就只有这一份清单**，
+ * 渠道拉回来的模型一律不进列表。见下面那两条 ★★。
  */
 describe('panelModelOptions', () => {
-  it('★ 固定显示名排在最前（用户拍板的那几个永远看得见）', () => {
-    const c = ch({ id: 'A', models: [cap('mock-image-1')] })
-    const opts = panelModelOptions([c], 'image')
-    // 与清单本身对齐，不写死名字 —— 以后加显示名（Agnes 那三条）不用回来改断言，
-    // 但「固定名排在最前」这条性质仍然被钉住
-    const presetImage = PRESET_MODELS.filter((m) => m.category === 'image').map((m) => m.id)
-    expect(opts.slice(0, presetImage.length)).toEqual(presetImage)
-    expect(presetImage).toContain('GPT Image 2')
-    expect(presetImage).toContain('Midjourney')
-  })
-
-  it('★ 整条渠道这一档都没被清单认领时，才补它的裸名字（新站不该一个都选不出来）', () => {
-    const c = ch({ id: 'A', models: [cap('mock-image-1')] })
-    const opts = panelModelOptions([c], 'image')
-    expect(opts).toContain('mock-image-1')
-    expect(opts.indexOf('mock-image-1')).toBeGreaterThan(opts.indexOf('Midjourney'))
-  })
-
   /**
-   * 用户 2026-10-03：「提示词节点的模型和我前端的模型没有对应上，多了两个框住的模型
-   * ……项目中所有有模型的地方，都需要从前端选择，不要给我多余的东西」。
+   * ⚠️ 这一组 2026-10-08 **整体改写**（对账 #371）：用户第四次讲同一条口径 ——
+   * 「这个列表本身就是前端展示的模型名称」。
    *
-   * 钉住的是**真实的那个场景**：Agnes 渠道里既有被清单认领的 `agnes-3.0-flash`，
-   * 又有没认领的 `agnes-2.5-flash`，还有一条**陈旧映射键** `Agnes 2.5 Pro`
-   * （它早已不在清单里）—— 后两者都不许再出现在下拉里。
+   * 改前这里钉的是「渠道这一档没被清单认领时，才把它的裸名字补进来」（一条为了让新站
+   * 一个模型也能选出来的后门）。实测那条后门正是用户报的现象：RunningHub 拉回 9 个名字，
+   * 列表就变成「7 个固定名 + 9 个渠道名」。现在这个函数的唯一职责是
+   * 「返回该类别的前端显示名」——**签名里的 channels 也一并去掉了**。
    */
-  it('★★ 渠道已有名字被清单认领 ⇒ 它的裸 ID 与陈旧映射键一律不进下拉（跨档也拦）', () => {
-    const agnes = ch({
-      id: 'agnes',
-      models: [
-        cap('agnes-3.0-flash', 'chat'),
-        cap('agnes-2.5-flash', 'chat'),
-        cap('agnes-image-2.5-flash', 'image'),
-      ],
-      modelMap: {
-        'Agnes 2.5 Pro': 'agnes-2.5-pro',
-        'agnes-3.0-flash': 'agnes-3.0-flash',
-        'agnes-2.5-flash': 'agnes-2.5-flash',
-        'agnes-image-2.5-flash': 'agnes-image-2.5-flash',
-      },
-    })
-    const chat = panelModelOptions([agnes], 'chat')
-    expect(chat).toContain('Agnes 3.0 Flash')
-    expect(chat).not.toContain('agnes-2.5-flash')
-    expect(chat).not.toContain('Agnes 2.5 Pro')
-    // 同一条渠道的图片档也不许因为「这一档没认领」而把裸 ID 放回来
-    const image = panelModelOptions([agnes], 'image')
-    expect(image).toContain('Agnes Image 2.5 Flash')
-    expect(image).not.toContain('agnes-image-2.5-flash')
-  })
-
-  it('★ 与固定名同名的渠道模型不重复出现', () => {
-    const c = ch({ id: 'A', models: [cap('Midjourney')] })
-    const opts = panelModelOptions([c], 'image')
-    expect(opts.filter((n) => n === 'Midjourney')).toHaveLength(1)
-  })
-
-  it('按类别分档：生图档不混入对话 / 视频固定名', () => {
-    const image = panelModelOptions([], 'image')
-    expect(image).not.toContain('GPT-6 Astra')
-    expect(image).not.toContain('即梦 2.5')
-    const chat = panelModelOptions([], 'chat')
-    // 对话档里不该出现生图 / 视频的名字
-    expect(chat).not.toContain('Midjourney')
-    expect(chat).not.toContain('即梦 2.5')
-    // 每档恰好是清单里该类别的那几个（顺序也一致）
+  it('★ 只返回前端显示名，顺序与清单一致', () => {
     for (const c of ['image', 'chat', 'video'] as const) {
-      expect(panelModelOptions([], c)).toEqual(
+      expect(panelModelOptions(c)).toEqual(
         PRESET_MODELS.filter((m) => m.category === c).map((m) => m.id),
       )
     }
+    expect(panelModelOptions('image')).toContain('GPT Image 2')
+    expect(panelModelOptions('image')).toContain('Midjourney')
+  })
+
+  /**
+   * ★★ 这条钉的就是**用户报的那个现象本身**：渠道拉回来的模型一律不进列表 ——
+   * 不管它有没有被清单认领、也不管这一档还有没有别的名字。
+   */
+  it('★★ 渠道模型一律不进列表（用户 2026-10-08：这个列表就是前端展示名）', () => {
+    const channels = [
+      ch({ id: 'A', models: [cap('mock-image-1'), cap('agnes-image-2.5-flash')] }),
+      ch({ id: 'B', models: [cap('全能图片PRO'), cap('可灵 v3.0 Pro', 'video')] }),
+    ]
+    /** 渠道数据在这条函数里已经不起作用了 —— 传进来只为证明这一点 */
+    expect(channels).toHaveLength(2)
+    const image = panelModelOptions('image')
+    for (const bare of ['mock-image-1', 'agnes-image-2.5-flash', '全能图片PRO', 'gpt-image-2']) {
+      expect(image).not.toContain(bare)
+    }
+    expect(panelModelOptions('video')).not.toContain('可灵 v3.0 Pro')
+  })
+
+  it('按类别分档：生图档不混入对话 / 视频固定名', () => {
+    const image = panelModelOptions('image')
+    expect(image).not.toContain('GPT-6 Astra')
+    expect(image).not.toContain('即梦 2.5')
+    const chat = panelModelOptions('chat')
+    expect(chat).not.toContain('Midjourney')
+    expect(chat).not.toContain('即梦 2.5')
   })
 
   it('presetOf 取得到厂商（面板据此画图标），非固定名返回 undefined', () => {
@@ -313,18 +286,6 @@ describe('panelModelOptions', () => {
     expect(presetOf('Gemini Omni Flash 1.1')?.vendor).toBe('google')
     expect(presetOf('GPT Image 2')?.vendor).toBe('openai')
     expect(presetOf('mock-image-1')).toBeUndefined()
-  })
-
-  /**
-   * ★ 渠道勾的是上游 ID（`gpt-image-2`），而固定清单里已经有 `GPT Image 2` ——
-   * 不归一的话用户会在下拉里同时看到这两行，看起来像两个模型
-   * （用户 2026-09-27 第 8 轮报的正是「id 格式不一样」）。
-   */
-  it('★ 上游 ID 归一成显示名，不与固定项重复占位', () => {
-    const c = ch({ id: 'A', models: [cap('gpt-image-2')] })
-    const opts = panelModelOptions([c], 'image')
-    expect(opts.filter((n) => n === 'GPT Image 2')).toHaveLength(1)
-    expect(opts).not.toContain('gpt-image-2')
   })
 
   it('★ 老节点存的是上游 ID → 显示成拍板过的显示名', () => {

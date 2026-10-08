@@ -220,61 +220,30 @@ export function logicalOptions(
 }
 
 /**
- * 创作面板的模型下拉数据源（用户 2026-09-27 第 7 轮）。
+ * 面板的模型下拉数据源（创作面板 / 情绪面板 / 对话窗共用这一份）。
  *
- * = **固定显示名清单**（用户拍板的那几档，按类别给）。
+ * ## 它**就是**前端展示名清单 —— 只有这一个来源
  *
- * **2026-10-03 收窄口径**（用户：「提示词节点的模型和我前端的模型没有对应上，
- * 多了两个框住的模型……项目中所有有模型的地方，都需要从前端选择，不要给我多余的东西」）：
+ * 用户从 2026-09-27 起把这条口径讲过四次，2026-10-08 又讲了一次：
+ * 「这个列表本身就是前端展示的模型名称」「项目中所有有模型的地方，都需要从前端选择，
+ * 不要给我多余的东西」「我前端只显示 6 个，但是他给我显示 8 个，后面的两个是渠道拉取的模型」。
  *
- * 一条渠道只要**有任何模型**被前端清单认领（例如 Agnes 给了 `agnes-3.0-flash`
- * → `Agnes 3.0 Flash`），它贡献的**裸名字一律不进下拉** —— 既包括 `agnes-2.5-flash`
- * 这种上游 ID、`Agnes 2.5 Pro` 这种已经不在清单里的陈旧映射键（用户反复看到的
- * 「多出来的两个」），也包括同一站点里那一大串没归一过的 ID
- * （Comfy-gpt 视频档有 40 多个 kling / grok / wan，全摆出来就是灾难）。
+ * 所以：**渠道拉回来的模型一律不进这个列表**。
  *
- * 只有**整条渠道这一档一个都没被认领**时才补它的裸名字：否则用户新接一个站、
- * 还没来得及配映射时，会出现「一个模型都选不出来」——那比列表长更糟。
- * 去重：渠道模型恰好与固定名同名（或能归一成固定名）时只出一个。
+ * ⚠️ 这里曾经留过一条后门 ——「渠道这一档一个名字都没被清单认领时，把它的裸名字补进来，
+ * 免得新接一个站时一个模型都选不出来」。实测它正是用户报的那个现象：
+ * RunningHub 拉回 9 个名字，列表就变成「7 个固定名 + 9 个渠道名 = 16 个」。
+ * **后门已于 2026-10-08 删除**（对账 #371），函数签名里的 `channels` / `channelId`
+ * 一并去掉 —— 让「谁能影响这个列表」在类型上就说清楚。
  *
- * `logicalOptions` 保持原样（只按渠道算），单测与其它调用方不受影响 ——
- * 这条「面板数据源」的口径只在这里定义一次，面板与设置页共用。
+ * ## 渠道模型去哪儿用（都不在这个列表里）
+ *
+ * - 「设置 → 渠道 → 选择模型」：勾选这条渠道**能提供**哪些模型（选路据此认候选）；
+ * - 「设置 → 渠道 → 模型映射」：把显示名翻译成该站真实的模型 ID（选路也认这条映射）。
+ * 界面只认显示名，上游 ID 是实现细节 —— 这是产品文档 §7.4.1 的分工。
  */
-export function panelModelOptions(
-  channels: readonly CatalogChannelLike[],
-  category: ModelCapability['category'],
-  channelId?: string,
-): string[] {
-  const out: string[] = []
-  const seen = new Set<string>()
-  for (const m of presetModelsOf(category)) {
-    if (seen.has(m.id)) continue
-    seen.add(m.id)
-    out.push(m.id)
-  }
-  const scoped = channelId ? channels.filter((c) => c.id === channelId) : channels
-  for (const channel of scoped) {
-    const all = logicalNames([channel])
-    /**
-     * 这条渠道**有没有任何名字被前端清单认领**？有 ⇒ 它的裸名字全部让位
-     * （用户 2026-10-03：不许出现清单之外的多余项）。
-     */
-    const recognized = all.some((n) => !!presetOf(presetIdForUpstream(n)))
-    if (recognized) continue
-    for (const n of all) {
-      if (categoryOfLogical([channel], n, channel.id) !== category) continue
-      /**
-       * 渠道模型的**上游 ID** 先归一成显示名（用户 2026-09-27 第 8 轮）：
-       * 渠道里勾的是 `gpt-image-2`，而固定清单里已经有 `GPT Image 2` ——
-       * 不归一的话用户会在下拉里同时看到这两行，看起来像两个模型。
-       */
-      const display = presetIdForUpstream(n)
-      if (seen.has(display)) continue
-      seen.add(display)
-      out.push(display)
-    }
-  }
-  return out
+export function panelModelOptions(category: ModelCapability['category']): string[] {
+  return presetModelsOf(category).map((m) => m.id)
 }
 
 /** 固定清单里的条目（含厂商，供面板取图标）；不是固定名则返回 undefined */

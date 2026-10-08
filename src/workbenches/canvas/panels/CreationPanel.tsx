@@ -31,7 +31,9 @@ import {
 import { MJ_PERSONALIZE_MAX, MJ_SLIDERS, mjSettingsOf } from '../../../domain/canvas/layout/mjParams'
 import { imageParamsFor } from '../../../domain/canvas/layout/imageParams'
 import {
+  capabilityOfLogical,
   categoryOfLogical,
+  channelIdForLogical,
   panelModelOptions,
   toLogicalName,
 } from '../../../domain/project/modelCatalog'
@@ -407,14 +409,24 @@ export function CreationPanel(props: CreationPanelProps) {
    */
   useEffect(() => {
     if (ownedChannelId || enabled.length === 0) return
-    const first = enabled[0]
-    if (!first) return
+    /**
+     * ⚠️ 挑**真能提供这个模型**的那条渠道，不是 `enabled[0]`（2026-10-08 修）。
+     *
+     * 以前下拉里可能有渠道自己的模型 ID，随便补一条渠道都"能用"（选路只按模型名找）。
+     * A 口径之后节点上的模型是**前端显示名**，「第一条启用渠道」很可能一个模型都不提供 ——
+     * 实测（G9/G10 的探针）：节点会被写成「ModelScope + mock-image-1」这种不匹配的一对，
+     * 而后补的这条还会把解析链刚算好的渠道覆盖掉（两条 effect 抢着写）。
+     * 判据与 Agent 面板同一条：`channelIdForLogical`（映射优先、同名直配兜底）。
+     */
+    const provider = ownedModel ? channelIdForLogical(enabled, ownedModel) : undefined
+    const target = provider ? enabled.find((c) => c.id === provider) : enabled[0]
+    if (!target) return
     /**
      * `setChannel` 的语义是「换渠道 ⇒ 清空模型」（见 PanelLayer）。
      * 若此刻节点上已经有用户刚选的模型，必须**随后写回**，
      * 否则「先选模型、再补渠道」这条路径会把用户的选择当场抹掉。
      */
-    onEventRef.current({ type: 'setChannel', channelId: first.id })
+    onEventRef.current({ type: 'setChannel', channelId: target.id })
     if (ownedModel) onEventRef.current({ type: 'setModel', model: ownedModel })
     // 依赖口径与上一条兜底一致：用稳定的 `channelSignature` 而不是每次新建的 `enabled`
   }, [ownedChannelId, ownedModel, enabled, channelSignature])
@@ -714,17 +726,15 @@ export function CreationPanel(props: CreationPanelProps) {
   /**
    * 模型下拉的数据源。
    *
-   * - **提示词节点**：只列该渠道勾选过的对话模型（它必须真能发请求给 LLM）；
-   * - **生成节点**：先列用户拍板的**固定显示名**（6 生图 / 5 视频），
-   *   其后才是渠道勾选过的其它模型（用户 2026-09-27）。
-   *   固定名在前是为了「一眼就选到自己的模型」，保留后者是为了
-   *   还没配映射的站不至于一个都选不出来。
+   * **只有用户拍板的前端显示名**（生图一档 / 对话一档 / 视频一档），
+   * 渠道拉回来的模型**不进这里** —— 用户 2026-10-08 第四次讲这条口径：
+   * 「这个列表本身就是前端展示的模型名称」。以前那条「新站没配映射就把裸名字补进来」
+   * 的后门正是他报的「我前端只显示 6 个，他给我显示 8 个」（对账 #371）。
+   *
+   * 渠道模型不在这儿，但**渠道照样能跑**：选路认两种提供方式 ——
+   * 渠道勾选列表里有这个显示名，或它的映射表里有一行（`routeCandidatesFor`）。
    */
-  const logicalModelNames: string[] = panelModelOptions(
-    allChannels,
-    wantedCategory,
-    shownChannelId || undefined,
-  )
+  const logicalModelNames: string[] = panelModelOptions(wantedCategory)
   /** 固定清单条目（有则模型行带厂商图标）；渠道模型没有图标，只出名字 */
   const modelOptions = logicalModelNames.map((n) => {
     const preset = presetOf(n)
@@ -758,7 +768,21 @@ export function CreationPanel(props: CreationPanelProps) {
    * 已知限制：某站把逻辑名映射成**不同名**的上游 ID 时，该站的能力参数
    * （张数上限等）会取不到 —— 待 M7 收尾时连同切类别时序一起处理，已记入对账清单。
    */
-  const activeModel = models.find((m) => m.id === shownModel)
+  /**
+   * 这次要用的**能力表**（比例 / 清晰度 / 张数 / 时长）—— 两条路，缺一不可：
+   *
+   *  ① 节点上存的就是该渠道的模型 ID（老节点、或上游 ID 恰好等于显示名的站）⇒ 同名直配；
+   *  ② 节点上存的是**前端显示名**（用户 2026-10-08 定下 A 口径之后的常态：
+   *     下拉只给显示名，真实 ID 由映射翻译）⇒ 经映射表 / 别名归一后再找
+   *     （`capabilityOfLogical`，与选路用的是同一条搜索）。
+   *
+   * ⚠️ ② 只能**兜底**，不能取代 ①：切类别那一帧，节点上还是上一档的模型名，
+   * 那时按显示名查会拿到 undefined（二分实测：把这个顺序改反会让 G46 红 ——
+   * 参考模式被判隐藏、chip 取不到视频模型）。所以是「先同名、再归一」。
+   */
+  const activeModel =
+    models.find((m) => m.id === shownModel) ??
+    capabilityOfLogical(allChannels, shownLogicalModel, shownChannelId || undefined)
   /** 类别名：写进占位文案与空态提示，让「没模型」这件事说得出是**哪一类**没有 */
   const categoryLabel = promptMode ? '文本模型' : videoMode ? '视频模型' : '生图模型'
   /**
