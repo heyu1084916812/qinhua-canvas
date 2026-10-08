@@ -805,7 +805,7 @@ export function SettingsPage() {
                       onClick={(e) => e.stopPropagation()}
                       onDragStart={(e) => e.preventDefault()}
                     >
-                      <label className={styles.switch}>
+                      <label className={styles.switch} data-channel-switch-label>
                         <input
                           className={styles.switchInput}
                           type="checkbox"

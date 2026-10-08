@@ -399,6 +399,14 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  /**
+   * **只占自己那点宽度**（`align-self: flex-start`），不要撑满右侧那一栏 ——
+   * `flex-direction: column` 的默认 `align-items: stretch` 会让它铺满整行宽，
+   * 于是开关右边那一大片空白也归它，而它又 `stopPropagation` 收走了指针：
+   * **点了既不选中渠道、也不切开关 = 死区**（用户 2026-10-08 框出来的那一块）。
+   * 收成内容宽之后：点开关 = 切开关，点这块空白 = 选中这条渠道（与行的其他位置一致）。
+   */
+  align-self: flex-start;
   /* 开关自己收指针（见 JSX 的 stopPropagation）：点它只切开关，不选渠道、也不起拖动 */
   cursor: default;
 }

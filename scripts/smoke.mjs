@@ -5064,6 +5064,46 @@ async function g44(browser) {
   )
   rec(g, '内距四边同值（左边距 = 上下边距）', new Set(geo.padding).size === 1, geo.padding.join('/'))
 
+  /**
+   * ★★ 开关那一排右边**不再有死区**（用户 2026-10-08 框出那一块：「点击好像不能实现」）。
+   *
+   * 根因：开关那一排（`[data-channel-toggle]`）原先被列方向的 `align-items: stretch`
+   * 拉到与右侧栏同宽，而它又 `stopPropagation` 收走指针 ⇒ 开关文字右边那一条
+   * **既不是开关、也不归行**：点了既不切开关、也不选中渠道。名称越长这条空白越宽
+   * （内置 ModelScope 那一行修前实测 **51px**，正是用户框出来的那块）。
+   */
+  const blankStrips = await page.locator('[data-channel-item]').evaluateAll((els) =>
+    els.map((el) => {
+      const span = el.querySelector('[data-channel-toggle]').getBoundingClientRect()
+      const label = el.querySelector('[data-channel-switch-label]').getBoundingClientRect()
+      return Math.round(span.width - label.width)
+    }),
+  )
+  rec(
+    g,
+    '★ 开关那一排只占自己的宽（右边不留死区）',
+    blankStrips.every((w) => w <= 2),
+    `各行空白条=${blankStrips.join(',')}px`,
+  )
+
+  /** 行为面：点开关文字右边那一点 —— 修前是死区，现在是「选中这一行」 */
+  const builtinRow = page.locator('[data-channel-item][data-channel-id^="ch_builtin_"]').first()
+  const builtinId = await builtinRow.getAttribute('data-channel-id')
+  await page.locator(`[data-channel-id="${idA}"]`).click()
+  await sleep(300)
+  const deadSpot = await builtinRow.evaluate((el) => {
+    const label = el.querySelector('[data-channel-switch-label]').getBoundingClientRect()
+    return { x: label.right + 8, y: label.top + label.height / 2 }
+  })
+  await page.mouse.click(deadSpot.x, deadSpot.y)
+  await sleep(350)
+  rec(
+    g,
+    '★★ 点开关右边那一点 = 选中这一行（修前：死区，既不选中也不切开关）',
+    (await selectedNow()) === builtinId,
+    `选中=${await selectedNow()}（期望 ${builtinId}）`,
+  )
+
   await ctx.close()
 }
 
