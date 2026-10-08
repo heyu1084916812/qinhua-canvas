@@ -2,7 +2,61 @@ import { describe, it, expect } from 'vitest'
 import { parseSSELine, createLineSplitter } from './sse'
 import { createMemoryPlatform } from './memory/index'
 import { createPlatform } from './index'
-import type { Row } from './ports'
+import { createWebPlatform } from './web/index'
+import type { Row, StorageAdminPort } from './ports'
+
+/**
+ * **可选端口的"转出去"**（2026-10-08 真机探针抓到的真缺陷）。
+ *
+ * `createWebPlatform` 的入参里写着 `storageAdmin`，但返回的对象**漏了这一行** ——
+ * 于是桌面壳里 `platform.storageAdmin` 永远是 undefined：「存储 → 数据目录 / 网页缓存」
+ * 两块在应用里也显示"仅在桌面应用可用"，用户根本看不到「打开数据目录」「清理网页缓存」。
+ * 浏览器冒烟测不出它（浏览器里"没有这一项"本来就是对的），只有桌面壳探针会红。
+ *
+ * ⇒ 这一组钉住"**传进去的必须在返回的 kit 上找得到**"：少一行、或以后新增端口又忘了转，
+ * 这里立刻红，不必等真机。
+ */
+describe('平台装配：可选端口必须真的转到 PlatformKit 上', () => {
+  const admin: StorageAdminPort = {
+    dataDir: async () => 'C:/data',
+    openDir: async () => {},
+    cacheUsage: async () => 0,
+    clearCache: async () => 0,
+  }
+
+  /**
+   * 单测跑在 node 环境里，没有 `localStorage`，而装配层要用它（凭据端口的默认落点）。
+   * 这不是被测行为，所以给一个最小替身，用完还原。
+   */
+  const withLocalStorage = <T>(fn: () => T): T => {
+    const bag = new Map<string, string>()
+    const stub = {
+      getItem: (k: string) => bag.get(k) ?? null,
+      setItem: (k: string, v: string) => void bag.set(k, v),
+      removeItem: (k: string) => void bag.delete(k),
+    }
+    const host = globalThis as unknown as { localStorage?: unknown }
+    const prev = host.localStorage
+    host.localStorage = stub
+    try {
+      return fn()
+    } finally {
+      host.localStorage = prev
+    }
+  }
+
+  it('壳传了 storageAdmin ⇒ kit.storageAdmin 就是它（漏转 = 桌面版永远显示"仅在桌面应用可用"）', () => {
+    const kit = withLocalStorage(() => createWebPlatform({ storageAdmin: admin }))
+    expect(kit.storageAdmin).toBe(admin)
+  })
+
+  it('没传就是"没有这一项"（浏览器那一档照旧）', () => {
+    const kit = withLocalStorage(() => createWebPlatform())
+    expect(kit.storageAdmin).toBeUndefined()
+    expect(kit.cli).toBeUndefined()
+    expect(kit.updater).toBeUndefined()
+  })
+})
 
 describe('SSE 解析', () => {
   it('解析带类型的 JSON', () => {

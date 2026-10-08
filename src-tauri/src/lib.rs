@@ -997,6 +997,71 @@ fn cli_read_out(app: tauri::AppHandle, path: String) -> Result<String, String> {
     Ok(base64_encode(&bytes))
 }
 
+// ── RunningHub CLI 的登录：写它自己的配置文件 ──
+//
+// 用户 2026-10-08 第 3 条：「runininghub 的 cli 是在 github 上找的，看看 github 上
+// 能不能把目前实现不了一键自动安装的 cli 给做好」。
+//
+// 官方 CLI（`HM-RunningHub/RH_CLI`）的登录命令是 `rh auth set-key <KEY>`，而那是个
+// **位置参数** —— 应用里不能调它（本机约定：**密钥只走 stdin，不进 argv**：
+// argv 会进进程列表、也会被别的工具记进历史）。但那套 CLI 自己认配置文件里的 `api_key`
+// （`rh_cli/config.py` 的 `resolve_api_key`：argv → 环境变量 `RUNNINGHUB_API_KEY` →
+// `%APPDATA%\rh\config.toml`）⇒ **壳直接把那一行写好**，效果与用户手敲那条命令一样，
+// 而且是持久的：用户自己终端里的 `rh` 也立刻是登录态。
+//
+// 安全边界：路径**由壳自己拼**（`%APPDATA%\rh\config.toml`），前端只能给"那把 Key"，
+// 借这个命令动不了任何别的文件 —— 与 `cli_read_out` 收死目录是同一条思路。
+
+/// RunningHub CLI 的配置文件路径（与它的 `config_dir()` 同一套规则）。
+fn rh_config_path() -> Result<PathBuf, String> {
+    #[cfg(target_os = "windows")]
+    let base = std::env::var("APPDATA")
+        .map_err(|_| "拿不到 %APPDATA%，写不了 RunningHub 的配置".to_string())?;
+    #[cfg(not(target_os = "windows"))]
+    let base = std::env::var("XDG_CONFIG_HOME")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .or_else(|| std::env::var("HOME").ok().map(|h| format!("{h}/.config")))
+        .ok_or_else(|| "拿不到配置目录，写不了 RunningHub 的配置".to_string())?;
+    Ok(PathBuf::from(base).join("rh").join("config.toml"))
+}
+
+/// 把 `api_key` 那一行写进配置文本，**其余行原样保留**。
+///
+/// 为什么是"读回来再写"而不是直接覆盖：官方 CLI 的 `write_config` 也是这么做的 ——
+/// 它那份配置里还可能有 `output_dir` 这类别的键，覆盖会把用户已有的设置冲掉。
+fn upsert_api_key(existing: &str, api_key: &str) -> String {
+    let mut lines: Vec<String> = existing
+        .lines()
+        /* 旧的 `api_key` 行整行丢掉（等价于"改"，不是"追加第二条"） */
+        .filter(|line| line.split('=').next().unwrap_or("").trim() != "api_key")
+        .map(|line| line.to_string())
+        .collect();
+    /* 值与官方 CLI 同一套转义（TOML 基本字符串：反斜杠与双引号要转义） */
+    let escaped = api_key.replace('\\', "\\\\").replace('"', "\\\"");
+    lines.push(format!("api_key = \"{escaped}\""));
+    let mut out = lines.join("\n");
+    out.push('\n');
+    out
+}
+
+/// 写 RunningHub CLI 的 API Key（登录）。返回配置文件路径，供界面如实告知。
+#[tauri::command]
+fn rh_set_api_key(api_key: String) -> Result<String, String> {
+    let key = api_key.trim();
+    if key.is_empty() {
+        return Err("Key 是空的，没有可写的内容".to_string());
+    }
+    let path = rh_config_path()?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|err| format!("建配置目录失败：{err}"))?;
+    }
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    std::fs::write(&path, upsert_api_key(&existing, key))
+        .map_err(|err| format!("写 RunningHub 配置失败：{err}"))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 #[cfg(test)]
 mod cli_out_tests {
     use super::*;
@@ -1029,6 +1094,30 @@ mod cli_out_tests {
         assert!(!is_inside(root, Path::new(r"C:\data\cli-out2\a.png")));
         // 完全无关的盘
         assert!(!is_inside(root, Path::new(r"D:\other\a.png")));
+    }
+
+    /**
+     * RunningHub 的 Key 落盘规则（用户 2026-10-08 第 3 条）。
+     *
+     * 三条判据，都是"写坏一次就很难查"的那种：
+     *   ① 新文件直接写出这一行；
+     *   ② **已有的别的键要留着**（官方 CLI 的配置里还可能有 `output_dir`，
+     *      覆盖写会把它冲掉 —— 那正是"读回来再写"的理由）；
+     *   ③ 旧的 `api_key` **不追加第二条**，且值里的反斜杠 / 双引号照 TOML 转义。
+     */
+    #[test]
+    fn api_key_line_is_upserted_not_appended() {
+        assert_eq!(upsert_api_key("", "abc"), "api_key = \"abc\"\n");
+
+        let kept = upsert_api_key("output_dir = \"D:/rh\"\n", "abc");
+        assert_eq!(kept, "output_dir = \"D:/rh\"\napi_key = \"abc\"\n");
+
+        let replaced = upsert_api_key("api_key = \"old\"\noutput_dir = \"D:/rh\"\n", "new");
+        assert_eq!(replaced, "output_dir = \"D:/rh\"\napi_key = \"new\"\n");
+        assert_eq!(replaced.matches("api_key").count(), 1);
+
+        let escaped = upsert_api_key("", r#"a\b"c"#);
+        assert_eq!(escaped, "api_key = \"a\\\\b\\\"c\"\n");
     }
 }
 
@@ -1379,7 +1468,8 @@ pub fn run() {
             cli_kill,
             cli_spawn_window,
             cli_out_dir,
-            cli_read_out
+            cli_read_out,
+            rh_set_api_key
         ])
         .setup(|app| {
             /*

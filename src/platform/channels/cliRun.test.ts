@@ -83,6 +83,10 @@ function fakeCli(options: FakeOptions = {}) {
     },
     /* 适配器不用它（那是"一键登录"的通道，见 CliPanel）；这里给个空实现凑齐端口形状 */
     async spawnWindow() {},
+    /* 同上：RunningHub 的登录（写它自己的配置）也是面板那条路用的，适配器不碰 */
+    async rhSetApiKey(key) {
+      return `C:\\Users\\me\\AppData\\Roaming\\rh\\config.toml#${key.length}`
+    },
     async outDir() {
       return 'C:\\data\\cli-out'
     },
@@ -331,6 +335,9 @@ describe('本机 CLI 适配器 · 出错如实说', () => {
         return true
       },
       async spawnWindow() {},
+      async rhSetApiKey() {
+        return 'C:\\Users\\me\\AppData\\Roaming\\rh\\config.toml'
+      },
       async outDir() {
         return 'C:\\data\\cli-out'
       },

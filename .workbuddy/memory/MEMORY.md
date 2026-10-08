@@ -4791,3 +4791,32 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
 - **★★ 量几何要挑「最长的那一行」**：同一组里各行的几何**由内容决定**时（这里右侧栏宽 =
   名字宽），挑短名字那一行会量到恒真场景 —— 第一次探针拿 Agnes（空白条 0）
   得出「不是死区」的假结论，白跑一趟。探针要挑极值那一行再下判断。
+
+## 2026-10-08 第 26 批（列表项放大 / 拖动 / CLI 与存储面板去介绍 / RunningHub 一键登录）
+
+- **★★★ 浏览器里能拖、桌面壳里拖不动 ⇒ 先看 Tauri 的 `dragDropEnabled`**：它**默认 true**，
+  会替换 WebView2 的拖放处理，于是**网页内的 HTML5 拖动整片失效**（用户原话「新建的也无法拖动排序」）。
+  修法一行：`src-tauri/tauri.conf.json` 的窗口加 `"dragDropEnabled": false`（官方文档：
+  Windows 上要用 HTML5 拖动**必须**关它）；文件拖入不受影响（网页自己的 `drop` 照旧）。
+  **为什么浏览器冒烟一直绿**：`page.dragAndDrop` 直接合成 dragstart / drop，**绕过原生拖动机制**。
+  ⇒ **手势类功能必须有一条"真鼠标手势"断言**（按下 → 分步移动 → 松手），别只靠 `dragAndDrop`。
+- **★★★ 库里的"旧默认值"会把新默认钉住**：我们改了某个工具的默认（`program: runninghub → rh`、
+  参数模板、`statusArgs: '' → --json check`、`installCommand: '' → pip 一行`），而**旧目录的默认值
+  当年也被存进了库** ⇒ 用户点「检测 / 查状态」得到「找不到命令「runninghub」」——一个他从没填过的名字。
+  修法：`SUPERSEDED_DEFAULTS`（**存的值等于旧默认 ⇒ 当作没改过**）。注意 `''` 在 `statusArgs` /
+  `installCommand` 里是**合法值**（"没有这条命令"），所以这条判据在这两格尤其关键。
+- **★★ 可选端口"收下了"不等于"转出去了"**：`createWebPlatform` 的入参有 `storageAdmin`，
+  返回的 `PlatformKit` 里**漏了这一行** ⇒ 桌面壳里 `platform.storageAdmin` 恒 undefined，
+  「存储 → 数据目录 / 网页缓存」在应用里也显示"仅在桌面应用可用"。**浏览器冒烟把这条当预期**
+  （浏览器里没有它是对的）⇒ 只有真机探针会红。已补单测：传进去的端口必须在 kit 上找得到。
+- **★ 第三方 CLI 把命令当位置参数收时：别硬塞 argv，去读它认的配置文件**：
+  `rh auth set-key <KEY>` 是位置参数（与"密钥不走 argv"冲突），但 `rh_cli/config.py` 的
+  `resolve_api_key` 明写认 `%APPDATA%\rh\config.toml` 的 `api_key` ⇒ 壳写那一行即可，
+  与手敲命令等效**且持久**。**前提是先读它的源码**（我读的是 site-packages 里装好的那份），
+  别凭 `--help` 猜。真机验证这类"会写用户真实配置"的能力时：**先备份、跑完逐字节还原**。
+- **★ 「介绍文字」与「按之前要知道的那一句」是两回事**：用户要删的是前者。
+  存储面板四段解释全撤、只留三句一行小字（卸载不删数据 / 清缓存只省磁盘不动项目 / 素材怎么放回画布）；
+  CLI 每卡的工具介绍改成**悬停提示**（信息还在，但不占版面）。
+- **★ 写死在 CSS 里的尺寸会让 props 失效**：`ChannelIcon` 的底板被 `.plate { width: 22px }` 钉死，
+  调用方传 `size={28}` 也没用 ⇒ 改成按 `--channel-plate` 注入。改"尺寸 props"前先看有没有
+  同一份尺寸写在 CSS 里。

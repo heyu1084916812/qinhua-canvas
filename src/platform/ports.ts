@@ -373,6 +373,21 @@ export interface CliPort {
   outDir(): Promise<string>
   /** 把 CLI 写出来的产物读回来（base64 在壳内部解决，这里直接给字节） */
   readOut(path: string): Promise<Uint8Array>
+  /**
+   * 把 RunningHub CLI 的 API Key 写进**它自己的配置文件**（用户 2026-10-08 第 3 条：
+   * 「runininghub 的 cli 是在 github 上找的，看看 github 上能不能把目前实现不了一键
+   * 自动安装的 cli 给做好」）。
+   *
+   * 为什么需要它：官方 CLI 的登录是 `rh auth set-key <KEY>`，而 Key 是**位置参数**
+   * —— 应用里不能这么调（本机约定：**密钥只走 stdin、不进 argv**：argv 会进进程列表、
+   * 也会被别的工具记进历史）。于是壳改写**它自己认的那份配置**
+   * （`%APPDATA%\rh\config.toml` 里的 `api_key` 行，见 `rh_cli/config.py` 的 `resolve_api_key`）。
+   * 效果与用户手敲那条命令一致，而且是**持久的** —— 他自己的终端里 `rh` 也立刻是登录态。
+   *
+   * 路径由壳自己拼（前端给不了路径），所以这个能力动不了别的文件。
+   * 返回写入的文件路径，供界面如实告知"写去哪儿了"。
+   */
+  rhSetApiKey(key: string): Promise<string>
 }
 
 /** 可见窗口里那条命令（一键登录 / 打开工具的交互界面） */

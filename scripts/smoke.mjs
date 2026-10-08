@@ -5104,6 +5104,100 @@ async function g44(browser) {
     `选中=${await selectedNow()}（期望 ${builtinId}）`,
   )
 
+  /**
+   * ⑦ 版式与「谁能拖」（用户 2026-10-08 第 1 / 2 条）：
+   *   ① 「左边图标部分和右边名称与开关部分上下高度不够，需要放大图标」；
+   *   ② 「上面三个渠道是固定不变的，但是新建的渠道是需要可以拖动的」。
+   */
+  const rowMetrics = await page.locator('[data-channel-item]').evaluateAll((els) =>
+    els.map((el) => {
+      const box = el.querySelector('[data-channel-icon-box]').getBoundingClientRect()
+      const glyph = el.querySelector('[data-channel-icon]').getBoundingClientRect()
+      const body = el.querySelector('[data-channel-body]').getBoundingClientRect()
+      const r = el.getBoundingClientRect()
+      return {
+        fixed: el.hasAttribute('data-channel-fixed'),
+        draggable: el.draggable,
+        cursor: getComputedStyle(el).cursor,
+        userSelect: getComputedStyle(el).userSelect,
+        rowH: Math.round(r.height),
+        boxW: Math.round(box.width),
+        boxH: Math.round(box.height),
+        glyph: Math.round(glyph.width),
+        bodyH: Math.round(body.height),
+      }
+    }),
+  )
+  rec(
+    g,
+    '★ 图标放大了（本体 ≥ 28px、方块 56px），行高跟着涨到 ≥ 70px',
+    rowMetrics.every((m) => m.glyph >= 28 && m.boxW === 56 && m.rowH >= 70),
+    `各行：${rowMetrics.map((m) => `${m.glyph}px 图标/${m.boxW}方块/${m.rowH} 行高`).join(' · ')}`,
+  )
+  rec(
+    g,
+    '★ 图标方块与右侧两排仍然同高（放大之后没散架）',
+    rowMetrics.every((m) => m.boxH === m.bodyH),
+    rowMetrics.map((m) => `${m.boxH}/${m.bodyH}`).join(' · '),
+  )
+  rec(
+    g,
+    '★★ 内置三条不可拖（cursor: default）、用户渠道可拖（cursor: grab）',
+    rowMetrics.filter((m) => m.fixed).every((m) => !m.draggable && m.cursor === 'default') &&
+      rowMetrics.filter((m) => !m.fixed).length > 0 &&
+      rowMetrics.filter((m) => !m.fixed).every((m) => m.draggable && m.cursor === 'grab'),
+    rowMetrics.map((m) => `${m.fixed ? '固定' : '可拖'}/${m.draggable}/${m.cursor}`).join(' · '),
+  )
+  rec(
+    g,
+    '★ 整行不参与文字选择（从名字上起拖不会先划出选区）',
+    rowMetrics.every((m) => m.userSelect === 'none'),
+    rowMetrics.map((m) => m.userSelect).join(' · '),
+  )
+
+  /**
+   * ★★ **真手势拖动**（不是 `dragAndDrop`）：用户渠道之间要能换序，
+   * 而且内置三条仍在最前（用户第 2 条的两半）。
+   *
+   * 为什么另加一条：`page.dragAndDrop` 直接合成 dragstart / drop 事件，
+   * **绕过浏览器的原生拖动机制** —— 原生拖动起不来时它照样绿（桌面壳 WebView2
+   * 就属于这一类：Tauri 的拖放拦截会吃掉网页内拖动，`dragAndDrop` 测不出来）。
+   */
+  const orderBeforeDrag = await names()
+  const idsForDrag = await page
+    .locator(USER_CHANNEL)
+    .evaluateAll((els) => els.map((el) => el.dataset.channelId))
+  const fromBox = await page.locator(`[data-channel-id="${idsForDrag[1]}"]`).boundingBox()
+  const toBox = await page.locator(`[data-channel-id="${idsForDrag[0]}"]`).boundingBox()
+  const sx = fromBox.x + fromBox.width / 2
+  const sy = fromBox.y + fromBox.height / 2
+  const tx = toBox.x + toBox.width / 2
+  const ty = toBox.y + toBox.height / 2
+  await page.mouse.move(sx, sy)
+  await page.mouse.down()
+  for (let k = 1; k <= 8; k += 1) {
+    await page.mouse.move(sx + ((tx - sx) * k) / 8, sy + ((ty - sy) * k) / 8)
+    await sleep(40)
+  }
+  await page.mouse.up()
+  await sleep(700)
+  const orderAfterDrag = await names()
+  const builtinFirst = await page
+    .locator('[data-channel-item]')
+    .evaluateAll((els) => els.slice(0, 3).map((el) => el.dataset.channelId))
+  rec(
+    g,
+    '★★ 真手势拖动：用户渠道换序成功',
+    JSON.stringify(orderAfterDrag) === JSON.stringify([...orderBeforeDrag].reverse()),
+    `${JSON.stringify(orderBeforeDrag)} → ${JSON.stringify(orderAfterDrag)}`,
+  )
+  rec(
+    g,
+    '★★ 内置三条仍在最前（拖完没被挤动）',
+    builtinFirst.every((id) => id.startsWith('ch_builtin_')),
+    builtinFirst.join(','),
+  )
+
   await ctx.close()
 }
 
@@ -17956,14 +18050,43 @@ async function g97(browser) {
   const cacheCopy = await page.locator('[data-storage-panel]').innerText().catch(() => '')
   rec(
     g,
-    '★★ 网页缓存的说明如实：只省磁盘 / 不会更快 / 不动项目素材',
-    /只省磁盘/.test(cacheCopy) && /不会让应用变快/.test(cacheCopy) && /不会[\s\S]{0,12}动你的项目/.test(cacheCopy),
-    `含"只省磁盘"=${/只省磁盘/.test(cacheCopy)} 含"不会让应用变快"=${/不会让应用变快/.test(cacheCopy)}`,
+    '★★ 存储面板里那些长解释都不在了（用户 2026-10-08 第 4 条）',
+    /**
+     * ⚠️ 范围说明：**浏览器里没有「清理网页缓存」这个按钮**（那一格只显示"仅在桌面应用可用"），
+     * 所以"点了只省磁盘、不动项目素材"那句小字在浏览器里根本不渲染 ——
+     * 它的正确验证场是**桌面壳**（见对账 #374 的证据列：CDP 探针里量那句小字）。
+     * 这里守的是浏览器里能看的那一半：**旧的长解释一句都不剩**。
+     */
+    !/不需要手动保存/.test(cacheCopy) &&
+      !/下次用到会重建/.test(cacheCopy) &&
+      !/重复导入不会重复落盘/.test(cacheCopy) &&
+      !/[。；][\s\S]{60,}/.test(cacheCopy.replace(/\n/g, '')),
+    `面板文字=${cacheCopy.replace(/\s+/g, ' ').slice(0, 80)}…`,
   )
   rec(
     g,
     '★ 素材文件夹那块写明「从文件夹加载」在画布右键菜单（不然用户找不到）',
     /右键[\s\S]{0,20}从素材文件夹加载/.test(cacheCopy),
+  )
+  /**
+   * ★★ **介绍段落必须没了**（用户 2026-10-08 第 4 条：「存储面板也是介绍文字这么多……
+   * 无用的文字介绍都给我删掉」）。判据同时看两件：
+   *   ① 老的说明段落（`desc` 那一档）一个不剩；
+   *   ② 该留的短小字（`caption`）还在 —— 只删"介绍"，不删"按之前要看的那一句"。
+   */
+  const storageProse = await page.evaluate(() => {
+    const panel = document.querySelector('[data-storage-panel]')
+    return {
+      desc: panel.querySelectorAll('[class*="_desc_"]').length,
+      caption: panel.querySelectorAll('[class*="_caption_"]').length,
+      chars: panel.innerText.replace(/\s+/g, '').length,
+    }
+  })
+  rec(
+    g,
+    '★★ 存储面板不再有介绍段落（只剩数字 / 路径 / 按钮 + 两行小字）',
+    storageProse.desc === 0 && storageProse.caption > 0 && storageProse.chars < 400,
+    `介绍段=${storageProse.desc} 小字=${storageProse.caption} 面板字数=${storageProse.chars}`,
   )
 
   /**
@@ -18021,9 +18144,58 @@ async function g97(browser) {
   )
   rec(
     g,
-    '★★ 每个工具都有「检测 / 一键登录 / 查状态」三条路，且都写明额度去哪儿看',
-    cliRoutes.every((t) => t.detect === 1 && t.login === 1 && t.status === 1 && t.quotaWhere > 10),
+    /**
+     * ⚠️ 口径微调（2026-10-08）：**不再是"每张卡都必须有「一键登录（打开窗口）」"** ——
+     * 用户第 3 条要求「按钮的功能要确实要生效」，而 RunningHub 的官方 CLI 没有登录子命令
+     * （`rh` 不带参数只打印帮助），它的登录只能靠写配置文件那条路（密钥格）。
+     * 所以判据改成「**每条路都要有真的登录入口**」：能开窗口的给按钮、只能写密钥的给密钥格，
+     * 不许出现"两个都没有"（那等于没登录入口）。
+     */
+    '★★ 每个工具都有「检测 / 查状态」，且都有真的登录入口（开窗口 或 密钥）',
+    cliRoutes.every(
+      (t) => t.detect === 1 && t.status === 1 && t.login + t.keyInput >= 1 && t.quotaWhere > 10,
+    ),
     JSON.stringify(cliRoutes),
+  )
+  rec(
+    g,
+    '★★ RunningHub 不摆"打开窗口登录"那个假按钮（它没有登录子命令），改给密钥格',
+    cliRoutes.find((t) => t.id === 'runninghub')?.login === 0 &&
+      cliRoutes.find((t) => t.id === 'runninghub')?.keyInput === 1,
+    JSON.stringify(cliRoutes.find((t) => t.id === 'runninghub')),
+  )
+  /**
+   * ★★ **CLI 面板的介绍文字全部撤掉**（用户 2026-10-08 第 3 条：「cli 面板那边的介绍内容
+   * 太多了，用户是不会去看的，反而影响排版，不需要文字介绍，只需要按钮」）。
+   *
+   * 判据分两层：① 老那段导语与每卡 `note` 都不在了（`desc` / `note` 两档计数为 0，
+   * 且旧句子一个字都搜不到）；② 每张卡的文案体积有上限 —— 按钮标签 + 一行额度提示，
+   * 实测四张卡分别是 104 / 91 / 99 / 116 字，门槛取 130。
+   */
+  const cliProse = await page.evaluate(() => {
+    const panel = document.querySelector('[data-cli-panel]')
+    return {
+      desc: panel.querySelectorAll('[class*="_desc_"]').length,
+      note: panel.querySelectorAll('[class*="_note_"]').length,
+      text: panel.innerText.replace(/\s+/g, ' '),
+      cards: [...document.querySelectorAll('[data-cli-tool]')].map(
+        (el) => el.innerText.replace(/\s+/g, ' ').trim().length,
+      ),
+    }
+  })
+  rec(
+    g,
+    '★★ CLI 面板不再有介绍段落（导语 / 每卡 note / 按钮旁的静态说明都撤了）',
+    cliProse.desc === 0 &&
+      cliProse.note === 0 &&
+      !/这里配的是你本机装着的命令行工具|每张卡的顺序就是你要做的事|装没装、登没登录/.test(cliProse.text),
+    `desc=${cliProse.desc} note=${cliProse.note}`,
+  )
+  rec(
+    g,
+    '★ 每张 CLI 卡只剩按钮 + 一行额度提示（文案 ≤ 130 字）',
+    cliProse.cards.every((n) => n <= 130),
+    cliProse.cards.join(' / '),
   )
   rec(
     g,

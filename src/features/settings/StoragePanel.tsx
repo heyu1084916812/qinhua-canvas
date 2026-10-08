@@ -79,33 +79,33 @@ export function StoragePanel() {
 
   return (
     <div className={styles.panel} data-storage-panel>
+      {/*
+        用户 2026-10-08 第 4 条：「存储面板也是介绍文字这么多，我也是只需要有用的，
+        无用的文字介绍都给我删掉，帮我重排一下 ui」。
+
+        于是四块的写法统一成「**标题 + 数字 / 路径 + 按钮**」这种一行一式：
+        原来的四段解释（每段三四行）全部撤掉，只留**真的会影响决策**的那一两句，
+        压成 `.caption` 的小字贴在动作旁边（卸载不删数据 / 清缓存不动项目 / 素材怎么放回画布）。
+      */}
       <section className={styles.block}>
         <h3 className={styles.title}>存储概况</h3>
-        <p className={styles.desc}>
-          项目、素材与素材库都在应用自己的库里（不是散落的文件）。<strong>自动保存</strong>：每次改动
-          约 0.8 秒后落库，关掉窗口前再强制落一次 —— 不需要手动保存。
-        </p>
         <div className={styles.facts}>
           <span data-storage-count="projects">项目 {counts ? counts.projects : '…'}</span>
           <span data-storage-count="assets">素材 {counts ? counts.assets : '…'}</span>
           <span data-storage-count="saved">收藏 {counts ? counts.saved : '…'}</span>
-          <span>估算占用 {usage ? formatBytes(usage.used) : '…'}</span>
+          <span data-storage-count="used">占用 {usage ? formatBytes(usage.used) : '…'}</span>
         </div>
+        <p className={styles.caption}>自动保存：改动约 0.8 秒后落库，关窗前再落一次</p>
       </section>
 
       <section className={styles.block}>
         <h3 className={styles.title}>数据目录</h3>
-        <p className={styles.desc}>
-          项目、令牌与素材库所在的位置。安装时若把程序装在自己挑的目录里，数据就在
-          <strong>程序隔壁的 data\ 目录</strong>；装在默认位置则用系统的用户目录。
-          卸载<strong>不会</strong>删它。
-        </p>
         {admin ? (
           <>
-            <code className={styles.path} data-storage-data-dir>
-              {dataDir || '…'}
-            </code>
-            <div className={styles.actions}>
+            <div className={styles.line}>
+              <code className={styles.path} data-storage-data-dir>
+                {dataDir || '…'}
+              </code>
               <button
                 type="button"
                 className={styles.btn}
@@ -118,6 +118,7 @@ export function StoragePanel() {
                 打开数据目录
               </button>
             </div>
+            <p className={styles.caption}>项目、令牌与素材库都在这里；卸载不会删它</p>
           </>
         ) : (
           <p className={styles.only} data-storage-desktop-only>
@@ -129,22 +130,17 @@ export function StoragePanel() {
       <section className={styles.block}>
         <h3 className={styles.title}>网页缓存</h3>
         {/*
-          ⚠️ 这段**不写"加速 / 优化"**：清了不会更快（下次用到的还会重建，第一次反而更慢）。
-          它唯一的好处是**省磁盘**（网页缓存 + 代码缓存 + GPU 缓存，实测一次开发使用约 70MB）
-          与"更新之后界面还是旧的"这类残留。用户专门追问过这一条，所以话必须说准。
+          ⚠️ 「只省磁盘」这句**不能改成"加速 / 优化"**：清了不会更快（下次用到还会重建，
+          第一次反而更慢）。它唯一的好处是省磁盘与清掉"更新之后界面还是旧的"这类残留。
+          用户专门追问过这一条（「那那个清理缓存不就对我的画布没啥用吗？」），
+          所以这句压成一行小字也要留着 —— 它直接决定用户按不按这个按钮。
         */}
-        <p className={styles.desc}>
-          应用外壳（WebView2）的临时缓存：网页缓存、代码缓存、GPU 缓存。
-          清掉它<strong>只省磁盘空间</strong> —— 不会让应用变快（下次用到会重建，第一次稍慢），
-          也<strong>不会</strong>动你的项目、素材与令牌（那些在数据库里，不在这儿）。
-          顺带能治好"更新之后界面还是旧的"这类残留。
-        </p>
         {admin ? (
           <>
-            <div className={styles.facts}>
-              <span data-storage-cache>当前 {cacheBytes === null ? '…' : formatBytes(cacheBytes)}</span>
-            </div>
-            <div className={styles.actions}>
+            <div className={styles.line}>
+              <span className={styles.fact} data-storage-cache>
+                当前 {cacheBytes === null ? '…' : formatBytes(cacheBytes)}
+              </span>
               <button
                 type="button"
                 className={styles.btn}
@@ -155,6 +151,7 @@ export function StoragePanel() {
                 清理网页缓存
               </button>
             </div>
+            <p className={styles.caption}>只省磁盘，不会让应用变快；不动项目、素材与令牌</p>
           </>
         ) : (
           <p className={styles.only}>仅在桌面应用可用</p>
@@ -163,20 +160,12 @@ export function StoragePanel() {
 
       <section className={styles.block}>
         <h3 className={styles.title}>素材文件夹</h3>
-        <p className={styles.desc}>
-          素材默认存在<strong>应用自己的库里</strong>（数据库内）。选一个目录之后，新素材会
-          <strong>同时</strong>在库里和那个目录各存一份（文件名是内容哈希，重复导入不会重复落盘）；
-          想备份、换机器、或用资源管理器直接看图，就走它。
-          <br />
-          把<strong>文件夹里的素材放回画布</strong>：在画布空白处<strong>右键 → 从素材文件夹加载</strong>
-          （那是"往当前画布加节点"的动作，所以留在画布上）。
-        </p>
         {folderActions.canPick ? (
           <>
-            <code className={styles.path} data-storage-asset-dir>
-              {folderActions.folderName || '（未选择：素材只存在库里）'}
-            </code>
-            <div className={styles.actions}>
+            <div className={styles.line}>
+              <code className={styles.path} data-storage-asset-dir>
+                {folderActions.folderName || '（未选择：素材只存在库里）'}
+              </code>
               <button
                 type="button"
                 className={styles.btn}
@@ -186,6 +175,8 @@ export function StoragePanel() {
               >
                 {folderActions.folderName ? '更换位置' : '选择素材文件夹'}
               </button>
+            </div>
+            <div className={styles.actions}>
               <button
                 type="button"
                 className={styles.btn}
@@ -210,6 +201,7 @@ export function StoragePanel() {
                   : '导出素材到文件夹'}
               </button>
             </div>
+            <p className={styles.caption}>放回画布：画布空白处右键 → 从素材文件夹加载</p>
           </>
         ) : (
           <p className={styles.only}>当前环境不支持选择素材文件夹</p>

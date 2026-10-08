@@ -83,6 +83,20 @@ export interface CliTool {
    * 空串 = 这个工具不支持密钥登录（那就只能走可见窗口那条路）。
    */
   keyLoginArgs: string
+  /**
+   * 用密钥登录的**落点**（用户 2026-10-08 第 3 条：「看看 github 上能不能把目前实现不了
+   * 一键自动安装的 cli 给做好」）：
+   *
+   * - `'stdin'`：把密钥喂给 `keyLoginArgs` 那条命令的 stdin（Codex 的
+   *   `login --with-api-key` 就是这条）；
+   * - `'config'`：写进**该工具自己的配置文件**——现在只有 RunningHub：它的
+   *   `rh auth set-key <KEY>` 把 Key 当**位置参数**读（源码 `account`/`main` 实测），
+   *   而本机约定是"密钥不进 argv" ⇒ 由壳写它认的 `%APPDATA%\rh\config.toml`
+   *   （`rh_cli/config.py` 的 `resolve_api_key` 认这一行），效果与手敲那条命令一致，
+   *   而且是持久的：用户自己终端里的 `rh` 也立刻变成登录态；
+   * - `''`：这个工具不支持密钥登录（只能走可见窗口那条路，或者根本没有官方 CLI）。
+   */
+  keyLoginKind: 'stdin' | 'config' | ''
   /** 怎么把它装上（一句话：官网 / 安装命令），显示在"没找到命令"旁边 */
   installHint: string
   /**
@@ -141,9 +155,10 @@ export function defaultCliTools(): CliTool[] {
       loginArgs: 'login',
       /* `codex login --with-api-key` 从 stdin 读密钥（官方 help 里写明的） */
       keyLoginArgs: 'login --with-api-key',
+      keyLoginKind: 'stdin',
       installHint: '已装的话 `codex --version` 能看到版本；没装去 https://github.com/openai/codex 按说明装。',
       installCommand: 'npm install -g @openai/codex',
-      quotaWhere: 'Codex 的**额度不在命令行里**（CLI 只能报"登录态"）——余额去 ChatGPT 的用量页看。',
+      quotaWhere: 'CLI 只报登录态；余额在 ChatGPT 的用量页看。',
     },
     {
       id: 'jimeng',
@@ -161,9 +176,10 @@ export function defaultCliTools(): CliTool[] {
       statusArgs: '',
       loginArgs: '',
       keyLoginArgs: '',
+      keyLoginKind: '',
       installHint: '即梦官方没有命令行工具：要接就先弄一层封装（社区脚本 / 自己写），再把命令名填上面。',
       installCommand: '',
-      quotaWhere: '即梦的积分在**即梦 App / 网页的「我的」**里看，CLI 这条链路读不到它。',
+      quotaWhere: '积分在即梦 App / 网页的「我的」里看。',
     },
     {
       id: 'gemini',
@@ -179,9 +195,10 @@ export function defaultCliTools(): CliTool[] {
       /* 它没有 login 子命令：第一次运行就会引导登录（浏览器授权） */
       loginArgs: '',
       keyLoginArgs: '',
+      keyLoginKind: '',
       installHint: '装它：`npm i -g @google/gemini-cli`（需要 Node 18+），装完先运行一次 `gemini` 完成登录。',
       installCommand: 'npm install -g @google/gemini-cli',
-      quotaWhere: 'Gemini 的用量在 **Google 账号的用量页**看；CLI 只报版本与登录态。',
+      quotaWhere: '用量在 Google 账号的用量页看；CLI 只报版本。',
     },
     {
       id: 'runninghub',
@@ -227,13 +244,22 @@ export function defaultCliTools(): CliTool[] {
       /**
        * 一键登录：**空串**是如实回答 —— 官方 CLI 的 `rh auth set-key <KEY>` 把 Key 当
        * **位置参数**读（不是 stdin），而本机的约定是「密钥只走 stdin、不进 argv」，
-       * 所以这条路走不通，只能由用户在本机跑一次那条命令（跑完即持久化，见下）。
+       * 所以"打开一个窗口让它自己登录"这条路走不通。
+       *
+       * ⇒ 登录改走 `keyLoginKind: 'config'`（壳写它的配置文件，等效于手敲那条命令，
+       * 见 `keyLoginKind` 与 `platform/ports.ts` 的 `rhSetApiKey`）。这一格保持空串，
+       * 是为了**别给用户一个按下去没用的按钮**。
        */
       loginArgs: '',
       keyLoginArgs: '',
+      /**
+       * **由壳写它的配置文件**（见 `keyLoginKind` 的说明）——
+       * 这是本轮把"RunningHub 登录不了"变成"点一下就好"的落点。
+       */
+      keyLoginKind: 'config',
       installHint: '装它：先有 Python 3.10+，再 `python -m pip install git+https://github.com/HM-RunningHub/RH_CLI.git`；装完在本机跑一次 `rh auth set-key <你的Key>`（Key 在 https://www.runninghub.cn/enterprise-api/sharedApi 取），之后一直是登录态。',
       installCommand: 'python -m pip install git+https://github.com/HM-RunningHub/RH_CLI.git',
-      quotaWhere: 'RunningHub 是**唯一能直接读到额度**的：`rh check` 报余额与 RH 币（面板上的「查额度」跑的就是 `rh --json check`）。',
+      quotaWhere: '`rh check` 能直接读余额与 RH 币（上面那个按钮跑的就是它）。',
     },
   ]
 }
@@ -397,6 +423,48 @@ function text(value: unknown, fallback: string): string {
 }
 
 /**
+ * **目录里改过默认值的字段**：旧默认 → 现默认（老配置的迁移表）。
+ *
+ * 为什么需要它：库里只存"用户改过的字段"，但**旧目录的默认值当年也是写进库里的** ——
+ * 用户没动过它，可它已经过时，而读取时它照样会**压过新默认**。
+ *
+ * 2026-10-08 真机实测踩到：RunningHub 的 CLI 从"官方没有 CLI"改成官方 `rh` 之后，
+ * 老库里存着 `program: 'runninghub'` 与旧参数模板 ⇒ 面板上点「检测 / 查状态」
+ * 报「找不到命令「runninghub」」，而**用户从没填过这个名字**（那是上一版目录给的）。
+ *
+ * 判据因此是"**存的值等于旧默认 ⇒ 当作没改过**，用现默认；等于别的值才认作用户自定义"。
+ * 加新条目时把**旧默认原样**抄进来（一个字符不同就不生效）。
+ */
+const SUPERSEDED_DEFAULTS: Record<
+  string,
+  {
+    program?: string[]
+    argsTemplate?: string[]
+    /**
+     * 「查状态 / 额度」那一格：老目录给的是**空串**（= 那时候判定"它没有可查的命令"），
+     * 实测推翻之后才有 `--json check`。空串在这两个字段里是**合法值**，
+     * 所以"等于旧默认"这条判据在这里尤其关键 —— 否则老用户永远查不到额度。
+     */
+    statusArgs?: string[]
+    /** 同上：老目录给的空串表示"没有能自动装的途径"，现在是官方 pip 一行。 */
+    installCommand?: string[]
+  }
+> = {
+  runninghub: {
+    program: ['runninghub'],
+    argsTemplate: ['run --workflow {workflow} --out {out} --prompt {prompt}'],
+    statusArgs: [''],
+    installCommand: [''],
+  },
+}
+
+/** 存的值是旧默认就往回落（见 `SUPERSEDED_DEFAULTS`）；否则原样认。 */
+function notSuperseded(value: string, fallback: string, oldDefaults?: string[]): string {
+  if (oldDefaults && oldDefaults.includes(value)) return fallback
+  return value
+}
+
+/**
  * 落库的一行 → 工具列表。
  *
  * 三条口径：
@@ -417,21 +485,34 @@ export function mergeTools(row: unknown): CliTool[] {
   return defaultCliTools().map((tool) => {
     const patch = patches.get(tool.id)
     if (!patch) return tool
+    const superseded = SUPERSEDED_DEFAULTS[tool.id]
     return {
       ...tool,
-      program: str(patch.program, tool.program),
-      argsTemplate: str(patch.argsTemplate, tool.argsTemplate),
+      program: notSuperseded(str(patch.program, tool.program), tool.program, superseded?.program),
+      argsTemplate: notSuperseded(
+        str(patch.argsTemplate, tool.argsTemplate),
+        tool.argsTemplate,
+        superseded?.argsTemplate,
+      ),
       timeoutMs: clampToolTimeout(patch.timeoutMs, tool.timeoutMs),
       /*
        * 这三条也允许用户改（他装的那份 CLI 子命令可能不同）。
        * 注意"空串是**合法值**"——它的意思是"这个工具没有这条命令"，所以这里不能用
        * `str()`（那个会把空串当坏值回落默认），要用一个允许空串的读法。
        */
-      statusArgs: text(patch.statusArgs, tool.statusArgs),
+      statusArgs: notSuperseded(
+        text(patch.statusArgs, tool.statusArgs),
+        tool.statusArgs,
+        superseded?.statusArgs,
+      ),
       loginArgs: text(patch.loginArgs, tool.loginArgs),
       keyLoginArgs: text(patch.keyLoginArgs, tool.keyLoginArgs),
       /* 同上：空串 = "这个工具没有能自动装的途径"，也是合法值 */
-      installCommand: text(patch.installCommand, tool.installCommand),
+      installCommand: notSuperseded(
+        text(patch.installCommand, tool.installCommand),
+        tool.installCommand,
+        superseded?.installCommand,
+      ),
     }
   })
 }

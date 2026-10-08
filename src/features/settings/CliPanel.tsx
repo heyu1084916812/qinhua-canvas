@@ -159,6 +159,18 @@ export function CliPanel() {
         )
         return
       }
+      /**
+       * 登录这一步分两种落点：能开窗口的自己开（浏览器授权 / 输密码），
+       * 只能靠密钥的（`keyLoginKind === 'config'`，RunningHub 就是）把用户引到下面那格去 ——
+       * 不给一个按下去没用的"登录窗口"。
+       */
+      if (tool.keyLoginKind === 'config') {
+        say(
+          `已经装好了 → 把 API Key 粘到下面那一格，点「用密钥登录」就完成登录` +
+            `（写进它自己的配置，之后一直是登录态）。`,
+        )
+        return
+      }
       const args = tool.loginArgs.trim() ? buildArgs(tool.loginArgs, {}) : []
       await cli.spawnWindow({ program: tool.program, args })
       say(
@@ -191,10 +203,40 @@ export function CliPanel() {
     }
   }
 
-  /** 用密钥登录：密钥走 stdin（不进 argv、不落库、用完即清） */
+  /**
+   * 用密钥登录。两条落点（见 `CliTool.keyLoginKind`）：
+   *
+   * - `'stdin'`：把密钥喂给那条命令的 stdin（不进 argv、不进日志、用完即清）；
+   * - `'config'`：**由壳写该工具自己的配置文件**（RunningHub 那条路的落点）——
+   *   官方 CLI 的 `rh auth set-key <KEY>` 要位置参数，而本机约定是"密钥不进 argv"，
+   *   所以壳直接写它认的 `%APPDATA%\rh\config.toml`，写完**当场用「查状态」验一次**
+   *   （用户 2026-10-08 第 3 条要的是"按钮的功能要确实要生效"）。
+   */
   const loginWithKey = async (tool: CliTool) => {
     const secret = (keys[tool.id] ?? '').trim()
     if (!cli || busy || !secret) return
+
+    if (tool.keyLoginKind === 'config') {
+      if (!cli.rhSetApiKey) return
+      setBusy(`${tool.id}:key`)
+      let written = ''
+      try {
+        written = await cli.rhSetApiKey(secret)
+        setKeys((prev) => ({ ...prev, [tool.id]: '' }))
+        setLoginMsg((prev) => ({
+          ...prev,
+          [tool.id]: `Key 已写入 ${written}（与手敲 \`rh auth set-key\` 等效，密钥没有进命令行）——下面立刻查一次状态。`,
+        }))
+      } catch (err) {
+        setLoginMsg((prev) => ({ ...prev, [tool.id]: `写配置失败：${String(err)}` }))
+      } finally {
+        setBusy('')
+      }
+      /* `runInto` 自带 busy 门，所以这一句必须等上面释放了再调 */
+      if (written) await runInto(tool, 'status', buildArgs(tool.statusArgs, {}))
+      return
+    }
+
     const args = buildArgs(tool.keyLoginArgs, {})
     setKeys((prev) => ({ ...prev, [tool.id]: '' }))
     await runInto(tool, 'status', args, `${secret}\n`)
@@ -204,16 +246,15 @@ export function CliPanel() {
 
   return (
     <div className={styles.panel} data-cli-panel>
+      {/*
+        用户 2026-10-08 第 3 条：「cli 面板那边的介绍内容太多了，用户是不会去看的，
+        反而影响排版，不需要文字介绍，只需要按钮」。
+        于是这一段**只剩标题 + 一句"只在桌面应用可用"的状态说明**（那是状态，不是介绍）：
+        原来的两段导语（"这里配的是你本机装着的命令行工具…" / "每张卡的顺序就是你要做的事…"）
+        与每张卡的 `note` 全部删掉 —— 每一步该做什么已经写在按钮上。
+      */}
       <section className={styles.block}>
         <h3 className={styles.title}>本机 CLI</h3>
-        <p className={styles.desc}>
-          这里配的是你本机装着的命令行工具：轻画负责把它跑起来、把输出原样给你看，
-          花的是你自己那份额度。命令不经过 shell（参数是一个数组），
-          所以提示词里带引号、分号、$ 都不会被当成别的命令。
-        </p>
-        <p className={styles.desc}>
-          每张卡的顺序就是你要做的事：检测 → 登录 → 查状态。命令名与参数放在「高级」里，一般不用动。
-        </p>
         {!hasLocalCli && (
           <p className={styles.notice} data-cli-desktop-only>
             本机 CLI 只在桌面应用里可用（浏览器打不开子进程）。这里的配置照旧能改、能存，
@@ -225,7 +266,14 @@ export function CliPanel() {
       {tools.map((tool) => (
         <section className={styles.card} key={tool.id} data-cli-tool={tool.id}>
           <header className={styles.cardHead}>
-            <span className={styles.cardName}>{tool.name}</span>
+            {/*
+              原来这里有一行小字（`tool.note`）介绍这个工具是什么 —— 用户 2026-10-08：
+              「不需要文字介绍，只需要按钮」。文字改成**悬停提示**：信息还在，
+              但不再占版面（卡片上只剩名称 / 能力小标 / 文档链接 / 按钮）。
+            */}
+            <span className={styles.cardName} title={tool.note}>
+              {tool.name}
+            </span>
             <span className={styles.caps}>
               {capabilitiesOfTool(tool).map((cap) => (
                 <span className={styles.cap} key={cap}>
@@ -239,8 +287,6 @@ export function CliPanel() {
               </a>
             )}
           </header>
-          <p className={styles.note}>{tool.note}</p>
-
           {/* ⓿ 一键设置：装 + 登录（第 14 批第 3 条） */}
           <div className={styles.row}>
             <button
@@ -252,9 +298,6 @@ export function CliPanel() {
             >
               一键设置（安装 + 登录）
             </button>
-            <span className={styles.result}>
-              装没装、登没登录，它自己判；一步走完会告诉你下一步点哪儿。
-            </span>
           </div>
 
           {/* ① 装没装 */}
@@ -293,21 +336,36 @@ export function CliPanel() {
 
           {/* ② 登录 */}
           <div className={styles.row}>
-            <button
-              type="button"
-              className={styles.btn}
-              data-cli-login={tool.id}
-              disabled={!hasLocalCli || busy !== ''}
-              onClick={() => void openLogin(tool)}
-            >
-              一键登录（打开窗口）
-            </button>
-            {tool.keyLoginArgs.trim() !== '' && (
+            {/*
+              「打开窗口登录」只对**真有交互式登录**的工具摆出来。
+
+              用户 2026-10-08 第 3 条：「按钮的功能要确实要生效」——
+              RunningHub 的官方 CLI 没有登录子命令（`rh` 不带参数只打印帮助），
+              它的登录只能靠写配置文件（`keyLoginKind === 'config'`，见下面那个密钥格），
+              所以这里**不给一个按下去只会弹帮助的按钮**。
+            */}
+            {(tool.loginArgs.trim() !== '' || tool.keyLoginKind !== 'config') && (
+              <button
+                type="button"
+                className={styles.btn}
+                data-cli-login={tool.id}
+                disabled={!hasLocalCli || busy !== ''}
+                onClick={() => void openLogin(tool)}
+              >
+                一键登录（打开窗口）
+              </button>
+            )}
+            {/* 密钥登录那一格：`stdin` 与 `config` 两种落点都要摆出输入框（见 `loginWithKey`） */}
+            {tool.keyLoginKind !== '' && (
               <>
                 <input
                   className={styles.input}
                   type="password"
-                  placeholder="粘贴密钥（走 stdin，不落库）"
+                  placeholder={
+                    tool.keyLoginKind === 'config'
+                      ? '粘贴 API Key（写进这个工具自己的配置）'
+                      : '粘贴密钥（走 stdin，不落库）'
+                  }
                   data-cli-key={tool.id}
                   value={keys[tool.id] ?? ''}
                   onChange={(e) => setKeys((prev) => ({ ...prev, [tool.id]: e.target.value }))}

@@ -750,7 +750,18 @@ export function SettingsPage() {
                   data-channel-caps={(['chat', 'image', 'video'] as const)
                     .filter((k) => caps[k])
                     .join(',')}
-                  draggable
+                  /**
+                   * **内置三条不可拖**（用户 2026-10-08：「上面三个渠道是固定不变的，但是新建的渠道
+                   * 是需要可以拖动的」）：它们在 store 里本来就会被钉回队首（`channelStore.reorder`
+                   * 的 `front`），但整行还挂着 `draggable` ⇒ 用户拖着它、松手发现没动，
+                   * 读起来就是「拖动坏了」。现在**不让它起拖**（`cursor: default` 由
+                   * `[data-channel-fixed]` 那一格给），用户行照旧可拖。
+                   *
+                   * ⚠️ 内置行**仍然接 drop**（`onDrop` 保留）：把用户渠道拖到内置行上
+                   * 是「挪到用户区第一格」的意思，这条路不能断。
+                   */
+                  draggable={!isBuiltinChannelId(ch.id)}
+                  data-channel-fixed={isBuiltinChannelId(ch.id) ? 'true' : undefined}
                   onDragStart={() => setDragId(ch.id)}
                   onDragOver={(e) => e.preventDefault()}
                   onDrop={(e) => {
@@ -784,7 +795,7 @@ export function SettingsPage() {
                   {/* 左：渠道图标（品牌矢量标记 / 用户上传的图，见 `ChannelIcon`）。
                       固定大小，方块与右侧两排等高 —— 几何规则写在 CSS 的 `.itemIcon` 上。 */}
                   <span className={styles.itemIcon} data-channel-icon-box>
-                    <ChannelIcon protocol={ch.protocol} icon={ch.icon} size={22} />
+                    <ChannelIcon protocol={ch.protocol} icon={ch.icon} size={30} />
                   </span>
                   {/* 右：两排（上：自定义名称 / 下：启用开关） */}
                   <span className={styles.itemBody} data-channel-body>

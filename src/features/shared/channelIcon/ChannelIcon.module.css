@@ -9,8 +9,14 @@
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
+  /**
+   * 尺寸由组件按 `size` 注入（`--channel-plate`）。
+   *
+   * 2026-10-08 修：此前这里写死 22px —— 于是调用方传 `size={28}` 也只得到 22px 的底板
+   * （上传的图铺满底板、矢量标记也按 size 画 ⇒ 图与底板对不上）。默认 22 保持老调用方不变。
+   */
+  width: var(--channel-plate, 22px);
+  height: var(--channel-plate, 22px);
   border-radius: 6px;
   color: var(--text-2);
   overflow: hidden;

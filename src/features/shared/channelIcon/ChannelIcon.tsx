@@ -1,4 +1,4 @@
-import type { SVGProps } from 'react'
+import type { CSSProperties, SVGProps } from 'react'
 import styles from './ChannelIcon.module.css'
 
 /**
@@ -62,6 +62,7 @@ export function ChannelIcon({ protocol, icon, size = 18 }: ChannelIconProps) {
     return (
       <span
         className={styles.plate}
+        style={{ '--channel-plate': `${size}px` } as CSSProperties}
         data-channel-icon={protocol}
         data-channel-icon-kind={icon ? 'image' : 'brand'}
         title={LABEL[protocol] ?? '自定义渠道'}
@@ -74,6 +75,7 @@ export function ChannelIcon({ protocol, icon, size = 18 }: ChannelIconProps) {
   return (
     <span
       className={styles.plate}
+      style={{ '--channel-plate': `${size}px` } as CSSProperties}
       data-channel-icon={protocol}
       data-channel-icon-kind="default"
       title={LABEL[protocol] ?? '自定义渠道'}

@@ -105,6 +105,41 @@ describe('CLI 工具配置的归一化', () => {
     expect(tools).toHaveLength(defaultCliTools().length)
   })
 
+  /**
+   * ★★ **旧目录的默认值不许把新默认钉住**（2026-10-08 真机实测踩到）。
+   *
+   * 库里存的是"用户改过的字段"，可**上一版目录的默认值当年也被存了进去** ——
+   * RunningHub 的 CLI 从"官方没有 CLI"改成官方 `rh` 之后，老库里的
+   * `program: 'runninghub'` 会压过新默认 ⇒ 面板点「检测 / 查状态」报
+   * 「找不到命令「runninghub」」，而用户从没填过这个名字。
+   * 判据：**存的值等于旧默认 ⇒ 当作没改过**；等于别的值照旧认用户自定义。
+   */
+  it('★★ 存着旧默认（runninghub / 旧参数模板）⇒ 用新默认；用户真改过的值照旧认', () => {
+    const stale = mergeTools({
+      tools: [
+        {
+          id: 'runninghub',
+          program: 'runninghub',
+          argsTemplate: 'run --workflow {workflow} --out {out} --prompt {prompt}',
+          /* 老目录里这两格都是空串（"它没有可查的命令 / 没有能自动装的途径"）——
+             实测推翻后才改成 --json check 与官方 pip 一行 */
+          statusArgs: '',
+          installCommand: '',
+        },
+      ],
+    }).find((t) => t.id === 'runninghub')
+    expect(stale?.program).toBe('rh')
+    expect(stale?.argsTemplate).toBe('model run --task {model} --prompt {prompt} --output {out}')
+    expect(stale?.statusArgs).toBe('--json check')
+    expect(stale?.installCommand).toBe('python -m pip install git+https://github.com/HM-RunningHub/RH_CLI.git')
+
+    const custom = mergeTools({
+      tools: [{ id: 'runninghub', program: 'D:/tools/rh.cmd', argsTemplate: 'my {prompt}' }],
+    }).find((t) => t.id === 'runninghub')
+    expect(custom?.program).toBe('D:/tools/rh.cmd')
+    expect(custom?.argsTemplate).toBe('my {prompt}')
+  })
+
   it('读不懂的行（null / 字符串 / 缺 tools）等价于"全默认"', () => {
     for (const row of [null, undefined, 'nope', {}, { tools: 'x' }]) {
       expect(mergeTools(row)).toEqual(defaultCliTools())

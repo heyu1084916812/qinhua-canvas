@@ -38,6 +38,43 @@
   color: var(--text-2);
 }
 
+/**
+ * **一行一式**：路径 / 数字在左，动作在右（换行时动作落下一行）。
+ *
+ * 用户 2026-10-08 第 4 条要的「重排 ui」就是它 —— 原来是「一段解释 + 一块路径 +
+ * 一排按钮」的三段式，光解释就占掉半屏；现在三样并成一行。
+ */
+.line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+/* 行内的路径：占满剩下的宽度，按钮才不会被挤到下一行 */
+.line .path {
+  flex: 1 1 18ch;
+  width: auto;
+}
+
+.fact {
+  flex: 1 1 auto;
+  font-size: var(--fs-nav);
+  color: var(--text-1);
+}
+
+/**
+ * 短小字：**只放会影响决策的那一两句**（卸载不删数据 / 清缓存不动项目 / 素材怎么放回画布）。
+ *
+ * 与 `.desc` 的区别是刻意的：`.desc` 是"介绍"，用户明确不要（「无用的文字介绍都给我删掉」）；
+ * 这一档是"按之前先知道一句"的提示，且压到一行。
+ */
+.caption {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--text-3);
+}
+
 .facts {
   display: flex;
   flex-wrap: wrap;
