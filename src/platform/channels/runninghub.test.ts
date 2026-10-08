@@ -367,21 +367,19 @@ describe('RunningHub 适配器 / 模型表与端点规格（按官方目录建�
     }
   })
 
-  it('★ 兼容：老的「裸端点 id」写法仍认，改显示名不会把老节点打断', async () => {
-    const urls: string[] = []
+  it('★ 只认模型表里的显示名：裸端点 id（`endpoint:…`）不再认（用户 2026-10-08 拍板去掉这条兼容路）', async () => {
     const platform = createMemoryPlatform({
-      handler: async (req: NetworkRequest) => {
-        urls.push(req.url)
-        if (req.url.endsWith('/openapi/v2/query')) {
-          return json(200, { status: 'SUCCESS', results: [{ url: 'https://files.runninghub.cn/a.png' }] })
-        }
-        if (req.url.startsWith('https://files.runninghub.cn/')) return bytes(200, PNG_BYTES)
-        return json(200, { code: 0, taskId: 't1' })
+      handler: async () => {
+        throw new Error('不该发请求：裸端点 id 应该被挡在本地')
       },
     })
     const adapter = createRunningHubAdapter(config, platform, FAST)
-    await adapter.generateImage(imageRequest('endpoint:rhart-image-g-2/text-to-image'), signal)
-    expect(urls.some((u) => u.endsWith('/openapi/v2/rhart-image-g-2/text-to-image'))).toBe(true)
+    const err = await adapter
+      .generateImage(imageRequest('endpoint:rhart-image-g-2/text-to-image'), signal)
+      .then(() => null)
+      .catch((e: unknown) => e as ChannelError)
+    expect(err).toBeInstanceOf(ChannelError)
+    expect(err!.appError).toEqual({ kind: 'channel', detail: 'missingModel' })
   })
 
   it('★★ 有参考图就自动走图生档（同一个模型 id，打到两个不同端点）', async () => {

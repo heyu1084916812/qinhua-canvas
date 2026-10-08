@@ -47,8 +47,9 @@ import {
  *   "币"和"金额"是两套账。
  * - **AI 应用 / 币**：`aiapp/list` + `ai-app/run`，扣**币**（实测同一把 Key 列表 82 872 个应用 ✓）。
  *
- * 所以模型 id 带前缀把两条路分开（`endpoint:` / `app:`），生成时按前缀分派 —— 不需要
- * 用户去理解"这次扣哪本账"，也不会把请求发到它走不通的那条路上。
+ * 所以模型 id 分成两拨：**标准模型用显示名**（全能图片PRO / 可灵 v3.0 Pro…，见
+ * `runninghubEndpoints.ts`），**AI 应用用 `app:` + 应用 id**。生成时按「是不是 `app:` 开头」分派
+ * —— 用户不需要理解「这次扣哪本账」，也不会把请求发到它走不通的那条路上。
  *
  * ## 模型 / 端点两层（2026-10-08 补）
  *
@@ -94,27 +95,25 @@ export { RUNNINGHUB_ENDPOINT_SPECS, RUNNINGHUB_MODELS }
 const specById = new Map(RUNNINGHUB_ENDPOINT_SPECS.map((s) => [s.id, s]))
 const modelById = new Map(RUNNINGHUB_MODELS.map((m) => [m.id, m]))
 
-/** 标准模型端点 id 的前缀（`app:` 那条走 AI 应用，见 `APP_PREFIX`） */
-const ENDPOINT_PREFIX = 'endpoint:'
-
 /**
  * 模型 id → 这次该打哪个端点。
  *
  * **有参考图 + 该模型有图生档 ⇒ 走图生档**，否则走文生档 —— 与官方 CLI 同一口径
  * （`menus.py` 的 `endpoint_for_choice(choice, has_input_image=…)`）。
- * 模型表里没有的 id 再按「裸端点 id」兜一层（排查 / 兼容老节点用），仍然找不到才报 missingModel。
+ *
+ * 只认**模型表里的显示名**（`RUNNINGHUB_MODELS`）。用户 2026-10-08 明确不要
+ * 「裸端点 id / `endpoint:` 前缀」那条兼容路 —— 端点 id 是机器名，界面从来不该出现它，
+ * 留一条"也认它"的后门只会让下拉里两种写法并存。找不到就报 `missingModel`，
+ * 报错文案已经写清是"这个渠道里没有你选的那个模型"。
  */
 export function resolveRunningHubEndpoint(
   modelId: string,
   hasReferenceImage: boolean,
 ): RunningHubEndpointSpec | null {
   const model = modelById.get(modelId)
-  if (model) {
-    const id = hasReferenceImage && model.imageEndpoint ? model.imageEndpoint : model.textEndpoint
-    return specById.get(id) ?? null
-  }
-  const raw = modelId.startsWith(ENDPOINT_PREFIX) ? modelId.slice(ENDPOINT_PREFIX.length) : modelId
-  return specById.get(raw) ?? null
+  if (!model) return null
+  const id = hasReferenceImage && model.imageEndpoint ? model.imageEndpoint : model.textEndpoint
+  return specById.get(id) ?? null
 }
 
 /**

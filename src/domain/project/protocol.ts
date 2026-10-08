@@ -360,7 +360,7 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
       capabilities: ['image', 'video'],
       defaultBaseUrl: 'https://www.runninghub.cn',
       docUrl: 'https://www.runninghub.cn/enterprise-api/sharedApi',
-      note: 'RunningHub 的 OpenAPI（提交任务 + 轮询取结果）。模型 id 带前缀分流：endpoint: 走标准模型（扣金额），app: 走 AI 应用（扣 RH 币）；有参考图时自动走该模型的图生档。',
+      note: 'RunningHub 的 OpenAPI（提交任务 + 轮询取结果）。标准模型直接用显示名（扣金额），AI 应用用 app: 前缀（扣 RH 币）；有参考图时自动走该模型的图生档。',
       /**
        * RunningHub 要**两把钥匙**（用户第 22 批第 3 条：「有两个令牌，一个是币的，一个是金额的」）：
        * - `balance`（主槽）：**账户余额 Key（金额）** ⇒ 标准模型 API，出图 / 出片按金额计费；
