@@ -280,19 +280,31 @@
    *
    * 表单控件（`button` / `input` / `select`）在 UA 样式里**天生就是 `border-box`**，
    * 而列表项第 21 批从 `<button>` 换成了 `role=button` 的 `<div>` ⇒ 这一格退回默认的
-   * `content-box`：`width: 100%` 算的是**内容盒**，再加上左右各 `--space-3` 内距与 1px 描边，
+   * `content-box`：`width: 100%` 算的是**内容盒**，再加上左右内距与 1px 描边，
    * 外框比容器宽 26px —— 表现就是选中态那个白框**戳出卡片右沿**。
    */
   box-sizing: border-box;
+  /**
+   * **两块横排**（用户 2026-10-08：「从左到右是图标（固定大小）右边是两排，
+   * 上面是自定义名称，下面是启用按钮，两部分的高度一致，图标与整个渠道的
+   * 左边距和上下边距一致」）：左 = 图标方块、右 = 名称 + 开关两排。
+   *
+   * 两块**同高**是「两部分高度一致」的落点：图标列与右侧两排都用下面那个
+   * `--channel-icon-box`（`align-items: center` 让它们在这条行里上下居中）。
+   * 图标列写成固定尺寸而不是 `stretch` / `aspect-ratio` —— 原因见 `.itemIcon` 的注释。
+   * 内距**四边同值**：图标离左边 / 上边 / 下边因此都是 8px（此前左右是 12、上下是 8，
+   * 左边距与上下边距不一致，正是用户要修的那一处）。
+   */
+  --channel-icon-box: 44px;
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--space-1);
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
   text-align: left;
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   background: transparent;
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-2);
   cursor: grab;
   color: var(--text-1);
   font-family: var(--font-sans);
@@ -314,10 +326,37 @@
   cursor: grabbing;
 }
 
-.itemTop {
+/**
+ * 左：图标列 = **一个方块**，与右侧两排**同高**（「两部分的高度一致」）。
+ *
+ * 为什么写死一个尺寸常量、而不是 `aspect-ratio: 1`：
+ * 2026-10-08 实测，`align-self: stretch` + `aspect-ratio: 1` 在 flex 项上**不生效** ——
+ * 主轴尺寸取的是内容宽（图标 22px），结果是 **22×43 的竖条**，图标离左边 9px、
+ * 离上下各 20px（用户要的是三者一致）。方块尺寸必须显式给出来。
+ *
+ * 44px 的来历：右侧两排的自然高度 = 名称 19 + 间距 4 + 开关 20 = 43，
+ * 取 44 留 1px 余量（小于内容就会把开关压出格子）。方块里 22px 的图标**居中**，
+ * 于是**图标本体**离左边 / 上边 / 下边各 `1(描边) + 8 + (44 - 22) / 2 = 20px`（三者相等）；
+ * **方块本身**离这三边则都是内距那 8px（也相等）。
+ */
+.itemIcon {
+  flex: 0 0 auto;
+  width: var(--channel-icon-box);
+  height: var(--channel-icon-box);
   display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
+  align-items: center;
+  justify-content: center;
+}
+/** 右：名称 + 启用开关两排，整体在这 44px 里垂直居中 */
+.itemBody {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-1);
+  /* 与图标方块同高（两部分高度一致）；写 min-height 而不是 height：内容万一更高也不裁切 */
+  min-height: var(--channel-icon-box);
+  /* 撑开时不许把图标列挤扁（长名称的省略号靠这一行才生效） */
+  min-width: 0;
 }
 .itemName {
   /**
@@ -327,6 +366,13 @@
    */
   font-size: var(--fs-panel-title);
   font-weight: var(--fw-title);
+  /**
+   * 两列布局之后名称只剩一半宽度：超长一律省略号。
+   * 换行会把「右侧两排」撑高 ⇒ 图标方块跟着变高 ⇒ 行高在不同渠道之间不一致。
+   */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .itemProto {
   font-size: var(--fs-chip);

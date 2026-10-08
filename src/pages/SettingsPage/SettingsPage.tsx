@@ -758,40 +758,65 @@ export function SettingsPage() {
                     void dropOnChannel(ch.id)
                   }}
                   onDragEnd={() => setDragId(null)}
-                  onClick={() => setSelectedId(ch.id)}
+                  /**
+                   * **选中挂在按下那一刻（`pointerdown`），不挂 `click`**
+                   * （用户 2026-10-08：「渠道与渠道之间转换的时候有延迟，有时候需要点击两下才能转换」）。
+                   *
+                   * 根因：整行就是拖动手柄（`draggable`）。按下之后手只要动 ~5px，浏览器就进入
+                   * **拖动判定** —— 那一下 `click` 根本不会派发，表现就是「点了没反应，得再点一下」。
+                   * 真机位移扫描（0/1/2/3/5/8px）：0–3px 能选中、5px 与 8px 一律选不中
+                   * （冒烟 G44 钉住其中 5px 那一档）。
+                   * 挂在按下的那一刻即与拖动判定无关，顺带把「按下去立刻有反馈」还给用户
+                   * （原来还得等 `click` 那一下，看着像有延迟）。
+                   */
+                  onPointerDown={(e) => {
+                    /** 只认主键：右键留给右键菜单 */
+                    if (e.button !== 0) return
+                    setSelectedId(ch.id)
+                  }}
+                  /** `role="button"` 就该能用键盘选中（此前只有 `tabIndex`，回车 / 空格没反应） */
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return
+                    e.preventDefault()
+                    setSelectedId(ch.id)
+                  }}
                 >
-                  <span className={styles.itemTop}>
-                    {/* 渠道图标：品牌矢量标记 / 用户上传的图（见 `ChannelIcon`） */}
-                    <ChannelIcon protocol={ch.protocol} icon={ch.icon} size={20} />
-                    <span className={styles.itemName}>{ch.name}</span>
+                  {/* 左：渠道图标（品牌矢量标记 / 用户上传的图，见 `ChannelIcon`）。
+                      固定大小，方块与右侧两排等高 —— 几何规则写在 CSS 的 `.itemIcon` 上。 */}
+                  <span className={styles.itemIcon} data-channel-icon-box>
+                    <ChannelIcon protocol={ch.protocol} icon={ch.icon} size={22} />
                   </span>
-                  {/*
-                    「未选模型 / N 个模型」**已删**（用户第 22 批：「图一的未选择模型这个也不要了」）——
-                    列表项现在只有：图标 + 名称 + 启用开关。模型挑没挑在右侧「模型列表」那一栏里看得到，
-                    列表上再挂一行只是噪声。
-                  */}
-                  {/*
-                    启用开关**放在每条渠道下方**（用户第 21 批第 2 条，图二那条箭头）：
-                    列表里一眼看到"这条开没开"，不用先点进去找「基本信息」里那个开关。
-                    所以列表项从 `<button>` 换成 `role="button"` 的 div —— 按钮里不许再放交互元素
-                    （label + input 是交互内容，塞进 button 属于非法 HTML，浏览器会把点击派发搞乱）。
-                  */}
-                  <span
-                    className={styles.itemToggle}
-                    onClick={(e) => e.stopPropagation()}
-                    onDragStart={(e) => e.preventDefault()}
-                  >
-                    <label className={styles.switch}>
-                      <input
-                        className={styles.switchInput}
-                        type="checkbox"
-                        checked={ch.enabled}
-                        data-channel-enabled={ch.id}
-                        onChange={() => void channels.setEnabled(ch.id, !ch.enabled)}
-                      />
-                      <span className={styles.switchTrack} aria-hidden="true" />
-                      <span className={styles.switchText}>{ch.enabled ? '已启用' : '未启用'}</span>
-                    </label>
+                  {/* 右：两排（上：自定义名称 / 下：启用开关） */}
+                  <span className={styles.itemBody} data-channel-body>
+                    <span className={styles.itemName}>{ch.name}</span>
+                    {/*
+                      「未选模型 / N 个模型」**已删**（用户第 22 批：「图一的未选择模型这个也不要了」）——
+                      列表项现在只有：图标 + 名称 + 启用开关。模型挑没挑在右侧「模型列表」那一栏里看得到，
+                      列表上再挂一行只是噪声。启用开关**跟着名称成第二排**（用户 2026-10-08：两排，
+                      上面是自定义名称、下面是启用按钮），一眼看到"这条开没开"。
+                      所以列表项从 `<button>` 换成 `role="button"` 的 div —— 按钮里不许再放交互元素
+                      （label + input 是交互内容，塞进 button 属于非法 HTML，浏览器会把点击派发搞乱）。
+                    */}
+                    <span
+                      className={styles.itemToggle}
+                      data-channel-toggle
+                      /* 开关自己收指针（`pointerdown` 也要收 —— 选中现在挂在按下那一刻）：点它只切开关，不选渠道、也不起拖动 */
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                      onDragStart={(e) => e.preventDefault()}
+                    >
+                      <label className={styles.switch}>
+                        <input
+                          className={styles.switchInput}
+                          type="checkbox"
+                          checked={ch.enabled}
+                          data-channel-enabled={ch.id}
+                          onChange={() => void channels.setEnabled(ch.id, !ch.enabled)}
+                        />
+                        <span className={styles.switchTrack} aria-hidden="true" />
+                        <span className={styles.switchText}>{ch.enabled ? '已启用' : '未启用'}</span>
+                      </label>
+                    </span>
                   </span>
                 </div>
               </li>

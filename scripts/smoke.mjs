@@ -4985,6 +4985,85 @@ async function g44(browser) {
   rec(g, '刷新后顺序仍保持', JSON.stringify(reloaded) === JSON.stringify(['渠道乙', '渠道甲']), JSON.stringify(reloaded))
   await page.screenshot({ path: `${OUT}/44-c-reordered.png` })
 
+  /**
+   * ⑥ 渠道列表项：**一次就点中** + 开关不抢选中 + 两块等高（用户 2026-10-08 两条）。
+   *
+   * 为什么这三条只能在浏览器里量：它们全是**事件派发与布局**的产物 ——
+   * 单测看不见「整行就是拖动手柄」这件事，也看不见 flex 算出来的几何。
+   */
+  const idA = await page.locator(USER_CHANNEL).nth(0).getAttribute('data-channel-id')
+  const idB = await page.locator(USER_CHANNEL).nth(1).getAttribute('data-channel-id')
+  const selectedNow = () =>
+    page.locator('[data-channel-selected="true"]').first().getAttribute('data-channel-id')
+
+  /** 先干净地点中 A，再对 B 做**真机手势**：按下 → 手抖 5px → 松手 */
+  await page.locator(`[data-channel-id="${idA}"]`).click()
+  await sleep(300)
+  const jitterBox = await page.locator(`[data-channel-id="${idB}"]`).boundingBox()
+  await page.mouse.move(jitterBox.x + jitterBox.width / 2, jitterBox.y + 20)
+  await page.mouse.down()
+  await page.mouse.move(jitterBox.x + jitterBox.width / 2 + 5, jitterBox.y + 20)
+  await page.mouse.up()
+  await sleep(400)
+  rec(
+    g,
+    '★★ 手抖 5px 也能一次点中（用户 2026-10-08：「有延迟，有时候需要点击两下才能转换」）',
+    (await selectedNow()) === idB,
+    `选中=${await selectedNow()}（修前：整行 draggable，按下后动 5px 就进拖动判定、click 不派发）`,
+  )
+
+  /**
+   * 开关自己收指针：点它**只切开关、不换选中**。
+   * 判据要同时看两件事 —— 开关真的翻了（说明这一下点在了开关上），而选中没动。
+   */
+  const enabledBefore = await page.locator(`[data-channel-enabled="${idA}"]`).isChecked()
+  await page.locator(`[data-channel-id="${idA}"] [data-channel-toggle]`).click()
+  await sleep(300)
+  const enabledAfter = await page.locator(`[data-channel-enabled="${idA}"]`).isChecked()
+  rec(
+    g,
+    '点启用开关只切开关、不换选中',
+    enabledAfter !== enabledBefore && (await selectedNow()) === idB,
+    `开关 ${enabledBefore}→${enabledAfter}，选中=${await selectedNow()}（期望仍是 ${idB}）`,
+  )
+
+  /**
+   * 版式（用户 2026-10-08：「从左到右是图标（固定大小）右边是两排……两部分的高度一致，
+   * 图标与整个渠道的左边距和上下边距一致」）。
+   */
+  const geo = await page.locator(`[data-channel-id="${idA}"]`).evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    const size = (n) => {
+      const b = n.getBoundingClientRect()
+      return { w: Math.round(b.width), h: Math.round(b.height) }
+    }
+    const cs = getComputedStyle(el)
+    const icon = el.querySelector('[data-channel-icon]').getBoundingClientRect()
+    return {
+      iconBox: size(el.querySelector('[data-channel-icon-box]')),
+      body: size(el.querySelector('[data-channel-body]')),
+      iconInset: {
+        left: Math.round(icon.left - r.left),
+        top: Math.round(icon.top - r.top),
+        bottom: Math.round(r.bottom - icon.bottom),
+      },
+      padding: [cs.paddingTop, cs.paddingRight, cs.paddingBottom, cs.paddingLeft],
+    }
+  })
+  rec(
+    g,
+    '★★ 图标方块与右侧两排等高（两部分高度一致）',
+    geo.iconBox.h === geo.body.h && geo.iconBox.w === geo.iconBox.h,
+    `图标方块=${geo.iconBox.w}×${geo.iconBox.h} 右侧两排=${geo.body.w}×${geo.body.h}`,
+  )
+  rec(
+    g,
+    '★★ 图标离左边 / 上边 / 下边一样多',
+    geo.iconInset.left === geo.iconInset.top && geo.iconInset.top === geo.iconInset.bottom,
+    JSON.stringify(geo.iconInset),
+  )
+  rec(g, '内距四边同值（左边距 = 上下边距）', new Set(geo.padding).size === 1, geo.padding.join('/'))
+
   await ctx.close()
 }
 
