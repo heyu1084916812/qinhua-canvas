@@ -117,6 +117,15 @@ export interface ChannelStoreActions {
    * `'alt'` = **备用槽** —— 声明了多把凭据的协议（RunningHub：金额 Key + 币 Key）才用得到。
    */
   saveToken(id: string, token: string, slot?: CredentialSlot): Promise<void>
+  /**
+   * 读回**明文**（用户 2026-10-08 第 5 条：「渠道的令牌显示功能是不生效的」）。
+   *
+   * 为什么以前没有它：界面上那个「显示」按钮只切换了输入框的 `type`，而已存的令牌
+   * 一直只以**打码后的占位符**出现（明文从不进界面）⇒ 按了等于没按。
+   * 现在「显示」按下去**真去凭据层读一次**；读到的明文只放进当前这一次渲染的输入框，
+   * **不落库、不进日志**，切回「隐藏」时立刻丢掉。
+   */
+  loadToken(id: string, slot?: CredentialSlot): Promise<string | null>
   /** 删除令牌（§7.3）：只清密文，渠道保留、可再存 */
   removeToken(id: string, slot?: CredentialSlot): Promise<void>
   setEnabled(id: string, enabled: boolean): Promise<void>
@@ -349,6 +358,18 @@ export function createChannelStore(
     if (!ch || !f?.ref) return
     await repo.removeToken(f.ref)
     await update(id, { [f.tail]: null })
+  }
+
+  /**
+   * 读回明文（只服务「显示」那一个动作）。
+   *
+   * ⚠️ 调用方（设置页的令牌行）用完就丢：不写进任何持久化状态、也不 console.log。
+   * 读不到（没存过 / 凭据层不可用）如实回 `null`，由界面说清"这一槽没存过"。
+   */
+  const loadToken: ChannelStoreActions['loadToken'] = async (id, slot = 'primary') => {
+    const ch = await repo.get(id)
+    const ref = ch ? slotFields(ch, slot).ref : null
+    return ref ? repo.loadToken(ref) : null
   }
 
   /**
@@ -686,6 +707,7 @@ export function createChannelStore(
     remove,
     reorder,
     saveToken,
+    loadToken,
     removeToken,
     setEnabled,
     setModels,

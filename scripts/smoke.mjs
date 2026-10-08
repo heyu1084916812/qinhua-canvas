@@ -4957,6 +4957,35 @@ async function g44(browser) {
   rec(g, '页面不出现令牌明文', !(await page.locator('body').innerText()).includes('sk-1234567890abcdef3f2a'))
   await page.screenshot({ path: `${OUT}/44-b-token-tail.png` })
 
+  /**
+   * ★★ **「显示」要真把明文调出来**（用户 2026-10-08 第 5 条：「渠道的令牌显示功能是不生效的」）。
+   *
+   * 以前那个按钮只切了输入框的 `type` —— 已存的令牌只以**打码占位符**出现，
+   * 输入框里根本没有明文，所以点了看不出任何变化。这条同时量两件：
+   * ① `type` 变成 `text`；② 输入框的**值**就是刚存进去的那把。
+   * 再点一次「隐藏」= 明文收回去（`value` 空、`type` 回 password）。
+   */
+  /* 变量名避开这一组上面已有的 `tokenInput`（那是"刚填进去的那格"） */
+  const revealInput = page.locator('[data-settings-token-tail]').first()
+  await page.locator('[data-settings-token-reveal]').first().click()
+  await sleep(450)
+  const revealedValue = await revealInput.inputValue()
+  const revealedType = await revealInput.getAttribute('type')
+  rec(
+    g,
+    '★★ 点「显示」真的读出明文（type=text 且输入框里就是那把令牌）',
+    revealedType === 'text' && revealedValue === 'sk-1234567890abcdef3f2a',
+    `type=${revealedType} 值长度=${revealedValue.length}`,
+  )
+  await page.locator('[data-settings-token-reveal]').first().click()
+  await sleep(350)
+  rec(
+    g,
+    '点「隐藏」把明文收回去（回到打码占位）',
+    (await revealInput.inputValue()) === '' && (await revealInput.getAttribute('type')) === 'password',
+    `type=${await revealInput.getAttribute('type')} 值="${await revealInput.inputValue()}"`,
+  )
+
   // ③ 删除令牌 → 提示消失、渠道还在、可再存（用锚点避开「删除渠道」）
   await page.locator('[data-settings-token-remove]').click()
   await sleep(400)
@@ -12441,21 +12470,37 @@ async function g79(browser) {
    * 映射区列的是**显示名**：15 个固定项各一行、每行标签就是那个显示名，
    * 不存在「`GPT Image 2` 与 `gpt-image-2` 各占一行」的重复。
    */
-  const presetRows = page.locator('[data-route-map-preset="1"]')
-  const presetLabels = await presetRows.locator('[data-route-map-label]').allInnerTexts()
-  const allRows = page.locator('[data-route-map-row]')
-  const allRowLabels = await allRows.locator('[data-route-map-label]').allInnerTexts()
-  const trimmedLabels = allRowLabels.map((s) => s.trim())
+  /**
+   * ⚠️ 映射区改成**五个筛选**之后（用户 2026-10-08 第 1 条），一屏只显示一类 ——
+   * 所以"一共多少个显示名"这条要先**逐个筛选**收集再比，不能只读当前这一屏。
+   * 跑完把筛选复位到「生图」，免得影响后面的步骤。
+   */
+  const collectMapRows = async () => {
+    const labels = []
+    for (const key of ['image', 'chat', 'video', 'audio', '3d']) {
+      await page.locator(`[data-route-map-filter="${key}"]`).click()
+      await sleep(150)
+      labels.push(
+        ...(await page
+          .locator('[data-route-map-row] [data-route-map-label]')
+          .allInnerTexts()
+          .catch(() => [])),
+      )
+    }
+    await page.locator('[data-route-map-filter="image"]').click()
+    await sleep(150)
+    return labels.map((s) => s.trim())
+  }
+  const trimmedLabels = await collectMapRows()
   rec(
     g,
-    '★ 映射区只列 19 个固定显示名（含 Agnes 自有四个），不含上游裸 ID 或重复项',
-    (await allRows.count()) === 19 &&
-      (await presetRows.count()) === 19 &&
-      presetLabels.map((s) => s.trim()).includes('GPT Image 2') &&
+    '★ 五个筛选合起来只列 19 个固定显示名（含 Agnes 自有四个），不含上游裸 ID 或重复项',
+    trimmedLabels.length === 19 &&
+      trimmedLabels.includes('GPT Image 2') &&
       // Agnes 有自己的显示名，不再把它的 ID 塞进别家的名字里
-      presetLabels.map((s) => s.trim()).includes('Agnes 2.5 Flash') &&
-      presetLabels.map((s) => s.trim()).includes('Agnes 3.0 Flash') &&
-      presetLabels.map((s) => s.trim()).includes('Agnes Video 2.0') &&
+      trimmedLabels.includes('Agnes 2.5 Flash') &&
+      trimmedLabels.includes('Agnes 3.0 Flash') &&
+      trimmedLabels.includes('Agnes Video 2.0') &&
       !trimmedLabels.includes('gpt-image-2') &&
       !trimmedLabels.includes('agnes-2.5-flash') &&
       !trimmedLabels.includes('Agnes 2.0 Flash') &&
@@ -12463,7 +12508,7 @@ async function g79(browser) {
       !trimmedLabels.includes('gemini-3.1-pro-preview') &&
       !trimmedLabels.includes('gemini-3.5-flash') &&
       new Set(trimmedLabels).size === trimmedLabels.length,
-    `总行数=${await allRows.count()} 固定行数=${await presetRows.count()} 标签=${JSON.stringify(trimmedLabels)}`,
+    `五个筛选合起来 ${trimmedLabels.length} 行：${JSON.stringify(trimmedLabels)}`,
   )
   await page.locator('[data-route-map-input="GPT Image 2.5 Flare"]').fill('gpt-image-2.5-flare')
   await sleep(300)
@@ -12689,7 +12734,8 @@ async function g82(browser) {
  * G83 模型映射分组与候选（用户 2026-09-27 第 9 轮第 3 条）。
  *
  * 要求两件事：
- *  ① 映射区按「生图 / 对话 / 视频」分三组，不再一长条平铺 15 个；
+ *  ① 映射区用**五个筛选**（生图 / 对话 / 视频 / 音频 / 3D）切换显示哪一类
+ *     —— 用户 2026-10-08 第 1 条把上一版的"三组平铺"改成了这一档；
  *  ② 每条映射的输入框能下拉选**该渠道已勾选且同类**的模型 ID（仍可手填）。
  *
  * 第 ② 条只验 `list` 属性存在不够 —— 候选为空 / 混入别类也满足"有 list"，
@@ -12710,14 +12756,47 @@ async function g83(browser) {
   await configureMockChannel(page)
   await sleep(600)
 
-  const groups = await page
-    .locator('[data-route-map-group]')
-    .evaluateAll((els) => els.map((e) => e.getAttribute('data-route-map-group')))
+  const filters = await page
+    .locator('[data-route-map-filter]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-route-map-filter')))
   rec(
     g,
-    '★★ 模型映射按生图 / 对话 / 视频三组渲染',
-    JSON.stringify(groups) === JSON.stringify(['image', 'chat', 'video']),
-    groups.join(','),
+    '★★ 映射区五个筛选：生图 / 对话 / 视频 / 音频 / 3D',
+    JSON.stringify(filters) === JSON.stringify(['image', 'chat', 'video', 'audio', '3d']),
+    filters.join(','),
+  )
+  /**
+   * 默认落在「生图」，切一下**换的是那一类的内容**（不是把三类一起堆着）——
+   * 这条正是用户要的"筛选"与上一版"平铺"的区别。
+   * 顺带覆盖两个预留位：音频 / 3D 现在如实说"这一类还没有模型"（清单里确实没有）。
+   */
+  const visibleGroup = () =>
+    page.locator('[data-route-map-group]').first().getAttribute('data-route-map-group').catch(() => null)
+  const defaultGroup = await visibleGroup()
+  await page.locator('[data-route-map-filter="chat"]').click()
+  await sleep(150)
+  const chatGroup = await visibleGroup()
+  await page.locator('[data-route-map-filter="image"]').click()
+  await sleep(150)
+  rec(
+    g,
+    '★★ 切筛选换的是那一类的内容（默认生图 → 点对话就只剩对话）',
+    defaultGroup === 'image' && chatGroup === 'chat',
+    `默认=${defaultGroup} 切对话后=${chatGroup}`,
+  )
+  await page.locator('[data-route-map-filter="audio"]').click()
+  await sleep(150)
+  const audioEmpty = await page
+    .locator('[data-route-map-empty="audio"]')
+    .count()
+    .catch(() => 0)
+  await page.locator('[data-route-map-filter="image"]').click()
+  await sleep(150)
+  rec(
+    g,
+    '★ 预留位（音频 / 3D）如实说"这一类还没有模型"，不假装有内容',
+    audioEmpty === 1,
+    `音频空态=${audioEmpty}`,
   )
 
   /**
@@ -12728,6 +12807,9 @@ async function g83(browser) {
   const options = {}
   const menuCategoryOk = []
   for (const cat of ['image', 'chat', 'video']) {
+    /* 先切到这一类（筛选下同屏只有一类） */
+    await page.locator(`[data-route-map-filter="${cat}"]`).click()
+    await sleep(150)
     const toggle = page.locator(`[data-route-map-group="${cat}"] [data-route-map-toggle]`).first()
     await toggle.click()
     await sleep(150)

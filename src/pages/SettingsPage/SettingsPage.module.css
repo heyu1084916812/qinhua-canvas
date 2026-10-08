@@ -525,8 +525,13 @@
   /**
    * 内边距收成 16px：外面 `.shell` 已有 16px，两段相加即「内容离边缘远一点」。
    * 之前写 32 是**还没加外层大容器**时的口径，那时它要独自承担留白。
+   *
+   * ⚠️ 2026-10-08（用户第 2 条「上面空的，要和左边顶对齐」）：**上内距归零** ——
+   * 左栏那块底色是从工作区最上沿铺满的，而右栏第一张卡却从 20px 处才开始，
+   * 于是上面留出一条"空着的白带"。去掉上内距后，第一张卡与左栏**同一条顶线**。
+   * 左右 24px 与底部 20px 保持不变（卡片仍不贴边）。
    */
-  padding: var(--space-5) var(--space-6);
+  padding: 0 var(--space-6) var(--space-5);
   overflow: auto;
   min-height: 0;
 }
@@ -637,6 +642,11 @@
 .fieldRow {
   display: flex;
   align-items: center;
+  /**
+   * 补上间距（用户 2026-10-08 第 2 条：图标那一行「内容挤压在一起了」）。
+   * 此前是 gap 0 —— 图标 / 上传按钮 / 格式说明三者首尾相接，读起来像一整块。
+   */
+  gap: var(--space-3);
 }
 
 .switch {
@@ -1113,12 +1123,40 @@
   margin-top: var(--space-3);
 }
 
-.mapGroupTitle {
+/**
+ * 映射区的**五个筛选**（用户 2026-10-08 第 1 条）。
+ *
+ * 取代了原来的组标题（`.mapGroupTitle`）：筛选项本身就是那一类的名字，
+ * 再在下面写一行标题是重复；顺带把"一屏扫 15 行"压到 7 行以内。
+ * 观感与画布参数胶囊、Agent 三档模型同一套（小圆角 chip）。
+ */
+.mapFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.mapFilter {
+  padding: 2px var(--space-3);
+  border: var(--border);
+  border-radius: 999px;
+  background: var(--bg-app);
+  color: var(--text-2);
+  font: inherit;
   font-size: var(--fs-chip);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.mapFilter:hover {
+  background: var(--bg-hover);
+}
+
+.mapFilterOn {
+  border-color: var(--stroke-focus);
+  background: var(--bg-surface);
+  color: var(--text-1);
   font-weight: 600;
-  color: var(--text-3);
-  /* 与下面的行对齐：行里的名字列宽 200px，标题不缩进反而更像「分隔标签」 */
-  text-transform: none;
 }
 
 /* 每一行 = 逻辑名 + 输入 + 保存：名字定宽，输入框吃满剩余宽度，

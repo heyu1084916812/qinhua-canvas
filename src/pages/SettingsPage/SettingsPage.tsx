@@ -38,17 +38,26 @@ import { ModelMapCombo, StrategyPicker } from './SettingsPicker'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 
 /**
- * 模型映射区的三个分组（用户 2026-09-27 第 9 轮）。
+ * 模型映射区的**五个筛选**（用户 2026-10-08 第 1 条：「图一这个模型映射的地方换成五个筛选吧，
+ * 目前是生图，对话，视频放在一起的，加上音频，3d」）。
  *
- * `category` 必须与 `modelPresets` 里的取值**同字面**（`image | chat | video`）——
- * 这里只是给它配了个中文标题，没有第二份分类口径。
- * 顺序 = 用户说的顺序：生图 → 对话 → 视频。
+ * 与上一版（三组平铺、一屏 15 行）的区别：一次只显示**一类**，行数从 15 压到 7 行以内。
+ *
+ * ⚠️ 后两档（音频 / 3D）是**预留位**：前端固定清单 `PRESET_MODELS` 目前只有
+ * `image | chat | video` 三种类别，所以点开会看到"这一类还没有模型"——
+ * 等清单里加上音频 / 3D 的显示名，这里**自动**就有内容（不必回来改代码）。
+ * 这也是为什么筛选键用 `string` 而不是去扩 `ModelCapability['category']`：
+ * 扩那个联合要动渠道拉取 / 选路 / 画布面板一整条链，而清单里现在并没有那两类模型。
  */
-const MAP_GROUPS = [
-  { category: 'image' as const, title: '生图模型' },
-  { category: 'chat' as const, title: '对话模型' },
-  { category: 'video' as const, title: '视频模型' },
-]
+const MAP_FILTERS = [
+  { key: 'image', title: '生图' },
+  { key: 'chat', title: '对话' },
+  { key: 'video', title: '视频' },
+  { key: 'audio', title: '音频' },
+  { key: '3d', title: '3D' },
+] as const
+
+type MapFilterKey = (typeof MAP_FILTERS)[number]['key']
 
 
 /**
@@ -110,9 +119,51 @@ function ChannelTokenField({
 }) {
   const [token, setToken] = useState('')
   const [show, setShow] = useState(false)
+  /**
+   * 「显示」那一刻从凭据层读回来的**明文**。
+   *
+   * 只活在这一屏：切回「隐藏」、保存、删除、换渠道都立刻丢掉（不落库、不进日志）。
+   */
+  const [revealed, setRevealed] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const saved = !!savedTail
   const masked = savedTail ? maskTokenTail(savedTail) : ''
+
+  /** 换了渠道 / 换了槽位：把"已显示"这件事清掉，免得上一条的明文挂在新渠道上 */
+  useEffect(() => {
+    setShow(false)
+    setRevealed(null)
+  }, [channelId, slot])
+
+  /**
+   * 「显示 / 隐藏」（用户 2026-10-08 第 5 条：「渠道的令牌显示功能是不生效的」）。
+   *
+   * **为什么以前点了没反应**：它只切了输入框的 `type`，而已存的令牌从来只以
+   * **打码占位符**出现（明文不进界面）⇒ 输入框里根本没有可显示的东西，切了也看不出变化。
+   * 现在「显示」= **真去凭据层读一次**：输入框里是用户刚敲的就显示刚敲的，
+   * 否则显示存好的那把（读回明文这条链路见 `channelStore.loadToken`）。
+   */
+  const toggleShow = async () => {
+    if (show) {
+      setShow(false)
+      setRevealed(null)
+      return
+    }
+    setBusy(true)
+    try {
+      setRevealed(token ? token : saved ? await channels.loadToken(channelId, slot) : null)
+      setShow(true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 显示态下编辑的是**明文那一份**；隐藏态下编辑的是"准备保存的新令牌" */
+  const shownValue = show ? (revealed ?? token) : token
+  const onTokenChange = (next: string) => {
+    setToken(next)
+    if (show) setRevealed(next)
+  }
 
   const save = async () => {
     if (!token) return
@@ -120,6 +171,9 @@ function ChannelTokenField({
     try {
       await channels.saveToken(channelId, token, slot)
       setToken('')
+      /* 存完回到"打码占位"的常态：明文不再留在界面上 */
+      setShow(false)
+      setRevealed(null)
     } finally {
       setBusy(false)
     }
@@ -129,6 +183,8 @@ function ChannelTokenField({
     try {
       await channels.removeToken(channelId, slot)
       setToken('')
+      setShow(false)
+      setRevealed(null)
     } finally {
       setBusy(false)
     }
@@ -164,10 +220,16 @@ function ChannelTokenField({
            * 放进 value 的话用户一按保存就会把那串圆点当成新令牌存进去。
            */
           placeholder={saved ? masked : '粘贴 API Key'}
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
+          value={shownValue}
+          onChange={(e) => onTokenChange(e.target.value)}
         />
-        <button className={styles.ghostBtn} onClick={() => setShow((v) => !v)}>
+        <button
+          className={styles.ghostBtn}
+          data-settings-token-reveal={slot}
+          /* 既没存过、输入框也是空的 ⇒ 没有东西可显示（不给"按下去没反应"的按钮） */
+          disabled={busy || (!saved && !token)}
+          onClick={() => void toggleShow()}
+        >
           {show ? '隐藏' : '显示'}
         </button>
         <button
@@ -265,6 +327,13 @@ export function SettingsPage() {
    * 切渠道时清空，避免把 A 站的上游 ID 带到 B 站。
    */
   const [mapDrafts, setMapDrafts] = useState<Record<string, string>>({})
+
+  /**
+   * 映射区当前看的**哪一类**（用户 2026-10-08 第 1 条：五个筛选）。
+   * 默认「生图」——绝大多数人第一条渠道就是为了出图。
+   * 刻意**不随切渠道复位**：用户在比对两条渠道的同一类映射时，来回切渠道不必重新点筛选项。
+   */
+  const [mapCategory, setMapCategory] = useState<MapFilterKey>('image')
 
   /**
    * 协议目录版本号。`protocolCatalog()` 每次返回**新对象**，但 useSyncExternalStore
@@ -911,9 +980,13 @@ export function SettingsPage() {
             <div className={styles.form} data-settings-form>
               {/* —— 基本信息（§7.2）—— */}
               <section className={styles.card} data-settings-basics>
+                {/*
+                  卡片标题下面那行小字「这条渠道在画布里显示的名字」**已删**
+                  （用户 2026-10-08 第 2 条：「第二个框，不需要这个小字」）——
+                  卡片里就一个"名称"输入框，它是什么不用再解释一遍。
+                */}
                 <div className={styles.cardHead}>
                   <span className={styles.cardTitle}>基本信息</span>
-                  <span className={styles.cardSub}>这条渠道在画布里显示的名字</span>
                 </div>
                 <div className={styles.fieldRowTop}>
                   <label className={`${styles.field} ${styles.grow}`}>
@@ -946,6 +1019,11 @@ export function SettingsPage() {
                 <div className={styles.fieldRow} data-channel-icon-row>
                   <span className={styles.label}>图标</span>
                   <ChannelIcon protocol={protocol} icon={selected.icon} size={28} />
+                  {/*
+                    三段分清楚（用户 2026-10-08 第 2 条：「直接分为当前图标 | 上传的按钮 |
+                    支持什么什么格式，不需要后面缩的自动缩到 128px」）：
+                    **当前图标 → 上传按钮 → 支持格式**，三者靠 `.fieldRow` 的 gap 分开。
+                  */}
                   <label className={styles.ghostBtn} data-channel-icon-upload>
                     上传图标
                     <input
@@ -964,7 +1042,10 @@ export function SettingsPage() {
                       恢复默认
                     </button>
                   )}
-                  <span className={styles.cardSub}>PNG / JPG，自动缩到 128px</span>
+                  {/* 只留"支持什么格式"；"自动缩到 128px"是实现细节，用户明确不要它 */}
+                  <span className={styles.cardSub} data-channel-icon-formats>
+                    PNG / JPG
+                  </span>
                 </div>
 
                 {/*
@@ -1309,7 +1390,9 @@ export function SettingsPage() {
                   </p>
                 ) : selectedGroups.length === 0 ? (
                   <p className={styles.modelsEmpty} data-models-none>
-                    上游有 {selected.modelCache.length} 个模型，但还没勾选任何一个——画布与漫画的模型下拉只列这里选中的。
+                    {/* ⚠️ 2026-10-08：删掉"与漫画"——漫画剧工作台 2026-09-25 已整体移除，
+                        这句是漏网的旧文案（用户第 3 条一眼看到：「怎么会有个漫画的东西」）。 */}
+                    上游有 {selected.modelCache.length} 个模型，但还没勾选任何一个——画布的模型下拉只列这里选中的。
                     点「选择模型」去挑。
                   </p>
                 ) : (
@@ -1447,9 +1530,6 @@ export function SettingsPage() {
 
                 <div className={styles.mapHead}>
                   <span className={styles.label}>模型映射（前端显示名 → 本站点真实 ID）</span>
-                  <span className={styles.modelsSub}>
-                    左边是画布里显示的名字，填这一站点实际要发的模型 ID；留空即按原名发送
-                  </span>
                 </div>
 
                 {/*
@@ -1480,10 +1560,30 @@ export function SettingsPage() {
                   }))
                   return (
                     <>
-                      <p className={styles.modelsSub} data-route-map-help>
-                        左边是画布里可选的显示名，右边填你本站对应的模型 ID；
-                        只填你本站有的那几个即可。带下拉的可以直接从**已勾选的同类模型**里挑。
-                      </p>
+                      {/*
+                        **五个筛选**（用户 2026-10-08 第 1 条：「换成五个筛选吧…加上音频，3d」），
+                        以及**两行说明文案已删**（第 4 条：「这个框住的文字可以删掉了」）——
+                        左列是什么、右列填什么，看一遍就懂；填错时那行会有自己的提示。
+                      */}
+                      <div className={styles.mapFilters} role="tablist" aria-label="模型映射分类">
+                        {MAP_FILTERS.map((f) => (
+                          <button
+                            key={f.key}
+                            type="button"
+                            role="tab"
+                            aria-selected={mapCategory === f.key}
+                            data-route-map-filter={f.key}
+                            className={
+                              mapCategory === f.key
+                                ? `${styles.mapFilter} ${styles.mapFilterOn}`
+                                : styles.mapFilter
+                            }
+                            onClick={() => setMapCategory(f.key)}
+                          >
+                            {f.title}
+                          </button>
+                        ))}
+                      </div>
                       {/*
                         按类别分三组（用户 2026-09-27 第 9 轮）：
                         「模型映射的部分也需要分生图模型，对话模型和视频模型」。
@@ -1492,9 +1592,19 @@ export function SettingsPage() {
                         分类取自 `PRESET_MODELS` 自己的 `category`，**不在这里另写一份**
                         （写两份必然漂移，那正是本项目反复踩的坑）。
                       */}
-                      {MAP_GROUPS.map(({ category, title }) => {
-                        const groupRows = rows.filter((r) => r.category === category)
-                        if (groupRows.length === 0) return null
+                      {(() => {
+                        const groupRows = rows.filter((r) => String(r.category) === mapCategory)
+                        /*
+                         * 空的这一类**如实说**：前端显示名清单里目前只有生图 / 对话 / 视频，
+                         * 音频与 3D 是预留位（清单里加上就会自动出现，不必改这里）。
+                         */
+                        if (groupRows.length === 0) {
+                          return (
+                            <p className={styles.modelsEmpty} data-route-map-empty={mapCategory}>
+                              这一类还没有模型：前端的固定显示名清单里目前没有它。
+                            </p>
+                          )
+                        }
                         /*
                          * 候选 = 该渠道**已勾选且同类**的模型 ID。
                          * 这是用户要的「没填写的话可以下拉选择已经选择好类别的模型」——
@@ -1506,10 +1616,17 @@ export function SettingsPage() {
                          * 的候选列表由浏览器绘制，既不受浮层规范约束，也无法被冒烟断言。
                          */
                         /* 候选取法见 domain 纯函数 routeMapOptions（已勾选优先、缺失回落已拉取） */
-                        const options = routeMapOptions(category, selected.models, selected.modelCache)
+                        /* 走到这里类别必是 image / chat / video（空的那两类上面已经返回了）——
+                           所以这个收窄是安全的；写它只是为了不把 `ModelCapability['category']` 这条
+                           联合扩到音频 / 3D（那要动渠道拉取 / 选路 / 画布面板一整条链）。 */
+                        const options = routeMapOptions(
+                          mapCategory as 'image' | 'chat' | 'video',
+                          selected.models,
+                          selected.modelCache,
+                        )
                         return (
-                          <div key={category} className={styles.mapGroup} data-route-map-group={category}>
-                            <div className={styles.mapGroupTitle}>{title}</div>
+                          /* 组标题已撤：筛选项本身就是那一类的名字，再写一行是重复 */
+                          <div className={styles.mapGroup} data-route-map-group={mapCategory}>
                             <div className={styles.mapList}>
                               {groupRows.map(({ key: id, label, vendor }) => {
                                 const saved = selected.modelMap[id] ?? ''
@@ -1529,12 +1646,12 @@ export function SettingsPage() {
                                     </span>
                                     <ModelMapCombo
                                       rowId={id}
-                                      category={category}
+                                      category={mapCategory as 'image' | 'chat' | 'video'}
                                       value={value}
                                       options={options}
                                       placeholder="留空 = 按原名发送"
                                       emptyHint="该渠道还没勾选同类模型"
-                                      ariaLabel={`${title} ${label} 对应的本站模型 ID`}
+                                      ariaLabel={`${MAP_FILTERS.find((f) => f.key === mapCategory)?.title ?? ''} ${label} 对应的本站模型 ID`}
                                       onChange={(next) =>
                                         setMapDrafts((prev) => ({ ...prev, [id]: next }))
                                       }
@@ -1560,7 +1677,7 @@ export function SettingsPage() {
                             </div>
                           </div>
                         )
-                      })}
+                      })()}
                     </>
                   )
                 })()}
