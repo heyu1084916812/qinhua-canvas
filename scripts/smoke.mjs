@@ -5211,13 +5211,17 @@ async function g44(browser) {
       list: Math.round(list.getBoundingClientRect().right),
       sidebar: Math.round(sidebar.getBoundingClientRect().right),
       marginRight: getComputedStyle(list).marginRight,
+      /** 滚动条占的宽度：应当等于**全局**那套的 4px（本地再写一份就会变成别的值） */
+      scrollbarWidth: list.offsetWidth - list.clientWidth,
     }
   })
   rec(
     g,
-    '★★ 滚动条贴左栏最右沿（滚动容器右沿 == 侧栏右沿，不留白）',
-    !!scrollEdge && Math.abs(scrollEdge.list - scrollEdge.sidebar) <= 1,
-    scrollEdge ? `容器右沿=${scrollEdge.list} 侧栏右沿=${scrollEdge.sidebar} margin-right=${scrollEdge.marginRight}` : '找不到锚点',
+    '★★ 滚动条贴左栏最右沿（右沿重合、不留白）且用全局那套 4px',
+    !!scrollEdge && Math.abs(scrollEdge.list - scrollEdge.sidebar) <= 1 && scrollEdge.scrollbarWidth === 4,
+    scrollEdge
+      ? `容器右沿=${scrollEdge.list} 侧栏右沿=${scrollEdge.sidebar} 滚动条宽=${scrollEdge.scrollbarWidth}px margin-right=${scrollEdge.marginRight}`
+      : '找不到锚点',
   )
 
   /**

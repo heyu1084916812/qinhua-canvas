@@ -278,9 +278,13 @@
   /* 出现 / 消失时不留 8px 的跳动（细条常驻，宽度稳定） */
   scrollbar-gutter: stable;
   /**
-   * ⚠️ **只留 `::-webkit-*` 一套**：同时写 `scrollbar-width` / `scrollbar-color` 的话，
-   * Chromium 会**整片忽略 `::-webkit-scrollbar`**（改用系统那条"细"滚动条）——
-   * 实测滑块颜色被换成 `--stroke`(#e2e2e2)，在 `--bg-subtle`(#f5f5f5) 上**几乎看不见**。
+   * ⚠️ 滚动条的**粗细 / 圆角 / 颜色一律不再在这里写** —— 全局那套在 `src/ui/base.css`
+   * （4px、无箭头、拇指 `--text-3` 半透明、悬停加深）。
+   *
+   * 2026-10-08 用户指着设置页右栏那根说：「滚动条这个项目全局统一成右边那个粗细和颜色」——
+   * 而右栏那根正是全局那套；左边这根之所以不一样，就是因为我上一轮在这里又写了一份
+   * 「8px + 实心 `--text-3`」把它盖掉了（层叠上 `.list::-webkit-scrollbar` 赢了全局的
+   * `::-webkit-scrollbar`）。**删掉即统一**：本地只保留下面那条"轨道颜色"。
    */
   /**
    * 上下给滚出的条目留呼吸、**右留出滚动条落点**（见上）、左贴边（条目自带左右内距）。
@@ -292,19 +296,15 @@
   gap: var(--space-1);
 }
 
-/* 细条：透明轨道 + 圆头滑块（颜色用 `--text-3` —— 安静但看得见；悬停加深一档） */
-.list::-webkit-scrollbar {
-  width: 8px;
-}
+/**
+ * 本地**只**覆盖轨道颜色，其余全部沿用全局。
+ *
+ * 为什么非要覆盖这一条：全局轨道写的是 `--bg-surface`（白），而左栏底色是
+ * `--bg-subtle`（浅灰）—— 不覆盖就会在这块灰底上留一条 4px 的白槽
+ * （`base.css` 的注释里专门警告过这件事："看起来仍像多了一条槽"）。
+ */
 .list::-webkit-scrollbar-track {
-  background: transparent;
-}
-.list::-webkit-scrollbar-thumb {
-  background: var(--text-3);
-  border-radius: 999px;
-}
-.list::-webkit-scrollbar-thumb:hover {
-  background: var(--text-2);
+  background: var(--bg-subtle);
 }
 
 /* 列表级操作（新增 / 删除）：作为列表最后一项，与条目同宽、留出上间距分隔 */

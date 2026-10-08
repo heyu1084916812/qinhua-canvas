@@ -4852,3 +4852,11 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   `--domain` 是设计域（ux / style / typography / color / icons…），`--stack` 只收**框架**
   （react / vue / html-tailwind…，传 `css` 直接报错）。这一批从 `--domain ux` 采纳两条：
   计数说成人话（"6 个模型"不是裸数字）、紧凑标签不换行（`nowrap` + 省略号 + `title` 给全量）。
+- **★★★ 写"滚动条"样式之前，先去读 `src/ui/base.css`**：全局早就有一套（4px、无箭头、
+  轨道 `--bg-surface`、拇指 `--text-3` 半透明）。我上一轮**在设置页又写了一份 8px 实心**，
+  层叠上 `.list::-webkit-scrollbar` 赢过全局的 `::-webkit-scrollbar` ⇒ 同一页出现两套外观，
+  用户一眼看出「统一成右边那个粗细和颜色」。**删掉本地那份即统一**；
+  本地最多只覆盖"轨道颜色"（容器底色不是 `--bg-surface` 时，否则会留一条白槽）。
+  这类"全局已有、组件又写一份"的坑，判据很省事：**量 `offsetWidth - clientWidth`**
+  （=滚动条占多宽）与全局值比对 —— 4 就对、8 就是又写了一份。浏览器 G44 与真壳 ⑧b
+  两条断言现在都钉着这个数。
