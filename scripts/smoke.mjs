@@ -781,17 +781,17 @@ async function configureMockChannel(page, { token = null, enable = true, pick = 
     await enableSwitch(page).check({ timeout: 5000 }).catch(() => {})
     await sleep(400)
     /*
-     * 「已启用」文案在**刚建的那条渠道**（正在编辑的那行）上读。
+     * 读**刚建的那条渠道**（正在编辑的那行）的启用态。
      *
-     * 2026-10-08 修两处：① 列表项已从 `<button>` 换成 `role="button"` 的 div，
-     * `locator('button')` 从此找不到它；② 用名字过滤也会被内置渠道干扰。
-     * 换成 `[data-channel-selected]` —— 渠道建完即被选中，这一行就是它。
+     * 2026-10-08 改第三处：列表项第二排的「已启用」两个**字被删了**
+     * （用户：「不要有启用的那个文字，替换成显示右侧选择了多少个模型的总数」），
+     * 所以判据从"读那行文字"换成**直接问那个 checkbox** —— 它才是状态本身，
+     * 也比文字更不容易被排版改动带偏。
      */
     enabled = await page
-      .locator('[data-channel-selected]')
+      .locator('[data-channel-selected] [data-channel-enabled]')
       .first()
-      .getByText('已启用')
-      .isVisible()
+      .isChecked()
       .catch(() => false)
   }
 /**
@@ -5130,8 +5130,13 @@ async function g44(browser) {
   )
   rec(
     g,
-    '★ 图标放大了（本体 ≥ 28px、方块 56px），行高跟着涨到 ≥ 70px',
-    rowMetrics.every((m) => m.glyph >= 28 && m.boxW === 56 && m.rowH >= 70),
+    /**
+     * ⚠️ 口径变过一次（同一天）：用户先要「放大图标」（56/30/74），随后又说
+     * 「左边的 ui 设计太难看了，太大了，缩小一点」⇒ 现在是 **44 方块 / 26 图标 / 62 行高**。
+     * 这条断言量的是**当前设计值**（方块与图标是常量，行高给区间以免被行盒算法抖动带偏）。
+     */
+    '★ 图标与行高是当前设计值（方块 44 / 图标 26 / 行高 ~62，缩了一档）',
+    rowMetrics.every((m) => m.glyph === 26 && m.boxW === 44 && m.rowH >= 58 && m.rowH <= 66),
     `各行：${rowMetrics.map((m) => `${m.glyph}px 图标/${m.boxW}方块/${m.rowH} 行高`).join(' · ')}`,
   )
   rec(
@@ -5153,6 +5158,66 @@ async function g44(browser) {
     '★ 整行不参与文字选择（从名字上起拖不会先划出选区）',
     rowMetrics.every((m) => m.userSelect === 'none'),
     rowMetrics.map((m) => m.userSelect).join(' · '),
+  )
+
+  /**
+   * ★★ 第二排 = 开关 + **模型数**（用户 2026-10-08：「不要有启用的那个文字，
+   * 替换成显示右侧选择了多少个模型的总数即可」）。
+   *
+   * 三件一起量：① 「已启用 / 未启用」这行字**不在了**；② 每行都有模型数，且是一句人话
+   * （`N 个模型` / `未选模型`，不是裸数字）；③ 点它**是选中这一行** ——
+   * 它不归开关管，不能变成"点了没反应"的死区。
+   */
+  const countInfo = await page.locator('[data-channel-item]').evaluateAll((els) =>
+    els.map((el) => ({
+      text: (el.innerText || '').replace(/\s+/g, ' '),
+      count: el.querySelector('[data-channel-model-count]')?.textContent?.trim() ?? '',
+    })),
+  )
+  rec(
+    g,
+    '★★ 第二排不再有「已启用」文字，改成「N 个模型 / 未选模型」',
+    countInfo.every((m) => !/已启用|未启用/.test(m.text)) &&
+      countInfo.every((m) => /^(未选模型|\d+ 个模型)$/.test(m.count)),
+    countInfo.map((m) => m.count).join(' · '),
+  )
+  const countBefore = await selectedNow()
+  const countBox = await page
+    .locator(`[data-channel-id="${idA}"] [data-channel-model-count]`)
+    .boundingBox()
+  const enabledBeforeCount = await page.locator(`[data-channel-enabled="${idA}"]`).isChecked()
+  await page.mouse.click(countBox.x + countBox.width / 2, countBox.y + countBox.height / 2)
+  await sleep(350)
+  rec(
+    g,
+    '★ 点「N 个模型」= 选中这一行（不误切开关、也不是死区）',
+    (await selectedNow()) === idA && (await page.locator(`[data-channel-enabled="${idA}"]`).isChecked()) === enabledBeforeCount,
+    `${countBefore} → ${await selectedNow()}，开关 ${enabledBeforeCount}→${await page.locator(`[data-channel-enabled="${idA}"]`).isChecked()}`,
+  )
+
+  /**
+   * ★★ 滚动条**贴左栏最右沿、不留白**（用户 2026-10-08：「我想要靠近渠道选择菜单栏的右边，
+   * 不能有留白，叠加在菜单栏的上面」）。
+   *
+   * 判据取**几何**：滚动容器的右沿必须与左侧栏的右沿重合（差 ≤ 1px）。
+   * 修法是给滚动容器一个等于左侧栏右内距的负外边距 —— 没有它，滚动条会缩在 12px 内距里，
+   * 就是用户截图里那条"离菜单老远"的滚动条。
+   */
+  const scrollEdge = await page.evaluate(() => {
+    const list = document.querySelector('[data-channel-list]')
+    const sidebar = list?.parentElement
+    if (!list || !sidebar) return null
+    return {
+      list: Math.round(list.getBoundingClientRect().right),
+      sidebar: Math.round(sidebar.getBoundingClientRect().right),
+      marginRight: getComputedStyle(list).marginRight,
+    }
+  })
+  rec(
+    g,
+    '★★ 滚动条贴左栏最右沿（滚动容器右沿 == 侧栏右沿，不留白）',
+    !!scrollEdge && Math.abs(scrollEdge.list - scrollEdge.sidebar) <= 1,
+    scrollEdge ? `容器右沿=${scrollEdge.list} 侧栏右沿=${scrollEdge.sidebar} margin-right=${scrollEdge.marginRight}` : '找不到锚点',
   )
 
   /**

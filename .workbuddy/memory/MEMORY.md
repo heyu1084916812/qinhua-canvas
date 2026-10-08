@@ -4832,3 +4832,23 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   起拖（`y + 18`）后稳定；
   ② 读文案用 `body.innerText.slice(0, 200)` 会**截断**（状态行在更后面）⇒ 把"其实成功了"
   报成失败。读**那个锚点本身**（`[role="status"]` / `[data-*]`），别截 body。
+
+## 2026-10-08 第 27 批（渠道列表：滚动条贴右沿 / 缩小一档 / 第二排换模型数）
+
+- **★★ headless 浏览器不画滚动条**：自定义滚动条的样式**量得到**（容器 `offsetWidth − clientWidth`
+  = 8）却**拍不到** —— headless 用 overlay 滚动条（只在悬停时出现）。判断"滚动条长什么样 /
+  贴在哪儿"必须进**真壳**（WebView2 headful）截图 + 量。我为此绕了两圈（先怀疑颜色太浅、
+  再怀疑样式没生效）。
+- **★★ `scrollbar-width` / `scrollbar-color` 与 `::-webkit-scrollbar` 只能留一套**：
+  同时写 ⇒ Chromium **整片忽略 `::-webkit-scrollbar`**、改用系统那根细条，滑块颜色变成
+  `--stroke`(#e2e2e2)、在 `--bg-subtle`(#f5f5f5) 上几乎看不见（看起来像"没画出来"）。
+- **★ 让滚动条贴容器最右沿（不留白）的手法**：给滚动容器 `margin-right: -<右内距>` +
+  等值 `padding-right` ⇒ 滚动条落到父容器边界上，而**内容位置不变**；
+  判据用几何：`列表右沿 == 侧栏右沿`（差 ≤ 1px），比看截图稳。
+- **★ 密集度是设计值，用户会来回改**：图标 22 → 30 → 26、行高 62 → 74 → 62，一天两遍。
+  断言写**当前设计值 + 注释里的来历**，别写"比以前大 / 小"；改尺寸时"方块 / 图标 size / 内距"
+  三处一起对齐（"图标离左 / 上 / 下一样多"这条不变量靠它们共同成立）。
+- **★ `ui-ux-pro-max` 的用法**：检索工具在**它自己目录**下（`scripts/search.py`），
+  `--domain` 是设计域（ux / style / typography / color / icons…），`--stack` 只收**框架**
+  （react / vue / html-tailwind…，传 `css` 直接报错）。这一批从 `--domain ux` 采纳两条：
+  计数说成人话（"6 个模型"不是裸数字）、紧凑标签不换行（`nowrap` + 省略号 + `title` 给全量）。

@@ -195,7 +195,11 @@
   max-width: 1120px;
   width: 100%;
   display: grid;
-  grid-template-columns: 264px 1fr;
+  /**
+   * 左栏 264 → **240px**（用户 2026-10-08：「渠道选择菜单可能需要整体缩小一点了」）——
+   * 列表项本身也跟着缩了一档（见 `.item` 的 `--channel-icon-box`）。
+   */
+  grid-template-columns: 240px 1fr;
   background: var(--bg-surface);
   /**
    * **最外层容器不描边**（用户 2026-09-26：「右边具体的功能最外面的容器我不要描边」）。
@@ -221,7 +225,12 @@
    * 用一层极浅的底色分区，比加分隔线更克制，也贴合参考图「内容浮在白底上」的观感。
    */
   background: var(--bg-subtle);
-  padding: var(--space-5) var(--space-4);
+  /**
+   * 内距 20/16 → **16/12**（同一条"整体缩小"）。右内距那 12px 是给滚动条留的落点：
+   * 列表用负外边距把它自己推到左栏的最右沿（见 `.list`），所以滚动条贴着菜单右边、
+   * 不留白，看上去像叠在菜单上。
+   */
+  padding: var(--space-4) var(--space-3);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -257,11 +266,45 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  /* 给滚出的条目留出上下呼吸，滚动时不至于贴边被裁 */
-  padding: var(--space-1) 0;
+  /**
+   * **滚动条贴到左栏的最右沿**（用户 2026-10-08：「这个滚动条不要放在这里，我想要靠近渠道
+   * 选择菜单栏的右边，不能有留白，叠加在菜单栏的上面」）。
+   *
+   * 做法：负的右外边距把它自己推进左栏那 12px 右内距里，再用等值右内距把**内容**顶回原位 ——
+   * 于是滚动条落在左栏的右边界上（几何断言：`[data-channel-list]` 的右沿 == 左侧栏的右沿），
+   * 内容位置反而没变；配上透明轨道 + 圆头滑块，观感就是"叠在菜单上面的一条细条"。
+   */
+  margin-right: calc(var(--space-3) * -1);
+  /* 出现 / 消失时不留 8px 的跳动（细条常驻，宽度稳定） */
+  scrollbar-gutter: stable;
+  /**
+   * ⚠️ **只留 `::-webkit-*` 一套**：同时写 `scrollbar-width` / `scrollbar-color` 的话，
+   * Chromium 会**整片忽略 `::-webkit-scrollbar`**（改用系统那条"细"滚动条）——
+   * 实测滑块颜色被换成 `--stroke`(#e2e2e2)，在 `--bg-subtle`(#f5f5f5) 上**几乎看不见**。
+   */
+  /**
+   * 上下给滚出的条目留呼吸、**右留出滚动条落点**（见上）、左贴边（条目自带左右内距）。
+   * ⚠️ 必须一条 `padding` 写全：先写 `padding-right` 再写 `padding` 会把右边冲回 0。
+   */
+  padding: var(--space-1) var(--space-3) var(--space-1) 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+}
+
+/* 细条：透明轨道 + 圆头滑块（颜色用 `--text-3` —— 安静但看得见；悬停加深一档） */
+.list::-webkit-scrollbar {
+  width: 8px;
+}
+.list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.list::-webkit-scrollbar-thumb {
+  background: var(--text-3);
+  border-radius: 999px;
+}
+.list::-webkit-scrollbar-thumb:hover {
+  background: var(--text-2);
 }
 
 /* 列表级操作（新增 / 删除）：作为列表最后一项，与条目同宽、留出上间距分隔 */
@@ -297,10 +340,14 @@
    */
   /**
    * 两块共同的高度（用户 2026-10-08 第 1 条：「左边图标部分和右边名称与开关部分上下高度不够，
-   * 需要放大图标」）—— 44 → **56px**，图标本体 22 → 30px（见 JSX 的 `size` 与 `.itemIcon`）。
-   * 行高随之 62 → 74px；三边留白仍相等：1(描边) + 8(内距) + (56 - 30) / 2 = **22px**。
+   * 需要放大图标」）。
+   *
+   * ⚠️ 同一天晚些时候**又调回小一档**（「左边的 ui 设计太难看了，太大了，缩小一点」）：
+   * 56 → **44px**、图标本体 30 → **26px**（见 JSX 的 `size` 与 `.itemIcon`），行高 74 → **62px**。
+   * 三边留白仍严格相等：1(描边) + 8(内距) + (44 - 26) / 2 = **18px**。
+   * 一句话记：这个数是**设计值**，改它时把三处（方块 / 图标 size / 内距）一起对齐。
    */
-  --channel-icon-box: 56px;
+  --channel-icon-box: 44px;
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -366,8 +413,8 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  /* 名称与开关之间留开一点：两排在这个高度里各占一头，别挤在一起（用户 2026-10-08 第 1 条） */
-  gap: var(--space-2);
+  /* 名称与第二排之间只留 4px：缩小一档之后两排仍要分得开，但别把行高撑回去 */
+  gap: var(--space-1);
   /* 与图标方块同高（两部分高度一致）；写 min-height 而不是 height：内容万一更高也不裁切 */
   min-height: var(--channel-icon-box);
   /* 撑开时不许把图标列挤扁（长名称的省略号靠这一行才生效） */
@@ -375,16 +422,38 @@
 }
 .itemName {
   /**
-   * 名称放大到与图标同级（用户第 21 批第 2 条：「让图标和文字一样大小放大文字」）——
-   * 图标从 16 提到 20、文字从 `--fs-label`(13) 提到 `--fs-panel-title`(15)，
-   * 两者视觉重量才配得上；列表项也才在一眼扫过时读得清。
+   * 名称字号：第 21 批从 13 提到 15（「让图标和文字一样大小放大文字」），
+   * 2026-10-08 又因「左边太大、缩小一点」回到 **14**（`--fs-nav`）——
+   * 再小就掉到 12px 那一档了，列表的可读性不值当为省两像素牺牲掉。
    */
-  font-size: var(--fs-panel-title);
+  font-size: var(--fs-nav);
   font-weight: var(--fw-title);
   /**
    * 两列布局之后名称只剩一半宽度：超长一律省略号。
    * 换行会把「右侧两排」撑高 ⇒ 图标方块跟着变高 ⇒ 行高在不同渠道之间不一致。
    */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/** 第二排 = 开关 + 模型数（模型数不归开关管，点它是选中这一行 —— 所以放在开关那一层外面） */
+.itemStatusRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/**
+ * 「N 个模型 / 未选模型」（用户 2026-10-08：把"已启用"那两个字换成它）。
+ *
+ * 两句一起看：**不是裸数字**（`6` 读不出是什么），也**不换行**（窄了省略号 + 悬停给全量）——
+ * 与 `ui-ux-pro-max` 的 `Compact Label Overflow` 那条一致。
+ */
+.itemCount {
+  font-size: var(--fs-chip);
+  color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -426,10 +495,8 @@
   cursor: default;
 }
 
-.switchText {
-  font-size: var(--fs-chip);
-  color: var(--text-3);
-}
+/* `.switchText`（开关旁边那两字"已启用"）2026-10-08 起不再使用：换成「N 个模型」，
+   由 `.itemCount` 承担 —— 于是这里不再保留那条样式，免得看上去还有一处能改。 */
 /* 这条渠道实际能用什么：对话 / 生图 / 视频三枚小标 */
 .itemCaps {
   display: flex;

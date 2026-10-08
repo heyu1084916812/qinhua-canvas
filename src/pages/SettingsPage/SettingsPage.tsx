@@ -717,7 +717,8 @@ export function SettingsPage() {
 
         <div className={styles.workarea} data-settings-workarea>
           <aside className={styles.sidebar}>
-          <ul className={styles.list}>
+          {/* `data-channel-list` 是滚动条位置断言的锚点（贴左栏最右沿，见 CSS 的 `.list`） */}
+          <ul className={styles.list} data-channel-list>
             {channelsList.map((ch: Channel) => {
               const caps = channelCapabilities(
                 ch,
@@ -795,38 +796,56 @@ export function SettingsPage() {
                   {/* 左：渠道图标（品牌矢量标记 / 用户上传的图，见 `ChannelIcon`）。
                       固定大小，方块与右侧两排等高 —— 几何规则写在 CSS 的 `.itemIcon` 上。 */}
                   <span className={styles.itemIcon} data-channel-icon-box>
-                    <ChannelIcon protocol={ch.protocol} icon={ch.icon} size={30} />
+                    <ChannelIcon protocol={ch.protocol} icon={ch.icon} size={26} />
                   </span>
-                  {/* 右：两排（上：自定义名称 / 下：启用开关） */}
+                  {/* 右：两排（上：自定义名称 / 下：启用开关 + 模型数） */}
                   <span className={styles.itemBody} data-channel-body>
                     <span className={styles.itemName}>{ch.name}</span>
                     {/*
-                      「未选模型 / N 个模型」**已删**（用户第 22 批：「图一的未选择模型这个也不要了」）——
-                      列表项现在只有：图标 + 名称 + 启用开关。模型挑没挑在右侧「模型列表」那一栏里看得到，
-                      列表上再挂一行只是噪声。启用开关**跟着名称成第二排**（用户 2026-10-08：两排，
-                      上面是自定义名称、下面是启用按钮），一眼看到"这条开没开"。
-                      所以列表项从 `<button>` 换成 `role="button"` 的 div —— 按钮里不许再放交互元素
+                      **第二排 = 开关 + 模型数**（用户 2026-10-08 新一条：「不要有启用的那个文字，
+                      替换成显示右侧选择了多少个模型的总数」）。
+
+                      两件事刻意分开：**开关是唯一的控件**，"N 个模型"只是信息 ——
+                      所以模型数放在收指针的 `.itemToggle` **外面**，它归整行所有：
+                      点它 = 选中这条渠道（既不误切开关，也不是"点了没反应"的死区）。
+                      开关没了可见文字 ⇒ 给 input 一个 `aria-label`（读屏照旧知道它是什么）。
+
+                      列表项仍是 `role="button"` 的 div、不是 `<button>` —— 按钮里不许再放交互元素
                       （label + input 是交互内容，塞进 button 属于非法 HTML，浏览器会把点击派发搞乱）。
                     */}
-                    <span
-                      className={styles.itemToggle}
-                      data-channel-toggle
-                      /* 开关自己收指针（`pointerdown` 也要收 —— 选中现在挂在按下那一刻）：点它只切开关，不选渠道、也不起拖动 */
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                      onDragStart={(e) => e.preventDefault()}
-                    >
-                      <label className={styles.switch} data-channel-switch-label>
-                        <input
-                          className={styles.switchInput}
-                          type="checkbox"
-                          checked={ch.enabled}
-                          data-channel-enabled={ch.id}
-                          onChange={() => void channels.setEnabled(ch.id, !ch.enabled)}
-                        />
-                        <span className={styles.switchTrack} aria-hidden="true" />
-                        <span className={styles.switchText}>{ch.enabled ? '已启用' : '未启用'}</span>
-                      </label>
+                    <span className={styles.itemStatusRow}>
+                      <span
+                        className={styles.itemToggle}
+                        data-channel-toggle
+                        /* 开关自己收指针（`pointerdown` 也要收 —— 选中现在挂在按下那一刻）：点它只切开关，不选渠道、也不起拖动 */
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                        onDragStart={(e) => e.preventDefault()}
+                      >
+                        <label
+                          className={styles.switch}
+                          data-channel-switch-label
+                          title={ch.enabled ? '已启用' : '未启用'}
+                        >
+                          <input
+                            className={styles.switchInput}
+                            type="checkbox"
+                            checked={ch.enabled}
+                            aria-label={`${ch.name}：${ch.enabled ? '已启用' : '未启用'}`}
+                            data-channel-enabled={ch.id}
+                            onChange={() => void channels.setEnabled(ch.id, !ch.enabled)}
+                          />
+                          <span className={styles.switchTrack} aria-hidden="true" />
+                        </label>
+                      </span>
+                      <span
+                        className={styles.itemCount}
+                        data-channel-model-count={ch.id}
+                        /* 不摆裸数字：一句人话 + 悬停给出完整含义（它同时说明去哪儿改） */
+                        title={`这条渠道已勾选 ${ch.models.length} 个模型（在右侧「模型列表」里改）`}
+                      >
+                        {ch.models.length === 0 ? '未选模型' : `${ch.models.length} 个模型`}
+                      </span>
                     </span>
                   </span>
                 </div>
