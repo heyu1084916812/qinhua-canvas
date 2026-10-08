@@ -129,20 +129,21 @@ export function sidebarWidth(openState: SidebarOpen = getSidebarOpen()): number 
 /**
  * 布局里**真正占位**的宽度（px）。
  *
- * 与 `sidebarWidth` 的分工，是用户 2026-10-06 第 13 批第 1 条逼出来的：
- * 那条报「左边的菜单栏变成闪动了」—— 实测根因是**悬停展开也把工作区挤窄**，
- * 于是鼠标一碰侧栏，整块画布就被推着滑 176px（节点屏幕 x 1668 → 1844），
- * 移开又滑回来。悬停只是"顺手看一眼"，不该重排整个应用。
+ * 口径变过两次，都留在这里（第三次别再从头猜）：
+ * - **2026-10-06**（#313）：悬停也推挤 ⇒ 用户报「左边的菜单栏变成闪动了」，
+ *   于是改成"只有钉住才推挤，悬停当浮层"。
+ * - **2026-10-08**：用户又要求「悬停是长出来的，不是往右推出来的，我要的是展开按钮
+ *   展开的那种效果」⇒ 悬停**也推挤**，与按钮同一套效果。
+ *   那次"闪"的真根因是**占位盒瞬间跳**（宽度写在 `flex-basis` 上、`transition: width`
+ *   动的是被忽略的值，见 `AppShell.module.css` 的 `.railSlot`）——
+ *   现在占位盒由 `width` 驱动、与侧栏同一条过渡，两者一起平滑滑动，所以推挤不再闪。
  *
- * 所以拆成两个量：
- * - **占位**（本函数）：只有**钉住**才推挤工作区 —— 那是用户按下去的一次明确动作；
- * - **可见**（`sidebarWidth`）：悬停预览照样铺到 240，但它浮在画布上（见侧栏的
- *   `data-sidebar-floating` 样式）。
- *
- * 不传参时按落盘的钉住态算：布局对"鼠标在不在上面"不敏感，才谈得上稳定。
+ * 与 `sidebarWidth` 的关系：现在两者同源（都看"是否展开"），保留两个函数是因为
+ * **语义不同**（一个给侧栏自己的宽度、一个给占位盒），将来若要再分开也不用改调用点。
+ * 不传参时按**当前展开态**（钉住 或 悬停）算。
  */
-export function sidebarReservedWidth(pinned: SidebarOpen = getSidebarPinned()): number {
-  return pinned ? SIDEBAR_EXPANDED_W : SIDEBAR_COLLAPSED_W
+export function sidebarReservedWidth(openState: SidebarOpen = getSidebarOpen()): number {
+  return openState ? SIDEBAR_EXPANDED_W : SIDEBAR_COLLAPSED_W
 }
 
 /**

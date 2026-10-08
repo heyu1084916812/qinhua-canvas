@@ -61,14 +61,19 @@
 /**
  * 侧栏的**布局占位**：只占宽、不画东西。
  *
- * 为什么需要一个空盒子：侧栏在悬停预览时是 `position: absolute`（浮在画布上，
- * **不推挤它** —— 见 `AppSidebar.module.css` 里 `data-sidebar-floating` 那一段），
- * 于是"工作区从哪儿开始"就没人撑着了。宽度取 `--sidebar-w`（= 占位宽度：
- * 钉住 240 / 否则 64），与侧栏自身的宽度过渡**同节奏**，钉住时两边一起动。
+ * 为什么需要一个空盒子：侧栏自己 `position: absolute`（见 `AppSidebar.module.css`），
+ * 不参与布局 ⇒ "工作区从哪儿开始"得由这个盒子撑着。
+ * 宽度取 `--sidebar-w` = **展开态**（钉住 **或** 悬停，2026-10-08 起悬停也推挤）。
+ *
+ * ⚠️ **绝对不能把宽度写进 `flex` 简写里**：`flex: 0 0 <宽>` 算出的是 `flex-basis`，
+ * 而 `flex-basis` **优先于 `width`** —— 于是 `transition: width` 动的是一个被忽略的值，
+ * 占位宽度**一帧内直接跳**，而侧栏还在 180ms 慢慢滑。用户看到的"闪/跳"就是这个
+ * （2026-10-06 那版因此把悬停改成"浮层不推"，2026-10-08 用户要求推回去 ⇒ 这里必须写对）。
+ * 现在：`flex: 0 0 auto` + `width` 驱动 + 与侧栏同一条过渡 ⇒ 两者一起平滑滑动。
  */
 .railSlot {
   /* 带兜底值：`--sidebar-w` 是运行期由 AppShell 内联给的，主题守卫只认"有定义/有兜底"的 var() */
-  flex: 0 0 var(--sidebar-w, 64px);
+  flex: 0 0 auto;
   width: var(--sidebar-w, 64px);
   transition: width var(--dur-panel, 180ms) var(--ease-out, ease-out);
 }

@@ -170,11 +170,11 @@ export function AppSidebar() {
       data-sidebar-open={open ? 'true' : 'false'}
       data-sidebar-pinned={pinned ? 'true' : 'false'}
       /*
-       * 「悬停预览」= 开着但**没钉住**。它决定侧栏是**浮层**还是布局的一部分：
-       * 悬停若也推挤工作区，鼠标一碰侧栏整块画布就滑 176px（实测），
-       * 那正是用户 2026-10-06 第 13 批第 1 条说的「左边的菜单栏变成闪动了」。
+       * ⚠️ 这里原来挂着 `data-sidebar-floating`（悬停时当浮层、加圆角与投影）。
+       * 2026-10-08 用户改了口径：「悬停是长出来的，不是往右推出来的，我要的是展开按钮
+       * 展开的那种效果」⇒ 悬停与钉住**用同一套效果**（都推挤工作区、同一套外观），
+       * 区别只剩"松手（移开鼠标）后收不收"。那个属性与它的样式因此一并删掉。
        */
-      data-sidebar-floating={open && !pinned ? 'true' : 'false'}
       /* 悬停即展开（带延迟），移开即收回（延迟更长）—— 见 sidebarState 的两个常量 */
       onMouseEnter={onRailEnter}
       onMouseLeave={onRailLeave}

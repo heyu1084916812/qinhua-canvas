@@ -6,7 +6,7 @@ import { UpdateNotice } from './UpdateNotice'
 import { ThumbBackfill } from './ThumbBackfill'
 import {
   SIDEBAR_COLLAPSED_W,
-  getSidebarPinned,
+  getSidebarOpen,
   sidebarReservedWidth,
   subscribeSidebar,
 } from './sidebarState'
@@ -27,11 +27,18 @@ import styles from './AppShell.module.css'
  */
 export function AppShell({ children }: { children: ReactNode }) {
   /*
-   * 只订阅**钉住态**：它才是"要不要推挤工作区"的判据（见下面 `--sidebar-w` 的说明）。
-   * 悬停/展开的可见宽度由侧栏自己管 —— 壳层对"鼠标在不在侧栏上"应该一无所知，
-   * 这样布局就不可能跟着鼠标抖（用户 2026-10-06 第 13 批第 1 条）。
+   * 订阅**展开态**（= 钉住 或 悬停，见 `sidebarState.getSidebarOpen`）。
+   *
+   * ⚠️ 口径在 2026-10-08 被用户改回来了：「左边这个悬停是长出来的，不是往右推出来的，
+   * 我要的是展开按钮展开的那种效果」—— 即**悬停也要把工作区推出去**，
+   * 与按钮展开是同一套效果（只是不常驻）。
+   *
+   * 为什么这次不会再"闪"：2026-10-06 那版的"闪"来自**占位盒瞬间跳**
+   * （占位宽度写在 `flex-basis` 上，而 `transition: width` 动的是一个被忽略的值）
+   * ⇒ 工作区左缘一帧内从 64 跳到 240，而侧栏还在慢慢滑。现在占位盒改成由 `width`
+   * 驱动、与侧栏用**同一条过渡**（180ms 同缓动），两者一起滑动 ⇒ 平滑、无跳变。
    */
-  const pinned = useSyncExternalStore(subscribeSidebar, getSidebarPinned, getSidebarPinned)
+  const open = useSyncExternalStore(subscribeSidebar, getSidebarOpen, getSidebarOpen)
 
   return (
     <div
@@ -43,13 +50,11 @@ export function AppShell({ children }: { children: ReactNode }) {
        */
       style={{
         /**
-         * ⚠️ 这里是**布局占位**宽度：只有"钉住"才推挤工作区，悬停预览不推。
-         *
-         * 用户 2026-10-06 第 13 批第 1 条「左边的菜单栏变成闪动了」的根因就在这一行：
-         * 悬停也改占位 ⇒ 鼠标一碰侧栏，整块画布被推着滑 176px（实测节点屏幕 x 1668 → 1844），
-         * 移开再滑回来 —— 看着就是"闪"。悬停只是"顺手看一眼"，不该重排整个应用。
+         * ⚠️ 这里是**布局占位**宽度，取"展开态"（钉住 **或** 悬停）：
+         * 2026-10-08 起悬停也推挤工作区（用户要"和展开按钮一样的效果"，见上）。
+         * 平滑的关键不在这行，而在 `.railSlot` 的过渡与 `flex-basis` 的写法（见那边注释）。
          */
-        ['--sidebar-w' as string]: `${sidebarReservedWidth(pinned)}px`,
+        ['--sidebar-w' as string]: `${sidebarReservedWidth(open)}px`,
         // 顶栏高度要与「侧栏折叠宽度」同值（用户 2026-10-06 定的节奏）：
         // 值来自同一个常量，避免 CSS 里再写死一个 64。
         ['--sidebar-collapsed-w' as string]: `${SIDEBAR_COLLAPSED_W}px`,
@@ -66,10 +71,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className={styles.body}>
         {/*
           侧栏的**布局占位**（只占宽、不画东西）。
-          悬停预览时侧栏是浮层（见 `data-sidebar-floating`），不参与布局 ——
-          位置就由这个空盒子撑着；少了它，工作区会一直顶到窗口最左边。
+          侧栏自己 `position: absolute`、不参与布局 ⇒ "工作区从哪儿开始"只能由这个盒子撑着；
+          少了它，工作区会一直顶到窗口最左边。
+          宽度跟**展开态**走（钉住 **或** 悬停）⇒ 与侧栏用同一条过渡一起滑（见 `.railSlot` 注释）。
+          `data-rail-slot` 是给冒烟的测量钩子：逐帧量它的宽度，用来证明占位是"滑过去"而不是"跳过去"。
         */}
-        <div className={styles.railSlot} aria-hidden="true" />
+        <div className={styles.railSlot} data-rail-slot aria-hidden="true" />
         <AppSidebar />
         {/*
           工作区。`min-width: 0` 是关键 —— flex 子项的默认 `min-width: auto`

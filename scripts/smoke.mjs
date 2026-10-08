@@ -11189,11 +11189,11 @@ async function g80(browser) {
   rec(g, '★★ 悬停侧栏自动展开到 240px（不用点任何按钮）', hoveredW === 240, `${hoveredW}px`)
 
   /**
-   * #313 的两条守门断言（用户 2026-10-06 第 13 批第 1 条：
+   * 这两条来自用户 2026-10-06 第 13 批第 1 条：
    * 「左边的菜单栏变成闪动了…我要的是图标不动，…折叠的时候会跳」）。
    *
-   * ① **悬停不许推挤工作区**：预览是浮层 —— 工作区左缘必须原地不动；
-   * ② **图标一个都不许动**：展开态与收起态量到的图标中心 x 必须逐个相等。
+   * ① **悬停推不推挤工作区**：口径变过 —— 2026-10-08 起**推挤**（见下面那条断言的注释）；
+   * ② **图标一个都不许动**：展开态与收起态量到的图标中心 x 必须逐个相等（这条一直有效）。
    *    以前收起态用 `justify-content: center`（跟着**实时宽度**算），折叠一开头
    *    图标就被甩到 ~113px，再随宽度滑回来 —— 那正是用户看到的那一跳。
    */
@@ -11225,11 +11225,20 @@ async function g80(browser) {
   rec(g, '★★ 移开鼠标自动收回 64px', leftW === 64, `${leftW}px`)
   const collapsedIcons = await iconCenters()
   const collapsedWsLeft = await wsLeft()
+  /*
+   * ⚠️ 口径在 2026-10-08 被用户**改回来了**（原话：「左边这个悬停是长出来的，不是往右推出来的，
+   * 我要的是展开按钮展开的那种效果」）⇒ 断言跟着反过来：
+   *  - 旧（#313 发布的那条）：`expandedWsLeft === collapsedWsLeft`，悬停当浮层、左缘原地不动；
+   *  - 新：悬停**也推挤**，左缘跟着走到 240、移开回 64。
+   * 旧口径当年是为压住"闪动"定的，而那次闪的真根因是**占位盒瞬跳**
+   * （`flex-basis` 盖住了 `transition: width`）—— 已在 `.railSlot` 修掉，
+   * 下面那条逐帧采样就是它的守门人。
+   */
   rec(
     g,
-    '★★ 悬停预览**不推挤**工作区（#313：展开 64→240 时工作区左缘原地不动）',
-    expandedWsLeft === collapsedWsLeft,
-    `悬停时=${expandedWsLeft} 移开后=${collapsedWsLeft}`,
+    '★★ 悬停也推挤工作区（2026-10-08 口径：与展开按钮同一套效果，左缘 64↔240）',
+    Math.abs(expandedWsLeft - 240) <= 1 && Math.abs(collapsedWsLeft - 64) <= 1,
+    `悬停时=${expandedWsLeft}（应≈240） 移开后=${collapsedWsLeft}（应≈64）`,
   )
   rec(
     g,
@@ -11254,6 +11263,62 @@ async function g80(browser) {
     '★ 悬停不留痕（不写常驻键）',
     (await page.evaluate(() => localStorage.getItem('flow:sidebar-pinned'))) === null,
     String(await page.evaluate(() => localStorage.getItem('flow:sidebar-pinned'))),
+  )
+
+  /**
+   * ★★ 平滑性：悬停展开期间**逐帧采样**占位盒宽度与工作区左缘。
+   *
+   * 这是本批「不要跳动 / 闪动」这句话的**可验证形式**。2026-10-06 那次闪的根因是
+   * 占位盒一帧内从 64 跳到 240（宽度写在 `flex-basis` 上、`transition: width` 动的是被忽略的值），
+   * 于是侧栏还在 140ms 慢慢滑、工作区已经瞬移 —— 视觉上就是闪一下。
+   *
+   * 判据（三条各自对应一种失败）：
+   *  ① **采到中间帧**（`mids >= 3`）：证明是"滑过去"；真瞬跳只会采到 64 与 240 两档；
+   *  ② **两量同址**（每帧 `wsLeft - slotW` 相对首帧漂移 ≤1.5px）：占位盒与工作区没脱节；
+   *  ③ **不回头**（没有一帧比上一帧小 0.6px 以上）：不会看到"滑出去又弹回来"的抖。
+   */
+  const sampleRailSlide = async (trigger) => {
+    await page.evaluate(() => {
+      window.__slotFrames = []
+      const slot = document.querySelector('[data-rail-slot]')
+      const ws = document.querySelector('[data-app-workspace]')
+      const t0 = performance.now()
+      const tick = () => {
+        window.__slotFrames.push({
+          t: Math.round(performance.now() - t0),
+          slot: slot ? slot.getBoundingClientRect().width : -1,
+          ws: ws ? ws.getBoundingClientRect().left : -1,
+        })
+        if (performance.now() - t0 < 700) requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+    await trigger()
+    await sleep(900)
+    return page.evaluate(() => window.__slotFrames)
+  }
+  // 先回到收起态（上一段结束时鼠标还在侧栏上）
+  await page.mouse.move(900, 500)
+  await sleep(700)
+  const slideFrames = await sampleRailSlide(() => rail.hover())
+  const slotVals = slideFrames.map((f) => f.slot)
+  const firstSlot = slotVals[0] ?? 0
+  const lastSlot = slotVals[slotVals.length - 1] ?? 0
+  const slotSpan = Math.abs(lastSlot - firstSlot)
+  const midFrames = slotVals.filter((v) => v > firstSlot + 2 && v < lastSlot - 2).length
+  const maxBack = slotVals.reduce((m, v, i) => (i ? Math.max(m, slotVals[i - 1] - v) : m), 0)
+  const drift = slideFrames.length
+    ? slideFrames.reduce(
+        (m, f) => Math.max(m, Math.abs(f.ws - f.slot - (slideFrames[0].ws - slideFrames[0].slot))),
+        0,
+      )
+    : 999
+  rec(
+    g,
+    '★★ 悬停展开是"滑"过去的、不是"跳"过去的（逐帧采样占位盒宽度与工作区左缘）',
+    slotSpan > 150 && midFrames >= 3 && drift <= 1.5 && maxBack <= 0.6,
+    `帧数=${slideFrames.length} 起=${Math.round(firstSlot)} 末=${Math.round(lastSlot)} ` +
+      `中间帧=${midFrames} 两量脱节=${drift.toFixed(2)}px 最大回退=${maxBack.toFixed(2)}px`,
   )
 
   // ── 折叠按钮 = 常驻开关（用户 2026-10-06：它只回答"离开鼠标时留不留在这儿"）──
