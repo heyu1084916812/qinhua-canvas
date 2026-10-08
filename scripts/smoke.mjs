@@ -18181,6 +18181,11 @@ async function g97(browser) {
       cards: [...document.querySelectorAll('[data-cli-tool]')].map(
         (el) => el.innerText.replace(/\s+/g, ' ').trim().length,
       ),
+      /** 登录方式那**一行**的正文长度（参考图一那种"说明框 + 主按钮"） */
+      loginHints: [...document.querySelectorAll('[data-cli-login-hint]')].map(
+        (el) => el.textContent.trim().length,
+      ),
+      loginBoxes: document.querySelectorAll('[data-cli-login-box]').length,
     }
   })
   rec(
@@ -18193,9 +18198,20 @@ async function g97(browser) {
   )
   rec(
     g,
-    '★ 每张 CLI 卡只剩按钮 + 一行额度提示（文案 ≤ 130 字）',
-    cliProse.cards.every((n) => n <= 130),
+    /**
+     * ⚠️ 门槛从 130 提到 200（2026-10-08）：用户给的参考图一里，登录区是
+     * **"说明框 + 主按钮"** —— 那多出的一行"怎么登录"是有用的（它决定按哪个按钮），
+     * 不是被删掉的"介绍"。其余文字仍受"面板里不许有 desc / note"那条守着。
+     */
+    '★ 每张 CLI 卡只剩按钮 + 一行登录方式 + 一行额度提示（文案 ≤ 200 字）',
+    cliProse.cards.every((n) => n <= 200),
     cliProse.cards.join(' / '),
+  )
+  rec(
+    g,
+    '★★ 每张卡都有一个「登录方式」框，且说明只有一行（照参考图一）',
+    cliProse.loginBoxes === 4 && cliProse.loginHints.length === 4 && cliProse.loginHints.every((n) => n > 0 && n <= 80),
+    `框=${cliProse.loginBoxes} 各行字数=${cliProse.loginHints.join('/')}`,
   )
   rec(
     g,

@@ -335,52 +335,65 @@ export function CliPanel() {
           )}
 
           {/* ② 登录 */}
-          <div className={styles.row}>
-            {/*
-              「打开窗口登录」只对**真有交互式登录**的工具摆出来。
+          {/*
+            **参考图一那种"说明框 + 主按钮"**（用户 2026-10-08 给的参考）：
+            框里只有一行「怎么登录」（`loginHint`），主按钮就在它下面；次要动作留在框外。
+            这次刻意的例外：登录方式**留在版面上**（不像 `note` 那样收成悬停提示）——
+            它直接决定用户按哪个按钮，而参考图也把它摆在最显眼处。
+          */}
+          <div className={styles.loginBox} data-cli-login-box={tool.id}>
+            <p className={styles.loginHint} data-cli-login-hint={tool.id}>
+              {tool.loginHint}
+            </p>
+            <div className={styles.row}>
+              {/*
+                「打开窗口登录」只对**真有交互式登录**的工具摆出来。
 
-              用户 2026-10-08 第 3 条：「按钮的功能要确实要生效」——
-              RunningHub 的官方 CLI 没有登录子命令（`rh` 不带参数只打印帮助），
-              它的登录只能靠写配置文件（`keyLoginKind === 'config'`，见下面那个密钥格），
-              所以这里**不给一个按下去只会弹帮助的按钮**。
-            */}
-            {(tool.loginArgs.trim() !== '' || tool.keyLoginKind !== 'config') && (
-              <button
-                type="button"
-                className={styles.btn}
-                data-cli-login={tool.id}
-                disabled={!hasLocalCli || busy !== ''}
-                onClick={() => void openLogin(tool)}
-              >
-                一键登录（打开窗口）
-              </button>
-            )}
-            {/* 密钥登录那一格：`stdin` 与 `config` 两种落点都要摆出输入框（见 `loginWithKey`） */}
-            {tool.keyLoginKind !== '' && (
-              <>
-                <input
-                  className={styles.input}
-                  type="password"
-                  placeholder={
-                    tool.keyLoginKind === 'config'
-                      ? '粘贴 API Key（写进这个工具自己的配置）'
-                      : '粘贴密钥（走 stdin，不落库）'
-                  }
-                  data-cli-key={tool.id}
-                  value={keys[tool.id] ?? ''}
-                  onChange={(e) => setKeys((prev) => ({ ...prev, [tool.id]: e.target.value }))}
-                />
+                用户 2026-10-08 第 3 条：「按钮的功能要确实要生效」——
+                RunningHub 的官方 CLI 没有登录子命令（`rh` 不带参数只打印帮助），
+                它的登录只能靠写配置文件（`keyLoginKind === 'config'`），
+                所以这里**不给一个按下去只会弹帮助的按钮**。
+              */}
+              {(tool.loginArgs.trim() !== '' || tool.keyLoginKind !== 'config') && (
                 <button
                   type="button"
-                  className={styles.btn}
-                  data-cli-key-login={tool.id}
-                  disabled={!hasLocalCli || busy !== '' || !(keys[tool.id] ?? '').trim()}
-                  onClick={() => void loginWithKey(tool)}
+                  className={tool.keyLoginKind === 'config' ? styles.btn : `${styles.btn} ${styles.primary}`}
+                  data-cli-login={tool.id}
+                  disabled={!hasLocalCli || busy !== ''}
+                  onClick={() => void openLogin(tool)}
                 >
-                  用密钥登录
+                  一键登录（打开窗口）
                 </button>
-              </>
-            )}
+              )}
+              {/* 密钥登录那一格：`stdin` 与 `config` 两种落点都要摆出输入框（见 `loginWithKey`） */}
+              {tool.keyLoginKind !== '' && (
+                <>
+                  <input
+                    className={styles.input}
+                    type="password"
+                    placeholder={
+                      tool.keyLoginKind === 'config'
+                        ? '粘贴 API Key（写进这个工具自己的配置）'
+                        : '粘贴密钥（走 stdin，不落库）'
+                    }
+                    data-cli-key={tool.id}
+                    value={keys[tool.id] ?? ''}
+                    onChange={(e) => setKeys((prev) => ({ ...prev, [tool.id]: e.target.value }))}
+                  />
+                  <button
+                    type="button"
+                    className={
+                      tool.keyLoginKind === 'config' ? `${styles.btn} ${styles.primary}` : styles.btn
+                    }
+                    data-cli-key-login={tool.id}
+                    disabled={!hasLocalCli || busy !== '' || !(keys[tool.id] ?? '').trim()}
+                    onClick={() => void loginWithKey(tool)}
+                  >
+                    用密钥登录
+                  </button>
+                </>
+              )}
+            </div>
           </div>
           {loginMsg[tool.id] && (
             <p className={styles.result} data-cli-login-msg={tool.id}>

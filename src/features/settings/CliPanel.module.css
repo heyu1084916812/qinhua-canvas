@@ -199,6 +199,29 @@
   gap: var(--space-2);
 }
 
+/**
+ * **登录方式框**（用户 2026-10-08 给的参考图一：那张卡把"怎么登录 + 主按钮"放进一个小框里）。
+ *
+ * 与面板上其它内容的区别是刻意的：这是我们**唯一**保留的"说明" ——
+ * 它直接决定用户按哪个按钮（`loginHint` 一行），所以留在版面上；
+ * 背景用 `--bg-subtle` 与卡片底色分开，一眼能看出"这是一件事，不是一段介绍"。
+ */
+.loginBox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+}
+
+.loginHint {
+  margin: 0;
+  font-size: var(--fs-nav);
+  line-height: var(--lh-body);
+  color: var(--text-2);
+}
+
 /* 「没找到命令」旁边那句怎么装：比正文轻一档，但要说清去哪 */
 .hint {
   margin: 0;

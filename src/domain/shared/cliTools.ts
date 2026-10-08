@@ -97,6 +97,15 @@ export interface CliTool {
    * - `''`：这个工具不支持密钥登录（只能走可见窗口那条路，或者根本没有官方 CLI）。
    */
   keyLoginKind: 'stdin' | 'config' | ''
+  /**
+   * **登录方式的一句话**（用户 2026-10-08 给的参考图一：那张卡的登录区是一个小框 ——
+   * 一行说明 + 一枚主按钮）。
+   *
+   * 与 `note` 的分工：`note` 是"这个工具是干什么的"（现在挂在名称上做悬停提示），
+   * 这条是"**我要怎么登录**" —— 它直接决定用户按哪个按钮，所以留在版面上，
+   * 但**只给一行**（不许再长成一段介绍：用户明确说过不要介绍文字）。
+   */
+  loginHint: string
   /** 怎么把它装上（一句话：官网 / 安装命令），显示在"没找到命令"旁边 */
   installHint: string
   /**
@@ -156,6 +165,7 @@ export function defaultCliTools(): CliTool[] {
       /* `codex login --with-api-key` 从 stdin 读密钥（官方 help 里写明的） */
       keyLoginArgs: 'login --with-api-key',
       keyLoginKind: 'stdin',
+      loginHint: '在本机终端登录一次，或把 API Key 粘到右边用密钥登录。',
       installHint: '已装的话 `codex --version` 能看到版本；没装去 https://github.com/openai/codex 按说明装。',
       installCommand: 'npm install -g @openai/codex',
       quotaWhere: 'CLI 只报登录态；余额在 ChatGPT 的用量页看。',
@@ -177,6 +187,7 @@ export function defaultCliTools(): CliTool[] {
       loginArgs: '',
       keyLoginArgs: '',
       keyLoginKind: '',
+      loginHint: '即梦没有官方 CLI：先把命令名填进「高级」，再按那份封装的说明登录。',
       installHint: '即梦官方没有命令行工具：要接就先弄一层封装（社区脚本 / 自己写），再把命令名填上面。',
       installCommand: '',
       quotaWhere: '积分在即梦 App / 网页的「我的」里看。',
@@ -196,6 +207,7 @@ export function defaultCliTools(): CliTool[] {
       loginArgs: '',
       keyLoginArgs: '',
       keyLoginKind: '',
+      loginHint: '第一次运行会在浏览器里完成授权 —— 点下面的按钮会打开一个终端。',
       installHint: '装它：`npm i -g @google/gemini-cli`（需要 Node 18+），装完先运行一次 `gemini` 完成登录。',
       installCommand: 'npm install -g @google/gemini-cli',
       quotaWhere: '用量在 Google 账号的用量页看；CLI 只报版本。',
@@ -257,6 +269,7 @@ export function defaultCliTools(): CliTool[] {
        * 这是本轮把"RunningHub 登录不了"变成"点一下就好"的落点。
        */
       keyLoginKind: 'config',
+      loginHint: '把 API Key 粘到右边点「用密钥登录」：写进它自己的配置，之后一直是登录态。',
       installHint: '装它：先有 Python 3.10+，再 `python -m pip install git+https://github.com/HM-RunningHub/RH_CLI.git`；装完在本机跑一次 `rh auth set-key <你的Key>`（Key 在 https://www.runninghub.cn/enterprise-api/sharedApi 取），之后一直是登录态。',
       installCommand: 'python -m pip install git+https://github.com/HM-RunningHub/RH_CLI.git',
       quotaWhere: '`rh check` 能直接读余额与 RH 币（上面那个按钮跑的就是它）。',
