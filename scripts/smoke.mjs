@@ -11297,29 +11297,113 @@ async function g80(browser) {
     await sleep(900)
     return page.evaluate(() => window.__slotFrames)
   }
+  /**
+   * 一套判据给四处用：**展开**（64→240）与**收起**（240→64）两个方向、
+   * **悬停**与**按钮**两种触发。用户那句「是不是和按钮一样、有没有跳动」，
+   * 落成数字就是这几组能直接对比的量（不然只剩"我看着挺顺"）。
+   *
+   * - `mids` 中间帧：真瞬跳只会有首尾两档 ⇒ 0；正常滑动 140ms ≈ 8 帧以上。
+   * - `drift` 两量脱节：占位盒宽度与工作区左缘每帧的固定差值（它俩本应恒定相差一个常量），
+   *   漂了就说明一个在动、另一个没跟。
+   * - `back` 反向位移：往回走的最大一步（展开方向"回退"、收起方向"回弹"），
+   *   有它就是用户看到的"抖一下"。
+   */
+  const analyzeSlide = (frames) => {
+    const vals = frames.map((f) => f.slot)
+    const from = vals[0] ?? 0
+    const to = vals[vals.length - 1] ?? 0
+    const lo = Math.min(from, to)
+    const hi = Math.max(from, to)
+    return {
+      frames: frames.length,
+      from,
+      to,
+      span: Math.abs(to - from),
+      mids: vals.filter((v) => v > lo + 2 && v < hi - 2).length,
+      back: vals.reduce(
+        (m, v, i) => (i ? Math.max(m, from < to ? vals[i - 1] - v : v - vals[i - 1]) : m),
+        0,
+      ),
+      drift: frames.length
+        ? frames.reduce(
+            (m, f) => Math.max(m, Math.abs(f.ws - f.slot - (frames[0].ws - frames[0].slot))),
+            0,
+          )
+        : 999,
+    }
+  }
+  const slideDetail = (s) =>
+    `帧数=${s.frames} 起=${Math.round(s.from)} 末=${Math.round(s.to)} 中间帧=${s.mids} ` +
+    `两量脱节=${s.drift.toFixed(2)}px 反向位移=${s.back.toFixed(2)}px`
+  const slideOk = (s, span) =>
+    Math.abs(s.span - span) <= 2 && s.mids >= 3 && s.drift <= 1.5 && s.back <= 0.6
+
   // 先回到收起态（上一段结束时鼠标还在侧栏上）
   await page.mouse.move(900, 500)
   await sleep(700)
-  const slideFrames = await sampleRailSlide(() => rail.hover())
-  const slotVals = slideFrames.map((f) => f.slot)
-  const firstSlot = slotVals[0] ?? 0
-  const lastSlot = slotVals[slotVals.length - 1] ?? 0
-  const slotSpan = Math.abs(lastSlot - firstSlot)
-  const midFrames = slotVals.filter((v) => v > firstSlot + 2 && v < lastSlot - 2).length
-  const maxBack = slotVals.reduce((m, v, i) => (i ? Math.max(m, slotVals[i - 1] - v) : m), 0)
-  const drift = slideFrames.length
-    ? slideFrames.reduce(
-        (m, f) => Math.max(m, Math.abs(f.ws - f.slot - (slideFrames[0].ws - slideFrames[0].slot))),
-        0,
-      )
-    : 999
+  const hoverSlide = analyzeSlide(await sampleRailSlide(() => rail.hover()))
+  rec(g, '★★ 悬停展开是"滑"过去的、不是"跳"过去的（逐帧采样占位盒宽度与工作区左缘）', slideOk(hoverSlide, 176), slideDetail(hoverSlide))
+
+  /**
+   * 收起方向单独采一遍。用户 #313 报的原话是「折叠和收起来会闪」——
+   * 展开顺不代表收起顺（两个方向走的是同一条过渡，但被触发的时机不同：
+   * 收起要等 220ms 的移出延迟，且此时鼠标已经不在侧栏上了）。
+   */
+  const collapseSlide = analyzeSlide(await sampleRailSlide(() => page.mouse.move(900, 500)))
   rec(
     g,
-    '★★ 悬停展开是"滑"过去的、不是"跳"过去的（逐帧采样占位盒宽度与工作区左缘）',
-    slotSpan > 150 && midFrames >= 3 && drift <= 1.5 && maxBack <= 0.6,
-    `帧数=${slideFrames.length} 起=${Math.round(firstSlot)} 末=${Math.round(lastSlot)} ` +
-      `中间帧=${midFrames} 两量脱节=${drift.toFixed(2)}px 最大回退=${maxBack.toFixed(2)}px`,
+    '★★ 移开收回也是"滑"回去的（收起方向逐帧采样，收起不跳）',
+    slideOk(collapseSlide, 176) && Math.abs(collapseSlide.from - 240) <= 1,
+    slideDetail(collapseSlide),
   )
+
+  /**
+   * ★★ "和展开按钮一样"的**机制**证据：占位盒与侧栏的 `width` 过渡必须逐字相同
+   * （属性 / 时长 / 缓动）。少一样，两条曲线就会分叉 —— 那正是 2026-10-06 那次
+   * "侧栏慢慢滑、工作区瞬移"的成因（占位宽度写在 `flex-basis` 上，过渡根本没管到它）。
+   * 判据取**计算后**的值（`transition-duration` / `-timing-function`），不是源码字符串：
+   * 源码可以写 `var(--dur-panel, 180ms)`，这里拿到的一定是最终生效的那个数。
+   */
+  const widthTransition = await page.evaluate(() => {
+    const pick = (el) => {
+      if (!el) return null
+      const s = getComputedStyle(el)
+      const props = s.transitionProperty.split(',').map((x) => x.trim())
+      const durs = s.transitionDuration.split(',').map((x) => x.trim())
+      const eases = s.transitionTimingFunction.split(',').map((x) => x.trim())
+      const i = props.indexOf('width')
+      return i < 0 ? 'none' : `${durs[i] ?? durs[0]} · ${eases[i] ?? eases[0]}`
+    }
+    return {
+      rail: pick(document.querySelector('[data-app-sidebar]')),
+      slot: pick(document.querySelector('[data-rail-slot]')),
+    }
+  })
+  rec(
+    g,
+    '★★ 占位盒与侧栏用同一条 width 过渡（"悬停 = 按钮"的机制：时长与缓动逐字相同）',
+    !!widthTransition.rail && widthTransition.rail === widthTransition.slot && widthTransition.rail !== 'none',
+    `侧栏=${widthTransition.rail} 占位=${widthTransition.slot}`,
+  )
+
+  /**
+   * ★★ 再把**按钮展开**也采一遍，与悬停那组用同一套判据对比 ——
+   * 「效果一样」到这里才算被证明：不是"最终都到 240"，而是两条轨迹的数字也对得上。
+   */
+  const buttonSlide = analyzeSlide(await sampleRailSlide(() => page.locator('[data-sidebar-toggle]').click()))
+  rec(
+    g,
+    '★★ 悬停展开与按钮展开是同一条轨迹（同判据下两组数字一致）',
+    slideOk(buttonSlide, 176) &&
+      Math.abs(buttonSlide.mids - hoverSlide.mids) <= 3 &&
+      Math.abs(buttonSlide.drift - hoverSlide.drift) <= 0.5,
+    `悬停：中间帧=${hoverSlide.mids} 脱节=${hoverSlide.drift.toFixed(2)}px ｜ ` +
+      `按钮：中间帧=${buttonSlide.mids} 脱节=${buttonSlide.drift.toFixed(2)}px`,
+  )
+  /* 复位：再点一次取消常驻 + 鼠标移开 ⇒ 回到"收起且未钉住"（后面的段落从这里接着跑） */
+  await page.locator('[data-sidebar-toggle]').click()
+  await page.mouse.move(900, 500)
+  await sleep(800)
 
   // ── 折叠按钮 = 常驻开关（用户 2026-10-06：它只回答"离开鼠标时留不留在这儿"）──
   await page.locator('[data-sidebar-toggle]').click()
