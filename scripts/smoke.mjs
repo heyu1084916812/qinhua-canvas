@@ -4083,6 +4083,45 @@ async function g23(browser) {
     longPanel.bottom <= longPanel.viewportH + 2,
     `bottom=${longPanel.bottom} viewport=${longPanel.viewportH}`,
   )
+  /* 临时取证（诊断 G23，定位完删）：面板底 / 高度 / 预算 / 锚点，看这 3px 从哪来 */
+  console.log(
+    '[g23 取证] geom=',
+    JSON.stringify(
+      await page.evaluate(() => {
+        const panel = document.querySelector('[data-creation-panel]')
+        const anchor = document.querySelector('[data-panel-anchor]')
+        const shell = panel?.closest('[class*="panel"]')
+        const r = (el) => {
+          const b = el?.getBoundingClientRect()
+          return b ? { top: +b.top.toFixed(1), bottom: +b.bottom.toFixed(1), h: +b.height.toFixed(1) } : null
+        }
+        return {
+          panel: r(panel),
+          panelShell: r(shell),
+          anchor: r(anchor),
+          availableH: anchor ? getComputedStyle(anchor).getPropertyValue('--panel-available-h').trim() : null,
+          zoom: anchor ? getComputedStyle(anchor).getPropertyValue('--panel-zoom').trim() : null,
+          viewportH: window.innerHeight,
+          /* 面板自己的高度约束：到底是哪一条让它停在 311 */
+          styles: panel
+            ? (() => {
+                const s = getComputedStyle(panel)
+                return {
+                  minH: s.minHeight,
+                  maxH: s.maxHeight,
+                  h: s.height,
+                  padTop: s.paddingTop,
+                  padBottom: s.paddingBottom,
+                  overflowY: s.overflowY,
+                  scrollH: panel.scrollHeight,
+                  clientH: panel.clientHeight,
+                }
+              })()
+            : null,
+        }
+      }),
+    ),
+  )
 
   /**
    * ★★ 面板底部**不许留多余空白**（用户 2026-09-25 报「参数那一排下面怎么这么多空」）。
