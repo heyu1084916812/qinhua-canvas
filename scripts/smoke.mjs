@@ -23187,6 +23187,14 @@ async function g121(browser) {
   for (const tab of TABS) {
     await page.locator(`[data-global-settings-tab="${tab}"]`).click()
     await sleep(320)
+    /**
+     * 「渠道配置」要先**选中一条渠道**再量：不然右栏是空占位，
+     * 「右边那块（基本信息 / 连接与鉴权）的描边也没了」这条根本没进量程。
+     */
+    if (tab === 'channels') {
+      await page.locator('[data-channel-item]').first().click()
+      await sleep(320)
+    }
     const m = await measure()
     if (!m || m.found.length === 0) {
       rows.push({ tab, left: null, right: null, borders: -1, bg: null })
@@ -23198,6 +23206,8 @@ async function g121(browser) {
       tab,
       left,
       right,
+      /** 这一栏量到了几个实色容器（写进详情：数量掉到 1 也能一眼看出来） */
+      count: m.found.length,
       borders: m.found.filter((x) => x.border !== '0px').length,
       bg: m.found[0].bg,
       pageBg: m.contentBg,
@@ -23213,7 +23223,7 @@ async function g121(browser) {
     ref.left !== null && bad.length === 0,
     bad.length
       ? bad.map((r) => `${r.tab}:${r.left}~${r.right}`).join(' ') + `（基准 ${ref.left}~${ref.right}）`
-      : `全部 ${ref.left}~${ref.right}`,
+      : `全部 ${ref.left}~${ref.right}｜各栏量到容器数 ${rows.map((r) => `${r.tab}:${r.count}`).join(' ')}`,
   )
 
   const bordered = rows.filter((r) => r.borders !== 0)
