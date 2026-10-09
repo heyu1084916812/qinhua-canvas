@@ -17,7 +17,9 @@ describe('ProjectListStore', () => {
 
     expect(store.getState().projects.map((p) => p.id)).toEqual([keep.id])
     expect(store.getState().visible.map((p) => p.id)).toEqual([keep.id])
-    expect((await storage.query('projects', {})).map((r) => r.id)).toEqual([keep.id])
+    // 软删（对账 #378 A3）：列表里只剩未删的，但底层行还在 —— 回收站能还原
+    expect((await storage.query('projects', {})).map((r) => r.id)).toHaveLength(3)
+    expect(await repo.listDeleted()).toHaveLength(2)
   })
 
   it('removeMany 去重且空数组不发仓储调用之外的更新', async () => {

@@ -34,8 +34,17 @@ export interface ProjectListActions {
   create: (input?: CreateProjectInput) => Promise<ProjectListItem>
   rename: (id: string, name: string) => Promise<void>
   duplicate: (id: string) => Promise<ProjectListItem>
+  /** 软删：项目从列表消失、进回收站（对账 #378 A3） */
   remove: (id: string) => Promise<void>
   removeMany: (ids: readonly string[]) => Promise<void>
+  /** 读回收站（不进 store 状态：它是按需打开的一个面板，不需要常驻） */
+  listDeleted: () => Promise<ProjectListItem[]>
+  /** 从回收站还原，并把它放回列表 */
+  restore: (id: string) => Promise<void>
+  /** 彻底删除单个项目（不可逆） */
+  purge: (id: string) => Promise<void>
+  /** 清空回收站，返回清掉的数量 */
+  purgeAll: () => Promise<number>
   setSort: (sort: ProjectSort) => void
   setQuery: (query: string) => void
 }
@@ -133,6 +142,20 @@ export function createProjectListStore(repo: ProjectRepository): ProjectListStor
     })
   }
 
+  const listDeleted: ProjectListActions['listDeleted'] = () => repo.listDeleted()
+
+  const restore: ProjectListActions['restore'] = async (id) => {
+    await repo.restore(id)
+    // 还原后重新拉一次列表：封面 / 节点数这些派生字段由仓储统一算，别在这里再算一遍
+    await load()
+  }
+
+  const purge: ProjectListActions['purge'] = async (id) => {
+    await repo.purge(id)
+  }
+
+  const purgeAll: ProjectListActions['purgeAll'] = () => repo.purgeAll()
+
   const setSort: ProjectListActions['setSort'] = (sort) => {
     store.setState((s) => ({ sort, visible: deriveVisible(s.projects, s.query, sort) }))
   }
@@ -141,5 +164,19 @@ export function createProjectListStore(repo: ProjectRepository): ProjectListStor
     store.setState((s) => ({ query, visible: deriveVisible(s.projects, query, s.sort) }))
   }
 
-  return { ...store, load, create, rename, duplicate, remove, removeMany, setSort, setQuery }
+  return {
+    ...store,
+    load,
+    create,
+    rename,
+    duplicate,
+    remove,
+    removeMany,
+    listDeleted,
+    restore,
+    purge,
+    purgeAll,
+    setSort,
+    setQuery,
+  }
 }

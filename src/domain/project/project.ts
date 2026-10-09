@@ -15,6 +15,17 @@ export interface Project {
   thumbnail?: string | null
   /** 后续里程碑扩展位（模板来源、封面策略等），不进 UI 逻辑 */
   extra?: Record<string, unknown>
+  /**
+   * 删除时间戳（软删）。**有值 = 在回收站里**，项目列表不再显示它。
+   *
+   * 为什么要软删（用户 2026-10-09，对账 #378 A3）：
+   * 原先删项目是**不可逆**的（连带 nodes / edges / tasks / runRecords / agentSessions
+   * 一起删），误点一下数据就没了。现在删除 = 打标记，回收站里可以还原。
+   *
+   * 注意：**还原只是清掉这个字段**，级联表（节点 / 连线 / 记录）在软删时**一条都没动** ——
+   * 所以还原后图是完好的，不需要"重建"。
+   */
+  deletedAt?: number
 }
 
 /**

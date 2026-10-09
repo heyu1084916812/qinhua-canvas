@@ -754,3 +754,105 @@
   pointer-events: none;
   z-index: 5;
 }
+
+/* —— 回收站（对账 #378 A3）——
+   删除改为软删之后，项目页需要一个"能看见、能还原"的地方。
+   面板做成列表而不是卡片网格：这里的主要动作是"挑一个还原 / 清掉"，不是浏览。 */
+.trashPanel {
+  margin: var(--space-3) 0 var(--space-4);
+  border: var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  padding: var(--space-3) var(--space-4);
+}
+
+.trashHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+
+.trashTitle {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.trashHint {
+  font-size: var(--fs-chip);
+  color: var(--text-2);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.trashEmpty {
+  margin: var(--space-2) 0 0;
+  font-size: var(--fs-label);
+  color: var(--text-3);
+}
+
+.trashList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.trashItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: var(--border);
+}
+
+.trashName {
+  font-size: var(--fs-body);
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+
+.trashMeta {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-chip);
+  color: var(--text-2);
+}
+
+.ghost {
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.ghost:hover {
+  background: var(--bg-hover);
+}
+
+.trashDanger {
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--danger);
+  font: inherit;
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.trashDanger:hover {
+  background: var(--bg-hover);
+}

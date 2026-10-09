@@ -1,5 +1,20 @@
 # CanvasFlow（轻画）项目记忆
 
+### ★ 回收站两件事：级联不许动、复制要剥 deletedAt（2026-10-09 第 41 批）
+
+对账 #378b：项目删除从**硬删**改成**软删**（打 `deletedAt`），可还原。
+
+1. **★★ 软删的判据是"级联表一条都不动"**：删项目时若顺手清掉 nodes / edges / tasks /
+   runRecords / agentSessions，"还原"回来就是**空图** —— 比直接删更糟（用户以为数据还在）。
+   所以 `remove` 只打标记，级联清理全部挪到 `purge` / `purgeAll`。
+2. **★★ 改语义会弄红既有合同测试，这是它在履职**：`repository.test.ts` 三条
+   （"删完 nodes/edges 为空"）与 `listStore.test.ts` 一条都按硬删写。
+   正确做法是**改断言并写明为什么**，而不是放宽或删除。
+3. **★ `purgeAll` 不许用 `this`**：对象方法里 `this.listDeleted()` 在方法被解构调用时
+   会丢 `this`（`const { purgeAll } = repo`）。改成模块内的 `listDeletedProjects()`。
+4. **★ 顺手堵的坑**：`duplicate` 原为 `{...src}`，会把 `deletedAt` 一起复制 ——
+   从回收站复制的副本**一出生就在回收站**。现在显式剥掉并有单测。
+
 ### ★ 设置栏目的分组：定义与渲染分开，只有一份数据（2026-10-09 第 40 批）
 
 设置左栏从"一列平铺"改成**按能力域分段**（参考 Cherry 的组织逻辑）。

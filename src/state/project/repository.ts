@@ -12,15 +12,25 @@ import { createId } from '../../shared/id'
  * 会触发 domain-pure 守卫（domain 只能依赖 domain / shared），故放在 state 层。
  */
 export interface ProjectRepository {
+  /** 未删除的项目（回收站里的不在其中） */
   list(): Promise<ProjectListItem[]>
+  /** 回收站里的项目，按删除时间倒序（最近删的在前） */
+  listDeleted(): Promise<ProjectListItem[]>
   get(id: string): Promise<Project | null>
   create(input?: CreateProjectInput): Promise<ProjectListItem>
   rename(id: string, name: string): Promise<void>
   /** 复制项目及其全部图数据（节点 / 连线），生成带「副本」后缀的新项目 */
   duplicate(id: string): Promise<ProjectListItem>
+  /** **软删**：打上 deletedAt，进回收站；级联表一条都不动（对账 #378 A3） */
   remove(id: string): Promise<void>
-  /** 批量删除项目，与单删共用同一套级联清理语义 */
+  /** 批量软删，与单删同一套语义 */
   removeMany(ids: readonly string[]): Promise<void>
+  /** 从回收站还原（清掉 deletedAt） */
+  restore(id: string): Promise<void>
+  /** **永久删除**：从回收站里彻底清掉，这时才动级联表 */
+  purge(id: string): Promise<void>
+  /** 清空回收站（逐个永久删除） */
+  purgeAll(): Promise<number>
 }
 
 /** 图数据：跟随项目**复制**，也跟随项目**删除** */
@@ -57,6 +67,10 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
     updatedAt: (row.updatedAt as number) ?? 0,
     thumbnail: (row.thumbnail as string | null | undefined) ?? null,
     extra: (row.extra as Record<string, unknown> | undefined) ?? {},
+    // 只在真有值时带上：无值时不写这个键，导出的 JSON 里不会多一个 null 字段
+    ...(typeof row.deletedAt === 'number' && row.deletedAt > 0
+      ? { deletedAt: row.deletedAt }
+      : {}),
   })
 
   const get = async (id: string): Promise<Project | null> => {
@@ -64,50 +78,78 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
     return rows[0] ? toProject(rows[0]) : null
   }
 
+  /** 给一个项目补上列表展示需要的节点数与封面（回收站复用同一份，口径不重复写） */
+  const toListItem = async (p: Project): Promise<ProjectListItem> => {
+    const nodes = await storage.query('nodes', { projectId: p.id })
+    /**
+     * 封面 = **最后一次出现在画布中的图片**（用户 2026-10-06 明确的口径，对账 #289）。
+     *
+     * 两个候选、一个判据（谁更晚谁当封面，规则与容错都在 `domain/project/cover.ts`）：
+     *
+     * 1. **生成产物**：数据来源是 `runRecords`，不是节点 —— 节点上只有 `assetHash`
+     *    （当前那张），没有「什么时候生成的」。而 RunRecord 带 `createdAt` 与
+     *    `outputHashes`，天然就是「生成历史」：按时间倒序取第一条有产物的，
+     *    再取它的**最后一张**（一次生成多张时，用户看到的是最后落下的那张）。
+     * 2. **上传 / 导入**：`projects.extra.cover` 那一笔（由 `importAssetFile` 记下）。
+     *    之所以不在**这里**实时扫 `assets` 表：那表每行带全分辨率字节，
+     *    对每个项目查一次 = 打开首页就把几百 MB 拉进内存（见 cover.ts 的长注释）。
+     *
+     * 为什么不用 `project.thumbnail`（dataURL）：那张图会让项目列表背上几 MB 的
+     * base64，而这里只需要一个 hash，卡片侧用既有的 `useAsset` 取字节
+     * （那条链路有退避重试与内容寻址缓存）。
+     */
+    const records = (await storage.query('runRecords', { projectId: p.id })) as unknown as {
+      createdAt: number
+      outputHashes?: string[]
+    }[]
+    const latest = records
+      .filter((r) => (r.outputHashes?.length ?? 0) > 0)
+      .sort((a, b) => b.createdAt - a.createdAt)[0]
+    const generatedHash = latest?.outputHashes?.[latest.outputHashes.length - 1]
+    const coverHash = resolveProjectCover({
+      generated: generatedHash ? { hash: generatedHash, at: latest.createdAt } : null,
+      marked: readCoverMark(p.extra),
+    })
+    return { ...p, nodeCount: nodes.length, coverHash }
+  }
+
+  /** **彻底**删一个项目：只有永久删除 / 清空回收站才走这里（级联表一起清） */
+  const purgeOne = async (id: string): Promise<void> => {
+    await storage.delete('projects', id)
+    for (const table of PROJECT_CASCADE_TABLES) {
+      const rows = await storage.query(table, { projectId: id })
+      for (const row of rows) await storage.delete(table, row.id)
+    }
+  }
+
+  /**
+   * 回收站里的项目（按删除时间倒序）。
+   *
+   * 抽成独立函数的原因：`purgeAll` 也要用它，而在对象方法里写 `this.xxx()`
+   * 会在方法被解构出去调用时（`const { purgeAll } = repo`）丢 `this`。
+   */
+  const listDeletedProjects = async (): Promise<Project[]> => {
+    const rows = await storage.query('projects', {})
+    return rows
+      .map(toProject)
+      .filter((p) => !!p.deletedAt)
+      // 最近删的排在最前：用户来回收站通常是刚删错
+      .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0))
+  }
+
   return {
     async list() {
       const rows = await storage.query('projects', {})
-      const projects = rows.map(toProject).sort((a, b) => b.updatedAt - a.updatedAt)
-      const items = await Promise.all(
-        projects.map(async (p) => {
-          const nodes = await storage.query('nodes', { projectId: p.id })
-          /**
-           * 封面 = **最后一次出现在画布中的图片**（用户 2026-10-06 明确的口径，对账 #289）。
-           *
-           * 两个候选、一个判据（谁更晚谁当封面，规则与容错都在 `domain/project/cover.ts`）：
-           *
-           * 1. **生成产物**：数据来源是 `runRecords`，不是节点 —— 节点上只有 `assetHash`
-           *    （当前那张），没有「什么时候生成的」。而 RunRecord 带 `createdAt` 与
-           *    `outputHashes`，天然就是「生成历史」：按时间倒序取第一条有产物的，
-           *    再取它的**最后一张**（一次生成多张时，用户看到的是最后落下的那张）。
-           * 2. **上传 / 导入**：`projects.extra.cover` 那一笔（由 `importAssetFile` 记下）。
-           *    之所以不在**这里**实时扫 `assets` 表：那表每行带全分辨率字节，
-           *    对每个项目查一次 = 打开首页就把几百 MB 拉进内存（见 cover.ts 的长注释）。
-           *
-           * 为什么不用 `project.thumbnail`（dataURL）：那张图会让项目列表背上几 MB 的
-           * base64，而这里只需要一个 hash，卡片侧用既有的 `useAsset` 取字节
-           * （那条链路有退避重试与内容寻址缓存）。
-           */
-          const records = (await storage.query('runRecords', { projectId: p.id })) as unknown as {
-            createdAt: number
-            outputHashes?: string[]
-          }[]
-          const latest = records
-            .filter((r) => (r.outputHashes?.length ?? 0) > 0)
-            .sort((a, b) => b.createdAt - a.createdAt)[0]
-          const generatedHash = latest?.outputHashes?.[latest.outputHashes.length - 1]
-          const coverHash = resolveProjectCover({
-            generated: generatedHash ? { hash: generatedHash, at: latest.createdAt } : null,
-            marked: readCoverMark(p.extra),
-          })
-          return {
-            ...p,
-            nodeCount: nodes.length,
-            coverHash,
-          }
-        }),
-      )
-      return items
+      // 回收站里的项目不在列表里 —— 这是"软删"对用户可见的那一半
+      const projects = rows
+        .map(toProject)
+        .filter((p) => !p.deletedAt)
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+      return Promise.all(projects.map(toListItem))
+    },
+
+    async listDeleted() {
+      return Promise.all((await listDeletedProjects()).map(toListItem))
     },
 
     get,
@@ -129,36 +171,55 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
       } as never)
     },
 
+    /** 软删：只打标记，级联表一条不动（还原时才不需要"重建"图） */
     async remove(id: string) {
-      await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async () => {
-        await storage.delete('projects', id)
-        for (const table of PROJECT_CASCADE_TABLES) {
-          const rows = await storage.query(table, { projectId: id })
-          for (const row of rows) await storage.delete(table, row.id)
-        }
-      })
+      const existing = await get(id)
+      if (!existing) return
+      await storage.put('projects', { ...existing, deletedAt: Date.now() } as never)
     },
 
     async removeMany(ids) {
       const unique = [...new Set(ids)]
       if (unique.length === 0) return
+      const at = Date.now()
+      for (const id of unique) {
+        const existing = await get(id)
+        if (!existing) continue
+        await storage.put('projects', { ...existing, deletedAt: at } as never)
+      }
+    },
+
+    async restore(id) {
+      const rows = await storage.query('projects', { id })
+      const row = rows[0]
+      if (!row) return
+      const { deletedAt: _drop, ...rest } = row as Record<string, unknown>
+      await storage.put('projects', rest as never)
+    },
+
+    async purge(id) {
       await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async () => {
-        for (const id of unique) {
-          await storage.delete('projects', id)
-          for (const table of PROJECT_CASCADE_TABLES) {
-            const rows = await storage.query(table, { projectId: id })
-            for (const row of rows) await storage.delete(table, row.id)
-          }
-        }
+        await purgeOne(id)
       })
+    },
+
+    async purgeAll() {
+      const deleted = await listDeletedProjects()
+      if (deleted.length === 0) return 0
+      await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async () => {
+        for (const p of deleted) await purgeOne(p.id)
+      })
+      return deleted.length
     },
 
     async duplicate(id: string) {
       const src = await get(id)
       if (!src) throw new Error(`[repository] 复制失败：项目不存在 ${id}`)
       const now = Date.now()
+      // 副本绝不能继承 deletedAt：否则复制出来的项目一出现就在回收站里
+      const { deletedAt: _noDeleted, ...clean } = src
       const copy: Project = {
-        ...src,
+        ...clean,
         id: createId('proj'),
         name: `${src.name} 副本`,
         createdAt: now,

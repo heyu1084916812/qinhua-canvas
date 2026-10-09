@@ -35,7 +35,9 @@ describe('ProjectRepository（内存存储）', () => {
     expect(aItem.nodeCount).toBe(2)
   })
 
-  it('remove 级联删除图数据（nodes/edges/resultGroups）', async () => {
+  it('remove 是软删：项目列表看不到，但节点 / 连线仍在（回收站可还原）', async () => {
+    // ⚠️ 2026-10-09 口径变更（对账 #378 A3）：remove 从硬删改成软删。
+    // 级联表一条都不动 —— 因为要支持回收站还原；真正级联清理由 purge / purgeAll 承担。
     const storage = createMemoryStorage()
     const repo = createProjectRepository(storage)
     const p = await repo.create({ name: 'X' })
@@ -44,6 +46,13 @@ describe('ProjectRepository（内存存储）', () => {
 
     await repo.remove(p.id)
 
+    expect(await repo.list()).toHaveLength(0)
+    expect(await repo.listDeleted()).toHaveLength(1)
+    expect(await storage.query('projects', {})).toHaveLength(1)
+    expect(await storage.query('nodes', { projectId: p.id })).toHaveLength(1)
+    expect(await storage.query('edges', { projectId: p.id })).toHaveLength(1)
+
+    await repo.purge(p.id)
     expect(await storage.query('projects', {})).toHaveLength(0)
     expect(await storage.query('nodes', { projectId: p.id })).toHaveLength(0)
     expect(await storage.query('edges', { projectId: p.id })).toHaveLength(0)
@@ -69,9 +78,10 @@ describe('ProjectRepository（内存存储）', () => {
 
     await repo.remove(a.id)
 
-    expect(await storage.query('tasks', { projectId: a.id })).toHaveLength(0)
-    expect(await storage.query('runRecords', { projectId: a.id })).toHaveLength(0)
-    expect(await storage.query('agentSessions', { projectId: a.id })).toHaveLength(0)
+    // 软删后这些行**仍然在**（还原要用），永久删除才清 —— 口径见 repository.recycle.test.ts
+    expect(await storage.query('tasks', { projectId: a.id })).toHaveLength(1)
+    expect(await storage.query('runRecords', { projectId: a.id })).toHaveLength(1)
+    expect(await storage.query('agentSessions', { projectId: a.id })).toHaveLength(1)
     // 另一个项目的一行都不能少
     expect(await storage.query('tasks', { projectId: b.id })).toHaveLength(1)
     expect(await storage.query('runRecords', { projectId: b.id })).toHaveLength(1)
@@ -89,9 +99,11 @@ describe('ProjectRepository（内存存储）', () => {
 
     await repo.removeMany([a.id, b.id, a.id])
 
-    expect((await storage.query('projects', {})).map((r) => r.id)).toEqual([keep.id])
-    expect(await storage.query('nodes', { projectId: a.id })).toHaveLength(0)
-    expect(await storage.query('edges', { projectId: b.id })).toHaveLength(0)
+    // 软删：列表只剩未删的那个，但被删项目的图数据都还在
+    expect((await repo.list()).map((r) => r.id)).toEqual([keep.id])
+    expect(await repo.listDeleted()).toHaveLength(2)
+    expect(await storage.query('nodes', { projectId: a.id })).toHaveLength(1)
+    expect(await storage.query('edges', { projectId: b.id })).toHaveLength(1)
     expect(await storage.query('nodes', { projectId: keep.id })).toHaveLength(0)
   })
 

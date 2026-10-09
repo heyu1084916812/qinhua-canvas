@@ -71,6 +71,15 @@ export function ProjectsPage() {
   const [bulkConfirm, setBulkConfirm] = useState(false)
   /** 「+ 新建」的工作台选择浮层（null = 未展开；坐标 = 展开位置） */
   const [newMenu, setNewMenu] = useState<{ x: number; y: number } | null>(null)
+  /**
+   * 回收站（对账 #378 A3）。
+   *
+   * 进回收站的项目**不在项目列表里**，所以它单独一份状态、按需读取 ——
+   * 不给主列表增加"显示已删除"这种会让用户害怕的开关。
+   */
+  const [trashOpen, setTrashOpen] = useState(false)
+  const [trashItems, setTrashItems] = useState<ProjectListItem[]>([])
+  const [trashConfirmClear, setTrashConfirmClear] = useState(false)
 
   useEffect(() => {
     void store.load()
@@ -97,6 +106,44 @@ export function ProjectsPage() {
     await store.remove(id)
     setConfirmId(null)
     setMenuId(null)
+  }
+
+  /** 打开 / 收起回收站：打开时现读一次，保证看到的是最新的一批 */
+  const toggleTrash = async () => {
+    if (trashOpen) {
+      setTrashOpen(false)
+      setTrashConfirmClear(false)
+      return
+    }
+    setTrashItems(await store.listDeleted())
+    setTrashOpen(true)
+    setTrashConfirmClear(false)
+    setMenuId(null)
+    setConfirmId(null)
+  }
+
+  const refreshTrash = async () => {
+    const next = await store.listDeleted()
+    setTrashItems(next)
+    if (next.length === 0) setTrashConfirmClear(false)
+  }
+
+  const handleRestore = async (id: string) => {
+    await store.restore(id)
+    await refreshTrash()
+    setStatus('已从回收站还原')
+  }
+
+  const handlePurge = async (id: string) => {
+    await store.purge(id)
+    await refreshTrash()
+    setStatus('已彻底删除（不可恢复）')
+  }
+
+  const handlePurgeAll = async () => {
+    const n = await store.purgeAll()
+    await refreshTrash()
+    setStatus(`已清空回收站（${n} 个项目）`)
   }
 
   const visibleIds = visible.map((p) => p.id)
@@ -329,8 +376,72 @@ export function ProjectsPage() {
               >
                 导入
               </button>
+              {/* 回收站：删除是可逆的，入口就得看得见（对账 #378 A3） */}
+              <button
+                className={styles.importBtn}
+                data-projects-trash-toggle
+                aria-pressed={trashOpen}
+                onClick={() => void toggleTrash()}
+              >
+                回收站
+              </button>
             </div>
           </div>
+
+          {trashOpen && (
+            <div className={styles.trashPanel} data-projects-trash>
+              <div className={styles.trashHead}>
+                <span className={styles.trashTitle}>
+                  回收站（{trashItems.length}）
+                </span>
+                <span className={styles.trashHint}>
+                  删除的项目在这里，可随时还原；彻底删除之后不可恢复
+                </span>
+                {trashItems.length > 0 && (
+                  <button
+                    className={styles.trashDanger}
+                    data-projects-trash-clear
+                    onClick={() => {
+                      if (trashConfirmClear) void handlePurgeAll()
+                      else setTrashConfirmClear(true)
+                    }}
+                  >
+                    {trashConfirmClear ? '再点一次清空' : '清空回收站'}
+                  </button>
+                )}
+              </div>
+              {trashItems.length === 0 ? (
+                <p className={styles.trashEmpty} data-projects-trash-empty>
+                  回收站是空的
+                </p>
+              ) : (
+                <ul className={styles.trashList}>
+                  {trashItems.map((p) => (
+                    <li key={p.id} className={styles.trashItem} data-projects-trash-item={p.id}>
+                      <span className={styles.trashName}>{p.name}</span>
+                      <span className={styles.trashMeta}>
+                        {p.deletedAt ? `删除于 ${formatRelative(p.deletedAt)}` : ''} · {p.nodeCount} 个节点
+                      </span>
+                      <button
+                        className={styles.ghost}
+                        data-projects-trash-restore={p.id}
+                        onClick={() => void handleRestore(p.id)}
+                      >
+                        还原
+                      </button>
+                      <button
+                        className={styles.trashDanger}
+                        data-projects-trash-purge={p.id}
+                        onClick={() => void handlePurge(p.id)}
+                      >
+                        彻底删除
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           {visible.length === 0 && !loading ? (
             <HomeEmptyState onCreate={() => void createBlank('canvas')} />
