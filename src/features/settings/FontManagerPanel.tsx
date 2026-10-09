@@ -4,6 +4,7 @@ import {
   FONT_COUNT_MAX,
   FONT_FORMATS,
   FONT_SIZE_MAX,
+  fontFamiliesOf,
   type UserFont,
 } from '../../domain/ui/fonts'
 import { UI_SCALES, uiScaleLabel } from '../../domain/ui/appearance'
@@ -25,6 +26,9 @@ import styles from './FontManagerPanel.module.css'
  * 2. 字体存在本机、不上传；
  * 3. 删除字体时若正被选中，自动回落系统字体（不留指不到的引用）。
  */
+/** 这次选文件是"新建一个字体"还是"给某个字族补粗体" */
+type ImportTarget = { kind: 'new' } | { kind: 'bold'; family: string; name: string }
+
 export function FontManagerPanel() {
   const fonts = useFonts()
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -32,25 +36,45 @@ export function FontManagerPanel() {
   const [status, setStatus] = useState('')
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [importTarget, setImportTarget] = useState<ImportTarget>({ kind: 'new' })
 
   const selectedId = fonts.appearance.font.kind === 'custom' ? fonts.appearance.font.fontId : null
   const atLimit = fonts.fonts.length >= FONT_COUNT_MAX
+  /** 界面上按**字族**展示（常规 + 可选粗体），底层仍是一份文件一行 */
+  const groups = fontFamiliesOf(fonts.fonts)
 
-  const pick = () => inputRef.current?.click()
+  const pick = (target: ImportTarget) => {
+    setImportTarget(target)
+    inputRef.current?.click()
+  }
 
   const onFile = async (file: File | undefined) => {
     if (!file || busy) return
+    const target = importTarget
     setBusy(true)
     setStatus('')
     try {
       const bytes = await file.arrayBuffer()
-      const result = await fonts.addFont({ name: file.name, size: file.size, bytes })
-      setStatus(result.ok ? `已导入「${file.name}」并启用` : result.reason)
+      const result = await fonts.addFont({
+        name: file.name,
+        size: file.size,
+        bytes,
+        /* 补粗体：同一个字族、700 槽位（见 domain/ui/fonts 的 FontWeight 说明） */
+        ...(target.kind === 'bold' ? { weight: 700 as const, family: target.family } : {}),
+      })
+      setStatus(
+        result.ok
+          ? target.kind === 'bold'
+            ? `已给「${target.name}」补上粗体：加粗用真字形，不再靠浏览器合成`
+            : `已导入「${file.name}」并启用`
+          : result.reason,
+      )
     } catch {
       // 读文件失败（权限 / 文件被删）也要说一句，不能静默
       setStatus('读不到这个文件，换一个再试')
     } finally {
       setBusy(false)
+      setImportTarget({ kind: 'new' })
       // 清空 input 的值，否则再选同一个文件不会触发 change
       if (inputRef.current) inputRef.current.value = ''
     }
@@ -76,7 +100,14 @@ export function FontManagerPanel() {
             {fonts.fonts.length} / {FONT_COUNT_MAX}
           </span>
         </div>
-        <p className={styles.caption}>只影响界面显示；字体文件保存在本机，不会上传，也不影响出图。</p>
+        {/*
+          用户 2026-10-09 问：「他控制的是哪一部分的字体？是不是还有一些字体没有控制到？」
+          —— 这一段就是**如实回答**：管什么、不管什么，一次写清（不是"介绍文字"）。
+        */}
+        <p className={styles.caption} data-font-scope>
+          控制侧栏 / 页面 / 面板 / 按钮与输入框里的文字，以及画布节点里的字族。
+          不跟随的：命令与日志这类等宽区域（故意用等宽体）、画布里的字号（那是项目设置）、生成出来的图。
+        </p>
 
         <div className={styles.list} role="radiogroup" aria-label="界面字体">
           <button
@@ -91,13 +122,16 @@ export function FontManagerPanel() {
             <span className={styles.itemHint}>Segoe UI / 微软雅黑</span>
           </button>
 
-          {fonts.fonts.map((font) => (
+          {groups.map((group) => (
             <div
-              key={font.id}
-              className={selectedId === font.id ? `${styles.item} ${styles.itemOn}` : styles.item}
-              data-font-option={font.id}
+              key={group.family}
+              className={
+                selectedId === group.regular.id ? `${styles.item} ${styles.itemOn}` : styles.item
+              }
+              data-font-option={group.regular.id}
+              data-font-bold-state={group.bold ? 'yes' : 'no'}
             >
-              {renamingId === font.id ? (
+              {renamingId === group.regular.id ? (
                 <input
                   className={styles.renameInput}
                   value={renameValue}
@@ -113,33 +147,57 @@ export function FontManagerPanel() {
                 <button
                   type="button"
                   role="radio"
-                  aria-checked={selectedId === font.id}
+                  aria-checked={selectedId === group.regular.id}
                   className={styles.chooseArea}
-                  onClick={() => fonts.chooseFont({ kind: 'custom', fontId: font.id })}
+                  onClick={() => fonts.chooseFont({ kind: 'custom', fontId: group.regular.id })}
                 >
                   {/* 用这个字体渲染它自己的名字：预览即所见 */}
-                  <span className={styles.itemName} style={{ fontFamily: `'${font.family}'` }}>
-                    {font.name}
+                  <span className={styles.itemName} style={{ fontFamily: `'${group.regular.family}'` }}>
+                    {group.regular.name}
                   </span>
                   <span className={styles.itemHint}>
-                    {font.format.toUpperCase()} · {(font.size / 1024 / 1024).toFixed(1)}MB
+                    {group.regular.format.toUpperCase()} ·{' '}
+                    {(group.regular.size / 1024 / 1024).toFixed(1)}MB ·{' '}
+                    {group.bold ? '粗体已导入' : '粗体由浏览器合成'}
                   </span>
                 </button>
               )}
               <div className={styles.actions}>
+                {group.bold ? (
+                  <button
+                    type="button"
+                    className={styles.mini}
+                    data-font-bold-remove={group.bold.id}
+                    onClick={() => void fonts.removeFont(group.bold!.id)}
+                  >
+                    移除粗体
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.mini}
+                    data-font-bold-add={group.regular.id}
+                    disabled={busy || atLimit}
+                    onClick={() =>
+                      pick({ kind: 'bold', family: group.family, name: group.regular.name })
+                    }
+                  >
+                    加粗体…
+                  </button>
+                )}
                 <button
                   type="button"
                   className={styles.mini}
-                  data-font-rename={font.id}
-                  onClick={() => startRename(font)}
+                  data-font-rename={group.regular.id}
+                  onClick={() => startRename(group.regular)}
                 >
                   重命名
                 </button>
                 <button
                   type="button"
                   className={styles.mini}
-                  data-font-remove={font.id}
-                  onClick={() => void fonts.removeFont(font.id)}
+                  data-font-remove={group.regular.id}
+                  onClick={() => void fonts.removeFont(group.regular.id)}
                 >
                   删除
                 </button>
@@ -162,7 +220,7 @@ export function FontManagerPanel() {
             className={styles.btn}
             data-font-import
             disabled={busy || atLimit}
-            onClick={pick}
+            onClick={() => pick({ kind: 'new' })}
           >
             {busy ? '正在导入…' : '导入字体文件'}
           </button>
@@ -172,6 +230,13 @@ export function FontManagerPanel() {
               : `支持 ${FONT_FORMATS.join(' / ')}，单个不超过 ${FONT_SIZE_MAX / 1024 / 1024}MB`}
           </span>
         </div>
+
+        {/* 用户 2026-10-09 的第三个问题：「他只有一份字体怎么控制粗细呢？」 */}
+        <p className={styles.hint} data-font-weight-note>
+          粗细怎么来：一份字体文件只承载一个字重 —— 只导入常规体时，加粗由浏览器合成（能看出层次，
+          边缘会发虚）；点「加粗体…」给同一个字族补一份粗体文件后就是真字形。可变字体（一个文件含全部字重）
+          一份就够，不用再补。
+        </p>
 
         {status && (
           <p className={styles.status} role="status" data-font-status>

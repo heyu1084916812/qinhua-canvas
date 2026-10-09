@@ -15,11 +15,14 @@ import type { StoragePort } from '../../platform/ports'
 import {
   FONT_COUNT_MAX,
   canAddFont,
+  detectVariableFont,
   defaultFontName,
   describeFontError,
   fontFamilyOf,
+  sanitizeFamily,
   validateFontFile,
   type FontFormat,
+  type FontWeight,
   type UserFont,
 } from '../../domain/ui/fonts'
 
@@ -33,8 +36,19 @@ export interface FontStore {
   list: () => Promise<UserFont[]>
   /** 取字节用于注册 `FontFace`；行不在 / 字节坏掉都返回 null */
   readBytes: (id: string) => Promise<ArrayBuffer | null>
-  /** 导入一个字体文件；校验失败返回可读原因 */
-  add: (file: { name: string; size: number; bytes: ArrayBuffer }) => Promise<AddFontResult>
+  /**
+   * 导入一个字体文件；校验失败返回可读原因。
+   *
+   * `weight` / `family` 是"给已有字族补一份粗体"那条路用的（用户 2026-10-09）：
+   * 不传 = 新建一个字族、按常规体导入。
+   */
+  add: (file: {
+    name: string
+    size: number
+    bytes: ArrayBuffer
+    weight?: FontWeight
+    family?: string
+  }) => Promise<AddFontResult>
   /** 重命名（只改显示名，不动内部字族名 —— 已注册的字体不会因此失效） */
   rename: (id: string, name: string) => Promise<void>
   remove: (id: string) => Promise<void>
@@ -54,13 +68,20 @@ function fontFromRow(row: unknown): UserFont | null {
   const size = typeof r.size === 'number' && Number.isFinite(r.size) ? r.size : 0
   if (!id || !name || !format || size <= 0) return null
   return {
-    // 字族名**重新推导**，不信任表里存的（老数据 / 手改过的行都不会污染 CSS）
+    /**
+     * 字族名：表里存着就用（粗体行要与常规体**共用同一个字族名**），
+     * 但要过一遍 `sanitizeFamily` —— 老数据 / 手改过的行都不许把脏字符带进 CSS。
+     * 认不出时回落到按 id 推导（老行的行为不变）。
+     */
     id,
     name,
-    family: fontFamilyOf(id),
+    family: sanitizeFamily(r.family) ?? fontFamilyOf(id),
     format,
     size,
     createdAt: typeof r.createdAt === 'number' ? r.createdAt : 0,
+    /* 老行没有这两个字段：按"常规体 + 认不出可变性"读回，行为与升级前一致 */
+    weight: r.weight === 700 ? 700 : 400,
+    variable: typeof r.variable === 'boolean' ? r.variable : null,
   }
 }
 
@@ -102,13 +123,17 @@ export function createFontStore(storage: StoragePort): FontStore {
         return { ok: false, reason: describeFontError(checked.error) }
       }
       const id = createId('font')
+      const family = sanitizeFamily(file.family) ?? fontFamilyOf(id)
       const font: UserFont = {
         id,
         name: defaultFontName(file.name),
-        family: fontFamilyOf(id),
+        family,
         format: checked.format,
         size: file.size,
         createdAt: Date.now(),
+        weight: file.weight === 700 ? 700 : 400,
+        /* 只有 ttf/otf 能这样看；woff/woff2 返回 null（认不出，按静态处理） */
+        variable: detectVariableFont(file.bytes, checked.format),
       }
       await storage.put('fonts', {
         ...font,

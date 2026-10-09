@@ -93,4 +93,84 @@ describe('自定义字体 · 落库', () => {
     expect(list).toHaveLength(1)
     expect(list[0]!.id).toBe('ok')
   })
+
+  it('★★ 老行（没有 weight / family / variable）按「常规体 + 按 id 推字族」读回', async () => {
+    const storage = createMemoryStorage({
+      rows: {
+        fonts: [
+          /* 这就是升级前存下的行：三个新字段一个都没有 */
+          { id: 'legacy', name: '老字体', format: 'ttf', size: 8, createdAt: 1, bytes: bytes() },
+        ],
+      },
+    })
+    const list = await createFontStore(storage).list()
+    expect(list[0]!.weight).toBe(400)
+    expect(list[0]!.family).toBe('qh-font-legacy')
+    expect(list[0]!.variable).toBeNull()
+  })
+
+  it('★★ 补粗体：同一字族里多一份 700，字族名与常规体完全一致', async () => {
+    const store = createFontStore(createMemoryStorage())
+    const regular = await store.add({ name: 'Inter-Regular.ttf', size: 8, bytes: bytes() })
+    if (!regular.ok) throw new Error('准备数据失败')
+
+    const bold = await store.add({
+      name: 'Inter-Bold.ttf',
+      size: 8,
+      bytes: bytes(),
+      weight: 700,
+      family: regular.font.family,
+    })
+    expect(bold.ok).toBe(true)
+    if (!bold.ok) return
+    expect(bold.font.weight).toBe(700)
+    expect(bold.font.family).toBe(regular.font.family)
+
+    const list = await store.list()
+    expect(list).toHaveLength(2)
+    expect(new Set(list.map((f) => f.family)).size).toBe(1)
+  })
+
+  it('★★ 导入时就判定可变字体（含 fvar 的 ttf = 一份文件全字重；woff2 认不出）', async () => {
+    const sfnt = (tags: string[]) => {
+      const buf = new Uint8Array(12 + tags.length * 16)
+      const view = new DataView(buf.buffer)
+      view.setUint32(0, 0x00010000)
+      view.setUint16(4, tags.length)
+      tags.forEach((tag, i) => {
+        const off = 12 + i * 16
+        for (let k = 0; k < 4; k += 1) view.setUint8(off + k, tag.charCodeAt(k) || 0x20)
+      })
+      return buf.buffer
+    }
+    const store = createFontStore(createMemoryStorage())
+    const variable = await store.add({ name: 'V.ttf', size: 28, bytes: sfnt(['cmap', 'fvar']) })
+    const staticFont = await store.add({ name: 'S.ttf', size: 28, bytes: sfnt(['cmap', 'glyf']) })
+    const compressed = await store.add({ name: 'W.woff2', size: 8, bytes: bytes() })
+    expect(variable.ok && variable.font.variable).toBe(true)
+    expect(staticFont.ok && staticFont.font.variable).toBe(false)
+    expect(compressed.ok && compressed.font.variable).toBeNull()
+  })
+
+  it('★★ family 里的脏字符不许进 CSS（读回时消毒，空值回落按 id 推）', async () => {
+    const storage = createMemoryStorage({
+      rows: {
+        fonts: [
+          {
+            id: 'dirty',
+            name: '脏字族',
+            family: "qh-font-x'; } body{display:none}",
+            format: 'ttf',
+            size: 8,
+            createdAt: 1,
+            bytes: bytes(),
+          },
+        ],
+      },
+    })
+    const list = await createFontStore(storage).list()
+    expect(list[0]!.family).not.toContain("'")
+    expect(list[0]!.family).not.toContain('{')
+    expect(list[0]!.family.startsWith('qh-font-')).toBe(true)
+  })
 })

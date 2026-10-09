@@ -4,7 +4,7 @@
  * 产物：.playwright-verify/*.png 截图 + 控制台结果表
  */
 import { chromium } from 'playwright'
-import { mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { deflateSync, crc32 } from 'node:zlib'
 
 const BASE = process.env.SMOKE_BASE ?? 'http://127.0.0.1:1420'
@@ -18640,6 +18640,8 @@ async function g97(browser) {
         (el) => el.textContent.trim().length,
       ),
       loginBoxes: document.querySelectorAll('[data-cli-login-box]').length,
+      /** 默认收起的「更多操作」个数（用户 2026-10-09：版面上只留三个按钮） */
+      loginCollapsed: document.querySelectorAll('[data-cli-login-box]:not([open])').length,
     }
   })
   rec(
@@ -18653,19 +18655,23 @@ async function g97(browser) {
   rec(
     g,
     /**
-     * ⚠️ 门槛从 130 提到 200（2026-10-08）：用户给的参考图一里，登录区是
-     * **"说明框 + 主按钮"** —— 那多出的一行"怎么登录"是有用的（它决定按哪个按钮），
-     * 不是被删掉的"介绍"。其余文字仍受"面板里不许有 desc / note"那条守着。
+     * ⚠️ 门槛换过两次口径：130 → 200（2026-10-08：登录区那行"怎么登录"是有用的）
+     * → **100**（2026-10-09 用户：「cli 这个地方里面的 ui 很乱，排版层级都不太清晰，
+     * 小字介绍太多」）。登录方式与单独安装都收进「更多操作」折叠区之后，
+     * 版面上只剩标题 + 三个按钮（+ 运行时结果），实测 66 / 76 / 67 / 75 字。
      */
-    '★ 每张 CLI 卡只剩按钮 + 一行登录方式 + 一行额度提示（文案 ≤ 200 字）',
-    cliProse.cards.every((n) => n <= 200),
+    '★ 每张 CLI 卡版面只剩标题 + 三个按钮（可见文案 ≤ 100 字）',
+    cliProse.cards.every((n) => n <= 100),
     cliProse.cards.join(' / '),
   )
   rec(
     g,
-    '★★ 每张卡都有一个「登录方式」框，且说明只有一行（照参考图一）',
-    cliProse.loginBoxes === 4 && cliProse.loginHints.length === 4 && cliProse.loginHints.every((n) => n > 0 && n <= 80),
-    `框=${cliProse.loginBoxes} 各行字数=${cliProse.loginHints.join('/')}`,
+    '★★ 登录方式收进「更多操作」且默认收起（四张卡各一个，说明仍只有一行）',
+    cliProse.loginBoxes === 4 &&
+      cliProse.loginCollapsed === 4 &&
+      cliProse.loginHints.length === 4 &&
+      cliProse.loginHints.every((n) => n > 0 && n <= 80),
+    `框=${cliProse.loginBoxes} 收起=${cliProse.loginCollapsed} 各行字数=${cliProse.loginHints.join('/')}`,
   )
   rec(
     g,
@@ -23266,7 +23272,120 @@ async function g121(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121]
+// ────────────────────────────────────────────────────────────
+// G122 字体面板（用户 2026-10-09 的三问）：
+//   ① 它控制哪一部分 / 不控制什么，面板要如实写；② 一份文件只承载一个字重 ——
+//   给同一字族补粗体后，`@font-face` 里真的多一条 700；③ 删字族时两份一起走、回落系统字体。
+// ────────────────────────────────────────────────────────────
+async function g122(browser) {
+  const g = 'G122 字体面板'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  /* 用系统里真实存在的字体文件跑导入链路（假字节会让 FontFace.load 失败、规则也就不生成） */
+  const REGULAR = 'C:/Windows/Fonts/segoeui.ttf'
+  const BOLD = 'C:/Windows/Fonts/segoeuib.ttf'
+  const hasFonts = existsSync(REGULAR) && existsSync(BOLD)
+
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(500)
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(350)
+  await page.locator('[data-global-settings-tab="appearance"]').click()
+  await sleep(450)
+
+  const scope = await page.locator('[data-font-scope]').innerText().catch(() => '')
+  rec(
+    g,
+    '★★ 面板如实写清控制范围（管什么 / 不管什么）',
+    /等宽/.test(scope) && /字号/.test(scope) && /面板/.test(scope),
+    scope.replace(/\n/g, ' ').slice(0, 70),
+  )
+  const weightNote = await page.locator('[data-font-weight-note]').innerText().catch(() => '')
+  rec(
+    g,
+    '★★ 粗细说明在（一份文件一个字重 / 合成 vs 真字形）',
+    /一个字重/.test(weightNote) && /合成/.test(weightNote),
+    weightNote.replace(/\n/g, ' ').slice(0, 70),
+  )
+
+  if (!hasFonts) {
+    rec(g, '（跳过）系统字体文件不在，导入链路没法验', true, REGULAR)
+    rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+    await ctx.close()
+    return
+  }
+
+  /** 注入到 head 的那份 `@font-face` 规则（provider 写完才读得到内容） */
+  const rules = () =>
+    page.evaluate(() => document.getElementById('qh-user-fonts')?.textContent ?? '')
+  const stack = () =>
+    page.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue('--font-sans').trim(),
+    )
+
+  // ① 导入常规体：只声明 400（旧版谎报 100 900 ⇒ 标题与正文一样粗）
+  await page.locator('[data-font-file]').setInputFiles(REGULAR)
+  await sleep(1200)
+  const items = await page.locator('[data-font-option]').count()
+  const css1 = await rules()
+  rec(
+    g,
+    '★★★ 导入常规体：列表多一条，@font-face 只声明 400（不再谎报整段区间）',
+    items === 2 && /font-weight:400/.test(css1) && !/100 900/.test(css1),
+    `列表项=${items} 规则=${css1.replace(/\n/g, ' ').slice(0, 60)}`,
+  )
+
+  // ② 补粗体：同一字族多一条 700
+  const chooser = page.waitForEvent('filechooser')
+  await page.locator('[data-font-bold-add]').click()
+  await (await chooser).setFiles(BOLD)
+  await sleep(1200)
+  const boldState = await page
+    .locator('[data-font-bold-state]')
+    .first()
+    .getAttribute('data-font-bold-state')
+  const css2 = await rules()
+  const weights = [...css2.matchAll(/font-weight:([^;}]+)/g)].map((m) => m[1].trim())
+  rec(
+    g,
+    '★★★ 补粗体：同一字族里多一条 700（真字形，不靠浏览器合成）',
+    boldState === 'yes' && weights.includes('400') && weights.includes('700'),
+    `粗体态=${boldState} 规则字重=${weights.join('/')}`,
+  )
+
+  // ③ 字体栈用的是**共享字族名**，且选中的是常规体那一份
+  const family = (/font-family:'([^']+)'/.exec(css2) ?? [])[1] ?? ''
+  const stack2 = await stack()
+  rec(
+    g,
+    '★★ 字体栈用字族名（常规 + 粗体共享），选中的不是粗体那一份',
+    family !== '' && stack2.split(',')[0] === `'${family}'`,
+    `字族=${family} 栈=${stack2.slice(0, 40)}`,
+  )
+  /* 截图留在"常规 + 粗体都在"这一刻，比删完之后更有信息量 */
+  await page.screenshot({ path: `${OUT}/122-g122-fonts.png` })
+
+  // ④ 删字族：常规 + 粗体一起删，界面回落系统字体
+  await page.locator('[data-font-remove]').first().click()
+  await sleep(1000)
+  const after = await page.locator('[data-font-option]').count()
+  const css3 = await rules()
+  const stack3 = await stack()
+  rec(
+    g,
+    '★★ 删字族：两份文件一起走，界面回落系统字体',
+    after === 1 && css3.trim() === '' && stack3.startsWith('"Segoe UI Variable"'),
+    `列表项=${after} 栈=${stack3.slice(0, 30)}`,
+  )
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

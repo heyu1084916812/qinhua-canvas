@@ -3,15 +3,45 @@ import {
   FONT_COUNT_MAX,
   FONT_SIZE_MAX,
   canAddFont,
+  detectVariableFont,
   defaultFontName,
   describeFontError,
   extOf,
   fontFaceRule,
+  fontFamiliesOf,
   fontFamilyOf,
   fontStackFor,
+  sanitizeFamily,
   validateFontFile,
   type UserFont,
 } from './fonts'
+
+/** 测试用的字体行：只写关心的字段，其余给一份合法默认 */
+function makeFont(over: Partial<UserFont> & { id: string }): UserFont {
+  return {
+    name: 'X',
+    family: fontFamilyOf(over.id),
+    format: 'ttf',
+    size: 1024,
+    createdAt: 1,
+    weight: 400,
+    variable: false,
+    ...over,
+  }
+}
+
+/** 造一个最小 sfnt（ttf/otf）头：12 字节头 + N 条 16 字节表记录 */
+function sfnt(tags: string[], numTables = tags.length): ArrayBuffer {
+  const bytes = new Uint8Array(12 + numTables * 16)
+  const view = new DataView(bytes.buffer)
+  view.setUint32(0, 0x00010000)
+  view.setUint16(4, numTables)
+  tags.forEach((tag, i) => {
+    const off = 12 + i * 16
+    for (let k = 0; k < 4; k += 1) view.setUint8(off + k, tag.charCodeAt(k) || 0x20)
+  })
+  return bytes.buffer
+}
 
 /**
  * 自定义字体（用户 2026-10-09）。
@@ -69,29 +99,70 @@ describe('自定义字体 · 纯逻辑', () => {
     expect(fontFamilyOf('中文名字')).toBe('qh-font-unknown')
   })
 
-  it('★ @font-face 规则带 font-display:swap 与全字重范围', () => {
-    const font: UserFont = {
-      id: 'f1',
-      name: '思源黑体',
-      family: 'qh-font-f1',
-      format: 'woff2',
-      size: 1000,
-      createdAt: 1,
-    }
+  it('★★ @font-face 规则：静态字体只声明自己那个字重（谎报全区间 = 标题和正文一样粗）', () => {
+    const font = makeFont({ id: 'f1', name: '思源黑体', format: 'woff2' })
     const css = fontFaceRule(font, 'blob:http://localhost/abc')
     expect(css).toContain("@font-face{font-family:'qh-font-f1'")
     expect(css).toContain("format('woff2')")
     expect(css).toContain('font-display:swap')
-    expect(css).toContain('font-weight:100 900')
+    expect(css).toContain('font-weight:400')
+    expect(css).not.toContain('100 900')
+  })
+
+  it('★★ 粗体那一份声明 700；可变字体才声明整段 100–900', () => {
+    expect(fontFaceRule(makeFont({ id: 'b1', weight: 700 }), 'blob:x')).toContain('font-weight:700')
+    /* 可变字体：一个文件含全部字重，声明区间让浏览器用它的字重轴 */
+    expect(fontFaceRule(makeFont({ id: 'v1', variable: true }), 'blob:x')).toContain(
+      'font-weight:100 900',
+    )
+    /* `variable: null`（woff/woff2 认不出）按静态处理，不谎报区间 */
+    expect(fontFaceRule(makeFont({ id: 'u1', variable: null }), 'blob:x')).toContain(
+      'font-weight:400',
+    )
+  })
+
+  it('★★ 可变字体判定：只认 ttf/otf 的 fvar 表，压缩格式如实说"认不出"', () => {
+    expect(detectVariableFont(sfnt(['cmap', 'fvar', 'glyf']), 'ttf')).toBe(true)
+    expect(detectVariableFont(sfnt(['cmap', 'glyf']), 'otf')).toBe(false)
+    // woff / woff2 的表是压缩的 ⇒ 不猜，返回 null
+    expect(detectVariableFont(sfnt(['fvar']), 'woff2')).toBeNull()
+    expect(detectVariableFont(new ArrayBuffer(4), 'ttf')).toBeNull()
+    // 表记录数超出文件长度（坏文件）也不许崩
+    expect(detectVariableFont(sfnt(['fvar'], 999), 'ttf')).toBeNull()
+  })
+
+  it('★★ 字族名读回时要消毒：脏字符剔掉，空值由调用方回落', () => {
+    expect(sanitizeFamily('qh-font-abc')).toBe('qh-font-abc')
+    expect(sanitizeFamily('abc')).toBe('qh-font-abc')
+    expect(sanitizeFamily("f1'; } body{display:none}")).toBe('qh-font-f1bodydisplaynone')
+    expect(sanitizeFamily('')).toBeNull()
+    expect(sanitizeFamily('中文')).toBeNull()
+  })
+
+  it('★★ 按字族分组：常规 + 粗体合成一个"字体"，缺粗体时如实为 null', () => {
+    const regular = makeFont({ id: 'r1', family: 'qh-font-team' })
+    const bold = makeFont({ id: 'b1', family: 'qh-font-team', weight: 700 })
+    const lonely = makeFont({ id: 'l1', family: 'qh-font-lonely' })
+    const groups = fontFamiliesOf([bold, regular, lonely])
+    expect(groups.map((g) => g.family)).toEqual(['qh-font-team', 'qh-font-lonely'])
+    expect(groups[0]?.regular.id).toBe('r1')
+    expect(groups[0]?.bold?.id).toBe('b1')
+    expect(groups[1]?.bold).toBeNull()
   })
 
   it('★★ 自定义字族永远排在系统栈前面（缺字自动回落，不会整屏方块）', () => {
-    const fonts: UserFont[] = [
-      { id: 'f1', name: 'X', family: 'qh-font-f1', format: 'ttf', size: 1, createdAt: 1 },
-    ]
+    const fonts: UserFont[] = [makeFont({ id: 'f1' })]
     const stack = fontStackFor({ kind: 'custom', fontId: 'f1' }, fonts)
     expect(stack.startsWith("'qh-font-f1'")).toBe(true)
     expect(stack).toContain('sans-serif') // 系统栈兜底还在
+  })
+
+  it('★★ 字族名取自记录本身（粗体与常规体共享）—— 选常规体也能拿到粗体', () => {
+    const regular = makeFont({ id: 'r9', family: 'qh-font-shared' })
+    const bold = makeFont({ id: 'b9', family: 'qh-font-shared', weight: 700 })
+    const stack = fontStackFor({ kind: 'custom', fontId: 'r9' }, [regular, bold])
+    // 若按 id 现推会得到 'qh-font-r9'，那一份粗体就永远匹配不上
+    expect(stack.startsWith("'qh-font-shared'")).toBe(true)
   })
 
   it('★ 字体被删掉后选择回落系统字体（不留一个指不到的引用）', () => {

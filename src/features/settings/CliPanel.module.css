@@ -128,7 +128,8 @@
   padding: 0 var(--space-3);
   border: var(--border);
   border-radius: var(--radius-control);
-  background: var(--bg-app);
+  /* 卡片底已经是 `--bg-subtle`（灰），输入框抬到 `--bg-surface` 才读得出"这里能填" */
+  background: var(--bg-surface);
   color: var(--text-1);
   font: inherit;
   font-size: var(--fs-nav);
@@ -200,22 +201,6 @@
   gap: var(--space-2);
 }
 
-/**
- * **登录方式框**（用户 2026-10-08 给的参考图一：那张卡把"怎么登录 + 主按钮"放进一个小框里）。
- *
- * 与面板上其它内容的区别是刻意的：这是我们**唯一**保留的"说明" ——
- * 它直接决定用户按哪个按钮（`loginHint` 一行），所以留在版面上；
- * 背景用 `--bg-subtle` 与卡片底色分开，一眼能看出"这是一件事，不是一段介绍"。
- */
-.loginBox {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3);
-  border-radius: var(--radius-control);
-  background: var(--bg-subtle);
-}
-
 .loginHint {
   margin: 0;
   font-size: var(--fs-nav);
@@ -232,26 +217,39 @@
 }
 
 /*
- * 「高级」（命令与参数）：默认折起。
- * 用户原话是"我不太懂怎么设置这个 cli" —— 该先给他"检测 / 登录 / 查状态"三件事，
- * 命令名与参数只在工具子命令不标准时才需要动。
+ * 两个折叠区：**更多操作**（单独安装 / 换登录方式）与**高级**（命令与参数）。
+ *
+ * 版面上一次只留「一键设置 / 检测 / 查状态」三个按钮 + 结果行，
+ * 备选动作全部折进来 —— 用户 2026-10-09：「ui 很乱、层级不清晰、小字太多」。
+ * 折叠区**不描边**（与全局设置其它容器同一条口径），靠间距 + 摘要行的 hover 底色分层。
  */
+.more,
 .advanced {
-  border-top: var(--border);
-  padding-top: var(--space-3);
+  margin-top: var(--space-1);
 }
 
 .summary {
   cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  margin-left: calc(var(--space-2) * -1);
+  border-radius: var(--radius-control);
   font-size: var(--fs-label);
   color: var(--text-2);
 }
 
 .summary:hover {
+  background: var(--bg-hover);
   color: var(--text-1);
 }
 
-/* 高级展开后，内部与卡片一样是竖排 */
+/* 展开后的内容：竖排 + 与摘要留一档 */
+.moreBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.moreBody,
 .advanced > *:not(summary) {
   margin-top: var(--space-2);
 }
@@ -263,7 +261,8 @@
   max-height: 220px;
   overflow: auto;
   border-radius: var(--radius-control);
-  background: var(--bg-subtle);
+  /* 输出块同理：与灰色卡片拉开一层，长行才不会被当成卡片正文 */
+  background: var(--bg-surface);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--fs-label);
   line-height: var(--lh-body);

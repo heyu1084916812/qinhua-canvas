@@ -31,6 +31,17 @@ export const FONT_SIZE_MAX = 20 * 1024 * 1024
 /** 一次最多保存多少个自定义字体（本地库不是字体管理器，给个上限免得失控） */
 export const FONT_COUNT_MAX = 20
 
+/**
+ * 字重槽位（用户 2026-10-09：「他只有一份字体怎么控制粗细呢？」）。
+ *
+ * **一份字体文件只承载一个字重** —— 这是字体格式的事实，不是实现偷懒：
+ * - 导入"常规体"→ 记 400；想真加粗，再给同一个字族导入"粗体"→ 记 700；
+ * - 只导入一份时，浏览器会**合成**（faux）粗体：能看出层次，但边缘会发虚；
+ * - **可变字体**（一个文件含 100–900 全部字重）例外，见 `detectVariableFont`。
+ */
+export type FontWeight = 400 | 700
+export const FONT_WEIGHTS: readonly FontWeight[] = [400, 700]
+
 /** 用户字体：只记录元数据，字节另存 */
 export interface UserFont {
   id: string
@@ -48,6 +59,16 @@ export interface UserFont {
   /** 字节数，用于展示与上限校验 */
   size: number
   createdAt: number
+  /** 这一份文件是常规体还是粗体（老数据缺字段按 400） */
+  weight: FontWeight
+  /**
+   * 是否"一个文件含全部字重"的可变字体。
+   *
+   * - `true`：`@font-face` 声明成 `100 900`，浏览器直接用它的字重轴；
+   * - `false`：只声明这一个字重（另一个字重靠导入粗体文件，或由浏览器合成）；
+   * - `null`：**认不出**（woff / woff2 的表是压缩的，不做解压猜测）→ 按静态处理。
+   */
+  variable: boolean | null
 }
 
 export type FontValidationError =
@@ -108,6 +129,47 @@ export function fontFamilyOf(id: string): string {
   return `qh-font-${safe || 'unknown'}`
 }
 
+/**
+ * 把"表里存着的字族名"合法化。
+ *
+ * 与 `fontFamilyOf` 的分工：那个是**从 id 推导**（新导入走它），这个只用于
+ * **读回旧行 / 粗体行共享的字族名** —— 同样是内部名，绝不允许用户输入直接进 CSS。
+ * 认不出（空 / 全是非法字符）返回 null，由调用方回落到 `fontFamilyOf(id)`。
+ */
+export function sanitizeFamily(value: unknown): string | null {
+  const raw = String(value ?? '').trim()
+  if (!raw) return null
+  const safe = raw.replace(/[^a-zA-Z0-9-]/g, '')
+  if (!safe) return null
+  return safe.startsWith('qh-font-') ? safe : `qh-font-${safe}`
+}
+
+/**
+ * 字体文件里有没有 `fvar` 表（== 可变字体）。
+ *
+ * 只对 **ttf / otf** 下结论：这两种就是裸 sfnt，表目录在文件头 12 字节之后；
+ * woff / woff2 的表被压缩过，不解压就"看不到"——那一档返回 `null`（认不出），
+ * 而不是猜一个"不是"（猜错会让可变字体白丢字重轴）。
+ */
+export function detectVariableFont(bytes: ArrayBuffer, format: FontFormat): boolean | null {
+  if (format !== 'ttf' && format !== 'otf') return null
+  if (bytes.byteLength < 12) return null
+  const view = new DataView(bytes)
+  const numTables = view.getUint16(4)
+  if (numTables <= 0 || numTables > 512) return null
+  if (12 + numTables * 16 > bytes.byteLength) return null
+  for (let i = 0; i < numTables; i += 1) {
+    const off = 12 + i * 16
+    const tag =
+      String.fromCharCode(view.getUint8(off)) +
+      String.fromCharCode(view.getUint8(off + 1)) +
+      String.fromCharCode(view.getUint8(off + 2)) +
+      String.fromCharCode(view.getUint8(off + 3))
+    if (tag === 'fvar') return true
+  }
+  return false
+}
+
 /** `FontFace` 的 `format()` 取值：woff2 要写成 `woff2`，其余同名 */
 export function cssFormatOf(format: FontFormat): string {
   return format
@@ -121,11 +183,20 @@ export function cssFormatOf(format: FontFormat): string {
  * blob URL 由 `FontProvider` 在卸载时统一 `revokeObjectURL`。
  */
 export function fontFaceRule(font: UserFont, srcUrl: string): string {
-  const family = fontFamilyOf(font.id)
+  /**
+   * ⚠️ 字重必须**如实声明**（2026-10-09 修）：
+   *
+   * 旧版无条件写 `font-weight:100 900`，对静态字体等于告诉浏览器"粗体也有" ——
+   * 于是 `font-weight:600/700` 的请求全部落到同一份常规字形上，**标题和正文一样粗**
+   * （这正是用户问"只有一份字体怎么控制粗细"时看到的现象）。
+   * 现在：静态字体只声明它自己的槽位（另一个字重由浏览器合成 / 导入粗体文件补上），
+   * 可变字体才声明整段区间。
+   */
+  const weight = font.variable === true ? '100 900' : String(font.weight)
   return (
-    `@font-face{font-family:'${family}';` +
+    `@font-face{font-family:'${font.family}';` +
     `src:url('${srcUrl}') format('${cssFormatOf(font.format)}');` +
-    `font-display:swap;font-style:normal;font-weight:100 900;}`
+    `font-display:swap;font-style:normal;font-weight:${weight};}`
   )
 }
 
@@ -145,7 +216,41 @@ export function fontStackFor(choice: FontChoice, fonts: readonly UserFont[]): st
   if (choice.kind === 'system') return SYSTEM
   const font = fonts.find((f) => f.id === choice.fontId)
   if (!font) return SYSTEM
-  return `'${fontFamilyOf(font.id)}', ${SYSTEM}`
+  /* 用 `font.family` 而不是按 id 现推：常规体与粗体**共享同一个字族名**，
+     这样 CSS 请求 700 时浏览器才找得到那一份粗体（只选中常规体的 id 也够用）。 */
+  return `'${font.family}', ${SYSTEM}`
+}
+
+/** 界面上的一个"字体" = 一个**字族**（常规 + 可选粗体两份文件） */
+export interface FontFamilyGroup {
+  family: string
+  /** 常规体（没有 400 时取最早导入的那份，保证列表不丢条目） */
+  regular: UserFont
+  bold: UserFont | null
+}
+
+/**
+ * 把"按文件存的"列表**按字族分组**给界面用。
+ *
+ * 为什么要分组：界面上的"一个字体"要能同时回答两件事 —— 用哪份常规体、
+ * 有没有配套粗体。底层仍是一份文件一行（删除 / 替换 / 体积统计都以文件为单位），
+ * 分组只是**展示层**的折叠，不引入第二张表。
+ */
+export function fontFamiliesOf(fonts: readonly UserFont[]): FontFamilyGroup[] {
+  const byFamily = new Map<string, UserFont[]>()
+  for (const font of fonts) {
+    const list = byFamily.get(font.family)
+    if (list) list.push(font)
+    else byFamily.set(font.family, [font])
+  }
+  const out: FontFamilyGroup[] = []
+  for (const [family, list] of byFamily) {
+    const regular = list.find((f) => f.weight === 400) ?? list[0]
+    if (!regular) continue
+    const bold = list.find((f) => f.weight === 700 && f.id !== regular.id) ?? null
+    out.push({ family, regular, bold })
+  }
+  return out.sort((a, b) => a.regular.createdAt - b.regular.createdAt)
 }
 
 /** 是否还能再导入一个（上限保护） */

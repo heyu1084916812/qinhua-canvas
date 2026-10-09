@@ -287,7 +287,11 @@ export function CliPanel() {
               </a>
             )}
           </header>
-          {/* ⓿ 一键设置：装 + 登录（第 14 批第 3 条） */}
+          {/*
+            主操作**只留一行**（用户 2026-10-09：「cli 这个地方里面的 ui 很乱，排版层级都不太清晰，
+            小文字介绍太多」）：装 + 登录是一条路（一键设置），检测与查状态是两条"看现在怎么样"，
+            三个按钮一行摆完 —— 其余动作全部收进下面两个折叠区。
+          */}
           <div className={styles.row}>
             <button
               type="button"
@@ -298,10 +302,6 @@ export function CliPanel() {
             >
               一键设置（安装 + 登录）
             </button>
-          </div>
-
-          {/* ① 装没装 */}
-          <div className={styles.row}>
             <button
               type="button"
               className={styles.btn}
@@ -311,98 +311,6 @@ export function CliPanel() {
             >
               检测
             </button>
-            {tool.installCommand.trim() !== '' && (
-              <button
-                type="button"
-                className={styles.btn}
-                data-cli-install={tool.id}
-                disabled={!hasLocalCli || busy !== ''}
-                onClick={() => void installOnly(tool)}
-              >
-                一键安装（打开窗口）
-              </button>
-            )}
-            {probes[tool.id] && (
-              <span className={styles.result} data-cli-probe={tool.id}>
-                {probes[tool.id]}
-              </span>
-            )}
-          </div>
-          {probes[tool.id] === '没找到' && (
-            <p className={styles.hint} data-cli-install-hint={tool.id}>
-              {tool.installHint}
-            </p>
-          )}
-
-          {/* ② 登录 */}
-          {/*
-            **参考图一那种"说明框 + 主按钮"**（用户 2026-10-08 给的参考）：
-            框里只有一行「怎么登录」（`loginHint`），主按钮就在它下面；次要动作留在框外。
-            这次刻意的例外：登录方式**留在版面上**（不像 `note` 那样收成悬停提示）——
-            它直接决定用户按哪个按钮，而参考图也把它摆在最显眼处。
-          */}
-          <div className={styles.loginBox} data-cli-login-box={tool.id}>
-            <p className={styles.loginHint} data-cli-login-hint={tool.id}>
-              {tool.loginHint}
-            </p>
-            <div className={styles.row}>
-              {/*
-                「打开窗口登录」只对**真有交互式登录**的工具摆出来。
-
-                用户 2026-10-08 第 3 条：「按钮的功能要确实要生效」——
-                RunningHub 的官方 CLI 没有登录子命令（`rh` 不带参数只打印帮助），
-                它的登录只能靠写配置文件（`keyLoginKind === 'config'`），
-                所以这里**不给一个按下去只会弹帮助的按钮**。
-              */}
-              {(tool.loginArgs.trim() !== '' || tool.keyLoginKind !== 'config') && (
-                <button
-                  type="button"
-                  className={tool.keyLoginKind === 'config' ? styles.btn : `${styles.btn} ${styles.primary}`}
-                  data-cli-login={tool.id}
-                  disabled={!hasLocalCli || busy !== ''}
-                  onClick={() => void openLogin(tool)}
-                >
-                  一键登录（打开窗口）
-                </button>
-              )}
-              {/* 密钥登录那一格：`stdin` 与 `config` 两种落点都要摆出输入框（见 `loginWithKey`） */}
-              {tool.keyLoginKind !== '' && (
-                <>
-                  <input
-                    className={styles.input}
-                    type="password"
-                    placeholder={
-                      tool.keyLoginKind === 'config'
-                        ? '粘贴 API Key（写进这个工具自己的配置）'
-                        : '粘贴密钥（走 stdin，不落库）'
-                    }
-                    data-cli-key={tool.id}
-                    value={keys[tool.id] ?? ''}
-                    onChange={(e) => setKeys((prev) => ({ ...prev, [tool.id]: e.target.value }))}
-                  />
-                  <button
-                    type="button"
-                    className={
-                      tool.keyLoginKind === 'config' ? `${styles.btn} ${styles.primary}` : styles.btn
-                    }
-                    data-cli-key-login={tool.id}
-                    disabled={!hasLocalCli || busy !== '' || !(keys[tool.id] ?? '').trim()}
-                    onClick={() => void loginWithKey(tool)}
-                  >
-                    用密钥登录
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-          {loginMsg[tool.id] && (
-            <p className={styles.result} data-cli-login-msg={tool.id}>
-              {loginMsg[tool.id]}
-            </p>
-          )}
-
-          {/* ③ 查状态 / 额度 */}
-          <div className={styles.row}>
             <button
               type="button"
               className={styles.btn}
@@ -418,14 +326,113 @@ export function CliPanel() {
               </span>
             )}
           </div>
-          <p className={styles.hint} data-cli-quota-where={tool.id}>
-            {tool.quotaWhere}
-          </p>
+
+          {/* 结果行：检测 / 登录 / 状态的结果都贴在按钮下面（没有就不占位） */}
+          {probes[tool.id] && (
+            <p className={styles.result} data-cli-probe={tool.id}>
+              {probes[tool.id]}
+            </p>
+          )}
+          {probes[tool.id] === '没找到' && (
+            <p className={styles.hint} data-cli-install-hint={tool.id}>
+              {tool.installHint}
+            </p>
+          )}
+
+          {loginMsg[tool.id] && (
+            <p className={styles.result} data-cli-login-msg={tool.id}>
+              {loginMsg[tool.id]}
+            </p>
+          )}
           {statusOut[tool.id] && (
             <pre className={styles.output} data-cli-statusout={tool.id}>
               {statusOut[tool.id]}
             </pre>
           )}
+
+          {/*
+            折叠区一：**更多操作**（单独安装 / 换一种登录方式 / 额度去哪看）。
+
+            一键设置通常就够了，这些是"它没成"时的备选；收起来之后每张卡版面上
+            只剩三个按钮 + 结果行（用户 2026-10-09 要的"层级清晰、别堆小字"）。
+
+            ⚠️ `data-cli-login-box` / `-login-hint` / `-install` / `-key` / `-quota-where`
+            这些锚点**换了位置但一个没删**：冒烟按它们数"每条路在不在"
+            （收起的内容 `textContent` 照样读得到，见 G89）。
+          */}
+          <details className={styles.more} data-cli-login-box={tool.id}>
+            <summary className={styles.summary}>更多操作（单独安装 / 换登录方式）</summary>
+            <div className={styles.moreBody}>
+              {tool.installCommand.trim() !== '' && (
+                <div className={styles.row}>
+                  <button
+                    type="button"
+                    className={styles.btn}
+                    data-cli-install={tool.id}
+                    disabled={!hasLocalCli || busy !== ''}
+                    onClick={() => void installOnly(tool)}
+                  >
+                    一键安装（打开窗口）
+                  </button>
+                </div>
+              )}
+              <p className={styles.loginHint} data-cli-login-hint={tool.id}>
+                {tool.loginHint}
+              </p>
+              <div className={styles.row}>
+                {/*
+                  「打开窗口登录」只对**真有交互式登录**的工具摆出来。
+
+                  用户 2026-10-08 第 3 条：「按钮的功能要确实要生效」——
+                  RunningHub 的官方 CLI 没有登录子命令（`rh` 不带参数只打印帮助），
+                  它的登录只能靠写配置文件（`keyLoginKind === 'config'`），
+                  所以这里**不给一个按下去只会弹帮助的按钮**。
+                */}
+                {(tool.loginArgs.trim() !== '' || tool.keyLoginKind !== 'config') && (
+                  <button
+                    type="button"
+                    className={tool.keyLoginKind === 'config' ? styles.btn : `${styles.btn} ${styles.primary}`}
+                    data-cli-login={tool.id}
+                    disabled={!hasLocalCli || busy !== ''}
+                    onClick={() => void openLogin(tool)}
+                  >
+                    一键登录（打开窗口）
+                  </button>
+                )}
+                {/* 密钥登录那一格：`stdin` 与 `config` 两种落点都要摆出输入框（见 `loginWithKey`） */}
+                {tool.keyLoginKind !== '' && (
+                  <>
+                    <input
+                      className={styles.input}
+                      type="password"
+                      placeholder={
+                        tool.keyLoginKind === 'config'
+                          ? '粘贴 API Key（写进这个工具自己的配置）'
+                          : '粘贴密钥（走 stdin，不落库）'
+                      }
+                      data-cli-key={tool.id}
+                      value={keys[tool.id] ?? ''}
+                      onChange={(e) => setKeys((prev) => ({ ...prev, [tool.id]: e.target.value }))}
+                    />
+                    <button
+                      type="button"
+                      className={
+                        tool.keyLoginKind === 'config' ? `${styles.btn} ${styles.primary}` : styles.btn
+                      }
+                      data-cli-key-login={tool.id}
+                      disabled={!hasLocalCli || busy !== '' || !(keys[tool.id] ?? '').trim()}
+                      onClick={() => void loginWithKey(tool)}
+                    >
+                      用密钥登录
+                    </button>
+                  </>
+                )}
+              </div>
+              <p className={styles.hint} data-cli-quota-where={tool.id}>
+                {tool.quotaWhere}
+              </p>
+            </div>
+          </details>
 
           {/* ④ 高级 */}
           <details className={styles.advanced} data-cli-advanced={tool.id}>

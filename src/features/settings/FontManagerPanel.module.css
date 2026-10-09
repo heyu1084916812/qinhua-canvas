@@ -53,6 +53,9 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  /* 「系统默认」那一行是 <button>：不写这句它会按 UA 默认 **居中**，
+     与下面自定义字体（左对齐）对不齐 —— 实测截图里看的很明显 */
+  text-align: left;
   /* 无描边容器（用户 2026-10-09）：行本身不铺底，选中的那条才用实色底"浮"出来 */
   border: none;
   border-radius: var(--radius-control);

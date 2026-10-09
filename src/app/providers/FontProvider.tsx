@@ -27,6 +27,7 @@ import {
   fontFaceRule,
   fontStackFor,
   type FontChoice,
+  type FontWeight,
   type UserFont,
 } from '../../domain/ui/fonts'
 import { useTheme } from '../ThemeProvider'
@@ -73,9 +74,14 @@ export interface FontApi {
   loading: boolean
   /** 当前生效的界面偏好 */
   appearance: AppearancePrefs
-  addFont: (file: { name: string; size: number; bytes: ArrayBuffer }) => Promise<
-    { ok: true } | { ok: false; reason: string }
-  >
+  addFont: (file: {
+    name: string
+    size: number
+    bytes: ArrayBuffer
+    /** 补粗体时传 700 + 目标字族名（用户 2026-10-09：一份文件只能承载一个字重） */
+    weight?: FontWeight
+    family?: string
+  }) => Promise<{ ok: true } | { ok: false; reason: string }>
   removeFont: (id: string) => Promise<void>
   renameFont: (id: string, name: string) => Promise<void>
   /** 选一个界面字族；字体不存在时调用方应当回落系统（这里也会兜底） */
@@ -223,13 +229,31 @@ export function FontProvider({ children }: { children?: ReactNode }) {
       addFont: async (file) => {
         const result = await store.add(file)
         if (!result.ok) return result
-        await reload()
-        // 导入即启用：用户点"导入字体"就是想看到它生效
-        persist({ ...appearance, font: { kind: 'custom', fontId: result.font.id } })
+        const list = await store.list()
+        setFonts(list)
+        /**
+         * 导入即启用：用户点"导入字体"就是想看到它生效。
+         *
+         * ⚠️ 选中必须落在这个字族的**常规体**上：补粗体那条路导入的是 700，
+         * 若把选中指到它，"当前字体"就变成了一份粗体（正文也跟着变粗）。
+         */
+        const regular =
+          list.find((f) => f.family === result.font.family && f.weight === 400) ?? result.font
+        persist({ ...appearance, font: { kind: 'custom', fontId: regular.id } })
         return { ok: true }
       },
       removeFont: async (id) => {
+        const target = fonts.find((f) => f.id === id)
         await store.remove(id)
+        /**
+         * 删常规体 = **删整个字族**：只留一份没有常规体的粗体在列表里没有意义
+         * （它既不能被选中，也不会被任何 `fontStack` 引用）。
+         */
+        if (target && target.weight === 400) {
+          for (const f of fonts) {
+            if (f.family === target.family && f.id !== id) await store.remove(f.id)
+          }
+        }
         await reload()
         // 删掉的正是当前选中的那个 → 回落系统字体，别留一个指不到的引用
         if (appearance.font.kind === 'custom' && appearance.font.fontId === id) {
