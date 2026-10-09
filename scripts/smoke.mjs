@@ -7745,7 +7745,8 @@ async function g58(browser) {
 
   // 再次点击节点 → 两者一起回来
   const nAgain = await gen.boundingBox()
-  await gen.click({ position: { x: 14, y: Math.max(16, nAgain.height - 14) } })
+  const clickPosAgain = { x: 14, y: Math.max(16, nAgain.height - 14) }
+  await gen.click({ position: clickPosAgain })
   await sleep(400)
   rec(g, '★ 再次点击后跟随栏回来', (await bar.count()) === 1, `count=${await bar.count()}`)
   rec(g, '再次点击后创作面板也回来', (await creationPanel.count()) === 1, `count=${await creationPanel.count()}`)
@@ -7774,9 +7775,22 @@ async function g58(browser) {
   await sleep(400)
   // 拖动会隐藏跟随栏（新规则）→ 先重新点选让它出现，再量位置
   rec(g, '拖到顶端后跟随栏处于隐藏态（等再次点击）', (await bar.count()) === 0, `count=${await bar.count()}`)
-  // 跟随栏浮在节点**上方**，会挡住节点上半部分 → 从下半部分点选
+  /*
+   * 跟随栏浮在节点**上方**，会挡住节点上半部分 → 从下半部分点选。
+   *
+   * ⚠️ 2026-10-09 修：这一步原来是 `y: Math.max(10, height - 20)`，而节点此时被拖到了
+   * **顶端之外**（实测 rect.y = -128）。按节点自身高度算出来的落点换算到屏幕是 y = 10，
+   * 而工作区从 y = 15 起 —— 那一下**点进了壳层的 15px 留白里**，永远点不到，
+   * Playwright 只能一直重试到超时（报「被某元素拦截」，指不到真正原因）。
+   *
+   * 修法是按**屏幕可见范围**夹一次：优先落节点下半部，但绝不越出工作区上沿。
+   * 这不是放宽断言 —— "节点顶到顶端时跟随栏仍在其上方"那条判据一点没动。
+   */
   const nAfter0 = await gen.boundingBox()
-  await gen.click({ position: { x: 14, y: Math.max(10, nAfter0.height - 20) } })
+  const surfaceBoxTop = 15 // 壳层留白（--shell-gap）；工作区从这条线往下
+  const lowerHalfY = Math.min(nAfter0.height - 20, nAfter0.height - 8)
+  const safeY = Math.max(surfaceBoxTop + 4 - nAfter0.y, lowerHalfY)
+  await gen.click({ position: { x: 14, y: safeY } })
   await sleep(400)
   const bTop = await bar.boundingBox().catch(() => null)
   const nAfter = await gen.boundingBox()
