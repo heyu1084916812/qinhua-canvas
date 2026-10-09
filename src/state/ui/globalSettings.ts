@@ -43,6 +43,12 @@ export type GlobalSettingsSection =
    * 与「技能库」同类：都是"改一次、以后每次生成都用得上"的东西。
    */
   | 'packs'
+  /**
+   * 帮助（对账 #388 / E7）：快捷键 / 常见问题 / 版本与更新 + 重看新手引导。
+   *
+   * 归「系统」组：它不配置任何东西，只回答"我现在卡住了怎么办"。
+   */
+  | 'help'
 
 export interface GlobalSettingsState {
   open: boolean
@@ -79,6 +85,7 @@ export const GLOBAL_SETTINGS_SECTIONS: {
   { id: 'backup', label: '备份与恢复', group: '数据' },
   // 「扩展包」（对账 #386 阶段一）：数据型扩展包 —— 技能 + 电商平台规则
   { id: 'packs', label: '扩展包', group: '生成' },
+  { id: 'help', label: '帮助', group: '系统' },
 ]
 
 let state: GlobalSettingsState = { open: false, section: 'channels' }

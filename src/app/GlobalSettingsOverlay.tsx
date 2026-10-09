@@ -7,6 +7,7 @@ import { FontManagerPanel } from '../features/settings/FontManagerPanel'
 import { CanvasLookPanel } from '../features/settings/CanvasLookPanel'
 import { InterfacePanel } from '../features/settings/InterfacePanel'
 import { PackPanel } from '../features/settings/PackPanel'
+import { HelpPanel } from '../features/settings/HelpPanel'
 import { BackupPanel } from '../features/settings/BackupPanel'
 import { IconClose } from './AppSidebarIcons'
 import {
@@ -158,6 +159,8 @@ export function GlobalSettingsOverlay() {
             {section === 'backup' && <BackupPanel key="backup" />}
             {/* 「扩展包」（对账 #386 阶段一）：只装数据（技能 + 电商平台规则），不执行代码 */}
             {section === 'packs' && <PackPanel key="packs" />}
+            {/* 「帮助」（对账 #388 / E7）：快捷键 / 常见问题 / 版本 + 重看新手引导 */}
+            {section === 'help' && <HelpPanel key="help" />}
           </div>
         </div>
       </div>

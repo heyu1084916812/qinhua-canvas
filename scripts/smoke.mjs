@@ -915,6 +915,20 @@ async function checkModelOption(row) {
 async function newCtx(browser, opts = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...opts })
   await ctx.addInitScript(disableFSA)
+  /**
+   * 新手引导（对账 #388）在"没看过"时**任何路由都会弹一次模态** —— 那会把每一组都挡一次。
+   * 冒烟默认当作"已经看过"（与上面的 FSA 同一种处理：把一次性门槛关掉），
+   * 要验引导本身的组自己把这个键清掉（见 G118）。
+   */
+  await ctx.addInitScript(() => {
+    try {
+      localStorage.setItem('flow:onboarded', '1')
+      /* 空画布模板卡片（#388）也一起关掉：它是"按场景出现"的，预置了老用户才不会被每组挡一次 */
+      localStorage.setItem('flow:canvasGuideDismissed', '1')
+    } catch {
+      /* 隐私模式下写不进去：那一档本来也读不出来，引导会再弹一次，测试里没有影响 */
+    }
+  })
   return ctx
 }
 
@@ -22688,7 +22702,131 @@ async function g117(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117]
+// ────────────────────────────────────────────────────────────
+// G118 新手引导与帮助（#388 / E7）：首次引导 → 跳过 → 帮助栏 → 重看 → 空画布模板
+// ────────────────────────────────────────────────────────────
+async function g118(browser) {
+  const g = 'G118 新手引导与帮助'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  /**
+   * 本组要验"没看过"的那一档：把 newCtx 预置的标记清掉。
+   *
+   * ⚠️ **只在第一次导航时清**（用 sessionStorage 记一笔）：init script 每次导航都会跑，
+   * 无条件清的话，"看过之后刷新不再弹"这条永远不成立 —— 刷新时标记又被删了
+   *（第一版就是这么挂的，而且它还会让后面每一步都撞上模态）。
+   */
+  await page.addInitScript(() => {
+    try {
+      if (!sessionStorage.getItem('g118-seeded')) {
+        localStorage.removeItem('flow:onboarded')
+        sessionStorage.setItem('g118-seeded', '1')
+      }
+      /**
+       * 空画布卡片那个标记**每次导航都清**：newCtx 的 init script 每次都把它置上，
+       * 而本组要验的正是"它该出现"这一档。引导标记不能这么清 —— 那会让
+       * "看过之后刷新不再弹"永远不成立（第一版实测就是这么挂的）。
+       */
+      localStorage.removeItem('flow:canvasGuideDismissed')
+    } catch {
+      /* 忽略 */
+    }
+  })
+
+  // ① 首次打开任意路由都弹引导（这里特意走项目页，不是画布页）
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(700)
+  const steps = await page.locator('[data-getting-started] li').count()
+  rec(
+    g,
+    '★★ 没看过引导时，打开应用就弹三步引导（首页 / 项目页也弹，不只画布）',
+    (await page.locator('[data-getting-started]').count()) === 1 && steps === 3,
+    `步骤=${steps}`,
+  )
+
+  // ② ①的按钮真能打开渠道配置（不是只写一句话）
+  await page.locator('[data-onboarding-action]').click()
+  await sleep(500)
+  rec(
+    g,
+    '★★ 第一步的按钮真的打开「全局设置 → 渠道配置」，且引导自己关掉',
+    (await page.locator('[data-global-settings-tab="channels"]').getAttribute('aria-pressed')) ===
+      'true' && (await page.locator('[data-getting-started]').count()) === 0,
+  )
+
+  // ③ 看过标记落盘：刷新不再弹
+  await page.keyboard.press('Escape')
+  await sleep(300)
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(600)
+  rec(g, '★ 看过之后刷新不再弹（标记落在本机）', (await page.locator('[data-getting-started]').count()) === 0)
+
+  // ④ 帮助栏：快捷键 / 常见问题 / 版本号三条都在
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(350)
+  await page.locator('[data-global-settings-tab="help"]').click()
+  await sleep(350)
+  const shortcutRows = await page.locator('[data-help-shortcut]').count()
+  const faqRows = await page.locator('[data-help-faq]').count()
+  const versionText = await page.locator('[data-help-version]').innerText().catch(() => '')
+  rec(
+    g,
+    '★★ 「设置 → 帮助」三条都在：快捷键清单 / 常见问题 / 版本与更新',
+    shortcutRows >= 12 && faqRows >= 5 && /当前版本 \d+\.\d+\.\d+/.test(versionText),
+    `快捷键=${shortcutRows} 常见问题=${faqRows} 版本=${versionText.slice(0, 24)}`,
+  )
+
+  // ⑤ 重看：按钮把引导叫回来
+  await page.locator('[data-help-replay]').click()
+  await sleep(400)
+  rec(g, '★★ 「重看新手引导」立刻把引导叫回来（可重看）', (await page.locator('[data-getting-started]').count()) === 1)
+  await page.locator('[data-onboarding-skip]').click()
+  await sleep(300)
+  rec(g, '★ 跳过 = 关掉且不再自动弹（用户的明确选择，不该反复打扰）', (await page.locator('[data-getting-started]').count()) === 0)
+
+  /**
+   * ⑥ 空画布：模板直达。
+   *
+   * 这里**不能**再把 `flow:onboarded` 清掉 —— 那会让模态重新弹出来，把建项目的按钮挡掉
+   * （第一版就是这么挂的）。要用的是"看过引导、但还没选过模板"这一档：
+   * 引导模态不弹，空画布卡片出现。
+   */
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(500)
+  await page.locator('[data-new-project]').first().click().catch(async () => {
+    await page.locator('[data-new-card]').click()
+    await page.locator('[data-new-workbench="canvas"]').click()
+  })
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+  const picks = await page
+    .locator('[data-empty-template]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-empty-template')))
+  rec(
+    g,
+    '★★ 新用户的空画布给三个模板直达（批量出图 / 图生视频 / 图生图）',
+    (await page.locator('[data-empty-canvas-guide]').count()) === 1 &&
+      JSON.stringify(picks) === JSON.stringify(['batch-img', 'img2video', 'img2img']),
+    picks.join(','),
+  )
+  await page.locator('[data-empty-template="batch-img"]').click()
+  await sleep(900)
+  const nodes = await page.locator('[data-node-id]').count()
+  rec(
+    g,
+    '★★ 点模板后节点真的落下来，卡片自己消失（不是遮在画布上）',
+    nodes > 0 && (await page.locator('[data-empty-canvas-guide]').count()) === 0,
+    `节点=${nodes}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/118-g118-onboarding.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

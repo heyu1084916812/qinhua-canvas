@@ -46,6 +46,7 @@ import { isChildEdge } from './childEdges'
 import { FlowPortLayer } from './FlowPortLayer'
 import { FlowDraftLayer } from './FlowDraftLayer'
 import { FlowSnapLayer } from './FlowSnapLayer'
+import { EmptyCanvasGuide } from '../surface/EmptyCanvasGuide'
 import { MultiSelectBar } from '../toolbar/MultiSelectBar'
 import { sourcePortOf, targetPortOf } from '../../../domain/canvas/model/edge'
 import { describeError } from '../../../shared/result'
@@ -381,6 +382,9 @@ function FlowSurfaceInner({
            * 实测（G15）：组被清空选中 ⇒ 跟随栏整条消失，后面「排列与整理」再也点不到。
            */
           ' [data-flow-port-hit]'
+          /* 空画布的模板卡片（对账 #388）：它也是"浮在画布上的一层"，
+             点它不该被当成点空白 —— 同一个枚举式豁免名单，别漏。 */
+          + ' [data-empty-canvas-guide]'
         if (target.closest(floating)) return
         if (store.getSelection().length > 0) store.setSelection([])
         return
@@ -1188,6 +1192,8 @@ function FlowSurfaceInner({
         )}
       </ReactFlow>
       <Hud count={graph.nodes.length} ids={nodes.map((n) => n.id)} />
+      {/* 空画布 + 还没看过新手引导时，给三个模板直达（对账 #388 / E7） */}
+      <EmptyCanvasGuide />
       {/*
        * 工作区浮层：**直接复用老表面那一套**（它们都自成一体、只读 store），
        * 换引擎不该把创作面板、跟随栏、右键菜单、提示与撤销条重写一遍。

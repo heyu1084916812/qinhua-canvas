@@ -4,6 +4,7 @@ import { GlobalSettingsOverlay } from './GlobalSettingsOverlay'
 import { TitleBar } from './TitleBar'
 import { UpdateNotice } from './UpdateNotice'
 import { ThumbBackfill } from './ThumbBackfill'
+import { GettingStarted } from '../features/onboarding/GettingStarted'
 import {
   SIDEBAR_COLLAPSED_W,
   getSidebarOpen,
@@ -99,6 +100,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       <UpdateNotice />
       {/* 全局设置浮层（对账 #259）：挂在这一层，任何路由都能打开 */}
       <GlobalSettingsOverlay />
+      {/* 首次使用引导（对账 #388 / E7）：看没看过只认本机标记；跳过 / 看完都不再自动弹 */}
+      <GettingStarted />
       {/* 存量素材缩略图的一次性补图（对账 #232）：没有界面，进画布自动让路 */}
       <ThumbBackfill />
     </div>
