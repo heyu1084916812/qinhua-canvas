@@ -9,6 +9,7 @@ import { InterfacePanel } from '../features/settings/InterfacePanel'
 import { PackPanel } from '../features/settings/PackPanel'
 import { HelpPanel } from '../features/settings/HelpPanel'
 import { AboutPanel } from '../features/settings/AboutPanel'
+import { DefaultParamsPanel } from '../features/settings/DefaultParamsPanel'
 import { BackupPanel } from '../features/settings/BackupPanel'
 import { IconClose } from './AppSidebarIcons'
 import {
@@ -160,6 +161,8 @@ export function GlobalSettingsOverlay() {
             {section === 'backup' && <BackupPanel key="backup" />}
             {/* 「扩展包」（对账 #386 阶段一）：只装数据（技能 + 电商平台规则），不执行代码 */}
             {section === 'packs' && <PackPanel key="packs" />}
+            {/* 「默认参数」（对账 #386 的 E4）：默认模型 / 比例 / 画质 / 张数 + 记住上次参数 */}
+            {section === 'defaults' && <DefaultParamsPanel key="defaults" />}
             {/* 「帮助」（对账 #388 / E7）：快捷键 / 常见问题 / 版本 + 重看新手引导 */}
             {section === 'help' && <HelpPanel key="help" />}
             {/* 「关于与隐私」（对账 #386 的 E6）：五段如实说明 + 隐私声明 */}

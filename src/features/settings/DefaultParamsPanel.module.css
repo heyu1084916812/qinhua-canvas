@@ -1,0 +1,221 @@
+/* 「生成 → 默认参数」面板（对账 #386 的 E4）。颜色一律走令牌。 */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.block {
+  border: var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  padding: var(--space-4);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+  color: var(--text-1);
+}
+
+.blockTitle {
+  margin: 0;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.caption {
+  margin: var(--space-2) 0 var(--space-3);
+  font-size: var(--fs-label);
+  line-height: 1.7;
+  color: var(--text-2);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.rowLabel {
+  font-size: var(--fs-body);
+  color: var(--text-1);
+}
+
+.segments {
+  display: inline-flex;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+
+.seg {
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.seg + .seg {
+  border-left: var(--border);
+}
+
+.segOn {
+  background: var(--bg-subtle);
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.current {
+  margin: var(--space-3) 0;
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  word-break: break-all;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.fieldLabel {
+  font-size: var(--fs-chip);
+  color: var(--text-2);
+}
+
+.select,
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-label);
+}
+
+.select:disabled,
+.input:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.save {
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: var(--fs-label);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.status {
+  font-size: var(--fs-label);
+  color: var(--text-2);
+}
+
+/* 开关：与「主题与动效」那块同一套做法（隐形 checkbox 盖在轨道上） */
+.switchRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.switchBox {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.switchInput {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  z-index: 1;
+  cursor: pointer;
+}
+
+.track {
+  width: 36px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  position: relative;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  transition: transform var(--dur-hover) var(--ease-out);
+}
+
+.switchInput:checked + .track {
+  background: var(--accent);
+}
+
+.switchInput:checked + .track::after {
+  transform: translateX(16px);
+}
+
+.switchInput:focus-visible + .track {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seg,
+  .save,
+  .track,
+  .track::after {
+    transition: none;
+  }
+}

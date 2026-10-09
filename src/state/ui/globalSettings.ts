@@ -55,6 +55,12 @@ export type GlobalSettingsSection =
    * 与「帮助」分开：帮助回答"怎么用"，这里回答"交给你用之前我要知道的事"。
    */
   | 'about'
+  /**
+   * 默认参数（对账 #386 的 E4）：默认模型 / 比例 / 画质 / 张数 + 记住上次参数。
+   *
+   * 归「生成」组：它改的正是"新建节点时填什么"。
+   */
+  | 'defaults'
 
 export interface GlobalSettingsState {
   open: boolean
@@ -90,6 +96,7 @@ export const GLOBAL_SETTINGS_SECTIONS: {
   // 「备份与恢复」（用户 2026-10-09）：全量备份导出 / 导入（#378）
   { id: 'backup', label: '备份与恢复', group: '数据' },
   // 「扩展包」（对账 #386 阶段一）：数据型扩展包 —— 技能 + 电商平台规则
+  { id: 'defaults', label: '默认参数', group: '生成' },
   { id: 'packs', label: '扩展包', group: '生成' },
   { id: 'help', label: '帮助', group: '系统' },
   { id: 'about', label: '关于与隐私', group: '系统' },

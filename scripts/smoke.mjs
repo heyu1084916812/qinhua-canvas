@@ -22841,7 +22841,146 @@ async function g118(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118]
+// ────────────────────────────────────────────────────────────
+// G119 默认参数（#386 的 E4）：设置里存默认 → 新节点真的用它 → 记住开关关掉后不带走
+// ────────────────────────────────────────────────────────────
+async function g119(browser) {
+  const g = 'G119 默认参数'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  /** 从库里读一个节点行（判据落在**真落库的数据**上，不看界面显示） */
+  const nodeRowOf = (id) =>
+    page.evaluate(
+      async (nodeId) => {
+        const db = await new Promise((resolve, reject) => {
+          const req = indexedDB.open('qinghua')
+          req.onsuccess = () => resolve(req.result)
+          req.onerror = () => reject(req.error)
+        })
+        const row = await new Promise((resolve) => {
+          const r = db.transaction('nodes', 'readonly').objectStore('nodes').get(nodeId)
+          r.onsuccess = () => resolve(r.result ?? null)
+          r.onerror = () => resolve(null)
+        })
+        db.close()
+        return row
+      },
+      id,
+    )
+
+  /** 新建一个生成节点，等落库后返回它的行 */
+  const addGenerationNode = async () => {
+    await page.locator('[data-toolbar-add]').click()
+    await page.locator('[data-toolbar-menu-item="generation"]').click()
+    await sleep(1600) // 800ms 防抖 + 余量
+    const id = await page.locator('[data-node-id]').last().getAttribute('data-node-id')
+    return nodeRowOf(id)
+  }
+
+  // 先配一条 mock 渠道（默认参数那条链只认**已启用**的渠道）
+  await configureMockChannel(page)
+  await sleep(600)
+
+  // ① 面板在，且"当前默认"是真算出来的（不是空壳）
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(500)
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(350)
+  await page.locator('[data-global-settings-tab="defaults"]').click()
+  await sleep(500)
+  const current = await page.locator('[data-defaults-current]').innerText().catch(() => '')
+  rec(
+    g,
+    '★★ 「设置 → 默认参数」显示当前默认（渠道 + 模型），不是空壳',
+    (await page.locator('[data-defaults-panel]').count()) === 1 &&
+      current.includes('当前默认') &&
+      !current.includes('还没有可用模型'),
+    current.replace(/\n/g, ' ').slice(0, 60),
+  )
+
+  // ② 改默认：模型 + 比例 + 张数 → 保存
+  await page.locator('[data-defaults-model]').selectOption('Nano Banana 2')
+  await page.locator('[data-defaults-ratio]').selectOption('4:3')
+  await page.locator('[data-defaults-count]').fill('2')
+  await page.locator('[data-defaults-save]').click()
+  await sleep(500)
+  rec(
+    g,
+    '★ 保存后有明确回执（"下一个新建的生成节点会用这套"）',
+    (await page.locator('[data-defaults-status]').innerText().catch(() => '')).includes('已保存'),
+  )
+
+  // ③ 真建一个节点：库里的 model / ratio / count 就是刚保存的那套
+  await page.keyboard.press('Escape')
+  await sleep(300)
+  await page.locator('[data-sidebar-item="/projects"]').click()
+  await sleep(500)
+  const newCard = page.locator('[data-new-project]').first()
+  if (await newCard.count()) await newCard.click()
+  else {
+    await page.locator('[data-new-card]').click()
+    await page.locator('[data-new-workbench="canvas"]').click()
+  }
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+  const row1 = await addGenerationNode()
+  rec(
+    g,
+    '★★★ 保存的默认值真的落到新节点上（库里 model=Nano Banana 2 / ratio=4:3 / count=2）',
+    row1?.data?.model === 'Nano Banana 2' && row1?.data?.ratio === '4:3' && row1?.data?.count === 2,
+    JSON.stringify({ model: row1?.data?.model, ratio: row1?.data?.ratio, count: row1?.data?.count }),
+  )
+
+  // ④ 关掉「记住上次参数」→ 刷新后仍是关（选择要落盘）
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(350)
+  await page.locator('[data-global-settings-tab="defaults"]').click()
+  await sleep(450)
+  await page.locator('[data-defaults-memory]').uncheck()
+  await sleep(400)
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(700)
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(350)
+  await page.locator('[data-global-settings-tab="defaults"]').click()
+  await sleep(450)
+  rec(
+    g,
+    '★★ 「记住上次参数」的选择落盘：刷新后仍是关',
+    (await page.locator('[data-defaults-memory]').isChecked()) === false,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(300)
+
+  // ⑤ 关掉之后：画布上改比例不再带走默认 —— 下一个新节点仍是 4:3
+  await page.locator('[data-sidebar-item="/projects"]').click()
+  await sleep(500)
+  await page.locator('[data-project-card]').first().click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(1000)
+  const firstNode = page.locator('[data-node-id]').first()
+  await firstNode.click()
+  await sleep(500)
+  const panel = page.locator('[data-creation-panel]')
+  await pickParam(panel, 'ratio', '16:9')
+  await sleep(400)
+  const row2 = await addGenerationNode()
+  rec(
+    g,
+    '★★★ 关掉记忆后，画布上随手改的 16:9 **不会**带走默认 —— 新节点仍是保存的 4:3',
+    row2?.data?.ratio === '4:3',
+    `新节点比例=${String(row2?.data?.ratio)}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/119-g119-defaults.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

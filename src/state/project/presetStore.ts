@@ -50,6 +50,15 @@ const AGENT_DEFAULT_ROW_ID = 'agent:default'
  */
 const SKILL_FAVORITES_ROW_ID = 'skill:favorites'
 
+/**
+ * 「记住上次参数」开关的保留行 id（对账 #386 的 E4）。
+ *
+ * 与配方同表：它管的就是「配方要不要跟着面板改动走」。
+ * 默认**开**（开 = 现状：改了参数就记住），关掉之后面板改动不再改默认值 ——
+ * 这正是"我要一套固定默认，别被随手一改带走"的场景。
+ */
+const RECIPE_MEMORY_ROW_ID = 'ui:recipeMemory'
+
 export interface AgentDefaultModel {
   channelId: string
   model: string
@@ -67,6 +76,9 @@ export interface PresetStore {
   load(channelId: string): Promise<GenerationRecipe>
   /** 写入该渠道的配方 */
   save(recipe: GenerationRecipe): Promise<void>
+  /** 「记住上次参数」开关（缺行 / 脏值都当**开** —— 默认与现状一致） */
+  loadRecipeMemory(): Promise<boolean>
+  saveRecipeMemory(enabled: boolean): Promise<void>
   /** 一次读回全部配方，供面板兜底时同步查表（避免逐个 await） */
   loadAll(): Promise<Map<string, GenerationRecipe>>
   /** 读取全局选路策略；没有 / 数据不可信时回落 `priority` */
@@ -99,6 +111,23 @@ export function createPresetStore(storage: StoragePort): PresetStore {
         await storage.put('presets', recipeToRow(recipe) as never)
       } catch {
         // 偏好写不进去不该打断生成流程：最坏情况只是下次还得手选
+      }
+    },
+    async loadRecipeMemory() {
+      try {
+        const rows = await storage.query('presets', { id: RECIPE_MEMORY_ROW_ID })
+        const raw = (rows[0] as { enabled?: unknown } | undefined)?.enabled
+        /* 只有**明确的 false** 才算关；缺行 / 脏值一律当开（与"现状就是记住"一致） */
+        return raw !== false
+      } catch {
+        return true
+      }
+    },
+    async saveRecipeMemory(enabled) {
+      try {
+        await storage.put('presets', { id: RECIPE_MEMORY_ROW_ID, enabled } as never)
+      } catch {
+        /* 同上：写不进去只影响下次启动的默认值 */
       }
     },
     async loadAll() {

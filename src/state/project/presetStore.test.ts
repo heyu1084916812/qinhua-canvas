@@ -77,3 +77,40 @@ describe('Agent 默认模型 · UI 偏好', () => {
     expect(await store().loadSkillFavorites()).toEqual([])
   })
 })
+
+/**
+ * 「记住上次参数」开关（对账 #386 的 E4）。
+ *
+ * 它住 `presets` 的保留行 `ui:recipeMemory`，与配方同表、语义相反：
+ * 配方是「记住什么」，它是「要不要跟着面板改动记」。
+ * 默认必须是**开** —— 关掉是用户显式选择；缺行 / 脏值都不许改掉老用户的行为。
+ */
+describe('记住上次参数 · 开关（ui:recipeMemory）', () => {
+  it('★ 缺行 → 当开（与「现状就是记住」一致）', async () => {
+    expect(await store().loadRecipeMemory()).toBe(true)
+  })
+
+  it('★ 只有明确的 false 才算关（其余脏值一律当开）', async () => {
+    const platform = createMemoryPlatform()
+    for (const enabled of ['no', 0, null, undefined, {}]) {
+      await platform.storage.put('presets', { id: 'ui:recipeMemory', enabled } as never)
+      expect(await createPresetStore(platform.storage).loadRecipeMemory()).toBe(true)
+    }
+  })
+
+  it('★ 存 false 读回 false、存 true 读回 true（换实例 = 刷新后仍然生效）', async () => {
+    const platform = createMemoryPlatform()
+    const s = createPresetStore(platform.storage)
+    await s.saveRecipeMemory(false)
+    expect(await createPresetStore(platform.storage).loadRecipeMemory()).toBe(false)
+    await s.saveRecipeMemory(true)
+    expect(await createPresetStore(platform.storage).loadRecipeMemory()).toBe(true)
+  })
+
+  it('★★ 开关行不会被 loadAll 当成配方读进来（同表第五样偏好）', async () => {
+    const s = store()
+    await s.save({ channelId: 'c1', model: 'mock-image-1', params: {}, savedAt: 1 })
+    await s.saveRecipeMemory(false)
+    expect([...(await s.loadAll()).keys()]).toEqual(['c1'])
+  })
+})

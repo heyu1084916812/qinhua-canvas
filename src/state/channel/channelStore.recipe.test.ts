@@ -247,3 +247,71 @@ describe('生成配方记忆 · 新建节点要记住上次生成那套', () => 
 function sleepTiny() {
   return new Promise((r) => setTimeout(r, 0))
 }
+
+/**
+ * 「记住上次参数」开关关掉后的语义（对账 #386 的 E4）。
+ *
+ * 关掉 ≠ 没有默认值。它只拦「面板里随手改动被记成默认」这一条路；
+ * 「保存为默认」是**显式**动作，任何状态下都得生效 ——
+ * 否则用户关掉开关之后，就再也没法设默认了。
+ */
+describe('记住上次参数 · 关掉开关之后', () => {
+  it('★★★ 随手改参数不再带走默认 —— 缓存与库里都不留', async () => {
+    const { store, platform } = await storeWith([channel('ch-1', ['a-img', 'b-img'])])
+    await store.setRecipeMemory(false)
+    // 模拟「在面板里把比例改成 16:9、张数改成 2」这一下
+    await store.rememberRecipe('ch-1', 'b-img', { ratio: '16:9', count: 2 })
+
+    // ① 同会话：新建仍走兜底（渠道第一个模型），不是刚改过的 b-img
+    const recipe = await store.defaultForNewNode({}, 'image')
+    expect(recipe?.channelId).toBe('ch-1')
+    expect(recipe?.model).toBe('a-img')
+
+    // ② 库里：连配方行都不该出现 ——
+    //    「只跳过落库不清缓存」或「只跳过缓存不落库」都会在这一条上露馅
+    const rows = await platform.storage.query('presets', {})
+    expect(rows.some((r) => r.id === 'recipe:ch-1')).toBe(false)
+
+    // ③ 换实例（≈刷新）：依旧没有那份配方
+    const fresh = createChannelStore(platform)
+    await fresh.load()
+    expect((await fresh.defaultForNewNode({}, 'image'))?.model).toBe('a-img')
+  })
+
+  it('★★★ 关掉之后「保存为默认」仍然生效（显式动作不受开关管）', async () => {
+    const { store, platform } = await storeWith([channel('ch-1', ['a-img', 'b-img'])])
+    await store.setRecipeMemory(false)
+    await store.setDefaultRecipe('ch-1', 'b-img', { ratio: '4:3', count: 2 })
+
+    const fresh = createChannelStore(platform)
+    await fresh.load()
+    const recipe = await fresh.defaultForNewNode({}, 'image')
+    expect(recipe?.channelId).toBe('ch-1')
+    expect(recipe?.model).toBe('b-img')
+    expect(recipe?.params).toMatchObject({ ratio: '4:3', count: 2 })
+  })
+
+  it('★★ 开关本身落库：换实例读回仍是关（刷新不许自己变回开）', async () => {
+    const { store, platform } = await storeWith([channel('ch-1', ['a-img'])])
+    expect(store.getState().recipeMemory).toBe(true)
+    await store.setRecipeMemory(false)
+    expect(store.getState().recipeMemory).toBe(false)
+
+    const fresh = createChannelStore(platform)
+    await fresh.load()
+    expect(fresh.getState().recipeMemory).toBe(false)
+  })
+
+  it('★ 重新打开后随手改参数又能记住（不是一次性打死）', async () => {
+    const { store } = await storeWith([channel('ch-1', ['a-img', 'b-img'])])
+    await store.setRecipeMemory(false)
+    await store.rememberRecipe('ch-1', 'b-img', { ratio: '16:9' })
+    expect((await store.defaultForNewNode({}, 'image'))?.model).toBe('a-img')
+
+    await store.setRecipeMemory(true)
+    await store.rememberRecipe('ch-1', 'b-img', { ratio: '16:9' })
+    const after = await store.defaultForNewNode({}, 'image')
+    expect(after?.model).toBe('b-img')
+    expect(after?.params).toMatchObject({ ratio: '16:9' })
+  })
+})

@@ -91,6 +91,13 @@ export interface ChannelStoreState {
    * 全局问题；放进每条渠道的表单会变成「用哪条渠道的策略」这种说不清的问题。
    */
   routeStrategy: RouteStrategy
+  /**
+   * 「记住上次参数」是否生效（对账 #386 的 E4）。
+   *
+   * 开（默认）= 现状：画布上改一次参数，下一个新节点就继承它。
+   * 关 = 默认值只认「设置 → 默认参数」里那一份，随手改动不再带走它。
+   */
+  recipeMemory: boolean
   /** 用户自建协议（内置协议不在这里，见 domain/project/protocol 的目录） */
   customProtocols: ProtocolDefinition[]
   loaded: boolean
@@ -165,6 +172,16 @@ export interface ChannelStoreActions {
     model: string,
     params: Record<string, unknown>,
   ): Promise<void>
+  /** 切换「记住上次参数」；会立刻落库（下次启动还认这个选择） */
+  setRecipeMemory(enabled: boolean): Promise<void>
+  /**
+   * **显式**设定某条渠道的默认配方（设置 → 默认参数里的"保存"）。
+   *
+   * 与 `rememberRecipe` 的区别：那是"随手改动顺便记住"，受「记住上次参数」开关管；
+   * 这是用户在设置里**明确点保存**，开关关掉时也要生效 ——
+   * 否则"关掉记忆"就等于"再也改不动默认值"，那明显不是用户要的。
+   */
+  setDefaultRecipe(channelId: string, model: string, params: Record<string, unknown>): Promise<void>
   /**
    * 给节点解析「该填的渠道 / 模型 / 参数」。
    *
@@ -236,6 +253,7 @@ export function createChannelStore(
   const store = createVanillaStore<ChannelStoreState>(() => ({
     channels: [],
     routeStrategy: 'priority',
+    recipeMemory: true,
     customProtocols: [],
     loaded: false,
     verify: { status: 'idle' },
@@ -272,7 +290,7 @@ export function createChannelStore(
      * 配方**不在这里预读**：它是按项目的，而 store 这一层不知道当前是哪个项目。
      * 改成 `defaultForNewNode(projectId)` 时按需读一次（结果进 recipeCache）。
      */
-    const [channels, customRows, routeStrategy] = await Promise.all([
+    const [channels, customRows, routeStrategy, recipeMemory] = await Promise.all([
       /**
        * ★ 读表时**补齐三条内置渠道**（用户第 20 批）：它们常驻、置顶、不可删。
        * 补齐放在仓储里（写行的唯一入口），这里只负责取"补完之后的整表"。
@@ -280,11 +298,12 @@ export function createChannelStore(
       seedBuiltins ? repo.seedBuiltins() : repo.list(),
       platform.storage.query('customProtocols', {}),
       presets.loadRoutingStrategy(),
+      presets.loadRecipeMemory(),
     ])
     const customProtocols = customRows
       .map((r) => toCustomDefinition(r as Record<string, unknown>))
       .filter((p): p is ProtocolDefinition => p !== null)
-    store.setState({ channels, customProtocols, routeStrategy, loaded: true })
+    store.setState({ channels, customProtocols, routeStrategy, recipeMemory, loaded: true })
   }
 
   const createCustomProtocol: ChannelStoreActions['createCustomProtocol'] = async (input) => {
@@ -631,15 +650,38 @@ export function createChannelStore(
     cacheLoaded = true
   }
 
+  /** 写默认配方的唯一实现（内存缓存 + 落库，两处调用方共用） */
+  const writeDefaultRecipe = async (
+    channelId: string,
+    model: string,
+    params: Record<string, unknown>,
+  ): Promise<void> => {
+    const next = rememberRecipe(channelId, model, params, nextRecipeAt())
+    if (!next) return
+    recipeCache.set(channelId, next)
+    await presets.save(next)
+  }
+
+  const setDefaultRecipe: ChannelStoreActions['setDefaultRecipe'] = writeDefaultRecipe
+
   const rememberRecipeOfChannel: ChannelStoreActions['rememberRecipe'] = async (
     channelId,
     model,
     params,
   ) => {
-    const next = rememberRecipe(channelId, model, params, nextRecipeAt())
-    if (!next) return
-    recipeCache.set(channelId, next)
-    await presets.save(next)
+    /**
+     * 「记住上次参数」关掉时**整个跳过**：既不落库、也不更新内存里的配方缓存。
+     *
+     * 只跳过落库是不够的 —— `resolveForNode` 读的就是这份缓存，
+     * 不跳过的话"本次会话里默认值还是被带走了"，而用户明明关了开关。
+     */
+    if (!store.getState().recipeMemory) return
+    await writeDefaultRecipe(channelId, model, params)
+  }
+
+  const setRecipeMemory: ChannelStoreActions['setRecipeMemory'] = async (enabled) => {
+    store.setState({ recipeMemory: enabled })
+    await presets.saveRecipeMemory(enabled)
   }
 
   const defaultForNewNode: ChannelStoreActions['defaultForNewNode'] = async (node, category) => {
@@ -720,6 +762,8 @@ export function createChannelStore(
     refreshModels,
     enabledChannels,
     rememberRecipe: rememberRecipeOfChannel,
+    setRecipeMemory,
+    setDefaultRecipe,
     defaultForNewNode,
     completeWithTools,
   }
