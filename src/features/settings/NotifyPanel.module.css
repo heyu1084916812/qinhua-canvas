@@ -5,12 +5,14 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  /* 左右边界与「渠道配置」对齐（用户 2026-10-09）：全局设置所有栏目统一 24px */
+  padding: var(--space-5) var(--space-6) var(--space-8);
 }
 
 .block {
-  border: var(--border);
+  /* 无描边容器：只靠实色底分层（浅色下 `--bg-surface` 与页面同色 = 看着没有背景） */
   border-radius: 8px;
-  background: var(--bg-surface);
+  background: var(--bg-subtle);
   padding: var(--space-4);
 }
 

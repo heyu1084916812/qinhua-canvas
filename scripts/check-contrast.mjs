@@ -133,6 +133,7 @@ const GRID_MAX = 3
 const problems = []
 let worstText = Infinity
 let worstGrid = Infinity
+let worstPanel = Infinity
 
 for (const [themeLabel, scope] of [
   ['浅色', light],
@@ -163,6 +164,26 @@ for (const [themeLabel, scope] of [
       )
     }
   }
+  /**
+   * ③ **面板容器底色上的文字**（2026-10-09 加）。
+   *
+   * 全局设置的容器底从 `--bg-surface` 改成 `--bg-subtle` 之后，次级文字落在
+   * `#f5f5f5` 上而不是白底 —— 浅色下那条正好把 `--text-2` 压到 4.35:1（不达 AA），
+   * 而"肉眼看还行"正是这类问题最容易蒙混过去的地方。两套主题 × 两层底 × 两个文字档，
+   * 全部按正文口径 4.5:1 验。
+   */
+  for (const surface of ['--bg-surface', '--bg-subtle']) {
+    const bg = resolve(surface, scope)
+    for (const textToken of ['--text-1', '--text-2']) {
+      const t = contrast(resolve(textToken, scope), bg)
+      worstPanel = Math.min(worstPanel, t)
+      if (t < TEXT_MIN) {
+        problems.push(
+          `${themeLabel} · ${surface} 上的 ${textToken}：${t.toFixed(2)}:1 < ${TEXT_MIN}:1`,
+        )
+      }
+    }
+  }
 }
 
 if (problems.length) {
@@ -174,5 +195,6 @@ if (problems.length) {
 
 console.log(
   `✔ 对比度守卫通过：正文 ${TONES.length * 2} 组（最低 ${worstText.toFixed(2)}:1 ≥ ${TEXT_MIN}）+ ` +
-    `网格线 ${TONES.length * 2} 组（最低 ${worstGrid.toFixed(2)}:1 ≥ ${GRID_MIN}）`,
+    `网格线 ${TONES.length * 2} 组（最低 ${worstGrid.toFixed(2)}:1 ≥ ${GRID_MIN}）+ ` +
+    `面板底 8 组（最低 ${worstPanel.toFixed(2)}:1 ≥ ${TEXT_MIN}）`,
 )

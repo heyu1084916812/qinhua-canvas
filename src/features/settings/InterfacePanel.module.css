@@ -8,9 +8,9 @@
 }
 
 .block {
-  border: var(--border);
+  /* 无描边容器：只靠实色底分层（浅色下 `--bg-surface` 与页面同色 = 看着没有背景） */
   border-radius: 8px;
-  background: var(--bg-surface);
+  background: var(--bg-subtle);
   padding: var(--space-4);
 }
 

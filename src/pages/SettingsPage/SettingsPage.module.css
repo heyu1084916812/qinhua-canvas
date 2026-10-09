@@ -91,7 +91,14 @@
   justify-content: space-between;
   gap: var(--space-6);
   padding: var(--space-4) var(--space-5);
-  background: var(--bg-surface);
+  /**
+   * 底色换成 `--bg-subtle`（用户 2026-10-09：「浅色主题下这个容器没有背景了，和图二不一致」）。
+   *
+   * 真因：`--bg-surface` 在**浅色**下等于 `--bg-canvas`（都是 #ffffff）⇒ 与页面同色，
+   * 看着就没有背景（暗色下才是 #222222 / #161616 那种分得开的组合）。
+   * `--bg-subtle` 两套主题都比画布深一档，于是「无描边容器」靠实色底就能分层。
+   */
+  background: var(--bg-subtle);
   border-radius: var(--radius-node);
 }
 
@@ -372,12 +379,15 @@
 }
 .itemActive {
   /**
-   * 选中态：换成**卡片底色 + 细细的聚焦描边**，而不是与 hover 一样的灰底。
+   * 选中态：**只用底色**，不描边（用户 2026-10-09：「右边菜单的描边也不要了」）。
+   *
+   * 旧版是「卡片底色 + 聚焦描边」；去掉描边后靠 `--bg-surface` 与左栏 `--bg-subtle`
+   * 的色差区分「现在编辑的是这条」，与 hover 的 `--bg-hover` 仍是两档。
+   *
    * 之前 hover 和选中是同一块 `--bg-hover`，一眼分不出「鼠标停在这」与
    * 「现在编辑的是这条」（用户 2026-09-28 要求隐性选中态，但要有区分）。
    */
   background: var(--bg-surface);
-  border-color: var(--stroke-focus);
 }
 .item:active {
   cursor: grabbing;
@@ -563,7 +573,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  border: var(--border);
+  /* 无描边容器（用户 2026-10-09）：只留 `--bg-subtle` 实色底 */
   border-radius: var(--radius-control);
   background: var(--bg-subtle);
   padding: var(--space-4);
@@ -762,7 +772,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  border: var(--border);
+  /* 无描边容器（同上）：靠 `--bg-surface` 与卡片底色的差分层 */
   border-radius: var(--radius-control);
   background: var(--bg-surface);
   padding: var(--space-3);
@@ -1009,7 +1019,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  border: var(--border);
+  /* 无描边容器（用户 2026-10-09）：只留 `--bg-subtle` 实色底 */
   border-radius: var(--radius-control);
   background: var(--bg-subtle);
   padding: var(--space-3);

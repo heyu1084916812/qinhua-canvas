@@ -8,9 +8,9 @@
 }
 
 .block {
-  border: var(--border);
+  /* 无描边容器：只靠实色底分层（浅色下 `--bg-surface` 与页面同色 = 看着没有背景） */
   border-radius: 8px;
-  background: var(--bg-surface);
+  background: var(--bg-subtle);
   padding: var(--space-4);
 }
 
@@ -53,16 +53,17 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  border: var(--border);
+  /* 无描边容器（用户 2026-10-09）：行本身不铺底，选中的那条才用实色底"浮"出来 */
+  border: none;
   border-radius: var(--radius-control);
-  background: var(--bg-surface);
+  background: transparent;
   padding: var(--space-2) var(--space-3);
   min-height: 56px;
 }
 
 .itemOn {
-  border-color: var(--accent);
-  background: var(--bg-subtle);
+  /* 选中态只靠实色底：与未选中的透明行形成两档，不再画一圈强调描边 */
+  background: var(--bg-surface);
 }
 
 .chooseArea {

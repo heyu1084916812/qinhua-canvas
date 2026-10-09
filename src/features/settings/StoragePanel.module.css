@@ -5,8 +5,9 @@
 .panel {
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
-  padding: var(--space-6) var(--space-5) var(--space-8);
+  gap: var(--space-4);
+  /* 左右边界与「渠道配置」对齐（用户 2026-10-09）：全局设置所有栏目统一 24px */
+  padding: var(--space-5) var(--space-6) var(--space-8);
   overflow-y: auto;
   height: 100%;
 }
@@ -15,12 +16,15 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding-bottom: var(--space-5);
-  border-bottom: var(--border);
-}
-
-.block:last-of-type {
-  border-bottom: none;
+  /**
+   * 与其他栏目一致的**无描边实色容器**（用户 2026-10-09）。
+   *
+   * 原来这一栏靠 `border-bottom` 细线把四段隔开 —— 全站统一去描边之后，
+   * 那几道线在"其他栏目都是实色块"的对照下反而显眼，改成和「关于与隐私」同一种卡片。
+   */
+  padding: var(--space-4);
+  border-radius: 8px;
+  background: var(--bg-subtle);
 }
 
 .title {

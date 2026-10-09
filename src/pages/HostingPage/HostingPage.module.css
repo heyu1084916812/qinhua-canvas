@@ -1,8 +1,9 @@
 ﻿/* 素材传输设置页（用户 2026-10-03）：单卡片、居中、只用主题令牌 */
 .page {
-  max-width: 720px;
+  /* 左右边界与「渠道配置」对齐（用户 2026-10-09）：全局设置所有栏目统一 24px */
+  max-width: 1120px;
   margin: 0 auto;
-  padding: 48px 24px 64px;
+  padding: var(--space-5) var(--space-6) var(--space-8);
 }
 
 .title {
@@ -20,9 +21,9 @@
 }
 
 .card {
-  border: 1px solid var(--stroke);
+  /* 无描边容器：只靠实色底分层（浅色下 `--bg-surface` 与页面同色 = 看着没有背景） */
   border-radius: 8px;
-  background: var(--bg-surface);
+  background: var(--bg-subtle);
   padding: 20px;
   display: flex;
   flex-direction: column;

@@ -23111,7 +23111,152 @@ async function g120(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120]
+// ────────────────────────────────────────────────────────────
+// G121 全局设置版式（用户 2026-10-09）：
+//   ① 所有栏目的左右边界统一到「渠道配置」那一档（内容区 24px 内距）；
+//   ② 实色容器一律**不描边**；③ 浅色主题下容器必须有**实色底**（与页面底色分得开）。
+// ────────────────────────────────────────────────────────────
+async function g121(browser) {
+  const g = 'G121 全局设置版式'
+  const ctx = await newCtx(browser)
+  /** 固定浅色：图三那条问题只在浅色下出现，暗色下 `--bg-surface` 本来就分得开 */
+  await ctx.addInitScript(() => {
+    try {
+      localStorage.setItem('flow:theme', 'light')
+    } catch {
+      /* 忽略 */
+    }
+  })
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  /**
+   * 量当前栏目里所有「实色容器」的左右边界 / 描边 / 底色。
+   *
+   * 判据取自**眼睛看到的那一层**：有实色底、够宽够高、又不是铺满整条内容区的
+   * 外层壳（那种是滚动容器本身）。这样量到的就是用户说的"边界"。
+   */
+  const measure = () =>
+    page.evaluate(() => {
+      const body = document.querySelector('[data-global-settings-body]')
+      const content = body?.lastElementChild
+      if (!content) return null
+      const cb = content.getBoundingClientRect()
+      const found = []
+      for (const el of content.querySelectorAll('*')) {
+        const cs = getComputedStyle(el)
+        if (cs.backgroundColor === 'rgba(0, 0, 0, 0)') continue
+        const b = el.getBoundingClientRect()
+        if (b.width < 320 || b.height < 40) continue
+        if (b.width > cb.width - 40) continue
+        found.push({
+          left: Math.round(b.left),
+          right: Math.round(b.right),
+          border: cs.borderTopWidth,
+          bg: cs.backgroundColor,
+        })
+      }
+      return {
+        contentBg: getComputedStyle(document.querySelector('[data-global-settings-panel]')).backgroundColor,
+        content: { left: Math.round(cb.left), right: Math.round(cb.right) },
+        found,
+      }
+    })
+
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(500)
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(400)
+
+  const TABS = [
+    'channels',
+    'cli',
+    'hosting',
+    'storage',
+    'appearance',
+    'backup',
+    'defaults',
+    'packs',
+    'notify',
+    'help',
+    'about',
+  ]
+  const rows = []
+  let stripBg = null
+  for (const tab of TABS) {
+    await page.locator(`[data-global-settings-tab="${tab}"]`).click()
+    await sleep(320)
+    const m = await measure()
+    if (!m || m.found.length === 0) {
+      rows.push({ tab, left: null, right: null, borders: -1, bg: null })
+      continue
+    }
+    const left = Math.min(...m.found.map((x) => x.left))
+    const right = Math.max(...m.found.map((x) => x.right))
+    rows.push({
+      tab,
+      left,
+      right,
+      borders: m.found.filter((x) => x.border !== '0px').length,
+      bg: m.found[0].bg,
+      pageBg: m.contentBg,
+    })
+    if (tab === 'channels') stripBg = await page.locator('[data-settings-global-route]').evaluate((el) => getComputedStyle(el).backgroundColor)
+  }
+
+  const ref = rows.find((r) => r.tab === 'channels')
+  const bad = rows.filter((r) => r.left !== ref.left || r.right !== ref.right)
+  rec(
+    g,
+    '★★ 十一栏的左右边界与「渠道配置」完全一致（内容区 24px 内距）',
+    ref.left !== null && bad.length === 0,
+    bad.length
+      ? bad.map((r) => `${r.tab}:${r.left}~${r.right}`).join(' ') + `（基准 ${ref.left}~${ref.right}）`
+      : `全部 ${ref.left}~${ref.right}`,
+  )
+
+  const bordered = rows.filter((r) => r.borders !== 0)
+  rec(
+    g,
+    '★★ 实色容器一律不描边（十一栏逐栏量 borderTopWidth）',
+    bordered.length === 0,
+    bordered.length ? bordered.map((r) => `${r.tab}:${r.borders}`).join(' ') : '全部 0px',
+  )
+
+  rec(
+    g,
+    '★★ 浅色主题下容器有实色底：选路策略不再与页面同色（图三那条）',
+    stripBg !== null && stripBg !== 'rgba(0, 0, 0, 0)' && stripBg !== rows[0].pageBg,
+    `选路条=${stripBg} 页面=${rows[0].pageBg}`,
+  )
+
+  // 渠道菜单选中项：**只靠底色**，不许有可见描边（用户 2026-10-09）
+  await page.locator('[data-global-settings-tab="channels"]').click()
+  await sleep(300)
+  await page.locator('[data-channel-item]').first().click()
+  await sleep(300)
+  const itemBorder = await page
+    .locator('[data-channel-selected="true"]')
+    .first()
+    .evaluate((el) => {
+      const cs = getComputedStyle(el)
+      return `${cs.borderTopWidth}/${cs.borderTopColor}`
+    })
+    .catch(() => 'none')
+  rec(
+    g,
+    '★ 渠道菜单选中项没有可见描边（只剩底色）',
+    /^1px\/(rgba\(0, 0, 0, 0\)|transparent)$/.test(itemBorder),
+    itemBorder,
+  )
+
+  await page.screenshot({ path: `${OUT}/121-g121-settings.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
