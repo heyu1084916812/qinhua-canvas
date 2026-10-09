@@ -17,7 +17,18 @@
  * 架构 §2.1 的分层图里本来就留了 `state/ui` 这个切片，这里就落在它身上。
  */
 
-export type GlobalSettingsSection = 'channels' | 'cli' | 'hosting' | 'storage'
+export type GlobalSettingsSection =
+  | 'channels'
+  | 'cli'
+  | 'hosting'
+  | 'storage'
+  /**
+   * 外观与体验（用户 2026-10-09：「我能加入字体吗？……设置那个地方给我加一个这个功能」）。
+   *
+   * 它是**本机界面偏好**：字体 / 字号 / 字距。与业务配置分栏放，
+   * 因为改它不会影响任何项目数据（也正因为如此，它是这一批里风险最低的一栏）。
+   */
+  | 'appearance'
 
 export interface GlobalSettingsState {
   open: boolean
@@ -33,6 +44,8 @@ export const GLOBAL_SETTINGS_SECTIONS: { id: GlobalSettingsSection; label: strin
   { id: 'hosting', label: '素材传输' },
   // 「存储」（对账 #261）：存储概况 / 数据目录 / 网页缓存 / 素材文件夹
   { id: 'storage', label: '存储' },
+  // 「外观与体验」（用户 2026-10-09）：字体 / 界面字号 / 字距
+  { id: 'appearance', label: '外观与体验' },
 ]
 
 let state: GlobalSettingsState = { open: false, section: 'channels' }

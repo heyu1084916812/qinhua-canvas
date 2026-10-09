@@ -3,6 +3,7 @@ import { HostingPage } from '../pages/HostingPage/HostingPage'
 import { SettingsPage } from '../pages/SettingsPage/SettingsPage'
 import { StoragePanel } from '../features/settings/StoragePanel'
 import { CliPanel } from '../features/settings/CliPanel'
+import { FontManagerPanel } from '../features/settings/FontManagerPanel'
 import { IconClose } from './AppSidebarIcons'
 import {
   GLOBAL_SETTINGS_SECTIONS,
@@ -117,6 +118,9 @@ export function GlobalSettingsOverlay() {
             {section === 'cli' && <CliPanel key="cli" />}
             {section === 'hosting' && <HostingPage key="hosting" />}
             {section === 'storage' && <StoragePanel key="storage" />}
+            {/* 「外观与体验」（用户 2026-10-09）：字体 / 界面字号 / 字距。
+                它是本机偏好，与业务配置分开 —— 改它不动任何项目数据。 */}
+            {section === 'appearance' && <FontManagerPanel key="appearance" />}
           </div>
         </div>
       </div>

@@ -4,6 +4,7 @@ import { ChannelStoreProvider } from './providers/ChannelStoreProvider'
 import { SkillStoreProvider } from './providers/SkillStoreProvider'
 import { PresetTextProvider } from './providers/PresetTextProvider'
 import { ThemeProvider } from './ThemeProvider'
+import { FontProvider } from './providers/FontProvider'
 import { AppRoutes } from './routes'
 import { AppShell } from './AppShell'
 import { BootstrapGate } from './BootstrapGate'
@@ -43,6 +44,9 @@ export function App(props: AppProps) {
         {/* 主题在最外层：它只改 <html data-theme>，不依赖任何业务状态，
             先于 BootstrapGate 落地才能让「启动校验」那一屏也是正确配色。 */}
         <ThemeProvider>
+          {/* 字体/外观在主题之内、应用之前：它要往 <head> 注入 @font-face 并改 :root 令牌，
+              与主题同一层（都是"渲染前的全局样式准备"），但不依赖业务数据。 */}
+          <FontProvider>
           <BootstrapGate>
             <BrowserRouter>
               {/*
@@ -55,6 +59,7 @@ export function App(props: AppProps) {
               </AppShell>
             </BrowserRouter>
           </BootstrapGate>
+          </FontProvider>
         </ThemeProvider>
         </PresetTextProvider>
         </SkillStoreProvider>

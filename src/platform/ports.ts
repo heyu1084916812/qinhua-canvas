@@ -34,6 +34,14 @@ export type TableName =
    * 那是 UI 偏好表，而会话历史会一直增长，混进去会把偏好表撑大。
    */
   | 'agentSessions'
+  /**
+   * 用户自定义界面字体（用户 2026-10-09）。
+   *
+   * 与 `assets` 刻意分开：那一张是**生成素材**（参与导出 / 备份 / 内容寻址），
+   * 字体是**本机界面偏好**的附属字节，不该混进素材库、也不该被"导出项目"带走。
+   * 一行 = 一个字体：元数据 + `bytes`（ArrayBuffer）。
+   */
+  | 'fonts'
 
 export interface Row {
   id: string

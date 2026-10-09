@@ -174,6 +174,13 @@
   .row + .row { border-top: 1px solid var(--bg-subtle); }
   .row .label { font-size: 13.5px; }
   .row .sub { font-size: 11.5px; color: var(--text-2); margin-top: 2px; }
+  /* 带副说明的行：文字块自己成一列，不许被右侧控件挤压重叠 */
+  .row .stack {
+    display: flex; flex-direction: column; gap: 2px;
+    min-width: 0; flex: 1 1 auto;
+  }
+  .row .stack .sub { margin-top: 0; }
+  .seg.wrap { flex-wrap: wrap; justify-content: flex-end; }
   .seg {
     display: inline-flex;
     border: 1px solid var(--stroke);
@@ -306,8 +313,15 @@
         <h2>界面文字</h2>
         <p class="hint">字体与字号只作用于界面，不改变生成结果里的文字。</p>
         <div class="row">
-          <span class="label">界面字体</span>
-          <span class="seg"><span class="on">系统默认</span><span>思源黑体</span><span>自定义…</span></span>
+          <span class="label">界面字体<span class="sub">可导入本地字体文件（不上传）</span></span>
+          <span class="seg"><span class="on">系统默认</span><span>思源黑体</span><span>+ 导入字体</span></span>
+        </div>
+        <div class="row">
+          <span class="stack">
+            <span class="label">字体清单</span>
+            <span class="sub">2 / 20 · 支持 ttf / otf / woff / woff2</span>
+          </span>
+          <span class="seg wrap"><span>思源黑体</span><span>Inter</span></span>
         </div>
         <div class="row">
           <span class="label">界面字号</span>

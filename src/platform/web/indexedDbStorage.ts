@@ -46,6 +46,7 @@ class QinghuaDB extends Dexie {
   assetLibrary!: Table<Row, string>
   builtinSkills!: Table<Row, string>
   skills!: Table<Row, string>
+  fonts!: Table<Row, string>
 
   constructor(name = 'qinghua') {
     super(name)
@@ -100,6 +101,17 @@ class QinghuaDB extends Dexie {
      */
     this.version(8).stores({
       assets: 'id, projectId, bytes',
+    })
+    /**
+     * v9：自定义界面字体（用户 2026-10-09）。
+     *
+     * 为什么单独一张表、不塞进 `assets`：
+     *   - `assets` 是**生成素材**（内容寻址、参与素材库 / 项目导出 / 全库备份）；
+     *   - 字体是**本机界面偏好**的附属字节，不该出现在素材库里、也不该被"导出项目"带走。
+     * 只声明新增表，既有表由 Dexie 从上一版延续（见类头注释的实测结论）。
+     */
+    this.version(9).stores({
+      fonts: 'id, createdAt',
     })
   }
 }

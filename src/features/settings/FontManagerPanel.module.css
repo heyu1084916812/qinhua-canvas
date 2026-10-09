@@ -1,0 +1,234 @@
+/* 「外观与体验 → 字体」面板（用户 2026-10-09）。
+   全部颜色走令牌：scripts/check-theme.mjs 会拦字面量颜色。 */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.block {
+  border: var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  padding: var(--space-4);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+  color: var(--text-1);
+}
+
+.count {
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  color: var(--text-2);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+}
+
+.caption {
+  margin: var(--space-2) 0 var(--space-3);
+  font-size: var(--fs-label);
+  color: var(--text-2);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  padding: var(--space-2) var(--space-3);
+  min-height: 56px;
+}
+
+.itemOn {
+  border-color: var(--accent);
+  background: var(--bg-subtle);
+}
+
+.chooseArea {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  border: none;
+  background: transparent;
+  padding: var(--space-1) 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* 「系统默认」那一行整体可点，与自定义字体保持一致的手感 */
+.item > .itemName {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.itemName {
+  font-size: var(--fs-body);
+  font-weight: 500;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.itemHint {
+  font-size: var(--fs-chip);
+  color: var(--text-2);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-1);
+  flex: 0 0 auto;
+}
+
+.mini {
+  height: 28px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-control);
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.mini:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.renameInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 32px;
+  border: 1px solid var(--stroke-focus);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font: inherit;
+  padding: 0 var(--space-2);
+}
+
+.importRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* 原生 file input 只做"被按钮触发"的载体，不占版面 */
+.file {
+  display: none;
+}
+
+.btn {
+  height: 34px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-control);
+  border: var(--border);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-label);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.btn:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+.hint {
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.status {
+  margin: var(--space-3) 0 0;
+  font-size: var(--fs-label);
+  color: var(--text-2);
+}
+
+.segRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.rowLabel {
+  font-size: var(--fs-body);
+  color: var(--text-1);
+}
+
+.seg {
+  display: inline-flex;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+
+.segItem {
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.segItem + .segItem {
+  border-left: var(--border);
+}
+
+.segOn {
+  background: var(--bg-subtle);
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mini,
+  .btn,
+  .chooseArea,
+  .segItem {
+    transition: none;
+  }
+}

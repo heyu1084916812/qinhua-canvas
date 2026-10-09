@@ -1,0 +1,239 @@
+import { useRef, useState } from 'react'
+import { useFonts } from '../../app/providers/FontProvider'
+import {
+  FONT_COUNT_MAX,
+  FONT_FORMATS,
+  FONT_SIZE_MAX,
+  type UserFont,
+} from '../../domain/ui/fonts'
+import { UI_SCALES, uiScaleLabel } from '../../domain/ui/appearance'
+import styles from './FontManagerPanel.module.css'
+
+/**
+ * 「外观与体验 → 字体」面板（用户 2026-10-09：「我能加入字体吗？可以的话给我加一个」）。
+ *
+ * ## 用户能看到什么
+ *
+ * - **界面字体**：系统默认 + 已导入的自定义字体；每个自定义字体**用自己的字渲染自己的名字**
+ *   （预览即所见，不用去别处试）；
+ * - **导入字体**：选 `.ttf / .otf / .woff / .woff2`；校验失败当场说原因（格式 / 体积 / 数量上限）；
+ * - **界面字号**：紧凑 / 标准 / 舒适；**字距**：标准 / 宽松。
+ *
+ * ## 三条边界（界面上也写了）
+ *
+ * 1. 只影响**界面**，不改生成结果、不改节点内容；
+ * 2. 字体存在本机、不上传；
+ * 3. 删除字体时若正被选中，自动回落系统字体（不留指不到的引用）。
+ */
+export function FontManagerPanel() {
+  const fonts = useFonts()
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [status, setStatus] = useState('')
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+
+  const selectedId = fonts.appearance.font.kind === 'custom' ? fonts.appearance.font.fontId : null
+  const atLimit = fonts.fonts.length >= FONT_COUNT_MAX
+
+  const pick = () => inputRef.current?.click()
+
+  const onFile = async (file: File | undefined) => {
+    if (!file || busy) return
+    setBusy(true)
+    setStatus('')
+    try {
+      const bytes = await file.arrayBuffer()
+      const result = await fonts.addFont({ name: file.name, size: file.size, bytes })
+      setStatus(result.ok ? `已导入「${file.name}」并启用` : result.reason)
+    } catch {
+      // 读文件失败（权限 / 文件被删）也要说一句，不能静默
+      setStatus('读不到这个文件，换一个再试')
+    } finally {
+      setBusy(false)
+      // 清空 input 的值，否则再选同一个文件不会触发 change
+      if (inputRef.current) inputRef.current.value = ''
+    }
+  }
+
+  const startRename = (font: UserFont) => {
+    setRenamingId(font.id)
+    setRenameValue(font.name)
+  }
+
+  const commitRename = async () => {
+    if (renamingId) await fonts.renameFont(renamingId, renameValue)
+    setRenamingId(null)
+    setRenameValue('')
+  }
+
+  return (
+    <div className={styles.panel} data-font-panel>
+      <section className={styles.block}>
+        <div className={styles.head}>
+          <h3 className={styles.title}>界面字体</h3>
+          <span className={styles.count} data-font-count>
+            {fonts.fonts.length} / {FONT_COUNT_MAX}
+          </span>
+        </div>
+        <p className={styles.caption}>只影响界面显示；字体文件保存在本机，不会上传，也不影响出图。</p>
+
+        <div className={styles.list} role="radiogroup" aria-label="界面字体">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={selectedId === null}
+            className={selectedId === null ? `${styles.item} ${styles.itemOn}` : styles.item}
+            data-font-option="system"
+            onClick={() => fonts.chooseFont({ kind: 'system' })}
+          >
+            <span className={styles.itemName}>系统默认</span>
+            <span className={styles.itemHint}>Segoe UI / 微软雅黑</span>
+          </button>
+
+          {fonts.fonts.map((font) => (
+            <div
+              key={font.id}
+              className={selectedId === font.id ? `${styles.item} ${styles.itemOn}` : styles.item}
+              data-font-option={font.id}
+            >
+              {renamingId === font.id ? (
+                <input
+                  className={styles.renameInput}
+                  value={renameValue}
+                  autoFocus
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  onBlur={() => void commitRename()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void commitRename()
+                    if (e.key === 'Escape') setRenamingId(null)
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={selectedId === font.id}
+                  className={styles.chooseArea}
+                  onClick={() => fonts.chooseFont({ kind: 'custom', fontId: font.id })}
+                >
+                  {/* 用这个字体渲染它自己的名字：预览即所见 */}
+                  <span className={styles.itemName} style={{ fontFamily: `'${font.family}'` }}>
+                    {font.name}
+                  </span>
+                  <span className={styles.itemHint}>
+                    {font.format.toUpperCase()} · {(font.size / 1024 / 1024).toFixed(1)}MB
+                  </span>
+                </button>
+              )}
+              <div className={styles.actions}>
+                <button
+                  type="button"
+                  className={styles.mini}
+                  data-font-rename={font.id}
+                  onClick={() => startRename(font)}
+                >
+                  重命名
+                </button>
+                <button
+                  type="button"
+                  className={styles.mini}
+                  data-font-remove={font.id}
+                  onClick={() => void fonts.removeFont(font.id)}
+                >
+                  删除
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className={styles.importRow}>
+          <input
+            ref={inputRef}
+            type="file"
+            accept={FONT_FORMATS.map((f) => `.${f}`).join(',')}
+            className={styles.file}
+            data-font-file
+            onChange={(e) => void onFile(e.target.files?.[0])}
+          />
+          <button
+            type="button"
+            className={styles.btn}
+            data-font-import
+            disabled={busy || atLimit}
+            onClick={pick}
+          >
+            {busy ? '正在导入…' : '导入字体文件'}
+          </button>
+          <span className={styles.hint}>
+            {atLimit
+              ? `已达上限（${FONT_COUNT_MAX} 个），先删掉不用的再导入`
+              : `支持 ${FONT_FORMATS.join(' / ')}，单个不超过 ${FONT_SIZE_MAX / 1024 / 1024}MB`}
+          </span>
+        </div>
+
+        {status && (
+          <p className={styles.status} role="status" data-font-status>
+            {status}
+          </p>
+        )}
+      </section>
+
+      <section className={styles.block}>
+        <h3 className={styles.title}>界面字号</h3>
+        <p className={styles.caption}>整档缩放界面文字；不改变画布缩放，也不改变节点里的字号设置。</p>
+        <div className={styles.segRow}>
+          <div className={styles.seg} role="radiogroup" aria-label="界面字号">
+            {UI_SCALES.map((scale) => (
+              <button
+                key={scale}
+                type="button"
+                role="radio"
+                aria-checked={fonts.appearance.scale === scale}
+                className={
+                  fonts.appearance.scale === scale ? `${styles.segItem} ${styles.segOn}` : styles.segItem
+                }
+                data-ui-scale={scale}
+                onClick={() => fonts.setScale(scale)}
+              >
+                {uiScaleLabel(scale)}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className={styles.btn}
+            data-font-reset
+            onClick={() => fonts.reset()}
+          >
+            恢复默认
+          </button>
+        </div>
+
+        <div className={styles.segRow}>
+          <span className={styles.rowLabel}>字距</span>
+          <div className={styles.seg} role="radiogroup" aria-label="字距">
+            {(['normal', 'wide'] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                role="radio"
+                aria-checked={fonts.appearance.letterSpacing === value}
+                className={
+                  fonts.appearance.letterSpacing === value
+                    ? `${styles.segItem} ${styles.segOn}`
+                    : styles.segItem
+                }
+                data-letter-spacing={value}
+                onClick={() => fonts.setLetterSpacing(value)}
+              >
+                {value === 'normal' ? '标准' : '宽松'}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+    </div>
+  )
+}
