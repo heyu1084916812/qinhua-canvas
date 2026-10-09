@@ -22306,6 +22306,45 @@ async function g115(browser) {
   rec(g, '★★ 节点标题字号跟着设置变（14 → 18）', (await titleSize()) === '18px', `${t0} → ${await titleSize()}`)
   rec(g, '★★ 提示词正文字号跟着设置变（14 → 20）', (await bodySize()) === '20px', `${b0} → ${await bodySize()}`)
 
+  // 强调色 / 减少动效 / 显示小地图（#379 剩余项）：都是**本机**偏好
+  const rootToken = (name) =>
+    page.evaluate((n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim(), name)
+  const accentBefore = await rootToken('--accent')
+  await page.locator('[data-accent="blue"]').click()
+  await sleep(300)
+  const accentAfter = await rootToken('--accent')
+  rec(
+    g,
+    '★★ 强调色八档：选「靛蓝」后 --accent 真的换了（值就是色板常量）',
+    accentAfter !== accentBefore && accentAfter.toLowerCase() === '#2f5ad9',
+    `${accentBefore} → ${accentAfter}`,
+  )
+
+  await page.locator('[data-motion-toggle]').check()
+  await sleep(300)
+  const motionFlag = await page.evaluate(() => document.documentElement.dataset.motion)
+  const motionDur = await rootToken('--dur-panel')
+  rec(
+    g,
+    '★★ 减少动效：时长令牌归零（状态变化仍保留，不做全局冻结）',
+    motionFlag === 'reduced' && motionDur === '0ms',
+    `data-motion=${motionFlag} --dur-panel=${motionDur}`,
+  )
+
+  const minimapBefore = await page.locator('[data-canvas-minimap]').count()
+  await page.locator('[data-minimap-toggle]').uncheck()
+  await sleep(300)
+  const minimapAfter = await page.locator('[data-canvas-minimap]').count()
+  rec(
+    g,
+    '★★ 显示小地图：关掉后小地图消失、画布本身还在',
+    minimapBefore === 1 && minimapAfter === 0 && (await page.locator('[data-canvas-surface]').count()) === 1,
+    `${minimapBefore} → ${minimapAfter}`,
+  )
+  // 拨回来：后面的尺寸档断言与导出都按默认（显示小地图）走
+  await page.locator('[data-minimap-toggle]').check()
+  await sleep(250)
+
   // 新节点默认尺寸档：宽敞档建出来的节点更宽（与已有节点比，避开缩放影响）
   await page.locator('[data-node-density="roomy"]').click()
   await sleep(250)
@@ -22331,13 +22370,15 @@ async function g115(browser) {
   await sleep(900)
   rec(
     g,
-    '★★ 刷新后画布偏好保持（存在项目行，不是只活在内存里）',
+    '★★ 刷新后偏好保持：项目偏好（项目行）+ 本机偏好（localStorage）都还在',
     (await surface.getAttribute('data-canvas-tone')) === 'blue' &&
       (await surface.getAttribute('data-canvas-background')) === 'solid' &&
       (await surfaceColor()) === blue &&
       (await titleSize()) === '18px' &&
-      (await bodySize()) === '20px',
-    `色调=${await surface.getAttribute('data-canvas-tone')} 背景=${await surface.getAttribute('data-canvas-background')} 标题=${await titleSize()} 正文=${await bodySize()}`,
+      (await bodySize()) === '20px' &&
+      (await rootToken('--accent')).toLowerCase() === '#2f5ad9' &&
+      (await page.evaluate(() => document.documentElement.dataset.motion)) === 'reduced',
+    `色调=${await surface.getAttribute('data-canvas-tone')} 背景=${await surface.getAttribute('data-canvas-background')} 标题=${await titleSize()} 正文=${await bodySize()} 强调=${await rootToken('--accent')}`,
   )
 
   // 导出项目：偏好随 .flow.json 走（C5 的"导出再导入跟着走"）

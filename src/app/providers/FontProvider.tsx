@@ -11,13 +11,16 @@ import {
 import { usePlatform } from './PlatformProvider'
 import { createFontStore, type FontStore } from '../../state/project/fontStore'
 import {
+  accentTokens,
   DEFAULT_APPEARANCE,
   letterSpacingValue,
   readAppearance,
   uiScaleFactor,
   writeAppearance,
   type AppearancePrefs,
+  type AccentId,
   type LetterSpacing,
+  type MotionPref,
   type UiScale,
 } from '../../domain/ui/appearance'
 import {
@@ -26,6 +29,7 @@ import {
   type FontChoice,
   type UserFont,
 } from '../../domain/ui/fonts'
+import { useTheme } from '../ThemeProvider'
 
 /**
  * 自定义字体 + 界面外观的运行时（用户 2026-10-09）。
@@ -78,6 +82,12 @@ export interface FontApi {
   chooseFont: (choice: FontChoice) => void
   setScale: (scale: UiScale) => void
   setLetterSpacing: (value: LetterSpacing) => void
+  /** 强调色档位（#379 剩余项） */
+  setAccent: (accent: AccentId) => void
+  /** 减少动效（时长令牌归零，状态变化仍保留） */
+  setMotion: (motion: MotionPref) => void
+  /** 显示 / 隐藏画布小地图 */
+  setShowMinimap: (show: boolean) => void
   /** 恢复默认外观（不动已导入的字体文件） */
   reset: () => void
 }
@@ -86,6 +96,8 @@ const FontContext = createContext<FontApi | null>(null)
 
 export function FontProvider({ children }: { children?: ReactNode }) {
   const platform = usePlatform()
+  /** 强调色要按**当前主题**取那一套值 —— 所以本 Provider 必须挂在 ThemeProvider 之内 */
+  const { resolved: theme } = useTheme()
   const store: FontStore = useMemo(() => createFontStore(platform.storage), [platform])
 
   const [fonts, setFonts] = useState<UserFont[]>([])
@@ -186,7 +198,17 @@ export function FontProvider({ children }: { children?: ReactNode }) {
 
     root.style.setProperty('--ls-body', letterSpacingValue(appearance.letterSpacing))
     root.dataset.uiScale = appearance.scale
-  }, [appearance, fonts])
+
+    /*
+     * 强调色：内联样式写在 :root 上 ⇒ 优先于 tokens.css 里的主题块；
+     * 切换主题时这个 effect 会因为 `theme` 变化重跑、换成另一套值。
+     */
+    const accent = accentTokens(appearance.accent, theme)
+    root.style.setProperty('--accent', accent.accent)
+    root.style.setProperty('--accent-text', accent.text)
+    /* 减少动效：只翻一个属性，具体把哪些时长归零由 tokens.css 决定 */
+    root.dataset.motion = appearance.motion
+  }, [appearance, fonts, theme])
 
   const persist = useCallback((next: AppearancePrefs) => {
     setAppearance(next)
@@ -221,6 +243,9 @@ export function FontProvider({ children }: { children?: ReactNode }) {
       chooseFont: (choice) => persist({ ...appearance, font: choice }),
       setScale: (scale) => persist({ ...appearance, scale }),
       setLetterSpacing: (letterSpacing) => persist({ ...appearance, letterSpacing }),
+      setAccent: (accent) => persist({ ...appearance, accent }),
+      setMotion: (motion) => persist({ ...appearance, motion }),
+      setShowMinimap: (showMinimap) => persist({ ...appearance, showMinimap }),
       reset: () => persist({ ...DEFAULT_APPEARANCE }),
     }),
     [appearance, fonts, loading, persist, reload, store],

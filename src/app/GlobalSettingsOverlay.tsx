@@ -5,6 +5,7 @@ import { StoragePanel } from '../features/settings/StoragePanel'
 import { CliPanel } from '../features/settings/CliPanel'
 import { FontManagerPanel } from '../features/settings/FontManagerPanel'
 import { CanvasLookPanel } from '../features/settings/CanvasLookPanel'
+import { InterfacePanel } from '../features/settings/InterfacePanel'
 import { BackupPanel } from '../features/settings/BackupPanel'
 import { IconClose } from './AppSidebarIcons'
 import {
@@ -144,6 +145,8 @@ export function GlobalSettingsOverlay() {
             {section === 'appearance' && (
               <div key="appearance" className={styles.sectionStack}>
                 <FontManagerPanel />
+                {/* 主题 / 强调色 / 动效 / 小地图：也都是**本机偏好**（与字体同一层） */}
+                <InterfacePanel />
                 {/* 画布底色 / 节点内容字号：**项目偏好**，与上面那块本机字体分开摆，
                     免得用户以为"改了字体就一起改了节点里的字"。 */}
                 <CanvasLookPanel />

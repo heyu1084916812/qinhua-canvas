@@ -21,6 +21,26 @@
   --canvas-grid-line: color-mix(in srgb, var(--canvas-bg) 88%, var(--text-1));
 }
 
+/**
+ * 减少动效（对账 #379 剩余项）：把**时长令牌**归零。
+ *
+ * 为什么不是全局 `transition: none`：用户要的是"别动"，不是"别变" ——
+ * 归零后颜色 / 位置仍然立刻到位，只是没有过渡动画；
+ * 而全局屏蔽会把 hover / 选中的状态变化也一起干掉（那会让界面看起来"卡住了"）。
+ * 这条只覆盖用令牌的那些过渡；组件里针对系统 `prefers-reduced-motion` 写死的兜底仍在。
+ */
+/* 选择器必须带 :root —— `:root` 与 `[data-motion]` 权重相同（0,1,0），
+   而下面那份 `:root { --dur-*: … }` 在文件里更靠后 ⇒ 会被它压掉（实测踩到：
+   data-motion 已经是 reduced、--dur-panel 仍是 140ms）。加上 :root 后权重 0,2,0，稳赢。 */
+:root[data-motion='reduced'] {
+  --dur-hover: 0ms;
+  --dur-panel: 0ms;
+  --dur-menu: 0ms;
+  --dur-lightbox: 0ms;
+  --dur-edge: 0ms;
+  --dur-select: 0ms;
+}
+
 :root {
   /* —— 主题 ——
      `color-scheme` 让浏览器自带的滚动条、表单控件、拼写下划线跟着一起变暗；

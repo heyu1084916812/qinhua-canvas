@@ -52,6 +52,7 @@ import { describeError } from '../../../shared/result'
 import { flowViewportToStore, storeViewportToFlow } from './viewportBridge'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { useCanvasStyle } from '../../../app/providers/CanvasStyleProvider'
+import { useFonts } from '../../../app/providers/FontProvider'
 import { screenToWorld } from '../../../domain/canvas/geometry/coords'
 import { useEdgeDrag } from '../../../features/canvas/useEdgeDrag'
 import { useSpaceHeld } from '../../../features/canvas/useSpaceHeld'
@@ -199,6 +200,8 @@ function FlowSurfaceInner({
    * 运行时由 CanvasStyleProvider 统一供给 —— 设置浮层改了这里当帧就变。
    */
   const { style: canvasStyle } = useCanvasStyle()
+  /** 界面偏好（本机）：小地图显示开关（#379 剩余项） */
+  const { appearance } = useFonts()
   const handleDownload = useNodeDownload(platform, store)
   // Ctrl/Cmd + C/V（§4.2）：剪贴板是模块级单例、不订阅，故不参与本组件重渲染
   useClipboardHotkeys(store)
@@ -1200,7 +1203,8 @@ function FlowSurfaceInner({
       <CanvasNotice />
       <UndoBar />
       {/* 小地图（§6.4）：复用老表面那份（自成一体、只读 store），最后渲染以免被别的浮层压住 */}
-      <Minimap />
+      {/* 小地图显示开关（本机偏好）：关掉只是少一个导航控件，画布本身不受影响 */}
+      {appearance.showMinimap ? <Minimap /> : null}
       {/* 端点命中层：在所有节点之上收拖线手势（见 FlowPortLayer 里的长注释） */}
       <FlowPortLayer onPortDown={beginEdgeDrag} />
       {/* 子节点连线的**命中区**（双击删线）：必须在最上层才收得到指针，视觉是透明的 */}

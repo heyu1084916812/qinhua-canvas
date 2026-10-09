@@ -8,6 +8,7 @@ import { PlatformProvider } from './providers/PlatformProvider'
 import { ChannelStoreProvider } from './providers/ChannelStoreProvider'
 import { ThemeProvider } from './ThemeProvider'
 import { CanvasStyleProvider } from './providers/CanvasStyleProvider'
+import { FontProvider } from './providers/FontProvider'
 import { AppRoutes } from './routes'
 import { AppShell } from './AppShell'
 
@@ -23,6 +24,8 @@ import { AppShell } from './AppShell'
  * 因此整树冒烟必须包含 ChannelStoreProvider（与 App.tsx 的 Provider 顺序一致）。
  * 项目级画布外观（CanvasStyleProvider，对账 #379）同样必须在这里 ——
  * 它在 App.tsx 里包在 Router 之内、AppShell 之外，缺了画布页会直接抛"Provider 未挂载"。
+ * FontProvider 也在这一层（画布表面读"显示小地图"这个本机偏好）；
+ * 它自己要用 ThemeProvider 的当前主题挑强调色，所以必须排在 ThemeProvider 之内。
  *
  * 注意 2：M5 起工作台页面走路由级 React.lazy（架构 §5.10）。renderToString 不会等待 lazy，
  * 只会吐出 Suspense fallback —— 因此这里用 renderToReadableStream + await stream.allReady，
@@ -48,18 +51,22 @@ async function renderTree(entries: string[]): Promise<string> {
       createElement(
         ThemeProvider,
         null,
-        /*
-         * 壳层一起渲染：`AppShell` 在 App.tsx 里包在**路由之外**（全路由常驻），
-         * 只渲染 AppRoutes 的话，侧栏的锚点一个都不在树里 —— 那不算整树冒烟
-         * （2026-09-27 应用壳改版）。
-         */
         createElement(
-          MemoryRouter,
-          { initialEntries: entries },
+          FontProvider,
+          null,
+          /*
+           * 壳层一起渲染：`AppShell` 在 App.tsx 里包在**路由之外**（全路由常驻），
+           * 只渲染 AppRoutes 的话，侧栏的锚点一个都不在树里 —— 那不算整树冒烟
+           * （2026-09-27 应用壳改版）。
+           */
           createElement(
-            CanvasStyleProvider,
-            null,
-            createElement(AppShell, null, createElement(AppRoutes)),
+            MemoryRouter,
+            { initialEntries: entries },
+            createElement(
+              CanvasStyleProvider,
+              null,
+              createElement(AppShell, null, createElement(AppRoutes)),
+            ),
           ),
         ),
       ),
