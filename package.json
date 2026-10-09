@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "check": "tsc --noEmit && eslint . && depcruise src --config .dependency-cruiser.cjs && node scripts/check-theme.mjs && node scripts/check-shell-geometry.mjs && node scripts/check-rail-buttons.mjs && node scripts/check-doc-index.mjs",
+    "check": "tsc --noEmit && eslint . && depcruise src --config .dependency-cruiser.cjs && node scripts/check-theme.mjs && node scripts/check-shell-geometry.mjs && node scripts/check-rail-buttons.mjs && node scripts/check-doc-index.mjs && node scripts/check-doc-migration.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke": "node scripts/smoke.mjs",
