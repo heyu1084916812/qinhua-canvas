@@ -18,6 +18,12 @@ import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
 import { projectRoute } from '../../domain/shared/workbench'
 import { downloadAsset } from '../../features/canvas/downloadAsset'
 import { describeError } from '../../shared/result'
+import { createPackStore } from '../../state/project/packStore'
+import {
+  ECOMMERCE_PLATFORMS,
+  type EcommercePlatform,
+} from '../../domain/ecommerce/platforms'
+import { ECOMMERCE_LANGUAGES, type EcommerceLanguage } from '../../domain/ecommerce/types'
 import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import type { Edge } from '../../domain/canvas/model/edge'
@@ -149,6 +155,37 @@ function StudioHost({ projectId }: { projectId: string }) {
   const navigate = useNavigate()
   const [nodeIds, setNodeIds] = useState<string[]>([])
   const [projectName, setProjectName] = useState('')
+  /**
+   * 平台清单 = 内置 + **扩展包带进来的规则**（对账 #386 的 E3）。
+   *
+   * 同 id 时以扩展包为准：包就是用来"更新规则而不必等应用发版"的，
+   * 若被内置那份压住，这个机制就白做了。
+   */
+  const [platforms, setPlatforms] = useState<readonly EcommercePlatform[]>(ECOMMERCE_PLATFORMS)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const extra = await createPackStore(platform.storage).platforms()
+      if (cancelled || extra.length === 0) return
+      const byId = new Map<string, EcommercePlatform>(
+        ECOMMERCE_PLATFORMS.map((p) => [p.id, p]),
+      )
+      const known = new Set<string>(ECOMMERCE_LANGUAGES)
+      for (const p of extra) {
+        byId.set(p.id, {
+          ...p,
+          countHint: p.countHint ?? '',
+          /* 包里的语言代码是**未受信任的输入**：只留我们认识的，别把 'xx' 拼进提示词 */
+          languages: p.languages.filter((l): l is EcommerceLanguage => known.has(l)),
+        })
+      }
+      setPlatforms([...byId.values()])
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [platform])
 
   /** 项目名（标题下面那行）—— 读一次即可 */
   useEffect(() => {
@@ -177,7 +214,7 @@ function StudioHost({ projectId }: { projectId: string }) {
 
   const onGenerate = async (request: EcommerceRequest) => {
     /* 校验一律走领域层：非法输入当场抛错，界面把话原样说给用户（不静默兜底） */
-    const plan = buildEcommercePlan(request)
+    const plan = buildEcommercePlan(request, { platforms })
     const recipe = await channels.defaultForNewNode({}, 'image')
     if (!recipe?.channelId || !recipe?.model) {
       throw new Error('还没有可用的生图渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上模型')
@@ -244,6 +281,7 @@ function StudioHost({ projectId }: { projectId: string }) {
   return (
     <EcommerceStudio
       projectName={projectName || '未命名项目'}
+      platforms={platforms}
       onUpload={onUpload}
       onGenerate={onGenerate}
       running={exec.isRunning}

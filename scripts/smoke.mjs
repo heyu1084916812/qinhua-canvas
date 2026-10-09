@@ -22528,7 +22528,151 @@ async function g116(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116]
+// ────────────────────────────────────────────────────────────
+// G117 扩展包（#386 阶段一）：校验 → 装 → 平台规则生效 → 卸
+// ────────────────────────────────────────────────────────────
+async function g117(browser) {
+  const g = 'G117 扩展包'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  const basePack = {
+    format: 'qinghua.pack',
+    version: 1,
+    id: 'pack.smoke',
+    displayName: '冒烟包',
+    publisher: '冒烟',
+    minAppVersion: '0.1.0',
+    contents: {
+      skills: [{ id: 'smoke-skill', name: '冒烟技能', content: '正文', inputMode: 'text' }],
+      ecommercePlatforms: [
+        {
+          id: 'smoke-platform',
+          name: '冒烟平台',
+          group: 'china',
+          ratios: ['1:1'],
+          languages: ['zh-CN'],
+          rules: '白底、产品居中。',
+          updatedAt: '2026-10-09',
+          sourceNote: '通用建议：未核实官方规则，按常见做法整理',
+        },
+      ],
+    },
+    permissions: [],
+  }
+  const importPack = async (pack) =>
+    page.locator('[data-pack-file]').setInputFiles({
+      name: 'pack.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify(pack)),
+    })
+
+  // ① 面板在（设置 → 生成 → 扩展包）
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(500)
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(350)
+  await page.locator('[data-global-settings-tab="packs"]').click()
+  await sleep(350)
+  rec(
+    g,
+    '★ 设置里有「扩展包」栏，且空态说得清它是干什么的',
+    (await page.locator('[data-pack-panel]').count()) === 1 &&
+      (await page.locator('[data-pack-empty]').count()) === 1,
+  )
+
+  // ② 安全边界：带权限声明的包拒收（不是忽略）
+  await importPack({ ...basePack, permissions: ['fs'] })
+  await sleep(500)
+  const errText = await page.locator('[data-pack-errors]').innerText().catch(() => '')
+  rec(
+    g,
+    '★★ 带权限声明的包被拒收（阶段一不执行代码）',
+    errText.includes('不允许声明权限') && (await page.locator('[data-pack-pending]').count()) === 0,
+    errText.replace(/\n/g, ' | ').slice(0, 60),
+  )
+
+  // ③ 合法包：摘要 + 预览 + 安装
+  await importPack(basePack)
+  await sleep(500)
+  const summary = await page.locator('[data-pack-summary]').innerText().catch(() => '')
+  const preview = await page.locator('[data-pack-preview]').innerText().catch(() => '')
+  await page.locator('[data-pack-install]').click()
+  await sleep(800)
+  rec(
+    g,
+    '★★ 装之前先给内容清单（摘要 + 会新增几个），装完进「已安装」列表',
+    summary.includes('1 个技能') &&
+      summary.includes('1 条电商平台规则') &&
+      preview.includes('新增 1 个') &&
+      (await page.locator('[data-pack-item]').count()) === 1,
+    `摘要=${summary.slice(0, 40)} 预览=${preview}`,
+  )
+
+  // ④ 技能真的进了技能库
+  await page.keyboard.press('Escape')
+  await sleep(250)
+  await page.goto(`${BASE}/skills`, { waitUntil: 'networkidle' })
+  await sleep(700)
+  rec(
+    g,
+    '★★ 包装进来的技能出现在技能库里（不是只记了一笔清单）',
+    (await page.getByText('冒烟技能').count()) > 0,
+  )
+
+  // ⑤ E3：包里的平台规则能在电商工作台选到
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
+  await sleep(600)
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  await sleep(900)
+  const options = await page
+    .locator('[data-ecommerce-platform] option')
+    .evaluateAll((els) => els.map((e) => e.textContent))
+  rec(
+    g,
+    '★★★ 扩展包带进来的平台规则，在电商工作台里能直接选（规则不必等应用发版）',
+    options.includes('冒烟平台'),
+    options.join(','),
+  )
+
+  // ⑥ 卸载：只删包内内容，清单清空
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(500)
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(350)
+  await page.locator('[data-global-settings-tab="packs"]').click()
+  await sleep(350)
+  await page.locator('[data-pack-uninstall]').first().click()
+  await sleep(800)
+  rec(
+    g,
+    '★★ 卸载后已装列表清空，且状态里说明"只删了它装进来的内容"',
+    (await page.locator('[data-pack-item]').count()) === 0 &&
+      (await page.locator('[data-pack-status]').innerText().catch(() => '')).includes('已卸载'),
+  )
+
+  // ⑦ 卸载之后，平台规则应当从电商下拉里消失
+  await page.keyboard.press('Escape')
+  await sleep(250)
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
+  await sleep(700)
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  await sleep(900)
+  const after = await page
+    .locator('[data-ecommerce-platform] option')
+    .evaluateAll((els) => els.map((e) => e.textContent))
+  rec(g, '★ 卸载后平台规则不再出现在下拉里', !after.includes('冒烟平台'), after.join(','))
+
+  await page.screenshot({ path: `${OUT}/117-g117-packs.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

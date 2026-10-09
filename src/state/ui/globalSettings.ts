@@ -36,6 +36,13 @@ export type GlobalSettingsSection =
    * 两件事紧急程度不同，混在一起会被日常项淹没，故单开一栏。
    */
   | 'backup'
+  /**
+   * 扩展包（用户 2026-10-09：「toonflow 的那个插件市场这种」，对账 #386）。
+   *
+   * 它装的是**内容**（技能 + 电商平台规则），归「生成」组 ——
+   * 与「技能库」同类：都是"改一次、以后每次生成都用得上"的东西。
+   */
+  | 'packs'
 
 export interface GlobalSettingsState {
   open: boolean
@@ -70,6 +77,8 @@ export const GLOBAL_SETTINGS_SECTIONS: {
   { id: 'appearance', label: '外观与体验', group: '外观' },
   // 「备份与恢复」（用户 2026-10-09）：全量备份导出 / 导入（#378）
   { id: 'backup', label: '备份与恢复', group: '数据' },
+  // 「扩展包」（对账 #386 阶段一）：数据型扩展包 —— 技能 + 电商平台规则
+  { id: 'packs', label: '扩展包', group: '生成' },
 ]
 
 let state: GlobalSettingsState = { open: false, section: 'channels' }

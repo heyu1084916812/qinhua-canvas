@@ -6,6 +6,7 @@ import { CliPanel } from '../features/settings/CliPanel'
 import { FontManagerPanel } from '../features/settings/FontManagerPanel'
 import { CanvasLookPanel } from '../features/settings/CanvasLookPanel'
 import { InterfacePanel } from '../features/settings/InterfacePanel'
+import { PackPanel } from '../features/settings/PackPanel'
 import { BackupPanel } from '../features/settings/BackupPanel'
 import { IconClose } from './AppSidebarIcons'
 import {
@@ -155,6 +156,8 @@ export function GlobalSettingsOverlay() {
             {/* 「备份与恢复」（对账 #378）：全量备份导出 / 导入。
                 与「存储」分栏：一个回答"在哪"，一个回答"出事怎么办"。 */}
             {section === 'backup' && <BackupPanel key="backup" />}
+            {/* 「扩展包」（对账 #386 阶段一）：只装数据（技能 + 电商平台规则），不执行代码 */}
+            {section === 'packs' && <PackPanel key="packs" />}
           </div>
         </div>
       </div>

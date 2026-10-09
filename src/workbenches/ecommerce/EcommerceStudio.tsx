@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ECOMMERCE_DEFAULT_COUNT } from '../../domain/ecommerce/plan'
-import { ECOMMERCE_PLATFORMS } from '../../domain/ecommerce/platforms'
+import { ECOMMERCE_PLATFORMS, type EcommercePlatform } from '../../domain/ecommerce/platforms'
 import {
   ECOMMERCE_COUNT_MAX,
   ECOMMERCE_LANGUAGES,
@@ -44,6 +44,11 @@ export interface EcommerceResultItem {
 
 export interface EcommerceStudioProps {
   projectName: string
+  /**
+   * 平台清单：默认用内置那份；页面可以把**扩展包带进来的规则**合并后传进来
+   * （对账 #386 的 E3：平台规则可发扩展包更新，不必等应用发版）。
+   */
+  platforms?: readonly EcommercePlatform[]
   /** 上传一张图：由页面落到画布（assets + 节点），返回节点 id 与预览 */
   onUpload: (file: File, kind: 'product' | 'reference') => Promise<EcommerceUpload | null>
   /** 点「开始生成」并在二次确认之后调用；页面负责建节点 + 跑引擎 */
@@ -56,6 +61,7 @@ export interface EcommerceStudioProps {
 
 export function EcommerceStudio({
   projectName,
+  platforms = ECOMMERCE_PLATFORMS,
   onUpload,
   onGenerate,
   running,
@@ -80,8 +86,8 @@ export function EcommerceStudio({
   }, [usage])
 
   const platform = useMemo(
-    () => ECOMMERCE_PLATFORMS.find((p) => p.id === platformId) ?? null,
-    [platformId],
+    () => platforms.find((p) => p.id === platformId) ?? null,
+    [platforms, platformId],
   )
 
   const onPick = async (file: File | undefined, kind: 'product' | 'reference') => {
@@ -226,7 +232,7 @@ export function EcommerceStudio({
                 onChange={(e) => setPlatformId(e.target.value)}
               >
                 <option value="">不指定（通用）</option>
-                {ECOMMERCE_PLATFORMS.map((p) => (
+                {platforms.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
