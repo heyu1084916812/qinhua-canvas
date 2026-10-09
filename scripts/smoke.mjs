@@ -11590,9 +11590,14 @@ async function g80(browser) {
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-sidebar-item')))
   rec(
     g,
-    '★ 五个一级导航且顺序固定（首页/项目/画布/技能库/我的素材）',
+    /*
+     * 2026-10-09（对账 #384 / D3）：**六个**了 —— 电商工作台与画布同级，
+     * 插在「画布」之后、「技能库」之前。顺序本身是产品口径（`app/nav.ts` 的注释），
+     * 所以这条断言跟着口径走，而不是放宽成"包含这几个"。
+     */
+    '★ 六个一级导航且顺序固定（首页/项目/画布/电商/技能库/我的素材）',
     JSON.stringify(navIds) ===
-      JSON.stringify(['/', '/projects', '/canvas', '/skills', '/assets']),
+      JSON.stringify(['/', '/projects', '/canvas', '/ecommerce', '/skills', '/assets']),
     navIds.join(','),
   )
   /**
