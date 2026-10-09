@@ -236,3 +236,64 @@ describe('canvas store / 素材插队落库（上传即显）', () => {
     expect(rows).toHaveLength(3)
   })
 })
+
+/**
+ * 新节点默认尺寸档（项目偏好 #379 C5）。
+ *
+ * 判据落在**建出来的节点尺寸**上，不落在"setNodeScale 被调用过"：
+ * 这一档真正会坏的方式是"某个建节点入口绕过了它"，而那只有在节点上才看得见。
+ */
+describe('canvas store / 新节点默认尺寸档（#379 C5）', () => {
+  const createPrompt = (store: ReturnType<typeof createCanvasStore>) =>
+    store.dispatch({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } })
+
+  it('★ 默认档（系数 1）：尺寸与 spec 的 min 完全一致（老项目观感不变）', () => {
+    const store = createCanvasStore({ platform, projectId: 'p1' })
+    createPrompt(store)
+    const n = store.getSnapshot().nodes[0]!
+    expect({ w: n.w, h: n.h }).toEqual({ w: 240, h: 160 })
+  })
+
+  it('★ 紧凑档 0.85 / 宽敞档 1.15：新节点按系数缩放并取整', () => {
+    const small = createCanvasStore({ platform, projectId: 'p1' })
+    small.setNodeScale(0.85)
+    createPrompt(small)
+    expect({ w: small.getSnapshot().nodes[0]!.w, h: small.getSnapshot().nodes[0]!.h }).toEqual({
+      w: 204,
+      h: 136,
+    })
+
+    const roomy = createCanvasStore({ platform, projectId: 'p2' })
+    roomy.setNodeScale(1.15)
+    createPrompt(roomy)
+    expect({ w: roomy.getSnapshot().nodes[0]!.w, h: roomy.getSnapshot().nodes[0]!.h }).toEqual({
+      w: 276,
+      h: 184,
+    })
+  })
+
+  it('★ 调用方显式给了尺寸就不受档位影响（模板自带版面，不许被偏好改掉）', () => {
+    const store = createCanvasStore({ platform, projectId: 'p1' })
+    store.setNodeScale(1.15)
+    store.dispatch({
+      kind: 'node.create',
+      projectId: 'p1',
+      type: 'prompt',
+      at: { x: 0, y: 0 },
+      size: { w: 300, h: 200 },
+    })
+    expect({ w: store.getSnapshot().nodes[0]!.w, h: store.getSnapshot().nodes[0]!.h }).toEqual({
+      w: 300,
+      h: 200,
+    })
+  })
+
+  it('非法系数（0 / NaN / 负数）回落 1 —— 不建出 0 尺寸的节点', () => {
+    for (const bad of [0, Number.NaN, -2]) {
+      const store = createCanvasStore({ platform, projectId: 'p1' })
+      store.setNodeScale(bad)
+      createPrompt(store)
+      expect(store.getSnapshot().nodes[0]!.w).toBe(240)
+    }
+  })
+})

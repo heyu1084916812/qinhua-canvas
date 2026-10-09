@@ -158,3 +158,11 @@
   flex-direction: column;
   overflow-y: auto;
 }
+
+/* 「外观与体验」一栏里两块（本机字体 / 项目画布）之间的间距。
+   两块属于不同的作用域（本机 vs 项目），中间留一档，别让人读成同一组。 */
+.sectionStack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}

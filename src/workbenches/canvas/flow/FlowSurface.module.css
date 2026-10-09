@@ -4,7 +4,32 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--bg-canvas);
+  /* 画布底色 = 项目偏好（#379 C4）：默认指向 --canvas-tone-slate，
+     也就是原来那个 --bg-canvas，所以老项目观感一个像素不变 */
+  background: var(--canvas-bg, var(--bg-canvas));
+}
+
+/* 六档画布色调：把 --canvas-bg 指到选中的那一档（tokens.css 里成对给明暗两套值）。
+   网格线是**从 --canvas-bg 派生的**（见 tokens.css 的 --canvas-grid-line），
+   所以换色调时网格线的对比跟着一起变，不必在这里逐档写第二条颜色。 */
+.surface[data-canvas-tone='blue'] {
+  --canvas-bg: var(--canvas-tone-blue);
+}
+
+.surface[data-canvas-tone='green'] {
+  --canvas-bg: var(--canvas-tone-green);
+}
+
+.surface[data-canvas-tone='amber'] {
+  --canvas-bg: var(--canvas-tone-amber);
+}
+
+.surface[data-canvas-tone='rose'] {
+  --canvas-bg: var(--canvas-tone-rose);
+}
+
+.surface[data-canvas-tone='violet'] {
+  --canvas-bg: var(--canvas-tone-violet);
 }
 
 .flow {

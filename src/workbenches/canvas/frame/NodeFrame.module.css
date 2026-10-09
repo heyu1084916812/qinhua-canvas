@@ -69,7 +69,8 @@
 }
 
 .title {
-  font-size: var(--fs-title);
+  /* 节点标题字号 = 项目偏好（#379 C5）：没挂上变量时回落原来的 --fs-title */
+  font-size: var(--node-title-size, var(--fs-title));
   font-weight: var(--fw-title);
   color: var(--text-1);
   white-space: nowrap;
@@ -107,7 +108,7 @@
   border-radius: var(--radius-control);
   padding: 2px var(--space-2);
   font-family: var(--font-sans);
-  font-size: var(--fs-title);
+  font-size: var(--node-title-size, var(--fs-title));
   font-weight: var(--fw-title);
   color: var(--text-1);
   /* 表单控件放开文本选择（frame 整体 user-select:none 会继承下来，这里显式收回） */

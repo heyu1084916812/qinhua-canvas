@@ -5,6 +5,22 @@
  * 改主题只换这份变量表，不动任何组件。
  */
 
+/**
+ * 画布底色与网格线的**派生根**（对账 #379 C4）。
+ *
+ * 为什么这两个变量不写在 `:root`：CSS 自定义属性在**声明它的元素**上完成 `var()` 替换，
+ * 而画布色调是逐元素覆盖的（`.surface[data-canvas-tone='blue']`）。写在 `:root` 时
+ * `--canvas-grid-line` 里的 `var(--canvas-bg)` 永远取到根上那一档 —— 实测
+ * 「换了色调、底色变了、网格线纹丝不动」。声明在带 `data-canvas-tone` 的元素上，
+ * 替换就发生在那个元素，六档与明暗两套自动各取各的。
+ *
+ * 判据由 `scripts/check-contrast.mjs` 逐档验（正文 ≥ 4.5:1、网格线 1.15–3:1）。
+ */
+[data-canvas-tone] {
+  --canvas-bg: var(--canvas-tone-slate);
+  --canvas-grid-line: color-mix(in srgb, var(--canvas-bg) 88%, var(--text-1));
+}
+
 :root {
   /* —— 主题 ——
      `color-scheme` 让浏览器自带的滚动条、表单控件、拼写下划线跟着一起变暗；
@@ -35,6 +51,17 @@
 
   --stroke: #e2e2e2;
   --grid-line: #ececef;
+
+  /* —— 画布底色档位（六档低饱和，项目偏好 #379 C4） ——
+     第 1 档 = 原来的画布底色（亮 #ffffff / 暗 #161616），所以老项目观感不变；
+     与上面容器那六档同色相，但**独立成画布令牌** —— 容器底色与画布底色是两件事，
+     将来单独调谁都不会牵连另一个。 */
+  --canvas-tone-slate: #ffffff;
+  --canvas-tone-blue: #f5f8fe;
+  --canvas-tone-green: #f4faf6;
+  --canvas-tone-amber: #fdf9f1;
+  --canvas-tone-rose: #fdf5f6;
+  --canvas-tone-violet: #f7f4fe;
 
   /* 连线（§6.14）：常态 #C9C9D1 1.5px / 高亮 2px */
   --edge: #c9c9d1;
@@ -210,6 +237,15 @@
 
   --stroke: #3a3a3a;
   --grid-line: #262626;
+
+  /* 画布色调（深色）：同色相压暗到「比画布 #161616 略有色相」——
+     深色下不能像亮色那样往白走，否则画布会比节点卡还亮。第 1 档仍是默认。 */
+  --canvas-tone-slate: #161616;
+  --canvas-tone-blue: #151a23;
+  --canvas-tone-green: #141d18;
+  --canvas-tone-amber: #201b13;
+  --canvas-tone-rose: #201618;
+  --canvas-tone-violet: #1a1724;
 
   /* 连线：常态提亮到能在深底上看清，高亮翻成近白（与 --accent 同一套反转） */
   --edge: #5b5b5b;

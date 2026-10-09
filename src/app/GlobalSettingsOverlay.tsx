@@ -4,6 +4,7 @@ import { SettingsPage } from '../pages/SettingsPage/SettingsPage'
 import { StoragePanel } from '../features/settings/StoragePanel'
 import { CliPanel } from '../features/settings/CliPanel'
 import { FontManagerPanel } from '../features/settings/FontManagerPanel'
+import { CanvasLookPanel } from '../features/settings/CanvasLookPanel'
 import { BackupPanel } from '../features/settings/BackupPanel'
 import { IconClose } from './AppSidebarIcons'
 import {
@@ -140,7 +141,14 @@ export function GlobalSettingsOverlay() {
             {section === 'storage' && <StoragePanel key="storage" />}
             {/* 「外观与体验」（用户 2026-10-09）：字体 / 界面字号 / 字距。
                 它是本机偏好，与业务配置分开 —— 改它不动任何项目数据。 */}
-            {section === 'appearance' && <FontManagerPanel key="appearance" />}
+            {section === 'appearance' && (
+              <div key="appearance" className={styles.sectionStack}>
+                <FontManagerPanel />
+                {/* 画布底色 / 节点内容字号：**项目偏好**，与上面那块本机字体分开摆，
+                    免得用户以为"改了字体就一起改了节点里的字"。 */}
+                <CanvasLookPanel />
+              </div>
+            )}
             {/* 「备份与恢复」（对账 #378）：全量备份导出 / 导入。
                 与「存储」分栏：一个回答"在哪"，一个回答"出事怎么办"。 */}
             {section === 'backup' && <BackupPanel key="backup" />}

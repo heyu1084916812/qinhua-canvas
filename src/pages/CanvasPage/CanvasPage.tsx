@@ -25,6 +25,8 @@ import { NODE_MINIMUMS } from '../../domain/canvas/layout/constants'
 import { assetNodeSize } from '../../domain/canvas/layout/assetNodeSize'
 import { createNodeWithDefaults } from '../../features/canvas/createNodeWithDefaults'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
+import { useCanvasStyle } from '../../app/providers/CanvasStyleProvider'
+import { nodeDensityFactor } from '../../domain/project/canvasStyle'
 import { createAssetNode, importAssetFile, isImportableMedia } from '../../features/canvas/importAsset'
 import { subscribeAgentHandoff } from '../../features/canvas/agentHandoff'
 import { seedTemplate, type TemplateId } from '../../state/project/templates'
@@ -96,6 +98,16 @@ function CanvasProject({ projectId }: { projectId: string }) {
   canvasStores.set(projectId, cached)
   const store = cached.store
   const channels = useChannels()
+  const { style: canvasStyle } = useCanvasStyle()
+
+  /**
+   * 新节点默认尺寸（项目偏好 #379 C5）：把档位换算成系数交给 store，
+   * 由它在 `node.create`（且调用方没给尺寸）时统一乘上去 ——
+   * 建节点的入口有十来个，收在命令层才不会每加一个入口就漏一次。
+   */
+  useEffect(() => {
+    store.setNodeScale(nodeDensityFactor(canvasStyle.density))
+  }, [store, canvasStyle.density])
 
   /**
    * 「画布多选 → 添加到 agent 作为素材」（用户 2026-10-05 第 11 条第六个动作）。

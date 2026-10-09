@@ -122,7 +122,7 @@ export function PromptNodeView(props: NodeViewProps) {
   }
 
   return (
-    <div className={styles.body}>
+    <div className={styles.body} data-prompt-body>
       {/* §6.7：上游连了提示词节点时，文本区上方出现胶囊——它是「上游文本不会自动带进来」
           这件事唯一的界面说明（数量由 画布表面 注入，视图层不读图，架构 §4.7） */}
       {(props.upstreamPromptCount ?? 0) > 0 && (

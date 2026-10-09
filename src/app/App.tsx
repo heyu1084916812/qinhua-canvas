@@ -5,6 +5,7 @@ import { SkillStoreProvider } from './providers/SkillStoreProvider'
 import { PresetTextProvider } from './providers/PresetTextProvider'
 import { ThemeProvider } from './ThemeProvider'
 import { FontProvider } from './providers/FontProvider'
+import { CanvasStyleProvider } from './providers/CanvasStyleProvider'
 import { AppRoutes } from './routes'
 import { AppShell } from './AppShell'
 import { BootstrapGate } from './BootstrapGate'
@@ -49,6 +50,9 @@ export function App(props: AppProps) {
           <FontProvider>
           <BootstrapGate>
             <BrowserRouter>
+              {/* 项目级画布外观（#379 C4/C5）：必须在 Router 之内 ——
+                  它靠 `location.pathname` 认"当前打开的是哪个项目"。 */}
+              <CanvasStyleProvider>
               {/*
                 应用壳包在**路由之外**（产品文档 §2.1「全路由常驻」）：
                 它是布局，不是页面；放进来之后切页面不会重建侧栏，
@@ -57,6 +61,7 @@ export function App(props: AppProps) {
               <AppShell>
                 <AppRoutes />
               </AppShell>
+              </CanvasStyleProvider>
             </BrowserRouter>
           </BootstrapGate>
           </FontProvider>

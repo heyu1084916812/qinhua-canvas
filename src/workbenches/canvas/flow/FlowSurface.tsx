@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type DragEvent as ReactDragEvent,
+  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
@@ -50,6 +51,7 @@ import { sourcePortOf, targetPortOf } from '../../../domain/canvas/model/edge'
 import { describeError } from '../../../shared/result'
 import { flowViewportToStore, storeViewportToFlow } from './viewportBridge'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
+import { useCanvasStyle } from '../../../app/providers/CanvasStyleProvider'
 import { screenToWorld } from '../../../domain/canvas/geometry/coords'
 import { useEdgeDrag } from '../../../features/canvas/useEdgeDrag'
 import { useSpaceHeld } from '../../../features/canvas/useSpaceHeld'
@@ -191,6 +193,12 @@ function FlowSurfaceInner({
   const exec = useCanvasExecution()
   const { emitNodeEvent } = useCanvasPageEvents(store, onOpenSettings)
   const platform = usePlatform()
+  /**
+   * 项目级画布外观（对账 #379 C4/C5）：背景样式 / 色调 / 节点内容字号。
+   * 它存在项目行里、随项目导出（见 domain/project/canvasStyle 的说明），
+   * 运行时由 CanvasStyleProvider 统一供给 —— 设置浮层改了这里当帧就变。
+   */
+  const { style: canvasStyle } = useCanvasStyle()
   const handleDownload = useNodeDownload(platform, store)
   // Ctrl/Cmd + C/V（§4.2）：剪贴板是模块级单例、不订阅，故不参与本组件重渲染
   useClipboardHotkeys(store)
@@ -1041,6 +1049,18 @@ function FlowSurfaceInner({
       className={spaceHeld ? `${styles.surface} ${styles.spaceMode}` : styles.surface}
       data-canvas-surface
       data-canvas-engine="rf"
+      /* 背景样式与色调：CSS 只认这两个属性（见 FlowSurface.module.css 里的六条映射），
+         组件里不出现任何色值 —— 主题守卫会拦字面量颜色。 */
+      data-canvas-background={canvasStyle.background}
+      data-canvas-tone={canvasStyle.tone}
+      /* 节点内容字号：挂在**画布根**上，节点自己的 CSS 用 var(..., 兜底) 取。
+         兜底值让单测 / SSR 这些"没有画布根"的场景仍然拿得到原来的字号。 */
+      style={
+        {
+          '--node-title-size': `${canvasStyle.titleSize}px`,
+          '--node-body-size': `${canvasStyle.bodySize}px`,
+        } as CSSProperties
+      }
       // 拖入素材：dragover 必须 preventDefault，否则浏览器按「不可放置」处理、根本不派发 drop
       onDragOver={(e) => {
         if (draggedFiles(e).length === 0) return
@@ -1153,7 +1173,16 @@ function FlowSurfaceInner({
          */
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="var(--grid-line)" />
+        {/* 细网格 / 点阵 / 纯色（项目偏好）：纯色档**不渲染背景层** ——
+            画一块纯色再用同色网格去盖，等于白画一层。 */}
+        {canvasStyle.background === 'solid' ? null : (
+          <Background
+            variant={canvasStyle.background === 'grid' ? BackgroundVariant.Lines : BackgroundVariant.Dots}
+            gap={22}
+            size={1.4}
+            color="var(--canvas-grid-line)"
+          />
+        )}
       </ReactFlow>
       <Hud count={graph.nodes.length} ids={nodes.map((n) => n.id)} />
       {/*

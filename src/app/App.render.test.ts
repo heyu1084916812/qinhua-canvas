@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest'
 import { PlatformProvider } from './providers/PlatformProvider'
 import { ChannelStoreProvider } from './providers/ChannelStoreProvider'
 import { ThemeProvider } from './ThemeProvider'
+import { CanvasStyleProvider } from './providers/CanvasStyleProvider'
 import { AppRoutes } from './routes'
 import { AppShell } from './AppShell'
 
@@ -20,6 +21,8 @@ import { AppShell } from './AppShell'
  *
  * 注意 1：画布页挂载了 CanvasExecutionProvider，它需要 ChannelStoreProvider 祖先，
  * 因此整树冒烟必须包含 ChannelStoreProvider（与 App.tsx 的 Provider 顺序一致）。
+ * 项目级画布外观（CanvasStyleProvider，对账 #379）同样必须在这里 ——
+ * 它在 App.tsx 里包在 Router 之内、AppShell 之外，缺了画布页会直接抛"Provider 未挂载"。
  *
  * 注意 2：M5 起工作台页面走路由级 React.lazy（架构 §5.10）。renderToString 不会等待 lazy，
  * 只会吐出 Suspense fallback —— 因此这里用 renderToReadableStream + await stream.allReady，
@@ -53,7 +56,11 @@ async function renderTree(entries: string[]): Promise<string> {
         createElement(
           MemoryRouter,
           { initialEntries: entries },
-          createElement(AppShell, null, createElement(AppRoutes)),
+          createElement(
+            CanvasStyleProvider,
+            null,
+            createElement(AppShell, null, createElement(AppRoutes)),
+          ),
         ),
       ),
     ),

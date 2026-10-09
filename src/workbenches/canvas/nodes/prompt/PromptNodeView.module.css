@@ -5,7 +5,8 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  font-size: var(--fs-body);
+  /* 提示词正文字号 = 项目偏好（#379 C5）：没挂上变量时回落原来的 --fs-body */
+  font-size: var(--node-body-size, var(--fs-body));
   line-height: var(--lh-body);
   color: var(--text-1);
 }

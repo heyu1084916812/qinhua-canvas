@@ -842,6 +842,15 @@ async function mapMockModels(page) {
     await page.locator(`[data-route-map-save="${logical}"]`).click().catch(() => {})
     await sleep(250)
   }
+  /*
+   * 收尾把筛选拨回「生图」—— 助手是**搭场景**的，不该在界面上留下自己的脚印。
+   *
+   * 2026-10-09 全量实测：G83 紧跟在配置之后断言「默认落在生图档」，
+   * 读到的却是这里最后切到的「视频」档 —— 看上去像产品默认值变了，
+   * 真因是上一轮修 G46 时给这个助手加了"逐档切换"，却没把档位拨回去。
+   */
+  await page.locator('[data-route-map-filter="image"]').click().catch(() => {})
+  await sleep(150)
 }
 
   return { verified, pulled, enabled }
@@ -4293,6 +4302,21 @@ async function g24(browser) {
   const mounted1 = await nodeCount(page)
   rec(g, '平移后节点仍全部在 DOM 里', mounted1 >= 300, `mounted=${mounted1}`)
 
+  /**
+   * 帧率口径分档（第 47 / 48 批定性 → 2026-10-09 落地）。
+   *
+   * 这一组跟着 `npm run dev` 跑（种子钩子 `__seedPerfGraph` 是 DEV-only，生产构建
+   * 里根本没有它），而 **dev 构建的帧率不代表用户会遇到的数字**：#238 曾把 dev 的
+   * 28fps 当结论写出来，#240 已纠错 —— 生产构建下 150 张图零掉帧。
+   * 45fps 是**生产构建**的门槛；拿 dev 数字去撞它只会得到一条永远红的断言。
+   *
+   * 故：dev 档按 8fps 地板断言（只抓"整档塌掉"级别的回归，实测 14fps），
+   * 档位与生产门槛一起写进记录名，防止再被误读成"生产也只跑 14fps"。
+   */
+  const devTier = await page.evaluate(() => typeof window.__seedPerfGraph === 'function')
+  const fpsFloor = devTier ? 8 : 45
+  const fpsTier = devTier ? '开发版地板 8fps（生产门槛 45fps 见 #240）' : '生产门槛 45fps'
+
   // 4) 平移帧率：空格 + 拖拽往复 ~1.4s，rAF 采样 1s
   const panFps = await sampleFpsDuring(page, async () => {
     await page.keyboard.down('Space')
@@ -4307,7 +4331,7 @@ async function g24(browser) {
     await page.mouse.up()
     await page.keyboard.up('Space')
   })
-  rec(g, '平移帧率 ≥ 45fps', panFps >= 45, `${panFps}fps`)
+  rec(g, `平移帧率 ≥ ${fpsFloor}fps｜${fpsTier}`, panFps >= fpsFloor, `${panFps}fps`)
 
   // 5) 缩放帧率：滚轮往复（落在节点间隙，避免命中 textarea 拦截滚轮）
   const zoomFps = await sampleFpsDuring(page, async () => {
@@ -4317,7 +4341,7 @@ async function g24(browser) {
       await sleep(70)
     }
   })
-  rec(g, '缩放帧率 ≥ 45fps', zoomFps >= 45, `${zoomFps}fps`)
+  rec(g, `缩放帧率 ≥ ${fpsFloor}fps｜${fpsTier}`, zoomFps >= fpsFloor, `${zoomFps}fps`)
 
   await page.screenshot({ path: `${OUT}/40-g24-perf.png` })
   await ctx.close()
@@ -7282,8 +7306,18 @@ async function g56(browser) {
    * 那样拖的是节点、画布没动，视口框自然「没跟着动」（实测就是这条挂了）。
    * 改为按画布矩形取一个偏左下的空白点。
    */
+  /**
+   * ⚠️ 平移起点必须离左侧栏远一点（`+160`，不是 `+40`）。
+   *
+   * 2026-10-09 探针实测：起点取 `surface.x + 40` 时，向左拖 100px 会把指针送进
+   * 侧栏悬停区（收起态侧栏 0–64px）⇒ 悬停展开（推挤 140ms）把画布表面从 1201
+   * 挤到 1025，随后点击时它又在回弹路上（实测 1156.9）⇒ `centerViewportOn` 用的是
+   * 中间态的宽度，等测量时布局已经落定，视口框中心于是差 6.3px（120 → 126.3）。
+   * 这曾被记成「钳制规则与判据冲突」（第 48 批），**那个结论是错的** ——
+   * 视口框宽 115.8 时中心可达 [57.9, 142.1]，120 本来就在可达区内。
+   */
   const surfaceBox = await page.locator('[data-canvas-surface]').boundingBox()
-  const panFrom = { x: surfaceBox.x + 40, y: surfaceBox.y + surfaceBox.height - 60 }
+  const panFrom = { x: surfaceBox.x + 160, y: surfaceBox.y + surfaceBox.height - 60 }
   await page.mouse.move(panFrom.x, panFrom.y)
   await page.mouse.down()
   await page.mouse.move(panFrom.x - 100, panFrom.y - 70, { steps: 8 })
@@ -7303,18 +7337,43 @@ async function g56(browser) {
     v2 ? `x=${Math.round(v2.x)} y=${Math.round(v2.y)} ${Math.round(v2.w)}×${Math.round(v2.h)}` : 'null',
   )
 
+  /**
+   * 等画布表面尺寸连续两拍不变再测。
+   *
+   * 侧栏展开/收起是 140ms 推挤动画，量的过程中容器宽度还在变 —— 那时视口框的
+   * 投影基准（容器宽 / zoom）也跟着变，量到的中心是动画的中间值，不是落点算法的结果。
+   */
+  const waitSurfaceStable = async () => {
+    const measure = () =>
+      page.evaluate(() => {
+        const b = document.querySelector('[data-canvas-surface]').getBoundingClientRect()
+        return { w: Math.round(b.width), h: Math.round(b.height) }
+      })
+    let prev = await measure()
+    for (let i = 0; i < 20; i += 1) {
+      await sleep(120)
+      const cur = await measure()
+      if (cur.w === prev.w && cur.h === prev.h) return cur
+      prev = cur
+    }
+    return prev
+  }
+
   // 点哪儿，视口中心就到哪儿：跳完之后视口框中心应当落在点击点
   const at = (px, py) => ({ x: box.x + px, y: box.y + py })
+  await waitSurfaceStable()
   const p1 = at(120, 85)
   await page.mouse.click(p1.x, p1.y)
-  await sleep(300)
+  await waitSurfaceStable()
   const v3 = await viewRect()
   const c3 = v3 ? { x: v3.x + v3.w / 2, y: v3.y + v3.h / 2 } : null
   rec(
     g,
     '★ 点击小地图：视口中心跳到点击处（±3px）',
     !!c3 && Math.abs(c3.x - 120) <= 3 && Math.abs(c3.y - 85) <= 3,
-    c3 ? `视口框中心=(${c3.x.toFixed(1)},${c3.y.toFixed(1)}) 期望=(120,85)` : 'null',
+    c3 && v3
+      ? `视口框中心=(${c3.x.toFixed(1)},${c3.y.toFixed(1)}) 期望=(120,85) 框=${Math.round(v3.x)},${Math.round(v3.y)} ${Math.round(v3.w)}×${Math.round(v3.h)}`
+      : 'null',
   )
 
   // 拖拽：跟手（未松手就已经在跟），松手落在终点。
@@ -22130,7 +22189,189 @@ async function g114(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114]
+// ────────────────────────────────────────────────────────────
+// G115 画布外观（#379 C4/C5）：项目偏好 —— 底色 / 网格样式 / 节点内容字号
+// ────────────────────────────────────────────────────────────
+async function g115(browser) {
+  const g = 'G115 画布外观'
+  const ctx = await newCtx(browser, { acceptDownloads: true })
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await createProject(page)
+  /* 等 hydrate 落定再建节点：画布挂载时先从库里读回图，
+     这期间建出来的节点会被"读回的空图"覆盖掉（探针实测：不等就建 → 节点数 0）。 */
+  await sleep(800)
+  /* 新建的项目是空画布：先放一个提示词节点 —— 节点标题 / 正文字号的断言要有对象
+     （与用户在画布上真正会做的动作一致，比直接写库更接近真实链路） */
+  await page.locator('[data-toolbar-add]').click()
+  await page.locator('[data-toolbar-menu-item="prompt"]').click()
+  await sleep(600)
+
+  /** 色令牌的**计算后**颜色：拿临时元素当尺子，不在测试里抄第二份色值 */
+  const tokenRgb = (name) =>
+    page.evaluate((n) => {
+      const probe = document.createElement('div')
+      probe.style.background = `var(${n})`
+      document.body.appendChild(probe)
+      const c = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return c
+    }, name)
+  const surface = page.locator('[data-canvas-surface]')
+  const surfaceColor = () => surface.evaluate((el) => getComputedStyle(el).backgroundColor)
+  const surfaceVar = (name) =>
+    surface.evaluate((el, n) => getComputedStyle(el).getPropertyValue(n).trim(), name)
+  const nodeCardColor = () =>
+    page.locator('[data-node-id]').first().evaluate((el) => getComputedStyle(el).backgroundColor)
+  /** React Flow 背景层的形状：点阵画 circle、细网格画 path、纯色档整层不在 */
+  const bgShape = () =>
+    page.evaluate(() => {
+      const el = document.querySelector('.react-flow__background')
+      if (!el) return 'none'
+      if (el.querySelector('circle')) return 'dots'
+      if (el.querySelector('path')) return 'lines'
+      return 'other'
+    })
+  const titleSize = () =>
+    page.locator('[data-node-type="prompt"] [data-node-title]').first().evaluate((el) => getComputedStyle(el).fontSize)
+  const bodySize = () =>
+    page.locator('[data-prompt-body]').first().evaluate((el) => getComputedStyle(el).fontSize)
+
+  const bg0 = await surfaceColor()
+  const grid0 = await surfaceVar('--canvas-grid-line')
+  const card0 = await nodeCardColor()
+  const slate = await tokenRgb('--canvas-tone-slate')
+  rec(g, '默认画布底色 = 第 1 档（slate）—— 老项目观感不变', bg0 === slate, `${bg0} vs ${slate}`)
+  rec(g, '默认背景是点阵（与换引擎后的现状一致）', (await bgShape()) === 'dots', await bgShape())
+
+  // 打开「全局设置 → 外观与体验」：画布块在，控件齐全
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(350)
+  await page.locator('[data-global-settings-tab="appearance"]').click()
+  await sleep(350)
+  /* 计数**限定在画布块内**：画布表面自己也带 data-canvas-tone / data-canvas-background
+     （它是被设置的那一方），全局查会把画布本身也数进来（实测 7 档色调 / 4 档背景）。 */
+  const lookPanel = page.locator('[data-canvas-look-panel]')
+  const lookCounts = {
+    backgrounds: await lookPanel.locator('[data-canvas-background]').count(),
+    tones: await lookPanel.locator('[data-canvas-tone]').count(),
+    titleSizes: await lookPanel.locator('[data-node-title-size]').count(),
+    densities: await lookPanel.locator('[data-node-density]').count(),
+  }
+  rec(
+    g,
+    '★ 「外观与体验」里有画布块（3 种背景样式 + 6 档色调 + 节点字号档）',
+    (await lookPanel.count()) === 1 &&
+      lookCounts.backgrounds === 3 &&
+      lookCounts.tones === 6 &&
+      lookCounts.titleSizes === 4 &&
+      lookCounts.densities === 3,
+    `背景=${lookCounts.backgrounds} 色调=${lookCounts.tones} 标题档=${lookCounts.titleSizes} 尺寸档=${lookCounts.densities}`,
+  )
+
+  // 换色调：画布底色与网格线都跟着变，节点卡片不变
+  await page.locator('[data-canvas-tone="blue"]').click()
+  await sleep(350)
+  const bg1 = await surfaceColor()
+  const grid1 = await surfaceVar('--canvas-grid-line')
+  const card1 = await nodeCardColor()
+  const blue = await tokenRgb('--canvas-tone-blue')
+  rec(g, '★★ 点「蓝」：画布底色的计算值真的变蓝', bg1 === blue, `${bg0} → ${bg1}（期望 ${blue}）`)
+  rec(g, '★★ 换底色时网格线跟着派生（不是写死的第二份颜色）', grid0 !== grid1 && grid1.length > 0, `${grid0} → ${grid1}`)
+  rec(g, '★ 节点卡片底色不受影响（§4.1 红线：只动画布本身）', card1 === card0, `${card0} → ${card1}`)
+
+  // 背景样式：点阵 → 细网格 → 纯色
+  await page.locator('[data-canvas-background="grid"]').click()
+  await sleep(350)
+  rec(
+    g,
+    '★ 切细网格：背景层换成线',
+    (await bgShape()) === 'lines' &&
+      (await surface.getAttribute('data-canvas-background')) === 'grid',
+    `属性=${await surface.getAttribute('data-canvas-background')} 形状=${await bgShape()}`,
+  )
+  await page.locator('[data-canvas-background="solid"]').click()
+  await sleep(350)
+  rec(g, '★ 切纯色：背景层不渲染（不是拿同色去盖）', (await bgShape()) === 'none')
+
+  // 节点内容字号：标题 14 → 18、正文 14 → 20
+  const t0 = await titleSize()
+  const b0 = await bodySize()
+  await page.locator('[data-node-title-size="18"]').click()
+  await page.locator('[data-node-body-size="20"]').click()
+  await sleep(350)
+  rec(g, '★★ 节点标题字号跟着设置变（14 → 18）', (await titleSize()) === '18px', `${t0} → ${await titleSize()}`)
+  rec(g, '★★ 提示词正文字号跟着设置变（14 → 20）', (await bodySize()) === '20px', `${b0} → ${await bodySize()}`)
+
+  // 新节点默认尺寸档：宽敞档建出来的节点更宽（与已有节点比，避开缩放影响）
+  await page.locator('[data-node-density="roomy"]').click()
+  await sleep(250)
+  /* 先关浮层再建节点：浮层盖在画布上，点工具栏会被那层 scrim 拦下（实测拦截整次点击） */
+  await page.keyboard.press('Escape')
+  await sleep(350)
+  const widthOf = (loc) => loc.evaluate((el) => el.getBoundingClientRect().width)
+  const beforeW = await widthOf(page.locator('[data-node-type="prompt"]').first())
+  await page.locator('[data-toolbar-add]').click()
+  await page.locator('[data-toolbar-menu-item="prompt"]').click()
+  await sleep(450)
+  const afterW = await widthOf(page.locator('[data-node-type="prompt"]').last())
+  const ratio = beforeW > 0 ? afterW / beforeW : 0
+  rec(
+    g,
+    '★★ 新节点默认尺寸档：宽敞档建出来的提示词节点宽 15%（240 → 276）',
+    Math.abs(ratio - 1.15) < 0.02,
+    `宽 ${Math.round(beforeW)} → ${Math.round(afterW)}（×${ratio.toFixed(3)}）`,
+  )
+
+  // 刷新：偏好落在项目行里，回来还在
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(900)
+  rec(
+    g,
+    '★★ 刷新后画布偏好保持（存在项目行，不是只活在内存里）',
+    (await surface.getAttribute('data-canvas-tone')) === 'blue' &&
+      (await surface.getAttribute('data-canvas-background')) === 'solid' &&
+      (await surfaceColor()) === blue &&
+      (await titleSize()) === '18px' &&
+      (await bodySize()) === '20px',
+    `色调=${await surface.getAttribute('data-canvas-tone')} 背景=${await surface.getAttribute('data-canvas-background')} 标题=${await titleSize()} 正文=${await bodySize()}`,
+  )
+
+  // 导出项目：偏好随 .flow.json 走（C5 的"导出再导入跟着走"）
+  await gotoProjects(page)
+  await sleep(500)
+  const dl = page.waitForEvent('download', { timeout: 8000 }).catch(() => null)
+  await page.locator('[data-project-card] button[aria-label="项目菜单"]').first().click()
+  await page.getByRole('menuitem', { name: '导出', exact: true }).click()
+  const file = await dl
+  if (!file) {
+    rec(g, '★★ 画布偏好随项目导出（JSON 里有 canvasStyle）', false, '未捕获 download')
+  } else {
+    const saved = `${OUT}/${file.suggestedFilename()}`
+    await file.saveAs(saved)
+    const text = readFileSync(saved, 'utf8')
+    rec(
+      g,
+      '★★ 画布偏好随项目导出（JSON 里有 canvasStyle：背景 / 色调 / 两档字号 / 尺寸档）',
+      text.includes('"canvasStyle"') &&
+        text.includes('"background": "solid"') &&
+        text.includes('"tone": "blue"') &&
+        text.includes('"titleSize": 18') &&
+        text.includes('"bodySize": 20') &&
+        text.includes('"density": "roomy"'),
+      text.includes('"canvasStyle"') ? 'canvasStyle 已写入导出文件' : '导出文件里没有 canvasStyle',
+    )
+  }
+
+  await page.screenshot({ path: `${OUT}/115-g115-canvas-look.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

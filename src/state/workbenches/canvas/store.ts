@@ -22,6 +22,9 @@ import type { LinkSide } from '../../../domain/canvas/menu/linkMenu'
 import { createId } from '../../../shared/id'
 import { reduce } from '../../commands/reducer'
 import { clampZoom } from '../../../domain/canvas/geometry/transform'
+import type { Size } from '../../../domain/canvas/geometry/rect'
+import type { NodeType } from '../../../domain/canvas/model/node'
+import { getSpec } from '../../../domain/canvas/nodeSpecs'
 import { applyGraphPatches, toPersistPlan } from './persist'
 import type { PlatformKit, Row } from '../../../platform/ports'
 import { mirrorAssetsToFolder } from '../../../platform/assetMirror'
@@ -49,6 +52,20 @@ interface UndoGroup {
   label: string
   forward: Patch[] // 正向补丁（redo 用）
   inverse: Patch[] // 逆向补丁（undo 用，应用前需逆序）
+}
+
+/**
+ * spec 的默认尺寸 × 档位系数（项目偏好 #379 C5「新节点默认尺寸」）。
+ *
+ * 取 `sizing.min` 与 reducer 里那条默认完全同源 —— 这里是**同一个默认值**乘系数，
+ * 不是另造一套尺寸表。下限 1px：系数哪怕被传成 0.0001 也不该建出 0 尺寸的节点。
+ */
+function scaledNodeSize(type: NodeType, factor: number): Size {
+  const min = getSpec(type)?.sizing.min ?? { w: 200, h: 160 }
+  return {
+    w: Math.max(1, Math.round(min.w * factor)),
+    h: Math.max(1, Math.round(min.h * factor)),
+  }
 }
 
 interface CanvasState {
@@ -185,6 +202,13 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
   getViewport(): Viewport
   /** 测试与卸载时手动冲刷防抖持久化 */
   flush(): Promise<void>
+  /**
+   * 新节点默认尺寸的缩放档（项目偏好 #379 C5）。
+   *
+   * 只作用于**调用方没给尺寸**的 `node.create` —— 模板与显式指定尺寸的调用
+   * （它们自带版面设计）一概不动。纯运行时值：不落库（来源是项目行）、不进撤销栈。
+   */
+  setNodeScale(factor: number): void
   /**
    * 从持久化读回后整体替换图（非用户操作：不进撤销栈、不触发持久化）。
    * 由 CanvasPage 在挂载时按 projectId 从 IndexedDB 调用。
@@ -414,8 +438,23 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
   // 当前进行中的多步事务（拓扑生成）：非 null 时，所有命令都合并进同一个撤销单元
   let activePlan: { planId: string; label: string } | null = null
 
+  /**
+   * 新节点默认尺寸的缩放系数（项目偏好 #379 C5 的「新节点默认尺寸」档）。
+   *
+   * 为什么在 `dispatch` 这一处注入，而不是去改十来个建节点入口：
+   * 入口每多一个就漏一次 —— 这个仓库在"新建节点默认配方"上正是这么栽过一次
+   * （当年三个入口只有一个带默认值，见 `createNodeWithDefaults` 的文件注释）。
+   * 收在命令进入 reducer 之前，任何新入口自动继承。
+   */
+  let nodeScale = 1
+
   function dispatch(cmd: Command, txOverride?: TransactionBoundary): CommandResult {
-    const { result, next } = reduce(cmd, store.getState().graph)
+    /** 只在"调用方没给尺寸"时补：显式尺寸是调用方的版面决定，不许被偏好改掉 */
+    const effective: Command =
+      cmd.kind === 'node.create' && cmd.size === undefined && nodeScale !== 1
+        ? { ...cmd, size: scaledNodeSize(cmd.type, nodeScale) }
+        : cmd
+    const { result, next } = reduce(effective, store.getState().graph)
     // 事务边界可由调用方覆盖（runEngine 的 multi-step 计划），缺省用命令自带边界
     const t: TransactionBoundary = txOverride ?? result.transaction
     store.setState({ graph: next })
@@ -479,6 +518,9 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     workbench: 'canvas',
     getSnapshot: () => store.getState().graph,
     dispatch,
+    setNodeScale: (factor) => {
+      nodeScale = Number.isFinite(factor) && factor > 0 ? factor : 1
+    },
     undo,
     redo,
     canUndo: () => store.getState().undoStack.length > 0,

@@ -1,0 +1,166 @@
+/* 「外观与体验 → 画布」面板（对账 #379 的 C4 / C5）。
+   与 FontManagerPanel 同一套排版语言；颜色一律走令牌
+   （scripts/check-theme.mjs 会拦字面量颜色）。 */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.block {
+  border: var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  padding: var(--space-4);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+  color: var(--text-1);
+}
+
+.reset {
+  height: 28px;
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.reset:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.reset:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+.caption {
+  margin: var(--space-2) 0 var(--space-3);
+  font-size: var(--fs-label);
+  color: var(--text-2);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.rowLabel {
+  font-size: var(--fs-body);
+  color: var(--text-1);
+}
+
+.segments {
+  display: inline-flex;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+
+.seg {
+  height: 32px;
+  min-width: 44px;
+  padding: 0 var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.seg + .seg {
+  border-left: var(--border);
+}
+
+.segOn {
+  background: var(--bg-subtle);
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.seg:disabled,
+.swatch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.swatches {
+  display: inline-flex;
+  gap: var(--space-2);
+}
+
+/* 色块本身是**画布底色的预览**：颜色来自 tokens.css 里那六档画布令牌，
+   与画布真正用的值是同一份 —— 面板上看到的就是换上去的样子。 */
+.swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--stroke);
+  padding: 0;
+  cursor: pointer;
+}
+
+.swatch:nth-child(1) {
+  background: var(--canvas-tone-slate);
+}
+
+.swatch:nth-child(2) {
+  background: var(--canvas-tone-blue);
+}
+
+.swatch:nth-child(3) {
+  background: var(--canvas-tone-green);
+}
+
+.swatch:nth-child(4) {
+  background: var(--canvas-tone-amber);
+}
+
+.swatch:nth-child(5) {
+  background: var(--canvas-tone-rose);
+}
+
+.swatch:nth-child(6) {
+  background: var(--canvas-tone-violet);
+}
+
+.swatchOn {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 3px var(--accent);
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reset,
+  .seg,
+  .swatch {
+    transition: none;
+  }
+}
