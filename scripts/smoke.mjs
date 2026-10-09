@@ -1024,6 +1024,16 @@ async function g2(browser) {
   rec(g, '文生图模板预置节点', n === 2, `节点数=${n} 类型=${types.join(',')}`)
   await page.screenshot({ path: `${OUT}/04-template-wensheng.png` })
 
+  /**
+   * ⚠️ 先**等连线出现**再数（2026-10-09 全量实测：慢机上连线的 DOM 比节点晚一拍，
+   * 只 sleep 一次再数会读到 0 —— 而数据其实已经连好了：同组的"单步撤销后节点归零"照样通过）。
+   * 判据不变（必须真的有连线），只是不再拿墙钟时间赌它已经渲染完。
+   */
+  await page
+    .locator('[data-edge]')
+    .first()
+    .waitFor({ state: 'attached', timeout: 5000 })
+    .catch(() => {})
   const edges = await page.locator('[data-edge]').count()
   rec(g, '模板预置连线已渲染', edges > 0, `连线数=${edges}`)
 
@@ -4378,6 +4388,12 @@ async function g37(browser) {
   const up = page.locator('[data-node-id]').filter({ hasText: '底图' }).first()
   const down = page.locator('[data-node-id]').filter({ hasText: '图生图' }).first()
   rec(g, '模板预置「底图」与「图生图」两个节点', (await up.count()) === 1 && (await down.count()) === 1)
+  /* 同 G2：连线可能比节点晚一拍，等它出现再断言（判据不变，只是不等墙钟） */
+  await page
+    .locator('[data-edge]')
+    .first()
+    .waitFor({ state: 'attached', timeout: 5000 })
+    .catch(() => {})
   rec(g, '两节点已连线', (await page.locator('[data-edge]').count()) >= 1)
 
   // §6.8：生成节点本体是媒体框，配置走「选中节点 → 下方创作面板」

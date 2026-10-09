@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react'
  * （`types: ["vite/client"]`），而 `resolveJsonModule` 是开着的 —— JSON 导入既能拿到版本，
  * 又不用把 node 类型引进构建配置。
  */
-import pkg from './package.json'
+import pkg from './package.json' with { type: 'json' }
 
 /**
  * 应用版本（构建时注入 `__APP_VERSION__`）。
