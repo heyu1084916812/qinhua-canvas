@@ -47,6 +47,7 @@ class QinghuaDB extends Dexie {
   builtinSkills!: Table<Row, string>
   skills!: Table<Row, string>
   fonts!: Table<Row, string>
+  snapshots!: Table<Row, string>
 
   constructor(name = 'qinghua') {
     super(name)
@@ -112,6 +113,15 @@ class QinghuaDB extends Dexie {
      */
     this.version(9).stores({
       fonts: 'id, createdAt',
+    })
+    /**
+     * v10：项目快照（用户 2026-10-09，对账 #378 A4）。
+     *
+     * 按 `projectId` 建索引：取快照总是"这个项目的最近 N 张"，
+     * 不带索引就得全表扫（快照行里有整份图，扫全表代价不低）。
+     */
+    this.version(10).stores({
+      snapshots: 'id, projectId, createdAt',
     })
   }
 }

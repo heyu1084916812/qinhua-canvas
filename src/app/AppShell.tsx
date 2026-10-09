@@ -11,6 +11,8 @@ import {
   subscribeSidebar,
 } from './sidebarState'
 import styles from './AppShell.module.css'
+import { usePlatform } from './providers/PlatformProvider'
+import { useAutoSnapshot } from '../state/project/useAutoSnapshot'
 
 /**
  * 应用壳（产品文档 §2.1 / §2.2；架构文档 §5.10）。
@@ -26,6 +28,12 @@ import styles from './AppShell.module.css'
  * 若在壳层里手动「开合时通知画布重算」，反而会漏掉过渡动画中间那几帧。
  */
 export function AppShell({ children }: { children: ReactNode }) {
+  /**
+   * 自动快照（对账 #378 A4）：应用启动时跑一次，由规则层决定哪些项目真需要拍。
+   * 放在壳层是因为它**与页面无关** —— 无论用户先打开项目页还是直接进画布，都该发生。
+   */
+  useAutoSnapshot(usePlatform().storage)
+
   /*
    * 订阅**展开态**（= 钉住 或 悬停，见 `sidebarState.getSidebarOpen`）。
    *

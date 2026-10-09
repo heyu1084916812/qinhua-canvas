@@ -42,6 +42,14 @@ export type TableName =
    * 一行 = 一个字体：元数据 + `bytes`（ArrayBuffer）。
    */
   | 'fonts'
+  /**
+   * 项目快照（用户 2026-10-09，对账 #378 A4）。
+   *
+   * 与 `fonts` / `assets` 分开：一行 = 一个项目的**图与记录**的副本
+   * （nodes / edges / runRecords），**不含素材字节** —— 素材走内容寻址的 `assets`，
+   * 那张表只增不改，本身就是历史。这样快照可以又多又小。
+   */
+  | 'snapshots'
 
 export interface Row {
   id: string
