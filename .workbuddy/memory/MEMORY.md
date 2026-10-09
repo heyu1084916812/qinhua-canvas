@@ -1,5 +1,27 @@
 # CanvasFlow（轻画）项目记忆
 
+### ★ 星数不等于采用量：用 Releases 下载计数看真实热度（2026-10-09 第 35 批）
+
+实测（GitHub Releases API，最近 5 个版本 `assets[].download_count` 合计）：
+
+| 项目 | 星数 | 下载 | 形态 |
+| --- | --- | --- | --- |
+| CherryHQ/cherry-studio | 52 468 | **2 244 607** | Win/mac/Linux 安装包 |
+| HBAI-Ltd/Toonflow-app | 16 841 | **14 668** | 桌面包 + Docker |
+| basketikun/infinite-canvas | 7394 | **0** | 源码 / Docker |
+| csyqlz/vozeb | 91 | **0** | 源码 |
+
+1. **星数与下载量会差两个数量级**：Cherry 与 Toonflow 同为"头部开源"，
+   下载量差 150 倍以上。差异来自**分发形态**，不是功能数量。
+   评估竞品热度时，**下载量优先于星数**；没有 Release 的项目说明其用户是自建/自部署。
+2. **同构竞品（basketikun / Vozeb）都不发二进制**，而轻画已有 Tauri 壳 +
+   中文安装器 + 自动更新 ⇒ 在"最远的同构竞品"这一档，
+   **交付完成度反而是轻画靠前的地方**。这条是可以拿出去讲的差异。
+3. **榜单数据的可获取性要一次性测清，别反复试**：免费可拿 = Releases 下载、
+   GitHub Search 分布；拿不到 = 七麦（JS 壳）、点点（需登录）、Product Hunt
+   （无 votes 字段）、G2 / AlternativeTo（403）、B站 API（412）、官网自报用户量（不存在）。
+   以后凡涉及"排行榜 / 推广度"，先看这条记录，别重复踩。
+
 ### ★ 找竞品先搜"同构功能组合"，别从知名度出发（2026-10-09 第 34 批）
 
 连续三轮把对标对象找错：Cherry（对话客户端）→ Toonflow（编剧院）→ 才发现真正最像的是
