@@ -806,12 +806,35 @@ async function configureMockChannel(page, { token = null, enable = true, pick = 
  *  - 面板的档位（比例 / 清晰度 / 张数）经 `capabilityOfLogical` 按映射找到 mock 的能力表。
  */
 async function mapMockModels(page) {
+  /*
+   * ⚠️ 2026-10-09 修：映射区**按类别分五档筛选**（对账 #376），一屏只渲染一档的行。
+   * 旧实现只按名字找输入框、找不到就 `continue` **静默跳过** —— 而默认停在「生图」档，
+   * 于是对话与视频那两行**从来没被填过**（实测取证：DOM 里只有 7 个 input，全是生图）。
+   *
+   * 后果不是"少填一条映射"这么轻：G46 选「即梦 2.5」后点生成，选路报
+   * 「没有渠道提供模型「即梦 2.5」」，于是整组卡在"视频没跑起来"——
+   * 一条**测试助手的静默跳过**，伪装成了产品缺陷。
+   *
+   * 现在按档位逐档填：切到那一档 → 填 → 保存 → **校验真的写进 store**。
+   */
+  /*
+   * `filterKey` 取自映射区那五档的 `data-route-map-filter`（image / chat / video）。
+   * ⚠️ 别用可见文字去找按钮：筛选按钮的文字确实是「生图 / 对话 / 视频」，
+   * 但画布上别的控件也可能叫这些词，按文字取会命中错的那个（本批实测踩到过）。
+   */
   const rows = [
-    ['GPT Image 2', 'mock-image-1'],
-    ['GPT-6 Astra', 'mock-chat-1'],
-    ['即梦 2.5', 'mock-video-1'],
+    ['image', 'GPT Image 2', 'mock-image-1'],
+    ['chat', 'GPT-6 Astra', 'mock-chat-1'],
+    ['video', '即梦 2.5', 'mock-video-1'],
   ]
-  for (const [logical, upstream] of rows) {
+  for (const [filterKey, logical, upstream] of rows) {
+    /*
+     * 切到这一类**再**填：不切的话这一档的行根本不在 DOM 里（映射区一次只渲染一档），
+     * 下面的 `count() === 0` 会静默跳过 —— 本批实测就是这样让「即梦 2.5」的映射
+     * 从来没被写上，进而让 G46 的视频整组看起来像产品缺陷。
+     */
+    await page.locator(`[data-route-map-filter="${filterKey}"]`).click().catch(() => {})
+    await sleep(150)
     const input = page.locator(`[data-route-map-input="${logical}"]`)
     if ((await input.count()) === 0) continue
     await input.fill(upstream)

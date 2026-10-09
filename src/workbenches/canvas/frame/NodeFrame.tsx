@@ -254,6 +254,27 @@ export function NodeFrame(props: NodeFrameProps) {
       data-node-id={node.id}
       data-node-type={node.type}
       /**
+       * **落库的模型**（不是面板兜底显示的那个）。
+       *
+       * 用户 2026-10-09 的 G46 事故暴露了一条真实的排查困难：面板 chip 显示「即梦 2.5」
+       * （兜底值，只用于显示），而节点 data 里可能是空的 —— 从界面上**看不出这两者的差别**，
+       * 于是"点了生成没反应"既没法断言、也没法肉眼定位。
+       *
+       * 只读锚点：生成 / 提示词节点带上 `data-node-model`，值取自节点数据本身。
+       * 它与任何交互无关，纯为「所见 ≠ 所存」这类问题留一条可观察的缝。
+       */
+      data-node-model={
+        typeof (node.data as { model?: unknown }).model === 'string'
+          ? ((node.data as { model?: string }).model ?? '')
+          : undefined
+      }
+      /* 同理：落库的渠道 id。面板兜底与节点数据不是一回事，两者都要看得见 */
+      data-node-channel={
+        typeof (node.data as { channelId?: unknown }).channelId === 'string'
+          ? ((node.data as { channelId?: string }).channelId ?? '')
+          : undefined
+      }
+      /**
        * 选中态也落到 data 属性上，供**节点内部**（如生成节点的素材操作入口）
        * 用纯 CSS 判断「这个节点被选中了吗」。
        *
