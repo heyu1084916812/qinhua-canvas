@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 「全局设置」浮层的**纯 UI 态**（用户 2026-10-06 定，对账 #259）。
  *
  * 三条口径（都是用户原话）：
@@ -44,17 +44,32 @@ export interface GlobalSettingsState {
 }
 
 /** 子菜单（浮层内那一排标签）。**标签与内容一处定义**，免得"标签写 A、内容是 B"。 */
-export const GLOBAL_SETTINGS_SECTIONS: { id: GlobalSettingsSection; label: string }[] = [
-  { id: 'channels', label: '渠道配置' },
+/**
+ * 设置栏目的**分组顺序**（用户 2026-10-09：「就像 cherry 的截图那个，有很多的设置而已」）。
+ *
+ * 参考 Cherry Studio 的组织逻辑：按**能力域**分组，而不是按"新加的就往下堆"。
+ * 组标题本身即口径 —— 连接类（要去哪儿取东西）、生成类（每次出图都要动）、
+ * 外观类（只改界面）、数据类（东西在哪 + 出事怎么办）、系统类（版本与说明）。
+ * 顺序即界面顺序，新增组要追加在末尾。
+ */
+export const GLOBAL_SETTINGS_GROUPS = ['连接', '生成', '外观', '数据', '系统'] as const
+export type GlobalSettingsGroup = (typeof GLOBAL_SETTINGS_GROUPS)[number]
+
+export const GLOBAL_SETTINGS_SECTIONS: {
+  id: GlobalSettingsSection
+  label: string
+  group: GlobalSettingsGroup
+}[] = [
+  { id: 'channels', label: '渠道配置', group: '连接' },
   // 「CLI」（对账 #308）：用户点名"就在渠道配置的**下面**"——顺序即口径，别往后挪
-  { id: 'cli', label: 'CLI' },
-  { id: 'hosting', label: '素材传输' },
+  { id: 'cli', label: 'CLI', group: '连接' },
+  { id: 'hosting', label: '素材传输', group: '连接' },
   // 「存储」（对账 #261）：存储概况 / 数据目录 / 网页缓存 / 素材文件夹
-  { id: 'storage', label: '存储' },
+  { id: 'storage', label: '存储', group: '数据' },
   // 「外观与体验」（用户 2026-10-09）：字体 / 界面字号 / 字距
-  { id: 'appearance', label: '外观与体验' },
+  { id: 'appearance', label: '外观与体验', group: '外观' },
   // 「备份与恢复」（用户 2026-10-09）：全量备份导出 / 导入（#378）
-  { id: 'backup', label: '备份与恢复' },
+  { id: 'backup', label: '备份与恢复', group: '数据' },
 ]
 
 let state: GlobalSettingsState = { open: false, section: 'channels' }

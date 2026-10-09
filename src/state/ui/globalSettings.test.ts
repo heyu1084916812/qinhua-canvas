@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  GLOBAL_SETTINGS_GROUPS,
   GLOBAL_SETTINGS_SECTIONS,
   __resetGlobalSettingsForTest,
   closeGlobalSettings,
@@ -90,5 +91,23 @@ describe('globalSettings · 全局设置浮层', () => {
       '外观与体验',
       '备份与恢复',
     ])
+  })
+
+  it('★★ 每个栏目都归到五组之一，且组顺序固定（新增栏目忘了分组会在这里红）', () => {
+    const groups = GLOBAL_SETTINGS_SECTIONS.map((s) => s.group)
+    // 组只能取这五个（漏写 group 会是 undefined ⇒ 立刻红）
+    for (const g of groups) {
+      expect(GLOBAL_SETTINGS_GROUPS).toContain(g)
+    }
+    // 归属：连接类进"连接"、备份与存储进"数据"、字体进"外观"
+    const byId = new Map(GLOBAL_SETTINGS_SECTIONS.map((s) => [s.id, s.group]))
+    expect(byId.get('channels')).toBe('连接')
+    expect(byId.get('cli')).toBe('连接')
+    expect(byId.get('hosting')).toBe('连接')
+    expect(byId.get('storage')).toBe('数据')
+    expect(byId.get('backup')).toBe('数据')
+    expect(byId.get('appearance')).toBe('外观')
+    // 组顺序 = 界面渲染顺序，不能随手调
+    expect(GLOBAL_SETTINGS_GROUPS).toEqual(['连接', '生成', '外观', '数据', '系统'])
   })
 })

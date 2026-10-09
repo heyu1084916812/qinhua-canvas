@@ -105,6 +105,28 @@
   transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
 }
 
+/**
+ * 设置分组（用户 2026-10-09，参考 Cherry 的组织逻辑）：
+ * 组标题是**弱化的说明文字**，不做成可点的胶囊 —— 它只是分隔，不是栏目。
+ * 组与组之间留 20px（比栏目之间的 2px 大一档），让"这是另一类设置"一眼可读。
+ */
+.navGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.navGroup + .navGroup {
+  margin-top: var(--space-sidebar-group);
+}
+
+.navGroupTitle {
+  padding: 0 var(--space-3) var(--space-1);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  color: var(--text-3);
+}
+
 .navItem:hover {
   background: var(--bg-hover);
   color: var(--text-1);

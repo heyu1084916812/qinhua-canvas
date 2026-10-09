@@ -7,6 +7,7 @@ import { FontManagerPanel } from '../features/settings/FontManagerPanel'
 import { BackupPanel } from '../features/settings/BackupPanel'
 import { IconClose } from './AppSidebarIcons'
 import {
+  GLOBAL_SETTINGS_GROUPS,
   GLOBAL_SETTINGS_SECTIONS,
   closeGlobalSettings,
   getGlobalSettings,
@@ -94,18 +95,36 @@ export function GlobalSettingsOverlay() {
             冒烟与页内跳转（画布里那处"去后台设置"）都按它找人，换布局不该换锚点。
           */}
           <nav className={styles.nav} aria-label="设置栏目">
-            {GLOBAL_SETTINGS_SECTIONS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={section === item.id ? `${styles.navItem} ${styles.navItemOn}` : styles.navItem}
-                data-global-settings-tab={item.id}
-                aria-pressed={section === item.id}
-                onClick={() => openGlobalSettings(item.id)}
-              >
-                {item.label}
-              </button>
-            ))}
+            {/*
+              按**能力域**分段渲染（用户 2026-10-09，参考 Cherry 的组织逻辑）：
+              分组顺序与栏目归属都在 `state/ui/globalSettings` 里定义，
+              这里只负责画出来 —— 菜单顺序与搜索、路由共用同一份数据，不会漂移。
+            */}
+            {GLOBAL_SETTINGS_GROUPS.map((group) => {
+              const items = GLOBAL_SETTINGS_SECTIONS.filter((item) => item.group === group)
+              if (items.length === 0) return null
+              return (
+                <div key={group} className={styles.navGroup}>
+                  <div className={styles.navGroupTitle} data-global-settings-group={group}>
+                    {group}
+                  </div>
+                  {items.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={
+                        section === item.id ? `${styles.navItem} ${styles.navItemOn}` : styles.navItem
+                      }
+                      data-global-settings-tab={item.id}
+                      aria-pressed={section === item.id}
+                      onClick={() => openGlobalSettings(item.id)}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              )
+            })}
           </nav>
           {/*
             右：具体内容。**这一层是滚动容器**（`overflow-y: auto`）—— 没有它，
