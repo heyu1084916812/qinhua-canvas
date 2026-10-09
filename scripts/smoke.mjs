@@ -22412,7 +22412,118 @@ async function g115(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115]
+// ────────────────────────────────────────────────────────────
+// G116 电商工作台（#384）：表单 → 二次确认 → 出图 → 在画布里打开
+// ────────────────────────────────────────────────────────────
+async function g116(browser) {
+  const g = 'G116 电商工作台'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  /** 先配一条 mock 渠道（内置渠道会被停用），不然"生成"没有可用的上游 */
+  await configureMockChannel(page)
+  await sleep(600)
+
+  // ① 入口：没有项目时给引导，不是空白
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
+  await sleep(600)
+  rec(
+    g,
+    '★ 侧栏有「电商」一级入口，且无项目时给创建引导（不空白）',
+    (await page.locator('[data-sidebar-item="/ecommerce"]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-empty-page]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-create]').count()) === 1,
+  )
+
+  // ② 新建 → 工作室（表单齐全）
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  await sleep(900)
+  const usages = await page
+    .locator('[data-ecommerce-usage]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-ecommerce-usage')))
+  rec(
+    g,
+    '★★ 工作室：四档用途 + 六平台 + 语言/张数/比例都在',
+    (await page.locator('[data-ecommerce-form]').count()) === 1 &&
+      JSON.stringify(usages) === JSON.stringify(['main', 'white-bg', 'detail', 'set']) &&
+      (await page.locator('[data-ecommerce-platform] option').count()) === 7 &&
+      (await page.locator('[data-ecommerce-ratio] option').count()) === 5,
+    `用途=${usages.join(',')}`,
+  )
+
+  // ③ 上传产品图：预览必须真的能解码（不是只有一个空框）
+  await page.locator('[data-ecommerce-product-input]').setInputFiles({
+    name: 'product.png',
+    mimeType: 'image/png',
+    buffer: solidPngBuffer(64, 64, [12, 200, 90]),
+  })
+  await sleep(1500)
+  const previewOk = await page
+    .locator('[data-ecommerce-product-preview] img')
+    .first()
+    .evaluate((el) => el.naturalWidth > 0)
+    .catch(() => false)
+  rec(g, '★★ 上传产品图后预览能解码（真的落库并读回来）', previewOk)
+
+  // ④ 二次确认（D6）：先报"预计 N 张"，确认后才发请求
+  await page.locator('[data-ecommerce-generate]').click()
+  await sleep(400)
+  const confirmText = await page
+    .locator('[data-ecommerce-confirm]')
+    .innerText()
+    .catch(() => '')
+  rec(
+    g,
+    '★★ 点生成先出二次确认，且写明将生成几张',
+    (await page.locator('[data-ecommerce-confirm]').count()) === 1 && /将生成\s*1\s*张/.test(confirmText),
+    confirmText.replace(/\n/g, ' | ').slice(0, 80),
+  )
+
+  // ⑤ 确认 → 真的出图（mock 渠道）+ 结果可预览
+  await page.locator('[data-ecommerce-confirm-ok]').click()
+  const done = await page
+    .waitForFunction(
+      () => document.querySelectorAll('[data-ecommerce-result][data-status="done"]').length > 0,
+      null,
+      { timeout: 25000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  const resultCount = await page.locator('[data-ecommerce-result]').count()
+  const imgOk = await page
+    .locator('[data-ecommerce-result][data-status="done"] img')
+    .first()
+    .evaluate((el) => el.naturalWidth > 0)
+    .catch(() => false)
+  rec(
+    g,
+    '★★★ 确认后真的出图：结果区有产物、且预览能解码',
+    done && resultCount >= 1 && imgOk,
+    `结果=${resultCount} 出图=${done} 解码=${imgOk}`,
+  )
+
+  // ⑥ 在画布里打开：结果本来就是画布节点（这是"发送到画布"的落点）
+  await sleep(1600) // 等防抖落库，免得画布那边读到空库
+  await page.locator('[data-ecommerce-open-canvas]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+  const canvasNodes = await page.locator('[data-node-id]').count()
+  rec(
+    g,
+    '★★ 「在画布里打开」跳到画布，且产品图 / 生成节点都在',
+    canvasNodes >= 2,
+    `节点=${canvasNodes}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/116-g116-ecommerce.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

@@ -54,6 +54,8 @@ export interface CreateProjectInput {
 
 const DEFAULT_NAME: Record<WorkbenchId, string> = {
   canvas: '未命名项目',
+  /* 电商工作台（对账 #384）：默认名直接说用途，比"未命名项目"好用 */
+  ecommerce: '电商出图',
 }
 
 /** 构造一个新的 Project 领域对象（纯函数，不含持久化与 id 生成） */

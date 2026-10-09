@@ -46,6 +46,21 @@ export function IconProjects({ size = 20 }: IconProps) {
   )
 }
 
+/**
+ * 电商工作台（对账 #384）：一只**商品袋**。
+ *
+ * 为什么不复用「画布」那个节点图标：两个入口是**同级但不同形态**的工作台
+ * （一个是节点图、一个是表单出图），图标一样会让人以为是同一个页面。
+ */
+export function IconEcommerce({ size = 20 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <path d="M5 8.5h14l-1 11a1.5 1.5 0 0 1-1.5 1.35h-9A1.5 1.5 0 0 1 6 19.5Z" />
+      <path d="M9 8.5V7a3 3 0 0 1 6 0v1.5" />
+    </svg>
+  )
+}
+
 /** 画布：节点与连线 */
 export function IconCanvas({ size = 20 }: IconProps) {
   return (

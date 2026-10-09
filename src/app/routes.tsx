@@ -22,6 +22,15 @@ const CanvasPage = lazy(() =>
   import('../pages/CanvasPage/CanvasPage').then((m) => ({ default: m.CanvasPage })),
 )
 /**
+ * 电商工作台（对账 #384）：与画布同级的一级入口。
+ *
+ * 同样走路由级 lazy：它是**表单出图**那一套界面（不认识节点图），
+ * 与画布工作台各自成 chunk，谁都不用为对方付首屏成本。
+ */
+const EcommercePage = lazy(() =>
+  import('../pages/EcommercePage/EcommercePage').then((m) => ({ default: m.EcommercePage })),
+)
+/**
  * 技能库单独成页，而不是塞进设置页。
  *
  * 理由：设置页已经在管渠道 / 协议 / 模型三件事，再加一块会继续变厚；
@@ -62,6 +71,9 @@ export function AppRoutes() {
         */}
         <Route path="/canvas" element={<CanvasPage />} />
         <Route path="/canvas/:projectId" element={<CanvasPage />} />
+        {/* `/ecommerce` 无 id：没有可打开的项目时给创建引导，不空白（#384 的 D3） */}
+        <Route path="/ecommerce" element={<EcommercePage />} />
+        <Route path="/ecommerce/:projectId" element={<EcommercePage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/hosting" element={<HostingPage />} />
         <Route path="/skills" element={<SkillsPage />} />

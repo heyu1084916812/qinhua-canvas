@@ -1,6 +1,7 @@
 import {
   IconAssets,
   IconCanvas,
+  IconEcommerce,
   IconHome,
   IconProjects,
   IconSkills,
@@ -23,6 +24,8 @@ export const NAV: NavItem[] = [
   { to: '/', label: '首页', icon: IconHome },
   { to: '/projects', label: '项目', icon: IconProjects },
   { to: '/canvas', label: '画布', icon: IconCanvas },
+  /* 电商工作台（对账 #384）：与画布同级的一级入口 —— 表单出图，不是节点图 */
+  { to: '/ecommerce', label: '电商', icon: IconEcommerce },
   { to: '/skills', label: '技能库', icon: IconSkills },
   { to: '/assets', label: '我的素材', icon: IconAssets },
 ]

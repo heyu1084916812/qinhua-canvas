@@ -7,7 +7,7 @@
  * 工作台的「多值」结构（`WORKBENCHES` 表、`WORKBENCH_ORDER`、`projectRoute`）
  * 是为下一个工作台准备的骨架，退化成单值会让「再开一个工作台」重新变成一次大改。
  */
-export type WorkbenchId = 'canvas'
+export type WorkbenchId = 'canvas' | 'ecommerce'
 
 export interface WorkbenchDescriptor {
   id: WorkbenchId
@@ -18,10 +18,12 @@ export interface WorkbenchDescriptor {
 
 export const WORKBENCHES: Record<WorkbenchId, WorkbenchDescriptor> = {
   canvas: { id: 'canvas', label: '无限画布', routePrefix: '/canvas' },
+  /* 电商工作台（对账 #384）：与画布同级的一级入口，但界面是"表单 → 出图"而不是节点图 */
+  ecommerce: { id: 'ecommerce', label: '电商工作台', routePrefix: '/ecommerce' },
 }
 
 /** 工作台展示顺序（首页新建入口、类型标签统一取此序） */
-export const WORKBENCH_ORDER: WorkbenchId[] = ['canvas']
+export const WORKBENCH_ORDER: WorkbenchId[] = ['canvas', 'ecommerce']
 
 export const DEFAULT_WORKBENCH: WorkbenchId = 'canvas'
 
