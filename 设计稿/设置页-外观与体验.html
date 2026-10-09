@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>轻画 · 全局设置（设计稿）</title>
+<style>
+  /* —— 设计令牌：与 src/ui/tokens.css 同源，浅色主题 —— */
+  :root {
+    --bg-canvas: #ffffff;
+    --bg-app: #f5f5f5;
+    --bg-surface: #ffffff;
+    --bg-subtle: #f5f5f5;
+    --bg-hover: #e2e2e2;
+    --stroke: #e2e2e2;
+    --text-1: #171717;
+    --text-2: #737373;
+    --text-3: #9a9a9a;
+    --accent: #171716;
+    --accent-text: #ffffff;
+    --focus-ring: #5b67d6;
+    --radius-control: 10px;
+    --radius-pill: 999px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "Segoe UI Variable", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+    background: #d9d9d9;
+    color: var(--text-1);
+    letter-spacing: 0.04em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .window {
+    width: 1280px;
+    height: 800px;
+    background: var(--bg-surface);
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.28);
+  }
+  /* —— 左：设置导航 —— */
+  .nav {
+    width: 236px;
+    flex: 0 0 236px;
+    background: var(--bg-subtle);
+    border-right: 1px solid var(--stroke);
+    display: flex;
+    flex-direction: column;
+    padding: 18px 0 12px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 20px 16px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .brand-mark {
+    width: 26px; height: 26px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: var(--accent-text);
+    display: grid; place-items: center;
+    font-size: 13px; font-weight: 700;
+  }
+  .search {
+    margin: 0 16px 14px;
+    height: 34px;
+    border-radius: var(--radius-control);
+    background: var(--bg-surface);
+    border: 1px solid var(--stroke);
+    color: var(--text-3);
+    font-size: 13px;
+    display: flex; align-items: center;
+    padding: 0 10px; gap: 8px;
+  }
+  .search svg { width: 15px; height: 15px; flex: 0 0 15px; }
+  .group-title {
+    font-size: 12px;
+    color: var(--text-3);
+    padding: 12px 22px 6px;
+  }
+  .item {
+    height: 34px;
+    margin: 1px 12px;
+    border-radius: 8px;
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 10px;
+    font-size: 13.5px;
+    color: var(--text-1);
+  }
+  .item svg { width: 16px; height: 16px; flex: 0 0 16px; color: var(--text-2); }
+  .item.on {
+    background: var(--bg-surface);
+    box-shadow: 0 1px 2px rgba(23,23,22,.08);
+    font-weight: 600;
+  }
+  .item.on svg { color: var(--text-1); }
+  .nav-foot {
+    margin-top: auto;
+    padding: 12px 22px 0;
+    font-size: 11.5px;
+    color: var(--text-3);
+    border-top: 1px solid var(--stroke);
+  }
+  /* —— 右：内容 —— */
+  .content {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .head {
+    height: 64px;
+    flex: 0 0 64px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 28px;
+    border-bottom: 1px solid var(--stroke);
+  }
+  .head h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  .head p { margin: 2px 0 0; font-size: 12.5px; color: var(--text-2); font-weight: 400; }
+  .head-actions { display: flex; gap: 8px; }
+  .btn {
+    height: 34px;
+    padding: 0 14px;
+    border-radius: var(--radius-control);
+    border: 1px solid var(--stroke);
+    background: var(--bg-surface);
+    color: var(--text-1);
+    font: inherit; font-size: 13px; font-weight: 500;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .btn.primary {
+    background: var(--accent);
+    color: var(--accent-text);
+    border-color: var(--accent);
+  }
+  .body {
+    flex: 1 1 auto;
+    overflow: hidden;
+    padding: 18px 28px 22px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    align-content: start;
+  }
+  .card {
+    border: 1px solid var(--stroke);
+    border-radius: 8px;
+    padding: 14px 18px 14px;
+    background: var(--bg-surface);
+    min-width: 0;
+  }
+  .card.wide { grid-column: 1 / -1; }
+  .card h2 {
+    margin: 0 0 4px;
+    font-size: 14.5px; font-weight: 600;
+  }
+  .card .hint {
+    margin: 0 0 14px;
+    font-size: 12px; color: var(--text-2);
+  }
+  .row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px;
+    min-height: 34px;
+    padding: 4px 0;
+  }
+  .row + .row { border-top: 1px solid var(--bg-subtle); }
+  .row .label { font-size: 13.5px; }
+  .row .sub { font-size: 11.5px; color: var(--text-2); margin-top: 2px; }
+  .seg {
+    display: inline-flex;
+    border: 1px solid var(--stroke);
+    border-radius: var(--radius-control);
+    overflow: hidden;
+    flex: 0 0 auto;
+  }
+  .seg span {
+    height: 30px; padding: 0 12px;
+    display: inline-flex; align-items: center;
+    font-size: 12.5px; color: var(--text-2);
+  }
+  .seg span + span { border-left: 1px solid var(--stroke); }
+  .seg span.on { background: var(--bg-subtle); color: var(--text-1); font-weight: 600; }
+  .swatches { display: flex; gap: 8px; flex: 0 0 auto; }
+  .swatch {
+    width: 24px; height: 24px; border-radius: 7px;
+    border: 1px solid var(--stroke);
+  }
+  .swatch.on { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+  .swatch.canvas { background: var(--bg-canvas); }
+  .swatch.a { background: #eef2fb; }
+  .swatch.b { background: #eef6f0; }
+  .swatch.c { background: #fbf4e8; }
+  .swatch.d { background: #fbeeee; }
+  .swatch.e { background: #f2eefb; }
+  .toggle {
+    width: 40px; height: 22px; border-radius: var(--radius-pill);
+    background: var(--bg-hover);
+    position: relative; flex: 0 0 40px;
+  }
+  .toggle::after {
+    content: ""; position: absolute; top: 3px; left: 3px;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2);
+  }
+  .toggle.on { background: var(--accent); }
+  .toggle.on::after { left: 21px; }
+  .note {
+    margin-top: 12px;
+    font-size: 11.5px; color: var(--text-3);
+    border-top: 1px dashed var(--stroke);
+    padding-top: 10px;
+  }
+  .tag {
+    display: inline-block;
+    font-size: 11px; color: var(--text-2);
+    background: var(--bg-subtle);
+    border-radius: var(--radius-pill);
+    padding: 2px 8px;
+    margin-left: 6px;
+  }
+  /* 让整页在设计稿高度的窗口里完整可见（不含窗口外阴影） */
+  @media (max-height: 900px) {
+    .window { height: 780px; }
+    .card h2 { font-size: 14px; }
+    .card .hint { margin-bottom: 10px; }
+    .note { margin-top: 8px; padding-top: 8px; }
+  }
+</style>
+</head>
+<body>
+<div class="window">
+  <!-- ============ 左：设置导航（五组） ============ -->
+  <nav class="nav">
+    <div class="brand"><span class="brand-mark">轻</span>全局设置</div>
+    <div class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      搜索设置
+    </div>
+
+    <div class="group-title">连接</div>
+    <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 7h16M4 12h16M4 17h10"/></svg>渠道配置</div>
+    <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>本机 CLI</div>
+    <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 16V4m0 0L8 8m4-4l4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>素材传输</div>
+
+    <div class="group-title">生成</div>
+    <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>模型与默认参数</div>
+    <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 4h14v16H5z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>技能与预设词</div>
+
+    <div class="group-title">外观</div>
+    <div class="item on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16"/></svg>外观与体验</div>
+
+    <div class="group-title">数据</div>
+    <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/></svg>存储</div>
+    <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>备份与恢复<span class="tag">待做</span></div>
+    <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6z"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>通知</div>
+
+    <div class="group-title">系统</div>
+    <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M20 12a8 8 0 1 1-3-6.2"/><path d="M20 4v4h-4"/></svg>更新与版本</div>
+    <div class="item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 8h.01"/></svg>关于与隐私</div>
+
+    <div class="nav-foot">轻画 v0.1.0 · 数据全部保存在本机</div>
+  </nav>
+
+  <!-- ============ 右：外观与体验 ============ -->
+  <section class="content">
+    <header class="head">
+      <div>
+        <h1>外观与体验</h1>
+        <p>界面字体与字号、画布底色、动效强度。仅影响显示，不改动任何生成参数。</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn">恢复默认</button>
+        <button class="btn primary">完成</button>
+      </div>
+    </header>
+
+    <div class="body">
+      <div class="card">
+        <h2>主题</h2>
+        <p class="hint">浅色 / 深色两档，与侧栏底部按钮同一份设置。</p>
+        <div class="row">
+          <span class="label">配色</span>
+          <span class="seg"><span class="on">浅色</span><span>深色</span></span>
+        </div>
+        <div class="row">
+          <span class="label">强调色</span>
+          <span class="swatches">
+            <span class="swatch on" style="background:#171716"></span>
+            <span class="swatch" style="background:#2f6df0"></span>
+            <span class="swatch" style="background:#2f7d5a"></span>
+            <span class="swatch" style="background:#b4473a"></span>
+            <span class="swatch" style="background:#7a5cd6"></span>
+          </span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>界面文字</h2>
+        <p class="hint">字体与字号只作用于界面，不改变生成结果里的文字。</p>
+        <div class="row">
+          <span class="label">界面字体</span>
+          <span class="seg"><span class="on">系统默认</span><span>思源黑体</span><span>自定义…</span></span>
+        </div>
+        <div class="row">
+          <span class="label">界面字号</span>
+          <span class="seg"><span>紧凑</span><span class="on">标准</span><span>舒适</span></span>
+        </div>
+        <div class="row">
+          <span class="label">字距<span class="sub">中文密排时略宽更好读</span></span>
+          <span class="seg"><span>标准</span><span class="on">宽松</span></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>画布</h2>
+        <p class="hint">底色与网格只影响画布本身，不动节点卡片与导出结果。</p>
+        <div class="row">
+          <span class="label">画布背景</span>
+          <span class="seg"><span class="on">细网格</span><span>点阵</span><span>纯色</span></span>
+        </div>
+        <div class="row">
+          <span class="label">背景色调</span>
+          <span class="swatches">
+            <span class="swatch canvas on"></span>
+            <span class="swatch a"></span>
+            <span class="swatch b"></span>
+            <span class="swatch c"></span>
+            <span class="swatch d"></span>
+            <span class="swatch e"></span>
+          </span>
+        </div>
+        <div class="row">
+          <span class="label">显示小地图</span>
+          <span class="toggle on"></span>
+        </div>
+        <div class="row">
+          <span class="label">显示节点端点</span>
+          <span class="toggle on"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>体验</h2>
+        <p class="hint">动效与提示；减少动效不会关掉状态反馈。</p>
+        <div class="row">
+          <span class="label">减少动效</span>
+          <span class="toggle"></span>
+        </div>
+        <div class="row">
+          <span class="label">生成完成时提示</span>
+          <span class="toggle on"></span>
+        </div>
+        <div class="row">
+          <span class="label">失败时强调显示</span>
+          <span class="toggle on"></span>
+        </div>
+      </div>
+
+      <div class="card wide">
+        <h2>节点内容显示 <span class="tag">跟随项目</span></h2>
+        <p class="hint">
+          这三项属于「项目偏好」，会随项目一起导出；改动只影响节点的排版显示，不改提示词内容与生成参数。
+        </p>
+        <div class="row">
+          <span class="label">节点标题字号</span>
+          <span class="seg"><span>12</span><span class="on">14</span><span>16</span><span>18</span></span>
+        </div>
+        <div class="row">
+          <span class="label">提示词正文字号</span>
+          <span class="seg"><span>13</span><span class="on">14</span><span>16</span><span>18</span><span>20</span></span>
+        </div>
+        <div class="row">
+          <span class="label">节点默认尺寸</span>
+          <span class="seg"><span>紧凑</span><span class="on">标准</span><span>宽敞</span></span>
+        </div>
+        <div class="note">
+          说明：画布缩放（10%–500%）是另一件事，不在这里设置；「生成数量 / 比例 / 画质」属于节点参数，也不在这里。
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+</body>
+</html>
