@@ -29,7 +29,10 @@ import { createCanvasPlacement } from '../../../features/canvas/execution/canvas
 import { fuseNode } from '../../../features/canvas/execution/fuseNode'
 // 执行引擎与宿主上移共享层（M6-5 路径 B）：画布注入自己的命令类型与落位适配器
 import { useExecution } from '../../../features/shared/execution/useExecution'
-import type { RunTaskState } from '../../../features/shared/execution/runEngine'
+import type { RunSummary, RunTaskState } from '../../../features/shared/execution/runEngine'
+import { imageCountOf, progressNotice, runNotice, shouldNotify } from '../../../domain/ui/notify'
+import { getNotifyPrefs } from '../../../state/ui/notifyPrefs'
+import { desktopNotify } from '../../../features/shared/notify/desktopNotify'
 import type { Command } from '../../../state/commands'
 import type { TransactionBoundary } from '../../../state/shared/types'
 import { createChannelRepository } from '../../../state/project/channelRepository'
@@ -190,6 +193,15 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   // 引擎之外的写入方（版本恢复）经 appendRecord 递增，保证计数与库一致。
   const versionMaxRef = useRef<Map<string, number>>(new Map())
 
+  /**
+   * 批量进度计数（对账 #386 的 E5），按 planId 分开记。
+   *
+   * 只对"一次跑多个任务"的计划说话（`domain/ui/notify.progressNotice` 判的），
+   * 而且**最后一个任务不再报进度** —— 收口那一句由 `onFinish` 的完成 / 失败通知说，
+   * 两条挨着弹只会让提示位把前一条盖掉。
+   */
+  const planProgressRef = useRef<Map<string, { done: number; total: number }>>(new Map())
+
   // 挂载时读回历史：初始化版本计数（RunRecord 是日志面板的数据源）
   useEffect(() => {
     let alive = true
@@ -243,6 +255,18 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         if (nodeId) {
           updateRunStates(store.getSnapshot().projectId, (prev) => new Map(prev).set(nodeId, state))
         }
+        /**
+         * 批量进度（对账 #386 的 E5）：只数**已经收口**的任务
+         * （succeeded / failed / canceled），queued / running 不算数。
+         */
+        if (state.kind !== 'queued' && state.kind !== 'running') {
+          const progress = planProgressRef.current.get(planId)
+          if (progress) {
+            progress.done += 1
+            const notice = progressNotice(progress.done, progress.total)
+            if (notice && shouldNotify(getNotifyPrefs(), notice.kind)) store.notify(notice.text)
+          }
+        }
       },
       /**
        * 落点确定后立刻改绑：taskId 原本映射到**触发节点**，但画布可能为这次产出
@@ -283,8 +307,21 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
           }
         }
       },
-      onFinish: () => {
+      onFinish: (summary: RunSummary) => {
         void store.flush()
+        planProgressRef.current.delete(summary.runPlanId)
+        const notice = runNotice({
+          images: imageCountOf(summary.taskResults),
+          failed: summary.failed,
+        })
+        if (!notice || !shouldNotify(getNotifyPrefs(), notice.kind)) return
+        store.notify(notice.text)
+        /**
+         * 系统通知**只发收口这一句**，不跟着每条进度发 ——
+         * 一次批量跑 20 张会把通知中心刷屏，那是"通知"功能最经典的翻车方式。
+         * `desktopNotify` 在没有能力 / 没允许时返回 false，什么都不做（页内提示照旧）。
+         */
+        desktopNotify('轻画', notice.text)
       },
       // 引擎为每个 task 各调一次（写回发生在两次调用之间），同步递增即得连续版本号
       nextVersion: (nodeId: string) => {
@@ -437,6 +474,9 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         mode: plan.mode,
         originNodeId,
       })
+
+      // 批量进度的分母：这条计划有几个任务（单任务时 progressNotice 会自己闭嘴）
+      planProgressRef.current.set(plan.id, { done: 0, total: plan.tasks.length })
 
       await startRun(plan)
 

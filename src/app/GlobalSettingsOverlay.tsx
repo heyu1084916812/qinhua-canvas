@@ -10,6 +10,7 @@ import { PackPanel } from '../features/settings/PackPanel'
 import { HelpPanel } from '../features/settings/HelpPanel'
 import { AboutPanel } from '../features/settings/AboutPanel'
 import { DefaultParamsPanel } from '../features/settings/DefaultParamsPanel'
+import { NotifyPanel } from '../features/settings/NotifyPanel'
 import { BackupPanel } from '../features/settings/BackupPanel'
 import { IconClose } from './AppSidebarIcons'
 import {
@@ -163,6 +164,8 @@ export function GlobalSettingsOverlay() {
             {section === 'packs' && <PackPanel key="packs" />}
             {/* 「默认参数」（对账 #386 的 E4）：默认模型 / 比例 / 画质 / 张数 + 记住上次参数 */}
             {section === 'defaults' && <DefaultParamsPanel key="defaults" />}
+            {/* 「通知」（对账 #386 的 E5）：完成 / 失败 / 批量进度三档 + 系统通知能力说明 */}
+            {section === 'notify' && <NotifyPanel key="notify" />}
             {/* 「帮助」（对账 #388 / E7）：快捷键 / 常见问题 / 版本 + 重看新手引导 */}
             {section === 'help' && <HelpPanel key="help" />}
             {/* 「关于与隐私」（对账 #386 的 E6）：五段如实说明 + 隐私声明 */}

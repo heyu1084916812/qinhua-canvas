@@ -68,8 +68,8 @@ describe('globalSettings · 全局设置浮层', () => {
     off()
   })
 
-  it('★ 子菜单十栏与内容一一对应（标签与内容一处定义）', () => {
-    // 顺序即浮层里那排标签的顺序：渠道配置 / CLI / 素材传输 / 存储 / 外观与体验 / 备份与恢复 / 默认参数 / 扩展包 / 帮助 / 关于与隐私
+  it('★ 子菜单十一栏与内容一一对应（标签与内容一处定义）', () => {
+    // 顺序即浮层里那排标签的顺序：渠道配置 / CLI / 素材传输 / 存储 / 外观与体验 / 备份与恢复 / 默认参数 / 扩展包 / 帮助 / 关于与隐私 / 通知
     // （#259 + #261 + #308；「外观与体验」与「备份与恢复」为用户 2026-10-09 新增：
     //   前者 = 自定义字体 / 界面字号 / 字距；后者 = 全量备份导出与导入 #378；
     //   「扩展包」= 数据型扩展包（技能 + 电商平台规则），对账 #386 阶段一）。
@@ -87,6 +87,7 @@ describe('globalSettings · 全局设置浮层', () => {
       'packs',
       'help',
       'about',
+      'notify',
     ])
     expect(GLOBAL_SETTINGS_SECTIONS.map((s) => s.label)).toEqual([
       '渠道配置',
@@ -99,6 +100,7 @@ describe('globalSettings · 全局设置浮层', () => {
       '扩展包',
       '帮助',
       '关于与隐私',
+      '通知',
     ])
   })
 
@@ -115,6 +117,7 @@ describe('globalSettings · 全局设置浮层', () => {
     expect(byId.get('hosting')).toBe('连接')
     expect(byId.get('storage')).toBe('数据')
     expect(byId.get('backup')).toBe('数据')
+    expect(byId.get('notify')).toBe('数据')
     expect(byId.get('appearance')).toBe('外观')
     // 组顺序 = 界面渲染顺序，不能随手调
     expect(GLOBAL_SETTINGS_GROUPS).toEqual(['连接', '生成', '外观', '数据', '系统'])

@@ -22980,7 +22980,138 @@ async function g119(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119]
+// ────────────────────────────────────────────────────────────
+// G120 通知（#386 的 E5）：三档开关 → 真跑一趟看提示 → 关掉之后不再打扰
+// ────────────────────────────────────────────────────────────
+async function g120(browser) {
+  const g = 'G120 通知'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  /** 侧栏 → 设置 → 通知栏 */
+  const openNotifyTab = async () => {
+    await page.locator('[data-sidebar-settings]').click()
+    await sleep(350)
+    await page.locator('[data-global-settings-tab="notify"]').click()
+    await sleep(400)
+  }
+
+  /**
+   * 跑一趟并等它收口。
+   *
+   * 完成信号用「生成按钮回到空闲态」；产物另建承载节点时旧面板会卸载，
+   * 就退化成 G22 用过的「有节点出图」判定（面板没了 = 这条链路走完了）。
+   */
+  const runOnceAndWait = async () => {
+    const btn = panelRunBtn(page)
+    await btn.click()
+    await sleep(400) // 先让它进入运行态，免得把"还没开始"读成"已完成"
+    for (let t = 0; t < 80; t++) {
+      const label = await btn.getAttribute('aria-label').catch(() => '')
+      if (label === '生成当前节点') return true
+      if (label === null && (await page.locator('[data-node-asset]').count()) > 0) return true
+      await sleep(250)
+    }
+    return false
+  }
+
+  // 一条 mock 渠道就够（默认参数与生成都只认已启用渠道）
+  await configureMockChannel(page)
+  await sleep(600)
+
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(700)
+  const panel = await genPanel(page)
+  await configureGenPanel(page, panel, '通知验收')
+
+  // ① 默认开着 → 跑一趟真的弹「生成完成」（判据是**真跑一趟**，不是读代码）
+  await panelRunBtn(page).click()
+  const sawDone = await page
+    .locator('[data-canvas-notice]')
+    .filter({ hasText: '生成完成' })
+    .waitFor({ state: 'visible', timeout: 20000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★★★ 跑完一趟会弹「生成完成」页内提示（接线真的生效）', sawDone)
+
+  // ② 设置 → 通知：三档默认值 + 系统通知能力如实显示
+  await openNotifyTab()
+  const success = await page.locator('[data-notify-toggle="success"]').isChecked()
+  const failure = await page.locator('[data-notify-toggle="failure"]').isChecked()
+  const progress = await page.locator('[data-notify-toggle="progress"]').isChecked()
+  rec(
+    g,
+    '★★ 三档默认：完成 / 失败开、批量进度关',
+    (await page.locator('[data-notify-panel]').count()) === 1 && success && failure && progress === false,
+    `success=${success} failure=${failure} progress=${progress}`,
+  )
+
+  const desktopEl = page.locator('[data-desktop-notify-state]')
+  const desktopState = await desktopEl.getAttribute('data-desktop-notify-state').catch(() => null)
+  const desktopText = await desktopEl.innerText().catch(() => '')
+  rec(
+    g,
+    '★ 系统通知能力如实显示（四态之一 + 有说明文字）',
+    ['granted', 'denied', 'default', 'unsupported'].includes(desktopState) &&
+      desktopText.trim().length > 10,
+    `${desktopState}: ${desktopText.replace(/\n/g, ' ').slice(0, 40)}`,
+  )
+  /**
+   * 权限只能由**用户手势**申请：所以只有 default 态才该给按钮。
+   * 其它三态给按钮就是"点了没用"的假按钮 —— 这条专门盯它。
+   */
+  const requestBtn = await page.locator('[data-desktop-notify-request]').count()
+  rec(
+    g,
+    desktopState === 'default'
+      ? '★ 还没允许时给「允许系统通知」按钮（权限由用户手势申请）'
+      : '★ 非 default 态不给申请按钮（不给点了没用的按钮）',
+    desktopState === 'default' ? requestBtn === 1 : requestBtn === 0,
+    `state=${desktopState} 按钮=${requestBtn}`,
+  )
+
+  // ③ 关掉「生成完成」→ 刷新后仍是关（选择要落盘）
+  await page.locator('[data-notify-toggle="success"]').uncheck()
+  await sleep(400)
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(700)
+  await openNotifyTab()
+  rec(
+    g,
+    '★★ 「生成完成」的选择落盘：刷新后仍是关',
+    (await page.locator('[data-notify-toggle="success"]').isChecked()) === false,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(300)
+
+  // ④ 关掉之后再跑一趟：完成提示不再出现（分档真的管用）
+  //    先选中那个生成节点 —— 创作面板是**跟着选中**出现的（刷新过一次，当前没有选中）
+  await page.locator('[data-node-type="generation"]').first().click({ force: true })
+  await sleep(500)
+  const before = await page.locator('[data-node-asset]').count()
+  const finished = await runOnceAndWait()
+  // 提示是**即时**弹的：跑完再等 1.2s，会弹的话此刻一定在屏上（自动消失要 2.4s）
+  await sleep(1200)
+  const noticeCount = await page.locator('[data-canvas-notice]').count()
+  const after = await page.locator('[data-node-asset]').count()
+  rec(
+    g,
+    '★★★ 关掉「生成完成」后同一趟不再弹提示（分档真的管用）',
+    finished && noticeCount === 0,
+    `跑完=${finished} 提示=${noticeCount} 产物=${before}→${after}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/120-g120-notify.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

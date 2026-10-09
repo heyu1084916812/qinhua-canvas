@@ -1,0 +1,133 @@
+/* 「通知」面板（对账 #386 的 E5）。与 InterfacePanel 同一套排版语言：
+   颜色一律走令牌（scripts/check-theme.mjs 会拦字面量颜色）。 */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.block {
+  border: var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  padding: var(--space-4);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+  color: var(--text-1);
+}
+
+.caption {
+  margin: var(--space-2) 0 var(--space-3);
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+.switchRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.rowText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 240px;
+}
+
+.rowLabel {
+  font-size: var(--fs-body);
+  color: var(--text-1);
+}
+
+.hint {
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.switchBox {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.switchInput {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  z-index: 1;
+  cursor: pointer;
+}
+
+.track {
+  width: 36px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  position: relative;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  transition: transform var(--dur-hover) var(--ease-out);
+}
+
+.switchInput:checked + .track {
+  background: var(--accent);
+}
+
+.switchInput:checked + .track::after {
+  transform: translateX(16px);
+}
+
+/* 焦点可见：键盘 Tab 到开关时给轨道一圈焦点环（无障碍 §4.5） */
+.switchInput:focus-visible + .track {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.action {
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.action:hover {
+  background: var(--bg-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .track,
+  .track::after {
+    transition: none;
+  }
+}

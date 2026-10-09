@@ -61,6 +61,13 @@ export type GlobalSettingsSection =
    * 归「生成」组：它改的正是"新建节点时填什么"。
    */
   | 'defaults'
+  /**
+   * 通知（对账 #386 的 E5）：完成 / 失败 / 批量进度三档 + 系统通知能力说明。
+   *
+   * 归「数据」组：它与「备份与恢复」是同一类东西 —— 出事时怎么知道、
+   * 东西在哪；都不改生成行为（三档全关也照常出图）。
+   */
+  | 'notify'
 
 export interface GlobalSettingsState {
   open: boolean
@@ -100,6 +107,10 @@ export const GLOBAL_SETTINGS_SECTIONS: {
   { id: 'packs', label: '扩展包', group: '生成' },
   { id: 'help', label: '帮助', group: '系统' },
   { id: 'about', label: '关于与隐私', group: '系统' },
+  // 「通知」（对账 #386 的 E5）：完成 / 失败 / 批量进度三档 + 系统通知能力说明。
+  // 追加在**末尾**（数组顺序即"新增顺序"），但 `group: '数据'` 决定它显示在
+  // 「备份与恢复」下面 —— 渲染按组过滤，两件事互不冲突。
+  { id: 'notify', label: '通知', group: '数据' },
 ]
 
 let state: GlobalSettingsState = { open: false, section: 'channels' }
