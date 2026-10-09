@@ -9799,7 +9799,19 @@ async function g68(browser) {
             model: n.data?.model ?? '',
             ratio: n.data?.ratio ?? null,
           })),
-          presets: presets.map((p) => ({ model: p.model, params: p.params ?? {} })),
+          /*
+           * ⚠️ 2026-10-09 修：`presets` 是**一张表住几样偏好**（配方 `recipe:*`、
+           * 选路策略 `routing:strategy`、后台任务 `job:*`…），旧断言直接取
+           * `presets[0].params` —— 而按主键排序时第 0 行往往是 `job:assetThumbBackfill`
+           * 这种没有 params 的行，于是"配方其实记对了"也会被判红（实测取证：
+           * `[{id:"job:assetThumbBackfill"},{id:"recipe:…",params:{ratio:"1:2",…}}]`）。
+           *
+           * 只保留**真的配方行**：有 `channelId` 且带 `params` 对象。判据按行的内容取，
+           * 不按 id 前缀 —— 前缀是实现细节，内容才是"这是一条配方"的事实。
+           */
+          presets: presets
+            .filter((p) => typeof p.channelId === 'string' && p.params && typeof p.params === 'object')
+            .map((p) => ({ id: p.id, model: p.model, params: p.params ?? {} })),
         }
       }
       return { nodes: [], presets: [] }
@@ -21180,11 +21192,26 @@ async function g111(browser) {
   await embed.saveAs(embedFile)
   const embedText = readFileSync(embedFile, 'utf8')
   rec(g, '★★ 含素材导出：文件里真的有 bytesBase64', embedText.includes('bytesBase64'))
+  /*
+   * ⚠️ 2026-10-09 改判据：原来是"含素材的文件比结构导出大 100 字节以上"，
+   * 但两份文件**序列化方式不同** —— 结构导出走 `JSON.stringify(flow, null, 2)`（带缩进），
+   * 含素材导出走流式紧凑拼接（无缩进）。小素材时，缩进差**比 base64 载荷还大**，
+   * 于是出现"含素材反而更小"的假红（实测 1171 → 1139）。
+   *
+   * 改成**直接量载荷**：把 `bytesBase64` 的长度按 base64 规则还原成字节数，
+   * 再与不含素材那份对比 —— 含素材的必须**真的多出字节**，且还原值 > 0。
+   * 这个判据与缩进、格式、素材大小都无关，空壳（`bytesBase64:""`）会当场变红。
+   */
+  const base64Payloads = [...embedText.matchAll(/"bytesBase64"\s*:\s*"([^"]*)"/g)].map((m) => m[1] ?? '')
+  const embeddedBytes = base64Payloads.reduce((sum, b64) => {
+    const padding = (b64.match(/=+$/) ?? [''])[0].length
+    return sum + Math.max(0, Math.floor((b64.length * 3) / 4) - padding)
+  }, 0)
   rec(
     g,
-    '★ 含素材的文件明显更大（字节真的在里面对，不是空壳）',
-    embedText.length > plainText.length + 100,
-    `${plainText.length} → ${embedText.length}`,
+    '★★ 含素材导出真的多出素材字节（按 base64 还原后与结构导出对比，不看文件缩进）',
+    base64Payloads.length > 0 && embeddedBytes > 0,
+    `载荷段=${base64Payloads.length} 还原字节=${embeddedBytes}B · 结构=${plainText.length} 含素材=${embedText.length}`,
   )
 
   /** ③ 删掉原项目 → 导入那个文件 → **图还在** */
