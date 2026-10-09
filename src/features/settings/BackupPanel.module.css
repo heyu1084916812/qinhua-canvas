@@ -1,0 +1,190 @@
+/* 「备份与恢复」面板（用户 2026-10-09，对账 #378）。
+   颜色一律走令牌 —— scripts/check-theme.mjs 会拦字面量。 */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.block {
+  border: var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  padding: var(--space-4);
+}
+
+.title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+  color: var(--text-1);
+}
+
+.caption {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 36px;
+  padding: var(--space-1) 0;
+}
+
+.label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: var(--fs-body);
+  color: var(--text-1);
+}
+
+.sub {
+  font-size: var(--fs-chip);
+  color: var(--text-2);
+}
+
+.note {
+  margin: 0 0 var(--space-3);
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+/* 开关：与设计稿一致（40×22，开态用强调色） */
+.toggle {
+  width: 40px;
+  height: 22px;
+  flex: 0 0 40px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--bg-hover);
+  position: relative;
+  cursor: pointer;
+  padding: 0;
+}
+
+.toggleOn {
+  background: var(--accent);
+}
+
+.knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  transition: left var(--dur-hover) var(--ease-out);
+}
+
+.toggleOn .knob {
+  left: 21px;
+}
+
+.primary {
+  height: 36px;
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--accent);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: var(--fs-label);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn {
+  height: 36px;
+  padding: 0 var(--space-4);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-label);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.btn:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+.seg {
+  display: inline-flex;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.segItem {
+  height: 32px;
+  padding: 0 var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.segItem + .segItem {
+  border-left: var(--border);
+}
+
+.segOn {
+  background: var(--bg-subtle);
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.bar {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  background: var(--accent);
+  transition: width var(--dur-panel) var(--ease-out);
+}
+
+.status {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+.status + .status {
+  margin-top: var(--space-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .knob,
+  .barFill {
+    transition: none;
+  }
+}

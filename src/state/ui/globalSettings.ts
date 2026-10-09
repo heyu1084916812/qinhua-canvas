@@ -29,6 +29,13 @@ export type GlobalSettingsSection =
    * 因为改它不会影响任何项目数据（也正因为如此，它是这一批里风险最低的一栏）。
    */
   | 'appearance'
+  /**
+   * 备份与恢复（用户 2026-10-09，对账 #378）。
+   *
+   * 与「存储」分工：「存储」回答"东西在哪"，「备份与恢复」回答"出事怎么办"。
+   * 两件事紧急程度不同，混在一起会被日常项淹没，故单开一栏。
+   */
+  | 'backup'
 
 export interface GlobalSettingsState {
   open: boolean
@@ -46,6 +53,8 @@ export const GLOBAL_SETTINGS_SECTIONS: { id: GlobalSettingsSection; label: strin
   { id: 'storage', label: '存储' },
   // 「外观与体验」（用户 2026-10-09）：字体 / 界面字号 / 字距
   { id: 'appearance', label: '外观与体验' },
+  // 「备份与恢复」（用户 2026-10-09）：全量备份导出 / 导入（#378）
+  { id: 'backup', label: '备份与恢复' },
 ]
 
 let state: GlobalSettingsState = { open: false, section: 'channels' }

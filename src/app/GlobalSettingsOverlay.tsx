@@ -4,6 +4,7 @@ import { SettingsPage } from '../pages/SettingsPage/SettingsPage'
 import { StoragePanel } from '../features/settings/StoragePanel'
 import { CliPanel } from '../features/settings/CliPanel'
 import { FontManagerPanel } from '../features/settings/FontManagerPanel'
+import { BackupPanel } from '../features/settings/BackupPanel'
 import { IconClose } from './AppSidebarIcons'
 import {
   GLOBAL_SETTINGS_SECTIONS,
@@ -121,6 +122,9 @@ export function GlobalSettingsOverlay() {
             {/* 「外观与体验」（用户 2026-10-09）：字体 / 界面字号 / 字距。
                 它是本机偏好，与业务配置分开 —— 改它不动任何项目数据。 */}
             {section === 'appearance' && <FontManagerPanel key="appearance" />}
+            {/* 「备份与恢复」（对账 #378）：全量备份导出 / 导入。
+                与「存储」分栏：一个回答"在哪"，一个回答"出事怎么办"。 */}
+            {section === 'backup' && <BackupPanel key="backup" />}
           </div>
         </div>
       </div>
