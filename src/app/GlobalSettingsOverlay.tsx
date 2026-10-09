@@ -8,6 +8,7 @@ import { CanvasLookPanel } from '../features/settings/CanvasLookPanel'
 import { InterfacePanel } from '../features/settings/InterfacePanel'
 import { PackPanel } from '../features/settings/PackPanel'
 import { HelpPanel } from '../features/settings/HelpPanel'
+import { AboutPanel } from '../features/settings/AboutPanel'
 import { BackupPanel } from '../features/settings/BackupPanel'
 import { IconClose } from './AppSidebarIcons'
 import {
@@ -161,6 +162,8 @@ export function GlobalSettingsOverlay() {
             {section === 'packs' && <PackPanel key="packs" />}
             {/* 「帮助」（对账 #388 / E7）：快捷键 / 常见问题 / 版本 + 重看新手引导 */}
             {section === 'help' && <HelpPanel key="help" />}
+            {/* 「关于与隐私」（对账 #386 的 E6）：五段如实说明 + 隐私声明 */}
+            {section === 'about' && <AboutPanel key="about" />}
           </div>
         </div>
       </div>

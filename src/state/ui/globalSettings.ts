@@ -49,6 +49,12 @@ export type GlobalSettingsSection =
    * 归「系统」组：它不配置任何东西，只回答"我现在卡住了怎么办"。
    */
   | 'help'
+  /**
+   * 关于与隐私（对账 #386 的 E6）：数据在哪 / 何时联网 / 凭据怎么存 / 卸载与清数据 / 开源许可。
+   *
+   * 与「帮助」分开：帮助回答"怎么用"，这里回答"交给你用之前我要知道的事"。
+   */
+  | 'about'
 
 export interface GlobalSettingsState {
   open: boolean
@@ -86,6 +92,7 @@ export const GLOBAL_SETTINGS_SECTIONS: {
   // 「扩展包」（对账 #386 阶段一）：数据型扩展包 —— 技能 + 电商平台规则
   { id: 'packs', label: '扩展包', group: '生成' },
   { id: 'help', label: '帮助', group: '系统' },
+  { id: 'about', label: '关于与隐私', group: '系统' },
 ]
 
 let state: GlobalSettingsState = { open: false, section: 'channels' }

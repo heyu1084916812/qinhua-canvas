@@ -1,0 +1,46 @@
+/* 「系统 → 关于与隐私」面板（对账 #386 的 E6）。颜色一律走令牌。 */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.block {
+  border: var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  padding: var(--space-4);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+  color: var(--text-1);
+}
+
+.blockTitle {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.caption {
+  margin: var(--space-2) 0 0;
+  font-size: var(--fs-label);
+  line-height: 1.7;
+  color: var(--text-2);
+}
+
+.body {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-label);
+  line-height: 1.8;
+  color: var(--text-2);
+}
+
+.body:last-child {
+  margin-bottom: 0;
+}

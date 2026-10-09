@@ -22706,7 +22706,7 @@ async function g117(browser) {
 // G118 新手引导与帮助（#388 / E7）：首次引导 → 跳过 → 帮助栏 → 重看 → 空画布模板
 // ────────────────────────────────────────────────────────────
 async function g118(browser) {
-  const g = 'G118 新手引导与帮助'
+  const g = 'G118 新手引导 / 帮助 / 关于'
   const ctx = await newCtx(browser)
   const page = await ctx.newPage()
   const pageErrors = []
@@ -22785,6 +22785,21 @@ async function g118(browser) {
   await page.locator('[data-onboarding-skip]').click()
   await sleep(300)
   rec(g, '★ 跳过 = 关掉且不再自动弹（用户的明确选择，不该反复打扰）', (await page.locator('[data-getting-started]').count()) === 0)
+
+  // ⑤b 关于与隐私（E6）：五段如实说明 + 隐私声明
+  await page.locator('[data-global-settings-tab="about"]').click()
+  await sleep(350)
+  const aboutBlocks = await page.locator('[data-about-block]').count()
+  const aboutText = await page.locator('[data-about-panel]').innerText().catch(() => '')
+  rec(
+    g,
+    '★★ 「关于与隐私」五段说明都在（数据在哪 / 何时联网 / 凭据 / 卸载影响 / 开源许可）+ 隐私声明',
+    aboutBlocks === 5 &&
+      aboutText.includes('不收集') &&
+      aboutText.includes('Apache-2.0') &&
+      aboutText.includes('MIT'),
+    `段数=${aboutBlocks}`,
+  )
 
   /**
    * ⑥ 空画布：模板直达。
