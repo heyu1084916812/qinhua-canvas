@@ -115,6 +115,51 @@ const EDGE_TYPES = { qh: QhEdge }
 const EDGE_OPTIONS = { type: 'default' } as const
 
 /**
+ * 「点空白清选中」的**豁免名单**（浮在画布上、不属于画布空白的东西）。
+ *
+ * 三段历史教训都写在这儿，别再踩一次：
+ *
+ * ① **情绪面板必须在名单里**（`[data-emotion-panel]`，2026-10-08 补）。
+ *    它与创作面板是同一个位置上的两种模式，但从创作面板里搬出来时漏了一笔 ——
+ *    后果不是"少点一下"，而是**点它里面任何东西都会把自己关掉**：
+ *    面板虽然在 `onPointerDown` 里停了传播，可按下锚是在**捕获阶段**记的
+ *    （`onPointerDownCapture`）⇒ 松手时那个 `click` 照样落到这里、被判成点空白 ⇒
+ *    清选中 ⇒ 面板随 `selectedNode` 一起卸载（实测 g105 / g108 两条红）。
+ *
+ * ② **端点命中层也必须算"不是空白"**（`[data-flow-port-hit]`）：它挂在节点**外面**
+ *    （与节点元素是兄弟），`closest('[data-node-id]')` 找不到节点；不排除它的话，
+ *    "点一下端点没拖动"会被当成点空白、把选中清掉 ⇒ 跟随栏整条消失，后面
+ *    「排列与整理」再也点不到（G15）。
+ *
+ * ③ **空画布模板卡片**（`[data-empty-canvas-guide]`，对账 #388）：同样是浮在画布上的一层。
+ *
+ * ⚠️ **写成数组再 `join(', ')`，不要再拼字符串**：
+ * 2026-10-09 实测踩过一次 —— 少写一个逗号会把两条选择器拼成**后代组合**（`A B`），
+ * `closest()` **不报错**、只是永远不匹配；表现就是 G15 红：点端点被当成点空白、
+ * 组的选中被清掉、跟随栏再也不回来。枚举式名单本来就容易漏，改成数组至少让
+ * "少一个逗号"这种手滑在 diff 里一眼可见。
+ */
+const FLOATING_SELECTORS = [
+  '[data-creation-panel]',
+  '[data-emotion-panel]',
+  '[data-node-follow-bar]',
+  '[data-multi-select-bar]',
+  '[data-context-menu]',
+  '[data-link-menu]',
+  '[data-canvas-notice]',
+  '[data-undo-bar]',
+  '[data-lightbox]',
+  '[data-minimap]',
+  '[data-flow-hud]',
+  '[data-canvas-toolbar]',
+  '[data-edge]',
+  '.react-flow__edge',
+  '.react-flow__handle',
+  '[data-flow-port-hit]',
+  '[data-empty-canvas-guide]',
+].join(', ')
+
+/**
  * 给这一次按下所在的节点打一帧 `nodrag`（松手自动摘掉）。
  *
  * 为什么需要它：RF 的节点拖动是 **d3-drag 挂在节点元素上的原生监听**，它的过滤条件里有一条
@@ -355,37 +400,7 @@ function FlowSurfaceInner({
          * 只在**画布本身**上清：点面板 / 菜单 / 跟随栏 / 连线等浮层一律不插手
          *（那是它们自己的交互，清了反而坏事）。
          */
-        /**
-         * ⚠️ **情绪面板也必须在这份名单里**（`[data-emotion-panel]`，2026-10-08 补）。
-         *
-         * 它与创作面板是**同一个位置上的两种模式**（`PanelLayer` 按 `panelModel.emotion`
-         * 切哪一块），但从创作面板里搬出来时漏了这一笔 —— 后果不是少点一下，而是
-         * **点它里面任何东西都会把它自己关掉**：
-         * 面板虽然在自己的 `onPointerDown` 里停掉了传播，可**按下锚是在捕获阶段记的**
-         * （`onPointerDownCapture`）⇒ 松手时那个 `click` 照样落到这里，被判成「点空白」⇒
-         * 清选中 ⇒ 面板随 `selectedNode` 一起卸载。
-         *
-         * 实测（冒烟 g105 / g108 两条红，同一个根因）：点比例 chip ⇒ 面板没了、浮层自然没开；
-         * 点情绪点位 ⇒ `[data-emotion="joyous"]` 当场消失（连"选中的是哪一个"都读不到）。
-         *
-         * 这份名单是**枚举式豁免**，容易被漏：以后新增"浮在画布上"的面板/菜单，记得回来加一笔
-         * （`[data-flow-port-hit]` 那次也是同一个坑）。
-         */
-        const floating =
-          '[data-creation-panel], [data-emotion-panel], [data-node-follow-bar], [data-multi-select-bar], [data-context-menu],' +
-          ' [data-link-menu], [data-canvas-notice], [data-undo-bar], [data-lightbox], [data-minimap],' +
-          ' [data-flow-hud], [data-canvas-toolbar], [data-edge], .react-flow__edge, .react-flow__handle,' +
-          /**
-           * ⚠️ **端点命中层也算"不是空白"**（`[data-flow-port-hit]`）：它挂在节点**外面**
-           * （和节点元素是兄弟），所以 `closest('[data-node-id]')` 找不到节点 ——
-           * 不排除它的话，"点一下端点没拖动"会被当成"点空白"，把选中清掉。
-           * 实测（G15）：组被清空选中 ⇒ 跟随栏整条消失，后面「排列与整理」再也点不到。
-           */
-          ' [data-flow-port-hit]'
-          /* 空画布的模板卡片（对账 #388）：它也是"浮在画布上的一层"，
-             点它不该被当成点空白 —— 同一个枚举式豁免名单，别漏。 */
-          + ' [data-empty-canvas-guide]'
-        if (target.closest(floating)) return
+        if (target.closest(FLOATING_SELECTORS)) return
         if (store.getSelection().length > 0) store.setSelection([])
         return
       }
