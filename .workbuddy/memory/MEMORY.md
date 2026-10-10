@@ -5303,3 +5303,24 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   已登记 #408 等用户拍板，**没有偷偷改数字**。
 - **★ 冒烟里 `[data-edge]` 是两层之和**：React Flow 的自定义边（`FlowEdge`）和**容器子节点边层**
   （`FlowChildEdgeLayer`）都写 `data-edge` —— 数连线时记得它包含两张网，排查"少一条"时先分清是哪一层。
+
+## 2026-10-10 第 36 批（"上传即显"的真瓶颈是落库；对账 #408 收口）
+
+- **★★★ 别猜瓶颈，逐段量**：5.5MB 大图上传这条路，探针按"相对开始读字节"记时间轴 ——
+  `arrayBuffer` 27ms · `crypto.subtle.digest` 32ms · **`idb.put('assets')` 589ms** ·
+  `getAll('assets')` 读回 625ms · `<img>` 可见 **886ms**。
+  结论反直觉：**哈希不是瓶颈（5ms），解码也不是主因** —— 图早在 32ms 就在手里，
+  用户却排在"把 5.5MB 写进 IndexedDB 再整行读回来"之后。
+  量法：在页面里包一层 `Blob.prototype.arrayBuffer` / `crypto.subtle.digest` /
+  `IDBObjectStore.prototype.put|get` / `URL.createObjectURL` / `createImageBitmap`，各自记 `performance.now()`。
+- **★★ 修法是"直通车"，不是"换更快的存储"**：刚导入的 Blob 记进 `features/canvas/freshAssets.ts`
+  （LRU：最多 6 份 / 合计 48MB / 单份超上限不收），`loadAssetUrl` **命中就不查库**；
+  落库那条路**一行没改**（刷新 / 导出 / 换设备照旧）。实测 **886 → 180ms**；
+  冒烟 G55 `app-visible` **648 → 236ms**（**阈值仍是 600ms，一个数字没动**）。
+- **★★ 这条优化的判据要用"确定量"，不要用"耗时"**：单测断言 **查库次数 = 0**
+  （`query` 被调用就红），耗时只在冒烟里量相对改进。耗时阈值在负载下会抖，次数不会。
+- **★ 取舍要写进文档，别只留代码**：落库那一步万一失败（配额 / 表损坏），这一份在**本次会话里
+  仍会显示**（失败照旧由 `writeOnce` 记日志）。换来的是每次导入都不再空白约 500ms ——
+  这条写在 `freshAssets.ts` 的文件头与对账 #408 行里，不由后来人再猜一遍。
+- **★ 收口基线**：全量冒烟第四轮 **1469/0/1469** —— 这是 #407（连线）与 #408（上传）都修完后的
+  首次全绿，记下来当"下一个缺陷从哪儿算回归"的起点。
