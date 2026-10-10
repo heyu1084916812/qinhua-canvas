@@ -1457,6 +1457,11 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         /*
+         * 系统通知（对账 #392）：壳里的 WebView2 对 `Notification` 的权限处理不可靠，
+         * 走官方插件才是"真的能弹"。**不自动申请权限** —— 申请由设置页那个按钮触发。
+         */
+        .plugin(tauri_plugin_notification::init())
+        /*
          * 窗口几何的节流时钟（见 `WindowSaveClock`）。初值往回拨 10 秒，
          * 免得"启动后第一次微调尺寸"被节流吃掉。
          */

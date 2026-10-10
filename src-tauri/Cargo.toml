@@ -29,3 +29,6 @@ tauri-plugin-updater = "2"
 # 取远端字节（对账 #396）：给"从网站抓站点图标"用 —— 前端 fetch 受 CORS 限制，壳里走 reqwest
 # 版本 / 特性与 tauri-plugin-updater 依赖的那一份对齐（Cargo.lock 里已有 reqwest 0.13.5 + rustls）
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2"] }
+# 系统通知（对账 #392 / #386 的 E5）：壳里 WebView2 那套 Notification 权限不可靠，
+# 走官方插件才是"真的能弹" —— 权限由用户在设置页点按钮申请，不自动弹。
+tauri-plugin-notification = "2"

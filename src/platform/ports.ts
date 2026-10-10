@@ -444,6 +444,29 @@ export interface RemoteBytesPort {
   get(req: RemoteBytesRequest): Promise<RemoteBytesResponse>
 }
 
+/**
+ * **系统通知端口**（对账 #392：给桌面壳接真的通知插件）。
+ *
+ * 为什么需要它：壳里跑的是 WebView2，页面侧那个 `Notification` 的权限处理不可靠
+ * （实测拿不到稳定状态）—— 想让"生成完成"真弹一条，得走**壳自己的通知能力**。
+ * 浏览器里没有这一项（那就退回页面自带的 `Notification`，见
+ * `features/shared/notify/desktopNotify.ts`）。
+ *
+ * 三条口径：
+ * 1. **不自动申请权限** —— 申请会弹系统对话框，必须由用户在设置页按按钮触发；
+ * 2. `state()` 只回答"现在能不能弹"：壳里读不到"被拒绝过"这个中间态时如实返回 `default`；
+ * 3. `send()` 返回 false 只代表"这次没弹成"，**不改变页内提示** —— 那两件事互不依赖。
+ */
+export type NotifyPermission = 'granted' | 'denied' | 'default' | 'unsupported'
+
+export interface NotifyPort {
+  state(): Promise<NotifyPermission>
+  /** 申请权限（**只能由用户手势触发**）；返回申请后的真实状态 */
+  request(): Promise<NotifyPermission>
+  /** 真的发一条；没权限 / 失败返回 false */
+  send(title: string, body: string): Promise<boolean>
+}
+
 export interface PlatformKit {
   storage: StoragePort
   network: NetworkPort
@@ -478,6 +501,11 @@ export interface PlatformKit {
    * 理由见 `RemoteBytesPort` 那段 —— 浏览器里跨域读不到，调用方必须容错并禁用入口。
    */
   remoteBytes?: RemoteBytesPort
+  /**
+   * 系统通知（对账 #392）。**可选**：只有桌面壳接了这个插件；浏览器里缺席，
+   * 调用方按"没有端口"退回页面自带的 `Notification`。
+   */
+  notify?: NotifyPort
   /** 素材传输（图床）：把本地字节换成公网直链；没配图床时 `upload` 返回 null */
   hosting: HostingPort
   credentials: CredentialPort

@@ -3,6 +3,7 @@ import { createWebPlatform } from '../web/index'
 import { createTauriAssetFolder } from './tauriAssetFolder'
 import { createTauriCli } from './tauriCli'
 import { createTauriFiles } from './tauriFiles'
+import { createTauriNotify } from './tauriNotify'
 import { createTauriRemoteBytes } from './tauriRemoteBytes'
 import { createTauriStorageAdmin } from './tauriStorageAdmin'
 import { createTauriUpdater } from './tauriUpdater'
@@ -30,5 +31,7 @@ export function createDesktopPlatform(): PlatformKit {
     cli: createTauriCli(),
     // 壳里多出来的一档能力（对账 #396）：原生 HTTP 取字节，绕开跨域抓站点图标
     remoteBytes: createTauriRemoteBytes(),
+    // 壳里多出来的一档能力（对账 #392）：真的系统通知（官方插件）
+    notify: createTauriNotify(),
   })
 }

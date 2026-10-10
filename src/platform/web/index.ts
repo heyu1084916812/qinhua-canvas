@@ -2,6 +2,7 @@ import type {
   AssetFolderPort,
   CliPort,
   FilePort,
+  NotifyPort,
   PlatformKit,
   RemoteBytesPort,
   StorageAdminPort,
@@ -38,6 +39,11 @@ export function createWebPlatform(
      * 过不去，所以只有壳传 `tauriRemoteBytes`，浏览器侧字段就是 undefined。
      */
     remoteBytes?: RemoteBytesPort
+    /**
+     * 系统通知（对账 #392）：只有壳把它换成 `tauriNotify`（官方通知插件）；
+     * 浏览器里没有这一项 —— 调用方退回页面自带的 `Notification`。
+     */
+    notify?: NotifyPort
   } = {},
 ): PlatformKit {
   const storage = createIndexedDbStorage()
@@ -64,6 +70,8 @@ export function createWebPlatform(
     storageAdmin: overrides.storageAdmin,
     // 取远端字节：同样只有壳给得出，"抓站点图标"按钮据此如实禁用（上面那段注释同理）
     remoteBytes: overrides.remoteBytes,
+    // 系统通知：只有壳接了插件（对账 #392）
+    notify: overrides.notify,
     /**
      * 素材传输要三样：配置行（storage）、密钥（credentials）、发请求（network）。
      * 三者都由这里装配 —— **不在端口实现里各自 new 一份**（凭据层换实现时，

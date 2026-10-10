@@ -3,7 +3,7 @@ import { parseSSELine, createLineSplitter } from './sse'
 import { createMemoryPlatform } from './memory/index'
 import { createPlatform } from './index'
 import { createWebPlatform } from './web/index'
-import type { RemoteBytesPort, Row, StorageAdminPort } from './ports'
+import type { NotifyPort, RemoteBytesPort, Row, StorageAdminPort } from './ports'
 
 /**
  * **可选端口的"转出去"**（2026-10-08 真机探针抓到的真缺陷）。
@@ -68,6 +68,23 @@ describe('平台装配：可选端口必须真的转到 PlatformKit 上', () => 
     }
     const kit = withLocalStorage(() => createWebPlatform({ remoteBytes: port }))
     expect(kit.remoteBytes).toBe(port)
+  })
+
+  /**
+   * 对账 #392：系统通知也走同一条"可选端口"的路子 —— 壳里传官方通知插件，
+   * 浏览器里没有（调用方退回页面自带的 `Notification`）。漏转的后果同样是
+   * **壳里永远显示"没有系统通知能力"**，而浏览器冒烟测不出来（那里本来就该没有）。
+   */
+  it('壳传了 notify ⇒ kit.notify 就是它；没传就是"没有这一项"', () => {
+    const port: NotifyPort = {
+      state: async () => 'granted',
+      request: async () => 'granted',
+      send: async () => true,
+    }
+    const kit = withLocalStorage(() => createWebPlatform({ notify: port }))
+    expect(kit.notify).toBe(port)
+    const bare = withLocalStorage(() => createWebPlatform())
+    expect(bare.notify).toBeUndefined()
   })
 })
 

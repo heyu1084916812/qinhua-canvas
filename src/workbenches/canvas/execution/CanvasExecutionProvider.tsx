@@ -32,7 +32,7 @@ import { useExecution } from '../../../features/shared/execution/useExecution'
 import type { RunSummary, RunTaskState } from '../../../features/shared/execution/runEngine'
 import { imageCountOf, progressNotice, runNotice, shouldNotify } from '../../../domain/ui/notify'
 import { getNotifyPrefs } from '../../../state/ui/notifyPrefs'
-import { desktopNotify } from '../../../features/shared/notify/desktopNotify'
+import { sendSystemNotify } from '../../../features/shared/notify/desktopNotify'
 import type { Command } from '../../../state/commands'
 import type { TransactionBoundary } from '../../../state/shared/types'
 import { createChannelRepository } from '../../../state/project/channelRepository'
@@ -326,9 +326,10 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         /**
          * 系统通知**只发收口这一句**，不跟着每条进度发 ——
          * 一次批量跑 20 张会把通知中心刷屏，那是"通知"功能最经典的翻车方式。
-         * `desktopNotify` 在没有能力 / 没允许时返回 false，什么都不做（页内提示照旧）。
+         * `sendSystemNotify` 在没有能力 / 没允许时返回 false，什么都不做（页内提示照旧）；
+         * 桌面壳里它会走**壳自己的通知插件**（对账 #392：WebView2 那套 Notification 不可靠）。
          */
-        desktopNotify('轻画', notice.text)
+        void sendSystemNotify(platform.notify, '轻画', notice.text)
       },
       // 引擎为每个 task 各调一次（写回发生在两次调用之间），同步递增即得连续版本号
       nextVersion: (nodeId: string) => {
