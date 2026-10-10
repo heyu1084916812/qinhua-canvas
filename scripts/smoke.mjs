@@ -2034,7 +2034,14 @@ async function g12(browser) {
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
-  await sleep(700)
+  /**
+   * 等模板那条连线真的画出来再数（2026-10-10 全量第九轮实测 `连线=0`；同组单跑是绿的）。
+   * 本机模板节点与连线在 **476–695ms** 出现，正好压住原来那个固定 `sleep(700)`；
+   * 下面的判据一个字没改（`=== 1`）—— 等待只把「还没画出来」与「没有」分开。
+   */
+  await page
+    .waitForFunction(() => document.querySelectorAll('[data-edge]').length >= 1, null, { timeout: 8000 })
+    .catch(() => {})
 
   const edgeCount = () => page.locator('[data-edge]').count()
   rec(g, '模板预置 1 条连线', (await edgeCount()) === 1, `连线=${await edgeCount()}`)
