@@ -5,6 +5,7 @@ import {
   __resetGlobalSettingsForTest,
   closeGlobalSettings,
   getGlobalSettings,
+  matchSettingsSections,
   openGlobalSettings,
   subscribeGlobalSettings,
 } from './globalSettings'
@@ -121,5 +122,53 @@ describe('globalSettings · 全局设置浮层', () => {
     expect(byId.get('appearance')).toBe('外观')
     // 组顺序 = 界面渲染顺序，不能随手调
     expect(GLOBAL_SETTINGS_GROUPS).toEqual(['连接', '生成', '外观', '数据', '系统'])
+  })
+})
+
+/**
+ * **设置搜索基线**（对账 #385）。
+ *
+ * 用户找设置时想的是**事情**不是栏目名：「字体」在「外观与体验」里、「图床」在「素材传输」里、
+ * 「快照」在「备份与恢复」里 —— 只搜标签的话这些一条都命中不了。
+ * 所以每个栏目必须带一组"用户可能敲的词"，这里既守匹配行为，也守"新栏目别忘了带词"。
+ */
+describe('globalSettings · 搜索', () => {
+  const ids = (query: string) => matchSettingsSections(query).map((s) => s.id)
+
+  it('空查询 / 纯空格：菜单是完整的（十一栏一个不少）', () => {
+    expect(ids('')).toEqual(GLOBAL_SETTINGS_SECTIONS.map((s) => s.id))
+    expect(ids('   ')).toHaveLength(GLOBAL_SETTINGS_SECTIONS.length)
+  })
+
+  it('★★ 按"事情"搜得到：字体→外观、图床→素材传输、快照→备份与恢复', () => {
+    expect(ids('字体')).toEqual(['appearance'])
+    expect(ids('图床')).toEqual(['hosting'])
+    expect(ids('快照')).toEqual(['backup'])
+    expect(ids('快捷键')).toEqual(['help'])
+  })
+
+  it('★ 大小写不敏感（CLI / cli 都命中），英文别名也认（key / token）', () => {
+    expect(ids('CLI')).toEqual(['cli'])
+    expect(ids('cli')).toEqual(['cli'])
+    expect(ids('key')).toContain('channels')
+  })
+
+  it('★ 组名也参与匹配：敲「数据」能找到整组（外加"关于与隐私"里那条"数据在哪"）', () => {
+    /**
+     * 精确列出而不是 `toContain`：「关于与隐私」命中是因为它的关键词里有**「数据在哪」**
+     * （那一栏确实回答这个问题）—— 这是**有意的**结果，不是漏网的噪声，
+     * 所以把它写进期望里，将来谁改关键词都会先看到这条。
+     */
+    expect(ids('数据')).toEqual(['storage', 'backup', 'about', 'notify'])
+  })
+
+  it('搜不到就是空（界面据此给"没有匹配"的提示，而不是留一片空白菜单）', () => {
+    expect(ids('zzz-不存在的东西')).toEqual([])
+  })
+
+  it('★★ 每个栏目都带搜索词（新增栏目忘了写 keywords 会在这里红）', () => {
+    for (const s of GLOBAL_SETTINGS_SECTIONS) {
+      expect(s.keywords.length, `${s.id} 缺 keywords`).toBeGreaterThan(0)
+    }
   })
 })

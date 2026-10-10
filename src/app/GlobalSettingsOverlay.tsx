@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore, type ComponentType } from 'react'
+import { useEffect, useState, useSyncExternalStore, type ComponentType } from 'react'
 import { HostingPage } from '../pages/HostingPage/HostingPage'
 import { SettingsPage } from '../pages/SettingsPage/SettingsPage'
 import { StoragePanel } from '../features/settings/StoragePanel'
@@ -28,9 +28,9 @@ import {
 } from './SettingsIcons'
 import {
   GLOBAL_SETTINGS_GROUPS,
-  GLOBAL_SETTINGS_SECTIONS,
   closeGlobalSettings,
   getGlobalSettings,
+  matchSettingsSections,
   openGlobalSettings,
   subscribeGlobalSettings,
   type GlobalSettingsSection,
@@ -89,6 +89,15 @@ export function GlobalSettingsOverlay() {
     getGlobalSettings,
     getGlobalSettings,
   )
+  /**
+   * 搜索词（对账 #385 的"搜索基线"）。
+   *
+   * 搜索结果**复用同一份栏目表**（`matchSettingsSections`）—— 不另建一套索引，
+   * 也就不会出现"菜单里有、搜不到"或反之。每次**重新打开**浮层清空：
+   * 上一次搜的词留在框里、下次一进来只剩一栏，会让人以为设置丢了。
+   */
+  const [query, setQuery] = useState('')
+  const visible = matchSettingsSections(query)
 
   useEffect(() => {
     if (!open) return
@@ -97,6 +106,10 @@ export function GlobalSettingsOverlay() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+
+  useEffect(() => {
+    if (open) setQuery('')
   }, [open])
 
   if (!open) return null
@@ -138,12 +151,39 @@ export function GlobalSettingsOverlay() {
           */}
           <nav className={styles.nav} aria-label="设置栏目">
             {/*
+              搜索框（对账 #385）。用户找设置时想的是"事情"不是栏目名，
+              所以每个栏目都带了一组用户可能敲的词（见 `state/ui/globalSettings`）。
+            */}
+            <div className={styles.search}>
+              <input
+                className={styles.searchInput}
+                data-global-settings-search
+                type="search"
+                value={query}
+                placeholder="搜索设置（字体、备份、图床…）"
+                aria-label="搜索设置"
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              {query ? (
+                <button
+                  type="button"
+                  className={styles.searchClear}
+                  data-global-settings-search-clear
+                  aria-label="清空搜索"
+                  title="清空"
+                  onClick={() => setQuery('')}
+                >
+                  <IconClose size={14} />
+                </button>
+              ) : null}
+            </div>
+            {/*
               按**能力域**分段渲染（用户 2026-10-09，参考 Cherry 的组织逻辑）：
               分组顺序与栏目归属都在 `state/ui/globalSettings` 里定义，
               这里只负责画出来 —— 菜单顺序与搜索、路由共用同一份数据，不会漂移。
             */}
             {GLOBAL_SETTINGS_GROUPS.map((group) => {
-              const items = GLOBAL_SETTINGS_SECTIONS.filter((item) => item.group === group)
+              const items = visible.filter((item) => item.group === group)
               if (items.length === 0) return null
               return (
                 <div key={group} className={styles.navGroup}>
@@ -174,6 +214,12 @@ export function GlobalSettingsOverlay() {
                 </div>
               )
             })}
+            {/* 搜不到时给一句话，而不是留一片空白菜单（用户会以为界面坏了） */}
+            {visible.length === 0 && (
+              <p className={styles.searchEmpty} data-global-settings-search-empty>
+                没有匹配的设置项
+              </p>
+            )}
           </nav>
           {/*
             右：具体内容。**这一层是滚动容器**（`overflow-y: auto`）—— 没有它，

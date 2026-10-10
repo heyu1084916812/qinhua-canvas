@@ -23778,7 +23778,88 @@ async function g124(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124]
+// ────────────────────────────────────────────────────────────
+// G125 设置搜索（对账 #385 的"搜索基线"）：
+//   用户找设置时想的是**事情**不是栏目名 —— 敲"字体"要能直达「外观与体验」，
+//   敲不存在的词给一句话（不留空白菜单），重新打开浮层不残留上一次的词。
+// ────────────────────────────────────────────────────────────
+async function g125(browser) {
+  const g = 'G125 设置搜索'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  const tabIds = () =>
+    page
+      .locator('[data-global-settings-tab]')
+      .evaluateAll((els) => els.map((el) => el.getAttribute('data-global-settings-tab')))
+
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(500)
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(400)
+
+  const search = page.locator('[data-global-settings-search]')
+  rec(g, '★ 左导航有搜索框（对账 #385）', (await search.count()) === 1)
+  rec(g, '空搜索时十一栏都在', (await tabIds()).length === 11, `tabs=${(await tabIds()).length}`)
+
+  /** ① 按"事情"搜：标签里没有"字体"两个字，靠 keywords 命中「外观与体验」 */
+  await search.fill('字体')
+  await sleep(250)
+  const hit = await tabIds()
+  rec(
+    g,
+    '★★ 敲「字体」直达「外观与体验」（标签里没有这两个字也搜得到）',
+    JSON.stringify(hit) === JSON.stringify(['appearance']),
+    `tabs=${hit.join(',')}`,
+  )
+
+  /** ② 搜索结果点得动：右侧真的切过去（不是只把菜单过滤了） */
+  await page.locator('[data-global-settings-tab="appearance"]').click()
+  await sleep(400)
+  rec(
+    g,
+    '★ 点搜索结果真的切到那一栏（右侧出现字体范围说明）',
+    (await page.locator('[data-font-scope]').count()) >= 1,
+  )
+
+  /** ③ 搜不到：给一句话，而不是留一片空白菜单 */
+  await search.fill('zzz-查不到的东西')
+  await sleep(250)
+  rec(
+    g,
+    '★ 搜不到时给一句话（不留空白菜单）',
+    (await page.locator('[data-global-settings-search-empty]').count()) === 1 &&
+      (await tabIds()).length === 0,
+    `空态=${await page.locator('[data-global-settings-search-empty]').count()} tabs=${(await tabIds()).length}`,
+  )
+
+  /** ④ 清空按钮：菜单恢复完整 */
+  await page.locator('[data-global-settings-search-clear]').click()
+  await sleep(250)
+  rec(g, '★ 清空后菜单恢复十一栏', (await tabIds()).length === 11, `tabs=${(await tabIds()).length}`)
+
+  /** ⑤ 关掉再打开：不残留上一次的词（残留会让人以为设置丢了） */
+  await search.fill('字体')
+  await sleep(200)
+  await page.keyboard.press('Escape')
+  await sleep(300)
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(400)
+  rec(
+    g,
+    '★ 重新打开：搜索框是空的、十一栏都在（不残留上次的词）',
+    (await search.inputValue()) === '' && (await tabIds()).length === 11,
+    `value="${await search.inputValue()}" tabs=${(await tabIds()).length}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/125-g125-settings-search.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

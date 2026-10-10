@@ -91,27 +91,119 @@ export const GLOBAL_SETTINGS_SECTIONS: {
   id: GlobalSettingsSection
   label: string
   group: GlobalSettingsGroup
+  /**
+   * **搜索用的词**（对账 #385 的"搜索基线"，用户 2026-10-09：
+   * 「cherry那个我是让你看他的全局设置，重点参考他的一个制作全局设置的逻辑」）。
+   *
+   * 为什么不是"拿标签搜就够了"：用户找设置时想的是**事情**，不是栏目名 ——
+   * 「字体」在「外观与体验」里、「图床」在「素材传输」里、「快照」在「备份与恢复」里。
+   * 标签里一个都对不上，搜索就白做了。所以每个栏目列一组**用户可能敲的词**（含英文与别名）。
+   *
+   * 口径：小写存、匹配时两边都小写（`CLI` / `cli` 都能命中）；组名也参与匹配
+   * （敲「数据」能同时找到存储 / 备份与恢复 / 通知）。
+   */
+  keywords: readonly string[]
 }[] = [
-  { id: 'channels', label: '渠道配置', group: '连接' },
+  {
+    id: 'channels',
+    label: '渠道配置',
+    group: '连接',
+    keywords: ['渠道', '模型', '令牌', 'key', 'token', 'apikey', 'api key', '验证', '拉取', '接口', '站点'],
+  },
   // 「CLI」（对账 #308）：用户点名"就在渠道配置的**下面**"——顺序即口径，别往后挪
-  { id: 'cli', label: 'CLI', group: '连接' },
-  { id: 'hosting', label: '素材传输', group: '连接' },
+  {
+    id: 'cli',
+    label: 'CLI',
+    group: '连接',
+    keywords: ['命令行', '本机', '终端', '一键设置', '一键登录', '安装', 'codex', 'runninghub', '即梦'],
+  },
+  {
+    id: 'hosting',
+    label: '素材传输',
+    group: '连接',
+    keywords: ['图床', '上传', '素材', '公网', '直链', '外链', '图床配置'],
+  },
   // 「存储」（对账 #261）：存储概况 / 数据目录 / 网页缓存 / 素材文件夹
-  { id: 'storage', label: '存储', group: '数据' },
+  {
+    id: 'storage',
+    label: '存储',
+    group: '数据',
+    keywords: ['数据目录', '缓存', '占用', '磁盘', '空间', '清理', '素材文件夹', '存放'],
+  },
   // 「外观与体验」（用户 2026-10-09）：字体 / 界面字号 / 字距
-  { id: 'appearance', label: '外观与体验', group: '外观' },
+  {
+    id: 'appearance',
+    label: '外观与体验',
+    group: '外观',
+    keywords: [
+      '字体', '字号', '字距', '文本', '主题', '深色', '浅色', '暗色', '强调色', '颜色',
+      '背景色', '画布底色', '节点字号', '动效', '动画', '小地图', '界面',
+    ],
+  },
   // 「备份与恢复」（用户 2026-10-09）：全量备份导出 / 导入（#378）
-  { id: 'backup', label: '备份与恢复', group: '数据' },
+  {
+    id: 'backup',
+    label: '备份与恢复',
+    group: '数据',
+    keywords: ['备份', '恢复', '导出', '导入', '快照', '还原', '回收站', '数据安全', '换机器'],
+  },
   // 「扩展包」（对账 #386 阶段一）：数据型扩展包 —— 技能 + 电商平台规则
-  { id: 'defaults', label: '默认参数', group: '生成' },
-  { id: 'packs', label: '扩展包', group: '生成' },
-  { id: 'help', label: '帮助', group: '系统' },
-  { id: 'about', label: '关于与隐私', group: '系统' },
+  {
+    id: 'defaults',
+    label: '默认参数',
+    group: '生成',
+    keywords: ['默认', '模型', '比例', '尺寸', '画质', '张数', '参数', '记住上次'],
+  },
+  {
+    id: 'packs',
+    label: '扩展包',
+    group: '生成',
+    keywords: ['插件', '市场', '技能', '平台规则', '安装', '扩展', '包'],
+  },
+  {
+    id: 'help',
+    label: '帮助',
+    group: '系统',
+    keywords: ['快捷键', '常见问题', '教程', '引导', '新手', '版本', '更新', '怎么用', '帮助'],
+  },
+  {
+    id: 'about',
+    label: '关于与隐私',
+    group: '系统',
+    keywords: ['关于', '隐私', '许可', '开源', '数据在哪', '联网', '卸载', '版本', '清数据'],
+  },
   // 「通知」（对账 #386 的 E5）：完成 / 失败 / 批量进度三档 + 系统通知能力说明。
   // 追加在**末尾**（数组顺序即"新增顺序"），但 `group: '数据'` 决定它显示在
   // 「备份与恢复」下面 —— 渲染按组过滤，两件事互不冲突。
-  { id: 'notify', label: '通知', group: '数据' },
+  {
+    id: 'notify',
+    label: '通知',
+    group: '数据',
+    keywords: ['通知', '提醒', '弹窗', '完成', '失败', '进度', '系统通知'],
+  },
 ]
+
+export type GlobalSettingsEntry = (typeof GLOBAL_SETTINGS_SECTIONS)[number]
+
+/** 一个栏目的**可搜索文本**：标签 + 组名 + 关键词（全小写，匹配时只做包含判断） */
+function searchableText(entry: GlobalSettingsEntry): string {
+  return [entry.label, entry.group, ...entry.keywords].join(' ').toLowerCase()
+}
+
+/**
+ * **按关键词过滤栏目**（对账 #385 的"搜索基线"，纯函数、可单测）。
+ *
+ * 判据只有一条：**包含**（不做分词、不做模糊拼音）。理由很具体 ——
+ * 设置项一共十一栏，输入"字"想找的东西全都带"字"字；上分词器只会引入
+ * "输一半就跳出一堆不相干"的新问题，还得维护词典。
+ *
+ * 空查询（或纯空格）返回**全部**：搜索框空着时菜单就该是完整的。
+ */
+export function matchSettingsSections(query: string): GlobalSettingsEntry[] {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return GLOBAL_SETTINGS_SECTIONS
+  return GLOBAL_SETTINGS_SECTIONS.filter((entry) => searchableText(entry).includes(needle))
+}
 
 let state: GlobalSettingsState = { open: false, section: 'channels' }
 const listeners = new Set<() => void>()

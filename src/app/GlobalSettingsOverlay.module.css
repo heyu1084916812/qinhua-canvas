@@ -92,6 +92,72 @@
   overflow-y: auto;
 }
 
+/*
+ * 设置搜索（对账 #385）。
+ *
+ * 输入框用与设置页其它输入框同一套（`--bg-surface` 在浅灰导航上抬高一层 + 聚焦环），
+ * 因为导航底色是 `--bg-subtle` —— 用透明底会让它看起来像一行文字而不是可输入的地方。
+ */
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
+
+.searchInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  padding: var(--space-2) var(--space-3);
+  /* 右侧给清空按钮留位，免得长词被压在按钮下面 */
+  padding-right: 32px;
+  font: inherit;
+  font-size: var(--fs-nav);
+}
+
+.searchInput::placeholder {
+  color: var(--text-3);
+}
+
+.searchInput:focus {
+  outline: none;
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.searchClear {
+  position: absolute;
+  right: var(--space-1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.searchClear:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+/* 搜不到时的一句话：弱化，不装成错误（用户只是敲了个词） */
+.searchEmpty {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-nav);
+  color: var(--text-3);
+}
+
 .navItem {
   border: none;
   background: transparent;
