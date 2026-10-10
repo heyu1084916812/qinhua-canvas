@@ -53,6 +53,11 @@ export interface EcommerceStudioProps {
   onUpload: (file: File, kind: 'product' | 'reference') => Promise<EcommerceUpload | null>
   /** 点「开始生成」并在二次确认之后调用；页面负责建节点 + 跑引擎 */
   onGenerate: (request: EcommerceRequest) => Promise<void>
+  /** 可选出图模型（前端显示名，来自固定清单）；空数组时只显示"默认（按渠道解析）" */
+  models?: readonly string[]
+  /** 当前选中的模型；空串 = 用默认解析出来的那一个 */
+  model: string
+  onModelChange: (model: string) => void
   running: boolean
   results: readonly EcommerceResultItem[]
   /** 在画布里打开这个项目（结果已经是画布节点，这是"发送到画布"的落点） */
@@ -64,6 +69,9 @@ export function EcommerceStudio({
   platforms = ECOMMERCE_PLATFORMS,
   onUpload,
   onGenerate,
+  models = [],
+  model,
+  onModelChange,
   running,
   results,
   onOpenCanvas,
@@ -111,6 +119,8 @@ export function EcommerceStudio({
     productNodeId: product?.nodeId ?? '',
     referenceNodeIds: references.map((r) => r.nodeId),
     note,
+    /* 空串不写进请求：让页面按"默认解析"那条路走（与没选过完全一致） */
+    ...(model ? { model } : {}),
   })
 
   const start = () => {
@@ -235,6 +245,26 @@ export function EcommerceStudio({
                 {platforms.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {/*
+              出图模型（用户 2026-10-10 #2：「左边的参数栏没有模型相关的参数选择」）。
+              渠道**不在这里选** —— 与画布同一条口径：模型定下来，谁提供它由选路决定。
+            */}
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>模型</span>
+              <select
+                className={styles.select}
+                value={model}
+                data-ecommerce-model
+                onChange={(e) => onModelChange(e.target.value)}
+              >
+                <option value="">默认（按渠道解析）</option>
+                {models.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
                   </option>
                 ))}
               </select>

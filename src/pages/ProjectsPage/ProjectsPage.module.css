@@ -90,10 +90,13 @@
    * `margin-inline: auto` 即可；侧栏开合后工作区宽度变化，内容会重新居中。
    */
   width: 100%;
-  max-width: 1520px;
-  margin-inline: auto;
   box-sizing: border-box;
-  padding: var(--space-8);
+  /*
+   * ⚠️ **滚动条位置（用户 2026-10-10 #3）**：原来这一层自己定宽 1520 居中并滚动，
+   * 于是滚动条画在"内容框的右沿"（宽屏下离工作区右沿还有一大截，用户截图里打叉的位置）。
+   * 现在 `.main` 铺满工作区、滚动条自然贴工作区右沿；内容定宽居中的事交给每个直接子块。
+   */
+  padding: var(--space-8) 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-8);
@@ -116,6 +119,15 @@
    * 卡片圆角 14px，在 x = 右沿 − 4px 处圆弧的最低点约 y=4.2px，所以拇指从 8px 处开始就已完全在卡片内。
    * 左右**不缩**，它才读得出"紧贴右沿"。
    */
+}
+
+/* 直接子块：定宽居中 + 左右内距（= 上一版 `.main` 的口径，观感不变） */
+.main > * {
+  width: 100%;
+  max-width: 1520px;
+  margin-inline: auto;
+  box-sizing: border-box;
+  padding-inline: var(--space-8);
 }
 
 /*
@@ -145,6 +157,54 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+/*
+ * 项目类型筛选（用户 2026-10-10 #5）：画布 / 电商分开看。
+ * 与侧栏那种"选中=底色 + 字重"同一口径：不描边，只靠底色分层（#394 的统一口径）。
+ */
+.kindFilter {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: var(--space-2);
+  padding: 2px;
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+}
+
+.kindBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 26px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.kindBtn:hover {
+  color: var(--text-1);
+}
+
+.kindBtnOn {
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.kindCount {
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.kindBtnOn .kindCount {
+  color: var(--text-2);
 }
 
 .sectionTitle {
@@ -354,6 +414,18 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 卡片上的类型标签：与筛选按钮同一套词（画布 / 电商） */
+.cardKind {
+  display: inline-block;
+  margin-right: var(--space-2);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  vertical-align: 1px;
 }
 
 .renameInput {

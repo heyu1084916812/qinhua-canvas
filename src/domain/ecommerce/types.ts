@@ -27,6 +27,14 @@ export interface EcommerceRequest {
   referenceNodeIds: string[]
   /** 用户自由补充的一句需求（可空） */
   note?: string
+  /**
+   * 出图模型（前端显示名；用户 2026-10-10：「电商出图左边的参数栏没有模型相关的参数选择」）。
+   *
+   * **空 = 走默认**：由 `channels.defaultForNewNode` 解析出来的那一个。
+   * 渠道不在这里选 —— 与画布同一条口径：由选路按"谁提供这个模型"决定
+   *（见 `domain/project/modelRouting.ts`）。
+   */
+  model?: string
 }
 
 export const ECOMMERCE_USAGES: readonly EcommerceUsage[] = ['main', 'white-bg', 'detail', 'set']

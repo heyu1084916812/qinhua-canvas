@@ -14,6 +14,7 @@ import { createProjectRepository } from '../../state/project/repository'
 import { createAssetNode, importAssetFile } from '../../features/canvas/importAsset'
 import { createNodeWithDefaults } from '../../features/canvas/createNodeWithDefaults'
 import { buildEcommercePlan } from '../../domain/ecommerce/plan'
+import { panelModelOptions } from '../../domain/project/modelCatalog'
 import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
 import { projectRoute } from '../../domain/shared/workbench'
 import { downloadAsset } from '../../features/canvas/downloadAsset'
@@ -156,6 +157,14 @@ function StudioHost({ projectId }: { projectId: string }) {
   const [nodeIds, setNodeIds] = useState<string[]>([])
   const [projectName, setProjectName] = useState('')
   /**
+   * 出图模型（用户 2026-10-10 #2）。空串 = 默认：由 `channels.defaultForNewNode` 解析。
+   *
+   * 清单取的是**固定前端显示名**（与画布创作面板同一份 `panelModelOptions('image')`）——
+   * 渠道拉回来的裸模型名不进这个列表，理由见 `modelCatalog` 的注释（对账 #371）。
+   */
+  const [model, setModel] = useState('')
+  const models = useMemo(() => panelModelOptions('image'), [])
+  /**
    * 平台清单 = 内置 + **扩展包带进来的规则**（对账 #386 的 E3）。
    *
    * 同 id 时以扩展包为准：包就是用来"更新规则而不必等应用发版"的，
@@ -219,6 +228,8 @@ function StudioHost({ projectId }: { projectId: string }) {
     if (!recipe?.channelId || !recipe?.model) {
       throw new Error('还没有可用的生图渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上模型')
     }
+    /* 用户选过就用他选的；没选过还是走解析出来的默认那一套 */
+    const modelForRun = request.model || recipe.model
 
     const created: string[] = []
     for (let i = 0; i < plan.count; i += 1) {
@@ -230,6 +241,7 @@ function StudioHost({ projectId }: { projectId: string }) {
         at: { x: 420 + (i % 3) * 300, y: 60 + Math.floor(i / 3) * 240 },
         extraData: {
           mode: 'image',
+          model: modelForRun,
           prompt: plan.prompt,
           ratio: plan.ratio,
           count: 1,
@@ -282,6 +294,9 @@ function StudioHost({ projectId }: { projectId: string }) {
     <EcommerceStudio
       projectName={projectName || '未命名项目'}
       platforms={platforms}
+      models={models}
+      model={model}
+      onModelChange={setModel}
       onUpload={onUpload}
       onGenerate={onGenerate}
       running={exec.isRunning}

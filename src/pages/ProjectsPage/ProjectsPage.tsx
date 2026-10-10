@@ -37,6 +37,14 @@ import { useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
  * —— 它从第一版起就是项目网格。把它叫「首页」才是一直以来的错位，
  * 现在按它实际干的事命名。
  */
+/** 项目类型筛选的三个档（`all` 之外的两档与 `WorkbenchId` 同名，便于直接过滤） */
+type ProjectKind = 'all' | WorkbenchId
+const PROJECT_KINDS: readonly { id: ProjectKind; label: string }[] = [
+  { id: 'all', label: '全部' },
+  { id: 'canvas', label: '画布' },
+  { id: 'ecommerce', label: '电商' },
+]
+
 export function ProjectsPage() {
   const platform = usePlatform()
   const navigate = useNavigate()
@@ -52,6 +60,15 @@ export function ProjectsPage() {
   const store = storeRef.current
 
   const visible = useSyncExternalStore(store.subscribe, () => store.getState().visible, () => store.getState().visible)
+  /**
+   * 项目类型筛选（用户 2026-10-10 #5：「画布项目菜单的工作区中，项目和电商项目需要进行分类」）。
+   *
+   * 数据本来就已经分开了 —— `projects.workbench` 在建项目时就写着 `canvas` / `ecommerce`
+   *（见 `domain/project/project.ts`），只是列表从来不按它分。这里只补**视图层**的筛选与标识，
+   * 真正的"两个独立工作区"（各自的存储与数据模型）见对账 #396。
+   */
+  const [kindFilter, setKindFilter] = useState<ProjectKind>('all')
+  const shown = kindFilter === 'all' ? visible : visible.filter((p) => p.workbench === kindFilter)
   const loading = useSyncExternalStore(store.subscribe, () => store.getState().loading, () => store.getState().loading)
   const sort = useSyncExternalStore(store.subscribe, () => store.getState().sort, () => store.getState().sort)
   const query = useSyncExternalStore(store.subscribe, () => store.getState().query, () => store.getState().query)
@@ -146,7 +163,7 @@ export function ProjectsPage() {
     setStatus(`已清空回收站（${n} 个项目）`)
   }
 
-  const visibleIds = visible.map((p) => p.id)
+  const visibleIds = shown.map((p) => p.id)
   const selectedCount = selectedIds.size
 
   const exitSelection = () => {
@@ -338,6 +355,31 @@ export function ProjectsPage() {
               <h2 className={styles.sectionTitle} data-projects-heading>
                 项目
               </h2>
+              {/* 类型筛选（用户 2026-10-10 #5）：画布项目与电商项目分开展示，计数直接写在按钮上 */}
+              <div className={styles.kindFilter} role="radiogroup" aria-label="项目类型">
+                {PROJECT_KINDS.map((kind) => {
+                  const n =
+                    kind.id === 'all'
+                      ? visible.length
+                      : visible.filter((p) => p.workbench === kind.id).length
+                  return (
+                    <button
+                      key={kind.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={kindFilter === kind.id}
+                      className={
+                        kindFilter === kind.id ? `${styles.kindBtn} ${styles.kindBtnOn}` : styles.kindBtn
+                      }
+                      data-projects-kind-filter={kind.id}
+                      onClick={() => setKindFilter(kind.id)}
+                    >
+                      {kind.label}
+                      <span className={styles.kindCount}>{n}</span>
+                    </button>
+                  )
+                })}
+              </div>
               <button
                 className={`${styles.selectToggle} ${selecting ? styles.selectToggleOn : ''}`}
                 type="button"
@@ -443,7 +485,7 @@ export function ProjectsPage() {
             </div>
           )}
 
-          {visible.length === 0 && !loading ? (
+          {shown.length === 0 && !loading ? (
             <HomeEmptyState onCreate={() => void createBlank('canvas')} />
           ) : (
             <div className={styles.grid}>
@@ -461,7 +503,7 @@ export function ProjectsPage() {
                 </span>
                 <span className={styles.newLabel}>新建项目</span>
               </button>
-              {visible.map((p) => (
+              {shown.map((p) => (
                 <ProjectCard
                   key={p.id}
                   project={p}
@@ -761,6 +803,10 @@ export function ProjectCard(props: {
           </div>
         )}
         <div className={styles.cardMeta} data-project-meta>
+          {/* 类型标签（用户 2026-10-10 #5）：在「全部」档里也一眼分得清这是哪类项目 */}
+          <span className={styles.cardKind} data-project-workbench={project.workbench}>
+            {project.workbench === 'ecommerce' ? '电商' : '画布'}
+          </span>
           {formatRelative(project.updatedAt)}
           {project.workbench === 'canvas' ? ` · ${project.nodeCount} 个节点` : ''}
         </div>

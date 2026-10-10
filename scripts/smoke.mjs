@@ -22494,6 +22494,20 @@ async function g116(browser) {
       (await page.locator('[data-ecommerce-ratio] option').count()) === 5,
     `用途=${usages.join(',')}`,
   )
+  /*
+   * 模型选择（用户 2026-10-10 #2：「电商出图左边的参数栏没有模型相关的参数选择」）。
+   * 判据两条：① 有这一格；② 选项是「默认（按渠道解析）+ 固定清单的生图模型」，
+   * 而不是空下拉 —— 空下拉比没有还糟（用户会以为"这功能坏了"）。
+   */
+  const modelOptions = await page
+    .locator('[data-ecommerce-model] option')
+    .evaluateAll((els) => els.map((e) => e.textContent?.trim() ?? ''))
+  rec(
+    g,
+    '★★ 左栏有「模型」选择（默认 + 固定清单的生图模型）',
+    modelOptions.length > 1 && modelOptions[0] === '默认（按渠道解析）',
+    modelOptions.slice(0, 4).join(' / '),
+  )
 
   // ③ 上传产品图：预览必须真的能解码（不是只有一个空框）
   await page.locator('[data-ecommerce-product-input]').setInputFiles({
@@ -23385,7 +23399,217 @@ async function g122(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122]
+// ────────────────────────────────────────────────────────────
+// G123 工作区与设置外观（用户 2026-10-10 那 10 条里已落地的几条）：
+//   #3 滚动条贴工作区右沿 · #5 画布/电商分类 · #6 渠道工作区与页面同底
+//   #8 设置左导航图标 · #9 素材页铺满（瀑布流左右不留白）
+// ────────────────────────────────────────────────────────────
+async function g123(browser) {
+  const g = 'G123 工作区与设置外观'
+  /* 宽视口是判据的一部分：1520 封顶只有宽屏才看得出来 */
+  const ctx = await newCtx(browser, { viewport: { width: 1800, height: 900 } })
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  const box = (sel) =>
+    page
+      .locator(sel)
+      .first()
+      .evaluate((n) => {
+        const r = n.getBoundingClientRect()
+        const cs = getComputedStyle(n)
+        return {
+          x: Math.round(r.x),
+          right: Math.round(r.right),
+          maxW: cs.maxWidth,
+          bg: cs.backgroundColor,
+        }
+      })
+
+  // ① #3：`.main` 右沿 = 工作区右沿（滚动条不再画在居中内容框上）
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(700)
+  const ws = await box('[data-app-workspace]')
+  const main = await box('main')
+  rec(
+    g,
+    '★★ 项目页滚动条贴工作区右沿（`.main` 铺满，不再被 1520 居中框截住）',
+    main.right === ws.right && main.maxW === 'none',
+    `工作区右沿=${ws.right} .main 右沿=${main.right} max-width=${main.maxW}`,
+  )
+
+  /**
+   * ② #5：各建一个画布项目与电商项目，验证分类筛选与卡片标签。
+   *
+   * ⚠️ 顺序有讲究：**先建电商**。项目页在"一个项目都没有"时渲染的是空态引导，
+   * 网格里的「新建项目」卡（`[data-new-card]`）根本不在 DOM 里 —— 先有电商项目，
+   * 项目页才会给出网格，才能从网格里建画布项目。
+   */
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
+  await sleep(500)
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(700)
+  await page.locator('[data-new-card]').click()
+  await sleep(300)
+  await page.locator('[data-new-workbench="canvas"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(800)
+  const filters = await page
+    .locator('[data-projects-kind-filter]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-projects-kind-filter')))
+  const kinds = await page
+    .locator('[data-project-workbench]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-project-workbench')))
+  rec(
+    g,
+    '★★ 项目页有「全部 / 画布 / 电商」分类，卡片带类型标签',
+    JSON.stringify(filters) === JSON.stringify(['all', 'canvas', 'ecommerce']) &&
+      kinds.includes('canvas') &&
+      kinds.includes('ecommerce'),
+    `筛选=${filters.join(',')} 卡片标签=${kinds.join(',')}`,
+  )
+  await page.locator('[data-projects-kind-filter="ecommerce"]').click()
+  await sleep(400)
+  const shown = await page
+    .locator('[data-project-workbench]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-project-workbench')))
+  rec(
+    g,
+    '★★ 点「电商」只剩电商项目（不是只换个高亮）',
+    shown.length > 0 && shown.every((k) => k === 'ecommerce'),
+    shown.join(','),
+  )
+
+  // ③ #9：素材页 `.main` 铺满（不再 1520 封顶 ⇒ 瀑布流左右不留空）
+  await page.goto(`${BASE}/assets`, { waitUntil: 'networkidle' })
+  await sleep(700)
+  const ws2 = await box('[data-app-workspace]')
+  const main2 = await box('main')
+  rec(
+    g,
+    '★★ 素材页 .main 铺满工作区（瀑布流用满宽度，左右不留白）',
+    main2.right === ws2.right && main2.maxW === 'none',
+    `工作区右沿=${ws2.right} .main 右沿=${main2.right} max-width=${main2.maxW}`,
+  )
+
+  /**
+   * ③b #9：**横竖间距必须一样**（用户实测「上下间距和左右间距不一致」）。
+   *
+   * 真因：卡片有 1px 边框而 `width:100%` 走的是 content-box ⇒ 外框比列宽大 2px，
+   * 两侧各吃掉 1px 列间距（实测水平 18 / 垂直 20）。修法是给卡片加 `box-sizing: border-box`。
+   * 判据用**真实渲染出来的间距**，不看 CSS 声明 —— 声明一直是 20/20，问题就出在盒模型上。
+   */
+  await page.evaluate(async () => {
+    const openDb = () =>
+      new Promise((resolve, reject) => {
+        const r = indexedDB.open('qinghua')
+        r.onsuccess = () => resolve(r.result)
+        r.onerror = () => reject(r.error)
+      })
+    const db = await openDb()
+    const put = (table, rows) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(table, 'readwrite')
+        const s = tx.objectStore(table)
+        for (const r of rows) s.put(r)
+        tx.oncomplete = () => resolve(true)
+        tx.onerror = () => reject(tx.error)
+      })
+    const bin = atob(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    )
+    const bytes = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i)
+    const now = Date.now()
+    const sizes = [
+      [300, 200],
+      [300, 420],
+      [300, 300],
+      [300, 520],
+      /* 宽视口下列数多：卡片少于"列数 + 1"就量不到同列的第二张（垂直间距会测不出来） */
+      [300, 240],
+      [300, 460],
+      [300, 340],
+      [300, 400],
+    ]
+    const assets = []
+    const lib = []
+    sizes.forEach(([w, h], i) => {
+      assets.push({ id: `g123-p${i}`, hash: `g123-p${i}`, mime: 'image/png', bytes, width: w, height: h })
+      lib.push({
+        id: `g123-p${i}`,
+        hash: `g123-p${i}`,
+        mime: 'image/png',
+        bytes: bytes.length,
+        width: w,
+        height: h,
+        savedAt: now - i * 1000,
+        prompt: `间距探针 ${i}`,
+        ratio: '1:1',
+        quality: 'high',
+        model: 'image-pro',
+        channelId: 'ch-x',
+      })
+    })
+    await put('assets', assets)
+    await put('assetLibrary', lib)
+    db.close()
+  })
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(900)
+  await page.locator('[data-assets-tab="library"]').click()
+  await sleep(700)
+  const gaps = await page.locator('[data-assets-grid]').first().evaluate((n) => {
+    const cards = [...n.children].map((c) => c.getBoundingClientRect())
+    const first = cards[0]
+    /* 同列的第二张：x 相同、y 更靠下 —— 别用下标猜（多列是"按列顺序"流的） */
+    const sameCol = cards.find((c) => Math.abs(c.x - first.x) < 1 && c.y > first.y + 1)
+    const otherCol = cards.find((c) => Math.abs(c.x - first.x) > 1)
+    return {
+      vertical: sameCol ? sameCol.y - (first.y + first.height) : null,
+      horizontal: otherCol ? otherCol.x - (first.x + first.width) : null,
+    }
+  })
+  rec(
+    g,
+    '★★ 瀑布流横竖间距一致（实测，±1px；修前是 18 vs 20）',
+    gaps.vertical !== null && gaps.horizontal !== null && Math.abs(gaps.vertical - gaps.horizontal) <= 1,
+    `水平=${gaps.horizontal?.toFixed(1)}px 垂直=${gaps.vertical?.toFixed(1)}px`,
+  )
+
+  // ④ #6 / #8：两套主题下「工作区与页面同底」+ 11 个栏目都有图标
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((t) => localStorage.setItem('flow:theme', t), theme)
+    await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+    await sleep(500)
+    await page.locator('[data-sidebar-settings]').click()
+    await sleep(350)
+    await page.locator('[data-global-settings-tab="channels"]').click()
+    await sleep(450)
+    const panel = await box('[data-global-settings-panel]')
+    const workarea = await box('[data-settings-workarea]')
+    const icons = await page.locator('[data-global-settings-tab] svg').count()
+    const tabs = await page.locator('[data-global-settings-tab]').count()
+    rec(
+      g,
+      `${theme === 'light' ? '浅色' : '深色'}：渠道工作区与页面同底 + 每个栏目都有图标`,
+      panel.bg === workarea.bg && icons === tabs && tabs === 11,
+      `浮层底=${panel.bg} 工作区底=${workarea.bg} 图标=${icons}/${tabs}`,
+    )
+    await page.keyboard.press('Escape')
+    await sleep(250)
+  }
+
+  await page.screenshot({ path: `${OUT}/123-g123-workspace.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

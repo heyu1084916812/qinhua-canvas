@@ -97,12 +97,27 @@
   background: transparent;
   border-radius: var(--radius-control);
   padding: var(--space-2) var(--space-3);
+  /* 图标 + 标签同一行（用户 2026-10-10 #8）：图标列定宽，标签左对齐才不会一栏一个位置 */
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font: inherit;
   font-size: var(--fs-nav);
   color: var(--text-2);
   text-align: left;
   cursor: pointer;
   transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+}
+
+/* 图标列：宽度固定，长标签换行时标签仍在同一条左边线上 */
+.navIcon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: inherit;
 }
 
 /**

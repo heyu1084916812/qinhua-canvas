@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore, type ComponentType } from 'react'
 import { HostingPage } from '../pages/HostingPage/HostingPage'
 import { SettingsPage } from '../pages/SettingsPage/SettingsPage'
 import { StoragePanel } from '../features/settings/StoragePanel'
@@ -14,14 +14,49 @@ import { NotifyPanel } from '../features/settings/NotifyPanel'
 import { BackupPanel } from '../features/settings/BackupPanel'
 import { IconClose } from './AppSidebarIcons'
 import {
+  IconAbout,
+  IconAppearance,
+  IconBackup,
+  IconChannels,
+  IconCli,
+  IconDefaults,
+  IconHelp,
+  IconHosting,
+  IconNotify,
+  IconPacks,
+  IconStorage,
+} from './SettingsIcons'
+import {
   GLOBAL_SETTINGS_GROUPS,
   GLOBAL_SETTINGS_SECTIONS,
   closeGlobalSettings,
   getGlobalSettings,
   openGlobalSettings,
   subscribeGlobalSettings,
+  type GlobalSettingsSection,
 } from '../state/ui/globalSettings'
 import styles from './GlobalSettingsOverlay.module.css'
+
+/**
+ * 栏目 → 图标（用户 2026-10-10 #8）。
+ *
+ * 用**显式映射**而不是给每个栏目挂一个 React 节点：栏目表（`GLOBAL_SETTINGS_SECTIONS`）
+ * 是数据、`state/ui` 里不该出现 JSX；映射放在这里，新增栏目忘了配图标会被 TS 立刻指出
+ * （`Record<GlobalSettingsSection, …>` 少一个键就报错）。
+ */
+const SECTION_ICONS: Record<GlobalSettingsSection, ComponentType<{ size?: number }>> = {
+  channels: IconChannels,
+  cli: IconCli,
+  hosting: IconHosting,
+  storage: IconStorage,
+  appearance: IconAppearance,
+  backup: IconBackup,
+  defaults: IconDefaults,
+  packs: IconPacks,
+  notify: IconNotify,
+  help: IconHelp,
+  about: IconAbout,
+}
 
 /**
  * 全局设置浮层（用户 2026-10-06 定，对账 #259）。
@@ -115,20 +150,27 @@ export function GlobalSettingsOverlay() {
                   <div className={styles.navGroupTitle} data-global-settings-group={group}>
                     {group}
                   </div>
-                  {items.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      className={
-                        section === item.id ? `${styles.navItem} ${styles.navItemOn}` : styles.navItem
-                      }
-                      data-global-settings-tab={item.id}
-                      aria-pressed={section === item.id}
-                      onClick={() => openGlobalSettings(item.id)}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
+                  {items.map((item) => {
+                    /* 栏目图标（用户 2026-10-10 #8）：与标签同一行、跟随选中态着色 —— 映射见文件顶部 */
+                    const Icon = SECTION_ICONS[item.id]
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={
+                          section === item.id ? `${styles.navItem} ${styles.navItemOn}` : styles.navItem
+                        }
+                        data-global-settings-tab={item.id}
+                        aria-pressed={section === item.id}
+                        onClick={() => openGlobalSettings(item.id)}
+                      >
+                        <span className={styles.navIcon} aria-hidden>
+                          <Icon size={16} />
+                        </span>
+                        {item.label}
+                      </button>
+                    )
+                  })}
                 </div>
               )
             })}

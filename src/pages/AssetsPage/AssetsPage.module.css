@@ -286,16 +286,28 @@
    */
   flex: 1 1 auto;
   width: 100%;
-  max-width: 1520px;
-  margin-inline: auto;
   box-sizing: border-box;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-6);
+  /*
+   * ⚠️ **两处口径（用户 2026-10-10 #3 / #9）**：
+   * ① 这一层铺满工作区、自己滚 ⇒ 滚动条贴**工作区右沿**（原来定宽 1520 居中，
+   *    滚动条画在内容框右沿，用户截图里打叉的就是它）；
+   * ② 不再给内容封顶 1520：瀑布流用满工作区宽度，左右不留那两条空白。
+   *    左右内距由下面的直接子块给（观感与上一版一致）。
+   */
+  padding: var(--space-6) 0;
   /*
    * 滚动条**紧贴卡片（工作区）右沿**（用户 2026-10-06 第 11 批第 6 条，与项目页同口径）——
    * 上一轮那两条 16px 透明边框已去掉；"两端穿出圆角"改由下面给拇指做上下内缩来保证。
    */
+}
+
+/* 直接子块：铺满 + 左右内距（原来由 `.main` 统一给） */
+.main > * {
+  width: 100%;
+  box-sizing: border-box;
+  padding-inline: var(--space-6);
 }
 
 /* 滚动条拇指：上下各缩 8px，左右不缩（详见 ProjectsPage 的同名注释） */
@@ -401,6 +413,15 @@
   position: relative;
   display: flex;
   width: 100%;
+  /**
+   * ⚠️ **必须显式写 `border-box`**（用户 2026-10-10 #9：「图片上下间距和左右间距不一致」）。
+   *
+   * 卡片有 1px 边框，而 `width: 100%` 在默认的 content-box 下算的是**内容盒** ⇒
+   * 外框比多列栅格的列宽宽 2px，两侧各吃掉 1px 列间距。
+   * 实测（1800 视口）：列宽 273、列距 291 ⇒ 水平缝 **18px**，而纵向 `margin-bottom` 是 20px。
+   * 加上这一句之后两者都是 20px（`column-gap` 与 `margin-bottom` 同取 `--space-5`）。
+   */
+  box-sizing: border-box;
   break-inside: avoid;
   margin-bottom: var(--space-5);
   background: var(--bg-subtle);
