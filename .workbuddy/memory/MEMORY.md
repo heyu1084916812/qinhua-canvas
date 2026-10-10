@@ -5454,3 +5454,29 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   冒出去就是页面上一条未捕获异常 —— 通知是锦上添花，不该把生成完成那条路拖坏。
 - **★ 收口基线（第 72 批）**：全量冒烟第十五轮 **1495/0/1495 全绿**（条数与第十四轮相同：
   这条能力只在壳里存在，浏览器冒烟看不见它，证据是上面那条 CDP 探针）。
+
+## 2026-10-10 第 45 批（漫剧工作台第一阶段；对账 #382 / 第 73 批）
+
+- **★★ 加一个工作台的真实改动面（漏一处就编译错或点进去白屏）**：`WorkbenchId` 联合 →
+  `WORKBENCHES` 表 → `WORKBENCH_ORDER` → `DEFAULT_NAME`（`domain/project/project.ts`，
+  **它是 `Record<WorkbenchId,string>`，漏了新 id 直接 `tsc` 报错**——这次就是这么被抓到的）→
+  Dexie 新版本表 → `TableName` 联合 → `BACKUP_TABLES` → `PROJECT_CASCADE_TABLES` →
+  `nav.ts` → `routes.tsx` → `ProjectsPage` 的 `PROJECT_KINDS` → 侧栏图标。
+  **`tsc` 会替你抓 `Record<WorkbenchId, …>` 那几处；`nav`/`routes`/`PROJECT_KINDS` 它抓不到。**
+- **★ 加一条一级导航会打红两条老断言**：G80「六个一级导航」与 G123「三段筛选」都是
+  **跟口径走的精确断言**（`JSON.stringify` 全等），不是"包含这几个"。口径变了就**改断言并写清为什么**，
+  不许放宽 —— 放宽之后"少一个导航项"这种真回归就再也看不见了。
+- **★★ 形态没固化就先"一行 = 一个项目整份文档"**：漫剧落在 `storyboards`（Dexie **v11**），
+  整份 `doc` 塞一行 + `projectId`/`updatedAt` 两个可索引列；读写都过 `parseStoryboard`，
+  **读回时顺手丢孤儿镜头**（`episodeId` 指向不存在的集）——留着它们只会在导出里凭空多几行。
+- **★★ 故障注入怎么做（这一条要照抄）**：把 `storyboardStore.save` 摘成空 `return` ⇒
+  G127「刷新后整页还在」立刻**红**（`locator.inputValue` 超时）。它证明那条断言量的是
+  **真落库**，不是"界面上恰好还没刷新"。
+- **★ 导出也能端到端断言**：`page.waitForEvent('download')` + `readFileSync(await download.path())`
+  比对 Markdown 内容（含片名 / 集名 / 剩下的那一镜，**且不含已删的那一镜**）——
+  比"按钮在不在"结实得多。
+- **★ 漫剧口径仍以《轻画-漫剧形态调研.md》§6.1 为准**：本批只交付**前段**（剧本 → 分集 → 分镜 → 导出分镜表）。
+  与那份草案的差距**明写在 #382 行里**（缺角色 / 场景资产库与 `sceneId`/`characterIds`、缺对白独立层与分集钩子、
+  缺逐镜 `GenTarget`/keyframes、缺软删除 + 引用检查、缺 FFmpeg 合成包），免得下一个会话把"有分镜了"当成"全流程做完了"。
+- **★ 收口基线（第 45 批 / 对账第 73 批）**：单测 **2201/2201**、`npm run check` 全绿、
+  **全量冒烟第十六轮 1507/0/1507 全绿**（上一轮 1495 + G127 新增 12）。
