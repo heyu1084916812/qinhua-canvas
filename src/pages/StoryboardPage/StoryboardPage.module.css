@@ -1,0 +1,357 @@
+/* 漫剧工作台页（对账 #382 第一阶段）：剧本 → 分集 → 分镜 → 导出分镜表。
+   颜色只许走 src/ui/tokens.css 的变量（主题守卫会拦字面色值）。 */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  height: 100%;
+  min-height: 0;
+  padding: var(--space-5) var(--space-6);
+  overflow: hidden;
+  color: var(--text-1);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.titleWrap {
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--fs-page-title);
+  line-height: var(--lh-page-title);
+  font-weight: var(--fw-page-title);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sub {
+  margin: 2px 0 0;
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.stats {
+  margin: 0 0 0 auto;
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.status {
+  min-width: 84px;
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.left,
+.right {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+  padding-right: var(--space-1);
+  overflow-y: auto;
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg-surface);
+  border: var(--border);
+  border-radius: var(--radius-control);
+}
+
+.blockHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.blockTitle {
+  margin: 0;
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+  color: var(--text-1);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.label {
+  font-size: var(--fs-chip);
+  color: var(--text-2);
+}
+
+.input,
+.textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 var(--space-3);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-body);
+  background: var(--bg-canvas);
+  border: var(--border);
+  border-radius: var(--radius-control);
+}
+
+.input {
+  height: 34px;
+}
+
+.textarea {
+  padding: var(--space-2) var(--space-3);
+  line-height: var(--lh-body);
+  resize: vertical;
+}
+
+.input:focus-visible,
+.textarea:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.row2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: var(--space-3);
+}
+
+.primary {
+  height: 34px;
+  padding: 0 var(--space-4);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ghost {
+  height: 28px;
+  padding: 0 var(--space-3);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-chip);
+  background: var(--bg-canvas);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.list,
+.shots {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--bg-subtle);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.itemOn {
+  background: var(--bg-hover);
+  border-color: var(--stroke-focus);
+}
+
+.itemMain {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.itemTitle {
+  flex: 1;
+  min-width: 0;
+  padding: 2px var(--space-1);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-body);
+  background: transparent;
+  border: none;
+}
+
+.itemTitle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.itemMeta {
+  flex-shrink: 0;
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.itemTools {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--text-3);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.iconBtn:hover:not(:disabled) {
+  color: var(--text-1);
+  background: var(--bg-hover);
+}
+
+.iconBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.iconBtnDanger {
+  color: var(--danger);
+}
+
+.shots {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.shot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-subtle);
+  border: var(--border);
+  border-radius: var(--radius-control);
+}
+
+.shotHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.shotNo {
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  color: var(--text-2);
+}
+
+.hint {
+  margin: 0;
+  font-size: var(--fs-label);
+  line-height: var(--lh-body);
+  color: var(--text-3);
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: var(--bg-surface);
+  border: var(--border);
+  border-radius: var(--radius-control);
+}
+
+.loading {
+  padding: var(--space-6);
+  font-size: var(--fs-body);
+  color: var(--text-2);
+}
+
+.emptyWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  max-width: 52ch;
+  margin: 0 auto;
+  padding: 96px var(--space-4) var(--space-4);
+  color: var(--text-1);
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: var(--fs-page-title);
+  line-height: var(--lh-page-title);
+  font-weight: var(--fw-page-title);
+}
+
+.emptyText {
+  margin: 0;
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--text-2);
+}
+
+.emptyHint {
+  margin: 0;
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--danger);
+}

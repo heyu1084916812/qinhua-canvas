@@ -7,7 +7,7 @@
  * 工作台的「多值」结构（`WORKBENCHES` 表、`WORKBENCH_ORDER`、`projectRoute`）
  * 是为下一个工作台准备的骨架，退化成单值会让「再开一个工作台」重新变成一次大改。
  */
-export type WorkbenchId = 'canvas' | 'ecommerce'
+export type WorkbenchId = 'canvas' | 'ecommerce' | 'storyboard'
 
 export interface WorkbenchDescriptor {
   id: WorkbenchId
@@ -20,10 +20,16 @@ export const WORKBENCHES: Record<WorkbenchId, WorkbenchDescriptor> = {
   canvas: { id: 'canvas', label: '无限画布', routePrefix: '/canvas' },
   /* 电商工作台（对账 #384）：与画布同级的一级入口，但界面是"表单 → 出图"而不是节点图 */
   ecommerce: { id: 'ecommerce', label: '电商工作台', routePrefix: '/ecommerce' },
+  /*
+   * 漫剧工作台（对账 #382，第一阶段）：与画布同级的一级入口。
+   * **不是**当年被移除的 comic（那是"漫画分镜"，用户明确否掉过）——
+   * 这一条是"剧本 → 分集 → 分镜"的视频前段，逐镜视频等视频参数补齐再做。
+   */
+  storyboard: { id: 'storyboard', label: '漫剧工作台', routePrefix: '/storyboard' },
 }
 
 /** 工作台展示顺序（首页新建入口、类型标签统一取此序） */
-export const WORKBENCH_ORDER: WorkbenchId[] = ['canvas', 'ecommerce']
+export const WORKBENCH_ORDER: WorkbenchId[] = ['canvas', 'ecommerce', 'storyboard']
 
 export const DEFAULT_WORKBENCH: WorkbenchId = 'canvas'
 

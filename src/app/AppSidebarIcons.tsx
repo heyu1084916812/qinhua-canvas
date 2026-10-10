@@ -61,6 +61,22 @@ export function IconEcommerce({ size = 20 }: IconProps) {
   )
 }
 
+/**
+ * 漫剧工作台（对账 #382）：一块**场记板**。
+ *
+ * 为什么不用"胶片"：胶片更像播放器；场记板一眼是"开拍前的那张表"，
+ * 与这个工作台正在做的事（剧本 → 分集 → 分镜）对得上。
+ */
+export function IconStoryboard({ size = 20 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <rect x="3.5" y="5" width="17" height="14" rx="2" />
+      <path d="M3.5 9.5h17" />
+      <path d="M7.5 5l2 4.5M12 5l2 4.5M16.5 5l2 4.5" />
+    </svg>
+  )
+}
+
 /** 画布：节点与连线 */
 export function IconCanvas({ size = 20 }: IconProps) {
   return (

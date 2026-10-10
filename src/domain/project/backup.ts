@@ -48,6 +48,8 @@ export const BACKUP_TABLES = [
   'assetLibrary',
   'channels',
   'skills',
+  /* 漫剧工作台第一阶段的文档（对账 #382）：它是业务数据，当然要进全库备份 */
+  'storyboards',
   // 字体是本机界面偏好；体积不小，所以**可选**（见 BackupOptions.includeFonts）
   'fonts',
 ] as const

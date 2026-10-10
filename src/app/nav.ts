@@ -5,6 +5,7 @@ import {
   IconHome,
   IconProjects,
   IconSkills,
+  IconStoryboard,
 } from './AppSidebarIcons'
 
 export interface NavItem {
@@ -26,6 +27,8 @@ export const NAV: NavItem[] = [
   { to: '/canvas', label: '画布', icon: IconCanvas },
   /* 电商工作台（对账 #384）：与画布同级的一级入口 —— 表单出图，不是节点图 */
   { to: '/ecommerce', label: '电商', icon: IconEcommerce },
+  /* 漫剧工作台（对账 #382）：剧本 → 分集 → 分镜（逐镜视频等视频参数补齐再做） */
+  { to: '/storyboard', label: '漫剧', icon: IconStoryboard },
   { to: '/skills', label: '技能库', icon: IconSkills },
   { to: '/assets', label: '我的素材', icon: IconAssets },
 ]

@@ -31,6 +31,15 @@ const EcommercePage = lazy(() =>
   import('../pages/EcommercePage/EcommercePage').then((m) => ({ default: m.EcommercePage })),
 )
 /**
+ * 漫剧工作台（对账 #382，第一阶段）：与画布 / 电商同级的一级入口。
+ *
+ * 它是**剧本 → 分集 → 分镜**的编辑台（不是节点图、也不是表单出图），
+ * 所以同样走路由级 lazy —— 首屏不为它付成本。
+ */
+const StoryboardPage = lazy(() =>
+  import('../pages/StoryboardPage/StoryboardPage').then((m) => ({ default: m.StoryboardPage })),
+)
+/**
  * 技能库单独成页，而不是塞进设置页。
  *
  * 理由：设置页已经在管渠道 / 协议 / 模型三件事，再加一块会继续变厚；
@@ -74,6 +83,9 @@ export function AppRoutes() {
         {/* `/ecommerce` 无 id：没有可打开的项目时给创建引导，不空白（#384 的 D3） */}
         <Route path="/ecommerce" element={<EcommercePage />} />
         <Route path="/ecommerce/:projectId" element={<EcommercePage />} />
+        {/* `/storyboard` 无 id：没有可打开的项目时给创建引导，不空白（与电商同一条口径） */}
+        <Route path="/storyboard" element={<StoryboardPage />} />
+        <Route path="/storyboard/:projectId" element={<StoryboardPage />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/hosting" element={<HostingPage />} />
         <Route path="/skills" element={<SkillsPage />} />

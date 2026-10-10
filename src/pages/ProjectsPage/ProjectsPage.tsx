@@ -51,6 +51,7 @@ const PROJECT_KINDS: readonly { id: ProjectKind; label: string }[] = [
   { id: 'all', label: '全部' },
   { id: 'canvas', label: '画布' },
   { id: 'ecommerce', label: '电商' },
+  { id: 'storyboard', label: '漫剧' },
 ]
 
 export function ProjectsPage() {

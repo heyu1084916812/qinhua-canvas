@@ -48,6 +48,8 @@ class QinghuaDB extends Dexie {
   skills!: Table<Row, string>
   fonts!: Table<Row, string>
   snapshots!: Table<Row, string>
+  /** 漫剧工作台第一阶段的整份文档（一行 = 一个项目，对账 #382） */
+  storyboards!: Table<Row, string>
 
   constructor(name = 'qinghua') {
     super(name)
@@ -122,6 +124,17 @@ class QinghuaDB extends Dexie {
      */
     this.version(10).stores({
       snapshots: 'id, projectId, createdAt',
+    })
+    /**
+     * v11：漫剧工作台第一阶段的文档（对账 #382）。
+     *
+     * 为什么**一行一篇、不拆表**：形态还没固化（剧本 → 分集 → 分镜刚落地），
+     * 历史 comic 工作台的记录写着"形态未定时不拆表，先整对象存一行"——
+     * 现在拆表只会让每次调整字段都变成一次迁移。等这个形态被用起来再决定拆不拆。
+     * 按 `projectId` 建索引：取文档总是"这个项目的那一份"，不带索引要全表扫。
+     */
+    this.version(11).stores({
+      storyboards: 'id, projectId, updatedAt',
     })
   }
 }

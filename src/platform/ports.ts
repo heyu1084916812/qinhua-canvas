@@ -50,6 +50,8 @@ export type TableName =
    * 那张表只增不改，本身就是历史。这样快照可以又多又小。
    */
   | 'snapshots'
+  /** 漫剧工作台第一阶段的整份文档（一行 = 一个项目，对账 #382） */
+  | 'storyboards'
 
 export interface Row {
   id: string

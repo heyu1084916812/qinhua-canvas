@@ -11716,10 +11716,13 @@ async function g80(browser) {
      * 2026-10-09（对账 #384 / D3）：**六个**了 —— 电商工作台与画布同级，
      * 插在「画布」之后、「技能库」之前。顺序本身是产品口径（`app/nav.ts` 的注释），
      * 所以这条断言跟着口径走，而不是放宽成"包含这几个"。
+     *
+     * 2026-10-10（对账 #382）：**七个**了 —— 漫剧工作台插在「电商」之后、同样在
+     * 「技能库」之前；顺序仍按 `WORKBENCH_ORDER`（画布 → 电商 → 漫剧）。
      */
-    '★ 六个一级导航且顺序固定（首页/项目/画布/电商/技能库/我的素材）',
+    '★ 七个一级导航且顺序固定（首页/项目/画布/电商/漫剧/技能库/我的素材）',
     JSON.stringify(navIds) ===
-      JSON.stringify(['/', '/projects', '/canvas', '/ecommerce', '/skills', '/assets']),
+      JSON.stringify(['/', '/projects', '/canvas', '/ecommerce', '/storyboard', '/skills', '/assets']),
     navIds.join(','),
   )
   /**
@@ -23765,12 +23768,12 @@ async function g123(browser) {
     .evaluateAll((els) => els.map((e) => e.textContent?.trim() ?? ''))
   rec(
     g,
-    '★★ 项目页有「全部 / 画布 / 电商」分类，卡片带类型属性（且 meta 行不塞类型胶囊）',
-    JSON.stringify(filters) === JSON.stringify(['all', 'canvas', 'ecommerce']) &&
+    '★★ 项目页有「全部 / 画布 / 电商 / 漫剧」分类，卡片带类型属性（且 meta 行不塞类型胶囊）',
+    JSON.stringify(filters) === JSON.stringify(['all', 'canvas', 'ecommerce', 'storyboard']) &&
       kinds.includes('canvas') &&
       kinds.includes('ecommerce') &&
       metaTexts.length > 0 &&
-      metaTexts.every((t) => !/画布|电商|漫画/.test(t)),
+      metaTexts.every((t) => !/画布|电商|漫剧|漫画/.test(t)),
     `筛选=${filters.join(',')} 卡片类型=${kinds.join(',')} meta=${metaTexts.join(' | ')}`,
   )
   await page.locator('[data-projects-kind-filter="ecommerce"]').click()
@@ -24180,7 +24183,149 @@ async function g126(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126]
+// ────────────────────────────────────────────────────────────
+// G127 漫剧工作台（对账 #382 第一阶段）：
+//   剧本 → 分集 → 分镜（逐镜画面/台词/时长/提示词）→ 刷新仍在 → 导出分镜表。
+//   这一组刻意**不碰视频**：视频参数表（#120）没补齐之前，那一段不算交付。
+// ────────────────────────────────────────────────────────────
+async function g127(browser) {
+  const g = 'G127 漫剧工作台'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const episodes = page.locator('[data-storyboard-episode]')
+  const shots = page.locator('[data-storyboard-shot]')
+
+  // ① 入口：侧栏一级入口；没有项目时给创建引导，不是空白
+  await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
+  await ensureSidebarOpen(page)
+  rec(
+    g,
+    '★ 侧栏有「漫剧」一级入口，且无项目时给创建引导（不空白）',
+    (await page.locator('[data-sidebar-item="/storyboard"]').count()) === 1 &&
+      (await page.locator('[data-storyboard-empty-page]').count()) === 1 &&
+      (await page.locator('[data-storyboard-create]').count()) === 1,
+    `侧栏=${await page.locator('[data-sidebar-item="/storyboard"]').count()}`,
+  )
+
+  // ② 新建 → 页面本体
+  await page.locator('[data-storyboard-create]').click()
+  await page.waitForURL(/\/storyboard\/proj_/)
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  rec(g, '★★ 新建后进的是漫剧页本体（落库并读得回来）', (await page.locator('[data-storyboard-page]').count()) === 1)
+
+  // ③ 空文档：左边给"先加一集"的引导，右边给"还没有分集"的说明
+  rec(
+    g,
+    '★ 空文档有两处引导（不是一片空白）',
+    (await page.locator('[data-storyboard-episodes-empty]').count()) === 1 &&
+      (await page.locator('[data-storyboard-no-episode]').count()) === 1,
+  )
+
+  // ④ 剧本三格：片名 / 一句话 / 正文
+  await page.locator('[data-storyboard-script-title]').fill('雨夜快递')
+  await page.locator('[data-storyboard-script-logline]').fill('一晚，一单，一个人')
+  await page.locator('[data-storyboard-script-body]').fill('第一场：雨。最后一单送到十五楼。')
+  rec(g, '★ 剧本三格可写（片名/一句话/正文）', (await page.locator('[data-storyboard-script-title]').inputValue()) === '雨夜快递')
+
+  // ⑤ 加一集 + 两镜，逐镜字段各不相同
+  await page.locator('[data-storyboard-add-episode]').click()
+  await sleep(200)
+  rec(g, '★ 新增一集：出现在左栏并被选中', (await episodes.count()) === 1)
+  const epId = await episodes.first().getAttribute('data-storyboard-episode')
+  await page.locator(`[data-storyboard-episode-name="${epId}"]`).fill('第一集 · 雨夜')
+  await page.locator('[data-storyboard-add-shot]').click()
+  await sleep(150)
+  await page.locator('[data-storyboard-add-shot]').click()
+  await sleep(150)
+  rec(g, '★ 这一集下加了两镜', (await shots.count()) === 2, `镜=${await shots.count()}`)
+
+  const firstShot = await shots.first().getAttribute('data-storyboard-shot')
+  const secondShot = await shots.nth(1).getAttribute('data-storyboard-shot')
+  await page.locator(`[data-storyboard-shot-scene="${firstShot}"]`).fill('雨夜的街道，霓虹倒影')
+  await page.locator(`[data-storyboard-shot-dialogue="${firstShot}"]`).fill('今天最后一单')
+  await page.locator(`[data-storyboard-shot-duration="${firstShot}"]`).fill('5')
+  await page.locator(`[data-storyboard-shot-prompt="${firstShot}"]`).fill('cinematic, rain, neon')
+  await page.locator(`[data-storyboard-shot-scene="${secondShot}"]`).fill('门铃响，门缝里透出暖光')
+  await sleep(200)
+  const statsText = await page.locator('[data-storyboard-stats]').innerText()
+  rec(
+    g,
+    '★★ 统计跟着镜头走：1 集 / 2 镜 / 粗排 8 秒（5+3）',
+    /1\s*集/.test(statsText) && /2\s*镜/.test(statsText) && /粗排\s*8\s*秒/.test(statsText),
+    `stats="${statsText}"`,
+  )
+
+  // ⑥ 防抖落地：等过 400ms 防抖窗口后**整页刷新**，内容必须还在（证明 v11 表真的写了）
+  await sleep(900)
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  await sleep(300)
+  const afterReload = {
+    title: await page.locator('[data-storyboard-script-title]').inputValue(),
+    episodes: await episodes.count(),
+    shots: await shots.count(),
+    episodeName: await page.locator(`[data-storyboard-episode-name="${epId}"]`).inputValue(),
+    scene: await page.locator(`[data-storyboard-shot-scene="${firstShot}"]`).inputValue(),
+    duration: await page.locator(`[data-storyboard-shot-duration="${firstShot}"]`).inputValue(),
+    prompt: await page.locator(`[data-storyboard-shot-prompt="${firstShot}"]`).inputValue(),
+  }
+  rec(
+    g,
+    '★★★ 刷新后剧本/分集/分镜逐字段都还在（防抖保存 + v11 表真写进去了）',
+    afterReload.title === '雨夜快递' &&
+      afterReload.episodes === 1 &&
+      afterReload.shots === 2 &&
+      afterReload.episodeName === '第一集 · 雨夜' &&
+      afterReload.scene === '雨夜的街道，霓虹倒影' &&
+      afterReload.duration === '5' &&
+      afterReload.prompt === 'cinematic, rain, neon',
+    JSON.stringify(afterReload),
+  )
+
+  // ⑦ 删除一镜：第一下只是二次确认，第二下才真删
+  await page.locator(`[data-storyboard-shot-remove="${secondShot}"]`).click()
+  await sleep(200)
+  rec(
+    g,
+    '★ 删除第一下只是二次确认（镜头还在）',
+    (await page.locator(`[data-storyboard-shot-remove="${secondShot}"]`).getAttribute('data-confirming')) === 'true' &&
+      (await shots.count()) === 2,
+    `confirming=${await page.locator(`[data-storyboard-shot-remove="${secondShot}"]`).getAttribute('data-confirming')}`,
+  )
+  await page.locator(`[data-storyboard-shot-remove="${secondShot}"]`).click()
+  await sleep(250)
+  rec(g, '★★ 第二下才真删（只剩 1 镜）', (await shots.count()) === 1, `镜=${await shots.count()}`)
+
+  // ⑧ 导出分镜表：真的触发一次下载，且内容含片名/集名/剩下的那一镜
+  const downloadPromise = page.waitForEvent('download', { timeout: 8000 })
+  await page.locator('[data-storyboard-export]').click()
+  const download = await downloadPromise.catch(() => null)
+  let exported = ''
+  if (download) {
+    const filePath = await download.path()
+    exported = filePath ? readFileSync(filePath, 'utf8') : ''
+  }
+  rec(
+    g,
+    '★★★ 导出分镜表：文件名与内容都对（含片名/集名/剩下的那一镜，不含已删的那一镜）',
+    !!download &&
+      /分镜表\.md$/.test(download.suggestedFilename()) &&
+      exported.includes('雨夜快递') &&
+      exported.includes('第一集 · 雨夜') &&
+      exported.includes('雨夜的街道，霓虹倒影') &&
+      exported.includes('粗排 5 秒') &&
+      !exported.includes('门缝里透出暖光'),
+    `文件=${download ? download.suggestedFilename() : '无'} 字节=${exported.length}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/127-g127-storyboard.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
