@@ -16,6 +16,7 @@ import {
   ReactFlowProvider,
   SelectionMode,
   useViewport,
+  useUpdateNodeInternals,
   type Edge as RFEdge,
   type EdgeChange,
   type Node as RFNode,
@@ -710,6 +711,43 @@ function FlowSurfaceInner({
      */
     [graph, selection, edgeSelection, store],
   )
+
+  /**
+   * **连线偶发不显示**的兜底重测（2026-10-10 全量冒烟抓到：G2 / G51 / G107 各红一次，
+   * 探针复现率 2/6~2/8）。
+   *
+   * 实测事实（探针读的是**同一个 store 快照**，不是猜测）：
+   * - 库里 2 条边、`store.getSnapshot().edges.length === 2`、3 个节点也都渲染出来了；
+   * - 但 `.react-flow__edge` / `[data-edge]` 是 **0**，滚轮缩放 / 点空白 / 改窗口都救不回来，
+   *   只有刷新页面才恢复。
+   *
+   * 结论：不是数据问题，是 React Flow 的**节点测量**漏了一拍 —— 它要拿到端点的
+   * `handleBounds` 才肯画边，而首帧正好撞上「模板灌入 + `fitCanvasView` 改视口」
+   * （两帧 rAF），测量一旦落空就再没人重测。这里在节点集合变化后补一次
+   * `updateNodeInternals`（延后到视口自适应之后），把这一拍补上。
+   */
+  const updateNodeInternals = useUpdateNodeInternals()
+  const nodeIdsKey = graph.nodes.map((n) => n.id).join('|')
+  useEffect(() => {
+    if (!nodeIdsKey) return
+    const ids = nodeIdsKey.split('|')
+    /** 双 rAF + 一小段延迟：等节点进 DOM、且 `fitCanvasView` 的两帧 rAF 跑完再量 */
+    const rafs: number[] = []
+    let timer: ReturnType<typeof setTimeout> | undefined
+    rafs.push(
+      requestAnimationFrame(() => {
+        rafs.push(
+          requestAnimationFrame(() => {
+            timer = setTimeout(() => updateNodeInternals(ids), 120)
+          }),
+        )
+      }),
+    )
+    return () => {
+      for (const raf of rafs) cancelAnimationFrame(raf)
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }, [nodeIdsKey, updateNodeInternals])
 
   /**
    * **吸附判定**（对账 #257）：喂"没有吸附的原始位移"，拿回"修正量 + 要画的提示"。
