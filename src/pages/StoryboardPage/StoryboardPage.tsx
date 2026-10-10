@@ -54,7 +54,7 @@ import {
   removeEpisode,
   removeScene,
   removeShot,
-  shotPrompt,
+  shotPromptWithAssets,
   shotsNeedingNode,
   shotsOf,
   storyboardStats,
@@ -611,7 +611,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         const data = await resolveDefaults({
           channels,
           type: 'generation',
-          extraData: { mode: 'image', prompt: shotPrompt(shot) },
+          extraData: { mode: 'image', prompt: shotPromptWithAssets(doc, shot) },
         })
         prescribed.push({ shotId: shot.id, data })
       }
@@ -649,6 +649,35 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   const runShot = (shot: StoryboardShot) => {
     if (!shot.nodeId) return
     void exec.runNode(shot.nodeId, { inPlace: true })
+  }
+
+  /**
+   * 「刷新提示词」：把**当前**资产设定重新拼进已经铺到画布的节点（对账 #418）。
+   *
+   * 为什么需要它：提示词是在**铺的那一刻**按当时的资产拼好的（快照）。改完角色描述，
+   * 画布上的节点还是旧描述 —— 两条路：重新铺（会多铺节点，不行）或原地刷提示词（这条）。
+   * 整批一个事务：按一次撤销，这一批提示词一起回到上一版。
+   */
+  const syncPrompts = () => {
+    const targets = shots.filter((s) => s.nodeId && liveNodeIds.has(s.nodeId))
+    if (targets.length === 0) {
+      setLay({ kind: 'done', text: '还没有铺到画布的镜头' })
+      return
+    }
+    canvasStore.beginPlan('storyboard:sync-prompt', `按资产刷新提示词 ×${targets.length}`)
+    try {
+      for (const shot of targets) {
+        canvasStore.dispatch({
+          kind: 'node.updateData',
+          id: shot.nodeId!,
+          patch: { prompt: shotPromptWithAssets(doc, shot) },
+          transient: false,
+        })
+      }
+    } finally {
+      canvasStore.endPlan()
+    }
+    setLay({ kind: 'done', text: `已按当前资产刷新 ${targets.length} 个节点的提示词` })
   }
 
   /** 这一集出图：逐镜串行（顺着分镜顺序），**已出过的跳过**；重出用单镜那把 */
@@ -1063,6 +1092,15 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                     <button
                       type="button"
                       className={styles.ghost}
+                      data-storyboard-sync-prompts
+                      disabled={laidCount === 0}
+                      onClick={syncPrompts}
+                    >
+                      刷新提示词
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.ghost}
                       data-storyboard-add-shot
                       onClick={addOneShot}
                     >
@@ -1102,6 +1140,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                     data-storyboard-lay-status={lay.kind}
                   >
                     {lay.text}
+                  </p>
+                ) : null}
+                {shots.some((s) => s.sceneId || (s.characterIds?.length ?? 0) > 0) ? (
+                  <p className={styles.hint} data-storyboard-asset-prompt-hint>
+                    提示词里已带上绑定的场景 / 角色设定；改完描述点「刷新提示词」同步到画布。
                   </p>
                 ) : null}
                 {shots.length === 0 ? (

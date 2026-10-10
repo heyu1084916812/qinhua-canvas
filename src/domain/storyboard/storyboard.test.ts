@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ASSET_BLOCK_HEADER,
   addCharacter,
   addScene,
   attachShotImages,
@@ -20,6 +21,7 @@ import {
   removeShot,
   sceneNameOf,
   shotPrompt,
+  shotPromptWithAssets,
   shotsNeedingNode,
   shotsOf,
   storyboardStats,
@@ -511,5 +513,54 @@ describe('原文与溯源', () => {
     expect(md).toContain('> 原文第 1–120 字')
     expect(md).toContain('> 开场钩子：开场钩子')
     expect(md).toContain('> 结尾钩子：结尾钩子')
+  })
+})
+
+/**
+ * 资产设定进提示词（对账 #418）。
+ *
+ * 资产库不该只是元数据 —— 它要影响**真正发出去的那段提示词**，
+ * 否则"同一角色跨集长得一样"就只是一句口号。
+ */
+describe('资产设定进提示词', () => {
+  it('★★ 没绑定资产 ⇒ 与 shotPrompt 逐字相同（手写分镜 / 旧项目零变化）', () => {
+    const doc = sample()
+    const shot = doc.shots[0]!
+    expect(shotPromptWithAssets(doc, shot)).toBe(shotPrompt(shot))
+  })
+
+  it('★★ 绑了场景与角色 ⇒ 拼上设定块：场景在前、角色按库序、描述为空只写名字', () => {
+    let doc = addCharacter(addCharacter(addScene(sample(), 1), 1), 1)
+    const [c1, c2] = doc.characters
+    doc = updateCharacter(doc, c1!.id, { name: '骑手', description: '二十出头，雨衣' }, 1)
+    doc = updateCharacter(doc, c2!.id, { name: '收货人' }, 1)
+    doc = updateScene(doc, doc.scenes[0]!.id, { name: '雨夜街道', description: '霓虹、积水' }, 1)
+    const shotId = doc.shots[0]!.id
+    doc = updateShot(doc, shotId, { prompt: 'cinematic wide' }, 1)
+    doc = bindShotScene(doc, shotId, doc.scenes[0]!.id, 1)
+    /* 先点「收货人」再点「骑手」：拼出来的顺序必须仍按角色库（骑手在前） */
+    doc = toggleShotCharacter(doc, shotId, c2!.id, 1)
+    doc = toggleShotCharacter(doc, shotId, c1!.id, 1)
+    const prompt = shotPromptWithAssets(doc, doc.shots.find((s) => s.id === shotId)!)
+    expect(prompt.startsWith('cinematic wide\n\n')).toBe(true)
+    expect(prompt).toContain(ASSET_BLOCK_HEADER)
+    expect(prompt).toContain('场景「雨夜街道」：霓虹、积水')
+    expect(prompt).toContain('角色「骑手」：二十出头，雨衣')
+    /* 描述为空只写名字：这一行整行就是「角色「收货人」」，后面没有冒号也没有编出来的描述 */
+    const lines = prompt.split('\n')
+    expect(lines[lines.length - 1]).toBe('角色「收货人」')
+    expect(prompt.indexOf('场景「雨夜街道」')).toBeLessThan(prompt.indexOf('角色「骑手」'))
+    expect(prompt.indexOf('角色「骑手」')).toBeLessThan(prompt.indexOf('角色「收货人」'))
+  })
+
+  it('★ 导出用的是**真正会跑的**那段提示词（绑了资产就带设定块）', () => {
+    let doc = addScene(addCharacter(emptyStoryboard('p1'), 1), 1)
+    doc = addEpisode(doc, 1)
+    doc = addShot(doc, doc.episodes[0]!.id, 1)
+    const shotId = doc.shots[0]!.id
+    doc = updateShot(doc, shotId, { scene: '雨夜街道' }, 1)
+    doc = updateScene(doc, doc.scenes[0]!.id, { name: '雨夜街道', description: '霓虹' }, 1)
+    doc = bindShotScene(doc, shotId, doc.scenes[0]!.id, 1)
+    expect(exportStoryboardMarkdown(doc)).toContain(ASSET_BLOCK_HEADER)
   })
 })

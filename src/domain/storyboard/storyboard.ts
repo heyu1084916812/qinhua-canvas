@@ -271,6 +271,53 @@ export function shotPrompt(shot: StoryboardShot): string {
   return shot.prompt.trim() || shot.scene.trim()
 }
 
+/**
+ * **资产设定块的抬头**（对账 #418）。
+ *
+ * 为什么要这句"不要画进画面"：块里是「场景「雨夜街道」：霓虹、积水」这种带标签的文字，
+ * 而图生模型对"带冒号的短句"很敏感 —— 不声明一句，它可能真的把标签画进图里。
+ * 这是业界常用的写法（把设定说成"说明"而不是"要画的字"），不是我们自创的花活。
+ */
+export const ASSET_BLOCK_HEADER =
+  '保持以下角色与场景的设定在整部片里一致；这些文字只是设定说明，不要画进画面：'
+
+/** 这一镜绑定的场景与角色（角色按**库里的顺序**，保证同一份数据每次拼出来一样） */
+export function assetsOfShot(
+  doc: StoryboardDoc,
+  shot: StoryboardShot,
+): { scene?: DramaScene; characters: DramaCharacter[] } {
+  const scene = shot.sceneId ? doc.scenes.find((s) => s.id === shot.sceneId) : undefined
+  const ids = new Set(shot.characterIds ?? [])
+  return {
+    ...(scene ? { scene } : {}),
+    characters: ids.size > 0 ? doc.characters.filter((c) => ids.has(c.id)) : [],
+  }
+}
+
+/**
+ * **真正会发给模型的提示词** = 这一镜自己的提示词 + 资产设定块（对账 #418）。
+ *
+ * 三条口径：
+ * 1. **没绑定就一行都不加**：返回与 `shotPrompt` **逐字相同**的结果 ——
+ *    手写分镜 / 旧项目的出图行为零变化。
+ * 2. **描述为空只写名字**：名字也是信息（"这一镜里有骑手"），但不硬编一段描述。
+ * 3. **顺序固定**：场景在前、角色按库里的顺序 —— 同一份数据每次拼出来一样，
+ *    否则"改一个描述"会连带整段的顺序都变，diff 里看不出真正改了什么。
+ */
+export function shotPromptWithAssets(doc: StoryboardDoc, shot: StoryboardShot): string {
+  const base = shotPrompt(shot)
+  const { scene, characters } = assetsOfShot(doc, shot)
+  const lines: string[] = []
+  if (scene) {
+    lines.push(`场景「${scene.name}」${scene.description.trim() ? `：${scene.description.trim()}` : ''}`)
+  }
+  for (const c of characters) {
+    lines.push(`角色「${c.name}」${c.description.trim() ? `：${c.description.trim()}` : ''}`)
+  }
+  if (lines.length === 0) return base
+  return `${base}\n\n${ASSET_BLOCK_HEADER}\n${lines.join('\n')}`
+}
+
 export function updateScript(
   doc: StoryboardDoc,
   patch: Partial<StoryboardScript>,
@@ -708,7 +755,7 @@ export function exportStoryboardMarkdown(doc: StoryboardDoc): string {
       lines.push(
         `| ${i + 1} | ${cell(shot.scene)} | ${cell(sceneNameOf(doc, shot))} | ${cell(
           characterNamesOf(doc, shot).join('、'),
-        )} | ${cell(shot.dialogue)} | ${shot.durationSec}s | ${cell(shotPrompt(shot))} |`,
+        )} | ${cell(shot.dialogue)} | ${shot.durationSec}s | ${cell(shotPromptWithAssets(doc, shot))} |`,
       )
     })
     lines.push('')

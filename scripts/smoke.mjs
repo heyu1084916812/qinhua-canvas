@@ -25273,7 +25273,185 @@ async function g131(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131]
+// ────────────────────────────────────────────────────────────
+// G132 漫剧「资产设定进提示词」（对账 #418）：
+//   绑了场景 / 角色的镜头，铺到画布时提示词带上设定块（含"不要画进画面"那句）；
+//   没绑的镜头一个字不加；改描述后「刷新提示词」原地更新（**不重跑出图**）。
+// ────────────────────────────────────────────────────────────
+async function g132(browser) {
+  const g = 'G132 漫剧资产进提示词'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const shots = page.locator('[data-storyboard-shot]')
+
+  /** 读库：镜头 ↔ 节点、节点的提示词、运行记录条数 */
+  const readDb = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const all = (table) =>
+        new Promise((resolve) => {
+          const r = db.transaction(table, 'readonly').objectStore(table).getAll()
+          r.onsuccess = () => resolve(r.result ?? [])
+          r.onerror = () => resolve([])
+        })
+      const nodes = await all('nodes')
+      const runs = await all('runRecords')
+      const boards = await all('storyboards')
+      const doc = boards[0]?.doc
+      return {
+        nodes: nodes.map((n) => ({ id: n.id, prompt: n.data?.prompt ?? '' })),
+        runs: runs.length,
+        shots: (doc?.shots ?? []).map((s) => ({ id: s.id, nodeId: s.nodeId ?? null })),
+      }
+    })
+  const promptOf = (db, shotId) => {
+    const nodeId = db.shots.find((s) => s.id === shotId)?.nodeId
+    return db.nodes.find((n) => n.id === nodeId)?.prompt ?? ''
+  }
+  const waitForPrompt = async (shotId, want, timeoutMs = 8000) => {
+    const started = Date.now()
+    for (;;) {
+      const prompt = promptOf(await readDb(), shotId)
+      if (prompt.includes(want) || Date.now() - started > timeoutMs) return prompt
+      await sleep(200)
+    }
+  }
+  const waitSaved = () =>
+    page
+      .waitForFunction(
+        () => document.querySelector('[data-storyboard-status]')?.textContent?.includes('已保存') ?? false,
+        null,
+        { timeout: 8000 },
+      )
+      .catch(() => {})
+
+  // ① 建项目：一集两镜（手写提示词），第二镜**不绑任何资产**当对照
+  await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-storyboard-create]').click()
+  await page.waitForURL(/\/storyboard\/proj_/)
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  await page.locator('[data-storyboard-add-episode]').click()
+  await sleep(250)
+  await page.locator('[data-storyboard-add-shot]').click()
+  await sleep(150)
+  await page.locator('[data-storyboard-add-shot]').click()
+  await sleep(250)
+  const shotIds = await shots.evaluateAll((els) => els.map((e) => e.getAttribute('data-storyboard-shot')))
+  await page.locator(`[data-storyboard-shot-prompt="${shotIds[0]}"]`).fill('cinematic rain street')
+  await page.locator(`[data-storyboard-shot-prompt="${shotIds[1]}"]`).fill('close-up parcel box')
+
+  // ② 建场景与角色，都带描述
+  await page.locator('[data-storyboard-add-scene]').click()
+  await sleep(250)
+  const sceneIds = await page
+    .locator('[data-storyboard-scene]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-storyboard-scene')))
+  const sceneId = sceneIds[sceneIds.length - 1]
+  await page.locator(`[data-storyboard-asset-name="${sceneId}"]`).fill('雨夜街道')
+  await page.locator(`[data-storyboard-asset-desc="${sceneId}"]`).fill('霓虹、积水、末班公交')
+  await page.locator('[data-storyboard-add-character]').click()
+  await sleep(250)
+  const charIds = await page
+    .locator('[data-storyboard-character] [data-storyboard-asset-name]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-storyboard-asset-name')))
+  const charId = charIds[charIds.length - 1]
+  await page.locator(`[data-storyboard-asset-name="${charId}"]`).fill('骑手')
+  await page.locator(`[data-storyboard-asset-desc="${charId}"]`).fill('二十出头，雨衣，旧头盔')
+
+  // ③ 只绑到第一镜
+  await page.locator(`[data-storyboard-shot-scene-bind="${shotIds[0]}"]`).selectOption(sceneId)
+  await page.locator(`[data-storyboard-shot-character="${shotIds[0]}"][data-character-id="${charId}"]`).click()
+  await sleep(300)
+  rec(
+    g,
+    '★ 绑了资产后界面提示"提示词里已带上设定"',
+    (await page.locator('[data-storyboard-asset-prompt-hint]').count()) === 1,
+  )
+  await waitSaved()
+
+  // ④ 铺到画布：绑了的带设定块，没绑的一个字不加
+  await page.locator('[data-storyboard-lay-out]').click()
+  await page
+    .locator('[data-storyboard-lay-status="done"]')
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .catch(() => {})
+  let db = null
+  for (let i = 0; i < 40; i += 1) {
+    db = await readDb()
+    if (db.shots.every((s) => s.nodeId)) break
+    await sleep(200)
+  }
+  const prompt1 = await waitForPrompt(shotIds[0], '雨夜街道')
+  const prompt2 = promptOf(await readDb(), shotIds[1])
+  rec(
+    g,
+    '★★★ 绑了场景与角色的那一镜：提示词 = 原提示词 + 设定块（场景在前、角色在后、带"不要画进画面"）',
+    prompt1.startsWith('cinematic rain street\n\n') &&
+      prompt1.includes('不要画进画面') &&
+      prompt1.includes('场景「雨夜街道」：霓虹、积水、末班公交') &&
+      prompt1.includes('角色「骑手」：二十出头，雨衣，旧头盔') &&
+      prompt1.indexOf('场景「雨夜街道」') < prompt1.indexOf('角色「骑手」'),
+    prompt1.replace(/\n/g, ' ⏎ '),
+  )
+  rec(
+    g,
+    '★★ 没绑资产的第二镜：提示词**逐字不变**（一个字都不加）',
+    prompt2 === 'close-up parcel box',
+    JSON.stringify(prompt2),
+  )
+
+  // ⑤ 改描述 → 「刷新提示词」原地更新，且**不重跑出图**
+  await page.locator(`[data-storyboard-asset-desc="${charId}"]`).fill('三十岁，戴护目镜')
+  await waitSaved()
+  await page.locator('[data-storyboard-sync-prompts]').click()
+  await page
+    .locator('[data-storyboard-lay-status="done"]')
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .catch(() => {})
+  const refreshed = await waitForPrompt(shotIds[0], '三十岁，戴护目镜')
+  const afterSync = await readDb()
+  rec(
+    g,
+    '★★★ 改完描述点「刷新提示词」：画布上的提示词换成新描述、旧描述没了',
+    refreshed.includes('三十岁，戴护目镜') && !refreshed.includes('二十出头，雨衣，旧头盔'),
+    refreshed.replace(/\n/g, ' ⏎ '),
+  )
+  rec(
+    g,
+    '★★ 刷新只改提示词：没绑资产的镜头没被动、也没有任何一次生成',
+    promptOf(afterSync, shotIds[1]) === 'close-up parcel box' && afterSync.runs === 0,
+    `第二镜=${JSON.stringify(promptOf(afterSync, shotIds[1]))} 运行记录=${afterSync.runs}`,
+  )
+
+  // ⑥ 导出用的是真正会跑的那段提示词
+  const downloadPromise = page.waitForEvent('download', { timeout: 8000 })
+  await page.locator('[data-storyboard-export]').click()
+  const download = await downloadPromise.catch(() => null)
+  let exported = ''
+  if (download) {
+    const filePath = await download.path()
+    exported = filePath ? readFileSync(filePath, 'utf8') : ''
+  }
+  rec(
+    g,
+    '★★ 导出的分镜表里，提示词列就是**真正会跑的那段**（带设定块与新描述）',
+    !!download && exported.includes('三十岁，戴护目镜') && exported.includes('不要画进画面'),
+    `字节=${exported.length}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/132-g132-asset-prompt.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
