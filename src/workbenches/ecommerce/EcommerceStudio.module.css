@@ -329,6 +329,9 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
+  /* 三个动作（重跑 / 原地换掉 / 下载）在窄格里要能换行，不许挤出格子 */
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--space-1);
   margin-left: auto;
 }

@@ -66,7 +66,14 @@ import { resolveUpstreamModel } from '../../../domain/project/modelMapping'
  */
 export interface CanvasExecutionApi {
   /** 单点生成（R / 面板 / 右键「生成」）；alt = `Alt+R`（保留旧内容，拓扑方向铺新下游） */
-  runNode(nodeId: string, opts?: { alt?: boolean }): Promise<void>
+  /**
+   * 跑一个节点。
+   *
+   * - `alt`：**再抽一张** —— 保留原有节点，另铺一个承载节点（画布上的 ⇧/Alt 生成）。
+   * - `inPlace`：**原地替换** —— 产物写回源节点自己（电商结果的「原地换掉」，对账 #413）。
+   *   只在这条计划一共一次调用时生效（N>1 会互相覆盖，见 `buildRunPlan` 的说明）。
+   */
+  runNode(nodeId: string, opts?: { alt?: boolean; inPlace?: boolean }): Promise<void>
   cancel(): void
   nodeStateOf(nodeId: string): RunTaskState | undefined
   /**
@@ -856,7 +863,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   )
 
   const runNode = useCallback(
-    async (nodeId: string, opts?: { alt?: boolean }) => {
+    async (nodeId: string, opts?: { alt?: boolean; inPlace?: boolean }) => {
       const graph = store.getSnapshot()
       const node = graph.nodes.find((n) => n.id === nodeId)
 
@@ -958,6 +965,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         { originNodeId: nodeId },
         graph,
         opts?.alt ? 'single-alt' : 'single',
+        { reuseOriginNode: opts?.inPlace === true },
       )
       if (plan.tasks.length === 0) {
         explainEmptyPlan(nodeId)

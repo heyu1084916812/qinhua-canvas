@@ -47,6 +47,16 @@ export interface EcommerceResultItem {
    * 失败的那张尤其需要它（失败原因就写在旁边，重试不必回头改参数）。
    */
   onRerun?: () => Promise<void> | void
+  /**
+   * **原地换掉这一格**（对账 #413）：产物写回同一个节点，画布上**不多一个节点**。
+   *
+   * 与 `onRerun` 的区别就是"抽卡 vs 换掉"：
+   * - `onRerun`：再抽一张，旧的留着（画布多一个承载节点）——适合比稿；
+   * - `onReplace`：这次的结果直接替换这一格 —— 适合"就这一张不行，换一张"。
+   *
+   * 运行记录照常 +1（换掉的是画面，不是历史）。
+   */
+  onReplace?: () => Promise<void> | void
 }
 
 export interface EcommerceStudioProps {
@@ -416,6 +426,26 @@ export function EcommerceStudio({
                         }}
                       >
                         {r.status === 'running' || r.status === 'pending' ? '生成中…' : '重跑这一张'}
+                      </button>
+                    ) : null}
+                    {r.onReplace ? (
+                      <button
+                        type="button"
+                        className={styles.linkBtn}
+                        data-ecommerce-replace
+                        disabled={r.status === 'running' || r.status === 'pending'}
+                        title="产出的新图直接替换这一格（不会多出一个节点）"
+                        onClick={() => {
+                          void (async () => {
+                            try {
+                              await r.onReplace?.()
+                            } catch (err) {
+                              setError(err instanceof Error ? err.message : String(err))
+                            }
+                          })()
+                        }}
+                      >
+                        原地换掉
                       </button>
                     ) : null}
                     {r.status !== 'failed' ? (

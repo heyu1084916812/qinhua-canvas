@@ -192,6 +192,36 @@ describe('buildRunPlan（单点生成）', () => {
   })
 
   /**
+   * ★★ **原地替换**（对账 #413）：显式要求时，已有产物的节点也要落回 `reuse`。
+   *
+   * 这是"抽卡 vs 换掉"的分水岭：默认口径（上面那条）刻意另铺承载节点、把旧产物留着；
+   * 电商结果的「原地换掉」要的正是**覆盖这一格**，所以做成显式开关而不是改默认。
+   */
+  it('★★ 原地替换：显式 reuseOriginNode 时，已有素材的节点也落回 reuse 自己', () => {
+    const { store, genId } = setup()
+    store.dispatch({ kind: 'node.updateData', id: genId, patch: { assetHash: 'h-self' } })
+
+    const plan = buildRunPlan('node', { originNodeId: genId }, store.getSnapshot(), 'single', {
+      reuseOriginNode: true,
+    })
+
+    expect(plan.tasks).toHaveLength(1)
+    expect(plan.tasks[0]!.slot).toEqual({ kind: 'reuse', nodeId: genId })
+  })
+
+  it('★ 原地替换只对"一共一次调用"成立：N>1 仍铺新节点（否则会互相覆盖）', () => {
+    const { store, genId } = setup()
+    store.dispatch({ kind: 'node.updateData', id: genId, patch: { assetHash: 'h-self', count: 2 } })
+
+    const plan = buildRunPlan('node', { originNodeId: genId }, store.getSnapshot(), 'single', {
+      reuseOriginNode: true,
+    })
+
+    expect(plan.tasks).toHaveLength(2)
+    expect(plan.tasks.every((t) => t.slot.kind === 'new')).toBe(true)
+  })
+
+  /**
    * ★ 图生图必须把源节点的图带进这次请求。
    *
    * 顺序问题：inputs 在 buildRunPlan 里按**图上已有连线**收集，而承载节点与那条

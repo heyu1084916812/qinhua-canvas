@@ -22754,6 +22754,51 @@ async function g116(browser) {
     `${runsBefore} → ${runsAfter}`,
   )
 
+  /**
+   * ⑤d **原地换掉**（对账 #413）：产物写回同一格 —— 判据是**库里节点数不变**。
+   *
+   * 抽卡（上面那条）与新铺一个承载节点是一回事；原地换掉的区别只有一个：
+   * **不多出节点**。所以这里量"点之前 / 点之后库里的 nodes 行数"，不比界面文字。
+   */
+  const nodeRowsInDb = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const rows = await new Promise((resolve) => {
+        const r = db.transaction('nodes', 'readonly').objectStore('nodes').getAll()
+        r.onsuccess = () => resolve(r.result ?? [])
+        r.onerror = () => resolve([])
+      })
+      return rows.length
+    })
+  const nodesBeforeReplace = await nodeRowsInDb()
+  const runsBeforeReplace = await runCount()
+  rec(
+    g,
+    '★ 每张结果都有「原地换掉」（换这一格，不新铺节点）',
+    (await page.locator('[data-ecommerce-replace]').count()) >= 4,
+    `按钮=${await page.locator('[data-ecommerce-replace]').count()}`,
+  )
+  await page.locator('[data-ecommerce-replace]').first().click()
+  let runsAfterReplace = runsBeforeReplace
+  for (let i = 0; i < 60; i += 1) {
+    runsAfterReplace = await runCount()
+    if (runsAfterReplace > runsBeforeReplace) break
+    await sleep(150)
+  }
+  /** 等一次防抖落库，再读节点数（读早了会数到"还没写进去"） */
+  await sleep(1200)
+  const nodesAfterReplace = await nodeRowsInDb()
+  rec(
+    g,
+    '★★★ 原地换掉真的换了（运行记录 +1）但**没多出节点**（库里节点数不变）',
+    runsAfterReplace === runsBeforeReplace + 1 && nodesAfterReplace === nodesBeforeReplace,
+    `运行记录 ${runsBeforeReplace}→${runsAfterReplace} · 节点 ${nodesBeforeReplace}→${nodesAfterReplace}`,
+  )
+
   // ⑥ 在画布里打开：结果本来就是画布节点（这是"发送到画布"的落点）
   await sleep(1600) // 等防抖落库，免得画布那边读到空库
   await page.locator('[data-ecommerce-open-canvas]').click()

@@ -145,6 +145,19 @@ export function buildRunPlan(
   origin: RunOrigin,
   graph: GraphSnapshot,
   mode: Exclude<RunMode, 'idle'>,
+  /**
+   * **原地替换**（对账 #413）：把这一次的产物写回**源节点自己**，而不是另铺一个承载节点。
+   *
+   * 默认口径**刻意不是这样**：新的一次生成 = 新的承载节点，旧产物留着（用户 2026-09-16
+   * 报过"生成节点自己已有图时再点生成，产物被写回它自己、没有新建节点"）。所以这里做成
+   * **显式开关**，只给"我就是要换掉这一格"的入口用 —— 电商结果的「原地换掉」是第一个。
+   *
+   * 两条边界：
+   * - 只对**源节点自己**生效（下游节点照旧）；
+   * - 只在这条计划**一共一次调用**时生效 —— N>1 时每次调用都写回同一个节点会互相覆盖，
+   *   那种情况必须照旧铺 N 个承载节点。
+   */
+  opts: { reuseOriginNode?: boolean } = {},
 ): RunPlan {
   const newDownstream = mode === 'single-alt'
   const executionMode: ExecutionMode = newDownstream ? 'single' : (mode as ExecutionMode)
@@ -265,8 +278,10 @@ export function buildRunPlan(
          * **新的一次生成 = 一个新的承载节点**，挂在自己的右侧。
          */
         const inContainer = (containerKindOf(node, index) ?? subContainer) !== null
-        const slot: SlotPlan =
-          slots.length > 0
+        const inPlaceSelf = opts.reuseOriginNode === true && node.id === originNodeId && plannedCalls === 1
+        const slot: SlotPlan = inPlaceSelf
+          ? { kind: 'reuse', nodeId: node.id }
+          : slots.length > 0
             ? slots[Math.min(slotCursor, slots.length - 1)]!
             : inContainer
               ? { kind: 'new', title: `${node.title}的输出`, connectFrom: node.id }

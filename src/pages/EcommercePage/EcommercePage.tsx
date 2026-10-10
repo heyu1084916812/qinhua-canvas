@@ -333,6 +333,16 @@ function StudioHost({ projectId }: { projectId: string }) {
          */
         onRerun:
           status === 'running' || status === 'pending' ? undefined : () => exec.runNode(id),
+        /**
+         * 原地换掉这一格（对账 #413）：产物写回**同一个节点**，画布上不多一个承载节点。
+         *
+         * 与上面那条只差一个开关（`inPlace`）—— 抽卡 vs 换掉是两种工作流，
+         * 摆两个按钮比让用户猜"重跑会多出一个节点吗"更清楚。
+         */
+        onReplace:
+          status === 'running' || status === 'pending'
+            ? undefined
+            : () => exec.runNode(id, { inPlace: true }),
       }
     })
   }, [exec, graph.nodes, nodeIds, platform])
