@@ -1,9 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { usePlatform } from '../../app/providers/PlatformProvider'
+import { useChannels } from '../../app/providers/ChannelStoreProvider'
+import { useSkillsOptional } from '../../app/providers/SkillStoreProvider'
 import { createProjectRepository } from '../../state/project/repository'
 import { createStoryboardStore } from '../../state/project/storyboardStore'
 import { projectRoute } from '../../domain/shared/workbench'
+import {
+  BREAKDOWN_SKILL_ID,
+  breakdownGuard,
+  breakdownText,
+  buildBreakdownSystem,
+  parseBreakdownReply,
+  replaceEpisodeShots,
+  resolveChatTarget,
+  shotsFromDraft,
+} from '../../domain/storyboard/breakdown'
+import { asAppError, describeError } from '../../shared/result'
 import {
   addEpisode,
   addShot,
@@ -86,6 +99,8 @@ function StoryboardEmpty() {
 
 function StoryboardProject({ projectId }: { projectId: string }) {
   const platform = usePlatform()
+  const channels = useChannels()
+  const skills = useSkillsOptional()
   const store = useMemo(() => createStoryboardStore(platform.storage), [platform])
   const [doc, setDoc] = useState<StoryboardDoc | null>(null)
   const [projectName, setProjectName] = useState('')
@@ -95,6 +110,43 @@ function StoryboardProject({ projectId }: { projectId: string }) {
   const [confirming, setConfirming] = useState('')
   const timer = useRef<number | null>(null)
   const pending = useRef<StoryboardDoc | null>(null)
+  /**
+   * 拆解（#414）：`chatTarget` = 现在会用谁去拆（没配对话模型就是 null）。
+   *
+   * 用 `useSyncExternalStore` 订渠道表，而不是"挂载时读一次"：用户在设置里刚配好渠道、
+   * 切回这一页时，提示语与按钮状态必须立刻跟上 —— 读一次会停在"没有可用的对话模型"上，
+   * 看起来就像功能坏了。
+   */
+  const channelList = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().channels,
+    () => channels.getState().channels,
+  )
+  const chatTarget = useMemo(() => resolveChatTarget(channelList), [channelList])
+  const [breaking, setBreaking] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
+  const [breakMsg, setBreakMsg] = useState('')
+  const [breakConfirm, setBreakConfirm] = useState(false)
+  const breakAbort = useRef<AbortController | null>(null)
+  /** 异步回来的那一拍要拿**最新的**文档打底（跑的过程中用户可能又改了字） */
+  const docRef = useRef<StoryboardDoc | null>(null)
+  docRef.current = doc
+  useEffect(
+    () => () => {
+      breakAbort.current?.abort()
+    },
+    [],
+  )
+  /**
+   * 换一集就把「上次拆解的结果 / 待确认」清掉。
+   *
+   * 不清的后果很具体：在 A 集拆完显示「已拆出 3 镜」，切到还没有分镜的 B 集，
+   * 那行字还挂着 —— 用户会以为 B 集已经有 3 镜了。
+   */
+  useEffect(() => {
+    setBreakConfirm(false)
+    setBreaking('idle')
+    setBreakMsg('')
+  }, [selectedId])
 
   useEffect(() => {
     let cancelled = false
@@ -209,6 +261,82 @@ function StoryboardProject({ projectId }: { projectId: string }) {
 
   const patchShot = (id: string, patch: Partial<Omit<StoryboardShot, 'id' | 'episodeId'>>) => {
     apply(updateShot(doc, id, patch))
+  }
+
+  /**
+   * 「用模型拆这一集」（#414）。
+   *
+   * 四道门，一道都不省：**有对话模型** → **这一集有内容可拆** → **已有镜头时两下确认**
+   * → **解析校验通过才落库**。任何一道没过都只改界面上的说明，绝不写文档。
+   */
+  const runBreakdown = async () => {
+    if (!selected || breaking === 'running') return
+    const guard = breakdownGuard(doc, selected)
+    if (guard) {
+      setBreaking('error')
+      setBreakMsg(guard)
+      setBreakConfirm(false)
+      return
+    }
+    if (!chatTarget) {
+      setBreaking('error')
+      setBreakMsg('还没有可用的对话模型 —— 去「全局设置 → 渠道配置」给一条渠道勾上对话模型')
+      setBreakConfirm(false)
+      return
+    }
+    if (shots.length > 0 && !breakConfirm) {
+      setBreakConfirm(true)
+      setBreaking('idle')
+      setBreakMsg('')
+      return
+    }
+    setBreakConfirm(false)
+    const ac = new AbortController()
+    breakAbort.current = ac
+    setBreaking('running')
+    setBreakMsg('')
+    try {
+      /* 系统指令取**内置技能**正文（改技能即改行为），后面接机器契约（见 breakdown.ts） */
+      const skill = skills.skills.find((s) => s.id === BREAKDOWN_SKILL_ID)
+      const result = await channels.completeWithTools({
+        channelId: chatTarget.channelId,
+        model: chatTarget.model,
+        tools: [],
+        messages: [
+          { role: 'system', content: buildBreakdownSystem(skill?.content) },
+          { role: 'user', content: breakdownText(doc, selected) },
+        ],
+        signal: ac.signal,
+      })
+      if (ac.signal.aborted) return
+      const parsed = parseBreakdownReply(result.text)
+      if (!parsed.ok) {
+        setBreaking('error')
+        setBreakMsg(parsed.error)
+        return
+      }
+      const base = docRef.current
+      if (!base) return
+      const drafts = shotsFromDraft(parsed.shots, selected.id)
+      apply(replaceEpisodeShots(base, selected.id, drafts, 0))
+      setBreaking('done')
+      setBreakMsg(`已拆出 ${drafts.length} 镜`)
+    } catch (e) {
+      if (ac.signal.aborted) return
+      const appError = asAppError(e)
+      setBreaking('error')
+      setBreakMsg(appError ? describeError(appError) : e instanceof Error ? e.message : String(e))
+    } finally {
+      if (breakAbort.current === ac) breakAbort.current = null
+    }
+  }
+
+  const cancelBreakdown = () => {
+    breakAbort.current?.abort()
+    breakAbort.current = null
+    setBreaking('idle')
+    setBreakMsg('')
+    setBreakConfirm(false)
   }
 
   const onExport = async () => {
@@ -417,15 +545,50 @@ function StoryboardProject({ projectId }: { projectId: string }) {
               <div className={styles.block}>
                 <div className={styles.blockHead}>
                   <h2 className={styles.blockTitle}>分镜</h2>
-                  <button
-                    type="button"
-                    className={styles.ghost}
-                    data-storyboard-add-shot
-                    onClick={addOneShot}
-                  >
-                    新增一镜
-                  </button>
+                  <div className={styles.headTools}>
+                    {breaking === 'running' ? (
+                      <button
+                        type="button"
+                        className={styles.ghost}
+                        data-storyboard-breakdown-cancel
+                        onClick={cancelBreakdown}
+                      >
+                        取消
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className={styles.ghost}
+                      data-storyboard-breakdown-run
+                      disabled={breaking === 'running' || !chatTarget}
+                      onClick={() => void runBreakdown()}
+                    >
+                      {breakConfirm ? `再点一次：替换这 ${shots.length} 镜` : '用模型拆这一集'}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.ghost}
+                      data-storyboard-add-shot
+                      onClick={addOneShot}
+                    >
+                      新增一镜
+                    </button>
+                  </div>
                 </div>
+                <p className={styles.hint} data-storyboard-breakdown-hint>
+                  {chatTarget
+                    ? `将用 ${chatTarget.label} 拆解；结果只写进这一集`
+                    : '还没有可用的对话模型 —— 去「全局设置 → 渠道配置」给一条渠道勾上对话模型'}
+                </p>
+                {breaking !== 'idle' ? (
+                  <p
+                    className={breaking === 'error' ? styles.error : styles.hint}
+                    role="status"
+                    data-storyboard-breakdown-status={breaking}
+                  >
+                    {breaking === 'running' ? '正在拆解…' : breakMsg}
+                  </p>
+                ) : null}
                 {shots.length === 0 ? (
                   <p className={styles.hint} data-storyboard-shots-empty>
                     这一集还没有分镜。一镜 = 一个画面 + 一句台词 + 一个时长。

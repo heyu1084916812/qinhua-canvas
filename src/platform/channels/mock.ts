@@ -4,6 +4,7 @@ import { fingerprintBytesSync, fingerprintHex } from '../../domain/shared/hash'
 import { clampCount } from '../../domain/shared/capability'
 import { imageInputsOf } from '../../domain/shared/execution/inputs'
 import { imageSizeFromHeader } from '../../domain/shared/imageSize'
+import { BREAKDOWN_MARKER } from '../../domain/storyboard/breakdown'
 import { solidPng } from './mockPng'
 import type { SafeChannelConfig } from '../ports'
 import {
@@ -275,6 +276,51 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
        */
       if (request.prompt.includes('人脸外接框')) {
         return { text: '{"x":0.3,"y":0.2,"w":0.3,"h":0.35}' }
+      }
+      /**
+       * **漫剧分镜拆解**（对账 #414）：系统指令里带「【分镜拆解】输出契约」时，
+       * 回一份**确定性的三轮分镜 JSON**。
+       *
+       * 为什么 mock 要会这一手：这条链路的正题是「模型 → JSON → 校验 → 落库」，
+       * 而 mock 若只会回一句纯文本，那三段在离线冒烟里一段都走不到，
+       * 只能靠接真渠道手点。与「人脸外接框」那条同一个理由。
+       *
+       * 两个钩子（都写在**用户正文**里，不在系统指令里，免得与契约互相干扰）：
+       *  - 正常 → 三镜的 JSON；
+       *  - 带「坏拆解」→ 回一段不是 JSON 的话，用来验**校验失败时一个字都不许写进库**。
+       *
+       * 注意判据要连 `messages` 一起看：拆镜这条路走的是 `completeWithTools`
+       * （系统 + 用户两条消息、`prompt` 是空串），只看 `request.prompt` 会漏。
+       */
+      const asked = [request.prompt, ...(request.messages ?? []).map((m) => m.content)].join('\n')
+      if (asked.includes(BREAKDOWN_MARKER)) {
+        if (asked.includes('坏拆解')) {
+          return { text: '好的，我帮你把这一集拆成了三镜（这一段故意不是 JSON）。' }
+        }
+        return {
+          text: JSON.stringify({
+            shots: [
+              {
+                scene: '雨夜的街道，霓虹在积水里反光',
+                dialogue: '今天最后一单',
+                durationSec: 4,
+                prompt: 'cinematic wide shot, rainy street at night, neon reflections',
+              },
+              {
+                scene: '老楼楼道口，门缝里透出暖光',
+                dialogue: '',
+                durationSec: 3,
+                prompt: 'medium shot, old apartment doorway, warm light through the gap',
+              },
+              {
+                scene: '十五楼门前，快递箱放下',
+                dialogue: '到了。',
+                durationSec: 3,
+                prompt: 'close-up, parcel box placed at the door, warm hallway light',
+              },
+            ],
+          }),
+        }
       }
       const images = imageInputsOf(request.inputs)
       const prefix = images.map((i) => `img:${i.assetHash.slice(0, 8)}`).join(',')

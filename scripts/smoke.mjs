@@ -15848,12 +15848,28 @@ async function g92(browser) {
     .locator(`[data-node-id="${fusionId}"] [data-fusion-pane="original"]`)
     .getAttribute('data-fusion-pane-hash')
   await resultNode.locator('[data-node-asset]').first().dblclick()
-  await sleep(700)
+  /**
+   * ⚠️ **等「对比原图」那一组自己出现，别 sleep 一个魔数**（2026-10-10 全量第十七轮实测）。
+   *
+   * 原来这里是 `sleep(700)` 之后立刻 count。整机负载高时 700ms 不够灯箱挂载完
+   * （这张融合结果要解码两张 640×360 的图），断言读到 count=0，
+   * 紧接着 `[data-lightbox-compare="split"]` 的 click 直接 30s 超时、
+   * 整组中断 —— 看起来像"对比功能坏了"，真因只是**等待方式**。
+   * 判据一条没放宽（数量 / 存在性照旧），只是从"等固定时间"改成"等最终形态"，
+   * 与 G12 / G51 / G61 / G62 / G5 / G8 / G80 那几条同一个手法。
+   */
+  const compareReady = await page
+    .locator('[data-lightbox-compare-group]')
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .then(() => true)
+    .catch(() => false)
   rec(
     g,
     '★★ 双击融合结果开灯箱，并给出「对比原图」三档',
-    (await page.locator('[data-lightbox]').count()) === 1 &&
+    compareReady &&
+      (await page.locator('[data-lightbox]').count()) === 1 &&
       (await page.locator('[data-lightbox-compare-group]').count()) === 1,
+    `lightbox=${await page.locator('[data-lightbox]').count()} 对比组=${await page.locator('[data-lightbox-compare-group]').count()}`,
   )
   await page.locator('[data-lightbox-compare="split"]').click()
   await sleep(400)
@@ -22156,10 +22172,40 @@ async function g114(browser) {
       el.getAttribute('data-assets-group-section'),
     ),
   )
+  /**
+   * 日期分组**顺序**的判据（与"今天写到哪一天"无关）。
+   *
+   * 允许的形态：`[今天, 10月1日]` · `[昨天, 10月1日]` · `[今天, 昨天, 10月1日]`
+   * （最后一种是"零点后两小时内"跑出来的：种子里的 now-1h / now-2h 已落到昨天）。
+   * 不接受的：具体日期排在今天/昨天上面、同一档出现两次、首组不是今天/昨天、
+   * 末组不是具体日期（十天前那张必须单独成组且在最下面）。
+   */
+  const dateOrder = (labels) => {
+    if (labels.length < 2 || labels.length > 3) return false
+    if (new Set(labels).size !== labels.length) return false
+    if (!/^\d+月\d+日$/.test(labels[labels.length - 1] ?? '')) return false
+    if (!labels.slice(0, -1).every((l) => l === '今天' || l === '昨天')) return false
+    const rank = labels.map((l) => (l === '今天' ? 2 : l === '昨天' ? 1 : 0))
+    if (rank[0] < 1) return false
+    return rank.every((r, i) => i === 0 || r <= rank[i - 1])
+  }
   rec(
     g,
-    '★★ 切回「日期分组」：今天 / 10月某日 两组，最新那组在最上面',
-    dateSections.length === 2 && dateSections[0] === '今天',
+    /*
+     * ⚠️ 这条判据改了两次，两次红**都不是产品缺陷**，值得写下来
+     * （2026-10-10 全量第十七轮 / 10-11 第十八轮实测）：
+     *
+     *  - 第一版写死 `dateSections[0] === '今天'`。全量跑 40 分钟，**跨零点是常态**：
+     *    日期翻到 10-11 后，同一批记录的分组标签变成「昨天」，红在 `["昨天","10月1日"]`。
+     *  - 第二版放开成"今天或昨天"，仍不够：种子数据里有 `now-1h` / `now-2h` 两条，
+     *    **零点后两小时内**它们已经落在昨天，于是分组变三档 `["今天","昨天","10月1日"]`。
+     *
+     * 要断的语义只有一条：**最新那一组在最上面，越老越靠下，最后一组是十天前那张的具体日期**。
+     * 所以按"分档单调不增 + 末组是具体日期 + 不重复 + 首组是今天或昨天"来断，
+     * 不再把"有几档 / 第一档叫什么"写死 —— 档数本来就该随"跑在哪一天"变化。
+     */
+    '★★ 切回「日期分组」：最新那组在最上面（跨零点时可能是两到三档）',
+    dateOrder(dateSections),
     JSON.stringify(dateSections),
   )
 
@@ -24325,7 +24371,201 @@ async function g127(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127]
+// ────────────────────────────────────────────────────────────
+// G128 漫剧「用模型拆这一集」（对账 #414）：
+//   没配对话模型 → 按钮禁用 + 如实说去哪配；配好 mock 对话渠道 → 拆出 3 镜并落库；
+//   模型回的不是 JSON → 如实报错且**一个字都不写**；已有镜头 → 两下确认才替换。
+// ────────────────────────────────────────────────────────────
+async function g128(browser) {
+  const g = 'G128 漫剧拆镜'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const shots = page.locator('[data-storyboard-shot]')
+  const runBtn = page.locator('[data-storyboard-breakdown-run]')
+  const hint = page.locator('[data-storyboard-breakdown-hint]')
+  const status = (kind) => page.locator(`[data-storyboard-breakdown-status="${kind}"]`)
+
+  /** 读库里的镜头（验"真落库"，而不是"界面上恰好有"） */
+  const storedShots = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const rows = await new Promise((resolve) => {
+        const r = db.transaction('storyboards', 'readonly').objectStore('storyboards').getAll()
+        r.onsuccess = () => resolve(r.result ?? [])
+        r.onerror = () => resolve([])
+      })
+      return (rows[0]?.doc?.shots ?? []).map((s) => ({ scene: s.scene, durationSec: s.durationSec }))
+    })
+
+  // ① 建项目 + 一集 + 正文
+  await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-storyboard-create]').click()
+  await page.waitForURL(/\/storyboard\/proj_/)
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  const projectUrl = page.url()
+  await page.locator('[data-storyboard-script-body]').fill('雨夜快递：骑手在雨里送最后一单，收货人一直没开门。')
+  await page.locator('[data-storyboard-add-episode]').click()
+  await sleep(250)
+  const ep1 = await page.locator('[data-storyboard-episode]').first().getAttribute('data-storyboard-episode')
+  await page.locator(`[data-storyboard-episode-name="${ep1}"]`).fill('第一集 · 雨夜')
+  /**
+   * 等防抖把这一集**真写下去**再离开这一页。
+   *
+   * 下一段要 `page.goto('/settings')` 去配渠道 —— 那是一次**整页卸载**，
+   * 而防抖窗口（400ms）与卸载时的 `flush()` 都是"尽力而为"：浏览器把页面拆掉时，
+   * 正在排队的那次 IndexedDB 写可能根本发不出去。实测第一次就是这么红的：
+   * 回到项目时集数=0，界面上连"分镜"那一块都不渲染，后面的断言全部超时。
+   * 所以判据取**状态行真的写着「已保存」**，而不是 sleep 一个魔数。
+   */
+  const saved = await page
+    .waitForFunction(
+      () => document.querySelector('[data-storyboard-status]')?.textContent?.includes('已保存') ?? false,
+      null,
+      { timeout: 8000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★ 离开这一页之前，改动已经落库（状态行「已保存」）', saved, `saved=${saved}`)
+
+  // ② 没配对话模型：按钮禁用 + 写明去哪配
+  const hint0 = (await hint.innerText()).trim()
+  rec(
+    g,
+    '★ 没有对话模型时按钮禁用，并如实说明去哪配（不假装能拆）',
+    (await runBtn.isDisabled()) && /对话模型/.test(hint0),
+    `hint="${hint0}"`,
+  )
+
+  // ③ 配一条 mock 对话渠道（内置渠道被停用），再回到这一集
+  await configureMockChannel(page)
+  await sleep(500)
+  await page.goto(projectUrl, { waitUntil: 'networkidle' })
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  await sleep(500)
+  const hint1 = (await hint.innerText()).trim()
+  rec(
+    g,
+    '★★ 配好渠道后按钮可用，且写明会用哪个模型拆',
+    !(await runBtn.isDisabled()) && /GPT-6 Astra/.test(hint1),
+    `hint="${hint1}"`,
+  )
+
+  // ④ 拆解 → 三镜落地
+  await runBtn.click()
+  const ranOnce = await status('done')
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
+  const doneText = ranOnce ? (await status('done').innerText()).trim() : ''
+  rec(
+    g,
+    '★★★ 拆解成功：这一集出现 3 个镜头（画面 / 台词 / 时长 / 提示词都落上）',
+    ranOnce && (await shots.count()) === 3,
+    `status="${doneText}" 镜=${await shots.count()}`,
+  )
+  const firstScene = await shots.first().locator('[data-storyboard-shot-scene]').inputValue().catch(() => '')
+  rec(
+    g,
+    '★★ 镜头内容来自模型的 JSON（不是空壳）',
+    /雨夜的街道/.test(firstScene),
+    `第一镜画面="${firstScene}"`,
+  )
+
+  // ⑤ 真落库：库里的镜头条数与时长都对
+  await sleep(900) // 等 400ms 防抖把这次替换写下去
+  const stored = await storedShots()
+  rec(
+    g,
+    '★★★ 库里就是这三镜（时长也按模型给的值落库，不是全默认 3 秒）',
+    stored.length === 3 && stored[0]?.durationSec === 4 && /雨夜的街道/.test(stored[0]?.scene ?? ''),
+    JSON.stringify(stored),
+  )
+
+  // ⑥ 刷新后还在
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  await sleep(300)
+  rec(g, '★★ 刷新后三镜仍在（防抖保存 + 表读回都对）', (await shots.count()) === 3, `镜=${await shots.count()}`)
+
+  // ⑦ 已有镜头 → 第一下只确认，第二下**替换**（不是追加成 6 镜）
+  await runBtn.click()
+  await sleep(250)
+  const confirmLabel = (await runBtn.innerText()).trim()
+  rec(
+    g,
+    '★ 已有镜头时第一下只做二次确认（按钮写明会替换几镜）',
+    /再点一次/.test(confirmLabel) && (await shots.count()) === 3,
+    `label="${confirmLabel}" 镜=${await shots.count()}`,
+  )
+  await runBtn.click()
+  const ranTwice = await status('done')
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(
+    g,
+    '★★★ 第二下才真跑，而且是「替换」：跑完仍是 3 镜（追加的话会变 6）',
+    ranTwice && (await shots.count()) === 3,
+    `镜=${await shots.count()}`,
+  )
+
+  // ⑧ 失败路径：模型回的不是 JSON → 报错，且**一个字都不写进库**
+  await page.locator('[data-storyboard-add-episode]').click()
+  await sleep(250)
+  const ep2 = await page.locator('[data-storyboard-episode]').nth(1).getAttribute('data-storyboard-episode')
+  await page.locator(`[data-storyboard-episode-name="${ep2}"]`).fill('第二集 · 坏拆解')
+  await page.locator(`[data-storyboard-episode-summary="${ep2}"]`).fill('这一段故意触发坏拆解')
+  await runBtn.click()
+  const failed = await status('error')
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
+  const errText = failed ? (await status('error').innerText()).trim() : ''
+  rec(
+    g,
+    '★★★ 模型回的不是 JSON 时如实报错，且这一集仍是 0 镜（校验不过绝不落库）',
+    failed && /JSON/.test(errText) && (await shots.count()) === 0,
+    `error="${errText}" 镜=${await shots.count()}`,
+  )
+  await sleep(700)
+  rec(
+    g,
+    '★★ 失败那一次没有污染库（库里仍然只有第一集那三镜）',
+    (await storedShots()).length === 3,
+    `库里=${(await storedShots()).length}`,
+  )
+
+  // ⑨ 导出分镜表带上拆出来的镜头（整份文档一起导）
+  await page.locator(`[data-storyboard-episode="${ep1}"]`).click()
+  await sleep(300)
+  const downloadPromise = page.waitForEvent('download', { timeout: 8000 })
+  await page.locator('[data-storyboard-export]').click()
+  const download = await downloadPromise.catch(() => null)
+  let exported = ''
+  if (download) {
+    const filePath = await download.path()
+    exported = filePath ? readFileSync(filePath, 'utf8') : ''
+  }
+  rec(
+    g,
+    '★★ 导出的分镜表里带上了模型拆出来的这一镜',
+    !!download && exported.includes('雨夜的街道，霓虹在积水里反光') && exported.includes('cinematic wide shot'),
+    `文件=${download ? download.suggestedFilename() : '无'} 字节=${exported.length}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/128-g128-breakdown.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
