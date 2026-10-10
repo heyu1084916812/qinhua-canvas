@@ -22630,6 +22630,58 @@ async function g116(browser) {
     `节点=${canvasNodes}`,
   )
 
+  /**
+   * ⑦ **整批一步撤销**（对账 #410）：
+   *
+   * 套图这 4 张是**一次生成**的产物，按一次撤销就该整批退回去 —— 节点与连线一起。
+   * 判据刻意量**两个数**：只退节点不退连线会留下"悬空的线"，那正是当年在别处踩过的半截状态；
+   * 两个数都必须**正好少 4**（多退一步会把第 1 张主图也带走，少退一步就是"要按好几次"）。
+   */
+  const beforeUndo = { nodes: canvasNodes, edges: await page.locator('[data-edge]').count() }
+  /**
+   * 用**顶栏的撤销按钮**而不是键盘：`Ctrl+Z` 在真机上会被焦点位置左右（焦点在输入框里时
+   * 那段代码故意让给浏览器做文本撤销），而按钮的 `disabled` 本身就是"撤销栈空不空"的可读信号。
+   */
+  const undoBtn = page.locator('[data-toolbar-undo]')
+  const canUndo = await undoBtn.isEnabled()
+  rec(g, '★ 生成之后「撤销」是亮的（这批操作真的进了撤销栈）', canUndo, `enabled=${canUndo}`)
+  /**
+   * ⚠️ 判据写成"**观察那一次掉 4**"而不是"按一次就掉 4"：出图是**跑**出来的，
+   * 运行过程自己也会往撤销栈里写（每张一次），所以栈顶未必正好是这一批的 plan。
+   * 真正要证的是**这一批算一步** —— 即"某一次撤销让节点与连线**同时**各掉 4"。
+   * （退化成一个个掉，就是"要按 8 次以上"，那正是这一条要拦的。）
+   */
+  let dropped = null
+  let presses = 0
+  for (let i = 0; canUndo && i < 10; i += 1) {
+    const b = {
+      nodes: await page.locator('[data-node-id]').count(),
+      edges: await page.locator('[data-edge]').count(),
+    }
+    await undoBtn.click()
+    await sleep(280)
+    const a = {
+      nodes: await page.locator('[data-node-id]').count(),
+      edges: await page.locator('[data-edge]').count(),
+    }
+    presses += 1
+    if (b.nodes - a.nodes >= 4) {
+      dropped = { before: b, after: a }
+      break
+    }
+    if (a.nodes === 0) break
+  }
+  rec(
+    g,
+    '★★★ 整批算一步撤销：某一次撤销让套图 4 个节点 + 4 条连线**同时**退掉',
+    !!dropped &&
+      dropped.after.nodes === dropped.before.nodes - 4 &&
+      dropped.after.edges === dropped.before.edges - 4,
+    dropped
+      ? `按了 ${presses} 次；那一次：节点 ${dropped.before.nodes}→${dropped.after.nodes}、连线 ${dropped.before.edges}→${dropped.after.edges}`
+      : `按了 ${presses} 次都没出现"一次掉 4"（初始 节点=${beforeUndo.nodes} 线=${beforeUndo.edges}）`,
+  )
+
   await page.screenshot({ path: `${OUT}/116-g116-ecommerce.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()

@@ -12,7 +12,7 @@ import { useAsset } from '../../workbenches/canvas/hooks/useAsset'
 import { EcommerceStudio, type EcommerceResultItem, type EcommerceUpload } from '../../workbenches/ecommerce/EcommerceStudio'
 import { createProjectRepository } from '../../state/project/repository'
 import { createAssetNode, importAssetFile } from '../../features/canvas/importAsset'
-import { createNodeWithDefaults } from '../../features/canvas/createNodeWithDefaults'
+import { applyDefaults, resolveDefaults } from '../../features/canvas/createNodeWithDefaults'
 import { buildEcommercePlan } from '../../domain/ecommerce/plan'
 import { panelModelOptions } from '../../domain/project/modelCatalog'
 import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
@@ -25,7 +25,7 @@ import {
   type EcommercePlatform,
 } from '../../domain/ecommerce/platforms'
 import { ECOMMERCE_LANGUAGES, type EcommerceLanguage } from '../../domain/ecommerce/types'
-import type { CanvasStore } from '../../state/workbenches/canvas/store'
+import { canvasStoreFor } from '../../state/workbenches/canvas/storeCache'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import type { Edge } from '../../domain/canvas/model/edge'
 import type { EcommerceRequest } from '../../domain/ecommerce/types'
@@ -47,9 +47,6 @@ import styles from './EcommercePage.module.css'
  * 结果字节仍是内容寻址的 `assets`。所以"发送到画布"在这里就是「在画布里打开」
  * —— 结果本来就已经是这个项目的画布节点。专业版（#380）要独立数据模型时再补表。
  */
-
-/** 与 `CanvasPage` 同一套按项目缓存 store 的做法（切走再回来不丢运行中的写入） */
-const stores = new Map<string, { store: CanvasStore; hydrated: boolean }>()
 
 export function EcommercePage() {
   const { projectId } = useParams<{ projectId?: string }>()
@@ -103,10 +100,23 @@ function EcommerceEmpty() {
 
 function EcommerceProject({ projectId }: { projectId: string }) {
   const platform = usePlatform()
-  const cached =
-    stores.get(projectId) ?? { store: createStore({ workbench: 'canvas', platform, projectId }), hydrated: false }
-  stores.set(projectId, cached)
+  /**
+   * **与画布页共用同一个 store 实例**（对账 #411）。
+   *
+   * 这条以前是各页一个 Map，代价实测过：在电商页出一套图 → 点「在画布里打开」，
+   * 画布页的撤销按钮是**灰的**（那批操作记在另一个实例的栈上），画布页还可能拿着旧快照。
+   * 缓存与完整理由见 `state/workbenches/canvas/storeCache.ts`。
+   */
+  const cached = canvasStoreFor(projectId, () =>
+    createStore({ workbench: 'canvas', platform, projectId }),
+  )
   const store = cached.store
+
+  /**
+   * 离开这一页时把还没到防抖时间的写入**冲一次**（与画布页同一手法）。
+   * 实例是共用的，`dispose()` 只做 flush、不销毁状态 —— 紧接着进画布页仍拿得到同一个 store。
+   */
+  useEffect(() => () => store.dispose(), [store])
 
   /** 从库里读回图（与画布页同一口径：只读一次，避免把内存里正在跑的写入盖回去） */
   useEffect(() => {
@@ -231,14 +241,21 @@ function StudioHost({ projectId }: { projectId: string }) {
     /* 用户选过就用他选的；没选过还是走解析出来的默认那一套 */
     const modelForRun = request.model || recipe.model
 
-    const created: string[] = []
+    /**
+     * **两段式**（对账 #410）：
+     *
+     * ① 先把 N 张节点的默认值**全部异步解析完**（读渠道配方是异步的）；
+     * ② 再在一个 `beginPlan` / `endPlan` 里**同步**落节点与连线。
+     *
+     * 为什么不能写成"循环里 await + 外面包一层 plan"：`beginPlan` 之间一旦让出
+     * 事务边界，撤销就会断成好几步（`createNodeWithDefaults` 的文件注释记着当年怎么栽的）。
+     * 于是用户按一次撤销，5 张套图应当**整批**退回去，而不是退 5 次还留着连线。
+     */
+    const prescribed: { at: { x: number; y: number }; data: Record<string, unknown> }[] = []
     for (let i = 0; i < plan.count; i += 1) {
-      const id = await createNodeWithDefaults({
-        store,
+      const data = await resolveDefaults({
         channels,
-        projectId,
         type: 'generation',
-        at: { x: 420 + (i % 3) * 300, y: 60 + Math.floor(i / 3) * 240 },
         extraData: {
           mode: 'image',
           model: modelForRun,
@@ -251,13 +268,31 @@ function StudioHost({ projectId }: { projectId: string }) {
           count: 1,
         },
       })
-      if (!id) continue
-      created.push(id)
-      /* 产品图与参考图都连成上游：引擎按上游素材收集输入，这是"不改产品外观"的物理来源 */
-      store.dispatch({ kind: 'edge.connect', source: request.productNodeId, target: id })
-      for (const ref of plan.referenceNodeIds) {
-        store.dispatch({ kind: 'edge.connect', source: ref, target: id })
+      prescribed.push({ at: { x: 420 + (i % 3) * 300, y: 60 + Math.floor(i / 3) * 240 }, data })
+    }
+    const created: string[] = []
+    store.beginPlan('ecommerce:generate', `电商出图 ×${prescribed.length}`)
+    try {
+      for (const item of prescribed) {
+        const id = applyDefaults({
+          store,
+          channels,
+          projectId,
+          type: 'generation',
+          at: item.at,
+          data: item.data,
+        })
+        if (!id) continue
+        created.push(id)
+        store.setSelection([id])
+        /* 产品图与参考图都连成上游：引擎按上游素材收集输入，这是"不改产品外观"的物理来源 */
+        store.dispatch({ kind: 'edge.connect', source: request.productNodeId, target: id })
+        for (const ref of plan.referenceNodeIds) {
+          store.dispatch({ kind: 'edge.connect', source: ref, target: id })
+        }
       }
+    } finally {
+      store.endPlan()
     }
     setNodeIds(created)
     /* 逐张跑：并发交给渠道侧没有意义（这里每张都是一个独立节点），串行更稳、也更好报错 */
