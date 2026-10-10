@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { loadAssetUrl } from './useAsset'
 import { createMemoryAssetFolder } from '../../../platform/memory/index'
 import type { PlatformKit } from '../../../platform/ports'
+import { clearFreshAssets, rememberFreshAsset } from '../../../features/canvas/freshAssets'
 
 /**
  * 素材读回的两条来源（对账 #196 · 增量 2）：
@@ -142,5 +143,40 @@ describe('坏缩略图回落原图（对账 #234）', () => {
     const full = await loadAssetUrl(platform, 'thumbed')
     expect(full.url).toBeTruthy()
     expect(full.thumb).toBeFalsy()
+  })
+})
+
+/**
+ * **刚导入的素材：不查库也能立刻显示**（对账 #408 的优化）。
+ *
+ * 这条判据刻意用"**查库次数 = 0**"而不是"耗时 < N ms"：耗时在 CI / 负载下会抖，
+ * 而"有没有去读那一趟 5.5MB 的行"是确定的。真实收益由冒烟 G55 量（同一台机器前后对比）。
+ */
+describe('刚导入的素材直通车（对账 #408）', () => {
+  it('★ 内存里命中 ⇒ 一次库都不查，直接给原图 blob URL', async () => {
+    clearFreshAssets()
+    const blob = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'image/png' })
+    rememberFreshAsset('fresh1', blob)
+    const platform = kitWithFolder(createMemoryAssetFolder())
+    let queries = 0
+    platform.storage.query = async () => {
+      queries += 1
+      return []
+    }
+    const meta = await loadAssetUrl(platform, 'fresh1', { preferThumb: true })
+    expect(queries).toBe(0)
+    expect(meta.url).toMatch(/^blob:/)
+    expect(meta.mime).toBe('image/png')
+    /** 首屏给的是**原图**（缩略图那条后台路径随后补），所以不标 `thumb` */
+    expect(meta.thumb).toBeFalsy()
+    clearFreshAssets()
+  })
+
+  it('内存里没有 ⇒ 照旧去库里读（正常路径一行没改）', async () => {
+    clearFreshAssets()
+    const platform = kitWithFolder(createMemoryAssetFolder())
+    const meta = await loadAssetUrl(platform, 'h1')
+    expect(meta.url).toMatch(/^blob:/)
+    expect(meta.mime).toBe('image/png')
   })
 })

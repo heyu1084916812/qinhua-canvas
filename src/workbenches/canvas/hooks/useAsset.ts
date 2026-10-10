@@ -3,6 +3,7 @@ import { usePlatform } from '../../../app/providers/PlatformProvider'
 import type { PlatformKit } from '../../../platform/ports'
 import { assetFileName, expectedAssetPath } from '../../../domain/shared/assetLocation'
 import { ensureAssetThumb, THUMB_MIME, thumbBytesOf } from '../../../platform/assetThumb'
+import { freshAssetOf } from '../../../features/canvas/freshAssets'
 
 /**
  * 按 hash 从 assets 表读回媒体本体并生成 objectURL（产品文档 §8：hash 即主键）。
@@ -49,6 +50,25 @@ export async function loadAssetUrl(
   hash: string,
   opts: { preferThumb?: boolean } = {},
 ): Promise<AssetMeta> {
+  /**
+   * **刚导入的那一份直接在内存里命中**（对账 #408 的优化；判据与数据见 `freshAssets.ts` 的表）。
+   *
+   * 为什么把它放在**查库之前**：查库要等 5.5MB 那一行写完（实测 540ms）再整行读回来
+   * （结构化克隆又一趟）。而内容寻址保证同一 hash 的字节一模一样，内存里这份就是"最终答案"，
+   * 不必先问库。落库照旧在后台跑完 —— 这里只是不再让"看得见"排在它后面。
+   *
+   * 取的是**原图**（与库里第一次读到的一样，缩略图那条后台路径随后会补上）：
+   * 节点首屏的观感不变，`naturalWidth` 也仍然是真实像素（冒烟 G55 就按这条量）。
+   */
+  const fresh = freshAssetOf(hash)
+  if (fresh) {
+    const mime = fresh.type || null
+    return {
+      url: URL.createObjectURL(fresh),
+      mime,
+      expectedPath: expectedAssetPath(platform.assetFolder?.current()?.name, hash, mime),
+    }
+  }
   const rows = await platform.storage.query('assets', { id: hash })
   const row = rows[0] as
     | { bytes?: Uint8Array | number[]; mime?: string; url?: string; thumb?: Uint8Array | number[] }

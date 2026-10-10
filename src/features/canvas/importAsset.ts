@@ -9,6 +9,7 @@ import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import type { Point } from '../../domain/canvas/geometry/rect'
 import type { GenerationData } from '../../domain/canvas/model/node'
 import { rememberCanvasCover } from '../../state/project/cover'
+import { rememberFreshAsset } from './freshAssets'
 
 /** 导入可接受的类型（§6.8 状态 A：图片 png/jpg/webp；视频 mp4/webm/mov） */
 export const IMPORT_ACCEPT = 'image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime'
@@ -48,6 +49,13 @@ export async function importAssetFile(deps: ImportDeps, file?: File): Promise<Im
   const mime = blob.type || 'application/octet-stream'
   // 哈希走 crypto.subtle（异步）：同步 SHA-1 会在几 MB 的图上阻塞主线程几百毫秒
   const hash = await fingerprintBytes(bytes)
+  /**
+   * **把"手里这份字节"直接交给显示层**（对账 #408）：
+   * 5.5MB 的图实测要 540ms 才落完库、再 500ms 读回来，而字节早在算完哈希时（约 30ms）
+   * 就在内存里了。记进 `freshAssets` 之后，节点不必等 IndexedDB 那一趟就能显示。
+   * 落库这条路**一行没改** —— 缓存只是让"看得见"不再排队等 IO。
+   */
+  rememberFreshAsset(hash, blob)
   /**
    * 表 naturalSize（供「有内容锁原始比例」与节点初始尺寸）。
    *
