@@ -1383,11 +1383,17 @@ async function g8(browser) {
 
   // 验证地址：只回答「地址通不通」（§7.3 收窄后不再顺带灌模型缓存）
   await page.getByRole('button', { name: '验证地址' }).click()
+  /**
+   * 等状态行**给出结果**再读（2026-10-10 全量第十一轮实测读到「正在验证地址…」）：
+   * 这一行在点击后**立刻**就有非空文字（那句"正在验证…"），所以"等它可见"证明不了验证跑完；
+   * 判据改成等它出现延迟数字（最终形态）。下面两条断言一个字没改。
+   */
   const ok = await page
-    .locator('[role="status"]')
-    .filter({ hasText: /\S/ })
-    .first()
-    .waitFor({ state: 'visible', timeout: 10000 })
+    .waitForFunction(
+      () => /\d+ms/.test(document.querySelector('[role="status"]')?.textContent ?? ''),
+      null,
+      { timeout: 15000 },
+    )
     .then(() => true)
     .catch(() => false)
   rec(g, '验证地址通过（只测连通性）', ok)
