@@ -23931,6 +23931,80 @@ async function g123(browser) {
     `水平=${gaps.horizontal?.toFixed(1)}px 垂直=${gaps.vertical?.toFixed(1)}px`,
   )
 
+  /**
+   * ③c #421（用户 2026-10-10 #9 的图七）：失败卡不能被瀑布流**从中间切断**。
+   *
+   * 这一栏是 CSS 多列瀑布流，多列会把"放不进当前列"的块拦腰切开、后半截续到
+   * 下一列的开头。图片卡 `.card` 一直写着 `break-inside: avoid`，**失败卡漏了** ⇒
+   * 长提示词的失败卡被切断：卡里的时间行跑到上一列顶上，提示词后半段孤零零地
+   * 出现在别的卡片旁边（用户截图里圈的就是它）。
+   *
+   * 判据不看截图、不猜观感：**同一张卡里，最后一个元素不能在第一个元素上面**。
+   * 切断时后一截会从下一列开头接着排，于是时间行（末）反而比标签（首）更靠上。
+   */
+  await page.evaluate(async () => {
+    const openDb = () =>
+      new Promise((resolve, reject) => {
+        const r = indexedDB.open('qinghua')
+        r.onsuccess = () => resolve(r.result)
+        r.onerror = () => reject(r.error)
+      })
+    const db = await openDb()
+    const put = (table, rows) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction(table, 'readwrite')
+        const s = tx.objectStore(table)
+        for (const r of rows) s.put(r)
+        tx.oncomplete = () => resolve(true)
+        tx.onerror = () => reject(tx.error)
+      })
+    const now = Date.now()
+    const long =
+      '用产品图中的这款纸箱制作详情图 用途：详情页 —— 详情页：按卖点分段表达，信息层级清楚 ' +
+      '目标平台：Amazon；主图常见要求：纯白背景、产品占画面主体、不叠加促销文字；' +
+      '副图可含场景与细节；文案语言跟随站点。（规则来源：通用建议：未核实官方规则，按常见做法整理，' +
+      '更新于 2026-10-09）文案语言：中文简体 输出：5 张，比例 9:16 硬约束：不改变产品的外观、颜色、' +
+      '材质与结构（以产品图为准）；不编造参数、认证、功效与价格；画面文字只用指定语言，不出现乱码与拼写错误'
+    const runs = Array.from({ length: 6 }, (_, i) => ({
+      id: `g123-failed-${i}`,
+      nodeId: `g123-failed-node-${i}`,
+      projectId: 'g123-p0',
+      version: 1,
+      createdAt: now - i * 60_000,
+      status: 'failed',
+      inputs: [],
+      params: { prompt: long, ratio: '9:16', quality: 'medium' },
+      outputHashes: [],
+      fingerprint: `g123-fp-${i}`,
+      taskId: `g123-task-${i}`,
+      durationMs: 1200,
+      sentChannelId: 'ch-x',
+      sentModel: 'Qwen-Image-Edit',
+    }))
+    await put('runRecords', runs)
+    db.close()
+  })
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(900)
+  await page.locator('[data-assets-tab="history"]').click()
+  await sleep(600)
+  const failedCards = await page.locator('[data-history-failed]').count()
+  const fragmented = await page.evaluate(() => {
+    const cards = Array.from(document.querySelectorAll('[data-history-failed]'))
+    return cards.filter((card) => {
+      const first = card.firstElementChild
+      const last = card.lastElementChild
+      if (!first || !last || first === last) return false
+      return last.getBoundingClientRect().top < first.getBoundingClientRect().top - 1
+    }).length
+  })
+  rec(
+    g,
+    '★★ 生成失败的卡片不被瀑布流切断（末元素不会跑到首元素上面；修前 6 张里 2 张被切）',
+    failedCards >= 6 && fragmented === 0,
+    `失败卡=${failedCards} 被切断=${fragmented}`,
+  )
+
   // ④ #6 / #8：两套主题下「工作区与页面同底」+ 11 个栏目都有图标
   for (const theme of ['light', 'dark']) {
     await page.evaluate((t) => localStorage.setItem('flow:theme', t), theme)

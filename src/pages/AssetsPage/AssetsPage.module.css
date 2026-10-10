@@ -245,6 +245,13 @@
 /*
  * 失败卡（对账 #264）：没有产物可显示，所以不摆图 ——
  * 摆一个灰框只会让人以为"图没加载出来"。它要讲清的是"哪一次失败了"。
+ *
+ * ⚠️ **`break-inside: avoid` 不能漏**（对账 #421，用户 2026-10-10 #9 的图七）：
+ * 这一栏用的是 CSS 多列瀑布流，多列会把**放不进当前列**的块从中间切开、
+ * 后半截续到下一列的开头。图片卡 `.card` 一直有这一行，失败卡**漏了** ——
+ * 于是长提示词的失败卡被拦腰截断：卡里的时间行跑到上一列顶上，
+ * 提示词后半段出现在别的卡片旁边（用户截图里圈的就是它）。
+ * 探针 `scripts/probe-assets-failed-cards.mjs`：修前 6 张里 2 张被切，修后 0 张。
  */
 .failedCard {
   display: flex;
@@ -254,6 +261,7 @@
   border: var(--border);
   border-radius: var(--radius-node);
   background: var(--bg-surface);
+  break-inside: avoid;
 }
 
 .failedBadge {
