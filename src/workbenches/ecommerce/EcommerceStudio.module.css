@@ -310,15 +310,27 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: var(--space-1);
   min-height: 32px;
   padding: 0 var(--space-2);
 }
 
 .cellError {
+  /* 错误文字占满左侧，按钮靠右 —— 不要把按钮挤到看不见 */
+  flex: 1 1 auto;
   font-size: var(--fs-chip);
   color: var(--danger);
   text-align: left;
   word-break: break-word;
+}
+
+/* 单张操作（重跑 / 下载）：与错误文字同一行，跑着的那张按钮置灰 */
+.cellActions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
 }
 
 .confirm {

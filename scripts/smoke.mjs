@@ -22703,6 +22703,51 @@ async function g116(browser) {
     `出图=${setDone} 条数=${shotPrompts.length} 唯一=${new Set(shotPrompts).size} 标题=${shotTitles.join('/')}`,
   )
 
+  /**
+   * ⑤c **单张重跑**（对账 #384 的"每张都能单独处理"）。
+   *
+   * 放在套图断言**之后**：重跑会按引擎既有口径再产出一个承载节点（它带着同一句提示词），
+   * 先跑就会把上面那条"5 条各不相同"的计数搅乱 —— 那是测试顺序问题，不是功能问题。
+   *
+   * 判据取**整个项目的运行记录条数**（不是某一个节点）：引擎会把记录挂到**承载节点**上
+   * （`reducer.ts` 的 `node.runRecord.append` 注释写着"落位改到承载节点时两者可能不同"），
+   * 按源节点数会读到 1 → 1 的假红（第一次就是这么红的）。
+   */
+  const runCount = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const rows = await new Promise((resolve) => {
+        const r = db.transaction('runRecords', 'readonly').objectStore('runRecords').getAll()
+        r.onsuccess = () => resolve(r.result ?? [])
+        r.onerror = () => resolve([])
+      })
+      return rows.length
+    })
+  const runsBefore = await runCount()
+  rec(
+    g,
+    '★ 每张结果都有「重跑这一张」（单张重试，不必整批重来）',
+    (await page.locator('[data-ecommerce-rerun]').count()) >= 4,
+    `按钮=${await page.locator('[data-ecommerce-rerun]').count()}`,
+  )
+  await page.locator('[data-ecommerce-rerun]').first().click()
+  let runsAfter = runsBefore
+  for (let i = 0; i < 60; i += 1) {
+    runsAfter = await runCount()
+    if (runsAfter > runsBefore) break
+    await sleep(150)
+  }
+  rec(
+    g,
+    '★★ 点「重跑这一张」真的又跑了一趟（项目运行记录 +1，不必整批重来）',
+    runsAfter === runsBefore + 1,
+    `${runsBefore} → ${runsAfter}`,
+  )
+
   // ⑥ 在画布里打开：结果本来就是画布节点（这是"发送到画布"的落点）
   await sleep(1600) // 等防抖落库，免得画布那边读到空库
   await page.locator('[data-ecommerce-open-canvas]').click()

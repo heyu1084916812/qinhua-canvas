@@ -325,6 +325,14 @@ function StudioHost({ projectId }: { projectId: string }) {
               void downloadAsset({ assets: platform.assets, files: platform.files }, hash)
             }
           : undefined,
+        /**
+         * 只重跑这一张（对账 #384 的"每张都能单独处理"那条工作流）。
+         *
+         * 跑着 / 排队中的那张**不给按钮**（并发重跑同一节点没有意义，只会把状态搅乱）；
+         * 页面只负责转发到执行层，状态与失败原因仍由 `exec.nodeStateOf(id)` 单一来源回答。
+         */
+        onRerun:
+          status === 'running' || status === 'pending' ? undefined : () => exec.runNode(id),
       }
     })
   }, [exec, graph.nodes, nodeIds, platform])

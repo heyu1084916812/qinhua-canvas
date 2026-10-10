@@ -40,6 +40,13 @@ export interface EcommerceResultItem {
   preview?: ReactNode
   /** 下载出口；没有产物时为 undefined */
   onDownload?: () => void
+  /**
+   * **只重跑这一张**（页面注入；跑着的那张不给按钮）。
+   *
+   * 为什么值得单开一个入口：一套图里往往只有一两张不满意 —— 整批重来既慢又费额度。
+   * 失败的那张尤其需要它（失败原因就写在旁边，重试不必回头改参数）。
+   */
+  onRerun?: () => Promise<void> | void
 }
 
 export interface EcommerceStudioProps {
@@ -376,6 +383,7 @@ export function EcommerceStudio({
                 key={r.nodeId}
                 className={styles.cell}
                 data-ecommerce-result
+                data-ecommerce-result-id={r.nodeId}
                 data-status={r.status}
               >
                 <div className={styles.cellBody}>
@@ -388,17 +396,40 @@ export function EcommerceStudio({
                 <figcaption className={styles.cellFoot}>
                   {r.status === 'failed' ? (
                     <span className={styles.cellError}>{r.error ?? '失败（没有原因记录）'}</span>
-                  ) : (
-                    <button
-                      type="button"
-                      className={styles.linkBtn}
-                      disabled={!r.onDownload}
-                      data-ecommerce-download
-                      onClick={r.onDownload}
-                    >
-                      下载
-                    </button>
-                  )}
+                  ) : null}
+                  <span className={styles.cellActions}>
+                    {r.onRerun ? (
+                      <button
+                        type="button"
+                        className={styles.linkBtn}
+                        data-ecommerce-rerun
+                        disabled={r.status === 'running' || r.status === 'pending'}
+                        onClick={() => {
+                          /** 失败要说话：重跑抛错时把原因摆到表单上方那条错误行（与生成同一条出口） */
+                          void (async () => {
+                            try {
+                              await r.onRerun?.()
+                            } catch (err) {
+                              setError(err instanceof Error ? err.message : String(err))
+                            }
+                          })()
+                        }}
+                      >
+                        {r.status === 'running' || r.status === 'pending' ? '生成中…' : '重跑这一张'}
+                      </button>
+                    ) : null}
+                    {r.status !== 'failed' ? (
+                      <button
+                        type="button"
+                        className={styles.linkBtn}
+                        disabled={!r.onDownload}
+                        data-ecommerce-download
+                        onClick={r.onDownload}
+                      >
+                        下载
+                      </button>
+                    ) : null}
+                  </span>
                 </figcaption>
               </figure>
             ))}
