@@ -25647,7 +25647,110 @@ async function g133(browser) {
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
 }
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133]
+
+// ────────────────────────────────────────────────────────────
+// G134 电商详情页长图（对账 #420；#380b 长图结果区第一块）：
+//   详情页 3 张（3:4）→ 拼成 1920 宽的竖图（等比、首尾相接）→ canvas 尺寸可断言 → 真导出 PNG。
+// ────────────────────────────────────────────────────────────
+async function g134(browser) {
+  const g = 'G134 电商长图'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await sleep(500)
+
+  // ① 建电商项目 + 传产品图 + 详情页 3 张 / 3:4
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  await page.waitForSelector('[data-ecommerce-form]', { timeout: 8000 })
+  await page.locator('[data-ecommerce-product-input]').setInputFiles({
+    name: 'product.png',
+    mimeType: 'image/png',
+    buffer: solidPngBuffer(64, 64, [12, 200, 90]),
+  })
+  await sleep(1200)
+  await page.locator('[data-ecommerce-usage="detail"]').click()
+  await sleep(250)
+  await page.locator('[data-ecommerce-count]').fill('3')
+  await page.locator('[data-ecommerce-ratio]').selectOption('3:4')
+  await sleep(250)
+
+  // ② 生成（二次确认）→ 等 3 张完成
+  await page.locator('[data-ecommerce-generate]').click()
+  await sleep(400)
+  await page.locator('[data-ecommerce-confirm-ok]').click()
+  const done = await page
+    .waitForFunction(
+      () => document.querySelectorAll('[data-ecommerce-result][data-status="done"]').length >= 3,
+      null,
+      { timeout: 60000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★★ 详情页 3 张都出完了', done, `done=${done}`)
+
+  // ③ 拼成长图：3 张 3:4（mock 48×64）→ 1920 宽、每张 2560 高、总高 7680
+  await page.locator('[data-ecommerce-longimage-open]').click()
+  const ready = await page
+    .locator('[data-ecommerce-longimage][data-ready="true"]')
+    .waitFor({ state: 'visible', timeout: 30000 })
+    .then(() => true)
+    .catch(() => false)
+  const tiles = await page
+    .locator('[data-ecommerce-longimage-tiles]')
+    .getAttribute('data-ecommerce-longimage-tiles')
+  const sizeText = (await page.locator('[data-ecommerce-longimage-size]').innerText()).trim()
+  const canvasBox = await page.evaluate(() => {
+    const canvas = document.querySelector('[data-ecommerce-longimage-canvas]')
+    return canvas ? { w: canvas.width, h: canvas.height } : null
+  })
+  rec(
+    g,
+    '★★★ 长图按 1920 宽等比纵向拼合：3 张 3:4 ⇒ 1920×7680（每张 2560 高、首尾相接）',
+    ready && tiles === '3' && canvasBox?.w === 1920 && canvasBox?.h === 7680,
+    `ready=${ready} tiles=${tiles} size="${sizeText}" canvas=${JSON.stringify(canvasBox)}`,
+  )
+  rec(
+    g,
+    '★ 没有尺寸未知的（都出了图）⇒ 不显示"没拼进去"那行',
+    (await page.locator('[data-ecommerce-longimage-skipped]').count()) === 0,
+  )
+
+  // ④ 导出：文件名带尺寸，内容是真 PNG
+  const downloadPromise = page.waitForEvent('download', { timeout: 15000 })
+  await page.locator('[data-ecommerce-longimage-download]').click()
+  const download = await downloadPromise.catch(() => null)
+  let bytes = Buffer.alloc(0)
+  if (download) {
+    const filePath = await download.path()
+    bytes = filePath ? readFileSync(filePath) : Buffer.alloc(0)
+  }
+  const isPng =
+    bytes.length > 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+  rec(
+    g,
+    '★★★ 导出真 PNG：文件名 = 长图-1920x7680.png，内容是 PNG 字节（不是空文件）',
+    !!download && download.suggestedFilename() === '长图-1920x7680.png' && isPng && bytes.length > 2000,
+    `文件=${download ? download.suggestedFilename() : '无'} 字节=${bytes.length} PNG=${isPng}`,
+  )
+  const status = (await page.locator('[data-ecommerce-longimage-status]').innerText()).trim()
+  rec(g, '★ 状态行如实说导出结果', /已导出长图/.test(status), status)
+
+  // ⑤ 关闭面板
+  await page.locator('[data-ecommerce-longimage-close]').click()
+  await sleep(200)
+  rec(g, '★ 关闭后面板收起（不占地方）', (await page.locator('[data-ecommerce-longimage]').count()) === 0)
+
+  await page.screenshot({ path: `${OUT}/134-g134-long-image.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

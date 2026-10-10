@@ -1,0 +1,73 @@
+/* 详情页长图面板（对账 #420）：颜色只走 tokens.css 的变量。 */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg-surface);
+  border: var(--border);
+  border-radius: var(--radius-control);
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.title {
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+  color: var(--text-1);
+}
+
+.meta {
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.ghost {
+  height: 28px;
+  padding: 0 var(--space-3);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-chip);
+  background: var(--bg-canvas);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.canvasWrap {
+  max-height: 520px;
+  overflow: auto;
+  background: var(--bg-canvas);
+  border: var(--border);
+  border-radius: var(--radius-control);
+}
+
+.canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.warn {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--warn);
+}
+
+.empty,
+.status {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--text-3);
+}

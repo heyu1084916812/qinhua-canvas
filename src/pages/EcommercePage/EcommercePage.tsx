@@ -10,6 +10,7 @@ import {
 } from '../../workbenches/canvas/execution/CanvasExecutionProvider'
 import { useAsset } from '../../workbenches/canvas/hooks/useAsset'
 import { EcommerceStudio, type EcommerceResultItem, type EcommerceUpload } from '../../workbenches/ecommerce/EcommerceStudio'
+import { LongImagePanel, type LongImageTileSource } from './LongImagePanel'
 import { createProjectRepository } from '../../state/project/repository'
 import { createAssetNode, importAssetFile } from '../../features/canvas/importAsset'
 import { applyDefaults, resolveDefaults } from '../../features/canvas/createNodeWithDefaults'
@@ -173,6 +174,8 @@ function StudioHost({ projectId }: { projectId: string }) {
    * 渠道拉回来的裸模型名不进这个列表，理由见 `modelCatalog` 的注释（对账 #371）。
    */
   const [model, setModel] = useState('')
+  /** 长图面板开不开（对账 #420）：纯 UI 态，不落库 */
+  const [longOpen, setLongOpen] = useState(false)
   const models = useMemo(() => panelModelOptions('image'), [])
   /**
    * 平台清单 = 内置 + **扩展包带进来的规则**（对账 #386 的 E3）。
@@ -306,6 +309,16 @@ function StudioHost({ projectId }: { projectId: string }) {
       const node = graph.nodes.find((n) => n.id === id)
       const state = exec.nodeStateOf(id)
       const hash = node ? assetHashesOfNode(node)[0] : undefined
+      /** 产物真实像素（长图等比缩放要用）；节点没记就留 null —— 长图会跳过并如实报数 */
+      const sizeRaw = (node?.data as { naturalSize?: { width?: unknown; height?: unknown } } | undefined)
+        ?.naturalSize
+      const pixelSize =
+        typeof sizeRaw?.width === 'number' &&
+        typeof sizeRaw?.height === 'number' &&
+        sizeRaw.width > 0 &&
+        sizeRaw.height > 0
+          ? { width: sizeRaw.width, height: sizeRaw.height }
+          : null
       const status: EcommerceResultItem['status'] =
         state?.kind === 'failed'
           ? 'failed'
@@ -317,6 +330,8 @@ function StudioHost({ projectId }: { projectId: string }) {
       return {
         nodeId: id,
         status,
+        imageHash: hash,
+        pixelSize,
         error: state?.kind === 'failed' ? describeError(state.error) : undefined,
         preview: hash ? <ResultPreview hash={hash} /> : undefined,
         onDownload: hash
@@ -347,6 +362,28 @@ function StudioHost({ projectId }: { projectId: string }) {
     })
   }, [exec, graph.nodes, nodeIds, platform])
 
+  /**
+   * 长图拼合的输入（对账 #420）：只取**已完成且有真实像素**的。
+   *
+   * `results` 本身是 memo（依赖执行状态与图），空闲时引用稳定 ⇒ 长图不会每帧重画。
+   */
+  const longTiles = useMemo<LongImageTileSource[]>(
+    () =>
+      results.flatMap((r) =>
+        r.status === 'done' && r.imageHash && r.pixelSize
+          ? [
+              {
+                id: r.nodeId,
+                hash: r.imageHash,
+                width: r.pixelSize.width,
+                height: r.pixelSize.height,
+              },
+            ]
+          : [],
+      ),
+    [results],
+  )
+
   return (
     <EcommerceStudio
       projectName={projectName || '未命名项目'}
@@ -359,6 +396,10 @@ function StudioHost({ projectId }: { projectId: string }) {
       running={exec.isRunning}
       results={results}
       onOpenCanvas={() => navigate(projectRoute('canvas', projectId))}
+      onOpenLongImage={() => setLongOpen(true)}
+      longImage={
+        longOpen ? <LongImagePanel tiles={longTiles} onClose={() => setLongOpen(false)} /> : null
+      }
     />
   )
 }

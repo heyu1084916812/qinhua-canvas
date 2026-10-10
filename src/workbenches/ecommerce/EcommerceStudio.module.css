@@ -239,6 +239,13 @@
   gap: var(--space-3);
 }
 
+.headTools {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 .linkBtn {
   border: none;
   background: transparent;

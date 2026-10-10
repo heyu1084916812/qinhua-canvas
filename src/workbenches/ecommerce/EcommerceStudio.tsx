@@ -38,6 +38,15 @@ export interface EcommerceResultItem {
   /** 失败原因（`status === 'failed'` 时必须有 —— 不许静默） */
   error?: string
   preview?: ReactNode
+  /**
+   * 产物素材 hash（对账 #420）：长图拼合要靠它把像素画进一张 canvas。
+   *
+   * 与 `preview`（ReactNode）的分工：那个只给**单张**看；拼长图要的是 hash 本身。
+   * 没有产物（跑着 / 失败）时为空 —— 长图会把它跳过并如实报出来。
+   */
+  imageHash?: string
+  /** 产物的真实像素（长按等比缩放要用；未知就别拼，不许按"大概比例"塞高度） */
+  pixelSize?: { width: number; height: number } | null
   /** 下载出口；没有产物时为 undefined */
   onDownload?: () => void
   /**
@@ -79,6 +88,13 @@ export interface EcommerceStudioProps {
   results: readonly EcommerceResultItem[]
   /** 在画布里打开这个项目（结果已经是画布节点，这是"发送到画布"的落点） */
   onOpenCanvas: () => void
+  /**
+   * 「拼成长图」（对账 #420）：由页面注入 —— 长图要读素材字节（`loadAssetUrl`）与落盘
+   * （`files.saveFile`），那是**装配层**的活。不传就不渲染这个入口。
+   */
+  onOpenLongImage?: () => void
+  /** 长图面板本身（页面注入的 ReactNode）；为空就不渲染 */
+  longImage?: ReactNode
 }
 
 export function EcommerceStudio({
@@ -92,6 +108,8 @@ export function EcommerceStudio({
   running,
   results,
   onOpenCanvas,
+  onOpenLongImage,
+  longImage,
 }: EcommerceStudioProps) {
   const [usage, setUsage] = useState<EcommerceUsage>('main')
   const [platformId, setPlatformId] = useState<string>('amazon')
@@ -372,14 +390,28 @@ export function EcommerceStudio({
       <section className={styles.results} data-ecommerce-results>
         <header className={styles.resultsHead}>
           <span className={styles.blockTitle}>结果</span>
-          <button
-            type="button"
-            className={styles.linkBtn}
-            data-ecommerce-open-canvas
-            onClick={onOpenCanvas}
-          >
-            在画布里打开
-          </button>
+          <span className={styles.headTools}>
+            {onOpenLongImage ? (
+              <button
+                type="button"
+                className={styles.linkBtn}
+                data-ecommerce-longimage-open
+                disabled={!results.some((r) => r.status === 'done' && r.imageHash)}
+                title="把这一批已完成的图按 1920 宽等比拼成一张详情页长图"
+                onClick={onOpenLongImage}
+              >
+                拼成长图
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={styles.linkBtn}
+              data-ecommerce-open-canvas
+              onClick={onOpenCanvas}
+            >
+              在画布里打开
+            </button>
+          </span>
         </header>
         {results.length === 0 ? (
           <p className={styles.empty} data-ecommerce-empty>
@@ -465,6 +497,7 @@ export function EcommerceStudio({
             ))}
           </div>
         )}
+        {longImage}
       </section>
 
       {/* 付费确认（D6）：先报"预计 N 张"，确认后才发请求 */}
