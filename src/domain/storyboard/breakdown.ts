@@ -2,6 +2,8 @@ import { createId } from '../../shared/id'
 import type { Channel } from '../project/channel'
 import { toLogicalName } from '../project/modelCatalog'
 import { extractAssets, resolveDraftBindings, type DraftAsset } from './assets'
+import { episodeSourceText } from './episodes'
+import { extractJsonBlock } from './jsonBlock'
 import {
   DEFAULT_SHOT_SECONDS,
   normalizeShotOrder,
@@ -80,16 +82,28 @@ export function buildBreakdownSystem(skillBody?: string): string {
 export function breakdownText(doc: StoryboardDoc, episode: StoryboardEpisode): string {
   const lines = [`这一集：${episode.title || '未命名一集'}`]
   if (episode.summary.trim()) lines.push(`本集梗概：${episode.summary.trim()}`)
-  const body = doc.script.body.trim()
-  lines.push(body ? `剧本：\n${body}` : '剧本：\n（用户没有写剧本正文，只有上面这一条梗概。）')
+  if (episode.hookOpen?.trim()) lines.push(`开场钩子：${episode.hookOpen.trim()}`)
+  if (episode.hookEnd?.trim()) lines.push(`结尾钩子：${episode.hookEnd.trim()}`)
+  /**
+   * 素材优先级：**这一集的原文**（拆集给的范围）> 剧本正文。
+   * 拆过集的片子必须只看自己那一段 —— 拿全篇去拆某一集，模型会把别集的角色写进来。
+   */
+  const source = episodeSourceText(doc, episode).trim()
+  if (source) {
+    lines.push(`原文（这一集对应的那一段）：\n${source}`)
+  } else {
+    const body = doc.script.body.trim()
+    lines.push(body ? `剧本：\n${body}` : '剧本：\n（用户没有写剧本正文，只有上面这一条梗概。）')
+  }
   return lines.join('\n')
 }
 
 /** 点击「拆解」之前的守卫：返回不能拆的原因，或 null（可以拆） */
 export function breakdownGuard(doc: StoryboardDoc, episode: StoryboardEpisode | null): string | null {
   if (!episode) return '先加一集，再拆这一集的分镜'
-  if (!doc.script.body.trim() && !episode.summary.trim()) {
-    return '这一集还没有内容可拆：先在左边写剧本正文，或在这一集写「这一集要讲什么」'
+  const hasSource = episodeSourceText(doc, episode).trim().length > 0
+  if (!hasSource && !doc.script.body.trim() && !episode.summary.trim()) {
+    return '这一集还没有内容可拆：先在左边写原文 / 剧本正文，或在这一集写「这一集要讲什么」'
   }
   return null
 }
@@ -116,67 +130,11 @@ export type BreakdownParse =
     }
   | { ok: false; error: string }
 
-/** 从第一个 `open` 起按**字符串感知**的括号计数切出完整片段（别把 scene 里的 `}` 当结尾） */
-function firstBalanced(text: string, open: string, close: string): string | null {
-  const start = text.indexOf(open)
-  if (start < 0) return null
-  let depth = 0
-  let inString = false
-  let escaped = false
-  for (let i = start; i < text.length; i += 1) {
-    const ch = text[i]!
-    if (inString) {
-      if (escaped) escaped = false
-      else if (ch === '\\') escaped = true
-      else if (ch === '"') inString = false
-      continue
-    }
-    if (ch === '"') inString = true
-    else if (ch === open) depth += 1
-    else if (ch === close) {
-      depth -= 1
-      if (depth === 0) return text.slice(start, i + 1)
-    }
-  }
-  return null
-}
-
 /**
- * 从模型的回复里**挖出 JSON**（容忍代码块、前后的解释、以及裸数组）。
- *
- * 不做"把中文标点替换成英文"这类改写：那会把「模型没按契约来」这件事藏起来，
- * 而这一条链路的失败**必须让用户看见**（宁可报错重试，也不要一份悄悄变形的分镜）。
+ * 容错挖 JSON 的实现搬到了 `jsonBlock.ts`（拆集 #417 也要用它，那边 import 这份）。
+ * 这里**原样再导出**：既有调用方与单测的 import 路径零改动。
  */
-export function extractJsonBlock(raw: string): unknown | null {
-  const text = (raw ?? '').trim()
-  if (!text) return null
-  const candidates: string[] = []
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text)
-  if (fenced?.[1]) candidates.push(fenced[1].trim())
-  candidates.push(text)
-  for (const candidate of candidates) {
-    /**
-     * 先按**内容的第一个括号**决定试哪种切片。
-     *
-     * 顺序固定成「先 `{}` 再 `[]`」会踩到一个真错：裸数组 `[{"scene":"一镜"}]` 里
-     * 第一个 `{` 也能配平，于是会冤枉地返回**内层对象**，解析器再报「没有 shots」——
-     * 明明模型给的就是一份能用的数组。判据要跟着内容走，别跟着代码顺序走。
-     */
-    const head = candidate.trimStart()[0]
-    const order: readonly (readonly [string, string])[] =
-      head === '[' ? [['[', ']'], ['{', '}']] : [['{', '}'], ['[', ']']]
-    for (const [open, close] of order) {
-      const slice = firstBalanced(candidate, open, close)
-      if (!slice) continue
-      try {
-        return JSON.parse(slice) as unknown
-      } catch {
-        /* 这个候选切出来不是合法 JSON：试下一种 */
-      }
-    }
-  }
-  return null
-}
+export { extractJsonBlock } from './jsonBlock'
 
 const asText = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
 

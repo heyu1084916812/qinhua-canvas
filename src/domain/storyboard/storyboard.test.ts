@@ -29,6 +29,7 @@ import {
   updateScene,
   updateScript,
   updateShot,
+  updateSourceText,
   type StoryboardDoc,
 } from './storyboard'
 
@@ -446,5 +447,69 @@ describe('角色 / 场景资产库', () => {
     doc = toggleShotCharacter(doc, shotId, doc.characters[0]!.id, 1)
     const full = exportStoryboardMarkdown(doc)
     expect(full).toContain('| 1 | 雨夜的街道 | 雨夜街道 | 林轩 |')
+  })
+})
+
+/**
+ * 原文与溯源（对账 #417）：`sourceText` + 集的 `sourceRange` / 两个钩子。
+ *
+ * 溯源是"用户校对 LLM 产出的唯一抓手"（调研稿 §6.1 取舍表），所以：
+ * 脏范围宁可当没有，也不猜一个 —— 错的范围比没有范围更坏（导出里印着错的行号）。
+ */
+describe('原文与溯源', () => {
+  it('updateSourceText：文本没变返回原引用（调用方据此不做多余落库）', () => {
+    const doc = emptyStoryboard('p1')
+    expect(updateSourceText(doc, '', 1)).toBe(doc)
+    const next = updateSourceText(doc, '雨。', 2)
+    expect(next.sourceText).toBe('雨。')
+    expect(next.updatedAt).toBe(2)
+  })
+
+  it('★ 读回：sourceText / sourceRange / 两个钩子都在；脏范围（from≥to、非数字）丢掉', () => {
+    const doc = parseStoryboard(
+      {
+        sourceText: '原文若干',
+        episodes: [
+          {
+            id: 'e1',
+            title: '一',
+            summary: 's',
+            sourceRange: { from: 0, to: 4 },
+            hookOpen: '开场',
+            hookEnd: '结尾',
+          },
+          { id: 'e2', title: '二', summary: '', sourceRange: { from: 9, to: 3 } },
+          { id: 'e3', title: '三', summary: '', sourceRange: { from: 'x', to: 'y' } },
+        ],
+        shots: [],
+      },
+      'p1',
+    )
+    expect(doc.sourceText).toBe('原文若干')
+    expect(doc.episodes[0]!.sourceRange).toEqual({ from: 0, to: 4 })
+    expect(doc.episodes[0]!.hookOpen).toBe('开场')
+    expect('sourceRange' in doc.episodes[1]!).toBe(false)
+    expect('sourceRange' in doc.episodes[2]!).toBe(false)
+  })
+
+  it('★ 导出带上原文范围与两个钩子（交出去的表格里也能对上原文）', () => {
+    let doc = emptyStoryboard('p1')
+    doc = addEpisode(doc, 1)
+    doc = updateEpisode(doc, doc.episodes[0]!.id, { title: '雨夜', summary: '梗概' }, 1)
+    doc = {
+      ...doc,
+      episodes: [
+        {
+          ...doc.episodes[0]!,
+          sourceRange: { from: 0, to: 120 },
+          hookOpen: '开场钩子',
+          hookEnd: '结尾钩子',
+        },
+      ],
+    }
+    const md = exportStoryboardMarkdown(doc)
+    expect(md).toContain('> 原文第 1–120 字')
+    expect(md).toContain('> 开场钩子：开场钩子')
+    expect(md).toContain('> 结尾钩子：结尾钩子')
   })
 })

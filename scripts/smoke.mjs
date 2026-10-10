@@ -25024,7 +25024,256 @@ async function g130(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130]
+// ────────────────────────────────────────────────────────────
+// G131 漫剧拆集（对账 #417；调研稿 M7-2）：
+//   章节标记切分 → 模型命名（条数对不上整批回落）→ 字数兜底 → 替换要两下确认（含镜头）
+//   → 坏回复也能先按结构落地 → 刷新读回 → **拆镜只用这一集的原文**（剧本正文一个字没写）。
+// ────────────────────────────────────────────────────────────
+async function g131(browser) {
+  const g = 'G131 漫剧拆集'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const episodes = page.locator('[data-storyboard-episode]')
+  const sourceBox = page.locator('[data-storyboard-source-text]')
+  const splitRun = page.locator('[data-storyboard-split-run]')
+  const splitStatus = (kind) => page.locator(`[data-storyboard-split-status="${kind}"]`)
+  const shots = page.locator('[data-storyboard-shot]')
+
+  const NOVEL = [
+    '第一章 雨夜',
+    '雨下了整晚。骑手把最后一单塞进保温箱，冲进雨里。',
+    '',
+    '第二章 十五楼',
+    '电梯停在十五楼。门缝里透出暖光，却没人应门。',
+    '',
+    '第三章 收尾',
+    '第二天清早，收货人终于回了消息：昨晚睡着了。',
+  ].join('\n')
+
+  /** 读库里的漫剧文档（原文 / 分集 / 镜头） */
+  const readDoc = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const rows = await new Promise((resolve) => {
+        const r = db.transaction('storyboards', 'readonly').objectStore('storyboards').getAll()
+        r.onsuccess = () => resolve(r.result ?? [])
+        r.onerror = () => resolve([])
+      })
+      const doc = rows[0]?.doc
+      return {
+        sourceText: doc?.sourceText ?? '',
+        episodes: (doc?.episodes ?? []).map((e) => ({
+          id: e.id,
+          title: e.title,
+          summary: e.summary ?? '',
+          hookOpen: e.hookOpen ?? '',
+          hookEnd: e.hookEnd ?? '',
+          sourceRange: e.sourceRange ?? null,
+        })),
+        shots: (doc?.shots ?? []).map((s) => s.id),
+      }
+    })
+
+  /** 等防抖把这一改真写下去（整页卸载会吃掉排队中的写） */
+  const waitSaved = () =>
+    page
+      .waitForFunction(
+        () => document.querySelector('[data-storyboard-status]')?.textContent?.includes('已保存') ?? false,
+        null,
+        { timeout: 8000 },
+      )
+      .catch(() => {})
+
+  // ① 建项目 + 粘三章小说
+  await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-storyboard-create]').click()
+  await page.waitForURL(/\/storyboard\/proj_/)
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  const projectUrl = page.url()
+  await sourceBox.fill(NOVEL)
+  await waitSaved()
+  rec(
+    g,
+    '★ 没配对话模型时如实说明：也能拆，只是标题用章节名',
+    /也能拆/.test(await page.locator('[data-storyboard-split-hint]').innerText()),
+    (await page.locator('[data-storyboard-split-hint]').innerText()).trim(),
+  )
+
+  // ② 没配模型也拆得动：按章节标记
+  await splitRun.click()
+  const done1 = await splitStatus('done')
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
+  const titles1 = await page
+    .locator('[data-storyboard-episode-name]')
+    .evaluateAll((els) => els.map((e) => e.value))
+  rec(
+    g,
+    '★★★ 按章节标记拆出 3 集，标题就是章节名（切分不依赖模型）',
+    done1 && (await episodes.count()) === 3 && titles1.join('|') === '第一章 雨夜|第二章 十五楼|第三章 收尾',
+    `集=${await episodes.count()} 标题=${titles1.join('/')}`,
+  )
+
+  // ③ 每集带原文范围：连续、覆盖全文，并且行上看得见
+  await sleep(700)
+  const doc1 = await readDoc()
+  const ranges = doc1.episodes.map((e) => e.sourceRange)
+  const contiguous =
+    ranges.every((r) => r && r.to > r.from) &&
+    ranges[0].from === 0 &&
+    ranges[ranges.length - 1].to === NOVEL.length &&
+    ranges.every((r, i) => i === 0 || r.from === ranges[i - 1].to)
+  rec(
+    g,
+    '★★ 三集各自记着原文范围（连续覆盖全文），行上显示「原文 a–b 字」',
+    (await page.locator('[data-storyboard-episode-range]').count()) === 3 && contiguous,
+    JSON.stringify(ranges),
+  )
+
+  // ④ 配 mock 对话渠道 → 再拆一次（两下确认）→ 模型命名落库
+  await configureMockChannel(page)
+  await sleep(500)
+  await page.goto(projectUrl, { waitUntil: 'networkidle' })
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  await sleep(500)
+  await splitRun.click()
+  await sleep(250)
+  const confirmLabel = (await splitRun.innerText()).trim()
+  rec(
+    g,
+    '★ 已有分集时第一下只做二次确认（按钮写明会替换几集 / 含几镜）',
+    /再点一次/.test(confirmLabel) && /3\s*集/.test(confirmLabel),
+    confirmLabel,
+  )
+  await splitRun.click()
+  const done2 = await splitStatus('done')
+    .waitFor({ state: 'visible', timeout: 20000 })
+    .then(() => true)
+    .catch(() => false)
+  await sleep(700)
+  const doc2 = await readDoc()
+  rec(
+    g,
+    '★★★ 模型命名落到集上：标题 / 梗概 / 两个钩子都写进库',
+    done2 &&
+      doc2.episodes.length === 3 &&
+      doc2.episodes.every((e) => /模型命名/.test(e.title) && e.summary.length > 0 && e.hookOpen && e.hookEnd),
+    JSON.stringify(doc2.episodes.map((e) => ({ t: e.title, s: e.summary.slice(0, 8), o: e.hookOpen }))),
+  )
+
+  // ⑤ 无标记的长文按字数兜底（3200 字 → 3 集）
+  const longText = '雨一直下。'.repeat(640)
+  await sourceBox.fill(longText)
+  await waitSaved()
+  await splitRun.click()
+  await sleep(200)
+  await splitRun.click()
+  const done3 = await splitStatus('done')
+    .waitFor({ state: 'visible', timeout: 20000 })
+    .then(() => true)
+    .catch(() => false)
+  await sleep(700)
+  const doc3 = await readDoc()
+  rec(
+    g,
+    '★★ 无标记的长文按字数兜底（3200 字 → 3 集，范围连续）',
+    done3 &&
+      doc3.episodes.length === 3 &&
+      doc3.episodes[0].sourceRange.from === 0 &&
+      doc3.episodes[doc3.episodes.length - 1].sourceRange.to === longText.length,
+    `集=${doc3.episodes.length} 范围=${JSON.stringify(doc3.episodes.map((e) => e.sourceRange))}`,
+  )
+
+  // ⑥ 模型回的不是 JSON：结构拆照跑，只是没名字（如实写在状态行里）
+  await sourceBox.fill('坏拆集。'.repeat(300))
+  await waitSaved()
+  await splitRun.click()
+  await sleep(200)
+  await splitRun.click()
+  const done4 = await splitStatus('done')
+    .waitFor({ state: 'visible', timeout: 20000 })
+    .then(() => true)
+    .catch(() => false)
+  const status4 = done4 ? (await splitStatus('done').innerText()).trim() : ''
+  await sleep(700)
+  const doc4 = await readDoc()
+  rec(
+    g,
+    '★★★ 模型没按契约返回：集照样按结构拆出来，状态行如实说"标题用结构值"',
+    done4 && doc4.episodes.length === 1 && /没按契约/.test(status4),
+    `状态="${status4}" 集=${doc4.episodes.length}`,
+  )
+
+  // ⑦ 替换会把镜头一起清掉 —— 按钮第二下之前已经把"含 N 镜"说出来
+  await page.locator('[data-storyboard-add-shot]').click()
+  await sleep(400)
+  await waitSaved()
+  rec(g, '★ 先给这一集加一镜（下一步要验替换的破坏范围）', (await shots.count()) === 1, `镜=${await shots.count()}`)
+  await splitRun.click()
+  await sleep(250)
+  const confirmWithShot = (await splitRun.innerText()).trim()
+  rec(
+    g,
+    '★★ 确认按钮如实报出会连带清掉的镜头数',
+    /再点一次/.test(confirmWithShot) && /1\s*镜/.test(confirmWithShot),
+    confirmWithShot,
+  )
+  await splitRun.click()
+  const done5 = await splitStatus('done')
+    .waitFor({ state: 'visible', timeout: 20000 })
+    .then(() => true)
+    .catch(() => false)
+  await sleep(700)
+  rec(
+    g,
+    '★★★ 第二下之后镜头真的被清（集换了，旧镜头没有归属）',
+    done5 && (await shots.count()) === 0 && (await readDoc()).shots.length === 0,
+    `镜=${await shots.count()}`,
+  )
+
+  // ⑧ 刷新读回 + **拆镜只用这一集的原文**（剧本正文一个字没写）
+  await waitSaved()
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  await sleep(600)
+  rec(
+    g,
+    '★★ 刷新后原文 / 分集 / 范围都还在',
+    (await sourceBox.inputValue()).length > 0 && (await episodes.count()) >= 1,
+    `原文=${(await sourceBox.inputValue()).length} 字 集=${await episodes.count()}`,
+  )
+  rec(
+    g,
+    '★ 剧本正文是空的（这一组从没写过它，拆镜只可能靠这一集的原文）',
+    (await page.locator('[data-storyboard-script-body]').inputValue()) === '',
+  )
+  await page.locator('[data-storyboard-breakdown-run]').click()
+  const brokeDown = await page
+    .locator('[data-storyboard-breakdown-status="done"]')
+    .waitFor({ state: 'visible', timeout: 20000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(
+    g,
+    '★★★ 从"原文 → 拆集 → 拆镜"一路走通：拆出 3 镜（没有写过任何剧本正文）',
+    brokeDown && (await shots.count()) === 3,
+    `镜=${await shots.count()}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/131-g131-split.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

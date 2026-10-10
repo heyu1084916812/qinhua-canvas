@@ -5,6 +5,7 @@ import { clampCount } from '../../domain/shared/capability'
 import { imageInputsOf } from '../../domain/shared/execution/inputs'
 import { imageSizeFromHeader } from '../../domain/shared/imageSize'
 import { BREAKDOWN_MARKER } from '../../domain/storyboard/breakdown'
+import { SPLIT_MARKER } from '../../domain/storyboard/episodes'
 import { solidPng } from './mockPng'
 import type { SafeChannelConfig } from '../ports'
 import {
@@ -334,6 +335,30 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
                 locationNames: ['老楼楼道'],
               },
             ],
+          }),
+        }
+      }
+      /**
+       * **小说拆集**（对账 #417）：系统指令带「【拆集】输出契约」时，回一份条数与
+       * 用户给的段数**完全一致**的 JSON —— 条数对不上本来就是"整批回落"的判据，
+       * 夹具要先把"听话的那条路"造出来，冒烟才能验模型命名有没有落到界面上。
+       *
+       * 段数从用户消息里的 `【第 N 段】` 数出来（这条消息由 `buildSplitText` 生成）。
+       * 用户原文里带「坏拆集」时回一段不是 JSON 的话，用来验**结构切分照跑、只是没名字**。
+       */
+      if (asked.includes(SPLIT_MARKER)) {
+        if (asked.includes('坏拆集')) {
+          return { text: '好的，我按章节拆好了（这一段故意不是 JSON）。' }
+        }
+        const count = (asked.match(/【第 \d+ 段】/g) ?? []).length || 1
+        return {
+          text: JSON.stringify({
+            episodes: Array.from({ length: count }, (_, i) => ({
+              title: `第 ${i + 1} 集 · 模型命名`,
+              summary: `第 ${i + 1} 集梗概：主角在这一集遇到麻烦并留下一个悬念（mock）。`,
+              hookOpen: `第 ${i + 1} 集开场钩子`,
+              hookEnd: `第 ${i + 1} 集结尾钩子`,
+            })),
           }),
         }
       }

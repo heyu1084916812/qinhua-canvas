@@ -119,6 +119,24 @@ describe('breakdownGuard / breakdownText', () => {
     const text = breakdownText(doc, { id: 'ep1', title: '第一集', summary: '' })
     expect(text).toContain('剧本：\n雨。十五楼。')
   })
+
+  it('★★ 拆过集的片子：优先喂**这一集的原文**（不是整份剧本正文）', () => {
+    const doc = {
+      ...emptyStoryboard('p1'),
+      sourceText: '第一段原文。第二段原文。',
+      script: { title: 'x', logline: '', body: '这是全篇剧本正文，不该喂给某一集' },
+    }
+    const text = breakdownText(doc, {
+      id: 'ep1',
+      title: '第一集',
+      summary: '',
+      sourceRange: { from: 0, to: 6 },
+      hookOpen: '她一进门就看见血',
+    })
+    expect(text).toContain('原文（这一集对应的那一段）：\n第一段原文。')
+    expect(text).toContain('开场钩子：她一进门就看见血')
+    expect(text).not.toContain('这是全篇剧本正文')
+  })
 })
 
 describe('extractJsonBlock / parseBreakdownReply', () => {

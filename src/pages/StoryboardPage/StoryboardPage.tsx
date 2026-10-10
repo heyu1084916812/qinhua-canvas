@@ -29,6 +29,15 @@ import {
   replaceEpisodeShots,
   resolveChatTarget,
 } from '../../domain/storyboard/breakdown'
+import {
+  applySplit,
+  buildSplitSystem,
+  buildSplitText,
+  parseSplitReply,
+  planSplitBatches,
+  splitSource,
+  type EpisodeEnrichment,
+} from '../../domain/storyboard/episodes'
 import { asAppError, describeError } from '../../shared/result'
 import {
   addCharacter,
@@ -55,6 +64,7 @@ import {
   updateScene,
   updateScript,
   updateShot,
+  updateSourceText,
   type DramaAsset,
   type DramaCharacter,
   type DramaScene,
@@ -216,12 +226,20 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     kind: 'idle',
     text: '',
   })
+  /** 拆集（#417）的状态行与二次确认；也各自独立 */
+  const [split, setSplit] = useState<{ kind: 'idle' | 'running' | 'done' | 'error'; text: string }>({
+    kind: 'idle',
+    text: '',
+  })
+  const [splitConfirm, setSplitConfirm] = useState(false)
+  const splitAbort = useRef<AbortController | null>(null)
   /** 异步回来的那一拍要拿**最新的**文档打底（跑的过程中用户可能又改了字） */
   const docRef = useRef<StoryboardDoc | null>(null)
   docRef.current = doc
   useEffect(
     () => () => {
       breakAbort.current?.abort()
+      splitAbort.current?.abort()
     },
     [],
   )
@@ -384,6 +402,96 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     }
     apply(kind === 'char' ? removeCharacter(doc, id, 0) : removeScene(doc, id, 0))
     setConfirming('')
+  }
+
+  /**
+   * 「拆成多集」（对账 #417；调研稿 M7-2）。
+   *
+   * 分工是刻意的：**切分点由结构决定，模型只起名**。
+   * - 没配对话模型 ⇒ 照样拆（章节标记 / 字数兜底都是确定性的），只是标题用结构值；
+   * - 模型回错 / 超时 ⇒ **先落地结构切分**再如实报错 —— 切分不该因为模型挂了就一集都拆不出来；
+   * - 已有分集 ⇒ 两下确认，第二下说清"会替换 N 集（含 M 个镜头）"（`applySplit` 会清镜头）。
+   */
+  const runSplit = async () => {
+    if (split.kind === 'running') return
+    const chunks = splitSource(doc.sourceText)
+    if (chunks.length === 0) {
+      setSplit({ kind: 'error', text: '还没有原文可拆：先把小说 / 大纲粘进上面的「原文」' })
+      setSplitConfirm(false)
+      return
+    }
+    if (doc.episodes.length > 0 && !splitConfirm) {
+      setSplitConfirm(true)
+      setSplit({ kind: 'idle', text: '' })
+      return
+    }
+    setSplitConfirm(false)
+    if (!chatTarget) {
+      apply(applySplit(doc, chunks, null, 0))
+      setSplit({
+        kind: 'done',
+        text: `按结构拆出 ${chunks.length} 集（没配对话模型，标题用章节名 / 第 N 集）`,
+      })
+      return
+    }
+    const ac = new AbortController()
+    splitAbort.current = ac
+    setSplit({ kind: 'running', text: '' })
+    try {
+      const batches = planSplitBatches(chunks)
+      const enrichment: EpisodeEnrichment[] = []
+      let named = 0
+      for (let i = 0; i < batches.length; i += 1) {
+        const batch = batches[i]!
+        const result = await channels.completeWithTools({
+          channelId: chatTarget.channelId,
+          model: chatTarget.model,
+          tools: [],
+          messages: [
+            { role: 'system', content: buildSplitSystem() },
+            { role: 'user', content: buildSplitText(batch, i, batches.length) },
+          ],
+          signal: ac.signal,
+        })
+        if (ac.signal.aborted) return
+        const parsed = parseSplitReply(result.text, batch.length)
+        if (parsed) {
+          enrichment.push(...parsed)
+          named += parsed.length
+        } else {
+          /* 这一批没按契约来：整批回落结构标题（不硬对，免得标题整体错位） */
+          for (let k = 0; k < batch.length; k += 1) {
+            enrichment.push({ title: '', summary: '', hookOpen: '', hookEnd: '' })
+          }
+        }
+      }
+      const base = docRef.current
+      if (!base) return
+      apply(applySplit(base, chunks, enrichment, 0))
+      setSplit({
+        kind: 'done',
+        text:
+          named === chunks.length
+            ? `已拆出 ${chunks.length} 集（标题 / 梗概 / 钩子由模型给）`
+            : named === 0
+              ? `已拆出 ${chunks.length} 集 —— 模型这次没按契约返回，标题用章节名 / 第 N 集`
+              : `已拆出 ${chunks.length} 集（${named} 集有模型命名，其余用结构标题）`,
+      })
+    } catch (e) {
+      if (ac.signal.aborted) return
+      const base = docRef.current ?? doc
+      apply(applySplit(base, chunks, null, 0))
+      setSplit({ kind: 'error', text: `${humanError(e)} —— 已按结构先拆出 ${chunks.length} 集` })
+    } finally {
+      if (splitAbort.current === ac) splitAbort.current = null
+    }
+  }
+
+  const cancelSplit = () => {
+    splitAbort.current?.abort()
+    splitAbort.current = null
+    setSplit({ kind: 'idle', text: '' })
+    setSplitConfirm(false)
   }
 
   const removeOneShot = (id: string) => {
@@ -597,6 +705,65 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
 
       <div className={styles.body}>
         <section className={styles.left} aria-label="剧本与分集">
+          {/**
+           * 原文（对账 #417）：拆集的输入。它与「剧本」是两回事 ——
+           * 原文是素材（小说 / 大纲，粘进来就是），剧本是可以自己改的中间产物。
+           * 拆过集之后，拆镜优先喂**这一集对应的那一段原文**（不是整篇剧本）。
+           */}
+          <div className={styles.block}>
+            <div className={styles.blockHead}>
+              <h2 className={styles.blockTitle}>原文（小说 / 大纲）</h2>
+              <div className={styles.headTools}>
+                {split.kind === 'running' ? (
+                  <button
+                    type="button"
+                    className={styles.ghost}
+                    data-storyboard-split-cancel
+                    onClick={cancelSplit}
+                  >
+                    取消
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className={styles.ghost}
+                  data-storyboard-split-run
+                  disabled={split.kind === 'running'}
+                  onClick={() => void runSplit()}
+                >
+                  {splitConfirm
+                    ? `再点一次：替换这 ${doc.episodes.length} 集（含 ${doc.shots.length} 镜）`
+                    : '拆成多集'}
+                </button>
+              </div>
+            </div>
+            <textarea
+              className={styles.textarea}
+              rows={7}
+              value={doc.sourceText}
+              placeholder="把小说 / 大纲粘进来。有「第一章 / 楔子 / Chapter 1」这类标记就按标记切，没有就按字数兜底"
+              data-storyboard-source-text
+              onChange={(e) => {
+                setSplitConfirm(false)
+                apply(updateSourceText(doc, e.target.value, 0))
+              }}
+            />
+            <p className={styles.hint} data-storyboard-split-hint>
+              {chatTarget
+                ? `会用 ${chatTarget.label} 起名 / 写梗概；条数对不上就回落章节名`
+                : '还没配对话模型也能拆：按结构切分，标题用章节名 / 第 N 集'}
+            </p>
+            {split.kind !== 'idle' ? (
+              <p
+                className={split.kind === 'error' ? styles.error : styles.hint}
+                role="status"
+                data-storyboard-split-status={split.kind}
+              >
+                {split.kind === 'running' ? '正在拆集…' : split.text}
+              </p>
+            ) : null}
+          </div>
+
           <div className={styles.block}>
             <h2 className={styles.blockTitle}>剧本</h2>
             <label className={styles.field}>
@@ -671,6 +838,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                             apply(updateEpisode(doc, episode.id, { title: e.target.value }))
                           }
                         />
+                        {episode.sourceRange ? (
+                          <span className={styles.itemMeta} data-storyboard-episode-range={episode.id}>
+                            原文 {episode.sourceRange.from + 1}–{episode.sourceRange.to} 字
+                          </span>
+                        ) : null}
                         <span className={styles.itemMeta}>{shotsOf(doc, episode.id).length} 镜</span>
                       </div>
                       <div className={styles.itemTools}>
@@ -819,6 +991,32 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                     }
                   />
                 </label>
+                <div className={styles.row2}>
+                  <label className={styles.field}>
+                    <span className={styles.label}>开场钩子</span>
+                    <input
+                      className={styles.input}
+                      value={selected.hookOpen ?? ''}
+                      placeholder="开场抓人的那一句"
+                      data-storyboard-episode-hook-open={selected.id}
+                      onChange={(e) =>
+                        apply(updateEpisode(doc, selected.id, { hookOpen: e.target.value }))
+                      }
+                    />
+                  </label>
+                  <label className={styles.field}>
+                    <span className={styles.label}>结尾钩子</span>
+                    <input
+                      className={styles.input}
+                      value={selected.hookEnd ?? ''}
+                      placeholder="结尾留的那一钩"
+                      data-storyboard-episode-hook-end={selected.id}
+                      onChange={(e) =>
+                        apply(updateEpisode(doc, selected.id, { hookEnd: e.target.value }))
+                      }
+                    />
+                  </label>
+                </div>
               </div>
 
               <div className={styles.block}>

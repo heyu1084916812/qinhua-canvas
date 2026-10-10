@@ -50,6 +50,18 @@ export interface StoryboardEpisode {
   id: string
   title: string
   summary: string
+  /**
+   * 这一集对应**原文的哪一段**（`sourceText` 的字符区间，左闭右开）。
+   *
+   * 拆集（#417）时写上：它既是"用户校对 LLM 产出的唯一抓手"（调研稿 §6.1 取舍表），
+   * 也是拆镜时喂给模型的**准确输入**（比整个剧本正文准得多）。
+   * 手写的集没有它 —— 那就回落剧本正文，两条路都留着。
+   */
+  sourceRange?: { from: number; to: number }
+  /** 开场钩子（一句话；调研稿 §3.1 说的"合理的集"的可操作定义） */
+  hookOpen?: string
+  /** 结尾钩子（同上） */
+  hookEnd?: string
 }
 
 export interface StoryboardShot {
@@ -92,6 +104,14 @@ export interface StoryboardShot {
 
 export interface StoryboardDoc {
   projectId: string
+  /**
+   * **原文**（小说 / 大纲，粘贴进来的那一份）：拆集（#417）的输入。
+   *
+   * 与 `script.body` 的分工：这个是"素材原文"，`script.body` 是"剧本"。
+   * 调研稿 §9 的开放问题 #7（是否落库）这里按 (a) 办 —— 存，代价是体积，
+   * 换到的是**能重跑拆集**与"点分镜看原文"的能力（后者还没做）。
+   */
+  sourceText: string
   script: StoryboardScript
   /** 角色库（项目级、跨集复用） */
   characters: DramaCharacter[]
@@ -106,6 +126,7 @@ export interface StoryboardDoc {
 export function emptyStoryboard(projectId: string, now = 0): StoryboardDoc {
   return {
     projectId,
+    sourceText: '',
     script: { title: '未命名漫剧', logline: '', body: '' },
     characters: [],
     scenes: [],
@@ -153,7 +174,22 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
     const row = e as Record<string, unknown>
     const id = text(row.id)
     if (!id) return []
-    return [{ id, title: text(row.title) || '未命名一集', summary: text(row.summary) }]
+    const hookOpen = text(row.hookOpen)
+    const hookEnd = text(row.hookEnd)
+    /** 原文范围：两个数、且 from < to 才认（脏数据当没有，不做"猜个范围"） */
+    const rangeRaw = row.sourceRange && typeof row.sourceRange === 'object' ? (row.sourceRange as Record<string, unknown>) : null
+    const from = rangeRaw ? num(rangeRaw.from, -1) : -1
+    const to = rangeRaw ? num(rangeRaw.to, -1) : -1
+    return [
+      {
+        id,
+        title: text(row.title) || '未命名一集',
+        summary: text(row.summary),
+        ...(from >= 0 && to > from ? { sourceRange: { from, to } } : {}),
+        ...(hookOpen ? { hookOpen } : {}),
+        ...(hookEnd ? { hookEnd } : {}),
+      },
+    ]
   })
   const known = new Set(episodes.map((e) => e.id))
   const shots: StoryboardShot[] = (Array.isArray(o.shots) ? o.shots : []).flatMap((s) => {
@@ -192,6 +228,7 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
   })
   const doc: StoryboardDoc = {
     projectId,
+    sourceText: text(o.sourceText),
     script: {
       title: text(scriptRaw.title) || '未命名漫剧',
       logline: text(scriptRaw.logline),
@@ -250,6 +287,12 @@ export function updateScript(
   }
 }
 
+/** 改原文（拆集 #417 的输入）；文本没变就返回**原引用**（调用方据此不做多余落库） */
+export function updateSourceText(doc: StoryboardDoc, text: string, now = 0): StoryboardDoc {
+  if (text === doc.sourceText) return doc
+  return { ...doc, sourceText: text, updatedAt: now }
+}
+
 export function addEpisode(doc: StoryboardDoc, now = 0): StoryboardDoc {
   const episode: StoryboardEpisode = {
     id: createId('ep'),
@@ -262,20 +305,27 @@ export function addEpisode(doc: StoryboardDoc, now = 0): StoryboardDoc {
 export function updateEpisode(
   doc: StoryboardDoc,
   id: string,
-  patch: Partial<Pick<StoryboardEpisode, 'title' | 'summary'>>,
+  patch: Partial<Pick<StoryboardEpisode, 'title' | 'summary' | 'hookOpen' | 'hookEnd'>>,
   now = 0,
 ): StoryboardDoc {
   return {
     ...doc,
-    episodes: doc.episodes.map((e) =>
-      e.id === id
-        ? {
-            ...e,
-            title: text(patch.title, e.title) || e.title,
-            summary: text(patch.summary, e.summary),
-          }
-        : e,
-    ),
+    episodes: doc.episodes.map((e) => {
+      if (e.id !== id) return e
+      const hookOpen = text(patch.hookOpen, e.hookOpen ?? '').trim()
+      const hookEnd = text(patch.hookEnd, e.hookEnd ?? '').trim()
+      const next: StoryboardEpisode = {
+        ...e,
+        title: text(patch.title, e.title) || e.title,
+        summary: text(patch.summary, e.summary),
+      }
+      /* 钩子清空就把字段删掉（与其它可选字段同一条纪律：空不落字段） */
+      if (hookOpen) next.hookOpen = hookOpen
+      else delete next.hookOpen
+      if (hookEnd) next.hookEnd = hookEnd
+      else delete next.hookEnd
+      return next
+    }),
     updatedAt: now,
   }
 }
@@ -628,8 +678,21 @@ export function exportStoryboardMarkdown(doc: StoryboardDoc): string {
   doc.episodes.forEach((episode, episodeIndex) => {
     lines.push(`## 第 ${episodeIndex + 1} 集 · ${episode.title}`)
     lines.push('')
+    /* 溯源三行（对账 #417）：原文范围 + 开场 / 结尾钩子 —— 交出去的表格里也要能对上原文 */
+    if (episode.sourceRange) {
+      lines.push(`> 原文第 ${episode.sourceRange.from + 1}–${episode.sourceRange.to} 字`)
+      lines.push('')
+    }
     if (episode.summary.trim()) {
       lines.push(`> ${episode.summary.trim()}`)
+      lines.push('')
+    }
+    if (episode.hookOpen?.trim()) {
+      lines.push(`> 开场钩子：${episode.hookOpen.trim()}`)
+      lines.push('')
+    }
+    if (episode.hookEnd?.trim()) {
+      lines.push(`> 结尾钩子：${episode.hookEnd.trim()}`)
       lines.push('')
     }
     const shots = shotsOf(doc, episode.id)
