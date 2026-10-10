@@ -27,6 +27,14 @@ import styles from './ProjectsPage.module.css'
 import { useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
 
 /**
+ * 回收站的"保留天数"（对账 #409）：超过这些天的项目会出现在「清理 N 天前」按钮上。
+ *
+ * 30 天与产品文档 §12 的原始设计一致。**这个数字只用于"提醒 + 显式清理"**，
+ * 没有任何后台任务按它自动删 —— 删的是不可恢复的数据，必须由用户点两次确认。
+ */
+const TRASH_KEEP_DAYS = 30
+
+/**
  * 项目页（产品文档 §5.1 / §5.3；路由 `/projects`）。
  *
  * 原名 `HomePage`。2026-09-27 应用壳改版时**一分为二**：
@@ -97,6 +105,8 @@ export function ProjectsPage() {
   const [trashOpen, setTrashOpen] = useState(false)
   const [trashItems, setTrashItems] = useState<ProjectListItem[]>([])
   const [trashConfirmClear, setTrashConfirmClear] = useState(false)
+  /** 「清理 30 天前」的二次确认（与清空回收站同一套：先点一次变文案，再点才真删） */
+  const [trashConfirmOld, setTrashConfirmOld] = useState(false)
 
   useEffect(() => {
     void store.load()
@@ -130,11 +140,13 @@ export function ProjectsPage() {
     if (trashOpen) {
       setTrashOpen(false)
       setTrashConfirmClear(false)
+      setTrashConfirmOld(false)
       return
     }
     setTrashItems(await store.listDeleted())
     setTrashOpen(true)
     setTrashConfirmClear(false)
+    setTrashConfirmOld(false)
     setMenuId(null)
     setConfirmId(null)
   }
@@ -142,7 +154,10 @@ export function ProjectsPage() {
   const refreshTrash = async () => {
     const next = await store.listDeleted()
     setTrashItems(next)
-    if (next.length === 0) setTrashConfirmClear(false)
+    if (next.length === 0) {
+      setTrashConfirmClear(false)
+      setTrashConfirmOld(false)
+    }
   }
 
   const handleRestore = async (id: string) => {
@@ -162,6 +177,26 @@ export function ProjectsPage() {
     await refreshTrash()
     setStatus(`已清空回收站（${n} 个项目）`)
   }
+
+  /**
+   * **清理 30 天前**（对账 #409）：只提供"用户点一下"，后台不自动删。
+   *
+   * 为什么不做成自动：它删的是不可恢复的数据（连同节点 / 连线 / 记录一起清）。
+   * 界面上把"有几个、要清哪些"写在按钮上，点两次才执行 —— 误触的代价必须由确认拦住。
+   */
+  const handlePurgeOld = async () => {
+    const n = await store.purgeOlderThan(TRASH_KEEP_DAYS)
+    await refreshTrash()
+    setTrashConfirmOld(false)
+    setStatus(
+      n > 0 ? `已清理 ${n} 个 ${TRASH_KEEP_DAYS} 天前的项目（不可恢复）` : `没有超过 ${TRASH_KEEP_DAYS} 天的项目`,
+    )
+  }
+
+  /** 回收站里"超过保留期"的那几条：只用来把**数量**写在按钮上，不代表会去自动删 */
+  const oldTrashCount = trashItems.filter(
+    (p) => typeof p.deletedAt === 'number' && p.deletedAt < Date.now() - TRASH_KEEP_DAYS * 86_400_000,
+  ).length
 
   const visibleIds = shown.map((p) => p.id)
   const selectedCount = selectedIds.size
@@ -449,6 +484,24 @@ export function ProjectsPage() {
                     }}
                   >
                     {trashConfirmClear ? '再点一次清空' : '清空回收站'}
+                  </button>
+                )}
+                {/*
+                  「清理 N 天前」（对账 #409）：**只有用户点它才会删**。
+                  数量写在按钮上，并沿用"点两次"的确认 —— 它删的是不可恢复的数据。
+                */}
+                {oldTrashCount > 0 && (
+                  <button
+                    className={styles.trashDanger}
+                    data-projects-trash-purge-old
+                    onClick={() => {
+                      if (trashConfirmOld) void handlePurgeOld()
+                      else setTrashConfirmOld(true)
+                    }}
+                  >
+                    {trashConfirmOld
+                      ? `再点一次清理这 ${oldTrashCount} 个`
+                      : `清理 ${TRASH_KEEP_DAYS} 天前（${oldTrashCount}）`}
                   </button>
                 )}
               </div>

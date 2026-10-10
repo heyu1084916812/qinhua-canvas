@@ -45,6 +45,8 @@ export interface ProjectListActions {
   purge: (id: string) => Promise<void>
   /** 清空回收站，返回清掉的数量 */
   purgeAll: () => Promise<number>
+  /** 清理 N 天前删掉的项目（对账 #409：用户点两下才执行，后台不自动删），返回清掉的数量 */
+  purgeOlderThan: (days: number) => Promise<number>
   setSort: (sort: ProjectSort) => void
   setQuery: (query: string) => void
 }
@@ -156,6 +158,8 @@ export function createProjectListStore(repo: ProjectRepository): ProjectListStor
 
   const purgeAll: ProjectListActions['purgeAll'] = () => repo.purgeAll()
 
+  const purgeOlderThan: ProjectListActions['purgeOlderThan'] = (days) => repo.purgeOlderThan(days)
+
   const setSort: ProjectListActions['setSort'] = (sort) => {
     store.setState((s) => ({ sort, visible: deriveVisible(s.projects, s.query, sort) }))
   }
@@ -176,6 +180,7 @@ export function createProjectListStore(repo: ProjectRepository): ProjectListStor
     restore,
     purge,
     purgeAll,
+    purgeOlderThan,
     setSort,
     setQuery,
   }

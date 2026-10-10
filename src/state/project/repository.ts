@@ -31,6 +31,19 @@ export interface ProjectRepository {
   purge(id: string): Promise<void>
   /** 清空回收站（逐个永久删除） */
   purgeAll(): Promise<number>
+  /**
+   * **清理 N 天前**删掉的项目（对账 #409）。
+   *
+   * 为什么是"用户点一下"而不是后台自动跑：它删的是**不可恢复**的数据
+   * （连同级联表一起清），误判一次就是用户的东西没了。所以这里只提供一个
+   * **显式动作**：界面上写清"清理 30 天前（N）"，点两次才执行，
+   * 后台**永远不会**自己删 —— 那条"自动清理"要动的话属于产品决策，不是实现细节。
+   *
+   * @param days 保留天数（删的是 `deletedAt` 早于 `now - days` 的那些）
+   * @param now  注入时钟（单测用；默认 `Date.now()`）
+   * @returns 实际清掉的项目数
+   */
+  purgeOlderThan(days: number, now?: number): Promise<number>
 }
 
 /** 图数据：跟随项目**复制**，也跟随项目**删除** */
@@ -210,6 +223,16 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
         for (const p of deleted) await purgeOne(p.id)
       })
       return deleted.length
+    },
+
+    async purgeOlderThan(days, now = Date.now()) {
+      const cutoff = now - days * 24 * 60 * 60 * 1000
+      const old = (await listDeletedProjects()).filter((p) => (p.deletedAt ?? 0) < cutoff)
+      if (old.length === 0) return 0
+      await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async () => {
+        for (const p of old) await purgeOne(p.id)
+      })
+      return old.length
     },
 
     async duplicate(id: string) {

@@ -24041,7 +24041,146 @@ async function g125(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125]
+// ────────────────────────────────────────────────────────────
+// G126 回收站「清理 N 天前」（对账 #409）：
+//   删除 → 进回收站可还原；**只有用户点两下**才真删，而且只删超期的那些（含级联表）。
+// ────────────────────────────────────────────────────────────
+async function g126(browser) {
+  const g = 'G126 回收站清理'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const cards = page.locator('[data-project-card]')
+  const trashItems = page.locator('[data-projects-trash-item]')
+
+  /** 读库里某个项目的节点行数（验级联真的清了） */
+  const nodesOf = (projectId) =>
+    page.evaluate(async (id) => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const rows = await new Promise((resolve) => {
+        const r = db.transaction('nodes', 'readonly').objectStore('nodes').getAll()
+        r.onsuccess = () => resolve(r.result ?? [])
+        r.onerror = () => resolve([])
+      })
+      return rows.filter((row) => row?.projectId === id).length
+    }, projectId)
+
+  /** 把某个项目的删除时间改成 N 天前（模拟"放了很久"） */
+  const backdate = (projectId, days) =>
+    page.evaluate(
+      async ({ id, ago }) => {
+        const db = await new Promise((resolve, reject) => {
+          const req = indexedDB.open('qinghua')
+          req.onsuccess = () => resolve(req.result)
+          req.onerror = () => reject(req.error)
+        })
+        const row = await new Promise((resolve) => {
+          const r = db.transaction('projects', 'readonly').objectStore('projects').get(id)
+          r.onsuccess = () => resolve(r.result)
+          r.onerror = () => resolve(null)
+        })
+        if (!row) return false
+        row.deletedAt = Date.now() - ago * 24 * 60 * 60 * 1000
+        await new Promise((resolve) => {
+          const tx = db.transaction('projects', 'readwrite')
+          tx.objectStore('projects').put(row)
+          tx.oncomplete = () => resolve()
+          tx.onerror = () => resolve()
+        })
+        return true
+      },
+      { id: projectId, ago: days },
+    )
+
+  await gotoProjects(page)
+  await sleep(400)
+
+  /** 建两个项目：第一个走空态模板卡，第二个走「新建项目」卡 */
+  await page.locator('[data-template="blank"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-new-card]').click()
+  await sleep(250)
+  await page.locator('[data-new-workbench="canvas"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await gotoProjects(page)
+  await sleep(500)
+  rec(g, '先建两个项目（后面要删进回收站）', (await cards.count()) === 2, `cards=${await cards.count()}`)
+
+  /** 多选删掉两个（删除 = 软删，进回收站） */
+  await page.locator('[data-project-select-toggle]').click()
+  await cards.nth(0).click()
+  await cards.nth(1).click()
+  await page.locator('[data-project-bulk-delete]').click()
+  await page.locator('[data-project-bulk-confirm]').click()
+  await sleep(500)
+  rec(g, '两个项目都从列表消失（软删，不是真删）', (await cards.count()) === 0)
+
+  /** 打开回收站：两个都在，且**还没超期时不该出现清理按钮** */
+  await page.locator('[data-projects-trash-toggle]').click()
+  await sleep(400)
+  rec(g, '★ 回收站里有 2 个（删除是可逆的）', (await trashItems.count()) === 2, `items=${await trashItems.count()}`)
+  rec(
+    g,
+    '★ 都没超期时不出现「清理 30 天前」按钮（不诱导用户删东西）',
+    (await page.locator('[data-projects-trash-purge-old]').count()) === 0,
+  )
+
+  /** 把一个改成 31 天前删的，重开回收站让它重新读一次 */
+  const oldId = await trashItems.first().getAttribute('data-projects-trash-item')
+  rec(g, '拿到那条项目的 id（后面按 id 断言它被清掉）', !!oldId, `${oldId}`)
+  await backdate(oldId, 31)
+  await page.locator('[data-projects-trash-toggle]').click()
+  await sleep(250)
+  await page.locator('[data-projects-trash-toggle]').click()
+  await sleep(450)
+  const purgeOld = page.locator('[data-projects-trash-purge-old]')
+  const purgeLabel = (await purgeOld.count()) === 1 ? (await purgeOld.innerText()).trim() : ''
+  rec(
+    g,
+    '★★ 超期的那条让按钮出现，并把要清几个写在按钮上',
+    /清理\s*30\s*天前/.test(purgeLabel) && /1/.test(purgeLabel),
+    `label="${purgeLabel}"`,
+  )
+
+  /** 点两下才真删（第一下只是二次确认） */
+  await purgeOld.click()
+  await sleep(200)
+  rec(g, '★ 第一次点是二次确认（文案变成"再点一次…"）', /再点一次/.test(await purgeOld.innerText()))
+  await purgeOld.click()
+  await sleep(700)
+  const leftItems = await trashItems.count()
+  const oldGone = (await page.locator(`[data-projects-trash-item="${oldId}"]`).count()) === 0
+  rec(
+    g,
+    '★★★ 只清掉超期那一个：回收站还剩 1 个，超期那条已经不在了',
+    leftItems === 1 && oldGone,
+    `剩=${leftItems} 超期那条还在=${!oldGone}`,
+  )
+  rec(g, '★★ 超期项目的图数据一起清掉（级联，不留孤儿行）', (await nodesOf(oldId)) === 0, `nodes=${await nodesOf(oldId)}`)
+
+  /** 剩下那个仍然能还原（证明"清理"不是清空） */
+  await page.locator('[data-projects-trash-restore]').first().click()
+  await sleep(500)
+  rec(
+    g,
+    '★ 剩下那个仍可还原（清理 ≠ 清空回收站）',
+    (await cards.count()) === 1 && (await trashItems.count()) === 0,
+    `cards=${await cards.count()} trash=${await trashItems.count()}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/126-g126-trash.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

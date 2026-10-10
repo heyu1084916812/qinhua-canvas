@@ -114,3 +114,63 @@ describe('回收站 · 软删与还原', () => {
     expect(list.map((p) => p.id)).toContain(copy.id)
   })
 })
+
+/**
+ * **清理 N 天前**（对账 #409）。
+ *
+ * 这条能力的边界只有一个，但必须钉死：**只清超期的那些，其余（含级联表）一条不动**。
+ * 走的是"用户点两下"的显式动作 —— 后台不自动删，所以这里连"没超期就什么都不做"也要验。
+ */
+describe('回收站 · 清理 N 天前', () => {
+  const DAY = 24 * 60 * 60 * 1000
+  const NOW = 1_800_000_000_000
+
+  const putDeleted = (platform: ReturnType<typeof seed>, id: string, deletedAt: number) =>
+    platform.storage.put('projects', {
+      id,
+      name: `项目 ${id}`,
+      workbench: 'canvas',
+      createdAt: 1,
+      updatedAt: 2,
+      deletedAt,
+    } as never)
+
+  it('★★ 只清超过保留期的那几个：超期的连同级联表清掉，没超期的一条不动', async () => {
+    const platform = seed()
+    const repo = createProjectRepository(platform.storage)
+    await putDeleted(platform, 'p1', NOW - 31 * DAY) // 超期（31 天前删的）
+    await putDeleted(platform, 'p2', NOW - 3 * DAY) // 还想留（3 天前删的）
+
+    const purged = await repo.purgeOlderThan(30, NOW)
+
+    expect(purged).toBe(1)
+    expect((await repo.listDeleted()).map((p) => p.id)).toEqual(['p2'])
+    /** 级联：超期那条的图 / 连线 / 记录 / 会话一起清（与「彻底删除」同一套口径） */
+    expect(await platform.storage.query('nodes', { projectId: 'p1' })).toHaveLength(0)
+    expect(await platform.storage.query('edges', { projectId: 'p1' })).toHaveLength(0)
+    expect(await platform.storage.query('runRecords', { projectId: 'p1' })).toHaveLength(0)
+    expect(await platform.storage.query('agentSessions', { projectId: 'p1' })).toHaveLength(0)
+    /** 没超期那条原封不动 */
+    expect(await platform.storage.query('nodes', { projectId: 'p2' })).toHaveLength(1)
+    expect(await platform.storage.query('projects', { id: 'p2' })).toHaveLength(1)
+  })
+
+  it('★ 没有超期的就什么都不做（返回 0 —— 界面据此说"没有超过 30 天的项目"）', async () => {
+    const platform = seed()
+    const repo = createProjectRepository(platform.storage)
+    await repo.remove('p1') // 刚刚删的
+
+    expect(await repo.purgeOlderThan(30, Date.now())).toBe(0)
+    expect(await repo.listDeleted()).toHaveLength(1)
+    expect(await platform.storage.query('nodes', { projectId: 'p1' })).toHaveLength(2)
+  })
+
+  it('★ 边界：正好 30 天前的那条**不算**超期（判据是 `<`，不是 `≤`）', async () => {
+    const platform = seed()
+    const repo = createProjectRepository(platform.storage)
+    await putDeleted(platform, 'p1', NOW - 30 * DAY)
+
+    expect(await repo.purgeOlderThan(30, NOW)).toBe(0)
+    expect(await repo.listDeleted()).toHaveLength(1)
+  })
+})
