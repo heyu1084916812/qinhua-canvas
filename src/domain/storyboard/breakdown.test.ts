@@ -4,6 +4,7 @@ import {
   MAX_SHOT_DRAFTS,
   breakdownGuard,
   breakdownText,
+  buildBreakdownResult,
   buildBreakdownSystem,
   extractJsonBlock,
   parseBreakdownReply,
@@ -190,6 +191,53 @@ describe('extractJsonBlock / parseBreakdownReply', () => {
     expect(parsed.ok).toBe(true)
     if (parsed.ok) expect(parsed.shots).toHaveLength(MAX_SHOT_DRAFTS)
   })
+
+  it('★ 资产也跟着回：characters / scenes 的 name / aliases / description 都读得到', () => {
+    const parsed = parseBreakdownReply(
+      JSON.stringify({
+        characters: [
+          { name: '林轩', aliases: ['林公子', '林轩', '  '], description: '二十岁骑手' },
+          { name: '', aliases: ['没人'] },
+          'bad',
+        ],
+        scenes: [{ name: '雨夜街道' }],
+        shots: [{ scene: '一镜' }],
+      }),
+    )
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.characters).toEqual([
+      { name: '林轩', aliases: ['林公子'], description: '二十岁骑手' },
+    ])
+    expect(parsed.scenes).toEqual([{ name: '雨夜街道' }])
+  })
+
+  it('★ 镜头上的名字数组容错：去重、丢掉空串与非字符串；老键名也认', () => {
+    const parsed = parseBreakdownReply(
+      JSON.stringify({
+        shots: [
+          { scene: '一镜', characterNames: ['林轩', '林轩', '', 42], locationNames: ['雨夜街道'] },
+          /* 老写法：characters / locations —— 只回 shots 的模型不该因为键名不同就丢绑定 */
+          { scene: '二镜', characters: ['王叔'], locations: ['十五楼'] },
+        ],
+      }),
+    )
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    expect(parsed.shots[0]!.characterNames).toEqual(['林轩'])
+    expect(parsed.shots[0]!.locationNames).toEqual(['雨夜街道'])
+    expect(parsed.shots[1]!.characterNames).toEqual(['王叔'])
+    expect(parsed.shots[1]!.locationNames).toEqual(['十五楼'])
+  })
+
+  it('只回 shots（没有资产清单）照样能用：资产库这一轮就空着', () => {
+    const parsed = parseBreakdownReply('{"shots":[{"scene":"一镜"}]}')
+    expect(parsed.ok).toBe(true)
+    if (parsed.ok) {
+      expect(parsed.characters).toEqual([])
+      expect(parsed.scenes).toEqual([])
+    }
+  })
 })
 
 describe('shotsFromDraft / replaceEpisodeShots', () => {
@@ -219,5 +267,58 @@ describe('shotsFromDraft / replaceEpisodeShots', () => {
     doc = addShot(doc, ep1.id, 1)
     const next = replaceEpisodeShots(doc, ep1.id, [], 2)
     expect(shotsOf(next, ep1.id)).toHaveLength(0)
+  })
+
+  it('★★ 带资产库时把名字翻成 id：一镜一个场景（取第一个地点）+ 去重后的角色', () => {
+    const characters = [{ id: 'c1', name: '林轩', description: '', aliases: ['林公子'] }]
+    const scenes = [{ id: 's1', name: '雨夜街道', description: '', aliases: [] }]
+    const shots = shotsFromDraft(
+      [
+        {
+          scene: '一镜',
+          dialogue: '',
+          durationSec: 3,
+          prompt: '',
+          characterNames: ['林公子', '林轩', '路人甲'],
+          locationNames: ['雨夜街道', '十五楼'],
+        },
+      ],
+      'ep1',
+      { characters, scenes },
+    )
+    expect(shots[0]!.sceneId).toBe('s1')
+    /* 别名命中的是同一个 id，去重后只剩一个；认不出来的「路人甲」不硬编 id */
+    expect(shots[0]!.characterIds).toEqual(['c1'])
+  })
+})
+
+describe('buildBreakdownResult（拆镜 + 资产提取一次做完）', () => {
+  it('★★ 资产并进文档（已有只增不减），镜头按别名绑定到 id', () => {
+    let base = emptyStoryboard('p1', 1)
+    base = addEpisode(base, 1)
+    base = { ...base, characters: [{ id: 'c1', name: '林轩', description: '用户确认过的', aliases: [] }] }
+    const { doc, shots } = buildBreakdownResult(base, base.episodes[0]!.id, {
+      shots: [
+        {
+          scene: '雨夜的街道',
+          dialogue: '',
+          durationSec: 4,
+          prompt: '',
+          characterNames: ['林公子'],
+          locationNames: ['雨夜街道'],
+        },
+      ],
+      characters: [
+        { name: '林轩', aliases: ['林公子'], description: '模型写的' },
+        { name: '王叔', description: '楼下保安' },
+      ],
+      scenes: [{ name: '雨夜街道', description: '霓虹、积水' }],
+    })
+    expect(doc.characters.map((c) => c.name)).toEqual(['林轩', '王叔'])
+    expect(doc.characters[0]!.description).toBe('用户确认过的')
+    expect(doc.characters[0]!.aliases).toEqual(['林公子'])
+    expect(doc.scenes.map((s) => s.name)).toEqual(['雨夜街道'])
+    expect(shots[0]!.characterIds).toEqual(['c1'])
+    expect(shots[0]!.sceneId).toBe(doc.scenes[0]!.id)
   })
 })

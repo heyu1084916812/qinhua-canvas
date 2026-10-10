@@ -299,24 +299,39 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
         }
         return {
           text: JSON.stringify({
+            /* 资产清单（对账 #416）：拆镜时一起回，冒烟才能验"名字 → 归并 → 绑定"整条链 */
+            characters: [
+              { name: '骑手', aliases: ['快递员'], description: '二十出头，雨衣，旧头盔' },
+              { name: '收货人', aliases: [], description: '只在门后出声，没露脸' },
+            ],
+            scenes: [
+              { name: '雨夜街道', aliases: [], description: '霓虹、积水、末班公交' },
+              { name: '老楼楼道', aliases: [], description: '声控灯、掉漆的扶手' },
+            ],
             shots: [
               {
                 scene: '雨夜的街道，霓虹在积水里反光',
                 dialogue: '今天最后一单',
                 durationSec: 4,
                 prompt: 'cinematic wide shot, rainy street at night, neon reflections',
+                characterNames: ['骑手'],
+                locationNames: ['雨夜街道'],
               },
               {
                 scene: '老楼楼道口，门缝里透出暖光',
                 dialogue: '',
                 durationSec: 3,
                 prompt: 'medium shot, old apartment doorway, warm light through the gap',
+                characterNames: ['快递员'],
+                locationNames: ['老楼楼道'],
               },
               {
                 scene: '十五楼门前，快递箱放下',
                 dialogue: '到了。',
                 durationSec: 3,
                 prompt: 'close-up, parcel box placed at the door, warm hallway light',
+                characterNames: ['骑手', '收货人'],
+                locationNames: ['老楼楼道'],
               },
             ],
           }),

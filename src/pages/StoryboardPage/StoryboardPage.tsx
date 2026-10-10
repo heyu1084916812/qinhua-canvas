@@ -23,30 +23,41 @@ import {
   BREAKDOWN_SKILL_ID,
   breakdownGuard,
   breakdownText,
+  buildBreakdownResult,
   buildBreakdownSystem,
   parseBreakdownReply,
   replaceEpisodeShots,
   resolveChatTarget,
-  shotsFromDraft,
 } from '../../domain/storyboard/breakdown'
 import { asAppError, describeError } from '../../shared/result'
 import {
+  addCharacter,
   addEpisode,
+  addScene,
   addShot,
   attachShotImages,
   attachShotNodes,
+  bindShotScene,
   exportStoryboardMarkdown,
   moveEpisode,
   moveShot,
+  removeCharacter,
   removeEpisode,
+  removeScene,
   removeShot,
   shotPrompt,
   shotsNeedingNode,
   shotsOf,
   storyboardStats,
+  toggleShotCharacter,
+  updateCharacter,
   updateEpisode,
+  updateScene,
   updateScript,
   updateShot,
+  type DramaAsset,
+  type DramaCharacter,
+  type DramaScene,
   type StoryboardDoc,
   type StoryboardShot,
 } from '../../domain/storyboard/storyboard'
@@ -358,6 +369,23 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     setConfirming('')
   }
 
+  /**
+   * 删资产：**两下确认**，第一下只把后果写在按钮上。
+   *
+   * 为什么值得单独一条：删角色不是"少一个名字"，它会**从所有引用它的镜头里去掉**
+   * （领域层 `removeCharacter` / `removeScene` 做引用检查）。把"会从 N 镜里去掉"
+   * 说在第二下之前，比事后让用户去猜"我那几镜的角色呢"要好。
+   */
+  const removeOneAsset = (kind: 'char' | 'scene', id: string) => {
+    const key = `${kind}:${id}`
+    if (confirming !== key) {
+      setConfirming(key)
+      return
+    }
+    apply(kind === 'char' ? removeCharacter(doc, id, 0) : removeScene(doc, id, 0))
+    setConfirming('')
+  }
+
   const removeOneShot = (id: string) => {
     if (confirming !== `shot:${id}`) {
       setConfirming(`shot:${id}`)
@@ -425,10 +453,14 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       }
       const base = docRef.current
       if (!base) return
-      const drafts = shotsFromDraft(parsed.shots, selected.id)
-      apply(replaceEpisodeShots(base, selected.id, drafts, 0))
+      /**
+       * 拆镜 + 资产提取一起落（对账 #416）：模型给的是**名字**，先归并进资产库
+       * （同名 / 别名合成一条、已有资产只增不减），再把名字翻成 id 绑到这一集的镜头上。
+       */
+      const built = buildBreakdownResult(base, selected.id, parsed)
+      apply(replaceEpisodeShots(built.doc, selected.id, built.shots, 0))
       setBreaking('done')
-      setBreakMsg(`已拆出 ${drafts.length} 镜`)
+      setBreakMsg(`已拆出 ${built.shots.length} 镜`)
     } catch (e) {
       if (ac.signal.aborted) return
       setBreaking('error')
@@ -691,6 +723,67 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
               </ul>
             )}
           </div>
+
+          {/**
+           * 角色 / 场景库（对账 #416）。
+           *
+           * **项目级**（跨集复用）：同一角色在第 1 集和第 30 集必须是同一个对象，
+           * 所以它挂在这里、不挂在某一集下面（调研稿 §6.1 的取舍表）。
+           * 删资产会**连镜头上的引用一起清**（领域层做），按钮第一下先把"会从 N 镜里去掉"说清。
+           */}
+          <div className={styles.block}>
+            <div className={styles.blockHead}>
+              <h2 className={styles.blockTitle}>角色 / 场景</h2>
+              <div className={styles.headTools}>
+                <button
+                  type="button"
+                  className={styles.ghost}
+                  data-storyboard-add-character
+                  onClick={() => apply(addCharacter(doc, 0))}
+                >
+                  新增角色
+                </button>
+                <button
+                  type="button"
+                  className={styles.ghost}
+                  data-storyboard-add-scene
+                  onClick={() => apply(addScene(doc, 0))}
+                >
+                  新增场景
+                </button>
+              </div>
+            </div>
+            <p className={styles.hint} data-storyboard-assets-hint>
+              项目级资产，跨集复用：拆镜时模型会提一遍，也可以在这里改 / 加 / 删。
+            </p>
+            {doc.characters.length === 0 && doc.scenes.length === 0 ? (
+              <p className={styles.hint} data-storyboard-assets-empty>
+                还没有角色 / 场景。拆一次镜，或点上面的「新增」自己建。
+              </p>
+            ) : null}
+            {doc.characters.map((c) => (
+              <AssetRow
+                key={c.id}
+                asset={c}
+                kind="char"
+                usedBy={doc.shots.filter((s) => s.characterIds?.includes(c.id)).length}
+                confirming={confirming === `char:${c.id}`}
+                onPatch={(patch) => apply(updateCharacter(doc, c.id, patch, 0))}
+                onRemove={() => removeOneAsset('char', c.id)}
+              />
+            ))}
+            {doc.scenes.map((s) => (
+              <AssetRow
+                key={s.id}
+                asset={s}
+                kind="scene"
+                usedBy={doc.shots.filter((x) => x.sceneId === s.id).length}
+                confirming={confirming === `scene:${s.id}`}
+                onPatch={(patch) => apply(updateScene(doc, s.id, patch, 0))}
+                onRemove={() => removeOneAsset('scene', s.id)}
+              />
+            ))}
+          </div>
         </section>
 
         <section className={styles.right} aria-label="这一集的分镜">
@@ -828,10 +921,16 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                         confirming={confirming === `shot:${shot.id}`}
                         laidOut={Boolean(shot.nodeId && liveNodeIds.has(shot.nodeId))}
                         state={shot.nodeId ? exec.nodeStateOf(shot.nodeId) : undefined}
+                        characters={doc.characters}
+                        scenes={doc.scenes}
                         onPatch={patchShot}
                         onMove={(id, delta) => apply(moveShot(doc, id, delta, 0))}
                         onRemove={removeOneShot}
                         onRun={() => runShot(shot)}
+                        onBindScene={(sceneId) => apply(bindShotScene(doc, shot.id, sceneId, 0))}
+                        onToggleCharacter={(characterId) =>
+                          apply(toggleShotCharacter(doc, shot.id, characterId, 0))
+                        }
                       />
                     ))}
                   </ol>
@@ -852,10 +951,14 @@ function ShotCard({
   confirming,
   laidOut,
   state,
+  characters,
+  scenes,
   onPatch,
   onMove,
   onRemove,
   onRun,
+  onBindScene,
+  onToggleCharacter,
 }: {
   shot: StoryboardShot
   index: number
@@ -864,10 +967,14 @@ function ShotCard({
   /** 这一镜的节点**现在还在画布上**（不是"曾经铺过"） */
   laidOut: boolean
   state?: RunTaskState
+  characters: readonly DramaCharacter[]
+  scenes: readonly DramaScene[]
   onPatch: (id: string, patch: Partial<Omit<StoryboardShot, 'id' | 'episodeId'>>) => void
   onMove: (id: string, delta: number) => void
   onRemove: (id: string) => void
   onRun: () => void
+  onBindScene: (sceneId: string | null) => void
+  onToggleCharacter: (characterId: string) => void
 }) {
   /**
    * 状态一格写完（界面 / 冒烟都读这一个属性）：
@@ -966,6 +1073,57 @@ function ShotCard({
           {describeError(state.error)}
         </p>
       ) : null}
+      {/**
+       * 这一镜绑了谁 / 在哪拍（对账 #416）。
+       *
+       * 一镜**一个场景**（场景是资产不是容器）+ 若干出场角色（点一下切换）。
+       * 绑定只改文档，不动提示词：提示词仍以这一镜的 `prompt` / `scene` 为准
+       * （把角色描述拼进提示词，是接参考图 / 定妆图那一步的事，别混在这一步里）。
+       */}
+      <div className={styles.shotBind}>
+        <label className={styles.inlineField}>
+          <span className={styles.label}>场景</span>
+          <select
+            className={styles.select}
+            value={shot.sceneId ?? ''}
+            data-storyboard-shot-scene-bind={shot.id}
+            onChange={(e) => onBindScene(e.target.value || null)}
+          >
+            <option value="">未指定</option>
+            {scenes.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className={styles.inlineField}>
+          <span className={styles.label}>出场角色</span>
+          <div className={styles.chips} data-storyboard-shot-cast={shot.id}>
+            {characters.length === 0 ? (
+              <span className={styles.hint}>还没有角色</span>
+            ) : (
+              characters.map((c) => {
+                const on = shot.characterIds?.includes(c.id) ?? false
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className={on ? `${styles.chip} ${styles.chipOn}` : styles.chip}
+                    aria-pressed={on}
+                    data-storyboard-shot-character={shot.id}
+                    data-character-id={c.id}
+                    data-on={on ? 'true' : 'false'}
+                    onClick={() => onToggleCharacter(c.id)}
+                  >
+                    {c.name}
+                  </button>
+                )
+              })
+            )}
+          </div>
+        </div>
+      </div>
       <label className={styles.field}>
         <span className={styles.label}>画面</span>
         <textarea
@@ -1013,6 +1171,87 @@ function ShotCard({
         />
       </label>
     </li>
+  )
+}
+
+/**
+ * 资产一行（角色 / 场景共用，对账 #416）。
+ *
+ * 别名的输入框**自己存一份原始文本**：文档里存的是数组，若直接把数组 join 回去，
+ * 用户刚打完的顿号会被立刻吃掉（「林公子、」→ 数组 `['林公子']` → 回显「林公子」），
+ * 下一个字就接到名字后面去了。所以原始文本进本地 state，文档只收解析后的数组；
+ * 失焦时再把文本归一成数组的样子。行上带 `key={asset.id}`：换一条资产就重新挂载，
+ * 不需要"同步 props 到 state"那种 effect（那类写法最容易和用户的输入打架）。
+ */
+function AssetRow({
+  asset,
+  kind,
+  usedBy,
+  confirming,
+  onPatch,
+  onRemove,
+}: {
+  asset: DramaAsset
+  kind: 'char' | 'scene'
+  /** 有多少镜在用（删除确认里如实报数） */
+  usedBy: number
+  confirming: boolean
+  onPatch: (patch: Partial<Pick<DramaAsset, 'name' | 'description' | 'aliases'>>) => void
+  onRemove: () => void
+}) {
+  const [aliasText, setAliasText] = useState(asset.aliases.join('、'))
+  return (
+    <div
+      className={styles.assetRow}
+      {...(kind === 'char'
+        ? { 'data-storyboard-character': asset.id }
+        : { 'data-storyboard-scene': asset.id })}
+    >
+      <span className={styles.assetKind}>{kind === 'char' ? '角色' : '场景'}</span>
+      <input
+        className={styles.assetName}
+        value={asset.name}
+        aria-label="名字"
+        data-storyboard-asset-name={asset.id}
+        onChange={(e) => onPatch({ name: e.target.value })}
+      />
+      <input
+        className={styles.assetDesc}
+        value={asset.description}
+        aria-label="描述"
+        placeholder={kind === 'char' ? '外观 / 身份' : '场地与氛围'}
+        data-storyboard-asset-desc={asset.id}
+        onChange={(e) => onPatch({ description: e.target.value })}
+      />
+      <input
+        className={styles.assetAliases}
+        value={aliasText}
+        aria-label="别名"
+        placeholder="别名，用、分隔"
+        data-storyboard-asset-aliases={asset.id}
+        onChange={(e) => {
+          setAliasText(e.target.value)
+          onPatch({
+            aliases: e.target.value
+              .split(/[、,，]/)
+              .map((s) => s.trim())
+              .filter(Boolean),
+          })
+        }}
+        onBlur={() => setAliasText(asset.aliases.join('、'))}
+      />
+      <button
+        type="button"
+        className={confirming ? `${styles.iconBtn} ${styles.iconBtnDanger}` : styles.iconBtn}
+        aria-label={confirming ? `再点一次：会从 ${usedBy} 镜里去掉` : '删除'}
+        title={confirming ? `再点一次：会从 ${usedBy} 镜里去掉` : '删除'}
+        data-storyboard-asset-remove={asset.id}
+        data-confirming={confirming ? 'true' : 'false'}
+        onClick={onRemove}
+      >
+        <IconTrash />
+      </button>
+    </div>
   )
 }
 

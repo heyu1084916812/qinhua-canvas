@@ -347,6 +347,125 @@
   cursor: pointer;
 }
 
+/* ── 资产库（角色 / 场景，对账 #416）────────────────────────── */
+
+.assetRow {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 26px;
+  grid-template-areas:
+    'kind name remove'
+    'desc desc desc'
+    'alias alias alias';
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2);
+  background: var(--bg-subtle);
+  border: var(--border);
+  border-radius: var(--radius-control);
+}
+
+.assetKind {
+  grid-area: kind;
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.assetName {
+  grid-area: name;
+}
+
+.assetDesc {
+  grid-area: desc;
+}
+
+.assetAliases {
+  grid-area: alias;
+}
+
+.assetRow > button {
+  grid-area: remove;
+}
+
+.assetName,
+.assetDesc,
+.assetAliases {
+  width: 100%;
+  box-sizing: border-box;
+  height: 30px;
+  padding: 0 var(--space-2);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-label);
+  background: var(--bg-canvas);
+  border: var(--border);
+  border-radius: var(--radius-control);
+}
+
+.assetName {
+  font-size: var(--fs-body);
+}
+
+/* ── 镜头绑定（场景 / 出场角色，对账 #416）──────────────────── */
+
+.shotBind {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.inlineField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.select {
+  height: 30px;
+  padding: 0 var(--space-2);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-label);
+  background: var(--bg-canvas);
+  border: var(--border);
+  border-radius: var(--radius-control);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.chip {
+  height: 26px;
+  padding: 0 var(--space-2);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-chip);
+  background: var(--bg-canvas);
+  border: var(--border);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.chipOn {
+  color: var(--accent-text);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.assetName:focus-visible,
+.assetDesc:focus-visible,
+.assetAliases:focus-visible,
+.select:focus-visible,
+.chip:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
 .hint {
   margin: 0;
   font-size: var(--fs-label);

@@ -24,6 +24,28 @@ export interface StoryboardScript {
   body: string
 }
 
+/**
+ * **资产**（角色 / 场景，对账 #416；调研稿 §6.1 / §6.3）。
+ *
+ * 形态刻意与调研一致：`name` + `aliases[]` + `description`。
+ *
+ * - **放项目级、不放集级**：同一角色在第 1 集和第 30 集必须是同一个对象
+ *   （Autodesk Flow 那条共识，调研稿 §6.1 的取舍表）。
+ * - `aliases` 是**归并的抓手**：「林轩 / 林公子」是同一个人的两种叫法，
+ *   抽取结果按它去重（调研稿 §6.3 第 2 条）。
+ * - `description` 是**一致性的物理来源**：以后接参考图 / 定妆图时，
+ *   这一段会拼进提示词（本批还不生成，别把它当成"已经用上了"）。
+ */
+export interface DramaAsset {
+  id: string
+  name: string
+  description: string
+  aliases: string[]
+}
+
+export type DramaCharacter = DramaAsset
+export type DramaScene = DramaAsset
+
 export interface StoryboardEpisode {
   id: string
   title: string
@@ -41,6 +63,15 @@ export interface StoryboardShot {
   durationSec: number
   /** 画面提示词：留空就由 `scene` 派生（`shotPrompt`） */
   prompt: string
+  /**
+   * 这一镜发生在哪个场景（引用 `scenes[].id`）。
+   *
+   * 空 = 还没定。**读回时会丢掉悬空引用**（见 `parseStoryboard`）——
+   * 与"丢孤儿镜头"同一条纪律：悬空 id 在界面上看不见、导出里却会冒出来。
+   */
+  sceneId?: string
+  /** 这一镜有哪些角色出场（引用 `characters[].id`，同一 id 不重复） */
+  characterIds?: string[]
   /**
    * 这一镜在画布上的**生成节点 id**（对账 #415，「铺到画布」时写回）。
    *
@@ -62,6 +93,10 @@ export interface StoryboardShot {
 export interface StoryboardDoc {
   projectId: string
   script: StoryboardScript
+  /** 角色库（项目级、跨集复用） */
+  characters: DramaCharacter[]
+  /** 场景库（同上；场景是**资产不是容器**，调研稿 §6.1） */
+  scenes: DramaScene[]
   episodes: StoryboardEpisode[]
   shots: StoryboardShot[]
   updatedAt: number
@@ -72,6 +107,8 @@ export function emptyStoryboard(projectId: string, now = 0): StoryboardDoc {
   return {
     projectId,
     script: { title: '未命名漫剧', logline: '', body: '' },
+    characters: [],
+    scenes: [],
     episodes: [],
     shots: [],
     updatedAt: now,
@@ -88,9 +125,29 @@ const num = (v: unknown, fallback: number): number =>
  * 另外**丢掉孤儿镜头**（`episodeId` 指向不存在的集）：留着它们会在导出里凭空多出几行，
  * 而界面上根本看不到 —— 那比丢掉更难查。
  */
+/** 资产数组的容错读回（缺 id / 缺 name 的整条丢掉；别名只留非空字符串、去重） */
+function parseAssetList(raw: unknown): DramaAsset[] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((a) => {
+    if (!a || typeof a !== 'object') return []
+    const row = a as Record<string, unknown>
+    const id = text(row.id)
+    const name = text(row.name)
+    if (!id || !name) return []
+    const aliases = Array.isArray(row.aliases)
+      ? [...new Set(row.aliases.map((v) => text(v)).filter((v) => v && v !== name))]
+      : []
+    return [{ id, name, description: text(row.description), aliases }]
+  })
+}
+
 export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc {
   const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
   const scriptRaw = o.script && typeof o.script === 'object' ? (o.script as Record<string, unknown>) : {}
+  const characters = parseAssetList(o.characters)
+  const scenes = parseAssetList(o.scenes)
+  const knownCharacters = new Set(characters.map((c) => c.id))
+  const knownScenes = new Set(scenes.map((s) => s.id))
   const episodes: StoryboardEpisode[] = (Array.isArray(o.episodes) ? o.episodes : []).flatMap((e) => {
     if (!e || typeof e !== 'object') return []
     const row = e as Record<string, unknown>
@@ -107,6 +164,16 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
     if (!id || !known.has(episodeId)) return []
     const nodeId = text(row.nodeId)
     const imageHash = text(row.imageHash)
+    /** 悬空引用一律丢掉（手改过的备份 / 删过资产的老数据都可能留） */
+    const sceneIdRaw = text(row.sceneId)
+    const sceneId = sceneIdRaw && knownScenes.has(sceneIdRaw) ? sceneIdRaw : ''
+    const characterRefs = Array.isArray(row.characterIds)
+      ? [
+          ...new Set(
+            row.characterIds.map((v) => text(v)).filter((v) => v && knownCharacters.has(v)),
+          ),
+        ]
+      : []
     return [
       {
         id,
@@ -118,6 +185,8 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
         /* 空串不落成字段：没有就是没有，别写一个 `undefined` 占位 */
         ...(nodeId ? { nodeId } : {}),
         ...(imageHash ? { imageHash } : {}),
+        ...(sceneId ? { sceneId } : {}),
+        ...(characterRefs.length > 0 ? { characterIds: characterRefs } : {}),
       },
     ]
   })
@@ -128,6 +197,8 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
       logline: text(scriptRaw.logline),
       body: text(scriptRaw.body),
     },
+    characters,
+    scenes,
     episodes,
     shots,
     updatedAt: num(o.updatedAt, 0),
@@ -297,6 +368,160 @@ export function shotsOf(doc: StoryboardDoc, episodeId: string): StoryboardShot[]
   return doc.shots.filter((s) => s.episodeId === episodeId)
 }
 
+/* ─────────────────── 资产库（角色 / 场景）与镜头绑定（对账 #416） ─────────────────── */
+
+export function addCharacter(doc: StoryboardDoc, now = 0): StoryboardDoc {
+  const character: DramaCharacter = {
+    id: createId('char'),
+    name: `角色 ${doc.characters.length + 1}`,
+    description: '',
+    aliases: [],
+  }
+  return { ...doc, characters: [...doc.characters, character], updatedAt: now }
+}
+
+export function addScene(doc: StoryboardDoc, now = 0): StoryboardDoc {
+  const scene: DramaScene = {
+    id: createId('scene'),
+    name: `场景 ${doc.scenes.length + 1}`,
+    description: '',
+    aliases: [],
+  }
+  return { ...doc, scenes: [...doc.scenes, scene], updatedAt: now }
+}
+
+/** 改资产（名字留空就不改：`name` 是导出与绑定显示的唯一抓手，不允许空） */
+export function updateCharacter(
+  doc: StoryboardDoc,
+  id: string,
+  patch: Partial<Pick<DramaAsset, 'name' | 'description' | 'aliases'>>,
+  now = 0,
+): StoryboardDoc {
+  if (!doc.characters.some((c) => c.id === id)) return doc
+  const characters = doc.characters.map((c) => {
+    if (c.id !== id) return c
+    const name = text(patch.name, c.name).trim() || c.name
+    const aliases = patch.aliases
+      ? [...new Set(patch.aliases.map((a) => text(a).trim()).filter((a) => a && a !== name))]
+      : c.aliases
+    return { ...c, name, description: text(patch.description, c.description), aliases }
+  })
+  return { ...doc, characters, updatedAt: now }
+}
+
+export function updateScene(
+  doc: StoryboardDoc,
+  id: string,
+  patch: Partial<Pick<DramaAsset, 'name' | 'description' | 'aliases'>>,
+  now = 0,
+): StoryboardDoc {
+  if (!doc.scenes.some((s) => s.id === id)) return doc
+  const scenes = doc.scenes.map((s) => {
+    if (s.id !== id) return s
+    const name = text(patch.name, s.name).trim() || s.name
+    const aliases = patch.aliases
+      ? [...new Set(patch.aliases.map((a) => text(a).trim()).filter((a) => a && a !== name))]
+      : s.aliases
+    return { ...s, name, description: text(patch.description, s.description), aliases }
+  })
+  return { ...doc, scenes, updatedAt: now }
+}
+
+/** 从镜头上摘掉一个角色 id；空了就把字段删掉（不留 `[]` 这种"看着像有绑定"的残渣） */
+function withoutCharacterRef(shot: StoryboardShot, id: string): StoryboardShot {
+  const next = (shot.characterIds ?? []).filter((v) => v !== id)
+  const copy: StoryboardShot = { ...shot }
+  if (next.length > 0) copy.characterIds = next
+  else delete copy.characterIds
+  return copy
+}
+
+/**
+ * **删角色：连镜头上的引用一起清**（不留下悬空 id）。
+ *
+ * 调研稿 §6.3 第 3 条把"资产库是用户可编辑的"写成了需求；而"删角色"最容易埋的坑
+ * 就是**悬空引用** —— 界面上那一格空了、导出里却还印着一个已经不存在的名字。
+ * 界面用**两下确认**把"会从 N 镜里去掉"说在前面（N 由页面算好）。
+ */
+export function removeCharacter(doc: StoryboardDoc, id: string, now = 0): StoryboardDoc {
+  if (!doc.characters.some((c) => c.id === id)) return doc
+  return {
+    ...doc,
+    characters: doc.characters.filter((c) => c.id !== id),
+    shots: doc.shots.map((s) => (s.characterIds?.includes(id) ? withoutCharacterRef(s, id) : s)),
+    updatedAt: now,
+  }
+}
+
+/** 删场景：同上，把镜头上指向它的 `sceneId` 一起清掉 */
+export function removeScene(doc: StoryboardDoc, id: string, now = 0): StoryboardDoc {
+  if (!doc.scenes.some((s) => s.id === id)) return doc
+  return {
+    ...doc,
+    scenes: doc.scenes.filter((s) => s.id !== id),
+    shots: doc.shots.map((s) => {
+      if (s.sceneId !== id) return s
+      const copy: StoryboardShot = { ...s }
+      delete copy.sceneId
+      return copy
+    }),
+    updatedAt: now,
+  }
+}
+
+/** 给这一镜指定场景；传 `null` 表示"不绑定"（同一个函数管两件事，界面不用分两个入口） */
+export function bindShotScene(
+  doc: StoryboardDoc,
+  shotId: string,
+  sceneId: string | null,
+  now = 0,
+): StoryboardDoc {
+  if (sceneId !== null && !doc.scenes.some((s) => s.id === sceneId)) return doc
+  const shot = doc.shots.find((s) => s.id === shotId)
+  if (!shot) return doc
+  if (sceneId === null ? !shot.sceneId : shot.sceneId === sceneId) return doc
+  const shots = doc.shots.map((s) => {
+    if (s.id !== shotId) return s
+    const copy: StoryboardShot = { ...s }
+    if (sceneId !== null) copy.sceneId = sceneId
+    else delete copy.sceneId
+    return copy
+  })
+  return { ...doc, shots, updatedAt: now }
+}
+
+/** 这一镜加上 / 去掉一个出场角色（点一下切换，不要求用户先选"添加"还是"移除"） */
+export function toggleShotCharacter(
+  doc: StoryboardDoc,
+  shotId: string,
+  characterId: string,
+  now = 0,
+): StoryboardDoc {
+  if (!doc.characters.some((c) => c.id === characterId)) return doc
+  const shot = doc.shots.find((s) => s.id === shotId)
+  if (!shot) return doc
+  const has = shot.characterIds?.includes(characterId) ?? false
+  const shots = doc.shots.map((s) => {
+    if (s.id !== shotId) return s
+    if (has) return withoutCharacterRef(s, characterId)
+    return { ...s, characterIds: [...(s.characterIds ?? []), characterId] }
+  })
+  return { ...doc, shots, updatedAt: now }
+}
+
+/** 这一镜的场景名（没绑定 = 空串；导出与界面共用这一份读法） */
+export function sceneNameOf(doc: StoryboardDoc, shot: StoryboardShot): string {
+  if (!shot.sceneId) return ''
+  return doc.scenes.find((s) => s.id === shot.sceneId)?.name ?? ''
+}
+
+/** 这一镜的出场角色名（按**角色库顺序**输出：同一份数据每次导出的顺序都一致） */
+export function characterNamesOf(doc: StoryboardDoc, shot: StoryboardShot): string[] {
+  if (!shot.characterIds || shot.characterIds.length === 0) return []
+  const ids = new Set(shot.characterIds)
+  return doc.characters.filter((c) => ids.has(c.id)).map((c) => c.name)
+}
+
 /**
  * **哪几镜还需要铺到画布**（对账 #415）。
  *
@@ -413,11 +638,14 @@ export function exportStoryboardMarkdown(doc: StoryboardDoc): string {
       lines.push('')
       return
     }
-    lines.push('| # | 画面 | 台词 / 旁白 | 时长 | 画面提示词 |')
-    lines.push('| --- | --- | --- | --- | --- |')
+    /* 场景 / 出场角色两列（对账 #416）：这两列以前只在脑子里，现在写进能交出去的那张表 */
+    lines.push('| # | 画面 | 场景 | 出场角色 | 台词 / 旁白 | 时长 | 画面提示词 |')
+    lines.push('| --- | --- | --- | --- | --- | --- | --- |')
     shots.forEach((shot, i) => {
       lines.push(
-        `| ${i + 1} | ${cell(shot.scene)} | ${cell(shot.dialogue)} | ${shot.durationSec}s | ${cell(shotPrompt(shot))} |`,
+        `| ${i + 1} | ${cell(shot.scene)} | ${cell(sceneNameOf(doc, shot))} | ${cell(
+          characterNamesOf(doc, shot).join('、'),
+        )} | ${cell(shot.dialogue)} | ${shot.durationSec}s | ${cell(shotPrompt(shot))} |`,
       )
     })
     lines.push('')

@@ -1,9 +1,12 @@
 import { createId } from '../../shared/id'
 import type { Channel } from '../project/channel'
 import { toLogicalName } from '../project/modelCatalog'
+import { extractAssets, resolveDraftBindings, type DraftAsset } from './assets'
 import {
   DEFAULT_SHOT_SECONDS,
   normalizeShotOrder,
+  type DramaCharacter,
+  type DramaScene,
   type StoryboardDoc,
   type StoryboardEpisode,
   type StoryboardShot,
@@ -53,9 +56,14 @@ const FALLBACK_SYSTEM = '你是一名短片分镜导演。请把用户给出的�
 const CONTRACT = `${BREAKDOWN_MARKER}输出契约（必须严格遵守）
 
 1. 只输出一个 JSON 对象，不要解释、不要客套；可以用 \`\`\`json 代码块包住。
-2. 结构固定为：{"shots":[{"scene":"画面内容","dialogue":"台词或旁白","durationSec":3,"prompt":"给生图模型的画面提示词"}]}
+2. 结构固定为：
+   {"characters":[{"name":"角色名","aliases":["别的叫法"],"description":"外观 / 身份"}],
+    "scenes":[{"name":"场景名","aliases":[],"description":"场地与氛围"}],
+    "shots":[{"scene":"画面内容","dialogue":"台词或旁白","durationSec":3,"prompt":"给生图模型的画面提示词","characterNames":["出场角色名"],"locationNames":["这一镜发生在哪"]}]}
 3. scene 必填且非空（这一镜画什么）；dialogue 没有就填空字符串；durationSec 取 1-15 的整数；prompt 留空即表示用 scene。
-4. 镜头数量按内容决定，别为凑数把节奏拆碎；最多 ${MAX_SHOT_DRAFTS} 个。`
+4. **同一个角色的不同叫法必须合成一条**：写进 characters 时用最正式的名字当 name，其余叫法进 aliases —— 别把同一个人拆成两条。
+5. characters / scenes 只声明剧情里明确出现的，没把握的不要编（用户会在资产库里改）。\`characterNames\` / \`locationNames\` 里写的名字要与它们一致。
+6. 镜头数量按内容决定，别为凑数把节奏拆碎；最多 ${MAX_SHOT_DRAFTS} 个。`
 
 /** 组装系统指令：技能正文在前、契约在后（最后一条指令才管得住输出形状） */
 export function buildBreakdownSystem(skillBody?: string): string {
@@ -92,9 +100,21 @@ export interface DraftShot {
   dialogue: string
   durationSec: number
   prompt: string
+  /** 这一镜有哪些角色出场（模型给的**名字**；落库前按别名归并成 id，对账 #416） */
+  characterNames?: readonly string[]
+  /** 这一镜发生在哪（同一镜取第一个当场景，其余名字仍进场景库） */
+  locationNames?: readonly string[]
 }
 
-export type BreakdownParse = { ok: true; shots: DraftShot[] } | { ok: false; error: string }
+export type BreakdownParse =
+  | {
+      ok: true
+      shots: DraftShot[]
+      /** 模型声明的角色（带别名与描述；可选：只回 shots 的模型照样能用） */
+      characters: DraftAsset[]
+      scenes: DraftAsset[]
+    }
+  | { ok: false; error: string }
 
 /** 从第一个 `open` 起按**字符串感知**的括号计数切出完整片段（别把 scene 里的 `}` 当结尾） */
 function firstBalanced(text: string, open: string, close: string): string | null {
@@ -160,6 +180,26 @@ export function extractJsonBlock(raw: string): unknown | null {
 
 const asText = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
 
+/** 名字数组：只留非空字符串、去重（顺序保留 —— 第一个地点要当这一镜的场景） */
+const asNames = (v: unknown): string[] =>
+  Array.isArray(v) ? [...new Set(v.map((x) => asText(x)).filter(Boolean))] : []
+
+/** 模型声明的资产清单：缺 name 的整条丢掉，别名去掉与正式名重复的那一条 */
+function asDraftAssets(v: unknown): DraftAsset[] {
+  if (!Array.isArray(v)) return []
+  return v.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const row = item as Record<string, unknown>
+    const name = asText(row.name)
+    if (!name) return []
+    const aliases = asNames(row.aliases).filter((a) => a !== name)
+    const description = asText(row.description)
+    return [
+      { name, ...(aliases.length > 0 ? { aliases } : {}), ...(description ? { description } : {}) },
+    ]
+  })
+}
+
 function asDuration(v: unknown): number {
   const n = typeof v === 'number' ? v : typeof v === 'string' ? Number.parseFloat(v) : Number.NaN
   if (!Number.isFinite(n)) return DEFAULT_SHOT_SECONDS
@@ -190,29 +230,97 @@ export function parseBreakdownReply(raw: string): BreakdownParse {
     const row = item as Record<string, unknown>
     const scene = asText(row.scene)
     if (!scene) continue
+    const characterNames = asNames(row.characterNames ?? row.characters)
+    const locationNames = asNames(row.locationNames ?? row.locations)
     shots.push({
       scene,
       dialogue: asText(row.dialogue),
       durationSec: asDuration(row.durationSec),
       prompt: asText(row.prompt),
+      /* 空数组不落成字段：没有就是没有（与文档层同一条纪律） */
+      ...(characterNames.length > 0 ? { characterNames } : {}),
+      ...(locationNames.length > 0 ? { locationNames } : {}),
     })
   }
   if (shots.length === 0) {
     return { ok: false, error: '模型给出的镜头里没有可用的画面描述，这次没有写入任何分镜' }
   }
-  return { ok: true, shots }
+  /**
+   * 资产清单与镜头一起回（对账 #416）。缺了就当空数组 —— 只回 shots 的模型照跑，
+   * 资产库靠镜头里的名字兜出来（`extractAssets` 会补最小资产）。
+   */
+  const container = Array.isArray(json) ? {} : (json as Record<string, unknown>)
+  return {
+    ok: true,
+    shots,
+    characters: asDraftAssets(container.characters),
+    scenes: asDraftAssets(container.scenes),
+  }
 }
 
-/** 一轮镜头 → 这一集的真镜头（补 id / episodeId；prompt 空由 `shotPrompt` 回落 scene） */
-export function shotsFromDraft(drafts: readonly DraftShot[], episodeId: string): StoryboardShot[] {
-  return drafts.map((d) => ({
-    id: createId('shot'),
-    episodeId,
-    scene: d.scene,
-    dialogue: d.dialogue,
-    durationSec: d.durationSec,
-    prompt: d.prompt,
-  }))
+/**
+ * 一轮镜头 → 这一集的真镜头（补 id / episodeId；prompt 空由 `shotPrompt` 回落 scene）。
+ *
+ * 第三个参数是**归并之后的资产库**：模型给的是名字，落库要的是 id ——
+ * 这一步把名字按 `name + aliases` 翻成 id（认不出来的名字不硬编，绑定留空）。
+ */
+export function shotsFromDraft(
+  drafts: readonly DraftShot[],
+  episodeId: string,
+  assets: { characters: readonly DramaCharacter[]; scenes: readonly DramaScene[] } = {
+    characters: [],
+    scenes: [],
+  },
+): StoryboardShot[] {
+  return drafts.map((d) => {
+    const bindings = resolveDraftBindings(
+      { characterNames: d.characterNames ?? [], locationNames: d.locationNames ?? [] },
+      assets.characters,
+      assets.scenes,
+    )
+    return {
+      id: createId('shot'),
+      episodeId,
+      scene: d.scene,
+      dialogue: d.dialogue,
+      durationSec: d.durationSec,
+      prompt: d.prompt,
+      ...bindings,
+    }
+  })
+}
+
+/**
+ * **拆镜 + 资产提取一次做完**（对账 #416）：模型回的那一份 →
+ * 「资产库（归并后）+ 这一集的镜头（名字已翻成 id）」。
+ *
+ * 收成一个纯函数的原因：页面只该做"调模型 / 落库 / 报状态"，归并与绑定的规则
+ * 必须能在 node 下单测 —— `assets.test.ts` 已经把那条规则钉死了。
+ */
+export function buildBreakdownResult(
+  base: StoryboardDoc,
+  episodeId: string,
+  parsed: {
+    shots: readonly DraftShot[]
+    characters: readonly DraftAsset[]
+    scenes: readonly DraftAsset[]
+  },
+): { doc: StoryboardDoc; shots: StoryboardShot[] } {
+  const merged = extractAssets({
+    /* 只把"名字"那一层喂给抽取：`extractAssets` 与范围无关（一集 / 全篇同一份逻辑） */
+    shots: parsed.shots.map((s) => ({
+      characterNames: s.characterNames ?? [],
+      locationNames: s.locationNames ?? [],
+    })),
+    characters: parsed.characters,
+    scenes: parsed.scenes,
+    existingCharacters: base.characters,
+    existingScenes: base.scenes,
+  })
+  return {
+    doc: { ...base, characters: merged.characters, scenes: merged.scenes },
+    shots: shotsFromDraft(parsed.shots, episodeId, merged),
+  }
 }
 
 /**

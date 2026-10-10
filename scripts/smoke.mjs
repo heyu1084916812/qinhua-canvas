@@ -24801,7 +24801,230 @@ async function g129(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129]
+// ────────────────────────────────────────────────────────────
+// G130 漫剧资产库（对账 #416；调研稿 §6.1 / §6.3）：
+//   拆镜时模型一起提角色 / 场景 ⇒ 别名归并（快递员 → 骑手）⇒ 镜头按名字绑到 id
+//   ⇒ 手动增删改 ⇒ 删资产**不留悬空引用** ⇒ 导出表多出「场景 / 出场角色」两列。
+// ────────────────────────────────────────────────────────────
+async function g130(browser) {
+  const g = 'G130 漫剧资产库'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  /** 读库里的那份漫剧文档（资产 + 镜头绑定）：验"真落库"和"没有悬空引用" */
+  const readDoc = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const rows = await new Promise((resolve) => {
+        const r = db.transaction('storyboards', 'readonly').objectStore('storyboards').getAll()
+        r.onsuccess = () => resolve(r.result ?? [])
+        r.onerror = () => resolve([])
+      })
+      const doc = rows[0]?.doc
+      return {
+        characters: (doc?.characters ?? []).map((c) => ({ id: c.id, name: c.name, aliases: c.aliases })),
+        scenes: (doc?.scenes ?? []).map((s) => ({ id: s.id, name: s.name })),
+        shots: (doc?.shots ?? []).map((s) => ({
+          id: s.id,
+          sceneId: s.sceneId ?? null,
+          characterIds: s.characterIds ?? [],
+        })),
+      }
+    })
+
+  /** 资产行里某个名字对应的 id（界面上找不到就是空串） */
+  const idOfName = (name) =>
+    page
+      .locator('[data-storyboard-asset-name]')
+      .evaluateAll(
+        (els, wanted) => els.find((e) => e.value === wanted)?.getAttribute('data-storyboard-asset-name') ?? '',
+        name,
+      )
+
+  // ① 建项目 + 一集 + 正文；等防抖写下去再离开（整页卸载会吃掉排队中的写）
+  await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-storyboard-create]').click()
+  await page.waitForURL(/\/storyboard\/proj_/)
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  const projectUrl = page.url()
+  await page.locator('[data-storyboard-script-body]').fill('雨夜快递：骑手在雨里送最后一单，收货人一直没开门。')
+  await page.locator('[data-storyboard-add-episode]').click()
+  await sleep(250)
+  await page
+    .waitForFunction(
+      () => document.querySelector('[data-storyboard-status]')?.textContent?.includes('已保存') ?? false,
+      null,
+      { timeout: 8000 },
+    )
+    .catch(() => {})
+  await configureMockChannel(page)
+  await sleep(500)
+  await page.goto(projectUrl, { waitUntil: 'networkidle' })
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  await sleep(500)
+  rec(g, '★ 一开始资产库是空的（不是画一块空表）', (await page.locator('[data-storyboard-assets-empty]').count()) === 1)
+
+  // ② 拆镜：模型一起回角色 / 场景
+  await page.locator('[data-storyboard-breakdown-run]').click()
+  const done = await page
+    .locator('[data-storyboard-breakdown-status="done"]')
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
+  await sleep(700)
+  const charIds = await page
+    .locator('[data-storyboard-character]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-storyboard-character')))
+  const sceneIds = await page
+    .locator('[data-storyboard-scene]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-storyboard-scene')))
+  const names = await page.locator('[data-storyboard-asset-name]').evaluateAll((els) => els.map((e) => e.value))
+  rec(
+    g,
+    '★★★ 拆镜时把角色 / 场景一起提出来并归并（2 角色 + 2 场景，名字对得上）',
+    done &&
+      charIds.length === 2 &&
+      sceneIds.length === 2 &&
+      names.includes('骑手') &&
+      names.includes('收货人') &&
+      names.includes('雨夜街道') &&
+      names.includes('老楼楼道'),
+    `角色=${charIds.length} 场景=${sceneIds.length} 名字=${names.join('/')}`,
+  )
+
+  // ③ 别名归并：第二镜写的是「快递员」⇒ 绑到「骑手」那一条（不是第三个角色）
+  const shotIds = await page
+    .locator('[data-storyboard-shot]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-storyboard-shot')))
+  const castOn = (shotId, charId) =>
+    page
+      .locator(`[data-storyboard-shot-character="${shotId}"][data-character-id="${charId}"]`)
+      .getAttribute('data-on')
+  const riderId = await idOfName('骑手')
+  rec(
+    g,
+    '★★★ 别名归并：第二镜写的是「快递员」，绑到的是「骑手」同一条（没有多出第三个角色）',
+    shotIds.length === 3 &&
+      (await castOn(shotIds[0], riderId)) === 'true' &&
+      (await castOn(shotIds[1], riderId)) === 'true',
+    `骑手 id=${riderId} 第一镜=${await castOn(shotIds[0], riderId)} 第二镜=${await castOn(shotIds[1], riderId)} 角色数=${charIds.length}`,
+  )
+
+  // ④ 场景绑定：一镜一个场景，取第一个地点名
+  const sceneOf = (shotId) => page.locator(`[data-storyboard-shot-scene-bind="${shotId}"]`).inputValue()
+  const streetId = await idOfName('雨夜街道')
+  const hallId = await idOfName('老楼楼道')
+  rec(
+    g,
+    '★★ 镜头绑上了场景：第一镜 = 雨夜街道（取第一个地点），第二镜 = 老楼楼道',
+    (await sceneOf(shotIds[0])) === streetId && (await sceneOf(shotIds[1])) === hallId,
+    `第一镜=${await sceneOf(shotIds[0])} 第二镜=${await sceneOf(shotIds[1])}`,
+  )
+
+  // ⑤ 手动加一个角色（王叔）、改名、绑到第三镜
+  await page.locator('[data-storyboard-add-character]').click()
+  await sleep(300)
+  /* 只数**角色**那几行：资产区是"先角色后场景"，取全部行的最后一条会拿到场景（第一版就这么红的） */
+  const charRows = await page
+    .locator('[data-storyboard-character] [data-storyboard-asset-name]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-storyboard-asset-name')))
+  const newCharId = charRows[charRows.length - 1]
+  await page.locator(`[data-storyboard-asset-name="${newCharId}"]`).fill('王叔')
+  await page.locator(`[data-storyboard-asset-desc="${newCharId}"]`).fill('楼下保安，雨衣')
+  await sleep(200)
+  await page.locator(`[data-storyboard-shot-character="${shotIds[2]}"][data-character-id="${newCharId}"]`).click()
+  await sleep(300)
+  rec(
+    g,
+    '★★ 手动新增角色并绑到第三镜（资产库是用户可编辑的）',
+    (await page.locator(`[data-storyboard-asset-name="${newCharId}"]`).inputValue()) === '王叔' &&
+      (await castOn(shotIds[2], newCharId)) === 'true',
+  )
+
+  // ⑥ 刷新后仍在（资产 + 绑定都落了库）
+  /**
+   * ⚠️ 刷新前必须等这次改动**真落库**：整页卸载会把防抖窗口里排队的那次写吃掉
+   * （G127 / G129 都栽过这一处）。判据取状态行自己写「已保存」，不是 sleep 魔数。
+   */
+  await page
+    .waitForFunction(
+      () => document.querySelector('[data-storyboard-status]')?.textContent?.includes('已保存') ?? false,
+      null,
+      { timeout: 8000 },
+    )
+    .catch(() => {})
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  await sleep(500)
+  const reloaded = await readDoc()
+  const shot3 = reloaded.shots.find((s) => s.id === shotIds[2])
+  rec(
+    g,
+    '★★★ 刷新后资产与绑定都在（库里有 3 个角色、第三镜绑着王叔）',
+    reloaded.characters.length === 3 &&
+      reloaded.characters.some((c) => c.name === '王叔') &&
+      (shot3?.characterIds ?? []).includes(newCharId),
+    JSON.stringify({ 角色: reloaded.characters.map((c) => c.name), 第三镜: shot3 }),
+  )
+
+  // ⑦ 删「王叔」：两下确认 ⇒ 行没了、第三镜的绑定也没了（引用检查）
+  await page.locator(`[data-storyboard-asset-remove="${newCharId}"]`).click()
+  await sleep(200)
+  rec(
+    g,
+    '★ 删资产第一下只做二次确认（按钮写明会从几镜里去掉）',
+    (await page.locator(`[data-storyboard-asset-remove="${newCharId}"]`).getAttribute('data-confirming')) ===
+      'true' && (await page.locator(`[data-storyboard-asset-name="${newCharId}"]`).count()) === 1,
+  )
+  await page.locator(`[data-storyboard-asset-remove="${newCharId}"]`).click()
+  await sleep(800)
+  const afterDelete = await readDoc()
+  const aliveCharIds = new Set(afterDelete.characters.map((c) => c.id))
+  const aliveSceneIds = new Set(afterDelete.scenes.map((s) => s.id))
+  const danglingChars = afterDelete.shots.flatMap((s) => s.characterIds).filter((id) => !aliveCharIds.has(id))
+  const danglingScenes = afterDelete.shots.map((s) => s.sceneId).filter((id) => id && !aliveSceneIds.has(id))
+  rec(
+    g,
+    '★★★ 删角色：行没了 + 第三镜的绑定一起清（库里没有任何悬空引用）',
+    afterDelete.characters.length === 2 &&
+      !(afterDelete.shots.find((s) => s.id === shotIds[2])?.characterIds ?? []).includes(newCharId) &&
+      danglingChars.length === 0 &&
+      danglingScenes.length === 0,
+    `角色=${afterDelete.characters.map((c) => c.name).join('/')} 悬空角色=${danglingChars.length} 悬空场景=${danglingScenes.length}`,
+  )
+
+  // ⑧ 导出：多出「场景 / 出场角色」两列，并且带上了名字
+  const downloadPromise = page.waitForEvent('download', { timeout: 8000 })
+  await page.locator('[data-storyboard-export]').click()
+  const download = await downloadPromise.catch(() => null)
+  let exported = ''
+  if (download) {
+    const filePath = await download.path()
+    exported = filePath ? readFileSync(filePath, 'utf8') : ''
+  }
+  rec(
+    g,
+    '★★ 导出的分镜表带上「场景 / 出场角色」两列（骑手 / 雨夜街道 都在表里）',
+    !!download &&
+      exported.includes('| # | 画面 | 场景 | 出场角色 | 台词 / 旁白 | 时长 | 画面提示词 |') &&
+      exported.includes('骑手') &&
+      exported.includes('雨夜街道'),
+    `字节=${exported.length}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/130-g130-assets.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

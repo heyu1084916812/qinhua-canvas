@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  addCharacter,
+  addScene,
   attachShotImages,
   attachShotNodes,
+  bindShotScene,
+  characterNamesOf,
   DEFAULT_SHOT_SECONDS,
   addEpisode,
   addShot,
@@ -10,13 +14,19 @@ import {
   moveEpisode,
   moveShot,
   parseStoryboard,
+  removeCharacter,
   removeEpisode,
+  removeScene,
   removeShot,
+  sceneNameOf,
   shotPrompt,
   shotsNeedingNode,
   shotsOf,
   storyboardStats,
+  toggleShotCharacter,
+  updateCharacter,
   updateEpisode,
+  updateScene,
   updateScript,
   updateShot,
   type StoryboardDoc,
@@ -199,8 +209,9 @@ describe('storyboard · 导出分镜表（Markdown）', () => {
     expect(md).toContain('## 剧本')
     expect(md).toContain('## 第 1 集 · 第 1 集')
     expect(md).toContain('> 开场')
-    expect(md).toContain('| # | 画面 | 台词 / 旁白 | 时长 | 画面提示词 |')
-    expect(md).toContain('| 1 | 客厅，清晨 | 早啊 | 5s | 客厅，清晨 |')
+    /* 表头在 #416 加了两列（场景 / 出场角色）—— 这里跟着口径走，不是放宽 */
+    expect(md).toContain('| # | 画面 | 场景 | 出场角色 | 台词 / 旁白 | 时长 | 画面提示词 |')
+    expect(md).toContain('| 1 | 客厅，清晨 | — | — | 早啊 | 5s | 客厅，清晨 |')
   })
 
   it('★ 单元格里的竖线与换行会把表格撑坏 ⇒ 导出前换掉（换行变空格、竖线转义）', () => {
@@ -295,5 +306,145 @@ describe('铺到画布', () => {
     expect(attachShotImages(once, [{ shotId, hash: 'h1' }], 4)).toBe(once)
     const twice = attachShotImages(once, [{ shotId, hash: 'h2' }], 5)
     expect(twice.shots[0]!.imageHash).toBe('h2')
+  })
+})
+
+/**
+ * 角色 / 场景资产库（对账 #416；调研稿 §6.1 / §6.3）。
+ *
+ * 守三件事：**项目级、可编辑、删了不留悬空引用**。
+ * 第三条最容易漏 —— 界面上那一格空了、导出里却还印着一个已经不存在的名字。
+ */
+describe('角色 / 场景资产库', () => {
+  it('新增：默认名按数量排（角色 1 / 场景 1），id 前缀区分两类', () => {
+    const doc = addCharacter(addScene(emptyStoryboard('p1', 1), 2), 3)
+    expect(doc.characters[0]!.name).toBe('角色 1')
+    expect(doc.scenes[0]!.name).toBe('场景 1')
+    expect(doc.characters[0]!.id).toMatch(/^char_/)
+    expect(doc.scenes[0]!.id).toMatch(/^scene_/)
+    expect(doc.updatedAt).toBe(3)
+  })
+
+  it('改名 / 改描述；别名去重且不把正式名重复塞进别名；空名不许改成空', () => {
+    let doc = addCharacter(emptyStoryboard('p1'), 1)
+    const id = doc.characters[0]!.id
+    doc = updateCharacter(doc, id, { name: '  林轩  ', aliases: ['林公子', ' 林公子 ', '林轩'] }, 2)
+    expect(doc.characters[0]!.name).toBe('林轩')
+    expect(doc.characters[0]!.aliases).toEqual(['林公子'])
+    doc = updateCharacter(doc, id, { name: '   ' }, 3)
+    expect(doc.characters[0]!.name).toBe('林轩')
+  })
+
+  it('★★ 删角色：连镜头上的引用一起清（不留悬空 id），空数组字段也删掉', () => {
+    let doc = sample()
+    doc = addCharacter(doc, 1)
+    doc = addCharacter(addScene(doc, 1), 1)
+    const [c1, c2] = doc.characters
+    const sceneId = doc.scenes[0]!.id
+    const [s1, s2] = doc.shots
+    doc = toggleShotCharacter(toggleShotCharacter(doc, s1!.id, c1!.id, 2), s1!.id, c2!.id, 2)
+    doc = toggleShotCharacter(doc, s2!.id, c1!.id, 2)
+    doc = bindShotScene(doc, s1!.id, sceneId, 2)
+    const after = removeCharacter(doc, c1!.id, 9)
+    expect(after.characters.map((c) => c.id)).toEqual([c2!.id])
+    expect(shotsOf(after, s1!.episodeId)[0]!.characterIds).toEqual([c2!.id])
+    /* 第二镜只有 c1 一个角色 ⇒ 字段整个消失，不是留一个 `[]` */
+    expect('characterIds' in after.shots.find((s) => s.id === s2!.id)!).toBe(false)
+    expect(after.updatedAt).toBe(9)
+  })
+
+  it('★★ 删场景：镜头上指向它的 sceneId 一起清', () => {
+    let doc = addScene(sample(), 1)
+    const sceneId = doc.scenes[0]!.id
+    doc = bindShotScene(doc, doc.shots[0]!.id, sceneId, 2)
+    const after = removeScene(doc, sceneId, 3)
+    expect(after.scenes).toHaveLength(0)
+    expect('sceneId' in after.shots[0]!).toBe(false)
+  })
+
+  it('删不存在的资产 / 绑不存在的场景：原引用返回（不制造无意义落库）', () => {
+    const doc = addCharacter(sample(), 1)
+    expect(removeCharacter(doc, 'char_x', 2)).toBe(doc)
+    expect(bindShotScene(doc, doc.shots[0]!.id, 'scene_x', 2)).toBe(doc)
+    expect(toggleShotCharacter(doc, doc.shots[0]!.id, 'char_x', 2)).toBe(doc)
+    expect(removeScene(doc, 'scene_x', 2)).toBe(doc)
+  })
+
+  it('绑场景：绑 / 解绑（传 null）/ 同值空操作；切角色是一下加一下去', () => {
+    let doc = addScene(sample(), 1)
+    const sceneId = doc.scenes[0]!.id
+    const shotId = doc.shots[0]!.id
+    doc = bindShotScene(doc, shotId, sceneId, 2)
+    expect(doc.shots[0]!.sceneId).toBe(sceneId)
+    expect(bindShotScene(doc, shotId, sceneId, 3)).toBe(doc)
+    const off = bindShotScene(doc, shotId, null, 4)
+    expect('sceneId' in off.shots[0]!).toBe(false)
+    let withChar = addCharacter(off, 5)
+    const charId = withChar.characters[0]!.id
+    withChar = toggleShotCharacter(withChar, shotId, charId, 6)
+    expect(withChar.shots[0]!.characterIds).toEqual([charId])
+    withChar = toggleShotCharacter(withChar, shotId, charId, 7)
+    expect('characterIds' in withChar.shots[0]!).toBe(false)
+  })
+
+  it('名字读法：场景名 / 出场角色名（角色按库里顺序，导出稳定）', () => {
+    let doc = addCharacter(addCharacter(addScene(sample(), 1), 1), 1)
+    const [c1, c2] = doc.characters
+    const sceneId = doc.scenes[0]!.id
+    const shotId = doc.shots[0]!.id
+    doc = bindShotScene(doc, shotId, sceneId, 2)
+    doc = toggleShotCharacter(doc, shotId, c2!.id, 2)
+    doc = toggleShotCharacter(doc, shotId, c1!.id, 2)
+    const shot = doc.shots.find((s) => s.id === shotId)!
+    expect(sceneNameOf(doc, shot)).toBe('场景 1')
+    /* 先点的是 c2，但输出按角色库顺序（c1 在前）—— 同一份数据每次导出都一样 */
+    expect(characterNamesOf(doc, shot)).toEqual([c1!.name, c2!.name])
+    expect(sceneNameOf(doc, { ...shot, sceneId: undefined })).toBe('')
+  })
+
+  it('★ 脏数据：悬空的 sceneId / characterIds 读回时丢掉（手改过的备份也进不来）', () => {
+    const doc = parseStoryboard(
+      {
+        characters: [{ id: 'c1', name: '林轩', aliases: ['林公子', '林公子'] }, { id: '', name: 'x' }, 'bad'],
+        scenes: [{ id: 's1', name: '雨夜街道' }],
+        episodes: [{ id: 'ep1', title: '一' }],
+        shots: [
+          {
+            id: 'sh1',
+            episodeId: 'ep1',
+            scene: 'a',
+            sceneId: 's1',
+            characterIds: ['c1', 'c-gone', 'c1'],
+          },
+          { id: 'sh2', episodeId: 'ep1', scene: 'b', sceneId: 's-gone', characterIds: ['c-gone'] },
+        ],
+      },
+      'p1',
+    )
+    expect(doc.characters).toHaveLength(1)
+    expect(doc.characters[0]!.aliases).toEqual(['林公子'])
+    expect(doc.shots[0]!.sceneId).toBe('s1')
+    expect(doc.shots[0]!.characterIds).toEqual(['c1'])
+    expect('sceneId' in doc.shots[1]!).toBe(false)
+    expect('characterIds' in doc.shots[1]!).toBe(false)
+  })
+
+  it('导出表多了「场景 / 出场角色」两列，没绑定就写 —', () => {
+    let doc = addCharacter(addScene(emptyStoryboard('p1'), 1), 1)
+    doc = addEpisode(doc, 1)
+    const ep = doc.episodes[0]!
+    doc = addShot(doc, ep.id, 1)
+    const shotId = doc.shots[0]!.id
+    doc = updateShot(doc, shotId, { scene: '雨夜的街道' }, 1)
+    const bare = exportStoryboardMarkdown(doc)
+    expect(bare).toContain('| # | 画面 | 场景 | 出场角色 | 台词 / 旁白 | 时长 | 画面提示词 |')
+    expect(bare).toContain('| 1 | 雨夜的街道 | — | — |')
+
+    doc = updateCharacter(doc, doc.characters[0]!.id, { name: '林轩' }, 1)
+    doc = updateScene(doc, doc.scenes[0]!.id, { name: '雨夜街道' }, 1)
+    doc = bindShotScene(doc, shotId, doc.scenes[0]!.id, 1)
+    doc = toggleShotCharacter(doc, shotId, doc.characters[0]!.id, 1)
+    const full = exportStoryboardMarkdown(doc)
+    expect(full).toContain('| 1 | 雨夜的街道 | 雨夜街道 | 林轩 |')
   })
 })
