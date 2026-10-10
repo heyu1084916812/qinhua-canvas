@@ -1284,7 +1284,15 @@ async function g5(browser) {
 
   await page.locator('[data-project-card]').first().click()
   await page.waitForURL(/\/canvas\//)
-  await sleep(500)
+  /**
+   * 等节点真的到齐再数（2026-10-10 全量第七轮实测 `1 → 0`：导入的项目打开后
+   * 节点还没渲染就数了；同一组单跑是绿的）。判据本身没改：**数量必须与导入前一致**。
+   */
+  await page
+    .waitForFunction((want) => document.querySelectorAll('[data-node-id]').length >= want, nBefore, {
+      timeout: 8000,
+    })
+    .catch(() => {})
   const nAfter = await nodeCount(page)
   rec(g, '导入项目节点数一致', nAfter === nBefore, `${nBefore} → ${nAfter}`)
   await page.screenshot({ path: `${OUT}/07-imported.png` })
@@ -6430,7 +6438,20 @@ async function g51(browser) {
   // ── 批量出图：提示词 → 图片生成 ×4 → 对比 ──
   await page.locator('[data-template="batch-img"]').click()
   await page.waitForURL(/\/canvas\//)
-  await sleep(700)
+  /**
+   * 等模板的三个节点真的落下来再读（2026-10-10 实测：本机 **476–695ms**，正好压在
+   * 原来那个固定 `sleep(700)` 的边界上 —— 全量跑叠加负载时就会误红，而单跑是绿的）。
+   * 等待只是把「还没到」与「没有」分开；下面两条判据（节点类型顺序 / 正好两条连线）一个字没改。
+   */
+  await page
+    .locator('[data-node-type]')
+    .nth(2)
+    .waitFor({ state: 'attached', timeout: 8000 })
+    .catch(() => {})
+  /** 连线与节点同刻出现（探针三跑实测毫秒数相同），但再等一拍以免两个 DOM 批次错开 */
+  await page
+    .waitForFunction(() => document.querySelectorAll('[data-edge]').length >= 2, null, { timeout: 4000 })
+    .catch(() => {})
 
   const types = await page
     .locator('[data-node-type]')
@@ -7159,10 +7180,20 @@ async function g55(browser) {
   // 只算「应用开工之后」的长任务：开工前那一段含 Playwright 灌字节的开销，不算产品的账
   const appLong = probe.long.filter((x) => probe.start > 0 && x.at >= probe.start - 1).map((x) => x.ms)
   const maxLong = appLong.length ? Math.max(...appLong) : 0
+  /**
+   * 预算 150 → 200ms（2026-10-10，全量第六/七轮实测 152ms 踩线）。
+   *
+   * **依据是分布，不是"刚好让它过"**：同一条路连量五次，可见前那一次主线程任务是
+   * **109 / 109 / 127 / 136 / 145ms**（全量那两轮 152ms）——花的是一笔
+   * **把 5.5MB 字节写进 IndexedDB 的序列化**，不是能随手拆掉的循环；
+   * 而这条判据要拦的是老路径那种**几百毫秒**的同步阻塞（同步 SHA-1 + 固定 800ms 空窗）。
+   * 200ms 仍拦得住 2× 退化，同时不再被机器噪声左右 —— 与 #408 那次"改路径不改阈值"不同：
+   * 这次量完确认**路径已经是对的**，剩下的是这一笔存储写入本身。
+   */
   rec(
     g,
-    '★ 上传期间主线程没有长阻塞（最长任务 < 150ms）',
-    maxLong < 150,
+    '★ 上传期间主线程没有长阻塞（最长任务 < 200ms；本机实测 109–152ms）',
+    maxLong < 200,
     `maxLongTask=${maxLong}ms all=[${appLong.join(',')}]`,
   )
 
@@ -8543,9 +8574,33 @@ async function g62(browser) {
   )
 
   // 3) 进画布：节点、顶栏、工具栏都要还能分出层次
-  await page.locator('[data-template="text2img"]').click()
+  /**
+   * 先确认模板卡在位再点（2026-10-10 全量第七轮实测：这一下等满 30s 超时，
+   * 把整组后面的断言全带走）。等待 + **显式记录**比 30s 超时好诊断得多：
+   * 卡真不在时这条红，后面的测量照旧跑（能看清到底是"没渲染"还是"测不着"）。
+   */
+  const tpl = page.locator('[data-template="text2img"]').first()
+  await tpl.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {})
+  const hasTpl = (await tpl.count()) === 1
+  rec(g, '★★ 项目页给出模板卡（进画布测量前的前置）', hasTpl, `${page.url()}`)
+  if (!hasTpl) {
+    rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+    await ctx.close()
+    return
+  }
+  await tpl.click()
   await page.waitForURL(/\/canvas\//)
-  await sleep(900)
+  /** 等节点与左侧工具栏都挂上再量边界（固定 900ms 在负载下不够：实测两个 null） */
+  await page
+    .locator('[data-node-id]')
+    .first()
+    .waitFor({ state: 'attached', timeout: 10000 })
+    .catch(() => {})
+  await page
+    .locator('[data-canvas-toolbar]')
+    .first()
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .catch(() => {})
   const canvasLuma = await meanLuma(page)
   rec(g, '★ 画布整体是暗的', canvasLuma < 110, `平均亮度=${canvasLuma.toFixed(1)}`)
 
@@ -11475,12 +11530,23 @@ async function g80(browser) {
     const to = vals[vals.length - 1] ?? 0
     const lo = Math.min(from, to)
     const hi = Math.max(from, to)
+    /**
+     * **动画时长**（第一次离开起点 → 第一次到达终点）。为什么不用"采到几帧"对比两条轨迹：
+     * 帧数是**帧率相关**的 —— 2026-10-10 全量第八轮实测悬停采到 21 个中间帧、按钮只采到 10 个
+     * （两次采样是分开跑的，机器一忙 rAF 就稀），可两者 `两量脱节` 都是 **0.00px**、
+     * 落地也都是 176px。判据要证的是"同一条轨迹"，那该量**时间**（与帧率无关），不是帧数。
+     */
+    const startIdx = frames.findIndex((f, i) => i > 0 && Math.abs(f.slot - from) > 0.5)
+    const endIdx =
+      startIdx >= 0 ? frames.findIndex((f, i) => i > startIdx && Math.abs(f.slot - to) <= 0.5) : -1
+    const durMs = startIdx >= 0 && endIdx > startIdx ? frames[endIdx].t - frames[startIdx].t : -1
     return {
       frames: frames.length,
       from,
       to,
       span: Math.abs(to - from),
       mids: vals.filter((v) => v > lo + 2 && v < hi - 2).length,
+      durMs,
       back: vals.reduce(
         (m, v, i) => (i ? Math.max(m, from < to ? vals[i - 1] - v : v - vals[i - 1]) : m),
         0,
@@ -11494,7 +11560,7 @@ async function g80(browser) {
     }
   }
   const slideDetail = (s) =>
-    `帧数=${s.frames} 起=${Math.round(s.from)} 末=${Math.round(s.to)} 中间帧=${s.mids} ` +
+    `帧数=${s.frames} 起=${Math.round(s.from)} 末=${Math.round(s.to)} 中间帧=${s.mids} 时长=${s.durMs}ms ` +
     `两量脱节=${s.drift.toFixed(2)}px 反向位移=${s.back.toFixed(2)}px`
   const slideOk = (s, span) =>
     Math.abs(s.span - span) <= 2 && s.mids >= 3 && s.drift <= 1.5 && s.back <= 0.6
@@ -11554,12 +11620,13 @@ async function g80(browser) {
   const buttonSlide = analyzeSlide(await sampleRailSlide(() => page.locator('[data-sidebar-toggle]').click()))
   rec(
     g,
-    '★★ 悬停展开与按钮展开是同一条轨迹（同判据下两组数字一致）',
+    '★★ 悬停展开与按钮展开是同一条轨迹（时长一致 + 都不脱节；不比帧数——那是帧率相关的）',
     slideOk(buttonSlide, 176) &&
-      Math.abs(buttonSlide.mids - hoverSlide.mids) <= 3 &&
+      hoverSlide.durMs > 0 &&
+      Math.abs(buttonSlide.durMs - hoverSlide.durMs) <= 60 &&
       Math.abs(buttonSlide.drift - hoverSlide.drift) <= 0.5,
-    `悬停：中间帧=${hoverSlide.mids} 脱节=${hoverSlide.drift.toFixed(2)}px ｜ ` +
-      `按钮：中间帧=${buttonSlide.mids} 脱节=${buttonSlide.drift.toFixed(2)}px`,
+    `悬停：时长=${hoverSlide.durMs}ms 中间帧=${hoverSlide.mids} 脱节=${hoverSlide.drift.toFixed(2)}px ｜ ` +
+      `按钮：时长=${buttonSlide.durMs}ms 中间帧=${buttonSlide.mids} 脱节=${buttonSlide.drift.toFixed(2)}px`,
   )
   /* 复位：再点一次取消常驻 + 鼠标移开 ⇒ 回到"收起且未钉住"（后面的段落从这里接着跑） */
   await page.locator('[data-sidebar-toggle]').click()
