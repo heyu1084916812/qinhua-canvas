@@ -23521,13 +23521,23 @@ async function g123(browser) {
   const kinds = await page
     .locator('[data-project-workbench]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-project-workbench')))
+  /**
+   * 类型**只落在卡片根的数据属性上**，筛选条按它过滤；卡片里**不画**类型胶囊 ——
+   * 用户 2026-09-28 对着截图定稿过「名称与『相对日期 · N 个节点』两行，删除工作台标签胶囊」
+   * （对账 #40 / G85）。这条断言连 meta 文案一起量：塞回胶囊就会在这里红。
+   */
+  const metaTexts = await page
+    .locator('[data-project-meta]')
+    .evaluateAll((els) => els.map((e) => e.textContent?.trim() ?? ''))
   rec(
     g,
-    '★★ 项目页有「全部 / 画布 / 电商」分类，卡片带类型标签',
+    '★★ 项目页有「全部 / 画布 / 电商」分类，卡片带类型属性（且 meta 行不塞类型胶囊）',
     JSON.stringify(filters) === JSON.stringify(['all', 'canvas', 'ecommerce']) &&
       kinds.includes('canvas') &&
-      kinds.includes('ecommerce'),
-    `筛选=${filters.join(',')} 卡片标签=${kinds.join(',')}`,
+      kinds.includes('ecommerce') &&
+      metaTexts.length > 0 &&
+      metaTexts.every((t) => !/画布|电商|漫画/.test(t)),
+    `筛选=${filters.join(',')} 卡片类型=${kinds.join(',')} meta=${metaTexts.join(' | ')}`,
   )
   await page.locator('[data-projects-kind-filter="ecommerce"]').click()
   await sleep(400)

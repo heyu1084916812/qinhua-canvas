@@ -416,18 +416,6 @@
   text-overflow: ellipsis;
 }
 
-/* 卡片上的类型标签：与筛选按钮同一套词（画布 / 电商） */
-.cardKind {
-  display: inline-block;
-  margin-right: var(--space-2);
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-pill);
-  background: var(--bg-subtle);
-  color: var(--text-2);
-  font-size: var(--fs-chip);
-  vertical-align: 1px;
-}
-
 .renameInput {
   width: 100%;
   box-sizing: border-box;

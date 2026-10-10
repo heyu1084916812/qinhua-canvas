@@ -762,6 +762,14 @@ export function ProjectCard(props: {
       data-selecting={selecting ? 'true' : undefined}
       data-selected={selected ? 'true' : undefined}
       data-project-card={project.id}
+      /*
+       * 类型落在**卡片根上**（用户 2026-10-10 #5 的"分类"靠它过滤），
+       * 而不是在卡片里画一枚标签：用户 2026-09-28 对着五张截图定稿过
+       * 「名称与『相对日期 · N 个节点』两行，删除工作台标签胶囊」（对账 #40 / 冒烟 G85），
+       * 在 meta 行里塞一枚"画布 / 电商"的胶囊会把那条定稿推翻 —— 分类交给筛选条，
+       * 卡片上只留数据属性供筛选与冒烟读。
+       */
+      data-project-workbench={project.workbench}
       aria-label={name}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -803,10 +811,6 @@ export function ProjectCard(props: {
           </div>
         )}
         <div className={styles.cardMeta} data-project-meta>
-          {/* 类型标签（用户 2026-10-10 #5）：在「全部」档里也一眼分得清这是哪类项目 */}
-          <span className={styles.cardKind} data-project-workbench={project.workbench}>
-            {project.workbench === 'ecommerce' ? '电商' : '画布'}
-          </span>
           {formatRelative(project.updatedAt)}
           {project.workbench === 'canvas' ? ` · ${project.nodeCount} 个节点` : ''}
         </div>
