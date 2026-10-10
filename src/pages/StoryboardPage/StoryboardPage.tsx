@@ -44,6 +44,7 @@ import {
   addEpisode,
   addScene,
   addShot,
+  assetBasePrompt,
   attachShotImages,
   attachShotNodes,
   bindShotScene,
@@ -54,6 +55,8 @@ import {
   removeEpisode,
   removeScene,
   removeShot,
+  setAssetBaseHash,
+  setAssetNode,
   shotPromptWithAssets,
   shotsNeedingNode,
   shotsOf,
@@ -318,23 +321,41 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
    *
    * 三条边界：
    * - **只在变化时写**（`hash !== shot.imageHash`）：不然每次拖动节点都会触发一次无意义的落库；
-   * - 依赖只有 `graph.nodes`（文档从 ref 读）：镜像写回会改文档，若把文档也放进依赖就成了循环；
+   * - 依赖是 `graph.nodes` + `doc`：**必须用 state 里的文档、不能用 ref** ——
+   *    「建节点 + 立刻跑」是一次点击里做完的（定妆图 #419 就是），ref 在那一拍还停在旧文档上
+   *    （角色上还没有 nodeId），镜像会整个漏掉；而这次漏掉的 Graph 变化之后不会再来了。
+   *    放进依赖不会循环：第一次写完文档，第二次跑时所有 hash 都已对上 ⇒ 没有变化 ⇒ 不再写。
    * - 用户**重出**这一镜时 hash 会变，这条判据照样把新图镜像过来（不是"有值就跳过"）。
    */
   const applyRef = useRef(apply)
   applyRef.current = apply
   useEffect(() => {
-    const current = docRef.current
-    if (!current) return
+    if (!doc) return
+    let next = doc
     const updates: { shotId: string; hash: string }[] = []
-    for (const shot of current.shots) {
+    for (const shot of doc.shots) {
       if (!shot.nodeId) continue
       const node = graph.nodes.find((n) => n.id === shot.nodeId)
       const hash = node ? assetHashesOfNode(node)[0] : undefined
       if (hash && hash !== shot.imageHash) updates.push({ shotId: shot.id, hash })
     }
-    if (updates.length > 0) applyRef.current(attachShotImages(current, updates, 0))
-  }, [graph.nodes])
+    if (updates.length > 0) next = attachShotImages(next, updates, 0)
+    /**
+     * 资产那一侧也一样（对账 #419）：定妆图 / 基准图跑完，把节点上的 hash 镜像回资产。
+     * 逐条判断、有变化才写（`setAssetBaseHash` 自己会判同值），避免拖动节点时反复落库。
+     */
+    for (const kind of ['char', 'scene'] as const) {
+      const list = kind === 'char' ? next.characters : next.scenes
+      for (const asset of list) {
+        if (!asset.nodeId) continue
+        const node = graph.nodes.find((n) => n.id === asset.nodeId)
+        const hash = node ? assetHashesOfNode(node)[0] : undefined
+        /* 与镜头同一条判据：**变了才写**（重出定妆图时 hash 会换，也要镜像过来） */
+        if (hash && hash !== asset.baseHash) next = setAssetBaseHash(next, kind, asset.id, hash, 0)
+      }
+    }
+    if (next !== doc) applyRef.current(next)
+  }, [graph.nodes, doc])
 
   if (!doc) {
     return (
@@ -402,6 +423,49 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     }
     apply(kind === 'char' ? removeCharacter(doc, id, 0) : removeScene(doc, id, 0))
     setConfirming('')
+  }
+
+  /**
+   * 「出定妆图 / 基准图」（对账 #419）：这一条资产没有节点就先建一个（提示词按资产拼），
+   * 再**原地跑一次**（`inPlace`，产物写回它自己的节点，不铺第二个）。
+   *
+   * 节点被用户在画布上删过（悬空）时同样算"没有节点"：这里会重新建一个 ——
+   * 与镜头上「铺到画布」那条判据同源（缓存不是真相）。
+   */
+  const makeAssetBase = async (kind: 'char' | 'scene', assetId: string) => {
+    const asset = kind === 'char' ? doc.characters.find((c) => c.id === assetId) : doc.scenes.find((s) => s.id === assetId)
+    if (!asset) return
+    const alive = asset.nodeId && liveNodeIds.has(asset.nodeId) ? asset.nodeId : null
+    try {
+      let nodeId = alive
+      if (!nodeId) {
+        const data = await resolveDefaults({
+          channels,
+          type: 'generation',
+          extraData: { mode: 'image', prompt: assetBasePrompt(asset, kind) },
+        })
+        const base = graph.nodes.length
+        canvasStore.beginPlan('storyboard:asset-base', kind === 'char' ? '定妆图 ×1' : '基准图 ×1')
+        try {
+          nodeId = applyDefaults({
+            store: canvasStore,
+            channels,
+            projectId,
+            type: 'generation',
+            at: { x: 40, y: 40 + base * 200 },
+            data,
+          })
+        } finally {
+          canvasStore.endPlan()
+        }
+        if (!nodeId) return
+        const current = docRef.current
+        if (current) apply(setAssetNode(current, kind, assetId, nodeId, 0))
+      }
+      await exec.runNode(nodeId, { inPlace: true })
+    } catch (e) {
+      setLay({ kind: 'error', text: humanError(e) })
+    }
   }
 
   /**
@@ -969,8 +1033,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                 kind="char"
                 usedBy={doc.shots.filter((s) => s.characterIds?.includes(c.id)).length}
                 confirming={confirming === `char:${c.id}`}
+                hasNode={Boolean(c.nodeId && liveNodeIds.has(c.nodeId))}
+                state={c.nodeId ? exec.nodeStateOf(c.nodeId) : undefined}
                 onPatch={(patch) => apply(updateCharacter(doc, c.id, patch, 0))}
                 onRemove={() => removeOneAsset('char', c.id)}
+                onMake={() => void makeAssetBase('char', c.id)}
               />
             ))}
             {doc.scenes.map((s) => (
@@ -980,8 +1047,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                 kind="scene"
                 usedBy={doc.shots.filter((x) => x.sceneId === s.id).length}
                 confirming={confirming === `scene:${s.id}`}
+                hasNode={Boolean(s.nodeId && liveNodeIds.has(s.nodeId))}
+                state={s.nodeId ? exec.nodeStateOf(s.nodeId) : undefined}
                 onPatch={(patch) => apply(updateScene(doc, s.id, patch, 0))}
                 onRemove={() => removeOneAsset('scene', s.id)}
+                onMake={() => void makeAssetBase('scene', s.id)}
               />
             ))}
           </div>
@@ -1429,18 +1499,53 @@ function AssetRow({
   kind,
   usedBy,
   confirming,
+  hasNode,
+  state,
   onPatch,
   onRemove,
+  onMake,
 }: {
   asset: DramaAsset
   kind: 'char' | 'scene'
   /** 有多少镜在用（删除确认里如实报数） */
   usedBy: number
   confirming: boolean
+  /** 这条资产的生成节点**现在还在画布上**（不是"曾经建过"） */
+  hasNode: boolean
+  state?: RunTaskState
   onPatch: (patch: Partial<Pick<DramaAsset, 'name' | 'description' | 'aliases'>>) => void
   onRemove: () => void
+  onMake: () => void
 }) {
   const [aliasText, setAliasText] = useState(asset.aliases.join('、'))
+  const label = kind === 'char' ? '定妆图' : '基准图'
+  /**
+   * 状态一格写完（界面 / 冒烟都读这一个属性）：
+   * 没节点 → idle；有节点没图 → laid；跑着 → running；失败 → failed；有图 → done。
+   * **失败优先于"有图"**：重出失败时旧图还在，但用户此刻要知道的是"这次失败了"。
+   */
+  const statusKind = !hasNode
+    ? 'idle'
+    : state?.kind === 'failed'
+      ? 'failed'
+      : state?.kind === 'queued' || state?.kind === 'running'
+        ? 'running'
+        : asset.baseHash
+          ? 'done'
+          : 'laid'
+  const statusText =
+    statusKind === 'idle'
+      ? `还没出${label}`
+      : statusKind === 'laid'
+        ? '已建节点'
+        : statusKind === 'running'
+          ? state?.kind === 'queued'
+            ? '排队中…'
+            : '生成中…'
+          : statusKind === 'failed'
+            ? '生成失败'
+            : '已出图'
+  const busy = state?.kind === 'queued' || state?.kind === 'running'
   return (
     <div
       className={styles.assetRow}
@@ -1492,8 +1597,47 @@ function AssetRow({
       >
         <IconTrash />
       </button>
+      <div className={styles.assetFoot}>
+        <div className={styles.assetFootRow}>
+          {asset.baseHash ? (
+            <span className={styles.shotImage} data-storyboard-asset-image={asset.id}>
+              <AssetThumb hash={asset.baseHash} />
+            </span>
+          ) : null}
+          <span
+            className={
+              statusKind === 'failed' ? `${styles.shotState} ${styles.shotStateBad}` : styles.shotState
+            }
+            data-storyboard-asset-status={asset.id}
+            data-kind={statusKind}
+          >
+            {statusText}
+          </span>
+          <button
+            type="button"
+            className={styles.ghost}
+            data-storyboard-asset-base={asset.id}
+            disabled={busy}
+            onClick={onMake}
+          >
+            {asset.baseHash ? `重出${label}` : `出${label}`}
+          </button>
+        </div>
+        {state?.kind === 'failed' ? (
+          <p className={styles.error} data-storyboard-asset-error={asset.id}>
+            {describeError(state.error)}
+          </p>
+        ) : null}
+      </div>
     </div>
   )
+}
+
+/** 资产的基准图缩略图（角色定妆图 / 场景基准图）：按 hash 取素材 */
+function AssetThumb({ hash }: { hash: string }) {
+  const url = useAsset(hash)
+  if (!url) return null
+  return <img className={styles.shotImg} src={url} alt="" />
 }
 
 /** 这一镜的出图缩略图：按 hash 取素材（hook 必须落在子组件里，不能在 map 里调） */

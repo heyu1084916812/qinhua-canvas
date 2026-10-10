@@ -41,6 +41,21 @@ export interface DramaAsset {
   name: string
   description: string
   aliases: string[]
+  /**
+   * 这一条资产在画布上的**生成节点 id**（对账 #419）：定妆图 / 基准图就是用它跑的。
+   *
+   * 与镜头上的 `nodeId` 同一条纪律：它是**缓存不是真相** —— 节点被用户在画布上删掉后，
+   * 拿它去节点表里找不到，就当作"还没做过基准图"（界面据此允许重新做）。
+   */
+  nodeId?: string
+  /**
+   * **角色定妆图 / 场景基准图**的素材 hash（同一个字段两种叫法，对账 #419）。
+   *
+   * 为什么一个字段就够：角色与场景在这一层是同一类东西（名字 + 别名 + 描述 + 一张基准图），
+   * 拆成两个字段只会让每条读写逻辑各写两遍 —— 差异在**提示词**里（`assetBasePrompt`），
+   * 不在数据形状里。
+   */
+  baseHash?: string
 }
 
 export type DramaCharacter = DramaAsset
@@ -158,7 +173,18 @@ function parseAssetList(raw: unknown): DramaAsset[] {
     const aliases = Array.isArray(row.aliases)
       ? [...new Set(row.aliases.map((v) => text(v)).filter((v) => v && v !== name))]
       : []
-    return [{ id, name, description: text(row.description), aliases }]
+    const nodeId = text(row.nodeId)
+    const baseHash = text(row.baseHash)
+    return [
+      {
+        id,
+        name,
+        description: text(row.description),
+        aliases,
+        ...(nodeId ? { nodeId } : {}),
+        ...(baseHash ? { baseHash } : {}),
+      },
+    ]
   })
 }
 
@@ -617,6 +643,96 @@ export function characterNamesOf(doc: StoryboardDoc, shot: StoryboardShot): stri
   if (!shot.characterIds || shot.characterIds.length === 0) return []
   const ids = new Set(shot.characterIds)
   return doc.characters.filter((c) => ids.has(c.id)).map((c) => c.name)
+}
+
+/**
+ * **定妆图 / 基准图的提示词**（对账 #419；调研稿 §6.3 第 4 条「初级纯文生图」）。
+ *
+ * 这一批**只做一张基准图**，不接参考图回喂（那要渠道消费 `inputs`，#81/#113 的缺口）。
+ * 两条尾巴是刻意的：
+ * - 角色：中性表情 + 干净背景 + 展示发型 / 服装 / 配饰 —— 基准图是给"以后做参考图"用的，
+ *   不是给观众看的剧照；
+ * - 场景：**无人物**空镜 —— 场景图里混进人，后面拿它当参考时会把那个人也带进每一镜。
+ * 两句都写「不要文字」：带标签的提示词很容易让图生模型把字画出来。
+ */
+export function assetBasePrompt(asset: DramaAsset, kind: 'char' | 'scene'): string {
+  const name = asset.name.trim() || (kind === 'char' ? '角色' : '场景')
+  const desc = asset.description.trim()
+  const head = kind === 'char' ? '角色定妆图' : '场景基准图'
+  const tail =
+    kind === 'char'
+      ? '正面半身，中性表情，干净的纯色背景，清晰展示发型、服装与配饰细节，画面里不要出现任何文字'
+      : '无人物空镜，展示场地结构与氛围，光线自然，画面里不要出现任何文字'
+  return `${head}：${name}${desc ? `。${desc}` : ''}。${tail}`
+}
+
+/** 资产库的两个入口（读写都按"哪一类 + 哪一条"定位，界面不用自己分叉） */
+type AssetKind = 'char' | 'scene'
+
+function withAsset(
+  doc: StoryboardDoc,
+  kind: AssetKind,
+  id: string,
+  patch: (asset: DramaAsset) => DramaAsset,
+  now = 0,
+): StoryboardDoc {
+  if (kind === 'char') {
+    const current = doc.characters.find((c) => c.id === id)
+    if (!current) return doc
+    const next = patch(current)
+    /* patch 原样返回 ⇒ 没有变化 ⇒ 返回原引用（调用方据此不做多余落库，与 attach* 同一条纪律） */
+    if (next === current) return doc
+    return { ...doc, characters: doc.characters.map((c) => (c.id === id ? next : c)), updatedAt: now }
+  }
+  const current = doc.scenes.find((s) => s.id === id)
+  if (!current) return doc
+  const next = patch(current)
+  if (next === current) return doc
+  return { ...doc, scenes: doc.scenes.map((s) => (s.id === id ? next : s)), updatedAt: now }
+}
+
+/**
+ * 记下"这条资产用哪个节点做基准图"。
+ *
+ * 换节点时**顺手清掉 `baseHash`**：那张图属于旧节点，留着就是同一个事实两个来源
+ * （与镜头上的 `attachShotNodes` 同一条纪律）。
+ */
+export function setAssetNode(
+  doc: StoryboardDoc,
+  kind: AssetKind,
+  id: string,
+  nodeId: string,
+  now = 0,
+): StoryboardDoc {
+  return withAsset(
+    doc,
+    kind,
+    id,
+    (asset) => {
+      if (asset.nodeId === nodeId) return asset
+      const next: DramaAsset = { ...asset, nodeId }
+      delete next.baseHash
+      return next
+    },
+    now,
+  )
+}
+
+/** 把基准图的 hash 镜像回资产（同一个 hash 再来一次是空操作，别搅动防抖保存） */
+export function setAssetBaseHash(
+  doc: StoryboardDoc,
+  kind: AssetKind,
+  id: string,
+  hash: string,
+  now = 0,
+): StoryboardDoc {
+  return withAsset(
+    doc,
+    kind,
+    id,
+    (asset) => (asset.baseHash === hash ? asset : { ...asset, baseHash: hash }),
+    now,
+  )
 }
 
 /**

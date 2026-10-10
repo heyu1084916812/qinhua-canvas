@@ -355,7 +355,8 @@
   grid-template-areas:
     'kind name remove'
     'desc desc desc'
-    'alias alias alias';
+    'alias alias alias'
+    'foot foot foot';
   gap: var(--space-2);
   align-items: center;
   padding: var(--space-2);
@@ -384,6 +385,19 @@
 
 .assetRow > button {
   grid-area: remove;
+}
+
+.assetFoot {
+  grid-area: foot;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.assetFootRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .assetName,

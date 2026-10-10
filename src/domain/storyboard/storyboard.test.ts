@@ -3,6 +3,7 @@ import {
   ASSET_BLOCK_HEADER,
   addCharacter,
   addScene,
+  assetBasePrompt,
   attachShotImages,
   attachShotNodes,
   bindShotScene,
@@ -20,6 +21,8 @@ import {
   removeScene,
   removeShot,
   sceneNameOf,
+  setAssetBaseHash,
+  setAssetNode,
   shotPrompt,
   shotPromptWithAssets,
   shotsNeedingNode,
@@ -562,5 +565,74 @@ describe('资产设定进提示词', () => {
     doc = updateScene(doc, doc.scenes[0]!.id, { name: '雨夜街道', description: '霓虹' }, 1)
     doc = bindShotScene(doc, shotId, doc.scenes[0]!.id, 1)
     expect(exportStoryboardMarkdown(doc)).toContain(ASSET_BLOCK_HEADER)
+  })
+})
+
+/**
+ * 定妆图 / 基准图（对账 #419；调研稿 §6.3 第 4 条）。
+ *
+ * 这一批只做**一张纯文生图的基准图**（参考图回喂要等 #81/#113）。
+ * 守两件事：提示词的尾巴（角色要中性表情、场景要无人物空镜）与
+ * "换节点就清旧图"（同一个事实两个来源必然分叉）。
+ */
+describe('定妆图 / 基准图', () => {
+  it('读回：资产的 nodeId / baseHash 都在；非字符串丢掉', () => {
+    const doc = parseStoryboard(
+      {
+        characters: [
+          { id: 'c1', name: '骑手', nodeId: 'n1', baseHash: 'h1' },
+          { id: 'c2', name: '路人', nodeId: 7, baseHash: {} },
+        ],
+        scenes: [{ id: 's1', name: '雨夜街道', nodeId: 'n2', baseHash: 'h2' }],
+        episodes: [],
+        shots: [],
+      },
+      'p1',
+    )
+    expect(doc.characters[0]!.nodeId).toBe('n1')
+    expect(doc.characters[0]!.baseHash).toBe('h1')
+    expect('nodeId' in doc.characters[1]!).toBe(false)
+    expect(doc.scenes[0]!.baseHash).toBe('h2')
+  })
+
+  it('★★ 提示词：角色与场景各一套尾巴；描述为空也能跑（只写名字）', () => {
+    const rider = { id: 'c1', name: '骑手', description: '二十出头，雨衣', aliases: [] }
+    const street = { id: 's1', name: '雨夜街道', description: '霓虹、积水', aliases: [] }
+    const charPrompt = assetBasePrompt(rider, 'char')
+    expect(charPrompt).toBe(
+      '角色定妆图：骑手。二十出头，雨衣。正面半身，中性表情，干净的纯色背景，清晰展示发型、服装与配饰细节，画面里不要出现任何文字',
+    )
+    const scenePrompt = assetBasePrompt(street, 'scene')
+    expect(scenePrompt).toContain('场景基准图：雨夜街道。霓虹、积水。')
+    expect(scenePrompt).toContain('无人物空镜')
+    expect(scenePrompt).toContain('不要出现任何文字')
+    expect(assetBasePrompt({ ...rider, description: '' }, 'char')).toBe(
+      '角色定妆图：骑手。正面半身，中性表情，干净的纯色背景，清晰展示发型、服装与配饰细节，画面里不要出现任何文字',
+    )
+  })
+
+  it('★★ 记节点：写 nodeId；**换节点顺手清掉旧 baseHash**；同值返回原引用', () => {
+    let doc = addCharacter(sample(), 1)
+    const id = doc.characters[0]!.id
+    doc = setAssetNode(doc, 'char', id, 'n1', 2)
+    doc = setAssetBaseHash(doc, 'char', id, 'h1', 3)
+    expect(doc.characters[0]!.nodeId).toBe('n1')
+    expect(doc.characters[0]!.baseHash).toBe('h1')
+    const same = setAssetNode(doc, 'char', id, 'n1', 4)
+    expect(same).toBe(doc)
+    const swapped = setAssetNode(doc, 'char', id, 'n2', 5)
+    expect(swapped.characters[0]!.nodeId).toBe('n2')
+    expect('baseHash' in swapped.characters[0]!).toBe(false)
+    expect(swapped.updatedAt).toBe(5)
+  })
+
+  it('镜像基准图 hash：同 hash 空操作；找不到那条资产也返回原引用', () => {
+    const doc = addScene(sample(), 1)
+    const id = doc.scenes[0]!.id
+    const once = setAssetBaseHash(doc, 'scene', id, 'h1', 2)
+    expect(once.scenes[0]!.baseHash).toBe('h1')
+    expect(setAssetBaseHash(once, 'scene', id, 'h1', 3)).toBe(once)
+    expect(setAssetBaseHash(once, 'scene', 'scene_x', 'h9', 4)).toBe(once)
+    expect(setAssetNode(once, 'char', id, 'n1', 5)).toBe(once)
   })
 })

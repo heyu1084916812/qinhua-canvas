@@ -25451,7 +25451,203 @@ async function g132(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132]
+// ────────────────────────────────────────────────────────────
+// G133 漫剧「定妆图 / 基准图」（对账 #419）：
+//   角色出定妆图、场景出基准图：**一个节点 + 原地写回**，hash 镜像回资产，列表显示缩略图；
+//   重出仍是同一个节点（不铺第二个）；刷新后缩略图还在。
+// ────────────────────────────────────────────────────────────
+async function g133(browser) {
+  const g = 'G133 漫剧定妆图'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  const readDb = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const all = (table) =>
+        new Promise((resolve) => {
+          const r = db.transaction(table, 'readonly').objectStore(table).getAll()
+          r.onsuccess = () => resolve(r.result ?? [])
+          r.onerror = () => resolve([])
+        })
+      const nodes = await all('nodes')
+      const runs = await all('runRecords')
+      const boards = await all('storyboards')
+      const doc = boards[0]?.doc
+      return {
+        nodes: nodes.map((n) => ({ id: n.id, prompt: n.data?.prompt ?? '', hash: n.data?.assetHash ?? '' })),
+        runs: runs.length,
+        characters: (doc?.characters ?? []).map((c) => ({ id: c.id, name: c.name, nodeId: c.nodeId ?? '', hash: c.baseHash ?? '' })),
+        scenes: (doc?.scenes ?? []).map((s) => ({ id: s.id, name: s.name, nodeId: s.nodeId ?? '', hash: s.baseHash ?? '' })),
+      }
+    })
+  const waitAsset = async (assetId, want = 'done', timeoutMs = 30000) => {
+    const started = Date.now()
+    for (;;) {
+      const kind = await page
+        .locator(`[data-storyboard-asset-status="${assetId}"]`)
+        .getAttribute('data-kind')
+        .catch(() => null)
+      if (kind === want || Date.now() - started > timeoutMs) return kind
+      await sleep(200)
+    }
+  }
+  const waitRuns = async (n, timeoutMs = 15000) => {
+    const started = Date.now()
+    for (;;) {
+      const db = await readDb()
+      if (db.runs >= n || Date.now() - started > timeoutMs) return db
+      await sleep(250)
+    }
+  }
+  /**
+   * 等**文档里**那条资产记上 nodeId / hash 再读。
+   *
+   * 状态行读到 `done` 只说明**内存里**镜像好了；文档是 400ms 防抖落库的 ——
+   * 第一版就是在这里红的（节点已经在库里、资产上还什么都没有）。
+   */
+  const waitAssetSaved = async (kind, id, timeoutMs = 8000) => {
+    const started = Date.now()
+    for (;;) {
+      const db = await readDb()
+      const hit = (kind === 'char' ? db.characters : db.scenes).find((a) => a.id === id)
+      if ((hit?.nodeId && hit?.hash) || Date.now() - started > timeoutMs) return db
+      await sleep(200)
+    }
+  }
+
+  // ① 建项目 + 配 mock 渠道 + 一条角色一条场景
+  await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-storyboard-create]').click()
+  await page.waitForURL(/\/storyboard\/proj_/)
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  const projectUrl = page.url()
+  await configureMockChannel(page)
+  await sleep(500)
+  await page.goto(projectUrl, { waitUntil: 'networkidle' })
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  await sleep(500)
+  await page.locator('[data-storyboard-add-character]').click()
+  await sleep(250)
+  const charRows = await page
+    .locator('[data-storyboard-character] [data-storyboard-asset-name]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-storyboard-asset-name')))
+  const charId = charRows[charRows.length - 1]
+  await page.locator(`[data-storyboard-asset-name="${charId}"]`).fill('骑手')
+  await page.locator(`[data-storyboard-asset-desc="${charId}"]`).fill('二十出头，雨衣，旧头盔')
+  await page.locator('[data-storyboard-add-scene]').click()
+  await sleep(250)
+  const sceneRows = await page
+    .locator('[data-storyboard-scene] [data-storyboard-asset-name]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-storyboard-asset-name')))
+  const sceneId = sceneRows[sceneRows.length - 1]
+  await page.locator(`[data-storyboard-asset-name="${sceneId}"]`).fill('雨夜街道')
+  await page.locator(`[data-storyboard-asset-desc="${sceneId}"]`).fill('霓虹、积水、末班公交')
+  await sleep(300)
+  rec(
+    g,
+    '★ 一开始两条资产都是「还没出定妆图 / 基准图」',
+    (await waitAsset(charId, 'idle', 3000)) === 'idle' && (await waitAsset(sceneId, 'idle', 3000)) === 'idle',
+  )
+
+  // ② 角色：出定妆图（建节点 + 原地跑）
+  await page.locator(`[data-storyboard-asset-base="${charId}"]`).click()
+  const charDone = await waitAsset(charId)
+  const afterChar = await waitAssetSaved('char', charId)
+  const char = afterChar.characters.find((c) => c.id === charId)
+  const charNode = afterChar.nodes.find((n) => n.id === char?.nodeId)
+  rec(
+    g,
+    '★★★ 角色定妆图：跑完 → 资产上记着节点与 hash，节点提示词按资产拼（中性表情 + 不要文字）',
+    charDone === 'done' &&
+      afterChar.nodes.length === 1 &&
+      typeof char?.hash === 'string' &&
+      char.hash.length > 0 &&
+      char.hash === charNode?.hash &&
+      /角色定妆图：骑手。二十出头，雨衣，旧头盔。/.test(charNode?.prompt ?? '') &&
+      (charNode?.prompt ?? '').includes('不要出现任何文字'),
+    JSON.stringify({
+      状态: charDone,
+      节点数: afterChar.nodes.length,
+      资产: char,
+      节点: charNode,
+    }),
+  )
+  /* 缩略图要**解码完**才算数：元素在 ≠ 图能显示（等 naturalWidth > 0，别 sleep 魔数） */
+  const charImg = await page
+    .waitForFunction(
+      (id) => {
+        const img = document.querySelector(`[data-storyboard-asset-image="${id}"] img`)
+        return !!img && img.naturalWidth > 0
+      },
+      charId,
+      { timeout: 8000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★★ 列表里看得到定妆图（缩略图真解码）', charImg)
+
+  // ③ 场景：出基准图（无人物空镜）
+  await page.locator(`[data-storyboard-asset-base="${sceneId}"]`).click()
+  const sceneDone = await waitAsset(sceneId)
+  await waitRuns(2)
+  const afterScene = await waitAssetSaved('scene', sceneId)
+  const scene = afterScene.scenes.find((s) => s.id === sceneId)
+  const sceneNode = afterScene.nodes.find((n) => n.id === scene?.nodeId)
+  rec(
+    g,
+    '★★★ 场景基准图：提示词是「场景基准图 + 无人物空镜」，hash 也镜像回资产',
+    sceneDone === 'done' &&
+      afterScene.nodes.length === 2 &&
+      typeof scene?.hash === 'string' &&
+      scene.hash.length > 0 &&
+      scene.hash === sceneNode?.hash &&
+      (sceneNode?.prompt ?? '').includes('场景基准图：雨夜街道。霓虹、积水、末班公交。') &&
+      (sceneNode?.prompt ?? '').includes('无人物空镜'),
+    `prompt="${sceneNode?.prompt ?? ''}"`,
+  )
+
+  // ④ 重出定妆图：仍是同一个节点（原地写回），运行记录 +1
+  const nodesBefore = (await readDb()).nodes.length
+  await page.locator(`[data-storyboard-asset-base="${charId}"]`).click()
+  const afterRerun = await waitRuns(3)
+  rec(
+    g,
+    '★★ 重出定妆图：又跑了一次（运行记录 +1），画布上**还是两个节点**（原地写回）',
+    afterRerun.runs >= 3 && afterRerun.nodes.length === nodesBefore,
+    `运行记录=${afterRerun.runs} 节点=${afterRerun.nodes.length}`,
+  )
+
+  // ⑤ 刷新后两张基准图都还在
+  await page
+    .waitForFunction(
+      () => document.querySelector('[data-storyboard-status]')?.textContent?.includes('已保存') ?? false,
+      null,
+      { timeout: 8000 },
+    )
+    .catch(() => {})
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  await sleep(600)
+  rec(
+    g,
+    '★★ 刷新后两张基准图仍在（hash 落库 + 素材还在）',
+    (await page.locator(`[data-storyboard-asset-image="${charId}"] img`).count()) === 1 &&
+      (await page.locator(`[data-storyboard-asset-image="${sceneId}"] img`).count()) === 1,
+  )
+
+  await page.screenshot({ path: `${OUT}/133-g133-base-image.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
