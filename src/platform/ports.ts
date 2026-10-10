@@ -413,6 +413,37 @@ export interface CliWindowRequest {
   cwd?: string
 }
 
+/** 取远端字节的请求（只管一条 GET，不做缓存、不跟随业务） */
+export interface RemoteBytesRequest {
+  /** 完整地址（必须 http / https，端口实现侧会再挡一道） */
+  url: string
+  timeoutMs?: number
+}
+
+export interface RemoteBytesResponse {
+  /** HTTP 状态码（原样回来，"算不算抓到"由调用方判断） */
+  status: number
+  /** 响应头里的 `Content-Type`；站点没给就是空串 */
+  contentType: string
+  bytes: Uint8Array
+}
+
+/**
+ * **取远端字节端口**（对账 #396：用户问「上传图标能否给网站，然后自己去拉取抓图标下来？」）。
+ *
+ * 为什么不能直接用页面里的 `fetch`：跨域站点不给 `Access-Control-Allow-Origin` 时，
+ * 浏览器（壳里的 WebView2 也算浏览器）**读不到字节** —— 实测见
+ * `AssetPort.readUrl` 那条注释里记的 `net::ERR_FAILED`。桌面壳里有原生 HTTP 客户端，
+ * 所以这一项**只有壳给得出**，与 `cli` / `storageAdmin` 一样是可选端口：
+ * 浏览器里缺席时，界面照旧显示按钮位置，但如实写明"仅在桌面应用可用"并禁用。
+ *
+ * 边界（Rust 侧 `fetch_bytes` 是唯一实现）：只认 http / https、超时默认 8s、
+ * 超过 512KB 直接拒 —— 它不是下载器，只服务"抓一张站点图标"这一件事。
+ */
+export interface RemoteBytesPort {
+  get(req: RemoteBytesRequest): Promise<RemoteBytesResponse>
+}
+
 export interface PlatformKit {
   storage: StoragePort
   network: NetworkPort
@@ -442,6 +473,11 @@ export interface PlatformKit {
   updater?: UpdatePort
   /** 存储管理（数据目录路径 / 打开目录 / 网页缓存）。**可选**：只有桌面壳有 */
   storageAdmin?: StorageAdminPort
+  /**
+   * 取远端字节（对账 #396：从网站抓站点图标）。**可选**：只有桌面壳有，
+   * 理由见 `RemoteBytesPort` 那段 —— 浏览器里跨域读不到，调用方必须容错并禁用入口。
+   */
+  remoteBytes?: RemoteBytesPort
   /** 素材传输（图床）：把本地字节换成公网直链；没配图床时 `upload` 返回 null */
   hosting: HostingPort
   credentials: CredentialPort

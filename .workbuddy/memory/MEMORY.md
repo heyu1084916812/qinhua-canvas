@@ -5250,3 +5250,34 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
 - **★ 电商 A 版复用画布图是"有意设计"，不是接线错误**：产品图 / 参考图 / 出图都落在同一张画布图上，
   所以结果区有「在画布里打开」、项目与画布项目同表。判断"要不要拆成两个工作区"时先看这条，
   别把它当 bug 修（真独立 = #380 专业版）。
+
+## 2026-10-10 第 34 批（抓站点图标 + 逐张镜头脚本；对账 #396 / #405 / 第 65 批）
+
+- **★★★ 跨域这条墙，桌面壳里的 `fetch` 一样翻不过去**：上一批把"抓 favicon"写成
+  "走 `PlatformKit.network`（通用 HTTP 端口）"——**错了**。壳里跑的是 WebView2，页面侧仍然是浏览器，
+  站点不给 `Access-Control-Allow-Origin` 就读不到字节（与视频成片 `readUrl` 那条同因）。
+  真做法 = **壳里新增 `RemoteBytesPort` + Rust `fetch_bytes`**（原生 HTTP），浏览器侧端口缺席、
+  界面如实写"仅在桌面应用可用"。判据：**别按"有没有 HTTP 端口"推可行性，按"谁发的请求"判**。
+- **★★ `reqwest 0.13` 的 TLS feature 叫 `rustls`，不叫 `rustls-tls`**：写错时 cargo 直接
+  `failed to select a version … does not have that feature` —— 报错里那句 `available features: …`
+  就是答案。本机 cargo 依旧要显式代理（`HTTP_PROXY`/`HTTPS_PROXY=127.0.0.1:10808`）；
+  `cargo check` 约 3 分钟，`tauri dev` 首次全量约 3.5 分钟。
+- **★ Tauri `invoke` 回来的 `Vec<u8>` 是 JSON 数字数组**：Rust 侧 `bytes: Vec<u8>` 到 JS 是 `number[]`，
+  壳适配器里 `Uint8Array.from(...)`；顺手把"万一给成 base64 字符串"也收下（`base64ToBytes`），
+  免得将来换 IPC 通道时坏成"图标全黑"这种最难查的样子。字段名按 serde 默认的 snake_case 读
+  （`content_type`），不要想当然写 camelCase。
+- **★★★ 给"可选端口"补一条"转出去"守卫**：`createWebPlatform` 的入参写了、返回对象里忘了转 ——
+  这类缺陷**浏览器冒烟测不出来**（浏览器里本来就该是 undefined）。2026-10-08 的 `storageAdmin`
+  已经栽过一次，这次把 `remoteBytes` 也钉进 `platform.test.ts`（传进去 ⇒ kit 上找得到）。
+  故障注入用**壳探针**：把那行摘掉 ⇒ 探针红（按钮 `isDisabled=true`、点击 `element is not enabled`），
+  加回即绿 7/7。
+- **★★ 抓图标的边界：只试标准路径，别去解析首页**：`/favicon.ico` → `/apple-touch-icon.png`，
+  两条都要过"响应说自己是图片 + 不是 SVG"（`createImageBitmap` 解不了 SVG）。
+  **不接第三方图标服务**（等于把用户填的站点交给第三方），失败就给一句能行动的话
+  （"手动上传一张吧"），绝不弹异常栈、也不落半截数据。
+- **★ 探针跑完要清掉自己造的实体**：`probe-site-icon.mjs` 会新建一条临时渠道跑完整条路，
+  正常退出时删除；**中途崩了就会留垃圾**（故障注入那一跑留了一条空的「新建渠道」，
+  收尾时用 CDP 删掉了、渠道数回到 5）。写这类探针时把"清理"也当成一条断言（`before === after`）。
+- **★ 电商"逐张不同"只做到镜头脚本这一层**：#405 的确定性模板（主图 6 镜 / 详情 8 镜 / 套图 8 镜）
+  已经能让每张节点各带自己的 prompt，**白底图刻意保持 N 条相同**（用户要的是抽卡）。
+  "接对话模型把一句话扩成 N 条分镜"是 #406（要额度的第二次付费调用 + 新失败面），**先不默认做**。

@@ -242,7 +242,11 @@ function StudioHost({ projectId }: { projectId: string }) {
         extraData: {
           mode: 'image',
           model: modelForRun,
-          prompt: plan.prompt,
+          /**
+           * 逐张提示词（用户 2026-10-10 #10）：第 i 张用 `plan.prompts[i]`。
+           * 白底图时 N 条相同（抽卡），主图 / 详情页 / 套图逐张不同（镜头脚本）。
+           */
+          prompt: plan.prompts[i] ?? plan.prompt,
           ratio: plan.ratio,
           count: 1,
         },

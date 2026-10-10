@@ -455,6 +455,51 @@ fn clear_cache(app: tauri::AppHandle) -> u64 {
     before.saturating_sub(cache_bytes(&app))
 }
 
+/// 取一个 URL 的字节（**只给"从网站抓站点图标"用**，对账 #396）。
+///
+/// 为什么必须放在 Rust 侧：前端那条 `fetch`（浏览器与壳里的 webview 用的是同一份实现，
+/// 见 `platform/desktop/index.ts` 的装配注释）受 **CORS** 限制 —— 站点不给
+/// `Access-Control-Allow-Origin` 时读不到 `favicon.ico`，而绝大多数站点都不给。
+/// 壳里用 reqwest 发这一条就没有这个限制。
+///
+/// 三条边界：
+/// 1. **只做 GET**，只认 http / https；
+/// 2. **超过 512KB 直接拒**（站点图标不该这么大，防止被当成下载器用）；
+/// 3. 状态码原样回给前端，由前端决定"算不算抓到"（这里不替它判断）。
+#[derive(serde::Serialize)]
+struct FetchedBytes {
+    status: u16,
+    content_type: Option<String>,
+    bytes: Vec<u8>,
+}
+
+#[tauri::command]
+async fn fetch_bytes(url: String, timeout_ms: Option<u64>) -> Result<FetchedBytes, String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("只支持 http / https 地址".into());
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(timeout_ms.unwrap_or(8000)))
+        .build()
+        .map_err(|err| err.to_string())?;
+    let response = client.get(&url).send().await.map_err(|err| err.to_string())?;
+    let status = response.status().as_u16();
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string());
+    let bytes = response.bytes().await.map_err(|err| err.to_string())?;
+    if bytes.len() > 512 * 1024 {
+        return Err("文件太大（超过 512KB），不像是站点图标".into());
+    }
+    Ok(FetchedBytes {
+        status,
+        content_type,
+        bytes: bytes.to_vec(),
+    })
+}
+
 #[cfg(test)]
 mod storage_tests {
     use super::*;
@@ -1463,6 +1508,7 @@ pub fn run() {
             open_dir,
             cache_usage,
             clear_cache,
+            fetch_bytes,
             cli_which,
             cli_run,
             cli_kill,

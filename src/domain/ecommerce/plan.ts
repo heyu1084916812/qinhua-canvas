@@ -8,7 +8,7 @@
  * 静默兜底（把 0 张改成 1 张、把非法比例换成 1:1）会让用户遇到"我明明填了 A、出来的是 B"，
  * 而这种缺陷在界面上看起来"功能正常"。
  */
-import { buildEcommercePrompt, type BuildPromptOptions } from './prompt'
+import { buildEcommercePrompts, type BuildPromptOptions } from './prompt'
 import { platformById, type EcommercePlatform } from './platforms'
 import {
   ECOMMERCE_COUNT_MAX,
@@ -32,8 +32,15 @@ export interface EcommercePlan {
   ratio: string
   /** 选中的平台；白底图可以不选 ⇒ null */
   platform: EcommercePlatform | null
-  /** 直接写进生成节点的提示词 */
+  /** 第 1 张的提示词（单张场景 / 老调用方用；与 `prompts[0]` 同值） */
   prompt: string
+  /**
+   * **逐张提示词**（用户 2026-10-10 #10）：长度恒等于 `count`。
+   *
+   * 白底图 N 条完全相同（抽卡语义，用户明确说这样没问题）；
+   * 主图 / 详情页 / 套图按镜头脚本逐张不同（见 `prompt.ecommerceShots`）。
+   */
+  prompts: readonly string[]
   /** 参考图：去掉重复、去掉与产品图相同的那个 */
   referenceNodeIds: string[]
 }
@@ -81,12 +88,14 @@ export function buildEcommercePlan(
   const referenceNodeIds = [...new Set(request.referenceNodeIds)].filter(
     (id) => id && id !== request.productNodeId,
   )
+  const prompts = buildEcommercePrompts(request, options)
 
   return {
     count: request.count,
     ratio: request.ratio,
     platform,
-    prompt: buildEcommercePrompt(request, options),
+    prompt: prompts[0] ?? '',
+    prompts,
     referenceNodeIds,
   }
 }

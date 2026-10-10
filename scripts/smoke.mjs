@@ -22560,6 +22560,63 @@ async function g116(browser) {
     `结果=${resultCount} 出图=${done} 解码=${imgOk}`,
   )
 
+  /**
+   * ⑤b 逐张镜头脚本（对账 #405，用户 2026-10-10 #10）：
+   * 「套图 / 详情页…每张图片都需要不一样，现在提示词都是一致的」——
+   * 这一条**直接读库里的节点提示词**，比看界面文字结实：
+   * 四个节点必须是四条不同的提示词，且标题按脚本走（白底主图 / 氛围主图 / 45° / 细节）。
+   */
+  await page.locator('[data-ecommerce-usage="set"]').click()
+  await sleep(300)
+  await page.locator('[data-ecommerce-count]').fill('4')
+  await sleep(300)
+  await page.locator('[data-ecommerce-generate]').click()
+  await sleep(400)
+  await page.locator('[data-ecommerce-confirm-ok]').click()
+  const setDone = await page
+    .waitForFunction(
+      () => document.querySelectorAll('[data-ecommerce-result][data-status="done"]').length >= 4,
+      null,
+      { timeout: 40000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  await sleep(1600) // 等节点防抖落库
+  const shotPrompts = await page.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('qinghua')
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+    const rows = await new Promise((resolve) => {
+      const r = db.transaction('nodes', 'readonly').objectStore('nodes').getAll()
+      r.onsuccess = () => resolve(r.result ?? [])
+      r.onerror = () => resolve([])
+    })
+    return rows
+      .filter((row) => typeof row?.data?.prompt === 'string' && row.data.prompt.includes('这一张只做'))
+      .map((row) => row.data.prompt)
+  })
+  const shotTitles = shotPrompts.map(
+    (p) => (p.match(/这一张只做：([^—]+)/) ?? [])[1]?.trim() ?? '',
+  )
+  /**
+   * 库里此时有两批节点：第 1 张主图（正面全身）+ 这次套图 4 张。
+   * 按**集合**比这次的四个镜头，别按下标（`getAll` 的顺序是主键序，不是创建序）。
+   */
+  const wantShots = new Set(['白底主图', '氛围主图', '45° 侧视', '细节特写'])
+  const gotShots = new Set(shotTitles.filter((t) => t !== '正面全身'))
+  const shotsMatch = gotShots.size === wantShots.size && [...wantShots].every((t) => gotShots.has(t))
+  rec(
+    g,
+    '★★★ 套图 4 张 = 四个节点四条不同提示词（不是同一句抽 4 次）',
+    setDone &&
+      shotPrompts.length === 5 &&
+      new Set(shotPrompts).size === 5 &&
+      shotsMatch,
+    `出图=${setDone} 条数=${shotPrompts.length} 唯一=${new Set(shotPrompts).size} 标题=${shotTitles.join('/')}`,
+  )
+
   // ⑥ 在画布里打开：结果本来就是画布节点（这是"发送到画布"的落点）
   await sleep(1600) // 等防抖落库，免得画布那边读到空库
   await page.locator('[data-ecommerce-open-canvas]').click()
@@ -23609,7 +23666,57 @@ async function g123(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123]
+// ────────────────────────────────────────────────────────────
+// G124 从网站抓站点图标（对账 #396）：
+//   浏览器里没有原生 HTTP（跨域读不到站点图标）⇒ 按钮**在**、按**灰的**、
+//   旁边如实写"从网站抓取仅在桌面应用可用"。壳里那半条的实证在探针里（CDP 连壳）。
+// ────────────────────────────────────────────────────────────
+async function g124(browser) {
+  const g = 'G124 抓站点图标入口'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(500)
+  await page.locator('[data-sidebar-settings]').click()
+  await sleep(350)
+  await page.locator('[data-global-settings-tab="channels"]').click()
+  await sleep(450)
+  await page.locator('[data-channel-item]').first().click()
+  await sleep(350)
+
+  const fetchBtn = page.locator('[data-channel-icon-fetch]')
+  const present = (await fetchBtn.count()) === 1
+  rec(g, '图标那一行有「从网站抓取」按钮（浏览器里也看得见）', present, `count=${present ? 1 : 0}`)
+  if (!present) {
+    rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+    await ctx.close()
+    return
+  }
+
+  const disabled = await fetchBtn.isDisabled()
+  rec(g, '★ 浏览器里它是灰的（跨域拿不到字节，不装成能点）', disabled, `disabled=${disabled}`)
+
+  const note = (await page.locator('[data-channel-icon-fetch-note]').first().innerText()).trim()
+  rec(
+    g,
+    '如实写明"仅在桌面应用可用"（与存储 / CLI 两块同一套说法）',
+    note.includes('仅在桌面应用可用'),
+    `note=${note}`,
+  )
+
+  // 上传那条路不能被挤掉：抓取是**加**一个入口，不是换掉上传
+  const upload = await page.locator('[data-channel-icon-upload]').count()
+  rec(g, '「上传图标」仍在（抓取是加一条路，不是换掉它）', upload === 1, `count=${upload}`)
+
+  await page.screenshot({ path: `${OUT}/124-g124-site-icon.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

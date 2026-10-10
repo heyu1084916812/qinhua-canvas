@@ -33,6 +33,10 @@ import { PRESET_MODELS } from '../../domain/project/modelPresets'
 import { ModelIcon } from '../../features/shared/modelIcon/ModelIcon'
 import { ChannelIcon } from '../../features/shared/channelIcon/ChannelIcon'
 import { readChannelIconFile } from '../../features/shared/channelIcon/readIconFile'
+import {
+  defaultToIcon,
+  fetchSiteIcon,
+} from '../../features/shared/channelIcon/siteIcon'
 import { isBuiltinChannelId } from '../../domain/project/builtinChannels'
 import { ModelMapCombo, StrategyPicker } from './SettingsPicker'
 import { usePlatform } from '../../app/providers/PlatformProvider'
@@ -298,6 +302,11 @@ export function SettingsPage() {
   /** 删除渠道的就地二次确认（§7.2）：删除不可逆，点一下就走太容易误触 */
   const [confirmDelete, setConfirmDelete] = useState(false)
   /**
+   * 图标那一行的**结果话术**（对账 #396）：抓成功说抓到哪儿了，失败说为什么、
+   * 下一步做什么。失败时不弹窗 —— 用户就在这一行上，话就该留在这儿。
+   */
+  const [iconNote, setIconNote] = useState<string | null>(null)
+  /**
    * 上一次「验证地址 / 拉取模型 / 验证协议」是对**哪条渠道、哪个协议**做的。
    * 状态行据此显示协议名——否则「✓ 验证通过」在 mock 下与在真实中转下
    * 长得一模一样，用户根本无法判断这次到底出没出网（这正是把他坑住的那句话）。
@@ -345,6 +354,8 @@ export function SettingsPage() {
   const platform = usePlatform()
   /** 桌面壳里才有本机命令（对账 #308）：状态行文案据此区分"本机命令"与"地址" */
   const hasLocalCli = platform.cli != null
+  /** 抓站点图标要原生 HTTP（对账 #396）：浏览器里跨域读不到，按钮据此如实禁用 */
+  const hasRemoteBytes = platform.remoteBytes != null
   /** 下拉里的全部协议（含 pending：它们显示为“待支持”且不可选，见协议区渲染） */
   const protocolOptions = catalog.all
   /** 当前所选协议的说明（CLI 网关等有前提的协议必须显示出来，否则用户会填错地址） */
@@ -436,6 +447,7 @@ export function SettingsPage() {
   const handlePickIcon = async (file: File | undefined) => {
     if (!file || !selectedId) return
     setBusy(true)
+    setIconNote(null)
     try {
       const icon = await readChannelIconFile(file)
       await channels.update(selectedId, { icon })
@@ -447,9 +459,39 @@ export function SettingsPage() {
     }
   }
 
+  /**
+   * **从网站抓站点图标**（对账 #396）。
+   *
+   * 顺序刻意是「先抓 → 抓到了才落库」：抓不到时**不动**现有图标，
+   * 只在那一行留句话，用户还能接着手动上传。抓的地址来自「地址」输入框
+   * 里的站点 origin —— 用户改了地址但没保存时，抓的是他**眼前**那个地址，
+   * 与"保存配置"这种落库动作分开，不必先保存再抓。
+   */
+  const handleFetchIcon = async () => {
+    const port = platform.remoteBytes
+    if (!port || !selectedId) return
+    setBusy(true)
+    setIconNote(null)
+    try {
+      const out = await fetchSiteIcon(baseUrl, {
+        get: (req) => port.get(req),
+        toIcon: defaultToIcon,
+      })
+      if (!out.ok) {
+        setIconNote(out.message)
+        return
+      }
+      await channels.update(selectedId, { icon: out.dataUrl })
+      setIconNote(`已从 ${out.sourceUrl} 抓到`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   /** 恢复默认矢量图标 */
   const handleClearIcon = async () => {
     if (!selectedId) return
+    setIconNote(null)
     await channels.update(selectedId, { icon: null })
   }
 
@@ -459,6 +501,8 @@ export function SettingsPage() {
     setProtocol(ch.protocol)
     setBaseUrl(ch.baseUrl)
     setEnabled(ch.enabled)
+    /** 换了一条渠道：上一条的抓取结果不再适用于这一条 */
+    setIconNote(null)
   }
 
   /** 把表单**当前内容**落库，返回落库后的渠道。 */
@@ -1033,6 +1077,25 @@ export function SettingsPage() {
                       onChange={(e) => void handlePickIcon(e.target.files?.[0])}
                     />
                   </label>
+                  {/*
+                    从网站抓图标（对账 #396）：抓的是「地址」那个站点的 /favicon.ico，
+                    没有就试 /apple-touch-icon.png（见 `channelIcon/siteIcon.ts`）。
+                    地址空着 / 浏览器里没有原生 HTTP 时**禁用**，并如实说为什么 ——
+                    浏览器里跨域根本读不到字节，装成能点只会每次都失败。
+                  */}
+                  <button
+                    className={styles.ghostBtn}
+                    data-channel-icon-fetch
+                    disabled={busy || !hasRemoteBytes || !baseUrl.trim()}
+                    title={
+                      hasRemoteBytes
+                        ? '从「地址」那个网站的 /favicon.ico 抓一张'
+                        : '仅在桌面应用可用：浏览器里跨域读不到站点图标'
+                    }
+                    onClick={() => void handleFetchIcon()}
+                  >
+                    从网站抓取
+                  </button>
                   {selected.icon && (
                     <button
                       className={styles.ghostBtn}
@@ -1046,6 +1109,20 @@ export function SettingsPage() {
                   <span className={styles.cardSub} data-channel-icon-formats>
                     PNG / JPG
                   </span>
+                  {/*
+                    结果话术：抓到哪儿 / 为什么没抓到 + 下一步。没有结果时，
+                    浏览器里座位换成"仅在桌面应用可用"（与存储、CLI 两块同一套如实说法）。
+                  */}
+                  {!(hasRemoteBytes || iconNote) && (
+                    <span className={styles.cardSub} data-channel-icon-fetch-note>
+                      从网站抓取仅在桌面应用可用
+                    </span>
+                  )}
+                  {iconNote && (
+                    <span className={styles.cardSub} data-channel-icon-fetch-note>
+                      {iconNote}
+                    </span>
+                  )}
                 </div>
 
                 {/*

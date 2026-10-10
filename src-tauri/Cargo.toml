@@ -26,3 +26,6 @@ tauri-plugin-fs = "2"
 tauri-plugin-opener = "2"
 # 自动更新（方案 §5 / 对账 #223）：下载更新包 + **验签**（公钥在 tauri.conf.json）
 tauri-plugin-updater = "2"
+# 取远端字节（对账 #396）：给"从网站抓站点图标"用 —— 前端 fetch 受 CORS 限制，壳里走 reqwest
+# 版本 / 特性与 tauri-plugin-updater 依赖的那一份对齐（Cargo.lock 里已有 reqwest 0.13.5 + rustls）
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2"] }

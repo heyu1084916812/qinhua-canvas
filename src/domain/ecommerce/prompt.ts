@@ -38,9 +38,86 @@ export interface BuildPromptOptions {
   platforms?: readonly EcommercePlatform[]
 }
 
+/**
+ * 镜头脚本（用户 2026-10-10 #10：「套图和详情页…每张图片都需要不一样，
+ * 现在好像是出的图片的提示词都是一致的」）。
+ *
+ * 一张图 = 一个镜头（要什么视角 / 说什么卖点）。这里是**确定性脚本**：
+ * 不依赖任何模型，纯数据，随张数取前 N 条；超出脚本长度时给一条"换构图"的通用项，
+ * 保证 N 张永远有 N 条不同的意图（白底图例外，见下）。
+ *
+ * 为什么先做确定性的：套图 / 详情页的"每张不同"是**结构性**需求（第 3 张永远是细节、
+ * 第 5 张永远是卖点），用模型现编反而每次都不一样、也没法单测。
+ * 后续要"按用户那句话现场分镜"再接对话模型（对账 #405 的②）。
+ */
+export interface EcommerceShot {
+  /** 这一张的短名（写进提示词，也便于日志里对号） */
+  title: string
+  /** 这一张具体要什么 */
+  brief: string
+}
+
+const MAIN_SHOTS: readonly EcommerceShot[] = [
+  { title: '正面全身', brief: '产品正对镜头、完整入画，背景干净、主体居中' },
+  { title: '45° 侧面', brief: '产品转 45°，同时看到正面与侧面，突出体量感' },
+  { title: '细节特写', brief: '贴近拍材质与工艺：纹理 / 缝线 / 接口等最能说明品质的一处' },
+  { title: '使用场景', brief: '把产品放进真实使用环境，主体仍清晰可辨' },
+  { title: '俯视平铺', brief: '自上而下平铺构图，展示整体轮廓与比例' },
+  { title: '手持比例', brief: '有参照物或手持，交代真实尺寸感（不露脸、不出现多余文字）' },
+]
+
+const DETAIL_SHOTS: readonly EcommerceShot[] = [
+  { title: '首图：全貌 + 卖点主张', brief: '产品全貌打底，画面留出主标题位置' },
+  { title: '材质与工艺', brief: '贴拍细节，说明它为什么耐用 / 好用' },
+  { title: '使用场景', brief: '真实生活语境里的**一次**使用，让人代入' },
+  { title: '尺寸与规格', brief: '标注示意，数字只以产品图或已知参数为准' },
+  { title: '差异对比', brief: '与旧款 / 同类并置说明差别（不贬损竞品、不编造参数）' },
+  { title: '包装与清单', brief: '包装外观与随附物品平铺，一眼看清买到什么' },
+  { title: '使用步骤', brief: '分步示意，把"怎么用"讲清楚' },
+  { title: '品质与承诺', brief: '强调做工与服务，不写无法兑现的承诺' },
+]
+
+const SET_SHOTS: readonly EcommerceShot[] = [
+  { title: '白底主图', brief: '纯白背景、正对镜头，产品边缘干净' },
+  { title: '氛围主图', brief: '场景化构图，突出调性（背景不抢主体）' },
+  { title: '45° 侧视', brief: '同时看到正面与侧面，交代体量' },
+  { title: '细节特写', brief: '材质 / 工艺的关键一处' },
+  { title: '卖点图', brief: '构图留出文案位，画面文字只用指定语言' },
+  { title: '包装展示', brief: '包装外观与产品同框' },
+  { title: '尺寸示意', brief: '用参照物或标注交代真实尺寸' },
+  { title: '组合搭配', brief: '与同系列 / 常见搭配物同框，说明怎么配着用' },
+]
+
+/** 白底图 = **抽卡**：N 张是同一件事的 N 次尝试，脚本故意只有一条（用户明确说这样没问题） */
+const WHITE_BG_SHOT: EcommerceShot = {
+  title: '白底图',
+  brief: '纯白背景、不要场景道具，产品边缘干净、正对镜头',
+}
+
+/**
+ * 这一次要出几张 × 每张要什么。
+ *
+ * - 白底图：N 条**完全相同**（抽卡语义）；
+ * - 主图 / 详情页 / 套图：按脚本顺序取，N 超过脚本长度时给"换构图"的通用项
+ *   （保证 N 张不同，而不是把前几张重复一遍）。
+ */
+export function ecommerceShots(usage: EcommerceUsage, count: number): readonly EcommerceShot[] {
+  if (usage === 'white-bg') return Array.from({ length: count }, () => WHITE_BG_SHOT)
+  const base = usage === 'main' ? MAIN_SHOTS : usage === 'detail' ? DETAIL_SHOTS : SET_SHOTS
+  return Array.from({ length: count }, (_, i) => {
+    const hit = base[i]
+    if (hit) return hit
+    return {
+      title: `第 ${i + 1} 张`,
+      brief: '围绕同一卖点换一个与前几张不重复的构图与视角（不要重复已出现的画面）',
+    }
+  })
+}
+
 export function buildEcommercePrompt(
   request: EcommerceRequest,
   options: BuildPromptOptions = {},
+  shot?: EcommerceShot,
 ): string {
   const platform = options.platforms
     ? (options.platforms.find((p) => p.id === request.platformId) ?? null)
@@ -51,10 +128,29 @@ export function buildEcommercePrompt(
   if (note) lines.push(note)
 
   lines.push(`用途：${usageLabel(request.usage)} —— ${USAGE_HINTS[request.usage]}`)
+  /* 有镜头脚本就写清"这一张只做什么" —— 这是逐张不同的落点 */
+  if (shot) lines.push(`这一张只做：${shot.title} —— ${shot.brief}`)
   lines.push(`目标平台：${platformRuleSummary(platform)}`)
   lines.push(`文案语言：${languageLabel(request.language)}`)
   lines.push(`输出：${request.count} 张，比例 ${request.ratio}`)
+  /**
+   * 多张 + 非白底时，明确告诉模型"同批还有别的张"。
+   * 加这一句是因为模型很容易把"套图"理解成"同一张画 N 遍"（用户看到的就是那个）。
+   */
+  if (request.count > 1 && request.usage !== 'white-bg') {
+    lines.push(`同批：共 ${request.count} 张，每张的镜头都不一样 —— 这一张不要重复其它张的视角与卖点`)
+  }
   lines.push(`硬约束：${ECOMMERCE_HARD_RULES.join('；')}`)
 
   return lines.join('\n')
+}
+
+/** 一次请求的**逐张**提示词：长度与 `count` 一致，顺序与落位顺序一致 */
+export function buildEcommercePrompts(
+  request: EcommerceRequest,
+  options: BuildPromptOptions = {},
+): string[] {
+  return ecommerceShots(request.usage, request.count).map((shot) =>
+    buildEcommercePrompt(request, options, shot),
+  )
 }

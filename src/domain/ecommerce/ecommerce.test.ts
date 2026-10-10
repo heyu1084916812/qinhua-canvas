@@ -125,3 +125,77 @@ describe('执行计划与校验', () => {
     expect(() => buildEcommercePlan(base, { platforms: fake })).toThrow(/平台清单里没有这条/)
   })
 })
+
+/**
+ * 逐张镜头脚本（对账 #405，用户 2026-10-10 #10：
+ * 「套图和详情页…每张图片都需要不一样，现在好像是出的图片的提示词都是一致的」）。
+ *
+ * 判据全部落在**提示词本身**上（纯函数，能穷举）：
+ * 主图 / 详情页 / 套图逐张不同，白底图保持抽卡（N 条相同）。
+ */
+describe('逐张镜头脚本', () => {
+  /** 从提示词里取出「这一张只做：<标题>」的标题 */
+  const shotTitleOf = (text: string): string =>
+    (text.match(/这一张只做：([^—]+)/) ?? [])[1]?.trim() ?? ''
+
+  it('★★ 套图 8 张 = 8 条互不相同的提示词，且每条都带镜头标题与硬约束', () => {
+    const plan = buildEcommercePlan({ ...base, usage: 'set', count: 8 })
+    expect(plan.prompts).toHaveLength(8)
+    expect(new Set(plan.prompts).size).toBe(8)
+    for (const p of plan.prompts) {
+      expect(p).toContain('这一张只做：')
+      for (const rule of ECOMMERCE_HARD_RULES) expect(p).toContain(rule)
+    }
+    expect(plan.prompts.map(shotTitleOf)).toEqual([
+      '白底主图',
+      '氛围主图',
+      '45° 侧视',
+      '细节特写',
+      '卖点图',
+      '包装展示',
+      '尺寸示意',
+      '组合搭配',
+    ])
+  })
+
+  it('★★ 详情页 4 张按脚本走：全貌 / 材质 / 场景 / 尺寸', () => {
+    const plan = buildEcommercePlan({ ...base, usage: 'detail', count: 4 })
+    expect(plan.prompts.map(shotTitleOf)).toEqual([
+      '首图：全貌 + 卖点主张',
+      '材质与工艺',
+      '使用场景',
+      '尺寸与规格',
+    ])
+    expect(new Set(plan.prompts).size).toBe(4)
+  })
+
+  it('★★ 白底图是**抽卡**：N 张的提示词完全相同（用户明确说这样没问题）', () => {
+    const plan = buildEcommercePlan({ ...base, usage: 'white-bg', count: 3 })
+    expect(plan.prompts).toHaveLength(3)
+    expect(new Set(plan.prompts).size).toBe(1)
+    expect(plan.prompts[0]).toContain('纯白背景')
+    // 抽卡不该带"每张都不一样"那句 —— 那会把用户想要的多试几次变成"必须换构图"
+    expect(plan.prompts[0]).not.toContain('每张的镜头都不一样')
+  })
+
+  it('★★ 多张时提示词里明确"每张的镜头都不一样"（修的就是"同一张画 N 遍"）', () => {
+    const plan = buildEcommercePlan({ ...base, usage: 'detail', count: 4 })
+    for (const p of plan.prompts) expect(p).toContain('每张的镜头都不一样')
+  })
+
+  it('★ 张数超过脚本长度也不重复：第 9 张起给"换构图"的通用项', () => {
+    const plan = buildEcommercePlan({ ...base, usage: 'set', count: 10 })
+    expect(plan.prompts).toHaveLength(10)
+    expect(new Set(plan.prompts).size).toBe(10)
+    expect(plan.prompts[9]).toContain('不重复')
+  })
+
+  it('★ 单张主图仍是「正面全身」，且 plan.prompt 与 prompts[0] 同值', () => {
+    const plan = buildEcommercePlan({ ...base, usage: 'main', count: 1 })
+    expect(plan.prompts).toHaveLength(1)
+    expect(plan.prompts[0]).toContain('正面全身')
+    expect(plan.prompt).toBe(plan.prompts[0])
+    // 单张不该出现"同批"那句（它只在多张时有意义）
+    expect(plan.prompts[0]).not.toContain('同批：')
+  })
+})

@@ -3,7 +3,7 @@ import { parseSSELine, createLineSplitter } from './sse'
 import { createMemoryPlatform } from './memory/index'
 import { createPlatform } from './index'
 import { createWebPlatform } from './web/index'
-import type { Row, StorageAdminPort } from './ports'
+import type { RemoteBytesPort, Row, StorageAdminPort } from './ports'
 
 /**
  * **可选端口的"转出去"**（2026-10-08 真机探针抓到的真缺陷）。
@@ -55,6 +55,19 @@ describe('平台装配：可选端口必须真的转到 PlatformKit 上', () => 
     expect(kit.storageAdmin).toBeUndefined()
     expect(kit.cli).toBeUndefined()
     expect(kit.updater).toBeUndefined()
+    expect(kit.remoteBytes).toBeUndefined()
+  })
+
+  /**
+   * 对账 #396：抓站点图标靠这一项。漏转的话**桌面版也会显示"从网站抓取"是灰的**，
+   * 而浏览器里本来就该灰着 —— 这条差异只有壳能发现，所以钉在这儿。
+   */
+  it('壳传了 remoteBytes ⇒ kit.remoteBytes 就是它', () => {
+    const port: RemoteBytesPort = {
+      get: async () => ({ status: 200, contentType: 'image/png', bytes: new Uint8Array() }),
+    }
+    const kit = withLocalStorage(() => createWebPlatform({ remoteBytes: port }))
+    expect(kit.remoteBytes).toBe(port)
   })
 })
 

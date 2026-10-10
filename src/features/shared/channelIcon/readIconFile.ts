@@ -9,7 +9,17 @@
  * 后续可能会改其他的图标」）—— 换实现时只动这一个函数，界面不用跟着改。
  */
 export async function readChannelIconFile(file: File, max = 128): Promise<string> {
-  const bitmap = await createImageBitmap(file)
+  return readChannelIconBlob(file, max)
+}
+
+/**
+ * 同上，但收的是**任意 Blob**（对账 #396：「从网站抓站点图标」那条路把字节装进 Blob 再进来）。
+ *
+ * 拆成两份而不是让调用方自己包个 `File`：`File` 需要 name/lastModified，
+ * 抓来的字节并没有这些，硬编只会造出一个假文件名。
+ */
+export async function readChannelIconBlob(blob: Blob, max = 128): Promise<string> {
+  const bitmap = await createImageBitmap(blob)
   try {
     const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height))
     const w = Math.max(1, Math.round(bitmap.width * scale))

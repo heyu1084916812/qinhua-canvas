@@ -3,6 +3,7 @@ import type {
   CliPort,
   FilePort,
   PlatformKit,
+  RemoteBytesPort,
   StorageAdminPort,
   UpdatePort,
 } from '../ports'
@@ -32,6 +33,11 @@ export function createWebPlatform(
      * 只有壳把它换成 `tauriCli`。界面按"端口在不在"决定显示"仅在桌面应用可用"。
      */
     cli?: CliPort
+    /**
+     * 取远端字节（对账 #396：从网站抓站点图标）：同 `cli` —— 跨域这一关在浏览器里
+     * 过不去，所以只有壳传 `tauriRemoteBytes`，浏览器侧字段就是 undefined。
+     */
+    remoteBytes?: RemoteBytesPort
   } = {},
 ): PlatformKit {
   const storage = createIndexedDbStorage()
@@ -56,6 +62,8 @@ export function createWebPlatform(
      * 浏览器冒烟测不出它 —— 浏览器里"没有这一项"本来就是对的。
      */
     storageAdmin: overrides.storageAdmin,
+    // 取远端字节：同样只有壳给得出，"抓站点图标"按钮据此如实禁用（上面那段注释同理）
+    remoteBytes: overrides.remoteBytes,
     /**
      * 素材传输要三样：配置行（storage）、密钥（credentials）、发请求（network）。
      * 三者都由这里装配 —— **不在端口实现里各自 new 一份**（凭据层换实现时，
