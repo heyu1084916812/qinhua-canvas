@@ -8296,6 +8296,18 @@ async function g61(browser) {
   rec(g, '画布页顶栏也有主题切换', (await page.locator('[data-theme-toggle]').count()) === 1)
   const canvasLuma = await meanLuma(page)
   rec(g, '★ 画布页也是暗的（节点 / 面板 / 顶栏都被覆盖）', canvasLuma < 110, `平均亮度=${canvasLuma.toFixed(1)}`)
+  /**
+   * 读节点底色前**先等节点挂上**（2026-10-10 全量第六轮实测：机器同时跑开发壳时
+   * 800ms 还不够，`[data-node-id]` 还没进 DOM ⇒ 读到空串，而单跑 17/17 是绿的）。
+   *
+   * 这条断言要证的是"**节点**底色跟主题走"，不是"节点出现得多快"（那是别的组的事）。
+   * 等待只把"还没到"和"根本没有"分开：真不出现时下面照样红。
+   */
+  await page
+    .locator('[data-node-id]')
+    .first()
+    .waitFor({ state: 'attached', timeout: 8000 })
+    .catch(() => {})
   const nodeBg = await page.evaluate(() => {
     const el = document.querySelector('[data-node-id]')
     return el ? getComputedStyle(el).backgroundColor : ''
