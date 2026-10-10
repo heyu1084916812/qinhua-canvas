@@ -24565,7 +24565,243 @@ async function g128(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128]
+// ────────────────────────────────────────────────────────────
+// G129 漫剧「铺到画布 + 逐镜出图」（对账 #415）：
+//   分镜只是文字 ⇒ 铺成画布上的生成节点（整批一个事务、悬空重铺）⇒ 逐镜出图
+//   （`inPlace` 写回同一节点，画布上**不多节点**）⇒ 缩略图 + hash 镜像回文档 ⇒ 跳画布。
+// ────────────────────────────────────────────────────────────
+async function g129(browser) {
+  const g = 'G129 漫剧出图'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const shots = page.locator('[data-storyboard-shot]')
+  const statusOf = (id) => page.locator(`[data-storyboard-shot-status="${id}"]`)
+
+  /** 读库：这一集的节点（id + 提示词）与文档里那一镜挂的 nodeId / imageHash */
+  const readDb = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const all = (table) =>
+        new Promise((resolve) => {
+          const r = db.transaction(table, 'readonly').objectStore(table).getAll()
+          r.onsuccess = () => resolve(r.result ?? [])
+          r.onerror = () => resolve([])
+        })
+      const nodes = await all('nodes')
+      const boards = await all('storyboards')
+      const runs = await all('runRecords')
+      const doc = boards[0]?.doc
+      return {
+        runs: runs.length,
+        nodes: nodes.map((n) => ({
+          id: n.id,
+          prompt: n.data?.prompt ?? null,
+          assetHash: n.data?.assetHash ?? null,
+        })),
+        shots: (doc?.shots ?? []).map((s) => ({ id: s.id, nodeId: s.nodeId ?? null, imageHash: s.imageHash ?? null })),
+      }
+    })
+  /**
+   * 等画布把节点**真写进库**再读（画布 store 的落库是 800ms 防抖）。
+   *
+   * 第一次就是在这里红的：`lay-status=done` 是内存里的状态，那时库里还是 0 个节点 ——
+   * 固定 `sleep(700)` 恰好卡在防抖窗口里。判据取"库里到齐 N 个"，别猜时间。
+   */
+  const waitNodes = async (n, timeoutMs = 8000) => {
+    const started = Date.now()
+    for (;;) {
+      const db = await readDb()
+      if (db.nodes.length === n || Date.now() - started > timeoutMs) return db
+      await sleep(200)
+    }
+  }
+
+  // ① 建项目：一集两镜（第二镜**故意不写提示词**，验回落用画面描述）
+  await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-storyboard-create]').click()
+  await page.waitForURL(/\/storyboard\/proj_/)
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  const projectUrl = page.url()
+  await page.locator('[data-storyboard-script-body]').fill('雨夜快递：骑手在雨里送最后一单。')
+  await page.locator('[data-storyboard-add-episode]').click()
+  await sleep(250)
+  await page.locator('[data-storyboard-add-shot]').click()
+  await sleep(150)
+  await page.locator('[data-storyboard-add-shot]').click()
+  await sleep(250)
+  rec(g, '★ 先有两镜可分', (await shots.count()) === 2, `镜=${await shots.count()}`)
+  const shot1 = await shots.nth(0).getAttribute('data-storyboard-shot')
+  const shot2 = await shots.nth(1).getAttribute('data-storyboard-shot')
+  await page.locator(`[data-storyboard-shot-scene="${shot1}"]`).fill('雨夜的街道，霓虹倒影')
+  await page.locator(`[data-storyboard-shot-prompt="${shot1}"]`).fill('cinematic rain street')
+  await page.locator(`[data-storyboard-shot-scene="${shot2}"]`).fill('十五楼门前，快递箱放下')
+  rec(
+    g,
+    '★ 还没铺时状态如实写「还没铺到画布」，按钮写着要铺几镜',
+    (await statusOf(shot1).getAttribute('data-kind')) === 'idle' &&
+      (await statusOf(shot2).getAttribute('data-kind')) === 'idle' &&
+      /2\s*镜/.test(await page.locator('[data-storyboard-lay-out]').innerText()),
+  )
+  /* 离开这一页去配渠道之前，先等防抖真写下去（整页卸载会吃掉排队中的那次写） */
+  await page
+    .waitForFunction(
+      () => document.querySelector('[data-storyboard-status]')?.textContent?.includes('已保存') ?? false,
+      null,
+      { timeout: 8000 },
+    )
+    .catch(() => {})
+
+  // ② 配一条 mock 渠道（内置渠道被停用），回到这一集
+  await configureMockChannel(page)
+  await sleep(500)
+  await page.goto(projectUrl, { waitUntil: 'networkidle' })
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  await sleep(500)
+
+  // ③ 铺到画布
+  await page.locator('[data-storyboard-lay-out]').click()
+  const laid = await page
+    .locator('[data-storyboard-lay-status="done"]')
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
+  const afterLay = await waitNodes(2)
+  rec(
+    g,
+    '★★★ 铺到画布：两镜各一个生成节点，提示词按 `shotPrompt` 落（第二镜回落画面描述）',
+    laid &&
+      afterLay.nodes.length === 2 &&
+      afterLay.nodes.some((n) => n.prompt === 'cinematic rain street') &&
+      afterLay.nodes.some((n) => n.prompt === '十五楼门前，快递箱放下'),
+    JSON.stringify(afterLay.nodes),
+  )
+  rec(
+    g,
+    '★★ 状态跟着变：两镜都标「已在画布上」，画布计数 2/2',
+    (await statusOf(shot1).getAttribute('data-kind')) === 'laid' &&
+      (await statusOf(shot2).getAttribute('data-kind')) === 'laid' &&
+      (await page.locator('[data-storyboard-canvas-hint]').getAttribute('data-storyboard-canvas-hint')) === '2',
+    `hint=${await page.locator('[data-storyboard-canvas-hint]').getAttribute('data-storyboard-canvas-hint')}`,
+  )
+  rec(
+    g,
+    '★★ 文档里记下了「这一镜 ↔ 哪个节点」（nodeId 写回，刷新不丢）',
+    afterLay.shots.length === 2 && afterLay.shots.every((s) => typeof s.nodeId === 'string' && s.nodeId),
+    JSON.stringify(afterLay.shots),
+  )
+  rec(
+    g,
+    '★ 铺过之后按钮改口（显示「已铺到画布」，不再诱导重复铺）',
+    /已铺到画布/.test(await page.locator('[data-storyboard-lay-out]').innerText()),
+    (await page.locator('[data-storyboard-lay-out]').innerText()).trim(),
+  )
+  await page.locator('[data-storyboard-lay-out]').click()
+  await sleep(600)
+  const idempotent = await waitNodes(2, 2500)
+  rec(g, '★★ 幂等复验：画布节点还是 2 个（不是 4 个）', idempotent.nodes.length === 2, `节点=${idempotent.nodes.length}`)
+
+  // ④ 这一集出图（原地写回）
+  await page.locator('[data-storyboard-run-all]').click()
+  const done = await page
+    .waitForFunction(
+      () =>
+        document.querySelectorAll('[data-storyboard-shot-status][data-kind="done"]').length === 2,
+      null,
+      { timeout: 40000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★★★ 这一集出图：两镜都跑完（状态 → 已出图）', done, `done=${done}`)
+  const afterRun = await readDb()
+  rec(
+    g,
+    '★★★ 原地写回：画布上**还是 2 个节点**（出图不额外铺承载节点），但都带上了产物 hash',
+    afterRun.nodes.length === 2 && afterRun.nodes.every((n) => typeof n.assetHash === 'string' && n.assetHash),
+    JSON.stringify(afterRun.nodes.map((n) => ({ id: n.id.slice(0, 8), hash: (n.assetHash ?? '').slice(0, 8) }))),
+  )
+  const imgOk = await page
+    .locator(`[data-storyboard-shot-image="${shot1}"] img`)
+    .evaluate((el) => el.naturalWidth > 0)
+    .catch(() => false)
+  rec(g, '★★ 列表里真的能看到这一镜的图（缩略图解码成功，不是破图）', imgOk)
+  await sleep(900)
+  const mirrored = await readDb()
+  rec(
+    g,
+    '★★ 出图结果镜像回文档（imageHash 落库，导出 / 下次打开不用再翻画布）',
+    mirrored.shots.length === 2 && mirrored.shots.every((s) => typeof s.imageHash === 'string' && s.imageHash),
+    JSON.stringify(mirrored.shots),
+  )
+
+  /**
+   * ④b **重出这一镜**：真的又跑了一次，而且画布上**不多节点**（写回这一镜自己的节点）。
+   *
+   * ⚠️ 这条**刻意不断「图换了新的」**，理由是量出来的：mock 每次运行都会新建适配器
+   * （适配器表按 planId 建），而产物印记按"该适配器的调用序号"算 ⇒ **同一句提示词重跑
+   * 会得到逐字节相同的图**（hash 也一样）。所以"重出后图变了"这一条在离线冒烟里
+   * 根本不可断言 —— 真渠道才做得到。
+   *
+   * 能断的是另外两半：**运行记录 +1**（按钮真的又发起了一次），**节点数不变**
+   * （`inPlace` 把产物写回这一镜的节点，而不是在画布上另铺承载节点）。
+   * 写回本身在画布侧还有 G116 的既有断言（nodes 行数不变 + runRecords +1，对账 #413）。
+   */
+  const runsBefore = mirrored.runs
+  await page.locator(`[data-storyboard-shot-run="${shot1}"]`).click()
+  let rerun = { ok: false, nodes: 0, runs: 0 }
+  for (let i = 0; i < 80; i += 1) {
+    const db = await readDb()
+    if (db.runs > runsBefore && (await statusOf(shot1).getAttribute('data-kind')) !== 'running') {
+      rerun = { ok: true, nodes: db.nodes.length, runs: db.runs }
+      break
+    }
+    await sleep(250)
+  }
+  const afterRerun = rerun.ok ? null : await readDb()
+  rec(
+    g,
+    '★★ 重出这一镜：又跑了一次（运行记录 +1），且画布上不多节点（写回这一镜自己的节点）',
+    rerun.ok && rerun.nodes === 2,
+    `运行记录 ${runsBefore} → ${rerun.ok ? rerun.runs : afterRerun.runs}；节点=${
+      rerun.ok ? rerun.nodes : afterRerun.nodes.length
+    }`,
+  )
+
+  // ⑤ 刷新后仍在（文档 + 画布两边都对得上）
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  await sleep(600)
+  rec(
+    g,
+    '★★ 刷新后仍显示「已出图」且缩略图还在',
+    (await statusOf(shot1).getAttribute('data-kind')) === 'done' &&
+      (await page.locator(`[data-storyboard-shot-image="${shot1}"] img`).count()) === 1,
+  )
+
+  // ⑥ 在画布里打开：那两个节点真的在画布上
+  await page.locator('[data-storyboard-open-canvas]').click()
+  await page.waitForURL(/\/canvas\/proj_/, { timeout: 8000 })
+  await page.waitForSelector('[data-node-id]', { timeout: 10000 }).catch(() => {})
+  await sleep(600)
+  rec(
+    g,
+    '★★ 「在画布里打开」进的是同一个项目的画布，两个生成节点都在',
+    (await page.locator('[data-node-id]').count()) === 2,
+    `节点=${await page.locator('[data-node-id]').count()}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/129-g129-storyboard-canvas.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

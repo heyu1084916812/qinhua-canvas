@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  attachShotImages,
+  attachShotNodes,
   DEFAULT_SHOT_SECONDS,
   addEpisode,
   addShot,
@@ -11,6 +13,7 @@ import {
   removeEpisode,
   removeShot,
   shotPrompt,
+  shotsNeedingNode,
   shotsOf,
   storyboardStats,
   updateEpisode,
@@ -220,5 +223,77 @@ describe('storyboard · 导出分镜表（Markdown）', () => {
     const md = exportStoryboardMarkdown(doc)
     expect(md).toContain('（这一集还没有分镜）')
     expect(md).not.toContain('| # | 画面 |')
+  })
+})
+
+/**
+ * 铺到画布：镜头 ↔ 生成节点的对应（对账 #415）。
+ *
+ * 这组守的是**"缓存不是真相"**那一条：`nodeId` 只是缓存，用户在画布上删掉节点后，
+ * 判据必须能识别"悬空"并把这一镜重新铺一次；换节点时那张旧图（imageHash）
+ * 也必须一起清掉 —— 不然列表里会挂着一张画布上已经不存在的图。
+ */
+describe('铺到画布', () => {
+  it('nodeId / imageHash 读得回来；非字符串一律丢掉（脏数据不当真）', () => {
+    const doc = parseStoryboard(
+      {
+        episodes: [{ id: 'ep1', title: '一' }],
+        shots: [
+          { id: 's1', episodeId: 'ep1', scene: 'a', nodeId: 'n1', imageHash: 'h1' },
+          { id: 's2', episodeId: 'ep1', scene: 'b', nodeId: 42, imageHash: {} },
+        ],
+      },
+      'p1',
+    )
+    expect(doc.shots[0]!.nodeId).toBe('n1')
+    expect(doc.shots[0]!.imageHash).toBe('h1')
+    expect('nodeId' in doc.shots[1]!).toBe(false)
+    expect('imageHash' in doc.shots[1]!).toBe(false)
+  })
+
+  it('★★ 要铺的判据：没铺过要铺；铺过但节点没了（悬空）也要铺；节点活着的不铺', () => {
+    const doc = sample()
+    const [a, b, c] = doc.shots
+    const withNodes: StoryboardDoc = {
+      ...doc,
+      shots: [
+        { ...a!, nodeId: 'n-live' },
+        { ...b!, nodeId: 'n-deleted' },
+        c!,
+      ],
+    }
+    const need = shotsNeedingNode(withNodes.shots, new Set(['n-live']))
+    expect(need.map((s) => s.id)).toEqual([b!.id, c!.id])
+  })
+
+  it('写回节点 id；换节点时顺手清掉旧 imageHash（旧图属于旧节点）', () => {
+    const doc = sample()
+    const shot = doc.shots[0]!
+    const withImage: StoryboardDoc = {
+      ...doc,
+      shots: [{ ...shot, nodeId: 'n-old', imageHash: 'h-old' }, ...doc.shots.slice(1)],
+    }
+    const next = attachShotNodes(withImage, [{ shotId: shot.id, nodeId: 'n-new' }], 99)
+    expect(next.shots[0]!.nodeId).toBe('n-new')
+    expect('imageHash' in next.shots[0]!).toBe(false)
+    expect(next.updatedAt).toBe(99)
+  })
+
+  it('没有变化时返回原引用（调用方据此不做多余落库）', () => {
+    const doc = sample()
+    expect(attachShotNodes(doc, [], 9)).toBe(doc)
+    const same: StoryboardDoc = { ...doc, shots: [{ ...doc.shots[0]!, nodeId: 'n1' }, ...doc.shots.slice(1)] }
+    expect(attachShotNodes(same, [{ shotId: doc.shots[0]!.id, nodeId: 'n1' }], 9)).toBe(same)
+    expect(attachShotImages(doc, [], 9)).toBe(doc)
+  })
+
+  it('镜像出图 hash；同一个 hash 再来一次是空操作（不会把防抖保存搅起来）', () => {
+    const doc = sample()
+    const shotId = doc.shots[0]!.id
+    const once = attachShotImages(doc, [{ shotId, hash: 'h1' }], 3)
+    expect(once.shots[0]!.imageHash).toBe('h1')
+    expect(attachShotImages(once, [{ shotId, hash: 'h1' }], 4)).toBe(once)
+    const twice = attachShotImages(once, [{ shotId, hash: 'h2' }], 5)
+    expect(twice.shots[0]!.imageHash).toBe('h2')
   })
 })

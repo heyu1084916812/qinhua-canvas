@@ -303,6 +303,50 @@
   color: var(--text-2);
 }
 
+.shotState {
+  margin-left: var(--space-2);
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.shotStateBad {
+  color: var(--danger);
+}
+
+.shotBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 0;
+}
+
+.shotImage {
+  display: inline-flex;
+  overflow: hidden;
+  border: var(--border);
+  border-radius: var(--radius-control);
+}
+
+.shotImg {
+  display: block;
+  width: 96px;
+  height: 54px;
+  object-fit: cover;
+}
+
+.linkBtn {
+  margin-left: var(--space-2);
+  padding: 0;
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-label);
+  text-decoration: underline;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
 .hint {
   margin: 0;
   font-size: var(--fs-label);

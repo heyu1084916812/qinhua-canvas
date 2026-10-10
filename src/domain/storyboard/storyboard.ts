@@ -41,6 +41,22 @@ export interface StoryboardShot {
   durationSec: number
   /** 画面提示词：留空就由 `scene` 派生（`shotPrompt`） */
   prompt: string
+  /**
+   * 这一镜在画布上的**生成节点 id**（对账 #415，「铺到画布」时写回）。
+   *
+   * ⚠️ 它是**缓存不是真相**：节点可能已经在画布上被用户删掉，这个字段就成了悬空引用。
+   * 所以「要不要铺」不只看它有没有值，而是拿它去画布的节点表里找存在性
+   * （见 `shotsNeedingNode`）；悬空的那一镜会被重新铺一次。
+   */
+  nodeId?: string
+  /**
+   * 这一镜出图后的**素材 hash**（引擎把产物写回节点后，页面把它镜像到这里）。
+   *
+   * 为什么要镜像：导出分镜表、列表缩略图、以后接视频都要读它，
+   * 而这些地方不该各自去画布里翻节点（那是两套真相）。真相仍在画布的节点上，
+   * 这里只是**同一个项目内的一致副本**，节点被替换时会一起清掉（见 `attachShotNodes`）。
+   */
+  imageHash?: string
 }
 
 export interface StoryboardDoc {
@@ -89,6 +105,8 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
     const id = text(row.id)
     const episodeId = text(row.episodeId)
     if (!id || !known.has(episodeId)) return []
+    const nodeId = text(row.nodeId)
+    const imageHash = text(row.imageHash)
     return [
       {
         id,
@@ -97,6 +115,9 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
         dialogue: text(row.dialogue),
         durationSec: num(row.durationSec, DEFAULT_SHOT_SECONDS),
         prompt: text(row.prompt),
+        /* 空串不落成字段：没有就是没有，别写一个 `undefined` 占位 */
+        ...(nodeId ? { nodeId } : {}),
+        ...(imageHash ? { imageHash } : {}),
       },
     ]
   })
@@ -274,6 +295,64 @@ export function moveShot(doc: StoryboardDoc, id: string, delta: number, now = 0)
 
 export function shotsOf(doc: StoryboardDoc, episodeId: string): StoryboardShot[] {
   return doc.shots.filter((s) => s.episodeId === episodeId)
+}
+
+/**
+ * **哪几镜还需要铺到画布**（对账 #415）。
+ *
+ * 判据两条：① 没铺过；② 铺过但那个节点**已经不在画布上**（用户在画布上把它删了）。
+ * 第二条正是"缓存不是真相"的落地 —— 只看 `nodeId` 有没有值，用户删掉节点后
+ * 这一镜就永远铺不回来了（按钮显示"已在画布"，画布里却没有）。
+ */
+export function shotsNeedingNode(
+  shots: readonly StoryboardShot[],
+  liveNodeIds: ReadonlySet<string>,
+): StoryboardShot[] {
+  return shots.filter((s) => !s.nodeId || !liveNodeIds.has(s.nodeId))
+}
+
+/**
+ * 把「这一镜 → 画布节点」写回文档（铺节点之后调用一次）。
+ *
+ * 换节点时**顺手清掉 `imageHash`**：那张图属于旧节点，留着会让列表显示一张
+ * 已经不在画布上的图（同一个事实两个来源，必然分叉）。
+ * 没有任何变化时返回**原引用**（调用方据此避免多余的落库）。
+ */
+export function attachShotNodes(
+  doc: StoryboardDoc,
+  pairs: readonly { shotId: string; nodeId: string }[],
+  now = 0,
+): StoryboardDoc {
+  if (pairs.length === 0) return doc
+  const map = new Map(pairs.map((p) => [p.shotId, p.nodeId]))
+  let changed = false
+  const shots = doc.shots.map((s) => {
+    const nodeId = map.get(s.id)
+    if (!nodeId || s.nodeId === nodeId) return s
+    changed = true
+    const next: StoryboardShot = { ...s, nodeId }
+    delete next.imageHash
+    return next
+  })
+  return changed ? { ...doc, shots, updatedAt: now } : doc
+}
+
+/** 把出图结果镜像回文档（引擎写完节点之后调用；同一 hash 重复调用是空操作） */
+export function attachShotImages(
+  doc: StoryboardDoc,
+  pairs: readonly { shotId: string; hash: string }[],
+  now = 0,
+): StoryboardDoc {
+  if (pairs.length === 0) return doc
+  const map = new Map(pairs.map((p) => [p.shotId, p.hash]))
+  let changed = false
+  const shots = doc.shots.map((s) => {
+    const hash = map.get(s.id)
+    if (!hash || s.imageHash === hash) return s
+    changed = true
+    return { ...s, imageHash: hash }
+  })
+  return changed ? { ...doc, shots, updatedAt: now } : doc
 }
 
 export interface StoryboardStats {

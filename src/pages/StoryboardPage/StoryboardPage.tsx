@@ -5,6 +5,19 @@ import { useChannels } from '../../app/providers/ChannelStoreProvider'
 import { useSkillsOptional } from '../../app/providers/SkillStoreProvider'
 import { createProjectRepository } from '../../state/project/repository'
 import { createStoryboardStore } from '../../state/project/storyboardStore'
+import { createStore } from '../../state/createStore'
+import { canvasStoreFor } from '../../state/workbenches/canvas/storeCache'
+import { CanvasStoreProvider, useCanvasStore, useGraph } from '../../workbenches/canvas/storeContext'
+import {
+  CanvasExecutionProvider,
+  useCanvasExecution,
+} from '../../workbenches/canvas/execution/CanvasExecutionProvider'
+import { useAsset } from '../../workbenches/canvas/hooks/useAsset'
+import { applyDefaults, resolveDefaults } from '../../features/canvas/createNodeWithDefaults'
+import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
+import type { NodeSnapshot } from '../../domain/canvas/model/node'
+import type { Edge } from '../../domain/canvas/model/edge'
+import type { RunTaskState } from '../../features/shared/execution/runEngine'
 import { projectRoute } from '../../domain/shared/workbench'
 import {
   BREAKDOWN_SKILL_ID,
@@ -20,11 +33,15 @@ import { asAppError, describeError } from '../../shared/result'
 import {
   addEpisode,
   addShot,
+  attachShotImages,
+  attachShotNodes,
   exportStoryboardMarkdown,
   moveEpisode,
   moveShot,
   removeEpisode,
   removeShot,
+  shotPrompt,
+  shotsNeedingNode,
   shotsOf,
   storyboardStats,
   updateEpisode,
@@ -97,10 +114,66 @@ function StoryboardEmpty() {
   )
 }
 
+/**
+ * 漫剧项目页（**装配层**，对账 #415）：把「这一镜」与画布上的**生成节点**接起来。
+ *
+ * 为什么不把画布这层塞进分镜编辑器里：分镜本身不是节点图，但「出图」只有画布执行引擎会做
+ * （渠道解析 / 落位 / 写回 / 留痕都在那儿）。所以这一层学电商页：页面认识两个工作台，
+ * 两个工作台**彼此不认识**（架构那条 no-workbench-cross-talk 仍然成立）。
+ *
+ * 与画布页 / 电商页共用同一个 store 实例（`canvasStoreFor`）：在这一页铺下的节点，
+ * 点「在画布里打开」之后看到的就是**同一份内存图**，不会出现两套撤销栈（对账 #411）。
+ */
 function StoryboardProject({ projectId }: { projectId: string }) {
+  const platform = usePlatform()
+  const cached = canvasStoreFor(projectId, () =>
+    createStore({ workbench: 'canvas', platform, projectId }),
+  )
+  const store = cached.store
+
+  useEffect(() => () => store.dispose(), [store])
+
+  /** 只读一次库（与画布页 / 电商页同一条口径），避免把内存里正在跑的写入盖回去 */
+  useEffect(() => {
+    if (cached.hydrated) return
+    let cancelled = false
+    void (async () => {
+      await platform.storage.open()
+      const [nodes, edges] = await Promise.all([
+        platform.storage.query('nodes', { projectId }),
+        platform.storage.query('edges', { projectId }),
+      ])
+      if (cancelled) return
+      cached.hydrated = true
+      store.hydrate({
+        projectId,
+        nodes: nodes as unknown as NodeSnapshot[],
+        edges: edges as unknown as Edge[],
+      })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [cached, platform, projectId, store])
+
+  return (
+    <CanvasStoreProvider store={store}>
+      <CanvasExecutionProvider>
+        <StoryboardEditor projectId={projectId} />
+      </CanvasExecutionProvider>
+    </CanvasStoreProvider>
+  )
+}
+
+function StoryboardEditor({ projectId }: { projectId: string }) {
   const platform = usePlatform()
   const channels = useChannels()
   const skills = useSkillsOptional()
+  const navigate = useNavigate()
+  /** 画布那一边：铺节点要 store，出图要执行引擎（都在 Provider 里） */
+  const canvasStore = useCanvasStore()
+  const graph = useGraph()
+  const exec = useCanvasExecution()
   const store = useMemo(() => createStoryboardStore(platform.storage), [platform])
   const [doc, setDoc] = useState<StoryboardDoc | null>(null)
   const [projectName, setProjectName] = useState('')
@@ -127,6 +200,11 @@ function StoryboardProject({ projectId }: { projectId: string }) {
   const [breakMsg, setBreakMsg] = useState('')
   const [breakConfirm, setBreakConfirm] = useState(false)
   const breakAbort = useRef<AbortController | null>(null)
+  /** 铺到画布 / 出图这一组动作的状态行（与拆镜那条分开，免得互相盖掉） */
+  const [lay, setLay] = useState<{ kind: 'idle' | 'done' | 'error'; text: string }>({
+    kind: 'idle',
+    text: '',
+  })
   /** 异步回来的那一拍要拿**最新的**文档打底（跑的过程中用户可能又改了字） */
   const docRef = useRef<StoryboardDoc | null>(null)
   docRef.current = doc
@@ -203,6 +281,32 @@ function StoryboardProject({ projectId }: { projectId: string }) {
     }, SAVE_DEBOUNCE_MS)
   }
 
+  /**
+   * **出图结果镜像回文档**（对账 #415）。
+   *
+   * 引擎把产物写回的是**画布节点**（真相在那儿），分镜这边要的是"这一镜出图了没有 / 是哪张"。
+   * 所以在图变化时扫一遍：节点上有 hash、而文档里还没记（或记的不是这一个）⇒ 镜像过来。
+   *
+   * 三条边界：
+   * - **只在变化时写**（`hash !== shot.imageHash`）：不然每次拖动节点都会触发一次无意义的落库；
+   * - 依赖只有 `graph.nodes`（文档从 ref 读）：镜像写回会改文档，若把文档也放进依赖就成了循环；
+   * - 用户**重出**这一镜时 hash 会变，这条判据照样把新图镜像过来（不是"有值就跳过"）。
+   */
+  const applyRef = useRef(apply)
+  applyRef.current = apply
+  useEffect(() => {
+    const current = docRef.current
+    if (!current) return
+    const updates: { shotId: string; hash: string }[] = []
+    for (const shot of current.shots) {
+      if (!shot.nodeId) continue
+      const node = graph.nodes.find((n) => n.id === shot.nodeId)
+      const hash = node ? assetHashesOfNode(node)[0] : undefined
+      if (hash && hash !== shot.imageHash) updates.push({ shotId: shot.id, hash })
+    }
+    if (updates.length > 0) applyRef.current(attachShotImages(current, updates, 0))
+  }, [graph.nodes])
+
   if (!doc) {
     return (
       <div className={styles.loading} data-storyboard-loading>
@@ -216,6 +320,10 @@ function StoryboardProject({ projectId }: { projectId: string }) {
   const selected = episodes.find((e) => e.id === selectedId) ?? episodes[0] ?? null
   const shots = selected ? shotsOf(doc, selected.id) : []
   const selectedIndex = selected ? episodes.findIndex((e) => e.id === selected.id) : -1
+  /** 画布上现在还活着的节点（"这一镜铺没铺过"要看它，不能只看 `shot.nodeId`） */
+  const liveNodeIds = new Set(graph.nodes.map((n) => n.id))
+  const needNodes = shotsNeedingNode(shots, liveNodeIds)
+  const laidCount = shots.filter((s) => s.nodeId && liveNodeIds.has(s.nodeId)).length
 
   const pick = (id: string) => {
     setSelectedId(id)
@@ -323,9 +431,8 @@ function StoryboardProject({ projectId }: { projectId: string }) {
       setBreakMsg(`已拆出 ${drafts.length} 镜`)
     } catch (e) {
       if (ac.signal.aborted) return
-      const appError = asAppError(e)
       setBreaking('error')
-      setBreakMsg(appError ? describeError(appError) : e instanceof Error ? e.message : String(e))
+      setBreakMsg(humanError(e))
     } finally {
       if (breakAbort.current === ac) breakAbort.current = null
     }
@@ -337,6 +444,85 @@ function StoryboardProject({ projectId }: { projectId: string }) {
     setBreaking('idle')
     setBreakMsg('')
     setBreakConfirm(false)
+  }
+
+  /**
+   * 「铺到画布」：给这一集**还没铺**（或铺过的节点已被删）的镜头各建一个生成节点。
+   *
+   * 两条纪律：
+   * ① **整批一个事务**（`beginPlan` / `endPlan`）：用户按一次撤销，这一批节点一起退回去；
+   * ② 先把异步的默认配方**全部解析完**再进事务 —— 事务里夹 `await` 会把撤销断成好几步
+   *    （`createNodeWithDefaults` 的文件注释记着当年怎么栽的，电商页也是这么写的）。
+   *
+   * 提示词就用这一镜的 `shotPrompt`（留空回落画面描述）—— 分镜里写的那句话，
+   * 到此为止一直是纯文本，这一步才第一次变成"真能跑的节点"。
+   */
+  const layOut = async () => {
+    if (!selected) return
+    const targets = needNodes
+    if (targets.length === 0) {
+      setLay({ kind: 'done', text: '这一集的镜头都已经在画布上了' })
+      return
+    }
+    try {
+      const base = graph.nodes.length
+      const prescribed: { shotId: string; data: Record<string, unknown> }[] = []
+      for (const shot of targets) {
+        const data = await resolveDefaults({
+          channels,
+          type: 'generation',
+          extraData: { mode: 'image', prompt: shotPrompt(shot) },
+        })
+        prescribed.push({ shotId: shot.id, data })
+      }
+      const pairs: { shotId: string; nodeId: string }[] = []
+      canvasStore.beginPlan('storyboard:lay-out', `漫剧铺到画布 ×${prescribed.length}`)
+      try {
+        prescribed.forEach((item, i) => {
+          const nodeId = applyDefaults({
+            store: canvasStore,
+            channels,
+            projectId,
+            type: 'generation',
+            at: { x: 40, y: 40 + (base + i) * 200 },
+            data: item.data,
+          })
+          if (nodeId) pairs.push({ shotId: item.shotId, nodeId })
+        })
+      } finally {
+        canvasStore.endPlan()
+      }
+      const current = docRef.current
+      if (current && pairs.length > 0) apply(attachShotNodes(current, pairs, 0))
+      setLay({ kind: 'done', text: `已把 ${pairs.length} 镜铺到画布` })
+    } catch (e) {
+      setLay({ kind: 'error', text: humanError(e) })
+    }
+  }
+
+  /**
+   * 出图：产物**写回这一镜自己的节点**（`inPlace`，对账 #413 那条能力在这里第二次被用上）。
+   *
+   * 为什么不铺新节点：分镜要的是"这一镜的图"，不是"这一镜的十张候选"。
+   * 想留旧图比稿的用户可以先用单镜重出（每次覆盖），或到画布上用 Alt+R —— 两条路都在。
+   */
+  const runShot = (shot: StoryboardShot) => {
+    if (!shot.nodeId) return
+    void exec.runNode(shot.nodeId, { inPlace: true })
+  }
+
+  /** 这一集出图：逐镜串行（顺着分镜顺序），**已出过的跳过**；重出用单镜那把 */
+  const runEpisode = async () => {
+    const targets = shots.filter((s) => s.nodeId && liveNodeIds.has(s.nodeId) && !s.imageHash)
+    if (targets.length === 0) {
+      setLay({ kind: 'done', text: '这一集没有待出图的镜头（要重出请用单镜那把）' })
+      return
+    }
+    setLay({ kind: 'idle', text: '' })
+    for (const shot of targets) {
+      await exec.runNode(shot.nodeId!, { inPlace: true })
+    }
+    setLay({ kind: 'done', text: `已跑完这一集 ${targets.length} 镜（失败的镜头各自标了原因）` })
   }
 
   const onExport = async () => {
@@ -568,6 +754,24 @@ function StoryboardProject({ projectId }: { projectId: string }) {
                     <button
                       type="button"
                       className={styles.ghost}
+                      data-storyboard-lay-out
+                      disabled={shots.length === 0}
+                      onClick={() => void layOut()}
+                    >
+                      {needNodes.length > 0 ? `铺到画布（${needNodes.length} 镜）` : '已铺到画布'}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.ghost}
+                      data-storyboard-run-all
+                      disabled={laidCount === 0 || exec.isRunning}
+                      onClick={() => void runEpisode()}
+                    >
+                      这一集出图
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.ghost}
                       data-storyboard-add-shot
                       onClick={addOneShot}
                     >
@@ -589,6 +793,26 @@ function StoryboardProject({ projectId }: { projectId: string }) {
                     {breaking === 'running' ? '正在拆解…' : breakMsg}
                   </p>
                 ) : null}
+                <p className={styles.hint} data-storyboard-canvas-hint={laidCount}>
+                  画布：这一集 {laidCount}/{shots.length} 镜已在画布上
+                  <button
+                    type="button"
+                    className={styles.linkBtn}
+                    data-storyboard-open-canvas
+                    onClick={() => navigate(projectRoute('canvas', projectId))}
+                  >
+                    在画布里打开
+                  </button>
+                </p>
+                {lay.kind !== 'idle' ? (
+                  <p
+                    className={lay.kind === 'error' ? styles.error : styles.hint}
+                    role="status"
+                    data-storyboard-lay-status={lay.kind}
+                  >
+                    {lay.text}
+                  </p>
+                ) : null}
                 {shots.length === 0 ? (
                   <p className={styles.hint} data-storyboard-shots-empty>
                     这一集还没有分镜。一镜 = 一个画面 + 一句台词 + 一个时长。
@@ -602,9 +826,12 @@ function StoryboardProject({ projectId }: { projectId: string }) {
                         index={index}
                         total={shots.length}
                         confirming={confirming === `shot:${shot.id}`}
+                        laidOut={Boolean(shot.nodeId && liveNodeIds.has(shot.nodeId))}
+                        state={shot.nodeId ? exec.nodeStateOf(shot.nodeId) : undefined}
                         onPatch={patchShot}
                         onMove={(id, delta) => apply(moveShot(doc, id, delta, 0))}
                         onRemove={removeOneShot}
+                        onRun={() => runShot(shot)}
                       />
                     ))}
                   </ol>
@@ -623,22 +850,63 @@ function ShotCard({
   index,
   total,
   confirming,
+  laidOut,
+  state,
   onPatch,
   onMove,
   onRemove,
+  onRun,
 }: {
   shot: StoryboardShot
   index: number
   total: number
   confirming: boolean
+  /** 这一镜的节点**现在还在画布上**（不是"曾经铺过"） */
+  laidOut: boolean
+  state?: RunTaskState
   onPatch: (id: string, patch: Partial<Omit<StoryboardShot, 'id' | 'episodeId'>>) => void
   onMove: (id: string, delta: number) => void
   onRemove: (id: string) => void
+  onRun: () => void
 }) {
+  /**
+   * 状态一格写完（界面 / 冒烟都读这一个属性）：
+   * 没铺 → idle；铺了没跑 → laid；跑着 → running；失败 → failed；有图 → done。
+   * **失败优先于"有图"**：重出失败时旧图还在，但用户此刻要知道的是"这次失败了"。
+   */
+  const kind = !laidOut
+    ? 'idle'
+    : state?.kind === 'failed'
+      ? 'failed'
+      : state?.kind === 'queued' || state?.kind === 'running'
+        ? 'running'
+        : shot.imageHash
+          ? 'done'
+          : 'laid'
+  const stateText =
+    kind === 'idle'
+      ? '还没铺到画布'
+      : kind === 'laid'
+        ? '已在画布上'
+        : kind === 'running'
+          ? state?.kind === 'queued'
+            ? '排队中…'
+            : '生成中…'
+          : kind === 'failed'
+            ? '生成失败'
+            : '已出图'
+  const busy = state?.kind === 'queued' || state?.kind === 'running'
   return (
     <li className={styles.shot} data-storyboard-shot={shot.id}>
       <div className={styles.shotHead}>
         <span className={styles.shotNo}>第 {index + 1} 镜</span>
+        <span
+          className={kind === 'failed' ? `${styles.shotState} ${styles.shotStateBad}` : styles.shotState}
+          data-storyboard-shot-status={shot.id}
+          data-kind={kind}
+        >
+          {stateText}
+        </span>
         <div className={styles.itemTools}>
           <button
             type="button"
@@ -675,6 +943,29 @@ function ShotCard({
           </button>
         </div>
       </div>
+      <div className={styles.shotBar}>
+        {shot.imageHash ? (
+          <span className={styles.shotImage} data-storyboard-shot-image={shot.id}>
+            <ShotThumb hash={shot.imageHash} />
+          </span>
+        ) : null}
+        <div className={styles.itemTools}>
+          <button
+            type="button"
+            className={styles.ghost}
+            data-storyboard-shot-run={shot.id}
+            disabled={!laidOut || busy}
+            onClick={onRun}
+          >
+            {shot.imageHash ? '重出这一镜' : '出图'}
+          </button>
+        </div>
+      </div>
+      {state?.kind === 'failed' ? (
+        <p className={styles.error} data-storyboard-shot-error={shot.id}>
+          {describeError(state.error)}
+        </p>
+      ) : null}
       <label className={styles.field}>
         <span className={styles.label}>画面</span>
         <textarea
@@ -723,6 +1014,19 @@ function ShotCard({
       </label>
     </li>
   )
+}
+
+/** 这一镜的出图缩略图：按 hash 取素材（hook 必须落在子组件里，不能在 map 里调） */
+function ShotThumb({ hash }: { hash: string }) {
+  const url = useAsset(hash)
+  if (!url) return null
+  return <img className={styles.shotImg} src={url} alt="" />
+}
+
+/** 把任意异常翻成给用户看的句子（`asAppError` + `describeError` 是本项目统一的翻译对） */
+function humanError(e: unknown): string {
+  const appError = asAppError(e)
+  return appError ? describeError(appError) : e instanceof Error ? e.message : String(e)
 }
 
 function IconUp() {
