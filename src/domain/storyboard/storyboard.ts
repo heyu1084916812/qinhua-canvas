@@ -845,6 +845,82 @@ export function removeScene(doc: StoryboardDoc, id: string, now = 0): Storyboard
   }
 }
 
+/**
+ * **把两条资产合成一条**（对账 #436：`keepId` 留下，`dropId` 并进去然后消失）。
+ *
+ * 为什么需要它：拆镜时会按 `name + aliases` **自动归并**（#416），但模型换个叫法
+ * （"林轩" / "林公子"）就会落下**两条重复**。以前用户只能删掉一条 —— 而删会把引用一起清掉，
+ * 于是每一镜都得重新绑一次。合并而不是删除，才是这件事的答案。
+ *
+ * 四条口径（每条都为了"别让用户的东西白做"）：
+ * 1. **引用跟过来**：镜头里指向 `dropId` 的一律改成 `keepId`；**同一镜同时引用了两条时合并成一条**
+ *    （不去重的话，那一镜会挂着两个 id，而库里只有一个 —— 导出里就会出现重复名字）。
+ * 2. **名字也进别名**：`drop` 的名字与本来的别名并进 `keep.aliases`（去重、去掉与 keep 名字相同的）。
+ *    这正是"以后拆镜还能认出林公子就是林轩"的抓手（调研稿 §6.3 第 2 条）。
+ * 3. **描述只在 keep 为空时借过来**：用户写过的描述不许被另一条覆盖。
+ * 4. **基准图 keep 没有就接 drop 的**（否则刚出的定妆图白做）；两条都有就留 keep 的 ——
+ *    这是唯一一处"丢了 drop 的一份产物"，所以界面上要**先确认再合并**。
+ *
+ * 不合法（id 相等 / 找不到其中一条）一律返回**原引用**。
+ */
+export function mergeAsset(
+  doc: StoryboardDoc,
+  kind: AssetKind,
+  keepId: string,
+  dropId: string,
+  now = 0,
+): StoryboardDoc {
+  if (!keepId || !dropId || keepId === dropId) return doc
+  const list = kind === 'char' ? doc.characters : doc.scenes
+  const keep = list.find((a) => a.id === keepId)
+  const drop = list.find((a) => a.id === dropId)
+  if (!keep || !drop) return doc
+
+  /** 别名：keep 原有的 + drop 的名字与别名；去掉空的、去掉与 keep 名字相同的、去重 */
+  const aliases = [
+    ...new Set(
+      [...keep.aliases, drop.name, ...drop.aliases]
+        .map((v) => v.trim())
+        .filter((v) => v && v !== keep.name),
+    ),
+  ]
+  /**
+   * 基准图与节点：**keep 没有就接 drop 的**（两条一起接 —— 只接 hash 会指向别人的节点）。
+   * 只接 `nodeId` 那半条也要管：那代表"这一条已经建过节点、只是还没出图"，
+   * 不接的话那个节点会在画布上变成没人认领的孤儿。
+   */
+  const carry =
+    !keep.baseHash && drop.baseHash && drop.nodeId
+      ? { nodeId: drop.nodeId, baseHash: drop.baseHash }
+      : !keep.nodeId && drop.nodeId
+        ? { nodeId: drop.nodeId }
+        : {}
+  const merged: DramaAsset = {
+    ...keep,
+    aliases,
+    description: keep.description.trim() ? keep.description : drop.description,
+    ...carry,
+  }
+  const nextList = list.filter((a) => a.id !== dropId).map((a) => (a.id === keepId ? merged : a))
+
+  const shots = doc.shots.map((shot) => {
+    if (kind === 'scene') {
+      if (shot.sceneId !== dropId) return shot
+      return { ...shot, sceneId: keepId }
+    }
+    if (!shot.characterIds?.includes(dropId)) return shot
+    const refs = [...new Set(shot.characterIds.map((id) => (id === dropId ? keepId : id)))]
+    return { ...shot, characterIds: refs }
+  })
+
+  return {
+    ...doc,
+    ...(kind === 'char' ? { characters: nextList } : { scenes: nextList }),
+    shots,
+    updatedAt: now,
+  }
+}
+
 /** 给这一镜指定场景；传 `null` 表示"不绑定"（同一个函数管两件事，界面不用分两个入口） */
 export function bindShotScene(
   doc: StoryboardDoc,

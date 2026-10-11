@@ -443,6 +443,26 @@
   gap: var(--space-2);
 }
 
+/*
+ * 资产合并的第二步面板（对账 #436）：铺在脚注那一列里，不挤走别的格子。
+ * 第一下是"并入哪一条"，第二下只说后果（会改几镜、然后删掉这一条）。
+ */
+.mergeBox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--bg-canvas);
+  border: var(--border);
+  border-radius: var(--radius-control);
+}
+
+.mergeChoices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .assetName,
 .assetDesc,
 .assetAliases {

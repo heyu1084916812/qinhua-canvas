@@ -17,6 +17,7 @@ import {
   exportStoryboardMarkdown,
   moveEpisode,
   moveShot,
+  mergeAsset,
   parseStoryboard,
   planShotRefEdges,
   removeCharacter,
@@ -912,5 +913,108 @@ describe('对白层', () => {
     /* 说话人从库里删掉（读回时会丢掉悬空引用）⇒ 只剩正文，不留一个空冒号 */
     const alone = { ...doc, characters: [] }
     expect(shotDialogueTextOf(alone, alone.shots[0]!)).toBe('今天最后一单 / 辛苦了')
+  })
+})
+
+/**
+ * **手工合并两条资产**（对账 #436）。
+ *
+ * 拆镜按 `name + aliases` 自动归并，但模型换个叫法（"林轩" / "林公子"）就会落下两条重复。
+ * 这一组的每条断言都对着"合并之后用户的东西还在不在"：引用有没有跟过来、别名有没有留下、
+ * 刚出的定妆图会不会白做。
+ */
+describe('手工合并资产', () => {
+  /** 两个角色 + 两镜：第 1 镜只引用 drop，第 2 镜**同时**引用两条 */
+  const two = () => {
+    let doc = emptyStoryboard('p1', 0)
+    doc = addCharacter(doc, 1)
+    doc = addCharacter(doc, 1)
+    const [keep, drop] = doc.characters
+    doc = updateCharacter(doc, keep!.id, { name: '林轩', description: '主角' }, 1)
+    doc = updateCharacter(
+      doc,
+      drop!.id,
+      { name: '林公子', description: '主角的另一个叫法', aliases: ['公子'] },
+      1,
+    )
+    doc = addEpisode(doc, 1)
+    doc = addShot(doc, doc.episodes[0]!.id, 1)
+    doc = addShot(doc, doc.episodes[0]!.id, 1)
+    doc = toggleShotCharacter(doc, doc.shots[0]!.id, drop!.id, 1)
+    doc = toggleShotCharacter(doc, doc.shots[1]!.id, drop!.id, 1)
+    doc = toggleShotCharacter(doc, doc.shots[1]!.id, keep!.id, 1)
+    return { doc, keepId: keep!.id, dropId: drop!.id }
+  }
+
+  it('★★★ 引用跟过来，且**同一镜同时引用两条时合并成一条**（不留重复 id）', () => {
+    const { doc, keepId, dropId } = two()
+    const merged = mergeAsset(doc, 'char', keepId, dropId, 9)
+    expect(merged.shots[0]!.characterIds).toEqual([keepId])
+    expect(merged.shots[1]!.characterIds).toEqual([keepId])
+  })
+
+  it('★★★ 名字也变成别名（以后拆镜才认得出"林公子"就是林轩），并去掉重复与空值', () => {
+    const { doc, keepId, dropId } = two()
+    const merged = mergeAsset(doc, 'char', keepId, dropId, 9)
+    const keep = merged.characters.find((c) => c.id === keepId)!
+    expect(merged.characters).toHaveLength(1)
+    expect(keep.aliases).toEqual(['林公子', '公子'])
+  })
+
+  it('★ 与 keep **同名**的那份不留成别名（别名栏里出现一个与名字一样的项没有意义）', () => {
+    const { doc, keepId, dropId } = two()
+    const sameName = updateCharacter(doc, dropId, { name: '林轩' }, 9)
+    const merged = mergeAsset(sameName, 'char', keepId, dropId, 9)
+    expect(merged.characters[0]!.aliases).toEqual(['公子'])
+  })
+
+  it('★★ 描述：keep 写过就留着；keep 空才借 drop 的', () => {
+    const { doc, keepId, dropId } = two()
+    const kept = mergeAsset(doc, 'char', keepId, dropId, 9)
+    expect(kept.characters[0]!.description).toBe('主角')
+
+    const blank = updateCharacter(doc, keepId, { description: '' }, 9)
+    expect(mergeAsset(blank, 'char', keepId, dropId, 9).characters[0]!.description).toBe(
+      '主角的另一个叫法',
+    )
+  })
+
+  it('★★★ 基准图：keep 没有就接 drop 的（nodeId 与 hash 一起）；keep 有就留 keep 的', () => {
+    const { doc, keepId, dropId } = two()
+    let withBase = setAssetNode(doc, 'char', dropId, 'n-drop', 9)
+    withBase = setAssetBaseHash(withBase, 'char', dropId, 'h-drop', 9)
+    const carried = mergeAsset(withBase, 'char', keepId, dropId, 9)
+    expect(carried.characters[0]!.nodeId).toBe('n-drop')
+    expect(carried.characters[0]!.baseHash).toBe('h-drop')
+
+    let both = setAssetNode(withBase, 'char', keepId, 'n-keep', 9)
+    both = setAssetBaseHash(both, 'char', keepId, 'h-keep', 9)
+    const kept = mergeAsset(both, 'char', keepId, dropId, 9)
+    expect(kept.characters[0]!.baseHash).toBe('h-keep')
+    expect(kept.characters[0]!.nodeId).toBe('n-keep')
+  })
+
+  it('★★★ 场景走同一条路：镜头的 `sceneId` 改成 keep', () => {
+    let doc = emptyStoryboard('p1', 0)
+    doc = addScene(doc, 1)
+    doc = addScene(doc, 1)
+    const [keep, drop] = doc.scenes
+    doc = updateScene(doc, keep!.id, { name: '雨夜街道' }, 1)
+    doc = updateScene(doc, drop!.id, { name: '下雨的街', aliases: ['老街'] }, 1)
+    doc = addEpisode(doc, 1)
+    doc = addShot(doc, doc.episodes[0]!.id, 1)
+    doc = bindShotScene(doc, doc.shots[0]!.id, drop!.id, 1)
+
+    const merged = mergeAsset(doc, 'scene', keep!.id, drop!.id, 9)
+    expect(merged.scenes).toHaveLength(1)
+    expect(merged.shots[0]!.sceneId).toBe(keep!.id)
+    expect(merged.scenes[0]!.aliases).toEqual(['下雨的街', '老街'])
+  })
+
+  it('★ 不合法（id 相同 / 找不到其中一条）⇒ 返回原引用', () => {
+    const { doc, keepId, dropId } = two()
+    expect(mergeAsset(doc, 'char', keepId, keepId, 9)).toBe(doc)
+    expect(mergeAsset(doc, 'char', keepId, '不存在', 9)).toBe(doc)
+    expect(mergeAsset(doc, 'scene', keepId, dropId, 9)).toBe(doc)
   })
 })

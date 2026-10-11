@@ -56,6 +56,7 @@ import {
   exportStoryboardMarkdown,
   moveEpisode,
   moveShot,
+  mergeAsset,
   planShotRefEdges,
   removeCharacter,
   removeEpisode,
@@ -216,6 +217,12 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   const [status, setStatus] = useState('')
   /** 二次确认：'' | `ep:<id>` | `shot:<id>`（删除是不可撤销的，第一下只改文案） */
   const [confirming, setConfirming] = useState('')
+  /**
+   * 资产合并（对账 #436）：正在合并哪一条 + 并进哪一条。
+   * `keepId` 空 = 还在选目标；有值 = 第二下确认（与删资产那条"两下确认"同一条口径，
+   * 但**合并不可撤销的程度不同** —— 它会把引用的 id 换掉，所以后果要先说清）。
+   */
+  const [merge, setMerge] = useState<{ dropId: string; keepId: string | null } | null>(null)
   const timer = useRef<number | null>(null)
   const pending = useRef<StoryboardDoc | null>(null)
   /**
@@ -500,6 +507,21 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     apply(kind === 'char' ? removeCharacter(doc, id, 0) : removeScene(doc, id, 0))
     setConfirming('')
   }
+
+  /**
+   * 这一条可以并进哪些同类资产（对账 #436）。`refs` = 目标那条被多少镜引用 ——
+   * 摆这个数字是为了让用户挑的时候看得见"并过去之后这些镜会改成谁"。
+   */
+  const mergeChoicesOf = (kind: 'char' | 'scene', dropId: string) =>
+    (kind === 'char' ? doc.characters : doc.scenes)
+      .filter((a) => a.id !== dropId)
+      .map((a) => ({
+        id: a.id,
+        name: a.name.trim() || '未命名',
+        refs: doc.shots.filter((s) =>
+          kind === 'char' ? (s.characterIds ?? []).includes(a.id) : s.sceneId === a.id,
+        ).length,
+      }))
 
   /**
    * 「出定妆图 / 基准图」（对账 #419）：这一条资产没有节点就先建一个（提示词按资产拼），
@@ -1305,6 +1327,19 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                 onPatch={(patch) => apply(updateCharacter(doc, c.id, patch, 0))}
                 onRemove={() => removeOneAsset('char', c.id)}
                 onMake={() => void makeAssetBase('char', c.id)}
+                merge={merge?.dropId === c.id ? { keepId: merge.keepId } : null}
+                mergeChoices={mergeChoicesOf('char', c.id)}
+                onMergeOpen={() => {
+                  setConfirming('')
+                  setMerge({ dropId: c.id, keepId: null })
+                }}
+                onMergePick={(keepId) => setMerge({ dropId: c.id, keepId })}
+                onMergeConfirm={() => {
+                  if (!merge?.keepId) return
+                  apply(mergeAsset(doc, 'char', merge.keepId, merge.dropId, 0))
+                  setMerge(null)
+                }}
+                onMergeCancel={() => setMerge(null)}
               />
             ))}
             {doc.scenes.map((s) => (
@@ -1319,6 +1354,19 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                 onPatch={(patch) => apply(updateScene(doc, s.id, patch, 0))}
                 onRemove={() => removeOneAsset('scene', s.id)}
                 onMake={() => void makeAssetBase('scene', s.id)}
+                merge={merge?.dropId === s.id ? { keepId: merge.keepId } : null}
+                mergeChoices={mergeChoicesOf('scene', s.id)}
+                onMergeOpen={() => {
+                  setConfirming('')
+                  setMerge({ dropId: s.id, keepId: null })
+                }}
+                onMergePick={(keepId) => setMerge({ dropId: s.id, keepId })}
+                onMergeConfirm={() => {
+                  if (!merge?.keepId) return
+                  apply(mergeAsset(doc, 'scene', merge.keepId, merge.dropId, 0))
+                  setMerge(null)
+                }}
+                onMergeCancel={() => setMerge(null)}
               />
             ))}
           </div>
@@ -1931,6 +1979,12 @@ function AssetRow({
   onPatch,
   onRemove,
   onMake,
+  merge,
+  mergeChoices = [],
+  onMergeOpen,
+  onMergePick,
+  onMergeConfirm,
+  onMergeCancel,
 }: {
   asset: DramaAsset
   kind: 'char' | 'scene'
@@ -1943,6 +1997,14 @@ function AssetRow({
   onPatch: (patch: Partial<Pick<DramaAsset, 'name' | 'description' | 'aliases'>>) => void
   onRemove: () => void
   onMake: () => void
+  /** 合并（#436）：`null` = 没在合并；`keepId` 空 = 还在选目标，有 = 等确认 */
+  merge?: { keepId: string | null } | null
+  /** 可以并进的同类资产（含各自的引用镜数）—— 没有别的同类资产时这个按钮不出现 */
+  mergeChoices?: readonly { id: string; name: string; refs: number }[]
+  onMergeOpen?: () => void
+  onMergePick?: (keepId: string) => void
+  onMergeConfirm?: () => void
+  onMergeCancel?: () => void
 }) {
   const [aliasText, setAliasText] = useState(asset.aliases.join('、'))
   const label = kind === 'char' ? '定妆图' : '基准图'
@@ -2049,7 +2111,74 @@ function AssetRow({
           >
             {asset.baseHash ? `重出${label}` : `出${label}`}
           </button>
+          {/**
+           * 「并入…」（对账 #436）：拆镜按 `name + aliases` 自动归并，但模型换个叫法
+           * （"林轩" / "林公子"）就会落下两条重复。以前只能删掉一条 —— 而删会把引用一起清掉。
+           * 合并才是这件事的答案。没别的同类资产时按钮不出现（点了没人可并）。
+           */}
+          {onMergeOpen && mergeChoices.length > 0 ? (
+            <button
+              type="button"
+              className={styles.ghost}
+              data-storyboard-asset-merge={asset.id}
+              onClick={onMergeOpen}
+            >
+              并入…
+            </button>
+          ) : null}
         </div>
+        {merge ? (
+          <div className={styles.mergeBox} data-storyboard-merge-box={asset.id}>
+            {merge.keepId === null ? (
+              <>
+                <span className={styles.hint}>并入哪一条？</span>
+                <div className={styles.mergeChoices}>
+                  {mergeChoices.map((choice) => (
+                    <button
+                      key={choice.id}
+                      type="button"
+                      className={styles.ghost}
+                      data-storyboard-merge-target={choice.id}
+                      onClick={() => onMergePick?.(choice.id)}
+                    >
+                      并入 {choice.name}（{choice.refs} 镜引用）
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                {/**
+                 * 第二下**只说后果**：会改几镜的引用、然后删掉这一条。
+                 * 与删资产那条"两下确认"同一条口径 —— 不可撤销的动作先把代价说清楚。
+                 */}
+                <p className={styles.hint} data-storyboard-merge-note={asset.id}>
+                  把「{asset.name}」并进「
+                  {mergeChoices.find((c) => c.id === merge.keepId)?.name ?? ''}」：会改 {usedBy}{' '}
+                  镜的引用，然后删掉这一条。
+                </p>
+                <div className={styles.mergeChoices}>
+                  <button
+                    type="button"
+                    className={styles.ghost}
+                    data-storyboard-merge-confirm={asset.id}
+                    onClick={onMergeConfirm}
+                  >
+                    确认合并
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.ghost}
+                    data-storyboard-merge-cancel={asset.id}
+                    onClick={onMergeCancel}
+                  >
+                    取消
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        ) : null}
         {state?.kind === 'failed' ? (
           <p className={styles.error} data-storyboard-asset-error={asset.id}>
             {describeError(state.error)}

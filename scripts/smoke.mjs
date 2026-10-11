@@ -28684,7 +28684,184 @@ async function g149(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149]
+// ────────────────────────────────────────────────────────────
+// G150 漫剧「手工合并两条资产」（对账 #436）：
+//   拆镜会按 name + aliases 自动归并，但模型换个叫法（"林轩" / "林公子"）就会落下两条重复。
+//   以前只能删掉一条 —— 而删会把引用一起清掉（每一镜都得重新绑）。合并才是答案。
+//   ① 第一下只列目标（带引用镜数），第二下**只说后果**，可以取消
+//   ② 确认后：引用跟过来（同一镜引用两条 ⇒ 合并成一条）、名字变别名、那条消失
+//   ③ 只剩一条时「并入…」不再出现（点了没人可并的入口不摆）
+// ────────────────────────────────────────────────────────────
+async function g150(browser) {
+  const g = 'G150 漫剧手工合并资产'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const shots = page.locator('[data-storyboard-shot]')
+  const charRows = page.locator('[data-storyboard-character]')
+
+  const readDb = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const boards = await new Promise((resolve) => {
+        const r = db.transaction('storyboards', 'readonly').objectStore('storyboards').getAll()
+        r.onsuccess = () => resolve(r.result ?? [])
+        r.onerror = () => resolve([])
+      })
+      const doc = boards[0]?.doc
+      return {
+        characters: (doc?.characters ?? []).map((c) => ({
+          id: c.id,
+          name: c.name,
+          aliases: c.aliases ?? [],
+        })),
+        shots: (doc?.shots ?? []).map((s) => ({
+          id: s.id,
+          characterIds: s.characterIds ?? [],
+        })),
+      }
+    })
+  const waitDb = async (predicate, timeoutMs = 20000) => {
+    const started = Date.now()
+    for (;;) {
+      const db = await readDb()
+      if (predicate(db) || Date.now() - started > timeoutMs) return db
+      await sleep(250)
+    }
+  }
+
+  await configureMockChannel(page)
+  await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-storyboard-create]').click()
+  await page.waitForURL(/\/storyboard\/proj_/)
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+
+  // 两镜 + 两个角色（两个角色才是"有东西可并"）
+  await page.locator('[data-storyboard-add-episode]').click()
+  await sleep(200)
+  await page.locator('[data-storyboard-add-shot]').click()
+  await sleep(120)
+  await page.locator('[data-storyboard-add-shot]').click()
+  await sleep(200)
+  await page.locator('[data-storyboard-add-character]').click()
+  await sleep(180)
+  await page.locator('[data-storyboard-add-character]').click()
+  await sleep(300)
+
+  const keepId = (await charRows.nth(0).getAttribute('data-storyboard-character')) ?? ''
+  const dropId = (await charRows.nth(1).getAttribute('data-storyboard-character')) ?? ''
+  const shot1 = (await shots.nth(0).getAttribute('data-storyboard-shot')) ?? ''
+  const shot2 = (await shots.nth(1).getAttribute('data-storyboard-shot')) ?? ''
+  await page.locator(`[data-storyboard-asset-name="${keepId}"]`).fill('骑手')
+  await page.locator(`[data-storyboard-asset-name="${dropId}"]`).fill('林公子')
+  await page.locator(`[data-storyboard-asset-aliases="${dropId}"]`).fill('公子')
+  /* 第 1 镜只绑林公子；第 2 镜**两条都绑**（合并时要收成一条，不留重复 id） */
+  await page.locator(`[data-storyboard-shot-character="${shot1}"][data-character-id="${dropId}"]`).click()
+  await sleep(120)
+  await page.locator(`[data-storyboard-shot-character="${shot2}"][data-character-id="${dropId}"]`).click()
+  await sleep(120)
+  await page.locator(`[data-storyboard-shot-character="${shot2}"][data-character-id="${keepId}"]`).click()
+  await sleep(600)
+
+  const before = await waitDb(
+    (db) =>
+      db.characters.length === 2 &&
+      db.shots.find((s) => s.id === shot1)?.characterIds.length === 1 &&
+      db.shots.find((s) => s.id === shot2)?.characterIds.length === 2,
+    15000,
+  )
+  rec(
+    g,
+    '★ 前置：两条角色；第 1 镜只绑林公子、第 2 镜两条都绑',
+    before.characters.length === 2 &&
+      before.shots.find((s) => s.id === shot1)?.characterIds[0] === dropId &&
+      (before.shots.find((s) => s.id === shot2)?.characterIds ?? []).includes(keepId),
+    JSON.stringify(before.shots),
+  )
+  rec(
+    g,
+    '★ 两条同类资产都在时，「并入…」按钮在',
+    (await page.locator(`[data-storyboard-asset-merge="${dropId}"]`).count()) === 1,
+  )
+
+  // ① 第一下：只列目标（带引用镜数）
+  await page.locator(`[data-storyboard-asset-merge="${dropId}"]`).click()
+  const target = page.locator(`[data-storyboard-merge-target="${keepId}"]`)
+  await target.waitFor({ state: 'visible', timeout: 5000 })
+  const targetText = (await target.innerText()).trim()
+  const mid = await readDb()
+  rec(
+    g,
+    '★★ 第一下只列目标（带"几镜引用"），**一个字段都没动**',
+    /并入 骑手/.test(targetText) && /1 镜引用/.test(targetText) && mid.characters.length === 2,
+    `${targetText} · 角色数=${mid.characters.length}`,
+  )
+
+  // 第二下：只说后果
+  await target.click()
+  const note = (await page.locator(`[data-storyboard-merge-note="${dropId}"]`).innerText()).trim()
+  rec(
+    g,
+    /**
+     * 数字按**前置**算：林公子被第 1、2 镜都绑着 ⇒ 会改 **2** 镜。
+     * （第一版我写的期望是 1，红了一次 —— 红的是我的期望值，不是代码：
+     * 那一行如实报出了真实引用数，这正是它该做的事。）
+     * 目标那一栏的"1 镜引用"数的是**骑手**，两者本来就不是同一个数。
+     */
+    '★★ 第二下只说后果（会改 2 镜的引用，然后删掉这一条）',
+    /骑手/.test(note) && /会改 2 镜的引用/.test(note) && /删掉这一条/.test(note),
+    note,
+  )
+
+  // 取消 ⇒ 原样
+  await page.locator(`[data-storyboard-merge-cancel="${dropId}"]`).click()
+  await sleep(300)
+  const cancelled = await readDb()
+  rec(g, '★★ 取消 ⇒ 两条都还在（第二下只是"说后果"，不是动手）', cancelled.characters.length === 2)
+
+  // ② 再走一遍并确认
+  await page.locator(`[data-storyboard-asset-merge="${dropId}"]`).click()
+  await page.locator(`[data-storyboard-merge-target="${keepId}"]`).click()
+  await page.locator(`[data-storyboard-merge-confirm="${dropId}"]`).click()
+  const after = await waitDb((db) => db.characters.length === 1, 15000)
+  const keep = after.characters[0]
+  rec(
+    g,
+    '★★★ 确认后：只剩一条（骑手），林公子没了',
+    after.characters.length === 1 && keep?.name === '骑手',
+    JSON.stringify(after.characters),
+  )
+  rec(
+    g,
+    '★★★ 引用跟过来：第 1 镜改成骑手；第 2 镜**收成一条**（不留重复 id）',
+    JSON.stringify(after.shots.find((s) => s.id === shot1)?.characterIds) === JSON.stringify([keepId]) &&
+      JSON.stringify(after.shots.find((s) => s.id === shot2)?.characterIds) === JSON.stringify([keepId]),
+    JSON.stringify(after.shots),
+  )
+  rec(
+    g,
+    '★★★ 名字变成别名（以后拆镜才认得出"林公子"就是骑手）',
+    JSON.stringify(keep?.aliases ?? []) === JSON.stringify(['林公子', '公子']),
+    JSON.stringify(keep?.aliases ?? []),
+  )
+  rec(
+    g,
+    '★ 只剩一条时「并入…」不再出现（点了没人可并的入口不摆）',
+    (await page.locator(`[data-storyboard-asset-merge="${keepId}"]`).count()) === 0,
+  )
+
+  await page.screenshot({ path: `${OUT}/150-g150-merge.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
