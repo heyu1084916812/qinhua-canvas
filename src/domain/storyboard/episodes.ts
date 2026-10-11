@@ -1,5 +1,5 @@
 import { createId } from '../../shared/id'
-import { extractJsonBlock } from './jsonBlock'
+import { extractJsonBlock } from '../shared/jsonBlock'
 import type { StoryboardDoc, StoryboardEpisode } from './storyboard'
 
 /**

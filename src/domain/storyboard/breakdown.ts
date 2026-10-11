@@ -1,9 +1,8 @@
 import { createId } from '../../shared/id'
-import type { Channel } from '../project/channel'
-import { toLogicalName } from '../project/modelCatalog'
+import { resolveChatTarget, type ChatTarget } from '../shared/chatTarget'
 import { extractAssets, resolveDraftBindings, type DraftAsset } from './assets'
 import { episodeSourceText } from './episodes'
-import { extractJsonBlock } from './jsonBlock'
+import { extractJsonBlock } from '../shared/jsonBlock'
 import {
   DEFAULT_SHOT_SECONDS,
   normalizeShotOrder,
@@ -134,7 +133,7 @@ export type BreakdownParse =
  * 容错挖 JSON 的实现搬到了 `jsonBlock.ts`（拆集 #417 也要用它，那边 import 这份）。
  * 这里**原样再导出**：既有调用方与单测的 import 路径零改动。
  */
-export { extractJsonBlock } from './jsonBlock'
+export { extractJsonBlock } from '../shared/jsonBlock'
 
 const asText = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
 
@@ -299,33 +298,8 @@ export function replaceEpisodeShots(
   return { ...doc, shots: normalizeShotOrder(merged), updatedAt: now }
 }
 
-export interface ChatTarget {
-  channelId: string
-  model: string
-  /** 界面上如实显示"会用谁拆" */
-  label: string
-}
-
 /**
- * 挑一条**真有对话模型**的已启用渠道（列表顺序 = 用户排的优先顺序）。
- *
- * 为什么不用 `defaultForNewNode({}, 'chat')`：那条解析链的最后一档会给一个
- * **预设名兜底**（渠道上一个模型都没勾也能返回「Agnes 2.5 Flash」）。对生成节点那是对的
- * （渠道真能跑，名字由上游兜），对拆镜不行 —— 用户点下去会拿着一个不存在的模型去请求，
- * 得到一句难懂的渠道错误。这里只认"用户勾过的对话模型"，找不到就**如实说没配**。
+ * **原路径保留**：拆镜这边一直从 `breakdown` 里 import 它。
+ * 实现与类型在 `domain/shared/chatTarget.ts`（对账 #422 起电商也要用，故上移）。
  */
-export function resolveChatTarget(channels: readonly Channel[]): ChatTarget | null {
-  for (const ch of channels) {
-    if (!ch.enabled) continue
-    const model = (ch.models ?? []).find((m) => m.category === 'chat')
-    if (!model) continue
-    /**
-     * 给用户看的是**前端显示名**（`mock-chat-1` → `GPT-6 Astra`），发给渠道的仍是
-     * 渠道行里存的那个 id —— 与画布下拉同一口径（对账 #371：裸 ID 不进界面）。
-     * 认不出来的 id 原样显示（`toLogicalName` 自己会回落），不硬编一张对照表。
-     */
-    const shown = toLogicalName(channels, model.id) || model.id
-    return { channelId: ch.id, model: model.id, label: `${ch.name} · ${shown}` }
-  }
-  return null
-}
+export { resolveChatTarget, type ChatTarget }

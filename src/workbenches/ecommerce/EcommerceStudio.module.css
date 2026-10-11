@@ -215,6 +215,81 @@
   color: var(--danger);
 }
 
+/* ── 「用一句话生成方案」那一块（对账 #422）── */
+
+.intentRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/*
+ * 待确认卡片：与「生成」那张二次确认卡同一套观感（描边 + 浮起），
+ * 但它是**常驻**在左栏里的（不遮内容）—— 用 bg-subtle 而不是 scrim。
+ */
+.intentCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  padding: var(--space-3);
+}
+
+.intentLead {
+  margin: 0;
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.intentList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* 「对象 → 表单字段」：左标签右值，值靠右对齐便于一列扫下来 */
+.intentItem {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--fs-label);
+}
+
+.intentLabel {
+  flex: 0 0 auto;
+  color: var(--text-3);
+}
+
+.intentValue {
+  min-width: 0;
+  color: var(--text-1);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.intentActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/*
+ * 卡片里的主按钮：沿 `.generate` 的配色与高度，**补上左右内距** ——
+ * `.generate` 那个按钮靠 flex 拉伸吃满整行，自身没有 padding；
+ * 挪进这一行（右对齐、不拉伸）就会贴字，所以这里把内距补回来。
+ */
+.intentApply {
+  padding: var(--space-2) var(--space-4);
+}
+
 .generate {
   height: 36px;
   border: none;

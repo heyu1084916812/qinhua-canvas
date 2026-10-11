@@ -6,6 +6,7 @@ import { imageInputsOf } from '../../domain/shared/execution/inputs'
 import { imageSizeFromHeader } from '../../domain/shared/imageSize'
 import { BREAKDOWN_MARKER } from '../../domain/storyboard/breakdown'
 import { SPLIT_MARKER } from '../../domain/storyboard/episodes'
+import { ECOMMERCE_INTENT_MARKER } from '../../domain/ecommerce/chatParse'
 import { solidPng } from './mockPng'
 import type { SafeChannelConfig } from '../ports'
 import {
@@ -359,6 +360,63 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
               hookOpen: `第 ${i + 1} 集开场钩子`,
               hookEnd: `第 ${i + 1} 集结尾钩子`,
             })),
+          }),
+        }
+      }
+      /**
+       * **电商一句话 → 参数**（对账 #422）：系统指令带「【电商需求解析】输出契约」时，
+       * 从**用户那句话**里挑出能对上的项，回一份 JSON。
+       *
+       * 为什么必须只读**用户那一条消息**：系统指令里为了写清边界，把
+       * 「主图 / 白底图 / 详情页 / 套图」和「1:1 / 3:4 / …」都列了一遍 ——
+       * 对着整个 `asked` 做正则，会把契约里的示例当成用户说的，于是
+       * **无论用户打什么字都回同一张卡**，那条断言就恒真、什么也证明不了。
+       *
+       * 两个钩子（都写在**用户正文**里）：
+       *  - 正常 → 只回**认出来的键**（认不出的键不写，正是线上该有的样子）；
+       *  - 带「坏解析」→ 回一段不是 JSON 的话，验"解析失败时表单一点不变"。
+       *
+       * 特意**不带** `note`：让"模型没给 note 时用用户原话兜底"这条路在冒烟里也真的走一遍。
+       */
+      if (asked.includes(ECOMMERCE_INTENT_MARKER)) {
+        if (asked.includes('坏解析')) {
+          return { text: '好的，我按你说的做（这一段故意不是 JSON）。' }
+        }
+        const userMsg =
+          [...(request.messages ?? [])].reverse().find((m) => m.role === 'user')?.content ?? ''
+        const usage = [
+          ['套图', /套图/],
+          ['详情页', /详情页|详情图/],
+          ['白底图', /白底/],
+          ['主图', /主图/],
+        ].find(([, re]) => (re as RegExp).test(userMsg))?.[0]
+        const platformId = [
+          ['amazon', /亚马逊|amazon/i],
+          ['temu', /拼多多|temu/i],
+          ['shopee', /虾皮|shopee/i],
+          ['1688', /1688/],
+          ['taobao', /淘宝|taobao/i],
+          ['jd', /京东|jingdong|\bjd\b/i],
+        ].find(([, re]) => (re as RegExp).test(userMsg))?.[0]
+        const language = [
+          ['en', /英文|英语|english/i],
+          ['zh-CN', /中文|简体/],
+          ['ru', /俄文|俄语/],
+          ['ja', /日文|日语/],
+          ['ko', /韩文|韩语/],
+          ['de', /德文|德语/],
+          ['es', /西语|西班牙/],
+          ['ar', /阿拉伯/],
+        ].find(([, re]) => (re as RegExp).test(userMsg))?.[0]
+        const count = Number((userMsg.match(/(\d+)\s*张/) ?? [])[1])
+        const ratio = (userMsg.match(/(\d+)\s*[:：]\s*(\d+)/) ?? []).slice(1, 3).join(':')
+        return {
+          text: JSON.stringify({
+            ...(usage ? { usage } : {}),
+            ...(platformId ? { platformId } : {}),
+            ...(language ? { language } : {}),
+            ...(Number.isFinite(count) && count > 0 ? { count } : {}),
+            ...(ratio ? { ratio } : {}),
           }),
         }
       }

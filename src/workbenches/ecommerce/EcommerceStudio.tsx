@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ECOMMERCE_DEFAULT_COUNT } from '../../domain/ecommerce/plan'
 import { ECOMMERCE_PLATFORMS, type EcommercePlatform } from '../../domain/ecommerce/platforms'
+import { intentRows, type EcommerceIntentDraft } from '../../domain/ecommerce/chatParse'
 import {
   ECOMMERCE_COUNT_MAX,
   ECOMMERCE_LANGUAGES,
@@ -23,7 +24,12 @@ import styles from './EcommerceStudio.module.css'
  * （页面才是装配层，它可以同时认识画布与电商两侧）。直接好处是这个文件
  * 可以在没有画布 store 的情况下被单测 / 陈列室渲染。
  *
- * A 版**明确不做**：agent 对话、风格推荐、长图编辑器（那些属于 #380 专业版）。
+ * A 版**明确不做**：风格推荐、长图编辑器。
+ *
+ * **对账 #422 起多了一块**：左栏顶部「一句话 → 待确认方案」——
+ * 那是 #380b 专业版里 agent 对话的**第一片**。口径是「先给你看它听懂了什么，
+ * 确认了才填表」：解析结果只是**草稿**，表单始终是唯一真相。
+ * 调模型的事不在这里（这个组件不认识渠道）——页面注入 `onParseIntent`，不传就不渲染。
  */
 
 export interface EcommerceUpload {
@@ -95,6 +101,23 @@ export interface EcommerceStudioProps {
   onOpenLongImage?: () => void
   /** 长图面板本身（页面注入的 ReactNode）；为空就不渲染 */
   longImage?: ReactNode
+  /**
+   * 「用一句话生成方案」（对账 #422）：页面注入 —— 只有页面拿得到渠道。
+   * 不传就不渲染这一块（与长图面板同一条口径）。
+   */
+  onParseIntent?: (text: string) => Promise<void>
+  /** 解析中：按钮禁用、文案如实变 */
+  parsingIntent?: boolean
+  /** 解析出来的**待确认**草稿；null / 不传 = 还没有 */
+  intent?: EcommerceIntentDraft | null
+  /** 会用哪条渠道解析（如实显示"会用谁"）；空 = 没配，按钮禁用并说明原因 */
+  intentTargetLabel?: string
+  /** 解析失败 / 没配对话模型时的如实说法 */
+  intentError?: string
+  /** 用户点了「应用到表单」——页面据此收起确认卡 */
+  onIntentApplied?: () => void
+  /** 用户点了「丢弃」 */
+  onIntentDiscard?: () => void
 }
 
 export function EcommerceStudio({
@@ -110,6 +133,13 @@ export function EcommerceStudio({
   onOpenCanvas,
   onOpenLongImage,
   longImage,
+  onParseIntent,
+  parsingIntent = false,
+  intent = null,
+  intentTargetLabel = '',
+  intentError = '',
+  onIntentApplied,
+  onIntentDiscard,
 }: EcommerceStudioProps) {
   const [usage, setUsage] = useState<EcommerceUsage>('main')
   const [platformId, setPlatformId] = useState<string>('amazon')
@@ -122,6 +152,8 @@ export function EcommerceStudio({
   /** 二次确认：点生成先算出"预计 N 张"，确认后才真的发请求（#384 的 D6） */
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState('')
+  /** 「一句话生成方案」的输入框（#422）：纯 UI 态，不进表单、不落库 */
+  const [intentText, setIntentText] = useState('')
 
   /** 换用途时把张数带到该用途的默认值（用户仍可改）——"带示例"的一半 */
   useEffect(() => {
@@ -177,6 +209,23 @@ export function EcommerceStudio({
     }
   }
 
+  /**
+   * 把**待确认**草稿真的填进表单（#422）。
+   *
+   * 只覆盖草稿里**真有**的那几项 —— 没认出来的键在草稿里根本不存在，
+   * 于是表单里原有（或被用户手改过）的值一个不动。这就是"不猜"在界面上的落点。
+   */
+  const applyIntent = () => {
+    if (!intent) return
+    if (intent.usage) setUsage(intent.usage)
+    if (intent.platformId) setPlatformId(intent.platformId)
+    if (intent.language) setLanguage(intent.language)
+    if (intent.count !== undefined) setCount(intent.count)
+    if (intent.ratio) setRatio(intent.ratio)
+    if (intent.note) setNote(intent.note)
+    onIntentApplied?.()
+  }
+
   return (
     <div className={styles.wrap} data-ecommerce-studio>
       {/* 左：参数（用户 2026-10-09：左边传图 + 选参数，右边出图） */}
@@ -185,6 +234,78 @@ export function EcommerceStudio({
           <h1 className={styles.title}>电商出图</h1>
           <p className={styles.sub}>{projectName}</p>
         </header>
+
+        {/*
+          一句话 → 待确认方案（对账 #422，用户 2026-10-11：「先说清楚它听懂了什么，
+          确认了再填表」）。三件事刻意分开：
+            ① 输入与"会用谁解析"如实写出来（没配对话模型时按钮是灰的 + 说明原因）；
+            ② 解析结果只进**这张卡片**，表单一点没动；
+            ③ 点「应用到表单」才真的覆盖 —— 且只覆盖草稿里真有的那几项。
+        */}
+        {onParseIntent ? (
+          <section className={styles.block} data-ecommerce-intent>
+            <span className={styles.blockTitle}>用一句话生成方案</span>
+            <textarea
+              className={styles.textarea}
+              value={intentText}
+              placeholder="例：给我做一套亚马逊英文详情页，4 张，3:4，突出防水材质"
+              data-ecommerce-intent-input
+              onChange={(e) => setIntentText(e.target.value)}
+            />
+            <div className={styles.intentRow}>
+              <button
+                type="button"
+                className={styles.linkBtn}
+                data-ecommerce-intent-parse
+                disabled={parsingIntent || !intentTargetLabel || intentText.trim().length === 0}
+                onClick={() => void onParseIntent(intentText)}
+              >
+                {parsingIntent ? '解析中…' : '解析成方案'}
+              </button>
+              <span className={styles.hint} data-ecommerce-intent-note>
+                {intentTargetLabel
+                  ? `会用 ${intentTargetLabel} 解析`
+                  : '还没有可用的对话模型：先去「设置 → 渠道配置」给一条渠道勾上对话模型'}
+              </span>
+            </div>
+            {intentError ? (
+              <p className={styles.error} role="alert" data-ecommerce-intent-error>
+                {intentError}
+              </p>
+            ) : null}
+            {intent ? (
+              <div className={styles.intentCard} data-ecommerce-intent-card>
+                <p className={styles.intentLead}>听懂了这些，确认后才会填进表单：</p>
+                <ul className={styles.intentList}>
+                  {intentRows(intent, platforms).map((row) => (
+                    <li key={row.label} className={styles.intentItem} data-ecommerce-intent-row>
+                      <span className={styles.intentLabel}>{row.label}</span>
+                      <span className={styles.intentValue}>{row.value}</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className={styles.intentActions}>
+                  <button
+                    type="button"
+                    className={styles.linkBtn}
+                    data-ecommerce-intent-discard
+                    onClick={() => onIntentDiscard?.()}
+                  >
+                    丢弃
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.generate} ${styles.intentApply}`}
+                    data-ecommerce-intent-apply
+                    onClick={applyIntent}
+                  >
+                    应用到表单
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
         <section className={styles.block}>
           <label className={styles.blockTitle} htmlFor="ecommerce-product">

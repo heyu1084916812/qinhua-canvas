@@ -25824,7 +25824,255 @@ async function g134(browser) {
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
 }
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134]
+// ────────────────────────────────────────────────────────────
+// G135 电商「一句话生成方案」（对账 #422，#380b 的第一块对话入口）：
+//   ① 没配对话模型 ⇒ 按钮**灰的** + 如实说清为什么（不装成能点）
+//   ② 配好之后 ⇒ 一句话解析出六项，逐条摆在**待确认卡**上
+//   ③ 点「应用到表单」**之前**，表单一个字段都不许变（草稿 ≠ 表单）
+//   ④ 应用之后五项真的到位，卡片自己收起
+//   ⑤ 模型没按契约回 ⇒ 如实报错，表单仍是原来那份
+//   ⑥ 白名单：模型给出表单里没有的档位（2:3）⇒ 那一项直接不要（不是塞进去让下拉变空）
+//   ⑦ 整条对话链路不建节点、不落运行记录
+// ────────────────────────────────────────────────────────────
+async function g135(browser) {
+  const g = 'G135 电商一句话生成方案'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  /** 表单六项的快照 —— 判据一律用"值变没变"，不看界面长什么样 */
+  const form = () =>
+    page.evaluate(() => ({
+      usage:
+        document
+          .querySelector('[data-ecommerce-usage][aria-checked="true"]')
+          ?.getAttribute('data-ecommerce-usage') ?? '',
+      platform: document.querySelector('[data-ecommerce-platform]')?.value ?? '',
+      language: document.querySelector('[data-ecommerce-language]')?.value ?? '',
+      count: document.querySelector('[data-ecommerce-count]')?.value ?? '',
+      ratio: document.querySelector('[data-ecommerce-ratio]')?.value ?? '',
+      note: document.querySelector('[data-ecommerce-note]')?.value ?? '',
+    }))
+
+  /** 库里某张表的行数（判"有没有偷偷落库"用） */
+  const dbCount = (table) =>
+    page.evaluate(async (t) => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const rows = await new Promise((resolve) => {
+        const r = db.transaction(t, 'readonly').objectStore(t).getAll()
+        r.onsuccess = () => resolve(r.result ?? [])
+        r.onerror = () => resolve([])
+      })
+      return rows.length
+    }, table)
+
+  /** 待确认卡上的行：[[标签, 值], …]（顺序就是渲染顺序） */
+  const cardRows = () =>
+    page.locator('[data-ecommerce-intent-row]').evaluateAll((els) =>
+      els.map((e) => {
+        const spans = e.querySelectorAll('span')
+        return [spans[0]?.textContent?.trim() ?? '', spans[1]?.textContent?.trim() ?? '']
+      }),
+    )
+
+  /** 填一句话 → 点解析 → 等"有卡片"或"有报错"（两样都不来就是红） */
+  const parse = async (text) => {
+    await page.locator('[data-ecommerce-intent-input]').fill(text)
+    await page.locator('[data-ecommerce-intent-parse]').click()
+    await page
+      .waitForFunction(
+        () =>
+          document.querySelector('[data-ecommerce-intent-card]') ||
+          document.querySelector('[data-ecommerce-intent-error]'),
+        null,
+        { timeout: 15000 },
+      )
+      .catch(() => {})
+  }
+
+  // ① 先建一个电商项目（这一步**还没配渠道**）
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
+  await sleep(600)
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  await sleep(900)
+  const projectUrl = page.url()
+
+  rec(
+    g,
+    '★ 左栏有「用一句话生成方案」：输入框与解析按钮都在',
+    (await page.locator('[data-ecommerce-intent]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-intent-input]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-intent-parse]').count()) === 1,
+  )
+
+  /**
+   * ② 没配对话模型 ⇒ 按钮是灰的 + 如实说清原因。
+   *
+   * 先测这条是因为：内置那三条渠道默认「未选模型」，这条路上**根本没有**
+   * 能调的对话模型。按钮若照样能点，用户点下去只会拿到一句渠道错误 ——
+   * 那是"装成能用"，比直接禁用糟。
+   */
+  /*
+   * ⚠️ 先填一句话再量禁用态：输入框空着时按钮本来也是灰的（没东西可解析）。
+   * 不填就量，这条会因为**另一条理由**而绿 —— 那就不是在量"缺模型"这件事了。
+   */
+  await page.locator('[data-ecommerce-intent-input]').fill('给我做一套详情页')
+  const noteCold = (await page.locator('[data-ecommerce-intent-note]').innerText()).trim()
+  rec(
+    g,
+    '★★ 没配对话模型时：即使写了话，按钮仍是灰的，并如实说清原因（不装成能点）',
+    (await page.locator('[data-ecommerce-intent-parse]').isDisabled()) &&
+      /还没有可用的对话模型/.test(noteCold),
+    noteCold,
+  )
+
+  // ③ 配一条带对话模型的 mock 渠道，再回到这个项目
+  await configureMockChannel(page)
+  await page.goto(projectUrl, { waitUntil: 'networkidle' })
+  await sleep(900)
+  /* 同样先填上字：这条量的是"模型这一档不再挡路"，不是"输入框有没有内容" */
+  await page.locator('[data-ecommerce-intent-input]').fill('给我做一套详情页')
+  const noteWarm = (await page.locator('[data-ecommerce-intent-note]').innerText()).trim()
+  const canParse = !(await page.locator('[data-ecommerce-intent-parse]').isDisabled())
+  rec(
+    g,
+    '★★ 配好之后按钮不再被模型挡住，且写明"会用谁"解析',
+    canParse && /会用 .+ 解析/.test(noteWarm),
+    `${noteWarm} · 可点=${canParse}`,
+  )
+
+  const before = await form()
+  const nodesBefore = await dbCount('nodes')
+  const runsBefore = await dbCount('runRecords')
+
+  // ④ 一句话 → 待确认卡片：逐条"对象 → 表单字段"
+  const sentence = '给我做一套亚马逊英文详情页，4 张，3:4，突出防水材质'
+  await parse(sentence)
+  const card = await cardRows()
+  rec(
+    g,
+    '★★★ 一句话解析出六项，逐条摆在待确认卡上',
+    (await page.locator('[data-ecommerce-intent-card]').count()) === 1 &&
+      JSON.stringify(card) ===
+        JSON.stringify([
+          ['用途', '详情页'],
+          ['平台', 'Amazon'],
+          ['文案语言', 'English'],
+          ['张数', '4 张'],
+          ['比例', '3:4'],
+          ['补充要求', sentence],
+        ]),
+    card.map((r) => r.join('=')).join(' / '),
+  )
+
+  /**
+   * ⑤ **确认之前表单一个字段都不许变**（这组最重要的一条）。
+   *
+   * 少了它，"对话直接把值写进表单"会照样绿 —— 而那正是用户不要的行为
+   * （他要的是"先说清楚听懂了什么，确认了再填"）。
+   */
+  const mid = await form()
+  rec(
+    g,
+    '★★★ 还没点「应用到表单」，表单六项一个都没变（草稿 ≠ 表单）',
+    JSON.stringify(mid) === JSON.stringify(before),
+    `${JSON.stringify(before)} → ${JSON.stringify(mid)}`,
+  )
+
+  // ⑥ 应用之后：五项真的到位，卡片自己收起
+  await page.locator('[data-ecommerce-intent-apply]').click()
+  await sleep(400)
+  const after = await form()
+  rec(
+    g,
+    '★★★ 点「应用到表单」后用途 / 平台 / 语言 / 张数 / 比例 / 补充要求都到位',
+    after.usage === 'detail' &&
+      after.platform === 'amazon' &&
+      after.language === 'en' &&
+      after.count === '4' &&
+      after.ratio === '3:4' &&
+      after.note === sentence,
+    JSON.stringify(after),
+  )
+  rec(
+    g,
+    '★ 应用之后确认卡自己收起（不留一张已经生效的卡在那儿）',
+    (await page.locator('[data-ecommerce-intent-card]').count()) === 0,
+  )
+
+  /**
+   * ⑦ 解析不出来：如实报错，且表单仍是上一步那份（不被清掉、也不被乱填）。
+   * mock 见到用户正文里的「坏解析」就回一段非 JSON 的话。
+   */
+  await parse('坏解析：给我做一套套图')
+  const errText = (await page
+    .locator('[data-ecommerce-intent-error]')
+    .innerText()
+    .catch(() => '')
+  ).trim()
+  const afterBad = await form()
+  rec(
+    g,
+    '★★★ 模型没按契约回时：如实说"没解析出参数"，表单**一点没变**',
+    (await page.locator('[data-ecommerce-intent-card]').count()) === 0 &&
+      /没解析出参数/.test(errText) &&
+      JSON.stringify(afterBad) === JSON.stringify(after),
+    `${errText.replace(/\n/g, ' ').slice(0, 60)} · 表单=${JSON.stringify(afterBad)}`,
+  )
+
+  /**
+   * ⑧ 白名单在界面上的可见证据：模型给出表单里没有的档位（2:3）⇒ **那一项直接不要**。
+   *
+   * 两种错误做法都排在门外：塞进表单会让比例下拉变成空白，
+   * "挑一个最接近的档"则是替用户改了参数。认出来的「张数 6」照常出现。
+   */
+  await parse('给我做白底图，6 张，2:3')
+  const partial = await cardRows()
+  const labels = partial.map((r) => r[0])
+  rec(
+    g,
+    '★★★ 认不出的档位（2:3）根本不进卡片 —— 白名单挡在解析层，不靠界面兜',
+    labels.includes('张数') &&
+      !labels.includes('比例') &&
+      (await page.locator('[data-ecommerce-intent-error]').count()) === 0,
+    partial.map((r) => r.join('=')).join(' / '),
+  )
+
+  // ⑨ 丢弃：卡片收起，表单保持原样
+  await page.locator('[data-ecommerce-intent-discard]').click()
+  await sleep(300)
+  rec(
+    g,
+    '★ 点「丢弃」后卡片收起、表单仍是原来那份',
+    (await page.locator('[data-ecommerce-intent-card]').count()) === 0 &&
+      JSON.stringify(await form()) === JSON.stringify(after),
+  )
+
+  /**
+   * ⑩ 整条对话链路**不建节点、不落运行记录**（全程没上传产品图、也没点生成）。
+   * 判据读库，不看界面。
+   */
+  const nodesAfter = await dbCount('nodes')
+  const runsAfter = await dbCount('runRecords')
+  rec(
+    g,
+    '★★ 解析全过程不建节点、不落运行记录（对话只产草稿）',
+    nodesAfter === nodesBefore && runsAfter === runsBefore,
+    `节点 ${nodesBefore} → ${nodesAfter} · 运行记录 ${runsBefore} → ${runsAfter}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/135-g135-ecommerce-intent.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

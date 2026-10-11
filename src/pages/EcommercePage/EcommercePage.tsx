@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
@@ -15,11 +15,18 @@ import { createProjectRepository } from '../../state/project/repository'
 import { createAssetNode, importAssetFile } from '../../features/canvas/importAsset'
 import { applyDefaults, resolveDefaults } from '../../features/canvas/createNodeWithDefaults'
 import { buildEcommercePlan } from '../../domain/ecommerce/plan'
+import {
+  buildIntentSystem,
+  buildIntentText,
+  parseEcommerceIntent,
+  type EcommerceIntentDraft,
+} from '../../domain/ecommerce/chatParse'
+import { resolveChatTarget } from '../../domain/shared/chatTarget'
 import { panelModelOptions } from '../../domain/project/modelCatalog'
 import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
 import { projectRoute } from '../../domain/shared/workbench'
 import { downloadAsset } from '../../features/canvas/downloadAsset'
-import { describeError } from '../../shared/result'
+import { asAppError, describeError } from '../../shared/result'
 import { createPackStore } from '../../state/project/packStore'
 import {
   ECOMMERCE_PLATFORMS,
@@ -176,6 +183,16 @@ function StudioHost({ projectId }: { projectId: string }) {
   const [model, setModel] = useState('')
   /** 长图面板开不开（对账 #420）：纯 UI 态，不落库 */
   const [longOpen, setLongOpen] = useState(false)
+  /**
+   * 「一句话 → 待确认方案」（对账 #422）。
+   *
+   * 三份状态刻意分开：`intent` 是**草稿**（还没进表单）、`intentError` 是**如实说**
+   * （解析失败 / 超时 / 没配模型），`parsingIntent` 只管按钮。
+   * 草稿**不落库** —— 它是"这句话可以变成什么"，不是用户已经定下来的东西。
+   */
+  const [intent, setIntent] = useState<EcommerceIntentDraft | null>(null)
+  const [intentError, setIntentError] = useState('')
+  const [parsingIntent, setParsingIntent] = useState(false)
   const models = useMemo(() => panelModelOptions('image'), [])
   /**
    * 平台清单 = 内置 + **扩展包带进来的规则**（对账 #386 的 E3）。
@@ -221,6 +238,67 @@ function StudioHost({ projectId }: { projectId: string }) {
       cancelled = true
     }
   }, [platform, projectId])
+
+  /**
+   * 对话渠道：**只认用户真勾过对话模型的启用渠道**，找不到就如实说没配
+   * （`resolveChatTarget`，与漫剧拆镜同一条口径 —— 对账 #414 / #422）。
+   *
+   * 用 `useSyncExternalStore` 而不是读一次：用户去设置页改完渠道再切回来，
+   * 这一栏的按钮状态必须立刻跟上，否则会停在"没有可用的对话模型"上，看起来像坏了。
+   */
+  const channelList = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().channels,
+    () => channels.getState().channels,
+  )
+  const chatTarget = useMemo(() => resolveChatTarget(channelList), [channelList])
+
+  /**
+   * 一句话 → 待确认草稿（对账 #422）。
+   *
+   * 三条硬口径：
+   *  ① 模型回什么都要过 `parseEcommerceIntent`（白名单），解析不过**一个字都不改表单**；
+   *  ② 没配对话模型 / 超时 / 渠道报错，一律**如实说**，绝不静默填一份猜的值；
+   *  ③ 这里只产**草稿** —— 真填表由工作台里那句「应用到表单」触发。
+   */
+  const onParseIntent = async (text: string) => {
+    if (!chatTarget) {
+      setIntent(null)
+      setIntentError('没有可用的对话模型 —— 先去「设置 → 渠道配置」给一条渠道勾上对话模型')
+      return
+    }
+    setParsingIntent(true)
+    setIntentError('')
+    setIntent(null)
+    /* 30 秒兜底：解析是"一句话"的小请求，卡住不该让按钮一直转 */
+    const ac = new AbortController()
+    const timer = setTimeout(() => ac.abort(), 30_000)
+    try {
+      const result = await channels.completeWithTools({
+        channelId: chatTarget.channelId,
+        model: chatTarget.model,
+        tools: [],
+        messages: [
+          { role: 'system', content: buildIntentSystem() },
+          { role: 'user', content: buildIntentText(text, platforms) },
+        ],
+        signal: ac.signal,
+      })
+      const parsed = parseEcommerceIntent(result.text, { platforms, fallbackNote: text })
+      if (parsed.ok) setIntent(parsed.draft)
+      else setIntentError(parsed.error)
+    } catch (e) {
+      if (ac.signal.aborted) {
+        setIntentError('解析超时（30 秒没回）。稍后再试，或直接填表单。')
+      } else {
+        const err = asAppError(e)
+        setIntentError(err ? describeError(err) : '解析失败：这次没能拿到结果，稍后再试。')
+      }
+    } finally {
+      clearTimeout(timer)
+      setParsingIntent(false)
+    }
+  }
 
   const onUpload = async (file: File, _kind: 'product' | 'reference'): Promise<EcommerceUpload | null> => {
     const deps = { platform, store, projectId }
@@ -396,6 +474,16 @@ function StudioHost({ projectId }: { projectId: string }) {
       running={exec.isRunning}
       results={results}
       onOpenCanvas={() => navigate(projectRoute('canvas', projectId))}
+      onParseIntent={onParseIntent}
+      parsingIntent={parsingIntent}
+      intent={intent}
+      intentTargetLabel={chatTarget?.label ?? ''}
+      intentError={intentError}
+      onIntentApplied={() => setIntent(null)}
+      onIntentDiscard={() => {
+        setIntent(null)
+        setIntentError('')
+      }}
       onOpenLongImage={() => setLongOpen(true)}
       longImage={
         longOpen ? <LongImagePanel tiles={longTiles} onClose={() => setLongOpen(false)} /> : null
