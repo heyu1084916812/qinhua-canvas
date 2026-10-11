@@ -39,4 +39,22 @@ describe('工作台骨架', () => {
     expect(isWorkbenchId('comic')).toBe(false)
     expect(isWorkbenchId('')).toBe(false)
   })
+
+  describe('projectRoute 的 focus（对账 #424：跳到画布并定位某个节点）', () => {
+    it('不传 focus 时路径一个字不变（老调用方零影响）', () => {
+      expect(projectRoute('canvas', 'p1')).toBe('/canvas/p1')
+      expect(projectRoute('canvas', 'p1', {})).toBe('/canvas/p1')
+    })
+
+    it('★ 传了 focus 就挂成查询串（不是路由段 —— 它是视图意图，不是资源身份）', () => {
+      expect(projectRoute('canvas', 'p1', { focus: 'n1' })).toBe('/canvas/p1?focus=n1')
+    })
+
+    it('★★ focus 要转义：nodeId 里出现 & 或 = 时不能把查询串撑坏', () => {
+      const url = projectRoute('canvas', 'p1', { focus: 'a&b=c' })
+      expect(url).toBe('/canvas/p1?focus=a%26b%3Dc')
+      /* 解析回来必须还是原来那个 id —— 转义写错的话这里就露馅 */
+      expect(new URLSearchParams(url.split('?')[1]).get('focus')).toBe('a&b=c')
+    })
+  })
 })

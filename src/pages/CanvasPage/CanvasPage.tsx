@@ -11,7 +11,7 @@ import { createStore } from '../../state/createStore'
 import { canvasStoreFor } from '../../state/workbenches/canvas/storeCache'
 import { CanvasStoreProvider } from '../../workbenches/canvas/storeContext'
 import { FlowSurface } from '../../workbenches/canvas/flow/FlowSurface'
-import { fitCanvasView } from '../../workbenches/canvas/surface/fitView'
+import { fitCanvasView, focusCanvasNode } from '../../workbenches/canvas/surface/fitView'
 import { CanvasExecutionProvider } from '../../workbenches/canvas/execution/CanvasExecutionProvider'
 import { LogPanel } from '../../workbenches/canvas/panels/LogPanel'
 import { AgentPanel } from '../../workbenches/canvas/panels/AgentPanel/AgentPanel'
@@ -64,6 +64,16 @@ function CanvasProject({ projectId }: { projectId: string }) {
   const [externalEdit, setExternalEdit] = useState(false)
   const [logOpen, setLogOpen] = useState(false)
   const [agentOpen, setAgentOpen] = useState(false)
+  /**
+   * 水合完成的计数（只用来**触发重跑**，值本身没意义）。
+   *
+   * 聚焦那支 effect 要在"节点已经在 store 里"之后才做得了事，而水合是异步的、
+   * 完成时并不会让 React 重渲染 —— 没有这个计数，冷启动带 `?focus=` 进来时
+   * 那支 effect 会在节点还没读回来时跑一次，然后**再也不会跑**。
+   */
+  const [hydratedAt, setHydratedAt] = useState(0)
+  /** 要聚焦的节点（对账 #424）：`?focus=<nodeId>`，没有就是普通打开 */
+  const focusId = new URLSearchParams(location.search).get('focus')
   /*
    * 原来的「顶栏标签集合」（`openTabs`）随顶栏一并移除（产品文档 §6.2）：
    * 「已打开项目」这个能力整体迁到应用壳侧栏的「最近项目」列表，
@@ -119,6 +129,8 @@ function CanvasProject({ projectId }: { projectId: string }) {
         nodes: n as unknown as NodeSnapshot[],
         edges: e as unknown as Edge[],
       })
+      /* 让"聚焦"那支 effect 重跑一次（水合完成不会自己触发渲染） */
+      setHydratedAt((k) => k + 1)
       // 模板预置仅在「新建的空项目」首次挂载时执行一次（hydrate 之后，避免被空库覆盖）。
       //
       // 两重守卫，缺一不可：
@@ -132,13 +144,31 @@ function CanvasProject({ projectId }: { projectId: string }) {
         seedTemplate(store, template)
         // 模板节点落在世界原点，而顶栏 / 左工具栏是**悬浮**浮层——不适配视图的话
         // 第一排节点会连同它浮在节点外的标题一起被浮层压住。等一帧（画布挂载 + 节点落位）再适配。
-        requestAnimationFrame(() => requestAnimationFrame(() => fitCanvasView(store)))
+        // 带 `?focus=` 时不适配"全部"：两件事会互相盖掉，而聚焦是用户明确要的那件。
+        if (!focusId) requestAnimationFrame(() => requestAnimationFrame(() => fitCanvasView(store)))
       }
     })()
     return () => {
       cancelled = true
     }
   }, [platform, projectId, store, template, cached])
+
+  /**
+   * 聚焦到某个节点（对账 #424）：电商某张结果 / 漫剧某一镜点「在画布里改这一张」跳过来时
+   * 带的就是 `?focus=<nodeId>`。
+   *
+   * ⚠️ **不能塞进水合那支 effect 里**：它开头有一句"已经 hydrate 过就直接 return"，
+   * 而从别的工作台**回到**画布时缓存多半已经是 hydrated（同一个 store 实例，见 #411）——
+   * 那样正好走不到聚焦那一段（把它写在水合分支里就会漏）。所以单独一支：
+   * 水合还没完成时先什么都不做，`hydratedAt` 一变就再跑。
+   *
+   * 命中就**选中**它（选中即打开创作面板）：用户跳过来要的就是"落地就能改这一张"，
+   * 而不是在图里再自己找一遍。找不到（节点已删 / id 写错）时**什么都不做** —— 不甩视口。
+   */
+  useEffect(() => {
+    if (!focusId || projectId === 'demo' || !cached.hydrated) return
+    if (focusCanvasNode(store, focusId)) store.setSelection([focusId])
+  }, [focusId, projectId, store, cached, hydratedAt])
 
   useEffect(() => () => store.dispose(), [store])
 

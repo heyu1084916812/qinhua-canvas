@@ -37,7 +37,22 @@ export function isWorkbenchId(value: string): value is WorkbenchId {
   return Object.prototype.hasOwnProperty.call(WORKBENCHES, value)
 }
 
-/** 项目落在哪个工作台决定卡片的目标路由（架构 §5.10） */
-export function projectRoute(workbench: WorkbenchId, projectId: string): string {
-  return `${WORKBENCHES[workbench].routePrefix}/${projectId}`
+/**
+ * 项目落在哪个工作台决定卡片的目标路由（架构 §5.10）。
+ *
+ * ## `focus`：跳到画布时把**哪个节点**也带上（对账 #424）
+ *
+ * 别的工作台（电商某一张结果 / 漫剧某一镜）点「在画布里改这一张」时用。
+ * 为什么放**查询串**而不是路由段：它是**一次性的视图意图**，不是资源的身份 ——
+ * 路由段会让人以为"这个节点"是地址的一部分（于是删了节点地址就失效）；
+ * 而 `location.state` 又太隐蔽（刷新后还在，见 CanvasPage 里模板那条注释）。
+ * 查询串正好：看得见、可分享、丢掉也不影响打开项目。
+ */
+export function projectRoute(
+  workbench: WorkbenchId,
+  projectId: string,
+  options: { focus?: string } = {},
+): string {
+  const base = `${WORKBENCHES[workbench].routePrefix}/${projectId}`
+  return options.focus ? `${base}?focus=${encodeURIComponent(options.focus)}` : base
 }

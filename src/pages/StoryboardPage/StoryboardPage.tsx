@@ -1238,6 +1238,15 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                         onMove={(id, delta) => apply(moveShot(doc, id, delta, 0))}
                         onRemove={removeOneShot}
                         onRun={() => runShot(shot)}
+                        /* 只有这一镜的节点**现在还在画布上**才给入口（节点被删了就没什么可定位的） */
+                        onLocate={
+                          shot.nodeId && liveNodeIds.has(shot.nodeId)
+                            ? () =>
+                                navigate(
+                                  projectRoute('canvas', projectId, { focus: shot.nodeId! }),
+                                )
+                            : undefined
+                        }
                         onBindScene={(sceneId) => apply(bindShotScene(doc, shot.id, sceneId, 0))}
                         onToggleCharacter={(characterId) =>
                           apply(toggleShotCharacter(doc, shot.id, characterId, 0))
@@ -1270,6 +1279,7 @@ function ShotCard({
   onRun,
   onBindScene,
   onToggleCharacter,
+  onLocate,
 }: {
   shot: StoryboardShot
   index: number
@@ -1286,6 +1296,8 @@ function ShotCard({
   onRun: () => void
   onBindScene: (sceneId: string | null) => void
   onToggleCharacter: (characterId: string) => void
+  /** 「在画布里定位这一镜」（对账 #424）：跳过去选中并居中这一镜的节点；没有节点就不传 */
+  onLocate?: () => void
 }) {
   /**
    * 状态一格写完（界面 / 冒烟都读这一个属性）：
@@ -1377,6 +1389,20 @@ function ShotCard({
           >
             {shot.imageHash ? '重出这一镜' : '出图'}
           </button>
+          {/*
+            在画布里定位这一镜（对账 #424）：以前只有这一集级别的「在画布里打开」，
+            一集十几镜铺下去之后，要在画布上找到"刚才那一镜"只能靠肉眼扫。
+          */}
+          {onLocate ? (
+            <button
+              type="button"
+              className={styles.ghost}
+              data-storyboard-shot-locate={shot.id}
+              onClick={onLocate}
+            >
+              在画布里定位
+            </button>
+          ) : null}
         </div>
       </div>
       {state?.kind === 'failed' ? (

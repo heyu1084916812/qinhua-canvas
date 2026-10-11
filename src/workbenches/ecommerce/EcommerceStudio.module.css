@@ -408,7 +408,17 @@
 
 /* 单张操作（重跑 / 下载）：与错误文字同一行，跑着的那张按钮置灰 */
 .cellActions {
-  flex: 0 0 auto;
+  /*
+   * ⚠️ **必须允许被压窄**（对账 #424 实测）：原来写的是 `flex: 0 0 auto`，
+   * 一个**换行**的 flex 容器在 `flex-basis: auto` 下取的是 **max-content** 宽度
+   * （四个动作 ≈334px），而窄格子只有 236px —— `flex-shrink: 0` 让它**不肯缩**，
+   * 于是整排按钮从**左边**溢出格子、盖到左栏表单上：点「重跑这一张」会被
+   * "用途"标题挡住（冒烟报 intercepts pointer events，实测 rect x=389 而格子从 493 开始）。
+   *
+   * `flex-wrap: wrap` 一直在，但容器不缩就永远轮不到它生效 —— 换行的前提是先能变窄。
+   */
+  flex: 0 1 auto;
+  min-width: 0;
   display: flex;
   align-items: center;
   /* 三个动作（重跑 / 原地换掉 / 下载）在窄格里要能换行，不许挤出格子 */

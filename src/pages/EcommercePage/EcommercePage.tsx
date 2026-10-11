@@ -559,9 +559,15 @@ function StudioHost({ projectId }: { projectId: string }) {
           status === 'running' || status === 'pending'
             ? undefined
             : () => exec.runNode(id, { inPlace: true }),
+        /**
+         * 「在画布里改这一张」（对账 #424）：带上 `?focus=<nodeId>` 跳过去 ——
+         * 画布会**选中并居中**这一个节点。以前只有项目级的「在画布里打开」，
+         * 图一多就得自己在一堆节点里找。
+         */
+        onFocusInCanvas: () => navigate(projectRoute('canvas', projectId, { focus: id })),
       }
     })
-  }, [exec, graph.nodes, nodeIds, platform])
+  }, [exec, graph.nodes, nodeIds, platform, navigate, projectId])
 
   /**
    * 长图拼合的输入（对账 #420）：只取**已完成且有真实像素**的。

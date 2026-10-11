@@ -78,6 +78,11 @@ export interface EcommerceResultItem {
    * 运行记录照常 +1（换掉的是画面，不是历史）。
    */
   onReplace?: () => Promise<void> | void
+  /**
+   * 「在画布里改这一张」（对账 #424）：跳到画布并把**这个节点**选中 + 居中。
+   * 由页面注入（路由是页面的事）；不传就不渲染这个入口。
+   */
+  onFocusInCanvas?: () => void
 }
 
 export interface EcommerceStudioProps {
@@ -758,6 +763,21 @@ export function EcommerceStudio({
                         onClick={r.onDownload}
                       >
                         下载
+                      </button>
+                    ) : null}
+                    {/*
+                      在画布里改这一张（对账 #424）：跳过去之后画布**选中并居中**这个节点。
+                      以前只有结果区顶部那个「在画布里打开」—— 它只到项目级，
+                      图一多就得自己在一堆节点里找（这正是用户在漫剧那边也提过的同一件事）。
+                    */}
+                    {r.onFocusInCanvas ? (
+                      <button
+                        type="button"
+                        className={styles.linkBtn}
+                        data-ecommerce-focus-canvas
+                        onClick={r.onFocusInCanvas}
+                      >
+                        在画布里改这一张
                       </button>
                     ) : null}
                   </span>

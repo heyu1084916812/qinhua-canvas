@@ -22783,6 +22783,39 @@ async function g116(browser) {
       return rows.length
     })
   const runsBefore = await runCount()
+  /**
+   * **动作按钮不许溢出格子**（对账 #424 实测到的真缺陷）。
+   *
+   * 现象：加了第 4 个动作（「在画布里改这一张」）之后，`.cellActions` 因为
+   * `flex: 0 0 auto` 取 max-content 宽度（334px）而格子只有 236px，
+   * 整排按钮**从左边**溢出到左栏表单上 —— 点「重跑这一张」被"用途"标题挡住，
+   * Playwright 直接报 `intercepts pointer events`。
+   *
+   * 判据：每个动作按钮的框都必须落在**它所属那个格子**的框里（容 0.5px 取整误差）。
+   * 这条与"按钮在不在"无关，量的是位置 —— 布局类缺陷只有这样才拦得住。
+   */
+  const strayActions = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-ecommerce-result]')].flatMap((cell) => {
+      const c = cell.getBoundingClientRect()
+      return [...cell.querySelectorAll('button')]
+        .filter((b) => {
+          const r = b.getBoundingClientRect()
+          return (
+            r.left < c.left - 0.5 ||
+            r.right > c.right + 0.5 ||
+            r.top < c.top - 0.5 ||
+            r.bottom > c.bottom + 0.5
+          )
+        })
+        .map((b) => (b.textContent ?? '').trim())
+    }),
+  )
+  rec(
+    g,
+    '★★ 单张动作按钮都在**自己格子里**（不溢出到左栏 —— 溢出会让点击被别的元素挡掉）',
+    strayActions.length === 0,
+    strayActions.length ? `溢出的=${strayActions.join(',')}` : '无',
+  )
   rec(
     g,
     '★ 每张结果都有「重跑这一张」（单张重试，不必整批重来）',
@@ -26507,7 +26540,270 @@ async function g137(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137]
+// ────────────────────────────────────────────────────────────
+// G138 画布节点聚焦（对账 #424）：从别的工作台「改这一张」跳到画布上的**那一个**节点
+//   ① 电商结果卡上有「在画布里改这一张」，点了带上 `?focus=<nodeId>`
+//   ② 落地后那一个节点**被选中 + 居中**（量屏幕矩形，不看"按钮在不在"）
+//   ③ 找不到的节点（已删 / id 写错）⇒ 什么都不做，也不崩
+//   ④ 漫剧某一镜的节点在画布上时也有同一个入口，且指向**这一镜的节点**
+// ────────────────────────────────────────────────────────────
+async function g138(browser) {
+  const g = 'G138 画布节点聚焦'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  /**
+   * 画布上某个节点的屏幕矩形 + 画布可视区（判"居中没有"要靠它俩算，不靠感觉）。
+   * `selected` 读的是 `data-node-selected` —— 那才是选中态本身（class 是哈希）。
+   */
+  const nodeBox = (nodeId) =>
+    page.evaluate((id) => {
+      const el = document.querySelector(`[data-node-id="${id}"]`)
+      const surface = document.querySelector('[data-canvas-surface]')
+      if (!el || !surface) return null
+      const r = el.getBoundingClientRect()
+      const s = surface.getBoundingClientRect()
+      return {
+        cx: Math.round(r.x + r.width / 2),
+        cy: Math.round(r.y + r.height / 2),
+        scx: Math.round(s.x + s.width / 2),
+        scy: Math.round(s.y + s.height / 2),
+        inside:
+          r.x > s.x && r.y > s.y && r.right < s.right && r.bottom < s.bottom,
+        selected: el.hasAttribute('data-node-selected'),
+      }
+    }, nodeId)
+
+  /**
+   * ① 电商：出一批**多张**（详情页 3 张），结果卡上就有那条入口。
+   *
+   * ⚠️ 为什么非要"多张"：生成那一步会 `store.setSelection([最后一个新节点])`，
+   * 而画布与电商页**共用同一个 store 实例**（对账 #411）—— 也就是说跳过去时
+   * "最后一个节点是选中的"是**上一页带过来的**，与聚焦无关。
+   * 只出一张的话，"落地后被选中"这条断言会被这个残留满足（实测：把聚焦里的
+   * `setSelection` 摘掉，它照样绿）。改成 3 张、聚焦**第 1 张**，
+   * 选中就必须真的**从第 3 张换到第 1 张**。
+   */
+  await configureMockChannel(page)
+  await sleep(600)
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
+  await sleep(600)
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  await sleep(900)
+  const projectId = page.url().split('/').pop()
+  await page.locator('[data-ecommerce-usage="detail"]').click()
+  await sleep(300)
+  await page.locator('[data-ecommerce-count]').fill('3')
+  await sleep(200)
+  await page.locator('[data-ecommerce-product-input]').setInputFiles({
+    name: 'product.png',
+    mimeType: 'image/png',
+    buffer: solidPngBuffer(64, 64, [90, 160, 210]),
+  })
+  await sleep(1500)
+  await page.locator('[data-ecommerce-generate]').click()
+  await sleep(400)
+  await page.locator('[data-ecommerce-confirm-ok]').click()
+  const shot = await page
+    .waitForFunction(
+      () =>
+        document.querySelectorAll('[data-ecommerce-result][data-status="done"]').length === 3,
+      null,
+      { timeout: 30000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  const resultIds = await page
+    .locator('[data-ecommerce-result]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-ecommerce-result-id') ?? ''))
+  const nodeId = resultIds[0] ?? ''
+  const lastNodeId = resultIds[resultIds.length - 1] ?? ''
+  rec(
+    g,
+    '★ 电商结果卡上有「在画布里改这一张」',
+    shot &&
+      resultIds.length === 3 &&
+      (await page.locator('[data-ecommerce-focus-canvas]').count()) === 3,
+    `出图=${shot} 结果=${resultIds.length} 聚焦目标=${nodeId}`,
+  )
+
+  // ② 点它 → 画布带 `?focus=` 落地，那一个节点被选中 + 居中
+  await page.locator('[data-ecommerce-focus-canvas]').first().click()
+  await page.waitForURL(/\/canvas\//, { timeout: 15000 })
+  await page.waitForSelector(`[data-node-id="${nodeId}"]`, { timeout: 15000 }).catch(() => {})
+  await sleep(900)
+  const url2 = page.url()
+  const box2 = await nodeBox(nodeId)
+  rec(
+    g,
+    '★★★ 跳过去带的是 `?focus=<那个节点>`（不是只打开项目）',
+    url2.includes(`/canvas/${projectId}`) && url2.includes(`focus=${encodeURIComponent(nodeId)}`),
+    url2.replace(BASE, ''),
+  )
+  rec(
+    g,
+    '★★★ 落地后**居中**：节点中心与画布可视区中心之差 ≤ 3px',
+    !!box2 && Math.abs(box2.cx - box2.scx) <= 3 && Math.abs(box2.cy - box2.scy) <= 3,
+    box2 ? `节点中心=(${box2.cx},${box2.cy}) 可视区中心=(${box2.scx},${box2.scy})` : '找不到节点',
+  )
+  rec(
+    g,
+    '★★★ 落地后**选中它、且不再是原来那个**（选中从最后一张换到聚焦的那一张）',
+    !!box2 &&
+      box2.selected &&
+      (await page.locator('[data-creation-panel]').count()) === 1 &&
+      (await page.locator(`[data-node-id="${lastNodeId}"][data-node-selected]`).count()) === 0,
+    box2
+      ? `选中=${box2.selected} 面板=${await page.locator('[data-creation-panel]').count()} 旧选中还在=${await page.locator(`[data-node-id="${lastNodeId}"][data-node-selected]`).count()}`
+      : '找不到节点',
+  )
+  rec(
+    g,
+    '★ 聚焦后节点整块都在可视区里（没被顶部浮层压住 / 没跑出屏幕）',
+    !!box2 && box2.inside,
+    box2 ? `inside=${box2.inside}` : '找不到节点',
+  )
+
+  /**
+   * ③ 找不到的节点：**什么都不做**，也不崩。
+   *
+   * 为什么不许"甩到 (0,0)"或报错：这个 id 随时可能是被删掉的旧节点
+   * （漫剧那一镜的 `nodeId` 是缓存不是真相），用户看到的应当是一个正常打开的画布。
+   */
+  /**
+   * ⚠️ 判据要**同条件对照**，不能拿"聚焦之后那一刻"比。
+   *
+   * 第一次写的是"先在聚焦状态下量一次，再 goto 带假 focus 的地址量一次，两次位置必须相同" ——
+   * 它红了（665,400 → 604,195），但**红的理由不对**：`page.goto` 是整页重载，
+   * 视口本来就会回到"按项目存储的那一份"。那样量的是**视口持久化**，不是"空 focus 做没做事"。
+   * 正确的对照：**两次同样条件的加载**（一次不带 focus、一次带假 focus）表现必须一致。
+   */
+  await page.goto(`${BASE}/canvas/${projectId}`, { waitUntil: 'networkidle' })
+  await page.waitForSelector(`[data-node-id="${nodeId}"]`, { timeout: 15000 }).catch(() => {})
+  await sleep(900)
+  const boxPlain = await nodeBox(nodeId)
+  const panelPlain = await page.locator('[data-creation-panel]').count()
+
+  await page.goto(`${BASE}/canvas/${projectId}?focus=no-such-node-g138`, {
+    waitUntil: 'networkidle',
+  })
+  await page.waitForSelector(`[data-node-id="${nodeId}"]`, { timeout: 15000 }).catch(() => {})
+  await sleep(900)
+  const boxBogus = await nodeBox(nodeId)
+  rec(
+    g,
+    '★★ 找不到那个节点时什么都不做：与"不带 focus 打开"表现**完全一致**（不崩、不乱选中、不乱动视口）',
+    (await page.locator('[data-canvas-surface]').count()) === 1 &&
+      (await page.locator('[data-creation-panel]').count()) === panelPlain &&
+      !!boxPlain &&
+      !!boxBogus &&
+      boxBogus.cx === boxPlain.cx &&
+      boxBogus.cy === boxPlain.cy &&
+      pageErrors.length === 0,
+    boxPlain && boxBogus
+      ? `不带 focus=${boxPlain.cx},${boxPlain.cy}（面板 ${panelPlain}） · 假 focus=${boxBogus.cx},${boxBogus.cy}（面板 ${await page.locator('[data-creation-panel]').count()}）`
+      : pageErrors.join(' | '),
+  )
+
+  // ④ 漫剧：某一镜的节点在画布上时，卡片上也有同一个入口，且指向这一镜
+  const sbProjectId = 'proj-g138-storyboard'
+  const sbNodeId = 'node-g138-shot'
+  await page.evaluate(
+    async ({ projectId: pid, nodeId: nid }) => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const put = (table, rows) =>
+        new Promise((resolve, reject) => {
+          const tx = db.transaction(table, 'readwrite')
+          const s = tx.objectStore(table)
+          for (const r of rows) s.put(r)
+          tx.oncomplete = () => resolve(true)
+          tx.onerror = () => reject(tx.error)
+        })
+      const now = Date.now()
+      await put('nodes', [
+        {
+          id: nid,
+          projectId: pid,
+          type: 'generation',
+          parentId: null,
+          x: 520,
+          y: 360,
+          w: 240,
+          h: 240,
+          title: '第一镜',
+          disabled: false,
+          data: { mode: 'image', prompt: '雨夜街道', ratio: '16:9', count: 1 },
+        },
+      ])
+      await put('storyboards', [
+        {
+          id: pid,
+          projectId: pid,
+          updatedAt: now,
+          doc: {
+            projectId: pid,
+            sourceText: '',
+            script: { title: '聚焦测试', logline: '', body: '' },
+            characters: [],
+            scenes: [],
+            episodes: [{ id: 'ep-g138', title: '第一集', summary: '' }],
+            shots: [
+              {
+                id: 'shot-g138',
+                episodeId: 'ep-g138',
+                scene: '雨夜街道',
+                dialogue: '',
+                durationSec: 3,
+                prompt: 'rainy street',
+                nodeId: nid,
+              },
+            ],
+            updatedAt: now,
+          },
+        },
+      ])
+      db.close()
+    },
+    { projectId: sbProjectId, nodeId: sbNodeId },
+  )
+  await page.goto(`${BASE}/storyboard/${sbProjectId}`, { waitUntil: 'networkidle' })
+  await sleep(1200)
+  const locateCount = await page.locator('[data-storyboard-shot-locate]').count()
+  await page
+    .locator('[data-storyboard-shot-locate]')
+    .first()
+    .click()
+    .catch(() => {})
+  await page.waitForURL(/\/canvas\//, { timeout: 15000 }).catch(() => {})
+  await sleep(900)
+  const url4 = page.url()
+  const box4 = await nodeBox(sbNodeId)
+  rec(
+    g,
+    '★★★ 漫剧每一镜也有「在画布里定位」，点了同样是"带 focus 跳过去 + 居中选中"',
+    locateCount === 1 &&
+      url4.includes(`/canvas/${sbProjectId}`) &&
+      url4.includes('focus=node-g138-shot') &&
+      !!box4 &&
+      box4.selected &&
+      Math.abs(box4.cx - box4.scx) <= 3 &&
+      Math.abs(box4.cy - box4.scy) <= 3,
+    `按钮=${locateCount} 落地=${url4.replace(BASE, '')} ${box4 ? `中心差=(${box4.cx - box4.scx},${box4.cy - box4.scy})` : '找不到节点'}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/138-g138-focus-node.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

@@ -1,4 +1,5 @@
 import { fitViewport } from '../../../domain/canvas/geometry/transform'
+import { toWorldRectInGraph } from '../../../domain/canvas/geometry/coords'
 import type { Rect } from '../../../domain/canvas/geometry/rect'
 import type { CanvasStore } from '../../../state/workbenches/canvas/store'
 
@@ -40,4 +41,27 @@ export function fitCanvasView(store: CanvasStore): void {
     .nodes.filter((n) => !n.parentId)
     .map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h }))
   store.setViewport(fitViewport(rects, rect, FIT_PADDING))
+}
+
+/**
+ * 把视图对准**某一个节点**（对账 #424）。
+ *
+ * 与 `fitCanvasView`（全部节点）只差一个自变量：参与适配的矩形只有那一个。
+ * 仍然走 `fitViewport` —— 缩放上限 100%、留 `FIT_PADDING` 给悬浮顶栏，
+ * 两条口径与"重置视图"完全一致（各写一份迟早出现"跳过去正好被顶栏压住"）。
+ *
+ * 容器子节点用 `toWorldRectInGraph` 换到世界坐标：子节点的 x/y 是**容器内**的局部值，
+ * 直接拿去适配会把视口甩到别的地方（`fitCanvasView` 只统计顶层节点，正是同一个理由）。
+ *
+ * 找不到这个节点（已被删 / id 写错）时**什么都不做**并返回 `false` ——
+ * 调用方据此如实处理，而不是把视口甩到 (0, 0) 让人以为"图没了"。
+ */
+export function focusCanvasNode(store: CanvasStore, nodeId: string): boolean {
+  const rect = canvasSurfaceRect()
+  if (!rect) return false
+  const graph = store.getSnapshot()
+  const node = graph.nodes.find((n) => n.id === nodeId)
+  if (!node) return false
+  store.setViewport(fitViewport([toWorldRectInGraph(node, graph)], rect, FIT_PADDING))
+  return true
 }
