@@ -27686,7 +27686,211 @@ async function g143(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143]
+// ────────────────────────────────────────────────────────────
+// G144 漫剧「导出合成包」（对账 #431；调研稿 §M7-6）：
+//   漫剧全流程的最后一格 —— 前段（剧本 → 分镜 → 图 → 视频）都在，缺的是"怎么变成片"。
+//   口径：**前端不编码**，导出纯文本（素材清单 + 一条能直接跑的 FFmpeg 命令 + SRT）。
+//   ① 命令引用的是**素材文件夹里的真名**（`<hash>.<ext>`），不是编出来的 shot01.png
+//   ② 没出图的镜头**不在命令里**，但在包里如实列出来（否则本地一跑就 No such file）
+//   ③ SRT 的时间轴从 0 起、按分镜秒数走（与命令的时间轴同一条）
+// ────────────────────────────────────────────────────────────
+async function g144(browser) {
+  const g = 'G144 漫剧导出合成包'
+  const ctx = await newCtx(browser, { acceptDownloads: true })
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const shots = page.locator('[data-storyboard-shot]')
+  /** 下载是**按文件名认领**的，不按下标（同一个纪律：getAll 是主键序不是创建序） */
+  const downloads = []
+  page.on('download', (d) => downloads.push(d))
+
+  const readDb = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const all = (table) =>
+        new Promise((resolve) => {
+          const r = db.transaction(table, 'readonly').objectStore(table).getAll()
+          r.onsuccess = () => resolve(r.result ?? [])
+          r.onerror = () => resolve([])
+        })
+      const assets = await all('assets')
+      const boards = await all('storyboards')
+      const runs = await all('runRecords')
+      const doc = boards[0]?.doc
+      return {
+        mimes: assets.map((a) => ({ hash: a.hash, mime: String(a.mime ?? ''), bytes: a.bytes ? 1 : 0 })),
+        shots: (doc?.shots ?? []).map((s) => ({
+          id: s.id,
+          imageHash: s.imageHash ?? null,
+          videoHash: s.videoHash ?? null,
+          dialogue: s.dialogue ?? '',
+          durationSec: s.durationSec ?? 0,
+        })),
+        runs: runs.map((r) => ({
+          nodeId: r.nodeId,
+          status: String(r.status ?? ''),
+          error: r.error?.message ? String(r.error.message).slice(0, 80) : '',
+        })),
+      }
+    })
+  const waitDb = async (predicate, timeoutMs = 30000) => {
+    const started = Date.now()
+    for (;;) {
+      const db = await readDb()
+      if (predicate(db) || Date.now() - started > timeoutMs) return db
+      await sleep(250)
+    }
+  }
+  const waitFor = async (predicate, timeoutMs = 15000) => {
+    const started = Date.now()
+    for (;;) {
+      if (predicate()) return true
+      if (Date.now() - started > timeoutMs) return false
+      await sleep(200)
+    }
+  }
+
+  const ch = await configureMockChannel(page)
+  rec(g, '渠道验证通过', ch.verified)
+
+  await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-storyboard-create]').click()
+  await page.waitForURL(/\/storyboard\/proj_/)
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+
+  await page.locator('[data-storyboard-add-episode]').click()
+  await sleep(250)
+  await page.locator('[data-storyboard-add-shot]').click()
+  await sleep(150)
+  await page.locator('[data-storyboard-add-shot]').click()
+  await sleep(300)
+  const shot1 = (await shots.nth(0).getAttribute('data-storyboard-shot')) ?? ''
+  const shot2 = (await shots.nth(1).getAttribute('data-storyboard-shot')) ?? ''
+  /**
+   * 画面描述必须写：铺到画布时节点的提示词就取它（`shotPrompt` 留空回落画面）。
+   * 一句都不写的话，节点的提示词是空串 ⇒ `toRunRequest` 返回 null ⇒ **根本不会发起请求**
+   * （第一版就栽在这里：点了「出图」，既没有运行记录也没有产物）。
+   */
+  await page.locator(`[data-storyboard-shot-scene="${shot1}"]`).fill('雨里骑车的第一视角')
+  await page.locator(`[data-storyboard-shot-scene="${shot2}"]`).fill('把箱子放在门口')
+  await page.locator(`[data-storyboard-shot-dialogue="${shot1}"]`).fill('今天最后一单')
+  await page.locator(`[data-storyboard-shot-duration="${shot1}"]`).fill('5')
+  await page.locator(`[data-storyboard-shot-dialogue="${shot2}"]`).fill('我会送到')
+  await sleep(700)
+  rec(
+    g,
+    '★ 两镜 + 各自的台词与秒数都在（第 1 镜 5 秒，第 2 镜用默认）',
+    (await shots.count()) === 2 && (await page.locator('[data-storyboard-export-pack]').count()) === 1,
+  )
+
+  // 只给第一镜出图 —— 第二镜**故意留白**，看包里会不会如实说
+  await page.locator('[data-storyboard-lay-out]').click()
+  await page
+    .locator('[data-storyboard-lay-status="done"]')
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .catch(() => {})
+  /**
+   * ⚠️ 就绪判据必须是**节点 id 真写回文档**（`shot.nodeId`），不是"点了按钮"：
+   * `layOut` 是异步的（先解析配方、再建节点、最后写文档），而 `runShot` 见到空 `nodeId`
+   * 会**直接 return** —— 点早了就是"点了没反应"，还查不出原因（第一版就栽在这里）。
+   */
+  const laid = await waitDb((db) => db.shots.length === 2 && db.shots.every((s) => !!s.nodeId), 15000)
+  await page.locator(`[data-storyboard-shot-run="${shot1}"]`).click()
+  const afterRun = await waitDb((db) => !!db.shots.find((s) => s.id === shot1)?.imageHash, 40000)
+  const first = afterRun.shots.find((s) => s.id === shot1)
+  const imageHash = first?.imageHash ?? ''
+  const mime = afterRun.mimes.find((m) => m.hash === imageHash)?.mime ?? 'image/png'
+  const expectedFile = `${imageHash}.${mime === 'video/mp4' ? 'mp4' : 'png'}`
+  const shotErr = await page
+    .locator(`[data-storyboard-shot-error="${shot1}"]`)
+    .innerText()
+    .catch(() => '')
+  rec(
+    g,
+    '★ 第一镜出图、第二镜故意没出（合成包的两条分支才有得测）',
+    laid.shots.length === 2 && !!imageHash && !afterRun.shots.find((s) => s.id === shot2)?.imageHash,
+    `第一镜=${imageHash.slice(0, 8) || '无图'} 节点=${first?.id ? '有' : '无'} 跑过=${JSON.stringify(
+      afterRun.runs.map((r) => `${r.status}:${r.error}`),
+    )} 界面错误="${shotErr.trim()}"`,
+  )
+
+  // 导出合成包（两个文件：.md 与 .srt）
+  await page.locator('[data-storyboard-export-pack]').click()
+  const gotBoth = await waitFor(() => downloads.length >= 2, 20000)
+  const mdDl = downloads.find((d) => d.suggestedFilename().endsWith('.md'))
+  const srtDl = downloads.find((d) => d.suggestedFilename().endsWith('.srt'))
+  rec(
+    g,
+    '★★ 一次导出 = 两个文件（合成包 .md + 字幕 .srt）',
+    gotBoth && !!mdDl && !!srtDl,
+    downloads.map((d) => d.suggestedFilename()).join(' · '),
+  )
+  if (!mdDl || !srtDl) {
+    rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+    await ctx.close()
+    return
+  }
+  const mdPath = `${OUT}/144-pack.md`
+  const srtPath = `${OUT}/144-pack.srt`
+  await mdDl.saveAs(mdPath)
+  await srtDl.saveAs(srtPath)
+  const mdText = readFileSync(mdPath, 'utf8')
+  const srtText = readFileSync(srtPath, 'utf8')
+
+  rec(
+    g,
+    '★★★ 命令引用的是**素材文件夹里的真名**（`<hash>.<ext>`）—— 不是编出来的 shot01.png',
+    mdText.includes(`-i ${expectedFile}`) && !/shot0?1\.png/.test(mdText),
+    `期望文件=${expectedFile}`,
+  )
+  rec(
+    g,
+    '★★★ 没出图的那一镜**不在命令里**，但包里如实写明是哪一镜',
+    /**
+     * 量的是**命令里几个输入**（`-i` 出现几次）—— 两个镜头只有一个出了图，
+     * 命令里就必须只有一个 `-i`。不按"有没有某个字样"判：那是我第一版写错的判据
+     * （去命令段里找"第 1 镜"，而命令里只有文件名）。
+     */
+    (mdText.split('## 二、合成命令')[1]?.split('## 三')[0]?.match(/-i /g) ?? []).length === 1 &&
+      /第 2 镜：还没出图/.test(mdText) &&
+      !/-i undefined/.test(mdText),
+    `命令里 -i 次数=${(mdText.split('## 二、合成命令')[1]?.split('## 三')[0]?.match(/-i /g) ?? []).length} 缺料段=${(
+      mdText.split('缺料的镜头')[1] ?? ''
+    )
+      .split('##')[0]
+      ?.trim()
+      .slice(0, 60)}`,
+  )
+  rec(
+    g,
+    '★★★ SRT 的时间轴从 0 起、按分镜秒数走（第 1 镜 5 秒）—— 与命令的时间轴同一条',
+    srtText.includes('00:00:00,000 --> 00:00:05,000') && srtText.includes('今天最后一单'),
+    srtText.split('\n').slice(0, 3).join(' / '),
+  )
+  rec(
+    g,
+    '★★ 包里写了"去哪找素材文件夹"（还没选目录时指到设置里的存储栏）',
+    mdText.includes('设置 → 存储') && mdText.includes('ffmpeg -y'),
+  )
+  rec(
+    g,
+    '★ 状态行如实说导出结果',
+    /已导出合成包（2 个文件）/.test(await page.locator('[data-storyboard-status]').innerText()),
+    (await page.locator('[data-storyboard-status]').innerText()).trim(),
+  )
+
+  await page.screenshot({ path: `${OUT}/144-g144-pack.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

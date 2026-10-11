@@ -39,6 +39,8 @@ import {
   type EpisodeEnrichment,
 } from '../../domain/storyboard/episodes'
 import { asAppError, describeError } from '../../shared/result'
+import { buildEpisodePack } from '../../domain/storyboard/ffmpegPack'
+import { toBytes } from '../../platform/assets'
 import {
   addCharacter,
   addEpisode,
@@ -926,21 +928,96 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     setLay({ kind: 'done', text: `已跑完这一集 ${targets.length} 镜（失败的镜头各自标了原因）` })
   }
 
+  /** 导出文件名的主干（剧名 → 项目名 → 未命名；顺手把文件名里不能用的字符换掉） */
+  const exportBaseName = () =>
+    (doc.script.title.trim() || projectName.trim() || '未命名漫剧').replace(/[\\/:*?"<>|]/g, '_')
+
   const onExport = async () => {
     try {
       await flush()
       const markdown = exportStoryboardMarkdown(doc)
-      const base = (doc.script.title.trim() || projectName.trim() || '未命名漫剧').replace(
-        /[\\/:*?"<>|]/g,
-        '_',
-      )
       await platform.files.saveFile(
-        `${base}-分镜表.md`,
+        `${exportBaseName()}-分镜表.md`,
         new Blob([markdown], { type: 'text/markdown;charset=utf-8' }),
       )
       setStatus('已导出分镜表')
     } catch {
       setStatus('导出失败')
+    }
+  }
+
+  /**
+   * **导出合成包**（对账 #431；《轻画-漫剧形态调研.md》§M7-6）。
+   *
+   * 一份纯文本：素材清单 + **一条可直接跑的 FFmpeg 命令** + SRT 字幕。应用不替用户编码
+   * （架构 §16.2：无服务端 / 无 WASM / 无原生模块），真正出片在用户本地的 FFmpeg 里。
+   *
+   * 素材的两种"不在本地"要**分开说**，混成一句用户就会以为包是完整的：
+   * ① 还没出图的镜头 ⇒ 进不了命令（列在「缺料的镜头」）；
+   * ② 出了图但只是**远端产物**（`assets` 行里只有 `url`、没有 `bytes`）⇒ 命令里有它、
+   *    素材文件夹里却没有那个文件（列在「这几份素材不在素材文件夹里」）。
+   */
+  const onExportPack = async () => {
+    if (!selected) return
+    const episodeNo = episodes.findIndex((e) => e.id === selected.id) + 1
+    setStatus('正在准备合成包…')
+    try {
+      await flush()
+      /**
+       * mime 与"有没有本地字节"要**逐条**查（`query('assets', { id })`）：
+       * `assets` 每行都带全分辨率字节，按项目整表拉一次 = 把这一集的图全读进内存
+       * （`ports.ts` 那条注释记着这个内存峰值的教训）。
+       */
+      const wanted = new Set<string>()
+      for (const shot of shotsOf(doc, selected.id)) {
+        const hash = shot.videoHash ?? shot.imageHash
+        if (hash) wanted.add(hash)
+      }
+      const info = new Map<string, { mime: string; local: boolean }>()
+      for (const hash of wanted) {
+        const rows = await platform.storage.query('assets', { id: hash })
+        const row = rows[0] as { mime?: unknown; bytes?: unknown } | undefined
+        if (!row) continue
+        const bytes = toBytes(row.bytes)
+        info.set(hash, {
+          mime: typeof row.mime === 'string' && row.mime ? row.mime : 'image/png',
+          local: !!bytes && bytes.length > 0,
+        })
+      }
+      const pack = buildEpisodePack({
+        doc,
+        episode: selected,
+        episodeNo,
+        assetOf: (hash) => info.get(hash),
+        folderName: platform.assetFolder?.current()?.name ?? null,
+      })
+      if (pack.clips.length === 0) {
+        setStatus('这一集还没有能合成的素材：先「铺到画布」再出图')
+        return
+      }
+      const base = exportBaseName()
+      await platform.files.saveFile(
+        `${base}-第${episodeNo}集-合成包.md`,
+        new Blob([pack.markdown], { type: 'text/markdown;charset=utf-8' }),
+      )
+      let files = 1
+      if (pack.srt) {
+        await platform.files.saveFile(
+          `${base}-第${episodeNo}集.srt`,
+          new Blob([pack.srt], { type: 'application/x-subrip;charset=utf-8' }),
+        )
+        files = 2
+      }
+      const remote = pack.clips.filter((c) => !c.local).length
+      const notes = [
+        pack.missing.length > 0 ? `${pack.missing.length} 镜没素材` : '',
+        remote > 0 ? `${remote} 份素材要先去下载` : '',
+      ].filter(Boolean)
+      setStatus(
+        `已导出合成包（${files} 个文件）${notes.length > 0 ? ` —— 包里写明了：${notes.join('、')}` : ''}`,
+      )
+    } catch {
+      setStatus('导出合成包失败')
     }
   }
 
@@ -1326,6 +1403,19 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                       onClick={() => void runEpisode()}
                     >
                       这一集出图
+                    </button>
+                    {/**
+                     * 「导出合成包」（对账 #431）：纯文本 —— 素材清单 + 一条能直接跑的 FFmpeg 命令 + SRT。
+                     * 门槛放在"这一集有镜头"上：一镜都没有时导出的包只会是几段空说明。
+                     */}
+                    <button
+                      type="button"
+                      className={styles.ghost}
+                      data-storyboard-export-pack
+                      disabled={shots.length === 0}
+                      onClick={() => void onExportPack()}
+                    >
+                      导出合成包
                     </button>
                     <button
                       type="button"
