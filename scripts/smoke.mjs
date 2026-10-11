@@ -26072,7 +26072,210 @@ async function g135(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135]
+// ────────────────────────────────────────────────────────────
+// G136 电商分镜扩写（对账 #406，用户 2026-10-10 #10 问的"理解需求"那一半）：
+//   ① 点生成**之前**就说清"这一趟会多花一次对话额度"（不许悄悄多花）
+//   ② 走通"模型现写分镜"：库里那几张的提示词是**模型给的那几条**、逐张不同
+//   ③ **回落路径**：分镜那条路打不通 ⇒ 照样出 N 张不同的图 + 界面如实说回落了、为什么
+//   ④ 没写要求 / 白底图：确认卡**一个字都不承诺**（条件与真去调用是同一个纯函数）
+// ────────────────────────────────────────────────────────────
+async function g136(browser) {
+  const g = 'G136 电商分镜扩写'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  /** 库里所有带"这一张只做"的提示词（= 逐张分镜拼出来的那种） */
+  const shotPromptsInDb = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const rows = await new Promise((resolve) => {
+        const r = db.transaction('nodes', 'readonly').objectStore('nodes').getAll()
+        r.onsuccess = () => resolve(r.result ?? [])
+        r.onerror = () => resolve([])
+      })
+      return rows
+        .filter((row) => typeof row?.data?.prompt === 'string' && row.data.prompt.includes('这一张只做'))
+        .map((row) => row.data.prompt)
+    })
+
+  const fillForm = async ({ usage, count, note }) => {
+    if (usage) {
+      await page.locator(`[data-ecommerce-usage="${usage}"]`).click()
+      /* 换用途会把张数带回该用途的默认值（useEffect）—— 等它落定再改，别跟它抢 */
+      await sleep(300)
+    }
+    if (count !== undefined) await page.locator('[data-ecommerce-count]').fill(String(count))
+    await page.locator('[data-ecommerce-note]').fill(note ?? '')
+    await sleep(200)
+  }
+
+  await configureMockChannel(page)
+  await sleep(600)
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
+  await sleep(600)
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  await sleep(900)
+  await page.locator('[data-ecommerce-product-input]').setInputFiles({
+    name: 'product.png',
+    mimeType: 'image/png',
+    buffer: solidPngBuffer(64, 64, [30, 120, 200]),
+  })
+  await sleep(1500)
+
+  // ① 详情页 4 张 + 写了要求 ⇒ 确认卡上**先**说清会多花一次对话额度
+  await fillForm({ usage: 'detail', count: 4, note: '突出防水材质' })
+  await page.locator('[data-ecommerce-generate]').click()
+  await sleep(400)
+  const hintKind = await page
+    .locator('[data-ecommerce-confirm-shots]')
+    .getAttribute('data-ecommerce-confirm-shots')
+    .catch(() => null)
+  const hintText = (
+    await page
+      .locator('[data-ecommerce-confirm-shots]')
+      .innerText()
+      .catch(() => '')
+  ).trim()
+  rec(
+    g,
+    '★★★ 点生成之前就说清"这一次会多花一次对话额度"（不悄悄多花）',
+    hintKind === 'model' && /多花一次对话额度/.test(hintText),
+    hintText.replace(/\n/g, ' ').slice(0, 96),
+  )
+
+  // ② 确认 → 真的走"模型现写分镜"那条路
+  await page.locator('[data-ecommerce-confirm-ok]').click()
+  const done1 = await page
+    .waitForFunction(
+      () => document.querySelectorAll('[data-ecommerce-result][data-status="done"]').length >= 4,
+      null,
+      { timeout: 30000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  const note1 = (
+    await page
+      .locator('[data-ecommerce-shot-plan]')
+      .innerText()
+      .catch(() => '')
+  ).trim()
+  const prompts1 = await shotPromptsInDb()
+  rec(
+    g,
+    '★★★ 模型现写的分镜真的落到这 4 张上（四条各不相同，且是模型给的那几条）',
+    done1 &&
+      prompts1.length === 4 &&
+      new Set(prompts1).size === 4 &&
+      prompts1.every((p) => p.includes('模型第')) &&
+      prompts1.some((p) => p.includes('突出防水材质')),
+    `出图=${done1} 条数=${prompts1.length} 唯一=${new Set(prompts1).size}`,
+  )
+  rec(
+    g,
+    '★★ 跑完如实回报这一批分镜的来源（而不是默默用了哪条路）',
+    /按你的要求现写/.test(note1),
+    note1,
+  )
+
+  /**
+   * ③ **回落路径**：mock 见到用户要求里的「坏分镜」就回一段非 JSON。
+   *
+   * 这条是 #406 最重要的一条 —— 分镜失败**绝不能**让用户出不了图。
+   * 判据分两半：界面如实说回落了（含原因），库里那 3 条仍然**逐张不同**且是默认脚本。
+   */
+  await fillForm({ usage: 'detail', count: 3, note: '坏分镜：随便写点要求' })
+  await page.locator('[data-ecommerce-generate]').click()
+  await sleep(400)
+  await page.locator('[data-ecommerce-confirm-ok]').click()
+  const fellBack = await page
+    .waitForFunction(
+      () => {
+        const el = document.querySelector('[data-ecommerce-shot-plan]')
+        return !!el && el.textContent.includes('默认镜头脚本')
+      },
+      null,
+      { timeout: 30000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  const note2 = (
+    await page
+      .locator('[data-ecommerce-shot-plan]')
+      .innerText()
+      .catch(() => '')
+  ).trim()
+  const done2 = await page
+    .waitForFunction(
+      /*
+       * ⚠️ 必须同时钉住**这一批正好 3 格**：只等"≥3 张已完成"的话，
+       * 上一批（4 格）还挂在结果区时这条会**立刻为真** ——
+       * 实测：把回落摘掉（分镜失败就不出图）时，`出图=true` 照样绿，
+       * 真正红的只有后面那句"条数=0"。一个判据被上一批满足，就不是在量这一批。
+       */
+      () =>
+        document.querySelectorAll('[data-ecommerce-result]').length === 3 &&
+        document.querySelectorAll('[data-ecommerce-result][data-status="done"]').length === 3,
+      null,
+      { timeout: 30000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  const fallbackPrompts = (await shotPromptsInDb()).filter((p) => !p.includes('模型第'))
+  rec(
+    g,
+    '★★★ 分镜请求打不通 ⇒ 照样出 3 张**逐张不同**的图（回落默认脚本，不耽误出图）',
+    fellBack &&
+      done2 &&
+      fallbackPrompts.length === 3 &&
+      new Set(fallbackPrompts).size === 3 &&
+      fallbackPrompts.some((p) => p.includes('首图：全貌 + 卖点主张')),
+    `回落=${fellBack} 出图=${done2} 条数=${fallbackPrompts.length} 唯一=${new Set(fallbackPrompts).size}`,
+  )
+  rec(
+    g,
+    '★★ 回落时如实说清**为什么**（不是含糊的"用了默认脚本"）',
+    /默认镜头脚本：/.test(note2) && /没解析出分镜/.test(note2),
+    note2.replace(/\n/g, ' ').slice(0, 96),
+  )
+
+  /**
+   * ④ 两处"不承诺"：没写要求、白底图 —— 确认卡上不该出现那一行。
+   *
+   * 判据就是"这行不存在"：承诺了却没做 / 没打算做却先说会花钱，两种都不行。
+   */
+  await fillForm({ usage: 'detail', count: 4, note: '' })
+  await page.locator('[data-ecommerce-generate]').click()
+  await sleep(400)
+  const noNoteHint = (await page.locator('[data-ecommerce-confirm-shots]').count()) === 0
+  await page.locator('[data-ecommerce-confirm-cancel]').click()
+  await sleep(250)
+  rec(
+    g,
+    '★★ 没写补充要求时不承诺多花额度（条件与真去调用是同一个纯函数）',
+    noNoteHint,
+  )
+
+  await fillForm({ usage: 'white-bg', count: 3, note: '也要突出防水材质' })
+  await page.locator('[data-ecommerce-generate]').click()
+  await sleep(400)
+  const whiteBgHint = (await page.locator('[data-ecommerce-confirm-shots]').count()) === 0
+  await page.locator('[data-ecommerce-confirm-cancel]').click()
+  await sleep(250)
+  rec(g, '★★ 白底图是抽卡语义：既不问模型、也不承诺多花额度', whiteBgHint)
+
+  await page.screenshot({ path: `${OUT}/136-g136-ecommerce-shots.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

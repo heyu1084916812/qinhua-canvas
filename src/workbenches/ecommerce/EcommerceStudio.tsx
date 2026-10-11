@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ECOMMERCE_DEFAULT_COUNT } from '../../domain/ecommerce/plan'
 import { ECOMMERCE_PLATFORMS, type EcommercePlatform } from '../../domain/ecommerce/platforms'
 import { intentRows, type EcommerceIntentDraft } from '../../domain/ecommerce/chatParse'
+import { shouldExpandShots } from '../../domain/ecommerce/chatShots'
 import {
   ECOMMERCE_COUNT_MAX,
   ECOMMERCE_LANGUAGES,
@@ -110,14 +111,22 @@ export interface EcommerceStudioProps {
   parsingIntent?: boolean
   /** 解析出来的**待确认**草稿；null / 不传 = 还没有 */
   intent?: EcommerceIntentDraft | null
-  /** 会用哪条渠道解析（如实显示"会用谁"）；空 = 没配，按钮禁用并说明原因 */
-  intentTargetLabel?: string
+  /**
+   * 对话渠道（**解析需求与扩写分镜共用同一条**，都走 `resolveChatTarget`）。
+   * 如实显示"会用谁"；空 = 没配，按钮禁用并说明原因。
+   */
+  chatTargetLabel?: string
   /** 解析失败 / 没配对话模型时的如实说法 */
   intentError?: string
   /** 用户点了「应用到表单」——页面据此收起确认卡 */
   onIntentApplied?: () => void
   /** 用户点了「丢弃」 */
   onIntentDiscard?: () => void
+  /**
+   * 这一次的**分镜来源**（对账 #406）：页面跑完一次之后如实回报 ——
+   * 是"按你的要求现写的"还是"回落默认脚本（因为什么）"。空串 = 这次没这回事，不显示。
+   */
+  shotPlanNote?: string
 }
 
 export function EcommerceStudio({
@@ -136,10 +145,11 @@ export function EcommerceStudio({
   onParseIntent,
   parsingIntent = false,
   intent = null,
-  intentTargetLabel = '',
+  chatTargetLabel = '',
   intentError = '',
   onIntentApplied,
   onIntentDiscard,
+  shotPlanNote = '',
 }: EcommerceStudioProps) {
   const [usage, setUsage] = useState<EcommerceUsage>('main')
   const [platformId, setPlatformId] = useState<string>('amazon')
@@ -257,14 +267,14 @@ export function EcommerceStudio({
                 type="button"
                 className={styles.linkBtn}
                 data-ecommerce-intent-parse
-                disabled={parsingIntent || !intentTargetLabel || intentText.trim().length === 0}
+                disabled={parsingIntent || !chatTargetLabel || intentText.trim().length === 0}
                 onClick={() => void onParseIntent(intentText)}
               >
                 {parsingIntent ? '解析中…' : '解析成方案'}
               </button>
               <span className={styles.hint} data-ecommerce-intent-note>
-                {intentTargetLabel
-                  ? `会用 ${intentTargetLabel} 解析`
+                {chatTargetLabel
+                  ? `会用 ${chatTargetLabel} 解析`
                   : '还没有可用的对话模型：先去「设置 → 渠道配置」给一条渠道勾上对话模型'}
               </span>
             </div>
@@ -505,6 +515,13 @@ export function EcommerceStudio({
         >
           {running ? '生成中…' : '开始生成'}
         </button>
+
+        {/* 这一次的分镜从哪来的（对账 #406）：跑完如实说，回落也如实说是为什么 */}
+        {shotPlanNote ? (
+          <p className={styles.hint} data-ecommerce-shot-plan>
+            {shotPlanNote}
+          </p>
+        ) : null}
       </aside>
 
       {/* 右：结果 */}
@@ -630,6 +647,22 @@ export function EcommerceStudio({
               将生成 <b>{count}</b> 张{usageLabel(usage)}，比例 {ratio}
               {platform ? `，面向 ${platform.name}` : ''}。会调用你的渠道，产生真实用量。
             </p>
+            {/*
+              分镜会怎么来（对账 #406）：这件事必须在**点生成之前**说清楚 ——
+              让模型现写分镜是**一次额外的付费调用**，不许悄悄多花。
+              条件与页面里"真去调用"的条件是**同一个纯函数**（`shouldExpandShots`），
+              两处各写一份迟早对不上（说花了没花 / 花了没说）。
+            */}
+            {shouldExpandShots({ usage, count, note }) ? (
+              <p
+                className={styles.hint}
+                data-ecommerce-confirm-shots={chatTargetLabel ? 'model' : 'script'}
+              >
+                {chatTargetLabel
+                  ? `这几张的镜头会先让 ${chatTargetLabel} 按你的要求展开 —— 这一趟会多花一次对话额度（失败就用默认脚本，不会耽误出图）。`
+                  : '没配对话模型：这几张会用默认镜头脚本（每张不同，但不按你写的要求调整）。'}
+              </p>
+            ) : null}
             <div className={styles.confirmActions}>
               <button
                 type="button"

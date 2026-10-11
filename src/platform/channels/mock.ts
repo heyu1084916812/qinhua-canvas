@@ -7,6 +7,7 @@ import { imageSizeFromHeader } from '../../domain/shared/imageSize'
 import { BREAKDOWN_MARKER } from '../../domain/storyboard/breakdown'
 import { SPLIT_MARKER } from '../../domain/storyboard/episodes'
 import { ECOMMERCE_INTENT_MARKER } from '../../domain/ecommerce/chatParse'
+import { ECOMMERCE_SHOTS_MARKER } from '../../domain/ecommerce/chatShots'
 import { solidPng } from './mockPng'
 import type { SafeChannelConfig } from '../ports'
 import {
@@ -295,6 +296,16 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
        * （系统 + 用户两条消息、`prompt` 是空串），只看 `request.prompt` 会漏。
        */
       const asked = [request.prompt, ...(request.messages ?? []).map((m) => m.content)].join('\n')
+      /**
+       * **用户那一条消息**（`asked` 里前半段是系统指令，后半段才是用户正文）。
+       *
+       * 下面几条 mock 分支都只该看用户说了什么：系统指令为了写清边界，会把
+       * 「主图 / 白底图 / 详情页 / 套图」「1:1 / 3:4 / …」「要求张数」这些词都列一遍，
+       * 对着整个 `asked` 做正则 = 把契约里的示例当成用户说的（实测过：无论用户打什么字
+       * 都回同一份，断言就恒真了）。
+       */
+      const userMsg =
+        [...(request.messages ?? [])].reverse().find((m) => m.role === 'user')?.content ?? ''
       if (asked.includes(BREAKDOWN_MARKER)) {
         if (asked.includes('坏拆解')) {
           return { text: '好的，我帮你把这一集拆成了三镜（这一段故意不是 JSON）。' }
@@ -382,8 +393,6 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
         if (asked.includes('坏解析')) {
           return { text: '好的，我按你说的做（这一段故意不是 JSON）。' }
         }
-        const userMsg =
-          [...(request.messages ?? [])].reverse().find((m) => m.role === 'user')?.content ?? ''
         const usage = [
           ['套图', /套图/],
           ['详情页', /详情页|详情图/],
@@ -417,6 +426,42 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
             ...(language ? { language } : {}),
             ...(Number.isFinite(count) && count > 0 ? { count } : {}),
             ...(ratio ? { ratio } : {}),
+          }),
+        }
+      }
+      /**
+       * **电商分镜扩写**（对账 #406）：系统指令带「【电商分镜扩写】输出契约」时，
+       * 按用户消息里的「要求张数：N」回 N 条**互相可区分**的分镜。
+       *
+       * 为什么 mock 必须回"不一样"的 N 条：这条链路的正题是"逐张不同" ——
+       * 回 N 条一模一样的话，"模型扩写真的生效了"在离线冒烟里根本断言不了
+       * （节点上的提示词会与默认脚本无从区分）。所以每条都带上用户那句话 + 一个视角。
+       *
+       * 钩子：用户要求里带「坏分镜」⇒ 回一段不是 JSON 的话，用来验**回落路径** ——
+       * 分镜失败也必须照样出 N 张不同的图（界面上如实说回落了）。
+       */
+      if (asked.includes(ECOMMERCE_SHOTS_MARKER)) {
+        if (userMsg.includes('坏分镜')) {
+          return { text: '好的，我按你说的排好了（这一段故意不是 JSON）。' }
+        }
+        const shots = Number((userMsg.match(/要求张数：(\d+)/) ?? [])[1]) || 1
+        const note = ((userMsg.match(/用户的要求：(.+)/) ?? [])[1] ?? '').trim()
+        const angles = [
+          '正面全身',
+          '45° 侧面',
+          '细节特写',
+          '使用场景',
+          '俯视平铺',
+          '手持比例',
+          '包装同框',
+          '组合搭配',
+        ]
+        return {
+          text: JSON.stringify({
+            shots: Array.from({ length: shots }, (_, i) => ({
+              title: `模型第 ${i + 1} 镜`,
+              brief: `${note}｜${angles[i] ?? '换一个不重复的构图'}`,
+            })),
           }),
         }
       }

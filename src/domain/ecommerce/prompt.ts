@@ -36,6 +36,14 @@ const USAGE_HINTS: Record<EcommerceUsage, string> = {
 export interface BuildPromptOptions {
   /** 平台清单（默认用内置那份；测试可以喂一份假的） */
   platforms?: readonly EcommercePlatform[]
+  /**
+   * **逐张分镜**（对账 #406）：传了就用它替代确定性脚本。
+   *
+   * 长度**必须等于** `request.count` —— 不等就抛错，不许"悄悄补一条 / 截一条"：
+   * 分镜与节点是一一对应的，长度对不上时"哪一张是哪句"就错了，
+   * 而错位的分镜在出图结果里几乎看不出来（那正是 #406 要防的）。
+   */
+  shots?: readonly EcommerceShot[]
 }
 
 /**
@@ -150,7 +158,13 @@ export function buildEcommercePrompts(
   request: EcommerceRequest,
   options: BuildPromptOptions = {},
 ): string[] {
-  return ecommerceShots(request.usage, request.count).map((shot) =>
+  const shots = options.shots ?? ecommerceShots(request.usage, request.count)
+  if (shots.length !== request.count) {
+    throw new Error(
+      `分镜条数（${shots.length}）与张数（${request.count}）对不上 —— 不接受悄悄补齐或截断`,
+    )
+  }
+  return shots.map((shot) =>
     buildEcommercePrompt(request, options, shot),
   )
 }

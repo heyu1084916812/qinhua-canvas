@@ -22,6 +22,12 @@ import {
   type EcommerceIntentDraft,
 } from '../../domain/ecommerce/chatParse'
 import { resolveChatTarget } from '../../domain/shared/chatTarget'
+import {
+  buildShotsSystem,
+  buildShotsText,
+  parseShotsReply,
+  shouldExpandShots,
+} from '../../domain/ecommerce/chatShots'
 import { panelModelOptions } from '../../domain/project/modelCatalog'
 import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
 import { projectRoute } from '../../domain/shared/workbench'
@@ -193,6 +199,16 @@ function StudioHost({ projectId }: { projectId: string }) {
   const [intent, setIntent] = useState<EcommerceIntentDraft | null>(null)
   const [intentError, setIntentError] = useState('')
   const [parsingIntent, setParsingIntent] = useState(false)
+  /**
+   * 这一次的分镜从哪来（对账 #406）：跑完如实显示。空串 = 这一趟没这回事，不显示。
+   */
+  const [shotPlanNote, setShotPlanNote] = useState('')
+  /**
+   * **分镜那一次对话请求也要算进"忙"**：它发生在建节点之前，
+   * `exec.isRunning` 这时还是 false —— 不盖住的话按钮照样能点，
+   * 用户点两下就花两次对话额度（而且要等两遍）。
+   */
+  const [preparingShots, setPreparingShots] = useState(false)
   const models = useMemo(() => panelModelOptions('image'), [])
   /**
    * 平台清单 = 内置 + **扩展包带进来的规则**（对账 #386 的 E3）。
@@ -313,8 +329,68 @@ function StudioHost({ projectId }: { projectId: string }) {
   }
 
   const onGenerate = async (request: EcommerceRequest) => {
-    /* 校验一律走领域层：非法输入当场抛错，界面把话原样说给用户（不静默兜底） */
-    const plan = buildEcommercePlan(request, { platforms })
+    /**
+     * ① **先按确定性脚本建一次计划**：它同时完成**全部校验**。
+     *
+     * 顺序有讲究 —— 校验不过就当场抛错，**绝不在一个非法请求上先花掉一次对话额度**
+     * （先问分镜再校验，等于让用户为一次必然失败的生成多付一次对话费）。
+     */
+    let plan = buildEcommercePlan(request, { platforms })
+
+    /**
+     * ② **分镜**（对账 #406）：只有"多张 + 非白底 + 用户真写了要求"才多花一次
+     * 对话请求，让模型按商品调整卖点顺序。三条边界：
+     *  - 判据与确认卡上那句提示是**同一个纯函数**（`shouldExpandShots`）；
+     *  - **永不因为分镜失败而让用户出不了图**：没配模型 / 请求失败 / 条数不对
+     *    一律回落脚本，`plan` 保持第 ① 步那份；
+     *  - 回落**如实说**（`shotPlanNote`），不装作"这次就是默认脚本"。
+     */
+    if (shouldExpandShots(request)) {
+      if (!chatTarget) {
+        setShotPlanNote('这几张用的是默认镜头脚本：没有可用的对话模型。')
+      } else {
+        const target = chatTarget
+        const ac = new AbortController()
+        /* 30 秒兜底：分镜是一次小请求，卡住就该早点回落去出图 */
+        const timer = setTimeout(() => ac.abort(), 30_000)
+        setPreparingShots(true)
+        try {
+          const result = await channels.completeWithTools({
+            channelId: target.channelId,
+            model: target.model,
+            tools: [],
+            messages: [
+              { role: 'system', content: buildShotsSystem() },
+              { role: 'user', content: buildShotsText(request, platforms) },
+            ],
+            signal: ac.signal,
+          })
+          const parsed = parseShotsReply(result.text, request.count)
+          if (parsed.ok) {
+            plan = buildEcommercePlan(request, { platforms, shots: parsed.shots })
+            setShotPlanNote(
+              `这 ${request.count} 张的镜头是按你的要求现写的（${target.label}，多花了一次对话额度）。`,
+            )
+          } else {
+            setShotPlanNote(`这几张用了默认镜头脚本：${parsed.error}`)
+          }
+        } catch (e) {
+          const err = asAppError(e)
+          setShotPlanNote(
+            ac.signal.aborted
+              ? '这几张用了默认镜头脚本：分镜请求超时（30 秒没回）。'
+              : `这几张用了默认镜头脚本：${err ? describeError(err) : '分镜请求失败'}。`,
+          )
+        } finally {
+          clearTimeout(timer)
+          setPreparingShots(false)
+        }
+      }
+    } else {
+      /* 这一趟没打算问模型：把上一次的说明清掉，免得挂在界面上误导 */
+      setShotPlanNote('')
+    }
+
     const recipe = await channels.defaultForNewNode({}, 'image')
     if (!recipe?.channelId || !recipe?.model) {
       throw new Error('还没有可用的生图渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上模型')
@@ -471,19 +547,20 @@ function StudioHost({ projectId }: { projectId: string }) {
       onModelChange={setModel}
       onUpload={onUpload}
       onGenerate={onGenerate}
-      running={exec.isRunning}
+      running={exec.isRunning || preparingShots}
       results={results}
       onOpenCanvas={() => navigate(projectRoute('canvas', projectId))}
       onParseIntent={onParseIntent}
       parsingIntent={parsingIntent}
       intent={intent}
-      intentTargetLabel={chatTarget?.label ?? ''}
+      chatTargetLabel={chatTarget?.label ?? ''}
       intentError={intentError}
       onIntentApplied={() => setIntent(null)}
       onIntentDiscard={() => {
         setIntent(null)
         setIntentError('')
       }}
+      shotPlanNote={shotPlanNote}
       onOpenLongImage={() => setLongOpen(true)}
       longImage={
         longOpen ? <LongImagePanel tiles={longTiles} onClose={() => setLongOpen(false)} /> : null
