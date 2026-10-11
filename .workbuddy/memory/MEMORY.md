@@ -1,5 +1,24 @@
 # CanvasFlow（轻画）项目记忆
 
+### ★ release 产物的差异只有 release 里才暴露（2026-10-12 第 53 批 → 对账 #438）
+
+新增交付门禁 `scripts/check-release-shell.mjs`（**入库**）：把 release exe 拷进
+`.playwright-verify/release-shell/<时间戳>/app/` 再启动，CDP 连上去断言十项。首次跑 **10/10**。
+
+- **★★★ 三种验证各看一层，别拿一层当全部**：全量冒烟跑的是 **Web 构建**、
+  `probe-tauri-shell.mjs` 跑的是 **dev 壳**，而**交到用户手里的那份是 release 二进制**。
+  只在 release 里才暴露的三处：前端资源**内嵌在 exe 里**、`__APP_VERSION__` **构建时注入**、
+  11.7 MB 的 mediapipe wasm **在包里**。
+- **★★★ release exe 不能原地跑**：闸门 0 专门认 `src-tauri\target\{debug,release}` ⇒ 原地跑会回落到
+  **用户真实 profile**，而且新 profile 会把旧库**拷**过去（实测 160 MB）。拷到临时 `app\` 再跑，
+  数据才落在临时目录（真实库只被读）。
+- **★★ 新 profile 的第一屏是首次引导浮层，它会盖住侧栏**：不先点「跳过」，点设置按钮会一直超时 ——
+  报错看着像"设置按钮坏了"，其实是浮层在挡。自动化进新 profile 的第一件事就是关引导。
+- **★★ WebView2 进程树退出后句柄还会松一会儿**：`taskkill /T /F` 之后立刻 `rmSync` 会 `EPERM`。
+  清理要带重试，且**清理失败绝不影响判据**（收尾不是产品行为）。
+- **★ 收口基线**：`check-release-shell` **10/10**（项目页 18 张卡片 / 版本 0.1.0 / wasm 11 756 954 B）·
+  `npm run check` 全绿 · 单测 **2400/2400**。
+
 ### ★ 打包脚本：退出码别用管道取；同一个版本号不能有第二份"真相"（2026-10-12 第 52 批 → 对账 #241 状态）
 
 这一批**零源码改动** —— 只做一件事：在 HEAD 上把安装包**真打一遍**，证明"现在这个 HEAD 能出包"。
