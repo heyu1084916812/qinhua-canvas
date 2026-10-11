@@ -27154,7 +27154,153 @@ async function g140(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140]
+// ────────────────────────────────────────────────────────────
+// G141 图生视频端到端（对账 #428）：
+//   视频是这个产品的一半，而**这一整套冒烟里从来没有真跑过一次视频节点** ——
+//   `video/mp4` 的命中全是 mime 处理与种子里手写的行。这一组补上这条路，
+//   并顺带把"漫剧逐镜视频卡在 #120"这个说法查实（四家视频参数表早就齐了）。
+//   ① 模板预置的「图片 → 视频生成」两节点 + 连线都在
+//   ② 底图出图（真实 PNG）
+//   ③ 视频节点选「即梦 2.5」+「图生视频」跑通：节点上真挂上了产物
+//   ④ 库里那条产物 mime = video/mp4（按**产物类型**判，不看节点想做什么）
+//   ⑤ 那一趟的运行记录里 `inputs` 带着上游那张图 —— "图"真被送进渠道
+//   ⑥ 假 mp4 解不出头 ⇒ 实际像素留空（如实，不是缺陷；§6.18 的口径）
+// ────────────────────────────────────────────────────────────
+async function g141(browser) {
+  const g = 'G141 图生视频端到端'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  const g141ch = await configureMockChannel(page)
+  rec(g, '渠道验证通过（mock 带 video 模型）', g141ch.verified)
+
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="img2video"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await page
+    .locator('[data-node-id]')
+    .first()
+    .waitFor({ state: 'attached', timeout: 10000 })
+    .catch(() => {})
+  await sleep(700)
+
+  const up = page.locator('[data-node-id]').filter({ hasText: '图片' }).first()
+  const down = page.locator('[data-node-id]').filter({ hasText: '视频生成' }).first()
+  const upId = (await up.getAttribute('data-node-id')) ?? ''
+  const downId = (await down.getAttribute('data-node-id')) ?? ''
+  await page
+    .locator('[data-edge]')
+    .first()
+    .waitFor({ state: 'attached', timeout: 5000 })
+    .catch(() => {})
+  rec(
+    g,
+    '★ 模板预置「图片 → 视频生成」两个节点，且已连线',
+    (await up.count()) === 1 && (await down.count()) === 1 && (await page.locator('[data-edge]').count()) >= 1,
+  )
+
+  const waitNodeAsset = async (node, timeout = 20000) => {
+    for (let i = 0; i < timeout / 250; i += 1) {
+      const s = await node.locator('[data-node-asset]').first().getAttribute('src').catch(() => '')
+      if ((s ?? '').startsWith('blob:')) return true
+      await sleep(250)
+    }
+    return false
+  }
+
+  // ① 出底图
+  const panelUp = await genPanel(page, up)
+  await configureGenPanel(page, panelUp, '一张底图')
+  await panelRunBtn(page).click()
+  rec(g, '★ 底图出图（N=1 回填本体）', await waitNodeAsset(up, 30000))
+  await sleep(1200)
+
+  // ② 视频节点：选即梦 2.5 + 图生视频（默认档可能是文生视频，那条路不会带图）
+  const panelDown = await genPanel(page, down)
+  await pickParam(panelDown, 'model', '即梦 2.5')
+  await sleep(400)
+  await pickParam(panelDown, 'videoMode', '图生视频')
+  await sleep(300)
+  const ta = panelPrompt(panelDown)
+  await ta.click()
+  await ta.fill('镜头缓慢推进')
+  await ta.blur()
+  await sleep(300)
+
+  /**
+   * ⚠️ 视频是一次**长任务**（真渠道几十秒到几分钟），本组只等 mock 那一档。
+   * 超时给足，但**不许用墙钟赌**：等的是节点上真挂出 blob 资源。
+   */
+  await panelRunBtn(page).click()
+  const videoOnNode = await waitNodeAsset(down, 60000)
+  rec(g, '★★★ 视频节点跑通：本体上真挂上了产物', videoOnNode, `产物=${videoOnNode}`)
+  await sleep(1500)
+
+  // ③ 库里查证：产物 mime / 那一趟的 inputs / 实际像素
+  const facts = await page.evaluate(async ({ upId: upNodeId, downId: downNodeId }) => {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('qinghua')
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+    const all = (table) =>
+      new Promise((resolve) => {
+        const r = db.transaction(table, 'readonly').objectStore(table).getAll()
+        r.onsuccess = () => resolve(r.result ?? [])
+        r.onerror = () => resolve([])
+      })
+    const assets = await all('assets')
+    const runs = await all('runRecords')
+    return {
+      mimes: assets.map((a) => String(a.mime ?? '')),
+      runs: runs.map((r) => ({
+        nodeId: r.nodeId,
+        inputs: r.inputs ?? [],
+        out: r.outputHashes ?? [],
+        outW: r.outputWidth ?? null,
+        outH: r.outputHeight ?? null,
+      })),
+      upNodeId,
+      downNodeId,
+    }
+  }, { upId, downId })
+  /**
+   * ⚠️ **按 nodeId 认领，不能按下标**：`getAll` 的顺序是**主键序、不是创建序**
+   * （账本 #415 / G116 都记过这条）。第一版取 `runs[last]` 当视频那一趟，
+   * 结果拿到的是**图片**那一趟（64×64 的真 PNG），于是"inputs 为空""实际像素 64×64"
+   * 两条一起红 —— 看着像产品缺陷，其实是我读错了行。
+   */
+  const videoRun = facts.runs.find((r) => r.nodeId === facts.downNodeId)
+  const imageRun = facts.runs.find((r) => r.nodeId === facts.upNodeId)
+  const imageHash = imageRun?.out?.[0] ?? ''
+  rec(
+    g,
+    '★★★ 库里那条产物 mime = video/mp4（按**产物类型**判，不看节点想做什么）',
+    facts.mimes.includes('video/mp4'),
+    `mimes=${[...new Set(facts.mimes)].join(',')} 运行记录=${facts.runs.length}`,
+  )
+  rec(
+    g,
+    '★★★ 那一趟的运行记录 inputs 里带着上游那张图 —— "图"真被送进了渠道',
+    !!imageHash && JSON.stringify(videoRun?.inputs ?? []).includes(imageHash),
+    `图 hash=${imageHash.slice(0, 10)} · inputs=${JSON.stringify(videoRun?.inputs ?? []).slice(0, 90)}`,
+  )
+  rec(
+    g,
+    '★★ 假 mp4 解不出头 ⇒ 实际像素**留空**（如实，不是缺陷；§6.18 的口径）',
+    videoRun?.outW === null && videoRun?.outH === null,
+    `实际像素=${JSON.stringify([videoRun?.outW ?? null, videoRun?.outH ?? null])}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/141-g141-img2video.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
