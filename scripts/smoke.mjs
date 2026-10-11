@@ -27465,7 +27465,228 @@ async function g142(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142]
+// ────────────────────────────────────────────────────────────
+// G143 漫剧「参考图回喂」（对账 #430）：
+//   #419 的定妆图 / 基准图此前**只显示、不喂生成**（真功能在界面上长得跟假的一样）。
+//   这一组守的就是"它真进了请求"：
+//   ① 铺到画布时，场景 / 角色的基准图节点各自**连到**这一镜上（连线即 inputs）
+//   ② 那一趟的运行记录 `inputs` 里带着**两张基准图的 hash**
+//   ③ 换了绑定（不绑那个场景了）再出 ⇒ **旧的线必须断掉**（否则画面里混着上一版）
+//   ④ 用户手工连进来的参考图不动
+// ────────────────────────────────────────────────────────────
+async function g143(browser) {
+  const g = 'G143 漫剧参考图回喂'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const shots = page.locator('[data-storyboard-shot]')
+
+  const readDb = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const all = (table) =>
+        new Promise((resolve) => {
+          const r = db.transaction(table, 'readonly').objectStore(table).getAll()
+          r.onsuccess = () => resolve(r.result ?? [])
+          r.onerror = () => resolve([])
+        })
+      const nodes = await all('nodes')
+      const edges = await all('edges')
+      const boards = await all('storyboards')
+      const runs = await all('runRecords')
+      const doc = boards[0]?.doc
+      return {
+        nodes: nodes.map((n) => ({ id: n.id, mode: n.data?.mode ?? null })),
+        edges: edges.map((e) => ({ source: e.source, target: e.target })),
+        characters: (doc?.characters ?? []).map((c) => ({
+          id: c.id,
+          nodeId: c.nodeId ?? null,
+          baseHash: c.baseHash ?? null,
+        })),
+        scenes: (doc?.scenes ?? []).map((s) => ({
+          id: s.id,
+          nodeId: s.nodeId ?? null,
+          baseHash: s.baseHash ?? null,
+        })),
+        shots: (doc?.shots ?? []).map((s) => ({
+          id: s.id,
+          nodeId: s.nodeId ?? null,
+          imageHash: s.imageHash ?? null,
+          sceneId: s.sceneId ?? null,
+        })),
+        runs: runs.map((r) => ({
+          nodeId: r.nodeId,
+          createdAt: r.createdAt ?? 0,
+          version: r.version ?? 0,
+          inputs: r.inputs ?? [],
+        })),
+      }
+    })
+  /** 等到库里某个条件成立（画布 store 落库是 800ms 防抖，别拿墙钟赌） */
+  const waitDb = async (predicate, timeoutMs = 30000) => {
+    const started = Date.now()
+    for (;;) {
+      const db = await readDb()
+      if (predicate(db) || Date.now() - started > timeoutMs) return db
+      await sleep(250)
+    }
+  }
+  /**
+   * ⚠️ **按 nodeId 认领，而且要最新那一趟**：`getAll` 是主键序不是创建序（#415 / #428 的教训），
+   * 而这里同一个节点会跑两趟（换绑定前后各一次），取错一趟就会把"断开了"判成"还连着"。
+   */
+  const latestRun = (db, nodeId) =>
+    db.runs
+      .filter((r) => r.nodeId === nodeId)
+      .sort((a, b) => a.createdAt - b.createdAt || a.version - b.version)
+      .at(-1)
+
+  /* 渠道要先配好：`configureMockChannel` 会整页跳去设置页，放写数据之前（#427 的教训） */
+  const ch = await configureMockChannel(page)
+  rec(g, '渠道验证通过', ch.verified)
+
+  await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-storyboard-create]').click()
+  await page.waitForURL(/\/storyboard\/proj_/)
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+
+  // ① 一集 + 一镜 + 一角色 + 一场景
+  await page.locator('[data-storyboard-add-episode]').click()
+  await sleep(250)
+  await page.locator('[data-storyboard-add-shot]').click()
+  await sleep(250)
+  await page.locator('[data-storyboard-add-character]').click()
+  await sleep(200)
+  await page.locator('[data-storyboard-add-scene]').click()
+  await sleep(300)
+
+  const charId = (await page.locator('[data-storyboard-character]').first().getAttribute('data-storyboard-character')) ?? ''
+  const sceneId = (await page.locator('[data-storyboard-scene]').first().getAttribute('data-storyboard-scene')) ?? ''
+  const shot1 = (await shots.first().getAttribute('data-storyboard-shot')) ?? ''
+  await page.locator(`[data-storyboard-asset-name="${charId}"]`).fill('骑手')
+  await page.locator(`[data-storyboard-asset-desc="${charId}"]`).fill('二十出头，雨衣')
+  await page.locator(`[data-storyboard-asset-name="${sceneId}"]`).fill('雨夜街道')
+  await page.locator(`[data-storyboard-asset-desc="${sceneId}"]`).fill('霓虹、积水')
+  await sleep(600)
+  rec(g, '★ 一集一镜 + 一角色一场景都在', (await shots.count()) === 1 && !!charId && !!sceneId)
+
+  // ② 出定妆图 / 基准图（两张都要等完再点下一张：跑的时候那块按钮是灰的）
+  await page.locator(`[data-storyboard-asset-base="${charId}"]`).click()
+  const afterChar = await waitDb(
+    (db) => !!db.characters.find((c) => c.id === charId)?.baseHash,
+    40000,
+  )
+  const charBase = afterChar.characters.find((c) => c.id === charId)?.baseHash ?? ''
+  const charNode = afterChar.characters.find((c) => c.id === charId)?.nodeId ?? ''
+  await page.locator(`[data-storyboard-asset-base="${sceneId}"]`).click()
+  const afterScene = await waitDb(
+    (db) => !!db.scenes.find((s) => s.id === sceneId)?.baseHash,
+    40000,
+  )
+  const sceneBase = afterScene.scenes.find((s) => s.id === sceneId)?.baseHash ?? ''
+  const sceneNode = afterScene.scenes.find((s) => s.id === sceneId)?.nodeId ?? ''
+  rec(
+    g,
+    '★★ 定妆图 / 基准图各出一张（hash 与节点都镜像回资产）',
+    !!charBase && !!sceneBase && !!charNode && !!sceneNode,
+    `角色=${charBase.slice(0, 8)} 场景=${sceneBase.slice(0, 8)}`,
+  )
+
+  // ③ 绑定 + 铺到画布 ⇒ 参考图连线应当**当场**接上
+  await page.locator(`[data-storyboard-shot-scene-bind="${shot1}"]`).selectOption(sceneId)
+  await page.locator(`[data-storyboard-shot-character="${shot1}"][data-character-id="${charId}"]`).click()
+  await sleep(400)
+  await page.locator('[data-storyboard-lay-out]').click()
+  const laid = await page
+    .locator('[data-storyboard-lay-status="done"]')
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
+  const afterLay = await waitDb(
+    (db) =>
+      db.nodes.length === 3 &&
+      db.edges.some((e) => e.source === sceneNode) &&
+      db.edges.some((e) => e.source === charNode),
+    15000,
+  )
+  const shotNode = afterLay.shots.find((s) => s.id === shot1)?.nodeId ?? ''
+  rec(
+    g,
+    '★★★ 铺到画布时参考图**当场接上**：场景基准图 → 这一镜、角色定妆图 → 这一镜',
+    laid &&
+      !!shotNode &&
+      afterLay.edges.some((e) => e.source === sceneNode && e.target === shotNode) &&
+      afterLay.edges.some((e) => e.source === charNode && e.target === shotNode),
+    `边=${afterLay.edges.map((e) => `${e.source}→${e.target}`).join(',')}`,
+  )
+
+  // ④ 出图 ⇒ 那一趟的请求里必须带着这两张图
+  await page.locator(`[data-storyboard-shot-run="${shot1}"]`).click()
+  const afterRun = await waitDb((db) => !!db.shots.find((s) => s.id === shot1)?.imageHash, 40000)
+  const imageHash = afterRun.shots.find((s) => s.id === shot1)?.imageHash ?? ''
+  const run1 = latestRun(afterRun, shotNode)
+  const inputs1 = JSON.stringify(run1?.inputs ?? [])
+  rec(g, '★ 这一镜出图（hash 镜像回文档）', !!imageHash, `图=${imageHash.slice(0, 8)}`)
+  rec(
+    g,
+    '★★★ 那一趟运行记录 inputs 里**两张基准图的 hash 都在** —— 参考图真被送进渠道',
+    !!charBase && !!sceneBase && inputs1.includes(charBase) && inputs1.includes(sceneBase),
+    `inputs=${inputs1.slice(0, 120)}`,
+  )
+  rec(
+    g,
+    '★★ 两张都是 `asset` 类输入（不是被当成文本糊进提示词）',
+    (run1?.inputs ?? []).filter((i) => i.kind === 'asset').length >= 2,
+    `asset 类=${(run1?.inputs ?? []).filter((i) => i.kind === 'asset').length}`,
+  )
+
+  // ⑤ 换绑定：不绑那个场景了，再出一次 ⇒ 场景那条线必须**断掉**
+  await page.locator(`[data-storyboard-shot-scene-bind="${shot1}"]`).selectOption('')
+  await sleep(700)
+  await page.locator(`[data-storyboard-shot-run="${shot1}"]`).click()
+  const afterUnbind = await waitDb(
+    (db) => {
+      const shot = db.shots.find((s) => s.id === shot1)
+      const run = latestRun(db, shot?.nodeId ?? '')
+      return (
+        !!shot &&
+        !shot.sceneId &&
+        !db.edges.some((e) => e.source === sceneNode && e.target === shot.nodeId) &&
+        db.edges.some((e) => e.source === charNode && e.target === shot.nodeId) &&
+        !!run &&
+        !JSON.stringify(run.inputs).includes(sceneBase)
+      )
+    },
+    40000,
+  )
+  const run2 = latestRun(afterUnbind, shotNode)
+  const inputs2 = JSON.stringify(run2?.inputs ?? [])
+  rec(
+    g,
+    '★★★ 不绑那个场景了 ⇒ **旧的那条线被断掉**（否则请求里同时喂上一版的图）',
+    !afterUnbind.edges.some((e) => e.source === sceneNode && e.target === shotNode) &&
+      afterUnbind.edges.some((e) => e.source === charNode && e.target === shotNode),
+    `边=${afterUnbind.edges.map((e) => `${e.source}→${e.target}`).join(',')}`,
+  )
+  rec(
+    g,
+    '★★★ 重跑那一趟的 inputs 里**只剩角色的定妆图**（场景那张真的没再喂）',
+    !!charBase && inputs2.includes(charBase) && !inputs2.includes(sceneBase),
+    `inputs=${inputs2.slice(0, 120)}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/143-g143-shot-refs.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

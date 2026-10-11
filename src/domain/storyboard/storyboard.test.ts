@@ -17,6 +17,7 @@ import {
   moveEpisode,
   moveShot,
   parseStoryboard,
+  planShotRefEdges,
   removeCharacter,
   removeEpisode,
   removeScene,
@@ -27,6 +28,7 @@ import {
   setShotVideoNode,
   shotPrompt,
   shotPromptWithAssets,
+  shotRefNodeIds,
   shotsNeedingNode,
   shotsOf,
   storyboardStats,
@@ -730,5 +732,81 @@ describe('这一镜出视频：节点记账与产物镜像', () => {
     )
     expect('videoNodeId' in bare.shots[0]!).toBe(false)
     expect('videoHash' in bare.shots[0]!).toBe(false)
+  })
+})
+
+/**
+ * **参考图回喂**（对账 #430）。
+ *
+ * #419 的定妆图 / 基准图此前只显示、不喂生成（典型假功能）。这一组守的是
+ * 「这一镜该接哪几张图」与「连线该怎么改」两件纯逻辑 —— 真发请求那一段由冒烟 G143 守。
+ */
+describe('参考图回喂：这一镜该接哪几张图', () => {
+  /** 一镜 + 一角色 + 一场景，三者都绑好，且资产都已经出了基准图（节点 n-char / n-scene） */
+  const wired = (): StoryboardDoc => {
+    let doc = addCharacter(addScene(emptyStoryboard('p1'), 1), 1)
+    doc = addEpisode(doc, 1)
+    doc = addShot(doc, doc.episodes[0]!.id, 1)
+    const shotId = doc.shots[0]!.id
+    const charId = doc.characters[0]!.id
+    const sceneId = doc.scenes[0]!.id
+    doc = setAssetNode(doc, 'char', charId, 'n-char', 1)
+    doc = setAssetBaseHash(doc, 'char', charId, 'h-char', 1)
+    doc = setAssetNode(doc, 'scene', sceneId, 'n-scene', 1)
+    doc = setAssetBaseHash(doc, 'scene', sceneId, 'h-scene', 1)
+    doc = bindShotScene(doc, shotId, sceneId, 1)
+    doc = toggleShotCharacter(doc, shotId, charId, 1)
+    return doc
+  }
+  const live = new Set(['n-char', 'n-scene', 'n-shot'])
+
+  it('★★★ 场景 + 角色各一张：场景在前、角色按库里顺序（同一份数据每次算出来一样）', () => {
+    const doc = wired()
+    expect(shotRefNodeIds(doc, doc.shots[0]!, live)).toEqual(['n-scene', 'n-char'])
+  })
+
+  it('★★ 有图才接：还没出基准图的资产不接线（接上去也送不出任何字节）', () => {
+    let doc = wired()
+    doc = setAssetNode(doc, 'char', doc.characters[0]!.id, 'n-char2', 2)
+    /* 换节点顺手清了 baseHash（见 setAssetNode）⇒ 这一条此刻不该再接 */
+    expect(shotRefNodeIds(doc, doc.shots[0]!, new Set(['n-char2', 'n-scene']))).toEqual(['n-scene'])
+  })
+
+  it('★★ 节点是缓存不是真相：用户在画布上删过那个节点，就不再接它', () => {
+    const doc = wired()
+    expect(shotRefNodeIds(doc, doc.shots[0]!, new Set(['n-scene']))).toEqual(['n-scene'])
+  })
+
+  it('★★★ 换角色：接新的、**断旧的**（否则请求里同时喂两个人，画面里混着上一版）', () => {
+    let doc = wired()
+    const shotId = doc.shots[0]!.id
+    const oldChar = doc.characters[0]!.id
+    doc = toggleShotCharacter(doc, shotId, oldChar, 2)
+    doc = addCharacter(doc, 2)
+    const newChar = doc.characters[1]!.id
+    doc = setAssetNode(doc, 'char', newChar, 'n-char-b', 2)
+    doc = setAssetBaseHash(doc, 'char', newChar, 'h-char-b', 2)
+    doc = toggleShotCharacter(doc, shotId, newChar, 2)
+    const plan = planShotRefEdges(doc, doc.shots[0]!, ['n-scene', 'n-char'], new Set(['n-scene', 'n-char', 'n-char-b']))
+    expect(plan.connect).toEqual(['n-char-b'])
+    expect(plan.disconnect).toEqual(['n-char'])
+  })
+
+  it('★★ 用户手工连进来的参考图不动（只断我们自己接的那些）', () => {
+    const doc = wired()
+    const plan = planShotRefEdges(
+      doc,
+      doc.shots[0]!,
+      ['n-scene', 'n-char', 'n-handmade'],
+      new Set(['n-scene', 'n-char', 'n-handmade']),
+    )
+    expect(plan.connect).toEqual([])
+    expect(plan.disconnect).toEqual([])
+  })
+
+  it('★ 已经接齐了 ⇒ 一条命令都不发（别每次出图都往撤销栈里塞空事务）', () => {
+    const doc = wired()
+    const plan = planShotRefEdges(doc, doc.shots[0]!, ['n-scene', 'n-char'], live)
+    expect(plan).toEqual({ connect: [], disconnect: [] })
   })
 })

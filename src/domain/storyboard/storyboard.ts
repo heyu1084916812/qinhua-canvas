@@ -337,6 +337,66 @@ export function assetsOfShot(
 }
 
 /**
+ * **这一镜该接哪几张参考图**（对账 #430）。
+ *
+ * 这一条把 #419 的"定妆图 / 基准图"从**只显示**变成**真喂进生成**：镜头绑了角色 / 场景，
+ * 那些资产的基准图节点就是这一镜的参考图 —— 连线即 `inputs`（G141 验过这条机制）。
+ *
+ * 三条口径：
+ * 1. **有图才接**：资产还没出基准图（`baseHash` 空）就不接线 —— 接上去也送不出任何字节，
+ *    只会在画布上拉一堆没有内容的线；
+ * 2. **节点必须活着**：`nodeId` 是缓存不是真相（用户在画布上删过节点就不算），
+ *    与 `shotsNeedingNode` 同一条纪律；
+ * 3. **顺序固定**：场景在前、角色按库里的顺序 —— 同一份数据每次算出来一样，
+ *    否则"改一个描述"会连带连线顺序都变。
+ */
+export function shotRefNodeIds(
+  doc: StoryboardDoc,
+  shot: StoryboardShot,
+  liveNodeIds: ReadonlySet<string>,
+): string[] {
+  const { scene, characters } = assetsOfShot(doc, shot)
+  const out: string[] = []
+  const push = (asset: DramaAsset) => {
+    if (!asset.baseHash || !asset.nodeId) return
+    if (!liveNodeIds.has(asset.nodeId)) return
+    if (out.includes(asset.nodeId)) return
+    out.push(asset.nodeId)
+  }
+  if (scene) push(scene)
+  for (const c of characters) push(c)
+  return out
+}
+
+/**
+ * 这一镜的参考图连线**该怎么改**（纯函数：只算出该接 / 该断的，不发命令）。
+ *
+ * 为什么要 `disconnect`（而不是只增不减）：把这一镜的角色从 A 换成 B 之后，
+ * A 的定妆图那条线还留着 —— 请求里就会**同时喂 A 和 B**，而出图的用户完全不知道
+ * 为什么画面里混着上一版的人。这是"同一个事实两个来源"的老毛病，必须在源头掐掉。
+ *
+ * **但只断"我们自己接的"**：源节点必须是本片某条资产（角色 / 场景）的基准图节点。
+ * 用户手工连进来的别的东西（比如拉一张生成图当参考）一律不动 —— 那一份不是我们能替他决定的。
+ */
+export function planShotRefEdges(
+  doc: StoryboardDoc,
+  shot: StoryboardShot,
+  incomingSources: readonly string[],
+  liveNodeIds: ReadonlySet<string>,
+): { connect: string[]; disconnect: string[] } {
+  const wanted = new Set(shotRefNodeIds(doc, shot, liveNodeIds))
+  const managed = new Set<string>()
+  for (const asset of [...doc.characters, ...doc.scenes]) {
+    if (asset.nodeId && liveNodeIds.has(asset.nodeId)) managed.add(asset.nodeId)
+  }
+  const incoming = new Set(incomingSources)
+  return {
+    connect: [...wanted].filter((id) => !incoming.has(id)),
+    disconnect: [...incoming].filter((id) => managed.has(id) && !wanted.has(id)),
+  }
+}
+
+/**
  * **真正会发给模型的提示词** = 这一镜自己的提示词 + 资产设定块（对账 #418）。
  *
  * 三条口径：

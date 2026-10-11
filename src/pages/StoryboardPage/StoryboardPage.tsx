@@ -52,6 +52,7 @@ import {
   exportStoryboardMarkdown,
   moveEpisode,
   moveShot,
+  planShotRefEdges,
   removeCharacter,
   removeEpisode,
   removeScene,
@@ -60,6 +61,7 @@ import {
   setAssetNode,
   setShotVideoNode,
   shotPromptWithAssets,
+  shotRefNodeIds,
   shotsNeedingNode,
   shotsOf,
   storyboardStats,
@@ -395,6 +397,40 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   const needNodes = shotsNeedingNode(shots, liveNodeIds)
   const laidCount = shots.filter((s) => s.nodeId && liveNodeIds.has(s.nodeId)).length
 
+  /**
+   * **把"这一镜该接的参考图"同步到连线上**（对账 #430）。
+   *
+   * #419 做出来的定妆图 / 基准图此前**一个字节都没喂进生成**：它只被显示、被镜像，
+   * 请求里从来没有它（这就是"假功能"长什么样）。这一步把它接上 —— 而且**不加任何新机制**：
+   * 上游图正是靠连线进 `inputs` 的（G141 在视频那条链上验过同一条路）。
+   *
+   * 三条纪律：
+   * ① **按快照算**：`getSnapshot()` 是同步真相，同一轮里已经接上的线不会再接一遍
+   *    （`canConnect` 也会挡重复边）；
+   * ② **没有增减就一条命令都不发**：免得每次出图都往撤销栈里塞一步空事务；
+   * ③ **只断我们自己接的那些** —— 用户手工连进来的参考图一律不动（见 `planShotRefEdges`）。
+   */
+  const syncShotRefs = (shot: StoryboardShot, targetNodeId: string) => {
+    const snapshot = canvasStore.getSnapshot()
+    const live = new Set(snapshot.nodes.map((n) => n.id))
+    if (!live.has(targetNodeId)) return
+    const incoming = snapshot.edges
+      .filter((e) => e.target === targetNodeId)
+      .map((e) => e.source)
+    const plan = planShotRefEdges(doc, shot, incoming, live)
+    if (plan.disconnect.length === 0 && plan.connect.length === 0) return
+    for (const source of plan.disconnect) {
+      for (const edge of snapshot.edges) {
+        if (edge.source === source && edge.target === targetNodeId) {
+          canvasStore.dispatch({ kind: 'edge.remove', id: edge.id })
+        }
+      }
+    }
+    for (const source of plan.connect) {
+      canvasStore.dispatch({ kind: 'edge.connect', source, target: targetNodeId })
+    }
+  }
+
   const pick = (id: string) => {
     setSelectedId(id)
     setConfirming('')
@@ -713,6 +749,15 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
           })
           if (nodeId) pairs.push({ shotId: item.shotId, nodeId })
         })
+        /**
+         * 铺完立刻把参考图接上（对账 #430）：**已经出过定妆图 / 基准图**的角色与场景，
+         * 它们的图就是这一镜的输入。放在同一个事务里 —— 用户按一次撤销，
+         * 节点与这几条线一起退回去（线单独成事务就会散成好几步）。
+         */
+        for (const pair of pairs) {
+          const shot = doc.shots.find((s) => s.id === pair.shotId)
+          if (shot) syncShotRefs(shot, pair.nodeId)
+        }
       } finally {
         canvasStore.endPlan()
       }
@@ -729,10 +774,31 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
    *
    * 为什么不铺新节点：分镜要的是"这一镜的图"，不是"这一镜的十张候选"。
    * 想留旧图比稿的用户可以先用单镜重出（每次覆盖），或到画布上用 Alt+R —— 两条路都在。
+   *
+   * 出图前先 `syncShotRefs`：**定妆图是后补的**（先铺了分镜、之后才给角色出定妆图）
+   * 也得吃进这一趟请求 —— 只在铺的时候接一次，后补的那张就永远喂不进去。
    */
   const runShot = (shot: StoryboardShot) => {
     if (!shot.nodeId) return
-    void exec.runNode(shot.nodeId, { inPlace: true })
+    syncShotRefs(shot, shot.nodeId)
+    const refs = shotRefNodeIds(doc, shot, new Set(graph.nodes.map((n) => n.id))).length
+    if (refs > 0) setLay({ kind: 'running', text: `这一镜在跑（带 ${refs} 张参考图）…` })
+    void exec.runNode(shot.nodeId, { inPlace: true }).then(
+      () => {
+        /**
+         * 「跑完」不等于「出成」：失败是**记在状态里**的（`nodeStates`），不抛异常。
+         * 只看 then 就把失败报成"已出"，正是 #188 那个坑。
+         */
+        if (refs === 0) return
+        const state = exec.nodeStateOf(shot.nodeId!)
+        if (state?.kind === 'failed') {
+          setLay({ kind: 'error', text: `这一镜出图失败：${describeError(state.error)}` })
+          return
+        }
+        setLay({ kind: 'done', text: `这一镜的图已出（带了 ${refs} 张参考图）` })
+      },
+      (e: unknown) => setLay({ kind: 'error', text: humanError(e) }),
+    )
   }
 
   /**
@@ -853,6 +919,8 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     }
     setLay({ kind: 'idle', text: '' })
     for (const shot of targets) {
+      /* 整集出图与单镜出图同一条纪律：跑之前先把参考图接上（对账 #430） */
+      syncShotRefs(shot, shot.nodeId!)
       await exec.runNode(shot.nodeId!, { inPlace: true })
     }
     setLay({ kind: 'done', text: `已跑完这一集 ${targets.length} 镜（失败的镜头各自标了原因）` })
