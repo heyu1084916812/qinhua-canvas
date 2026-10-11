@@ -39,7 +39,11 @@ const EXE_SRC = process.env.QH_RELEASE_EXE ?? path.join(ROOT, 'src-tauri/target/
 const PORT = Number(process.env.QH_CDP_PORT ?? 9444)
 const KEEP_PROFILE = process.env.QH_KEEP_PROFILE === '1'
 const PKG_VERSION = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version
-const DIST_WASM = path.join(ROOT, 'dist/mediapipe/wasm/vision_wasm_internal.wasm')
+/** 期望字节数优先取 `dist/`（真正被打进包的那份），没有就退回 `public/` 源文件（同长） */
+const WASM_REF = [
+  path.join(ROOT, 'dist/mediapipe/wasm/vision_wasm_internal.wasm'),
+  path.join(ROOT, 'public/mediapipe/wasm/vision_wasm_internal.wasm'),
+].find((p) => existsSync(p))
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 if (!existsSync(EXE_SRC)) {
@@ -249,7 +253,7 @@ check(
 )
 
 // ⑤ 11.7 MB 的 mediapipe wasm 真在包里（情绪局部改脸那条链的依赖）
-const expectedWasm = existsSync(DIST_WASM) ? statSync(DIST_WASM).size : null
+const expectedWasm = WASM_REF ? statSync(WASM_REF).size : null
 const wasm = await page.evaluate(async (url) => {
   try {
     const res = await fetch(url)

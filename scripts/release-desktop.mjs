@@ -7,14 +7,17 @@
  *     它们不一致时安装包的版本、界面显示的版本、更新比较用的版本会各说各话；
  *  2. 构建 + **签名**（`npm run tauri build`，私钥来自 `TAURI_SIGNING_PRIVATE_KEY`）；
  *  3. 把安装包 + `latest.json`（Tauri 更新清单）整理进 `release/<版本>/`，可直接上传。
+ *  4. **交付门禁**：拿这份 release 产物真机启动一次（`scripts/check-release-shell.mjs`，对账 #438）——
+ *     包"生成出来"不等于"装上去能打开"；不过门禁就不该上传。
  *
  * 用法：
  *   node scripts/release-desktop.mjs                     # 构建 + 出品
  *   node scripts/release-desktop.mjs --skip-build        # 复用已有产物，只出品
  *   node scripts/release-desktop.mjs --notes "改了啥"     # 写进清单，客户端会看到
  *   node scripts/release-desktop.mjs --base-url <地址>    # 覆盖下载地址前缀
+ *   node scripts/release-desktop.mjs --no-shell-check    # 跳过启动自检（不推荐）
  */
-import { execFileSync, execSync } from 'node:child_process'
+import { execFileSync, execSync, spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
@@ -189,6 +192,35 @@ writeFileSync(path.join(outDir, 'latest.json'), `${JSON.stringify(manifest, null
 
 console.log(`\n[release] 出品目录：release/${version}`)
 for (const f of [asset, `${asset}.sig`, 'latest.json']) console.log(`  - ${f}`)
+
+/**
+ * 交付门禁（对账 #438）：**产物生成出来 ≠ 装上去能打开**。
+ *
+ * 这一道把"要交给用户的那个二进制"真的启动一次：拷进临时布局跑起来，用 CDP 断言
+ * 内嵌前端 / 平台判定 / 首屏 / 版本号 / mediapipe wasm / 同级 `data\` 与迁移 / 无运行时报错。
+ * 它只看**磁盘与页面里的真值**，跑完自动清掉临时 profile（详见 `check-release-shell.mjs` 头部注释）。
+ *
+ * 为什么放在发版脚本里而不是留给人工：这是唯一一个"必须真启动"的判据 ——
+ * 漏了它，安装包看着一切正常（有大小、有签名、清单也对），用户双击却可能什么都不弹。
+ */
+if (!has('--no-shell-check')) {
+  console.log('\n[release] 交付门禁：release 产物真机启动自检')
+  const gate = spawnSync(process.execPath, [path.join(ROOT, 'scripts/check-release-shell.mjs')], {
+    cwd: ROOT,
+    stdio: 'inherit',
+    env: process.env,
+  })
+  if (gate.error) throw new Error(`启动自检没跑起来：${gate.error.message}`)
+  if (gate.status !== 0) {
+    throw new Error(
+      `release 产物启动自检没过（退出码 ${gate.status}）⇒ 这一版**不算打好了，别上传**。\n` +
+        '  单独复跑看细节：node scripts/check-release-shell.mjs\n' +
+        '  真要跳过这一道（不推荐）：node scripts/release-desktop.mjs --no-shell-check',
+    )
+  }
+} else {
+  console.log('\n[release] ⚠️ 已跳过启动自检（--no-shell-check）：这一版没被真启动验证过。')
+}
 
 console.log('\n[release] 接下来（都在发布机外，脚本不代做）：')
 console.log(`  1. 把 release/${version}/ 里的 ${asset} 与 latest.json 上传到 tag v${version} 的 Release`)

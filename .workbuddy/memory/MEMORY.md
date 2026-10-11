@@ -5,6 +5,10 @@
 新增交付门禁 `scripts/check-release-shell.mjs`（**入库**）：把 release exe 拷进
 `.playwright-verify/release-shell/<时间戳>/app/` 再启动，CDP 连上去断言十项。首次跑 **10/10**。
 
+- **★★★ 光有门禁脚本没人跑，等于没有**：已接进 `scripts/release-desktop.mjs` 的第 4 步（默认跑，
+  不过就抛错停下、写明"这版别上传"；`--no-shell-check` 只在排查门禁本身时用）。
+  **故障注入两条都真跑过**：`QH_RELEASE_EXE` 指到不存在的路径 ⇒ 发版脚本退出码 1；还原 ⇒ 10/10、退出码 0。
+
 - **★★★ 三种验证各看一层，别拿一层当全部**：全量冒烟跑的是 **Web 构建**、
   `probe-tauri-shell.mjs` 跑的是 **dev 壳**，而**交到用户手里的那份是 release 二进制**。
   只在 release 里才暴露的三处：前端资源**内嵌在 exe 里**、`__APP_VERSION__` **构建时注入**、
