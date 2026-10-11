@@ -244,7 +244,7 @@ export function ContextMenu() {
           )
           void folderActions
             .loadIntoCanvas({ store, projectId: graph.projectId, at })
-            .then((message) => store.notify(message))
+            .then(({ message, tone }) => store.notify(message, tone))
         }
       }
     }

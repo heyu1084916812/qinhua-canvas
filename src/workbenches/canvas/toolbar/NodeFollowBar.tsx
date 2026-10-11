@@ -281,7 +281,7 @@ function NodeActions({
   const runSplit = (rows: number, cols: number) => {
     setSplitMenu('none')
     void splitNodeToGrid({ platform, store }, { nodeId: node.id, rows, cols }).then((r) => {
-      if (!r.ok) store.notify(r.reason)
+      if (!r.ok) store.notify(r.reason, 'error')
     })
   }
 
@@ -565,7 +565,7 @@ function GroupActions({
     setArrangeOpen(false)
     const r = arrangeGroupMembers(store, node.id)
     /** 没得收也说一句：按钮点了要有反馈（组框本来就贴住内容时最常见） */
-    if (!r.ok) store.notify(r.reason ?? '整理失败')
+    if (!r.ok) store.notify(r.reason ?? '整理失败', 'error')
     else if (!r.changed) store.notify('组内已经很整齐了')
   }
 
@@ -583,13 +583,13 @@ function GroupActions({
     setArrangeOpen(false)
     const memberIds = members.map((m) => m.id)
     if (memberIds.length < 2) {
-      store.notify('组内至少 2 个节点才能排列')
+      store.notify('组内至少 2 个节点才能排列', 'error')
       return
     }
     const planId = createId('arrangeGroup')
     const r = arrangeMode(mode, memberIds, planId)
     if (r.kind === 'too-few') {
-      store.notify('组内至少 2 个节点才能排列')
+      store.notify('组内至少 2 个节点才能排列', 'error')
       return
     }
     refitGroupBox(store, node.id, planId, 'tight')
@@ -598,7 +598,7 @@ function GroupActions({
   const runAll = () => {
     const runnable = members.filter((m) => GROUP_RUNNABLE.has(m.type))
     if (runnable.length === 0) {
-      store.notify('组内没有能单独执行的节点（生成节点才能跑）')
+      store.notify('组内没有能单独执行的节点（生成节点才能跑）', 'error')
       return
     }
     for (const m of runnable) void exec.runNode(m.id)
@@ -612,7 +612,7 @@ function GroupActions({
   const download = () => {
     const withAsset = members.filter((m) => (m.data as { assetHash?: string }).assetHash)
     if (withAsset.length === 0) {
-      store.notify('组内没有可下载的素材')
+      store.notify('组内没有可下载的素材', 'error')
       return
     }
     withAsset.forEach((m) => onDownload?.(m.id))

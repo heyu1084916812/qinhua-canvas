@@ -100,8 +100,8 @@ export function MultiSelectBar({
     (mode?: (typeof ARRANGE_MODES)[number]['mode']) => {
       setMenuOpen(false)
       const r = mode ? arrangeMode(mode) : arrange()
-      if (r.kind === 'cycle') store.notify(r.reason ?? '存在循环依赖，无法整理')
-      else if (r.kind === 'too-few') store.notify('至少选中 2 个节点才能排列')
+      if (r.kind === 'cycle') store.notify(r.reason ?? '存在循环依赖，无法整理', 'error')
+      else if (r.kind === 'too-few') store.notify('至少选中 2 个节点才能排列', 'error')
     },
     [arrange, arrangeMode, store],
   )
@@ -109,13 +109,14 @@ export function MultiSelectBar({
   const saveToLibrary = useCallback(() => {
     const withAsset = nodes.filter((n) => (n.data as { assetHash?: string }).assetHash)
     if (withAsset.length === 0) {
-      store.notify('选中的节点里没有可保存的素材')
+      store.notify('选中的节点里没有可保存的素材', 'error')
       return
     }
     void Promise.all(withAsset.map((n) => saveAssetToLibrary({ platform, store }, n.id))).then(
       (rs) => {
         const ok = rs.filter((r) => r.ok).length
-        store.notify(ok > 0 ? `已保存 ${ok} 张到「我的素材」` : '保存失败：素材已不在库里')
+        if (ok > 0) store.notify(`已保存 ${ok} 张到「我的素材」`)
+        else store.notify('保存失败：素材已不在库里', 'error')
       },
     )
   }, [nodes, platform, store])
@@ -155,7 +156,7 @@ export function MultiSelectBar({
   const batch = useCallback(() => {
     const r = batchNodes(store, selection)
     if (r.ok) store.showUndoBar('已收进批量节点')
-    else store.notify(r.reason)
+    else store.notify(r.reason, 'error')
   }, [selection, store])
 
   if (nodes.length < 2) return null

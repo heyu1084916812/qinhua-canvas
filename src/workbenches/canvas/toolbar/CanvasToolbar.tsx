@@ -165,15 +165,15 @@ export function CanvasToolbar({
 
   const onArrange = () => {
     const r = arrange()
-    if (r.kind === 'cycle') store.notify(r.reason ?? '存在循环依赖，无法整理')
-    else if (r.kind === 'too-few') store.notify('至少选中 2 个节点才能整理')
+    if (r.kind === 'cycle') store.notify(r.reason ?? '存在循环依赖，无法整理', 'error')
+    else if (r.kind === 'too-few') store.notify('至少选中 2 个节点才能整理', 'error')
     setOpenMenu(null)
   }
 
   /** 排列面板里点某一项（§6.5 ②③） */
   const onArrangeMode = (mode: ArrangeMode) => {
     const r = arrangeMode(mode)
-    if (r.kind === 'too-few') store.notify('至少选中 2 个节点才能排列')
+    if (r.kind === 'too-few') store.notify('至少选中 2 个节点才能排列', 'error')
     setOpenMenu(null)
   }
 

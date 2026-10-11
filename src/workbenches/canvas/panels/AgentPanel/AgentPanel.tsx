@@ -956,7 +956,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     const exist = new Set(store.getSnapshot().nodes.map((n) => n.id))
     const picked = selection.filter((id) => exist.has(id))
     if (picked.length === 0) {
-      store.notify('选中的不是画布上的节点')
+      store.notify('选中的不是画布上的节点', 'error')
       return
     }
     /**
@@ -1056,6 +1056,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         failed.length === 0
           ? `已导入 ${ok} 条技能`
           : `导入 ${ok} 条，${failed.length} 条失败：${failed[0]}`,
+        failed.length === 0 ? 'info' : 'error',
       )
     },
     [skills, store],

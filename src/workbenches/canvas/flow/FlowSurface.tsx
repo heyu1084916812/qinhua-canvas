@@ -510,7 +510,7 @@ function FlowSurfaceInner({
       { x: r.left, y: r.top, w: r.width, h: r.height },
     )
     const { ids, rejected } = await importDroppedFiles({ platform, store, projectId }, files, world)
-    if (rejected > 0) store.notify(`跳过 ${rejected} 个文件：只支持图片 / 视频素材`)
+    if (rejected > 0) store.notify(`跳过 ${rejected} 个文件：只支持图片 / 视频素材`, 'error')
     if (ids.length > 0) {
       store.setSelection(ids)
       store.showUndoBar(`已导入 ${ids.length} 个素材`)
@@ -937,7 +937,7 @@ function FlowSurfaceInner({
       const worldPoint = dropPointOf(pointerWorldPoint(e, store), node, graph)
       const outcome = resolveDropOutcome(node.id, worldPoint, graph)
       if (outcome.kind === 'rejected') {
-        store.notify(outcome.reason)
+        store.notify(outcome.reason, 'error')
         return
       }
       if (outcome.kind === 'ok') {

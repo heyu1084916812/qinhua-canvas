@@ -134,7 +134,7 @@ export function createNodeDragController(
       const worldPoint = dropPointOf(dropPoint(ev, store, el), node, graph)
       const outcome = resolveDropOutcome(d.ids[0], worldPoint, graph)
       if (outcome.kind === 'rejected') {
-        store.notify(outcome.reason)
+        store.notify(outcome.reason, 'error')
         return
       }
       if (outcome.kind === 'ok') {

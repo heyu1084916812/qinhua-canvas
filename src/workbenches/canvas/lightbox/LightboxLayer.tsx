@@ -312,7 +312,7 @@ export function LightboxLayer() {
       if (!natural) return
       const box = faceBoxFromRect(cropRect, natural)
       if (!box) {
-        store.notify('这个框太小了，重新拖一个大一点的')
+        store.notify('这个框太小了，重新拖一个大一点的', 'error')
         return
       }
       store.dispatch({ kind: 'node.updateData', id: faceFor, patch: { faceBox: box } })
@@ -331,7 +331,7 @@ export function LightboxLayer() {
       close()
       store.notify('已提取选区：局部图已生成在原图右侧，并带上上下文')
     } else {
-      store.notify(out.reason)
+      store.notify(out.reason, 'error')
     }
   }
 

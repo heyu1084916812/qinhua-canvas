@@ -322,7 +322,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
           failed: summary.failed,
         })
         if (!notice || !shouldNotify(getNotifyPrefs(), notice.kind)) return
-        store.notify(notice.text)
+        store.notify(notice.text, notice.kind === 'failure' ? 'error' : 'info')
         /**
          * 系统通知**只发收口这一句**，不跟着每条进度发 ——
          * 一次批量跑 20 张会把通知中心刷屏，那是"通知"功能最经典的翻车方式。
@@ -404,6 +404,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         if (!picked) {
           store.notify(
             `没有渠道提供模型「${logical}」：请到后台设置的「模型管理」里勾选并配置映射`,
+            'error',
           )
           return
         }
@@ -443,6 +444,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
             app
               ? `渠道「${ch.name}」无法执行：${describeError(app)}`
               : `渠道「${ch.name}」无法执行：${String(e)}`,
+            'error',
           )
           return
         }
@@ -546,7 +548,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       const node = graph.nodes.find((n) => n.id === nodeId)
       const reason = emptyPlanReason(node, channels.getState().channels, graph)
       if (!reason) return
-      store.notify(`${reason}，无法生成`)
+      store.notify(`${reason}，无法生成`, 'error')
     },
     [store, channels],
   )
@@ -574,11 +576,11 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         loopUpstreamPrompts(loopNode, graph),
       )
       if (rounds.length === 0) {
-        store.notify('循环次数为 0，没有可跑的轮次')
+        store.notify('循环次数为 0，没有可跑的轮次', 'error')
         return
       }
       if (!hasRunnableDownstream(loopNode, graph)) {
-        store.notify('循环节点下游还没有生成节点，无法运行')
+        store.notify('循环节点下游还没有生成节点，无法运行', 'error')
         return
       }
 
@@ -661,13 +663,14 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
               round.prompt || round.assetHashes.length > 0
                 ? `第 ${round.index} 轮无法构建请求，已停止`
                 : `第 ${round.index} 轮没有可用的提示词或图片，已停止（在下游节点写提示词，或在循环节点写一条）`,
+              'error',
             )
             return
           }
         }
 
         if (allTasks.length === 0) {
-          store.notify('没有可执行的轮次')
+          store.notify('没有可执行的轮次', 'error')
           return
         }
 
@@ -804,7 +807,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
           patch: { skillId: undefined },
           transient: false,
         })
-        store.notify('选中的技能已被删除，已取消选择，请重新选择后再生成')
+        store.notify('选中的技能已被删除，已取消选择，请重新选择后再生成', 'error')
         return 'failed'
       }
 
@@ -812,7 +815,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       const channelId = node.data.channelId
       const model = node.data.model
       if (!channelId || !model) {
-        store.notify('技能需要文本模型：请先在创作面板选择平台与模型')
+        store.notify('技能需要文本模型：请先在创作面板选择平台与模型', 'error')
         return 'failed'
       }
       /**
@@ -826,11 +829,11 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         ? promptSpec.collectInputs({ node, graph: store.getSnapshot() }).filter((i) => i.kind === 'asset')
         : []
       if (skill.inputMode === 'image' && inputs.length === 0) {
-        store.notify(`技能「${skill.name}」需要上游图片：先把一个已出图的生成节点连到本节点`)
+        store.notify(`技能「${skill.name}」需要上游图片：先把一个已出图的生成节点连到本节点`, 'error')
         return 'failed'
       }
       if (skill.inputMode === 'text' && !text) {
-        store.notify(`技能「${skill.name}」需要提示词正文：先在本节点写一段内容`)
+        store.notify(`技能「${skill.name}」需要提示词正文：先在本节点写一段内容`, 'error')
         return 'failed'
       }
 
@@ -856,6 +859,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         const appError = asAppError(e)
         store.notify(
           appError ? `技能执行失败：${describeError(appError)}` : `技能执行失败：${String(e)}`,
+          'error',
         )
         return 'failed'
       }
@@ -896,7 +900,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
        */
       if (node?.type === 'fusion') {
         const outcome = await fuseNode({ platform, store }, nodeId)
-        if (!outcome.ok) store.notify(outcome.reason)
+        if (!outcome.ok) store.notify(outcome.reason, 'error')
         return
       }
 

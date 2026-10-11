@@ -802,7 +802,7 @@ function handlePanelEvent(
     case 'runEmotion': {
       const emotion = emotionById((node.data as GenerationData).emotion)
       if (!emotion) {
-        store.notify('先在面板上选一个情绪点位')
+        store.notify('先在面板上选一个情绪点位', 'error')
         break
       }
       void (async () => {
@@ -827,7 +827,7 @@ function handlePanelEvent(
            * 自动认不出来**不是死胡同**：说清为什么，并直接把框选灯箱开出来
            * （用户 2026-10-06：「识别不了的话要手动框选」）。
            */
-          store.notify(`${out.reason}。已在灯箱里打开这张图，框住脸再点「生成」`)
+          store.notify(`${out.reason}。已在灯箱里打开这张图，框住脸再点「生成」`, 'error')
           store.openFaceLightbox(node.id)
           return
         }

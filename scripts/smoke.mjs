@@ -23449,6 +23449,45 @@ async function g120(browser) {
     .catch(() => false)
   rec(g, '★★★ 跑完一趟会弹「生成完成」页内提示（接线真的生效）', sawDone)
 
+  /*
+   * ①b/①c §4.5「动态播报」分档：**正常提示 = role=status（polite），错误提示 = role=alert（assertive）**。
+   * 为什么要真造一条错误：只数 `[data-canvas-notice]` 的个数，改不改语气都绿 ——
+   * 必须直接读那两条锚点（`data-notice-tone` / `role`），才知道"这一条是哪一档"。
+   */
+  const doneNotice = page.locator('[data-canvas-notice]').filter({ hasText: '生成完成' })
+  const doneTone = await doneNotice.getAttribute('data-notice-tone').catch(() => null)
+  const doneRole = await doneNotice.getAttribute('role').catch(() => null)
+  rec(
+    g,
+    '★★★ 正常提示是 role=status（tone=info）：不是错误就不该嚷',
+    doneTone === 'info' && doneRole === 'status',
+    `tone=${doneTone} role=${doneRole}`,
+  )
+
+  const badDt = await page.evaluateHandle(() => {
+    const dt = new DataTransfer()
+    dt.items.add(new File([new Uint8Array([1, 2, 3])], 'note.txt', { type: 'text/plain' }))
+    return dt
+  })
+  await page.locator('[data-canvas-surface]').dispatchEvent('dragover', { dataTransfer: badDt })
+  await page
+    .locator('[data-canvas-surface]')
+    .dispatchEvent('drop', { dataTransfer: badDt, clientX: 700, clientY: 420 })
+  const errNotice = page.locator('[data-canvas-notice]').filter({ hasText: '只支持图片' })
+  const errVisible = await errNotice
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  const errTone = await errNotice.getAttribute('data-notice-tone').catch(() => null)
+  const errRole = await errNotice.getAttribute('role').catch(() => null)
+  const errLive = await errNotice.getAttribute('aria-live').catch(() => null)
+  rec(
+    g,
+    '★★★ 错误提示是 role=alert + aria-live=assertive（tone=error）：被拒绝也要被念出来',
+    errVisible && errTone === 'error' && errRole === 'alert' && errLive === 'assertive',
+    `可见=${errVisible} tone=${errTone} role=${errRole} aria-live=${errLive}`,
+  )
+
   // ② 设置 → 通知：三档默认值 + 系统通知能力如实显示
   await openNotifyTab()
   const success = await page.locator('[data-notify-toggle="success"]').isChecked()

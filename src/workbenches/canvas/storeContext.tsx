@@ -67,7 +67,11 @@ export function useViewportState(): Viewport {
  * 画布级瞬时提示（§6.12「另一种类型拖入被拒绝并给出弱提示」/ §6.10 对比超 2 张）。
  * 纯展示态：不落库、不进撤销栈。
  */
-export function useNotice(): { id: string; text: string } | null {
+/**
+ * 瞬时提示。类型**从 store 推导**（`ReturnType<CanvasStore['getNotice']>`）而不是手写一份 ——
+ * 提示上后来多了 `tone`（§4.5 分档播报），手写的那份就会漂成"少一个字段"。
+ */
+export function useNotice(): ReturnType<CanvasStore['getNotice']> {
   const store = useCanvasStore()
   return useSyncExternalStore(store.subscribe, store.getNotice, store.getNotice)
 }

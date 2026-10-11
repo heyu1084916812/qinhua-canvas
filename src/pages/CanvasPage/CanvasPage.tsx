@@ -279,7 +279,7 @@ function CanvasProject({ projectId }: { projectId: string }) {
     const asset = await importAssetFile({ platform, store, projectId })
     if (!asset) return
     if (!isImportableMedia(asset.mime)) {
-      store.notify('只支持图片 / 视频素材')
+      store.notify('只支持图片 / 视频素材', 'error')
       return
     }
     const el = document.querySelector<HTMLElement>('[data-canvas-surface]')

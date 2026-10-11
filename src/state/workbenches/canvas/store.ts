@@ -80,7 +80,12 @@ interface CanvasState {
    * 画布级瞬时提示（§6.12「另一种类型拖入被拒绝并给出弱提示」/ §6.10 对比超 2 张）。
    * 纯展示态：不进撤销栈、不落库，由 UI 侧计时自动清除。
    */
-  notice: { id: string; text: string } | null
+  /**
+   * `tone` 决定**无障碍播报的强度**（产品文档 §4.5「动态播报：错误 `role=alert`，状态 `role=status`」）：
+   * `info` = 正常提示（已保存 / 已解组 / 生成完成…）；`error` = 被拒绝或被中止（缺渠道、技能缺上游…）。
+   * 它只影响播报语义，不影响任何业务分支。
+   */
+  notice: { id: string; text: string; tone: NoticeTone } | null
   /**
    * 是否正在拖动节点（§6.15「拖动期间…创作参数面板立即隐藏」）。
    * 纯展示态：不进撤销栈、不落库。
@@ -192,6 +197,15 @@ interface CanvasState {
   textEditor: { nodeId: string } | null
 }
 
+/**
+ * 画布瞬时提示的语义档（产品文档 §4.5「动态播报」）：
+ * `info` = 正常提示（`role=status` / `aria-live=polite`）；`error` = 被拒绝或被中止（`role=alert` / `assertive`）。
+ *
+ * 为什么要显式分档：以前所有提示都是 `role=status` —— 屏幕阅读器会把"没有渠道提供模型"
+ * 与"已保存 3 张"用同一种语气念出来，错误不够显眼。分档只改播报语义，**不改任何业务分支**。
+ */
+export type NoticeTone = 'info' | 'error'
+
 export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
   setSelection(ids: string[]): void
   getSelection(): string[]
@@ -214,9 +228,9 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
    * 由 CanvasPage 在挂载时按 projectId 从 IndexedDB 调用。
    */
   hydrate(snapshot: GraphSnapshot): void
-  /** 弹出瞬时提示（弱提示）；不落库、不进撤销栈 */
-  notify(text: string): void
-  getNotice(): { id: string; text: string } | null
+  /** 弹出瞬时提示（弱提示）；不落库、不进撤销栈。`tone='error'` 只影响无障碍播报强度（§4.5） */
+  notify(text: string, tone?: NoticeTone): void
+  getNotice(): { id: string; text: string; tone: NoticeTone } | null
   /** 关闭提示（当前条不是预期的 id 时忽略，避免竞态误关新提示） */
   clearNotice(id?: string): void
   /** 弹出撤销条（§6.12：删除等可撤销操作后提供「撤销 / 重做」入口） */
@@ -542,8 +556,8 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     hydrate: (snapshot) => {
       store.setState({ graph: snapshot })
     },
-    notify: (text) => {
-      store.setState({ notice: { id: createId('notice'), text } })
+    notify: (text, tone = 'info') => {
+      store.setState({ notice: { id: createId('notice'), text, tone } })
     },
     getNotice: () => store.getState().notice,
     clearNotice: (id) => {

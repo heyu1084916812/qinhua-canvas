@@ -296,4 +296,31 @@ describe('canvas store / 新节点默认尺寸档（#379 C5）', () => {
       expect(store.getSnapshot().nodes[0]!.w).toBe(240)
     }
   })
+
+  /**
+   * 瞬时提示的**语气档**（产品文档 §4.5「动态播报」）：`CanvasNotice` 按它选
+   * `role=status` 还是 `role=alert`。这里钉住默认值与显式覆盖两条 ——
+   * 默认必须是 `info`，否则所有正常提示都会被念成错误。
+   */
+  describe('瞬时提示的语气（§4.5 动态播报）', () => {
+    it('默认是 info（正常提示不该被念成错误）', () => {
+      const store = createCanvasStore({ platform, projectId: 'p1' })
+      store.notify('已保存 3 张')
+      expect(store.getNotice()?.tone).toBe('info')
+    })
+
+    it('显式传 error 时带上 error（拒绝 / 失败走 assertive 播报）', () => {
+      const store = createCanvasStore({ platform, projectId: 'p1' })
+      store.notify('没有渠道提供模型「X」', 'error')
+      expect(store.getNotice()).toMatchObject({ text: '没有渠道提供模型「X」', tone: 'error' })
+    })
+
+    it('每次通知都换 id（界面按 id 判"这是新的一条"）', () => {
+      const store = createCanvasStore({ platform, projectId: 'p1' })
+      store.notify('一')
+      const first = store.getNotice()!.id
+      store.notify('二')
+      expect(store.getNotice()!.id).not.toBe(first)
+    })
+  })
 })

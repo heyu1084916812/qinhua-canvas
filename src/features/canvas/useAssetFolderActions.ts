@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
-import type { CanvasStore } from '../../state/workbenches/canvas/store'
+import type { CanvasStore, NoticeTone } from '../../state/workbenches/canvas/store'
 import type { Point } from '../../domain/canvas/geometry/rect'
 import { describeLoadResult, loadAssetsFromFolder } from './loadFromFolder'
 import { describeExportReport, exportAssetsToFolder } from './exportAssetsToFolder'
@@ -30,8 +30,18 @@ export interface AssetFolderActions {
   pick: () => Promise<string>
   openFolder: () => Promise<string>
   exportAll: () => Promise<string>
-  /** 把文件夹里的素材批量建成**当前画布**上的节点 */
-  loadIntoCanvas: (args: { store: CanvasStore; projectId: string; at: Point }) => Promise<string>
+  /**
+   * 把文件夹里的素材批量建成**当前画布**上的节点。
+   *
+   * 返回**话 + 语气**两张牌：措辞里带"失败/没有"，屏幕阅读器也该按 `role=alert` 念
+   * （产品文档 §4.5）。语气由这里判（它才知道 `failed / imported` 各是多少），
+   * 显示方式仍由调用方决定 —— 与上面那条"只返回话、不自己通知"同一条口径。
+   */
+  loadIntoCanvas: (args: {
+    store: CanvasStore
+    projectId: string
+    at: Point
+  }) => Promise<{ message: string; tone: NoticeTone }>
 }
 
 export function useAssetFolderActions(): AssetFolderActions {
@@ -97,16 +107,21 @@ export function useAssetFolderActions(): AssetFolderActions {
     },
 
     async loadIntoCanvas({ store, projectId, at }) {
-      if (!folder?.current()) return '先选一个素材文件夹（全局设置 → 存储）'
+      if (!folder?.current()) {
+        return { message: '先选一个素材文件夹（全局设置 → 存储）', tone: 'error' as const }
+      }
       setLoading({ done: 0, total: 0 })
       try {
         const result = await loadAssetsFromFolder({ platform, store, projectId }, at, (done, total) =>
           setLoading({ done, total }),
         )
         // 结果如实说：加载几张、跳过几个、失败几个（失败带第一个原因）
-        return describeLoadResult(result)
+        return { message: describeLoadResult(result), tone: result.failed > 0 ? ('error' as const) : ('info' as const) }
       } catch (err) {
-        return `从文件夹加载失败：${err instanceof Error ? err.message : String(err)}`
+        return {
+          message: `从文件夹加载失败：${err instanceof Error ? err.message : String(err)}`,
+          tone: 'error' as const,
+        }
       } finally {
         setLoading(null)
       }
