@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
-import type { TimelineClip } from '../../domain/storyboard/ffmpegPack'
+import { dialogueTextOf, type TimelineClip } from '../../domain/storyboard/ffmpegPack'
 import styles from './EpisodePreview.module.css'
 
 /**
@@ -78,7 +78,7 @@ export function EpisodePreview({ clips, at, playing, onAt, onTogglePlay, onClose
             第 {clip.index} 镜 · {index + 1}/{clips.length} · {clip.seconds} 秒
           </span>
           <span className={styles.dialogue} data-preview-dialogue>
-            {clip.dialogue || '（这一镜没有台词）'}
+            {dialogueTextOf(clip) || '（这一镜没有台词）'}
           </span>
           <div className={styles.tools}>
             <button type="button" className={styles.btn} data-preview-prev onClick={() => step(-1)}>

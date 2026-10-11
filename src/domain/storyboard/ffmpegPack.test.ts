@@ -115,7 +115,7 @@ describe('合成包 · FFmpeg 命令', () => {
     hash: 'h1',
     file: 'h1.png',
     seconds: 3,
-    dialogue: '',
+    lines: [],
     scene: '',
     cast: [],
     local: true,
@@ -152,6 +152,7 @@ describe('合成包 · FFmpeg 命令', () => {
 })
 
 describe('合成包 · SRT 字幕', () => {
+  /** 一句台词的片段（说话人空 = 没说清；字幕正文本来就不带前缀） */
   const clip = (index: number, seconds: number, dialogue: string): PackClip => ({
     index,
     shotId: `s${index}`,
@@ -159,7 +160,7 @@ describe('合成包 · SRT 字幕', () => {
     hash: `h${index}`,
     file: `h${index}.png`,
     seconds,
-    dialogue,
+    lines: dialogue ? [{ lineId: `l${index}`, speaker: '', text: dialogue }] : [],
     scene: '',
     cast: [],
     local: true,
@@ -177,6 +178,31 @@ describe('合成包 · SRT 字幕', () => {
     expect(srtTime(0)).toBe('00:00:00,000')
     expect(srtTime(61.5)).toBe('00:01:01,500')
     expect(srtTime(3661.25)).toBe('01:01:01,250')
+  })
+
+  it('★★★ 一镜多句：按**字数比例**分这一镜的秒数（不是每句都占满整镜）', () => {
+    /* 短句 2 字 + 长句 10 字 = 12 份，6 秒这一镜 ⇒ 1 秒 + 5 秒 */
+    const shot: PackClip = {
+      index: 1,
+      shotId: 's1',
+      kind: 'image',
+      hash: 'h1',
+      file: 'h1.png',
+      seconds: 6,
+      lines: [
+        { lineId: 'l1', speaker: '骑手', text: '短短' },
+        { lineId: 'l2', speaker: '收货人', text: '这是一句长得多的话啊' },
+      ],
+      scene: '',
+      cast: [],
+      local: true,
+    }
+    const srt = srtOf([shot])
+    expect(srt).toContain('1\n00:00:00,000 --> 00:00:01,000\n短短')
+    expect(srt).toContain('2\n00:00:01,000 --> 00:00:06,000\n这是一句长得多的话啊')
+    /* **字幕正文不带说话人前缀**：SRT 是给观众看的，画面里已经有人在说话了 */
+    expect(srt).not.toContain('骑手：')
+    expect(srt).not.toContain('收货人：')
   })
 
   it('★ 一句台词都没有 ⇒ 空串（不导出一个 0 字节的 .srt）', () => {

@@ -47,6 +47,7 @@ import {
   addEpisode,
   addScene,
   addShot,
+  addShotLine,
   assetBasePrompt,
   attachShotImages,
   attachShotNodes,
@@ -60,6 +61,7 @@ import {
   removeEpisode,
   removeScene,
   removeShot,
+  removeShotLine,
   setAssetBaseHash,
   setAssetNode,
   setShotVideoNode,
@@ -74,11 +76,13 @@ import {
   updateScene,
   updateScript,
   updateShot,
+  updateShotLine,
   updateSourceText,
   type DramaAsset,
   type DramaCharacter,
   type DramaScene,
   type StoryboardDoc,
+  type StoryboardLine,
   type StoryboardShot,
 } from '../../domain/storyboard/storyboard'
 import styles from './StoryboardPage.module.css'
@@ -639,7 +643,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     setConfirming('')
   }
 
-  const patchShot = (id: string, patch: Partial<Omit<StoryboardShot, 'id' | 'episodeId'>>) => {
+  /** 改这一镜的通用字段（画面 / 时长 / 提示词）—— **对白层不走这里**（见 #435 的三条专属路径） */
+  const patchShot = (
+    id: string,
+    patch: Partial<Omit<StoryboardShot, 'id' | 'episodeId' | 'lines'>>,
+  ) => {
     apply(updateShot(doc, id, patch))
   }
 
@@ -1521,6 +1529,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                         characters={doc.characters}
                         scenes={doc.scenes}
                         onPatch={patchShot}
+                        onAddLine={() => apply(addShotLine(doc, shot.id, {}, 0))}
+                        onLinePatch={(lineId, patch) =>
+                          apply(updateShotLine(doc, shot.id, lineId, patch, 0))
+                        }
+                        onLineRemove={(lineId) => apply(removeShotLine(doc, shot.id, lineId, 0))}
                         onMove={(id, delta) => apply(moveShot(doc, id, delta, 0))}
                         onRemove={removeOneShot}
                         onRun={() => runShot(shot)}
@@ -1587,6 +1600,9 @@ function ShotCard({
   onToggleCharacter,
   onLocate,
   onMakeVideo,
+  onAddLine,
+  onLinePatch,
+  onLineRemove,
 }: {
   shot: StoryboardShot
   index: number
@@ -1597,7 +1613,14 @@ function ShotCard({
   state?: RunTaskState
   characters: readonly DramaCharacter[]
   scenes: readonly DramaScene[]
-  onPatch: (id: string, patch: Partial<Omit<StoryboardShot, 'id' | 'episodeId'>>) => void
+  onPatch: (
+    id: string,
+    patch: Partial<Omit<StoryboardShot, 'id' | 'episodeId' | 'lines'>>,
+  ) => void
+  /** 对白层的三个动作（增 / 改 / 删）—— 与 `updateShot` 分开，各管一件事 */
+  onAddLine: () => void
+  onLinePatch: (lineId: string, patch: Partial<Omit<StoryboardLine, 'id'>>) => void
+  onLineRemove: (lineId: string) => void
   onMove: (id: string, delta: number) => void
   onRemove: (id: string) => void
   onRun: () => void
@@ -1799,16 +1822,68 @@ function ShotCard({
         />
       </label>
       <div className={styles.row2}>
-        <label className={styles.field}>
-          <span className={styles.label}>台词 / 旁白</span>
-          <input
-            className={styles.input}
-            value={shot.dialogue}
-            placeholder="可以是空的（空镜）"
-            data-storyboard-shot-dialogue={shot.id}
-            onChange={(e) => onPatch(shot.id, { dialogue: e.target.value })}
-          />
-        </label>
+        {/**
+         * **对白层**（对账 #435）：「一镜一句自由文本」升级成**一镜多句 + 谁说的**。
+         * 两个理由都是实的：① 两个人对着说话的镜头本来就需要两条；
+         * ② 说话人是**压字幕 / 将来喂 TTS** 的必需字段（研究稿 §34）。
+         * 空态写清"可以是空的（空镜）"，不摆一个必须填的框。
+         */}
+        <div className={styles.field} data-storyboard-lines={shot.id}>
+          <div className={styles.linesHead}>
+            <span className={styles.label}>台词 / 旁白</span>
+            <button
+              type="button"
+              className={styles.ghost}
+              data-storyboard-line-add={shot.id}
+              onClick={onAddLine}
+            >
+              加一句
+            </button>
+          </div>
+          {shot.lines.length === 0 ? (
+            <p className={styles.hint} data-storyboard-lines-empty={shot.id}>
+              可以是空的（空镜）
+            </p>
+          ) : (
+            <ul className={styles.lineList}>
+              {shot.lines.map((line) => (
+                <li key={line.id} className={styles.lineRow} data-storyboard-line={line.id}>
+                  <select
+                    className={styles.lineSpeaker}
+                    value={line.speakerId ?? ''}
+                    aria-label="谁说的"
+                    data-storyboard-line-speaker={line.id}
+                    onChange={(e) => onLinePatch(line.id, { speakerId: e.target.value })}
+                  >
+                    <option value="">谁说…</option>
+                    {characters.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className={styles.input}
+                    value={line.text}
+                    placeholder="这一句"
+                    aria-label="台词"
+                    data-storyboard-line-text={line.id}
+                    onChange={(e) => onLinePatch(line.id, { text: e.target.value })}
+                  />
+                  <button
+                    type="button"
+                    className={styles.iconBtn}
+                    aria-label="删掉这一句"
+                    data-storyboard-line-remove={line.id}
+                    onClick={() => onLineRemove(line.id)}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         <label className={styles.field}>
           <span className={styles.label}>时长（秒）</span>
           <input

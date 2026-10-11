@@ -45,6 +45,23 @@ const USER_CHANNEL = '[data-channel-item]:not([data-channel-id^="ch_builtin_"])'
 const enableSwitch = (page) => page.locator('[data-channel-selected] [data-channel-enabled]')
 
 /**
+ * 给某一镜写一句台词（对账 #435 之后台词是**一层**，一镜可以好几句）。
+ *
+ * 以前这里是 `fill('[data-storyboard-shot-dialogue="<shotId>"]', 台词)` —— 一个输入框。
+ * 现在要先点「加一句」，再往**新出现的那一行**里写字。写成助手函数是因为
+ * **四个组**都要用（G127 / G144 / G145 / 新加的 G149），各自抄一遍必然会漏改一处。
+ */
+async function fillShotLine(page, shotId, text) {
+  const container = page.locator(`[data-storyboard-lines="${shotId}"]`)
+  const before = await container.locator('[data-storyboard-line-text]').count()
+  await page.locator(`[data-storyboard-line-add="${shotId}"]`).click()
+  const input = container.locator('[data-storyboard-line-text]').nth(before)
+  await input.waitFor({ state: 'visible', timeout: 5000 })
+  await input.fill(text)
+  return input
+}
+
+/**
  * 现造一张**真能解码**的纯色 PNG 字节（G53 用）。
  *
  * 为什么不用仓库里现成的 base64：那些是 8×8 的 1:1 图，**看不出比例差异**——
@@ -24397,7 +24414,7 @@ async function g127(browser) {
   const firstShot = await shots.first().getAttribute('data-storyboard-shot')
   const secondShot = await shots.nth(1).getAttribute('data-storyboard-shot')
   await page.locator(`[data-storyboard-shot-scene="${firstShot}"]`).fill('雨夜的街道，霓虹倒影')
-  await page.locator(`[data-storyboard-shot-dialogue="${firstShot}"]`).fill('今天最后一单')
+  await fillShotLine(page, firstShot, '今天最后一单')
   await page.locator(`[data-storyboard-shot-duration="${firstShot}"]`).fill('5')
   await page.locator(`[data-storyboard-shot-prompt="${firstShot}"]`).fill('cinematic, rain, neon')
   await page.locator(`[data-storyboard-shot-scene="${secondShot}"]`).fill('门铃响，门缝里透出暖光')
@@ -27779,9 +27796,9 @@ async function g144(browser) {
    */
   await page.locator(`[data-storyboard-shot-scene="${shot1}"]`).fill('雨里骑车的第一视角')
   await page.locator(`[data-storyboard-shot-scene="${shot2}"]`).fill('把箱子放在门口')
-  await page.locator(`[data-storyboard-shot-dialogue="${shot1}"]`).fill('今天最后一单')
+  await fillShotLine(page, shot1, '今天最后一单')
   await page.locator(`[data-storyboard-shot-duration="${shot1}"]`).fill('5')
-  await page.locator(`[data-storyboard-shot-dialogue="${shot2}"]`).fill('我会送到')
+  await fillShotLine(page, shot2, '我会送到')
   await sleep(700)
   rec(
     g,
@@ -27972,8 +27989,8 @@ async function g145(browser) {
   await page.locator(`[data-storyboard-shot-scene="${ids[0]}"]`).fill('雨里骑车')
   await page.locator(`[data-storyboard-shot-scene="${ids[1]}"]`).fill('把箱子放下')
   await page.locator(`[data-storyboard-shot-scene="${ids[2]}"]`).fill('转身走远')
-  await page.locator(`[data-storyboard-shot-dialogue="${ids[0]}"]`).fill('第一镜的台词')
-  await page.locator(`[data-storyboard-shot-dialogue="${ids[1]}"]`).fill('第二镜的台词')
+  await fillShotLine(page, ids[0], '第一镜的台词')
+  await fillShotLine(page, ids[1], '第二镜的台词')
   /* 第 1 镜 1 秒：让"自动推进"这件事在冒烟里几秒内就能验到 */
   await page.locator(`[data-storyboard-shot-duration="${ids[0]}"]`).fill('1')
   await page.locator(`[data-storyboard-shot-duration="${ids[1]}"]`).fill('5')
@@ -28510,7 +28527,164 @@ async function g148(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148]
+// ────────────────────────────────────────────────────────────
+// G149 漫剧「对白层」（对账 #435；研究稿 §34 / §468 的建议 (a)）：
+//   以前一镜只有**一句自由文本**。现在对白是独立的一层：一镜多句 + 每句的说话人。
+//   ① 一镜能加两句、能选说话人
+//   ② 导出的 SRT 里这一镜**按字数分秒数**出两条字幕，且正文**不带说话人前缀**（观众视角）
+//   ③ 预览那一行**带**说话人（制作视角）—— 同一个事实，两个视角各有各的读法
+//   ④ 删一句就少一条字幕
+// ────────────────────────────────────────────────────────────
+async function g149(browser) {
+  const g = 'G149 漫剧对白层'
+  const ctx = await newCtx(browser, { acceptDownloads: true })
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const shots = page.locator('[data-storyboard-shot]')
+  const overlay = page.locator('[data-storyboard-preview-overlay]')
+  const downloads = []
+  page.on('download', (d) => downloads.push(d))
+
+  const readDb = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const boards = await new Promise((resolve) => {
+        const r = db.transaction('storyboards', 'readonly').objectStore('storyboards').getAll()
+        r.onsuccess = () => resolve(r.result ?? [])
+        r.onerror = () => resolve([])
+      })
+      const doc = boards[0]?.doc
+      return {
+        characters: (doc?.characters ?? []).map((c) => ({ id: c.id, name: c.name })),
+        shots: (doc?.shots ?? []).map((s) => ({
+          id: s.id,
+          nodeId: s.nodeId ?? null,
+          imageHash: s.imageHash ?? null,
+          lines: (s.lines ?? []).map((l) => ({ id: l.id, text: l.text, speakerId: l.speakerId ?? '' })),
+        })),
+      }
+    })
+  const waitDb = async (predicate, timeoutMs = 30000) => {
+    const started = Date.now()
+    for (;;) {
+      const db = await readDb()
+      if (predicate(db) || Date.now() - started > timeoutMs) return db
+      await sleep(250)
+    }
+  }
+  const waitFor = async (predicate, timeoutMs = 15000) => {
+    const started = Date.now()
+    for (;;) {
+      if (predicate()) return true
+      if (Date.now() - started > timeoutMs) return false
+      await sleep(200)
+    }
+  }
+
+  await configureMockChannel(page)
+  await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-storyboard-create]').click()
+  await page.waitForURL(/\/storyboard\/proj_/)
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+
+  await page.locator('[data-storyboard-add-episode]').click()
+  await sleep(250)
+  await page.locator('[data-storyboard-add-shot]').click()
+  await sleep(250)
+  const shotId = (await shots.first().getAttribute('data-storyboard-shot')) ?? ''
+
+  // 一个角色（说话人下拉要他）
+  await page.locator('[data-storyboard-add-character]').click()
+  await sleep(300)
+  const charId = (await page.locator('[data-storyboard-character]').first().getAttribute('data-storyboard-character')) ?? ''
+  await page.locator(`[data-storyboard-asset-name="${charId}"]`).fill('骑手')
+  await page.locator(`[data-storyboard-shot-scene="${shotId}"]`).fill('雨里骑车')
+  await page.locator(`[data-storyboard-shot-duration="${shotId}"]`).fill('6')
+  await sleep(400)
+
+  rec(
+    g,
+    '★ 一开始是空态（"可以是空的（空镜）"），不是摆一个必须填的框',
+    (await page.locator(`[data-storyboard-lines-empty="${shotId}"]`).count()) === 1,
+  )
+
+  // ① 两句 + 说话人
+  await fillShotLine(page, shotId, '第一句')
+  await fillShotLine(page, shotId, '第二句')
+  const lineRows = page.locator(`[data-storyboard-lines="${shotId}"] [data-storyboard-line]`)
+  rec(g, '★★★ 一镜能加两句（列表里两行）', (await lineRows.count()) === 2, `行数=${await lineRows.count()}`)
+
+  const firstLineId = (await lineRows.first().getAttribute('data-storyboard-line')) ?? ''
+  await page.locator(`[data-storyboard-line-speaker="${firstLineId}"]`).selectOption(charId)
+  const stored = await waitDb((db) => db.shots[0]?.lines.length === 2, 10000)
+  rec(
+    g,
+    '★★★ 说话人存下来了（选中骑手 ⇒ 库里那一句带 speakerId）',
+    stored.shots[0]?.lines[0]?.speakerId === charId && stored.shots[0]?.lines[1]?.speakerId === '',
+    JSON.stringify(stored.shots[0]?.lines ?? []),
+  )
+
+  // 铺到画布 + 出图（SRT 要有一段真素材）
+  await page.locator('[data-storyboard-lay-out]').click()
+  const laid = await waitDb((db) => db.shots.length === 1 && !!db.shots[0]?.nodeId, 15000)
+  await page.locator(`[data-storyboard-shot-run="${shotId}"]`).click()
+  const withImage = await waitDb((db) => !!db.shots[0]?.imageHash, 40000)
+  rec(g, '★ 这一镜出图了（SRT 才有一段可挂）', laid.shots.length === 1 && !!withImage.shots[0]?.imageHash)
+
+  // ② 导出合成包：SRT 里两条字幕，按字数分 6 秒 ⇒ 3 秒 + 3 秒
+  await page.locator('[data-storyboard-export-pack]').click()
+  const gotSrt = await waitFor(() => downloads.some((d) => d.suggestedFilename().endsWith('.srt')), 20000)
+  const srtDl = downloads.find((d) => d.suggestedFilename().endsWith('.srt'))
+  const srtText = srtDl ? (await srtDl.saveAs(`${OUT}/149-pack.srt`), readFileSync(`${OUT}/149-pack.srt`, 'utf8')) : ''
+  rec(
+    g,
+    '★★★ 一镜两句 ⇒ SRT 出两条字幕，**按字数分**这一镜的 6 秒（3 秒 + 3 秒）',
+    gotSrt &&
+      /1\n00:00:00,000 --> 00:00:03,000\n第一句/.test(srtText) &&
+      /2\n00:00:03,000 --> 00:00:06,000\n第二句/.test(srtText),
+    srtText.replace(/\n/g, ' | ').slice(0, 90),
+  )
+  rec(
+    g,
+    '★★★ SRT 正文**不带说话人前缀**（观众视角；画面里已经有人在说话）',
+    !srtText.includes('骑手：'),
+  )
+
+  // ③ 预览那一行**带**说话人（制作视角）
+  await page.locator('[data-storyboard-preview]').click()
+  await overlay.waitFor({ state: 'visible', timeout: 8000 })
+  const dialogueText = (await page.locator('[data-preview-dialogue]').innerText()).trim()
+  rec(
+    g,
+    '★★★ 预览那一行**带**说话人（制作视角）—— 同一个事实两种读法',
+    dialogueText === '骑手：第一句 / 第二句',
+    dialogueText,
+  )
+  await page.locator('[data-preview-close]').click()
+  await overlay.waitFor({ state: 'detached', timeout: 5000 }).catch(() => {})
+
+  // ④ 删一句 ⇒ 只剩一条
+  await page.locator(`[data-storyboard-line-remove="${firstLineId}"]`).click()
+  const afterRemove = await waitDb((db) => db.shots[0]?.lines.length === 1, 10000)
+  rec(
+    g,
+    '★★ 删一句之后只剩一条（那一句是第二句）',
+    afterRemove.shots[0]?.lines.length === 1 && afterRemove.shots[0]?.lines[0]?.text === '第二句',
+    JSON.stringify(afterRemove.shots[0]?.lines ?? []),
+  )
+
+  await page.screenshot({ path: `${OUT}/149-g149-dialogue-layer.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

@@ -10,6 +10,7 @@ import {
   type DramaScene,
   type StoryboardDoc,
   type StoryboardEpisode,
+  type StoryboardLine,
   type StoryboardShot,
 } from './storyboard'
 
@@ -239,12 +240,31 @@ export function shotsFromDraft(
       id: createId('shot'),
       episodeId,
       scene: d.scene,
-      dialogue: d.dialogue,
+      /**
+       * 模型那一侧仍然只要求回**一句 `dialogue`**（对账 #435 的取舍）：让它回 `lines[]`
+       * 会把契约复杂化，而"一句话拆成几条、谁说的"是**本地能确定的事**。
+       * 于是这里做两件确定的事：
+       *  ① 有台词就落成**一句** line（id 现生成，此后稳定）；
+       *  ② **这一镜只有一个角色时把说话人直接填上** —— 那不是猜，是唯一解；
+       *     多个角色 / 一个都没有时留空，让用户点（猜错会让字幕挂到别人身上）。
+       */
+      lines: toShotLines(d, bindings),
       durationSec: d.durationSec,
       prompt: d.prompt,
       ...bindings,
     }
   })
+}
+
+/** `DraftShot.dialogue` → 对白层（见上面那段注释：单角色时把说话人填上，其余留空） */
+function toShotLines(
+  draft: DraftShot,
+  bindings: { characterIds?: string[]; sceneId?: string },
+): StoryboardLine[] {
+  const body = draft.dialogue.trim()
+  if (!body) return []
+  const only = bindings.characterIds?.length === 1 ? bindings.characterIds[0] : ''
+  return [{ id: createId('line'), text: body, ...(only ? { speakerId: only } : {}) }]
 }
 
 /**

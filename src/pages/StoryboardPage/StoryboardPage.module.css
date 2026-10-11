@@ -131,6 +131,49 @@
   height: 34px;
 }
 
+/*
+ * 对白层（对账 #435）：一镜多句，每句一行 —— 说话人 + 正文 + 删除。
+ * 说话人那一格固定 96px：它放的是角色名，宽度让**整列对齐**（每行的输入框左边一条线）。
+ */
+.linesHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.lineList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lineRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.lineSpeaker {
+  flex: 0 0 96px;
+  height: 34px;
+  padding: 0 var(--space-2);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--fs-label);
+  background: var(--bg-canvas);
+  border: var(--border);
+  border-radius: var(--radius-control);
+}
+
+.lineSpeaker:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
 .textarea {
   padding: var(--space-2) var(--space-3);
   line-height: var(--lh-body);

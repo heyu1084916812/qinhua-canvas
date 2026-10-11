@@ -22,6 +22,7 @@ import { assetFileName } from '../shared/assetLocation'
 import {
   characterNamesOf,
   sceneNameOf,
+  shotDialogueLines,
   shotsOf,
   type StoryboardDoc,
   type StoryboardEpisode,
@@ -48,7 +49,13 @@ export interface TimelineClip {
   hash: string
   /** 这一镜的时长（秒） */
   seconds: number
-  dialogue: string
+  /**
+   * 这一镜的台词（说话人已解出名字；空 = 没说清）。
+   *
+   * **一镜可以好几句**（对账 #435 的对白层）：所以 SRT 要按字数把这一镜的秒数分给它们，
+   * 而不是每句都占满整镜（那会让字幕比画面慢一截）。
+   */
+  lines: { lineId: string; speaker: string; text: string }[]
   scene: string
   cast: string[]
 }
@@ -149,7 +156,7 @@ export function episodeTimeline(
       kind: pick.kind,
       hash: pick.hash,
       seconds: Math.max(1, Math.round(shot.durationSec)),
-      dialogue: shot.dialogue.trim(),
+      lines: shotDialogueLines(doc, shot),
       scene: sceneNameOf(doc, shot),
       cast: characterNamesOf(doc, shot),
     })
@@ -209,24 +216,64 @@ export function srtTime(seconds: number): string {
  * SRT 字幕。**空镜占时间、不占编号** —— 编号是给播放器看的连续序号，
  * 时间轴是给画面看的：两者混在一起就会出现"第 3 条字幕比画面早两秒"。
  * 一句台词都没有时返回空串（调用方据此不导 SRT 文件，而不是导一个 0 字节的空文件）。
+ *
+ * **一镜多句**（对账 #435）：按**字数比例**把这一镜的秒数分给它们。
+ * 为什么不每句都占满整镜：那会让第二句比画面晚一截；为什么不平均分：
+ * 长句本来就该念得久一点。分法只有这一处（预览与导出共用同一份时间轴）。
+ *
+ * **字幕正文不带说话人前缀**：SRT 是给观众看的，画面里已经有谁在说话；
+ * 说话人留在分镜表（`骑手：今天最后一单`）与数据层（`speakerId`，将来喂 TTS 用）。
  */
-export function srtOf(clips: readonly PackClip[]): string {
+export function srtOf(clips: readonly TimelineClip[]): string {
   const blocks: string[] = []
   let cursor = 0
   let no = 0
   for (const clip of clips) {
     const from = cursor
     cursor += clip.seconds
-    if (!clip.dialogue) continue
-    no += 1
-    blocks.push(`${no}\n${srtTime(from)} --> ${srtTime(cursor)}\n${clip.dialogue}`)
+    for (const cue of cueSpansOf(clip, from)) {
+      no += 1
+      blocks.push(`${no}\n${srtTime(cue.from)} --> ${srtTime(cue.to)}\n${cue.text}`)
+    }
   }
   return blocks.length === 0 ? '' : `${blocks.join('\n\n')}\n`
+}
+
+/** 这一镜的几条字幕各占哪一段时间（按字数分；只有一句时就是整镜） */
+function cueSpansOf(
+  clip: TimelineClip,
+  from: number,
+): { from: number; to: number; text: string }[] {
+  const lines = clip.lines.filter((line) => line.text.trim())
+  if (lines.length === 0) return []
+  if (lines.length === 1) {
+    return [{ from, to: from + clip.seconds, text: lines[0]!.text.trim() }]
+  }
+  const weights = lines.map((line) => Math.max(1, line.text.trim().length))
+  const total = weights.reduce((sum, w) => sum + w, 0)
+  let at = from
+  return lines.map((line, i) => {
+    const start = at
+    /* 最后一条**钉到这一镜的末尾**：浮点累加会留下几毫秒的缝，字幕就会有一小段空窗 */
+    at = i === lines.length - 1 ? from + clip.seconds : at + (clip.seconds * weights[i]!) / total
+    return { from: start, to: at, text: line.text.trim() }
+  })
 }
 
 /** 清单里一格（竖线会把 Markdown 表格拆开，所以正文里一律换成斜杠） */
 function cell(text: string): string {
   return text.replace(/\|/g, '/').replace(/\r?\n/g, ' ').trim()
+}
+
+/**
+ * 清单 / 预览里那句话（**带说话人前缀**，与 SRT 刻意不同）：
+ * 这两处是**制作视角** —— 谁说的要看得见；SRT 是观众视角，画面里已经有人了。
+ */
+export function dialogueTextOf(clip: TimelineClip): string {
+  return clip.lines
+    .filter((line) => line.text.trim())
+    .map((line) => (line.speaker ? `${line.speaker}：${line.text.trim()}` : line.text.trim()))
+    .join(' / ')
 }
 
 export interface PackMarkdownArgs {
@@ -297,7 +344,7 @@ export function packMarkdown(args: PackMarkdownArgs): string {
   for (const clip of clips) {
     out.push(
       `| ${clip.index} | ${clip.kind === 'video' ? '视频' : '静帧'} | \`${clip.file}\` | ${clip.seconds} | ` +
-        `${cell(clip.scene)} | ${cell(clip.cast.join('、'))} | ${cell(clip.dialogue)} |`,
+        `${cell(clip.scene)} | ${cell(clip.cast.join('、'))} | ${cell(dialogueTextOf(clip))} |`,
     )
   }
   out.push('')

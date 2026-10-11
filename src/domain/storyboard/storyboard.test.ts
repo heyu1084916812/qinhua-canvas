@@ -3,6 +3,7 @@ import {
   ASSET_BLOCK_HEADER,
   addCharacter,
   addScene,
+  addShotLine,
   assetBasePrompt,
   attachShotImages,
   attachShotNodes,
@@ -22,10 +23,12 @@ import {
   removeEpisode,
   removeScene,
   removeShot,
+  removeShotLine,
   sceneNameOf,
   setAssetBaseHash,
   setAssetNode,
   setShotVideoNode,
+  shotDialogueTextOf,
   shotPrompt,
   shotPromptWithAssets,
   shotRefNodeIds,
@@ -38,6 +41,7 @@ import {
   updateScene,
   updateScript,
   updateShot,
+  updateShotLine,
   updateSourceText,
   type StoryboardDoc,
 } from './storyboard'
@@ -210,7 +214,10 @@ describe('storyboard · 导出分镜表（Markdown）', () => {
     let doc = sample()
     doc = updateScript(doc, { title: '小猫钓鱼', logline: '一只猫想钓到月亮', body: '第一场……' }, 30)
     doc = updateEpisode(doc, doc.episodes[0]!.id, { summary: '开场' }, 31)
-    doc = updateShot(doc, doc.shots[0]!.id, { scene: '客厅，清晨', dialogue: '早啊', durationSec: 5 }, 32)
+    doc = updateShot(doc, doc.shots[0]!.id, { scene: '客厅，清晨', durationSec: 5 }, 32)
+    /* 对白走专属那三条路径（#435）：加一句 → 写字 */
+    doc = addShotLine(doc, doc.shots[0]!.id, {}, 32)
+    doc = updateShotLine(doc, doc.shots[0]!.id, doc.shots[0]!.lines[0]!.id, { text: '早啊' }, 32)
 
     const md = exportStoryboardMarkdown(doc)
     expect(md).toContain('# 小猫钓鱼')
@@ -229,9 +236,10 @@ describe('storyboard · 导出分镜表（Markdown）', () => {
     doc = updateShot(
       doc,
       doc.shots[0]!.id,
-      { scene: '客厅 | 厨房', dialogue: '第一行\n第二行' },
+      { scene: '客厅 | 厨房' },
       33,
     )
+    doc = addShotLine(doc, doc.shots[0]!.id, { text: '第一行\n第二行' }, 33)
     const md = exportStoryboardMarkdown(doc)
     expect(md).toContain('客厅 \\| 厨房')
     expect(md).toContain('| 第一行 第二行 |')
@@ -808,5 +816,101 @@ describe('参考图回喂：这一镜该接哪几张图', () => {
     const doc = wired()
     const plan = planShotRefEdges(doc, doc.shots[0]!, ['n-scene', 'n-char'], live)
     expect(plan).toEqual({ connect: [], disconnect: [] })
+  })
+})
+
+/**
+ * **对白层**（对账 #435）。
+ *
+ * 这一组守两件事：① 老数据（`dialogue: string`）读回来**一个字都不丢**、而且 id 稳定
+ * （每次读都生成新 id，会让用户任何一次编辑把它换掉，而它正是将来配音要对齐的键）；
+ * ② 增 / 改 / 删三个动作各自只动该动的那一句，且**没变化就返回原引用**。
+ */
+describe('对白层', () => {
+  const withShot = () => {
+    let doc = addEpisode(emptyStoryboard('p1'), 1)
+    doc = addShot(doc, doc.episodes[0]!.id, 2)
+    return doc
+  }
+
+  it('★★★ 老数据迁移：`dialogue` 读成一句 line，**id 稳定**（读两次是同一个 id）', () => {
+    const base = withShot()
+    const raw = {
+      ...base,
+      shots: [{ ...base.shots[0]!, dialogue: '早啊' }],
+    }
+    const once = parseStoryboard(raw, 'p1')
+    const twice = parseStoryboard(raw, 'p1')
+    expect(once.shots[0]!.lines).toEqual([{ id: 'legacy-1', text: '早啊' }])
+    expect(twice.shots[0]!.lines[0]!.id).toBe(once.shots[0]!.lines[0]!.id)
+    /* 没有台词的镜头就是空数组（不是一条空 line） */
+    expect(parseStoryboard(base, 'p1').shots[0]!.lines).toEqual([])
+  })
+
+  it('★★ 多句读回：空的丢掉、说话人悬空就丢掉、情绪留着', () => {
+    const base = withShot()
+    const charId = base.characters[0]?.id ?? 'c1'
+    const raw = {
+      ...base,
+      characters: [{ id: charId, name: '骑手', description: '', aliases: [] }],
+      shots: [
+        {
+          ...base.shots[0]!,
+          lines: [
+            { id: 'l1', text: '第一句', speakerId: charId, emotion: ' 冷静 ' },
+            { id: 'l2', text: '   ' },
+            { text: '没有 id' },
+            { id: 'l3', text: '第二句', speakerId: '不存在的人' },
+          ],
+        },
+      ],
+    }
+    const doc = parseStoryboard(raw, 'p1')
+    expect(doc.shots[0]!.lines).toEqual([
+      { id: 'l1', text: '第一句', speakerId: charId, emotion: '冷静' },
+      { id: 'l3', text: '第二句' },
+    ])
+  })
+
+  it('★★★ 增 / 改 / 删各只动该动的那一句；没变化就返回原引用', () => {
+    let doc = withShot()
+    const shotId = doc.shots[0]!.id
+    doc = addShotLine(doc, shotId, { text: '第一句' }, 3)
+    doc = addShotLine(doc, shotId, { text: '第二句' }, 4)
+    expect(doc.shots[0]!.lines.map((l) => l.text)).toEqual(['第一句', '第二句'])
+
+    const first = doc.shots[0]!.lines[0]!.id
+    const second = doc.shots[0]!.lines[1]!.id
+    const edited = updateShotLine(doc, shotId, second, { text: '改过的第二句' }, 5)
+    expect(edited.shots[0]!.lines.map((l) => l.text)).toEqual(['第一句', '改过的第二句'])
+    expect(edited.shots[0]!.lines[0]!.id).toBe(first)
+    /* 同值 ⇒ 原引用（别搅动防抖保存） */
+    expect(updateShotLine(edited, shotId, second, { text: '改过的第二句' }, 6)).toBe(edited)
+    expect(updateShotLine(edited, shotId, '不存在', { text: 'x' }, 6)).toBe(edited)
+
+    const removed = removeShotLine(edited, shotId, first, 7)
+    expect(removed.shots[0]!.lines.map((l) => l.text)).toEqual(['改过的第二句'])
+    expect(removeShotLine(removed, shotId, first, 8)).toBe(removed)
+
+    /* 说话人必须落在角色库里：不在库里的 id 一律落成空 */
+    const bad = updateShotLine(removed, shotId, second, { speakerId: '不存在' }, 9)
+    expect(bad.shots[0]!.lines[0]!.speakerId).toBeUndefined()
+  })
+
+  it('★★ 合并成一句话（导出分镜表用）：带说话人名字；找不到人就只写正文', () => {
+    let doc = withShot()
+    const charId = doc.characters[0]?.id ?? 'c1'
+    doc = {
+      ...doc,
+      characters: [{ id: charId, name: '骑手', description: '', aliases: [] }],
+    }
+    const shotId = doc.shots[0]!.id
+    doc = addShotLine(doc, shotId, { text: '今天最后一单', speakerId: charId }, 3)
+    doc = addShotLine(doc, shotId, { text: '辛苦了' }, 3)
+    expect(shotDialogueTextOf(doc, doc.shots[0]!)).toBe('骑手：今天最后一单 / 辛苦了')
+
+    /* 说话人从库里删掉（读回时会丢掉悬空引用）⇒ 只剩正文，不留一个空冒号 */
+    const alone = { ...doc, characters: [] }
+    expect(shotDialogueTextOf(alone, alone.shots[0]!)).toBe('今天最后一单 / 辛苦了')
   })
 })

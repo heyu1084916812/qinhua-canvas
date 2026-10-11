@@ -61,6 +61,23 @@ export interface DramaAsset {
 export type DramaCharacter = DramaAsset
 export type DramaScene = DramaAsset
 
+/**
+ * 一镜里的**一句台词**（对账 #435）。
+ *
+ * 三个字段各自有明确用途，一个都不许多余：
+ * - `speakerId`：谁说的（引用角色库；**空 = 没说清** —— 旁白、画外音、或者用户还没点）。
+ *   刻意不做"按名字猜"：猜错会让字幕挂到别人身上，比空着更糟。
+ * - `text`：那句话本身。
+ * - `emotion`：情绪提示（研究稿 §323：`供 TTS / 表演`）。**初级只存不消费** ——
+ *   现在不拼进任何提示词，也不许在界面上假装它起作用了。
+ */
+export interface StoryboardLine {
+  id: string
+  speakerId?: string
+  text: string
+  emotion?: string
+}
+
 export interface StoryboardEpisode {
   id: string
   title: string
@@ -84,8 +101,17 @@ export interface StoryboardShot {
   episodeId: string
   /** 画面描述：这一镜**画什么**（生图提示词的素材） */
   scene: string
-  /** 台词 / 旁白（可以有，也可以是一镜空镜） */
-  dialogue: string
+  /**
+   * **对白层**（对账 #435；《轻画-漫剧形态调研.md》§34 / §468 的建议 (a)）。
+   *
+   * 为什么对白要**独立于画面**（ACBF 那条洞见在这里升级成必需）：
+   * 图会被反复重生成，台词不该跟着重打一遍；而"这一句谁说的"只有独立出来才存得下 ——
+   * 它是**压字幕**与**将来喂 TTS**的共同前置（研究稿 §34 原话：导出 SRT 供 TTS / 口型）。
+   *
+   * 一镜可以有好几句（两个人对着说话就是两条），也可以是空镜（`[]`）。
+   * 老数据里的 `dialogue: string` 在**读回时迁移成一句**，一个字都不丢（见 `parseShotLines`）。
+   */
+  lines: StoryboardLine[]
   /** 这一镜预计几秒（成片节奏的粗排；导出表里带上） */
   durationSec: number
   /** 画面提示词：留空就由 `scene` 派生（`shotPrompt`） */
@@ -166,6 +192,38 @@ export function emptyStoryboard(projectId: string, now = 0): StoryboardDoc {
 const text = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : fallback)
 const num = (v: unknown, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? v : fallback
+
+/** 一镜的对白层读回（含**老数据的迁移**）—— 见 `StoryboardShot.lines` 与 `StoryboardLine` */
+function parseShotLines(row: Record<string, unknown>, knownCharacters: ReadonlySet<string>): StoryboardLine[] {
+  const raw = Array.isArray(row.lines) ? row.lines : []
+  const lines: StoryboardLine[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const record = item as Record<string, unknown>
+    const id = text(record.id)
+    const body = text(record.text).trim()
+    /** 没 id 或没正文的整条丢掉：一句空台词在字幕里就是一个空行 */
+    if (!id || !body) continue
+    /** 悬空说话人一律丢掉（与 `sceneId` 同一条纪律：界面上看不见、导出里却会冒出来） */
+    const speakerRaw = text(record.speakerId)
+    const speakerId = speakerRaw && knownCharacters.has(speakerRaw) ? speakerRaw : ''
+    const emotion = text(record.emotion).trim()
+    lines.push({
+      id,
+      text: body,
+      ...(speakerId ? { speakerId } : {}),
+      ...(emotion ? { emotion } : {}),
+    })
+  }
+  if (lines.length > 0) return lines
+  /**
+   * **迁移**：老文档里只有 `dialogue: string`。
+   * id 用 `legacy-1` 而不是 `createId()`——**读回要保持幂等**：每次读都生成新 id 的话，
+   * 用户任何一次编辑都会把这一镜的 line id 换掉（而它正是将来配音要对齐的键）。
+   */
+  const legacy = text(row.dialogue).trim()
+  return legacy ? [{ id: 'legacy-1', text: legacy }] : []
+}
 
 /**
  * **脏数据容错读回**（与外观 / 通知偏好同一条规矩：只补坏的那一项，不整份丢弃）。
@@ -255,7 +313,7 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
         id,
         episodeId,
         scene: text(row.scene),
-        dialogue: text(row.dialogue),
+        lines: parseShotLines(row, knownCharacters),
         durationSec: num(row.durationSec, DEFAULT_SHOT_SECONDS),
         prompt: text(row.prompt),
         /* 空串不落成字段：没有就是没有，别写一个 `undefined` 占位 */
@@ -506,7 +564,7 @@ export function addShot(doc: StoryboardDoc, episodeId: string, now = 0): Storybo
     id: createId('shot'),
     episodeId,
     scene: '',
-    dialogue: '',
+    lines: [],
     durationSec: DEFAULT_SHOT_SECONDS,
     prompt: '',
   }
@@ -521,7 +579,11 @@ export function addShot(doc: StoryboardDoc, episodeId: string, now = 0): Storybo
 export function updateShot(
   doc: StoryboardDoc,
   id: string,
-  patch: Partial<Omit<StoryboardShot, 'id' | 'episodeId'>>,
+  /**
+   * `lines` **刻意排除在外**：对白层有增 / 改 / 删三种动作，走下面那三个专属函数。
+   * 放进这个通用 patch 里，就会出现"有人以为改了、其实被忽略"的静默失配。
+   */
+  patch: Partial<Omit<StoryboardShot, 'id' | 'episodeId' | 'lines'>>,
   now = 0,
 ): StoryboardDoc {
   return {
@@ -531,11 +593,126 @@ export function updateShot(
         ? {
             ...s,
             scene: text(patch.scene, s.scene),
-            dialogue: text(patch.dialogue, s.dialogue),
             durationSec: Math.max(1, Math.round(num(patch.durationSec, s.durationSec))),
             prompt: text(patch.prompt, s.prompt),
+            /* 对白层**不在这里改**：它有增删改三种动作，走 `addShotLine` / `updateShotLine` /
+               `removeShotLine`（同一个函数里塞三种语义，迟早在某一路写错） */
           }
         : s,
+    ),
+    updatedAt: now,
+  }
+}
+
+/** 一镜里那句话**谁说的**（角色名）；`speakerId` 空或找不到人时返回空串 */
+function speakerNameOf(doc: StoryboardDoc, line: StoryboardLine): string {
+  if (!line.speakerId) return ''
+  return doc.characters.find((c) => c.id === line.speakerId)?.name ?? ''
+}
+
+/** 这一镜的对白（已解出说话人名字）—— 字幕 / 预览 / 导出三处共用这一份读法 */
+export function shotDialogueLines(
+  doc: StoryboardDoc,
+  shot: StoryboardShot,
+): { lineId: string; speaker: string; text: string }[] {
+  return shot.lines.map((line) => ({
+    lineId: line.id,
+    speaker: speakerNameOf(doc, line),
+    text: line.text,
+  }))
+}
+
+/** 一句话版本（导出分镜表那种一格里放不下多行的场合）：`骑手：今天最后一单 / 收货人：…` */
+export function shotDialogueTextOf(doc: StoryboardDoc, shot: StoryboardShot): string {
+  return shotDialogueLines(doc, shot)
+    .map((line) => (line.speaker ? `${line.speaker}：${line.text}` : line.text))
+    .join(' / ')
+}
+
+/** 加一句台词（默认空文本，用户接着打；也可以带预设说话人**用在拆镜导入那条路上**） */
+export function addShotLine(
+  doc: StoryboardDoc,
+  shotId: string,
+  preset: { speakerId?: string; text?: string } = {},
+  now = 0,
+): StoryboardDoc {
+  const shot = doc.shots.find((s) => s.id === shotId)
+  if (!shot) return doc
+  const body = text(preset.text).trim()
+  const speakerId = text(preset.speakerId)
+  const line: StoryboardLine = {
+    id: createId('line'),
+    text: body,
+    ...(speakerId && doc.characters.some((c) => c.id === speakerId) ? { speakerId } : {}),
+  }
+  return {
+    ...doc,
+    shots: doc.shots.map((s) => (s.id === shotId ? { ...s, lines: [...s.lines, line] } : s)),
+    updatedAt: now,
+  }
+}
+
+/** 改一句台词（说话人 / 正文 / 情绪）；**没有任何变化时返回原引用**（别搅动防抖保存） */
+export function updateShotLine(
+  doc: StoryboardDoc,
+  shotId: string,
+  lineId: string,
+  patch: Partial<Omit<StoryboardLine, 'id'>>,
+  now = 0,
+): StoryboardDoc {
+  let changed = false
+  const shots = doc.shots.map((shot) => {
+    if (shot.id !== shotId) return shot
+    let shotChanged = false
+    const lines = shot.lines.map((line) => {
+      if (line.id !== lineId) return line
+      const next: StoryboardLine = { ...line }
+      if (patch.text !== undefined) {
+        const body = text(patch.text).trim()
+        if (body !== line.text) {
+          next.text = body
+          shotChanged = true
+        }
+      }
+      if (patch.speakerId !== undefined) {
+        const raw = text(patch.speakerId)
+        const speakerId = raw && doc.characters.some((c) => c.id === raw) ? raw : ''
+        if ((line.speakerId ?? '') !== speakerId) {
+          if (speakerId) next.speakerId = speakerId
+          else delete next.speakerId
+          shotChanged = true
+        }
+      }
+      if (patch.emotion !== undefined) {
+        const emotion = text(patch.emotion).trim()
+        if ((line.emotion ?? '') !== emotion) {
+          if (emotion) next.emotion = emotion
+          else delete next.emotion
+          shotChanged = true
+        }
+      }
+      return shotChanged ? next : line
+    })
+    if (!shotChanged) return shot
+    changed = true
+    return { ...shot, lines }
+  })
+  return changed ? { ...doc, shots, updatedAt: now } : doc
+}
+
+/** 删一句台词（不存在那一句时返回原引用） */
+export function removeShotLine(
+  doc: StoryboardDoc,
+  shotId: string,
+  lineId: string,
+  now = 0,
+): StoryboardDoc {
+  const shot = doc.shots.find((s) => s.id === shotId)
+  if (!shot || !shot.lines.some((l) => l.id === lineId)) return doc
+  return {
+    ...doc,
+    shots: doc.shots.map((s) =>
+      s.id === shotId ? { ...s, lines: s.lines.filter((l) => l.id !== lineId) } : s,
     ),
     updatedAt: now,
   }
@@ -995,7 +1172,7 @@ export function exportStoryboardMarkdown(doc: StoryboardDoc): string {
       lines.push(
         `| ${i + 1} | ${cell(shot.scene)} | ${cell(sceneNameOf(doc, shot))} | ${cell(
           characterNamesOf(doc, shot).join('、'),
-        )} | ${cell(shot.dialogue)} | ${shot.durationSec}s | ${cell(shotPromptWithAssets(doc, shot))} |`,
+      )} | ${cell(shotDialogueTextOf(doc, shot))} | ${shot.durationSec}s | ${cell(shotPromptWithAssets(doc, shot))} |`,
       )
     })
     lines.push('')
