@@ -15,6 +15,11 @@
   证明这份二进制确实带着地址、真的问了 GitHub。这一条**没**接进自动门槛：
   红路径要重打一个空 endpoints 的包（≈3.5 min），目前每次发版手动跑一次探针
   （脚本在 `.playwright-verify/`，gitignore 内）。
+- **★★★ 首启有两条路，别只验一条**：门禁 `check-release-shell.mjs` 走的是**迁移路径**
+  （老用户升级：默认 profile 拷进同级 `data\`）；**别人下载安装**走的是**空库路径**。
+  后者实测 **5/5**（首页 / 首次引导 / 建项目进画布 / 无异常），截图 `.playwright-verify/fresh-install/`。
+  **造空 profile 的窍门**：`migrate_profile()` 判据是「目标 `data\EBWebView\Default\IndexedDB` 存在就跳过」
+  ⇒ **先建一个空的同名目录**就能拿到干净 profile，而**不用碰真实数据**（这次真实 profile 根本没被读）。
 
 ### ★ 签名核对"比 key id"太松，要真验签（2026-10-12 第 57 批 → 对账 #439 状态③）
 
