@@ -28003,11 +28003,22 @@ async function g145(browser) {
   await page.locator('[data-storyboard-preview]').click()
   await overlay.waitFor({ state: 'visible', timeout: 8000 })
   const first = await waitText(counter, /1\/2/)
+  /**
+   * ⚠️ 计数行是**立刻**渲染的，而素材要等 `useAssetMeta` 把字节取回来才挂上元素 ——
+   * 直接数会偶尔数到 0（**第四十一轮全量真撞上了**：计数写着 1/2，图还没挂）。
+   * 所以按"元素真出现"等，不拿墙钟赌，也不把这条判据拆成两条。
+   */
+  const media = page.locator('[data-preview-media="image"]')
+  const mediaShown = await media
+    .first()
+    .waitFor({ state: 'attached', timeout: 10000 })
+    .then(() => true)
+    .catch(() => false)
   rec(
     g,
-    '★★★ 时间轴与导出同源：总段数是 **2**（没出图的那一镜不占时间轴）',
-    /1\/2/.test(first) && (await page.locator('[data-preview-media="image"]').count()) === 1,
-    first.trim(),
+    '★★★ 时间轴与导出同源：总段数是 **2**（没出图的那一镜不占时间轴），且素材真挂上了',
+    /1\/2/.test(first) && mediaShown && (await media.count()) === 1,
+    `${first.trim()} 素材元素=${await media.count()}`,
   )
 
   /**
@@ -28148,8 +28159,16 @@ async function g146(browser) {
   await page.locator('[data-asset-tags]').waitFor({ state: 'visible', timeout: 6000 })
   await page.locator('[data-asset-tag-input]').fill('客户A')
   await page.locator('[data-asset-tag-input]').press('Enter')
-  await sleep(400)
-  rec(g, '★★★ 灯箱里能打标签（回车确认）', (await page.locator('[data-asset-tag="客户A"]').count()) === 1)
+  /**
+   * 等**标签真挂上**再断言（落库 → 界面更新是一条异步链）。
+   * 不用 `sleep` 赌：这条链在负载高时会慢一点，赌错的代价是"看起来是产品坏了"。
+   */
+  const firstTag = page.locator('[data-asset-tag="客户A"]')
+  const tagShown = await firstTag
+    .waitFor({ state: 'attached', timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★★★ 灯箱里能打标签（回车确认）', tagShown && (await firstTag.count()) === 1)
 
   await page.locator('[data-asset-tag-input]').fill('客户a')
   await page.locator('[data-asset-tag-input]').press('Enter')
@@ -28164,7 +28183,10 @@ async function g146(browser) {
 
   await page.locator('[data-asset-tag-input]').fill('春季款')
   await page.locator('[data-asset-tag-input]').press('Enter')
-  await sleep(400)
+  await page
+    .locator('[data-asset-tag="春季款"]')
+    .waitFor({ state: 'attached', timeout: 8000 })
+    .catch(() => {})
   rec(
     g,
     '★ 第二条标签也进去了（一共两个）',
@@ -28221,7 +28243,11 @@ async function g146(browser) {
   await sleep(300)
   await page.locator('[data-asset-open="t146-a"]').dblclick()
   await page.locator('[data-asset-tag-remove="客户A"]').click()
-  await sleep(500)
+  /* 同上：等标签**真摘掉**再往下走（删也是"落库 → 界面更新"一条异步链） */
+  await page
+    .locator('[data-asset-tag="客户A"]')
+    .waitFor({ state: 'detached', timeout: 8000 })
+    .catch(() => {})
   await page.locator('[data-asset-preview-close]').click()
   await sleep(400)
   rec(
@@ -28360,7 +28386,11 @@ async function g147(browser) {
 
   // ③ 删一条
   await page.locator('[data-ecommerce-plan-remove]').first().click()
-  await sleep(600)
+  /* 等空态真出现（删 = 落库 + 重读列表），不拿 `sleep` 赌 */
+  await page
+    .locator('[data-ecommerce-plan-empty]')
+    .waitFor({ state: 'visible', timeout: 8000 })
+    .catch(() => {})
   rec(
     g,
     '★★ 删掉之后列表回到空态，库里那条也没了',
