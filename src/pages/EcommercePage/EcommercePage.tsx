@@ -27,7 +27,9 @@ import {
   buildShotsText,
   parseShotsReply,
   shouldExpandShots,
+  type ShotPlanResult,
 } from '../../domain/ecommerce/chatShots'
+import type { EcommerceShot } from '../../domain/ecommerce/prompt'
 import { panelModelOptions } from '../../domain/project/modelCatalog'
 import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
 import { projectRoute } from '../../domain/shared/workbench'
@@ -328,7 +330,70 @@ function StudioHost({ projectId }: { projectId: string }) {
     return { nodeId, hash: asset.hash, preview: <ResultPreview hash={asset.hash} /> }
   }
 
-  const onGenerate = async (request: EcommerceRequest) => {
+  /**
+   * 问一次对话渠道，把这几张的镜头写出来（对账 #406 / #423）。
+   *
+   * **两个入口共用这一支**：出图前「先出一份方案」，与出图时那条自动扩展。
+   * 各写一份的话，迟早出现"手动那条会先说多花额度、自动那条不会"这种分叉
+   * （#406 那条"判据只能有一份"的教训，这里是"请求只能有一份"）。
+   *
+   * **不抛错**：所有失败都变成 `{ ok:false, error }` —— 调用方要的是"能不能拿到方案"，
+   * 而不是一个异常（分镜失败从来不该让出图失败）。
+   */
+  const requestShots = async (request: EcommerceRequest): Promise<ShotPlanResult> => {
+    if (!chatTarget) {
+      return {
+        ok: false,
+        error: '没有可用的对话模型 —— 先去「设置 → 渠道配置」给一条渠道勾上对话模型',
+      }
+    }
+    const ac = new AbortController()
+    /* 30 秒兜底：分镜是一次小请求，卡住就该早点回落去出图 */
+    const timer = setTimeout(() => ac.abort(), 30_000)
+    try {
+      const result = await channels.completeWithTools({
+        channelId: chatTarget.channelId,
+        model: chatTarget.model,
+        tools: [],
+        messages: [
+          { role: 'system', content: buildShotsSystem() },
+          { role: 'user', content: buildShotsText(request, platforms) },
+        ],
+        signal: ac.signal,
+      })
+      const parsed = parseShotsReply(result.text, request.count)
+      return parsed.ok ? { ok: true, shots: parsed.shots } : { ok: false, error: parsed.error }
+    } catch (e) {
+      const err = asAppError(e)
+      return {
+        ok: false,
+        error: ac.signal.aborted
+          ? '分镜请求超时（30 秒没回）。'
+          : err
+            ? describeError(err)
+            : '分镜请求失败。',
+      }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /**
+   * 「先出一份方案」的入口（对账 #423）：工作台点按钮 → 这里问一次 → 结果原样回去。
+   *
+   * 同一段请求也盖进 `preparingShots`：否则"出方案"那几秒里「开始生成」点得动，
+   * 用户会为同一批图花两份对话额度。
+   */
+  const onPlanShots = async (request: EcommerceRequest): Promise<ShotPlanResult> => {
+    setPreparingShots(true)
+    try {
+      return await requestShots(request)
+    } finally {
+      setPreparingShots(false)
+    }
+  }
+
+  const onGenerate = async (request: EcommerceRequest, shotPlan?: readonly EcommerceShot[]) => {
     /**
      * ① **先按确定性脚本建一次计划**：它同时完成**全部校验**。
      *
@@ -338,51 +403,33 @@ function StudioHost({ projectId }: { projectId: string }) {
     let plan = buildEcommercePlan(request, { platforms })
 
     /**
-     * ② **分镜**（对账 #406）：只有"多张 + 非白底 + 用户真写了要求"才多花一次
-     * 对话请求，让模型按商品调整卖点顺序。三条边界：
-     *  - 判据与确认卡上那句提示是**同一个纯函数**（`shouldExpandShots`）；
-     *  - **永不因为分镜失败而让用户出不了图**：没配模型 / 请求失败 / 条数不对
-     *    一律回落脚本，`plan` 保持第 ① 步那份；
-     *  - 回落**如实说**（`shotPlanNote`），不装作"这次就是默认脚本"。
+     * ② **分镜**（对账 #406 / #423）。三条路，按优先级：
+     *  - **A 用户已经确认过一份**（`shotPlan`，条数与张数对得上）⇒ 直接用，**不再多花**；
+     *  - **B 值得问、且有对话模型** ⇒ 现问一次（判据与确认卡那句提示是同一个纯函数）；
+     *  - **C 其余** ⇒ 用第 ① 步那份确定性脚本。
+     * 无论走哪条，**绝不因为分镜失败而让用户出不了图**，并且**如实说走了哪条、为什么**。
      */
-    if (shouldExpandShots(request)) {
+    const usablePlan = shotPlan && shotPlan.length === request.count ? shotPlan : null
+    if (usablePlan) {
+      plan = buildEcommercePlan(request, { platforms, shots: usablePlan })
+      setShotPlanNote(`这 ${request.count} 张的镜头用的是你刚确认的那份方案。`)
+    } else if (shouldExpandShots(request)) {
       if (!chatTarget) {
         setShotPlanNote('这几张用的是默认镜头脚本：没有可用的对话模型。')
       } else {
         const target = chatTarget
-        const ac = new AbortController()
-        /* 30 秒兜底：分镜是一次小请求，卡住就该早点回落去出图 */
-        const timer = setTimeout(() => ac.abort(), 30_000)
         setPreparingShots(true)
         try {
-          const result = await channels.completeWithTools({
-            channelId: target.channelId,
-            model: target.model,
-            tools: [],
-            messages: [
-              { role: 'system', content: buildShotsSystem() },
-              { role: 'user', content: buildShotsText(request, platforms) },
-            ],
-            signal: ac.signal,
-          })
-          const parsed = parseShotsReply(result.text, request.count)
-          if (parsed.ok) {
-            plan = buildEcommercePlan(request, { platforms, shots: parsed.shots })
+          const out = await requestShots(request)
+          if (out.ok) {
+            plan = buildEcommercePlan(request, { platforms, shots: out.shots })
             setShotPlanNote(
               `这 ${request.count} 张的镜头是按你的要求现写的（${target.label}，多花了一次对话额度）。`,
             )
           } else {
-            setShotPlanNote(`这几张用了默认镜头脚本：${parsed.error}`)
+            setShotPlanNote(`这几张用了默认镜头脚本：${out.error}`)
           }
-        } catch (e) {
-          const err = asAppError(e)
-          setShotPlanNote(
-            ac.signal.aborted
-              ? '这几张用了默认镜头脚本：分镜请求超时（30 秒没回）。'
-              : `这几张用了默认镜头脚本：${err ? describeError(err) : '分镜请求失败'}。`,
-          )
         } finally {
-          clearTimeout(timer)
           setPreparingShots(false)
         }
       }
@@ -560,6 +607,7 @@ function StudioHost({ projectId }: { projectId: string }) {
         setIntent(null)
         setIntentError('')
       }}
+      onPlanShots={onPlanShots}
       shotPlanNote={shotPlanNote}
       onOpenLongImage={() => setLongOpen(true)}
       longImage={

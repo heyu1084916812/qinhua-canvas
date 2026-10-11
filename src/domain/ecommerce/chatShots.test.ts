@@ -5,6 +5,7 @@ import {
   ECOMMERCE_SHOTS_MARKER,
   parseShotsReply,
   SHOT_BRIEF_MAX,
+  shotKeyOf,
   shouldExpandShots,
 } from './chatShots'
 import { buildEcommercePrompts } from './prompt'
@@ -120,6 +121,39 @@ describe('parseShotsReply：条数必须严格对得上', () => {
     expect(out.ok).toBe(true)
     if (!out.ok) return
     expect(out.shots[0]!.brief).toHaveLength(SHOT_BRIEF_MAX)
+  })
+})
+
+describe('shotKeyOf：一份方案还算不算数', () => {
+  const base = {
+    usage: 'detail' as const,
+    platformId: 'amazon',
+    language: 'en' as const,
+    count: 4,
+    ratio: '3:4',
+    note: '突出防水材质',
+  }
+
+  it('★ 同一组参数同一个键（每次拼出来一样）', () => {
+    expect(shotKeyOf(base)).toBe(shotKeyOf({ ...base }))
+  })
+
+  it('★★ 影响分镜的每一项变了都要换键：用途 / 平台 / 语言 / 张数 / 比例 / 那句要求', () => {
+    const keys = new Set([
+      shotKeyOf(base),
+      shotKeyOf({ ...base, usage: 'set' }),
+      shotKeyOf({ ...base, platformId: 'temu' }),
+      shotKeyOf({ ...base, language: 'ja' }),
+      shotKeyOf({ ...base, count: 5 }),
+      shotKeyOf({ ...base, ratio: '1:1' }),
+      shotKeyOf({ ...base, note: '换个要求' }),
+    ])
+    expect(keys.size).toBe(7)
+  })
+
+  it('★ 只有空白差异不算变（别让一句多余的空格把方案作废）', () => {
+    expect(shotKeyOf({ ...base, note: `  ${base.note}  ` })).toBe(shotKeyOf(base))
+    expect(shotKeyOf({ ...base, platformId: undefined })).not.toBe(shotKeyOf(base))
   })
 })
 

@@ -26275,7 +26275,239 @@ async function g136(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136]
+// ────────────────────────────────────────────────────────────
+// G137 电商「先出方案再出图」（对账 #423，#380b 会话壳里的第一件正事）：
+//   ① 没配对话模型 ⇒ 这块**根本不出现**（没有模型就出不了方案，不摆一个点了没用的按钮）
+//   ② 先出一份方案 ⇒ N 行摆出来，且**一张图都没建**（方案是草稿，不是产物）
+//   ③ 重新生成方案 ⇒ 还能再要一份（界面上写明这又是一次付费调用）
+//   ④ 确认卡：这次说的是「用你刚确认的那份方案 —— 不再多花对话额度」
+//   ⑤ 出图：库里那 N 条提示词**就是方案里那几条**（不是默认脚本、也不是又现编的）
+//   ⑥ 改表单 ⇒ 那份方案**当场作废**（明说 + 确认卡退回"会多花一次额度"）
+// ────────────────────────────────────────────────────────────
+async function g137(browser) {
+  const g = 'G137 电商先出方案再出图'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  /** 库里所有带"这一张只做"的提示词（= 真去出图了才会有） */
+  const shotPromptsInDb = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const rows = await new Promise((resolve) => {
+        const r = db.transaction('nodes', 'readonly').objectStore('nodes').getAll()
+        r.onsuccess = () => resolve(r.result ?? [])
+        r.onerror = () => resolve([])
+      })
+      return rows
+        .filter((row) => typeof row?.data?.prompt === 'string' && row.data.prompt.includes('这一张只做'))
+        .map((row) => row.data.prompt)
+    })
+
+  const planRows = () =>
+    page.locator('[data-ecommerce-shot-plan-row]').evaluateAll((els) =>
+      els.map((e) => e.textContent?.replace(/\s+/g, ' ').trim() ?? ''),
+    )
+
+  const fillForm = async ({ usage, count, note }) => {
+    if (usage) {
+      await page.locator(`[data-ecommerce-usage="${usage}"]`).click()
+      await sleep(300)
+    }
+    if (count !== undefined) await page.locator('[data-ecommerce-count]').fill(String(count))
+    await page.locator('[data-ecommerce-note]').fill(note ?? '')
+    await sleep(200)
+  }
+
+  const NOTE = '突出防水材质'
+  const OUT_NOTE = '换成强调轻便'
+
+  // ① 先建项目（**还没配渠道**）：条件齐了也不该出现"设计方案"这块
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
+  await sleep(600)
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  await sleep(900)
+  await fillForm({ usage: 'detail', count: 4, note: NOTE })
+  rec(
+    g,
+    '★★ 没配对话模型时"设计方案"这块**不出现**（不摆一个点了没用的按钮）',
+    (await page.locator('[data-ecommerce-shot-plan-block]').count()) === 0,
+  )
+
+  // ② 配好 mock 渠道（它带对话模型）再回来
+  const projectUrl = page.url()
+  await configureMockChannel(page)
+  await page.goto(projectUrl, { waitUntil: 'networkidle' })
+  await sleep(900)
+  /*
+   * ⚠️ 产品图**必须在上传后不整页跳转**：它是 `EcommerceStudio` 的组件内 state，
+   * 刷新/跳转一次就没了（而素材字节与节点都落在库里，看着像"明明传过"）。
+   * 第一版把上传放在配渠道之前 ⇒ 跳转回来产品图已丢，「开始生成」被
+   * "先上传一张产品图"挡住，确认卡压根没弹出来（组内异常超时）。
+   */
+  await page.locator('[data-ecommerce-product-input]').setInputFiles({
+    name: 'product.png',
+    mimeType: 'image/png',
+    buffer: solidPngBuffer(64, 64, [200, 120, 60]),
+  })
+  await sleep(1500)
+  await fillForm({ usage: 'detail', count: 4, note: NOTE })
+  rec(
+    g,
+    '★★ 配好之后这块出现（条件与"真去问模型"是同一个纯函数）',
+    (await page.locator('[data-ecommerce-shot-plan-block]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-shot-plan-make]').count()) === 1,
+  )
+
+  /**
+   * ③ 先出一份方案：N 行摆出来，且**一张图都没建**。
+   *
+   * 这一条是整组的根：方案是**草稿**，不是产物 —— 没点生成之前，
+   * 库里一条"这一张只做"都不该有。
+   */
+  await page.locator('[data-ecommerce-shot-plan-make]').click()
+  const planShown = await page
+    .locator('[data-ecommerce-shot-plan-card]')
+    .waitFor({ state: 'visible', timeout: 20000 })
+    .then(() => true)
+    .catch(() => false)
+  const rows1 = await planRows()
+  const dbAfterPlan = await shotPromptsInDb()
+  rec(
+    g,
+    '★★★ 方案先摆出来：4 行、每行带那句要求，且**一张图都没建**',
+    planShown &&
+      rows1.length === 4 &&
+      rows1.every((r) => r.includes(NOTE)) &&
+      dbAfterPlan.length === 0,
+    `行数=${rows1.length} 库里分镜=${dbAfterPlan.length} · ${rows1[0]?.slice(0, 46) ?? ''}`,
+  )
+
+  // ④ 重新生成方案：还能再要一份（界面上写明这又是一次付费调用），仍然不出图
+  await page.locator('[data-ecommerce-shot-plan-make]').click()
+  await sleep(1200)
+  const rows2 = await planRows()
+  rec(
+    g,
+    '★★ 「重新生成方案」能再要一份，且仍然一张图都没建',
+    rows2.length === 4 && (await shotPromptsInDb()).length === 0,
+    `行数=${rows2.length}`,
+  )
+
+  // ⑤ 确认卡这时候不该再说"会多花额度"，而应该说"用你刚确认的那份"
+  await page.locator('[data-ecommerce-generate]').click()
+  await sleep(400)
+  const confirmKind = await page
+    .locator('[data-ecommerce-confirm-shots]')
+    .getAttribute('data-ecommerce-confirm-shots')
+    .catch(() => null)
+  const confirmText = (
+    await page
+      .locator('[data-ecommerce-confirm-shots]')
+      .innerText()
+      .catch(() => '')
+  ).trim()
+  rec(
+    g,
+    '★★★ 有了确认过的方案，确认卡说的是"用你刚确认的那份 —— 不再多花对话额度"',
+    confirmKind === 'confirmed' && /不再多花对话额度/.test(confirmText),
+    confirmText.replace(/\n/g, ' ').slice(0, 80),
+  )
+
+  // ⑥ 出图：库里那 4 条就是方案里那几条
+  await page.locator('[data-ecommerce-confirm-ok]').click()
+  const done = await page
+    .waitForFunction(
+      () =>
+        document.querySelectorAll('[data-ecommerce-result]').length === 4 &&
+        document.querySelectorAll('[data-ecommerce-result][data-status="done"]').length === 4,
+      null,
+      { timeout: 30000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  const prompts = await shotPromptsInDb()
+  const note1 = (
+    await page
+      .locator('[data-ecommerce-shot-plan]')
+      .innerText()
+      .catch(() => '')
+  ).trim()
+  rec(
+    g,
+    '★★★ 出图用的就是方案里那几条（四条不同 + 都带那句要求）',
+    done &&
+      prompts.length === 4 &&
+      new Set(prompts).size === 4 &&
+      prompts.every((p) => p.includes(NOTE)),
+    `出图=${done} 条数=${prompts.length} 唯一=${new Set(prompts).size}`,
+  )
+  rec(g, '★★ 跑完如实说这批用的是"你确认过的那份方案"', /确认的那份方案/.test(note1), note1)
+
+  /**
+   * ⑦ 改表单 ⇒ 那份方案**当场作废**。
+   *
+   * 方案是对着旧参数写的（张数 / 用途 / 平台 / 语言 / 比例 / 那句要求里的任何一项变了都算）。
+   * 判据两条：界面上明说作废、确认卡退回"会多花一次额度"。
+   */
+  await page.locator('[data-ecommerce-note]').fill(OUT_NOTE)
+  await sleep(300)
+  const staleShown = (await page.locator('[data-ecommerce-shot-plan-stale]').count()) === 1
+  const cardGone = (await page.locator('[data-ecommerce-shot-plan-card]').count()) === 0
+  await page.locator('[data-ecommerce-generate]').click()
+  await sleep(400)
+  const confirmKind2 = await page
+    .locator('[data-ecommerce-confirm-shots]')
+    .getAttribute('data-ecommerce-confirm-shots')
+    .catch(() => null)
+  await page.locator('[data-ecommerce-confirm-cancel]').click()
+  await sleep(250)
+  rec(
+    g,
+    '★★★ 改了表单，那份方案当场作废：界面明说 + 确认卡退回"会多花一次额度"',
+    staleShown && cardGone && confirmKind2 === 'model',
+    `作废提示=${staleShown} 卡片收起=${cardGone} 确认卡=${confirmKind2}`,
+  )
+
+  // ⑧ 改回去 ⇒ 方案又作数（键相等即有效，不是"一改就永久扔掉"）
+  await page.locator('[data-ecommerce-note]').fill(NOTE)
+  await sleep(300)
+  rec(
+    g,
+    '★★ 把表单改回去，那份方案又作数（作废看的是键，不是"改过就拉黑"）',
+    (await page.locator('[data-ecommerce-shot-plan-card]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-shot-plan-stale]').count()) === 0,
+  )
+
+  // ⑨ 丢掉方案 ⇒ 卡片收起，出图时不带方案（确认卡退回 model）
+  await page.locator('[data-ecommerce-shot-plan-discard]').click()
+  await sleep(300)
+  await page.locator('[data-ecommerce-generate]').click()
+  await sleep(400)
+  const confirmKind3 = await page
+    .locator('[data-ecommerce-confirm-shots]')
+    .getAttribute('data-ecommerce-confirm-shots')
+    .catch(() => null)
+  await page.locator('[data-ecommerce-confirm-cancel]').click()
+  rec(
+    g,
+    '★ 点「丢掉方案」后卡片收起，出图时不再带方案',
+    (await page.locator('[data-ecommerce-shot-plan-card]').count()) === 0 && confirmKind3 === 'model',
+    `确认卡=${confirmKind3}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/137-g137-shot-plan.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

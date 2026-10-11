@@ -50,6 +50,36 @@ export function shouldExpandShots(request: {
   return request.count > 1 && request.usage !== 'white-bg' && (request.note ?? '').trim().length > 0
 }
 
+/**
+ * **一份方案"还算不算数"的判据**（对账 #423）。
+ *
+ * 用户先出方案 → 再改表单 → 那份方案就是对着**旧参数**写的。继续拿它出图，
+ * 用户会得到"方案上写着 3 张，实际出 4 张"这类错位 —— 本项目已经栽过一次同类
+ * （#415 的 `shot.nodeId` 只是缓存、不是真相）。所以把"方案是按哪组参数写的"
+ * 压成一个字符串，比一比就知道还作不作数。
+ *
+ * 只包含**影响分镜的那几项**：产品图 / 参考图换了不影响"每张拍什么"
+ * （它们是构图素材，不是卖点顺序），所以刻意不进这个键 ——
+ * 键里塞进无关项，会让方案因为一次无关改动白白作废。
+ */
+export function shotKeyOf(input: {
+  usage: EcommerceRequest['usage']
+  platformId?: string
+  language: EcommerceRequest['language']
+  count: number
+  ratio: string
+  note?: string
+}): string {
+  return JSON.stringify([
+    input.usage,
+    input.platformId ?? '',
+    input.language,
+    input.count,
+    input.ratio,
+    (input.note ?? '').trim(),
+  ])
+}
+
 /** 系统指令 = 契约（写法与 `chatParse` / 拆镜那几条保持同一形状） */
 export function buildShotsSystem(): string {
   return `你是一名电商视觉导演，负责把一次出图需求拆成"每一张拍什么"的拍摄简报。
@@ -93,6 +123,16 @@ export function buildShotsText(
 }
 
 export type ShotsReplyParse =
+  | { ok: true; shots: readonly EcommerceShot[] }
+  | { ok: false; error: string }
+
+/**
+ * 「先出一份方案」的结果（`pages/EcommercePage` → `workbenches/ecommerce` 的契约）。
+ *
+ * 失败**带原因**回来，由工作台原样显示 —— 与 #406 那条"回落要连为什么一起说"同一口径：
+ * 只说"出方案失败"，用户既不知道该改什么，也不知道能不能直接出图。
+ */
+export type ShotPlanResult =
   | { ok: true; shots: readonly EcommerceShot[] }
   | { ok: false; error: string }
 

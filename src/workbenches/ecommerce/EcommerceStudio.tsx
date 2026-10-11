@@ -2,7 +2,11 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ECOMMERCE_DEFAULT_COUNT } from '../../domain/ecommerce/plan'
 import { ECOMMERCE_PLATFORMS, type EcommercePlatform } from '../../domain/ecommerce/platforms'
 import { intentRows, type EcommerceIntentDraft } from '../../domain/ecommerce/chatParse'
-import { shouldExpandShots } from '../../domain/ecommerce/chatShots'
+import {
+  shotKeyOf,
+  shouldExpandShots,
+  type ShotPlanResult,
+} from '../../domain/ecommerce/chatShots'
 import {
   ECOMMERCE_COUNT_MAX,
   ECOMMERCE_LANGUAGES,
@@ -15,6 +19,7 @@ import {
   type EcommerceUsage,
 } from '../../domain/ecommerce/types'
 import { ECOMMERCE_NOTE_MAX } from '../../domain/ecommerce/prompt'
+import type { EcommerceShot } from '../../domain/ecommerce/prompt'
 import styles from './EcommerceStudio.module.css'
 
 /**
@@ -84,8 +89,13 @@ export interface EcommerceStudioProps {
   platforms?: readonly EcommercePlatform[]
   /** 上传一张图：由页面落到画布（assets + 节点），返回节点 id 与预览 */
   onUpload: (file: File, kind: 'product' | 'reference') => Promise<EcommerceUpload | null>
-  /** 点「开始生成」并在二次确认之后调用；页面负责建节点 + 跑引擎 */
-  onGenerate: (request: EcommerceRequest) => Promise<void>
+  /**
+   * 点「开始生成」并在二次确认之后调用；页面负责建节点 + 跑引擎。
+   *
+   * `shotPlan` = 用户**先看过并确认**的那份分镜（对账 #423）。传了它，
+   * 页面就**不再多花一次对话额度**去问模型 —— 直接用这份。
+   */
+  onGenerate: (request: EcommerceRequest, shotPlan?: readonly EcommerceShot[]) => Promise<void>
   /** 可选出图模型（前端显示名，来自固定清单）；空数组时只显示"默认（按渠道解析）" */
   models?: readonly string[]
   /** 当前选中的模型；空串 = 用默认解析出来的那一个 */
@@ -123,6 +133,11 @@ export interface EcommerceStudioProps {
   /** 用户点了「丢弃」 */
   onIntentDiscard?: () => void
   /**
+   * 「先出一份方案」（对账 #423）：页面注入 —— 只有页面拿得到渠道。
+   * 不传就不渲染这一块；失败要带**原因**回来（由工作台原样显示）。
+   */
+  onPlanShots?: (request: EcommerceRequest) => Promise<ShotPlanResult>
+  /**
    * 这一次的**分镜来源**（对账 #406）：页面跑完一次之后如实回报 ——
    * 是"按你的要求现写的"还是"回落默认脚本（因为什么）"。空串 = 这次没这回事，不显示。
    */
@@ -149,6 +164,7 @@ export function EcommerceStudio({
   intentError = '',
   onIntentApplied,
   onIntentDiscard,
+  onPlanShots,
   shotPlanNote = '',
 }: EcommerceStudioProps) {
   const [usage, setUsage] = useState<EcommerceUsage>('main')
@@ -164,6 +180,19 @@ export function EcommerceStudio({
   const [error, setError] = useState('')
   /** 「一句话生成方案」的输入框（#422）：纯 UI 态，不进表单、不落库 */
   const [intentText, setIntentText] = useState('')
+  /**
+   * 「先出一份方案」（对账 #423）：**方案 + 它是对着哪组参数写的**。
+   *
+   * 存 `key` 而不是只存 shots：用户改完表单再看那份方案，它就已经是对着旧参数写的了。
+   * 继续拿它出图会出现"方案上写着 3 张、实际出 4 张"这种错位 —— 所以比一比键，
+   * 不相等就**当场作废**（界面上明说），出图时重新问一次。
+   */
+  const [shotPlan, setShotPlan] = useState<{
+    key: string
+    shots: readonly EcommerceShot[]
+  } | null>(null)
+  const [planningShots, setPlanningShots] = useState(false)
+  const [planError, setPlanError] = useState('')
 
   /** 换用途时把张数带到该用途的默认值（用户仍可改）——"带示例"的一半 */
   useEffect(() => {
@@ -209,11 +238,45 @@ export function EcommerceStudio({
     setConfirming(true)
   }
 
+  /**
+   * 「先出一份方案」（对账 #423）。
+   *
+   * ⚠️ 存进 state 的 `key` 取自**这一次发出去的请求**，不是"回来时的表单"：
+   * 请求在路上时用户完全可能又改了字，那时回来的是**旧参数**的方案 ——
+   * 按当时的表单记键，这份方案会被当成有效的（正是 #419 那条教训的反面）。
+   */
+  const makePlan = async () => {
+    if (!onPlanShots) return
+    const request = buildRequest()
+    const key = shotKeyOf(request)
+    setPlanningShots(true)
+    setPlanError('')
+    try {
+      const result = await onPlanShots(request)
+      if (result.ok) setShotPlan({ key, shots: result.shots })
+      else {
+        setShotPlan(null)
+        setPlanError(result.error)
+      }
+    } finally {
+      setPlanningShots(false)
+    }
+  }
+
+  /** 当前表单对应的分镜键（只有影响分镜的那几项进键） */
+  const currentShotKey = shotKeyOf({ usage, platformId, language, count, ratio, note })
+  /** 方案还作不作数：键不等 = 表单改过了，那份方案作废 */
+  const activeShotPlan = shotPlan && shotPlan.key === currentShotKey ? shotPlan.shots : null
+  const planStale = !!shotPlan && activeShotPlan === null
+  /** 这一趟值不值得出方案：与 #406"真去调用模型"是**同一个纯函数** */
+  const canPlanShots = !!onPlanShots && !!chatTargetLabel && shouldExpandShots({ usage, count, note })
+
   const confirm = async () => {
     setConfirming(false)
     setError('')
     try {
-      await onGenerate(buildRequest())
+      /* 只把**没过期**的那份带过去；过期等于没有（页面会重新问一次） */
+      await onGenerate(buildRequest(), activeShotPlan ?? undefined)
     } catch (e) {
       setError(e instanceof Error ? e.message : '生成失败，原因见下方结果区')
     }
@@ -500,6 +563,74 @@ export function EcommerceStudio({
           />
         </section>
 
+        {/*
+          先出一份方案（对账 #423）。
+
+          为什么非要"出图之前"看见：分镜一直在**确认生成之后**才由模型现编 ——
+          用户花钱之前根本不知道那 N 张会被写成什么。这份方案是**草稿**：
+          看过了就按它出图（不再多花对话额度），改过表单它就当场作废。
+        */}
+        {canPlanShots ? (
+          <section className={styles.block} data-ecommerce-shot-plan-block>
+            <span className={styles.blockTitle}>设计方案</span>
+            <div className={styles.intentRow}>
+              <button
+                type="button"
+                className={styles.linkBtn}
+                data-ecommerce-shot-plan-make
+                disabled={planningShots || running}
+                onClick={() => void makePlan()}
+              >
+                {planningShots ? '正在出方案…' : shotPlan ? '重新生成方案' : '先出一份方案'}
+              </button>
+              <span className={styles.hint}>
+                {shotPlan
+                  ? `重新生成会再花一次对话额度（用 ${chatTargetLabel}）`
+                  : `用 ${chatTargetLabel} 把这几张拍什么写出来，看过再决定要不要出图`}
+              </span>
+            </div>
+            {planError ? (
+              <p className={styles.error} role="alert" data-ecommerce-shot-plan-error>
+                {planError}
+              </p>
+            ) : null}
+            {planStale ? (
+              <p className={styles.hint} data-ecommerce-shot-plan-stale>
+                表单改过了，这份方案作废 —— 出图时会重新问一次。
+              </p>
+            ) : null}
+            {activeShotPlan ? (
+              <div className={styles.intentCard} data-ecommerce-shot-plan-card>
+                <p className={styles.intentLead}>这 {activeShotPlan.length} 张会这样拍：</p>
+                <ul className={styles.intentList}>
+                  {activeShotPlan.map((shot, i) => (
+                    <li
+                      key={`${i}-${shot.title}`}
+                      className={styles.intentItem}
+                      data-ecommerce-shot-plan-row
+                    >
+                      <span className={styles.intentLabel}>{i + 1}</span>
+                      <span className={styles.intentValue}>
+                        {shot.title} —— {shot.brief}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <div className={styles.intentActions}>
+                  <button
+                    type="button"
+                    className={styles.linkBtn}
+                    data-ecommerce-shot-plan-discard
+                    onClick={() => setShotPlan(null)}
+                  >
+                    丢掉方案
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
         {error ? (
           <p className={styles.error} role="alert" data-ecommerce-error>
             {error}
@@ -656,11 +787,15 @@ export function EcommerceStudio({
             {shouldExpandShots({ usage, count, note }) ? (
               <p
                 className={styles.hint}
-                data-ecommerce-confirm-shots={chatTargetLabel ? 'model' : 'script'}
+                data-ecommerce-confirm-shots={
+                  activeShotPlan ? 'confirmed' : chatTargetLabel ? 'model' : 'script'
+                }
               >
-                {chatTargetLabel
-                  ? `这几张的镜头会先让 ${chatTargetLabel} 按你的要求展开 —— 这一趟会多花一次对话额度（失败就用默认脚本，不会耽误出图）。`
-                  : '没配对话模型：这几张会用默认镜头脚本（每张不同，但不按你写的要求调整）。'}
+                {activeShotPlan
+                  ? '这几张的镜头用你刚确认的那份方案 —— 不再多花对话额度。'
+                  : chatTargetLabel
+                    ? `这几张的镜头会先让 ${chatTargetLabel} 按你的要求展开 —— 这一趟会多花一次对话额度（失败就用默认脚本，不会耽误出图）。`
+                    : '没配对话模型：这几张会用默认镜头脚本（每张不同，但不按你写的要求调整）。'}
               </p>
             ) : null}
             <div className={styles.confirmActions}>
