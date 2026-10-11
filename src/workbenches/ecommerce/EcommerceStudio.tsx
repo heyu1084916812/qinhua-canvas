@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type ReactNode,
+} from 'react'
 import { ECOMMERCE_DEFAULT_COUNT } from '../../domain/ecommerce/plan'
 import { ECOMMERCE_PLATFORMS, type EcommercePlatform } from '../../domain/ecommerce/platforms'
 import { intentRows, type EcommerceIntentDraft } from '../../domain/ecommerce/chatParse'
@@ -198,6 +204,12 @@ export function EcommerceStudio({
   } | null>(null)
   const [planningShots, setPlanningShots] = useState(false)
   const [planError, setPlanError] = useState('')
+  /**
+   * 正在往哪一块拖（对账 #427）：`null` = 没在拖。只用来画一个"松手会落这儿"的提示 ——
+   * 没有提示的话，用户拖着图悬在框上不知道能不能放（画布那边早就有拖放，
+   * 电商这两块一直没有：同一个应用里两种手感，是很容易被当成"坏了"的那种不一致）。
+   */
+  const [dragOver, setDragOver] = useState<'product' | 'reference' | null>(null)
 
   /** 换用途时把张数带到该用途的默认值（用户仍可改）——"带示例"的一半 */
   useEffect(() => {
@@ -220,6 +232,44 @@ export function EcommerceStudio({
     if (kind === 'product') setProduct(uploaded)
     else setReferences((prev) => [...prev, uploaded].slice(0, 4))
   }
+
+  /**
+   * **拖进来的文件**（对账 #427）。
+   *
+   * 两条与文件选择保持一致的规矩（两条路各写一套迟早分叉）：
+   * - 走的是**同一个** `onPick`（所以"不是图 / 读不出来"的提示也是同一句话）；
+   * - 参考图仍然**最多 4 张**：放不下的一次**不收**，也不偷偷挤掉已有的。
+   */
+  const onDropFiles = (kind: 'product' | 'reference', files: FileList | null) => {
+    setDragOver(null)
+    const picked = [...(files ?? [])]
+    if (picked.length === 0) return
+    void (async () => {
+      if (kind === 'product') {
+        await onPick(picked[0], 'product')
+        return
+      }
+      const room = Math.max(0, 4 - references.length)
+      for (const f of picked.slice(0, room)) await onPick(f, 'reference')
+    })()
+  }
+
+  /** 拖放的四个处理器：两块上传区共用（`kind` 决定落到哪儿） */
+  const dropProps = (kind: 'product' | 'reference') => ({
+    onDragOver: (e: ReactDragEvent<HTMLElement>) => {
+      e.preventDefault()
+      setDragOver(kind)
+    },
+    /* 指针在同一位块的子元素之间移动也会触发 dragleave ⇒ 先看还在不在里面 */
+    onDragLeave: (e: ReactDragEvent<HTMLElement>) => {
+      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+      setDragOver((cur) => (cur === kind ? null : cur))
+    },
+    onDrop: (e: ReactDragEvent<HTMLElement>) => {
+      e.preventDefault()
+      onDropFiles(kind, e.dataTransfer?.files ?? null)
+    },
+  })
 
   const buildRequest = (): EcommerceRequest => ({
     usage,
@@ -385,7 +435,11 @@ export function EcommerceStudio({
           </section>
         ) : null}
 
-        <section className={styles.block}>
+        <section
+          className={dragOver === 'product' ? `${styles.block} ${styles.blockDrop}` : styles.block}
+          data-ecommerce-product-drop={dragOver === 'product' ? 'true' : 'false'}
+          {...dropProps('product')}
+        >
           <label className={styles.blockTitle} htmlFor="ecommerce-product">
             产品图（必填）
           </label>
@@ -404,14 +458,20 @@ export function EcommerceStudio({
               </div>
             ) : (
               <label className={styles.emptySlot} htmlFor="ecommerce-product">
-                <span>点这里上传产品图</span>
+                <span>点这里上传产品图（也可以直接把图拖进来）</span>
                 <span className={styles.emptyHint}>白底 / 场景图都行，越清楚越好</span>
               </label>
             )}
           </div>
         </section>
 
-        <section className={styles.block}>
+        <section
+          className={
+            dragOver === 'reference' ? `${styles.block} ${styles.blockDrop}` : styles.block
+          }
+          data-ecommerce-reference-drop={dragOver === 'reference' ? 'true' : 'false'}
+          {...dropProps('reference')}
+        >
           <label className={styles.blockTitle} htmlFor="ecommerce-reference">
             参考图（可选，最多 4 张）
           </label>
@@ -431,7 +491,7 @@ export function EcommerceStudio({
           />
           <div className={styles.slotRow}>
             {references.map((r) => (
-              <div key={r.nodeId} className={styles.slot}>
+              <div key={r.nodeId} className={styles.slot} data-ecommerce-reference-preview>
                 {r.preview}
               </div>
             ))}

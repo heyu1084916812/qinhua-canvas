@@ -54,6 +54,18 @@
   gap: var(--space-2);
 }
 
+/*
+ * 拖放悬停（对账 #427）：松手会落在这儿的那一块**整块**亮起来。
+ * 用"虚线描边"而不是只换个底色 —— 形状语言本身就是"可以放这儿"，
+ * 而且深浅两套主题下都不用另调颜色（只用令牌）。
+ */
+.blockDrop {
+  outline: 2px dashed var(--stroke-focus);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+  background: var(--bg-hover);
+}
+
 .blockTitle {
   font-size: var(--fs-label);
   font-weight: 600;

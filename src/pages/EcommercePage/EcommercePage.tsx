@@ -12,7 +12,11 @@ import { useAsset } from '../../workbenches/canvas/hooks/useAsset'
 import { EcommerceStudio, type EcommerceResultItem, type EcommerceUpload } from '../../workbenches/ecommerce/EcommerceStudio'
 import { LongImagePanel, type LongImageTileSource } from './LongImagePanel'
 import { createProjectRepository } from '../../state/project/repository'
-import { createAssetNode, importAssetFile } from '../../features/canvas/importAsset'
+import {
+  createAssetNode,
+  importAssetFile,
+  isImportableMedia,
+} from '../../features/canvas/importAsset'
 import { applyDefaults, resolveDefaults } from '../../features/canvas/createNodeWithDefaults'
 import { buildEcommercePlan } from '../../domain/ecommerce/plan'
 import {
@@ -319,6 +323,13 @@ function StudioHost({ projectId }: { projectId: string }) {
   }
 
   const onUpload = async (file: File, _kind: 'product' | 'reference'): Promise<EcommerceUpload | null> => {
+    /**
+     * **先挡一道类型**（对账 #427）：`accept="image/*"` 只管文件对话框，
+     * **拖放绕得过它** —— `.txt` 拖进来会一路落库、变成一个破图预览。
+     * 口径与画布那边一致（画布是导入后判、这里是导入前判，更省一次写入）：
+     * 已知类型不是图/视频就拒收；**类型为空放行**（有些图没扩展名，别把它们冤枉掉）。
+     */
+    if (file.type && !isImportableMedia(file.type)) return null
     const deps = { platform, store, projectId }
     const asset = await importAssetFile(deps, file)
     if (!asset) return null

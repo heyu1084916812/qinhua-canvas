@@ -27010,7 +27010,151 @@ async function g139(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139]
+// ────────────────────────────────────────────────────────────
+// G140 电商拖放上传（对账 #427）：
+//   ① 拖着图悬在产品图那一块 ⇒ 整块亮起**虚线**（"松手会落这儿"），但还**没**收进来
+//   ② 松手 ⇒ 真落库、预览能解码（与点选走同一条 onPick）
+//   ③ 参考图：一次拖 3 张、只剩 2 个位 ⇒ 只收 2 张（上限 4），已有的不被挤掉
+//   ④ 拖一个 .txt ⇒ 如实报错，且**导入前就挡住**（不留破图预览）
+// ────────────────────────────────────────────────────────────
+async function g140(browser) {
+  const g = 'G140 电商拖放上传'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  /**
+   * 往某个元素上真拖一份文件。
+   *
+   * ⚠️ Playwright 没法把 `FileList` 序列化进 `dispatchEvent`，只能**自己造一个
+   * `DataTransfer`** 再派 `dragover` / `drop` —— 这也是唯一能真验到
+   * `dataTransfer.files` 那条路的办法（`.setInputFiles` 走的是 input，不是拖放）。
+   */
+  const dropOn = async (selector, files) => {
+    const dt = await page.evaluateHandle(({ files }) => {
+      const toBytes = (b64) => {
+        const raw = atob(b64)
+        const out = new Uint8Array(raw.length)
+        for (let i = 0; i < raw.length; i += 1) out[i] = raw.charCodeAt(i)
+        return out
+      }
+      const data = new DataTransfer()
+      for (const f of files) data.items.add(new File([toBytes(f.b64)], f.name, { type: f.type }))
+      return data
+    }, { files })
+    await page.locator(selector).dispatchEvent('dragover', { dataTransfer: dt })
+    await sleep(220)
+    /* ⚠️ 悬停态只能在 **dragover 与 drop 之间**量：drop 之后描边就撤了 */
+    const hot = await page
+      .locator('[data-ecommerce-product-drop="true"], [data-ecommerce-reference-drop="true"]')
+      .count()
+    const outline = await page
+      .locator(selector)
+      .evaluate((el) => getComputedStyle(el).outlineStyle)
+      .catch(() => '')
+    await page.locator(selector).dispatchEvent('drop', { dataTransfer: dt })
+    await dt.dispose()
+    return { hot, outline }
+  }
+
+  const png = (color) => ({ b64: solidPngBuffer(64, 64, color).toString('base64'), type: 'image/png' })
+
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
+  await sleep(500)
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  await page.waitForSelector('[data-ecommerce-form]', { timeout: 8000 })
+  await sleep(500)
+
+  // ① 拖着悬停：整块亮起来（虚线描边）
+  const hover = await dropOn('[data-ecommerce-product-drop]', [
+    { ...png([30, 140, 220]), name: 'hover-only.png' },
+  ])
+  rec(
+    g,
+    '★★ 拖着图悬在产品图那一块：整块亮起**虚线**（告诉用户"松手会落这儿"）',
+    hover.hot === 1 && hover.outline === 'dashed',
+    `hot=${hover.hot} outline=${hover.outline}`,
+  )
+
+  // ② 松手之后：真落库 + 预览能解码
+  await sleep(1500)
+  const productOk = await page
+    .locator('[data-ecommerce-product-preview] img')
+    .first()
+    .evaluate((el) => el.naturalWidth > 0)
+    .catch(() => false)
+  const outlineAfter = await page
+    .locator('[data-ecommerce-product-drop]')
+    .evaluate((el) => getComputedStyle(el).outlineStyle)
+  rec(
+    g,
+    '★★★ 松手之后真收进来了：预览能解码（走的是**拖放那条路**，不是点选）',
+    productOk && outlineAfter === 'none',
+    `解码=${productOk} 描边=${outlineAfter}`,
+  )
+
+  // ③ 参考图：先拖 2 张，再拖 3 张 —— 上限 4，多的不收
+  await dropOn('[data-ecommerce-reference-drop]', [
+    { ...png([220, 80, 80]), name: 'ref-1.png' },
+    { ...png([80, 220, 120]), name: 'ref-2.png' },
+  ])
+  await sleep(1600)
+  const twoRefs = await page.locator('[data-ecommerce-reference-preview]').count()
+  await dropOn('[data-ecommerce-reference-drop]', [
+    { ...png([10, 10, 10]), name: 'ref-3.png' },
+    { ...png([20, 20, 20]), name: 'ref-4.png' },
+    { ...png([30, 30, 30]), name: 'ref-5.png' },
+  ])
+  await sleep(2000)
+  const fourRefs = await page.locator('[data-ecommerce-reference-preview]').count()
+  rec(
+    g,
+    '★★★ 参考图一次拖 3 张、只剩 2 个位 ⇒ 只收 2 张（上限 4），已有的不被挤掉',
+    twoRefs === 2 && fourRefs === 4,
+    `先 2 张=${twoRefs} 再加 3 张后=${fourRefs}`,
+  )
+
+  /**
+   * ④ 拖一个 .txt：如实报错，且**导入前就挡住**。
+   *
+   * ⚠️ 要往**产品图**那块拖，不能往参考图那块：参考图此刻已经满 4 张，
+   * `.txt` 会被"没位置"挡下 —— 那样这条断言就有**两个可能的原因**，
+   * 红的绿的都说明不了类型那道门到底在不在（第一版就是这么写错的）。
+   * 产品图那块没有数量限制，唯一的可能原因就只剩"类型不对"。
+   *
+   * 判据两半：① 如实报错；② **产品图还是原来那张**（真图能解码）——
+   * 少了类型门的话，这个 .txt 会顶掉产品图，预览变成破图（naturalWidth = 0）。
+   */
+  await dropOn('[data-ecommerce-product-drop]', [
+    { b64: Buffer.from('not an image').toString('base64'), type: 'text/plain', name: 'note.txt' },
+  ])
+  await sleep(900)
+  const errText = (
+    await page
+      .locator('[data-ecommerce-error]')
+      .innerText()
+      .catch(() => '')
+  ).trim()
+  const productStillReal = await page
+    .locator('[data-ecommerce-product-preview] img')
+    .first()
+    .evaluate((el) => el.naturalWidth > 0)
+    .catch(() => false)
+  rec(
+    g,
+    '★★★ 拖一个 .txt 到产品图那一块：如实说没收下，且**产品图仍是原来那张真图**',
+    /没能读进来/.test(errText) && productStillReal,
+    `${errText.slice(0, 40)} · 产品图仍能解码=${productStillReal}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/140-g140-ecommerce-drop.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
