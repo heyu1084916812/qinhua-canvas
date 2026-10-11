@@ -174,19 +174,14 @@ export function LongImagePanel({
           有 {plan.skipped.length} 张尺寸未知，没有拼进去（多半是还没出图成功）
         </p>
       ) : null}
-      {plan.height <= 0 ? (
-        <p className={styles.empty} data-ecommerce-longimage-empty>
-          还没有可拼的结果：先出一批图，再回来拼长图。
-        </p>
-      ) : (
-        <div className={styles.canvasWrap}>
-          <canvas ref={canvasRef} className={styles.canvas} data-ecommerce-longimage-canvas />
-        </div>
-      )}
       {/*
         编排（对账 #426）：这一段就是"编辑态"里**不需要任何新模型能力**的那一半 ——
         选谁进长图、按什么顺序。像素级的那些（裁剪 / 抠图 / 局部重绘 / 延展 / 超清…）
         要么需要渠道能力、要么等价于在画布里改，仍记在 #380b 的余项里。
+
+        ⚠️ **放在预览之前**：预览是一张几千像素高的长条（`max-height: 520px` 自己也滚），
+        编排压在它下面就会被顶到折叠线以下 —— 用户打开面板根本看不见有这个功能
+        （第一版就是这么排的，截图里编排区全在屏幕外）。
       */}
       {tileIds.length > 0 ? (
         <div className={styles.arrange} data-ecommerce-longimage-arrange>
@@ -282,6 +277,15 @@ export function LongImagePanel({
           ) : null}
         </div>
       ) : null}
+      {plan.height <= 0 ? (
+        <p className={styles.empty} data-ecommerce-longimage-empty>
+          还没有可拼的结果：先出一批图，再回来拼长图。
+        </p>
+      ) : (
+        <div className={styles.canvasWrap}>
+          <canvas ref={canvasRef} className={styles.canvas} data-ecommerce-longimage-canvas />
+        </div>
+      )}
       <p className={styles.status} role="status" data-ecommerce-longimage-status>
         {status || (ready ? '已按 1920 宽等比拼好（首尾相接）' : '正在拼…')}
       </p>

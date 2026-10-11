@@ -26872,6 +26872,38 @@ async function g139(browser) {
     .waitFor({ state: 'visible', timeout: 30000 })
     .catch(() => {})
 
+  /**
+   * **编排区在预览上方、且打开面板就看得见**（布局判据，不靠肉眼）。
+   *
+   * 第一版把编排排在预览**下面**：预览是一张几千像素高的长条（自己还滚），
+   * 编排就被顶到折叠线以下 —— 截图里那一整块全在屏幕外，用户根本不知道有这个功能。
+   * 判据三条：编排在预览之上、编排顶不低于可视区顶、编排底不超出可视区底。
+   */
+  const layout = await page.evaluate(() => {
+    const box = (sel) => {
+      const el = document.querySelector(sel)
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom) }
+    }
+    return {
+      arrange: box('[data-ecommerce-longimage-arrange]'),
+      canvas: box('[data-ecommerce-longimage-canvas]'),
+      stage: box('[data-ecommerce-results]'),
+    }
+  })
+  rec(
+    g,
+    '★★ 编排区在预览**上方**、且一打开面板就在可视区里（不被长条预览顶到折叠线以下）',
+    !!layout.arrange &&
+      !!layout.canvas &&
+      !!layout.stage &&
+      layout.arrange.bottom <= layout.canvas.top &&
+      layout.arrange.top >= layout.stage.top &&
+      layout.arrange.bottom <= layout.stage.bottom,
+    `编排=${layout.arrange?.top}..${layout.arrange?.bottom} 预览顶=${layout.canvas?.top} 可视底=${layout.stage?.bottom}`,
+  )
+
   // ① 编排区：三段，起点分别是 0 / 2560 / 5120
   const base = await rows()
   const baseIds = base.map((r) => r.id)
