@@ -59,6 +59,34 @@ function assertVersionsAligned({ pkg, conf, cargo }) {
   return pkg
 }
 
+/**
+ * 更新地址必须在配置里、且是**稳定别名**（对账 #239 的坑 / #439 状态④）。
+ *
+ * 这条链最隐蔽的一处：客户端只认**装包时写死**的那一个地址 ⇒
+ * 地址里带了版本号，装出去的那一版就永远只看得见自己的清单、**永远发现不了新版**；
+ * 地址为空则表现为"点检查更新只会说还没接更新地址"。两种都不会报错，只会在用户侧静默失效。
+ *
+ * 放在构建**之前**：地址不对就别浪费 3 分钟去编 Rust。
+ */
+function assertUpdaterEndpointWired(confJson) {
+  const list = confJson?.plugins?.updater?.endpoints
+  if (!Array.isArray(list) || list.length === 0) {
+    throw new Error(
+      'tauri.conf.json 的 plugins.updater.endpoints 是空的 —— 这种包发出去，用户永远收不到更新。\n' +
+        '先填好稳定别名（本项目：…/releases/latest/download/latest.json）再打包。',
+    )
+  }
+  const versioned = list.find((u) => /\/v?\d+\.\d+\.\d+(\/|$)/.test(String(u)))
+  if (versioned) {
+    throw new Error(
+      `更新地址里带了版本号：${versioned}\n` +
+        '客户端只认**装包时写死**的那一个 ⇒ 等于"装出去的那一版永远只看得见自己的清单"。\n' +
+        '改成稳定别名：…/releases/latest/download/latest.json',
+    )
+  }
+  console.log(`[release] 更新地址：${list[0]}（稳定别名，不带版本号）`)
+}
+
 function privateKeyPath() {
   const fromEnv = process.env.TAURI_SIGNING_PRIVATE_KEY
   if (fromEnv && existsSync(fromEnv)) return fromEnv
@@ -174,6 +202,7 @@ function defaultEndpointUrl() {
 const versions = readVersions()
 const version = assertVersionsAligned(versions)
 console.log(`[release] 版本 ${version}（三处一致）`)
+assertUpdaterEndpointWired(versions.conf_json)
 
 const key = privateKeyPath()
 if (!has('--skip-build')) runBuild(key)
