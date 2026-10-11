@@ -47,6 +47,7 @@ import {
   assetBasePrompt,
   attachShotImages,
   attachShotNodes,
+  attachShotVideos,
   bindShotScene,
   exportStoryboardMarkdown,
   moveEpisode,
@@ -57,6 +58,7 @@ import {
   removeShot,
   setAssetBaseHash,
   setAssetNode,
+  setShotVideoNode,
   shotPromptWithAssets,
   shotsNeedingNode,
   shotsOf,
@@ -225,7 +227,13 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   const [breakConfirm, setBreakConfirm] = useState(false)
   const breakAbort = useRef<AbortController | null>(null)
   /** 铺到画布 / 出图这一组动作的状态行（与拆镜那条分开，免得互相盖掉） */
-  const [lay, setLay] = useState<{ kind: 'idle' | 'done' | 'error'; text: string }>({
+  /**
+   * 铺到画布 / 出图 / 出视频这一组动作的状态行。
+   *
+   * `running` 是给"这一镜出视频"加的（对账 #429）：视频是长任务，`await` 期间
+   * 界面得**如实说在跑**，而不是把上一句"已铺 N 镜"留在那儿（那会被读成"跑完了"）。
+   */
+  const [lay, setLay] = useState<{ kind: 'idle' | 'running' | 'done' | 'error'; text: string }>({
     kind: 'idle',
     text: '',
   })
@@ -340,6 +348,18 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       if (hash && hash !== shot.imageHash) updates.push({ shotId: shot.id, hash })
     }
     if (updates.length > 0) next = attachShotImages(next, updates, 0)
+    /**
+     * 视频那一侧（对账 #429）：同一条镜像纪律，只是走 `videoNodeId`。
+     * 重出视频时 hash 会换，所以判据同样要"变了才写"（不是"有值就跳过"）。
+     */
+    const videoUpdates: { shotId: string; hash: string }[] = []
+    for (const shot of doc.shots) {
+      if (!shot.videoNodeId) continue
+      const node = graph.nodes.find((n) => n.id === shot.videoNodeId)
+      const hash = node ? assetHashesOfNode(node)[0] : undefined
+      if (hash && hash !== shot.videoHash) videoUpdates.push({ shotId: shot.id, hash })
+    }
+    if (videoUpdates.length > 0) next = attachShotVideos(next, videoUpdates, 0)
     /**
      * 资产那一侧也一样（对账 #419）：定妆图 / 基准图跑完，把节点上的 hash 镜像回资产。
      * 逐条判断、有变化才写（`setAssetBaseHash` 自己会判同值），避免拖动节点时反复落库。
@@ -713,6 +733,86 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   const runShot = (shot: StoryboardShot) => {
     if (!shot.nodeId) return
     void exec.runNode(shot.nodeId, { inPlace: true })
+  }
+
+  /**
+   * **「这一镜出视频」**（对账 #429）—— #428 查实"引擎那条路是通的，差的只是接线"。
+   *
+   * 四件事，一件都不能省：
+   * ① 这一镜得先有图（图生视频是拿图去动的，没图就没得动）；
+   * ② 建一个 `mode:'video'` 的**新节点**，并把这一镜的图节点**连上去** ——
+   *    上游图正是靠这条连线进 `inputs` 的（G141 验过：`[{kind:'asset',…}]`）；
+   * ③ **建完节点立刻写进文档**（`setShotVideoNode`）—— 跑视频是长任务、中途失败很常见，
+   *    那时节点已经躺在画布上了；不写，用户再点一次会又建一个，画布上慢慢堆起没人认领的空节点；
+   * ④ 产物 hash 由上面那条镜像 effect 收回文档，列表才知道这一镜有视频了。
+   *
+   * **为什么另铺节点、而不像出图那样 `inPlace`**：写回会把这一镜的**图**顶掉，
+   * 而图还得留着 —— 它既是视频的输入，也是分镜表里的画面。图与视频各占一个节点，两条都在。
+   */
+  const makeShotVideo = async (shot: StoryboardShot) => {
+    if (!shot.nodeId || !liveNodeIds.has(shot.nodeId)) {
+      setLay({ kind: 'error', text: '这一镜还没铺到画布 —— 先铺一次，出了图再出视频' })
+      return
+    }
+    if (!shot.imageHash) {
+      setLay({ kind: 'error', text: '这一镜还没有图 —— 图生视频要先有画面，先点「出图」' })
+      return
+    }
+    try {
+      /**
+       * 视频模型由**渠道解析**决定（与画布同一条口径：模型定下来，谁提供它由选路决定）。
+       * 解析不到就如实说 —— 不硬编一个预设名去请求（#414 那条教训）。
+       */
+      const recipe = await channels.defaultForNewNode({}, 'video')
+      if (!recipe?.channelId || !recipe?.model) {
+        setLay({
+          kind: 'error',
+          text: '还没有可用的视频渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上视频模型',
+        })
+        return
+      }
+      const imageNode = graph.nodes.find((n) => n.id === shot.nodeId)
+      const data = await resolveDefaults({
+        channels,
+        type: 'generation',
+        extraData: {
+          mode: 'video',
+          model: recipe.model,
+          prompt: shotPromptWithAssets(doc, shot),
+        },
+      })
+      let nodeId = ''
+      canvasStore.beginPlan('storyboard:shot-video', '这一镜出视频')
+      try {
+        nodeId =
+          applyDefaults({
+            store: canvasStore,
+            channels,
+            projectId,
+            type: 'generation',
+            /* 贴着这一镜的图节点往右放（与模板「图生视频」的摆法一致，一眼看得出谁喂谁） */
+            at: { x: (imageNode?.x ?? 40) + 280, y: imageNode?.y ?? 40 },
+            data,
+          }) ?? ''
+        /* 这一步是"图进请求"的全部机制：连线就是 inputs（G141 验过） */
+        if (nodeId) {
+          canvasStore.dispatch({ kind: 'edge.connect', source: shot.nodeId, target: nodeId })
+        }
+      } finally {
+        canvasStore.endPlan()
+      }
+      if (!nodeId) {
+        setLay({ kind: 'error', text: '视频节点没能建出来（渠道或模型没配全）' })
+        return
+      }
+      const current = docRef.current
+      if (current) apply(setShotVideoNode(current, shot.id, nodeId, 0))
+      setLay({ kind: 'running', text: '这一镜的视频在跑…' })
+      await exec.runNode(nodeId)
+      setLay({ kind: 'done', text: '这一镜的视频已出（画布里就挂在这一镜的图右边）' })
+    } catch (e) {
+      setLay({ kind: 'error', text: humanError(e) })
+    }
   }
 
   /**
@@ -1247,6 +1347,12 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                                 )
                             : undefined
                         }
+                        /* 有图才给"出视频"：图生视频要先有画面（不摆一个点了会被拒的按钮） */
+                        onMakeVideo={
+                          shot.nodeId && liveNodeIds.has(shot.nodeId) && shot.imageHash
+                            ? () => void makeShotVideo(shot)
+                            : undefined
+                        }
                         onBindScene={(sceneId) => apply(bindShotScene(doc, shot.id, sceneId, 0))}
                         onToggleCharacter={(characterId) =>
                           apply(toggleShotCharacter(doc, shot.id, characterId, 0))
@@ -1280,6 +1386,7 @@ function ShotCard({
   onBindScene,
   onToggleCharacter,
   onLocate,
+  onMakeVideo,
 }: {
   shot: StoryboardShot
   index: number
@@ -1298,6 +1405,8 @@ function ShotCard({
   onToggleCharacter: (characterId: string) => void
   /** 「在画布里定位这一镜」（对账 #424）：跳过去选中并居中这一镜的节点；没有节点就不传 */
   onLocate?: () => void
+  /** 「出视频」（对账 #429）：这一镜有图且节点还在时才传；不传就不渲染这个入口 */
+  onMakeVideo?: () => void
 }) {
   /**
    * 状态一格写完（界面 / 冒烟都读这一个属性）：
@@ -1401,6 +1510,23 @@ function ShotCard({
               onClick={onLocate}
             >
               在画布里定位
+            </button>
+          ) : null}
+          {/*
+            「出视频」（对账 #429）：只在这一镜**已经铺到画布、且已经出了图**时出现 ——
+            图生视频要先有画面。不摆一个点了会被拒的按钮。
+            另起一个视频节点（图不会被顶掉），跑完 hash 由镜像 effect 收回文档。
+          */}
+          {onMakeVideo ? (
+            <button
+              type="button"
+              className={styles.ghost}
+              data-storyboard-shot-video={shot.id}
+              disabled={busy}
+              title="拿这一镜的图去生成一段视频（另起一个视频节点，这一镜的图不会被顶掉）"
+              onClick={onMakeVideo}
+            >
+              {shot.videoHash ? '重出这一镜的视频' : '出视频'}
             </button>
           ) : null}
         </div>

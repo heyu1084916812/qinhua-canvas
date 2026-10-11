@@ -115,6 +115,18 @@ export interface StoryboardShot {
    * 这里只是**同一个项目内的一致副本**，节点被替换时会一起清掉（见 `attachShotNodes`）。
    */
   imageHash?: string
+  /**
+   * 这一镜的**视频节点 id**（对账 #429，「这一镜出视频」时写上）。
+   *
+   * 为什么视频**另起一个节点**、而不是像出图那样写回同一个：写回会把这一镜的
+   * **图**顶掉，而图还得留着 —— 它既是视频的输入，也是分镜表里的画面。
+   *
+   * 与 `nodeId` 同一条纪律：**缓存不是真相**。节点可能已被用户删掉，
+   * 所以"要不要重出视频"要看它在不在画布的节点表里，不能只看这个字段有没有值。
+   */
+  videoNodeId?: string
+  /** 这一镜视频产物的素材 hash（与 `imageHash` 同一套镜像纪律；换视频节点时清掉） */
+  videoHash?: string
 }
 
 export interface StoryboardDoc {
@@ -226,6 +238,8 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
     if (!id || !known.has(episodeId)) return []
     const nodeId = text(row.nodeId)
     const imageHash = text(row.imageHash)
+    const videoNodeId = text(row.videoNodeId)
+    const videoHash = text(row.videoHash)
     /** 悬空引用一律丢掉（手改过的备份 / 删过资产的老数据都可能留） */
     const sceneIdRaw = text(row.sceneId)
     const sceneId = sceneIdRaw && knownScenes.has(sceneIdRaw) ? sceneIdRaw : ''
@@ -247,6 +261,8 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
         /* 空串不落成字段：没有就是没有，别写一个 `undefined` 占位 */
         ...(nodeId ? { nodeId } : {}),
         ...(imageHash ? { imageHash } : {}),
+        ...(videoNodeId ? { videoNodeId } : {}),
+        ...(videoHash ? { videoHash } : {}),
         ...(sceneId ? { sceneId } : {}),
         ...(characterRefs.length > 0 ? { characterIds: characterRefs } : {}),
       },
@@ -770,6 +786,9 @@ export function attachShotNodes(
     changed = true
     const next: StoryboardShot = { ...s, nodeId }
     delete next.imageHash
+    /* 视频也是拿**旧那张图**做的：换了图节点，旧视频就不再属于这一镜（同一条纪律） */
+    delete next.videoNodeId
+    delete next.videoHash
     return next
   })
   return changed ? { ...doc, shots, updatedAt: now } : doc
@@ -789,6 +808,51 @@ export function attachShotImages(
     if (!hash || s.imageHash === hash) return s
     changed = true
     return { ...s, imageHash: hash }
+  })
+  return changed ? { ...doc, shots, updatedAt: now } : doc
+}
+
+/**
+ * 把「这一镜的视频节点」写进文档（对账 #429，建完节点立刻调一次）。
+ *
+ * 为什么**建完节点就写**、而不是等跑完再一起写：跑视频是长任务，中途失败很常见 ——
+ * 那时节点已经实实在在躺在画布上了。不写进文档，用户下一次点「出视频」会**又建一个**，
+ * 画布上就慢慢堆起一排没人认领的空节点（这与 #415 的"悬空引用要重新铺"是同一类事故）。
+ *
+ * 换视频节点时清掉旧 `videoHash`（那张视频属于旧节点）。
+ * 没有任何变化时返回**原引用**。
+ */
+export function setShotVideoNode(
+  doc: StoryboardDoc,
+  shotId: string,
+  videoNodeId: string,
+  now = 0,
+): StoryboardDoc {
+  let changed = false
+  const shots = doc.shots.map((s) => {
+    if (s.id !== shotId || s.videoNodeId === videoNodeId) return s
+    changed = true
+    const next: StoryboardShot = { ...s, videoNodeId }
+    delete next.videoHash
+    return next
+  })
+  return changed ? { ...doc, shots, updatedAt: now } : doc
+}
+
+/** 把视频产物 hash 镜像回文档（与 `attachShotImages` 同一套纪律：变了才写、同值空操作） */
+export function attachShotVideos(
+  doc: StoryboardDoc,
+  pairs: readonly { shotId: string; hash: string }[],
+  now = 0,
+): StoryboardDoc {
+  if (pairs.length === 0) return doc
+  const map = new Map(pairs.map((p) => [p.shotId, p.hash]))
+  let changed = false
+  const shots = doc.shots.map((s) => {
+    const hash = map.get(s.id)
+    if (!hash || s.videoHash === hash) return s
+    changed = true
+    return { ...s, videoHash: hash }
   })
   return changed ? { ...doc, shots, updatedAt: now } : doc
 }

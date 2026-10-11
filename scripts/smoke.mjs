@@ -27300,7 +27300,172 @@ async function g141(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141]
+// ────────────────────────────────────────────────────────────
+// G142 漫剧「这一镜出视频」（对账 #429）：
+//   #428 查实"引擎那条路是通的，差的只是接线" —— 这一组验的就是那段接线。
+//   ① 只有**出了图**的那一镜才有「出视频」入口（不摆点了会被拒的按钮）
+//   ② 出视频 = **另起一个** `mode:'video'` 节点，并把这一镜的图**连上去**
+//   ③ 产物 hash 镜像回文档；**这一镜的图还在**（没被视频顶掉）
+//   ④ 按钮改口（重出这一镜的视频）
+// ────────────────────────────────────────────────────────────
+async function g142(browser) {
+  const g = 'G142 漫剧这一镜出视频'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const shots = page.locator('[data-storyboard-shot]')
+
+  const readDb = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const all = (table) =>
+        new Promise((resolve) => {
+          const r = db.transaction(table, 'readonly').objectStore(table).getAll()
+          r.onsuccess = () => resolve(r.result ?? [])
+          r.onerror = () => resolve([])
+        })
+      const nodes = await all('nodes')
+      const edges = await all('edges')
+      const assets = await all('assets')
+      const boards = await all('storyboards')
+      const doc = boards[0]?.doc
+      return {
+        nodes: nodes.map((n) => ({
+          id: n.id,
+          mode: n.data?.mode ?? null,
+          assetHash: n.data?.assetHash ?? null,
+        })),
+        edges: edges.map((e) => ({ source: e.source, target: e.target })),
+        mimes: assets.map((a) => ({ hash: a.hash, mime: String(a.mime ?? '') })),
+        shots: (doc?.shots ?? []).map((s) => ({
+          id: s.id,
+          nodeId: s.nodeId ?? null,
+          imageHash: s.imageHash ?? null,
+          videoNodeId: s.videoNodeId ?? null,
+          videoHash: s.videoHash ?? null,
+        })),
+      }
+    })
+  /** 等到库里某个条件成立（画布 store 落库是 800ms 防抖，别拿墙钟赌） */
+  const waitDb = async (predicate, timeoutMs = 30000) => {
+    const started = Date.now()
+    for (;;) {
+      const db = await readDb()
+      if (predicate(db) || Date.now() - started > timeoutMs) return db
+      await sleep(250)
+    }
+  }
+
+  /*
+   * ① 先把渠道配好再建项目：
+   * `configureMockChannel` 要整页跳去设置页 —— 放在写稿子**之前**就不会甩掉还没落库的稿子
+   * （#427 那条教训：整页跳转会吃掉只在内存里的东西）。
+   */
+  const ch = await configureMockChannel(page)
+  rec(g, '渠道验证通过（mock 带 video 模型）', ch.verified)
+
+  await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-storyboard-create]').click()
+  await page.waitForURL(/\/storyboard\/proj_/)
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+  await page.locator('[data-storyboard-script-body]').fill('雨夜快递：骑手在雨里送最后一单。')
+  await page.locator('[data-storyboard-add-episode]').click()
+  await sleep(250)
+  await page.locator('[data-storyboard-add-shot]').click()
+  await sleep(150)
+  await page.locator('[data-storyboard-add-shot]').click()
+  await sleep(250)
+  const shot1 = await shots.nth(0).getAttribute('data-storyboard-shot')
+  const shot2 = await shots.nth(1).getAttribute('data-storyboard-shot')
+  await page.locator(`[data-storyboard-shot-scene="${shot1}"]`).fill('雨夜的街道，霓虹倒影')
+  await page.locator(`[data-storyboard-shot-scene="${shot2}"]`).fill('十五楼门前，快递箱放下')
+  rec(g, '★ 先有两镜可分', (await shots.count()) === 2, `镜=${await shots.count()}`)
+
+  // ② 铺到画布
+  await page.locator('[data-storyboard-lay-out]').click()
+  const laid = await page
+    .locator('[data-storyboard-lay-status="done"]')
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
+  const afterLay = await waitDb((db) => db.nodes.length === 2, 10000)
+  rec(g, '★ 两镜都铺到画布', laid && afterLay.nodes.length === 2, `节点=${afterLay.nodes.length}`)
+
+  // ③ 第一镜出图（原地写回）
+  await page.locator(`[data-storyboard-shot-run="${shot1}"]`).click()
+  const afterImage = await waitDb(
+    (db) => !!db.shots.find((s) => s.id === shot1)?.imageHash,
+    40000,
+  )
+  const imageHash = afterImage.shots.find((s) => s.id === shot1)?.imageHash ?? ''
+  rec(g, '★ 第一镜出图（原地写回、hash 镜像回文档）', !!imageHash, `imageHash=${imageHash.slice(0, 10)}`)
+
+  /*
+   * ④ 入口的有无：**有图才给**。
+   * 第二镜还没出图 ⇒ 没有画面可动 ⇒ 那个按钮不该出现（不摆点了会被拒的按钮）。
+   */
+  rec(
+    g,
+    '★★ 只有**出了图**的那一镜才有「出视频」入口（没图的那镜不摆按钮）',
+    (await page.locator(`[data-storyboard-shot-video="${shot1}"]`).count()) === 1 &&
+      (await page.locator(`[data-storyboard-shot-video="${shot2}"]`).count()) === 0,
+  )
+
+  // ⑤ 出视频
+  await page.locator(`[data-storyboard-shot-video="${shot1}"]`).click()
+  const afterVideo = await waitDb(
+    (db) => !!db.shots.find((s) => s.id === shot1)?.videoHash,
+    60000,
+  )
+  const s1 = afterVideo.shots.find((s) => s.id === shot1)
+  const videoNodeId = s1?.videoNodeId ?? ''
+  const videoNode = afterVideo.nodes.find((n) => n.id === videoNodeId)
+  const videoAsset = afterVideo.mimes.find((a) => a.hash === s1?.videoHash)
+  const imageNodeAfter = afterVideo.nodes.find((n) => n.id === s1?.nodeId)
+  rec(
+    g,
+    '★★★ 出视频 = **另起一个** `mode:video` 节点（节点 2 → 3）',
+    afterVideo.nodes.length === 3 && videoNode?.mode === 'video',
+    `节点=${afterVideo.nodes.length} 视频节点 mode=${videoNode?.mode ?? '无'}`,
+  )
+  rec(
+    g,
+    '★★★ 这一镜的图**连到了**视频节点上（连线就是 inputs —— G141 验过的那条机制）',
+    afterVideo.edges.some((e) => e.source === s1?.nodeId && e.target === videoNodeId),
+    `边=${afterVideo.edges.map((e) => `${e.source}→${e.target}`).join(',')}`,
+  )
+  rec(
+    g,
+    '★★★ 产物真是视频：这条 hash 在库里的 mime = video/mp4',
+    !!videoAsset && videoAsset.mime === 'video/mp4' && !!s1?.videoHash,
+    `mime=${videoAsset?.mime ?? '无'} hash=${(s1?.videoHash ?? '').slice(0, 10)}`,
+  )
+  rec(
+    g,
+    '★★★ **这一镜的图还在**（视频另起节点、没把图顶掉）—— 图与视频各占一个节点',
+    s1?.imageHash === imageHash && imageNodeAfter?.assetHash === imageHash,
+    `文档里的图=${(s1?.imageHash ?? '').slice(0, 10)} 节点上的图=${(imageNodeAfter?.assetHash ?? '无').slice(0, 10)}`,
+  )
+  rec(
+    g,
+    '★★ 出完之后按钮改口（重出这一镜的视频），状态行如实说结果',
+    /重出这一镜的视频/.test(await page.locator(`[data-storyboard-shot-video="${shot1}"]`).innerText()) &&
+      /已出/.test(await page.locator('[data-storyboard-lay-status="done"]').innerText()),
+    (await page.locator('[data-storyboard-lay-status="done"]').innerText()).trim(),
+  )
+
+  await page.screenshot({ path: `${OUT}/142-g142-shot-video.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

@@ -6,6 +6,7 @@ import {
   assetBasePrompt,
   attachShotImages,
   attachShotNodes,
+  attachShotVideos,
   bindShotScene,
   characterNamesOf,
   DEFAULT_SHOT_SECONDS,
@@ -23,6 +24,7 @@ import {
   sceneNameOf,
   setAssetBaseHash,
   setAssetNode,
+  setShotVideoNode,
   shotPrompt,
   shotPromptWithAssets,
   shotsNeedingNode,
@@ -634,5 +636,99 @@ describe('定妆图 / 基准图', () => {
     expect(setAssetBaseHash(once, 'scene', id, 'h1', 3)).toBe(once)
     expect(setAssetBaseHash(once, 'scene', 'scene_x', 'h9', 4)).toBe(once)
     expect(setAssetNode(once, 'char', id, 'n1', 5)).toBe(once)
+  })
+})
+
+/**
+ * 「这一镜出视频」（对账 #429）。
+ *
+ * 三条纪律与出图那条**逐条对齐**（同一件事不能两套规矩）：
+ * 建完节点就记账、换节点就清旧产物、镜像"变了才写"。
+ */
+describe('这一镜出视频：节点记账与产物镜像', () => {
+  const sample = (): StoryboardDoc => {
+    const base = emptyStoryboard('p1', 0)
+    const withEp = addEpisode(base, 1)
+    const withShot = addShot(withEp, withEp.episodes[0]!.id, 2)
+    return withShot
+  }
+
+  it('★ 建完节点就写进文档（跑视频中途失败，节点也已经躺在画布上了）', () => {
+    const doc = sample()
+    const shotId = doc.shots[0]!.id
+    const next = setShotVideoNode(doc, shotId, 'nv1', 7)
+    expect(next.shots[0]!.videoNodeId).toBe('nv1')
+    expect(next.updatedAt).toBe(7)
+  })
+
+  it('★★ 换视频节点时清掉旧 hash（那张视频属于旧节点）', () => {
+    const doc = sample()
+    const shotId = doc.shots[0]!.id
+    const withVideo: StoryboardDoc = {
+      ...doc,
+      shots: [{ ...doc.shots[0]!, videoNodeId: 'nv-old', videoHash: 'hv-old' }],
+    }
+    const next = setShotVideoNode(withVideo, shotId, 'nv-new', 9)
+    expect(next.shots[0]!.videoNodeId).toBe('nv-new')
+    expect('videoHash' in next.shots[0]!).toBe(false)
+  })
+
+  it('★ 同一个节点再来一次 / 不认识的 shotId ⇒ 原样返回原引用', () => {
+    const doc = sample()
+    const shotId = doc.shots[0]!.id
+    const once = setShotVideoNode(doc, shotId, 'nv1', 1)
+    expect(setShotVideoNode(once, shotId, 'nv1', 2)).toBe(once)
+    expect(setShotVideoNode(doc, 'shot_x', 'nv1', 2)).toBe(doc)
+  })
+
+  it('★★ 镜像视频 hash；同值空操作、能换成新 hash（重出视频）', () => {
+    const doc = sample()
+    const shotId = doc.shots[0]!.id
+    expect(attachShotVideos(doc, [], 1)).toBe(doc)
+    const once = attachShotVideos(doc, [{ shotId, hash: 'hv1' }], 3)
+    expect(once.shots[0]!.videoHash).toBe('hv1')
+    expect(attachShotVideos(once, [{ shotId, hash: 'hv1' }], 4)).toBe(once)
+    const twice = attachShotVideos(once, [{ shotId, hash: 'hv2' }], 5)
+    expect(twice.shots[0]!.videoHash).toBe('hv2')
+  })
+
+  it('★★★ 换**图**节点时，连视频一起作废（视频是拿旧那张图做的）', () => {
+    const doc = sample()
+    const shotId = doc.shots[0]!.id
+    const withAll: StoryboardDoc = {
+      ...doc,
+      shots: [
+        {
+          ...doc.shots[0]!,
+          nodeId: 'n-old',
+          imageHash: 'h-old',
+          videoNodeId: 'nv-old',
+          videoHash: 'hv-old',
+        },
+      ],
+    }
+    const next = attachShotNodes(withAll, [{ shotId, nodeId: 'n-new' }], 11)
+    expect(next.shots[0]!.nodeId).toBe('n-new')
+    expect('imageHash' in next.shots[0]!).toBe(false)
+    expect('videoNodeId' in next.shots[0]!).toBe(false)
+    expect('videoHash' in next.shots[0]!).toBe(false)
+  })
+
+  it('★ 读回：videoNodeId / videoHash 按字段读，空值不落占位', () => {
+    const doc = sample()
+    const shotId = doc.shots[0]!.id
+    const raw = {
+      ...doc,
+      shots: [{ ...doc.shots[0]!, videoNodeId: 'nv1', videoHash: 'hv1' }],
+    }
+    const parsed = parseStoryboard(raw, 'p1')
+    expect(parsed.shots[0]!.videoNodeId).toBe('nv1')
+    expect(parsed.shots[0]!.videoHash).toBe('hv1')
+    const bare = parseStoryboard(
+      { ...doc, shots: [{ ...doc.shots[0]!, id: shotId, videoNodeId: '', videoHash: '' }] },
+      'p1',
+    )
+    expect('videoNodeId' in bare.shots[0]!).toBe(false)
+    expect('videoHash' in bare.shots[0]!).toBe(false)
   })
 })
