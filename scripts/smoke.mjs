@@ -28236,7 +28236,145 @@ async function g146(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146]
+// ────────────────────────────────────────────────────────────
+// G147 电商「历史方案」（对账 #433；#380b 会话壳件的第一块）：
+//   以前那条"一句话 → 方案"只活在组件状态里 —— 刷新、切走就没了。
+//   ① 解析成功就留一条（标题 = 那句话），**真落库**
+//   ② 刷新之后还在；点一条把那张确认卡放回来，且**表单一个字段都不动**（草稿 ≠ 表单）
+//   ③ 能删（历史只留最近几条，不想留的自己清）
+// ────────────────────────────────────────────────────────────
+async function g147(browser) {
+  const g = 'G147 电商历史方案'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  /** 待确认卡上的行：[[标签, 值], …]（顺序就是渲染顺序）—— 与 G135 同一套读法 */
+  const cardRows = () =>
+    page.locator('[data-ecommerce-intent-row]').evaluateAll((els) =>
+      els.map((e) => {
+        const spans = e.querySelectorAll('span')
+        return [spans[0]?.textContent?.trim() ?? '', spans[1]?.textContent?.trim() ?? '']
+      }),
+    )
+
+  /** 库里的方案会话（按 title 认领，不按下标） */
+  const planRows = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const rows = await new Promise((resolve) => {
+        const r = db.transaction('agentSessions', 'readonly').objectStore('agentSessions').getAll()
+        r.onsuccess = () => resolve(r.result ?? [])
+        r.onerror = () => resolve([])
+      })
+      return rows.map((row) => ({ id: row.id, title: row.title ?? '', messages: row.messages ?? [] }))
+    })
+
+  const sentence = '给我做一套亚马逊英文详情页，4 张，3:4，突出防水材质'
+
+  /* 渠道先配好（`configureMockChannel` 会整页跳去设置页，放在建项目之前） */
+  await configureMockChannel(page)
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
+  await sleep(600)
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  await sleep(900)
+  const projectUrl = page.url()
+
+  rec(
+    g,
+    '★ 左栏有「最近的方案」，一开始是空的（还没解析过）',
+    (await page.locator('[data-ecommerce-plan-history]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-plan-empty]').count()) === 1,
+  )
+
+  // ① 解析一句话 ⇒ 留一条
+  await page.locator('[data-ecommerce-intent-input]').fill(sentence)
+  await page.locator('[data-ecommerce-intent-parse]').click()
+  await page
+    .waitForFunction(
+      () =>
+        document.querySelector('[data-ecommerce-intent-card]') ||
+        document.querySelector('[data-ecommerce-intent-error]'),
+      null,
+      { timeout: 15000 },
+    )
+    .catch(() => {})
+  const beforeRows = await cardRows()
+  const plans = await page.locator('[data-ecommerce-plan]').count()
+  /* ⚠️ 标题先**判有没有**再读：列表空时直接 `innerText()` 会等 30 秒再抛，
+     整组会以"组内异常"结束 —— 那样红是红了，但看不出是哪条判据不成立 */
+  const planTitle = plans > 0 ? (await page.locator('[data-ecommerce-plan-open]').first().innerText()).trim() : '(无)'
+  rec(
+    g,
+    '★★★ 解析成功就留一条历史方案（标题 = 那句话）',
+    (await page.locator('[data-ecommerce-intent-card]').count()) === 1 &&
+      plans === 1 &&
+      planTitle.includes('亚马逊'),
+    `条数=${plans} 标题=${planTitle}`,
+  )
+  const stored = await planRows()
+  rec(
+    g,
+    '★★ 真的落到 `agentSessions` 表里了（不是只挂在界面上）',
+    stored.some((row) => row.title.includes('亚马逊') && row.messages.length === 2),
+    `库里的方案数=${stored.length}`,
+  )
+
+  // ② 刷新之后还在；点一条把确认卡放回来
+  await page.goto(projectUrl, { waitUntil: 'networkidle' })
+  await sleep(900)
+  rec(
+    g,
+    '★★★ 刷新之后历史方案还在，而**那张确认卡已经收起**（草稿本来就不落库）',
+    (await page.locator('[data-ecommerce-plan]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-intent-card]').count()) === 0,
+  )
+
+  const formBefore = await page.evaluate(
+    () => document.querySelector('[data-ecommerce-note]')?.value ?? '',
+  )
+  await page.locator('[data-ecommerce-plan-open]').first().click()
+  await page.locator('[data-ecommerce-intent-card]').waitFor({ state: 'visible', timeout: 6000 })
+  const restoredRows = await cardRows()
+  const formAfter = await page.evaluate(
+    () => document.querySelector('[data-ecommerce-note]')?.value ?? '',
+  )
+  rec(
+    g,
+    '★★★ 点一条旧方案：**逐条一模一样**的确认卡回来了（不是重新解析一遍）',
+    JSON.stringify(restoredRows) === JSON.stringify(beforeRows),
+    `原=${beforeRows.map((r) => r.join('=')).join('/')}`,
+  )
+  rec(
+    g,
+    '★★★ 而且**表单一个字段都没动** —— 调出旧方案 ≠ 直接填表（与 #422 同一条口径）',
+    formAfter === formBefore,
+    `补充要求="${formBefore}" → "${formAfter}"`,
+  )
+
+  // ③ 删一条
+  await page.locator('[data-ecommerce-plan-remove]').first().click()
+  await sleep(600)
+  rec(
+    g,
+    '★★ 删掉之后列表回到空态，库里那条也没了',
+    (await page.locator('[data-ecommerce-plan]').count()) === 0 &&
+      (await page.locator('[data-ecommerce-plan-empty]').count()) === 1 &&
+      (await planRows()).length === 0,
+  )
+
+  await page.screenshot({ path: `${OUT}/147-g147-plan-history.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

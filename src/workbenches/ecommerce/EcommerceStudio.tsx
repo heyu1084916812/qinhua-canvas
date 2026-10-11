@@ -8,6 +8,7 @@ import {
 import { ECOMMERCE_DEFAULT_COUNT } from '../../domain/ecommerce/plan'
 import { ECOMMERCE_PLATFORMS, type EcommercePlatform } from '../../domain/ecommerce/platforms'
 import { intentRows, type EcommerceIntentDraft } from '../../domain/ecommerce/chatParse'
+import type { EcommercePlanSession } from '../../domain/ecommerce/sessions'
 import {
   shotKeyOf,
   shouldExpandShots,
@@ -144,6 +145,15 @@ export interface EcommerceStudioProps {
   /** 用户点了「丢弃」 */
   onIntentDiscard?: () => void
   /**
+   * **最近的方案**（对账 #433）：一次成功的解析留一条。点一条把那张确认卡放回来
+   * （不直接填表单 —— 落表仍由「应用到表单」触发）。
+   * 不传 `onRestorePlan` 就整块不渲染（与长图面板 / 意图块同一条口径）。
+   */
+  planHistory?: readonly EcommercePlanSession[]
+  onRestorePlan?: (plan: EcommercePlanSession) => void
+  /** 删一条历史方案（不想留的自己清） */
+  onRemovePlan?: (id: string) => void
+  /**
    * 「先出一份方案」（对账 #423）：页面注入 —— 只有页面拿得到渠道。
    * 不传就不渲染这一块；失败要带**原因**回来（由工作台原样显示）。
    */
@@ -175,6 +185,9 @@ export function EcommerceStudio({
   intentError = '',
   onIntentApplied,
   onIntentDiscard,
+  planHistory = [],
+  onRestorePlan,
+  onRemovePlan,
   onPlanShots,
   shotPlanNote = '',
 }: EcommerceStudioProps) {
@@ -430,6 +443,46 @@ export function EcommerceStudio({
                     应用到表单
                   </button>
                 </div>
+              </div>
+            ) : null}
+            {/**
+             * **最近的方案**（对账 #433）：一次成功的解析留一条，点一条把那张确认卡放回来。
+             * 以前这些都只活在组件状态里 —— 刷新或切走就没了，昨天想好的方案今天得重打一遍。
+             * 有一条「删除」在：历史只留最近的几条，不想留的自己清掉。
+             */}
+            {onRestorePlan ? (
+              <div className={styles.planHistory} data-ecommerce-plan-history>
+                <span className={styles.planHistoryTitle}>最近的方案</span>
+                {planHistory.length === 0 ? (
+                  <span className={styles.hint} data-ecommerce-plan-empty>
+                    还没有 —— 上面写一句、解析成功，第一条就留在这里
+                  </span>
+                ) : (
+                  <ul className={styles.planList}>
+                    {planHistory.map((plan) => (
+                      <li key={plan.id} className={styles.planItem} data-ecommerce-plan={plan.id}>
+                        <button
+                          type="button"
+                          className={styles.planOpen}
+                          title={plan.title}
+                          data-ecommerce-plan-open={plan.id}
+                          onClick={() => onRestorePlan(plan)}
+                        >
+                          {plan.title}
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.planRemove}
+                          aria-label={`删除方案 ${plan.title}`}
+                          data-ecommerce-plan-remove={plan.id}
+                          onClick={() => void onRemovePlan?.(plan.id)}
+                        >
+                          ×
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             ) : null}
           </section>

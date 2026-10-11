@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
@@ -10,6 +10,14 @@ import {
 } from '../../workbenches/canvas/execution/CanvasExecutionProvider'
 import { useAsset } from '../../workbenches/canvas/hooks/useAsset'
 import { EcommerceStudio, type EcommerceResultItem, type EcommerceUpload } from '../../workbenches/ecommerce/EcommerceStudio'
+import { createAgentSessionStore } from '../../state/agent/sessionStore'
+import {
+  planTitleOf,
+  recentPlanSessions,
+  toPlanMessages,
+  toPlanSession,
+  type EcommercePlanSession,
+} from '../../domain/ecommerce/sessions'
 import { LongImagePanel, type LongImageTileSource } from './LongImagePanel'
 import { createProjectRepository } from '../../state/project/repository'
 import {
@@ -206,6 +214,13 @@ function StudioHost({ projectId }: { projectId: string }) {
   const [intentError, setIntentError] = useState('')
   const [parsingIntent, setParsingIntent] = useState(false)
   /**
+   * **历史方案**（对账 #433）：一次成功的解析留一条，存在 `agentSessions`（项目级会话表，
+   * 不新建表）。以前这些都只活在组件状态里 —— 刷新、切走、关掉再回来就没了，
+   * 昨天想好的"亚马逊英文详情页 4 张、突出防水材质"今天得重打一遍。
+   */
+  const planSessions = useMemo(() => createAgentSessionStore(platform.storage), [platform])
+  const [planHistory, setPlanHistory] = useState<EcommercePlanSession[]>([])
+  /**
    * 这一次的分镜从哪来（对账 #406）：跑完如实显示。空串 = 这一趟没这回事，不显示。
    */
   const [shotPlanNote, setShotPlanNote] = useState('')
@@ -283,6 +298,40 @@ function StudioHost({ projectId }: { projectId: string }) {
    *  ② 没配对话模型 / 超时 / 渠道报错，一律**如实说**，绝不静默填一份猜的值；
    *  ③ 这里只产**草稿** —— 真填表由工作台里那句「应用到表单」触发。
    */
+  /** 读一遍这个项目的方案历史（读失败只记日志：历史是"顺手留下的"，不该挡住出图这条主路） */
+  const refreshPlanHistory = useCallback(async () => {
+    try {
+      const rows = await planSessions.list(projectId)
+      const list = rows
+        .map((row) => toPlanSession(row))
+        .filter((item): item is EcommercePlanSession => item !== null)
+      setPlanHistory(recentPlanSessions(list))
+    } catch (e) {
+      platform.logger.log('warn', '[ecommerce] 方案历史读取失败', { error: String(e) })
+    }
+  }, [planSessions, platform, projectId])
+
+  useEffect(() => {
+    void refreshPlanHistory()
+  }, [refreshPlanHistory])
+
+  /** 存一条方案：**存失败不影响这次解析**（草稿已经在界面上了），但要在日志里留痕 */
+  const savePlanSession = async (text: string, draft: EcommerceIntentDraft) => {
+    if (!chatTarget) return
+    try {
+      const created = await planSessions.create({
+        projectId,
+        channelId: chatTarget.channelId,
+        model: chatTarget.model,
+        title: planTitleOf(text),
+      })
+      await planSessions.save({ ...created, messages: toPlanMessages(text, draft) })
+      await refreshPlanHistory()
+    } catch (e) {
+      platform.logger.log('warn', '[ecommerce] 方案历史写入失败', { error: String(e) })
+    }
+  }
+
   const onParseIntent = async (text: string) => {
     if (!chatTarget) {
       setIntent(null)
@@ -307,8 +356,11 @@ function StudioHost({ projectId }: { projectId: string }) {
         signal: ac.signal,
       })
       const parsed = parseEcommerceIntent(result.text, { platforms, fallbackNote: text })
-      if (parsed.ok) setIntent(parsed.draft)
-      else setIntentError(parsed.error)
+      if (parsed.ok) {
+        setIntent(parsed.draft)
+        /* 顺手留一条历史方案（对账 #433）—— 不 await：这一步失败不该拖住界面 */
+        void savePlanSession(text, parsed.draft)
+      } else setIntentError(parsed.error)
     } catch (e) {
       if (ac.signal.aborted) {
         setIntentError('解析超时（30 秒没回）。稍后再试，或直接填表单。')
@@ -319,6 +371,25 @@ function StudioHost({ projectId }: { projectId: string }) {
     } finally {
       clearTimeout(timer)
       setParsingIntent(false)
+    }
+  }
+
+  /**
+   * 调出一条旧方案 = **把那张确认卡放回来**（草稿进 `intent`），不直接填表单：
+   * 用户点的是「我看看这条」，真正落表仍由那句「应用到表单」触发（与 #422 同一条口径）。
+   */
+  const onRestorePlan = (session: EcommercePlanSession) => {
+    setIntent(session.draft)
+    setIntentError('')
+  }
+
+  /** 删一条历史方案（删不动只记日志：列表是顺手留下的，不该弹错挡住出图） */
+  const onRemovePlan = async (id: string) => {
+    try {
+      await planSessions.remove(id)
+      await refreshPlanHistory()
+    } catch (e) {
+      platform.logger.log('warn', '[ecommerce] 方案历史删除失败', { error: String(e) })
     }
   }
 
@@ -617,6 +688,9 @@ function StudioHost({ projectId }: { projectId: string }) {
       onParseIntent={onParseIntent}
       parsingIntent={parsingIntent}
       intent={intent}
+      planHistory={planHistory}
+      onRestorePlan={onRestorePlan}
+      onRemovePlan={onRemovePlan}
       chatTargetLabel={chatTarget?.label ?? ''}
       intentError={intentError}
       onIntentApplied={() => setIntent(null)}
