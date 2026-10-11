@@ -20,6 +20,14 @@
   后者实测 **5/5**（首页 / 首次引导 / 建项目进画布 / 无异常），截图 `.playwright-verify/fresh-install/`。
   **造空 profile 的窍门**：`migrate_profile()` 判据是「目标 `data\EBWebView\Default\IndexedDB` 存在就跳过」
   ⇒ **先建一个空的同名目录**就能拿到干净 profile，而**不用碰真实数据**（这次真实 profile 根本没被读）。
+- **★★ "这段代码动过没有"要按函数问，不是按文件问**：更新链最后一步（真装上并重启）上次演练是 10-05；
+  本轮判断"不用重跑"的依据是 **`git log -L '/async fn install_update/,/^}/:src-tauri/src/lib.rs'` 只有一条**
+  （10-05 那次），前端 `updateVerdict/updateState/tauriUpdater` 也 `git log` 为空 ——
+  而 10-10 的通知插件**确实动过同一个 lib.rs**，但不在 updater 段。**同一个文件 ≠ 同一段代码。**
+- **★★ 别凭 `Cargo.toml` 的插件列表推断功能有没有做**：我一度以为"窗口不记尺寸位置"，
+  其实**早就做了** —— 是**自定义 Rust**（`window_state.rs` 那套写进 `lib.rs`，含 7 条单测），
+  不是官方 `tauri-plugin-window-state`；并且 #311 已用真窗口验过（关掉再开几何完全一致 1264×841 @ 880,373）。
+  **查功能存不存在，查代码/账本，别查依赖清单。**
 
 ### ★ 签名核对"比 key id"太松，要真验签（2026-10-12 第 57 批 → 对账 #439 状态③）
 
