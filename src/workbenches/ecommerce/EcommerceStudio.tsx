@@ -8,7 +8,8 @@ import {
 import { ECOMMERCE_DEFAULT_COUNT } from '../../domain/ecommerce/plan'
 import { ECOMMERCE_PLATFORMS, type EcommercePlatform } from '../../domain/ecommerce/platforms'
 import { intentRows, type EcommerceIntentDraft } from '../../domain/ecommerce/chatParse'
-import type { EcommercePlanSession } from '../../domain/ecommerce/sessions'
+import { planSummaryOf, type EcommercePlanSession } from '../../domain/ecommerce/sessions'
+import { buildSuggestions } from '../../domain/ecommerce/suggestions'
 import {
   shotKeyOf,
   shouldExpandShots,
@@ -393,6 +394,25 @@ export function EcommerceStudio({
               data-ecommerce-intent-input
               onChange={(e) => setIntentText(e.target.value)}
             />
+            {/**
+             * 起手式（对账 #434）：按**此刻选的平台 / 语言**给三句现成的话，点一下填进输入框。
+             * 刻意只写平台 / 语言 / 用途 / 张数这些确定性事实 —— 不替用户想卖点，
+             * 也不是"AI 推荐"（那要么再花一次额度，要么拿规则装智能）。
+             */}
+            <div className={styles.suggestRow} data-ecommerce-suggestions>
+              {buildSuggestions({ platforms, platformId, language }).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={styles.suggestChip}
+                  title={item.text}
+                  data-ecommerce-suggestion={item.id}
+                  onClick={() => setIntentText(item.text)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
             <div className={styles.intentRow}>
               <button
                 type="button"
@@ -468,7 +488,11 @@ export function EcommerceStudio({
                           data-ecommerce-plan-open={plan.id}
                           onClick={() => onRestorePlan(plan)}
                         >
-                          {plan.title}
+                          <span className={styles.planTitleText}>{plan.title}</span>
+                          {/* 缩略说明只写平台 / 用途 / 张数这类确定性事实（对账 #434） */}
+                          <span className={styles.planMeta} data-ecommerce-plan-summary={plan.id}>
+                            {planSummaryOf(plan.draft, platforms)}
+                          </span>
                         </button>
                         <button
                           type="button"

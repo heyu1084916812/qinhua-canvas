@@ -18,7 +18,8 @@
  */
 import { extractJsonBlock } from '../shared/jsonBlock'
 import type { ChatMessage } from '../shared/execution/types'
-import type { EcommerceIntentDraft } from './chatParse'
+import { intentRows, type EcommerceIntentDraft } from './chatParse'
+import type { EcommercePlatform } from './platforms'
 import { ECOMMERCE_LANGUAGES, ECOMMERCE_USAGES } from './types'
 
 /** 标题最多几个字（列表一行放得下；长了用省略号，鼠标悬停能看全） */
@@ -129,4 +130,24 @@ export function recentPlanSessions(
   return [...list]
     .sort((a, b) => b.updatedAt - a.updatedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     .slice(0, Math.max(0, limit))
+}
+
+/**
+ * 列表里那一行**缩略说明**（对账 #434）：`详情页 · Amazon · 4 张`。
+ *
+ * 取的是**同一份** `intentRows`（确认卡上那几行）——各拼一套的话，
+ * 会出现"卡片上写 4 张、缩略说明写 6 张"这种自相矛盾。
+ *
+ * **只挑用途 / 平台 / 张数三样**：它们是"这条方案要干什么"的主干；
+ * 语言与比例在确认卡上看得到，而「补充要求」可能很长 —— 列表要的是**一眼扫过去**。
+ */
+export function planSummaryOf(
+  draft: EcommerceIntentDraft,
+  platforms?: readonly EcommercePlatform[],
+): string {
+  const KEEP = new Set(['用途', '平台', '张数'])
+  return intentRows(draft, platforms)
+    .filter((row) => KEEP.has(row.label))
+    .map((row) => row.value)
+    .join(' · ')
 }

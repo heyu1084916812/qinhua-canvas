@@ -28374,7 +28374,113 @@ async function g147(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147]
+// ────────────────────────────────────────────────────────────
+// G148 电商「为您推荐 + 方案缩略说明」（对账 #434；会话壳件的最后两件）：
+//   ① 三枚起手式跟着**表单里选的平台 / 语言**走（改了平台，推荐当场变）
+//   ② 点一枚 → 整句话进输入框（不直接解析、不花钱）
+//   ③ 历史方案那一行带缩略说明（用途 · 平台 · 张数），与确认卡**同源**
+// ────────────────────────────────────────────────────────────
+async function g148(browser) {
+  const g = 'G148 电商为您推荐'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const chips = page.locator('[data-ecommerce-suggestion]')
+  const input = page.locator('[data-ecommerce-intent-input]')
+
+  await configureMockChannel(page)
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
+  await sleep(600)
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  await sleep(900)
+
+  rec(
+    g,
+    '★ 三枚起手式：主图 · 1 张 / 详情页 · 4 张 / 套图 · 6 张',
+    (await chips.count()) === 3 &&
+      JSON.stringify(await chips.evaluateAll((els) => els.map((e) => e.textContent?.trim() ?? ''))) ===
+        JSON.stringify(['主图 · 1 张', '详情页 · 4 张', '套图 · 6 张']),
+    (await chips.evaluateAll((els) => els.map((e) => e.textContent?.trim() ?? ''))).join(' / '),
+  )
+
+  /* 整句话在 title 里（按钮上是短标签）——两种信息都不缺 */
+  const detailChip = page.locator('[data-ecommerce-suggestion="suggest-detail"]')
+  rec(
+    g,
+    '★ 整句话在提示里（短标签只是按钮上的一行，不藏信息）',
+    ((await detailChip.getAttribute('title')) ?? '').includes('Amazon'),
+    (await detailChip.getAttribute('title')) ?? '',
+  )
+
+  // ② 点一下 → 填进输入框（**不**自动解析）
+  await detailChip.click()
+  await sleep(250)
+  rec(
+    g,
+    '★★★ 点一枚 → 整句话进输入框（草稿而已，不会偷偷发请求）',
+    (await input.inputValue()) === '给我做一套 Amazon English详情页，4 张' &&
+      (await page.locator('[data-ecommerce-intent-card]').count()) === 0,
+    await input.inputValue(),
+  )
+
+  // ① 换平台 ⇒ 推荐当场跟着改
+  await page.locator('[data-ecommerce-platform]').selectOption('temu')
+  await sleep(300)
+  rec(
+    g,
+    '★★★ 换平台（Amazon → Temu）推荐当场跟着改',
+    ((await detailChip.getAttribute('title')) ?? '').includes('Temu'),
+    (await detailChip.getAttribute('title')) ?? '',
+  )
+
+  // ③ 用它解析一次 ⇒ 历史那一行带缩略说明
+  await detailChip.click()
+  await sleep(200)
+  await page.locator('[data-ecommerce-intent-parse]').click()
+  await page
+    .waitForFunction(
+      () =>
+        document.querySelector('[data-ecommerce-intent-card]') ||
+        document.querySelector('[data-ecommerce-intent-error]'),
+      null,
+      { timeout: 15000 },
+    )
+    .catch(() => {})
+  const summary = page.locator('[data-ecommerce-plan-summary]')
+  const has = (await page.locator('[data-ecommerce-plan]').count()) === 1
+  const summaryText = has ? (await summary.first().innerText()).trim() : '(无)'
+  /**
+   * 期望值**从确认卡上取**（用途 / 平台 / 张数三行拼起来），不写死一个平台名：
+   *  ① 这两处本来就该同源 —— 一个写 4 张、另一个写 6 张，就是自相矛盾；
+   *  ② mock 渠道的解析是从**整段提示词**里正则匹配的，而提示词里带着平台白名单
+   *  （第一个就是 `amazon`），所以"用户句子里说 Temu"它照样回 Amazon ——
+   *  写死平台名的断言量到的是 mock 的脾气，不是产品。
+   */
+  const cardValues = await page.locator('[data-ecommerce-intent-row]').evaluateAll((els) =>
+    els
+      .map((e) => {
+        const spans = e.querySelectorAll('span')
+        return [spans[0]?.textContent?.trim() ?? '', spans[1]?.textContent?.trim() ?? '']
+      })
+      .filter(([label]) => ['用途', '平台', '张数'].includes(label))
+      .map(([, value]) => value),
+  )
+  const expectedSummary = cardValues.join(' · ')
+  rec(
+    g,
+    '★★★ 历史那一行的缩略说明 = 确认卡上那三行（用途 · 平台 · 张数，同一份来源）',
+    !!expectedSummary && summaryText === expectedSummary,
+    `卡片=${expectedSummary} 缩略=${summaryText}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/148-g148-suggestions.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

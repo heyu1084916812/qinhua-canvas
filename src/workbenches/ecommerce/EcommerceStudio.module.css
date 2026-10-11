@@ -539,8 +539,9 @@
 }
 
 .planOpen {
-  /* 长标题省略号收尾：列表宽度固定，光标悬停有 title 看全（不让它把左栏撑变形） */
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   flex: 1;
   min-width: 0;
   padding: 6px var(--space-2);
@@ -551,11 +552,47 @@
   font-family: var(--font-sans);
   font-size: var(--fs-label);
   text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   cursor: pointer;
 }
 .planOpen:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+/* 长标题 / 长说明都用省略号收尾：列表宽度固定（悬停有 title 看全，别把左栏撑变形） */
+.planTitleText,
+.planMeta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.planMeta {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+/*
+ * 起手式（对账 #434）：三枚短标签。整句话在 `title` 与"点一下填进输入框"里 ——
+ * 把整句铺在按钮上会各占一行，把下面的表单顶下去一屏。
+ */
+.suggestRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.suggestChip {
+  padding: 4px var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-canvas);
+  color: var(--text-3);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+.suggestChip:hover {
   background: var(--bg-hover);
   color: var(--text-1);
 }
