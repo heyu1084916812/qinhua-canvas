@@ -32,20 +32,31 @@ export const PACK_WIDTH = 1080
 export const PACK_HEIGHT = 1920
 export const PACK_FPS = 30
 
-export interface PackClip {
+/**
+ * **时间轴上的一段**（预览与合成包共用这一份形状）。
+ *
+ * 为什么要单独一层：预览**播放**某一集与导出**合成**某一集必须是同一条时间轴 ——
+ * 各算一遍就会漂（"预览里 12 段、命令里 11 段"这种）。所以两边都取 `episodeTimeline`，
+ * 合成包再往它上面补"文件名 / 在不在本地"这两样只有导出才需要的东西。
+ */
+export interface TimelineClip {
   /** 这一镜在**这一集里的序号**（1 起；空镜也占号 —— 序号是给人看的，不是数组下标） */
   index: number
   shotId: string
   /** `video` = 这一镜有视频，动起来；`image` = 只有图，按静帧撑满它的秒数 */
   kind: 'video' | 'image'
   hash: string
-  /** 素材文件夹里那个文件名（`<hash>.<ext>`） */
-  file: string
   /** 这一镜的时长（秒） */
   seconds: number
   dialogue: string
   scene: string
   cast: string[]
+}
+
+/** 合成包用的一段 = 时间轴的一段 + 落盘要用的两个字段 */
+export interface PackClip extends TimelineClip {
+  /** 素材文件夹里那个文件名（`<hash>.<ext>`） */
+  file: string
   /**
    * 这份素材**本地有没有字节**。
    *
@@ -92,11 +103,37 @@ export function episodeClips(
   episodeId: string,
   assetOf: PackAssetLookup,
 ): { clips: PackClip[]; missing: PackMissing[] } {
+  const { clips: timeline, missing } = episodeTimeline(doc, episodeId)
   const clips: PackClip[] = []
+  for (const clip of timeline) {
+    const info = assetOf(clip.hash)
+    if (!info) {
+      missing.push({ index: clip.index, reason: `库里查不到这条素材（${clip.hash.slice(0, 8)}…），可能是被清理过` })
+      continue
+    }
+    clips.push({ ...clip, file: assetFileName(clip.hash, info.mime), local: info.local })
+  }
+  missing.sort((a, b) => a.index - b.index)
+  return { clips, missing }
+}
+
+/**
+ * **这一集的时间轴**（预览播放与合成包共用）。
+ *
+ * 口径三条，与合成包那一节同源：
+ * - **视频优先**：这一镜有视频就用视频（分镜要的是"动起来"），没有才拿图当静帧；
+ * - **两样都没有 ⇒ 不占时间轴**（进 `missing`）：预览里它没有画面可放，命令里它没有文件可用 ——
+ *   两边的处理必须一致，否则预览会多出几秒。
+ * - 顺序 = 分镜顺序，序号 = 在这一集里的第几镜（空镜也占号，给人看的）。
+ */
+export function episodeTimeline(
+  doc: StoryboardDoc,
+  episodeId: string,
+): { clips: TimelineClip[]; missing: PackMissing[] } {
+  const clips: TimelineClip[] = []
   const missing: PackMissing[] = []
   shotsOf(doc, episodeId).forEach((shot, i) => {
     const index = i + 1
-    /* 视频优先：有视频就用视频（分镜要的是"这一镜动起来"），没有才拿图当静帧 */
     const pick = shot.videoHash
       ? ({ kind: 'video', hash: shot.videoHash } as const)
       : shot.imageHash
@@ -106,22 +143,15 @@ export function episodeClips(
       missing.push({ index, reason: '还没出图 —— 这一镜没有任何素材可拼' })
       return
     }
-    const info = assetOf(pick.hash)
-    if (!info) {
-      missing.push({ index, reason: `库里查不到这条素材（${pick.hash.slice(0, 8)}…），可能是被清理过` })
-      return
-    }
     clips.push({
       index,
       shotId: shot.id,
       kind: pick.kind,
       hash: pick.hash,
-      file: assetFileName(pick.hash, info.mime),
       seconds: Math.max(1, Math.round(shot.durationSec)),
       dialogue: shot.dialogue.trim(),
       scene: sceneNameOf(doc, shot),
       cast: characterNamesOf(doc, shot),
-      local: info.local,
     })
   })
   return { clips, missing }

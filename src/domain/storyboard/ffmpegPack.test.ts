@@ -11,6 +11,7 @@ import {
 import {
   buildEpisodePack,
   episodeClips,
+  episodeTimeline,
   ffmpegCommand,
   packMarkdown,
   srtOf,
@@ -83,6 +84,26 @@ describe('合成包 · 片段清单', () => {
     const withDuration = updateShot(doc, doc.shots[0]!.id, { durationSec: 7 }, 1)
     const { clips } = episodeClips(withDuration, doc.episodes[0]!.id, assetOf)
     expect(clips.map((c) => c.seconds)).toEqual([7, 3])
+  })
+
+  it('★★★ 预览与合成包**共用同一条时间轴**（`episodeTimeline`）—— 段数 / 顺序 / 秒数逐项相同', () => {
+    const doc = two()
+    const timeline = episodeTimeline(doc, doc.episodes[0]!.id)
+    const pack = episodeClips(doc, doc.episodes[0]!.id, assetOf)
+    expect(timeline.clips.map((c) => [c.index, c.kind, c.hash, c.seconds])).toEqual(
+      pack.clips.map((c) => [c.index, c.kind, c.hash, c.seconds]),
+    )
+    expect(timeline.missing).toEqual(pack.missing)
+  })
+
+  it('★★ 没素材的镜头**不占时间轴**（预览里没有画面可放，命令里也没有文件可用）', () => {
+    const doc = two()
+    const bareShot = { ...doc.shots[1]! }
+    delete (bareShot as { imageHash?: string }).imageHash
+    delete (bareShot as { videoHash?: string }).videoHash
+    const timeline = episodeTimeline({ ...doc, shots: [bareShot] }, doc.episodes[0]!.id)
+    expect(timeline.clips).toEqual([])
+    expect(timeline.missing.map((m) => m.index)).toEqual([1])
   })
 })
 

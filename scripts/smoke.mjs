@@ -27890,7 +27890,165 @@ async function g144(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144]
+// ────────────────────────────────────────────────────────────
+// G145 漫剧「时间轴预览」（对账 #432；调研稿 §M7-6 的预览那一半）：
+//   零依赖：静帧按分镜秒数走、视频用它自己的长度。
+//   ① 段数与导出**同源**（都取 `episodeTimeline`）—— 没出图的镜头不占时间轴
+//   ② 静帧会**自动推进**（不是只能手点"下一镜"）
+//   ③ 上一镜 / 暂停 / 关闭三件都在，Esc 也能关
+// ────────────────────────────────────────────────────────────
+async function g145(browser) {
+  const g = 'G145 漫剧时间轴预览'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const shots = page.locator('[data-storyboard-shot]')
+  /** 浮层与入口按钮是**两个**属性（同名会一次命中两个元素，见组件里的注释） */
+  const overlay = page.locator('[data-storyboard-preview-overlay]')
+  const counter = page.locator('[data-preview-counter]')
+
+  const readDb = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const all = (table) =>
+        new Promise((resolve) => {
+          const r = db.transaction(table, 'readonly').objectStore(table).getAll()
+          r.onsuccess = () => resolve(r.result ?? [])
+          r.onerror = () => resolve([])
+        })
+      const boards = await all('storyboards')
+      const doc = boards[0]?.doc
+      return {
+        shots: (doc?.shots ?? []).map((s) => ({
+          id: s.id,
+          nodeId: s.nodeId ?? null,
+          imageHash: s.imageHash ?? null,
+        })),
+      }
+    })
+  const waitDb = async (predicate, timeoutMs = 30000) => {
+    const started = Date.now()
+    for (;;) {
+      const db = await readDb()
+      if (predicate(db) || Date.now() - started > timeoutMs) return db
+      await sleep(250)
+    }
+  }
+  /** 等那行字变成期望的样子（自动推进这类按它判，不拿墙钟赌） */
+  const waitText = async (locator, pattern, timeoutMs = 12000) => {
+    const started = Date.now()
+    for (;;) {
+      const text = await locator.innerText().catch(() => '')
+      if (pattern.test(text)) return text
+      if (Date.now() - started > timeoutMs) return text
+      await sleep(150)
+    }
+  }
+
+  const ch = await configureMockChannel(page)
+  rec(g, '渠道验证通过', ch.verified)
+
+  await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-storyboard-create]').click()
+  await page.waitForURL(/\/storyboard\/proj_/)
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+
+  await page.locator('[data-storyboard-add-episode]').click()
+  await sleep(250)
+  for (let i = 0; i < 3; i += 1) {
+    await page.locator('[data-storyboard-add-shot]').click()
+    await sleep(150)
+  }
+  await sleep(300)
+  const ids = []
+  for (let i = 0; i < 3; i += 1) ids.push((await shots.nth(i).getAttribute('data-storyboard-shot')) ?? '')
+  /** 画面描述必须写：铺出去节点的提示词就取它（空提示词 ⇒ 不发请求，见第 91 批记录） */
+  await page.locator(`[data-storyboard-shot-scene="${ids[0]}"]`).fill('雨里骑车')
+  await page.locator(`[data-storyboard-shot-scene="${ids[1]}"]`).fill('把箱子放下')
+  await page.locator(`[data-storyboard-shot-scene="${ids[2]}"]`).fill('转身走远')
+  await page.locator(`[data-storyboard-shot-dialogue="${ids[0]}"]`).fill('第一镜的台词')
+  await page.locator(`[data-storyboard-shot-dialogue="${ids[1]}"]`).fill('第二镜的台词')
+  /* 第 1 镜 1 秒：让"自动推进"这件事在冒烟里几秒内就能验到 */
+  await page.locator(`[data-storyboard-shot-duration="${ids[0]}"]`).fill('1')
+  await page.locator(`[data-storyboard-shot-duration="${ids[1]}"]`).fill('5')
+  await sleep(700)
+
+  await page.locator('[data-storyboard-lay-out]').click()
+  const laid = await waitDb((db) => db.shots.length === 3 && db.shots.every((s) => !!s.nodeId), 15000)
+  rec(g, '★ 三镜都铺到画布（节点 id 真写回文档）', laid.shots.length === 3 && laid.shots.every((s) => !!s.nodeId))
+
+  /* 只给前两镜出图：第三镜没素材 ⇒ 时间轴上**不该有它** */
+  for (const id of [ids[0], ids[1]]) {
+    await page.locator(`[data-storyboard-shot-run="${id}"]`).click()
+    await waitDb((db) => !!db.shots.find((s) => s.id === id)?.imageHash, 40000)
+  }
+  const withImages = await waitDb(
+    (db) => db.shots.filter((s) => !!s.imageHash).length === 2 && !db.shots[2]?.imageHash,
+    15000,
+  )
+  rec(
+    g,
+    '★ 前两镜出图、第三镜故意没出（时间轴的两条分支才有得测）',
+    withImages.shots.filter((s) => !!s.imageHash).length === 2,
+    `有图=${withImages.shots.filter((s) => !!s.imageHash).length}/3`,
+  )
+
+  // 打开预览
+  await page.locator('[data-storyboard-preview]').click()
+  await overlay.waitFor({ state: 'visible', timeout: 8000 })
+  const first = await waitText(counter, /1\/2/)
+  rec(
+    g,
+    '★★★ 时间轴与导出同源：总段数是 **2**（没出图的那一镜不占时间轴）',
+    /1\/2/.test(first) && (await page.locator('[data-preview-media="image"]').count()) === 1,
+    first.trim(),
+  )
+
+  /**
+   * 静帧要**自己往下走**：第 1 镜 1 秒 ⇒ 等它推进到 2/2。
+   * 判据是"那行字变了"，不是"等了 N 秒"——截图 / 解码快慢都不该影响结论。
+   */
+  const advanced = await waitText(counter, /2\/2/, 12000)
+  rec(g, '★★★ 静帧按分镜秒数**自动推进**（不是只能手点下一镜）', /2\/2/.test(advanced), advanced.trim())
+
+  // 上一镜 / 暂停 / Esc
+  await page.locator('[data-preview-prev]').click()
+  const back = await waitText(counter, /1\/2/, 5000)
+  rec(g, '★「上一镜」回到第 1 镜', /1\/2/.test(back), back.trim())
+  const playLabel = (await page.locator('[data-preview-play]').innerText()).trim()
+  await page.locator('[data-preview-play]').click()
+  const pausedLabel = (await page.locator('[data-preview-play]').innerText()).trim()
+  rec(g, '★「暂停 / 播放」按钮跟着状态改口', playLabel !== pausedLabel, `${playLabel} → ${pausedLabel}`)
+
+  await page.keyboard.press('Escape')
+  const closed = await overlay
+    .waitFor({ state: 'detached', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★★ Esc 关闭预览（与灯箱同一套键盘口径）', closed)
+
+  // 再开一次，用按钮关
+  await page.locator('[data-storyboard-preview]').click()
+  await overlay.waitFor({ state: 'visible', timeout: 8000 })
+  await page.locator('[data-preview-close]').click()
+  const closedByButton = await overlay
+    .waitFor({ state: 'detached', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★「关闭」按钮也能关（两条出口都留着）', closedByButton)
+
+  await page.screenshot({ path: `${OUT}/145-g145-preview.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

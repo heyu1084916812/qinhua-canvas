@@ -39,8 +39,9 @@ import {
   type EpisodeEnrichment,
 } from '../../domain/storyboard/episodes'
 import { asAppError, describeError } from '../../shared/result'
-import { buildEpisodePack } from '../../domain/storyboard/ffmpegPack'
+import { buildEpisodePack, episodeTimeline } from '../../domain/storyboard/ffmpegPack'
 import { toBytes } from '../../platform/assets'
+import { EpisodePreview } from './EpisodePreview'
 import {
   addCharacter,
   addEpisode,
@@ -241,6 +242,12 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     kind: 'idle',
     text: '',
   })
+  /**
+   * 时间轴预览（对账 #432）：`null` = 没开；开着的时候记着**播到第几段 + 在不在播**。
+   * 片段清单本身不进 state —— 它由 `episodeTimeline(doc, 选中集)` 现算（doc 一变就跟着变），
+   * 存一份状态就有两个来源。
+   */
+  const [preview, setPreview] = useState<{ at: number; playing: boolean } | null>(null)
   /** 拆集（#417）的状态行与二次确认；也各自独立 */
   const [split, setSplit] = useState<{ kind: 'idle' | 'running' | 'done' | 'error'; text: string }>({
     kind: 'idle',
@@ -398,6 +405,13 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   const liveNodeIds = new Set(graph.nodes.map((n) => n.id))
   const needNodes = shotsNeedingNode(shots, liveNodeIds)
   const laidCount = shots.filter((s) => s.nodeId && liveNodeIds.has(s.nodeId)).length
+  /**
+   * 这一集的时间轴（预览播放与合成包**共用** `episodeTimeline`）。
+   *
+   * 不放进 `useMemo`：它在早退（`if (!doc)`）之后才轮到，用 hook 会踩"条件调用 hook"那条规则；
+   * 而它本身是几个查表的纯函数，一集几十镜的开销可以忽略。
+   */
+  const timeline = selected ? episodeTimeline(doc, selected.id) : { clips: [], missing: [] }
 
   /**
    * **把"这一镜该接的参考图"同步到连线上**（对账 #430）。
@@ -1405,6 +1419,20 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                       这一集出图
                     </button>
                     {/**
+                     * 「预览这一集」（对账 #432）：调研稿 §M7-6 的预览那一半。
+                     * 段数与导出**同源**（都取 `episodeTimeline`），所以预览看到几段、
+                     * 命令里就有几个输入。一镜素材都没有时按钮是灰的 —— 不摆点了没反应的入口。
+                     */}
+                    <button
+                      type="button"
+                      className={styles.ghost}
+                      data-storyboard-preview
+                      disabled={timeline.clips.length === 0}
+                      onClick={() => setPreview({ at: 0, playing: true })}
+                    >
+                      预览这一集
+                    </button>
+                    {/**
                      * 「导出合成包」（对账 #431）：纯文本 —— 素材清单 + 一条能直接跑的 FFmpeg 命令 + SRT。
                      * 门槛放在"这一集有镜头"上：一镜都没有时导出的包只会是几段空说明。
                      */}
@@ -1524,6 +1552,20 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
           )}
         </section>
       </div>
+      {/**
+       * 时间轴预览浮层（对账 #432）：只在真的开着、且这一集有可播片段时渲染。
+       * `at` 由组件内部夹好范围（文档在播放期间被改短也不会越界）。
+       */}
+      {preview && timeline.clips.length > 0 ? (
+        <EpisodePreview
+          clips={timeline.clips}
+          at={preview.at}
+          playing={preview.playing}
+          onAt={(at) => setPreview({ at, playing: true })}
+          onTogglePlay={() => setPreview((p) => (p ? { ...p, playing: !p.playing } : p))}
+          onClose={() => setPreview(null)}
+        />
+      ) : null}
     </div>
   )
 }
