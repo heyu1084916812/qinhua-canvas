@@ -172,6 +172,14 @@ export interface StoryboardDoc {
   scenes: DramaScene[]
   episodes: StoryboardEpisode[]
   shots: StoryboardShot[]
+  /**
+   * 用户说过"**不是同一个**"的那些资产对（对账 #437）——键是 `pairKey`（与顺序无关）。
+   *
+   * 存下来的唯一目的：**同一对不再问第二次**（同一个错误提示反复冒出来，
+   * 用户最后会把整个入口忽略掉）。读回时按**现存的** id 过滤：
+   * 资产删掉之后那些键就没有意义了。
+   */
+  mergeDismissals?: string[]
   updatedAt: number
 }
 
@@ -338,6 +346,23 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
     scenes,
     episodes,
     shots,
+    /* "不是同一个"那些键按**现存的 id** 过滤：资产删掉之后那些键就没有意义了 */
+    ...(() => {
+      const alive = new Set([...characters, ...scenes].map((a) => a.id))
+      const pairs = Array.isArray(o.mergeDismissals)
+        ? [
+            ...new Set(
+              o.mergeDismissals
+                .map((v) => text(v))
+                .filter((v) => {
+                  const [a, b] = v.split('|')
+                  return !!a && !!b && alive.has(a) && alive.has(b)
+                }),
+            ),
+          ]
+        : []
+      return pairs.length > 0 ? { mergeDismissals: pairs } : {}
+    })(),
     updatedAt: num(o.updatedAt, 0),
   }
   /** 读回时就顺手把"按集分组"整一遍（老数据 / 手改过的备份都可能乱序） */
@@ -346,6 +371,37 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
 
 /** 一镜的默认时长（秒）：短视频里最常用的那个档，用户改就是了 */
 export const DEFAULT_SHOT_SECONDS = 3
+
+/**
+ * 一对资产的**去重键**（对账 #437）：与顺序无关（`a|b` 与 `b|a` 是同一个键）。
+ *
+ * 放在这一层而不是 `mergeSuggest.ts`：这个键是**文档里的数据**（`mergeDismissals`），
+ * 读写它的两边都得用同一份规则；放在上层会让 storyboard 反过来 import 它（循环）。
+ */
+export function pairKey(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`
+}
+
+/**
+ * 记下"这两条**不是同一个**"（对账 #437）：以后不再把它们提成候选。
+ *
+ * 只认**同类且都存在**的两条 id（键里不存类别，跨类的对子本来就不该出现）；
+ * 已经记过就返回原引用（别搅动防抖保存）。
+ */
+export function dismissMerge(
+  doc: StoryboardDoc,
+  kind: AssetKind,
+  a: string,
+  b: string,
+  now = 0,
+): StoryboardDoc {
+  const list = kind === 'char' ? doc.characters : doc.scenes
+  if (a === b || !list.some((x) => x.id === a) || !list.some((x) => x.id === b)) return doc
+  const key = pairKey(a, b)
+  const current = doc.mergeDismissals ?? []
+  if (current.includes(key)) return doc
+  return { ...doc, mergeDismissals: [...current, key], updatedAt: now }
+}
 
 /**
  * **把镜头按"集顺序 + 集内原有顺序"整一遍**（稳定排序）。

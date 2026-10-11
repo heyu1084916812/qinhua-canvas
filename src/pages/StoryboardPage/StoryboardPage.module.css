@@ -463,6 +463,37 @@
   gap: var(--space-2);
 }
 
+/*
+ * 「查一遍重复」（对账 #437）：入口 + 候选卡。
+ *
+ * 候选卡用 `--bg-subtle` 底 + 描边，与资产行同一套语言；它是**待办**而不是警告，
+ * 所以不套 `--danger`（那会让用户以为出错了）。
+ */
+.mergeScan {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-top: var(--border);
+}
+
+.suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--bg-subtle);
+  border: var(--border);
+  border-radius: var(--radius-control);
+}
+
+.suggestionText {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--text-1);
+  line-height: var(--lh-body);
+}
+
 .assetName,
 .assetDesc,
 .assetAliases {

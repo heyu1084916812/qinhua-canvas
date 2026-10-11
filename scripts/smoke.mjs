@@ -28861,7 +28861,186 @@ async function g150(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150]
+// ────────────────────────────────────────────────────────────
+// G151 漫剧「同义归并查重」（对账 #437；研究稿 §370「归并去重，别省」）：
+//   人工确认那半在 #436，这一组验的是**建议**那半。
+//   ① 点之前就说清会花一次对话额度
+//   ② 模型只给候选 + 理由 —— **一个字都不自动改文档**（查完资产数不变）
+//   ③ 用户点「合并」要**两下**（第二下说明会改几镜），确认后走 #436 的合并
+//   ④ 「不是同一个」记进文档，**以后不再问同一对**
+// ────────────────────────────────────────────────────────────
+async function g151(browser) {
+  const g = 'G151 漫剧查重建议'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const shots = page.locator('[data-storyboard-shot]')
+  const charRows = page.locator('[data-storyboard-character]')
+
+  const readDb = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const boards = await new Promise((resolve) => {
+        const r = db.transaction('storyboards', 'readonly').objectStore('storyboards').getAll()
+        r.onsuccess = () => resolve(r.result ?? [])
+        r.onerror = () => resolve([])
+      })
+      const doc = boards[0]?.doc
+      return {
+        characters: (doc?.characters ?? []).map((c) => ({
+          id: c.id,
+          name: c.name,
+          aliases: c.aliases ?? [],
+        })),
+        shots: (doc?.shots ?? []).map((s) => ({ id: s.id, characterIds: s.characterIds ?? [] })),
+        dismissals: doc?.mergeDismissals ?? [],
+      }
+    })
+  const waitDb = async (predicate, timeoutMs = 20000) => {
+    const started = Date.now()
+    for (;;) {
+      const db = await readDb()
+      if (predicate(db) || Date.now() - started > timeoutMs) return db
+      await sleep(250)
+    }
+  }
+
+  await configureMockChannel(page)
+  await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-storyboard-create]').click()
+  await page.waitForURL(/\/storyboard\/proj_/)
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
+
+  await page.locator('[data-storyboard-add-episode]').click()
+  await sleep(200)
+  await page.locator('[data-storyboard-add-shot]').click()
+  await sleep(150)
+  await page.locator('[data-storyboard-add-character]').click()
+  await sleep(180)
+  await page.locator('[data-storyboard-add-character]').click()
+  await sleep(300)
+  const keepId = (await charRows.nth(0).getAttribute('data-storyboard-character')) ?? ''
+  const dropId = (await charRows.nth(1).getAttribute('data-storyboard-character')) ?? ''
+  const shotId = (await shots.first().getAttribute('data-storyboard-shot')) ?? ''
+  await page.locator(`[data-storyboard-asset-name="${keepId}"]`).fill('林轩')
+  await page.locator(`[data-storyboard-asset-name="${dropId}"]`).fill('林公子')
+  await page.locator(`[data-storyboard-shot-character="${shotId}"][data-character-id="${dropId}"]`).click()
+  await sleep(600)
+
+  const note = (await page.locator('[data-storyboard-merge-scan-note]').innerText()).trim()
+  rec(
+    g,
+    '★ 查重入口在，且**点之前**就写明会用谁查、会花一次对话额度',
+    (await page.locator('[data-storyboard-merge-scan]').count()) === 1 && /会花一次对话额度/.test(note),
+    note,
+  )
+
+  // ① 查一遍
+  await page.locator('[data-storyboard-merge-scan]').click()
+  const card = page.locator('[data-storyboard-merge-suggestion]')
+  const cardShown = await card
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
+  const cardText = cardShown ? (await card.first().innerText()).trim() : ''
+  const afterScan = await readDb()
+  rec(
+    g,
+    '★★★ 查到一组候选（含两条名字 + 理由），而且**文档一个字段都没动**',
+    cardShown &&
+      /林公子/.test(cardText) &&
+      /林轩/.test(cardText) &&
+      afterScan.characters.length === 2 &&
+      afterScan.shots[0]?.characterIds[0] === dropId,
+    `${cardText.replace(/\n/g, ' / ').slice(0, 80)} · 角色数=${afterScan.characters.length}`,
+  )
+
+  // ② 两下确认：第一下只说后果
+  await page.locator('[data-storyboard-merge-accept]').first().click()
+  const acceptNote = (await page.locator('[data-storyboard-merge-accept-note]').first().innerText()).trim()
+  const mid = await readDb()
+  rec(
+    g,
+    '★★ 第一下只说后果（会把 1 镜的引用改到林轩、并删掉林公子），**还没动手**',
+    /1 镜的引用/.test(acceptNote) && /林轩/.test(acceptNote) && mid.characters.length === 2,
+    acceptNote,
+  )
+
+  // 第二下才真合并
+  await page.locator('[data-storyboard-merge-accept]').first().click()
+  const afterMerge = await waitDb((db) => db.characters.length === 1, 15000)
+  const keeper = afterMerge.characters[0]
+  rec(
+    g,
+    '★★★ 确认后走 #436 的合并：只剩一条、引用跟过来、名字变成别名',
+    afterMerge.characters.length === 1 &&
+      keeper?.name === '林轩' &&
+      JSON.stringify(keeper?.aliases ?? []) === JSON.stringify(['林公子']) &&
+      JSON.stringify(afterMerge.shots[0]?.characterIds) === JSON.stringify([keepId]),
+    JSON.stringify({ keep: keeper, shots: afterMerge.shots }),
+  )
+
+  // ③ 「不是同一个」：记进文档
+  await page.locator('[data-storyboard-add-character]').click()
+  await sleep(180)
+  await page.locator('[data-storyboard-add-character]').click()
+  await sleep(400)
+  await page.locator('[data-storyboard-merge-scan]').click()
+  const second = page.locator('[data-storyboard-merge-suggestion]')
+  const secondShown = await second
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
+  await page.locator('[data-storyboard-merge-dismiss]').first().click()
+  const afterDismiss = await waitDb((db) => db.dismissals.length >= 1, 15000)
+  /**
+   * 期望的键要按**mock 真建议的那一对**算：它取的是清单里的**前两条**
+   * （合并之后列表是 [林轩, 新角色1, 新角色2] ⇒ 建议的是 林轩 × 新角色1）。
+   * 第一版我拿 `characters[2]` 去算 —— 又数错了对象（与第 97 批那条同源）。
+   */
+  const pairA = afterDismiss.characters[0]?.id ?? ''
+  const pairB = afterDismiss.characters[1]?.id ?? ''
+  const expectedKey = pairA < pairB ? `${pairA}|${pairB}` : `${pairB}|${pairA}`
+  rec(
+    g,
+    '★★★ 「不是同一个」记进文档（`mergeDismissals` 里出现这一对的键，与顺序无关）',
+    secondShown &&
+      afterDismiss.dismissals.length === 1 &&
+      afterDismiss.dismissals[0] === expectedKey,
+    JSON.stringify(afterDismiss.dismissals),
+  )
+
+  // ④ 再查一遍：同一对不再提
+  await page.locator('[data-storyboard-merge-scan]').click()
+  const status = page.locator('[data-storyboard-merge-scan-status="done"]')
+  const settled = await status
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
+  const statusText = settled ? (await status.innerText()).trim() : ''
+  rec(
+    g,
+    '★★★ 再查一遍：同一对**不再提**（否掉的记着），如实说没发现',
+    settled &&
+      /没发现还没确认过的重复/.test(statusText) &&
+      (await page.locator('[data-storyboard-merge-suggestion]').count()) === 0,
+    statusText,
+  )
+
+  await page.screenshot({ path: `${OUT}/151-g151-merge-suggest.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

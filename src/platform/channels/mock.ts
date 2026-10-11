@@ -8,6 +8,7 @@ import { BREAKDOWN_MARKER } from '../../domain/storyboard/breakdown'
 import { SPLIT_MARKER } from '../../domain/storyboard/episodes'
 import { ECOMMERCE_INTENT_MARKER } from '../../domain/ecommerce/chatParse'
 import { ECOMMERCE_SHOTS_MARKER } from '../../domain/ecommerce/chatShots'
+import { MERGE_MARKER } from '../../domain/storyboard/mergeSuggest'
 import { solidPng } from './mockPng'
 import type { SafeChannelConfig } from '../ports'
 import {
@@ -428,6 +429,32 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
             ...(ratio ? { ratio } : {}),
           }),
         }
+      }
+      /**
+       * **漫剧同义归并查重**（对账 #437）：系统指令带「【漫剧同义归并】」时，
+       * 从用户消息里的清单挑**同类的前两条**回一组。
+       *
+       * 为什么是"前两条"而不是真的判重：mock 不认识名字 —— 它要能**确定性地**
+       * 走通"给出候选 → 用户确认 → 合并"那条路，而不是碰运气猜得像不像。
+       * 真实模型那一侧由系统提示词约束（拿不准就不要输出）。
+       *
+       * 钩子：清单里带「坏归并」（放在描述里）⇒ 回一段不是 JSON 的话，用来验解析失败时
+       * **一个字都不改文档**。
+       */
+      if (asked.includes(MERGE_MARKER)) {
+        if (userMsg.includes('坏归并')) {
+          return { text: '我看了一下，这两条像是同一个人（这一段故意不是 JSON）。' }
+        }
+        const idsOf = (kind: 'char' | 'scene') =>
+          [...userMsg.matchAll(new RegExp(`\\[${kind}\\] id=(\\S+)`, 'g'))].map((m) => m[1]!)
+        const group = (kind: 'char' | 'scene') => {
+          const ids = idsOf(kind)
+          return ids.length >= 2
+            ? { kind, ids: ids.slice(0, 2), reason: '名字看着是同一个人的两种叫法' }
+            : null
+        }
+        const picked = group('char') ?? group('scene')
+        return { text: JSON.stringify({ groups: picked ? [picked] : [] }) }
       }
       /**
        * **电商分镜扩写**（对账 #406）：系统指令带「【电商分镜扩写】输出契约」时，

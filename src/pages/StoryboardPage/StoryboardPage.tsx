@@ -38,6 +38,13 @@ import {
   splitSource,
   type EpisodeEnrichment,
 } from '../../domain/storyboard/episodes'
+import {
+  buildMergeSystem,
+  buildMergeText,
+  parseMergeReply,
+  withoutDismissed,
+  type MergeSuggestion,
+} from '../../domain/storyboard/mergeSuggest'
 import { asAppError, describeError } from '../../shared/result'
 import { buildEpisodePack, episodeTimeline } from '../../domain/storyboard/ffmpegPack'
 import { toBytes } from '../../platform/assets'
@@ -53,6 +60,7 @@ import {
   attachShotNodes,
   attachShotVideos,
   bindShotScene,
+  dismissMerge,
   exportStoryboardMarkdown,
   moveEpisode,
   moveShot,
@@ -223,6 +231,16 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
    * 但**合并不可撤销的程度不同** —— 它会把引用的 id 换掉，所以后果要先说清）。
    */
   const [merge, setMerge] = useState<{ dropId: string; keepId: string | null } | null>(null)
+  /**
+   * **同义归并查重**（对账 #437）：候选 + 扫描状态 + "哪一张卡在等第二下"。
+   * 候选**不进文档**：模型给的是"疑似"，只有用户点了确认才真合并。
+   */
+  const [merges, setMerges] = useState<MergeSuggestion[]>([])
+  const [mergeScan, setMergeScan] = useState<{ kind: 'idle' | 'running' | 'done' | 'error'; text: string }>({
+    kind: 'idle',
+    text: '',
+  })
+  const [mergeConfirmId, setMergeConfirmId] = useState('')
   const timer = useRef<number | null>(null)
   const pending = useRef<StoryboardDoc | null>(null)
   /**
@@ -522,6 +540,87 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
           kind === 'char' ? (s.characterIds ?? []).includes(a.id) : s.sceneId === a.id,
         ).length,
       }))
+
+  /**
+   * **查一遍重复**（对账 #437；研究稿 §370「归并去重，别省」）。
+   *
+   * 三条纪律与其它 LLM 入口一致：
+   * ① **点之前就说清会花一次对话额度**（界面那行小字）；
+   * ② 模型只给候选 + 理由，**一个字都不自动改文档**；
+   * ③ 解析不过如实报错，不改任何状态。
+   */
+  const scanMerges = async () => {
+    if (!chatTarget) {
+      setMergeScan({
+        kind: 'error',
+        text: '没有可用的对话模型 —— 先去「设置 → 渠道配置」给一条渠道勾上对话模型',
+      })
+      return
+    }
+    setMergeScan({ kind: 'running', text: '' })
+    setMerges([])
+    setMergeConfirmId('')
+    const ac = new AbortController()
+    /* 30 秒兜底：这是一次"看一眼清单"的小请求，卡住不该让按钮一直转 */
+    const timer = setTimeout(() => ac.abort(), 30_000)
+    try {
+      const result = await channels.completeWithTools({
+        channelId: chatTarget.channelId,
+        model: chatTarget.model,
+        tools: [],
+        messages: [
+          { role: 'system', content: buildMergeSystem() },
+          { role: 'user', content: buildMergeText(doc) },
+        ],
+        signal: ac.signal,
+      })
+      const parsed = parseMergeReply(result.text, doc)
+      if (!parsed.ok) {
+        setMergeScan({ kind: 'error', text: parsed.error })
+        return
+      }
+      /* 用户已经说过"不是同一个"的那些不再提（#437 的第四条口径） */
+      const fresh = withoutDismissed(doc, parsed.suggestions)
+      setMerges(fresh)
+      setMergeScan(
+        fresh.length === 0
+          ? { kind: 'done', text: '没发现还没确认过的重复' }
+          : { kind: 'done', text: `找到 ${fresh.length} 组疑似重复 —— 逐条看过再决定` },
+      )
+    } catch (e) {
+      if (ac.signal.aborted) {
+        setMergeScan({ kind: 'error', text: '查重超时（30 秒没回）。稍后再试。' })
+      } else {
+        const err = asAppError(e)
+        setMergeScan({ kind: 'error', text: err ? describeError(err) : '查重失败：这次没拿到结果' })
+      }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /** 确认合并这一组（一次合并组里其余每一条；`mergeAsset` 一次只吃一个 drop） */
+  const acceptMerge = (suggestion: MergeSuggestion) => {
+    let next = doc
+    for (const dropId of suggestion.dropIds) {
+      next = mergeAsset(next, suggestion.kind, suggestion.keepId, dropId, 0)
+    }
+    apply(next)
+    setMerges((list) => list.filter((item) => item !== suggestion))
+    setMergeConfirmId('')
+    setMergeScan({ kind: 'done', text: '已合并 —— 别名与引用都跟着过来了' })
+  }
+
+  /** 「不是同一个」：记进文档，以后不再问这一对 */
+  const dismissMergeSuggestion = (suggestion: MergeSuggestion) => {
+    let next = doc
+    for (const dropId of suggestion.dropIds) {
+      next = dismissMerge(next, suggestion.kind, suggestion.keepId, dropId, 0)
+    }
+    apply(next)
+    setMerges((list) => list.filter((item) => item !== suggestion))
+    setMergeConfirmId('')
+  }
 
   /**
    * 「出定妆图 / 基准图」（对账 #419）：这一条资产没有节点就先建一个（提示词按资产拼），
@@ -1369,6 +1468,93 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                 onMergeCancel={() => setMerge(null)}
               />
             ))}
+            {/**
+             * **查一遍重复**（对账 #437）：用对话模型找"同一个人的两种叫法"。
+             *
+             * 为什么值得花这一次额度：真实情形恰恰是**没有共同子串**的两种叫法
+             * （"林轩" / "林公子" 只共享一个姓）—— 规则只能靠"同姓"这种弱信号，
+             * 满屏误报比没有提示更糟。模型给的是**候选**，合并与否由用户逐条点。
+             */}
+            {doc.characters.length + doc.scenes.length >= 2 ? (
+              <div className={styles.mergeScan} data-storyboard-merge-scan-box>
+                <div className={styles.headTools}>
+                  <button
+                    type="button"
+                    className={styles.ghost}
+                    data-storyboard-merge-scan
+                    disabled={mergeScan.kind === 'running'}
+                    onClick={() => void scanMerges()}
+                  >
+                    {mergeScan.kind === 'running' ? '正在查…' : '查一遍重复'}
+                  </button>
+                  <span className={styles.hint} data-storyboard-merge-scan-note>
+                    {chatTarget
+                      ? `会用 ${chatTarget.label} 查（会花一次对话额度）`
+                      : '还没有可用的对话模型：先去「设置 → 渠道配置」给一条渠道勾上对话模型'}
+                  </span>
+                </div>
+                {mergeScan.text ? (
+                  <p
+                    className={mergeScan.kind === 'error' ? styles.error : styles.hint}
+                    role={mergeScan.kind === 'error' ? 'alert' : undefined}
+                    data-storyboard-merge-scan-status={mergeScan.kind}
+                  >
+                    {mergeScan.text}
+                  </p>
+                ) : null}
+                {merges.map((suggestion) => {
+                  const key = `${suggestion.keepId}|${suggestion.dropIds.join(',')}`
+                  const list = suggestion.kind === 'char' ? doc.characters : doc.scenes
+                  const nameOf = (id: string) => list.find((a) => a.id === id)?.name ?? '（已删）'
+                  const drops = suggestion.dropIds.map(nameOf).join('、')
+                  const refs = suggestion.dropIds.reduce(
+                    (sum, id) =>
+                      sum +
+                      doc.shots.filter((shot) =>
+                        suggestion.kind === 'char'
+                          ? (shot.characterIds ?? []).includes(id)
+                          : shot.sceneId === id,
+                      ).length,
+                    0,
+                  )
+                  return (
+                    <div className={styles.suggestion} key={key} data-storyboard-merge-suggestion={key}>
+                      <p className={styles.suggestionText}>
+                        疑似重复：「{drops}」与「{nameOf(suggestion.keepId)}」
+                        {suggestion.reason ? ` —— ${suggestion.reason}` : ''}
+                      </p>
+                      {mergeConfirmId === key ? (
+                        <p className={styles.hint} data-storyboard-merge-accept-note={key}>
+                          再点一次「确认合并」：会把 {refs} 镜的引用改到「{nameOf(suggestion.keepId)}
+                          」，并删掉「{drops}」。
+                        </p>
+                      ) : null}
+                      <div className={styles.headTools}>
+                        <button
+                          type="button"
+                          className={styles.ghost}
+                          data-storyboard-merge-accept={key}
+                          onClick={() => {
+                            if (mergeConfirmId === key) acceptMerge(suggestion)
+                            else setMergeConfirmId(key)
+                          }}
+                        >
+                          {mergeConfirmId === key ? '确认合并' : '合并'}
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.ghost}
+                          data-storyboard-merge-dismiss={key}
+                          onClick={() => dismissMergeSuggestion(suggestion)}
+                        >
+                          不是同一个
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : null}
           </div>
         </section>
 
