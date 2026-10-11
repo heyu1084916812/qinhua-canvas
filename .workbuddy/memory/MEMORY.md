@@ -32,6 +32,18 @@
 - **★ 基线**：`check-release-shell` 10/10 · `check-installer-windows` 12/12 ·
   `npm run check` 全绿 · 单测 **2400/2400**。
 
+**★★ 发布 = 把整段历史推上去，不只是传一个安装包**（2026-10-12 实测）：
+这次要推 **207 个提交 / 351 个文件 / +68 012 −2 422 行**（远端停在 5 周前）。
+所以发布前必须先做两件事，再谈发布：
+
+1. `git rev-list --left-right --count origin/main...HEAD` 看能不能**快进**（本次 `0 / 207`）；
+   `git log origin/main..HEAD --pretty=%s` 按类型分组，给用户一份**清单与摘要**
+   （AGENTS：推送前必须经显式确认）；
+2. **四遍密钥扫描**（形状 `sk-/AIza/ghp_/AKIA/PRIVATE KEY`、`token|secret|password|api_key` 赋值、
+   新增文件里的 `.env/.pem/.key/id_rsa/credential`、`Bearer 长串`）—— 仓库是公开的，推上去即公开。
+   本次结论：只命中**冒烟里的假令牌** `sk-1234567890abcdef3f2a`，零真值；私钥一直在仓库外，
+   `tauri.conf.json` 里的是公钥（本就该公开）。
+
 ### ★ 装出来的那份必然差 3 字节；reg.exe 输出是 GBK（2026-10-12 第 54 批 → 对账 #438 状态②）
 
 新增**手动**门禁 `scripts/check-installer-windows.mjs`（**入库**）：静默安装 → 校验载荷 → 启动 →
