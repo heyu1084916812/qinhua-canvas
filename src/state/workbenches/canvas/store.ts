@@ -23,6 +23,14 @@ import { createId } from '../../../shared/id'
 import { reduce } from '../../commands/reducer'
 import { clampZoom } from '../../../domain/canvas/geometry/transform'
 import type { Size } from '../../../domain/canvas/geometry/rect'
+import type { NoticeTone } from '../../../domain/ui/notice'
+
+/**
+ * 提示语气（`info` / `error`）**定义在 `domain/ui/notice.ts`** —— 画布瞬时提示与页面级状态行
+ * 共用同一张牌，映射到 role / aria-live 也只有那一处（`noticeA11y`）。
+ * 这里再导出一次，是为了不让既有的画布侧导入路径（如 `useAssetFolderActions`）被迫改道。
+ */
+export type { NoticeTone }
 import type { NodeType } from '../../../domain/canvas/model/node'
 import { getSpec } from '../../../domain/canvas/nodeSpecs'
 import { applyGraphPatches, toPersistPlan } from './persist'
@@ -196,15 +204,6 @@ interface CanvasState {
    */
   textEditor: { nodeId: string } | null
 }
-
-/**
- * 画布瞬时提示的语义档（产品文档 §4.5「动态播报」）：
- * `info` = 正常提示（`role=status` / `aria-live=polite`）；`error` = 被拒绝或被中止（`role=alert` / `assertive`）。
- *
- * 为什么要显式分档：以前所有提示都是 `role=status` —— 屏幕阅读器会把"没有渠道提供模型"
- * 与"已保存 3 张"用同一种语气念出来，错误不够显眼。分档只改播报语义，**不改任何业务分支**。
- */
-export type NoticeTone = 'info' | 'error'
 
 export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
   setSelection(ids: string[]): void

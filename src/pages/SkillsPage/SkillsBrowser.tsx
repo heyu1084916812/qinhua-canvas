@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { noticeA11y } from '../../domain/ui/notice'
 import { useSkills } from '../../app/providers/SkillStoreProvider'
 import {
   parseSkillMarkdown,
@@ -186,8 +187,7 @@ export function SkillsBrowser({
         <div
           className={notice.kind === 'ok' ? styles.noticeOk : styles.noticeErr}
           data-skills-notice={notice.kind}
-          role="status"
-          aria-live="polite"
+          {...noticeA11y(notice.kind === 'error' ? 'error' : 'info')}
         >
           {notice.text}
         </div>

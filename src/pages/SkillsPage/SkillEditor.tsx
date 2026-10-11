@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { noticeA11y } from '../../domain/ui/notice'
 import { useSkills } from '../../app/providers/SkillStoreProvider'
 import {
   SKILL_LIMITS,
@@ -107,8 +108,7 @@ export function SkillEditor({
         <div
           className={notice.kind === 'ok' ? styles.noticeOk : styles.noticeErr}
           data-skill-notice={notice.kind}
-          role="status"
-          aria-live="polite"
+          {...noticeA11y(notice.kind === 'error' ? 'error' : 'info')}
         >
           {notice.text}
         </div>

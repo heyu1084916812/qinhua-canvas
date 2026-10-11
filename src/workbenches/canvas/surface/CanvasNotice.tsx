@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { noticeA11y } from '../../../domain/ui/notice'
 import { useCanvasStore, useNotice } from '../storeContext'
 import styles from './CanvasNotice.module.css'
 
@@ -24,12 +25,12 @@ export function CanvasNotice() {
   }, [notice, store])
 
   if (!notice) return null
-  const isError = notice.tone === 'error'
+  /** role / aria-live 由 `noticeA11y` 一处决定（页面级状态行用同一份） */
+  const a11y = noticeA11y(notice.tone)
   return (
     <div
       className={styles.notice}
-      role={isError ? 'alert' : 'status'}
-      aria-live={isError ? 'assertive' : 'polite'}
+      {...a11y}
       data-canvas-notice
       data-notice-tone={notice.tone}
     >

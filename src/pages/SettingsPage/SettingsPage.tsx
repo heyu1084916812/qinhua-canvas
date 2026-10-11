@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useSyncExternalStore, useState } from 'react'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
+import { noticeA11y, type NoticeTone } from '../../domain/ui/notice'
 import {
   channelCapabilities,
   maskTokenTail,
@@ -766,6 +767,17 @@ export function SettingsPage() {
     return null
   }, [action, verifiedFor, verify, modelsResult, detect, catalog, hasLocalCli])
 
+  /**
+   * 同一条状态行的**语气**（产品文档 §4.5）：只看"这次是哪个动作、它现在什么状态"，
+   * 三个动作各有自己的失败档（探测未识别 / 拉取失败 / 验证不通）—— 与上面的文案分支一一对应。
+   */
+  const statusTone: NoticeTone = useMemo(() => {
+    if (!action) return 'info'
+    if (action === 'detect') return detect.status === 'error' ? 'error' : 'info'
+    if (action === 'models') return modelsResult.status === 'error' ? 'error' : 'info'
+    return verify.status === 'error' ? 'error' : 'info'
+  }, [action, detect.status, modelsResult.status, verify.status])
+
   // mock 提示只在**真的拿 mock 验了地址**时出现（探测的候选表不含 mock，故不受其影响）。
   const showMockNote = action === 'verify' && verify.status === 'ok' && verifiedFor?.protocol === 'mock'
   /**
@@ -1228,7 +1240,12 @@ export function SettingsPage() {
                   </button>
                 </div>
 
-                <div className={styles.status} role="status" aria-live="polite" data-settings-status>
+                <div
+                  className={styles.status}
+                  data-settings-status
+                  data-status-tone={statusTone}
+                  {...noticeA11y(statusTone)}
+                >
                   {statusLine}
                 </div>
 

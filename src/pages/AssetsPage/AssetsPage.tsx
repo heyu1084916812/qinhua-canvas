@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSyncExternalStore } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import type { LibraryAsset } from '../../domain/shared/assetLibrary'
 import type { GroupMode, HistoryOutput, QuickFilter } from '../../domain/shared/assetHistory'
 import { downloadAsset } from '../../features/canvas/downloadAsset'
+import { noticeA11y, type NoticeTone } from '../../domain/ui/notice'
 import { createAssetLibraryRepository } from '../../state/project/assetLibraryRepository'
 import { createAssetHistoryRepository } from '../../state/project/assetHistoryRepository'
 import {
@@ -102,7 +103,14 @@ export function AssetsPage() {
   const [preview, setPreview] = useState<LibraryAsset | null>(null)
   const [menuHash, setMenuHash] = useState<string | null>(null)
   const [confirmHash, setConfirmHash] = useState<string | null>(null)
-  const [status, setStatus] = useState('')
+  const [status, setStatusText] = useState('')
+  /** 这一条状态是"正常结果"还是"失败"（产品文档 §4.5：失败要 `role=alert`） */
+  const [statusTone, setStatusTone] = useState<NoticeTone>('info')
+  /** 写状态行的唯一入口：默认 info，失败显式传 'error'（语气跟着这次写入走，不会残留） */
+  const setStatus = useCallback((text: string, tone: NoticeTone = 'info') => {
+    setStatusText(text)
+    setStatusTone(tone)
+  }, [])
 
   useEffect(() => {
     void store.load()
@@ -124,15 +132,11 @@ export function AssetsPage() {
   const handleDownload = async (hash: string) => {
     setMenuHash(null)
     const result = await downloadAsset({ assets: platform.assets, files: platform.files }, hash)
-    setStatus(
-      result.ok
-        ? result.via === 'tab'
-          ? '远端素材已在新标签页打开：用浏览器自带的下载保存'
-          : '已下载'
-        : result.reason === 'missing'
-          ? '这张素材已不在素材库里'
-          : '下载失败',
-    )
+    if (result.ok) {
+      setStatus(result.via === 'tab' ? '远端素材已在新标签页打开：用浏览器自带的下载保存' : '已下载')
+    } else {
+      setStatus(result.reason === 'missing' ? '这张素材已不在素材库里' : '下载失败', 'error')
+    }
   }
 
   const handleRemove = async (hash: string) => {
@@ -144,7 +148,7 @@ export function AssetsPage() {
       await store.remove(hash)
       setStatus('已取消收藏，原素材仍保留在画布中')
     } catch {
-      setStatus('取消收藏失败')
+      setStatus('取消收藏失败', 'error')
     }
   }
 
@@ -168,7 +172,7 @@ export function AssetsPage() {
       })
       setStatus(next.length > 0 ? '标签已更新' : '标签已清空')
     } catch {
-      setStatus('标签没存下来，稍后再试')
+      setStatus('标签没存下来，稍后再试', 'error')
     }
   }
 
@@ -184,7 +188,7 @@ export function AssetsPage() {
       await store.save({ ...cardAssetOf(item), savedAt: Date.now() })
       setStatus('已收藏到素材库')
     } catch {
-      setStatus('收藏失败')
+      setStatus('收藏失败', 'error')
     }
   }
 
@@ -492,7 +496,8 @@ export function AssetsPage() {
       </main>
       </div>
 
-      <div aria-live="polite" className={styles.status} role="status">
+      {/* 语气 → role / aria-live：一处决定（`domain/ui/notice.ts`） */}
+      <div className={styles.status} data-status-tone={statusTone} {...noticeA11y(statusTone)}>
         {status}
       </div>
 

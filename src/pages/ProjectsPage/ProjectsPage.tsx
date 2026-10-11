@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { createProjectRepository, type ProjectRepository } from '../../state/project/repository'
@@ -14,6 +14,7 @@ import {
   type ImportResult,
 } from '../../state/project/flowIo'
 import { projectRoute, WORKBENCHES, WORKBENCH_ORDER, type WorkbenchId } from '../../domain/shared/workbench'
+import { noticeA11y, type NoticeTone } from '../../domain/ui/notice'
 import { formatRelative } from '../../domain/shared/time'
 import { TEMPLATES, type TemplateId } from '../../state/project/templates'
 import type { ProjectListItem } from '../../domain/project/project'
@@ -88,7 +89,19 @@ export function ProjectsPage() {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [busy, setBusy] = useState(false)
-  const [status, setStatus] = useState('')
+  const [status, setStatusText] = useState('')
+  /** 这一条状态是"正常结果"还是"失败"（产品文档 §4.5：失败要 `role=alert` 念给屏幕阅读器） */
+  const [statusTone, setStatusTone] = useState<NoticeTone>('info')
+  /**
+   * 写状态行的**唯一入口**：默认 `info`，失败那几处显式传 `'error'`。
+   *
+   * 这样写而不是"另开一个 setTone"：语气**跟着这一次写入走**，不会出现
+   * "上一条是失败、这一条是成功，但 role 还留在 alert"的残留。
+   */
+  const setStatus = useCallback((text: string, tone: NoticeTone = 'info') => {
+    setStatusText(text)
+    setStatusTone(tone)
+  }, [])
   /** 正拖着文件停在这一页上（决定要不要显那层「松开即导入」的提示） */
   const [dragging, setDragging] = useState(false)
   /** 项目多选模式（用户 2026-09-28）：选择态下卡片点击不再进入画布 */
@@ -252,7 +265,7 @@ export function ProjectsPage() {
     try {
       await applyImportResult(await importProjectFile(platform, repo))
     } catch (err) {
-      setStatus(`导入失败：${(err as Error).message}`)
+      setStatus(`导入失败：${(err as Error).message}`, 'error')
     } finally {
       setBusy(false)
     }
@@ -288,7 +301,7 @@ export function ProjectsPage() {
     setDragging(false)
     if (!file) return
     if (!/\.json$/i.test(file.name)) {
-      setStatus('这里只接受 .flow.json 项目文件（拖进来的是别的类型）')
+      setStatus('这里只接受 .flow.json 项目文件（拖进来的是别的类型）', 'error')
       return
     }
     e.preventDefault()
@@ -304,7 +317,7 @@ export function ProjectsPage() {
         }),
       )
     } catch (err) {
-      setStatus(`导入失败：${(err as Error).message}`)
+      setStatus(`导入失败：${(err as Error).message}`, 'error')
     } finally {
       setBusy(false)
     }
@@ -332,7 +345,7 @@ export function ProjectsPage() {
       })
       setStatus(`已导出「${name}」为 ${fileName}${opts?.embedAssets ? '（含素材）' : ''}`)
     } catch (err) {
-      setStatus(`导出失败：${(err as Error).message}`)
+      setStatus(`导出失败：${(err as Error).message}`, 'error')
     } finally {
       setBusy(false)
     }
@@ -623,7 +636,8 @@ export function ProjectsPage() {
         </section>
       </main>
 
-      <div aria-live="polite" className={styles.status} role="status">
+      {/* 语气 → role / aria-live：一处决定（`domain/ui/notice.ts`）；data-status-tone 给冒烟读 */}
+      <div className={styles.status} data-status-tone={statusTone} {...noticeA11y(statusTone)}>
         {status}
       </div>
 

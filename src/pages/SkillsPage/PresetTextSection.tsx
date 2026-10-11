@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { noticeA11y } from '../../domain/ui/notice'
 import { usePresetText } from '../../app/providers/PresetTextProvider'
 import {
   PRESET_TEXT_MAX,
@@ -93,8 +94,7 @@ export function PresetTextSection({
         <div
           className={notice.kind === 'ok' ? styles.noticeOk : styles.noticeErr}
           data-settings-preset-notice={notice.kind}
-          role="status"
-          aria-live="polite"
+          {...noticeA11y(notice.kind === 'error' ? 'error' : 'info')}
         >
           {notice.text}
         </div>

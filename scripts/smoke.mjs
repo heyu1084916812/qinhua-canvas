@@ -5507,6 +5507,19 @@ async function g45(browser) {
   await page.getByText(/已识别协议/).waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
   const hitText = await statusText()
   rec(g, '验证协议命中候选协议', hitText.includes('已识别协议'), hitText)
+  /*
+   * §4.5「动态播报」的**页面级**这一半：成功的验证是"状态"（role=status，不打断），
+   * 失败的验证是"错误"（role=alert，打断着念）。两档都要真读锚点 ——
+   * 只读文案的话，`role` 写死成 status 也能过。
+   */
+  const hitTone = await page.locator('[data-settings-status]').getAttribute('data-status-tone')
+  const hitRole = await page.locator('[data-settings-status]').getAttribute('role')
+  rec(
+    g,
+    '★★ 成功的验证是 role=status（tone=info）：不打断',
+    hitTone === 'info' && hitRole === 'status',
+    `tone=${hitTone} role=${hitRole}`,
+  )
   rec(
     g,
     '协议下拉自动切到命中的协议',
@@ -5527,6 +5540,14 @@ async function g45(browser) {
   await sleep(700)
   const emptyText = await statusText()
   rec(g, '空地址拒绝探测（不再假成功）', emptyText.includes('请先填写地址'), emptyText)
+  const emptyTone = await page.locator('[data-settings-status]').getAttribute('data-status-tone')
+  const emptyRole = await page.locator('[data-settings-status]').getAttribute('role')
+  rec(
+    g,
+    '★★ 失败的验证是 role=alert（tone=error）：屏幕阅读器要打断着念',
+    emptyTone === 'error' && emptyRole === 'alert',
+    `tone=${emptyTone} role=${emptyRole}`,
+  )
 
   // ③ 删除二次确认：点一下不删，确认才删
   await page.getByRole('button', { name: /新增渠道/ }).click()
@@ -16234,6 +16255,14 @@ async function g94(browser) {
   await page.locator('[data-skill-restore-yes]').click()
   await sleep(800)
   rec(g, '恢复默认后给出状态提示', (await page.locator('[data-skill-notice]').count()) === 1)
+  const skillTone = await page.locator('[data-skill-notice]').getAttribute('data-skill-notice')
+  const skillRole = await page.locator('[data-skill-notice]').getAttribute('role')
+  rec(
+    g,
+    '★★ 技能页的状态提示按语气播报（成功走 role=status，不是一律 alert）',
+    skillTone === 'ok' && skillRole === 'status',
+    `kind=${skillTone} role=${skillRole}`,
+  )
 
   await page.locator('[data-skills-back]').click()
   await sleep(350)
