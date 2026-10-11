@@ -29,7 +29,10 @@ import process from 'node:process'
 import { chromium } from 'playwright'
 
 const ROOT = process.cwd()
-const SETUP = process.env.QH_SETUP ?? path.join(ROOT, 'release/0.1.0/qinghua_0.1.0_x64-setup.exe')
+/** 默认安装包按 `package.json` 的版本取 —— 写死版本号会在下次升版后指到旧产物（第一版就是写死的 0.1.0） */
+const VERSION = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version
+const SETUP =
+  process.env.QH_SETUP ?? path.join(ROOT, `release/${VERSION}/qinghua_${VERSION}_x64-setup.exe`)
 const BUILT = path.join(ROOT, 'src-tauri/target/release/qinghua.exe')
 const SCRATCH = path.join(ROOT, '.playwright-verify/install-check')
 const APP = path.join(SCRATCH, 'app')
