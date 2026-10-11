@@ -2,6 +2,8 @@ import {
   assetKindOf,
   byteLengthOf,
   normalizeMetaString,
+  normalizeTag,
+  sameTag,
   type LibraryAssetRowLike,
   type SnapshotRunRecordLike,
 } from './assetLibrary'
@@ -45,6 +47,14 @@ export interface HistoryOutput {
   projectId?: string
   /** 来源项目名（参考图里卡片下方那个小标签，如"画布"） */
   projectName?: string
+  /**
+   * 用户给这张打的标签（对账 #303）。
+   *
+   * 历史条目本身**不存**标签 —— 标签挂在收藏关系（`assetLibrary` 行）上，
+   * 这里是调用方按 hash 拼进来的**镜像**（见 `assetLibraryStore.load`）。
+   * 没收藏的条目永远没有标签，这是对的：先收藏才能整理。
+   */
+  tags?: string[]
 }
 
 /** 历史里一条**失败**的记录（没有产物） */
@@ -212,6 +222,8 @@ export interface HistoryQuery {
   quick: QuickFilter
   /** 模型分组里点中的那一档；`null` = 不限 */
   model: string | null
+  /** 只看带这个标签的（`null` / 空 = 不限）。对账 #303：与素材库同一套筛选条件 */
+  tag?: string | null
   now: number
 }
 
@@ -222,6 +234,7 @@ export interface HistoryQuery {
 export function filterHistory(items: readonly HistoryItem[], q: HistoryQuery): HistoryItem[] {
   const text = q.query.trim().toLowerCase()
   const recentFrom = q.now - RECENT_DAYS * DAY_MS
+  const wantedTag = normalizeTag(q.tag)
   return items.filter((item) => {
     if (q.quick === 'saved' && !(item.kind === 'output' && item.saved)) return false
     if (q.quick === 'failed' && item.kind !== 'failed') return false
@@ -231,6 +244,14 @@ export function filterHistory(items: readonly HistoryItem[], q: HistoryQuery): H
       if (item.kind !== 'output' || historyKindOf(item.mime) !== q.kind) return false
     }
     if (q.model && (item.model ?? '') !== q.model) return false
+    /**
+     * 标签筛选：**失败条目永远不匹配**（它没有产物、更没收藏，也就没有标签）。
+     * 这一条与"按类型筛图时失败条目不该混进来"同一条口径。
+     */
+    if (wantedTag) {
+      if (item.kind !== 'output') return false
+      if (!(item.tags ?? []).some((t) => sameTag(t, wantedTag))) return false
+    }
     if (!text) return true
     const haystack = [
       item.prompt,
@@ -238,6 +259,7 @@ export function filterHistory(items: readonly HistoryItem[], q: HistoryQuery): H
       item.ratio,
       item.quality,
       item.projectName,
+      item.kind === 'output' ? (item.tags ?? []).join(' ') : '',
       item.kind === 'output' ? item.mime : '',
       item.kind === 'output' && item.width && item.height ? `${item.width}×${item.height}` : '',
     ]

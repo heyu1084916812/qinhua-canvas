@@ -913,6 +913,100 @@
 .metaItemWide {
   grid-column: 1 / -1;
 }
+
+/*
+ * 标签区（对账 #303）。
+ *
+ * 与 `metaGrid` 那两张卡同一套语言（`--bg-subtle` 底 + `--border` 描边 + 同一圆角），
+ * 但**不放进 `metaGrid`**：那里是"这张图的参数"，这里是"我的整理"——两件不同的事。
+ */
+.tagBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+}
+
+.tagHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tagLabel {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.tagRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 24px;
+}
+
+.tagChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-title);
+}
+
+.tagRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  line-height: 1;
+  cursor: pointer;
+}
+.tagRemove:hover {
+  color: var(--danger);
+}
+
+.tagForm {
+  display: flex;
+}
+
+.tagInput {
+  width: 100%;
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+}
+.tagInput::placeholder {
+  color: var(--text-3);
+}
+
+.tagHint {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--fs-chip);
+}
+
 .metaItem dt {
   color: var(--text-3);
   font-size: var(--fs-chip);

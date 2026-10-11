@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  MAX_TAGS,
+  MAX_TAG_LEN,
   MISSING,
+  addTag,
   assetKindOf,
   displayMeta,
   formatAssetSize,
+  removeTag,
 } from '../../domain/shared/assetLibrary'
 import type { LibraryAsset } from '../../domain/shared/assetLibrary'
 import {
@@ -25,11 +29,16 @@ export function AssetPreview({
   onClose,
   onDownload,
   onRemove,
+  canTag = true,
+  onTagsChange,
 }: {
   asset: LibraryAsset
   onClose: () => void
   onDownload: () => void
   onRemove: () => void
+  /** 能不能打标签（只有**收藏过**的素材能 —— 标签挂在收藏关系上，对账 #303） */
+  canTag?: boolean
+  onTagsChange?: (tags: string[]) => void
 }) {
   const { url, mime } = useAssetMeta(asset.hash)
   const kind = assetKindOf(mime ?? asset.mime)
@@ -37,6 +46,30 @@ export function AssetPreview({
   const panelRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const [colors, setColors] = useState<string[]>([])
+  /** 标签输入框的草稿与那句"为什么没加上"（对账 #303） */
+  const [tagDraft, setTagDraft] = useState('')
+  const [tagHint, setTagHint] = useState('')
+  const tags = asset.tags ?? []
+
+  /**
+   * 加一个标签。三种加不上各有说法 —— 一律"添加失败"会让用户反复试同一个错词。
+   */
+  const commitTag = () => {
+    const result = addTag(tags, tagDraft)
+    if (!result.ok) {
+      setTagHint(
+        result.reason === 'empty'
+          ? '先打字再回车'
+          : result.reason === 'duplicate'
+            ? '这个标签已经有了'
+            : `最多 ${MAX_TAGS} 个标签`,
+      )
+      return
+    }
+    setTagHint('')
+    setTagDraft('')
+    onTagsChange?.(result.tags)
+  }
 
   /**
    * 复制反馈（用户 2026-10-06 第 8 条）：色值点击即复制、提示词点击即复制，
@@ -284,6 +317,69 @@ export function AssetPreview({
               <dd data-asset-preview-channel>{displayMeta(asset.channelId)}</dd>
             </div>
           </dl>
+
+          {/*
+            标签（对账 #303）：只有**收藏过**的素材能打 —— 标签是"我的整理"，
+            挂在收藏关系（`assetLibrary` 行）上。没收藏时如实指出去收藏，不摆一个存不下去的输入框。
+          */}
+          <div className={styles.tagBlock} data-asset-tags>
+            <div className={styles.tagHead}>
+              <span className={styles.tagLabel}>标签</span>
+              {canTag ? null : (
+                <span className={styles.metaMuted} data-asset-tag-disabled>
+                  先收藏到素材库，再给它打标签
+                </span>
+              )}
+            </div>
+            <div className={styles.tagRow}>
+              {tags.length === 0 && canTag ? (
+                <span className={styles.metaMuted}>还没有标签</span>
+              ) : null}
+              {tags.map((tag) => (
+                <span key={tag} className={styles.tagChip} data-asset-tag={tag}>
+                  {tag}
+                  {canTag ? (
+                    <button
+                      type="button"
+                      className={styles.tagRemove}
+                      aria-label={`删除标签 ${tag}`}
+                      data-asset-tag-remove={tag}
+                      onClick={() => onTagsChange?.(removeTag(tags, tag))}
+                    >
+                      ×
+                    </button>
+                  ) : null}
+                </span>
+              ))}
+            </div>
+            {canTag ? (
+              <form
+                className={styles.tagForm}
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  commitTag()
+                }}
+              >
+                <input
+                  className={styles.tagInput}
+                  value={tagDraft}
+                  maxLength={MAX_TAG_LEN}
+                  placeholder="打一个标签，回车确认"
+                  aria-label="新标签"
+                  data-asset-tag-input
+                  onChange={(event) => {
+                    setTagDraft(event.target.value)
+                    if (tagHint) setTagHint('')
+                  }}
+                />
+              </form>
+            ) : null}
+            {tagHint ? (
+              <p className={styles.tagHint} data-asset-tag-hint>
+                {tagHint}
+              </p>
+            ) : null}
+          </div>
 
           <div className={styles.previewActions}>
             <button

@@ -4,6 +4,7 @@ import type { Row, TableName } from '../../platform/ports'
 import type { LibraryAsset } from '../../domain/shared/assetLibrary'
 import { createAssetLibraryRepository } from './assetLibraryRepository'
 import { createAssetLibraryStore } from './assetLibraryStore'
+import { createAssetHistoryRepository } from './assetHistoryRepository'
 
 function seedStorage(rows: Partial<Record<TableName, Row[]>>) {
   const storage = createMemoryStorage({ rows })
@@ -155,5 +156,71 @@ describe('素材库 store', () => {
     await store.load()
     await expect(store.remove('v1')).rejects.toThrow('删除素材失败')
     expect(store.getState().visible.map((item) => item.hash)).toEqual(['v1', 'i1'])
+  })
+})
+
+/**
+ * 素材标签（对账 #303）。
+ *
+ * 三条口径在这一层落地：**标签只写在收藏关系上**（没收藏就是空操作）、
+ * **不动 `savedAt`**（打个标签不该让这张图跳到列表最前面）、
+ * **两张列表同步**（历史卡片与素材库卡片显示的是同一份标签）。
+ */
+describe('素材标签', () => {
+  it('★★★ 仓储：只改已收藏那一行、不动 savedAt；没收藏过的 hash 是空操作；删光就把字段去掉', async () => {
+    const { storage, repo } = seedStorage({
+      assets: [{ id: 'not-saved', hash: 'not-saved', mime: 'image/png', bytes: 3 }],
+      assetLibrary: [{ id: 'i1', hash: 'i1', mime: 'image/png', bytes: 5, savedAt: 10 }],
+    })
+    await repo.setTags('i1', ['客户A', '客户A', '  春季款  '])
+    const rows = await storage.query('assetLibrary', { id: 'i1' })
+    expect(rows[0]!.tags).toEqual(['客户A', '春季款'])
+    expect(rows[0]!.savedAt).toBe(10)
+
+    await repo.setTags('not-saved', ['客户A'])
+    expect(await storage.query('assetLibrary', { id: 'not-saved' })).toHaveLength(0)
+
+    await repo.setTags('i1', [])
+    expect('tags' in (await storage.query('assetLibrary', { id: 'i1' }))[0]!).toBe(false)
+  })
+
+  it('★★★ store：写标签后**两张列表同步**；把正在筛的那个删空 ⇒ 自动取消筛选', async () => {
+    const { storage, repo } = seedStorage({
+      assets: [{ id: 'i1', hash: 'i1', mime: 'image/png', bytes: 5 }],
+      assetLibrary: [{ id: 'i1', hash: 'i1', mime: 'image/png', bytes: 5, savedAt: 10 }],
+      runRecords: [
+        {
+          id: 'r1',
+          nodeId: 'n1',
+          projectId: 'p1',
+          version: 1,
+          createdAt: 5,
+          status: 'succeeded',
+          inputs: [],
+          params: { prompt: '猫咪' },
+          outputHashes: ['i1'],
+        },
+      ],
+    })
+    const store = createAssetLibraryStore(repo, createAssetHistoryRepository(storage))
+    await store.load()
+    expect(store.getState().tags).toEqual([])
+
+    await store.setTags('i1', ['客户A'])
+    expect(store.getState().tags).toEqual([{ tag: '客户A', count: 1 }])
+    expect(store.getState().visible[0]!.tags).toEqual(['客户A'])
+    const historyItem = store.getState().history[0]!
+    expect(historyItem.kind === 'output' ? historyItem.tags : undefined).toEqual(['客户A'])
+
+    /* 点这一档：两张列表都该只剩它 */
+    store.setTag('客户A')
+    expect(store.getState().visible.map((a) => a.hash)).toEqual(['i1'])
+    expect(store.getState().historyVisible).toHaveLength(1)
+
+    /* 把这一档删空：筛选**自动取消**（否则列表永远空着、左侧又找不到那一档可以点掉） */
+    await store.setTags('i1', [])
+    expect(store.getState().tag).toBeNull()
+    expect(store.getState().tags).toEqual([])
+    expect(store.getState().visible.map((a) => a.hash)).toEqual(['i1'])
   })
 })

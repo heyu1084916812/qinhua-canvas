@@ -17,7 +17,11 @@ import { createStore as createVanilla } from 'zustand/vanilla'
 import type { LibraryAsset } from '../../domain/shared/assetLibrary'
 import {
   filterLibraryAssets,
+  normalizeTags,
+  sameTag,
   sortLibraryAssets,
+  tagCounts,
+  type TagCount,
 } from '../../domain/shared/assetLibrary'
 import {
   countAssets,
@@ -69,6 +73,11 @@ export interface AssetLibraryState {
   counts: HistoryCounts
   /** 左侧"模型生成分组" */
   models: { model: string; count: number }[]
+  /**
+   * 素材库里出现过的**标签 + 计数**（左侧「标签」那一栏读它，对账 #303）。
+   * 只数收藏库（历史条目没收藏就没有标签），对全量算 —— 与其它计数同一条口径。
+   */
+  tags: TagCount[]
   loading: boolean
   loaded: boolean
   query: string
@@ -77,6 +86,8 @@ export interface AssetLibraryState {
   quick: QuickFilter
   /** 点中左侧模型分组的那一档；`null` = 不限 */
   model: string | null
+  /** 点中左侧标签那一档；`null` = 不限 */
+  tag: string | null
   group: GroupMode
   view: AssetsView
   /**
@@ -96,6 +107,10 @@ export interface AssetLibraryActions {
   setTab: (tab: AssetsTab) => void
   setQuick: (quick: QuickFilter) => void
   setModelFilter: (model: string | null) => void
+  /** 点标签（再点一次同一个 = 取消，由调用方传 null） */
+  setTag: (tag: string | null) => void
+  /** 给一条**已收藏**的素材写标签（对账 #303）：落库 + 两张列表同步 */
+  setTags: (hash: string, tags: readonly string[]) => Promise<void>
   setGroup: (group: GroupMode) => void
   setView: (view: AssetsView) => void
   remove: (hash: string) => Promise<void>
@@ -103,7 +118,10 @@ export interface AssetLibraryActions {
 
 export type AssetLibraryStore = MiniStore<AssetLibraryState> & AssetLibraryActions
 
-type Derived = Pick<AssetLibraryState, 'visible' | 'historyVisible' | 'groups' | 'counts' | 'models'>
+type Derived = Pick<
+  AssetLibraryState,
+  'visible' | 'historyVisible' | 'groups' | 'counts' | 'models' | 'tags'
+>
 
 /**
  * 一份状态 → 全部派生值（**只有这一处**算派生）。
@@ -117,6 +135,7 @@ function derive(state: AssetLibraryState): Derived {
     kind: state.filter,
     quick: state.quick,
     model: state.model,
+    tag: state.tag,
     now: state.now,
   })
   return {
@@ -125,6 +144,7 @@ function derive(state: AssetLibraryState): Derived {
       state.assets,
       state.query,
       state.filter === 'audio' ? 'other' : state.filter,
+      state.tag,
     ),
     historyVisible,
     groups: groupHistory(historyVisible, state.group, state.now),
@@ -136,6 +156,7 @@ function derive(state: AssetLibraryState): Derived {
      */
     counts: countAssets(state.history, state.assets, state.now),
     models: modelCounts(state.history),
+    tags: tagCounts(state.assets),
   }
 }
 
@@ -157,6 +178,7 @@ export function createAssetLibraryStore(
     groups: [],
     counts: { all: 0, image: 0, video: 0, audio: 0, saved: 0, recent: 0, failed: 0 },
     models: [],
+    tags: [],
     loading: false,
     loaded: false,
     query: '',
@@ -164,6 +186,7 @@ export function createAssetLibraryStore(
     tab: 'history',
     quick: 'all',
     model: null,
+    tag: null,
     group: 'date',
     view: 'grid',
     now: Date.now(),
@@ -171,10 +194,19 @@ export function createAssetLibraryStore(
 
   const load: AssetLibraryActions['load'] = async () => {
     store.setState({ loading: true })
-    const [assets, history] = await Promise.all([
+    const [assets, rawHistory] = await Promise.all([
       repo.list(),
       historyRepo ? historyRepo.list() : Promise.resolve<HistoryItem[]>([]),
     ])
+    /**
+     * 历史条目的标签是**按 hash 从收藏库拼过来的镜像**（对账 #303）：
+     * 标签只有一份真相在 `assetLibrary` 行上，历史那边不另存一份 ——
+     * 两份就会分叉（改了标签，历史卡片还挂着旧的）。
+     */
+    const tagsOf = new Map(assets.map((a) => [a.hash, normalizeTags(a.tags)]))
+    const history = rawHistory.map((item) =>
+      item.kind === 'output' ? { ...item, tags: tagsOf.get(item.hash) ?? [] } : item,
+    )
     /** 时间基准取**这一次加载**那一瞬：与派生值用同一个数，跨零点也不会自相矛盾 */
     const now = Date.now()
     store.setState({
@@ -207,6 +239,35 @@ export function createAssetLibraryStore(
     store.setState((s) => ({ model, ...derive({ ...s, model }) }))
   }
 
+  const setTag: AssetLibraryActions['setTag'] = (tag) => {
+    store.setState((s) => ({ tag, ...derive({ ...s, tag }) }))
+  }
+
+  const setTags: AssetLibraryActions['setTags'] = async (hash, tags) => {
+    const next = normalizeTags(tags)
+    await repo.setTags(hash, next)
+    store.setState((s) => {
+      const assets = s.assets.map((a) => {
+        if (a.hash !== hash) return a
+        const patched = { ...a }
+        /* 全删光时**把字段去掉**（"没有标签"与"标签是空数组"在库里是同一件事） */
+        if (next.length > 0) patched.tags = next
+        else delete patched.tags
+        return patched
+      })
+      /* 历史那张卡片跟着变（同一份标签，两处显示——不留旧值） */
+      const history = s.history.map((item) =>
+        item.kind === 'output' && item.hash === hash ? { ...item, tags: next } : item,
+      )
+      /**
+       * 当前选中的标签**可能刚被删掉**（用户把筛选栏里那一档删空了）：
+       * 那就把筛选清掉，否则列表会永远空着、而左侧那一栏又找不到它可以取消。
+       */
+      const tag = s.tag && !next.some((t) => sameTag(t, s.tag as string)) ? null : s.tag
+      return { assets, history, tag, ...derive({ ...s, assets, history, tag }) }
+    })
+  }
+
   const setGroup: AssetLibraryActions['setGroup'] = (group) => {
     store.setState((s) => ({ group, ...derive({ ...s, group }) }))
   }
@@ -224,7 +285,9 @@ export function createAssetLibraryStore(
        * 不去重读四张表（收藏这一下只改关系表），只在内存里把 `saved` 置上。
        */
       const history = s.history.map((item) =>
-        item.kind === 'output' && item.hash === asset.hash ? { ...item, saved: true } : item,
+        item.kind === 'output' && item.hash === asset.hash
+          ? { ...item, saved: true, tags: asset.tags ?? [] }
+          : item,
       )
       return { assets: next, history, ...derive({ ...s, assets: next, history }) }
     })
@@ -236,7 +299,8 @@ export function createAssetLibraryStore(
     store.setState((s) => {
       const assets = s.assets.filter((a) => a.hash !== hash)
       const history = s.history.map((item) =>
-        item.kind === 'output' && item.hash === hash ? { ...item, saved: false } : item,
+        /* 取消收藏 = 这一条历史从此没有标签（标签挂在收藏关系上） */
+        item.kind === 'output' && item.hash === hash ? { ...item, saved: false, tags: [] } : item,
       )
       return { assets, history, ...derive({ ...s, assets, history }) }
     })
@@ -262,6 +326,8 @@ export function createAssetLibraryStore(
     setTab,
     setQuick,
     setModelFilter,
+    setTag,
+    setTags,
     setGroup,
     setView,
     remove,

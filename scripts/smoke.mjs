@@ -28048,7 +28048,195 @@ async function g145(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145]
+// ────────────────────────────────────────────────────────────
+// G146 素材标签（对账 #303）：
+//   用户当面问过「给图片打标签的功能做了没有」——这一组把它钉成行为契约。
+//   ① 灯箱里能打标签（回车确认），重复/空/超限各有说法
+//   ② 左侧「标签」栏按素材库**真出现过的**标签 + 计数列出，点一档就只看带它的
+//   ③ **真落库**：刷新之后标签还在
+//   ④ 标签挂在**收藏关系**上 —— 没收藏的历史条目灯箱里如实说"先收藏再打标签"
+// ────────────────────────────────────────────────────────────
+async function g146(browser) {
+  const g = 'G146 素材标签'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  const cards = page.locator('[data-asset-card]')
+
+  // 先落地一次，让 Dexie 建库（否则 indexedDB 里还没有 qinghua）
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(500)
+
+  /**
+   * 直接往 IndexedDB 里种数据。
+   *
+   * 为什么不走"画布里生成两张"：那条链依赖渠道与网络 mock，一处抖动就分不清
+   * 是素材库坏了还是生成坏了（与 G90 同一条理由）。素材页是**读**那两张表，
+   * 直接种表测的正是它自己那一段。
+   */
+  await page.evaluate(
+    async ({ pngB64 }) => {
+      const bin = atob(pngB64)
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i)
+      const req = indexedDB.open('qinghua')
+      const db = await new Promise((resolve, reject) => {
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      const put = (table, rows) =>
+        new Promise((resolve, reject) => {
+          const tx = db.transaction(table, 'readwrite')
+          const store = tx.objectStore(table)
+          for (const r of rows) store.put(r)
+          tx.oncomplete = () => resolve(true)
+          tx.onerror = () => reject(tx.error)
+        })
+      const now = Date.now()
+      await put('assets', [
+        { id: 't146-a', hash: 't146-a', mime: 'image/png', bytes, width: 64, height: 36 },
+        { id: 't146-b', hash: 't146-b', mime: 'image/png', bytes, width: 64, height: 36 },
+        { id: 't146-c', hash: 't146-c', mime: 'image/png', bytes, width: 64, height: 36 },
+      ])
+      /* a / b 收藏了，c **故意不收藏**（历史页签里那张用来验"没收藏不能打标签"） */
+      await put('assetLibrary', [
+        { id: 't146-a', hash: 't146-a', mime: 'image/png', bytes, savedAt: now, prompt: '客户A 的猫' },
+        { id: 't146-b', hash: 't146-b', mime: 'image/png', bytes, savedAt: now - 1000, prompt: '一只狗' },
+      ])
+      await put('runRecords', [
+        {
+          id: 't146-r-a',
+          nodeId: 'n-a',
+          projectId: 'p1',
+          version: 1,
+          createdAt: now,
+          status: 'succeeded',
+          inputs: [],
+          params: { prompt: '客户A 的猫', model: 'image-pro' },
+          outputHashes: ['t146-a'],
+        },
+        {
+          id: 't146-r-c',
+          nodeId: 'n-c',
+          projectId: 'p1',
+          version: 1,
+          createdAt: now,
+          status: 'succeeded',
+          inputs: [],
+          params: { prompt: '还没收藏的那张', model: 'image-pro' },
+          outputHashes: ['t146-c'],
+        },
+      ])
+    },
+    { pngB64: solidPngBuffer(64, 36).toString('base64') },
+  )
+
+  await page.goto(`${BASE}/assets`, { waitUntil: 'networkidle' })
+  await sleep(700)
+  await page.locator('[data-assets-tab="library"]').click()
+  await sleep(300)
+  rec(
+    g,
+    '★ 素材库里两张收藏素材都在；左侧「标签」栏一开始是空的',
+    (await cards.count()) === 2 && (await page.locator('[data-assets-tags-empty]').count()) === 1,
+    `卡片=${await cards.count()}`,
+  )
+
+  // ① 灯箱里打标签
+  await page.locator('[data-asset-open="t146-a"]').dblclick()
+  await page.locator('[data-asset-tags]').waitFor({ state: 'visible', timeout: 6000 })
+  await page.locator('[data-asset-tag-input]').fill('客户A')
+  await page.locator('[data-asset-tag-input]').press('Enter')
+  await sleep(400)
+  rec(g, '★★★ 灯箱里能打标签（回车确认）', (await page.locator('[data-asset-tag="客户A"]').count()) === 1)
+
+  await page.locator('[data-asset-tag-input]').fill('客户a')
+  await page.locator('[data-asset-tag-input]').press('Enter')
+  await sleep(300)
+  rec(
+    g,
+    '★★ 只有大小写不同的重复标签加不上，并**如实说为什么**',
+    (await page.locator('[data-asset-tag="客户a"]').count()) === 0 &&
+      /已经有了/.test(await page.locator('[data-asset-tag-hint]').innerText()),
+    (await page.locator('[data-asset-tag-hint]').innerText()).trim(),
+  )
+
+  await page.locator('[data-asset-tag-input]').fill('春季款')
+  await page.locator('[data-asset-tag-input]').press('Enter')
+  await sleep(400)
+  rec(
+    g,
+    '★ 第二条标签也进去了（一共两个）',
+    (await page.locator('[data-asset-tag]').count()) === 2,
+    `标签=${await page.locator('[data-asset-tag]').count()}`,
+  )
+  await page.locator('[data-asset-preview-close]').click()
+  await sleep(300)
+
+  // ② 左侧标签栏 + 按标签筛
+  const railTag = page.locator('[data-assets-tag="客户A"]')
+  rec(
+    g,
+    '★★★ 左侧「标签」栏列出这个标签 + 计数 1（只数素材库里真出现过的）',
+    (await railTag.count()) === 1 &&
+      (await page.locator('[data-assets-tag-count="客户A"]').innerText()).trim() === '1',
+    (await page.locator('[data-assets-tag-count="客户A"]').innerText()).trim(),
+  )
+  await railTag.click()
+  await sleep(400)
+  rec(
+    g,
+    '★★★ 点这一档就只剩带它的那张（另一张被筛掉）',
+    (await cards.count()) === 1 && (await page.locator('[data-asset-card="t146-a"]').count()) === 1,
+    `卡片=${await cards.count()}`,
+  )
+
+  // ③ 真落库：刷新之后标签还在
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(900)
+  rec(
+    g,
+    '★★★ 刷新之后标签还在（真的落库了，不是内存里的花架子）',
+    (await page.locator('[data-assets-tag="客户A"]').count()) === 1 &&
+      (await page.locator('[data-assets-tag="春季款"]').count()) === 1,
+  )
+
+  // ④ 没收藏的那张：灯箱里如实说"先收藏再打标签"
+  await page.locator('[data-assets-tab="history"]').click()
+  await sleep(300)
+  await page.locator('[data-asset-open="t146-c"]').dblclick()
+  await page.locator('[data-asset-tags]').waitFor({ state: 'visible', timeout: 6000 })
+  rec(
+    g,
+    '★★★ 没收藏的那张**没有打标签的输入框**，并写明先去收藏（标签挂在收藏关系上）',
+    (await page.locator('[data-asset-tag-input]').count()) === 0 &&
+      (await page.locator('[data-asset-tag-disabled]').count()) === 1,
+  )
+  await page.locator('[data-asset-preview-close]').click()
+  await sleep(300)
+
+  // ⑤ 删标签：标签栏里那一档跟着消失
+  await page.locator('[data-assets-tab="library"]').click()
+  await sleep(300)
+  await page.locator('[data-asset-open="t146-a"]').dblclick()
+  await page.locator('[data-asset-tag-remove="客户A"]').click()
+  await sleep(500)
+  await page.locator('[data-asset-preview-close]').click()
+  await sleep(400)
+  rec(
+    g,
+    '★★ 删掉一个标签后，左侧那一档跟着消失（另一档还在）',
+    (await page.locator('[data-assets-tag="客户A"]').count()) === 0 &&
+      (await page.locator('[data-assets-tag="春季款"]').count()) === 1,
+  )
+
+  await page.screenshot({ path: `${OUT}/146-g146-tags.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

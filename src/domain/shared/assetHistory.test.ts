@@ -7,6 +7,7 @@ import {
   filterHistory,
   groupHistory,
   modelCounts,
+  type HistoryItem,
   type HistoryQuery,
 } from './assetHistory'
 
@@ -325,5 +326,54 @@ describe('dateLabelOf / groupHistory', () => {
     })
     expect(groupHistory(items, 'none', NOW)).toHaveLength(1)
     expect(groupHistory([], 'none', NOW)).toHaveLength(0)
+  })
+})
+
+/**
+ * 标签筛选（对账 #303）。
+ *
+ * 标签只有**收藏过**的产物才有（挂在收藏关系上），所以两条判据必须同时成立：
+ * 带这个标签的留下；失败条目**永远不匹配**（它没有产物、更没有标签）。
+ */
+describe('按标签筛历史', () => {
+  const items: HistoryItem[] = [
+    {
+      kind: 'output',
+      hash: 'a',
+      mime: 'image/png',
+      bytes: 1,
+      createdAt: NOW,
+      saved: true,
+      tags: ['客户A'],
+    },
+    { kind: 'output', hash: 'b', mime: 'image/png', bytes: 1, createdAt: NOW, saved: false },
+    /* 提示词里**故意不带**"客户A"：否则"标签也参与搜索"那条会因为这个失败条目而变绿（判据就不唯一了） */
+    { kind: 'failed', id: 'f1', createdAt: NOW, prompt: '一次没有产物的失败' },
+  ]
+  const query = (over: Partial<HistoryQuery> = {}): HistoryQuery => ({
+    query: '',
+    kind: 'all',
+    quick: 'all',
+    model: null,
+    now: NOW,
+    ...over,
+  })
+  const ids = (out: readonly { kind: string; hash?: string; id?: string }[]) =>
+    out.map((i) => (i.kind === 'output' ? (i.hash ?? '') : (i.id ?? '')))
+
+  it('★★★ 只看带这个标签的；**失败条目再像也不匹配**（它没有标签这回事）', () => {
+    expect(ids(filterHistory(items, query({ tag: '客户A' })))).toEqual(['a'])
+  })
+
+  it('★ 标签大小写不同也算同一档（与素材库同一条口径）', () => {
+    expect(ids(filterHistory(items, query({ tag: '客户a' })))).toEqual(['a'])
+  })
+
+  it('★★ 标签也进关键字搜索 —— 记得"打过客户A"、忘了图长什么样，是最常见的一种找法', () => {
+    expect(ids(filterHistory(items, query({ query: '客户a' })))).toEqual(['a'])
+  })
+
+  it('★ 不选标签时三条都在（筛选是"加上去"的，不是替换）', () => {
+    expect(ids(filterHistory(items, query()))).toEqual(['a', 'b', 'f1'])
   })
 })

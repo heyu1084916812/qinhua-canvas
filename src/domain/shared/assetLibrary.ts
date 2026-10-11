@@ -12,6 +12,98 @@
 /** 缺失字段的统一显示值（`auto` / 空串也按缺失处理） */
 export const MISSING = '—'
 
+/**
+ * 标签的两个上限（对账 #303）。
+ *
+ * 为什么要上限：标签是**给人扫的**，不是给人堆的 —— 一个素材挂 40 个标签，
+ * 它在筛选栏里就变成噪音，最后谁也不用。上限到了就**如实拒绝**（返回 `full`），
+ * 不静默丢弃用户刚输入的那个词（那等于"我打了没反应"）。
+ */
+export const MAX_TAGS = 12
+/** 单个标签的字符上限（够写"客户A-春季款"，不至于把一句话塞进去） */
+export const MAX_TAG_LEN = 16
+
+/** 归一：去首尾空白、把连续空白压成一个空格、截到上限 */
+export function normalizeTag(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  return value.trim().replace(/\s+/g, ' ').slice(0, MAX_TAG_LEN)
+}
+
+/**
+ * 两个标签是不是同一个。
+ *
+ * **忽略大小写、不忽略重音**（localeCompare 的 `accent` 档）：`客户A` 与 `客户a`
+ * 是同一个标签（否则筛选栏里会并排站两条看着一样的），而 `Café` 与 `Cafe` 是两条。
+ */
+export function sameTag(a: string, b: string): boolean {
+  return a.localeCompare(b, undefined, { sensitivity: 'accent' }) === 0
+}
+
+/** 一串原始值 → 干净、去重（按 `sameTag`）、有序的标签数组 */
+export function normalizeTags(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  for (const item of value) {
+    const tag = normalizeTag(item)
+    if (!tag || out.some((t) => sameTag(t, tag))) continue
+    out.push(tag)
+    if (out.length >= MAX_TAGS) break
+  }
+  return out
+}
+
+export type AddTagResult =
+  | { ok: true; tags: string[] }
+  | { ok: false; reason: 'empty' | 'duplicate' | 'full'; tags: string[] }
+
+/**
+ * 加一个标签。三种"加不上"各有自己的理由（空 / 已经有了 / 满了）——
+ * 调用方据此说一句人话，而不是一律"添加失败"。
+ */
+export function addTag(tags: readonly string[] | undefined, raw: string): AddTagResult {
+  const current = normalizeTags(tags)
+  const tag = normalizeTag(raw)
+  if (!tag) return { ok: false, reason: 'empty', tags: current }
+  if (current.some((t) => sameTag(t, tag))) return { ok: false, reason: 'duplicate', tags: current }
+  if (current.length >= MAX_TAGS) return { ok: false, reason: 'full', tags: current }
+  return { ok: true, tags: [...current, tag] }
+}
+
+/** 删一个标签（按 `sameTag` 匹配；删不存在的标签是空操作） */
+export function removeTag(tags: readonly string[] | undefined, raw: string): string[] {
+  const tag = normalizeTag(raw)
+  const current = normalizeTags(tags)
+  if (!tag) return current
+  return current.filter((t) => !sameTag(t, tag))
+}
+
+export interface TagCount {
+  tag: string
+  count: number
+}
+
+/**
+ * 素材库里出现过的标签 + 各自的数量（筛选栏那一栏读它）。
+ *
+ * 计数按**忽略大小写**归并，显示名取**第一次出现的写法**（与 `sameTag` 同一条口径）；
+ * 排序：多的在前，同数量按**字符序**（不用 `localeCompare`：那会跟着语言环境变，
+ * 同一份数据在不同机器上排出来的顺序不一样）—— 顺序稳定，用户认得出来"我上次点的那个还在原位"。
+ */
+export function tagCounts(assets: readonly LibraryAsset[]): TagCount[] {
+  const map = new Map<string, TagCount>()
+  for (const asset of assets) {
+    for (const tag of normalizeTags(asset.tags)) {
+      const key = tag.toLocaleLowerCase()
+      const hit = map.get(key)
+      if (hit) hit.count += 1
+      else map.set(key, { tag, count: 1 })
+    }
+  }
+  return [...map.values()].sort(
+    (a, b) => b.count - a.count || (a.tag < b.tag ? -1 : a.tag > b.tag ? 1 : 0),
+  )
+}
+
 /** 素材库里的一张卡片所需的信息（字节除外——字节只在预览 / 下载时按需取） */
 export interface LibraryAsset {
   /** 素材 hash，也是收藏记录的主键 */
@@ -31,6 +123,15 @@ export interface LibraryAsset {
   ratio?: string
   resolution?: string
   channelId?: string
+  /**
+   * 用户给的**标签**（对账 #303）。
+   *
+   * 为什么挂在**收藏关系**（`assetLibrary` 行）而不是内容仓库（`assets` 行）：
+   * 标签是"我对这条素材的整理"，与"这份字节是什么"不是一回事 —— 同一份字节被两个项目
+   * 收藏两次，两边各自打标签是合理的；写进 `assets` 会让两边互相覆盖。
+   * 代价也说清：**没收藏的素材不能打标签**（界面上如实指出去收藏，而不是假装存下了）。
+   */
+  tags?: string[]
 }
 
 /** `assetLibrary` 表的一行（只取本模块关心的字段，其余原样透传） */
@@ -49,6 +150,7 @@ export interface LibraryAssetRowLike {
   ratio?: string
   resolution?: string
   channelId?: string
+  tags?: unknown
 }
 
 /** 生成记录里与素材快照有关的最小结构（避免领域共享层反向依赖画布模型） */
@@ -131,10 +233,15 @@ export function filterLibraryAssets(
   assets: readonly LibraryAsset[],
   query: string,
   kind: AssetKind | 'all',
+  /** 只看带这个标签的（`null` / 空 = 不限）；按 `sameTag` 匹配，忽略大小写 */
+  tag?: string | null,
 ): LibraryAsset[] {
   const q = query.trim().toLowerCase()
+  const wanted = normalizeTag(tag)
   return assets.filter((a) => {
     if (kind !== 'all' && assetKindOf(a.mime) !== kind) return false
+    const tags = normalizeTags(a.tags)
+    if (wanted && !tags.some((t) => sameTag(t, wanted))) return false
     if (!q) return true
     const haystack = [
       a.prompt,
@@ -143,6 +250,8 @@ export function filterLibraryAssets(
       a.ratio,
       a.resolution,
       a.mime,
+      /* 标签也参与搜索：记得"我给它打过『客户A』"却记不住图长什么样，是最常见的一种找法 */
+      tags.join(' '),
       a.width && a.height ? `${a.width}×${a.height}` : '',
     ]
       .filter((v): v is string => typeof v === 'string')
@@ -163,6 +272,7 @@ export function toLibraryAssets(rows: readonly LibraryAssetRowLike[]): LibraryAs
   for (const row of rows) {
     const hash = row.hash ?? row.id
     if (!hash) continue
+    const tags = normalizeTags(row.tags)
     out.push({
       hash,
       mime: row.mime ?? 'application/octet-stream',
@@ -177,6 +287,8 @@ export function toLibraryAssets(rows: readonly LibraryAssetRowLike[]): LibraryAs
       ratio: normalizeMetaString(row.ratio),
       resolution: normalizeMetaString(row.resolution),
       channelId: normalizeMetaString(row.channelId),
+      /* 标签：一行都没有时**不落空数组**（"没有这个字段"与"有但为空"在库里是同一件事） */
+      ...(tags.length > 0 ? { tags } : {}),
     })
   }
   return sortLibraryAssets(out)

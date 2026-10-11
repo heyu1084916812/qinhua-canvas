@@ -90,9 +90,13 @@ export function AssetsPage() {
     counts,
     models,
     groups,
+    tags,
+    tag: tagFilter,
   } = state
   const total = state.assets.length
   const historyTotal = state.history.length
+  /** 收藏过的 hash（对账 #303：标签只挂在收藏关系上，灯箱据此决定给不给打标签的入口） */
+  const libraryHashes = new Set(state.assets.map((a) => a.hash))
 
   const [selectedHash, setSelectedHash] = useState<string | null>(null)
   const [preview, setPreview] = useState<LibraryAsset | null>(null)
@@ -141,6 +145,30 @@ export function AssetsPage() {
       setStatus('已取消收藏，原素材仍保留在画布中')
     } catch {
       setStatus('取消收藏失败')
+    }
+  }
+
+  /**
+   * 改标签（对账 #303）。
+   *
+   * **先落库再改界面**（与"取消收藏"那条相反，理由也不同）：取消收藏是本地先减、
+   * 因为那一下删的是关系、界面必须立刻响应；而标签是一次**写入**，
+   * 写完界面才显示"它真的存下来了"，比"先显示再可能回滚"更符合用户对"我打了个标签"的预期。
+   * 失败时说清楚（不静默）。
+   */
+  const handleTagsChange = async (hash: string, next: string[]) => {
+    try {
+      await store.setTags(hash, next)
+      setPreview((p) => {
+        if (!p || p.hash !== hash) return p
+        const patched = { ...p }
+        if (next.length > 0) patched.tags = next
+        else delete patched.tags
+        return patched
+      })
+      setStatus(next.length > 0 ? '标签已更新' : '标签已清空')
+    } catch {
+      setStatus('标签没存下来，稍后再试')
     }
   }
 
@@ -296,6 +324,46 @@ export function AssetsPage() {
             ))
           )}
         </div>
+
+        {/*
+          标签（对账 #303）：只列**素材库里真出现过的**标签 + 计数。
+          点一档就只看带它的（再点一次取消）—— 与「模型生成分组」同一套交互，用户不用学第二遍。
+        */}
+        <div className={styles.railGroup}>
+          <div className={styles.railLabel}>标签</div>
+          {tags.length === 0 ? (
+            <p className={styles.railEmpty} data-assets-tags-empty>
+              还没有标签 —— 双击一张素材，在灯箱里给它打上
+            </p>
+          ) : (
+            tags.map((entry) => (
+              <button
+                key={entry.tag}
+                type="button"
+                className={
+                  tagFilter === entry.tag
+                    ? `${styles.railItem} ${styles.railItemOn}`
+                    : styles.railItem
+                }
+                data-assets-tag={entry.tag}
+                aria-pressed={tagFilter === entry.tag}
+                onClick={() => {
+                  /**
+                   * **不替用户切页签**（与「模型生成分组」那条不同）：模型只存在于历史里，
+                   * 而标签两页都有（素材库那张是它的源头）。在这里切页签只会让人觉得"我点了个筛选，
+                   * 怎么被踢到另一个列表去了"。
+                   */
+                  store.setTag(tagFilter === entry.tag ? null : entry.tag)
+                }}
+              >
+                <span className={styles.railItemLabel}>{entry.tag}</span>
+                <span className={styles.railItemCount} data-assets-tag-count={entry.tag}>
+                  {entry.count}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
       </aside>
 
       <main className={styles.main} data-assets-stage>
@@ -444,6 +512,12 @@ export function AssetsPage() {
           onClose={() => setPreview(null)}
           onDownload={() => void handleDownload(preview.hash)}
           onRemove={() => void handleRemove(preview.hash)}
+          /**
+           * 能不能打标签，看的是**它有没有被收藏**（标签挂在收藏关系上，对账 #303）：
+           * 历史页签里没收藏的那张，灯箱里如实写着"先收藏再打标签"，不摆一个存不下去的输入框。
+           */
+          canTag={libraryHashes.has(preview.hash)}
+          onTagsChange={(next) => void handleTagsChange(preview.hash, next)}
         />
       )}
     </div>
@@ -487,6 +561,8 @@ function cardAssetOf(item: HistoryOutput): LibraryAsset {
     quality: item.quality,
     ratio: item.ratio,
     channelId: item.channelId,
+    /* 标签来自收藏关系那一份（没收藏就是空）—— 灯箱里要能直接看见与编辑 */
+    ...(item.tags && item.tags.length > 0 ? { tags: item.tags } : {}),
   }
 }
 

@@ -16,8 +16,8 @@
  * 因此 `list()` 只查 `assetLibrary`，`remove()` 只删 `assetLibrary` 行 ——
  * 取消收藏不该顺手删掉字节：画布上可能还有节点引用着它。
  */
-import type { StoragePort, TableName } from '../../platform/ports'
-import { toLibraryAssets, type LibraryAsset } from '../../domain/shared/assetLibrary'
+import type { RowOf, StoragePort, TableName } from '../../platform/ports'
+import { normalizeTags, toLibraryAssets, type LibraryAsset } from '../../domain/shared/assetLibrary'
 
 export interface AssetLibraryRepository {
   /** 用户保存过的素材（元数据在保存时已冻结在这一行里） */
@@ -36,6 +36,16 @@ export interface AssetLibraryRepository {
    * 字节可能仍被画布节点引用，删掉会在用户看不到的地方弄坏画布。
    */
   remove(hash: string): Promise<void>
+  /**
+   * 给一条**已收藏**的素材写标签（对账 #303）。
+   *
+   * 三条口径：
+   * - **只改 `assetLibrary` 这一行**（标签属于"我的整理"，不属于内容仓库）；
+   * - **没收藏过就什么都不做**（不是报错）：界面在那种情况下不该给出打标签的入口，
+   *   真走到了这里也只是空操作，绝不顺手替用户收藏一份；
+   * - **不动 `savedAt`**：收藏时间决定列表排序，打个标签不该让这张图跳到最前面。
+   */
+  setTags(hash: string, tags: readonly string[]): Promise<void>
 }
 
 /** 素材库只涉及一张表 */
@@ -57,6 +67,18 @@ export function createAssetLibraryRepository(storage: StoragePort): AssetLibrary
 
     async remove(hash: string) {
       await storage.delete('assetLibrary', hash)
+    },
+
+    async setTags(hash: string, tags: readonly string[]) {
+      const rows = await storage.query('assetLibrary', { id: hash })
+      const row = rows[0]
+      if (!row) return
+      const normalized = normalizeTags(tags)
+      /** 标签全删光时**把字段去掉**，不留一个空的 `tags: []`（"没有"与"空"在库里是同一件事） */
+      const next: Record<string, unknown> = { ...row }
+      if (normalized.length > 0) next.tags = normalized
+      else delete next.tags
+      await storage.put('assetLibrary', next as unknown as RowOf<'assetLibrary'>)
     },
   }
 }

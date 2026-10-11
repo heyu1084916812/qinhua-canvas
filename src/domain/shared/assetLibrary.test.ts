@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  MAX_TAGS,
+  MAX_TAG_LEN,
+  addTag,
   assetKindOf,
   buildLibraryAssetSnapshot,
   byteLengthOf,
@@ -7,7 +10,11 @@ import {
   formatAssetSize,
   formatBytes,
   masonryAspectOf,
+  normalizeTag,
+  normalizeTags,
+  removeTag,
   sortLibraryAssets,
+  tagCounts,
   toLibraryAssets,
   type LibraryAsset,
   type SnapshotRunRecordLike,
@@ -302,5 +309,83 @@ describe('masonryAspectOf', () => {
   it('尺寸未知时返回默认 4:3', () => {
     expect(masonryAspectOf({})).toBeCloseTo(4 / 3, 5)
     expect(masonryAspectOf({ width: 0, height: 100 })).toBeCloseTo(4 / 3, 5)
+  })
+})
+
+/**
+ * 标签（对账 #303）。
+ *
+ * 这一组守的是"用户输入的那句话会变成什么"：空白怎么算、大小写算不算同一个、
+ * 上限到了怎么办 —— 每一条都对着一个会让人困惑的表现（比如筛选栏里并排两条一模一样的标签）。
+ */
+describe('标签', () => {
+  it('归一：去首尾空白、连续空白压成一个、超长截断', () => {
+    expect(normalizeTag('  客户A  ')).toBe('客户A')
+    expect(normalizeTag('客户  A')).toBe('客户 A')
+    expect(normalizeTag('  ')).toBe('')
+    expect(normalizeTag(7)).toBe('')
+    expect(normalizeTag('x'.repeat(40)).length).toBe(MAX_TAG_LEN)
+  })
+
+  it('★★ 去重忽略大小写（"Client" 与 "client" 不该并存两条）', () => {
+    expect(normalizeTags(['Client', 'client', ' CLIENT ', '客户A'])).toEqual(['Client', '客户A'])
+  })
+
+  it('★ 最多 12 个：超出的直接不要（不是把前面的挤掉）', () => {
+    const many = Array.from({ length: 20 }, (_, i) => `tag${i}`)
+    const out = normalizeTags(many)
+    expect(out).toHaveLength(MAX_TAGS)
+    expect(out[0]).toBe('tag0')
+    expect(out[out.length - 1]).toBe(`tag${MAX_TAGS - 1}`)
+  })
+
+  it('★★★ addTag 三种"加不上"各有自己的理由（空 / 重复 / 满了）', () => {
+    expect(addTag([], '  ')).toEqual({ ok: false, reason: 'empty', tags: [] })
+    expect(addTag(['客户A'], '客户a')).toEqual({ ok: false, reason: 'duplicate', tags: ['客户A'] })
+    const full = Array.from({ length: MAX_TAGS }, (_, i) => `t${i}`)
+    expect(addTag(full, '再多一个')).toEqual({ ok: false, reason: 'full', tags: full })
+    expect(addTag(['客户A'], '春季款')).toEqual({ ok: true, tags: ['客户A', '春季款'] })
+  })
+
+  it('★★ removeTag 按同一条口径匹配（大小写不同也删得掉）', () => {
+    expect(removeTag(['Client', '客户A'], 'client')).toEqual(['客户A'])
+    expect(removeTag(undefined, '客户A')).toEqual([])
+    expect(removeTag(['客户A'], '不存在')).toEqual(['客户A'])
+  })
+
+  it('★★ 计数：忽略大小写归并、显示名取第一次的写法；多的在前，同数量按字符序（顺序跨机器一样）', () => {
+    const rows = [
+      asset({ hash: 'a', tags: ['客户A', '春季款'] }),
+      asset({ hash: 'b', tags: ['客户a'] }),
+      asset({ hash: 'c', tags: ['春季款', '客户B'] }),
+      asset({ hash: 'd' }),
+    ]
+    expect(tagCounts(rows)).toEqual([
+      { tag: '客户A', count: 2 },
+      { tag: '春季款', count: 2 },
+      { tag: '客户B', count: 1 },
+    ])
+  })
+
+  it('★★★ 按标签筛：只看带它的；标签也参与关键字搜索（记得打过"客户A"却忘了图长啥样）', () => {
+    const rows = [
+      asset({ hash: 'a', prompt: '一只猫', tags: ['客户A'] }),
+      asset({ hash: 'b', prompt: '一只狗' }),
+    ]
+    expect(filterLibraryAssets(rows, '', 'all', '客户A').map((a) => a.hash)).toEqual(['a'])
+    expect(filterLibraryAssets(rows, '客户a', 'all').map((a) => a.hash)).toEqual(['a'])
+    expect(filterLibraryAssets(rows, '', 'all').map((a) => a.hash)).toEqual(['a', 'b'])
+  })
+
+  it('★ 读回：库里那一行带 tags 就读出来；没有这个字段就不落空数组', () => {
+    const out = toLibraryAssets([
+      { id: 'h1', mime: 'image/png', savedAt: 1, tags: ['客户A', '客户A'] },
+      { id: 'h2', mime: 'image/png', savedAt: 2 },
+    ])
+    /* ⚠️ 按 hash 认领，不按下标：`toLibraryAssets` 出口会按 `savedAt` **倒序**排（#415 那条教训） */
+    const h1 = out.find((a) => a.hash === 'h1')!
+    const h2 = out.find((a) => a.hash === 'h2')!
+    expect(h1.tags).toEqual(['客户A'])
+    expect('tags' in h2).toBe(false)
   })
 })
