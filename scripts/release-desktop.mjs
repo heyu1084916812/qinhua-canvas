@@ -6,7 +6,8 @@
  *  1. 三方版本号对齐检查（`package.json` / `tauri.conf.json` / `Cargo.toml`）——
  *     它们不一致时安装包的版本、界面显示的版本、更新比较用的版本会各说各话；
  *  2. 构建 + **签名**（`npm run tauri build`，私钥来自 `TAURI_SIGNING_PRIVATE_KEY`）；
- *  3. 把安装包 + `latest.json`（Tauri 更新清单）整理进 `release/<版本>/`，可直接上传。
+ *  3. 把安装包 + `latest.json`（Tauri 更新清单）整理进 `release/<版本>/`，可直接上传 ——
+ *     顺带**核对签名**：这份 `.sig` 必须是 `tauri.conf.json` 里那枚公钥签的（Ed25519 真验签）。
  *  4. **交付门禁**：拿这份 release 产物真机启动一次（`scripts/check-release-shell.mjs`，对账 #438）——
  *     包"生成出来"不等于"装上去能打开"；不过门禁就不该上传。
  *
@@ -17,6 +18,7 @@
  *   node scripts/release-desktop.mjs --base-url <地址>    # 覆盖下载地址前缀
  *   node scripts/release-desktop.mjs --no-shell-check    # 跳过启动自检（不推荐）
  */
+import { createHash, createPublicKey, verify } from 'node:crypto'
 import { execFileSync, execSync, spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -62,6 +64,63 @@ function privateKeyPath() {
   if (fromEnv && existsSync(fromEnv)) return fromEnv
   if (fromEnv) return fromEnv // 也可能直接是密钥字符串
   return path.join(homedir(), '.tauri', 'qinghua-updater.key')
+}
+
+/**
+ * 签名核对（2026-10-12 加，对账 #439 状态③）：**签这个包的私钥，必须与配置里的公钥成对**。
+ *
+ * 为什么值得单独挡一道：签名是真的、脚本也跑得完，但**钥匙不对**时，
+ * 已经装出去的老版本（它们只认自己配置文件里那枚公钥）更新时会验签失败 ——
+ * 用户那边看到"更新失败"，发布机上却什么都看不出来。
+ *
+ * 做法不是"比 key id"而是**真验签**（对账 #439 状态③ 的故障注入暴露了比 key id 太松：
+ * 改掉算法字节 key id 照样相等）：minisign 形态下
+ * 公钥 42 B = alg(2) + keyid(8) + key(32)；签名 74 B = alg(2) + keyid(8) + sig(64)，
+ * 第二字节 `D` 表示**预哈希** ⇒ 对 `BLAKE2b-512(安装包字节)` 做 Ed25519 验签。
+ *
+ * ⚠️ 两层编码：`.sig` 与配置里的 `pubkey` 都是**「minisign 文本」的 base64**
+ * （文本里还有一行英文注释 + 一行 base64），少解一层就会拿注释的字节去当密钥
+ * （那会得到 `alg=117,110` 这种一看就不对的数字）。
+ */
+function unpackMinisign(outerBase64) {
+  const text = Buffer.from(String(outerBase64 ?? '').trim(), 'base64').toString('utf8')
+  const line = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .find((l) => /^[A-Za-z0-9+/=]{40,}$/.test(l))
+  if (!line) return null
+  return Buffer.from(line, 'base64')
+}
+
+function assertSignatureVerifies(confJson, setupFile, sigFile) {
+  const pub = unpackMinisign(confJson?.plugins?.updater?.pubkey)
+  const sig = unpackMinisign(readFileSync(sigFile, 'utf8'))
+  if (!pub || !sig) throw new Error('读不出签名密钥 id（pubkey 或 .sig 的格式变了？）')
+  const pubKeyId = pub.subarray(2, 10).toString('hex')
+  const sigKeyId = sig.subarray(2, 10).toString('hex')
+  if (pubKeyId !== sigKeyId) {
+    throw new Error(
+      `签名密钥与配置里的公钥不是同一把：配置 ${pubKeyId} / 本次签名 ${sigKeyId}\n` +
+        '后果很重：**已经装出去的老版本只认配置里那枚公钥**，钥匙换过就再也收不到自动更新\n' +
+        '（用户只能手动重装一次）。先确认 TAURI_SIGNING_PRIVATE_KEY 指的是当初那一把私钥。',
+    )
+  }
+  const SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex') // Ed25519 的 SPKI 头
+  const key = createPublicKey({
+    key: Buffer.concat([SPKI_PREFIX, pub.subarray(10, 42)]),
+    format: 'der',
+    type: 'spki',
+  })
+  const digest = createHash('blake2b512').update(readFileSync(setupFile)).digest()
+  const ok = verify(null, digest, key, sig.subarray(10, 74))
+  if (!ok) {
+    throw new Error(
+      '安装包的签名**验不过**（Ed25519 + BLAKE2b-512 预哈希）。\n' +
+        '别上传：老版本更新时会验签失败，而且发布机上其它检查全是绿的。\n' +
+        `  安装包：${setupFile}\n  签名：${sigFile}\n  配置公钥：src-tauri/tauri.conf.json → plugins.updater.pubkey`,
+    )
+  }
+  console.log(`[release] 签名核对：Ed25519 验签通过（keyid ${sigKeyId}，与配置里的公钥同一把）`)
 }
 
 function runBuild(key) {
@@ -170,6 +229,7 @@ if (!existsSync(sigPath)) {
       '说明这次构建没带更新私钥（TAURI_SIGNING_PRIVATE_KEY）—— 没有签名的包**不能**用于自动更新。',
   )
 }
+assertSignatureVerifies(versions.conf_json, setupPath, sigPath)
 
 const baseUrl = valueOf('--base-url') ?? defaultBaseUrl(version)
 const base = baseUrl ?? `https://REPLACE-ME.example.com/v${version}`
