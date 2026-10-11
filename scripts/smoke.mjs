@@ -26803,7 +26803,182 @@ async function g138(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138]
+// ────────────────────────────────────────────────────────────
+// G139 电商长图编排（对账 #426，长图"编辑态"里不需要新模型能力的那一半）：
+//   ① 编排区列出每一段的**真实起点 y**（就是拼合用的那个数）
+//   ② 移出一段 ⇒ 画布**真的变矮**、段数变少、"没进长图"里能加回来
+//   ③ 导出的文件名跟着编排走（不是"界面变了、导出还是老样子"）
+//   ④ 加回来按自然位置落位（回到原来的第几段）
+//   ⑤ 上下移真的换顺序（读的是行上的 id，不是文字）
+//   ⑥ 恢复默认 / 关掉再开 ⇒ 回到默认顺序（纯 UI 态，如实不假装记住）
+// ────────────────────────────────────────────────────────────
+async function g139(browser) {
+  const g = 'G139 电商长图编排'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  /** 编排列表：顺序 + 每一段在长图里的真实起点 y */
+  const rows = () =>
+    page.locator('[data-ecommerce-longimage-row]').evaluateAll((els) =>
+      els.map((e) => ({
+        id: e.getAttribute('data-ecommerce-longimage-row') ?? '',
+        y: Number(e.getAttribute('data-ecommerce-longimage-row-y') ?? '-1'),
+      })),
+    )
+  const canvasBox = () =>
+    page.evaluate(() => {
+      const c = document.querySelector('[data-ecommerce-longimage-canvas]')
+      return c ? { w: c.width, h: c.height } : null
+    })
+
+  await configureMockChannel(page)
+  await sleep(500)
+
+  // 准备一批：详情页 3 张 3:4 ⇒ 每张 2560 高、总高 7680（与 G134 同一套数）
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
+  await sleep(400)
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  await page.waitForSelector('[data-ecommerce-form]', { timeout: 8000 })
+  await page.locator('[data-ecommerce-product-input]').setInputFiles({
+    name: 'product.png',
+    mimeType: 'image/png',
+    buffer: solidPngBuffer(64, 64, [12, 200, 90]),
+  })
+  await sleep(1200)
+  await page.locator('[data-ecommerce-usage="detail"]').click()
+  await sleep(250)
+  await page.locator('[data-ecommerce-count]').fill('3')
+  await page.locator('[data-ecommerce-ratio]').selectOption('3:4')
+  await sleep(250)
+  await page.locator('[data-ecommerce-generate]').click()
+  await sleep(400)
+  await page.locator('[data-ecommerce-confirm-ok]').click()
+  const done = await page
+    .waitForFunction(
+      () => document.querySelectorAll('[data-ecommerce-result][data-status="done"]').length >= 3,
+      null,
+      { timeout: 60000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★ 详情页 3 张都出完了（编排的前提）', done, `done=${done}`)
+
+  await page.locator('[data-ecommerce-longimage-open]').click()
+  await page
+    .locator('[data-ecommerce-longimage][data-ready="true"]')
+    .waitFor({ state: 'visible', timeout: 30000 })
+    .catch(() => {})
+
+  // ① 编排区：三段，起点分别是 0 / 2560 / 5120
+  const base = await rows()
+  const baseIds = base.map((r) => r.id)
+  rec(
+    g,
+    '★★ 编排区列出每一段，且写的是**真实起点**（0 / 2560 / 5120，首尾相接）',
+    base.length === 3 &&
+      base[0]?.y === 0 &&
+      base[1]?.y === 2560 &&
+      base[2]?.y === 5120 &&
+      new Set(baseIds).size === 3,
+    base.map((r) => `${r.id.slice(-6)}@${r.y}`).join(' / '),
+  )
+
+  // ② 移出第 2 段 ⇒ 画布真的变矮（所见即所得），并出现"没进长图"
+  await page.locator(`[data-ecommerce-longimage-out="${baseIds[1]}"]`).click()
+  await sleep(1200)
+  const afterOut = await rows()
+  const boxOut = await canvasBox()
+  rec(
+    g,
+    '★★★ 移出一段：列表少一行、**画布真的变矮**（7680 → 5120），不是只改了个数字',
+    afterOut.length === 2 &&
+      afterOut[0]?.id === baseIds[0] &&
+      afterOut[1]?.id === baseIds[2] &&
+      boxOut?.w === 1920 &&
+      boxOut?.h === 5120,
+    `行=${afterOut.length} canvas=${JSON.stringify(boxOut)}`,
+  )
+  rec(
+    g,
+    '★★ 移出的那段出现在"没进长图"里，且能加回来',
+    (await page.locator('[data-ecommerce-longimage-excluded]').getAttribute('data-ecommerce-longimage-excluded')) === '1' &&
+      (await page.locator(`[data-ecommerce-longimage-in="${baseIds[1]}"]`).count()) === 1,
+  )
+
+  // ③ 导出：文件名跟着编排走（否则就是"界面变了、导出还是老样子"）
+  const dl = page.waitForEvent('download', { timeout: 15000 })
+  await page.locator('[data-ecommerce-longimage-download]').click()
+  const download = await dl.catch(() => null)
+  rec(
+    g,
+    '★★★ 导出的文件是**编排后的那一条**：长图-1920x5120.png',
+    download?.suggestedFilename() === '长图-1920x5120.png',
+    `文件=${download ? download.suggestedFilename() : '无'}`,
+  )
+
+  // ④ 加回来：回到原来的第 2 段（按自然位置落位，不是接到末尾）
+  await page.locator(`[data-ecommerce-longimage-in="${baseIds[1]}"]`).click()
+  await sleep(1200)
+  const back = await rows()
+  rec(
+    g,
+    '★★★ 加回来落在**原来那一段的位置**（不是一律接到末尾）',
+    JSON.stringify(back.map((r) => r.id)) === JSON.stringify(baseIds) &&
+      JSON.stringify(back.map((r) => r.y)) === JSON.stringify([0, 2560, 5120]),
+    back.map((r) => `${r.id.slice(-6)}@${r.y}`).join(' / '),
+  )
+
+  // ⑤ 下移第 1 段 ⇒ 顺序真的换了（读行上的 id）
+  await page.locator(`[data-ecommerce-longimage-down="${baseIds[0]}"]`).click()
+  await sleep(1200)
+  const swapped = await rows()
+  rec(
+    g,
+    '★★★ 下移第 1 段：顺序变成 第2 / 第1 / 第3（读的是行上的 id，不是文字）',
+    JSON.stringify(swapped.map((r) => r.id)) ===
+      JSON.stringify([baseIds[1], baseIds[0], baseIds[2]]),
+    swapped.map((r) => r.id.slice(-6)).join(' / '),
+  )
+
+  // ⑥ 恢复默认：回到自然序，按钮自己也收起来
+  await page.locator('[data-ecommerce-longimage-reset]').click()
+  await sleep(500)
+  const reset = await rows()
+  rec(
+    g,
+    '★★ 点「恢复默认」回到自然序（改动过才显示这个按钮，回去了就收起）',
+    JSON.stringify(reset.map((r) => r.id)) === JSON.stringify(baseIds) &&
+      (await page.locator('[data-ecommerce-longimage-reset]').count()) === 0,
+    reset.map((r) => r.id.slice(-6)).join(' / '),
+  )
+
+  // ⑦ 纯 UI 态：编排出去了、关掉再开就回到默认（如实，不假装记住了）
+  await page.locator(`[data-ecommerce-longimage-out="${baseIds[2]}"]`).click()
+  await sleep(400)
+  await page.locator('[data-ecommerce-longimage-close]').click()
+  await sleep(250)
+  await page.locator('[data-ecommerce-longimage-open]').click()
+  await page
+    .locator('[data-ecommerce-longimage][data-ready="true"]')
+    .waitFor({ state: 'visible', timeout: 30000 })
+    .catch(() => {})
+  const reopened = await rows()
+  rec(
+    g,
+    '★★ 关掉再开 ⇒ 编排回到默认（它是纯 UI 态，不落库、也不假装记得）',
+    reopened.length === 3 && JSON.stringify(reopened.map((r) => r.id)) === JSON.stringify(baseIds),
+    reopened.map((r) => r.id.slice(-6)).join(' / '),
+  )
+
+  await page.screenshot({ path: `${OUT}/139-g139-long-image-arrange.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

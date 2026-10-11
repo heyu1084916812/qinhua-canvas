@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { loadAssetUrl } from '../../workbenches/canvas/hooks/useAsset'
-import { planLongImage } from '../../domain/ecommerce/longImage'
+import { addTile, moveTile, planLongImage, removeTile } from '../../domain/ecommerce/longImage'
 import styles from './LongImagePanel.module.css'
 
 /**
  * **详情页长图面板**（对账 #420；#380b 的"长图结果区"第一块）。
  *
- * 做三件事：按 1920 宽**等比纵向拼合**这一批已完成的产物 → 画进一张 canvas（所见即所得）
- * → 导出 PNG。
+ * 做四件事：**编排**（哪几张、按什么顺序）→ 按 1920 宽**等比纵向拼合** → 画进一张 canvas
+ * （所见即所得）→ 导出 PNG。
  *
  * 为什么面板在**页面层**而不是电商工作台里：它要读素材字节（`loadAssetUrl`）与落盘
  * （`files.saveFile`）—— 那是装配层的活。工作台之间不互引（depcruise 的
@@ -19,6 +19,12 @@ import styles from './LongImagePanel.module.css'
  *   绝不按"大概比例"塞一个占位高度 —— 那会让长图与真实产物对不上；
  * - **拼不出来就说拼不出来**：读不到字节的那张画不出来，面板状态行如实说；
  * - **导出是纯本地动作**：不调任何渠道、不消耗用量。
+ *
+ * ## 编排（对账 #426）
+ *
+ * 详情页的段落顺序是**要交出去给人看的东西**，而"这一段先不要""把卖点挪到第二段"
+ * 是这套流程里最常见的两个修改。编排是**纯 UI 态**：只影响这一张长图，
+ * **不动作布节点、不落库**（关掉面板再开就回到默认顺序 —— 如实，不假装记住了）。
  */
 
 export interface LongImageTileSource {
@@ -38,7 +44,37 @@ export function LongImagePanel({
 }) {
   const platform = usePlatform()
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const plan = useMemo(() => planLongImage(tiles), [tiles])
+  /** 结果集（自然序）—— 编排的默认值就是它 */
+  const tileIds = useMemo(() => tiles.map((t) => t.id), [tiles])
+  /**
+   * 编排与"它是对着哪一版结果编的"一起存。
+   *
+   * 用**带签名的 state** 而不是 `useEffect` 同步：结果集换了（又出了一批）时
+   * 签名对不上，派生出来的就是默认顺序 —— 不需要额外一轮渲染，
+   * 也不会出现"effect 还没跑、先拿旧编排拼了一次"的中间态。
+   */
+  const [edit, setEdit] = useState<{ sig: string; order: readonly string[] } | null>(null)
+  const signature = tileIds.join('\u0001')
+  const order = edit && edit.sig === signature ? edit.order : tileIds
+  const orderedTiles = useMemo(
+    () =>
+      order.flatMap((id) => {
+        const hit = tiles.find((t) => t.id === id)
+        return hit ? [hit] : []
+      }),
+    [order, tiles],
+  )
+  const plan = useMemo(() => planLongImage(orderedTiles), [orderedTiles])
+  const notShown = useMemo(() => {
+    const shown = new Set(plan.tiles.map((t) => t.id))
+    return tileIds.filter((id) => !shown.has(id))
+  }, [plan, tileIds])
+  const dirty = order.length !== tileIds.length || order.some((id, i) => id !== tileIds[i])
+  /** 一步编排：没变化就不落 state（`moveTile` 到头了会原样返回同一个引用） */
+  const apply = (next: readonly string[]) => {
+    if (next === order) return
+    setEdit({ sig: signature, order: next })
+  }
   const [ready, setReady] = useState(false)
   const [drawn, setDrawn] = useState(0)
   const [status, setStatus] = useState('')
@@ -147,9 +183,139 @@ export function LongImagePanel({
           <canvas ref={canvasRef} className={styles.canvas} data-ecommerce-longimage-canvas />
         </div>
       )}
+      {/*
+        编排（对账 #426）：这一段就是"编辑态"里**不需要任何新模型能力**的那一半 ——
+        选谁进长图、按什么顺序。像素级的那些（裁剪 / 抠图 / 局部重绘 / 延展 / 超清…）
+        要么需要渠道能力、要么等价于在画布里改，仍记在 #380b 的余项里。
+      */}
+      {tileIds.length > 0 ? (
+        <div className={styles.arrange} data-ecommerce-longimage-arrange>
+          <div className={styles.arrangeHead}>
+            <span className={styles.arrangeTitle}>编排 · 段落顺序</span>
+            {dirty ? (
+              <button
+                type="button"
+                className={styles.ghost}
+                data-ecommerce-longimage-reset
+                onClick={() => setEdit(null)}
+              >
+                恢复默认
+              </button>
+            ) : null}
+          </div>
+          <ol className={styles.rows}>
+            {plan.tiles.map((tile, i) => (
+              <li
+                key={tile.id}
+                className={styles.row}
+                data-ecommerce-longimage-row={tile.id}
+                /* 这一段在长图里的**真实起点**（就是拼合用的那个 y）—— 顺序改没改，看它 */
+                data-ecommerce-longimage-row-y={tile.y}
+              >
+                <span className={styles.rowNo}>{i + 1}</span>
+                <span className={styles.rowMeta}>
+                  {tile.w} × {tile.h}
+                </span>
+                <span className={styles.rowTools}>
+                  <button
+                    type="button"
+                    className={styles.iconBtn}
+                    aria-label="上移一段"
+                    title="上移一段"
+                    data-ecommerce-longimage-up={tile.id}
+                    disabled={i === 0}
+                    onClick={() => apply(moveTile(order, tile.id, -1))}
+                  >
+                    <IconArrowUp />
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.iconBtn}
+                    aria-label="下移一段"
+                    title="下移一段"
+                    data-ecommerce-longimage-down={tile.id}
+                    disabled={i === plan.tiles.length - 1}
+                    onClick={() => apply(moveTile(order, tile.id, 1))}
+                  >
+                    <IconArrowDown />
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.iconBtn}
+                    aria-label="这一段不进长图"
+                    title="这一段不进长图"
+                    data-ecommerce-longimage-out={tile.id}
+                    onClick={() => apply(removeTile(order, tile.id))}
+                  >
+                    <IconCross />
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ol>
+          {notShown.length > 0 ? (
+            <div className={styles.excluded} data-ecommerce-longimage-excluded={notShown.length}>
+              <span className={styles.arrangeTitle}>没进长图</span>
+              {notShown.map((id) =>
+                order.includes(id) ? (
+                  /* 还在编排里却没拼进来 = 尺寸未知（拼不了），不是用户移出的 —— 不许给"加回来" */
+                  <span
+                    key={id}
+                    className={styles.arrangeTitle}
+                    data-ecommerce-longimage-unavailable={id}
+                  >
+                    第 {tileIds.indexOf(id) + 1} 张 · 尺寸未知，拼不进来
+                  </span>
+                ) : (
+                  <button
+                    key={id}
+                    type="button"
+                    className={styles.ghost}
+                    data-ecommerce-longimage-in={id}
+                    onClick={() => apply(addTile(order, id, tileIds))}
+                  >
+                    第 {tileIds.indexOf(id) + 1} 张 · 加回来
+                  </button>
+                ),
+              )}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <p className={styles.status} role="status" data-ecommerce-longimage-status>
         {status || (ready ? '已按 1920 宽等比拼好（首尾相接）' : '正在拼…')}
       </p>
     </section>
+  )
+}
+
+/**
+ * 三个小图标：与项目里其它图标同一套写法（16px / stroke 1.6 / `currentColor`）。
+ * 按钮的语义落在 `aria-label` + `title` 上，图标本身 `aria-hidden`。
+ */
+function IconArrowUp() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 19V5" />
+      <path d="M6 11l6-6 6 6" />
+    </svg>
+  )
+}
+
+function IconArrowDown() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 5v14" />
+      <path d="M18 13l-6 6-6-6" />
+    </svg>
+  )
+}
+
+function IconCross() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 6l12 12" />
+      <path d="M18 6L6 18" />
+    </svg>
   )
 }

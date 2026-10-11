@@ -71,3 +71,103 @@
   font-size: var(--fs-label);
   color: var(--text-3);
 }
+
+/* ── 编排（对账 #426）：这一张长图由哪几张、按什么顺序拼 ── */
+
+.arrange {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-top: var(--border);
+  padding-top: var(--space-2);
+}
+
+.arrangeHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.arrangeTitle {
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px var(--space-2);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-canvas);
+}
+
+.rowNo {
+  flex: 0 0 auto;
+  min-width: 18px;
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-title);
+  color: var(--text-1);
+}
+
+.rowMeta {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+/*
+ * ⚠️ 与 #425 同一个坑：容器**必须允许被压窄**（`min-width: 0` + `flex` 可缩），
+ * 否则在窄格里它会按 max-content 撑开、把按钮从边上溢出到别的栏上。
+ */
+.rowTools {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--text-1);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.iconBtn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.iconBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.excluded {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}

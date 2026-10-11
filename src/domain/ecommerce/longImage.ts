@@ -65,3 +65,52 @@ export function planLongImage(
   }
   return { width, height: y, tiles, skipped }
 }
+
+/**
+ * **长图编排**（对账 #426）：这一张长图由**哪几张、按什么顺序**拼起来。
+ *
+ * 为什么不直接拿结果顺序当长图顺序：详情页的段落顺序是**要交出去给人看的东西** ——
+ * "这一段先不要""把卖点挪到第二段"是这套流程里最常见的两个修改，
+ * 而在这一批之前一个都做不到（面板只会把已完成的全部按落库顺序拼一遍）。
+ *
+ * 三个动作都是**纯函数**，而且越界 / 重复 / 不认识的 id 一律**原样返回入参引用** ——
+ * 与项目里其它编辑动作同一条纪律：没变化就不要骗 React 重渲染。
+ */
+
+/** 上移 / 下移 `delta` 位。id 不在里面、或移出去界了都原样返回 */
+export function moveTile(ids: readonly string[], id: string, delta: number): readonly string[] {
+  const from = ids.indexOf(id)
+  if (from < 0 || delta === 0) return ids
+  const to = from + delta
+  if (to < 0 || to >= ids.length) return ids
+  const next = [...ids]
+  next.splice(from, 1)
+  next.splice(to, 0, id)
+  return next
+}
+
+/** 把这一张**移出**长图（不在里面就原样返回） */
+export function removeTile(ids: readonly string[], id: string): readonly string[] {
+  if (!ids.includes(id)) return ids
+  return ids.filter((x) => x !== id)
+}
+
+/**
+ * 把这一张**加回**长图 —— 按它在结果里的**自然位置**落位，不是一律接到末尾。
+ *
+ * 为什么：用户点「移出」的意思是"这段先不要"，点「加回来」的意思是"还是要"。
+ * 一律接到末尾会把段落顺序悄悄改掉（第 2 段跑到最后一段），那是用户没要求的改动。
+ */
+export function addTile(
+  ids: readonly string[],
+  id: string,
+  natural: readonly string[],
+): readonly string[] {
+  if (ids.includes(id)) return ids
+  const at = natural.indexOf(id)
+  if (at < 0) return ids
+  const insertAt = ids.findIndex((x) => natural.indexOf(x) > at)
+  const next = [...ids]
+  next.splice(insertAt < 0 ? next.length : insertAt, 0, id)
+  return next
+}
