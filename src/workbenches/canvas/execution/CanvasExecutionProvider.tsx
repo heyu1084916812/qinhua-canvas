@@ -29,6 +29,7 @@ import { createCanvasPlacement } from '../../../features/canvas/execution/canvas
 import { fuseNode } from '../../../features/canvas/execution/fuseNode'
 // 执行引擎与宿主上移共享层（M6-5 路径 B）：画布注入自己的命令类型与落位适配器
 import { useExecution } from '../../../features/shared/execution/useExecution'
+import { trimProjectTasks } from '../../../features/shared/execution/taskLog'
 import type { RunSummary, RunTaskState } from '../../../features/shared/execution/runEngine'
 import { imageCountOf, progressNotice, runNotice, shouldNotify } from '../../../domain/ui/notify'
 import { getNotifyPrefs } from '../../../state/ui/notifyPrefs'
@@ -483,6 +484,16 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         scope: plan.scope,
         mode: plan.mode,
         originNodeId,
+      })
+      /**
+       * 顺手把 `tasks` 表按项目裁到最近 500 条（产品文档 §6.18「超出滚动裁剪」，对账 #460）。
+       *
+       * 位置选在这里：**每次落一行计划就做一次**（一行一次的读 + 必要时删）。
+       * 口径三条：**不 await**（日志表的维护绝不该挡住出图）、**失败只记日志**、
+       * 没到上限时一次都不删（`trimProjectTasks` 内部直接返回 0）。
+       */
+      void trimProjectTasks(platform.storage, store.getSnapshot().projectId).catch((err) => {
+        platform.logger.log('warn', '[tasks] 滚动裁剪未完成', { error: String(err) })
       })
 
       // 批量进度的分母：这条计划有几个任务（单任务时 progressNotice 会自己闭嘴）
