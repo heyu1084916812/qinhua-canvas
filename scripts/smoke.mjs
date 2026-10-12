@@ -29138,7 +29138,191 @@ async function g151(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151]
+// ────────────────────────────────────────────────────────────
+// G152 键盘微移与键盘改尺寸（§4.5「拖拽替代」/ §6.20；对账 #449）：
+//   ① 基础：点一下节点 = 选中 + 开箱 240×240
+//   ② **普通方向键只换选中、坐标一像素都不动**（这条是既有缺陷的回归锚点：
+//      修前 React Flow 自带那套会顺手挪 5px —— 见 `.playwright-verify/probe-rf-arrow-move.mjs`）
+//   ③ `Alt + 方向键` 微移**正好 1px**（修前实测 6px = 我们的 1 + RF 的 5），
+//      且**仍然是同一个节点被选中**（没落到普通方向键那条分支）
+//   ④ `Shift` 档一次 10px；⑤ 页面**没有被导航走**（Chromium 把 Alt+←/→ 当后退 / 前进）
+//   ⑥ 两下微移合并成**一步撤销**（coalesce 的事务边界）
+//   ⑦ `Ctrl + Alt + 方向键` 改尺寸：宽 ±1px、位置一动不动（修前位置会 +5）
+//   ⑧ 放大后一路收回：**正好停在最小宽度 240**（§6.6），不派发空命令
+//
+//   量的是**库里持久化的 x/y/w/h**，不是屏幕坐标 —— 屏幕坐标会被视口平移污染
+//   （第一版就是这么误判成"+6px"的：其中 5px 其实是节点自己真被挪了，
+//   但也只有读库才能把"节点动了"和"视口动了"分开）。
+// ────────────────────────────────────────────────────────────
+async function g152(browser) {
+  const g = 'G152 键盘微移与改尺寸'
+  const ctx = await newCtx(browser, { viewport: { width: 1440, height: 900 } })
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await gotoProjects(page)
+  await sleep(400)
+  // 模板「文生图」：提示词 + 图片生成两个节点，生成节点默认就是最小尺寸 240×240
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+  const projectUrl = page.url()
+
+  const selectedIds = () =>
+    page.$$eval('[data-node-selected]', (els) => els.map((e) => e.getAttribute('data-node-id')))
+  /** 库里那一行（权威值）。落库走 800ms 防抖 ⇒ 每次读之前先等过它 */
+  const rowOf = (id) =>
+    page.evaluate(
+      (nodeId) =>
+        new Promise((resolve) => {
+          const req = indexedDB.open('qinghua')
+          req.onsuccess = () => {
+            const q = req.result.transaction('nodes', 'readonly').objectStore('nodes').get(nodeId)
+            q.onsuccess = () =>
+              resolve(q.result ? { x: q.result.x, y: q.result.y, w: q.result.w, h: q.result.h } : null)
+            q.onerror = () => resolve(null)
+          }
+          req.onerror = () => resolve(null)
+        }),
+      id,
+    )
+  const settle = () => sleep(1100)
+
+  const genId = await page
+    .locator('[data-node-type="generation"]')
+    .first()
+    .getAttribute('data-node-id')
+  const promptId = await page
+    .locator('[data-node-type="prompt"]')
+    .first()
+    .getAttribute('data-node-id')
+  await page.locator(`[data-node-id="${genId}"]`).click({ position: { x: 20, y: 20 } })
+  await settle()
+  const sel0 = await selectedIds()
+  rec(
+    g,
+    '★ 基础：点一下节点 = 选中（后面每条判据的前提）',
+    sel0.length === 1 && sel0[0] === genId,
+    `选中=${JSON.stringify(sel0)}`,
+  )
+
+  const base = await rowOf(genId)
+  rec(
+    g,
+    '★ 开箱尺寸 = 最小尺寸 240×240（下面的"收回"才有明确终点）',
+    base.w === 240 && base.h === 240,
+    `${base.w}×${base.h}`,
+  )
+
+  // ② 普通方向键：只换选中，坐标不许动（既有缺陷的回归锚点）
+  await page.locator(`[data-node-id="${promptId}"]`).click({ position: { x: 20, y: 20 } })
+  await settle()
+  const promptBefore = await rowOf(promptId)
+  await page.keyboard.press('ArrowRight')
+  await settle()
+  const promptAfter = await rowOf(promptId)
+  const selAfterNav = await selectedIds()
+  rec(
+    g,
+    '★★★ 普通方向键只换选中，**坐标一个像素都不动**（修前 React Flow 会顺手挪 5px）',
+    promptBefore.x === promptAfter.x &&
+      promptBefore.y === promptAfter.y &&
+      selAfterNav.length === 1 &&
+      selAfterNav[0] !== promptId,
+    `x ${promptBefore.x}→${promptAfter.x} y ${promptBefore.y}→${promptAfter.y} 选中=${selAfterNav.join(',')}`,
+  )
+
+  // ③ 微移：Alt + →（正好 1px）
+  await page.locator(`[data-node-id="${genId}"]`).click({ position: { x: 20, y: 20 } })
+  await settle()
+  const moveBase = await rowOf(genId)
+  await page.keyboard.press('Alt+ArrowRight')
+  await settle()
+  const afterRight = await rowOf(genId)
+  const selAfterMove = await selectedIds()
+  rec(
+    g,
+    '★★★ `Alt + →` 微移**正好 1px**（修前实测 6px），而且选中的还是同一个节点',
+    afterRight.x - moveBase.x === 1 &&
+      afterRight.y === moveBase.y &&
+      selAfterMove.length === 1 &&
+      selAfterMove[0] === genId,
+    `x ${moveBase.x}→${afterRight.x}（期望 +1）选中=${selAfterMove.join(',')}`,
+  )
+
+  // ④ 加速档：Shift + Alt + ↓
+  await page.keyboard.press('Shift+Alt+ArrowDown')
+  await settle()
+  const afterDown = await rowOf(genId)
+  rec(
+    g,
+    '★★ `Shift + Alt + ↓` 一次正好 10px',
+    afterDown.y - afterRight.y === 10,
+    `y ${afterRight.y}→${afterDown.y}（期望 +10）`,
+  )
+
+  // ⑤ 页面没有被导航走
+  rec(
+    g,
+    '★★★ 页面没有被导航走（`Alt + ←/→` 在 Chromium 里是后退 / 前进）',
+    page.url() === projectUrl,
+    `url=${page.url()}`,
+  )
+
+  // ⑥ 两步微移合并成一步撤销
+  await page.keyboard.press('Control+z')
+  await settle()
+  const afterUndo = await rowOf(genId)
+  rec(
+    g,
+    '★★★ 两下微移合并成**一步撤销**（按一次 Ctrl+Z 就回到原位）',
+    afterUndo.x === moveBase.x && afterUndo.y === moveBase.y,
+    `(${moveBase.x},${moveBase.y}) → (${afterUndo.x},${afterUndo.y})`,
+  )
+
+  // ⑦ 键盘改尺寸：宽 +1，位置不动
+  const beforeResize = await rowOf(genId)
+  await page.keyboard.press('Control+Alt+ArrowRight')
+  await settle()
+  const wider = await rowOf(genId)
+  rec(
+    g,
+    '★★★ `Ctrl + Alt + →` 宽度 +1px，**位置一动不动**（修前位置会 +5px）',
+    wider.w - beforeResize.w === 1 && wider.x === beforeResize.x && wider.y === beforeResize.y,
+    `w ${beforeResize.w}→${wider.w} 位置 (${beforeResize.x},${beforeResize.y})→(${wider.x},${wider.y})`,
+  )
+
+  await page.keyboard.press('Control+z')
+  await settle()
+  const afterResizeUndo = await rowOf(genId)
+  rec(
+    g,
+    '★★★ 撤销一步回到原尺寸',
+    afterResizeUndo.w === beforeResize.w,
+    `w ${wider.w} → ${afterResizeUndo.w}（原本 ${beforeResize.w}）`,
+  )
+
+  // ⑧ 放大 200 再一路收回：正好停在最小宽度
+  for (let i = 0; i < 20; i += 1) await page.keyboard.press('Shift+Control+Alt+ArrowRight')
+  await settle()
+  const grown = await rowOf(genId)
+  for (let i = 0; i < 30; i += 1) await page.keyboard.press('Shift+Control+Alt+ArrowLeft')
+  await settle()
+  const floored = await rowOf(genId)
+  rec(
+    g,
+    '★★★ 放大 200 后一路收回：**正好停在最小宽度 240**（再按也不动）',
+    grown.w === beforeResize.w + 200 && floored.w === 240,
+    `放大后=${grown.w} 收到=${floored.w} 下限期望=240`,
+  )
+
+  await page.screenshot({ path: `${OUT}/152-g152-boxkeys.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

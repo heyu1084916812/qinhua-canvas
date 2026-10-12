@@ -16,6 +16,8 @@ import styles from './HelpPanel.module.css'
  * - `features/canvas/useClipboardHotkeys.ts`：Ctrl+C / Ctrl+V
  * - 空格 + 拖拽平移：`features/canvas/useSpaceHeld.ts`
  * - Ctrl+G 打组：`useCanvasKeyboard.ts`
+ * - `Alt + 方向键` 微移 / `Ctrl + Alt + 方向键` 改尺寸：`useCanvasKeyboard.ts` 的
+ *   `applyBoxKeys`（§4.5「拖拽替代」，2026-10-12 落地）
  */
 const SHORTCUTS: { keys: string; what: string }[] = [
   { keys: 'Z', what: '复位视图（全部节点回到视野）' },
@@ -28,6 +30,8 @@ const SHORTCUTS: { keys: string; what: string }[] = [
   { keys: 'Alt + R', what: '保留旧内容，结果铺到新的下游节点' },
   { keys: 'Tab', what: '逐个选中节点' },
   { keys: '方向键', what: '在节点之间移动选中；没选中时选中第一个' },
+  { keys: 'Alt + 方向键', what: '微移选中的节点（加 Shift 每次 10px）' },
+  { keys: 'Ctrl / ⌘ + Alt + 方向键', what: '改选中节点的尺寸（加 Shift 每次 10px）' },
   { keys: 'Home / End', what: '跳到第一个 / 最后一个节点' },
   { keys: '空格 + 拖拽', what: '平移画布' },
 ]

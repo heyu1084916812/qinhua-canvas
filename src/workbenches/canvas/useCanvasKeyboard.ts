@@ -2,6 +2,14 @@ import { useEffect } from 'react'
 import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import { groupNodes } from '../../features/canvas/groupNodes'
 import { isActivationTarget, isTextEntryElement } from '../../features/shared/textTarget'
+import { heightFromContentOf, resizeLockOf } from '../../domain/canvas/nodeSpecs/resizeLock'
+import {
+  KEY_STEP,
+  KEY_STEP_FAST,
+  keyDelta,
+  resizedByKey,
+  sameRect,
+} from '../../domain/canvas/nodeSpecs/boxKeys'
 import {
   firstNodeId,
   lastNodeId,
@@ -10,6 +18,49 @@ import {
   type NavDir,
 } from '../../domain/canvas/navigation/spatial'
 import { fitCanvasView } from './surface/fitView'
+import { minSizeOf } from './nodeMinSize'
+
+/**
+ * `Alt + 方向键` 的两档（§4.5「拖拽替代」/ §6.20）：**拖拽的键盘替代**。
+ *
+ * - 不按 Ctrl/⌘：把**选中的顶层节点**整体微移（`Shift` 加速 ×10）；
+ * - 按住 Ctrl/⌘：改**最后选中的那个**顶层节点的尺寸（一次一步，撤销也是干净的一步）。
+ *
+ * 为什么只动顶层节点：容器子节点的 x/y 是**局部坐标**、尺寸由容器布局决定
+ * （它们连缩放手柄都不渲染）。键盘这条若单独放行，批量网格里就会出现
+ * "有一个格子不听网格"的假象 —— 与方向键导航、框选同一条口径（都只认顶层）。
+ */
+function applyBoxKeys(store: CanvasStore, dir: NavDir, step: number, resize: boolean): void {
+  const graph = store.getSnapshot()
+  const selection = store.getSelection()
+  const topLevelOf = (id: string | undefined) =>
+    graph.nodes.find((n) => n.id === id && !n.parentId)
+
+  if (!resize) {
+    const ids = selection.filter((id) => topLevelOf(id) !== undefined)
+    if (ids.length === 0) return
+    const { dx, dy } = keyDelta(dir, step)
+    store.dispatch({ kind: 'node.move', ids, dx, dy, phase: 'end' })
+    return
+  }
+
+  const node = topLevelOf(selection[selection.length - 1])
+  if (!node) return
+  const children = graph.nodes.filter((n) => n.parentId === node.id)
+  /* 下限 / 比例锁 / 等比基准与 `FlowNode` 喂给缩放手柄的是同一份（见 `minSizeOf`） */
+  const minSize = minSizeOf(node, children)
+  const rect = resizedByKey({ x: node.x, y: node.y, w: node.w, h: node.h }, dir, step, {
+    minSize,
+    resizeLock: resizeLockOf(node),
+    lockAspect: node.type === 'batch' ? minSize : undefined,
+    heightFromContent: heightFromContentOf(node),
+    liveHeight: node.h,
+  })
+  /* 已经到边界（最小尺寸 / 高度归内容 / 批量网格比例）：**不派发空命令** ——
+     否则撤销栈里会攒下"按了十下方向键、要按十下 Ctrl+Z 才退回去"的空操作 */
+  if (sameRect(rect, { x: node.x, y: node.y, w: node.w, h: node.h })) return
+  store.dispatch({ kind: 'node.resize', id: node.id, rect, phase: 'end' })
+}
 
 /**
  * 画布级快捷键。
@@ -27,6 +78,8 @@ import { fitCanvasView } from './surface/fitView'
  * - `Ctrl/Cmd + G`：把选中的节点打成一组（与多选功能栏共用 `groupNodes`，一次事务）
  * - `Z` / `Shift+Z` / `Ctrl+Z` / `Ctrl+Shift+Z`：复位视图 / 重做 / 撤销 / 重做
  * - `Tab` / `方向键` / `Home` / `End`：节点间键盘导航（空间最近邻）
+ * - `Alt + 方向键`：把选中的顶层节点微移 1px（`Shift` ×10）
+ * - `Ctrl/⌘ + Alt + 方向键`：改最后选中那个顶层节点的尺寸（同上加速档；见 `applyBoxKeys`）
  *
  * **刻意不在这里管**（各表面自己拥有，理由见各自的调用点）：
  * - `Delete` / `Backspace`：老表面手写、RF 面走 `deleteKeyCode` 自带的删除通道；
@@ -103,6 +156,21 @@ export function useCanvasKeyboard(store: CanvasStore): void {
       }
       if (e.key in dirMap) {
         if (inText || isActivationTarget(target)) return
+        const dir = dirMap[e.key]
+        /**
+         * `Alt + 方向键` 微移 / `Ctrl(⌘) + Alt + 方向键` 改尺寸 —— 必须在普通方向键
+         * **之前**分支：普通方向键已被 §6.3「按邻近关系切换选中」占用，而移动 / 改尺寸
+         * 是**编辑**，编辑这一档只认 `Alt`。
+         *
+         * ⚠️ **这一档一律 `preventDefault`**：Chromium 把 `Alt + ←/→` 当**后退 / 前进**，
+         * 不吞就会把整个应用导航走（症状是"按一下画布没了"，而且不报任何错）。
+         * 正因为要吞的是浏览器行为，没选中节点时也吞。
+         */
+        if (e.altKey) {
+          e.preventDefault()
+          applyBoxKeys(store, dir, e.shiftKey ? KEY_STEP_FAST : KEY_STEP, e.ctrlKey || e.metaKey)
+          return
+        }
         const nodes = topLevelNavNodes()
         const sel = store.getSelection()
         // 尚无选中：方向键进入画布选中首个节点（与 Tab 一致）
@@ -115,7 +183,7 @@ export function useCanvasKeyboard(store: CanvasStore): void {
           return
         }
         e.preventDefault()
-        const next = nearestInDirection(nodes, sel[sel.length - 1], dirMap[e.key])
+        const next = nearestInDirection(nodes, sel[sel.length - 1], dir)
         if (next) store.setSelection([next])
         return
       }

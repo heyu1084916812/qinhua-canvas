@@ -187,6 +187,25 @@ function CanvasProject({ projectId }: { projectId: string }) {
     return subscribeExternalWrites(projectId, () => setExternalEdit(true))
   }, [projectId])
 
+  /**
+   * DEV-only 诊断钩子（2026-10-12）：把**内存里的真相**读出来 —— 节点坐标 + 撤销 / 重做栈。
+   *
+   * 为什么单独要这个：库里的行走 **800ms 防抖**，而 React Flow 又在自己内部存了一份位置。
+   * 追「键盘微移 1px 到底有没有落盘」时，只看 DOM 或只看库都会误判（两边各说一个数）。
+   * 这个钩子只在开发构建里挂，生产构建**一行都不含**（与 `__seedPerfGraph` 同一种写法）。
+   */
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    ;(window as unknown as Record<string, unknown>).__canvasDebug = () => ({
+      nodes: store.getSnapshot().nodes.map((n) => ({ id: n.id, x: n.x, y: n.y, w: n.w, h: n.h })),
+      canUndo: store.canUndo(),
+      canRedo: store.canRedo(),
+    })
+    return () => {
+      delete (window as unknown as Record<string, unknown>).__canvasDebug
+    }
+  }, [store])
+
   // DEV-only 性能基准钩子（§1.6 画布性能）：window.__seedPerfGraph() 注入 300/500 拓扑。
   // 可带参：__seedPerfGraph(150, 250) —— 用来量**真实规模**（项目里的节点数）下的帧率，
   // 只跑 300 那一档回答不了"我自己的项目会不会卡"。

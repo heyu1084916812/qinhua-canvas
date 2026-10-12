@@ -7,7 +7,7 @@ import { heightFromContentOf, resizeLockOf } from '../../../domain/canvas/nodeSp
 import { RESIZE_CORNERS } from '../../../domain/canvas/nodeSpecs/resizeLock'
 import { isContainerType } from '../../../domain/canvas/model/node'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
-import { containerMinSize, groupFitSize } from '../../../domain/canvas/layout/packContainer'
+import { minSizeOf } from '../nodeMinSize'
 import type { RunMode } from '../../../domain/canvas/model/runRecord'
 import type { NodeViewEvent } from '../nodes/registry'
 import type { InputPortAsset } from '../nodes/registry'
@@ -71,15 +71,10 @@ function FlowNodeInner({ data, selected }: NodeProps) {
    * 「缩小的时候会掩盖一些节点…可以规则为保持四周的边距」）。
    */
   /**
-   * 缩放下限按容器类型分流（2026-10-06 第 14 批第 1 条起**两套布局**）：
-   * - **分组**：子节点自由摆放 ⇒ 下限 = 它们的包围盒 + 四边等距（`groupFitSize`）；
-   * - **批量**：子节点走 3×3 网格 ⇒ 下限 = 网格尺寸（`containerMinSize`）。
+   * 缩放下限：**这条规则的家在 `minSizeOf`**（键盘改尺寸也要问同一个问题，
+   * 两处各写一份就会分叉 —— 见那个函数的注释）。
    */
-  const minSize = node.type === 'group'
-    ? groupFitSize(childNodes ?? [])
-    : isContainerType(node.type)
-      ? containerMinSize(node.type as 'group' | 'batch', childNodes?.length ?? 0)
-      : def.sizing.min
+  const minSize = minSizeOf(node, childNodes ?? [])
 
   /**
    * 端点（React Flow 的 `Handle`）走 `NodeFrame.overlay`，**不放在 `children` 里**：

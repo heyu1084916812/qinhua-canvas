@@ -26,6 +26,31 @@ describe('canvas store / 基本变更', () => {
 })
 
 describe('canvas store / 撤销与重做', () => {
+  /**
+   * ★★ 这条是 2026-10-12 实修的那条真缺陷（对账 #449）：
+   *
+   * `node.move` 每帧都写 **x 和 y 两个键**，所以撤销时的逆补丁 `changes` 里装的是
+   * **改动前的旧值**。而 `toPersistPlan` 当时写成 `{...after, ...p.changes}` ——
+   * 等于把旧值又叠回去：内存退回 (0,0)、库里却停在 (1,0)，**刷新一次撤销就白做**。
+   * 判据盯的是**库里的行**（不是内存、不是 DOM）—— 只测内存这条永远绿着。
+   */
+  it('★ 两次合并的微移之后 undo：落库的必须是**撤销后**的值（不是撤销前的）', async () => {
+    const store = createCanvasStore({ platform, projectId: 'p1', debounceMs: 1 })
+    store.dispatch({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } })
+    const id = store.getSnapshot().nodes[0]!.id
+    // 与键盘微移同样的形状：先 +1px，再 +10px（同一 `move:<id>` 事务键 ⇒ 合并成一步）
+    store.dispatch({ kind: 'node.move', ids: [id], dx: 1, dy: 0, phase: 'move' })
+    store.dispatch({ kind: 'node.move', ids: [id], dx: 0, dy: 10, phase: 'move' })
+    expect(store.getSnapshot().nodes[0]).toMatchObject({ x: 1, y: 10 })
+    await store.flush()
+    expect((await platform.storage.query('nodes', { id }))[0]).toMatchObject({ x: 1, y: 10 })
+
+    store.undo()
+    expect(store.getSnapshot().nodes[0]).toMatchObject({ x: 0, y: 0 })
+    await store.flush()
+    expect((await platform.storage.query('nodes', { id }))[0]).toMatchObject({ x: 0, y: 0 })
+  })
+
   it('move 后 undo 回到原位，redo 再前进', () => {
     const store = createCanvasStore({ platform, projectId: 'p1' })
     store.dispatch({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } })
