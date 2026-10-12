@@ -197,7 +197,10 @@ function CanvasProject({ projectId }: { projectId: string }) {
   useEffect(() => {
     if (!import.meta.env.DEV) return
     ;(window as unknown as Record<string, unknown>).__canvasDebug = () => ({
-      nodes: store.getSnapshot().nodes.map((n) => ({ id: n.id, x: n.x, y: n.y, w: n.w, h: n.h })),
+      nodes: store
+        .getSnapshot()
+        .nodes.map((n) => ({ id: n.id, type: n.type, parentId: n.parentId, x: n.x, y: n.y, w: n.w, h: n.h })),
+      selection: store.getSelection(),
       canUndo: store.canUndo(),
       canRedo: store.canRedo(),
     })
