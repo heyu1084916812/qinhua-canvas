@@ -3,6 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
 import { useSkillsOptional } from '../../app/providers/SkillStoreProvider'
+import { flushOnPageHide } from '../../app/session'
+import { useProjectWriteSafety } from '../../app/useProjectWriteSafety'
 import { createProjectRepository } from '../../state/project/repository'
 import { createStoryboardStore } from '../../state/project/storyboardStore'
 import { createStore } from '../../state/createStore'
@@ -177,6 +179,14 @@ function StoryboardProject({ projectId }: { projectId: string }) {
 
   useEffect(() => () => store.dispose(), [store])
 
+  /**
+   * 与画布页 / 电商页**共用同一份写盘保险**（对账 #453 的同款）：离开前台 / 关窗口前强制把
+   * 画布那一边的写入冲一次，并在改动后广播给别的窗口。
+   * 少了它，「在这一页铺到画布 → 立刻关窗口」那 ≤800ms 的写入没人兜底，
+   * 两个窗口并排时也不会有人在对面收到提示。
+   */
+  useProjectWriteSafety(projectId, store)
+
   /** 只读一次库（与画布页 / 电商页同一条口径），避免把内存里正在跑的写入盖回去 */
   useEffect(() => {
     if (cached.hydrated) return
@@ -342,6 +352,14 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     },
     [flush],
   )
+
+  /**
+   * **关窗口 / 切到后台**也要把这份分镜文档冲一次（对账 #454）。
+   *
+   * 上面那条 cleanup 只在**路由离开**时跑；用户改完分镜**直接关窗口**时它不执行 ——
+   * 而这里的保存是 **400ms 防抖**，最后那一次编辑就没了（画布页/电商页早有这道保险）。
+   */
+  useEffect(() => flushOnPageHide(() => void flush()), [flush])
 
   const apply = (next: StoryboardDoc) => {
     const stamped = { ...next, updatedAt: Date.now() }
