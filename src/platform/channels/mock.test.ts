@@ -22,6 +22,37 @@ async function runAndGetBytes(inputs: ImageRunRequest['inputs']): Promise<Uint8A
   return asset!.bytes
 }
 
+describe('mock 渠道 · 取消信号（对账 #466）', () => {
+  /**
+   * 这三条钉住的是**同一件事**：mock 也得像真实渠道那样"能被中止"。
+   *
+   * 修之前 `sleep` 只是个 `setTimeout`：生成中点「取消」对 mock 无效 ——
+   * 它老实等完 4 秒正常返回，引擎于是记成 `succeeded`、图照落。于是
+   * 「正在生成 → 点击取消」（产品文档 §14.1 E2E-08）这条**在离线冒烟里永远验不了**。
+   */
+  it('★★ 慢速出图期间被中止：抛错（不再"等完照常出图"）', async () => {
+    const ch = createMockChannel()
+    const ac = new AbortController()
+    const p = ch.generateImage({ ...imageRequest([]), prompt: '慢速测试图' }, ac.signal)
+    ac.abort()
+    await expect(p).rejects.toThrow(/abort/i)
+  })
+
+  it('★ 渠道延迟（latencyMs）那条等待同样可中止', async () => {
+    const ch = createMockChannel({ latencyMs: 5000 })
+    const ac = new AbortController()
+    const p = ch.generateImage(imageRequest([]), ac.signal)
+    ac.abort()
+    await expect(p).rejects.toThrow(/abort/i)
+  })
+
+  it('没有中止时照常返回（正常路径没被弄坏）', async () => {
+    const ch = createMockChannel()
+    const [asset] = await ch.generateImage(imageRequest([]), new AbortController().signal)
+    expect(asset!.bytes.length).toBeGreaterThan(0)
+  })
+})
+
 describe('mock 渠道 / 图像输入可观测（M6-12）', () => {
   it('无图像输入 → 灰度图', async () => {
     const plain = await runAndGetBytes([])

@@ -468,6 +468,28 @@ async function readNodeData(page, nodeId) {
 }
 
 /**
+ * 读所有 RunRecord 的 `status`（直连 IndexedDB）。
+ *
+ * 为什么读库而不是读日志面板：日志面板是**渲染结果**（还带自己的筛选 / 分页），
+ * 而"取消到底记成 canceled 还是 failed"是**引擎写进去的事实** —— 只有库上能直接证。
+ */
+async function readRunStatuses(page) {
+  return page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => {
+          const db = req.result
+          const q = db.transaction('runRecords', 'readonly').objectStore('runRecords').getAll()
+          q.onsuccess = () => resolve((q.result ?? []).map((r) => r?.status))
+          q.onerror = () => resolve([])
+        }
+        req.onerror = () => resolve([])
+      }),
+  )
+}
+
+/**
  * 数某张表在库里的行数（直连 IndexedDB，与 `readNodeData` 同一条口径）。
  *
  * 为什么需要它（对账 #465）：**悬空引用**这件事在 DOM 上证明不了 ——
@@ -29423,7 +29445,178 @@ async function g152(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152]
+// ────────────────────────────────────────────────────────────
+// G153 E2E-06 只跑目标节点的计划（产品文档 §14.1）
+// ────────────────────────────────────────────────────────────
+/**
+ * E2E-06 的 Then 是「只执行目标节点计划，**外部工作流不受影响**」。
+ * 容器那半条（分组 / 批量内有完整 DAG）随三种覆盖式重跑下线而作废，剩下这半条一直没人验。
+ *
+ * 判据要成立，**无关链必须是"真的能跑"的**：它也得有渠道 / 模型 / 提示词。
+ * 否则一个"把画布上所有能跑的节点都跑一遍"的实现照样能蒙混过关（无关链压根进不了计划）
+ * —— 那这条用例永远绿，等于没验。
+ */
+async function g153(browser) {
+  const g = 'G153 只跑目标计划'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  page.on('pageerror', (e) => rec(g, '无未捕获异常', false, String(e).slice(0, 120)))
+
+  const { verified } = await configureMockChannel(page)
+  rec(g, '渠道就绪（下面两条链都真的能跑）', verified)
+
+  // 链 A：模板给的「提示词 → 生成」
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(700)
+  const genIds = () =>
+    page.$$eval('[data-node-type="generation"]', (els) =>
+      els.map((e) => e.getAttribute('data-node-id')),
+    )
+  const idsBefore = await genIds()
+  const aId = idsBefore[0]
+
+  // 链 B：再加一个**独立**生成节点（不连线、自带提示词）= 外部工作流
+  await addNodeViaToolbar(page, 'generation')
+  await sleep(600)
+  const bId = (await genIds()).find((id) => !idsBefore.includes(id))
+  rec(g, '场景成立：画布上有两个互不相干的生成节点', !!aId && !!bId, `${aId} / ${bId}`)
+
+  /**
+   * ⚠️ **把它拖开**：工具栏新建的节点会**落在模板那个生成节点附近并压在它上面**
+   * （第一版就这么红的：`genPanel` 点 B 时被 A 的占位层拦截，报
+   * "subtree intercepts pointer events"）。拖节点**头部**（`y + 10`）与 G15 同一条口径。
+   */
+  {
+    const bb = await page.locator(`[data-node-id="${bId}"]`).boundingBox()
+    await page.mouse.move(bb.x + bb.width / 2, bb.y + 10)
+    await page.mouse.down()
+    await page.mouse.move(1120, 520, { steps: 10 })
+    await page.mouse.up()
+    await sleep(450)
+  }
+
+  const panelB = await genPanel(page, page.locator(`[data-node-id="${bId}"]`))
+  await configureGenPanel(page, panelB, '无关链：一只在睡觉的狗')
+  await clickBlankCanvas(page)
+
+  // 跑 A（N=1 ⇒ 产物回填它自己，不铺新节点）
+  const panelA = await genPanel(page, page.locator(`[data-node-id="${aId}"]`))
+  await configureGenPanel(page, panelA, '目标链：屋顶的猫')
+  const countBefore = (await genIds()).length
+  await panelRunBtn(page).click()
+
+  let aImg = 0
+  for (let i = 0; i < 40; i++) {
+    aImg = await page.locator(`[data-node-id="${aId}"] [data-node-asset]`).count()
+    if (aImg > 0) break
+    await sleep(250)
+  }
+  rec(g, '目标链出图（A 节点上有产物）', aImg > 0, `img=${aImg}`)
+
+  /**
+   * ⚠️ **判据要落在"整张画布上出现了几个产物"，不是"B 自己身上有没有产物"**。
+   *
+   * 第一版写的是后者，实测**不敏感**：把执行范围放大成整图之后，B 的产物会落到
+   * 它自己新铺的**承载节点**上，B 本体照样干净 ⇒ 那条断言在"整图都跑了"的实现里也绿。
+   * 现在的判据抓的是结果面：跑一条链只许出**一个**产物；多出第二个就说明第二条链被跑了。
+   * （配套的"生成节点数不变"那条同样能抓到：注入实测 `2 → 4`。）
+   */
+  const allAssets = await page.locator('[data-node-asset][src^="blob:"]').count()
+  rec(g, '★★ 整张画布上只有 1 个产物（第二条链真的没被跑）', allAssets === 1, `assets=${allAssets}`)
+  const countAfter = (await genIds()).length
+  rec(g, '★★ 也没有替无关链铺任何承载节点', countAfter === countBefore, `${countBefore} → ${countAfter}`)
+  await page.screenshot({ path: `${OUT}/153-g153-target-only.png` })
+
+  await ctx.close()
+}
+
+// ────────────────────────────────────────────────────────────
+// G154 E2E-08 生成中点取消（产品文档 §14.1）
+// ────────────────────────────────────────────────────────────
+/**
+ * E2E-08 的 Then：「请求被中止，已有结果保留，状态为已取消，可重新运行」。
+ *
+ * 怎么造出"正在生成"这个窗口：mock 渠道有个**测试钩子** —— 提示词里带「慢速测试图」
+ * 就慢 4000ms（`platform/channels/mock.ts`；另一条「并行测试图」= 800ms 用来量并发）。
+ *
+ * ⚠️ 这个钩子此前**对取消无效**：mock 的等待只是个 `setTimeout`、不认 `AbortSignal` ⇒
+ * 点了取消它照样等完 4 秒、正常返回、图照落 —— 于是「生成中点取消」在离线环境下
+ * **永远验不了**（真实渠道走 `fetch` + signal 会 reject，mock 这边却是另一套结果）。
+ * 本轮把 mock 的等待改成可中止（与真实适配器同一条口径），这条用例才立得住。
+ *
+ * 判据落三处，缺一不可：
+ *  ① 跑起来时按钮**真的变成「取消当前生成」**（界面上唯一的取消入口）；
+ *  ② 点完之后**一个产物都没有**（取消不是"等它跑完"）；
+ *  ③ 库里留下一条 `status = 'canceled'` 的 RunRecord（引擎的取消口径，不是 failed）。
+ */
+async function g154(browser) {
+  const g = 'G154 生成中取消'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  page.on('pageerror', (e) => rec(g, '无未捕获异常', false, String(e).slice(0, 120)))
+
+  await configureMockChannel(page)
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="text2img"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(700)
+
+  const panel = await genPanel(page)
+  // 「慢速测试图」是 mock 的测试钩子：这一趟请求要 4 秒才回来，窗口足够点取消
+  await configureGenPanel(page, panel, '慢速测试图')
+
+  const runBtn = page.locator('[data-panel-run]')
+  await runBtn.click()
+
+  // ① 跑起来 = 按钮变成「取消当前生成」
+  const becameCancel = await page
+    .locator('[data-panel-run][aria-label="取消当前生成"]')
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★ 生成中：按钮变成「取消当前生成」（唯一的取消入口）', becameCancel)
+
+  // ② 点取消 → 立刻回到空闲态
+  await runBtn.click()
+  const backToIdle = await page
+    .locator('[data-panel-run][aria-label="生成当前节点"]')
+    .waitFor({ state: 'visible', timeout: 6000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★ 点取消后立刻回到「生成当前节点」（没有等它跑完）', backToIdle)
+
+  await sleep(1200) // 等 800ms 防抖把 RunRecord 写进库
+  const assets = await page.locator('[data-node-asset][src^="blob:"]').count()
+  rec(g, '★★ 取消之后一个产物都没落下来', assets === 0, `assets=${assets}`)
+  const statuses = await readRunStatuses(page)
+  rec(
+    g,
+    '★★ 库里记的是 canceled（不是 failed / succeeded）',
+    statuses.includes('canceled') && !statuses.includes('succeeded'),
+    JSON.stringify(statuses),
+  )
+
+  // ③ 还能再跑一次（取消不是"把节点弄坏了"）
+  await runBtn.click()
+  const rerunStarted = await page
+    .locator('[data-panel-run][aria-label="取消当前生成"]')
+    .waitFor({ state: 'visible', timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★ 取消之后还能再跑一次', rerunStarted)
+  // 收尾：把这趟也取消掉，别带着一个 4 秒的请求关页面
+  await page.locator('[data-panel-run][aria-label="取消当前生成"]').click()
+  await sleep(600)
+
+  await page.screenshot({ path: `${OUT}/154-g154-cancel.png` })
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

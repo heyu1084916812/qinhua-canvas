@@ -109,8 +109,33 @@ function pixelSizeOf(ratio: unknown): [number, number] {
   return [w, h]
 }
 
-function sleep(ms: number): Promise<void> {
-  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve()
+/**
+ * 可中止的等待（对账 #466）。
+ *
+ * 为什么必须认 `signal`：mock 以前只是个 `setTimeout`，**取消信号对它无效** ——
+ * 于是「生成中点取消」这条链路在离线环境下有两种表现：真实渠道（`fetch` 带 signal）
+ * 会 reject ⇒ 引擎按 `signal.aborted` 记 `canceled`；而 mock 老老实实等完、正常返回
+ * ⇒ 引擎记 `succeeded`，图照样落进节点。**同一个动作两套结果**，而离线冒烟里
+ * 能跑到的偏偏只有后者 ⇒ E2E-08「正在生成 → 点击取消」在 mock 上**永远验不了**。
+ * 现在它跟真实适配器同一条口径：等待期间被中止就抛 `AbortError`。
+ */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) return Promise.resolve()
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'))
+      return
+    }
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(new DOMException('Aborted', 'AbortError'))
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 /**
@@ -177,9 +202,9 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
   const failWith: AppError = opts.failWith ?? { kind: 'http', status: 500 }
   let calls = 0
 
-  const before = async (): Promise<void> => {
+  const before = async (signal?: AbortSignal): Promise<void> => {
     calls += 1
-    await sleep(opts.latencyMs ?? 0)
+    await sleep(opts.latencyMs ?? 0, signal)
     if (calls <= failTimes) throw new ChannelError(failWith)
   }
 
@@ -237,15 +262,15 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
     async listModels(_config: SafeChannelConfig, _signal: AbortSignal): Promise<ModelCapability[]> {
       return models
     },
-    async generateImage(request: ImageRunRequest, _signal: AbortSignal): Promise<GeneratedAsset[]> {
-      await before()
+    async generateImage(request: ImageRunRequest, signal: AbortSignal): Promise<GeneratedAsset[]> {
+      await before(signal)
       /**
        * 测试钩子：提示词带「并行测试图」时**慢 800ms** 出图。
        *
        * 冒烟靠它量「两条互不依赖的生成是不是真的在同时跑」：串行 ≈1600ms，
        * 并发 ≈800ms（用户 2026-10-05 第 2 条报的就是这条被串起来跑了）。
        */
-      if (request.prompt.includes('并行测试图')) await sleep(800)
+      if (request.prompt.includes('并行测试图')) await sleep(800, signal)
       /**
        * 测试钩子：提示词带「慢速测试图」时**慢 4000ms** 出图。
        *
@@ -253,13 +278,13 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
        * 「替换不同的项目的时候，之前正在进行中的生成节点的生成状态会消失」）。
        * 上面那条 800ms 的钩子太短 —— 切一个来回就跑完了，两种实现长得一模一样。
        */
-      if (request.prompt.includes('慢速测试图')) await sleep(4000)
+      if (request.prompt.includes('慢速测试图')) await sleep(4000, signal)
       const cap = models[0] ?? DEFAULT_MODELS[0]!
       const count = clampCount(cap, typeof request.params.count === 'number' ? request.params.count : 1)
       return Array.from({ length: count }, (_, i) => asset(request, i))
     },
-    async generateVideo(request: VideoRunRequest, _signal: AbortSignal): Promise<GeneratedAsset[]> {
-      await before()
+    async generateVideo(request: VideoRunRequest, signal: AbortSignal): Promise<GeneratedAsset[]> {
+      await before(signal)
       return [asset(request, 0)]
     },
     /**
@@ -269,8 +294,8 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
      * `mock:<prompt>`，那么「把图喂给文本模型」这条链路在离线环境里**永远证明不了**，
      * 只能靠接真实渠道才发现没生效。带上 hash 前缀后，单测可以直接断言素材到了渠道层。
      */
-    async completeText(request: TextRunRequest, _signal: AbortSignal): Promise<TextResult> {
-      await before()
+    async completeText(request: TextRunRequest, signal: AbortSignal): Promise<TextResult> {
+      await before(signal)
       /**
        * **人脸识别那一问**（用户 2026-10-05 第五批第 1 条）：情绪面板会先用
        * `completeText` + 图片问一次「脸在哪」。真实模型回一个归一化 JSON 框，mock 也照做 ——
