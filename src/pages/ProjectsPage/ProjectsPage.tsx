@@ -281,11 +281,20 @@ export function ProjectsPage() {
     /**
      * 陈旧标记下线后（用户 2026-09-17），缺失的模型不再往节点上「标记」——
      * 文案里的「已标记」会指向一个不存在的视觉信号，故改成直说事实。
+     *
+     * 第二轮（对账 #465）：**修掉了什么也要说**。导入的是别人给的文件，
+     * 里面可能有端点不存在的连线、指向不存在父节点的归属 —— 静默修掉等于用户
+     * 永远不知道"为什么少了一条线"。
      */
-    const modelNote = res.missingModels.length
-      ? `（${res.missingModels.length} 个节点引用了本机没有的模型）`
-      : ''
-    setStatus(`已导入「${res.project?.name}」${modelNote}`)
+    const notes: string[] = []
+    if (res.missingModels.length) notes.push(`${res.missingModels.length} 个节点引用了本机没有的模型`)
+    if (res.repaired.detachedParents) {
+      notes.push(`${res.repaired.detachedParents} 个节点的归属已失效、已放回画布根层`)
+    }
+    if (res.repaired.droppedEdges) {
+      notes.push(`${res.repaired.droppedEdges} 条连线指向不存在的节点、已清掉`)
+    }
+    setStatus(`已导入「${res.project?.name}」${notes.length ? `（${notes.join('；')}）` : ''}`)
   }
 
   /**

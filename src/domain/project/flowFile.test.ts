@@ -72,6 +72,57 @@ describe('flowFile 序列化 / 反序列化', () => {
     expect(out.nodes.map((n) => n.parentId)).toEqual([null, null])
   })
 
+  /**
+   * **外来文件的悬空引用**（对账 #465）。判据只有一条：被引用的节点在这份文件里存在吗。
+   *
+   * 两种引用的后果都很难看，而且都**在界面上看不出来**：
+   *  - 连线端点悬空 ⇒ React Flow 找不到端点、子节点覆盖层也画不了 ⇒ 库里有一条永远画不出来的线，
+   *    还会被下一次导出原样带走；
+   *  - `parentId` 悬空 ⇒ 节点既不显示在根层（被当容器子节点剔除）、也找不到容器 ⇒ **凭空消失**。
+   */
+  it('★ 端点不存在的连线：不入库，并如实计数（只清坏的那两条）', () => {
+    const broken: FlowFileV1 = {
+      ...flow,
+      graph: {
+        ...flow.graph,
+        nodes: [
+          { id: 'node_a', projectId: 'proj_old', parentId: null, data: {} },
+          { id: 'node_b', projectId: 'proj_old', parentId: null, data: {} },
+        ] as never,
+        edges: [
+          { id: 'edge_ok', projectId: 'proj_old', source: 'node_a', target: 'node_b' },
+          { id: 'edge_src_gone', projectId: 'proj_old', source: 'node_gone', target: 'node_a' },
+          { id: 'edge_tgt_gone', projectId: 'proj_old', source: 'node_a', target: 'node_gone' },
+        ] as never,
+      },
+    }
+    const out = deserializeProject(broken, 'proj_new')
+    expect(out.edges).toHaveLength(1)
+    expect(out.repaired).toEqual({ droppedEdges: 2, detachedParents: 0 })
+  })
+
+  it('★ parentId 指向文件里不存在的节点：放回根层，并如实计数', () => {
+    const broken: FlowFileV1 = {
+      ...flow,
+      graph: {
+        ...flow.graph,
+        nodes: [
+          { id: 'node_a', projectId: 'proj_old', parentId: null, data: {} },
+          { id: 'node_x', projectId: 'proj_old', parentId: 'node_gone', data: {} },
+        ] as never,
+        edges: [] as never,
+      },
+    }
+    const out = deserializeProject(broken, 'proj_new')
+    expect(out.nodes.map((n) => n.parentId)).toEqual([null, null])
+    expect(out.repaired).toEqual({ droppedEdges: 0, detachedParents: 1 })
+  })
+
+  it('文件里的引用都有效时：一个都不动（repaired 全 0）', () => {
+    const out = deserializeProject(flow, 'proj_new')
+    expect(out.repaired).toEqual({ droppedEdges: 0, detachedParents: 0 })
+  })
+
   it('id 全量重映射：edges / parentId / data 内引用', () => {
     const out = deserializeProject(flow, 'proj_new')
     const a = out.nodes.find((n) => (n.data as { text?: string }).text === 'hi')!

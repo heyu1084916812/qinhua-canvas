@@ -12,6 +12,7 @@ import { solidPng } from '../../../platform/channels/mockPng'
 import type { ChannelAdapter, GeneratedAsset } from '../../../platform/channels/types'
 import { generationSpec } from '../../../domain/canvas/nodeSpecs/generation'
 import type { GenerationData } from '../../../domain/canvas/model/node'
+import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import { buildRunPlan, type CanvasRunTask } from './buildRunPlan'
 import { createCanvasPlacement } from './canvasPlacement'
 // 引擎上移共享层（M6-5 路径 B）；画布测试通过注入 CanvasPlacement 复现原行为
@@ -158,6 +159,55 @@ describe('buildRunPlan（单点生成）', () => {
     })
     const plan = buildRunPlan('node', { originNodeId: promptId }, store.getSnapshot(), 'single')
     expect(plan.tasks).toHaveLength(0)
+  })
+
+  /**
+   * **带环的图不影响单点生成**（对账 #465 的自我更正）。
+   *
+   * 产品文档 §14.1 的 E2E-07 写的是「单点生成（`R`）→ 阻止请求并提示『工作流存在环』」，
+   * 一度被读成"带环的图会让计划变空、被排掉的节点静默不跑"。**实测不是**：
+   * 单点的候选集**只有源节点自己**（生成节点发起）或它的**直接下游**（提示词节点发起），
+   * 而紧跟的拓扑排序只在这份**选中子图**上做 —— 子图里没有边，环就进不来。
+   * 于是环**既不阻止也不提示**，它在这条路上**根本走不到**。
+   *
+   * 真正兜住环的是**连线那一刻**：`canConnect` 用 `isReachable` 判「会形成环路」（见 `canConnect.ts`）。
+   * 会取大子图的 `rerun` / `rerunAll` 两种模式**在运行时已无调用方**（只有 `single` / `single-alt`）。
+   *
+   * 这条判据钉住"改执行范围时别把环这件事重新引进来"：一旦有人让单点也吃整图，
+   * 这个用例会立刻红。
+   */
+  it('★★ 图里存在环时：单点生成照常出计划（环只由连线前的 canConnect 兜住）', () => {
+    const { store, genId } = setup()
+    // 先让这个生成节点"可发请求"（自有提示词）——否则计划为空是**缺提示词**引起的，与环无关，
+    // 那样这条用例什么都证明不了（第一版就是这么假绿的候选：见本文件的故障注入纪律）
+    store.dispatch({ kind: 'node.updateData', id: genId, patch: { prompt: '自有提示词' } })
+    const snap = store.getSnapshot()
+    const gen = snap.nodes.find((n) => n.id === genId)!
+    // 界面里造不出这个环（`canConnect` 会拒），所以手工拼一份图 —— 模拟"导入了手改过的文件"
+    /*
+     * ⚠️ 另一个节点也**必须是可发请求的**：否则"执行范围意外变大"时它不进选中集，
+     * 环就还是进不来 —— 这条用例会永远绿（假判据）。给它自有提示词，才逼出"两个可跑节点互指"。
+     */
+    const other = {
+      ...gen,
+      id: 'n-gen-2',
+      x: 400,
+      y: 400,
+      data: { ...(gen.data as GenerationData), prompt: '另一个自有提示词' },
+    }
+    const cyclic: GraphSnapshot = {
+      ...snap,
+      nodes: [gen, other],
+      edges: [
+        { id: 'e-a', projectId: 'p1', source: genId, target: 'n-gen-2' },
+        { id: 'e-b', projectId: 'p1', source: 'n-gen-2', target: genId },
+      ] as never,
+    }
+
+    const plan = buildRunPlan('node', { originNodeId: genId }, cyclic, 'single')
+
+    expect(plan.tasks).toHaveLength(1)
+    expect(plan.tasks[0]!.nodeId).toBe(genId)
   })
 
   /**

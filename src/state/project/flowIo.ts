@@ -129,6 +129,11 @@ export interface ImportResult {
   /** 引用了 knownModels 中不存在的模型 */
   missingModels: string[]
   flowName: string
+  /**
+   * **外来文件的悬空引用被修掉了多少**（对账 #465）：端点不存在的连线（没写进库）
+   * 与失效的 `parentId`（放回根层）。界面据此如实播报，不静默吞掉。
+   */
+  repaired: { droppedEdges: number; detachedParents: number }
 }
 
 export async function importProjectFile(
@@ -137,7 +142,9 @@ export async function importProjectFile(
   opts: ImportOptions = {},
 ): Promise<ImportResult> {
   const picked = await platform.files.pickFile('.json,application/json')
-  if (!picked) return { cancelled: true, missingModels: [], flowName: '' }
+  if (!picked) {
+    return { cancelled: true, missingModels: [], flowName: '', repaired: { droppedEdges: 0, detachedParents: 0 } }
+  }
   return importProjectFromFile(platform, repo, picked, opts)
 }
 
@@ -175,7 +182,7 @@ export async function importProjectFromFile(
   }
 
   const newId = createId('proj')
-  const { project, nodes, edges, assets, missingModels } = deserializeProject(
+  const { project, nodes, edges, assets, missingModels, repaired } = deserializeProject(
     flow,
     newId,
     opts.knownModels,
@@ -217,5 +224,5 @@ export async function importProjectFromFile(
   )
 
   const item: ProjectListItem = { ...(project as unknown as Project), nodeCount: nodes.length }
-  return { project: item, missingModels, flowName: picked.name }
+  return { project: item, missingModels, flowName: picked.name, repaired }
 }

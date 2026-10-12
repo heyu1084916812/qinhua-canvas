@@ -166,6 +166,18 @@ export interface DeserializeResult {
   assets: FlowRow[]
   /** 引用了 knownModels 中不存在的模型（产品文档 §5.7「模型缺失」） */
   missingModels: string[]
+  /**
+   * **外来文件的悬空引用被修掉了多少**（对账 #465）。
+   *
+   * 两个数分开记：它们修的是两类东西（连线 / 归属），界面上也要分别说人话 ——
+   * 只报一个总数，用户没法判断"少的那条线"到底是被清了还是本来就没导出。
+   */
+  repaired: {
+    /** 端点节点不在这份文件里的连线：**没写进库**（写进去也画不出来） */
+    droppedEdges: number
+    /** `parentId` 指向不存在的父节点：**放回根层**（留着就是"节点凭空消失"） */
+    detachedParents: number
+  }
 }
 
 /**
@@ -193,22 +205,12 @@ export function deserializeProject(
    * （看起来一致、其实是自洽的空引用：真正按哈希找字节的地方全都找不到）——
    * 详见下面 `assets` 那段注释与对账 #221。
    */
-  /**
-   * 老文件里那些**指向结果组的 parentId**必须认出来并清空。
-   *
-   * 组没了，但旧 .flow.json 里子结果的 `parentId` 还写着组 id。若照常 remap，
-   * 它会被保留成一个**谁也不认识的 id** —— 节点于是挂在一个不存在的父级下：
-   * 既不显示在根层、也找不到容器，等于凭空消失。故先把组 id 收进集合，
-   * 遇到指向它的 parentId 一律置 null（回到根层，东西还在，只是不再归组）。
-   */
-  const deadParentIds = new Set((flow.graph.resultGroups ?? []).map((r) => String(r.id)))
-
   const remap = (s: string): string => idMap.get(s) ?? s
 
   const missingModels: string[] = []
   const seenModel = new Set<string>()
 
-  const nodes = flow.graph.nodes.map((n) => {
+  const mappedNodes = flow.graph.nodes.map((n) => {
     const data = deepRemapRefs(n.data as Record<string, unknown>, idMap)
     const model = (data as { model?: unknown }).model
     if (typeof model === 'string' && model && knownModels && !knownModels.has(model)) {
@@ -221,21 +223,49 @@ export function deserializeProject(
       ...n,
       id: remap(String(n.id)),
       projectId: newProjectId,
-      parentId:
-        n.parentId == null || deadParentIds.has(String(n.parentId))
-          ? null
-          : remap(String(n.parentId)),
+      /*
+       * 这里**只做重映射**，不做校验：校验统一放到下面那一段（判据是"父节点在不在 liveIds 里"）。
+       * 老实现单独认出"指向已下线结果组"的 id 再清空 —— 那种 id 既不在 idMap、也不会出现在
+       * liveIds 里，所以通用那段已经把它包含进去，且**计数只有一处**（否则界面会报 0）。
+       */
+      parentId: n.parentId == null ? null : remap(String(n.parentId)),
       data,
     }
   })
 
-  const edges = flow.graph.edges.map((e) => ({
-    ...e,
-    id: remap(String(e.id)),
-    projectId: newProjectId,
-    source: remap(String(e.source)),
-    target: remap(String(e.target)),
-  }))
+  /**
+   * **外来文件的引用完整性**（对账 #465）：只信"这份文件里真有的节点"。
+   *
+   * 判据只有一个：**被引用的节点在这份文件里存在吗**（`liveIds`）。手改过的文件、被别的工具
+   * 生成的片段，都可能留下**指向某个不存在节点**的引用 —— 老实现只认"指向结果组"那一种
+   * （组已下线，见 §6.9 的历史），现在换成通用判据。两种引用的后果都很难看：
+   *  - `parentId` 悬空 ⇒ 节点既不显示在根层（被当容器子节点剔除）、也找不到容器 ⇒ **凭空消失**；
+   *  - 连线端点悬空 ⇒ RF 找不到端点、子节点覆盖层也画不了 ⇒ 库里有一条**永远画不出来**的线，
+   *    而且它还会被下一次导出原样带走（"看不见的堆积"，与对账 #460 同一类）。
+   *
+   * 所以这里**在数据入口处**（反序列化）一次修干净，并把数量如实带给调用方。
+   */
+  const liveIds = new Set(mappedNodes.map((n) => String(n.id)))
+  const repaired = { droppedEdges: 0, detachedParents: 0 }
+  const nodes = mappedNodes.map((n) => {
+    if (n.parentId == null || liveIds.has(String(n.parentId))) return n
+    repaired.detachedParents += 1
+    return { ...n, parentId: null }
+  })
+
+  const edges = flow.graph.edges
+    .map((e) => ({
+      ...e,
+      id: remap(String(e.id)),
+      projectId: newProjectId,
+      source: remap(String(e.source)),
+      target: remap(String(e.target)),
+    }))
+    .filter((e) => {
+      const ok = liveIds.has(String(e.source)) && liveIds.has(String(e.target))
+      if (!ok) repaired.droppedEdges += 1
+      return ok
+    })
 
   /**
    * 素材行：**id 不重映射**（它本来就是内容哈希），`bytesBase64` 解回字节。
@@ -266,7 +296,7 @@ export function deserializeProject(
     extra: flow.project.extra ?? {},
   }
 
-  return { project, nodes, edges, assets, missingModels }
+  return { project, nodes, edges, assets, missingModels, repaired }
 }
 
 /** 递归改写所有等于旧 id 的字符串（用于 data 内的 linkedPromptNodeIds / childIds 等引用） */

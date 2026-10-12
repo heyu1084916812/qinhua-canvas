@@ -4,7 +4,7 @@
  * 产物：.playwright-verify/*.png 截图 + 控制台结果表
  */
 import { chromium } from 'playwright'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { deflateSync, crc32 } from 'node:zlib'
 
 const BASE = process.env.SMOKE_BASE ?? 'http://127.0.0.1:1420'
@@ -464,6 +464,30 @@ async function readNodeData(page, nodeId) {
         req.onerror = () => resolve({})
       }),
     nodeId,
+  )
+}
+
+/**
+ * 数某张表在库里的行数（直连 IndexedDB，与 `readNodeData` 同一条口径）。
+ *
+ * 为什么需要它（对账 #465）：**悬空引用**这件事在 DOM 上证明不了 ——
+ * 一条端点不存在的连线，React Flow 找不到端点、本来就画不出来 ⇒ 界面上
+ * "坏数据"和"干净数据"长得一模一样。要证明它没被写进库，只能去库上数。
+ */
+async function countRows(page, table) {
+  return page.evaluate(
+    (t) =>
+      new Promise((resolve) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => {
+          const db = req.result
+          const q = db.transaction(t, 'readonly').objectStore(t).count()
+          q.onsuccess = () => resolve(q.result)
+          q.onerror = () => resolve(-1)
+        }
+        req.onerror = () => resolve(-1)
+      }),
+    table,
   )
 }
 
@@ -1314,6 +1338,50 @@ async function g5(browser) {
   const nAfter = await nodeCount(page)
   rec(g, '导入项目节点数一致', nAfter === nBefore, `${nBefore} → ${nAfter}`)
   await page.screenshot({ path: `${OUT}/07-imported.png` })
+
+  /**
+   * **故意改坏的文件**（对账 #465）：端点不存在的连线 + 指向不存在父节点的归属。
+   *
+   * 为什么非要造一份坏文件：这两种引用**在界面上都看不出来** ——
+   * 悬空连线本来就画不出来、失效归属的节点则是**干脆不渲染**。
+   * 只验"能导入"证明不了引用被修过，所以这条判据落在两处硬证据上：
+   *   ① 播报里**说清了修掉什么**（不静默）；
+   *   ② 库里**边数 = 0**、节点数**与原文件一致**（坏归属的节点必须还在，不能凭空消失）。
+   */
+  await gotoProjects(page)
+  const raw = JSON.parse(readFileSync(file, 'utf8'))
+  const firstId = raw.graph.nodes[0].id
+  raw.graph.nodes[0] = { ...raw.graph.nodes[0], parentId: 'node_gone' }
+  raw.graph.edges = [
+    ...(raw.graph.edges ?? []),
+    { id: 'edge_gone', projectId: raw.project?.id, source: 'node_gone', target: firstId },
+  ]
+  const broken = `${OUT}/broken-refs.flow.json`
+  writeFileSync(broken, JSON.stringify(raw))
+
+  const fc2Promise = page.waitForEvent('filechooser', { timeout: 8000 })
+  await page.getByRole('button', { name: '导入' }).click()
+  const fc2 = await fc2Promise.catch(() => null)
+  if (!fc2) {
+    rec(g, '★★ 改坏的文件：导入触发文件选择', false, '未捕获 filechooser 事件')
+  } else {
+    await fc2.setFiles(broken)
+    await sleep(900)
+    const status = await page.getByRole('status').innerText()
+    rec(
+      g,
+      '★★ 改坏的文件：播报里说清修掉了什么',
+      /已清掉/.test(status) && /放回画布根层/.test(status),
+      status.replace(/\s+/g, ' ').slice(0, 80),
+    )
+    const edgesInDb = await countRows(page, 'edges')
+    rec(g, '★★ 悬空连线没有落库（库里边数 = 0）', edgesInDb === 0, `edges=${edgesInDb}`)
+    await page.locator('[data-project-card]').first().click()
+    await page.waitForURL(/\/canvas\//)
+    await sleep(600)
+    const nBroken = await nodeCount(page)
+    rec(g, '★★ 失效归属的节点被放回根层（没有凭空消失）', nBroken === nBefore, `${nBefore} → ${nBroken}`)
+  }
 
   await ctx.close()
 }
@@ -4587,6 +4655,32 @@ async function g42(browser) {
   await page.goto(BASE, { waitUntil: 'networkidle' })
   await sleep(400)
   await ensureSidebarOpen(page)
+
+  /**
+   * **无项目时点一级「画布」→ 回项目页**（对账 #464）。
+   *
+   * 文档 §14.1 的 E2E-19 原本写"打开空白画布"，而 2026-09-27 **有意改过**：
+   * 老的 `projectId='demo'` 兜底会凭空新建一个叫 demo 的项目、把用户真工作留在别处。
+   * 这条断言钉的是**当前口径**（落在 `/projects`）—— 谁把它改回"开一个临时画布"，它就会红。
+   * 新 context ⇒ 一个项目都没有，正好是这个场景的前提。
+   */
+  await page.locator('[data-sidebar-item="/canvas"]').click()
+  /**
+   * ⚠️ **要等 URL 落定**：`/canvas` 是路由级 lazy（chunk 得先下载），
+   * `<Navigate>` 是在那一帧渲染时才执行的 —— 点完立刻读 URL 会读到 `/canvas` 本身。
+   * （第一版固定 sleep 500ms 就是这么红的：不是行为错，是判据读早了。）
+   */
+  await page.waitForURL(/\/projects$/, { timeout: 8000 }).catch(() => {})
+  rec(
+    g,
+    '★ 无项目时点「画布」→ 落回项目页（E2E-19 的当前口径）',
+    new URL(page.url()).pathname === '/projects',
+    page.url(),
+  )
+  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await ensureSidebarOpen(page)
+  await sleep(200)
+
   await page.locator('[data-sidebar-settings]').click()
   await sleep(500)
   rec(
