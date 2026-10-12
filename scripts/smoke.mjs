@@ -29154,12 +29154,35 @@ try {
     try {
       await gfn(browser)
     } catch (err) {
+      const msg = String(err?.message ?? err)
+      /**
+       * ★ **环境失败要停下来如实说**（2026-10-12 加）。
+       *
+       * 实测（全量第 46 轮第五轮）：浏览器**瞬时崩了一次**，此后每一组都以
+       * `browser.newContext: … browser has been closed` 失败 —— 于是末行变成
+       * `635 passed / 84 failed / 719 total`，**看起来像 84 个产品缺陷**，
+       * 而真相是"这一轮的结果整体不算数"。
+       *
+       * 这与上面那条注释同源、方向相反：**"这组没跑过"不等于"通过"，
+       * 但"浏览器挂了"也不等于"这 84 组都坏了"**。故这里记**一条**环境失败就收工。
+       */
+      if (/browser has been closed|browser has disconnected|Target page, context or browser has been closed/i.test(msg)) {
+        results.push({
+          group: gfn.name,
+          name: '★ 环境失败（浏览器已关闭 ⇒ 本轮结果不算数，重跑）',
+          pass: false,
+          detail: msg.slice(0, 300),
+        })
+        console.log(`\n⚠️ 环境失败：浏览器在 ${gfn.name} 处关闭 —— 这一轮的结果不算数，重跑。`)
+        console.log(`  细节：${msg.slice(0, 240)}`)
+        break
+      }
       /**
        * 细节留 1600 字（原来 200）：Playwright 的点击超时里**最有用的那句**
        * （谁 intercept 了、元素可不可见）通常在第 6–12 行，截到 200 就正好把它切掉，
        * 于是"组内异常"只剩一句 Timeout（2026-10-06 实测：靠它定位 #313 的浮层遮挡时白跑一轮）。
        */
-      rec(gfn.name, '★ 组内异常（该组没跑完 → 结果不算数）', false, String(err?.message ?? err).slice(0, 1600))
+      rec(gfn.name, '★ 组内异常（该组没跑完 → 结果不算数）', false, msg.slice(0, 1600))
     }
   }
 } finally {
@@ -29169,6 +29192,9 @@ try {
 const pass = results.filter((r) => r.pass).length
 const fail = results.length - pass
 console.log(`\n===== ${pass} passed / ${fail} failed / ${results.length} total =====`)
+if (results.some((r) => r.name.startsWith('★ 环境失败'))) {
+  console.log('⚠️ 本轮以**环境失败**结束（浏览器关闭）—— 上面的 failed 数**不是产品缺陷数**，请重跑一轮。')
+}
 if (fail) {
   console.log('\n失败项：')
   for (const r of results.filter((x) => !x.pass)) console.log(` - [${r.group}] ${r.name} ${r.detail}`)
