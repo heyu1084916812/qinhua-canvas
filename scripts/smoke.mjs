@@ -1338,8 +1338,16 @@ async function g6(browser) {
 
   // 用户切回标签 1（标签 2 转 hidden → 触发 flush + 广播）
   await p1.bringToFront()
-  await sleep(900)
-  const banner = await p1.getByText('项目已在其他标签页修改').isVisible().catch(() => false)
+  /*
+   * 等横幅**真出现**再断言：原来固定等 900ms，而链路本身有"防抖 + 转 hidden 才 flush + BroadcastChannel"
+   * 三段异步 —— 全量第 46 轮第四轮实测没赶上（`1741/1/1742` 里那唯一一条红）。
+   * 与 G118 那次同源：**别拿固定等待赌异步链**。
+   */
+  const banner = await p1
+    .getByText('项目已在其他标签页修改')
+    .waitFor({ state: 'visible', timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
   rec(g, '跨标签写入出现提示横幅', banner, banner ? '' : '未出现（广播仅在页面隐藏时触发）')
   if (banner) await p1.screenshot({ path: `${OUT}/08-cross-tab-banner.png` })
 
@@ -23274,6 +23282,18 @@ async function g118(browser) {
     (await page.locator('[data-empty-canvas-guide]').count()) === 1 &&
       JSON.stringify(picks) === JSON.stringify(['batch-img', 'img2video', 'img2img']),
     picks.join(','),
+  )
+  /*
+   * 命中区：这张卡片上的 `×`（aria-label「不用了」）实测曾是 **20×20** —— 全站唯一低于
+   * WCAG 2.2 AA「目标尺寸（最小）」24×24 的控件（其余最小 28）。判据直接量**屏幕矩形**，
+   * 因为用户点得到的就是它（面板那种 0.75 缩放也已经被 rect 算进去了）。
+   */
+  const closeBox = await page.locator('[data-empty-guide-close]').boundingBox()
+  rec(
+    g,
+    '★★ 引导卡片的关闭按钮命中区 ≥ 24×24（WCAG 2.2 AA 目标尺寸）',
+    !!closeBox && closeBox.width >= 24 && closeBox.height >= 24,
+    closeBox ? `${closeBox.width}×${closeBox.height}` : '量不到',
   )
   await page.locator('[data-empty-template="batch-img"]').click()
   await sleep(900)

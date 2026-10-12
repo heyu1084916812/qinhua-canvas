@@ -24,10 +24,15 @@
 /* 右上角"不用了"：卡片是可关的 —— 不能变成一块赶不走的浮层 */
 .close {
   position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 20px;
-  height: 20px;
+  /*
+   * 命中区 ≥ 24×24（WCAG 2.2 AA「目标尺寸（最小）」；产品文档 §4.5 要求"主要控件命中区足够大"）。
+   * 实测(2026-10-12)：原来是 20×20 —— 全站**唯一**一处低于 24 的控件（其余最小 28）。
+   * 视觉上 `×` 的中心不动：20×20 @6/6 的中心是 (16,16)，28×28 @2/2 的中心还是 (16,16)。
+   */
+  top: 2px;
+  right: 2px;
+  width: 28px;
+  height: 28px;
   border: none;
   border-radius: var(--radius-control);
   background: transparent;
