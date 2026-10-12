@@ -7304,6 +7304,13 @@ async function g56(browser) {
   await sleep(700)
 
   const host = page.locator('[data-canvas-minimap]')
+  /**
+   * ⚠️ **别拿固定等待赌渲染**（2026-10-12 全量第 2 轮实测）：这一组紧跟 G55（连传 3 张大图）跑，
+   * 机器还在忙的时候 `sleep(700)` 之后小地图**还没挂上** ⇒ 第一条断言 `count=0` 红，
+   * **而紧接着那条"尺寸 200×140"却是绿的** —— 同一组里前后矛盾就说明是"读得太早"，不是产品没画。
+   * 改成等元素出现再数（判据一个字没改）。
+   */
+  await host.first().waitFor({ state: 'attached', timeout: 10000 }).catch(() => {})
   const hostCount = await host.count()
   rec(g, '画布右下角有小地图', hostCount === 1, `count=${hostCount}`)
   const box = await host.boundingBox()
