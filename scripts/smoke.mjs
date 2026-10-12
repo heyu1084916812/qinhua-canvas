@@ -6671,7 +6671,7 @@ async function g52(browser) {
   await page.waitForURL(/\/canvas\//)
   await sleep(700)
 
-  // ── 顶栏有「导入素材」按钮（拖放之外的第二条路）──
+  // ── 左工具栏有「导入素材」按钮（拖放之外的第二条路；旧顶栏 2026-10-12 已退役，见对账 #459）──
   rec(g, '工具栏出现「导入素材」按钮', (await page.locator('[data-toolbar-import]').count()) === 1)
 
   // ── 生成节点加号：选择器被真的调起，且参数合法 ──
@@ -7197,7 +7197,7 @@ async function g55(browser) {
     page.waitForEvent('filechooser', { timeout: 8000 }).catch(() => null),
     page.locator('[data-toolbar-import]').click(),
   ])
-  rec(g, '顶栏「导入素材」调起文件选择', !!chooser, chooser ? '' : 'no filechooser event')
+  rec(g, '工具栏「导入素材」调起文件选择', !!chooser, chooser ? '' : 'no filechooser event')
   if (!chooser) {
     rec(g, '（后续断言跳过：没有文件选择框）', false, '')
     await ctx.close()
