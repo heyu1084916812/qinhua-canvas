@@ -23255,7 +23255,16 @@ async function g118(browser) {
     await page.locator('[data-new-workbench="canvas"]').click()
   })
   await page.waitForURL(/\/canvas\//)
-  await sleep(900)
+  /*
+   * 等卡片**真的挂上**再数，不拿固定等待赌它（全量第 46 轮第二轮实测：`sleep(900)` 之后
+   * `[data-empty-canvas-guide]` 还没渲染 ⇒ 判据红，而紧接着"点模板"那一步却点得到 ——
+   * 是**读得太早**，不是卡片没出现）。与「判据里有两段异步时各等各的」同一条纪律。
+   */
+  await page.locator('[data-empty-canvas-guide]').waitFor({ state: 'visible', timeout: 15000 }).catch(() => {})
+  await page
+    .locator('[data-empty-template="batch-img"]')
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .catch(() => {})
   const picks = await page
     .locator('[data-empty-template]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-empty-template')))
