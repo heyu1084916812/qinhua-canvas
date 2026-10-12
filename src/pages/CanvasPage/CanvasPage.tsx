@@ -2,11 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useLocation, useNavigate, Navigate } from 'react-router-dom'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { openGlobalSettings } from '../../state/ui/globalSettings'
-import {
-  flushOnPageHide,
-  broadcastWrite,
-  subscribeExternalWrites,
-} from '../../app/session'
+import { subscribeExternalWrites } from '../../app/session'
+import { useProjectWriteSafety } from '../../app/useProjectWriteSafety'
 import { createStore } from '../../state/createStore'
 import { canvasStoreFor } from '../../state/workbenches/canvas/storeCache'
 import { CanvasStoreProvider } from '../../workbenches/canvas/storeContext'
@@ -172,14 +169,11 @@ function CanvasProject({ projectId }: { projectId: string }) {
 
   useEffect(() => () => store.dispose(), [store])
 
-  // 会话与启动（产品文档 §2.4 / §4.4）：离开前台 / 关闭前强制 flush，并广播写入
-  useEffect(() => {
-    if (projectId === 'demo') return
-    return flushOnPageHide(() => {
-      void store.flush()
-      broadcastWrite(projectId)
-    })
-  }, [store, projectId])
+  /**
+   * 会话与启动（产品文档 §2.4 / §4.4）：离开前台 / 关闭前强制 flush + 落库后广播。
+   * **与电商页共用同一份**（`useProjectWriteSafety`）—— 那两个页面共用同一个 store。
+   */
+  useProjectWriteSafety(projectId, store)
 
   // 多标签写入检测：其他标签改了本项目时提示用户刷新
   useEffect(() => {
@@ -226,25 +220,6 @@ function CanvasProject({ projectId }: { projectId: string }) {
       delete (window as unknown as Record<string, unknown>).__seedPerfGraph
     }
   }, [store])
-
-  // 落库后即广播（不只页面隐藏时）：两个窗口并排时也能收到提示
-  useEffect(() => {
-    if (projectId === 'demo') return
-    let timer: ReturnType<typeof setTimeout> | null = null
-    let lastGraph = store.getSnapshot()
-    const unsub = store.subscribe(() => {
-      const g = store.getSnapshot()
-      if (g === lastGraph) return
-      lastGraph = g
-      if (timer) clearTimeout(timer)
-      // 略晚于 800ms 的持久化防抖，确保广播时数据已落库
-      timer = setTimeout(() => broadcastWrite(projectId), 1000)
-    })
-    return () => {
-      unsub()
-      if (timer) clearTimeout(timer)
-    }
-  }, [store, projectId])
 
   /** 在当前视口中心放置一个节点并选中（顶栏「＋ X」按钮共用） */
   const addNodeAtCenter = async (type: NodeType) => {

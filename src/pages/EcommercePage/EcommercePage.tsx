@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { useNavigate, useParams } from 'react-router-dom'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
+import { useProjectWriteSafety } from '../../app/useProjectWriteSafety'
 import { createStore } from '../../state/createStore'
 import { CanvasStoreProvider, useCanvasStore, useGraph } from '../../workbenches/canvas/storeContext'
 import {
@@ -145,6 +146,16 @@ function EcommerceProject({ projectId }: { projectId: string }) {
    * 实例是共用的，`dispose()` 只做 flush、不销毁状态 —— 紧接着进画布页仍拿得到同一个 store。
    */
   useEffect(() => () => store.dispose(), [store])
+
+  /**
+   * **关窗口 / 切到后台**也要冲一次，并广播给别的窗口（对账 #453）。
+   *
+   * `dispose()` 只在**路由离开**时跑；用户在这一页直接关窗口时它不会执行 ——
+   * 画布页因为接了这两道保险所以没事，电商页原先没有 ⇒ "出完图立刻关窗口"那 ≤800ms
+   * 的写入没人兜底，且两个窗口并排时这里的写入不会通知对面。
+   * 与画布页**共用同一份**实现，别再各写一套。
+   */
+  useProjectWriteSafety(projectId, store)
 
   /** 从库里读回图（与画布页同一口径：只读一次，避免把内存里正在跑的写入盖回去） */
   useEffect(() => {
