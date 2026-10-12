@@ -773,7 +773,8 @@ async function configureMockChannel(page, { token = null, enable = true, pick = 
    * 用「状态区有非空文案」这条与实现无关的判据更稳。
    */
   const verified = await page
-    .locator('[role="status"]')
+    /* 用**稳定锚点**而不是 `[role="status"]`：失败档的状态行是 `role=alert`（§4.5），按角色找会扑空 */
+    .locator('[data-settings-status]')
     .filter({ hasText: /\S/ })
     .first()
     .waitFor({ state: 'visible', timeout: 10000 })
@@ -1407,14 +1408,14 @@ async function g8(browser) {
    */
   const ok = await page
     .waitForFunction(
-      () => /\d+ms/.test(document.querySelector('[role="status"]')?.textContent ?? ''),
+      () => /\d+ms/.test(document.querySelector('[data-settings-status]')?.textContent ?? ''),
       null,
       { timeout: 15000 },
     )
     .then(() => true)
     .catch(() => false)
   rec(g, '验证地址通过（只测连通性）', ok)
-  const statusText = (await page.locator('[role="status"]').innerText()).replace(/\s+/g, '')
+  const statusText = (await page.locator('[data-settings-status]').innerText()).replace(/\s+/g, '')
   rec(g, '状态行含协议名与延迟（§7.3）', statusText.includes('Mock') && /\d+ms/.test(statusText), statusText)
   rec(g, '状态行不再提「发现 N 个模型」（那不是验证的产出）', !statusText.includes('个模型'), statusText)
 
@@ -1424,7 +1425,7 @@ async function g8(browser) {
   // 拉取模型 → 缓存到位，但**不**替用户勾选
   await page.getByRole('button', { name: '拉取模型' }).click()
   await page.getByText(/已拉取模型/).waitFor({ state: 'visible', timeout: 8000 }).catch(() => {})
-  const pulledText = (await page.locator('[role="status"]').innerText()).replace(/\s+/g, '')
+  const pulledText = (await page.locator('[data-settings-status]').innerText()).replace(/\s+/g, '')
   rec(g, '拉取模型状态行给出数量', pulledText.includes('已拉取模型') && /发现3个模型/.test(pulledText), pulledText)
   rec(g, '拉取后仍未自动勾选（未选模型空态）', (await page.locator('[data-models-none]').count()) === 1)
 
@@ -4923,7 +4924,7 @@ async function g43(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 120)))
 
   const norm = (s) => s.replace(/\s+/g, '')
-  const statusText = async () => norm(await page.locator('[role="status"]').innerText())
+  const statusText = async () => norm(await page.locator('[data-settings-status]').innerText())
 
   await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
   await sleep(400)
@@ -14286,7 +14287,7 @@ async function g89(browser) {
   /* 状态行就地读（`statusText` 是别的组自己作用域里的助手，G89 没有它） */
   const cliText = (
     await page
-      .locator('[role="status"]')
+      .locator('[data-settings-status]')
       .first()
       .innerText()
       .catch(() => '')
