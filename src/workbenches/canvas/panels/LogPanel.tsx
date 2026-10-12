@@ -211,6 +211,15 @@ function LogRow({
             </span>
           )}
         </div>
+        {/*
+          失败原因（对账 #469）：页内提示把用户指到「原因见日志」，那这里就**必须真的写出原因** ——
+          在此之前这一行只有状态胶囊上的「失败」两个字，用户照着提示打开日志，看不到任何可排查的信息。
+        */}
+        {record.errorText && (
+          <div className={styles.errorText} data-log-error>
+            {record.errorText}
+          </div>
+        )}
         {params.prompt && (
           <div className={styles.promptText} title="点击复制提示词" onClick={onCopy}>
             {params.prompt}

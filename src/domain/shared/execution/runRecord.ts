@@ -42,6 +42,16 @@ export interface RunRecord<TParams = unknown> {
   requestedWidth?: number
   requestedHeight?: number
   /**
+   * **失败原因**（人话，`shared/result.describeError` 的产物；对账 #469）。
+   *
+   * 为什么必须落进留痕：失败时页内提示写的是「生成失败：N 个任务没出图（**原因见日志**）」——
+   * 而在加这个字段之前，`RunRecord` **压根没有装原因的字段**，日志里那行只有状态胶囊上「失败」两个字：
+   * 用户被指向日志，日志却一个字都不说；刷新之后连节点上那份瞬时错误态也没了 ⇒
+   * **这次为什么失败，永远查不出来**（实测：渠道指到本地地址跑一趟，日志里只有「失败 / 0.0s / 输出 0 个」）。
+   * 只记**人话文案**，不记原始异常对象（那是另一层，也不适合落库）。
+   */
+  errorText?: string
+  /**
    * 渠道**实际返回**的产物像素（§6.18「实际1024x1024」），取自产物字节的文件头。
    * 与 `requested*` 刻意分成两组：合成一组时「请求 = 实际」恒成立，
    * 日志里两个数永远相等——那是把缺口「看起来填上了」，不是填上了。
@@ -68,6 +78,7 @@ export function createRunRecord<TParams>(args: {
   sentModel?: string
   requestedWidth?: number
   requestedHeight?: number
+  errorText?: string
   outputWidth?: number
   outputHeight?: number
 }): RunRecord<TParams> {

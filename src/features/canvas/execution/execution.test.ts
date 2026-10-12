@@ -639,6 +639,8 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
 
     expect(channel.callCount).toBe(3)
     expect(summary.succeeded).toBe(1)
+    // 成功那条**不该**带失败原因（免得日志给成功记录挂一句"为什么失败"）
+    expect(summary.records[0]!.errorText).toBeUndefined()
   })
 
   it('超过重试上限记为失败，并留下 failed 版本的 RunRecord', async () => {
@@ -651,6 +653,9 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     expect(channel.callCount).toBe(2)
     expect(summary.failed).toBe(1)
     expect(summary.records[0]!.status).toBe('failed')
+    // ★ 失败原因必须落进留痕（对账 #469）：页内提示把用户指到日志，日志里就得真写着"为什么"。
+    // 只断言 "status === failed" 证明不了这件事 —— 加字段之前它同样是 failed、日志里却一个字都没有。
+    expect(summary.records[0]!.errorText).toContain('HTTP 500')
   })
 
   it('执行前已取消：任务跳过，不产生调用与结果', async () => {

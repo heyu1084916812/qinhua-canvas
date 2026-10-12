@@ -2,7 +2,7 @@ import type { RunPlan, RunTask } from '../../../domain/shared/execution/plan'
 import type { RunRequest } from '../../../domain/shared/execution/types'
 import type { RunRecord } from '../../../domain/shared/execution/runRecord'
 import type { TransactionBoundary } from '../../../state/shared/types'
-import type { AppError } from '../../../shared/result'
+import { describeError, type AppError } from '../../../shared/result'
 import type { ChannelAdapter, GeneratedAsset } from '../../../platform/channels/types'
 import { ChannelError } from '../../../platform/channels/types'
 import { backoffMs, isRetryableStatus } from '../../../domain/shared/task'
@@ -326,6 +326,12 @@ export async function runEngine<TTask extends RunTask, TCommand>(
       status,
       state.kind === 'succeeded' ? assets : [],
       finishedAt - startedAt,
+      /**
+       * 失败原因**当场翻成人话**再落库（对账 #469）：`describeError` 是纯函数、
+       * 没有副作用；把原始 `AppError` 直接塞进留痕会让日志面板与存储都背上内部结构。
+       * 取消**不算**失败原因（用户自己按的取消，不需要"为什么"）。
+       */
+      state.kind === 'failed' ? describeError(state.error) : undefined,
     )
     const recordCommand = placement.record(task, targetId, record)
     if (recordCommand !== null) write([recordCommand])
@@ -368,6 +374,8 @@ function makeRecord(
   status: RunRecord['status'],
   assets: GeneratedAsset[],
   durationMs: number,
+  /** 失败时的人话原因（对账 #469：日志里必须能读到"为什么没出图"） */
+  errorText?: string,
 ): RunRecord {
   return {
     id: createId('rec'),
@@ -391,6 +399,7 @@ function makeRecord(
     fingerprint: task.fingerprint,
     taskId: task.id,
     durationMs,
+    ...(errorText ? { errorText } : {}),
     ...pixelFieldsOf(assets),
   }
 }

@@ -133,10 +133,19 @@
   background: var(--bg-hover);
 }
 
+/*
+ * 失败原因（对账 #469）。
+ *
+ * 这行文字是**用户排查的唯一线索**：页内提示写的是「生成失败：N 个任务没出图（原因见日志）」。
+ * 所以它必须可选中、可复制（要拿去搜 / 发给客服），且**不是**可点控件 —— 早先这里留着
+ * `cursor: pointer` 却没有任何点击行为，读起来像"点它有事发生"。
+ */
 .errorText {
+  margin-top: 2px;
   font-size: 11px;
   color: var(--danger);
-  cursor: pointer;
+  overflow-wrap: anywhere;
+  user-select: text;
 }
 
 .recordSide {
