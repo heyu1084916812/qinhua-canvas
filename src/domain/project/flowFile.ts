@@ -31,6 +31,19 @@ export interface FlowGraph {
   edges: FlowRow[]
   resultGroups?: FlowRow[]
   assets?: FlowRow[]
+  /**
+   * 这一页的**漫剧文档**（`storyboards` 表那一行里的 `doc`，对账 #455）。
+   *
+   * 为什么必须跟着项目走：`.flow.json` 的用途之一就是"**单个项目搬家**"（产品文档 §5.7），
+   * 而漫剧的剧本 / 分集 / 分镜**不在节点图里** —— 不带它，搬过去的项目就是一个**空剧本**，
+   * 而用户以为"整个项目都搬过来了"。
+   *
+   * ⚠️ 这里**只当成一段不透明的 JSON 搬运**：不解析、不校验、不改字段
+   * （读回时由 `parseStoryboard` 负责补齐与丢弃孤儿镜头）。这样做是为了不让
+   * `domain/project` 反向依赖 `domain/storyboard` —— 那是跨域耦合，本项目已经为同类问题
+   * 挪过一次文件（对账 #422）。
+   */
+  storyboard?: Record<string, unknown>
 }
 
 export interface FlowFileV1 {
@@ -65,6 +78,8 @@ export function serializeProject(
     graph: {
       nodes: graph.nodes.map((r) => ({ ...r })),
       edges: graph.edges.map((r) => ({ ...r })),
+      /* 没有漫剧文档时**不写这个键**（`undefined` 过 JSON.stringify 会自己消失，两版形状一致） */
+      ...(graph.storyboard ? { storyboard: { ...graph.storyboard } } : {}),
       assets: graph.assets?.map(toFlowAssetRow),
     },
   }
@@ -84,7 +99,7 @@ export function serializeProject(
  */
 export async function* serializeProjectStream(
   project: Project,
-  graph: { nodes: FlowRow[]; edges: FlowRow[] },
+  graph: { nodes: FlowRow[]; edges: FlowRow[]; storyboard?: Record<string, unknown> },
   meta: { exportedAt: number },
   assets: AsyncIterable<FlowRow>,
 ): AsyncGenerator<string> {
@@ -99,9 +114,11 @@ export async function* serializeProjectStream(
   })
   const nodesPart = JSON.stringify(graph.nodes.map((r) => ({ ...r })))
   const edgesPart = JSON.stringify(graph.edges.map((r) => ({ ...r })))
+  /** 漫剧文档：与 `serializeProject` **同一位置、同一形状**（有单测钉着两版 deep-equal） */
+  const storyboardPart = graph.storyboard ? `,"storyboard":${JSON.stringify(graph.storyboard)}` : ''
   yield (
     `{"format":"qinghua.flow","version":1,"exportedAt":${meta.exportedAt},` +
-    `"project":${projectPart},"graph":{"nodes":${nodesPart},"edges":${edgesPart},"assets":[`
+    `"project":${projectPart},"graph":{"nodes":${nodesPart},"edges":${edgesPart}${storyboardPart},"assets":[`
   )
   let first = true
   for await (const row of assets) {

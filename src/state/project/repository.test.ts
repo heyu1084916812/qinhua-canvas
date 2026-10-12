@@ -141,4 +141,36 @@ describe('ProjectRepository（内存存储）', () => {
     // 原项目未被改动
     expect(await storage.query('nodes', { projectId: p.id })).toHaveLength(2)
   })
+
+  /**
+   * ★★ 复制项目要带上漫剧文档（对账 #456）。
+   *
+   * `GRAPH_TABLES`（复制）与 `PROJECT_CASCADE_TABLES`（删除级联）是**两份不同的集合**，
+   * 而 `storyboards` 当初只加进了删除那一份 ⇒ 复制出来的漫剧项目「有画布、没剧本」。
+   */
+  it('★★ duplicate 也抄漫剧文档：副本有自己的那一行，`projectId` 内外都换成副本 id', async () => {
+    const storage = createMemoryStorage()
+    const repo = createProjectRepository(storage)
+    const p = await repo.create({ name: '漫剧原项目', workbench: 'storyboard' })
+    const doc = {
+      projectId: p.id,
+      title: '雨夜快递',
+      episodes: [{ id: 'ep1', name: '第一集', shots: [{ id: 'sh1', scene: '雨夜街道' }] }],
+    }
+    await storage.put('storyboards', { id: p.id, projectId: p.id, updatedAt: 1, doc })
+
+    const copy = await repo.duplicate(p.id)
+
+    const rows = await storage.query('storyboards', { projectId: copy.id })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].id).toBe(copy.id)
+    const copied = rows[0].doc as typeof doc
+    expect(copied.title).toBe('雨夜快递')
+    expect(copied.episodes).toHaveLength(1)
+    expect(copied.projectId).toBe(copy.id)
+    // 原件一个字没动
+    const origin = await storage.query('storyboards', { projectId: p.id })
+    expect(origin).toHaveLength(1)
+    expect((origin[0].doc as typeof doc).projectId).toBe(p.id)
+  })
 })

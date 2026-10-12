@@ -60,13 +60,20 @@ export async function exportProject(
   opts: ExportOptions = {},
 ): Promise<ExportResult> {
   await platform.storage.open()
-  const [projRows, nodes, edges] = await Promise.all([
+  const [projRows, nodes, edges, storyboardRows] = await Promise.all([
     platform.storage.query('projects', { id: projectId }),
     platform.storage.query('nodes', { projectId }),
     platform.storage.query('edges', { projectId }),
+    /**
+     * 这一页的漫剧文档（对账 #455）：**它是项目内容的一部分**，不是缓存。
+     * 少了它，"导出 → 拖进新机器"搬过去的是一个**空剧本**（节点在、剧本没了），
+     * 而 `.flow.json` 的用途之一就是单个项目搬家。
+     */
+    platform.storage.query('storyboards', { projectId }),
   ])
   const project = projRows[0]
   if (!project) throw new Error(`[flowIo] 导出失败：项目不存在 ${projectId}`)
+  const storyboard = storyboardRows[0]?.doc as Record<string, unknown> | undefined
 
   const safeName = (String(project.name) || 'project').replace(/[\\/:*?"<>|]/g, '_')
   const fileName = `${safeName}.flow.json`
@@ -88,7 +95,7 @@ export async function exportProject(
     const parts: BlobPart[] = []
     for await (const part of serializeProjectStream(
       project as unknown as Project,
-      { nodes: nodes as never, edges: edges as never },
+      { nodes: nodes as never, edges: edges as never, storyboard },
       { exportedAt },
       assetRowsByHashes(platform, hashes, opts.onProgress),
     )) {
@@ -101,7 +108,7 @@ export async function exportProject(
 
   const flow = serializeProject(
     project as unknown as Project,
-    { nodes: nodes as never, edges: edges as never, assets: [] as never },
+    { nodes: nodes as never, edges: edges as never, storyboard, assets: [] as never },
     { exportedAt },
   )
   // 只带结构的这一档很小，缩进留着 —— 用户可能自己打开看一眼
@@ -184,12 +191,30 @@ export async function importProjectFromFile(
   }
   project.name = name
 
-  await platform.storage.transaction(['projects', 'nodes', 'edges', 'assets'], async () => {
-    await platform.storage.put('projects', project as never)
-    for (const r of nodes) await platform.storage.put('nodes', r as never)
-    for (const r of edges) await platform.storage.put('edges', r as never)
-    for (const r of assets) await platform.storage.put('assets', r as never)
-  })
+  /**
+   * 漫剧文档跟着一起落库（对账 #455）：**与项目同一个事务** ——
+   * 分开写会出现"项目建好了、剧本没跟上"的中间态（中途失败时用户看到的就是空剧本）。
+   *
+   * `projectId` 换成新项目的 id（文档内层那个字段也换），读回时 `parseStoryboard` 还会再规范化一次。
+   */
+  const storyboard = flow.graph.storyboard
+  await platform.storage.transaction(
+    ['projects', 'nodes', 'edges', 'assets', 'storyboards'],
+    async () => {
+      await platform.storage.put('projects', project as never)
+      for (const r of nodes) await platform.storage.put('nodes', r as never)
+      for (const r of edges) await platform.storage.put('edges', r as never)
+      for (const r of assets) await platform.storage.put('assets', r as never)
+      if (storyboard) {
+        await platform.storage.put('storyboards', {
+          id: newId,
+          projectId: newId,
+          updatedAt: Date.now(),
+          doc: { ...storyboard, projectId: newId },
+        } as never)
+      }
+    },
+  )
 
   const item: ProjectListItem = { ...(project as unknown as Project), nodeCount: nodes.length }
   return { project: item, missingModels, flowName: picked.name }

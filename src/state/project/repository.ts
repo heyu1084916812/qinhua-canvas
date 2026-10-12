@@ -253,6 +253,16 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
       }
       const nodes = await storage.query('nodes', { projectId: id })
       const edges = await storage.query('edges', { projectId: id })
+      /**
+       * 漫剧文档**跟着副本一起抄**（对账 #456）。
+       *
+       * `GRAPH_TABLES` 只含 nodes / edges，而那两个常量管的是两件事：
+       * **复制**抄什么、**删除**级联清什么。`storyboards` 当初加进了级联那份（#382），
+       * 复制这份**漏了** ⇒ 复制一个漫剧项目得到的是「有画布、没剧本」的副本，
+       * 而用户以为复制的是整个项目（剧本 / 分集 / 分镜都是项目内容，不是日志）。
+       */
+      const storyboardRows = await storage.query('storyboards', { projectId: id })
+      const storyboardDoc = storyboardRows[0]?.doc as Record<string, unknown> | undefined
       const idMap = new Map<string, string>()
       const newNodes = nodes.map((r) => {
         const nid = createId('node')
@@ -266,10 +276,18 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
         source: idMap.get(String(r.source)) ?? String(r.source),
         target: idMap.get(String(r.target)) ?? String(r.target),
       }))
-      await storage.transaction(['projects', ...GRAPH_TABLES], async () => {
+      await storage.transaction(['projects', ...GRAPH_TABLES, 'storyboards'], async () => {
         await storage.put('projects', copy as never)
         for (const n of newNodes) await storage.put('nodes', n as never)
         for (const e of newEdges) await storage.put('edges', e as never)
+        if (storyboardDoc) {
+          await storage.put('storyboards', {
+            id: copy.id,
+            projectId: copy.id,
+            updatedAt: now,
+            doc: { ...storyboardDoc, projectId: copy.id },
+          } as never)
+        }
       })
       return { ...copy, nodeCount: newNodes.length }
     },

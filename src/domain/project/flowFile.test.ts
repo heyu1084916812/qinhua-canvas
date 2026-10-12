@@ -183,14 +183,17 @@ describe('serializeProjectStream', () => {
     { id: 'hash_remote', projectId: 'proj_old', mime: 'video/mp4', url: 'https://example.com/a.mp4' },
   ]
 
-  async function read(assets: FlowRow[]): Promise<{ text: string; parts: string[] }> {
+  async function read(
+    assets: FlowRow[],
+    storyboard?: Record<string, unknown>,
+  ): Promise<{ text: string; parts: string[] }> {
     const parts: string[] = []
     const source = (async function* () {
       for (const row of assets) yield row
     })()
     for await (const part of serializeProjectStream(
       project,
-      { nodes: graph.nodes, edges: graph.edges },
+      { nodes: graph.nodes, edges: graph.edges, storyboard },
       { exportedAt: 9999 },
       source,
     )) {
@@ -208,6 +211,25 @@ describe('serializeProjectStream', () => {
   it('没有素材时也是合法 JSON：assets 是空数组', async () => {
     const { text } = await read([])
     expect(JSON.parse(text).graph.assets).toEqual([])
+  })
+
+  /**
+   * ★ 带漫剧文档时，两版序列化器**形状仍然一致**（对账 #455）。
+   *
+   * 这条是防"两版漂移"的：`.flow.json` 有两份实现（普通版给缩进、流式版给大文件），
+   * 新字段只加一边，就会出现"小文件带剧本、大文件（含素材）把剧本丢在路上"这种
+   * 只在某一条路上出现的洞 —— 而含素材导出恰恰是**换机器的兜底**。
+   */
+  it('★ 带漫剧文档时两版形状一致：同一个键、同一个位置', async () => {
+    const storyboard = {
+      projectId: 'proj_old',
+      title: '雨夜快递',
+      episodes: [{ id: 'ep1', name: '第一集', shots: [] }],
+    }
+    const expected = serializeProject(project, { ...graph, storyboard, assets: rows }, { exportedAt: 9999 })
+    const { text } = await read(rows, storyboard)
+    expect(JSON.parse(text)).toEqual(expected)
+    expect(JSON.parse(text).graph.storyboard).toEqual(storyboard)
   })
 
   it('★ 逐段产出：头 + 每张素材一段 + 尾（不是攒到最后一次吐出来）', async () => {

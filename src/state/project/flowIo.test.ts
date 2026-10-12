@@ -102,6 +102,62 @@ describe('flowIo 导出 / 导入', () => {
     expect(ids).toContain(importedEdges[0].target)
   })
 
+  /**
+   * ★★ 漫剧文档要跟着项目走（对账 #455）。
+   *
+   * 剧本 / 分集 / 分镜**不在节点图里** —— 不带它，"导出 → 拖到新机器"搬过去的就是
+   * 一个**空剧本**（节点都在、剧本没了），而用户以为整个项目都过来了。
+   */
+  it('★★ 导出 / 导入带着漫剧文档：剧本还在，且 `projectId` 换成新项目', async () => {
+    const doc = {
+      projectId: 'proj1',
+      title: '雨夜快递',
+      logline: '一晚，一单，一个人',
+      body: '第一场：雨。',
+      updatedAt: 300,
+      episodes: [{ id: 'ep1', name: '第一集 · 雨夜', shots: [{ id: 'sh1', scene: '雨夜的街道' }] }],
+    }
+    const seed: Partial<Record<TableName, Row[]>> = {
+      projects: [baseProject as unknown as Row],
+      nodes: baseGraph.nodes as unknown as Row[],
+      edges: baseGraph.edges as unknown as Row[],
+      storyboards: [{ id: 'proj1', projectId: 'proj1', updatedAt: 300, doc } as unknown as Row],
+    }
+    const { platform, storage, getSaved, setPicked } = makePlatform(seed)
+    const repo = createProjectRepository(storage)
+
+    await exportProject(platform, 'proj1')
+    setPicked({ name: 'out.flow.json', size: 0, mime: 'application/json', blob: getSaved() as Blob })
+    const res = await importProjectFile(platform, repo)
+
+    const rows = await storage.query('storyboards', { projectId: res.project!.id })
+    expect(rows).toHaveLength(1)
+    const imported = rows[0].doc as typeof doc
+    expect(imported.title).toBe('雨夜快递')
+    expect(imported.episodes).toHaveLength(1)
+    expect(imported.episodes[0].shots).toHaveLength(1)
+    // 内外两处都换成新项目 id（不然读回时会挂到旧项目名下）
+    expect(rows[0].id).toBe(res.project!.id)
+    expect(imported.projectId).toBe(res.project!.id)
+  })
+
+  it('★ 老文件（没有 storyboard 字段）照样导入：不失败、也不凭空建一行空剧本', async () => {
+    const seed: Partial<Record<TableName, Row[]>> = {
+      projects: [baseProject as unknown as Row],
+      nodes: baseGraph.nodes as unknown as Row[],
+      edges: baseGraph.edges as unknown as Row[],
+    }
+    const { platform, storage, getSaved, setPicked } = makePlatform(seed)
+    const repo = createProjectRepository(storage)
+
+    await exportProject(platform, 'proj1')
+    setPicked({ name: 'out.flow.json', size: 0, mime: 'application/json', blob: getSaved() as Blob })
+    const res = await importProjectFile(platform, repo)
+
+    expect(res.cancelled).toBeFalsy()
+    expect(await storage.query('storyboards', { projectId: res.project!.id })).toHaveLength(0)
+  })
+
   it('重名自动加后缀', async () => {
     const flow: FlowFileV1 = serializeProject(
       { ...baseProject, id: 'pX', name: '目标名' },
