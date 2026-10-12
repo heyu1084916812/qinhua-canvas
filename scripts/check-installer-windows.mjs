@@ -10,6 +10,14 @@
  *    条件不满足会直接退出，不硬来。
  * ⚠️ 它**不会**进 `npm run check`：装软件这种事不该在每个提交上自动发生 ——
  *    发第一版、或改动过安装器配置（`tauri.conf.json` 的 `bundle` / NSIS 设置）时手动跑一次。
+ *
+ * ## 升级段（2026-10-12 补）
+ *
+ * 本地 `release/` 里还留着旧版安装包时，脚本会**先装上一版、再用这一版覆盖安装**，
+ * 补上"装 → 卸"那条路验不到的两件事：**数据原封不动** + **老数据读得回来**
+ * （判据落到可见处：侧栏「最近项目」条数不许变、`data\` 总字节不许缩水 ——
+ * 覆盖安装若把库抹了，"能不能打开"照样是绿的）。
+ * 没有旧包时这一段**如实打印"没跑"**，不算通过。
  * ✅ 安装器会往 `HKCU\Software\qinghua\轻画` 的默认值写"这次装到哪了"（静默升级要用），
  *    脚本跑完会把**原值**写回去，并在最后一条断言里核对。
  *
@@ -23,7 +31,7 @@
  */
 import { createHash } from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { chromium } from 'playwright'
@@ -86,6 +94,95 @@ async function waitFor(fn, timeoutMs = 90000) {
   return false
 }
 
+/** 目录总字节（升级前后比一次：覆盖安装**不许**把数据抹掉） */
+function dirBytes(dir) {
+  if (!existsSync(dir)) return 0
+  let total = 0
+  const walk = (d) => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name)
+      if (e.isDirectory()) walk(p)
+      else total += statSync(p).size
+    }
+  }
+  walk(dir)
+  return total
+}
+
+/**
+ * 本地还留着哪一版旧安装包（用于**升级段**）。
+ *
+ * `release/` 是 gitignore 目录 ⇒ 新机器上不会有旧包；那种情况下升级段**如实跳过并打印原因**，
+ * 不假装验过。版本号按数字段比较（0.1.10 > 0.1.9 这种不能按字符串排）。
+ */
+function findPreviousSetup() {
+  const root = path.join(ROOT, 'release')
+  if (!existsSync(root)) return null
+  const found = []
+  for (const v of readdirSync(root)) {
+    if (v === VERSION) continue
+    const file = path.join(root, v, `qinghua_${v}_x64-setup.exe`)
+    if (existsSync(file)) found.push({ version: v, file, parts: v.split('.').map(Number) })
+  }
+  found.sort((a, b) => {
+    for (let i = 0; i < 3; i += 1) {
+      if ((a.parts[i] ?? 0) !== (b.parts[i] ?? 0)) return (b.parts[i] ?? 0) - (a.parts[i] ?? 0)
+    }
+    return 0
+  })
+  return found[0] ?? null
+}
+
+/**
+ * 启动某个 exe（走 CDP），读首页那几样东西，然后收工。
+ *
+ * 读的 `projects` 是**项目页的卡片数** —— 它是"库里到底有没有东西"最直白的可见证据
+ * （覆盖安装若把数据抹了，这个数会掉到 0，而"能不能打开"照样是绿的）。
+ * ⚠️ 一开始读的是侧栏「最近项目」的条数，但**首页收起态下它恒为 0**，等于什么都没验；
+ *   改成显式跳到 `/projects` 数卡片（与 `check-release-shell.mjs` 同一条口径）。
+ */
+async function launchAndRead(exe) {
+  if (!existsSync(exe)) return null
+  const app = spawn(exe, [], {
+    cwd: APP,
+    env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}` },
+    stdio: 'ignore',
+  })
+  const t0 = Date.now()
+  let cdp = false
+  while (Date.now() - t0 < 60000 && !cdp) {
+    try {
+      cdp = (await fetch(`http://127.0.0.1:${PORT}/json/version`)).ok
+    } catch {
+      /* 还没起来 */
+    }
+    if (!cdp) await sleep(500)
+  }
+  let out = null
+  if (cdp) {
+    const browser = await chromium.connectOverCDP(`http://127.0.0.1:${PORT}`)
+    const page = browser.contexts().flatMap((c) => c.pages())[0]
+    await page?.waitForLoadState('domcontentloaded').catch(() => {})
+    await page?.locator('[data-home-page]').waitFor({ timeout: 30000 }).catch(() => {})
+    const home = await page?.evaluate(() => ({
+      url: location.href,
+      platform: document.documentElement.dataset.platform ?? null,
+      home: !!document.querySelector('[data-home-page]'),
+    }))
+    let projects = -1
+    if (home) {
+      await page.goto(`${new URL(home.url).origin}/projects`).catch(() => {})
+      await page.locator('[data-projects-heading]').waitFor({ timeout: 20000 }).catch(() => {})
+      projects = await page.locator('[data-project-workbench]').count().catch(() => -1)
+    }
+    out = home ? { ...home, projects } : null
+    await browser.close().catch(() => {})
+  }
+  spawnSync('taskkill', ['/pid', String(app.pid), '/T', '/F'], { stdio: 'ignore' })
+  await sleep(1500)
+  return out
+}
+
 // ── 前置：机器上不能已经有装好的正式版 ───────────────────────────────
 const defaultInstall = path.join(process.env.LOCALAPPDATA ?? '', '轻画')
 if (existsSync(path.join(defaultInstall, 'qinghua.exe')) || regKeyExists(UNINSTALL_KEY)) {
@@ -108,6 +205,36 @@ console.log(`安装到：${APP}`)
 console.log(`记住的位置键（跑前）：${rememberedBefore ?? '（无）'}`)
 
 mkdirSync(SCRATCH, { recursive: true })
+
+/**
+ * ── 升级段（本地留着旧包时才跑）：**先装上一版，再用这一版覆盖安装** ──
+ *
+ * 用户真实的升级动作就是"双击新安装包盖上去"。这条路上有两件事必须成立，而"装 → 卸"那条路验不到：
+ * ① **数据原封不动**（安装器不许动同级 `data\`）；② **老数据读得回来**（升级后首页仍看得到那些项目）。
+ * 所以判据抬到"可见"这一层：覆盖安装若把库抹了，"能不能打开"照样是绿的，但侧栏「最近项目」会掉。
+ * ⚠️ 强度取决于这台机器上本来有没有数据：`最近项目=0` 的机器上，这条只能验"没变"（0=0）。
+ */
+const prev = findPreviousSetup()
+let upgrade = null
+if (prev) {
+  console.log(`升级段：先装 ${prev.version}，再用 ${VERSION} 覆盖安装`)
+  const first = spawnSync(prev.file, ['/S', `/D=${APP}`], { stdio: 'ignore', windowsHide: true })
+  const before = first.status === 0 ? await launchAndRead(path.join(APP, 'qinghua.exe')) : null
+  upgrade = {
+    version: prev.version,
+    installed: first.status === 0,
+    projectsBefore: before?.projects ?? -1,
+    bytesBefore: dirBytes(DATA),
+  }
+  check(
+    '升级前置：上一版能静默装上并跑起来（拿到"升级前的样子"）',
+    upgrade.installed && !!before?.home,
+    `${prev.version} status=${first.status} · 项目卡片=${upgrade.projectsBefore} · data=${upgrade.bytesBefore} B`,
+  )
+} else {
+  console.log('升级段：本地没有上一版安装包（release/ 是 gitignore）⇒ **这一段没跑**，不是通过')
+}
+
 const install = spawnSync(SETUP, ['/S', `/D=${APP}`], { stdio: 'ignore', windowsHide: true })
 check('静默安装进程退出码 0', install.status === 0, `status=${install.status}`)
 
@@ -148,41 +275,25 @@ writeFileSync(marker, 'uninstall must keep this file\n', 'utf8')
 // 启动**装出来的那份**：证明安装布局下也能打开，且数据落在同级 data\
 let boot = null
 if (existsSync(installedExe)) {
-  const app = spawn(installedExe, [], {
-    cwd: APP,
-    env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}` },
-    stdio: 'ignore',
-  })
-  const t0 = Date.now()
-  let cdp = false
-  while (Date.now() - t0 < 60000 && !cdp) {
-    try {
-      cdp = (await fetch(`http://127.0.0.1:${PORT}/json/version`)).ok
-    } catch {
-      /* 还没起来 */
-    }
-    if (!cdp) await sleep(500)
-  }
-  if (cdp) {
-    const browser = await chromium.connectOverCDP(`http://127.0.0.1:${PORT}`)
-    const page = browser.contexts().flatMap((c) => c.pages())[0]
-    await page?.waitForLoadState('domcontentloaded').catch(() => {})
-    await page?.locator('[data-home-page]').waitFor({ timeout: 30000 }).catch(() => {})
-    boot = await page?.evaluate(() => ({
-      url: location.href,
-      platform: document.documentElement.dataset.platform ?? null,
-      home: !!document.querySelector('[data-home-page]'),
-    }))
-    await browser.close().catch(() => {})
-  }
-  spawnSync('taskkill', ['/pid', String(app.pid), '/T', '/F'], { stdio: 'ignore' })
-  await sleep(1500)
+  boot = await launchAndRead(installedExe)
   check('装出来的那份能打开（首页渲染 + desktop 平台）', !!boot?.home && boot?.platform === 'desktop', JSON.stringify(boot))
   check(
     '数据落在同级 data\\（闸门 1–4 在安装布局下生效）',
     existsSync(path.join(DATA, 'EBWebView')),
     DATA,
   )
+  if (upgrade) {
+    /**
+   * ★★ 升级段的收口判据：**覆盖安装之后，老数据读得回来**。
+   * 两条一起看：项目页的卡片数不许变（这台机器上是那份迁移过来的真库）；`data\` 总字节不许缩水。
+     */
+    const bytesAfter = dirBytes(DATA)
+    check(
+      '★★ 覆盖安装（升级）之后：老数据还在 —— 项目页卡片数不变、data\\ 没缩水',
+      boot?.projects === upgrade.projectsBefore && bytesAfter >= upgrade.bytesBefore * 0.98,
+      `${upgrade.version}→${VERSION} · 项目卡片 ${upgrade.projectsBefore}→${boot?.projects} · data ${upgrade.bytesBefore}→${bytesAfter} B`,
+    )
+  }
 }
 
 // ── 卸载 ──────────────────────────────────────────────────────────
