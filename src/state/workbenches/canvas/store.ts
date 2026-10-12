@@ -344,11 +344,29 @@ function createPersister(platform: PlatformKit, debounceMs: number) {
 
   const merge = (p: PersistPlan) => {
     for (const u of p.upserts) {
+      /**
+       * ★★ **同一行"后写覆盖先写"必须跨批次也成立**（2026-10-12 实修）。
+       *
+       * 落库器把一批待写操作**先全部 upsert、再全部 delete**。于是"删掉节点 → 800ms 防抖窗口内
+       * 按 Ctrl+Z 撤销"这一串会攒成 `pending = [upsert(恢复的行), delete(那次删除)]` ⇒
+       * **删在后面** ⇒ 内存里节点好好的、**库里那行没了** —— 刷新一次就真丢（数据丢失，不是显示问题）。
+       * 修法：合并新计划时让**后来的操作把先前的相反操作抵消掉**（按 id 对消，与 `writeOnce`
+       * 自己"先 upsert 后 delete"的语义一致 —— 单个计划内部不会出现同一行的先删后写）。
+       */
+      const upsertIds = new Set(u.rows.map((r) => r.id))
+      pending.deletes = pending.deletes
+        .map((d) => (d.table === u.table ? { ...d, ids: d.ids.filter((id) => !upsertIds.has(id)) } : d))
+        .filter((d) => d.ids.length > 0)
       const found = pending.upserts.find((x) => x.table === u.table)
       if (found) found.rows.push(...u.rows)
       else pending.upserts.push({ table: u.table, rows: [...u.rows] })
     }
     for (const d of p.deletes) {
+      // 反过来：后到的删除要把先前排队的那几行丢掉（同一行不能让"先写后删"翻回去）
+      const delIds = new Set(d.ids)
+      pending.upserts = pending.upserts
+        .map((u) => (u.table === d.table ? { ...u, rows: u.rows.filter((r) => !delIds.has(r.id)) } : u))
+        .filter((u) => u.rows.length > 0)
       const found = pending.deletes.find((x) => x.table === d.table)
       if (found) found.ids.push(...d.ids)
       else pending.deletes.push({ table: d.table, ids: [...d.ids] })

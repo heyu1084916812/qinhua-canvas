@@ -51,6 +51,31 @@ describe('canvas store / 撤销与重做', () => {
     expect((await platform.storage.query('nodes', { id }))[0]).toMatchObject({ x: 0, y: 0 })
   })
 
+  /**
+   * ★★ 同一类的兄弟缺陷（2026-10-12 查）：
+   *
+   * 落库器把一批待写操作**先全部 upsert、再全部 delete**。于是"删掉节点 → 800ms 防抖窗口内撤销"
+   * 这一串会变成：pending = [upsert(恢复的那一行), delete(那次删除)] ⇒ 删在后面 ⇒
+   * **内存里节点好好的、库里却没了** —— 刷新一次就真没了（数据丢失，不是显示问题）。
+   * 判据必须读**库**：只断言内存 / DOM 的用例全绿着。
+   */
+  it('★ 删除后立刻撤销（同一个防抖窗口）：库里必须留着那一行', async () => {
+    const store = createCanvasStore({ platform, projectId: 'p1', debounceMs: 1 })
+    store.dispatch({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } })
+    const id = store.getSnapshot().nodes[0]!.id
+    await store.flush()
+    expect(await platform.storage.query('nodes', { id })).toHaveLength(1)
+
+    // 都不 flush：让两次操作落进**同一个** pending（真实场景就是 800ms 防抖窗口里按了 Ctrl+Z）
+    store.dispatch({ kind: 'node.delete', ids: [id] })
+    store.undo()
+    expect(store.getSnapshot().nodes).toHaveLength(1)
+    await store.flush()
+
+    const rows = await platform.storage.query('nodes', { id })
+    expect(rows).toHaveLength(1)
+  })
+
   it('move 后 undo 回到原位，redo 再前进', () => {
     const store = createCanvasStore({ platform, projectId: 'p1' })
     store.dispatch({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } })
