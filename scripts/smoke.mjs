@@ -29494,6 +29494,53 @@ async function g152(browser) {
     `放大后=${grown.w} 收到=${floored.w} 下限期望=240`,
   )
 
+  /**
+   * ★ E2E-12 的另一半：**只靠键盘**把节点连起来（对账 #472）。
+   *
+   * 为什么补在这组：E2E-12 的 Then 要求"仅键盘完成 建节点 → **连接** → 生成"。
+   * 实测（`probe-keyboard-connect.mjs`）建节点与键盘选中都是通的，唯独"连接"断掉 ——
+   * 端点是 `tabIndex=-1`、空白松手菜单只能由拖拽触发。现在 `L` 复用同一个 `LinkMenu`。
+   */
+  const beforeNodes = await page.locator('[data-node-id]').count()
+  const beforeEdges = await page.locator('[data-edge]').count()
+  await page.keyboard.press('KeyL')
+  const menuShown = await page
+    .locator('[data-link-menu]')
+    .waitFor({ state: 'visible', timeout: 3000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★ 按 L 打开「可连接菜单」（拉端点连线的键盘替代操作）', menuShown)
+  const firstFocused = await page.evaluate(
+    () => document.activeElement?.getAttribute('role') === 'menuitem',
+  )
+  rec(g, '★ 焦点被收进菜单的第一项（方向键才会作用在菜单上）', menuShown && firstFocused)
+  // 用方向键走到「新建并连接」那一段（不赌它是第几项）
+  let onSection = false
+  for (let i = 0; i < 8 && !onSection; i += 1) {
+    onSection = await page.evaluate(
+      () => !!document.activeElement?.closest('[data-link-menu-section="create"]'),
+    )
+    if (!onSection) {
+      await page.keyboard.press('ArrowDown')
+      await sleep(120)
+    }
+  }
+  rec(g, '★ 方向键能在菜单项之间移动（走到「新建并连接」段）', onSection)
+  await page.keyboard.press('Enter')
+  await sleep(1000)
+  const afterNodes = await page.locator('[data-node-id]').count()
+  const afterEdges = await page.locator('[data-edge]').count()
+  rec(
+    g,
+    '★★ 回车就"建出来并连上"（键盘把连接这一步走完）',
+    afterNodes === beforeNodes + 1 && afterEdges === beforeEdges + 1,
+    `节点 ${beforeNodes}→${afterNodes}｜连线 ${beforeEdges}→${afterEdges}`,
+  )
+  const focusBack = await page.evaluate(
+    () => !document.activeElement?.closest('[data-link-menu]'),
+  )
+  rec(g, '★ 菜单关掉后焦点不在已卸载的菜单里', focusBack)
+
   await page.screenshot({ path: `${OUT}/152-g152-boxkeys.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()

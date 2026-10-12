@@ -63,6 +63,8 @@ export function LinkMenu() {
   /** 新建节点要带默认配方（用户 2026-09-23：三个入口必须同源） */
   const channels = useChannels()
   const ref = useRef<HTMLDivElement>(null)
+  /** 已经"把焦点收进去"的那一次打开（对象身份会随 setState 变，用它挡住重复收焦） */
+  const openedRef = useRef<unknown>(null)
   const [size, setSize] = useState({ w: 180, h: 0 })
   const menu = useSyncExternalStore(store.subscribe, store.getLinkMenu, store.getLinkMenu)
 
@@ -81,16 +83,50 @@ export function LinkMenu() {
       store.closeLinkMenu()
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') store.closeLinkMenu()
+      if (e.key === 'Escape') {
+        store.closeLinkMenu()
+        return
+      }
+      /**
+       * 方向键在菜单项之间移动 —— **只在键盘打开时接管**（对账 #472）。
+       * 指针用户从拖线过来，没有"焦点在菜单里"这回事，替他们接管方向键只会抢画布的键盘导航。
+       */
+      if (!menu.keyboard) return
+      const items = [...(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
+      if (items.length === 0) return
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        const at = items.indexOf(document.activeElement as HTMLElement)
+        const step = e.key === 'ArrowDown' ? 1 : -1
+        items[at < 0 ? 0 : (at + step + items.length) % items.length]?.focus()
+      } else if (e.key === 'Home' || e.key === 'End') {
+        e.preventDefault()
+        items[e.key === 'Home' ? 0 : items.length - 1]?.focus()
+      }
     }
     const onWheel = () => store.closeLinkMenu()
     window.addEventListener('pointerdown', onDown)
     window.addEventListener('keydown', onKey)
     window.addEventListener('wheel', onWheel, { passive: true })
+    /**
+     * 键盘打开时把**焦点收进菜单**，关闭时**还给原来那个元素**。
+     *
+     * 不收焦点的话方向键还在画布上飞（菜单看着开着、操作却作用在节点上）；
+     * 不还焦点的话关掉菜单后键盘用户就"丢"在当前页面里，得重新 Tab 找回来。
+     * `openedRef` 挡住重复：store 里对象身份会变（每次 setState 都是新对象），
+     * 但"打开"这件事只该发生一次。
+     */
+    let restore: HTMLElement | null = null
+    if (menu.keyboard && openedRef.current !== menu) {
+      openedRef.current = menu
+      restore = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      ref.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+    }
     return () => {
       window.removeEventListener('pointerdown', onDown)
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('wheel', onWheel)
+      if (restore && restore.isConnected) restore.focus()
     }
   }, [menu, store])
 

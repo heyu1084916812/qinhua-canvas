@@ -151,6 +151,14 @@ interface CanvasState {
     side: LinkSide
     portId?: string
     also?: string[]
+    /**
+     * **这次菜单是键盘打开的**（对账 #472）。
+     *
+     * 为什么要这个标记：键盘用户的焦点得真的**进到菜单里**（否则方向键还在画布上飞），
+     * 而指针用户从拖线过来 —— 给他们自动抢焦点会平白多一圈焦点环，是看得见的变化。
+     * 所以只对键盘这条路开焦点管理，指针那条路一字不动。
+     */
+    keyboard?: boolean
   } | null
   /** 正在重命名标题的节点（§4.1 右键「重命名」/ §4.3 单击标题） */
   renamingId: string | null
@@ -276,6 +284,8 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
     side: LinkSide,
     portId?: string,
     also?: readonly string[],
+    /** 键盘打开时为 true（菜单自己会把焦点收进去；指针那条路不传） */
+    keyboard?: boolean,
   ): void
   closeLinkMenu(): void
   getLinkMenu(): CanvasState['linkMenu']
@@ -599,11 +609,19 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     setMenu: (x, y, target) => store.setState({ menu: { x, y, target } }),
     closeMenu: () => store.setState({ menu: null }),
     getMenu: () => store.getState().menu,
-    setLinkMenu: (x, y, nodeId, side, portId, also) =>
+    setLinkMenu: (x, y, nodeId, side, portId, also, keyboard) =>
       // 拖线期间与拖线结束到菜单关闭期间，创作面板保持隐藏（§6.14「拖线状态」）。
       // 复用 panelDismissed：它本来就表达「这次交互不弹面板，等下一次显式选中」。
       store.setState({
-        linkMenu: { x, y, nodeId, side, portId, ...(also?.length ? { also: [...also] } : {}) },
+        linkMenu: {
+          x,
+          y,
+          nodeId,
+          side,
+          portId,
+          ...(also?.length ? { also: [...also] } : {}),
+          ...(keyboard ? { keyboard: true } : {}),
+        },
         menu: null,
         panelDismissed: true,
       }),

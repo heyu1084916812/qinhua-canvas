@@ -19,6 +19,36 @@ import {
 } from '../../domain/canvas/navigation/spatial'
 import { fitCanvasView } from './surface/fitView'
 import { minSizeOf } from './nodeMinSize'
+import { getSpec } from '../../domain/canvas/nodeSpecs/registry'
+import { portDeclOf } from '../../domain/canvas/nodeSpecs/ports'
+import { toWorldRectInGraph } from '../../domain/canvas/geometry/coords'
+
+/**
+ * 给键盘用户打开「可连接菜单」（对账 #472）：**拖端点连线只有指针一条路**。
+ *
+ * 实测（`probe-keyboard-connect.mjs`）：键盘能建节点（工具栏菜单 Tab 可达）、
+ * 也能选中节点（Tab + 方向键），但到"连接"这一步就断了 —— 端点是 `tabIndex=-1`
+ * （不可聚焦）、`Shift+F10` 不开菜单、菜单里也没有"连接"项。
+ *
+ * 这条函数复用**同一个** `LinkMenu`：候选、落位、连边语义与拖线一字不差
+ * （`linkMenuSections` + `wireAll` 是同一份实现）。坐标口径也照旧 ——
+ * `setLinkMenu` 收的是 **surface 局部屏幕坐标**，锚点取节点右边缘中部。
+ */
+function openLinkMenuForKeyboard(store: CanvasStore, nodeId: string): boolean {
+  const surface = document.querySelector<HTMLElement>('[data-canvas-surface]')
+  if (!surface) return false
+  const graph = store.getSnapshot()
+  const node = graph.nodes.find((n) => n.id === nodeId)
+  if (!node) return false
+  const rect = toWorldRectInGraph(node, graph)
+  const vp = store.getViewport()
+  const x = (rect.x + rect.w - vp.x) * vp.zoom
+  const y = (rect.y - vp.y) * vp.zoom
+  /** 多选时把其余节点一并交给菜单（与拖线那条路的 `also` 同义：新建节点要连**整个选区**） */
+  const also = store.getSelection().filter((id) => id !== nodeId)
+  store.setLinkMenu(x, y, nodeId, 'output', 'output', also, true)
+  return true
+}
 
 /**
  * `Alt + 方向键` 的两档（§4.5「拖拽替代」/ §6.20）：**拖拽的键盘替代**。
@@ -137,6 +167,24 @@ export function useCanvasKeyboard(store: CanvasStore): void {
 
       // —— 文本框 / 激活类控件（按钮等）内不接管 Tab，保留原生焦点移动（无障碍 §4.5） ——
       if (inMinimap(e.target)) return
+      /**
+       * —— `L` = 给**选中的节点**开「连接」菜单（对账 #472）——
+       *
+       * 这是"拉端点连线"的键盘替代操作（WCAG 2.2 AA 那条「所有拖拽提供可见替代操作」）：
+       * 复用同一个 `LinkMenu`，所以候选节点、新建并连接的落位、连边语义与拖线完全一致。
+       * 没有输出端点的节点（或压根没选中）静默不动 —— 与其它画布快捷键同一条口径。
+       */
+      if (e.code === 'KeyL' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (inText || isActivationTarget(target)) return
+        const graph = store.getSnapshot()
+        const node = graph.nodes.find((n) => n.id === store.getSelection()[0])
+        if (!node) return
+        const ports = getSpec(node.type)?.ports ?? { input: false, output: false }
+        if (!portDeclOf(ports, 'output')) return
+        if (!openLinkMenuForKeyboard(store, node.id)) return
+        e.preventDefault()
+        return
+      }
       if (e.key === 'Tab') {
         if (inText || isActivationTarget(target)) return
         const nodes = topLevelNavNodes()
