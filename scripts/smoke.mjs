@@ -3056,6 +3056,9 @@ async function g16(browser) {
           top: Math.round(Math.min(...bs.map((b) => b.top)) - r.top),
           right: Math.round(r.right - Math.max(...bs.map((b) => b.right))),
           bottom: Math.round(r.bottom - Math.max(...bs.map((b) => b.bottom))),
+          /* 子节点各自的渲染尺寸：E2E-16 要的是"**内部单元**始终 200×160"，
+             只量容器总尺寸证明不了它（容器对、格子错也可能） */
+          kids: bs.map((b) => `${Math.round(b.width)}x${Math.round(b.height)}`),
         }
       }, batchId)
     const gap1 = await gaps()
@@ -3079,6 +3082,27 @@ async function g16(browser) {
       '★★ 缩到最小仍保持四边留白（不遮住子节点，#319）',
       gap2.bottom >= 12 && gap2.left >= 12 && gap2.right >= 12 && gap2.top >= 12 && Math.abs(gap2.bottom - gap2.right) <= 8,
       `缩后 容器 ${gap2.w}×${gap2.h}；四边 上${gap2.top} 下${gap2.bottom} 左${gap2.left} 右${gap2.right}`
+    )
+    /**
+     * ★ E2E-16（产品文档 §14.1）：「内部单元始终 200×160；外部容器停在内容 + 四边等距 20px」。
+     *
+     * 上面那条判据是**范围**（留白 ≥12、上下左右大致相等），抓得住"被盖住"，抓不住"撑高"。
+     * 这一条把两个设计常量钉成**等式**：单元 `PACKED_CELL = 200×160`、四边 `CONTAINER_PADDING = 20`
+     * （`domain/canvas/layout/constants.ts`），2 个成员一排时的算式就是
+     *   宽 = 2×200 + 1×16(单元间距) + 2×20 = **456**；高 = 160 + 2×20 = **200**。
+     * 旧口径把容器撑成 5:4（456×365、下方空 183px）—— 这条一加，那种回退当场红。
+     */
+    rec(
+      g,
+      '★★ 容器尺寸 =「2 个单元 + 间距 + 四边 20px」= 456×200（E2E-16）',
+      gap2.w === 456 && gap2.h === 200,
+      `容器 ${gap2.w}×${gap2.h}（期望 456×200）`
+    )
+    rec(
+      g,
+      '★★ 内部单元各是 200×160（E2E-16 的另一半）',
+      gap2.kids.length === 2 && gap2.kids.every((k) => k === '200x160'),
+      `单元=${gap2.kids.join(' / ')}`
     )
   }
   await page.screenshot({ path: `${OUT}/28-g16-batch-filled.png` })
@@ -5018,6 +5042,36 @@ async function g42(browser) {
     '画布页不再有旧的顶部悬浮栏（§6.2）',
     (await page.locator('[data-topbar]').count()) === 0,
   )
+
+  /**
+   * ★ E2E-18（产品文档 §14.1）：**画布项目已打开 → 点侧栏「最近项目」里的另一项 → 直接切到那个 `/canvas/:id`**。
+   *
+   * 判据读的是 **URL 里那个 projectId**，不是"页面变了" —— 两个空白项目长得一模一样，
+   * 只有 id 能证明真的切过去了（而且它同时验了"壳常驻、不用先回项目页"这件事）。
+   */
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="blank"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(700)
+  const currentId = new URL(page.url()).pathname.split('/').pop()
+  await ensureSidebarOpen(page)
+  const otherRecent = page
+    .locator(`[data-sidebar-recent-item]:not([data-sidebar-recent-item="${currentId}"])`)
+    .first()
+  const targetId = await otherRecent.getAttribute('data-sidebar-recent-item').catch(() => null)
+  if (!targetId) {
+    rec(g, '★ 画布页点「最近项目」里的另一项 → 切到它的 /canvas/:id（E2E-18）', false, '侧栏里没有别的项目')
+  } else {
+    await otherRecent.click()
+    await page.waitForURL(new RegExp(`/canvas/${targetId}$`), { timeout: 8000 }).catch(() => {})
+    rec(
+      g,
+      '★ 画布页点「最近项目」里的另一项 → 切到它的 /canvas/:id（E2E-18）',
+      page.url().endsWith(`/canvas/${targetId}`),
+      `${currentId} → ${targetId}｜URL=${page.url()}`,
+    )
+  }
 
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors[0] ?? '')
 
