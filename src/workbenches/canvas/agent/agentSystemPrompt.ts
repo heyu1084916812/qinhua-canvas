@@ -2,6 +2,7 @@ import type { NodeSnapshot } from '../../../domain/canvas/model/node'
 import { GENERATION_PARAM_KEYS } from '../../../domain/canvas/nodeSpecs/newNodePreset'
 import { allSpecs } from '../../../domain/canvas/nodeSpecs/registry'
 import type { GraphSummary } from './tools'
+import type { ToolDeclaration } from '../../../domain/shared/execution/types'
 
 /**
  * Agent 的系统提示词（设计文档 §4.1 的四段）。
@@ -386,6 +387,12 @@ export interface AgentPromptExtras {
    * 它写计划时不必再猜用哪个模型，也不会自作主张换成别的。
    */
   mediaModels?: { image?: string; video?: string }
+  /**
+   * 路线 B：渠道不支持原生 tools 时，改成"每次只输出一个 JSON 工具调用"。
+   * 这里要把工具声明再列一遍，模型才知道 `tool` 能填什么。
+   */
+  jsonToolFallback?: boolean
+  tools?: readonly ToolDeclaration[]
 }
 
 /**
@@ -504,6 +511,21 @@ export function buildAgentSystemPromptWithContext(
         ...media.map(([k, v]) => `- ${k === 'image' ? '图片' : '视频'}：${String(v)}`),
         '系统会按这个配好新节点的默认模型，**你不必在计划里再写一遍**；',
         '也不要用别的模型替掉它（除非用户在这条对话里明确点了另一个）。',
+      ].join('\n'),
+    )
+  }
+
+  if (extras.jsonToolFallback) {
+    parts.push(
+      [
+        '## 当前模型不支持原生工具调用（JSON 模式）',
+        '你仍然可以完成用户的任务，但**不要依赖 tool_calls**。每次只输出一个 JSON 对象，不要输出任何其它文字。',
+        '格式：`{"tool":"工具名","args":{...}}`。',
+        '可用工具：',
+        ...(extras.tools ?? []).map((tool) => `- ${tool.name}：${JSON.stringify(tool.parameters)}`),
+        '系统执行后会把结果作为一条 tool 消息回填给你；你根据结果继续输出下一个 JSON。',
+        '任务完成时输出：`{"tool":"final","args":{"message":"给用户看的总结"}}`。',
+        '如果用户只是提问、不需要动画布，也直接输出 final。',
       ].join('\n'),
     )
   }

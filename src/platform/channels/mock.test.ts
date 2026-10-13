@@ -199,3 +199,61 @@ describe('mock 渠道 / 文本调用带上素材（§6.7 反推）', () => {
     expect(r.text).toBe('mock:描述这张图')
   })
 })
+
+/**
+ * Agent 工具能力探测与 JSON 降级（设计文档 §7 路线 B）。
+ *
+ * 真实渠道分两类：会回 `tool_calls` 的和只回文字的。mock 必须把两类都演出来，
+ * 否则「探测 → 原生 or JSON 降级」这条路由在离线环境里只能验到一侧。
+ */
+describe('mock 渠道 · Agent 工具能力探测与 JSON 降级', () => {
+  const probe = (model: string): TextRunRequest => ({
+    kind: 'text',
+    channelId: 'c',
+    model,
+    prompt: '调用 agent_probe 工具，不要输出任何文字。',
+    inputs: [],
+    params: {},
+    tools: [
+      {
+        name: 'agent_probe',
+        description: '能力探测用的空工具。',
+        parameters: { type: 'object', properties: {} },
+      },
+    ],
+  })
+
+  it('★ 默认模型：收到探测工具就回 tool_calls（扮演“支持原生 tools”）', async () => {
+    const ch = createMockChannel()
+    const r = await ch.completeText(probe('mock-chat-1'), signal)
+    expect(r.toolCalls?.map((c) => c.name)).toEqual(['agent_probe'])
+  })
+
+  it('★★ mock-chat-no-tools：收下工具只回文字（扮演“不支持 tools”，触发 JSON 降级）', async () => {
+    const ch = createMockChannel()
+    const r = await ch.completeText(probe('mock-chat-no-tools'), signal)
+    expect(r.toolCalls ?? []).toHaveLength(0)
+  })
+
+  it('★★ JSON 模式提示词下不返回 tool_calls，只按 {"tool":...} 格式回文本', async () => {
+    const ch = createMockChannel()
+    const r = await ch.completeText(
+      {
+        kind: 'text',
+        channelId: 'c',
+        model: 'mock-chat-no-tools',
+        prompt: '',
+        inputs: [],
+        params: {},
+        tools: [],
+        messages: [
+          { role: 'system', content: '## 当前模型不支持原生工具调用（JSON 模式）' },
+          { role: 'user', content: '画一只猫' },
+        ],
+      },
+      signal,
+    )
+    expect(r.toolCalls ?? []).toHaveLength(0)
+    expect(JSON.parse(r.text)).toEqual({ tool: 'readGraph', args: { scope: 'all' } })
+  })
+})

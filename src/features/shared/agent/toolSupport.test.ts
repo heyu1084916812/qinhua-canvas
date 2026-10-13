@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   cachedToolSupport,
   clearToolSupportCache,
+  decideToolMode,
   ensureToolSupport,
   probeToolCalling,
 } from './toolSupport'
@@ -38,6 +39,8 @@ describe('工具调用能力探测', () => {
     const r = await probeToolCalling(adapter, KEY, signal)
     expect(r.supported).toBe(false)
     expect(r.reason).toContain('tool_calls')
+    // 这不是探测失败：模型拿到了工具声明但选择不调，可以降级到 JSON 工具调用
+    expect(r.probeFailed).toBeFalsy()
   })
 
   it('★★ 请求本身失败（如令牌过期）也记成不支持，但原因是原始错误', async () => {
@@ -49,6 +52,8 @@ describe('工具调用能力探测', () => {
     expect(r.supported).toBe(false)
     // 「不支持」与「配置坏了」是两件事，原因必须传得下去
     expect(r.reason).toContain('401')
+    // 探测请求本身失败必须单独标出来：这种降级到 JSON 也没用，要让用户去查渠道
+    expect(r.probeFailed).toBe(true)
   })
 
   it('★★ 同一个「渠道+模型」只探一次（缓存命中就不再发请求）', async () => {
@@ -76,5 +81,27 @@ describe('工具调用能力探测', () => {
     await ensureToolSupport(adapter, { channelId: 'ch1', model: 'b' }, signal)
 
     expect(spy).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('decideToolMode：探测结果 → 走原生 / 降级 / 报错', () => {
+  it('★ 支持原生 tools → native', () => {
+    expect(decideToolMode({ supported: true })).toEqual({ kind: 'use', mode: 'native' })
+  })
+
+  it('★★ 模型收下工具只回文字（非探测失败）→ 自动降级 JSON，不报错', () => {
+    expect(
+      decideToolMode({ supported: false, reason: '该模型收下了工具声明，但没有返回 tool_calls' }),
+    ).toEqual({ kind: 'use', mode: 'json' })
+  })
+
+  it('★★ 探测请求本身失败 → 报错让用户查渠道（降级也救不了）', () => {
+    const d = decideToolMode({
+      supported: false,
+      reason: 'API Key 无效或无权限（401/403）',
+      probeFailed: true,
+    })
+    expect(d.kind).toBe('error')
+    if (d.kind === 'error') expect(d.message).toContain('401')
   })
 })

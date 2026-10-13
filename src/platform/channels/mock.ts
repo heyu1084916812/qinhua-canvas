@@ -297,6 +297,24 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
     async completeText(request: TextRunRequest, signal: AbortSignal): Promise<TextResult> {
       await before(signal)
       /**
+       * **工具能力探测**（`toolSupport.probeToolCalling`）：它发一个空工具 `agent_probe`，
+       * 看渠道会不会回 `tool_calls`。
+       *
+       * mock 必须把这条也演出来 —— 真实渠道分「支持原生 tools」和「只回文字」两类，
+       * mock 若只有一种表现，「探测 → 原生 or JSON 降级」这条路由在离线冒烟里就永远
+       * 只走得到一侧。默认模型扮演支持方；`mock-chat-no-tools` 扮演收下工具却不调的一方。
+       */
+      if (request.tools?.some((t) => t.name === 'agent_probe')) {
+        if (request.model === 'mock-chat-no-tools') {
+          return { text: '我不调用任何工具。', finishReason: 'stop' }
+        }
+        return {
+          text: '',
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'mock-probe', name: 'agent_probe', args: '{}' }],
+        }
+      }
+      /**
        * **人脸识别那一问**（用户 2026-10-05 第五批第 1 条）：情绪面板会先用
        * `completeText` + 图片问一次「脸在哪」。真实模型回一个归一化 JSON 框，mock 也照做 ——
        * 否则「识别 → 裁局部 → 改图 → 融合」这条流水线在离线冒烟里永远走不到，只能靠手点。
@@ -519,6 +537,60 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
       }
       const images = imageInputsOf(request.inputs)
       const prefix = images.map((i) => `img:${i.assetHash.slice(0, 8)}`).join(',')
+      /**
+       * **JSON 工具调用降级**（设计文档 §7 路线 B）。
+       *
+       * 渠道不支持原生 `tool_calls` 时，系统提示词会切成「每次只输出一个
+       * `{"tool":"...","args":{...}}`」。mock 得把这条路也演完，否则
+       * 「不支持 tools 的对话模型也能建图/跑图」在离线环境里证明不了。
+       *
+       * 识别方式是提示词里那段固定标题（`agentSystemPrompt` 的「（JSON 模式）」）。
+       * 注意这条**必须放在带 tools 的原生分支能命中之前判断**：JSON 模式发出去的
+       * `tools` 是空数组，本来也不会进下面那个分支，靠标题认最稳。
+       */
+      if (asked.includes('（JSON 模式）')) {
+        const toolMsgs = request.messages?.filter((m) => m.role === 'tool') ?? []
+        const lastUser =
+          request.messages?.filter((m) => m.role === 'user').at(-1)?.content ?? '提示词'
+        const asJson = (tool: string, args: unknown): TextResult => ({
+          text: JSON.stringify({ tool, args }),
+          finishReason: 'stop',
+        })
+        if (toolMsgs.length === 0) {
+          return asJson('readGraph', { scope: 'all' })
+        }
+        if (toolMsgs.length === 1) {
+          return asJson('applyPlan', {
+            summary: `据「${lastUser.slice(0, 20)}」建一个提示词到生成的流程`,
+            nodes: [
+              { localId: 'p1', type: 'prompt', data: { text: lastUser }, order: 0 },
+              {
+                localId: 'g1',
+                type: 'generation',
+                data: { mode: 'image', prompt: lastUser },
+                order: 1,
+              },
+            ],
+            edges: [{ source: 'p1', target: 'g1' }],
+          })
+        }
+        if (toolMsgs.length === 2) {
+          const landed = toolMsgs
+            .map((m) => {
+              try {
+                return JSON.parse(m.content ?? '') as { createdNodeIds?: unknown }
+              } catch {
+                return null
+              }
+            })
+            .find((v) => v !== null && Array.isArray(v.createdNodeIds))
+          const ids = (landed?.createdNodeIds as string[] | undefined) ?? []
+          if (ids.length > 0) return asJson('runNode', { nodeIds: ids.slice(-1) })
+        }
+        return asJson('final', {
+          message: '已经建好了，画布上应该能看到两个节点。',
+        })
+      }
       /**
        * **Agent 形态**：带 `tools` 时按「先看画布 → 再给计划 → 然后收尾」演一遍。
        *

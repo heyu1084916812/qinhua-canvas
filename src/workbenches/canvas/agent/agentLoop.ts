@@ -1,6 +1,7 @@
 import type { ChatMessage, ToolDeclaration } from '../../../domain/shared/execution/types'
 import type { ChannelAdapter } from '../../../platform/channels/types'
 import { asAppError, describeError } from '../../../shared/result'
+import { parseJsonAgentAction } from './jsonToolFallback'
 
 /**
  * Agent 循环（设计文档 §4）。
@@ -58,6 +59,12 @@ export interface AgentLoopDeps {
   channelId: string
   model: string
   tools: readonly ToolDeclaration[]
+  /**
+   * `native`：渠道支持 OpenAI `tools` / `tool_calls`（默认）。
+   * `json`：渠道不返回 tool_calls，走设计文档 §7 路线 B ——
+   * 提示词要求模型每次只输出一个 `{"tool":"...","args":{...}}`，系统解析后执行。
+   */
+  toolMode?: 'native' | 'json'
   /** 执行**读类**工具，返回要回填给模型的结果（失败也照常返回一个说明对象） */
   executeRead: (name: string, args: unknown) => Promise<unknown>
   /** 执行**建图类**工具（`applyPlan`）：直接落到画布上，不等确认 */
@@ -109,7 +116,7 @@ async function askModel(history: ChatMessage[], deps: AgentLoopDeps) {
       prompt: '',
       inputs: [],
       params: {},
-      tools: deps.tools,
+      tools: deps.toolMode === 'json' ? [] : deps.tools,
       messages: history,
     },
     deps.signal,
@@ -134,7 +141,34 @@ export async function runAgentTurn(
       return { kind: 'error', message: e instanceof Error ? e.message : errText(e), messages }
     }
 
-    const calls = result.toolCalls ?? []
+    let calls = result.toolCalls ?? []
+    /**
+     * 路线 B：渠道不支持原生 tools 时，模型每次只输出一个 JSON 工具调用。
+     * 解析不出来就如实拒绝，不让它把“我无法调用工具”当成最终回答。
+     */
+    if (calls.length === 0 && deps.toolMode === 'json') {
+      const action = parseJsonAgentAction(result.text)
+      if (action?.name === 'final') {
+        const message =
+          action.args &&
+          typeof action.args === 'object' &&
+          typeof (action.args as { message?: unknown }).message === 'string'
+            ? String((action.args as { message: string }).message)
+            : result.text
+        messages.push({ role: 'assistant', content: message })
+        return { kind: 'message', text: message, messages }
+      }
+      if (!action) {
+        messages.push({ role: 'assistant', content: result.text })
+        return {
+          kind: 'error',
+          message:
+            '这个对话模型不支持原生工具调用，也没有按要求输出 JSON 工具调用。请换一个支持 tools 的模型，或让它按 {"tool":"...","args":{...}} 输出。',
+          messages,
+        }
+      }
+      calls = [{ id: `json-${step}`, name: action.name, args: JSON.stringify(action.args ?? {}) }]
+    }
     if (calls.length === 0) {
       messages.push({ role: 'assistant', content: result.text })
       return { kind: 'message', text: result.text, messages }

@@ -55,6 +55,10 @@ import {
 } from '../../agent/tools'
 import { agentRunOutcomeOf } from '../../agent/runOutcome'
 import {
+  decideToolMode,
+  ensureToolSupport,
+} from '../../../../features/shared/agent/toolSupport'
+import {
   IconAuto,
   IconArrowUp,
   IconCheck,
@@ -228,6 +232,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 反过来「停止」也只停得到最后发出去的那一条。两个会话各跑各的，控制器也得各是各的。
    */
   const abortRefs = useRef(new Map<string, AbortController>())
+  /** 每个会话这个回合走的是原生 tools 还是 JSON 降级；确认后续跑要沿用同一条 */
+  const toolModeRef = useRef(new Map<string, 'native' | 'json'>())
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
   /**
@@ -522,20 +528,21 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   )
 
   const loopDeps = useCallback(
-    (session: AgentSession) => ({
+    (session: AgentSession, toolMode: 'native' | 'json' = 'native') => ({
       adapter: {
         completeText: (req: TextRunRequest, signal: AbortSignal) =>
           channels.completeWithTools({
             channelId: req.channelId,
             model: req.model,
-            tools: req.tools ?? AGENT_TOOLS,
+            tools: req.tools ?? (toolMode === 'native' ? AGENT_TOOLS : []),
             messages: req.messages ?? [],
             signal,
           }),
       },
       channelId: session.channelId,
       model: session.model,
-      tools: AGENT_TOOLS,
+      tools: toolMode === 'native' ? AGENT_TOOLS : [],
+      toolMode,
       /**
        * 确认**之前**的预检（用户 2026-10-02：「重复让我确认新建工作流，重复了三次，
        * 但是我的画布中没有」）。计划本身落不了地时，别让用户白点一次确认 ——
@@ -594,9 +601,48 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       setStatusFor(current.id, { kind: 'error', message: '还没选模型：先在上面选一个对话模型' })
       return
     }
-    setDraft('')
-    abortRefs.current.set(current.id, new AbortController())
+    const controller = new AbortController()
+    abortRefs.current.set(current.id, controller)
     setStatusFor(current.id, { kind: 'thinking' })
+
+    /**
+     * 发消息前先问一次「这个对话模型到底会不会 tool_calls」。
+     *
+     * 项目里早有 `probeToolCalling`，但它一直没接到这条路上：模型收到 tools 却不调，
+     * 只回一句「我无法调用工具」，Agent 就把这句当最终回答（用户 2026-10-13 截图）。
+     * 这里按「渠道 + 模型」探测一次并缓存，结果分三种：
+     * - 支持原生 tools → 走多轮 tool_calls；
+     * - 模型只是不返回 tool_calls（部分中转 / 对话模型）→ 自动降级到 JSON 工具调用
+     *   （设计文档 §7 路线 B），不再要求用户换模型 —— 「对话模型也能调用 agent」是默认预期；
+     * - 探测请求本身失败（渠道 / 鉴权 / 限流）→ 如实报错，这种降级也救不了。
+     */
+    const support = await ensureToolSupport(
+      {
+        completeText: (req: TextRunRequest, signal: AbortSignal) =>
+          channels.completeWithTools({
+            channelId: req.channelId,
+            model: req.model,
+            tools: req.tools ?? AGENT_TOOLS,
+            messages: req.messages ?? [],
+            signal,
+          }),
+      },
+      { channelId: current.channelId, model: current.model },
+      controller.signal,
+    )
+    if (controller.signal.aborted) return
+    const decision = decideToolMode(support)
+    if (decision.kind === 'error') {
+      setStatusFor(current.id, { kind: 'error', message: decision.message })
+      return
+    }
+    /**
+     * 模式按会话记住：后续用户点「确认」或自动生成续跑时都得沿用同一条，
+     * 不能因为探测缓存已命中就中途切回原生 tools（那样模型又会「无法调用工具」）。
+     */
+    const toolMode = decision.mode
+    toolModeRef.current.set(current.id, toolMode)
+    setDraft('')
 
     const summary = readGraphSummary(store, 'all', selection)
     /**
@@ -675,6 +721,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         ...(skill ? { skill: { name: skill.name, content: skill.content } } : {}),
         ...(mentions.length > 0 ? { mentions } : {}),
         ...(Object.keys(mediaModels).length > 0 ? { mediaModels } : {}),
+        /** JSON 降级时要把工具声明列进提示词，模型才知道 tool 能填什么（路线 B） */
+        ...(toolMode === 'json' ? { jsonToolFallback: true, tools: AGENT_TOOLS } : {}),
       },
     )
     const withSystem: ChatMessage[] = [
@@ -691,7 +739,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       { role: 'user', content: stripMentionMarkup(text), display: text },
     ]
     setMessages(withSystem)
-    let outcome = await runAgentTurn(withSystem, loopDeps(current))
+    let outcome = await runAgentTurn(withSystem, loopDeps(current, toolMode))
     /**
      * **自动生成**：agent 请求落地 / 执行时不再停下等确认，直接把这一步做完再继续。
      *
@@ -713,7 +761,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         outcome.messages,
         outcome.request.callId,
         done,
-        loopDeps(current),
+        loopDeps(current, toolMode),
       )
     }
     await handleOutcome(current, outcome)
@@ -741,7 +789,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       messages,
       request.callId,
       result,
-      loopDeps(current),
+      loopDeps(current, toolModeRef.current.get(current.id) ?? 'native'),
     )
     await handleOutcome(current, outcome)
   }, [status, current, viewport, messages, toolCtx, loopDeps, handleOutcome, setStatusFor])
@@ -755,7 +803,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       messages,
       request.callId,
       { ok: false, error: '用户取消了这次操作' },
-      loopDeps(current),
+      loopDeps(current, toolModeRef.current.get(current.id) ?? 'native'),
     )
     await handleOutcome(current, outcome)
   }, [status, current, messages, loopDeps, handleOutcome, setStatusFor])

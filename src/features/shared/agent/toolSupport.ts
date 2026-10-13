@@ -32,6 +32,13 @@ export interface ToolSupportResult {
    * 都归成一句「不支持」会把可修的问题说成不可修。
    */
   reason?: string
+  /**
+   * 探测请求**本身**失败（网络 / 鉴权 / 限流），不是「模型收到了工具声明却不调用」。
+   *
+   * 这两种都走 `supported: false`，但处理方式相反：模型不调工具可以降级成 JSON
+   * 工具调用继续干活；探测请求本身就失败的话，降级过去也是同一堵墙，必须让用户查渠道。
+   */
+  probeFailed?: boolean
 }
 
 /**
@@ -90,6 +97,7 @@ export async function probeToolCalling(
     const out: ToolSupportResult = {
       supported: false,
       reason: e instanceof Error ? e.message : String(e),
+      probeFailed: true,
     }
     cache.set(keyOf(k), out)
     return out
@@ -105,4 +113,29 @@ export async function ensureToolSupport(
   signal: AbortSignal,
 ): Promise<ToolSupportResult> {
   return cachedToolSupport(k) ?? (await probeToolCalling(adapter, k, signal))
+}
+
+export type AgentToolMode = 'native' | 'json'
+
+export type ToolModeDecision =
+  | { kind: 'use'; mode: AgentToolMode }
+  | { kind: 'error'; message: string }
+
+/**
+ * 探测结果 → 这次对话走哪条路。
+ *
+ * 三种结果必须分开处理，合并任何一种都会退化成用户报过的那类问题：
+ * - 支持原生 tools → `native`；
+ * - 模型只是不返回 `tool_calls` → `json` 降级，**不打扰用户**（对话模型默认就该能干活）；
+ * - 探测请求本身就失败 → 报错让用户去查渠道，因为降级过去也是同一堵墙。
+ */
+export function decideToolMode(support: ToolSupportResult): ToolModeDecision {
+  if (support.supported) return { kind: 'use', mode: 'native' }
+  if (support.probeFailed) {
+    return {
+      kind: 'error',
+      message: `调用这个对话模型失败：${support.reason ?? '未知错误'}。请先在渠道设置里确认这个模型可用，再重试。`,
+    }
+  }
+  return { kind: 'use', mode: 'json' }
 }

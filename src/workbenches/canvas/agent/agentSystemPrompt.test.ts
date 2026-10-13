@@ -145,6 +145,16 @@ describe('素材段与技能段', () => {
     expect(p).not.toContain('本会话启用的技能')
   })
 
+  it('★★ JSON 模式把工具声明与调用格式写进提示词（不支持 tools 的模型也有路可走）', () => {
+    const p = buildAgentSystemPromptWithContext(empty, undefined, {
+      jsonToolFallback: true,
+      tools: [{ name: 'applyPlan', parameters: { type: 'object' } }],
+    })
+    expect(p).toContain('JSON 模式')
+    expect(p).toContain('{"tool":"工具名","args":{...}}')
+    expect(p).toContain('applyPlan')
+  })
+
   it('★★ 随对话给的素材：逐个报节点 id，并要求 attach 复用、不要重复建', () => {
     const p = buildAgentSystemPromptWithContext(empty, undefined, {
       assetIds: ['node_a', 'node_b'],

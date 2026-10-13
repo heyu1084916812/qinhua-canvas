@@ -6682,3 +6682,28 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   `order` 放进 `data`、把 `ratio` / `resolution` 放到节点外层，属于下一步要补的计划形状校验。
 - **★ 收口基线（第 110 批 / 对账 #485）**：单测 **2465/2465**（208 文件）、`npm run check` 全绿、
   全量冒烟 **1779/0/1779**（`EXIT=0`）。
+
+## 2026-10-13 第 111 批（对话模型工具能力探测 + JSON 工具调用降级 #487）
+
+- **★★★ 「模型不支持工具调用」和「这条渠道没有工具通道」是两件事**：用户的 Chat2api 是**网页端
+  GPT 转 API**，协议层根本没有 function calling。实测（`.playwright-verify/probe-chat2api-tools.mjs`）：
+  带 `tools + tool_choice:auto` 打过去，HTTP 200、`finish_reason=stop`、**`tool_calls` 数量 0**，
+  模型只回一句「无法调用 `agent_probe` 工具；当前环境中没有该工具可用」；**同一渠道、同一模型**
+  改成文字 JSON 指令（把工具清单写进系统提示词、不带 tools）就稳定返回 `{"tool":"applyPlan",...}`。
+  **判据**：不要看模型嘴上说「能不能」，要看响应里有没有 `tool_calls`；文字通道能不能干活，
+  要看它是否按约定输出 JSON。
+- **★★★ 能力探测早就写好但没接线，等于没有**：`probeToolCalling` 在
+  `features/shared/agent/toolSupport.ts` 里躺了很久，`AgentPanel.send` 从来没调用过 —— 模型收到
+  tools 却不调时，Agent 把它那句「我无法调用 applyPlan / runNode」当成最终回答，用户看到的就是
+  「agent 不会干活」。**接线的判据**：探测结果必须分三条路 —— 支持原生 tools 走多轮；
+  只是不返回 `tool_calls` 走 JSON 降级；探测请求本身失败（鉴权 / 网络）如实报错。
+  前两者的区别就是 `probeFailed` 这一位，少了它「令牌过期」会被误判成「模型不支持」而白白降级。
+- **★★ 探测结果按「渠道 + 模型」缓存，模式按会话记住**：缓存放内存不放库（换令牌 / 换模型后旧结论
+  会过期）；用户点确认 / 自动生成续跑时必须沿用这一回合定下的 `native` / `json`，不能因为缓存命中
+  就中途切回原生。
+- **★★ mock 必须把两条通道都演出来**：默认模型收到 `agent_probe` 回 `tool_calls`（原生路径），
+  `mock-chat-no-tools` 只回文字（降级路径）；JSON 模式靠系统提示词里的「（JSON 模式）」标题识别，
+  返回 `{"tool":"..."}` 文本。**假数据的保真度决定断言的上限** —— 只有一种表现，降级这条路
+  离线就验不了。
+- **★ 收口基线（第 111 批 / 对账 #487）**：单测 **2478/2478**（209 文件）、`npm run check` 全绿、
+  G95 **87/87**（原生主链零回归）、全量冒烟 **1779/0/1779**（`EXIT=0`）。

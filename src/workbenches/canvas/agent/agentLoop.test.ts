@@ -179,6 +179,26 @@ describe('runAgentTurn · 基本往复', () => {
   })
 })
 
+describe('runAgentTurn · JSON 工具调用降级（路线 B）', () => {
+  it('模型不返回 tool_calls 时，按 JSON 输出 applyPlan，系统照样执行', async () => {
+    const { deps, executeWrite } = depsWith([
+      { text: '```json\n{"tool":"applyPlan","args":{"summary":"x","nodes":[],"edges":[]}}\n```' },
+      { text: '{"tool":"final","args":{"message":"建好了"}}' },
+    ])
+    const r = await runAgentTurn(user('建个流程'), { ...deps, toolMode: 'json' })
+    expect(executeWrite).toHaveBeenCalledWith('applyPlan', expect.anything())
+    expect(r.kind).toBe('message')
+    if (r.kind === 'message') expect(r.text).toBe('建好了')
+  })
+
+  it('模型连 JSON 都不给：如实报错，不把“无法调用工具”当最终回答', async () => {
+    const { deps } = depsWith([{ text: '我无法调用工具' }])
+    const r = await runAgentTurn(user('建个流程'), { ...deps, toolMode: 'json' })
+    expect(r.kind).toBe('error')
+    if (r.kind === 'error') expect(r.message).toContain('JSON')
+  })
+})
+
 describe('runAgentTurn · 刹车与失败回填', () => {
   it('★★ 参数不是合法 JSON → 回填错误让模型重发，不炸掉', async () => {
     const { deps, executeRead } = depsWith([
