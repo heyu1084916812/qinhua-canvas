@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { usePlatform } from './providers/PlatformProvider'
 import { createProjectRepository, type ProjectRepository } from '../state/project/repository'
+import { projectRoute, type WorkbenchId } from '../domain/shared/workbench'
 import {
   SIDEBAR_COLLAPSED_W,
   SIDEBAR_HOVER_IN_MS,
@@ -49,9 +50,9 @@ import styles from './AppSidebar.module.css'
  *  2. `/canvas` 与 `/canvas/:id` 一起亮 ——「画布」这一项指的是「我在画布里」，
  *     而不只是「URL 恰好是 /canvas」。
  */
-function isItemActive(item: NavItem, pathname: string, activeProjectId: string | null): boolean {
+function isItemActive(item: NavItem, pathname: string, activeWorkbench: WorkbenchId | null): boolean {
   if (item.to === '/') return pathname === '/'
-  if (item.to === '/canvas') return pathname === '/canvas' || !!activeProjectId
+  if (item.to === '/canvas') return pathname === '/canvas' || activeWorkbench === 'canvas'
   return pathname === item.to || pathname.startsWith(`${item.to}/`)
 }
 
@@ -61,6 +62,7 @@ const RECENT_LIMIT = 6
 interface RecentItem {
   id: string
   title: string
+  workbench: WorkbenchId
 }
 
 export function AppSidebar() {
@@ -142,7 +144,7 @@ export function AppSidebar() {
         [...list]
           .sort((a, b) => b.updatedAt - a.updatedAt)
           .slice(0, RECENT_LIMIT)
-          .map((p) => ({ id: p.id, title: p.name })),
+          .map((p) => ({ id: p.id, title: p.name, workbench: p.workbench })),
       )
     })()
     return () => {
@@ -154,10 +156,15 @@ export function AppSidebar() {
      */
   }, [open, platform, location.pathname])
 
-  /** 当前选中的项目 id（用于高亮最近项目里那一条） */
-  const activeProjectId = useMemo(() => {
-    const m = /^\/canvas\/(.+)$/.exec(location.pathname)
-    return m ? m[1] : null
+  /**
+   * 当前工作台与项目 id（用于高亮最近项目、并让画布一级导航只在画布里亮）。
+   *
+   * 不能只看 `/canvas/`：电商与漫剧也是项目工作台，点侧栏「最近项目」时必须回到
+   * 它自己的工作台，否则用户会从电商列表莫名跳进节点画布（对账 #399）。
+   */
+  const activeProject = useMemo(() => {
+    const m = /^\/(canvas|ecommerce|storyboard)\/(.+)$/.exec(location.pathname)
+    return m ? { workbench: m[1] as WorkbenchId, id: m[2] } : null
   }, [location.pathname])
 
   const width = open ? undefined : SIDEBAR_COLLAPSED_W
@@ -251,11 +258,15 @@ export function AppSidebar() {
                * 从项目卡进画布时「画布」这一项不会亮，用户以为自己不在画布里。
                */
               className={
-                isItemActive(item, location.pathname, activeProjectId)
+                isItemActive(item, location.pathname, activeProject?.workbench ?? null)
                   ? `${styles.item} ${styles.itemOn}`
                   : styles.item
               }
-              aria-current={isItemActive(item, location.pathname, activeProjectId) ? 'page' : undefined}
+              aria-current={
+                isItemActive(item, location.pathname, activeProject?.workbench ?? null)
+                  ? 'page'
+                  : undefined
+              }
               data-sidebar-item={item.to}
               title={item.label}
             >
@@ -285,13 +296,14 @@ export function AppSidebar() {
                 <button
                   type="button"
                   className={
-                    p.id === activeProjectId
+                    p.id === activeProject?.id
                       ? `${styles.recentItem} ${styles.recentItemOn}`
                       : styles.recentItem
                   }
                   data-sidebar-recent-item={p.id}
+                  data-sidebar-recent-workbench={p.workbench}
                   title={p.title}
-                  onClick={() => navigate(`/canvas/${p.id}`)}
+                  onClick={() => navigate(projectRoute(p.workbench, p.id))}
                 >
                   {p.title}
                 </button>

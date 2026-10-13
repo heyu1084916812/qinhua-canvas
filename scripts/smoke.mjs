@@ -23113,6 +23113,37 @@ async function g116(browser) {
     `运行记录 ${runsBeforeReplace}→${runsAfterReplace} · 节点 ${nodesBeforeReplace}→${nodesAfterReplace}`,
   )
 
+  /**
+   * ⑤e **另开一页打开同一项目，结果仍在**（对账 #474）。
+   *
+   * 结果原先只记在组件 state（`nodeIds`）里：数据确实落了库，但一刷新 / 切走，
+   * 结果区就空 —— 用户会以为整套图没了。这里**不动当前页**（它的撤销栈还要继续测），
+   * 用第二个 page 打开同一个 URL；库是唯一真相源才作数。
+   */
+  const ecommerceProjectId = /\/ecommerce\/([^/?]+)/.exec(page.url())?.[1]
+  const restorePage = await ctx.newPage()
+  await restorePage.goto(`${BASE}/ecommerce/${ecommerceProjectId ?? ''}`, { waitUntil: 'networkidle' })
+  const restored = await restorePage
+    .waitForSelector('[data-ecommerce-result][data-status="done"]', { timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
+  await sleep(500)
+  const restoredCount = await restorePage
+    .locator('[data-ecommerce-result][data-status="done"]')
+    .count()
+  const restoredImg = await restorePage
+    .locator('[data-ecommerce-result][data-status="done"] img')
+    .first()
+    .evaluate((el) => el.naturalWidth > 0)
+    .catch(() => false)
+  rec(
+    g,
+    '★★★ 另开一页打开同一项目，结果列表仍在（库是唯一真相源，不是组件内存）',
+    !!ecommerceProjectId && restored && restoredCount >= 5 && restoredImg,
+    `项目=${ecommerceProjectId ?? '未取到'} 恢复结果=${restoredCount} 首图解码=${restoredImg}`,
+  )
+  await restorePage.close()
+
   // ⑥ 在画布里打开：结果本来就是画布节点（这是"发送到画布"的落点）
   await sleep(1600) // 等防抖落库，免得画布那边读到空库
   await page.locator('[data-ecommerce-open-canvas]').click()
@@ -24066,7 +24097,7 @@ async function g122(browser) {
 
 // ────────────────────────────────────────────────────────────
 // G123 工作区与设置外观（用户 2026-10-10 那 10 条里已落地的几条）：
-//   #3 滚动条贴工作区右沿 · #5 画布/电商分类 · #6 渠道工作区与页面同底
+//   #3 滚动条贴工作区右沿 · #5 画布/电商分类 · #6 左右面板保留背景框（与外层分层）
 //   #8 设置左导航图标 · #9 素材页铺满（瀑布流左右不留白）
 // ────────────────────────────────────────────────────────────
 async function g123(browser) {
@@ -24117,6 +24148,26 @@ async function g123(browser) {
   await page.waitForURL(/\/ecommerce\/proj_/)
   await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
   await sleep(700)
+  /**
+   * 最近项目必须回到项目自己的工作台（对账 #399）。
+   *
+   * 旧实现无脑 `navigate('/canvas/' + id)`：电商 / 漫剧项目从侧栏进入时会掉进
+   * 节点画布，"两个独立工作区"在第一个入口就破了。判据直接看 URL 前缀。
+   */
+  await page.locator('[data-app-sidebar]').hover()
+  await sleep(350)
+  const ecRecent = page.locator('[data-sidebar-recent-workbench="ecommerce"]').first()
+  const ecRecentCount = await ecRecent.count()
+  await ecRecent.click()
+  await page.waitForURL(/\/ecommerce\//, { timeout: 10000 }).catch(() => {})
+  rec(
+    g,
+    '★★ 侧栏「最近项目」点电商项目回到电商工作台（不再掉进画布）',
+    ecRecentCount > 0 && /\/ecommerce\//.test(page.url()),
+    `最近项=${ecRecentCount} URL=${new URL(page.url()).pathname}`,
+  )
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(500)
   await page.locator('[data-new-card]').click()
   await sleep(300)
   await page.locator('[data-new-workbench="canvas"]').click()
@@ -24339,15 +24390,27 @@ async function g123(browser) {
     await sleep(350)
     await page.locator('[data-global-settings-tab="channels"]').click()
     await sleep(450)
+    /* 基本信息卡只在选中某条渠道时渲染；先选第一条，否则量不到 `data-settings-basics`。 */
+    const firstChannel = page.locator('[data-channel-item]').first()
+    if ((await firstChannel.count()) > 0) {
+      await firstChannel.click()
+      await sleep(350)
+    }
     const panel = await box('[data-global-settings-panel]')
     const workarea = await box('[data-settings-workarea]')
+    const sidebar = await box('[data-settings-sidebar]')
+    const basics = await box('[data-settings-basics]')
     const icons = await page.locator('[data-global-settings-tab] svg').count()
     const tabs = await page.locator('[data-global-settings-tab]').count()
     rec(
       g,
-      `${theme === 'light' ? '浅色' : '深色'}：渠道工作区与页面同底 + 每个栏目都有图标`,
-      panel.bg === workarea.bg && icons === tabs && tabs === 11,
-      `浮层底=${panel.bg} 工作区底=${workarea.bg} 图标=${icons}/${tabs}`,
+      `${theme === 'light' ? '浅色' : '深色'}：渠道选择 / 基本信息保留可辨背景框 + 每个栏目都有图标`,
+      panel.bg === workarea.bg &&
+        sidebar.bg === basics.bg &&
+        sidebar.bg !== workarea.bg &&
+        icons === tabs &&
+        tabs === 11,
+      `浮层底=${panel.bg} 工作区底=${workarea.bg} 左栏底=${sidebar.bg} 基本信息底=${basics.bg} 图标=${icons}/${tabs}`,
     )
     await page.keyboard.press('Escape')
     await sleep(250)

@@ -48,6 +48,7 @@ import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
 import { projectRoute } from '../../domain/shared/workbench'
 import { downloadAsset } from '../../features/canvas/downloadAsset'
 import { asAppError, describeError } from '../../shared/result'
+import { createId } from '../../shared/id'
 import { createPackStore } from '../../state/project/packStore'
 import {
   ECOMMERCE_PLATFORMS,
@@ -203,8 +204,29 @@ function StudioHost({ projectId }: { projectId: string }) {
   const graph = useGraph()
   const exec = useCanvasExecution()
   const navigate = useNavigate()
-  const [nodeIds, setNodeIds] = useState<string[]>([])
   const [projectName, setProjectName] = useState('')
+  /**
+   * 当前电商批次 id：`undefined` = 还没从项目里读出来，`null` = 老项目没有批次号。
+   *
+   * 结果节点不再只记组件 state（刷新 / 切走会空），也不再只按"是不是生成节点"
+   * 推导（会把上一批也混进来）：每批节点写一个 `ecommerceBatch`，
+   * 当前批次随项目行保存 —— 刷新恢复的是最近这一批，历史批次仍在库里，
+   * 但不冒充当前结果。产品图 / 参考图没有生成提示词，天然被过滤掉。
+   */
+  const [currentBatch, setCurrentBatch] = useState<string | null | undefined>(undefined)
+  const nodeIds = useMemo(() => {
+    if (currentBatch === undefined) return []
+    return graph.nodes
+      .filter((n) => {
+        if (n.type !== 'generation') return false
+        const data = n.data as { prompt?: unknown; ecommerceBatch?: unknown }
+        const prompt = data.prompt
+        if (typeof prompt !== 'string' || prompt.trim().length === 0) return false
+        /* 老项目没有批次号：维持旧口径（把带提示词的生成节点都当结果），升级后的批次只认自己。 */
+        return currentBatch === null || data.ecommerceBatch === currentBatch
+      })
+      .map((n) => n.id)
+  }, [graph.nodes, currentBatch])
   /**
    * 出图模型（用户 2026-10-10 #2）。空串 = 默认：由 `channels.defaultForNewNode` 解析。
    *
@@ -286,6 +308,70 @@ function StudioHost({ projectId }: { projectId: string }) {
       cancelled = true
     }
   }, [platform, projectId])
+
+  /** 读回这个项目最近一次电商出图的批次 id（读失败回落老项目口径）。 */
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const rows = (await platform.storage.query('projects', { id: projectId })) as Record<
+          string,
+          unknown
+        >[]
+        const extra = rows[0]?.extra
+        const ecommerce =
+          extra && typeof extra === 'object'
+            ? (extra as Record<string, unknown>).ecommerce
+            : undefined
+        const batchId =
+          ecommerce && typeof ecommerce === 'object'
+            ? (ecommerce as Record<string, unknown>).batchId
+            : undefined
+        if (!cancelled) {
+          setCurrentBatch(typeof batchId === 'string' && batchId.length > 0 ? batchId : null)
+        }
+      } catch {
+        if (!cancelled) setCurrentBatch(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [platform, projectId])
+
+  /**
+   * 把当前批次写进项目行。失败**不抛**：批次记不上时本次结果仍在内存里，
+   * 下一次刷新回落老口径；出图这条主路不该被一行记账挡住。
+   */
+  const rememberCurrentBatch = async (batchId: string) => {
+    try {
+      await platform.storage.transaction(['projects'], async () => {
+        const rows = (await platform.storage.query('projects', { id: projectId })) as Record<
+          string,
+          unknown
+        >[]
+        const row = rows[0]
+        if (!row) return
+        const extra =
+          row.extra && typeof row.extra === 'object'
+            ? (row.extra as Record<string, unknown>)
+            : {}
+        const ecommerce =
+          extra.ecommerce && typeof extra.ecommerce === 'object'
+            ? (extra.ecommerce as Record<string, unknown>)
+            : {}
+        await platform.storage.put(
+          'projects',
+          {
+            ...row,
+            extra: { ...extra, ecommerce: { ...ecommerce, batchId } },
+          } as never,
+        )
+      })
+    } catch {
+      /* 记账失败不影响本次出图 */
+    }
+  }
 
   /**
    * 对话渠道：**只认用户真勾过对话模型的启用渠道**，找不到就如实说没配
@@ -548,6 +634,7 @@ function StudioHost({ projectId }: { projectId: string }) {
      * 事务边界，撤销就会断成好几步（`createNodeWithDefaults` 的文件注释记着当年怎么栽的）。
      * 于是用户按一次撤销，5 张套图应当**整批**退回去，而不是退 5 次还留着连线。
      */
+    const batchId = createId('ecb')
     const prescribed: { at: { x: number; y: number }; data: Record<string, unknown> }[] = []
     for (let i = 0; i < plan.count; i += 1) {
       const data = await resolveDefaults({
@@ -556,6 +643,7 @@ function StudioHost({ projectId }: { projectId: string }) {
         extraData: {
           mode: 'image',
           model: modelForRun,
+          ecommerceBatch: batchId,
           /**
            * 逐张提示词（用户 2026-10-10 #10）：第 i 张用 `plan.prompts[i]`。
            * 白底图时 N 条相同（抽卡），主图 / 详情页 / 套图逐张不同（镜头脚本）。
@@ -591,7 +679,8 @@ function StudioHost({ projectId }: { projectId: string }) {
     } finally {
       store.endPlan()
     }
-    setNodeIds(created)
+    setCurrentBatch(batchId)
+    void rememberCurrentBatch(batchId)
     /* 逐张跑：并发交给渠道侧没有意义（这里每张都是一个独立节点），串行更稳、也更好报错 */
     for (const id of created) {
       await exec.runNode(id)

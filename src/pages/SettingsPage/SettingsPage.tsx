@@ -841,7 +841,7 @@ export function SettingsPage() {
         </section>
 
         <div className={styles.workarea} data-settings-workarea>
-          <aside className={styles.sidebar}>
+          <aside className={styles.sidebar} data-settings-sidebar>
           {/* `data-channel-list` 是滚动条位置断言的锚点（贴左栏最右沿，见 CSS 的 `.list`） */}
           <ul className={styles.list} data-channel-list>
             {channelsList.map((ch: Channel) => {
