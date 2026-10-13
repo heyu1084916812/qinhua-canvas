@@ -106,4 +106,28 @@ describe('asAppError', () => {
     expect(noReason).toContain('服务端')
     expect(noReason).not.toBe('HTTP 503')
   })
+
+  /**
+   * comfly 这类网关在地区限制 / WAF / 登录页上会回整页 HTML。
+   * 以前 parse 错误只显示“格式对不上”，用户看不到 HTML 里真正的“不支持当前地区”；
+   * 这里把原文剥成可读摘要，又不能把标签塞回日志。
+   */
+  it('★★ 服务端返回 HTML 时，错误要带可读原文，不能只报格式对不上', () => {
+    const text = describeError({
+      kind: 'parse',
+      raw: '<html><h1>识别到您当前网络处于暂不支持的地区</h1><p>暂时无法继续访问。</p></html>',
+    })
+    expect(text).toContain('识别到您当前网络处于暂不支持的地区')
+    expect(text).toContain('暂时无法继续访问')
+    expect(text).not.toContain('<h1>')
+
+    const httpText = describeError({
+      kind: 'http',
+      status: 451,
+      body: '<html><h1>识别到您当前网络处于暂不支持的地区</h1></html>',
+    })
+    expect(httpText).toContain('HTTP 451')
+    expect(httpText).toContain('识别到您当前网络处于暂不支持的地区')
+    expect(httpText).not.toContain('<h1>')
+  })
 })

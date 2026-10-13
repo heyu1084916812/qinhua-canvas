@@ -148,6 +148,14 @@
   user-select: text;
 }
 
+.routedText {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
 .recordSide {
   flex: 0 0 auto;
   display: flex;

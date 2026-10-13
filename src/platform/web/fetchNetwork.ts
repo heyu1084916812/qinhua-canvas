@@ -78,7 +78,7 @@ function toResponse(res: Response, text: string): NetworkResponse {
       try {
         return JSON.parse(text) as T
       } catch {
-        throw { kind: 'parse', raw: text.slice(0, 200) } satisfies AppError
+        throw { kind: 'parse', raw: text.slice(0, 2000) } satisfies AppError
       }
     },
     async arrayBuffer() {

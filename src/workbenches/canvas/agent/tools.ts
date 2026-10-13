@@ -9,6 +9,7 @@ import {
 import type { ToolDeclaration } from '../../../domain/shared/execution/types'
 import type { CanvasStore } from '../../../state/workbenches/canvas/store'
 import { applyAgentPlan } from './applyAgentPlan'
+import type { AgentRunOutcome } from './runOutcome'
 
 /**
  * Agent 的工具集（设计文档 §5 / §5.1）。
@@ -285,7 +286,7 @@ export interface AgentToolContext {
   /** 新节点的落点（§6：优先视口中心偏左） */
   origin: { x: number; y: number }
   /** 跑节点 —— 由执行层注入：agent 自己不直接发渠道请求 */
-  runNodes: (nodeIds: string[]) => Promise<{ nodeId: string; ok: boolean; error?: string }[]>
+  runNodes: (nodeIds: string[]) => Promise<AgentRunOutcome[]>
   /** 当前选中的节点 —— `readGraph` 的 `selection` 范围要用；不给就按全图算 */
   selectedIds?: () => readonly string[]
   /**

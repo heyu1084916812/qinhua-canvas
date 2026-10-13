@@ -50,6 +50,7 @@ import { promptSpec } from '../../../domain/canvas/nodeSpecs/prompt'
 import type { PromptData } from '../../../domain/canvas/model/node'
 import { trimToolResult } from '../../../features/shared/promptTools/promptTools'
 import { asAppError, describeError } from '../../../shared/result'
+import { emitRunRecordChanged } from './runRecordEvents'
 import {
   resolveRouteFor,
   type RouteChannelSource,
@@ -1009,6 +1010,7 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         store.dispatch({ kind: 'node.runRecord.append', nodeId: record.nodeId, record })
         // append 走 800ms 防抖落库；日志面板实时读库，flush 完成后再返回
         await store.flush()
+        emitRunRecordChanged()
       },
       completeText,
     }),

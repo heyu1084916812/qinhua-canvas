@@ -1,4 +1,10 @@
-import { asAppError, describeError, serverReasonOf, type AppError } from '../../shared/result'
+import {
+  asAppError,
+  describeError,
+  rawSnippetOf,
+  serverReasonOf,
+  type AppError,
+} from '../../shared/result'
 import type { ModelCapability } from '../../domain/shared/capability'
 import type { ProtocolDefinition } from '../../domain/project/protocol'
 import { resolveProtocolBaseUrl } from '../../domain/project/protocol'
@@ -105,7 +111,9 @@ export function appErrorMessage(e: AppError): string {
     case 'channel':
       return e.detail === 'missingKey' ? httpMessage(401) : `渠道不支持该能力（${e.detail}）`
     case 'parse':
-      return '响应不是合法 JSON'
+      return rawSnippetOf(e.raw)
+        ? `响应不是合法 JSON：${rawSnippetOf(e.raw)}`
+        : '响应不是合法 JSON'
     case 'storage':
       return `存储错误：${e.detail}`
     case 'validation':

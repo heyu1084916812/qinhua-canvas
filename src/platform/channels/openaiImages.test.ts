@@ -650,6 +650,21 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
     ).rejects.toMatchObject({ appError: { kind: 'parse' } })
   })
 
+  it('★★ 200 但不是图片列表 → 报解析错并带服务端原文，不假成功', async () => {
+    const net = createMemoryNetwork({
+      handler: async () => resp(200, { code: 451, message: '识别到您当前网络处于暂不支持的地区' }),
+    })
+    const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
+    await expect(
+      a.generateImage({ ...request([], 1), model: 'gpt-image-2.5' }, signal),
+    ).rejects.toMatchObject({
+      appError: {
+        kind: 'parse',
+        raw: expect.stringContaining('识别到您当前网络处于暂不支持的地区'),
+      },
+    })
+  })
+
   /**
    * ★ 关键：真实渠道下「请求像素」与「实际像素」**不能同源**。
    *

@@ -284,7 +284,19 @@ export function createOpenAiImagesAdapter(
     signal: AbortSignal,
   ): Promise<GeneratedAsset[]> => {
     const body = await res.json<{ data?: { b64_json?: string; url?: string }[] }>()
-    const items = body.data ?? []
+    const items = body.data
+    if (!Array.isArray(items)) {
+      throw new ChannelError({
+        kind: 'parse',
+        raw: `图片接口返回的不是图片列表：${JSON.stringify(body).slice(0, 2000)}`,
+      })
+    }
+    if (items.length === 0) {
+      throw new ChannelError({
+        kind: 'parse',
+        raw: `图片接口返回 0 张图：${JSON.stringify(body).slice(0, 2000)}`,
+      })
+    }
     const assets: GeneratedAsset[] = []
     for (const item of items) {
       if (item.b64_json) {

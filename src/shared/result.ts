@@ -21,6 +21,33 @@ export type AppError =
 export type Result<T> = { ok: true; value: T } | { ok: false; error: AppError }
 
 /**
+ * 把服务端原始响应裁成一段**能读的**摘要。
+ *
+ * 为什么要剥 HTML：comfly / 网关在地区限制、WAF、登录页上会回一整页 HTML，
+ * 直接把 `<html><h1>…` 塞进日志，用户看到的仍是"格式对不上"。
+ * 这里只做确定性文本处理，不猜服务端语义：
+ * - 非 HTML：原样裁断；
+ * - HTML：去 script/style/tag、还原常见实体，再裁断。
+ */
+export function rawSnippetOf(raw: string, limit = 300): string {
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  const text = trimmed.startsWith('<')
+    ? trimmed
+        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+    : trimmed
+  return text.replace(/\s+/g, ' ').trim().slice(0, limit)
+}
+
+/**
  * 从 HTTP 错误响应体里抠出**服务端自己给的原因**。
  *
  * 放在 shared 而不是 platform：**产生错误的地方要解析它，展示错误的地方也要解析它**，
@@ -47,9 +74,9 @@ export function serverReasonOf(body?: string): string | null {
       const v = (parsed as Record<string, unknown>)[key]
       if (typeof v === 'string' && v.trim()) return v.trim()
     }
-    return null
+    return rawSnippetOf(raw)
   } catch {
-    return raw.slice(0, 200)
+    return rawSnippetOf(raw)
   }
 }
 
@@ -125,8 +152,12 @@ export function describeError(e: AppError): string {
        */
       return `${head}：${reason}`
     }
-    case 'parse':
-      return '看不懂服务端返回的内容（格式对不上）'
+    case 'parse': {
+      const snippet = rawSnippetOf(e.raw)
+      return snippet
+        ? `看不懂服务端返回的内容（格式对不上）。服务端原文：${snippet}`
+        : '看不懂服务端返回的内容（格式对不上）'
+    }
     case 'storage':
       return `本地存储出错：${STORAGE_TEXT[e.detail]}`
     case 'validation':

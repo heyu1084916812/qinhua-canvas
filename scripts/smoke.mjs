@@ -12817,6 +12817,16 @@ async function g77(browser) {
     text.includes(NAME),
     `日志片段="${text.replace(/\n/g, ' ').slice(0, 120)}"`,
   )
+  const routedLine = dialog.locator('[data-log-routed]').first()
+  const routedCount = await routedLine.count()
+  const routedIntended = routedCount > 0 ? await routedLine.getAttribute('data-log-intended') : null
+  const routedSent = routedCount > 0 ? await routedLine.getAttribute('data-log-sent') : null
+  rec(
+    g,
+    '★★ 实际渠道与节点选择不一致时，日志写清「节点选的是谁、实际发到谁」',
+    routedCount > 0 && routedIntended !== routedSent && routedSent === NAME,
+    `intended=${routedIntended} sent=${routedSent}`,
+  )
 
   await page.screenshot({ path: `${OUT}/93-g77-multi-channel.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))

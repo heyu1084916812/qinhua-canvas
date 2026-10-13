@@ -387,6 +387,32 @@ describe('写 / 花钱的工具（只由确认后调用）', () => {
     expect(r.ok).toBe(true)
     expect(runNodes).toHaveBeenCalledWith([id])
   })
+
+  it('★★ runNode 把失败节点原样回报，不能把失败当成功', async () => {
+    const { store, ctx } = setup()
+    const id = addNode(store, 'generation', { mode: 'image' })
+    const runNodes = vi.fn(async () => [
+      {
+        nodeId: id,
+        ok: false,
+        status: 'failed' as const,
+        error: '服务端返回错误（HTTP 451）：识别到您当前网络处于暂不支持的地区',
+        channelId: 'ch-comfly',
+        model: 'gpt-image-2.5-sunburst',
+      },
+    ])
+    const r = (await executeConfirmedTool('runNode', { nodeIds: [id] }, { ...ctx, runNodes })) as {
+      ok: boolean
+      outcomes: unknown[]
+    }
+    expect(r.ok).toBe(false)
+    expect(r.outcomes[0]).toMatchObject({
+      ok: false,
+      status: 'failed',
+      channelId: 'ch-comfly',
+      model: 'gpt-image-2.5-sunburst',
+    })
+  })
 })
 
 /**

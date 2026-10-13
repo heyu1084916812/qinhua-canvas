@@ -3,6 +3,7 @@ import { usePlatform } from '../../../app/providers/PlatformProvider'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { useCanvasStore } from '../storeContext'
 import { useAsset } from '../hooks/useAsset'
+import { subscribeRunRecordChanged } from '../execution/runRecordEvents'
 import type { RunRecord } from '../../../domain/canvas/model/runRecord'
 import { pixelSummaryOf } from '../../../domain/shared/execution/runRecord'
 import type { GenerationData } from '../../../domain/canvas/model/node'
@@ -34,6 +35,9 @@ export function LogPanel({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     void reload()
   }, [reload])
+
+  /** 运行记录写入不改变图快照；这里单独订阅写入信号，失败也要在面板里立刻出现。 */
+  useEffect(() => subscribeRunRecordChanged(() => void reload()), [reload])
 
   /**
    * `Esc` 关闭（2026-09-27 补）。
@@ -145,6 +149,7 @@ export function LogPanel({ onClose }: { onClose: () => void }) {
                 channelName={channelName(
                   r.sentChannelId ?? (r.params as GenerationData).channelId,
                 )}
+                intendedChannelName={channelName((r.params as GenerationData).channelId)}
                 copied={copiedId === r.id}
                 onCopy={() => void copy(r.id, (r.params as GenerationData).prompt ?? '')}
                 onSend={() => sendToCanvas(r)}
@@ -164,6 +169,7 @@ export function LogPanel({ onClose }: { onClose: () => void }) {
 function LogRow({
   record,
   channelName,
+  intendedChannelName,
   copied,
   onCopy,
   onSend,
@@ -171,6 +177,7 @@ function LogRow({
 }: {
   record: RunRecord
   channelName: string
+  intendedChannelName: string
   copied: boolean
   onCopy: () => void
   onSend: () => void
@@ -187,6 +194,11 @@ function LogRow({
    * 老记录没有 `sentModel` → 回落到 `params.model`（逻辑名），行为不变。
    */
   const shownModel = record.sentModel ?? params.model ?? ''
+  const intendedChannelId = params.channelId
+  const routed =
+    Boolean(record.sentChannelId) &&
+    Boolean(intendedChannelId) &&
+    record.sentChannelId !== intendedChannelId
 
   return (
     <div className={styles.record}>
@@ -218,6 +230,16 @@ function LogRow({
         {record.errorText && (
           <div className={styles.errorText} data-log-error>
             {record.errorText}
+          </div>
+        )}
+        {routed && (
+          <div
+            className={styles.routedText}
+            data-log-routed
+            data-log-intended={intendedChannelName}
+            data-log-sent={channelName}
+          >
+            节点选的是「{intendedChannelName}」，实际发到「{channelName}」
           </div>
         )}
         {params.prompt && (

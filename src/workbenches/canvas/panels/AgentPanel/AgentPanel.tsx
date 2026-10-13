@@ -32,6 +32,7 @@ import { createAssetLibraryStore } from '../../../../state/project/assetLibraryS
 import { SkillMenu } from './SkillMenu'
 import { MentionRichText } from './MentionRichText'
 import { runWaves } from '../../../../domain/canvas/graph/runWaves'
+import type { RunRecord } from '../../../../domain/canvas/model/runRecord'
 import { parseSkillMarkdown } from '../../../../domain/prompt/skill'
 import { useCanvasExecution } from '../../execution/CanvasExecutionProvider'
 import { useCanvasStore, useGraph, useSelection } from '../../storeContext'
@@ -52,6 +53,7 @@ import {
   readGraphSummary,
   type AgentToolContext,
 } from '../../agent/tools'
+import { agentRunOutcomeOf } from '../../agent/runOutcome'
 import {
   IconAuto,
   IconArrowUp,
@@ -70,7 +72,6 @@ import {
 } from '../../toolbar/icons'
 import { toConversation } from './conversation'
 import { errText } from '../../agent/agentLoop'
-import { describeError } from '../../../../shared/result'
 import { loadAssetUrl, useAsset } from '../../hooks/useAsset'
 import { ModelIcon } from '../../../../features/shared/modelIcon/ModelIcon'
 /**
@@ -437,42 +438,36 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
          * 并发发请求，下一波等上一波（`A 出图 → B 优化` 这种真依赖仍然保序）。
          */
         const waves = runWaves(ids, store.getSnapshot().edges)
-        const out: { nodeId: string; ok: boolean; error?: string }[] = []
-        /**
-         * 「失败」在画布执行层是**记在节点状态里**的，不一定抛出来 ——
-         * 所以只 `try/catch` 会把「图没出成」报成成功，用户拿不到任何原因
-         * （用户 2026-10-06 第七批 #188：「有图片失败了没有给我报错原因」）。
-         * 这里按**状态对账**：跑之前记下已经失败的节点，跑完再看新冒出哪些 failed。
-         * 用「新冒出来的」而不是「现在有几个 failed」，是为了不把上一轮的旧失败算到这一次头上。
-         */
-        const failedBefore = new Set(
-          [...execution.nodeStates.entries()]
-            .filter(([, st]) => st.kind === 'failed')
-            .map(([nid]) => nid),
-        )
+        const out: Awaited<ReturnType<AgentToolContext['runNodes']>> = []
         for (const wave of waves) {
-          const settled = await Promise.all(
+          /**
+           * 执行层跑完会清理节点状态，`execution.nodeStates` 里看不见失败；
+           * 唯一可靠的真源是 `runRecords`。跑前记下已有记录 id，跑后只认这批新记录。
+           */
+          const projectId = store.getSnapshot().projectId
+          const beforeRows = (await platform.storage.query('runRecords', {
+            projectId,
+          })) as unknown as RunRecord[]
+          const beforeIds = new Set(beforeRows.map((record) => record.id))
+          const thrown = await Promise.all(
             wave.map(async (id) => {
               try {
                 await execution.runNode(id)
-                const freshlyFailed = [...execution.nodeStates.entries()].find(
-                  ([nid, st]) => st.kind === 'failed' && !failedBefore.has(nid),
-                )
-                if (freshlyFailed) {
-                  const [, st] = freshlyFailed
-                  return {
-                    nodeId: id,
-                    ok: false,
-                    error: st.kind === 'failed' ? describeError(st.error) : '生成失败，但没有拿到原因',
-                  }
-                }
-                return { nodeId: id, ok: true }
+                return null
               } catch (e) {
                 return { nodeId: id, ok: false, error: e instanceof Error ? e.message : errText(e) }
               }
             }),
           )
-          out.push(...settled)
+          const afterRows = (await platform.storage.query('runRecords', {
+            projectId,
+          })) as unknown as RunRecord[]
+          out.push(
+            ...wave.map((id, index) => {
+              const failure = thrown[index]
+              return failure ?? agentRunOutcomeOf(afterRows, id, beforeIds)
+            }),
+          )
         }
         return out
       },

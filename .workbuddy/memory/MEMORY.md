@@ -6661,3 +6661,24 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   用户截图三块都 #FFFFFF，量出来就知道是旧资源。G123 10/10 才能证明当前构建。
 - **★ 收口基线（第 109 批 / 对账 #479）**：单测 **2458/2458**（206 文件）、`npm run check` 全绿、
   全量冒烟 **1778/0/1778**（`EXIT=0`）。
+
+## 2026-10-13 第 110 批（Agent 失败回报 / comfly 扣费 / 日志刷新 #485 / #486）
+
+- **★★★ Agent 的 runNode 不能从 `nodeStates` 判成败**：runEngine 跑完会清理节点状态，
+  `await runNode()` 返回后 failed 可能已经消失。必须按 `runRecords` **这次新写入**的记录对账；
+  失败要带回 `errorText` / `sentChannelId` / `sentModel`，不能把 `ok:true` 回给模型。
+  这次的真实事故：3 个节点里 2 个失败，Agent 收到的却是 `ok:true`，于是继续跑下一批，站点继续扣费。
+- **★★★ `runRecords.append` 不改图快照**：reducer 明确只落表；LogPanel 只订阅图快照不会刷新。
+  新增 `runRecordEvents` 写入信号，LogPanel 订阅它。以后再遇到“库里有、界面没有”，先查订阅源。
+- **★★★ parse 错误必须带服务端原文**：`AppError.raw` 一直有，`describeError` 之前把它丢了。
+  comfly 这类网关会回整页 HTML（地区限制 / WAF / 登录页），不剥标签、不截断，用户永远只看到
+  “格式对不上”。`rawSnippetOf` 统一去 script/style/tag + 还原常见实体 + 300 字截断。
+- **★★ 200 但不是图片列表不能算成功**：`openaiImages.toAssets` 现在对 `data` 缺失 / 空数组抛 parse，
+  并带上原始 JSON；否则 runEngine 会记成 succeeded + 0 产物。
+- **★ 选路不一致要写进日志**：节点 `params.channelId` 是意图，`RunRecord.sentChannelId` 是实际发出；
+  两者不同时日志必须写“节点选的是谁，实际发到谁”。用户这次 GPT Image 2 那条就是节点写 ModelScope、
+  实际走 comfly；GPT Image 2.5 那条本来就是 comfly。别把两条混成一条。
+- **★ 用户提示词复核**：12 页 IP 作品集的原话没问题；Agent 生成的 `applyPlan` JSON 有部分节点把
+  `order` 放进 `data`、把 `ratio` / `resolution` 放到节点外层，属于下一步要补的计划形状校验。
+- **★ 收口基线（第 110 批 / 对账 #485）**：单测 **2465/2465**（208 文件）、`npm run check` 全绿、
+  全量冒烟 **1779/0/1779**（`EXIT=0`）。
