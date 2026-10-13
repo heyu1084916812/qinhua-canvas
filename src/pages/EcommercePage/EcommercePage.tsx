@@ -51,10 +51,16 @@ import { asAppError, describeError } from '../../shared/result'
 import { createId } from '../../shared/id'
 import { createPackStore } from '../../state/project/packStore'
 import { loadEcommerceDraft, saveEcommerceDraft } from '../../state/project/ecommerceDraft'
+import { createEcommerceTaskRepository } from '../../state/project/ecommerceTaskRepository'
 import {
   cleanEcommerceDraftRefs,
   type EcommerceFormDraft,
 } from '../../domain/ecommerce/draft'
+import {
+  taskStatusOf,
+  type EcommerceResultRecord,
+  type EcommerceTaskRecord,
+} from '../../domain/ecommerce/tasks'
 import {
   ECOMMERCE_PLATFORMS,
   type EcommercePlatform,
@@ -209,29 +215,29 @@ function StudioHost({ projectId }: { projectId: string }) {
   const graph = useGraph()
   const exec = useCanvasExecution()
   const navigate = useNavigate()
+  const taskRepo = useMemo(() => createEcommerceTaskRepository(platform.storage), [platform])
   const [projectName, setProjectName] = useState('')
   /**
-   * 当前电商批次 id：`undefined` = 还没从项目里读出来，`null` = 老项目没有批次号。
+   * 结果真源是 `ecommerceTasks` / `ecommerceResults`（对账 #399 第二期）。
    *
-   * 结果节点不再只记组件 state（刷新 / 切走会空），也不再只按"是不是生成节点"
-   * 推导（会把上一批也混进来）：每批节点写一个 `ecommerceBatch`，
-   * 当前批次随项目行保存 —— 刷新恢复的是最近这一批，历史批次仍在库里，
-   * 但不冒充当前结果。产品图 / 参考图没有生成提示词，天然被过滤掉。
+   * 画布节点仍负责跑引擎与承载产物，但界面不再从节点反推"这一批出过什么"。
+   * 旧项目没有任务行时才走 `legacyNodeIds` 兜底，并在下一次生成时写入新表。
    */
-  const [currentBatch, setCurrentBatch] = useState<string | null | undefined>(undefined)
-  const nodeIds = useMemo(() => {
-    if (currentBatch === undefined) return []
+  const [activeTask, setActiveTask] = useState<EcommerceTaskRecord | null>(null)
+  const [resultRows, setResultRows] = useState<EcommerceResultRecord[]>([])
+  const [taskLoaded, setTaskLoaded] = useState(false)
+  const legacyNodeIds = useMemo(() => {
+    if (!taskLoaded || activeTask) return []
     return graph.nodes
       .filter((n) => {
         if (n.type !== 'generation') return false
-        const data = n.data as { prompt?: unknown; ecommerceBatch?: unknown }
+        const data = n.data as { prompt?: unknown }
         const prompt = data.prompt
-        if (typeof prompt !== 'string' || prompt.trim().length === 0) return false
-        /* 老项目没有批次号：维持旧口径（把带提示词的生成节点都当结果），升级后的批次只认自己。 */
-        return currentBatch === null || data.ecommerceBatch === currentBatch
+        return typeof prompt === 'string' && prompt.trim().length > 0
       })
       .map((n) => n.id)
-  }, [graph.nodes, currentBatch])
+  }, [graph.nodes, taskLoaded, activeTask])
+  const nodeIds = activeTask ? activeTask.nodeIds : legacyNodeIds
   /**
    * 出图模型（用户 2026-10-10 #2）。空串 = 默认：由 `channels.defaultForNewNode` 解析。
    *
@@ -373,70 +379,82 @@ function StudioHost({ projectId }: { projectId: string }) {
     }
   }, [platform, projectId])
 
-  /** 读回这个项目最近一次电商出图的批次 id（读失败回落老项目口径）。 */
+  /** 从自己的结果表读回最近一批；老项目没有任务行时 `taskLoaded=true` + 空任务走节点兜底。 */
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      try {
-        const rows = (await platform.storage.query('projects', { id: projectId })) as Record<
-          string,
-          unknown
-        >[]
-        const extra = rows[0]?.extra
-        const ecommerce =
-          extra && typeof extra === 'object'
-            ? (extra as Record<string, unknown>).ecommerce
-            : undefined
-        const batchId =
-          ecommerce && typeof ecommerce === 'object'
-            ? (ecommerce as Record<string, unknown>).batchId
-            : undefined
-        if (!cancelled) {
-          setCurrentBatch(typeof batchId === 'string' && batchId.length > 0 ? batchId : null)
-        }
-      } catch {
-        if (!cancelled) setCurrentBatch(null)
-      }
+      const latest = await taskRepo.latestWithResults(projectId)
+      if (cancelled) return
+      setActiveTask(latest?.task ?? null)
+      setResultRows(latest?.results ?? [])
+      setTaskLoaded(true)
     })()
     return () => {
       cancelled = true
     }
-  }, [platform, projectId])
+  }, [taskRepo, projectId])
 
-  /**
-   * 把当前批次写进项目行。失败**不抛**：批次记不上时本次结果仍在内存里，
-   * 下一次刷新回落老口径；出图这条主路不该被一行记账挡住。
-   */
-  const rememberCurrentBatch = async (batchId: string) => {
-    try {
-      await platform.storage.transaction(['projects'], async () => {
-        const rows = (await platform.storage.query('projects', { id: projectId })) as Record<
-          string,
-          unknown
-        >[]
-        const row = rows[0]
-        if (!row) return
-        const extra =
-          row.extra && typeof row.extra === 'object'
-            ? (row.extra as Record<string, unknown>)
-            : {}
-        const ecommerce =
-          extra.ecommerce && typeof extra.ecommerce === 'object'
-            ? (extra.ecommerce as Record<string, unknown>)
-            : {}
-        await platform.storage.put(
-          'projects',
-          {
-            ...row,
-            extra: { ...extra, ecommerce: { ...ecommerce, batchId } },
-          } as never,
-        )
-      })
-    } catch {
-      /* 记账失败不影响本次出图 */
-    }
-  }
+  /** 把某一格从内部节点的最新状态同步回结果表（跑完 / 失败 / 取消都走这里）。 */
+  const syncResultRow = useCallback(
+    async (taskId: string, nodeId: string) => {
+      const node = store.getSnapshot().nodes.find((n) => n.id === nodeId)
+      const state = exec.nodeStateOf(nodeId)
+      const hash = node ? assetHashesOfNode(node)[0] : undefined
+      const natural = (node?.data as { naturalSize?: { width?: unknown; height?: unknown } } | undefined)
+        ?.naturalSize
+      const data = node?.data as { prompt?: unknown; model?: unknown } | undefined
+      const width =
+        typeof natural?.width === 'number' && natural.width > 0 ? natural.width : undefined
+      const height =
+        typeof natural?.height === 'number' && natural.height > 0 ? natural.height : undefined
+      const status: EcommerceResultRecord['status'] =
+        state?.kind === 'failed'
+          ? 'failed'
+          : state?.kind === 'canceled'
+            ? 'canceled'
+            : hash
+              ? 'done'
+              : state?.kind === 'running'
+                ? 'running'
+                : 'pending'
+      const current = (await taskRepo.results(taskId)).find((r) => r.nodeId === nodeId)
+      if (!current) return
+      const next: EcommerceResultRecord = {
+        ...current,
+        updatedAt: Date.now(),
+        status,
+        ...(hash ? { assetHash: hash } : {}),
+        ...(width !== undefined ? { width } : {}),
+        ...(height !== undefined ? { height } : {}),
+        ...(typeof data?.prompt === 'string' && data.prompt ? { prompt: data.prompt } : {}),
+        ...(typeof data?.model === 'string' && data.model ? { model: data.model } : {}),
+        ...(state?.kind === 'failed' ? { errorText: describeError(state.error) } : {}),
+      }
+      await taskRepo.updateResult(next)
+      setResultRows((rows) => rows.map((row) => (row.id === next.id ? next : row)))
+    },
+    [exec, store, taskRepo],
+  )
 
+  /** 用最新的逐格状态收口整批任务（running / partial / done / failed / canceled）。 */
+  const refreshTask = useCallback(
+    async (task: EcommerceTaskRecord) => {
+      const rows = await taskRepo.results(task.id)
+      const status = taskStatusOf(rows)
+      const failed = rows.find((r) => r.status === 'failed' && r.errorText)
+      const { errorText: _oldError, ...rest } = task
+      const next: EcommerceTaskRecord = {
+        ...rest,
+        updatedAt: Date.now(),
+        status,
+        ...(failed?.errorText ? { errorText: failed.errorText } : {}),
+      }
+      await taskRepo.updateTask(next)
+      setActiveTask(next)
+      setResultRows(rows)
+    },
+    [taskRepo],
+  )
   /** 立刻把最新草稿写库（离页 / 关窗 / 防抖到点三条路共用）。 */
   const flushDraft = useCallback(() => {
     if (draftTimer.current !== null) {
@@ -781,20 +799,88 @@ function StudioHost({ projectId }: { projectId: string }) {
     } finally {
       store.endPlan()
     }
-    setCurrentBatch(batchId)
-    void rememberCurrentBatch(batchId)
+    /**
+     * 先落任务与逐格结果，再跑引擎。
+     *
+     * 写失败**不挡出图**：内部节点仍会跑完，界面退回旧口径；下一次存储可用时
+     * 再写入新表。结果表是结果真源，但不能反过来变成"存储一写失败就出不了图"。
+     */
+    let task: EcommerceTaskRecord | null = null
+    try {
+      const createdTask = await taskRepo.create({
+        projectId,
+        batchId,
+        request,
+        nodeIds: created,
+      })
+      task = createdTask.task
+      setActiveTask(task)
+      setResultRows(createdTask.results)
+    } catch {
+      setActiveTask(null)
+      setResultRows([])
+    }
     /* 逐张跑：并发交给渠道侧没有意义（这里每张都是一个独立节点），串行更稳、也更好报错 */
     for (const id of created) {
       await exec.runNode(id)
+      if (task) await syncResultRow(task.id, id)
     }
+    if (task) await refreshTask(task)
   }
 
   const results = useMemo<EcommerceResultItem[]>(() => {
+    const downloadOf = (hash: string | undefined) =>
+      hash
+        ? () => {
+            /* 下载复用既有那份实现：它认识"素材已不在库里"与"远端素材在新标签页打开"两档 */
+            void downloadAsset({ assets: platform.assets, files: platform.files }, hash)
+          }
+        : undefined
+
+    /** 新口径：结果真源是 ecommerceResults；内部节点只用来跑引擎 / 释放重跑入口。 */
+    if (activeTask) {
+      return resultRows.map((row) => {
+        const node = graph.nodes.find((n) => n.id === row.nodeId)
+        const hash = row.assetHash ?? (node ? assetHashesOfNode(node)[0] : undefined)
+        const natural = (node?.data as { naturalSize?: { width?: unknown; height?: unknown } } | undefined)
+          ?.naturalSize
+        const width =
+          row.width ?? (typeof natural?.width === 'number' && natural.width > 0 ? natural.width : undefined)
+        const height =
+          row.height ??
+          (typeof natural?.height === 'number' && natural.height > 0 ? natural.height : undefined)
+        const status: EcommerceResultItem['status'] =
+          row.status === 'canceled' ? 'failed' : row.status
+        const rerunnable = !!node && row.status !== 'running' && row.status !== 'pending'
+        const rerun = async (inPlace = false) => {
+          await exec.runNode(row.nodeId, inPlace ? { inPlace: true } : undefined)
+          await syncResultRow(activeTask.id, row.nodeId)
+          await refreshTask(activeTask)
+        }
+        return {
+          nodeId: row.nodeId,
+          status,
+          imageHash: hash,
+          pixelSize: width !== undefined && height !== undefined ? { width, height } : null,
+          error:
+            row.errorText ??
+            (row.status === 'canceled' ? '已取消（结果仍保留在库里）' : undefined),
+          preview: hash ? <ResultPreview hash={hash} /> : undefined,
+          onDownload: downloadOf(hash),
+          onRerun: rerunnable ? () => rerun(false) : undefined,
+          onReplace: rerunnable ? () => rerun(true) : undefined,
+          onFocusInCanvas: node
+            ? () => navigate(projectRoute('canvas', projectId, { focus: row.nodeId }))
+            : undefined,
+        }
+      })
+    }
+
+    /** 老项目还没有任务行：沿用旧口径从内部节点兜底；下一次生成就会写入新表。 */
     return nodeIds.map((id) => {
       const node = graph.nodes.find((n) => n.id === id)
       const state = exec.nodeStateOf(id)
       const hash = node ? assetHashesOfNode(node)[0] : undefined
-      /** 产物真实像素（长图等比缩放要用）；节点没记就留 null —— 长图会跳过并如实报数 */
       const sizeRaw = (node?.data as { naturalSize?: { width?: unknown; height?: unknown } } | undefined)
         ?.naturalSize
       const pixelSize =
@@ -819,39 +905,28 @@ function StudioHost({ projectId }: { projectId: string }) {
         pixelSize,
         error: state?.kind === 'failed' ? describeError(state.error) : undefined,
         preview: hash ? <ResultPreview hash={hash} /> : undefined,
-        onDownload: hash
-          ? () => {
-              /* 下载复用既有那份实现：它认识"素材已不在库里"与"远端素材在新标签页打开"两档 */
-              void downloadAsset({ assets: platform.assets, files: platform.files }, hash)
-            }
-          : undefined,
-        /**
-         * 只重跑这一张（对账 #384 的"每张都能单独处理"那条工作流）。
-         *
-         * 跑着 / 排队中的那张**不给按钮**（并发重跑同一节点没有意义，只会把状态搅乱）；
-         * 页面只负责转发到执行层，状态与失败原因仍由 `exec.nodeStateOf(id)` 单一来源回答。
-         */
+        onDownload: downloadOf(hash),
         onRerun:
           status === 'running' || status === 'pending' ? undefined : () => exec.runNode(id),
-        /**
-         * 原地换掉这一格（对账 #413）：产物写回**同一个节点**，画布上不多一个承载节点。
-         *
-         * 与上面那条只差一个开关（`inPlace`）—— 抽卡 vs 换掉是两种工作流，
-         * 摆两个按钮比让用户猜"重跑会多出一个节点吗"更清楚。
-         */
         onReplace:
           status === 'running' || status === 'pending'
             ? undefined
             : () => exec.runNode(id, { inPlace: true }),
-        /**
-         * 「在画布里改这一张」（对账 #424）：带上 `?focus=<nodeId>` 跳过去 ——
-         * 画布会**选中并居中**这一个节点。以前只有项目级的「在画布里打开」，
-         * 图一多就得自己在一堆节点里找。
-         */
         onFocusInCanvas: () => navigate(projectRoute('canvas', projectId, { focus: id })),
       }
     })
-  }, [exec, graph.nodes, nodeIds, platform, navigate, projectId])
+  }, [
+    activeTask,
+    resultRows,
+    nodeIds,
+    exec,
+    graph.nodes,
+    platform,
+    navigate,
+    projectId,
+    syncResultRow,
+    refreshTask,
+  ])
 
   /**
    * 长图拼合的输入（对账 #420）：只取**已完成且有真实像素**的。

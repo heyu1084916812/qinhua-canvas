@@ -52,6 +52,14 @@ export type TableName =
   | 'snapshots'
   /** 漫剧工作台第一阶段的整份文档（一行 = 一个项目，对账 #382） */
   | 'storyboards'
+  /**
+   * 电商工作台的任务 / 结果（对账 #399 第二期）。
+   *
+   * 结果字节仍走内容寻址的 `assets`；这两张表只存"这一批做了什么、
+   * 每一格对应哪个内部节点与素材 hash"。画布节点是执行载体，不再当结果真源。
+   */
+  | 'ecommerceTasks'
+  | 'ecommerceResults'
 
 export interface Row {
   id: string

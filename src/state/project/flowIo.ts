@@ -60,17 +60,20 @@ export async function exportProject(
   opts: ExportOptions = {},
 ): Promise<ExportResult> {
   await platform.storage.open()
-  const [projRows, nodes, edges, storyboardRows] = await Promise.all([
-    platform.storage.query('projects', { id: projectId }),
-    platform.storage.query('nodes', { projectId }),
-    platform.storage.query('edges', { projectId }),
-    /**
-     * 这一页的漫剧文档（对账 #455）：**它是项目内容的一部分**，不是缓存。
-     * 少了它，"导出 → 拖进新机器"搬过去的是一个**空剧本**（节点在、剧本没了），
-     * 而 `.flow.json` 的用途之一就是单个项目搬家。
-     */
-    platform.storage.query('storyboards', { projectId }),
-  ])
+  const [projRows, nodes, edges, storyboardRows, ecommerceTasks, ecommerceResults] =
+    await Promise.all([
+      platform.storage.query('projects', { id: projectId }),
+      platform.storage.query('nodes', { projectId }),
+      platform.storage.query('edges', { projectId }),
+      /**
+       * 这一页的漫剧文档（对账 #455）：**它是项目内容的一部分**，不是缓存。
+       * 少了它，"导出 → 拖进新机器"搬过去的是一个**空剧本**（节点在、剧本没了），
+       * 而 `.flow.json` 的用途之一就是单个项目搬家。
+       */
+      platform.storage.query('storyboards', { projectId }),
+      platform.storage.query('ecommerceTasks', { projectId }),
+      platform.storage.query('ecommerceResults', { projectId }),
+    ])
   const project = projRows[0]
   if (!project) throw new Error(`[flowIo] 导出失败：项目不存在 ${projectId}`)
   const storyboard = storyboardRows[0]?.doc as Record<string, unknown> | undefined
@@ -95,7 +98,15 @@ export async function exportProject(
     const parts: BlobPart[] = []
     for await (const part of serializeProjectStream(
       project as unknown as Project,
-      { nodes: nodes as never, edges: edges as never, storyboard },
+      {
+        nodes: nodes as never,
+        edges: edges as never,
+        storyboard,
+        ecommerce: {
+          tasks: ecommerceTasks as never,
+          results: ecommerceResults as never,
+        },
+      },
       { exportedAt },
       assetRowsByHashes(platform, hashes, opts.onProgress),
     )) {
@@ -108,7 +119,16 @@ export async function exportProject(
 
   const flow = serializeProject(
     project as unknown as Project,
-    { nodes: nodes as never, edges: edges as never, storyboard, assets: [] as never },
+    {
+      nodes: nodes as never,
+      edges: edges as never,
+      storyboard,
+      ecommerce: {
+        tasks: ecommerceTasks as never,
+        results: ecommerceResults as never,
+      },
+      assets: [] as never,
+    },
     { exportedAt },
   )
   // 只带结构的这一档很小，缩进留着 —— 用户可能自己打开看一眼
@@ -182,7 +202,7 @@ export async function importProjectFromFile(
   }
 
   const newId = createId('proj')
-  const { project, nodes, edges, assets, missingModels, repaired } = deserializeProject(
+  const { project, nodes, edges, assets, ecommerce, missingModels, repaired } = deserializeProject(
     flow,
     newId,
     opts.knownModels,
@@ -206,7 +226,15 @@ export async function importProjectFromFile(
    */
   const storyboard = flow.graph.storyboard
   await platform.storage.transaction(
-    ['projects', 'nodes', 'edges', 'assets', 'storyboards'],
+    [
+      'projects',
+      'nodes',
+      'edges',
+      'assets',
+      'storyboards',
+      'ecommerceTasks',
+      'ecommerceResults',
+    ],
     async () => {
       await platform.storage.put('projects', project as never)
       for (const r of nodes) await platform.storage.put('nodes', r as never)
@@ -219,6 +247,10 @@ export async function importProjectFromFile(
           updatedAt: Date.now(),
           doc: { ...storyboard, projectId: newId },
         } as never)
+      }
+      for (const task of ecommerce.tasks) await platform.storage.put('ecommerceTasks', task as never)
+      for (const result of ecommerce.results) {
+        await platform.storage.put('ecommerceResults', result as never)
       }
     },
   )

@@ -38,6 +38,10 @@ describe('全库备份 · 导出与导入', () => {
         ],
         assetLibrary: [{ id: 'a1', savedAt: 2 }],
         skills: [{ id: 's1', name: '我的技能', content: '正文' }],
+        ecommerceTasks: [{ id: 'et1', projectId: 'p1', batchId: 'b1', createdAt: 3 }],
+        ecommerceResults: [
+          { id: 'er1', projectId: 'p1', taskId: 'et1', nodeId: 'n1', position: 0, status: 'done' },
+        ],
       },
     })
     const { platform: exportPlatform, saved } = captureFiles(source)
@@ -45,6 +49,8 @@ describe('全库备份 · 导出与导入', () => {
     const result = await exportFullBackup(exportPlatform, { appVersion: '0.1.0' })
     expect(result.manifest.tables.projects).toBe(1)
     expect(result.manifest.tables.assets).toBe(1)
+    expect(result.manifest.tables.ecommerceTasks).toBe(1)
+    expect(result.manifest.tables.ecommerceResults).toBe(1)
     expect(result.fileName).toContain('轻画备份-')
 
     const blob = saved()
@@ -67,6 +73,8 @@ describe('全库备份 · 导出与导入', () => {
 
     expect(await target.storage.query('assetLibrary', {})).toHaveLength(1)
     expect(await target.storage.query('skills', {})).toHaveLength(1)
+    expect(await target.storage.query('ecommerceTasks', { projectId: 'p1' })).toHaveLength(1)
+    expect(await target.storage.query('ecommerceResults', { projectId: 'p1' })).toHaveLength(1)
   })
 
   it('★★ 凭据不进备份：导入的库里没有令牌（页面必须如实说明要重填）', async () => {
@@ -160,12 +168,14 @@ describe('全库备份 · 导出与导入', () => {
       version: 1,
       exportedAt: new Date(2026, 9, 9, 8, 5).getTime(),
       appVersion: '0.1.0',
-      tables: { projects: 3, assets: 12, skills: 2 },
+      tables: { projects: 3, assets: 12, skills: 2, ecommerceTasks: 1, ecommerceResults: 2 },
       includesCredentials: false,
     })
     expect(summary).toContain('3 个项目')
     expect(summary).toContain('12 个素材')
     expect(summary).toContain('2 个技能')
+    expect(summary).toContain('1 个电商任务')
+    expect(summary).toContain('2 张电商结果')
     expect(summary).toContain('0.1.0')
   })
 })

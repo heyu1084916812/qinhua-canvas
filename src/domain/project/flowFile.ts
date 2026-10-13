@@ -44,6 +44,17 @@ export interface FlowGraph {
    * 挪过一次文件（对账 #422）。
    */
   storyboard?: Record<string, unknown>
+  /**
+   * 电商任务与逐格结果（对账 #399 第二期）。
+   *
+   * 和漫剧文档同一条理由：`ecommerceTasks` / `ecommerceResults` 是**项目内容**，
+   * 只搬 nodes / edges 会让电商项目在新机器上"有画布节点、结果区空了"。
+   * 这里仍只当不透明 JSON 搬运，不对电商领域做反向依赖。
+   */
+  ecommerce?: {
+    tasks: FlowRow[]
+    results: FlowRow[]
+  }
 }
 
 export interface FlowFileV1 {
@@ -80,6 +91,14 @@ export function serializeProject(
       edges: graph.edges.map((r) => ({ ...r })),
       /* 没有漫剧文档时**不写这个键**（`undefined` 过 JSON.stringify 会自己消失，两版形状一致） */
       ...(graph.storyboard ? { storyboard: { ...graph.storyboard } } : {}),
+      ...(graph.ecommerce
+        ? {
+            ecommerce: {
+              tasks: graph.ecommerce.tasks.map((r) => ({ ...r })),
+              results: graph.ecommerce.results.map((r) => ({ ...r })),
+            },
+          }
+        : {}),
       assets: graph.assets?.map(toFlowAssetRow),
     },
   }
@@ -99,7 +118,12 @@ export function serializeProject(
  */
 export async function* serializeProjectStream(
   project: Project,
-  graph: { nodes: FlowRow[]; edges: FlowRow[]; storyboard?: Record<string, unknown> },
+  graph: {
+    nodes: FlowRow[]
+    edges: FlowRow[]
+    storyboard?: Record<string, unknown>
+    ecommerce?: { tasks: FlowRow[]; results: FlowRow[] }
+  },
   meta: { exportedAt: number },
   assets: AsyncIterable<FlowRow>,
 ): AsyncGenerator<string> {
@@ -116,9 +140,12 @@ export async function* serializeProjectStream(
   const edgesPart = JSON.stringify(graph.edges.map((r) => ({ ...r })))
   /** 漫剧文档：与 `serializeProject` **同一位置、同一形状**（有单测钉着两版 deep-equal） */
   const storyboardPart = graph.storyboard ? `,"storyboard":${JSON.stringify(graph.storyboard)}` : ''
+  const ecommercePart = graph.ecommerce
+    ? `,"ecommerce":{"tasks":${JSON.stringify(graph.ecommerce.tasks)},"results":${JSON.stringify(graph.ecommerce.results)}}`
+    : ''
   yield (
     `{"format":"qinghua.flow","version":1,"exportedAt":${meta.exportedAt},` +
-    `"project":${projectPart},"graph":{"nodes":${nodesPart},"edges":${edgesPart}${storyboardPart},"assets":[`
+    `"project":${projectPart},"graph":{"nodes":${nodesPart},"edges":${edgesPart}${storyboardPart}${ecommercePart},"assets":[`
   )
   let first = true
   for await (const row of assets) {
@@ -164,6 +191,8 @@ export interface DeserializeResult {
   nodes: FlowRow[]
   edges: FlowRow[]
   assets: FlowRow[]
+  /** 电商任务 / 结果；老文件没有这一项时为空。 */
+  ecommerce: { tasks: FlowRow[]; results: FlowRow[] }
   /** 引用了 knownModels 中不存在的模型（产品文档 §5.7「模型缺失」） */
   missingModels: string[]
   /**
@@ -288,6 +317,34 @@ export function deserializeProject(
     return { ...rest, projectId: newProjectId, ...(bytes ? { bytes } : {}) }
   })
 
+  /**
+   * 电商任务 / 结果：任务与结果都有自己的 id，节点引用走 `idMap`。
+   * `batchId` 也换成新值，保证副本 / 导入项目不会和原文件共用同一个批次标识。
+   */
+  const taskIdMap = new Map<string, string>()
+  const batchIdMap = new Map<string, string>()
+  for (const task of flow.graph.ecommerce?.tasks ?? []) {
+    taskIdMap.set(String(task.id), createId('ect'))
+    batchIdMap.set(String(task.batchId), createId('ecb'))
+  }
+  const ecommerceTasks = (flow.graph.ecommerce?.tasks ?? []).map((task) => ({
+    ...task,
+    id: taskIdMap.get(String(task.id))!,
+    projectId: newProjectId,
+    batchId: batchIdMap.get(String(task.batchId)) ?? String(task.batchId),
+    nodeIds: Array.isArray(task.nodeIds)
+      ? task.nodeIds.map((id) => idMap.get(String(id)) ?? String(id))
+      : [],
+    request: deepRemapRefs(task.request, idMap),
+  }))
+  const ecommerceResults = (flow.graph.ecommerce?.results ?? []).map((result) => ({
+    ...result,
+    id: createId('ecr'),
+    projectId: newProjectId,
+    taskId: taskIdMap.get(String(result.taskId)) ?? String(result.taskId),
+    nodeId: idMap.get(String(result.nodeId)) ?? String(result.nodeId),
+  }))
+
   const project: FlowProject = {
     ...flow.project,
     id: newProjectId,
@@ -296,7 +353,15 @@ export function deserializeProject(
     extra: flow.project.extra ?? {},
   }
 
-  return { project, nodes, edges, assets, missingModels, repaired }
+  return {
+    project,
+    nodes,
+    edges,
+    assets,
+    ecommerce: { tasks: ecommerceTasks, results: ecommerceResults },
+    missingModels,
+    repaired,
+  }
 }
 
 /** 递归改写所有等于旧 id 的字符串（用于 data 内的 linkedPromptNodeIds / childIds 等引用） */

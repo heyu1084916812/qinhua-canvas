@@ -173,4 +173,54 @@ describe('ProjectRepository（内存存储）', () => {
     expect(origin).toHaveLength(1)
     expect((origin[0].doc as typeof doc).projectId).toBe(p.id)
   })
+
+  it('★★ duplicate 也抄电商任务 / 结果：引用全换成副本，原结果表不动', async () => {
+    const storage = createMemoryStorage()
+    const repo = createProjectRepository(storage)
+    const p = await repo.create({ name: '电商原项目', workbench: 'ecommerce' })
+    await storage.put('nodes', {
+      id: 'n1',
+      projectId: p.id,
+      type: 'generation',
+      data: { prompt: '图', ecommerceBatch: 'batch-old' },
+    })
+    await storage.put('ecommerceTasks', {
+      id: 'et1',
+      projectId: p.id,
+      batchId: 'batch-old',
+      createdAt: 1,
+      updatedAt: 1,
+      status: 'done',
+      request: { usage: 'main' },
+      nodeIds: ['n1'],
+    })
+    await storage.put('ecommerceResults', {
+      id: 'er1',
+      projectId: p.id,
+      taskId: 'et1',
+      nodeId: 'n1',
+      position: 0,
+      createdAt: 1,
+      updatedAt: 1,
+      status: 'done',
+      assetHash: 'h1',
+    })
+
+    const copy = await repo.duplicate(p.id)
+
+    const tasks = await storage.query('ecommerceTasks', { projectId: copy.id })
+    const results = await storage.query('ecommerceResults', { projectId: copy.id })
+    const copiedNodes = await storage.query('nodes', { projectId: copy.id })
+    expect(tasks).toHaveLength(1)
+    expect(results).toHaveLength(1)
+    expect(tasks[0].id).not.toBe('et1')
+    expect(results[0].id).not.toBe('er1')
+    expect(results[0].taskId).toBe(tasks[0].id)
+    expect(results[0].nodeId).toBe(copiedNodes[0].id)
+    expect((copiedNodes[0].data as { ecommerceBatch?: string }).ecommerceBatch).not.toBe(
+      'batch-old',
+    )
+    expect(await storage.query('ecommerceTasks', { projectId: p.id })).toHaveLength(1)
+    expect(await storage.query('ecommerceResults', { projectId: p.id })).toHaveLength(1)
+  })
 })

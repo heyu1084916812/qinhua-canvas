@@ -75,6 +75,31 @@ describe('flowIo 导出 / 导入', () => {
       projects: [baseProject as unknown as Row],
       nodes: baseGraph.nodes as unknown as Row[],
       edges: baseGraph.edges as unknown as Row[],
+      ecommerceTasks: [
+        {
+          id: 'et1',
+          projectId: 'proj1',
+          batchId: 'b1',
+          createdAt: 1,
+          updatedAt: 1,
+          status: 'done',
+          request: { productNodeId: 'n2' },
+          nodeIds: ['n2'],
+        },
+      ],
+      ecommerceResults: [
+        {
+          id: 'er1',
+          projectId: 'proj1',
+          taskId: 'et1',
+          nodeId: 'n2',
+          position: 0,
+          createdAt: 1,
+          updatedAt: 1,
+          status: 'done',
+          assetHash: 'h1',
+        },
+      ],
     }
     const { platform, storage, getSaved, setPicked } = makePlatform(seed)
     const repo = createProjectRepository(storage)
@@ -100,6 +125,16 @@ describe('flowIo 导出 / 导入', () => {
     const ids = importedNodes.map((n) => n.id)
     expect(ids).toContain(importedEdges[0].source)
     expect(ids).toContain(importedEdges[0].target)
+    const importedTasks = await storage.query('ecommerceTasks', { projectId: res.project!.id })
+    const importedResults = await storage.query('ecommerceResults', { projectId: res.project!.id })
+    expect(importedTasks).toHaveLength(1)
+    expect(importedResults).toHaveLength(1)
+    expect(importedTasks[0].id).not.toBe('et1')
+    expect(importedResults[0].taskId).toBe(importedTasks[0].id)
+    const importedGen = importedNodes.find(
+      (n) => (n.data as { model?: string } | undefined)?.model === 'gpt-image',
+    )!
+    expect(importedResults[0].nodeId).toBe(importedGen.id)
   })
 
   /**

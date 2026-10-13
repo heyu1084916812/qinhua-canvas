@@ -71,6 +71,9 @@ const PROJECT_CASCADE_TABLES: TableName[] = [
   'agentSessions',
   /* 漫剧文档（对账 #382）：脱离项目就没有意义，彻底删除时一起清 */
   'storyboards',
+  /* 电商任务与逐格结果（对账 #399 第二期）：脱离项目就没有意义 */
+  'ecommerceTasks',
+  'ecommerceResults',
 ]
 
 export function createProjectRepository(storage: StoragePort): ProjectRepository {
@@ -264,10 +267,31 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
       const storyboardRows = await storage.query('storyboards', { projectId: id })
       const storyboardDoc = storyboardRows[0]?.doc as Record<string, unknown> | undefined
       const idMap = new Map<string, string>()
+      /**
+       * 电商任务 / 结果也跟着副本走（对账 #399 第二期）。
+       *
+       * 不复制的话，复制一个电商项目会得到"节点都在、结果区是空的"的副本；
+       * 这里任务 id / 结果 id / batchId 全部重建，节点与结果的引用同步改写。
+       */
+      const taskRows = await storage.query('ecommerceTasks', { projectId: id })
+      const resultRows = await storage.query('ecommerceResults', { projectId: id })
+      const taskIdMap = new Map<string, string>()
+      const batchIdMap = new Map<string, string>()
+      for (const task of taskRows) {
+        taskIdMap.set(String(task.id), createId('ect'))
+        batchIdMap.set(String(task.batchId), createId('ecb'))
+      }
       const newNodes = nodes.map((r) => {
         const nid = createId('node')
         idMap.set(String(r.id), nid)
-        return { ...r, id: nid, projectId: copy.id }
+        const data = (r.data as Record<string, unknown> | undefined) ?? {}
+        const batch = typeof data.ecommerceBatch === 'string' ? data.ecommerceBatch : ''
+        return {
+          ...r,
+          id: nid,
+          projectId: copy.id,
+          data: batch ? { ...data, ecommerceBatch: batchIdMap.get(batch) ?? batch } : data,
+        }
       })
       const newEdges = edges.map((r) => ({
         ...r,
@@ -276,19 +300,40 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
         source: idMap.get(String(r.source)) ?? String(r.source),
         target: idMap.get(String(r.target)) ?? String(r.target),
       }))
-      await storage.transaction(['projects', ...GRAPH_TABLES, 'storyboards'], async () => {
-        await storage.put('projects', copy as never)
-        for (const n of newNodes) await storage.put('nodes', n as never)
-        for (const e of newEdges) await storage.put('edges', e as never)
-        if (storyboardDoc) {
-          await storage.put('storyboards', {
-            id: copy.id,
-            projectId: copy.id,
-            updatedAt: now,
-            doc: { ...storyboardDoc, projectId: copy.id },
-          } as never)
-        }
-      })
+      const newTasks = taskRows.map((task) => ({
+        ...task,
+        id: taskIdMap.get(String(task.id))!,
+        projectId: copy.id,
+        batchId: batchIdMap.get(String(task.batchId)) ?? String(task.batchId),
+        nodeIds: Array.isArray(task.nodeIds)
+          ? task.nodeIds.map((nodeId) => idMap.get(String(nodeId)) ?? String(nodeId))
+          : [],
+      }))
+      const newResults = resultRows.map((result) => ({
+        ...result,
+        id: createId('ecr'),
+        taskId: taskIdMap.get(String(result.taskId))!,
+        projectId: copy.id,
+        nodeId: idMap.get(String(result.nodeId)) ?? String(result.nodeId),
+      }))
+      await storage.transaction(
+        ['projects', ...GRAPH_TABLES, 'storyboards', 'ecommerceTasks', 'ecommerceResults'],
+        async () => {
+          await storage.put('projects', copy as never)
+          for (const n of newNodes) await storage.put('nodes', n as never)
+          for (const e of newEdges) await storage.put('edges', e as never)
+          if (storyboardDoc) {
+            await storage.put('storyboards', {
+              id: copy.id,
+              projectId: copy.id,
+              updatedAt: now,
+              doc: { ...storyboardDoc, projectId: copy.id },
+            } as never)
+          }
+          for (const task of newTasks) await storage.put('ecommerceTasks', task as never)
+          for (const result of newResults) await storage.put('ecommerceResults', result as never)
+        },
+      )
       return { ...copy, nodeCount: newNodes.length }
     },
   }

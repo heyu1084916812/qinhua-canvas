@@ -50,6 +50,9 @@ class QinghuaDB extends Dexie {
   snapshots!: Table<Row, string>
   /** 漫剧工作台第一阶段的整份文档（一行 = 一个项目，对账 #382） */
   storyboards!: Table<Row, string>
+  /** 电商任务与逐格结果（对账 #399 第二期） */
+  ecommerceTasks!: Table<Row, string>
+  ecommerceResults!: Table<Row, string>
 
   constructor(name = 'qinghua') {
     super(name)
@@ -135,6 +138,16 @@ class QinghuaDB extends Dexie {
      */
     this.version(11).stores({
       storyboards: 'id, projectId, updatedAt',
+    })
+    /**
+     * v12：电商任务 / 结果（对账 #399 第二期）。
+     *
+     * `ecommerceResults` 按 `taskId` 建索引，界面总是"取这一批的 N 格"；
+     * 另给 `projectId` 便于删除级联与全库备份按项目过滤。
+     */
+    this.version(12).stores({
+      ecommerceTasks: 'id, projectId, createdAt',
+      ecommerceResults: 'id, projectId, taskId, createdAt',
     })
   }
 }

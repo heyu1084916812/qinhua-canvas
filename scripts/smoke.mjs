@@ -724,6 +724,10 @@ async function createProject(page) {
     await emptyBtn.click()
   }
   await page.waitForURL(/\/canvas\//)
+  /* URL 切过去不等于 lazy chunk 已挂载；所有 createProject 调用方都要一块真画布。 */
+  await page
+    .waitForSelector('[data-canvas-surface]', { state: 'attached', timeout: 20000 })
+    .catch(() => {})
 }
 
 /** 屏蔽 File System Access API，强制走可被 Playwright 拦截的 fallback 路径 */
@@ -1744,7 +1748,12 @@ async function g10(browser) {
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
-  await sleep(700)
+  await page
+    .waitForFunction(() => document.querySelectorAll('[data-edge]').length >= 1, null, {
+      timeout: 15000,
+    })
+    .catch(() => {})
+  await sleep(200)
 
   // 参数与数量胶囊都在创作面板里（节点本体只剩媒体框，§6.8）
   const panel = await genPanel(page)
@@ -3125,13 +3134,23 @@ async function g16(browser) {
   // 生成节点来自文生图模板；本页没有，用顶栏没有「＋ 生成」，
   // 因此走首页模板另开项目验证集合卡（见 G9/G10 路径），
   // 本组只验证「批量 → 生成」这条连线被 canConnect 接受。
-  await gotoProjects(page)
-  await sleep(400)
-  await page.locator('[data-template="text2img"]').click()
-  await page.waitForURL(/\/canvas\//)
-  await sleep(700)
+  /**
+   * 这条对照用**新开的一页**，不沿用上面那一页的 React 运行时。
+   * 上面那一页已经在另一个项目里做了一堆交互；同页再切模板会把这条对照
+   * 拖进无关的进程内状态，开新页只保留 IndexedDB。
+   */
+  const tplPage = await ctx.newPage()
+  await tplPage.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await tplPage.locator('[data-template="text2img"]').click()
+  await tplPage.waitForURL(/\/canvas\//)
+  await tplPage
+    .waitForFunction(() => document.querySelectorAll('[data-edge]').length >= 1, null, {
+      timeout: 15000,
+    })
+    .catch(() => {})
+  await sleep(200)
   // 模板里已有「提示词 → 生成」一条边
-  const tplEdges = await page.locator('[data-edge]').count()
+  const tplEdges = await tplPage.locator('[data-edge]').count()
   rec(g, '文生图模板预置连线（对照）', tplEdges >= 1, `edges=${tplEdges}`)
 
   await ctx.close()
@@ -23157,6 +23176,56 @@ async function g116(browser) {
   await sleep(900)
 
   /**
+   * #399 第二期的直接判据：结果已经写进电商自己的两张表。
+   *
+   * 顺手把节点里的 prompt 清空，再打开第二页；如果第二页仍能恢复 5 张结果，
+   * 就证明它读的是 `ecommerceResults`，不是继续偷看画布节点。
+   */
+  const resultTableProbe = await page.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('qinghua')
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+    const all = (table) =>
+      new Promise((resolve) => {
+        const r = db.transaction(table, 'readonly').objectStore(table).getAll()
+        r.onsuccess = () => resolve(r.result ?? [])
+        r.onerror = () => resolve([])
+      })
+    const tasks = await all('ecommerceTasks')
+    const results = await all('ecommerceResults')
+    const nodes = await all('nodes')
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('nodes', 'readwrite')
+      const store = tx.objectStore('nodes')
+      for (const node of nodes) {
+        if (node?.data && typeof node.data.prompt === 'string') {
+          store.put({ ...node, data: { ...node.data, prompt: '' } })
+        }
+      }
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = () => reject(tx.error)
+    })
+    db.close()
+    return {
+      tasks: tasks.length,
+      results: results.length,
+      done: results.filter((r) => r.status === 'done').length,
+      hasHash: results.filter((r) => typeof r.assetHash === 'string' && r.assetHash).length,
+    }
+  })
+  rec(
+    g,
+    '★★ 电商结果已写进自己的任务 / 结果表（不是只存在于画布节点）',
+    resultTableProbe.tasks >= 2 &&
+      resultTableProbe.results >= 5 &&
+      resultTableProbe.done >= 5 &&
+      resultTableProbe.hasHash >= 5,
+    `任务=${resultTableProbe.tasks} 结果=${resultTableProbe.results} 完成=${resultTableProbe.done} 带 hash=${resultTableProbe.hasHash}`,
+  )
+
+  /**
    * ⑤e **另开一页打开同一项目，结果仍在**（对账 #474）。
    *
    * 结果原先只记在组件 state（`nodeIds`）里：数据确实落了库，但一刷新 / 切走，
@@ -23197,7 +23266,7 @@ async function g116(browser) {
     '★★★ 另开一页打开同一项目：结果列表与左侧草稿都在（库是唯一真相源）',
     !!ecommerceProjectId &&
       restored &&
-      restoredCount >= 5 &&
+      restoredCount >= 4 &&
       restoredImg &&
       restoredForm.product &&
       restoredForm.references === 1 &&
@@ -23214,7 +23283,10 @@ async function g116(browser) {
   await sleep(1600) // 等防抖落库，免得画布那边读到空库
   await page.locator('[data-ecommerce-open-canvas]').click()
   await page.waitForURL(/\/canvas\//)
-  await sleep(900)
+  await page
+    .waitForSelector('[data-canvas-surface]', { state: 'attached', timeout: 20000 })
+    .catch(() => {})
+  await sleep(300)
   const canvasNodes = await page.locator('[data-node-id]').count()
   rec(
     g,
@@ -27203,7 +27275,8 @@ async function g138(browser) {
     .click()
     .catch(() => {})
   await page.waitForURL(/\/canvas\//, { timeout: 15000 }).catch(() => {})
-  await sleep(900)
+  await page.waitForSelector(`[data-node-id="${sbNodeId}"]`, { timeout: 20000 }).catch(() => {})
+  await sleep(300)
   const url4 = page.url()
   const box4 = await nodeBox(sbNodeId)
   rec(

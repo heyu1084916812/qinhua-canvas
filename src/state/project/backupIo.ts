@@ -179,6 +179,8 @@ export function describeBackup(manifest: BackupManifest): string {
   if (t.skills) parts.push(`${t.skills} 个技能`)
   if (t.fonts) parts.push(`${t.fonts} 个字体`)
   if (t.customProtocols) parts.push(`${t.customProtocols} 个自建协议`)
+  if (t.ecommerceTasks) parts.push(`${t.ecommerceTasks} 个电商任务`)
+  if (t.ecommerceResults) parts.push(`${t.ecommerceResults} 张电商结果`)
   const when = manifest.exportedAt ? new Date(manifest.exportedAt).toLocaleString() : '时间未知'
   const version = manifest.appVersion ? ` · 版本 ${manifest.appVersion}` : ''
   return `${parts.join(' · ') || '空备份'}（导出于 ${when}${version}）`
