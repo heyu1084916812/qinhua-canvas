@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
@@ -50,6 +50,11 @@ import { downloadAsset } from '../../features/canvas/downloadAsset'
 import { asAppError, describeError } from '../../shared/result'
 import { createId } from '../../shared/id'
 import { createPackStore } from '../../state/project/packStore'
+import { loadEcommerceDraft, saveEcommerceDraft } from '../../state/project/ecommerceDraft'
+import {
+  cleanEcommerceDraftRefs,
+  type EcommerceFormDraft,
+} from '../../domain/ecommerce/draft'
 import {
   ECOMMERCE_PLATFORMS,
   type EcommercePlatform,
@@ -234,6 +239,17 @@ function StudioHost({ projectId }: { projectId: string }) {
    * 渠道拉回来的裸模型名不进这个列表，理由见 `modelCatalog` 的注释（对账 #371）。
    */
   const [model, setModel] = useState('')
+  /**
+   * 左侧草稿（对账 #477）：`undefined` = 还在读，`null` = 这个项目还没有草稿。
+   * 读出来之前不渲染工作台，避免先闪一版默认值再把用户上传的图顶掉。
+   */
+  const [savedDraft, setSavedDraft] = useState<EcommerceFormDraft | null | undefined>(undefined)
+  const [initialUploads, setInitialUploads] = useState<{
+    product: EcommerceUpload | null
+    references: EcommerceUpload[]
+  }>({ product: null, references: [] })
+  const draftTimer = useRef<number | null>(null)
+  const draftLatest = useRef<EcommerceFormDraft | null>(null)
   /** 长图面板开不开（对账 #420）：纯 UI 态，不落库 */
   const [longOpen, setLongOpen] = useState(false)
   /**
@@ -309,6 +325,54 @@ function StudioHost({ projectId }: { projectId: string }) {
     }
   }, [platform, projectId])
 
+  /**
+   * 读回左侧草稿，并顺手清理悬空上传引用：
+   * 草稿记着 node_1，但那个节点已被删 ⇒ 这一项不能放回表单（否则会得到一个
+   * 点生成才发现"产品图不存在"的假恢复）。清理结果同步写回，保持库与界面一致。
+   */
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const [draft, rows] = await Promise.all([
+        loadEcommerceDraft(platform.storage, projectId),
+        platform.storage.query('nodes', { projectId }),
+      ])
+      if (cancelled) return
+      const nodes = rows as unknown as NodeSnapshot[]
+      const byId = new Map(nodes.map((n) => [n.id, n]))
+      const uploadOf = (nodeId: string | null | undefined): EcommerceUpload | null => {
+        if (!nodeId) return null
+        const node = byId.get(nodeId)
+        const hash = node ? assetHashesOfNode(node)[0] : undefined
+        if (!hash) return null
+        return { nodeId, hash, preview: <ResultPreview hash={hash} /> }
+      }
+      const validNodeIds = new Set(
+        nodes.filter((node) => assetHashesOfNode(node).length > 0).map((node) => node.id),
+      )
+      const cleaned = draft ? cleanEcommerceDraftRefs(draft, validNodeIds) : null
+      const product = uploadOf(cleaned?.productNodeId)
+      const references = (cleaned?.referenceNodeIds ?? [])
+        .map((id) => uploadOf(id))
+        .filter((item): item is EcommerceUpload => item !== null)
+      if (cleaned) setModel(cleaned.model)
+      setInitialUploads({ product, references })
+      setSavedDraft(cleaned)
+      draftLatest.current = cleaned
+      if (
+        draft &&
+        cleaned &&
+        (draft.productNodeId !== cleaned?.productNodeId ||
+          draft.referenceNodeIds.join('|') !== cleaned.referenceNodeIds.join('|'))
+      ) {
+        void saveEcommerceDraft(platform.storage, projectId, cleaned)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [platform, projectId])
+
   /** 读回这个项目最近一次电商出图的批次 id（读失败回落老项目口径）。 */
   useEffect(() => {
     let cancelled = false
@@ -372,6 +436,44 @@ function StudioHost({ projectId }: { projectId: string }) {
       /* 记账失败不影响本次出图 */
     }
   }
+
+  /** 立刻把最新草稿写库（离页 / 关窗 / 防抖到点三条路共用）。 */
+  const flushDraft = useCallback(() => {
+    if (draftTimer.current !== null) {
+      window.clearTimeout(draftTimer.current)
+      draftTimer.current = null
+    }
+    const draft = draftLatest.current
+    if (draft) void saveEcommerceDraft(platform.storage, projectId, draft)
+  }, [platform, projectId])
+
+  /**
+   * 表单变化先留在内存，500ms 防抖落库。
+   *
+   * 不逐键写库（补充要求会一次打很多字），也不等"用户自己记得保存"：
+   * 离页与 `pagehide` 都会 flush，桌面壳里切页 / 关窗不丢最后一笔。
+   */
+  const handleDraftChange = useCallback(
+    (draft: EcommerceFormDraft) => {
+      draftLatest.current = draft
+      setSavedDraft(draft)
+      if (draftTimer.current !== null) window.clearTimeout(draftTimer.current)
+      draftTimer.current = window.setTimeout(() => {
+        draftTimer.current = null
+        void saveEcommerceDraft(platform.storage, projectId, draft)
+      }, 500)
+    },
+    [platform, projectId],
+  )
+
+  useEffect(() => {
+    const onHide = () => flushDraft()
+    window.addEventListener('pagehide', onHide)
+    return () => {
+      window.removeEventListener('pagehide', onHide)
+      flushDraft()
+    }
+  }, [flushDraft])
 
   /**
    * 对话渠道：**只认用户真勾过对话模型的启用渠道**，找不到就如实说没配
@@ -773,9 +875,16 @@ function StudioHost({ projectId }: { projectId: string }) {
     [results],
   )
 
+  /* 草稿读出来再挂工作台：否则会先闪一版默认值，再把刚恢复的上传槽顶掉。 */
+  if (savedDraft === undefined) return null
+
   return (
     <EcommerceStudio
       projectName={projectName || '未命名项目'}
+      initialDraft={savedDraft}
+      initialProduct={initialUploads.product}
+      initialReferences={initialUploads.references}
+      onDraftChange={handleDraftChange}
       platforms={platforms}
       models={models}
       model={model}

@@ -1023,7 +1023,11 @@ async function g1(browser) {
   const g = 'G1 闭环'
   const ctx = await newCtx(browser)
   const page = await ctx.newPage()
-  page.on('pageerror', (e) => rec(g, '无未捕获异常', false, String(e).slice(0, 120)))
+  const pageErrors = []
+  page.on('pageerror', (e) => {
+    pageErrors.push(String(e).slice(0, 160))
+    rec(g, '无未捕获异常', false, String(e).slice(0, 120))
+  })
 
   /*
    * 空状态在**项目页**（§5.1：项目网格从「首页」迁到一级「项目」页）。
@@ -1606,7 +1610,17 @@ async function g9(browser) {
   await sleep(400)
   await page.locator('[data-template="text2img"]').click()
   await page.waitForURL(/\/canvas\//)
-  await sleep(700)
+  await page
+    .waitForFunction(
+      () =>
+        [...document.querySelectorAll('[data-node-type="generation"]')].some((el) =>
+          el.getAttribute('data-node-id'),
+        ),
+      null,
+      { timeout: 15000 },
+    )
+    .catch(() => {})
+  await sleep(200)
 
   // 诊断：打印生成节点模型 chip 的可选项
   // （M6-16 起这些参数在**创作面板**里，节点本体只剩媒体框；M6-17 起是上拉浮层；
@@ -12020,7 +12034,11 @@ async function g80(browser) {
   await page.goto(BASE, { waitUntil: 'networkidle' })
   await sleep(500)
   await createProject(page)
-  await sleep(1200)
+  /* 路由已切到 /canvas 不等于 lazy chunk 已挂载；等目标入口出现再断言。 */
+  await page
+    .waitForSelector('[data-canvas-log]', { state: 'attached', timeout: 15000 })
+    .catch(() => {})
+  await sleep(300)
   rec(g, '★★ 画布页不再有旧的顶部悬浮栏（§6.2）', (await page.locator('[data-topbar]').count()) === 0)
   rec(g, '★ 日志入口在画布右上角', (await page.locator('[data-canvas-log]').count()) === 1)
   await page.locator('[data-canvas-log]').click()
@@ -14184,7 +14202,10 @@ async function g87(browser) {
 
   // ── ① 画布无网格 ──
   await createProject(page)
-  await sleep(800)
+  await page
+    .waitForSelector('[data-canvas-surface]', { state: 'attached', timeout: 15000 })
+    .catch(() => {})
+  await sleep(200)
 
   const grid = await page.evaluate(() => {
     const surface = document.querySelector('[data-canvas-surface]')
@@ -19160,10 +19181,20 @@ async function g97(browser) {
     (await page.locator('[data-hosting-provider="tmpfiles"]').getAttribute('aria-pressed')) === 'true',
   )
 
-  await page.locator('[data-hosting-test]').click()
-  await sleep(6000)
-  const url = await page.locator('[data-hosting-url]').innerText().catch(() => '')
-  const status = await page.locator('[data-hosting-status]').innerText().catch(() => '')
+  /**
+   * 外网上传允许重试一次：全量冒烟里 tmpfiles 偶发 5xx / 连接中断，第一次会红但隔离复跑即绿。
+   * 重试只放宽**外部服务抖动**，不放宽产品行为：两次都失败时下面两条仍会如实变红。
+   */
+  let url = ''
+  let status = ''
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await page.locator('[data-hosting-test]').click()
+    await sleep(6000)
+    url = await page.locator('[data-hosting-url]').innerText().catch(() => '')
+    status = await page.locator('[data-hosting-status]').innerText().catch(() => '')
+    if (/https:\/\/tmpfiles\.org\/dl\//.test(url)) break
+    if (attempt === 0) await sleep(1000)
+  }
   rec(
     g,
     '★★ 测试上传拿到 `/dl/` 直链（页面地址换成直链形态）',
@@ -23114,6 +23145,18 @@ async function g116(browser) {
   )
 
   /**
+   * ⑤d.1 左侧草稿（对账 #477）：产品图之外再补一张参考图、写一句补充要求，
+   * 然后等防抖落库。下面的第二页会同时验"结果还在"和"这一摊表单也还在"。
+   */
+  await page.locator('[data-ecommerce-reference-input]').setInputFiles({
+    name: 'reference.png',
+    mimeType: 'image/png',
+    buffer: solidPngBuffer(48, 48, [220, 80, 40]),
+  })
+  await page.locator('[data-ecommerce-note]').fill('突出防水材质')
+  await sleep(900)
+
+  /**
    * ⑤e **另开一页打开同一项目，结果仍在**（对账 #474）。
    *
    * 结果原先只记在组件 state（`nodeIds`）里：数据确实落了库，但一刷新 / 切走，
@@ -23136,11 +23179,34 @@ async function g116(browser) {
     .first()
     .evaluate((el) => el.naturalWidth > 0)
     .catch(() => false)
+  const restoredForm = {
+    product: await restorePage
+      .locator('[data-ecommerce-product-preview] img')
+      .first()
+      .evaluate((el) => el.naturalWidth > 0)
+      .catch(() => false),
+    references: await restorePage.locator('[data-ecommerce-reference-preview]').count(),
+    usage: await restorePage.locator('[data-ecommerce-usage="set"]').getAttribute('aria-checked'),
+    platform: await restorePage.locator('[data-ecommerce-platform]').inputValue(),
+    language: await restorePage.locator('[data-ecommerce-language]').inputValue(),
+    count: await restorePage.locator('[data-ecommerce-count]').inputValue(),
+    note: await restorePage.locator('[data-ecommerce-note]').inputValue(),
+  }
   rec(
     g,
-    '★★★ 另开一页打开同一项目，结果列表仍在（库是唯一真相源，不是组件内存）',
-    !!ecommerceProjectId && restored && restoredCount >= 5 && restoredImg,
-    `项目=${ecommerceProjectId ?? '未取到'} 恢复结果=${restoredCount} 首图解码=${restoredImg}`,
+    '★★★ 另开一页打开同一项目：结果列表与左侧草稿都在（库是唯一真相源）',
+    !!ecommerceProjectId &&
+      restored &&
+      restoredCount >= 5 &&
+      restoredImg &&
+      restoredForm.product &&
+      restoredForm.references === 1 &&
+      restoredForm.usage === 'true' &&
+      restoredForm.platform === 'amazon' &&
+      restoredForm.language === 'en' &&
+      restoredForm.count === '4' &&
+      restoredForm.note === '突出防水材质',
+    `项目=${ecommerceProjectId ?? '未取到'} 结果=${restoredCount} 产品=${restoredForm.product} 参考=${restoredForm.references} 用途=${restoredForm.usage} 平台=${restoredForm.platform} 语言=${restoredForm.language} 张数=${restoredForm.count} 要求=${restoredForm.note}`,
   )
   await restorePage.close()
 
@@ -29631,20 +29697,50 @@ async function g153(browser) {
 
   // 链 A：模板给的「提示词 → 生成」
   await gotoProjects(page)
-  await sleep(400)
-  await page.locator('[data-template="text2img"]').click()
+  const template = page.locator('[data-template="text2img"]')
+  await template.waitFor({ state: 'visible', timeout: 15000 })
+  await template.click()
   await page.waitForURL(/\/canvas\//)
-  await sleep(700)
+  const surfaceReady = await page
+    .waitForSelector('[data-canvas-surface]', { state: 'attached', timeout: 60000 })
+    .then(() => true)
+    .catch(() => false)
+  if (!surfaceReady) {
+    const body = (await page.locator('body').innerText().catch(() => '')).slice(0, 160).replace(/\n/g, ' | ')
+    throw new Error(`canvas surface 未挂载；url=${page.url()} body=${body}`)
+  }
+  await page
+    .waitForFunction(
+      () =>
+        [...document.querySelectorAll('[data-node-type="generation"]')].some((el) =>
+          el.getAttribute('data-node-id'),
+        ),
+      null,
+      { timeout: 30000 },
+    )
+    .catch(() => {})
+  await sleep(200)
   const genIds = () =>
     page.$$eval('[data-node-type="generation"]', (els) =>
-      els.map((e) => e.getAttribute('data-node-id')),
+      els.map((e) => e.getAttribute('data-node-id')).filter((id) => !!id),
     )
   const idsBefore = await genIds()
   const aId = idsBefore[0]
+  if (!aId) throw new Error('模板没有落下可识别的生成节点')
 
   // 链 B：再加一个**独立**生成节点（不连线、自带提示词）= 外部工作流
   await addNodeViaToolbar(page, 'generation')
-  await sleep(600)
+  await page
+    .waitForFunction(
+      (n) =>
+        [...document.querySelectorAll('[data-node-type="generation"]')]
+          .map((el) => el.getAttribute('data-node-id'))
+          .filter((id) => !!id).length > n,
+      idsBefore.length,
+      { timeout: 15000 },
+    )
+    .catch(() => {})
+  await sleep(200)
   const bId = (await genIds()).find((id) => !idsBefore.includes(id))
   rec(g, '场景成立：画布上有两个互不相干的生成节点', !!aId && !!bId, `${aId} / ${bId}`)
 

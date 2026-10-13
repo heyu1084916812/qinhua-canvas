@@ -28,6 +28,10 @@ import {
 } from '../../domain/ecommerce/types'
 import { ECOMMERCE_NOTE_MAX } from '../../domain/ecommerce/prompt'
 import type { EcommerceShot } from '../../domain/ecommerce/prompt'
+import {
+  DEFAULT_ECOMMERCE_FORM_DRAFT,
+  type EcommerceFormDraft,
+} from '../../domain/ecommerce/draft'
 import styles from './EcommerceStudio.module.css'
 
 /**
@@ -95,6 +99,13 @@ export interface EcommerceResultItem {
 
 export interface EcommerceStudioProps {
   projectName: string
+  /** 项目级草稿（对账 #477）：刷新 / 切走后把左侧表单原样放回来 */
+  initialDraft?: EcommerceFormDraft | null
+  /** 与草稿一起恢复的上传槽；页面按节点 id 校验后再传，悬空引用不会出现在这里 */
+  initialProduct?: EcommerceUpload | null
+  initialReferences?: readonly EcommerceUpload[]
+  /** 表单每次变化后回传；页面负责防抖落库 */
+  onDraftChange?: (draft: EcommerceFormDraft) => void
   /**
    * 平台清单：默认用内置那份；页面可以把**扩展包带进来的规则**合并后传进来
    * （对账 #386 的 E3：平台规则可发扩展包更新，不必等应用发版）。
@@ -168,6 +179,10 @@ export interface EcommerceStudioProps {
 
 export function EcommerceStudio({
   projectName,
+  initialDraft = null,
+  initialProduct = null,
+  initialReferences = [],
+  onDraftChange,
   platforms = ECOMMERCE_PLATFORMS,
   onUpload,
   onGenerate,
@@ -192,14 +207,15 @@ export function EcommerceStudio({
   onPlanShots,
   shotPlanNote = '',
 }: EcommerceStudioProps) {
-  const [usage, setUsage] = useState<EcommerceUsage>('main')
-  const [platformId, setPlatformId] = useState<string>('amazon')
-  const [language, setLanguage] = useState<EcommerceLanguage>('en')
-  const [count, setCount] = useState<number>(ECOMMERCE_DEFAULT_COUNT.main)
-  const [ratio, setRatio] = useState<string>('1:1')
-  const [note, setNote] = useState('')
-  const [product, setProduct] = useState<EcommerceUpload | null>(null)
-  const [references, setReferences] = useState<EcommerceUpload[]>([])
+  const saved = initialDraft ?? DEFAULT_ECOMMERCE_FORM_DRAFT
+  const [usage, setUsage] = useState<EcommerceUsage>(saved.usage)
+  const [platformId, setPlatformId] = useState<string>(saved.platformId)
+  const [language, setLanguage] = useState<EcommerceLanguage>(saved.language)
+  const [count, setCount] = useState<number>(saved.count)
+  const [ratio, setRatio] = useState<string>(saved.ratio)
+  const [note, setNote] = useState(saved.note)
+  const [product, setProduct] = useState<EcommerceUpload | null>(initialProduct)
+  const [references, setReferences] = useState<EcommerceUpload[]>([...initialReferences])
   /** 二次确认：点生成先算出"预计 N 张"，确认后才真的发请求（#384 的 D6） */
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState('')
@@ -225,10 +241,25 @@ export function EcommerceStudio({
    */
   const [dragOver, setDragOver] = useState<'product' | 'reference' | null>(null)
 
-  /** 换用途时把张数带到该用途的默认值（用户仍可改）——"带示例"的一半 */
+  /**
+   * 把当前表单回给页面落库。
+   *
+   * 只回传**可序列化**的节点 id 与参数，不回传 React 预览节点；
+   * `model` 由页面控制，所以这里读 props 的最新值。
+   */
   useEffect(() => {
-    setCount(ECOMMERCE_DEFAULT_COUNT[usage])
-  }, [usage])
+    onDraftChange?.({
+      usage,
+      platformId,
+      language,
+      count,
+      ratio,
+      note,
+      model,
+      productNodeId: product?.nodeId ?? null,
+      referenceNodeIds: references.map((r) => r.nodeId),
+    })
+  }, [usage, platformId, language, count, ratio, note, model, product?.nodeId, references, onDraftChange])
 
   const platform = useMemo(
     () => platforms.find((p) => p.id === platformId) ?? null,
@@ -359,10 +390,12 @@ export function EcommerceStudio({
    */
   const applyIntent = () => {
     if (!intent) return
-    if (intent.usage) setUsage(intent.usage)
+    const nextUsage = intent.usage ?? usage
+    if (intent.usage) setUsage(nextUsage)
     if (intent.platformId) setPlatformId(intent.platformId)
     if (intent.language) setLanguage(intent.language)
     if (intent.count !== undefined) setCount(intent.count)
+    else if (intent.usage) setCount(ECOMMERCE_DEFAULT_COUNT[nextUsage])
     if (intent.ratio) setRatio(intent.ratio)
     if (intent.note) setNote(intent.note)
     onIntentApplied?.()
@@ -593,7 +626,11 @@ export function EcommerceStudio({
                 aria-checked={usage === u}
                 className={usage === u ? `${styles.seg} ${styles.segOn}` : styles.seg}
                 data-ecommerce-usage={u}
-                onClick={() => setUsage(u)}
+                onClick={() => {
+                  setUsage(u)
+                  /* 与用途切换同一个事件里改张数，避免 effect 在用户输入之后再覆盖它。 */
+                  setCount(ECOMMERCE_DEFAULT_COUNT[u])
+                }}
               >
                 {usageLabel(u)}
               </button>
