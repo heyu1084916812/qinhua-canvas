@@ -30035,32 +30035,56 @@ async function g155(browser) {
     '<img src="https://cms-assets.youmind.com/media/x.jpg" width="700">',
   ].join('\n')
 
-  await page.route('**/raw.githubusercontent.com/**', async (route) => {
+  /**
+   * 顶层数组形状的 JSON（banana-prompt-quicker）。字段按真实数据文件来，
+   * 用来验 `parseFlatJsonCases` 这条支路。
+   */
+  const JSON_BANANA = [
+    {
+      title: '香蕉提示词案例',
+      prompt: 'banana flat prompt',
+      preview: 'https://cdn.jsdelivr.net/gh/glidea/banana-prompt-quicker@main/demo.jpg',
+      author: 'glidea',
+      category: '电商',
+      sub_category: '产品图',
+    },
+  ]
+
+  /**
+   * ⚠️ 来源地址 2026-10-14 已从 raw.githubusercontent.com 切到 jsDelivr，
+   * 这里跟着改；否则 mock 拦不住，冒烟会打真实外网。
+   */
+  await page.route('**/cdn.jsdelivr.net/**', async (route) => {
     if (route.request().url().endsWith('.json')) {
+      const isBanana = route.request().url().includes('banana-prompt-quicker')
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          cases: [
-            {
-              id: 1,
-              title: '奶龙插画',
-              image: '/images/1.png',
-              prompt: 'cute dragon illustration',
-              category: 'Illustration',
-              styles: ['3D'],
-              sourceLabel: '@tester',
-              sourceUrl: 'https://x.com/tester/1',
-            },
-            {
-              id: 2,
-              title: '产品主图',
-              image: '/images/2.png',
-              prompt: 'product hero shot',
-              category: 'Product',
-            },
-          ],
-        }),
+        body: JSON.stringify(
+          isBanana
+            ? JSON_BANANA
+            : {
+                cases: [
+                  {
+                    id: 1,
+                    title: '奶龙插画',
+                    image: '/images/1.png',
+                    prompt: 'cute dragon illustration',
+                    category: 'Illustration',
+                    styles: ['3D'],
+                    sourceLabel: '@tester',
+                    sourceUrl: 'https://x.com/tester/1',
+                  },
+                  {
+                    id: 2,
+                    title: '产品主图',
+                    image: '/images/2.png',
+                    prompt: 'product hero shot',
+                    category: 'Product',
+                  },
+                ],
+              },
+        ),
       })
       return
     }
@@ -30088,26 +30112,28 @@ async function g155(browser) {
   )
   rec(
     g,
-    '★★ 三种来源形态的案例都渲染成卡片（JSON + 两种 README 版式）',
-    (await cards.count()) === 6,
+    '★★ 四种来源形态的案例都渲染成卡片（两种 JSON + 两种 README 版式）',
+    (await cards.count()) === 7,
     `cards=${await cards.count()}`,
   )
 
   const sub = ((await page.locator('[data-inspiration-sub]').textContent()) ?? '').trim()
-  rec(g, '★★ 顶部如实报「多少案例 · 多少来源」', /6 个案例/.test(sub) && /5 个来源/.test(sub), sub)
+  rec(g, '★★ 顶部如实报「多少案例 · 多少来源」', /7 个案例/.test(sub) && /6 个来源/.test(sub), sub)
 
   rec(
     g,
-    '★ 左侧把五条来源都列出来',
+    '★ 左侧把六条来源都列出来',
     (await page.locator('[data-inspiration-source="gpt-image-2"]').count()) === 1 &&
       (await page.locator('[data-inspiration-source="nano-banana"]').count()) === 1 &&
-      (await page.locator('[data-inspiration-source="youmind-nano-banana-pro"]').count()) === 1,
+      (await page.locator('[data-inspiration-source="youmind-nano-banana-pro"]').count()) === 1 &&
+      (await page.locator('[data-inspiration-source="banana-quicker"]').count()) === 1,
   )
   rec(
     g,
-    '★★ 两种 README 版式各自解析出案例（「例 N」与「No. N」）',
+    '★★ 四种来源形态各自解析出案例（「例 N」「No. N」「cases 数组」「顶层数组」）',
     (await page.locator('[data-inspiration-card="nano-banana:1"]').count()) === 1 &&
-      (await page.locator('[data-inspiration-card="youmind-nano-banana-pro:1"]').count()) === 1,
+      (await page.locator('[data-inspiration-card="youmind-nano-banana-pro:1"]').count()) === 1 &&
+      (await page.locator('[data-inspiration-card="banana-quicker:1"]').count()) === 1,
   )
   const tagCount = await page.locator('[data-inspiration-tag]').count()
   rec(g, '★★ 标签栏由案例标签生成（不是写死的）', tagCount >= 3, `tags=${tagCount}`)
@@ -30121,7 +30147,7 @@ async function g155(browser) {
   rec(
     g,
     '★ 每张卡带「原图 / 复制提示词」两个动作',
-    (await page.locator('[data-inspiration-copy]').count()) === 6 &&
+    (await page.locator('[data-inspiration-copy]').count()) === 7 &&
       (await page.locator('[data-inspiration-source-link]').count()) === 2,
   )
 

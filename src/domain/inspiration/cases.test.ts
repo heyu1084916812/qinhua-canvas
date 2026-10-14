@@ -73,6 +73,35 @@ describe('parseInspirationCases', () => {
     )
     expect(out[0]!.imageUrl).toBe('https://cdn.example.com/a.png')
   })
+
+  it('★★ 顶层数组形状的 JSON 也认（banana-prompt-quicker 的字段口径）', () => {
+    const out = parseInspirationCases(
+      [
+        {
+          title: '电商产品图',
+          prompt: 'a clean product shot',
+          preview: 'https://cdn.example.com/p.jpg',
+          author: 'glidea',
+          category: '电商',
+          sub_category: '产品图',
+        },
+        {
+          prompt: '没有标题时用提示词开头兜底',
+          reference_image_urls: ['https://cdn.example.com/r.jpg'],
+        },
+        {},
+      ],
+      SOURCE,
+    )
+    expect(out).toHaveLength(2)
+    expect(out[0]!.id).toBe('demo:1')
+    expect(out[0]!.imageUrl).toBe('https://cdn.example.com/p.jpg')
+    expect(out[0]!.tags).toEqual(['电商', '产品图'])
+    expect(out[0]!.credit).toBe('glidea')
+    /** 第二条没标题就截提示词开头；没 preview 就退回第一张参考图 */
+    expect(out[1]!.title).toBe('没有标题时用提示词开头兜底')
+    expect(out[1]!.imageUrl).toBe('https://cdn.example.com/r.jpg')
+  })
 })
 
 describe('filterCases / tagCounts', () => {

@@ -50,16 +50,20 @@ export interface InspirationSource {
  *
  * ⚠️ 这里**只放有结构化数据文件**的仓库。README 型（内容写在 markdown 表格 / 列表里）
  * 要另写解析器，那些留到后面按需接 —— 不在这里假装能读。
+ *
+ * ⚠️ **地址一律走 jsDelivr（`cdn.jsdelivr.net/gh/...`）而不是 raw.githubusercontent.com**：
+ * 2026-10-14 实测本机访问 raw 多次 **连接超时**（同一时刻 jsDelivr 1.7 秒返回），
+ * 而用户在国内 —— 灵感库的刷新成功率直接取决于这条链路的可达性。
+ * jsDelivr 是 GitHub 的只读镜像 CDN，路径规则 `gh/OWNER/REPO@BRANCH/PATH`。
  */
 export const INSPIRATION_SOURCES: readonly InspirationSource[] = [
   {
     id: 'gpt-image-2',
     name: 'Awesome GPT Image 2',
     repo: 'https://github.com/freestylefly/awesome-gpt-image-2',
-    dataUrl:
-      'https://raw.githubusercontent.com/freestylefly/awesome-gpt-image-2/main/data/cases.json',
+    dataUrl: 'https://cdn.jsdelivr.net/gh/freestylefly/awesome-gpt-image-2@main/data/cases.json',
     /** 实测：图片在仓库的 `data/images/`（数据文件里的 `/images/...` 是站点路径） */
-    imageBase: 'https://raw.githubusercontent.com/freestylefly/awesome-gpt-image-2/main/data',
+    imageBase: 'https://cdn.jsdelivr.net/gh/freestylefly/awesome-gpt-image-2@main/data',
     note: '541 条 GPT Image 2 案例，带完整提示词与原作者署名',
     format: 'json',
   },
@@ -68,10 +72,9 @@ export const INSPIRATION_SOURCES: readonly InspirationSource[] = [
     id: 'nano-banana',
     name: 'Awesome Nano Banana',
     repo: 'https://github.com/PicoTrex/Awesome-Nano-Banana-images',
-    dataUrl:
-      'https://raw.githubusercontent.com/PicoTrex/Awesome-Nano-Banana-images/main/README.md',
+    dataUrl: 'https://cdn.jsdelivr.net/gh/PicoTrex/Awesome-Nano-Banana-images@main/README.md',
     /** README 里的图片路径就是**仓库根相对**（`images/pro_case1/output.jpg`），基址取根 */
-    imageBase: 'https://raw.githubusercontent.com/PicoTrex/Awesome-Nano-Banana-images/main',
+    imageBase: 'https://cdn.jsdelivr.net/gh/PicoTrex/Awesome-Nano-Banana-images@main',
     note: 'Nano Banana / Nano Banana Pro 的分场景案例，每条带完整提示词与原作者',
     format: 'readme',
   },
@@ -85,7 +88,7 @@ export const INSPIRATION_SOURCES: readonly InspirationSource[] = [
     name: 'YouMind Nano Banana Pro',
     repo: 'https://github.com/YouMind-OpenLab/awesome-nano-banana-pro-prompts',
     dataUrl:
-      'https://raw.githubusercontent.com/YouMind-OpenLab/awesome-nano-banana-pro-prompts/main/README.md',
+      'https://cdn.jsdelivr.net/gh/YouMind-OpenLab/awesome-nano-banana-pro-prompts@main/README.md',
     imageBase: '',
     note: 'Nano Banana Pro 提示词库（按编号分节，每组带生成图）',
     format: 'readme',
@@ -95,7 +98,7 @@ export const INSPIRATION_SOURCES: readonly InspirationSource[] = [
     id: 'youmind-gpt-image-2',
     name: 'YouMind GPT Image 2',
     repo: 'https://github.com/YouMind-OpenLab/awesome-gpt-image-2',
-    dataUrl: 'https://raw.githubusercontent.com/YouMind-OpenLab/awesome-gpt-image-2/main/README.md',
+    dataUrl: 'https://cdn.jsdelivr.net/gh/YouMind-OpenLab/awesome-gpt-image-2@main/README.md',
     imageBase: '',
     note: 'GPT Image 2 提示词库（按编号分节，每组带生成图）',
     format: 'readme',
@@ -106,7 +109,7 @@ export const INSPIRATION_SOURCES: readonly InspirationSource[] = [
     name: 'YouMind Seedance 2.0',
     repo: 'https://github.com/YouMind-OpenLab/awesome-seedance-2-prompts',
     dataUrl:
-      'https://raw.githubusercontent.com/YouMind-OpenLab/awesome-seedance-2-prompts/main/README.md',
+      'https://cdn.jsdelivr.net/gh/YouMind-OpenLab/awesome-seedance-2-prompts@main/README.md',
     imageBase: '',
     note: 'Seedance 2.0 视频提示词库（按编号分节）',
     format: 'readme',
@@ -116,6 +119,17 @@ export const INSPIRATION_SOURCES: readonly InspirationSource[] = [
      * 只认 `No.` 会只拿到 6 条（实测踩到）—— 所以用"所有三级标题都算案例"这条规则。
      */
     readmeStyle: 'youmindAll',
+  },
+  {
+    /** 顶层就是数组的 JSON（见 `parseFlatJsonCases`）：`title` / `prompt` / `preview` / `author` */
+    id: 'banana-quicker',
+    name: 'Banana Prompt Quicker',
+    repo: 'https://github.com/glidea/banana-prompt-quicker',
+    dataUrl: 'https://cdn.jsdelivr.net/gh/glidea/banana-prompt-quicker@main/prompts.json',
+    /** 它数据里的预览图本来就是 jsDelivr 绝对地址，不需要基址 */
+    imageBase: '',
+    note: '323 条实战提示词，按工作 / 生活 / 学习等场景分类，带预览图与作者',
+    format: 'json',
   },
 ]
 

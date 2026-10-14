@@ -44,14 +44,25 @@ const strList = (v: unknown): string[] =>
 /**
  * 把来源的数据文件解析成统一案例。
  *
- * 目前只认 `{ cases: [...] }` 这一种结构（`freestylefly/awesome-gpt-image-2` 的
- * `data/cases.json`）。**解析不出来就返回空数组，不抛** —— 一个来源挂了不该让整页打不开，
+ * JSON 型来源目前认两种顶层形状：`{ cases: [...] }` 与**顶层数组**（见下方分派）。
+ * **解析不出来就返回空数组，不抛** —— 一个来源挂了不该让整页打不开，
  * 界面按"这个来源这次没取到"如实说明。
  */
 export function parseInspirationCases(
   raw: unknown,
   source: InspirationSource,
 ): InspirationCase[] {
+  /**
+   * JSON 型来源其实有**两种顶层形状**，都由 `format: 'json'` 走到这里：
+   *
+   * - `{ cases: [...] }` —— freestylefly 那家；
+   * - **顶层就是一个数组** —— `banana-prompt-quicker` 的 `prompts.json`
+   *   （323 条，字段是 `title` / `prompt` / `preview` / `author` / `category`）。
+   *
+   * 判据取**形状**而不是来源名：以后再有同形状的仓库，加一条配置就能用。
+   */
+  if (Array.isArray(raw)) return parseFlatJsonCases(raw, source)
+
   const rows = (raw as { cases?: unknown } | null)?.cases
   if (!Array.isArray(rows)) return []
 
@@ -87,6 +98,44 @@ export function parseInspirationCases(
       ...(credit ? { credit } : {}),
       ...(creditUrl ? { creditUrl } : {}),
       ...(docUrl ? { docUrl } : {}),
+    })
+  }
+  return out
+}
+
+/**
+ * 顶层数组形状的 JSON（`banana-prompt-quicker` 那种）。
+ *
+ * 与 `{ cases }` 那条的区别只有字段名：这里标题叫 `title`、图叫 `preview`、
+ * 作者叫 `author`、标签来自 `category` / `sub_category`。**没有 id 就用出现顺序补** ——
+ * 与 README 那条同一口径。
+ */
+function parseFlatJsonCases(
+  rows: readonly unknown[],
+  source: InspirationSource,
+): InspirationCase[] {
+  const out: InspirationCase[] = []
+  for (const row of rows) {
+    const r = (row ?? {}) as Record<string, unknown>
+    const prompt = str(r.prompt)
+    const title = str(r.title) || prompt.slice(0, 40)
+    if (!prompt && !title) continue
+
+    /** 预览图优先；没有预览就退回第一张参考图（有图总比空着强） */
+    const refs = strList(r.reference_image_urls)
+    const image = str(r.preview) || refs[0] || ''
+    const author = str(r.author)
+
+    out.push({
+      id: `${source.id}:${str(r.id) || out.length + 1}`,
+      sourceId: source.id,
+      sourceName: source.name,
+      title,
+      prompt,
+      imageUrl: image,
+      tags: [...new Set([str(r.category), str(r.sub_category)].filter(Boolean))],
+      ...(author ? { credit: author } : {}),
+      docUrl: source.repo,
     })
   }
   return out

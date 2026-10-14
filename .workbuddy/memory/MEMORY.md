@@ -6925,3 +6925,16 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
 - **★★ 分节切法也要跟着规则走**：写死 `\n(?=### )` 切不开 `##` 开头的版式（Seedance 的 `No. N` 段）。
 - **★ 收口基线（第 123 批 / 对账 #499）**：单测 **2500/2500**（210 文件）、`npm run check` 全绿、
   G155 **13/13**、真实外网端到端 1/1（**1065 条 · 5 个来源**）。
+
+## 2026-10-14 第 124 批（灵感库接第 6 家 + 顶层数组 JSON + 全量切 jsDelivr #500）
+
+- **★★★ 国内拉 GitHub 数据文件不要用 `raw.githubusercontent.com`**：2026-10-14 实测 raw 多次
+  `UND_ERR_CONNECT_TIMEOUT`，同一时刻 `cdn.jsdelivr.net` **1.7 秒**返回同一份文件。
+  路径规则是 `gh/OWNER/REPO@BRANCH/PATH`。**改来源地址时必须同步改冒烟 mock 的拦截域名** ——
+  否则 `page.route` 拦不住，G155 会打真实外网，"全绿"也就不算数。
+- **★★★ 同一 `format: 'json'` 也可能有第二种顶层形状**：freestylefly 是 `{ cases: [...] }`，
+  banana-prompt-quicker 的 `prompts.json` **顶层直接是数组**，字段名换成 `title` / `prompt` /
+  `preview` / `reference_image_urls`。判据要看**形状**（`Array.isArray(raw)`），不要按来源名写特判 ——
+  以后同形状仓库加一条配置就能接。缺 id 用出现顺序补，缺标题截提示词开头，缺 preview 退回第一张参考图。
+- **★ 收口基线（第 124 批 / 对账 #500）**：单测 **2501/2501**（210 文件）、`npm run check` 全绿、
+  G155 **13/13**、真实外网端到端 1/1（**1388 条 · 6 个来源**，首图实际解码 1122×1402，无页面异常）。
