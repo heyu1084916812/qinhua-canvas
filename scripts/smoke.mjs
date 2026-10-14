@@ -22462,26 +22462,25 @@ async function g114(browser) {
   await sleep(250)
   rec(g, '★ 再点同一档取消筛选（不然没有"退回全部"的路）', (await cardCount()) === 3, `cards=${await cardCount()}`)
 
-  /** ④ 分组方式：模型分组 */
-  await page.locator('[data-assets-group-mode="model"]').click()
-  await sleep(300)
-  const modelSections = await page.evaluate(() =>
-    [...document.querySelectorAll('[data-assets-group-section]')].map((el) =>
-      el.getAttribute('data-assets-group-section'),
-    ),
+  /**
+   * ④ 分组方式：**只剩两档**（用户 2026-10-14：「分组方式砍成两档」）。
+   *
+   * 原来的「模型分组」与左侧「模型生成分组」是同一个入口的两种形态 ——
+   * 判据从「点了它会按模型成组」改成「它真的没了 + 剩下那两档是对的」。
+   */
+  const groupModes = await page
+    .locator('[data-assets-group-mode]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-assets-group-mode')))
+  rec(
+    g,
+    '★★ 分组方式只剩「日期分组 / 不分组」两档',
+    groupModes.join(',') === 'date,none',
+    JSON.stringify(groupModes),
   )
   rec(
     g,
-    /*
-     * 两组张数**打平**（各 2 条：Nano Banana 2 = 两张图，Veo = 一张图 + 一条失败）
-     * ⇒ 平手时按名字排（顺序稳定，不然每次渲染都跳）。所以要断言的是**分组本身**，
-     * 不是某一组的先后 —— 第一版拿"Veo 在前"当期望，是我想当然。
-     */
-    '★★ 切「模型分组」后按模型成组（两个模型各一组，含失败那条）',
-    modelSections.length === 2 &&
-      modelSections.includes('Nano Banana 2') &&
-      modelSections.includes('Veo'),
-    JSON.stringify(modelSections),
+    '★ 「模型分组」那一档真的没了（不是被藏起来）',
+    (await page.locator('[data-assets-group-mode="model"]').count()) === 0,
   )
   await page.locator('[data-assets-group-mode="date"]').click()
   await sleep(300)

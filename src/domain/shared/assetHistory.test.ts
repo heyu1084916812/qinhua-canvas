@@ -305,18 +305,6 @@ describe('dateLabelOf / groupHistory', () => {
     expect(groups.map((g) => g.label)).toEqual(['今天', '10月3日', '10月1日'])
   })
 
-  it('★ 模型分组：没有模型的归「未知模型」而不是被丢掉', () => {
-    const items = buildHistory({
-      runs: [run({ id: 'a', outputHashes: ['a'], params: {} })],
-      assets: [asset('a')],
-      savedHashes: [],
-      projects: [],
-    })
-    expect(groupHistory(items, 'model', NOW)).toEqual([
-      { key: '未知模型', label: '未知模型', items: expect.any(Array) },
-    ])
-  })
-
   it('★ 不分组的模式返回单组（视图切换里"不分组"那一档）', () => {
     const items = buildHistory({
       runs: [run({ outputHashes: ['a'] })],

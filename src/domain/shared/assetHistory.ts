@@ -388,7 +388,15 @@ export interface HistoryGroup {
   items: HistoryItem[]
 }
 
-export type GroupMode = 'date' | 'model' | 'none'
+/**
+ * 分组方式。
+ *
+ * ⚠️ 原有的 `'model'` 档已按用户口径**移除**（2026-10-14：「分组方式砍成两档」）——
+ * 它与左侧「模型生成分组」那一栏是同一个入口的两种形态，同时摆着只是让用户多想一步。
+ * **要恢复的话改三处**：把 `'model'` 加回这里、恢复 `groupHistory` 的 model 分支、
+ * 再把 `AssetsPage.GROUP_MODES` 那一档加回来。
+ */
+export type GroupMode = 'date' | 'none'
 
 /** 日期分组的标题（参考图那种：今天 / 昨天 / 具体日期） */
 export function dateLabelOf(at: number, now: number): string {
@@ -405,19 +413,17 @@ export function dateLabelOf(at: number, now: number): string {
 }
 
 /**
- * 分组：日期（参考图里叫「日期分组」）或模型（左侧"模型生成分组"那一栏）。
+ * 分组：日期，或不分组。
  *
  * - **日期**按时间倒序，组内也倒序（用户找的是"刚才那张"）；
- * - **模型**按张数从多到少 —— 那一栏的用途本来就是"这个模型我出了多少张"，
- *   按字母排会让主力模型沉到底下；
- * - 没有模型的（老记录 / 未记录）归到「未知模型」，**不隐藏**。
+ * - **不分组**（`none`）把整份列表放进一个匿名组 —— 调用方靠 `label === ''` 不画组标题。
  */
 export function groupHistory(items: readonly HistoryItem[], mode: GroupMode, now: number): HistoryGroup[] {
   if (mode === 'none') return items.length > 0 ? [{ key: 'all', label: '', items: [...items] }] : []
 
   const groups = new Map<string, HistoryItem[]>()
   for (const item of items) {
-    const key = mode === 'date' ? dateLabelOf(item.createdAt, now) : (item.model ?? '未知模型')
+    const key = dateLabelOf(item.createdAt, now)
     const list = groups.get(key)
     if (list) list.push(item)
     else groups.set(key, [item])
@@ -425,15 +431,12 @@ export function groupHistory(items: readonly HistoryItem[], mode: GroupMode, now
 
   const out = [...groups.entries()].map(([key, groupItems]) => ({
     key,
-    label: mode === 'model' && key === '未知模型' ? '未知模型' : key,
+    label: key,
     items: groupItems,
   }))
 
-  if (mode === 'date') {
-    /** 日期组按最新那张的时间排（组内已按 createdAt 倒序） */
-    return out.sort((a, b) => (b.items[0]?.createdAt ?? 0) - (a.items[0]?.createdAt ?? 0))
-  }
-  return out.sort((a, b) => b.items.length - a.items.length || a.label.localeCompare(b.label))
+  /** 日期组按最新那张的时间排（组内已按 createdAt 倒序） */
+  return out.sort((a, b) => (b.items[0]?.createdAt ?? 0) - (a.items[0]?.createdAt ?? 0))
 }
 
 /** "模型生成分组"那一栏：模型 → 张数（只统计有产物的） */

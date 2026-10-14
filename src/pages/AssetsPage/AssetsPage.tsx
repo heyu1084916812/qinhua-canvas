@@ -37,10 +37,14 @@ const QUICK_FILTERS: readonly { id: QuickFilter; label: string }[] = [
   { id: 'failed', label: '生成失败' },
 ]
 
-/** 分组方式（参考图右上角的"日期分组"） */
+/**
+ * 分组方式（参考图右上角的"日期分组"）。
+ *
+ * 用户 2026-10-14：「分组方式砍成两档」—— 原来的「模型分组」与左侧那栏
+ * 「模型生成分组」是同一个入口的两种形态，同时摆着只让人多想一步。
+ */
 const GROUP_MODES: readonly { id: GroupMode; label: string }[] = [
   { id: 'date', label: '日期分组' },
-  { id: 'model', label: '模型分组' },
   { id: 'none', label: '不分组' },
 ]
 
