@@ -121,8 +121,15 @@ export function describeToolResult(
           ids.length > 0 ? `新建 ${ids.length} 个节点` : '没有新建节点',
           ...(failed ? problems : ['自检通过，图与计划一致']),
         ],
-        // 新建的节点此刻还没有产物，缩略图自然不显示；产出一出来就补上
-        nodeIds: ids,
+        /**
+         * **刻意不挂缩略图**（用户 2026-10-14：「工作流已建成和已经运行生成都出现了
+         * 生成的图片…是不是只需要一个就行了？」）。
+         *
+         * 这一步的含义是「节点建好了」，产物要到 `runNode` 那一步才有；而缩略图读的是
+         * 节点**当前**状态，于是节点跑完后这张卡也长出同一批图 —— 两张卡各来一遍同样的
+         * 九张图，看起来像重复。产物图只留给「已运行生成」那一张卡。
+         */
+        nodeIds: [],
         failed,
       }
     }
@@ -133,7 +140,12 @@ export function describeToolResult(
           ? outcomes.map((o) =>
               o.ok === false
                 ? `运行失败：${String(o.error ?? '未知原因')}`
-                : `节点 ${String(o.nodeId ?? '?')} 运行完成`,
+                /**
+                 * 优先报**节点名**（用户 2026-10-14：「每个图片的名字都是有的，
+                 * 右边 agent 完成的时候是不是可以不用写节点 id」）——
+                 * 节点上没有名字时才退回 id，不编造。
+                 */
+                : `${String(o.title || o.nodeId || '?')} 运行完成`,
             )
           : problems,
         nodeIds: outcomes.map((o) => String(o.nodeId)),

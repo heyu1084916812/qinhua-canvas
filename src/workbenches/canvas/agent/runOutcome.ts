@@ -8,6 +8,15 @@ import type { RunRecord } from '../../../domain/canvas/model/runRecord'
  */
 export interface AgentRunOutcome {
   nodeId: string
+  /**
+   * 节点名（`data.title`）。
+   *
+   * 用户 2026-10-14：「图六当中每个图片的名字都是有的，右边 agent 完成的时候
+   * 是不是可以不用写节点 id？是替换还是保留？」—— 面板和模型都该看到
+   * 「作品集总封面」，而不是 `node_0544f492-6542-41a1-…`。查不到就缺省，
+   * 由展示侧退回 `nodeId`，不编造名字。
+   */
+  title?: string
   ok: boolean
   error?: string
   status?: RunRecord['status']

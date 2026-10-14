@@ -23,7 +23,12 @@ describe('工具结果 → 人话', () => {
     )
     expect(d.lines.join()).toContain('新建 2 个节点')
     expect(d.lines.join()).toContain('自检通过')
-    expect(d.nodeIds).toEqual(['n1', 'n2'])
+    /**
+     * ⚠️ **刻意不挂缩略图**（用户 2026-10-14：「工作流已建成和已经运行生成都出现了
+     * 生成的图片…是不是只需要一个就行了？」）。产物图只留给「已运行生成」那张卡 ——
+     * 否则节点跑完后两张卡会长出同一批图。
+     */
+    expect(d.nodeIds).toEqual([])
     expect(d.failed).toBe(false)
   })
 
@@ -57,6 +62,32 @@ describe('工具结果 → 人话', () => {
     )
     expect(d.failed).toBe(false)
     expect(d.nodeIds).toEqual(['n7'])
+  })
+
+  it('★★ runNode 那一行报**节点名**，不是裸 id（用户 2026-10-14）', () => {
+    const d = describeToolResult(
+      'runNode',
+      JSON.stringify({
+        ok: true,
+        outcomes: [
+          {
+            nodeId: 'node_0544f492-6542-41a1-8c3d-f64227daa489',
+            ok: true,
+            title: '作品集总封面',
+          },
+        ],
+      }),
+    )
+    expect(d.lines.join()).toContain('作品集总封面')
+    expect(d.lines.join()).not.toContain('node_0544f492')
+  })
+
+  it('★ 节点没有名字时退回 id，不编造一个', () => {
+    const d = describeToolResult(
+      'runNode',
+      JSON.stringify({ ok: true, outcomes: [{ nodeId: 'n7', ok: true }] }),
+    )
+    expect(d.lines.join()).toContain('n7')
   })
 
   it('★ 结果不是合法 JSON：原样给出来，不假装什么都没发生', () => {

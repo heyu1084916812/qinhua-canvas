@@ -64,9 +64,11 @@ import {
   IconCheck,
   IconChevronDown,
   IconClose,
+  IconCopyText,
   IconDelete,
   IconChat,
   IconImage,
+  IconLoop,
   IconManual,
   IconMention,
   IconModelCube,
@@ -211,6 +213,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   /** 「已设默认」的提示框只闪一次，用完即收 */
   /** 展开看细节的步骤（工具调用 id 集合）。默认全收起 —— 对话流先保持干净 */
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  /** 刚复制过哪一条助手回复：图标短暂换成对勾，给用户一个「确实复制了」的回执 */
+  const [copiedKey, setCopiedKey] = useState<number | null>(null)
   /**
    * 当前展开的参数浮层（模型 / 技能 / 参数三选一）。
    *
@@ -443,6 +447,16 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
          * 毫无关系也要排成一条队，出两张图花两倍时间。现在按依赖切波：同一波 `Promise.all`
          * 并发发请求，下一波等上一波（`A 出图 → B 优化` 这种真依赖仍然保序）。
          */
+        /**
+         * 节点 id → 名字。面板与模型都该看到「作品集总封面」而不是
+         * `node_0544f492-…`（用户 2026-10-14）。查不到就返回空串，
+         * 由展示侧退回 id，绝不编造名字。
+         */
+        const titleOf = (id: string): string => {
+          const node = store.getSnapshot().nodes.find((n) => n.id === id)
+          const data = (node?.data ?? {}) as { title?: unknown }
+          return typeof data.title === 'string' ? data.title.trim() : ''
+        }
         const waves = runWaves(ids, store.getSnapshot().edges)
         const out: Awaited<ReturnType<AgentToolContext['runNodes']>> = []
         for (const wave of waves) {
@@ -471,7 +485,9 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
           out.push(
             ...wave.map((id, index) => {
               const failure = thrown[index]
-              return failure ?? agentRunOutcomeOf(afterRows, id, beforeIds)
+              const base = failure ?? agentRunOutcomeOf(afterRows, id, beforeIds)
+              const title = titleOf(id)
+              return title ? { ...base, title } : base
             }),
           )
         }
@@ -594,8 +610,14 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     [persist, setStatusFor],
   )
 
-  const send = useCallback(async () => {
-    const text = draft.trim()
+  /**
+   * 真正干活的那一段：**接收正文本身**，不读 `draft`。
+   *
+   * 这样「重试」才能复用同一条路（用户 2026-10-14 第 1 条：助手回复下方要有
+   * 复制 / 重试）。重试要拿的是**上一条用户消息**，而不是输入框里此刻的内容。
+   */
+  const sendText = useCallback(async (raw: string) => {
+    const text = raw.trim()
     if (!text || !current) return
     if (!current.channelId || !current.model) {
       setStatusFor(current.id, { kind: 'error', message: '还没选模型：先在上面选一个对话模型' })
@@ -625,6 +647,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             tools: req.tools ?? AGENT_TOOLS,
             messages: req.messages ?? [],
             signal,
+            /** 探测自带一个更短的等待上限（见 `PROBE_TIMEOUT_MS`） */
+            ...(req.timeoutMs ? { timeoutMs: req.timeoutMs } : {}),
           }),
       },
       { channelId: current.channelId, model: current.model },
@@ -766,7 +790,6 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     }
     await handleOutcome(current, outcome)
   }, [
-    draft,
     current,
     messages,
     store,
@@ -778,6 +801,32 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     toolCtx,
     viewport,
   ])
+
+  /** 输入框那条路：把草稿交给 `sendText` */
+  const send = useCallback(() => {
+    void sendText(draft)
+  }, [draft, sendText])
+
+  /**
+   * 重试：把**上一条用户消息**原样再发一次（用户 2026-10-14 第 1 条）。
+   * 取 `display`（带引用 chip 的原文）而不是 `content`：重试时要连引用一起还原。
+   */
+  const retry = useCallback(() => {
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user')
+    if (!lastUser) return
+    void sendText(lastUser.display ?? lastUser.content)
+  }, [messages, sendText])
+
+  /** 复制一条助手回复；剪贴板被拒时静默 —— 不弹一个用户看不懂的错误 */
+  const copyReply = useCallback(async (key: number, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedKey(key)
+      window.setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1500)
+    } catch {
+      /* 无权限 / 非安全上下文：静默 */
+    }
+  }, [])
 
   const confirm = useCallback(async () => {
     if (status.kind !== 'awaitingConfirm' || !current) return
@@ -1515,6 +1564,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             )
           }
           if (item.kind === 'text') {
+            const copied = copiedKey === i
             return (
               <div key={i} className={styles.msgBot} data-agent-message="assistant">
                 {/*
@@ -1523,6 +1573,29 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                   与提示词节点**共用同一个渲染器** —— 见 `MarkdownBlocks` 的说明。
                 */}
                 <MarkdownBlocks source={item.text} />
+                {/* 复制 / 重试（用户 2026-10-14 第 1 条） */}
+                <div className={styles.msgActions}>
+                  <button
+                    type="button"
+                    className={styles.msgAction}
+                    data-agent-copy
+                    title={copied ? '已复制' : '复制这条回复'}
+                    aria-label={copied ? '已复制' : '复制这条回复'}
+                    onClick={() => void copyReply(i, item.text)}
+                  >
+                    {copied ? <IconCheck size={14} /> : <IconCopyText size={14} />}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.msgAction}
+                    data-agent-retry
+                    title="重新问一遍（重发上一条消息）"
+                    aria-label="重新问一遍"
+                    onClick={retry}
+                  >
+                    <IconLoop size={14} />
+                  </button>
+                </div>
               </div>
             )
           }

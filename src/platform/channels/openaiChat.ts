@@ -187,7 +187,11 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
               }
             : {}),
         },
-        timeoutMs: CHAT_TIMEOUT_MS,
+        /**
+         * 调用方可以自带等待上限（Agent 多轮比普通文本重，见 `RunRequestBase.timeoutMs`）；
+         * 不给就还是 60 秒。
+         */
+        timeoutMs: request.timeoutMs ?? CHAT_TIMEOUT_MS,
       },
       signal,
     )

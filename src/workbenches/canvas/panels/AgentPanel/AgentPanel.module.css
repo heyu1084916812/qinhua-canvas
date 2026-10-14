@@ -295,6 +295,45 @@
   white-space: normal;
 }
 
+/**
+ * 助手回复下方的操作条（用户 2026-10-14 第 1 条：复制 / 重试）。
+ *
+ * 默认**淡出**、悬停在这条回复上（或键盘 Tab 进来）才显形：一屏十几条回复时，
+ * 两颗常驻按钮会把对话流切碎；但它们必须可达 —— 所以用 `opacity` 而不是
+ * `display:none`，键盘焦点照样进得来。
+ */
+.msgActions {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.msgBot:hover .msgActions,
+.msgBot:focus-within .msgActions {
+  opacity: 1;
+}
+
+.msgAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.msgAction:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
 .statusLine {
   font-size: var(--fs-chip);
   color: var(--text-3);

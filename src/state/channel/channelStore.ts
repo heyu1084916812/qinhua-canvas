@@ -215,10 +215,22 @@ export interface ChannelStoreActions {
     tools: readonly ToolDeclaration[]
     messages: readonly ChatMessage[]
     signal: AbortSignal
+    /** 单次调用的等待上限；不给走 Agent 的默认值（见 `AGENT_CHAT_TIMEOUT_MS`） */
+    timeoutMs?: number
   }): Promise<TextResult>
 }
 
 export type ChannelStore = MiniStore<ChannelStoreState> & ChannelStoreActions
+
+/**
+ * Agent 多轮对话的等待上限，**比普通文本调用的 60s 长**。
+ *
+ * 2026-10-14 实测：跑完 9 个节点后把结果回填给模型的那一轮，请求超过 60 秒默认值，
+ * 用户看到「连不上：等太久，超时了」，而图其实已经出好了。那一轮要读工具结果 +
+ * 整轮历史，天然比「优化一句提示词」重。只放宽走 `completeWithTools` 的这条路，
+ * 普通文本调用仍是 60 秒。
+ */
+const AGENT_CHAT_TIMEOUT_MS = 180_000
 
 function timeoutSignal(ms: number): AbortSignal {
   return typeof AbortSignal !== 'undefined' && typeof (AbortSignal as { timeout?: unknown }).timeout === 'function'
@@ -715,6 +727,7 @@ export function createChannelStore(
     tools,
     messages,
     signal,
+    timeoutMs,
   }) => {
     const ch = store.getState().channels.find((c) => c.id === channelId)
     if (!ch) throw new Error(`[channelStore] 渠道不存在：${channelId}`)
@@ -733,7 +746,18 @@ export function createChannelStore(
      */
     const upstreamModel = resolveUpstreamModel(ch.modelMap, model) ?? model
     return adapter.completeText(
-      { kind: 'text', channelId, model: upstreamModel, prompt: '', inputs: [], params: {}, tools, messages },
+      {
+        kind: 'text',
+        channelId,
+        model: upstreamModel,
+        prompt: '',
+        inputs: [],
+        params: {},
+        tools,
+        messages,
+        /** 调用方不给就用 Agent 的默认上限；探测会显式传一个更短的 */
+        timeoutMs: timeoutMs ?? AGENT_CHAT_TIMEOUT_MS,
+      },
       signal,
     )
   }

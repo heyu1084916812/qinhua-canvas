@@ -58,6 +58,12 @@ const PROBE_TOOL = {
 /** 探测请求的正文。**必须同时进 `prompt` 和 `messages`**，理由见 `probeToolCalling`。 */
 const PROBE_PROMPT = '调用 agent_probe 工具，不要输出任何文字。'
 
+/**
+ * 探测的等待上限。它只是「一个空工具 + 一句话」，不该跟正式对话一样等 3 分钟 ——
+ * 上游真挂住时，用户越早知道越好。
+ */
+const PROBE_TIMEOUT_MS = 30_000
+
 const cache = new Map<string, ToolSupportResult>()
 
 const keyOf = (k: ToolSupportKey): string => `${k.channelId}::${k.model}`
@@ -88,6 +94,7 @@ export async function probeToolCalling(
         inputs: [],
         params: {},
         tools: [PROBE_TOOL],
+        timeoutMs: PROBE_TIMEOUT_MS,
         /**
          * ⚠️ **必须给 `messages`，不能只给 `prompt`。**
          *
