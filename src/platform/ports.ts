@@ -60,6 +60,13 @@ export type TableName =
    */
   | 'ecommerceTasks'
   | 'ecommerceResults'
+  /**
+   * 灵感库的**索引缓存**（用户 2026-10-14）。
+   *
+   * 一行 = 一个来源：存解析后的案例数组 + 拉取时间。**只存索引、不存媒体** ——
+   * 预览图与视频始终走原始外链（用户明确说过「同步本地太大了，因为里面还有视频」）。
+   */
+  | 'inspirationCache'
 
 export interface Row {
   id: string

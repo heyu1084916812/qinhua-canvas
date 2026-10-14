@@ -110,6 +110,21 @@ export function IconAssets({ size = 20 }: IconProps) {
   )
 }
 
+/**
+ * 灵感库：火花 / 发光。
+ *
+ * 与参考图里「灵感」那一项同一类意象 —— 与「我的素材」（相框）刻意不同：
+ * 那两个入口一个是**自己的产出**、一个是**外面的参考**，图标不该长得像。
+ */
+export function IconInspiration({ size = 20 }: IconProps) {
+  return (
+    <svg {...BASE} width={size} height={size} viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="2.6" />
+      <path d="M12 2.8v3.2M12 18v3.2M2.8 12H6M18 12h3.2M6.5 6.5l2.2 2.2M15.3 15.3l2.2 2.2M17.5 6.5l-2.2 2.2M8.7 15.3l-2.2 2.2" />
+    </svg>
+  )
+}
+
 /** 渠道配置：插头 / 接口 */
 export function IconChannels({ size = 20 }: IconProps) {
   return (

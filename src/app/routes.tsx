@@ -51,6 +51,17 @@ const SkillsPage = lazy(() =>
 )
 
 /**
+ * 灵感库（用户 2026-10-14）：外部开源案例的浏览页，与 `/assets` 同级。
+ *
+ * 同样路由级 lazy：它要拉并解析一份几 MB 的索引，首屏不该为它付成本。
+ */
+const InspirationPage = lazy(() =>
+  import('../pages/InspirationPage/InspirationPage').then((m) => ({
+    default: m.InspirationPage,
+  })),
+)
+
+/**
  * 素材传输（图床）单独一页（用户 2026-10-03：「图床设置页单独设置一个页面出来」）。
  * 它回答的是「素材怎么变成公网地址」，与「某个渠道怎么连」是两件事，故不塞进设置页。
  */
@@ -89,6 +100,7 @@ export function AppRoutes() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/hosting" element={<HostingPage />} />
         <Route path="/skills" element={<SkillsPage />} />
+        <Route path="/inspiration" element={<InspirationPage />} />
         {/* 「我的素材」暂为占位页（§2.1 #6 明写「交互后期补齐」） */}
         <Route path="/assets" element={<AssetsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

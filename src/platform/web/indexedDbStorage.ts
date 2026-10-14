@@ -53,6 +53,8 @@ class QinghuaDB extends Dexie {
   /** 电商任务与逐格结果（对账 #399 第二期） */
   ecommerceTasks!: Table<Row, string>
   ecommerceResults!: Table<Row, string>
+  /** 灵感库的索引缓存（一行 = 一个来源；只存索引、不存媒体，见 `TableName` 的说明） */
+  inspirationCache!: Table<Row, string>
 
   constructor(name = 'qinghua') {
     super(name)
@@ -148,6 +150,15 @@ class QinghuaDB extends Dexie {
     this.version(12).stores({
       ecommerceTasks: 'id, projectId, createdAt',
       ecommerceResults: 'id, projectId, taskId, createdAt',
+    })
+    /**
+     * v13：灵感库的索引缓存（用户 2026-10-14）。
+     *
+     * 一行 = 一个来源（`id` = sourceId），存 `cases` 与 `fetchedAt`。
+     * **只增一张表**，既有数据不受影响；媒体不进这张表 —— 预览图与视频始终走原始外链。
+     */
+    this.version(13).stores({
+      inspirationCache: 'id, fetchedAt',
     })
   }
 }

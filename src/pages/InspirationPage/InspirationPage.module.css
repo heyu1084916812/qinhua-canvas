@@ -1,0 +1,291 @@
+/**
+ * 灵感库。骨架与 `/assets`（我的素材）同一套 —— 顶部标题 + 搜索条，
+ * 左侧来源/标签栏，主区多列瀑布流卡片。用户明确要求「抄素材页」那一套浏览习惯。
+ */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  height: 100%;
+  min-height: 0;
+  padding: var(--space-6);
+  box-sizing: border-box;
+  background: var(--bg-canvas);
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--fs-title);
+  font-weight: var(--fw-title);
+  color: var(--text-1);
+  letter-spacing: 0;
+}
+
+.sub {
+  margin: var(--space-1) 0 0;
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.refresh {
+  flex: 0 0 auto;
+  height: 34px;
+  padding: 0 var(--space-4);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.refresh:disabled {
+  color: var(--text-3);
+  cursor: default;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.search {
+  flex: 0 1 320px;
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text-1);
+  font-size: var(--fs-label);
+}
+
+.count {
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.warn {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+}
+
+.body {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: var(--space-5);
+  min-height: 0;
+  flex: 1;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  overflow-y: auto;
+}
+
+.railTitle {
+  margin: var(--space-3) 0 var(--space-1);
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.railItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 30px;
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-label);
+  text-align: left;
+  cursor: pointer;
+}
+
+.railItem:hover {
+  background: var(--bg-hover);
+}
+
+.railOn {
+  background: var(--bg-surface);
+  color: var(--text-1);
+}
+
+.railLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.railCount {
+  flex: 0 0 auto;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.main {
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.empty {
+  margin: var(--space-6) 0;
+  color: var(--text-3);
+  font-size: var(--fs-label);
+}
+
+/** 与素材页同一条口径：多列瀑布流，卡片不许被从中间切开 */
+.grid {
+  columns: 240px;
+  column-gap: var(--space-5);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+  margin: 0 0 var(--space-5);
+  padding: var(--space-3);
+  box-sizing: border-box;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  break-inside: avoid;
+}
+
+.shot {
+  position: relative;
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  background: var(--bg-subtle);
+  aspect-ratio: 4 / 3;
+}
+
+.shot img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.shotEmpty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.badge {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-title);
+  color: var(--text-1);
+  line-height: 1.5;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+.tag {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 26px;
+}
+
+.credit {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+.link,
+.copy {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  line-height: 24px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.link:hover,
+.copy:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.moreRow {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-4) 0;
+}
+
+.more {
+  height: 34px;
+  padding: 0 var(--space-5);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}

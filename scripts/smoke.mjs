@@ -29984,7 +29984,106 @@ async function g154(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154]
+/**
+ * G155 灵感库（用户 2026-10-14）。
+ *
+ * ⚠️ **外网必须拦住**：真实来源是 GitHub raw 上 1.1 MB 的数据文件，全量冒烟不能赌外网。
+ * 这里用 `page.route` 返回一份**结构相同**的两条案例 —— 验的是
+ * 「拉取 → 解析 → 卡片 → 标签栏 → 搜索 → 卡片动作」这条链，
+ * 不是那个仓库今天的可用性。
+ */
+async function g155(browser) {
+  const g = 'G155 灵感库'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  const PNG_1X1 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+
+  await page.route('**/raw.githubusercontent.com/**', async (route) => {
+    if (route.request().url().endsWith('.json')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          cases: [
+            {
+              id: 1,
+              title: '奶龙插画',
+              image: '/images/1.png',
+              prompt: 'cute dragon illustration',
+              category: 'Illustration',
+              styles: ['3D'],
+              sourceLabel: '@tester',
+              sourceUrl: 'https://x.com/tester/1',
+            },
+            {
+              id: 2,
+              title: '产品主图',
+              image: '/images/2.png',
+              prompt: 'product hero shot',
+              category: 'Product',
+            },
+          ],
+        }),
+      })
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      body: Buffer.from(PNG_1X1, 'base64'),
+    })
+  })
+
+  await page.goto(`${BASE}/inspiration`, { waitUntil: 'domcontentloaded' })
+  const cards = page.locator('[data-inspiration-card]')
+  await cards.first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {})
+
+  rec(
+    g,
+    '★ 灵感库是独立一级页面（/inspiration）',
+    (await page.locator('[data-inspiration-page]').count()) === 1,
+  )
+  rec(
+    g,
+    '★★ 拉到的案例渲染成卡片（外网已 mock，验的是解析链路）',
+    (await cards.count()) === 2,
+    `cards=${await cards.count()}`,
+  )
+
+  const sub = ((await page.locator('[data-inspiration-sub]').textContent()) ?? '').trim()
+  rec(g, '★★ 顶部如实报「多少案例 · 多少来源」', /2 个案例/.test(sub) && /1 个来源/.test(sub), sub)
+
+  rec(
+    g,
+    '★ 左侧列出这条来源（带计数）',
+    (await page.locator('[data-inspiration-source="gpt-image-2"]').count()) === 1,
+  )
+  const tagCount = await page.locator('[data-inspiration-tag]').count()
+  rec(g, '★★ 标签栏由案例标签生成（不是写死的）', tagCount >= 3, `tags=${tagCount}`)
+
+  await page.locator('[data-inspiration-search]').fill('奶龙')
+  await sleep(400)
+  rec(g, '★★ 搜索能收窄（关键字命中标题）', (await cards.count()) === 1, `cards=${await cards.count()}`)
+  await page.locator('[data-inspiration-search]').fill('')
+  await sleep(300)
+
+  rec(
+    g,
+    '★ 每张卡带「原图 / 复制提示词」两个动作',
+    (await page.locator('[data-inspiration-copy]').count()) === 2 &&
+      (await page.locator('[data-inspiration-source-link]').count()) === 1,
+  )
+
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await page.screenshot({ path: `${OUT}/155-g155-inspiration.png` })
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

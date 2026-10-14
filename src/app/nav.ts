@@ -3,6 +3,7 @@ import {
   IconCanvas,
   IconEcommerce,
   IconHome,
+  IconInspiration,
   IconProjects,
   IconSkills,
   IconStoryboard,
@@ -30,6 +31,8 @@ export const NAV: NavItem[] = [
   /* 漫剧工作台（对账 #382）：剧本 → 分集 → 分镜（逐镜视频等视频参数补齐再做） */
   { to: '/storyboard', label: '漫剧', icon: IconStoryboard },
   { to: '/skills', label: '技能库', icon: IconSkills },
+  /* 灵感库（用户 2026-10-14）：外部开源案例的**浏览**入口，与「我的素材」（自己的产出）并列 */
+  { to: '/inspiration', label: '灵感库', icon: IconInspiration },
   { to: '/assets', label: '我的素材', icon: IconAssets },
 ]
 
