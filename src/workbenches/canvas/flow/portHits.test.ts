@@ -88,10 +88,40 @@ describe('端点命中层几何', () => {
     )
   })
 
-  it('容器子节点不给端点（§6.11 组内节点端点隐藏）', () => {
+  it('★★ 容器子节点也给端点，且坐标换算到世界系（用户 2026-10-14）', () => {
     const hits = portHitsOf(
-      graphOf([node('g', 0, 0, 600, 400, 'group'), node('c', 20, 20, 100, 100, 'generation', 'g')]),
+      graphOf([
+        node('g', 100, 50, 600, 400, 'group'),
+        node('c', 20, 20, 100, 100, 'generation', 'g'),
+      ]),
+      /** 子节点的端点**只在选中时**出现（见下一条） */
+      ['c'],
     )
+    /**
+     * 用户原话：「建组后……选择节点后也是可以有端点出现，也是可以进行连线的」。
+     * 此前按 §6.11「组内节点端点隐藏」只收顶层 ⇒ 打组之后组内成员再也连不出线。
+     *
+     * ⚠️ 父容器故意**不在原点**：子节点写的是相对坐标 (20,20)，只有真的换算过，
+     * 世界左边缘才会是 100+20=120。父容器放 (0,0) 的话，忘了换算也能通过。
+     */
+    const child = hits.filter((h) => h.nodeId === 'c')
+    expect(child.length).toBeGreaterThan(0)
+    expect(child.some((h) => h.nodeLeft === 120)).toBe(true)
+    expect(child.some((h) => h.nodeRight === 220)).toBe(true)
+  })
+
+  it('★ 子节点**未选中**时不给端点 —— 否则会抢「拖出容器」的手势', () => {
+    const hits = portHitsOf(
+      graphOf([
+        node('g', 100, 50, 600, 400, 'group'),
+        node('c', 20, 20, 100, 100, 'generation', 'g'),
+      ]),
+    )
+    /**
+     * G15 实测：子节点端点做常驻时，命中块（从边缘往里铺 18.5px）会把
+     * 「按住子节点往容器外拖」吃掉 —— 组内计数多一个、组端点拉线 2 条变 3 条。
+     * 用户要的本来就是「**选择节点后**有端点」。
+     */
     expect(hits.every((h) => h.nodeId === 'g')).toBe(true)
   })
 

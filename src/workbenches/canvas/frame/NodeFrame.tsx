@@ -285,8 +285,13 @@ export function NodeFrame(props: NodeFrameProps) {
       onPointerDown={props.onFramePointerDown}
       onDragStart={(e) => e.preventDefault()}
     >
-      {!inContainer && (
-        <div className={styles.header} data-node-header>
+      {/*
+        ⚠️ 标题与像素**在容器子节点里也照常显示**（用户 2026-10-14：「建组后，里面的
+        节点的名称和像素大小还是要显示出来的」）。原来连同缩放手柄一起藏掉，组内节点
+        就成了九个没有名字的格子，一眼看不出哪张是哪张。缩放手柄仍然只有顶层节点有
+        （尺寸由容器布局决定）。
+      */}
+      <div className={styles.header} data-node-header>
           {editing ? (
             <input
               ref={inputRef}
@@ -317,8 +322,7 @@ export function NodeFrame(props: NodeFrameProps) {
               {formatPixels(pixels)}
             </span>
           )}
-        </div>
-      )}
+      </div>
 
 
       <div className={styles.body}>{props.children}</div>

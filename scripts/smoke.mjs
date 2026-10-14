@@ -17055,6 +17055,7 @@ async function g95(browser) {
   const agentModelChip = page.locator('[data-param-chip="agent-model"]')
   const agentSkillChip = page.locator('[data-agent-skill-open]')
   const agentParamsChip = page.locator('[data-param-chip="agent-params"]')
+  const agentContextChip = page.locator('[data-param-chip="agent-context"]')
   await agentModelChip.click()
   await sleep(250)
   /**
@@ -17238,12 +17239,37 @@ async function g95(browser) {
    */
   rec(
     g,
-    '★★ 工具条只有 @ / 模型 / 技能 / 手动·自动 四个入口，且「参数」已撤掉',
+    '★★ 工具条是 @ / 模型 / 技能 / 回读 / 手动·自动 五个入口，且「参数」已撤掉',
     (await agentMentionChip.count()) === 1 &&
       (await agentModelChip.count()) === 1 &&
       (await agentSkillChip.count()) === 1 &&
+      (await agentContextChip.count()) === 1 &&
       (await agentAutoChip.count()) === 1 &&
       (await agentParamsChip.count()) === 0,
+  )
+
+  /**
+   * ★★ 回读轮数（用户 2026-10-14 参考产品图二）：8 档，选完写进会话。
+   *
+   * 这一档决定「这次给模型看多少条历史」。窗口其实早就写在 `contextFor` 里，
+   * 但面板此前**从未调用过** ⇒ 发出去的是一直增长的全部历史。
+   */
+  await agentContextChip.click()
+  await sleep(300)
+  const contextOptions = await page
+    .locator('[data-param-popup="agent-context"] button[data-param-option]')
+    .count()
+  await page
+    .locator('[data-param-popup="agent-context"] [data-param-option="10"]')
+    .first()
+    .click()
+  await sleep(400)
+  const contextLabel = (await agentContextChip.getAttribute('aria-label')) ?? ''
+  rec(
+    g,
+    '★★ 回读轮数 8 档，选中后写进会话',
+    contextOptions === 8 && contextLabel.includes('10'),
+    `档位=${contextOptions} 选后=「${contextLabel}」`,
   )
 
   /**

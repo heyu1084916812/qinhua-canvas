@@ -5,7 +5,11 @@ import { usePlatform } from '../../../../app/providers/PlatformProvider'
 import { useChannels } from '../../../../app/providers/ChannelStoreProvider'
 import { useSkillsOptional } from '../../../../app/providers/SkillStoreProvider'
 import type { ChatMessage } from '../../../../domain/shared/execution/types'
-import { createAgentSessionStore, type AgentSession } from '../../../../state/agent/sessionStore'
+import {
+  AGENT_CONTEXT_WINDOW,
+  createAgentSessionStore,
+  type AgentSession,
+} from '../../../../state/agent/sessionStore'
 import { createPresetStore } from '../../../../state/project/presetStore'
 import { assetNodeSize } from '../../../../domain/canvas/layout/assetNodeSize'
 import { findFreeRect } from '../../../../domain/agent/landing'
@@ -74,6 +78,7 @@ import {
   IconModelCube,
   IconPlus,
   IconRename,
+  IconSettings,
   IconSkill,
 } from '../../toolbar/icons'
 import { toConversation } from './conversation'
@@ -592,14 +597,30 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
 
   /** 把循环的结果落到界面上：回答就显示，要确认就出预览卡，刹车/报错就说清楚 */
   const handleOutcome = useCallback(
-    async (session: AgentSession, outcome: AgentLoopOutcome) => {
+    async (
+      session: AgentSession,
+      outcome: AgentLoopOutcome,
+      hidden: readonly ChatMessage[] = [],
+    ) => {
       /**
        * 消息只写回**它自己那个会话的界面**：用户可能已经切走去看别的会话了，
        * 这时候把 A 的消息盖到 B 的对话流上就是串味（§8.2）。
        * 落库（`persist`）与是否切走无关，一律照做。
+       *
+       * `hidden` = 这次**没发给模型**的那段更早历史（回读窗口之外，用户 2026-10-14）。
+       * 界面与落库都要把它拼回去 —— 窗口只约束「模型看多少」，
+       * 不该让用户回看时缺一段。
        */
-      if (currentIdRef.current === session.id) setMessages(outcome.messages)
-      await persist(session, outcome.messages)
+      const full: ChatMessage[] =
+        hidden.length > 0
+          ? [
+              ...(outcome.messages[0] ? [outcome.messages[0]] : []),
+              ...hidden,
+              ...outcome.messages.slice(1),
+            ]
+          : outcome.messages
+      if (currentIdRef.current === session.id) setMessages(full)
+      await persist(session, full)
       if (outcome.kind === 'message') setStatusFor(session.id, IDLE_STATUS)
       else if (outcome.kind === 'confirm') {
         setStatusFor(session.id, { kind: 'awaitingConfirm', request: outcome.request })
@@ -749,9 +770,28 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         ...(toolMode === 'json' ? { jsonToolFallback: true, tools: AGENT_TOOLS } : {}),
       },
     )
+    /**
+     * **回读窗口**（用户 2026-10-14 参考产品图二「回读轮数」）。
+     *
+     * 状态里的 `messages` 始终是全量，这里只决定「这次给模型看多少」：窗口之外那段
+     * 先扣下来（`hidden`），结果回来时再拼回界面与库里（见 `handleOutcome` 的 `hidden`）。
+     *
+     * ⚠️ 这条窗口**早就写在 `sessionStore.contextFor` 里**，但面板从来没调用过 ——
+     * 所以在此之前发出去的其实是**全部历史**，历史越长请求越重。
+     */
+    const history = messages.filter((m) => m.role !== 'system')
+    const windowSize = current.contextWindow ?? AGENT_CONTEXT_WINDOW
+    const cut = Math.max(0, history.length - windowSize)
+    const hidden = history.slice(0, cut)
+    const visible = history.slice(cut)
+    /** 模型窗口版 → 界面 / 落库用的全量版（把窗口外那段补回 system 之后） */
+    const withHidden = (list: readonly ChatMessage[]): ChatMessage[] =>
+      hidden.length > 0
+        ? [...(list[0] ? [list[0]] : []), ...hidden, ...list.slice(1)]
+        : [...list]
     const withSystem: ChatMessage[] = [
       { role: 'system', content: system },
-      ...messages,
+      ...visible,
       /**
        * 发给模型的是**去掉存储形态**的正文：`@[小猫钓鱼](node:node_x)` → `@小猫钓鱼`。
        * 引用指向谁由上面那段 mentions 讲清楚（带 id），正文里不必再夹一串括号。
@@ -780,7 +820,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         outcome.request.args,
         toolCtx(originOf(viewport)),
       )
-      if (currentIdRef.current === current.id) setMessages(outcome.messages)
+      if (currentIdRef.current === current.id) setMessages(withHidden(outcome.messages))
       outcome = await resumeAgentTurn(
         outcome.messages,
         outcome.request.callId,
@@ -788,7 +828,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         loopDeps(current, toolMode),
       )
     }
-    await handleOutcome(current, outcome)
+    await handleOutcome(current, outcome, hidden)
   }, [
     current,
     messages,
@@ -2084,6 +2124,31 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
                 }}
               />
             </span>
+
+            {/*
+              回读轮数（用户 2026-10-14 参考产品图二）：发给模型的**上下文窗口**。
+              只影响「这一次给模型看多少」—— 更早的历史仍全量留在库里与界面上，
+              省掉的那段在结果回来时拼回去（见 `sendText` 的 `hidden`）。
+            */}
+            <ParamPicker
+              name="agent-context"
+              ariaLabel={`回读 ${current?.contextWindow ?? AGENT_CONTEXT_WINDOW} 条`}
+              label=""
+              triggerIcon={<IconSettings size={16} />}
+              size="compact"
+              variant="list"
+              options={[3, 5, 10, 20, 50, 100, 150, 200].map((n) => ({
+                value: String(n),
+                label: `回读 ${n} 条`,
+              }))}
+              value={String(current?.contextWindow ?? AGENT_CONTEXT_WINDOW)}
+              open={openPicker === 'agent-context'}
+              onToggle={() =>
+                setOpenPicker(openPicker === 'agent-context' ? null : 'agent-context')
+              }
+              onClose={() => setOpenPicker(null)}
+              onSelect={(v) => void patchSession({ contextWindow: Number(v) })}
+            />
 
             {/*
               手动 / 自动生成（参考产品图一那一档）：两个候选各带一句后果说明。

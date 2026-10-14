@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
-import { useGraph, useViewportState } from '../storeContext'
+import { useGraph, useSelection, useViewportState } from '../storeContext'
 import {
   PORT_EDGE_GAP,
   PORT_MIN_SCALE,
@@ -28,8 +28,10 @@ type PortDown = (e: ReactPointerEvent, nodeId: string, portId: string) => void
  */
 export function FlowPortLayer({ onPortDown }: { onPortDown: PortDown }) {
   const graph = useGraph()
+  /** 容器子节点的端点只在选中时出现（理由见 `portHitsOf` 的 `selection` 参数） */
+  const selection = useSelection()
   /** 端点在世界坐标里是常量（节点不动就不动）⇒ 只跟图走，**不跟视口走** */
-  const hits = useMemo<PortHit[]>(() => portHitsOf(graph), [graph])
+  const hits = useMemo<PortHit[]>(() => portHitsOf(graph, selection), [graph, selection])
   return <PortHitViewport hits={hits} onPortDown={onPortDown} />
 }
 

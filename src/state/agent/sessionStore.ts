@@ -49,6 +49,18 @@ export interface AgentSession {
    */
   autoRun?: boolean
   /**
+   * **回读轮数**（用户 2026-10-14 参考产品图二：「回读这个抄一下」）。
+   *
+   * 发给模型的**上下文窗口**：只带最近 N 条消息。更早的仍留在库里（`messages`
+   * 始终是全量，界面照常回看）—— 窗口只决定「这次问模型时它看得到多少」。
+   * 不设 = `AGENT_CONTEXT_WINDOW`（20）。
+   *
+   * 为什么需要一道闸：Agent 每一轮都会往历史里追加工具结果，跑完一批节点之后
+   * 单条 tool 消息可能非常大；窗口管的是「条数不无限增长」，
+   * 单条的体积仍要靠别的办法（见 §4.3 的说明）。
+   */
+  contextWindow?: number
+  /**
    * 用户随对话给出的素材（设计文档 §8「输入：文字 + 可选图片」）。
    *
    * 存的是**画布上的节点 id**，不是文件字节：素材一进来就落成画布上的节点
@@ -102,6 +114,9 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
     ...(typeof row.videoModel === 'string' && row.videoModel ? { videoModel: row.videoModel } : {}),
     ...(typeof row.skillId === 'string' && row.skillId ? { skillId: row.skillId } : {}),
     ...(row.autoRun === true ? { autoRun: true } : {}),
+    ...(typeof row.contextWindow === 'number' && row.contextWindow > 0
+      ? { contextWindow: row.contextWindow }
+      : {}),
     ...(Array.isArray(row.pendingAssetIds) && row.pendingAssetIds.length > 0
       ? { pendingAssetIds: row.pendingAssetIds.filter((x): x is string => typeof x === 'string') }
       : {}),

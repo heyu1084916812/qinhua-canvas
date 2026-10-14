@@ -7,7 +7,7 @@ import {
   PORT_HIT_RADIUS,
   PORT_SIZE,
 } from '../../../domain/canvas/geometry/portReveal'
-import { topLevelNodes } from './flowGraph'
+import { toWorldRectInGraph } from '../../../domain/canvas/geometry/coords'
 
 /**
  * 端点的**命中尺寸**（世界单位）：与老表面 `NodeFrame` 的端口同一口径 ——
@@ -77,23 +77,43 @@ export interface PortHit {
  * （自己就是一个层叠上下文），相邻节点会整块盖住它的 Handle —— 实测两节点重叠 17px，
  * 端点就再也拖不出线（G91 ⑦ 复现）。这一层在所有节点之上，端点**永远**点得到。
  *
- * 只收**顶层节点**：容器子节点按 §6.11 隐藏端口（与老表面 `portsHidden` 一致）。
+ * **顶层节点与容器子节点都收**（用户 2026-10-14：「建组后……选择节点后也是可以有
+ * 端点出现，也是可以进行连线的」）。此前只收顶层（§6.11 原口径「组内节点端点隐藏」），
+ * 于是打组之后组内成员就再也连不出线了。
  *
  * 这里只算**世界坐标**（节点不动就不变）；「世界 → 屏幕」交给命中层的
  * `translate(−视口×zoom) scale(zoom)`（`transform-origin: 0 0`），
  * 于是平移 / 缩放帧只改这一层的 transform、圆点子树不重排 —— 与老画布 `EdgeLayer` 的 `EdgeWorld` 同一条手法
  * （那个文件已随 P5 收口删除，这条手法本身留了下来）。
  */
-export function portHitsOf(graph: GraphSnapshot): PortHit[] {
+export function portHitsOf(
+  graph: GraphSnapshot,
+  /**
+   * 当前选中的节点 id。
+   *
+   * **容器子节点的端点只在它被选中时收**（用户 2026-10-14：「**选择节点后**也是可以
+   * 有端点出现，也是可以进行连线的」）。为什么不做常驻：端点命中块要从节点边缘
+   * **往里铺 18.5px**，常驻会抢走「把子节点拖出容器」的手势 —— G15 实测，四条判据
+   * 当场变红（组内子节点计数多一个、组端点拉线从 2 条变 3 条）。顶层节点维持原样。
+   */
+  selection: readonly string[] = [],
+): PortHit[] {
   const out: PortHit[] = []
-  for (const node of topLevelNodes(graph)) {
+  for (const node of graph.nodes) {
+    if (node.parentId && !selection.includes(node.id)) continue
     const spec = getSpec(node.type)
     if (!spec) continue
+    /**
+     * 子节点的 `x / y` 是**相对父容器**的局部坐标 ⇒ 先换算成世界矩形再算端点。
+     * 顶层节点走同一条换算（父为空时是恒等），于是只有一份坐标口径，
+     * 不会出现「顶层对、组内偏一截」。
+     */
+    const rect = toWorldRectInGraph(node, graph)
     for (const decl of portDeclsOf(spec.ports)) {
-      const edgeX = decl.side === 'left' ? node.x : node.x + node.w
+      const edgeX = decl.side === 'left' ? rect.x : rect.x + rect.w
       const outward = decl.side === 'left' ? -1 : 1
       const cx = edgeX + outward * PORT_CENTER_OFFSET
-      const cy = node.y + node.h * decl.y
+      const cy = rect.y + rect.h * decl.y
       /**
        * 命中块：从节点边缘**内侧** `PORT_HIT_INNER_PAD` 铺到圆点外沿（见 `PORT_HIT_SIZE`）——
        * 于是"按住节点边缘往外拖"与"按住圆点往外拖"是同一条手势。
@@ -112,10 +132,10 @@ export function portHitsOf(graph: GraphSnapshot): PortHit[] {
         hitX,
         hitY: cy,
         edgeX,
-        nodeLeft: node.x,
-        nodeRight: node.x + node.w,
-        nodeTop: node.y,
-        nodeBottom: node.y + node.h,
+        nodeLeft: rect.x,
+        nodeRight: rect.x + rect.w,
+        nodeTop: rect.y,
+        nodeBottom: rect.y + rect.h,
         size: PORT_HIT_SIZE,
       })
     }
