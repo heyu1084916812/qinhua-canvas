@@ -6971,3 +6971,32 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   证明「空余」不在侧栏占位，直接锁定素材网格 —— 少走一轮改壳层的弯路。
 - **★ 收口基线（第 126 批 / 对账 #502）**：单测 **2509/2509**（212 文件）、`npm run check` 全绿、
   G90 **54/54**、G114 **20/20**、真实渲染 `maxTailGap=218 / maxCard=520`。
+
+## 2026-10-14 第 127 批（桌面数据「全没了」事故与恢复 #504/#505）
+
+- **★★★ 需要长期运行的桌面开发版绝不能挂在工具会话下**：整棵树 `qinghua ← cargo ← tauri dev ← npm ← 会话 shell`
+  会在回合结束后约 5 分钟随会话回收被一起杀掉。用户看到的是「突然闪退」，实际不是应用崩溃
+  （Application/WER 无记录、WebView2 无当天 dmp）。要脱离会话启动（explorer / wscript 派生），
+  并把输出写日志；这轮桌面版就是这么起的。
+- **★★★ 硬杀会把 WebView2 的 IndexedDB 打回「重建空库」**：下次启动会在
+  `...\EBWebView\Default\IndexedDB\http_127.0.0.1_1420.indexeddb.leveldb` 新建
+  `MANIFEST-000001` + `000003.log` 空代际；旧代际 `.ldb`（`MANIFEST-000937` 等）仍在磁盘上。
+  用户看到「配置全没了」时**先别下结论**：桌面壳（WebView2 profile）、Chrome、Codex 浏览器分区
+  是三套完全独立的存储，同一 URL 不等于同一份数据；先整份复制 `IndexedDB` + `Local Storage`。
+- **★★★ 恢复配方（已验证）**：旧 `.ldb` 代际还在时 —— ① 把它们放进一个**全新的 Chrome 持久化配置**
+  （`launchPersistentContext`），Chrome 能正常读出全部 20 张表，而 WebView2 会重建；
+  ② 用页面里的 `indexedDB.open('qinghua')` 把每张 `getAll()` 导出成 JSON（`Uint8Array` / `Blob`
+  走 base64）；③ 给 WebView2 临时加 debug-only `additional_browser_args("--remote-debugging-port=9222")`
+  （改 `src-tauri/src/lib.rs` 的 `build_window`），用 CDP 把数据 `clear()` + `put()` 写回
+  桌面壳自己的新库；④ reload 验证后**撤回**临时改动。**恢复结果**：5 渠道 / 15 项目 / 47 素材 /
+  27 节点 / 31 连线 / 7 会话 / 6 偏好。
+- **★★★ 通用 LevelDB 工具读不了 Chromium IndexedDB**：Chromium 用自定义键比较器（`idb_cmp1`），
+  `classic-level` 的 `repair()` 会在 `table_builder.cc:97` 断言崩溃（用户会看到 VC++ 运行时弹窗）。
+  要读就用 Chromium 自己读。
+- **★★ 动用户数据前先备份，别用 `Move-Item` / `Remove-Item` 修原库**：本轮完整备份了重建前、重建后、
+  导出三份；不在备份存在之前做任何破坏性操作。
+- **★★ 临时工具目录不要用 `npm init -y --prefix <dir>`**：它会把 `description` / `main` / `repository`
+  等字段写进**当前项目**的 `package.json`（这次真发生，已还原）。做完临时工具后检查 `git status`。
+- **★ 收口基线（第 127 批 / 对账 #504）**：桌面壳数据完整恢复并在应用自己的库里验证
+  （channels 5 / presets 6 / projects 15 / assets 47 / nodes 27 / edges 31 / agentSessions 7）；
+  临时 CDP 参数与误改的 `package.json` 都已撤回，`git status` 干净。
