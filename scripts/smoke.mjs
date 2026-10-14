@@ -23584,6 +23584,43 @@ async function g116(browser) {
     `任务=${resultTableProbe.tasks} 结果=${resultTableProbe.results} 完成=${resultTableProbe.done} 带 hash=${resultTableProbe.hasHash}`,
   )
 
+  // ⑤d.1 历史批次 UI（对账 #479）：至少两条，点旧批次切回 1 张结果
+  const taskButtons = page.locator('[data-ecommerce-task]')
+  const taskCount = await taskButtons.count()
+  rec(g, '★★ 历史批次列表至少两条（每次开始生成一条）', taskCount >= 2, `批次=${taskCount}`)
+  if (taskCount >= 2) {
+    await taskButtons.last().click()
+    const switchedToOne = await page
+      .waitForFunction(
+        () => document.querySelectorAll('[data-ecommerce-result]').length === 1,
+        null,
+        { timeout: 10000 },
+      )
+      .then(() => true)
+      .catch(() => false)
+    rec(
+      g,
+      '★★ 点旧批次后结果区切到那一批（1 张），不是只看最近一批',
+      switchedToOne,
+      `结果=${await page.locator('[data-ecommerce-result]').count()}`,
+    )
+    await taskButtons.first().click()
+    const switchedBack = await page
+      .waitForFunction(
+        () => document.querySelectorAll('[data-ecommerce-result]').length === 4,
+        null,
+        { timeout: 10000 },
+      )
+      .then(() => true)
+      .catch(() => false)
+    rec(
+      g,
+      '★ 点新批次后结果区切回最近一批（4 张）',
+      switchedBack,
+      `结果=${await page.locator('[data-ecommerce-result]').count()}`,
+    )
+  }
+
   /**
    * ⑤e **另开一页打开同一项目，结果仍在**（对账 #474）。
    *

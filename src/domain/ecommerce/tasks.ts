@@ -1,4 +1,5 @@
-import type { EcommerceRequest } from './types'
+import { platformLabel } from './platforms'
+import { usageLabel, type EcommerceRequest } from './types'
 
 /** 一次电商出图的整体状态 */
 export type EcommerceTaskStatus = 'running' | 'done' | 'partial' | 'failed' | 'canceled'
@@ -81,4 +82,32 @@ export function statusOfResult(value: unknown): EcommerceResultStatus {
     value === 'canceled'
     ? value
     : 'failed'
+}
+
+export function taskStatusLabel(status: EcommerceTaskStatus): string {
+  return status === 'running'
+    ? '生成中'
+    : status === 'done'
+      ? '已完成'
+      : status === 'partial'
+        ? '部分完成'
+        : status === 'canceled'
+          ? '已取消'
+          : '失败'
+}
+
+/**
+ * 历史批次的一行摘要（对账 #399 第二期 / #479 的任务列表 UI）。
+ *
+ * 只用**确定性事实**：时间 / 用途 / 平台 / 张数 / 状态，不写模型名或提示词
+ * —— 那些在结果区里逐张看得到，历史行只需要让人找到“是哪一批”。
+ */
+export function taskSummaryOf(
+  task: Pick<EcommerceTaskRecord, 'createdAt' | 'status' | 'request'>,
+): string {
+  const d = new Date(task.createdAt)
+  const p = (n: number) => String(n).padStart(2, '0')
+  const time = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+  const platform = task.request.platformId ? platformLabel(task.request.platformId) : '通用'
+  return `${time} · ${usageLabel(task.request.usage)} · ${platform} · ${task.request.count} 张 · ${taskStatusLabel(task.status)}`
 }

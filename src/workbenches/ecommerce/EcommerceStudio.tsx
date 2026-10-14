@@ -9,6 +9,7 @@ import { ECOMMERCE_DEFAULT_COUNT } from '../../domain/ecommerce/plan'
 import { ECOMMERCE_PLATFORMS, type EcommercePlatform } from '../../domain/ecommerce/platforms'
 import { intentRows, type EcommerceIntentDraft } from '../../domain/ecommerce/chatParse'
 import { planSummaryOf, type EcommercePlanSession } from '../../domain/ecommerce/sessions'
+import { taskSummaryOf, type EcommerceTaskRecord } from '../../domain/ecommerce/tasks'
 import { buildSuggestions } from '../../domain/ecommerce/suggestions'
 import {
   shotKeyOf,
@@ -165,6 +166,10 @@ export interface EcommerceStudioProps {
   onRestorePlan?: (plan: EcommercePlanSession) => void
   /** 删一条历史方案（不想留的自己清） */
   onRemovePlan?: (id: string) => void
+  /** 历史批次（对账 #479 的任务列表 UI）：不传 / 空数组时整块不渲染 */
+  taskHistory?: readonly EcommerceTaskRecord[]
+  activeTaskId?: string
+  onSelectTask?: (taskId: string) => void
   /**
    * 「先出一份方案」（对账 #423）：页面注入 —— 只有页面拿得到渠道。
    * 不传就不渲染这一块；失败要带**原因**回来（由工作台原样显示）。
@@ -204,6 +209,9 @@ export function EcommerceStudio({
   planHistory = [],
   onRestorePlan,
   onRemovePlan,
+  taskHistory = [],
+  activeTaskId = '',
+  onSelectTask,
   onPlanShots,
   shotPlanNote = '',
 }: EcommerceStudioProps) {
@@ -542,6 +550,27 @@ export function EcommerceStudio({
                 )}
               </div>
             ) : null}
+          </section>
+        ) : null}
+
+        {onSelectTask && taskHistory.length > 0 ? (
+          <section className={styles.block} data-ecommerce-task-history>
+            <span className={styles.blockTitle}>历史批次</span>
+            <ul className={styles.planList}>
+              {taskHistory.slice(0, 8).map((task) => (
+                <li key={task.id} className={styles.planItem}>
+                  <button
+                    type="button"
+                    className={styles.planOpen}
+                    data-ecommerce-task={task.id}
+                    data-ecommerce-task-active={task.id === activeTaskId ? 'true' : 'false'}
+                    onClick={() => onSelectTask(task.id)}
+                  >
+                    <span className={styles.planTitleText}>{taskSummaryOf(task)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
           </section>
         ) : null}
 

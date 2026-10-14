@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { statusOfResult, statusOfTask, taskStatusOf } from './tasks'
+import { statusOfResult, statusOfTask, taskStatusOf, taskSummaryOf } from './tasks'
 
 describe('电商任务 / 结果状态纯函数', () => {
   it('全部完成 = done', () => {
@@ -23,5 +23,38 @@ describe('电商任务 / 结果状态纯函数', () => {
     expect(statusOfResult('nonsense')).toBe('failed')
     expect(statusOfTask('partial')).toBe('partial')
     expect(statusOfResult('canceled')).toBe('canceled')
+  })
+
+  it('★ 历史批次摘要：时间 / 用途 / 平台 / 张数 / 状态', () => {
+    const at = new Date(2026, 9, 15, 8, 5).getTime()
+    expect(
+      taskSummaryOf({
+        createdAt: at,
+        status: 'partial',
+        request: {
+          usage: 'detail',
+          platformId: 'amazon',
+          language: 'en',
+          count: 4,
+          ratio: '3:4',
+          productNodeId: 'n1',
+          referenceNodeIds: [],
+        },
+      }),
+    ).toBe('2026-10-15 08:05 · 详情页 · Amazon · 4 张 · 部分完成')
+    expect(
+      taskSummaryOf({
+        createdAt: at,
+        status: 'done',
+        request: {
+          usage: 'white-bg',
+          language: 'zh-CN',
+          count: 1,
+          ratio: '1:1',
+          productNodeId: 'n1',
+          referenceNodeIds: [],
+        },
+      }),
+    ).toContain('· 通用 · 1 张 · 已完成')
   })
 })

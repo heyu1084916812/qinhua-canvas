@@ -226,6 +226,7 @@ function StudioHost({ projectId }: { projectId: string }) {
   const [activeTask, setActiveTask] = useState<EcommerceTaskRecord | null>(null)
   const [resultRows, setResultRows] = useState<EcommerceResultRecord[]>([])
   const [taskLoaded, setTaskLoaded] = useState(false)
+  const [taskHistory, setTaskHistory] = useState<EcommerceTaskRecord[]>([])
   const legacyNodeIds = useMemo(() => {
     if (!taskLoaded || activeTask) return []
     return graph.nodes
@@ -383,10 +384,14 @@ function StudioHost({ projectId }: { projectId: string }) {
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const latest = await taskRepo.latestWithResults(projectId)
+      const [latest, list] = await Promise.all([
+        taskRepo.latestWithResults(projectId),
+        taskRepo.list(projectId),
+      ])
       if (cancelled) return
       setActiveTask(latest?.task ?? null)
       setResultRows(latest?.results ?? [])
+      setTaskHistory(list)
       setTaskLoaded(true)
     })()
     return () => {
@@ -454,6 +459,27 @@ function StudioHost({ projectId }: { projectId: string }) {
       setResultRows(rows)
     },
     [taskRepo],
+  )
+  /** 刷新历史批次列表（#399 第二期 / #479 的任务列表 UI）。 */
+  const refreshTaskHistory = useCallback(async () => {
+    try {
+      setTaskHistory(await taskRepo.list(projectId))
+    } catch (e) {
+      platform.logger.log('warn', '[ecommerce] 任务历史读取失败', { error: String(e) })
+    }
+  }, [platform, projectId, taskRepo])
+
+  /** 点一条历史批次：把结果区切到那一批，不改表单、不重跑。 */
+  const onSelectTask = useCallback(
+    async (taskId: string) => {
+      const task = taskHistory.find((item) => item.id === taskId)
+      if (!task) return
+      const rows = await taskRepo.results(taskId)
+      setActiveTask(task)
+      setResultRows(rows)
+      setTaskLoaded(true)
+    },
+    [taskHistory, taskRepo],
   )
   /** 立刻把最新草稿写库（离页 / 关窗 / 防抖到点三条路共用）。 */
   const flushDraft = useCallback(() => {
@@ -826,6 +852,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       if (task) await syncResultRow(task.id, id)
     }
     if (task) await refreshTask(task)
+    await refreshTaskHistory()
   }
 
   const results = useMemo<EcommerceResultItem[]>(() => {
@@ -856,6 +883,7 @@ function StudioHost({ projectId }: { projectId: string }) {
           await exec.runNode(row.nodeId, inPlace ? { inPlace: true } : undefined)
           await syncResultRow(activeTask.id, row.nodeId)
           await refreshTask(activeTask)
+          await refreshTaskHistory()
         }
         return {
           nodeId: row.nodeId,
@@ -926,6 +954,7 @@ function StudioHost({ projectId }: { projectId: string }) {
     projectId,
     syncResultRow,
     refreshTask,
+    refreshTaskHistory,
   ])
 
   /**
@@ -975,6 +1004,9 @@ function StudioHost({ projectId }: { projectId: string }) {
       planHistory={planHistory}
       onRestorePlan={onRestorePlan}
       onRemovePlan={onRemovePlan}
+      taskHistory={taskHistory}
+      activeTaskId={activeTask?.id ?? ''}
+      onSelectTask={(taskId) => void onSelectTask(taskId)}
       chatTargetLabel={chatTarget?.label ?? ''}
       intentError={intentError}
       onIntentApplied={() => setIntent(null)}
