@@ -351,40 +351,53 @@ export function InspirationPage() {
           aria-label="搜索灵感案例"
           data-inspiration-search
         />
-        <select
-          className={styles.modelFilter}
-          value={modelCategory ?? ''}
-          aria-label="模型分类"
-          data-inspiration-model-filter
-          onChange={(event) => setModelCategory(event.target.value || null)}
-        >
-          <option value="">全部模型</option>
+        <div className={styles.modelButtons} role="group" aria-label="模型分类">
+          <button
+            type="button"
+            className={modelCategory === null ? styles.modelButtonOn : styles.modelButton}
+            data-inspiration-model-filter="all"
+            aria-pressed={modelCategory === null}
+            onClick={() => setModelCategory(null)}
+          >
+            全部模型
+          </button>
           {modelCategories.map((category) => (
-            <option key={category} value={category}>
+            <button
+              key={category}
+              type="button"
+              className={
+                modelCategory === category ? styles.modelButtonOn : styles.modelButton
+              }
+              data-inspiration-model-filter={category}
+              aria-pressed={modelCategory === category}
+              onClick={() => setModelCategory(category)}
+            >
               {category}
-            </option>
+            </button>
           ))}
-        </select>
+        </div>
         <span className={styles.count} data-inspiration-count>
           {filtered.length} 个结果
         </span>
-        <button
-          type="button"
-          className={styles.refresh}
-          data-inspiration-sources-open
-          onClick={() => setSourcesOpen(true)}
-        >
-          管理来源
-        </button>
-        <button
-          type="button"
-          className={styles.refresh}
-          data-inspiration-refresh
-          disabled={refreshing}
-          onClick={() => void refreshTargets(enabledSources)}
-        >
-          {refreshing ? '刷新中…' : '刷新案例'}
-        </button>
+        <div className={styles.toolbarActions}>
+          <button
+            type="button"
+            className={styles.refresh}
+            data-inspiration-sources-open
+            onClick={() => setSourcesOpen(true)}
+          >
+            管理来源
+          </button>
+          <button
+            type="button"
+            className={styles.refresh}
+            data-inspiration-refresh
+            disabled={refreshing}
+            onClick={() => void refreshTargets(enabledSources)}
+          >
+            {refreshing ? '刷新中…' : '刷新案例'}
+          </button>
+        </div>
       </div>
 
       <div className={styles.body}>

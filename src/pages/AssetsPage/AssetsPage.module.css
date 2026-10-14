@@ -240,14 +240,40 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: var(--space-5);
+  grid-auto-rows: 240px;
+}
+
+.uniformGrid .card,
+.uniformGrid .failedCard {
+  height: 100%;
+  min-height: 0;
+  margin-bottom: 0;
+}
+
+.uniformGrid .cardMain {
+  height: 100%;
 }
 
 .uniformGrid .thumb {
-  aspect-ratio: 4 / 3;
+  aspect-ratio: auto;
+  height: 100%;
 }
 
 .uniformGrid .media {
   object-fit: cover;
+}
+
+.uniformGrid .failedCard {
+  overflow: hidden;
+  /* 失败卡有 16px 内距 + 描边；不写 border-box 时 height:100% 会多长 34px。 */
+  box-sizing: border-box;
+}
+
+.uniformGrid .failedPrompt {
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /*

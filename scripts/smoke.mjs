@@ -22786,14 +22786,22 @@ async function g114(browser) {
     const media = el.querySelector('[data-asset-media]')
     return {
       display: getComputedStyle(el).display,
-      thumb: thumb ? getComputedStyle(thumb).aspectRatio : '',
+      rows: getComputedStyle(el).gridAutoRows,
+      thumbHeight: thumb ? Math.round(thumb.getBoundingClientRect().height) : 0,
       fit: media ? getComputedStyle(media).objectFit : '',
+      heights: [...el.querySelectorAll('[data-asset-card], [data-history-failed]')].map((item) =>
+        Math.round(item.getBoundingClientRect().height),
+      ),
     }
   })
   rec(
     g,
-    '★★ 网格视图：统一容器并允许裁切',
-    gridLayout.display === 'grid' && gridLayout.thumb === '4 / 3' && gridLayout.fit === 'cover',
+    '★★ 网格视图：统一行高，所有卡片等高并可裁切',
+    gridLayout.display === 'grid' &&
+      gridLayout.rows.includes('240px') &&
+      gridLayout.thumbHeight > 0 &&
+      gridLayout.fit === 'cover' &&
+      new Set(gridLayout.heights).size === 1,
     JSON.stringify(gridLayout),
   )
   await page.locator('[data-assets-view-mode="masonry"]').click()
@@ -30656,10 +30664,12 @@ async function g155(browser) {
   await sleep(250)
   rec(g, '★ 标签栏展开后标签回来', (await page.locator('[data-inspiration-tag]').count()) === tagCount)
 
-  await page.locator('[data-inspiration-model-filter]').selectOption('Seedance')
+  await page.locator('[data-inspiration-model-filter="Seedance"]').click()
   await sleep(300)
   const modelFilterState = {
-    value: await page.locator('[data-inspiration-model-filter]').inputValue(),
+    pressed: await page
+      .locator('[data-inspiration-model-filter="Seedance"]')
+      .getAttribute('aria-pressed'),
     state: await page.locator('[data-inspiration-toolbar]').getAttribute('data-model-state'),
     countText: await page.locator('[data-inspiration-count]').innerText(),
     models: await page
@@ -30673,7 +30683,7 @@ async function g155(browser) {
       (await page.locator('[data-inspiration-card="youmind-seedance-2:1"]').count()) === 1,
     `cards=${await cards.count()} ${JSON.stringify(modelFilterState)}`,
   )
-  await page.locator('[data-inspiration-model-filter]').selectOption('')
+  await page.locator('[data-inspiration-model-filter="all"]').click()
   await sleep(250)
 
   await page.locator('[data-inspiration-search]').fill('奶龙')
