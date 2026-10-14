@@ -23579,6 +23579,19 @@ async function g116(browser) {
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => reject(req.error)
     })
+    const tasks = await new Promise((resolve) => {
+      const r = db
+        .transaction('ecommerceTasks', 'readonly')
+        .objectStore('ecommerceTasks')
+        .getAll()
+      r.onsuccess = () => resolve(r.result ?? [])
+      r.onerror = () => resolve([])
+    })
+    /**
+     * 只改**最近一批**里的一条：电商页打开项目时恢复的是 latestWithResults，
+     * 改到旧批次的某一格，界面根本看不到 —— 那条判据会假红（全量跑时撞过）。
+     */
+    const latestTask = tasks.slice().sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
     const rows = await new Promise((resolve) => {
       const r = db
         .transaction('ecommerceResults', 'readonly')
@@ -23587,7 +23600,7 @@ async function g116(browser) {
       r.onsuccess = () => resolve(r.result ?? [])
       r.onerror = () => resolve([])
     })
-    const target = rows.find((r) => r.status === 'done')
+    const target = rows.find((r) => r.taskId === latestTask?.id && r.status === 'done')
     if (target) {
       await new Promise((resolve, reject) => {
         const tx = db.transaction('ecommerceResults', 'readwrite')
@@ -24938,7 +24951,7 @@ async function g123(browser) {
   })
   await page.reload({ waitUntil: 'networkidle' })
   await sleep(900)
-  await page.locator('[data-assets-tab="library"]').click()
+  await page.locator('[data-assets-quick="saved"]').click()
   await sleep(700)
   const gaps = await page.locator('[data-assets-grid]').first().evaluate((n) => {
     const cards = [...n.children].map((c) => c.getBoundingClientRect())
@@ -25013,7 +25026,7 @@ async function g123(browser) {
   })
   await page.reload({ waitUntil: 'networkidle' })
   await sleep(900)
-  await page.locator('[data-assets-tab="history"]').click()
+  await page.locator('[data-assets-quick="all"]').click()
   await sleep(600)
   const failedCards = await page.locator('[data-history-failed]').count()
   const fragmented = await page.evaluate(() => {
@@ -27414,7 +27427,12 @@ async function g137(browser) {
 
   const planRows = () =>
     page.locator('[data-ecommerce-shot-plan-row]').evaluateAll((els) =>
-      els.map((e) => e.textContent?.replace(/\s+/g, ' ').trim() ?? ''),
+      els.map((e) =>
+        Array.from(e.querySelectorAll('input'))
+          .map((i) => i.value.replace(/\s+/g, ' ').trim())
+          .filter(Boolean)
+          .join(' —— '),
+      ),
     )
 
   const fillForm = async ({ usage, count, note }) => {
@@ -27429,6 +27447,7 @@ async function g137(browser) {
 
   const NOTE = '突出防水材质'
   const OUT_NOTE = '换成强调轻便'
+  const EDIT_BRIEF = '第 1 张改成俯拍特写，突出边缘轮廓'
 
   // ① 先建项目（**还没配渠道**）：条件齐了也不该出现"设计方案"这块
   await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
@@ -27503,6 +27522,17 @@ async function g137(browser) {
     `行数=${rows2.length}`,
   )
 
+  // ④b 逐行改方案：改第 1 张的要点，草稿当场变；出图时必须用改过的那条
+  await page.locator('[data-ecommerce-shot-plan-brief]').first().fill(EDIT_BRIEF)
+  await sleep(250)
+  const rows3 = await planRows()
+  rec(
+    g,
+    '★★ 方案里每一张的标题与要点可以直接改，改的是草稿不是产物',
+    rows3.length === 4 && rows3[0].includes(EDIT_BRIEF) && (await shotPromptsInDb()).length === 0,
+    `行数=${rows3.length} · ${rows3[0]?.slice(0, 56) ?? ''}`,
+  )
+
   // ⑤ 确认卡这时候不该再说"会多花额度"，而应该说"用你刚确认的那份"
   await page.locator('[data-ecommerce-generate]').click()
   await sleep(400)
@@ -27550,6 +27580,13 @@ async function g137(browser) {
       new Set(prompts).size === 4 &&
       prompts.every((p) => p.includes(NOTE)),
     `出图=${done} 条数=${prompts.length} 唯一=${new Set(prompts).size}`,
+  )
+  const editedCount = prompts.filter((p) => p.includes(EDIT_BRIEF)).length
+  rec(
+    g,
+    '★★★ 改过的第 1 行真的进请求：只有那一张带编辑后的要点',
+    editedCount === 1,
+    `带编辑要点的张数=${editedCount}`,
   )
   rec(g, '★★ 跑完如实说这批用的是"你确认过的那份方案"', /确认的那份方案/.test(note1), note1)
 

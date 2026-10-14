@@ -27,7 +27,7 @@ import {
   type EcommerceRequest,
   type EcommerceUsage,
 } from '../../domain/ecommerce/types'
-import { ECOMMERCE_NOTE_MAX } from '../../domain/ecommerce/prompt'
+import { ECOMMERCE_NOTE_MAX, updateEcommerceShot } from '../../domain/ecommerce/prompt'
 import type { EcommerceShot } from '../../domain/ecommerce/prompt'
 import {
   DEFAULT_ECOMMERCE_FORM_DRAFT,
@@ -402,7 +402,22 @@ export function EcommerceStudio({
   /** 这一趟值不值得出方案：与 #406"真去调用模型"是**同一个纯函数** */
   const canPlanShots = !!onPlanShots && !!chatTargetLabel && shouldExpandShots({ usage, count, note })
 
+  /** 逐行改方案（对账 #514）：只动草稿，参数指纹不变 ⇒ 方案仍然作数 */
+  const editShot = (index: number, patch: Partial<EcommerceShot>) => {
+    setShotPlan((current) => {
+      if (!current) return current
+      const nextShots = updateEcommerceShot(current.shots, index, patch)
+      return nextShots === current.shots ? current : { ...current, shots: nextShots }
+    })
+  }
+
   const confirm = async () => {
+    const blankRow = activeShotPlan?.findIndex((s) => !s.title.trim() || !s.brief.trim()) ?? -1
+    if (blankRow >= 0) {
+      setConfirming(false)
+      setError(`方案第 ${blankRow + 1} 行还没写全 —— 标题和要点都补上再生成`)
+      return
+    }
     setConfirming(false)
     setError('')
     try {
@@ -850,17 +865,30 @@ export function EcommerceStudio({
             ) : null}
             {activeShotPlan ? (
               <div className={styles.intentCard} data-ecommerce-shot-plan-card>
-                <p className={styles.intentLead}>这 {activeShotPlan.length} 张会这样拍：</p>
+                <p className={styles.intentLead}>
+                  这 {activeShotPlan.length} 张会这样拍（标题和要点可以直接改）：
+                </p>
                 <ul className={styles.intentList}>
                   {activeShotPlan.map((shot, i) => (
-                    <li
-                      key={`${i}-${shot.title}`}
-                      className={styles.intentItem}
-                      data-ecommerce-shot-plan-row
-                    >
+                    <li key={i} className={styles.intentItem} data-ecommerce-shot-plan-row>
                       <span className={styles.intentLabel}>{i + 1}</span>
-                      <span className={styles.intentValue}>
-                        {shot.title} —— {shot.brief}
+                      <span className={styles.shotEdit}>
+                        <input
+                          className={styles.shotTitleInput}
+                          value={shot.title}
+                          maxLength={80}
+                          aria-label={`第 ${i + 1} 张标题`}
+                          data-ecommerce-shot-plan-title
+                          onChange={(e) => editShot(i, { title: e.target.value })}
+                        />
+                        <input
+                          className={styles.shotBriefInput}
+                          value={shot.brief}
+                          maxLength={240}
+                          aria-label={`第 ${i + 1} 张要点`}
+                          data-ecommerce-shot-plan-brief
+                          onChange={(e) => editShot(i, { brief: e.target.value })}
+                        />
                       </span>
                     </li>
                   ))}

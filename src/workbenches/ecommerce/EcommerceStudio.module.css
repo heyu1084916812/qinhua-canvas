@@ -286,6 +286,40 @@
   overflow-wrap: anywhere;
 }
 
+/*
+ * 逐行改方案（对账 #514）：输入框落在 `--bg-subtle` 卡片里，用 `--bg-surface` 分出层次。
+ * 不给描边 —— 与全局"容器与按钮不靠描边分层"的口径一致，焦点仍走浏览器默认轮廓。
+ */
+.shotEdit {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.shotTitleInput,
+.shotBriefInput {
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font: inherit;
+  padding: 4px 8px;
+}
+
+.shotTitleInput {
+  font-size: var(--fs-label);
+  font-weight: var(--fw-title);
+}
+
+.shotBriefInput {
+  font-size: var(--fs-chip);
+  color: var(--text-2);
+}
+
 .intentActions {
   display: flex;
   align-items: center;

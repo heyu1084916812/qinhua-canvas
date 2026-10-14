@@ -65,6 +65,35 @@ export interface EcommerceShot {
   brief: string
 }
 
+/**
+ * **逐行改方案**（对账 #514）。
+ *
+ * 「先出方案再出图」如果只能看不能改，用户遇到"第 3 张不该拍材质"时
+ * 只剩两条路：丢掉整份方案重新抽一次（再花一次对话额度），或者干脆不确认。
+ * 这里只做纯数据更新，界面负责把空行拦在生成之前。
+ *
+ * 两条刻意保留的语义：
+ * - **越界 / 无变化返回原引用**：`shotPlan` 是 React state，原引用不变就不会白重渲染；
+ * - **不自动 trim / 不自动补**：用户正在输入时把空格吃掉会让光标乱跳，
+ *   "空行怎么办"是界面上的校验，不是数据层偷偷替用户决定。
+ */
+export function updateEcommerceShot(
+  shots: readonly EcommerceShot[],
+  index: number,
+  patch: Partial<EcommerceShot>,
+): readonly EcommerceShot[] {
+  const current = shots[index]
+  if (!current) return shots
+  const next: EcommerceShot = {
+    title: patch.title ?? current.title,
+    brief: patch.brief ?? current.brief,
+  }
+  if (next.title === current.title && next.brief === current.brief) return shots
+  const out = shots.slice()
+  out[index] = next
+  return out
+}
+
 const MAIN_SHOTS: readonly EcommerceShot[] = [
   { title: '正面全身', brief: '产品正对镜头、完整入画，背景干净、主体居中' },
   { title: '45° 侧面', brief: '产品转 45°，同时看到正面与侧面，突出体量感' },

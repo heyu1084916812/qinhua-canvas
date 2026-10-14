@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { ECOMMERCE_PLATFORMS, GENERIC_SOURCE, platformById, platformRuleSummary } from './platforms'
-import { ECOMMERCE_HARD_RULES, ECOMMERCE_NOTE_MAX, buildEcommercePrompt } from './prompt'
+import {
+  ECOMMERCE_HARD_RULES,
+  ECOMMERCE_NOTE_MAX,
+  buildEcommercePrompt,
+  updateEcommerceShot,
+} from './prompt'
 import {
   ECOMMERCE_DEFAULT_COUNT,
   EcommerceRequestError,
@@ -197,5 +202,41 @@ describe('逐张镜头脚本', () => {
     expect(plan.prompt).toBe(plan.prompts[0])
     // 单张不该出现"同批"那句（它只在多张时有意义）
     expect(plan.prompts[0]).not.toContain('同批：')
+  })
+})
+
+/**
+ * 逐行改方案（对账 #514）：方案是草稿，用户确认的应该是**改过的**那份。
+ */
+describe('逐行改方案', () => {
+  const shots = [
+    { title: '正面全身', brief: '产品正对镜头' },
+    { title: '细节特写', brief: '贴近拍材质' },
+  ] as const
+
+  it('★★ 改一行只动那一行，其余行保持原引用', () => {
+    const next = updateEcommerceShot(shots, 1, { brief: '改成俯拍接口处' })
+    expect(next).not.toBe(shots)
+    expect(next[0]).toBe(shots[0])
+    expect(next[1]).toEqual({ title: '细节特写', brief: '改成俯拍接口处' })
+  })
+
+  it('★ 只改标题、只改要点都成立，另一项原样保留', () => {
+    const onlyTitle = updateEcommerceShot(shots, 0, { title: '正面平视' })
+    expect(onlyTitle[0]).toEqual({ title: '正面平视', brief: '产品正对镜头' })
+    const onlyBrief = updateEcommerceShot(shots, 0, { brief: '改成白底平视' })
+    expect(onlyBrief[0]).toEqual({ title: '正面全身', brief: '改成白底平视' })
+  })
+
+  it('★ 越界 / 空 patch / 同值都返回原引用（不触发无谓重渲染）', () => {
+    expect(updateEcommerceShot(shots, 9, { title: 'x' })).toBe(shots)
+    expect(updateEcommerceShot(shots, -1, { title: 'x' })).toBe(shots)
+    expect(updateEcommerceShot(shots, 0, {})).toBe(shots)
+    expect(updateEcommerceShot(shots, 0, { title: '正面全身' })).toBe(shots)
+  })
+
+  it('★ 允许清空（"空行"由生成前的界面校验拦截，数据层不替用户改）', () => {
+    const next = updateEcommerceShot(shots, 0, { title: '', brief: '' })
+    expect(next[0]).toEqual({ title: '', brief: '' })
   })
 })
