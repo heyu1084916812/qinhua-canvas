@@ -481,6 +481,25 @@ function StudioHost({ projectId }: { projectId: string }) {
     },
     [taskHistory, taskRepo],
   )
+
+  /** 删一条历史批次；删的是当前批次就自动切到剩下最近一批。 */
+  const onRemoveTask = useCallback(
+    async (taskId: string) => {
+      try {
+        await taskRepo.remove(taskId)
+        const list = await taskRepo.list(projectId)
+        setTaskHistory(list)
+        if (activeTask?.id === taskId) {
+          const next = list[0] ?? null
+          setActiveTask(next)
+          setResultRows(next ? await taskRepo.results(next.id) : [])
+        }
+      } catch (e) {
+        platform.logger.log('warn', '[ecommerce] 删除任务批次失败', { error: String(e) })
+      }
+    },
+    [activeTask, platform, projectId, taskRepo],
+  )
   /** 立刻把最新草稿写库（离页 / 关窗 / 防抖到点三条路共用）。 */
   const flushDraft = useCallback(() => {
     if (draftTimer.current !== null) {
@@ -1007,6 +1026,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       taskHistory={taskHistory}
       activeTaskId={activeTask?.id ?? ''}
       onSelectTask={(taskId) => void onSelectTask(taskId)}
+      onRemoveTask={(taskId) => void onRemoveTask(taskId)}
       chatTargetLabel={chatTarget?.label ?? ''}
       intentError={intentError}
       onIntentApplied={() => setIntent(null)}

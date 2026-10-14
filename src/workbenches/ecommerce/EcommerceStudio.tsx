@@ -170,6 +170,8 @@ export interface EcommerceStudioProps {
   taskHistory?: readonly EcommerceTaskRecord[]
   activeTaskId?: string
   onSelectTask?: (taskId: string) => void
+  /** 删一条历史批次（两下确认由工作台内部处理） */
+  onRemoveTask?: (taskId: string) => void
   /**
    * 「先出一份方案」（对账 #423）：页面注入 —— 只有页面拿得到渠道。
    * 不传就不渲染这一块；失败要带**原因**回来（由工作台原样显示）。
@@ -212,6 +214,7 @@ export function EcommerceStudio({
   taskHistory = [],
   activeTaskId = '',
   onSelectTask,
+  onRemoveTask,
   onPlanShots,
   shotPlanNote = '',
 }: EcommerceStudioProps) {
@@ -226,6 +229,8 @@ export function EcommerceStudio({
   const [references, setReferences] = useState<EcommerceUpload[]>([...initialReferences])
   /** 二次确认：点生成先算出"预计 N 张"，确认后才真的发请求（#384 的 D6） */
   const [confirming, setConfirming] = useState(false)
+  /** 历史批次删除的两下确认（同一时刻只允许一条处于确认态） */
+  const [confirmTaskId, setConfirmTaskId] = useState('')
   const [error, setError] = useState('')
   /** 「一句话生成方案」的输入框（#422）：纯 UI 态，不进表单、不落库 */
   const [intentText, setIntentText] = useState('')
@@ -568,6 +573,24 @@ export function EcommerceStudio({
                   >
                     <span className={styles.planTitleText}>{taskSummaryOf(task)}</span>
                   </button>
+                  {onRemoveTask ? (
+                    <button
+                      type="button"
+                      className={styles.planRemove}
+                      data-ecommerce-task-remove={task.id}
+                      aria-label={`删除批次 ${taskSummaryOf(task)}`}
+                      onClick={() => {
+                        if (confirmTaskId === task.id) {
+                          setConfirmTaskId('')
+                          onRemoveTask(task.id)
+                        } else {
+                          setConfirmTaskId(task.id)
+                        }
+                      }}
+                    >
+                      {confirmTaskId === task.id ? '确认' : '×'}
+                    </button>
+                  ) : null}
                 </li>
               ))}
             </ul>

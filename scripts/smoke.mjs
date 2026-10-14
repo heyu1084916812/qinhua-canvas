@@ -23619,6 +23619,26 @@ async function g116(browser) {
       switchedBack,
       `结果=${await page.locator('[data-ecommerce-result]').count()}`,
     )
+    const removeButtons = page.locator('[data-ecommerce-task-remove]')
+    if ((await removeButtons.count()) >= 2) {
+      await removeButtons.last().click()
+      await removeButtons.last().click()
+      const removed = await page
+        .waitForFunction(
+          () => document.querySelectorAll('[data-ecommerce-task]').length === 1,
+          null,
+          { timeout: 10000 },
+        )
+        .then(() => true)
+        .catch(() => false)
+      const resultsAfterRemove = await page.locator('[data-ecommerce-result]').count()
+      rec(
+        g,
+        '★ 历史批次两下确认删除；删旧批次不影响当前批次结果（仍是 4 张）',
+        removed && resultsAfterRemove === 4,
+        `批次=${await page.locator('[data-ecommerce-task]').count()} 结果=${resultsAfterRemove}`,
+      )
+    }
   }
 
   /**
