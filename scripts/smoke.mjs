@@ -14786,19 +14786,35 @@ async function g90(browser) {
       (await page.locator('[data-assets-model]').count()) >= 1,
   )
   /**
-   * 选中态设计规则（用户 2026-10-14）：「选中的按钮会有阴影，应该是一个
-   * 有颜色的无阴影边框」。默认选中「全部素材」，直接量它的计算样式。
+   * 选中态设计规则（用户 2026-10-14）：「选中要有填充底色，不要描边；
+   * 浅色 / 深色两套里，悬停底色与选中底色都不一样」。
+   * 默认选中「全部素材」，直接量它的计算样式，并与两个令牌的计算值对比。
    */
   const railSelected = await page.locator('[data-assets-quick="all"]').evaluate((el) => {
     const cs = getComputedStyle(el)
-    return { border: cs.borderTopColor, shadow: cs.boxShadow, bg: cs.backgroundColor }
+    const token = (v) => {
+      const span = document.createElement('span')
+      span.style.background = v
+      document.body.appendChild(span)
+      const rgb = getComputedStyle(span).backgroundColor
+      span.remove()
+      return rgb
+    }
+    return {
+      border: cs.borderTopColor,
+      shadow: cs.boxShadow,
+      bg: cs.backgroundColor,
+      selectedToken: token('var(--bg-selected)'),
+      hoverToken: token('var(--bg-subtle)'),
+    }
   })
   rec(
     g,
-    '★★ 选中的左侧筛选项＝填充底色、无描边、无阴影（设计规则）',
+    '★★ 选中＝`--bg-selected` 填充（悬停是 `--bg-subtle`，四色互不相同；无描边无阴影）',
     railSelected.shadow === 'none' &&
       railSelected.border === 'rgba(0, 0, 0, 0)' &&
-      railSelected.bg !== 'rgba(0, 0, 0, 0)',
+      railSelected.bg === railSelected.selectedToken &&
+      railSelected.selectedToken !== railSelected.hoverToken,
     JSON.stringify(railSelected),
   )
 
@@ -30033,6 +30049,11 @@ async function g155(browser) {
   const page = await ctx.newPage()
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+  /** React 的重复 key 是 console 警告、不是 pageerror；它正是来源切换 bug 的信号 */
+  page.on('console', (m) => {
+    const text = m.text()
+    if (m.type() === 'error' || /same key/i.test(text)) pageErrors.push(text.slice(0, 160))
+  })
 
   /**
    * README 型来源的假数据（版式照着 PicoTrex 那种 `### 例 N:` 分节写）——
@@ -30181,6 +30202,14 @@ async function g155(browser) {
     document.body.appendChild(probe)
     const expectedTitle = getComputedStyle(probe).fontSize
     probe.remove()
+    const token = (v) => {
+      const span = document.createElement('span')
+      span.style.background = v
+      document.body.appendChild(span)
+      const rgb = getComputedStyle(span).backgroundColor
+      span.remove()
+      return rgb
+    }
     const cs = selected ? getComputedStyle(selected) : null
     return {
       heading: heading ? getComputedStyle(heading).fontSize : null,
@@ -30190,6 +30219,8 @@ async function g155(browser) {
       selectedShadow: cs?.boxShadow ?? null,
       selectedBorder: cs?.borderTopColor ?? null,
       selectedBg: cs?.backgroundColor ?? null,
+      selectedToken: token('var(--bg-selected)'),
+      hoverToken: token('var(--bg-subtle)'),
     }
   })
   rec(
@@ -30206,21 +30237,29 @@ async function g155(browser) {
   )
   rec(
     g,
-    '★★ 左栏选中的「全部来源」＝填充底色、无描边、无阴影',
+    '★★ 左栏选中＝`--bg-selected` 填充（悬停 `--bg-subtle`，四色互不相同；无描边无阴影）',
     inspDesign.selectedShadow === 'none' &&
       inspDesign.selectedBorder === 'rgba(0, 0, 0, 0)' &&
-      inspDesign.selectedBg !== 'rgba(0, 0, 0, 0)',
+      inspDesign.selectedBg === inspDesign.selectedToken &&
+      inspDesign.selectedToken !== inspDesign.hoverToken,
     JSON.stringify({
       shadow: inspDesign.selectedShadow,
       border: inspDesign.selectedBorder,
       bg: inspDesign.selectedBg,
+      selectedToken: inspDesign.selectedToken,
+      hoverToken: inspDesign.hoverToken,
     }),
   )
   const sourceRow = page.locator('[data-inspiration-source="banana-quicker"]')
   await sourceRow.hover()
   await sleep(250)
   const hoverBg = await sourceRow.evaluate((el) => getComputedStyle(el).backgroundColor)
-  rec(g, '★ 左栏选项有悬浮反馈', hoverBg !== 'rgba(0, 0, 0, 0)', `bg=${hoverBg}`)
+  rec(
+    g,
+    '★ 左栏选项悬停＝`--bg-subtle`',
+    hoverBg === inspDesign.hoverToken,
+    `bg=${hoverBg} token=${inspDesign.hoverToken}`,
+  )
 
   /**
    * 用户 2026-10-14 报的真 bug：选「我的收藏」后点其他分类，收藏的选中态没被取消。
@@ -30240,6 +30279,25 @@ async function g155(browser) {
     '★★ 选「我的收藏」后点其他来源：收藏选中态被取消（单选，真 bug）',
     favOn === 'true' && favAfter === 'false' && srcAfter === 'true',
     `favBefore=${favOn} favAfter=${favAfter} source=${srcAfter}`,
+  )
+  /**
+   * 对账 #508 的真 bug：卡片 id 重复 → React key 冲突 → 切来源时旧卡片不换、
+   * DOM 只增不减。这里同时钉住「换的是哪一家」「id 唯一」「DOM 不累积」。
+   */
+  const swapped = await page.evaluate(() => {
+    const ids = [...document.querySelectorAll('[data-inspiration-card]')].map((el) =>
+      el.getAttribute('data-inspiration-card'),
+    )
+    return { ids, unique: new Set(ids).size }
+  })
+  rec(
+    g,
+    '★★★ 切来源后右侧卡片真的换（id 唯一、DOM 不累积）',
+    swapped.ids.length > 0 &&
+      swapped.ids.every((id) => Boolean(id?.startsWith('banana-quicker:'))) &&
+      swapped.unique === swapped.ids.length &&
+      swapped.ids.length <= 24,
+    `count=${swapped.ids.length} unique=${swapped.unique} first=${swapped.ids[0]}`,
   )
   /**
    * 标签必须按来源变化（用户 2026-10-14：「灵感库下方的标签应该对应每个来源，

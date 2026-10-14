@@ -1,5 +1,6 @@
 import type { NetworkPort, StoragePort } from '../../platform/ports'
 import {
+  dedupeIds,
   parseInspirationCases,
   parseReadmeCases,
   type InspirationCase,
@@ -51,7 +52,11 @@ export function createInspirationRepository(
     if (!sourceId) return null
     return {
       sourceId,
-      cases: Array.isArray(row.cases) ? (row.cases as InspirationCase[]) : [],
+      /**
+       * 缓存里可能是**修 id 去重之前**存下来的重复数据；读的时候再兜一次，
+       * 否则用户不点「刷新案例」就仍然会踩到 React key 冲突（切来源卡片不换）。
+       */
+      cases: Array.isArray(row.cases) ? dedupeIds(row.cases as InspirationCase[]) : [],
       fetchedAt: typeof row.fetchedAt === 'number' ? row.fetchedAt : 0,
     }
   }

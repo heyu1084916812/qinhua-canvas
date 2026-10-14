@@ -154,13 +154,13 @@
 }
 
 .railItem:hover {
-  background: var(--bg-hover);
+  background: var(--bg-subtle);
   color: var(--text-1);
 }
 
 .railOn {
-  /* 选中只靠填充，不描边（与素材页同一条规则） */
-  background: var(--bg-surface);
+  /* 选中只靠填充，不描边（与素材页同一条规则）；填充用独立的 `--bg-selected` */
+  background: var(--bg-selected);
   color: var(--text-1);
   border-color: transparent;
   box-shadow: none;

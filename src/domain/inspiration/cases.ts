@@ -42,6 +42,26 @@ const strList = (v: unknown): string[] =>
   Array.isArray(v) ? v.map(str).filter(Boolean) : []
 
 /**
+ * **保证 id 唯一**（对账 #508 的真 bug）。
+ *
+ * README 型来源的编号会在不同分区里重来（YouMind 那份 README 有多个
+ * `### No. N:` 分组，每组从 1 开始），直接拿编号当 id 会产生重复 key：
+ * React 的 reconciliation 遇到重复 key 会把旧卡片留在 DOM 里、再把新卡片接在后面，
+ * 表现成「点了来源、计数变了，右侧卡片不换」（实测 grid children 24 → 33 → 39）。
+ *
+ * 规则：**首次出现的 id 原样保留，重复的追加 `-2` / `-3`** —— 既有单测/收藏记录的
+ * 主键（如 `gpt-image-2:544`）不动，只给撞车的后续条目一个稳定后缀。
+ */
+export function dedupeIds(cases: InspirationCase[]): InspirationCase[] {
+  const seen = new Map<string, number>()
+  return cases.map((c) => {
+    const n = (seen.get(c.id) ?? 0) + 1
+    seen.set(c.id, n)
+    return n === 1 ? c : { ...c, id: `${c.id}-${n}` }
+  })
+}
+
+/**
  * 把来源的数据文件解析成统一案例。
  *
  * JSON 型来源目前认两种顶层形状：`{ cases: [...] }` 与**顶层数组**（见下方分派）。
@@ -61,7 +81,7 @@ export function parseInspirationCases(
    *
    * 判据取**形状**而不是来源名：以后再有同形状的仓库，加一条配置就能用。
    */
-  if (Array.isArray(raw)) return parseFlatJsonCases(raw, source)
+  if (Array.isArray(raw)) return dedupeIds(parseFlatJsonCases(raw, source))
 
   const rows = (raw as { cases?: unknown } | null)?.cases
   if (!Array.isArray(rows)) return []
@@ -100,7 +120,7 @@ export function parseInspirationCases(
       ...(docUrl ? { docUrl } : {}),
     })
   }
-  return out
+  return dedupeIds(out)
 }
 
 /**
@@ -138,7 +158,7 @@ function parseFlatJsonCases(
       docUrl: source.repo,
     })
   }
-  return out
+  return dedupeIds(out)
 }
 
 export interface InspirationFilter {
@@ -293,7 +313,7 @@ export function parseReadmeCases(
       docUrl: source.repo,
     })
   }
-  return out
+  return dedupeIds(out)
 }
 
 /**

@@ -104,7 +104,8 @@
 }
 
 .railItem:hover {
-  background: var(--bg-hover);
+  /* 悬停 / 选中是两档（用户 2026-10-14）：悬停 `--bg-subtle`、选中 `--bg-selected` */
+  background: var(--bg-subtle);
   color: var(--text-1);
 }
 
@@ -114,7 +115,8 @@
    * 怎么又给我加了描边」）。这一版用填充底色表达：去掉上一版的 `--accent` 边框，
    * 只留 `--bg-surface` 填充，阴影早在上一轮已经去掉。
    */
-  background: var(--bg-surface);
+  /* 选中底单独一档：`--bg-surface` 在浅色下与页面同为 #fff，看起来像没填充 */
+  background: var(--bg-selected);
   color: var(--text-1);
   border-color: transparent;
   box-shadow: none;

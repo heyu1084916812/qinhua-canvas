@@ -102,6 +102,14 @@ describe('parseInspirationCases', () => {
     expect(out[1]!.title).toBe('没有标题时用提示词开头兜底')
     expect(out[1]!.imageUrl).toBe('https://cdn.example.com/r.jpg')
   })
+
+  it('★★ id 撞车时自动加后缀（React key 必须唯一，否则切来源时卡片不换）', () => {
+    const out = parseInspirationCases(
+      { cases: [{ id: 7, title: 'a' }, { id: 7, title: 'b' }, { id: 7, title: 'c' }] },
+      SOURCE,
+    )
+    expect(out.map((c) => c.id)).toEqual(['demo:7', 'demo:7-2', 'demo:7-3'])
+  })
 })
 
 describe('filterCases / tagCounts', () => {
@@ -181,6 +189,33 @@ describe('parseReadmeCases', () => {
     )
     expect(c.credit).toBe('@MANISH1027512')
     expect(c.creditUrl).toBe('https://x.com/a/status/1')
+  })
+
+  it('★★ README 编号在不同组里重来时，id 仍要唯一（两个「例 1」不能撞 key）', () => {
+    const dup = [
+      '### 例 1: [第一组第一条](https://x.com/a/status/1)',
+      '',
+      '<img src="images/a.jpg" width="300">',
+      '',
+      '**提示词:**',
+      '',
+      '```',
+      'first',
+      '```',
+      '',
+      '### 例 1: [第二组第一条](https://x.com/b/status/2)',
+      '',
+      '<img src="images/b.jpg" width="300">',
+      '',
+      '**提示词:**',
+      '',
+      '```',
+      'second',
+      '```',
+    ].join('\n')
+    const out = parseReadmeCases(dup, SOURCE)
+    expect(out.map((c) => c.id)).toEqual(['demo:1', 'demo:1-2'])
+    expect(out.map((c) => c.title)).toEqual(['第一组第一条', '第二组第一条'])
   })
 
   it('★★ 提示词取「**提示词**」之后的代码块（正文里先出现别的代码块也不取错）', () => {
