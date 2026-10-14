@@ -1,4 +1,4 @@
-import type { InspirationSource } from './sources'
+import type { InspirationSource, ReadmeStyle } from './sources'
 
 /**
  * 一条灵感案例（**统一模型**）。
@@ -124,25 +124,102 @@ export interface InspirationFilter {
  * 认不出的字段留空、绝不编造。提示词优先取「**提示词**」字样之后的**第一个代码块** ——
  * 直接取全段第一个代码块，遇到正文里先出现别的代码块就会取错。
  */
-export function parseReadmeCases(md: string, source: InspirationSource): InspirationCase[] {
+interface ReadmeRules {
+  /** 案例分节：**必须捕获序号**（用它当 id 后缀，也是"这是不是一个案例"的判据） */
+  section: RegExp
+  /** 从分节里取标题：**第一个捕获组**是标题，可选的第二个是原出处链接 */
+  title: RegExp
+  /** 提示词分区标记：取它**之后**的第一个代码块 */
+  promptAt: RegExp
+  /**
+   * 图片分区标记。**不给就在整段里找第一个图** ——
+   * YouMind 那种必须给：它在正文开头挂了一排 shields.io 的徽章图，
+   * 取整段第一个会拿到徽章（本轮实测踩到）。
+   */
+  imageAt?: RegExp
+  /** 署名（如 `@someone`） */
+  credit?: RegExp
+}
+
+const README_RULES: Record<ReadmeStyle, ReadmeRules> = {
+  /**
+   * PicoTrex：`### 例 1: [标题](原推文)（by [@作者](主页)）`
+   * + `**提示词:**` + 表格里的一张 `<img>`。
+   */
+  pico: {
+    section: /^###\s+例\s*(\d+)\s*[:：]\s*/m,
+    title: /^###\s+例\s*\d+\s*[:：]\s*\[([^\]]+)\]\((https?:\/\/[^)]+)\)/m,
+    promptAt: /\*\*提示词\s*[:：]?\s*\*\*/,
+    credit: /by\s*\[?(@[^\]\s]+)\]?/,
+  },
+  /**
+   * YouMind 三家共用：`### No. 1: 标题` + `#### 📝 Prompt`（代码块）
+   * + `#### 🖼️ Generated Images` 下的 `<img>`（**绝对地址，托管在 cms-assets**）。
+   */
+  youmind: {
+    /**
+     * ⚠️ 层级放宽到 `##`–`####`：这三家的版式**并不完全一致** ——
+     * Seedance 那家用的是 `## No. N:`（比另外两家浅一层）。
+     * 只认 `###` 时那家 384 KB 的 README 只解析出 6 条（实测踩到）。
+     */
+    section: /^#{2,4}\s+No\.\s*(\d+)\s*[:：]\s*/m,
+    title: /^#{2,4}\s+No\.\s*\d+\s*[:：]\s*(.+)$/m,
+    promptAt: /####\s*📝\s*Prompt/,
+    imageAt: /####\s*🖼/,
+  },
+  /**
+   * Seedance 那家：**两段格式并存**。前 6 条是 `### No. N:`（Featured），
+   * 后面 `## 🎬 All Prompts` 下还有一百多条**纯 `### 标题`**（没有编号）。
+   *
+   * 所以规则是「**三级标题都算一条案例**」，编号交给解析器按出现顺序补 ——
+   * 分别写两条规则反而要在同一份文件里跑两遍、再去重，得不偿失。
+   */
+  youmindAll: {
+    section: /^###\s+(.+)$/m,
+    /** 标题里的 `No. N: ` 前缀有就剥掉、没有就用整行 */
+    title: /^###\s+(?:No\.\s*\d+\s*[:：]\s*)?(.+)$/m,
+    promptAt: /####\s*📝\s*Prompt/,
+  },
+}
+
+export function parseReadmeCases(
+  md: string,
+  source: InspirationSource,
+  style: ReadmeStyle = source.readmeStyle ?? 'pico',
+): InspirationCase[] {
   if (typeof md !== 'string' || !md) return []
+  const rules = README_RULES[style]
   const out: InspirationCase[] = []
 
-  /** 按 `###` 切段（第一个前言块没有 `###` 开头，自然跳过） */
-  for (const block of md.split(/\n(?=###\s)/)) {
-    const head = /^###\s+(.+)$/m.exec(block)?.[1]
+  /**
+   * 按**规则里的分节头**切开（第一个前言块没有分节头，自然跳过）。
+   *
+   * 不能写死 `\n(?=### )`：层级宽松的版式（YouMind 那三家）用 `##` 开头，
+   * 写死就切不开、一条都提不出来。带上 `m` 让 `^` 在 `(?=)` 里按行首匹配。
+   */
+  const splitter = new RegExp(`\\n(?=${rules.section.source})`, 'm')
+  for (const block of md.split(splitter)) {
+    const head = rules.section.exec(block)
+    /** 不是案例分节（Menu / Statistics / 更新日志那类）不要 —— 它们没有案例内容 */
     if (!head) continue
-    const num = /^例\s*(\d+)\s*[:：]/.exec(head)?.[1]
-    /** 不是「例 N」的分节（Menu / 更新日志那类）不要 —— 它们没有案例内容 */
-    if (!num) continue
+    /**
+     * 编号：有的版式写在标题里（`例 1` / `No. 1`），有的完全没有（Seedance 的 All Prompts）。
+     * 后者按**出现顺序**补一个 —— id 只要在同一来源里稳定且唯一就够了。
+     */
+    const raw = (head[1] ?? '').trim()
+    const num = /^\d+$/.test(raw) ? raw : String(out.length + 1)
 
-    const titleLink = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/.exec(head)
-    const authorLink = /by\s*\[?(@[^\]\s]+)\]?\((https?:\/\/[^)]+)\)/.exec(head)
-    const image = /<img\s+[^>]*src="([^"]+)"/i.exec(block)?.[1] ?? ''
-    const promptSection = block.split(/\*\*提示词\s*[:：]?\s*\*\*/)[1] ?? block
+    const titleMatch = rules.title.exec(block)
+    const title = (titleMatch?.[1] ?? '').trim()
+    const creditUrl = titleMatch?.[2]
+    const credit = rules.credit?.exec(block)?.[1].trim()
+
+    const promptSection = block.split(rules.promptAt)[1] ?? block
     const prompt = /```[a-zA-Z]*\r?\n([\s\S]*?)```/.exec(promptSection)?.[1]?.trim() ?? ''
 
-    const title = (titleLink?.[1] ?? head.replace(/^例\s*\d+\s*[:：]\s*/, '')).trim()
+    const imageSection = rules.imageAt ? (block.split(rules.imageAt)[1] ?? '') : block
+    const image = /<img\s+[^>]*src="([^"]+)"/i.exec(imageSection)?.[1] ?? ''
+
     if (!title && !prompt) continue
 
     out.push({
@@ -151,15 +228,18 @@ export function parseReadmeCases(md: string, source: InspirationSource): Inspira
       sourceName: source.name,
       title,
       prompt,
-      imageUrl: image
-        ? image.startsWith('http')
+      imageUrl: !image
+        ? ''
+        : image.startsWith('http')
           ? image
-          : `${source.imageBase}/${image.replace(/^\.?\//, '')}`
-        : '',
+          : /** 没有基址就**别拼**：拼出来是一条死链（YouMind 的图全在自家 CMS 上，走绝对地址） */
+            source.imageBase
+            ? `${source.imageBase}/${image.replace(/^\.?\//, '')}`
+            : '',
       /** README 型来源没有结构化的标签，如实留空（不拿标题硬凑几个） */
       tags: [],
-      ...(authorLink?.[1] ? { credit: authorLink[1] } : {}),
-      ...(titleLink?.[2] ? { creditUrl: titleLink[2] } : {}),
+      ...(credit ? { credit } : {}),
+      ...(creditUrl ? { creditUrl } : {}),
       /** README 里没有"仓库内位置"这种锚点，给仓库首页即可 */
       docUrl: source.repo,
     })

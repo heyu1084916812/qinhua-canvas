@@ -6,6 +6,14 @@
  * 预览图与视频一律走**原始外链** —— 用户明确说过「同步本地太大了，因为里面还有视频」。
  * 所以这里没有"下载媒体"这件事，只有"拉一份 JSON / 解析成案例"。
  */
+/**
+ * README 型来源的**版式**（一家一种，规则表在 `parseReadmeCases` 里）。
+ *
+ * 加新来源时先看它属于哪种；不符合任何一种就再加一种规则 ——
+ * **不要复制一份解析函数**：三份几乎一样的正则，改一处忘两处是迟早的事。
+ */
+export type ReadmeStyle = 'pico' | 'youmind' | 'youmindAll'
+
 export interface InspirationSource {
   id: string
   /** 来源名（左侧列表用，与仓库自述一致） */
@@ -33,6 +41,8 @@ export interface InspirationSource {
    *   版式变了最多是"这次没刷成功"，不会把上一次的好数据洗掉。
    */
   format: 'json' | 'readme'
+  /** README 型的版式（`format: 'readme'` 时用；不填 = `pico`） */
+  readmeStyle?: ReadmeStyle
 }
 
 /**
@@ -64,6 +74,48 @@ export const INSPIRATION_SOURCES: readonly InspirationSource[] = [
     imageBase: 'https://raw.githubusercontent.com/PicoTrex/Awesome-Nano-Banana-images/main',
     note: 'Nano Banana / Nano Banana Pro 的分场景案例，每条带完整提示词与原作者',
     format: 'readme',
+  },
+  /**
+   * YouMind 三家共用同一套版式（`### No. N:` + `#### 📝 Prompt` + `#### 🖼`），
+   * 所以只加一种 `readmeStyle`。它们的生成图**托管在自己的 CMS 上（绝对地址）**，
+   * 所以 `imageBase` 留空 —— 留空时解析器不会去拼相对路径（拼了就是一条死链）。
+   */
+  {
+    id: 'youmind-nano-banana-pro',
+    name: 'YouMind Nano Banana Pro',
+    repo: 'https://github.com/YouMind-OpenLab/awesome-nano-banana-pro-prompts',
+    dataUrl:
+      'https://raw.githubusercontent.com/YouMind-OpenLab/awesome-nano-banana-pro-prompts/main/README.md',
+    imageBase: '',
+    note: 'Nano Banana Pro 提示词库（按编号分节，每组带生成图）',
+    format: 'readme',
+    readmeStyle: 'youmind',
+  },
+  {
+    id: 'youmind-gpt-image-2',
+    name: 'YouMind GPT Image 2',
+    repo: 'https://github.com/YouMind-OpenLab/awesome-gpt-image-2',
+    dataUrl: 'https://raw.githubusercontent.com/YouMind-OpenLab/awesome-gpt-image-2/main/README.md',
+    imageBase: '',
+    note: 'GPT Image 2 提示词库（按编号分节，每组带生成图）',
+    format: 'readme',
+    readmeStyle: 'youmind',
+  },
+  {
+    id: 'youmind-seedance-2',
+    name: 'YouMind Seedance 2.0',
+    repo: 'https://github.com/YouMind-OpenLab/awesome-seedance-2-prompts',
+    dataUrl:
+      'https://raw.githubusercontent.com/YouMind-OpenLab/awesome-seedance-2-prompts/main/README.md',
+    imageBase: '',
+    note: 'Seedance 2.0 视频提示词库（按编号分节）',
+    format: 'readme',
+    /**
+     * ⚠️ 这家**两段格式并存**：前 6 条是 `### No. N:`（Featured），
+     * 后面 `## 🎬 All Prompts` 下还有 100 多条**纯 `### 标题`**（没有编号）。
+     * 只认 `No.` 会只拿到 6 条（实测踩到）—— 所以用"所有三级标题都算案例"这条规则。
+     */
+    readmeStyle: 'youmindAll',
   },
 ]
 

@@ -30006,7 +30006,7 @@ async function g155(browser) {
    * README 型来源的假数据（版式照着 PicoTrex 那种 `### 例 N:` 分节写）——
    * 第二条来源走的是 markdown 解析器，与 JSON 那条不是同一条路。
    */
-  const README_MD = [
+  const README_PICO = [
     '### 例 1: [README 案例](https://x.com/readme/status/9)（by [@readme](https://x.com/readme)）',
     '',
     '<img src="images/case1.jpg" width="300">',
@@ -30016,6 +30016,23 @@ async function g155(browser) {
     '```',
     'readme case prompt',
     '```',
+  ].join('\n')
+
+  /** 第二种 README 版式（YouMind 三家）：开头挂着徽章图，图片必须从「生成图」分区取 */
+  const README_YOUMIND = [
+    '### No. 1: YouMind 案例',
+    '',
+    '![badge](https://img.shields.io/badge/zh-blue)',
+    '',
+    '#### 📝 Prompt',
+    '',
+    '```',
+    'youmind case prompt',
+    '```',
+    '',
+    '#### 🖼️ Generated Images',
+    '',
+    '<img src="https://cms-assets.youmind.com/media/x.jpg" width="700">',
   ].join('\n')
 
   await page.route('**/raw.githubusercontent.com/**', async (route) => {
@@ -30048,7 +30065,9 @@ async function g155(browser) {
       return
     }
     if (route.request().url().endsWith('.md')) {
-      await route.fulfill({ status: 200, contentType: 'text/plain', body: README_MD })
+      /** 按仓库分派版式：PicoTrex 走 pico，YouMind 三家走 youmind */
+      const body = route.request().url().includes('YouMind') ? README_YOUMIND : README_PICO
+      await route.fulfill({ status: 200, contentType: 'text/plain', body })
       return
     }
     await route.fulfill({
@@ -30069,24 +30088,26 @@ async function g155(browser) {
   )
   rec(
     g,
-    '★★ 两种来源的案例都渲染成卡片（JSON 直读 + README 解析）',
-    (await cards.count()) === 3,
+    '★★ 三种来源形态的案例都渲染成卡片（JSON + 两种 README 版式）',
+    (await cards.count()) === 6,
     `cards=${await cards.count()}`,
   )
 
   const sub = ((await page.locator('[data-inspiration-sub]').textContent()) ?? '').trim()
-  rec(g, '★★ 顶部如实报「多少案例 · 多少来源」', /3 个案例/.test(sub) && /2 个来源/.test(sub), sub)
+  rec(g, '★★ 顶部如实报「多少案例 · 多少来源」', /6 个案例/.test(sub) && /5 个来源/.test(sub), sub)
 
   rec(
     g,
-    '★ 左侧把两条来源都列出来',
+    '★ 左侧把五条来源都列出来',
     (await page.locator('[data-inspiration-source="gpt-image-2"]').count()) === 1 &&
-      (await page.locator('[data-inspiration-source="nano-banana"]').count()) === 1,
+      (await page.locator('[data-inspiration-source="nano-banana"]').count()) === 1 &&
+      (await page.locator('[data-inspiration-source="youmind-nano-banana-pro"]').count()) === 1,
   )
   rec(
     g,
-    '★★ README 型来源也解析出案例（不是只有 JSON 那条能跑）',
-    (await page.locator('[data-inspiration-card="nano-banana:1"]').count()) === 1,
+    '★★ 两种 README 版式各自解析出案例（「例 N」与「No. N」）',
+    (await page.locator('[data-inspiration-card="nano-banana:1"]').count()) === 1 &&
+      (await page.locator('[data-inspiration-card="youmind-nano-banana-pro:1"]').count()) === 1,
   )
   const tagCount = await page.locator('[data-inspiration-tag]').count()
   rec(g, '★★ 标签栏由案例标签生成（不是写死的）', tagCount >= 3, `tags=${tagCount}`)
@@ -30100,7 +30121,7 @@ async function g155(browser) {
   rec(
     g,
     '★ 每张卡带「原图 / 复制提示词」两个动作',
-    (await page.locator('[data-inspiration-copy]').count()) === 3 &&
+    (await page.locator('[data-inspiration-copy]').count()) === 6 &&
       (await page.locator('[data-inspiration-source-link]').count()) === 2,
   )
 

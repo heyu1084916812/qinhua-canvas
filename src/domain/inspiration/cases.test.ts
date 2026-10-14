@@ -182,3 +182,109 @@ describe('parseReadmeCases', () => {
     expect(parseReadmeCases(md, SOURCE)[0]!.tags).toEqual([])
   })
 })
+
+/**
+ * 第二种版式（YouMind 三家共用）。
+ *
+ * 这条测试的重点是**图从哪个分区取**：那三家在正文开头挂了一排 shields.io 徽章图，
+ * 取整段第一张 `<img>` 会拿到徽章而不是作品图。
+ */
+describe('parseReadmeCases · YouMind 版式', () => {
+  const YOU_MIND: InspirationSource = {
+    ...SOURCE,
+    id: 'ym',
+    name: 'YouMind',
+    format: 'readme',
+    readmeStyle: 'youmind',
+    /** 那三家的图托管在自家 CMS 上（绝对地址），所以没有"图片基址" */
+    imageBase: '',
+  }
+
+  const md = [
+    '### No. 1: Wide quote card',
+    '',
+    '![Language-ZH](https://img.shields.io/badge/Language-ZH-blue)',
+    '![Featured](https://img.shields.io/badge/Featured-gold)',
+    '',
+    '#### 📖 Description',
+    '',
+    'A prompt for generating a wide quote card.',
+    '',
+    '#### 📝 Prompt',
+    '',
+    '```',
+    'A wide quote card featuring a famous person.',
+    '```',
+    '',
+    '#### 🖼️ Generated Images',
+    '',
+    '##### Image 1',
+    '',
+    '<div align="center">',
+    '<img src="https://cms-assets.youmind.com/media/abc.jpg" width="700" alt="x">',
+    '</div>',
+  ].join('\n')
+
+  it('★★ 图片取「生成图」分区里那张，不是开头那排徽章', () => {
+    const out = parseReadmeCases(md, YOU_MIND)
+    expect(out).toHaveLength(1)
+    expect(out[0]!.title).toBe('Wide quote card')
+    expect(out[0]!.prompt).toContain('A wide quote card featuring')
+    expect(out[0]!.imageUrl).toBe('https://cms-assets.youmind.com/media/abc.jpg')
+  })
+
+  it('★ 没有图片基址时不去拼相对路径（拼了就是死链）', () => {
+    const withRelative = md.replace(
+      'https://cms-assets.youmind.com/media/abc.jpg',
+      'images/local.jpg',
+    )
+    expect(parseReadmeCases(withRelative, YOU_MIND)[0]!.imageUrl).toBe('')
+  })
+})
+
+/**
+ * 第三种版式（Seedance 那家）：同一份文件里**两段格式并存** ——
+ * 前几条带 `No. N:`（Featured），后面一大段是纯标题（All Prompts）。
+ * 只认 `No.` 时那家 384 KB 的 README 只出 6 条（实测踩到）。
+ */
+describe('parseReadmeCases · 两段并存（Seedance）', () => {
+  const SEED: InspirationSource = {
+    ...SOURCE,
+    id: 'seed',
+    name: 'Seedance',
+    format: 'readme',
+    readmeStyle: 'youmindAll',
+    imageBase: '',
+  }
+
+  const md = [
+    '## 🔥 Featured Prompts',
+    '',
+    '### No. 1: 电影感短片',
+    '',
+    '#### 📝 Prompt',
+    '```',
+    'cinematic short film',
+    '```',
+    '',
+    '## 🎬 All Prompts',
+    '',
+    '### 森林骑行',
+    '',
+    '#### 📝 Prompt',
+    '```',
+    'archer riding through misty forest',
+    '```',
+  ].join('\n')
+
+  it('★★ 带编号与不带编号的两种分节都算案例', () => {
+    const out = parseReadmeCases(md, SEED)
+    expect(out).toHaveLength(2)
+    expect(out[0]!.id).toBe('seed:1')
+    expect(out[0]!.title).toBe('电影感短片')
+    /** 没有编号的那条按**出现顺序**补号 */
+    expect(out[1]!.id).toBe('seed:2')
+    expect(out[1]!.title).toBe('森林骑行')
+    expect(out[1]!.prompt).toContain('archer riding')
+  })
+})
