@@ -73,6 +73,9 @@ function CanvasProject({ projectId }: { projectId: string }) {
   const focusId = new URLSearchParams(location.search).get('focus')
   /** 落地后是否直接打开裁剪灯箱（电商结果卡的「裁剪这一张」） */
   const cropId = new URLSearchParams(location.search).get('crop')
+  /** 落地后是否直接打开标注 / 旋转编辑器（与 crop 同一套深链口径） */
+  const annotateId = new URLSearchParams(location.search).get('annotate')
+  const rotateId = new URLSearchParams(location.search).get('rotate')
   /*
    * 原来的「顶栏标签集合」（`openTabs`）随顶栏一并移除（产品文档 §6.2）：
    * 「已打开项目」这个能力整体迁到应用壳侧栏的「最近项目」列表，
@@ -169,8 +172,10 @@ function CanvasProject({ projectId }: { projectId: string }) {
     if (focusCanvasNode(store, focusId)) {
       store.setSelection([focusId])
       if (cropId === '1') store.openCropLightbox(focusId)
+      else if (annotateId === '1') store.openAnnotateEditor(focusId)
+      else if (rotateId === '1') store.openRotateEditor(focusId)
     }
-  }, [focusId, cropId, projectId, store, cached, hydratedAt])
+  }, [focusId, cropId, annotateId, rotateId, projectId, store, cached, hydratedAt])
 
   useEffect(() => () => store.dispose(), [store])
 

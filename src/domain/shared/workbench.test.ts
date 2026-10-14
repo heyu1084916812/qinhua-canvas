@@ -62,6 +62,12 @@ describe('工作台骨架', () => {
       expect(projectRoute('canvas', 'p1', { focus: 'n1', crop: true })).toBe(
         '/canvas/p1?focus=n1&crop=1',
       )
+      expect(projectRoute('canvas', 'p1', { focus: 'n1', annotate: true })).toBe(
+        '/canvas/p1?focus=n1&annotate=1',
+      )
+      expect(projectRoute('canvas', 'p1', { focus: 'n1', rotate: true })).toBe(
+        '/canvas/p1?focus=n1&rotate=1',
+      )
     })
   })
 })

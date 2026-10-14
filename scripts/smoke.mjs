@@ -27764,6 +27764,52 @@ async function g138(browser) {
   await page.keyboard.press('Escape')
   await sleep(250)
 
+  // ③c 加文字/标注：同一个结果节点，直接打开标注编辑器
+  await page.goto(`${BASE}/ecommerce/${projectId}`, { waitUntil: 'networkidle' })
+  await page
+    .locator('[data-ecommerce-result][data-status="done"]')
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .catch(() => {})
+  await page.locator('[data-ecommerce-annotate-canvas]').first().click()
+  await page.waitForURL(/\/canvas\//, { timeout: 15000 })
+  const annotateLayer = await page
+    .locator('[data-annotate-layer]')
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(
+    g,
+    '★★ 电商结果卡「加文字/标注」→ 画布直接打开标注编辑器',
+    page.url().includes('annotate=1') && annotateLayer,
+    `url=${page.url().replace(BASE, '')} 标注层=${annotateLayer}`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(250)
+
+  // ③d 旋转：同一个结果节点，直接打开旋转与镜像编辑器
+  await page.goto(`${BASE}/ecommerce/${projectId}`, { waitUntil: 'networkidle' })
+  await page
+    .locator('[data-ecommerce-result][data-status="done"]')
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .catch(() => {})
+  await page.locator('[data-ecommerce-rotate-canvas]').first().click()
+  await page.waitForURL(/\/canvas\//, { timeout: 15000 })
+  const rotateLayer = await page
+    .locator('[data-rotate-layer]')
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(
+    g,
+    '★★ 电商结果卡「旋转」→ 画布直接打开旋转与镜像编辑器',
+    page.url().includes('rotate=1') && rotateLayer,
+    `url=${page.url().replace(BASE, '')} 旋转层=${rotateLayer}`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(250)
+
   /**
    * ③ 找不到的节点：**什么都不做**，也不崩。
    *

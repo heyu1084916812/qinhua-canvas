@@ -98,6 +98,10 @@ export interface EcommerceResultItem {
   onFocusInCanvas?: () => void
   /** 「裁剪这一张」：跳到画布并直接打开裁剪灯箱（复用画布已有的提取选区能力） */
   onCropInCanvas?: () => void
+  /** 「加文字/标注」：跳到画布并直接打开标注编辑器 */
+  onAnnotateInCanvas?: () => void
+  /** 「旋转」：跳到画布并直接打开旋转与镜像编辑器 */
+  onRotateInCanvas?: () => void
   /** 收藏到素材库（只写收藏关系，不复制字节） */
   onSaveToLibrary?: () => Promise<void> | void
 }
@@ -1058,6 +1062,26 @@ export function EcommerceStudio({
                         onClick={r.onCropInCanvas}
                       >
                         裁剪这一张
+                      </button>
+                    ) : null}
+                    {r.onAnnotateInCanvas ? (
+                      <button
+                        type="button"
+                        className={styles.linkBtn}
+                        data-ecommerce-annotate-canvas
+                        onClick={r.onAnnotateInCanvas}
+                      >
+                        加文字/标注
+                      </button>
+                    ) : null}
+                    {r.onRotateInCanvas ? (
+                      <button
+                        type="button"
+                        className={styles.linkBtn}
+                        data-ecommerce-rotate-canvas
+                        onClick={r.onRotateInCanvas}
+                      >
+                        旋转
                       </button>
                     ) : null}
                   </span>
