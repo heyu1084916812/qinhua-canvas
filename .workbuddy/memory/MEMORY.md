@@ -6800,3 +6800,33 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   下个会话问「你凭什么说是 Vectorizer.AI」时，得能当场指到那一行。
 - **★ 收口（第 116 批 / 对账 #492）**：纯调研，**无源码改动**，故未跑 `npm run check` / 单测 / 冒烟。
   待用户拍板：接 Vectorizer.AI / 打包 vtracer / 暂不做。
+
+## 2026-10-14 第 117 批（#492 的置信度修正 → 对账 #493）
+
+- **★★★ 用户问「你确定吗」，就一定有我别确定的东西**：#492 里我写「Vectorizer.AI 官网把服务
+  整体叫作 Image Vectorization API，与 `display_name` 逐字一致」—— 回头一搜，该词组在
+  vectorizer.ai **全站只出现一次，还在 `<title>` 里**（SEO 标题），正文 0 处、OpenAPI 0 处。
+  **拿 SEO 标题去对别家代码里的字符串，是把巧合当互证。** 「两处都对上了」这种兴奋感最危险。
+- **★★★ 结论要分层写，别打包成一个「已锁定」**：正确拆法是——
+  ① **硬证据**：Lovart chunk 里的模型表真有 75 条 entry / 21 个 vendor 前缀，和
+    `openai/*`、`kling/*`、`seedance/*`、`recraft/recraft-v3`、`topaz/*`、`wavespeed/*` 同表
+    ⇒ 「第三方模型编排层」这条能坐实；
+  ② **推断**：`vectorizer/vectorizer` 这个 vendor 具体指谁 —— Lovart 前端**搜不到任何
+    `vectorizer.ai` 域名**（0 命中），vendor → 端点的映射在后端 ⇒ 按命名与生态猜的，
+    **不是抓到了请求**。反向也一样：vectorizer.ai 三页搜 “Lovart” 均 0（官网本来也不写客户名）；
+  ③ **与归属无关、独立为真**：`POST api.vectorizer.ai/api/v1/vectorize` 可达，空 POST 回
+    401 + `code 1001 Couldn't find the API Id specified: ''` ⇒ 接口形态是真的，缺的只是密钥。
+  **上一轮的错误就是把 ①②③ 压成了一句「已锁定」。**
+- **★★ `<title>` / SEO 描述不算交叉证据**：那是可以随便写的营销字段。能当互证的是
+  **正文、协议、endpoints、行为特征**这类改起来有成本的东西。以后凡是「两个字符串长得像」
+  的推理，先问自己：**这个字段写起来要不要代价？**
+- **★★ 扒 Next.js 站的手法（纯 HTTP，不用浏览器，可复用）**：
+  ① 拉首页 HTML，正则提取所有 `/_next/static/**.js`（本次 72 个，去重后存清单）；
+  ② 逐个 GET 存盘（共 5.88 MB）；③ 用 rg 在**明文 JS** 里搜关键名词 —— Next.js 会把
+  「模型清单 / 工具名枚举 / i18n 文案」以字面量打进 chunk，**因为 UI 要枚举它们渲染下拉框**。
+  ⇒ **第三方能力在前端模型表里藏不住**；但**请求域名一般在后端，前端搜不到**（本次实证）。
+- **★ PowerShell 的 `Invoke-WebRequest` 没有 `-Form`**（那是 curl 的参数；本机 PS 5.1
+  连重定向都被策略拦）。multipart 要么手写 boundary 拼 body，要么直接用 `curl.exe`（可用）。
+  别在 PS 里反复试 `-Form`。
+- **★ 收口（第 117 批 / 对账 #493）**：纯调研，**无源码改动**，故未跑 `npm run check` / 单测 / 冒烟。
+  要彻底定死归属：同一张图跑两边比对 SVG 结构，或由用户在 DevTools 抓一次 network。
