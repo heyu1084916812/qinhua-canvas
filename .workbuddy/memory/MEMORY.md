@@ -7089,3 +7089,11 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   **卡片数不减少 + data 不缩水**；这才是"数据不会丢"的判据，不是和某一瞬间的 UI 计数硬相等。
 - **★ 本地产物路径**：`release/0.1.4/{qinghua_0.1.4_x64-setup.exe, .sig, latest.json}`；
   `release/` 是 gitignore，真正对外交付要单独上传 GitHub Release。
+- **★ 已正式发布**：commit `7b17e47` / tag `v0.1.4` / GitHub Release `#412801678`
+  （https://github.com/heyu1084916812/qinhua-canvas/releases/tag/v0.1.4）；
+  资产：安装包 7,780,692 B、`.sig` 436 B、`latest.json` 833 B。发布后
+  `node scripts/check-published-release.mjs` **6/6**。
+- **★★ 发布机 PowerShell 不能直接调 GitHub API**：Windows PowerShell 的
+  `Invoke-RestMethod` 在本机 TLS/代理组合下报「基础连接已关闭」，但 `curl.exe` 正常。
+  发布时从 `git credential fill` 取 token，用 `curl.exe` 发 REST 与上传资产；不要把 token
+  打进日志、命令回显或仓库文件。
