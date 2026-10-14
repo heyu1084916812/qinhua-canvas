@@ -137,6 +137,9 @@ export interface EcommerceStudioProps {
   /** 失败 / 取消的结果统一重试（逐张重跑） */
   onRetryFailed?: () => void
   failedCount?: number
+  /** 一次下载当前批次全部已完成结果（串行，避免浏览器并发拦截） */
+  onDownloadAll?: () => void
+  downloadableCount?: number
   /**
    * 「拼成长图」（对账 #420）：由页面注入 —— 长图要读素材字节（`loadAssetUrl`）与落盘
    * （`files.saveFile`），那是**装配层**的活。不传就不渲染这个入口。
@@ -208,6 +211,8 @@ export function EcommerceStudio({
   onOpenCanvas,
   onRetryFailed,
   failedCount = 0,
+  onDownloadAll,
+  downloadableCount = 0,
   onOpenLongImage,
   longImage,
   onParseIntent,
@@ -900,6 +905,16 @@ export function EcommerceStudio({
         <header className={styles.resultsHead}>
           <span className={styles.blockTitle}>结果</span>
           <span className={styles.headTools}>
+            {onDownloadAll && downloadableCount > 0 ? (
+              <button
+                type="button"
+                className={styles.linkBtn}
+                data-ecommerce-download-all
+                onClick={onDownloadAll}
+              >
+                下载全部（{downloadableCount}）
+              </button>
+            ) : null}
             {onRetryFailed && failedCount > 0 ? (
               <button
                 type="button"

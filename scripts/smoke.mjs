@@ -23559,6 +23559,19 @@ async function g116(browser) {
   })
   rec(g, '★★ 电商结果可一键收藏到素材库', libraryCount >= 1, `收藏=${libraryCount}`)
 
+  const downloadPromise = page
+    .waitForEvent('download', { timeout: 10000 })
+    .catch(() => null)
+  await page.locator('[data-ecommerce-download-all]').click()
+  const download = await downloadPromise
+  rec(
+    g,
+    '★ 下载全部入口触发真实下载',
+    !!download,
+    download ? download.suggestedFilename() : '无下载事件',
+  )
+  await sleep(1500)
+
   // ⑤c.1 失败项一键重试：把一张结果改成失败 → 刷新 → 点重试 → 失败数归零
   await page.evaluate(async () => {
     const db = await new Promise((resolve, reject) => {

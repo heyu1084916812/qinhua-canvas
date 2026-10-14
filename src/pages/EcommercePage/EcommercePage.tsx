@@ -1040,6 +1040,22 @@ function StudioHost({ projectId }: { projectId: string }) {
   ])
 
   const failedCount = results.filter((r) => r.status === 'failed').length
+  const downloadableCount = results.filter((r) => r.status === 'done' && r.imageHash).length
+
+  /** 串行下载当前批次；并发触发多个下载会被浏览器拦。 */
+  const downloadAll = useCallback(async () => {
+    let index = 0
+    for (const result of results) {
+      if (result.status !== 'done' || !result.imageHash) continue
+      index += 1
+      await downloadAsset(
+        { assets: platform.assets, files: platform.files },
+        result.imageHash,
+        `轻画-电商-${index}`,
+      )
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+  }, [platform, results])
 
   /** 一键重试失败 / 取消的结果；逐张跑，全部走既有执行链路。 */
   const retryFailed = useCallback(async () => {
@@ -1108,6 +1124,8 @@ function StudioHost({ projectId }: { projectId: string }) {
       onOpenCanvas={() => navigate(projectRoute('canvas', projectId))}
       onRetryFailed={failedCount > 0 ? () => void retryFailed() : undefined}
       failedCount={failedCount}
+      onDownloadAll={downloadableCount > 0 ? () => void downloadAll() : undefined}
+      downloadableCount={downloadableCount}
       onParseIntent={onParseIntent}
       parsingIntent={parsingIntent}
       intent={intent}
