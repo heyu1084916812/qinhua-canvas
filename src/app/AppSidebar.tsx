@@ -53,6 +53,62 @@ import styles from './AppSidebar.module.css'
 /** SSR 下 `useLayoutEffect` 会打警告；浏览器里仍要在绘制前量好，故两套分流 */
 const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
 
+interface NavItemRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * 「先过去一部分、另一部分再跟上」的伸缩关键帧（用户 2026-10-14）。
+ *
+ * 向下切：
+ * - 0%：整块还在旧项；
+ * - 45%：**上沿留在旧项、下沿已经到新项底** —— 块被拉长，前端先过去；
+ * - 100%：上沿跟着落到新项、高度收回一项 —— 尾端再过去。
+ *
+ * 向上切是对称的（45% 时上沿先到新项顶、下沿留在旧项底）。
+ * 45% 之后那段带过冲曲线，收尾时有一点回弹。
+ */
+function navStretchKeyframes(from: NavItemRect, to: NavItemRect): Keyframe[] {
+  const forward = to.y >= from.y
+  const lead = 'cubic-bezier(0.22, 1, 0.36, 1)'
+  const settle = 'cubic-bezier(0.34, 1.56, 0.64, 1)'
+  if (forward) {
+    return [
+      {
+        transform: `translate3d(${from.x}px, ${from.y}px, 0)`,
+        height: `${from.h}px`,
+        offset: 0,
+        easing: lead,
+      },
+      {
+        transform: `translate3d(${to.x}px, ${from.y}px, 0)`,
+        height: `${to.y + to.h - from.y}px`,
+        offset: 0.45,
+        easing: settle,
+      },
+      { transform: `translate3d(${to.x}px, ${to.y}px, 0)`, height: `${to.h}px`, offset: 1 },
+    ]
+  }
+  return [
+    {
+      transform: `translate3d(${from.x}px, ${from.y}px, 0)`,
+      height: `${from.h}px`,
+      offset: 0,
+      easing: lead,
+    },
+    {
+      transform: `translate3d(${to.x}px, ${to.y}px, 0)`,
+      height: `${from.y + from.h - to.y}px`,
+      offset: 0.45,
+      easing: settle,
+    },
+    { transform: `translate3d(${to.x}px, ${to.y}px, 0)`, height: `${to.h}px`, offset: 1 },
+  ]
+}
+
 function isItemActive(item: NavItem, pathname: string, activeWorkbench: WorkbenchId | null): boolean {
   if (item.to === '/') return pathname === '/'
   if (item.to === '/canvas') return pathname === '/canvas' || activeWorkbench === 'canvas'
@@ -172,19 +228,20 @@ export function AppSidebar() {
 
   /**
    * 一级导航的**滑动高亮块**（用户 2026-10-14：「当前项切换时的高亮块从旧位置
-   * 滑到新位置，宽高跟随目标项变化，带一点回弹」）。
+   * 滑到新位置，宽高跟随目标项变化，带一点回弹」「过程中相当于有一个形变」）。
    *
-   * 形态：导航里只放**一块**绝对定位的元素，几何完全由当前项量出来；切页时
-   * `transform / width / height` 一起过渡到新项，曲线用过冲的 cubic-bezier 做回弹。
+   * 形态：导航里只放**一块**绝对定位的元素，几何完全由当前项量出来。切页时用
+   * `navStretchKeyframes` 做三段动画：前端先拉过去 → 尾端再跟上 → 收回到目标项，
+   * 中间块被**拉长/形变**，最后一段带过冲 ⇒ 一点回弹。
    * 不采用「每个项各画一份、靠动画拼起来」——那样中间必然有两块同时亮。
    */
   const navRef = useRef<HTMLElement | null>(null)
-  const [navHighlight, setNavHighlight] = useState<{
-    x: number
-    y: number
-    w: number
-    h: number
-  } | null>(null)
+  const highlightRef = useRef<HTMLSpanElement | null>(null)
+  /** 上一次量到的几何：切项时拿它当伸缩动画的起点 */
+  const displayedRect = useRef<NavItemRect | null>(null)
+  const lastActiveTo = useRef<string | null>(null)
+  const stretchAnimation = useRef<Animation | null>(null)
+  const [navHighlight, setNavHighlight] = useState<NavItemRect | null>(null)
   const activeNavTo = useMemo(
     () =>
       NAV.find((item) => isItemActive(item, location.pathname, activeProject?.workbench ?? null))
@@ -195,6 +252,9 @@ export function AppSidebar() {
   useIsomorphicLayoutEffect(() => {
     const nav = navRef.current
     if (!nav || !activeNavTo) {
+      stretchAnimation.current?.cancel()
+      displayedRect.current = null
+      lastActiveTo.current = null
       setNavHighlight(null)
       return
     }
@@ -206,7 +266,31 @@ export function AppSidebar() {
         setNavHighlight(null)
         return
       }
-      setNavHighlight({ x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight })
+      const next: NavItemRect = {
+        x: el.offsetLeft,
+        y: el.offsetTop,
+        w: el.offsetWidth,
+        h: el.offsetHeight,
+      }
+      const previous = displayedRect.current
+      const switched = lastActiveTo.current !== null && lastActiveTo.current !== activeNavTo
+      lastActiveTo.current = activeNavTo
+      displayedRect.current = next
+      setNavHighlight(next)
+
+      const reduce =
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      const node = highlightRef.current
+      if (switched && previous && node && !reduce) {
+        stretchAnimation.current?.cancel()
+        /** 拉伸 → 尾端跟随 → 收回；最后一段带过冲 ⇒ 一点回弹 */
+        stretchAnimation.current = node.animate(navStretchKeyframes(previous, next), {
+          duration: 460,
+          easing: 'linear',
+          fill: 'none',
+        })
+      }
     }
     measure()
     /**
@@ -214,10 +298,19 @@ export function AppSidebar() {
      * 观察 nav 自身尺寸，跟着重算即可（高亮块自己的过渡会把它补平）。
      */
     if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(measure)
+    let lastWidth = nav.offsetWidth
+    let lastHeight = nav.offsetHeight
+    const observer = new ResizeObserver(() => {
+      if (nav.offsetWidth === lastWidth && nav.offsetHeight === lastHeight) return
+      lastWidth = nav.offsetWidth
+      lastHeight = nav.offsetHeight
+      measure()
+    })
     observer.observe(nav)
     return () => observer.disconnect()
   }, [activeNavTo, open])
+
+  useEffect(() => () => stretchAnimation.current?.cancel(), [])
 
   const width = open ? undefined : SIDEBAR_COLLAPSED_W
 
@@ -299,6 +392,7 @@ export function AppSidebar() {
       <nav className={styles.nav} ref={navRef}>
         {navHighlight && (
           <span
+            ref={highlightRef}
             className={styles.navHighlight}
             data-sidebar-highlight
             aria-hidden="true"

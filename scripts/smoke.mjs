@@ -12064,22 +12064,68 @@ async function g80(browser) {
   )
   rec(
     g,
-    '★★ 高亮块带过冲缓动（切项时轻微回弹）',
-    !!hlHome && /cubic-bezier/.test(hlHome.transition) && /1\.[1-9]/.test(hlHome.transition),
-    hlHome?.transition,
-  )
-  rec(
-    g,
     '★★ 高亮块颜色＝当前按钮色（`--bg-hover`）',
     !!hlHome && hlHome.bg === hlHome.hoverToken,
     `hl=${hlHome?.bg} token=${hlHome?.hoverToken}`,
   )
 
   // ── ③ 全路由常驻 + 高亮块滑动 ──
-  /** 先切到一个**不同的项**：验证高亮块真的滑过去，而不是只跟当前项静态对齐 */
+  /**
+   * 采样整段动画（约 460ms）：高亮块先被**拉长**（前端先到目标、尾端还在旧项），
+   * 再把尾端跟过去、收回到一项 —— 用户要的「一部分先过去，另一部分再过去」。
+   */
+  await page.evaluate(() => {
+    window.__navStretch = []
+    const t0 = performance.now()
+    const tick = () => {
+      const highlight = document.querySelector('[data-sidebar-highlight]')
+      const active = document.querySelector('[data-sidebar-item][aria-current="page"]')
+      if (highlight && active) {
+        const h = highlight.getBoundingClientRect()
+        const a = active.getBoundingClientRect()
+        window.__navStretch.push({
+          t: Math.round(performance.now() - t0),
+          top: h.top,
+          bottom: h.bottom,
+          height: Math.round(h.height),
+          targetTop: a.top,
+          targetBottom: a.bottom,
+          targetHeight: Math.round(a.height),
+        })
+      }
+      if (performance.now() - t0 < 800) requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+  /** 切到一个**不同的项**：验证高亮块真的滑过去，而不是只跟当前项静态对齐 */
   await page.locator('[data-sidebar-item="/assets"]').click()
-  await sleep(700)
+  await sleep(900)
+  const stretch = await page.evaluate(() => window.__navStretch)
+  const firstSample = stretch[0]
+  const lastSample = stretch[stretch.length - 1]
+  const maxHeight = Math.max(...stretch.map((s) => s.height), 0)
+  /**
+   * 只按移动方向比较前后沿，不能拿「top <= 目标 top」当尾端到达：
+   * 向下移动时这句从第一帧就成立，会把「刚起步」误判成「已经跟上」。
+   */
+  const movingDown = lastSample.targetTop > firstSample.top
+  const frontFrame = movingDown
+    ? stretch.findIndex((s) => s.bottom >= lastSample.targetBottom - 1)
+    : stretch.findIndex((s) => s.top <= lastSample.targetTop + 1)
+  const backFrame = movingDown
+    ? stretch.findIndex((s) => s.top >= lastSample.targetTop - 1)
+    : stretch.findIndex((s) => s.bottom <= lastSample.targetBottom + 1)
   const hlAssets = await readNavHighlight()
+  rec(
+    g,
+    '★★ 切项时高亮块有「拉伸 → 尾端跟随」的形变（前端先到、尾端后到）',
+    !!hlAssets &&
+      maxHeight > lastSample.targetHeight + 8 &&
+      frontFrame >= 0 &&
+      backFrame >= 0 &&
+      frontFrame < backFrame,
+    `maxHeight=${maxHeight} itemH=${lastSample.targetHeight} frontFrame=${frontFrame} backFrame=${backFrame}`,
+  )
   rec(
     g,
     '★★ 切页后高亮块滑到新项（位置 / 宽高跟随新目标）',
