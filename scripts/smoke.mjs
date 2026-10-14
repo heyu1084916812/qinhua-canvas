@@ -23540,6 +23540,25 @@ async function g116(browser) {
    * 顺手把节点里的 prompt 清空，再打开第二页；如果第二页仍能恢复 5 张结果，
    * 就证明它读的是 `ecommerceResults`，不是继续偷看画布节点。
    */
+  // ⑤c.0 结果收藏到素材库：只写收藏关系，不复制字节
+  await page.locator('[data-ecommerce-save-library]').first().click()
+  await sleep(600)
+  const libraryCount = await page.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('qinghua')
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+    const count = await new Promise((resolve) => {
+      const r = db.transaction('assetLibrary', 'readonly').objectStore('assetLibrary').count()
+      r.onsuccess = () => resolve(r.result ?? 0)
+      r.onerror = () => resolve(0)
+    })
+    db.close()
+    return count
+  })
+  rec(g, '★★ 电商结果可一键收藏到素材库', libraryCount >= 1, `收藏=${libraryCount}`)
+
   // ⑤c.1 失败项一键重试：把一张结果改成失败 → 刷新 → 点重试 → 失败数归零
   await page.evaluate(async () => {
     const db = await new Promise((resolve, reject) => {

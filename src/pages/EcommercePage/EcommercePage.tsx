@@ -52,6 +52,7 @@ import { createId } from '../../shared/id'
 import { createPackStore } from '../../state/project/packStore'
 import { loadEcommerceDraft, saveEcommerceDraft } from '../../state/project/ecommerceDraft'
 import { createEcommerceTaskRepository } from '../../state/project/ecommerceTaskRepository'
+import { createAssetLibraryRepository } from '../../state/project/assetLibraryRepository'
 import {
   cleanEcommerceDraftRefs,
   type EcommerceFormDraft,
@@ -216,6 +217,10 @@ function StudioHost({ projectId }: { projectId: string }) {
   const exec = useCanvasExecution()
   const navigate = useNavigate()
   const taskRepo = useMemo(() => createEcommerceTaskRepository(platform.storage), [platform])
+  const assetLibraryRepo = useMemo(
+    () => createAssetLibraryRepository(platform.storage),
+    [platform],
+  )
   const [projectName, setProjectName] = useState('')
   /**
    * 结果真源是 `ecommerceTasks` / `ecommerceResults`（对账 #399 第二期）。
@@ -883,6 +888,39 @@ function StudioHost({ projectId }: { projectId: string }) {
           }
         : undefined
 
+    const saveToLibraryOf = (
+      hash: string | undefined,
+      meta: {
+        width?: number
+        height?: number
+        prompt?: string
+        model?: string
+        ratio?: string
+      },
+    ) =>
+      hash
+        ? async () => {
+            try {
+              const payload = await platform.assets.read(hash)
+              if (!payload) return
+              await assetLibraryRepo.save({
+                hash,
+                mime: payload.mime,
+                bytes: payload.bytes.length,
+                ...(meta.width ? { width: meta.width } : {}),
+                ...(meta.height ? { height: meta.height } : {}),
+                savedAt: Date.now(),
+                projectId,
+                ...(meta.prompt ? { prompt: meta.prompt } : {}),
+                ...(meta.model ? { model: meta.model } : {}),
+                ...(meta.ratio ? { ratio: meta.ratio } : {}),
+              })
+            } catch (e) {
+              platform.logger.log('warn', '[ecommerce] 收藏结果失败', { error: String(e) })
+            }
+          }
+        : undefined
+
     /** 新口径：结果真源是 ecommerceResults；内部节点只用来跑引擎 / 释放重跑入口。 */
     if (activeTask) {
       return resultRows.map((row) => {
@@ -914,6 +952,13 @@ function StudioHost({ projectId }: { projectId: string }) {
             (row.status === 'canceled' ? '已取消（结果仍保留在库里）' : undefined),
           preview: hash ? <ResultPreview hash={hash} /> : undefined,
           onDownload: downloadOf(hash),
+          onSaveToLibrary: saveToLibraryOf(hash, {
+            ...(width !== undefined ? { width } : {}),
+            ...(height !== undefined ? { height } : {}),
+            ...(row.prompt ? { prompt: row.prompt } : {}),
+            ...(row.model ? { model: row.model } : {}),
+            ...(activeTask.request.ratio ? { ratio: activeTask.request.ratio } : {}),
+          }),
           onRerun: rerunnable ? () => rerun(false) : undefined,
           onReplace: rerunnable ? () => rerun(true) : undefined,
           onFocusInCanvas: node
@@ -932,6 +977,9 @@ function StudioHost({ projectId }: { projectId: string }) {
     /** 老项目还没有任务行：沿用旧口径从内部节点兜底；下一次生成就会写入新表。 */
     return nodeIds.map((id) => {
       const node = graph.nodes.find((n) => n.id === id)
+      const data = node?.data as
+        | { prompt?: unknown; model?: unknown; ratio?: unknown }
+        | undefined
       const state = exec.nodeStateOf(id)
       const hash = node ? assetHashesOfNode(node)[0] : undefined
       const sizeRaw = (node?.data as { naturalSize?: { width?: unknown; height?: unknown } } | undefined)
@@ -959,6 +1007,12 @@ function StudioHost({ projectId }: { projectId: string }) {
         error: state?.kind === 'failed' ? describeError(state.error) : undefined,
         preview: hash ? <ResultPreview hash={hash} /> : undefined,
         onDownload: downloadOf(hash),
+        onSaveToLibrary: saveToLibraryOf(hash, {
+          ...(pixelSize ? { width: pixelSize.width, height: pixelSize.height } : {}),
+          ...(typeof data?.prompt === 'string' && data.prompt ? { prompt: data.prompt } : {}),
+          ...(typeof data?.model === 'string' && data.model ? { model: data.model } : {}),
+          ...(typeof data?.ratio === 'string' && data.ratio ? { ratio: data.ratio } : {}),
+        }),
         onRerun:
           status === 'running' || status === 'pending' ? undefined : () => exec.runNode(id),
         onReplace:
@@ -982,6 +1036,7 @@ function StudioHost({ projectId }: { projectId: string }) {
     syncResultRow,
     refreshTask,
     refreshTaskHistory,
+    assetLibraryRepo,
   ])
 
   const failedCount = results.filter((r) => r.status === 'failed').length

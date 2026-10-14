@@ -98,6 +98,8 @@ export interface EcommerceResultItem {
   onFocusInCanvas?: () => void
   /** 「裁剪这一张」：跳到画布并直接打开裁剪灯箱（复用画布已有的提取选区能力） */
   onCropInCanvas?: () => void
+  /** 收藏到素材库（只写收藏关系，不复制字节） */
+  onSaveToLibrary?: () => Promise<void> | void
 }
 
 export interface EcommerceStudioProps {
@@ -1006,6 +1008,16 @@ export function EcommerceStudio({
                         onClick={r.onDownload}
                       >
                         下载
+                      </button>
+                    ) : null}
+                    {r.onSaveToLibrary ? (
+                      <button
+                        type="button"
+                        className={styles.linkBtn}
+                        data-ecommerce-save-library
+                        onClick={() => void r.onSaveToLibrary?.()}
+                      >
+                        收藏
                       </button>
                     ) : null}
                     {/*
