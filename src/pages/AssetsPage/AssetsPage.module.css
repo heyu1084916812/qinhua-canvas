@@ -417,6 +417,39 @@
   column-gap: var(--space-5);
 }
 
+/*
+ * 最短列堆砌（对账 #502，用户 2026-10-14 第 4 条）。
+ *
+ * 上面那条 `columns: 240px` 保留为 **SSR / 测量前 / 无 JS 的兜底**；
+ * `MasonryGrid` 量完宽高后把容器切到 `data-masonry="on"`：
+ * 容器不再走多列，卡片由内联 `left/top` 绝对定位，容器高度由 JS 给。
+ *
+ * ⚠️ `masonryLayout.ts` 里的 240 / 20 与这两条是同一口径（CSS 没有"把计算值
+ * 传给 JS"的通道，改这里时两处一起改；`.masonryItem` 的兜底多列也靠这里的列宽）。
+ */
+.grid[data-masonry='on'] {
+  columns: auto;
+  position: relative;
+}
+
+/* 兜底多列模式下，整张卡不许被从中间切开（原来这条在 `.card` 上） */
+.masonryItem {
+  break-inside: avoid;
+}
+
+/* 堆砌模式：卡片是绝对定位项 */
+.grid[data-masonry='on'] .masonryItem {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+/* 间距由布局算法的 gap 负责；卡片自身的 margin 不清掉会叠成 40px */
+.grid[data-masonry='on'] .card,
+.grid[data-masonry='on'] .failedCard {
+  margin-bottom: 0;
+}
+
 .card {
   position: relative;
   display: flex;

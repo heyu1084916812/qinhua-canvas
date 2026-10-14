@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useSyncExternalStore } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
@@ -16,6 +16,7 @@ import {
 import type { AssetsTab, AssetsView } from '../../state/project/assetLibraryStore'
 import { AssetCard } from './AssetCard'
 import { AssetPreview } from './AssetPreview'
+import { MasonryGrid } from './MasonryGrid'
 import styles from './AssetsPage.module.css'
 
 /**
@@ -52,6 +53,22 @@ const TABS: readonly { id: AssetsTab; label: string }[] = [
   { id: 'history', label: '全部历史' },
   { id: 'library', label: '素材库' },
 ]
+
+/**
+ * 网格 / 列表两种容器。
+ *
+ * 网格走 `MasonryGrid`（最短列堆砌，对账 #502）；列表仍是单列 DOM。
+ * 抽出来是为了让「全部历史」与「素材库」两处共用同一条选择，
+ * 不在 JSX 里各写一次三目 —— 以后再加视图形态只改这一处。
+ */
+function CardsLayout({ view, children }: { view: AssetsView; children: ReactNode }) {
+  if (view === 'grid') return <MasonryGrid>{children}</MasonryGrid>
+  return (
+    <div className={styles.list} data-assets-grid>
+      {children}
+    </div>
+  )
+}
 
 /**
  * 我的素材（`/assets`）。
@@ -442,7 +459,7 @@ export function AssetsPage() {
               {groups.map((group) => (
                 <section className={styles.group} key={group.key} data-assets-group-section={group.key}>
                   {group.label && <h3 className={styles.groupLabel}>{group.label}</h3>}
-                  <div className={view === 'grid' ? styles.grid : styles.list} data-assets-grid>
+                  <CardsLayout view={view}>
                     {group.items.map((item) =>
                       item.kind === 'failed' ? (
                         <div className={styles.failedCard} key={item.id} data-history-failed={item.id}>
@@ -480,7 +497,7 @@ export function AssetsPage() {
                         />
                       ),
                     )}
-                  </div>
+                  </CardsLayout>
                 </section>
               ))}
             </div>
@@ -490,7 +507,7 @@ export function AssetsPage() {
           {assets.length === 0 ? (
             <AssetsEmptyState hasAny={total > 0} />
           ) : (
-            <div className={view === 'grid' ? styles.grid : styles.list} data-assets-grid>
+            <CardsLayout view={view}>
               {assets.map((asset) => (
                 <AssetCard
                   key={asset.hash}
@@ -512,7 +529,7 @@ export function AssetsPage() {
                   onDownload={() => void handleDownload(asset.hash)}
                 />
               ))}
-            </div>
+            </CardsLayout>
           )}
         </section>
         )}

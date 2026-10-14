@@ -14853,40 +14853,57 @@ async function g90(browser) {
     const els = [...document.querySelectorAll('[data-asset-card]')]
     const boxes = els.map((el) => {
       const r = el.getBoundingClientRect()
+      const wrapper = el.parentElement
       return {
         hash: el.getAttribute('data-asset-card'),
         x: Math.round(r.left),
+        y: Math.round(r.top),
         w: Math.round(r.width),
         h: Math.round(r.height),
+        position: wrapper ? getComputedStyle(wrapper).position : null,
       }
     })
     const grid = document.querySelector('[data-assets-grid]')
-    const gs = grid ? getComputedStyle(grid) : null
     return {
       boxes,
       /**
-       * `columns: 240px` 设的是**列宽**，计算样式里 `column-count` 因此是 `auto`
-       * （列数由容器宽度除以列宽算出）。故这里读 `column-width` ——
-       * 断言 `column-count` 会把正确的多列布局判成失败。
+       * 2026-10-14 第 4 条后，网格从 CSS 多列换成 `MasonryGrid` 的最短列堆砌：
+       * 量完后容器打 `data-masonry="on"`，卡片由 `left/top` 绝对定位
+       * （不用 transform：会给卡片菜单的 fixed 遮罩换包含块）。
+       * 判据读这个属性 + 卡片的定位模式，不再读 `column-width`。
        */
-      columnWidth: gs ? gs.columnWidth : null,
-      columnGap: gs ? gs.columnGap : null,
-      breakInside: els[0] ? getComputedStyle(els[0]).breakInside : null,
+      dataMasonry: grid ? grid.getAttribute('data-masonry') : null,
     }
   })
 
-  /* 多列：瀑布流的机制证据（写 grid 也能排出卡片，但那不是瀑布流） */
   rec(
     g,
-    '★★ 容器是多列布局（瀑布流的机制，不是等高 grid）',
-    masonry.columnWidth === '240px',
-    `columnWidth=${masonry.columnWidth} columnGap=${masonry.columnGap}`,
+    '★★ 容器是最短列堆砌（data-masonry=on，卡片绝对定位，不再走 CSS 多列）',
+    masonry.dataMasonry === 'on' &&
+      masonry.boxes.length > 0 &&
+      masonry.boxes.every((b) => b.position === 'absolute'),
+    `data-masonry=${masonry.dataMasonry} positions=${[...new Set(masonry.boxes.map((b) => b.position))].join(',')}`,
   )
+
+  /**
+   * ★★★ 对账 #502 的核心判据：列底不能再出现大块空洞。
+   *
+   * 最短列算法保证「最矮列与最高列的差距 ≤ 最高一张卡 + 一个间距」。
+   * 改动前 CSS 多列在真实 50 条数据上实测差 **1795px**（图一那块空白）；
+   * 这条断言会在有人把布局退回多列时立刻变红。
+   */
+  const columnsBottom = new Map()
+  for (const b of masonry.boxes) {
+    columnsBottom.set(b.x, Math.max(columnsBottom.get(b.x) ?? 0, b.y + b.h))
+  }
+  const bottoms = [...columnsBottom.values()]
+  const tailGap = bottoms.length ? Math.max(...bottoms) - Math.min(...bottoms) : 0
+  const maxCardHeight = Math.max(...masonry.boxes.map((b) => b.h), 0)
   rec(
     g,
-    '★ 卡片禁止跨列断开（否则会被从中间切成两半）',
-    masonry.breakInside === 'avoid',
-    `break-inside=${masonry.breakInside}`,
+    '★★★ 列底不再出现大块空洞（最大空洞 ≤ 最高一张卡 + 一个间距）',
+    tailGap <= maxCardHeight + 20,
+    `tailGap=${tailGap} maxCard=${maxCardHeight}`,
   )
 
   /* 同一列的卡片宽度一致（列宽固定是瀑布流的前提） */
