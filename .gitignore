@@ -9,6 +9,7 @@ dist-ssr/
 # 测试与验证产物
 coverage/
 .playwright-verify/
+.market-research/
 .vitest/
 
 # 一次性诊断探针（scripts/probe-*.mjs）

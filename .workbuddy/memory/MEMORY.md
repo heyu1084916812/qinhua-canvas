@@ -6757,3 +6757,46 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   （取 `display`，连引用 chip 一起还原）。否则重试读到的是输入框里此刻的内容，不是原来那句。
 - **★ 收口基线（第 114 批 / 对账 #490）**：单测 **2485/2485**（209 文件）、`npm run check` 全绿、
   G95 **87/87**、真实渠道端到端 1/1（复制 / 重试各 1 枚，点复制后标题变「已复制」）。
+
+## 2026-10-14 第 115 批（组内节点显示/端点 + 回读轮数 #491）
+
+- **★★★ 同一个 `parentId` 判断，藏了三样东西**：`NodeFrame` 里 `inContainer` 一处条件同时关掉了
+  标题、像素、缩放手柄。用户要的是「手柄别给（尺寸归容器布局），标题要留」——
+  **一个布尔量承担多种语义时，需求一变就得拆开**。
+- **★★★ 端点层只收顶层，是「原来的口径」而不是「技术限制」**：`portHitsOf` 只遍历
+  `topLevelNodes`，注释直接写着按 §6.11 隐藏。而子节点的端点位置其实早有现成换算
+  （`toWorldRectInGraph`，`childEdges.ts` 一直在用）。**判定「改不了」之前，先确认它是限制还是口径。**
+- **★★★ 写了却没人调用的能力 = 不存在**：`contextFor`（20 条窗口）写在 `sessionStore` 里，
+  面板从来**没调用过** ⇒ 发出去的一直是全部历史。用户问「我才几条对话，不该超重吧」——
+  条数确实不多，但**每一轮的工具结果都会追加进历史**，且单条 tool 消息可能很大，
+  这才是他那一轮变重的原因（条数窗口治不了单条体积）。
+- **★★ 截断只能作用于「发给模型的」**：状态与库里必须全量，否则用户回看时历史缺一段。
+  做法：发送时把窗口外那段扣成 `hidden`，结果回来时由 `handleOutcome` 拼回。
+- **★ 收口基线（第 115 批 / 对账 #491）**：单测 **2485/2485**（209 文件）、`npm run check` 全绿、
+
+## 2026-10-14 第 116 批（竞品调研：Lovart 矢量化到底用的什么 → 对账 #492）
+
+- **★★★ 问竞品「用的什么脚本」，先去扒它的前端 chunk，别搜通稿**：搜索引擎前 5 页全是
+  营销话术（「AI 理解设计意图」「不是描摹像素而是数学重定义」——没有一句可落地）。
+  真东西在 Lovart 首页的 Next.js chunk 里：`__next_static_chunks_3s3mmen8squrv.js` 的模型清单
+  直接写着 `name:"vectorizer/vectorizer"` / `display_name:"Image Vectorization API"`。
+  **第三方能力在前端模型表里是藏不住的**——因为要枚举给「换模型」的下拉框用。
+- **★★★ 判断「是不是自研」看邻居，不看那一条自己**：光看 `vectorizer/vectorizer` 会以为是
+  内部服务名。但同一清单里排着 `bria/remove-video-background`、`topaz/upscale-video`、
+  `wavespeed/*`、`recraft/recraft-v3`、`fal/ltxv` —— **全是「厂商/模型」的第三方格式**，
+  于是这一条的归属就不用再猜了。Lovart 的本质是**第三方模型编排层 + 自家画布/Agent UI**。
+- **★★ `display_name` 是去官网反向确认的锚点**：Vectorizer.AI 定价页把服务整体叫
+  “Image Vectorization API”，与 chunk 里 `display_name` **逐字一致** ⇒ 交叉验证闭合。
+  **结论要落在「两个独立来源对得上」，不要落在「我觉得像」。**
+- **★★ 用户的主观感受要能逐条翻译成参数名**：他说「不偏移 / 颜色正 / 描边流畅」，
+  在 `openapi.json` 里分别对应 `Sub-Pixel Precision` + `gap_filler` + `shape_stacking=cutouts`、
+  `max_colors`/`palette`/`color_profile` + 32 位 alpha、`Full Shape Fitting` + 完整曲线族 + `Clean Corners`。
+  **翻不过去的那一条，就是没查清的那一条**（本次三项全部翻过去了）。
+- **★ 官方 openapi.json 比文档页可靠**：`vectorizer.ai/api/documentation` 的参数要翻页，
+  但 `https://api.vectorizer.ai/api/openapi.json` 直接给机器可读全表
+  （`components.schemas.VectorizeRequest`，74 个字段）。**要参数全表就找 openapi，不要爬文档页。**
+- **★ 调研产物落到 `.market-research/`（已加 .gitignore）**：扒下来的 72 个 chunk 共 5.88 MB、
+  openapi.json 53 KB，证据要留在仓库外的可核查文件里，不能只写在对话里——
+  下个会话问「你凭什么说是 Vectorizer.AI」时，得能当场指到那一行。
+- **★ 收口（第 116 批 / 对账 #492）**：纯调研，**无源码改动**，故未跑 `npm run check` / 单测 / 冒烟。
+  待用户拍板：接 Vectorizer.AI / 打包 vtracer / 暂不做。
