@@ -58,6 +58,7 @@ import {
   addShot,
   addShotLine,
   assetBasePrompt,
+  assetTurnaroundPrompt,
   attachShotImages,
   attachShotNodes,
   attachShotVideos,
@@ -75,6 +76,8 @@ import {
   removeShotLine,
   setAssetBaseHash,
   setAssetNode,
+  setAssetTurnaroundHash,
+  setAssetTurnaroundNode,
   setShotVideoNode,
   shotPromptWithAssets,
   shotRefNodeIds,
@@ -430,6 +433,13 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         const hash = node ? assetHashesOfNode(node)[0] : undefined
         /* 与镜头同一条判据：**变了才写**（重出定妆图时 hash 会换，也要镜像过来） */
         if (hash && hash !== asset.baseHash) next = setAssetBaseHash(next, kind, asset.id, hash, 0)
+        if (kind === 'char' && asset.turnaroundNodeId) {
+          const turnaroundNode = graph.nodes.find((n) => n.id === asset.turnaroundNodeId)
+          const turnaroundHash = turnaroundNode ? assetHashesOfNode(turnaroundNode)[0] : undefined
+          if (turnaroundHash && turnaroundHash !== asset.turnaroundHash) {
+            next = setAssetTurnaroundHash(next, 'char', asset.id, turnaroundHash, 0)
+          }
+        }
       }
     }
     if (next !== doc) applyRef.current(next)
@@ -676,6 +686,57 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         if (!nodeId) return
         const current = docRef.current
         if (current) apply(setAssetNode(current, kind, assetId, nodeId, 0))
+      }
+      await exec.runNode(nodeId, { inPlace: true })
+    } catch (e) {
+      setLay({ kind: 'error', text: humanError(e) })
+    }
+  }
+
+  /**
+   * 「多视角 turnaround」：角色专用。先建一个独立的生成节点，再原地跑。
+   *
+   * 如果定妆图节点还活着，就把它连成参考图 —— 多视角要的是**同一个角色**，
+   * 只靠文字描述很容易生成成另一个人。节点与边放在同一个 plan 里，一次撤销全退。
+   */
+  const makeAssetTurnaround = async (assetId: string) => {
+    const asset = doc.characters.find((c) => c.id === assetId)
+    if (!asset) return
+    const alive =
+      asset.turnaroundNodeId && liveNodeIds.has(asset.turnaroundNodeId)
+        ? asset.turnaroundNodeId
+        : null
+    try {
+      let nodeId = alive
+      if (!nodeId) {
+        const data = await resolveDefaults({
+          channels,
+          type: 'generation',
+          extraData: { mode: 'image', prompt: assetTurnaroundPrompt(asset) },
+        })
+        const base = graph.nodes.length
+        canvasStore.beginPlan('storyboard:asset-turnaround', '多视角 ×1')
+        try {
+          nodeId = applyDefaults({
+            store: canvasStore,
+            channels,
+            projectId,
+            type: 'generation',
+            at: { x: 40, y: 40 + base * 200 },
+            data,
+          })
+          if (!nodeId) return
+          const baseNodeId =
+            asset.nodeId && liveNodeIds.has(asset.nodeId) ? asset.nodeId : null
+          if (baseNodeId) {
+            canvasStore.dispatch({ kind: 'edge.connect', source: baseNodeId, target: nodeId })
+          }
+        } finally {
+          canvasStore.endPlan()
+        }
+        if (!nodeId) return
+        const current = docRef.current
+        if (current) apply(setAssetTurnaroundNode(current, 'char', assetId, nodeId, 0))
       }
       await exec.runNode(nodeId, { inPlace: true })
     } catch (e) {
@@ -1441,9 +1502,16 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                 confirming={confirming === `char:${c.id}`}
                 hasNode={Boolean(c.nodeId && liveNodeIds.has(c.nodeId))}
                 state={c.nodeId ? exec.nodeStateOf(c.nodeId) : undefined}
+                hasTurnaroundNode={Boolean(
+                  c.turnaroundNodeId && liveNodeIds.has(c.turnaroundNodeId),
+                )}
+                turnaroundState={
+                  c.turnaroundNodeId ? exec.nodeStateOf(c.turnaroundNodeId) : undefined
+                }
                 onPatch={(patch) => apply(updateCharacter(doc, c.id, patch, 0))}
                 onRemove={() => removeOneAsset('char', c.id)}
                 onMake={() => void makeAssetBase('char', c.id)}
+                onTurnaround={() => void makeAssetTurnaround(c.id)}
                 merge={merge?.dropId === c.id ? { keepId: merge.keepId } : null}
                 mergeChoices={mergeChoicesOf('char', c.id)}
                 onMergeOpen={() => {
@@ -2180,9 +2248,12 @@ function AssetRow({
   confirming,
   hasNode,
   state,
+  hasTurnaroundNode = false,
+  turnaroundState,
   onPatch,
   onRemove,
   onMake,
+  onTurnaround,
   merge,
   mergeChoices = [],
   onMergeOpen,
@@ -2198,9 +2269,13 @@ function AssetRow({
   /** 这条资产的生成节点**现在还在画布上**（不是"曾经建过"） */
   hasNode: boolean
   state?: RunTaskState
+  /** 多视角 turnaround 的节点现在还在画布上 */
+  hasTurnaroundNode?: boolean
+  turnaroundState?: RunTaskState
   onPatch: (patch: Partial<Pick<DramaAsset, 'name' | 'description' | 'aliases'>>) => void
   onRemove: () => void
   onMake: () => void
+  onTurnaround?: () => void
   /** 合并（#436）：`null` = 没在合并；`keepId` 空 = 还在选目标，有 = 等确认 */
   merge?: { keepId: string | null } | null
   /** 可以并进的同类资产（含各自的引用镜数）—— 没有别的同类资产时这个按钮不出现 */
@@ -2239,6 +2314,27 @@ function AssetRow({
             ? '生成失败'
             : '已出图'
   const busy = state?.kind === 'queued' || state?.kind === 'running'
+  const turnaroundBusy =
+    turnaroundState?.kind === 'queued' || turnaroundState?.kind === 'running'
+  const turnaroundStatusKind = !hasTurnaroundNode
+    ? 'idle'
+    : turnaroundState?.kind === 'failed'
+      ? 'failed'
+      : turnaroundBusy
+        ? 'running'
+        : asset.turnaroundHash
+          ? 'done'
+          : 'laid'
+  const turnaroundStatusText =
+    turnaroundStatusKind === 'idle'
+      ? '还没出多视角'
+      : turnaroundStatusKind === 'laid'
+        ? '已建节点'
+        : turnaroundStatusKind === 'running'
+          ? '生成中…'
+          : turnaroundStatusKind === 'failed'
+            ? '生成失败'
+            : '已出多视角'
   return (
     <div
       className={styles.assetRow}
@@ -2315,6 +2411,38 @@ function AssetRow({
           >
             {asset.baseHash ? `重出${label}` : `出${label}`}
           </button>
+          {kind === 'char' && asset.turnaroundHash ? (
+            <span
+              className={styles.shotImage}
+              data-storyboard-asset-turnaround-image={asset.id}
+            >
+              <AssetThumb hash={asset.turnaroundHash} />
+            </span>
+          ) : null}
+          {kind === 'char' && onTurnaround ? (
+            <span
+              className={
+                turnaroundStatusKind === 'failed'
+                  ? `${styles.shotState} ${styles.shotStateBad}`
+                  : styles.shotState
+              }
+              data-storyboard-asset-turnaround-status={asset.id}
+              data-kind={turnaroundStatusKind}
+            >
+              {turnaroundStatusText}
+            </span>
+          ) : null}
+          {kind === 'char' && onTurnaround ? (
+            <button
+              type="button"
+              className={styles.ghost}
+              data-storyboard-asset-turnaround={asset.id}
+              disabled={turnaroundBusy || busy}
+              onClick={onTurnaround}
+            >
+              {asset.turnaroundHash ? '重出多视角' : '多视角'}
+            </button>
+          ) : null}
           {/**
            * 「并入…」（对账 #436）：拆镜按 `name + aliases` 自动归并，但模型换个叫法
            * （"林轩" / "林公子"）就会落下两条重复。以前只能删掉一条 —— 而删会把引用一起清掉。

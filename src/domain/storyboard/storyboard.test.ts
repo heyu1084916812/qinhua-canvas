@@ -5,6 +5,7 @@ import {
   addScene,
   addShotLine,
   assetBasePrompt,
+  assetTurnaroundPrompt,
   attachShotImages,
   attachShotNodes,
   attachShotVideos,
@@ -28,6 +29,8 @@ import {
   sceneNameOf,
   setAssetBaseHash,
   setAssetNode,
+  setAssetTurnaroundHash,
+  setAssetTurnaroundNode,
   setShotVideoNode,
   shotDialogueTextOf,
   shotPrompt,
@@ -647,6 +650,81 @@ describe('定妆图 / 基准图', () => {
     expect(setAssetBaseHash(once, 'scene', id, 'h1', 3)).toBe(once)
     expect(setAssetBaseHash(once, 'scene', 'scene_x', 'h9', 4)).toBe(once)
     expect(setAssetNode(once, 'char', id, 'n1', 5)).toBe(once)
+  })
+})
+
+describe('角色多视角 turnaround', () => {
+  const sample = (): StoryboardDoc => {
+    let doc = emptyStoryboard('p1', 0)
+    doc = addCharacter(doc, 1)
+    const id = doc.characters[0]!.id
+    return updateCharacter(doc, id, { name: '骑手', description: '二十出头，雨衣' }, 2)
+  }
+
+  it('★★ 提示词要求四格、同一角色、同一光照，并且不要文字', () => {
+    const doc = sample()
+    const prompt = assetTurnaroundPrompt(doc.characters[0]!)
+    expect(prompt).toContain('角色多视角设定图：骑手。二十出头，雨衣。')
+    expect(prompt).toContain('正面全身、侧面全身、背面全身、正面脸部特写四格并排')
+    expect(prompt).toContain('同一角色、同一光照、同一服装与配饰')
+    expect(prompt).toContain('画面里不要出现任何文字')
+  })
+
+  it('★★ 节点与产物 hash 分开记；换节点清旧 hash，同值空操作', () => {
+    let doc = sample()
+    const id = doc.characters[0]!.id
+    doc = setAssetTurnaroundNode(doc, 'char', id, 'nt1', 3)
+    doc = setAssetTurnaroundHash(doc, 'char', id, 'ht1', 4)
+    expect(doc.characters[0]!.turnaroundNodeId).toBe('nt1')
+    expect(doc.characters[0]!.turnaroundHash).toBe('ht1')
+    expect(setAssetTurnaroundHash(doc, 'char', id, 'ht1', 5)).toBe(doc)
+    const swapped = setAssetTurnaroundNode(doc, 'char', id, 'nt2', 6)
+    expect(swapped.characters[0]!.turnaroundNodeId).toBe('nt2')
+    expect('turnaroundHash' in swapped.characters[0]!).toBe(false)
+  })
+
+  it('★ 读回按字段读，空值不落占位', () => {
+    const doc = sample()
+    const id = doc.characters[0]!.id
+    const raw = parseStoryboard(
+      {
+        ...doc,
+        characters: [
+          { ...doc.characters[0]!, turnaroundNodeId: 'nt1', turnaroundHash: 'ht1' },
+        ],
+      },
+      'p1',
+    )
+    expect(raw.characters[0]!.turnaroundNodeId).toBe('nt1')
+    expect(raw.characters[0]!.turnaroundHash).toBe('ht1')
+    const bare = parseStoryboard(
+      {
+        ...doc,
+        characters: [{ ...doc.characters[0]!, id, turnaroundNodeId: '', turnaroundHash: '' }],
+      },
+      'p1',
+    )
+    expect('turnaroundNodeId' in bare.characters[0]!).toBe(false)
+    expect('turnaroundHash' in bare.characters[0]!).toBe(false)
+  })
+
+  it('★ 合并资产时 keep 没有的 turnaround 从 drop 接过来', () => {
+    let doc = sample()
+    const keepId = doc.characters[0]!.id
+    doc = addCharacter(doc, 3)
+    const dropId = doc.characters[1]!.id
+    doc = {
+      ...doc,
+      characters: doc.characters.map((c) =>
+        c.id === dropId
+          ? { ...c, turnaroundNodeId: 'nt-drop', turnaroundHash: 'ht-drop' }
+          : c,
+      ),
+    }
+    const merged = mergeAsset(doc, 'char', keepId, dropId, 7)
+    const keep = merged.characters.find((c) => c.id === keepId)!
+    expect(keep.turnaroundNodeId).toBe('nt-drop')
+    expect(keep.turnaroundHash).toBe('ht-drop')
   })
 })
 

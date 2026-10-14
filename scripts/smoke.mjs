@@ -26473,13 +26473,22 @@ async function g133(browser) {
           r.onerror = () => resolve([])
         })
       const nodes = await all('nodes')
+      const edges = await all('edges')
       const runs = await all('runRecords')
       const boards = await all('storyboards')
       const doc = boards[0]?.doc
       return {
         nodes: nodes.map((n) => ({ id: n.id, prompt: n.data?.prompt ?? '', hash: n.data?.assetHash ?? '' })),
+        edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
         runs: runs.length,
-        characters: (doc?.characters ?? []).map((c) => ({ id: c.id, name: c.name, nodeId: c.nodeId ?? '', hash: c.baseHash ?? '' })),
+        characters: (doc?.characters ?? []).map((c) => ({
+          id: c.id,
+          name: c.name,
+          nodeId: c.nodeId ?? '',
+          hash: c.baseHash ?? '',
+          turnaroundNodeId: c.turnaroundNodeId ?? '',
+          turnaroundHash: c.turnaroundHash ?? '',
+        })),
         scenes: (doc?.scenes ?? []).map((s) => ({ id: s.id, name: s.name, nodeId: s.nodeId ?? '', hash: s.baseHash ?? '' })),
       }
     })
@@ -26488,6 +26497,17 @@ async function g133(browser) {
     for (;;) {
       const kind = await page
         .locator(`[data-storyboard-asset-status="${assetId}"]`)
+        .getAttribute('data-kind')
+        .catch(() => null)
+      if (kind === want || Date.now() - started > timeoutMs) return kind
+      await sleep(200)
+    }
+  }
+  const waitTurnaround = async (assetId, want = 'done', timeoutMs = 30000) => {
+    const started = Date.now()
+    for (;;) {
+      const kind = await page
+        .locator(`[data-storyboard-asset-turnaround-status="${assetId}"]`)
         .getAttribute('data-kind')
         .catch(() => null)
       if (kind === want || Date.now() - started > timeoutMs) return kind
@@ -26514,6 +26534,15 @@ async function g133(browser) {
       const db = await readDb()
       const hit = (kind === 'char' ? db.characters : db.scenes).find((a) => a.id === id)
       if ((hit?.nodeId && hit?.hash) || Date.now() - started > timeoutMs) return db
+      await sleep(200)
+    }
+  }
+  const waitTurnaroundSaved = async (id, timeoutMs = 8000) => {
+    const started = Date.now()
+    for (;;) {
+      const db = await readDb()
+      const hit = db.characters.find((a) => a.id === id)
+      if ((hit?.turnaroundNodeId && hit?.turnaroundHash) || Date.now() - started > timeoutMs) return db
       await sleep(200)
     }
   }
@@ -26608,6 +26637,41 @@ async function g133(browser) {
       (sceneNode?.prompt ?? '').includes('场景基准图：雨夜街道。霓虹、积水、末班公交。') &&
       (sceneNode?.prompt ?? '').includes('无人物空镜'),
     `prompt="${sceneNode?.prompt ?? ''}"`,
+  )
+
+  // ③b 多视角 turnaround：独立节点 + 定妆图连成参考图 + hash 镜像
+  const nodesBeforeTurnaround = (await readDb()).nodes.length
+  await page.locator(`[data-storyboard-asset-turnaround="${charId}"]`).click()
+  const turnaroundDone = await waitTurnaround(charId)
+  const afterTurnaround = await waitTurnaroundSaved(charId)
+  const charAfterTurnaround = afterTurnaround.characters.find((c) => c.id === charId)
+  const turnaroundNode = afterTurnaround.nodes.find(
+    (n) => n.id === charAfterTurnaround?.turnaroundNodeId,
+  )
+  const hasTurnaroundRef = afterTurnaround.edges.some(
+    (e) =>
+      e.source === charAfterTurnaround?.nodeId &&
+      e.target === charAfterTurnaround?.turnaroundNodeId,
+  )
+  rec(
+    g,
+    '★★ 多视角 turnaround：独立节点、定妆图连成参考图、hash 镜像回资产',
+    turnaroundDone === 'done' &&
+      afterTurnaround.nodes.length === nodesBeforeTurnaround + 1 &&
+      typeof charAfterTurnaround?.turnaroundHash === 'string' &&
+      charAfterTurnaround.turnaroundHash.length > 0 &&
+      charAfterTurnaround.turnaroundHash === turnaroundNode?.hash &&
+      hasTurnaroundRef &&
+      /角色多视角设定图：骑手/.test(turnaroundNode?.prompt ?? '') &&
+      (turnaroundNode?.prompt ?? '').includes('四格并排') &&
+      (turnaroundNode?.prompt ?? '').includes('不要出现任何文字'),
+    JSON.stringify({
+      状态: turnaroundDone,
+      节点数: afterTurnaround.nodes.length,
+      角色: charAfterTurnaround,
+      节点: turnaroundNode,
+      参考边: hasTurnaroundRef,
+    }),
   )
 
   // ④ 重出定妆图：仍是同一个节点（原地写回），运行记录 +1

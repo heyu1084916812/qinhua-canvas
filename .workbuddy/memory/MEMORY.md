@@ -7168,3 +7168,18 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
 - **★ 收口基线（第 136 批 / 对账 #399 / #479）**：单测 `tasks.test.ts` **5/5**；
   `npm run check` 全绿；G116 **21/21**（新增 3 条：历史批次 ≥ 2、点旧批次切回 1 张、
   点新批次切回 4 张）。
+
+## 2026-10-15 第 137 批（漫剧：角色多视角 turnaround #382）
+
+- **★★★ turnaround 必须与定妆图分开存**：定妆图是"这张脸长什么样"，turnaround 是
+  "同一角色四个视角"；写回同一个 `baseHash` 会把定妆图顶掉。新增
+  `turnaroundNodeId` / `turnaroundHash`，两套产物各自有节点与 hash。
+- **★★★ 多视角要拿定妆图当参考图**：只靠文字描述很容易生成成另一个人。建
+  turnaround 节点时，如果定妆图节点还活着，就把它连成参考图；节点与边放在同一个
+  plan 里，一次撤销全退。
+- **★★ 合并资产时 turnaround 也要跟着走**：keep 自己没有 `turnaroundHash` 时，
+  从 drop 接 `turnaroundNodeId` 与 `turnaroundHash`（与 baseHash 同一条"别丢已有产物"
+  口径）。
+- **★ 收口基线（第 137 批 / 对账 #382）**：单测 `storyboard.test.ts` **68/68**；
+  `npm run check` 全绿；G133 **8/8**（新增 1 条：独立节点 + 参考边 + hash 镜像 +
+  四格提示词）。

@@ -56,6 +56,10 @@ export interface DramaAsset {
    * 不在数据形状里。
    */
   baseHash?: string
+  /** 多视角 turnaround 的生成节点 id（角色专用；与 base 节点分开，互不顶图） */
+  turnaroundNodeId?: string
+  /** 多视角 turnaround 产物的素材 hash */
+  turnaroundHash?: string
 }
 
 export type DramaCharacter = DramaAsset
@@ -253,6 +257,8 @@ function parseAssetList(raw: unknown): DramaAsset[] {
       : []
     const nodeId = text(row.nodeId)
     const baseHash = text(row.baseHash)
+    const turnaroundNodeId = text(row.turnaroundNodeId)
+    const turnaroundHash = text(row.turnaroundHash)
     return [
       {
         id,
@@ -261,6 +267,8 @@ function parseAssetList(raw: unknown): DramaAsset[] {
         aliases,
         ...(nodeId ? { nodeId } : {}),
         ...(baseHash ? { baseHash } : {}),
+        ...(turnaroundNodeId ? { turnaroundNodeId } : {}),
+        ...(turnaroundHash ? { turnaroundHash } : {}),
       },
     ]
   })
@@ -951,11 +959,18 @@ export function mergeAsset(
       : !keep.nodeId && drop.nodeId
         ? { nodeId: drop.nodeId }
         : {}
+  const carryTurnaround =
+    !keep.turnaroundHash && drop.turnaroundHash && drop.turnaroundNodeId
+      ? { turnaroundNodeId: drop.turnaroundNodeId, turnaroundHash: drop.turnaroundHash }
+      : !keep.turnaroundNodeId && drop.turnaroundNodeId
+        ? { turnaroundNodeId: drop.turnaroundNodeId }
+        : {}
   const merged: DramaAsset = {
     ...keep,
     aliases,
     description: keep.description.trim() ? keep.description : drop.description,
     ...carry,
+    ...carryTurnaround,
   }
   const nextList = list.filter((a) => a.id !== dropId).map((a) => (a.id === keepId ? merged : a))
 
@@ -1051,6 +1066,23 @@ export function assetBasePrompt(asset: DramaAsset, kind: 'char' | 'scene'): stri
   return `${head}：${name}${desc ? `。${desc}` : ''}。${tail}`
 }
 
+/**
+ * **角色多视角 turnaround 的提示词**（漫剧后段的下一块）。
+ *
+ * 四格：正面全身 / 侧面全身 / 背面全身 / 正面脸部特写。每格都要求同一角色、
+ * 同一光照、同一服装与配饰，是为了让之后每一镜拿它当参考时**不是"另一个人"**。
+ * 仍然只走现有生图链路：如果角色定妆图节点还在，调用方会把它连成参考图。
+ */
+export function assetTurnaroundPrompt(asset: DramaAsset): string {
+  const name = asset.name.trim() || '角色'
+  const desc = asset.description.trim()
+  return (
+    `角色多视角设定图：${name}${desc ? `。${desc}` : ''}。` +
+    '同一角色、同一光照、同一服装与配饰，正面全身、侧面全身、背面全身、正面脸部特写四格并排，' +
+    '纯色背景，各视角比例与五官一致，画面里不要出现任何文字'
+  )
+}
+
 /** 资产库的两个入口（读写都按"哪一类 + 哪一条"定位，界面不用自己分叉） */
 type AssetKind = 'char' | 'scene'
 
@@ -1116,6 +1148,45 @@ export function setAssetBaseHash(
     kind,
     id,
     (asset) => (asset.baseHash === hash ? asset : { ...asset, baseHash: hash }),
+    now,
+  )
+}
+
+/** 记下“这条角色用哪个节点做多视角 turnaround”；换节点时清掉旧产物 hash。 */
+export function setAssetTurnaroundNode(
+  doc: StoryboardDoc,
+  kind: AssetKind,
+  id: string,
+  nodeId: string,
+  now = 0,
+): StoryboardDoc {
+  return withAsset(
+    doc,
+    kind,
+    id,
+    (asset) => {
+      if (asset.turnaroundNodeId === nodeId) return asset
+      const next: DramaAsset = { ...asset, turnaroundNodeId: nodeId }
+      delete next.turnaroundHash
+      return next
+    },
+    now,
+  )
+}
+
+/** 把多视角产物的 hash 镜像回资产；同一个 hash 再来一次是空操作。 */
+export function setAssetTurnaroundHash(
+  doc: StoryboardDoc,
+  kind: AssetKind,
+  id: string,
+  hash: string,
+  now = 0,
+): StoryboardDoc {
+  return withAsset(
+    doc,
+    kind,
+    id,
+    (asset) => (asset.turnaroundHash === hash ? asset : { ...asset, turnaroundHash: hash }),
     now,
   )
 }
