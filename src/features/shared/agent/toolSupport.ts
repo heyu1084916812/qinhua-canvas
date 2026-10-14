@@ -94,13 +94,22 @@ export async function probeToolCalling(
     cache.set(keyOf(k), out)
     return out
   } catch (e) {
-    const out: ToolSupportResult = {
+    /**
+     * 探测请求本身失败**不写缓存**。
+     *
+     * 2026-10-14 实测踩到：comfly 的 `gemini-3.8-flash` 平时 3 秒就回、带 tools 也
+     * 正常返回 `tool_calls`；但只要有一次网络抖动 / 上游 5xx 让探测抛错，这条
+     * 「失败」就被缓存住，之后**每次发消息都直接报同一句超时**，直到刷新页面。
+     * 用户看到的是「这个模型一直超时」，实际是第一次的抖动被永久记住了。
+     *
+     * 结论分两类：「模型不支持工具调用」是稳定判断，可以缓存；
+     * 「这次请求没跑通」是暂时状态，下次必须重探。
+     */
+    return {
       supported: false,
       reason: e instanceof Error ? e.message : String(e),
       probeFailed: true,
     }
-    cache.set(keyOf(k), out)
-    return out
   }
 }
 

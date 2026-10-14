@@ -56,6 +56,16 @@ describe('工具调用能力探测', () => {
     expect(r.probeFailed).toBe(true)
   })
 
+  it('★★ 探测请求失败不写缓存（一次网络抖动不能永久记住）', async () => {
+    clearToolSupportCache()
+    const adapter = adapterWith(async () => {
+      throw new Error('连不上：等太久，超时了')
+    })
+    await probeToolCalling(adapter, KEY, signal)
+    // 缓存住失败会让之后每次发消息都直接报同一句，直到刷新页面 —— 实测踩过
+    expect(cachedToolSupport(KEY)).toBeUndefined()
+  })
+
   it('★★ 同一个「渠道+模型」只探一次（缓存命中就不再发请求）', async () => {
     clearToolSupportCache()
     const spy = vi.fn(async () => ({
