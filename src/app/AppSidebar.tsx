@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { usePlatform } from './providers/PlatformProvider'
 import { createProjectRepository, type ProjectRepository } from '../state/project/repository'
@@ -50,6 +50,9 @@ import styles from './AppSidebar.module.css'
  *  2. `/canvas` 与 `/canvas/:id` 一起亮 ——「画布」这一项指的是「我在画布里」，
  *     而不只是「URL 恰好是 /canvas」。
  */
+/** SSR 下 `useLayoutEffect` 会打警告；浏览器里仍要在绘制前量好，故两套分流 */
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect
+
 function isItemActive(item: NavItem, pathname: string, activeWorkbench: WorkbenchId | null): boolean {
   if (item.to === '/') return pathname === '/'
   if (item.to === '/canvas') return pathname === '/canvas' || activeWorkbench === 'canvas'
@@ -167,6 +170,55 @@ export function AppSidebar() {
     return m ? { workbench: m[1] as WorkbenchId, id: m[2] } : null
   }, [location.pathname])
 
+  /**
+   * 一级导航的**滑动高亮块**（用户 2026-10-14：「当前项切换时的高亮块从旧位置
+   * 滑到新位置，宽高跟随目标项变化，带一点回弹」）。
+   *
+   * 形态：导航里只放**一块**绝对定位的元素，几何完全由当前项量出来；切页时
+   * `transform / width / height` 一起过渡到新项，曲线用过冲的 cubic-bezier 做回弹。
+   * 不采用「每个项各画一份、靠动画拼起来」——那样中间必然有两块同时亮。
+   */
+  const navRef = useRef<HTMLElement | null>(null)
+  const [navHighlight, setNavHighlight] = useState<{
+    x: number
+    y: number
+    w: number
+    h: number
+  } | null>(null)
+  const activeNavTo = useMemo(
+    () =>
+      NAV.find((item) => isItemActive(item, location.pathname, activeProject?.workbench ?? null))
+        ?.to ?? null,
+    [location.pathname, activeProject],
+  )
+
+  useIsomorphicLayoutEffect(() => {
+    const nav = navRef.current
+    if (!nav || !activeNavTo) {
+      setNavHighlight(null)
+      return
+    }
+    const measure = () => {
+      const el = Array.from(nav.querySelectorAll<HTMLElement>('[data-sidebar-item]')).find(
+        (node) => node.dataset.sidebarItem === activeNavTo,
+      )
+      if (!el) {
+        setNavHighlight(null)
+        return
+      }
+      setNavHighlight({ x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight })
+    }
+    measure()
+    /**
+     * 侧栏展开 / 收起是 180ms 的宽度过渡；只量一次会把高亮块留在旧宽度上。
+     * 观察 nav 自身尺寸，跟着重算即可（高亮块自己的过渡会把它补平）。
+     */
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(nav)
+    return () => observer.disconnect()
+  }, [activeNavTo, open])
+
   const width = open ? undefined : SIDEBAR_COLLAPSED_W
 
   return (
@@ -244,7 +296,19 @@ export function AppSidebar() {
         </span>
       </button>
 
-      <nav className={styles.nav}>
+      <nav className={styles.nav} ref={navRef}>
+        {navHighlight && (
+          <span
+            className={styles.navHighlight}
+            data-sidebar-highlight
+            aria-hidden="true"
+            style={{
+              width: navHighlight.w,
+              height: navHighlight.h,
+              transform: `translate3d(${navHighlight.x}px, ${navHighlight.y}px, 0)`,
+            }}
+          />
+        )}
         {NAV.map((item) => {
           const Icon = item.icon
           return (

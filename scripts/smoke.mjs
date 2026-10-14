@@ -11977,9 +11977,18 @@ async function g80(browser) {
      * 2026-10-10（对账 #382）：**七个**了 —— 漫剧工作台插在「电商」之后、同样在
      * 「技能库」之前；顺序仍按 `WORKBENCH_ORDER`（画布 → 电商 → 漫剧）。
      */
-    '★ 七个一级导航且顺序固定（首页/项目/画布/电商/漫剧/技能库/我的素材）',
+    '★ 八个一级导航且顺序固定（首页/项目/画布/电商/漫剧/技能库/灵感库/我的素材）',
     JSON.stringify(navIds) ===
-      JSON.stringify(['/', '/projects', '/canvas', '/ecommerce', '/storyboard', '/skills', '/assets']),
+      JSON.stringify([
+        '/',
+        '/projects',
+        '/canvas',
+        '/ecommerce',
+        '/storyboard',
+        '/skills',
+        '/inspiration',
+        '/assets',
+      ]),
     navIds.join(','),
   )
   /**
@@ -12009,7 +12018,81 @@ async function g80(browser) {
   const firstLabel = (await page.locator('[data-sidebar-item="/"]').innerText()).trim()
   rec(g, '★ 展开态导航项带文字', firstLabel === '首页', JSON.stringify(firstLabel))
 
-  // ── ③ 全路由常驻 ──
+  /**
+   * 滑动高亮块（用户 2026-10-14）：导航里只放**一块**绝对定位元素，
+   * 位置 / 宽高由当前项量出；切页时一起过渡，曲线带过冲做回弹。
+   */
+  /** 只跟**当前项**（aria-current="page"）比 —— 组内前面的步骤可能已经切过路由 */
+  const readNavHighlight = () =>
+    page.evaluate(() => {
+      const nav = document.querySelector('[data-sidebar-item="/"]')?.parentElement
+      if (!nav) return null
+      const highlight = nav.querySelector('[data-sidebar-highlight]')
+      const item = nav.querySelector('[data-sidebar-item][aria-current="page"]')
+      if (!(highlight instanceof HTMLElement) || !(item instanceof HTMLElement)) return null
+      const h = highlight.getBoundingClientRect()
+      const i = item.getBoundingClientRect()
+      const token = (v) => {
+        const span = document.createElement('span')
+        span.style.background = v
+        document.body.appendChild(span)
+        const rgb = getComputedStyle(span).backgroundColor
+        span.remove()
+        return rgb
+      }
+      return {
+        to: item.getAttribute('data-sidebar-item'),
+        dx: Math.round(h.x - i.x),
+        dy: Math.round(h.y - i.y),
+        dw: Math.round(h.width - i.width),
+        dh: Math.round(h.height - i.height),
+        transition: getComputedStyle(highlight).transitionTimingFunction,
+        bg: getComputedStyle(highlight).backgroundColor,
+        hoverToken: token('var(--bg-hover)'),
+      }
+    })
+  const hlHome = await readNavHighlight()
+  rec(
+    g,
+    '★★ 导航高亮块＝单块，位置 / 宽高与当前项一致',
+    !!hlHome &&
+      Math.abs(hlHome.dx) <= 1 &&
+      Math.abs(hlHome.dy) <= 1 &&
+      Math.abs(hlHome.dw) <= 1 &&
+      Math.abs(hlHome.dh) <= 1,
+    JSON.stringify(hlHome),
+  )
+  rec(
+    g,
+    '★★ 高亮块带过冲缓动（切项时轻微回弹）',
+    !!hlHome && /cubic-bezier/.test(hlHome.transition) && /1\.[1-9]/.test(hlHome.transition),
+    hlHome?.transition,
+  )
+  rec(
+    g,
+    '★★ 高亮块颜色＝当前按钮色（`--bg-hover`）',
+    !!hlHome && hlHome.bg === hlHome.hoverToken,
+    `hl=${hlHome?.bg} token=${hlHome?.hoverToken}`,
+  )
+
+  // ── ③ 全路由常驻 + 高亮块滑动 ──
+  /** 先切到一个**不同的项**：验证高亮块真的滑过去，而不是只跟当前项静态对齐 */
+  await page.locator('[data-sidebar-item="/assets"]').click()
+  await sleep(700)
+  const hlAssets = await readNavHighlight()
+  rec(
+    g,
+    '★★ 切页后高亮块滑到新项（位置 / 宽高跟随新目标）',
+    !!hlAssets &&
+      hlAssets.to === '/assets' &&
+      hlAssets.to !== hlHome?.to &&
+      Math.abs(hlAssets.dx) <= 1 &&
+      Math.abs(hlAssets.dy) <= 1 &&
+      Math.abs(hlAssets.dw) <= 1 &&
+      Math.abs(hlAssets.dh) <= 1,
+    JSON.stringify(hlAssets),
+  )
+
   await page.locator('[data-sidebar-item="/projects"]').click()
   await sleep(800)
   rec(

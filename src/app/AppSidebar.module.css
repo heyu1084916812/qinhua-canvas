@@ -427,13 +427,45 @@
 /* ── 一级导航 ── */
 
 .nav {
+  /* 滑动高亮块的定位基准（高亮块是 nav 的绝对定位子元素） */
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 2px;
   margin-top: var(--space-sidebar-group);
 }
 
+/**
+ * 当前项的高亮块：**一块**元素在导航里滑动，宽高跟随目标项，带一点回弹
+ * （用户 2026-10-14：「高亮块从旧位置滑到新位置，宽高跟随目标项变化，带一点回弹」）。
+ *
+ * `cubic-bezier(.34, 1.56, .64, 1)` 的第二参 > 1 ⇒ 进程会略微冲过目标再收回来，
+ * 过冲量约 8%，够读出"回弹"但不晃眼。
+ */
+.navHighlight {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  border-radius: var(--radius-control);
+  background: var(--bg-hover);
+  pointer-events: none;
+  transition:
+    transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    width 300ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    height 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navHighlight {
+    transition: none;
+  }
+}
+
 .item {
+  /* 压在滑动高亮块之上（高亮块负责底色，条目本身保持透明） */
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -474,7 +506,8 @@
  */
 .itemOn,
 .itemOn:hover {
-  background: var(--bg-hover);
+  /* 底色交给滑动高亮块；条目本身透明，否则切换时会看到两块同时亮 */
+  background: transparent;
   color: var(--sidebar-nav);
   font-weight: 600;
 }
