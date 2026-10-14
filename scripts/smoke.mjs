@@ -23540,6 +23540,71 @@ async function g116(browser) {
    * 顺手把节点里的 prompt 清空，再打开第二页；如果第二页仍能恢复 5 张结果，
    * 就证明它读的是 `ecommerceResults`，不是继续偷看画布节点。
    */
+  // ⑤c.1 失败项一键重试：把一张结果改成失败 → 刷新 → 点重试 → 失败数归零
+  await page.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('qinghua')
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+    const rows = await new Promise((resolve) => {
+      const r = db
+        .transaction('ecommerceResults', 'readonly')
+        .objectStore('ecommerceResults')
+        .getAll()
+      r.onsuccess = () => resolve(r.result ?? [])
+      r.onerror = () => resolve([])
+    })
+    const target = rows.find((r) => r.status === 'done')
+    if (target) {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('ecommerceResults', 'readwrite')
+        tx.objectStore('ecommerceResults').put({
+          ...target,
+          status: 'failed',
+          errorText: '冒烟模拟失败',
+          updatedAt: Date.now(),
+        })
+        tx.oncomplete = () => resolve(true)
+        tx.onerror = () => reject(tx.error)
+      })
+    }
+    db.close()
+  })
+  const retryProjectId = /\/ecommerce\/([^/?]+)/.exec(page.url())?.[1]
+  const retryPage = await ctx.newPage()
+  await retryPage.goto(`${BASE}/ecommerce/${retryProjectId ?? ''}`, {
+    waitUntil: 'networkidle',
+  })
+  await retryPage
+    .locator('[data-ecommerce-result][data-status="failed"]')
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .catch(() => {})
+  const retryVisible = (await retryPage.locator('[data-ecommerce-retry-failed]').count()) === 1
+  rec(
+    g,
+    '★★ 失败项出现「重试失败项」入口',
+    retryVisible,
+    `失败=${await retryPage.locator('[data-ecommerce-result][data-status="failed"]').count()} 入口=${retryVisible}`,
+  )
+  await retryPage.locator('[data-ecommerce-retry-failed]').click()
+  const retried = await retryPage
+    .waitForFunction(
+      () => document.querySelectorAll('[data-ecommerce-result][data-status="failed"]').length === 0,
+      null,
+      { timeout: 30000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  rec(
+    g,
+    '★★ 点重试后失败项真的跑完（失败数归零）',
+    retried,
+    `失败=${await retryPage.locator('[data-ecommerce-result][data-status="failed"]').count()}`,
+  )
+  await retryPage.close()
+
   const resultTableProbe = await page.evaluate(async () => {
     const db = await new Promise((resolve, reject) => {
       const req = indexedDB.open('qinghua')

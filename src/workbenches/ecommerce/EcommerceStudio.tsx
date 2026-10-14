@@ -132,6 +132,9 @@ export interface EcommerceStudioProps {
   results: readonly EcommerceResultItem[]
   /** 在画布里打开这个项目（结果已经是画布节点，这是"发送到画布"的落点） */
   onOpenCanvas: () => void
+  /** 失败 / 取消的结果统一重试（逐张重跑） */
+  onRetryFailed?: () => void
+  failedCount?: number
   /**
    * 「拼成长图」（对账 #420）：由页面注入 —— 长图要读素材字节（`loadAssetUrl`）与落盘
    * （`files.saveFile`），那是**装配层**的活。不传就不渲染这个入口。
@@ -201,6 +204,8 @@ export function EcommerceStudio({
   running,
   results,
   onOpenCanvas,
+  onRetryFailed,
+  failedCount = 0,
   onOpenLongImage,
   longImage,
   onParseIntent,
@@ -893,6 +898,16 @@ export function EcommerceStudio({
         <header className={styles.resultsHead}>
           <span className={styles.blockTitle}>结果</span>
           <span className={styles.headTools}>
+            {onRetryFailed && failedCount > 0 ? (
+              <button
+                type="button"
+                className={styles.linkBtn}
+                data-ecommerce-retry-failed
+                onClick={onRetryFailed}
+              >
+                重试失败项（{failedCount}）
+              </button>
+            ) : null}
             {onOpenLongImage ? (
               <button
                 type="button"

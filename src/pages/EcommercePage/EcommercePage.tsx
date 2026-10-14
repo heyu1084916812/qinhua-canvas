@@ -984,6 +984,32 @@ function StudioHost({ projectId }: { projectId: string }) {
     refreshTaskHistory,
   ])
 
+  const failedCount = results.filter((r) => r.status === 'failed').length
+
+  /** 一键重试失败 / 取消的结果；逐张跑，全部走既有执行链路。 */
+  const retryFailed = useCallback(async () => {
+    const ids = activeTask
+      ? resultRows
+          .filter((r) => r.status === 'failed' || r.status === 'canceled')
+          .map((r) => r.nodeId)
+      : results.filter((r) => r.status === 'failed').map((r) => r.nodeId)
+    if (ids.length === 0) return
+    for (const nodeId of ids) {
+      await exec.runNode(nodeId)
+      if (activeTask) await syncResultRow(activeTask.id, nodeId)
+    }
+    if (activeTask) await refreshTask(activeTask)
+    await refreshTaskHistory()
+  }, [
+    activeTask,
+    exec,
+    refreshTask,
+    refreshTaskHistory,
+    resultRows,
+    results,
+    syncResultRow,
+  ])
+
   /**
    * 长图拼合的输入（对账 #420）：只取**已完成且有真实像素**的。
    *
@@ -1025,6 +1051,8 @@ function StudioHost({ projectId }: { projectId: string }) {
       running={exec.isRunning || preparingShots}
       results={results}
       onOpenCanvas={() => navigate(projectRoute('canvas', projectId))}
+      onRetryFailed={failedCount > 0 ? () => void retryFailed() : undefined}
+      failedCount={failedCount}
       onParseIntent={onParseIntent}
       parsingIntent={parsingIntent}
       intent={intent}
