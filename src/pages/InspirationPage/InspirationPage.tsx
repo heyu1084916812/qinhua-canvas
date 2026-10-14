@@ -164,28 +164,17 @@ export function InspirationPage() {
   return (
     <div className={styles.page} data-inspiration-page>
       <header className={styles.head}>
-        <div>
-          <h1 className={styles.title} data-inspiration-heading>
-            灵感库
-          </h1>
-          <p className={styles.sub} data-inspiration-sub>
-            {loading
-              ? '正在读取…'
-              : `开源案例库 ${cases.length} 个案例 · ${INSPIRATION_SOURCES.length} 个来源`}
-          </p>
-        </div>
-        <button
-          type="button"
-          className={styles.refresh}
-          data-inspiration-refresh
-          disabled={refreshing}
-          onClick={() => void refresh()}
-        >
-          {refreshing ? '刷新中…' : '刷新案例'}
-        </button>
+        <h1 className={styles.title} data-inspiration-heading>
+          灵感库
+        </h1>
+        <p className={styles.sub} data-inspiration-sub>
+          {loading
+            ? '正在读取…'
+            : `开源案例库 ${cases.length} 个案例 · ${INSPIRATION_SOURCES.length} 个来源`}
+        </p>
       </header>
 
-      <div className={styles.bar}>
+      <div className={styles.toolbar} data-inspiration-toolbar>
         <input
           className={styles.search}
           value={query}
@@ -197,68 +186,85 @@ export function InspirationPage() {
         <span className={styles.count} data-inspiration-count>
           {filtered.length} 个结果
         </span>
+        <button
+          type="button"
+          className={styles.refresh}
+          data-inspiration-refresh
+          disabled={refreshing}
+          onClick={() => void refresh()}
+        >
+          {refreshing ? '刷新中…' : '刷新案例'}
+        </button>
       </div>
-
-      {Object.entries(errors).length > 0 && (
-        <p className={styles.warn} data-inspiration-error>
-          {Object.entries(errors)
-            .map(([id, why]) => `${INSPIRATION_SOURCES.find((s) => s.id === id)?.name ?? id}：${why}`)
-            .join('；')}
-          （下面显示的是上次取到的数据）
-        </p>
-      )}
 
       <div className={styles.body}>
         <aside className={styles.rail} data-inspiration-rail>
-          <p className={styles.railTitle}>来源</p>
-          <button
-            type="button"
-            className={sourceId === null ? `${styles.railItem} ${styles.railOn}` : styles.railItem}
-            data-inspiration-source="all"
-            onClick={() => setSourceId(null)}
-          >
-            <span className={styles.railLabel}>全部来源</span>
-            <span className={styles.railCount}>{cases.length}</span>
-          </button>
-          <button
-            type="button"
-            className={favOnly ? `${styles.railItem} ${styles.railOn}` : styles.railItem}
-            data-inspiration-fav-filter
-            onClick={() => setFavOnly((v) => !v)}
-          >
-            <span className={styles.railLabel}>我的收藏</span>
-            <span className={styles.railCount}>{favs.size}</span>
-          </button>
-          {INSPIRATION_SOURCES.map((s) => (
+          <div className={styles.railGroup}>
+            <p className={styles.railLabel}>来源</p>
             <button
-              key={s.id}
               type="button"
-              className={sourceId === s.id ? `${styles.railItem} ${styles.railOn}` : styles.railItem}
-              data-inspiration-source={s.id}
-              title={s.note}
-              onClick={() => setSourceId(sourceId === s.id ? null : s.id)}
+              className={sourceId === null ? `${styles.railItem} ${styles.railOn}` : styles.railItem}
+              data-inspiration-source="all"
+              onClick={() => setSourceId(null)}
             >
-              <span className={styles.railLabel}>{s.name}</span>
-              <span className={styles.railCount}>{sourceCounts.get(s.id) ?? 0}</span>
+              <span className={styles.railItemLabel}>全部来源</span>
+              <span className={styles.railItemCount}>{cases.length}</span>
             </button>
-          ))}
+            <button
+              type="button"
+              className={favOnly ? `${styles.railItem} ${styles.railOn}` : styles.railItem}
+              data-inspiration-fav-filter
+              onClick={() => setFavOnly((v) => !v)}
+            >
+              <span className={styles.railItemLabel}>我的收藏</span>
+              <span className={styles.railItemCount}>{favs.size}</span>
+            </button>
+            {INSPIRATION_SOURCES.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={sourceId === s.id ? `${styles.railItem} ${styles.railOn}` : styles.railItem}
+                data-inspiration-source={s.id}
+                title={s.note}
+                onClick={() => setSourceId(sourceId === s.id ? null : s.id)}
+              >
+                <span className={styles.railItemLabel}>{s.name}</span>
+                <span className={styles.railItemCount}>{sourceCounts.get(s.id) ?? 0}</span>
+              </button>
+            ))}
+          </div>
 
-          {tags.length > 0 && <p className={styles.railTitle}>标签</p>}
-          {tags.map((t) => (
-            <button
-              key={t.tag}
-              type="button"
-              className={tag === t.tag ? `${styles.railItem} ${styles.railOn}` : styles.railItem}
-              data-inspiration-tag={t.tag}
-              onClick={() => setTag(tag === t.tag ? null : t.tag)}
-            >
-              <span className={styles.railLabel}>{t.tag}</span>
-              <span className={styles.railCount}>{t.count}</span>
-            </button>
-          ))}
+          {tags.length > 0 && (
+            <div className={styles.railGroup}>
+              <p className={styles.railLabel}>标签</p>
+              {tags.map((t) => (
+                <button
+                  key={t.tag}
+                  type="button"
+                  className={tag === t.tag ? `${styles.railItem} ${styles.railOn}` : styles.railItem}
+                  data-inspiration-tag={t.tag}
+                  onClick={() => setTag(tag === t.tag ? null : t.tag)}
+                >
+                  <span className={styles.railItemLabel}>{t.tag}</span>
+                  <span className={styles.railItemCount}>{t.count}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </aside>
 
         <main className={styles.main}>
+          {Object.entries(errors).length > 0 && (
+            <p className={styles.warn} data-inspiration-error>
+              {Object.entries(errors)
+                .map(
+                  ([id, why]) =>
+                    `${INSPIRATION_SOURCES.find((s) => s.id === id)?.name ?? id}：${why}`,
+                )
+                .join('；')}
+              （下面显示的是上次取到的数据）
+            </p>
+          )}
           {loading && <p className={styles.empty}>正在读取…</p>}
           {!loading && filtered.length === 0 && (
             <p className={styles.empty} data-inspiration-empty>

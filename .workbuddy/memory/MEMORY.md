@@ -7000,3 +7000,24 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
 - **★ 收口基线（第 127 批 / 对账 #504）**：桌面壳数据完整恢复并在应用自己的库里验证
   （channels 5 / presets 6 / projects 15 / assets 47 / nodes 27 / edges 31 / agentSessions 7）；
   临时 CDP 参数与误改的 `package.json` 都已撤回，`git status` 干净。
+
+## 2026-10-14 第 128 批（素材筛选精简 + 选中态规则 + 灵感库三段版式 #506）
+
+- **★★★ 「这个筛选多余了」先看数据分布再决定砍不砍**：本次素材库是 全部 42 / 图 42 /
+  视频 0 / 音频 0 —— 类型档对当前库零信息量，砍掉；不要因为「筛选一般都有用」留着。
+  砍 UI 时连锚点（`data-assets-filter` / `data-assets-kind-count`）和冒烟断言一起改。
+- **★★★ 选中态的设计规则：有颜色的边框 + 无阴影**。原来 `.railItemOn` / `.chipOn` 用
+  `background + box-shadow` 做「浮起」表达，用户明确不要；改成 `border: 1px solid transparent`
+  的基础态 + 选中 `border-color: var(--accent)` + `box-shadow: none` + `box-sizing: border-box`，
+  这样切换只换颜色、尺寸不跳。
+- **★★★ 素材页与灵感库必须同构三段**：标题区 → **整行工具行（下分隔线）** →
+  左栏（240px + `border-right` 竖分隔线）+ 右内容；两边各自滚。左栏没有竖分隔线时，
+  它自己的滚动条会像一根浮在中间的灰条（用户圈的就是它）。
+- **★★ 页面标题用 `--fs-page-title`（24px）**：`--fs-title` 是 14px 的小节标题，
+  别拿它当页面大标题（灵感库这次就是这么错的）。
+- **★★ 冒烟要量计算样式而不是只截图**：`borderTopColor` / `boxShadow` /
+  `fontSize` / `borderRightWidth` / hover 后的 `backgroundColor` 都能钉住设计规则，
+  而且改样式时会立刻变红。
+- **★ 收口基线（第 128 批 / 对账 #506）**：`npm run check` 全绿、单测 **2509/2509**、
+  G90 **55/55**、G114 **20/20**、G155 **19/19**；截图
+  `.playwright-verify/design-inspiration-dark.png` / `design-assets-dark.png`。

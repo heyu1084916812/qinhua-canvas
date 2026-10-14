@@ -3,38 +3,40 @@
  * 左侧来源/标签栏，主区多列瀑布流卡片。用户明确要求「抄素材页」那一套浏览习惯。
  */
 .page {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-  height: 100%;
-  min-height: 0;
-  padding: var(--space-6);
   box-sizing: border-box;
   background: var(--bg-canvas);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-4);
+  flex: none;
+  padding: var(--space-6) var(--space-6) var(--space-3);
 }
 
 .title {
   margin: 0;
-  font-size: var(--fs-title);
-  font-weight: var(--fw-title);
+  font-size: var(--fs-page-title);
+  font-weight: var(--fw-page-title);
+  line-height: var(--lh-page-title);
   color: var(--text-1);
   letter-spacing: 0;
 }
 
 .sub {
   margin: var(--space-1) 0 0;
-  font-size: var(--fs-chip);
+  font-size: var(--fs-label);
   color: var(--text-3);
 }
 
 .refresh {
+  margin-left: auto;
   flex: 0 0 auto;
   height: 34px;
   padding: 0 var(--space-4);
@@ -51,10 +53,14 @@
   cursor: default;
 }
 
-.bar {
+.toolbar {
+  flex: none;
+  padding: 0 var(--space-6) var(--space-3);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
+  border-bottom: var(--border);
 }
 
 .search {
@@ -74,7 +80,7 @@
 }
 
 .warn {
-  margin: 0;
+  margin: 0 0 var(--space-4);
   padding: var(--space-2) var(--space-3);
   border: var(--border);
   border-radius: var(--radius-control);
@@ -84,52 +90,82 @@
 }
 
 .body {
-  display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
-  gap: var(--space-5);
+  flex: 1 1 auto;
   min-height: 0;
-  flex: 1;
+  display: flex;
+  align-items: stretch;
 }
 
 .rail {
+  flex: 0 0 auto;
+  width: 240px;
+  box-sizing: border-box;
+  padding: var(--space-4) var(--space-4) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--bg-canvas);
+  /**
+   * 页面内部的**竖分栏线**（用户 2026-10-14：「我的素材是左右用一条线分区的，
+   * 需要把灵感库做成上面一部分，下面左右两部分的版式」）。没有这条线，
+   * 左栏的滚动条会像一根浮在中间的灰条（用户圈的就是它）。
+   */
+  border-right: var(--border);
+}
+
+.railGroup {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  overflow-y: auto;
 }
 
-.railTitle {
-  margin: var(--space-3) 0 var(--space-1);
-  font-size: var(--fs-chip);
+.railLabel {
+  margin-bottom: var(--space-1);
+  padding: 0 var(--space-3);
   color: var(--text-3);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
 }
 
 .railItem {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-2);
-  width: 100%;
-  min-height: 30px;
-  padding: 0 var(--space-2);
-  border: none;
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  box-sizing: border-box;
+  /* 选中态 = 有颜色的无阴影边框（与素材页同一条规则） */
+  border: 1px solid transparent;
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--text-2);
+  font-family: var(--font-sans);
   font-size: var(--fs-label);
+  font-weight: var(--fw-title);
   text-align: left;
   cursor: pointer;
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out);
 }
 
 .railItem:hover {
   background: var(--bg-hover);
-}
-
-.railOn {
-  background: var(--bg-surface);
   color: var(--text-1);
 }
 
-.railLabel {
+.railOn {
+  background: transparent;
+  color: var(--text-1);
+  border-color: var(--accent);
+  box-shadow: none;
+}
+
+.railItemLabel {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -137,15 +173,33 @@
   white-space: nowrap;
 }
 
-.railCount {
+.railItemCount {
   flex: 0 0 auto;
   color: var(--text-3);
   font-size: var(--fs-chip);
 }
 
 .main {
+  flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
   overflow-y: auto;
+  padding: var(--space-6) 0;
+}
+
+/* 直接子块铺满并给左右内距（与素材页同口径） */
+.main > * {
+  width: 100%;
+  box-sizing: border-box;
+  padding-inline: var(--space-6);
+}
+
+/* 滚动条拇指：上下各缩 8px，两侧各自滚（与素材页同一条规则） */
+.main::-webkit-scrollbar-thumb,
+.rail::-webkit-scrollbar-thumb {
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  background-clip: padding-box;
 }
 
 .empty {

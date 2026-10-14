@@ -14787,6 +14787,20 @@ async function g90(browser) {
       (await page.locator('[data-assets-quick="saved"]').count()) === 1 &&
       (await page.locator('[data-assets-model]').count()) >= 1,
   )
+  /**
+   * 选中态设计规则（用户 2026-10-14）：「选中的按钮会有阴影，应该是一个
+   * 有颜色的无阴影边框」。默认选中「全部素材」，直接量它的计算样式。
+   */
+  const railSelected = await page.locator('[data-assets-quick="all"]').evaluate((el) => {
+    const cs = getComputedStyle(el)
+    return { border: cs.borderTopColor, shadow: cs.boxShadow }
+  })
+  rec(
+    g,
+    '★★ 选中的左侧筛选项＝有颜色边框、无阴影（设计规则）',
+    railSelected.shadow === 'none' && railSelected.border !== 'rgba(0, 0, 0, 0)',
+    JSON.stringify(railSelected),
+  )
 
   /** 切到素材库页签：以下全部是既有的"收藏关系"断言 */
   await page.locator('[data-assets-tab="library"]').click()
@@ -14947,25 +14961,26 @@ async function g90(browser) {
     .evaluate((el) => getComputedStyle(el).objectFit)
   rec(g, '★★ 图片完整显示（object-fit: contain，不裁切）', fit === 'contain', `fit=${fit}`)
 
-  // ── ③ 类型筛选 ──
-  await page.locator('[data-assets-filter="image"]').click()
+  // ── ③ 类型筛选已移除（用户 2026-10-14：「这个素材的筛选可以不用了，多余了」）──
+  rec(
+    g,
+    '★★ 顶部「素材类型」筛选已移除（不再渲染 data-assets-filter）',
+    (await page.locator('[data-assets-filter]').count()) === 0,
+  )
+
+  /**
+   * 用关键字制造一次卡片数变化（2 → 1 → 2）：最短列布局的旧 offsets 回归
+   * 就是「筛选回来时卡片变多、旧布局不够长」触发的，这条把它钉住。
+   */
+  await page.locator('[data-assets-search]').fill('狗狗')
   await sleep(400)
   rec(
     g,
-    '★ 筛「图片」时视频不出现',
-    (await page.locator('[data-asset-card]').count()) === 1 &&
-      (await page.locator('[data-asset-card="g90-vid"]').count()) === 0,
+    '★ 关键字收窄到 1 张（卡片数变化后布局不崩）',
+    (await page.locator('[data-asset-card]').count()) === 1,
     `count=${await page.locator('[data-asset-card]').count()}`,
   )
-  await page.locator('[data-assets-filter="video"]').click()
-  await sleep(400)
-  rec(
-    g,
-    '★ 筛「视频」时只剩视频那张',
-    (await page.locator('[data-asset-card="g90-vid"]').count()) === 1 &&
-      (await page.locator('[data-asset-card]').count()) === 1,
-  )
-  await page.locator('[data-assets-filter="all"]').click()
+  await page.locator('[data-assets-search]').fill('')
   await sleep(400)
 
   // ── ③ 关键字筛选（按冻结的生成信息）──
@@ -22308,7 +22323,7 @@ async function g113(browser) {
  *
  * 用户第 8 条 + 同日答复定下的东西，逐条验：
  * ① 生成历史**含未收藏**、也含**生成失败**；
- * ② 顶部类型档带数量（全部 / 图 / 视频 / 音频）；
+   * ② 顶部类型档（全部 / 图 / 视频 / 音频）已在 2026-10-14 按用户口径移除；
  * ③ 左侧快速筛选（收藏内容 / 最近 7 天 / 生成失败）与模型生成分组（**能当筛选器用**）；
  * ④ 分组方式：日期分组 / 模型分组；
  * ⑤ 网格 / 列表切换；
@@ -22409,26 +22424,14 @@ async function g114(browser) {
   await page.screenshot({ path: `${OUT}/114-g114-history-list.png` })
 
   /**
-   * ② 顶部类型档带数量（对整个库的全量算：全部 3 / 图 2 / 视频 1 / 音频 0）。
-   *
-   * ⚠️ **"全部"现在只数素材**（图+视频+音频 = 全部，口径自洽）——
-   * 用户 2026-10-06 第 11 批第 5 条改的口径：那些数字要按「生成历史 ∪ 素材库」的**整个库**算；
-   * 顺带把旧实现的一个不自洽修掉：它把**生成失败**也计进"全部"（4 ≠ 2+1+0），
-   * 而参考图五里失败本来就是独立一档（左侧「生成失败 N」）。
+   * ② 顶部「素材类型」筛选在 2026-10-14 按用户口径移除（「这个素材的筛选可以不用了，
+   * 多余了」）。这里钉住"它真的不在了"，而不是只把注释改掉。
    */
-  const kindCounts = await page.evaluate(() =>
-    Object.fromEntries(
-      [...document.querySelectorAll('[data-assets-kind-count]')].map((el) => [
-        el.getAttribute('data-assets-kind-count'),
-        el.textContent?.trim(),
-      ]),
-    ),
-  )
   rec(
     g,
-    '★★ 顶部类型档带数量（整个库的全量：全部 3 / 图 2 / 视频 1 / 音频 0；失败不混进"全部"）',
-    kindCounts.all === '3' && kindCounts.image === '2' && kindCounts.video === '1' && kindCounts.audio === '0',
-    JSON.stringify(kindCounts),
+    '★★ 顶部「素材类型」筛选已移除（不再渲染 data-assets-filter / data-assets-kind-count）',
+    (await page.locator('[data-assets-filter]').count()) === 0 &&
+      (await page.locator('[data-assets-kind-count]').count()) === 0,
   )
 
   /** ③ 快速筛选：收藏内容 */
@@ -22672,14 +22675,6 @@ async function g114(browser) {
   })
   await page.reload({ waitUntil: 'networkidle' })
   await sleep(900)
-  const kindCountsLibOnly = await page.evaluate(() =>
-    Object.fromEntries(
-      [...document.querySelectorAll('[data-assets-kind-count]')].map((el) => [
-        el.getAttribute('data-assets-kind-count'),
-        el.textContent?.trim(),
-      ]),
-    ),
-  )
   const quickCountsLibOnly = await page.evaluate(() =>
     Object.fromEntries(
       [...document.querySelectorAll('[data-assets-quick-count]')].map((el) => [
@@ -22690,14 +22685,12 @@ async function g114(browser) {
   )
   rec(
     g,
-    '★★ 库里那张"没有生成记录"的图也进数字（不再是有图但 0）',
-    kindCountsLibOnly.all === '4' &&
-      kindCountsLibOnly.image === '3' &&
-      quickCountsLibOnly.all === '4' &&
+    '★★ 库里那张"没有生成记录"的图也进左侧计数（不再是有图但 0）',
+    quickCountsLibOnly.all === '4' &&
       /* 库里这时候有 3 条：种子里的 h-img + 前面 UI 收藏的 h-vid + 刚塞进去的 h-lib-only */
       quickCountsLibOnly.saved === '3' &&
       quickCountsLibOnly.recent === '3',
-    `顶部=${JSON.stringify(kindCountsLibOnly)} 左侧=${JSON.stringify(quickCountsLibOnly)}`,
+    `左侧=${JSON.stringify(quickCountsLibOnly)}`,
   )
 
   await page.screenshot({ path: `${OUT}/114-g114-history.png` })
@@ -30147,6 +30140,58 @@ async function g155(browser) {
       (await page.locator('[data-inspiration-source="youmind-nano-banana-pro"]').count()) === 1 &&
       (await page.locator('[data-inspiration-source="banana-quicker"]').count()) === 1,
   )
+  /**
+   * 版式与素材页同构（用户 2026-10-14）：
+   * ① 标题字号必须与「我的素材」同令牌（原来是 --fs-title=14px，素材页是 24px）；
+   * ② 上面工具行 + 下面左右分栏：工具行有下分隔线、左栏有竖分隔线；
+   * ③ 左栏选中态＝有色边框、无阴影；选项有悬浮反馈。
+   */
+  const inspDesign = await page.evaluate(() => {
+    const heading = document.querySelector('[data-inspiration-heading]')
+    const toolbar = document.querySelector('[data-inspiration-toolbar]')
+    const rail = document.querySelector('[data-inspiration-rail]')
+    const selected = document.querySelector('[data-inspiration-source="all"]')
+    const probe = document.createElement('span')
+    probe.style.fontSize = 'var(--fs-page-title)'
+    document.body.appendChild(probe)
+    const expectedTitle = getComputedStyle(probe).fontSize
+    probe.remove()
+    const cs = selected ? getComputedStyle(selected) : null
+    return {
+      heading: heading ? getComputedStyle(heading).fontSize : null,
+      expectedTitle,
+      toolbarBottom: toolbar ? getComputedStyle(toolbar).borderBottomWidth : null,
+      railRight: rail ? getComputedStyle(rail).borderRightWidth : null,
+      selectedShadow: cs?.boxShadow ?? null,
+      selectedBorder: cs?.borderTopColor ?? null,
+    }
+  })
+  rec(
+    g,
+    '★★ 灵感库标题字号＝素材页页标题令牌（--fs-page-title）',
+    inspDesign.heading === inspDesign.expectedTitle,
+    `heading=${inspDesign.heading} expected=${inspDesign.expectedTitle}`,
+  )
+  rec(
+    g,
+    '★★ 灵感库＝上面工具行 + 下面左右分栏（工具行有下分隔线、左栏有竖分隔线）',
+    inspDesign.toolbarBottom === '1px' && inspDesign.railRight === '1px',
+    `toolbarBottom=${inspDesign.toolbarBottom} railRight=${inspDesign.railRight}`,
+  )
+  rec(
+    g,
+    '★★ 左栏选中的「全部来源」＝有色边框、无阴影',
+    inspDesign.selectedShadow === 'none' && inspDesign.selectedBorder !== 'rgba(0, 0, 0, 0)',
+    JSON.stringify({
+      shadow: inspDesign.selectedShadow,
+      border: inspDesign.selectedBorder,
+    }),
+  )
+  const sourceRow = page.locator('[data-inspiration-source="banana-quicker"]')
+  await sourceRow.hover()
+  await sleep(250)
+  const hoverBg = await sourceRow.evaluate((el) => getComputedStyle(el).backgroundColor)
+  rec(g, '★ 左栏选项有悬浮反馈', hoverBg !== 'rgba(0, 0, 0, 0)', `bg=${hoverBg}`)
   rec(
     g,
     '★★ 四种来源形态各自解析出案例（「例 N」「No. N」「cases 数组」「顶层数组」）',

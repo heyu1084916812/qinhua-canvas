@@ -82,7 +82,13 @@
   gap: var(--space-2);
   min-height: 36px;
   padding: 0 var(--space-3);
-  border: none;
+  /**
+   * 选中态用**有颜色的边框**表达（用户 2026-10-14：「选中的按钮会有阴影，
+   * 应该是一个有颜色的无阴影边框」）。基础态留一条透明边框，选中时只换颜色，
+   * 尺寸不跳；`border-box` 保证 36px 高度不被这条边框撑大。
+   */
+  box-sizing: border-box;
+  border: 1px solid transparent;
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--text-2);
@@ -91,7 +97,10 @@
   font-weight: var(--fw-title);
   text-align: left;
   cursor: pointer;
-  transition: background var(--dur-hover) var(--ease-out), color var(--dur-hover) var(--ease-out);
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out);
 }
 
 .railItem:hover {
@@ -100,9 +109,10 @@
 }
 
 .railItemOn {
-  background: var(--bg-surface);
+  background: transparent;
   color: var(--text-1);
-  box-shadow: var(--shadow-float);
+  border-color: var(--accent);
+  box-shadow: none;
 }
 
 .railItemLabel {
@@ -362,7 +372,8 @@
 }
 
 .chip {
-  border: none;
+  box-sizing: border-box;
+  border: 1px solid transparent;
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--text-2);
@@ -372,6 +383,7 @@
   cursor: pointer;
   transition:
     background var(--dur-hover) var(--ease-out),
+    border-color var(--dur-hover) var(--ease-out),
     color var(--dur-hover) var(--ease-out);
 }
 .chip:hover {
@@ -385,7 +397,8 @@
 .chipOn {
   background: var(--bg-surface);
   color: var(--text-1);
-  box-shadow: var(--shadow-float);
+  border-color: var(--accent);
+  box-shadow: none;
 }
 
 .search {

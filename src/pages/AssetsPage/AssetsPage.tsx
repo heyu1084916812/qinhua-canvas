@@ -9,26 +9,12 @@ import { downloadAsset } from '../../features/canvas/downloadAsset'
 import { noticeA11y, type NoticeTone } from '../../domain/ui/notice'
 import { createAssetLibraryRepository } from '../../state/project/assetLibraryRepository'
 import { createAssetHistoryRepository } from '../../state/project/assetHistoryRepository'
-import {
-  createAssetLibraryStore,
-  type AssetFilter,
-} from '../../state/project/assetLibraryStore'
+import { createAssetLibraryStore } from '../../state/project/assetLibraryStore'
 import type { AssetsTab, AssetsView } from '../../state/project/assetLibraryStore'
 import { AssetCard } from './AssetCard'
 import { AssetPreview } from './AssetPreview'
 import { MasonryGrid } from './MasonryGrid'
 import styles from './AssetsPage.module.css'
-
-/**
- * 顶部那排类型档（参考图五：全部 80 / 图 80 / 视频 0 / 音频 0 —— 数字跟在名字后面）。
- * `count` 是"对全量算的"，与左侧"快速筛选"同源。
- */
-const KIND_FILTERS: readonly { id: AssetFilter; label: string }[] = [
-  { id: 'all', label: '全部' },
-  { id: 'image', label: '图' },
-  { id: 'video', label: '视频' },
-  { id: 'audio', label: '音频' },
-]
 
 /** 左侧"快速筛选"（参考图那一栏：全部素材 / 收藏内容 / 最近 7 天 / 生成失败） */
 const QUICK_FILTERS: readonly { id: QuickFilter; label: string }[] = [
@@ -110,7 +96,8 @@ export function AssetsPage() {
   /**
    * 整份状态一次订阅（而不是十来个 `useSyncExternalStore`）。
    *
-   * 这一页的可交互筛选有**六个**（页签 / 关键字 / 类型 / 快捷 / 模型 / 分组），
+   * 这一页的可交互筛选有**五个**（页签 / 关键字 / 快捷 / 模型 / 分组），
+   * 「素材类型」那一排在 2026-10-14 按用户口径移除（多余），
    * 逐个订阅要写十二份样板，且新增一档就会漏订阅一处 —— 表现为"点了没反应"。
    * 画廊页本来就要整页重渲染，这里没有性能理由去拆。
    */
@@ -119,7 +106,6 @@ export function AssetsPage() {
     visible: assets,
     loading,
     query,
-    filter,
     tab,
     quick,
     model: modelFilter,
@@ -258,24 +244,6 @@ export function AssetsPage() {
           data-assets-search
           onChange={(event) => store.setQuery(event.target.value)}
         />
-        <div className={styles.segmented} role="tablist" aria-label="素材类型">
-          {KIND_FILTERS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={filter === item.id}
-              className={filter === item.id ? `${styles.chip} ${styles.chipOn}` : styles.chip}
-              data-assets-filter={item.id}
-              onClick={() => store.setFilter(item.id)}
-            >
-              {item.label}
-              <span className={styles.chipCount} data-assets-kind-count={item.id}>
-                {counts[item.id]}
-              </span>
-            </button>
-          ))}
-        </div>
         <div className={styles.segmented} data-assets-group>
           {GROUP_MODES.map((item) => (
             <button
