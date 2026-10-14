@@ -56,5 +56,12 @@ describe('工作台骨架', () => {
       /* 解析回来必须还是原来那个 id —— 转义写错的话这里就露馅 */
       expect(new URLSearchParams(url.split('?')[1]).get('focus')).toBe('a&b=c')
     })
+
+    it('★ crop 可以单独用，也可以和 focus 组合（focus 在前，crop=1）', () => {
+      expect(projectRoute('canvas', 'p1', { crop: true })).toBe('/canvas/p1?crop=1')
+      expect(projectRoute('canvas', 'p1', { focus: 'n1', crop: true })).toBe(
+        '/canvas/p1?focus=n1&crop=1',
+      )
+    })
   })
 })

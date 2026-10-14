@@ -919,6 +919,12 @@ function StudioHost({ projectId }: { projectId: string }) {
           onFocusInCanvas: node
             ? () => navigate(projectRoute('canvas', projectId, { focus: row.nodeId }))
             : undefined,
+          onCropInCanvas: node
+            ? () =>
+                navigate(
+                  projectRoute('canvas', projectId, { focus: row.nodeId, crop: true }),
+                )
+            : undefined,
         }
       })
     }
@@ -960,6 +966,8 @@ function StudioHost({ projectId }: { projectId: string }) {
             ? undefined
             : () => exec.runNode(id, { inPlace: true }),
         onFocusInCanvas: () => navigate(projectRoute('canvas', projectId, { focus: id })),
+        onCropInCanvas: () =>
+          navigate(projectRoute('canvas', projectId, { focus: id, crop: true })),
       }
     })
   }, [

@@ -71,6 +71,8 @@ function CanvasProject({ projectId }: { projectId: string }) {
   const [hydratedAt, setHydratedAt] = useState(0)
   /** 要聚焦的节点（对账 #424）：`?focus=<nodeId>`，没有就是普通打开 */
   const focusId = new URLSearchParams(location.search).get('focus')
+  /** 落地后是否直接打开裁剪灯箱（电商结果卡的「裁剪这一张」） */
+  const cropId = new URLSearchParams(location.search).get('crop')
   /*
    * 原来的「顶栏标签集合」（`openTabs`）随顶栏一并移除（产品文档 §6.2）：
    * 「已打开项目」这个能力整体迁到应用壳侧栏的「最近项目」列表，
@@ -164,8 +166,11 @@ function CanvasProject({ projectId }: { projectId: string }) {
    */
   useEffect(() => {
     if (!focusId || projectId === 'demo' || !cached.hydrated) return
-    if (focusCanvasNode(store, focusId)) store.setSelection([focusId])
-  }, [focusId, projectId, store, cached, hydratedAt])
+    if (focusCanvasNode(store, focusId)) {
+      store.setSelection([focusId])
+      if (cropId === '1') store.openCropLightbox(focusId)
+    }
+  }, [focusId, cropId, projectId, store, cached, hydratedAt])
 
   useEffect(() => () => store.dispose(), [store])
 

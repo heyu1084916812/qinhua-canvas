@@ -51,8 +51,12 @@ export function isWorkbenchId(value: string): value is WorkbenchId {
 export function projectRoute(
   workbench: WorkbenchId,
   projectId: string,
-  options: { focus?: string } = {},
+  options: { focus?: string; crop?: boolean } = {},
 ): string {
   const base = `${WORKBENCHES[workbench].routePrefix}/${projectId}`
-  return options.focus ? `${base}?focus=${encodeURIComponent(options.focus)}` : base
+  const query = new URLSearchParams()
+  if (options.focus) query.set('focus', options.focus)
+  if (options.crop) query.set('crop', '1')
+  const suffix = query.toString()
+  return suffix ? `${base}?${suffix}` : base
 }

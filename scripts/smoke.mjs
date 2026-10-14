@@ -27640,6 +27640,33 @@ async function g138(browser) {
     box2 ? `inside=${box2.inside}` : '找不到节点',
   )
 
+  // ③b 裁剪这一张：电商结果卡 → 画布直接打开裁剪灯箱（复用画布已有的提取选区）
+  await page.goto(`${BASE}/ecommerce/${projectId}`, { waitUntil: 'networkidle' })
+  await page
+    .locator('[data-ecommerce-result][data-status="done"]')
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .catch(() => {})
+  await page.locator('[data-ecommerce-crop-canvas]').first().click()
+  await page.waitForURL(/\/canvas\//, { timeout: 15000 })
+  const cropUrl = page.url()
+  const cropBar = await page
+    .locator('[data-lightbox-crop-bar]')
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(
+    g,
+    '★★ 电商结果卡「裁剪这一张」→ 画布直接打开裁剪灯箱（复用提取选区）',
+    cropUrl.includes(`/canvas/${projectId}`) &&
+      cropUrl.includes(`focus=${encodeURIComponent(nodeId)}`) &&
+      cropUrl.includes('crop=1') &&
+      cropBar,
+    `url=${cropUrl.replace(BASE, '')} 裁剪条=${cropBar}`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(250)
+
   /**
    * ③ 找不到的节点：**什么都不做**，也不崩。
    *

@@ -96,6 +96,8 @@ export interface EcommerceResultItem {
    * 由页面注入（路由是页面的事）；不传就不渲染这个入口。
    */
   onFocusInCanvas?: () => void
+  /** 「裁剪这一张」：跳到画布并直接打开裁剪灯箱（复用画布已有的提取选区能力） */
+  onCropInCanvas?: () => void
 }
 
 export interface EcommerceStudioProps {
@@ -1004,6 +1006,16 @@ export function EcommerceStudio({
                         onClick={r.onFocusInCanvas}
                       >
                         在画布里改这一张
+                      </button>
+                    ) : null}
+                    {r.onCropInCanvas ? (
+                      <button
+                        type="button"
+                        className={styles.linkBtn}
+                        data-ecommerce-crop-canvas
+                        onClick={r.onCropInCanvas}
+                      >
+                        裁剪这一张
                       </button>
                     ) : null}
                   </span>
