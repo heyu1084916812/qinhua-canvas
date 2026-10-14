@@ -548,12 +548,20 @@ export function createOpenAiVideoAdapter(
      * 而即梦 / MiniMax 的「自适应」是「这次不指定画幅」——两种语义都落到「不发这个字段」。
      */
     const rawRatio = typeof request.params.ratio === 'string' ? request.params.ratio : ''
-    const safeRatio = isAutoRatio(rawRatio) ? '' : ratioSupportedBy(spec, rawRatio)
+    const autoRatio = isAutoRatio(rawRatio)
+    const safeRatio = autoRatio ? '' : ratioSupportedBy(spec, rawRatio)
+    /** 只有 `auto` 且模型声明了字面值时才发（Wan 3.0 官方要 `adaptive`）。 */
+    const openAiRatio = autoRatio ? (spec?.autoRatioValue ?? '') : safeRatio
     const rawSeconds = request.params.durationSec
     /** 没有时长参数的模型（规格里没写 `seconds`）**什么都不发**，不编一个默认值。 */
     const secondsRange = spec?.seconds
-    const safeSeconds: number | undefined = secondsRange
-      ? Math.min(secondsRange.max, Math.max(secondsRange.min, Number(rawSeconds) || secondsRange.default))
+    const safeSeconds: number | undefined = spec
+      ? secondsRange
+        ? Math.min(
+            secondsRange.max,
+            Math.max(secondsRange.min, Number(rawSeconds) || secondsRange.default),
+          )
+        : undefined
       : Number(rawSeconds) > 0
         ? Number(rawSeconds)
         : undefined
@@ -691,8 +699,8 @@ export function createOpenAiVideoAdapter(
       model: request.model,
       prompt: request.prompt,
       mode: modeId,
-      ...(safeRatio ? { ratio: safeRatio } : {}),
-      ...(safeSize ? { resolution: String(safeSize).toUpperCase() } : {}),
+      ...(openAiRatio ? { ratio: openAiRatio } : {}),
+      ...(safeSize ? { resolution: String(safeSize) } : {}),
       ...(typeof safeSeconds === 'number' ? { duration: Math.round(safeSeconds) } : {}),
       ...(spec?.supportsAudio && typeof rawAudio === 'boolean' ? { generate_audio: rawAudio } : {}),
       ...(countOptions.length > 1 ? { n: safeCount } : {}),

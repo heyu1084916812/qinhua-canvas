@@ -721,4 +721,57 @@ describe('视频参数 · 按模型分派（用户 2026-10-03 图三～图十一
     /** 首尾帧一定要两张：只连一张时同一张兼作首尾帧，但绝不是一张 */
     expect(bodies[0]).not.toHaveProperty('seconds')
   })
+
+  it('★★ Wan 3.0：官方 adaptive 画幅与 2–30 秒；不摆音频开关、不支持数量', async () => {
+    const bodies: Record<string, unknown>[] = []
+    await adapterCapturing(bodies).generateVideo(
+      {
+        ...videoRequest,
+        model: 'Wan 3.0',
+        inputs: twoImages,
+        params: {
+          ratio: 'auto',
+          size: '480P',
+          durationSec: 30,
+          videoMode: 'image-to-video',
+          generateAudio: true,
+          count: 4,
+        },
+      },
+      new AbortController().signal,
+    )
+    expect(bodies[0]).toMatchObject({
+      model: 'Wan 3.0',
+      mode: 'image-to-video',
+      ratio: 'adaptive',
+      resolution: '480P',
+      duration: 30,
+    })
+    expect(bodies[0]).not.toHaveProperty('generate_audio')
+    expect(bodies[0]).not.toHaveProperty('n')
+  })
+
+  it('★ Gemini Omni Flash 1.1：无时长参数 ⇒ 即使节点里有 durationSec 也不发 duration', async () => {
+    const bodies: Record<string, unknown>[] = []
+    await adapterCapturing(bodies).generateVideo(
+      {
+        ...videoRequest,
+        model: 'Gemini Omni Flash 1.1',
+        params: {
+          ratio: '16:9',
+          size: '720p',
+          durationSec: 5,
+          videoMode: 'text',
+        },
+      },
+      new AbortController().signal,
+    )
+    expect(bodies[0]).toMatchObject({
+      model: 'Gemini Omni Flash 1.1',
+      mode: 'text',
+      ratio: '16:9',
+      resolution: '720p',
+    })
+    expect(bodies[0]).not.toHaveProperty('duration')
+  })
 })

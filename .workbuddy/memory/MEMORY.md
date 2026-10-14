@@ -7137,3 +7137,21 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
 - **★ 收口基线（第 134 批 / 对账 #505）**：Rust 单测 **27/27**；`npm run check` 全绿；
   `cargo build` 通过；隔离临时数据目录实跑：启动后 1 份、正常关窗后 2 份，
   `IndexedDB` 与 `Local Storage` 两个探针文件都在。
+
+## 2026-10-15 第 135 批（视频参数补齐：Wan 3.0 + Gemini Omni Flash 1.1 #120）
+
+- **★★★ 官方参数要先看“模型能力表”，不是只看字段名**：Wan 3.0 的阿里云百炼文档
+  （`help.aliyun.com/zh/model-studio/wan3-video-generation-guide`）明确：
+  `resolution` 480P/720P/1080P、`ratio` 六档 + `adaptive`、`duration` 2–30 秒或 -1；
+  `wan3.0-video` / `wan3.0-video-prime` 是 All-in-One，不需要按任务切模型名。
+- **★★★ `auto` 的发送字面值要按模型声明**：过去 `auto` 一律“不发 ratio”，但 Wan 官方
+  要 `adaptive`。新增 `VideoParamSpec.autoRatioValue`，只有模型声明时才把 `auto` 映射成
+  官方字面值；没有声明的模型仍按“不发”处理。
+- **★★★ 规格没有 `seconds` 时，`durationSec` 不能再漏发**：Gemini Omni Flash 1.1
+  官方没有时长参数；适配器现在只要命中规格且规格没有 `seconds`，就彻底不发 `duration`，
+  避免节点上的历史默认值把模型不认的字段带出去。
+- **★★ Google 域本机直连 000**：2026-10-15 无法重新打开 `ai.google.dev` / `cloud.google.com`。
+  Gemini Omni 只落已在对账 #120 记录、且与官方口径一致的 16:9/9:16、360p/720p/1080p、
+  无时长；模式只暴露最保守的 `text`，等真令牌跑通 `predictLongRunning` 再补。
+- **★ 收口基线（第 135 批 / 对账 #120）**：单测 `videoParams.test.ts` + `openaiVideo.test.ts`
+  **43/43**；`npm run check` 全绿；G99 **8/8**（新增 Wan 3.0 与 Gemini 两条真实面板读数）。

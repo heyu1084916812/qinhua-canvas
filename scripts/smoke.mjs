@@ -19755,6 +19755,50 @@ async function g99(browser) {
   )
   await page.screenshot({ path: `${OUT}/131-g99-h3-max.png` })
 
+  // ⑤ Wan 3.0：阿里云百炼官方 All-in-One 参数表（2026-10-15 实读）
+  await pickModel('Wan 3.0')
+  const wanMode = await readChip('videoMode')
+  const wanRatio = await readChip('ratio')
+  const wanSize = await readChip('size')
+  rec(
+    g,
+    '★★ Wan 3.0：7 模式 / 六档 + 自适应 / 480P·720P·1080P / 2–30 秒 / 无音频开关',
+    JSON.stringify(wanMode.vals) ===
+      JSON.stringify([
+        'text',
+        'all-purpose',
+        'image-to-video',
+        'first-last-frame',
+        'image-reference',
+        'video-edit',
+        'video-extend',
+      ]) &&
+      wanMode.disabled.length === 0 &&
+      JSON.stringify(wanRatio.vals) ===
+        JSON.stringify(['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16']) &&
+      JSON.stringify(wanSize.vals) === JSON.stringify(['480P', '720P', '1080P']) &&
+      JSON.stringify(await durationRange()) === JSON.stringify(['2', '30']) &&
+      !(await hasChip('generateAudio')) &&
+      !(await hasChip('count')),
+    `模式=${JSON.stringify(wanMode.vals)} 画幅=${JSON.stringify(wanRatio.vals)} 清晰度=${JSON.stringify(wanSize.vals)} 时长=${JSON.stringify(await durationRange())} 音频=${await hasChip('generateAudio')}`,
+  )
+
+  // ⑥ Gemini Omni Flash 1.1：只落官方核实过的比例 / 分辨率，不摆假时长
+  await pickModel('Gemini Omni Flash 1.1')
+  const geminiRatio = await readChip('ratio')
+  const geminiSize = await readChip('size')
+  rec(
+    g,
+    '★ Gemini Omni Flash 1.1：16:9·9:16 / 360p·720p·1080p / 只有 text 模式（不摆模式 chip）/ 不摆时长滑块',
+    (await panel.locator('[data-param-chip="videoMode"]').count()) === 0 &&
+      JSON.stringify(geminiRatio.vals) === JSON.stringify(['16:9', '9:16']) &&
+      JSON.stringify(geminiSize.vals) === JSON.stringify(['360p', '720p', '1080p']) &&
+      (await panel.locator('[data-param-duration-range]').count()) === 0 &&
+      !(await hasChip('generateAudio')) &&
+      !(await hasChip('count')),
+    `模式chip=${await panel.locator('[data-param-chip="videoMode"]').count()} 画幅=${JSON.stringify(geminiRatio.vals)} 清晰度=${JSON.stringify(geminiSize.vals)} 时长滑块=${await panel.locator('[data-param-duration-range]').count()}`,
+  )
+
   // ④ Agnes Video 2.0：官方站没有它的文档页（真令牌实测），**没有「自适应」这一档**
   await pickModel('Agnes Video 2.0')
   const agnesMode = await readChip('videoMode')

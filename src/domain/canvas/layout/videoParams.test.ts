@@ -116,6 +116,7 @@ describe('videoParamsFor · 视频模型各自的参数能力', () => {
 
   it('★★ 「自适应」不是宽高比：`auto` 与中文写法都认得出来', () => {
     expect(isAutoRatio('auto')).toBe(true)
+    expect(isAutoRatio('adaptive')).toBe(true)
     expect(isAutoRatio('自适应')).toBe(true)
     expect(isAutoRatio('16:9')).toBe(false)
     expect(isAutoRatio(undefined)).toBe(false)
@@ -124,5 +125,31 @@ describe('videoParamsFor · 视频模型各自的参数能力', () => {
     /** 即梦 / MiniMax 那份**必须有 auto**（参考实现的第一格就是自适应） */
     expect(videoParamsFor('即梦 2.5')?.ratios).toContain('auto')
     expect(videoParamsFor('MiniMax H3')?.ratios).toContain('auto')
+  })
+
+  it('★★ Wan 3.0：官方 480P/720P/1080P、2–30 秒、六档 + adaptive、All-in-One 模式', () => {
+    const spec = videoParamsFor('Wan 3.0')
+    expect(spec?.sizes).toEqual(['480P', '720P', '1080P'])
+    expect(spec?.seconds).toEqual({ min: 2, max: 30, default: 5 })
+    expect(spec?.ratios).toEqual(['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'])
+    expect(spec?.modes).toEqual([
+      'text',
+      'all-purpose',
+      'image-to-video',
+      'first-last-frame',
+      'image-reference',
+      'video-edit',
+      'video-extend',
+    ])
+    expect(spec?.autoRatioValue).toBe('adaptive')
+    expect(videoParamsFor('wan3.0-video-prime')).toBe(spec)
+  })
+
+  it('★ Gemini Omni Flash 1.1：只落官方核实过的比例 / 分辨率，不编时长与模式', () => {
+    const spec = videoParamsFor('Gemini Omni Flash 1.1')
+    expect(spec?.ratios).toEqual(['16:9', '9:16'])
+    expect(spec?.sizes).toEqual(['360p', '720p', '1080p'])
+    expect(spec?.seconds).toBeUndefined()
+    expect(spec?.modes).toEqual(['text'])
   })
 })

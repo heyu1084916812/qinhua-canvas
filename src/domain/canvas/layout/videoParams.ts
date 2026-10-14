@@ -22,9 +22,9 @@
  *   参数**形状**按各家官方文档的字段名（Seedance 官方：`ratio` / `resolution` /
  *   `duration` / `generate_audio`），发出去时见 `openaiVideo.ts` 的 `openai-videos` 分支。
  *
- * **`Wan 3.0` 与 `Gemini Omni Flash 1.1` 刻意没有条目**：用户没给参考实现、
- * 我们也拿不到可验证的官方值域，凭空写一套等于把猜的档位钉进代码 ——
- * 它们退回「按渠道上报能力渲染」，缺口记在对账清单里。
+ * **`Wan 3.0` 已按阿里云百炼官方文档补齐**（2026-10-15 实读）；
+ * **`Gemini Omni Flash 1.1` 落已核实的官方值域**（比例 16:9/9:16、分辨率 360p/720p/1080p、
+ * 无时长参数；模式等真令牌跑通后再补）。
  */
 
 /**
@@ -97,6 +97,11 @@ export interface VideoParamSpec {
   /** 是否有「生成音频」开关（图三/图六有，图八/图十没有） */
   supportsAudio: boolean
   dialect: VideoDialect
+  /**
+   * `auto` 这个 UI 档发给上游时用的字面值。
+   * 缺省 = 不发这个字段；Wan 3.0 官方把「自适应」写成 `adaptive`。
+   */
+  autoRatioValue?: string
 }
 
 /** 所有视频模型统一的「生成数量」档位（用户 2026-10-03：「数量每个模型统一一下」） */
@@ -205,6 +210,55 @@ export const VIDEO_PARAM_SPECS: Record<string, VideoParamSpec> = {
     supportsAudio: false,
     dialect: 'openai-videos',
   },
+
+  /**
+   * **Wan 3.0**（阿里云百炼官方文档 `wan3-video-generation-guide`，2026-10-15 实读）。
+   *
+   * `wan3.0-video` / `wan3.0-video-prime` 是 All-in-One：文生视频、首帧 / 首尾帧、
+   * 图片 / 视频 / 音频 / 文件 / 网页参考、视频编辑、视频延长都在同一模型里。
+   * 官方值域：`resolution` = 480P / 720P / 1080P；`ratio` = 21:9 / 16:9 / 4:3 / 1:1 / 3:4 / 9:16，
+   * 图生视频与视频编辑另给 `adaptive`；`duration` = 2–30 秒，或 `-1` 表示智能时长。
+   *
+   * 官方说原生输出台词 / BGM / 音效，但没有「生成音频开关」——所以这里 `supportsAudio: false`，
+   * 不摆一个实际不存在的假开关。
+   */
+  'wan3.0-video': {
+    ratios: ['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'],
+    sizes: ['480P', '720P', '1080P'],
+    seconds: { min: 2, max: 30, default: 5 },
+    counts: [1],
+    modes: [
+      'text',
+      'all-purpose',
+      'image-to-video',
+      'first-last-frame',
+      'image-reference',
+      'video-edit',
+      'video-extend',
+    ],
+    supportsAudio: false,
+    dialect: 'openai-videos',
+    autoRatioValue: 'adaptive',
+  },
+
+  /**
+   * **Gemini Omni Flash 1.1**。
+   *
+   * 官方口径已记录在对账 **#120**：`aspect_ratio` = 16:9 / 9:16，
+   * `resolution` = 360p / 720p / 1080p，**没有时长参数**。
+   * 2026-10-15 本机直连 Google 域返回 000，未能重新打开官方页，故只落已核实的值。
+   *
+   * 模式官方页没有给出可核对的值，这里只暴露最保守的 `text`；等真令牌把
+   * `predictLongRunning` 跑通后，再按真实请求体补模式。
+   */
+  'gemini-omni-1.1-flash': {
+    ratios: ['16:9', '9:16'],
+    sizes: ['360p', '720p', '1080p'],
+    counts: [1],
+    modes: ['text'],
+    supportsAudio: false,
+    dialect: 'openai-videos',
+  },
 }
 
 /**
@@ -227,6 +281,11 @@ const ALIASES: Record<string, string> = {
   'Minimax H3 Max': 'minimax-h3-max',
   'MiniMax H3 Max': 'minimax-h3-max',
   'MiniMax-H3-Max': 'minimax-h3-max',
+  'Wan 3.0': 'wan3.0-video',
+  'wan3.0-video': 'wan3.0-video',
+  'wan3.0-video-prime': 'wan3.0-video',
+  'Gemini Omni Flash 1.1': 'gemini-omni-1.1-flash',
+  'gemini-omni-1.1-flash': 'gemini-omni-1.1-flash',
 }
 
 /**
@@ -249,6 +308,12 @@ export function videoParamsFor(model: string): VideoParamSpec | undefined {
   if (lower.includes('minimax-h3') || lower.includes('minimax h3')) {
     return VIDEO_PARAM_SPECS['minimax-h3']
   }
+  if (lower.includes('wan3.0') || lower.includes('wan-3.0')) {
+    return VIDEO_PARAM_SPECS['wan3.0-video']
+  }
+  if (lower.includes('gemini-omni') || lower.includes('omni-flash')) {
+    return VIDEO_PARAM_SPECS['gemini-omni-1.1-flash']
+  }
   if (lower.includes('agnes-video-2.5-flash')) return VIDEO_PARAM_SPECS['agnes-video-2.5-flash']
   if (lower.includes('agnes-video-2.5')) return VIDEO_PARAM_SPECS['agnes-video-2.5']
   if (lower.includes('agnes-video-2.0') || lower.includes('agnes-video-v2.0')) {
@@ -263,5 +328,5 @@ export function videoParamsFor(model: string): VideoParamSpec | undefined {
  */
 export function isAutoRatio(ratio: unknown): boolean {
   const v = String(ratio ?? '').trim().toLowerCase()
-  return v === 'auto' || v === '自适应'
+  return v === 'auto' || v === 'adaptive' || v === '自适应'
 }
