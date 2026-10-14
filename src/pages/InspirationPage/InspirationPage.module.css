@@ -352,6 +352,16 @@
 .detail {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
+  /**
+   * 单行必须**受容器高度约束**（`minmax(0, 1fr)`）。
+   *
+   * 用户 2026-10-14 截图：「双击灯箱后的图片没有显示完整，被遮住一部分」。
+   * 实测：`.detail` 高 760px，但隐式行按内容长到 993px —— 图片 961px 高，
+   * 底边伸出容器 141px，再被 `.detail` 的 `overflow: hidden` 切掉。
+   * 素材页灯箱的 `.previewStage` 有 `min-height: 0` + `overflow: hidden`，
+   * 这里两处一起补齐（抄的是那套已经验证过的写法，不是另发明一套）。
+   */
+  grid-template-rows: minmax(0, 1fr);
   width: min(1200px, 100%);
   height: min(760px, calc(100svh - var(--space-8) - var(--space-8)));
   box-sizing: border-box;
@@ -367,9 +377,11 @@
   align-items: center;
   justify-content: center;
   min-width: 0;
+  min-height: 0;
   padding: var(--space-4);
   box-sizing: border-box;
   background: var(--bg-canvas);
+  overflow: hidden;
 }
 
 .detailStage img {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { usePlatform } from '../../app/providers/PlatformProvider'
 import type { InspirationCase } from '../../domain/inspiration/cases'
 import styles from './InspirationPage.module.css'
 
@@ -7,8 +8,24 @@ import styles from './InspirationPage.module.css'
  *
  * **抄素材页那套**（用户 2026-10-14：「我的灵感库有什么可以抄我的素材页的」）：
  * 左边大图、右边详情、Esc 或点空白关闭。差别只有一处 —— 灵感案例是**外部只读内容**，
- * 所以这里给的是「复制提示词」和「看原图出处」，没有下载、没有打标签。
+ * 所以这里给的是「复制提示词」「下载原图」和「看原图出处」，**不打标签**
+ * （标签是本地素材才有的关系，外部内容不往本地库里写）。
+ *
+ * 下载走平台已有的 `files.saveFromUrl`（素材页 / 画布灯箱同一条入口）：
+ * 能取到字节就落盘，取不到就交给浏览器新标签打开 —— 这里不重写第二套回落逻辑。
  */
+export function downloadNameOf(item: InspirationCase): string {
+  try {
+    const url = new URL(item.imageUrl)
+    const base = decodeURIComponent(url.pathname.split('/').filter(Boolean).pop() ?? '')
+    if (base) return base
+  } catch {
+    /* 不是绝对地址就走标题兜底 */
+  }
+  const safe = item.title.replace(/[\\/:*?"<>|]/g, '_').trim()
+  return `${safe || 'inspiration'}.jpg`
+}
+
 export function InspirationDetail({
   item,
   onClose,
@@ -16,8 +33,11 @@ export function InspirationDetail({
   item: InspirationCase
   onClose: () => void
 }) {
+  const platform = usePlatform()
   const [copied, setCopied] = useState(false)
+  const [downloadState, setDownloadState] = useState('')
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const downloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -31,6 +51,7 @@ export function InspirationDetail({
     return () => {
       window.removeEventListener('keydown', onKey)
       if (timer.current) clearTimeout(timer.current)
+      if (downloadTimer.current) clearTimeout(downloadTimer.current)
     }
   }, [onClose])
 
@@ -42,6 +63,18 @@ export function InspirationDetail({
         setCopied(true)
         if (timer.current) clearTimeout(timer.current)
         timer.current = setTimeout(() => setCopied(false), 1500)
+      })
+      .catch(() => {})
+  }
+
+  const download = () => {
+    if (!item.imageUrl) return
+    void platform.files
+      .saveFromUrl(item.imageUrl, downloadNameOf(item))
+      .then((result) => {
+        setDownloadState(result === 'saved' ? '已下载' : '已在新标签打开')
+        if (downloadTimer.current) clearTimeout(downloadTimer.current)
+        downloadTimer.current = setTimeout(() => setDownloadState(''), 1800)
       })
       .catch(() => {})
   }
@@ -109,6 +142,16 @@ export function InspirationDetail({
             >
               {copied ? '已复制' : '复制提示词'}
             </button>
+            {item.imageUrl && (
+              <button
+                type="button"
+                className={styles.copy}
+                data-inspiration-detail-download
+                onClick={download}
+              >
+                {downloadState || '下载原图'}
+              </button>
+            )}
             {item.creditUrl && (
               <a
                 className={styles.link}

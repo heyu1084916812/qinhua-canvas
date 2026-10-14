@@ -29999,9 +29999,6 @@ async function g155(browser) {
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
-  const PNG_1X1 =
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
-
   /**
    * README 型来源的假数据（版式照着 PicoTrex 那种 `### 例 N:` 分节写）——
    * 第二条来源走的是 markdown 解析器，与 JSON 那条不是同一条路。
@@ -30097,7 +30094,12 @@ async function g155(browser) {
     await route.fulfill({
       status: 200,
       contentType: 'image/png',
-      body: Buffer.from(PNG_1X1, 'base64'),
+      /**
+       * ⚠️ 刻意造成 **600×1200 的竖图**（不是 1×1）：用户 2026-10-14 报
+       * 「双击灯箱后的图片没有显示完整，被遮住一部分」。1×1 的图永远不会溢出舞台，
+       * 那条断言就成了恒真；只有真竖图才能证明 `min-height: 0` + `overflow: hidden` 生效。
+       */
+      body: solidPngBuffer(600, 1200, [90, 140, 220]),
     })
   })
 
@@ -30165,6 +30167,37 @@ async function g155(browser) {
     (await page.locator('[data-inspiration-detail]').count()) === 1 &&
       detailPrompt.includes('cute dragon illustration'),
     `prompt=${detailPrompt.slice(0, 24)}`,
+  )
+  rec(
+    g,
+    '★ 灯箱右栏有「下载原图」（与素材页 / 画布灯箱同一入口）',
+    (await page.locator('[data-inspiration-detail-download]').count()) === 1,
+  )
+  /**
+   * ★★ 竖图完整显示：mock 图是 600×1200，若舞台没有 `min-height: 0` + `overflow: hidden`，
+   * 图片底边会伸出灯箱被 `overflow: hidden` 裁掉（修复前实测伸出 141px）。
+   */
+  const detailFit = await page.evaluate(() => {
+    const img = document.querySelector('[data-inspiration-detail-image]')
+    const stage = img?.parentElement
+    if (!img || !stage) return null
+    const i = img.getBoundingClientRect()
+    const s = stage.getBoundingClientRect()
+    return {
+      naturalW: img.naturalWidth,
+      naturalH: img.naturalHeight,
+      overflowBottom: Math.round(i.bottom - s.bottom),
+      overflowRight: Math.round(i.right - s.right),
+    }
+  })
+  rec(
+    g,
+    '★★ 灯箱里竖图完整显示（不超出舞台）',
+    !!detailFit &&
+      detailFit.naturalH > detailFit.naturalW &&
+      detailFit.overflowBottom <= 0 &&
+      detailFit.overflowRight <= 0,
+    JSON.stringify(detailFit),
   )
   await page.keyboard.press('Escape')
   await sleep(300)
