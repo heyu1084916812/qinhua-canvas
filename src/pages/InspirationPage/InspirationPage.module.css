@@ -154,24 +154,30 @@
   font-size: var(--fs-label);
 }
 
-/** 与素材页同一条口径：多列瀑布流，卡片不许被从中间切开 */
+/**
+ * **规整网格，不用瀑布流**（用户 2026-10-14：「灵感库不用堆砌，不用瀑布流」）。
+ *
+ * 案例卡的内容形状本来就一致（一张 4:3 预览 + 标题 + 标签 + 一行动作），
+ * 瀑布流只会让行高参差不齐、上下留出空档。这里用等宽网格 + 卡片撑满单元格，
+ * 同一行自动等高。素材页仍保留瀑布流 —— 那边的卡片高度**真的**差很多（视频 / 长图 / 失败卡）。
+ */
 .grid {
-  columns: 240px;
-  column-gap: var(--space-5);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-5);
 }
 
 .card {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  width: 100%;
-  margin: 0 0 var(--space-5);
+  /** 撑满网格单元格 ⇒ 同一行的卡等高，动作那一行自然对齐 */
+  height: 100%;
   padding: var(--space-3);
   box-sizing: border-box;
   border: var(--border);
   border-radius: var(--radius-control);
   background: var(--bg-surface);
-  break-inside: avoid;
 }
 
 .shot {
@@ -187,6 +193,8 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  /** 点图片 = 看详情（与标题同一入口） */
+  cursor: zoom-in;
 }
 
 .shotEmpty {
@@ -215,6 +223,13 @@
   font-weight: var(--fw-title);
   color: var(--text-1);
   line-height: 1.5;
+  cursor: pointer;
+  /** 最长两行（超了省略）：标题长短不一也不该把动作那一行推得高低不齐 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 3em;
 }
 
 .tags {
@@ -237,6 +252,8 @@
   align-items: center;
   gap: var(--space-2);
   min-height: 26px;
+  /** 贴住卡片底边 —— 与上面的标题高度兜底合起来，同一行的按钮落在同一条线上 */
+  margin-top: auto;
 }
 
 .credit {
@@ -288,4 +305,147 @@
   color: var(--text-1);
   font-size: var(--fs-label);
   cursor: pointer;
+}
+
+/* ── 收藏 ─────────────────────────────────────────────
+   收藏按钮压在预览图右上角（与来源徽标同一条边，但徽标在左半边），
+   点它不下钻详情 —— 卡片点击与按钮点击要分得开。 */
+.fav {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.favOn {
+  color: var(--text-1);
+}
+
+.railFav {
+  margin-top: var(--space-2);
+}
+
+/* ── 详情灯箱（抄素材页那套：左大图、右详情）─────────── */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  /** 用 `--overlay-scrim`（0.72）而不是 `--scrim`（浅色下只有 0.18）——
+   *  灯箱要让底下的卡片明显退到后面去。 */
+  background: var(--overlay-scrim);
+}
+
+.detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  width: min(1200px, 100%);
+  height: min(760px, calc(100svh - var(--space-8) - var(--space-8)));
+  box-sizing: border-box;
+  overflow: hidden;
+  border: var(--border);
+  border-radius: var(--radius-node);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+}
+
+.detailStage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: var(--space-4);
+  box-sizing: border-box;
+  background: var(--bg-canvas);
+}
+
+.detailStage img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.detailSide {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  padding: var(--space-5);
+  box-sizing: border-box;
+  overflow-y: auto;
+  border-left: var(--border);
+}
+
+.detailHead {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.detailTitle {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: var(--fs-title);
+  font-weight: var(--fw-title);
+  color: var(--text-1);
+  line-height: 1.4;
+}
+
+.close {
+  flex: 0 0 auto;
+  height: 26px;
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+
+.detailMeta {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.detailLabel {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.promptBox {
+  margin: 0;
+  padding: var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.detailActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }

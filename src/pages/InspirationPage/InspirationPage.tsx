@@ -3,10 +3,19 @@ import { usePlatform } from '../../app/providers/PlatformProvider'
 import { filterCases, tagCounts, type InspirationCase } from '../../domain/inspiration/cases'
 import { INSPIRATION_SOURCES } from '../../domain/inspiration/sources'
 import { createInspirationRepository } from '../../state/project/inspirationRepository'
+import { InspirationDetail } from './InspirationDetail'
 import styles from './InspirationPage.module.css'
 
 /** 一屏先摆多少张（541 条一次全渲染会把图片请求和 DOM 一起打爆） */
 const PAGE_SIZE = 24
+
+/**
+ * 收藏存哪：`presets` 表里一行（与 CLI 工具配置同一个做法）。
+ *
+ * 收藏的是**案例 id**，不是案例本体 —— 案例来自外部仓库，下次刷新可能整批换掉；
+ * 存 id 至少能如实回答"这条还在不在"，而存一份副本会在上游更新后变成两份互相矛盾的记录。
+ */
+const FAV_KEY = 'inspiration:favorites'
 
 /**
  * 灵感库（用户 2026-10-14：「我要在左边菜单加一个灵感库，用 github 上开源的库，
@@ -36,8 +45,46 @@ export function InspirationPage() {
   const [tag, setTag] = useState<string | null>(null)
   const [limit, setLimit] = useState(PAGE_SIZE)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  /** 收藏的案例 id（存 `presets` 表，见 `FAV_KEY`） */
+  const [favs, setFavs] = useState<Set<string>>(new Set())
+  /** 左侧「我的收藏」那一档：只看收藏过的 */
+  const [favOnly, setFavOnly] = useState(false)
+  /** 点开的案例（非空 = 灯箱开着） */
+  const [detail, setDetail] = useState<InspirationCase | null>(null)
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  /** 收藏是**本机偏好**，单独读：来源这次挂掉也不该让收藏丢 */
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      const rows = (await platform.storage.query('presets', { id: FAV_KEY })) as unknown as {
+        ids?: unknown
+      }[]
+      if (!alive) return
+      const ids = rows[0]?.ids
+      if (Array.isArray(ids)) {
+        setFavs(new Set(ids.filter((x): x is string => typeof x === 'string')))
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [platform])
+
+  const toggleFav = useCallback(
+    (id: string) => {
+      setFavs((prev) => {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        /** 落库是"顺手"，不 await：收藏要即时，不该等一次 IO */
+        void platform.storage.put('presets', { id: FAV_KEY, ids: [...next] })
+        return next
+      })
+    },
+    [platform],
+  )
 
   /** 拉一遍所有来源（首次进页面 + 手动刷新都走它） */
   const refresh = useCallback(async () => {
@@ -89,10 +136,11 @@ export function InspirationPage() {
     setLimit(PAGE_SIZE)
   }, [query, sourceId, tag])
 
-  const filtered = useMemo(
-    () => filterCases(cases, { query, sourceId, tag }),
-    [cases, query, sourceId, tag],
-  )
+  const filtered = useMemo(() => {
+    const base = filterCases(cases, { query, sourceId, tag })
+    /** 「我的收藏」是**再叠一层**：它可以和来源 / 标签 / 关键字同时用 */
+    return favOnly ? base.filter((c) => favs.has(c.id)) : base
+  }, [cases, query, sourceId, tag, favOnly, favs])
   const visible = useMemo(() => filtered.slice(0, limit), [filtered, limit])
   const tags = useMemo(() => tagCounts(cases).slice(0, 18), [cases])
   const sourceCounts = useMemo(() => {
@@ -172,6 +220,15 @@ export function InspirationPage() {
             <span className={styles.railLabel}>全部来源</span>
             <span className={styles.railCount}>{cases.length}</span>
           </button>
+          <button
+            type="button"
+            className={favOnly ? `${styles.railItem} ${styles.railOn}` : styles.railItem}
+            data-inspiration-fav-filter
+            onClick={() => setFavOnly((v) => !v)}
+          >
+            <span className={styles.railLabel}>我的收藏</span>
+            <span className={styles.railCount}>{favs.size}</span>
+          </button>
           {INSPIRATION_SOURCES.map((s) => (
             <button
               key={s.id}
@@ -215,13 +272,45 @@ export function InspirationPage() {
                   <article key={c.id} className={styles.card} data-inspiration-card={c.id}>
                     <div className={styles.shot}>
                       {c.imageUrl ? (
-                        <img src={c.imageUrl} alt={c.title} loading="lazy" />
+                        <img
+                          src={c.imageUrl}
+                          alt={c.title}
+                          loading="lazy"
+                          data-inspiration-open
+                          onClick={() => setDetail(c)}
+                        />
                       ) : (
                         <span className={styles.shotEmpty}>没有预览图</span>
                       )}
+                      <button
+                        type="button"
+                        className={favs.has(c.id) ? `${styles.fav} ${styles.favOn}` : styles.fav}
+                        data-inspiration-fav={c.id}
+                        aria-label={favs.has(c.id) ? '取消收藏' : '收藏这条案例'}
+                        aria-pressed={favs.has(c.id)}
+                        onClick={() => toggleFav(c.id)}
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill={favs.has(c.id) ? 'currentColor' : 'none'}
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M12 20.5 3.8 12.3a5 5 0 0 1 7.1-7.1l1.1 1.1 1.1-1.1a5 5 0 0 1 7.1 7.1Z" />
+                        </svg>
+                      </button>
                       <span className={styles.badge}>{c.sourceName}</span>
                     </div>
-                    <h3 className={styles.cardTitle}>{c.title}</h3>
+                    <h3
+                      className={styles.cardTitle}
+                      data-inspiration-open
+                      onClick={() => setDetail(c)}
+                    >
+                      {c.title}
+                    </h3>
                     {c.tags.length > 0 && (
                       <p className={styles.tags}>
                         {c.tags.slice(0, 3).map((t) => (
@@ -275,6 +364,8 @@ export function InspirationPage() {
           )}
         </main>
       </div>
+
+      {detail && <InspirationDetail item={detail} onClose={() => setDetail(null)} />}
     </div>
   )
 }

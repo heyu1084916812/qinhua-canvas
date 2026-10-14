@@ -30078,6 +30078,43 @@ async function g155(browser) {
       (await page.locator('[data-inspiration-source-link]').count()) === 1,
   )
 
+  /** 点开详情灯箱（抄素材页那套：左大图 + 右详情 + 完整提示词） */
+  await page.locator('[data-inspiration-open]').first().click()
+  await sleep(500)
+  const detailPrompt =
+    ((await page
+      .locator('[data-inspiration-detail-prompt]')
+      .textContent()
+      .catch(() => '')) ?? '').trim()
+  rec(
+    g,
+    '★★ 点卡片开详情灯箱，右侧给出**完整提示词**',
+    (await page.locator('[data-inspiration-detail]').count()) === 1 &&
+      detailPrompt.includes('cute dragon illustration'),
+    `prompt=${detailPrompt.slice(0, 24)}`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(300)
+  rec(g, '★ Esc 关闭详情', (await page.locator('[data-inspiration-detail]').count()) === 0)
+
+  /** 收藏：点一下 → 左侧计数变；再点「我的收藏」能筛出它 */
+  await page.locator('[data-inspiration-fav]').first().click()
+  await sleep(400)
+  const favCount = (
+    (await page.locator('[data-inspiration-fav-filter] span').last().textContent()) ?? ''
+  ).trim()
+  rec(g, '★★ 卡片能收藏（左侧「我的收藏」计数跟着变）', favCount === '1', `count=${favCount}`)
+  await page.locator('[data-inspiration-fav-filter]').click()
+  await sleep(400)
+  rec(
+    g,
+    '★★ 「我的收藏」只筛出收藏过的那一条',
+    (await cards.count()) === 1,
+    `cards=${await cards.count()}`,
+  )
+  await page.locator('[data-inspiration-fav-filter]').click()
+  await sleep(300)
+
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await page.screenshot({ path: `${OUT}/155-g155-inspiration.png` })
   await ctx.close()
