@@ -30002,6 +30002,22 @@ async function g155(browser) {
   const PNG_1X1 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
 
+  /**
+   * README 型来源的假数据（版式照着 PicoTrex 那种 `### 例 N:` 分节写）——
+   * 第二条来源走的是 markdown 解析器，与 JSON 那条不是同一条路。
+   */
+  const README_MD = [
+    '### 例 1: [README 案例](https://x.com/readme/status/9)（by [@readme](https://x.com/readme)）',
+    '',
+    '<img src="images/case1.jpg" width="300">',
+    '',
+    '**提示词:**',
+    '',
+    '```',
+    'readme case prompt',
+    '```',
+  ].join('\n')
+
   await page.route('**/raw.githubusercontent.com/**', async (route) => {
     if (route.request().url().endsWith('.json')) {
       await route.fulfill({
@@ -30031,6 +30047,10 @@ async function g155(browser) {
       })
       return
     }
+    if (route.request().url().endsWith('.md')) {
+      await route.fulfill({ status: 200, contentType: 'text/plain', body: README_MD })
+      return
+    }
     await route.fulfill({
       status: 200,
       contentType: 'image/png',
@@ -30049,18 +30069,24 @@ async function g155(browser) {
   )
   rec(
     g,
-    '★★ 拉到的案例渲染成卡片（外网已 mock，验的是解析链路）',
-    (await cards.count()) === 2,
+    '★★ 两种来源的案例都渲染成卡片（JSON 直读 + README 解析）',
+    (await cards.count()) === 3,
     `cards=${await cards.count()}`,
   )
 
   const sub = ((await page.locator('[data-inspiration-sub]').textContent()) ?? '').trim()
-  rec(g, '★★ 顶部如实报「多少案例 · 多少来源」', /2 个案例/.test(sub) && /1 个来源/.test(sub), sub)
+  rec(g, '★★ 顶部如实报「多少案例 · 多少来源」', /3 个案例/.test(sub) && /2 个来源/.test(sub), sub)
 
   rec(
     g,
-    '★ 左侧列出这条来源（带计数）',
-    (await page.locator('[data-inspiration-source="gpt-image-2"]').count()) === 1,
+    '★ 左侧把两条来源都列出来',
+    (await page.locator('[data-inspiration-source="gpt-image-2"]').count()) === 1 &&
+      (await page.locator('[data-inspiration-source="nano-banana"]').count()) === 1,
+  )
+  rec(
+    g,
+    '★★ README 型来源也解析出案例（不是只有 JSON 那条能跑）',
+    (await page.locator('[data-inspiration-card="nano-banana:1"]').count()) === 1,
   )
   const tagCount = await page.locator('[data-inspiration-tag]').count()
   rec(g, '★★ 标签栏由案例标签生成（不是写死的）', tagCount >= 3, `tags=${tagCount}`)
@@ -30074,8 +30100,8 @@ async function g155(browser) {
   rec(
     g,
     '★ 每张卡带「原图 / 复制提示词」两个动作',
-    (await page.locator('[data-inspiration-copy]').count()) === 2 &&
-      (await page.locator('[data-inspiration-source-link]').count()) === 1,
+    (await page.locator('[data-inspiration-copy]').count()) === 3 &&
+      (await page.locator('[data-inspiration-source-link]').count()) === 2,
   )
 
   /** 点开详情灯箱（抄素材页那套：左大图 + 右详情 + 完整提示词） */

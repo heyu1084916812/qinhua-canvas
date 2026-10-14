@@ -1,5 +1,9 @@
 import type { NetworkPort, StoragePort } from '../../platform/ports'
-import { parseInspirationCases, type InspirationCase } from '../../domain/inspiration/cases'
+import {
+  parseInspirationCases,
+  parseReadmeCases,
+  type InspirationCase,
+} from '../../domain/inspiration/cases'
 import type { InspirationSource } from '../../domain/inspiration/sources'
 import { errorTextOf } from '../../shared/result'
 
@@ -78,7 +82,14 @@ export function createInspirationRepository(
         if (res.status < 200 || res.status >= 300) {
           throw new Error(`HTTP ${res.status}`)
         }
-        const cases = parseInspirationCases(await res.json(), source)
+        /**
+         * 按来源形态分派解析器：`json` 直读结构化数据，`readme` 从 markdown 提
+         * （版式变了就解析出 0 条，下一行会如实报错、不动旧缓存）。
+         */
+        const cases =
+          source.format === 'readme'
+            ? parseReadmeCases(await res.text(), source)
+            : parseInspirationCases(await res.json(), source)
         if (cases.length === 0) {
           /** 解析出 0 条多半是上游改了结构 —— 如实报，别把旧数据盖成空的 */
           throw new Error('这个来源这次没解析出任何案例（可能上游改了数据格式）')

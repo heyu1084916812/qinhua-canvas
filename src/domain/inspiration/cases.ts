@@ -102,6 +102,72 @@ export interface InspirationFilter {
 }
 
 /**
+ * **README 型来源**的解析器（PicoTrex 那种分节结构）。
+ *
+ * 版式（2026-10-14 实测，全文件统一）：
+ *
+ * ```md
+ * ### 例 1: [浮世绘闪卡](https://x.com/.../status/123)（by [@MANISH1027512](https://x.com/...)）
+ *
+ * | 输出 |
+ * | --- |
+ * | <img src="images/pro_case1/output.jpg" width="300" alt="输出结果"> |
+ *
+ * **提示词:**
+ *
+ * ```
+ * 提示词正文
+ * ```
+ * ```
+ *
+ * 三条口径与 JSON 那条一致：**解析不出来返回空数组、不抛**（由 `refresh` 决定怎么处理）、
+ * 认不出的字段留空、绝不编造。提示词优先取「**提示词**」字样之后的**第一个代码块** ——
+ * 直接取全段第一个代码块，遇到正文里先出现别的代码块就会取错。
+ */
+export function parseReadmeCases(md: string, source: InspirationSource): InspirationCase[] {
+  if (typeof md !== 'string' || !md) return []
+  const out: InspirationCase[] = []
+
+  /** 按 `###` 切段（第一个前言块没有 `###` 开头，自然跳过） */
+  for (const block of md.split(/\n(?=###\s)/)) {
+    const head = /^###\s+(.+)$/m.exec(block)?.[1]
+    if (!head) continue
+    const num = /^例\s*(\d+)\s*[:：]/.exec(head)?.[1]
+    /** 不是「例 N」的分节（Menu / 更新日志那类）不要 —— 它们没有案例内容 */
+    if (!num) continue
+
+    const titleLink = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/.exec(head)
+    const authorLink = /by\s*\[?(@[^\]\s]+)\]?\((https?:\/\/[^)]+)\)/.exec(head)
+    const image = /<img\s+[^>]*src="([^"]+)"/i.exec(block)?.[1] ?? ''
+    const promptSection = block.split(/\*\*提示词\s*[:：]?\s*\*\*/)[1] ?? block
+    const prompt = /```[a-zA-Z]*\r?\n([\s\S]*?)```/.exec(promptSection)?.[1]?.trim() ?? ''
+
+    const title = (titleLink?.[1] ?? head.replace(/^例\s*\d+\s*[:：]\s*/, '')).trim()
+    if (!title && !prompt) continue
+
+    out.push({
+      id: `${source.id}:${num}`,
+      sourceId: source.id,
+      sourceName: source.name,
+      title,
+      prompt,
+      imageUrl: image
+        ? image.startsWith('http')
+          ? image
+          : `${source.imageBase}/${image.replace(/^\.?\//, '')}`
+        : '',
+      /** README 型来源没有结构化的标签，如实留空（不拿标题硬凑几个） */
+      tags: [],
+      ...(authorLink?.[1] ? { credit: authorLink[1] } : {}),
+      ...(titleLink?.[2] ? { creditUrl: titleLink[2] } : {}),
+      /** README 里没有"仓库内位置"这种锚点，给仓库首页即可 */
+      docUrl: source.repo,
+    })
+  }
+  return out
+}
+
+/**
  * 筛选（纯函数，页面与单测共用一份口径）。
  *
  * 关键字**同时扫标题、提示词、标签、署名**：用户找"奶龙"时可能记的是标题，

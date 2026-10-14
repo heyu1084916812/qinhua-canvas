@@ -24,6 +24,15 @@ export interface InspirationSource {
   imageBase: string
   /** 一句话说明这个来源是什么 */
   note: string
+  /**
+   * 数据文件**形态** —— 决定用哪个解析器。
+   *
+   * - `json`：仓库直接给结构化数据（字段齐全、最稳）；
+   * - `readme`：内容写在 README 的分节里，要按 markdown 提（**脆一些**：
+   *   上游一改版式就解析不出来）。所以 `refresh` 在"解析出 0 条"时**报错而不覆盖旧缓存** ——
+   *   版式变了最多是"这次没刷成功"，不会把上一次的好数据洗掉。
+   */
+  format: 'json' | 'readme'
 }
 
 /**
@@ -42,6 +51,19 @@ export const INSPIRATION_SOURCES: readonly InspirationSource[] = [
     /** 实测：图片在仓库的 `data/images/`（数据文件里的 `/images/...` 是站点路径） */
     imageBase: 'https://raw.githubusercontent.com/freestylefly/awesome-gpt-image-2/main/data',
     note: '541 条 GPT Image 2 案例，带完整提示词与原作者署名',
+    format: 'json',
+  },
+  {
+    /** 用例结构：`### 例 N: [标题](原推文)（by [@作者](主页)）` + 一张图 + 一个提示词代码块 */
+    id: 'nano-banana',
+    name: 'Awesome Nano Banana',
+    repo: 'https://github.com/PicoTrex/Awesome-Nano-Banana-images',
+    dataUrl:
+      'https://raw.githubusercontent.com/PicoTrex/Awesome-Nano-Banana-images/main/README.md',
+    /** README 里的图片路径就是**仓库根相对**（`images/pro_case1/output.jpg`），基址取根 */
+    imageBase: 'https://raw.githubusercontent.com/PicoTrex/Awesome-Nano-Banana-images/main',
+    note: 'Nano Banana / Nano Banana Pro 的分场景案例，每条带完整提示词与原作者',
+    format: 'readme',
   },
 ]
 
