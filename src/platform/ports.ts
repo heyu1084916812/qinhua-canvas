@@ -338,6 +338,12 @@ export interface StorageAdminPort {
   cacheUsage(): Promise<number>
   /** 清网页缓存，返回**实际**释放的字节数（删不掉的占用不算成绩） */
   clearCache(): Promise<number>
+  /**
+   * 桌面壳数据副本目录 + 保留份数（对账 #505）。
+   *
+   * 浏览器端没有这一项；调用方必须把 optional 当正常状态，而不是故障。
+   */
+  profileBackupInfo?(): Promise<{ dir: string; keep: number }>
 }
 
 /** 一次本机 CLI 调用的请求（对账 #308） */

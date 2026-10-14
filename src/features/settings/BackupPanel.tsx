@@ -37,6 +37,8 @@ export function BackupPanel() {
   /** 项目快照列表（对账 #378 A4）：按项目分组展示 */
   const [snapshots, setSnapshots] = useState<ProjectSnapshot[]>([])
   const [snapBusy, setSnapBusy] = useState(false)
+  /** 桌面壳数据副本信息（对账 #505；浏览器端没有这一项） */
+  const [profileBackup, setProfileBackup] = useState<{ dir: string; keep: number } | null>(null)
 
   // 每个 platform 只建一次（否则每次渲染都是新对象，下面的 effect 会反复跑）
   const snapshotStore = useMemo(() => createSnapshotStore(platform.storage), [platform])
@@ -50,6 +52,21 @@ export function BackupPanel() {
       // 读不到快照不影响备份栏的其他功能，静默即可（界面会显示 0 份）
     })
   }, [refreshSnapshots])
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const info = await platform.storageAdmin?.profileBackupInfo?.()
+        if (!cancelled && info) setProfileBackup(info)
+      } catch {
+        // 壳端能力探测失败不影响其他备份功能
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [platform])
 
   /** 手动拍一张（自动快照每天会自己跑，这个按钮是"我现在就想存一份"） */
   const captureNow = async () => {
@@ -198,6 +215,24 @@ export function BackupPanel() {
             ))}
           </ul>
         )}
+        {profileBackup ? (
+          <div className={styles.row} data-profile-backup>
+            <span className={styles.label}>
+              桌面壳数据副本
+              <span className={styles.sub}>
+                {profileBackup.dir} · 保留最近 {profileBackup.keep} 份 · 启动前 / 正常退出时自动拍
+              </span>
+            </span>
+            <button
+              type="button"
+              className={styles.btn}
+              data-profile-backup-open
+              onClick={() => void platform.storageAdmin?.openDir(profileBackup.dir)}
+            >
+              打开副本目录
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section className={styles.block}>

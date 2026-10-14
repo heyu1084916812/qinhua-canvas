@@ -16,5 +16,7 @@ export function createTauriStorageAdmin(): StorageAdminPort {
     },
     cacheUsage: () => invoke<number>('cache_usage'),
     clearCache: () => invoke<number>('clear_cache'),
+    profileBackupInfo: () =>
+      invoke<{ dir: string; keep: number }>('profile_backup_info'),
   }
 }

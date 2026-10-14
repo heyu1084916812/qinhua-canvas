@@ -339,6 +339,167 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// 备份专用复制：`.ldb` 是不可变的 LevelDB 表文件，优先硬链接；失败再回落复制。
+///
+/// 这样 GB 级素材库的启动备份不会每次重写一遍大文件；`MANIFEST` / `CURRENT` /
+/// `*.log` 仍然逐字节复制，所以副本引用到的表文件一定是齐的。
+fn copy_profile_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_profile_dir(&entry.path(), &target)?;
+            continue;
+        }
+
+        let path = entry.path();
+        let immutable_ldb = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("ldb"));
+        if immutable_ldb && std::fs::hard_link(&path, &target).is_ok() {
+            continue;
+        }
+        std::fs::copy(&path, &target)?;
+    }
+    Ok(())
+}
+
+/// WebView2 用户数据副本保留份数（对账 #505）。
+///
+/// 这里刻意只保留少量：IndexedDB 可能很大，多做几份会把磁盘吃掉；
+/// 真正兜底的是“至少有一份最近可用”，不是把历史全留下来。
+const PROFILE_BACKUP_KEEP: usize = 3;
+const PROFILE_BACKUP_DIR_NAME: &str = "qinghua-profile-backups";
+const PROFILE_DATA_DIRS: [&str; 2] = ["IndexedDB", "Local Storage"];
+
+fn profile_backup_root(data_dir: &Path) -> PathBuf {
+    data_dir
+        .parent()
+        .map(|parent| parent.join(PROFILE_BACKUP_DIR_NAME))
+        .unwrap_or_else(|| data_dir.join(PROFILE_BACKUP_DIR_NAME))
+}
+
+fn profile_backup_name(at: std::time::SystemTime) -> String {
+    let millis = at
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    format!("profile-{millis}")
+}
+
+/// 复制一份 WebView2 profile 的用户数据。
+///
+/// **只抄 `IndexedDB` 与 `Local Storage`**：
+/// 前者是项目 / 素材 / 素材库，后者是令牌密文与界面设置；
+/// `Cache` / `Code Cache` / `GPUCache` 都能重建，抄进去只会让备份巨大。
+///
+/// 先抄到 `.tmp-*` 再改名，半截失败不会留下一个看起来像备份、实际读不了的目录。
+fn create_profile_backup(
+    data_dir: &Path,
+    at: std::time::SystemTime,
+) -> std::io::Result<Option<PathBuf>> {
+    let source = data_dir.join("EBWebView").join("Default");
+    let has_any_data = PROFILE_DATA_DIRS
+        .iter()
+        .any(|name| source.join(name).is_dir());
+    if !has_any_data {
+        return Ok(None);
+    }
+
+    let root = profile_backup_root(data_dir);
+    std::fs::create_dir_all(&root)?;
+
+    let name = profile_backup_name(at);
+    let final_dir = root.join(&name);
+    if final_dir.exists() {
+        return Ok(None);
+    }
+
+    let tmp = root.join(format!(".tmp-{name}"));
+    let _ = std::fs::remove_dir_all(&tmp);
+
+    let copied = (|| -> std::io::Result<()> {
+        std::fs::create_dir_all(&tmp)?;
+        for dir_name in PROFILE_DATA_DIRS {
+            let from = source.join(dir_name);
+            if from.is_dir() {
+                copy_profile_dir(&from, &tmp.join(dir_name))?;
+            }
+        }
+        std::fs::rename(&tmp, &final_dir)
+    })();
+
+    if let Err(err) = copied {
+        let _ = std::fs::remove_dir_all(&tmp);
+        return Err(err);
+    }
+
+    if let Err(err) = prune_profile_backups(&root, PROFILE_BACKUP_KEEP) {
+        eprintln!("[data] 桌面数据副本清理旧份失败（不影响本次备份）：{err}");
+    }
+    Ok(Some(final_dir))
+}
+
+/// 只清理本功能自己生成的 `profile-*` 目录；任何不认识的目录一律不动。
+fn prune_profile_backups(root: &Path, keep: usize) -> std::io::Result<usize> {
+    let mut entries: Vec<_> = std::fs::read_dir(root)?
+        .flatten()
+        .filter(|entry| {
+            entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false)
+                && entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.starts_with("profile-"))
+        })
+        .collect();
+    entries.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+
+    let mut removed = 0;
+    for entry in entries.into_iter().skip(keep) {
+        if std::fs::remove_dir_all(entry.path()).is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+static PROFILE_BACKUP_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// 拍一份桌面数据副本；任何失败都只记日志，不挡启动 / 退出。
+fn backup_profile(app: &tauri::AppHandle) {
+    let Some(data_dir) = current_data_dir(app) else {
+        return;
+    };
+    let Ok(_guard) = PROFILE_BACKUP_LOCK.lock() else {
+        return;
+    };
+    match create_profile_backup(&data_dir, std::time::SystemTime::now()) {
+        Ok(Some(path)) => eprintln!("[data] 已备份桌面数据：{}", path.display()),
+        Ok(None) => {}
+        Err(err) => eprintln!("[data] 桌面数据备份失败（不影响启动 / 退出）：{err}"),
+    }
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProfileBackupInfo {
+    dir: String,
+    keep: usize,
+}
+
+#[tauri::command]
+fn profile_backup_info(app: tauri::AppHandle) -> ProfileBackupInfo {
+    let dir = current_data_dir(&app)
+        .map(|data_dir| profile_backup_root(&data_dir).to_string_lossy().to_string())
+        .unwrap_or_default();
+    ProfileBackupInfo {
+        dir,
+        keep: PROFILE_BACKUP_KEEP,
+    }
+}
+
 // ─────────────────────────────────────────────────────────────
 // 存储：数据目录 / 打开目录 / 网页缓存（对账 #261）
 // ─────────────────────────────────────────────────────────────
@@ -545,6 +706,93 @@ mod storage_tests {
         std::fs::remove_dir_all(&dir).unwrap();
         // 量不到的目录返回 0 而不是抛 —— 调用方只看差值，"没有"与"零字节"在这里等价
         assert_eq!(dir_size(&dir), 0);
+    }
+
+    fn backup_temp_dir(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "qinghua-profile-backup-{name}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    fn backup_at(ms: u64) -> std::time::SystemTime {
+        std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(ms)
+    }
+
+    #[test]
+    fn profile_backup_copies_user_data_and_skips_cache() {
+        let base = backup_temp_dir("copy");
+        let dir = base.join("data");
+        let source = dir.join("EBWebView").join("Default");
+        std::fs::create_dir_all(source.join("IndexedDB")).unwrap();
+        std::fs::write(source.join("IndexedDB").join("db.ldb"), b"db").unwrap();
+        std::fs::create_dir_all(source.join("Local Storage")).unwrap();
+        std::fs::write(source.join("Local Storage").join("state"), b"ls").unwrap();
+        std::fs::create_dir_all(source.join("Cache")).unwrap();
+        std::fs::write(source.join("Cache").join("junk"), b"junk").unwrap();
+
+        let backup = create_profile_backup(&dir, backup_at(1_000))
+            .unwrap()
+            .expect("有 IndexedDB 就该拍出一份");
+        assert!(backup.join("IndexedDB").join("db.ldb").is_file());
+        assert!(backup.join("Local Storage").join("state").is_file());
+        assert_eq!(
+            std::fs::read(backup.join("IndexedDB").join("db.ldb")).unwrap(),
+            b"db"
+        );
+        assert_eq!(
+            std::fs::read(backup.join("Local Storage").join("state")).unwrap(),
+            b"ls"
+        );
+        assert!(!backup.join("Cache").exists(), "可再生缓存不该进备份");
+
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn profile_backup_keeps_newest_and_never_touches_unknown_dirs() {
+        let base = backup_temp_dir("prune");
+        let dir = base.join("data");
+        let source = dir.join("EBWebView").join("Default").join("IndexedDB");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(source.join("db.ldb"), b"db").unwrap();
+        std::fs::create_dir_all(profile_backup_root(&dir).join("keep-me")).unwrap();
+
+        for ms in [1_000, 2_000, 3_000, 4_000] {
+            create_profile_backup(&dir, backup_at(ms)).unwrap();
+        }
+
+        let root = profile_backup_root(&dir);
+        let names: Vec<String> = std::fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(
+            names
+                .iter()
+                .filter(|name| name.starts_with("profile-"))
+                .count(),
+            PROFILE_BACKUP_KEEP
+        );
+        assert!(!names.contains(&"profile-1000".to_string()));
+        assert!(names.contains(&"profile-4000".to_string()));
+        assert!(root.join("keep-me").is_dir(), "不认识的目录不能被清理");
+
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn profile_backup_without_source_is_a_noop() {
+        let base = backup_temp_dir("missing");
+        let dir = base.join("data");
+        assert!(create_profile_backup(&dir, backup_at(1_000))
+            .unwrap()
+            .is_none());
+        assert!(!profile_backup_root(&dir).exists());
     }
 }
 
@@ -1513,6 +1761,7 @@ pub fn run() {
             open_dir,
             cache_usage,
             clear_cache,
+            profile_backup_info,
             fetch_bytes,
             cli_which,
             cli_run,
@@ -1538,6 +1787,11 @@ pub fn run() {
                 }
                 None => eprintln!("[data] 数据目录：系统默认位置（%LOCALAPPDATA%\\com.qinghua.canvas）"),
             }
+            /*
+             * 建窗口前先拍一份：强杀后 WebView2 可能重建空库，
+             * 这份副本就是“上次真正能读的数据”。
+             */
+            backup_profile(app.handle());
             /*
              * 建窗口要能建**两次**（自定义数据目录那次失败还能回落），故包成一个闭包。
              * 会失败的情形：数据目录在两次检查之间被删 / 网络盘掉线 / WebView2 起不来 ——
@@ -1586,8 +1840,13 @@ pub fn run() {
             apply_saved_window(app.handle(), &window, true);
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                backup_profile(app_handle);
+            }
+        });
 }
 
 #[cfg(test)]
