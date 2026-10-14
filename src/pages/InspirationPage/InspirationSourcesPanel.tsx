@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { isTauri } from '@tauri-apps/api/core'
+import { openUrl } from '@tauri-apps/plugin-opener'
 import type { InspirationMediaKind } from '../../domain/inspiration/sources'
 import type { StoredInspirationSource } from '../../state/project/inspirationSourceStore'
 import styles from './InspirationPage.module.css'
@@ -63,6 +65,14 @@ export function InspirationSourcesPanel({
     setRepo('')
     setModelCategory('')
     setKind('image')
+  }
+
+  const openRepo = (url: string) => {
+    if (isTauri()) {
+      void openUrl(url).catch(() => {})
+      return
+    }
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 
   return (
@@ -190,9 +200,9 @@ export function InspirationSourcesPanel({
                 </div>
                 <div className={styles.sourceInfo}>
                   <h3>{source.name}</h3>
-                  <a href={source.repo} target="_blank" rel="noreferrer">
+                  <button type="button" className={styles.sourceRepoLink} onClick={() => openRepo(source.repo)}>
                     {source.repo.replace(/^https?:\/\//, '')}
-                  </a>
+                  </button>
                   <p>
                     {source.modelCategory} · {source.kind === 'video' ? '视频' : '图片'} ·{' '}
                     {counts.get(source.id) ?? 0} 条 · 同步于 {formatSyncedAt(source.syncedAt)}

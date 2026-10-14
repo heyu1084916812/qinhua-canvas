@@ -757,18 +757,23 @@
   font-weight: var(--fw-title);
 }
 
-.sourceInfo a {
+.sourceRepoLink {
   display: block;
   margin-top: 2px;
+  padding: 0;
+  border: none;
+  background: transparent;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-2);
   font-size: var(--fs-chip);
   text-decoration: none;
+  text-align: left;
+  cursor: pointer;
 }
 
-.sourceInfo a:hover {
+.sourceRepoLink:hover {
   text-decoration: underline;
 }
 

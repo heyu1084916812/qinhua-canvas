@@ -246,6 +246,9 @@ export function InspirationPage() {
     () => [...new Set(enabledSources.map((source) => source.modelCategory).filter(Boolean))],
     [enabledSources],
   )
+  useEffect(() => {
+    if (modelCategory && !modelCategories.includes(modelCategory)) setModelCategory(null)
+  }, [modelCategory, modelCategories])
   const sourceNameOf = useCallback(
     (id: string) => sources.find((source) => source.id === id)?.name ?? id,
     [sources],

@@ -15281,10 +15281,21 @@ async function g90(browser) {
   await page.keyboard.press('Escape')
   await sleep(300)
   const heart = page.locator('[data-asset-card="g90-saved"] [data-asset-favorite]')
+  const heartColor = await heart.evaluate((el) => {
+    const probe = document.createElement('span')
+    probe.style.color = 'var(--favorite)'
+    document.body.appendChild(probe)
+    const favorite = getComputedStyle(probe).color
+    probe.remove()
+    return { actual: getComputedStyle(el).color, favorite }
+  })
   rec(
     g,
     '★★ 收藏中的素材左上角爱心是填充态',
-    (await heart.count()) === 1 && (await heart.getAttribute('aria-pressed')) === 'true',
+    (await heart.count()) === 1 &&
+      (await heart.getAttribute('aria-pressed')) === 'true' &&
+      heartColor.actual === heartColor.favorite,
+    JSON.stringify(heartColor),
   )
   await heart.click()
   await sleep(600)

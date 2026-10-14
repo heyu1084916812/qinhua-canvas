@@ -643,7 +643,7 @@
 }
 
 .favoriteOn {
-  color: var(--warn);
+  color: var(--favorite);
 }
 .card:hover .cardActions,
 .card:focus-within .cardActions,
