@@ -7073,3 +7073,19 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   `prefers-reduced-motion` 下关闭过渡；SSR 用 isomorphic layout effect。
 - **★ 收口基线（第 131 批 / 对账 #509）**：单测 **2511/2511**、`npm run check` 全绿、
   G80 **43/43**、G81 **14/14**、动画探针实测拉伸到 250px 且末段过冲 21px。
+
+## 2026-10-14 第 132 批（桌面 0.1.4 封包与发布准备 #510）
+
+- **★★★ 升版本号要连 `package-lock.json` 一起看**：这个仓库的 `package-lock` 顶部曾长期停在
+  `0.1.0`，但 `release-desktop.mjs` 只校验 `package.json` / `tauri.conf.json` / `Cargo.toml` 三处。
+  本轮用 `npm version 0.1.4 --no-git-tag-version` 同时把 package 与 lock 对齐，避免"能打包但清单版本落后"。
+- **★★★ 发版脚本不是只有构建**：`release-desktop.mjs` 现在实际跑完前端 + Rust + NSIS + updater 签名，
+  并自动执行 release 产物真机启动门禁 **10/10**；手工安装器门禁另跑 **14/14**（安装 / 覆盖升级 /
+  数据不缩水 / 卸载 / 快捷方式 / 注册表还原）。0.1.4 产物：7,780,692 B，
+  SHA256 `CB595076437BEE8D0247A0808C174738BDC6A682675B239D6A8C537CB7420F49`。
+- **★★★ 安装器门禁读项目卡片必须等异步加载**：项目页标题先渲染、卡片后从 IndexedDB 加载；
+  1.5GB 真库下立刻 count 会随机读到 0，实测同一脚本出现 `0→18` 与 `18→0` 两个方向的假失败。
+  修法是等 `[data-project-workbench]` 至少出现一张（空库最多等 8 秒），升级判据改为
+  **卡片数不减少 + data 不缩水**；这才是"数据不会丢"的判据，不是和某一瞬间的 UI 计数硬相等。
+- **★ 本地产物路径**：`release/0.1.4/{qinghua_0.1.4_x64-setup.exe, .sig, latest.json}`；
+  `release/` 是 gitignore，真正对外交付要单独上传 GitHub Release。

@@ -173,6 +173,16 @@ async function launchAndRead(exe) {
     if (home) {
       await page.goto(`${new URL(home.url).origin}/projects`).catch(() => {})
       await page.locator('[data-projects-heading]').waitFor({ timeout: 20000 }).catch(() => {})
+      /**
+       * 项目页的标题会先渲染，项目卡来自 IndexedDB 异步加载；大库（本机约 1.5GB profile）
+       * 下如果在标题出现后立刻取 count，会遇到 0 的假空库。等到至少有一张卡再读，
+       * 空库则最多等 8 秒后如实读 0 —— 这条等待只修测试取样，不改产品逻辑。
+       */
+      await page
+        .waitForFunction(() => document.querySelectorAll('[data-project-workbench]').length > 0, null, {
+          timeout: 8000,
+        })
+        .catch(() => {})
       projects = await page.locator('[data-project-workbench]').count().catch(() => -1)
     }
     out = home ? { ...home, projects } : null
@@ -285,12 +295,16 @@ if (existsSync(installedExe)) {
   if (upgrade) {
     /**
    * ★★ 升级段的收口判据：**覆盖安装之后，老数据读得回来**。
-   * 两条一起看：项目页的卡片数不许变（这台机器上是那份迁移过来的真库）；`data\` 总字节不许缩水。
+   * 两条一起看：项目页的卡片数不减少（旧版若因已知缺陷显示 0，新版恢复出项目应算修复）；
+   * `data\` 总字节不许缩水。这里不能写死相等：0.1.3 的旧库恢复缺陷会让升级前显示 0，
+   * 升级后显示 18；那正是新版修复，不是数据丢失。
      */
     const bytesAfter = dirBytes(DATA)
     check(
-      '★★ 覆盖安装（升级）之后：老数据还在 —— 项目页卡片数不变、data\\ 没缩水',
-      boot?.projects === upgrade.projectsBefore && bytesAfter >= upgrade.bytesBefore * 0.98,
+      '★★ 覆盖安装（升级）之后：老数据还在 —— 项目页卡片数不减少、data\\ 没缩水',
+      Number.isInteger(boot?.projects) &&
+        boot.projects >= upgrade.projectsBefore &&
+        bytesAfter >= upgrade.bytesBefore * 0.98,
       `${upgrade.version}→${VERSION} · 项目卡片 ${upgrade.projectsBefore}→${boot?.projects} · data ${upgrade.bytesBefore}→${bytesAfter} B`,
     )
   }
