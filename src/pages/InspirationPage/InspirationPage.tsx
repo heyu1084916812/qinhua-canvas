@@ -134,15 +134,28 @@ export function InspirationPage() {
 
   useEffect(() => {
     setLimit(PAGE_SIZE)
-  }, [query, sourceId, tag])
+  }, [query, sourceId, tag, favOnly])
 
   const filtered = useMemo(() => {
     const base = filterCases(cases, { query, sourceId, tag })
-    /** 「我的收藏」是**再叠一层**：它可以和来源 / 标签 / 关键字同时用 */
+    /** 「我的收藏」与来源是一组**单选**；标签 / 关键字仍可叠加 */
     return favOnly ? base.filter((c) => favs.has(c.id)) : base
   }, [cases, query, sourceId, tag, favOnly, favs])
   const visible = useMemo(() => filtered.slice(0, limit), [filtered, limit])
-  const tags = useMemo(() => tagCounts(cases).slice(0, 18), [cases])
+  /**
+   * 标签只列**当前来源**里真出现过的（用户 2026-10-14：「灵感库下方的标签应该
+   * 对应每个来源，而不是显示全部的标签，需要分来源来对应」）。
+   * 选「我的收藏」时按收藏集合算；选「全部来源」时仍是全量。
+   */
+  const tagScopeCases = useMemo(() => {
+    if (favOnly) return cases.filter((c) => favs.has(c.id))
+    return sourceId ? cases.filter((c) => c.sourceId === sourceId) : cases
+  }, [cases, favOnly, favs, sourceId])
+  const tags = useMemo(() => tagCounts(tagScopeCases).slice(0, 18), [tagScopeCases])
+  /** 换来源后旧标签可能已经不在这一档里 —— 降级回「全部标签」，别留一个空结果 */
+  useEffect(() => {
+    if (tag && !tagScopeCases.some((c) => c.tags.includes(tag))) setTag(null)
+  }, [tag, tagScopeCases])
   const sourceCounts = useMemo(() => {
     const m = new Map<string, number>()
     for (const c of cases) m.set(c.sourceId, (m.get(c.sourceId) ?? 0) + 1)
@@ -203,9 +216,17 @@ export function InspirationPage() {
             <p className={styles.railLabel}>来源</p>
             <button
               type="button"
-              className={sourceId === null ? `${styles.railItem} ${styles.railOn}` : styles.railItem}
+              className={
+                sourceId === null && !favOnly
+                  ? `${styles.railItem} ${styles.railOn}`
+                  : styles.railItem
+              }
               data-inspiration-source="all"
-              onClick={() => setSourceId(null)}
+              aria-pressed={sourceId === null && !favOnly}
+              onClick={() => {
+                setSourceId(null)
+                setFavOnly(false)
+              }}
             >
               <span className={styles.railItemLabel}>全部来源</span>
               <span className={styles.railItemCount}>{cases.length}</span>
@@ -214,7 +235,13 @@ export function InspirationPage() {
               type="button"
               className={favOnly ? `${styles.railItem} ${styles.railOn}` : styles.railItem}
               data-inspiration-fav-filter
-              onClick={() => setFavOnly((v) => !v)}
+              aria-pressed={favOnly}
+              onClick={() => {
+                const next = !favOnly
+                setFavOnly(next)
+                /** 与来源是一组单选：打开收藏 = 清掉来源，避免两个同时亮 */
+                if (next) setSourceId(null)
+              }}
             >
               <span className={styles.railItemLabel}>我的收藏</span>
               <span className={styles.railItemCount}>{favs.size}</span>
@@ -223,10 +250,23 @@ export function InspirationPage() {
               <button
                 key={s.id}
                 type="button"
-                className={sourceId === s.id ? `${styles.railItem} ${styles.railOn}` : styles.railItem}
+                className={
+                  sourceId === s.id && !favOnly
+                    ? `${styles.railItem} ${styles.railOn}`
+                    : styles.railItem
+                }
                 data-inspiration-source={s.id}
+                aria-pressed={sourceId === s.id && !favOnly}
                 title={s.note}
-                onClick={() => setSourceId(sourceId === s.id ? null : s.id)}
+                onClick={() => {
+                  if (sourceId === s.id) {
+                    setSourceId(null)
+                  } else {
+                    setSourceId(s.id)
+                    /** 与「我的收藏」是一组单选 */
+                    setFavOnly(false)
+                  }
+                }}
               >
                 <span className={styles.railItemLabel}>{s.name}</span>
                 <span className={styles.railItemCount}>{sourceCounts.get(s.id) ?? 0}</span>
@@ -243,6 +283,7 @@ export function InspirationPage() {
                   type="button"
                   className={tag === t.tag ? `${styles.railItem} ${styles.railOn}` : styles.railItem}
                   data-inspiration-tag={t.tag}
+                  aria-pressed={tag === t.tag}
                   onClick={() => setTag(tag === t.tag ? null : t.tag)}
                 >
                   <span className={styles.railItemLabel}>{t.tag}</span>

@@ -14763,17 +14763,15 @@ async function g90(browser) {
   )
 
   /**
-   * 页面结构在 2026-10-06 改过（对账 #264，用户第 8 条 + 参考图五）：
-   * 默认落在**「全部历史」页签**（含未收藏、含失败），左侧是快速筛选 + 模型生成分组，
-   * 顶部是搜索 / 类型 / 分组方式 / 视图切换。
-   *
-   * 下面那一串"素材库只列收藏的"**判据一个字没改**，只是要先切到「素材库」页签 ——
-   * 页面形态变了、断言跟着走，而不是把旧断言删掉（删掉就等于这块没人守了）。
+   * 页面结构在 2026-10-14 又改过一次（用户：「图二框住的地方可以不要了，
+   * 左边的收藏内容就是素材库」）：顶部「全部历史 / 素材库」两个页签删掉，
+   * 默认就是全部历史；左侧「收藏内容」= 素材库。
    */
   rec(
     g,
-    '★★ 默认落在「全部历史」页签（用户："下面分全部历史和素材库"）',
-    (await page.locator('[data-assets-tab="history"]').getAttribute('aria-selected')) === 'true',
+    '★★ 顶部「全部历史 / 素材库」页签已移除，默认显示全部历史',
+    (await page.locator('[data-assets-tab]').count()) === 0 &&
+      (await page.locator('[data-assets-quick="all"]').getAttribute('aria-pressed')) === 'true',
   )
   rec(
     g,
@@ -14793,17 +14791,19 @@ async function g90(browser) {
    */
   const railSelected = await page.locator('[data-assets-quick="all"]').evaluate((el) => {
     const cs = getComputedStyle(el)
-    return { border: cs.borderTopColor, shadow: cs.boxShadow }
+    return { border: cs.borderTopColor, shadow: cs.boxShadow, bg: cs.backgroundColor }
   })
   rec(
     g,
-    '★★ 选中的左侧筛选项＝有颜色边框、无阴影（设计规则）',
-    railSelected.shadow === 'none' && railSelected.border !== 'rgba(0, 0, 0, 0)',
+    '★★ 选中的左侧筛选项＝填充底色、无描边、无阴影（设计规则）',
+    railSelected.shadow === 'none' &&
+      railSelected.border === 'rgba(0, 0, 0, 0)' &&
+      railSelected.bg !== 'rgba(0, 0, 0, 0)',
     JSON.stringify(railSelected),
   )
 
-  /** 切到素材库页签：以下全部是既有的"收藏关系"断言 */
-  await page.locator('[data-assets-tab="library"]').click()
+  /** 左侧「收藏内容」就是素材库：以下全部是既有的"收藏关系"断言 */
+  await page.locator('[data-assets-quick="saved"]').click()
   await sleep(400)
 
   // ── ① 数据层：两张都读回来了 ──
@@ -14822,6 +14822,29 @@ async function g90(browser) {
   )
   const countText = await page.locator('[data-assets-count]').innerText().catch(() => '')
   rec(g, '★ 计数文案说的是收藏总数', /共\s*2\s*个素材/.test(countText), countText.trim())
+
+  /**
+   * 素材库里点「模型生成分组」要自动切回生成历史 —— 模型只存在于历史里，
+   * 否则这次点击在素材库视图中毫无反应（删掉页签后最容易漏的一条交互）。
+   */
+  const firstModel = page.locator('[data-assets-model]').first()
+  if ((await firstModel.count()) > 0) {
+    await firstModel.click()
+    await sleep(400)
+    const quickAfterModel = await page
+      .locator('[data-assets-quick="all"]')
+      .getAttribute('aria-pressed')
+    rec(
+      g,
+      '★ 素材库里点模型筛选：自动切回历史（不会点了没反应）',
+      quickAfterModel === 'true',
+      `quickAll=${quickAfterModel}`,
+    )
+    /** 取消模型筛选并切回「收藏内容」，后面的排序/瀑布流断言仍按素材库跑 */
+    await firstModel.click()
+    await page.locator('[data-assets-quick="saved"]').click()
+    await sleep(400)
+  }
 
   /*
    * ── ② 排序 ──
@@ -15249,8 +15272,8 @@ async function g90(browser) {
 
   await page.goto(`${BASE}/assets`, { waitUntil: 'networkidle' })
   await sleep(700)
-  /** 重新进页面 ⇒ 落回默认的「全部历史」页签；这一段的判据是**收藏关系**，先切过去 */
-  await page.locator('[data-assets-tab="library"]').click()
+  /** 重新进页面 ⇒ 默认是全部历史；这一段的判据是**收藏关系**，先切到左侧「收藏内容」 */
+  await page.locator('[data-assets-quick="saved"]').click()
   await sleep(400)
   rec(
     g,
@@ -22572,14 +22595,16 @@ async function g114(browser) {
   )
   await page.locator('[data-asset-card="h-vid"] [data-asset-save]').click()
   await sleep(600)
-  await page.locator('[data-assets-tab="library"]').click()
+  await page.locator('[data-assets-quick="saved"]').click()
   await sleep(400)
+  const savedCount = (await page.locator('[data-assets-quick-count="saved"]').innerText()).trim()
   rec(
     g,
-    '★★ 收藏后进素材库（页签计数也跟着 +1）',
+    '★★ 收藏后进「收藏内容」（左侧计数跟着 +1）',
     (await page.locator('[data-asset-card="h-vid"]').count()) === 1 &&
-      (await page.locator('[data-asset-card]').count()) === 2,
-    `library=${await page.locator('[data-asset-card]').count()}`,
+      (await page.locator('[data-asset-card]').count()) === 2 &&
+      savedCount === '2',
+    `library=${await page.locator('[data-asset-card]').count()} saved=${savedCount}`,
   )
 
   /** ⑦ 复制：色值 / 提示词 / 提示词右上角按钮 */
@@ -30164,6 +30189,7 @@ async function g155(browser) {
       railRight: rail ? getComputedStyle(rail).borderRightWidth : null,
       selectedShadow: cs?.boxShadow ?? null,
       selectedBorder: cs?.borderTopColor ?? null,
+      selectedBg: cs?.backgroundColor ?? null,
     }
   })
   rec(
@@ -30180,11 +30206,14 @@ async function g155(browser) {
   )
   rec(
     g,
-    '★★ 左栏选中的「全部来源」＝有色边框、无阴影',
-    inspDesign.selectedShadow === 'none' && inspDesign.selectedBorder !== 'rgba(0, 0, 0, 0)',
+    '★★ 左栏选中的「全部来源」＝填充底色、无描边、无阴影',
+    inspDesign.selectedShadow === 'none' &&
+      inspDesign.selectedBorder === 'rgba(0, 0, 0, 0)' &&
+      inspDesign.selectedBg !== 'rgba(0, 0, 0, 0)',
     JSON.stringify({
       shadow: inspDesign.selectedShadow,
       border: inspDesign.selectedBorder,
+      bg: inspDesign.selectedBg,
     }),
   )
   const sourceRow = page.locator('[data-inspiration-source="banana-quicker"]')
@@ -30192,6 +30221,45 @@ async function g155(browser) {
   await sleep(250)
   const hoverBg = await sourceRow.evaluate((el) => getComputedStyle(el).backgroundColor)
   rec(g, '★ 左栏选项有悬浮反馈', hoverBg !== 'rgba(0, 0, 0, 0)', `bg=${hoverBg}`)
+
+  /**
+   * 用户 2026-10-14 报的真 bug：选「我的收藏」后点其他分类，收藏的选中态没被取消。
+   * 现在「全部来源 / 我的收藏 / 各来源」是一组单选，点来源必须清掉收藏。
+   */
+  await page.locator('[data-inspiration-fav-filter]').click()
+  await sleep(300)
+  const favOn = await page.locator('[data-inspiration-fav-filter]').getAttribute('aria-pressed')
+  await page.locator('[data-inspiration-source="banana-quicker"]').click()
+  await sleep(400)
+  const favAfter = await page.locator('[data-inspiration-fav-filter]').getAttribute('aria-pressed')
+  const srcAfter = await page
+    .locator('[data-inspiration-source="banana-quicker"]')
+    .getAttribute('aria-pressed')
+  rec(
+    g,
+    '★★ 选「我的收藏」后点其他来源：收藏选中态被取消（单选，真 bug）',
+    favOn === 'true' && favAfter === 'false' && srcAfter === 'true',
+    `favBefore=${favOn} favAfter=${favAfter} source=${srcAfter}`,
+  )
+  /**
+   * 标签必须按来源变化（用户 2026-10-14：「灵感库下方的标签应该对应每个来源，
+   * 而不是显示全部的标签，需要分来源来对应」）。banana-quicker 的标签是
+   * 「电商 / 产品图」；「Illustration」只属于 gpt-image-2 那一家。
+   */
+  const tagScope = {
+    illustration: await page.locator('[data-inspiration-tag="Illustration"]').count(),
+    ecommerce: await page.locator('[data-inspiration-tag="电商"]').count(),
+  }
+  rec(
+    g,
+    '★★ 标签按所选来源变化（banana-quicker 下别家的 Illustration 消失、电商仍在）',
+    tagScope.illustration === 0 && tagScope.ecommerce === 1,
+    JSON.stringify(tagScope),
+  )
+  /** 复位回「全部来源」，后面的卡片/标签断言仍按全量跑 */
+  await page.locator('[data-inspiration-source="all"]').click()
+  await sleep(400)
+
   rec(
     g,
     '★★ 四种来源形态各自解析出案例（「例 N」「No. N」「cases 数组」「顶层数组」）',

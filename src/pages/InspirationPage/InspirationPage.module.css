@@ -159,9 +159,10 @@
 }
 
 .railOn {
-  background: transparent;
+  /* 选中只靠填充，不描边（与素材页同一条规则） */
+  background: var(--bg-surface);
   color: var(--text-1);
-  border-color: var(--accent);
+  border-color: transparent;
   box-shadow: none;
 }
 

@@ -109,9 +109,14 @@
 }
 
 .railItemOn {
-  background: transparent;
+  /**
+   * 选中态**不描边**（用户 2026-10-14：「浅色 / 深色主题的按钮都不要描边，
+   * 怎么又给我加了描边」）。这一版用填充底色表达：去掉上一版的 `--accent` 边框，
+   * 只留 `--bg-surface` 填充，阴影早在上一轮已经去掉。
+   */
+  background: var(--bg-surface);
   color: var(--text-1);
-  border-color: var(--accent);
+  border-color: transparent;
   box-shadow: none;
 }
 
@@ -175,51 +180,6 @@
 }
 
 .chipCount {
-  margin-left: var(--space-1);
-  color: var(--text-3);
-  font-size: var(--fs-chip);
-}
-
-/* ── 两个页签（全部历史 / 素材库）── */
-.tabs {
-  display: flex;
-  gap: var(--space-4);
-  margin-bottom: var(--space-3);
-  border-bottom: var(--border);
-}
-
-.tab {
-  position: relative;
-  padding: var(--space-2) 0;
-  border: none;
-  background: transparent;
-  color: var(--text-2);
-  font-family: var(--font-sans);
-  font-size: var(--fs-label);
-  font-weight: var(--fw-title);
-  cursor: pointer;
-}
-
-.tab:hover {
-  color: var(--text-1);
-}
-
-.tabOn {
-  color: var(--text-1);
-}
-
-/* 选中页签的下划线：贴住那一行的底边（`bottom: -1px` 压在 border 上） */
-.tabOn::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  background: var(--accent);
-}
-
-.tabCount {
   margin-left: var(--space-1);
   color: var(--text-3);
   font-size: var(--fs-chip);
@@ -397,7 +357,8 @@
 .chipOn {
   background: var(--bg-surface);
   color: var(--text-1);
-  border-color: var(--accent);
+  /* 同上：选中只靠填充，不描边 */
+  border-color: transparent;
   box-shadow: none;
 }
 

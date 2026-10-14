@@ -10,7 +10,7 @@ import { noticeA11y, type NoticeTone } from '../../domain/ui/notice'
 import { createAssetLibraryRepository } from '../../state/project/assetLibraryRepository'
 import { createAssetHistoryRepository } from '../../state/project/assetHistoryRepository'
 import { createAssetLibraryStore } from '../../state/project/assetLibraryStore'
-import type { AssetsTab, AssetsView } from '../../state/project/assetLibraryStore'
+import type { AssetsView } from '../../state/project/assetLibraryStore'
 import { AssetCard } from './AssetCard'
 import { AssetPreview } from './AssetPreview'
 import { MasonryGrid } from './MasonryGrid'
@@ -35,16 +35,11 @@ const GROUP_MODES: readonly { id: GroupMode; label: string }[] = [
   { id: 'none', label: '不分组' },
 ]
 
-const TABS: readonly { id: AssetsTab; label: string }[] = [
-  { id: 'history', label: '全部历史' },
-  { id: 'library', label: '素材库' },
-]
-
 /**
  * 网格 / 列表两种容器。
  *
  * 网格走 `MasonryGrid`（最短列堆砌，对账 #502）；列表仍是单列 DOM。
- * 抽出来是为了让「全部历史」与「素材库」两处共用同一条选择，
+ * 抽出来是为了让历史列表与素材库两处共用同一条选择，
  * 不在 JSX 里各写一次三目 —— 以后再加视图形态只改这一处。
  */
 function CardsLayout({ view, children }: { view: AssetsView; children: ReactNode }) {
@@ -106,7 +101,6 @@ export function AssetsPage() {
     visible: assets,
     loading,
     query,
-    tab,
     quick,
     model: modelFilter,
     group,
@@ -119,6 +113,12 @@ export function AssetsPage() {
   } = state
   const total = state.assets.length
   const historyTotal = state.history.length
+  /**
+   * 左侧「收藏内容」就是素材库（用户 2026-10-14：「图二框住的地方可以不要了，
+   * 左边的收藏内容就是素材库」）⇒ 顶部「全部历史 / 素材库」两个页签删掉，
+   * 由这一个快速筛选决定右内容读历史还是读素材库。
+   */
+  const showLibrary = quick === 'saved'
   /** 收藏过的 hash（对账 #303：标签只挂在收藏关系上，灯箱据此决定给不给打标签的入口） */
   const libraryHashes = new Set(state.assets.map((a) => a.hash))
 
@@ -292,10 +292,7 @@ export function AssetsPage() {
               className={quick === item.id ? `${styles.railItem} ${styles.railItemOn}` : styles.railItem}
               data-assets-quick={item.id}
               aria-pressed={quick === item.id}
-              onClick={() => {
-                store.setQuick(item.id)
-                store.setTab('history')
-              }}
+              onClick={() => store.setQuick(item.id)}
             >
               <span className={styles.railItemLabel}>{item.label}</span>
               <span className={styles.railItemCount} data-assets-quick-count={item.id}>
@@ -324,7 +321,11 @@ export function AssetsPage() {
                 onClick={() => {
                   /** 再点一次同一个 = 取消这一档（否则用户没有"退回全部"的路） */
                   store.setModelFilter(modelFilter === entry.model ? null : entry.model)
-                  store.setTab('history')
+                  /**
+                   * 模型只存在于生成历史里；若当前在「收藏内容」（素材库视图），
+                   * 点模型要切回历史，否则素材库不认模型、点了像没反应。
+                   */
+                  if (showLibrary) store.setQuick('all')
                 }}
               >
                 {/* 显示**前端名**（上游 ID 经用户的 modelMap 归一），筛选值仍是原始 ID */}
@@ -379,29 +380,10 @@ export function AssetsPage() {
       </aside>
 
       <main className={styles.main} data-assets-stage>
-        <nav className={styles.tabs} role="tablist" aria-label="素材分组">
-          {TABS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={tab === item.id}
-              className={tab === item.id ? `${styles.tab} ${styles.tabOn}` : styles.tab}
-              data-assets-tab={item.id}
-              onClick={() => store.setTab(item.id)}
-            >
-              {item.label}
-              <span className={styles.tabCount}>
-                {item.id === 'history' ? historyTotal : total}
-              </span>
-            </button>
-          ))}
-        </nav>
-
         <p className={styles.count} data-assets-count>
           {loading
             ? '载入中…'
-            : tab === 'history'
+            : !showLibrary
               ? `筛选出 ${state.historyVisible.length} / ${historyTotal} 条生成记录`
               : assets.length === total
                 ? `共 ${total} 个素材`
@@ -410,7 +392,7 @@ export function AssetsPage() {
 
         {loading ? (
           <div className={styles.empty}>载入中…</div>
-        ) : tab === 'history' ? (
+        ) : !showLibrary ? (
           state.historyVisible.length === 0 ? (
             <div className={styles.empty} data-assets-empty={historyTotal > 0 ? 'filtered' : 'none'}>
               <p className={styles.emptyTitle} data-assets-empty-title>
