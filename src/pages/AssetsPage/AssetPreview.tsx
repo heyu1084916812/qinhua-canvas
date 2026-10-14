@@ -3,13 +3,15 @@ import {
   MAX_TAGS,
   MAX_TAG_LEN,
   MISSING,
-  addTag,
+  addTags,
   assetKindOf,
   displayMeta,
   formatAssetSize,
   removeTag,
 } from '../../domain/shared/assetLibrary'
 import type { LibraryAsset } from '../../domain/shared/assetLibrary'
+import { toLogicalName } from '../../domain/project/modelCatalog'
+import { useChannels } from '../../app/providers/ChannelStoreProvider'
 import {
   PALETTE_UNAVAILABLE,
   extractPaletteFromUrl,
@@ -28,19 +30,16 @@ export function AssetPreview({
   asset,
   onClose,
   onDownload,
-  onRemove,
-  canTag = true,
   onTagsChange,
 }: {
   asset: LibraryAsset
   onClose: () => void
   onDownload: () => void
-  onRemove: () => void
-  /** 能不能打标签（只有**收藏过**的素材能 —— 标签挂在收藏关系上，对账 #303） */
-  canTag?: boolean
   onTagsChange?: (tags: string[]) => void
 }) {
   const { url, mime } = useAssetMeta(asset.hash)
+  const channelStore = useChannels()
+  const channels = channelStore.getState().channels
   const kind = assetKindOf(mime ?? asset.mime)
   const isVideo = kind === 'video'
   const panelRef = useRef<HTMLDivElement>(null)
@@ -51,15 +50,13 @@ export function AssetPreview({
   const [tagHint, setTagHint] = useState('')
   const tags = asset.tags ?? []
 
-  /**
-   * 加一个标签。三种加不上各有说法 —— 一律"添加失败"会让用户反复试同一个错词。
-   */
+  /** `；` / `;` 分隔一次可加多个；已有 / 超限仍然如实提示。 */
   const commitTag = () => {
-    const result = addTag(tags, tagDraft)
+    const result = addTags(tags, tagDraft)
     if (!result.ok) {
       setTagHint(
         result.reason === 'empty'
-          ? '先打字再回车'
+          ? '先输入标签再回车'
           : result.reason === 'duplicate'
             ? '这个标签已经有了'
             : `最多 ${MAX_TAGS} 个标签`,
@@ -142,6 +139,12 @@ export function AssetPreview({
 
   const paletteText = paletteTextFor(kind, colors)
   const sizeText = formatAssetSize(asset) ?? MISSING
+  const modelLabel = asset.model ? toLogicalName(channels, asset.model) : ''
+  const channel = asset.channelId
+    ? channels.find((item) => item.id === asset.channelId)
+    : undefined
+  const channelLabel = channel?.name ?? asset.channelId
+  const capturedAt = formatDateTime(asset.savedAt)
 
   return (
     <div
@@ -310,11 +313,25 @@ export function AssetPreview({
             </div>
             <div className={styles.metaItem}>
               <dt>模型</dt>
-              <dd data-asset-preview-model>{displayMeta(asset.model)}</dd>
+              <dd data-asset-preview-model>
+                {displayMeta(modelLabel || asset.model)}
+                {modelLabel && modelLabel !== asset.model ? (
+                  <span className={styles.metaRaw}>上游 ID：{asset.model}</span>
+                ) : null}
+              </dd>
             </div>
             <div className={`${styles.metaItem} ${styles.metaItemWide}`}>
               <dt>渠道</dt>
-              <dd data-asset-preview-channel>{displayMeta(asset.channelId)}</dd>
+              <dd data-asset-preview-channel>
+                {displayMeta(channelLabel)}
+                {channel && asset.channelId ? (
+                  <span className={styles.metaRaw}>ID：{asset.channelId}</span>
+                ) : null}
+              </dd>
+            </div>
+            <div className={`${styles.metaItem} ${styles.metaItemWide}`}>
+              <dt>时间</dt>
+              <dd data-asset-preview-time>{capturedAt || MISSING}</dd>
             </div>
           </dl>
 
@@ -325,55 +342,46 @@ export function AssetPreview({
           <div className={styles.tagBlock} data-asset-tags>
             <div className={styles.tagHead}>
               <span className={styles.tagLabel}>标签</span>
-              {canTag ? null : (
-                <span className={styles.metaMuted} data-asset-tag-disabled>
-                  先收藏到素材库，再给它打标签
-                </span>
-              )}
             </div>
             <div className={styles.tagRow}>
-              {tags.length === 0 && canTag ? (
+              {tags.length === 0 ? (
                 <span className={styles.metaMuted}>还没有标签</span>
               ) : null}
               {tags.map((tag) => (
                 <span key={tag} className={styles.tagChip} data-asset-tag={tag}>
                   {tag}
-                  {canTag ? (
-                    <button
-                      type="button"
-                      className={styles.tagRemove}
-                      aria-label={`删除标签 ${tag}`}
-                      data-asset-tag-remove={tag}
-                      onClick={() => onTagsChange?.(removeTag(tags, tag))}
-                    >
-                      ×
-                    </button>
-                  ) : null}
+                  <button
+                    type="button"
+                    className={styles.tagRemove}
+                    aria-label={`删除标签 ${tag}`}
+                    data-asset-tag-remove={tag}
+                    onClick={() => onTagsChange?.(removeTag(tags, tag))}
+                  >
+                    ×
+                  </button>
                 </span>
               ))}
             </div>
-            {canTag ? (
-              <form
-                className={styles.tagForm}
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  commitTag()
+            <form
+              className={styles.tagForm}
+              onSubmit={(event) => {
+                event.preventDefault()
+                commitTag()
+              }}
+            >
+              <input
+                className={styles.tagInput}
+                value={tagDraft}
+                maxLength={MAX_TAG_LEN * 6}
+                placeholder="输入标签，多个用；分开，回车确认"
+                aria-label="新标签"
+                data-asset-tag-input
+                onChange={(event) => {
+                  setTagDraft(event.target.value)
+                  if (tagHint) setTagHint('')
                 }}
-              >
-                <input
-                  className={styles.tagInput}
-                  value={tagDraft}
-                  maxLength={MAX_TAG_LEN}
-                  placeholder="打一个标签，回车确认"
-                  aria-label="新标签"
-                  data-asset-tag-input
-                  onChange={(event) => {
-                    setTagDraft(event.target.value)
-                    if (tagHint) setTagHint('')
-                  }}
-                />
-              </form>
-            ) : null}
+              />
+            </form>
             {tagHint ? (
               <p className={styles.tagHint} data-asset-tag-hint>
                 {tagHint}
@@ -382,14 +390,6 @@ export function AssetPreview({
           </div>
 
           <div className={styles.previewActions}>
-            <button
-              type="button"
-              className={styles.dangerGhost}
-              data-asset-preview-remove
-              onClick={onRemove}
-            >
-              取消收藏
-            </button>
             <span className={styles.previewSpacer} />
             <button
               type="button"
@@ -429,4 +429,11 @@ function IconCheck({ size = 14 }: { size?: number }) {
       <path d="m3 8.3 3.1 3.1L13 4.7" />
     </svg>
   )
+}
+
+function formatDateTime(at: number): string {
+  if (!at) return ''
+  const d = new Date(at)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }

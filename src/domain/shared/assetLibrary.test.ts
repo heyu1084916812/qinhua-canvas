@@ -3,6 +3,7 @@ import {
   MAX_TAGS,
   MAX_TAG_LEN,
   addTag,
+  addTags,
   assetKindOf,
   buildLibraryAssetSnapshot,
   byteLengthOf,
@@ -345,6 +346,22 @@ describe('标签', () => {
     const full = Array.from({ length: MAX_TAGS }, (_, i) => `t${i}`)
     expect(addTag(full, '再多一个')).toEqual({ ok: false, reason: 'full', tags: full })
     expect(addTag(['客户A'], '春季款')).toEqual({ ok: true, tags: ['客户A', '春季款'] })
+  })
+
+  it('★★ addTags 支持中英文分号一次建多个，并按去重 / 超限如实返回', () => {
+    expect(addTags([], '客户A；春季款; 客户A')).toEqual({
+      ok: true,
+      tags: ['客户A', '春季款'],
+    })
+    expect(addTags(['客户A'], '客户a；春季款')).toEqual({
+      ok: true,
+      tags: ['客户A', '春季款'],
+    })
+    expect(addTags(['客户A'], ' ；; ')).toEqual({
+      ok: false,
+      reason: 'empty',
+      tags: ['客户A'],
+    })
   })
 
   it('★★ removeTag 按同一条口径匹配（大小写不同也删得掉）', () => {

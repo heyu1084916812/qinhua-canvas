@@ -69,6 +69,29 @@ export function addTag(tags: readonly string[] | undefined, raw: string): AddTag
   return { ok: true, tags: [...current, tag] }
 }
 
+/** 一次提交多个标签：支持中文全角 `；` 和英文 `;`。 */
+export function addTags(tags: readonly string[] | undefined, raw: string): AddTagResult {
+  const parts = raw
+    .split(/[;；]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+  if (parts.length === 0) return { ok: false, reason: 'empty', tags: normalizeTags(tags) }
+
+  let next = normalizeTags(tags)
+  let added = 0
+  for (const part of parts) {
+    const result = addTag(next, part)
+    if (!result.ok) {
+      if (result.reason === 'full') return { ok: false, reason: 'full', tags: next }
+      continue
+    }
+    next = result.tags
+    added += 1
+  }
+  if (added === 0) return { ok: false, reason: 'duplicate', tags: next }
+  return { ok: true, tags: next }
+}
+
 /** 删一个标签（按 `sameTag` 匹配；删不存在的标签是空操作） */
 export function removeTag(tags: readonly string[] | undefined, raw: string): string[] {
   const tag = normalizeTag(raw)
@@ -89,7 +112,7 @@ export interface TagCount {
  * 排序：多的在前，同数量按**字符序**（不用 `localeCompare`：那会跟着语言环境变，
  * 同一份数据在不同机器上排出来的顺序不一样）—— 顺序稳定，用户认得出来"我上次点的那个还在原位"。
  */
-export function tagCounts(assets: readonly LibraryAsset[]): TagCount[] {
+export function tagCounts(assets: readonly { tags?: string[] }[]): TagCount[] {
   const map = new Map<string, TagCount>()
   for (const asset of assets) {
     for (const tag of normalizeTags(asset.tags)) {

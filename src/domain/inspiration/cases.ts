@@ -1,4 +1,4 @@
-import type { InspirationSource, ReadmeStyle } from './sources'
+import type { InspirationMediaKind, InspirationSource, ReadmeStyle } from './sources'
 
 /**
  * 一条灵感案例（**统一模型**）。
@@ -24,6 +24,12 @@ export interface InspirationCase {
   creditUrl?: string
   /** 仓库内的说明位置 */
   docUrl?: string
+  /** 模型分类（来源级；搜索框旁那一档筛选用） */
+  modelCategory?: string
+  /** 图 / 视频。缓存里可能没有，界面按 image 兜底。 */
+  kind?: InspirationMediaKind
+  /** 视频外链；有它时详情页用 `<video>` 播放，封面仍用 `imageUrl`。 */
+  videoUrl?: string
 }
 
 /**
@@ -40,6 +46,19 @@ const str = (v: unknown): string => {
 
 const strList = (v: unknown): string[] =>
   Array.isArray(v) ? v.map(str).filter(Boolean) : []
+
+const VIDEO_EXT = /\.(?:mp4|webm|mov)(?:\?[^"'\s<>]*)?$/i
+
+function videoUrlOf(...values: unknown[]): string {
+  for (const value of values) {
+    const candidates = [str(value), ...(Array.isArray(value) ? value.map(str) : [])]
+    const hit = candidates.find(
+      (candidate) => /^https?:\/\//i.test(candidate) && VIDEO_EXT.test(candidate),
+    )
+    if (hit) return hit
+  }
+  return ''
+}
 
 /**
  * **保证 id 唯一**（对账 #508 的真 bug）。
@@ -99,6 +118,7 @@ export function parseInspirationCases(
     const credit = str(r.sourceLabel)
     const creditUrl = str(r.sourceUrl)
     const docUrl = str(r.githubUrl)
+    const videoUrl = videoUrlOf(r.video, r.videoUrl, r.video_url, r.previewVideo)
     out.push({
       id: `${source.id}:${str(r.id) || out.length}`,
       sourceId: source.id,
@@ -118,6 +138,9 @@ export function parseInspirationCases(
       ...(credit ? { credit } : {}),
       ...(creditUrl ? { creditUrl } : {}),
       ...(docUrl ? { docUrl } : {}),
+      ...(videoUrl ? { videoUrl } : {}),
+      modelCategory: source.modelCategory,
+      kind: source.kind,
     })
   }
   return dedupeIds(out)
@@ -145,6 +168,7 @@ function parseFlatJsonCases(
     const refs = strList(r.reference_image_urls)
     const image = str(r.preview) || refs[0] || ''
     const author = str(r.author)
+    const videoUrl = videoUrlOf(r.video, r.videoUrl, r.video_url, r.previewVideo)
 
     out.push({
       id: `${source.id}:${str(r.id) || out.length + 1}`,
@@ -156,6 +180,9 @@ function parseFlatJsonCases(
       tags: [...new Set([str(r.category), str(r.sub_category)].filter(Boolean))],
       ...(author ? { credit: author } : {}),
       docUrl: source.repo,
+      modelCategory: source.modelCategory,
+      kind: source.kind,
+      ...(videoUrl ? { videoUrl } : {}),
     })
   }
   return dedupeIds(out)
@@ -166,6 +193,8 @@ export interface InspirationFilter {
   query?: string
   /** 来源筛选（null / 不传 = 全部来源） */
   sourceId?: string | null
+  /** 模型分类筛选（null / 不传 = 全部模型） */
+  modelCategory?: string | null
   /** 标签筛选（null / 不传 = 全部标签） */
   tag?: string | null
 }
@@ -288,6 +317,7 @@ export function parseReadmeCases(
 
     const imageSection = rules.imageAt ? (block.split(rules.imageAt)[1] ?? '') : block
     const image = /<img\s+[^>]*src="([^"]+)"/i.exec(imageSection)?.[1] ?? ''
+    const videoHref = /href=["']([^"']+\.(?:mp4|webm|mov)(?:\?[^"']*)?)["']/i.exec(block)?.[1] ?? ''
 
     if (!title && !prompt) continue
 
@@ -311,6 +341,9 @@ export function parseReadmeCases(
       ...(creditUrl ? { creditUrl } : {}),
       /** README 里没有"仓库内位置"这种锚点，给仓库首页即可 */
       docUrl: source.repo,
+      modelCategory: source.modelCategory,
+      kind: source.kind,
+      ...(videoHref ? { videoUrl: videoHref } : {}),
     })
   }
   return dedupeIds(out)
@@ -330,6 +363,7 @@ export function filterCases(
   const q = (filter.query ?? '').trim().toLowerCase()
   return cases.filter((c) => {
     if (filter.sourceId && c.sourceId !== filter.sourceId) return false
+    if (filter.modelCategory && c.modelCategory !== filter.modelCategory) return false
     if (filter.tag && !c.tags.includes(filter.tag)) return false
     if (!q) return true
     const hay = [c.title, c.prompt, c.sourceName, c.credit ?? '', ...c.tags]

@@ -162,26 +162,25 @@ describe('素材库 store', () => {
 /**
  * 素材标签（对账 #303）。
  *
- * 三条口径在这一层落地：**标签只写在收藏关系上**（没收藏就是空操作）、
+ * 三条口径在这一层落地：**标签独立于收藏关系**（没收藏也能打）、
  * **不动 `savedAt`**（打个标签不该让这张图跳到列表最前面）、
  * **两张列表同步**（历史卡片与素材库卡片显示的是同一份标签）。
  */
 describe('素材标签', () => {
-  it('★★★ 仓储：只改已收藏那一行、不动 savedAt；没收藏过的 hash 是空操作；删光就把字段去掉', async () => {
+  it('★★★ 仓储：标签写独立映射；已收藏 / 未收藏都能打；删光就从映射去掉', async () => {
     const { storage, repo } = seedStorage({
       assets: [{ id: 'not-saved', hash: 'not-saved', mime: 'image/png', bytes: 3 }],
       assetLibrary: [{ id: 'i1', hash: 'i1', mime: 'image/png', bytes: 5, savedAt: 10 }],
     })
     await repo.setTags('i1', ['客户A', '客户A', '  春季款  '])
-    const rows = await storage.query('assetLibrary', { id: 'i1' })
-    expect(rows[0]!.tags).toEqual(['客户A', '春季款'])
-    expect(rows[0]!.savedAt).toBe(10)
+    expect((await repo.listTagMap()).get('i1')).toEqual(['客户A', '春季款'])
 
     await repo.setTags('not-saved', ['客户A'])
     expect(await storage.query('assetLibrary', { id: 'not-saved' })).toHaveLength(0)
+    expect((await repo.listTagMap()).get('not-saved')).toEqual(['客户A'])
 
     await repo.setTags('i1', [])
-    expect('tags' in (await storage.query('assetLibrary', { id: 'i1' }))[0]!).toBe(false)
+    expect((await repo.listTagMap()).has('i1')).toBe(false)
   })
 
   it('★★★ store：写标签后**两张列表同步**；把正在筛的那个删空 ⇒ 自动取消筛选', async () => {
@@ -222,5 +221,34 @@ describe('素材标签', () => {
     expect(store.getState().tag).toBeNull()
     expect(store.getState().tags).toEqual([])
     expect(store.getState().visible.map((a) => a.hash)).toEqual(['i1'])
+  })
+
+  it('★★ 未收藏的生成历史也能打标签，并按标签参与筛选', async () => {
+    const { storage, repo } = seedStorage({
+      assets: [{ id: 'h1', hash: 'h1', mime: 'image/png', bytes: 5 }],
+      runRecords: [
+        {
+          id: 'r2',
+          nodeId: 'n2',
+          projectId: 'p1',
+          version: 1,
+          createdAt: 6,
+          status: 'succeeded',
+          inputs: [],
+          params: { prompt: '未收藏' },
+          outputHashes: ['h1'],
+        },
+      ],
+    })
+    const store = createAssetLibraryStore(repo, createAssetHistoryRepository(storage))
+    await store.load()
+    expect(store.getState().assets).toHaveLength(0)
+
+    await store.setTags('h1', ['客户B'])
+    expect(store.getState().tags).toEqual([{ tag: '客户B', count: 1 }])
+    store.setTag('客户B')
+    expect(store.getState().historyVisible.map((item) => item.kind === 'output' && item.hash)).toEqual([
+      'h1',
+    ])
   })
 })

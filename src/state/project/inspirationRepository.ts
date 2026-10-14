@@ -26,6 +26,7 @@ export interface CachedSource {
 export interface InspirationRepository {
   readAll(): Promise<CachedSource[]>
   read(sourceId: string): Promise<CachedSource | null>
+  remove(sourceId: string): Promise<void>
   /**
    * 拉一个来源的数据文件并解析。
    *
@@ -77,24 +78,37 @@ export function createInspirationRepository(
       return toCached(rows[0])
     },
 
+    async remove(sourceId) {
+      await storage.delete('inspirationCache', sourceId)
+    },
+
     async refresh(source, signal) {
       const previous = await repo.read(source.id)
       try {
-        const res = await network.request(
-          { url: source.dataUrl, method: 'GET', timeoutMs: 60_000 },
-          signal,
+        const urls = [source.dataUrl, source.fallbackDataUrl].filter(
+          (url): url is string => typeof url === 'string' && url.length > 0,
         )
-        if (res.status < 200 || res.status >= 300) {
-          throw new Error(`HTTP ${res.status}`)
+        let lastStatus = 0
+        let text = ''
+        let json: unknown = null
+        for (const url of urls) {
+          const res = await network.request({ url, method: 'GET', timeoutMs: 60_000 }, signal)
+          lastStatus = res.status
+          if (res.status < 200 || res.status >= 300) continue
+          if (source.format === 'readme') text = await res.text()
+          else json = await res.json()
+          lastStatus = 0
+          break
         }
+        if (lastStatus !== 0) throw new Error(`HTTP ${lastStatus}`)
         /**
          * 按来源形态分派解析器：`json` 直读结构化数据，`readme` 从 markdown 提
          * （版式变了就解析出 0 条，下一行会如实报错、不动旧缓存）。
          */
         const cases =
           source.format === 'readme'
-            ? parseReadmeCases(await res.text(), source)
-            : parseInspirationCases(await res.json(), source)
+            ? parseReadmeCases(text, source)
+            : parseInspirationCases(json, source)
         if (cases.length === 0) {
           /** 解析出 0 条多半是上游改了结构 —— 如实报，别把旧数据盖成空的 */
           throw new Error('这个来源这次没解析出任何案例（可能上游改了数据格式）')

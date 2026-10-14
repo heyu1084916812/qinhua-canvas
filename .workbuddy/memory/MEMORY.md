@@ -7097,3 +7097,23 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   `Invoke-RestMethod` 在本机 TLS/代理组合下报「基础连接已关闭」，但 `curl.exe` 正常。
   发布时从 `git credential fill` 取 token，用 `curl.exe` 发 REST 与上传资产；不要把 token
   打进日志、命令回显或仓库文件。
+
+## 2026-10-14 第 133 批（灵感库来源管理 + 素材库三视图/独立标签 #511/#512）
+
+- **★★★ 灵感来源从常量改成可管理数据**：`presets` 一行存完整来源数组，内置来源只是首次种子；
+  自定义来源只收 GitHub 仓库、模型分类、图片/视频类型，README 按“三级标题 + 代码块”直解析，
+  `@main` 取不到回落 `@master`。不要把“任意仓库都能解析”当能力承诺 —— 解析器只认这套约定。
+- **★★★ 视频要解析 `<a href="...mp4">`，不能只看 `<img>`**：YouMind Seedance 的五条视频正是
+  这种结构（封面是 img，真视频在锚点 href）。卡片用 `<video preload="metadata">`，详情用
+  `controls + autoPlay`；实测 G155 的 mp4 地址进灯箱可播放。
+- **★★★ useMemo 依赖数组漏字段 = 状态变了但派生值不重算**：模型分类筛选的 UI 值已变成
+  `Seedance`、卡片的 `data-inspiration-model` 也正确，但结果仍是 7 条 —— 根因只是
+  `filtered` 的 useMemo 少写 `modelCategory`。凡“筛选 / 排序 / 派生列表”的输入项都属于依赖。
+- **★★★ 标签的真相从 `assetLibrary` 搬到独立映射**：旧版“先收藏才能打标签”不再成立。
+  新口径是 `presets.assetTags:v1`（`hash -> string[]`），首次读取把旧行上的 tags 迁过去；
+  没收藏的生成历史也能打，取消收藏也不删标签。历史与素材库同一 hash 的标签计数必须按 hash 去重。
+- **★★ 视图名称必须跟实现一致**：原“网格”其实是 `MasonryGrid`。现在固定三档：
+  `masonry`（最短列）/ `grid`（统一 4:3，cover 裁切）/ `list`（180px 左图 + 右侧提示词、模型、
+  比例、分类、时间、尺寸、渠道、标签）。日期分组收起状态放 localStorage，重开仍在。
+- **★★ 灯箱不再提供取消收藏**：卡片左上角爱心才是收藏开关（黄色填充 `--warn` / 未收藏描边）；
+  灯箱只保留信息、标签、下载。模型显示“前端映射名（原 ID）”，渠道显示“渠道名（原 ID）”。

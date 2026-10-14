@@ -16,12 +16,14 @@
  * 因此 `list()` 只查 `assetLibrary`，`remove()` 只删 `assetLibrary` 行 ——
  * 取消收藏不该顺手删掉字节：画布上可能还有节点引用着它。
  */
-import type { RowOf, StoragePort, TableName } from '../../platform/ports'
+import type { StoragePort, TableName } from '../../platform/ports'
 import { normalizeTags, toLibraryAssets, type LibraryAsset } from '../../domain/shared/assetLibrary'
 
 export interface AssetLibraryRepository {
   /** 用户保存过的素材（元数据在保存时已冻结在这一行里） */
   list(): Promise<LibraryAsset[]>
+  /** 所有素材的标签（独立于收藏关系，未收藏的生成历史也能打标签） */
+  listTagMap(): Promise<Map<string, string[]>>
   /**
    * 保存一条素材到素材库。
    *
@@ -36,31 +38,72 @@ export interface AssetLibraryRepository {
    * 字节可能仍被画布节点引用，删掉会在用户看不到的地方弄坏画布。
    */
   remove(hash: string): Promise<void>
-  /**
-   * 给一条**已收藏**的素材写标签（对账 #303）。
-   *
-   * 三条口径：
-   * - **只改 `assetLibrary` 这一行**（标签属于"我的整理"，不属于内容仓库）；
-   * - **没收藏过就什么都不做**（不是报错）：界面在那种情况下不该给出打标签的入口，
-   *   真走到了这里也只是空操作，绝不顺手替用户收藏一份；
-   * - **不动 `savedAt`**：收藏时间决定列表排序，打个标签不该让这张图跳到最前面。
-   */
+  /** 给任意素材 hash 写标签；标签独立存，不再要求先收藏。 */
   setTags(hash: string, tags: readonly string[]): Promise<void>
 }
 
-/** 素材库只涉及一张表 */
-const TABLES: TableName[] = ['assetLibrary']
+/** 收藏关系 + 独立标签映射 */
+const TABLES: TableName[] = ['assetLibrary', 'presets']
+const TAGS_KEY = 'assetTags:v1'
 
 export function createAssetLibraryRepository(storage: StoragePort): AssetLibraryRepository {
+  /**
+   * 标签的唯一真相：`presets` 里一行 `hash -> string[]`。
+   *
+   * 旧版本把标签挂在 `assetLibrary` 行上。首次读取时把旧标签搬进这份映射，
+   * 之后所有读写都只认它；这样未收藏的生成记录也能打标签，取消收藏也不会误删整理结果。
+   */
+  const loadTagMap = async (): Promise<Map<string, string[]>> => {
+    const saved = (await storage.query('presets', { id: TAGS_KEY })) as unknown as {
+      tags?: unknown
+    }[]
+    if (saved[0] && saved[0].tags && typeof saved[0].tags === 'object') {
+      const out = new Map<string, string[]>()
+      for (const [hash, values] of Object.entries(saved[0].tags as Record<string, unknown>)) {
+        const tags = normalizeTags(values)
+        if (hash && tags.length > 0) out.set(hash, tags)
+      }
+      return out
+    }
+    const rows = (await storage.query('assetLibrary', {})) as unknown as {
+      hash?: unknown
+      id?: unknown
+      tags?: unknown
+    }[]
+    const migrated = new Map<string, string[]>()
+    for (const row of rows) {
+      const hash = typeof row.hash === 'string' ? row.hash : typeof row.id === 'string' ? row.id : ''
+      const tags = normalizeTags(row.tags)
+      if (hash && tags.length > 0) migrated.set(hash, tags)
+    }
+    await storage.put('presets', { id: TAGS_KEY, tags: Object.fromEntries(migrated) })
+    return migrated
+  }
+
+  const saveTagMap = (map: Map<string, string[]>) =>
+    storage.put('presets', { id: TAGS_KEY, tags: Object.fromEntries(map) })
+
   return {
     async list() {
       const rows = await storage.query('assetLibrary', {})
-      return toLibraryAssets(rows as unknown as Parameters<typeof toLibraryAssets>[0])
+      const tagMap = await loadTagMap()
+      return toLibraryAssets(rows as unknown as Parameters<typeof toLibraryAssets>[0]).map(
+        (asset) => {
+          const tags = tagMap.get(asset.hash)
+          return tags?.length ? { ...asset, tags } : asset
+        },
+      )
+    },
+
+    async listTagMap() {
+      return loadTagMap()
     },
 
     async save(asset: LibraryAsset) {
+      const row: Partial<LibraryAsset> = { ...asset }
+      delete row.tags
       await storage.put('assetLibrary', {
-        ...asset,
+        ...row,
         id: asset.hash,
       })
     },
@@ -70,15 +113,12 @@ export function createAssetLibraryRepository(storage: StoragePort): AssetLibrary
     },
 
     async setTags(hash: string, tags: readonly string[]) {
-      const rows = await storage.query('assetLibrary', { id: hash })
-      const row = rows[0]
-      if (!row) return
+      if (!hash) return
+      const map = await loadTagMap()
       const normalized = normalizeTags(tags)
-      /** 标签全删光时**把字段去掉**，不留一个空的 `tags: []`（"没有"与"空"在库里是同一件事） */
-      const next: Record<string, unknown> = { ...row }
-      if (normalized.length > 0) next.tags = normalized
-      else delete next.tags
-      await storage.put('assetLibrary', next as unknown as RowOf<'assetLibrary'>)
+      if (normalized.length > 0) map.set(hash, normalized)
+      else map.delete(hash)
+      await saveTagMap(map)
     },
   }
 }

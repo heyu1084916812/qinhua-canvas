@@ -16,7 +16,7 @@ import styles from './InspirationPage.module.css'
  */
 export function downloadNameOf(item: InspirationCase): string {
   try {
-    const url = new URL(item.imageUrl)
+    const url = new URL(item.videoUrl || item.imageUrl)
     const base = decodeURIComponent(url.pathname.split('/').filter(Boolean).pop() ?? '')
     if (base) return base
   } catch {
@@ -68,9 +68,9 @@ export function InspirationDetail({
   }
 
   const download = () => {
-    if (!item.imageUrl) return
+    if (!item.videoUrl && !item.imageUrl) return
     void platform.files
-      .saveFromUrl(item.imageUrl, downloadNameOf(item))
+      .saveFromUrl(item.videoUrl || item.imageUrl, downloadNameOf(item))
       .then((result) => {
         setDownloadState(result === 'saved' ? '已下载' : '已在新标签打开')
         if (downloadTimer.current) clearTimeout(downloadTimer.current)
@@ -90,7 +90,18 @@ export function InspirationDetail({
     >
       <div className={styles.detail}>
         <div className={styles.detailStage}>
-          {item.imageUrl ? (
+          {item.videoUrl ? (
+            <video
+              className={styles.detailVideo}
+              src={item.videoUrl}
+              poster={item.imageUrl || undefined}
+              controls
+              autoPlay
+              loop
+              playsInline
+              data-inspiration-detail-video
+            />
+          ) : item.imageUrl ? (
             <img src={item.imageUrl} alt={item.title} data-inspiration-detail-image />
           ) : (
             <span className={styles.shotEmpty}>这个案例没有预览图</span>
@@ -115,6 +126,7 @@ export function InspirationDetail({
 
           <p className={styles.detailMeta} data-inspiration-detail-meta>
             {item.sourceName}
+            {item.modelCategory ? ` · ${item.modelCategory}` : ''}
             {item.credit ? ` · ${item.credit}` : ''}
           </p>
 
@@ -142,7 +154,7 @@ export function InspirationDetail({
             >
               {copied ? '已复制' : '复制提示词'}
             </button>
-            {item.imageUrl && (
+            {(item.videoUrl || item.imageUrl) && (
               <button
                 type="button"
                 className={styles.copy}
@@ -151,27 +163,6 @@ export function InspirationDetail({
               >
                 {downloadState || '下载原图'}
               </button>
-            )}
-            {item.creditUrl && (
-              <a
-                className={styles.link}
-                href={item.creditUrl}
-                target="_blank"
-                rel="noreferrer"
-                data-inspiration-detail-origin
-              >
-                看原图出处
-              </a>
-            )}
-            {item.docUrl && (
-              <a
-                className={styles.link}
-                href={item.docUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                仓库内位置
-              </a>
             )}
           </div>
         </aside>

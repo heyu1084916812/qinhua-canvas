@@ -10,6 +10,8 @@ const SOURCE: InspirationSource = {
   imageBase: 'https://raw.githubusercontent.com/example/demo/main',
   note: '测试用',
   format: 'json',
+  modelCategory: 'GPT Image',
+  kind: 'image',
 }
 
 describe('parseInspirationCases', () => {
@@ -260,6 +262,8 @@ describe('parseReadmeCases · YouMind 版式', () => {
     name: 'YouMind',
     format: 'readme',
     readmeStyle: 'youmind',
+    modelCategory: 'Nano Banana',
+    kind: 'image',
     /** 那三家的图托管在自家 CMS 上（绝对地址），所以没有"图片基址" */
     imageBase: '',
   }
@@ -318,6 +322,8 @@ describe('parseReadmeCases · 两段并存（Seedance）', () => {
     name: 'Seedance',
     format: 'readme',
     readmeStyle: 'youmindAll',
+    modelCategory: 'Seedance',
+    kind: 'video',
     imageBase: '',
   }
 
@@ -339,6 +345,10 @@ describe('parseReadmeCases · 两段并存（Seedance）', () => {
     '```',
     'archer riding through misty forest',
     '```',
+    '',
+    '<a href="https://cdn.example.com/videos/forest.mp4">',
+    '<img src="https://cdn.example.com/videos/forest.jpg" />',
+    '</a>',
   ].join('\n')
 
   it('★★ 带编号与不带编号的两种分节都算案例', () => {
@@ -350,5 +360,7 @@ describe('parseReadmeCases · 两段并存（Seedance）', () => {
     expect(out[1]!.id).toBe('seed:2')
     expect(out[1]!.title).toBe('森林骑行')
     expect(out[1]!.prompt).toContain('archer riding')
+    expect(out[1]!.videoUrl).toBe('https://cdn.example.com/videos/forest.mp4')
+    expect(out[1]!.kind).toBe('video')
   })
 })

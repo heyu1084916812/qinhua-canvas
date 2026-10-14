@@ -14,6 +14,9 @@
  */
 export type ReadmeStyle = 'pico' | 'youmind' | 'youmindAll'
 
+/** 灵感来源的媒体类型：视频来源要在卡片和详情里真的能播放。 */
+export type InspirationMediaKind = 'image' | 'video'
+
 export interface InspirationSource {
   id: string
   /** 来源名（左侧列表用，与仓库自述一致） */
@@ -43,6 +46,14 @@ export interface InspirationSource {
   format: 'json' | 'readme'
   /** README 型的版式（`format: 'readme'` 时用；不填 = `pico`） */
   readmeStyle?: ReadmeStyle
+  /** 搜索框旁那一档「模型分类」（如 GPT Image / Nano Banana / Seedance）。 */
+  modelCategory: string
+  /** 图 / 视频。视频来源会优先解析 README 里的 mp4 / webm / mov 地址。 */
+  kind: InspirationMediaKind
+  /** 自定义来源才为 false；内置来源用于管理面板的默认顺序。 */
+  builtin?: boolean
+  /** 自定义 README 仓库在 main 取不到时的备用地址（一般是 master）。 */
+  fallbackDataUrl?: string
 }
 
 /**
@@ -56,7 +67,7 @@ export interface InspirationSource {
  * 而用户在国内 —— 灵感库的刷新成功率直接取决于这条链路的可达性。
  * jsDelivr 是 GitHub 的只读镜像 CDN，路径规则 `gh/OWNER/REPO@BRANCH/PATH`。
  */
-export const INSPIRATION_SOURCES: readonly InspirationSource[] = [
+export const DEFAULT_INSPIRATION_SOURCES: readonly InspirationSource[] = [
   {
     id: 'gpt-image-2',
     name: 'Awesome GPT Image 2',
@@ -66,6 +77,9 @@ export const INSPIRATION_SOURCES: readonly InspirationSource[] = [
     imageBase: 'https://cdn.jsdelivr.net/gh/freestylefly/awesome-gpt-image-2@main/data',
     note: '541 条 GPT Image 2 案例，带完整提示词与原作者署名',
     format: 'json',
+    modelCategory: 'GPT Image',
+    kind: 'image',
+    builtin: true,
   },
   {
     /** 用例结构：`### 例 N: [标题](原推文)（by [@作者](主页)）` + 一张图 + 一个提示词代码块 */
@@ -77,6 +91,9 @@ export const INSPIRATION_SOURCES: readonly InspirationSource[] = [
     imageBase: 'https://cdn.jsdelivr.net/gh/PicoTrex/Awesome-Nano-Banana-images@main',
     note: 'Nano Banana / Nano Banana Pro 的分场景案例，每条带完整提示词与原作者',
     format: 'readme',
+    modelCategory: 'Nano Banana',
+    kind: 'image',
+    builtin: true,
   },
   /**
    * YouMind 三家共用同一套版式（`### No. N:` + `#### 📝 Prompt` + `#### 🖼`），
@@ -93,6 +110,9 @@ export const INSPIRATION_SOURCES: readonly InspirationSource[] = [
     note: 'Nano Banana Pro 提示词库（按编号分节，每组带生成图）',
     format: 'readme',
     readmeStyle: 'youmind',
+    modelCategory: 'Nano Banana',
+    kind: 'image',
+    builtin: true,
   },
   {
     id: 'youmind-gpt-image-2',
@@ -103,6 +123,9 @@ export const INSPIRATION_SOURCES: readonly InspirationSource[] = [
     note: 'GPT Image 2 提示词库（按编号分节，每组带生成图）',
     format: 'readme',
     readmeStyle: 'youmind',
+    modelCategory: 'GPT Image',
+    kind: 'image',
+    builtin: true,
   },
   {
     id: 'youmind-seedance-2',
@@ -119,6 +142,9 @@ export const INSPIRATION_SOURCES: readonly InspirationSource[] = [
      * 只认 `No.` 会只拿到 6 条（实测踩到）—— 所以用"所有三级标题都算案例"这条规则。
      */
     readmeStyle: 'youmindAll',
+    modelCategory: 'Seedance',
+    kind: 'video',
+    builtin: true,
   },
   {
     /** 顶层就是数组的 JSON（见 `parseFlatJsonCases`）：`title` / `prompt` / `preview` / `author` */
@@ -130,9 +156,68 @@ export const INSPIRATION_SOURCES: readonly InspirationSource[] = [
     imageBase: '',
     note: '323 条实战提示词，按工作 / 生活 / 学习等场景分类，带预览图与作者',
     format: 'json',
+    modelCategory: 'Nano Banana',
+    kind: 'image',
+    builtin: true,
   },
 ]
 
+/** 旧调用点仍可用这个别名；新代码用 `DEFAULT_INSPIRATION_SOURCES` 表达“内置默认”。 */
+export const INSPIRATION_SOURCES = DEFAULT_INSPIRATION_SOURCES
+
 export function sourceById(id: string): InspirationSource | undefined {
-  return INSPIRATION_SOURCES.find((s) => s.id === id)
+  return DEFAULT_INSPIRATION_SOURCES.find((s) => s.id === id)
+}
+
+export interface GithubRepoRef {
+  owner: string
+  name: string
+  fullName: string
+  webUrl: string
+}
+
+/**
+ * 管理来源面板只收 GitHub 仓库地址（也接受 `owner/repo`）。
+ * 和来源无关的 URL、空串一律拒绝，避免在面板里造出一个永远拉不动的来源。
+ */
+export function parseGithubRepoInput(raw: string): GithubRepoRef | null {
+  const value = raw.trim()
+  if (!value) return null
+  const github = /github\.com[/:]([^/\s]+)\/([^/\s#?]+?)(?:\.git)?(?:[/#?].*)?$/i.exec(value)
+  const short = /^([\w.-]+)\/([\w.-]+)$/.exec(value)
+  const owner = github?.[1] ?? short?.[1]
+  const name = github?.[2] ?? short?.[2]
+  if (!owner || !name || name.includes(' ')) return null
+  const fullName = `${owner}/${name}`
+  return { owner, name, fullName, webUrl: `https://github.com/${fullName}` }
+}
+
+/**
+ * 自定义来源按管理面板口径：只填名称 / GitHub 仓库 / 模型 / 类型。
+ * README 走 `youmindAll`（所有三级标题 + 提示词代码块），绝对地址图片与视频都能解析。
+ */
+export function customInspirationSource(input: {
+  name: string
+  repo: string
+  modelCategory: string
+  kind: InspirationMediaKind
+}): InspirationSource | null {
+  const ref = parseGithubRepoInput(input.repo)
+  const name = input.name.trim()
+  const modelCategory = input.modelCategory.trim()
+  if (!ref || !name || !modelCategory) return null
+  return {
+    id: `custom:${ref.fullName.toLowerCase()}`,
+    name,
+    repo: ref.webUrl,
+    dataUrl: `https://cdn.jsdelivr.net/gh/${ref.fullName}@main/README.md`,
+    fallbackDataUrl: `https://cdn.jsdelivr.net/gh/${ref.fullName}@master/README.md`,
+    imageBase: `https://cdn.jsdelivr.net/gh/${ref.fullName}@main`,
+    note: `${ref.fullName} · 自定义 GitHub 来源（README 三级标题 + 代码块）`,
+    format: 'readme',
+    readmeStyle: 'youmindAll',
+    modelCategory,
+    kind: input.kind,
+    builtin: false,
+  }
 }

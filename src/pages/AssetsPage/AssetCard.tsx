@@ -1,6 +1,11 @@
 import { useEffect, useRef } from 'react'
-import { masonryAspectOf } from '../../domain/shared/assetLibrary'
+import {
+  assetKindOf,
+  formatAssetSize,
+  masonryAspectOf,
+} from '../../domain/shared/assetLibrary'
 import type { LibraryAsset } from '../../domain/shared/assetLibrary'
+import type { AssetsView } from '../../state/project/assetLibraryStore'
 import { useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
 import styles from './AssetsPage.module.css'
 
@@ -19,6 +24,9 @@ import styles from './AssetsPage.module.css'
  */
 export function AssetCard({
   asset,
+  layout = 'masonry',
+  modelLabel,
+  channelLabel,
   saved = true,
   selected,
   onSelect,
@@ -27,12 +35,16 @@ export function AssetCard({
   menuOpen,
   onToggleMenu,
   onSave,
+  onToggleFavorite,
   onRequestRemove,
   onConfirmRemove,
   onCancelRemove,
   onDownload,
 }: {
   asset: LibraryAsset
+  layout?: AssetsView
+  modelLabel?: string
+  channelLabel?: string
   /** 这张收藏了没有（默认 true：素材库里的卡片当然都收藏过） */
   saved?: boolean
   selected: boolean
@@ -43,6 +55,7 @@ export function AssetCard({
   onToggleMenu: () => void
   /** 「收藏素材库」——只有 `saved === false` 时才会被点到 */
   onSave?: () => void
+  onToggleFavorite?: () => void
   onRequestRemove: () => void
   onConfirmRemove: () => void
   onCancelRemove: () => void
@@ -63,7 +76,16 @@ export function AssetCard({
   }, [asset.hash])
 
   const aspect = masonryAspectOf(asset)
-  const className = selected ? `${styles.card} ${styles.cardSelected}` : styles.card
+  const className = [
+    styles.card,
+    layout === 'list' ? styles.cardList : '',
+    selected ? styles.cardSelected : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+  const kind = assetKindOf(mime ?? asset.mime)
+  const size = formatAssetSize(asset) ?? '—'
+  const tags = asset.tags ?? []
 
   return (
     <div
@@ -83,7 +105,7 @@ export function AssetCard({
           className={styles.thumb}
           data-asset-thumb
           data-asset-aspect={aspect.toFixed(3)}
-          style={{ aspectRatio: `${aspect}` }}
+          style={layout === 'masonry' ? { aspectRatio: `${aspect}` } : undefined}
         >
           {isVideo ? (
             <video
@@ -105,6 +127,68 @@ export function AssetCard({
             />
           )}
         </span>
+      </button>
+
+      {layout === 'list' && (
+        <div className={styles.listInfo} data-asset-list-info>
+          <p className={styles.listPrompt}>{asset.prompt?.trim() || '没有提示词'}</p>
+          <dl className={styles.listMeta}>
+            <div>
+              <dt>模型</dt>
+              <dd>{modelLabel || asset.model || '—'}</dd>
+            </div>
+            <div>
+              <dt>比例</dt>
+              <dd>{asset.ratio || '—'}</dd>
+            </div>
+            <div>
+              <dt>分类</dt>
+              <dd>{kind === 'video' ? '视频' : kind === 'image' ? '图片' : '其他'}</dd>
+            </div>
+            <div>
+              <dt>时间</dt>
+              <dd>{formatDateTime(asset.savedAt)}</dd>
+            </div>
+            <div>
+              <dt>尺寸</dt>
+              <dd>{size}</dd>
+            </div>
+          </dl>
+          {channelLabel ? <p className={styles.listChannel}>渠道：{channelLabel}</p> : null}
+          {tags.length > 0 && (
+            <p className={styles.listTags}>
+              {tags.map((tag) => (
+                <span key={tag}>{tag}</span>
+              ))}
+            </p>
+          )}
+        </div>
+      )}
+
+      <button
+        type="button"
+        className={saved ? `${styles.favorite} ${styles.favoriteOn}` : styles.favorite}
+        data-asset-favorite={asset.hash}
+        aria-label={saved ? '取消收藏' : '收藏到素材库'}
+        aria-pressed={saved}
+        title={saved ? '取消收藏' : '收藏到素材库'}
+        onClick={(event) => {
+          event.stopPropagation()
+          onToggleFavorite?.()
+        }}
+      >
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 24 24"
+          fill={saved ? 'currentColor' : 'none'}
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M12 20.5 3.8 12.3a5 5 0 0 1 7.1-7.1l1.1 1.1 1.1-1.1a5 5 0 0 1 7.1 7.1Z" />
+        </svg>
       </button>
 
       <div className={styles.cardActions}>
@@ -198,4 +282,11 @@ export function AssetCard({
       </div>
     </div>
   )
+}
+
+function formatDateTime(at: number): string {
+  if (!at) return '—'
+  const d = new Date(at)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }

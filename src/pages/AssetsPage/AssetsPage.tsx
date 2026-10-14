@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useSyncExternalStore } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
@@ -43,7 +43,14 @@ const GROUP_MODES: readonly { id: GroupMode; label: string }[] = [
  * 不在 JSX 里各写一次三目 —— 以后再加视图形态只改这一处。
  */
 function CardsLayout({ view, children }: { view: AssetsView; children: ReactNode }) {
-  if (view === 'grid') return <MasonryGrid>{children}</MasonryGrid>
+  if (view === 'masonry') return <MasonryGrid>{children}</MasonryGrid>
+  if (view === 'grid') {
+    return (
+      <div className={styles.uniformGrid} data-assets-grid>
+        {children}
+      </div>
+    )
+  }
   return (
     <div className={styles.list} data-assets-grid>
       {children}
@@ -79,6 +86,14 @@ export function AssetsPage() {
     channelStore.getState,
     channelStore.getState,
   ).channels
+  const channelById = useMemo(
+    () => new Map(allChannels.map((channel) => [channel.id, channel])),
+    [allChannels],
+  )
+  const modelLabelOf = useCallback(
+    (model: string | undefined) => (model ? toLogicalName(allChannels, model) : ''),
+    [allChannels],
+  )
 
   const repoRef = useRef<ReturnType<typeof createAssetLibraryRepository> | null>(null)
   if (!repoRef.current) repoRef.current = createAssetLibraryRepository(platform.storage)
@@ -119,9 +134,6 @@ export function AssetsPage() {
    * 由这一个快速筛选决定右内容读历史还是读素材库。
    */
   const showLibrary = quick === 'saved'
-  /** 收藏过的 hash（对账 #303：标签只挂在收藏关系上，灯箱据此决定给不给打标签的入口） */
-  const libraryHashes = new Set(state.assets.map((a) => a.hash))
-
   const [selectedHash, setSelectedHash] = useState<string | null>(null)
   const [preview, setPreview] = useState<LibraryAsset | null>(null)
   const [menuHash, setMenuHash] = useState<string | null>(null)
@@ -129,6 +141,16 @@ export function AssetsPage() {
   const [status, setStatusText] = useState('')
   /** 这一条状态是"正常结果"还是"失败"（产品文档 §4.5：失败要 `role=alert`） */
   const [statusTone, setStatusTone] = useState<NoticeTone>('info')
+  /** 日期分组收起状态：按分组标题记，刷新后继续保留。 */
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem('assets:collapsed-groups:v1')
+      const values = raw ? (JSON.parse(raw) as unknown) : []
+      return new Set(Array.isArray(values) ? values.filter((v): v is string => typeof v === 'string') : [])
+    } catch {
+      return new Set()
+    }
+  })
   /** 写状态行的唯一入口：默认 info，失败显式传 'error'（语气跟着这次写入走，不会残留） */
   const setStatus = useCallback((text: string, tone: NoticeTone = 'info') => {
     setStatusText(text)
@@ -138,6 +160,14 @@ export function AssetsPage() {
   useEffect(() => {
     void store.load()
   }, [store])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('assets:collapsed-groups:v1', JSON.stringify([...collapsedGroups]))
+    } catch {
+      /* localStorage 不可用时只在本次会话生效 */
+    }
+  }, [collapsedGroups])
 
   const selectAsset = (hash: string) => {
     setSelectedHash(hash)
@@ -259,18 +289,20 @@ export function AssetsPage() {
           ))}
         </div>
         <div className={styles.segmented} data-assets-view>
-          {(['grid', 'list'] as AssetsView[]).map((mode) => (
+          {(['masonry', 'grid', 'list'] as AssetsView[]).map((mode) => (
             <button
               key={mode}
               type="button"
               className={view === mode ? `${styles.chip} ${styles.chipOn}` : styles.chip}
               data-assets-view-mode={mode}
               aria-pressed={view === mode}
-              aria-label={mode === 'grid' ? '网格视图' : '列表视图'}
-              title={mode === 'grid' ? '网格视图' : '列表视图'}
+              aria-label={
+                mode === 'masonry' ? '瀑布流视图' : mode === 'grid' ? '网格视图' : '列表视图'
+              }
+              title={mode === 'masonry' ? '瀑布流视图' : mode === 'grid' ? '网格视图' : '列表视图'}
               onClick={() => store.setView(mode)}
             >
-              {mode === 'grid' ? '网格' : '列表'}
+              {mode === 'masonry' ? '瀑布流' : mode === 'grid' ? '网格' : '列表'}
             </button>
           ))}
         </div>
@@ -408,8 +440,27 @@ export function AssetsPage() {
             <div className={styles.groups} data-assets-history>
               {groups.map((group) => (
                 <section className={styles.group} key={group.key} data-assets-group-section={group.key}>
-                  {group.label && <h3 className={styles.groupLabel}>{group.label}</h3>}
-                  <CardsLayout view={view}>
+                  {group.label && (
+                    <button
+                      type="button"
+                      className={styles.groupLabelButton}
+                      data-assets-group-toggle={group.key}
+                      aria-expanded={!collapsedGroups.has(group.key)}
+                      onClick={() => {
+                        setCollapsedGroups((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(group.key)) next.delete(group.key)
+                          else next.add(group.key)
+                          return next
+                        })
+                      }}
+                    >
+                      <span>{collapsedGroups.has(group.key) ? '›' : '⌄'}</span>
+                      <span className={styles.groupLabel}>{group.label}</span>
+                      <span className={styles.groupCount}>{group.items.length}</span>
+                    </button>
+                  )}
+                  {(!group.label || !collapsedGroups.has(group.key)) && <CardsLayout view={view}>
                     {group.items.map((item) =>
                       item.kind === 'failed' ? (
                         <div className={styles.failedCard} key={item.id} data-history-failed={item.id}>
@@ -427,6 +478,13 @@ export function AssetsPage() {
                         <AssetCard
                           key={item.hash}
                           asset={cardAssetOf(item)}
+                          layout={view}
+                          modelLabel={modelLabelOf(item.model)}
+                          channelLabel={
+                            item.channelId
+                              ? channelById.get(item.channelId)?.name ?? item.channelId
+                              : ''
+                          }
                           saved={item.saved}
                           selected={selectedHash === item.hash}
                           onSelect={() => selectAsset(item.hash)}
@@ -437,6 +495,9 @@ export function AssetsPage() {
                             setMenuHash((current) => (current === item.hash ? null : item.hash))
                           }
                           onSave={() => void handleSave(item)}
+                          onToggleFavorite={() =>
+                            item.saved ? void handleRemove(item.hash) : void handleSave(item)
+                          }
                           onRequestRemove={() => {
                             setConfirmHash(item.hash)
                             setMenuHash(null)
@@ -447,7 +508,7 @@ export function AssetsPage() {
                         />
                       ),
                     )}
-                  </CardsLayout>
+                  </CardsLayout>}
                 </section>
               ))}
             </div>
@@ -462,6 +523,11 @@ export function AssetsPage() {
                 <AssetCard
                   key={asset.hash}
                   asset={asset}
+                  layout={view}
+                  modelLabel={modelLabelOf(asset.model)}
+                  channelLabel={
+                    asset.channelId ? channelById.get(asset.channelId)?.name ?? asset.channelId : ''
+                  }
                   selected={selectedHash === asset.hash}
                   onSelect={() => selectAsset(asset.hash)}
                   onOpen={() => openAsset(asset)}
@@ -470,6 +536,7 @@ export function AssetsPage() {
                   onToggleMenu={() =>
                     setMenuHash((current) => (current === asset.hash ? null : asset.hash))
                   }
+                  onToggleFavorite={() => void handleRemove(asset.hash)}
                   onRequestRemove={() => {
                     setConfirmHash(asset.hash)
                     setMenuHash(null)
@@ -506,12 +573,6 @@ export function AssetsPage() {
           asset={preview}
           onClose={() => setPreview(null)}
           onDownload={() => void handleDownload(preview.hash)}
-          onRemove={() => void handleRemove(preview.hash)}
-          /**
-           * 能不能打标签，看的是**它有没有被收藏**（标签挂在收藏关系上，对账 #303）：
-           * 历史页签里没收藏的那张，灯箱里如实写着"先收藏再打标签"，不摆一个存不下去的输入框。
-           */
-          canTag={libraryHashes.has(preview.hash)}
           onTagsChange={(next) => void handleTagsChange(preview.hash, next)}
         />
       )}

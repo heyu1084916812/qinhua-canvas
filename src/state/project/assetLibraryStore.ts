@@ -58,8 +58,8 @@ export type AssetFilter = HistoryKind
 /** 页签（用户 2026-10-06 第 8 条：「下面分全部历史 / 素材库」） */
 export type AssetsTab = 'history' | 'library'
 
-/** 网格 / 列表（参考图五右上角那个切换） */
-export type AssetsView = 'grid' | 'list'
+/** 瀑布流 / 网格 / 列表（参考图五右上角那个切换） */
+export type AssetsView = 'masonry' | 'grid' | 'list'
 
 export interface AssetLibraryState {
   assets: LibraryAsset[]
@@ -156,8 +156,21 @@ function derive(state: AssetLibraryState): Derived {
      */
     counts: countAssets(state.history, state.assets, state.now),
     models: modelCounts(state.history),
-    tags: tagCounts(state.assets),
+    tags: tagCounts(tagRowsOf(state)),
   }
+}
+
+/** 同一 hash 在素材库与历史里各有一行，标签计数只能按 hash 去重一次。 */
+function tagRowsOf(state: Pick<AssetLibraryState, 'assets' | 'history'>): { tags?: string[] }[] {
+  const rows = new Map<string, { tags?: string[] }>()
+  for (const asset of state.assets) rows.set(asset.hash, asset)
+  for (const item of state.history) {
+    if (item.kind !== 'output') continue
+    const prev = rows.get(item.hash)
+    if (prev?.tags?.length) continue
+    rows.set(item.hash, item)
+  }
+  return [...rows.values()]
 }
 
 /**
@@ -188,24 +201,26 @@ export function createAssetLibraryStore(
     model: null,
     tag: null,
     group: 'date',
-    view: 'grid',
+    view: 'masonry',
     now: Date.now(),
   }))
 
   const load: AssetLibraryActions['load'] = async () => {
     store.setState({ loading: true })
-    const [assets, rawHistory] = await Promise.all([
+    const [assets, rawHistory, tagMap] = await Promise.all([
       repo.list(),
       historyRepo ? historyRepo.list() : Promise.resolve<HistoryItem[]>([]),
+      repo.listTagMap(),
     ])
     /**
      * 历史条目的标签是**按 hash 从收藏库拼过来的镜像**（对账 #303）：
      * 标签只有一份真相在 `assetLibrary` 行上，历史那边不另存一份 ——
      * 两份就会分叉（改了标签，历史卡片还挂着旧的）。
      */
-    const tagsOf = new Map(assets.map((a) => [a.hash, normalizeTags(a.tags)]))
     const history = rawHistory.map((item) =>
-      item.kind === 'output' ? { ...item, tags: tagsOf.get(item.hash) ?? [] } : item,
+      item.kind === 'output'
+        ? { ...item, tags: normalizeTags(tagMap.get(item.hash)) }
+        : item,
     )
     /** 时间基准取**这一次加载**那一瞬：与派生值用同一个数，跨零点也不会自相矛盾 */
     const now = Date.now()
@@ -278,6 +293,7 @@ export function createAssetLibraryStore(
 
   const save: AssetLibraryActions['save'] = async (asset) => {
     await repo.save(asset)
+    if (asset.tags) await repo.setTags(asset.hash, asset.tags)
     store.setState((s) => {
       const next = sortLibraryAssets([...s.assets.filter((a) => a.hash !== asset.hash), asset])
       /**
@@ -299,8 +315,8 @@ export function createAssetLibraryStore(
     store.setState((s) => {
       const assets = s.assets.filter((a) => a.hash !== hash)
       const history = s.history.map((item) =>
-        /* 取消收藏 = 这一条历史从此没有标签（标签挂在收藏关系上） */
-        item.kind === 'output' && item.hash === hash ? { ...item, saved: false, tags: [] } : item,
+        /* 取消收藏只改收藏关系；标签是独立整理，不跟着删。 */
+        item.kind === 'output' && item.hash === hash ? { ...item, saved: false } : item,
       )
       return { assets, history, ...derive({ ...s, assets, history }) }
     })

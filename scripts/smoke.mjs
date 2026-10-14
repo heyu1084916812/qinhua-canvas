@@ -15231,10 +15231,11 @@ async function g90(browser) {
     '[data-asset-preview-quality]',
     '[data-asset-preview-model]',
     '[data-asset-preview-channel]',
+    '[data-asset-preview-time]',
   ]
   rec(
     g,
-    '★★ 右侧七类信息齐全（配色 / 提示词 / 像素 / 比例 / 画质 / 模型 / 渠道）',
+    '★★ 右侧八类信息齐全（配色 / 提示词 / 像素 / 比例 / 画质 / 模型 / 渠道 / 时间）',
     (await Promise.all(detailSelectors.map((selector) => page.locator(selector).count()))).every(
       (n) => n === 1,
     ),
@@ -15252,7 +15253,8 @@ async function g90(browser) {
       details[3] === '16:9' &&
       details[4] === 'high' &&
       details[5] === 'image-pro' &&
-      details[6] === 'ch-cat',
+      details[6] === 'ch-cat' &&
+      /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(details[7]),
     details.join(' | '),
   )
 
@@ -15273,14 +15275,22 @@ async function g90(browser) {
   await sleep(400)
   rec(
     g,
-    '★ 灯箱提供取消收藏入口',
-    (await page.locator('[data-asset-preview-remove]').count()) === 1,
+    '★★ 灯箱不再提供取消收藏（收藏改成卡片左上角爱心）',
+    (await page.locator('[data-asset-preview-remove]').count()) === 0,
   )
-  await page.locator('[data-asset-preview-remove]').click()
+  await page.keyboard.press('Escape')
+  await sleep(300)
+  const heart = page.locator('[data-asset-card="g90-saved"] [data-asset-favorite]')
+  rec(
+    g,
+    '★★ 收藏中的素材左上角爱心是填充态',
+    (await heart.count()) === 1 && (await heart.getAttribute('aria-pressed')) === 'true',
+  )
+  await heart.click()
   await sleep(600)
   rec(
     g,
-    '★ 灯箱取消收藏后卡片消失',
+    '★ 点爱心取消收藏后卡片消失',
     (await page.locator('[data-asset-card="g90-saved"]').count()) === 0 &&
       (await page.locator('[data-asset-card]').count()) === 1,
     `count=${await page.locator('[data-asset-card]').count()}`,
@@ -22714,16 +22724,87 @@ async function g114(browser) {
     JSON.stringify(dateSections),
   )
 
+  const cardsBeforeCollapse = await cardCount()
+  const firstGroupToggle = page.locator('[data-assets-group-toggle]').first()
+  const firstGroupKey = await firstGroupToggle.getAttribute('data-assets-group-toggle')
+  await firstGroupToggle.click()
+  await sleep(250)
+  const cardsAfterCollapse = await cardCount()
+  rec(
+    g,
+    '★★ 日期分组可收起，收起后该组卡片不再渲染',
+    !!firstGroupKey &&
+      (await firstGroupToggle.getAttribute('aria-expanded')) === 'false' &&
+      cardsAfterCollapse < cardsBeforeCollapse,
+    `group=${firstGroupKey} ${cardsBeforeCollapse}→${cardsAfterCollapse}`,
+  )
+  await firstGroupToggle.click()
+  await sleep(250)
+  rec(g, '★ 日期分组再次展开，卡片恢复', (await cardCount()) === cardsBeforeCollapse)
+
   /** ⑤ 视图切换 */
+  const viewModes = await page
+    .locator('[data-assets-view-mode]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-assets-view-mode')))
+  rec(
+    g,
+    '★★ 视图切换是三档：瀑布流 / 网格 / 列表',
+    viewModes.join(',') === 'masonry,grid,list',
+    JSON.stringify(viewModes),
+  )
   await page.locator('[data-assets-view-mode="list"]').click()
   await sleep(300)
-  const listDir = await page
-    .locator('[data-assets-grid]')
-    .first()
-    .evaluate((el) => getComputedStyle(el).flexDirection)
-  rec(g, '★ 切「列表」视图后是纵向排列（不是只换了个按钮态）', listDir === 'column', listDir)
+  const listLayout = await page.locator('[data-assets-grid]').first().evaluate((el) => {
+    const firstCard = el.querySelector('[data-asset-card]')
+    return {
+      display: getComputedStyle(el).display,
+      grid: firstCard ? getComputedStyle(firstCard).gridTemplateColumns : '',
+      info: el.querySelectorAll('[data-asset-list-info]').length,
+    }
+  })
+  rec(
+    g,
+    '★★ 列表视图：一列一张，左侧图片右侧信息',
+    listLayout.display === 'flex' && listLayout.grid.includes('180px') && listLayout.info > 0,
+    JSON.stringify(listLayout),
+  )
   await page.locator('[data-assets-view-mode="grid"]').click()
   await sleep(250)
+  const gridLayout = await page.locator('[data-assets-grid]').first().evaluate((el) => {
+    const thumb = el.querySelector('[data-asset-thumb]')
+    const media = el.querySelector('[data-asset-media]')
+    return {
+      display: getComputedStyle(el).display,
+      thumb: thumb ? getComputedStyle(thumb).aspectRatio : '',
+      fit: media ? getComputedStyle(media).objectFit : '',
+    }
+  })
+  rec(
+    g,
+    '★★ 网格视图：统一容器并允许裁切',
+    gridLayout.display === 'grid' && gridLayout.thumb === '4 / 3' && gridLayout.fit === 'cover',
+    JSON.stringify(gridLayout),
+  )
+  await page.locator('[data-assets-view-mode="masonry"]').click()
+  await page
+    .waitForFunction(
+      () => !!document.querySelector('[data-assets-grid][data-masonry="on"]'),
+      null,
+      { timeout: 8000 },
+    )
+    .catch(() => {})
+  const masonryState = await page.locator('[data-assets-grid]').first().evaluate((el) => ({
+    attr: el.getAttribute('data-masonry'),
+    items: el.querySelectorAll('[data-masonry-item]').length,
+    cards: el.querySelectorAll('[data-asset-card]').length,
+    width: el.clientWidth,
+  }))
+  rec(
+    g,
+    '★★ 瀑布流视图仍是最短列堆砌',
+    masonryState.attr === 'on' && masonryState.items > 0,
+    JSON.stringify(masonryState),
+  )
 
   /** ⑥ 历史里顺手收藏（未收藏那张） */
   await page.locator('[data-asset-card="h-vid"] [data-asset-menu]').click()
@@ -28854,11 +28935,17 @@ async function g146(browser) {
 
   await page.goto(`${BASE}/assets`, { waitUntil: 'networkidle' })
   await sleep(700)
-  await page.locator('[data-assets-tab="library"]').click()
+  rec(
+    g,
+    '★ 默认全部历史 2 张，标签栏一开始为空',
+    (await cards.count()) === 2 && (await page.locator('[data-assets-tags-empty]').count()) === 1,
+    `卡片=${await cards.count()}`,
+  )
+  await page.locator('[data-assets-quick="saved"]').click()
   await sleep(300)
   rec(
     g,
-    '★ 素材库里两张收藏素材都在；左侧「标签」栏一开始是空的',
+    '★ 收藏内容里两张收藏素材都在；左侧「标签」仍为空',
     (await cards.count()) === 2 && (await page.locator('[data-assets-tags-empty]').count()) === 1,
     `卡片=${await cards.count()}`,
   )
@@ -28866,7 +28953,7 @@ async function g146(browser) {
   // ① 灯箱里打标签
   await page.locator('[data-asset-open="t146-a"]').dblclick()
   await page.locator('[data-asset-tags]').waitFor({ state: 'visible', timeout: 6000 })
-  await page.locator('[data-asset-tag-input]').fill('客户A')
+  await page.locator('[data-asset-tag-input]').fill('客户A；春季款')
   await page.locator('[data-asset-tag-input]').press('Enter')
   /**
    * 等**标签真挂上**再断言（落库 → 界面更新是一条异步链）。
@@ -28879,6 +28966,17 @@ async function g146(browser) {
     .catch(() => false)
   rec(g, '★★★ 灯箱里能打标签（回车确认）', tagShown && (await firstTag.count()) === 1)
 
+  await page
+    .locator('[data-asset-tag="春季款"]')
+    .waitFor({ state: 'attached', timeout: 8000 })
+    .catch(() => {})
+  rec(
+    g,
+    '★★★ 一次输入用；分隔可建多个标签',
+    (await page.locator('[data-asset-tag]').count()) === 2,
+    `标签=${await page.locator('[data-asset-tag]').count()}`,
+  )
+
   await page.locator('[data-asset-tag-input]').fill('客户a')
   await page.locator('[data-asset-tag-input]').press('Enter')
   await sleep(300)
@@ -28890,18 +28988,6 @@ async function g146(browser) {
     (await page.locator('[data-asset-tag-hint]').innerText()).trim(),
   )
 
-  await page.locator('[data-asset-tag-input]').fill('春季款')
-  await page.locator('[data-asset-tag-input]').press('Enter')
-  await page
-    .locator('[data-asset-tag="春季款"]')
-    .waitFor({ state: 'attached', timeout: 8000 })
-    .catch(() => {})
-  rec(
-    g,
-    '★ 第二条标签也进去了（一共两个）',
-    (await page.locator('[data-asset-tag]').count()) === 2,
-    `标签=${await page.locator('[data-asset-tag]').count()}`,
-  )
   await page.locator('[data-asset-preview-close]').click()
   await sleep(300)
 
@@ -28909,7 +28995,7 @@ async function g146(browser) {
   const railTag = page.locator('[data-assets-tag="客户A"]')
   rec(
     g,
-    '★★★ 左侧「标签」栏列出这个标签 + 计数 1（只数素材库里真出现过的）',
+    '★★★ 左侧「标签」栏列出这个标签 + 计数 1（库与历史同 hash 不重复计数）',
     (await railTag.count()) === 1 &&
       (await page.locator('[data-assets-tag-count="客户A"]').innerText()).trim() === '1',
     (await page.locator('[data-assets-tag-count="客户A"]').innerText()).trim(),
@@ -28933,22 +29019,32 @@ async function g146(browser) {
       (await page.locator('[data-assets-tag="春季款"]').count()) === 1,
   )
 
-  // ④ 没收藏的那张：灯箱里如实说"先收藏再打标签"
-  await page.locator('[data-assets-tab="history"]').click()
+  // ④ 没收藏的那张：现在也能直接打标签
+  await page.locator('[data-assets-quick="all"]').click()
   await sleep(300)
   await page.locator('[data-asset-open="t146-c"]').dblclick()
   await page.locator('[data-asset-tags]').waitFor({ state: 'visible', timeout: 6000 })
   rec(
     g,
-    '★★★ 没收藏的那张**没有打标签的输入框**，并写明先去收藏（标签挂在收藏关系上）',
-    (await page.locator('[data-asset-tag-input]').count()) === 0 &&
-      (await page.locator('[data-asset-tag-disabled]').count()) === 1,
+    '★★★ 没收藏的历史条目也有标签输入框',
+    (await page.locator('[data-asset-tag-input]').count()) === 1,
+  )
+  await page.locator('[data-asset-tag-input]').fill('未收藏标签')
+  await page.locator('[data-asset-tag-input]').press('Enter')
+  await page
+    .locator('[data-asset-tag="未收藏标签"]')
+    .waitFor({ state: 'attached', timeout: 8000 })
+    .catch(() => {})
+  rec(
+    g,
+    '★★★ 未收藏历史也能真正存下标签',
+    (await page.locator('[data-asset-tag="未收藏标签"]').count()) === 1,
   )
   await page.locator('[data-asset-preview-close]').click()
   await sleep(300)
 
   // ⑤ 删标签：标签栏里那一档跟着消失
-  await page.locator('[data-assets-tab="library"]').click()
+  await page.locator('[data-assets-quick="saved"]').click()
   await sleep(300)
   await page.locator('[data-asset-open="t146-a"]').dblclick()
   await page.locator('[data-asset-tag-remove="客户A"]').click()
@@ -30217,6 +30313,22 @@ async function g155(browser) {
     '<img src="https://cms-assets.youmind.com/media/x.jpg" width="700">',
   ].join('\n')
 
+  const README_SEEDANCE = [
+    '### 森林骑行视频',
+    '',
+    '#### 📝 Prompt',
+    '',
+    '```',
+    'seedance video prompt',
+    '```',
+    '',
+    '#### 🎬 Video',
+    '',
+    '<a href="https://cdn.example.com/videos/forest.mp4">',
+    '<img src="https://cdn.example.com/videos/forest.jpg" width="700">',
+    '</a>',
+  ].join('\n')
+
   /**
    * 顶层数组形状的 JSON（banana-prompt-quicker）。字段按真实数据文件来，
    * 用来验 `parseFlatJsonCases` 这条支路。
@@ -30272,7 +30384,12 @@ async function g155(browser) {
     }
     if (route.request().url().endsWith('.md')) {
       /** 按仓库分派版式：PicoTrex 走 pico，YouMind 三家走 youmind */
-      const body = route.request().url().includes('YouMind') ? README_YOUMIND : README_PICO
+      const url = route.request().url()
+      const body = url.includes('seedance-2-prompts')
+        ? README_SEEDANCE
+        : url.includes('YouMind')
+          ? README_YOUMIND
+          : README_PICO
       await route.fulfill({ status: 200, contentType: 'text/plain', body })
       return
     }
@@ -30285,6 +30402,17 @@ async function g155(browser) {
        * 那条断言就成了恒真；只有真竖图才能证明 `min-height: 0` + `overflow: hidden` 生效。
        */
       body: solidPngBuffer(600, 1200, [90, 140, 220]),
+    })
+  })
+  await page.route('**/cdn.example.com/**', async (route) => {
+    if (route.request().url().endsWith('.mp4')) {
+      await route.fulfill({ status: 200, contentType: 'video/mp4', body: Buffer.alloc(0) })
+      return
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      body: solidPngBuffer(64, 36, [80, 120, 180]),
     })
   })
 
@@ -30315,6 +30443,56 @@ async function g155(browser) {
       (await page.locator('[data-inspiration-source="youmind-nano-banana-pro"]').count()) === 1 &&
       (await page.locator('[data-inspiration-source="banana-quicker"]').count()) === 1,
   )
+  rec(
+    g,
+    '★★ 视频来源卡片渲染 `<video>`，不是只有一张封面',
+    (await page.locator('[data-inspiration-card="youmind-seedance-2:1"] video').count()) === 1,
+  )
+  await page.locator('[data-inspiration-card="youmind-seedance-2:1"] video').click()
+  await sleep(400)
+  const detailVideoSrc =
+    (await page.locator('[data-inspiration-detail-video]').getAttribute('src').catch(() => '')) ?? ''
+  rec(
+    g,
+    '★★ 视频详情灯箱能真的播放 mp4',
+    detailVideoSrc === 'https://cdn.example.com/videos/forest.mp4',
+    detailVideoSrc,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(300)
+
+  await page.locator('[data-inspiration-sources-open]').first().click()
+  await page.locator('[data-inspiration-sources-panel]').waitFor({ state: 'visible' })
+  rec(
+    g,
+    '★★ 管理来源面板能打开',
+    (await page.locator('[data-inspiration-source-row]').count()) === 6,
+  )
+  await page.locator('[data-inspiration-source-add-toggle]').click()
+  await page.locator('[data-inspiration-source-form-name]').fill('自定义来源')
+  await page.locator('[data-inspiration-source-form-repo]').fill('example/custom-prompts')
+  await page.locator('[data-inspiration-source-form-model]').fill('GPT Image')
+  await page.locator('[data-inspiration-source-form-kind]').selectOption('image')
+  await page.getByRole('button', { name: '保存来源' }).click()
+  await sleep(400)
+  rec(
+    g,
+    '★★ 添加 GitHub 仓库来源（不用再填数据文件地址）',
+    (await page.locator('[data-inspiration-source-row="custom:example/custom-prompts"]').count()) === 1,
+  )
+  await page
+    .locator('[data-inspiration-source-delete="custom:example/custom-prompts"]')
+    .click()
+  await page
+    .locator('[data-inspiration-source-delete-confirm="custom:example/custom-prompts"]')
+    .click()
+  await sleep(250)
+  rec(
+    g,
+    '★★ 自定义来源可删除',
+    (await page.locator('[data-inspiration-source-row="custom:example/custom-prompts"]').count()) === 0,
+  )
+  await page.locator('[data-inspiration-sources-close]').click()
   /**
    * 版式与素材页同构（用户 2026-10-14）：
    * ① 标题字号必须与「我的素材」同令牌（原来是 --fs-title=14px，素材页是 24px）；
@@ -30456,6 +30634,36 @@ async function g155(browser) {
   )
   const tagCount = await page.locator('[data-inspiration-tag]').count()
   rec(g, '★★ 标签栏由案例标签生成（不是写死的）', tagCount >= 3, `tags=${tagCount}`)
+  await page.locator('[data-inspiration-tags-toggle]').click()
+  await sleep(250)
+  rec(
+    g,
+    '★★ 灵感库标签栏可收起 / 展开',
+    (await page.locator('[data-inspiration-tag]').count()) === 0,
+  )
+  await page.locator('[data-inspiration-tags-toggle]').click()
+  await sleep(250)
+  rec(g, '★ 标签栏展开后标签回来', (await page.locator('[data-inspiration-tag]').count()) === tagCount)
+
+  await page.locator('[data-inspiration-model-filter]').selectOption('Seedance')
+  await sleep(300)
+  const modelFilterState = {
+    value: await page.locator('[data-inspiration-model-filter]').inputValue(),
+    state: await page.locator('[data-inspiration-toolbar]').getAttribute('data-model-state'),
+    countText: await page.locator('[data-inspiration-count]').innerText(),
+    models: await page
+      .locator('[data-inspiration-model]')
+      .evaluateAll((els) => els.map((el) => el.getAttribute('data-inspiration-model'))),
+  }
+  rec(
+    g,
+    '★★ 搜索框旁的模型分类真的筛卡片',
+    (await cards.count()) === 1 &&
+      (await page.locator('[data-inspiration-card="youmind-seedance-2:1"]').count()) === 1,
+    `cards=${await cards.count()} ${JSON.stringify(modelFilterState)}`,
+  )
+  await page.locator('[data-inspiration-model-filter]').selectOption('')
+  await sleep(250)
 
   await page.locator('[data-inspiration-search]').fill('奶龙')
   await sleep(400)
@@ -30465,9 +30673,9 @@ async function g155(browser) {
 
   rec(
     g,
-    '★ 每张卡带「原图 / 复制提示词」两个动作',
+    '★ 每张卡有「复制提示词」；无用的原图外链已移除',
     (await page.locator('[data-inspiration-copy]').count()) === 7 &&
-      (await page.locator('[data-inspiration-source-link]').count()) === 2,
+      (await page.locator('[data-inspiration-source-link]').count()) === 0,
   )
 
   /** 点开详情灯箱（抄素材页那套：左大图 + 右详情 + 完整提示词） */
