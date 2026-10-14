@@ -1,6 +1,6 @@
 import type { ChatMessage, ToolDeclaration } from '../../../domain/shared/execution/types'
 import type { ChannelAdapter } from '../../../platform/channels/types'
-import { asAppError, describeError } from '../../../shared/result'
+import { errorTextOf } from '../../../shared/result'
 import { parseJsonAgentAction } from './jsonToolFallback'
 
 /**
@@ -291,36 +291,10 @@ export async function resumeAgentTurn(
 /**
  * 任意抛出物 → **人能读的一句话**。
  *
- * 用户 2026-10-03 报「agent 出错了但界面上只写 `出错：[object Object]`」——
- * 因为错误对象不是 `Error` 实例（渠道层抛的是 `{kind, detail}` 这种普通对象），
- * `String(e)` 就变成 `[object Object]`，等于**把真实原因吞了**。修图 / 修视频
- * 全靠这句话，所以先把它修对。
+ * 实现在 `shared/result.errorTextOf`：2026-10-14 新增的工具能力探测又踩了同一个
+ * `[object Object]` 坑（渠道抛的不是 `Error` 实例），说明「谁记得谁写」防不住，
+ * 得共用一份。这里保留 `errText` 这个名字，因为画布与漫剧两侧都在用。
  */
 export function errText(e: unknown): string {
-  if (e instanceof Error) return e.message
-  if (typeof e === 'string') return e
-  if (e && typeof e === 'object') {
-    /**
-     * **先按 AppError 翻成人话**（用户 2026-10-05 第 3 批：「报错要中文，不要代码」）。
-     *
-     * 渠道层抛的正是 AppError 字面量（`{kind:'http', status:402, body:…}`）——
-     * 不先过这一层的话，下面那张 `message/detail/…` 的键都对不上，
-     * 会一路落到 `JSON.stringify` 把原始结构贴在界面上。
-     */
-    const app = asAppError(e)
-    if (app) return describeError(app)
-    const o = e as Record<string, unknown>
-    for (const k of ['message', 'detail', 'raw', 'reason', 'error']) {
-      const v = o[k]
-      if (typeof v === 'string' && v.trim()) return v
-    }
-    try {
-      const s = JSON.stringify(e)
-      if (s && s !== '{}') return `遇到了没预料到的错误（详情：${s.slice(0, 300)}）`
-    } catch {
-      /* 循环引用之类，走最后的兜底 */
-    }
-    return '[错误对象没有可读信息]'
-  }
-  return String(e)
+  return errorTextOf(e)
 }

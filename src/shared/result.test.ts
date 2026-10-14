@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { asAppError, describeError } from './result'
+import { asAppError, describeError, errorTextOf } from './result'
 import type { AppError } from './result'
 
 class FakeChannelError extends Error {
@@ -129,5 +129,29 @@ describe('asAppError', () => {
     expect(httpText).toContain('HTTP 451')
     expect(httpText).toContain('识别到您当前网络处于暂不支持的地区')
     expect(httpText).not.toContain('<h1>')
+  })
+})
+
+/**
+ * 用户 2026-10-03 与 2026-10-14 各踩过一次 `[object Object]`：渠道层抛的不是
+ * `Error` 实例，直接 `String(e)` 就把真实原因吞了。这个入口是那份共用兜底。
+ */
+describe('errorTextOf：任意抛出物 → 人能读的一句话', () => {
+  it('★★ ChannelError（带 appError 载荷的 Error）翻成人话，不能是 [object Object]', () => {
+    const text = errorTextOf(new FakeChannelError())
+    expect(text).not.toContain('[object Object]')
+    expect(text).toContain('渠道')
+  })
+
+  it('★★ 裸 AppError 字面量（渠道层直接抛的对象）也要翻成人话', () => {
+    const text = errorTextOf({ kind: 'http', status: 500 })
+    expect(text).not.toContain('[object Object]')
+    expect(text).toContain('500')
+  })
+
+  it('★ 普通 Error / 字符串 / 带 message 的对象逐层兜底', () => {
+    expect(errorTextOf(new Error('boom'))).toBe('boom')
+    expect(errorTextOf('直接是字符串')).toBe('直接是字符串')
+    expect(errorTextOf({ message: '人话' })).toBe('人话')
   })
 })

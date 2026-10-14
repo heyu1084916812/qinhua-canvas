@@ -192,3 +192,44 @@ export function asAppError(e: unknown): AppError | null {
   }
   return 'kind' in e ? (e as AppError) : null
 }
+
+/**
+ * 任意抛出物 → 人能读的一句话。
+ *
+ * 渠道层抛的常常**不是 `Error` 实例**（是 `ChannelError`、或 `{kind, detail}` 这类普通对象），
+ * 直接 `String(e)` 会得到 `[object Object]`，等于把真实原因吞了。
+ * 用户 2026-10-03 在 Agent 循环里踩过一次，2026-10-14 又在新增的工具能力探测里踩了一次 ——
+ * **同一个坑**，说明它不能靠「每个新模块自己记得」来防，得有一个共用入口。
+ *
+ * 顺序：先按 AppError 翻成中文，再试常见字段名，再退到 JSON，最后才是兜底文案。
+ */
+export function errorTextOf(e: unknown): string {
+  if (typeof e === 'string') return e
+  /**
+   * **先按 AppError 翻，再退回 `Error.message`。**
+   *
+   * 顺序不能反：渠道层抛的是 `ChannelError extends Error`，它的 `message` 是调试串
+   * （`[channel] http`），真正的载荷在 `appError` 字段上。先看 `instanceof Error`
+   * 会把调试串直接露给用户。2026-10-14 实测踩到，同一个坑的第三种形状。
+   */
+  if (e && typeof e === 'object') {
+    const app = asAppError(e)
+    if (app) return describeError(app)
+  }
+  if (e instanceof Error) return e.message
+  if (e && typeof e === 'object') {
+    const o = e as Record<string, unknown>
+    for (const k of ['message', 'detail', 'raw', 'reason', 'error']) {
+      const v = o[k]
+      if (typeof v === 'string' && v.trim()) return v
+    }
+    try {
+      const s = JSON.stringify(e)
+      if (s && s !== '{}') return `遇到了没预料到的错误（详情：${s.slice(0, 300)}）`
+    } catch {
+      /* 循环引用之类，走最后的兜底 */
+    }
+    return '[错误对象没有可读信息]'
+  }
+  return String(e)
+}

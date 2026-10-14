@@ -1,4 +1,5 @@
 import type { ChannelAdapter } from '../../../platform/channels/types'
+import { errorTextOf } from '../../../shared/result'
 
 /**
  * 「这个渠道 + 这个模型，能不能当 agent 的大脑」——探测与缓存（架构 §5.9 ④）。
@@ -54,6 +55,9 @@ const PROBE_TOOL = {
   parameters: { type: 'object', properties: {}, additionalProperties: false },
 } as const
 
+/** 探测请求的正文。**必须同时进 `prompt` 和 `messages`**，理由见 `probeToolCalling`。 */
+const PROBE_PROMPT = '调用 agent_probe 工具，不要输出任何文字。'
+
 const cache = new Map<string, ToolSupportResult>()
 
 const keyOf = (k: ToolSupportKey): string => `${k.channelId}::${k.model}`
@@ -80,10 +84,21 @@ export async function probeToolCalling(
         kind: 'text',
         channelId: k.channelId,
         model: k.model,
-        prompt: '调用 agent_probe 工具，不要输出任何文字。',
+        prompt: PROBE_PROMPT,
         inputs: [],
         params: {},
         tools: [PROBE_TOOL],
+        /**
+         * ⚠️ **必须给 `messages`，不能只给 `prompt`。**
+         *
+         * 探测在应用里走的不是裸适配器，而是 `channelStore.completeWithTools` ——
+         * 它**硬编码 `prompt: ''`、只认 messages**。只给 prompt 的话，上游收到的是
+         * `messages: []`，直接回 500「field messages is required」（2026-10-14 实测
+         * comfly + gemini-3.8-flash，见 `.playwright-verify/probe-gemini-comfly.mjs`）。
+         * 表现是**每个真实渠道的 Agent 一发消息就报错**，而 mock 渠道不看 messages，
+         * 所以冒烟测不出来。
+         */
+        messages: [{ role: 'user', content: PROBE_PROMPT }],
       },
       signal,
     )
@@ -107,7 +122,7 @@ export async function probeToolCalling(
      */
     return {
       supported: false,
-      reason: e instanceof Error ? e.message : String(e),
+      reason: errorTextOf(e),
       probeFailed: true,
     }
   }

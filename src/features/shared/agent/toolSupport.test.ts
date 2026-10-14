@@ -33,6 +33,25 @@ describe('工具调用能力探测', () => {
     expect(r.reason).toBeUndefined()
   })
 
+  it('★★ 探测请求必须带非空 messages（只给 prompt 会让上游收到空数组）', async () => {
+    clearToolSupportCache()
+    let seen: Record<string, unknown> = {}
+    const adapter = adapterWith(async (req) => {
+      seen = req as Record<string, unknown>
+      return { text: '', toolCalls: [{ id: 'c1', name: 'agent_probe', args: '{}' }] }
+    })
+    await probeToolCalling(adapter, KEY, signal)
+    /**
+     * 2026-10-14 实测：应用里的探测走 `completeWithTools`，它硬编码 `prompt: ''`、
+     * 只认 messages。只给 prompt 时上游收到 `messages: []`，comfly 回 500
+     * 「field messages is required」⇒ 每个真实渠道的 Agent 一发消息就报错。
+     */
+    expect(typeof seen.prompt).toBe('string')
+    const messages = seen.messages as { content?: unknown }[] | undefined
+    expect(messages?.length ?? 0).toBeGreaterThan(0)
+    expect(String(messages?.[0]?.content ?? '')).toContain('agent_probe')
+  })
+
   it('★★ 收下工具却只回文字 → 不支持，且给出可读原因（而不是笼统失败）', async () => {
     clearToolSupportCache()
     const adapter = adapterWith(async () => ({ text: '好的，我看看' }))

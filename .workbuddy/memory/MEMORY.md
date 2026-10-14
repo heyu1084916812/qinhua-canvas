@@ -6723,3 +6723,21 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   会话里 0 个用 Gemini —— 说明用户那次超时**没有落在画布执行链路**（Agent 的文本调用不写
   `runRecords`）。这决定下一步是「问清场景」，而不是继续猜渠道。
 - **★ 收口基线（第 112 批 / 对账 #488）**：单测 **2479/2479**（209 文件）、`npm run check` 全绿。
+
+## 2026-10-14 第 113 批（探测请求空 messages 的回归 #489）
+
+- **★★★ 新写的探测走了旧通道，却没按旧通道的契约传参**：`probeToolCalling` 只给 `prompt`，但应用里
+  它经 `channelStore.completeWithTools` 转发 —— 那个函数**硬编码 `prompt: ''`、只认 messages**。
+  结果上游收到 `messages: []`，comfly 回 **500「field messages is required」**，
+  **每个真实渠道的 Agent 一发消息就报错**（用户截图里就是 `[object Object]`）。
+  **教训**：接一条新调用前，先看它路上每一个转发层各自认哪个字段。
+- **★★★ mock 渠道不看 messages，所以整条回归冒烟全绿**：mock 的 `completeText` 只按 `tools` 走脚本，
+  `messages: []` 照样返回 tool_calls ⇒ G95 87/87，真实渠道却全挂。
+  **假数据的保真度决定断言的上限** —— 与 #485 那条「200 但空列表算成功」是同一类。
+  真实渠道端到端探针（`.playwright-verify/probe-agent-gemini-live.mjs`）是这次唯一能发现它的手段。
+- **★★★ `[object Object]` 第三次出现，说明它该有共用入口**：2026-10-03（agent 循环）、
+  2026-10-14（探测）各一次；而且顺序写错还会把 `ChannelError` 的调试串 `[channel] http` 露给用户。
+  现在统一走 `shared/result.errorTextOf`：**先 `asAppError` 翻中文，再退 `Error.message`**。
+  顺序不能反 —— 渠道层的 `ChannelError extends Error`，它的 `message` 是调试串，真载荷在 `appError` 上。
+- **★ 收口基线（第 113 批 / 对账 #489）**：单测 **2483/2483**（209 文件）、`npm run check` 全绿、
+  G95 **87/87**、真实渠道端到端 1/1（Gemini 3.8 Flash 正常回话）。
