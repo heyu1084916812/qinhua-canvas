@@ -25,6 +25,7 @@ import {
 import { RATIO_CHOICES } from '../../../domain/canvas/layout/ratioChoices'
 import { extractSelection } from '../../../features/canvas/extractSelection'
 import { faceBoxFromRect } from '../../../features/canvas/emotionEdit'
+import { downloadAsset } from '../../../features/canvas/downloadAsset'
 import styles from './LightboxLayer.module.css'
 
 /**
@@ -125,6 +126,22 @@ export function LightboxLayer() {
   const compareIsVideo = (compareAsset.mime ?? '').startsWith('video/')
   const [compareView, setCompareView] = useState<CompareView>('result')
   const [splitRatio, setSplitRatio] = useState(0.5)
+
+  /**
+   * 下载原图（用户 2026-10-14：画布灯箱「可以加下载原图的按钮」）。
+   *
+   * 与素材页那枚走**同一个入口**（`downloadAsset`）：能取到字节就落盘，取不到
+   * （远端视频那类只有 URL 的素材）就交给浏览器开新标签 —— 回落逻辑在那个函数里，
+   * 这里不重写一份。点完短暂显示「已下载」，与复制按钮同一套反馈口径。
+   */
+  const [downloaded, setDownloaded] = useState(false)
+  const download = useCallback(async () => {
+    if (!assetHash) return
+    const r = await downloadAsset({ assets: platform.assets, files: platform.files }, assetHash)
+    if (!r.ok) return
+    setDownloaded(true)
+    window.setTimeout(() => setDownloaded(false), 1500)
+  }, [assetHash, platform])
 
   const close = useCallback(() => store.closeLightbox(), [store])
 
@@ -646,15 +663,29 @@ export function LightboxLayer() {
             </button>
           </div>
         ) : (
-          <button
-            ref={closeRef}
-            type="button"
-            className={styles.close}
-            data-lightbox-close
-            onClick={close}
-          >
-            关闭 (Esc)
-          </button>
+          <>
+            {/*
+              下载原图（用户 2026-10-14）。放在「关闭」左边：两者都是**次要动作**，
+              同一排、同一个样式；主操作（提取选区 / 用这个框）在裁剪模式下才出现。
+            */}
+            <button
+              type="button"
+              className={styles.close}
+              data-lightbox-download
+              onClick={() => void download()}
+            >
+              {downloaded ? '已下载' : '下载原图'}
+            </button>
+            <button
+              ref={closeRef}
+              type="button"
+              className={styles.close}
+              data-lightbox-close
+              onClick={close}
+            >
+              关闭 (Esc)
+            </button>
+          </>
         )}
       </div>
     </div>

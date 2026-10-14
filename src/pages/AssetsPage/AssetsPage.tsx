@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSyncExternalStore } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
+import { useChannels } from '../../app/providers/ChannelStoreProvider'
+import { toLogicalName } from '../../domain/project/modelCatalog'
 import type { LibraryAsset } from '../../domain/shared/assetLibrary'
 import type { GroupMode, HistoryOutput, QuickFilter } from '../../domain/shared/assetHistory'
 import { downloadAsset } from '../../features/canvas/downloadAsset'
@@ -61,6 +63,20 @@ const TABS: readonly { id: AssetsTab; label: string }[] = [
  */
 export function AssetsPage() {
   const platform = usePlatform()
+  /**
+   * 渠道列表：左侧「模型生成分组」要把**上游 ID 归一成前端显示名**
+   * （用户 2026-10-14：「模型生成分组的哪里，我需要显示前端模型，而不是后端的模型 id」）。
+   *
+   * 用 `toLogicalName` 而不是固定清单的 `presetIdForUpstream`：只有**用户自己的
+   * `modelMap`**（例如 `GPT Image 2.5 Sunburst → gpt-image-2.5`）才知道这串 ID 是谁。
+   * 认不出来就原样显示，不编造一个名字。
+   */
+  const channelStore = useChannels()
+  const allChannels = useSyncExternalStore(
+    channelStore.subscribe,
+    channelStore.getState,
+    channelStore.getState,
+  ).channels
 
   const repoRef = useRef<ReturnType<typeof createAssetLibraryRepository> | null>(null)
   if (!repoRef.current) repoRef.current = createAssetLibraryRepository(platform.storage)
@@ -322,7 +338,10 @@ export function AssetsPage() {
                   store.setTab('history')
                 }}
               >
-                <span className={styles.railItemLabel}>{entry.model}</span>
+                {/* 显示**前端名**（上游 ID 经用户的 modelMap 归一），筛选值仍是原始 ID */}
+                <span className={styles.railItemLabel}>
+                  {toLogicalName(allChannels, entry.model)}
+                </span>
                 <span className={styles.railItemCount}>{entry.count}</span>
               </button>
             ))

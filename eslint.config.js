@@ -22,6 +22,13 @@ export default tseslint.config(
       'node_modules',
       '.workbuddy',
       '.playwright-verify',
+      /**
+       * `.market-research/` 是**一次性调研产物**：原样下载的第三方前端 chunk
+       * （压缩过的 minified bundle）、官方 API 规格快照等。它们既不入库
+       * （见 `.gitignore`）也不归本项目规范管 —— 让 lint 去解析压缩过的第三方
+       * bundle 只会得到一屏 `no-undef` / `no-func-assign`，把真正的错误淹掉。
+       */
+      '.market-research',
       'public',
       'scripts/probe-*.mjs',
       /**
