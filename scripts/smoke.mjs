@@ -5947,17 +5947,18 @@ async function g46(browser) {
    * 不再按模型上报收窄——模型上报的那几档往往只有 1:1 / 16:9，反而限制创作）。
    * 旧断言「模型声明 2 档就只出 2 档」已随这条决策作废。
    *
-   * ⚠️ 2026-10-15 起**末格多一个「自定义」**（用户：「自定义要加上」）= 14 格。
-   * 它不是宽高比，点开会长出一行输入框填 `宽:高`（见 `CreationPanel` 的 `ratioCustom`）。
+   * ⚠️ 2026-10-15 曾**末格多一个「自定义」**（用户：「自定义要加上」），
+   * 2026-10-16 又撤了（用户：「比例也不需要有自定义」）—— 画幅交给「画质」那排的
+   * 自定义像素说全，回到 **13 格**。
    */
   const ratioOpts = await paramOptions(page, panel, 'ratio')
   rec(
     g,
-    '比例是 13 档图形网格 + 末格「自定义」（不再按模型上报收窄）',
-    ratioOpts.length === 14 &&
+    '比例是固定的 13 档图形网格（不再按模型上报收窄，也不含自定义）',
+    ratioOpts.length === 13 &&
+      !ratioOpts.includes('自定义') &&
       ratioOpts.includes('16:9') &&
-      ratioOpts.includes('21:9') &&
-      ratioOpts[ratioOpts.length - 1] === '自定义',
+      ratioOpts.includes('21:9'),
     `opts=${JSON.stringify(ratioOpts)}`,
   )
   await pickParam(panel, 'ratio', '16:9')
@@ -11019,12 +11020,11 @@ async function waitForAssetCount(page, n, timeout) {
  * 用户实际是在下游生成节点上改比例，却看不到它。
  *
  * 本组把判据钉成「这次生成**有没有图片参考**」，而不是「节点是不是批量」：
- *  ① 纯文生图（没有任何参考图）→ 13 档 + 末格自定义，**不含**「跟随素材」（不给死开关）；
- *  ② 有上游图片（普通图生图）→ 上一条再加「跟随素材」。
+ *  ① 纯文生图（没有任何参考图）→ 13 档，**不含**「跟随素材」（不给死开关）；
+ *  ② 有上游图片（普通图生图）→ 14 档，**含**「跟随素材」。
  *
- * ⚠️ 2026-10-15：末格多了「自定义」（用户：「自定义要加上」），所以这里
- * 不再写死 13 / 14 —— 判据改成「**在 13 档的基础上多出来的那几格**」：
- * `自定义` 恒有（这一组用的模型是 `openai-images` 方言），`跟随素材` 只在 ② 有。
+ * ⚠️ 2026-10-15 末格曾多过一格「自定义」，2026-10-16 已撤（用户：「比例也不需要有自定义」）
+ * —— 所以这里回到写死 13 / 14。
  *
  * 只断言「档数」是不够的：用户要的是那一档**能被选中并生效**，
  * 所以顺带断言它选中后 chip 文案真的变成它。
@@ -11062,9 +11062,9 @@ async function g72(browser) {
   const noSource = await ratioOptions()
   rec(
     g,
-    '① 没有参考图（纯文生图）→ 13 档 + 自定义，不含「跟随素材」',
-    noSource.length === 14 && noSource.includes('自定义') && !noSource.includes('跟随素材'),
-    `档数=${noSource.length} 含自定义=${noSource.includes('自定义')} 含跟随=${noSource.includes('跟随素材')}`,
+    '① 没有参考图（纯文生图）→ 13 档，不含「跟随素材」',
+    noSource.length === 13 && !noSource.includes('跟随素材') && !noSource.includes('自定义'),
+    `档数=${noSource.length} 含跟随=${noSource.includes('跟随素材')}`,
   )
 
   // ── ② 拖入一张图（它本身就是有图的生成节点），再建下游并连线 ──
@@ -11114,9 +11114,9 @@ async function g72(browser) {
   const withSource = await ratioOptions()
   rec(
     g,
-    '★★ 有上游图（普通图生图）→ 13 档 + 自定义 + 跟随素材',
-    withSource.length === 15 && withSource.includes('自定义') && withSource.includes('跟随素材'),
-    `档数=${withSource.length} 含自定义=${withSource.includes('自定义')} 含跟随=${withSource.includes('跟随素材')}`,
+    '★★ 有上游图（普通图生图）→ 14 档，含「跟随素材」',
+    withSource.length === 14 && withSource.includes('跟随素材'),
+    `档数=${withSource.length} 含跟随=${withSource.includes('跟随素材')}`,
   )
 
   // 选中示例：chip 文案要真的变成「跟随素材」
@@ -19675,7 +19675,9 @@ async function g97(browser) {
  * 不要通用设置」）。
  *
  * 单测证的是**能力表与请求体**，这一组证的是**面板真的按模型换了一副面孔**：
- * - Comfy-gpt 的 `GPT Image 2.5 Flare` → 9 档画幅（含 21:9 / 9:21）+ 1K·2K + **六档质量**（含超高/最高）+ 1·2·4 张；
+ * - Comfy-gpt 的 `GPT Image 2.5 Flare` → 13 档画幅（含 21:9 / 9:21）+ 1K / 2K / 4K + 自定义像素
+ *   + **质量只有低 / 中 / 高** + 两档背景 + 1·2·4 张（2026-10-16 收紧后的口径）；
+ * - `Nano Banana Pro` → 官方 10 档画幅（无 1:4 / 1:8 / 4:1 / 8:1、也无 `auto`）+ 1K·2K·4K；
  * - `Agnes Image 2.5 Flash` → 8 档画幅 + 1K–4K，**没有质量、没有张数**这两段。
  *
  * `Agnes Image 2.0 Flash`（像素尺寸、连比例段都没有）**不在前端清单里**（用户拍板
@@ -19751,23 +19753,27 @@ async function g98(browser) {
   const gptBackgroundLabels = await labelsOf('background')
   rec(
     g,
-    '★★ GPT Image 2.5 Flare：尺寸+质量并进「画质」（含自定义）/ 两档背景 / 13 档比例+自定义 / 1·2·4 张（独立一枚）',
+    '★★ GPT Image 2.5 Flare：尺寸+质量并进「画质」（尺寸含自定义）/ 低中高 / 两档背景 / 13 档比例 / 1·2·4 张（独立一枚）',
     JSON.stringify(gptSections) ===
       JSON.stringify(['resolution', 'quality', 'background', 'ratio']) &&
-      /* 首档 `auto` = 参考图那排最前面的「自动」；它也是节点默认值 */
-      JSON.stringify(gptQuality) === JSON.stringify(['auto', 'low', 'medium', 'high', 'xhigh', 'max']) &&
-      /* 档位文案 2026-10-15 起**不带「画质」后缀**（用户：「直接就是低，标准」） */
-      gptQualityLabels.includes('标准') &&
-      gptQualityLabels.includes('极致') &&
-      /* 末格「自定义」2026-10-15 补上（用户：「自定义要加上」） */
+      /**
+       * 画质 2026-10-16 起**只有高中低**（用户：「gpt2 没有这么多的画质选项，只有高中低」）
+       * —— 原先照参考图摆的 `auto / xhigh / max` 一并撤下。
+       */
+      JSON.stringify(gptQuality) === JSON.stringify(['low', 'medium', 'high']) &&
+      /* 文案也不带「画质」后缀（用户：「直接就是低，标准」那次的收尾） */
+      gptQualityLabels.includes('低') &&
+      gptQualityLabels.includes('中') &&
+      gptQualityLabels.includes('高') &&
+      /* 尺寸末格「自定义」保留（用户只撤了比例那一格的自定义） */
       JSON.stringify(gptRes) === JSON.stringify(['1k', '2k', '4k', '自定义']) &&
       /* 背景砍到两档（用户：「背景不需要三个了，直接就两个，默认和透明底」） */
       JSON.stringify(gptBackground) === JSON.stringify(['auto', 'transparent']) &&
       gptBackgroundLabels.includes('默认') &&
       gptBackgroundLabels.includes('透明底') &&
-      /* 13 档比例 + 末格「自定义」 */
-      gptRatios.length === 14 &&
-      gptRatios.includes('自定义') &&
+      /* 比例**只有真比例**：末格「自定义」2026-10-16 已撤（用户：「比例也不需要有自定义」） */
+      gptRatios.length === 13 &&
+      !gptRatios.includes('自定义') &&
       gptRatios.includes('21:9') &&
       gptRatios.includes('9:21') &&
       JSON.stringify(gptCounts) === JSON.stringify(['1', '2', '4']),
@@ -19800,9 +19806,13 @@ async function g98(browser) {
   await sleep(250)
 
   /**
-   * ③ Nano Banana（gemini 方言）：参数走**官方文档**那份 —— 14 档宽高比 + image_size
-   * （Pro 1K/2K/4K、Nano Banana 2 多一档 512）。这三档是 2026-10-03 从 Google
-   * 《Nano Banana 图片生成》文档里抄的，且实测只在 Gemini 原生端点上生效。
+   * ③ Nano Banana（gemini 方言）：参数走**官方文档那张尺寸表**，且**每个模型按自己那一栏**：
+   * `3.1 Pro Image` 10 档宽高比，`2.1 / 3.1 Flash Image` 才是 14 档
+   * （`1:4 / 1:8 / 4:1 / 8:1` 四个长条只有后者支持）。
+   *
+   * ⚠️ 2026-10-16 用户当场指出的两处：① 「香蕉 pro 没有这么多尺寸」—— 原先两个模型
+   * 共用了 14 档那张表；② 「比例不需要有 auto，跟随素材就是 auto 了」—— 面板不再摆 `auto`，
+   * 那一档的语义（跟输入图一致）交给**跟随素材**（只在真有上游图时出现）。
    */
   await pickModel('Nano Banana Pro')
   await openParams()
@@ -19810,21 +19820,22 @@ async function g98(browser) {
   const nanoSizes = await valuesOf('resolution')
   rec(
     g,
-    '★★ Nano Banana Pro：自适应 + 官方 14 档宽高比 + 1K·2K·4K（不含 512）',
-    nanoRatios.length === 15 &&
-      nanoRatios[0] === 'auto' &&
-      nanoRatios.includes('1:8') &&
-      nanoRatios.includes('8:1') &&
+    '★★ Nano Banana Pro：官方 10 档宽高比（不含 1:4/1:8/4:1/8:1）+ 1K·2K·4K（不含 512），且没有 auto',
+    nanoRatios.length === 10 &&
+      !nanoRatios.includes('auto') &&
+      !nanoRatios.includes('1:8') &&
+      !nanoRatios.includes('8:1') &&
+      nanoRatios.includes('5:4') &&
       nanoRatios.includes('21:9') &&
       JSON.stringify(nanoSizes) === JSON.stringify(['1k', '2k', '4k']),
     `比例=${nanoRatios.length} 尺寸=${JSON.stringify(nanoSizes)}`,
   )
 
-  /** 「自适应」不是宽高比 ⇒ 网格里只出文字、不画矩形示意（画了会和 1:1 撞脸） */
+  /** 撤掉的不是「画不画图形」，而是**整格都不该在** —— 摆着就是点了没用的死格子 */
   rec(
     g,
-    '★ 香蕉面板的「自适应」画的是文字格（没有比例图形）',
-    (await popup().locator('[data-param-in="ratio"][data-param-option="auto"] [data-ratio-glyph]').count()) === 0,
+    '★ 香蕉面板没有 auto 那一格（跟随素材已表达同一件事）',
+    (await popup().locator('[data-param-in="ratio"][data-param-option="auto"]').count()) === 0,
   )
   await page.screenshot({ path: `${OUT}/121-g98-nano-banana.png` })
 

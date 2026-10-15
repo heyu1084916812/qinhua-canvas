@@ -80,14 +80,20 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
 
   /**
    * **Nano Banana（Gemini 系）**：参数全部来自 Google 官方文档
-   * 《Nano Banana 图片生成》—— 14 档宽高比 + `image_size`；
-   * 走 **Gemini 原生端点**才生效（`chat` / `images` 路径会把这两个参数吃掉）。
+   * 《图片生成》那张尺寸表 —— 走 **Gemini 原生端点**才生效
+   * （`chat` / `images` 路径会把这两个参数吃掉）。
    *
-   * 用户 2026-10-03 图二的香蕉面板**最前面多一格「自适应」**，即 `auto`。
+   * ⚠️ **两个模型的比例档数不一样**（2026-10-16 修正）：官方表里
+   * `1:4 / 1:8 / 4:1 / 8:1` 四个长条只出现在 2.1 与 3.1 Flash Image 两栏，
+   * `3.1 Pro Image` 只有 10 档。此前两个模型共用 14 档那张表 —— 用户当场看出
+   * 「香蕉 pro 没有这么多尺寸」。
+   *
+   * 面板也不再有 `auto` 那一格（用户：「比例不需要有 auto，跟随素材就是 auto 了」）——
+   * 「不下发 aspectRatio」这个默认值由传输层兜底（见 `GEMINI_DEFAULT_RATIO`），
+   * 不再混进能力表。
    */
-  it('★★ Nano Banana Pro / 2：gemini 方言、14 档宽高比 + 自适应、尺寸档按官方文档', () => {
-    const ratios = [
-      'auto',
+  it('★★ Nano Banana Pro（10 档）/ 2（14 档）：gemini 方言、比例与尺寸档逐模型照官方文档', () => {
+    const flashRatios = [
       '1:1',
       '1:4',
       '1:8',
@@ -103,10 +109,12 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
       '16:9',
       '21:9',
     ]
+    const proRatios = flashRatios.filter((r) => !['1:4', '1:8', '4:1', '8:1'].includes(r))
     for (const name of ['Nano Banana Pro', 'gemini-3-pro-image']) {
       const spec = imageParamsFor(name)
       expect(spec?.dialect).toBe('gemini')
-      expect(spec?.ratios).toEqual(ratios)
+      expect(spec?.ratios).toEqual(proRatios)
+      expect(spec?.ratios).toHaveLength(10)
       /** 官方：「512 像素 (0.5K) 仅限 Gemini 3.1 Flash Image」 ⇒ Pro 只有 1K/2K/4K */
       expect(spec?.sizes).toEqual(['1K', '2K', '4K'])
     }
@@ -115,8 +123,12 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
       expect(spec?.dialect).toBe('gemini')
       expect(spec?.sizes).toEqual(['512', '1K', '2K', '4K'])
       expect(spec?.qualities).toEqual([])
-      expect(spec?.ratios).toEqual(ratios)
+      expect(spec?.ratios).toEqual(flashRatios)
+      expect(spec?.ratios).toHaveLength(14)
     }
+    /** 两个模型都不该再有 `auto` 那一格 */
+    expect(imageParamsFor('Nano Banana Pro')?.ratios).not.toContain('auto')
+    expect(imageParamsFor('Nano Banana 2')?.ratios).not.toContain('auto')
   })
 
   it('★ 同一族的变体 ID（-2k / -4k / -preview）按前缀归一到同一份 gemini 规格', () => {
@@ -135,10 +147,10 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
    * 画质那种档位，把 GPT 的，需要加上背景这个参数」）。
    *
    * 于是 GPT 的不再是「官方 size 四选一」，而是：
-   * 画质（低/标准/高/超高/极致）→ 清晰度（1K/2K/4K）→ 背景（默认/透明底）
+   * 画质（低/中/高）→ 清晰度（1K/2K/4K）→ 背景（默认/透明底）
    * → 比例（13 档）→ 生成数量。发请求时把「比例 × 清晰度」换算成 OpenAI 认的像素 `size`。
    */
-  it('★★ GPT Image 三档：比例 13 档 + 清晰度 1K/2K/4K + 六档画质（含自动）+ 两档背景', () => {
+  it('★★ GPT Image 三档：比例 13 档 + 清晰度 1K/2K/4K + 低/中/高 + 两档背景', () => {
     for (const name of ['GPT Image 2', 'GPT Image 2.5 Flare', 'GPT Image 2.5 Sunburst']) {
       const spec = imageParamsFor(name)
       expect(spec?.dialect).toBe('openai-images')
@@ -147,10 +159,11 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
       expect(spec?.ratios).toContain('21:9')
       expect(spec?.ratios).toContain('9:21')
       /**
-       * 首档 `auto`：节点默认质量就是 `auto`，它不在列表里时面板**一格都不高亮**
-       * （2026-10-15 补；官方 `quality` 本来就含 `auto`，参考图那排也是「自动」在最前）。
+       * 画质 2026-10-16 起**只有三档**（用户：「gpt2 没有这么多的画质选项，只有高中低」）
+       * —— `auto` / `xhigh` / `max` 都撤下：前者的语义就是「不下发」，
+       * 后两者本来也不是官方枚举。
        */
-      expect(spec?.qualities).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max'])
+      expect(spec?.qualities).toEqual(['low', 'medium', 'high'])
       /**
        * 背景 2026-10-15 起**只剩两档**（用户：「背景不需要三个了，直接就两个，默认和透明底」）
        * —— `opaque`（原「保留背景」）已从能力表里拿掉。

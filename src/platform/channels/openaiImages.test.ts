@@ -427,22 +427,22 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
   /**
    * **GPT Image 三档**：面板给的是**比例 + 清晰度**（用户 2026-10-03 图一：
    * 「我不想用具体的像素标志，我想要比例那种档位」），发请求时换算成 OpenAI 认的像素 `size`；
-   * `quality` 走该模型能力表（含官方也有的 `xhigh` / `max`），`n` 按能力表夹到 4。
+   * `quality` 走该模型能力表（2026-10-16 起只有 `low / medium / high`），`n` 按能力表夹到 4。
    */
-  it('★★ GPT Image 2.5 Flare：比例 × 清晰度 → 像素 size、quality 走 xhigh、张数夹到 4', async () => {
+  it('★★ GPT Image 2.5 Flare：比例 × 清晰度 → 像素 size、quality 走能力表、张数夹到 4', async () => {
     const calls: { url: string; body: unknown }[] = []
     await adapter(calls).generateImage(
       {
         ...request([], 12),
         model: 'gpt-image-2.5-flare',
-        params: { count: 12, ratio: '1:1', resolution: '1k', quality: 'xhigh' },
+        params: { count: 12, ratio: '1:1', resolution: '1k', quality: 'medium' },
       },
       signal,
     )
     const body = calls[0]!.body as Record<string, unknown>
     /** 1:1 × 1K = 1024×1024（`openAiImageSize` 按预算解出来再吸附到 16 的倍数） */
     expect(body.size).toBe('1024x1024')
-    expect(body.quality).toBe('xhigh')
+    expect(body.quality).toBe('medium')
     expect(body.n).toBe(4)
   })
 
@@ -561,7 +561,12 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
     expect(body).not.toHaveProperty('size')
   })
 
-  it('★ 能力表外的质量档不发（xhigh 只对该模型放行，别家仍是四档）', async () => {
+  /**
+   * 2026-10-16：GPT Image 的画质点名表收回 `low / medium / high` 之后，
+   * `xhigh` / `max` 这两个「中转站扩出来的档」对**任何**模型都不再放行 ——
+   * 旧节点上留着这两个值也不会发出去（发了它不认的就是 400）。
+   */
+  it('★ 已撤下的质量档一律不发（xhigh / max 对谁都不过）', async () => {
     const calls: { url: string; body: unknown }[] = []
     const a = adapter(calls)
     await a.generateImage(
@@ -569,11 +574,17 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
       signal,
     )
     await a.generateImage(
-      { ...request([], 1), model: 'some-other-image', params: { count: 1, quality: 'xhigh' } },
+      { ...request([], 1), model: 'gpt-image-2', params: { count: 1, quality: 'xhigh' } },
       signal,
     )
-    expect((calls[0]!.body as Record<string, unknown>).quality).toBe('max')
+    await a.generateImage(
+      { ...request([], 1), model: 'some-other-image', params: { count: 1, quality: 'low' } },
+      signal,
+    )
+    expect((calls[0]!.body as Record<string, unknown>).quality).toBeUndefined()
     expect((calls[1]!.body as Record<string, unknown>).quality).toBeUndefined()
+    /** 没有能力表的老模型仍走通用四档，`low` 照发 */
+    expect((calls[2]!.body as Record<string, unknown>).quality).toBe('low')
   })
 
   /**

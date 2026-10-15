@@ -65,6 +65,16 @@ const MAX_PIXELS = 8294400
 const MIN_PIXELS = 655360
 const SNAP = 16
 
+/**
+ * **Gemini 的「不下发比例」默认值**（内部哨兵，**不在任何能力表里**）。
+ *
+ * 官方语义：不传 `aspectRatio` = 跟输入图一致；没有输入图时才是 1:1。
+ * 面板上表达这件事的是**跟随素材**那一档（只在真有上游图时出现），
+ * 所以 `auto` 已经不在 `spec.ratios` 里 —— 没选比例时由这里兜底，
+ * 而不是再靠「`spec.ratios[0]` 恰好是 `auto`」顺带实现。
+ */
+const GEMINI_DEFAULT_RATIO = 'auto'
+
 export function openAiImageSize(ratio: unknown, resolution?: unknown): string | null {
   if (typeof ratio !== 'string') return null
   const [rawW, rawH] = ratio.replace(/\s+/g, '').split(':').map((s) => Number.parseFloat(s))
@@ -134,27 +144,28 @@ export function customImageSize(value: unknown): string | null {
 /**
  * OpenAI 官方图像协议接受的 `quality` 取值。
  *
- * 另外四个（`xhigh` / `max`）不在这里 —— 它们是**中转站自己扩的档**，由模型的
+ * `xhigh` / `max` 不在这里 —— 它们是**中转站自己扩的档**，要发必须由模型的
  * `imageParamsFor` 能力表（`spec.qualities`）放行，见 `openAiImageQuality` 的第二个参数。
+ * 2026-10-16 起 GPT Image 那三档的能力表只有 `low / medium / high`，所以这两个值
+ * 对**内置模型**已经等于不发。
  */
 const OPENAI_QUALITIES = new Set(['auto', 'low', 'medium', 'high'])
 
 /**
  * 质量档透传：**只发自名单里的值**（发了它不认的就是 400）。
  *
- * `allowed` 由模型能力表给（用户 2026-10-03「每个模型单独配置」）：
- * Comfy-gpt 的 GPT Image 档实测合法值是 `auto/low/medium/high/xhigh/max`
- * （服务端错误原文列出），比 OpenAI 官方多两档。
+ * `allowed` 由模型能力表给（用户 2026-10-03「每个模型单独配置」）。GPT Image 那三档
+ * 2026-10-16 起点名 `low / medium / high`（用户：「gpt2 没有这么多的画质选项，只有高中低」）
+ * —— 此前照服务端报错原文摆的 `xhigh` / `max` 一并撤下。
  */
 export function openAiImageQuality(quality: unknown, allowed?: readonly string[]): string | null {
   if (typeof quality !== 'string') return null
   /**
-   * **`auto` 一律不下发**（用户 2026-10-15：参考图那排画质带「自动」，所以它现在
-   * 也在能力表里 ⇒ 面板会显示并高亮这一格）。
+   * **`auto` 一律不下发**：它在传输层的语义就是「让服务端自己定」= 等价于
+   * 不指定这个字段，发 `auto` 反而可能被中转站拒。
    *
-   * 但它在**传输层**的语义始终是「让服务端自己定」= 等价于不指定这个字段；
-   * 发 `auto` 反而可能被中转站拒。所以面板照常显示，请求照常省略 ——
-   * 两件事分开，界面有得选、线上一字不多发。
+   * 2026-10-16 起它连面板也不摆了（GPT 那排只剩低/中/高），但这条分支**保留**：
+   * 旧节点上存过 `auto`、没有能力表的老模型也还认它，两条路都不该把它发出去。
    */
   if (quality === 'auto') return null
   if (allowed) return allowed.includes(quality) ? quality : null
@@ -525,9 +536,10 @@ export function createOpenAiImagesAdapter(
      */
     if (spec?.dialect === 'gemini') {
       const wantedRatio = typeof request.params.ratio === 'string' ? request.params.ratio : ''
-      const ratio = spec.ratios.includes(wantedRatio) ? wantedRatio : spec.ratios[0]
-      /** 面板第一档是 `auto`（自适应）= 不下发 aspectRatio，只给 imageSize */
-      const sendRatio = ratio && ratio !== 'auto' ? ratio : null
+      /** 认不出来的值（含面板上的「跟随素材」）一律落到「不下发比例」那一档 */
+      const ratio = spec.ratios.includes(wantedRatio) ? wantedRatio : GEMINI_DEFAULT_RATIO
+      /** 不下发 `aspectRatio` = 跟输入图一致（没有输入图时官方默认 1:1），只给 imageSize */
+      const sendRatio = ratio === GEMINI_DEFAULT_RATIO ? null : ratio
       const wantedSize = String(request.params.resolution ?? '').toUpperCase()
       const imageSize = spec.sizes.find((s) => s.toUpperCase() === wantedSize) ?? spec.sizes[0]
       /** `base` 形如 `…/v1`，原生端点在同一主机的 `/v1beta` 上 */

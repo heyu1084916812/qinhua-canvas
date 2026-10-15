@@ -16,10 +16,10 @@
  *
  * 非 Agnes 的固定显示名（对账 #118 / #119 / #129）：
  * - **Comfy-gpt 的三个 GPT Image 档**：`size` 必须是 `WxH`（档位字符串会被拒）、
- *   `quality` 认 `auto/low/medium/high/xhigh/max`；面板给的是**比例 × 清晰度**，
+ *   `quality` 面板只给 `low/medium/high`（2026-10-16 按用户口径收回）；面板给的是**比例 × 清晰度**，
  *   发请求时换算成像素（用户 2026-10-03 图一）；
- * - **Nano Banana Pro / 2**：官方 14 档宽高比 + `image_size`，且必须走
- *   **Gemini 原生端点**（`/chat/completions` 会把这两个参数吃掉）；
+ * - **Nano Banana Pro / 2**：比例按官方表的**各自栏位**（Pro 10 档、2 及 3.1 Flash 14 档）
+ *   + `image_size`，且必须走 **Gemini 原生端点**（`/chat/completions` 会把这两个参数吃掉）；
  * - **Midjourney**（2026-10-03 用户两张参考图）：**只有三段** —— 分辨率（只有「自适应」）、
  *   比例（七档）、生成数量；它独有的风格参数（`--stylize` 等）在另一枚「高级设置」里，
  *   见 `mjParams.ts`。⚠️ 它的值域**不是从官网页面上读的**（三个域名都回 403），
@@ -37,13 +37,17 @@ export interface ImageParamSpec {
   /**
    * **比例档**（**空数组 = 该模型不用 ratio**，面板上这一段不摆）。
    * 图一/图二那份含 `1:2 / 2:1 / 5:4 / 4:5 / 9:21` 这些窄档，
-   * 香蕉那份还会带一个 `auto`（= 自适应，不向渠道指定画幅）。
+   * 香蕉那份按官方表逐模型给（Pro 10 档、2 及 3.1 Flash 14 档）。
+   *
+   * ⚠️ 2026-10-16：香蕉那份的 `auto`（自适应）**已从表里撤下**（用户：「比例不需要有 auto，
+   * 跟随素材就是 auto 了」）—— 它只活在传输层的默认值里（`GEMINI_DEFAULT_RATIO`）。
    */
   ratios: readonly string[]
   /**
-   * **画质档**（用户 2026-10-03 图一：低 / 标准 / 高 / 超高 / 极致）。
-   * 值仍用各家接口的合法枚举（OpenAI 官方是 `low/medium/high/xhigh/max`），
-   * 面板只负责把 `medium` 显示成「标准」（2026-10-15 起不再带「画质」后缀）。
+   * **画质档**（GPT Image 那份 2026-10-16 起是 低 / 中 / 高）。
+   * 值仍用各家接口的合法枚举（OpenAI 官方是 `low/medium/high`；`xhigh`/`max`
+   * 是某家中转站扩出来的，内置模型不再放行），面板只负责换中文标签
+   * （2026-10-15 起不再带「画质」后缀）。
    */
   qualities: readonly string[]
   /**
@@ -94,11 +98,17 @@ const AGNES_IMAGE_RATIOS = [
 const AGNES_IMAGE_TIERS = ['1K', '2K', '3K', '4K'] as const
 
 /**
- * Gemini 图像模型的 14 档宽高比 —— **官方文档《Nano Banana 图片生成》里那张表逐行抄的**
- * （`1:1 / 1:4 / 1:8 / 2:3 / 3:2 / 3:4 / 4:1 / 4:3 / 4:5 / 5:4 / 8:1 / 9:16 / 16:9 / 21:9`）。
- * 注意它比 Agnes 那 6 档宽得多：竖长条（1:8）、横长条（8:1）都在内。
+ * **Gemini 图像的官方宽高比 —— 两个模型不是同一张表**（2026-10-16 修正）。
+ *
+ * 官方《图片生成》那张表把每个模型单列：`3.1 Pro Image`（Nano Banana Pro）一栏是
+ * **10 档**，`Nano Banana 2.1` 与 `3.1 Flash Image` 两栏才是 **14 档** ——
+ * 多出来的 `1:4 / 1:8 / 4:1 / 8:1` 四个长条**只有后两者支持**。
+ *
+ * 用户 2026-10-16：「香蕉 pro 没有这么多尺寸」。此前两个模型共用 14 档那张表，
+ * 于是 Pro 的面板上多摆了四格它不认的比例 —— 点下去要么被模型忽略、要么悄悄回 1:1，
+ * 正是本项目最忌讳的「摆着好看、按了没用」。
  */
-const GEMINI_IMAGE_RATIOS = [
+const GEMINI_FLASH_RATIOS = [
   '1:1',
   '1:4',
   '1:8',
@@ -115,8 +125,19 @@ const GEMINI_IMAGE_RATIOS = [
   '21:9',
 ] as const
 
-/** 香蕉面板那份（用户 2026-10-03 图二）：最前面多一个 `auto` = 自适应 */
-const GEMINI_RATIOS_WITH_AUTO = ['auto', ...GEMINI_IMAGE_RATIOS] as const
+/** `3.1 Pro Image` 的那 10 档（就是上面那张表去掉四个长条） */
+const GEMINI_PRO_RATIOS = [
+  '1:1',
+  '2:3',
+  '3:2',
+  '3:4',
+  '4:3',
+  '4:5',
+  '5:4',
+  '9:16',
+  '16:9',
+  '21:9',
+] as const
 
 /**
  * **GPT Image 的面板档位**（用户 2026-10-03 图一）：
@@ -150,12 +171,19 @@ const OPENAI_IMAGE_RATIOS = [
   '9:21',
 ] as const
 /**
- * ⚠️ **首档必须是 `auto`**（2026-10-15 补）：节点的默认质量就是 `auto`，
- * 而它原先不在这个列表里 ⇒ 面板上**一格都不高亮**（默认值没有对应的选项可显示）。
- * `auto` 本来就是 OpenAI 官方 `quality` 的合法值之一（官方规范：
- * `low / medium / high / xhigh / max / auto`），参考图那排也是「自动」在最前。
+ * GPT Image 的画质档 **只有三档**（用户 2026-10-16：「gpt2 没有这么多的画质选项，
+ * 只有高中低」）。
+ *
+ * 口径变过两次：
+ *  · 2026-10-15 照参考图那排补到六档（`auto / low / medium / high / xhigh / max`）——
+ *    里面 `xhigh` / `max` 本来就不是官方枚举，是某家中转站自己扩的档；
+ *  · 2026-10-16 用户按它实际用的渠道把这一排收回 **低 / 中 / 高**。
+ *
+ * ⚠️ `auto` 一并撤下：它在这排里等于「不下发 quality」= 服务端默认，与「没选」
+ * 是同一件事，摆在面板上只是多一格点了没差别的格子。面板未设置时**一格不高亮**，
+ * 摘要里仍读「自动」（那是在说「交给模型定」，不是说这一格被选中了）。
  */
-const OPENAI_IMAGE_QUALITIES = ['auto', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+const OPENAI_IMAGE_QUALITIES = ['low', 'medium', 'high'] as const
 /**
  * 背景 **只有两档**（用户 2026-10-15：「背景不需要三个了，直接就两个，默认和透明底」）。
  *
@@ -217,11 +245,9 @@ export const IMAGE_PARAM_SPECS: Record<string, ImageParamSpec> = {
    * 2026-10-03 实读）——
    * - `size`：`auto / 1024x1024 / 1536x1024 / 1024x1536`（`256x256` / `512x512` /
    *   `1792x1024` 在规范里已标为**废弃的老尺寸**，故不摆）；
-   * - `quality`：`low / medium / high / xhigh / max / auto`（`standard` / `hd` 已废弃）；
+   * - `quality`：`low / medium / high`（面板只摆这三档 —— 用户 2026-10-16
+   *   「gpt2 没有这么多的画质选项，只有高中低」）；
    * - `n`：**1–10**（面板给 1 / 2 / 4 / 9，都在范围内）。
-   *
-   * 中转站实测与官方一致：它自己的报错原文也是这六个 quality 值；`size` 必须是
-   * `WxH`（官方这几个尺寸正好都是）。
    */
   ...Object.fromEntries(
     (['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'] as const).map((id) => [
@@ -239,13 +265,17 @@ export const IMAGE_PARAM_SPECS: Record<string, ImageParamSpec> = {
   ),
   /**
    * **Nano Banana Pro（`gemini-3-pro-image`）** —— 参数全部来自 Google 官方文档
-   * 《Nano Banana 图片生成》（2026-10-03 实读，浏览器抓的正文）：
-   * 宽高比 14 档、`image_size` 支持 `1K / 2K / 4K`（Pro 不含 512）。
+   * 《图片生成》（2026-10-16 复读官方尺寸表）：宽高比 **10 档**、
+   * `image_size` 支持 `1K / 2K / 4K`（Pro 不含 512）。
+   *
+   * ⚠️ 那 10 档就是官方表里 `3.1 Pro Image` 一栏（不带 `1:4 / 1:8 / 4:1 / 8:1`）——
+   * 见 `GEMINI_PRO_RATIOS` 的说明，别再和 Flash 那份 14 档的表混用。
+   *
    * 文档特别注明 **`image_size` 必须大写 K**（小写会被拒）。
    */
   'gemini-3-pro-image': {
     sizes: ['1K', '2K', '4K'],
-    ratios: GEMINI_RATIOS_WITH_AUTO,
+    ratios: GEMINI_PRO_RATIOS,
     qualities: [],
     backgrounds: [],
     counts: IMAGE_COUNTS,
@@ -253,12 +283,18 @@ export const IMAGE_PARAM_SPECS: Record<string, ImageParamSpec> = {
     dialect: 'gemini',
   },
   /**
-   * **Nano Banana 2（`gemini-3.1-flash-image`）**：同一份官方文档，多一档 `512`
-   * （「Gemini 3.1 Flash Image 新增了较小的 512 像素 (0.5K) 分辨率」）。
+   * **Nano Banana 2（`gemini-3.1-flash-image`）**：同一份官方文档，
+   * **宽高比 14 档**（比 Pro 多 `1:4 / 1:8 / 4:1 / 8:1` 四个长条），
+   * 且多一档 `512`（「Gemini 3.1 Flash Image 新增了较小的 512 像素 (0.5K) 分辨率」）。
+   *
+   * `auto` 已从这两个模型的表里撤下（用户 2026-10-16：「比例不需要有 auto，
+   * 跟随素材就是 auto 了」）—— 「跟输入图一致」这件事由面板上的**跟随素材**
+   * 这一档表达；没有输入图时它本就不出现，而官方默认就是 1:1。
+   * 传输层的「不下发 aspectRatio」默认值见 `openaiImages.ts` 的 `GEMINI_DEFAULT_RATIO`。
    */
   'gemini-3.1-flash-image': {
     sizes: ['512', '1K', '2K', '4K'],
-    ratios: GEMINI_RATIOS_WITH_AUTO,
+    ratios: GEMINI_FLASH_RATIOS,
     qualities: [],
     backgrounds: [],
     counts: IMAGE_COUNTS,
