@@ -6099,12 +6099,14 @@ async function g46(browser) {
   )
 
   /**
-   * ★★ **比例一排 4 个 + 各段左右边距完全一致**（用户 2026-10-03：
-   * 「把比例替换成 4 个比例一排，当前是三个」「三个部分的参数和面板左右的边距要一样」）。
+   * ★★ **比例一排 5 个 + 各段左右边距完全一致**。
+   *
+   * 口径变过两次：2026-10-03 用户说「4 个比例一排」→ 2026-10-15 看参考图后
+   * 「而且参考图的比例是五个为一排的」，改回 5 个。边距一致那条没变。
    *
    * 两个数都是几何事实，不看样式声明：
-   *  · 比例格按 y 分组——**第一行恰好 4 格**；
-   *  · 画质 / 清晰度 / 背景 / 比例 / 数量五段的左、右偏移**逐段相等**
+   *  · 比例格按 y 分组——**第一行恰好 5 格**；
+   *  · 画质（尺寸+质量）/ 背景 / 比例各段的左、右偏移**逐段相等**
    *    （原先每段各按自己的内容定宽，一段比一段窄）。
    */
   const layoutProbe = await panel.locator('[data-param-popup="gen-params"]').evaluate((el) => {
@@ -6124,8 +6126,8 @@ async function g46(browser) {
   )
   rec(
     g,
-    '★★ 比例一排 4 个，且五段的左右边距逐段一致',
-    layoutProbe.firstRow === 4 && layoutProbe.sections.length >= 4 && sameMargins,
+    '★★ 比例一排 5 个，且各段的左右边距逐段一致',
+    layoutProbe.firstRow === 5 && layoutProbe.sections.length >= 3 && sameMargins,
     `首行=${layoutProbe.firstRow} 段=${JSON.stringify(layoutProbe.sections)}`,
   )
 
@@ -19739,7 +19741,8 @@ async function g98(browser) {
     '★★ GPT Image 2.5 Flare：尺寸+质量并进「画质」/ 三档背景 / 13 档比例 / 1·2·4 张（独立一枚）',
     JSON.stringify(gptSections) ===
       JSON.stringify(['resolution', 'quality', 'background', 'ratio']) &&
-      JSON.stringify(gptQuality) === JSON.stringify(['low', 'medium', 'high', 'xhigh', 'max']) &&
+      /* 首档 `auto` = 参考图那排最前面的「自动」；它也是节点默认值 */
+      JSON.stringify(gptQuality) === JSON.stringify(['auto', 'low', 'medium', 'high', 'xhigh', 'max']) &&
       gptQualityLabels.includes('标准画质') &&
       gptQualityLabels.includes('极致画质') &&
       JSON.stringify(gptRes) === JSON.stringify(['1k', '2k', '4k']) &&

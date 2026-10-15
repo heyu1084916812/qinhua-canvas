@@ -144,7 +144,13 @@ const OPENAI_IMAGE_RATIOS = [
   '21:9',
   '9:21',
 ] as const
-const OPENAI_IMAGE_QUALITIES = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+/**
+ * ⚠️ **首档必须是 `auto`**（2026-10-15 补）：节点的默认质量就是 `auto`，
+ * 而它原先不在这个列表里 ⇒ 面板上**一格都不高亮**（默认值没有对应的选项可显示）。
+ * `auto` 本来就是 OpenAI 官方 `quality` 的合法值之一（官方规范：
+ * `low / medium / high / xhigh / max / auto`），参考图那排也是「自动」在最前。
+ */
+const OPENAI_IMAGE_QUALITIES = ['auto', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 const OPENAI_IMAGE_BACKGROUNDS = ['auto', 'opaque', 'transparent'] as const
 const OPENAI_IMAGE_TIERS = ['1K', '2K', '4K'] as const
 

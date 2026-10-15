@@ -774,7 +774,14 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
     expect(openAiImageSize('22:7')).toBeNull()
     expect(openAiImageSize(null)).toBeNull()
     expect(openAiImageSize(undefined)).toBeNull()
-    expect(openAiImageQuality('auto')).toBe('auto')
+    /**
+     * `auto` = 「让服务端自己定」⇒ **映射结果就是 null（不下发）**。
+     * 用户 2026-10-15：参考图那排画质带「自动」，所以它进了能力表（面板要显示、
+     * 要能高亮这一格）；但传输层依旧等价于「不指定」——发了反而可能被中转站拒。
+     * 界面有得选 / 线上一字不多发，是两件事。
+     */
+    expect(openAiImageQuality('auto')).toBeNull()
+    expect(openAiImageQuality('auto', ['auto', 'low'])).toBeNull()
     expect(openAiImageQuality('medium')).toBe('medium')
     expect(openAiImageQuality('ultra')).toBeNull()
     expect(openAiImageQuality(null)).toBeNull()

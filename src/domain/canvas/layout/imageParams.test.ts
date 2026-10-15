@@ -138,7 +138,7 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
    * 画质（低/标准/高/超高/极致）→ 清晰度（1K/2K/4K）→ 背景（自动/保留背景/透明背景）
    * → 比例（13 档）→ 生成数量。发请求时把「比例 × 清晰度」换算成 OpenAI 认的像素 `size`。
    */
-  it('★★ GPT Image 三档：比例 13 档 + 清晰度 1K/2K/4K + 五档画质 + 三档背景', () => {
+  it('★★ GPT Image 三档：比例 13 档 + 清晰度 1K/2K/4K + 六档画质（含自动）+ 三档背景', () => {
     for (const name of ['GPT Image 2', 'GPT Image 2.5 Flare', 'GPT Image 2.5 Sunburst']) {
       const spec = imageParamsFor(name)
       expect(spec?.dialect).toBe('openai-images')
@@ -146,7 +146,11 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
       expect(spec?.ratios).toHaveLength(13)
       expect(spec?.ratios).toContain('21:9')
       expect(spec?.ratios).toContain('9:21')
-      expect(spec?.qualities).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+      /**
+       * 首档 `auto`：节点默认质量就是 `auto`，它不在列表里时面板**一格都不高亮**
+       * （2026-10-15 补；官方 `quality` 本来就含 `auto`，参考图那排也是「自动」在最前）。
+       */
+      expect(spec?.qualities).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max'])
       expect(spec?.backgrounds).toEqual(['auto', 'opaque', 'transparent'])
       expect(spec?.counts).toEqual([1, 2, 4])
     }

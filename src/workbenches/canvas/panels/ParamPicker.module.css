@@ -110,17 +110,16 @@
   gap: var(--space-3);
   width: max-content;
   /**
-   * 内容宽度 **316**（= 4 档比例 × 73 + 3 条 8px 缝）。
+   * 内容宽度 **500**（用户 2026-10-15：「我需要文字全部显示出来，可以加大面板的宽度」）。
    *
-   * 316 不是随手定的，它同时满足两件事（用户 2026-10-03：
-   * 「把比例替换成 4 个比例一排」「画质和质量需要放大到合适的位置，
-   * 三个部分的参数和面板左右的边距要一样」）：
-   *  · 比例排成 4 列后每格 73px —— 比例数字（`21:9` 这类）读得下；
-   *  · 胶囊那两排一排能放 **3 枚**、每枚约 100px ——「标准画质」这种四字档位
-   *    （≈88px）刚好不挤。
-   * 316 + 内距 24 + 描边 2 = 342 是浮层的边框盒上限。
+   * 由来：316 是「4 列比例 × 73px」凑出来的，但那个宽度装不下**六档画质**
+   * （自动 / 低画质 / 标准画质 / 高画质 / 超高画质 / 极致画质 ≈ 486px）——
+   * 于是档位被压成「自… 低… 标…」的省略号。用户明确「可以加大面板的宽度」，
+   * 这里按**最长的那一排**定宽：500 > 486，六档一行放得下且不省略。
+   *
+   * 500 + 内距 24 + 描边 2 = **526** 是浮层的边框盒上限。
    */
-  max-width: 342px;
+  max-width: 586px;
 }
 
 /*
@@ -145,8 +144,16 @@
  * 不这么做的话（保持内容宽度、靠左排），画质那 5 枚会折成「3 + 2」——
  * 两行右边缘一长一短，正是用户说的「边距不一样」。
  */
+/**
+ * ⚠️ 这条是**历史遗留**（多组模式刚引入时用来让档位铺满同一行）。
+ *
+ * 它的特异性（0,2,1）高于 `.cap`（0,1,0），会把 `.cap` 里的 `flex` 整条顶掉 ——
+ * 2026-10-15 改分段控件时就踩到了：`.cap` 写 `flex: 1 0 auto`（不许压缩）却被这里
+ * 改回 `1 1 auto`（可压缩），六档画质全被压成「自… 低… 标…」。
+ * 现在两处口径一致，谁改都别忘了对方。
+ */
 .grouped .pill > button {
-  flex: 1 1 auto;
+  flex: 1 0 auto;
 }
 
 .section {
@@ -312,7 +319,11 @@
    * —— 三根滑杆的固有宽度只有 120 出头，浮层会缩成一根窄条（实测 167px）。
    * 这里给内容定一个**下限**，两种浮层就一样宽了。
    */
-  --picker-inner: 316px;
+  /**
+   * 内容宽度下限 **500**（与 `.grouped` 的上限配套，见那里的说明）。
+   * 原先 316 是「4 列比例 × 73」凑出来的，装不下六档画质 ⇒ 标签被省略号截断。
+   */
+  --picker-inner: 560px;
   /* 水平居中于所点参数（§6.8）。必须写在**基类**上：只写在 @keyframes 里的话，
      动画结束后 transform 会回落到 none，浮层左边缘就停在 chip 中线上。 */
   transform: translateX(-50%);
@@ -501,39 +512,81 @@
   line-height: 1;
 }
 
-/* 横排胶囊：圆角 999px、内边距 0 14px、flex-wrap、水平居中于所点参数 */
+/**
+ * **分段控件**（用户 2026-10-15：「需要换成参考图那样子」）。
+ *
+ * 参考图里的画质 / 背景 / 比例那几行不是「一排各自描边的胶囊」，而是
+ * **一条灰底轨道 + 里面一块被选中的滑块**（segmented control）。这里照那个形状做：
+ *
+ * ```
+ * [ 轨道：--bg-subtle，圆角 10px，内距 3px ]
+ *    [ 未选：透明底，次要文字色 ] [ 选中：--bg-hover 填充 + --stroke 描边 ]
+ * ```
+ *
+ * 颜色与悬停 / 选中的**规则不变**，全部沿用既有令牌，与同一组件里的比例格子
+ * （`.ratioCell` / `.ratioCellOn`）逐条对齐 —— 同一屏里两块控件不能各有一套选中观感：
+ *   · 悬停 = `--bg-hover`（`.ratioCell:hover` 同款）
+ *   · 选中 = `--bg-hover` 填充 **+** `--stroke` 描边 + 主文字色（= `.ratioCellOn` 逐条同值）
+ *   · 轨道 = `--bg-subtle`（比选中块浅一档，滑块才浮得出来）
+ *
+ * 宽度：轨道**至少**占满浮层的内容宽（`--picker-inner`，316px），档位多时按内容自然变宽
+ * —— 香蕉那五档（自适应 / 512px / 1K / 2K / 4K）在 316 里排不下，写死宽度会把
+ * 「自适应」截成省略号。
+ */
 .pill {
   display: flex;
+  /**
+   * **换行只作兜底**（用户 2026-10-15：「我需要文字全部显示出来」）。
+   *
+   * 正常情况靠浮层加宽（`--picker-inner` 500）让一排档位整整齐齐放得下；
+   * 真遇到更长的档位组合时，宁可**折到第二行**，也不许把字压成省略号 ——
+   * 配 `flex-shrink: 0`（见 `.cap`）就再也不会出现「自… 低… 标…」。
+   */
   flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
+  gap: 0;
+  box-sizing: border-box;
   width: max-content;
-  max-width: 300px;
+  min-width: var(--picker-inner, 316px);
+  padding: 3px;
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
 }
 
 .cap {
   /**
-   * 档位胶囊（画质 / 数量）：高 30 → 32、字号 12 → 15。
+   * 轨道里的一块（画质 / 数量 / 背景）。
    *
-   * 用户 2026-10-03：「可能是英文都是一个大小的原因」—— 指的正是这里：
-   * 段标题与档位文字原先**同为 12px**，谁主谁次全靠猜。现在标题留在 12px（弱），
-   * 档位文字提到 15px（强），层级一眼分得开。
+   * 用户 2026-10-03：「可能是英文都是一个大小的原因」—— 段标题与档位文字原先
+   * **同为 12px**，谁主谁次全靠猜。标题留在 `--picker-hint-fs`（弱），档位走
+   * `--picker-option-fs`（强），层级一眼分得开。
+   *
+   * `flex: 1 0 auto`：档位少时几块均分轨道（背景那三档铺满一条），
+   * 档位多时**不许压缩**（`flex-shrink: 0`）—— 一压就把标签压成省略号
+   * （六档画质实测全变成「自… 低… 标…」），改成让轨道按内容整体变宽。
    */
-  height: 32px;
-  padding: 0 14px;
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius-pill);
+  flex: 1 0 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius-control) - 3px);
   background: transparent;
   font-family: var(--font-sans);
   font-size: var(--picker-option-fs, 15px);
   font-weight: var(--fw-chip);
-  color: var(--text-1);
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
-  transition: background var(--dur-hover) var(--ease-out);
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out);
 }
 
 .cap:hover:not(:disabled) {
   background: var(--bg-hover);
+  color: var(--text-1);
 }
 
 .cap:disabled {
@@ -542,9 +595,10 @@
 }
 
 .capOn {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-text);
+  /* 与 `.ratioCellOn` 逐条同值：填充 + 描边 + 主文字色 */
+  border-color: var(--stroke);
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
 
 /*
@@ -556,13 +610,16 @@
 .ratioGrid {
   display: grid;
   /**
-   * **一排 4 个**（用户 2026-10-03：「把比例替换成 4 个比例一排，当前是三个」）。
+   * **一排 5 个**（用户 2026-10-15：「而且参考图的比例是五个为一排的」）。
    *
-   * 13 档于是排成 4 行（4 / 4 / 4 / 1），比原来的 5 行矮一整行；
-   * 格宽 73 与浮层内容宽度 316 严格对齐（4 × 73 + 3 × 8 = 316），
-   * 所以比例这一段与上面那两段（画质 / 清晰度）**左右边距完全一致**。
+   * 口径变过两次：最初 3 个/排 → 2026-10-03 改 4 个/排（用户「把比例替换成 4 个比例
+   * 一排」）→ 2026-10-15 按参考图改回 **5 个/排**。13 档于是 5 / 5 / 3 三行。
+   *
+   * ⚠️ 列宽从写死的 `73px` 改成 `minmax(73px, 1fr)`（2026-10-15）：浮层加宽到 500 后，
+   * 写死 73 会让几列挤在左边、右边空出一大块。改成可拉伸，比例这一段与上面那几段
+   * **左右边距仍然完全一致**，格子只是变宽。
    */
-  grid-template-columns: repeat(4, 73px);
+  grid-template-columns: repeat(5, minmax(73px, 1fr));
   gap: var(--space-2);
   padding: var(--space-1);
   width: max-content;

@@ -115,6 +115,15 @@ const OPENAI_QUALITIES = new Set(['auto', 'low', 'medium', 'high'])
  */
 export function openAiImageQuality(quality: unknown, allowed?: readonly string[]): string | null {
   if (typeof quality !== 'string') return null
+  /**
+   * **`auto` 一律不下发**（用户 2026-10-15：参考图那排画质带「自动」，所以它现在
+   * 也在能力表里 ⇒ 面板会显示并高亮这一格）。
+   *
+   * 但它在**传输层**的语义始终是「让服务端自己定」= 等价于不指定这个字段；
+   * 发 `auto` 反而可能被中转站拒。所以面板照常显示，请求照常省略 ——
+   * 两件事分开，界面有得选、线上一字不多发。
+   */
+  if (quality === 'auto') return null
   if (allowed) return allowed.includes(quality) ? quality : null
   return OPENAI_QUALITIES.has(quality) ? quality : null
 }
