@@ -1,6 +1,7 @@
 import type { GraphSnapshot } from '../model/graph'
 import type { GenerationData, NodeSnapshot } from '../model/node'
 import { indexNodes } from '../model/graph'
+import { nodeContentUsable } from '../execution/disabledNode'
 
 /**
  * 一个节点「对外可见的结果图」hash 列表。
@@ -8,9 +9,13 @@ import { indexNodes } from '../model/graph'
  * 结果组下线后，产物**一定在节点自己身上**（每次调用落一个承载节点），
  * 于是这个函数退化成「读 `data.assetHash`」——但它仍保留为一个命名函数：
  * 「什么算一个节点的结果图」是一个规则，不该散落成一处处 `data.assetHash` 直读。
+ *
+ * **禁用节点没有结果图**（对账 #515 修订）：禁用 = 内容不可用，
+ * 包括它已经生成的那张 —— 所以这里一律返回空，下游不会拿到它。
  */
 export function resultImagesOf(node: NodeSnapshot | undefined): string[] {
   if (!node) return []
+  if (!nodeContentUsable(node)) return []
   const out: string[] = []
   const seen = new Set<string>()
   const push = (hash: string | undefined | null): void => {

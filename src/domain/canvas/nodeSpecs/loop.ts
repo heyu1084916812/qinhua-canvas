@@ -4,6 +4,7 @@ import type { InputContext, NodeSpec } from './types'
 import { NODE_MINIMUMS } from '../layout/constants'
 import { indexNodes } from '../model/graph'
 import { directUpstream } from '../graph/upstreamOf'
+import { nodeContentUsable } from '../execution/disabledNode'
 
 /**
  * 循环节点规格（产品文档 §6.22，2026-09-22）。
@@ -64,6 +65,8 @@ export const loopSpec: NodeSpec<LoopData> = {
     for (const id of directUpstream(node.id, graph.edges)) {
       const up = index.get(id)
       if (!up) continue
+      /** 禁用上游的内容不进本轮（对账 #515 修订） */
+      if (!nodeContentUsable(up)) continue
       // 上游提示词文本：让下游"连上循环就有提示词"，不必再单独连一次提示词节点
       if (data.usePrompt && up.type === 'prompt') {
         const text = (up.data as { text?: string }).text ?? ''

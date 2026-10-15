@@ -5,6 +5,7 @@ import type { InputContext, NodeSpec } from './types'
 import { NODE_MINIMUMS } from '../layout/constants'
 import { indexNodes } from '../model/graph'
 import { directUpstream } from '../graph/upstreamOf'
+import { nodeContentUsable } from '../execution/disabledNode'
 
 /**
  * 提示词节点规格（M0 只落结构与默认数据，不接生成）。
@@ -43,6 +44,8 @@ export const promptSpec: NodeSpec<PromptData> = {
     for (const id of directUpstream(node.id, graph.edges)) {
       const upstream = index.get(id)
       if (!upstream || upstream.type !== 'generation') continue
+      /** 禁用节点的图不参与「反推」（对账 #515 修订） */
+      if (!nodeContentUsable(upstream)) continue
       const hash = (upstream.data as GenerationData).assetHash
       if (hash) {
         inputs.push({ kind: 'asset', nodeId: upstream.id, assetHash: hash, mime: GENERATION_ASSET_MIME })

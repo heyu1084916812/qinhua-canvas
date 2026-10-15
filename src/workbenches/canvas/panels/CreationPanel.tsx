@@ -1245,7 +1245,7 @@ export function CreationPanel(props: CreationPanelProps) {
         : null
   const runDisabled = busyGlobal || blockedReason !== null
   const runTitle = props.disabled
-    ? '节点已禁用 —— 先启用再生成；已有内容仍可作为上游缓存'
+    ? '节点已禁用 —— 先启用再生成；它的内容（含已生成的图）不会作为上游输入'
     : blockedReason
       ? `${blockedReason}，去后台设置后再生成`
       : runLabel
@@ -1908,8 +1908,7 @@ export function CreationPanel(props: CreationPanelProps) {
         </button>
         {props.disabled && (
           <span className={styles.disabledNotice} data-panel-disabled>
-            节点已禁用：本次不会运行
-            {props.data.assetHash ? '，下游会使用这张缓存结果' : '，已有内容仍可作为上游缓存'}
+            节点已禁用：不参与执行，它的内容（含已生成的图）也不会作为上游输入
           </span>
         )}
         {props.error && <span className={styles.error}>{props.error}</span>}

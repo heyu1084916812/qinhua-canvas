@@ -174,7 +174,7 @@ export function ContextMenu() {
         const next = !(node?.disabled === true)
         store.dispatch({ kind: 'node.setDisabled', ids: [nodeId], disabled: next })
         store.showUndoBar(
-          next ? '已禁用节点（不参与执行，已有内容仍可作上游）' : '已启用节点',
+          next ? '已禁用节点（不参与执行，它的内容也不作为上游输入）' : '已启用节点',
         )
       } else if (a.kind === 'fullscreenEdit') {
         store.openTextEditor(nodeId)

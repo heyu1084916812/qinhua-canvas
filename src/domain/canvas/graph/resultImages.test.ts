@@ -42,6 +42,17 @@ describe('resultImagesOf', () => {
   it('节点不存在 → 空', () => {
     expect(resultImagesOf(undefined)).toEqual([])
   })
+
+  /**
+   * 对账 #515（用户口径）：禁用 = 内容不可用 —— 它已经生成的那张图也算禁用掉了。
+   *
+   * 这一条是"禁用节点不再喂给下游"的单点真相：所有取图入口都走 `resultImagesOf`，
+   * 所以这里返回空 ⇒ 融合 / 对比 / 画布缩略图都不会再拿到它。
+   */
+  it('★★ 禁用节点即使有产物也**没有**结果图（内容一并禁用）', () => {
+    const node = { ...gen('a', 'h1'), disabled: true } as NodeSnapshot
+    expect(resultImagesOf(node)).toEqual([])
+  })
 })
 
 describe('upstreamImagesOf', () => {

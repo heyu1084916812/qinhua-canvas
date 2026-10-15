@@ -6,6 +6,7 @@ import { directUpstream } from '../graph/upstreamOf'
 import { childIdsOf } from './group'
 import { generationParams } from './params'
 import { presetPromptSuffix } from '../layout/presets'
+import { nodeContentUsable } from '../execution/disabledNode'
 
 /**
  * 批量节点规格（产品文档 §6.12）。
@@ -153,6 +154,8 @@ export function batchItemsOf(
     if (hidden.has(childId)) continue
     const child = index.get(childId)
     if (!child) continue
+    /** 禁用的成员整项不参与（对账 #515 修订）：它那张图也不发给模型 */
+    if (!nodeContentUsable(child)) continue
     if (child.type === 'prompt') {
       items.push({ kind: 'text', nodeId: child.id, text: (child.data as PromptData).text })
       continue
@@ -185,6 +188,8 @@ export function externalInputsOf(
     const up = index.get(id)
     if (!up) continue
     if (hidden.has(up.id)) continue
+    /** 禁用的外部上游同样不作为「共同输入」（对账 #515 修订） */
+    if (!nodeContentUsable(up)) continue
     if (up.type === 'prompt') {
       out.push({ kind: 'text', nodeId: up.id, text: (up.data as PromptData).text })
       continue

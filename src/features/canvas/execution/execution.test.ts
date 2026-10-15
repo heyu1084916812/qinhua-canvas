@@ -162,12 +162,12 @@ describe('buildRunPlan（单点生成）', () => {
   })
 
   /**
-   * §9.3 数据流不变量 5：禁用节点跳过执行，已有内容仍可作为只读上游。
+   * 对账 #515（用户口径）：禁用 = 内容不可用 —— 它不跑，它的图也不再喂给下游。
    *
-   * 这条同时钉住两件事：① 禁用节点自己不跑；② 下游拿到的仍是它的**缓存产物**，
-   * 而不是因为上游被跳过就整条链断掉。
+   * 这条同时钉住两件事：① 禁用节点自己不跑；② 下游的 inputs 里**不再出现**它的
+   * assetHash —— 少一条就会变成"禁用了却还在用它的图"。
    */
-  it('★★ 禁用节点不进计划；下游仍拿得到它的缓存产物', () => {
+  it('★★ 禁用节点不进计划；它的图也不再作为下游输入', () => {
     const { store, genId } = setup()
     store.dispatch({
       kind: 'node.updateData',
@@ -187,16 +187,24 @@ describe('buildRunPlan（单点生成）', () => {
       }),
     })
     store.dispatch({ kind: 'edge.connect', source: genId, target: 'n-down' })
-    store.dispatch({ kind: 'node.setDisabled', ids: [genId], disabled: true })
 
-    const plan = buildRunPlan('node', { originNodeId: genId }, store.getSnapshot(), 'rerun')
-    expect(plan.tasks.map((t) => t.nodeId)).not.toContain(genId)
-
-    const down = plan.tasks.find((t) => t.nodeId === 'n-down')
-    expect(down).toBeTruthy()
-    expect(down!.request.inputs).toContainEqual(
+    /** 禁用前：下游确实吃到了上游那张图（基线，证明这条链路本来是通的） */
+    const before = buildRunPlan('node', { originNodeId: genId }, store.getSnapshot(), 'rerun')
+    const downBefore = before.tasks.find((t) => t.nodeId === 'n-down')
+    expect(downBefore?.request.inputs).toContainEqual(
       expect.objectContaining({ kind: 'asset', assetHash: 'cached-hash' }),
     )
+
+    store.dispatch({ kind: 'node.setDisabled', ids: [genId], disabled: true })
+    const plan = buildRunPlan('node', { originNodeId: genId }, store.getSnapshot(), 'rerun')
+    expect(plan.tasks.map((t) => t.nodeId)).not.toContain(genId)
+    const down = plan.tasks.find((t) => t.nodeId === 'n-down')
+    expect(down).toBeTruthy()
+    /** 禁用后：那张图不再出现在 inputs 里 */
+    expect(down!.request.inputs).not.toContainEqual(
+      expect.objectContaining({ kind: 'asset', assetHash: 'cached-hash' }),
+    )
+    expect(down!.request.inputs.some((i) => i.kind === 'asset')).toBe(false)
   })
 
   /**

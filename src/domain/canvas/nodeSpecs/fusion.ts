@@ -7,6 +7,7 @@ import type { GraphSnapshot } from '../model/graph'
 import { resultImagesOf } from '../graph/resultImages'
 import { targetPortOf, DEFAULT_TARGET_PORT } from '../model/edge'
 import { FUSION_PADDING_RATIO, FUSION_MAX_PATCHES } from '../fusion/fusionPlan'
+import { nodeContentUsable } from '../execution/disabledNode'
 
 /**
  * 融合节点右侧**共用口**的 id（产品文档 §6.23）。
@@ -109,6 +110,8 @@ export function fusionInputsOf(
     if (edge.target !== node.id) continue
     const up = index.get(edge.source)
     if (!up) continue
+    /** 禁用的上游既不当原图、也不当补丁（对账 #515 修订） */
+    if (!nodeContentUsable(up)) continue
     const hash = resultImagesOf(up)[0]
     if (!hash) continue
     const input: FusionAssetInput = {

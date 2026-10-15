@@ -8,6 +8,7 @@ import { indexNodes } from '../model/graph'
 import { batchItemsOf } from './batch'
 import { generationParams } from './params'
 import { presetPromptSuffix } from '../layout/presets'
+import { nodeContentUsable } from '../execution/disabledNode'
 
 /**
  * 生成节点规格。
@@ -50,6 +51,8 @@ export const generationSpec: NodeSpec<GenerationData> = {
       if (hidden.has(id)) continue
       const upstream = index.get(id)
       if (!upstream) continue
+      /** 禁用节点的内容不参与（对账 #515 修订）：连它的图也不喂给下游 */
+      if (!nodeContentUsable(upstream)) continue
       // 批量节点作为上游 → 集合卡（§6.12）：下游遍历集合内每项各生成一次，
       // 因此这里包成一个 collection 项，展开发生在执行计划阶段（domain/execution）。
       if (upstream.type === 'batch') {

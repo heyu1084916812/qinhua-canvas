@@ -274,7 +274,7 @@ function NodeActions({
   const onRun = () => {
     if (busy) exec.cancel()
     else if (node.disabled) {
-      store.notify('节点已禁用 —— 先启用再生成；已有内容仍可作为上游缓存', 'error')
+      store.notify('节点已禁用 —— 先启用再生成；它的内容（含已生成的图）不会作为上游输入', 'error')
     } else void exec.runNode(node.id)
   }
 
