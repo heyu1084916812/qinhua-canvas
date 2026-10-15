@@ -932,6 +932,13 @@
   color: var(--danger);
 }
 
+/* 禁用节点：与错误行同一落点，但用次要文字色 —— 它是一条状态说明，不是报错 */
+.disabledNotice {
+  flex-basis: 100%;
+  font-size: var(--fs-label);
+  color: var(--text-2);
+}
+
 /*
  * 提示词节点面板（§6.7）：**字数**单独一行。
  *

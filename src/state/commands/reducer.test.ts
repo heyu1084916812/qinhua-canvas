@@ -68,6 +68,24 @@ describe('reduce / 图数据变更', () => {
     expect(next.nodes[0]!.title).toBe('主提示词')
   })
 
+  it('node.setDisabled 设置 / 清除禁用位；同值不产生补丁', () => {
+    const g0 = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } }, emptyGraph()).next
+    const id = g0.nodes[0]!.id
+
+    const on = reduce({ kind: 'node.setDisabled', ids: [id], disabled: true }, g0)
+    expect(on.next.nodes[0]!.disabled).toBe(true)
+    expect(on.result.transaction).toMatchObject({ mode: 'standalone', label: '禁用节点' })
+    expect(on.result.persist.tables).toContain('nodes')
+
+    /* 已经是禁用态：不制造无意义补丁（多选里混着已禁用节点时会走到这里） */
+    const same = reduce({ kind: 'node.setDisabled', ids: [id], disabled: true }, on.next)
+    expect(same.result.patches).toEqual([])
+
+    const off = reduce({ kind: 'node.setDisabled', ids: [id], disabled: false }, on.next)
+    expect(off.next.nodes[0]!.disabled).toBe(false)
+    expect(off.result.transaction).toMatchObject({ mode: 'standalone', label: '启用节点' })
+  })
+
   it('node.updateData 合并数据；transient 走 silent 事务', () => {
     const g0 = reduce({ kind: 'node.create', projectId: 'p1', type: 'prompt', at: { x: 0, y: 0 } }, emptyGraph()).next
     const id = g0.nodes[0]!.id

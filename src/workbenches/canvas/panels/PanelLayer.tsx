@@ -271,6 +271,7 @@ export function PanelLayer({
       <CreationPanel
         data={selectedNode.data as GenerationData}
         model={panelModel}
+        disabled={selectedNode.disabled}
         running={running}
         globalRunning={exec.isRunning && !running}
         error={error}

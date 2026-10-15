@@ -201,6 +201,8 @@ export interface CreationPanelProps {
   /** 节点数据（提供渠道 / 模型 / 参数当前值） */
   data: GenerationData
   model: PanelModel
+  /** 节点已禁用（§9.3 不变量 5）：本次不参与执行，已有产物仍可作只读上游 */
+  disabled?: boolean
   running: boolean
   globalRunning: boolean
   error: string | null
@@ -1234,9 +1236,19 @@ export function CreationPanel(props: CreationPanelProps) {
    * 必空状态 —— 名字选得出来、映射配好就能跑，按钮不该因此置灰。
    * 提示词节点那条「暂无可用文本模型」的旧口径也随之取消（它把用户挡在换模型之外）。
    */
-  const blockedReason = props.running ? null : noPlatform ? platformGap : null
+  const blockedReason = props.running
+    ? null
+    : props.disabled
+      ? '节点已禁用'
+      : noPlatform
+        ? platformGap
+        : null
   const runDisabled = busyGlobal || blockedReason !== null
-  const runTitle = blockedReason ? `${blockedReason}，去后台设置后再生成` : runLabel
+  const runTitle = props.disabled
+    ? '节点已禁用 —— 先启用再生成；已有内容仍可作为上游缓存'
+    : blockedReason
+      ? `${blockedReason}，去后台设置后再生成`
+      : runLabel
 
   return (
     <div
@@ -1894,6 +1906,12 @@ export function CreationPanel(props: CreationPanelProps) {
             <RunArrow />
           )}
         </button>
+        {props.disabled && (
+          <span className={styles.disabledNotice} data-panel-disabled>
+            节点已禁用：本次不会运行
+            {props.data.assetHash ? '，下游会使用这张缓存结果' : '，已有内容仍可作为上游缓存'}
+          </span>
+        )}
         {props.error && <span className={styles.error}>{props.error}</span>}
       </section>
     </div>

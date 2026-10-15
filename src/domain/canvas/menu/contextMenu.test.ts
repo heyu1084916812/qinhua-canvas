@@ -26,16 +26,16 @@ describe('nodeMenuItems / 节点右键菜单（§4.1）', () => {
 
   it('编辑类与危险操作之间用分隔线分组（删除单独一组置底）', () => {
     const items = nodeMenuItems('prompt')
-    const rename = items.find((i) => i.id === 'rename')!
+    const disable = items.find((i) => i.id === 'disable')!
     const del = items.find((i) => i.id === 'delete')!
-    expect(rename.separatorAfter).toBe(true)
+    expect(disable.separatorAfter).toBe(true)
     expect(del.separatorAfter).toBeFalsy()
     expect(items[items.length - 1].id).toBe('delete')
   })
 
-  it('通用项顺序：复制 → 重命名 → 删除', () => {
-    expect(ids(nodeMenuItems('generation'))).toEqual(['run', 'duplicate', 'rename', 'delete'])
-    expect(ids(nodeMenuItems('compare'))).toEqual(['duplicate', 'rename', 'delete'])
+  it('通用项顺序：复制 → 重命名 → 禁用 → 删除', () => {
+    expect(ids(nodeMenuItems('generation'))).toEqual(['run', 'duplicate', 'rename', 'disable', 'delete'])
+    expect(ids(nodeMenuItems('compare'))).toEqual(['duplicate', 'rename', 'disable', 'delete'])
   })
 
   /**
@@ -45,7 +45,7 @@ describe('nodeMenuItems / 节点右键菜单（§4.1）', () => {
    */
   it('★ 提示词节点有「全屏编辑」，且排在编辑类里', () => {
     const items = nodeMenuItems('prompt')
-    expect(ids(items)).toEqual(['duplicate', 'fullscreenEdit', 'rename', 'delete'])
+    expect(ids(items)).toEqual(['duplicate', 'fullscreenEdit', 'rename', 'disable', 'delete'])
     expect(items.find((i) => i.id === 'fullscreenEdit')!.action).toEqual({ kind: 'fullscreenEdit' })
   })
 
@@ -64,6 +64,7 @@ describe('nodeMenuItems / 节点右键菜单（§4.1）', () => {
       'extractSelection',
       'duplicate',
       'rename',
+      'disable',
       'delete',
     ])
     expect(items.find((i) => i.id === 'saveLibrary')!.action).toEqual({ kind: 'saveLibrary' })
@@ -100,6 +101,24 @@ describe('nodeMenuItems / 节点右键菜单（§4.1）', () => {
     const items = nodeMenuItems('batch')
     expect(items.find((i) => i.id === 'run')!.action).toEqual({ kind: 'run' })
     expect(items.find((i) => i.id === 'delete')!.action).toEqual({ kind: 'delete' })
+  })
+
+  /**
+   * 「禁用 / 启用」2026-10-15 落地（§9.3 不变量 5）：已禁用的节点不再列「生成」，
+   * 菜单只列另一侧那一项；否则点「生成」会得到一份空计划，看起来像按钮坏了。
+   */
+  it('★★ 已禁用节点：没有「生成」、多一项「启用」，动作是 toggleDisabled', () => {
+    const enabled = nodeMenuItems('generation')
+    expect(ids(enabled)).toContain('disable')
+    expect(ids(enabled)).not.toContain('enable')
+    expect(enabled.find((i) => i.id === 'disable')!.label).toBe('禁用')
+    expect(enabled.find((i) => i.id === 'disable')!.action).toEqual({ kind: 'toggleDisabled' })
+
+    const disabled = nodeMenuItems('generation', { disabled: true })
+    expect(ids(disabled)).not.toContain('run')
+    expect(ids(disabled)).not.toContain('disable')
+    expect(disabled.find((i) => i.id === 'enable')!.label).toBe('启用')
+    expect(disabled.find((i) => i.id === 'enable')!.action).toEqual({ kind: 'toggleDisabled' })
   })
 })
 

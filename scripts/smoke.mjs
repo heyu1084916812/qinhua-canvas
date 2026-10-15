@@ -3719,6 +3719,45 @@ async function g18(browser) {
     ['生成', '复制', '重命名', '删除'].every((t) => nodeSet.has(t)),
     `items=${JSON.stringify(nodeMenu)}`,
   )
+  rec(g, '★ 节点右键菜单含「禁用」（§4.1 / §9.3）', nodeSet.has('禁用'), `items=${JSON.stringify(nodeMenu)}`)
+
+  /**
+   * 禁用 / 启用（§9.3 数据流不变量 5）：禁用后不参与执行，已有内容仍可作上游。
+   *
+   * 这里量的是**用户能看到的闭环**：菜单切到另一侧、节点带禁用态与徽标、面板写明不运行。
+   * 执行层"禁用节点不进计划、下游仍拿缓存"由 `execution.test.ts` 的纯函数用例钉住。
+   */
+  await page.locator('[data-context-menu-item="disable"]').click()
+  await sleep(300)
+  const disabledFlag = await page.locator(`[data-node-id="${genId}"]`).getAttribute('data-node-disabled')
+  const disabledBadge = await page.locator(`[data-node-id="${genId}"] [data-node-disabled-badge]`).count()
+  rec(
+    g,
+    '★★ 禁用后：节点带禁用状态 + 「已禁用」徽标',
+    disabledFlag === 'true' && disabledBadge === 1,
+    `flag=${disabledFlag} badge=${disabledBadge}`,
+  )
+  const disabledBlocked = await page.locator('[data-panel-run]').getAttribute('data-panel-run-blocked')
+  const disabledNotice = await page.locator('[data-panel-disabled]').count()
+  rec(
+    g,
+    '★★ 禁用后：生成按钮被拦下，面板写明「本次不会运行」',
+    disabledBlocked === '节点已禁用' && disabledNotice === 1,
+    `blocked=${disabledBlocked} notice=${disabledNotice}`,
+  )
+
+  await rightClickNode(genId)
+  const disabledMenu = await menuItems()
+  rec(
+    g,
+    '★★ 已禁用节点的菜单只列「启用」、不列「生成」',
+    disabledMenu.includes('启用') && !disabledMenu.includes('生成'),
+    `items=${JSON.stringify(disabledMenu)}`,
+  )
+  await page.locator('[data-context-menu-item="enable"]').click()
+  await sleep(300)
+  const enabledFlag = await page.locator(`[data-node-id="${genId}"]`).getAttribute('data-node-disabled')
+  rec(g, '★ 启用后：禁用标记消失', enabledFlag === null, `flag=${enabledFlag}`)
 
   // 3. Esc 关闭菜单
   await page.keyboard.press('Escape')
@@ -19783,20 +19822,22 @@ async function g99(browser) {
     `模式=${JSON.stringify(wanMode.vals)} 画幅=${JSON.stringify(wanRatio.vals)} 清晰度=${JSON.stringify(wanSize.vals)} 时长=${JSON.stringify(await durationRange())} 音频=${await hasChip('generateAudio')}`,
   )
 
-  // ⑥ Gemini Omni Flash 1.1：只落官方核实过的比例 / 分辨率，不摆假时长
+  // ⑥ Gemini Omni Flash 1.1：官方 gemini-api/docs/omni 的五种 task / 四档分辨率
   await pickModel('Gemini Omni Flash 1.1')
+  const geminiMode = await readChip('videoMode')
   const geminiRatio = await readChip('ratio')
   const geminiSize = await readChip('size')
   rec(
     g,
-    '★ Gemini Omni Flash 1.1：16:9·9:16 / 360p·720p·1080p / 只有 text 模式（不摆模式 chip）/ 不摆时长滑块',
-    (await panel.locator('[data-param-chip="videoMode"]').count()) === 0 &&
+    '★★ Gemini Omni Flash 1.1：官方 5 个 task / 16:9·9:16 / 360p·720p·1080p·4k / 不摆假时长',
+    JSON.stringify(geminiMode.vals) ===
+      JSON.stringify(['text', 'image-to-video', 'all-purpose', 'video-edit', 'video-extend']) &&
       JSON.stringify(geminiRatio.vals) === JSON.stringify(['16:9', '9:16']) &&
-      JSON.stringify(geminiSize.vals) === JSON.stringify(['360p', '720p', '1080p']) &&
+      JSON.stringify(geminiSize.vals) === JSON.stringify(['360p', '720p', '1080p', '4k']) &&
       (await panel.locator('[data-param-duration-range]').count()) === 0 &&
       !(await hasChip('generateAudio')) &&
       !(await hasChip('count')),
-    `模式chip=${await panel.locator('[data-param-chip="videoMode"]').count()} 画幅=${JSON.stringify(geminiRatio.vals)} 清晰度=${JSON.stringify(geminiSize.vals)} 时长滑块=${await panel.locator('[data-param-duration-range]').count()}`,
+    `模式=${JSON.stringify(geminiMode.vals)} 画幅=${JSON.stringify(geminiRatio.vals)} 清晰度=${JSON.stringify(geminiSize.vals)} 时长滑块=${await panel.locator('[data-param-duration-range]').count()}`,
   )
 
   // ④ Agnes Video 2.0：官方站没有它的文档页（真令牌实测），**没有「自适应」这一档**

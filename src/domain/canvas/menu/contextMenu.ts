@@ -15,6 +15,7 @@ export type ContextMenuAction =
   | { kind: 'run' }
   | { kind: 'duplicate' }
   | { kind: 'rename' }
+  | { kind: 'toggleDisabled' }
   | { kind: 'fullscreenEdit' }
   | { kind: 'extractSelection' }
   | { kind: 'saveLibrary' }
@@ -71,18 +72,19 @@ const RUNNABLE: ReadonlySet<NodeType> = new Set<NodeType>(['generation', 'batch'
  * 而落位改成「每次生成新建一个右侧节点」之后，用户要的是「出一份新的、旧的留着对比」，
  * 覆盖式重跑正好与之相反。留着只会让人误点丢结果。
  *
- * 禁用 / 改写提示词属后续，未落地故不列
- * （列出点了没反应的禁用项比不列更糟）。
+ * 「禁用 / 启用」2026-10-15 落地（§9.3 数据流不变量 5）：禁用后从执行计划里跳过，
+ * 已有内容仍可作为只读上游；菜单按节点当前状态只列**另一侧**那一项。
+ * 「改写提示词」仍未落地，故不列（列出点了没反应的禁用项比不列更糟）。
  *
  * 「全屏编辑」2026-09-21 落地：提示词节点多一项，打开**文本编辑灯箱**（§6.7）。
  * 它放在「编辑类」——与复制 / 重命名同一组（§4.1 的分组约定）。
  */
 export function nodeMenuItems(
   type: NodeType,
-  opts: { hasAsset?: boolean } = {},
+  opts: { hasAsset?: boolean; disabled?: boolean } = {},
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = []
-  if (RUNNABLE.has(type)) {
+  if (RUNNABLE.has(type) && !opts.disabled) {
     items.push({ id: 'run', label: '生成', action: { kind: 'run' }, separatorAfter: true })
   }
   if (type === 'generation' && opts.hasAsset) {
@@ -109,7 +111,17 @@ export function nodeMenuItems(
   if (type === 'prompt') {
     items.push({ id: 'fullscreenEdit', label: '全屏编辑', action: { kind: 'fullscreenEdit' } })
   }
-  items.push({ id: 'rename', label: '重命名', action: { kind: 'rename' }, separatorAfter: true })
+  items.push({ id: 'rename', label: '重命名', action: { kind: 'rename' } })
+  /**
+   * 禁用 / 启用（§4.1 / §9.3）：只列另一侧那一项 —— 已经禁用的节点再列「禁用」
+   * 就是一个点了没反应的死项。它归「编辑 / 结构」那一组，删除仍单独置底。
+   */
+  items.push({
+    id: opts.disabled ? 'enable' : 'disable',
+    label: opts.disabled ? '启用' : '禁用',
+    action: { kind: 'toggleDisabled' },
+    separatorAfter: true,
+  })
   items.push({ id: 'delete', label: '删除', action: { kind: 'delete' } })
   return items
 }

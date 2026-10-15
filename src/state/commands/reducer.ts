@@ -498,6 +498,21 @@ function handle(cmd: Command, graph: GraphSnapshot): Handled {
       }
     }
 
+    case 'node.setDisabled': {
+      const patches: Patch[] = []
+      for (const id of cmd.ids) {
+        const n = findNode(graph, id)
+        if (!n) fail(cmd.kind, `节点不存在：${id}`)
+        /* 同值不写：一次多选里已经禁用的那些不该制造无意义的补丁 */
+        if (n.disabled === cmd.disabled) continue
+        patches.push({ op: 'patch', table: 'nodes', id, changes: { disabled: cmd.disabled } })
+      }
+      return {
+        patches,
+        transaction: { mode: 'standalone', label: cmd.disabled ? '禁用节点' : '启用节点' },
+      }
+    }
+
     case 'node.updateData': {
       const n = findNode(graph, cmd.id)
       if (!n) fail(cmd.kind, `节点不存在：${cmd.id}`)

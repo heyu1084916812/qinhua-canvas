@@ -22,6 +22,8 @@ export function emptyPlanReason(
   graph: GraphSnapshot,
 ): string | null {
   if (!node) return null
+  /* §9.3 不变量 5：禁用节点不参与执行；已有内容仍可作为只读上游 */
+  if (node.disabled) return '节点已禁用 —— 先启用再生成；已有内容仍可作为上游缓存'
 
   const data = node.data as { channelId?: string; model?: string; prompt?: string }
   const enabled = channels.filter((c) => c.enabled)

@@ -25,6 +25,35 @@
 }
 
 /*
+ * 禁用节点（§9.3 数据流不变量 5）：内容降一档表示「这次不跑」，但不隐藏 ——
+ * 它已有的产物仍可被下游当只读上游，用户需要看得见这份缓存。
+ */
+.frame.disabled .body {
+  opacity: 0.6;
+}
+
+/*
+ * 徽标**不放进标题排**：标题带 `pointer-events: auto`，一旦把它撑宽，
+ * 画布上方的拖动 / 落位命中区就会跟着变大（G71 实测拖线被截走）。
+ * 放在节点框内部左上角，只占自己那一小块。
+ */
+.disabledBadge {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  z-index: 2;
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  font-weight: var(--fw-chip);
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/*
  * ★ 分组：**节点框自己不许画底**（用户 2026-10-07 第 15 批图三：
  * 「打组的页面层级要在连线的下层，它遮住了连线」）。
  *

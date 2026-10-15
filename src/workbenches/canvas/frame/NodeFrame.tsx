@@ -244,7 +244,9 @@ export function NodeFrame(props: NodeFrameProps) {
        * 子节点自己的拖动由画布表面那套控制器负责（`FlowChildFrame.onFramePointerDown`），
        * 不需要 RF 插手。
        */
-      className={`${styles.frame} ${selected ? styles.selected : ''} ${inContainer ? 'nodrag' : ''}`}
+      className={`${styles.frame} ${selected ? styles.selected : ''} ${
+        node.disabled ? styles.disabled : ''
+      } ${inContainer ? 'nodrag' : ''}`}
       style={{
         left: props.selfPositioned === false ? 0 : node.x,
         top: props.selfPositioned === false ? 0 : node.y,
@@ -253,6 +255,7 @@ export function NodeFrame(props: NodeFrameProps) {
       }}
       data-node-id={node.id}
       data-node-type={node.type}
+      data-node-disabled={node.disabled ? 'true' : undefined}
       /**
        * **落库的模型**（不是面板兜底显示的那个）。
        *
@@ -324,6 +327,11 @@ export function NodeFrame(props: NodeFrameProps) {
           )}
       </div>
 
+      {node.disabled && (
+        <span className={styles.disabledBadge} data-node-disabled-badge>
+          已禁用
+        </span>
+      )}
 
       <div className={styles.body}>{props.children}</div>
 

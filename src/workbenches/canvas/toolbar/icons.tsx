@@ -792,3 +792,13 @@ export function IconText(props: IconProps) {
     </Svg>
   )
 }
+
+/** 禁用 / 启用：电源符号（顶部竖线 + 带缺口的圆环） */
+export function IconPower(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 3.6v7.2" />
+      <path d="M7.3 6.3a7.2 7.2 0 1 0 9.4 0" />
+    </Svg>
+  )
+}

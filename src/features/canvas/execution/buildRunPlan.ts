@@ -187,7 +187,13 @@ export function buildRunPlan(
 
   const selected = candidateIds
     .map((id) => index.get(id))
-    .filter((n): n is NodeSnapshot => !!n && canBuildRequest(n))
+    /**
+     * 禁用的节点**不进执行计划**（产品文档 §9.3 数据流不变量 5）。
+     *
+     * 只过滤"要不要跑"这一层：`collectInputs` 仍会读它已经产出的 `assetHash`，
+     * 所以下游拿到的是这份缓存结果，而不是把上游整条链一起断掉。
+     */
+    .filter((n): n is NodeSnapshot => !!n && canBuildRequest(n) && !n.disabled)
 
   // 2. 拓扑排序：保证上游先跑
   const selectedIds = new Set(selected.map((n) => n.id))

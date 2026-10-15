@@ -70,6 +70,13 @@ export type Command =
   | { kind: 'node.resize'; id: string; rect: Rect; phase: 'begin' | 'move' | 'end' }
   | { kind: 'node.rename'; id: string; title: string }
   /**
+   * 禁用 / 启用节点（§4.1 / §9.3 数据流不变量 5）：只改 NodeBase.disabled，不动 data。
+   *
+   * 支持一次传多个 id（将来多选禁用直接用）；真源仍是逐节点的 `disabled` 字段。
+   * 禁用后执行计划跳过它，但它已有的产物 hash 仍可被下游当只读上游读取。
+   */
+  | { kind: 'node.setDisabled'; ids: string[]; disabled: boolean }
+  /**
    * 改节点数据（参数 / 产物）。
    *
    * `size` 是**可选的尺寸联动**：产物写回时「data 换成新产物」与「框换成产物比例」

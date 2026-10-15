@@ -26,6 +26,7 @@ import {
   IconGeneration,
   IconImport,
   IconLoop,
+  IconPower,
   IconPrompt,
   IconReset,
   IconScan,
@@ -65,6 +66,9 @@ const MENU_ICON: Record<string, ReactNode> = {
     </svg>
   ),
   resetView: <IconReset size={MENU_ICON_SIZE} />,
+  /** 禁用 / 启用共用同一枚电源图标（只列另一侧那一项，见 contextMenu.ts） */
+  disable: <IconPower size={MENU_ICON_SIZE} />,
+  enable: <IconPower size={MENU_ICON_SIZE} />,
   /** 从素材文件夹加载：与功能栏的「导入素材」同义，共用一枚图标 */
   loadFromFolder: <IconImport size={MENU_ICON_SIZE} />,
 }
@@ -124,7 +128,7 @@ export function ContextMenu() {
   const node = nodeId ? graph.nodes.find((n) => n.id === nodeId) : null
   const hasAsset = !!(node?.data as { assetHash?: string } | undefined)?.assetHash
   const items: ContextMenuItem[] = nodeId
-    ? nodeMenuItems(node?.type ?? 'prompt', { hasAsset })
+    ? nodeMenuItems(node?.type ?? 'prompt', { hasAsset, disabled: node?.disabled === true })
     // 剪贴板是模块级单例、不触发重渲染；菜单每次打开都会重算这里，故读到的即当前值
     : canvasMenuItems({
         canPaste: hasClipboard(),
@@ -166,6 +170,12 @@ export function ContextMenu() {
         })
       } else if (a.kind === 'rename') {
         store.beginRename(nodeId)
+      } else if (a.kind === 'toggleDisabled') {
+        const next = !(node?.disabled === true)
+        store.dispatch({ kind: 'node.setDisabled', ids: [nodeId], disabled: next })
+        store.showUndoBar(
+          next ? '已禁用节点（不参与执行，已有内容仍可作上游）' : '已启用节点',
+        )
       } else if (a.kind === 'fullscreenEdit') {
         store.openTextEditor(nodeId)
       } else if (a.kind === 'extractSelection') {

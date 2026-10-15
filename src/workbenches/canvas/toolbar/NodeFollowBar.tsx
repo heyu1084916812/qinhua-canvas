@@ -273,8 +273,9 @@ function NodeActions({
 
   const onRun = () => {
     if (busy) exec.cancel()
-    else if (node.type === 'generation') void exec.runNode(node.id)
-    else void exec.runNode(node.id)
+    else if (node.disabled) {
+      store.notify('节点已禁用 —— 先启用再生成；已有内容仍可作为上游缓存', 'error')
+    } else void exec.runNode(node.id)
   }
 
   /** 切分：切完把新节点选中（`splitNodeToGrid` 内部已经 setSelection），失败就把原因说清楚 */
@@ -317,7 +318,7 @@ function NodeActions({
 
   return (
     <div className={styles.actions}>
-      {canRun && (!assetMode || busy) && (
+      {canRun && (!node.disabled || busy) && (!assetMode || busy) && (
         <FollowButton
           action="run"
           icon={busy ? <IconStop /> : <IconPlay />}

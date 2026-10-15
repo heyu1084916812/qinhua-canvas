@@ -162,6 +162,44 @@ describe('buildRunPlan（单点生成）', () => {
   })
 
   /**
+   * §9.3 数据流不变量 5：禁用节点跳过执行，已有内容仍可作为只读上游。
+   *
+   * 这条同时钉住两件事：① 禁用节点自己不跑；② 下游拿到的仍是它的**缓存产物**，
+   * 而不是因为上游被跳过就整条链断掉。
+   */
+  it('★★ 禁用节点不进计划；下游仍拿得到它的缓存产物', () => {
+    const { store, genId } = setup()
+    store.dispatch({
+      kind: 'node.updateData',
+      id: genId,
+      patch: { assetHash: 'cached-hash', naturalSize: { width: 100, height: 100 } },
+    })
+    store.dispatch({
+      kind: 'node.create',
+      projectId: 'p1',
+      type: 'generation',
+      at: { x: 800, y: 0 },
+      id: 'n-down',
+      data: genDefaults({
+        prompt: '基于上游缓存继续生成',
+        channelId: 'ch-mock',
+        model: 'mock-image-1',
+      }),
+    })
+    store.dispatch({ kind: 'edge.connect', source: genId, target: 'n-down' })
+    store.dispatch({ kind: 'node.setDisabled', ids: [genId], disabled: true })
+
+    const plan = buildRunPlan('node', { originNodeId: genId }, store.getSnapshot(), 'rerun')
+    expect(plan.tasks.map((t) => t.nodeId)).not.toContain(genId)
+
+    const down = plan.tasks.find((t) => t.nodeId === 'n-down')
+    expect(down).toBeTruthy()
+    expect(down!.request.inputs).toContainEqual(
+      expect.objectContaining({ kind: 'asset', assetHash: 'cached-hash' }),
+    )
+  })
+
+  /**
    * **带环的图不影响单点生成**（对账 #465 的自我更正）。
    *
    * 产品文档 §14.1 的 E2E-07 写的是「单点生成（`R`）→ 阻止请求并提示『工作流存在环』」，

@@ -60,6 +60,11 @@ describe('emptyPlanReason · 计划为空时必须给出可读理由', () => {
     expect(emptyPlanReason(node, [], graph([node]))).toBe('还没有配置任何渠道')
   })
 
+  it('★ 禁用节点优先解释为「已禁用」，不误报渠道 / 提示词问题', () => {
+    const node = { ...genNode(), disabled: true } as NodeSnapshot
+    expect(emptyPlanReason(node, [channel()], graph([node]))).toContain('节点已禁用')
+  })
+
   it('渠道存在但未启用 → 与「没建过」分开说（后者最容易被误以为已配好）', () => {
     const node = genNode()
     expect(emptyPlanReason(node, [channel({ enabled: false })], graph([node]))).toBe(
