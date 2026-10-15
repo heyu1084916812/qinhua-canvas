@@ -1002,6 +1002,23 @@ async function newCtx(browser, opts = {}) {
       /* 隐私模式下写不进去：那一档本来也读不出来，引导会再弹一次，测试里没有影响 */
     }
   })
+  /**
+   * `SMOKE_DARK=1`：让**任意一组**跑在深色主题下（默认浅色）。
+   *
+   * 走的是同一条「首帧就是深色」的路（加载前预置 `localStorage`），而不是进页面再点
+   * 切换按钮 —— 理由见下面 `newDarkCtx` 的说明：点过去那条路径测不到首帧。
+   * 于是 `SMOKE_ONLY=g98 SMOKE_DARK=1` 导出的截图可以直接与浅色那份逐格比对，
+   * 不用为「深色下这一段长什么样」再写一组专用用例。
+   */
+  if (process.env.SMOKE_DARK === '1') {
+    await ctx.addInitScript(() => {
+      try {
+        localStorage.setItem('flow:theme', 'dark')
+      } catch {
+        /* 隐私模式：忽略，跑出来是浅色，不影响其它断言 */
+      }
+    })
+  }
   return ctx
 }
 
@@ -19782,6 +19799,41 @@ async function g98(browser) {
       gptRatios.includes('9:21') &&
       JSON.stringify(gptCounts) === JSON.stringify(['1', '2', '4']),
     `段=${JSON.stringify(gptSections)} 质量=${JSON.stringify(gptQuality)} 清晰度=${JSON.stringify(gptRes)} 背景=${JSON.stringify(gptBackground)} 比例=${gptRatios.length} 张数=${JSON.stringify(gptCounts)}`,
+  )
+
+  /**
+   * ★★ **选中块与轨道必须真的分得开**（用户 2026-10-16：「深色主体，参数选中状态的颜色
+   * 好像不是现在的颜色」）。
+   *
+   * 判据不是「有没有设颜色」（那永远为真），而是**两块的亮度差够不够**：
+   * 选中底曾经是 `--bg-surface` —— 浅色 #ffffff vs 轨道 #f5f5f5 只差 10，
+   * 深色 #222222 vs 轨道 #1f1f1f 只差 **3**（深色下肉眼等于没有，整块面板是平的）。
+   * 现在走 `--bg-selected`：浅色差 19、深色差 20。取 **≥ 12** 作阈值 ——
+   * 比现状留一档余量，同时明确挡掉「退回 surface」那一种改法。
+   *
+   * ⚠️ 这一条**必须在两种主题下都跑**：`SMOKE_DARK=1` 时同一段代码走深色令牌，
+   * 深色那份才是当初出问题的那一套。
+   */
+  const selDelta = await popup().evaluate((el) => {
+    const on = el.querySelector('[data-param-in="background"][aria-selected="true"]')
+    const track = on?.parentElement
+    if (!on || !track) return null
+    return {
+      on: getComputedStyle(on).backgroundColor,
+      track: getComputedStyle(track).backgroundColor,
+    }
+  })
+  const lumaOf = (s) => {
+    const [r, g, b] = (s.match(/\d+/g) ?? []).map(Number)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+  }
+  rec(
+    g,
+    '★★ 选中块与轨道亮度差 ≥ 12（深浅两套主题都必须看得出来）',
+    !!selDelta && Math.abs(lumaOf(selDelta.on) - lumaOf(selDelta.track)) >= 12,
+    selDelta
+      ? `选中=${selDelta.on} 轨道=${selDelta.track} 差=${Math.abs(lumaOf(selDelta.on) - lumaOf(selDelta.track)).toFixed(1)}`
+      : 'null',
   )
   await page.screenshot({ path: `${OUT}/119-g98-gpt-image-params.png` })
   await page.keyboard.press('Escape')
