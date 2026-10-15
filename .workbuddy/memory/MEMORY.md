@@ -7318,3 +7318,14 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
 - **⭐ 内联 SVG 的 `fill` 查的是 `<svg>`，不是 `<path>`**：`fill="currentColor"` 挂在 svg 上由 path 继承，path 自身没有 fill 属性 —— 冒烟断言查错层级会假红（G79 实证）。
 - **⭐ 换图标资产后冒烟里两条旧断言会跟着过期**：`img[data-model-logo]` → `svg[data-model-icon]`；固定模型计数（#519 加三行后 19 ⇒ 22）。改资产要同步改断言。
 - **⭐ 收口基线（第 144 批 / 对账 #520）**：单测 **2545/2545**；`npm run check` 全绿（518 模块）；G79 **17/17**；全量冒烟三条红（G24 帧率、G52、G57）单组复跑全绿。
+
+## 2026-10-15 第 145 批（图标比文字上下各大 3px · #521）
+
+- **⭐⭐ 口径**：图标 = 同行文字字号 **+ 6px**（上下各 3）。只加 3px 是上下各 1.5，实测不被接受。
+  落地：设置页模型映射 13px 字 → 19px；浮层列表行 18px 字（`--picker-option-fs`）→ 24px，
+  由 `ParamPicker.module.css` 的 `.rowIcon > svg[data-model-icon]` 覆盖（不能一刀切）。
+- **⭐ 冒烟里查行内文字块要用 `closest('[data-param-option]')`**，别用 `e.parentElement` ——
+  图标包在 `.rowIcon` 里，它的 parentElement 就是那个 span，查不到 `.rowText`（实测恒为 0）。
+- **⚠️ 教训（用户当场指出）**：只改图标尺寸这种纯 CSS 改动，**跑一次对应组就该收尾**，
+  不要反复跑、更不要滚成全量。此前为这一处耗掉几小时（全量 1838 条约二十多分钟 + 反复 G79），
+  用户明确不接受。改完 → 单测（毫秒级）→ 提交。
