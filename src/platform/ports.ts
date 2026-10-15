@@ -465,6 +465,29 @@ export interface RemoteBytesResponse {
  */
 export interface RemoteBytesPort {
   get(req: RemoteBytesRequest): Promise<RemoteBytesResponse>
+  /**
+   * **通用 HTTP**（对账 #518）：带自定义头与请求体去打一个地址，回文本与响应头。
+   *
+   * 存在的理由与 `get` 同源（CORS），但服务的是另一件事：**站点不给 CORS 头的中转站**，
+   * 于是要能 POST `/v1/chat/completions`、要能读回 JSON，而不只是抓一张图标。
+   * 同样只有桌面壳给得出；浏览器里缺席时网络层照旧走 `fetch`，失败即如实报跨域。
+   */
+  request?(req: RemoteTextRequest): Promise<RemoteTextResponse>
+}
+
+/** 通用 HTTP 的请求（形状与 `NetworkRequest` 对齐，省去一层转换） */
+export interface RemoteTextRequest {
+  url: string
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'HEAD'
+  headers?: Record<string, string>
+  body?: string
+  timeoutMs?: number
+}
+
+export interface RemoteTextResponse {
+  status: number
+  headers: Record<string, string>
+  text: string
 }
 
 /**

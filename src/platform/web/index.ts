@@ -47,7 +47,11 @@ export function createWebPlatform(
   } = {},
 ): PlatformKit {
   const storage = createIndexedDbStorage()
-  const network = createFetchNetwork()
+  /**
+   * 网络层要**认识**桌面壳的原生 HTTP（对账 #518）：`remoteBytes` 只有壳传得进来，
+   * 页面 `fetch` 撞上 CORS 时由它兜住再打一次。浏览器里没有这一项 ⇒ 行为与从前一致。
+   */
+  const network = createFetchNetwork(overrides.remoteBytes)
   const credentials = createWebCryptoCredentials()
   return {
     storage,

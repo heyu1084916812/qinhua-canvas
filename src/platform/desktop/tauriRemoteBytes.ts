@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { base64ToBytes } from '../../domain/shared/base64'
-import type { RemoteBytesPort } from '../ports'
+import type { RemoteBytesPort, RemoteTextRequest, RemoteTextResponse } from '../ports'
 
 /**
  * Rust `fetch_bytes` 的返回形状（见 `src-tauri/src/lib.rs` 同名命令）。
@@ -12,6 +12,13 @@ interface RawFetchedBytes {
   status: number
   content_type: string | null
   bytes: number[] | string
+}
+
+/** Rust `fetch_text` 的返回形状（见 `src-tauri/src/lib.rs` 同名命令） */
+interface RawFetchedText {
+  status: number
+  headers: Record<string, string>
+  text: string
 }
 
 /**
@@ -37,6 +44,22 @@ export function createTauriRemoteBytes(): RemoteBytesPort {
         contentType: raw.content_type ?? '',
         bytes: typeof raw.bytes === 'string' ? base64ToBytes(raw.bytes) : Uint8Array.from(raw.bytes),
       }
+    },
+    /**
+     * 通用 HTTP（对账 #518）：转发给 `fetch_text`。
+     *
+     * 同样不做任何判断 —— 状态码、响应头、正文原样回给调用方，
+     * "这个响应算不算一份模型列表"归渠道层判（与 `get` 那条"不校验是不是图片"同一条口径）。
+     */
+    request: async (req: RemoteTextRequest): Promise<RemoteTextResponse> => {
+      const raw = await invoke<RawFetchedText>('fetch_text', {
+        url: req.url,
+        method: req.method ?? 'GET',
+        headers: req.headers ?? {},
+        body: req.body ?? '',
+        timeoutMs: req.timeoutMs,
+      })
+      return { status: raw.status, headers: raw.headers ?? {}, text: raw.text ?? '' }
     },
   }
 }

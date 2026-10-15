@@ -87,7 +87,67 @@ function toResponse(res: Response, text: string): NetworkResponse {
   }
 }
 
-export function createFetchNetwork(): NetworkPort {
+/**
+ * **跨域回落**（对账 #518）：页面 `fetch` 失败时，改用桌面壳的原生 HTTP 再打一次。
+ *
+ * 为什么要回落：壳里的 webview 与浏览器是**同一份 fetch 实现、同样受 CORS 限制**。
+ * 中转站不给 `Access-Control-Allow-Origin` 时，请求在浏览器这一层就被拦掉了 ——
+ * 服务端其实好好的（实测 200），但应用只拿到一个"网络错误"，
+ * 于是"验证协议"报「连不上这个地址（域名解析失败或连接被拒绝）」：
+ * 真正的原因是跨域，而这句文案把用户往"地址填错了"的方向带。
+ *
+ * 只在**网络类失败**时回落（dns / tls / cors）：HTTP 状态码是服务端真回答了，
+ * 那种失败（401 / 404 / 429）改走另一条路也还是同一个答复，没有任何意义。
+ */
+function isCorsLikeNetworkError(err: unknown): boolean {
+  const e = err as { kind?: string; detail?: string } | null
+  if (!e || e.kind !== 'network') return false
+  // `dns` 是 fetch 抛错时的兜底归类（见 toAppError），CORS 被拦也落在这里
+  return e.detail === 'dns' || e.detail === 'cors' || e.detail === 'tls'
+}
+
+export function createFetchNetwork(remote?: {
+  request?(req: {
+    url: string
+    method?: string
+    headers?: Record<string, string>
+    body?: string
+    timeoutMs?: number
+  }): Promise<{ status: number; headers: Record<string, string>; text: string }>
+}): NetworkPort {
+  const shellRequest = remote?.request
+  /** 走壳的原生 HTTP 打一次（不带 signal：Rust 侧自带超时） */
+  const viaShell = async (req: NetworkRequest): Promise<NetworkResponse> => {
+    const { headers, body } = requestInit(req)
+    const res = await shellRequest!({
+      url: req.url,
+      method: req.method ?? 'GET',
+      headers,
+      body: typeof body === 'string' ? body : '',
+      timeoutMs: req.timeoutMs,
+    })
+    if (res.status < 200 || res.status >= 300) {
+      throw { kind: 'http', status: res.status, body: res.text.slice(0, 500) } satisfies AppError
+    }
+    return {
+      status: res.status,
+      headers: res.headers ?? {},
+      async text() {
+        return res.text
+      },
+      async json<T = unknown>() {
+        try {
+          return JSON.parse(res.text) as T
+        } catch {
+          throw { kind: 'parse', raw: res.text.slice(0, 2000) } satisfies AppError
+        }
+      },
+      async arrayBuffer() {
+        return new TextEncoder().encode(res.text).buffer as ArrayBuffer
+      },
+    }
+  }
+
   return {
     async request(req: NetworkRequest, signal: AbortSignal): Promise<NetworkResponse> {
       const controller = new AbortController()
@@ -109,6 +169,10 @@ export function createFetchNetwork(): NetworkPort {
         }
         return toResponse(res, text)
       } catch (e) {
+        /** 浏览器这一层过不去（多为 CORS）且壳有原生 HTTP ⇒ 换一条路再试一次 */
+        if (shellRequest && !signal.aborted && isCorsLikeNetworkError(toAppError(e, signal))) {
+          return await viaShell(req)
+        }
         throw toAppError(e, signal)
       } finally {
         if (timer) clearTimeout(timer)

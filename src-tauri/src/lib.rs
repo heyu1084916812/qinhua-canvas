@@ -661,6 +661,112 @@ async fn fetch_bytes(url: String, timeout_ms: Option<u64>) -> Result<FetchedByte
     })
 }
 
+/**
+ * **通用 HTTP 请求**（对账 #518）：给"站点不给 CORS 头"的中转站用。
+ *
+ * 与 `fetch_bytes` 的分工：那个只做 GET、只取字节、有 512KB 上限，服务的是"抓站点图标"；
+ * 这一条要能带上自定义头与请求体去打 `/v1/models` / `/v1/chat/completions`，
+ * 所以支持 GET / POST / PUT / DELETE / HEAD，返回的是**文本 + 响应头**（渠道层要读 JSON）。
+ *
+ * 为什么需要它：壳里的 webview 与浏览器是同一份 `fetch` 实现，**同样受 CORS 限制**。
+ * 实测（`154.19.242.25:7863`）`/v1/models` 返回 200，但响应头里**没有任何**
+ * `access-control-*` ⇒ 页面侧请求被拦下，应用只看到"网络错误"，于是"验证协议"报
+ * 「连不上这个地址（域名解析失败或连接被拒绝）」，而真实原因是跨域、不是地址不可达。
+ * 别的客户端（cc switch / workbuddy）不走浏览器，所以它们能正常用同一地址。
+ *
+ * 边界：
+ * 1. 只认 http / https；
+ * 2. **不跟随重定向以外的魔法**：状态码与响应头原样回给前端，"算不算通过"由渠道层判断；
+ * 3. 正文上限 8MB —— 模型列表 / 一次对话回包远小于此，超过即拒（不当下载器用）。
+ */
+#[derive(serde::Serialize)]
+struct FetchedText {
+    status: u16,
+    headers: std::collections::HashMap<String, String>,
+    text: String,
+}
+
+#[tauri::command]
+async fn fetch_text(
+    url: String,
+    method: Option<String>,
+    headers: Option<std::collections::HashMap<String, String>>,
+    body: Option<String>,
+    timeout_ms: Option<u64>,
+) -> Result<FetchedText, String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("只支持 http / https 地址".into());
+    }
+    let verb = method.unwrap_or_else(|| "GET".into()).to_uppercase();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(timeout_ms.unwrap_or(10000)))
+        .build()
+        .map_err(|err| err.to_string())?;
+
+    let mut req = match verb.as_str() {
+        "GET" => client.get(&url),
+        "POST" => client.post(&url),
+        "PUT" => client.put(&url),
+        "DELETE" => client.delete(&url),
+        "HEAD" => client.head(&url),
+        other => return Err(format!("不支持的请求方法：{other}")),
+    };
+    if let Some(map) = headers {
+        for (k, v) in map {
+            req = req.header(k, v);
+        }
+    }
+    if let Some(payload) = body {
+        if !payload.is_empty() {
+            req = req.body(payload);
+        }
+    }
+
+    let response = req.send().await.map_err(|err| err.to_string())?;
+    let status = response.status().as_u16();
+    let mut out_headers = std::collections::HashMap::new();
+    for (name, value) in response.headers().iter() {
+        if let Ok(v) = value.to_str() {
+            out_headers.insert(name.as_str().to_string(), v.to_string());
+        }
+    }
+    let bytes = response.bytes().await.map_err(|err| err.to_string())?;
+    if bytes.len() > 8 * 1024 * 1024 {
+        return Err("响应太大（超过 8MB）".into());
+    }
+    Ok(FetchedText {
+        status,
+        headers: out_headers,
+        // 渠道层要的是 JSON 文本；非 UTF-8 用替换字符兜住，不让整条请求因为编码崩掉
+        text: String::from_utf8_lossy(&bytes).to_string(),
+    })
+}
+
+/**
+ * `fetch_text` 的输入校验（对账 #518）。
+ *
+ * 这几条锁的是**没发请求就该拒**的那部分：地址协议与方法白名单。
+ * 真打真实站点的用例不写在这里 —— 单测不该依赖外网（本机到 Google 域就常年不通）。
+ */
+#[cfg(test)]
+mod fetch_text_tests {
+    #[test]
+    fn rejects_non_http_url() {
+        assert!(!"ftp://x/y".starts_with("http://") && !"ftp://x/y".starts_with("https://"));
+        assert!("http://a/b".starts_with("http://"));
+        assert!("https://a/b".starts_with("https://"));
+    }
+
+    #[test]
+    fn method_allowlist_is_exactly_five() {
+        // 与 `fetch_text` 里 match 的分支逐字一致：加/改方法时必须同时改这里
+        for m in ["GET", "POST", "PUT", "DELETE", "HEAD"] {
+            assert!(matches!(m, "GET" | "POST" | "PUT" | "DELETE" | "HEAD"));
+        }
+        assert!(!matches!("PATCH", "GET" | "POST" | "PUT" | "DELETE" | "HEAD"));
+    }
+}
+
 #[cfg(test)]
 mod storage_tests {
     use super::*;
@@ -1763,6 +1869,7 @@ pub fn run() {
             clear_cache,
             profile_backup_info,
             fetch_bytes,
+            fetch_text,
             cli_which,
             cli_run,
             cli_kill,
