@@ -440,6 +440,22 @@
   color: var(--text-1);
 }
 
+/*
+ * 图标与行内文字的**视觉比例**（用户 2026-10-15 第二轮）。
+ *
+ * 口径只有一句：**图标 = 同行文字字号 + 6px** —— 上面大 3、下面大 3。
+ * ⚠️ 第一版写成 21px（18 + 3）是错的：那是上下各 1.5，不是上下各 3。
+ *
+ * `.row` 的行文字是 18px（`--picker-option-fs`）⇒ 图标 **24px**；设置页模型映射
+ * 那行是 13px（`--fs-label`）⇒ **19px**（见 SettingsPage 的 `<ModelIcon size>`）。
+ * 挂在 `.rowIcon` 上而不是 ModelIcon 默认值：同一份图标在不同位置配不同字号，
+ * 一刀切会给错比例。
+ */
+.rowIcon > svg[data-model-icon] {
+  width: 24px;
+  height: 24px;
+}
+
 /* chip 里的图标：没有图标时不占位，有图标时与文字保持同一内距 */
 .chip > svg {
   flex: 0 0 auto;

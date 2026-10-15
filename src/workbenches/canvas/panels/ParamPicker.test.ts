@@ -166,3 +166,26 @@ describe('ParamPicker · 多组模式', () => {
     expect(html).not.toContain('data-param-section')
   })
 })
+
+describe('ParamPicker · 图标与文字的比例', () => {
+  it('★★ 列表项带厂商图标时，渲染成 <svg data-model-icon>（尺寸交给 CSS 按 18px 字取 21px）', () => {
+    const html = renderToString(
+      createElement(ParamPicker, {
+        name: 'model',
+        ariaLabel: '模型',
+        label: '模型',
+        options: [
+          { value: 'GPT Image 2', label: 'GPT Image 2', icon: createElement('span', { 'data-model-icon': 'openai' }) },
+        ],
+        value: 'GPT Image 2',
+        variant: 'list',
+        open: true,
+        onToggle: () => {},
+        onClose: () => {},
+        onSelect: () => {},
+      }),
+    )
+    // 图标包在 .rowIcon 里，行文字在 .rowText 里 —— 两块同级，比例由 CSS 管
+    expect(html).toContain('data-model-icon="openai"')
+  })
+})

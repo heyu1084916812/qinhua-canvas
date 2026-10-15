@@ -11,14 +11,19 @@
  * 不许碰 assets 与 react），故落到前后端都能引用的 `features/shared/`。
  * 同一份实现、两处引用 ⇒ 同一个模型在两处不可能画出两个样。
  *
- * ## 为什么外面套一层底板
+ * ## 为什么**默认 20px**（图标比文字上下各大 3px 的统一口径）
  *
- * 有几家的图标是**单色深色线条**（OpenAI、Midjourney）。深色主题下面板底色变深时，
- * 深色线条会直接糊在背景里看不见。底板取 `--bg-surface`：浅色主题下它是白的
- * （与图标原底色一致，看不出来），深色主题下它是深灰、图标仍是深色线条也依然读得出
- * 「这里有一个 logo」，且**两套主题都不写字面量颜色**（由主题守卫强制）。
+ * 用户 2026-10-15 第二轮：「图标要比文字上下大 3 个像素，上面大 3 个下面大 3 个」。
  *
- * 想换图标时只改这一个文件与那七个 PNG，调用方只认 `vendor`。
+ * 落地口径只有一句：**图标 = 同行文字字号 + 6px**（上下各 3）。
+ * ⚠️ 只加 3px 是错的 —— 那是上下各 1.5px，实测不被接受。
+ *
+ * 所以这个 20px 对应的是 **14px 的字**（`--fs-nav` / `--fs-label`）：
+ * 设置页模型映射行传的就是它。18px 字的地方（浮层列表行 `--picker-option-fs`）
+ * 要 24px，由 `ParamPicker.module.css` 的 `.rowIcon` 覆盖 ——
+ * 同一份图标、按字号配尺寸，不该一刀切。字号不同的调用方显式传 `size`。
+ *
+ * 想换图标时只改这一个文件与 `modelLogoPaths.ts`，调用方只认 `vendor`。
  */
 import type { SVGProps } from 'react'
 import type { PresetVendor } from '../../../domain/project/modelPresets'
@@ -54,7 +59,7 @@ interface ModelIconProps extends Omit<SVGProps<SVGSVGElement>, 'children'> {
  * 深色主题下会一直是黑的（正是旧版必须加底板的原因）。
  * 内联之后颜色自动跟主题反转，底板也就没有必要了。
  */
-export function ModelIcon({ vendor, size = 16 }: ModelIconProps) {
+export function ModelIcon({ vendor, size = 20 }: ModelIconProps) {
   return (
     <svg
       className={styles.icon}

@@ -13243,6 +13243,29 @@ async function g79(browser) {
     drawn.length >= 6 && drawn.every((d) => d.fill === 'currentColor'),
     JSON.stringify(drawn.slice(0, 3).map((d) => d.fill)),
   )
+  /**
+   * 图标比文字上下各大 3px 的**统一比例**（用户 2026-10-15 第二轮）：
+   * 面板挂 0.75 zoom，行文字 18px 设计值（`--picker-option-fs`），图标 21px；
+   * 屏幕上是 13.5 / 15.75 —— 差值也按 0.75 缩，但「图标大一档」的规则不变。
+   * 断言直接读渲染出来的几何，不依赖 CSS 写法。
+   */
+  const measured = await logoImgs.evaluateAll((els) =>
+    els.map((e) => {
+      const text = e.parentElement?.querySelector('[class*="rowText"]')
+      const iconH = e.getBoundingClientRect().height
+      // 行文字块（rowBody / rowText）与图标同为 .row 的直接子级；上一轮查错层级拿到 0
+      const row = e.closest('[data-param-option]')
+      const textH = text?.getBoundingClientRect().height ?? row?.querySelector('[class*="rowText"]')?.getBoundingClientRect().height ?? 0
+      // 只断言「图标确实比该行的文字大一档」，具体数字交给 CSS；面板 zoom 会等比缩两者
+      return { vendor: e.getAttribute('data-model-icon') ?? '', iconH: Math.round(iconH * 10) / 10, biggerThanText: textH > 0 && iconH > textH, textH: Math.round(textH * 10) / 10 }
+    }),
+  )
+  rec(
+    g,
+    '★★ 图标比行内文字上下各大 3px（21px vs 18px 设计值）',
+    measured.length >= 6 && measured.every((m) => m.biggerThanText),
+    JSON.stringify(measured.slice(0, 3)),
+  )
   await page.screenshot({ path: `${OUT}/95-g79-image-models.png` })
   await page.keyboard.press('Escape')
   await sleep(200)

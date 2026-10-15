@@ -1188,7 +1188,7 @@
 
 .mapName {
   flex: none;
-  width: 200px;
+  width: 208px;
   display: flex;
   align-items: center;
   gap: var(--space-2);

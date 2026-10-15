@@ -1746,7 +1746,7 @@ export function SettingsPage() {
                                     data-route-map-preset={isPreset ? '1' : '0'}
                                   >
                                     <span className={styles.mapName} title={id} data-route-map-label>
-                                      <ModelIcon vendor={vendor} size={14} />
+                                      <ModelIcon vendor={vendor} size={19} />
                                       <span className={styles.mapLabelText}>{label}</span>
                                     </span>
                                     <ModelMapCombo
