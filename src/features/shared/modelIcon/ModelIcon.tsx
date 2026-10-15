@@ -32,6 +32,9 @@ import falLogo from '../../../assets/model-logos/fal.png'
 import minimaxLogo from '../../../assets/model-logos/minimax.png'
 import wanLogo from '../../../assets/model-logos/wan.png'
 import agnesLogo from '../../../assets/model-logos/agnes.png'
+import deepseekLogo from '../../../assets/model-logos/deepseek.png'
+import zhipuLogo from '../../../assets/model-logos/zhipu.png'
+import hunyuanLogo from '../../../assets/model-logos/hunyuan.png'
 
 const LOGOS: Record<PresetVendor, string> = {
   openai: openaiLogo,
@@ -42,6 +45,9 @@ const LOGOS: Record<PresetVendor, string> = {
   minimax: minimaxLogo,
   alibaba: wanLogo,
   agnes: agnesLogo,
+  deepseek: deepseekLogo,
+  zhipu: zhipuLogo,
+  tencent: hunyuanLogo,
 }
 
 /** 每个厂商的中文名，供悬停提示（图标本身是 `aria-hidden` 的装饰） */
@@ -54,6 +60,9 @@ const VENDOR_LABEL: Record<PresetVendor, string> = {
   minimax: 'MiniMax',
   alibaba: '阿里',
   agnes: 'Agnes',
+  deepseek: 'DeepSeek',
+  zhipu: '智谱 GLM',
+  tencent: '腾讯混元',
 }
 
 interface ModelIconProps extends Omit<SVGProps<SVGSVGElement>, 'children'> {

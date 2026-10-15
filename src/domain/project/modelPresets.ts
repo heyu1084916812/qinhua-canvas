@@ -25,6 +25,9 @@ export type PresetVendor =
   | 'fal'
   | 'alibaba'
   | 'agnes'
+  | 'deepseek'
+  | 'zhipu'
+  | 'tencent'
 
 export interface PresetModel {
   /** 前端显示名 = 逻辑名（跨站点稳定，请求时经 `modelMap` 翻译） */
@@ -71,6 +74,31 @@ export const PRESET_CHAT_MODELS: readonly PresetModel[] = [
   { id: 'GPT-6 Sol', category: 'chat', vendor: 'openai', aliases: ['gpt-6-sol'] },
   { id: 'GPT-6 Luna', category: 'chat', vendor: 'openai', aliases: ['gpt-6-luna'] },
   { id: 'Gemini 3.8 Flash', category: 'chat', vendor: 'google', aliases: ['gemini-3.8-flash'] },
+  /**
+   * 用户 2026-10-15 点名补的三个对话模型（对账 #519）。
+   *
+   * 上游 ID 取自 `154.19.242.25:7863/v1/models` 实测：`cn:` / `global:` 两套前缀
+   * **都写成别名** —— 少写一套，渠道上报另一套时它就会以「另一个模型」的身份
+   * 漏回下拉（同一个模型在界面上出现两行）。
+   */
+  {
+    id: 'Deepseek 4.1 Flash',
+    category: 'chat',
+    vendor: 'deepseek',
+    aliases: ['cn:deepseek-v4.1-flash', 'global:deepseek-v4.1-flash', 'global:deepseek-v4.1-flash-sg'],
+  },
+  {
+    id: 'GLM 5.3 Flash',
+    category: 'chat',
+    vendor: 'zhipu',
+    aliases: ['cn:glm-5.3-flash', 'global:glm-5.3-flash'],
+  },
+  {
+    id: 'HY 4',
+    category: 'chat',
+    vendor: 'tencent',
+    aliases: ['cn:hy4-preview', 'cn:hy4-preview-f', 'global:hy4-preview', 'global:hy4-preview-f'],
+  },
 ]
 
 /**

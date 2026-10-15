@@ -31,18 +31,51 @@ describe('固定模型目录', () => {
     expect(PRESET_IMAGE_MODELS.some((m) => m.id.includes('Lite'))).toBe(false)
   })
 
-  it('★ 对话四个：OpenAI 三个全要、Google 只留 Gemini 3.8 Flash', () => {
+  it('★ 对话七个：OpenAI 三个 + Gemini 3.8 Flash + 用户点名的国产三个（#519）', () => {
     expect(PRESET_CHAT_MODELS.map((m) => m.id)).toEqual([
       'GPT-6 Astra',
       'GPT-6 Sol',
       'GPT-6 Luna',
       'Gemini 3.8 Flash',
+      'Deepseek 4.1 Flash',
+      'GLM 5.3 Flash',
+      'HY 4',
     ])
     // 图 4 里的旧名字不该还在（用户明确说「这些是旧的了」）
     const ids = PRESET_CHAT_MODELS.map((m) => m.id)
     expect(ids).not.toContain('Gemini 3.1 Pro')
     expect(ids).not.toContain('GPT 5.5')
     expect(ids).not.toContain('GPT 5.6 Terra')
+  })
+
+  /**
+   * 对账 #519：这三个显示名的**别名必须覆盖 `cn:` 与 `global:` 两套前缀**。
+   *
+   * 中转站 `/v1/models` 里的 id 就是这两种形态（实测 51 个模型两种都有）。
+   * 少写一套，渠道上报另一套时它就会以「另一个模型」的身份漏回下拉
+   * （同一个模型在界面上出现两行）。
+   */
+  it('★★ 国产三个的别名覆盖 cn: 与 global: 两套前缀（#519）', () => {
+    const aliasesOf = (id: string): string[] => {
+      const hit = PRESET_CHAT_MODELS.find((m) => m.id === id)!
+      return hit.aliases ?? []
+    }
+    expect(aliasesOf('Deepseek 4.1 Flash')).toEqual([
+      'cn:deepseek-v4.1-flash',
+      'global:deepseek-v4.1-flash',
+      'global:deepseek-v4.1-flash-sg',
+    ])
+    expect(aliasesOf('GLM 5.3 Flash')).toEqual(['cn:glm-5.3-flash', 'global:glm-5.3-flash'])
+    expect(aliasesOf('HY 4')).toEqual([
+      'cn:hy4-preview',
+      'cn:hy4-preview-f',
+      'global:hy4-preview',
+      'global:hy4-preview-f',
+    ])
+    /** 归一显示：上游 ID 进来要能映射到显示名（界面不出现两行） */
+    for (const a of [...aliasesOf('Deepseek 4.1 Flash'), ...aliasesOf('GLM 5.3 Flash'), ...aliasesOf('HY 4')]) {
+      expect(presetIdForUpstream(a)).not.toBe(a)
+    }
   })
 
   it('★ 视频五个（用户：「只要前五个先」）', () => {
