@@ -23,8 +23,15 @@
  *   `duration` / `generate_audio`），发出去时见 `openaiVideo.ts` 的 `openai-videos` 分支。
  *
  * **`Wan 3.0` 已按阿里云百炼官方文档补齐**（2026-10-15 实读）；
- * **`Gemini Omni Flash 1.1` 落已核实的官方值域**（比例 16:9/9:16、分辨率 360p/720p/1080p、
- * 无时长参数；模式等真令牌跑通后再补）。
+ * **`Gemini Omni Flash 1.1` 已按 Google 官方 `gemini-api/docs/omni` 补齐参数表**
+ * （2026-10-15 用应用内浏览器实读，命令行到 Google 域不可达）：
+ * 比例 16:9（默认）/ 9:16；分辨率 360p / 720p（默认）/ 1080p / 4k；
+ * 输出视频 3–10 秒、720p、24 FPS（模型页口径），延长最多到 40 秒；
+ * 官方 `task` 五个值 = `text_to_video` / `image_to_video` / `reference_to_video` /
+ * `edit` / `extend`；原生音频由模型默认生成，**没有音频开关**。
+ * **仍未做的**：官方走 Interactions API（`response_format` + `generation_config.video_config.task`），
+ * 本项目现有的 `openai-videos` 适配器映射还没用真令牌验证过 —— 参数先落，
+ * 令牌到位后再把请求体对齐官方形状。
  */
 
 /**
@@ -244,18 +251,24 @@ export const VIDEO_PARAM_SPECS: Record<string, VideoParamSpec> = {
   /**
    * **Gemini Omni Flash 1.1**。
    *
-   * 官方口径已记录在对账 **#120**：`aspect_ratio` = 16:9 / 9:16，
-   * `resolution` = 360p / 720p / 1080p，**没有时长参数**。
-   * 2026-10-15 本机直连 Google 域返回 000，未能重新打开官方页，故只落已核实的值。
+   * 官方页（`gemini-api/docs/omni`，2026-10-15 实读）：
    *
-   * 模式官方页没有给出可核对的值，这里只暴露最保守的 `text`；等真令牌把
-   * `predictLongRunning` 跑通后，再按真实请求体补模式。
+   * - `response_format.aspect_ratio` = `16:9`（默认）/ `9:16`；
+   * - `response_format.resolution` = `360p` / `720p`（默认）/ `1080p` / `4k`
+   *   —— 后两档官方注明是「高清重塑」；
+   * - `task` 五个值 → 我们的模式词表：
+   *   `text_to_video` → `text`；`image_to_video` → `image-to-video`；
+   *   `reference_to_video` → `all-purpose`（官方支持图片 / 视频参考）；
+   *   `edit` → `video-edit`；`extend` → `video-extend`；
+   * - 输出 3–10 秒、720p、24 FPS；延长每次 10 秒、最长 40 秒；
+   * - **没有时长参数**：时长由提示词 / 任务类型决定，不是 `duration` 字段；
+   * - 原生音频默认生成，**没有「生成音频」开关**，所以 `supportsAudio` 保持 false。
    */
   'gemini-omni-1.1-flash': {
     ratios: ['16:9', '9:16'],
-    sizes: ['360p', '720p', '1080p'],
+    sizes: ['360p', '720p', '1080p', '4k'],
     counts: [1],
-    modes: ['text'],
+    modes: ['text', 'image-to-video', 'all-purpose', 'video-edit', 'video-extend'],
     supportsAudio: false,
     dialect: 'openai-videos',
   },

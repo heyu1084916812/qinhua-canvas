@@ -2,9 +2,10 @@
 
 ### ★ 三个"看起来能顺手做"的坑，实际是外部 / 产品阻塞（2026-10-15 目标复核）
 
-- **Google 官方文档到不了**：`ai.google.dev` / `cloud.google.com` 命令行与应用内浏览器全部超时
-  （`curl 28` / HTTP 000 / 导航超时），所以 `Gemini Omni Flash 1.1` 的模式值**不能猜**；
-  已核实的比例 / 分辨率 / 无时长参数保留，等可用网络或令牌再补。
+- **Google 官方文档的命令行路走不通，但应用内浏览器能读**：`curl` 到 `ai.google.dev` /
+  `cloud.google.com` 一律 `curl 28` / HTTP 000；同一台机器的 **应用内浏览器**却能打开
+  `ai.google.dev/gemini-api/docs/omni?hl=zh-cn` 并读出完整参数表。以后查 Google 官方文档
+  直接用 `cua_repl` 的 IAB，不再拿命令行超时当"全网不可达"。
 - **音频在领域层还不存在**：`ModelCapability.category` 只有 `image | chat | video`，
   设置页「音频」只是预留筛选位 ⇒ 漫剧 TTS / 口型 / BGM 现在做只能做成空壳；
   等有可核实的 TTS 接口再扩能力域。

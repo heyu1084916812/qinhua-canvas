@@ -145,11 +145,19 @@ describe('videoParamsFor · 视频模型各自的参数能力', () => {
     expect(videoParamsFor('wan3.0-video-prime')).toBe(spec)
   })
 
-  it('★ Gemini Omni Flash 1.1：只落官方核实过的比例 / 分辨率，不编时长与模式', () => {
+  it('★★ Gemini Omni Flash 1.1：官方比例 / 分辨率 / 五个 task、无时长参数', () => {
     const spec = videoParamsFor('Gemini Omni Flash 1.1')
     expect(spec?.ratios).toEqual(['16:9', '9:16'])
-    expect(spec?.sizes).toEqual(['360p', '720p', '1080p'])
+    expect(spec?.sizes).toEqual(['360p', '720p', '1080p', '4k'])
     expect(spec?.seconds).toBeUndefined()
-    expect(spec?.modes).toEqual(['text'])
+    expect(spec?.modes).toEqual([
+      'text',
+      'image-to-video',
+      'all-purpose',
+      'video-edit',
+      'video-extend',
+    ])
+    expect(spec?.counts).toEqual([1])
+    expect(spec?.supportsAudio).toBe(false)
   })
 })
