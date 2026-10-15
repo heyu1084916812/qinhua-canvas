@@ -13434,6 +13434,46 @@ async function g79(browser) {
     (await paramLabel(panel2, 'model')) === 'GPT Image 2.5 Flare',
     await paramLabel(panel2, 'model'),
   )
+  /**
+   * chip 与列表行**必须长得一样**（用户 2026-10-15 第三轮：「节点上的这个不一样，
+   * 图标的大小、文字的大小、图标和文字之间的距离，我要一样和列表里面的一样」）。
+   *
+   * 三项都在同一块面板里量，单位相同（都吃 0.75 的 zoom），所以直接比值即可。
+   * 列表行取的是刚才那个浮层里带厂商图标的一行。
+   */
+  const chipGeom = await panel2.locator('[data-param-chip="model"]').evaluate((el) => {
+    const svg = el.querySelector('svg[data-model-icon]')
+    const label = el.querySelector('[class*="chipLabel"]')
+    return {
+      icon: svg ? svg.getBoundingClientRect().height : 0,
+      font: label ? parseFloat(getComputedStyle(el).fontSize) : 0,
+      gap: parseFloat(getComputedStyle(el).columnGap) || 0,
+    }
+  })
+  await panel2.locator('[data-param-chip="model"]').click()
+  await sleep(300)
+  const rowGeom = await panel2
+    .locator('[data-param-popup="model"] [data-param-option]')
+    .first()
+    .evaluate((el) => {
+      const svg = el.querySelector('svg[data-model-icon]')
+      return {
+        icon: svg ? svg.getBoundingClientRect().height : 0,
+        font: parseFloat(getComputedStyle(el).fontSize),
+        gap: parseFloat(getComputedStyle(el).columnGap) || 0,
+      }
+    })
+  await page.keyboard.press('Escape')
+  await sleep(200)
+  rec(
+    g,
+    '★★ 模型 chip 的图标 / 字号 / 间距与列表行完全一致',
+    chipGeom.icon > 0 &&
+      Math.abs(chipGeom.icon - rowGeom.icon) < 0.6 &&
+      Math.abs(chipGeom.font - rowGeom.font) < 0.6 &&
+      Math.abs(chipGeom.gap - rowGeom.gap) < 0.6,
+    `chip=${JSON.stringify(chipGeom)} row=${JSON.stringify(rowGeom)}`,
+  )
   const ta = panelPrompt(panel2)
   if ((await ta.count()) > 0) {
     await ta.click()

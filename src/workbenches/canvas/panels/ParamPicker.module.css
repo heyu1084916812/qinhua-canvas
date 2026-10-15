@@ -456,6 +456,29 @@
   height: 24px;
 }
 
+/*
+ * **选中后的 chip 要和浮层里的列表行长得一模一样**（用户 2026-10-15 第三轮）：
+ * 「节点上的这个不一样，图标的大小、文字的大小、图标和文字之间的距离，
+ * 我要一样和列表里面的一样」。
+ *
+ * 两处原本三差：chip 字 21px（`--picker-fs`）vs 行 18px（`--picker-option-fs`）、
+ * chip 图标走 ModelIcon 默认 20px vs 行 24px、chip 间距 4px（`--space-1`）
+ * vs 行 8px（`--space-2`）。这里把 chip 侧对齐到行侧，不再各写一套。
+ *
+ * 用 `:has(> svg[data-model-icon])` 精确圈定「带厂商 logo 的 chip」——
+ * 比例 / 张数 / 渠道那些 chip 没有 vendor 图标，字号与间距保持原样不受影响。
+ * （`:has()` 仓库里已在用，见 ProjectsPage / NodeFrame 的同类选择器。）
+ */
+.chip:has(> svg[data-model-icon]) {
+  gap: var(--space-2);
+  font-size: var(--picker-option-fs, 18px);
+}
+
+.chip:has(> svg[data-model-icon]) > svg[data-model-icon] {
+  width: 24px;
+  height: 24px;
+}
+
 /* chip 里的图标：没有图标时不占位，有图标时与文字保持同一内距 */
 .chip > svg {
   flex: 0 0 auto;
