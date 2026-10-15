@@ -7311,3 +7311,10 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   仍然什么都不做，不甩视口、不乱选中。
 - **★ 收口基线（第 143 批 / 对账 #380b / #424）**：单测 `workbench.test.ts` 覆盖三种
   深链；`npm run check` 全绿；G138 **11/11**（新增 2 条：标注层、旋转层都可见）。
+
+## 2026-10-15 第 144 批（模型图标：LobeHub 单色内联 SVG #520）
+
+- **⭐⭐ 想要单色图标，绝不能拿 `-color` 源再压色**：LobeHub 的 `-color` 版（Gemini / 即梦 / 混元）靠 `<linearGradient>` + `clip-path` + 叠 `<rect>` 出彩色，`fill` 一换 `currentColor` 就退化成实心方块 / 实心圆。必须取**非 `-color` 源**（那份本身就是单色设计的 `fill=currentColor + evenodd`）。
+- **⭐ 内联 SVG 的 `fill` 查的是 `<svg>`，不是 `<path>`**：`fill="currentColor"` 挂在 svg 上由 path 继承，path 自身没有 fill 属性 —— 冒烟断言查错层级会假红（G79 实证）。
+- **⭐ 换图标资产后冒烟里两条旧断言会跟着过期**：`img[data-model-logo]` → `svg[data-model-icon]`；固定模型计数（#519 加三行后 19 ⇒ 22）。改资产要同步改断言。
+- **⭐ 收口基线（第 144 批 / 对账 #520）**：单测 **2545/2545**；`npm run check` 全绿（518 模块）；G79 **17/17**；全量冒烟三条红（G24 帧率、G52、G57）单组复跑全绿。

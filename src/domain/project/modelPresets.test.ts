@@ -56,7 +56,7 @@ describe('固定模型目录', () => {
    * （同一个模型在界面上出现两行）。
    */
   it('★★ 国产三个的别名覆盖 cn: 与 global: 两套前缀（#519）', () => {
-    const aliasesOf = (id: string): string[] => {
+    const aliasesOf = (id: string): readonly string[] => {
       const hit = PRESET_CHAT_MODELS.find((m) => m.id === id)!
       return hit.aliases ?? []
     }

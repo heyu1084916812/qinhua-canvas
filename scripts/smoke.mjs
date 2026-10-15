@@ -5291,9 +5291,9 @@ async function g44(browser) {
   )
   // 模型映射行也要带厂商图标（与画布那边的模型下拉同源，一份实现两处引用）
   const mapRowLogo = await page
-    .locator('[data-route-map-row] [data-model-logo]')
+    .locator('[data-route-map-row] [data-model-icon]')
     .first()
-    .getAttribute('data-model-logo')
+    .getAttribute('data-model-icon')
     .catch(() => null)
   rec(g, '★★ 模型映射行带厂商图标', !!mapRowLogo, mapRowLogo ?? '未找到图标')
   await page.screenshot({ path: `${OUT}/44-a-channels.png` })
@@ -13206,24 +13206,42 @@ async function g79(browser) {
   )
   /**
    * 图标在 2026-09-27 第 8 轮从手绘 SVG 换成**官方 PNG**
-   * （用户：「这些模型的 logo 我要官方的 logo，png 格式…当前的不太像」）。
+   * （用户：「这些模型的 logo 我要官方的 logo，png 格式…当前的不太像」）；
+   * 2026-10-15 又换成 **LobeHub 官方 SVG 单色内联路径**
+   * （用户：「统一压成单色 currentColor，跟随主题变黑/白，不要描边、不要容器」）。
    *
-   * 断言两条，缺一都不足以证明「官方图标真的加载出来了」：
-   *  ① 每个固定项前方有 `img[data-model-logo]`；
-   *  ② 每张图**真的解码成功**（`naturalWidth > 0`）—— 只数 DOM 的话，
-   *     路径写错、404 也会数出 6 个，图上却是空白。
+   * 内联 SVG 不存在 404 空图的问题，所以这轮断言的是「形状真的画出来了」：
+   *  ① 每个固定项前方有 `svg[data-model-icon]`（且不再是 `<img>`）；
+   *  ② 每个 svg 至少有一条 `<path>`，且 `fill` 全部是 `currentColor`
+   *     —— 只数 DOM 的话，空 `<svg>` 也会数出 6 个，图上却是空白。
    */
-  const logoImgs = imageRows.locator('img[data-model-logo]')
+  const logoImgs = imageRows.locator('svg[data-model-icon]')
   const logoCount = await logoImgs.count()
-  const decoded = await logoImgs.evaluateAll((els) =>
-    els.map((e) => ({ src: e.getAttribute('src') ?? '', w: e.naturalWidth })),
+  const leftImg = await imageRows.locator('img[data-model-logo]').count()
+  const drawn = await logoImgs.evaluateAll((els) =>
+    els.map((e) => {
+      const paths = Array.from(e.querySelectorAll('path'))
+      return {
+        vendor: e.getAttribute('data-model-icon') ?? '',
+        paths: paths.length,
+        // fill 写在 <svg> 上由 <path> 继承，path 自身没有 fill 属性 —— 上一轮查错层级
+        fill: e.getAttribute('fill') ?? '',
+      }
+    }),
   )
-  rec(g, '★ 固定模型每项前方都有官方 PNG 图标', logoCount >= 6, `图标数=${logoCount}`)
+  rec(g, '★ 固定模型每项前方都有内联 SVG 图标', logoCount >= 6, `图标数=${logoCount}`)
+  rec(g, '★ 旧的 <img> PNG 图标已全部移除', leftImg === 0, `残留 img=${leftImg}`)
   rec(
     g,
-    '★★ 图标真的解码出来了（不是 404 空图）',
-    decoded.length >= 6 && decoded.every((d) => d.w > 0),
-    JSON.stringify(decoded.slice(0, 3)),
+    '★★ 图标形状真的画出来了（有 path，且不是空 svg）',
+    drawn.length >= 6 && drawn.every((d) => d.paths > 0),
+    JSON.stringify(drawn.slice(0, 3)),
+  )
+  rec(
+    g,
+    '★★ 图标压成单色 currentColor（无描边色、跟随主题）',
+    drawn.length >= 6 && drawn.every((d) => d.fill === 'currentColor'),
+    JSON.stringify(drawn.slice(0, 3).map((d) => d.fill)),
   )
   await page.screenshot({ path: `${OUT}/95-g79-image-models.png` })
   await page.keyboard.press('Escape')
@@ -13304,7 +13322,7 @@ async function g79(browser) {
    * 用户 2026-09-27 第 8 轮：「`gpt-image-2` 这个和头两个模型 id 格式不一样，
    * 应该是 `GPT Image 2`」。
    *
-   * 映射区列的是**显示名**：15 个固定项各一行、每行标签就是那个显示名，
+   * 映射区列的是**显示名**：22 个固定项各一行（#519 加了 DeepSeek / GLM / HY 三行）、
    * 不存在「`GPT Image 2` 与 `gpt-image-2` 各占一行」的重复。
    */
   /**
@@ -13331,13 +13349,16 @@ async function g79(browser) {
   const trimmedLabels = await collectMapRows()
   rec(
     g,
-    '★ 五个筛选合起来只列 19 个固定显示名（含 Agnes 自有四个），不含上游裸 ID 或重复项',
-    trimmedLabels.length === 19 &&
+    '★ 五个筛选合起来只列 22 个固定显示名（含 Agnes 自有四个 + 国产三模型），不含上游裸 ID 或重复项',
+    trimmedLabels.length === 22 &&
       trimmedLabels.includes('GPT Image 2') &&
       // Agnes 有自己的显示名，不再把它的 ID 塞进别家的名字里
       trimmedLabels.includes('Agnes 2.5 Flash') &&
       trimmedLabels.includes('Agnes 3.0 Flash') &&
       trimmedLabels.includes('Agnes Video 2.0') &&
+      trimmedLabels.includes('Deepseek 4.1 Flash') &&
+      trimmedLabels.includes('GLM 5.3 Flash') &&
+      trimmedLabels.includes('HY 4') &&
       !trimmedLabels.includes('gpt-image-2') &&
       !trimmedLabels.includes('agnes-2.5-flash') &&
       !trimmedLabels.includes('Agnes 2.0 Flash') &&

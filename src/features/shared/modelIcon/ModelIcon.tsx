@@ -24,31 +24,7 @@ import type { SVGProps } from 'react'
 import type { PresetVendor } from '../../../domain/project/modelPresets'
 import styles from './ModelIcon.module.css'
 
-import openaiLogo from '../../../assets/model-logos/openai.png'
-import geminiLogo from '../../../assets/model-logos/gemini.png'
-import midjourneyLogo from '../../../assets/model-logos/midjourney.png'
-import jimengLogo from '../../../assets/model-logos/jimeng.png'
-import falLogo from '../../../assets/model-logos/fal.png'
-import minimaxLogo from '../../../assets/model-logos/minimax.png'
-import wanLogo from '../../../assets/model-logos/wan.png'
-import agnesLogo from '../../../assets/model-logos/agnes.png'
-import deepseekLogo from '../../../assets/model-logos/deepseek.png'
-import zhipuLogo from '../../../assets/model-logos/zhipu.png'
-import hunyuanLogo from '../../../assets/model-logos/hunyuan.png'
-
-const LOGOS: Record<PresetVendor, string> = {
-  openai: openaiLogo,
-  google: geminiLogo,
-  midjourney: midjourneyLogo,
-  bytedance: jimengLogo,
-  fal: falLogo,
-  minimax: minimaxLogo,
-  alibaba: wanLogo,
-  agnes: agnesLogo,
-  deepseek: deepseekLogo,
-  zhipu: zhipuLogo,
-  tencent: hunyuanLogo,
-}
+import { MODEL_LOGO_PATHS } from './modelLogoPaths'
 
 /** 每个厂商的中文名，供悬停提示（图标本身是 `aria-hidden` 的装饰） */
 const VENDOR_LABEL: Record<PresetVendor, string> = {
@@ -70,22 +46,29 @@ interface ModelIconProps extends Omit<SVGProps<SVGSVGElement>, 'children'> {
   size?: number
 }
 
+/**
+ * 渲染：`<svg>` 直接内联厂商路径，**不套容器底板**。
+ *
+ * 为什么要内联而不是 `<img src=...png>`：`fill="currentColor"` 只在内联 SVG 里
+ * 才会继承父级文字色 —— 走 `<img>` 时图片是独立文档，吃不到外部颜色，
+ * 深色主题下会一直是黑的（正是旧版必须加底板的原因）。
+ * 内联之后颜色自动跟主题反转，底板也就没有必要了。
+ */
 export function ModelIcon({ vendor, size = 16 }: ModelIconProps) {
   return (
-    <span
-      className={styles.plate}
-      style={{ width: `${size + 4}px`, height: `${size + 4}px` }}
+    <svg
+      className={styles.icon}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
       data-model-icon={vendor}
-      title={VENDOR_LABEL[vendor]}
+      aria-hidden
     >
-      <img
-        className={styles.logo}
-        src={LOGOS[vendor]}
-        alt=""
-        width={size}
-        height={size}
-        data-model-logo={vendor}
-      />
-    </span>
+      <title>{VENDOR_LABEL[vendor]}</title>
+      {MODEL_LOGO_PATHS[vendor].map((d, i) => (
+        <path key={i} d={d} fillRule="evenodd" clipRule="evenodd" />
+      ))}
+    </svg>
   )
 }
