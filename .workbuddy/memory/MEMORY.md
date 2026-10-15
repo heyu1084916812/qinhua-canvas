@@ -7386,3 +7386,29 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   只是喂了两个不同的数组。遇到「同族模型档位不同」先找有没有这种现成的口子。
 - **★ 收口基线（第 148 批 / 对账 #528）**：单测 **2549/2549**；`npm run check` 全绿；
   冒烟 G98 **5/5**（2.5 Flare 实测五档画质）。
+
+## 2026-10-16 第 149 批（桌面开发端白屏：HMR 中间态把人打崩 · 无业务代码改动）
+
+- **⭐⭐⭐ 事故经过**：改 `imageParams.ts` 时，我**先**把 `GEMINI_IMAGE_RATIOS` 拆成
+  `GEMINI_PRO_RATIOS` / `GEMINI_FLASH_RATIOS`（顺带删掉 `GEMINI_RATIOS_WITH_AUTO`），
+  **分了几次 patch** 才把两个 spec 里的引用改完。中间那几秒里文件是
+  `ratios: GEMINI_RATIOS_WITH_AUTO` 而常量已不存在 —— 用户**开着的桌面开发端**正好在那一刻
+  HMR，客户端抛 `ReferenceError: GEMINI_RATIOS_WITH_AUTO is not defined`，
+  整棵 React 树被卸载 ⇒ **白屏，且 HMR 再也救不回来**（模块图已经坏了）。
+- **⭐ 排查入口（记牢）**：`tauri dev` 的日志里能**直接**看到客户端异常 ——
+  `[vite] (client) [Unhandled error] …` 后面还附出错文件的源码片段。
+  日志在 `.playwright-verify/tauri-dev.log` / `tauri-dev.err.log`
+  （由 `cmd /c npm run tauri dev > … 2> …` 起）。**以后桌面端报「白屏 / 怪」，先读这个文件，
+  不要先猜代码。** 本轮就是这样一眼定案的。
+- **⭐ 恢复手法**：把 `npm run tauri dev` 整条链停掉（cmd → npm → tauri cli → cargo →
+  `qinghua.exe` → vite），再用同样的重定向重启；Rust 增量编译约 10s。
+  **HMR 救不回来的错误只能整页重载 / 重启。**
+- **⚠️ 以后必须这么做**：**删改一个被别处引用的常量，要把它的所有引用改动放进同一个
+  `apply_patch`**（一次覆盖全部站点）。这不是洁癖 —— 用户是**开着 dev 端**在看我改代码的，
+  任何中间态都会被他那一侧实时吃到。
+- **★ 可选的加固（还没做，等用户点头）**：`src/main.tsx` 目前**没有 ErrorBoundary**，
+  渲染期任何异常都会变成一片白。加一层边界把错误显示成「出错了 + 重试」，
+  至少能让下次白屏自带线索。
+- **★ 顺带确认**：桌面端启动时会自动备份数据（日志里那行
+  `[data] 已备份桌面数据：…\qinghua-profile-backups\profile-*`），配置丢失事故之后加的
+  保护还在生效。
