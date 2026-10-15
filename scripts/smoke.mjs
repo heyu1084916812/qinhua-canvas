@@ -316,7 +316,12 @@ async function configureGenPanel(page, panel, prompt) {
  *   · 单独一枚存在 → 用单独那枚（视频模式的「比例」「尺寸」「参考模式」就是这种）；
  *   · 只有胶囊 → 用胶囊，选项从 `[data-param-in="名字"]` 里找。
  */
-const GROUPED_PARAMS = new Set(['ratio', 'resolution', 'quality', 'count'])
+/**
+ * ⚠️ `count` **不在**这一组里（2026-10-15 起）：张数已从胶囊搬出、独立成一枚 chip
+ * （用户：「数量的选择单独设置在参数的右边，单独做一个面板」），所以它和
+ * 「比例」一样走「单独那枚」这条路，不再回落胶囊。
+ */
+const GROUPED_PARAMS = new Set(['ratio', 'resolution', 'quality'])
 
 /** 参数 chip：优先单独一枚，否则落到那枚「生成参数」胶囊 */
 function chipOf(scope, name) {
@@ -5985,18 +5990,19 @@ async function g46(browser) {
    * 「把比例，质量，画质，张数变成一个胶囊显示，而且点击显示的面板……把所有的参数
    * 都放上去」）。判据取**分段的名单**：缺一段、多一段、或又拆回多枚 chip，都会红。
    *
-   * 段的顺序＝用户 2026-10-03 图一那份：**画质 → 清晰度 → 背景 → 比例 → 生成数量**。
+   * 段的顺序＝用户 2026-10-03 图一那份：**画质 → 清晰度 → 背景 → 比例**。
    * 「背景」那段由**模型的能力表**决定（对账 #122）：没有能力表的模型不摆它。
    * 2026-10-08 起画布下拉只列前端显示名（对账 #371），而六个显示名**都有能力表**，
-   * 所以这条用例里就是五段 —— 之前它挑的是无能力表的 mock 模型，才写成四段。
+   * 所以这条用例里就是四段 —— 之前它挑的是无能力表的 mock 模型。
+   * ⚠️ 张数 2026-10-15 已搬出胶囊（对账 #522 后续），不再是一段。
    */
   const paramSectionNames = await panel
     .locator('[data-param-popup="gen-params"] [data-param-section]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-section')))
   rec(
     g,
-    '★★ 生成参数收成一枚胶囊：点开是五段（画质 / 清晰度 / 背景 / 比例 / 张数）',
-    paramSectionNames.join(',') === 'quality,resolution,background,ratio,count' &&
+    '★★ 生成参数收成一枚胶囊：点开是四段（画质 / 清晰度 / 背景 / 比例）',
+    paramSectionNames.join(',') === 'quality,resolution,background,ratio' &&
       (await panel.locator('[data-param-chip="gen-params"]').count()) === 1 &&
       (await panel.locator('[data-param-chip="ratio"]').count()) === 0,
     `段=${paramSectionNames.join(',')}`,
@@ -6157,10 +6163,18 @@ async function g46(browser) {
   // ② 图片 → 视频：参数集整体更换
   rec(
     g,
-    '图片模式：比例 / 画质 / 质量 / 张数收在一枚「生成参数」胶囊里',
+    '图片模式：比例 / 画质 / 质量收在「生成参数」胶囊里，张数独立一枚（在它右边）',
     (await panel.locator('[data-param-chip="gen-params"]').count()) === 1 &&
       (await panel.locator('[data-param-chip="ratio"]').count()) === 0 &&
-      (await panel.locator('[data-param-chip="count"]').count()) === 0,
+      (await panel.locator('[data-param-chip="count"]').count()) === 1,
+  )
+  const genBox = await panel.locator('[data-param-chip="gen-params"]').boundingBox()
+  const countBox = await panel.locator('[data-param-chip="count"]').boundingBox()
+  rec(
+    g,
+    '★ 张数那一枚真的在「生成参数」的右边（按几何，不按 DOM 顺序）',
+    !!genBox && !!countBox && countBox.x > genBox.x + genBox.width - 1,
+    `gen 右缘=${Math.round((genBox?.x ?? 0) + (genBox?.width ?? 0))} 张数左缘=${Math.round(countBox?.x ?? 0)}`,
   )
   await panel.locator('[data-param-mode="video"]').click()
   await sleep(400)
@@ -8699,12 +8713,16 @@ async function g63(browser) {
   await sleep(800)
   const panel = await genPanel(page)
 
-  // 张数现在收在「生成参数」胶囊里（与画质 / 质量同一枚），不再是并排按钮组
+  /**
+   * 张数 2026-10-15 起**从「生成参数」胶囊里搬出来、独立成一枚 chip**（用户：
+   * 「数量的选择单独设置在参数的右边，单独做一个面板」），依旧是 chip + 浮层，
+   * 不再是并排按钮组。
+   */
   const countChip = chipOf(panel, 'count')
   rec(
     g,
-    '张数收在「生成参数」胶囊里（不再是并排按钮组）',
-    (await panel.locator('[data-param-chip="gen-params"]').count()) === 1,
+    '张数独立成一枚 chip（不再是并排按钮组，也不再收在胶囊里）',
+    (await panel.locator('[data-param-chip="count"]').count()) === 1,
   )
   rec(g, '旧的并排按钮组已移除', (await panel.locator('[data-param-count]').count()) === 0)
 
@@ -8734,7 +8752,7 @@ async function g63(browser) {
    */
   await countChip.click()
   await sleep(250)
-  const opts = await optionButtons(panel, 'gen-params', 'count')
+  const opts = await optionButtons(panel, 'count', 'count')
     .evaluateAll((els) => els.map((e) => ({ t: e.textContent.trim(), dis: e.disabled })))
   rec(
     g,
@@ -8745,7 +8763,7 @@ async function g63(browser) {
     JSON.stringify(opts),
   )
 
-  await clickOptionExact(panel, 'gen-params', 'count', '4 张')
+  await clickOptionExact(panel, 'count', 'count', '4 张')
   rec(g, '选 4 张后 chip 显示 4', (await countChip.innerText()).includes('4'))
 
   // 真跑一次：产物节点数应等于 4（复现「面板选了 N、实际只出 1」的整条链路）

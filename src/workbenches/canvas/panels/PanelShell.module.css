@@ -43,7 +43,14 @@
   --fs-label: 20px;
   --fs-chip: 16px;
   /* 参数菜单（共享组件 ParamPicker）：面板里放大，对话窗里维持它自己的默认值 */
-  --picker-fs: 21px;
+  /**
+   * 21 → **18**（用户 2026-10-15：「文字不要这么多字号」）。
+   *
+   * 原先 chip 文案 21px、浮层列表行 18px 是两档，同一枚 chip 与它点开后的那一行
+   * 竟然不一样大（用户第三轮为此单开了一条：模型 chip 要和列表行一样）。
+   * 现在合成一档 —— chip 与列表行都用 `--picker-option-fs` 这一档的字。
+   */
+  --picker-fs: 18px;
   --picker-option-fs: 18px;
   --picker-hint-fs: 16px;
   /*

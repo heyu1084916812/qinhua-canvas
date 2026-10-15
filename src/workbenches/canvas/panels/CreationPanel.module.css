@@ -390,7 +390,7 @@
     right: -10px;
     width: 24px;
     height: 24px;
-    font-size: 17px;
+    font-size: 18px;
     font-weight: 700;
     line-height: 1;
     opacity: 1;
@@ -601,7 +601,7 @@
   color: var(--text-1);
   font-family: var(--font-sans);
   /* 屏幕 15.75px —— 与助手那份候选菜单（16px）同档 */
-  font-size: 21px;
+  font-size: 20px;
   text-align: left;
   cursor: pointer;
 }
@@ -831,8 +831,11 @@
   border-radius: calc(var(--radius-control) - 4px);
   background: var(--bg-surface);
   font-family: var(--font-sans);
-  /** 时长是**值**，要和 chip 上的其它值同一档（原来 12px 在屏幕上只有 9px） */
-  font-size: 15px;
+  /**
+   * 数字与它右边那个「秒」**同一档**（用户 2026-10-15：参数面板里的数字要和文字一样）。
+   * 原来这里是 15px、单位 20px，同一个读数拆成两种字号。
+   */
+  font-size: var(--fs-label);
   font-weight: var(--fw-chip);
   color: var(--text-1);
   text-align: center;

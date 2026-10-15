@@ -903,16 +903,19 @@ export function CreationPanel(props: CreationPanelProps) {
     resolutions.length > 0 ? resolutionLabel(data.resolution ?? 'auto') : '',
     backgroundChoices.length > 0 ? backgroundLabelOf(data.background ?? 'auto') : '',
     ratios.length > 0 ? shownRatio || '比例' : '',
-    countChoices.length > 1 ? `${count} 张` : '',
   ]
     .filter(Boolean)
     .join(' · ')
 
   /**
-   * 图片模式的几段，**顺序照用户 2026-10-03 图一**：画质 → 清晰度 → 背景 → 比例 → 生成数量。
+   * 图片模式的几段，**顺序照用户 2026-10-03 图一**：画质 → 清晰度 → 背景 → 比例。
    *
    * **每一段只有真的有候选才出现**：Agnes 的图片模型没有 `quality` / `background`，
    * 那两段整块不摆，而不是摆一排点了没反应的格子。
+   *
+   * ⚠️ **张数不在这里**（用户 2026-10-15：「数量的选择单独设置在参数的右边，
+   * 单独做一个面板」）—— 它已从胶囊里搬出、独立成一枚 chip，见 JSX 里那枚 `count`。
+   * 张数是每次都要动的量，与「这一次怎么画」的画质 / 比例不是一类。
    */
   const resolutionValueOf = (size: string): string =>
     /^\d+k$/i.test(size) ? size.toLowerCase() : size
@@ -981,29 +984,6 @@ export function CreationPanel(props: CreationPanelProps) {
             value: shownRatio,
             onSelect: (v: string) =>
               onEvent({ type: 'setRatio', ratio: v, recipe: recipeSnapshot({ ratio: v }) }),
-          },
-        ]
-      : []),
-    ...(countChoices.length > 1
-      ? [
-          {
-            name: 'count',
-            label: '生成数量',
-            variant: 'pill' as const,
-            options: countChoices.map((c) => ({
-              value: String(c),
-              label: `${c} 张`,
-              /** 模型明确声明的上限才置灰；未声明 = 不设限（见 maxCount 的注释） */
-              disabled: c > maxCount,
-              title: c > maxCount ? `当前模型最多 ${maxCount} 张` : `${c} 张`,
-            })),
-            value: String(count),
-            onSelect: (v: string) =>
-              onEvent({
-                type: 'setCount',
-                count: Number(v),
-                recipe: recipeSnapshot({ count: Number(v) }),
-              }),
           },
         ]
       : []),
@@ -1734,16 +1714,51 @@ export function CreationPanel(props: CreationPanelProps) {
                * 「不要通用设置」的同一条道理：没有的东西别装出来）。
                */
               paramSections.length > 0 ? (
-              <ParamPicker
-                name="gen-params"
-                ariaLabel={`生成参数（${paramsLabel}）`}
-                label={paramsLabel}
-                sections={paramSections}
-                open={openPicker === 'gen-params'}
-                onToggle={() => togglePicker('gen-params')}
-                onClose={closePicker}
-              />
+                <ParamPicker
+                  name="gen-params"
+                  ariaLabel={`生成参数（${paramsLabel}）`}
+                  label={paramsLabel}
+                  sections={paramSections}
+                  open={openPicker === 'gen-params'}
+                  onToggle={() => togglePicker('gen-params')}
+                  onClose={closePicker}
+                />
               ) : null
+            )}
+            {/*
+              **生成数量**：独立一枚，摆在「生成参数」那一枚的**右边**
+              （用户 2026-10-15：「数量的选择单独设置在参数的右边，单独做一个面板」）。
+
+              它原先收在胶囊里（2026-10-02 那一条），现在搬出来 —— 张数是每次都要动的量，
+              与画质 / 比例不是一类；搬出来之后图片模式与视频模式的张数也终于同一形状
+              （视频那边本来就是独立一枚，见上面 `showVideoCount`）。
+              只有一档时不摆（Agnes 2.0 这类），与旧行为一致。
+            */}
+            {!videoMode && countChoices.length > 1 && (
+              <ParamPicker
+                name="count"
+                ariaLabel="生成数量"
+                label={`${count} 张`}
+                options={countChoices.map((c) => ({
+                  value: String(c),
+                  label: `${c} 张`,
+                  /** 模型明确声明的上限才置灰；未声明 = 不设限（见 maxCount 的注释） */
+                  disabled: c > maxCount,
+                  title: c > maxCount ? `当前模型最多 ${maxCount} 张` : `${c} 张`,
+                }))}
+                value={String(count)}
+                variant="pill"
+                open={openPicker === 'count'}
+                onToggle={() => togglePicker('count')}
+                onClose={closePicker}
+                onSelect={(v) =>
+                  onEvent({
+                    type: 'setCount',
+                    count: Number(v),
+                    recipe: recipeSnapshot({ count: Number(v) }),
+                  })
+                }
+              />
             )}
             {/*
               **Midjourney 的高级设置**（用户 2026-10-03 图二：
