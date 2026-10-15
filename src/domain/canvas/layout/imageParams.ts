@@ -16,7 +16,8 @@
  *
  * 非 Agnes 的固定显示名（对账 #118 / #119 / #129）：
  * - **Comfy-gpt 的三个 GPT Image 档**：`size` 必须是 `WxH`（档位字符串会被拒）、
- *   `quality` 面板只给 `low/medium/high`（2026-10-16 按用户口径收回）；面板给的是**比例 × 清晰度**，
+ *   `quality` 按官方规范逐模型给（`gpt-image-2` 三档；2.5 那两档另有 `xhigh`/`max`）；
+ *   面板给的是**比例 × 清晰度**，
  *   发请求时换算成像素（用户 2026-10-03 图一）；
  * - **Nano Banana Pro / 2**：比例按官方表的**各自栏位**（Pro 10 档、2 及 3.1 Flash 14 档）
  *   + `image_size`，且必须走 **Gemini 原生端点**（`/chat/completions` 会把这两个参数吃掉）；
@@ -44,10 +45,10 @@ export interface ImageParamSpec {
    */
   ratios: readonly string[]
   /**
-   * **画质档**（GPT Image 那份 2026-10-16 起是 低 / 中 / 高）。
-   * 值仍用各家接口的合法枚举（OpenAI 官方是 `low/medium/high`；`xhigh`/`max`
-   * 是某家中转站扩出来的，内置模型不再放行），面板只负责换中文标签
-   * （2026-10-15 起不再带「画质」后缀）。
+   * **画质档**（**逐模型**，不是「GPT 那几档共用一份」）：
+   * `gpt-image-2` 是 `low / medium / high`，2.5 那两档再加 `xhigh` / `max`
+   * —— 依据是官方规范的原文（见 `OPENAI_IMAGE_QUALITIES` 的说明）。
+   * 面板只负责换中文标签（2026-10-15 起不再带「画质」后缀）。
    */
   qualities: readonly string[]
   /**
@@ -171,19 +172,23 @@ const OPENAI_IMAGE_RATIOS = [
   '9:21',
 ] as const
 /**
- * GPT Image 的画质档 **只有三档**（用户 2026-10-16：「gpt2 没有这么多的画质选项，
- * 只有高中低」）。
+ * **GPT Image 的画质档 —— 按官方规范逐模型切**（2026-10-16 复读 `openai-openapi`
+ * 的 `CreateImageRequest.quality` 描述）：
  *
- * 口径变过两次：
- *  · 2026-10-15 照参考图那排补到六档（`auto / low / medium / high / xhigh / max`）——
- *    里面 `xhigh` / `max` 本来就不是官方枚举，是某家中转站自己扩的档；
- *  · 2026-10-16 用户按它实际用的渠道把这一排收回 **低 / 中 / 高**。
+ * > The GPT image models support `low`, `medium`, and `high`.
+ * > `gpt-image-2.5-sunburst` and `gpt-image-2.5-flare`, including their
+ * > `2026-09-08` snapshots, also support `xhigh` and `max`. Defaults to `auto`.
  *
- * ⚠️ `auto` 一并撤下：它在这排里等于「不下发 quality」= 服务端默认，与「没选」
- * 是同一件事，摆在面板上只是多一格点了没差别的格子。面板未设置时**一格不高亮**，
- * 摘要里仍读「自动」（那是在说「交给模型定」，不是说这一格被选中了）。
+ * 用户 2026-10-16 两条口径由此对上：「gpt2 只有高中低」对 **gpt-image-2**，
+ * 「gpt2.5 官方是有更多的选择」对 **2.5 那两档**。
+ *
+ * ⚠️ `auto` **两边都不摆**：官方虽把它列为默认值，但它在传输层等于
+ * 「不下发 quality」= 与「没选」同一件事，摆在面板上就是多一格点了没差别的格子。
+ * 面板未设置时一格不高亮，摘要里仍读「自动」（那是「交给模型定」，不是「这格被选中」）。
  */
 const OPENAI_IMAGE_QUALITIES = ['low', 'medium', 'high'] as const
+/** 2.5 那两档多出来的两级（官方原文见上） */
+const OPENAI_IMAGE_QUALITIES_25 = [...OPENAI_IMAGE_QUALITIES, 'xhigh', 'max'] as const
 /**
  * 背景 **只有两档**（用户 2026-10-15：「背景不需要三个了，直接就两个，默认和透明底」）。
  *
@@ -245,17 +250,29 @@ export const IMAGE_PARAM_SPECS: Record<string, ImageParamSpec> = {
    * 2026-10-03 实读）——
    * - `size`：`auto / 1024x1024 / 1536x1024 / 1024x1536`（`256x256` / `512x512` /
    *   `1792x1024` 在规范里已标为**废弃的老尺寸**，故不摆）；
-   * - `quality`：`low / medium / high`（面板只摆这三档 —— 用户 2026-10-16
-   *   「gpt2 没有这么多的画质选项，只有高中低」）；
+   *   —— 另外规范明确允许**自定像素**（`WIDTHxHEIGHT`，两边都要能被 16 整除、
+   *   长短边比 1:3–3:1、最大 3840×2160），这就是面板上「自定义」那一格的依据，
+   *   见 `openaiImages.ts` 的 `customImageSize`；
+   * - `quality`：**逐模型** —— `gpt-image-2` 是 `low / medium / high`；
+   *   `gpt-image-2.5-flare` / `-sunburst` 另有 `xhigh` / `max`（官方原文见
+   *   `OPENAI_IMAGE_QUALITIES` 的说明）；
    * - `n`：**1–10**（面板给 1 / 2 / 4 / 9，都在范围内）。
    */
   ...Object.fromEntries(
-    (['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'] as const).map((id) => [
+    (
+      [
+        /** 基础三档 */
+        ['gpt-image-2', OPENAI_IMAGE_QUALITIES],
+        /** 2.5 那两档多 `xhigh` / `max`（官方规范点名） */
+        ['gpt-image-2.5-flare', OPENAI_IMAGE_QUALITIES_25],
+        ['gpt-image-2.5-sunburst', OPENAI_IMAGE_QUALITIES_25],
+      ] as const
+    ).map(([id, qualities]) => [
       id,
       {
         sizes: OPENAI_IMAGE_TIERS,
         ratios: OPENAI_IMAGE_RATIOS,
-        qualities: OPENAI_IMAGE_QUALITIES,
+        qualities,
         backgrounds: OPENAI_IMAGE_BACKGROUNDS,
         counts: IMAGE_COUNTS,
         maxReferenceImages: 4,

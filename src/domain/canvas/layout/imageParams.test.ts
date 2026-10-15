@@ -147,10 +147,10 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
    * 画质那种档位，把 GPT 的，需要加上背景这个参数」）。
    *
    * 于是 GPT 的不再是「官方 size 四选一」，而是：
-   * 画质（低/中/高）→ 清晰度（1K/2K/4K）→ 背景（默认/透明底）
+   * 画质（逐模型：2 是低/中/高，2.5 另有超高/极致）→ 清晰度（1K/2K/4K）→ 背景（默认/透明底）
    * → 比例（13 档）→ 生成数量。发请求时把「比例 × 清晰度」换算成 OpenAI 认的像素 `size`。
    */
-  it('★★ GPT Image 三档：比例 13 档 + 清晰度 1K/2K/4K + 低/中/高 + 两档背景', () => {
+  it('★★ GPT Image 三档：比例 13 档 + 清晰度 1K/2K/4K + 逐模型画质 + 两档背景', () => {
     for (const name of ['GPT Image 2', 'GPT Image 2.5 Flare', 'GPT Image 2.5 Sunburst']) {
       const spec = imageParamsFor(name)
       expect(spec?.dialect).toBe('openai-images')
@@ -159,11 +159,16 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
       expect(spec?.ratios).toContain('21:9')
       expect(spec?.ratios).toContain('9:21')
       /**
-       * 画质 2026-10-16 起**只有三档**（用户：「gpt2 没有这么多的画质选项，只有高中低」）
-       * —— `auto` / `xhigh` / `max` 都撤下：前者的语义就是「不下发」，
-       * 后两者本来也不是官方枚举。
+       * 画质**逐模型**（官方 `CreateImageRequest.quality` 原文：「The GPT image models
+       * support `low`, `medium`, and `high`. `gpt-image-2.5-sunburst` and
+       * `gpt-image-2.5-flare` … also support `xhigh` and `max`」）：
+       * `gpt-image-2` 三档，2.5 那两档五档。`auto` 两边都不摆（语义 = 不下发）。
        */
-      expect(spec?.qualities).toEqual(['low', 'medium', 'high'])
+      expect(spec?.qualities).toEqual(
+        name === 'GPT Image 2'
+          ? ['low', 'medium', 'high']
+          : ['low', 'medium', 'high', 'xhigh', 'max'],
+      )
       /**
        * 背景 2026-10-15 起**只剩两档**（用户：「背景不需要三个了，直接就两个，默认和透明底」）
        * —— `opaque`（原「保留背景」）已从能力表里拿掉。

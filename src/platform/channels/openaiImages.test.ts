@@ -562,15 +562,17 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
   })
 
   /**
-   * 2026-10-16：GPT Image 的画质点名表收回 `low / medium / high` 之后，
-   * `xhigh` / `max` 这两个「中转站扩出来的档」对**任何**模型都不再放行 ——
-   * 旧节点上留着这两个值也不会发出去（发了它不认的就是 400）。
+   * 质量档**逐模型**白名单（官方原文：只有 `gpt-image-2.5-flare` / `-sunburst` 支持
+   * `xhigh` / `max`）：
+   *  · `gpt-image-2` 只认三档 ⇒ 给它 `xhigh` **不发**；
+   *  · 2.5 那两档认五档 ⇒ 给它 `xhigh` **照发**；
+   *  · 没有能力表的老模型走通用白名单（`auto/low/medium/high`）⇒ `low` 发、`xhigh` 不发。
    */
-  it('★ 已撤下的质量档一律不发（xhigh / max 对谁都不过）', async () => {
+  it('★★ 质量档逐模型放行：xhigh 只对 2.5 两档发，gpt-image-2 与老模型都不发', async () => {
     const calls: { url: string; body: unknown }[] = []
     const a = adapter(calls)
     await a.generateImage(
-      { ...request([], 1), model: 'gpt-image-2.5-flare', params: { count: 1, quality: 'max' } },
+      { ...request([], 1), model: 'gpt-image-2.5-flare', params: { count: 1, quality: 'xhigh' } },
       signal,
     )
     await a.generateImage(
@@ -578,13 +580,18 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
       signal,
     )
     await a.generateImage(
+      { ...request([], 1), model: 'some-other-image', params: { count: 1, quality: 'xhigh' } },
+      signal,
+    )
+    await a.generateImage(
       { ...request([], 1), model: 'some-other-image', params: { count: 1, quality: 'low' } },
       signal,
     )
-    expect((calls[0]!.body as Record<string, unknown>).quality).toBeUndefined()
+    expect((calls[0]!.body as Record<string, unknown>).quality).toBe('xhigh')
     expect((calls[1]!.body as Record<string, unknown>).quality).toBeUndefined()
-    /** 没有能力表的老模型仍走通用四档，`low` 照发 */
-    expect((calls[2]!.body as Record<string, unknown>).quality).toBe('low')
+    expect((calls[2]!.body as Record<string, unknown>).quality).toBeUndefined()
+    /** 没有能力表的老模型仍走通用白名单，`low` 照发 */
+    expect((calls[3]!.body as Record<string, unknown>).quality).toBe('low')
   })
 
   /**

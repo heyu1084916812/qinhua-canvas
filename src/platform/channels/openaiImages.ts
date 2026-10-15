@@ -144,10 +144,10 @@ export function customImageSize(value: unknown): string | null {
 /**
  * OpenAI 官方图像协议接受的 `quality` 取值。
  *
- * `xhigh` / `max` 不在这里 —— 它们是**中转站自己扩的档**，要发必须由模型的
- * `imageParamsFor` 能力表（`spec.qualities`）放行，见 `openAiImageQuality` 的第二个参数。
- * 2026-10-16 起 GPT Image 那三档的能力表只有 `low / medium / high`，所以这两个值
- * 对**内置模型**已经等于不发。
+ * `xhigh` / `max` 不在这里 —— 官方规范把它们标成**模型专属**：只有
+ * `gpt-image-2.5-flare` / `-sunburst`（含 `2026-09-08` 快照）支持。
+ * 所以它们要发必须由模型的 `imageParamsFor` 能力表（`spec.qualities`）放行，
+ * 见 `openAiImageQuality` 的第二个参数 —— 这条「白名单」正是为这种逐模型差异准备的。
  */
 const OPENAI_QUALITIES = new Set(['auto', 'low', 'medium', 'high'])
 
@@ -155,8 +155,8 @@ const OPENAI_QUALITIES = new Set(['auto', 'low', 'medium', 'high'])
  * 质量档透传：**只发自名单里的值**（发了它不认的就是 400）。
  *
  * `allowed` 由模型能力表给（用户 2026-10-03「每个模型单独配置」）。GPT Image 那三档
- * 2026-10-16 起点名 `low / medium / high`（用户：「gpt2 没有这么多的画质选项，只有高中低」）
- * —— 此前照服务端报错原文摆的 `xhigh` / `max` 一并撤下。
+ * 2026-10-16 起**按官方规范逐模型**点名：`gpt-image-2` 是 `low / medium / high`，
+ * 2.5 那两档另有 `xhigh` / `max`（官方原文见 `imageParams.ts` 的 `OPENAI_IMAGE_QUALITIES`）。
  */
 export function openAiImageQuality(quality: unknown, allowed?: readonly string[]): string | null {
   if (typeof quality !== 'string') return null

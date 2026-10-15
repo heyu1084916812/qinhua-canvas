@@ -19676,7 +19676,8 @@ async function g97(browser) {
  *
  * 单测证的是**能力表与请求体**，这一组证的是**面板真的按模型换了一副面孔**：
  * - Comfy-gpt 的 `GPT Image 2.5 Flare` → 13 档画幅（含 21:9 / 9:21）+ 1K / 2K / 4K + 自定义像素
- *   + **质量只有低 / 中 / 高** + 两档背景 + 1·2·4 张（2026-10-16 收紧后的口径）；
+ *   + **质量五档（低 / 中 / 高 / 超高 / 极致 —— 2.5 专属的两档是官方规范点名的）**
+ *   + 两档背景 + 1·2·4 张（2026-10-16 按官方规范逐模型收的口径）；
  * - `Nano Banana Pro` → 官方 10 档画幅（无 1:4 / 1:8 / 4:1 / 8:1、也无 `auto`）+ 1K·2K·4K；
  * - `Agnes Image 2.5 Flash` → 8 档画幅 + 1K–4K，**没有质量、没有张数**这两段。
  *
@@ -19753,18 +19754,21 @@ async function g98(browser) {
   const gptBackgroundLabels = await labelsOf('background')
   rec(
     g,
-    '★★ GPT Image 2.5 Flare：尺寸+质量并进「画质」（尺寸含自定义）/ 低中高 / 两档背景 / 13 档比例 / 1·2·4 张（独立一枚）',
+    '★★ GPT Image 2.5 Flare：尺寸+质量并进「画质」（尺寸含自定义）/ 五档画质（含 2.5 专属的超高·极致）/ 两档背景 / 13 档比例 / 1·2·4 张（独立一枚）',
     JSON.stringify(gptSections) ===
       JSON.stringify(['resolution', 'quality', 'background', 'ratio']) &&
       /**
-       * 画质 2026-10-16 起**只有高中低**（用户：「gpt2 没有这么多的画质选项，只有高中低」）
-       * —— 原先照参考图摆的 `auto / xhigh / max` 一并撤下。
+       * 画质 2026-10-16 起**逐模型**（官方规范原文：GPT image models 支持
+       * `low/medium/high`，**2.5 的 flare / sunburst 另有 `xhigh` / `max`**）——
+       * 这一组跑的正是 2.5 Flare，所以是五档；`auto` 不摆（语义 = 不下发）。
        */
-      JSON.stringify(gptQuality) === JSON.stringify(['low', 'medium', 'high']) &&
+      JSON.stringify(gptQuality) === JSON.stringify(['low', 'medium', 'high', 'xhigh', 'max']) &&
       /* 文案也不带「画质」后缀（用户：「直接就是低，标准」那次的收尾） */
       gptQualityLabels.includes('低') &&
       gptQualityLabels.includes('中') &&
       gptQualityLabels.includes('高') &&
+      gptQualityLabels.includes('超高') &&
+      gptQualityLabels.includes('极致') &&
       /* 尺寸末格「自定义」保留（用户只撤了比例那一格的自定义） */
       JSON.stringify(gptRes) === JSON.stringify(['1k', '2k', '4k', '自定义']) &&
       /* 背景砍到两档（用户：「背景不需要三个了，直接就两个，默认和透明底」） */
