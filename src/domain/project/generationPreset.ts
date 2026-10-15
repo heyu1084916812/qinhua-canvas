@@ -28,7 +28,7 @@ export const RECIPE_TRACKED_KEYS = [
   'ratio',
   'resolution',
   'quality',
-  /** 图片「背景」（图一）：`auto` / `opaque` / `transparent` */
+  /** 图片「背景」（2026-10-15 起两档）：`auto`（默认）/ `transparent`（透明底） */
   'background',
   'count',
   'size',

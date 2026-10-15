@@ -123,7 +123,7 @@ export type PanelEvent =
   | { type: 'setRatio'; ratio: string; recipe?: RecipeSnapshot }
   | { type: 'setResolution'; resolution: string; recipe?: RecipeSnapshot }
   | { type: 'setQuality'; quality: string; recipe?: RecipeSnapshot }
-  /** 图片「背景」（图一）：`auto` / `opaque` / `transparent` */
+  /** 图片「背景」（2026-10-15 起两档）：`auto`（默认）/ `transparent`（透明底） */
   | { type: 'setBackground'; background: string; recipe?: RecipeSnapshot }
   | { type: 'setCount'; count: number; recipe?: RecipeSnapshot }
   /**

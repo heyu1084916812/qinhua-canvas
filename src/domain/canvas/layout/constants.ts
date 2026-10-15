@@ -41,6 +41,16 @@ export const RESULT_CELL: Size = { w: 200, h: 200 }
  */
 export const RATIO_FOLLOW_SOURCE = '跟随素材'
 
+/**
+ * **比例网格最后一格「自定义」的哨兵值**（用户 2026-10-15：「自定义要加上」）。
+ *
+ * ⚠️ 它**只活在界面里**、从不落到节点数据上：用户点开这一格之后，真正存进
+ * `data.ratio` 的是他敲的那个比例本身（如 `7:5`）。哨兵存在的唯一理由是
+ * 「比例网格要画一格虚线框的入口图标」，而 `ParamPicker` 需要认得出这一格 ——
+ * 所以放这里与 `RATIO_FOLLOW_SOURCE` 同源，而不是两边各写一份字符串。
+ */
+export const RATIO_CUSTOM = '自定义'
+
 /** 展示用文案（面板里这一档的说明） */
 export const RATIO_FOLLOW_SOURCE_HINT = '用第一张参考图的原始比例'
 

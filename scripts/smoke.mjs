@@ -5946,12 +5946,18 @@ async function g46(browser) {
    * 比例现在是**固定的 13 档图形化网格**（用户 2026-09-17 拍板：与参考产品对齐，
    * 不再按模型上报收窄——模型上报的那几档往往只有 1:1 / 16:9，反而限制创作）。
    * 旧断言「模型声明 2 档就只出 2 档」已随这条决策作废。
+   *
+   * ⚠️ 2026-10-15 起**末格多一个「自定义」**（用户：「自定义要加上」）= 14 格。
+   * 它不是宽高比，点开会长出一行输入框填 `宽:高`（见 `CreationPanel` 的 `ratioCustom`）。
    */
   const ratioOpts = await paramOptions(page, panel, 'ratio')
   rec(
     g,
-    '比例是固定的 13 档图形网格（不再按模型上报收窄）',
-    ratioOpts.length === 13 && ratioOpts.includes('16:9') && ratioOpts.includes('21:9'),
+    '比例是 13 档图形网格 + 末格「自定义」（不再按模型上报收窄）',
+    ratioOpts.length === 14 &&
+      ratioOpts.includes('16:9') &&
+      ratioOpts.includes('21:9') &&
+      ratioOpts[ratioOpts.length - 1] === '自定义',
     `opts=${JSON.stringify(ratioOpts)}`,
   )
   await pickParam(panel, 'ratio', '16:9')
@@ -6136,8 +6142,11 @@ async function g46(browser) {
    * 「有点太挤了，距离边界的位置要适合……可能是英文都是一个大小的原因」）。
    *
    * 三个数都是设计值（面板挂着 `zoom`，算出来的也是缩放前的值）：
-   * 内距 12、段间距 12、档位文字至少比段标题大 2px。最后一条是**层级**的判据 ——
+   * 内距、段间距、档位文字至少比段标题大 2px。最后一条是**层级**的判据 ——
    * 原先两者同为 12px，谁主谁次只能靠猜。
+   *
+   * ⚠️ 内距与段间距 2026-10-15 从 12 提到 **14**（用户：「整体的面板适当加高」）——
+   * 轨道与比例格都加高了，四周与段间还停在 12 就会显得贴边。
    */
   const popupMetrics = await panel.locator('[data-param-popup="gen-params"]').evaluate((el) => {
     const cs = getComputedStyle(el)
@@ -6154,9 +6163,9 @@ async function g46(browser) {
   })
   rec(
     g,
-    '★★ 浮层内距 12 / 段间距 12，且档位文字明显大于段标题（不再是一个大小）',
-    popupMetrics.padding === 12 &&
-      popupMetrics.gap === 12 &&
+    '★★ 浮层内距 14 / 段间距 14，且档位文字明显大于段标题（不再是一个大小）',
+    popupMetrics.padding === 14 &&
+      popupMetrics.gap === 14 &&
       popupMetrics.overscroll === 'contain' &&
       popupMetrics.optionFont >= popupMetrics.titleFont + 2,
     `内距=${popupMetrics.padding} 段距=${popupMetrics.gap} 标题=${popupMetrics.titleFont}px 档位=${popupMetrics.optionFont}px overscroll=${popupMetrics.overscroll}`,
@@ -11010,8 +11019,12 @@ async function waitForAssetCount(page, n, timeout) {
  * 用户实际是在下游生成节点上改比例，却看不到它。
  *
  * 本组把判据钉成「这次生成**有没有图片参考**」，而不是「节点是不是批量」：
- *  ① 纯文生图（没有任何参考图）→ 13 档，**不含**「跟随素材」（不给死开关）；
- *  ② 有上游图片（普通图生图）→ 14 档，**含**「跟随素材」。
+ *  ① 纯文生图（没有任何参考图）→ 13 档 + 末格自定义，**不含**「跟随素材」（不给死开关）；
+ *  ② 有上游图片（普通图生图）→ 上一条再加「跟随素材」。
+ *
+ * ⚠️ 2026-10-15：末格多了「自定义」（用户：「自定义要加上」），所以这里
+ * 不再写死 13 / 14 —— 判据改成「**在 13 档的基础上多出来的那几格**」：
+ * `自定义` 恒有（这一组用的模型是 `openai-images` 方言），`跟随素材` 只在 ② 有。
  *
  * 只断言「档数」是不够的：用户要的是那一档**能被选中并生效**，
  * 所以顺带断言它选中后 chip 文案真的变成它。
@@ -11049,9 +11062,9 @@ async function g72(browser) {
   const noSource = await ratioOptions()
   rec(
     g,
-    '① 没有参考图（纯文生图）→ 13 档，不含「跟随素材」',
-    noSource.length === 13 && !noSource.includes('跟随素材'),
-    `档数=${noSource.length} 含=${noSource.includes('跟随素材')}`,
+    '① 没有参考图（纯文生图）→ 13 档 + 自定义，不含「跟随素材」',
+    noSource.length === 14 && noSource.includes('自定义') && !noSource.includes('跟随素材'),
+    `档数=${noSource.length} 含自定义=${noSource.includes('自定义')} 含跟随=${noSource.includes('跟随素材')}`,
   )
 
   // ── ② 拖入一张图（它本身就是有图的生成节点），再建下游并连线 ──
@@ -11101,9 +11114,9 @@ async function g72(browser) {
   const withSource = await ratioOptions()
   rec(
     g,
-    '★★ 有上游图（普通图生图）→ 14 档，含「跟随素材」',
-    withSource.length === 14 && withSource.includes('跟随素材'),
-    `档数=${withSource.length} 含=${withSource.includes('跟随素材')}`,
+    '★★ 有上游图（普通图生图）→ 13 档 + 自定义 + 跟随素材',
+    withSource.length === 15 && withSource.includes('自定义') && withSource.includes('跟随素材'),
+    `档数=${withSource.length} 含自定义=${withSource.includes('自定义')} 含跟随=${withSource.includes('跟随素材')}`,
   )
 
   // 选中示例：chip 文案要真的变成「跟随素材」
@@ -19738,7 +19751,7 @@ async function g98(browser) {
   const gptBackgroundLabels = await labelsOf('background')
   rec(
     g,
-    '★★ GPT Image 2.5 Flare：尺寸+质量并进「画质」/ 三档背景 / 13 档比例 / 1·2·4 张（独立一枚）',
+    '★★ GPT Image 2.5 Flare：尺寸+质量并进「画质」（含自定义）/ 两档背景 / 13 档比例+自定义 / 1·2·4 张（独立一枚）',
     JSON.stringify(gptSections) ===
       JSON.stringify(['resolution', 'quality', 'background', 'ratio']) &&
       /* 首档 `auto` = 参考图那排最前面的「自动」；它也是节点默认值 */
@@ -19746,11 +19759,15 @@ async function g98(browser) {
       /* 档位文案 2026-10-15 起**不带「画质」后缀**（用户：「直接就是低，标准」） */
       gptQualityLabels.includes('标准') &&
       gptQualityLabels.includes('极致') &&
-      JSON.stringify(gptRes) === JSON.stringify(['1k', '2k', '4k']) &&
-      JSON.stringify(gptBackground) === JSON.stringify(['auto', 'opaque', 'transparent']) &&
-      gptBackgroundLabels.includes('保留背景') &&
-      gptBackgroundLabels.includes('透明背景') &&
-      gptRatios.length === 13 &&
+      /* 末格「自定义」2026-10-15 补上（用户：「自定义要加上」） */
+      JSON.stringify(gptRes) === JSON.stringify(['1k', '2k', '4k', '自定义']) &&
+      /* 背景砍到两档（用户：「背景不需要三个了，直接就两个，默认和透明底」） */
+      JSON.stringify(gptBackground) === JSON.stringify(['auto', 'transparent']) &&
+      gptBackgroundLabels.includes('默认') &&
+      gptBackgroundLabels.includes('透明底') &&
+      /* 13 档比例 + 末格「自定义」 */
+      gptRatios.length === 14 &&
+      gptRatios.includes('自定义') &&
       gptRatios.includes('21:9') &&
       gptRatios.includes('9:21') &&
       JSON.stringify(gptCounts) === JSON.stringify(['1', '2', '4']),

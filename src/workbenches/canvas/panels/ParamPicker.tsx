@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import styles from './ParamPicker.module.css'
-import { RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
+import { RATIO_CUSTOM, RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
 
 /** 参数选项：`value` 落到节点数据，`label` 只用于展示 */
 export interface ParamOption {
@@ -327,7 +327,7 @@ export function ParamPicker(props: ParamPickerProps) {
           styles.chip,
           size === 'compact' ? styles.chipCompact : '',
           /**
-           * 多段参数的胶囊文案是一行**摘要**（「1K · 标准 · 保留背景 · 1:1」），
+           * 多段参数的胶囊文案是一行**摘要**（「1K · 标准 · 透明底 · 1:1」），
            * 单枚 chip 那 160px 上限装不下 —— 放开到能读完整的一行。
            */
           grouped ? styles.chipWideLabel : '',
@@ -627,6 +627,31 @@ function RatioGlyph({ ratio }: { ratio: string }) {
    * 下面的兜底就是「画成 1:1」）—— 用户分不清哪一格是方图、哪一格是「不指定」。
    * 「自适应」那一格只留文字，这也正是参考产品（用户 2026-10-03 图二/图三）的做法。
    */
+  /**
+   * **自定义那一格**（用户 2026-10-15：「自定义要加上」）：参考图画的是一个
+   * **虚线选框**（「这里由你画」），与「跟随素材」的实线叠纸框同一族线性图形。
+   */
+  if (ratio === RATIO_CUSTOM) {
+    return (
+      <svg
+        className={styles.ratioGlyph}
+        data-ratio-glyph={ratio}
+        width="18"
+        height="18"
+        viewBox="0 0 18 18"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <rect x="2.5" y="2.5" width="13" height="13" rx="2.5" strokeDasharray="2.6 2.4" />
+        <path d="M9 6.4v5.2M6.4 9h5.2" />
+      </svg>
+    )
+  }
   if (!ratio.includes(':')) return null
   const [rawW, rawH] = ratio.split(':').map((s) => Number.parseFloat(s))
   const ok = Number.isFinite(rawW) && Number.isFinite(rawH) && rawW > 0 && rawH > 0

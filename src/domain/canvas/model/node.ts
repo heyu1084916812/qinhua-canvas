@@ -97,10 +97,11 @@ export interface GenerationData {
   resolution?: string
   quality?: 'auto' | 'low' | 'medium' | 'high'
   /**
-   * **背景**（用户 2026-10-03 图一：自动 / 保留背景 / 透明背景）。
+   * **背景**（用户 2026-10-15：只剩两格 —— 默认 / 透明底）。
    *
-   * 取值用 OpenAI 官方的 `background` 枚举（`auto` / `opaque` / `transparent`），
-   * 面板只负责中文标签。只有声明支持它的模型才摆这一段。
+   * 取值仍是 OpenAI 官方 `background` 枚举的子集（`auto` / `transparent`；
+   * 原「保留背景」= `opaque` 已于 2026-10-15 下架），面板只负责中文标签。
+   * 只有声明支持它的模型才摆这一段。
    */
   background?: string
   /**

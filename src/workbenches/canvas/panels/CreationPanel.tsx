@@ -21,7 +21,7 @@ import { SkillPicker } from './SkillPicker'
 import styles from './CreationPanel.module.css'
 /** 浮层外壳（与情绪面板共用一份，见那个文件） */
 import shell from './PanelShell.module.css'
-import { RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
+import { RATIO_CUSTOM, RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
 import {
   isAutoRatio,
   videoParamsFor,
@@ -102,6 +102,22 @@ const RESOLUTION_OPTIONS: { value: 'auto' | '1k' | '2k' | '4k'; label: string }[
   { value: '2k', label: '2K' },
   { value: '4k', label: '4K' },
 ]
+/**
+ * 「画质」那排最后一格**自定义像素**的哨兵值（用户 2026-10-15：「自定义要加上」）。
+ *
+ * 与 `RATIO_CUSTOM` 同一条口径：它**只活在界面里**，选中之后真正落到
+ * `data.resolution` 的是用户敲的那个像素本身（如 `1024x1536`）——
+ * 传输层认它，见 `openaiImages.ts` 的 `customImageSize`。
+ */
+export const RESOLUTION_CUSTOM = '自定义'
+/**
+ * 点「自定义」时**先落下的种子值**（用户还没敲字就点生成也不该发一个非法值）。
+ *
+ * `1024x1024` 与 `7:5` 都落在 gpt-image 文档的合法区间里（16 的倍数、
+ * 总像素 655360–8294400、长短边比 ≤ 3:1），所以它们既是提示、也是可用的默认值。
+ */
+const CUSTOM_SIZE_SEED = '1024x1024'
+const CUSTOM_RATIO_SEED = '7:5'
 const QUALITY_OPTIONS: { value: 'auto' | 'low' | 'medium' | 'high'; label: string }[] = [
   { value: 'auto', label: '自动' },
   { value: 'low', label: '低' },
@@ -867,11 +883,11 @@ export function CreationPanel(props: CreationPanelProps) {
    *
    * 顺序与胶囊里四段的顺序一致（比例 · 画质 · 质量 · 张数），也就是把原先
    * 四枚 chip 的文案用「 · 」串起来 —— 用户 2026-10-02 的参考产品就是
-   * 「1K · 标准 · 保留背景 · 1:1」这种一行说法。
+   * 「1K · 标准 · 透明底 · 1:1」这种一行说法。
    */
   /**
    * 文案表：**值仍是各家接口的合法枚举**，只在这里换中文标签
-   * （用户 2026-10-03 图一：低 / 标准 / 高 / 超高 / 极致；自动 / 保留背景 / 透明背景）。
+   * （用户 2026-10-03 图一：低 / 标准 / 高 / 超高 / 极致；2026-10-15 起背景只剩 默认 / 透明底）。
    *
    * ⚠️ 2026-10-15：**去掉「画质」后缀**（用户：「文字上不需要加画质那两个字了，
    * 直接就是低，标准，这种文字即可」）。六个档位原先每个都背两字后缀，一排下来
@@ -887,9 +903,13 @@ export function CreationPanel(props: CreationPanelProps) {
     max: '极致',
   }
   const BACKGROUND_LABELS: Record<string, string> = {
-    auto: '自动',
-    opaque: '保留背景',
-    transparent: '透明背景',
+    /**
+     * 2026-10-15：**砍到两档**（用户：「背景不需要三个了，直接就两个，默认和透明底」）。
+     * `opaque`（原「保留背景」）已从能力表里拿掉；文案也照用户那两格改短
+     * （`自动` → 默认、`透明背景` → 透明底）—— 值没动，仍是接口枚举。
+     */
+    auto: '默认',
+    transparent: '透明底',
   }
   const resolutionLabel = (value: string): string =>
     RESOLUTION_OPTIONS.find((r) => r.value === value)?.label ?? value.toUpperCase()
@@ -917,12 +937,14 @@ export function CreationPanel(props: CreationPanelProps) {
    *
    * ```
    * 画质   ← 这一组的标题
-   *   [1K | 2K | 4K]        ← 尺寸（section 名仍是 `resolution`）
+   *   [1K | 2K | 4K | 自定义]        ← 尺寸（section 名仍是 `resolution`）
+   *   [宽x高 输入框]                 ← 只在选了「自定义」时出现
    *   低 · 标准 · 高 · 超高 · 极致   ← 质量（section 名仍是 `quality`，**不再另起标题**）
    * 背景
    *   [默认 | 透明底]
    * 比例
-   *   [网格]
+   *   [网格 … 自定义]                ← 末格自定比例
+   *   [宽:高 输入框]                 ← 只在选了比例的自定义时出现
    * ```
    *
    * 用户原话：「他是把质量也放在画质那里了，就按照参考图的来做」—— 所以**质量并入
@@ -933,12 +955,42 @@ export function CreationPanel(props: CreationPanelProps) {
    * **每一段只有真的有候选才出现**：Agnes 的图片模型没有 `quality` / `background`，
    * 那两段整块不摆，而不是摆一排点了没反应的格子。
    *
+   * ⚠️ **两处「自定义」的分工**（2026-10-15）：
+   *   · 画质那排的自定义 = 直接填**像素**（`1024x1536`）。它把画幅说全了，
+   *     所以选中它的时候**比例那一段整块退场** —— 留着两套尺寸只会互相打架；
+   *   · 比例网格末格的自定义 = 填**宽高比**（`7:5`），仍与 1K/2K/4K 档位相乘。
+   * 两者都只在 `openai-images` 方言（GPT Image 三档）下出现：香蕉的 `image_size`
+   * 官方只认 512 / 1K / 2K / 4K，摆出来就是点了没用的死格子。
+   *
    * ⚠️ **张数不在这里**（用户 2026-10-15：「数量的选择单独设置在参数的右边，
    * 单独做一个面板」）—— 它已从胶囊里搬出、独立成一枚 chip，见 JSX 里那枚 `count`。
    * 张数是每次都要动的量，与「这一次怎么画」的画质 / 比例不是一类。
    */
+  /** 能自定像素 / 自定比例的只有 `openai-images` 方言（见上面那段说明） */
+  const canCustomSize = imageSpec?.dialect === 'openai-images'
   const resolutionValueOf = (size: string): string =>
     /^\d+k$/i.test(size) ? size.toLowerCase() : size
+  /**
+   * 档位表里的值（`1K` → `1k`…）。
+   *
+   * 存着的值**不在表里** = 用户填过一个自定义像素（`1024x1536`），
+   * 或节点是从别的模型带过来的自定义值 —— 两种情况都该把「自定义」那格点亮。
+   */
+  const ladderResolutions = resolutions.map((v) => resolutionValueOf(v))
+  const storedResolution = String(data.resolution ?? '')
+  const customResolutionOn =
+    canCustomSize && storedResolution !== '' && !ladderResolutions.includes(storedResolution.toLowerCase())
+  const resolutionPillValue = customResolutionOn
+    ? RESOLUTION_CUSTOM
+    : ladderResolutions.includes(storedResolution.toLowerCase())
+      ? storedResolution.toLowerCase()
+      : storedResolution
+  /**
+   * 比例那格的自定义：`shownRatio` 既不在候选表里、又不是「跟随素材」/「自适应」，
+   * 就说明用户敲过一个自定比例（`7:5`）。`auto` 那类哨兵值不算 —— 它们各有各的格。
+   */
+  const customRatioOn =
+    canCustomSize && shownRatio !== '' && !ratios.includes(shownRatio) && shownRatio !== 'auto'
   const paramSections: ParamSection[] = [
     ...(resolutions.length > 0
       ? [
@@ -947,11 +999,54 @@ export function CreationPanel(props: CreationPanelProps) {
             /** 这一组的标题（参考图里 `画质` 就写在尺寸行上面） */
             label: '画质',
             variant: 'pill' as const,
-            options: resolutions.map((v) => ({
-              value: resolutionValueOf(v),
-              label: resolutionLabel(v),
-            })),
-            value: data.resolution ?? 'auto',
+            options: [
+              ...resolutions.map((v) => ({
+                value: resolutionValueOf(v),
+                label: resolutionLabel(v),
+              })),
+              /** 「自定义」那格：选中之后下面才长出输入框（见下一段） */
+              ...(canCustomSize
+                ? [
+                    {
+                      value: RESOLUTION_CUSTOM,
+                      label: RESOLUTION_CUSTOM,
+                      /** 不写死选中态，靠 `resolutionPillValue` 那一条判定 —— 一处口径 */
+                    },
+                  ]
+                : []),
+            ],
+            value: resolutionPillValue,
+            onSelect: (v: string) =>
+              onEvent({
+                type: 'setResolution',
+                /**
+                 * 点「自定义」时先落一个**合法种子值**，而不是把哨兵写进节点：
+                 * 用户还没敲字就点生成的话，发出去的是 1024x1024（官方认可的方图），
+                 * 不是一个 `自定义` 字符串 —— 那会被服务端直接 400。
+                 */
+                resolution: v === RESOLUTION_CUSTOM ? CUSTOM_SIZE_SEED : v,
+                recipe: recipeSnapshot({
+                  resolution: v === RESOLUTION_CUSTOM ? CUSTOM_SIZE_SEED : v,
+                }),
+              }),
+          },
+        ]
+      : []),
+    /**
+     * 自定义像素输入框：**只在「自定义」那格亮着时才有这一段**。
+     *
+     * `name` 用 `resolutionCustom` 而不是 `resolution`：冒烟与单测按段名定位，
+     * 与上面那个胶囊是同一件事的两个形态，混用同名会让「段里到底有什么」说不清。
+     */
+    ...(customResolutionOn
+      ? [
+          {
+            name: 'resolutionCustom',
+            label: '',
+            variant: 'text' as const,
+            options: [],
+            value: storedResolution,
+            placeholder: '宽x高，如 1024x1536',
             onSelect: (v: string) =>
               onEvent({
                 type: 'setResolution',
@@ -996,14 +1091,45 @@ export function CreationPanel(props: CreationPanelProps) {
           },
         ]
       : []),
-    ...(ratios.length > 0
+    /** 自定像素亮着时比例整段退场（它已经把画幅说全了，见上面那段说明） */
+    ...(ratios.length > 0 && !customResolutionOn
       ? [
           {
             name: 'ratio',
             label: '比例',
             variant: 'ratioGrid' as const,
-            options: ratios.map((r) => ({ value: r, label: r })),
+            options: [
+              ...ratios.map((r) => ({ value: r, label: r })),
+              ...(canCustomSize
+                ? [{ value: RATIO_CUSTOM, label: RATIO_CUSTOM, selected: customRatioOn }]
+                : []),
+            ],
+            value: customRatioOn ? RATIO_CUSTOM : shownRatio,
+            onSelect: (v: string) =>
+              onEvent({
+                type: 'setRatio',
+                /** 同自定义像素：先落种子值（`7:5`）而不是把哨兵写进节点 */
+                ratio: v === RATIO_CUSTOM ? CUSTOM_RATIO_SEED : v,
+                recipe: recipeSnapshot({ ratio: v === RATIO_CUSTOM ? CUSTOM_RATIO_SEED : v }),
+              }),
+          },
+        ]
+      : []),
+    /**
+     * 自定义比例输入框：与像素那个同一条路 —— 只有哨兵亮着时才长出这一段。
+     *
+     * ⚠️ 它渲染在比例网格**下面**：`ParamPicker` 对空 label 的段不画标题，
+     * 视觉上就是「网格 + 一行输入框」，看成一件事。
+     */
+    ...(customRatioOn
+      ? [
+          {
+            name: 'ratioCustom',
+            label: '',
+            variant: 'text' as const,
+            options: [],
             value: shownRatio,
+            placeholder: '比例，如 7:5',
             onSelect: (v: string) =>
               onEvent({ type: 'setRatio', ratio: v, recipe: recipeSnapshot({ ratio: v }) }),
           },

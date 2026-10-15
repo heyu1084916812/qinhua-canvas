@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   createOpenAiImagesAdapter,
+  customImageSize,
   normalizeBaseUrl,
   openAiImageSize,
   openAiImageQuality,
@@ -445,6 +446,42 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
     expect(body.n).toBe(4)
   })
 
+  /**
+   * **自定义像素优先生效**（用户 2026-10-15：「自定义要加上」）。
+   *
+   * 面板选了「自定义」并填了像素时，`resolution` 里存的就是那个 `宽x高`：
+   * 它**直接就是 `size`**，不再按比例 × 档位换算 —— 否则用户填的 1536 宽会被
+   * 比例表悄悄改掉，界面上看到的和发出去的就不是一个东西。
+   */
+  it('★★ GPT Image：自定义像素直接当 size 发（不再按比例换算）', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    await adapter(calls).generateImage(
+      {
+        ...request([], 1),
+        model: 'gpt-image-2',
+        /** 故意留一个与 1024x1536 不符的比例：自定义值要赢 */
+        params: { count: 1, ratio: '1:1', resolution: '1024x1536' },
+      },
+      signal,
+    )
+    expect(calls[0]!.body).toMatchObject({ size: '1024x1536' })
+  })
+
+  /** 非法自定义像素（不是 16 的倍数）不下发 —— 交给服务端默认，而不是换一个 400 */
+  it('★ GPT Image：非法自定义像素不发 size', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    await adapter(calls).generateImage(
+      {
+        ...request([], 1),
+        model: 'gpt-image-2',
+        params: { count: 1, ratio: '1:1', resolution: '1024x1000' },
+      },
+      signal,
+    )
+    /** `1024x1000` 过不了校验 ⇒ 回落到比例 × 档位那条老路（1:1 + 未设档位 = 1K） */
+    expect(calls[0]!.body).toMatchObject({ size: '1024x1024' })
+  })
+
   it('★ 选「自动」尺寸时不发 size（交给服务端默认），不是发一个字符串 auto', async () => {
     const calls: { url: string; body: unknown }[] = []
     await adapter(calls).generateImage(
@@ -466,9 +503,9 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
   })
 
   /**
-   * **背景**（用户 2026-10-03 图一：自动 / 保留背景 / 透明背景；「看看能否请求到」）。
+   * **背景**（用户 2026-10-15：只剩两格 —— 默认 / 透明底）。
    *
-   * 取值就发 OpenAI 官方的 `background` 枚举（`opaque` / `transparent`）；
+   * 取值就发 OpenAI 官方的 `background` 枚举里**这一档还摆着的**那个（`transparent`）；
    * 「自动」= 不指定 ⇒ **不发这个字段**。声明里没有这一段的模型（Agnes 图片那几档）
    * 就算节点上带着旧值也不发 —— 这正是用户要的「每个模型只发它支持的参数」。
    */
@@ -796,6 +833,33 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
   it('2K 档：1:1 → 2048x2048，16:9 → 2736x1536', () => {
     expect(openAiImageSize('1:1', '2k')).toBe('2048x2048')
     expect(openAiImageSize('16:9', '2k')).toBe('2736x1536')
+  })
+
+  /**
+   * **自定义像素**（用户 2026-10-15：「自定义要加上」）。
+   *
+   * 面板「画质」那排最后一格填 `宽x高`。约束与 `openAiImageSize` 同一份文档
+   * （最大边 ≤ 3840 / 16 的倍数 / 总像素 655360–8294400 / 长短边比 ≤ 3:1）——
+   * 过不了就返回 `null`（**不下发**），而不是发一个注定 400 的值。
+   */
+  it('★★ 自定义像素：合法值原样透传，越界值一律拒发', () => {
+    expect(customImageSize('1024x1536')).toBe('1024x1536')
+    expect(customImageSize(' 2048 × 1152 ')).toBe('2048x1152')
+    /** 大写入参也认（用户手敲时大小写、乘号都可能不一样） */
+    expect(customImageSize('1024*1024')).toBe('1024x1024')
+    /** 两边都要是 16 的倍数：1024×1000 会被拒 */
+    expect(customImageSize('1024x1000')).toBeNull()
+    /** 最长边超 3840 */
+    expect(customImageSize('4096x4096')).toBeNull()
+    /** 总像素低于文档下限（655360） */
+    expect(customImageSize('512x512')).toBeNull()
+    /** 长短边比超 3:1（文档明确拒绝） */
+    expect(customImageSize('3840x1024')).toBeNull()
+    /** 不是 `宽x高` 的字样（档位值、空值、非字符串） */
+    expect(customImageSize('1k')).toBeNull()
+    expect(customImageSize('')).toBeNull()
+    expect(customImageSize(null)).toBeNull()
+    expect(customImageSize(1024)).toBeNull()
   })
 })
 

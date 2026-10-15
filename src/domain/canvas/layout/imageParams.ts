@@ -47,7 +47,8 @@ export interface ImageParamSpec {
    */
   qualities: readonly string[]
   /**
-   * **背景档**（用户 2026-10-03 图一：自动 / 保留背景 / 透明背景）。
+   * **背景档**（用户 2026-10-15：只剩两格 —— 默认 / 透明底）。
+   *
    * 取 OpenAI 官方的 `background` 枚举；模型不支持时留空 ⇒ 面板不摆这一段。
    */
   backgrounds: readonly string[]
@@ -124,10 +125,14 @@ const GEMINI_RATIOS_WITH_AUTO = ['auto', ...GEMINI_IMAGE_RATIOS] as const
  *   —— 用户原话「我不想用具体的像素标志，我想要比例那种档位」；
  * - 清晰度：`1K / 2K / 4K`（与香蕉一致），发请求时按 `比例 × 清晰度` 换算成像素 `size`
  *   （OpenAI 的 `size` 只认像素，官方规范里 `auto`/`1024x1024`/`1536x1024`/`1024x1536`）；
+ *   **面板上还多一格「自定义」**（用户 2026-10-15）—— 直接填 `宽x高`，见 `customImageSize`；
  * - 画质：`low / medium / high / xhigh / max`（OpenAI 官方枚举，面板显示成
  *   低 / 标准 / 高 / 超高 / 极致）；
- * - 背景：`auto / opaque / transparent`（OpenAI 官方 `background` 枚举，
- *   面板显示成 自动 / 保留背景 / 透明背景）。
+ * - 背景：`auto / transparent`（OpenAI 官方 `background` 枚举的子集，
+ *   面板显示成 默认 / 透明底）。
+ *
+ * ⚠️ 这里列的是**能力表**，`自定义` 那种哨兵值**不在其中**：它是面板上的入口，
+ * 不是接口枚举 —— 写进来会让「有哪些合法档位」这件事变得说不清。
  */
 const OPENAI_IMAGE_RATIOS = [
   '1:1',
@@ -151,7 +156,17 @@ const OPENAI_IMAGE_RATIOS = [
  * `low / medium / high / xhigh / max / auto`），参考图那排也是「自动」在最前。
  */
 const OPENAI_IMAGE_QUALITIES = ['auto', 'low', 'medium', 'high', 'xhigh', 'max'] as const
-const OPENAI_IMAGE_BACKGROUNDS = ['auto', 'opaque', 'transparent'] as const
+/**
+ * 背景 **只有两档**（用户 2026-10-15：「背景不需要三个了，直接就两个，默认和透明底」）。
+ *
+ * 原先三档是照 OpenAI 官方 `background` 枚举抄的（`auto / opaque / transparent`）。
+ * 砍掉 `opaque` 的原因是它在中转站上**基本读不出差别**：模型本来就不会替你把
+ * 已有背景抠掉，「保留背景」与「默认」在出图上几乎同一条路径，摆着只是让人多犹豫一次。
+ *
+ * ⚠️ 值仍是**接口枚举**，只有文案换中文（`auto` → 默认、`transparent` → 透明底）：
+ * 传输层照旧只发它认识的枚举，见 `openaiImages.ts` 里那段背景白名单。
+ */
+const OPENAI_IMAGE_BACKGROUNDS = ['auto', 'transparent'] as const
 const OPENAI_IMAGE_TIERS = ['1K', '2K', '4K'] as const
 
 /** 所有图片模型统一的生成数量（用户 2026-10-03：「数量…每个模型统一一下」） */

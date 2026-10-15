@@ -698,7 +698,8 @@ describe('CreationPanel · 功能类别切换（图片 / 视频）', () => {
          */
         quality: 'medium',
         resolution: '1K',
-        background: 'opaque',
+        /** 背景 2026-10-15 起只剩 `auto` / `transparent` 两档（`opaque` 已下架） */
+        background: 'transparent',
         ratio: '1:1',
         count: 2,
       },
@@ -706,11 +707,11 @@ describe('CreationPanel · 功能类别切换（图片 / 视频）', () => {
     )
     /**
      * 四段都在，且顺序照参考图：**尺寸 · 质量 · 背景 · 比例**（质量并进「画质」那一组）。
-     * 值也走中文标签（`medium` → 标准、`opaque` → 保留背景）。
+     * 值也走中文标签（`medium` → 标准、`transparent` → 透明底）。
      * ⚠️ 画质档位 2026-10-15 起**不带「画质」后缀**（用户：「直接就是低，标准」）。
      * ⚠️ 张数 2026-10-15 已从胶囊搬出、独立成一枚 chip，不再出现在这一行摘要里。
      */
-    expect(html).toContain('1K · 标准 · 保留背景 · 1:1')
+    expect(html).toContain('1K · 标准 · 透明底 · 1:1')
     expect(html).not.toContain('2 张 ·')
   })
 

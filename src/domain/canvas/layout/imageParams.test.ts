@@ -135,10 +135,10 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
    * 画质那种档位，把 GPT 的，需要加上背景这个参数」）。
    *
    * 于是 GPT 的不再是「官方 size 四选一」，而是：
-   * 画质（低/标准/高/超高/极致）→ 清晰度（1K/2K/4K）→ 背景（自动/保留背景/透明背景）
+   * 画质（低/标准/高/超高/极致）→ 清晰度（1K/2K/4K）→ 背景（默认/透明底）
    * → 比例（13 档）→ 生成数量。发请求时把「比例 × 清晰度」换算成 OpenAI 认的像素 `size`。
    */
-  it('★★ GPT Image 三档：比例 13 档 + 清晰度 1K/2K/4K + 六档画质（含自动）+ 三档背景', () => {
+  it('★★ GPT Image 三档：比例 13 档 + 清晰度 1K/2K/4K + 六档画质（含自动）+ 两档背景', () => {
     for (const name of ['GPT Image 2', 'GPT Image 2.5 Flare', 'GPT Image 2.5 Sunburst']) {
       const spec = imageParamsFor(name)
       expect(spec?.dialect).toBe('openai-images')
@@ -151,7 +151,11 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
        * （2026-10-15 补；官方 `quality` 本来就含 `auto`，参考图那排也是「自动」在最前）。
        */
       expect(spec?.qualities).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max'])
-      expect(spec?.backgrounds).toEqual(['auto', 'opaque', 'transparent'])
+      /**
+       * 背景 2026-10-15 起**只剩两档**（用户：「背景不需要三个了，直接就两个，默认和透明底」）
+       * —— `opaque`（原「保留背景」）已从能力表里拿掉。
+       */
+      expect(spec?.backgrounds).toEqual(['auto', 'transparent'])
       expect(spec?.counts).toEqual([1, 2, 4])
     }
     // 上游 ID 与显示名查到同一份

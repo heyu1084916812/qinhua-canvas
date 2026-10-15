@@ -61,6 +61,8 @@ const RES_PIXEL_BUDGET: Record<'1k' | '2k' | '4k', number> = {
 }
 const MAX_EDGE = 3840
 const MAX_PIXELS = 8294400
+/** 文档给的总像素**下限**（655360 = 1024×640）；小于它同样属于非法 `size` */
+const MIN_PIXELS = 655360
 const SNAP = 16
 
 export function openAiImageSize(ratio: unknown, resolution?: unknown): string | null {
@@ -95,6 +97,37 @@ export function openAiImageSize(ratio: unknown, resolution?: unknown): string | 
       w = Math.max(SNAP, Math.round((h * aspect) / SNAP) * SNAP)
     }
   }
+  return `${w}x${h}`
+}
+
+/**
+ * **自定义像素尺寸**（用户 2026-10-15：「自定义要加上」）。
+ *
+ * 面板「画质」那排多出来的最后一格：选中之后填 `宽 x 高`（如 `1024x1536`）。
+ * 这里只做一件事 —— 把它按 gpt-image 的**硬约束**过一遍（约束来源与上面
+ * `RES_PIXEL_BUDGET` 同一条文档：最大边 ≤ 3840、两边都是 16 的倍数、
+ * 长短边比 ≤ 3:1、总像素 655360 – 8294400）。
+ *
+ * 过不了就返回 `null`：**宁可不发 `size`**（交给服务端默认），也不发一个
+ * 注定 400 的值让用户对着「请求失败」猜自己哪一位填错了。
+ *
+ * ⚠️ 只有 `openai-images` 方言能用它。Nano Banana 的 `image_size` 只认
+ * 1K / 2K / 4K（Pro）与 512（Flash）—— 那边官方**没有**自定义这一档，
+ * 所以面板也不会给那一格（见 `CreationPanel` 里的 `canCustomSize`）。
+ */
+export function customImageSize(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const m = /^(\d+)\s*[x×*]\s*(\d+)$/.exec(value.trim())
+  if (!m) return null
+  const w = Number(m[1])
+  const h = Number(m[2])
+  if (!Number.isInteger(w) || !Number.isInteger(h) || w <= 0 || h <= 0) return null
+  if (w % SNAP !== 0 || h % SNAP !== 0) return null
+  if (Math.max(w, h) > MAX_EDGE) return null
+  if (w * h < MIN_PIXELS) return null
+  if (w * h > MAX_PIXELS) return null
+  /** 长短边比 ≤ 3:1（文档明确拒绝更扁的尺寸） */
+  if (Math.max(w / h, h / w) > 3) return null
   return `${w}x${h}`
 }
 
@@ -615,20 +648,27 @@ export function createOpenAiImagesAdapter(
      * 尺寸怎么来：`openai-images`（GPT Image）在面板上给的是**比例 + 清晰度**
      * （用户 2026-10-03 图一），发请求时要按比例 × 清晰度换算成 OpenAI 认的像素 `size`；
      * Agnes 那两个方言的面板值本身就是最终值（档位 / 像素）。
+     *
+     * **自定义像素优先**（用户 2026-10-15：「自定义要加上」）：用户在「画质」那排
+     * 选了「自定义」并填了一个合法像素时，它直接就是 `size` —— 这时比例那一段
+     * 在面板上已经退场（自定义尺寸本身就把画幅说全了），不存在「谁覆盖谁」。
      */
     const size =
       spec && spec.dialect !== 'openai-images'
         ? specImageSize(request.params.resolution, spec)
-        : openAiImageSize(request.params.ratio, request.params.resolution)
+        : (customImageSize(request.params.resolution) ??
+          openAiImageSize(request.params.ratio, request.params.resolution))
     /** OpenAI 官方也认 `size: "auto"`，但**我们这边不发它** —— 留给服务端默认 */
     const sizeForBody = size === 'auto' ? null : size
     /**
      * 背景（图一）：`auto` = 不指定，不下发；只下发该模型声明的枚举值。
-     * OpenAI 官方 `background` 是 `transparent` / `opaque` / `auto`。
+     * 2026-10-15 起面板只有两档（默认 / 透明底），`opaque` 已从能力表里拿掉 ——
+     * 没有能力表的老模型（中转站私有模型）也跟着只放行 `transparent`，
+     * 免得节点上一条历史数据把用户早就删掉的那一档又发出去。
      */
     const rawBackground = typeof request.params.background === 'string' ? request.params.background : ''
     const background =
-      rawBackground && rawBackground !== 'auto' && (spec ? spec.backgrounds : ['opaque', 'transparent']).includes(rawBackground)
+      rawBackground && rawBackground !== 'auto' && (spec ? spec.backgrounds : ['transparent']).includes(rawBackground)
         ? rawBackground
         : null
     const quality = spec
