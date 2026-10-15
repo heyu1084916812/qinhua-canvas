@@ -899,8 +899,8 @@ export function CreationPanel(props: CreationPanelProps) {
    * （图一那份：画质 · 清晰度 · 背景 · 比例 · 生成数量）。
    */
   const paramsLabel = [
-    qualityChoices.length > 0 ? qualityLabelOf(data.quality ?? 'auto') : '',
     resolutions.length > 0 ? resolutionLabel(data.resolution ?? 'auto') : '',
+    qualityChoices.length > 0 ? qualityLabelOf(data.quality ?? 'auto') : '',
     backgroundChoices.length > 0 ? backgroundLabelOf(data.background ?? 'auto') : '',
     ratios.length > 0 ? shownRatio || '比例' : '',
   ]
@@ -908,7 +908,22 @@ export function CreationPanel(props: CreationPanelProps) {
     .join(' · ')
 
   /**
-   * 图片模式的几段，**顺序照用户 2026-10-03 图一**：画质 → 清晰度 → 背景 → 比例。
+   * 图片模式的几段，**顺序与分组照用户 2026-10-15 的参考图**：
+   *
+   * ```
+   * 画质   ← 这一组的标题
+   *   [1K | 2K | 4K]        ← 尺寸（section 名仍是 `resolution`）
+   *   低 · 标准 · 高 · 超高 · 极致   ← 质量（section 名仍是 `quality`，**不再另起标题**）
+   * 背景
+   *   [默认 | 透明底]
+   * 比例
+   *   [网格]
+   * ```
+   *
+   * 用户原话：「他是把质量也放在画质那里了，就按照参考图的来做」—— 所以**质量并入
+   * 画质这一组**，两行共用一个标题；`quality` 的 `label` 因此留空
+   * （`ParamPicker` 对空 label 不画标题栏，见那里的说明）。
+   * section 名（`resolution` / `quality`）刻意不改：冒烟与单测都按它定位。
    *
    * **每一段只有真的有候选才出现**：Agnes 的图片模型没有 `quality` / `background`，
    * 那两段整块不摆，而不是摆一排点了没反应的格子。
@@ -920,28 +935,12 @@ export function CreationPanel(props: CreationPanelProps) {
   const resolutionValueOf = (size: string): string =>
     /^\d+k$/i.test(size) ? size.toLowerCase() : size
   const paramSections: ParamSection[] = [
-    ...(qualityChoices.length > 0
-      ? [
-          {
-            name: 'quality',
-            label: '画质',
-            variant: 'pill' as const,
-            options: qualityChoices.map((q) => ({ value: q, label: qualityLabelOf(q) })),
-            value: data.quality ?? 'auto',
-            onSelect: (v: string) =>
-              onEvent({
-                type: 'setQuality',
-                quality: v,
-                recipe: recipeSnapshot({ quality: v as NonNullable<GenerationData['quality']> }),
-              }),
-          },
-        ]
-      : []),
     ...(resolutions.length > 0
       ? [
           {
             name: 'resolution',
-            label: '清晰度',
+            /** 这一组的标题（参考图里 `画质` 就写在尺寸行上面） */
+            label: '画质',
             variant: 'pill' as const,
             options: resolutions.map((v) => ({
               value: resolutionValueOf(v),
@@ -953,6 +952,24 @@ export function CreationPanel(props: CreationPanelProps) {
                 type: 'setResolution',
                 resolution: v,
                 recipe: recipeSnapshot({ resolution: v }),
+              }),
+          },
+        ]
+      : []),
+    ...(qualityChoices.length > 0
+      ? [
+          {
+            name: 'quality',
+            /** 空标题：并入上面那一组「画质」，不再另起一行小标题 */
+            label: '',
+            variant: 'pill' as const,
+            options: qualityChoices.map((q) => ({ value: q, label: qualityLabelOf(q) })),
+            value: data.quality ?? 'auto',
+            onSelect: (v: string) =>
+              onEvent({
+                type: 'setQuality',
+                quality: v,
+                recipe: recipeSnapshot({ quality: v as NonNullable<GenerationData['quality']> }),
               }),
           },
         ]

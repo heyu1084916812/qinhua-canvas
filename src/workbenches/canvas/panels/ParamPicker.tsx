@@ -398,7 +398,12 @@ export function ParamPicker(props: ParamPickerProps) {
                 const hidden = s.options.length - visible.length
                 return (
                   <div key={s.name} className={styles.section} data-param-section={s.name}>
-                    <span className={styles.sectionTitle}>{s.label}</span>
+                    {/*
+                      空 label = **这一段并入上一段**，不画标题（用户 2026-10-15 的
+                      参考图：质量并进「画质」那一组，两行共用上面那一个标题）。
+                      留空而不是删掉标题元素，是为了不改各段的结构与锚点。
+                    */}
+                    {s.label !== '' && <span className={styles.sectionTitle}>{s.label}</span>}
                     {/*
                       滑杆 / 输入框两种形态**没有「选项」**：它们渲染的是一件控件，
                       值沿 `value` + `onSelect(新值)` 走同一条路（见 `ParamSection` 的说明）。

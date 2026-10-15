@@ -5990,7 +5990,9 @@ async function g46(browser) {
    * 「把比例，质量，画质，张数变成一个胶囊显示，而且点击显示的面板……把所有的参数
    * 都放上去」）。判据取**分段的名单**：缺一段、多一段、或又拆回多枚 chip，都会红。
    *
-   * 段的顺序＝用户 2026-10-03 图一那份：**画质 → 清晰度 → 背景 → 比例**。
+   * 段的顺序＝用户 2026-10-15 参考图那份：**画质（尺寸 + 质量两行）→ 背景 → 比例**。
+   * `quality` 那一段 `label` 为空 ⇒ **不画自己的小标题**，与上面的尺寸行共用「画质」
+   * 一个标题（`ParamPicker` 对空 label 不渲染标题栏）。
    * 「背景」那段由**模型的能力表**决定（对账 #122）：没有能力表的模型不摆它。
    * 2026-10-08 起画布下拉只列前端显示名（对账 #371），而六个显示名**都有能力表**，
    * 所以这条用例里就是四段 —— 之前它挑的是无能力表的 mock 模型。
@@ -6001,11 +6003,27 @@ async function g46(browser) {
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-section')))
   rec(
     g,
-    '★★ 生成参数收成一枚胶囊：点开是四段（画质 / 清晰度 / 背景 / 比例）',
-    paramSectionNames.join(',') === 'quality,resolution,background,ratio' &&
+    '★★ 生成参数收成一枚胶囊：点开是四段（画质=尺寸+质量 / 背景 / 比例）',
+    paramSectionNames.join(',') === 'resolution,quality,background,ratio' &&
       (await panel.locator('[data-param-chip="gen-params"]').count()) === 1 &&
       (await panel.locator('[data-param-chip="ratio"]').count()) === 0,
     `段=${paramSectionNames.join(',')}`,
+  )
+  /**
+   * 「质量并进画质」的**界面证据**：`resolution` 那段有标题、`quality` 那段没有 ——
+   * 只看段名列表是看不出这一点的（列表里两段都在，画面上却只有一个标题）。
+   */
+  const qualityHasOwnTitle = await panel
+    .locator('[data-param-popup="gen-params"] [data-param-section="quality"] [class*="sectionTitle"]')
+    .count()
+  const resolutionHasTitle = await panel
+    .locator('[data-param-popup="gen-params"] [data-param-section="resolution"] [class*="sectionTitle"]')
+    .count()
+  rec(
+    g,
+    '★★ 质量那一行不另起标题（与尺寸行共用「画质」一个标题）',
+    qualityHasOwnTitle === 0 && resolutionHasTitle === 1,
+    `画质标题=${resolutionHasTitle} 质量自己的标题=${qualityHasOwnTitle}`,
   )
 
   /**
@@ -19686,11 +19704,27 @@ async function g98(browser) {
       await sleep(400)
     }
   }
+  /**
+   * 张数 2026-10-15 起**独立成一枚 chip**（对账 #523），所以它的档位不在 `gen-params`
+   * 那个浮层里 —— 要单独点开读。
+   *
+   * ⚠️ 读完**故意不 Esc**：这一层浮层是「同一时刻只开一个」，紧跟着点另一枚 chip
+   * 就自动关掉它了。多按一次 Esc 会把整个创作面板一起关掉（本组实测踩到：
+   * 后面 `[data-param-chip="model"]` 直接找不到）。收尾由各段末尾那次 Escape 负责。
+   */
+  const countValues = async () => {
+    await panel.locator('[data-param-chip="count"]').click()
+    await sleep(300)
+    return page
+      .locator('[data-param-popup="count"] button[data-param-option]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-option')))
+  }
 
   // ① Comfy-gpt 的 GPT Image 档
   await pickModel('GPT Image 2.5 Flare')
+  const gptCounts = await countValues()
   await openParams()
-  /** 段的顺序也要断言：用户 2026-10-03 图一那份是「画质 → 清晰度 → 背景 → 比例 → 数量」 */
+  /** 段的顺序也要断言：参考图那份是「画质（尺寸 + 质量）→ 背景 → 比例」 */
   const gptSections = await popup()
     .locator('[data-param-section]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-section')))
@@ -19700,12 +19734,11 @@ async function g98(browser) {
   const gptQualityLabels = await labelsOf('quality')
   const gptBackground = await valuesOf('background')
   const gptBackgroundLabels = await labelsOf('background')
-  const gptCounts = await valuesOf('count')
   rec(
     g,
-    '★★ GPT Image 2.5 Flare：五档画质 / 1K·2K·4K / 三档背景 / 13 档比例 / 1·2·4 张',
+    '★★ GPT Image 2.5 Flare：尺寸+质量并进「画质」/ 三档背景 / 13 档比例 / 1·2·4 张（独立一枚）',
     JSON.stringify(gptSections) ===
-      JSON.stringify(['quality', 'resolution', 'background', 'ratio', 'count']) &&
+      JSON.stringify(['resolution', 'quality', 'background', 'ratio']) &&
       JSON.stringify(gptQuality) === JSON.stringify(['low', 'medium', 'high', 'xhigh', 'max']) &&
       gptQualityLabels.includes('标准画质') &&
       gptQualityLabels.includes('极致画质') &&
@@ -19730,7 +19763,8 @@ async function g98(browser) {
   const agnesRes = await valuesOf('resolution')
   const agnesQuality = await valuesOf('quality')
   const agnesBackground = await valuesOf('background')
-  const agnesCounts = await valuesOf('count')
+  /** 张数独立成 chip（#523）→ 从它自己的浮层读，读完 Esc 收起再断言 */
+  const agnesCounts = await countValues()
   rec(
     g,
     '★★ Agnes Image 2.5 Flash：8 档画幅 + 1K–4K + 1·2·4 张，且**没有质量 / 背景**两段',

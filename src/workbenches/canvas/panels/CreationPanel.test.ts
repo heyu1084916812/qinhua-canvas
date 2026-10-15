@@ -380,11 +380,13 @@ describe('CreationPanel · 生成数量（chip 形态）', () => {
   })
 
   /**
-   * 2026-10-02 起比例 / 画质 / 质量 / 张数**收进一枚胶囊**（`gen-params`），
-   * 四段仍在（名字不变：`ratio` / `resolution` / `quality` / `count`），
-   * 但面板上只该看到一枚 chip —— 「不再有并排的一排控件」这条口径没变。
+   * 比例 / 画质 / 质量收在「生成参数」胶囊里；**张数 2026-10-15 起独立成一枚 chip**，
+   * 摆在胶囊右边（用户：「数量的选择单独设置在参数的右边，单独做一个面板」）。
+   *
+   * 「不再有并排的一排控件」这条口径没变：张数仍是 chip + 浮层，不是并排的固定按钮组
+   * （`data-param-count` 那种一键一档的写法已下线，见下一条断言）。
    */
-  it('张数收进「生成参数」胶囊，不再是并排的固定按钮组', async () => {
+  it('张数独立成一枚 chip（在「生成参数」右边），不再是并排的固定按钮组', async () => {
     const channels = await channelStore([{ enabled: true, models: [imgModel(4)] }])
     const html = render(channels, {
       ...generationSpec.createDefaultData(),
@@ -392,7 +394,7 @@ describe('CreationPanel · 生成数量（chip 形态）', () => {
       model: 'relay-img',
     })
     expect(html).toContain('data-param-chip="gen-params"')
-    expect(html).not.toContain('data-param-chip="count"')
+    expect(html).toContain('data-param-chip="count"')
     expect(html).not.toContain('data-param-count')
   })
 
@@ -673,7 +675,12 @@ describe('CreationPanel · 功能类别切换（图片 / 视频）', () => {
     /**
      * 清晰度那一段的 `auto` 文案是**自适应**（与视频比例那档同词，用户 2026-10-03 图一）。
      */
-    expect(html).toContain('自动 · 自适应 · 比例 · 1 张')
+    /**
+     * 顺序照面板：尺寸 · 质量 · 背景 · 比例。张数 2026-10-15 起独立成一枚 chip，
+     * 不再出现在这行摘要里（见下面那条 `data-param-chip="count"` 的断言）。
+     */
+    expect(html).toContain('自适应 · 自动 · 比例')
+    expect(html).toContain('data-param-chip="count"')
     expect(html).not.toContain('data-param-chip="size"')
     expect(html).not.toContain('data-param-duration')
   })
@@ -698,10 +705,12 @@ describe('CreationPanel · 功能类别切换（图片 / 视频）', () => {
       true,
     )
     /**
-     * 五段都在，且顺序就是图一那份：画质 · 清晰度 · 背景 · 比例 · 生成数量。
+     * 四段都在，且顺序照参考图：**尺寸 · 质量 · 背景 · 比例**（质量并进「画质」那一组）。
      * 值也走中文标签（`medium` → 标准画质、`opaque` → 保留背景）。
+     * ⚠️ 张数 2026-10-15 已从胶囊搬出、独立成一枚 chip，不再出现在这一行摘要里。
      */
-    expect(html).toContain('标准画质 · 1K · 保留背景 · 1:1 · 2 张')
+    expect(html).toContain('1K · 标准画质 · 保留背景 · 1:1')
+    expect(html).not.toContain('2 张 ·')
   })
 
   it('视频模式：换成 生成模式 / 清晰度 / 时长，「生成参数」胶囊整块退场', async () => {
