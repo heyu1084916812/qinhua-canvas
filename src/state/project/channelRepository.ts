@@ -39,9 +39,17 @@ const toChannel = (row: Record<string, unknown>): Channel => {
     baseUrl: (row.baseUrl as string) ?? '',
     credentialRef: (row.credentialRef as string | null) ?? null,
     tokenTail: (row.tokenTail as string | null) ?? null,
+    /**
+     * 「存过没有」（对账 #517）：老行没有这一键，但**有尾号 ⇒ 一定存过**，
+     * 于是缺省回落到 `tokenTail !== null` 就是零迁移；短令牌那种"存过但没尾号"
+     * 由新写入的这一列补上。
+     */
+    hasToken: (row.hasToken as boolean | undefined) ?? ((row.tokenTail as string | null) ?? null) !== null,
     /** 第二把钥匙（第 22 批 #358）：老行没有这两键 → null（= 只用主槽） */
     altCredentialRef: (row.altCredentialRef as string | null) ?? null,
     altTokenTail: (row.altTokenTail as string | null) ?? null,
+    hasAltToken:
+      (row.hasAltToken as boolean | undefined) ?? ((row.altTokenTail as string | null) ?? null) !== null,
     enabled: (row.enabled as boolean) ?? false,
     // `models` 引入前写下的行没有这个键 → 读回**回落为全部缓存**，即「沿用旧行为」：
     // 加本字段之前，画布 / 漫画的模型下拉列的就是 modelCache 全集。

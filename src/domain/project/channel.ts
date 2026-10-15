@@ -45,6 +45,18 @@ export interface Channel {
    */
   tokenTail: string | null
   /**
+   * **这一槽到底存过没有**（对账 #517）。
+   *
+   * 与 `tokenTail` 分开，是因为尾号**天生可能为空**：只有 ≥12 位才给尾号
+   * （短令牌上露 4 位等于把大半个密钥打在界面上）。于是「存过」不能靠 `tokenTail`
+   * 反推 —— 9 位令牌存进去后尾号仍是 null，界面会显示成「没保存」，
+   * 「显示 / 删除」两个按钮也跟着置灰，用户看到的就是"填不进去"。
+   *
+   * 缺省回落到 `tokenTail !== null`：老数据没有这一列，但**有尾号一定存过**，
+   * 零迁移；只有"存过但没尾号"（短令牌）这一种由新字段补上。
+   */
+  hasToken: boolean
+  /**
    * **第二把钥匙**（用户第 22 批 #358）：只有声明了多把凭据的协议（如 RunningHub）才会用。
    *
    * 槽位映射：主槽 = `credentialRef` / `tokenTail`，备用槽 = 这两个字段。
@@ -53,6 +65,8 @@ export interface Channel {
    */
   altCredentialRef: string | null
   altTokenTail: string | null
+  /** 备用槽的「存过没有」（同上；缺省回落到 `altTokenTail !== null`） */
+  hasAltToken: boolean
   /** 仅已启用渠道出现在画布创作面板的平台选择中（产品文档 §7.1） */
   enabled: boolean
   /**
@@ -204,8 +218,10 @@ export function createChannel(input: CreateChannelInput): Channel {
     baseUrl: input.baseUrl.trim(),
     credentialRef: null,
     tokenTail: null,
+    hasToken: false,
     altCredentialRef: null,
     altTokenTail: null,
+    hasAltToken: false,
     /**
      * **新建即启用**（用户第 19 批 #3：「新建的渠道默认启用」）。
      *

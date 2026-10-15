@@ -99,4 +99,23 @@ describe('channelRepository', () => {
     expect(ch.lastTestLatency).toBeNull()
     expect(ch.models).toEqual([])
   })
+
+  /**
+   * 对账 #517 的零迁移判据：老行没有 `hasToken` 这一列。
+   *
+   * - 有尾号的老行 ⇒ 一定存过 ⇒ `hasToken` 回落 `true`；
+   * - 什么都没有的老行 ⇒ `false`。
+   * 这样"存过但没尾号"只有新写入的那一行会带上，老数据行为不变。
+   */
+  it('★ 老行没有 hasToken 列：有尾号 ⇒ 存过；没尾号 ⇒ 没存过', async () => {
+    const p = createMemoryPlatform()
+    const repo = createChannelRepository(p.storage, p.credentials)
+    await p.storage.put('channels', { id: 'withTail', name: '有尾号', tokenTail: '3f2a' })
+    await p.storage.put('channels', { id: 'bare', name: '空行' })
+    expect((await repo.get('withTail'))!.hasToken).toBe(true)
+    expect((await repo.get('bare'))!.hasToken).toBe(false)
+    /* 备用槽同一条口径 */
+    await p.storage.put('channels', { id: 'alt', name: '备用槽', altTokenTail: 'abcd' })
+    expect((await repo.get('alt'))!.hasAltToken).toBe(true)
+  })
 })

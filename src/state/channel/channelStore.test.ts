@@ -303,10 +303,12 @@ describe('channelStore', () => {
     const ch = await store.create({ name: 'A', protocol: 'mock', baseUrl: '' })
     await store.saveToken(ch.id, 'sk-1234567890abcdef3f2a')
     expect(store.getState().channels.find((c) => c.id === ch.id)!.tokenTail).toBe('3f2a')
+    expect(store.getState().channels.find((c) => c.id === ch.id)!.hasToken).toBe(true)
     expect(await store.hasToken(ch.id)).toBe(true)
 
     await store.removeToken(ch.id)
     expect(store.getState().channels.find((c) => c.id === ch.id)!.tokenTail).toBeNull()
+    expect(store.getState().channels.find((c) => c.id === ch.id)!.hasToken).toBe(false)
     expect(await store.hasToken(ch.id)).toBe(false)
     expect(store.getState().channels).toHaveLength(1)
   })
@@ -318,6 +320,40 @@ describe('channelStore', () => {
     await store.saveToken(ch.id, 'sk-short')
     expect(store.getState().channels.find((c) => c.id === ch.id)!.tokenTail).toBeNull()
     expect(await store.hasToken(ch.id)).toBe(true)
+  })
+
+  /**
+   * 对账 #517：短令牌**确实存进去了**，但尾号是 null。
+   *
+   * 此前「已保存」是拿尾号反推的（`saved = !!savedTail`），于是这类令牌在界面上
+   * 表现为没保存、显示 / 删除两个按钮还一起置灰 —— 用户读到的就是"填不进去"。
+   * 这条钉住：尾号只管显示，**存过与否必须另有判据**。
+   */
+  it('★★ 9 位短令牌存了以后：hasToken 为 true，而尾号仍是 null', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    const ch = await store.create({ name: '短令牌站', protocol: 'mock', baseUrl: '' })
+    await store.saveToken(ch.id, '431959*Sh')
+    const row = store.getState().channels.find((c) => c.id === ch.id)!
+    expect(row.tokenTail).toBeNull()
+    expect(row.hasToken).toBe(true)
+    /* 加密 / 解密这一侧也必须原样保住那个特殊字符 */
+    expect(await store.loadToken(ch.id)).toBe('431959*Sh')
+
+    await store.removeToken(ch.id)
+    expect(store.getState().channels.find((c) => c.id === ch.id)!.hasToken).toBe(false)
+  })
+
+  it('★ 备用槽同样是「存过」与「尾号」分开记', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    const ch = await store.create({ name: '双钥匙', protocol: 'mock', baseUrl: '' })
+    await store.saveToken(ch.id, 'short-alt', 'alt')
+    const row = store.getState().channels.find((c) => c.id === ch.id)!
+    expect(row.altTokenTail).toBeNull()
+    expect(row.hasAltToken).toBe(true)
+    await store.removeToken(ch.id, 'alt')
+    expect(store.getState().channels.find((c) => c.id === ch.id)!.hasAltToken).toBe(false)
   })
 
   it('setModels 落库并更新列表；reorder 重编号', async () => {

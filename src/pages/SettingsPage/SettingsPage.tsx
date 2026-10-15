@@ -111,6 +111,7 @@ function ChannelTokenField({
   required,
   docUrl,
   savedTail,
+  saved,
 }: {
   channels: ReturnType<typeof useChannels>
   channelId: string
@@ -121,6 +122,14 @@ function ChannelTokenField({
   docUrl: string
   /** 已保存令牌的尾 4 位；null = 这一槽没存过 */
   savedTail: string | null
+  /**
+   * **这一槽存过没有**（对账 #517）。
+   *
+   * 它是「已保存」的唯一判据；尾号只负责**显示成什么**。
+   * 两者分开才不会把"存了但没有尾号的短令牌"显示成没保存
+   * （短令牌没尾号是刻意设计：9 位上露 4 位等于把大半个密钥打在界面上）。
+   */
+  saved: boolean
 }) {
   const [token, setToken] = useState('')
   const [show, setShow] = useState(false)
@@ -131,8 +140,9 @@ function ChannelTokenField({
    */
   const [revealed, setRevealed] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const saved = !!savedTail
   const masked = savedTail ? maskTokenTail(savedTail) : ''
+  /** 存过但没尾号时也要给一句看得见的确认，不能看起来像没保存 */
+  const savedText = masked || (saved ? '已保存' : '')
 
   /** 换了渠道 / 换了槽位：把"已显示"这件事清掉，免得上一条的明文挂在新渠道上 */
   useEffect(() => {
@@ -224,7 +234,7 @@ function ChannelTokenField({
            * 参考图五 `••••••••Sm3a`）。用 `placeholder` 不是 `value`：整串明文不进界面，
            * 放进 value 的话用户一按保存就会把那串圆点当成新令牌存进去。
            */
-          placeholder={saved ? masked : '粘贴 API Key'}
+          placeholder={saved ? savedText : '粘贴 API Key'}
           value={shownValue}
           onChange={(e) => onTokenChange(e.target.value)}
         />
@@ -1185,6 +1195,7 @@ export function SettingsPage() {
                     required={cred.required}
                     docUrl={docUrl}
                     savedTail={i === 0 ? selected.tokenTail : selected.altTokenTail}
+                    saved={i === 0 ? selected.hasToken : selected.hasAltToken}
                   />
                 ))}
 

@@ -367,20 +367,32 @@ export function createChannelStore(
     store.setState({ channels })
   }
 
-  /** 槽位 → 该槽在渠道行上存的引用与尾号字段（见 `Channel` 的 `altCredentialRef` 注释） */
+  /**
+   * 槽位 → 该槽在渠道行上存的引用、**尾号字段**与**存过标记字段**
+   * （见 `Channel` 的 `altCredentialRef` / `hasToken` 注释）。
+   */
   const slotFields = (ch: Channel, slot: CredentialSlot) =>
     slot === 'alt'
-      ? { ref: ch.altCredentialRef, tail: 'altTokenTail' as const }
-      : { ref: ch.credentialRef, tail: 'tokenTail' as const }
+      ? {
+          ref: ch.altCredentialRef,
+          tail: 'altTokenTail' as const,
+          has: 'hasAltToken' as const,
+        }
+      : { ref: ch.credentialRef, tail: 'tokenTail' as const, has: 'hasToken' as const }
 
   const saveToken: ChannelStoreActions['saveToken'] = async (id, token, slot = 'primary') => {
     const ch = await repo.get(id)
     const f = ch ? slotFields(ch, slot) : null
     if (!ch || !f?.ref) throw new Error(`[channelStore] 渠道无凭据引用：${id}`)
     await repo.saveToken(f.ref, token)
-    // 明文此刻唯一一次在手：顺手把尾号算出来存下，供设置页显示「存的是哪把钥匙」。
-    // 之后再没有任何路径能拿到明文（除非用户重新输入）。
-    await update(id, { [f.tail]: tokenTailOf(token) })
+    /**
+     * 明文此刻唯一一次在手：顺手把尾号算出来存下，供设置页显示「存的是哪把钥匙」。
+     * 之后再没有任何路径能拿到明文（除非用户重新输入）。
+     *
+     * **“存过”必须与尾号分开记**（对账 #517）：短令牌没有尾号，只写尾号的话
+     * 界面会把它读成「没存过」，显示 / 删除两个按钮也一起置灰。
+     */
+    await update(id, { [f.tail]: tokenTailOf(token), [f.has]: true })
   }
 
   const removeToken: ChannelStoreActions['removeToken'] = async (id, slot = 'primary') => {
@@ -388,7 +400,7 @@ export function createChannelStore(
     const f = ch ? slotFields(ch, slot) : null
     if (!ch || !f?.ref) return
     await repo.removeToken(f.ref)
-    await update(id, { [f.tail]: null })
+    await update(id, { [f.tail]: null, [f.has]: false })
   }
 
   /**
