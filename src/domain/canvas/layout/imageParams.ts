@@ -43,7 +43,7 @@ export interface ImageParamSpec {
   /**
    * **画质档**（用户 2026-10-03 图一：低 / 标准 / 高 / 超高 / 极致）。
    * 值仍用各家接口的合法枚举（OpenAI 官方是 `low/medium/high/xhigh/max`），
-   * 面板只负责把 `medium` 显示成「标准画质」。
+   * 面板只负责把 `medium` 显示成「标准」（2026-10-15 起不再带「画质」后缀）。
    */
   qualities: readonly string[]
   /**
@@ -125,7 +125,7 @@ const GEMINI_RATIOS_WITH_AUTO = ['auto', ...GEMINI_IMAGE_RATIOS] as const
  * - 清晰度：`1K / 2K / 4K`（与香蕉一致），发请求时按 `比例 × 清晰度` 换算成像素 `size`
  *   （OpenAI 的 `size` 只认像素，官方规范里 `auto`/`1024x1024`/`1536x1024`/`1024x1536`）；
  * - 画质：`low / medium / high / xhigh / max`（OpenAI 官方枚举，面板显示成
- *   低 / 标准 / 高 / 超高 / 极致画质）；
+ *   低 / 标准 / 高 / 超高 / 极致）；
  * - 背景：`auto / opaque / transparent`（OpenAI 官方 `background` 枚举，
  *   面板显示成 自动 / 保留背景 / 透明背景）。
  */

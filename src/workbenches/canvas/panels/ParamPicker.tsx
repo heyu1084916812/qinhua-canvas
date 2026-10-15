@@ -327,7 +327,7 @@ export function ParamPicker(props: ParamPickerProps) {
           styles.chip,
           size === 'compact' ? styles.chipCompact : '',
           /**
-           * 多段参数的胶囊文案是一行**摘要**（「1:1 · 标准画质 · 1K · 1张」），
+           * 多段参数的胶囊文案是一行**摘要**（「1K · 标准 · 保留背景 · 1:1」），
            * 单枚 chip 那 160px 上限装不下 —— 放开到能读完整的一行。
            */
           grouped ? styles.chipWideLabel : '',

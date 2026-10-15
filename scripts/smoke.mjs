@@ -19743,8 +19743,9 @@ async function g98(browser) {
       JSON.stringify(['resolution', 'quality', 'background', 'ratio']) &&
       /* 首档 `auto` = 参考图那排最前面的「自动」；它也是节点默认值 */
       JSON.stringify(gptQuality) === JSON.stringify(['auto', 'low', 'medium', 'high', 'xhigh', 'max']) &&
-      gptQualityLabels.includes('标准画质') &&
-      gptQualityLabels.includes('极致画质') &&
+      /* 档位文案 2026-10-15 起**不带「画质」后缀**（用户：「直接就是低，标准」） */
+      gptQualityLabels.includes('标准') &&
+      gptQualityLabels.includes('极致') &&
       JSON.stringify(gptRes) === JSON.stringify(['1k', '2k', '4k']) &&
       JSON.stringify(gptBackground) === JSON.stringify(['auto', 'opaque', 'transparent']) &&
       gptBackgroundLabels.includes('保留背景') &&

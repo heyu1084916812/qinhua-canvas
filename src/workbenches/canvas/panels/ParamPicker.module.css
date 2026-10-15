@@ -110,16 +110,19 @@
   gap: var(--space-3);
   width: max-content;
   /**
-   * 内容宽度 **500**（用户 2026-10-15：「我需要文字全部显示出来，可以加大面板的宽度」）。
+   * 内容宽度 **430**（用户 2026-10-15：「我需要文字全部显示出来，可以加大面板的宽度」）。
    *
-   * 由来：316 是「4 列比例 × 73px」凑出来的，但那个宽度装不下**六档画质**
-   * （自动 / 低画质 / 标准画质 / 高画质 / 超高画质 / 极致画质 ≈ 486px）——
-   * 于是档位被压成「自… 低… 标…」的省略号。用户明确「可以加大面板的宽度」，
-   * 这里按**最长的那一排**定宽：500 > 486，六档一行放得下且不省略。
+   * 口径变过两次：
+   *  · 316 是「4 列比例 × 73px」凑出来的，装不下**六档画质**（自动 / 低画质 /
+   *    标准画质 / 超高画质 / 极致画质）⇒ 档位被压成「自… 低… 标…」的省略号；
+   *    用户说「可以加大面板的宽度」，于是按当时的长标签定到 560。
+   *  · 随后用户「文字上不需要加画质那两个字了」⇒ 标签变短（低 / 标准 / 高 /
+   *    超高 / 极致），最宽的那一排只要 ~310px，于是收回到 **430** ——
+   *    既保证一行放得下，又贴近参考图那种紧凑面板（参考图的格子才 60 出头宽）。
    *
-   * 500 + 内距 24 + 描边 2 = **526** 是浮层的边框盒上限。
+   * 430 + 内距 24 + 描边 2 = **456** 是浮层的边框盒上限。
    */
-  max-width: 586px;
+  max-width: 456px;
 }
 
 /*
@@ -323,7 +326,7 @@
    * 内容宽度下限 **500**（与 `.grouped` 的上限配套，见那里的说明）。
    * 原先 316 是「4 列比例 × 73」凑出来的，装不下六档画质 ⇒ 标签被省略号截断。
    */
-  --picker-inner: 560px;
+  --picker-inner: 430px;
   /* 水平居中于所点参数（§6.8）。必须写在**基类**上：只写在 @keyframes 里的话，
      动画结束后 transform 会回落到 none，浮层左边缘就停在 chip 中线上。 */
   transform: translateX(-50%);
@@ -547,7 +550,7 @@
   box-sizing: border-box;
   width: max-content;
   min-width: var(--picker-inner, 316px);
-  padding: 3px;
+  padding: 4px;
   border-radius: var(--radius-control);
   background: var(--bg-subtle);
 }
@@ -566,7 +569,7 @@
    */
   flex: 1 0 auto;
   min-width: 0;
-  height: 30px;
+  height: 34px;
   padding: 0 10px;
   border: 1px solid transparent;
   border-radius: calc(var(--radius-control) - 3px);
@@ -595,9 +598,16 @@
 }
 
 .capOn {
-  /* 与 `.ratioCellOn` 逐条同值：填充 + 描边 + 主文字色 */
+  /**
+   * 选中 = **浮起成表面色 + 一圈描边**（照参考图：轨道是浅灰，被选中的那一块
+   * 是**白底**、比轨道更亮，还有一圈细边把它托出来）。
+   *
+   * ⚠️ 第一版写成 `--bg-hover`（比轨道**深**一档）—— 方向反了：那读起来像
+   * 「这块被压下去」而不是「这块被选中」。与 `.ratioCellOn` 现在是同一条规则：
+   * 选中 = `--bg-surface` 底 + `--stroke` 边，深浅主题各自成立。
+   */
   border-color: var(--stroke);
-  background: var(--bg-hover);
+  background: var(--bg-surface);
   color: var(--text-1);
 }
 
@@ -630,19 +640,31 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  height: 64px;
+  gap: 6px;
+  height: 76px;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: calc(var(--radius-control) - 4px);
-  background: transparent;
+  /**
+   * **每个格子都有底色**（用户 2026-10-15：「直接抄他的比例，包括容器的边界」）。
+   *
+   * 参考图里比例格不是「只有图形和数字」，而是**一块浅灰圆角方框**，图形与数字
+   * 都画在框里 —— 这一层底框就是俗称的「容器的边界」。原先这里 `background: transparent`，
+   * 屏幕上只剩几个细线和数字，显得散。
+   *
+   * 圆角也从 `radius-control - 4`(6px) 提到 **`radius-control`(10px)**，与参考图的圆角同档。
+   */
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
   color: var(--text-2);
   cursor: pointer;
-  transition: background var(--dur-hover) var(--ease-out);
+  transition:
+    background var(--dur-hover) var(--ease-out),
+    color var(--dur-hover) var(--ease-out);
 }
 
 .ratioCell:hover:not(:disabled) {
   background: var(--bg-hover);
+  color: var(--text-1);
 }
 
 .ratioCell:disabled {
@@ -651,8 +673,15 @@
 }
 
 .ratioCellOn {
-  border-color: var(--stroke);
-  background: var(--bg-hover);
+  /**
+   * 选中 = **浮起成表面色 + 一圈强描边**（参考图里 16:9 那一格就是这样：
+   * 白底、深色边，压过周围所有灰框）。
+   *
+   * 描边取 `--stroke-focus`（项目里最重的那一档边框令牌，也是焦点态用的那支），
+   * 深色主题下它自动变成接近白的浅边 —— 两套主题都读得出「这块被选中了」。
+   */
+  border-color: var(--stroke-focus);
+  background: var(--bg-surface);
   color: var(--text-1);
 }
 
