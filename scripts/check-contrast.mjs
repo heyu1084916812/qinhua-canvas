@@ -134,6 +134,8 @@ const problems = []
 let worstText = Infinity
 let worstGrid = Infinity
 let worstPanel = Infinity
+/** 悬停/选中那组检查跑了几条（浅色 5 条 + 深色 6 条，见循环里的说明） */
+let hoverChecks = 0
 
 for (const [themeLabel, scope] of [
   ['浅色', light],
@@ -184,6 +186,61 @@ for (const [themeLabel, scope] of [
       }
     }
   }
+  /**
+   * ④ **悬停底与选中底必须两两不同、方向对、且看得见**（用户 2026-10-14 的四色口径）。
+   *
+   * 为什么放进守卫：这几支同值时**没有任何现成信号**能发现它 —— 差 0、截图看着"就是这样的设计"，
+   * 结果是"悬停一个未选项"跟"选中它"长得一模一样。2026-10-16 就是这么栽的：
+   * `--bg-hover` 与 `--bg-selected` 同值（浅 #e2e2e2 / 深 #333333），参数面板里那些比例格
+   * 悬停 == 选中，直到有人真去数色值才发现（对账 #529 / #531 的残留）。
+   *
+   * 四条判据：① 两支悬停 + 一支选中**两两不等**；② 悬停必须比选中**弱**
+   * （浅色更浅、深色更暗 —— 按相对亮度判方向）；③ 悬停与它垫的那层卡面至少差 4/255
+   * （太接近等于没有反馈）；④ 深色下悬停必须比卡面**亮**（深色里"更重"= 更亮）。
+   */
+  {
+    const hover = resolve('--bg-hover', scope)
+    const subtle = resolve('--bg-subtle', scope)
+    const selected = resolve('--bg-selected', scope)
+    const surface = resolve('--bg-surface', scope)
+    const hex = (c) =>
+      `#${[c.r, c.g, c.b].map((n) => Math.round(n).toString(16).padStart(2, '0')).join('')}`
+    const same = (a, b) => a.r === b.r && a.g === b.g && a.b === b.b
+    const lightTheme = themeLabel === '浅色'
+    for (const [aName, a, bName, b] of [
+      ['--bg-hover', hover, '--bg-selected', selected],
+      ['--bg-hover', hover, '--bg-subtle', subtle],
+      ['--bg-subtle', subtle, '--bg-selected', selected],
+    ]) {
+      hoverChecks += 1
+      if (same(a, b)) {
+        problems.push(`${themeLabel}：${aName} 与 ${bName} 同值（${hex(a)}）—— 悬停会被看成选中`)
+      }
+    }
+    const lHover = luminance(hover)
+    const lSelected = luminance(selected)
+    hoverChecks += 1
+    if (lightTheme ? !(lHover > lSelected) : !(lHover < lSelected)) {
+      problems.push(
+        `${themeLabel}：悬停底不比选中底"弱"（悬停 ${hex(hover)} / 选中 ${hex(selected)}）—— 分不出主次`,
+      )
+    }
+    hoverChecks += 1
+    const delta = Math.max(
+      Math.abs(hover.r - surface.r),
+      Math.abs(hover.g - surface.g),
+      Math.abs(hover.b - surface.b),
+    )
+    if (delta < 4) {
+      problems.push(`${themeLabel}：悬停底与卡面底只差 ${delta.toFixed(0)}/255 —— 等于没有悬停反馈`)
+    }
+    if (!lightTheme) {
+      hoverChecks += 1
+      if (luminance(hover) <= luminance(surface)) {
+        problems.push(`${themeLabel}：悬停底没比卡面底亮 —— 深色里"更重"= 更亮`)
+      }
+    }
+  }
 }
 
 if (problems.length) {
@@ -196,5 +253,6 @@ if (problems.length) {
 console.log(
   `✔ 对比度守卫通过：正文 ${TONES.length * 2} 组（最低 ${worstText.toFixed(2)}:1 ≥ ${TEXT_MIN}）+ ` +
     `网格线 ${TONES.length * 2} 组（最低 ${worstGrid.toFixed(2)}:1 ≥ ${GRID_MIN}）+ ` +
-    `面板底 8 组（最低 ${worstPanel.toFixed(2)}:1 ≥ ${TEXT_MIN}）`,
+    `面板底 8 组（最低 ${worstPanel.toFixed(2)}:1 ≥ ${TEXT_MIN}）+ ` +
+    `悬停/选中 ${hoverChecks} 条（两支悬停与选中两两不同、方向对、与卡面可辨）`,
 )

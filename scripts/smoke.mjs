@@ -20131,6 +20131,145 @@ async function g98(browser) {
   )
 
   /**
+   * ★★ **悬停底 ≠ 选中底**（用户 2026-10-14：「浅色主题的悬停底色、选中底色，深色主题的
+   * 悬停底色、选中底色都不一样」）。
+   *
+   * 为什么必须真机量 + 两种主题各跑一遍（`SMOKE_DARK=1` 那遍）：这是**像素级观感**要求，
+   * 而令牌层曾经两支同值（浅 #e2e2e2 / 深 #333333）⇒ 悬停一颗未选中项看起来就是"选中它"，
+   * 比例格最明显（`ParamPicker.module.css` 里那段注释写的就是这件事）。
+   * 令牌现在分开了、`scripts/check-contrast.mjs` 也在算式上钉住；这里再在**真实面板**上量一次，
+   * 把"令牌改了但组件没用上"这类漏子也盖掉。
+   */
+  {
+    /**
+     * 量一颗格子：不只读底色，还读**它当时是不是真的处于 `:hover`**、以及指针命中谁 ——
+     * 否则"悬停没反应"到底是 CSS 没生效还是指针压根没落上去，从结果里看不出来
+     * （这一条我连着改了三版都红，全靠这几个字段一眼定位）。
+     */
+    const probeCell = (loc) =>
+      loc.evaluate((el) => {
+        const r = el.getBoundingClientRect()
+        const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+        return {
+          option: el.getAttribute('data-param-option'),
+          bg: getComputedStyle(el).backgroundColor,
+          hovered: el.matches(':hover'),
+          disabled: el.disabled === true,
+          /** 中心点上是不是这颗格子自己（不是被别的浮层 / 滚动容器盖住） */
+          topSelf: top === el || el.contains(top),
+          topTag: top ? `${top.tagName.toLowerCase()}` : 'none',
+        }
+      })
+    /**
+     * **等底色稳定再读**，而不是"悬停后睡一个固定值"。
+     *
+     * ⚠️ 格子带 `transition: background var(--dur-hover)`，固定睡 250ms 会**读到过渡中间值**
+     * （实测读到 rgb(244,244,244)：常态 245、悬停终值 236，夹在中间）⇒ 断言时红时绿。
+     * 判据没放宽（仍是"悬停 ≠ 常态、且 ≠ 选中"），只是等它停下来。
+     *
+     * ⚠️ 而且必须**连续三次一致**才算稳定：只比两次的话，在"变化还没开始"时也会连着读到同一个
+     * 常态值 —— 实测深色那一遍就是这么提前退出的（悬停明明生效了，却报"悬停=常态"）。
+     */
+    const settledBg = async (loc) => {
+      let prev = ''
+      let same = 0
+      for (let i = 0; i < 20; i += 1) {
+        const cur = (await probeCell(loc)).bg
+        same = cur === prev ? same + 1 : 1
+        if (same >= 3) return cur
+        prev = cur
+        await sleep(80)
+      }
+      return prev
+    }
+    /** 等底色**真的离开** `base`（悬停生效 / 移开后复原都靠它），超时就返回当前值让断言如实报红 */
+    const waitBgChange = async (loc, base) => {
+      for (let i = 0; i < 20; i += 1) {
+        const cur = (await probeCell(loc)).bg
+        if (cur !== base) return cur
+        await sleep(80)
+      }
+      return base
+    }
+    /**
+     * ⚠️ 先保证**有一颗是选中的**：模板新建的节点没设过比例 ⇒ 一颗 `aria-selected="true"` 都没有，
+     * 这条就量不出"悬停 vs 选中"（第一版正是这么空手回来的，报「取不到比例格」）。
+     * 点第一颗（`1:1`）把它设成选中，再拿另一颗比。
+     */
+    if ((await popup().locator('[data-param-in="ratio"][aria-selected="true"]').count()) === 0) {
+      await popup().locator('[data-param-in="ratio"]').first().click()
+      await sleep(350)
+    }
+    const onCell = popup().locator('[data-param-in="ratio"][aria-selected="true"]').first()
+    /**
+     * ⚠️ 必须排除**禁用**的格子：`.ratioCell:hover:not(:disabled)` 对禁用的那颗不生效，
+     * 拿它当"悬停样本"会量到"悬停=常态"（第一版就取到了这么一颗，红得莫名其妙）。
+     */
+    const offCell = popup()
+      .locator('[data-param-in="ratio"][aria-selected="false"]:not([disabled])')
+      .first()
+    const hasCells = (await onCell.count()) === 1 && (await offCell.count()) === 1
+    let onBg = ''
+    let offHoverBg = ''
+    let offBg = ''
+    let cellProbe = ''
+    if (hasCells) {
+      /**
+       * ⚠️ **量"选中态"之前必须先把指针移开**：Playwright 点完那颗，指针还压在它身上，
+       * `:hover` 会盖住选中底 ⇒ 量到的是悬停色（第一版就是这么把"选中"量成 #ececec 的，
+       * 于是断言红得莫名其妙）。移开 → 等一拍 → 再量。
+       */
+      await page.mouse.move(4, 4)
+      onBg = await settledBg(onCell)
+      const offBase = await settledBg(offCell)
+      /**
+       * ⚠️ 用 **CDP 强制 `:hover`**，不靠合成鼠标移动。
+       *
+       * 实测在创作面板这个浮层里（`zoom: .75` + 内部滚动容器 + 点击后重渲染），合成的悬停
+       * **时而生效时而不生效**：同一份代码，浅色第一次绿、第二次红（`locator.hover()`、
+       * 裸鼠标移动 + 重试三版都试过）。那是**合成事件**的问题，不是产品的问题 ——
+       * 而"鼠标移到格子上浏览器该不该给 `:hover`"是浏览器行为，不是这个应用该负责的东西。
+       *
+       * 应用真正要负责的是：**这一格的 `:hover` 规则画出来的底色 ≠ 常态 ≠ 选中**。
+       * 所以用 CDP 的 `CSS.forcePseudoState` 把 `:hover` 强制加上去再量 —— 每一次都确定生效。
+       * 判据完全没放宽：悬停色仍须 ≠ 常态、≠ 选中（规则被删 / 两支令牌又同值，照样红）。
+       */
+      /** ⚠️ 这里**不要写 `let`**：外层已经有同名变量，写了就是遮蔽 —— 断言会拿空串比出"假绿"（踩过） */
+      offHoverBg = offBase
+      const cdp = await ctx.newCDPSession(page)
+      await cdp.send('DOM.enable')
+      await cdp.send('CSS.enable')
+      const { root } = await cdp.send('DOM.getDocument', { depth: -1 })
+      const { nodeId } = await cdp.send('DOM.querySelector', {
+        nodeId: root.nodeId,
+        selector: '[data-param-in="ratio"][aria-selected="false"]:not([disabled])',
+      })
+      if (nodeId) {
+        await cdp.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: ['hover'] })
+        offHoverBg = await settledBg(offCell)
+        await cdp.send('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: [] })
+      }
+      /** 取消强制之后再看常态：确认"不悬停就回去"，而不是悬停样式常驻 */
+      offBg = await waitBgChange(offCell, offHoverBg)
+      offBg = await settledBg(offCell)
+      await cdp.detach().catch(() => {})
+      cellProbe = JSON.stringify({ on: await probeCell(onCell), off: await probeCell(offCell) })
+    }
+    rec(
+      g,
+      '★★ 悬停一颗未选中的比例格：底色与选中那颗**不同**，移开后回到常态',
+      /** ⚠️ 三个值**都必须非空**才算数：空串碰上 `!==` 会一路为真，那就是"变量遮蔽"式的假绿 */
+      hasCells &&
+        !!onBg &&
+        !!offHoverBg &&
+        !!offBg &&
+        onBg !== offHoverBg &&
+        offHoverBg !== offBg,
+      hasCells ? `选中=${onBg} 悬停=${offHoverBg} 常态=${offBg} · ${cellProbe}` : '取不到比例格',
+    )
+  }
+
+  /**
    * ★★ **段落容器之间不能贴在一起**（用户 2026-10-16：「容器与容器之间要有间隙，
    * 不能重叠在一起」）。
    *
