@@ -4,9 +4,10 @@ import type { CanvasStore, NoticeTone } from '../../state/workbenches/canvas/sto
 import type { Point } from '../../domain/canvas/geometry/rect'
 import { describeLoadResult, loadAssetsFromFolder } from './loadFromFolder'
 import { describeExportReport, exportAssetsToFolder } from './exportAssetsToFolder'
+import { pickAndSyncAssets } from './pickAndSyncAssets'
 
 /**
- * 「素材文件夹」那四个动作（对账 #196 / #293）——**抽出来是因为入口搬过家**。
+ * 「素材文件夹」的五个动作（对账 #196 / #293 / #516）——**抽出来是因为入口搬过家**。
  *
  * 原先它们全挤在画布左下角的状态条里（素材：内置库 / 从文件夹加载 / 导出素材到文件夹）。
  * 用户 2026-10-06 第 13 条要求状态条**只留节点数与缩放**，于是：
@@ -27,6 +28,8 @@ export interface AssetFolderActions {
   /** 加载进度（大目录要能看见"走到第几个"） */
   loading: { done: number; total: number } | null
   exporting: { done: number; total: number } | null
+  /** 选择目录并把现有素材同步过去（用户 2026-10-15 提的迁移动线） */
+  pickAndSync: () => Promise<string>
   pick: () => Promise<string>
   openFolder: () => Promise<string>
   exportAll: () => Promise<string>
@@ -57,11 +60,33 @@ export function useAssetFolderActions(): AssetFolderActions {
     loading,
     exporting,
 
+    async pickAndSync() {
+      if (!folder) return '当前环境不支持选择文件夹'
+      setExporting({ done: 0, total: 0 })
+      try {
+        const result = await pickAndSyncAssets(platform, (done, total) => setExporting({ done, total }))
+        setFolderName(result.folderName)
+        return result.message
+      } finally {
+        setExporting(null)
+      }
+    },
+
     async pick() {
       if (!folder) return '当前环境不支持选择文件夹'
       try {
         const picked = await folder.pick()
-        const name = picked?.name ?? folder.current()?.name ?? null
+        /**
+         * 取消必须如实返回，不能回落成 `current()`。
+         *
+         * 旧写法在"已有目录、用户按取消"时会把旧目录名再报一遍，
+         * 用户以为换了位置，其实什么都没发生。
+         */
+        if (!picked) {
+          setFolderName(folder.current()?.name ?? null)
+          return '没有选择文件夹'
+        }
+        const name = picked.name || folder.current()?.name || null
         setFolderName(name)
         return name ? `素材文件夹已设为「${name}」` : '没有选择文件夹'
       } catch (err) {

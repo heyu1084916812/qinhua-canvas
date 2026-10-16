@@ -19614,8 +19614,9 @@ async function g97(browser) {
   await sleep(500)
   rec(
     g,
-    '★★ 存储栏有「素材文件夹」三件事：选 / 打开 / 导出（导出是从画布状态条搬来的）',
-    (await page.locator('[data-storage-pick-folder]').count()) === 1 &&
+    '★★ 存储栏有「素材文件夹」四件事：选择并同步 / 只换位置 / 打开 / 导出',
+    (await page.locator('[data-storage-pick-and-sync]').count()) === 1 &&
+      (await page.locator('[data-storage-pick-folder]').count()) === 1 &&
       (await page.locator('[data-storage-open-folder]').count()) === 1 &&
       (await page.locator('[data-storage-export-assets]').count()) === 1,
   )

@@ -27,7 +27,7 @@ import styles from './StoragePanel.module.css'
 export function StoragePanel() {
   const platform = usePlatform()
   const admin = platform.storageAdmin
-  /** 素材文件夹三件事（选 / 打开 / 导出）——与画布右键那条「从素材文件夹加载」同一份实现 */
+  /** 素材文件夹动作（选择并同步 / 只换位置 / 打开 / 导出）——与画布右键那条「从素材文件夹加载」同一份实现 */
   const folderActions = useAssetFolderActions()
 
   const [counts, setCounts] = useState<{ projects: number; assets: number; saved: number } | null>(null)
@@ -169,14 +169,28 @@ export function StoragePanel() {
               <button
                 type="button"
                 className={styles.btn}
-                data-storage-pick-folder
-                disabled={busy}
-                onClick={() => void folderActions.pick().then(setStatus)}
+                data-storage-pick-and-sync
+                disabled={busy || folderActions.exporting !== null}
+                onClick={() => void folderActions.pickAndSync().then(setStatus)}
               >
-                {folderActions.folderName ? '更换位置' : '选择素材文件夹'}
+                {folderActions.exporting
+                  ? `同步中 ${folderActions.exporting.done}/${folderActions.exporting.total}…`
+                  : folderActions.folderName
+                    ? '更换并同步'
+                    : '选择并同步素材'}
               </button>
             </div>
             <div className={styles.actions}>
+              <button
+                type="button"
+                className={styles.btn}
+                data-storage-pick-folder
+                disabled={busy || folderActions.exporting !== null}
+                title="只记住新位置，不复制现有素材"
+                onClick={() => void folderActions.pick().then(setStatus)}
+              >
+                只换位置
+              </button>
               <button
                 type="button"
                 className={styles.btn}
