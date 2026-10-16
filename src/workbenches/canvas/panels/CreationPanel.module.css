@@ -592,16 +592,23 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  /* 屏幕 ≈ 44px */
-  height: 58px;
+  /*
+   * 屏幕 ≈ 46px —— 与**助手那份 @ 候选菜单**同档（它不挂缩放，实测 46px / 16px）。
+   *
+   * ⚠️ 这两个数（`height` 与下面的 `font-size`）被 G104 那条「候选菜单的行高 / 字号与助手那份
+   * 同档」钉着。2026-10-16 实测过一次翻车：一处「面板文字字号收敛」把字号从 21 收到 20
+   * （屏幕 16 → 15），**那条断言当场变红、而改的人没复跑 G104** ⇒ 红了一天才被发现。
+   * 改这里请连着跑 `SMOKE_ONLY=g104 node scripts/smoke.mjs`。
+   */
+  height: 61px;
   padding: 0 8px;
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--text-1);
   font-family: var(--font-sans);
-  /* 屏幕 15.75px —— 与助手那份候选菜单（16px）同档 */
-  font-size: 20px;
+  /* 屏幕 15.75px ≈ 16 —— 与助手那份候选菜单（16px 屏幕）同档 */
+  font-size: 21px;
   text-align: left;
   cursor: pointer;
 }
