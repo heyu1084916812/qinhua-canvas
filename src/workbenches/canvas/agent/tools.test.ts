@@ -36,7 +36,8 @@ function setup() {
 
 const addNode = (
   store: CanvasStore,
-  type: 'prompt' | 'generation',
+  /** 也允许 `batch`：只为验「分发器的产物落在承载节点上」那一组读取逻辑 */
+  type: 'prompt' | 'generation' | 'batch',
   data: Record<string, unknown> = {},
 ) => {
   store.dispatch({ kind: 'node.create', projectId: 'p1', type, at: { x: 0, y: 0 }, data })
@@ -107,6 +108,34 @@ describe('读类工具', () => {
     const empty = addNode(store, 'generation', { mode: 'image' })
     const out = readResults(store, [ok, empty, 'gone'])
     expect(out.map((r) => r.status)).toEqual(['ok', 'empty', 'missing'])
+  })
+
+  /**
+   * ★★ **批量 / 循环的产物落在承载节点上**（用户 2026-10-16：「执行是出了图的，
+   * 但他的已读结果是没有留下记录」）。
+   *
+   * 分发器展开后的后续几次产物不在源节点上，而在带着 `data.__carrierOf = 源节点 id`
+   * 的承载节点上（见 `canvasPlacement`）。只读源节点自己的 `assetHash` 会得到 `empty` ——
+   * 画布上明明挂着图，agent 却以为没出图、再提交一次。
+   */
+  it('★★ readResult 跟着承载节点看：分发器自己空、产物在承载节点上也算 ok', () => {
+    const { store } = setup()
+    const batch = addNode(store, 'batch', { mode: 'image' })
+    const carrier = addNode(store, 'generation', {
+      mode: 'image',
+      assetHash: 'h-carrier',
+      __carrierOf: batch,
+    })
+    const out = readResults(store, [batch])
+    expect(out[0]).toMatchObject({
+      nodeId: batch,
+      status: 'ok',
+      outputs: [{ hash: 'h-carrier', mime: 'image/png' }],
+      carrierNodeIds: [carrier],
+    })
+    /** 摘要那一侧也要认这件事，否则 agent 看到的仍是「这个节点没出图」 */
+    const summary = readGraphSummary(store, 'all')
+    expect(summary.nodes.find((n) => n.id === batch)?.hasOutput).toBe(true)
   })
 })
 

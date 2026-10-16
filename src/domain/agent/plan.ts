@@ -595,6 +595,34 @@ export function validateAgentPlan(
     if (!AGENT_NODE_TYPES.includes(node.type)) {
       errors.push(`${where} 的类型不认识：${String(node.type)}（只能是 ${AGENT_NODE_TYPES.join(' / ')}）`)
     }
+    /**
+     * **agent 建不出「容器里的内容」—— 容器节点一律拦下**（用户 2026-10-16 真机事故）。
+     *
+     * 起因：用户要「五张图、每张提示词不同、参数都是香蕉 2 / 4K / 9:16 / 一张」，
+     * agent 建了一个**批量节点**（并声称里面放了 5 个生成节点），实际落地的是
+     * 「一个**空的**批量节点 + 5 个平级生成节点」：
+     *
+     *  - 计划格式里**根本没有「把节点放进容器」这种写法**（`AgentPlanNode` 没有 parent /
+     *    children 字段，`buildLandingCommand` 一律写 `parentId: null`），落地的容器**必然为空**；
+     *  - 而批量节点迭代的是**它里面的素材 / 提示词**（`batchItemsOf`：`prompt` 子节点当文字、
+     *    有图的 `generation` 子节点当素材；**空生成节点会被直接跳过**）——
+     *    所以「批量里塞 N 个生成节点」既不是「N 个独立流程」，也不是「一套参数 × N 段提示词」，
+     *    跑起来什么都不会迭代。
+     *
+     * 这条是**确定性拦截**，不靠提示词自觉：真机上模型就是这么建的，而且它在回复里
+     * 说得头头是道（「已按你的要求建好批量节点」）。拦下来之后把**该怎么做**一并回填，
+     * 循环会把 problems 交回给模型，它下一轮就能改成正确形状。
+     */
+    if (node.type === 'batch' || node.type === 'group') {
+      errors.push(
+        `${where} 是${node.type === 'batch' ? '批量' : '分组'}节点：**agent 建不出容器内容** —— ` +
+          '计划格式里没有「把节点放进容器」的写法，落地时所有新节点的父级都是空，' +
+          '容器一定是空的、什么都不会迭代（2026-10-16 真机事故：说要建 5 张不一样的图，' +
+          '结果只建出一个空批量节点）。' +
+          '要「N 张图、提示词各不相同、参数相同」就建 **N 个生成节点**：' +
+          '每个节点自己写 data.prompt，比例 / 清晰度 / 张数这些参数在每个节点上各写一遍。',
+      )
+    }
     if (!node.data || typeof node.data !== 'object' || Array.isArray(node.data)) {
       errors.push(`${where} 的 data 必须是对象`)
     }

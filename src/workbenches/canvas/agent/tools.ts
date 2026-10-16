@@ -188,6 +188,12 @@ export interface GraphSummary {
      * 于是「换风格」变成了「画一只钓鱼的小猫」。给它正文，它才可能「保留内容、只换风格」。
      */
     prompt?: string
+    /**
+     * 这个节点是**分发器**（批量 / 循环）时，产物的承载节点 id。
+     *
+     * 「有没有出图」不能只看它自己的 `assetHash` —— 展开出来的后续几次落在承载节点上。
+     */
+    carrierNodeIds?: string[]
   }[]
   edges: { source: string; target: string; sourcePort: string; targetPort: string }[]
 }
@@ -206,17 +212,39 @@ export function readGraphSummary(
   const graph = store.getSnapshot()
   // 选中项由调用方给：画布 store 只暴露图快照，选中态在视图层
   const only = scope === 'selection' ? new Set(selectedIds) : null
+  /**
+   * 产出过图的**承载节点**：批量 / 循环展开时除第一次之外的产物落在它们身上
+   * （见 `canvasPlacement` 的 `__carrierOf`）。
+   *
+   * 没有这一步，摘要会对着一个「跑出 5 张图的批量节点」说 `hasOutput: false` ——
+   * agent 于是以为没出图，重复提交（用户 2026-10-16 报的就是这类判断错）。
+   */
+  const carriersByOwner = new Map<string, string[]>()
+  for (const n of graph.nodes) {
+    const owner = asRecord(n.data).__carrierOf
+    if (typeof owner !== 'string') continue
+    const list = carriersByOwner.get(owner) ?? []
+    list.push(n.id)
+    carriersByOwner.set(owner, list)
+  }
   const nodes = graph.nodes
     .filter((n) => !only || only.has(n.id))
     .map((n) => {
       const data = asRecord(n.data)
       const text = typeof data.prompt === 'string' ? data.prompt : data.text
       const prompt = typeof text === 'string' ? text.trim().slice(0, 160) : ''
+      const carrierIds = carriersByOwner.get(n.id) ?? []
       return {
         id: n.id,
         type: n.type,
         title: n.title,
-        hasOutput: typeof data.assetHash === 'string',
+        hasOutput:
+          typeof data.assetHash === 'string' ||
+          carrierIds.some((cid) => {
+            const carrier = graph.nodes.find((x) => x.id === cid)
+            return carrier ? typeof asRecord(carrier.data).assetHash === 'string' : false
+          }),
+        ...(carrierIds.length > 0 ? { carrierNodeIds: carrierIds } : {}),
         ...(prompt ? { prompt } : {}),
       }
     })
@@ -271,13 +299,51 @@ export function readAssetInfo(store: CanvasStore, nodeIds: unknown) {
  */
 export function readResults(store: CanvasStore, nodeIds: unknown) {
   const graph = store.getSnapshot()
+  /**
+   * **承载节点**：批量 / 循环展开时，除第一次之外的产物落在**新建的承载节点**上，
+   * 它们带着 `data.__carrierOf = <源节点 id>`（见 `canvasPlacement` 的说明）。
+   *
+   * 用户 2026-10-16 报的「执行明明出了图，已读结果却说没留下记录」就是漏了这一步：
+   * 只看被问的那个节点自己的 `assetHash`，批量跑出来的后续几次全都看不见。
+   */
+  const carriersOf = new Map<string, string[]>()
+  for (const n of graph.nodes) {
+    const owner = asRecord(n.data).__carrierOf
+    if (typeof owner !== 'string') continue
+    const list = carriersOf.get(owner) ?? []
+    list.push(n.id)
+    carriersOf.set(owner, list)
+  }
   return asStringArray(nodeIds).map((id) => {
     const node = graph.nodes.find((n) => n.id === id)
     if (!node) return { nodeId: id, status: 'missing' as const }
-    const hash = asRecord(node.data).assetHash
-    return typeof hash === 'string'
-      ? { nodeId: id, status: 'ok' as const, outputs: [{ hash, mime: 'image/png' }] }
-      : { nodeId: id, status: 'empty' as const }
+    const own = asRecord(node.data).assetHash
+    const carrierIds = carriersOf.get(id) ?? []
+    const hashes: string[] = []
+    if (typeof own === 'string') hashes.push(own)
+    for (const carrierId of carrierIds) {
+      const carrier = graph.nodes.find((n) => n.id === carrierId)
+      const hash = carrier ? asRecord(carrier.data).assetHash : undefined
+      if (typeof hash === 'string') hashes.push(hash)
+    }
+    return hashes.length > 0
+      ? {
+          nodeId: id,
+          status: 'ok' as const,
+          outputs: hashes.map((hash) => ({ hash, mime: 'image/png' })),
+          /** 产物散在哪些节点上 —— 模型据此知道该去改哪一张，而不是再来问一遍 */
+          ...(carrierIds.length > 0 ? { carrierNodeIds: carrierIds } : {}),
+        }
+      : {
+          nodeId: id,
+          status: 'empty' as const,
+          /**
+           * 「这个节点自己是空的」**不等于**「这次没有出图」：批量 / 循环的产物可能全在
+           * 承载节点上（它们此刻也还没图，或者已经被用户挪走）。把这句话带给模型，
+           * 免得它把「源节点空」直接读成「没出图」再重复提交一次。
+           */
+          ...(carrierIds.length > 0 ? { note: '该节点是分发器（批量/循环），产物在承载节点上', carrierNodeIds: carrierIds } : {}),
+        }
   })
 }
 

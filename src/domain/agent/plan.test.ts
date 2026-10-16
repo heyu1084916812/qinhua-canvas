@@ -64,6 +64,28 @@ describe('validateAgentPlan · 非法计划要整份拒绝', () => {
     if (!r.ok) expect(r.errors[0]).toContain('prompt / generation')
   })
 
+  /**
+   * ★★ **agent 不许建批量 / 分组节点**（用户 2026-10-16 真机事故）。
+   *
+   * 计划格式里没有「把节点放进容器」的写法（`buildLandingCommand` 一律 `parentId: null`），
+   * 所以 agent 建出来的容器**必然是空的**；而批量节点迭代的是它里面的素材 / 提示词，
+   * 空的生成子节点会被直接跳过 —— 那次「五张不一样的图」就变成了「一个空批量节点」。
+   *
+   * 这里钉两件事：① 拦得住；② **错误信息里带着正确做法**（循环会把 problems 回填给模型，
+   * 只说「不许」它下一轮还会换个说法再试一次）。
+   */
+  it('★★ 批量 / 分组节点一律拦下，且错误信息要告诉它「改建成 N 个生成节点」', () => {
+    for (const type of ['batch', 'group'] as const) {
+      const r = bad({ nodes: [{ ...good.nodes[0]!, type }] })
+      expect(r.ok).toBe(false)
+      if (!r.ok) {
+        const joined = r.errors.join('\n')
+        expect(joined).toContain('建不出容器内容')
+        expect(joined).toContain('N 个生成节点')
+      }
+    }
+  })
+
   it('★ localId 重复 → 拒绝（重复会让连线指错节点）', () => {
     const r = bad({ nodes: [good.nodes[0]!, { ...good.nodes[1]!, localId: 'p1' }] })
     expect(r.ok).toBe(false)
