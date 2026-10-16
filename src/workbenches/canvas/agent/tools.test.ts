@@ -11,6 +11,7 @@ import {
   readAssetInfo,
   readGraphSummary,
   readResults,
+  runFromNodeIds,
   type AgentToolContext,
 } from './tools'
 import { buildAgentSystemPrompt } from './agentSystemPrompt'
@@ -45,12 +46,13 @@ const addNode = (
 }
 
 describe('工具声明', () => {
-  it('★ 六个工具都在，且都带参数 schema（模型据此决定怎么调）', () => {
+  it('★ 七个工具都在，且都带参数 schema（模型据此决定怎么调）', () => {
     expect(AGENT_TOOLS.map((t) => t.name).sort()).toEqual([
       'applyPlan',
       'readAsset',
       'readGraph',
       'readResult',
+      'runFrom',
       'runNode',
       'updateNode',
     ])
@@ -441,6 +443,46 @@ describe('写 / 花钱的工具（只由确认后调用）', () => {
       channelId: 'ch-comfly',
       model: 'gpt-image-2.5-sunburst',
     })
+  })
+
+  it('★★ runFrom 沿连线收起点与全部下游，但跳过提示词中间节点', () => {
+    const { store } = setup()
+    const prompt = addNode(store, 'prompt', { text: '橘猫' })
+    const start = addNode(store, 'generation', { mode: 'image', prompt: '起点' })
+    const middle = addNode(store, 'generation', { mode: 'image', prompt: '中间' })
+    const end = addNode(store, 'generation', { mode: 'image', prompt: '终点' })
+    store.dispatch({ kind: 'edge.connect', source: prompt, target: start })
+    store.dispatch({ kind: 'edge.connect', source: start, target: middle })
+    store.dispatch({ kind: 'edge.connect', source: middle, target: end })
+
+    expect(runFromNodeIds(store, [start])).toEqual({ ok: true, ids: [start, middle, end] })
+  })
+
+  it('★★ runFrom 遇到批量 / 循环时分发器不展开，明确让模型改用 runNode', () => {
+    const { store } = setup()
+    const batch = addNode(store, 'batch', { prompt: '批量' })
+    const downstream = addNode(store, 'generation', { mode: 'image', prompt: '下游' })
+    store.dispatch({ kind: 'edge.connect', source: batch, target: downstream })
+
+    const r = runFromNodeIds(store, [batch])
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.problems[0]).toContain('runNode')
+  })
+
+  it('★★ runFrom 执行时把解析出的整条下游交给注入的执行层', async () => {
+    const { store, ctx, runNodes } = setup()
+    const start = addNode(store, 'generation', { mode: 'image', prompt: '起点' })
+    const end = addNode(store, 'generation', { mode: 'image', prompt: '终点' })
+    store.dispatch({ kind: 'edge.connect', source: start, target: end })
+
+    const r = (await executeConfirmedTool('runFrom', { nodeIds: [start] }, ctx)) as {
+      ok: boolean
+      outcomes: { nodeId: string; ok: boolean }[]
+    }
+
+    expect(r.ok).toBe(true)
+    expect(runNodes).toHaveBeenCalledWith([start, end])
+    expect(r.outcomes.map((o) => o.nodeId)).toEqual([start, end])
   })
 })
 

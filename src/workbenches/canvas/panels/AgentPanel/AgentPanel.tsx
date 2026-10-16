@@ -55,6 +55,7 @@ import {
   executeConfirmedTool,
   executeReadTool,
   readGraphSummary,
+  runFromNodeIds,
   type AgentToolContext,
 } from '../../agent/tools'
 import { agentRunOutcomeOf } from '../../agent/runOutcome'
@@ -2376,6 +2377,22 @@ function previewOf(
       tool: name,
       title: node ? `是否运行节点「${node.title ?? '未命名'}」生成图片？` : '要开始生成',
       lines: [`跑 ${ids} 个节点（会花钱）`],
+      action: '批准运行',
+    }
+  }
+  if (name === 'runFrom') {
+    const resolved = runFromNodeIds(store, a.nodeIds)
+    if (!resolved.ok) {
+      return { tool: name, title: '这条下游链不能运行', lines: resolved.problems, action: '知道了' }
+    }
+    const names = resolved.ids.map((id) => {
+      const node = store.getSnapshot().nodes.find((n) => n.id === id)
+      return node?.title || id
+    })
+    return {
+      tool: name,
+      title: '要把这条下游流程跑完？',
+      lines: [`将运行 ${resolved.ids.length} 个节点：${names.join(' → ')}`, '会花钱'],
       action: '批准运行',
     }
   }

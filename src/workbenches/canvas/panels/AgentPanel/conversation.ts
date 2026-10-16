@@ -38,6 +38,7 @@ const TOOL_LABEL: Record<string, string> = {
   applyPlan: '工作流已创建',
   updateNode: '已改节点参数',
   runNode: '已运行生成',
+  runFrom: '已运行下游链',
 }
 
 /**
@@ -55,6 +56,7 @@ const TOOL_LABEL_FAILED: Record<string, string> = {
   applyPlan: '工作流没建成',
   updateNode: '改参数失败',
   runNode: '生成失败',
+  runFrom: '下游链运行失败',
 }
 
 export function toolLabel(tool: string): string {
@@ -133,7 +135,8 @@ export function describeToolResult(
         failed,
       }
     }
-    case 'runNode': {
+    case 'runNode':
+    case 'runFrom': {
       const outcomes = asArray(r.outcomes).map(asRecord)
       return {
         lines: outcomes.length

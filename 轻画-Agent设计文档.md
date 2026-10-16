@@ -242,6 +242,7 @@ interface AgentPlan {
 | `readAsset` | `assets` 表 | 读素材尺寸 / 类型，决定能不能当参考图 |
 | `applyPlan` | 新增一条命令 | 把计划原子落地（含自动布局 + 落地自检） |
 | `runNode` | `runEngine` | 跑节点（**花钱那一步，先确认**） |
+| `runFrom` | `runEngine` + 连线拓扑 | 从起点把整条下游链跑完（**花钱，先确认**）；只执行可发请求的生成 / 融合节点，批量 / 循环仍直接 `runNode` |
 | `readResult` | `runRecords` / 节点 data | 读产物与失败原因 |
 | `updateNode` | `node.updateData` | 改参数（比例、模型、张数）后重跑 |
 
@@ -270,8 +271,10 @@ interface AgentPlan {
 > 以原来的提示词正文为内容主体、只追加风格要求、**绝对不要把节点名当内容**、新建节点承载它。
 > 教训：**给模型的画像里缺了什么，它就会拿最近的东西顶上** —— 缺正文，它就抓标题。
 
-> `runFrom`（一次跑整条下游链）**还没做**，代码里只有 `runNode`。这一格先留着占位，
-> 别照它接 —— 真要跑一条链，得先把「跑几次、按什么顺序、花多少」的姿态定下来。
+> `runFrom`（一次跑整条下游链）**已交付**（对账 #546）：它取「起点 + 沿连线可达的下游」，
+> 只把**可发请求的生成 / 融合节点**交给执行层，提示词节点是中间输入、不单独执行；
+> 批量 / 循环两类分发器**不在这里展开**（它们各自的 `runNode` 已经带下游语义，扫两遍会重复花钱），
+> 遇到就明确拒绝并让模型直接对分发器调用 `runNode`。系统确认卡照旧只管花钱动作。
 
 **执行顺序不由 agent 排**：连线本身就是顺序（上游没跑完下游跑不了），拓扑决定次序。
 agent 只负责「建对图」，调度交给既有引擎——这是画布本来的语义。
@@ -306,6 +309,11 @@ agent 只负责「建对图」，调度交给既有引擎——这是画布本�
   }, "required": ["nodeId", "data"] }
 
 // runNode —— 跑（花钱，会先确认）
+{ "type": "object", "properties": {
+    "nodeIds": { "type": "array", "items": { "type": "string" } }
+  }, "required": ["nodeIds"] }
+
+// runFrom —— 从起点跑到下游链尽头（花钱，会先确认）
 { "type": "object", "properties": {
     "nodeIds": { "type": "array", "items": { "type": "string" } }
   }, "required": ["nodeIds"] }

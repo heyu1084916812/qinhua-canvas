@@ -36,7 +36,7 @@ const READ_TOOLS = new Set(['readGraph', 'readAsset', 'readResult'])
  */
 const WRITE_TOOLS = new Set(['applyPlan'])
 /** 花钱 / 改已有节点：跳出循环，等用户确认 */
-const CONFIRM_TOOLS = new Set(['updateNode', 'runNode'])
+const CONFIRM_TOOLS = new Set(['updateNode', 'runNode', 'runFrom'])
 
 export interface AgentToolRequest {
   callId: string

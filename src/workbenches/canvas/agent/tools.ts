@@ -8,6 +8,8 @@ import {
 } from '../../../domain/agent/plan'
 import type { ToolDeclaration } from '../../../domain/shared/execution/types'
 import type { CanvasStore } from '../../../state/workbenches/canvas/store'
+import { downstreamOf } from '../../../domain/canvas/graph/upstreamOf'
+import { canBuildRequest } from '../../../features/canvas/execution/buildRunPlan'
 import { applyAgentPlan } from './applyAgentPlan'
 import type { AgentRunOutcome } from './runOutcome'
 
@@ -157,6 +159,24 @@ export const AGENT_TOOLS: readonly ToolDeclaration[] = [
     parameters: {
       type: 'object',
       properties: { nodeIds: { type: 'array', items: { type: 'string' } } },
+      required: ['nodeIds'],
+    },
+  },
+  {
+    name: 'runFrom',
+    description:
+      '从指定节点开始，按连线顺序跑完整条下游链（会花钱，先让用户确认）。' +
+      '用于「把这套流程继续跑下去」；只跑可真正发请求的生成 / 融合节点，' +
+      '提示词节点只作为中间输入；批量 / 循环这类分发器请直接对它们调用 runNode。',
+    parameters: {
+      type: 'object',
+      properties: {
+        nodeIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '下游链的起点节点 id；可以给多个，系统按连线拓扑执行。',
+        },
+      },
       required: ['nodeIds'],
     },
   },
@@ -409,6 +429,58 @@ export interface AgentToolContext {
   categoryOfModel?: (model: string) => 'image' | 'video' | 'chat' | undefined
 }
 
+/**
+ * `runFrom` 的节点集合：起点 + 沿连线可达的下游。
+ *
+ * 两个刻意的边界：
+ * - **提示词节点不是可执行项**（它没有 `toRunRequest`），只作为链路中的输入；
+ * - **批量 / 循环不在这里展开**。它们各自的 `runNode` 已经会按自己的分发语义跑下游，
+ *   若再被这里当作普通节点扫一遍，会产生重复执行。遇到就如实拒绝，让模型改用
+ *   `runNode` 直接触发那个分发器。
+ */
+export function runFromNodeIds(
+  store: CanvasStore,
+  nodeIds: unknown,
+): { ok: true; ids: string[] } | { ok: false; problems: string[] } {
+  const graph = store.getSnapshot()
+  const starts = asStringArray(nodeIds)
+  if (starts.length === 0) return { ok: false, problems: ['runFrom 缺少起点节点'] }
+
+  const reachable = new Set<string>()
+  for (const start of starts) {
+    if (!graph.nodes.some((n) => n.id === start)) {
+      return { ok: false, problems: [`找不到起点节点：${start}`] }
+    }
+    reachable.add(start)
+    for (const id of downstreamOf(start, graph.edges)) reachable.add(id)
+  }
+
+  const nodes = graph.nodes.filter((n) => reachable.has(n.id))
+  const dispatchers = nodes.filter((n) => n.type === 'batch' || n.type === 'loop')
+  if (dispatchers.length > 0) {
+    return {
+      ok: false,
+      problems: [
+        `下游链里有分发器节点（${dispatchers.map((n) => n.title || n.id).join('、')}），请直接对分发器运行 runNode`,
+      ],
+    }
+  }
+
+  const disabled = nodes.filter((n) => n.disabled && canBuildRequest(n))
+  if (disabled.length > 0) {
+    return {
+      ok: false,
+      problems: [
+        `下游链里有已禁用节点（${disabled.map((n) => n.title || n.id).join('、')}），先启用或移除它`,
+      ],
+    }
+  }
+
+  const ids = nodes.filter(canBuildRequest).map((n) => n.id)
+  if (ids.length === 0) return { ok: false, problems: ['这条下游链里没有可运行的节点'] }
+  return { ok: true, ids }
+}
+
 /** 读类执行器：循环里直接调（设计文档 §4） */
 export async function executeReadTool(
   name: string,
@@ -645,6 +717,12 @@ export async function executeConfirmedTool(
       const ids = asStringArray(a.nodeIds)
       if (ids.length === 0) return { ok: false, problems: ['没有指定要跑的节点'] }
       const outcomes = await ctx.runNodes(ids)
+      return { ok: outcomes.every((o) => o.ok), outcomes }
+    }
+    case 'runFrom': {
+      const resolved = runFromNodeIds(ctx.store, a.nodeIds)
+      if (!resolved.ok) return resolved
+      const outcomes = await ctx.runNodes(resolved.ids)
       return { ok: outcomes.every((o) => o.ok), outcomes }
     }
     default:
