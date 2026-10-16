@@ -390,6 +390,15 @@ export interface AgentToolContext {
   ) => { channelId: string; model: string } | undefined
 
   /**
+   * **当前画布上选中的节点用的是哪个模型**（按类别；没有选中 / 选中项没有模型时返回空串）。
+   *
+   * 用户 2026-10-16：「改成跟随选中」。agent 建生成节点时，模型要**优先跟随用户刚选中的
+   * 那个节点**，而不是 Agent 面板里那档默认值 —— 真机上用户要香蕉 2、却建成了
+   * 清单第一个（GPT Image 2.5），根因就是默认值只能取「列表第一个」。
+   */
+  selectedModelOf?: (kind: 'image' | 'video') => string
+
+  /**
    * 模型名 → 它是哪一类（`image` / `video` / `chat`）。由界面层注入（那边有渠道目录）。
    *
    * 只为一件事：**生成节点的 `mode` 以模型为准**。真模型（Agnes 2.5 Pro）会把视频节点

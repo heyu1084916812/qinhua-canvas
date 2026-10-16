@@ -433,11 +433,38 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     [],
   )
 
+  /**
+   * **agent 建节点时「跟随选中」**（用户 2026-10-16：「改成跟随选中」）。
+   *
+   * 先在画布上选中一张香蕉 2 的图、再说「照这个再出五张」，agent 就该用香蕉 2 ——
+   * 而不是 Agent 面板里那个「模型清单第一个」的默认值。真机上就是这一步错成
+   * GPT Image 2.5 的（用户看到的是「它给我建的工作流模型不对」）。
+   *
+   * 按类别取：选中视频节点时不要把它当图片模型用（图片的 `mode` + 视频的 `model`
+   * 这种组合发出去只会得到一句看不懂的报错）。
+   */
+  const selectedModelOf = useCallback(
+    (kind: 'image' | 'video'): string => {
+      for (const id of selection) {
+        const n = store.getSnapshot().nodes.find((x) => x.id === id)
+        if (!n) continue
+        const d = n.data as { model?: unknown }
+        const m = typeof d.model === 'string' ? d.model.trim() : ''
+        if (!m) continue
+        const category = capabilityOfLogical(allChannels, m)?.category
+        if (kind === 'video' ? category === 'video' : category !== 'video') return m
+      }
+      return ''
+    },
+    [selection, store, allChannels],
+  )
+
   const toolCtx = useCallback(
     (origin: { x: number; y: number }): AgentToolContext => ({
       store,
       origin,
       selectedIds: () => selection,
+      selectedModelOf,
       /**
        * 用 **ref** 而不是闭包变量：这个回调在发消息那一刻创建、在用户点「批准」时才真正执行
        * （中间隔着一次确认），闭包里的旧值必然过期。ref 读的是**最新一次发消息**算出来的判断。
@@ -532,7 +559,16 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
          * 现在：计划里写了模型就以它为准去**反查渠道**；没写才用面板里选的那一档。
          */
         const planned = typeof node.data.model === 'string' ? node.data.model.trim() : ''
-        const model = planned || (kind === 'video' ? current?.videoModel : current?.imageModel)
+        /**
+         * 优先级：计划点名 > **跟随画布上选中的那个节点** > 面板里存的那一档。
+         *
+         * 「跟随选中」是用户 2026-10-16 定的口径（见 `selectedModelOf`）——
+         * 面板那一档只是**兜底**，不该盖过用户刚刚在画布上选中的那张图用的模型。
+         */
+        const model =
+          planned ||
+          selectedModelOf(kind) ||
+          (kind === 'video' ? current?.videoModel : current?.imageModel)
         if (!model) return undefined
         const channelId = channelIdForLogical(enabled, model, current?.channelId)
         return channelId ? { channelId, model } : undefined
@@ -545,7 +581,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
        */
       categoryOfModel: (model) => capabilityOfLogical(allChannels, model)?.category,
     }),
-    [store, selection, execution, channels, current, enabled],
+    [store, selection, execution, channels, current, enabled, allChannels, selectedModelOf],
   )
 
   const loopDeps = useCallback(
@@ -910,8 +946,12 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       projectId,
       channelId,
       model: defaultModelFor(chatModelOptions, saved?.model),
-      imageModel: modelOptionsByKind.image[0] ?? '',
-      videoModel: modelOptionsByKind.video[0] ?? '',
+      /**
+       * 「跟随选中」也覆盖**会话开局**这一档：用户先选中一张香蕉 2 的图再打开对话，
+       * 面板上显示的就该是香蕉 2，而不是模型清单的第一个（见 `selectedModelOf`）。
+       */
+      imageModel: selectedModelOf('image') || modelOptionsByKind.image[0] || '',
+      videoModel: selectedModelOf('video') || modelOptionsByKind.video[0] || '',
     })
     await refresh()
     await switchTo(created)
@@ -925,6 +965,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     defaultModelFor,
     chatModelOptions,
     modelOptionsByKind,
+    selectedModelOf,
   ])
 
   /**

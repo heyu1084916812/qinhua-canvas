@@ -99,7 +99,15 @@ export function CompareNodeView(props: NodeViewProps) {
               aria-hidden="true"
             />
             <div
-              className={styles.handle}
+              /**
+               * ⚠️ **`nodrag` 不能少**（用户 2026-10-16：「拖动滑块没有跟随鼠标」）。
+               *
+               * React Flow 的拖动监听挂在节点元素上、是**原生**的，而 React 的
+               * `stopPropagation()` 只在根容器那一次合成派发里生效 —— 原生监听早就跑过了。
+               * 于是拖手柄会**同时把整个节点拖走**：分割线相对节点没动，看起来就是「不跟手」。
+               * `nodrag` 是 React Flow 的免拖动类名（`NodeFrame` 的缩放手柄用的同一条办法）。
+               */
+              className={`${styles.handle} nodrag`}
               data-compare-handle
               style={{ left: `${(ratio * 100).toFixed(3)}%` }}
               onPointerDown={onHandleDown}
