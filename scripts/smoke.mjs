@@ -31873,7 +31873,189 @@ async function g155(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155]
+// ────────────────────────────────────────────────────────────
+// G156 批量「逐项参数」（对账 #538）：用户 2026-10-16 第 3 条 ——
+//   「批量节点能读取里面的生成节点的图、提示词、**还有参数**」
+//   +「批量节点内部如果有素材的话默认比例是跟随素材」。
+//
+//   合并规则：**批量设过的优先，没设的继承素材那一项自己的**。两种用法都要真跑出来：
+//     ① 批量没设比例 → 这一项按素材自己的 9:16 出图（mock 的 `pixelSizeOf` + 最长边 64 ⇒ 36×64）
+//     ② 批量设了 16:9 → 盖掉素材的，同一条素材出 64×36（这就是「把里面都改成同一尺寸」）
+//
+//   判据读**产物真实像素**（`img.naturalWidth/Height`）而不是请求参数：mock 渠道按
+//   `params.ratio` 现造不同尺寸的 PNG，所以像素真的变了 = 参数真的走到了渠道层
+//   —— 只断言 `params.ratio` 的话，"参数算对了但没发给渠道"这条同样会绿。
+// ────────────────────────────────────────────────────────────
+async function g156(browser) {
+  const g = 'G156 批量逐项参数'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page)
+  await gotoProjects(page)
+  await sleep(400)
+  await page.locator('[data-template="blank"]').click()
+  await page.waitForURL(/\/canvas\//)
+  await sleep(900)
+
+  // ── 一张素材（它自己的比例待会儿设成 9:16）──
+  const dt = await page.evaluateHandle(
+    ({ b64 }) => {
+      const d = new DataTransfer()
+      const bin = atob(b64)
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      d.items.add(new File([bytes], 'a.png', { type: 'image/png' }))
+      return d
+    },
+    { b64: PNG_IMPORT_BASE64 },
+  )
+  const sbox = await page.locator('[data-canvas-surface]').boundingBox()
+  await page.locator('[data-canvas-surface]').dispatchEvent('dragover', { dataTransfer: dt })
+  await page.locator('[data-canvas-surface]').dispatchEvent('drop', {
+    dataTransfer: dt,
+    clientX: sbox.x + 240,
+    clientY: sbox.y + 210,
+  })
+  await sleep(1500)
+  const item = page.locator('[data-node-type="generation"]').first()
+  const itemId = await item.getAttribute('data-node-id')
+  rec(g, '拖入 1 张素材（它自己就是一个集合成员）', !!itemId, `id=${itemId}`)
+  /** 挪到左下角再往下走：素材正好落在左侧工具栏弹出的菜单那一带，会挡住「批量」那一项 */
+  await moveNode(page, itemId, 110, 520)
+
+  // ── 把这张素材自己的比例设成 9:16（走创作面板，与用户同一条路）──
+  await genPanel(page, item)
+  const panel = page.locator('[data-creation-panel]')
+  await pickParam(panel, 'ratio', '9:16')
+  await sleep(600)
+  rec(
+    g,
+    '★ 素材自己那一项的比例 = 9:16',
+    (await panel.locator('[data-param-chip="ratio"], [data-param-chip="gen-params"]').first().innerText())
+      .replace(/\s/g, '')
+      .includes('9:16'),
+  )
+
+  // ── 收进批量（批量自己**不设**比例）──
+  await addNodeViaToolbar(page, 'batch')
+  const batch = page.locator('[data-node-type="batch"]').first()
+  const batchId = await batch.getAttribute('data-node-id')
+  /**
+   * ⚠️ 拖**图片素材**进容器不能用 `dragNode`：它固定抓"左下角内 14px"，而生成节点那一角
+   * 是尺寸 / 参数那一排（控件自己 `stopPropagation`、还可能吃掉 pointerdown）⇒ 按下去
+   * **拖不动**，节点原地不动、容器还是空的；而后面"跑出图"照样能跑 —— 跑的是**素材自己**
+   * （它有比例），于是断言会以"批量逐项参数"的名义**假绿**（实测就这么骗过一次）。
+   *
+   * 所以自己按下**标题栏**那块（生成节点的标题栏不吃指针），并让**松手点落在容器正中**
+   * —— 归属判定看的是松手那一刻的指针位置（`onNodeDragStop`）。
+   */
+  {
+    const bb = await batch.boundingBox()
+    const ib = await item.boundingBox()
+    if (bb && ib) {
+      await page.mouse.move(ib.x + ib.width / 2, ib.y + 12)
+      await page.mouse.down()
+      await page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2, { steps: 14 })
+      await page.mouse.up()
+      await sleep(500)
+    }
+  }
+  await sleep(600)
+  /**
+   * 判据取**容器里真挂着几个子节点**：容器子节点不进 RF 的节点列表（P3 起就是容器自己
+   * `renderChild` 画在内部），但它们是容器的 DOM 后代、带 `data-node-type`；批量自己那个元素
+   * 也是 `data-node-type="batch"`，所以**按类型**数才是里面真有几个素材。
+   *
+   * ⚠️ 与 G16 / G71 那两处同源：`[data-batch-body]` + `data-batch-child-count` 这两个锚点
+   * 是 G16 / G71 一直在用的那份契约（名字由 `ContainerBody` 用模板串拼出来，静态 grep 看不出来）。
+   * 这里两条都留：前者证明素材真的**在容器里**，后者证明容器自己的计数跟着走。
+   */
+  const inside = await page.evaluate(
+    ({ itemId: iid, batchId: bid }) => {
+      const item = document.querySelector(`[data-node-id="${iid}"]`)
+      const box = document.querySelector(`[data-node-id="${bid}"]`)
+      const chain = []
+      for (let el = item?.parentElement, i = 0; el && i < 6; el = el.parentElement, i += 1) {
+        chain.push(
+          `${el.tagName.toLowerCase()}${el.dataset.nodeId ? `[node=${el.dataset.nodeType ?? '?'}]` : ''}${el.dataset.containerBody !== undefined ? '[container-body]' : ''}`,
+        )
+      }
+      return {
+        nested: !!(item && box && box.contains(item)),
+        empty: box ? box.querySelectorAll('[data-batch-empty]').length : -1,
+        body: box ? box.querySelectorAll('[data-container-body]').length : -1,
+        chain: chain.join(' < '),
+        childTypes: box
+          ? [...box.querySelectorAll('[data-node-type]')].map((e) => e.getAttribute('data-node-type')).join(',')
+          : '',
+        edges: document.querySelectorAll('[data-edge]').length,
+      }
+    },
+    { itemId, batchId },
+  )
+  const childCount = await batch.locator('[data-batch-body]').getAttribute('data-batch-child-count')
+  rec(
+    g,
+    '★ 1 张素材收进了批量容器',
+    inside.nested && inside.empty === 0 && childCount === '1',
+    JSON.stringify({ ...inside, childCount }),
+  )
+  await selectSingleNode(page, batch)
+  await fillPanelPromptViaTextarea(page, '批量逐项参数')
+
+  /** 跑一次，然后读**这次新出现**的那个承载节点的产物真实像素（按集合差认，不看 DOM 先后） */
+  const runAndReadOutput = async () => {
+    const before = await page
+      .locator('[data-node-type="generation"]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+    const beforeCount = await page.locator('[data-node-asset]').count()
+    await panelRunBtn(page).first().click()
+    await waitForAssetCount(page, beforeCount + 1, 25000)
+    await sleep(1200)
+    const after = await page
+      .locator('[data-node-type="generation"]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+    const fresh = after.filter((id) => !before.includes(id) && id !== itemId)
+    const id = fresh[fresh.length - 1]
+    if (!id) return null
+    return page
+      .locator(`[data-node-id="${id}"] [data-node-asset]`)
+      .first()
+      .evaluate((el) => ({ w: el.naturalWidth, h: el.naturalHeight }))
+      .catch(() => null)
+  }
+
+  await selectSingleNode(page, batch)
+  const run1 = await runAndReadOutput()
+  rec(
+    g,
+    '★★ 批量没设比例 → 这一项按**素材自己**的比例出图（9:16 ⇒ 36×64）',
+    !!run1 && run1.w === 36 && run1.h === 64,
+    run1 ? `${run1.w}×${run1.h}` : '没读到产物',
+  )
+
+  // ── 批量自己设 16:9 → 应当**盖掉**素材那一项的比例（「把里面都改成同一尺寸」）──
+  await selectSingleNode(page, batch)
+  await pickParam(page.locator('[data-creation-panel]'), 'ratio', '16:9')
+  await sleep(600)
+  await selectSingleNode(page, batch)
+  const run2 = await runAndReadOutput()
+  rec(
+    g,
+    '★★ 批量设了比例 → 盖掉素材那一项（16:9 ⇒ 64×36）',
+    !!run2 && run2.w === 64 && run2.h === 36,
+    run2 ? `${run2.w}×${run2.h}` : '没读到产物',
+  )
+
+  await page.screenshot({ path: `${OUT}/156-g156-batch-item-params.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

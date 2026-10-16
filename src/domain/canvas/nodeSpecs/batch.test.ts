@@ -338,4 +338,71 @@ describe('批量：素材来源与提示词拼接（用户 2026-09-17）', () =>
     })!
     expect(req.prompt).toBe('男人站着\n水彩风格\n人物单独吃饭')
   })
+
+  /**
+   * ★★ **批量把「参数」也读进来**（用户 2026-10-16 第 3 条：「批量节点能读取里面的生成
+   * 节点的图、提示词、**还有参数**」+「批量节点内部如果有素材的话默认比例是跟随素材」）。
+   *
+   * 合并规则与提示词同源：**批量设过的优先，没设的继承素材那一项自己的** ——
+   * 于是「想让这批统一成一个尺寸」和「想让每项各随自己的素材」两种用法都在。
+   */
+  const withItemRatios = (batchOver: Partial<BatchData> = {}) => {
+    const man = node({
+      id: 'man',
+      type: 'generation',
+      data: genData({ assetHash: 'h-man', prompt: '男人', ratio: '9:16', quality: 'high' }) as never,
+    })
+    const woman = node({
+      id: 'woman',
+      type: 'generation',
+      data: genData({ assetHash: 'h-woman', prompt: '女人', ratio: '4:3' }) as never,
+    })
+    const batch = node({
+      id: 'bp',
+      type: 'batch',
+      data: batchData({ channelId: 'ch1', model: 'm1', prompt: '统一要求', ...batchOver }) as never,
+    })
+    const item = (id: string, prompt: string) => [
+      { kind: 'asset' as const, nodeId: id, assetHash: `h-${id}`, mime: 'image/png', prompt, collectionItemId: id },
+    ]
+    return { batch, g: graph([batch, man, woman]), item }
+  }
+
+  it('★★ 批量没设比例 → 每一项按**素材自己**的比例走（逐项参数真的被读到了）', () => {
+    const { batch, g, item } = withItemRatios()
+    const spec = getSpec('batch')!
+    const reqMan = spec.toRunRequest!({ node: batch, inputs: item('man', '男人'), params: batch.data, graph: g })!
+    expect(reqMan.params.ratio).toBe('9:16')
+    expect(reqMan.params.quality).toBe('high')
+    const reqWoman = spec.toRunRequest!({ node: batch, inputs: item('woman', '女人'), params: batch.data, graph: g })!
+    expect(reqWoman.params.ratio).toBe('4:3')
+    /** 第 1 次调用不许带上第 2 项的参数（与提示词同一条「不互相污染」口径） */
+    expect(reqWoman.params.quality).toBeNull()
+  })
+
+  it('★★ 批量设了比例 → 盖掉素材那一项自己的（「把里面都改成同一尺寸」靠它）', () => {
+    const { batch, g, item } = withItemRatios({ ratio: '16:9' })
+    const req = getSpec('batch')!.toRunRequest!({
+      node: batch,
+      inputs: item('man', '男人'),
+      params: batch.data,
+      graph: g,
+    })!
+    expect(req.params.ratio).toBe('16:9')
+    /** 只覆盖「批量真设过的那一项」，没设的（画质）仍然跟着素材 */
+    expect(req.params.quality).toBe('high')
+    /** 张数由批量唯一决定：跟着素材自己的历史张数走会让结果数悄悄翻倍 */
+    expect(req.params.count).toBe(1)
+  })
+
+  it('★ 素材那一项读不到（已删 / 不在图里）→ 退回批量自己那份，不抛', () => {
+    const { batch, g, item } = withItemRatios()
+    const req = getSpec('batch')!.toRunRequest!({
+      node: batch,
+      inputs: item('ghost', '已经不在了'),
+      params: batch.data,
+      graph: g,
+    })!
+    expect(req.params.ratio).toBeNull()
+  })
 })

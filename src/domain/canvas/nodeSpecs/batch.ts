@@ -89,7 +89,7 @@ export const batchSpec: NodeSpec<BatchData> = {
    * 需要「N 个素材各出一份结果」时，批量节点作为**上游**接到生成节点上，
    * 由下游生成节点的 collectInputs 把它包装成 collection 并逐项展开（M3-3d）。
    */
-  toRunRequest({ node, inputs }: RunContext<BatchData>): RunRequest | null {
+  toRunRequest({ node, inputs, graph }: RunContext<BatchData>): RunRequest | null {
     const data = node.data
     if (!data.channelId || !data.model) return null
 
@@ -126,9 +126,47 @@ export const batchSpec: NodeSpec<BatchData> = {
       model: data.model,
       prompt,
       inputs,
-      params: generationParams(data),
+      params: paramsForItem(data, picked?.nodeId, graph),
     }
   },
+}
+
+/**
+ * 本次调用（= 集合里的某一项）真正要发出去的参数。
+ *
+ * **用户原话拆成两半**（2026-10-16 第 3 条）：「批量节点能读取里面的生成节点的图、
+ * 提示词、**还有参数**」+「批量节点内部如果有素材的话默认比例是跟随素材」。
+ * 此前 `params` 一律取**批量节点自己**那份 ⇒ 里面每一项的模型参数写了也白写
+ * （那是"文档写了、链路没读"的老毛病在教育链路上的又一次现身）。
+ *
+ * **合并规则与提示词同源**：批量面板上那句是「对这批所有素材统一生效的指令」，
+ * 那它设过的**参数**同样是统一要求 ⇒ 覆盖到这一项自己的值上；
+ * 它没设的（`generationParams` 用 `null` 表达"不指定"）才取素材那一项自己的。
+ * 两种用法因此都在，且不会互相顶掉：
+ * - 想把这批**统一成一个尺寸** ⇒ 在批量面板选比例，盖掉里面各不相同的值；
+ * - 想**各随各的素材** ⇒ 批量面板留空（不指定），每项按自己的比例 / 画质走。
+ *
+ * 两个刻意的边界：
+ * - **`count` 在图片档里永远由批量面板决定**（`generationParams` 把它兜成 1）——
+ *   它是"每项出几张"的旋钮，跟着素材自己的历史张数走会让结果数悄悄翻倍。
+ * - 素材项对应的节点**读不到就用批量自己那份**（外面连进来的素材被删 / 是个不认识的
+ *   节点类型时不该整条失败，退化成改动前的行为即可）。
+ */
+function paramsForItem(
+  batch: BatchData,
+  itemNodeId: string | undefined,
+  graph: { nodes: NodeSnapshot[] },
+): Record<string, unknown> {
+  const batchParams = generationParams(batch)
+  const itemNode = itemNodeId ? graph.nodes.find((n) => n.id === itemNodeId) : undefined
+  if (!itemNode) return batchParams
+  const itemParams = generationParams(itemNode.data as GenerationData)
+  const merged: Record<string, unknown> = { ...itemParams }
+  for (const [key, value] of Object.entries(batchParams)) {
+    /** `null` / `undefined` = "这一项批量没设" ⇒ 让素材那一项的自己说话 */
+    if (value !== null && value !== undefined) merged[key] = value
+  }
+  return merged
 }
 
 /** 互斥判定所需的最小输入：id + data（不要求整个 NodeSnapshot，方便命令层传 NodeLike） */
