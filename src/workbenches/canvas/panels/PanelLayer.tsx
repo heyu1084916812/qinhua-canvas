@@ -269,6 +269,7 @@ export function PanelLayer({
         />
       ) : (
       <CreationPanel
+        nodeId={selectedNode.id}
         data={selectedNode.data as GenerationData}
         model={panelModel}
         disabled={selectedNode.disabled}

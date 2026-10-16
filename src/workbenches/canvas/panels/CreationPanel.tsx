@@ -216,6 +216,14 @@ export function withFollowRatio(ratios: readonly string[], withFollowSource: boo
 }
 
 export interface CreationPanelProps {
+  /**
+   * 当前节点的 id。
+   *
+   * 为什么面板需要知道它：面板实例**会被不同节点复用**（`PanelLayer` 上没挂 `key`），
+   * 所以任何"跟随某个节点的局部状态"都必须按 id 认人 —— 否则切节点时会串味。
+   * 目前只有一个消费者：「自定义像素」那一格的模式状态（见 `customMode`）。
+   */
+  nodeId?: string
   /** 节点数据（提供渠道 / 模型 / 参数当前值） */
   data: GenerationData
   model: PanelModel
@@ -312,6 +320,7 @@ function RunArrow() {
  */
 export function CreationPanel(props: CreationPanelProps) {
   const { data, model, onEvent } = props
+  const nodeId = props.nodeId ?? ''
   const channels = useChannels()
   const enabled = channels.enabledChannels()
   // 订阅「全量渠道」：设置页改完（新增 / 启用）立刻反映到面板——渠道是应用级单例，
@@ -475,6 +484,21 @@ export function CreationPanel(props: CreationPanelProps) {
    */
   const [promptDraft, setPromptDraft] = useState(model.prompt)
   const promptTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /**
+   * **「自定义像素」那一格的模式**（对账 #545，收口 #542 的残留）。
+   *
+   * 问题：那一格的显隐原先**只**由存着的值推出（`值非空 && 不是档位值` ⇒ 算自定义档）。
+   * 于是用户把输入框**清空**（按住 Backspace 删干净）时，值变空 ⇒ 整格连同输入框一起消失，
+   * 焦点也没了 —— 想改成别的尺寸只能重新点一次「自定义」再填。全选后直接重打没事
+   * （第一下键入就有值），所以这个坑只在"清空再打"这条路上撞到。
+   *
+   * 做法：加一个**按节点记**的模式位 —— 点「自定义」置位、点档位（1K/2K/4K）复位。
+   * ⚠️ 必须**按 nodeId 认人**：面板实例会被不同节点复用（`PanelLayer` 上没挂 `key`），
+   * 只存一个 boolean 会在切节点时串味（A 节点处于自定义模式 → 切到 B 也冒出个输入框）。
+   */
+  const [customMode, setCustomMode] = useState<{ nodeId: string; on: boolean } | null>(null)
+  const customModeOn = customMode?.nodeId === nodeId && customMode.on
 
   // 外部值变了（切节点 / 撤销 / 别的入口写入）→ 丢弃本地草稿，跟着外部走
   useEffect(() => {
@@ -989,8 +1013,17 @@ export function CreationPanel(props: CreationPanelProps) {
    */
   const ladderResolutions = resolutions.map((v) => resolutionValueOf(v))
   const storedResolution = String(data.resolution ?? '')
+  const storedIsCustomSize = storedResolution !== '' && !ladderResolutions.includes(storedResolution.toLowerCase())
+  /**
+   * 自定义档的三种成立方式（缺一不可）：
+   * ① 这个模型**有能力表**且支持自定义像素（香蕉那类没有，摆了就是死格子）；
+   * ② 存着一个自定义尺寸（**外部来源**：老数据 / 别处写入 / 撤销回来）；
+   * ③ 或者用户**正处在自定义模式**且当前值不是档位值 —— 这一条就是"清空后不消失"的关键：
+   *    值为空时靠它把输入框留住（见 `customMode` 的说明）。
+   */
   const customResolutionOn =
-    canCustomSize && storedResolution !== '' && !ladderResolutions.includes(storedResolution.toLowerCase())
+    canCustomSize &&
+    (storedIsCustomSize || (customModeOn && !ladderResolutions.includes(storedResolution.toLowerCase())))
   const resolutionPillValue = customResolutionOn
     ? RESOLUTION_CUSTOM
     : ladderResolutions.includes(storedResolution.toLowerCase())
@@ -1044,7 +1077,9 @@ export function CreationPanel(props: CreationPanelProps) {
                 : []),
             ],
             value: resolutionPillValue,
-            onSelect: (v: string) =>
+            onSelect: (v: string) => {
+              /** 点「自定义」= 进自定义模式；点 1K/2K/4K = 退出（见 `customMode` 的说明） */
+              setCustomMode({ nodeId, on: v === RESOLUTION_CUSTOM })
               onEvent({
                 type: 'setResolution',
                 /**
@@ -1056,7 +1091,8 @@ export function CreationPanel(props: CreationPanelProps) {
                 recipe: recipeSnapshot({
                   resolution: v === RESOLUTION_CUSTOM ? CUSTOM_SIZE_SEED : v,
                 }),
-              }),
+              })
+            },
           },
         ]
       : []),

@@ -20492,6 +20492,26 @@ async function g98(browser) {
     (await customBox.count()) === 1 && (await customBox.inputValue()) === '1024x1024',
     `值=${await customBox.inputValue().catch(() => '?')}`,
   )
+  /**
+   * ★★ **清空后输入框不能整格消失**（对账 #545，收口 #542 的残留）。
+   *
+   * 这一条专门走「按住 Backspace 删干净再重打」那条路：旧实现只从**存着的值**
+   * 反推是否处于自定义档，值为空 ⇒ `customResolutionOn=false` ⇒ 输入框连同焦点一起消失，
+   * 用户只能重新点一次「自定义」。判据除了"还在"，还要求它**仍持有焦点** ——
+   * 否则用户下一键会打空，功能看起来仍然没修好。
+   */
+  await customBox.click()
+  await customBox.fill('')
+  await sleep(300)
+  const clearedCustomBox = popup().locator('[data-param-text="resolutionCustom"]')
+  rec(
+    g,
+    '★★ 清空自定义像素后输入框仍在且仍可继续输入',
+    (await clearedCustomBox.count()) === 1 &&
+      (await clearedCustomBox.inputValue()) === '' &&
+      (await clearedCustomBox.evaluate((el) => document.activeElement === el)),
+    `count=${await clearedCustomBox.count()} 值=${await clearedCustomBox.inputValue().catch(() => '?')} 聚焦=${await clearedCustomBox.evaluate((el) => document.activeElement === el).catch(() => false)}`,
+  )
   await customBox.fill('1024x1000')
   await sleep(400)
   const badHint = popup().locator('[data-param-hint="resolutionCustom"]').first()
