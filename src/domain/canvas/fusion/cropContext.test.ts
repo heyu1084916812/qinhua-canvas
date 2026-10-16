@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest'
 import type { CropContext, FusionContext, NodeSnapshot } from '../model/node'
 import type { GraphSnapshot } from '../model/graph'
 import { cropContextFor, resolveCropContext } from './cropContext'
+import { contextFromSelection, planFusion } from './fusionPlan'
 
 const SOURCE = { assetHash: 'a'.repeat(64), width: 1000, height: 1000 }
 
@@ -182,5 +183,61 @@ describe('cropContextFor · 新裁出来的图该带什么上下文', () => {
       [['ancestor', 'cut']],
     )
     expect(resolveCropContext('cut', g)).toEqual({ kind: 'none' })
+  })
+})
+
+/**
+ * 用户 2026-10-17 报「两个局部提取出来的选区进行生图之后在进入融合节点会有 bug」
+ * （对账 #553）时的心智模型：**同一张原图的两块地方各裁一次 → 各自改图 → 一起融回原图**。
+ *
+ * 这一条把那个模型在纯函数层走一遍，把"本来就支持"和"会被拦下"的边界钉清楚 ——
+ * 以后谁要改冲突规则，先看这里：**`conflict` 是按"单张补丁的上游链"算的，
+ * 不是按"两张之间"算的**。两张矩形不同的局部图从来就不冲突。
+ */
+describe('两张各自独立的局部图一起融合（对账 #553 的起因）', () => {
+  const rectA = { x: 100, y: 100, w: 200, h: 200 }
+  const rectB = { x: 600, y: 600, w: 200, h: 200 }
+
+  it('★★★ 各解析出自己的上下文、且 planFusion 放行（不是冲突）', () => {
+    const ctxA = contextFromSelection({ contextId: 'cA', source: SOURCE, rect: rectA })
+    const ctxB = contextFromSelection({ contextId: 'cB', source: SOURCE, rect: rectB })
+    const g = graph(
+      [
+        node('cropA', 'generation', { cropContext: ctxA }),
+        node('editA'),
+        node('cropB', 'generation', { cropContext: ctxB }),
+        node('editB'),
+        node('fusion', 'fusion'),
+      ],
+      [
+        ['cropA', 'editA'],
+        ['cropB', 'editB'],
+        ['editA', 'fusion'],
+        ['editB', 'fusion'],
+      ],
+    )
+    const a = resolveCropContext('editA', g)
+    const b = resolveCropContext('editB', g)
+    expect(a.kind).toBe('local')
+    expect(b.kind).toBe('local')
+    if (a.kind !== 'local' || b.kind !== 'local') return
+    /** 各归各的矩形 —— 不是"谁把谁覆盖了" */
+    expect(a.context.rect).toEqual(rectA)
+    expect(b.context.rect).toEqual(rectB)
+
+    /** 两张方形补丁 ↔ 两条方形外扩矩形（1.2 倍仍是方形）⇒ 比例校验放行 */
+    const planned = planFusion({
+      original: SOURCE,
+      contexts: [
+        { id: 'ctx:a', ...a.context },
+        { id: 'ctx:b', ...b.context },
+      ],
+      patches: [
+        { nodeId: 'editA', assetHash: '1'.repeat(64), width: 240, height: 240 },
+        { nodeId: 'editB', assetHash: '2'.repeat(64), width: 240, height: 240 },
+      ],
+    })
+    expect(planned.ok).toBe(true)
+    if (planned.ok) expect(planned.plan.steps.map((s) => s.target)).toEqual([ctxA.paddedRect, ctxB.paddedRect])
   })
 })
