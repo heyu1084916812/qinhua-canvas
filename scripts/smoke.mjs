@@ -6871,6 +6871,16 @@ async function g49(browser) {
   await genNode.locator('[data-node-asset]').first().dblclick()
   await sleep(500)
   rec(g, '双击素材打开灯箱（§6.8 已挂的动线终于有人接）', (await page.locator('[data-lightbox]').count()) === 1)
+  const lightboxModes = await page
+    .locator('[data-lightbox-mode-bar] [data-lightbox-mode-button]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-lightbox-mode-button')))
+  rec(
+    g,
+    '★★ 双击进来先落在「查看」，顶部已列出图片可用的编辑功能',
+    (await page.locator('[data-lightbox][data-lightbox-mode="view"]').count()) === 1 &&
+      ['view', 'crop', 'annotate', 'rotate'].every((m) => lightboxModes.includes(m)),
+    `模式=${lightboxModes.join(',')}`,
+  )
 
   const media = page.locator('[data-lightbox-media]')
   await media.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {})
@@ -22219,6 +22229,31 @@ async function g107(browser) {
   await page.locator('[data-follow-action="preview"]').click()
   await sleep(500)
   rec(g, '★★ 「预览」直接开灯箱（和双击素材同一条路）', (await page.locator('[data-lightbox]').count()) === 1)
+  const modeButtons = await page
+    .locator('[data-lightbox-mode-bar] [data-lightbox-mode-button]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-lightbox-mode-button')))
+  rec(
+    g,
+    '★★ 灯箱顶部是功能切换条（查看 / 选区 / 标注 / 旋转）',
+    ['view', 'crop', 'annotate', 'rotate'].every((m) => modeButtons.includes(m)),
+    `模式=${modeButtons.join(',')}`,
+  )
+  await page.locator('[data-lightbox-mode-button="annotate"]').click()
+  await sleep(350)
+  rec(
+    g,
+    '★★ 点「标注」后全屏灯箱里直接展开标注组件',
+    (await page.locator('[data-annotate-canvas]').count()) === 1 &&
+      (await page.locator('[data-lightbox]').count()) === 1,
+  )
+  await page.locator('[data-lightbox-mode-button="view"]').click()
+  await sleep(250)
+  rec(
+    g,
+    '★ 点「查看」可退出当前编辑组件，回到普通预览',
+    (await page.locator('[data-annotate-canvas]').count()) === 0 &&
+      (await page.locator('[data-lightbox][data-lightbox-mode="view"]').count()) === 1,
+  )
   await page.screenshot({ path: `${OUT}/132-g107-preview.png` })
   await page.locator('[data-lightbox-close]').click({ timeout: 3000 }).catch(() => {})
   await sleep(400)

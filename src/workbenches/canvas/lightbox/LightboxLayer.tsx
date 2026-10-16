@@ -38,10 +38,14 @@ import {
   IconAnnotate,
   IconCheck,
   IconClose,
+  IconCompare,
+  IconImage,
   IconMirrorH,
   IconMirrorV,
   IconRect,
   IconRedo,
+  IconRotate,
+  IconScan,
   IconText,
   IconUndo,
 } from '../toolbar/icons'
@@ -62,7 +66,8 @@ import styles from './LightboxLayer.module.css'
  * 只持有瞬时态：开合状态在 store（与 menu / notice 同口径，不落库不进撤销栈），
  * 缩放 / 平移是组件本地 state——关掉即忘，下次打开重新适配。
  */
-const FIT_PADDING = 48
+/** 顶部现在有两排浮条（模式 + 当前工具），初次适配给它们留出不被压住的余量。 */
+const FIT_PADDING = 112
 /** 滚轮每格倍率（与画布一致的手感：一格约 12%） */
 const WHEEL_STEP = 1.12
 /** 超过这个位移就算「拖过」，不再当成「点击空白关闭」 */
@@ -91,6 +96,16 @@ const COMPARE_VIEWS = [
 ] as const
 type CompareView = (typeof COMPARE_VIEWS)[number]['id']
 
+/** 灯箱顶部的能力切换：查看 / 选区 / 标注 / 旋转 / 对比 */
+const EDITOR_MODES = [
+  { id: 'view', label: '查看', icon: <IconImage size={16} /> },
+  { id: 'crop', label: '选区', icon: <IconScan size={16} /> },
+  { id: 'annotate', label: '标注', icon: <IconAnnotate size={16} /> },
+  { id: 'rotate', label: '旋转', icon: <IconRotate size={16} /> },
+  { id: 'compare', label: '对比', icon: <IconCompare size={16} /> },
+] as const
+type EditorMode = (typeof EDITOR_MODES)[number]['id']
+
 /** 标注模式的三件工具（用户 2026-10-05 第 10 条：画笔 / 矩形 / 文字） */
 const ANNOTATE_TOOLS = [
   { id: 'brush', label: '画笔', icon: <IconAnnotate size={16} /> },
@@ -112,6 +127,7 @@ export function LightboxLayer() {
   const [stage, setStage] = useState<Rect | null>(null)
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
   const [vp, setVp] = useState<Viewport | null>(null)
+  const [mode, setMode] = useState<EditorMode>('view')
 
   /**
    * 两种「框选模式」（见 store 里 `lightbox` 的注释）：
@@ -126,11 +142,71 @@ export function LightboxLayer() {
    */
   const cropFor = lightbox?.cropFor
   const faceFor = lightbox?.faceFor
-  const cropping = !!cropFor || !!faceFor
   const [cropRect, setCropRect] = useState<FusionRect | null>(null)
   const [cropRatio, setCropRatio] = useState('')
   const [busy, setBusy] = useState(false)
   const ratioValue = ratioValueOf(cropRatio)
+
+  /**
+   * 双击打开时不再要求调用方预先把某个编辑模式塞进 store：从当前素材反查它属于哪个节点，
+   * 于是「查看 → 选区 / 标注 / 旋转」可以全在灯箱里切换。
+   * 同一 hash 被多个节点引用时取第一个；这是编辑目标，不会用来改画布结构。
+   */
+  const ownerNodeId = (() => {
+    if (!assetHash) return ''
+    return store.getSnapshot().nodes.find((n) => {
+      const data = n.data as { assetHash?: unknown }
+      return data.assetHash === assetHash
+    })?.id ?? ''
+  })()
+  const cropNodeId = cropFor ?? faceFor ?? ownerNodeId
+  const rotateNodeId = lightbox?.rotateFor ?? ownerNodeId
+  const annotateNodeId = lightbox?.annotateFor ?? ownerNodeId
+  const canCrop = !isVideo && !!cropNodeId
+  const canAnnotate = !isVideo && !!annotateNodeId
+  const canRotate = !isVideo && !!rotateNodeId
+  const cropping = mode === 'crop' && canCrop
+  const rotating = mode === 'rotate' && canRotate
+  const annotating = mode === 'annotate' && canAnnotate
+
+  /**
+   * 打开素材时先尊重调用方的显式意图（节点工具栏点「旋转 / 标注 / 提取选区」），
+   * 普通双击 / 日志缩略图进来则落在「查看」。之后用户在顶部模式条里切换，
+   * 不再被 store 里的旧意图扳回去。
+   */
+  useEffect(() => {
+    if (!assetHash) {
+      setMode('view')
+      return
+    }
+    /**
+     * 融合结果的原图配对写在**节点数据**里（`data.compareWith`），不在 `lightbox` 上；
+     * 双击它进来同样应该直接出现「对比」这一档，不能只看调用方显式传的 compareWith。
+     */
+    const nodeHasComparePair = store.getSnapshot().nodes.some((n) => {
+      const data = n.data as { assetHash?: unknown; compareWith?: unknown }
+      return data.assetHash === assetHash && typeof data.compareWith === 'string'
+    })
+    setMode(
+      cropFor || faceFor
+        ? 'crop'
+        : lightbox?.rotateFor
+          ? 'rotate'
+          : lightbox?.annotateFor
+            ? 'annotate'
+            : lightbox?.compareWith || nodeHasComparePair
+              ? 'compare'
+              : 'view',
+    )
+  }, [
+    assetHash,
+    store,
+    cropFor,
+    faceFor,
+    lightbox?.rotateFor,
+    lightbox?.annotateFor,
+    lightbox?.compareWith,
+  ])
 
   /**
    * 「对比原图」的配对从**产物节点自己**读（`GenerationData.compareWith`）。
@@ -164,7 +240,6 @@ export function LightboxLayer() {
    * 预览直接挂在灯箱自己那张 `<img>` 的 `transform` 上，于是**按住拖动平移、
    * 滚轮缩放**这些灯箱能力天然继续可用 —— 这正是用户要的「交互不变」。
    */
-  const rotating = Boolean(lightbox?.rotateFor)
   const [angle, setAngle] = useState(0)
   const [rotateStep, setRotateStep] = useState(90)
   const [mirrorH, setMirrorH] = useState(false)
@@ -194,7 +269,6 @@ export function LightboxLayer() {
    * **滚轮缩放**（滚轮事件不拦，照旧冒到舞台）。左键被画占用这件事只发生在画布这一层，
    * 所以画布只 `stopPropagation` 左键，其余按键一律放行给舞台那条通用平移。
    */
-  const annotating = Boolean(lightbox?.annotateFor)
   const [annTool, setAnnTool] = useState<AnnotateTool>('brush')
   const [annColor, setAnnColor] = useState<string>(ANNOTATE_COLORS[0])
   const [annSize, setAnnSize] = useState(6)
@@ -460,11 +534,16 @@ export function LightboxLayer() {
       store.notify('已框好脸部：点「生成」开始')
       return
     }
-    if (!cropFor) return
+    /**
+     * 普通双击灯箱没有 `cropFor`：用从当前素材反查到的节点 id 作为提取目标；
+     * 只有既没有显式目标、也没有归属节点时才无从下手。
+     */
+    const targetNodeId = cropFor ?? ownerNodeId
+    if (!targetNodeId) return
     setBusy(true)
     const out = await extractSelection(
       { platform, store },
-      { nodeId: cropFor, rect: cropRect, ratio: cropRatio },
+      { nodeId: targetNodeId, rect: cropRect, ratio: cropRatio },
     )
     setBusy(false)
     if (out.ok) {
@@ -650,7 +729,7 @@ export function LightboxLayer() {
    * 不共用就会两套逻辑漂移，而这个仓库已经为此踩过好几次。
    */
   const saveRotation = async () => {
-    const nodeId = lightbox?.rotateFor
+    const nodeId = rotateNodeId
     if (!nodeId || rotating2 || !primaryUrl) return
     const graph = store.getSnapshot()
     const node = graph.nodes.find((n) => n.id === nodeId)
@@ -669,7 +748,7 @@ export function LightboxLayer() {
    * 合成那一段与 UI 无关，在 `annotate/bakeAnnotate` 里（与老那一层同一份实现）。
    */
   const saveAnnotation = async () => {
-    const nodeId = lightbox?.annotateFor
+    const nodeId = annotateNodeId
     if (!nodeId || annSaving || !url) return
     const graph = store.getSnapshot()
     const node = graph.nodes.find((n) => n.id === nodeId)
@@ -685,14 +764,9 @@ export function LightboxLayer() {
     }
   }
 
-  /**
-   * 三档对比：只在「有配对 + 两边都是图 + 不在框选 / 标注模式」时给入口。
-   * 标注模式额外排除：对比那两张图是**叠着**画的，中间夹一层标注画布会让人分不清
-   * 自己画的是哪一张。
-   */
-  const compareAvailable =
-    !!compareHash && !!compareUrl && !isVideo && !compareIsVideo && !cropping && !annotating
-  const view: CompareView = compareAvailable ? compareView : 'result'
+  /** 有真实配对、两边都是图才给「对比」入口；是否处于该模式由 `mode` 决定。 */
+  const compareAvailable = !!compareHash && !!compareUrl && !isVideo && !compareIsVideo
+  const view: CompareView = mode === 'compare' && compareAvailable ? compareView : 'result'
   const splitActive = view === 'split'
   const showOriginalOnly = view === 'original'
   /** 主图：切到「原图」那一档时换成原图（整块几何仍按结果那张算） */
@@ -726,6 +800,14 @@ export function LightboxLayer() {
     window.addEventListener('pointerup', up)
   }
 
+  const availableModes = EDITOR_MODES.filter((m) => {
+    if (m.id === 'view') return true
+    if (m.id === 'crop') return canCrop
+    if (m.id === 'annotate') return canAnnotate
+    if (m.id === 'rotate') return canRotate
+    return compareAvailable
+  })
+
   return (
     <div
       className={styles.overlay}
@@ -733,13 +815,34 @@ export function LightboxLayer() {
       // 当前展示的素材 hash：灯箱按 hash 取图，这里把它暴露出来，
       // 「灯箱显示的到底是不是这个节点的图」才可断言（否则只能比像素，纯色图比不出来）
       data-lightbox-hash={assetHash ?? ''}
+      data-lightbox-mode={mode}
       // 对比原图：配对上时暴露当前档位与实际展示的 hash，供断言（§6.23）
-      data-lightbox-compare={compareAvailable ? view : undefined}
+      data-lightbox-compare={mode === 'compare' && compareAvailable ? view : undefined}
       data-lightbox-shown-hash={showOriginalOnly ? (compareHash ?? '') : (assetHash ?? '')}
       role="dialog"
       aria-modal="true"
       aria-label="素材灯箱"
     >
+      {/*
+       * 全屏编辑器式的顶部能力条（用户 2026-10-16）：双击进来先看到功能，
+       * 点哪一项才展开那一项的完整工具。它不属于 stage，所以点它不会误触
+       *「点空白关灯箱」或平移手势。
+       */}
+      <div className={styles.topModeBar} data-lightbox-mode-bar>
+        {availableModes.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            className={mode === m.id ? styles.modeBtnOn : styles.modeBtn}
+            data-lightbox-mode-button={m.id}
+            aria-pressed={mode === m.id}
+            onClick={() => setMode(m.id)}
+          >
+            {m.icon}
+            <span>{m.id === 'crop' && faceFor ? '框脸' : m.label}</span>
+          </button>
+        ))}
+      </div>
       <div
         ref={stageRef}
         className={styles.stage}
@@ -747,8 +850,8 @@ export function LightboxLayer() {
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onClick={() => {
-          // 提取选区 / 标注模式下**不吃空白单击关闭**：刚框好的框、刚画的一笔不能被一次误点清掉
-          if (cropping || annotating) return
+          // 编辑模式不吃空白单击关闭：刚框好的框、刚画的一笔、正在旋转的预览不能被误点清掉
+          if (mode === 'crop' || mode === 'annotate' || mode === 'rotate') return
           // 拖动松手也会触发 click：只有没拖过的单击才关闭（与版本预览同口径）
           if (movedRef.current) return
           close()
@@ -907,7 +1010,7 @@ export function LightboxLayer() {
           * 「对比原图」三档（用户 2026-09-30）：融合结果双击进来时，
           * 结果 / 对比（可拖分割线）/ 原图 三档并排 —— 与参数 chip 同一套控件口径。
           */}
-        {compareAvailable && (
+        {mode === 'compare' && compareAvailable && (
           <div className={styles.compareGroup} data-lightbox-compare-group>
             {COMPARE_VIEWS.map((v) => (
               <button
@@ -934,9 +1037,9 @@ export function LightboxLayer() {
               type="button"
               className={styles.close}
               data-rotate-close
-              title="关闭旋转与镜像"
-              aria-label="关闭旋转与镜像"
-              onClick={close}
+              title="返回查看"
+              aria-label="返回查看"
+              onClick={() => setMode('view')}
             >
               <IconClose size={16} />
               <span>旋转与镜像</span>
@@ -1029,9 +1132,9 @@ export function LightboxLayer() {
               type="button"
               className={styles.close}
               data-annotate-close
-              title="关闭标注"
-              aria-label="关闭标注"
-              onClick={close}
+              title="返回查看"
+              aria-label="返回查看"
+              onClick={() => setMode('view')}
             >
               <IconClose size={16} />
               <span>标注</span>
@@ -1159,9 +1262,9 @@ export function LightboxLayer() {
               type="button"
               className={styles.close}
               data-lightbox-crop-cancel
-              onClick={close}
+              onClick={() => setMode('view')}
             >
-              取消 (Esc)
+              取消
             </button>
             <button
               type="button"
