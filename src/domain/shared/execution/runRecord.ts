@@ -60,6 +60,15 @@ export interface RunRecord<TParams = unknown> {
   outputHeight?: number
 }
 
+/**
+ * **本地执行**（不经过任何渠道）在留痕里用的"渠道 id"哨兵。
+ *
+ * 目前只有画布的融合节点用它：融合是本地像素合成，一次网络请求都不发，但日志行上
+ * 有一格"平台"的位置 —— 留空会渲染成「未知平台」，那读起来像"渠道没配对"，
+ * 而真相比那清楚：**这一步压根没上网**。所以给一个显式哨兵，由日志面板翻成「本地」。
+ */
+export const LOCAL_RUN_CHANNEL_ID = 'local'
+
 export function createRunRecord<TParams>(args: {
   id: string
   nodeId: string

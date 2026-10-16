@@ -40,7 +40,13 @@ import { createChannelRepository } from '../../../state/project/channelRepositor
 import type { Channel } from '../../../domain/project/channel'
 import type { RunRequest } from '../../../domain/canvas/nodeSpecs/types'
 import type { NodeInput } from '../../../domain/shared/execution/types'
-import type { RunRecord } from '../../../domain/canvas/model/runRecord'
+import {
+  LOCAL_RUN_CHANNEL_ID,
+  createRunRecord,
+  type RunRecord,
+} from '../../../domain/canvas/model/runRecord'
+import { fusionSpec } from '../../../domain/canvas/nodeSpecs/fusion'
+import type { FusionData } from '../../../domain/canvas/model/node'
 import { useCanvasStore } from '../storeContext'
 import { RunHotkeys } from './RunHotkeys'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
@@ -203,6 +209,19 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
   const versionMaxRef = useRef<Map<string, number>>(new Map())
 
   /**
+   * 递增某节点的版本号，并**立刻**记进计数表（§6.21）。
+   *
+   * 抽出来是因为它现在有两个调用方：执行引擎的 `nextVersion`（每个 task 各调一次）、
+   * 以及**融合的留痕**（对账 #554）。两处各写一遍必然漂 —— 而这份计数是连续版本号
+   * 的唯一依据，漂了就是日志里两条记录同号。
+   */
+  const bumpVersion = useCallback((nodeId: string): number => {
+    const next = (versionMaxRef.current.get(nodeId) ?? 0) + 1
+    versionMaxRef.current.set(nodeId, next)
+    return next
+  }, [])
+
+  /**
    * 批量进度计数（对账 #386 的 E5），按 planId 分开记。
    *
    * 只对"一次跑多个任务"的计划说话（`domain/ui/notify.progressNotice` 判的），
@@ -334,13 +353,9 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
         void sendSystemNotify(platform.notify, '轻画', notice.text)
       },
       // 引擎为每个 task 各调一次（写回发生在两次调用之间），同步递增即得连续版本号
-      nextVersion: (nodeId: string) => {
-        const next = (versionMaxRef.current.get(nodeId) ?? 0) + 1
-        versionMaxRef.current.set(nodeId, next)
-        return next
-      },
+      nextVersion: bumpVersion,
     }),
-    [store],
+    [bumpVersion, store],
   )
 
   const { startRun, cancelRun, isRunning } = useExecution<CanvasRunTask, Command>(host)
@@ -879,6 +894,24 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
     [skillStore, store, completeText],
   )
 
+  /**
+   * 追加一条 RunRecord（**引擎之外**的写入方）并同步版本计数（§6.21）。
+   *
+   * 抽成具名回调是因为它现在有两个调用方：版本恢复、以及**融合**（对账 #554）。
+   * 写两遍必然漏掉 `versionMaxRef` 的同步，而那份计数是 version 递增的唯一依据。
+   */
+  const appendRecord = useCallback(
+    async (record: RunRecord) => {
+      const map = versionMaxRef.current
+      map.set(record.nodeId, Math.max(map.get(record.nodeId) ?? 0, record.version))
+      store.dispatch({ kind: 'node.runRecord.append', nodeId: record.nodeId, record })
+      // append 走 800ms 防抖落库；日志面板实时读库，flush 完成后再返回
+      await store.flush()
+      emitRunRecordChanged()
+    },
+    [store],
+  )
+
   const runNode = useCallback(
     async (nodeId: string, opts?: { alt?: boolean; inPlace?: boolean }) => {
       const graph = store.getSnapshot()
@@ -911,8 +944,55 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
        * 不静默返回 —— 静默返回的表现就是「点了没反应」。
        */
       if (node?.type === 'fusion') {
+        /**
+         * 融合**也要留痕**（对账 #554）。
+         *
+         * 它走的是本地像素合成、不经过渠道引擎，于是此前**日志里一条 RunRecord 都没有**：
+         * 用户点了融合只看到一条几秒后消失的提示，回头想查「为什么不融」时日志是空的 ——
+         * 而同一个应用刚在别处告诉用户「原因见日志」。这一句在这里兑现。
+         *
+         * 记的是**人话原因**（`fuseNode` 的 `reason` 本来就是给用户看的），
+         * 与渠道失败的 `errorText` 同一格；平台那格用本地哨兵，不写「未知平台」。
+         */
+        const startedAt = Date.now()
         const outcome = await fuseNode({ platform, store }, nodeId)
-        if (!outcome.ok) store.notify(outcome.reason, 'error')
+        const durationMs = Date.now() - startedAt
+        /** 提示里**指路**：原因已经落进日志（可复制、可留存），这一点要说出来 */
+        if (!outcome.ok) store.notify(`${outcome.reason}（已记进日志）`, 'error')
+        const graphAfter = store.getSnapshot()
+        /** 产物落在新建的结果节点上，日志的缩略图与「输出 N 个」都读它 */
+        const outputHash = outcome.ok
+          ? ((graphAfter.nodes.find((n) => n.id === outcome.resultNodeId)?.data as
+              | { assetHash?: string }
+              | undefined)?.assetHash ?? '')
+          : ''
+        await appendRecord(
+          createRunRecord({
+            id: createId('rec'),
+            nodeId,
+            projectId: graphAfter.projectId,
+            version: bumpVersion(nodeId),
+            createdAt: startedAt,
+            status: outcome.ok ? 'succeeded' : 'failed',
+            inputs: fusionSpec.collectInputs({
+              node: node as NodeSnapshot<FusionData>,
+              graph: store.getSnapshot(),
+            }),
+            params: node.data,
+            outputHashes: outputHash ? [outputHash] : [],
+            /**
+             * 融合没有"内容指纹"这个概念（不读渠道、不参与陈旧判定）。
+             * 留一个确定性常量，而不是伪造一个看起来像指纹的哈希 ——
+             * 后者会让人以为它真的在参与某处判断。
+             */
+            fingerprint: 'fusion',
+            taskId: createId('task'),
+            durationMs,
+            sentChannelId: LOCAL_RUN_CHANNEL_ID,
+            sentModel: '本地融合',
+            ...(outcome.ok ? {} : { errorText: outcome.reason }),
+          }),
+        )
         return
       }
 
@@ -990,7 +1070,16 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       }
       await launch(plan, nodeId)
     },
-    [store, launch, explainEmptyPlan, runLoop, applySkillIfSelected],
+    [
+      store,
+      launch,
+      explainEmptyPlan,
+      runLoop,
+      applySkillIfSelected,
+      appendRecord,
+      bumpVersion,
+      platform,
+    ],
   )
 
   const cancel = useCallback(() => {
@@ -1004,17 +1093,11 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
       nodeStateOf: (nodeId: string) => nodeStates.get(nodeId),
       nodeStates,
       isRunning,
-      appendRecord: async (record: RunRecord) => {
-        const map = versionMaxRef.current
-        map.set(record.nodeId, Math.max(map.get(record.nodeId) ?? 0, record.version))
-        store.dispatch({ kind: 'node.runRecord.append', nodeId: record.nodeId, record })
-        // append 走 800ms 防抖落库；日志面板实时读库，flush 完成后再返回
-        await store.flush()
-        emitRunRecordChanged()
-      },
+      appendRecord,
       completeText,
     }),
     [
+      appendRecord,
       runNode,
       cancel,
       nodeStates,

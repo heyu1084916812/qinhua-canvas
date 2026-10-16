@@ -18,6 +18,7 @@ export type { RunScope, RunMode, ExecutionMode, RunStatus, NodeInput } from '../
 export type RunRecord = SharedRunRecord<NodeData>
 
 export {
+  LOCAL_RUN_CHANNEL_ID,
   createRunRecord,
   liveFingerprintOf,
   nextVersion,

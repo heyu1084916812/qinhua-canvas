@@ -17075,6 +17075,71 @@ async function g92(browser) {
     cutReason,
   )
 
+  /**
+   * ── ⑪ 融合**也要留痕**（对账 #554）──
+   *
+   * 融合走的是本地像素合成、不经过渠道引擎，于是此前**日志里一条 RunRecord 都没有**：
+   * 用户点了融合只看到一条几秒后消失的提示，回头想查「为什么不融」时日志是空的 ——
+   * 而同一个应用在生成失败那条路上刚告诉用户「原因见日志」。
+   * 判据两条：**成功要留一条**、**失败也要留一条并写出人话原因**。
+   */
+  await page.getByRole('button', { name: '日志' }).click()
+  await sleep(800)
+  const logDialog = page.getByRole('dialog', { name: '日志面板' })
+  const logText = await logDialog.innerText().catch(() => '')
+  rec(
+    g,
+    '★★★ 融合成功也进日志：平台「本地」+ 模型「本地融合」+ 输出 1 个',
+    /成功/.test(logText) && /本地融合/.test(logText) && /输出 1 个/.test(logText),
+    logText.replace(/\n/g, ' ').slice(0, 120),
+  )
+  await page.keyboard.press('Escape')
+  await sleep(400)
+
+  /*
+   * 造一个**点得动、但点下去会失败**的融合：把"另一张图"当原图接上，
+   * 而局部图的上下文里记的是**原来那张** —— 于是 `contextMatchesSource` 拒绝。
+   * 这一步刻意不靠"缺上下文"（那种情况按钮是禁用的，根本进不了留痕这条路）。
+   */
+  const foreign = await addGenWithImage(page, 240, 180, [10, 120, 200])
+  await moveNode(page, foreign.id, 200, 120)
+  await sleep(300)
+  await addNodeViaToolbar(page, 'fusion')
+  await sleep(600)
+  const f2Id = await page.locator('[data-node-type="fusion"]').last().getAttribute('data-node-id')
+  const f2 = page.locator(`[data-node-id="${f2Id}"]`)
+  await moveNodeVia(page, f2, page.locator(`[data-node-id="${f2Id}"] [data-fusion-chips]`), 880, 120)
+  await sleep(300)
+  const f2In = await f2.locator('[data-port="input"]').boundingBox()
+  const f2Patch = await f2.locator('[data-port="patch"]').boundingBox()
+  await dragFromPortTo(foreign.node.locator('[data-port="output"]').first(), {
+    x: (f2In?.x ?? 0) + (f2In?.width ?? 0) / 2,
+    y: (f2In?.y ?? 0) + (f2In?.height ?? 0) / 2,
+  })
+  await dragFromPortTo(localNode.locator('[data-port="output"]').first(), {
+    x: (f2Patch?.x ?? 0) + (f2Patch?.width ?? 0) / 2,
+    y: (f2Patch?.y ?? 0) + (f2Patch?.height ?? 0) / 2,
+  })
+  rec(
+    g,
+    '（前置）原图与上下文对不上的融合，按钮**是可点的**（所以才会撞上失败留痕）',
+    !(await f2.locator('[data-fusion-run]').isDisabled()),
+    `disabled=${await f2.locator('[data-fusion-run]').isDisabled()}`,
+  )
+  await f2.locator('[data-fusion-run]').click()
+  await sleep(1400)
+  await page.getByRole('button', { name: '日志' }).click()
+  await sleep(800)
+  const failLog = await page.locator('[data-log-error]').first().innerText().catch(() => '')
+  rec(
+    g,
+    '★★★ 融合失败也进日志，并写出人话原因（不再是「点了没反应」）',
+    /不属于当前原图/.test(failLog),
+    `error="${failLog.trim()}"`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(300)
+
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await page.screenshot({ path: `${OUT}/107-g92-extract.png` })
   await ctx.close()

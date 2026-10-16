@@ -5,6 +5,7 @@ import { useCanvasStore } from '../storeContext'
 import { useAsset } from '../hooks/useAsset'
 import { subscribeRunRecordChanged } from '../execution/runRecordEvents'
 import type { RunRecord } from '../../../domain/canvas/model/runRecord'
+import { LOCAL_RUN_CHANNEL_ID } from '../../../domain/canvas/model/runRecord'
 import { pixelSummaryOf } from '../../../domain/shared/execution/runRecord'
 import type { GenerationData } from '../../../domain/canvas/model/node'
 import { NODE_MINIMUMS } from '../../../domain/canvas/layout/constants'
@@ -111,8 +112,16 @@ export function LogPanel({ onClose }: { onClose: () => void }) {
     setRecords([])
   }
 
+  /**
+   * 渠道 id → 显示名。
+   *
+   * `LOCAL_RUN_CHANNEL_ID` 那一档是**本地执行**（目前只有融合节点，对账 #554）：
+   * 它一次网络请求都不发，显示成「未知平台」会把人往"渠道没配对"的方向带。
+   */
   const channelName = (chId: string) =>
-    channels.getState().channels.find((c) => c.id === chId)?.name ?? chId ?? '未知平台'
+    chId === LOCAL_RUN_CHANNEL_ID
+      ? '本地'
+      : (channels.getState().channels.find((c) => c.id === chId)?.name ?? chId ?? '未知平台')
 
   return (
     <div
