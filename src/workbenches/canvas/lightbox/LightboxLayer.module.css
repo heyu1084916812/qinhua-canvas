@@ -289,6 +289,37 @@
   flex: none;
 }
 
+/*
+ * 旋转模式里的「步长」输入（2026-10-16 从独立那一层搬进灯箱）。
+ *
+ * 样式跟同一排的 `.ratio` 按钮对齐（高 26、同一圈描边、同一个圆角档）——
+ * 它们在同一根操作条上，长得不一样就等于把"两套 UI"又搬回来了。
+ */
+.stepWrap {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.stepInput {
+  width: 56px;
+  height: 26px;
+  padding: 0 var(--space-1);
+  border: var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  text-align: center;
+}
+
+.stepInput:focus-visible {
+  outline: none;
+  border-color: var(--stroke-focus);
+}
+
 .ratio,
 .ratioActive {
   flex: none;

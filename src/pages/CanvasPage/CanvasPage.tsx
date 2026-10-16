@@ -15,7 +15,6 @@ import { AgentPanel } from '../../workbenches/canvas/panels/AgentPanel/AgentPane
 import { CanvasToolbar } from '../../workbenches/canvas/toolbar/CanvasToolbar'
 import { LightboxLayer } from '../../workbenches/canvas/lightbox/LightboxLayer'
 import { TextEditorLayer } from '../../workbenches/canvas/text/TextEditorLayer'
-import { RotateLayer } from '../../workbenches/canvas/rotate/RotateLayer'
 import { AnnotateLayer } from '../../workbenches/canvas/annotate/AnnotateLayer'
 import { screenToWorld } from '../../domain/canvas/geometry/coords'
 import { NODE_MINIMUMS } from '../../domain/canvas/layout/constants'
@@ -416,7 +415,6 @@ function CanvasProject({ projectId }: { projectId: string }) {
           <TextEditorLayer />
           {/* 旋转与镜像 / 标注（用户 2026-10-05 第 10 条）：都在节点跟随栏里点开，
               与上面两个浮层互斥；保存才写数据（一步撤销），关掉即忘 */}
-          <RotateLayer />
           <AnnotateLayer />
         </div>
       </CanvasExecutionProvider>

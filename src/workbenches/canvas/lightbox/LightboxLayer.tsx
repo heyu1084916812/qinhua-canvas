@@ -26,6 +26,15 @@ import { RATIO_CHOICES } from '../../../domain/canvas/layout/ratioChoices'
 import { extractSelection } from '../../../features/canvas/extractSelection'
 import { faceBoxFromRect } from '../../../features/canvas/emotionEdit'
 import { downloadAsset } from '../../../features/canvas/downloadAsset'
+import { saveRotatedAsset } from '../rotate/bakeRotate'
+import {
+  IconCheck,
+  IconClose,
+  IconMirrorH,
+  IconMirrorV,
+  IconRedo,
+  IconUndo,
+} from '../toolbar/icons'
 import styles from './LightboxLayer.module.css'
 
 /**
@@ -131,6 +140,27 @@ export function LightboxLayer() {
   const compareIsVideo = (compareAsset.mime ?? '').startsWith('video/')
   const [compareView, setCompareView] = useState<CompareView>('result')
   const [splitRatio, setSplitRatio] = useState(0.5)
+  /**
+   * **旋转与镜像**（2026-10-16 搬进灯箱，见 store 的 `openRotateEditor`）。
+   *
+   * 三件状态与老那一层完全一样（角度 / 步长 / 两个镜像），只有落点变了：
+   * 预览直接挂在灯箱自己那张 `<img>` 的 `transform` 上，于是**按住拖动平移、
+   * 滚轮缩放**这些灯箱能力天然继续可用 —— 这正是用户要的「交互不变」。
+   */
+  const rotating = Boolean(lightbox?.rotateFor)
+  const [angle, setAngle] = useState(0)
+  const [rotateStep, setRotateStep] = useState(90)
+  const [mirrorH, setMirrorH] = useState(false)
+  const [mirrorV, setMirrorV] = useState(false)
+  const [rotating2, setRotating2] = useState(false)
+  /** 进旋转模式就归零：上一次的角度留着会让用户看到一张莫名其妙已经转过的图 */
+  useEffect(() => {
+    if (!lightbox?.rotateFor) return
+    setAngle(0)
+    setMirrorH(false)
+    setMirrorV(false)
+    setRotating2(false)
+  }, [lightbox?.rotateFor])
 
   /**
    * 下载原图（用户 2026-10-14：画布灯箱「可以加下载原图的按钮」）。
@@ -422,6 +452,18 @@ export function LightboxLayer() {
         height: natural.h * vp.zoom,
       }
     : undefined
+  /**
+   * 旋转模式：预览直接挂在灯箱这张图上（用户 2026-10-16：「交互不变，可以拖动，缩放」）——
+   * `box` 管的是它在舞台里的矩形，`transform` 只叠在自己身上，两者不冲突。
+   */
+  const normalizedAngle = ((angle % 360) + 360) % 360
+  const mediaStyle =
+    rotating && box
+      ? {
+          ...box,
+          transform: `rotate(${angle}deg) scaleX(${mirrorH ? -1 : 1}) scaleY(${mirrorV ? -1 : 1})`,
+        }
+      : box
   /** 选区框：同一套世界 → 屏幕换算（与媒体框同源，缩放平移时不会漂） */
   const cropBox =
     placed && cropRect
@@ -439,6 +481,28 @@ export function LightboxLayer() {
    */
   const canConfirm =
     cropping && !!cropRect && Math.min(cropRect.w, cropRect.h) >= FUSION_MIN_EDGE
+
+  /**
+   * 保存旋转结果：把变换**真画进像素**并写回节点。
+   *
+   * 这段逻辑（算尺寸 → canvas 烘焙 → 落新素材 → 写回节点 → 节点框跟着新比例走）
+   * 与 UI 无关，已抽到 `rotate/bakeRotate`，与老那一层**共用同一份实现** ——
+   * 不共用就会两套逻辑漂移，而这个仓库已经为此踩过好几次。
+   */
+  const saveRotation = async () => {
+    const nodeId = lightbox?.rotateFor
+    if (!nodeId || rotating2 || !primaryUrl) return
+    const graph = store.getSnapshot()
+    const node = graph.nodes.find((n) => n.id === nodeId)
+    if (!node) return
+    setRotating2(true)
+    try {
+      await saveRotatedAsset({ store, graph, node, url: primaryUrl, angle, mirrorH, mirrorV })
+      close()
+    } finally {
+      setRotating2(false)
+    }
+  }
 
   /** 三档对比：只在「有配对 + 两边都是图 + 不在框选模式」时给入口 */
   const compareAvailable = !!compareHash && !!compareUrl && !isVideo && !compareIsVideo && !cropping
@@ -514,7 +578,7 @@ export function LightboxLayer() {
               loop
               playsInline
               autoPlay
-              style={box}
+              style={mediaStyle}
               onLoadedMetadata={(e) =>
                 setNatural({ w: e.currentTarget.videoWidth, h: e.currentTarget.videoHeight })
               }
@@ -536,7 +600,7 @@ export function LightboxLayer() {
               src={primaryUrl}
               alt=""
               draggable={false}
-              style={box}
+              style={mediaStyle}
               onLoad={(e) => {
                 /**
                  * 切到「原图」那一档时**不改** `natural`：box / 选区 / 分割线全部按
@@ -646,7 +710,99 @@ export function LightboxLayer() {
             ))}
           </div>
         )}
-        {cropping ? (
+        {/**
+          * **旋转与镜像模式**（2026-10-16 从独立层搬进灯箱）：
+          * 用的是灯箱自己那套按钮样式（`.close` / `.compareOff|On` / `.confirm`），
+          * 与前后的「提取选区」条、对比三档同一口径 —— 这就是用户要的「统一设计」。
+          */}
+        {rotating ? (
+          <div className={styles.cropBar} data-rotate-toolbar>
+            <button
+              type="button"
+              className={styles.close}
+              data-rotate-close
+              title="关闭旋转与镜像"
+              aria-label="关闭旋转与镜像"
+              onClick={close}
+            >
+              <IconClose size={16} />
+              <span>旋转与镜像</span>
+            </button>
+            <span className={styles.barDivider} />
+            <button
+              type="button"
+              className={styles.compareOff}
+              data-rotate-left
+              title={`逆时针转 ${rotateStep}°`}
+              aria-label="逆时针转"
+              onClick={() => setAngle((a) => a - rotateStep)}
+            >
+              <IconUndo size={16} />
+            </button>
+            <span className={styles.chip} data-rotate-angle>
+              {normalizedAngle}°
+            </span>
+            <button
+              type="button"
+              className={styles.compareOff}
+              data-rotate-right
+              title={`顺时针转 ${rotateStep}°`}
+              aria-label="顺时针转"
+              onClick={() => setAngle((a) => a + rotateStep)}
+            >
+              <IconRedo size={16} />
+            </button>
+            <label className={styles.stepWrap}>
+              <span className={styles.ratioLabel}>步长</span>
+              <input
+                className={styles.stepInput}
+                data-rotate-step
+                type="number"
+                min={1}
+                max={180}
+                step={1}
+                value={rotateStep}
+                onChange={(e) => {
+                  const n = Number(e.target.value)
+                  if (Number.isFinite(n) && n >= 1 && n <= 180) setRotateStep(Math.round(n))
+                }}
+              />
+              <span className={styles.ratioLabel}>°</span>
+            </label>
+            <span className={styles.barDivider} />
+            <button
+              type="button"
+              className={mirrorH ? styles.compareOn : styles.compareOff}
+              data-rotate-mirror-h
+              aria-pressed={mirrorH}
+              title="左右镜像"
+              onClick={() => setMirrorH((v) => !v)}
+            >
+              <IconMirrorH size={16} />
+            </button>
+            <button
+              type="button"
+              className={mirrorV ? styles.compareOn : styles.compareOff}
+              data-rotate-mirror-v
+              aria-pressed={mirrorV}
+              title="上下镜像"
+              onClick={() => setMirrorV((v) => !v)}
+            >
+              <IconMirrorV size={16} />
+            </button>
+            <span className={styles.barDivider} />
+            <button
+              type="button"
+              className={styles.confirm}
+              data-rotate-save
+              disabled={rotating2}
+              onClick={() => void saveRotation()}
+            >
+              <IconCheck size={16} />
+              <span>{rotating2 ? '保存中…' : '保存'}</span>
+            </button>
+          </div>
+        ) : cropping ? (
           /**
            * 比例档与两个按钮**放在同一组里**（用户 2026-09-30：「提取选区按钮与比例档
            * 要放在一起」，首版被中间的 spacer 拆到左右两头，眼睛要来回跳）。

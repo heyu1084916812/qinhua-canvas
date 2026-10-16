@@ -185,7 +185,18 @@ interface CanvasState {
    * 两者共用同一套框选交互（拖框 / 八向手柄 / 比例吸附），只有**确认之后干什么**不同 ——
    * 所以是同一个模式的两种意图，而不是两套 UI。
    */
-  lightbox: { assetHash: string; cropFor?: string; faceFor?: string; compareWith?: string } | null
+  /**
+   * `rotateFor`（2026-10-16）：**「旋转与镜像」已搬进灯箱当模式**（用户：「真正的操作组件区域
+   * 在灯箱里面进行，统一设计」）。它是 nodeId，不是 hash —— 保存时要写回那个节点的产物。
+   * 搬进来之后它自动继承了灯箱的**按住拖动平移 / 滚轮缩放**（这正是用户要的「交互不变」）。
+   */
+  lightbox: {
+    assetHash: string
+    cropFor?: string
+    faceFor?: string
+    compareWith?: string
+    rotateFor?: string
+  } | null
   /**
    * **旋转与镜像编辑**（用户 2026-10-05 第 10 条）：作用在**刚复制出来的那个节点**上。
    *
@@ -306,8 +317,19 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
   openCropLightbox: (nodeId: string) => void
   openFaceLightbox: (nodeId: string) => void
   closeLightbox: () => void
-  getLightbox: () => { assetHash: string; cropFor?: string; faceFor?: string; compareWith?: string } | null
-  /** 打开 / 关闭「旋转与镜像」编辑（第 10 条）：打开时关闭灯箱与文本编辑框（三者互斥） */
+  getLightbox: () => {
+    assetHash: string
+    cropFor?: string
+    faceFor?: string
+    compareWith?: string
+    rotateFor?: string
+  } | null
+  /**
+   * 打开 / 关闭「旋转与镜像」编辑（第 10 条）。
+   *
+   * ⚠️ 2026-10-16 起**它就是「开灯箱 + 进旋转模式」**（原来是一个独立的全屏层，
+   * 与灯箱互斥）。名字与调用点保持不变，换的是落点 —— 工具条与预览现在住在灯箱里。
+   */
   openRotateEditor: (nodeId: string) => void
   closeRotateEditor: () => void
   getRotate: () => { nodeId: string } | null
@@ -671,17 +693,29 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     },
     closeLightbox: () => store.setState({ lightbox: null }),
     getLightbox: () => store.getState().lightbox,
-    /** 三者互斥（灯箱 / 文本编辑 / 旋转编辑）：同时开着只会互相盖住 */
-    openRotateEditor: (nodeId) =>
+    /**
+     * 「旋转与镜像」= **开灯箱 + 进旋转模式**（2026-10-16 搬进灯箱，见 `openRotateEditor` 的说明）。
+     *
+     * 只带 `lightbox` 这一个状态：不再单独维护 `rotate`，否则「灯箱关掉了但 rotate 还挂着」
+     * 会留下一个看不见却生效的模式。`getRotate` 从灯箱反推，对外 API 不变。
+     */
+    openRotateEditor: (nodeId) => {
+      const node = store.getState().graph.nodes.find((n) => n.id === nodeId)
+      const hash = (node?.data as { assetHash?: string } | undefined)?.assetHash
+      /** 没图的节点没有可旋转的东西：不打开，而不是开一个空灯箱 */
+      if (!hash) return
       store.setState({
-        rotate: { nodeId },
+        lightbox: { assetHash: hash, rotateFor: nodeId },
         annotate: null,
-        lightbox: null,
         textEditor: null,
         menu: null,
-      }),
-    closeRotateEditor: () => store.setState({ rotate: null }),
-    getRotate: () => store.getState().rotate,
+      })
+    },
+    closeRotateEditor: () => store.setState({ lightbox: null }),
+    getRotate: () => {
+      const lb = store.getState().lightbox
+      return lb?.rotateFor ? { nodeId: lb.rotateFor } : null
+    },
     openAnnotateEditor: (nodeId) =>
       store.setState({
         annotate: { nodeId },

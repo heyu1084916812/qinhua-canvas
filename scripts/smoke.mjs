@@ -21834,8 +21834,18 @@ async function g107(browser) {
           .count()) === 1
       : false,
   )
-  const rot = page.locator('[data-rotate-layer]')
-  rec(g, '★★ 上方出现「旋转与镜像」工具条', (await rot.count()) === 1)
+  /**
+   * ⚠️ 2026-10-16：旋转从**独立的全屏层**搬进了**灯箱**（用户：「真正的操作组件区域在灯箱里面
+   * 进行，统一设计」）。所以判据从 `[data-rotate-layer]` 换成「灯箱在 + 里面有旋转工具条」——
+   * 只断言工具条还在的话，搬回去也不会红。
+   */
+  const rot = page.locator('[data-rotate-toolbar]')
+  rec(
+    g,
+    '★★ 旋转工具条出现在**灯箱里**（不再是独立一层）',
+    (await rot.count()) === 1 && (await page.locator('[data-lightbox]').count()) === 1,
+    `工具条=${await rot.count()} 灯箱=${await page.locator('[data-lightbox]').count()}`,
+  )
   const rotParts = await page.evaluate(() => ({
     close: !!document.querySelector('[data-rotate-close]'),
     angle: (document.querySelector('[data-rotate-angle]')?.textContent ?? '').trim(),
@@ -21851,6 +21861,42 @@ async function g107(browser) {
     JSON.stringify(rotParts),
   )
   rec(g, '★ 初始角度是 0°', rotParts.angle === '0°', `angle=${rotParts.angle}`)
+  /**
+   * ★★ **旋转模式下灯箱的拖动 / 缩放照旧**（用户 2026-10-16：「交互不变，可以拖动，缩放」）。
+   *
+   * 这条正是「搬进灯箱」换来的东西：老那一层是独立全屏层，既不能拖动平移也不能滚轮缩放。
+   * 此时角度还是 0，`transform` 是恒等变换，量出来的矩形与未变换时一致。
+   */
+  {
+    const rotMedia = page.locator('[data-lightbox-media]')
+    const rotBefore = await rotMedia.boundingBox()
+    if (rotBefore) {
+      const cx = rotBefore.x + rotBefore.width / 2
+      const cy = rotBefore.y + rotBefore.height / 2
+      await page.mouse.move(cx, cy)
+      await page.mouse.down()
+      await page.mouse.move(cx - 60, cy - 40, { steps: 10 })
+      await page.mouse.up()
+      await sleep(300)
+      const rotAfter = await rotMedia.boundingBox()
+      const rotDx = rotAfter ? Math.round(rotAfter.x - rotBefore.x) : 0
+      const rotDy = rotAfter ? Math.round(rotAfter.y - rotBefore.y) : 0
+      rec(
+        g,
+        '★★ 旋转模式下仍可按住拖动平移（交互不变）',
+        Math.abs(rotDx) > 15 && Math.abs(rotDy) > 15,
+        `Δx=${rotDx} Δy=${rotDy}`,
+      )
+      const zoomBefore = (await page.locator('[data-lightbox-zoom]').innerText()).trim()
+      await page.mouse.move(rotAfter ? rotAfter.x + rotAfter.width / 2 : cx, rotAfter ? rotAfter.y + rotAfter.height / 2 : cy)
+      await page.mouse.wheel(0, -240)
+      await sleep(300)
+      const zoomAfter = (await page.locator('[data-lightbox-zoom]').innerText()).trim()
+      rec(g, '★★ 旋转模式下仍可滚轮缩放（交互不变）', zoomBefore !== zoomAfter, `${zoomBefore} → ${zoomAfter}`)
+    } else {
+      rec(g, '★★ 旋转模式下仍可按住拖动平移（交互不变）', false, '取不到图片矩形')
+    }
+  }
   await page.locator('[data-rotate-right]').click()
   await sleep(250)
   const angle90 = (await page.locator('[data-rotate-angle]').innerText()).trim()
@@ -21869,7 +21915,7 @@ async function g107(browser) {
     .getAttribute('src')
   await page.locator('[data-rotate-save]').click()
   await page
-    .locator('[data-rotate-layer]')
+    .locator('[data-rotate-toolbar]')
     .waitFor({ state: 'hidden', timeout: 8000 })
     .catch(() => {})
   await sleep(700)
@@ -21883,7 +21929,12 @@ async function g107(browser) {
     !!copySrcAfter && copySrcAfter !== copySrcBefore && srcSrcAfterRotate === srcSrcBefore,
     `copy=${copySrcBefore === copySrcAfter ? '未变' : '已变'} src=${srcSrcBefore === srcSrcAfterRotate ? '未变' : '变了'}`,
   )
-  rec(g, '★ 保存后工具条收起来了', (await page.locator('[data-rotate-layer]').count()) === 0)
+  rec(
+    g,
+    '★ 保存后灯箱与旋转工具条一起收起来',
+    (await page.locator('[data-rotate-toolbar]').count()) === 0 &&
+      (await page.locator('[data-lightbox]').count()) === 0,
+  )
 
   /** ④ 标注：工具条齐全 + 画一笔 + 撤销/重做 + 保存出**新节点** */
   await genPanel(page, src)
