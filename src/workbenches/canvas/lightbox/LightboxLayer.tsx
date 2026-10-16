@@ -115,6 +115,11 @@ export function LightboxLayer() {
    */
   const compareHash = (() => {
     if (!assetHash) return null
+    /**
+     * **调用方显式给了配对就用它**（对比节点双击进来：那两张图来自两个不同的上游节点，
+     * 节点上根本没有 `compareWith` 可读 —— 见 store 的 `openLightbox` 说明）。
+     */
+    if (lightbox?.compareWith) return lightbox.compareWith
     for (const n of store.getSnapshot().nodes) {
       const d = n.data as { assetHash?: string; compareWith?: string }
       if (d.assetHash === assetHash && d.compareWith) return d.compareWith

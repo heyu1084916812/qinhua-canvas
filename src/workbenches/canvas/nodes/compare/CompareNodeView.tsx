@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { CompareData } from '../../../../domain/canvas/model/node'
 import type { NodeViewProps } from '../registry'
 import { useAssetThumbUrl } from '../../hooks/useAsset'
+import { assetBoxCorrection } from '../../../../domain/canvas/layout/assetBoxCorrection'
 import styles from './CompareNodeView.module.css'
 
 /**
@@ -71,12 +72,59 @@ export function CompareNodeView(props: NodeViewProps) {
 
   const bothReady = Boolean(leftUrl && rightUrl)
 
+  /**
+   * 媒体**真实像素到手之后**把节点框纠正成素材比例（同 `GenerationNodeView.reportNatural`）。
+   *
+   * 用户 2026-10-16：「对比节点的比例需要自适应，不要固定」。对比节点原先是个
+   * `lockAspect` 的固定 4:3 框（240×180），而素材常常是 3072×5504 那种竖长条 ——
+   * 竖图落进方框里两侧全是空的（截图就是这样）。
+   *
+   * 为什么在**显示这一层**补：图片的真实像素只有解码后才知道，这里正是那个时刻；
+   * 决策交给纯函数 `assetBoxCorrection`（它已经处理过「用户手动调过就不碰」这一档）。
+   */
+  const reportNatural = (width: number, height: number) => {
+    if (!width || !height) return
+    const fix = assetBoxCorrection({ w: props.node.w, h: props.node.h }, { width, height })
+    if (!fix) return
+    props.emit({
+      type: 'updateData',
+      patch: { naturalSize: fix.naturalSize },
+      ...(fix.size ? { size: fix.size } : {}),
+      /** 后台纠错不是用户操作：不进撤销栈，但仍照常落库 */
+      transient: true,
+    })
+  }
+
+  /**
+   * 双击进灯箱对比（用户 2026-10-16：「双击能灯箱进行对比」）。
+   *
+   * 灯箱本来就有一档「对比」（融合结果跟原图对着看，见 `LightboxLayer`），
+   * 这里把 **A 当结果、B 当「对比原图」** 喂给它 —— 对比节点的两张图来自两个不同的
+   * 上游节点，节点上没有 `compareWith` 可读，所以必须显式传。
+   */
+  const openLightbox = () => {
+    if (leftFallback) {
+      props.emit({
+        type: 'openLightbox',
+        assetHash: leftFallback,
+        ...(rightFallback ? { compareWith: rightFallback } : {}),
+      })
+      return
+    }
+    if (rightFallback) props.emit({ type: 'openLightbox', assetHash: rightFallback })
+  }
+
   return (
-    <div className={styles.body} data-compare-ratio={ratio.toFixed(3)}>
+    <div className={styles.body} data-compare-ratio={ratio.toFixed(3)} onDoubleClick={openLightbox}>
       <div className={styles.stage}>
         <div className={styles.base}>
           {leftUrl ? (
-            <img src={leftUrl} alt="" draggable={false} />
+            <img
+              src={leftUrl}
+              alt=""
+              draggable={false}
+              onLoad={(e) => reportNatural(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)}
+            />
           ) : (
             <EmptySlot label="上游第 1 张" />
           )}

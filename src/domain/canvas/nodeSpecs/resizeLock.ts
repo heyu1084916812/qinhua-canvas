@@ -52,8 +52,18 @@ export function resizeLockOf(node: NodeSnapshot): ResizeLock {
     case 'group':
     case 'batch':
       return 'free'
-    case 'compare':
+    /**
+     * 对比节点：**拿到素材真实像素之后按它锁**（用户 2026-10-16：「比例需要自适应，
+     * 不要固定」）—— 与生成节点同一条口径。还没拿到像素（老数据 / 图没加载完）时
+     * 退到 `'current'`（锁拖动起点的比例），至少不会把框拖歪。
+     */
+    case 'compare': {
+      const d = node.data as { naturalSize?: { width: number; height: number } }
+      if (d.naturalSize && d.naturalSize.width > 0 && d.naturalSize.height > 0) {
+        return d.naturalSize.width / d.naturalSize.height
+      }
       return 'current'
+    }
     default:
       return 'free' // 提示词：自由缩放
   }

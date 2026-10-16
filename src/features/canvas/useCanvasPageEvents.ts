@@ -76,7 +76,10 @@ export function useCanvasPageEvents(store: CanvasStore, onOpenSettings?: () => v
         // 素材灯箱（§6.17）：只记「要看哪个素材」，不派发命令 —— 纯展示态，
         // 本体由灯箱自己按 hash 从 assets 表读回（架构 §4.7：视图不认识存储）
         case 'openLightbox':
-          store.openLightbox(event.assetHash)
+          store.openLightbox(
+            event.assetHash,
+            event.compareWith ? { compareWith: event.compareWith } : undefined,
+          )
           break
         // 以下属于执行引擎 / 上游开关，由各自的接线方接住（执行宿主 / 画布表面 / PanelLayer）
         case 'requestRun':

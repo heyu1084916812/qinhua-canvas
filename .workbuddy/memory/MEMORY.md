@@ -7540,3 +7540,24 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   这仍是「逐项参数覆盖」那一类，`RunRequest` 里没有位置，先定数据形状再动。
 - **★ 收口基线（第 155 批 / 对账 #534）**：`tsc` + `npm run check` 全绿；
   `vitest run src/workbenches/canvas/agent src/workbenches/canvas/panels` **177/177**。
+
+## 2026-10-16 第 156 批（对比节点：比例自适应 + 双击灯箱对比 · #535）
+
+- **⭐⭐ 「节点框跟着素材比例走」这件事已经有现成的一套，别另写一份**：
+  `domain/canvas/layout/assetBoxCorrection`（纯函数，带单测，已处理「用户手动调过就不碰」）
+  + 视图层在 `img.onLoad` 里喂真实像素 + `emit({type:'updateData', transient:true})`。
+  生成节点早就这么做了（对账 #266），对比节点没跟上 —— 于是竖长条素材落进它那个
+  写死的 4:3 框里，两侧全空。**新增一类「装一张图」的节点时，照抄生成节点这两步即可。**
+- **⭐⭐ 同一件事在 domain 侧还有一半**：`resizeLockOf` 决定的是**缩放时锁什么比例**。
+  生成节点是「有 `naturalSize` 就锁素材比例，否则退当前比例」；对比节点原先**写死**
+  `'current'` —— 只补视图不改这里，框纠对了、一拖又歪回去。
+  **「内容比例」在这个项目里是两处规则：框的纠正 + 缩放的锁，缺一不可。**
+- **⭐⭐ 灯箱的「对比」档早就有了，缺的只是「跟谁比」的来源**：`LightboxLayer` 从
+  **产物节点自己的 `compareWith`** 读配对（融合那条链），而对比节点的两张图来自两个不同的
+  上游节点、没有那个字段。解法是给 `openLightbox` 加可选 `compareWith`
+  （store → emit 类型 → `useCanvasPageEvents` → 灯箱优先用它），双击时显式喂进去。
+  **下次要「复用现有浮层做新入口」，先看它的数据是**从哪儿**来的，往往只差一个显式参数。**
+- **★ 用户 2026-10-16 第 3 条不用改代码**：批量节点要「保持内部各自素材的比例」，
+  在批量节点自己的比例档里选**跟随素材**即可（展开成 N 次调用时每次按当次素材走）。
+- **★ 收口基线（第 156 批 / 对账 #535）**：`tsc` + `npm run check` 全绿；
+  `vitest run src/domain/canvas/nodeSpecs src/workbenches/canvas/nodes src/features/canvas` **346/346**。

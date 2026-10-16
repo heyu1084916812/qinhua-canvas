@@ -190,6 +190,14 @@ export interface CompareData {
   leftAssetHash?: string
   rightAssetHash?: string
   splitRatio: number
+  /**
+   * 对比图（左 / A）的真实像素。
+   *
+   * 用户 2026-10-16：「对比节点的比例需要自适应，不要固定」—— 拿到真实像素之后
+   * 框会跟着纠正成素材比例（见 `CompareNodeView.reportNatural`），缩放也按这个比例锁
+   * （`resizeLockOf`）—— 与生成节点「有内容锁原始比例」同一套口径。
+   */
+  naturalSize?: { width: number; height: number }
 }
 
 /**

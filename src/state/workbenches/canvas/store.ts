@@ -185,7 +185,7 @@ interface CanvasState {
    * 两者共用同一套框选交互（拖框 / 八向手柄 / 比例吸附），只有**确认之后干什么**不同 ——
    * 所以是同一个模式的两种意图，而不是两套 UI。
    */
-  lightbox: { assetHash: string; cropFor?: string; faceFor?: string } | null
+  lightbox: { assetHash: string; cropFor?: string; faceFor?: string; compareWith?: string } | null
   /**
    * **旋转与镜像编辑**（用户 2026-10-05 第 10 条）：作用在**刚复制出来的那个节点**上。
    *
@@ -294,12 +294,19 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
   endRename(): void
     getRenamingId(): string | null
     /** 打开 / 关闭素材灯箱（§6.17）；只存 hash，本体由灯箱自己按 hash 读回 */
-  openLightbox: (assetHash: string) => void
+  /**
+   * 打开素材灯箱。
+   *
+   * `compareWith`（可选）：**显式指定「跟哪张比」**。不传时灯箱会自己去产物节点上找
+   * `data.compareWith`（融合那条链就是这么配对的，见 `LightboxLayer`）。
+   * 对比节点传它 —— 那两张图分别来自两个不同的上游节点，节点上没有 `compareWith` 可读。
+   */
+  openLightbox: (assetHash: string, opts?: { compareWith?: string }) => void
   /** 以「提取选区」模式打开灯箱（用户口径：在素材灯箱里框选局部图） */
   openCropLightbox: (nodeId: string) => void
   openFaceLightbox: (nodeId: string) => void
   closeLightbox: () => void
-  getLightbox: () => { assetHash: string; cropFor?: string; faceFor?: string } | null
+  getLightbox: () => { assetHash: string; cropFor?: string; faceFor?: string; compareWith?: string } | null
   /** 打开 / 关闭「旋转与镜像」编辑（第 10 条）：打开时关闭灯箱与文本编辑框（三者互斥） */
   openRotateEditor: (nodeId: string) => void
   closeRotateEditor: () => void
@@ -630,8 +637,12 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     beginRename: (nodeId) => store.setState({ renamingId: nodeId }),
     endRename: () => store.setState({ renamingId: null }),
     getRenamingId: () => store.getState().renamingId,
-    openLightbox: (assetHash) =>
-      store.setState({ lightbox: { assetHash }, textEditor: null, menu: null }),
+    openLightbox: (assetHash, opts) =>
+      store.setState({
+        lightbox: { assetHash, ...(opts?.compareWith ? { compareWith: opts.compareWith } : {}) },
+        textEditor: null,
+        menu: null,
+      }),
     openCropLightbox: (nodeId) => {
       const node = store.getState().graph.nodes.find((n) => n.id === nodeId)
       const hash = (node?.data as { assetHash?: string } | undefined)?.assetHash
