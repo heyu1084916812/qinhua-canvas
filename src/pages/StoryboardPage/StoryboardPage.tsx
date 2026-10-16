@@ -35,6 +35,7 @@ import {
   applySplit,
   buildSplitSystem,
   buildSplitText,
+  episodeSourceText,
   parseSplitReply,
   planSplitBatches,
   splitSource,
@@ -51,6 +52,7 @@ import { asAppError, describeError } from '../../shared/result'
 import { buildEpisodePack, episodeTimeline } from '../../domain/storyboard/ffmpegPack'
 import { toBytes } from '../../platform/assets'
 import { EpisodePreview } from './EpisodePreview'
+import { SourcePreview } from './SourcePreview'
 import {
   addCharacter,
   addEpisode,
@@ -290,6 +292,12 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
    * 存一份状态就有两个来源。
    */
   const [preview, setPreview] = useState<{ at: number; playing: boolean } | null>(null)
+  /** 原文预览（对账 #547）：分集与分镜共用；只读，不在这里编辑文档。 */
+  const [sourcePreview, setSourcePreview] = useState<{
+    title: string
+    range?: { from: number; to: number }
+    text: string
+  } | null>(null)
   /** 拆集（#417）的状态行与二次确认；也各自独立 */
   const [split, setSplit] = useState<{ kind: 'idle' | 'running' | 'done' | 'error'; text: string }>({
     kind: 'idle',
@@ -457,6 +465,15 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   const episodes = doc.episodes
   const selected = episodes.find((e) => e.id === selectedId) ?? episodes[0] ?? null
   const shots = selected ? shotsOf(doc, selected.id) : []
+  const selectedSourceText = selected ? episodeSourceText(doc, selected) : ''
+  const openSelectedSource = selected
+    ? () =>
+        setSourcePreview({
+          title: selected.title,
+          ...(selected.sourceRange ? { range: selected.sourceRange } : {}),
+          text: selectedSourceText,
+        })
+    : undefined
   const selectedIndex = selected ? episodes.findIndex((e) => e.id === selected.id) : -1
   /** 画布上现在还活着的节点（"这一镜铺没铺过"要看它，不能只看 `shot.nodeId`） */
   const liveNodeIds = new Set(graph.nodes.map((n) => n.id))
@@ -1379,6 +1396,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                 {episodes.map((episode, index) => {
                   const on = selected?.id === episode.id
                   const isConfirming = confirming === `ep:${episode.id}`
+                  const sourceText = episodeSourceText(doc, episode)
                   return (
                     <li
                       key={episode.id}
@@ -1406,6 +1424,23 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                         <span className={styles.itemMeta}>{shotsOf(doc, episode.id).length} 镜</span>
                       </div>
                       <div className={styles.itemTools}>
+                        {sourceText ? (
+                          <button
+                            type="button"
+                            className={styles.ghost}
+                            data-storyboard-episode-source={episode.id}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSourcePreview({
+                                title: episode.title,
+                                ...(episode.sourceRange ? { range: episode.sourceRange } : {}),
+                                text: sourceText,
+                              })
+                            }}
+                          >
+                            看原文
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           className={styles.iconBtn}
@@ -1857,6 +1892,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                         onMove={(id, delta) => apply(moveShot(doc, id, delta, 0))}
                         onRemove={removeOneShot}
                         onRun={() => runShot(shot)}
+                        onShowSource={selectedSourceText ? openSelectedSource : undefined}
                         /* 只有这一镜的节点**现在还在画布上**才给入口（节点被删了就没什么可定位的） */
                         onLocate={
                           shot.nodeId && liveNodeIds.has(shot.nodeId)
@@ -1899,6 +1935,14 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
           onClose={() => setPreview(null)}
         />
       ) : null}
+      {sourcePreview ? (
+        <SourcePreview
+          title={sourcePreview.title}
+          range={sourcePreview.range}
+          text={sourcePreview.text}
+          onClose={() => setSourcePreview(null)}
+        />
+      ) : null}
     </div>
   )
 }
@@ -1920,6 +1964,7 @@ function ShotCard({
   onToggleCharacter,
   onLocate,
   onMakeVideo,
+  onShowSource,
   onAddLine,
   onLinePatch,
   onLineRemove,
@@ -1950,6 +1995,8 @@ function ShotCard({
   onLocate?: () => void
   /** 「出视频」（对账 #429）：这一镜有图且节点还在时才传；不传就不渲染这个入口 */
   onMakeVideo?: () => void
+  /** 「看本集原文」（对账 #547）：这一集有可回看的原文片段时才传 */
+  onShowSource?: () => void
 }) {
   /**
    * 状态一格写完（界面 / 冒烟都读这一个属性）：
@@ -1990,6 +2037,16 @@ function ShotCard({
           {stateText}
         </span>
         <div className={styles.itemTools}>
+          {onShowSource ? (
+            <button
+              type="button"
+              className={styles.ghost}
+              data-storyboard-shot-source={shot.id}
+              onClick={onShowSource}
+            >
+              看原文
+            </button>
+          ) : null}
           <button
             type="button"
             className={styles.iconBtn}

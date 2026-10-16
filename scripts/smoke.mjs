@@ -27357,6 +27357,29 @@ async function g131(browser) {
     JSON.stringify(ranges),
   )
 
+  /**
+   * ★★ **原文回看**（对账 #547）：范围落库只完成了“能溯源”的一半，
+   * 用户还得能当场看到那一段。这里从分集入口打开只读浮层，并核对它显示的
+   * 确实是该集范围里的原文，而不是整篇或另一集。
+   */
+  await page.locator('[data-storyboard-episode-source]').first().click()
+  const sourcePreview = page.locator('[data-storyboard-source-preview]')
+  const previewText = await sourcePreview
+    .locator('[data-storyboard-source-text]')
+    .innerText()
+    .catch(() => '')
+  rec(
+    g,
+    '★★ 点分集「看原文」打开只读浮层，内容是本集原文（不是整篇）',
+    (await sourcePreview.count()) === 1 &&
+      previewText.includes('雨下了整晚') &&
+      !previewText.includes('电梯停在十五楼'),
+    `预览=${previewText.replace(/\s+/g, ' ').slice(0, 60)}…`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(200)
+  rec(g, '★ 原文浮层 Esc 可关', (await sourcePreview.count()) === 0)
+
   // ④ 配 mock 对话渠道 → 再拆一次（两下确认）→ 模型命名落库
   await configureMockChannel(page)
   await sleep(500)
