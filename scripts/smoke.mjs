@@ -22488,8 +22488,6 @@ async function g107(browser) {
   const textTool = page.locator('[data-annotate-tool="text"]')
   await textTool.click()
   await sleep(200)
-  const textInput = page.locator('[data-annotate-text-input]')
-  await textInput.fill('可编辑文字')
   await page.mouse.move(canvasBox.x + canvasBox.width * 0.3, canvasBox.y + canvasBox.height * 0.35)
   await page.mouse.down()
   await page.mouse.up()
@@ -22497,15 +22495,10 @@ async function g107(browser) {
   const firstText = page.locator('[data-annotate-text-item]').first()
   rec(
     g,
-    '★★ 文字工具在画面上落成独立文字对象（不是直接烤进像素）',
-    (await page.locator('[data-annotate-text-item]').count()) === 1,
-  )
-  await firstText.dblclick()
-  await sleep(200)
-  rec(
-    g,
-    '★★ 双击文字对象进入编辑态',
-    (await page.locator('[data-annotate-text-editor]').count()) === 1,
+    '★★ 点画面就在落点进入输入态（不再先去工具条填字）',
+    (await page.locator('[data-annotate-text-item]').count()) === 1 &&
+      (await page.locator('[data-annotate-text-editor]').count()) === 1 &&
+      (await page.locator('[data-annotate-text-editor]').evaluate((el) => document.activeElement === el)),
   )
   await page.locator('[data-annotate-text-editor]').fill('第一次编辑')
   await page.keyboard.press('Enter')
@@ -22556,10 +22549,18 @@ async function g107(browser) {
   const fontAfter = await firstText.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
   rec(g, '★★ 文字右下角手柄可以放大 / 缩小', fontAfter > fontBefore, `${fontBefore} → ${fontAfter}`)
 
-  await page.locator('[data-annotate-text-input]').fill('待删除文字')
-  await page.mouse.click(canvasBox.x + canvasBox.width * 0.72, canvasBox.y + canvasBox.height * 0.55)
+  await page.mouse.move(canvasBox.x + canvasBox.width * 0.72, canvasBox.y + canvasBox.height * 0.55)
+  await page.mouse.down()
+  await page.mouse.up()
   await sleep(250)
-  rec(g, '★ 可以叠加第二块文字对象', (await page.locator('[data-annotate-text-item]').count()) === 2)
+  await page.locator('[data-annotate-text-editor]').fill('待删除文字')
+  await page.keyboard.press('Enter')
+  await sleep(200)
+  rec(
+    g,
+    '★ 可以叠加第二块文字对象，且每块都在画面里直接输入',
+    (await page.locator('[data-annotate-text-item]').count()) === 2,
+  )
   await page.locator('[data-annotate-text-delete]').click()
   await sleep(200)
   rec(g, '★★ 选中的文字可以删除，且不影响其它文字', (await page.locator('[data-annotate-text-item]').count()) === 1)

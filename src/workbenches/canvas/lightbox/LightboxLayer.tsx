@@ -278,7 +278,6 @@ export function LightboxLayer() {
   const [annTool, setAnnTool] = useState<AnnotateTool>('brush')
   const [annColor, setAnnColor] = useState<string>(ANNOTATE_COLORS[0])
   const [annSize, setAnnSize] = useState(6)
-  const [annText, setAnnText] = useState('')
   const [annOps, setAnnOps] = useState<AnnotateOp[]>([])
   const [annTextItems, setAnnTextItems] = useState<AnnotateTextItem[]>([])
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null)
@@ -297,7 +296,6 @@ export function LightboxLayer() {
     setEditingTextId(null)
     setAnnUndone([])
     setAnnTool('brush')
-    setAnnText('')
   }, [assetHash, lightbox?.annotateFor])
 
   /**
@@ -588,18 +586,21 @@ export function LightboxLayer() {
     e.stopPropagation()
     const p = annPointOf(e)
     if (annTool === 'text') {
-      if (!annText.trim()) return
       const item: AnnotateTextItem = {
         id: createId('text'),
         x: p.x,
         y: p.y,
-        text: annText.trim(),
+        text: '',
         color: annColor,
         fontSize: clampAnnotateTextSize(Math.max(14, annSize * 5)),
       }
       setAnnTextItems((prev) => [...prev, item])
       setSelectedTextId(item.id)
-      setAnnText('')
+      /**
+       * 等这次 pointerdown / pointerup / click 序列走完再挂编辑框。
+       * 立刻挂会被随后的 click 抢走焦点，textarea 一 mount 就 blur，用户看不到光标。
+       */
+      window.setTimeout(() => setEditingTextId(item.id), 0)
       return
     }
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -1310,15 +1311,6 @@ export function LightboxLayer() {
                 {t.icon}
               </button>
             ))}
-            {annTool === 'text' && (
-              <input
-                className={styles.annTextInput}
-                data-annotate-text-input
-                placeholder="输入文字，再点图上放置"
-                value={annText}
-                onChange={(e) => setAnnText(e.target.value)}
-              />
-            )}
             <span className={styles.barDivider} />
             {/* 颜色：固定色板（圆点即色样，选中的加一圈环） */}
             {ANNOTATE_COLORS.map((c) => (

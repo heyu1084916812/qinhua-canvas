@@ -711,21 +711,6 @@
   box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent);
 }
 
-/* 文字工具那支输入框：与同一排按钮等高，落在同一根操作条上 */
-.annTextInput {
-  flex: none;
-  width: 190px;
-  height: 28px;
-  padding: 0 var(--space-2);
-  box-sizing: border-box;
-  border: var(--border);
-  border-radius: var(--radius-control);
-  background: var(--bg-surface);
-  color: var(--text-1);
-  font-family: var(--font-sans);
-  font-size: var(--fs-chip);
-}
-
 .annSizeWrap {
   flex: none;
   display: inline-flex;
