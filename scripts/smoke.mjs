@@ -12723,22 +12723,35 @@ async function g81(browser) {
   await sleep(2500) // 等素材与 runRecord 落库
 
   await gotoProjects(page)
-  await sleep(1800)
-  const cover = await page.evaluate(() => {
-    const card = document.querySelector('[data-project-card]')
-    if (!card) return null
-    const media = card.querySelector('img, video')
-    if (!media) return null
-    const cs = getComputedStyle(media)
-    const mb = media.getBoundingClientRect()
-    const tb = media.parentElement.getBoundingClientRect()
-    return {
-      tag: media.tagName.toLowerCase(),
-      objectFit: cs.objectFit,
-      sameW: Math.abs(mb.width - tb.width) <= 1,
-      sameH: Math.abs(mb.height - tb.height) <= 1,
-    }
-  })
+  /**
+   * ⚠️ **轮询等封面出来，而不是睡固定 1.8s 后读一次**（2026-10-16 修假红）。
+   *
+   * 项目封面缩略图是**异步**生成的（解码 + 编码 WebP），"等固定时长"在并发跑全量时不够用：
+   * 实测 3 路并发下这条报 `null`（卡片上还没有 `img/video`），**solo 重跑 14/14 全绿**。
+   * 判据一个字没放宽（仍然要求封面用的是真图、且铺满容器），只是给它一个窗口。
+   */
+  const readCover = () =>
+    page.evaluate(() => {
+      const card = document.querySelector('[data-project-card]')
+      if (!card) return null
+      const media = card.querySelector('img, video')
+      if (!media) return null
+      const cs = getComputedStyle(media)
+      const mb = media.getBoundingClientRect()
+      const tb = media.parentElement.getBoundingClientRect()
+      return {
+        tag: media.tagName.toLowerCase(),
+        objectFit: cs.objectFit,
+        sameW: Math.abs(mb.width - tb.width) <= 1,
+        sameH: Math.abs(mb.height - tb.height) <= 1,
+      }
+    })
+  let cover = null
+  for (let i = 0; i < 25; i += 1) {
+    await sleep(400)
+    cover = await readCover()
+    if (cover) break
+  }
   rec(g, '★★ 项目封面用了最近生成的图（不是占位网格）', !!cover, JSON.stringify(cover))
   rec(
     g,
@@ -17222,32 +17235,77 @@ async function g102(browser) {
 
   await pickModel('Midjourney')
 
-  /** ① 「高级设置」这一枚必须摆在参数**之后**（用户原话：「放在参数的后面」） */
+  /**
+   * ① 「高级设置」这一枚必须摆在参数**之后**（用户原话：「放在参数的后面」）。
+   *
+   * ⚠️ **2026-10-16 改判据**：原先是 `JSON.stringify(chips) === ['model','gen-params','mj-params']`
+   * —— 精确相等。而 #523 按用户另一句要求（「数量的选择单独设置在参数的右边」）把**张数**搬成
+   * 独立一枚 chip 摆在参数右边 ⇒ 实际是 `['model','gen-params','count','mj-params']`，这条当场变红。
+   * 用户要的是**相对位置**（高级设置在参数之后），不是"参数后面紧挨着就是它"——张数插在中间，
+   * 两条要求并不冲突。判据改成**索引顺序**，并只允许 `count` 这一个已知额外项。
+   */
   const chips = await panel
     .locator('[data-param-chip]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-param-chip')))
+  const idxOf = (n) => chips.indexOf(n)
   rec(
     g,
     '★★ 参数行是「模型 → 参数 → 高级设置」，高级设置排在参数之后',
-    JSON.stringify(chips) === JSON.stringify(['model', 'gen-params', 'mj-params']),
+    ['model', 'gen-params', 'mj-params'].every((n) => idxOf(n) >= 0) &&
+      idxOf('model') < idxOf('gen-params') &&
+      idxOf('gen-params') < idxOf('mj-params') &&
+      chips.filter((c) => !['model', 'gen-params', 'mj-params', 'count'].includes(c)).length === 0,
     JSON.stringify(chips),
   )
 
-  /** ② 基础参数：图一那三段，且**没有**画质 / 背景 */
+  /**
+   * ② 基础参数：分辨率（只有「自适应」）+ 七档比例两段 —— 且**没有**质量 / 背景段。
+   *
+   * ⚠️ **2026-10-16 两处改判据（都是既有需求变动的连带，不是把回归写成规格）**：
+   *  ① **张数不在这枚浮层里了**：#523 按用户要求把它独立成一枚 chip（见上一条），
+   *     所以"三段"变"两段"—— 张数改在**它自己那枚 chip** 上继续钉（下一段）。
+   *  ② 分段**标题**从「清晰度」改成「画质」：同一批按参考图把「尺寸行 + 质量行」并成一个标题，
+   *     MJ 只剩尺寸那一行 ⇒ 沿用同一个名字（`imageParams.ts` 的文件头仍写着"只有三段：
+   *     分辨率（只有自适应）/ 比例（七档）/ 生成数量"，那三件事一件没少，只是分了两处落）。
+   */
   await panel.locator('[data-param-chip="gen-params"]').click()
   await sleep(450)
   const basic = await sectionsOf('gen-params')
   rec(
     g,
-    '★★ 基础参数只有三段（自适应 / 七档比例 / 1·2·4 张），没有画质与背景',
+    '★★ 基础参数只剩「分辨率（只有自适应）+ 七档比例」两段，没有质量 / 背景段',
     Array.isArray(basic) &&
-      basic.map((s) => s.name).join(',') === 'resolution,ratio,count' &&
+      basic.map((s) => s.name).join(',') === 'resolution,ratio' &&
       JSON.stringify(basic[0].options) === JSON.stringify(['auto']) &&
-      basic[0].title === '清晰度' &&
+      basic[0].title === '画质' &&
       JSON.stringify(basic[1].options) ===
         JSON.stringify(['1:1', '9:16', '16:9', '3:4', '4:3', '3:2', '2:3']) &&
-      JSON.stringify(basic[2].options) === JSON.stringify(['1', '2', '4']),
+      !basic.some((s) => ['quality', 'background'].includes(s.name)),
     JSON.stringify(basic),
+  )
+  await page.keyboard.press('Escape')
+  await sleep(220)
+  /** ②b 张数搬到独立 chip 之后，**档位一个没丢**（1 / 2 / 4）—— 这是从①那条里搬过来的覆盖 */
+  const countChip = panel.locator('[data-param-chip="count"]')
+  rec(
+    g,
+    '★★ 张数独立成一枚 chip（#523「数量单独设置在参数的右边」）',
+    (await countChip.count()) === 1,
+    `chip 数=${await countChip.count()}`,
+  )
+  await countChip.click()
+  await sleep(400)
+  const countOpts = await page.evaluate(() => {
+    const pop = document.querySelector('[data-param-popup="count"]')
+    return pop
+      ? [...pop.querySelectorAll('[data-param-option]')].map((o) => o.getAttribute('data-param-option'))
+      : null
+  })
+  rec(
+    g,
+    '★★ 张数那枚 chip 里仍是 1 / 2 / 4 三档',
+    JSON.stringify(countOpts) === JSON.stringify(['1', '2', '4']),
+    JSON.stringify(countOpts),
   )
   await page.keyboard.press('Escape')
   await sleep(220)
@@ -22814,8 +22872,24 @@ async function g112(browser) {
   await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
   await sleep(500)
 
+  /**
+   * 16:9 的 webm 夹具在 **Node 侧**读出来再传进浏览器。
+   *
+   * ⚠️ 别在 `page.evaluate` 里调 `readFileSync`：那是**浏览器**环境，没有 `fs` ⇒ 直接抛
+   * ReferenceError ⇒ 被下面的 `try/catch` 吞掉 ⇒ 静默退回"现场录"。第一版就是这么写的，
+   * 于是"已换成固定夹具"是假的、并发下的假红照旧（对账 #540 实测：三次并发全红）。
+   * 读不到就传 null，evaluate 里自有现场录的兜底 —— 少一个文件不该让整组跑不起来。
+   */
+  const webmB64 = (() => {
+    try {
+      return readFileSync('scripts/fixtures/webm-16x9.b64', 'utf8').trim()
+    } catch {
+      return null
+    }
+  })()
+
   const seeded = await page.evaluate(
-    async ({ pngB64, tallPngB64 }) => {
+    async ({ pngB64, tallPngB64, webmB64 }) => {
       const openDb = () =>
         new Promise((resolve, reject) => {
           const req = indexedDB.open('qinghua')
@@ -22837,31 +22911,52 @@ async function g112(browser) {
         await (await fetch(`data:image/png;base64,${tallPngB64}`)).arrayBuffer(),
       )
 
-      // 16:9 的 webm：canvas 画一帧 → MediaRecorder 录约 0.7s
+      /**
+       * 16:9 的 webm —— **仓库里的固定夹具**（`scripts/fixtures/webm-16x9.b64`，320×180 / 2243B）。
+       *
+       * ⚠️ 2026-10-16 由"现场录"换成"固定夹具"（对账 #540）：原先用
+       * `canvas.captureStream(10)` + MediaRecorder 现录，而它**依赖那个标签页真的在合成**
+       * —— 合成器不跑就没有帧，录出来的字节**非空但解码不出尺寸**（`videoWidth` 恒 0），
+       * 于是视频那两条时绿时红，且不走"造不出来就跳过"的兜底（字节数非 0，兜底根本触发不了）。
+       * 夹具是**当场验过能解码**才落盘的（`scripts/probe-make-webm-fixture.mjs`：录一段 →
+       * 塞进 `<video>` 读 `videoWidth` → 通过才写文件；sha256:274097ef…）。
+       * 夹具读不到时**退回现场录** —— 少一个文件不该让整组跑不起来。
+       */
       let videoBytes = null
       try {
-        const canvas = document.createElement('canvas')
-        canvas.width = 320
-        canvas.height = 180
-        const c2d = canvas.getContext('2d')
-        c2d.fillStyle = '#3a7bd5'
-        c2d.fillRect(0, 0, canvas.width, canvas.height)
-        const rec = new MediaRecorder(canvas.captureStream(10), { mimeType: 'video/webm' })
-        const chunks = []
-        const stopped = new Promise((resolve) => {
-          rec.onstop = resolve
-        })
-        rec.ondataavailable = (e) => {
-          if (e.data.size) chunks.push(e.data)
-        }
-        rec.start()
-        await new Promise((r) => setTimeout(r, 700))
-        rec.stop()
-        await stopped
-        const bytes = new Uint8Array(await new Blob(chunks, { type: 'video/webm' }).arrayBuffer())
+        if (!webmB64) throw new Error('no-fixture')
+        const bin = atob(webmB64)
+        const bytes = new Uint8Array(bin.length)
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
         videoBytes = bytes.length > 0 ? bytes : null
       } catch {
         videoBytes = null
+      }
+      if (!videoBytes) {
+        try {
+          const canvas = document.createElement('canvas')
+          canvas.width = 320
+          canvas.height = 180
+          const c2d = canvas.getContext('2d')
+          c2d.fillStyle = '#3a7bd5'
+          c2d.fillRect(0, 0, canvas.width, canvas.height)
+          const rec = new MediaRecorder(canvas.captureStream(10), { mimeType: 'video/webm' })
+          const chunks = []
+          const stopped = new Promise((resolve) => {
+            rec.onstop = resolve
+          })
+          rec.ondataavailable = (e) => {
+            if (e.data.size) chunks.push(e.data)
+          }
+          rec.start()
+          await new Promise((r) => setTimeout(r, 700))
+          rec.stop()
+          await stopped
+          const bytes = new Uint8Array(await new Blob(chunks, { type: 'video/webm' }).arrayBuffer())
+          videoBytes = bytes.length > 0 ? bytes : null
+        } catch {
+          videoBytes = null
+        }
       }
 
       const now = Date.now()
@@ -22943,47 +23038,65 @@ async function g112(browser) {
     {
       pngB64: solidPngBuffer(64, 36).toString('base64'),
       tallPngB64: solidPngBuffer(236, 416).toString('base64'),
+      webmB64,
     },
   )
 
   await page.goto(`${BASE}/canvas/p-g112`, { waitUntil: 'networkidle' })
-  await sleep(3200)
-
   /**
    * 量两样东西：
    * ① **节点框**（纠正有没有发生）——期望 427×240（16:9）；
    * ② **上下白边**（用户看到的症状）——`object-fit: contain` 下，
    *    图像实际画出来的高度 = 短边受限的等比高度，白边 = (框高 − 画出来高) / 2。
    *    这一条是**直接量症状**：只断言"框的比例对了"会被 1px 描边之类的巧合蒙过去。
+   *
+   * ⚠️ **轮询等元数据解码完再量**（2026-10-16 修假红）：视频的 `videoWidth/Height` 要等解码、
+   * 图片要等 `onLoad`，"睡固定 3.2s 后量一次"在并发跑全量时不够 —— 实测 3 路并发下
+   * 这条报 `node=240×240 白边=nullpx`（元数据还没到），**solo 重跑 7/7 全绿**。
+   * 判据一个字没放宽（仍要 16:9 且白边 < 2px），只是给它一个窗口。
    */
-  const boxes = await page.evaluate(() => {
-    const of = (id) => {
-      const node = document.querySelector(`[data-node-id="${id}"]`)
-      if (!node) return null
-      const nodeRect = node.getBoundingClientRect()
-      const media = node.querySelector('[data-generation-media]')
-      const mediaRect = media?.getBoundingClientRect()
-      const asset = media?.querySelector('[data-node-asset]')
-      const nw = asset?.naturalWidth || asset?.videoWidth || 0
-      const nh = asset?.naturalHeight || asset?.videoHeight || 0
-      let bands = null
-      if (mediaRect && nw > 0 && nh > 0) {
-        const painted = nh * Math.min(mediaRect.width / nw, mediaRect.height / nh)
-        bands = Math.round(((mediaRect.height - painted) / 2) * 10) / 10
+  const readBoxes = () =>
+    page.evaluate(() => {
+      const of = (id) => {
+        const node = document.querySelector(`[data-node-id="${id}"]`)
+        if (!node) return null
+        const nodeRect = node.getBoundingClientRect()
+        const media = node.querySelector('[data-generation-media]')
+        const mediaRect = media?.getBoundingClientRect()
+        const asset = media?.querySelector('[data-node-asset]')
+        const nw = asset?.naturalWidth || asset?.videoWidth || 0
+        const nh = asset?.naturalHeight || asset?.videoHeight || 0
+        let bands = null
+        if (mediaRect && nw > 0 && nh > 0) {
+          const painted = nh * Math.min(mediaRect.width / nw, mediaRect.height / nh)
+          bands = Math.round(((mediaRect.height - painted) / 2) * 10) / 10
+        }
+        return {
+          node: { w: Math.round(nodeRect.width), h: Math.round(nodeRect.height) },
+          media: mediaRect ? { w: Math.round(mediaRect.width), h: Math.round(mediaRect.height) } : null,
+          bands,
+        }
       }
       return {
-        node: { w: Math.round(nodeRect.width), h: Math.round(nodeRect.height) },
-        media: mediaRect ? { w: Math.round(mediaRect.width), h: Math.round(mediaRect.height) } : null,
-        bands,
+        img: of('n-g112-img'),
+        vid: of('n-g112-vid'),
+        wrongbox: of('n-g112-wrongbox'),
+        tall: of('n-g112-tall'),
       }
-    }
-    return {
-      img: of('n-g112-img'),
-      vid: of('n-g112-vid'),
-      wrongbox: of('n-g112-wrongbox'),
-      tall: of('n-g112-tall'),
-    }
-  })
+    })
+  let boxes = await readBoxes()
+  /**
+   * 两处「元数据到手才会有的值」：图片与视频的 `bands`。任一还没变成**数字**就继续等（最长约 12s）。
+   *
+   * ⚠️ 判据必须是 `typeof === 'number'`，**不能写 `!== null`**：节点还没挂上来时 `boxes.img`
+   * 本身是 `null`，`boxes.img?.bands` 是 `undefined`，而 `undefined !== null` **为真** ⇒
+   * 条件当场判成"已经等到了"、一轮都不等就退出（我自己第一版就是这么写的，实测照样红）。
+   */
+  const decided = (b) => typeof b?.bands === 'number'
+  for (let i = 0; i < 30 && !(decided(boxes.img) && decided(boxes.vid)); i += 1) {
+    await sleep(400)
+    boxes = await readBoxes()
+  }
   /**
    * 上下白边 < 2px 才算"没有空隙"（1px 是框描边，肉眼看不见也说不上是留白）；
    * 比例那条用**相对**判据 —— 画布可能处在非 100% 缩放下，写死像素等于把断言绑在缩放上。
@@ -23029,22 +23142,37 @@ async function g112(browser) {
     `node=${boxes.tall?.node?.w}×${boxes.tall?.node?.h} 比例=${tallRatio.toFixed(4)} 期望≈${(236 / 416).toFixed(4)} 白边=${boxes.tall?.bands}px`,
   )
 
-  /** 真实像素也要**记下来**：以后"复制 / 脱容器 / 按原比例重排"都靠它，不能只改框不记 */
-  const stored = await page.evaluate(async () => {
-    const db = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('qinghua')
-      req.onsuccess = () => resolve(req.result)
-      req.onerror = () => reject(req.error)
-    })
-    const read = (id) =>
-      new Promise((resolve) => {
-        const tx = db.transaction('nodes', 'readonly')
-        const req = tx.objectStore('nodes').get(id)
-        req.onsuccess = () => resolve(req.result ?? null)
-        req.onerror = () => resolve(null)
+  /**
+   * 真实像素也要**记下来**：以后"复制 / 脱容器 / 按原比例重排"都靠它，不能只改框不记。
+   *
+   * ⚠️ **轮询等落库**（2026-10-16 修假红）：命令层的持久化是 **800ms 防抖**，而 DOM 上的纠正
+   * 是立刻生效的 ⇒ "量完 DOM 紧接着读库"会读到 `naturalSize=null`（实测：并发负载下必现，
+   * solo 也会撞上 —— 同一天里这条先报 DOM 没纠正、后报记录没落库，其实是同一类时序问题）。
+   * 判据一个字没放宽（仍要求 `naturalSize` 与框尺寸都对），只是等它真的写进去。
+   */
+  const readStored = () =>
+    page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('qinghua')
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
       })
-    return { img: await read('n-g112-img'), vid: await read('n-g112-vid') }
-  })
+      const read = (id) =>
+        new Promise((resolve) => {
+          const tx = db.transaction('nodes', 'readonly')
+          const req = tx.objectStore('nodes').get(id)
+          req.onsuccess = () => resolve(req.result ?? null)
+          req.onerror = () => resolve(null)
+        })
+      return { img: await read('n-g112-img'), vid: await read('n-g112-vid') }
+    })
+  let stored = await readStored()
+  const storedReady = (s) =>
+    !!s.img?.data?.naturalSize && (!seeded.video || !!s.vid?.data?.naturalSize)
+  for (let i = 0; i < 30 && !storedReady(stored); i += 1) {
+    await sleep(300)
+    stored = await readStored()
+  }
   rec(
     g,
     '★★ 真实像素回写进节点，且**框的尺寸也落库**（图片：naturalSize 64×36、框 427×240）',
