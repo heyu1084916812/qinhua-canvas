@@ -189,6 +189,10 @@ interface CanvasState {
    * `rotateFor`（2026-10-16）：**「旋转与镜像」已搬进灯箱当模式**（用户：「真正的操作组件区域
    * 在灯箱里面进行，统一设计」）。它是 nodeId，不是 hash —— 保存时要写回那个节点的产物。
    * 搬进来之后它自动继承了灯箱的**按住拖动平移 / 滚轮缩放**（这正是用户要的「交互不变」）。
+   *
+   * `annotateFor`（2026-10-16）：**「标注」同样搬进灯箱当模式**。理由与落点完全同源 ——
+   * 标注要「画在图上」，而灯箱本来就是那个「图在屏幕上」的坐标系（`box` + 缩放平移）。
+   * 两者都存 nodeId（保存时要写回 / 派生自那个节点），互斥（同时只可能有一个）。
    */
   lightbox: {
     assetHash: string
@@ -196,21 +200,15 @@ interface CanvasState {
     faceFor?: string
     compareWith?: string
     rotateFor?: string
+    annotateFor?: string
   } | null
-  /**
-   * **旋转与镜像编辑**（用户 2026-10-05 第 10 条）：作用在**刚复制出来的那个节点**上。
-   *
-   * 与灯箱同类瞬时态，只存 nodeId（图片本体按它的 `assetHash` 读）：关掉即忘，
-   * 不落库、不进撤销栈 —— 「保存」那一下才写数据（并作为一步撤销）。
+  /*
+   * 原先这里还有 `rotate` / `annotate` 两个平行的瞬时态。2026-10-16 两个编辑器
+   * （旋转与镜像、标注）都搬进灯箱之后它们就成了**谁都不写的死字段**——留着只会让
+   * 下一个人以为「开编辑器」要改两处状态。两个模式的真相都收进上面那个 `lightbox`
+   * 里（`rotateFor` / `annotateFor`），`getRotate` / `getAnnotate` 从它反推，对外
+   * 的 API 名字一个没变。
    */
-  rotate: { nodeId: string } | null
-  /**
-   * **标注（画笔）编辑**（用户 2026-10-05 第 10 条）：画在节点的素材上，
-   * 「保存」时把标注**合成进一张新图**并落到原图右侧的新节点（原图不动）。
-   *
-   * 同样是瞬时态：工具选择 / 笔画历史都在编辑层自己手里，关掉即忘。
-   */
-  annotate: { nodeId: string } | null
   /**
    * 文本编辑灯箱（产品文档 §6.7，用户 2026-09-21）：提示词正文的**大编辑框**。
    *
@@ -323,6 +321,7 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
     faceFor?: string
     compareWith?: string
     rotateFor?: string
+    annotateFor?: string
   } | null
   /**
    * 打开 / 关闭「旋转与镜像」编辑（第 10 条）。
@@ -333,7 +332,13 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
   openRotateEditor: (nodeId: string) => void
   closeRotateEditor: () => void
   getRotate: () => { nodeId: string } | null
-  /** 打开 / 关闭「标注」编辑（与灯箱、文本编辑、旋转编辑互斥） */
+  /**
+   * 打开 / 关闭「标注」编辑（第 10 条）。
+   *
+   * ⚠️ 2026-10-16 起与旋转同一条落点：**它就是「开灯箱 + 进标注模式」**。
+   * 名字与调用点不变，换的是落点 —— 画笔 / 矩形 / 文字那套工具条现在住在灯箱里，
+   * 于是它天然继承了灯箱的**滚轮缩放 / 中键拖动平移**（用户要的「交互不变」）。
+   */
   openAnnotateEditor: (nodeId: string) => void
   closeAnnotateEditor: () => void
   getAnnotate: () => { nodeId: string } | null
@@ -500,8 +505,6 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     renamingId: null,
     undoBar: null,
     lightbox: null,
-    rotate: null,
-    annotate: null,
     textEditor: null,
   }))
 
@@ -706,7 +709,6 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
       if (!hash) return
       store.setState({
         lightbox: { assetHash: hash, rotateFor: nodeId },
-        annotate: null,
         textEditor: null,
         menu: null,
       })
@@ -716,16 +718,26 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
       const lb = store.getState().lightbox
       return lb?.rotateFor ? { nodeId: lb.rotateFor } : null
     },
-    openAnnotateEditor: (nodeId) =>
+    /**
+     * 「标注」= **开灯箱 + 进标注模式**（2026-10-16 搬进灯箱，见上面 `lightbox` 的说明）。
+     *
+     * 与 `openRotateEditor` 逐字同构：没图的节点不打开（而不是开一个空灯箱在那儿画空气）。
+     */
+    openAnnotateEditor: (nodeId) => {
+      const node = store.getState().graph.nodes.find((n) => n.id === nodeId)
+      const hash = (node?.data as { assetHash?: string } | undefined)?.assetHash
+      if (!hash) return
       store.setState({
-        annotate: { nodeId },
-        rotate: null,
-        lightbox: null,
+        lightbox: { assetHash: hash, annotateFor: nodeId },
         textEditor: null,
         menu: null,
-      }),
-    closeAnnotateEditor: () => store.setState({ annotate: null }),
-    getAnnotate: () => store.getState().annotate,
+      })
+    },
+    closeAnnotateEditor: () => store.setState({ lightbox: null }),
+    getAnnotate: () => {
+      const lb = store.getState().lightbox
+      return lb?.annotateFor ? { nodeId: lb.annotateFor } : null
+    },
     /* 与素材灯箱互斥：同一个屏幕位置不可能同时看图和改字，两个都开着只会互相盖住 */
     openTextEditor: (nodeId) =>
       store.setState({ textEditor: { nodeId }, lightbox: null, menu: null }),

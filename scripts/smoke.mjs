@@ -16522,6 +16522,54 @@ async function g92(browser) {
   }
 
   /**
+   * ★★ 框选模式的**手势分工**（用户 2026-10-16 定的口径）：「把提取选取的时候单击鼠标左键
+   * 拖动变成框就行了，单击中键是拖动即可」。
+   *
+   * 灯箱本来就有两条平移入口（左键拖、中键拖），框选模式下左键被画框占走。这一段同时钉
+   * 三件：中键**按在选框里面**也能平移视图、那一下**没有顺手搬走框**、尺寸也**没被改成
+   * 重画或缩放**。
+   *
+   * 为什么要特意按在框**内部**：选框常占掉大半张图，用户平移时手多半正落在框里 —— 只按在
+   * 框外的留白上试，恰好是「看着能用、真用起来不能用」的那种假绿（实测就是这一种：
+   * `cropMove` / 手柄两层不筛按键，中键落到它们身上会变成搬框 / 改框）。
+   */
+  {
+    const boxBefore = await page.locator('[data-lightbox-crop-rect]').boundingBox().catch(() => null)
+    const mediaBefore = await page.locator('[data-lightbox-media]').boundingBox().catch(() => null)
+    if (boxBefore && mediaBefore) {
+      const cx = boxBefore.x + boxBefore.width / 2
+      const cy = boxBefore.y + boxBefore.height / 2
+      await page.mouse.move(cx, cy)
+      await page.mouse.down({ button: 'middle' })
+      await page.mouse.move(cx - 60, cy - 40, { steps: 10 })
+      await page.mouse.up({ button: 'middle' })
+      await sleep(350)
+      const boxAfter = await page.locator('[data-lightbox-crop-rect]').boundingBox().catch(() => null)
+      const mediaAfter = await page.locator('[data-lightbox-media]').boundingBox().catch(() => null)
+      const panDx = mediaAfter ? mediaAfter.x - mediaBefore.x : 0
+      const panDy = mediaAfter ? mediaAfter.y - mediaBefore.y : 0
+      rec(
+        g,
+        '★★ 框选模式：中键（按在选框内部）拖动 = 平移视图',
+        Math.abs(panDx) > 15 && Math.abs(panDy) > 15,
+        `Δx=${Math.round(panDx)} Δy=${Math.round(panDy)}`,
+      )
+      rec(
+        g,
+        '★★ 中键平移时选框跟着图走、尺寸不变（没被顺手搬走 / 重画）',
+        !!boxAfter &&
+          Math.abs(boxAfter.width - boxBefore.width) <= 2 &&
+          Math.abs(boxAfter.height - boxBefore.height) <= 2 &&
+          Math.abs(boxAfter.x - (boxBefore.x + panDx)) <= 3 &&
+          Math.abs(boxAfter.y - (boxBefore.y + panDy)) <= 3,
+        `before=${boxBefore.width.toFixed(1)}×${boxBefore.height.toFixed(1)} after=${boxAfter?.width?.toFixed(1)}×${boxAfter?.height?.toFixed(1)}`,
+      )
+    } else {
+      rec(g, '★★ 框选模式：中键（按在选框内部）拖动 = 平移视图', false, '取不到选框或图片矩形')
+    }
+  }
+
+  /**
    * ★★ 「提取选区」与比例档**挨在一起**（用户 2026-09-30）。
    * 首版按钮在右下、比例档在左下，中间被 `spacer` 顶开 ~600px；现在同一组，
    * 距离约等于「取消」那个按钮的宽度。用 200px 这道线把两种布局分得开。
@@ -16714,6 +16762,17 @@ async function g92(browser) {
       '★★ 拖分割线真的改比例（0.5 → 约 0.25）',
       Math.abs(ratioAfter - 0.25) < 0.06,
       `before=${ratioBefore} after=${ratioAfter}`,
+    )
+    /**
+     * ★★ 拖完分割线**灯箱还在**（用户 2026-10-16：「拖动对比线之后会把灯箱状态取消」）。
+     *
+     * 拖分割线走的是自己那套 window 监听，从不碰 `movedRef` —— 松手那一下的 `click`
+     * 冒到舞台上会被判成「没拖过的单击 ⇒ 关灯箱」。这一条专门钉住它没被关掉。
+     */
+    rec(
+      g,
+      '★★ 拖完分割线灯箱还在（没被松手那一下关掉）',
+      (await page.locator('[data-lightbox]').count()) === 1,
     )
     /** 留一张「对比档 + 分割线拖到左边」的截图：这类画面只有肉眼能判断好不好看 */
     await page.screenshot({ path: `${OUT}/108-g92-compare.png` })
@@ -21940,7 +21999,18 @@ async function g107(browser) {
   await genPanel(page, src)
   await page.locator('[data-follow-action="annotate"]').click()
   await sleep(700)
-  rec(g, '★★ 点「标注」打开标注层', (await page.locator('[data-annotate-layer]').count()) === 1)
+  /**
+   * ⚠️ 2026-10-16：标注与旋转同一条落点 —— 从**独立的全屏层**搬进了**灯箱**
+   * （用户：「真正的操作组件区域在灯箱里面进行，统一设计」）。判据跟着换成
+   * 「灯箱在 + 里面有标注画布」；只断言画布还在的话，搬回去这一组照样绿。
+   */
+  rec(
+    g,
+    '★★ 点「标注」在**灯箱里**打开标注画布（不再是独立一层）',
+    (await page.locator('[data-annotate-layer]').count()) === 1 &&
+      (await page.locator('[data-lightbox]').count()) === 1,
+    `画布=${await page.locator('[data-annotate-layer]').count()} 灯箱=${await page.locator('[data-lightbox]').count()}`,
+  )
   const annParts = await page.evaluate(() => ({
     close: !!document.querySelector('[data-annotate-close]'),
     brush: !!document.querySelector('[data-annotate-tool="brush"]'),
@@ -21989,6 +22059,11 @@ async function g107(browser) {
   const undoBtn = page.locator('[data-annotate-tool="undo"]')
   const redoBtn = page.locator('[data-annotate-tool="redo"]')
   rec(g, '★★ 画完一笔「撤销」可用', await undoBtn.isEnabled())
+  /**
+   * 画完松手会触发一次 `click`，而舞台那条 `onClick` 是「单击空白关灯箱」——
+   * 这一条钉住它没把刚画的灯箱关掉（用户 2026-10-16 报过同类的「拖一下灯箱没了」）。
+   */
+  rec(g, '★★ 画完一笔灯箱还在（没被那次单击关掉）', (await page.locator('[data-lightbox]').count()) === 1)
   await undoBtn.click()
   await sleep(250)
   rec(g, '★★ 撤销后「重做」可用（撤销 / 重做是配对的）', await redoBtn.isEnabled())
@@ -21996,6 +22071,41 @@ async function g107(browser) {
   await sleep(250)
   rec(g, '★ 重做后「撤销」又可用', await undoBtn.isEnabled())
   await page.screenshot({ path: `${OUT}/134-g107-annotate.png` })
+
+  /**
+   * ★★ 标注模式下灯箱的**中键拖动平移 / 滚轮缩放**照旧（左键被「画」占走，
+   * 平移只能靠中键 —— 这正是把标注搬进灯箱换来的东西，老那一层两样都没有）。
+   */
+  {
+    const annMedia = page.locator('[data-lightbox-media]')
+    const annBefore = await annMedia.boundingBox()
+    if (annBefore) {
+      const annCx = annBefore.x + annBefore.width / 2
+      const annCy = annBefore.y + annBefore.height / 2
+      await page.mouse.move(annCx, annCy)
+      await page.mouse.down({ button: 'middle' })
+      await page.mouse.move(annCx - 60, annCy - 40, { steps: 10 })
+      await page.mouse.up({ button: 'middle' })
+      await sleep(300)
+      const annAfter = await annMedia.boundingBox()
+      const annDx = annAfter ? Math.round(annAfter.x - annBefore.x) : 0
+      const annDy = annAfter ? Math.round(annAfter.y - annBefore.y) : 0
+      rec(
+        g,
+        '★★ 标注模式下**中键**可拖动平移（左键留给画）',
+        Math.abs(annDx) > 15 && Math.abs(annDy) > 15,
+        `Δx=${annDx} Δy=${annDy}`,
+      )
+      const annZoomBefore = (await page.locator('[data-lightbox-zoom]').innerText()).trim()
+      await page.mouse.move(annAfter ? annAfter.x + annAfter.width / 2 : annCx, annAfter ? annAfter.y + annAfter.height / 2 : annCy)
+      await page.mouse.wheel(0, -240)
+      await sleep(300)
+      const annZoomAfter = (await page.locator('[data-lightbox-zoom]').innerText()).trim()
+      rec(g, '★★ 标注模式下仍可滚轮缩放（交互不变）', annZoomBefore !== annZoomAfter, `${annZoomBefore} → ${annZoomAfter}`)
+    } else {
+      rec(g, '★★ 标注模式下**中键**可拖动平移（左键留给画）', false, '取不到图片矩形')
+    }
+  }
 
   const beforeAnnIds = await nodeIds()
   const srcBoxForAnn = await src.boundingBox()
@@ -22008,6 +22118,12 @@ async function g107(browser) {
   const afterAnnIds = await nodeIds()
   const annAdded = afterAnnIds.filter((id) => !beforeAnnIds.includes(id))
   rec(g, '★★ 保存标注出一个**新节点**（原图不被覆盖）', annAdded.length === 1, `新增=${annAdded.length}`)
+  rec(
+    g,
+    '★ 保存后灯箱与标注画布一起收起来',
+    (await page.locator('[data-annotate-layer]').count()) === 0 &&
+      (await page.locator('[data-lightbox]').count()) === 0,
+  )
   const annId = annAdded[0]
   const annPlacementOk = annId
     ? await (async () => {
@@ -22020,6 +22136,20 @@ async function g107(browser) {
       })()
     : false
   rec(g, '★★ 标注结果落在原图右侧且带着图', annPlacementOk)
+  /**
+   * ★★ 合成这一步**真的画进像素**了：标注图与源图必须**不是同一张**。
+   * 只验「多了一个节点」是抓不住「ops 一条都没画进去」的 —— 那种情况下新节点照样在、
+   * 也带着图，只是内容与源图逐字节相同（hash 一样 ⇒ src 一样）。
+   */
+  const annSrcAfter = annId
+    ? await page.locator(`[data-node-id="${annId}"] [data-node-asset]`).getAttribute('src')
+    : null
+  rec(
+    g,
+    '★★ 标注图与源图**不是同一张**（标注真的合成进像素了）',
+    !!annSrcAfter && annSrcAfter !== srcSrcBefore,
+    annSrcAfter === srcSrcBefore ? '与源图逐字节相同（等于没画）' : '',
+  )
   await page.screenshot({ path: `${OUT}/135-g107-annotate-result.png` })
 
   /** ⑤ 拿到新图之后，那两个动作仍然在（不是只对第一张有效） */
@@ -28346,7 +28476,12 @@ async function g138(browser) {
   await page.keyboard.press('Escape')
   await sleep(250)
 
-  // ③c 加文字/标注：同一个结果节点，直接打开标注编辑器
+  /**
+   * ③c 加文字/标注：同一个结果节点，直接打开标注编辑器。
+   *
+   * ⚠️ 2026-10-16：标注与旋转都已搬进**灯箱**（见 G107 那段的说明），所以判据是
+   * 「灯箱在 + 里面有那一层」。`[data-annotate-layer]` 现在就是灯箱里那层画布。
+   */
   await page.goto(`${BASE}/ecommerce/${projectId}`, { waitUntil: 'networkidle' })
   await page
     .locator('[data-ecommerce-result][data-status="done"]')
@@ -28356,20 +28491,26 @@ async function g138(browser) {
   await page.locator('[data-ecommerce-annotate-canvas]').first().click()
   await page.waitForURL(/\/canvas\//, { timeout: 15000 })
   const annotateLayer = await page
-    .locator('[data-annotate-layer]')
+    .locator('[data-lightbox] [data-annotate-layer]')
     .waitFor({ state: 'visible', timeout: 15000 })
     .then(() => true)
     .catch(() => false)
   rec(
     g,
-    '★★ 电商结果卡「加文字/标注」→ 画布直接打开标注编辑器',
+    '★★ 电商结果卡「加文字/标注」→ 画布直接打开标注编辑器（灯箱里的标注画布）',
     page.url().includes('annotate=1') && annotateLayer,
     `url=${page.url().replace(BASE, '')} 标注层=${annotateLayer}`,
   )
   await page.keyboard.press('Escape')
   await sleep(250)
 
-  // ③d 旋转：同一个结果节点，直接打开旋转与镜像编辑器
+  /**
+   * ③d 旋转：同一个结果节点，直接打开旋转与镜像编辑器。
+   *
+   * ⚠️ 锚点原先是 `[data-rotate-layer]`（那个独立全屏层 2026-10-16 已删除，旋转进了灯箱）。
+   * 搬家时漏改这一条 —— 实测过它当时是**红的**（`旋转层=false`，10/11），改到
+   * `[data-rotate-toolbar]` 后才对得上真实实现。
+   */
   await page.goto(`${BASE}/ecommerce/${projectId}`, { waitUntil: 'networkidle' })
   await page
     .locator('[data-ecommerce-result][data-status="done"]')
@@ -28379,13 +28520,13 @@ async function g138(browser) {
   await page.locator('[data-ecommerce-rotate-canvas]').first().click()
   await page.waitForURL(/\/canvas\//, { timeout: 15000 })
   const rotateLayer = await page
-    .locator('[data-rotate-layer]')
+    .locator('[data-lightbox] [data-rotate-toolbar]')
     .waitFor({ state: 'visible', timeout: 15000 })
     .then(() => true)
     .catch(() => false)
   rec(
     g,
-    '★★ 电商结果卡「旋转」→ 画布直接打开旋转与镜像编辑器',
+    '★★ 电商结果卡「旋转」→ 画布直接打开旋转与镜像编辑器（灯箱里的旋转条）',
     page.url().includes('rotate=1') && rotateLayer,
     `url=${page.url().replace(BASE, '')} 旋转层=${rotateLayer}`,
   )

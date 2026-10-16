@@ -15,7 +15,6 @@ import { AgentPanel } from '../../workbenches/canvas/panels/AgentPanel/AgentPane
 import { CanvasToolbar } from '../../workbenches/canvas/toolbar/CanvasToolbar'
 import { LightboxLayer } from '../../workbenches/canvas/lightbox/LightboxLayer'
 import { TextEditorLayer } from '../../workbenches/canvas/text/TextEditorLayer'
-import { AnnotateLayer } from '../../workbenches/canvas/annotate/AnnotateLayer'
 import { screenToWorld } from '../../domain/canvas/geometry/coords'
 import { NODE_MINIMUMS } from '../../domain/canvas/layout/constants'
 import { assetNodeSize } from '../../domain/canvas/layout/assetNodeSize'
@@ -413,9 +412,10 @@ function CanvasProject({ projectId }: { projectId: string }) {
           {/* 文本编辑灯箱（§6.7）：与素材灯箱同级、互斥。同样挂页面级——
               入口有「右键菜单」与「节点跟随栏的全屏按钮」两处 */}
           <TextEditorLayer />
-          {/* 旋转与镜像 / 标注（用户 2026-10-05 第 10 条）：都在节点跟随栏里点开，
-              与上面两个浮层互斥；保存才写数据（一步撤销），关掉即忘 */}
-          <AnnotateLayer />
+          {/* 旋转与镜像 / 标注（用户 2026-10-05 第 10 条）：**现已都住在素材灯箱里**
+              （2026-10-16 搬的，见 store 的 `openRotateEditor` / `openAnnotateEditor`）——
+              它们是灯箱的两种模式，不再各占一个全屏层，所以这里没有对应的挂载点。
+              与文本编辑灯箱互斥；保存才写数据（一步撤销），关掉即忘 */}
         </div>
       </CanvasExecutionProvider>
     </CanvasStoreProvider>

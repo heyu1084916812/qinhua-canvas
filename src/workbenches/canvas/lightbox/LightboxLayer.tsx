@@ -26,13 +26,23 @@ import { RATIO_CHOICES } from '../../../domain/canvas/layout/ratioChoices'
 import { extractSelection } from '../../../features/canvas/extractSelection'
 import { faceBoxFromRect } from '../../../features/canvas/emotionEdit'
 import { downloadAsset } from '../../../features/canvas/downloadAsset'
+import {
+  ANNOTATE_COLORS,
+  drawAnnotateOp,
+  type AnnotateOp,
+  type AnnotateTool,
+} from '../annotate/annotateOps'
+import { saveAnnotatedAsset } from '../annotate/bakeAnnotate'
 import { saveRotatedAsset } from '../rotate/bakeRotate'
 import {
+  IconAnnotate,
   IconCheck,
   IconClose,
   IconMirrorH,
   IconMirrorV,
+  IconRect,
   IconRedo,
+  IconText,
   IconUndo,
 } from '../toolbar/icons'
 import styles from './LightboxLayer.module.css'
@@ -80,6 +90,13 @@ const COMPARE_VIEWS = [
   { id: 'original', label: '原图' },
 ] as const
 type CompareView = (typeof COMPARE_VIEWS)[number]['id']
+
+/** 标注模式的三件工具（用户 2026-10-05 第 10 条：画笔 / 矩形 / 文字） */
+const ANNOTATE_TOOLS = [
+  { id: 'brush', label: '画笔', icon: <IconAnnotate size={16} /> },
+  { id: 'rect', label: '矩形', icon: <IconRect size={16} /> },
+  { id: 'text', label: '文字', icon: <IconText size={16} /> },
+] as const
 
 export function LightboxLayer() {
   const store = useCanvasStore()
@@ -161,6 +178,59 @@ export function LightboxLayer() {
     setMirrorV(false)
     setRotating2(false)
   }, [lightbox?.rotateFor])
+
+  /**
+   * **标注模式**（2026-10-16 从独立的全屏层 `AnnotateLayer` 搬进灯箱，见 store 的
+   * `openAnnotateEditor`）。
+   *
+   * 落点与旋转那条**恰好相反**：旋转是把变换叠在灯箱那张 `<img>` 上；标注则是在图上
+   * 再盖一层 `<canvas>`——因为标注要**累积像素动作**（一笔一笔画），不能靠 CSS 表达。
+   *
+   * 那一层画布与灯箱那张图**同一块矩形**（都用 `box`，连 1px 描边都一样）：于是
+   * 「屏幕坐标 → 图片像素」只需要按这一块的比例换算一次，缩放 / 平移时标注自然跟图走，
+   * 而且画布尺寸本身就是**原图像素**，保存时一个换算都不用做。
+   *
+   * 手势分工（用户 2026-10-16 定的口径）：**左键在画布上画**、**中键拖动画布**、
+   * **滚轮缩放**（滚轮事件不拦，照旧冒到舞台）。左键被画占用这件事只发生在画布这一层，
+   * 所以画布只 `stopPropagation` 左键，其余按键一律放行给舞台那条通用平移。
+   */
+  const annotating = Boolean(lightbox?.annotateFor)
+  const [annTool, setAnnTool] = useState<AnnotateTool>('brush')
+  const [annColor, setAnnColor] = useState<string>(ANNOTATE_COLORS[0])
+  const [annSize, setAnnSize] = useState(6)
+  const [annText, setAnnText] = useState('')
+  const [annOps, setAnnOps] = useState<AnnotateOp[]>([])
+  const [annUndone, setAnnUndone] = useState<AnnotateOp[]>([])
+  const [annSaving, setAnnSaving] = useState(false)
+  const annCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const annDrawingRef = useRef<AnnotateOp | null>(null)
+
+  /** 每次进标注模式从空白开始（上一次的标注留着会直接盖在新图上） */
+  useEffect(() => {
+    if (!lightbox?.annotateFor) return
+    setAnnOps([])
+    setAnnUndone([])
+    setAnnTool('brush')
+    setAnnText('')
+  }, [lightbox?.annotateFor])
+
+  /**
+   * 重画那层画布：**底图不画进来**（灯箱那张 `<img>` 就在它下面），只画标注操作。
+   * 正在画的那一笔（`annDrawingRef`）也一起重放，所以拖动时是所见即所得。
+   */
+  const redrawAnn = useCallback(() => {
+    const canvas = annCanvasRef.current
+    if (!canvas || !canvas.width) return
+    const g2 = canvas.getContext('2d')
+    if (!g2) return
+    g2.clearRect(0, 0, canvas.width, canvas.height)
+    const all = annDrawingRef.current ? [...annOps, annDrawingRef.current] : annOps
+    for (const op of all) drawAnnotateOp(g2, op)
+  }, [annOps])
+
+  useEffect(() => {
+    void redrawAnn()
+  }, [redrawAnn, natural, annotating])
 
   /**
    * 下载原图（用户 2026-10-14：画布灯箱「可以加下载原图的按钮」）。
@@ -274,6 +344,14 @@ export function LightboxLayer() {
    */
   const startMove = (e: ReactPointerEvent) => {
     if (!cropRect || !natural) return
+    /**
+     * **只有左键搬框**（用户 2026-10-16 定的手势分工：左键画框 / 改框、中键平移）。
+     *
+     * 不写这一句的后果很隐蔽：选框经常占掉大半张图，用户在中键平移时手正好落在框里，
+     * 那一下就会变成「搬框」而视图纹丝不动 —— 而他以为自己按的是平移。
+     * 非左键**直接放行**（不 `stopPropagation`），让它照旧冒到舞台那条通用平移去。
+     */
+    if (e.button !== 0) return
     e.stopPropagation()
     e.preventDefault()
     movedRef.current = true
@@ -330,6 +408,8 @@ export function LightboxLayer() {
    */
   const startResize = (handle: CropHandle, e: ReactPointerEvent) => {
     if (!cropRect || !natural) return
+    /** 同 `startMove`：手柄也只有左键能拖，中键一律让给「平移视图」 */
+    if (e.button !== 0) return
     // 手柄在舞台里面：不拦这一下就会被当成「在空白处重新画框」，一拖就把原框擦掉
     e.stopPropagation()
     e.preventDefault()
@@ -393,6 +473,86 @@ export function LightboxLayer() {
     } else {
       store.notify(out.reason, 'error')
     }
+  }
+
+  /** 事件坐标 → **图片像素**坐标（画布按 CSS 缩放过，必须按比例换算回去） */
+  const annPointOf = (e: ReactPointerEvent<HTMLCanvasElement>): { x: number; y: number } => {
+    const canvas = e.currentTarget
+    const rect = canvas.getBoundingClientRect()
+    return {
+      x: ((e.clientX - rect.left) / rect.width) * canvas.width,
+      y: ((e.clientY - rect.top) / rect.height) * canvas.height,
+    }
+  }
+
+  /**
+   * 标注画布上的按下：
+   *
+   * - **只接管左键**。中键要留给舞台那条通用平移（`onPointerDown` 里的 button 1 分支）——
+   *   这里一旦无差别 `stopPropagation()`，用户在标注模式下就再也拖不动视图了。
+   * - `stopPropagation` 不是可选项：不拦的话舞台会同时起手平移，画一笔 = 图跑一下。
+   */
+  const onAnnDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    if (e.button !== 0) return
+    e.stopPropagation()
+    const p = annPointOf(e)
+    if (annTool === 'text') {
+      if (!annText.trim()) return
+      setAnnOps((prev) => [
+        ...prev,
+        { tool: annTool, color: annColor, size: annSize, points: [p], text: annText.trim() },
+      ])
+      setAnnUndone([])
+      return
+    }
+    e.currentTarget.setPointerCapture(e.pointerId)
+    annDrawingRef.current = { tool: annTool, color: annColor, size: annSize, points: [p] }
+    redrawAnn()
+  }
+
+  const onAnnMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
+    const draw = annDrawingRef.current
+    if (!draw) return
+    const p = annPointOf(e)
+    if (draw.tool === 'brush') draw.points.push(p)
+    else draw.points[1] = p
+    redrawAnn()
+  }
+
+  const onAnnUp = () => {
+    const draw = annDrawingRef.current
+    annDrawingRef.current = null
+    if (!draw) return
+    const a = draw.points[0]
+    const b = draw.points[1]
+    /** 矩形太小的算误触（与老那一层同一条判据：短边不足 3px 的白点没有意义） */
+    const tooSmall =
+      draw.tool === 'rect' && (!a || !b || (Math.abs(b.x - a.x) < 3 && Math.abs(b.y - a.y) < 3))
+    if (tooSmall) {
+      redrawAnn()
+      return
+    }
+    setAnnOps((prev) => [...prev, draw])
+    setAnnUndone([])
+  }
+
+  /** 撤销 / 重做 = 把操作列表切一刀（重放即得画面，不需要存快照） */
+  const undoAnn = () => {
+    setAnnOps((prev) => {
+      if (prev.length === 0) return prev
+      const last = prev[prev.length - 1]!
+      setAnnUndone((u) => [last, ...u])
+      return prev.slice(0, -1)
+    })
+  }
+
+  const redoAnn = () => {
+    setAnnUndone((prev) => {
+      if (prev.length === 0) return prev
+      const [first, ...rest] = prev
+      setAnnOps((o) => [...o, first!])
+      return rest
+    })
   }
 
   const onWheel = (e: ReactWheelEvent) => {
@@ -504,8 +664,34 @@ export function LightboxLayer() {
     }
   }
 
-  /** 三档对比：只在「有配对 + 两边都是图 + 不在框选模式」时给入口 */
-  const compareAvailable = !!compareHash && !!compareUrl && !isVideo && !compareIsVideo && !cropping
+  /**
+   * 保存标注：把「底图 + 全部标注」合成一张新图，落到**原图右侧的新节点**上。
+   * 合成那一段与 UI 无关，在 `annotate/bakeAnnotate` 里（与老那一层同一份实现）。
+   */
+  const saveAnnotation = async () => {
+    const nodeId = lightbox?.annotateFor
+    if (!nodeId || annSaving || !url) return
+    const graph = store.getSnapshot()
+    const node = graph.nodes.find((n) => n.id === nodeId)
+    if (!node) return
+    setAnnSaving(true)
+    try {
+      const id = await saveAnnotatedAsset({ store, graph, node, url, ops: annOps })
+      /** 落地就选中它（与老那一层同一手感：保存完眼睛已经在那张新图上） */
+      if (id) store.setSelection([id])
+      close()
+    } finally {
+      setAnnSaving(false)
+    }
+  }
+
+  /**
+   * 三档对比：只在「有配对 + 两边都是图 + 不在框选 / 标注模式」时给入口。
+   * 标注模式额外排除：对比那两张图是**叠着**画的，中间夹一层标注画布会让人分不清
+   * 自己画的是哪一张。
+   */
+  const compareAvailable =
+    !!compareHash && !!compareUrl && !isVideo && !compareIsVideo && !cropping && !annotating
   const view: CompareView = compareAvailable ? compareView : 'result'
   const splitActive = view === 'split'
   const showOriginalOnly = view === 'original'
@@ -561,8 +747,8 @@ export function LightboxLayer() {
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onClick={() => {
-          // 提取选区模式下**不吃空白单击关闭**：刚框好的框不能被一次误点清掉
-          if (cropping) return
+          // 提取选区 / 标注模式下**不吃空白单击关闭**：刚框好的框、刚画的一笔不能被一次误点清掉
+          if (cropping || annotating) return
           // 拖动松手也会触发 click：只有没拖过的单击才关闭（与版本预览同口径）
           if (movedRef.current) return
           close()
@@ -655,6 +841,33 @@ export function LightboxLayer() {
               <span className={styles.compareKnob} />
             </div>
           </>
+        )}
+        {/*
+          * 标注画布（2026-10-16 从独立的全屏标注层搬进灯箱，见 store 的 `openAnnotateEditor`）。
+          *
+          * 它与灯箱那张图**同一块矩形**（都用 `box`，连那 1px 描边都一样）：两边「指定的
+          * 宽高 + 描边」完全相同，于是内容框在任何 `box-sizing` 下都对得上 —— 标注坐标
+          * 天然就是图片像素，缩放 / 平移时跟着图一起走，保存时一次换算都不用做。
+          * `width/height` **属性**给的是原图像素，CSS 那对宽高才是屏幕尺寸。
+          *
+          * 它盖在图上，所以只在这里接管左键（画）；中键照旧冒到舞台那条通用平移去。
+          */}
+        {annotating && box && natural && (
+          <canvas
+            ref={annCanvasRef}
+            className={styles.annotateCanvas}
+            data-annotate-layer
+            data-annotate-canvas
+            style={box}
+            width={natural.w}
+            height={natural.h}
+            onPointerDown={onAnnDown}
+            onPointerMove={onAnnMove}
+            onPointerUp={onAnnUp}
+            onPointerCancel={onAnnUp}
+            /** 画完一笔松手也会触发 click：别让它冒到舞台去（舞台那条是「单击空白关灯箱」） */
+            onClick={(e) => e.stopPropagation()}
+          />
         )}
         {/*
           * 手柄与选框**分成两层**：选框那层带 `opacity` 做半透明（主题守卫不许写
@@ -800,6 +1013,114 @@ export function LightboxLayer() {
             >
               <IconCheck size={16} />
               <span>{rotating2 ? '保存中…' : '保存'}</span>
+            </button>
+          </div>
+        ) : annotating ? (
+          /**
+           * **标注模式**（2026-10-16 从独立的全屏标注层搬进灯箱）。
+           *
+           * 工具条按用户列的顺序排，一个不少：✕ / 画笔 / 矩形 / 文字 / 颜色 / 粗细 /
+           * 撤销 / 重做 / 保存。控件全部复用灯箱自己那套（`.compareOff` / `.compareOn`
+           * / `.close` / `.confirm`），与前后的「提取选区」条、旋转条同一口径 ——
+           * 这就是用户要的「统一设计」。
+           */
+          <div className={styles.cropBar} data-annotate-toolbar>
+            <button
+              type="button"
+              className={styles.close}
+              data-annotate-close
+              title="关闭标注"
+              aria-label="关闭标注"
+              onClick={close}
+            >
+              <IconClose size={16} />
+              <span>标注</span>
+            </button>
+            <span className={styles.barDivider} />
+            {ANNOTATE_TOOLS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={t.id === annTool ? styles.iconBtnOn : styles.iconBtnOff}
+                data-annotate-tool={t.id}
+                aria-pressed={t.id === annTool}
+                aria-label={t.label}
+                title={t.label}
+                onClick={() => setAnnTool(t.id)}
+              >
+                {t.icon}
+              </button>
+            ))}
+            {annTool === 'text' && (
+              <input
+                className={styles.annTextInput}
+                data-annotate-text-input
+                placeholder="输入文字，再点图上放置"
+                value={annText}
+                onChange={(e) => setAnnText(e.target.value)}
+              />
+            )}
+            <span className={styles.barDivider} />
+            {/* 颜色：固定色板（圆点即色样，选中的加一圈环） */}
+            {ANNOTATE_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={c === annColor ? styles.swatchOn : styles.swatch}
+                data-annotate-color={c}
+                aria-pressed={c === annColor}
+                aria-label={`颜色 ${c}`}
+                style={{ background: c }}
+                onClick={() => setAnnColor(c)}
+              />
+            ))}
+            {/* 粗细：画笔 / 矩形描边共用一条滑杆（用户原话：「画笔/矩形描边的大小」） */}
+            <label className={styles.annSizeWrap}>
+              <span className={styles.ratioLabel}>粗细</span>
+              <input
+                className={styles.annSize}
+                data-annotate-size
+                type="range"
+                min={2}
+                max={48}
+                value={annSize}
+                onChange={(e) => setAnnSize(Number(e.target.value))}
+              />
+              <span className={styles.annSizeValue}>{annSize}</span>
+            </label>
+            <span className={styles.barDivider} />
+            <button
+              type="button"
+              className={styles.iconBtnOff}
+              data-annotate-tool="undo"
+              aria-label="撤销"
+              title="撤销"
+              disabled={annOps.length === 0}
+              onClick={undoAnn}
+            >
+              <IconUndo size={16} />
+            </button>
+            <button
+              type="button"
+              className={styles.iconBtnOff}
+              data-annotate-tool="redo"
+              aria-label="重做"
+              title="重做"
+              disabled={annUndone.length === 0}
+              onClick={redoAnn}
+            >
+              <IconRedo size={16} />
+            </button>
+            <span className={styles.barDivider} />
+            <button
+              type="button"
+              className={styles.confirm}
+              data-annotate-save
+              disabled={annSaving}
+              onClick={() => void saveAnnotation()}
+            >
+              <IconCheck size={16} />
+              <span>{annSaving ? '保存中…' : '保存'}</span>
             </button>
           </div>
         ) : cropping ? (

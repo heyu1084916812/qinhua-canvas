@@ -371,3 +371,109 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/*
+ * ── 标注模式（用户 2026-10-05 第 10 条；2026-10-16 从独立的全屏层搬进灯箱）──
+ *
+ * 画布盖在图上，**底色透明**（底图仍由下面那张 `<img>` 显示），几何由 JS 的 `box` 给。
+ *
+ * ⚠️ 这里刻意**不写** `box-sizing`：它必须跟 `.media` 那张图取到同一个值，内容框才
+ * 严丝合缝。自己指定一个，就等于把它们拆成两套盒模型 —— 图与标注会差 1px（看着像
+ * 「标注飘了」，其实是盒子不一样大）。
+ */
+.annotateCanvas {
+  position: absolute;
+  border: var(--border);
+  background: transparent;
+  cursor: crosshair;
+  /* 画布自己接管指针手势（画），别让浏览器插一脚 */
+  touch-action: none;
+}
+
+/*
+ * 标注工具条里那几个「只有一个图标」的按钮（三件工具 / 撤销 / 重做）：
+ * 与同一排的分段控件同一套底色与悬停，只是宽度收成方形而不再按文字撑开。
+ */
+.iconBtnOff,
+.iconBtnOn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background var(--dur-hover) var(--ease-out);
+}
+
+.iconBtnOff:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+/* 当前工具：实色强调（与灯箱里其它「选中」口径一致） */
+.iconBtnOn {
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+}
+
+.iconBtnOff:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 六个色样圆点：选中的**加一圈环**而不是放大 —— 放大在这根 26px 高的排里会顶到邻居 */
+.swatch,
+.swatchOn {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--stroke);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.swatchOn {
+  box-shadow: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent);
+}
+
+/* 文字工具那支输入框：与同一排按钮等高，落在同一根操作条上 */
+.annTextInput {
+  flex: none;
+  width: 190px;
+  height: 26px;
+  padding: 0 var(--space-2);
+  box-sizing: border-box;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+}
+
+.annSizeWrap {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.annSize {
+  width: 96px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.annSizeValue {
+  min-width: 20px;
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  font-variant-numeric: tabular-nums;
+}
