@@ -6181,9 +6181,9 @@ async function g46(browser) {
   })
   rec(
     g,
-    '★★ 浮层内距 14 / 段间距 14，且档位文字明显大于段标题（不再是一个大小）',
+    '★★ 浮层内距 14 / 段间距 16，且档位文字明显大于段标题（不再是一个大小）',
     popupMetrics.padding === 14 &&
-      popupMetrics.gap === 14 &&
+      popupMetrics.gap === 16 &&
       popupMetrics.overscroll === 'contain' &&
       popupMetrics.optionFont >= popupMetrics.titleFont + 2,
     `内距=${popupMetrics.padding} 段距=${popupMetrics.gap} 标题=${popupMetrics.titleFont}px 档位=${popupMetrics.optionFont}px overscroll=${popupMetrics.overscroll}`,
@@ -19815,8 +19815,15 @@ async function g98(browser) {
    * 深色那份才是当初出问题的那一套。
    */
   const selDelta = await popup().evaluate((el) => {
-    const on = el.querySelector('[data-param-in="background"][aria-selected="true"]')
-    const track = on?.parentElement
+    /**
+     * ⚠️ 量的必须是**滑块**（`.pillThumb`），不是「选中的那个按钮」——
+     * 2026-10-16 起选中底由滑块画，按钮自己是透明的（透明底量出来是 0,0,0，
+     * 与轨道一比差 245，看着「很达标」其实什么都没量到）。
+     */
+    const on =
+      el.querySelector('[data-pill-thumb="background"]') ??
+      el.querySelector('[data-param-in="background"][aria-selected="true"]')
+    const track = el.querySelector('[data-param-in="background"]')?.parentElement
     if (!on || !track) return null
     return {
       on: getComputedStyle(on).backgroundColor,
@@ -19875,6 +19882,62 @@ async function g98(browser) {
     .hover()
   await sleep(400)
   await page.screenshot({ path: `${OUT}/119b-g98-param-hover.png` })
+
+  /**
+   * ★★ **滑块（`.pillThumb`）就是那块会滑过去的底色**（用户 2026-10-16：
+   * 「动效改成选中轨道里面的参数后，底色直接滑动过去」）。
+   *
+   * 过渡本身（140ms）在无头浏览器里没法可靠断言，所以钉**两端**：
+   *  ① 静息态：滑块矩形必须与选中项矩形重合（±1px）—— 它得真的贴在那一块上；
+   *  ② 点另一档之后：滑块矩形换成新那一块（旧的离位、新的到位）。
+   * 顺带断言**旧的那一块不再有底色**（`.capOn` 在滑块就位后是透明的）——
+   * 否则切换瞬间会出现「两块同时亮」。
+   */
+  const thumbBoxOf = async (section) =>
+    popup().evaluate((el, s) => {
+      const t = el.querySelector(`[data-pill-thumb="${s}"]`)
+      const on = el.querySelector(`[data-param-in="${s}"][aria-selected="true"]`)
+      if (!t || !on) return null
+      const a = t.getBoundingClientRect()
+      const b = on.getBoundingClientRect()
+      return {
+        value: on.getAttribute('data-param-option'),
+        dx: Math.round(a.left - b.left),
+        dy: Math.round(a.top - b.top),
+        dw: Math.round(a.width - b.width),
+        dh: Math.round(a.height - b.height),
+      }
+    }, section)
+  const restThumb = await thumbBoxOf('background')
+  rec(
+    g,
+    '★★ 滑块与选中项重合（±1px）',
+    /** 面板挂着 `zoom: 0.75`，两个矩形各自取整后允许差 1px */
+    !!restThumb &&
+      [restThumb.dx, restThumb.dy, restThumb.dw, restThumb.dh].every((d) => Math.abs(d) <= 1),
+    restThumb ? JSON.stringify(restThumb) : 'null',
+  )
+  const onBg = await popup()
+    .locator('[data-param-in="background"][aria-selected="true"]')
+    .evaluate((el) => getComputedStyle(el).backgroundColor)
+  rec(
+    g,
+    '★ 滑块就位后，选中块自己不画底（否则切换时两块同时亮）',
+    onBg === 'rgba(0, 0, 0, 0)',
+    onBg,
+  )
+  /** 换一档：滑块应当跟过去 */
+  await popup().locator('[data-param-in="background"][data-param-option="transparent"]').click()
+  await sleep(400)
+  const movedThumb = await thumbBoxOf('background')
+  rec(
+    g,
+    '★★ 换档后滑块跟到新那一块',
+    !!movedThumb &&
+      movedThumb.value === 'transparent' &&
+      [movedThumb.dx, movedThumb.dy, movedThumb.dw, movedThumb.dh].every((d) => Math.abs(d) <= 1),
+    movedThumb ? JSON.stringify(movedThumb) : 'null',
+  )
   await page.keyboard.press('Escape')
   await sleep(250)
 

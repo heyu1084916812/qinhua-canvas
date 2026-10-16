@@ -177,6 +177,20 @@ const POPUP_EDGE = 12
 const MIN_POPUP_H = 96
 
 /**
+ * 分段控件里那块**滑块**的几何（相对轨道的**布局像素**，见组件里 `thumbs` 的说明）。
+ *
+ * `animate`：这一块是不是「已经量到过、这次是换值」—— 第一次量到的那块不加过渡，
+ * 否则打开面板时会看到它从左下角滑进来。
+ */
+interface PillThumbBox {
+  left: number
+  top: number
+  width: number
+  height: number
+  animate: boolean
+}
+
+/**
  * `useLayoutEffect` 在 SSR 下不执行且会告警；服务端退回 `useEffect`（同样是空操作），
  * 客户端仍是「绘制前测量」，翻转定位不会闪一帧。
  */
@@ -244,10 +258,71 @@ export function ParamPicker(props: ParamPickerProps) {
   const [maxHeight, setMaxHeight] = useState<number | null>(null)
   /** 「加载更多」展开过的段（关掉浮层就忘掉：下次打开仍从收起态开始） */
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  /**
+   * **分段控件的滑块**（用户 2026-10-16：「动效改成选中轨道里面的参数后，底色直接滑动过去」）。
+   *
+   * 选中态不再由被选中的那一块按钮自己画（那样是「旧的立刻灭、新的立刻亮」，
+   * 读起来像一跳），而是**轨道里单独一块绝对定位的滑块**，几何跟着选中项走 ——
+   * 切换时它自己滑过去，中途没有第二块亮着。
+   *
+   * ⚠️ 几何一律用 `offsetLeft / offsetTop / offsetWidth / offsetHeight`，
+   * **不能用 `getBoundingClientRect()`**：创作面板整体挂着 `zoom: 0.75`，
+   * rect 是屏幕像素、而 `style.left` 是布局像素，两者差一个缩放比（浮层定位那里
+   * 专门量过一次 scale 就是为这个）。offset* 天生就是布局像素，两边不用换算。
+   */
+  const [thumbs, setThumbs] = useState<Record<string, PillThumbBox>>({})
+  const pillRefs = useRef(new Map<string, HTMLElement>())
+  /** 只把「值 / 形态」编进依赖：`sections` 每次渲染都是新数组，直接当依赖会每次都跑 */
+  const pillKey = sections.map((s) => `${s.name}:${s.variant}:${s.value}`).join('|')
+  /** 单段模式的滑块（此时**轨道就是浮层本身**）；多段模式每个 pill 各一块，见下面渲染处 */
+  const singleThumb = grouped ? undefined : thumbs[sections[0]!.name]
 
   useEffect(() => {
     if (!open) setExpanded({})
   }, [open])
+
+  /**
+   * 量出每个分段控件里「当前选中那一块」的位置。
+   *
+   * 放在 layout effect 里（而不是 `useEffect`）：必须**赶在浏览器绘制之前**把滑块摆好，
+   * 否则打开面板的第一帧会看到「有选中、但没有底色」。
+   * 第一次量到的那一块不加过渡（`animate: false`）—— 否则它从左上角滑进来；
+   * 之后每次换值才带过渡，于是只有**真正的切换**才会滑动。
+   */
+  useIsoLayoutEffect(() => {
+    if (!open) return
+    setThumbs((prev) => {
+      const next: Record<string, PillThumbBox> = {}
+      let changed = false
+      for (const s of sections) {
+        if (s.variant !== 'pill') continue
+        /** 单段模式：轨道就是浮层自己（`VARIANT_CLASS.pill` 贴在 `.popup` 上） */
+        const track = grouped ? pillRefs.current.get(s.name) : popRef.current
+        const on = track?.querySelector<HTMLElement>('button[aria-selected="true"]')
+        if (!track || !on) continue
+        next[s.name] = {
+          left: on.offsetLeft,
+          top: on.offsetTop,
+          width: on.offsetWidth,
+          height: on.offsetHeight,
+          animate: prev[s.name] !== undefined,
+        }
+        const p = prev[s.name]
+        if (
+          !p ||
+          p.left !== next[s.name].left ||
+          p.top !== next[s.name].top ||
+          p.width !== next[s.name].width ||
+          p.height !== next[s.name].height
+        ) {
+          changed = true
+        }
+      }
+      /** 几何一致就原样返回：`sections` 每次渲染都是新数组，不挡住会变成死循环 */
+      if (!changed && Object.keys(prev).length === Object.keys(next).length) return prev
+      return next
+    })
+  }, [open, pillKey, grouped, sections])
 
   /**
    * 跳到某一段（顶部那排「图片 / 视频」）。
@@ -351,8 +426,12 @@ export function ParamPicker(props: ParamPickerProps) {
           className={[
             styles.popup,
             grouped ? styles.grouped : VARIANT_CLASS[sections[0]!.variant],
+            /** 滑块接管之后，选中的那一块自己不再画底（避免「旧的先灭、新的先亮」破坏滑动） */
+            singleThumb ? styles.pillThumbReady : '',
             below ? styles.below : styles.above,
-          ].join(' ')}
+          ]
+            .filter(Boolean)
+            .join(' ')}
           data-param-popup={name}
           data-param-variant={grouped ? 'grouped' : sections[0]!.variant}
           data-param-placement={below ? 'below' : 'above'}
@@ -396,6 +475,8 @@ export function ParamPicker(props: ParamPickerProps) {
                 const showAll = !s.collapsedCount || expanded[s.name]
                 const visible = showAll ? s.options : s.options.slice(0, s.collapsedCount)
                 const hidden = s.options.length - visible.length
+                /** 这一段的滑块（只有 `pill` 有；量到之前是 `undefined`，此时由选中块自己兜底画底） */
+                const thumb = s.variant === 'pill' ? thumbs[s.name] : undefined
                 return (
                   <div key={s.name} className={styles.section} data-param-section={s.name}>
                     {/*
@@ -437,12 +518,25 @@ export function ParamPicker(props: ParamPickerProps) {
                       />
                     ) : (
                       <div
-                        className={[VARIANT_CLASS[s.variant], s.maxRows ? styles.scrollBody : '']
+                        className={[
+                          VARIANT_CLASS[s.variant],
+                          s.maxRows ? styles.scrollBody : '',
+                          thumb ? styles.pillThumbReady : '',
+                        ]
                           .filter(Boolean)
                           .join(' ')}
+                        ref={
+                          s.variant === 'pill'
+                            ? (el) => {
+                                if (el) pillRefs.current.set(s.name, el)
+                                else pillRefs.current.delete(s.name)
+                              }
+                            : undefined
+                        }
                         style={s.maxRows ? { maxHeight: `${s.maxRows * LIST_ROW_H}px` } : undefined}
                         {...(s.maxRows ? { 'data-param-scroll': s.name } : {})}
                       >
+                        {thumb && <PillThumb name={s.name} box={thumb} />}
                         {visible.map((o) => (
                           <ParamOptionButton
                             key={o.value}
@@ -481,19 +575,23 @@ export function ParamPicker(props: ParamPickerProps) {
               })}
             </>
           ) : (
-            sections[0]!.options.map((o) => (
-              <ParamOptionButton
-                key={o.value}
-                option={o}
-                variant={sections[0]!.variant}
-                value={sections[0]!.value}
-                inSection={null}
-                onPick={() => {
-                  sections[0]!.onSelect(o.value)
-                  onClose()
-                }}
-              />
-            ))
+            <>
+              {/* 单段 pill：滑块直接住在浮层里（浮层就是那条轨道） */}
+              {singleThumb && <PillThumb name={sections[0]!.name} box={singleThumb} />}
+              {sections[0]!.options.map((o) => (
+                <ParamOptionButton
+                  key={o.value}
+                  option={o}
+                  variant={sections[0]!.variant}
+                  value={sections[0]!.value}
+                  inSection={null}
+                  onPick={() => {
+                    sections[0]!.onSelect(o.value)
+                    onClose()
+                  }}
+                />
+              ))}
+            </>
           )}
         </div>
       )}
@@ -515,6 +613,24 @@ const VARIANT_CLASS: Record<ParamSection['variant'], string> = {
  * 一枚候选。单组与多组**共用这一个组件** —— 抽出来是为了让「两处长得一样」
  * 成为结构上的事实，而不是靠两边各写一遍再人工对齐。
  */
+/**
+ * 分段控件里那块**会滑动的底色**（几何由调用方量好，见 `ParamPicker` 的 `thumbs`）。
+ *
+ * 为什么是「单独一块」而不是给选中的按钮加背景：那样切换时是
+ * **旧的立刻灭、新的立刻亮**，两帧之间没有任何过渡；单独一块跟着选中项走，
+ * 才有「底色滑过去」的动效，且中途不会出现两块同时亮着。
+ */
+function PillThumb({ name, box }: { name: string; box: PillThumbBox }) {
+  return (
+    <span
+      className={box.animate ? `${styles.pillThumb} ${styles.pillThumbAnimated}` : styles.pillThumb}
+      data-pill-thumb={name}
+      aria-hidden="true"
+      style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
+    />
+  )
+}
+
 function ParamOptionButton(props: {
   option: ParamOption
   variant: ParamSection['variant']

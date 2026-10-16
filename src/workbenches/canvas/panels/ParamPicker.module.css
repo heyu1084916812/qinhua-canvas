@@ -150,6 +150,18 @@
   box-sizing: border-box;
 }
 
+/**
+ * **多段模式的那条轨道**才是滑块的定位基准（滑块用 `left/top/width/height`
+ * 贴住选中项，见 `.pillThumb`）。
+ *
+ * 为什么不写在 `.pill` 上：单段模式下 `.pill` 贴在浮层自己身上，而 `.pill`
+ * 在本文件里排在 `.popup` 之后 —— 同特异度下 `position: relative` 会把浮层的
+ * `position: absolute` 顶掉（实测症状：点完张数再点「生成参数」点不开）。
+ */
+.grouped .pill {
+  position: relative;
+}
+
 /*
  * 胶囊**平分所在那一行**（`flex-grow`）：每一行都从同样的左内距铺到同样的右内距。
  *
@@ -548,8 +560,14 @@
  *
  * ```
  * [ 轨道：--bg-subtle，圆角 10px，内距 3px ]
- *    [ 未选：透明底，次要文字色 ] [ 选中：--bg-selected 填充，不描边 ]
+ *    [ 未选：透明底，次要文字色 ] [ 选中：一块会滑过去的滑块，--bg-selected，不描边 ]
  * ```
+ *
+ * **选中底由滑块（`.pillThumb`）画，不由按钮画**（用户 2026-10-16：「动效改成选中轨道里面的
+ * 参数后，底色直接滑动过去」）：给按钮加背景的话，切换时旧的立刻灭、新的立刻亮，
+ * 读起来是一跳；单独一块跟着选中项走才有滑动。所以
+ *   · `.capOn` 只在**滑块还没量出来**的那一帧兜底画底（`.pillThumbReady` 一挂上就让位）；
+ *   · `.cap` / `.capOn` 自身一律透明，文字浮在滑块之上（`z-index`）。
  *
  * 颜色与悬停 / 选中的**规则不变**，全部沿用既有令牌，与同一组件里的比例格子
  * （`.ratioCell` / `.ratioCellOn`）逐条对齐 —— 同一屏里两块控件不能各有一套选中观感：
@@ -574,6 +592,13 @@
 .pill {
   display: flex;
   /**
+   * ⚠️ **这里不能写 `position: relative`**：单段模式下 `.pill` 是贴在**浮层自己**
+   * 身上的（见 `VARIANT_CLASS`），而 `.popup` 靠 `position: absolute` 定位 ——
+   * `.pill` 在本文件里排在 `.popup` 之后，同特异度下会把 `absolute` 顶成 `relative`，
+   * 浮层当场掉回文档流、盖住旁边的 chip（实测：点完张数再点「生成参数」点不开）。
+   * 多段模式的那条轨道才需要定位基准，所以写在 `.grouped .pill` 上。
+   */
+  /**
    * **换行只作兜底**（用户 2026-10-15：「我需要文字全部显示出来」）。
    *
    * 正常情况靠浮层加宽（`--picker-inner` 500）让一排档位整整齐齐放得下；
@@ -590,6 +615,40 @@
   background: var(--bg-subtle);
 }
 
+/**
+ * 分段控件里那块**会滑动的底色**。
+ *
+ * 几何由 `ParamPicker` 量好内联挂在 style 上（`left/top/width/height`，**布局像素**，
+ * 不是屏幕像素 —— 面板挂着 `zoom`，见组件里那段说明）。
+ *
+ * 不加过渡的是**第一次量到**的那一块（`animate: false`）：否则打开面板时
+ * 会看到它从左上角滑进来。之后每次换值才带过渡，于是只有「切换」才滑动。
+ */
+.pillThumb {
+  position: absolute;
+  z-index: 0;
+  border-radius: calc(var(--radius-control) - 3px);
+  background: var(--bg-selected);
+  /** 它是纯装饰：不能抢按钮的鼠标事件 */
+  pointer-events: none;
+}
+
+.pillThumbAnimated {
+  transition:
+    left var(--dur-panel) var(--ease-panel),
+    top var(--dur-panel) var(--ease-panel),
+    width var(--dur-panel) var(--ease-panel),
+    height var(--dur-panel) var(--ease-panel);
+}
+
+/**
+ * 滑块就位之后，**选中的那一块自己不再画底** —— 否则它会在切换的瞬间直接亮起来，
+ * 而滑块还在路上，屏幕上一时有两块底色。
+ */
+.pillThumbReady > .capOn {
+  background: transparent;
+}
+
 .cap {
   /**
    * 轨道里的一块（画质 / 数量 / 背景）。
@@ -604,6 +663,9 @@
    */
   flex: 1 0 auto;
   min-width: 0;
+  /** 文字浮在滑块之上（滑块 `z-index: 0`） */
+  position: relative;
+  z-index: 1;
   height: 40px;
   padding: 0 10px;
   border: 1px solid transparent;
@@ -631,8 +693,15 @@
     color var(--dur-hover) var(--ease-out);
 }
 
-.cap:hover:not(:disabled) {
-  background: var(--bg-hover);
+/**
+ * **有轨道的参数不要悬停底色**（用户 2026-10-16：「有轨道的参数不需要悬停颜色」）。
+ *
+ * 原先悬停给一块 `--bg-hover` 的底 —— 而它与选中底 `--bg-selected` 同值，
+ * 于是「鼠标扫过一个未选项」看起来就跟「选中了它」一模一样（用户截图里
+ * 底下的摘要写着「透明底」、面板上却是「默认」亮着，就是这一条造成的）。
+ * 现在悬停只把文字提到主文字色（唯一的可点提示），底色交给滑块独占。
+ */
+.cap:hover:not(:disabled):not(.capOn) {
   color: var(--text-1);
 }
 
