@@ -1009,7 +1009,7 @@ export function LightboxLayer() {
           <div className={styles.cropBar} data-rotate-toolbar>
             <button
               type="button"
-              className={styles.close}
+              className={styles.editorClose}
               data-rotate-close
               title="返回查看"
               aria-label="返回查看"
@@ -1021,7 +1021,7 @@ export function LightboxLayer() {
             <span className={styles.barDivider} />
             <button
               type="button"
-              className={styles.compareOff}
+              className={styles.editorTool}
               data-rotate-left
               title={`逆时针转 ${rotateStep}°`}
               aria-label="逆时针转"
@@ -1029,12 +1029,12 @@ export function LightboxLayer() {
             >
               <IconUndo size={16} />
             </button>
-            <span className={styles.chip} data-rotate-angle>
+            <span className={styles.editorAngle} data-rotate-angle>
               {normalizedAngle}°
             </span>
             <button
               type="button"
-              className={styles.compareOff}
+              className={styles.editorTool}
               data-rotate-right
               title={`顺时针转 ${rotateStep}°`}
               aria-label="顺时针转"
@@ -1042,10 +1042,10 @@ export function LightboxLayer() {
             >
               <IconRedo size={16} />
             </button>
-            <label className={styles.stepWrap}>
+            <label className={styles.editorStepWrap}>
               <span className={styles.ratioLabel}>步长</span>
               <input
-                className={styles.stepInput}
+                className={styles.editorStep}
                 data-rotate-step
                 type="number"
                 min={1}
@@ -1062,7 +1062,7 @@ export function LightboxLayer() {
             <span className={styles.barDivider} />
             <button
               type="button"
-              className={mirrorH ? styles.compareOn : styles.compareOff}
+              className={mirrorH ? styles.editorToolOn : styles.editorTool}
               data-rotate-mirror-h
               aria-pressed={mirrorH}
               title="左右镜像"
@@ -1072,7 +1072,7 @@ export function LightboxLayer() {
             </button>
             <button
               type="button"
-              className={mirrorV ? styles.compareOn : styles.compareOff}
+              className={mirrorV ? styles.editorToolOn : styles.editorTool}
               data-rotate-mirror-v
               aria-pressed={mirrorV}
               title="上下镜像"
@@ -1083,7 +1083,7 @@ export function LightboxLayer() {
             <span className={styles.barDivider} />
             <button
               type="button"
-              className={styles.confirm}
+              className={styles.editorSave}
               data-rotate-save
               disabled={rotating2}
               onClick={() => void saveRotation()}
@@ -1104,7 +1104,7 @@ export function LightboxLayer() {
           <div className={styles.cropBar} data-annotate-toolbar>
             <button
               type="button"
-              className={styles.close}
+              className={styles.editorClose}
               data-annotate-close
               title="返回查看"
               aria-label="返回查看"
@@ -1118,7 +1118,7 @@ export function LightboxLayer() {
               <button
                 key={t.id}
                 type="button"
-                className={t.id === annTool ? styles.iconBtnOn : styles.iconBtnOff}
+                className={t.id === annTool ? styles.editorToolOn : styles.editorTool}
                 data-annotate-tool={t.id}
                 aria-pressed={t.id === annTool}
                 aria-label={t.label}
@@ -1168,7 +1168,7 @@ export function LightboxLayer() {
             <span className={styles.barDivider} />
             <button
               type="button"
-              className={styles.iconBtnOff}
+              className={styles.editorTool}
               data-annotate-tool="undo"
               aria-label="撤销"
               title="撤销"
@@ -1179,7 +1179,7 @@ export function LightboxLayer() {
             </button>
             <button
               type="button"
-              className={styles.iconBtnOff}
+              className={styles.editorTool}
               data-annotate-tool="redo"
               aria-label="重做"
               title="重做"
@@ -1191,7 +1191,7 @@ export function LightboxLayer() {
             <span className={styles.barDivider} />
             <button
               type="button"
-              className={styles.confirm}
+              className={styles.editorSave}
               data-annotate-save
               disabled={annSaving}
               onClick={() => void saveAnnotation()}
@@ -1234,7 +1234,7 @@ export function LightboxLayer() {
             )}
             <button
               type="button"
-              className={styles.close}
+              className={styles.editorClose}
               data-lightbox-crop-cancel
               onClick={() => setMode('view')}
             >
@@ -1242,7 +1242,7 @@ export function LightboxLayer() {
             </button>
             <button
               type="button"
-              className={styles.confirm}
+              className={styles.editorSave}
               data-lightbox-crop-apply
               disabled={!canConfirm || busy}
               title={

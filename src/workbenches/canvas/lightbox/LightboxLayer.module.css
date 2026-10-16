@@ -143,12 +143,18 @@
 
 .hud {
   position: absolute;
-  top: 72px;
+  top: 24px;
   left: 50%;
   z-index: 6;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 6px;
+  /**
+   * 绝对定位的 `left:50%` 会把 shrink-to-fit 的可用宽度误算成右半屏，
+   * 标注工具条因此在 1280 宽下把「保存」挤到滚动区里。声明显式 max-content + max-width，
+   * 让它在不超屏的前提下按真实内容宽度完整铺开（旧版居中工具条也是这个观感）。
+   */
+  width: max-content;
   max-width: calc(100% - 32px);
   padding: 6px 8px;
   overflow-x: auto;
@@ -158,6 +164,116 @@
   background: var(--bg-surface);
   box-shadow: var(--shadow-float);
   transform: translateX(-50%);
+}
+
+/*
+ * ── 旧版全屏编辑器控件 ──
+ *
+ * 这一组刻意不在灯箱原有 HUD 控件上加特例，而是把 `RotateLayer` / `AnnotateLayer`
+ * 那套控件原样恢复：高 32、胶囊圆角、无描边、悬停浅底；保存按钮走强调色。
+ * 颜色仍全部走令牌，因此浅色 / 深色主题都跟着切换。
+ */
+.editorClose {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.editorClose:hover {
+  background: var(--bg-hover);
+}
+
+.editorTool,
+.editorToolOn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  cursor: pointer;
+}
+
+.editorTool:hover {
+  background: var(--bg-hover);
+}
+
+.editorTool:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.editorToolOn {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.editorAngle {
+  min-width: 44px;
+  color: var(--text-1);
+  font-size: var(--fs-label);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.editorStepWrap {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+}
+
+.editorStep {
+  width: 52px;
+  height: 28px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+}
+
+.editorSave {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.editorSave:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .chip {
@@ -256,7 +372,7 @@
 .cropBar {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 6px;
   min-width: 0;
   /* 比例档有 9 个，窗口窄时允许这一组自己横向滚动，不去挤旁边的按钮 */
   overflow-x: auto;
@@ -267,6 +383,7 @@
   flex: none;
   width: 1px;
   height: 20px;
+  margin: 0 2px;
   background: var(--stroke);
 }
 
@@ -529,7 +646,7 @@
 .annTextInput {
   flex: none;
   width: 190px;
-  height: 26px;
+  height: 28px;
   padding: 0 var(--space-2);
   box-sizing: border-box;
   border: var(--border);
