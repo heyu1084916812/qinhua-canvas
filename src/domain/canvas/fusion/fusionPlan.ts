@@ -373,7 +373,15 @@ export function planFusion(input: {
     if (!ratioMatches(rectRatio(padded), patch.width / patch.height)) {
       return {
         ok: false,
-        reason: `第 ${i + 1} 张局部修改图与选区比例不一致，无法融合（请让修改图按选区的比例生成）`,
+        /**
+         * **把两个尺寸都写出来**（对账 #554）：只说"比例不一致"用户无从下手 ——
+         * 他手里只有两张图，看不到"选区是多少、改图回来的是多少"，
+         * 也就没法判断该重裁还是该把模型比例调成「跟随素材」。
+         */
+        reason:
+          `第 ${i + 1} 张局部修改图与选区比例不一致，无法融合` +
+          `（选区 ${padded.w}×${padded.h}，修改图 ${patch.width}×${patch.height}）` +
+          `：请让修改图按选区的比例生成（模型比例用「跟随素材」）`,
       }
     }
     totalPixels += padded.w * padded.h

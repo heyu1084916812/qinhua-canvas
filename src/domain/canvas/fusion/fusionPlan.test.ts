@@ -439,7 +439,18 @@ describe('融合计划 · planFusion', () => {
       patches: [patch({ width: 400, height: 200 })],
     })
     expect(r.ok).toBe(false)
-    if (!r.ok) expect(r.reason).toContain('比例不一致')
+    if (!r.ok) {
+      expect(r.reason).toContain('比例不一致')
+      /**
+       * ★★ **两个尺寸都要写出来**（对账 #554）：只说"比例不一致"用户无从下手 ——
+       * 他手里只有两张图，看不到"选区是多少、改图回来的是多少"。
+       * 判据取具体数字而不是"提示非空"，否则把尺寸删掉这条照样绿。
+       */
+      const ctx = makeCtx('c1')
+      expect(r.reason).toContain(`${ctx.paddedRect.w}×${ctx.paddedRect.h}`)
+      expect(r.reason).toContain('400×200')
+      expect(r.reason).toContain('跟随素材')
+    }
   })
 
   it('造出按连线顺序的步骤，输出尺寸 = 原图尺寸', () => {
