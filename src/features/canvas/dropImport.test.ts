@@ -71,4 +71,28 @@ describe('系统剪贴板里的媒体文件', () => {
     const data = dt({ files: [shot], items: [{ kind: 'file', type: 'image/png', file: shot }] })
     expect(clipboardMediaFiles(data.dataTransfer)).toHaveLength(1)
   })
+
+  /**
+   * ★★★ 真实浏览器的形状：`files` 与 `items` 各报一遍**同一个文件**，
+   * 但两边的 `lastModified` **差 1 毫秒**（2026-10-17 实测 `…163` / `…164`）。
+   *
+   * 按元数据去重拦不住这个 —— 用户看到的就是「复制一张图粘进画布出来两张」
+   * （对账 #552）。判据因此改成：**有 `files` 就不看 `items`**。
+   */
+  it('★★★ files 与 items 打同一个文件、lastModified 差 1ms → 仍然只算一个', () => {
+    const bytes = new Uint8Array([1, 2, 3])
+    const fromFiles = new File([bytes], 'image.png', {
+      type: 'image/png',
+      lastModified: 1_000,
+    })
+    const fromItems = new File([bytes], 'image.png', {
+      type: 'image/png',
+      lastModified: 1_001,
+    })
+    const data = dt({ files: [fromFiles], items: [{ kind: 'file', type: 'image/png', file: fromItems }] })
+    const got = clipboardMediaFiles(data.dataTransfer)
+    expect(got).toHaveLength(1)
+    /** 取的是 `files` 那一份（`items` 只在 files 为空时才是来源） */
+    expect(got[0]).toBe(fromFiles)
+  })
 })

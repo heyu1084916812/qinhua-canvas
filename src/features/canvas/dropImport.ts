@@ -46,8 +46,14 @@ export interface DropImportResult {
  * `paste` 监听** —— 画布的 `Ctrl+V` 只认「应用内复制的节点快照」，
  * 从截图工具 / 浏览器复制来的图一律无人接手（对账 #551）。
  *
- * 两条来源都要读：`files` 是 Windows 截图与资源管理器复制文件的那条；
- * 某些来源只把文件挂在 `items`（`kind: 'file'`）里。
+ * **优先读 `files`，它拿不到东西时才回落 `items`。**
+ *
+ * ⚠️ 不能"两条都读、再按元数据去重"（2026-10-17 实测踩到）：粘贴一张图时浏览器**两个
+ * 容器都报同一个文件**，但两边的 `lastModified` 可以**差 1 毫秒**（实测
+ * `files[0]=…163` / `items[0]=…164`）⇒ 任何按 `name:size:lastModified` 去重的写法都
+ * 拦不住 ⇒ **一次粘贴建出两个一模一样的节点**。只有拿不到 `files` 的少数来源
+ * （见单测）才值得去读 `items`。
+ *
  * **没有媒体就返回空数组** —— 调用方据此放行默认行为，不能把用户粘文字、
  * 粘文件路径这类操作一并吞掉。
  */
@@ -66,9 +72,13 @@ export function clipboardMediaFiles(data: DataTransfer | null): File[] {
     out.push(file)
   }
   for (const file of Array.from(data.files ?? [])) push(file)
-  for (const item of Array.from(data.items ?? [])) {
-    if (item.kind !== 'file') continue
-    push(item.getAsFile())
+  /** 只有 `files` 一个都没取到时才看 `items`（否则同一个文件会被算两遍） */
+  /** 只有 `files` 一个都没取到时才看 `items`（否则同一个文件会被算两遍） */
+  if (out.length === 0) {
+    for (const item of Array.from(data.items ?? [])) {
+      if (item.kind !== 'file') continue
+      push(item.getAsFile())
+    }
   }
   return out
 }

@@ -7410,6 +7410,46 @@ async function g52(browser) {
     `types=${JSON.stringify(pasteKinds)} ${beforePaste} → ${afterPaste}`,
   )
 
+  /**
+   * ── ★★★ 真剪贴板 + 真 `Ctrl+V`：一次粘贴**只能**建一个节点（对账 #552）──
+   *
+   * 合成事件造不出这个形状：真粘贴时浏览器 `files` 与 `items` **各报一遍同一个文件**、
+   * 而两边的 `lastModified` 会**差 1 毫秒** ⇒ 按 `name:size:lastModified` 去重的写法
+   * 全部失手 ⇒ 用户看到「复制一张图、粘进画布出来两张一模一样的」。
+   * 只有真写系统剪贴板 + 真按 Ctrl+V 才复现得出，所以这一条**不用** dispatchEvent。
+   *
+   * ⚠️ **确定性守卫在单测里**（`dropImport.test.ts` 的「lastModified 差 1ms」那条）：
+   * 这 1ms 是偶发的 —— 实测同一台机器上一次差、一次不差，所以这条真机断言是
+   * **端到端 sanity**，抓不住"每次都能过"的退化。判据的权威版本必须钉在
+   * 能稳定构造那个形状的地方。
+   */
+  await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE })
+  const clipWrote = await page.evaluate(async (b64) => {
+    try {
+      const bin = atob(b64)
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/png': new Blob([bytes], { type: 'image/png' }) }),
+      ])
+      return 'ok'
+    } catch (err) {
+      return `fail:${String(err)}`
+    }
+  }, PNG_IMPORT_BASE64)
+  const beforeRealPaste = await page.locator('[data-node-id]').count()
+  await page.mouse.click(sbox.x + 620, sbox.y + 300)
+  await sleep(200)
+  await page.keyboard.press('Control+V')
+  await sleep(1400)
+  const afterRealPaste = await page.locator('[data-node-id]').count()
+  rec(
+    g,
+    '★★★ 真 Ctrl+V 粘一次只建 1 个节点（files 与 items 各报一遍也不许出两个）',
+    clipWrote === 'ok' && afterRealPaste === beforeRealPaste + 1,
+    `${clipWrote} ${beforeRealPaste} → ${afterRealPaste}`,
+  )
+
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors[0] ?? '')
   await ctx.close()
 }
