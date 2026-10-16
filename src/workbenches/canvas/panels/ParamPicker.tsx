@@ -539,7 +539,16 @@ function ParamOptionButton(props: {
         data-param-option={o.value}
         {...sectionAttrs}
         disabled={o.disabled}
-        title={o.title ?? o.label}
+        /**
+         * ⚠️ **只在真有补充说明时才挂 `title`**（用户 2026-10-16：参数面板里
+         * 「有个框和上面的容器叠在一起」）。
+         *
+         * 原先是 `o.title ?? o.label` —— 那就是把**看得见的文字再说一遍**。
+         * 浏览器的原生提示框由**操作系统**画，不跟我们的深浅主题走（暗色面板上
+         * 会冒出一个亮色小方块），而且它浮在所有内容之上、正好压在下一段容器上。
+         * 没有补充信息就不挂，系统提示框自然不再出现。
+         */
+        title={o.title}
         onClick={onPick}
       >
         {/* 空值 = 「自动」：它不是宽高比，画个矩形只会和 1:1 撞脸，故只留文字 */}
@@ -565,7 +574,8 @@ function ParamOptionButton(props: {
       data-param-option={o.value}
       {...sectionAttrs}
       disabled={o.disabled}
-      title={o.title ?? o.label}
+      /** 同比例格那一处：只在 `o.title`（置灰原因那类补充说明）存在时才挂 `title` */
+      title={o.title}
       onClick={onPick}
     >
       {o.icon && <span className={styles.rowIcon}>{o.icon}</span>}

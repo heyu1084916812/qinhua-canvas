@@ -19835,7 +19835,46 @@ async function g98(browser) {
       ? `选中=${selDelta.on} 轨道=${selDelta.track} 差=${Math.abs(lumaOf(selDelta.on) - lumaOf(selDelta.track)).toFixed(1)}`
       : 'null',
   )
+
+  /**
+   * ★★ **段落容器之间不能贴在一起**（用户 2026-10-16：「容器与容器之间要有间隙，
+   * 不能重叠在一起」）。
+   *
+   * 判据取**几何**而不是样式声明：相邻两段的矩形之间必须有真空隙（≥ 10px），
+   * 任何一个「计算出来的 margin / gap 是负的」实现都会被这一条按住。
+   * 面板整体挂 0.75 缩放，所以阈值按**屏幕像素**给 —— 10px 屏幕上约等于面板里的 13px。
+   * 阈值取 10 是**踩着修完之后的实测值**定的（11 / 12 / 12）：原来「画质」组内只有 8px，
+   * 暗色下两块轨道糊成一块，那一条正是用户 2026-10-16 报的「容器重叠」。
+   */
+  const sectionGaps = await popup().evaluate((el) => {
+    const rects = [...el.querySelectorAll('[data-param-section]')].map((s) => {
+      const r = s.getBoundingClientRect()
+      return { name: s.getAttribute('data-param-section'), top: r.top, bottom: r.bottom }
+    })
+    const gaps = []
+    for (let i = 1; i < rects.length; i += 1) {
+      gaps.push({ between: `${rects[i - 1].name}→${rects[i].name}`, gap: Math.round(rects[i].top - rects[i - 1].bottom) })
+    }
+    return gaps
+  })
+  rec(
+    g,
+    '★★ 相邻段落之间有空隙（≥ 10px，不贴不叠）',
+    sectionGaps.length >= 3 && sectionGaps.every((x) => x.gap >= 10),
+    sectionGaps.map((x) => `${x.between}=${x.gap}`).join(' '),
+  )
   await page.screenshot({ path: `${OUT}/119-g98-gpt-image-params.png` })
+  /**
+   * 再来一张**悬停态**：鼠标停在「背景 · 默认」上。
+   *
+   * ⚠️ 顺序不能反 —— 悬停会改那一格的颜色，先悬停就把上面那张「静息态」污染了。
+   * 这张专门用来看「悬停 vs 选中」今天到底分不分得开（见对账 #529 的残留①）。
+   */
+  await popup()
+    .locator('[data-param-in="background"][data-param-option="auto"]')
+    .hover()
+  await sleep(400)
+  await page.screenshot({ path: `${OUT}/119b-g98-param-hover.png` })
   await page.keyboard.press('Escape')
   await sleep(250)
 
