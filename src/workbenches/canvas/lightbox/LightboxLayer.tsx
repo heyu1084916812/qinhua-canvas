@@ -375,10 +375,20 @@ export function LightboxLayer() {
 
   const onPointerDown = (e: ReactPointerEvent) => {
     if (!vp) return
-    if (cropping) {
+    /**
+     * **提取选区/框脸模式：左键画框、中键（滚轮键）平移**（用户 2026-10-16 定的口径）。
+     *
+     * 灯箱本来就有两条平移入口（左键拖、中键拖），框选模式下左键被框占用，
+     * 所以这里只把**左键**让给画框；中键照旧落到下面那条通用平移分支 ——
+     * 于是「一边画框一边平移视图」这件事不用再额外做模式切换。
+     *
+     * 中键还要 `preventDefault()`：不拦的话浏览器会同时启动自己的「中键自动滚动」。
+     */
+    if (cropping && e.button === 0) {
       startCrop(e)
       return
     }
+    if (e.button === 1) e.preventDefault()
     movedRef.current = false
     const start = { x: e.clientX, y: e.clientY }
     let last = start
