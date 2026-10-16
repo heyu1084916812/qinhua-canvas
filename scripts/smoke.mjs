@@ -2532,7 +2532,7 @@ async function g14(browser) {
   rec(g, '空态不出现分割线手柄', (await page.locator('[data-compare-handle]').count()) === 0)
 
   /**
-   * ★★ **双击对比节点 → 灯箱「对比」档 + 灯箱内按住拖动能平移视图**（用户 2026-10-16）。
+   * ★★ **两个上游 → 对比节点出 A/B → 双击进灯箱「对比」档**（用户 2026-10-16）。
    *
    * 为什么必须真机跑：这条链路经过**四层** —— 节点视图 `onDoubleClick` → `emit` →
    * `useCanvasPageEvents` → store → 灯箱那条「换素材就复位成结果档」的效果。
@@ -2540,10 +2540,21 @@ async function g14(browser) {
    * `emit` 是**空实现**，根本覆盖不到它（这就是它能反复溜过去的原因）。
    *
    * 素材不跑渠道：直接往画布丢两张 PNG，它们就是两个**有图**的生成节点。
+   *
+   * ⚠️ **这一段的夹具原先有两处错，把「功能是好的」误记成了「只连得上一张」**（对账 #537）：
+   * ① 取新节点用 `.last()` —— DOM 里节点的先后**不等于**创建先后（实测新节点排在前面），
+   *    于是丢两次拿到的是**同一个节点**，第二根线成了「同一个上游连两次」被去重规则正当地拒掉；
+   * ② 两张图用的是**同一份字节** —— 素材内容寻址，同字节 = 同 hash，而
+   *    `upstreamImagesOf` 会**按 hash 去重**，所以就算节点取对了，A/B 也只剩一张。
+   * 现在两处都改成「按内容取」：新节点用**集合差**认，两张图用**不同颜色**现造。
    */
   {
     const surface = page.locator('[data-canvas-surface]')
-    const dropPng = async (dx, dy) => {
+    /** 丢一张**指定颜色**的图，返回这次**新增**的那个生成节点（按集合差认，不看 DOM 先后） */
+    const dropPng = async (dx, dy, color) => {
+      const before = await page
+        .locator('[data-node-type="generation"]')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
       const dt = await page.evaluateHandle(
         ({ b64 }) => {
           const d = new DataTransfer()
@@ -2553,17 +2564,21 @@ async function g14(browser) {
           d.items.add(new File([bytes], 'src.png', { type: 'image/png' }))
           return d
         },
-        { b64: PNG_IMPORT_BASE64 },
+        { b64: solidPngBuffer(320, 240, color).toString('base64') },
       )
       const sbox = await surface.boundingBox()
       await surface.dispatchEvent('dragover', { dataTransfer: dt })
       await surface.dispatchEvent('drop', { dataTransfer: dt, clientX: sbox.x + dx, clientY: sbox.y + dy })
       await sleep(1600)
-      return page.locator('[data-node-type="generation"]').last()
+      const after = await page
+        .locator('[data-node-type="generation"]')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+      const fresh = after.filter((id) => !before.includes(id))
+      return page.locator(`[data-node-id="${fresh[fresh.length - 1]}"]`)
     }
 
-    const srcA = await dropPng(180, 160)
-    const srcB = await dropPng(520, 200)
+    const srcA = await dropPng(180, 160, [220, 70, 70])
+    const srcB = await dropPng(520, 200, [70, 90, 220])
     /* 先把两个素材排到左侧上下、互不重叠，再放对比节点 —— 否则拖线时端口被别的节点压住，
        第二张图根本连不上（实测：只连上一张，双击就成了「单图灯箱」） */
     await moveNode(page, await srcA.getAttribute('data-node-id'), 110, 110)
@@ -2601,36 +2616,64 @@ async function g14(browser) {
       if (lbImgs >= 2) break
       await sleep(250)
     }
-    /**
-     * ⚠️ **这里只连得上一张**：对比节点的 A/B 是「**一个**上游展开出 ≥2 张」给的
-     * （`loadCompareHashes` 走 `expandResults`，见 `compareSpec.collectInputs` 的注释），
-     * 而两根独立的上游线在拖线交互里只能连上一根（实测 `连线=1`）。
-     * 所以这一组钉的是**一张图**这条分叉：灯箱要能打开、而且**不该**硬凑出「对比」档。
-     * 「两张图 → 直接进对比档」那条分支需要一个多产物上游当夹具，见本组末尾的说明。
-     */
-    rec(
-      g,
-      '★ 对比节点拿到上游图（双击的前提）',
-      lbImgs >= 1,
-      `对比 img=${lbImgs} 连线=${await page.locator('[data-edge]').count()}`,
-    )
+    const edgeCount = await page.locator('[data-edge]').count()
+    rec(g, '★★ 两个上游**都**连上了对比节点', edgeCount === 2, `连线=${edgeCount}`)
+    rec(g, '★★ A/B 两张都在（两个上游各一张）', lbImgs === 2, `对比 img=${lbImgs}`)
 
     await lbCmp.locator('[data-compare-ratio]').dblclick()
-    await sleep(700)
+    await sleep(900)
     const lbStage = page.locator('[data-lightbox-stage]')
     rec(g, '★★ 双击对比节点打开灯箱', (await lbStage.count()) === 1)
-    /** 只有一张图时**不该**出现「对比」三档 —— 没有可比的对象，凑出来就是假开关 */
-    const splitPressed = await page
-      .locator('[data-lightbox-compare="split"]')
-      .getAttribute('aria-pressed')
-      .catch(() => null)
+    /**
+     * ★★★ **双击直接进「对比」档**（用户 2026-10-16：「双击能灯箱进行对比」）。
+     *
+     * ⚠️ 判据读**根节点上那个属性**（`[data-lightbox][data-lightbox-compare="split"]`），
+     * **不要**写成 `[data-lightbox-compare="split"]` —— 那个选择器同时命中**根**与**三档里的按钮**
+     *（同一套 `data-lightbox-compare` 既表达"当前是哪一档"、又是每颗按钮的 id），
+     * strict mode 下会在两个元素上抛错，`catch` 一吞就变成"没进对比档"的**假红**（#537 实测）。
+     */
+    const inSplit = await page.locator('[data-lightbox][data-lightbox-compare="split"]').count()
+    const compareGroup = await page.locator('[data-lightbox-compare-group]').count()
     rec(
       g,
-      '★ 只有一张图时不进「对比」档（不硬凑）',
-      splitPressed === null && (await page.locator('[data-lightbox-media]').count()) === 1,
-      `aria-pressed=${splitPressed}`,
+      '★★★ 双击进来**直接**是「对比」档（不用再手点一下）',
+      inSplit === 1 && compareGroup === 1,
+      `根上 split=${inSplit} 对比组=${compareGroup}`,
+    )
+    rec(
+      g,
+      '★★ B（原图那一侧）真的叠在结果上',
+      (await page.locator('[data-lightbox-compare-media]').count()) === 1,
     )
     await page.screenshot({ path: `${OUT}/23b-g14-lightbox-compare.png` })
+
+    /** 拖灯箱里的分割线：比例跟着走，而且**松手那一下不许把灯箱关掉**（用户 2026-10-16 报过） */
+    const divider = page.locator('[data-lightbox-compare-divider]')
+    const dividerBox = await divider.boundingBox().catch(() => null)
+    if (dividerBox) {
+      const ratioOf = async () => Number(await divider.getAttribute('data-lightbox-compare-ratio'))
+      const ratioBefore = await ratioOf()
+      const from = { x: dividerBox.x + dividerBox.width / 2, y: dividerBox.y + dividerBox.height / 2 }
+      await page.mouse.move(from.x, from.y)
+      await page.mouse.down()
+      await page.mouse.move(from.x - 80, from.y, { steps: 10 })
+      await page.mouse.up()
+      await sleep(400)
+      const ratioAfter = await ratioOf()
+      rec(
+        g,
+        '★★ 拖灯箱里的分割线真的改比例',
+        ratioAfter < ratioBefore - 0.05,
+        `${ratioBefore} → ${ratioAfter}`,
+      )
+      rec(
+        g,
+        '★★ 松手之后灯箱还在（拖对比线不关灯箱）',
+        (await page.locator('[data-lightbox]').count()) === 1,
+      )
+    } else {
+      rec(g, '★★ 拖灯箱里的分割线真的改比例', false, '取不到分割线矩形')
+    }
 
     const lbMedia = page.locator('[data-lightbox-media]')
     const mediaBefore = await lbMedia.boundingBox()
