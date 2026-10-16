@@ -20285,6 +20285,72 @@ async function g98(browser) {
   await page.screenshot({ path: `${OUT}/121-g98-nano-banana.png` })
 
   await page.screenshot({ path: `${OUT}/120-g98-agnes-image-params.png` })
+
+  /**
+   * ★★ **自定义像素填错了要当场说清为什么**（对账 #542，收口 #526 的残留）。
+   *
+   * 传输层对不合法的自定义尺寸是**静默回落**的（不发 `size`、改走"比例 × 档位"）。
+   * 界面若不说话，用户填 `1024x1000` 只会看到"尺寸不对"却不知道为什么 ——
+   * 这正是本项目最忌讳的"静默假装成功"。判据读**提示的锚点 + 语气 + 文案**三件：
+   * 只读"有没有那句话"不够（把错误说成普通说明等于没说）。
+   *
+   * 这一段放在**组尾**并重新选回 GPT 档：自定义像素那一格只属于 `openai-images` 方言，
+   * 而本组前面已经把模型切到香蕉 / Agnes 了；放前面还会改掉节点的分辨率、影响后面几条断言。
+   */
+  await pickModel('GPT Image 2.5 Flare')
+  await openParams()
+  /**
+   * ⚠️ 不用 `[data-param-option="自定义"]` 直接点：那个值里带中文，写死容易与实现漂移；
+   * 改成按**文案**取末格，并在取不到时**把实际渲染出来的档位打印出来**——
+   * 否则这条只会以 30s 超时的形式失败（第一版就撞上了，什么信息都没留下）。
+   */
+  /**
+   * ⚠️ `data-param-in="resolution"` **就挂在每颗选项按钮自己身上**（不是容器）——
+   * 写成 `[data-param-in="resolution"] button` 会取到空数组（第一版就是这么错的，
+   * 于是"末格是不是自定义"永远为假）。
+   */
+  const resOptionsNow = await popup()
+    .locator('[data-param-in="resolution"]')
+    .evaluateAll((els) =>
+      els.map((e) => `${e.getAttribute('data-param-option')}|${(e.textContent ?? '').trim()}`),
+    )
+  const customOpt = popup().locator('[data-param-in="resolution"]').filter({ hasText: '自定义' }).first()
+  rec(
+    g,
+    '★ GPT 档的画质那一排末格是「自定义」',
+    (await customOpt.count()) === 1,
+    JSON.stringify(resOptionsNow),
+  )
+  const customBox = popup().locator('[data-param-text="resolutionCustom"]')
+  if ((await customOpt.count()) === 1) {
+    await customOpt.click()
+    await sleep(400)
+  }
+  rec(
+    g,
+    '★ 选「自定义」后长出像素输入框，且先落的是合法种子值（不是把「自定义」三个字写进节点）',
+    (await customBox.count()) === 1 && (await customBox.inputValue()) === '1024x1024',
+    `值=${await customBox.inputValue().catch(() => '?')}`,
+  )
+  await customBox.fill('1024x1000')
+  await sleep(400)
+  const badHint = popup().locator('[data-param-hint="resolutionCustom"]').first()
+  rec(
+    g,
+    '★★ 填非法像素（不是 16 的倍数）→ 当场说清原因，且标为 error',
+    (await badHint.count()) === 1 &&
+      (await badHint.getAttribute('data-param-hint-tone')) === 'error' &&
+      (await badHint.innerText()).includes('16 的倍数'),
+    `${await badHint.getAttribute('data-param-hint-tone').catch(() => '?')} / ${await badHint.innerText().catch(() => '')}`,
+  )
+  await customBox.fill('1024x1536')
+  await sleep(400)
+  rec(
+    g,
+    '★★ 改成合法像素 → 提示消失（不是一直挂着一句话）',
+    (await popup().locator('[data-param-hint="resolutionCustom"]').count()) === 0,
+  )
+
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
 }

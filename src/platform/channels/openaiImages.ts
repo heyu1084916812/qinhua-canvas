@@ -4,6 +4,17 @@ import { imageSizeFromHeader } from '../../domain/shared/imageSize'
 import { imageParamsFor, type ImageParamSpec } from '../../domain/canvas/layout/imageParams'
 import { bytesToBase64 } from './base64'
 import { mjFlags } from '../../domain/canvas/layout/mjParams'
+import {
+  CUSTOM_SIZE_MAX_EDGE as MAX_EDGE,
+  CUSTOM_SIZE_MAX_PIXELS as MAX_PIXELS,
+  customImageSize,
+  CUSTOM_SIZE_SNAP as SNAP,
+} from '../../domain/canvas/layout/customSize'
+/**
+ * 自定义像素尺寸的**规则住在 domain**（`domain/canvas/layout/customSize`），与面板共用同一份 ——
+ * 面板那侧要拿它给用户一句"为什么填的不算数"。这里只把它原样转出去，保持既有导入路径可用。
+ */
+export { customImageSize }
 import type { SafeChannelConfig, NetworkResponse } from '../ports'
 import {
   ChannelError,
@@ -59,11 +70,7 @@ const RES_PIXEL_BUDGET: Record<'1k' | '2k' | '4k', number> = {
   // 仍满足总像素上限；其余 4K 档比例照常按 4096² 的预算解）。
   '4k': 4096 * 4096,
 }
-const MAX_EDGE = 3840
-const MAX_PIXELS = 8294400
-/** 文档给的总像素**下限**（655360 = 1024×640）；小于它同样属于非法 `size` */
-const MIN_PIXELS = 655360
-const SNAP = 16
+/** 上面三个约束常量与 `SNAP` 都来自 `domain/canvas/layout/customSize`（见那里的说明） */
 
 /**
  * **Gemini 的「不下发比例」默认值**（内部哨兵，**不在任何能力表里**）。
@@ -110,36 +117,16 @@ export function openAiImageSize(ratio: unknown, resolution?: unknown): string | 
   return `${w}x${h}`
 }
 
-/**
- * **自定义像素尺寸**（用户 2026-10-15：「自定义要加上」）。
+/*
+ * **自定义像素尺寸**（用户 2026-10-15：「自定义要加上」）的校验实现**已搬到 domain**：
+ * 见 `domain/canvas/layout/customSize.ts`（本文件顶部 re-export 了 `customImageSize`）。
+ * 搬家的原因写在那个文件的头注释里 —— 一句话：面板也要用同一份规则给用户提示，
+ * 而面板不该反向依赖 `platform/channels`。
  *
- * 面板「画质」那排多出来的最后一格：选中之后填 `宽 x 高`（如 `1024x1536`）。
- * 这里只做一件事 —— 把它按 gpt-image 的**硬约束**过一遍（约束来源与上面
- * `RES_PIXEL_BUDGET` 同一条文档：最大边 ≤ 3840、两边都是 16 的倍数、
- * 长短边比 ≤ 3:1、总像素 655360 – 8294400）。
- *
- * 过不了就返回 `null`：**宁可不发 `size`**（交给服务端默认），也不发一个
- * 注定 400 的值让用户对着「请求失败」猜自己哪一位填错了。
- *
- * ⚠️ 只有 `openai-images` 方言能用它。Nano Banana 的 `image_size` 只认
+ * ⚠️ 只有 `openai-images` 方言能用自定义档。Nano Banana 的 `image_size` 只认
  * 1K / 2K / 4K（Pro）与 512（Flash）—— 那边官方**没有**自定义这一档，
  * 所以面板也不会给那一格（见 `CreationPanel` 里的 `canCustomSize`）。
  */
-export function customImageSize(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const m = /^(\d+)\s*[x×*]\s*(\d+)$/.exec(value.trim())
-  if (!m) return null
-  const w = Number(m[1])
-  const h = Number(m[2])
-  if (!Number.isInteger(w) || !Number.isInteger(h) || w <= 0 || h <= 0) return null
-  if (w % SNAP !== 0 || h % SNAP !== 0) return null
-  if (Math.max(w, h) > MAX_EDGE) return null
-  if (w * h < MIN_PIXELS) return null
-  if (w * h > MAX_PIXELS) return null
-  /** 长短边比 ≤ 3:1（文档明确拒绝更扁的尺寸） */
-  if (Math.max(w / h, h / w) > 3) return null
-  return `${w}x${h}`
-}
 
 /**
  * OpenAI 官方图像协议接受的 `quality` 取值。

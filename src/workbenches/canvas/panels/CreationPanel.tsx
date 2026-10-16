@@ -3,6 +3,7 @@ import { clampDuration, type ModelCapability } from '../../../domain/shared/capa
 import type { GenerationData } from '../../../domain/canvas/model/node'
 import type { PanelCollection, PanelModel, PanelThumb, RecipeSnapshot } from './panelModel'
 import { generationParams } from '../../../domain/canvas/nodeSpecs/params'
+import { customSizeIssue } from '../../../domain/canvas/layout/customSize'
 import { moveInOrder } from './panelModel'
 import { useChannels } from '../../../app/providers/ChannelStoreProvider'
 import { useSkills } from '../../../app/providers/SkillStoreProvider'
@@ -995,6 +996,29 @@ export function CreationPanel(props: CreationPanelProps) {
     : ladderResolutions.includes(storedResolution.toLowerCase())
       ? storedResolution.toLowerCase()
       : storedResolution
+  /**
+   * **自定义像素填错了要当场说清为什么**（对账 #542，收口 #526 的残留）。
+   *
+   * 规则来自 `domain/canvas/layout/customSize`（**与传输层同一份**）—— 传输层对不合法的值
+   * 是静默回落的（不发 `size`、改走"比例 × 档位"），界面不说话用户就只会觉得"我填了没用"。
+   * 语气分两档：**空** = 只是提醒格式（`muted`）、**填了但不合法** = 这个值不会被采用（`error`）。
+   */
+  const customSizeHintOf = (value: string): { text: string; tone: 'muted' | 'error' } | undefined => {
+    const issue = customSizeIssue(value)
+    if (!issue) return undefined
+    const text =
+      issue === 'format'
+        ? '格式：宽x高，例如 1024x1536'
+        : issue === 'snap'
+          ? '长和宽都要是 16 的倍数'
+          : issue === 'edge'
+            ? '最长边不能超过 3840'
+            : issue === 'pixels'
+              ? '总像素要在 655360–8294400 之间'
+              : '长宽比不能超过 3:1'
+    return { text, tone: value.trim() === '' ? 'muted' : 'error' }
+  }
+  const customSizeHint = customSizeHintOf(storedResolution)
   const paramSections: ParamSection[] = [
     ...(resolutions.length > 0
       ? [
@@ -1051,6 +1075,8 @@ export function CreationPanel(props: CreationPanelProps) {
             options: [],
             value: storedResolution,
             placeholder: '宽x高，如 1024x1536',
+            hint: customSizeHint?.text,
+            hintTone: customSizeHint?.tone,
             onSelect: (v: string) =>
               onEvent({
                 type: 'setResolution',

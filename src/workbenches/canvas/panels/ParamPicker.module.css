@@ -271,6 +271,24 @@
   border-color: var(--stroke-focus);
 }
 
+/*
+ * `text` 形态下面那句提示（自定义像素那格）。
+ *
+ * 为什么必须有它：传输层对不合法的自定义像素是**静默回落**的（不发 size、改走"比例 × 档位"），
+ * 界面上不说一句，用户就只会觉得"我填了没用"。语气分两档：默认 `--text-3`（只是说明格式），
+ * `error` 用 `--danger`（这一格填的值**不会被采用**）。
+ */
+.hint {
+  margin: 4px 0 0;
+  color: var(--text-3);
+  font-family: var(--font-sans);
+  font-size: var(--picker-hint-fs, var(--fs-chip));
+}
+
+.hintError {
+  color: var(--danger);
+}
+
 /** 分组内的形态容器不需要再撑自己的边距（外层已经给过一圈） */
 .grouped .ratioGrid {
   padding: 0;

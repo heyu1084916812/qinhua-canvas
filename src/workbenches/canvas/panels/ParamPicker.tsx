@@ -69,6 +69,16 @@ export interface ParamSection {
   /** `text` 形态的占位文案 */
   placeholder?: string
   /**
+   * `text` 形态的**实时提示**（`text` 专用）。
+   *
+   * 用户 2026-10-15 第 9 轮「自定义要加上」那一格的收尾：填错了**不能静默回落** ——
+   * 传输层过不了校验时会不发 `size`（走"比例 × 档位"），界面若不说话，用户只会觉得
+   * "我填了没用"。提示语由调用方给（它知道这条规则的人话怎么说），这里只负责画。
+   */
+  hint?: string
+  /** 提示的语气：`error` = 这个值不会被采用（默认 `muted` = 只是说明格式） */
+  hintTone?: 'muted' | 'error'
+  /**
    * `list` 形态「一屏最多几行」：多出来的在这一段内部**滚动**。
    *
    * 用户 2026-10-02：「模型选择面板太高了，只需要展示前五个就行，可以下拉继续
@@ -507,15 +517,28 @@ export function ParamPicker(props: ParamPickerProps) {
                         </span>
                       </span>
                     ) : s.variant === 'text' ? (
-                      <input
-                        type="text"
-                        className={styles.textInput}
-                        data-param-text={s.name}
-                        aria-label={s.label}
-                        value={s.value}
-                        placeholder={s.placeholder ?? ''}
-                        onChange={(e) => s.onSelect(e.target.value)}
-                      />
+                      <>
+                        <input
+                          type="text"
+                          className={styles.textInput}
+                          data-param-text={s.name}
+                          aria-label={s.label}
+                          value={s.value}
+                          placeholder={s.placeholder ?? ''}
+                          /** 过不了校验时把"这个值不会被采用"也告诉读屏（不只靠颜色） */
+                          aria-invalid={s.hintTone === 'error' ? true : undefined}
+                          onChange={(e) => s.onSelect(e.target.value)}
+                        />
+                        {s.hint && (
+                          <p
+                            className={s.hintTone === 'error' ? `${styles.hint} ${styles.hintError}` : styles.hint}
+                            data-param-hint={s.name}
+                            data-param-hint-tone={s.hintTone ?? 'muted'}
+                          >
+                            {s.hint}
+                          </p>
+                        )}
+                      </>
                     ) : (
                       <div
                         className={[
