@@ -3914,6 +3914,33 @@ async function g18(browser) {
   rec(g, '★ 节点右键菜单含「禁用」（§4.1 / §9.3）', nodeSet.has('禁用'), `items=${JSON.stringify(nodeMenu)}`)
 
   /**
+   * ★ 节点右键菜单每一项都要有矢量图标（用户 2026-10-16：#550 报
+   * 「生成 / 复制 / 重命名 / 删除」四项空一档）。
+   *
+   * 与下面「新建项」检查同一判据：取 `<svg>` 逐项比，不抽查单项——
+   * 「少一个」的缺陷肉眼与抽查都容易漏。
+   */
+  const nodeIconState = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-context-menu] [data-context-menu-item]')].map((el) => {
+      const svg = el.querySelector('svg')
+      const box = svg?.getBoundingClientRect()
+      // 只查「有没有 svg」会漏掉 0×0 / 未渲染的图标，故连几何一起量
+      const visible = !!box && box.width > 0 && box.height > 0
+      return { id: el.getAttribute('data-context-menu-item'), visible }
+    }),
+  )
+  const nodeMissingIcons = nodeIconState.filter((i) => !i.visible).map((i) => i.id)
+  await page.screenshot({ path: `${OUT}/32-g18-node-menu-icons.png` })
+  rec(
+    g,
+    '★ 节点右键菜单每一项都有矢量图标（生成 / 复制 / 重命名 / 删除）',
+    nodeIconState.length === 5 && nodeMissingIcons.length === 0,
+    `带图标 ${nodeIconState.length - nodeMissingIcons.length}/${nodeIconState.length}${
+      nodeMissingIcons.length ? ` 缺=${nodeMissingIcons.join(',')}` : ''
+    }`,
+  )
+
+  /**
    * 禁用 / 启用（§9.3 数据流不变量 5）：禁用后不参与执行，已有内容仍可作上游。
    *
    * 这里量的是**用户能看到的闭环**：菜单切到另一侧、节点带禁用态与徽标、面板写明不运行。
@@ -4001,21 +4028,22 @@ async function g18(browser) {
    * 判据取 `<svg>` 而不是「有没有 span」：图标是 SVG 矢量（§「不要用文本字形当图标」），
    * 只查容器会漏。
    */
-  const iconState = await page.evaluate(() => {
-    const items = [...document.querySelectorAll('[data-context-menu] [data-context-menu-item]')]
-    return items
-      .filter((el) => (el.getAttribute('data-context-menu-item') || '').startsWith('create:'))
-      .map((el) => ({
+  const iconState = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-context-menu] [data-context-menu-item]')].map((el) => {
+      const svg = el.querySelector('svg')
+      const box = svg?.getBoundingClientRect()
+      return {
         id: el.getAttribute('data-context-menu-item'),
-        hasSvg: !!el.querySelector('svg'),
-      }))
-  })
-  const missing = iconState.filter((i) => !i.hasSvg).map((i) => i.id)
+        visible: !!box && box.width > 0 && box.height > 0,
+      }
+    }),
+  )
+  const missing = iconState.filter((i) => !i.visible).map((i) => i.id)
   rec(
     g,
-    '★ 每个新建项都有矢量图标（含循环 / 融合节点；图标两侧菜单同源）',
-    iconState.length === 6 && missing.length === 0,
-    `带图标 ${iconState.length}/6${missing.length ? ` 缺=${missing.join(',')}` : ''}`,
+    '★ 每个新建项都有矢量图标（含循环 / 融合节点；图标两侧菜单同源），画布菜单其它项同理',
+    iconState.filter((i) => (i.id || '').startsWith('create:')).length === 6 && missing.length === 0,
+    `带图标 ${iconState.length - missing.length}/${iconState.length}${missing.length ? ` 缺=${missing.join(',')}` : ''}`,
   )
   await page.keyboard.press('Escape')
   await sleep(150)

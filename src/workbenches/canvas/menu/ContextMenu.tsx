@@ -22,12 +22,18 @@ import styles from './ContextMenu.module.css'
 import {
   IconBatch,
   IconCompare,
+  IconCopyText,
+  IconDelete,
+  IconDuplicate,
+  IconExpand,
   IconFusion,
   IconGeneration,
   IconImport,
   IconLoop,
+  IconPlay,
   IconPower,
   IconPrompt,
+  IconRename,
   IconReset,
   IconScan,
 } from '../toolbar/icons'
@@ -56,6 +62,14 @@ const MENU_ICON: Record<string, ReactNode> = {
   'create:loop': <IconLoop size={MENU_ICON_SIZE} />,
   /** 融合节点：与左侧「＋」菜单取同一份图标组件（各画一套迟早漂） */
   'create:fusion': <IconFusion size={MENU_ICON_SIZE} />,
+  /** 运行类 / 编辑类：与节点功能栏取同一份矢量图标（用户 2026-10-16：#550） */
+  run: <IconPlay size={MENU_ICON_SIZE} />,
+  duplicate: <IconDuplicate size={MENU_ICON_SIZE} />,
+  fullscreenEdit: <IconExpand size={MENU_ICON_SIZE} />,
+  rename: <IconRename size={MENU_ICON_SIZE} />,
+  delete: <IconDelete size={MENU_ICON_SIZE} />,
+  /** 画布空白的「粘贴」与复制同形（剪贴板语义），不另画一套 */
+  paste: <IconCopyText size={MENU_ICON_SIZE} />,
   /** 提取选区：与功能栏取同一份图标组件 */
   extractSelection: <IconScan size={MENU_ICON_SIZE} />,
   saveLibrary: (
