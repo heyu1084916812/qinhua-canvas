@@ -175,11 +175,19 @@ export function LightboxLayer() {
     setCropRatio('')
   }, [assetHash, cropFor, faceFor])
 
-  /** 换素材 = 对比回到「结果」那一档、分割线回中线（别把上一张的视角带过来） */
+  /**
+   * 换素材 = 对比回到「结果」那一档、分割线回中线（别把上一张的视角带过来）。
+   *
+   * ⚠️ **例外：调用方显式给了对比配对时要直接进「对比」档**
+   * （对比节点双击进来的入口，见 store 的 `openLightbox`）。
+   * 这条复位效果会在**打开灯箱那一刻**跑（`assetHash` 从空变成那张图），
+   * 一律复位成「结果」的话，那个入口等于白做 —— 用户看到的只是一张单图灯箱，
+   * 还得自己再去点一下「对比」（用户 2026-10-16：「双击对比节点灯箱那个还没有做好」）。
+   */
   useEffect(() => {
-    setCompareView('result')
+    setCompareView(lightbox?.compareWith ? 'split' : 'result')
     setSplitRatio(0.5)
-  }, [assetHash])
+  }, [assetHash, lightbox?.compareWith])
 
   // 舞台尺寸：初次适配要用，resize 时重测
   useEffect(() => {
@@ -538,7 +546,14 @@ export function LightboxLayer() {
               alt=""
               draggable={false}
               style={{ ...box, clipPath: `inset(0 ${(1 - splitRatio) * 100}% 0 0)` }}
-              onPointerDown={(e) => e.stopPropagation()}
+              /**
+               * ⚠️ **这里不要拦 `pointerdown`**（用户 2026-10-16：「灯箱内的图片能进行鼠标拖动视图」）。
+               *
+               * 拦掉的后果是：对比模式下压在 B（右半）上拖**什么都拖不动** ——
+               * 平移是靠舞台那一层的 `onPointerDown` 起手的，被这里一个 stopPropagation
+               * 全挡掉。分割线自己有手柄（在更上面一层、自己带 `onPointerDown`），
+               * 不需要靠拦整张图来让路。
+               */
               onClick={(e) => e.stopPropagation()}
             />
             <div className={styles.compareTags} style={box} data-lightbox-compare-tags>
