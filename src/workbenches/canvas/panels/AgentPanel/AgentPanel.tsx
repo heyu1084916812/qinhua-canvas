@@ -202,6 +202,16 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    * 那时闭包里已经拿不到当时的正文了（见 `toolCtx` 里那段说明）。
    */
   const perImageRef = useRef(false)
+  /**
+   * **这一轮会话「上次用过的模型」**（用户 2026-10-16：「我连续的迭代需求的话就用我上一个对话的，
+   * 例如一开始我给对话框输入了 gpt2 模型的话，后续如果我没有另外输入模型的话基本上就会都是 gpt2，
+   * 如果后面我输入了香蕉模型的话就用香蕉模型」）。
+   *
+   * 用 ref 而不是只读会话里的 `imageModel`：那个字段要等一次落库 + 刷新才回来，
+   * 而「连续迭代」是同一条会话里的**下一轮**就要生效。落库那份照样写（跨会话/重开还在），
+   * 这份只负责**本轮立刻生效**。
+   */
+  const stickyModelRef = useRef<{ image?: string; video?: string }>({})
   currentIdRef.current = current?.id ?? null
   const [draft, setDraft] = useState('')
   /** 订阅全量渠道：设置页改完立刻反映（与创作面板同一条口径） */
@@ -429,6 +439,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
       // 换了会话，之前「准备好删了」的那个状态不该跟过来
       setRenaming(false)
       setConfirmDelete(false)
+      /**
+       * **「上次用过的模型」也要跟着换会话重置**：那是**这段对话**的记忆，
+       * 带过来的话新会话第一次建节点就会莫名沿用上一段对话选的模型。
+       */
+      stickyModelRef.current = {}
     },
     [],
   )
@@ -560,18 +575,33 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
          */
         const planned = typeof node.data.model === 'string' ? node.data.model.trim() : ''
         /**
-         * 优先级：计划点名 > **跟随画布上选中的那个节点** > 面板里存的那一档。
+         * 优先级（用户 2026-10-16 定的口径）：
+         *   ① 计划点名 —— 你在对话框里说了模型，就用它；
+         *   ② **本会话上次用过的那个模型** —— 你不说就一直沿用（连续迭代就是这么来的）；
+         *   ③ 画布上选中的那个节点用的模型 —— 会话还没有历史时的起点；
+         *   ④ `undefined` —— 保持渠道默认配方不动。
          *
-         * 「跟随选中」是用户 2026-10-16 定的口径（见 `selectedModelOf`）——
-         * 面板那一档只是**兜底**，不该盖过用户刚刚在画布上选中的那张图用的模型。
+         * ② 在 ③ 之上是有意的：同一段对话里用户已经交代过一次模型，后面没说就是「还用那个」，
+         * 不该因为中途点选了别的节点而自己换掉。
          */
-        const model =
-          planned ||
-          selectedModelOf(kind) ||
-          (kind === 'video' ? current?.videoModel : current?.imageModel)
+        const stored = stickyModelRef.current[kind] ?? (kind === 'video' ? current?.videoModel : current?.imageModel)
+        const model = planned || stored || selectedModelOf(kind)
         if (!model) return undefined
         const channelId = channelIdForLogical(enabled, model, current?.channelId)
-        return channelId ? { channelId, model } : undefined
+        if (!channelId) return undefined
+        /**
+         * 这次真正用上的模型记下来：ref 管本轮下一轮立刻生效，落库那份管重开还在。
+         * 只在**真的变了**时才写，免得每建一次节点就落一次库。
+         */
+        if (model !== stored) {
+          stickyModelRef.current[kind] = model
+          if (current) {
+            void sessions.save(
+              kind === 'video' ? { ...current, videoModel: model } : { ...current, imageModel: model },
+            )
+          }
+        }
+        return { channelId, model }
       },
       /**
        * 模型名 → 类别：给 `applyPlan` 纠正 `mode` 用（见 `alignGenerationMode`）。
@@ -581,7 +611,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
        */
       categoryOfModel: (model) => capabilityOfLogical(allChannels, model)?.category,
     }),
-    [store, selection, execution, channels, current, enabled, allChannels, selectedModelOf],
+    [store, selection, execution, channels, current, enabled, allChannels, selectedModelOf, sessions],
   )
 
   const loopDeps = useCallback(
@@ -1016,6 +1046,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
    */
   const setModelKind = useCallback(
     async (key: 'imageModel' | 'videoModel', model: string) => {
+      /**
+       * 用户在面板上亲手选的模型，也要进「上次用过的」那一份 ——
+       * 否则下一轮 agent 又会按旧值去建节点，用户看到的是「我明明换了模型它还用旧的」。
+       */
+      stickyModelRef.current[key === 'videoModel' ? 'video' : 'image'] = model
       await patchSession({ [key]: model })
     },
     [patchSession],
