@@ -590,6 +590,75 @@
 }
 
 /*
+ * 文字图层：文字不是画笔像素，而是独立对象。它在画布上方，只有文字工具激活时才接指针；
+ * 用画笔 / 矩形时整层透传，原有绘制不会被挡住。
+ */
+.annTextLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.annTextItem,
+.annTextItemOn {
+  position: absolute;
+  pointer-events: none;
+}
+
+.annTextItemOn {
+  pointer-events: auto;
+  cursor: move;
+}
+
+.annTextBody,
+.annTextBodyOn {
+  display: inline-block;
+  padding: 2px 4px;
+  color: inherit;
+  font-family: sans-serif;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: pre-wrap;
+}
+
+.annTextBodyOn {
+  outline: 1px solid var(--accent);
+  background: var(--bg-surface);
+}
+
+.annTextEditor {
+  display: block;
+  min-width: 120px;
+  padding: 4px 6px;
+  box-sizing: border-box;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-control);
+  outline: none;
+  background: var(--bg-surface);
+  color: inherit;
+  font-family: sans-serif;
+  font-weight: 600;
+  line-height: 1.2;
+  resize: none;
+  overflow: hidden;
+}
+
+.annTextResize {
+  position: absolute;
+  right: -7px;
+  bottom: -7px;
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border: 2px solid var(--bg-surface);
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: nwse-resize;
+  pointer-events: auto;
+}
+
+/*
  * 标注工具条里那几个「只有一个图标」的按钮（三件工具 / 撤销 / 重做）：
  * 与同一排的分段控件同一套底色与悬停，只是宽度收成方形而不再按文字撑开。
  */

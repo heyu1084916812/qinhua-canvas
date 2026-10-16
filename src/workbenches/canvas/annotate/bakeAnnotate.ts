@@ -6,7 +6,7 @@ import { generationSpec } from '../../../domain/canvas/nodeSpecs/generation'
 import { fingerprintBytes } from '../../../domain/shared/hash'
 import { createId } from '../../../shared/id'
 import type { CanvasStore } from '../../../state/workbenches/canvas/store'
-import { drawAnnotateOp, type AnnotateOp } from './annotateOps'
+import { drawAnnotateOp, drawAnnotateText, type AnnotateOp, type AnnotateTextItem } from './annotateOps'
 
 /**
  * 把「底图 + 全部标注」**真画进像素**，落到原图**右侧的新节点**上。
@@ -25,11 +25,13 @@ export interface AnnotateSaveInput {
   /** 原图的 url（`useAssetMeta` 给的那份） */
   url: string
   ops: AnnotateOp[]
+  /** 可编辑文字图层；保存时画在画笔 / 矩形之后，等价于“文字图层在最上面” */
+  textItems?: AnnotateTextItem[]
 }
 
 /** 返回新节点 id；合成失败（取不到图 / 编码失败）时返回 undefined，不写任何数据 */
 export async function saveAnnotatedAsset(input: AnnotateSaveInput): Promise<string | undefined> {
-  const { store, graph, node, url, ops } = input
+  const { store, graph, node, url, ops, textItems = [] } = input
 
   const img = await new Promise<HTMLImageElement>((resolve, reject) => {
     const el = new Image()
@@ -49,6 +51,7 @@ export async function saveAnnotatedAsset(input: AnnotateSaveInput): Promise<stri
   if (!g2) return undefined
   g2.drawImage(img, 0, 0, width, height)
   for (const op of ops) drawAnnotateOp(g2, op)
+  for (const item of textItems) drawAnnotateText(g2, item)
 
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
   if (!blob) return undefined

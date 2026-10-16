@@ -26,6 +26,53 @@ export interface AnnotateOp {
   text?: string
 }
 
+/**
+ * 可编辑文字图层。
+ *
+ * 与 `AnnotateOp` 分开是刻意的：画笔 / 矩形是“落笔即像素”，而文字需要
+ * 反复选中、移动、缩放、改色、改内容。只有保存时才按这一层的数据烘焙进最终图片。
+ */
+export interface AnnotateTextItem {
+  id: string
+  /** 图片像素坐标（不是屏幕坐标） */
+  x: number
+  y: number
+  text: string
+  color: string
+  /** 图片像素字号 */
+  fontSize: number
+}
+
+export const MIN_ANNOTATE_TEXT_SIZE = 12
+export const MAX_ANNOTATE_TEXT_SIZE = 320
+
+export function clampAnnotateTextSize(size: number): number {
+  if (!Number.isFinite(size)) return MIN_ANNOTATE_TEXT_SIZE
+  return Math.min(MAX_ANNOTATE_TEXT_SIZE, Math.max(MIN_ANNOTATE_TEXT_SIZE, Math.round(size)))
+}
+
+export function moveAnnotateText(
+  item: AnnotateTextItem,
+  dx: number,
+  dy: number,
+  bounds?: { w: number; h: number },
+): AnnotateTextItem {
+  const x = item.x + dx
+  const y = item.y + dy
+  return {
+    ...item,
+    x: bounds ? Math.min(Math.max(0, x), Math.max(0, bounds.w)) : x,
+    y: bounds ? Math.min(Math.max(0, y), Math.max(0, bounds.h)) : y,
+  }
+}
+
+export function resizeAnnotateText(
+  item: AnnotateTextItem,
+  fontSize: number,
+): AnnotateTextItem {
+  return { ...item, fontSize: clampAnnotateTextSize(fontSize) }
+}
+
 /** 画笔颜色只用**固定色板**：画在图上要跟任何照片都分得开，也让撤销 / 重做可预期 */
 export const ANNOTATE_COLORS = [
   '#e5484d',
@@ -60,5 +107,24 @@ export function drawAnnotateOp(g2: CanvasRenderingContext2D, op: AnnotateOp): vo
       g2.fillText(op.text, at.x, at.y)
     }
   }
+  g2.restore()
+}
+
+/**
+ * 把文字图层画进像素。预览与保存共用这里，避免出现“屏幕上看得到、存下来少一行”。
+ */
+export function drawAnnotateText(
+  g2: CanvasRenderingContext2D,
+  item: AnnotateTextItem,
+): void {
+  if (!item.text) return
+  g2.save()
+  g2.fillStyle = item.color
+  g2.font = `600 ${clampAnnotateTextSize(item.fontSize)}px sans-serif`
+  g2.textBaseline = 'top'
+  const lineHeight = clampAnnotateTextSize(item.fontSize) * 1.2
+  item.text.split('\n').forEach((line, index) => {
+    g2.fillText(line, item.x, item.y + index * lineHeight)
+  })
   g2.restore()
 }

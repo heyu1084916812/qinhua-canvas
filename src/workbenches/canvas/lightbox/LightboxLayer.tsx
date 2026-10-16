@@ -26,10 +26,15 @@ import { RATIO_CHOICES } from '../../../domain/canvas/layout/ratioChoices'
 import { extractSelection } from '../../../features/canvas/extractSelection'
 import { faceBoxFromRect } from '../../../features/canvas/emotionEdit'
 import { downloadAsset } from '../../../features/canvas/downloadAsset'
+import { createId } from '../../../shared/id'
 import {
   ANNOTATE_COLORS,
+  clampAnnotateTextSize,
   drawAnnotateOp,
+  moveAnnotateText,
+  resizeAnnotateText,
   type AnnotateOp,
+  type AnnotateTextItem,
   type AnnotateTool,
 } from '../annotate/annotateOps'
 import { saveAnnotatedAsset } from '../annotate/bakeAnnotate'
@@ -39,6 +44,7 @@ import {
   IconCheck,
   IconClose,
   IconCompare,
+  IconDelete,
   IconImage,
   IconMirrorH,
   IconMirrorV,
@@ -274,6 +280,9 @@ export function LightboxLayer() {
   const [annSize, setAnnSize] = useState(6)
   const [annText, setAnnText] = useState('')
   const [annOps, setAnnOps] = useState<AnnotateOp[]>([])
+  const [annTextItems, setAnnTextItems] = useState<AnnotateTextItem[]>([])
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null)
+  const [editingTextId, setEditingTextId] = useState<string | null>(null)
   const [annUndone, setAnnUndone] = useState<AnnotateOp[]>([])
   const [annSaving, setAnnSaving] = useState(false)
   const annCanvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -281,12 +290,15 @@ export function LightboxLayer() {
 
   /** 每次进标注模式从空白开始（上一次的标注留着会直接盖在新图上） */
   useEffect(() => {
-    if (!lightbox?.annotateFor) return
+    if (!assetHash) return
     setAnnOps([])
+    setAnnTextItems([])
+    setSelectedTextId(null)
+    setEditingTextId(null)
     setAnnUndone([])
     setAnnTool('brush')
     setAnnText('')
-  }, [lightbox?.annotateFor])
+  }, [assetHash, lightbox?.annotateFor])
 
   /**
    * 重画那层画布：**底图不画进来**（灯箱那张 `<img>` 就在它下面），只画标注操作。
@@ -577,11 +589,17 @@ export function LightboxLayer() {
     const p = annPointOf(e)
     if (annTool === 'text') {
       if (!annText.trim()) return
-      setAnnOps((prev) => [
-        ...prev,
-        { tool: annTool, color: annColor, size: annSize, points: [p], text: annText.trim() },
-      ])
-      setAnnUndone([])
+      const item: AnnotateTextItem = {
+        id: createId('text'),
+        x: p.x,
+        y: p.y,
+        text: annText.trim(),
+        color: annColor,
+        fontSize: clampAnnotateTextSize(Math.max(14, annSize * 5)),
+      }
+      setAnnTextItems((prev) => [...prev, item])
+      setSelectedTextId(item.id)
+      setAnnText('')
       return
     }
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -614,6 +632,89 @@ export function LightboxLayer() {
     setAnnOps((prev) => [...prev, draw])
     setAnnUndone([])
   }
+
+  const patchTextItem = (id: string, patch: Partial<AnnotateTextItem>) => {
+    setAnnTextItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)))
+  }
+
+  const deleteTextItem = (id: string) => {
+    setAnnTextItems((prev) => prev.filter((item) => item.id !== id))
+    setSelectedTextId((current) => (current === id ? null : current))
+    setEditingTextId((current) => (current === id ? null : current))
+  }
+
+  /** 选中的文字提到数组末尾 —— DOM 顺序就是图层顺序，保存时也按同一顺序画。 */
+  const selectTextItem = (id: string) => {
+    setSelectedTextId(id)
+    setAnnTextItems((prev) => {
+      const item = prev.find((x) => x.id === id)
+      if (!item || prev[prev.length - 1]?.id === id) return prev
+      return [...prev.filter((x) => x.id !== id), item]
+    })
+  }
+
+  const startTextMove = (e: ReactPointerEvent, item: AnnotateTextItem) => {
+    if (e.button !== 0 || !vp) return
+    e.stopPropagation()
+    e.preventDefault()
+    selectTextItem(item.id)
+    setEditingTextId(null)
+    const start = { x: e.clientX, y: e.clientY }
+    const move = (ev: PointerEvent) => {
+      const dx = (ev.clientX - start.x) / vp.zoom
+      const dy = (ev.clientY - start.y) / vp.zoom
+      setAnnTextItems((prev) =>
+        prev.map((current) =>
+          current.id === item.id
+            ? moveAnnotateText(item, dx, dy, natural ? { w: natural.w, h: natural.h } : undefined)
+            : current,
+        ),
+      )
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  const startTextResize = (e: ReactPointerEvent, item: AnnotateTextItem) => {
+    if (e.button !== 0 || !vp) return
+    e.stopPropagation()
+    e.preventDefault()
+    selectTextItem(item.id)
+    setEditingTextId(null)
+    const startX = e.clientX
+    const move = (ev: PointerEvent) => {
+      const delta = (ev.clientX - startX) / vp.zoom
+      setAnnTextItems((prev) =>
+        prev.map((current) =>
+          current.id === item.id
+            ? resizeAnnotateText(item, item.fontSize + delta)
+            : current,
+        ),
+      )
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  /** Delete / Backspace 删掉当前文字图层；正在编辑文字时不抢键。 */
+  useEffect(() => {
+    if (!annotating || !selectedTextId || editingTextId) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      e.preventDefault()
+      deleteTextItem(selectedTextId)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [annotating, selectedTextId, editingTextId])
 
   /** 撤销 / 重做 = 把操作列表切一刀（重放即得画面，不需要存快照） */
   const undoAnn = () => {
@@ -755,7 +856,14 @@ export function LightboxLayer() {
     if (!node) return
     setAnnSaving(true)
     try {
-      const id = await saveAnnotatedAsset({ store, graph, node, url, ops: annOps })
+      const id = await saveAnnotatedAsset({
+        store,
+        graph,
+        node,
+        url,
+        ops: annOps,
+        textItems: annTextItems,
+      })
       /** 落地就选中它（与老那一层同一手感：保存完眼睛已经在那张新图上） */
       if (id) store.setSelection([id])
       close()
@@ -800,6 +908,7 @@ export function LightboxLayer() {
     window.addEventListener('pointerup', up)
   }
 
+  const selectedTextItem = annTextItems.find((item) => item.id === selectedTextId) ?? null
   const availableModes = EDITOR_MODES.filter((m) => {
     if (m.id === 'view') return true
     if (m.id === 'crop') return canCrop
@@ -951,6 +1060,79 @@ export function LightboxLayer() {
             /** 画完一笔松手也会触发 click：别让它冒到舞台去（舞台那条是「单击空白关灯箱」） */
             onClick={(e) => e.stopPropagation()}
           />
+        )}
+        {annotating && box && vp && (
+          <div className={styles.annTextLayer} data-annotate-text-layer>
+            {annTextItems.map((item) => {
+              const selected = selectedTextId === item.id
+              const editing = editingTextId === item.id
+              const active = annTool === 'text'
+              const lines = item.text.split('\n')
+              const fontScreen = item.fontSize * vp.zoom
+              return (
+                <div
+                  key={item.id}
+                  className={active ? styles.annTextItemOn : styles.annTextItem}
+                  data-annotate-text-item={item.id}
+                  data-annotate-text-editing={editing ? 'true' : 'false'}
+                  data-annotate-text-selected={selected ? 'true' : 'false'}
+                  style={{
+                    left: box.left + item.x * vp.zoom,
+                    top: box.top + item.y * vp.zoom,
+                    color: item.color,
+                    fontSize: fontScreen,
+                  }}
+                  onPointerDown={(e) => startTextMove(e, item)}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation()
+                    selectTextItem(item.id)
+                    setEditingTextId(item.id)
+                  }}
+                >
+                  {editing ? (
+                    <textarea
+                      className={styles.annTextEditor}
+                      data-annotate-text-editor={item.id}
+                      value={item.text}
+                      autoFocus
+                      spellCheck={false}
+                      style={{
+                        width: Math.max(
+                          120,
+                          Math.max(...lines.map((line) => line.length), 1) * fontScreen * 0.72 + 16,
+                        ),
+                        height: lines.length * fontScreen * 1.2 + 12,
+                      }}
+                      onChange={(e) => patchTextItem(item.id, { text: e.target.value })}
+                      onFocus={(e) => e.currentTarget.select()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onBlur={(e) => {
+                        setEditingTextId(null)
+                        if (!e.currentTarget.value.trim()) deleteTextItem(item.id)
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter' || e.shiftKey) return
+                        e.preventDefault()
+                        e.currentTarget.blur()
+                      }}
+                    />
+                  ) : (
+                    <span className={selected ? styles.annTextBodyOn : styles.annTextBody}>
+                      {item.text}
+                    </span>
+                  )}
+                  {selected && active && !editing ? (
+                    <span
+                      className={styles.annTextResize}
+                      data-annotate-text-resize={item.id}
+                      title="拖动缩放文字"
+                      onPointerDown={(e) => startTextResize(e, item)}
+                    />
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
         )}
         {/*
           * 手柄与选框**分成两层**：选框那层带 `opacity` 做半透明（主题守卫不许写
@@ -1148,22 +1330,39 @@ export function LightboxLayer() {
                 aria-pressed={c === annColor}
                 aria-label={`颜色 ${c}`}
                 style={{ background: c }}
-                onClick={() => setAnnColor(c)}
+                onClick={() => {
+                  setAnnColor(c)
+                  if (selectedTextId) patchTextItem(selectedTextId, { color: c })
+                }}
               />
             ))}
             {/* 粗细：画笔 / 矩形描边共用一条滑杆（用户原话：「画笔/矩形描边的大小」） */}
             <label className={styles.annSizeWrap}>
-              <span className={styles.ratioLabel}>粗细</span>
+              <span className={styles.ratioLabel}>{annTool === 'text' ? '字号' : '粗细'}</span>
               <input
                 className={styles.annSize}
                 data-annotate-size
                 type="range"
                 min={2}
                 max={48}
-                value={annSize}
-                onChange={(e) => setAnnSize(Number(e.target.value))}
+                value={
+                  annTool === 'text' && selectedTextItem
+                    ? Math.min(48, Math.max(2, Math.round(selectedTextItem.fontSize / 5)))
+                    : annSize
+                }
+                onChange={(e) => {
+                  const next = Number(e.target.value)
+                  setAnnSize(next)
+                  if (annTool === 'text' && selectedTextId) {
+                    patchTextItem(selectedTextId, { fontSize: Math.max(14, next * 5) })
+                  }
+                }}
               />
-              <span className={styles.annSizeValue}>{annSize}</span>
+              <span className={styles.annSizeValue}>
+                {annTool === 'text' && selectedTextItem
+                  ? clampAnnotateTextSize(selectedTextItem.fontSize)
+                  : annSize}
+              </span>
             </label>
             <span className={styles.barDivider} />
             <button
@@ -1187,6 +1386,19 @@ export function LightboxLayer() {
               onClick={redoAnn}
             >
               <IconRedo size={16} />
+            </button>
+            <button
+              type="button"
+              className={styles.editorTool}
+              data-annotate-text-delete
+              aria-label="删除选中的文字"
+              title="删除选中的文字"
+              disabled={!selectedTextItem}
+              onClick={() => {
+                if (selectedTextId) deleteTextItem(selectedTextId)
+              }}
+            >
+              <IconDelete size={16} />
             </button>
             <span className={styles.barDivider} />
             <button

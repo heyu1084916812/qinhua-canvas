@@ -22480,6 +22480,89 @@ async function g107(browser) {
   await redoBtn.click()
   await sleep(250)
   rec(g, '★ 重做后「撤销」又可用', await undoBtn.isEnabled())
+
+  /**
+   * ★★ 文字图层（用户 2026-10-16）：文字必须能多次编辑、移动、缩放、改色、删除。
+   * 这条不能只验“出现了 textarea”——要实际操作对象，并在最终保存后确认它被烘焙进像素。
+   */
+  const textTool = page.locator('[data-annotate-tool="text"]')
+  await textTool.click()
+  await sleep(200)
+  const textInput = page.locator('[data-annotate-text-input]')
+  await textInput.fill('可编辑文字')
+  await page.mouse.move(canvasBox.x + canvasBox.width * 0.3, canvasBox.y + canvasBox.height * 0.35)
+  await page.mouse.down()
+  await page.mouse.up()
+  await sleep(300)
+  const firstText = page.locator('[data-annotate-text-item]').first()
+  rec(
+    g,
+    '★★ 文字工具在画面上落成独立文字对象（不是直接烤进像素）',
+    (await page.locator('[data-annotate-text-item]').count()) === 1,
+  )
+  await firstText.dblclick()
+  await sleep(200)
+  rec(
+    g,
+    '★★ 双击文字对象进入编辑态',
+    (await page.locator('[data-annotate-text-editor]').count()) === 1,
+  )
+  await page.locator('[data-annotate-text-editor]').fill('第一次编辑')
+  await page.keyboard.press('Enter')
+  await sleep(200)
+  await firstText.dblclick()
+  await page.locator('[data-annotate-text-editor]').fill('第二次编辑')
+  await page.keyboard.press('Enter')
+  await sleep(200)
+  rec(
+    g,
+    '★★ 文字可以反复双击编辑，正文按对象更新',
+    (await firstText.innerText()).includes('第二次编辑'),
+    await firstText.innerText(),
+  )
+  await page.locator('[data-annotate-color="#0091ff"]').click()
+  await sleep(150)
+  const textColor = await firstText.evaluate((el) => getComputedStyle(el).color)
+  rec(g, '★★ 选中文字后改颜色立即生效', textColor === 'rgb(0, 145, 255)', textColor)
+
+  const moveBefore = await firstText.boundingBox()
+  if (moveBefore) {
+    await page.mouse.move(moveBefore.x + 5, moveBefore.y + moveBefore.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(moveBefore.x + 35, moveBefore.y + moveBefore.height / 2 + 18, { steps: 6 })
+    await page.mouse.up()
+    await sleep(200)
+  }
+  const moveAfter = await firstText.boundingBox()
+  rec(
+    g,
+    '★★ 文字对象可以拖动位置',
+    !!moveBefore && !!moveAfter && Math.abs(moveAfter.x - moveBefore.x) > 15,
+    moveBefore && moveAfter ? `Δx=${Math.round(moveAfter.x - moveBefore.x)}` : '取不到矩形',
+  )
+
+  const fontBefore = await firstText.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
+  const resizeHandle = page.locator('[data-annotate-text-resize]')
+  const handleBox = await resizeHandle.boundingBox()
+  if (handleBox) {
+    await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(handleBox.x + handleBox.width / 2 + 36, handleBox.y + handleBox.height / 2 + 18, {
+      steps: 6,
+    })
+    await page.mouse.up()
+    await sleep(200)
+  }
+  const fontAfter = await firstText.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
+  rec(g, '★★ 文字右下角手柄可以放大 / 缩小', fontAfter > fontBefore, `${fontBefore} → ${fontAfter}`)
+
+  await page.locator('[data-annotate-text-input]').fill('待删除文字')
+  await page.mouse.click(canvasBox.x + canvasBox.width * 0.72, canvasBox.y + canvasBox.height * 0.55)
+  await sleep(250)
+  rec(g, '★ 可以叠加第二块文字对象', (await page.locator('[data-annotate-text-item]').count()) === 2)
+  await page.locator('[data-annotate-text-delete]').click()
+  await sleep(200)
+  rec(g, '★★ 选中的文字可以删除，且不影响其它文字', (await page.locator('[data-annotate-text-item]').count()) === 1)
   await page.screenshot({ path: `${OUT}/134-g107-annotate.png` })
 
   /**
@@ -22560,6 +22643,27 @@ async function g107(browser) {
     !!annSrcAfter && annSrcAfter !== srcSrcBefore,
     annSrcAfter === srcSrcBefore ? '与源图逐字节相同（等于没画）' : '',
   )
+  const blueTextPixels = annSrcAfter
+    ? await page.evaluate(async (src) => {
+        const img = new Image()
+        img.src = src
+        await img.decode().catch(() => {})
+        if (!img.naturalWidth) return 0
+        const canvas = document.createElement('canvas')
+        canvas.width = img.naturalWidth
+        canvas.height = img.naturalHeight
+        const g2 = canvas.getContext('2d')
+        if (!g2) return 0
+        g2.drawImage(img, 0, 0)
+        const data = g2.getImageData(0, 0, canvas.width, canvas.height).data
+        let blue = 0
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i] < 80 && data[i + 2] > 180) blue += 1
+        }
+        return blue
+      }, annSrcAfter)
+    : 0
+  rec(g, '★★ 文字图层的颜色真的被烘焙进最终像素', blueTextPixels > 0, `蓝色像素=${blueTextPixels}`)
   await page.screenshot({ path: `${OUT}/135-g107-annotate-result.png` })
 
   /** ⑤ 拿到新图之后，那两个动作仍然在（不是只对第一张有效） */
