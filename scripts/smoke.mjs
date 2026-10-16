@@ -6,6 +6,8 @@
 import { chromium } from 'playwright'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { deflateSync, crc32 } from 'node:zlib'
+/* CDP 的 `dragData.files` **只认绝对路径**（相对路径会以 NotReadableError 抛成页面异常） */
+import { resolve as resolvePath } from 'node:path'
 
 const BASE = process.env.SMOKE_BASE ?? 'http://127.0.0.1:1420'
 const OUT = '.playwright-verify'
@@ -7340,6 +7342,72 @@ async function g52(browser) {
     '撤销一步回退整次导入（2 个一起撤，不漏素材 / 不留空节点）',
     afterUndo === beforeUndo - 2,
     `${beforeUndo} → ${afterUndo}`,
+  )
+
+  /**
+   * ── ★★★ 走**浏览器真实拖放通道**再验一次（对账 #551）──
+   *
+   * 上面那些 drop 全是 `dispatchEvent('drop', { dataTransfer })` 合成的，
+   * 那份 DataTransfer **自带文件列表**，于是永远绿 —— 而真人从资源管理器拖进来时，
+   * `dragover` 阶段的 `dataTransfer.files` **恒为空**（浏览器安全限制）。
+   * 用"文件数"判断要不要 `preventDefault` 的写法会当场 return ⇒ 浏览器认定这里不接收
+   * ⇒ **`drop` 根本不派发**：用户实测一次都拖不进去，而冒烟全绿。
+   * 这里换 CDP 的 `Input.dispatchDragEvent`，它真的经过 dragover 那一步。
+   */
+  const osDragFixture = resolvePath(`${OUT}/os-drag-fixture.png`)
+  writeFileSync(osDragFixture, solidPngBuffer(120, 90, [40, 150, 90]))
+  const beforeOsDrag = await page.locator('[data-node-id]').count()
+  const cdp = await ctx.newCDPSession(page)
+  const dragAt = { x: sbox.x + 430, y: sbox.y + 540 }
+  const osDragData = {
+    items: [{ mimeType: 'image/png', data: '', title: 'os-drag-fixture.png' }],
+    files: [osDragFixture],
+    dragOperationsMask: 1,
+  }
+  for (const type of ['dragEnter', 'dragOver', 'drop']) {
+    await cdp.send('Input.dispatchDragEvent', { type, ...dragAt, data: osDragData })
+    await sleep(140)
+  }
+  await sleep(1200)
+  const afterOsDrag = await page.locator('[data-node-id]').count()
+  rec(
+    g,
+    '★★★ 系统拖放（dragover 阶段 files 为空）也能落进画布',
+    afterOsDrag === beforeOsDrag + 1,
+    `${beforeOsDrag} → ${afterOsDrag}`,
+  )
+
+  /**
+   * ── ★★ 从系统剪贴板粘贴一张图（对账 #551）──
+   *
+   * 这条链路此前**完全不存在**：画布的 `Ctrl+V` 只认应用内复制的节点快照，
+   * 从截图工具 / 浏览器复制来的图没有任何人接手 ⇒ 用户手里唯一能进图的入口只剩
+   * 生成节点的「上传」。判据取"节点数 +1 且它是素材节点"，不是"没报错"。
+   */
+  const beforePaste = await page.locator('[data-node-id]').count()
+  const pasteDt = await page.evaluateHandle(
+    ({ b64 }) => {
+      const d = new DataTransfer()
+      const bin = atob(b64)
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+      d.items.add(new File([bytes], 'clipboard-shot.png', { type: 'image/png' }))
+      return d
+    },
+    { b64: solidPngBuffer(160, 120, [190, 60, 60]).toString('base64') },
+  )
+  const pasteKinds = await page.evaluate((dt) => {
+    const ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true })
+    window.dispatchEvent(ev)
+    return [...(ev.clipboardData?.types ?? [])]
+  }, pasteDt)
+  await sleep(1200)
+  const afterPaste = await page.locator('[data-node-id]').count()
+  rec(
+    g,
+    '★★ 从系统剪贴板粘贴图片 → 新建素材节点',
+    pasteKinds.includes('Files') && afterPaste === beforePaste + 1,
+    `types=${JSON.stringify(pasteKinds)} ${beforePaste} → ${afterPaste}`,
   )
 
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors[0] ?? '')

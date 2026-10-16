@@ -11,10 +11,24 @@ import {
 /** 拖入多个文件时，相邻节点的水平间距（产品文档 §6.3） */
 export const IMPORT_GAP = 24
 
-/** dataTransfer 里带的是文件（而不是画布内的节点拖拽） */
+/** `dataTransfer` 里带的是文件（而不是画布内的节点拖拽） */
+export function hasDraggedFiles(e: { dataTransfer: DataTransfer }): boolean {
+  return Array.from(e.dataTransfer.types ?? []).includes('Files')
+}
+
+/**
+ * 取出拖进来的文件。**只能在 `drop` 里用** ——
+ * `dragover` / `dragenter` 阶段浏览器**不给** `files`（安全限制，列表恒为空），
+ * 那时要判断"这是不是文件拖拽"只能用 `hasDraggedFiles`。
+ *
+ * ⚠️ 这条区分是有代价的：用户 2026-10-16 报「软件外的东西拖不进画布」，
+ * 病根就是 `onDragOver` 曾用本函数判断、拿到空数组就 `return`，
+ * 于是**没有 `preventDefault`** ⇒ 浏览器按"这里不接收"处理 ⇒ **`drop` 根本不派发**。
+ * 合成事件（`dispatchEvent('drop', { dataTransfer })`）自带文件列表，
+ * 正好绕开这一点 —— 冒烟全绿、真人一次都拖不进去。对账 #551。
+ */
 export function draggedFiles(e: { dataTransfer: DataTransfer }): File[] {
-  const types = Array.from(e.dataTransfer.types ?? [])
-  if (!types.includes('Files')) return []
+  if (!hasDraggedFiles(e)) return []
   return Array.from(e.dataTransfer.files ?? [])
 }
 
@@ -23,6 +37,40 @@ export interface DropImportResult {
   ids: string[]
   /** 类型不支持被跳过的文件数（调用方据此给一句提示） */
   rejected: number
+}
+
+/**
+ * 从**系统剪贴板**里取出可导入的媒体文件（图片 / 视频）。
+ *
+ * 用户 2026-10-16 报「软件外的内容复制不进画布」：整条链路此前**没有任何
+ * `paste` 监听** —— 画布的 `Ctrl+V` 只认「应用内复制的节点快照」，
+ * 从截图工具 / 浏览器复制来的图一律无人接手（对账 #551）。
+ *
+ * 两条来源都要读：`files` 是 Windows 截图与资源管理器复制文件的那条；
+ * 某些来源只把文件挂在 `items`（`kind: 'file'`）里。
+ * **没有媒体就返回空数组** —— 调用方据此放行默认行为，不能把用户粘文字、
+ * 粘文件路径这类操作一并吞掉。
+ */
+export function clipboardMediaFiles(data: DataTransfer | null): File[] {
+  if (!data) return []
+  const out: File[] = []
+  const seen = new Set<string>()
+  const push = (file: File | null): void => {
+    if (!file) return
+    // 与拖入同一口径：类型为空时不拦，交给后续按字节判断
+    if (file.type && !isImportableMedia(file.type)) return
+    /** 有的来源会在 `files` 与 `items` 里各报一遍同一个文件，按身份去重 */
+    const key = `${file.name}:${file.size}:${file.lastModified}`
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push(file)
+  }
+  for (const file of Array.from(data.files ?? [])) push(file)
+  for (const item of Array.from(data.items ?? [])) {
+    if (item.kind !== 'file') continue
+    push(item.getAsFile())
+  }
+  return out
 }
 
 /**

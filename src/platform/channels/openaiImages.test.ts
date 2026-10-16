@@ -647,6 +647,119 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
     expect(assets[0]!.mime).toBe('image/jpeg')
   })
 
+  /**
+   * ★★★ **参考图必须真的发出去**（用户 2026-10-16 报：「为什么给我出的图不一样，
+   * 而且 10 秒左右就出了」）。
+   *
+   * 病根：Nano Banana 走 Gemini 原生 `:generateContent`，而那条分支只发了
+   * `parts: [{ text }]` —— 连进来的参考图**一个字节都没带**。模型于是只能凭提示词
+   * 凭空画：图是"正常"的、却跟上游两张图没有关系，而且比真图生图快（不用读图）。
+   * 这类「静默丢参数」不报错，只有逐字段断言请求体才抓得住。
+   */
+  it('★★★ Gemini 原生端点：连进来的参考图要作为内联图片一起发出去', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        calls.push({ url: req.url, body: req.body })
+        return resp(200, {
+          candidates: [
+            { content: { parts: [{ inlineData: { mimeType: 'image/png', data: btoa('out') } }] } },
+          ],
+        })
+      },
+    })
+    const platform = platformWithAssets([
+      { id: 'refA', bytes: new Uint8Array([1, 2, 3]), mime: 'image/png' },
+      { id: 'refB', bytes: new Uint8Array([4, 5]), mime: 'image/jpeg' },
+    ])
+    const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platform.assets })
+    await a.generateImage(
+      {
+        ...request(
+          [
+            { kind: 'asset', nodeId: 'n1', assetHash: 'refA', mime: 'image/png' },
+            { kind: 'asset', nodeId: 'n2', assetHash: 'refB', mime: 'image/jpeg' },
+          ],
+          1,
+        ),
+        model: 'gemini-3.1-flash-image',
+        prompt: '把图一中的字形替换成图二中的字形',
+        params: { count: 1, ratio: '16:9', resolution: '2k' },
+      },
+      signal,
+    )
+    const parts = (calls[0]!.body as { contents: { parts: Record<string, unknown>[] }[] })
+      .contents[0]!.parts
+    expect(parts[0]).toEqual({ text: '把图一中的字形替换成图二中的字形' })
+    /** 两份参考图各占一个 part —— Gemini 原生的内联图片写法 */
+    expect(parts).toHaveLength(3)
+    expect(parts[1]).toEqual({
+      inlineData: { mimeType: 'image/png', data: bytesToB64(new Uint8Array([1, 2, 3])) },
+    })
+    expect(parts[2]).toEqual({
+      inlineData: { mimeType: 'image/jpeg', data: bytesToB64(new Uint8Array([4, 5])) },
+    })
+  })
+
+  /**
+   * ★ chat 兜底那条同样会丢参考图（它只发 `content: "…"` 字符串）。
+   * 有图时改成多模态数组；**没有图时保持字符串** —— 老网关只认字符串，这是它的常态。
+   */
+  it('★★ chat 兜底：有参考图时发多模态数组', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        calls.push({ url: req.url, body: req.body })
+        if (req.url.includes('/v1beta/')) return resp(503, { error: { message: '不支持此 API 路径' } })
+        if (req.url.endsWith('/chat/completions')) {
+          return resp(200, {
+            choices: [{ message: { content: '![image](https://files.example/a.jpg)' } }],
+          })
+        }
+        return {
+          status: 200,
+          headers: {},
+          async text() {
+            return ''
+          },
+          async json<T>(): Promise<T> {
+            return {} as T
+          },
+          async arrayBuffer() {
+            return new Uint8Array([9]).buffer
+          },
+        }
+      },
+    })
+    const platform = platformWithAssets([
+      { id: 'refA', bytes: new Uint8Array([1, 2, 3]), mime: 'image/png' },
+    ])
+    const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platform.assets })
+    await a.generateImage(
+      {
+        ...request([{ kind: 'asset', nodeId: 'n1', assetHash: 'refA', mime: 'image/png' }], 1),
+        model: 'gemini-3.1-flash-image',
+        prompt: '把图一的字形换掉',
+      },
+      signal,
+    )
+    const chat = calls.find((c) => c.url.endsWith('/chat/completions'))
+    expect(chat?.body).toMatchObject({
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: '把图一的字形换掉' },
+            {
+              type: 'image_url',
+              image_url: { url: `data:image/png;base64,${bytesToB64(new Uint8Array([1, 2, 3]))}` },
+            },
+          ],
+        },
+      ],
+    })
+  })
+
   it('★ 网关没有 /v1beta（404/503）时回落 chat 路径，并从正文 markdown 里取图', async () => {
     const calls: { url: string; body: unknown }[] = []
     const net = createMemoryNetwork({

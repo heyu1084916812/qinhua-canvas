@@ -462,6 +462,28 @@ export function createOpenAiImagesAdapter(
   }
 
   /**
+   * 参考素材 → Gemini 原生**内联图片**（`{ mimeType, data }`）。
+   *
+   * 与 `toDataUris` 只差一个 `data:` 前缀：原生 `:generateContent` 要的是分成
+   * `mimeType` / `data` 两个字段的对象，不是 Data URI。
+   *
+   * ⚠️ 这条路径曾经**把参考图整个丢掉**（只发 `parts: [{ text }]`）：图照样能出，
+   * 但出的是"照着提示词凭空画"的另一张 —— 用户 2026-10-16 报「出的图不一样、
+   * 10 秒左右就出了」就是这个（对账 #551）。删掉这里的图片就等于重新引入那个 bug。
+   */
+  const toInlineImages = async (
+    request: ImageRunRequest,
+  ): Promise<{ mimeType: string; data: string }[]> => {
+    const out: { mimeType: string; data: string }[] = []
+    for (const item of imageInputsOf(request.inputs)) {
+      const payload = await deps.assets.read(item.assetHash).catch(() => null)
+      if (!payload || payload.bytes.length === 0) continue
+      out.push({ mimeType: payload.mime || item.mime, data: bytesToBase64(payload.bytes) })
+    }
+    return out
+  }
+
+  /**
    * **按模型自己的能力表**发请求（Agnes 图片三档走这条）。
    *
    * 与 OpenAI 那套的区别就在「发什么」：这里只发表里声明过的字段 ——
@@ -531,13 +553,22 @@ export function createOpenAiImagesAdapter(
       const imageSize = spec.sizes.find((s) => s.toUpperCase() === wantedSize) ?? spec.sizes[0]
       /** `base` 形如 `…/v1`，原生端点在同一主机的 `/v1beta` 上 */
       const root = base.replace(/\/v1$/, '')
+      /** 连进来的参考图 —— 少了这一段，模型就只能凭提示词凭空画（见 `toInlineImages`） */
+      const inlineImages = await toInlineImages(request)
       const res = await deps.network.request(
         {
           url: `${root}/v1beta/models/${encodeURIComponent(request.model)}:generateContent`,
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
           body: {
-            contents: [{ parts: [{ text: request.prompt }] }],
+            contents: [
+              {
+                parts: [
+                  { text: request.prompt },
+                  ...inlineImages.map((image) => ({ inlineData: image })),
+                ],
+              },
+            ],
             generationConfig: {
               responseModalities: ['IMAGE'],
               ...(sendRatio || imageSize
@@ -580,6 +611,19 @@ export function createOpenAiImagesAdapter(
      * 这条分支必须放在最前：`/images/generations` 对 `gemini-3-pro-image` 是 503。
      */
     if (spec?.dialect === 'chat' || spec?.dialect === 'gemini') {
+      /**
+       * 参考图走 OpenAI 兼容的**多模态数组**；没有参考图时仍是**字符串** ——
+       * 这条路上的网关以「只认 `content: "…"`」为常态，不能顺手改掉它的请求形状。
+       * （与 Gemini 原生那条一样，此前是静默把参考图丢掉。）
+       */
+      const dataUris = await toDataUris(request)
+      const content =
+        dataUris.length > 0
+          ? [
+              { type: 'text', text: request.prompt },
+              ...dataUris.map((url) => ({ type: 'image_url', image_url: { url } })),
+            ]
+          : request.prompt
       const res = await deps.network.request(
         {
           url: chatUrl,
@@ -587,7 +631,7 @@ export function createOpenAiImagesAdapter(
           headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
           body: {
             model: request.model,
-            messages: [{ role: 'user', content: request.prompt }],
+            messages: [{ role: 'user', content }],
           },
           timeoutMs: GENERATE_TIMEOUT_MS,
         },

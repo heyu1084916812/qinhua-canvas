@@ -1,5 +1,38 @@
 # CanvasFlow（轻画）项目记忆
 
+### ★ `dragover` 阶段没有文件列表：判据只认 `types`（2026-10-16 → 对账 #551）
+
+- **★★★ `dragover` / `dragenter` 里 `dataTransfer.files` 恒为空**（浏览器安全限制），
+  只有 `drop` 那一步才有。所以「这是不是一次文件拖拽」**只能**看
+  `types.includes('Files')`。用「文件数」判断的写法会直接 `return`、不 `preventDefault`
+  ⇒ 浏览器认定这里不接收 ⇒ **`drop` 永不派发**。症状是「从软件外面一次都拖不进来」。
+  仓库里 `ProjectsPage` / `EcommerceStudio` 一直是对的（用 `types`），只有画布做错了。
+- **★★★ 合成事件的 drop 测不出这一类**：`page.dispatchEvent('drop', { dataTransfer })`
+  里那份 DataTransfer 是我们在页内造的、**自带文件列表**，等于把浏览器拦掉的那一步
+  替浏览器做完了 —— 于是冒烟全绿而真人一次都拖不进去。**要测"从软件外面进来"，
+  只能走浏览器的真实拖放状态机**（CDP `Input.dispatchDragEvent`，`dragData.files`
+  必须是**绝对路径**，相对路径会以 `NotReadableError` 抛成页面异常）。
+  这是「夹具骗人」的第三个面孔（前两个见 #536 / #537）。
+- **★ 顺带补上的第二条入口**：系统剪贴板粘贴（`Ctrl+V`）此前**整条链路不存在**，
+  画布只认应用内节点快照。新链路 `clipboardMediaFiles()` → `importDroppedFiles()`，
+  与拖入共用「选中新节点 + 一次撤销 + 被拒要说一声」那套。两条纪律：**没有媒体就放行**
+  （别吞粘文字 / 粘路径）、**文本框内放行**（节点正文里粘字才是用户的意图）。
+
+### ★ 渠道适配：新增一条"方言分支"必须把参考图带上（2026-10-16 → 对账 #551）
+
+- **★★★ 同一个适配器里几条分支对 `inputs` 的处理不一致，是最难发现的静默失败**：
+  `openaiImages` 的 `openai-images` / `tier` / `pixel` 分支早就发了参考图
+  （`/images/edits` multipart、`image: [...dataURI]`），而后来加的
+  **`gemini`（原生 `:generateContent`）与 `chat` 兜底两条分支只发文本**
+  —— 图照样出，只是**照着提示词凭空画**。用户的原话是"出的图不一样，而且 10 秒左右就出了"，
+  两条都对得上：没有图输入 ⇒ 不用读图 ⇒ 更快。
+  **判据要写成"请求体里必须有那几个 part / 字段"**，不能只断言"请求发出去了"。
+- **★★ 加分支时按「这条分支读不读 `inputs`」过一遍**，比事后排查便宜得多：
+  `toDataUris`（Data URI，Agnes 用）/ `toInlineImages`（`{mimeType,data}`，Gemini 原生用）/
+  `readImageFiles`（FormData，OpenAI 用）是三种形态，**别指望一条分支能用另一条的产物**。
+- **★ 聊天兜底要按"有没有参考图"分流**：有图 → OpenAI 兼容的多模态数组；
+  没图 → **保持字符串**（只认 `content: "…"` 的老网关是这条路上的常态）。
+
 ### ★ 按 id 映射的图标表：漏登记 = 整列空着，且不报错（2026-10-16 → 对账 #550）
 
 - **★★★ 「图标在渲染层按 id 映射」这个设计本身没问题，问题是漏登记没有任何信号**：

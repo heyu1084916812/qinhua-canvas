@@ -122,6 +122,23 @@
 - **已证伪的怀疑**：拖动 / 缩放 / 平移**不会**让 `useAsset` 重建 blob（`createObjectURL` 增量为 0，帧间隔 p50=6ms、零掉帧）。`useSyncGraph` 的 tick 只在 graph 变化时 +1，而 selection / viewport 不在 graph 里。别往这个方向查。
 - **冒烟计时只认「应用侧时钟」**（M6-26 教训）：起点取页面里第一次 `blob.arrayBuffer()`。Node 侧点按钮那一刻含 Playwright 经 CDP 灌几 MB 字节的开销——同一张 5.4MB 图 drop 路径 270ms、`setFiles` 路径端到端多出约 1s（曾误测成 1249ms + 728ms 长任务，虚惊一场）。**能计数的就别计时**：G55 的「走 `crypto.subtle`」「未调 `createImageBitmap`」都改用探针计数断言。
 
+## canvas · 导入（拖入 / 粘贴，2026-10-16 实测 → 对账 #551）
+
+- **★★★ 判断"这是不是一次文件拖拽"只认 `dataTransfer.types.includes('Files')`**：
+  `dragover` / `dragenter` 阶段浏览器**不给** `files`（恒为空），只有 `drop` 才有。
+  用文件数判断 ⇒ 不 `preventDefault` ⇒ 浏览器认定这里不接收 ⇒ **`drop` 永不派发**。
+  实现拆成两个函数正是为了堵住这个误用：`hasDraggedFiles`（任何阶段都能用）与
+  `draggedFiles`（**只在 `drop` 里用**）。
+- **★★ 测"从软件外面拖进来"必须走浏览器的真实拖放状态机**：合成
+  `dispatchEvent('drop', { dataTransfer })` 自带文件列表，看不见上面那个 bug
+  （冒烟全绿、真人零成功）。冒烟 G52 用 CDP `Input.dispatchDragEvent`；
+  `dragData.files` 只认**绝对路径**，相对路径会以 `NotReadableError` 抛成页面异常。
+- **★★ 系统剪贴板是**另一条**剪贴板**：应用内 `Ctrl+C/V` 走节点快照（模块级单例），
+  系统剪贴板里的媒体文件走导入。两者判据不同、互不抢占：**没有媒体就放行**
+  （别吞粘文字 / 粘路径）、**文本框内一律放行**。
+- **两条入口共用一套收尾**（选中新节点 / 一次撤销 / 被拒要说一声）——`importFiles` 一处实现，
+  与「下载」同一条纪律：两个入口各写一遍，迟早在其中一处漏掉修好的行为。
+
 ## canvas · 结果组与容器坐标
 
 - **结果落位（§6.8 / §6.16）**：`shouldCollect` 四条 —— `assets>1` ‖ `callCount>1`（批量展开，逐次只看得见 1 张）‖ `containerKind`（容器运行）‖ `sourceType∈{group,batch}`。N=1 独立生成节点不建组、产物直接回填并按真实比例呈现；N≥2 进结果组、组内统一 `RESULT_CELL`（200×200）；**拖出 / 复制出**再按 `naturalSize` 恢复真实比例。

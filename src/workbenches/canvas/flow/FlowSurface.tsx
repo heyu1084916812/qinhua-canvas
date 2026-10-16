@@ -66,11 +66,21 @@ import { useViewport as useCanvasViewport } from '../../../features/canvas/useVi
  * 这里不再直接 import 那两个实现 —— 否则同一件事会在两处各接线一次。
  */
 import { useNodeDownload } from '../../../features/canvas/useNodeDownload'
-import { draggedFiles, importDroppedFiles } from '../../../features/canvas/dropImport'
+import {
+  clipboardMediaFiles,
+  draggedFiles,
+  hasDraggedFiles,
+  importDroppedFiles,
+} from '../../../features/canvas/dropImport'
 import { batchSlotOf, dropPointOf, resolveDropOutcome } from '../../../features/canvas/dropReparent'
 import { computeSnap, SNAP_THRESHOLD_SCREEN_PX } from '../../../domain/canvas/layout/snap'
 import { useNodeDrag } from '../../../features/canvas/useNodeDrag'
-import { useClipboardHotkeys, rememberPointer } from '../../../features/canvas/useClipboard'
+import {
+  useClipboardHotkeys,
+  rememberPointer,
+  pastePoint,
+} from '../../../features/canvas/useClipboard'
+import { isTextEntryElement } from '../../../features/shared/textTarget'
 import { useCanvasKeyboard } from '../useCanvasKeyboard'
 import { IMPORT_ACCEPT } from '../../../features/canvas/importAsset'
 import type { CanvasStore } from '../../../state/workbenches/canvas/store'
@@ -497,6 +507,28 @@ function FlowSurfaceInner({
     [store, spaceHeld, beginPan],
   )
 
+  /**
+   * 导入一批素材文件 —— **拖入**与**从系统剪贴板粘贴**共用这一条。
+   *
+   * 抽出来的理由与「下载」那条一样：两个入口各写一遍，迟早在其中一处漏掉
+   * 已经修好的行为（选中新节点 / 一次撤销 / 被拒文件要说一声）。
+   */
+  const importFiles = useCallback(
+    async (files: readonly File[], world: Point): Promise<void> => {
+      const { ids, rejected } = await importDroppedFiles(
+        { platform, store, projectId },
+        files,
+        world,
+      )
+      if (rejected > 0) store.notify(`跳过 ${rejected} 个文件：只支持图片 / 视频素材`, 'error')
+      if (ids.length > 0) {
+        store.setSelection(ids)
+        store.showUndoBar(`已导入 ${ids.length} 个素材`)
+      }
+    },
+    [platform, store, projectId],
+  )
+
   /** 从系统拖入图片 / 视频（§6.3）：与老表面共用同一份批量导入规则 */
   const onDropFiles = async (e: ReactDragEvent<HTMLDivElement>) => {
     const files = draggedFiles(e)
@@ -509,13 +541,37 @@ function FlowSurfaceInner({
       store.getViewport(),
       { x: r.left, y: r.top, w: r.width, h: r.height },
     )
-    const { ids, rejected } = await importDroppedFiles({ platform, store, projectId }, files, world)
-    if (rejected > 0) store.notify(`跳过 ${rejected} 个文件：只支持图片 / 视频素材`, 'error')
-    if (ids.length > 0) {
-      store.setSelection(ids)
-      store.showUndoBar(`已导入 ${ids.length} 个素材`)
-    }
+    await importFiles(files, world)
   }
+
+  /**
+   * **从系统剪贴板粘贴素材进画布**（用户 2026-10-16：「软件外的内容无法复制进画布」）。
+   *
+   * 这条链路此前**完全不存在**：画布的 `Ctrl+V` 只认「应用内复制的节点快照」，
+   * 从截图工具 / 浏览器复制来的图没有任何人接手 —— 于是用户手里唯一能进图的入口
+   * 就只剩生成节点的「上传」（对账 #551）。
+   *
+   * 两条纪律（与 `useClipboardHotkeys` 同口径）：
+   * - **文本框内放行**：节点正文 / 面板里粘字才是用户的本来意图，不能抢；
+   * - **剪贴板里没有媒体就放行**：粘文字、粘路径这些正常粘贴一律不吞。
+   *
+   * 落点复用「粘贴落点」：鼠标在哪儿就落在哪儿（没动过鼠标则落在视口中心）。
+   */
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent): void => {
+      if (isTextEntryElement(e.target as { tagName?: string; isContentEditable?: boolean } | null)) {
+        return
+      }
+      const files = clipboardMediaFiles(e.clipboardData)
+      if (files.length === 0) return
+      const at = pastePoint(store)
+      if (!at) return
+      e.preventDefault()
+      void importFiles(files, at)
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [store, importFiles])
 
   /**
    * 画布右键菜单（§4.1）：**空白的按下位置**决定弹哪一份 ——
@@ -1123,7 +1179,12 @@ function FlowSurfaceInner({
       }
       // 拖入素材：dragover 必须 preventDefault，否则浏览器按「不可放置」处理、根本不派发 drop
       onDragOver={(e) => {
-        if (draggedFiles(e).length === 0) return
+        /*
+         * ⚠️ 判据必须是 `types` 而不是 `files`：dragover 阶段浏览器**不给**文件列表
+         * （安全限制，`dataTransfer.files` 恒为空）。用 files 判断会让这一支直接 return、
+         * 不 preventDefault ⇒ 浏览器认定这里不接收 ⇒ **drop 永远不来**（对账 #551）。
+         */
+        if (!hasDraggedFiles(e)) return
         e.preventDefault()
         e.dataTransfer.dropEffect = 'copy'
         setImportHover(true)
