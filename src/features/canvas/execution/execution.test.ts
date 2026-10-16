@@ -341,6 +341,43 @@ describe('buildRunPlan（单点生成）', () => {
     expect(assets[0]).toMatchObject({ kind: 'asset', assetHash: 'h-source' })
   })
 
+  /**
+   * ★★★ 注入的自身素材**必须带 `naturalSize`**（用户 2026-10-17 报「两个局部提取出来的
+   * 选区进行生图之后在进入融合节点会有 bug」→ 对账 #556）。
+   *
+   * 为什么这条是**那个 bug 的根**：`naturalSize` 是「跟随素材」在执行期取尺寸的
+   * **唯一来源**（`buildRunPlan` 里 `const followed = followSource && first?.naturalSize ? … : null`）。
+   * 它缺席时 `followed` 变成 null ⇒ `ratio` 被写成 null ⇒ 请求里**一个比例都不发**
+   * ⇒ 模型按自己的默认比例出图（多半 1:1）。
+   *
+   * 为什么偏偏打中"局部图 → 改图 → 融合"这条链路：局部图与裁剪图都是**浮动节点**
+   * （`extractSelection` 只建节点、不建边），它们的图**只能**从这条"自身素材注入"进请求。
+   * 少了尺寸 ⇒ 产物比例与选区对不上 ⇒ 融合的 `ratioMatches` 直接拒绝，
+   * 而提示只说"比例不一致"（#555 之前连数字都没有）。
+   */
+  it('★★★ 图生图注入的自身素材带 naturalSize，且「跟随素材」能解析出真实像素比', () => {
+    const { store, genId } = setup()
+    store.dispatch({
+      kind: 'node.updateData',
+      id: genId,
+      patch: {
+        assetHash: 'h-source',
+        naturalSize: { width: 240, height: 135 },
+        prompt: '改成水彩',
+        ratio: RATIO_FOLLOW_SOURCE,
+      },
+    })
+
+    const plan = buildRunPlan('node', { originNodeId: genId }, store.getSnapshot(), 'single')
+
+    const assets = plan.tasks[0]!.request.inputs.filter((i) => i.kind === 'asset')
+    expect(assets).toHaveLength(1)
+    /** ① 尺寸必须跟着图一起走 */
+    expect(assets[0]!.naturalSize).toEqual({ width: 240, height: 135 })
+    /** ② 于是「跟随素材」真的解析成了这张图的比例，而不是退化成"不指定" */
+    expect(plan.tasks[0]!.request.params.ratio).toBe('240:135')
+  })
+
 })
 
 /**

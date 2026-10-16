@@ -319,13 +319,37 @@ export function buildRunPlan(
          *
          * 基于 `expansion.inputs`（已按集合项展开），避免把整个批量集合项塞进去。
          */
-        const sourceAsset = (node.data as GenerationData).assetHash
+        const sourceData = node.data as GenerationData
+        const sourceAsset = sourceData.assetHash
         const targetIsSelf = slot.kind === 'reuse' && slot.nodeId === node.id
         const withSourceImage: NodeInput[] =
           !targetIsSelf && sourceAsset && !expansion.inputs.some((i) => i.kind === 'asset')
             ? [
                 ...expansion.inputs,
-                { kind: 'asset', nodeId: node.id, assetHash: sourceAsset, mime: GENERATION_ASSET_MIME },
+                {
+                  kind: 'asset',
+                  nodeId: node.id,
+                  assetHash: sourceAsset,
+                  mime: GENERATION_ASSET_MIME,
+                  /**
+                   * ⚠️ **必须带上 `naturalSize`**（用户 2026-10-17 报的融合 bug 的根，
+                   * 对账 #556）。
+                   *
+                   * 下面那段「跟随素材」是**按参考图 1 的 `naturalSize`** 定比例的：
+                   * 字段缺席 ⇒ `followed` 为 null ⇒ `ratio` 被写成 null ⇒
+                   * **请求里一个比例都不发** ⇒ 模型按自己的默认比例出图（多半 1:1）。
+                   *
+                   * 而这个分支恰好是"局部图 / 裁剪图"唯一的进图通道 ——
+                   * 它们是**浮动节点**（`extractSelection` 只建节点、不建边），
+                   * 没有上游可收集，图只能从这里注入。少了尺寸，
+                   * 「提取选区 → 改图 → 融合」这条主链路就会在最后一步被
+                   * `ratioMatches` 挡下，报的还是那句没法下手的"比例不一致"。
+                   *
+                   * 上游那条路（`generationSpec.collectInputs`）早就带着这个字段，
+                   * 两条路径必须一致 —— 否则"同一张图，连过去有比例、放在节点里有没比例"。
+                   */
+                  ...(sourceData.naturalSize ? { naturalSize: sourceData.naturalSize } : {}),
+                },
               ]
             : expansion.inputs
 
@@ -343,10 +367,16 @@ export function buildRunPlan(
          * 出图比例悄悄跟着**参考图 2** 走了，与用户看到的「跟随参考图 1」不符。
          * 现在固定取第一张：它有尺寸就用它，没有就**如实不指定比例**（退回模型默认），
          * 宁可少做一次自适应，也不偷换成别的参考图。
+         *
+         * ⚠️ **必须在"真正发出去的那份 inputs"里找**（对账 #556）：注入自身素材的那条路
+         * 把图加进了 `withSourceImage`（就是 `request.inputs`），而这里原先读的是
+         * `expansion.inputs` —— 两个数组在"节点自带图、又没有上游图"时**不是同一份**，
+         * 于是参考图 1 明明就在请求里，这里却找不到它，比例照样退化成"不指定"。
+         * 契约不变（取第一张、不跳过），只是把"第一张"对准**实际发出**的那一张。
          */
         const source = request.params as { ratio?: unknown }
         const followSource = source.ratio === RATIO_FOLLOW_SOURCE
-        const first = expansion.inputs.find((i) => i.kind === 'asset')
+        const first = withSourceImage.find((i) => i.kind === 'asset')
         const followed = followSource && first?.naturalSize ? first.naturalSize : null
         const singleRequest = {
           ...request,
