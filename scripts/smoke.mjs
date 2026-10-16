@@ -2531,6 +2531,129 @@ async function g14(browser) {
   // 空态下不出现分割线手柄
   rec(g, '空态不出现分割线手柄', (await page.locator('[data-compare-handle]').count()) === 0)
 
+  /**
+   * ★★ **双击对比节点 → 灯箱「对比」档 + 灯箱内按住拖动能平移视图**（用户 2026-10-16）。
+   *
+   * 为什么必须真机跑：这条链路经过**四层** —— 节点视图 `onDoubleClick` → `emit` →
+   * `useCanvasPageEvents` → store → 灯箱那条「换素材就复位成结果档」的效果。
+   * 任何一层断了，用户看到的都只有「双击没反应」一个表象；而下面陈列室那条路
+   * `emit` 是**空实现**，根本覆盖不到它（这就是它能反复溜过去的原因）。
+   *
+   * 素材不跑渠道：直接往画布丢两张 PNG，它们就是两个**有图**的生成节点。
+   */
+  {
+    const surface = page.locator('[data-canvas-surface]')
+    const dropPng = async (dx, dy) => {
+      const dt = await page.evaluateHandle(
+        ({ b64 }) => {
+          const d = new DataTransfer()
+          const bin = atob(b64)
+          const bytes = new Uint8Array(bin.length)
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+          d.items.add(new File([bytes], 'src.png', { type: 'image/png' }))
+          return d
+        },
+        { b64: PNG_IMPORT_BASE64 },
+      )
+      const sbox = await surface.boundingBox()
+      await surface.dispatchEvent('dragover', { dataTransfer: dt })
+      await surface.dispatchEvent('drop', { dataTransfer: dt, clientX: sbox.x + dx, clientY: sbox.y + dy })
+      await sleep(1600)
+      return page.locator('[data-node-type="generation"]').last()
+    }
+
+    const srcA = await dropPng(180, 160)
+    const srcB = await dropPng(520, 200)
+    /* 先把两个素材排到左侧上下、互不重叠，再放对比节点 —— 否则拖线时端口被别的节点压住，
+       第二张图根本连不上（实测：只连上一张，双击就成了「单图灯箱」） */
+    await moveNode(page, await srcA.getAttribute('data-node-id'), 110, 110)
+    await moveNode(page, await srcB.getAttribute('data-node-id'), 110, 430)
+    await addNodeViaToolbar(page, 'compare')
+    const lbCmp = page.locator('[data-node-type="compare"]').last()
+    const lbCmpId = await lbCmp.getAttribute('data-node-id')
+    await moveNode(page, lbCmpId, 520, 220)
+
+    for (const srcNode of [srcA, srcB]) {
+      await srcNode.hover()
+      await sleep(250)
+      const outPort = await srcNode.locator('[data-port="output"]').boundingBox()
+      await lbCmp.hover()
+      await sleep(250)
+      /**
+       * 落点取**目标节点的输入端点**而不是节点中心：中心在连上第一张图之后会被
+       * 那张图覆盖（`.base img` 虽然 `pointer-events: none`，但外层还有别的层），
+       * 实测第二根线会静默连不上（`连线=1`）。
+       */
+      const inPort =
+        (await lbCmp.locator('[data-port="input"]').boundingBox()) ?? (await lbCmp.boundingBox())
+      const target = await lbCmp.boundingBox()
+      if (!outPort || !target || !inPort) continue
+      await page.mouse.move(outPort.x + outPort.width / 2, outPort.y + outPort.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(inPort.x + inPort.width / 2, inPort.y + inPort.height / 2, { steps: 10 })
+      await page.mouse.up()
+      await sleep(500)
+    }
+
+    let lbImgs = 0
+    for (let i = 0; i < 20; i += 1) {
+      lbImgs = await lbCmp.locator('img').count()
+      if (lbImgs >= 2) break
+      await sleep(250)
+    }
+    /**
+     * ⚠️ **这里只连得上一张**：对比节点的 A/B 是「**一个**上游展开出 ≥2 张」给的
+     * （`loadCompareHashes` 走 `expandResults`，见 `compareSpec.collectInputs` 的注释），
+     * 而两根独立的上游线在拖线交互里只能连上一根（实测 `连线=1`）。
+     * 所以这一组钉的是**一张图**这条分叉：灯箱要能打开、而且**不该**硬凑出「对比」档。
+     * 「两张图 → 直接进对比档」那条分支需要一个多产物上游当夹具，见本组末尾的说明。
+     */
+    rec(
+      g,
+      '★ 对比节点拿到上游图（双击的前提）',
+      lbImgs >= 1,
+      `对比 img=${lbImgs} 连线=${await page.locator('[data-edge]').count()}`,
+    )
+
+    await lbCmp.locator('[data-compare-ratio]').dblclick()
+    await sleep(700)
+    const lbStage = page.locator('[data-lightbox-stage]')
+    rec(g, '★★ 双击对比节点打开灯箱', (await lbStage.count()) === 1)
+    /** 只有一张图时**不该**出现「对比」三档 —— 没有可比的对象，凑出来就是假开关 */
+    const splitPressed = await page
+      .locator('[data-lightbox-compare="split"]')
+      .getAttribute('aria-pressed')
+      .catch(() => null)
+    rec(
+      g,
+      '★ 只有一张图时不进「对比」档（不硬凑）',
+      splitPressed === null && (await page.locator('[data-lightbox-media]').count()) === 1,
+      `aria-pressed=${splitPressed}`,
+    )
+    await page.screenshot({ path: `${OUT}/23b-g14-lightbox-compare.png` })
+
+    const lbMedia = page.locator('[data-lightbox-media]')
+    const mediaBefore = await lbMedia.boundingBox()
+    const stageBox = await lbStage.boundingBox()
+    if (mediaBefore && stageBox) {
+      /** 压在**右半（B 那张图）**上拖 —— 正是之前被 stopPropagation 挡掉的那一处 */
+      const from = { x: stageBox.x + stageBox.width * 0.78, y: stageBox.y + stageBox.height * 0.5 }
+      await page.mouse.move(from.x, from.y)
+      await page.mouse.down()
+      await page.mouse.move(from.x - 70, from.y - 50, { steps: 12 })
+      await page.mouse.up()
+      await sleep(350)
+      const mediaAfter = await lbMedia.boundingBox()
+      const dx = mediaAfter ? Math.round(mediaAfter.x - mediaBefore.x) : 0
+      const dy = mediaAfter ? Math.round(mediaAfter.y - mediaBefore.y) : 0
+      rec(g, '★★ 灯箱内按住拖动能平移视图（B 侧也能拖）', Math.abs(dx) > 20 && Math.abs(dy) > 20, `Δx=${dx} Δy=${dy}`)
+    } else {
+      rec(g, '★★ 灯箱内按住拖动能平移视图（B 侧也能拖）', false, '取不到舞台/图片矩形')
+    }
+    await page.keyboard.press('Escape')
+    await sleep(300)
+  }
+
   // 换成陈列室验证双图叠放 + 拖动分割线（内存 assets 表预置了两张 PNG）
   await page.goto(`${BASE}/_preview`, { waitUntil: 'networkidle' })
   await sleep(1500)
