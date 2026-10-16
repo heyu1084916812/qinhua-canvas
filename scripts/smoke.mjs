@@ -32903,7 +32903,232 @@ async function g156(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156]
+  /**
+   * G157 两张局部图一起改图再融合（用户 2026-10-17 报的那条链路，端到端）
+   *
+   * 用户原话：「两个局部提取出来的选取进行生图之后在进入融合节点会有bug」。
+   * 本组把那条链路在**界面里真的跑一遍**（不是纯函数层自己拼数据）：
+   *
+   *   原图 → 提取选区A → 局部图A → 生成改图 → 产物A'
+   *   原图 → 提取选区B → 局部图B → 生成改图 → 产物B'
+   *   融合节点(原图 + A' + B') → 融合
+   *
+   * 它同时是**对账 #556** 的回归抓手：局部图 / 裁剪图是**浮动节点**（`extractSelection`
+   * 只建节点、不建边），没有上游可收集，它们的图**只能**从"节点自带素材注入请求"
+   * 那条路进请求。那条路一旦漏了 `naturalSize`，「跟随素材」就退化成"不指定比例"，
+   * 产物会变成模型默认比例（mock 下就是正方形），最后卡在融合的比例校验上。
+   *
+   * ⚠️ 为什么纯函数层的用例抓不住它：那里的 inputs 是**我们自己拼的**，字段想给就给；
+   * 只有走真实面板 → buildRunPlan 才会暴露"注入时漏字段"。所以这一组的判据取
+   * **产物像素的长宽比**（mock 按请求里的比例出图）—— 那是请求里到底发没发比例的直接证据。
+   */
+  async function g157(browser) {
+    const g = 'G157 两张局部图一起融合'
+    const ctx = await newCtx(browser)
+    const page = await ctx.newPage()
+    const pageErrors = []
+    page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+    await configureMockChannel(page)
+    await gotoProjects(page)
+    await sleep(400)
+    await page.locator('[data-template="blank"]').click()
+    await page.waitForURL(/\/canvas\//)
+    await sleep(900)
+
+    const genIds = () =>
+      page
+        .locator('[data-node-type="generation"]')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+
+    /** 原图：640×360 渐变（左右颜色差别大，块贴错位置时融合结果看得出来） */
+    const source = await addGenWithImage(page, 640, 360, null, gradientPngBuffer(640, 360))
+    await moveNode(page, source.id, 120, 60)
+    await sleep(300)
+
+    /**
+     * 「提取选区」：**锁 16:9** + 在指定横向位置画框。
+     *
+     * 锁比例很关键：融合的比例校验拿"选区（外扩框）的长宽比"去比产物，
+     * 而「跟随素材」跟随的正是这张局部图的原始像素 —— 两者必须能被比。
+     * 新节点的 id 用**集合差**认，不用 `.last()`（DOM 先后 ≠ 创建先后，对账 #537）。
+     */
+    const extractAt = async (fx) => {
+      /**
+       * 入口用**右键菜单**而不是节点上方的跟随栏。
+       *
+       * 实测（本组第一次跑）：源节点放在 x=120 时，跟随栏那一排按钮被挤到画布外，
+       * 「提取选区」的盒子量出来是 `x≈-0.7` —— 正好压在左侧导航栏下面，
+       * 点击被 rail 吃掉、30s 超时。右键菜单跟着鼠标走，不受节点靠边的影响。
+       */
+      const nb = await page.locator(`[data-node-id="${source.id}"]`).boundingBox()
+      await page.mouse.click(nb.x + 40, nb.y + 40, { button: 'right' })
+      await sleep(280)
+      const before = await genIds()
+      await page.locator('[data-context-menu-item="extractSelection"]').click()
+      await sleep(700)
+      await page.locator('[data-lightbox-crop-ratio="16:9"]').click()
+      await sleep(250)
+      const stage = await page.locator('[data-lightbox-stage]').boundingBox()
+      await page.mouse.move(stage.x + stage.width * fx, stage.y + stage.height * 0.35)
+      await page.mouse.down()
+      await page.mouse.move(stage.x + stage.width * (fx + 0.18), stage.y + stage.height * 0.65, {
+        steps: 10,
+      })
+      await page.mouse.up()
+      await sleep(350)
+      await page.locator('[data-lightbox-crop-apply]').click()
+      await sleep(1700)
+      const fresh = (await genIds()).filter((id) => !before.includes(id))
+      return page.locator(`[data-node-id="${fresh[0]}"]`)
+    }
+
+    /**
+     * ⚠️ 框必须落在**图片内**：灯箱是全屏舞台、图按 1:1 居中显示
+     * （640 宽的图只占舞台中间约一半），所以取 0.28 / 0.52 这种中段比例。
+     * 第一次写 0.08 直接从图外的空白按下去，画不出框 ⇒「提取选区」按钮一直禁用 ⇒ 超时。
+     */
+    const cropA = await extractAt(0.28)
+    const cropB = await extractAt(0.52)
+    rec(g, '★ 两张局部图都建出来了', (await cropA.count()) === 1 && (await cropB.count()) === 1)
+
+    /* 让出画布：两张局部图各占一行，改图产物与融合节点都留得出位置 */
+    await moveNode(page, await cropA.getAttribute('data-node-id'), 500, 60)
+    await moveNode(page, await cropB.getAttribute('data-node-id'), 500, 380)
+    await sleep(300)
+
+    const sizeOf = (node) =>
+      node
+        .locator('[data-node-asset]')
+        .first()
+        .evaluate((el) => ({ w: el.naturalWidth ?? 0, h: el.naturalHeight ?? 0 }))
+        .catch(() => ({ w: 0, h: 0 }))
+    const cropSizes = [await sizeOf(cropA), await sizeOf(cropB)]
+    rec(
+      g,
+      '★ 两张局部图都是 16:9（比例档真的锁住了）',
+      cropSizes.every((s) => s.w > 0 && Math.abs(s.w / s.h - 16 / 9) < 0.03),
+      JSON.stringify(cropSizes),
+    )
+
+    /**
+     * 在**局部图自己**上点生成（这就是用户的动作），比例选「跟随素材」。
+     * mock 渠道按请求里的比例出图 ⇒ 产物长宽比 = 这次请求有没有把比例发出去。
+     */
+    const editCrop = async (crop) => {
+      const panel = await genPanel(page, crop)
+      await configureGenPanel(page, panel, '把这张图改成水彩风格')
+      await pickParam(panel, 'ratio', '跟随素材')
+      await sleep(200)
+      const before = await genIds()
+      await panelRunBtn(page).click()
+      let fresh = []
+      for (let i = 0; i < 60; i += 1) {
+        fresh = (await genIds()).filter((id) => !before.includes(id))
+        if (fresh.length > 0 && (await page.locator(`[data-node-id="${fresh[0]}"] [data-node-asset]`).count()) > 0) {
+          break
+        }
+        await sleep(250)
+      }
+      return page.locator(`[data-node-id="${fresh[0]}"]`)
+    }
+
+    const editA = await editCrop(cropA)
+    const editB = await editCrop(cropB)
+    /*
+     * 挪开到固定位置：改图的承载节点落在各自局部图右侧，位置会随局部图走。
+     *
+     * ⚠️ x 取 800 而不是 900：承载节点比局部图宽（实测约 424px），放到 900 时
+     * 它的**输出端点在 x≈1324** —— 视口只有 1280 宽，源头在屏幕外，
+     * 后面的连线拖拽一次都发不出去（表现为"局部修改 0 张"）。
+     * 落位一律用「端点/节点实测盒子」核对，别按节点宽度拍脑袋。
+     */
+    await moveNode(page, await editA.getAttribute('data-node-id'), 800, 60)
+    await moveNode(page, await editB.getAttribute('data-node-id'), 800, 380)
+    await sleep(300)
+
+    const editSizes = [await sizeOf(editA), await sizeOf(editB)]
+    rec(
+      g,
+      '★★★ 改图产物跟着「局部图」的比例走（不是模型默认的方图）—— #556 的回归抓手',
+      editSizes.every(
+        (s, i) => s.w > 0 && cropSizes[i].h > 0 && Math.abs(s.w / s.h - cropSizes[i].w / cropSizes[i].h) < 0.05,
+      ),
+      `局部图=${JSON.stringify(cropSizes)} 改图=${JSON.stringify(editSizes)}`,
+    )
+
+    /* ── 两张改图一起进融合节点 ── */
+    await addNodeViaToolbar(page, 'fusion')
+    await sleep(600)
+    const fusionId = await page.locator('[data-node-type="fusion"]').first().getAttribute('data-node-id')
+    const fusion = page.locator(`[data-node-id="${fusionId}"]`)
+    await moveNodeVia(page, fusion, page.locator(`[data-node-id="${fusionId}"] [data-fusion-chips]`), 130, 400)
+    await sleep(400)
+
+    /**
+     * 从上游的输出端点拖到融合节点的某只口。
+     *
+     * ⚠️ 落点一律取**端点自己的 boundingBox**，不要拿节点框 + 猜的偏移：
+     * 节点宽度随内容变，猜出来的点会飘到端点外面 —— 实测（对账 #554）边没连上而
+     * 断言照样"绿"，因为按钮的可用性取决于别的条件。
+     */
+    const dragFromPortTo = async (portLocator, to) => {
+      const b = await portLocator.boundingBox()
+      if (!b) return false
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+      await sleep(180)
+      await page.mouse.down()
+      await page.mouse.move(to.x, to.y, { steps: 10 })
+      await page.mouse.up()
+      await sleep(450)
+      return true
+    }
+    const dropInto = async (fromNode, portSelector) => {
+      const box = await fusion.locator(portSelector).boundingBox()
+      await dragFromPortTo(fromNode.locator('[data-port="output"]').first(), {
+        x: (box?.x ?? 0) + (box?.width ?? 0) / 2,
+        y: (box?.y ?? 0) + (box?.height ?? 0) / 2,
+      })
+    }
+    await dropInto(source.node, '[data-port="input"]')
+    await dropInto(editA, '[data-port="patch"]')
+    await dropInto(editB, '[data-port="patch"]')
+    await sleep(400)
+
+    const patchChip = ((await page.locator('[data-fusion-chip="patch"]').textContent()) ?? '').trim()
+    rec(g, '★★ 两张改图都作为补丁连上了（局部修改 2 张）', /局部修改 2 张/.test(patchChip), patchChip)
+    rec(
+      g,
+      '★★★ 两张都带上下文 ⇒ 融合按钮可点（用户报的那一步）',
+      !(await fusion.locator('[data-fusion-run]').isDisabled()),
+      `title=${await fusion.locator('[data-fusion-run]').getAttribute('title')}`,
+    )
+
+    const beforeFuse = await genIds()
+    await fusion.locator('[data-fusion-run]').click()
+    await sleep(2600)
+    const afterFuse = await genIds()
+    rec(
+      g,
+      '★★★ 融合真的出结果（右侧多一个承载节点）',
+      afterFuse.length === beforeFuse.length + 1,
+      `${beforeFuse.length} → ${afterFuse.length}`,
+    )
+    const resultId = afterFuse.filter((id) => !beforeFuse.includes(id))[0]
+    const resultSize = await sizeOf(page.locator(`[data-node-id="${resultId}"]`))
+    rec(
+      g,
+      '★ 融合产物 = 原图尺寸（640×360，不是被改小的局部图尺寸）',
+      resultSize.w === 640 && resultSize.h === 360,
+      `${resultSize.w}×${resultSize.h}`,
+    )
+
+    await page.screenshot({ path: `${OUT}/161-g157-two-crops-fusion.png` })
+    rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+    await ctx.close()
+  }
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
