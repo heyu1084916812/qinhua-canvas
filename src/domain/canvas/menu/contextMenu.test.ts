@@ -58,10 +58,12 @@ describe('nodeMenuItems / 节点右键菜单（§4.1）', () => {
   it('★ 生成节点已有素材时，右键菜单提供「保存到素材库」', () => {
     const items = nodeMenuItems('generation', { hasAsset: true })
     // extractSelection 于 2026-09-29 并入（§6.23）：有素材的节点都能提取选区
+    // crop 于 2026-10-17 并入（对账 #553）：紧挨着提取选区，差在"带不带上下文"
     expect(ids(items)).toEqual([
       'run',
       'saveLibrary',
       'extractSelection',
+      'crop',
       'duplicate',
       'rename',
       'disable',
@@ -71,6 +73,7 @@ describe('nodeMenuItems / 节点右键菜单（§4.1）', () => {
     expect(items.find((i) => i.id === 'extractSelection')!.action).toEqual({
       kind: 'extractSelection',
     })
+    expect(items.find((i) => i.id === 'crop')!.action).toEqual({ kind: 'crop' })
   })
 
   it('空生成节点或非生成节点不列「保存到素材库」', () => {
@@ -84,6 +87,19 @@ describe('nodeMenuItems / 节点右键菜单（§4.1）', () => {
     expect(ids(nodeMenuItems('fusion', { hasAsset: true }))).toContain('extractSelection')
     expect(ids(nodeMenuItems('generation', { hasAsset: false }))).not.toContain('extractSelection')
     expect(ids(nodeMenuItems('prompt', { hasAsset: true }))).toContain('extractSelection')
+  })
+
+  /**
+   * 「裁剪」与「提取选区」同条件、同位置（对账 #553）：都是"有素材才出现"，
+   * 有素材就能裁 —— 与节点类型无关。没有素材时两项都不许列（点了没反应的死项）。
+   */
+  it('★「裁剪」与「提取选区」同条件出现，且紧挨着排在它后面', () => {
+    for (const t of ['generation', 'fusion', 'prompt'] as NodeType[]) {
+      const list = ids(nodeMenuItems(t, { hasAsset: true }))
+      expect(list).toContain('crop')
+      expect(list.indexOf('crop')).toBe(list.indexOf('extractSelection') + 1)
+    }
+    expect(ids(nodeMenuItems('generation', { hasAsset: false }))).not.toContain('crop')
   })
 
   /**

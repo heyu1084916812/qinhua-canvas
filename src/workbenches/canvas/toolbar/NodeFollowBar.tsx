@@ -39,6 +39,7 @@ import {
   IconRotate,
   IconExpand,
   IconAnnotate,
+  IconCrop,
   IconDelete,
   IconDownload,
   IconDuplicate,
@@ -368,6 +369,20 @@ function NodeActions({
           icon={<IconScan />}
           label="提取选区"
           onClick={() => store.openCropLightbox(node.id)}
+        />
+      )}
+      {/*
+        「裁剪」（用户 2026-10-17 / 对账 #553）：与「提取选区」并排、语义不同 ——
+        提取选区产出**带上下文**的局部图（能融回原图），裁剪按框原样切一块、
+        **不带上下文**（当参考图 / 单独用）。并排放是为了让差别一眼可见；
+        真正的解释写在灯箱那一档的说明小字与融合节点的拒绝提示里。
+      */}
+      {hasAsset && (
+        <FollowButton
+          action="crop"
+          icon={<IconCrop />}
+          label="裁剪"
+          onClick={() => store.openCropLightbox(node.id, { plain: true })}
         />
       )}
       {/*

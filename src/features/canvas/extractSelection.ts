@@ -1,11 +1,12 @@
 import type { PlatformKit } from '../../platform/ports'
 import type { CanvasStore } from '../../state/workbenches/canvas/store'
-import type { CropContext, FusionRect, GenerationData } from '../../domain/canvas/model/node'
+import type { FusionRect, GenerationData } from '../../domain/canvas/model/node'
 import {
   FUSION_MIN_EDGE,
   contextFromSelection,
   ratioValueOf,
 } from '../../domain/canvas/fusion/fusionPlan'
+import { cropContextFor } from '../../domain/canvas/fusion/cropContext'
 import { assetNodeSize } from '../../domain/canvas/layout/assetNodeSize'
 import { generationSpec } from '../../domain/canvas/nodeSpecs/generation'
 import { fingerprintBytes } from '../../domain/shared/hash'
@@ -46,12 +47,39 @@ export type ExtractOutcome =
   | { ok: true; nodeId: string }
   | { ok: false; reason: string }
 
-/** 新建的局部图与源图之间的水平间距（放右侧、不重叠） */
+/** 新建的产物与源图之间的水平间距（放右侧、不重叠） */
 const GAP_X = 40
 
-export async function extractSelection(
+/**
+ * 框选的两个用途（用户 2026-10-17，对账 #553）：
+ *
+ * - `extract` = **提取选区**：按**外扩框**裁（多留一圈给模型当上下文、给羽化留余量），
+ *   并把选区写进新节点的 `cropContext` ⇒ 这张图能**融回原图**；
+ * - `crop` = **裁剪**：按**用户框的原样**裁，并写 `{ full: true }`（完整图边界）
+ *   ⇒ 它是一张自成一体的图，**不带选区上下文、融不回去**。
+ *
+ * 两者共用同一套框选交互与落库路径（读素材 → 裁 → 哈希 → 落库 → 建节点 → 一步撤销），
+ * 差别只有「切哪个矩形」与「写不写选区」。
+ */
+export type PieceKind = 'extract' | 'crop'
+
+/** 提取选区：带上下文、可融合回原图 */
+export function extractSelection(
   deps: ExtractDeps,
   input: ExtractInput,
+): Promise<ExtractOutcome> {
+  return createPiece(deps, input, 'extract')
+}
+
+/** 裁剪：按框原样切一块、不带选区上下文（当参考图 / 单独用，不能作融合补丁） */
+export function cropAsset(deps: ExtractDeps, input: ExtractInput): Promise<ExtractOutcome> {
+  return createPiece(deps, input, 'crop')
+}
+
+async function createPiece(
+  deps: ExtractDeps,
+  input: ExtractInput,
+  kind: PieceKind,
 ): Promise<ExtractOutcome> {
   const graph = deps.store.getSnapshot()
   const node = graph.nodes.find((n) => n.id === input.nodeId)
@@ -79,13 +107,17 @@ export async function extractSelection(
       source,
       rect: input.rect,
       ratio: ratioValueOf(input.ratio),
+      /** 裁剪**不外扩**：它就是用户框住的那一块，多留一圈反而看不懂 */
+      ...(kind === 'crop' ? { paddingRatio: 0 } : {}),
     })
-    if (Math.min(ctx.rect.w, ctx.rect.h) < FUSION_MIN_EDGE) {
-      return { ok: false, reason: `选区太小（边长至少 ${FUSION_MIN_EDGE}px），请重新框选` }
+    /** 提取选区切的是**外扩框**（给模型上下文、给羽化留余量）；裁剪切的是**原框** */
+    const p = kind === 'crop' ? ctx.rect : ctx.paddedRect
+    if (Math.min(p.w, p.h) < FUSION_MIN_EDGE) {
+      const what = kind === 'crop' ? '裁剪区' : '选区'
+      return { ok: false, reason: `${what}太小（边长至少 ${FUSION_MIN_EDGE}px），请重新框选` }
     }
 
-    // ① 按外扩矩形裁出局部图（原图不动）
-    const p = ctx.paddedRect
+    // ① 裁下这一块（原图不动）
     const canvas = document.createElement('canvas')
     canvas.width = p.w
     canvas.height = p.h
@@ -104,7 +136,7 @@ export async function extractSelection(
      * `beginPlan` / `endPlan` 之间不得 await（`activePlan` 是单个变量），故字节与哈希都先算完。
      */
     const id = createId('node')
-    deps.store.beginPlan(`extract:${id}`, '提取选区')
+    deps.store.beginPlan(`${kind}:${id}`, kind === 'crop' ? '裁剪' : '提取选区')
     deps.store.dispatch({
       kind: 'asset.put',
       asset: {
@@ -124,17 +156,24 @@ export async function extractSelection(
       at: { x: node.x + node.w + GAP_X, y: node.y },
       id,
       size: assetNodeSize({ width: p.w, height: p.h }),
-      title: '局部图',
+      title: kind === 'crop' ? '裁剪图' : '局部图',
       data: {
         ...generationSpec.createDefaultData(),
         assetHash: hash,
         naturalSize: { width: p.w, height: p.h },
         thumbOrder: [hash],
-        // 去掉 id：这是「这张图自己的属性」，不是某个融合节点里的一条记录
-        cropContext: (() => {
-          const { id: _drop, ...rest } = ctx
-          return rest as CropContext
-        })(),
+        /**
+         * 提取选区：写真正的选区（去掉 id —— 这是「这张图自己的属性」，
+         * 不是某个融合节点里的一条记录）。
+         *
+         * 裁剪：写 **`{ full: true }`（完整图边界）**，而不是"不写字段"。
+         * 这点很关键 —— `resolveCropContext` 是**沿上游 BFS** 找上下文的，
+         * 字段缺席会一路往上穿：从一张局部图上再裁剪，就会莫名继承上一层的选区。
+         * 边界标记才会让它**当场停住**（`cropContext.ts` 规则 1）。
+         */
+        cropContext:
+          /** 写这一侧的唯一入口：裁剪 = 完整图边界，提取选区 = 真选区（见 `cropContextFor`） */
+          cropContextFor(kind, ctx),
       } as GenerationData,
     })
     deps.store.endPlan()

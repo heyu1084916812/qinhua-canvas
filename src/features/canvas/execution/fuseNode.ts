@@ -211,7 +211,9 @@ export async function fuseNode(deps: FuseDeps, nodeId: string): Promise<FuseOutc
     if (resolved.kind !== 'local') {
       return {
         ok: false,
-        reason: `第 ${i + 1} 张局部图没有选区上下文：请在它的原图上用「提取选区」得到局部图，再用改图结果来融合`,
+        reason:
+          `第 ${i + 1} 张局部图没有选区上下文（用「裁剪」得到的不带上下文，融不回去）：` +
+          '请在它的原图上用「提取选区」得到局部图，再用改图结果来融合',
       }
     }
     const carried: FusionContext = { id: `ctx:${patch.nodeId}`, ...resolved.context }

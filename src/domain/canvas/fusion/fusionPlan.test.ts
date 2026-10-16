@@ -360,6 +360,25 @@ describe('融合上下文 · contextFromSelection', () => {
     expect(ctx.rect.x).toBe(0)
     expect(ctx.rect.y).toBe(0)
   })
+
+  /**
+   * ★★ 「裁剪」取的是**原框**、不带外扩（用户 2026-10-17 / 对账 #553）：
+   * `paddingRatio = 0` 时外扩矩形必须**就等于原框**。
+   *
+   * 这条是裁剪与提取选区在几何上的唯一分水岭 —— 提取选区默认 ×1.2（给模型留上下文、
+   * 给羽化留余量），而裁剪没有融合那件事，多留一圈只会让用户觉得"我框的跟出来的不一样"。
+   */
+  it('★★ paddingRatio 0 = 不外扩（裁剪用的那一块就是原框）', () => {
+    const rect = { x: 100, y: 100, w: 300, h: 200 }
+    const cut = contextFromSelection({ contextId: 'c1', source: SOURCE, rect, paddingRatio: 0 })
+    expect(cut.paddedRect).toEqual(cut.rect)
+
+    /** 同一只框、走默认外扩 = 提取选区那条路，必定更大 */
+    const extract = contextFromSelection({ contextId: 'c2', source: SOURCE, rect })
+    expect(extract.paddedRect.w).toBeGreaterThan(extract.rect.w)
+    expect(extract.paddedRect.h).toBeGreaterThan(extract.rect.h)
+    expect(cut.rect).toEqual(extract.rect)
+  })
 })
 
 describe('融合上下文 · 与原图的对应关系', () => {

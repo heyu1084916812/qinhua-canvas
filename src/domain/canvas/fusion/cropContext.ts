@@ -22,6 +22,32 @@ export type CropResolution =
   | { kind: 'local'; context: Omit<FusionContext, 'id'> }
   | { kind: 'conflict' }
 
+/**
+ * **写**这一侧：一块刚裁出来的图该带什么上下文（用户 2026-10-17 / 对账 #553）。
+ *
+ * 与 `resolveCropContext`（读那一侧）成对，两边必须按同一套约定：
+ *
+ * - `extract` = **提取选区**：带上真正的选区（去掉 `id` —— 这是"这张图自己的属性"，
+ *   不是某个融合节点里的一条记录），于是它能**融回原图**；
+ * - `crop` = **裁剪**：写 **`{ full: true }`（完整图边界）**，而**不是"不写字段"**。
+ *
+ * ⚠️ 最后这半句是要害：字段缺席时上面那个 BFS 会**继续往上游穿**，于是
+ * 「从一张局部图上再裁剪」会莫名继承上一层的选区 —— 那张裁剪图就被当成
+ * "属于原图某一块"的局部图，融合时挂到不相干的位置上（还看不出来）。
+ * 边界标记才会让它**当场停住**。
+ *
+ * 单独抽成纯函数是为了让"写什么"也能被单测钉住：`resolveCropContext` 的用例只能证明
+ * "给定 full 标记时会停"，证明不了我们**真的写了**它 —— 而这两件事都会各自单独写错。
+ */
+export function cropContextFor(
+  kind: 'extract' | 'crop',
+  selection: FusionContext,
+): CropContext {
+  if (kind === 'crop') return { full: true }
+  const { id: _drop, ...rest } = selection
+  return rest
+}
+
 /** 两个上下文是不是「同一个选区」（原图 + 矩形一致） */
 function sameRegion(a: Omit<FusionContext, 'id'>, b: Omit<FusionContext, 'id'>): boolean {
   const r = (x: FusionRect) => `${x.x},${x.y},${x.w},${x.h}`

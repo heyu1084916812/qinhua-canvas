@@ -23,7 +23,7 @@ import {
   type CropHandle,
 } from '../../../domain/canvas/fusion/fusionPlan'
 import { RATIO_CHOICES } from '../../../domain/canvas/layout/ratioChoices'
-import { extractSelection } from '../../../features/canvas/extractSelection'
+import { cropAsset, extractSelection } from '../../../features/canvas/extractSelection'
 import { faceBoxFromRect } from '../../../features/canvas/emotionEdit'
 import { downloadAsset } from '../../../features/canvas/downloadAsset'
 import { createId } from '../../../shared/id'
@@ -148,6 +148,11 @@ export function LightboxLayer() {
    */
   const cropFor = lightbox?.cropFor
   const faceFor = lightbox?.faceFor
+  /**
+   * 「裁剪」而不是「提取选区」（用户 2026-10-17，对账 #553）：同一个框选交互，
+   * 但产出**不带选区上下文** —— 按框原样切一块，融不回原图。
+   */
+  const cropPlain = lightbox?.cropPlain === true
   const [cropRect, setCropRect] = useState<FusionRect | null>(null)
   const [cropRatio, setCropRatio] = useState('')
   const [busy, setBusy] = useState(false)
@@ -551,14 +556,27 @@ export function LightboxLayer() {
     const targetNodeId = cropFor ?? ownerNodeId
     if (!targetNodeId) return
     setBusy(true)
-    const out = await extractSelection(
-      { platform, store },
-      { nodeId: targetNodeId, rect: cropRect, ratio: cropRatio },
-    )
+    /**
+     * 两个用途走同一段实现、只有"切哪个矩形 + 写不写上下文"不同（见 `createPiece`）：
+     * 裁剪按原框、不写上下文；提取选区外扩一圈、写上下文。
+     */
+    const out = cropPlain
+      ? await cropAsset(
+          { platform, store },
+          { nodeId: targetNodeId, rect: cropRect, ratio: cropRatio },
+        )
+      : await extractSelection(
+          { platform, store },
+          { nodeId: targetNodeId, rect: cropRect, ratio: cropRatio },
+        )
     setBusy(false)
     if (out.ok) {
       close()
-      store.notify('已提取选区：局部图已生成在原图右侧，并带上上下文')
+      store.notify(
+        cropPlain
+          ? '已裁剪：新图已生成在原图右侧（不带选区上下文）'
+          : '已提取选区：局部图已生成在原图右侧，并带上上下文',
+      )
     } else {
       store.notify(out.reason, 'error')
     }
@@ -1436,6 +1454,11 @@ export function LightboxLayer() {
                 <span className={styles.barDivider} />
               </>
             )}
+            {cropPlain && !faceFor && (
+              <span className={styles.cropHint} data-lightbox-crop-hint>
+                裁剪不带选区上下文，融不回原图
+              </span>
+            )}
             <button
               type="button"
               className={styles.editorClose}
@@ -1453,12 +1476,22 @@ export function LightboxLayer() {
                 canConfirm
                   ? faceFor
                     ? '用这个框当这张脸的位置，回到面板点「生成」'
-                    : '按当前框提取局部图，并保留上下文'
+                    : cropPlain
+                      ? '按当前框裁下这一块（不带选区上下文，不能当融合节点的局部修改图）'
+                      : '按当前框提取局部图，并保留上下文'
                   : `先在图上拖一个框（短边至少 ${FUSION_MIN_EDGE}px）`
               }
               onClick={() => void confirmCrop()}
             >
-              {busy ? '提取中…' : faceFor ? '用这个框' : '提取选区'}
+              {busy
+                ? cropPlain
+                  ? '裁剪中…'
+                  : '提取中…'
+                : faceFor
+                  ? '用这个框'
+                  : cropPlain
+                    ? '裁剪'
+                    : '提取选区'}
             </button>
           </div>
         ) : null}
@@ -1488,7 +1521,9 @@ export function LightboxLayer() {
               onClick={() => setMode(m.id)}
             >
               {m.icon}
-              <span>{m.id === 'crop' && faceFor ? '框脸' : m.label}</span>
+              <span>
+                {m.id === 'crop' && faceFor ? '框脸' : m.id === 'crop' && cropPlain ? '裁剪' : m.label}
+              </span>
             </button>
           ))}
         </div>

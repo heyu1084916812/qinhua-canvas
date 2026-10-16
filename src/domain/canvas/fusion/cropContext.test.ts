@@ -9,9 +9,9 @@
  *  - 同一个选区被两条路径带到同一张图 = 不是冲突（不然「同一张局部图喂两次」会误报）。
  */
 import { describe, it, expect } from 'vitest'
-import type { CropContext, NodeSnapshot } from '../model/node'
+import type { CropContext, FusionContext, NodeSnapshot } from '../model/node'
 import type { GraphSnapshot } from '../model/graph'
-import { resolveCropContext } from './cropContext'
+import { cropContextFor, resolveCropContext } from './cropContext'
 
 const SOURCE = { assetHash: 'a'.repeat(64), width: 1000, height: 1000 }
 
@@ -127,11 +127,60 @@ describe('resolveCropContext · 沿上游找上下文', () => {
     expect(resolveCropContext('merged', g).kind).toBe('local')
   })
 
+  /**
+   * ★★★ 「裁剪」写的是 `{ full: true }`（完整图边界），**不是"不写字段"**（对账 #553）。
+   *
+   * 这条差别很要命：字段缺席时解析会**继续往上穿**，于是「从一张局部图上再裁剪」
+   * 会莫名继承上一层的选区 —— 那张裁剪图就会被当成"属于原图某块"的局部图，
+   * 融合时挂到不相干的位置上。边界标记才会让它当场停住。
+   */
+  it('★★★ 裁剪图（full 边界）不许继承祖先的选区', () => {
+    const g = graph(
+      [
+        node('local', 'generation', { cropContext: localCtx() }),
+        node('cut', 'generation', { cropContext: { full: true } }),
+      ],
+      [['local', 'cut']],
+    )
+    expect(resolveCropContext('cut', g)).toEqual({ kind: 'none' })
+  })
+
   it('环不会让它转不出来（同一节点只访问一次）', () => {
     const g = graph([node('a'), node('b')], [
       ['a', 'b'],
       ['b', 'a'],
     ])
     expect(resolveCropContext('a', g)).toEqual({ kind: 'none' })
+  })
+})
+
+/**
+ * **写**这一侧的守卫（用户 2026-10-17 / 对账 #553）。
+ *
+ * 上面那些用例只能证明"给定了 `{full:true}` 会停"，证明不了我们**真的写了**它 ——
+ * 而"该写什么"与"怎么读"是两个会各自单独写错的地方，两边各要一条确定性断言。
+ */
+describe('cropContextFor · 新裁出来的图该带什么上下文', () => {
+  const selection: FusionContext = { id: 'fctx1', ...(localCtx() as Omit<FusionContext, 'id'>) }
+
+  it('★★★ 裁剪写的是「完整图边界」，不是"不写字段"', () => {
+    expect(cropContextFor('crop', selection)).toEqual({ full: true })
+  })
+
+  it('★ 提取选区写的是真选区，且不带 id（这是图的属性，不是某条记录）', () => {
+    const written = cropContextFor('extract', selection)
+    expect(written).not.toHaveProperty('id')
+    expect(written).toEqual(localCtx())
+  })
+
+  it('★★★ 两半接得上：写了边界 ⇒ 从"外层局部图"里再裁剪也不继承它的选区', () => {
+    const g = graph(
+      [
+        node('ancestor', 'generation', { cropContext: localCtx() }),
+        node('cut', 'generation', { cropContext: cropContextFor('crop', selection) }),
+      ],
+      [['ancestor', 'cut']],
+    )
+    expect(resolveCropContext('cut', g)).toEqual({ kind: 'none' })
   })
 })

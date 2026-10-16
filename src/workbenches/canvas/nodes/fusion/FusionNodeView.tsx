@@ -67,7 +67,7 @@ export function FusionNodeView(props: NodeViewProps) {
     : patches.length === 0
       ? '把局部修改图连到右侧那只端点'
       : missingContextAt >= 0
-        ? `第 ${missingContextAt + 1} 张局部图没有选区上下文：请在它的原图上用「提取选区」得到局部图`
+        ? `第 ${missingContextAt + 1} 张局部图没有选区上下文（用「裁剪」得到的不带上下文，融不回去）：请在它的原图上用「提取选区」得到局部图`
         : `把 ${patches.length} 张局部修改图融回原图`
 
   /**

@@ -197,6 +197,8 @@ interface CanvasState {
   lightbox: {
     assetHash: string
     cropFor?: string
+    /** `cropPlain`：这次框选是**裁剪**（按框原样切、不写上下文）而不是提取选区 */
+    cropPlain?: boolean
     faceFor?: string
     compareWith?: string
     rotateFor?: string
@@ -311,13 +313,19 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
    * 对比节点传它 —— 那两张图分别来自两个不同的上游节点，节点上没有 `compareWith` 可读。
    */
   openLightbox: (assetHash: string, opts?: { compareWith?: string }) => void
-  /** 以「提取选区」模式打开灯箱（用户口径：在素材灯箱里框选局部图） */
-  openCropLightbox: (nodeId: string) => void
+  /**
+   * 以框选模式打开灯箱（用户口径：在素材灯箱里框选局部图）。
+   *
+   * `plain: true` = **裁剪**（按框原样切一块、不写选区上下文，对账 #553）；
+   * 不给 = **提取选区**（外扩一圈 + 写上下文，能融回原图）。
+   */
+  openCropLightbox: (nodeId: string, opts?: { plain?: boolean }) => void
   openFaceLightbox: (nodeId: string) => void
   closeLightbox: () => void
   getLightbox: () => {
     assetHash: string
     cropFor?: string
+    cropPlain?: boolean
     faceFor?: string
     compareWith?: string
     rotateFor?: string
@@ -668,12 +676,16 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
         textEditor: null,
         menu: null,
       }),
-    openCropLightbox: (nodeId) => {
+    openCropLightbox: (nodeId, opts) => {
       const node = store.getState().graph.nodes.find((n) => n.id === nodeId)
       const hash = (node?.data as { assetHash?: string } | undefined)?.assetHash
       if (!hash) return
       store.setState({
-        lightbox: { assetHash: hash, cropFor: nodeId },
+        lightbox: {
+          assetHash: hash,
+          cropFor: nodeId,
+          ...(opts?.plain ? { cropPlain: true } : {}),
+        },
         textEditor: null,
         menu: null,
       })

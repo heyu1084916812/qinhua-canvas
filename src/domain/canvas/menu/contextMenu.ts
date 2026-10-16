@@ -18,6 +18,7 @@ export type ContextMenuAction =
   | { kind: 'toggleDisabled' }
   | { kind: 'fullscreenEdit' }
   | { kind: 'extractSelection' }
+  | { kind: 'crop' }
   | { kind: 'saveLibrary' }
   | { kind: 'delete' }
   | { kind: 'create'; type: NodeType }
@@ -104,6 +105,21 @@ export function nodeMenuItems(
       id: 'extractSelection',
       label: '提取选区',
       action: { kind: 'extractSelection' },
+    })
+    /**
+     * 裁剪（用户 2026-10-17）：**与「提取选区」并存、语义不同** ——
+     * 提取选区产出的是**带选区上下文**的局部图（能融回原图），
+     * 裁剪按框原样切一块、**不带上下文**（当参考图 / 单独用），
+     * 所以它融不回去，融合节点会明确拒绝。
+     *
+     * 为什么不做成「提取选区上的一个开关」：同一个按钮产出两种语义，
+     * 而"能不能融回去"取决于一个看不见的开关状态 —— 那是本项目一直在防的
+     * 「看起来通了」。两个入口，各自语义单一。
+     */
+    items.push({
+      id: 'crop',
+      label: '裁剪',
+      action: { kind: 'crop' },
     })
   }
   items.push({ id: 'duplicate', label: '复制', action: { kind: 'duplicate' } })

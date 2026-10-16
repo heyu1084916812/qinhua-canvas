@@ -243,6 +243,22 @@ export function IconScan(props: IconProps) {
   )
 }
 
+/**
+ * 裁剪：经典「裁刀」符号 —— 两条折线交叉，读作「沿这两条边把图切小」。
+ *
+ * 与 `IconScan`（提取选区：四角取景框 + 中间实心块）刻意分开：
+ * 那个读「框一块出来、带选区上下文」，这个读「就切这一块、不带上下文」。
+ * 两者在 16px 下也不会混（这个没有中间那块实心）。
+ */
+export function IconCrop(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M6 2.5v15a1.5 1.5 0 0 0 1.5 1.5h15" />
+      <path d="M18 21.5v-15A1.5 1.5 0 0 0 16.5 5h-15" />
+    </Svg>
+  )
+}
+
 export function IconLink(props: IconProps) {
   return (
     <Svg {...props}>

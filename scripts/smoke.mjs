@@ -16993,6 +16993,88 @@ async function g92(browser) {
   await sleep(400)
   rec(g, '★ 对比完 Esc 关掉灯箱', (await page.locator('[data-lightbox]').count()) === 0)
 
+  /**
+   * ── ⑩ 裁剪（用户 2026-10-17 / 对账 #553）──
+   *
+   * 与「提取选区」并排的第二个入口：**按框原样切一块、不写选区上下文**。
+   * 判据刻意分三层，缺一层都等于没做对：
+   *   ① 入口在功能栏里；灯箱那一档如实写成「裁剪」+ 说明小字（不是与提取选区长得一样）；
+   *   ② 产物是**从局部图上再裁**出来的一块；
+   *   ③ **它不许继承上一层的选区** —— 连进融合节点必须被拦下。
+   *
+   * ⚠️ **③ 证不到"边界标记 vs 不写字段"**（实测过：把 `{full:true}` 换成不写字段，
+   * 这一条照样绿）—— 裁剪节点是**浮动的、没有入边**，解析根本走不到上游去。
+   * 那一层差别由 `cropContext.test.ts` 的两条确定性用例守着（造一条
+   * 「局部图 → 裁剪图」的入边，不写边界时实测解析成 `{kind:'local'}`）。
+   * 这里的价值是端到端：**用户点得到、出得来、连到融合节点会被拦下且理由点名叫他去看**
+   */
+  await page.locator(`[data-node-id="${localId}"]`).click({ position: { x: 30, y: 10 } })
+  await sleep(350)
+  const cropBtn = page.locator('[data-follow-action="crop"]')
+  rec(g, '★ 功能栏里有「裁剪」（与「提取选区」并排）', (await cropBtn.count()) === 1)
+  await cropBtn.click()
+  await sleep(600)
+  const cutHint = ((await page.locator('[data-lightbox-crop-hint]').innerText().catch(() => '')) ?? '').trim()
+  rec(g, '★★ 裁剪档写明"不带选区上下文"', /不带选区上下文/.test(cutHint), cutHint)
+  const modeLabel =
+    ((await page.locator('[data-lightbox-mode-button="crop"]').innerText().catch(() => '')) ?? '').trim()
+  rec(g, '★ 底部模式条这一档叫「裁剪」（不再叫选区）', modeLabel.includes('裁剪'), modeLabel)
+  /** 留一张裁剪档的截图：这类"文案与档位对不对得上"的画面只有肉眼能判断好不好看 */
+  await page.screenshot({ path: `${OUT}/160-g92-crop-mode.png` })
+  const stage2 = await page.locator('[data-lightbox-stage]').boundingBox()
+  await page.mouse.move(stage2.x + stage2.width * 0.4, stage2.y + stage2.height * 0.4)
+  await page.mouse.down()
+  await page.mouse.move(stage2.x + stage2.width * 0.6, stage2.y + stage2.height * 0.6, { steps: 12 })
+  await page.mouse.up()
+  await sleep(400)
+  const cutBefore = await nodeCount(page)
+  await page.locator('[data-lightbox-crop-apply]').click()
+  await sleep(2000)
+  const cutAfter = await nodeCount(page)
+  rec(g, '★ 裁剪后原图右侧多一个新节点', cutAfter === cutBefore + 1, `${cutBefore} → ${cutAfter}`)
+  const cutId = await page.locator('[data-node-type="generation"]').last().getAttribute('data-node-id')
+  const cutNode = page.locator(`[data-node-id="${cutId}"]`)
+  const cutTitle = ((await cutNode.locator('[data-node-title]').textContent().catch(() => '')) ?? '').trim()
+  rec(g, '★ 裁剪产物叫「裁剪图」', cutTitle.includes('裁剪图'), cutTitle)
+  const cutNw = await cutNode
+    .locator('[data-node-asset]')
+    .first()
+    .evaluate((el) => el.naturalWidth)
+    .catch(() => 0)
+  rec(g, '★ 裁剪出来的是一块真子图', cutNw > 0 && cutNw < localNw, `裁剪=${cutNw} 局部图=${localNw}`)
+
+  /*
+   * 把裁剪图连到融合节点的**局部修改口** → 它没有上下文，融合必须被拦下。
+   *
+   * ⚠️ 落点取**那只端点自己的 boundingBox**，不要拿节点框 + 猜的偏移：
+   * 节点宽度随内容变（融合卡的宽度不是常数），猜出来的点会飘到端点外面 ——
+   * 实测第一次就是这么漏的（边没连上，融合按钮照样可点，看着像"功能没做"）。
+   */
+  await moveNode(page, cutId, 200, 620)
+  await sleep(300)
+  const patchPortBox = await page
+    .locator(`[data-node-id="${fusionId}"] [data-port="patch"]`)
+    .boundingBox()
+  rec(g, '（前置）融合节点的局部修改口拿得到坐标', !!patchPortBox, JSON.stringify(patchPortBox))
+  await dragFromPortTo(cutNode.locator('[data-port="output"]').first(), {
+    x: (patchPortBox?.x ?? 0) + (patchPortBox?.width ?? 0) / 2,
+    y: (patchPortBox?.y ?? 0) + (patchPortBox?.height ?? 0) / 2,
+  })
+  await sleep(400)
+  rec(
+    g,
+    '★★★ 裁剪图连进融合节点后「开始融合」被拦下（它不带选区上下文）',
+    await page.locator('[data-fusion-run]').isDisabled(),
+    `disabled=${await page.locator('[data-fusion-run]').isDisabled()}`,
+  )
+  const cutReason = (await page.locator('[data-fusion-run]').getAttribute('title')) ?? ''
+  rec(
+    g,
+    '★★★ 拦下的理由点名「裁剪」不带上下文（而不是只说缺上下文）',
+    /没有选区上下文/.test(cutReason) && /裁剪/.test(cutReason),
+    cutReason,
+  )
+
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await page.screenshot({ path: `${OUT}/107-g92-extract.png` })
   await ctx.close()
