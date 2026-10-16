@@ -22234,7 +22234,7 @@ async function g107(browser) {
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-lightbox-mode-button')))
   rec(
     g,
-    '★★ 灯箱顶部是功能切换条（查看 / 选区 / 标注 / 旋转）',
+    '★★ 灯箱底部固定条是功能切换（查看 / 选区 / 标注 / 旋转）',
     ['view', 'crop', 'annotate', 'rotate'].every((m) => modeButtons.includes(m)),
     `模式=${modeButtons.join(',')}`,
   )
@@ -22245,6 +22245,33 @@ async function g107(browser) {
     '★★ 点「标注」后全屏灯箱里直接展开标注组件',
     (await page.locator('[data-annotate-canvas]').count()) === 1 &&
       (await page.locator('[data-lightbox]').count()) === 1,
+  )
+  const editorLayout = await page.evaluate(() => {
+    const rect = (selector) => document.querySelector(selector)?.getBoundingClientRect() ?? null
+    const bar = rect('[data-lightbox-bottom-bar]')
+    const tools = rect('[data-annotate-toolbar]')
+    const mode = rect('[data-lightbox-mode-bar]')
+    if (!bar || !tools || !mode) return null
+    return {
+      viewportH: window.innerHeight,
+      barTop: bar.top,
+      toolsTop: tools.top,
+      barCenter: bar.left + bar.width / 2,
+      modeCenter: mode.left + mode.width / 2,
+      sizeBottom: rect('[data-lightbox-size]')?.bottom ?? -1,
+      zoomBottom: rect('[data-lightbox-zoom]')?.bottom ?? -1,
+    }
+  })
+  rec(
+    g,
+    '★★ 编辑器工具在上方、固定底栏在下方，像素 / 缩放 / 功能切换都在底部',
+    !!editorLayout &&
+      editorLayout.toolsTop < editorLayout.viewportH / 2 &&
+      editorLayout.barTop > editorLayout.viewportH / 2 &&
+      Math.abs(editorLayout.barCenter - editorLayout.modeCenter) <= 2 &&
+      editorLayout.sizeBottom > editorLayout.barTop &&
+      editorLayout.zoomBottom > editorLayout.barTop,
+    JSON.stringify(editorLayout),
   )
   await page.locator('[data-lightbox-mode-button="view"]').click()
   await sleep(250)

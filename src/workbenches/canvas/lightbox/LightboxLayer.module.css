@@ -18,26 +18,49 @@
 }
 
 /*
- * 顶部能力条（用户 2026-10-16）：双击进来先给「查看 / 选区 / 标注 / 旋转 / 对比」，
- * 点哪一项才进入那一项的完整编辑器。形态沿用旧版旋转 / 标注全屏编辑器那根居中浮条。
+ * 固定底栏（用户 2026-10-16）：像素 / 缩放靠左，能力切换居中，下载 / 关闭靠右。
+ * 上方浮条只负责当前编辑器的完整工具，因此固定信息与编辑动作不再混在一排。
  */
-.topModeBar {
+.bottomBar {
   position: absolute;
-  top: var(--space-4);
-  left: 50%;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 7;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  height: 48px;
+  padding: 0 var(--space-4);
+  box-sizing: border-box;
+  border-top: var(--border);
+  background: var(--bg-surface);
+}
+
+.bottomLeft,
+.bottomRight,
+.modeBar {
   display: flex;
   align-items: center;
+  min-width: 0;
+}
+
+.bottomLeft {
+  justify-self: start;
+  gap: var(--space-2);
+}
+
+.bottomRight {
+  justify-self: end;
+  gap: var(--space-2);
+}
+
+.modeBar {
+  justify-self: center;
   gap: 4px;
-  max-width: calc(100% - 32px);
-  padding: 6px 8px;
+  max-width: 100%;
   overflow-x: auto;
-  box-sizing: border-box;
-  border: 1px solid var(--stroke);
-  border-radius: var(--radius-pill);
-  background: var(--bg-surface);
-  box-shadow: var(--shadow-float);
-  transform: translateX(-50%);
 }
 
 .modeBtn,

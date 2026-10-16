@@ -823,26 +823,6 @@ export function LightboxLayer() {
       aria-modal="true"
       aria-label="素材灯箱"
     >
-      {/*
-       * 全屏编辑器式的顶部能力条（用户 2026-10-16）：双击进来先看到功能，
-       * 点哪一项才展开那一项的完整工具。它不属于 stage，所以点它不会误触
-       *「点空白关灯箱」或平移手势。
-       */}
-      <div className={styles.topModeBar} data-lightbox-mode-bar>
-        {availableModes.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            className={mode === m.id ? styles.modeBtnOn : styles.modeBtn}
-            data-lightbox-mode-button={m.id}
-            aria-pressed={mode === m.id}
-            onClick={() => setMode(m.id)}
-          >
-            {m.icon}
-            <span>{m.id === 'crop' && faceFor ? '框脸' : m.label}</span>
-          </button>
-        ))}
-      </div>
       <div
         ref={stageRef}
         className={styles.stage}
@@ -998,14 +978,8 @@ export function LightboxLayer() {
           </div>
         )}
       </div>
+      {mode !== 'view' ? (
       <div className={styles.hud}>
-        <span className={styles.chip} data-lightbox-size>
-          {natural ? `${natural.w} × ${natural.h}` : '—'}
-        </span>
-        <span className={styles.chip} data-lightbox-zoom>
-          {vp ? `${Math.round(vp.zoom * 100)}%` : '—'}
-        </span>
-        <span className={styles.spacer} />
         {/*
           * 「对比原图」三档（用户 2026-09-30）：融合结果双击进来时，
           * 结果 / 对比（可拖分割线）/ 原图 三档并排 —— 与参数 chip 同一套控件口径。
@@ -1283,31 +1257,56 @@ export function LightboxLayer() {
               {busy ? '提取中…' : faceFor ? '用这个框' : '提取选区'}
             </button>
           </div>
-        ) : (
-          <>
-            {/*
-              下载原图（用户 2026-10-14）。放在「关闭」左边：两者都是**次要动作**，
-              同一排、同一个样式；主操作（提取选区 / 用这个框）在裁剪模式下才出现。
-            */}
+        ) : null}
+      </div>
+      ) : null}
+      {/*
+       * 固定底栏：左侧像素 / 缩放，中间是能力切换，右侧是最常用的下载 / 关闭。
+       * 上方只留给当前编辑器的完整工具条，和旧版全屏编辑器保持同一种阅读顺序。
+       */}
+      <div className={styles.bottomBar} data-lightbox-bottom-bar>
+        <div className={styles.bottomLeft}>
+          <span className={styles.chip} data-lightbox-size>
+            {natural ? `${natural.w} × ${natural.h}` : '—'}
+          </span>
+          <span className={styles.chip} data-lightbox-zoom>
+            {vp ? `${Math.round(vp.zoom * 100)}%` : '—'}
+          </span>
+        </div>
+        <div className={styles.modeBar} data-lightbox-mode-bar>
+          {availableModes.map((m) => (
             <button
+              key={m.id}
               type="button"
-              className={styles.close}
-              data-lightbox-download
-              onClick={() => void download()}
+              className={mode === m.id ? styles.modeBtnOn : styles.modeBtn}
+              data-lightbox-mode-button={m.id}
+              aria-pressed={mode === m.id}
+              onClick={() => setMode(m.id)}
             >
-              {downloaded ? '已下载' : '下载原图'}
+              {m.icon}
+              <span>{m.id === 'crop' && faceFor ? '框脸' : m.label}</span>
             </button>
-            <button
-              ref={closeRef}
-              type="button"
-              className={styles.close}
-              data-lightbox-close
-              onClick={close}
-            >
-              关闭 (Esc)
-            </button>
-          </>
-        )}
+          ))}
+        </div>
+        <div className={styles.bottomRight}>
+          <button
+            type="button"
+            className={styles.close}
+            data-lightbox-download
+            onClick={() => void download()}
+          >
+            {downloaded ? '已下载' : '下载原图'}
+          </button>
+          <button
+            ref={closeRef}
+            type="button"
+            className={styles.close}
+            data-lightbox-close
+            onClick={close}
+          >
+            关闭 (Esc)
+          </button>
+        </div>
       </div>
     </div>
   )
