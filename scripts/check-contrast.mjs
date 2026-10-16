@@ -134,8 +134,8 @@ const problems = []
 let worstText = Infinity
 let worstGrid = Infinity
 let worstPanel = Infinity
-/** 悬停/选中那组检查跑了几条（浅色 5 条 + 深色 6 条，见循环里的说明） */
-let hoverChecks = 0
+/** 「观感」那组检查跑了几条（悬停/选中 + 小块底与浮层底，见循环里的说明） */
+let lookChecks = 0
 
 for (const [themeLabel, scope] of [
   ['浅色', light],
@@ -212,20 +212,20 @@ for (const [themeLabel, scope] of [
       ['--bg-hover', hover, '--bg-subtle', subtle],
       ['--bg-subtle', subtle, '--bg-selected', selected],
     ]) {
-      hoverChecks += 1
+      lookChecks += 1
       if (same(a, b)) {
         problems.push(`${themeLabel}：${aName} 与 ${bName} 同值（${hex(a)}）—— 悬停会被看成选中`)
       }
     }
     const lHover = luminance(hover)
     const lSelected = luminance(selected)
-    hoverChecks += 1
+    lookChecks += 1
     if (lightTheme ? !(lHover > lSelected) : !(lHover < lSelected)) {
       problems.push(
         `${themeLabel}：悬停底不比选中底"弱"（悬停 ${hex(hover)} / 选中 ${hex(selected)}）—— 分不出主次`,
       )
     }
-    hoverChecks += 1
+    lookChecks += 1
     const delta = Math.max(
       Math.abs(hover.r - surface.r),
       Math.abs(hover.g - surface.g),
@@ -235,9 +235,36 @@ for (const [themeLabel, scope] of [
       problems.push(`${themeLabel}：悬停底与卡面底只差 ${delta.toFixed(0)}/255 —— 等于没有悬停反馈`)
     }
     if (!lightTheme) {
-      hoverChecks += 1
+      lookChecks += 1
       if (luminance(hover) <= luminance(surface)) {
         problems.push(`${themeLabel}：悬停底没比卡面底亮 —— 深色里"更重"= 更亮`)
+      }
+    }
+    /**
+     * ⑤ **浮层里那块「小块底」要与浮层底分得开**（对账 #544，收口 #529 残留②）。
+     *
+     * 参数面板的比例格（`.ratioCell`）用的就是 `--bg-app`：浅色 #f5f5f5 vs 浮层 #ffffff 差 10、
+     * 深色 #1a1a1a vs #222222 差 8。**改之前深色用的是 `--bg-subtle` #1f1f1f，差只有 3** ——
+     * 屏幕上那一格"容器的边界"等于没有，而用户 2026-10-15 明确要过「直接抄他的比例，
+     * **包括容器的边界**」。判据两条：通道最大差 ≥ 6/255；且**小块要比它所在的面更暗**
+     * （浅色 / 深色方向一致 —— 深色里"凹下去"同样用更暗来表示）。
+     */
+    {
+      const cell = resolve('--bg-app', scope)
+      const cellDelta = Math.max(
+        Math.abs(cell.r - surface.r),
+        Math.abs(cell.g - surface.g),
+        Math.abs(cell.b - surface.b),
+      )
+      lookChecks += 1
+      if (cellDelta < 6) {
+        problems.push(
+          `${themeLabel}：小块底（--bg-app）与浮层底只差 ${cellDelta.toFixed(0)}/255 —— 那一格「块底」等于看不见`,
+        )
+      }
+      lookChecks += 1
+      if (luminance(cell) >= luminance(surface)) {
+        problems.push(`${themeLabel}：小块底没比浮层底更暗（两套主题里"块"都该是更暗的那一块）`)
       }
     }
   }
@@ -254,5 +281,5 @@ console.log(
   `✔ 对比度守卫通过：正文 ${TONES.length * 2} 组（最低 ${worstText.toFixed(2)}:1 ≥ ${TEXT_MIN}）+ ` +
     `网格线 ${TONES.length * 2} 组（最低 ${worstGrid.toFixed(2)}:1 ≥ ${GRID_MIN}）+ ` +
     `面板底 8 组（最低 ${worstPanel.toFixed(2)}:1 ≥ ${TEXT_MIN}）+ ` +
-    `悬停/选中 ${hoverChecks} 条（两支悬停与选中两两不同、方向对、与卡面可辨）`,
+    `观感 ${lookChecks} 条（两支悬停与选中两两不同、方向对、与卡面可辨；小块底与浮层底可辨）`,
 )

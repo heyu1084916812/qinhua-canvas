@@ -20267,6 +20267,27 @@ async function g98(browser) {
         offHoverBg !== offBg,
       hasCells ? `选中=${onBg} 悬停=${offHoverBg} 常态=${offBg} · ${cellProbe}` : '取不到比例格',
     )
+    /**
+     * ★★ **比例格那块「块底」与浮层底要分得开**（对账 #544，收口 #529 残留②）。
+     *
+     * 用户 2026-10-15 原话：「直接抄他的比例，**包括容器的边界**」—— 那一圈"块底"就是容器边界。
+     * 而深色下它曾经用 `--bg-subtle`（#1f1f1f）铺在浮层 `--bg-surface`（#222222）上，**只差 3/255**，
+     * 屏幕上等于没有；浅色差 10 一直看得见。判据读**两块的实算底色**，至少差 6/255。
+     */
+    const popupBg = await popup().evaluate((el) => getComputedStyle(el).backgroundColor)
+    const chan = (s) => (s.match(/\d+/g) ?? []).map(Number)
+    const cellC = chan(offBg)
+    const popC = chan(popupBg)
+    const cellDelta =
+      cellC.length === 3 && popC.length >= 3
+        ? Math.max(...cellC.slice(0, 3).map((v, i) => Math.abs(v - popC[i])))
+        : -1
+    rec(
+      g,
+      '★★ 比例格的「块底」与浮层底分得开（≥6/255，深浅两套）',
+      cellDelta >= 6,
+      `块底=${offBg || '?'} 浮层=${popupBg || '?'} 差=${cellDelta}`,
+    )
   }
 
   /**
