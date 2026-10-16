@@ -447,6 +447,14 @@ export function LightboxLayer() {
   const startSplitDrag = (e: ReactPointerEvent) => {
     e.stopPropagation()
     e.preventDefault()
+    /**
+     * ⚠️ **拖分割线不算「一次单击」**（用户 2026-10-16：「拖动对比线之后会把灯箱状态取消」）。
+     *
+     * 舞台的 `onClick` 是「没拖过的单击就关灯箱」，判据是 `movedRef`。而拖分割线走的是
+     * 自己这一套 window 监听，从不碰 `movedRef` —— 于是松手时那个 click 冒到舞台上，
+     * 被判成「没拖过」，**灯箱当场被关掉**。这里补一句即可（下面那个 `onClick` 再拦一道）。
+     */
+    movedRef.current = true
     const r = rectNow()
     if (!r) return
     const move = (ev: PointerEvent) => setSplitRatio(splitAt(ev.clientX, r))
@@ -500,10 +508,13 @@ export function LightboxLayer() {
               onLoadedMetadata={(e) =>
                 setNatural({ w: e.currentTarget.videoWidth, h: e.currentTarget.videoHeight })
               }
-              // 提取选区模式下把指针让给舞台（否则按在图上画不出框）
-              onPointerDown={(e) => {
-                if (!cropping) e.stopPropagation()
-              }}
+              /**
+               * ⚠️ **`pointerdown` 一律放行给舞台**（用户 2026-10-16：「拖动无法进行拖动图片」）。
+               *
+               * 平移是舞台那一层起手的；这里原先在非框选模式下 `stopPropagation()`，
+               * 于是**按在图上**（最自然的位置）拖——拖不动，只有按在图片外的留白上才行。
+               * 单击关闭仍然由下面那个 `onClick` 拦住（点图不该关灯箱），两件事分开。
+               */
               onClick={(e) => {
                 if (!cropping) e.stopPropagation()
               }}
@@ -525,9 +536,7 @@ export function LightboxLayer() {
                   setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
                 }
               }}
-              onPointerDown={(e) => {
-                if (!cropping) e.stopPropagation()
-              }}
+              /** 同上：`pointerdown` 让给舞台起手平移（框选模式下本来就是让的） */
               onClick={(e) => {
                 if (!cropping) e.stopPropagation()
               }}
@@ -566,6 +575,8 @@ export function LightboxLayer() {
               data-lightbox-compare-ratio={splitRatio.toFixed(3)}
               style={{ left: box.left + box.width * splitRatio, top: box.top, height: box.height }}
               onPointerDown={startSplitDrag}
+              /** 再拦一道 click：万一手柄被别的东西接走 pointerup，也不会冒到舞台去关灯箱 */
+              onClick={(e) => e.stopPropagation()}
             >
               <span className={styles.compareKnob} />
             </div>

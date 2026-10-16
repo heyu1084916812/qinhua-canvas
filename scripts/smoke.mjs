@@ -2636,8 +2636,12 @@ async function g14(browser) {
     const mediaBefore = await lbMedia.boundingBox()
     const stageBox = await lbStage.boundingBox()
     if (mediaBefore && stageBox) {
-      /** 压在**右半（B 那张图）**上拖 —— 正是之前被 stopPropagation 挡掉的那一处 */
-      const from = { x: stageBox.x + stageBox.width * 0.78, y: stageBox.y + stageBox.height * 0.5 }
+      /**
+       * ⚠️ 起手点取**图片本身的正中**（不是舞台留白）—— 这才是用户实际会按的地方，
+       * 也正是之前被 `<img onPointerDown={stopPropagation}>` 挡掉的那一处
+       * （旧版只有按在图片外的留白上才拖得动，冒烟当时恰好按在留白上，所以「通过了」）。
+       */
+      const from = { x: mediaBefore.x + mediaBefore.width / 2, y: mediaBefore.y + mediaBefore.height / 2 }
       await page.mouse.move(from.x, from.y)
       await page.mouse.down()
       await page.mouse.move(from.x - 70, from.y - 50, { steps: 12 })
