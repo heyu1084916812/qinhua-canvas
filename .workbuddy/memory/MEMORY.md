@@ -8020,3 +8020,9 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   命令词、标签、mention、代码块和 MJ 参数；英文在单词边界截断并去掉尾部 `on/with/at`。
   多张用 `-01/-02`，重名大小写不敏感顺延。矩阵分 10 类各 10 组，任何规则改动先跑
   `autoTitle.matrix.test.ts`；只改说明不跑矩阵等于没有覆盖新边界。
+- **`image的输出1-01` 是英文泛化名没被识别，不是用户手动名**（2026-10-17 → 对账 #567）：
+  `isGenericGenerationTitle` 必须递归剥离 `的输出N / output N / -01` 后，再看基名是否属于
+  `image/img/photo/untitled/screenshot` 或中文默认名；素材文件名也走同一判断。已有项目在
+  `CanvasPage` 水合时调用 `migrateLegacyGeneratedTitles`：同 prompt 有产物的旧结果成组改
+  `-01/-02`，空生成节点改无序号主题名，手动名不动，并直接写回 `nodes`。G67 35 项同时守
+  DOM 与 IndexedDB 两侧，避免只改画面、不落库。

@@ -27,6 +27,7 @@ import { subscribeAgentHandoff } from '../../features/canvas/agentHandoff'
 import { seedTemplate, type TemplateId } from '../../state/project/templates'
 import type { NodeSnapshot, NodeType } from '../../domain/canvas/model/node'
 import type { Edge } from '../../domain/canvas/model/edge'
+import { migrateLegacyGeneratedTitles } from '../../domain/canvas/naming/autoTitle'
 import styles from './CanvasPage.module.css'
 
 /**
@@ -123,12 +124,28 @@ function CanvasProject({ projectId }: { projectId: string }) {
         platform.storage.query('edges', { projectId }),
       ])
       if (cancelled) return
+      const migration = migrateLegacyGeneratedTitles(n as unknown as NodeSnapshot[])
       cached.hydrated = true
       store.hydrate({
         projectId,
-        nodes: n as unknown as NodeSnapshot[],
+        nodes: migration.nodes,
         edges: e as unknown as Edge[],
       })
+      if (migration.updates.length > 0) {
+        const byId = new Map(n.map((row) => [String(row.id), row]))
+        try {
+          await Promise.all(
+            migration.updates.map((update) =>
+              platform.storage.put(
+                'nodes',
+                { ...byId.get(update.id), id: update.id, title: update.title } as never,
+              ),
+            ),
+          )
+        } catch {
+          store.notify('旧节点名称已修复，但未能写回数据库', 'error')
+        }
+      }
       /* 让"聚焦"那支 effect 重跑一次（水合完成不会自己触发渲染） */
       setHydratedAt((k) => k + 1)
       // 模板预置仅在「新建的空项目」首次挂载时执行一次（hydrate 之后，避免被空库覆盖）。

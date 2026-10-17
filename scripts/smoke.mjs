@@ -10645,6 +10645,7 @@ async function g67(browser) {
     const list = [...document.querySelectorAll('[data-node-id]')].map((el) => {
       const b = el.getBoundingClientRect()
       return {
+        id: el.getAttribute('data-node-id'),
         type: el.getAttribute('data-node-type'),
         title: el.querySelector('[data-node-title]')?.textContent ?? '',
         left: Math.round(b.left),
@@ -10681,6 +10682,74 @@ async function g67(browser) {
     layout2.carriers.length >= 2 &&
       new Set(layout2.carriers.map((c) => c.left)).size === layout2.carriers.length,
     `x=${layout2.carriers.map((c) => c.left).join(',')}`,
+  )
+
+  /**
+   * 旧链式默认名迁移（对账 #567）。
+   *
+   * 真实用户库里曾出现 `image的输出1-01` / `image的输出1的输出2`。这里把刚生成的
+   * 两个结果改成同 prompt 的旧链式名，刷新画布走一次水合迁移，必须成组修正并落库。
+   */
+  const legacyIds = layout2.carriers.map((carrier) => carrier.id).filter(Boolean).slice(0, 2)
+  await page.evaluate(async ({ ids, prompt }) => {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('qinghua')
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+    const tx = db.transaction('nodes', 'readwrite')
+    const store = tx.objectStore('nodes')
+    for (let i = 0; i < ids.length; i += 1) {
+      const row = await new Promise((resolve, reject) => {
+        const req = store.get(ids[i])
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error)
+      })
+      if (!row) continue
+      store.put({
+        ...row,
+        title: `image的输出1-${String(i + 1).padStart(2, '0')}`,
+        data: { ...row.data, prompt },
+      })
+    }
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve
+      tx.onerror = () => reject(tx.error)
+      tx.onabort = () => reject(tx.error)
+    })
+    db.close()
+  }, { ids: legacyIds, prompt: '狗狗体型缩小50%，其他保持不变，' })
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(1200)
+  const migratedTitles = await page
+    .locator('[data-node-type="generation"] [data-node-title]')
+    .evaluateAll((els) => els.map((el) => (el.textContent ?? '').trim()))
+  const migratedDbTitles = await page.evaluate(async (ids) => {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('qinghua')
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+    const rows = await Promise.all(
+      ids.map((id) =>
+        new Promise((resolve, reject) => {
+          const req = db.transaction('nodes', 'readonly').objectStore('nodes').get(id)
+          req.onsuccess = () => resolve(req.result)
+          req.onerror = () => reject(req.error)
+        }),
+      ),
+    )
+    db.close()
+    return rows.map((row) => String(row?.title ?? ''))
+  }, legacyIds)
+  rec(
+    g,
+    '★★★ 旧的 image 输出链刷新后按提示词成组修正并落库',
+    legacyIds.length === 2 &&
+      migratedTitles.includes('狗狗体型缩小50%-01') &&
+      migratedTitles.includes('狗狗体型缩小50%-02') &&
+      migratedDbTitles.sort().join('|') === '狗狗体型缩小50%-01|狗狗体型缩小50%-02',
+    `DOM=${migratedTitles.join('｜')}｜DB=${migratedDbTitles.join('｜')}`,
   )
 
   await page.screenshot({ path: `${OUT}/83-g67-loop.png` })

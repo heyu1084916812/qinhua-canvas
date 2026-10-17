@@ -5,6 +5,8 @@
  * 的确定性规则：用户已经给过的信息（标题、文件名、预设、用途）先复用，提示词
  * 只负责兜底。全程不调用 LLM，因此没有额外费用、延迟或失败分支。
  */
+import type { GenerationData, NodeSnapshot } from '../model/node'
+import { presetById } from '../layout/presets'
 
 const GENERIC_TITLES = new Set([
   '生成',
@@ -20,11 +22,16 @@ const GENERIC_TITLES = new Set([
   '提示词',
   '结果',
   '未命名',
+  'image',
+  'img',
+  'photo',
+  'untitled',
+  'screenshot',
+  '屏幕截图',
 ])
 
-/** 承载节点的旧自动名：「生成的输出1」「提示词的输出2」「结果 3」等。 */
-const GENERIC_OUTPUT =
-  /^(?:生成|图片生成|视频生成|批量生成|批量出图|生成（套图）|图生图|底图|图片|视频|提示词|结果|未命名)(?:的输出)?\s*\d*$/
+/** 承载节点自动追加的一段：「的输出1」「output 2」「-03」。 */
+const AUTO_OUTPUT_SUFFIX = /(?:\s*(?:的?输出|output)\s*\d+|\s*-?\s*\d+)\s*$/iu
 
 /** 上传素材常见的泛化名；这些名字对识别内容没有帮助，应继续看提示词。 */
 const GENERIC_MATERIAL =
@@ -172,8 +179,17 @@ function truncateTitleText(text: string, maxUnits: number): string {
 }
 
 export function isGenericGenerationTitle(title: string): boolean {
-  const value = stripDecorations(title)
-  return GENERIC_TITLES.has(value) || GENERIC_OUTPUT.test(value)
+  let value = stripDecorations(title)
+  if (GENERIC_TITLES.has(value)) return true
+  let stripped = false
+  // 链可以重复多层：image的输出1的输出2-01。
+  for (let i = 0; i < 20; i += 1) {
+    const next = value.replace(AUTO_OUTPUT_SUFFIX, '').trim()
+    if (next === value) break
+    value = next
+    stripped = true
+  }
+  return stripped && GENERIC_TITLES.has(value)
 }
 
 /**
@@ -189,7 +205,7 @@ export function titleStemFromMaterial(name: string | undefined): string {
   const dot = basename.lastIndexOf('.')
   const ext = dot >= 0 ? basename.slice(dot + 1).toLocaleLowerCase() : ''
   let stem = KNOWN_EXTENSIONS.has(ext) ? basename.slice(0, dot) : basename
-  if (!stem || HASH_ONLY.test(stem)) return ''
+  if (!stem || HASH_ONLY.test(stem) || isGenericGenerationTitle(stem)) return ''
   stem = stem
     .replace(/[_-]+/gu, ' ')
     .replace(TRAILING_COPY_SUFFIX, '')
@@ -313,4 +329,72 @@ export function generatedNodeTitle(input: GeneratedNodeTitleInput): string {
   }
   if (!existing.has(normalizedKey(base))) return base
   return nextAvailableTitle(base, 2, existing)
+}
+
+export interface LegacyTitleMigration {
+  nodes: NodeSnapshot[]
+  updates: { id: string; title: string }[]
+}
+
+/**
+ * 修复旧版本已经落库的链式默认名。
+ *
+ * 只处理「有产物 + 标题被现规则认定为系统默认名 + 能从 prompt / preset 得出内容名」
+ * 的生成节点。用户手动名、空生成节点、没有可用语义的节点一律不动。同 prompt 的
+ * 一批结果会按 `-01/-02` 成组重命名。
+ */
+export function migrateLegacyGeneratedTitles(
+  nodes: readonly NodeSnapshot[],
+): LegacyTitleMigration {
+  const dataOf = (node: NodeSnapshot): GenerationData | null =>
+    node.type === 'generation'
+      ? (node.data as GenerationData)
+      : null
+  const hasMeaning = (node: NodeSnapshot): boolean => {
+    const data = dataOf(node)
+    if (!data || !isGenericGenerationTitle(node.title)) return false
+    return !!data.prompt?.trim() || !!presetById(data.preset)?.name
+  }
+  const withAsset = (node: NodeSnapshot): boolean =>
+    hasMeaning(node) && !!dataOf(node)?.assetHash
+
+  const groupCounts = new Map<string, number>()
+  for (const node of nodes) {
+    if (!withAsset(node)) continue
+    const data = dataOf(node)!
+    const prompt = typeof data.prompt === 'string' ? data.prompt : ''
+    const key = `${data.mode}|${prompt.trim()}|${data.preset ?? ''}`
+    groupCounts.set(key, (groupCounts.get(key) ?? 0) + 1)
+  }
+
+  const existingTitles = new Set(
+    nodes.filter((node) => !hasMeaning(node)).map((node) => node.title),
+  )
+  const groupSeen = new Map<string, number>()
+  const updates: { id: string; title: string }[] = []
+  const nextNodes = nodes.map((node) => {
+    if (!hasMeaning(node)) return node
+    const data = dataOf(node)!
+    const prompt = typeof data.prompt === 'string' ? data.prompt : ''
+    const key = `${data.mode}|${prompt.trim()}|${data.preset ?? ''}`
+    const index = withAsset(node) ? (groupSeen.get(key) ?? 0) : 0
+    if (withAsset(node)) groupSeen.set(key, index + 1)
+    const title = generatedNodeTitle({
+      prompt,
+      mode: data.mode,
+      slotKind: 'reuse',
+      sourceTitle: node.title,
+      targetTitle: node.title,
+      presetName: presetById(data.preset)?.name ?? '',
+      existingTitles: [...existingTitles],
+      index,
+      total: withAsset(node) ? (groupCounts.get(key) ?? 1) : 1,
+    })
+    existingTitles.add(title)
+    if (title === node.title) return node
+    updates.push({ id: node.id, title })
+    return { ...node, title }
+  })
+
+  return { nodes: nextNodes, updates }
 }
