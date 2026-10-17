@@ -69,6 +69,13 @@ export interface CanvasRunTask extends SharedRunTask {
    * 「运行这个工作区」的结果本就该留在工作区里。
    */
   containerId: string | null
+  /** 发起本次请求的节点标题；用户明确命名时，承载节点继承这个语义。 */
+  sourceTitle: string
+  /** 计划落点的原标题。reuse 时用来判断用户是否已经手动命名。 */
+  targetTitle: string
+  /** 同一来源节点这一轮的第几张（从 0 起）与总张数，供自动命名生成序号。 */
+  outputIndex: number
+  outputTotal: number
   /**
    * 源节点在画布上的矩形（世界坐标）。
    *
@@ -410,6 +417,13 @@ export function buildRunPlan(
           callCount: expansions.length,
           containerKind: containerKindOf(node, index) ?? subContainer,
           containerId: hostId,
+          sourceTitle: node.title,
+          targetTitle:
+            slot.kind === 'new'
+              ? slot.title
+              : (index.get(slot.nodeId)?.title ?? ''),
+          outputIndex: 0,
+          outputTotal: 1,
           // 落位要用「源节点在画布上的位置」把新建节点摆在它右侧（用户 2026-09-16）
           sourceRect: { x: node.x, y: node.y, w: node.w, h: node.h },
           sourceData: node.data,
@@ -426,7 +440,28 @@ export function buildRunPlan(
     })
   })
 
-  return { id: createId('plan'), tasks, scope, mode: executionMode, newDownstream }
+  /**
+   * 同一来源节点这一轮会出几张。
+   *
+   * 不能用 `callCount`：它只描述「批量集合展开了几项」，而面板上的「2张 / 4张」
+   * 是额外的循环。标题序号必须在最终 tasks 上算，两个维度相乘后的结果才准确。
+   */
+  const outputTotals = new Map<string, number>()
+  for (const task of tasks) {
+    outputTotals.set(task.nodeId, (outputTotals.get(task.nodeId) ?? 0) + 1)
+  }
+  const outputSeen = new Map<string, number>()
+  const titledTasks = tasks.map((task) => {
+    const outputIndex = outputSeen.get(task.nodeId) ?? 0
+    outputSeen.set(task.nodeId, outputIndex + 1)
+    return {
+      ...task,
+      outputIndex,
+      outputTotal: outputTotals.get(task.nodeId) ?? 1,
+    }
+  })
+
+  return { id: createId('plan'), tasks: titledTasks, scope, mode: executionMode, newDownstream }
 }
 
 /** 来源节点的父容器类型：只有能把生成节点装进去的三种容器才算，其余一律视为顶层 */

@@ -8009,3 +8009,8 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   节点创建时把旧 `channelId` 落进来了，后来只改 `model` 没同步渠道。执行层按模型选路是正确的，
   错的是页面内部字段和日志措辞。选模型时必须用 `channelIdForLogical` 同步渠道，并让
   `findProvider` 与 `routeCandidatesFor` 同口径：有映射行 / 已知上游别名就算可路由。
+- **普通画布自动命名不能靠 LLM 补一遍**（2026-10-17 → 对账 #565）：Agent 有内容名是因为
+  system prompt 要求模型在 `nodes[].title` 给摘要；普通画布没有这条链。现在用
+  `domain/canvas/naming/autoTitle` 从提示词首句本地提取，最多 16 字，多张按来源节点分组加 `· 1/N`。
+  仅当落点仍是「生成 / 生成的输出N / 结果N」等默认名时改名，用户手动标题必须保留；
+  下载文件名复用节点标题 + 8 位哈希。这样不增加额外模型费用和首字延迟。

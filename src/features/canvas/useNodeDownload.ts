@@ -15,7 +15,11 @@ export function useNodeDownload(platform: PlatformKit, store: CanvasStore) {
       const node = store.getSnapshot().nodes.find((n) => n.id === nodeId)
       const hash = (node?.data as { assetHash?: string } | undefined)?.assetHash
       if (!hash) return
-      void downloadAsset({ assets: platform.assets, files: platform.files }, hash).then((r) => {
+      void downloadAsset(
+        { assets: platform.assets, files: platform.files },
+        hash,
+        node?.title,
+      ).then((r) => {
         // 如实反馈：静默失败会让用户以为「下载坏了」，而其实是素材已不在表里
         if (!r.ok) {
           store.notify(r.reason === 'missing' ? '这张素材已不在素材库里' : '下载失败', 'error')

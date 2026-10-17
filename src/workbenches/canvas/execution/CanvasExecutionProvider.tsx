@@ -709,10 +709,24 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
          * 这正是用户要的「两个槽位并排在生成节点右边」。
          */
         const total = allTasks.length
+        /**
+         * 循环把多轮任务合成一个 plan 后再重排。标题序号必须按**同一个下游生成节点**
+         * 分组重算；直接用全局下标会出现「第 1/6 张」「第 6/6 张」这种跨节点串号。
+         */
+        const sourceOf = (task: (typeof allTasks)[number]) =>
+          task.slot.kind === 'new' ? task.slot.connectFrom : task.nodeId
+        const outputTotals = new Map<string, number>()
+        for (const task of allTasks) {
+          const from = sourceOf(task)
+          outputTotals.set(from, (outputTotals.get(from) ?? 0) + 1)
+        }
+        const outputSeen = new Map<string, number>()
         const arranged: CanvasRunTask[] = allTasks.map((t, i) => {
           /** 承载节点挂在**它的来源生成节点**右边（用户 2026-09-24 的要求） */
-          const from = t.slot.kind === 'new' ? t.slot.connectFrom : t.nodeId
+          const from = sourceOf(t)
           const fromNode = graph.nodes.find((n) => n.id === from)
+          const outputIndex = outputSeen.get(from) ?? 0
+          outputSeen.set(from, outputIndex + 1)
           return {
             ...t,
             slot: {
@@ -722,6 +736,8 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
             },
             seq: i,
             callCount: total,
+            outputIndex,
+            outputTotal: outputTotals.get(from) ?? 1,
           }
         })
 

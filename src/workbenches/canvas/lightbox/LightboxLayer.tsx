@@ -161,13 +161,14 @@ export function LightboxLayer() {
    * 于是「查看 → 选区 / 标注 / 旋转」可以全在灯箱里切换。
    * 同一 hash 被多个节点引用时取第一个；这是编辑目标，不会用来改画布结构。
    */
-  const ownerNodeId = (() => {
-    if (!assetHash) return ''
+  const ownerNode = (() => {
+    if (!assetHash) return undefined
     return store.getSnapshot().nodes.find((n) => {
       const data = n.data as { assetHash?: unknown }
       return data.assetHash === assetHash
-    })?.id ?? ''
+    })
   })()
+  const ownerNodeId = ownerNode?.id ?? ''
   const cropNodeId = cropFor ?? faceFor ?? ownerNodeId
   const rotateNodeId = lightbox?.rotateFor ?? ownerNodeId
   const annotateNodeId = lightbox?.annotateFor ?? ownerNodeId
@@ -336,11 +337,15 @@ export function LightboxLayer() {
   const [downloaded, setDownloaded] = useState(false)
   const download = useCallback(async () => {
     if (!assetHash) return
-    const r = await downloadAsset({ assets: platform.assets, files: platform.files }, assetHash)
+    const r = await downloadAsset(
+      { assets: platform.assets, files: platform.files },
+      assetHash,
+      ownerNode?.title,
+    )
     if (!r.ok) return
     setDownloaded(true)
     window.setTimeout(() => setDownloaded(false), 1500)
-  }, [assetHash, platform])
+  }, [assetHash, ownerNode?.title, platform])
 
   const close = useCallback(() => store.closeLightbox(), [store])
 

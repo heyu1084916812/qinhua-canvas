@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { assetFileName, downloadAsset } from './downloadAsset'
+import { assetFileName, downloadAsset, safeFilePrefix } from './downloadAsset'
 import type { AssetPort, FilePort } from '../../platform/ports'
 
 /**
@@ -53,6 +53,14 @@ describe('assetFileName', () => {
 
   it('不认识的 mime → .bin（不猜，也不崩）', () => {
     expect(assetFileName('abcdef1234567890', 'application/octet-stream')).toBe('轻画-abcdef12.bin')
+  })
+
+  it('★ 节点标题可直接做文件名前缀，并去掉非法字符', () => {
+    expect(assetFileName('abcdef1234567890', 'image/png', '奶瓶主图 · 1/2')).toBe(
+      '奶瓶主图 · 1-2-abcdef12.png',
+    )
+    expect(safeFilePrefix('CON')).toBe('_CON')
+    expect(safeFilePrefix('   ')).toBe('轻画')
   })
 })
 

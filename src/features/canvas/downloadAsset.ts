@@ -21,6 +21,24 @@ const EXT_BY_MIME: Record<string, string> = {
   'video/quicktime': 'mov',
 }
 
+const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
+
+/** 把节点标题压成各平台都可用的文件名前缀；空值回落到产品名。 */
+export function safeFilePrefix(prefix?: string): string {
+  const cleaned = (prefix ?? '')
+    .normalize('NFKC')
+    .replace(/[<>:"/\\|?*]/g, '-')
+    .replace(/\s+/g, ' ')
+    .replace(/[. ]+$/g, '')
+    .trim()
+  const capped = Array.from(cleaned)
+    .map((char) => (char.charCodeAt(0) < 32 ? '-' : char))
+    .slice(0, 40)
+    .join('')
+  if (!capped) return '轻画'
+  return WINDOWS_RESERVED.test(capped) ? `_${capped}` : capped
+}
+
 /**
  * 由素材内容推一个文件名。
  *
@@ -29,7 +47,7 @@ const EXT_BY_MIME: Record<string, string> = {
  */
 export function assetFileName(hash: string, mime: string, prefix = '轻画'): string {
   const ext = EXT_BY_MIME[mime] ?? 'bin'
-  return `${prefix}-${hash.slice(0, 8)}.${ext}`
+  return `${safeFilePrefix(prefix)}-${hash.slice(0, 8)}.${ext}`
 }
 
 export interface DownloadAssetDeps {

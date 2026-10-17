@@ -562,7 +562,7 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     expect(summary.succeeded).toBe(1)
     // §6.16：单一产物不建结果组 → 净增 1（只有新铺的下游节点）
     expect(store.getSnapshot().nodes).toHaveLength(before + 1)
-    const created = store.getSnapshot().nodes.find((n) => n.title === '提示词的输出1')
+    const created = store.getSnapshot().nodes.find((n) => n.title === '一只在屋顶的猫')
     expect(created).toBeDefined()
     expect((created!.data as unknown as Record<string, unknown>).assetHash).toBeDefined()
     expect(dataOf(store, genId).assetHash).toBeUndefined()
@@ -604,6 +604,10 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     expect(generations).toHaveLength(3)
     const carriers = generations.filter((n) => n.id !== genId)
     expect(carriers).toHaveLength(2)
+    expect(carriers.map((n) => n.title).sort()).toEqual([
+      '一只在屋顶的猫 · 1/2',
+      '一只在屋顶的猫 · 2/2',
+    ])
     // 源节点不动（它是输入方，不是结果容器）
     expect(dataOf(store, genId).assetHash).toBeUndefined()
     for (const c of carriers) {
@@ -614,6 +618,27 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
         height: 36,
       })
     }
+  })
+
+  it('★★ 普通画布默认名在首次成功后按提示词改名；手动命名不覆盖', async () => {
+    const { store, promptId, genId } = setup()
+    const auto = buildRunPlan('node', { originNodeId: promptId }, store.getSnapshot(), 'single')
+    await runEngine(auto, deps(store, createMockChannel()))
+    store.endPlan()
+
+    expect(store.getSnapshot().nodes.find((n) => n.id === genId)!.title).toBe('一只在屋顶的猫')
+
+    /**
+     * 第二次运行仍复用同一个空槽之外的自有节点时，不能把手动标题改回提示词摘要。
+     * 这里直接把节点重新置空并手动命名，模拟用户清空结果后改名再生成。
+     */
+    store.dispatch({ kind: 'node.rename', id: genId, title: '客户 A 的春季主图' })
+    store.dispatch({ kind: 'node.updateData', id: genId, patch: { assetHash: null } })
+    const manual = buildRunPlan('node', { originNodeId: genId }, store.getSnapshot(), 'single')
+    await runEngine(manual, deps(store, createMockChannel()))
+    store.endPlan()
+
+    expect(store.getSnapshot().nodes.find((n) => n.id === genId)!.title).toBe('客户 A 的春季主图')
   })
 
   /**

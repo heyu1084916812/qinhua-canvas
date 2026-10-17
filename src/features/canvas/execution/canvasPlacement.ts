@@ -15,6 +15,10 @@ import type { RunRecord as CanvasRunRecord } from '../../../domain/canvas/model/
 import type { Command } from '../../../state/commands'
 import { assetNodeSize, ratioNodeSize } from '../../../domain/canvas/layout/assetNodeSize'
 import type { GenerationData } from '../../../domain/canvas/model/node'
+import {
+  generatedNodeTitle,
+  isGenericGenerationTitle,
+} from '../../../domain/canvas/naming/autoTitle'
 import { createId } from '../../../shared/id'
 import type { ExecutionPlacement } from '../../shared/execution/placement'
 import type { CanvasRunTask } from './buildRunPlan'
@@ -86,7 +90,15 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
       // 新节点按请求比例定尺寸（未取到比例时由 node.create 用默认最小尺寸）
       const nodeSize = cell ? { w: cell.w, h: cell.h } : undefined
       const targetId = createId('node')
-      const title = task.slot.kind === 'new' ? task.slot.title : `结果 ${(task.seq ?? 0) + 1}`
+      const title = generatedNodeTitle({
+        prompt: task.request.prompt,
+        mode: task.request.kind === 'video' ? 'video' : 'image',
+        slotKind: task.slot.kind,
+        sourceTitle: task.sourceTitle,
+        targetTitle: task.targetTitle,
+        index: task.outputIndex,
+        total: task.outputTotal,
+      })
       /**
        * 新节点的数据必须是**自己的拷贝**：
        *  - 不能与源节点共享同一个 data 对象引用 —— reducer 会原样入库，
@@ -154,7 +166,7 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
      * 尺寸与 data 走**同一条命令**：分成两条会留下「data 已是新产物、框还是旧比例」
      * 的中间态；而 `node.resize` 需要完整 rect（会顺手移动节点），不适合落位场景。
      */
-    commit(_task, targetId, assets) {
+    commit(task, targetId, assets) {
       const first = assets[0]
       const natural =
         first && first.width && first.height ? { width: first.width, height: first.height } : undefined
@@ -203,8 +215,28 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
           projectId: getProjectId(),
         },
       }))
+      const title = generatedNodeTitle({
+        prompt: task.request.prompt,
+        mode: task.request.kind === 'video' ? 'video' : 'image',
+        slotKind: task.slot.kind,
+        sourceTitle: task.sourceTitle,
+        targetTitle: task.targetTitle,
+        index: task.outputIndex,
+        total: task.outputTotal,
+      })
+      /**
+       * 只改「计划时的落点仍是默认名」的节点。用户已经手动命名为
+       * 「客户 A 主图」时，`targetTitle` 不是默认名，这条不会出现。
+       */
+      const rename =
+        task.slot.kind === 'reuse' &&
+        isGenericGenerationTitle(task.targetTitle) &&
+        title !== task.targetTitle
+          ? [{ kind: 'node.rename' as const, id: targetId, title }]
+          : []
       return [
         ...stored,
+        ...rename,
         {
           kind: 'node.updateData',
           id: targetId,

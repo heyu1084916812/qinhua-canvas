@@ -10652,9 +10652,21 @@ async function g67(browser) {
       }
     })
     const gen = list.find((n) => n.type === 'generation' && n.title === '生成')
-    const carriers = list.filter((n) => n.title.startsWith('生成的输出'))
+    /**
+     * 普通画布产物现在按提示词自动命名，不能再靠旧的「生成的输出N」前缀找。
+     * 来源生成节点仍叫「生成」；承载节点是除它之外、真正持有图片的 generation。
+     */
+    const carriers = list.filter((n) => n.type === 'generation' && n.title !== '生成')
     return { gen, carriers }
   })
+  rec(
+    g,
+    '★★ 普通画布出图按提示词自动命名，并保留同批序号',
+    layout2.carriers.length >= 2 &&
+      new Set(layout2.carriers.map((c) => c.title)).size === layout2.carriers.length &&
+      layout2.carriers.every((c) => / · \d+\/\d+$/.test(c.title)),
+    layout2.carriers.map((c) => c.title).join('｜'),
+  )
   rec(
     g,
     '★★ 两个承载槽位都在下游生成节点右侧（不是循环节点右侧）',
