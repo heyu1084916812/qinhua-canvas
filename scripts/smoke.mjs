@@ -33128,7 +33128,303 @@ async function g156(browser) {
     await ctx.close()
   }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157]
+  /**
+   * G158 两张「提取选区」的局部图**一起**改图 → 融不进原图（用户 2026-10-17 的原始场景）
+   *
+   * 用户原话（他用自己的变量实验问出来的）：
+   *   图1 提取选区 → 图1-2（带着"贴回图1"的选区）
+   *   图2 提取选区 → 图2-2（带着"贴回图2"的选区）
+   *   把 **图1-2 和 图2-2 一起**交给同一个生成节点改图 → 图3
+   *   图1 + 图3 融合 → **融不了**
+   *   变量：把图2-2 换成**裁剪**出来的（不带上下文）那块 → **就能融**
+   *
+   * 本组把这次变量实验**真跑一遍**，把结论钉成断言（此前我只在纯函数层推过，没跑过界面）：
+   *   ① 两张带上下文的局部图喂给同一个生成节点 ⇒ 产物的上游挂着**两处**位置 ⇒ 冲突；
+   *   ② 把其中一路换成 `{full:true}` 的裁剪块 ⇒ 上游只剩**一处** ⇒ 融合通过。
+   */
+  async function g158(browser) {
+    const g = 'G158 两个上下文混进同一张图'
+    const ctx = await newCtx(browser)
+    const page = await ctx.newPage()
+    const pageErrors = []
+    page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+    await configureMockChannel(page)
+    await gotoProjects(page)
+    await sleep(400)
+    await page.locator('[data-template="blank"]').click()
+    await page.waitForURL(/\/canvas\//)
+    await sleep(900)
+
+    const genIds = () =>
+      page
+        .locator('[data-node-type="generation"]')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+
+    /**
+     * 在节点框里找一个**确实落在节点上**的点，再拿去右键。
+     *
+     * 为什么不能写死 `box.x+40, box.y+40`：选中节点时**创作面板会盖住节点的一部分**
+     * （实测第二张图那一点命中的是面板的提示词行 `_promptRow_`），右键于是落到了面板 /
+     * 画布上，弹出来的是"新建节点"那个菜单 ⇒ 「重命名」找不到、整组超时。
+     * 判据用 `elementFromPoint` 反查它属于哪个节点，不猜。
+     */
+    const safePointOn = async (id, box) => {
+      const candidates = [
+        { x: box.x + box.width - 36, y: box.y + 36 },
+        { x: box.x + box.width / 2, y: box.y + 36 },
+        { x: box.x + 36, y: box.y + box.height - 36 },
+        { x: box.x + 36, y: box.y + 36 },
+      ]
+      for (const c of candidates) {
+        const hit = await page.evaluate(
+          ({ x, y }) =>
+            document.elementFromPoint(x, y)?.closest('[data-node-id]')?.getAttribute('data-node-id') ?? null,
+          c,
+        )
+        if (hit === id) return c
+      }
+      return null
+    }
+
+    /** 入口用右键菜单（节点靠左时跟随栏会被挤出画布，见 G157 的教训） */
+    const extractOnce = async (sourceId, fx, plain = false) => {
+      /**
+       * ⚠️ 先**点空白取消选中**，让创作面板收掉再右键。
+       *
+       * 实测：上一张裁剪产物被自动选中后，创作面板正在入场；`elementFromPoint` 量那一点
+       * 还是节点的图，但真正右键时面板已经盖上去 ⇒ 事件目标是面板（不属于任何节点）
+       * ⇒ 弹出的是"新建节点"那个画布菜单，`extractSelection` 永远等不到。
+       */
+      await page.mouse.click(1000, 300)
+      await sleep(320)
+      const nb = await page.locator(`[data-node-id="${sourceId}"]`).boundingBox()
+      const at = (await safePointOn(sourceId, nb)) ?? { x: nb.x + 40, y: nb.y + 40 }
+      await page.mouse.click(at.x, at.y, { button: 'right' })
+      await sleep(280)
+      const before = await genIds()
+      await page
+        .locator(`[data-context-menu-item="${plain ? 'crop' : 'extractSelection'}"]`)
+        .click()
+      await sleep(700)
+      await page.locator('[data-lightbox-crop-ratio="16:9"]').click()
+      await sleep(250)
+      const stage = await page.locator('[data-lightbox-stage]').boundingBox()
+      await page.mouse.move(stage.x + stage.width * fx, stage.y + stage.height * 0.35)
+      await page.mouse.down()
+      await page.mouse.move(stage.x + stage.width * (fx + 0.18), stage.y + stage.height * 0.65, {
+        steps: 10,
+      })
+      await page.mouse.up()
+      await sleep(350)
+      await page.locator('[data-lightbox-crop-apply]').click()
+      await sleep(1700)
+      const fresh = (await genIds()).filter((id) => !before.includes(id))
+      return page.locator(`[data-node-id="${fresh[0]}"]`)
+    }
+
+    /*
+     * 图1 / 图2：两张**不同内容**的素材（不同字节 ⇒ 不同 hash ⇒ 两个不同的选区来源）。
+     *
+     * 尺寸/落位按"**端点必须留在视口内**"来定（G157 的教训）：改图承载节点约 424px 宽，
+     * 放太右会让它的输出端点跑到屏幕外，连线一次都发不出去。这里三列 + 左下角一只融合节点，
+     * 五只端点全部可见。
+     */
+    const img1 = await addGenWithImage(page, 320, 180, null, gradientPngBuffer(320, 180))
+    await moveNode(page, img1.id, 90, 40)
+    await sleep(250)
+    const img2 = await addGenWithImage(page, 320, 180, [30, 120, 200])
+    await moveNode(page, img2.id, 90, 320)
+    await sleep(300)
+
+    const crop1 = await extractOnce(img1.id, 0.28)
+    await moveNode(page, await crop1.getAttribute('data-node-id'), 450, 40)
+    await sleep(250)
+    const crop2 = await extractOnce(img2.id, 0.28)
+    await moveNode(page, await crop2.getAttribute('data-node-id'), 450, 320)
+    await sleep(300)
+    rec(g, '★ 图1-2 / 图2-2 两张带上下文的局部图都建出来了', (await crop1.count()) === 1 && (await crop2.count()) === 1)
+
+    /** 把两张局部图**一起**交给同一个生成节点（用户的做法） */
+    const dragFromPortTo = async (portLocator, to) => {
+      const b = await portLocator.boundingBox()
+      if (!b) return false
+      await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+      await sleep(180)
+      await page.mouse.down()
+      await page.mouse.move(to.x, to.y, { steps: 10 })
+      await page.mouse.up()
+      await sleep(450)
+      return true
+    }
+    const wireInto = async (fromNode, target, portSelector = '[data-port="input"]') => {
+      const box = await target.locator(portSelector).boundingBox()
+      return dragFromPortTo(fromNode.locator('[data-port="output"]').first(), {
+        x: (box?.x ?? 0) + (box?.width ?? 0) / 2,
+        y: (box?.y ?? 0) + (box?.height ?? 0) / 2,
+      })
+    }
+
+    await addNodeViaToolbar(page, 'generation')
+    await sleep(600)
+    const genId = await page.locator('[data-node-type="generation"]').last().getAttribute('data-node-id')
+    const genNode = page.locator(`[data-node-id="${genId}"]`)
+    await moveNode(page, genId, 770, 40)
+    await sleep(300)
+    await wireInto(crop1, genNode)
+    await wireInto(crop2, genNode)
+    await sleep(300)
+    rec(
+      g,
+      '★ 两张局部图都接进了同一个生成节点（两条上游）',
+      (await page.locator(`[data-edge-target="${genId}"]`).count()) >= 2,
+      `edges=${await page.locator(`[data-edge-target="${genId}"]`).count()}`,
+    )
+
+    /**
+     * 在 `target` 上跑一次生成，返回**最终持有产物**的那个节点。
+     *
+     * ⚠️ 不能只等"新节点"：空的生成节点首次生成按既有口径是**写回本节点**
+     * （对账 G91：「生成节点自身为空时自跑 → 落位是复用自己」），不会另开节点。
+     * 所以两种情形都要认。
+     */
+    const runOn = async (target) => {
+      const panel = await genPanel(page, target)
+      await configureGenPanel(page, panel, '把这张图里的字改成水彩风格')
+      await pickParam(panel, 'ratio', '跟随素材')
+      await sleep(200)
+      const before = await genIds()
+      const targetId = await target.getAttribute('data-node-id')
+      await panelRunBtn(page).click()
+      let holder = null
+      for (let i = 0; i < 60; i += 1) {
+        const fresh = (await genIds()).filter((id) => !before.includes(id))
+        if (fresh.length > 0) {
+          holder = fresh[0]
+          break
+        }
+        if ((await target.locator('[data-node-asset]').count()) > 0) {
+          holder = targetId
+          break
+        }
+        await sleep(250)
+      }
+      if (!holder) {
+        console.log(
+          '  [g158]   edit produced nothing; notice=',
+          JSON.stringify(await page.locator('[data-canvas-notice]').innerText().catch(() => '')),
+        )
+      }
+      return page.locator(`[data-node-id="${holder}"]`)
+    }
+    const edited = await runOn(genNode)
+    /* 产物可能写回本节点（空节点首次生成）：挪到中列，保证它的**输出端点**留在视口内 */
+    await moveNode(page, await edited.getAttribute('data-node-id'), 700, 40)
+    await sleep(300)
+    rec(g, '★ 改图产物出来了', (await edited.count()) === 1, `id=${await edited.getAttribute('data-node-id')}`)
+
+    /* 图1 + 图3 → 融合节点：**观察**界面怎么说 */
+    await addNodeViaToolbar(page, 'fusion')
+    await sleep(600)
+    const fusionId = await page.locator('[data-node-type="fusion"]').first().getAttribute('data-node-id')
+    const fusion = page.locator(`[data-node-id="${fusionId}"]`)
+    await moveNodeVia(page, fusion, page.locator(`[data-node-id="${fusionId}"] [data-fusion-chips]`), 90, 560)
+    await sleep(400)
+    await wireInto(img1.node, fusion)
+    await wireInto(edited, fusion, '[data-port="patch"]')
+    await sleep(400)
+
+    const conflictTip = (await fusion.locator('[data-fusion-run]').getAttribute('title')) ?? ''
+    rec(
+      g,
+      '★★★ 两张带上下文的局部图混进同一张产物 ⇒ 融合被拦下',
+      await fusion.locator('[data-fusion-run]').isDisabled(),
+      `disabled=${await fusion.locator('[data-fusion-run]').isDisabled()}`,
+    )
+    /**
+     * ★★★ 这里的判据是**"混了多个"而不是"没有上下文"** —— 这正是用户问的那件事。
+     * 提示还要**点名是哪两处**（否则他不知道该换哪一路）。
+     */
+    rec(
+      g,
+      '★★★ 拦下的理由是「混了多个不同的选区」并给出两条出路（不是「没有上下文」）',
+      /混了多个不同的选区/.test(conflictTip) &&
+        /只保留那一处/.test(conflictTip) &&
+        /裁剪/.test(conflictTip) &&
+        !/没有选区上下文/.test(conflictTip),
+      conflictTip,
+    )
+    await page.screenshot({ path: `${OUT}/162-g158-two-contexts.png` })
+
+    /* ── 变量实验：把图2那一路换成**裁剪**出来的（不带上下文）── */
+    const cropped = await extractOnce(img2.id, 0.28, true)
+    await moveNode(page, await cropped.getAttribute('data-node-id'), 450, 520)
+    await sleep(300)
+    const cropTitle = ((await cropped.locator('[data-node-title]').textContent().catch(() => '')) ?? '').trim()
+    rec(g, '★ 变量：图2 改用「裁剪」得到一块（不带上下文）', cropTitle.includes('裁剪图'), cropTitle)
+
+    await addNodeViaToolbar(page, 'generation')
+    await sleep(600)
+    const gen2Id = await page.locator('[data-node-type="generation"]').last().getAttribute('data-node-id')
+    const gen2 = page.locator(`[data-node-id="${gen2Id}"]`)
+    await moveNode(page, gen2Id, 700, 300)
+    await sleep(300)
+    await wireInto(crop1, gen2)
+    await wireInto(cropped, gen2)
+    await sleep(300)
+    const edited2 = await runOn(gen2)
+    const edited2Id = await edited2.getAttribute('data-node-id')
+    await moveNode(page, edited2Id, 700, 300)
+    await sleep(300)
+
+    /*
+     * 另起一只融合节点放在 (760,560)：这一格在视口内、也不会压到裁剪块（450..726）
+     * 与 gen2（700..1124, 300..540）—— 两只端点都在屏幕上。
+     * （原先想"删掉旧补丁边复用同一只"，双击连线这个动作在 SVG 层上点不动，改用新节点。）
+     */
+    const fusionIdsOf = () =>
+      page
+        .locator('[data-node-type="fusion"]')
+        .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
+    const fusionBefore = await fusionIdsOf()
+    await addNodeViaToolbar(page, 'fusion')
+    await sleep(600)
+    const fusion2Id = (await fusionIdsOf()).find((id) => !fusionBefore.includes(id))
+    const fusion2 = page.locator(`[data-node-id="${fusion2Id}"]`)
+    await moveNodeVia(
+      page,
+      fusion2,
+      page.locator(`[data-node-id="${fusion2Id}"] [data-fusion-chips]`),
+      760,
+      560,
+    )
+    await sleep(400)
+    await wireInto(img1.node, fusion2)
+    await wireInto(edited2, fusion2, '[data-port="patch"]')
+    await sleep(400)
+
+    rec(
+      g,
+      '★★★ 变量实验：上游只剩一个上下文 ⇒ 融合按钮可点',
+      !(await fusion2.locator('[data-fusion-run]').isDisabled()),
+      `title=${await fusion2.locator('[data-fusion-run]').getAttribute('title')}`,
+    )
+    const beforeFuse = await genIds()
+    await fusion2.locator('[data-fusion-run]').click()
+    await sleep(2600)
+    const afterFuse = await genIds()
+    rec(
+      g,
+      '★★★ 变量实验：真的融出结果（用户说"就能融合了"）',
+      afterFuse.length === beforeFuse.length + 1,
+      `${beforeFuse.length} → ${afterFuse.length}`,
+    )
+    await page.screenshot({ path: `${OUT}/163-g158-crop-variant.png` })
+    rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+    await ctx.close()
+  }
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158]
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue

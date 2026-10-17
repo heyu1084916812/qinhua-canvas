@@ -9,7 +9,12 @@ import { targetPortOf } from '../../domain/canvas/model/edge'
 import { promptSpec } from '../../domain/canvas/nodeSpecs/prompt'
 import { portDeclsOf } from '../../domain/canvas/nodeSpecs/ports'
 import { getSpec } from '../../domain/canvas/nodeSpecs/registry'
-import { missingContextReason, resolveCropContext } from '../../domain/canvas/fusion/cropContext'
+import {
+  conflictReason,
+  missingContextReason,
+  resolveCropContext,
+  type CropResolution,
+} from '../../domain/canvas/fusion/cropContext'
 import { hasRunnableDownstream } from '../../features/canvas/execution/loopRun'
 import { imageAssetInputsOf } from '../../domain/shared/execution/inputs'
 import type { NodeInput } from '../../domain/shared/execution/types'
@@ -116,12 +121,17 @@ export function useNodeDerivedMaps(graph: GraphSnapshot): NodeDerivedMaps {
   const inputPortAssets = useStableGraphMemo(graph, (g) => {
     const out = new Map<string, Record<string, InputPortAsset[]>>()
     const idx = indexNodes(g.nodes)
-    const hasContext = new Map<string, boolean>()
-    const contextOf = (id: string): boolean => {
-      const cached = hasContext.get(id)
+    /**
+     * 缓存**解析结果本身**而不是布尔的 `hasContext`：混了多个选区（`conflict`）与
+     * 一个都没有（`none`）是两件事，提示也必须不同 —— 只存布尔值会把冲突错报成
+     * "没有上游 / 上游接错"（对账 #557/#558）。
+     */
+    const resolutionCache = new Map<string, CropResolution>()
+    const resolutionOf = (id: string): CropResolution => {
+      const cached = resolutionCache.get(id)
       if (cached !== undefined) return cached
-      const value = resolveCropContext(id, g, idx).kind === 'local'
-      hasContext.set(id, value)
+      const value = resolveCropContext(id, g, idx)
+      resolutionCache.set(id, value)
       return value
     }
     for (const n of g.nodes) {
@@ -139,12 +149,20 @@ export function useNodeDerivedMaps(graph: GraphSnapshot): NodeDerivedMaps {
         if (!bucket) continue
         const hash = resultImagesOf(idx.get(e.source))[0]
         if (hash) {
-          const hasContext = contextOf(e.source)
+          const res = resolutionOf(e.source)
+          const ordinal = bucket.length + 1
           bucket.push({
             hash,
-            hasContext,
-            /** 没有上下文时**量着图**说清是哪一种（视图层的按钮提示直接用这句话） */
-            ...(hasContext ? {} : { missingContextReason: missingContextReason(e.source, g, bucket.length + 1) }),
+            hasContext: res.kind === 'local',
+            /** 不能融时**量着图**说清是哪一种（视图层的按钮提示直接用这句话） */
+            ...(res.kind === 'local'
+              ? {}
+              : {
+                  missingContextReason:
+                    res.kind === 'conflict'
+                      ? conflictReason(res.contexts, g, ordinal)
+                      : missingContextReason(e.source, g, ordinal),
+                }),
           })
         }
       }

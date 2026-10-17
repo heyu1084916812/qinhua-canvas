@@ -14,7 +14,11 @@ import {
   planFusion,
   type FusionPatchInput,
 } from '../../../domain/canvas/fusion/fusionPlan'
-import { missingContextReason, resolveCropContext } from '../../../domain/canvas/fusion/cropContext'
+import {
+  conflictReason,
+  missingContextReason,
+  resolveCropContext,
+} from '../../../domain/canvas/fusion/cropContext'
 import {
   FUSION_FEATHER_BLUR_PX,
   applyColorOffset,
@@ -205,7 +209,14 @@ export async function fuseNode(deps: FuseDeps, nodeId: string): Promise<FuseOutc
     if (resolved.kind === 'conflict') {
       return {
         ok: false,
-        reason: `第 ${i + 1} 张局部修改图里混了多个不同的选区，无法确定该融回哪里（请把它们分成多张独立的局部图）`,
+        /**
+         * 混了多个选区时**点名是哪几处**、并给出两条出路（对账 #558）。
+         *
+         * 原话「请把它们分成多张独立的局部图」只覆盖了"我要融两处"那一种意图；
+         * 而用户实际遇到的是"一路是**参考**、一路才是要融的" —— 那种情况下正确做法是
+         * 把参考那一路换成**不带上下文**的图（原图 / 「裁剪」出来的那块）。
+         */
+        reason: conflictReason(resolved.contexts, graph, i + 1),
       }
     }
     if (resolved.kind !== 'local') {

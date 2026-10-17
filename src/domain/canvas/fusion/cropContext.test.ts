@@ -11,7 +11,12 @@
 import { describe, it, expect } from 'vitest'
 import type { CropContext, FusionContext, NodeSnapshot } from '../model/node'
 import type { GraphSnapshot } from '../model/graph'
-import { cropContextFor, missingContextReason, resolveCropContext } from './cropContext'
+import {
+  conflictReason,
+  cropContextFor,
+  missingContextReason,
+  resolveCropContext,
+} from './cropContext'
 import { contextFromSelection, planFusion } from './fusionPlan'
 
 const SOURCE = { assetHash: 'a'.repeat(64), width: 1000, height: 1000 }
@@ -109,7 +114,11 @@ describe('resolveCropContext · 沿上游找上下文', () => {
         ['b', 'merged'],
       ],
     )
-    expect(resolveCropContext('merged', g)).toEqual({ kind: 'conflict' })
+    const res = resolveCropContext('merged', g)
+    expect(res.kind).toBe('conflict')
+    if (res.kind !== 'conflict') return
+    /** 带上的是**两条不同的**选区 —— 提示要据此点名是哪两处（对账 #558） */
+    expect(res.contexts).toHaveLength(2)
   })
 
   it('同一个选区从两条路径汇进来**不算**冲突', () => {
@@ -275,5 +284,55 @@ describe('missingContextReason · 量着图说原因', () => {
     expect(reason).toContain('完整图边界')
     expect(reason).toContain('裁剪')
     expect(reason).not.toContain('没有上游')
+  })
+})
+
+/**
+ * 混了多个选区时，提示必须**点名是哪几处**、并给出**两条**出路（对账 #558）。
+ *
+ * 这是用户 2026-10-17 用变量实验问出来的那件事：图1 提取「图1-2」、图2 提取「图2-2」，
+ * 两张一起喂给同一个生成节点改图 ⇒ 结果同时带着两处位置 ⇒ 融合不知道贴回哪儿。
+ * 他把「图2-2」换成**裁剪**出来的（不带上下文）那块就融得了 —— 正确做法，须写进提示。
+ */
+describe('conflictReason · 混了多个选区', () => {
+  const withAsset = (id: string, title: string, assetHash: string) => ({
+    ...node(id, 'generation'),
+    title,
+    data: { assetHash } as unknown as NodeSnapshot['data'],
+  })
+
+  it('★★★ 点名两处原图，并给出两条出路（含"参考那一路换成裁剪"）', () => {
+    const g = graph(
+      [withAsset('o1', '图1', 'hash-1'), withAsset('o2', '图2', 'hash-2')],
+      [],
+    )
+    const c1 = { ...(localCtx() as Omit<FusionContext, 'id'>), source: { assetHash: 'hash-1', width: 10, height: 10 } }
+    const c2 = { ...(localCtx() as Omit<FusionContext, 'id'>), source: { assetHash: 'hash-2', width: 10, height: 10 } }
+    const reason = conflictReason([c1, c2], g, 1)
+    expect(reason).toContain('混了多个不同的选区')
+    /** ① 认得出是哪两处（否则用户不知道该动哪一路） */
+    expect(reason).toContain('图1')
+    expect(reason).toContain('图2')
+    /** ② 两条出路都要有：要融几处就留几处 / 只当参考的那一路换成不带上下文的 */
+    expect(reason).toContain('只保留那一处')
+    expect(reason).toContain('裁剪')
+  })
+
+  /** 两张原图都叫默认的「生成」时，不能 join 成一处 —— 否则"点名"退化成一句话，等于没点 */
+  it('★★ 两张原图标题相同时要拆开（补短 hash）', () => {
+    const g = graph(
+      [withAsset('o1', '生成', 'aaaabbbb'), withAsset('o2', '生成', 'ccccdddd')],
+      [],
+    )
+    const base = localCtx() as Omit<FusionContext, 'id'>
+    const reason = conflictReason(
+      [
+        { ...base, source: { assetHash: 'aaaabbbb', width: 10, height: 10 } },
+        { ...base, source: { assetHash: 'ccccdddd', width: 10, height: 10 } },
+      ],
+      g,
+      1,
+    )
+    expect(reason).toContain('「生成」「生成（cccc…）」')
   })
 })

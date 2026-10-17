@@ -20,7 +20,12 @@ import { indexEdgesByTarget } from '../graph/upstreamOf'
 export type CropResolution =
   | { kind: 'none' }
   | { kind: 'local'; context: Omit<FusionContext, 'id'> }
-  | { kind: 'conflict' }
+  /**
+   * 混了多个不同选区。**把收集到的那几条一起带出来**（对账 #558）：
+   * 只说"混了多个"用户不知道混的是哪两处、也就不知道该把哪一路换掉；
+   * 带上之后提示可以直接点名「图1」「图2」两处位置。
+   */
+  | { kind: 'conflict'; contexts: Omit<FusionContext, 'id'>[] }
 
 /**
  * **写**这一侧：一块刚裁出来的图该带什么上下文（用户 2026-10-17 / 对账 #553）。
@@ -46,6 +51,44 @@ export function cropContextFor(
   if (kind === 'crop') return { full: true }
   const { id: _drop, ...rest } = selection
   return rest
+}
+
+/**
+ * 「混了多个选区」为什么融不进去、该怎么改（用户 2026-10-17 用变量实验问到的那件事）。
+ *
+ * 用户的原话场景：图1 提取出「图1-2」（带着"贴回图1"的选区），图2 提取出「图2-2」
+ * （带着"贴回图2"的选区），两张**一起**喂给同一个生成节点改图得到图3 —— 于是图3
+ * 的上游链上**同时挂着两处位置**，融合不知道该贴回哪一处，如实拒绝。
+ *
+ * 他自己做了变量实验：把「图2-2」换成**裁剪**出来的（不带上下文）那块，就能融了 ——
+ * 结论完全正确。所以这句提示直接把那条路写出来，别让下一个人再试一遍变量。
+ */
+export function conflictReason(
+  contexts: readonly Omit<FusionContext, 'id'>[],
+  graph: GraphSnapshot,
+  ordinal = 1,
+): string {
+  /** 上下文记的是**原图素材**的 hash ⇒ 拿它反查那张原图节点的名字，提示里才认得出是谁 */
+  const titles: string[] = []
+  for (const ctx of contexts) {
+    const owner = graph.nodes.find(
+      (n) => (n.data as { assetHash?: string }).assetHash === ctx.source.assetHash,
+    )
+    const base = owner?.title ?? `${ctx.source.assetHash.slice(0, 8)}…`
+    /**
+     * **重名要拆开**：两张原图都叫默认的「生成」时（新建节点的默认标题），
+     * 直接 join 会得到「生成」一处 —— 用户看不出是两处，提示就白点名了。
+     * 重名的那一条补一个短 hash。
+     */
+    const name = titles.includes(base) ? `${base}（${ctx.source.assetHash.slice(0, 4)}…）` : base
+    if (!titles.includes(name)) titles.push(name)
+  }
+  return (
+    `第 ${ordinal} 张局部修改图的上游混了多个不同的选区` +
+    `（它同时带着「${titles.join('」「')}」这几处的位置），无法确定该融回哪里：` +
+    '① 要融回哪一处，就只保留那一处的局部图；' +
+    '② 另一路如果只是拿来当参考，请换成不带上下文的图 —— 原图本身，或用「裁剪」裁出来的那块'
+  )
 }
 
 /**
@@ -119,10 +162,11 @@ export function resolveCropContext(
   const byTarget = indexEdgesByTarget(graph.edges)
   const seen = new Set<string>([nodeId])
   let frontier = [nodeId]
-  let found: Omit<FusionContext, 'id'> | null = null
-  let conflict = false
 
-  while (frontier.length > 0 && !conflict) {
+  /** 收集到的**不同**选区（同一个选区从两条路径汇进来只算一条，见 `sameRegion`） */
+  const foundAll: Omit<FusionContext, 'id'>[] = []
+
+  while (frontier.length > 0) {
     const next: string[] = []
     for (const id of frontier) {
       const node = index.get(id)
@@ -130,8 +174,7 @@ export function resolveCropContext(
       const local = localOf(node)
       if (local) {
         // 规则 1 / 2 的落点：**这条分支到此为止**（不管它是不是第一个被找到的）
-        if (!found) found = local
-        else if (!sameRegion(found, local)) conflict = true
+        if (foundAll.every((x) => !sameRegion(x, local))) foundAll.push(local)
         continue
       }
       const ctx = (node.data as { cropContext?: CropContext }).cropContext
@@ -146,6 +189,8 @@ export function resolveCropContext(
     frontier = next
   }
 
-  if (conflict) return { kind: 'conflict' }
+  /** 混了两种以上不同的选区 ⇒ 冲突（把收集到的一起带出去，提示里要点名） */
+  if (foundAll.length > 1) return { kind: 'conflict', contexts: foundAll }
+  const found = foundAll[0] ?? null
   return found ? { kind: 'local', context: found } : { kind: 'none' }
 }
