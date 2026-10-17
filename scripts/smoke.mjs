@@ -6276,7 +6276,7 @@ async function g46(browser) {
    * `quality` 那一段 `label` 为空 ⇒ **不画自己的小标题**，与上面的尺寸行共用「画质」
    * 一个标题（`ParamPicker` 对空 label 不渲染标题栏）。
    * 「背景」那段由**模型的能力表**决定（对账 #122）：没有能力表的模型不摆它。
-   * 2026-10-08 起画布下拉只列前端显示名（对账 #371），而六个显示名**都有能力表**，
+   * 2026-10-08 起画布下拉只列前端显示名（对账 #371），而七个显示名**都有能力表**，
    * 所以这条用例里就是四段 —— 之前它挑的是无能力表的 mock 模型。
    * ⚠️ 张数 2026-10-15 已搬出胶囊（对账 #522 后续），不再是一段。
    */
@@ -9164,7 +9164,7 @@ async function g63(browser) {
   /**
    * 张数档位**按所选模型的能力表来**（对账 #122：图片模型统一 1/2/4）。
    *
-   * 2026-10-08 起画布下拉只列前端显示名（对账 #371），而六个显示名**都有能力表**
+   * 2026-10-08 起画布下拉只列前端显示名（对账 #371），而七个显示名**都有能力表**
    * ⇒ 面板上**再也不会出现「9 张」这一档** —— §6.8 那条「选不了 9 张」的历史问题
    * 至此在界面上不可复现。原来这里还有一条「mock 声明 maxCount=4 ⇒ 9 张置灰」，
    * 现在**没有任何界面可达的模型走「无能力表」那条路**，那条断言已无从触发，故撤掉；
@@ -13631,7 +13631,7 @@ async function g79(browser) {
     (await panel.locator('[data-param-chip="channel"]').count()) === 0,
   )
 
-  // ① 图片档：固定六个 + 每个带图标
+  // ① 图片档：固定七个 + 每个带图标
   await panel.locator('[data-param-chip="model"]').click()
   await sleep(400)
   const imageRows = panel.locator('[data-param-popup="model"] button')
@@ -13644,13 +13644,14 @@ async function g79(browser) {
     'GPT Image 2.5 Sunburst',
     'GPT Image 2',
     'Nano Banana Pro',
+    'Nano Banana 2.1',
     'Nano Banana 2',
     'Midjourney',
   ]
   rec(
     g,
-    '★ 生图档列出固定显示名（Agnes 自有那个在最前，其余是用户拍板的六个）',
-    JSON.stringify(imageValues.slice(0, 7)) ===
+    '★ 生图档列出固定显示名（Agnes 自有那个在最前，其余是用户拍板的七个）',
+    JSON.stringify(imageValues.slice(0, 8)) ===
       JSON.stringify(['Agnes Image 2.5 Flash', ...wantImage]),
     `opts=${JSON.stringify(imageValues)}`,
   )
@@ -13800,7 +13801,8 @@ async function g79(browser) {
    * 用户 2026-09-27 第 8 轮：「`gpt-image-2` 这个和头两个模型 id 格式不一样，
    * 应该是 `GPT Image 2`」。
    *
-   * 映射区列的是**显示名**：22 个固定项各一行（#519 加了 DeepSeek / GLM / HY 三行）、
+   * 映射区列的是**显示名**：23 个固定项各一行（#519 加了 DeepSeek / GLM / HY 三行、
+   * 2026-10-17 加了 Nano Banana 2.1）、
    * 不存在「`GPT Image 2` 与 `gpt-image-2` 各占一行」的重复。
    */
   /**
@@ -13827,8 +13829,8 @@ async function g79(browser) {
   const trimmedLabels = await collectMapRows()
   rec(
     g,
-    '★ 五个筛选合起来只列 22 个固定显示名（含 Agnes 自有四个 + 国产三模型），不含上游裸 ID 或重复项',
-    trimmedLabels.length === 22 &&
+    '★ 五个筛选合起来只列 23 个固定显示名（含 Agnes 自有四个 + 国产三模型），不含上游裸 ID 或重复项',
+    trimmedLabels.length === 23 &&
       trimmedLabels.includes('GPT Image 2') &&
       // Agnes 有自己的显示名，不再把它的 ID 塞进别家的名字里
       trimmedLabels.includes('Agnes 2.5 Flash') &&
@@ -20859,6 +20861,20 @@ async function g98(browser) {
     g,
     '★ 香蕉面板没有 auto 那一格（跟随素材已表达同一件事）',
     (await popup().locator('[data-param-in="ratio"][data-param-option="auto"]').count()) === 0,
+  )
+  await pickModel('Nano Banana 2.1')
+  await openParams()
+  const nb21Ratios = await valuesOf('ratio')
+  const nb21Sizes = await valuesOf('resolution')
+  rec(
+    g,
+    '★★ Nano Banana 2.1：官方 14 档比例 + 1K/2K/4K（不含 512），走 gemini 参数口径',
+    nb21Ratios.length === 14 &&
+      nb21Ratios.includes('1:8') &&
+      nb21Ratios.includes('8:1') &&
+      !nb21Ratios.includes('auto') &&
+      JSON.stringify(nb21Sizes) === JSON.stringify(['1k', '2k', '4k']),
+    `比例=${nb21Ratios.length} 尺寸=${JSON.stringify(nb21Sizes)}`,
   )
   await page.screenshot({ path: `${OUT}/121-g98-nano-banana.png` })
 

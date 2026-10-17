@@ -48,7 +48,8 @@ export interface PresetModel {
 }
 
 /**
- * 生图六个（用户 2026-09-27 拍板：`Nano Banana 2 Lite` 不要、`GPT Image 2` 要）。
+ * 生图七个（用户 2026-09-27 拍板：`Nano Banana 2 Lite` 不要、`GPT Image 2` 要；
+ * 2026-10-17 补 `Nano Banana 2.1`）。
  *
  * 名称写法沿用用户参考图（`GPT Image 2.5 Flare` 而非 OpenAI 官方文档的
  * `GPT-Image-2.5 Flare`）—— 前端显示名由用户拍板，映射表负责对上真实 ID。
@@ -59,6 +60,12 @@ export const PRESET_IMAGE_MODELS: readonly PresetModel[] = [
   /** 用户点名的那个：前端必须是 `GPT Image 2`，不是 `gpt-image-2` */
   { id: 'GPT Image 2', category: 'image', vendor: 'openai', aliases: ['gpt-image-2'] },
   { id: 'Nano Banana Pro', category: 'image', vendor: 'google', aliases: ['gemini-3-pro-image'] },
+  {
+    id: 'Nano Banana 2.1',
+    category: 'image',
+    vendor: 'google',
+    aliases: ['gemini-nano-banana-2.1'],
+  },
   { id: 'Nano Banana 2', category: 'image', vendor: 'google', aliases: ['gemini-3.1-flash-image'] },
   { id: 'Midjourney', category: 'image', vendor: 'midjourney' },
 ]

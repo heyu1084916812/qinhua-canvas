@@ -300,6 +300,20 @@ export const IMAGE_PARAM_SPECS: Record<string, ImageParamSpec> = {
     dialect: 'gemini',
   },
   /**
+   * **Nano Banana 2.1（`gemini-nano-banana-2.1`）**：官方图片生成文档
+   * 2026-10-17 口径 —— 宽高比 14 档，`1K / 2K / 4K`（不支持 512），
+   * 属于 `gemini` 方言，走原生 `generateContent`。
+   */
+  'gemini-nano-banana-2.1': {
+    sizes: ['1K', '2K', '4K'],
+    ratios: GEMINI_FLASH_RATIOS,
+    qualities: [],
+    backgrounds: [],
+    counts: IMAGE_COUNTS,
+    maxReferenceImages: 0,
+    dialect: 'gemini',
+  },
+  /**
    * **Nano Banana 2（`gemini-3.1-flash-image`）**：同一份官方文档，
    * **宽高比 14 档**（比 Pro 多 `1:4 / 1:8 / 4:1 / 8:1` 四个长条），
    * 且多一档 `512`（「Gemini 3.1 Flash Image 新增了较小的 512 像素 (0.5K) 分辨率」）。
@@ -352,6 +366,7 @@ const ALIASES: Record<string, string> = {
   'GPT Image 2.5 Flare': 'gpt-image-2.5-flare',
   'GPT Image 2.5 Sunburst': 'gpt-image-2.5-sunburst',
   'Nano Banana Pro': 'gemini-3-pro-image',
+  'Nano Banana 2.1': 'gemini-nano-banana-2.1',
   'Nano Banana 2': 'gemini-3.1-flash-image',
   /** 前端显示名 → 上游 ID：中转站那边就叫 `midjourney`（小写） */
   Midjourney: 'midjourney',
@@ -369,6 +384,9 @@ export function imageParamsFor(model: string): ImageParamSpec | undefined {
    * 逐个列举迟早漏，漏了就退回通用档位、又变成「通用设置」。
    */
   if (/^gemini-3-pro-image/.test(name)) return IMAGE_PARAM_SPECS['gemini-3-pro-image']
+  if (/^gemini-nano-banana-2\.1/.test(name)) {
+    return IMAGE_PARAM_SPECS['gemini-nano-banana-2.1']
+  }
   if (/^gemini-3\.1-flash-image/.test(name)) return IMAGE_PARAM_SPECS['gemini-3.1-flash-image']
   return undefined
 }

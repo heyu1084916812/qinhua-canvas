@@ -19,12 +19,13 @@ import {
  * 而不是悄悄多出一个用户从没见过、也没配过映射的名字。
  */
 describe('固定模型目录', () => {
-  it('★ 生图六个：Nano Banana 2 Lite 不要、GPT Image 2 要', () => {
+  it('★ 生图七个：Nano Banana 2.1 要、Nano Banana 2 Lite 不要、GPT Image 2 要', () => {
     expect(PRESET_IMAGE_MODELS.map((m) => m.id)).toEqual([
       'GPT Image 2.5 Flare',
       'GPT Image 2.5 Sunburst',
       'GPT Image 2',
       'Nano Banana Pro',
+      'Nano Banana 2.1',
       'Nano Banana 2',
       'Midjourney',
     ])
@@ -143,6 +144,7 @@ describe('上游 ID ↔ 显示名', () => {
 
   it('★ 其余三家也各自归一', () => {
     expect(presetIdForUpstream('gemini-3-pro-image')).toBe('Nano Banana Pro')
+    expect(presetIdForUpstream('gemini-nano-banana-2.1')).toBe('Nano Banana 2.1')
     expect(presetIdForUpstream('gemini-3.1-flash-image')).toBe('Nano Banana 2')
     expect(presetIdForUpstream('gpt-6-astra')).toBe('GPT-6 Astra')
     expect(presetIdForUpstream('seedance-2.5')).toBe('即梦 2.5')

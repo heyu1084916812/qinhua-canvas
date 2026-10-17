@@ -71,6 +71,7 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
       'GPT Image 2',
       'GPT Image 2.5 Flare',
       'Nano Banana Pro',
+      'Nano Banana 2.1',
       'Nano Banana 2',
     ]
     for (const name of names) {
@@ -92,7 +93,7 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
    * 「不下发 aspectRatio」这个默认值由传输层兜底（见 `GEMINI_DEFAULT_RATIO`），
    * 不再混进能力表。
    */
-  it('★★ Nano Banana Pro（10 档）/ 2（14 档）：gemini 方言、比例与尺寸档逐模型照官方文档', () => {
+  it('★★ Nano Banana Pro / 2.1 / 2：gemini 方言、比例与尺寸档逐模型照官方文档', () => {
     const flashRatios = [
       '1:1',
       '1:4',
@@ -126,6 +127,16 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
       expect(spec?.ratios).toEqual(flashRatios)
       expect(spec?.ratios).toHaveLength(14)
     }
+    for (const name of ['Nano Banana 2.1', 'gemini-nano-banana-2.1']) {
+      const spec = imageParamsFor(name)
+      expect(spec?.dialect).toBe('gemini')
+      expect(spec?.sizes).toEqual(['1K', '2K', '4K'])
+      expect(spec?.qualities).toEqual([])
+      expect(spec?.ratios).toEqual(flashRatios)
+      expect(spec?.ratios).toHaveLength(14)
+      expect(spec?.ratios).not.toContain('auto')
+      expect(spec?.sizes).not.toContain('512')
+    }
     /** 两个模型都不该再有 `auto` 那一格 */
     expect(imageParamsFor('Nano Banana Pro')?.ratios).not.toContain('auto')
     expect(imageParamsFor('Nano Banana 2')?.ratios).not.toContain('auto')
@@ -135,6 +146,7 @@ describe('imageParamsFor · 图片模型各自的参数能力', () => {
     for (const name of [
       'gemini-3-pro-image-2k',
       'gemini-3-pro-image-4k',
+      'gemini-nano-banana-2.1-preview',
       'gemini-3.1-flash-image-preview',
     ]) {
       expect(imageParamsFor(name)?.dialect).toBe('gemini')

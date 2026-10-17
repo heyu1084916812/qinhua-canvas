@@ -647,6 +647,38 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
     expect(assets[0]!.mime).toBe('image/jpeg')
   })
 
+  it('★★ Nano Banana 2.1：官方 ID 走 Gemini 原生端点，1K/2K/4K 参数照发', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        calls.push({ url: req.url, body: req.body })
+        return resp(200, {
+          candidates: [
+            { content: { parts: [{ inlineData: { mimeType: 'image/png', data: btoa('png') } }] } },
+          ],
+        })
+      },
+    })
+    const a = createOpenAiImagesAdapter(cfg, { network: net, assets: platformWithAssets([]).assets })
+    await a.generateImage(
+      {
+        ...request([], 1),
+        model: 'gemini-nano-banana-2.1',
+        prompt: '一只猫',
+        params: { count: 1, ratio: '1:8', resolution: '4k' },
+      },
+      signal,
+    )
+    expect(calls[0]!.url).toBe(
+      'https://x/v1beta/models/gemini-nano-banana-2.1:generateContent',
+    )
+    expect(calls[0]!.body).toMatchObject({
+      generationConfig: {
+        imageConfig: { aspectRatio: '1:8', imageSize: '4K' },
+      },
+    })
+  })
+
   /**
    * ★★★ **参考图必须真的发出去**（用户 2026-10-16 报：「为什么给我出的图不一样，
    * 而且 10 秒左右就出了」）。

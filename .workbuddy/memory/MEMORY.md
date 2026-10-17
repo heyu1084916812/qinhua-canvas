@@ -8001,3 +8001,7 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   是左原图、右结果；对比节点 `compareKind='pair'` 是左 A、右 B。旧实现一律把 `compareWith` 裁在左边，
   因此对比节点双击后 A/B 正好反了。`pair` 要覆盖右侧，三档文案也只能是「A·左 / 对比 / B·右」，
   不得沿用“原图/结果”。G14 用红 A 蓝 B 截图 + left/right hash 双重断言，G92 守融合结果语义不回归。
+- **Nano Banana 2.1 的官方 ID 是 `gemini-nano-banana-2.1`**（2026-10-17 → 对账 #563）：
+  官方文档口径为 14 档比例、1K/2K/4K（不支持 512），走 Gemini 原生 `generateContent`。
+  前端固定目录、后台映射、Agent 生图清单共用 `PRESET_IMAGE_MODELS`；参数面板另看
+  `imageParamsFor`，两处都要加，否则会出现“下拉有名字、面板却退回通用档位”。
