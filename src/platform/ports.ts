@@ -75,13 +75,28 @@ export interface Row {
 
 export type RowOf<K extends TableName> = Row & { __table?: K }
 
+export interface StorageQueryOptions {
+  /** 只返回这些字段；列表页不需要素材字节。 */
+  fields?: readonly string[]
+  /** `false` 时后端只回元数据与 `*Length`，不回二进制。 */
+  includePayload?: boolean
+}
+
+export interface StorageScanOptions {
+  includePayload?: boolean
+}
+
 export interface StoragePort {
   open(): Promise<void>
   transaction<T>(tables: TableName[], fn: () => Promise<T>): Promise<T>
   put<K extends TableName>(table: K, row: RowOf<K>): Promise<void>
   bulkPut<K extends TableName>(table: K, rows: RowOf<K>[]): Promise<void>
   delete<K extends TableName>(table: K, id: string): Promise<void>
-  query<K extends TableName>(table: K, filter: Partial<RowOf<K>>): Promise<RowOf<K>[]>
+  query<K extends TableName>(
+    table: K,
+    filter: Partial<RowOf<K>>,
+    options?: StorageQueryOptions,
+  ): Promise<RowOf<K>[]>
   /**
    * **整表流式扫描**（可选）：一次只把 `batchSize` 行交给 `onBatch`，**不把整表拿在手里**；
    * 第二参数带着**总数**（进度要分母）。返回一共扫过多少行。
@@ -97,6 +112,7 @@ export interface StoragePort {
     table: K,
     batchSize: number,
     onBatch: (rows: RowOf<K>[], meta: { total: number }) => Promise<void>,
+    options?: StorageScanOptions,
   ): Promise<number>
   estimateUsage(): Promise<{ used: number; quota: number }>
 }
@@ -154,6 +170,8 @@ export interface AssetPayload {
 export interface AssetPort {
   /** 素材不存在（尚未落库 / 已被清理）时返回 null */
   read(hash: string): Promise<AssetPayload | null>
+  /** 可直接给 `<img>` 的缩略图地址；共享存储走独立小文件接口。 */
+  thumbUrl?(hash: string): string | null
   /**
    * **远端素材**（视频成片）的地址：Agnes 的产物托管域不带 CORS 头，
    * 字节根本取不回来（实测 `net::ERR_FAILED`），`assets` 行里只有一条 `url`。

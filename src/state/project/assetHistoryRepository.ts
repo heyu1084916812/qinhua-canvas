@@ -46,7 +46,17 @@ export function createAssetHistoryRepository(storage: StoragePort): AssetHistory
         height?: number
         bytes: number
       }[] = []
-      const collect = (rows: readonly { hash?: unknown; id?: unknown; mime?: unknown; width?: unknown; height?: unknown; bytes?: unknown }[]) => {
+      const collect = (
+        rows: readonly {
+          hash?: unknown
+          id?: unknown
+          mime?: unknown
+          width?: unknown
+          height?: unknown
+          bytes?: unknown
+          bytesLength?: unknown
+        }[],
+      ) => {
         for (const row of rows) {
           const hash = normalizeMetaString(row.hash ?? row.id)
           if (!hash) continue
@@ -55,15 +65,23 @@ export function createAssetHistoryRepository(storage: StoragePort): AssetHistory
             mime: normalizeMetaString(row.mime),
             width: typeof row.width === 'number' ? row.width : undefined,
             height: typeof row.height === 'number' ? row.height : undefined,
-            bytes: byteLengthOf(row.bytes),
+            bytes:
+              typeof row.bytesLength === 'number'
+                ? row.bytesLength
+                : byteLengthOf(row.bytes),
           })
         }
       }
 
       if (storage.scan) {
-        await storage.scan('assets', SCAN_BATCH, async (rows) => {
-          collect(rows as never)
-        })
+        await storage.scan(
+          'assets',
+          SCAN_BATCH,
+          async (rows) => {
+            collect(rows as never)
+          },
+          { includePayload: false },
+        )
       } else {
         collect((await storage.query('assets', {})) as never)
       }

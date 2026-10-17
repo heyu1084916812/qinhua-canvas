@@ -17,7 +17,10 @@ export function toBytes(value: unknown): Uint8Array | null {
   return null
 }
 
-export function createStorageAssetPort(storage: StoragePort): AssetPort {
+export function createStorageAssetPort(
+  storage: StoragePort,
+  options: { thumbUrl?: (hash: string) => string | null } = {},
+): AssetPort {
   return {
     async read(hash: string): Promise<AssetPayload | null> {
       const rows = await storage.query('assets', { id: hash })
@@ -38,5 +41,6 @@ export function createStorageAssetPort(storage: StoragePort): AssetPort {
       if (!url) return null
       return { url, mime: row?.mime ?? 'video/mp4' }
     },
+    thumbUrl: options.thumbUrl,
   }
 }

@@ -69,8 +69,31 @@ export async function loadAssetUrl(
       expectedPath: expectedAssetPath(platform.assetFolder?.current()?.name, hash, mime),
     }
   }
-  const rows = await platform.storage.query('assets', { id: hash })
-  const row = rows[0] as
+  const preferThumb = opts.preferThumb === true
+  const directThumbUrl = preferThumb ? platform.assets.thumbUrl?.(hash) : null
+  if (directThumbUrl) {
+    const [metadata] = await platform.storage.query('assets', { id: hash }, {
+      includePayload: false,
+      fields: ['id', 'mime', 'thumbLength'],
+    })
+    if (Number((metadata as { thumbLength?: unknown } | undefined)?.thumbLength) > 0) {
+      return {
+        url: directThumbUrl,
+        mime: (metadata as { mime?: string } | undefined)?.mime ?? null,
+        expectedPath: expectedAssetPath(
+          platform.assetFolder?.current()?.name,
+          hash,
+          (metadata as { mime?: string } | undefined)?.mime ?? null,
+        ),
+        thumb: true,
+      }
+    }
+  }
+  const rows = await platform.storage.query('assets', { id: hash }, {
+    includePayload: !preferThumb,
+    fields: preferThumb ? ['id', 'mime', 'thumb', 'url'] : undefined,
+  })
+  let row = rows[0] as
     | { bytes?: Uint8Array | number[]; mime?: string; url?: string; thumb?: Uint8Array | number[] }
     | undefined
   const mime = row?.mime ?? null
@@ -91,7 +114,6 @@ export async function loadAssetUrl(
    *
    * `preferThumb` 由"小尺寸显示"那一类调用方打开；**灯箱 / 旋转 / 标注要原图，不要打开它**。
    */
-  const preferThumb = opts.preferThumb === true
   const isImage = (mime ?? '').startsWith('image/')
   const thumbBytes = preferThumb ? thumbBytesOf(row?.thumb) : null
   if (thumbBytes) {
@@ -116,6 +138,9 @@ export async function loadAssetUrl(
       scheduleThumb(platform, row, onDisk, preferThumb && isImage)
       return { url: URL.createObjectURL(onDisk), mime, expectedPath }
     }
+  }
+  if (preferThumb && !row?.bytes) {
+    row = (await platform.storage.query('assets', { id: hash }))[0] as typeof row
   }
   if (!row?.bytes) return { url: null, mime, expectedPath }
   const buf = row.bytes instanceof Uint8Array ? row.bytes : new Uint8Array(row.bytes as number[])

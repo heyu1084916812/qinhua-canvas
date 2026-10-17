@@ -1,3 +1,4 @@
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::fs;
@@ -65,6 +66,14 @@ fn row_path(root: &Path, table: &str, id: &str) -> Result<PathBuf, String> {
     Ok(table_dir(root, table)?.join(format!("{}.json", hex_id(id))))
 }
 
+fn meta_path(root: &Path, table: &str, id: &str) -> Result<PathBuf, String> {
+    Ok(table_dir(root, table)?.join(format!("{}.meta.json", hex_id(id))))
+}
+
+fn thumb_path(root: &Path, id: &str) -> PathBuf {
+    root.join("_thumbs").join(format!("{}.webp", hex_id(id)))
+}
+
 fn write_atomic(path: &Path, payload: &[u8]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| format!("create dir: {error}"))?;
@@ -88,7 +97,8 @@ fn write_row(root: &Path, table: &str, row: &Value) -> Result<(), String> {
         .and_then(Value::as_str)
         .ok_or_else(|| "row.id must be a string".to_string())?;
     let payload = serde_json::to_vec(row).map_err(|error| format!("serialize row: {error}"))?;
-    write_atomic(&row_path(root, table, id)?, &payload)
+    write_atomic(&row_path(root, table, id)?, &payload)?;
+    write_sidecars(root, table, row)
 }
 
 fn delete_row(root: &Path, table: &str, id: &str) -> Result<(), String> {
@@ -96,7 +106,7 @@ fn delete_row(root: &Path, table: &str, id: &str) -> Result<(), String> {
     if path.exists() {
         fs::remove_file(path).map_err(|error| format!("delete row: {error}"))?;
     }
-    Ok(())
+    remove_sidecars(root, table, id)
 }
 
 fn list_rows(root: &Path, table: &str) -> Result<Vec<Value>, String> {
@@ -115,6 +125,106 @@ fn list_rows(root: &Path, table: &str) -> Result<Vec<Value>, String> {
         rows.push(read_json(&file.path())?);
     }
     Ok(rows)
+}
+
+fn row_files(root: &Path, table: &str) -> Result<Vec<PathBuf>, String> {
+    let dir = table_dir(root, table)?;
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut files = fs::read_dir(&dir)
+        .map_err(|error| format!("read table dir: {error}"))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .collect::<Vec<_>>();
+    files.sort();
+    Ok(files)
+}
+
+fn strip_payload(row: &mut Value) {
+    let Value::Object(fields) = row else {
+        return;
+    };
+    for name in ["bytes", "thumb", "thumbnail", "preview", "data"] {
+        let Some(value) = fields.get(name) else {
+            continue;
+        };
+        let length = value
+            .get("base64")
+            .and_then(Value::as_str)
+            .map(|encoded| {
+                let padding = if encoded.ends_with("==") {
+                    2
+                } else if encoded.ends_with('=') {
+                    1
+                } else {
+                    0
+                };
+                (encoded.len().saturating_mul(3) / 4).saturating_sub(padding)
+            })
+            .unwrap_or(0);
+        fields.insert(format!("{name}Length"), json!(length));
+        fields.remove(name);
+    }
+}
+
+fn binary_marker_bytes(value: &Value) -> Option<Vec<u8>> {
+    if value.get("__qhType").and_then(Value::as_str) != Some("u8") {
+        return None;
+    }
+    base64::engine::general_purpose::STANDARD
+        .decode(value.get("base64").and_then(Value::as_str)?)
+        .ok()
+}
+
+fn write_sidecars(root: &Path, table: &str, row: &Value) -> Result<(), String> {
+    if table != "assets" {
+        return Ok(());
+    }
+    let id = row
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "asset row id missing".to_string())?;
+    let mut metadata = row.clone();
+    strip_payload(&mut metadata);
+    write_atomic(
+        &meta_path(root, table, id)?,
+        &serde_json::to_vec(&metadata).map_err(|error| error.to_string())?,
+    )?;
+    if let Some(thumb) = row
+        .get("thumb")
+        .or_else(|| row.get("thumbnail"))
+        .and_then(binary_marker_bytes)
+    {
+        write_atomic(&thumb_path(root, id), &thumb)?;
+    }
+    Ok(())
+}
+
+fn remove_sidecars(root: &Path, table: &str, id: &str) -> Result<(), String> {
+    if table == "assets" {
+        for path in [meta_path(root, table, id)?, thumb_path(root, id)] {
+            if path.exists() {
+                fs::remove_file(path).map_err(|error| format!("remove sidecar: {error}"))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn project_fields(row: &mut Value, fields: Option<&str>) {
+    let Some(fields) = fields else {
+        return;
+    };
+    let keep = fields
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .collect::<std::collections::HashSet<_>>();
+    if let Value::Object(values) = row {
+        values.retain(|key, _| keep.contains(key.as_str()));
+    }
 }
 
 fn row_matches(row: &Value, filter: &Map<String, Value>) -> bool {
@@ -163,6 +273,13 @@ struct DeleteRequest {
 struct QueryRequest {
     table: String,
     filter: Map<String, Value>,
+    #[serde(default = "default_true", rename = "includePayload")]
+    include_payload: bool,
+    fields: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Deserialize)]
@@ -290,6 +407,38 @@ fn respond_json(request: Request, status: StatusCode, value: Value, origin: Opti
     request.respond(response).map_err(|error| format!("respond: {error}"))
 }
 
+fn respond_bytes(
+    request: Request,
+    status: StatusCode,
+    body: Vec<u8>,
+    content_type: &str,
+    origin: Option<&str>,
+) -> Result<(), String> {
+    let mut response = Response::from_data(body)
+        .with_status_code(status)
+        .with_header(header("content-type", content_type))
+        .with_header(header("cache-control", "public, max-age=31536000, immutable"));
+    if let Some(origin) = origin.filter(|origin| origin_allowed(origin)) {
+        response = response.with_header(header("access-control-allow-origin", origin));
+    }
+    request.respond(response).map_err(|error| format!("respond: {error}"))
+}
+
+fn load_thumb(root: &Path, id: &str) -> Result<Vec<u8>, String> {
+    let sidecar = thumb_path(root, id);
+    if sidecar.exists() {
+        return fs::read(sidecar).map_err(|error| format!("read thumb: {error}"));
+    }
+    let row = read_json(&row_path(root, "assets", id)?)?;
+    let bytes = row
+        .get("thumb")
+        .or_else(|| row.get("thumbnail"))
+        .and_then(binary_marker_bytes)
+        .ok_or_else(|| "asset has no thumb".to_string())?;
+    write_atomic(&sidecar, &bytes)?;
+    Ok(bytes)
+}
+
 fn body_json<T: for<'de> Deserialize<'de>>(request: &mut Request) -> Result<T, String> {
     let mut raw = Vec::new();
     request
@@ -319,8 +468,24 @@ fn handle(store: &Store, mut request: Request) {
         return;
     }
 
-    let _guard = store.lock.lock().expect("store lock poisoned");
     let root = store.root.as_path();
+    if request.method() == &Method::Get && path.starts_with("/thumb/") {
+        let id = path.trim_start_matches("/thumb/");
+        match load_thumb(root, id) {
+            Ok(bytes) => {
+                let _ = respond_bytes(request, StatusCode(200), bytes, "image/webp", origin.as_deref());
+            }
+            Err(error) => {
+                let _ = respond_json(
+                    request,
+                    StatusCode(404),
+                    json!({ "ok": false, "error": error }),
+                    origin.as_deref(),
+                );
+            }
+        }
+        return;
+    }
     let result = (|| -> Result<Value, String> {
         if request.method() == &Method::Get && path == "/health" {
             return Ok(json!({
@@ -332,11 +497,13 @@ fn handle(store: &Store, mut request: Request) {
         }
         if request.method() == &Method::Post && path == "/put" {
             let body: PutRequest = body_json(&mut request)?;
+            let _guard = store.lock.lock().expect("store lock poisoned");
             write_row(root, &body.table, &body.row)?;
             return Ok(json!({ "ok": true }));
         }
         if request.method() == &Method::Post && path == "/bulkPut" {
             let body: BulkPutRequest = body_json(&mut request)?;
+            let _guard = store.lock.lock().expect("store lock poisoned");
             for row in &body.rows {
                 write_row(root, &body.table, row)?;
             }
@@ -344,12 +511,38 @@ fn handle(store: &Store, mut request: Request) {
         }
         if request.method() == &Method::Post && path == "/delete" {
             let body: DeleteRequest = body_json(&mut request)?;
+            let _guard = store.lock.lock().expect("store lock poisoned");
             delete_row(root, &body.table, &body.id)?;
             return Ok(json!({ "ok": true }));
         }
         if request.method() == &Method::Post && path == "/query" {
             let body: QueryRequest = body_json(&mut request)?;
-            return Ok(json!({ "rows": query_rows(root, &body.table, &body.filter)? }));
+            let mut rows = if !body.include_payload
+                && body.table == "assets"
+                && body.filter.len() == 1
+                && body.filter.get("id").and_then(Value::as_str).is_some()
+            {
+                let id = body.filter.get("id").and_then(Value::as_str).unwrap();
+                let metadata_file = meta_path(root, &body.table, id)?;
+                if metadata_file.exists() {
+                    vec![read_json(&metadata_file)?]
+                } else {
+                    let full = read_json(&row_path(root, &body.table, id)?)?;
+                    write_sidecars(root, &body.table, &full)?;
+                    let mut metadata = full;
+                    strip_payload(&mut metadata);
+                    vec![metadata]
+                }
+            } else {
+                query_rows(root, &body.table, &body.filter)?
+            };
+            for row in &mut rows {
+                if !body.include_payload {
+                    strip_payload(row);
+                }
+                project_fields(row, body.fields.as_deref());
+            }
+            return Ok(json!({ "rows": rows }));
         }
         if request.method() == &Method::Get && path.starts_with("/rows") {
             let url = url::Url::parse(&format!("http://127.0.0.1{path}"))
@@ -370,13 +563,37 @@ fn handle(store: &Store, mut request: Request) {
                 .and_then(|(_, value)| value.parse::<usize>().ok())
                 .unwrap_or(100)
                 .min(1000);
-            let rows = list_rows(root, &table)?;
-            let total = rows.len();
-            let page = rows.into_iter().skip(offset).take(limit).collect::<Vec<_>>();
+            let include_payload = url
+                .query_pairs()
+                .find(|(key, _)| key == "includePayload")
+                .map(|(_, value)| value == "1")
+                .unwrap_or(true);
+            let files = row_files(root, &table)?;
+            let total = files.len();
+            let page = files
+                .into_iter()
+                .skip(offset)
+                .take(limit)
+                .map(|file| {
+                    if include_payload {
+                        return read_json(&file);
+                    }
+                    let metadata_file = file.with_extension("meta.json");
+                    if metadata_file.exists() {
+                        return read_json(&metadata_file);
+                    }
+                    let row = read_json(&file)?;
+                    write_sidecars(root, &table, &row)?;
+                    let mut metadata = row;
+                    strip_payload(&mut metadata);
+                    Ok(metadata)
+                })
+                .collect::<Result<Vec<_>, String>>()?;
             return Ok(json!({ "rows": page, "total": total }));
         }
         if request.method() == &Method::Post && path == "/tx" {
             let body: TxRequest = body_json(&mut request)?;
+            let _guard = store.lock.lock().expect("store lock poisoned");
             apply_tx(root, body)?;
             return Ok(json!({ "ok": true }));
         }
@@ -385,6 +602,7 @@ fn handle(store: &Store, mut request: Request) {
         }
         if request.method() == &Method::Post && path == "/kv/put" {
             let body: Map<String, Value> = body_json(&mut request)?;
+            let _guard = store.lock.lock().expect("store lock poisoned");
             let key = body.get("key").and_then(Value::as_str).ok_or("key missing")?;
             let value = body.get("value").cloned().unwrap_or(Value::Null);
             let path = root.join("_kv").join(format!("{}.json", hex_id(key)));
@@ -400,6 +618,7 @@ fn handle(store: &Store, mut request: Request) {
         }
         if request.method() == &Method::Post && path == "/kv/delete" {
             let body: Map<String, Value> = body_json(&mut request)?;
+            let _guard = store.lock.lock().expect("store lock poisoned");
             let key = body.get("key").and_then(Value::as_str).ok_or("key missing")?;
             let path = root.join("_kv").join(format!("{}.json", hex_id(key)));
             if path.exists() {
@@ -436,17 +655,23 @@ pub fn default_data_dir() -> PathBuf {
 
 pub fn start(data_dir: &Path, port: u16) -> Result<(), String> {
     fs::create_dir_all(data_dir).map_err(|error| format!("create data dir: {error}"))?;
-    let server = Server::http(("127.0.0.1", port))
-        .map_err(|error| format!("start shared store on {port}: {error}"))?;
+    let server = Arc::new(
+        Server::http(("127.0.0.1", port))
+            .map_err(|error| format!("start shared store on {port}: {error}"))?,
+    );
     let store = Store {
         root: Arc::new(data_dir.to_path_buf()),
         lock: Arc::new(Mutex::new(())),
     };
-    thread::spawn(move || {
-        for request in server.incoming_requests() {
-            handle(&store, request);
-        }
-    });
+    for _ in 0..4 {
+        let server = Arc::clone(&server);
+        let store = store.clone();
+        thread::spawn(move || {
+            while let Ok(request) = server.recv() {
+                handle(&store, request);
+            }
+        });
+    }
     Ok(())
 }
 
@@ -523,6 +748,46 @@ mod tests {
         assert!(error.contains("id"));
         let rows = list_rows(&root, "projects").unwrap();
         assert_eq!(rows, vec![original]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn metadata_projection_removes_binary_but_keeps_length() {
+        let mut row = json!({
+            "id": "a1",
+            "mime": "image/png",
+            "bytes": {
+                "__qhType": "u8",
+                "base64": "AQIDBA=="
+            },
+            "thumb": {
+                "__qhType": "u8",
+                "base64": "AQID"
+            }
+        });
+        strip_payload(&mut row);
+        assert!(row.get("bytes").is_none());
+        assert!(row.get("thumb").is_none());
+        assert_eq!(row.get("bytesLength").and_then(Value::as_u64), Some(4));
+        project_fields(&mut row, Some("id,mime,bytesLength"));
+        assert_eq!(row, json!({ "id": "a1", "mime": "image/png", "bytesLength": 4 }));
+    }
+
+    #[test]
+    fn row_page_lists_only_the_requested_file_slice() {
+        let root = temp_root("page");
+        for id in ["a", "b", "c"] {
+            write_row(&root, "projects", &json!({ "id": id })).unwrap();
+        }
+        let files = row_files(&root, "projects").unwrap();
+        assert_eq!(files.len(), 3);
+        let page = files
+            .into_iter()
+            .skip(1)
+            .take(1)
+            .map(|file| read_json(&file).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(page, vec![json!({ "id": "b" })]);
         let _ = fs::remove_dir_all(root);
     }
 }

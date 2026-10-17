@@ -1,4 +1,11 @@
-import type { Row, RowOf, StoragePort, TableName } from '../ports'
+import type {
+  Row,
+  RowOf,
+  StoragePort,
+  StorageQueryOptions,
+  StorageScanOptions,
+  TableName,
+} from '../ports'
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:18765'
 export const SHARED_STORE_URL =
@@ -139,10 +146,13 @@ export function createSharedStorage(): StoragePort {
   const rawQuery = async <K extends TableName>(
     table: K,
     filter: Partial<RowOf<K>>,
+    options: StorageQueryOptions = {},
   ): Promise<RowOf<K>[]> => {
     const result = (await post('/query', {
       table,
       filter: encodeValue(filter),
+      includePayload: options.includePayload !== false,
+      fields: options.fields?.join(','),
     })) as { rows: JsonValue[] }
     return result.rows.map((row) => decodeValue(row) as RowOf<K>)
   }
@@ -209,8 +219,8 @@ export function createSharedStorage(): StoragePort {
       await rawDelete(table, id)
     },
 
-    async query(table, filter) {
-      const committed = await rawQuery(table, filter)
+    async query(table, filter, options) {
+      const committed = await rawQuery(table, filter, options)
       if (!active) return committed
 
       const merged = new Map<string, RowOf<typeof table>>()
@@ -225,12 +235,12 @@ export function createSharedStorage(): StoragePort {
       return [...merged.values()]
     },
 
-    async scan(table, batchSize, onBatch) {
+    async scan(table, batchSize, onBatch, options?: StorageScanOptions) {
       let offset = 0
       let total = 0
       while (true) {
         const response = (await request(
-          `/rows?table=${encodeURIComponent(table)}&offset=${offset}&limit=${Math.max(1, batchSize)}`,
+          `/rows?table=${encodeURIComponent(table)}&offset=${offset}&limit=${Math.max(1, batchSize)}&includePayload=${options?.includePayload === false ? 0 : 1}`,
           { method: 'GET' },
           10 * 60_000,
         )) as { rows: JsonValue[]; total: number }

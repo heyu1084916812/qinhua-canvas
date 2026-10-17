@@ -61,7 +61,7 @@ export function AssetCard({
   onCancelRemove: () => void
   onDownload: () => void
 }) {
-  const { url, mime } = useAssetMeta(asset.hash)
+  const { url, mime } = useAssetMeta(asset.hash, { preferThumb: true })
   const isVideo = (mime ?? asset.mime).startsWith('video/')
   const videoRef = useRef<HTMLVideoElement | null>(null)
 
