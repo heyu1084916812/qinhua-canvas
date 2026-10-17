@@ -1715,6 +1715,21 @@ fn apply_saved_window(app: &tauri::AppHandle, win: &tauri::WebviewWindow, correc
     let _ = win.center();
 }
 
+/// 恢复已有主窗口：show → unminimize → focus。
+///
+/// 第二实例回调里不能只按固定 label 找窗口：窗口 `create: false`、由 setup 手动构建，
+/// 版本变化或配置重载时 label 可能读不到。先找 `main`，再回落到应用当前唯一的 WebView。
+fn reveal_existing_window(app: &tauri::AppHandle) {
+    let window = app
+        .get_webview_window("main")
+        .or_else(|| app.webview_windows().into_values().next());
+    if let Some(window) = window {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
 /// 节流用的时钟：拖动窗口时 `Resized` / `Moved` 每帧都来，不能每帧写一次盘。
 struct WindowSaveClock(std::sync::Mutex<std::time::Instant>);
 
@@ -1806,6 +1821,13 @@ mod window_state_tests {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        /*
+         * 必须放在其他插件之前。第二实例启动时不再起一套窗口，而是恢复已有窗口、
+         * 取消最小化并聚焦 —— 这正是“进程还在，但用户以为应用挂了”的兜底。
+         */
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            reveal_existing_window(app);
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
@@ -1936,10 +1958,16 @@ pub fn run() {
              * —— 摆好位置再露脸，用户看不到"先居中、再跳到上次位置"那一下。
              */
             apply_saved_window(app.handle(), &window, false);
+            /*
+             * 显式取消最小化再显示：Windows 对“图标化”的窗口只在任务栏留一个入口，
+             * 而开发壳没有托盘图标，用户很容易把“最小化”理解成“挂了”。
+             */
+            let _ = window.unminimize();
             /* 显示失败要出声：`visible: false` 之下，这一步失败 = 用户双击了却什么都没有 */
             if let Err(err) = window.show() {
                 eprintln!("[window] 显示主窗口失败：{err}");
             }
+            let _ = window.set_focus();
             /*
              * 显示**之后**再套一次：窗口还没显示时系统对 `set_size` 另有一套算法
              * （实测差 30px 高），这一趟会量一次实际尺寸并把差值补掉（见 `apply_saved_window`）。

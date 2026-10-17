@@ -8026,3 +8026,9 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   `CanvasPage` 水合时调用 `migrateLegacyGeneratedTitles`：同 prompt 有产物的旧结果成组改
   `-01/-02`，空生成节点改无序号主题名，手动名不动，并直接写回 `nodes`。G67 35 项同时守
   DOM 与 IndexedDB 两侧，避免只改画面、不落库。
+- **桌面“挂了”先枚举 Win32 窗口，不要只看进程**（2026-10-17 → 对账 #568）：
+  `Get-Process` 里进程存活、`Responding=true` 不代表有可操作窗口；最小化窗口会位于
+  `(-32000,-32000)`、`160×28`。本项目已接 `tauri-plugin-single-instance 2.5.4`，第二实例回调
+  走统一 `show → unminimize → focus`，固定 label `main` 找不到时用 `webview_windows()` 的第一个。
+  实机判据：最小化后启动第二实例，必须 `ProcessCount=1`、第二实例退出、原窗口恢复且
+  `IsIconic=false`。`window.json` 只能保存正常几何，最小化哨兵值绝不能落盘。

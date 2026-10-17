@@ -32,3 +32,5 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls", "h
 # 系统通知（对账 #392 / #386 的 E5）：壳里 WebView2 那套 Notification 权限不可靠，
 # 走官方插件才是"真的能弹" —— 权限由用户在设置页点按钮申请，不自动弹。
 tauri-plugin-notification = "2"
+# 单实例：再次启动时恢复并聚焦已有窗口，避免“进程还在、窗口最小化/消失，看起来打不开”
+tauri-plugin-single-instance = "2.5.4"
