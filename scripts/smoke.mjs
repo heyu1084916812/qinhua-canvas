@@ -17070,8 +17070,8 @@ async function g92(browser) {
   const cutReason = (await page.locator('[data-fusion-run]').getAttribute('title')) ?? ''
   rec(
     g,
-    '★★★ 拦下的理由点名「裁剪」不带上下文（而不是只说缺上下文）',
-    /没有选区上下文/.test(cutReason) && /裁剪/.test(cutReason),
+    '★★★ 拦下的理由**量着图**说：它是「完整图边界」（对账 #557 之前这里写死"用裁剪得到的"）',
+    /没有选区上下文/.test(cutReason) && /完整图边界/.test(cutReason) && /裁剪/.test(cutReason),
     cutReason,
   )
 

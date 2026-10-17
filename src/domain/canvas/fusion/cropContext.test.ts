@@ -11,7 +11,7 @@
 import { describe, it, expect } from 'vitest'
 import type { CropContext, FusionContext, NodeSnapshot } from '../model/node'
 import type { GraphSnapshot } from '../model/graph'
-import { cropContextFor, resolveCropContext } from './cropContext'
+import { cropContextFor, missingContextReason, resolveCropContext } from './cropContext'
 import { contextFromSelection, planFusion } from './fusionPlan'
 
 const SOURCE = { assetHash: 'a'.repeat(64), width: 1000, height: 1000 }
@@ -239,5 +239,41 @@ describe('两张各自独立的局部图一起融合（对账 #553 的起因）'
     })
     expect(planned.ok).toBe(true)
     if (planned.ok) expect(planned.plan.steps.map((s) => s.target)).toEqual([ctxA.paddedRect, ctxB.paddedRect])
+  })
+})
+
+/**
+ * 「为什么解析不到选区」必须**量着图说**（用户 2026-10-17 在真实项目里撞上 → 对账 #557）。
+ *
+ * 背景：原来那句写死了「用「裁剪」得到的不带上下文」。而用户明明是用「提取选区」做的
+ * 局部图，真正的原因是**上游接的不是那张局部图** —— 一句断言式的原因把人指到了错方向。
+ * 现在按图上实际情况分三种，判据取"有没有点出真实的上游"，取"提示非空"抓不住退化。
+ */
+describe('missingContextReason · 量着图说原因', () => {
+  it('★★★ 上游接的是别的图（例如原图）→ 把上游名字点出来', () => {
+    const g = graph(
+      [{ ...node('u1', 'generation'), title: 'IMG_9134' }, node('gen')],
+      [['u1', 'gen']],
+    )
+    const reason = missingContextReason('gen', g, 1)
+    expect(reason).toContain('第 1 张局部图没有选区上下文')
+    expect(reason).toContain('IMG_9134')
+    expect(reason).toContain('没有')
+    expect(reason).toContain('提取选区')
+  })
+
+  it('★★ 没有上游 → 明说"没有上游"，而不是猜一个原因', () => {
+    const g = graph([node('gen')], [])
+    const reason = missingContextReason('gen', g, 2)
+    expect(reason).toContain('第 2 张')
+    expect(reason).toContain('没有上游')
+  })
+
+  it('★★ 它自己就是完整图边界（裁剪 / 融合产物）→ 指出这一条，不去怪上游', () => {
+    const g = graph([node('cut', 'generation', { cropContext: { full: true } })], [])
+    const reason = missingContextReason('cut', g, 1)
+    expect(reason).toContain('完整图边界')
+    expect(reason).toContain('裁剪')
+    expect(reason).not.toContain('没有上游')
   })
 })

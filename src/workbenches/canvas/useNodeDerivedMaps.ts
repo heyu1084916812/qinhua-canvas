@@ -9,7 +9,7 @@ import { targetPortOf } from '../../domain/canvas/model/edge'
 import { promptSpec } from '../../domain/canvas/nodeSpecs/prompt'
 import { portDeclsOf } from '../../domain/canvas/nodeSpecs/ports'
 import { getSpec } from '../../domain/canvas/nodeSpecs/registry'
-import { resolveCropContext } from '../../domain/canvas/fusion/cropContext'
+import { missingContextReason, resolveCropContext } from '../../domain/canvas/fusion/cropContext'
 import { hasRunnableDownstream } from '../../features/canvas/execution/loopRun'
 import { imageAssetInputsOf } from '../../domain/shared/execution/inputs'
 import type { NodeInput } from '../../domain/shared/execution/types'
@@ -138,7 +138,15 @@ export function useNodeDerivedMaps(graph: GraphSnapshot): NodeDerivedMaps {
         const bucket = byPort[targetPortOf(e)]
         if (!bucket) continue
         const hash = resultImagesOf(idx.get(e.source))[0]
-        if (hash) bucket.push({ hash, hasContext: contextOf(e.source) })
+        if (hash) {
+          const hasContext = contextOf(e.source)
+          bucket.push({
+            hash,
+            hasContext,
+            /** 没有上下文时**量着图**说清是哪一种（视图层的按钮提示直接用这句话） */
+            ...(hasContext ? {} : { missingContextReason: missingContextReason(e.source, g, bucket.length + 1) }),
+          })
+        }
       }
       out.set(n.id, byPort)
     }

@@ -14,7 +14,7 @@ import {
   planFusion,
   type FusionPatchInput,
 } from '../../../domain/canvas/fusion/fusionPlan'
-import { resolveCropContext } from '../../../domain/canvas/fusion/cropContext'
+import { missingContextReason, resolveCropContext } from '../../../domain/canvas/fusion/cropContext'
 import {
   FUSION_FEATHER_BLUR_PX,
   applyColorOffset,
@@ -211,9 +211,14 @@ export async function fuseNode(deps: FuseDeps, nodeId: string): Promise<FuseOutc
     if (resolved.kind !== 'local') {
       return {
         ok: false,
-        reason:
-          `第 ${i + 1} 张局部图没有选区上下文（用「裁剪」得到的不带上下文，融不回去）：` +
-          '请在它的原图上用「提取选区」得到局部图，再用改图结果来融合',
+        /**
+         * ⚠️ 这句提示必须**量着图说**，不能断言原因（对账 #557）。
+         *
+         * 原来这里写死了「用「裁剪」得到的不带上下文」—— 而用户实际遇到的是
+         * "上游接的不是那张局部图"，于是他拿着这句提示去查裁剪，方向全错。
+         * 现在由 `missingContextReason` 读**真实上游**给出三种之一。
+         */
+        reason: missingContextReason(patch.nodeId, graph, i + 1),
       }
     }
     const carried: FusionContext = { id: `ctx:${patch.nodeId}`, ...resolved.context }

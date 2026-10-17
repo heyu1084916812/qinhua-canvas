@@ -95,6 +95,15 @@ export interface NodeViewProps<TData extends NodeData = NodeData> {
 export interface InputPortAsset {
   hash: string
   hasContext: boolean
+  /**
+   * `hasContext === false` 时**为什么**没有上下文（人话，给融合卡片的按钮提示用）。
+   *
+   * 用户 2026-10-17 在真实项目里撞上"提取选区做过、融合却说没有上下文"（对账 #557）：
+   * 当时提示里写死了「用「裁剪」得到的不带上下文」，把原因断言成了裁剪，方向全错。
+   * 真值只有三个来源（自己就是完整图边界 / 没有上游 / 上游接的不是那张局部图），
+   * 由 `missingContextReason` **量着图**算出来，这里只是把它带到视图层。
+   */
+  missingContextReason?: string
 }
 
 export interface NodePanelProps<TData extends NodeData = NodeData> {

@@ -67,7 +67,14 @@ export function FusionNodeView(props: NodeViewProps) {
     : patches.length === 0
       ? '把局部修改图连到右侧那只端点'
       : missingContextAt >= 0
-        ? `第 ${missingContextAt + 1} 张局部图没有选区上下文（用「裁剪」得到的不带上下文，融不回去）：请在它的原图上用「提取选区」得到局部图`
+        /**
+         * 措辞是**陈述规则**而不是**断言原因**（对账 #557）：这里只能看到
+         * "这张补丁解析不到选区"，看不到上游接错没接错 —— 写死「用「裁剪」得到的不带上下文」
+         * 会把"上游接的是原图"这种情况指到错的方向去。真正的分型由执行侧的
+         * `missingContextReason` 量着图说（那句话会落进日志）。
+         */
+        ? (patches[missingContextAt]?.missingContextReason ??
+          `第 ${missingContextAt + 1} 张局部图没有选区上下文：只有「提取选区」得到的局部图带选区（「裁剪」的不带），它上游接的也必须正是那张图`)
         : `把 ${patches.length} 张局部修改图融回原图`
 
   /**

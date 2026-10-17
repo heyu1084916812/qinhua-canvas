@@ -48,6 +48,51 @@ export function cropContextFor(
   return rest
 }
 
+/**
+ * 「这张补丁为什么解析不到选区」——把**实际看到的东西**说出来。
+ *
+ * 为什么必须写这一句：原来那句只说"没有选区上下文"，用户拿到它无从下手
+ * （2026-10-17 用户在真实项目里撞上，截图发回来时连"上游连的是谁"都看不出来）。
+ * 更糟的是 #553 之后那句里加了「用「裁剪」得到的不带上下文」——**它把原因断言成了裁剪**，
+ * 而用户明明是"提取选区"做的局部图，于是这句提示把人往错的方向带。
+ *
+ * 真正的原因至少三种，判据都在图上，所以直接量出来：
+ * ① 这张图自己标着**完整图边界**（「裁剪」得到的、或融合产物）⇒ 它不会继承任何选区；
+ * ② 它**没有上游** ⇒ 没人把那张局部图接给它；
+ * ③ 有上游，但**没有一张是局部图**（多半接的是原图）⇒ 上游接错了对象。
+ */
+export function missingContextReason(
+  nodeId: string,
+  graph: GraphSnapshot,
+  ordinal = 1,
+): string {
+  const index = new Map(graph.nodes.map((n) => [n.id, n] as const))
+  const self = index.get(nodeId)
+  const head = `第 ${ordinal} 张局部图没有选区上下文`
+
+  const own = (self?.data as { cropContext?: CropContext } | undefined)?.cropContext
+  if (own && 'full' in own) {
+    return (
+      `${head}：这张图自己是「完整图边界」（「裁剪」得到的、或融合产物都会这样），` +
+      '它不会继承任何选区 —— 请在原图上用「提取选区」得到局部图，再用改图结果来融合'
+    )
+  }
+
+  const ups = (indexEdgesByTarget(graph.edges).get(nodeId) ?? [])
+    .map((id) => index.get(id)?.title ?? id)
+    .filter(Boolean)
+  if (ups.length === 0) {
+    return (
+      `${head}：它没有上游 —— 请把「提取选区」得到的那张「局部图」连到这张图上，` +
+      '再拿它生成出来的结果去融合'
+    )
+  }
+  return (
+    `${head}：它的上游是「${ups.join('、')}」，里面没有「提取选区」得到的局部图` +
+    '（只有那张图带着选区）—— 请把上游改成那张局部图'
+  )
+}
+
 /** 两个上下文是不是「同一个选区」（原图 + 矩形一致） */
 function sameRegion(a: Omit<FusionContext, 'id'>, b: Omit<FusionContext, 'id'>): boolean {
   const r = (x: FusionRect) => `${x.x},${x.y},${x.w},${x.h}`
