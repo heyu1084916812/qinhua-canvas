@@ -11,6 +11,7 @@ import { portDeclsOf } from '../../domain/canvas/nodeSpecs/ports'
 import { getSpec } from '../../domain/canvas/nodeSpecs/registry'
 import {
   conflictReason,
+  missingContextKind,
   missingContextReason,
   resolveCropContext,
   type CropResolution,
@@ -158,6 +159,10 @@ export function useNodeDerivedMaps(graph: GraphSnapshot): NodeDerivedMaps {
             ...(res.kind === 'local'
               ? {}
               : {
+                  missingContextKind:
+                    res.kind === 'conflict'
+                      ? 'conflict'
+                      : missingContextKind(e.source, g),
                   missingContextReason:
                     res.kind === 'conflict'
                       ? conflictReason(res.contexts, g, ordinal)

@@ -183,6 +183,33 @@
 }
 
 /* ── ③ 颜色匹配开关 ── */
+.reason {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--danger);
+  font-size: var(--fs-chip);
+  font-weight: 600;
+}
+
+.reason svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+.reason span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .check {
   display: inline-flex;
   align-items: center;

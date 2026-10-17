@@ -104,17 +104,31 @@ export function conflictReason(
  * ② 它**没有上游** ⇒ 没人把那张局部图接给它；
  * ③ 有上游，但**没有一张是局部图**（多半接的是原图）⇒ 上游接错了对象。
  */
+export type MissingContextKind = 'own-full' | 'no-upstream' | 'upstream-not-local'
+
+export function missingContextKind(
+  nodeId: string,
+  graph: GraphSnapshot,
+): MissingContextKind {
+  const index = new Map(graph.nodes.map((n) => [n.id, n] as const))
+  const self = index.get(nodeId)
+  const own = (self?.data as { cropContext?: CropContext } | undefined)?.cropContext
+  if (own && 'full' in own) return 'own-full'
+  if ((indexEdgesByTarget(graph.edges).get(nodeId) ?? []).length === 0) return 'no-upstream'
+  return 'upstream-not-local'
+}
+
+/** User-facing full sentence for the same reason. */
 export function missingContextReason(
   nodeId: string,
   graph: GraphSnapshot,
   ordinal = 1,
 ): string {
   const index = new Map(graph.nodes.map((n) => [n.id, n] as const))
-  const self = index.get(nodeId)
   const head = `第 ${ordinal} 张局部图没有选区上下文`
 
-  const own = (self?.data as { cropContext?: CropContext } | undefined)?.cropContext
-  if (own && 'full' in own) {
+  const kind = missingContextKind(nodeId, graph)
+  if (kind === 'own-full') {
     return (
       `${head}：这张图自己是「完整图边界」（「裁剪」得到的、或融合产物都会这样），` +
       '它不会继承任何选区 —— 请在原图上用「提取选区」得到局部图，再用改图结果来融合'
@@ -124,7 +138,7 @@ export function missingContextReason(
   const ups = (indexEdgesByTarget(graph.edges).get(nodeId) ?? [])
     .map((id) => index.get(id)?.title ?? id)
     .filter(Boolean)
-  if (ups.length === 0) {
+  if (kind === 'no-upstream') {
     return (
       `${head}：它没有上游 —— 请把「提取选区」得到的那张「局部图」连到这张图上，` +
       '再拿它生成出来的结果去融合'

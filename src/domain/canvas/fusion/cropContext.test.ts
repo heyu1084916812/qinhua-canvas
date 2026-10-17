@@ -14,12 +14,26 @@ import type { GraphSnapshot } from '../model/graph'
 import {
   conflictReason,
   cropContextFor,
+  missingContextKind,
   missingContextReason,
   resolveCropContext,
 } from './cropContext'
 import { contextFromSelection, planFusion } from './fusionPlan'
 
 const SOURCE = { assetHash: 'a'.repeat(64), width: 1000, height: 1000 }
+
+describe('missingContextKind', () => {
+  it('returns a stable short kind for the node status line', () => {
+    const full = graph([node('cut', 'generation', { cropContext: { full: true } })], [])
+    expect(missingContextKind('cut', full)).toBe('own-full')
+
+    const orphan = graph([node('gen')], [])
+    expect(missingContextKind('gen', orphan)).toBe('no-upstream')
+
+    const wrong = graph([node('u1', 'generation'), node('gen')], [['u1', 'gen']])
+    expect(missingContextKind('gen', wrong)).toBe('upstream-not-local')
+  })
+})
 
 function localCtx(rect = { x: 10, y: 20, w: 100, h: 50 }): CropContext {
   return {

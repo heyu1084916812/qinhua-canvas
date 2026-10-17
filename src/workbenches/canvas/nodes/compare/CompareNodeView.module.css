@@ -128,7 +128,14 @@
 }
 
 .label {
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  font-size: 11px;
   font-weight: 600;
-  color: var(--text-3);
+  color: var(--text-2);
 }

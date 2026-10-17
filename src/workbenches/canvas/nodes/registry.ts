@@ -3,6 +3,7 @@ import type { NodeType, NodeData, NodeSnapshot } from '../../../domain/canvas/mo
 import type { NodeSpec } from '../../../domain/canvas/nodeSpecs/types'
 import type { RunMode } from '../../../domain/canvas/model/runRecord'
 import type { NodeInput } from '../../../domain/shared/execution/types'
+import type { MissingContextKind } from '../../../domain/canvas/fusion/cropContext'
 import { getSpec, registeredTypes } from '../../../domain/canvas/nodeSpecs/registry'
 
 /**
@@ -95,6 +96,8 @@ export interface NodeViewProps<TData extends NodeData = NodeData> {
 export interface InputPortAsset {
   hash: string
   hasContext: boolean
+  /** Machine-readable cause used by compact node status UI. */
+  missingContextKind?: 'conflict' | MissingContextKind
   /**
    * `hasContext === false` 时**为什么**没有上下文（人话，给融合卡片的按钮提示用）。
    *

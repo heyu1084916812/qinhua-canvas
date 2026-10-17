@@ -2622,6 +2622,18 @@ async function g14(browser) {
     rec(g, '★★ 两个上游**都**连上了对比节点', edgeCount === 2, `连线=${edgeCount}`)
     rec(g, '★★ A/B 两张都在（两个上游各一张）', lbImgs === 2, `对比 img=${lbImgs}`)
 
+    const compareLeftLabel = (
+      (await lbCmp.locator('[data-compare-label="left"]').innerText().catch(() => '')) ?? ''
+    ).trim()
+    const compareRightLabel = (
+      (await lbCmp.locator('[data-compare-label="right"]').innerText().catch(() => '')) ?? ''
+    ).trim()
+    rec(
+      g,
+      '★★ 对比节点写清左右来源：A=先连接，B=后连接',
+      compareLeftLabel.includes('先连接') && compareRightLabel.includes('后连接'),
+      `left=${compareLeftLabel} right=${compareRightLabel}`,
+    )
     await lbCmp.locator('[data-compare-ratio]').dblclick()
     await sleep(900)
     const lbStage = page.locator('[data-lightbox-stage]')
@@ -16219,6 +16231,15 @@ async function g91(browser) {
   // ── ③ 空输入时：按钮禁用 + 说得出为什么 ──
   rec(g, '★ 没有原图时「融合」按钮禁用（不留点了没反应的入口）', await page.locator('[data-fusion-run]').isDisabled())
   const emptyTitle = await page.locator('[data-fusion-run]').getAttribute('title')
+  const emptyReason = (
+    (await page.locator('[data-fusion-reason]').innerText().catch(() => '')) ?? ''
+  ).trim()
+  rec(
+    g,
+    '★ 空输入时节点里直接显示下一步，而不是只在 tooltip 里',
+    emptyReason === '先连接一张完整原图',
+    emptyReason,
+  )
   rec(g, '★ 禁用时说清了先接什么', /原图|局部修改图/.test(emptyTitle ?? ''), emptyTitle ?? '')
 
   // ── ④ 原图：拖生成节点的输出口，落在融合节点**左半边** → 应该进 input ──
@@ -16606,6 +16627,17 @@ async function g92(browser) {
   }
   await extractBtn.click()
   await sleep(600)
+  const extractModeButtons = await page
+    .locator('[data-lightbox-mode-bar] [data-lightbox-mode-button]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-lightbox-mode-button')))
+  rec(
+    g,
+    '★★ 从「提取选区」进入时也同时显示提取和裁剪',
+    extractModeButtons.includes('extract') &&
+      extractModeButtons.includes('crop') &&
+      (await page.locator('[data-lightbox][data-lightbox-mode="extract"]').count()) === 1,
+    extractModeButtons.join(','),
+  )
 
   // ③ 在**素材灯箱**里框选（不是另做一个裁剪器）
   rec(
@@ -17014,8 +17046,32 @@ async function g92(browser) {
   rec(g, '★ 功能栏里有「裁剪」（与「提取选区」并排）', (await cropBtn.count()) === 1)
   await cropBtn.click()
   await sleep(600)
+  const cropModeButtons = await page
+    .locator('[data-lightbox-mode-bar] [data-lightbox-mode-button]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-lightbox-mode-button')))
+  rec(
+    g,
+    '★★ 灯箱同时给出「提取选区」和「裁剪」两个入口',
+    cropModeButtons.includes('extract') && cropModeButtons.includes('crop'),
+    cropModeButtons.join(','),
+  )
+  rec(
+    g,
+    '★ 从「裁剪」进入时默认选中裁剪',
+    (await page.locator('[data-lightbox][data-lightbox-mode="crop"]').count()) === 1,
+  )
   const cutHint = ((await page.locator('[data-lightbox-crop-hint]').innerText().catch(() => '')) ?? '').trim()
   rec(g, '★★ 裁剪档写明"不带选区上下文"', /不带选区上下文/.test(cutHint), cutHint)
+  await page.locator('[data-lightbox-mode-button="extract"]').click()
+  await sleep(250)
+  rec(
+    g,
+    '★ 灯箱里可直接从「裁剪」切到「提取选区」',
+    (await page.locator('[data-lightbox][data-lightbox-mode="extract"]').count()) === 1 &&
+      (await page.locator('[data-lightbox-crop-hint]').count()) === 0,
+  )
+  await page.locator('[data-lightbox-mode-button="crop"]').click()
+  await sleep(250)
   const modeLabel =
     ((await page.locator('[data-lightbox-mode-button="crop"]').innerText().catch(() => '')) ?? '').trim()
   rec(g, '★ 底部模式条这一档叫「裁剪」（不再叫选区）', modeLabel.includes('裁剪'), modeLabel)
@@ -33353,6 +33409,21 @@ async function g156(browser) {
         /裁剪/.test(conflictTip) &&
         !/没有选区上下文/.test(conflictTip),
       conflictTip,
+    )
+    const conflictReasonKind = await fusion
+      .locator('[data-fusion-reason]')
+      .getAttribute('data-fusion-reason-kind')
+      .catch(() => null)
+    const conflictReasonShort = (
+      (await fusion.locator('[data-fusion-reason]').innerText().catch(() => '')) ?? ''
+    ).trim()
+    rec(
+      g,
+      '★★ 冲突原因直接显示在融合节点上，并压缩成一眼能读懂的一句',
+      conflictReasonKind === 'conflict' &&
+        conflictReasonShort.includes('混了多个选区') &&
+        conflictReasonShort.includes('无法确定融回位置'),
+      `kind=${conflictReasonKind} text=${conflictReasonShort}`,
     )
     await page.screenshot({ path: `${OUT}/162-g158-two-contexts.png` })
 

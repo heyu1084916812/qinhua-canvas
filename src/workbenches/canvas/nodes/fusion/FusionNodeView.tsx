@@ -34,7 +34,7 @@
  *
  * 于是这个节点只剩「看两块输入 + 一个开关 + 一个按钮」。
  */
-import type { NodeViewProps } from '../registry'
+import type { InputPortAsset, NodeViewProps } from '../registry'
 import type { FusionData } from '../../../../domain/canvas/model/node'
 import { useAssetThumbUrl } from '../../hooks/useAsset'
 import styles from './FusionNodeView.module.css'
@@ -62,6 +62,16 @@ export function FusionNodeView(props: NodeViewProps) {
   /** 每张局部图能不能回贴：上下文跟着图片走（画布表面 沿上游解析后注入） */
   const missingContextAt = patches.findIndex((p) => !p.hasContext)
   const canRun = !!original && patches.length > 0 && missingContextAt < 0 && !props.running
+  const missingKind =
+    missingContextAt >= 0 ? patches[missingContextAt]?.missingContextKind : undefined
+  const reasonShort = !original
+    ? '先连接一张完整原图'
+    : patches.length === 0
+      ? '再连接一张局部修改图'
+      : missingContextAt >= 0
+        ? shortContextReason(missingKind)
+        : null
+
   const hint = !original
     ? '先把一张完整原图连到左侧'
     : patches.length === 0
@@ -133,6 +143,19 @@ export function FusionNodeView(props: NodeViewProps) {
         </div>
 
         {/* ③ 颜色匹配开关（参考实现融合卡片上的那个复选框，默认开） */}
+        {reasonShort ? (
+          <div
+            className={styles.reason}
+            data-fusion-reason
+            data-fusion-reason-kind={missingKind ?? 'missing-input'}
+            role="status"
+            title={hint}
+          >
+            <IconAlert />
+            <span>{reasonShort}</span>
+          </div>
+        ) : null}
+
         <label
           className={styles.check}
           data-fusion-color-match
@@ -268,6 +291,24 @@ function IconImage() {
       <rect x="3" y="4" width="18" height="16" rx="2" />
       <circle cx="8.5" cy="9.5" r="1.6" />
       <path d="m4 17 5-5 4 4 3-3 4 4" />
+    </svg>
+  )
+}
+
+function shortContextReason(kind: InputPortAsset['missingContextKind']): string {
+  if (kind === 'conflict') return '混了多个选区，无法确定融回位置'
+  if (kind === 'own-full') return '这是裁剪图，不带选区上下文'
+  if (kind === 'no-upstream') return '这张图没有上游，无法追溯原图'
+  if (kind === 'upstream-not-local') return '上游不是带选区的局部图'
+  return '这张局部图不能融回原图'
+}
+
+function IconAlert() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3 2.8 20h18.4L12 3Z" />
+      <path d="M12 9v5" />
+      <circle cx="12" cy="17.2" r=".8" fill="currentColor" stroke="none" />
     </svg>
   )
 }

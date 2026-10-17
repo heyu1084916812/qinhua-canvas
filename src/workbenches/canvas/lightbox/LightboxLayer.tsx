@@ -44,6 +44,7 @@ import {
   IconCheck,
   IconClose,
   IconCompare,
+  IconCrop,
   IconDelete,
   IconImage,
   IconMirrorH,
@@ -102,10 +103,12 @@ const COMPARE_VIEWS = [
 ] as const
 type CompareView = (typeof COMPARE_VIEWS)[number]['id']
 
-/** 灯箱顶部的能力切换：查看 / 选区 / 标注 / 旋转 / 对比 */
+/** 灯箱底部的模式切换：查看 / 提取选区 / 裁剪 / 框脸 / 标注 / 旋转 / 对比 */
 const EDITOR_MODES = [
   { id: 'view', label: '查看', icon: <IconImage size={16} /> },
-  { id: 'crop', label: '选区', icon: <IconScan size={16} /> },
+  { id: 'extract', label: '提取选区', icon: <IconScan size={16} /> },
+  { id: 'crop', label: '裁剪', icon: <IconCrop size={16} /> },
+  { id: 'face', label: '框脸', icon: <IconScan size={16} /> },
   { id: 'annotate', label: '标注', icon: <IconAnnotate size={16} /> },
   { id: 'rotate', label: '旋转', icon: <IconRotate size={16} /> },
   { id: 'compare', label: '对比', icon: <IconCompare size={16} /> },
@@ -176,7 +179,8 @@ export function LightboxLayer() {
   const canCrop = !isVideo && !!cropNodeId
   const canAnnotate = !isVideo && !!annotateNodeId
   const canRotate = !isVideo && !!rotateNodeId
-  const cropping = mode === 'crop' && canCrop
+  const cropping = (mode === 'extract' || mode === 'crop' || mode === 'face') && canCrop
+  const plainCrop = mode === 'crop'
   const rotating = mode === 'rotate' && canRotate
   const annotating = mode === 'annotate' && canAnnotate
 
@@ -199,8 +203,12 @@ export function LightboxLayer() {
       return data.assetHash === assetHash && typeof data.compareWith === 'string'
     })
     setMode(
-      cropFor || faceFor
-        ? 'crop'
+      faceFor
+        ? 'face'
+        : cropFor
+          ? cropPlain
+            ? 'crop'
+            : 'extract'
         : lightbox?.rotateFor
           ? 'rotate'
           : lightbox?.annotateFor
@@ -213,6 +221,7 @@ export function LightboxLayer() {
     assetHash,
     store,
     cropFor,
+    cropPlain,
     faceFor,
     lightbox?.rotateFor,
     lightbox?.annotateFor,
@@ -560,7 +569,7 @@ export function LightboxLayer() {
      * 两个用途走同一段实现、只有"切哪个矩形 + 写不写上下文"不同（见 `createPiece`）：
      * 裁剪按原框、不写上下文；提取选区外扩一圈、写上下文。
      */
-    const out = cropPlain
+    const out = plainCrop
       ? await cropAsset(
           { platform, store },
           { nodeId: targetNodeId, rect: cropRect, ratio: cropRatio },
@@ -573,7 +582,7 @@ export function LightboxLayer() {
     if (out.ok) {
       close()
       store.notify(
-        cropPlain
+        plainCrop
           ? '已裁剪：新图已生成在原图右侧（不带选区上下文）'
           : '已提取选区：局部图已生成在原图右侧，并带上上下文',
       )
@@ -930,7 +939,9 @@ export function LightboxLayer() {
   const selectedTextItem = annTextItems.find((item) => item.id === selectedTextId) ?? null
   const availableModes = EDITOR_MODES.filter((m) => {
     if (m.id === 'view') return true
-    if (m.id === 'crop') return canCrop
+    if (m.id === 'extract') return canCrop && !faceFor
+    if (m.id === 'crop') return canCrop && !faceFor
+    if (m.id === 'face') return canCrop && !!faceFor
     if (m.id === 'annotate') return canAnnotate
     if (m.id === 'rotate') return canRotate
     return compareAvailable
@@ -959,7 +970,7 @@ export function LightboxLayer() {
         onPointerDown={onPointerDown}
         onClick={() => {
           // 编辑模式不吃空白单击关闭：刚框好的框、刚画的一笔、正在旋转的预览不能被误点清掉
-          if (mode === 'crop' || mode === 'annotate' || mode === 'rotate') return
+          if (cropping || mode === 'annotate' || mode === 'rotate') return
           // 拖动松手也会触发 click：只有没拖过的单击才关闭（与版本预览同口径）
           if (movedRef.current) return
           close()
@@ -1454,7 +1465,7 @@ export function LightboxLayer() {
                 <span className={styles.barDivider} />
               </>
             )}
-            {cropPlain && !faceFor && (
+            {plainCrop && !faceFor && (
               <span className={styles.cropHint} data-lightbox-crop-hint>
                 裁剪不带选区上下文，融不回原图
               </span>
@@ -1476,7 +1487,7 @@ export function LightboxLayer() {
                 canConfirm
                   ? faceFor
                     ? '用这个框当这张脸的位置，回到面板点「生成」'
-                    : cropPlain
+                    : plainCrop
                       ? '按当前框裁下这一块（不带选区上下文，不能当融合节点的局部修改图）'
                       : '按当前框提取局部图，并保留上下文'
                   : `先在图上拖一个框（短边至少 ${FUSION_MIN_EDGE}px）`
@@ -1484,12 +1495,12 @@ export function LightboxLayer() {
               onClick={() => void confirmCrop()}
             >
               {busy
-                ? cropPlain
+                ? plainCrop
                   ? '裁剪中…'
                   : '提取中…'
                 : faceFor
                   ? '用这个框'
-                  : cropPlain
+                  : plainCrop
                     ? '裁剪'
                     : '提取选区'}
             </button>
@@ -1522,7 +1533,13 @@ export function LightboxLayer() {
             >
               {m.icon}
               <span>
-                {m.id === 'crop' && faceFor ? '框脸' : m.id === 'crop' && cropPlain ? '裁剪' : m.label}
+                {m.id === 'extract'
+                  ? '提取选区'
+                  : m.id === 'crop'
+                    ? '裁剪'
+                    : m.id === 'face'
+                      ? '框脸'
+                      : m.label}
               </span>
             </button>
           ))}

@@ -115,7 +115,12 @@ export function CompareNodeView(props: NodeViewProps) {
   }
 
   return (
-    <div className={styles.body} data-compare-ratio={ratio.toFixed(3)} onDoubleClick={openLightbox}>
+    <div
+      className={styles.body}
+      data-compare-ratio={ratio.toFixed(3)}
+      title="对比顺序：先连接的图在左 A，后连接的图在右 B；拖动中间竖线查看小差异"
+      onDoubleClick={openLightbox}
+    >
       <div className={styles.stage}>
         <div className={styles.base}>
           {leftUrl ? (
@@ -168,8 +173,12 @@ export function CompareNodeView(props: NodeViewProps) {
       </div>
 
       <div className={styles.labels}>
-        <span className={styles.label}>A · 左</span>
-        <span className={styles.label}>B · 右</span>
+        <span className={styles.label} data-compare-label="left">
+          A · 左 · 先连接
+        </span>
+        <span className={styles.label} data-compare-label="right">
+          B · 右 · 后连接
+        </span>
       </div>
     </div>
   )
