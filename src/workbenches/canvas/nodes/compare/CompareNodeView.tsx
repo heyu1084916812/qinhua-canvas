@@ -107,7 +107,12 @@ export function CompareNodeView(props: NodeViewProps) {
       props.emit({
         type: 'openLightbox',
         assetHash: leftFallback,
-        ...(rightFallback ? { compareWith: rightFallback } : {}),
+        ...(rightFallback
+          ? {
+              compareWith: rightFallback,
+              compareKind: 'pair' as const,
+            }
+          : {}),
       })
       return
     }

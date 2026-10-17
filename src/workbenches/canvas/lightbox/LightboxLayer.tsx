@@ -95,13 +95,8 @@ const HANDLE_POS: Record<CropHandle, CSSProperties> = {
   w: { left: 0, top: '50%', cursor: 'ew-resize' },
 }
 
-/** 「对比原图」的三档（用户 2026-09-30：融合结果在灯箱里要能跟原图对着看） */
-const COMPARE_VIEWS = [
-  { id: 'result', label: '结果' },
-  { id: 'split', label: '对比' },
-  { id: 'original', label: '原图' },
-] as const
-type CompareView = (typeof COMPARE_VIEWS)[number]['id']
+/** 对比灯箱三档：first = assetHash，second = compareWith；文案由 compareKind 决定 */
+type CompareView = 'first' | 'split' | 'second'
 
 /** 灯箱底部的模式切换：查看 / 提取选区 / 裁剪 / 框脸 / 标注 / 旋转 / 对比 */
 const EDITOR_MODES = [
@@ -251,7 +246,8 @@ export function LightboxLayer() {
   const compareAsset = useAssetMeta(compareHash ?? undefined)
   const compareUrl = compareAsset.url
   const compareIsVideo = (compareAsset.mime ?? '').startsWith('video/')
-  const [compareView, setCompareView] = useState<CompareView>('result')
+  const compareKind = lightbox?.compareKind === 'pair' ? 'pair' : 'result'
+  const [compareView, setCompareView] = useState<CompareView>('first')
   const [splitRatio, setSplitRatio] = useState(0.5)
   /**
    * **旋转与镜像**（2026-10-16 搬进灯箱，见 store 的 `openRotateEditor`）。
@@ -383,9 +379,9 @@ export function LightboxLayer() {
    * 还得自己再去点一下「对比」（用户 2026-10-16：「双击对比节点灯箱那个还没有做好」）。
    */
   useEffect(() => {
-    setCompareView(lightbox?.compareWith ? 'split' : 'result')
+    setCompareView(lightbox?.compareWith ? 'split' : 'first')
     setSplitRatio(0.5)
-  }, [assetHash, lightbox?.compareWith])
+  }, [assetHash, lightbox?.compareWith, compareKind])
 
   // 舞台尺寸：初次适配要用，resize 时重测
   useEffect(() => {
@@ -902,12 +898,30 @@ export function LightboxLayer() {
 
   /** 有真实配对、两边都是图才给「对比」入口；是否处于该模式由 `mode` 决定。 */
   const compareAvailable = !!compareHash && !!compareUrl && !isVideo && !compareIsVideo
-  const view: CompareView = mode === 'compare' && compareAvailable ? compareView : 'result'
+  const view: CompareView = mode === 'compare' && compareAvailable ? compareView : 'first'
   const splitActive = view === 'split'
-  const showOriginalOnly = view === 'original'
-  /** 主图：切到「原图」那一档时换成原图（整块几何仍按结果那张算） */
-  const primaryUrl = showOriginalOnly ? (compareUrl ?? url) : url
-  const primaryIsVideo = showOriginalOnly ? false : isVideo
+  const showSecondOnly = view === 'second'
+  const compareViews =
+    compareKind === 'pair'
+      ? [
+          { id: 'first' as const, label: 'A · 左' },
+          { id: 'split' as const, label: '对比' },
+          { id: 'second' as const, label: 'B · 右' },
+        ]
+      : [
+          { id: 'first' as const, label: '结果' },
+          { id: 'split' as const, label: '对比' },
+          { id: 'second' as const, label: '原图' },
+        ]
+  const compareLeftHash = compareKind === 'pair' ? assetHash : compareHash
+  const compareRightHash = compareKind === 'pair' ? compareHash : assetHash
+  /** 主图：切到第二张时换成 compareWith（整块几何仍按 assetHash 那张算） */
+  const primaryUrl = showSecondOnly ? (compareUrl ?? url) : url
+  const primaryIsVideo = showSecondOnly ? compareIsVideo : isVideo
+  const compareClipPath =
+    compareKind === 'pair'
+      ? `inset(0 0 0 ${(splitRatio * 100).toFixed(3)}%)`
+      : `inset(0 ${((1 - splitRatio) * 100).toFixed(3)}% 0 0)`
   /** 分割线位置：只改本地瞬时值，不进撤销栈（与对比节点同一口径） */
   const splitAt = (clientX: number, stageRect: Rect): number => {
     if (!box || box.width <= 0) return splitRatio
@@ -957,7 +971,14 @@ export function LightboxLayer() {
       data-lightbox-mode={mode}
       // 对比原图：配对上时暴露当前档位与实际展示的 hash，供断言（§6.23）
       data-lightbox-compare={mode === 'compare' && compareAvailable ? view : undefined}
-      data-lightbox-shown-hash={showOriginalOnly ? (compareHash ?? '') : (assetHash ?? '')}
+      data-lightbox-shown-hash={showSecondOnly ? (compareHash ?? '') : (assetHash ?? '')}
+      data-lightbox-compare-kind={mode === 'compare' && compareAvailable ? compareKind : undefined}
+      data-lightbox-compare-left-hash={
+        mode === 'compare' && compareAvailable ? (compareLeftHash ?? undefined) : undefined
+      }
+      data-lightbox-compare-right-hash={
+        mode === 'compare' && compareAvailable ? (compareRightHash ?? undefined) : undefined
+      }
       role="dialog"
       aria-modal="true"
       aria-label="素材灯箱"
@@ -1011,10 +1032,10 @@ export function LightboxLayer() {
               style={mediaStyle}
               onLoad={(e) => {
                 /**
-                 * 切到「原图」那一档时**不改** `natural`：box / 选区 / 分割线全部按
-                 * **结果**那张的尺寸算，两张尺寸万一不同也不会让整块视图跳一下。
+                 * 切到第二张时**不改** `natural`：box / 选区 / 分割线全部按
+                 * assetHash 那张的尺寸算，两张尺寸万一不同也不会让整块视图跳一下。
                  */
-                if (!showOriginalOnly) {
+                if (!showSecondOnly) {
                   setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
                 }
               }}
@@ -1025,8 +1046,8 @@ export function LightboxLayer() {
             />
           ))}
         {/*
-          * 对比档：原图叠在结果上、按分割线裁出左半边（左边原图 / 右边结果）。
-          * 与对比节点（§6.10）同一种呈现，只是舞台换成了灯箱的大画面。
+          * 对比档按 compareKind 决定叠放方向：result = 左原图 / 右结果；
+          * pair = 左 A / 右 B。两档都只改裁剪路径，不另写一套分割线。
           */}
         {placed && splitActive && compareUrl && box && (
           <>
@@ -1036,7 +1057,7 @@ export function LightboxLayer() {
               src={compareUrl}
               alt=""
               draggable={false}
-              style={{ ...box, clipPath: `inset(0 ${(1 - splitRatio) * 100}% 0 0)` }}
+              style={{ ...box, clipPath: compareClipPath }}
               /**
                * ⚠️ **这里不要拦 `pointerdown`**（用户 2026-10-16：「灯箱内的图片能进行鼠标拖动视图」）。
                *
@@ -1048,8 +1069,12 @@ export function LightboxLayer() {
               onClick={(e) => e.stopPropagation()}
             />
             <div className={styles.compareTags} style={box} data-lightbox-compare-tags>
-              <span className={styles.compareTag}>原图</span>
-              <span className={styles.compareTag}>结果</span>
+              <span className={styles.compareTag} data-lightbox-compare-tag="left">
+                {compareKind === 'pair' ? 'A · 左' : '原图'}
+              </span>
+              <span className={styles.compareTag} data-lightbox-compare-tag="right">
+                {compareKind === 'pair' ? 'B · 右' : '结果'}
+              </span>
             </div>
             <div
               className={styles.compareDivider}
@@ -1193,12 +1218,12 @@ export function LightboxLayer() {
       {mode !== 'view' ? (
       <div className={styles.hud}>
         {/*
-          * 「对比原图」三档（用户 2026-09-30）：融合结果双击进来时，
-          * 结果 / 对比（可拖分割线）/ 原图 三档并排 —— 与参数 chip 同一套控件口径。
+          * 对比三档：first / split / second 并排；标签由 compareKind 决定
+          * （融合结果 = 结果/对比/原图，对比节点 = A·左/对比/B·右）。
           */}
         {mode === 'compare' && compareAvailable && (
           <div className={styles.compareGroup} data-lightbox-compare-group>
-            {COMPARE_VIEWS.map((v) => (
+            {compareViews.map((v) => (
               <button
                 key={v.id}
                 type="button"

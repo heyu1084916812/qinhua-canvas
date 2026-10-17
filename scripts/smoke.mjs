@@ -2648,6 +2648,52 @@ async function g14(browser) {
      */
     const inSplit = await page.locator('[data-lightbox][data-lightbox-compare="split"]').count()
     const compareGroup = await page.locator('[data-lightbox-compare-group]').count()
+    const pairKind = await page.locator('[data-lightbox]').getAttribute('data-lightbox-compare-kind')
+    const pairAssetHash = await page.locator('[data-lightbox]').getAttribute('data-lightbox-hash')
+    const pairLeftHash = await page
+      .locator('[data-lightbox]')
+      .getAttribute('data-lightbox-compare-left-hash')
+    const pairRightHash = await page
+      .locator('[data-lightbox]')
+      .getAttribute('data-lightbox-compare-right-hash')
+    const pairTabs = await page
+      .locator('[data-lightbox-compare-group] [data-lightbox-compare]')
+      .evaluateAll((els) => els.map((e) => (e.textContent ?? '').trim()))
+    const pairTags = await page
+      .locator('[data-lightbox-compare-tags] [data-lightbox-compare-tag]')
+      .evaluateAll((els) => els.map((e) => (e.textContent ?? '').trim()))
+    rec(
+      g,
+      '★★ 对比节点灯箱使用 A/B 语义，不再写“原图/结果”',
+      pairKind === 'pair' &&
+        pairTabs.join(',') === 'A · 左,对比,B · 右' &&
+        pairTags.join(',') === 'A · 左,B · 右' &&
+        !pairTabs.some((x) => x.includes('原图') || x.includes('结果')),
+      `kind=${pairKind} tabs=${pairTabs.join(',')} tags=${pairTags.join(',')}`,
+    )
+    rec(
+      g,
+      '★★ 对比节点左画面对应 A（第一条连线），右画面对应 B（第二条连线）',
+      !!pairAssetHash &&
+        pairLeftHash === pairAssetHash &&
+        !!pairRightHash &&
+        pairRightHash !== pairLeftHash,
+      `asset=${pairAssetHash} left=${pairLeftHash} right=${pairRightHash}`,
+    )
+    await page.locator('[data-lightbox-compare="first"]').click()
+    await sleep(250)
+    const firstShown = await page.locator('[data-lightbox]').getAttribute('data-lightbox-shown-hash')
+    await page.locator('[data-lightbox-compare="second"]').click()
+    await sleep(250)
+    const secondShown = await page.locator('[data-lightbox]').getAttribute('data-lightbox-shown-hash')
+    await page.locator('[data-lightbox-compare="split"]').click()
+    await sleep(250)
+    rec(
+      g,
+      '★★ 切换到 A / B 单图时显示的也是对应那一边',
+      firstShown === pairLeftHash && secondShown === pairRightHash,
+      `A=${firstShown} B=${secondShown}`,
+    )
     rec(
       g,
       '★★★ 双击进来**直接**是「对比」档（不用再手点一下）',
@@ -2656,7 +2702,7 @@ async function g14(browser) {
     )
     rec(
       g,
-      '★★ B（原图那一侧）真的叠在结果上',
+      '★★ 对比节点的 B 画面真的叠在 A 基图上',
       (await page.locator('[data-lightbox-compare-media]').count()) === 1,
     )
     await page.screenshot({ path: `${OUT}/23b-g14-lightbox-compare.png` })
@@ -16966,6 +17012,28 @@ async function g92(browser) {
       (await page.locator('[data-lightbox-compare-group]').count()) === 1,
     `lightbox=${await page.locator('[data-lightbox]').count()} 对比组=${await page.locator('[data-lightbox-compare-group]').count()}`,
   )
+  const resultCompareKind = await page
+    .locator('[data-lightbox]')
+    .getAttribute('data-lightbox-compare-kind')
+  const resultTabs = await page
+    .locator('[data-lightbox-compare-group] [data-lightbox-compare]')
+    .evaluateAll((els) => els.map((e) => (e.textContent ?? '').trim()))
+  const resultLeftHash = await page
+    .locator('[data-lightbox]')
+    .getAttribute('data-lightbox-compare-left-hash')
+  const resultRightHash = await page
+    .locator('[data-lightbox]')
+    .getAttribute('data-lightbox-compare-right-hash')
+  const resultAssetHash = await page.locator('[data-lightbox]').getAttribute('data-lightbox-hash')
+  rec(
+    g,
+    '★★ 融合结果仍保留“原图/结果”语义，左原图、右结果',
+    resultCompareKind === 'result' &&
+      resultTabs.join(',') === '结果,对比,原图' &&
+      resultLeftHash === origHash &&
+      resultRightHash === resultAssetHash,
+    `kind=${resultCompareKind} tabs=${resultTabs.join(',')} left=${resultLeftHash} right=${resultRightHash}`,
+  )
   await page.locator('[data-lightbox-compare="split"]').click()
   await sleep(400)
   const ratioBefore = Number(
@@ -17012,7 +17080,7 @@ async function g92(browser) {
     await page.screenshot({ path: `${OUT}/108-g92-compare.png` })
   }
   const resultHash = await page.locator('[data-lightbox]').getAttribute('data-lightbox-hash')
-  await page.locator('[data-lightbox-compare="original"]').click()
+  await page.locator('[data-lightbox-compare="second"]').click()
   await sleep(400)
   const shownHash = await page.locator('[data-lightbox]').getAttribute('data-lightbox-shown-hash')
   rec(

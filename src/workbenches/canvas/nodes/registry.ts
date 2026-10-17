@@ -133,7 +133,12 @@ export type NodeViewEvent =
    * 打开素材灯箱。`compareWith` 可选：**显式指定跟哪张比**（对比节点双击进来时用）——
    * 不传的话灯箱按产物节点上的 `compareWith` 自己配对。
    */
-  | { type: 'openLightbox'; assetHash: string; compareWith?: string }
+  | {
+      type: 'openLightbox'
+      assetHash: string
+      compareWith?: string
+      compareKind?: 'result' | 'pair'
+    }
   /**
    * 下载节点自身的素材（用户 2026-09-18：加在节点跟随栏里）。
    *

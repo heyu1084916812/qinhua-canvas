@@ -201,6 +201,7 @@ interface CanvasState {
     cropPlain?: boolean
     faceFor?: string
     compareWith?: string
+    compareKind?: 'result' | 'pair'
     rotateFor?: string
     annotateFor?: string
   } | null
@@ -312,7 +313,10 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
    * `data.compareWith`（融合那条链就是这么配对的，见 `LightboxLayer`）。
    * 对比节点传它 —— 那两张图分别来自两个不同的上游节点，节点上没有 `compareWith` 可读。
    */
-  openLightbox: (assetHash: string, opts?: { compareWith?: string }) => void
+  openLightbox: (
+    assetHash: string,
+    opts?: { compareWith?: string; compareKind?: 'result' | 'pair' },
+  ) => void
   /**
    * 以框选模式打开灯箱（用户口径：在素材灯箱里框选局部图）。
    *
@@ -328,6 +332,7 @@ export interface CanvasStore extends AppStore<GraphSnapshot, Command> {
     cropPlain?: boolean
     faceFor?: string
     compareWith?: string
+    compareKind?: 'result' | 'pair'
     rotateFor?: string
     annotateFor?: string
   } | null
@@ -672,7 +677,11 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     getRenamingId: () => store.getState().renamingId,
     openLightbox: (assetHash, opts) =>
       store.setState({
-        lightbox: { assetHash, ...(opts?.compareWith ? { compareWith: opts.compareWith } : {}) },
+        lightbox: {
+          assetHash,
+          ...(opts?.compareWith ? { compareWith: opts.compareWith } : {}),
+          ...(opts?.compareKind ? { compareKind: opts.compareKind } : {}),
+        },
         textEditor: null,
         menu: null,
       }),
