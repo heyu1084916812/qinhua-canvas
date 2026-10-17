@@ -292,6 +292,16 @@ fn resolve_data_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     decide_data_dir(exe_dir, &system_roots(app), &dir_is_writable)
 }
 
+/// 所有壳共用同一份空壳 profile。
+///
+/// 业务数据已迁到 shared-store；这里只放 WebView2 缓存和可重建偏好。
+fn shared_shell_profile_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_local_data_dir()
+        .ok()
+        .map(|root| root.join("shell-v2"))
+}
+
 /// 第一次在新位置启动时，把**数据**从默认 profile 搬过去（不是每次启动都搬）。
 ///
 /// 只搬三样：`IndexedDB`（项目 / 素材 / 素材库）、`Local Storage`（令牌密文 + 设置）、`WebStorage`。
@@ -497,11 +507,11 @@ struct ProfileBackupInfo {
 #[tauri::command]
 fn profile_backup_info(app: tauri::AppHandle) -> ProfileBackupInfo {
     let dir = current_data_dir(&app)
-        .map(|data_dir| profile_backup_root(&data_dir).to_string_lossy().to_string())
+        .map(|data_dir| data_dir.to_string_lossy().to_string())
         .unwrap_or_default();
     ProfileBackupInfo {
         dir,
-        keep: PROFILE_BACKUP_KEEP,
+        keep: 0,
     }
 }
 
@@ -531,13 +541,17 @@ fn is_cache_dir_name(name: &str) -> bool {
 }
 
 /// 当前数据目录（与 #250 同一条规则：程序隔壁的 `data`，否则系统默认位置）。
-fn current_data_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
-    resolve_data_dir(app).or_else(|| app.path().app_local_data_dir().ok())
+fn current_data_dir(_app: &tauri::AppHandle) -> Option<PathBuf> {
+    Some(qinghua_shared_store::default_data_dir())
 }
 
 /// WebView2 的 profile 默认区（网页缓存就在它下面）。
 fn profile_default_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
-    Some(current_data_dir(app)?.join("EBWebView").join("Default"))
+    Some(
+        shared_shell_profile_dir(app)?
+            .join("EBWebView")
+            .join("Default"),
+    )
 }
 
 fn dir_size(dir: &Path) -> u64 {
@@ -1803,6 +1817,10 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 
 /// 白屏看门狗：只在窗口可见且未最小化时工作，托盘隐藏 / 正常最小化不会误重启。
 fn start_ui_watchdog(app: &tauri::AppHandle) {
+    if std::env::var_os("QINGHUA_DISABLE_UI_WATCHDOG").is_some() {
+        eprintln!("[ui] 已通过 QINGHUA_DISABLE_UI_WATCHDOG 暂停心跳看门狗");
+        return;
+    }
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(20));
@@ -2021,25 +2039,30 @@ pub fn run() {
         ])
         .setup(|app| {
             /*
+             * 权威数据从这里开始不再属于某个 WebView origin。
+             * 调试壳、release 壳和浏览器都连同一个本地服务与同一份文件库。
+             */
+            qinghua_shared_store::start_in_background();
+            /*
              * 窗口在这里**手动建**（`tauri.conf.json` 那条窗口配了 `"create": false`），
              * 唯一原因就是要赶在 webview 创建**之前**把它的数据目录指过去 ——
              * `data_directory` 只能在建窗口时给，建完就改不了了。
              */
-            let data_dir = resolve_data_dir(app.handle());
+            let data_dir = shared_shell_profile_dir(app.handle());
             match &data_dir {
                 Some(dir) => {
-                    if let Ok(default_root) = app.path().app_local_data_dir() {
-                        migrate_profile(&default_root, dir);
-                    }
-                    eprintln!("[data] 数据目录：{}", dir.display());
+                    eprintln!("[data] 共享壳 profile：{}", dir.display());
                 }
-                None => eprintln!("[data] 数据目录：系统默认位置（%LOCALAPPDATA%\\com.qinghua.canvas）"),
+                None => eprintln!("[data] 无法取得共享壳 profile 目录"),
             }
             /*
              * 建窗口前先拍一份：强杀后 WebView2 可能重建空库，
              * 这份副本就是“上次真正能读的数据”。
              */
-            backup_profile(app.handle());
+            /*
+             * 权威数据已迁到 shared-store，不再备份整个 WebView profile。
+             * 旧逻辑会在启动前复制 GB 级 IndexedDB，反而把窗口卡死。
+             */
             /*
              * 建窗口要能建**两次**（自定义数据目录那次失败还能回落），故包成一个闭包。
              * 会失败的情形：数据目录在两次检查之间被删 / 网络盘掉线 / WebView2 起不来 ——
@@ -2101,9 +2124,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            if let tauri::RunEvent::Exit = event {
-                backup_profile(app_handle);
-            }
+            let _ = (app_handle, event);
         });
 }
 

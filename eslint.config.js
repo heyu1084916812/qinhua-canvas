@@ -38,6 +38,7 @@ export default tseslint.config(
        * ⚠️ `src-tauri/target/` 另有自己的 `.gitignore`，这里只是连源码一起排除。
        */
       'src-tauri',
+      'target',
     ],
   },
   js.configs.recommended,

@@ -1,5 +1,24 @@
 # CanvasFlow（轻画）项目记忆
 
+### ★★★ 三端统一库：不要再修 origin，改用 shared-store（2026-10-18 → 对账 #571）
+
+- **同 URL 不等于同一个库**：Chrome profile、WebView2 profile、`127.0.0.1` 与
+  `tauri.localhost` 是三层隔离。只统一 URL 仍会留下多份 IndexedDB；唯一可靠口径是
+  把业务数据移到独立本地服务。现在权威库在
+  `%LOCALAPPDATA%\com.qinghua.canvas\shared-store-v1`，服务
+  `http://127.0.0.1:18765`。
+- **三端都只认 `StoragePort` 的 HTTP 实现**：`src/platform/web/sharedStorage.ts`。
+  服务不可用时必须报错，**绝不能回退 IndexedDB**；一旦回退就会重新产生分叉数据。
+- **桌面壳 profile 只存可重建缓存**：固定 `shell-v2`，不再把项目/素材放进 WebView
+  IndexedDB，也不再启动前复制整个 profile。旧 1.9GB MANIFEST / 20GB 试验副本
+  正是启动卡死的来源。
+- **浏览器开发必须走 `npm run dev`**（同时起 shared-store + Vite）；
+  `npm run dev:vite` 只给 Tauri `beforeDevCommand` 用。纯 Vite 打开时服务缺失，
+  页面应如实报错，不应静默换库。
+- **验收口径**：同一批项目在浏览器、调试壳、内嵌 release 三端同时可见；一端新建，
+  另两端刷新即出现。另测 shared-store Rust 单测、共享 Storage 单测、`tsc`、
+  `npm run build`、`cargo check`、`tauri build --no-bundle`。
+
 ### 桌面旧源素材核对（2026-10-17）
 
 - **跨源不是换索引即可解决**：旧数据在 `http://127.0.0.1:1420`，桌面 release 在

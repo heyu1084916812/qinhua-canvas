@@ -5,7 +5,7 @@
   "identifier": "com.qinghua.canvas",
   "build": {
     "devUrl": "http://127.0.0.1:1420",
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run dev:vite",
     "frontendDist": "../dist",
     "beforeBuildCommand": "npm run build"
   },

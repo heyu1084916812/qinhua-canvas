@@ -5,18 +5,20 @@ import type {
   NotifyPort,
   PlatformKit,
   RemoteBytesPort,
+  CredentialPort,
+  StoragePort,
   StorageAdminPort,
   UpdatePort,
 } from '../ports'
-import { createIndexedDbStorage } from './indexedDbStorage'
 import { createFetchNetwork } from './fetchNetwork'
-import { createWebCryptoCredentials } from './webCryptoCredentials'
 import { createFileAccessFiles } from './fileSystemAccessFiles'
 import { createConsoleLogger } from './consoleLogger'
 import { createStorageAssetPort } from '../assets'
 import { createWebHosting } from './hosting'
 import { createLocalFaceDetector } from './localFaceDetector'
 import { createWebAssetFolder } from './assetFolder'
+import { createSharedStorage } from './sharedStorage'
+import { createSharedCredentials } from './sharedCredentials'
 
 export function createWebPlatform(
   /**
@@ -44,15 +46,19 @@ export function createWebPlatform(
      * 浏览器里没有这一项 —— 调用方退回页面自带的 `Notification`。
      */
     notify?: NotifyPort
+    /** 所有运行时共用的权威存储；测试可显式换成 memory。 */
+    storage?: StoragePort
+    /** 凭据也跟权威库走，不再按 origin 落 localStorage。 */
+    credentials?: CredentialPort
   } = {},
 ): PlatformKit {
-  const storage = createIndexedDbStorage()
+  const storage = overrides.storage ?? createSharedStorage()
   /**
    * 网络层要**认识**桌面壳的原生 HTTP（对账 #518）：`remoteBytes` 只有壳传得进来，
    * 页面 `fetch` 撞上 CORS 时由它兜住再打一次。浏览器里没有这一项 ⇒ 行为与从前一致。
    */
   const network = createFetchNetwork(overrides.remoteBytes)
-  const credentials = createWebCryptoCredentials()
+  const credentials = overrides.credentials ?? createSharedCredentials()
   return {
     storage,
     network,

@@ -1,0 +1,75 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createSharedStorage } from './sharedStorage'
+
+function response(value: unknown) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => value,
+  } as Response
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+describe('shared storage', () => {
+  it('put 把 Uint8Array 编成可跨端传输的标记，query 再还原', async () => {
+    const calls: Array<{ url: string; body: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null })
+        if (url.endsWith('/query')) {
+          return response({
+            rows: [
+              {
+                id: 'a1',
+                bytes: { __qhType: 'u8', base64: btoa(String.fromCharCode(1, 2, 3)) },
+              },
+            ],
+          })
+        }
+        return response({ ok: true })
+      }),
+    )
+
+    const storage = createSharedStorage()
+    await storage.put('assets', { id: 'a1', bytes: new Uint8Array([1, 2, 3]) })
+    const rows = await storage.query('assets', { id: 'a1' })
+
+    expect(calls[0]!.body).toMatchObject({
+      table: 'assets',
+      row: { id: 'a1', bytes: { __qhType: 'u8' } },
+    })
+    expect(Array.from(rows[0]!.bytes as Uint8Array)).toEqual([1, 2, 3])
+  })
+
+  it('transaction 在回调成功后才一次提交，失败则一次都不提交', async () => {
+    const urls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        urls.push(url)
+        return response({ ok: true })
+      }),
+    )
+    const storage = createSharedStorage()
+
+    await storage.transaction(['nodes'], async () => {
+      await storage.put('nodes', { id: 'n1' })
+      await storage.put('nodes', { id: 'n2' })
+    })
+    expect(urls.filter((url) => url.endsWith('/tx'))).toHaveLength(1)
+    expect(urls.filter((url) => url.endsWith('/put'))).toHaveLength(0)
+
+    urls.length = 0
+    await expect(
+      storage.transaction(['nodes'], async () => {
+        await storage.put('nodes', { id: 'n3' })
+        throw new Error('stop')
+      }),
+    ).rejects.toThrow('stop')
+    expect(urls.filter((url) => url.endsWith('/tx'))).toHaveLength(0)
+  })
+})

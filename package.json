@@ -4,7 +4,9 @@
   "version": "0.1.4",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/dev-shared.mjs",
+    "dev:vite": "vite",
+    "storage": "cargo run --manifest-path shared-store/Cargo.toml",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "check": "tsc --noEmit && eslint . && depcruise src --config .dependency-cruiser.cjs && node scripts/check-theme.mjs && node scripts/check-contrast.mjs && node scripts/check-shell-geometry.mjs && node scripts/check-rail-buttons.mjs && node scripts/check-doc-index.mjs && node scripts/check-doc-migration.mjs",

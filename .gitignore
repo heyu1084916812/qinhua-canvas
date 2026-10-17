@@ -5,6 +5,7 @@ node_modules/
 dist/
 dist-ssr/
 *.local
+target/
 
 # 测试与验证产物
 coverage/

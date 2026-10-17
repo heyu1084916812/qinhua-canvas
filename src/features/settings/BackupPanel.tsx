@@ -37,7 +37,7 @@ export function BackupPanel() {
   /** 项目快照列表（对账 #378 A4）：按项目分组展示 */
   const [snapshots, setSnapshots] = useState<ProjectSnapshot[]>([])
   const [snapBusy, setSnapBusy] = useState(false)
-  /** 桌面壳数据副本信息（对账 #505；浏览器端没有这一项） */
+  /** 共享权威库位置（对账 #571；浏览器端没有这一项入口） */
   const [profileBackup, setProfileBackup] = useState<{ dir: string; keep: number } | null>(null)
 
   // 每个 platform 只建一次（否则每次渲染都是新对象，下面的 effect 会反复跑）
@@ -218,9 +218,9 @@ export function BackupPanel() {
         {profileBackup ? (
           <div className={styles.row} data-profile-backup>
             <span className={styles.label}>
-              桌面壳数据副本
+              共享权威库
               <span className={styles.sub}>
-                {profileBackup.dir} · 保留最近 {profileBackup.keep} 份 · 启动前 / 正常退出时自动拍
+                {profileBackup.dir} · 调试壳 / release 壳 / 浏览器共用 · 实时写入
               </span>
             </span>
             <button
@@ -229,7 +229,7 @@ export function BackupPanel() {
               data-profile-backup-open
               onClick={() => void platform.storageAdmin?.openDir(profileBackup.dir)}
             >
-              打开副本目录
+              打开共享库目录
             </button>
           </div>
         ) : null}
