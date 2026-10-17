@@ -730,6 +730,27 @@ export function CreationPanel(props: CreationPanelProps) {
     }
   }
 
+  /**
+   * 选模型时同步“哪条渠道能提供它”。
+   *
+   * 用户界面早已去掉渠道选择；节点里遗留的 `channelId` 只是创建时的内部默认值。
+   * 若只改 `model` 不改 `channelId`，执行层仍会按模型正确选路，但日志会拿旧渠道
+   * 当成“用户选择”，出现“节点选的是 ModelScope，实际发到 Comfly”的假冲突。
+   */
+  const selectModel = (modelName: string) => {
+    const provider = channelIdForLogical(enabled, modelName, ownedChannelId)
+    const nextChannelId = provider ?? ownedChannelId
+    onEvent({
+      type: 'setModel',
+      model: modelName,
+      ...(provider && provider !== ownedChannelId ? { channelId: provider } : {}),
+      recipe: {
+        ...recipeSnapshot({ model: modelName }),
+        channelId: nextChannelId || shownChannelId,
+      },
+    })
+  }
+
   const activeChannel = enabled.find((c) => c.id === shownChannelId)
   /**
    * 该渠道可选的全部模型。
@@ -1729,7 +1750,7 @@ export function CreationPanel(props: CreationPanelProps) {
             open={openPicker === 'model'}
             onToggle={() => togglePicker('model')}
             onClose={closePicker}
-            onSelect={(v) => onEvent({ type: 'setModel', model: v, recipe: recipeSnapshot({ model: v }) })}
+            onSelect={selectModel}
             /*
              * **一律可点**（用户 2026-09-27 第 8 轮：「当前提示词节点的模型是灰色的
              * 无法点击进行修改」）。

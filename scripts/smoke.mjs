@@ -13446,7 +13446,7 @@ async function g77(browser) {
   const routedSent = routedCount > 0 ? await routedLine.getAttribute('data-log-sent') : null
   rec(
     g,
-    '★★ 实际渠道与节点选择不一致时，日志写清「节点选的是谁、实际发到谁」',
+    '★★ 实际渠道与节点记录不一致时，日志写清「节点记录的渠道、实际发到哪条」',
     routedCount > 0 && routedIntended !== routedSent && routedSent === NAME,
     `intended=${routedIntended} sent=${routedSent}`,
   )
@@ -13618,6 +13618,19 @@ async function g79(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
   await configureMockChannel(page)
+  /**
+   * 回归用户这条真实场景：内置 ModelScope 仍启用，模板节点先落到它，
+   * 随后用户只把模型改成固定显示名 —— 选模型必须把节点里的旧渠道一起换掉。
+   */
+  const MODELSCOPE_ID = 'ch_builtin_modelscope'
+  await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+  await sleep(600)
+  const msEnabled = page.locator(`[data-channel-enabled="${MODELSCOPE_ID}"]`)
+  if ((await msEnabled.count()) > 0 && !(await msEnabled.isChecked())) {
+    await msEnabled.check()
+    await sleep(500)
+  }
+  const mockChannelId = await page.locator(USER_CHANNEL).first().getAttribute('data-channel-id')
   await gotoProjects(page)
   await page.locator('[data-template="text2img"]').waitFor({ state: 'visible', timeout: 20000 })
   await page.locator('[data-template="text2img"]').click()
@@ -13883,8 +13896,25 @@ async function g79(browser) {
   await sleep(800)
   const panel2 = page.locator('[data-creation-panel]')
   await panel2.waitFor({ state: 'visible', timeout: 10000 })
+  const genId = await gen.getAttribute('data-node-id')
+  await sleep(900)
+  const beforeModel = await readNodeData(page, genId)
+  rec(
+    g,
+    '★ 复现前置：节点先记着内置 ModelScope',
+    beforeModel.channelId === MODELSCOPE_ID,
+    `channel=${beforeModel.channelId} model=${beforeModel.model}`,
+  )
   await pickParam(panel2, 'model', 'GPT Image 2.5 Flare')
-  await sleep(400)
+  await sleep(900)
+  const afterModel = await readNodeData(page, genId)
+  rec(
+    g,
+    '★★ 只改模型时，节点里的旧渠道同步换成真正提供它的渠道',
+    afterModel.channelId === mockChannelId &&
+      afterModel.model === 'GPT Image 2.5 Flare',
+    `channel=${afterModel.channelId} want=${mockChannelId} model=${afterModel.model}`,
+  )
   rec(
     g,
     '★ 选中后 chip 显示的是**显示名**（前端只显示这一个名字）',

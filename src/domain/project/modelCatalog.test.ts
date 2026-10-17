@@ -318,6 +318,24 @@ describe('channelIdForLogical', () => {
     expect(channelIdForLogical(channels, 'image-2')).toBe('A')
   })
 
+  it('★★ 固定显示名只要配了映射就算可路由（渠道列表里没有同名条目也一样）', () => {
+    const channels = [
+      ch({
+        id: 'comfly',
+        models: [cap('mock-image-1')],
+        modelMap: { 'Nano Banana 2': 'gemini-3.1-flash-image' },
+      }),
+    ]
+    expect(channelIdForLogical(channels, 'Nano Banana 2', 'ch_builtin_modelscope')).toBe('comfly')
+  })
+
+  it('★ 渠道勾的是已知上游别名时也能按展示名找到', () => {
+    const channels = [
+      ch({ id: 'comfly', models: [cap('gemini-nano-banana-2.1')] }),
+    ]
+    expect(channelIdForLogical(channels, 'Nano Banana 2.1')).toBe('comfly')
+  })
+
   it('★ 没有映射时按同名直配找（老渠道零迁移）', () => {
     const channels = [ch({ id: 'B', models: [cap('mock-image-1')] })]
     expect(channelIdForLogical(channels, 'mock-image-1')).toBe('B')

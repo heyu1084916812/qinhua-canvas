@@ -16,6 +16,7 @@ import {
   PRESET_MODELS,
   presetIdForUpstream,
   presetModelsOf,
+  upstreamAliasesOf,
   type PresetModel,
 } from './modelPresets'
 
@@ -148,10 +149,29 @@ function findProvider(
      * 中转站里叫 `gpt-image-2.5-flare`；用户在设置页映射之前，渠道里能对上的
      * 只有逻辑名那一侧，也必须能取到能力（否则面板会把它当成「不认识」而隐藏）。
      */
+    const aliases = upstreamAliasesOf(name)
     const hit = [...c.models, ...(c.modelCache ?? [])].find(
-      (m) => m.id === upstream || m.id === name,
+      (m) => m.id === upstream || m.id === name || aliases.includes(m.id),
     )
     if (hit) return { channelId: c.id, capability: hit }
+    /**
+     * 映射行本身就是**可路由声明**（与 `routeCandidatesFor` 同一口径）。
+     * 固定显示名常常还没进渠道的 `models` 列表，但用户已经在设置里填了
+     * 映射；此时选模型仍要同步到这条渠道，否则节点会保留创建时的旧渠道。
+     */
+    if ((c.modelMap ?? {})[name]?.trim()) {
+      const preset = presetOf(name)
+      if (preset) {
+        return {
+          channelId: c.id,
+          capability: {
+            id: upstream,
+            category: preset.category,
+            inputTypes: preset.category === 'video' ? ['text', 'image', 'video'] : ['text', 'image'],
+          },
+        }
+      }
+    }
   }
   // 没有映射（恒等）时按同名直配找
   for (const c of ordered) {

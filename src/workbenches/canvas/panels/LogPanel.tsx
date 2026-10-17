@@ -152,7 +152,7 @@ export function LogPanel({ onClose }: { onClose: () => void }) {
                 record={r}
                 /**
                  * 渠道名按**实际发出**的那条取（M7-3）：选路后可能换了渠道。
-                 * 老记录没有 `sentChannelId` → 回落到 params（节点意图），
+                 * 老记录没有 `sentChannelId` → 回落到 params（节点记录值），
                  * 与加此字段前完全一致。
                  */
                 channelName={channelName(
@@ -248,7 +248,7 @@ function LogRow({
             data-log-intended={intendedChannelName}
             data-log-sent={channelName}
           >
-            节点选的是「{intendedChannelName}」，实际发到「{channelName}」
+            节点记录的渠道是「{intendedChannelName}」，实际发到「{channelName}」
           </div>
         )}
         {params.prompt && (

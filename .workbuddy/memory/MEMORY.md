@@ -8005,3 +8005,7 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   官方文档口径为 14 档比例、1K/2K/4K（不支持 512），走 Gemini 原生 `generateContent`。
   前端固定目录、后台映射、Agent 生图清单共用 `PRESET_IMAGE_MODELS`；参数面板另看
   `imageParamsFor`，两处都要加，否则会出现“下拉有名字、面板却退回通用档位”。
+- **“节点选的是 ModelScope，实际发到 Comfly”不是路由发错**（2026-10-17 → 对账 #564）：
+  节点创建时把旧 `channelId` 落进来了，后来只改 `model` 没同步渠道。执行层按模型选路是正确的，
+  错的是页面内部字段和日志措辞。选模型时必须用 `channelIdForLogical` 同步渠道，并让
+  `findProvider` 与 `routeCandidatesFor` 同口径：有映射行 / 已知上游别名就算可路由。

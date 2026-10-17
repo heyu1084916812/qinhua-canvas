@@ -119,7 +119,13 @@ export interface RecipeSnapshot {
 export type PanelEvent =
   | { type: 'setPrompt'; text: string }
   | { type: 'setChannel'; channelId: string }
-  | { type: 'setModel'; model: string; recipe?: RecipeSnapshot }
+  | {
+      type: 'setModel'
+      model: string
+      /** 选模型时同步到真正能提供它的渠道；一个事件落库，避免两步撤销。 */
+      channelId?: string
+      recipe?: RecipeSnapshot
+    }
   | { type: 'setRatio'; ratio: string; recipe?: RecipeSnapshot }
   | { type: 'setResolution'; resolution: string; recipe?: RecipeSnapshot }
   | { type: 'setQuality'; quality: string; recipe?: RecipeSnapshot }

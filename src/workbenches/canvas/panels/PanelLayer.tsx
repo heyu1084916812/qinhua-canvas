@@ -656,7 +656,10 @@ function handlePanelEvent(
       patch({ channelId: event.channelId, model: '' })
       break
     case 'setModel':
-      patch({ model: event.model })
+      patch({
+        model: event.model,
+        ...(event.channelId ? { channelId: event.channelId } : {}),
+      })
       remember(event.type, event.recipe)
       break
     case 'setRatio':
