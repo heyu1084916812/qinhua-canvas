@@ -10664,7 +10664,7 @@ async function g67(browser) {
     '★★ 普通画布出图按提示词自动命名，并保留同批序号',
     layout2.carriers.length >= 2 &&
       new Set(layout2.carriers.map((c) => c.title)).size === layout2.carriers.length &&
-      layout2.carriers.every((c) => / · \d+\/\d+$/.test(c.title)),
+      layout2.carriers.every((c) => /-\d{2}$/.test(c.title)),
     layout2.carriers.map((c) => c.title).join('｜'),
   )
   rec(

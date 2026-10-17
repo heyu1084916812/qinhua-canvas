@@ -14,19 +14,19 @@ describe('普通画布自动命名', () => {
     expect(isGenericGenerationTitle('小猫钓鱼')).toBe(false)
   })
 
-  it('去掉常见命令词，只取提示词首句并限制为 16 个字符', () => {
+  it('去掉常见命令词，只取提示词首句并限制视觉宽度', () => {
     expect(titleStemFromPrompt('请帮我生成一张白底运动鞋主图，右侧留白。', 'image')).toBe(
-      '白底运动鞋主图，右侧留白',
+      '白底运动鞋主图',
     )
     expect(titleStemFromPrompt('帮我画一幅：雨夜里的红色电话亭。第二句不要。', 'image')).toBe(
       '雨夜里的红色电话亭',
     )
-    expect(Array.from(titleStemFromPrompt('一'.repeat(40), 'image'))).toHaveLength(16)
+    expect(Array.from(titleStemFromPrompt('一'.repeat(40), 'image'))).toHaveLength(9)
   })
 
   it('空提示词有可读兜底，不会生成空标题', () => {
-    expect(titleStemFromPrompt('   ', 'image')).toBe('生成图片')
-    expect(titleStemFromPrompt('', 'video')).toBe('生成视频')
+    expect(titleStemFromPrompt('   ', 'image')).toBe('图片')
+    expect(titleStemFromPrompt('', 'video')).toBe('视频')
   })
 
   it('默认名改从提示词生成，多张结果带稳定序号', () => {
@@ -52,7 +52,7 @@ describe('普通画布自动命名', () => {
         index: 1,
         total: 2,
       }),
-    ).toBe('奶瓶产品主图 · 2/2')
+    ).toBe('奶瓶产品主图-02')
   })
 
   it('用户明确命名优先，不会被提示词摘要覆盖', () => {

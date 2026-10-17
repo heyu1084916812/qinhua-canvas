@@ -25,6 +25,7 @@ import type { LoopData } from '../../../domain/canvas/model/node'
 import { directDownstream } from '../../../domain/canvas/graph/upstreamOf'
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import type { NodeSnapshot } from '../../../domain/canvas/model/node'
+import { generatedNodeTitle } from '../../../domain/canvas/naming/autoTitle'
 import { createCanvasPlacement } from '../../../features/canvas/execution/canvasPlacement'
 import { fuseNode } from '../../../features/canvas/execution/fuseNode'
 // 执行引擎与宿主上移共享层（M6-5 路径 B）：画布注入自己的命令类型与落位适配器
@@ -721,12 +722,30 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
           outputTotals.set(from, (outputTotals.get(from) ?? 0) + 1)
         }
         const outputSeen = new Map<string, number>()
+        const assignedTitles: string[] = []
         const arranged: CanvasRunTask[] = allTasks.map((t, i) => {
           /** 承载节点挂在**它的来源生成节点**右边（用户 2026-09-24 的要求） */
           const from = sourceOf(t)
           const fromNode = graph.nodes.find((n) => n.id === from)
           const outputIndex = outputSeen.get(from) ?? 0
           outputSeen.set(from, outputIndex + 1)
+          const outputTotal = outputTotals.get(from) ?? 1
+          const autoTitle = generatedNodeTitle({
+            prompt: t.request.prompt,
+            mode: t.request.kind === 'video' ? 'video' : 'image',
+            slotKind: 'new',
+            sourceTitle: t.sourceTitle,
+            targetTitle: t.targetTitle,
+            materialTitle: t.materialTitle,
+            presetName: t.presetName,
+            existingTitles: [
+              ...graph.nodes.map((node) => node.title),
+              ...assignedTitles,
+            ],
+            index: outputIndex,
+            total: outputTotal,
+          })
+          assignedTitles.push(autoTitle)
           return {
             ...t,
             slot: {
@@ -737,7 +756,8 @@ export function CanvasExecutionProvider({ children }: { children: ReactNode }) {
             seq: i,
             callCount: total,
             outputIndex,
-            outputTotal: outputTotals.get(from) ?? 1,
+            outputTotal,
+            autoTitle,
           }
         })
 

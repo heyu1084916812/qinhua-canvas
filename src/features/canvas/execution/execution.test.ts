@@ -150,6 +150,36 @@ describe('buildRunPlan（单点生成）', () => {
     expect(plan.tasks[0]!.slot.kind).toBe('new')
   })
 
+  it('★★ 自动标题会使用上游素材文件名与节点预设', () => {
+    const { store, genId } = setup()
+    const materialId = 'n-material'
+    store.dispatch({
+      kind: 'node.create',
+      projectId: 'p1',
+      type: 'generation',
+      at: { x: -400, y: 0 },
+      id: materialId,
+      title: '婴儿奶瓶.png',
+      data: {
+        mode: 'image',
+        assetHash: 'h-material',
+        prompt: '',
+        linkedPromptNodeIds: [],
+        channelId: 'ch-mock',
+        model: 'mock-image-1',
+        thumbOrder: ['h-material'],
+        upstreamHidden: [],
+      },
+    })
+    store.dispatch({ kind: 'edge.connect', source: materialId, target: genId })
+    store.dispatch({ kind: 'node.updateData', id: genId, patch: { preset: 'product-sheet' } })
+
+    const plan = buildRunPlan('node', { originNodeId: genId }, store.getSnapshot(), 'single')
+    expect(plan.tasks[0]!.materialTitle).toBe('婴儿奶瓶.png')
+    expect(plan.tasks[0]!.presetName).toBe('产品设定图')
+    expect(plan.tasks[0]!.autoTitle).toBe('婴儿奶瓶-产品设定')
+  })
+
   it('渠道或模型未配置的节点不入计划', () => {
     const { store, promptId } = setup()
     store.dispatch({
@@ -605,8 +635,8 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     const carriers = generations.filter((n) => n.id !== genId)
     expect(carriers).toHaveLength(2)
     expect(carriers.map((n) => n.title).sort()).toEqual([
-      '一只在屋顶的猫 · 1/2',
-      '一只在屋顶的猫 · 2/2',
+      '一只在屋顶的猫-01',
+      '一只在屋顶的猫-02',
     ])
     // 源节点不动（它是输入方，不是结果容器）
     expect(dataOf(store, genId).assetHash).toBeUndefined()

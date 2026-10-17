@@ -11,6 +11,7 @@ import { getSpec } from '../../../domain/canvas/nodeSpecs/registry'
 import { topoSort } from '../../../domain/canvas/graph/topoSort'
 import { traverseDownstream } from '../../../domain/canvas/graph/traverseDownstream'
 import { planSlots } from '../../../domain/canvas/layout/slotPlacement'
+import { presetById } from '../../../domain/canvas/layout/presets'
 import { RATIO_FOLLOW_SOURCE } from '../../../domain/canvas/layout/constants'
 import { fingerprintOf } from '../../../domain/canvas/graph/fingerprint'
 import { isGeneratableType } from '../../../domain/canvas/model/node'
@@ -18,6 +19,7 @@ import { directDownstream } from '../../../domain/canvas/graph/upstreamOf'
 import { indexNodes } from '../../../domain/canvas/model/graph'
 import { expandInputs, expansionCount } from '../../../domain/canvas/execution/collectionExpand'
 import { createId } from '../../../shared/id'
+import { generatedNodeTitle } from '../../../domain/canvas/naming/autoTitle'
 
 export type { ExecutionMode }
 
@@ -73,6 +75,14 @@ export interface CanvasRunTask extends SharedRunTask {
   sourceTitle: string
   /** 计划落点的原标题。reuse 时用来判断用户是否已经手动命名。 */
   targetTitle: string
+  /** 第一张输入素材所属节点的标题，通常是上传文件名。 */
+  materialTitle: string
+  /** 当前视觉预设的显示名。 */
+  presetName: string
+  /** 画布上已经占用的标题，用于重名顺延。 */
+  existingTitles: string[]
+  /** 计划期算好的最终标题；落位与成功写回都只消费这个字段。 */
+  autoTitle: string
   /** 同一来源节点这一轮的第几张（从 0 起）与总张数，供自动命名生成序号。 */
   outputIndex: number
   outputTotal: number
@@ -401,6 +411,14 @@ export function buildRunPlan(
               : {}),
           },
         }
+        const firstAssetInput = withSourceImage.find(
+          (item): item is Extract<NodeInput, { kind: 'asset' }> => item.kind === 'asset',
+        )
+        const materialTitle = firstAssetInput
+          ? (index.get(firstAssetInput.nodeId)?.title ?? '')
+          : ''
+        const sourceGeneration = node.data as GenerationData
+        const presetName = presetById(sourceGeneration.preset)?.name ?? ''
 
         const task: CanvasRunTask = {
           id: createId('task'),
@@ -422,6 +440,12 @@ export function buildRunPlan(
             slot.kind === 'new'
               ? slot.title
               : (index.get(slot.nodeId)?.title ?? ''),
+          materialTitle,
+          presetName,
+          existingTitles: working.nodes
+            .filter((candidate) => !(slot.kind === 'reuse' && candidate.id === slot.nodeId))
+            .map((candidate) => candidate.title),
+          autoTitle: '',
           outputIndex: 0,
           outputTotal: 1,
           // 落位要用「源节点在画布上的位置」把新建节点摆在它右侧（用户 2026-09-16）
@@ -451,11 +475,26 @@ export function buildRunPlan(
     outputTotals.set(task.nodeId, (outputTotals.get(task.nodeId) ?? 0) + 1)
   }
   const outputSeen = new Map<string, number>()
+  const assignedTitles: string[] = []
   const titledTasks = tasks.map((task) => {
     const outputIndex = outputSeen.get(task.nodeId) ?? 0
     outputSeen.set(task.nodeId, outputIndex + 1)
+    const nextTitle = generatedNodeTitle({
+      prompt: task.request.prompt,
+      mode: task.request.kind === 'video' ? 'video' : 'image',
+      slotKind: task.slot.kind,
+      sourceTitle: task.sourceTitle,
+      targetTitle: task.targetTitle,
+      materialTitle: task.materialTitle,
+      presetName: task.presetName,
+      existingTitles: [...task.existingTitles, ...assignedTitles],
+      index: outputIndex,
+      total: outputTotals.get(task.nodeId) ?? 1,
+    })
+    assignedTitles.push(nextTitle)
     return {
       ...task,
+      autoTitle: nextTitle,
       outputIndex,
       outputTotal: outputTotals.get(task.nodeId) ?? 1,
     }
