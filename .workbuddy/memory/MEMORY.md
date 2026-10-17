@@ -8032,3 +8032,11 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   走统一 `show → unminimize → focus`，固定 label `main` 找不到时用 `webview_windows()` 的第一个。
   实机判据：最小化后启动第二实例，必须 `ProcessCount=1`、第二实例退出、原窗口恢复且
   `IsIconic=false`。`window.json` 只能保存正常几何，最小化哨兵值绝不能落盘。
+- **WebView2 白屏与 Vite dev URL 是两条独立事实**（2026-10-17 → 对账 #569）：
+  Win32 纯白时先看 Vite、系统 Chrome、WebView2 CDP：本项目实测 Vite 200 / Chrome 正常 /
+  WebView2 `#root=0` 且 `import('/src/main.tsx')` 后 CDP 断开；全新 profile、关 HMR 仍复现。
+  release 自定义协议加载 `dist` 正常。因此不要再靠“tauri dev 进程还在”判断健康。
+  桌面壳已接 tray-icon：关闭=隐藏，托盘左键恢复，菜单有打开/重载/退出；前端 5 秒 heartbeat，
+  可见窗口 20 秒无心跳自动 reload，生产二次失败重启。验证白屏恢复可用 CDP `Page.crash`，
+  30 秒后要求 `#root=1`；验证托盘关闭用 `WM_CLOSE` 后要求进程活、窗口隐藏，再启动要求
+  第二实例退出且原窗口可见。

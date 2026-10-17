@@ -15,7 +15,12 @@ use tauri_plugin_fs::FsExt;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_updater::UpdaterExt;
 use std::path::{Path, PathBuf};
-use tauri::Manager;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{Manager, State};
 
 /// 「选一个目录当素材文件夹」：弹系统目录选择框 → 把该目录**递归**加进 fs 作用域 → 返回绝对路径。
 ///
@@ -1720,6 +1725,9 @@ fn apply_saved_window(app: &tauri::AppHandle, win: &tauri::WebviewWindow, correc
 /// 第二实例回调里不能只按固定 label 找窗口：窗口 `create: false`、由 setup 手动构建，
 /// 版本变化或配置重载时 label 可能读不到。先找 `main`，再回落到应用当前唯一的 WebView。
 fn reveal_existing_window(app: &tauri::AppHandle) {
+    if let Ok(mut last) = app.state::<UiHealth>().last.lock() {
+        *last = Instant::now();
+    }
     let window = app
         .get_webview_window("main")
         .or_else(|| app.webview_windows().into_values().next());
@@ -1728,6 +1736,107 @@ fn reveal_existing_window(app: &tauri::AppHandle) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
+}
+
+/// 前端存活心跳。窗口可见但 20 秒没有心跳，就认为 WebView 白屏 / 渲染进程卡死。
+struct UiHealth {
+    last: Mutex<Instant>,
+    reloads: AtomicUsize,
+}
+
+impl Default for UiHealth {
+    fn default() -> Self {
+        Self {
+            last: Mutex::new(Instant::now()),
+            reloads: AtomicUsize::new(0),
+        }
+    }
+}
+
+#[tauri::command]
+fn ui_heartbeat(health: State<UiHealth>) {
+    if let Ok(mut last) = health.last.lock() {
+        *last = Instant::now();
+    }
+    health.reloads.store(0, Ordering::Relaxed);
+}
+
+/// 托盘：左键恢复窗口；菜单提供打开 / 重新加载 / 退出。
+fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let open = MenuItem::with_id(app, "tray_open", "打开轻画", true, None::<&str>)?;
+    let reload = MenuItem::with_id(app, "tray_reload", "重新加载界面", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "tray_quit", "退出轻画", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &reload, &quit])?;
+    let mut builder = TrayIconBuilder::with_id("main")
+        .menu(&menu)
+        .tooltip("轻画")
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "tray_open" => reveal_existing_window(app),
+            "tray_reload" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    if let Ok(mut last) = app.state::<UiHealth>().last.lock() {
+                        *last = Instant::now();
+                    }
+                    let _ = window.eval("window.location.reload()");
+                }
+            }
+            "tray_quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                reveal_existing_window(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon() {
+        builder = builder.icon(icon.clone());
+    }
+    builder.build(app)?;
+    Ok(())
+}
+
+/// 白屏看门狗：只在窗口可见且未最小化时工作，托盘隐藏 / 正常最小化不会误重启。
+fn start_ui_watchdog(app: &tauri::AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(20));
+        loop {
+            std::thread::sleep(Duration::from_secs(5));
+            let Some(window) = app.get_webview_window("main") else {
+                continue;
+            };
+            if !window.is_visible().unwrap_or(false) || window.is_minimized().unwrap_or(false) {
+                continue;
+            }
+            let elapsed = app
+                .state::<UiHealth>()
+                .last
+                .lock()
+                .map(|last| last.elapsed())
+                .unwrap_or_default();
+            if elapsed < Duration::from_secs(20) {
+                continue;
+            }
+            let attempts = app
+                .state::<UiHealth>()
+                .reloads
+                .fetch_add(1, Ordering::Relaxed);
+            eprintln!("[ui] 20 秒无心跳，WebView 可能白屏，执行第 {} 次重载", attempts + 1);
+            if let Ok(mut last) = app.state::<UiHealth>().last.lock() {
+                *last = Instant::now();
+            }
+            let _ = window.eval("window.location.reload()");
+            if attempts >= 1 && !cfg!(debug_assertions) {
+                app.restart();
+            }
+        }
+    });
 }
 
 /// 节流用的时钟：拖动窗口时 `Resized` / `Moved` 每帧都来，不能每帧写一次盘。
@@ -1842,6 +1951,7 @@ pub fn run() {
          * 免得"启动后第一次微调尺寸"被节流吃掉。
          */
         .manage(WindowSaveClock(std::sync::Mutex::new(std::time::Instant::now())))
+        .manage(UiHealth::default())
         /*
          * 本机 CLI 的进程表（见上面「本机 CLI」那一段）。
          * 进的是 `AppHandle` 的受管状态，所以 `cli_run` 与 `cli_kill` 看到的是同一张表。
@@ -1872,8 +1982,16 @@ pub fn run() {
                     }
                     remember_window(app, window);
                 }
-                tauri::WindowEvent::CloseRequested { .. } => {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
                     remember_window(window.app_handle(), window);
+                    /*
+                     * 有托盘时关闭按钮只隐藏窗口：生成任务与系统通知继续运行。
+                     * 真正退出走托盘菜单；托盘没建成功则保留系统默认关闭行为。
+                     */
+                    if window.app_handle().tray_by_id("main").is_some() {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
                 }
                 _ => {}
             }
@@ -1898,7 +2016,8 @@ pub fn run() {
             cli_spawn_window,
             cli_out_dir,
             cli_read_out,
-            rh_set_api_key
+            rh_set_api_key,
+            ui_heartbeat
         ])
         .setup(|app| {
             /*
@@ -1968,6 +2087,10 @@ pub fn run() {
                 eprintln!("[window] 显示主窗口失败：{err}");
             }
             let _ = window.set_focus();
+            if let Err(err) = setup_tray(app.handle()) {
+                eprintln!("[tray] 创建托盘失败（关闭按钮将退回直接退出）：{err}");
+            }
+            start_ui_watchdog(app.handle());
             /*
              * 显示**之后**再套一次：窗口还没显示时系统对 `set_size` 另有一套算法
              * （实测差 30px 高），这一趟会量一次实际尺寸并把差值补掉（见 `apply_saved_window`）。

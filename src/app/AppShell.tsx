@@ -1,4 +1,4 @@
-import { useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useSyncExternalStore, type ReactNode } from 'react'
 import { AppSidebar } from './AppSidebar'
 import { GlobalSettingsOverlay } from './GlobalSettingsOverlay'
 import { TitleBar } from './TitleBar'
@@ -14,6 +14,7 @@ import {
 import styles from './AppShell.module.css'
 import { usePlatform } from './providers/PlatformProvider'
 import { useAutoSnapshot } from '../state/project/useAutoSnapshot'
+import { startUiHeartbeat } from './uiHeartbeat'
 
 /**
  * 应用壳（产品文档 §2.1 / §2.2；架构文档 §5.10）。
@@ -29,6 +30,8 @@ import { useAutoSnapshot } from '../state/project/useAutoSnapshot'
  * 若在壳层里手动「开合时通知画布重算」，反而会漏掉过渡动画中间那几帧。
  */
 export function AppShell({ children }: { children: ReactNode }) {
+  useEffect(() => startUiHeartbeat(), [])
+
   /**
    * 自动快照（对账 #378 A4）：应用启动时跑一次，由规则层决定哪些项目真需要拍。
    * 放在壳层是因为它**与页面无关** —— 无论用户先打开项目页还是直接进画布，都该发生。
