@@ -31459,6 +31459,29 @@ async function g145(browser) {
     withImages.shots.filter((s) => !!s.imageHash).length === 2,
     `有图=${withImages.shots.filter((s) => !!s.imageHash).length}/3`,
   )
+  const srtButton = page.locator('[data-storyboard-export-srt]')
+  rec(
+    g,
+    '★★ 有台词的已出图镜头让「导出 SRT」可用，并显示字幕条数',
+    (await srtButton.isEnabled()) &&
+      /2\s*条字幕/.test((await srtButton.getAttribute('title')) ?? ''),
+    (await srtButton.getAttribute('title')) ?? '',
+  )
+  const srtDownloadPromise = page
+    .waitForEvent('download', { timeout: 10000 })
+    .catch(() => null)
+  await srtButton.click()
+  const srtDownload = await srtDownloadPromise
+  const srtPath = srtDownload ? await srtDownload.path() : null
+  const srtText = srtPath ? readFileSync(srtPath, 'utf8') : ''
+  rec(
+    g,
+    '★★★ 导出的 SRT 是真实文件，内容、文件名与时间轴同源',
+    /字幕\.srt$/.test(srtDownload?.suggestedFilename() ?? '') &&
+      srtText.includes('1\n00:00:00,000 --> 00:00:01,000\n第一镜的台词') &&
+      srtText.includes('2\n00:00:01,000 --> 00:00:06,000\n第二镜的台词'),
+    `file=${srtDownload?.suggestedFilename() ?? 'none'} bytes=${srtText.length}`,
+  )
 
   // 打开预览
   await page.locator('[data-storyboard-preview]').click()

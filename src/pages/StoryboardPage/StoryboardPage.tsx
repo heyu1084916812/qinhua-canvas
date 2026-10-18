@@ -55,6 +55,7 @@ import {
   buildEpisodePack,
   episodeTimeline,
   ffmpegArgs,
+  srtOf,
   type PackClip,
 } from '../../domain/storyboard/ffmpegPack'
 import { toBytes } from '../../platform/assets'
@@ -515,6 +516,8 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
    * 而它本身是几个查表的纯函数，一集几十镜的开销可以忽略。
    */
   const timeline = selected ? episodeTimeline(doc, selected.id) : { clips: [], missing: [] }
+  const timelineSrt = srtOf(timeline.clips)
+  const timelineSrtCues = timelineSrt ? timelineSrt.split('-->').length - 1 : 0
 
   /**
    * **把"这一镜该接的参考图"同步到连线上**（对账 #430）。
@@ -1589,6 +1592,24 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     }
   }
 
+  /** 单独导出这一集的 SRT；时间轴与应用内内嵌字幕轨同源。 */
+  const onExportSrt = async () => {
+    if (!selected || !timelineSrt) return
+    const episodeNo = episodes.findIndex((episode) => episode.id === selected.id) + 1
+    try {
+      await flush()
+      await platform.files.saveFile(
+        `${exportBaseName()}-第${episodeNo}集-字幕.srt`,
+        new Blob([timelineSrt], {
+          type: 'application/x-subrip;charset=utf-8',
+        }),
+      )
+      setStatus(`第 ${episodeNo} 集字幕已导出（${timelineSrtCues} 条）`)
+    } catch {
+      setStatus('导出 SRT 字幕失败')
+    }
+  }
+
   /**
    * 桌面内直接调用本机 FFmpeg 出片。
    *
@@ -2297,6 +2318,20 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                       onClick={() => void onExportPack()}
                     >
                       导出合成包
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.ghost}
+                      data-storyboard-export-srt
+                      disabled={!timelineSrt}
+                      title={
+                        timelineSrt
+                          ? `下载这一集的 SRT，共 ${timelineSrtCues} 条字幕`
+                          : '这一集还没有可导出的台词字幕'
+                      }
+                      onClick={() => void onExportSrt()}
+                    >
+                      导出 SRT
                     </button>
                     {platform.cli ? (
                       <button
