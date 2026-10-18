@@ -8301,3 +8301,10 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
 - **渠道模型顺序不是业务语义**：同一渠道同时有 chat / image / video 时，"第一个模型"可能恰好是聊天模型。生成节点若把类别留空，`resolveForNode` 会把它写进图片节点；界面有模型名，执行层却不发图片请求，症状看起来像“按钮点了没反应”。
 - **`resolveDefaults` 必须传类别**：提示词节点 = `chat`；生成 / 批量节点看 `extraData.mode`，`video` 走视频，其余按图片。不能只依赖 `newGeneratingNodeData` 事后补 `mode`，因为模型配方已经在那之前选错。
 - **测试夹具要故意把 chat 放第一**：这样“图片档仍选 img-1、视频档仍选 video-1”才是在测分类，而不是测列表顺序碰巧正确。G142 的 mock 映射同时补 `Agnes Image 2.5 Flash → mock-image-1`。
+### ★ 漫剧 SRT 内嵌字幕轨（2026-10-19 → 对账 #598）
+
+- **字幕不是烧录**：当前交付的是 MP4 独立 `mov_text` 字幕轨，不是把文字画进每一帧。FFmpeg 必须把 SRT 当额外输入，映射 `N:s`，`-c:s mov_text`，再加 `-disposition:s:0 default`；只把 `.srt` 放进文件夹是没用的。
+- **壳写文件必须收死**：`cli_write_out` 只允许单文件名、`.srt`、非空、≤2MB，拒绝路径 / 控制字符；它不是通用文件写原语。前端传数字字节数组，桌面端口测试要钉住 IPC 参数。
+- **成片与字幕共用时间戳**：一次渲染先算一个 `renderBase`，再派生 `.mp4` / `.srt`；分别调用 `Date.now()` 会出现两个不配套的名字。
+- **手动包必须同语义**：`buildEpisodePack` 在有台词时把 `第N集.srt` 同步放进 `ffmpegArgs`，清单明确告诉用户保存成该名。只修桌面按钮、不修复制命令，迟早又变成两套导出。
+- **真实验证口径**：用临时 FFmpeg 9.0.2 编码 2 秒短片，`ffprobe` 必须看到 `codec_name=mov_text` 且 `disposition.default=1`；再反解 SRT，文字和时间轴都要一致。

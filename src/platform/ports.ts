@@ -438,6 +438,13 @@ export interface CliPort {
   /** 把 CLI 写出来的产物读回来（base64 在壳内部解决，这里直接给字节） */
   readOut(path: string): Promise<Uint8Array>
   /**
+   * 把**小文本文件**写进 CLI 产物目录（当前只用于 `.srt` 字幕）。
+   *
+   * 名称只能是单文件名，壳会拒绝路径、控制字符和非 `.srt` 扩展名；内容上限 2MB。
+   * 大媒体文件不应走这里。
+   */
+  writeOut?(name: string, bytes: Uint8Array): Promise<string>
+  /**
    * 把 RunningHub CLI 的 API Key 写进**它自己的配置文件**（用户 2026-10-08 第 3 条：
    * 「runininghub 的 cli 是在 github 上找的，看看 github 上能不能把目前实现不了一键
    * 自动安装的 cli 给做好」）。

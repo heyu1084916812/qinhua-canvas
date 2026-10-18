@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   addEpisode,
   addShot,
+  addShotLine,
   attachShotImages,
   attachShotVideos,
   emptyStoryboard,
@@ -18,6 +19,7 @@ import {
   packMarkdown,
   srtOf,
   srtTime,
+  subtitleFileNameForOutput,
   type PackClip,
 } from './ffmpegPack'
 
@@ -210,6 +212,30 @@ describe('合成包 · FFmpeg 命令', () => {
     expect(cmd).toContain('-map "[outv]" -map "[aout]"')
   })
 
+  it('★★ 内嵌字幕轨：SRT 作为独立输入并映射为 mov_text', () => {
+    const args = ffmpegArgs(
+      [clip({ file: 'a.png', seconds: 3 })],
+      { subtitles: { file: 'D:\\cli-out\\第1集.srt' } },
+    )
+    expect(args).toContain('D:\\cli-out\\第1集.srt')
+    expect(args.join(' ')).toContain(
+      '-map 1:s -c:s mov_text -disposition:s:0 default',
+    )
+  })
+
+  it('★ 字幕输入编号排在 BGM 和配音之后，映射不会串到素材流', () => {
+    const args = ffmpegArgs(
+      [clip({ file: 'a.png' }), clip({ index: 2, file: 'b.png' })],
+      {
+        bgm: { file: 'music.mp3' },
+        voices: [{ file: 'line.wav', start: 0.5 }],
+        subtitles: { file: '第1集.srt' },
+      },
+    )
+    expect(args.join(' ')).toContain('-i music.mp3 -i line.wav -i 第1集.srt')
+    expect(args.join(' ')).toContain('-map 4:s -c:s mov_text')
+  })
+
   it('★ 一镜都没有 ⇒ 空串（调用方据此不导出，而不是导一份跑不了的包）', () => {
     expect(ffmpegCommand([])).toBe('')
   })
@@ -302,6 +328,40 @@ describe('合成包 · 整包与清单', () => {
     expect(pack.markdown).toContain('`my-assets`')
     expect(pack.markdown).toContain('第 2 镜：还没出图')
     expect(pack.markdown).toContain('要用的素材都在本地')
+  })
+
+  it('★★★ 有台词时合成包同时写 SRT 文件名并内嵌字幕轨，手动命令与应用内合成一致', () => {
+    const base = doc()
+    const withLine = addShotLine(
+      base,
+      base.shots[0]!.id,
+      { text: '雨夜快递到了' },
+      1,
+    )
+    const pack = buildEpisodePack({
+      doc: withLine,
+      episode: withLine.episodes[0]!,
+      episodeNo: 1,
+      assetOf: (hash) =>
+        hash === 'hash-a' ? { mime: 'image/png', local: true } : undefined,
+      folderName: 'my-assets',
+    })
+    expect(pack.subtitleFile).toBe('第1集.srt')
+    expect(pack.srt).toContain('雨夜快递到了')
+    expect(pack.command).toContain('-i "第1集.srt"')
+    expect(pack.command).toContain(
+      '-map 1:s -c:s mov_text -disposition:s:0 default',
+    )
+    expect(pack.markdown).toContain('保存为 `第1集.srt`')
+  })
+
+  it('★ 字幕文件名跟随成片名，只替换 mp4 扩展名', () => {
+    expect(subtitleFileNameForOutput('第1集.mp4')).toBe('第1集.srt')
+    expect(subtitleFileNameForOutput('D:\\成片\\第2集.MP4')).toBe(
+      'D:\\成片\\第2集.srt',
+    )
+    expect(subtitleFileNameForOutput('没有扩展名')).toBe('没有扩展名.srt')
+    expect(subtitleFileNameForOutput('已是字幕.srt')).toBe('已是字幕.srt')
   })
 
   it('★★★ 远端产物（只有 url）单独列出来：先在画布上下载、存成命令里那个文件名', () => {

@@ -1654,13 +1654,27 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
 
       const outDir = await cli.outDir()
       const sep = outDir.includes('\\') ? '\\' : '/'
-      const output = `${outDir}${outDir.endsWith(sep) ? '' : sep}${exportBaseName()}-第${episodeNo}集-${Date.now()}.mp4`
+      const renderBase = `${exportBaseName()}-第${episodeNo}集-${Date.now()}`
+      const output = `${outDir}${outDir.endsWith(sep) ? '' : sep}${renderBase}.mp4`
+      let subtitleFile = ''
+      if (pack.srt) {
+        const writeOut = cli.writeOut
+        if (!writeOut) {
+          setStatus('当前桌面壳不支持写入字幕文件，请更新桌面版后重试')
+          return
+        }
+        subtitleFile = await writeOut(
+          `${renderBase}.srt`,
+          new TextEncoder().encode(pack.srt),
+        )
+      }
       const args = ffmpegArgs(renderClips, {
         output,
         ...(pack.bgm
           ? { bgm: { file: bgmFile, volume: pack.bgm.volume } }
           : {}),
         ...(voiceFiles.length > 0 ? { voices: voiceFiles } : {}),
+        ...(subtitleFile ? { subtitles: { file: subtitleFile } } : {}),
       })
       setStatus(`正在用本机 FFmpeg 合成第 ${episodeNo} 集…`)
       const outcome = await cli.run({

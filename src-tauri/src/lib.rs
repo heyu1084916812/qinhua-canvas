@@ -1415,6 +1415,52 @@ fn cli_read_out(app: tauri::AppHandle, path: String) -> Result<String, String> {
     Ok(base64_encode(&bytes))
 }
 
+const CLI_TEXT_OUT_MAX_BYTES: usize = 2 * 1024 * 1024;
+
+/// 把一个小文本文件写进 CLI 产物目录（当前用于 SRT）。
+///
+/// 只接受单文件名：不允许路径、控制字符、首尾空白，且扩展名必须是 `.srt`。
+/// 这条命令只服务字幕落盘，不是通用文件写入原语。
+fn valid_cli_out_name(name: &str) -> bool {
+    let path = Path::new(name);
+    let is_srt = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("srt"));
+    !name.is_empty()
+        && name.chars().count() <= 180
+        && name.trim() == name
+        && !name
+            .chars()
+            .any(|ch| ch.is_control() || ch == '/' || ch == '\\' || ch == ':')
+        && !name.contains("..")
+        && path.file_name().and_then(|file| file.to_str()) == Some(name)
+        && is_srt
+}
+
+#[tauri::command]
+fn cli_write_out(app: tauri::AppHandle, name: String, bytes: Vec<u8>) -> Result<String, String> {
+    if !valid_cli_out_name(&name) {
+        return Err(
+            "字幕文件名不合法：只写文件名、扩展名必须是 .srt，不能包含路径或控制字符"
+                .to_string(),
+        );
+    }
+    if bytes.is_empty() {
+        return Err("字幕内容为空，没有可写入的文件".to_string());
+    }
+    if bytes.len() > CLI_TEXT_OUT_MAX_BYTES {
+        return Err("字幕文件超过 2MB，拒绝写入本机 CLI 产物目录".to_string());
+    }
+    let root = cli_out_root(&app)?;
+    let target = root.join(&name);
+    if !is_inside(&root, &target) {
+        return Err("只能写本机 CLI 产物目录里的文件".to_string());
+    }
+    std::fs::write(&target, bytes).map_err(|err| format!("写 CLI 文本文件失败：{err}"))?;
+    Ok(target.to_string_lossy().to_string())
+}
+
 // ── RunningHub CLI 的登录：写它自己的配置文件 ──
 //
 // 用户 2026-10-08 第 3 条：「runininghub 的 cli 是在 github 上找的，看看 github 上
@@ -1512,6 +1558,22 @@ mod cli_out_tests {
         assert!(!is_inside(root, Path::new(r"C:\data\cli-out2\a.png")));
         // 完全无关的盘
         assert!(!is_inside(root, Path::new(r"D:\other\a.png")));
+    }
+
+    #[test]
+    fn cli_text_out_name_rejects_paths_and_parent_segments() {
+        assert!(valid_cli_out_name("字幕.srt"));
+        assert!(valid_cli_out_name("subtitle-01.srt"));
+        assert!(valid_cli_out_name("subtitle-01.SRT"));
+        assert!(!valid_cli_out_name("../secret.srt"));
+        assert!(!valid_cli_out_name("sub/secret.srt"));
+        assert!(!valid_cli_out_name(r"sub\secret.srt"));
+        assert!(!valid_cli_out_name("C:secret.srt"));
+        assert!(!valid_cli_out_name(" subtitle.srt"));
+        assert!(!valid_cli_out_name("subtitle.txt"));
+        assert!(!valid_cli_out_name("subtitle.srt\n"));
+        assert!(!valid_cli_out_name(""));
+        assert!(!valid_cli_out_name(&format!("{}.srt", "a".repeat(177))));
     }
 
     /**
@@ -2034,6 +2096,7 @@ pub fn run() {
             cli_spawn_window,
             cli_out_dir,
             cli_read_out,
+            cli_write_out,
             rh_set_api_key,
             ui_heartbeat
         ])

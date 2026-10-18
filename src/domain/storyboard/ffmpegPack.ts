@@ -130,6 +130,8 @@ export interface EpisodePack {
   command: string
   /** SRT 全文；这一集一句台词都没有时是空串 */
   srt: string
+  /** 合成包要求用户与成片放在一起的字幕文件名；没有字幕时不存在 */
+  subtitleFile?: string
   /** 给人看的那一份（清单 + 命令 + 字幕 + 缺料） */
   markdown: string
 }
@@ -230,6 +232,8 @@ export function ffmpegArgs(
     output?: string
     bgm?: { file: string; volume?: number }
     voices?: readonly { file: string; start: number }[]
+    /** 内嵌字幕轨（当前由桌面本机渲染写入临时 SRT 后传入） */
+    subtitles?: { file: string }
   } = {},
 ): string[] {
   if (clips.length === 0) return []
@@ -288,6 +292,12 @@ export function ffmpegArgs(
     inputs.push('-i', voice.file)
     nextInput += 1
   }
+  let subtitleInput: number | null = null
+  if (opts.subtitles?.file) {
+    subtitleInput = nextInput
+    inputs.push('-i', opts.subtitles.file)
+    nextInput += 1
+  }
   let audioMap = ''
   let audioFilters: string[] = []
   if (audioLabels.length > 0) {
@@ -306,6 +316,16 @@ export function ffmpegArgs(
     '-map',
     '[outv]',
     ...(audioMap ? ['-map', audioMap, '-c:a', 'aac', '-b:a', '192k'] : []),
+    ...(subtitleInput !== null
+      ? [
+          '-map',
+          `${subtitleInput}:s`,
+          '-c:s',
+          'mov_text',
+          '-disposition:s:0',
+          'default',
+        ]
+      : []),
     '-c:v',
     'libx264',
     '-pix_fmt',
@@ -329,6 +349,19 @@ export function ffmpegCommand(
 ): string {
   const args = ffmpegArgs(clips, opts)
   return args.length > 0 ? ['ffmpeg', ...args.map(shellArg)].join(' ') : ''
+}
+
+/**
+ * 手动合成包里字幕文件与成片同目录同名，只换扩展名。
+ *
+ * 桌面端应用内合成会另写一个带时间戳的临时 SRT；手动包则要求用户把清单里的
+ * SRT 存成这里的文件名。两边的 FFmpeg 参数因此仍由 `ffmpegArgs` 同一处生成。
+ */
+export function subtitleFileNameForOutput(output: string): string {
+  const name = output.trim() || '第1集.mp4'
+  if (/\.srt$/i.test(name)) return name
+  if (/\.mp4$/i.test(name)) return name.replace(/\.mp4$/i, '.srt')
+  return `${name}.srt`
 }
 
 /** 秒 → `HH:MM:SS,mmm`（SRT 的时间格式就是这一种，逗号不是句点） */
@@ -465,6 +498,8 @@ export interface PackMarkdownArgs {
   voicesMissing?: readonly string[]
   command: string
   srt: string
+  /** 用户应保存到素材文件夹里的字幕文件名 */
+  subtitleFile?: string
   /** 剧名（空则回落「未命名漫剧」） */
   title: string
   episode: StoryboardEpisode
@@ -491,6 +526,7 @@ export function packMarkdown(args: PackMarkdownArgs): string {
     voicesMissing = [],
     command,
     srt,
+    subtitleFile,
     episode,
     episodeNo,
   } = args
@@ -554,7 +590,11 @@ export function packMarkdown(args: PackMarkdownArgs): string {
     out.push('')
   }
   if (srt) {
-    out.push(nextHeading('字幕（复制出来存成 `.srt`，或用同目录下那份）'))
+    out.push(
+      nextHeading(
+        `字幕（保存为 \`${subtitleFile || '第1集.srt'}\`，命令会自动内嵌为 mp4 字幕轨）`,
+      ),
+    )
     out.push('')
     out.push('```srt')
     out.push(srt.trimEnd())
@@ -628,6 +668,8 @@ export function buildEpisodePack(args: BuildPackArgs): EpisodePack {
   const { clips, missing } = episodeClips(args.doc, args.episode.id, args.assetOf)
   const { voices, missing: voicesMissing } = voiceTracksOf(clips, args.assetOf)
   const output = args.output ?? `第${args.episodeNo}集.mp4`
+  const srt = srtOf(clips)
+  const subtitleFile = srt ? subtitleFileNameForOutput(output) : ''
   let bgm: PackBgm | undefined
   let bgmMissing: string | undefined
   if (args.episode.bgmHash) {
@@ -652,8 +694,8 @@ export function buildEpisodePack(args: BuildPackArgs): EpisodePack {
     ...(voices.length > 0
       ? { voices: voices.map((voice) => ({ file: voice.file, start: voice.start })) }
       : {}),
+    ...(subtitleFile ? { subtitles: { file: subtitleFile } } : {}),
   })
-  const srt = srtOf(clips)
   const markdown = packMarkdown({
     clips,
     missing,
@@ -663,6 +705,7 @@ export function buildEpisodePack(args: BuildPackArgs): EpisodePack {
     voicesMissing,
     command,
     srt,
+    ...(subtitleFile ? { subtitleFile } : {}),
     title: args.doc.script.title,
     episode: args.episode,
     episodeNo: args.episodeNo,
@@ -678,6 +721,7 @@ export function buildEpisodePack(args: BuildPackArgs): EpisodePack {
     voicesMissing,
     command,
     srt,
+    ...(subtitleFile ? { subtitleFile } : {}),
     markdown,
   }
 }

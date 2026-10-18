@@ -34,6 +34,8 @@ export function createTauriCli(): CliPort {
     },
     outDir: () => invoke<string>('cli_out_dir'),
     readOut: async (path) => base64ToBytes(await invoke<string>('cli_read_out', { path })),
+    writeOut: (name, bytes) =>
+      invoke<string>('cli_write_out', { name, bytes: Array.from(bytes) }),
     /**
      * RunningHub 的登录（用户 2026-10-08 第 3 条）：壳把 Key 写进 CLI 自己的配置，
      * 与用户手敲 `rh auth set-key` 等效，但**密钥不进 argv**。见 `ports.ts` 那条的说明。
