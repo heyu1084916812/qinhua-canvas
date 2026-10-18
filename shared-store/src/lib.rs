@@ -499,7 +499,7 @@ fn handle(store: &Store, mut request: Request) {
             return Ok(json!({
                 "ok": true,
                 "service": "qinghua-shared-store",
-                "version": 1,
+                "version": 2,
                 "dataDir": root.to_string_lossy(),
             }));
         }

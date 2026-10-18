@@ -8,8 +8,11 @@ import type {
 } from '../ports'
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:18765'
+const REQUIRED_STORE_VERSION = 2
 export const SHARED_STORE_URL =
   String(import.meta.env.VITE_SHARED_STORE_URL ?? '').trim() || DEFAULT_BASE_URL
+
+class StaleSharedStoreError extends Error {}
 
 type JsonValue =
   | null
@@ -162,9 +165,22 @@ export function createSharedStorage(): StoragePort {
       const started = Date.now()
       while (true) {
         try {
-          await request('/health', { method: 'GET' }, 1_000)
+          const health = (await request('/health', { method: 'GET' }, 1_000)) as {
+            service?: string
+            version?: number
+          }
+          if (
+            health.service !== 'qinghua-shared-store' ||
+            typeof health.version !== 'number' ||
+            health.version < REQUIRED_STORE_VERSION
+          ) {
+            throw new StaleSharedStoreError(
+              `共享存储服务版本过旧（需要 ${REQUIRED_STORE_VERSION}），请关闭残留的旧 qinghua-store / 轻画进程后重新启动。`,
+            )
+          }
           return
-        } catch {
+        } catch (error) {
+          if (error instanceof StaleSharedStoreError) throw error
           if (Date.now() - started >= 8_000) {
             throw new Error(
               `无法连接共享存储服务 ${SHARED_STORE_URL}。调试壳/发布壳应自动启动它；纯浏览器请先运行 npm run storage。`,

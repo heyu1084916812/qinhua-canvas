@@ -14,6 +14,36 @@ afterEach(() => {
 })
 
 describe('shared storage', () => {
+  it('open 接受当前共享存储协议', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        response({
+          ok: true,
+          service: 'qinghua-shared-store',
+          version: 2,
+        }),
+      ),
+    )
+
+    await expect(createSharedStorage().open()).resolves.toBeUndefined()
+  })
+
+  it('open 明确拒绝旧共享存储，而不是静默使用慢后端', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        response({
+          ok: true,
+          service: 'qinghua-shared-store',
+          version: 1,
+        }),
+      ),
+    )
+
+    await expect(createSharedStorage().open()).rejects.toThrow('共享存储服务版本过旧')
+  })
+
   it('put 把 Uint8Array 编成可跨端传输的标记，query 再还原', async () => {
     const calls: Array<{ url: string; body: unknown }> = []
     vi.stubGlobal(
