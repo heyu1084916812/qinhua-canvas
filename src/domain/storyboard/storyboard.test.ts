@@ -935,14 +935,17 @@ describe('这一镜出视频：节点记账与产物镜像', () => {
     expect(text).toContain('保持人物身份、服装、场景与光线一致')
   })
 
-  it('★★ 转场字段：fade 能写回并读回，切回硬切时字段被删掉', () => {
+  it('★★ 转场字段：fade 与时长能写回并读回，非法时长夹取，切回硬切时字段被删掉', () => {
     const doc = sample()
     const shotId = doc.shots[0]!.id
-    const faded = updateShot(doc, shotId, { transition: 'fade' }, 30)
+    const faded = updateShot(doc, shotId, { transition: 'fade', transitionSec: 0.05 }, 30)
     expect(faded.shots[0]!.transition).toBe('fade')
+    expect(faded.shots[0]!.transitionSec).toBe(0.1)
     expect(parseStoryboard(faded, 'p1').shots[0]!.transition).toBe('fade')
+    expect(parseStoryboard(faded, 'p1').shots[0]!.transitionSec).toBe(0.1)
     const cut = updateShot(faded, shotId, { transition: 'cut' }, 31)
     expect('transition' in cut.shots[0]!).toBe(false)
+    expect('transitionSec' in cut.shots[0]!).toBe(false)
   })
 })
 

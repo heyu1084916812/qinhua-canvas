@@ -73,6 +73,7 @@ import {
   attachShotNodes,
   attachShotVideos,
   bindShotScene,
+  DEFAULT_TRANSITION_SECONDS,
   dismissMerge,
   exportStoryboardMarkdown,
   moveEpisode,
@@ -2909,22 +2910,41 @@ function ShotCard({
           />
         </label>
         {index < total - 1 ? (
-          <label className={styles.field}>
-            <span className={styles.label}>转场到下一镜</span>
-            <select
-              className={styles.select}
-              value={shot.transition ?? 'cut'}
-              data-storyboard-shot-transition={shot.id}
-              onChange={(e) =>
-                onPatch(shot.id, {
-                  transition: e.target.value === 'fade' ? 'fade' : 'cut',
-                })
-              }
-            >
-              <option value="cut">硬切</option>
-              <option value="fade">淡入淡出（黑场）</option>
-            </select>
-          </label>
+          <>
+            <label className={styles.field}>
+              <span className={styles.label}>转场到下一镜</span>
+              <select
+                className={styles.select}
+                value={shot.transition ?? 'cut'}
+                data-storyboard-shot-transition={shot.id}
+                onChange={(e) =>
+                  onPatch(shot.id, {
+                    transition: e.target.value === 'fade' ? 'fade' : 'cut',
+                  })
+                }
+              >
+                <option value="cut">硬切</option>
+                <option value="fade">淡入淡出（黑场）</option>
+              </select>
+            </label>
+            {shot.transition === 'fade' ? (
+              <label className={styles.field}>
+                <span className={styles.label}>转场时长（秒）</span>
+                <input
+                  className={styles.input}
+                  type="number"
+                  min={0.1}
+                  max={1}
+                  step={0.1}
+                  value={shot.transitionSec ?? DEFAULT_TRANSITION_SECONDS}
+                  data-storyboard-shot-transition-seconds={shot.id}
+                  onChange={(e) =>
+                    onPatch(shot.id, { transitionSec: Number(e.target.value) })
+                  }
+                />
+              </label>
+            ) : null}
+          </>
         ) : null}
       </div>
       <label className={styles.field}>

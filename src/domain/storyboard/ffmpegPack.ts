@@ -20,7 +20,9 @@
  */
 import { assetFileName } from '../shared/assetLocation'
 import {
+  DEFAULT_TRANSITION_SECONDS,
   characterNamesOf,
+  clampTransitionSeconds,
   sceneNameOf,
   shotDialogueLines,
   shotsOf,
@@ -52,8 +54,12 @@ export interface TimelineClip {
   seconds: number
   /** 上一镜设置了淡入淡出，这一段从黑场淡入 */
   fadeIn?: boolean
+  /** 淡入时长（秒）；没有设置时回落到默认值 */
+  fadeInSeconds?: number
   /** 这一镜设置了到下一镜的淡入淡出，这一段末尾淡出到黑场 */
   fadeOut?: boolean
+  /** 淡出时长（秒）；没有设置时回落到默认值 */
+  fadeOutSeconds?: number
   /**
    * 这一镜的台词（说话人已解出名字；空 = 没说清）。
    *
@@ -199,8 +205,11 @@ export function episodeTimeline(
    */
   for (let i = 1; i < picked.length; i += 1) {
     if (picked[i - 1]!.shot.transition !== 'fade') continue
+    const seconds = clampTransitionSeconds(picked[i - 1]!.shot.transitionSec)
     picked[i - 1]!.clip.fadeOut = true
+    picked[i - 1]!.clip.fadeOutSeconds = seconds
     picked[i]!.clip.fadeIn = true
+    picked[i]!.clip.fadeInSeconds = seconds
   }
   return { clips: picked.map((entry) => entry.clip), missing }
 }
@@ -240,14 +249,21 @@ export function ffmpegArgs(
     } else {
       inputs.push('-i', clip.file)
     }
-    const fadeSeconds = Math.min(0.3, Math.max(0.1, clip.seconds / 4))
+    const fadeInSeconds = Math.min(
+      clip.fadeInSeconds ?? DEFAULT_TRANSITION_SECONDS,
+      Math.max(0.1, clip.seconds / 2),
+    )
+    const fadeOutSeconds = Math.min(
+      clip.fadeOutSeconds ?? DEFAULT_TRANSITION_SECONDS,
+      Math.max(0.1, clip.seconds / 2),
+    )
     let chain =
       `[${i}:v]scale=${w}:${h}:force_original_aspect_ratio=decrease,` +
       `pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps},format=yuv420p`
-    if (clip.fadeIn) chain += `,fade=t=in:st=0:d=${fadeSeconds.toFixed(3)}`
+    if (clip.fadeIn) chain += `,fade=t=in:st=0:d=${fadeInSeconds.toFixed(3)}`
     if (clip.fadeOut) {
-      const start = Math.max(0, clip.seconds - fadeSeconds).toFixed(3)
-      chain += `,fade=t=out:st=${start}:d=${fadeSeconds.toFixed(3)}`
+      const start = Math.max(0, clip.seconds - fadeOutSeconds).toFixed(3)
+      chain += `,fade=t=out:st=${start}:d=${fadeOutSeconds.toFixed(3)}`
     }
     chains.push(`${chain}[v${i}]`)
   })

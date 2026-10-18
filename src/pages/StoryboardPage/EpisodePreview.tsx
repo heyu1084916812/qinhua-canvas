@@ -228,7 +228,11 @@ function PreviewMedia({
   ]
     .filter(Boolean)
     .join(' ')
-  const mediaStyle = { '--clip-seconds': `${clip.seconds}s` } as CSSProperties
+  const mediaStyle = {
+    '--clip-seconds': `${clip.seconds}s`,
+    '--fade-in-seconds': `${clip.fadeInSeconds ?? 0.3}s`,
+    '--fade-out-seconds': `${clip.fadeOutSeconds ?? 0.3}s`,
+  } as CSSProperties
   /**
    * 回调放 ref：`onAdvance` 每次渲染都是新函数，直接进依赖会让静帧的定时器
    * **每渲染一次就重头计时** —— 于是它永远走不到下一段（"点了播放但不动"）。

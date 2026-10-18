@@ -42,23 +42,27 @@
 
 .media {
   --clip-seconds: 1s;
+  --fade-in-seconds: 0.3s;
+  --fade-out-seconds: 0.3s;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
 }
 
 .fadeIn {
-  animation: previewFadeIn 0.3s ease-out;
+  animation: previewFadeIn var(--fade-in-seconds) ease-out;
 }
 
 .fadeOut {
-  animation: previewFadeOut 0.3s ease-in calc(var(--clip-seconds) - 0.3s) forwards;
+  animation: previewFadeOut var(--fade-out-seconds) ease-in
+    calc(var(--clip-seconds) - var(--fade-out-seconds)) forwards;
 }
 
 .fadeIn.fadeOut {
   animation:
-    previewFadeIn 0.3s ease-out,
-    previewFadeOut 0.3s ease-in calc(var(--clip-seconds) - 0.3s) forwards;
+    previewFadeIn var(--fade-in-seconds) ease-out,
+    previewFadeOut var(--fade-out-seconds) ease-in
+      calc(var(--clip-seconds) - var(--fade-out-seconds)) forwards;
 }
 
 @keyframes previewFadeIn {

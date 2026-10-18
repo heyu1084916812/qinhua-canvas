@@ -115,6 +115,16 @@ export interface StoryboardEpisode {
 }
 
 export const DEFAULT_BGM_VOLUME = 0.2
+export const DEFAULT_TRANSITION_SECONDS = 0.3
+export const MIN_TRANSITION_SECONDS = 0.1
+export const MAX_TRANSITION_SECONDS = 1
+
+export function clampTransitionSeconds(value: unknown): number {
+  const number = typeof value === 'number' && Number.isFinite(value)
+    ? value
+    : DEFAULT_TRANSITION_SECONDS
+  return Math.min(MAX_TRANSITION_SECONDS, Math.max(MIN_TRANSITION_SECONDS, number))
+}
 
 export interface StoryboardShot {
   id: string
@@ -140,6 +150,8 @@ export interface StoryboardShot {
    * 只记录“到下一镜”这一条边，避免相邻两镜各存一份转场后互相矛盾。
    */
   transition?: 'cut' | 'fade'
+  /** 淡入淡出的时长（秒）；只对 `transition === 'fade'` 有意义 */
+  transitionSec?: number
   /** 画面提示词：留空就由 `scene` 派生（`shotPrompt`） */
   prompt: string
   /**
@@ -375,6 +387,12 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
     const videoEndNodeId = text(row.videoEndNodeId)
     const videoHash = text(row.videoHash)
     const transition = text(row.transition).trim() === 'fade' ? 'fade' : ''
+    const transitionSec =
+      transition === 'fade' &&
+      typeof row.transitionSec === 'number' &&
+      Number.isFinite(row.transitionSec)
+        ? clampTransitionSeconds(row.transitionSec)
+        : undefined
     /** 悬空引用一律丢掉（手改过的备份 / 删过资产的老数据都可能留） */
     const sceneIdRaw = text(row.sceneId)
     const sceneId = sceneIdRaw && knownScenes.has(sceneIdRaw) ? sceneIdRaw : ''
@@ -395,6 +413,7 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
         prompt: text(row.prompt),
         ...(text(row.videoPrompt).trim() ? { videoPrompt: text(row.videoPrompt).trim() } : {}),
         ...(transition ? { transition } : {}),
+        ...(transitionSec !== undefined ? { transitionSec } : {}),
         /* 空串不落成字段：没有就是没有，别写一个 `undefined` 占位 */
         ...(nodeId ? { nodeId } : {}),
         ...(imageHash ? { imageHash } : {}),
@@ -780,7 +799,13 @@ export function updateShot(
            `removeShotLine`（同一个函数里塞三种语义，迟早在某一路写错） */
       }
       if (patch.transition === 'fade') next.transition = 'fade'
-      else if (patch.transition === 'cut') delete next.transition
+      else if (patch.transition === 'cut') {
+        delete next.transition
+        delete next.transitionSec
+      }
+      if (patch.transitionSec !== undefined && next.transition === 'fade') {
+        next.transitionSec = clampTransitionSeconds(patch.transitionSec)
+      }
       return next
     }),
     updatedAt: now,
