@@ -171,6 +171,14 @@ export interface StoryboardShot {
    * 所以"要不要重出视频"要看它在不在画布的节点表里，不能只看这个字段有没有值。
    */
   videoNodeId?: string
+  /**
+   * 首尾帧模式下作为**尾帧**的下一镜图片节点。
+   *
+   * 只记录“我们自己接的那条边”：重出视频时若下一镜换了节点 / 图片，
+   * 页面据此先断开旧尾帧，再连接新尾帧；用户手工接的其它参考图不动。
+   * 空 = 这一镜只用单张首帧（图生视频）。
+   */
+  videoEndNodeId?: string
   /** 这一镜视频产物的素材 hash（与 `imageHash` 同一套镜像纪律；换视频节点时清掉） */
   videoHash?: string
 }
@@ -351,6 +359,7 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
     const nodeId = text(row.nodeId)
     const imageHash = text(row.imageHash)
     const videoNodeId = text(row.videoNodeId)
+    const videoEndNodeId = text(row.videoEndNodeId)
     const videoHash = text(row.videoHash)
     /** 悬空引用一律丢掉（手改过的备份 / 删过资产的老数据都可能留） */
     const sceneIdRaw = text(row.sceneId)
@@ -374,6 +383,7 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
         ...(nodeId ? { nodeId } : {}),
         ...(imageHash ? { imageHash } : {}),
         ...(videoNodeId ? { videoNodeId } : {}),
+        ...(videoEndNodeId ? { videoEndNodeId } : {}),
         ...(videoHash ? { videoHash } : {}),
         ...(sceneId ? { sceneId } : {}),
         ...(characterRefs.length > 0 ? { characterIds: characterRefs } : {}),
@@ -1344,6 +1354,7 @@ export function attachShotNodes(
     delete next.imageHash
     /* 视频也是拿**旧那张图**做的：换了图节点，旧视频就不再属于这一镜（同一条纪律） */
     delete next.videoNodeId
+    delete next.videoEndNodeId
     delete next.videoHash
     return next
   })
@@ -1383,12 +1394,21 @@ export function setShotVideoNode(
   shotId: string,
   videoNodeId: string,
   now = 0,
+  videoEndNodeId = '',
 ): StoryboardDoc {
   let changed = false
   const shots = doc.shots.map((s) => {
-    if (s.id !== shotId || s.videoNodeId === videoNodeId) return s
+    const nextEndNodeId = videoEndNodeId.trim()
+    if (
+      s.id !== shotId ||
+      (s.videoNodeId === videoNodeId && (s.videoEndNodeId ?? '') === nextEndNodeId)
+    ) {
+      return s
+    }
     changed = true
     const next: StoryboardShot = { ...s, videoNodeId }
+    if (nextEndNodeId) next.videoEndNodeId = nextEndNodeId
+    else delete next.videoEndNodeId
     delete next.videoHash
     return next
   })

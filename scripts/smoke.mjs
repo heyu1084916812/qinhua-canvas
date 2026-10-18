@@ -30465,26 +30465,32 @@ async function g142(browser) {
   const shots = page.locator('[data-storyboard-shot]')
 
   const readDb = async () => {
+      const projectId = /\/storyboard\/([^/?]+)/.exec(page.url())?.[1] ?? ''
       const [nodes, edges, assets, boards] = await Promise.all([
         sharedRows(page, 'nodes'),
         sharedRows(page, 'edges'),
         sharedRows(page, 'assets'),
         sharedRows(page, 'storyboards'),
       ])
-      const doc = boards[0]?.doc
+      const projectNodes = nodes.filter((row) => row.projectId === projectId)
+      const projectEdges = edges.filter((row) => row.projectId === projectId)
+      const doc =
+        boards.find((row) => row.id === projectId || row.projectId === projectId)?.doc ?? null
       return {
-        nodes: nodes.map((n) => ({
+        nodes: projectNodes.map((n) => ({
           id: n.id,
           mode: n.data?.mode ?? null,
+          videoMode: n.data?.videoMode ?? null,
           assetHash: n.data?.assetHash ?? null,
         })),
-        edges: edges.map((e) => ({ source: e.source, target: e.target })),
+        edges: projectEdges.map((e) => ({ source: e.source, target: e.target })),
         mimes: assets.map((a) => ({ hash: a.hash, mime: String(a.mime ?? '') })),
         shots: (doc?.shots ?? []).map((s) => ({
           id: s.id,
           nodeId: s.nodeId ?? null,
           imageHash: s.imageHash ?? null,
           videoNodeId: s.videoNodeId ?? null,
+          videoEndNodeId: s.videoEndNodeId ?? null,
           videoHash: s.videoHash ?? null,
         })),
       }
@@ -30598,6 +30604,73 @@ async function g142(browser) {
     (await page.locator('[data-storyboard-lay-status="done"]').innerText()).trim(),
   )
 
+  /*
+   * ⑥ 下一镜也出图后，重出第一镜 = 复用原视频节点 + 首尾帧。
+   *
+   * 这里同时守两件真实缺陷：
+   * - 重出不能每次新建视频节点，否则画布会堆孤儿；
+   * - 两张相邻分镜都已出图时，第二张必须作为尾帧连进去，而不是被忽略。
+   */
+  await page.locator(`[data-storyboard-shot-run="${shot2}"]`).click()
+  const afterPairImage = await waitDb(
+    (db) => !!db.shots.find((s) => s.id === shot2)?.imageHash,
+    40000,
+  )
+  const shot2AfterImage = afterPairImage.shots.find((s) => s.id === shot2)
+  const pairButtonText = await page.locator(`[data-storyboard-shot-video="${shot1}"]`).innerText()
+  rec(
+    g,
+    '★★ 下一镜也出图后，第一镜按钮明确提示可用首尾帧',
+    !!shot2AfterImage?.nodeId &&
+      !!shot2AfterImage.imageHash &&
+      /首尾帧/.test(pairButtonText),
+    pairButtonText.trim(),
+  )
+
+  const nodesBeforePair = afterPairImage.nodes.length
+  const videoNodeBeforePair = s1?.videoNodeId ?? ''
+  await page.locator(`[data-storyboard-shot-video="${shot1}"]`).click()
+  const afterPairVideo = await waitDb((db) => {
+    const current = db.shots.find((s) => s.id === shot1)
+    const currentVideo = db.nodes.find((n) => n.id === current?.videoNodeId)
+    return (
+      current?.videoEndNodeId === shot2AfterImage?.nodeId &&
+      currentVideo?.videoMode === 'first-last-frame' &&
+      db.edges.some(
+        (edge) =>
+          edge.source === shot2AfterImage?.nodeId && edge.target === current?.videoNodeId,
+      )
+    )
+  }, 60000)
+  const pairShot = afterPairVideo.shots.find((s) => s.id === shot1)
+  const pairVideoNode = afterPairVideo.nodes.find((n) => n.id === pairShot?.videoNodeId)
+  const pairEdges = afterPairVideo.edges.filter(
+    (edge) => edge.target === pairShot?.videoNodeId,
+  )
+  rec(
+    g,
+    '★★★ 重出视频复用同一个视频节点，不在画布上堆孤儿节点',
+    !!videoNodeBeforePair &&
+      pairShot?.videoNodeId === videoNodeBeforePair &&
+      afterPairVideo.nodes.length === nodesBeforePair,
+    `视频节点 ${videoNodeBeforePair.slice(0, 10)}→${(pairShot?.videoNodeId ?? '').slice(0, 10)} · 节点 ${nodesBeforePair}→${afterPairVideo.nodes.length}`,
+  )
+  rec(
+    g,
+    '★★★ 首尾帧真接了两条上游边，并把模式写成 first-last-frame',
+    pairVideoNode?.videoMode === 'first-last-frame' &&
+      pairShot?.videoEndNodeId === shot2AfterImage?.nodeId &&
+      pairEdges.some((edge) => edge.source === pairShot?.nodeId) &&
+      pairEdges.some((edge) => edge.source === shot2AfterImage?.nodeId),
+    `模式=${pairVideoNode?.videoMode ?? '无'} 尾帧=${(pairShot?.videoEndNodeId ?? '').slice(0, 10)} 上游=${pairEdges.length}`,
+  )
+  rec(
+    g,
+    '★★ 首尾帧跑完后状态行明确说明用了两镜画面',
+    /首尾帧/.test(await page.locator('[data-storyboard-lay-status="done"]').innerText()),
+    (await page.locator('[data-storyboard-lay-status="done"]').innerText()).trim(),
+  )
+
   await page.screenshot({ path: `${OUT}/142-g142-shot-video.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
@@ -30621,16 +30694,22 @@ async function g143(browser) {
   const shots = page.locator('[data-storyboard-shot]')
 
   const readDb = async () => {
+      const projectId = /\/storyboard\/([^/?]+)/.exec(page.url())?.[1] ?? ''
       const [nodes, edges, boards, runs] = await Promise.all([
         sharedRows(page, 'nodes'),
         sharedRows(page, 'edges'),
         sharedRows(page, 'storyboards'),
         sharedRows(page, 'runRecords'),
       ])
-      const doc = boards[0]?.doc
+      const doc =
+        boards.find((row) => row.id === projectId || row.projectId === projectId)?.doc ?? null
       return {
-        nodes: nodes.map((n) => ({ id: n.id, mode: n.data?.mode ?? null })),
-        edges: edges.map((e) => ({ source: e.source, target: e.target })),
+        nodes: nodes
+          .filter((row) => row.projectId === projectId)
+          .map((n) => ({ id: n.id, mode: n.data?.mode ?? null })),
+        edges: edges
+          .filter((row) => row.projectId === projectId)
+          .map((e) => ({ source: e.source, target: e.target })),
         characters: (doc?.characters ?? []).map((c) => ({
           id: c.id,
           nodeId: c.nodeId ?? null,
@@ -30647,12 +30726,14 @@ async function g143(browser) {
           imageHash: s.imageHash ?? null,
           sceneId: s.sceneId ?? null,
         })),
-        runs: runs.map((r) => ({
-          nodeId: r.nodeId,
-          createdAt: r.createdAt ?? 0,
-          version: r.version ?? 0,
-          inputs: r.inputs ?? [],
-        })),
+        runs: runs
+          .filter((row) => row.projectId === projectId)
+          .map((r) => ({
+            nodeId: r.nodeId,
+            createdAt: r.createdAt ?? 0,
+            version: r.version ?? 0,
+            inputs: r.inputs ?? [],
+          })),
       }
     }
   /** 等到库里某个条件成立（画布 store 落库是 800ms 防抖，别拿墙钟赌） */

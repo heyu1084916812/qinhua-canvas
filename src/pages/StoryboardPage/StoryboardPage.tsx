@@ -17,6 +17,7 @@ import {
 import { useAsset, useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
 import { applyDefaults, resolveDefaults } from '../../features/canvas/createNodeWithDefaults'
 import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
+import { videoParamsFor } from '../../domain/canvas/layout/videoParams'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import type { Edge } from '../../domain/canvas/model/edge'
 import type { RunTaskState } from '../../features/shared/execution/runEngine'
@@ -1052,8 +1053,9 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
    *
    * 四件事，一件都不能省：
    * ① 这一镜得先有图（图生视频是拿图去动的，没图就没得动）；
-   * ② 建一个 `mode:'video'` 的**新节点**，并把这一镜的图节点**连上去** ——
-   *    上游图正是靠这条连线进 `inputs` 的（G141 验过：`[{kind:'asset',…}]`）；
+   * ② 第一次建一个 `mode:'video'` 的**新节点**；重出时**复用**它。把这一镜的图节点
+   *    连上去，下一镜已出图且模型支持时再接一条尾帧 —— 上游图正是靠这两条连线进
+   *    `inputs` 的（G141 验过：`[{kind:'asset',…}]`）；
    * ③ **建完节点立刻写进文档**（`setShotVideoNode`）—— 跑视频是长任务、中途失败很常见，
    *    那时节点已经躺在画布上了；不写，用户再点一次会又建一个，画布上慢慢堆起没人认领的空节点；
    * ④ 产物 hash 由上面那条镜像 effect 收回文档，列表才知道这一镜有视频了。
@@ -1083,6 +1085,38 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         })
         return
       }
+      const latestDoc = docRef.current
+      const episodeShots = latestDoc ? shotsOf(latestDoc, shot.episodeId) : []
+      const shotIndex = episodeShots.findIndex((item) => item.id === shot.id)
+      const nextShot = shotIndex >= 0 ? episodeShots[shotIndex + 1] : undefined
+      const nextFrameNodeId =
+        nextShot?.nodeId && nextShot.imageHash && liveNodeIds.has(nextShot.nodeId)
+          ? nextShot.nodeId
+          : ''
+      const liveChannel = channels
+        .getState()
+        .channels.find((channel) => channel.id === recipe.channelId)
+      const logicalModel =
+        Object.entries(liveChannel?.modelMap ?? {}).find(
+          ([, upstream]) => upstream === recipe.model,
+        )?.[0] ?? recipe.model
+      const videoSpec = videoParamsFor(logicalModel)
+      /**
+       * 未声明能力时不设限（项目既有口径）：认不出的渠道模型仍可按首尾帧发，
+       * 由适配器 / 上游如实报错；只有**明确声明了不支持**时才回落单张首帧。
+       */
+      const supportsFirstLastFrame =
+        !!nextFrameNodeId &&
+        (videoSpec ? videoSpec.modes.includes('first-last-frame') : true)
+      const endFrameNodeId = supportsFirstLastFrame ? nextFrameNodeId : ''
+      const singleImageMode = videoSpec?.modes.includes('image-to-video')
+        ? 'image-to-video'
+        : videoSpec?.modes.includes('all-purpose')
+          ? 'all-purpose'
+          : undefined
+      const videoMode = endFrameNodeId
+        ? 'first-last-frame'
+        : singleImageMode
       const imageNode = graph.nodes.find((n) => n.id === shot.nodeId)
       const data = await resolveDefaults({
         channels,
@@ -1091,24 +1125,72 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
           mode: 'video',
           model: recipe.model,
           prompt: shotPromptWithAssets(doc, shot),
+          ...(videoMode ? { videoMode } : {}),
         },
       })
-      let nodeId = ''
+      let nodeId =
+        shot.videoNodeId && liveNodeIds.has(shot.videoNodeId) ? shot.videoNodeId : ''
       canvasStore.beginPlan('storyboard:shot-video', '这一镜出视频')
       try {
-        nodeId =
-          applyDefaults({
-            store: canvasStore,
-            channels,
-            projectId,
-            type: 'generation',
-            /* 贴着这一镜的图节点往右放（与模板「图生视频」的摆法一致，一眼看得出谁喂谁） */
-            at: { x: (imageNode?.x ?? 40) + 280, y: imageNode?.y ?? 40 },
-            data,
-          }) ?? ''
-        /* 这一步是"图进请求"的全部机制：连线就是 inputs（G141 验过） */
         if (nodeId) {
-          canvasStore.dispatch({ kind: 'edge.connect', source: shot.nodeId, target: nodeId })
+          /**
+           * 重出必须**复用原视频节点**：每次都新建会让画布堆出一排空视频节点，
+           * 而分镜文档只认最后一个，前几个就永远没人认领。
+           */
+          canvasStore.dispatch({
+            kind: 'node.updateData',
+            id: nodeId,
+            patch: {
+              ...data,
+              mode: 'video',
+              model: recipe.model,
+              prompt: shotPromptWithAssets(doc, shot),
+              count: 1,
+              ...(videoMode ? { videoMode } : {}),
+            },
+          })
+        } else {
+          nodeId =
+            applyDefaults({
+              store: canvasStore,
+              channels,
+              projectId,
+              type: 'generation',
+              /* 贴着这一镜的图节点往右放（与模板「图生视频」的摆法一致，一眼看得出谁喂谁） */
+              at: { x: (imageNode?.x ?? 40) + 280, y: (imageNode?.y ?? 40) },
+              data,
+            }) ?? ''
+        }
+        if (nodeId) {
+          const connected = new Set(
+            graph.edges.filter((edge) => edge.target === nodeId).map((edge) => edge.source),
+          )
+          /* 下一镜换了 / 被删了：只断我们自己记录的旧尾帧，用户手工参考图不动。 */
+          if (
+            shot.videoEndNodeId &&
+            shot.videoEndNodeId !== endFrameNodeId &&
+            connected.has(shot.videoEndNodeId)
+          ) {
+            const old = graph.edges.find(
+              (edge) => edge.source === shot.videoEndNodeId && edge.target === nodeId,
+            )
+            if (old) {
+              canvasStore.dispatch({ kind: 'edge.remove', id: old.id })
+              connected.delete(shot.videoEndNodeId)
+            }
+          }
+          /* 这一步是"图进请求"的全部机制：连线就是 inputs（G141 验过） */
+          if (!connected.has(shot.nodeId)) {
+            canvasStore.dispatch({ kind: 'edge.connect', source: shot.nodeId, target: nodeId })
+            connected.add(shot.nodeId)
+          }
+          if (endFrameNodeId && !connected.has(endFrameNodeId)) {
+            canvasStore.dispatch({
+              kind: 'edge.connect',
+              source: endFrameNodeId,
+              target: nodeId,
+            })
+          }
         }
       } finally {
         canvasStore.endPlan()
@@ -1118,10 +1200,27 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         return
       }
       const current = docRef.current
-      if (current) apply(setShotVideoNode(current, shot.id, nodeId, 0))
-      setLay({ kind: 'running', text: '这一镜的视频在跑…' })
-      await exec.runNode(nodeId)
-      setLay({ kind: 'done', text: '这一镜的视频已出（画布里就挂在这一镜的图右边）' })
+      if (current) apply(setShotVideoNode(current, shot.id, nodeId, 0, endFrameNodeId))
+      setLay({
+        kind: 'running',
+        text: endFrameNodeId
+          ? '这一镜的视频在跑（首尾帧：接到下一镜的画面）…'
+          : nextFrameNodeId
+            ? '这一镜的视频在跑（当前视频模型不支持首尾帧，按单张首帧生成）…'
+            : '这一镜的视频在跑…',
+      })
+      await exec.runNode(nodeId, { inPlace: true })
+      const state = exec.nodeStateOf(nodeId)
+      if (state?.kind === 'failed') {
+        setLay({ kind: 'error', text: `这一镜的视频生成失败：${describeError(state.error)}` })
+        return
+      }
+      setLay({
+        kind: 'done',
+        text: endFrameNodeId
+          ? '这一镜的视频已出（用了这一镜与下一镜的首尾帧）'
+          : '这一镜的视频已出（画布里就挂在这一镜的图右边）',
+      })
     } catch (e) {
       setLay({ kind: 'error', text: humanError(e) })
     }
@@ -2033,6 +2132,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                             ? () => void makeShotVideo(shot)
                             : undefined
                         }
+                        videoPairHint={Boolean(
+                          shots[index + 1]?.nodeId &&
+                            liveNodeIds.has(shots[index + 1]!.nodeId!) &&
+                            shots[index + 1]?.imageHash,
+                        )}
                         onBindScene={(sceneId) => apply(bindShotScene(doc, shot.id, sceneId, 0))}
                         onToggleCharacter={(characterId) =>
                           apply(toggleShotCharacter(doc, shot.id, characterId, 0))
@@ -2162,6 +2266,7 @@ function ShotCard({
   onToggleCharacter,
   onLocate,
   onMakeVideo,
+  videoPairHint,
   onShowSource,
   onAddLine,
   onLinePatch,
@@ -2199,6 +2304,8 @@ function ShotCard({
   onLocate?: () => void
   /** 「出视频」（对账 #429）：这一镜有图且节点还在时才传；不传就不渲染这个入口 */
   onMakeVideo?: () => void
+  /** 下一镜也已经出图：视频将优先使用首尾帧，把两镜画面接起来 */
+  videoPairHint?: boolean
   /** 「看本集原文」（对账 #547）：这一集有可回看的原文片段时才传 */
   onShowSource?: () => void
 }) {
@@ -2327,10 +2434,16 @@ function ShotCard({
               className={styles.ghost}
               data-storyboard-shot-video={shot.id}
               disabled={busy}
-              title="拿这一镜的图去生成一段视频（另起一个视频节点，这一镜的图不会被顶掉）"
+              title={
+                videoPairHint
+                  ? '下一镜也已出图：优先用这一镜和下一镜做首尾帧；模型不支持时回落单张首帧'
+                  : '拿这一镜的图去生成一段视频（另起一个视频节点，这一镜的图不会被顶掉）'
+              }
               onClick={onMakeVideo}
             >
-              {shot.videoHash ? '重出这一镜的视频' : '出视频'}
+              {shot.videoHash
+                ? `重出这一镜的视频${videoPairHint ? ' · 首尾帧' : ''}`
+                : `出视频${videoPairHint ? ' · 首尾帧' : ''}`}
             </button>
           ) : null}
         </div>

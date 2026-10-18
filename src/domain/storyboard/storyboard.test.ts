@@ -785,8 +785,9 @@ describe('这一镜出视频：节点记账与产物镜像', () => {
   it('★ 建完节点就写进文档（跑视频中途失败，节点也已经躺在画布上了）', () => {
     const doc = sample()
     const shotId = doc.shots[0]!.id
-    const next = setShotVideoNode(doc, shotId, 'nv1', 7)
+    const next = setShotVideoNode(doc, shotId, 'nv1', 7, 'n-next')
     expect(next.shots[0]!.videoNodeId).toBe('nv1')
+    expect(next.shots[0]!.videoEndNodeId).toBe('n-next')
     expect(next.updatedAt).toBe(7)
   })
 
@@ -795,18 +796,46 @@ describe('这一镜出视频：节点记账与产物镜像', () => {
     const shotId = doc.shots[0]!.id
     const withVideo: StoryboardDoc = {
       ...doc,
-      shots: [{ ...doc.shots[0]!, videoNodeId: 'nv-old', videoHash: 'hv-old' }],
+      shots: [
+        {
+          ...doc.shots[0]!,
+          videoNodeId: 'nv-old',
+          videoEndNodeId: 'n-old-next',
+          videoHash: 'hv-old',
+        },
+      ],
     }
-    const next = setShotVideoNode(withVideo, shotId, 'nv-new', 9)
+    const next = setShotVideoNode(withVideo, shotId, 'nv-new', 9, 'n-new-next')
     expect(next.shots[0]!.videoNodeId).toBe('nv-new')
+    expect(next.shots[0]!.videoEndNodeId).toBe('n-new-next')
     expect('videoHash' in next.shots[0]!).toBe(false)
   })
 
-  it('★ 同一个节点再来一次 / 不认识的 shotId ⇒ 原样返回原引用', () => {
+  it('★★ 同一视频节点换尾帧也要清掉旧 hash（镜头衔接变了，旧成片不再成立）', () => {
     const doc = sample()
     const shotId = doc.shots[0]!.id
-    const once = setShotVideoNode(doc, shotId, 'nv1', 1)
-    expect(setShotVideoNode(once, shotId, 'nv1', 2)).toBe(once)
+    const withVideo: StoryboardDoc = {
+      ...doc,
+      shots: [
+        {
+          ...doc.shots[0]!,
+          videoNodeId: 'nv1',
+          videoEndNodeId: 'n-old-next',
+          videoHash: 'hv-old',
+        },
+      ],
+    }
+    const next = setShotVideoNode(withVideo, shotId, 'nv1', 10, 'n-new-next')
+    expect(next.shots[0]!.videoNodeId).toBe('nv1')
+    expect(next.shots[0]!.videoEndNodeId).toBe('n-new-next')
+    expect('videoHash' in next.shots[0]!).toBe(false)
+  })
+
+  it('★ 同一个节点且尾帧不变 / 不认识的 shotId ⇒ 原样返回原引用', () => {
+    const doc = sample()
+    const shotId = doc.shots[0]!.id
+    const once = setShotVideoNode(doc, shotId, 'nv1', 1, 'n-next')
+    expect(setShotVideoNode(once, shotId, 'nv1', 2, 'n-next')).toBe(once)
     expect(setShotVideoNode(doc, 'shot_x', 'nv1', 2)).toBe(doc)
   })
 
@@ -832,6 +861,7 @@ describe('这一镜出视频：节点记账与产物镜像', () => {
           nodeId: 'n-old',
           imageHash: 'h-old',
           videoNodeId: 'nv-old',
+          videoEndNodeId: 'n-old-next',
           videoHash: 'hv-old',
         },
       ],
@@ -840,24 +870,45 @@ describe('这一镜出视频：节点记账与产物镜像', () => {
     expect(next.shots[0]!.nodeId).toBe('n-new')
     expect('imageHash' in next.shots[0]!).toBe(false)
     expect('videoNodeId' in next.shots[0]!).toBe(false)
+    expect('videoEndNodeId' in next.shots[0]!).toBe(false)
     expect('videoHash' in next.shots[0]!).toBe(false)
   })
 
-  it('★ 读回：videoNodeId / videoHash 按字段读，空值不落占位', () => {
+  it('★ 读回：videoNodeId / videoEndNodeId / videoHash 按字段读，空值不落占位', () => {
     const doc = sample()
     const shotId = doc.shots[0]!.id
     const raw = {
       ...doc,
-      shots: [{ ...doc.shots[0]!, videoNodeId: 'nv1', videoHash: 'hv1' }],
+      shots: [
+        {
+          ...doc.shots[0]!,
+          videoNodeId: 'nv1',
+          videoEndNodeId: 'n-next',
+          videoHash: 'hv1',
+        },
+      ],
     }
     const parsed = parseStoryboard(raw, 'p1')
     expect(parsed.shots[0]!.videoNodeId).toBe('nv1')
+    expect(parsed.shots[0]!.videoEndNodeId).toBe('n-next')
     expect(parsed.shots[0]!.videoHash).toBe('hv1')
     const bare = parseStoryboard(
-      { ...doc, shots: [{ ...doc.shots[0]!, id: shotId, videoNodeId: '', videoHash: '' }] },
+      {
+        ...doc,
+        shots: [
+          {
+            ...doc.shots[0]!,
+            id: shotId,
+            videoNodeId: '',
+            videoEndNodeId: '',
+            videoHash: '',
+          },
+        ],
+      },
       'p1',
     )
     expect('videoNodeId' in bare.shots[0]!).toBe(false)
+    expect('videoEndNodeId' in bare.shots[0]!).toBe(false)
     expect('videoHash' in bare.shots[0]!).toBe(false)
   })
 })
