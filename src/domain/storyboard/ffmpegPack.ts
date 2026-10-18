@@ -55,7 +55,7 @@ export interface TimelineClip {
    * **一镜可以好几句**（对账 #435 的对白层）：所以 SRT 要按字数把这一镜的秒数分给它们，
    * 而不是每句都占满整镜（那会让字幕比画面慢一截）。
    */
-  lines: { lineId: string; speaker: string; text: string }[]
+  lines: { lineId: string; speaker: string; text: string; audioHash?: string }[]
   scene: string
   cast: string[]
 }
@@ -88,6 +88,18 @@ export interface PackBgm {
   name?: string
 }
 
+export interface PackVoiceTrack {
+  lineId: string
+  clipIndex: number
+  speaker: string
+  text: string
+  hash: string
+  file: string
+  local: boolean
+  /** 在全片里的起点（秒） */
+  start: number
+}
+
 /** 一条素材在库里的样子（页面查 `assets` 行后喂进来；domain 不许 import 平台层） */
 export interface PackAssetInfo {
   mime: string
@@ -101,6 +113,8 @@ export interface EpisodePack {
   missing: PackMissing[]
   bgm?: PackBgm
   bgmMissing?: string
+  voices: PackVoiceTrack[]
+  voicesMissing: string[]
   /** 一条**单行**命令（换行 + `\` 在 PowerShell 里不是续行，会连反斜杠一起吞掉） */
   command: string
   /** SRT 全文；这一集一句台词都没有时是空串 */
@@ -189,6 +203,7 @@ export function ffmpegCommand(
     fps?: number
     output?: string
     bgm?: { file: string; volume?: number }
+    voices?: readonly { file: string; start: number }[]
   } = {},
 ): string {
   if (clips.length === 0) return ''
@@ -211,21 +226,43 @@ export function ffmpegCommand(
   })
   const concat = `${clips.map((_, i) => `[v${i}]`).join('')}concat=n=${clips.length}:v=1:a=0[outv]`
   const totalSeconds = clips.reduce((sum, clip) => sum + clip.seconds, 0)
-  let audioChain = ''
+  const audioChains: string[] = []
+  const audioLabels: string[] = []
+  let nextInput = clips.length
   if (opts.bgm?.file) {
-    const inputIndex = clips.length
     inputs.push(`-stream_loop -1 -i ${opts.bgm.file}`)
     const volume = Math.min(1, Math.max(0, opts.bgm.volume ?? 0.2))
-    audioChain = `[${inputIndex}:a]atrim=0:${totalSeconds},volume=${volume}[bgm]`
+    audioChains.push(`[${nextInput}:a]atrim=0:${totalSeconds},volume=${volume}[bgm]`)
+    audioLabels.push('[bgm]')
+    nextInput += 1
+  }
+  for (const [i, voice] of (opts.voices ?? []).entries()) {
+    const delay = Math.max(0, Math.round(voice.start * 1000))
+    audioChains.push(
+      `[${nextInput}:a]aresample=48000,adelay=${delay}|${delay},volume=1.0[voice${i}]`,
+    )
+    audioLabels.push(`[voice${i}]`)
+    inputs.push(`-i ${voice.file}`)
+    nextInput += 1
+  }
+  let audioMap = ''
+  let audioFilters: string[] = []
+  if (audioLabels.length > 0) {
+    audioFilters = [
+      ...audioChains,
+      `${audioLabels.join('')}amix=inputs=${audioLabels.length}:duration=longest:dropout_transition=0,` +
+        `atrim=0:${totalSeconds},aresample=48000[aout]`,
+    ]
+    audioMap = '[aout]'
   }
   return [
     'ffmpeg -y',
     ...inputs,
-    `-filter_complex "${[...chains, concat, ...(audioChain ? [audioChain] : [])].join(';')}"`,
+    `-filter_complex "${[...chains, concat, ...audioFilters].join(';')}"`,
     '-map "[outv]"',
-    ...(audioChain ? ['-map "[bgm]" -c:a aac -b:a 192k'] : []),
+    ...(audioMap ? [`-map "${audioMap}" -c:a aac -b:a 192k`] : []),
     '-c:v libx264 -pix_fmt yuv420p -movflags +faststart',
-    ...(audioChain ? ['-shortest'] : []),
+    ...(audioMap ? ['-shortest'] : []),
     output,
   ].join(' ')
 }
@@ -266,15 +303,15 @@ export function srtOf(clips: readonly TimelineClip[]): string {
   return blocks.length === 0 ? '' : `${blocks.join('\n\n')}\n`
 }
 
-/** 这一镜的几条字幕各占哪一段时间（按字数分；只有一句时就是整镜） */
-function cueSpansOf(
+/** 这一镜的几句对白各占哪一段时间（按字数分；只有一句时就是整镜） */
+export function timelineLineSpans(
   clip: TimelineClip,
   from: number,
-): { from: number; to: number; text: string }[] {
+): { from: number; to: number; line: TimelineClip['lines'][number] }[] {
   const lines = clip.lines.filter((line) => line.text.trim())
   if (lines.length === 0) return []
   if (lines.length === 1) {
-    return [{ from, to: from + clip.seconds, text: lines[0]!.text.trim() }]
+    return [{ from, to: from + clip.seconds, line: lines[0]! }]
   }
   const weights = lines.map((line) => Math.max(1, line.text.trim().length))
   const total = weights.reduce((sum, w) => sum + w, 0)
@@ -283,8 +320,60 @@ function cueSpansOf(
     const start = at
     /* 最后一条**钉到这一镜的末尾**：浮点累加会留下几毫秒的缝，字幕就会有一小段空窗 */
     at = i === lines.length - 1 ? from + clip.seconds : at + (clip.seconds * weights[i]!) / total
-    return { from: start, to: at, text: line.text.trim() }
+    return { from: start, to: at, line }
   })
+}
+
+/** 这一镜的几条字幕各占哪一段时间（按字数分；只有一句时就是整镜） */
+function cueSpansOf(
+  clip: TimelineClip,
+  from: number,
+): { from: number; to: number; text: string }[] {
+  return timelineLineSpans(clip, from).map((cue) => ({
+    from: cue.from,
+    to: cue.to,
+    text: cue.line.text.trim(),
+  }))
+}
+
+/**
+ * 把每句已生成的 TTS 放到全片时间轴上。
+ *
+ * 起点与字幕共用 `lineSpansOf`：同一镜多句仍按字数分；没有画面、没进时间轴的镜头
+ * 不会偷偷出现一条声音。素材查询失败只记缺失，不猜扩展名。
+ */
+export function voiceTracksOf(
+  clips: readonly TimelineClip[],
+  assetOf: PackAssetLookup,
+): { voices: PackVoiceTrack[]; missing: string[] } {
+  const voices: PackVoiceTrack[] = []
+  const missing: string[] = []
+  let cursor = 0
+  for (const clip of clips) {
+    for (const cue of timelineLineSpans(clip, cursor)) {
+      const hash = cue.line.audioHash
+      if (!hash) continue
+      const info = assetOf(hash)
+      if (!info) {
+        missing.push(
+          `第 ${clip.index} 镜「${cue.line.speaker ? `${cue.line.speaker}：` : ''}${cue.line.text.trim().slice(0, 18)}」的配音素材在库里查不到`,
+        )
+        continue
+      }
+      voices.push({
+        lineId: cue.line.lineId,
+        clipIndex: clip.index,
+        speaker: cue.line.speaker,
+        text: cue.line.text.trim(),
+        hash,
+        file: assetFileName(hash, info.mime),
+        local: info.local,
+        start: cue.from,
+      })
+    }
+    cursor += clip.seconds
+  }
+  return { voices, missing }
 }
 
 /** 清单里一格（竖线会把 Markdown 表格拆开，所以正文里一律换成斜杠） */
@@ -308,6 +397,8 @@ export interface PackMarkdownArgs {
   missing: readonly PackMissing[]
   bgm?: PackBgm
   bgmMissing?: string
+  voices?: readonly PackVoiceTrack[]
+  voicesMissing?: readonly string[]
   command: string
   srt: string
   /** 剧名（空则回落「未命名漫剧」） */
@@ -327,11 +418,27 @@ export interface PackMarkdownArgs {
  * 注意事项只写两条会真把人绊倒的（视频长度与分镜表不一致、尺寸改哪儿），不写通用 FFmpeg 科普。
  */
 export function packMarkdown(args: PackMarkdownArgs): string {
-  const { clips, missing, bgm, bgmMissing, command, srt, episode, episodeNo } = args
+  const {
+    clips,
+    missing,
+    bgm,
+    bgmMissing,
+    voices = [],
+    voicesMissing = [],
+    command,
+    srt,
+    episode,
+    episodeNo,
+  } = args
   const title = args.title.trim() || '未命名漫剧'
   const ep = episode.title.trim() || `第 ${episodeNo} 集`
   const total = clips.reduce((sum, c) => sum + c.seconds, 0)
   const out: string[] = []
+  const chinese = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
+  const extras = (bgm || bgmMissing ? 1 : 0) + (voices.length || voicesMissing.length ? 1 : 0) + (srt ? 1 : 0)
+  const listNo = 3 + extras
+  let section = 3
+  const nextHeading = (label: string) => `## ${chinese[section++]}、${label}`
 
   out.push(`# ${title} · ${ep} · 合成包`)
   out.push('')
@@ -347,7 +454,9 @@ export function packMarkdown(args: PackMarkdownArgs): string {
       args.folderName ? `\`${args.folderName}\`` : '还没选 —— 去「设置 → 存储」选一个目录'
     }）`,
   )
-  out.push('2. 确认下面第四节列出的文件都在那个文件夹里（素材按 `<hash>.<ext>` 命名，命令里写的就是它们）')
+  out.push(
+    `2. 确认下面第${chinese[listNo]}节列出的文件都在那个文件夹里（素材按 \`<hash>.<ext>\` 命名，命令里写的就是它们）`,
+  )
   out.push(`3. 粘贴执行「二、合成命令」，得到 \`${args.output}\``)
   out.push('')
   out.push('## 二、合成命令')
@@ -357,7 +466,7 @@ export function packMarkdown(args: PackMarkdownArgs): string {
   out.push('```')
   out.push('')
   if (bgm || bgmMissing) {
-    out.push('## 三、背景音乐')
+    out.push(nextHeading('背景音乐'))
     out.push('')
     if (bgm) {
       out.push(
@@ -368,15 +477,27 @@ export function packMarkdown(args: PackMarkdownArgs): string {
     }
     out.push('')
   }
+  if (voices.length > 0 || voicesMissing.length > 0) {
+    out.push(nextHeading('配音'))
+    out.push('')
+    for (const voice of voices) {
+      out.push(
+        `- 第 ${voice.clipIndex} 镜 ${voice.start.toFixed(2)}s：\`${voice.file}\` · ` +
+          `${voice.speaker ? `${voice.speaker}：` : ''}${cell(voice.text)}`,
+      )
+    }
+    for (const item of voicesMissing) out.push(`- ${item}`)
+    out.push('')
+  }
   if (srt) {
-    out.push(`## ${bgm || bgmMissing ? '四' : '三'}、字幕（复制出来存成 \`.srt\`，或用同目录下那份）`)
+    out.push(nextHeading('字幕（复制出来存成 `.srt`，或用同目录下那份）'))
     out.push('')
     out.push('```srt')
     out.push(srt.trimEnd())
     out.push('```')
     out.push('')
   }
-  out.push(`## ${bgm || bgmMissing ? '五' : '四'}、逐镜清单`)
+  out.push(nextHeading('逐镜清单'))
   out.push('')
   out.push(`第 ${episodeNo} 集 · 可合成 ${clips.length} 镜 · 粗排 ${total} 秒`)
   out.push('')
@@ -389,12 +510,11 @@ export function packMarkdown(args: PackMarkdownArgs): string {
     )
   }
   out.push('')
-  out.push(
-    `## ${bgm || bgmMissing ? '六' : '五'}、这几份素材**不在素材文件夹里**（远端产物没有本地字节）`,
-  )
+  out.push(nextHeading('这几份素材**不在素材文件夹里**（远端产物没有本地字节）'))
   out.push('')
   const remote = clips.filter((c) => !c.local)
-  if (remote.length === 0 && (!bgm || bgm.local)) {
+  const remoteVoices = voices.filter((voice) => !voice.local)
+  if (remote.length === 0 && (!bgm || bgm.local) && remoteVoices.length === 0) {
     out.push('无 —— 这一集要用的素材都在本地。')
   } else {
     out.push('下面这些是**远端产物**（应用手里只有地址、没有字节）：先在画布上把它们下载下来，')
@@ -402,18 +522,20 @@ export function packMarkdown(args: PackMarkdownArgs): string {
     out.push('')
     for (const clip of remote) out.push(`- 第 ${clip.index} 镜：\`${clip.file}\``)
     if (bgm && !bgm.local) out.push(`- 背景音乐：\`${bgm.file}\``)
+    for (const voice of remoteVoices) out.push(`- 第 ${voice.clipIndex} 镜配音：\`${voice.file}\``)
   }
   out.push('')
-  out.push(`## ${bgm || bgmMissing ? '七' : '六'}、缺料的镜头（它们不在命令里）`)
+  out.push(nextHeading('缺料的镜头（它们不在命令里）'))
   out.push('')
-  if (missing.length === 0 && !bgmMissing) {
+  if (missing.length === 0 && !bgmMissing && voicesMissing.length === 0) {
     out.push('无 —— 这一集每一镜都进了命令。')
   } else {
     for (const item of missing) out.push(`- 第 ${item.index} 镜：${item.reason}`)
     if (bgmMissing) out.push(`- 背景音乐：${bgmMissing}`)
+    for (const item of voicesMissing) out.push(`- 配音：${item}`)
   }
   out.push('')
-  out.push(`## ${bgm || bgmMissing ? '八' : '七'}、两条注意事项`)
+  out.push(nextHeading('两条注意事项'))
   out.push('')
   out.push(
     '- **视频按它的实际长度进片**，静帧按分镜表里那个秒数 —— 两者不一致时，字幕会跟着漂。' +
@@ -440,6 +562,7 @@ export interface BuildPackArgs {
 /** 页面只用这一个入口：剩下的全是纯函数（可单测）。 */
 export function buildEpisodePack(args: BuildPackArgs): EpisodePack {
   const { clips, missing } = episodeClips(args.doc, args.episode.id, args.assetOf)
+  const { voices, missing: voicesMissing } = voiceTracksOf(clips, args.assetOf)
   const output = args.output ?? `第${args.episodeNo}集.mp4`
   let bgm: PackBgm | undefined
   let bgmMissing: string | undefined
@@ -462,6 +585,9 @@ export function buildEpisodePack(args: BuildPackArgs): EpisodePack {
   const command = ffmpegCommand(clips, {
     output,
     ...(bgm ? { bgm: { file: bgm.file, volume: bgm.volume } } : {}),
+    ...(voices.length > 0
+      ? { voices: voices.map((voice) => ({ file: voice.file, start: voice.start })) }
+      : {}),
   })
   const srt = srtOf(clips)
   const markdown = packMarkdown({
@@ -469,6 +595,8 @@ export function buildEpisodePack(args: BuildPackArgs): EpisodePack {
     missing,
     ...(bgm ? { bgm } : {}),
     ...(bgmMissing ? { bgmMissing } : {}),
+    voices,
+    voicesMissing,
     command,
     srt,
     title: args.doc.script.title,
@@ -482,6 +610,8 @@ export function buildEpisodePack(args: BuildPackArgs): EpisodePack {
     missing,
     ...(bgm ? { bgm } : {}),
     ...(bgmMissing ? { bgmMissing } : {}),
+    voices,
+    voicesMissing,
     command,
     srt,
     markdown,

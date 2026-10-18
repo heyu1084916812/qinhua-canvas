@@ -8169,3 +8169,10 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   `data-node-id` 重建 locator；`data-node-asset` 也可能异步出现，断言要轮询，不能读一次就判定。
 - **同落点节点会互相挡鼠标**：提取选区连续生成的两张局部图默认同坐标；冒烟用 DEV-only
   `window.__canvasDebug().placeNode(id,x,y)` 精确落位。位置摆好后还要 `resetView`，否则右侧端口在视口外。
+
+### ★ 漫剧 TTS 与音频能力域（2026-10-18 → 对账 #580）
+
+- **`audio` 一旦进 `ModelCapability.category`，所有只写死三类的地方都要跟着查**：渠道能力返回、模型筛选、设置映射、协议能力、预设目录和 Agent 的 `categoryOfModel`。Agent 不走音频，必须在桥接处把 `audio` 显式排除，不能把音频模型误当生成节点模型。
+- **TTS 不是 RunRequest 的第四种 kind**：它不产画布节点、不参与拓扑执行，单独走 `SpeechRunRequest` + `ChannelAdapter.generateSpeech`。OpenAI 兼容响应是二进制，不是 JSON；空字节必须判失败。
+- **台词的音频引用会在正文 / 音色 / 语速变化时失效**：`updateShotLine` 必须在这些字段变化时清掉 `audioHash / audioName`，只有显式写回产物引用时才保留。否则界面会播放上一版台词的声音。
+- **预览和导出必须共用 `timelineLineSpans`**：逐句起点按字数分本镜时长；导出用同一函数算 `adelay`。合成包里 BGM 与多句配音统一进 `amix`，字幕、声音和画面才不会各算一套。

@@ -1,6 +1,10 @@
 import { useEffect, useRef } from 'react'
 import { useAsset, useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
-import { dialogueTextOf, type TimelineClip } from '../../domain/storyboard/ffmpegPack'
+import {
+  dialogueTextOf,
+  timelineLineSpans,
+  type TimelineClip,
+} from '../../domain/storyboard/ffmpegPack'
 import styles from './EpisodePreview.module.css'
 
 /**
@@ -79,6 +83,7 @@ export function EpisodePreview({
     >
       <div className={styles.panel} onClick={(e) => e.stopPropagation()}>
         <BgmTrack hash={bgmHash} playing={playing} volume={bgmVolume ?? 0.2} />
+        <VoiceTracks clip={clip} playing={playing} />
         <div className={styles.stage}>
           <PreviewMedia
             key={`${clip.shotId}-${index}`}
@@ -116,6 +121,60 @@ export function EpisodePreview({
         </div>
       </div>
     </div>
+  )
+}
+
+function VoiceTracks({ clip, playing }: { clip: TimelineClip; playing: boolean }) {
+  const cues = timelineLineSpans(clip, 0).filter((cue) => !!cue.line.audioHash)
+  return (
+    <>
+      {cues.map((cue) => (
+        <VoiceTrack
+          key={cue.line.lineId}
+          hash={cue.line.audioHash!}
+          start={cue.from}
+          playing={playing}
+        />
+      ))}
+    </>
+  )
+}
+
+function VoiceTrack({
+  hash,
+  start,
+  playing,
+}: {
+  hash: string
+  start: number
+  playing: boolean
+}) {
+  const url = useAsset(hash)
+  const ref = useRef<HTMLAudioElement | null>(null)
+  useEffect(() => {
+    const audio = ref.current
+    if (!audio || !url) return
+    audio.volume = 1
+    if (!playing) {
+      audio.pause()
+      audio.currentTime = 0
+      return
+    }
+    const timer = window.setTimeout(() => void audio.play().catch(() => undefined), start * 1000)
+    return () => {
+      window.clearTimeout(timer)
+      audio.pause()
+      audio.currentTime = 0
+    }
+  }, [playing, start, url])
+  if (!url) return null
+  return (
+    <audio
+      ref={ref}
+      src={url}
+      preload="auto"
+      data-preview-voice-audio
+    />
   )
 }
 

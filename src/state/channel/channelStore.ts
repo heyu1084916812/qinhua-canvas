@@ -33,7 +33,12 @@ import {
   createChannelAdapter,
   type ResolvedChannelConfig,
 } from '../../platform/channels/registry'
-import type { TextResult, VerifyResult } from '../../platform/channels/types'
+import type {
+  GeneratedAsset,
+  SpeechRunRequest,
+  TextResult,
+  VerifyResult,
+} from '../../platform/channels/types'
 import type { ChatMessage, ToolDeclaration } from '../../domain/shared/execution/types'
 import { describeError, asAppError } from '../../shared/result'
 
@@ -218,6 +223,10 @@ export interface ChannelStoreActions {
     /** 单次调用的等待上限；不给走 Agent 的默认值（见 `AGENT_CHAT_TIMEOUT_MS`） */
     timeoutMs?: number
   }): Promise<TextResult>
+  /** 单次 TTS：文本 → 音频字节；调用方负责把产物写进 assets。 */
+  generateSpeech(
+    req: SpeechRunRequest & { signal: AbortSignal },
+  ): Promise<GeneratedAsset>
 }
 
 export type ChannelStore = MiniStore<ChannelStoreState> & ChannelStoreActions
@@ -774,6 +783,39 @@ export function createChannelStore(
     )
   }
 
+  const generateSpeech: ChannelStoreActions['generateSpeech'] = async ({
+    signal,
+    channelId,
+    model,
+    text,
+    voice,
+    speed,
+    responseFormat,
+    timeoutMs,
+  }) => {
+    const ch = store.getState().channels.find((c) => c.id === channelId)
+    if (!ch) throw new Error(`[channelStore] 渠道不存在：${channelId}`)
+    const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
+    const config: ResolvedChannelConfig = { ...toSafeConfig(ch, catalog()), apiKey }
+    const adapter = createChannelAdapter(config, platform)
+    if (!adapter.generateSpeech) {
+      throw new Error('[channelStore] 当前渠道未实现配音能力')
+    }
+    const upstreamModel = resolveUpstreamModel(ch.modelMap, model) ?? model
+    return adapter.generateSpeech(
+      {
+        channelId,
+        model: upstreamModel,
+        text,
+        voice,
+        ...(speed !== undefined ? { speed } : {}),
+        ...(responseFormat ? { responseFormat } : {}),
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      },
+      signal,
+    )
+  }
+
   return {
     ...store,
     load,
@@ -802,5 +844,6 @@ export function createChannelStore(
     setDefaultRecipe,
     defaultForNewNode,
     completeWithTools,
+    generateSpeech,
   }
 }

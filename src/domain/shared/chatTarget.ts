@@ -15,6 +15,12 @@ export interface ChatTarget {
   /** 界面上如实显示"会用谁" */
   label: string
 }
+export interface SpeechTarget {
+  channelId: string
+  model: string
+  label: string
+  voices: string[]
+}
 
 /**
  * 挑一条**真有对话模型**的已启用渠道（列表顺序 = 用户排的优先顺序）。
@@ -36,6 +42,23 @@ export function resolveChatTarget(channels: readonly Channel[]): ChatTarget | nu
      */
     const shown = toLogicalName(channels, model.id) || model.id
     return { channelId: ch.id, model: model.id, label: `${ch.name} · ${shown}` }
+  }
+  return null
+}
+
+/** 挑一条真有配音模型的已启用渠道；只认用户勾过的 audio 模型。 */
+export function resolveSpeechTarget(channels: readonly Channel[]): SpeechTarget | null {
+  for (const ch of channels) {
+    if (!ch.enabled) continue
+    const model = (ch.models ?? []).find((m) => m.category === 'audio')
+    if (!model) continue
+    const shown = toLogicalName(channels, model.id) || model.id
+    return {
+      channelId: ch.id,
+      model: model.id,
+      label: `${ch.name} · ${shown}`,
+      voices: model.voices?.length ? model.voices : ['alloy', 'nova'],
+    }
   }
   return null
 }

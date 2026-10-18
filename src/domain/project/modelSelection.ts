@@ -19,6 +19,7 @@ export const MODEL_CATEGORIES: { value: ModelCategory; label: string }[] = [
   { value: 'image', label: '生图' },
   { value: 'chat', label: '对话' },
   { value: 'video', label: '视频' },
+  { value: 'audio', label: '配音' },
 ]
 
 export const CATEGORY_FILTERS: { value: CategoryFilter; label: string }[] = [
@@ -50,7 +51,7 @@ export function filterModels(
 
 /**
  * 已选模型按分类分组（§7.4 的「生图模型 / 对话模型 / 视频模型」三行）。
- * **始终返回固定三组**（顺序 = 生图 / 对话 / 视频），空组由调用方决定是否隐藏——
+ * **始终返回固定四组**（顺序 = 生图 / 对话 / 视频 / 配音），空组由调用方决定是否隐藏——
  * 「哪一组没有」是渲染决策，不该藏在纯函数里；顺序稳定则必须有单一口径。
  */
 export function groupModelsByCategory(

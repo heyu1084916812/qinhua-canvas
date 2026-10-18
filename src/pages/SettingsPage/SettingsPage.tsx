@@ -1725,7 +1725,7 @@ export function SettingsPage() {
                            所以这个收窄是安全的；写它只是为了不把 `ModelCapability['category']` 这条
                            联合扩到音频 / 3D（那要动渠道拉取 / 选路 / 画布面板一整条链）。 */
                         const options = routeMapOptions(
-                          mapCategory as 'image' | 'chat' | 'video',
+                          mapCategory as 'image' | 'chat' | 'video' | 'audio',
                           selected.models,
                           selected.modelCache,
                         )
@@ -1751,7 +1751,7 @@ export function SettingsPage() {
                                     </span>
                                     <ModelMapCombo
                                       rowId={id}
-                                      category={mapCategory as 'image' | 'chat' | 'video'}
+                                      category={mapCategory as 'image' | 'chat' | 'video' | 'audio'}
                                       value={value}
                                       options={options}
                                       placeholder="留空 = 按原名发送"

@@ -4,6 +4,7 @@ import { createMockChannel } from './mock'
 import { createOpenAiChatAdapter } from './openaiChat'
 import { createOpenAiImagesAdapter } from './openaiImages'
 import { createOpenAiVideoAdapter } from './openaiVideo'
+import { createOpenAiSpeechAdapter } from './openaiSpeech'
 import { createAsyncTaskAdapter } from './asyncTask'
 import { createRunningHubAdapter } from './runninghub'
 import { createCliGatewayAdapter } from './cliGateway'
@@ -52,8 +53,9 @@ function createOpenAiCompatibleAdapter(
    * 于是声明了 `video` 的站也没有任何通路。
    */
   const video = capabilities.includes('video') ? createOpenAiVideoAdapter(config, deps) : null
+  const speech = capabilities.includes('audio') ? createOpenAiSpeechAdapter(config, deps) : null
   // verify / listModels 打的是同一个 /models，两条实现等价；优先用声明了的那条
-  const verifier = chat ?? images ?? video
+  const verifier = chat ?? images ?? video ?? (speech ? createOpenAiChatAdapter(config, deps) : null)
   if (!verifier) throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
 
   return {
@@ -72,6 +74,13 @@ function createOpenAiCompatibleAdapter(
       if (!chat) throw new ChannelError({ kind: 'channel', detail: 'unsupported' })
       return chat.completeText(request, signal)
     },
+    ...(speech
+      ? {
+          generateSpeech(request: Parameters<NonNullable<ChannelAdapter['generateSpeech']>>[0], signal: AbortSignal) {
+            return speech(request, signal)
+          },
+        }
+      : {}),
   }
 }
 

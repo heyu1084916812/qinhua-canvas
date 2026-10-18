@@ -21,6 +21,7 @@ import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import type { Edge } from '../../domain/canvas/model/edge'
 import type { RunTaskState } from '../../features/shared/execution/runEngine'
 import { projectRoute } from '../../domain/shared/workbench'
+import { resolveSpeechTarget, type SpeechTarget } from '../../domain/shared/chatTarget'
 import {
   BREAKDOWN_SKILL_ID,
   breakdownGuard,
@@ -273,6 +274,8 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     () => channels.getState().channels,
   )
   const chatTarget = useMemo(() => resolveChatTarget(channelList), [channelList])
+  const speechTarget = useMemo(() => resolveSpeechTarget(channelList), [channelList])
+  const [voiceBusy, setVoiceBusy] = useState<Record<string, boolean>>({})
   const [breaking, setBreaking] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
   const [breakMsg, setBreakMsg] = useState('')
   const [breakConfirm, setBreakConfirm] = useState(false)
@@ -1169,6 +1172,69 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     setLay({ kind: 'done', text: `已跑完这一集 ${targets.length} 镜（失败的镜头各自标了原因）` })
   }
 
+  const voiceLine = async (shot: StoryboardShot, lineId: string, voice: string) => {
+    const line = shot.lines.find((item) => item.id === lineId)
+    if (!line || !line.text.trim()) {
+      setStatus('先写台词，再生成配音')
+      return
+    }
+    if (!speechTarget) {
+      setStatus('还没有可用的配音模型：去设置里给渠道勾选一个 audio / tts 模型')
+      return
+    }
+    setVoiceBusy((current) => ({ ...current, [lineId]: true }))
+    const ac = new AbortController()
+    const timer = window.setTimeout(() => ac.abort(), 120_000)
+    try {
+      const asset = await channels.generateSpeech({
+        channelId: speechTarget.channelId,
+        model: speechTarget.model,
+        text: line.text,
+        voice,
+        speed: line.speed ?? 1,
+        responseFormat: 'mp3',
+        timeoutMs: 120_000,
+        signal: ac.signal,
+      })
+      canvasStore.dispatch({
+        kind: 'asset.put',
+        asset: {
+          hash: asset.hash,
+          mime: asset.mime,
+          bytes: asset.bytes,
+          createdAt: Date.now(),
+          projectId,
+        },
+      })
+      const base = docRef.current ?? doc
+      const speaker = doc.characters.find((item) => item.id === line.speakerId)?.name ?? '旁白'
+      apply(
+        updateShotLine(
+          base,
+          shot.id,
+          lineId,
+          {
+            voice,
+            audioHash: asset.hash,
+            audioName: `${speaker}-${line.text.trim().slice(0, 16)}.mp3`,
+          },
+          Date.now(),
+        ),
+      )
+      setStatus(`已生成配音：${speaker} · ${line.text.trim().slice(0, 20)}`)
+    } catch (error) {
+      const appError = asAppError(error)
+      setStatus(appError ? describeError(appError) : String(error))
+    } finally {
+      window.clearTimeout(timer)
+      setVoiceBusy((current) => {
+        const next = { ...current }
+        delete next[lineId]
+        return next
+      })
+    }
+  }
+
   /** 导出文件名的主干（剧名 → 项目名 → 未命名；顺手把文件名里不能用的字符换掉） */
   const exportBaseName = () =>
     (doc.script.title.trim() || projectName.trim() || '未命名漫剧').replace(/[\\/:*?"<>|]/g, '_')
@@ -1247,6 +1313,9 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       for (const shot of shotsOf(doc, selected.id)) {
         const hash = shot.videoHash ?? shot.imageHash
         if (hash) wanted.add(hash)
+        for (const line of shot.lines) {
+          if (line.audioHash) wanted.add(line.audioHash)
+        }
       }
       if (selected.bgmHash) wanted.add(selected.bgmHash)
       const info = new Map<string, { mime: string; local: boolean }>()
@@ -1286,10 +1355,14 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       }
       const remote = pack.clips.filter((c) => !c.local).length
       const remoteBgm = pack.bgm && !pack.bgm.local ? 1 : 0
+      const remoteVoices = pack.voices.filter((voice) => !voice.local).length
       const notes = [
         pack.missing.length > 0 ? `${pack.missing.length} 镜没素材` : '',
-        remote + remoteBgm > 0 ? `${remote + remoteBgm} 份素材要先去下载` : '',
+        remote + remoteBgm + remoteVoices > 0
+          ? `${remote + remoteBgm + remoteVoices} 份素材要先去下载`
+          : '',
         pack.bgmMissing ? '背景音乐缺失，未进命令' : '',
+        pack.voicesMissing.length > 0 ? `${pack.voicesMissing.length} 句配音缺失` : '',
       ].filter(Boolean)
       setStatus(
         `已导出合成包（${files} 个文件）${notes.length > 0 ? ` —— 包里写明了：${notes.join('、')}` : ''}`,
@@ -1938,6 +2011,9 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                           apply(updateShotLine(doc, shot.id, lineId, patch, 0))
                         }
                         onLineRemove={(lineId) => apply(removeShotLine(doc, shot.id, lineId, 0))}
+                        speechTarget={speechTarget}
+                        voiceBusy={voiceBusy}
+                        onVoice={(lineId, voice) => void voiceLine(shot, lineId, voice)}
                         onMove={(id, delta) => apply(moveShot(doc, id, delta, 0))}
                         onRemove={removeOneShot}
                         onRun={() => runShot(shot)}
@@ -2090,6 +2166,9 @@ function ShotCard({
   onAddLine,
   onLinePatch,
   onLineRemove,
+  speechTarget,
+  voiceBusy,
+  onVoice,
 }: {
   shot: StoryboardShot
   index: number
@@ -2108,6 +2187,9 @@ function ShotCard({
   onAddLine: () => void
   onLinePatch: (lineId: string, patch: Partial<Omit<StoryboardLine, 'id'>>) => void
   onLineRemove: (lineId: string) => void
+  speechTarget: SpeechTarget | null
+  voiceBusy: Record<string, boolean>
+  onVoice: (lineId: string, voice: string) => void
   onMove: (id: string, delta: number) => void
   onRemove: (id: string) => void
   onRun: () => void
@@ -2345,41 +2427,95 @@ function ShotCard({
             </p>
           ) : (
             <ul className={styles.lineList}>
-              {shot.lines.map((line) => (
-                <li key={line.id} className={styles.lineRow} data-storyboard-line={line.id}>
-                  <select
-                    className={styles.lineSpeaker}
-                    value={line.speakerId ?? ''}
-                    aria-label="谁说的"
-                    data-storyboard-line-speaker={line.id}
-                    onChange={(e) => onLinePatch(line.id, { speakerId: e.target.value })}
-                  >
-                    <option value="">谁说…</option>
-                    {characters.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    className={styles.input}
-                    value={line.text}
-                    placeholder="这一句"
-                    aria-label="台词"
-                    data-storyboard-line-text={line.id}
-                    onChange={(e) => onLinePatch(line.id, { text: e.target.value })}
-                  />
-                  <button
-                    type="button"
-                    className={styles.iconBtn}
-                    aria-label="删掉这一句"
-                    data-storyboard-line-remove={line.id}
-                    onClick={() => onLineRemove(line.id)}
-                  >
-                    ×
-                  </button>
-                </li>
-              ))}
+              {shot.lines.map((line) => {
+                const voices = speechTarget?.voices.length ? speechTarget.voices : ['alloy', 'nova']
+                const voice = line.voice || voices[0] || 'alloy'
+                const busy = !!voiceBusy[line.id]
+                return (
+                  <li key={line.id} className={styles.lineRow} data-storyboard-line={line.id}>
+                    <div className={styles.lineMain}>
+                      <select
+                        className={styles.lineSpeaker}
+                        value={line.speakerId ?? ''}
+                        aria-label="谁说的"
+                        data-storyboard-line-speaker={line.id}
+                        onChange={(e) => onLinePatch(line.id, { speakerId: e.target.value })}
+                      >
+                        <option value="">谁说…</option>
+                        {characters.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        className={styles.input}
+                        value={line.text}
+                        placeholder="这一句"
+                        aria-label="台词"
+                        data-storyboard-line-text={line.id}
+                        onChange={(e) => onLinePatch(line.id, { text: e.target.value })}
+                      />
+                      <button
+                        type="button"
+                        className={styles.iconBtn}
+                        aria-label="删掉这一句"
+                        data-storyboard-line-remove={line.id}
+                        onClick={() => onLineRemove(line.id)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div className={styles.lineVoiceControls}>
+                      <label className={styles.lineVoiceSelect}>
+                        <span>音色</span>
+                        <select
+                          className={styles.select}
+                          value={voice}
+                          data-storyboard-line-voice-style={line.id}
+                          onChange={(e) => onLinePatch(line.id, { voice: e.target.value })}
+                        >
+                          {voices.map((item) => (
+                            <option key={item} value={item}>
+                              {item}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className={styles.lineVoiceSpeed}>
+                        <span>语速</span>
+                        <input
+                          className={styles.input}
+                          type="number"
+                          min={0.25}
+                          max={4}
+                          step={0.05}
+                          value={line.speed ?? 1}
+                          data-storyboard-line-voice-speed={line.id}
+                          onChange={(e) => onLinePatch(line.id, { speed: Number(e.target.value) })}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className={styles.ghost}
+                        data-storyboard-line-voice={line.id}
+                        disabled={!speechTarget || busy || !line.text.trim()}
+                        title={speechTarget?.label ?? '先在设置里勾选配音模型'}
+                        onClick={() => onVoice(line.id, voice)}
+                      >
+                        {busy ? '生成中…' : line.audioHash ? '重配这一句' : '生成配音'}
+                      </button>
+                      {line.audioHash ? (
+                        <LineVoiceAudio hash={line.audioHash} />
+                      ) : (
+                        <span className={styles.hint}>
+                          {speechTarget ? `未生成 · ${speechTarget.label}` : '未配置配音模型'}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </div>
@@ -2705,6 +2841,21 @@ function AssetThumb({ hash }: { hash: string }) {
   const url = useAsset(hash)
   if (!url) return null
   return <img className={styles.shotImg} src={url} alt="" />
+}
+
+function LineVoiceAudio({ hash }: { hash: string }) {
+  const meta = useAssetMeta(hash)
+  if (meta.missing) return <span className={styles.error}>配音素材缺失</span>
+  if (!meta.url) return <span className={styles.hint}>正在读取配音…</span>
+  return (
+    <audio
+      className={styles.lineVoiceAudio}
+      controls
+      preload="metadata"
+      src={meta.url}
+      data-storyboard-line-audio={hash}
+    />
+  )
 }
 
 /** 这一镜的出图缩略图：按 hash 取素材（hook 必须落在子组件里，不能在 map 里调） */

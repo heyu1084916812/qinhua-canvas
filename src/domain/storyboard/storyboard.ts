@@ -80,6 +80,14 @@ export interface StoryboardLine {
   speakerId?: string
   text: string
   emotion?: string
+  /** 配音音色 id；空 = 使用当前配音渠道的默认音色 */
+  voice?: string
+  /** 语速 0.25..4；空 = 1 */
+  speed?: number
+  /** TTS 产物素材 hash（只存引用，字节在 assets） */
+  audioHash?: string
+  /** 用户可读的音频名；hash 不可读，界面与导出显示它 */
+  audioName?: string
 }
 
 export interface StoryboardEpisode {
@@ -228,11 +236,23 @@ function parseShotLines(row: Record<string, unknown>, knownCharacters: ReadonlyS
     const speakerRaw = text(record.speakerId)
     const speakerId = speakerRaw && knownCharacters.has(speakerRaw) ? speakerRaw : ''
     const emotion = text(record.emotion).trim()
+    const voice = text(record.voice).trim()
+    const speed = clampSpeechSpeed(record.speed, 1)
+    const audioHash = text(record.audioHash).trim()
+    const audioName = text(record.audioName).trim()
     lines.push({
       id,
       text: body,
       ...(speakerId ? { speakerId } : {}),
       ...(emotion ? { emotion } : {}),
+      ...(voice ? { voice } : {}),
+      ...(speed !== 1 ? { speed } : {}),
+      ...(audioHash
+        ? {
+            audioHash,
+            ...(audioName ? { audioName } : {}),
+          }
+        : {}),
     })
   }
   if (lines.length > 0) return lines
@@ -720,11 +740,21 @@ function speakerNameOf(doc: StoryboardDoc, line: StoryboardLine): string {
 export function shotDialogueLines(
   doc: StoryboardDoc,
   shot: StoryboardShot,
-): { lineId: string; speaker: string; text: string }[] {
+): {
+  lineId: string
+  speaker: string
+  text: string
+  voice?: string
+  speed?: number
+  audioHash?: string
+}[] {
   return shot.lines.map((line) => ({
     lineId: line.id,
     speaker: speakerNameOf(doc, line),
     text: line.text,
+    ...(line.voice ? { voice: line.voice } : {}),
+    ...(line.speed !== undefined ? { speed: line.speed } : {}),
+    ...(line.audioHash ? { audioHash: line.audioHash } : {}),
   }))
 }
 
@@ -777,6 +807,8 @@ export function updateShotLine(
         const body = text(patch.text).trim()
         if (body !== line.text) {
           next.text = body
+          delete next.audioHash
+          delete next.audioName
           shotChanged = true
         }
       }
@@ -797,6 +829,42 @@ export function updateShotLine(
           shotChanged = true
         }
       }
+      if (patch.voice !== undefined) {
+        const voice = text(patch.voice).trim()
+        if ((line.voice ?? '') !== voice) {
+          if (voice) next.voice = voice
+          else delete next.voice
+          delete next.audioHash
+          delete next.audioName
+          shotChanged = true
+        }
+      }
+      if (patch.speed !== undefined) {
+        const speed = clampSpeechSpeed(patch.speed, line.speed ?? 1)
+        if ((line.speed ?? 1) !== speed) {
+          if (speed !== 1) next.speed = speed
+          else delete next.speed
+          delete next.audioHash
+          delete next.audioName
+          shotChanged = true
+        }
+      }
+      if (patch.audioHash !== undefined) {
+        const audioHash = text(patch.audioHash).trim()
+        if ((line.audioHash ?? '') !== audioHash) {
+          if (audioHash) next.audioHash = audioHash
+          else delete next.audioHash
+          shotChanged = true
+        }
+      }
+      if (patch.audioName !== undefined) {
+        const audioName = text(patch.audioName).trim()
+        if ((line.audioName ?? '') !== audioName) {
+          if (audioName) next.audioName = audioName
+          else delete next.audioName
+          shotChanged = true
+        }
+      }
       return shotChanged ? next : line
     })
     if (!shotChanged) return shot
@@ -804,6 +872,12 @@ export function updateShotLine(
     return { ...shot, lines }
   })
   return changed ? { ...doc, shots, updatedAt: now } : doc
+}
+
+function clampSpeechSpeed(value: unknown, fallback: number): number {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n)) return fallback
+  return Math.round(Math.min(4, Math.max(0.25, n)) * 100) / 100
 }
 
 /** 删一句台词（不存在那一句时返回原引用） */

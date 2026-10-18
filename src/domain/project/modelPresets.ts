@@ -32,7 +32,7 @@ export type PresetVendor =
 export interface PresetModel {
   /** 前端显示名 = 逻辑名（跨站点稳定，请求时经 `modelMap` 翻译） */
   id: string
-  category: 'image' | 'chat' | 'video'
+  category: 'image' | 'chat' | 'video' | 'audio'
   vendor: PresetVendor
   /**
    * 该显示名**已知的上游 ID 写法**（用户 2026-09-27：「`gpt-image-2` 这个和头两个
@@ -127,6 +127,16 @@ export const PRESET_VIDEO_MODELS: readonly PresetModel[] = [
   { id: 'Wan 3.0', category: 'video', vendor: 'alibaba' },
 ]
 
+/** OpenAI 兼容 TTS；逻辑名固定，上游 ID 由渠道映射负责。 */
+export const PRESET_AUDIO_MODELS: readonly PresetModel[] = [
+  {
+    id: 'OpenAI TTS',
+    category: 'audio',
+    vendor: 'openai',
+    aliases: ['tts-1', 'tts-1-hd', 'gpt-4o-mini-tts'],
+  },
+]
+
 /**
  * Agnes 自有模型（用户 2026-10-01）。
  *
@@ -175,6 +185,7 @@ export const PRESET_MODELS: readonly PresetModel[] = [
   ...PRESET_IMAGE_MODELS,
   ...PRESET_CHAT_MODELS,
   ...PRESET_VIDEO_MODELS,
+  ...PRESET_AUDIO_MODELS,
 ]
 
 /** 某一档的固定显示名（面板按当前类别取用），保持清单顺序 */

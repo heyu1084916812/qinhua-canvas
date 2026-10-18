@@ -154,9 +154,21 @@ describe('合成包 · FFmpeg 命令', () => {
     )
     expect(cmd).toContain('-i b.png -stream_loop -1 -i music.mp3')
     expect(cmd).toContain('[2:a]atrim=0:5,volume=0.25[bgm]')
-    expect(cmd).toContain('-map "[outv]" -map "[bgm]"')
+    expect(cmd).toContain('[bgm]amix=inputs=1:duration=longest:dropout_transition=0')
+    expect(cmd).toContain('-map "[outv]" -map "[aout]"')
     expect(cmd).toContain('-c:a aac -b:a 192k')
     expect(cmd).toContain('-shortest')
+  })
+
+  it('配音按句起点延迟后与 BGM 混成一条音轨', () => {
+    const cmd = ffmpegCommand([clip({ file: 'a.png', seconds: 4 })], {
+      bgm: { file: 'music.mp3', volume: 0.2 },
+      voices: [{ file: 'line-1.wav', start: 1.25 }],
+    })
+    expect(cmd).toContain('-i music.mp3 -i line-1.wav')
+    expect(cmd).toContain('adelay=1250|1250')
+    expect(cmd).toContain('[bgm][voice0]amix=inputs=2:duration=longest:dropout_transition=0')
+    expect(cmd).toContain('-map "[outv]" -map "[aout]"')
   })
 
   it('★ 一镜都没有 ⇒ 空串（调用方据此不导出，而不是导一份跑不了的包）', () => {

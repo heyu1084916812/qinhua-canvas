@@ -997,23 +997,6 @@ async function configureMockChannel(
    * 共享库跨组复用。已有带模型的 mock 直接复用，避免每跑一组就堆一条空渠道；
    * 只有要求带 token（专测凭据）或库里还没有可用 mock 时才新建。
    */
-  if (isolate && !token) {
-    const existingRows = await sharedRows(page, 'channels')
-    const reusable = existingRows
-      .filter((row) => row.protocol === 'mock' && (row.models?.length ?? 0) > 0)
-      .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))[0]
-    if (reusable) {
-      for (const row of existingRows) {
-        const shouldEnable = row.id === reusable.id
-        if (!!row.enabled !== shouldEnable) {
-          await sharedPut(page, 'channels', { ...row, enabled: shouldEnable })
-        }
-      }
-      await page.reload({ waitUntil: 'networkidle' })
-      await page.waitForSelector('[data-settings-page]', { timeout: 10000 }).catch(() => {})
-      return { verified: true, pulled: true, enabled: true }
-    }
-  }
   /* 内置渠道会抢默认值、也会抢选路：先停掉它们，"只有这条 mock 渠道"才是真的 */
   await disableBuiltinChannels(page)
   if (isolate) {
@@ -1028,9 +1011,18 @@ async function configureMockChannel(
       }
     }
   }
+  const beforeIds = new Set((await sharedRows(page, 'channels')).map((row) => String(row.id)))
   await page.getByRole('button', { name: /新增渠道/ }).click()
   await sleep(400)
-  await page.getByText('新建渠道').first().click()
+  const created = (await sharedRows(page, 'channels'))
+    .filter((row) => !beforeIds.has(String(row.id)))
+    .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))[0]
+  const createdId = created?.id ? String(created.id) : ''
+  if (createdId) {
+    await page.locator(`[data-channel-item][data-channel-id="${createdId}"]`).click()
+  } else {
+    await page.getByText('新建渠道').last().click()
+  }
   await sleep(300)
 
   if (token) {
@@ -1093,12 +1085,14 @@ async function configureMockChannel(
    */
   if (isolate) {
     const channelRows = await sharedRows(page, 'channels')
-    const newest = channelRows
-      .filter((row) => row.protocol === 'mock')
-      .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))[0]
-    if (newest?.id) {
+    const target = createdId
+      ? channelRows.find((row) => String(row.id) === createdId)
+      : channelRows
+          .filter((row) => row.protocol === 'mock')
+          .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))[0]
+    if (target?.id) {
       for (const row of channelRows) {
-        const shouldEnable = row.id === newest.id
+        const shouldEnable = row.id === target.id
         if (!!row.enabled !== shouldEnable) {
           await sharedPut(page, 'channels', { ...row, enabled: shouldEnable })
         }
@@ -1141,6 +1135,7 @@ async function mapMockModels(page) {
     ['image', 'GPT Image 2', 'mock-image-1'],
     ['chat', 'GPT-6 Astra', 'mock-chat-1'],
     ['video', '即梦 2.5', 'mock-video-1'],
+    ['audio', 'OpenAI TTS', 'mock-speech-1'],
   ]
   for (const [filterKey, logical, upstream] of rows) {
     /*
@@ -30890,6 +30885,7 @@ async function g144(browser) {
    */
   const imageHash = 'g144-image-a'
   const bgmHash = 'g144-bgm'
+  const voiceHash = 'g144-voice'
   const now = Date.now()
   await sharedPut(page, 'assets', {
     id: imageHash,
@@ -30909,6 +30905,14 @@ async function g144(browser) {
     createdAt: now,
     projectId: storyboardProjectId,
   })
+  await sharedPut(page, 'assets', {
+    id: voiceHash,
+    hash: voiceHash,
+    mime: 'audio/wav',
+    bytes: { __qhType: 'u8', base64: wavPcmBuffer().toString('base64') },
+    createdAt: now,
+    projectId: storyboardProjectId,
+  })
   const board = (await sharedRows(page, 'storyboards')).find(
     (row) => row.projectId === storyboardProjectId,
   )
@@ -30923,7 +30927,22 @@ async function g144(browser) {
           : episode,
       ),
       shots: board.doc.shots.map((shot, index) =>
-        index === 0 ? { ...shot, imageHash } : shot,
+        index === 0
+          ? {
+              ...shot,
+              imageHash,
+              lines: shot.lines.map((line, lineIndex) =>
+                lineIndex === 0
+                  ? {
+                      ...line,
+                      voice: 'alloy',
+                      audioHash: voiceHash,
+                      audioName: '第一镜配音.wav',
+                    }
+                  : line,
+              ),
+            }
+          : shot,
       ),
     },
   })
@@ -30981,7 +31000,7 @@ async function g144(browser) {
      * 命令里就必须只有一个 `-i`。不按"有没有某个字样"判：那是我第一版写错的判据
      * （去命令段里找"第 1 镜"，而命令里只有文件名）。
      */
-    (commandSection.match(/-i /g) ?? []).length === 2 &&
+    (commandSection.match(/-i /g) ?? []).length === 3 &&
       !commandSection.includes('g144-image-b') &&
       /第 2 镜：还没出图/.test(mdText) &&
       !/-i undefined/.test(mdText),
@@ -30999,6 +31018,15 @@ async function g144(browser) {
       mdText.includes('-stream_loop -1 -i g144-bgm.wav') &&
       mdText.includes('atrim=0:5,volume=0.35'),
     `BGM 段=${(mdText.split('## 三、背景音乐')[1] ?? '').split('##')[0]?.trim().slice(0, 100)}`,
+  )
+  rec(
+    g,
+    '★★ 台词配音与 BGM 混进同一条命令，起点和字幕同源',
+    mdText.includes('配音') &&
+      mdText.includes('-i g144-voice.wav') &&
+      mdText.includes('adelay=0|0') &&
+      mdText.includes('amix=inputs=2'),
+    'voice=g144-voice.wav delay=0',
   )
   rec(
     g,
@@ -31056,6 +31084,12 @@ async function g145(browser) {
           id: s.id,
           nodeId: s.nodeId ?? null,
           imageHash: s.imageHash ?? null,
+          lines: (s.lines ?? []).map((line) => ({
+            id: line.id,
+            text: line.text ?? '',
+            voice: line.voice ?? null,
+            audioHash: line.audioHash ?? null,
+          })),
         })),
       }
     }
@@ -31077,6 +31111,9 @@ async function g145(browser) {
       await sleep(150)
     }
   }
+
+  const speechChannel = await configureMockChannel(page, { isolate: true })
+  rec(g, '配音渠道验证通过', speechChannel.verified)
 
   await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
   await sleep(400)
@@ -31136,8 +31173,25 @@ async function g145(browser) {
   await page.locator(`[data-storyboard-shot-scene="${ids[0]}"]`).fill('雨里骑车')
   await page.locator(`[data-storyboard-shot-scene="${ids[1]}"]`).fill('把箱子放下')
   await page.locator(`[data-storyboard-shot-scene="${ids[2]}"]`).fill('转身走远')
-  await fillShotLine(page, ids[0], '第一镜的台词')
+  const firstLineInput = await fillShotLine(page, ids[0], '第一镜的台词')
+  const currentLineId =
+    (await firstLineInput.getAttribute('data-storyboard-line-text')) ?? ''
   await fillShotLine(page, ids[1], '第二镜的台词')
+  await sleep(500)
+  await page.locator(`[data-storyboard-line-voice="${currentLineId}"]`).click()
+  const voiceStored = await waitDb((db) => !!db.shots[0]?.lines[0]?.audioHash, 15000)
+  const voiceAudioShown = await page
+    .locator('[data-storyboard-line-audio]')
+    .first()
+    .waitFor({ state: 'attached', timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(
+    g,
+    '★ 单句台词能生成配音：音频落 assets、行上写回 hash，并出现播放器',
+    !!voiceStored.shots[0]?.lines[0]?.audioHash && voiceAudioShown,
+    `hash=${voiceStored.shots[0]?.lines[0]?.audioHash ?? 'n/a'}`,
+  )
   /* 第 1 镜 1 秒：让"自动推进"这件事在冒烟里几秒内就能验到 */
   await page.locator(`[data-storyboard-shot-duration="${ids[0]}"]`).fill('1')
   await page.locator(`[data-storyboard-shot-duration="${ids[1]}"]`).fill('5')
@@ -31229,6 +31283,18 @@ async function g145(browser) {
     '★ 时间轴预览播放这一集时带着同一份 BGM',
     previewBgm && (await page.locator('[data-preview-bgm]').count()) === 1,
     `audio=${previewBgm}`,
+  )
+  const previewVoice = await page
+    .locator('[data-preview-voice-audio]')
+    .first()
+    .waitFor({ state: 'attached', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(
+    g,
+    '★ 台词配音也沿同一集时间轴挂进预览（不是只在编辑页能听）',
+    previewVoice,
+    `voiceAudio=${previewVoice}`,
   )
 
   /**

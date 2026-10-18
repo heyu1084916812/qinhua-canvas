@@ -167,7 +167,7 @@ describe('channelCapabilities · 渠道实际能用什么', () => {
 
   it('★ 只看勾选的模型类别', () => {
     const caps = channelCapabilities(withModels('chat', 'video'))
-    expect(caps).toEqual({ chat: true, image: false, video: true })
+    expect(caps).toEqual({ chat: true, image: false, video: true, audio: false })
   })
 
   it('★ 协议声明了视频、但一个视频模型都没勾 → 不算能用', () => {
@@ -177,10 +177,15 @@ describe('channelCapabilities · 渠道实际能用什么', () => {
 
   it('一条模型都没勾时回落协议声明（此时还没配完，显示承诺更有指导意义）', () => {
     const caps = channelCapabilities(withModels(), ['chat', 'image'])
-    expect(caps).toEqual({ chat: true, image: true, video: false })
+    expect(caps).toEqual({ chat: true, image: true, video: false, audio: false })
   })
 
-  it('既没模型也没声明 → 三个都是 false', () => {
-    expect(channelCapabilities(withModels())).toEqual({ chat: false, image: false, video: false })
+  it('既没模型也没声明 → 四项都是 false', () => {
+    expect(channelCapabilities(withModels())).toEqual({
+      chat: false,
+      image: false,
+      video: false,
+      audio: false,
+    })
   })
 })

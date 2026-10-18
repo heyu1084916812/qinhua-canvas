@@ -206,7 +206,12 @@ export function channelCapabilities(
 ): Record<ModelCapability['category'], boolean> {
   const fromModels = new Set(channel.models.map((m) => m.category))
   const set = fromModels.size > 0 ? fromModels : new Set<ModelCapability['category']>(declared)
-  return { chat: set.has('chat'), image: set.has('image'), video: set.has('video') }
+  return {
+    chat: set.has('chat'),
+    image: set.has('image'),
+    video: set.has('video'),
+    audio: set.has('audio'),
+  }
 }
 
 export function createChannel(input: CreateChannelInput): Channel {

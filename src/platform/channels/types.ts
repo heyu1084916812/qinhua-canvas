@@ -15,6 +15,17 @@ export type ImageRunRequest = RunRequest & { kind: 'image' }
 export type VideoRunRequest = RunRequest & { kind: 'video' }
 export type TextRunRequest = RunRequest & { kind: 'text' }
 
+/** 一次 TTS 请求；音频不走画布节点执行，故不塞进 RunRequest。 */
+export interface SpeechRunRequest {
+  channelId: string
+  model: string
+  text: string
+  voice: string
+  speed?: number
+  responseFormat?: 'mp3' | 'wav' | 'opus' | 'aac' | 'flac' | 'pcm'
+  timeoutMs?: number
+}
+
 /** 生成产物：节点只持有 hash，媒体本体由调用方写入 assets 表 */
 export interface GeneratedAsset {
   hash: string
@@ -100,6 +111,8 @@ export interface ChannelAdapter {
   generateImage(request: ImageRunRequest, signal: AbortSignal): Promise<GeneratedAsset[]>
   generateVideo(request: VideoRunRequest, signal: AbortSignal): Promise<GeneratedAsset[]>
   completeText(request: TextRunRequest, signal: AbortSignal): Promise<TextResult>
+  /** TTS；未实现音频能力的协议不提供 */
+  generateSpeech?(request: SpeechRunRequest, signal: AbortSignal): Promise<GeneratedAsset>
   /** Agent 流式通道（架构 §5.9 ④）：可选，未实现该能力的渠道不提供 */
   streamChat?(request: TextRunRequest, signal: AbortSignal): AsyncIterable<StreamChunk>
 }

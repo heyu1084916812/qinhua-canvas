@@ -7,7 +7,7 @@
  */
 export interface ModelCapability {
   id: string
-  category: 'image' | 'chat' | 'video'
+  category: 'image' | 'chat' | 'video' | 'audio'
   inputTypes: ('text' | 'image' | 'video')[]
   aspectRatios?: string[]
   resolutions?: string[]
@@ -15,6 +15,8 @@ export interface ModelCapability {
   maxCount?: number
   durations?: [number, number]
   maxReferenceImages?: number
+  /** 音频模型可用的音色 id；未声明时不替用户猜。 */
+  voices?: string[]
 }
 
 /**

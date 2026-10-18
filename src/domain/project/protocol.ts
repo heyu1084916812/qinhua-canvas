@@ -17,9 +17,8 @@
  * 1. **没有官方依据的端点不写死**。宁可标 `pending`（界面上不可选），也不填一个
  *    猜出来的路径——「文档里写了 ≠ 实现里有」，写死一个错的端点只会让用户
  *    在「验证失败」里绕圈。
- * 2. **领域层没有的能力不假装支持**。`ModelCapability.category` 目前只有
- *    `image | chat | video`，没有音频与 3D。协议 `capabilities` 因此也只到这三项；
- *    音频 / 3D 站点先按 pending 记着，等领域层有能力定义再开。
+ * 2. **领域层没有的能力不假装支持**。`ModelCapability.category` 当前是
+ *    `image | chat | video | audio`，没有 3D；音频以 OpenAI `/audio/speech` 为已实现形态。
  * 3. **纯 Web 应用跑不了本机 CLI**。CLI 类协议（即梦 / GPT / Gemini）要能用，
  *    前提是用户自己跑一个**网关**把 CLI 包成 OpenAI 兼容 HTTP——本应用只访问那个地址。
  *    所以它们现在是 ready，但 `note` 必须写明「这里填的是网关地址」；
@@ -31,17 +30,18 @@
 import { capabilitiesOfTool, defaultToolForProtocol } from '../shared/cliTools'
 
 /** 协议能力：与 `ModelCapability.category` 同字面，新增能力必须两处同步 */
-export type ProtocolCapability = 'chat' | 'image' | 'video'
+export type ProtocolCapability = 'chat' | 'image' | 'video' | 'audio'
 
 /** 能力 → 中文名（界面上的能力标签只有一个来源） */
 export const CAPABILITY_LABEL: Record<ProtocolCapability, string> = {
   chat: '对话',
   image: '生图',
   video: '视频',
+  audio: '配音',
 }
 
 /** 能力展示与存储的稳定顺序，避免勾选顺序影响协议定义 */
-export const CAPABILITY_ORDER: ProtocolCapability[] = ['chat', 'image', 'video']
+export const CAPABILITY_ORDER: ProtocolCapability[] = ['chat', 'image', 'video', 'audio']
 
 /**
  * CLI 类协议的能力**由它的工具推出来**（对账 #308）。
@@ -156,7 +156,7 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     family: 'mock',
     kind: 'offline',
     status: 'ready',
-    capabilities: ['chat', 'image', 'video'],
+    capabilities: ['chat', 'image', 'video', 'audio'],
     note: '离线协议：不发任何网络请求，验证必然通过，用于在没有真实渠道时把链路跑通。',
   },
   {
@@ -174,10 +174,10 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     family: 'openai-compatible',
     kind: 'public',
     status: 'ready',
-    capabilities: ['chat', 'image'],
+    capabilities: ['chat', 'image', 'video', 'audio'],
     versionPath: '/v1',
     docUrl: 'https://platform.openai.com/docs/api-reference',
-    note: '一个站一条渠道：对话模型进提示词节点、生图 / 视频模型进生成节点，按模型类别分流。视频需要该站提供视频端点；音频 / 3D 领域层暂无定义，故不支持。',
+    note: '一个站一条渠道：对话模型进提示词节点，生图 / 视频 / 配音模型进各自工作流，按模型类别分流。视频与配音需要该站提供对应端点。',
     probe: true,
   },
   {
@@ -583,13 +583,13 @@ export function validateCustomProtocol(
   const short = input.short.trim()
   if (!short) return { ok: false, field: 'short', reason: '短标签不能为空' }
   if (short.length > 8) return { ok: false, field: 'short', reason: '短标签最多 8 个字符' }
-  // 只开放 OpenAI 兼容族真正有适配器的两项：对话与生图。
-  // 视频 / 音频 / 3D 没有对应适配器，允许勾选等于让用户配一条跑不通的渠道。
+  // 只开放 OpenAI 兼容族真正有适配器的对话 / 生图 / 配音。
+  // 视频仍由内置协议定义（不同站点的异步任务形态不同），3D 尚无领域能力。
   const capabilities = CAPABILITY_ORDER.filter(
     (c) => c !== 'video' && input.capabilities.includes(c),
   )
   if (capabilities.length === 0) {
-    return { ok: false, field: 'capabilities', reason: '至少选择一种能力（对话 / 生图）' }
+    return { ok: false, field: 'capabilities', reason: '至少选择一种能力（对话 / 生图 / 配音）' }
   }
   const versionPath = input.versionPath?.trim()
   if (versionPath && !VERSION_PATH_RE.test(versionPath)) {

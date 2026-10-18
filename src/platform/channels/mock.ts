@@ -16,6 +16,7 @@ import {
   type ChannelAdapter,
   type GeneratedAsset,
   type ImageRunRequest,
+  type SpeechRunRequest,
   type TextRunRequest,
   type TextResult,
   type VerifyResult,
@@ -70,6 +71,12 @@ const DEFAULT_MODELS: ModelCapability[] = [
     durations: [3, 15],
     maxReferenceImages: 2,
   },
+  {
+    id: 'mock-speech-1',
+    category: 'audio',
+    inputTypes: ['text'],
+    voices: ['alloy', 'nova'],
+  },
 ]
 
 /**
@@ -107,6 +114,37 @@ function pixelSizeOf(ratio: unknown): [number, number] {
   const w = Math.max(1, Math.round(a * scale))
   const h = Math.max(1, Math.round(b * scale))
   return [w, h]
+}
+
+/** 极短的合法 WAV（8kHz / 16-bit / 单声道），供离线 TTS 链路解码与导出使用。 */
+function mockSpeechWav(text: string): Uint8Array {
+  const sampleRate = 8000
+  const seconds = Math.min(1.2, Math.max(0.18, text.length / 24))
+  const samples = Math.max(1, Math.round(sampleRate * seconds))
+  const dataBytes = samples * 2
+  const out = new Uint8Array(44 + dataBytes)
+  const view = new DataView(out.buffer)
+  const ascii = (offset: number, value: string) => {
+    for (let i = 0; i < value.length; i += 1) out[offset + i] = value.charCodeAt(i)
+  }
+  ascii(0, 'RIFF')
+  view.setUint32(4, 36 + dataBytes, true)
+  ascii(8, 'WAVE')
+  ascii(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  ascii(36, 'data')
+  view.setUint32(40, dataBytes, true)
+  for (let i = 0; i < samples; i += 1) {
+    const value = Math.round(Math.sin((i / sampleRate) * Math.PI * 2 * 220) * 1200)
+    view.setInt16(44 + i * 2, value, true)
+  }
+  return out
 }
 
 /**
@@ -286,6 +324,15 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
     async generateVideo(request: VideoRunRequest, signal: AbortSignal): Promise<GeneratedAsset[]> {
       await before(signal)
       return [asset(request, 0)]
+    },
+    async generateSpeech(request: SpeechRunRequest, signal: AbortSignal): Promise<GeneratedAsset> {
+      await before(signal)
+      const bytes = mockSpeechWav(`${request.text}:${request.voice}:${request.speed ?? 1}`)
+      return {
+        hash: fingerprintBytesSync(bytes),
+        mime: 'audio/wav',
+        bytes,
+      }
     },
     /**
      * 文本输出里带上**实际收到的素材**，使「上游图片是否真的送进了 LLM」可断言。

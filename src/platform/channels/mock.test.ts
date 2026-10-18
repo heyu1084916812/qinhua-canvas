@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { createMockChannel } from './mock'
 import { solidPng } from './mockPng'
 import { imageSizeFromHeader } from '../../domain/shared/imageSize'
-import type { ImageRunRequest, TextRunRequest, VideoRunRequest } from './types'
+import type { ImageRunRequest, SpeechRunRequest, TextRunRequest, VideoRunRequest } from './types'
 
 const signal = new AbortController().signal
 
@@ -13,6 +13,26 @@ const imageRequest = (inputs: ImageRunRequest['inputs']): ImageRunRequest => ({
   prompt: 'p',
   inputs,
   params: { count: 1 },
+})
+
+describe('mock 渠道 · TTS', () => {
+  it('产出可解码的 WAV，并按文本 / 音色 / 语速区分内容 hash', async () => {
+    const ch = createMockChannel()
+    const req: SpeechRunRequest = {
+      channelId: 'c',
+      model: 'mock-speech-1',
+      text: '今天最后一单',
+      voice: 'alloy',
+      speed: 1,
+      responseFormat: 'mp3',
+    }
+    const a = await ch.generateSpeech!(req, signal)
+    const b = await ch.generateSpeech!({ ...req, voice: 'nova' }, signal)
+    expect(Array.from(a.bytes.slice(0, 4))).toEqual([0x52, 0x49, 0x46, 0x46])
+    expect(a.mime).toBe('audio/wav')
+    expect(a.bytes.length).toBeGreaterThan(44)
+    expect(a.hash).not.toBe(b.hash)
+  })
 })
 
 /** PNG 的 IHDR 之后的第一个字节组无法直读，这里用「字节是否相同」判断产物是否同源 */

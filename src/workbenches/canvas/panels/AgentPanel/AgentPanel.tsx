@@ -610,7 +610,10 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
        * 真模型会把视频节点写成 `mode:"image"`，只写对 `model`；执行层按 `mode` 分链，
        * 不纠正就是「点了生成一个请求都不发」。
        */
-      categoryOfModel: (model) => capabilityOfLogical(allChannels, model)?.category,
+      categoryOfModel: (model) => {
+        const category = capabilityOfLogical(allChannels, model)?.category
+        return category === 'audio' ? undefined : category
+      },
     }),
     [store, selection, execution, channels, current, enabled, allChannels, selectedModelOf, sessions],
   )

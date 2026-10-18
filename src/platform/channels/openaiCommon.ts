@@ -166,15 +166,35 @@ export function classifyError(
  */
 export function toModelCapability(modelId: string): ModelCapability {
   const id = modelId.toLowerCase()
-  const category: ModelCapability['category'] = id.includes('video')
-    ? 'video'
-    : id.includes('image')
-      ? 'image'
-      : 'chat'
+  const category: ModelCapability['category'] =
+    id.includes('tts') || id.includes('speech') || id.includes('voice')
+      ? 'audio'
+      : id.includes('video')
+        ? 'video'
+        : id.includes('image')
+          ? 'image'
+          : 'chat'
   return {
     id: modelId,
     category,
-    inputTypes: category === 'chat' ? ['text'] : ['text', 'image'],
+    inputTypes: category === 'chat' || category === 'audio' ? ['text'] : ['text', 'image'],
+    ...(category === 'audio'
+      ? {
+          voices: [
+            'alloy',
+            'ash',
+            'ballad',
+            'coral',
+            'echo',
+            'fable',
+            'nova',
+            'onyx',
+            'sage',
+            'shimmer',
+            'verse',
+          ],
+        }
+      : {}),
     /**
      * 比例能力表：与面板兜底档位**同一套九档**（§6.8）。
      *
