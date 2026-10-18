@@ -69,6 +69,12 @@ export interface EcommerceResultItem {
   preview?: ReactNode
   /** AI 编辑结果的原图预览；普通生成结果为空 */
   sourcePreview?: ReactNode
+  /** 结果的实际提示词 / 模型 / 比例 / 任务要求，用于解释这张图怎么来的 */
+  prompt?: string
+  model?: string
+  ratio?: string
+  note?: string
+  createdAt?: number
   /**
    * 产物素材 hash（对账 #420）：长图拼合要靠它把像素画进一张 canvas。
    *
@@ -288,6 +294,7 @@ export function EcommerceStudio({
   const [batchReferenceBusy, setBatchReferenceBusy] = useState(false)
   const [savingSelected, setSavingSelected] = useState(false)
   const [compareTarget, setCompareTarget] = useState<EcommerceResultItem | null>(null)
+  const [detailTarget, setDetailTarget] = useState<EcommerceResultItem | null>(null)
   /**
    * 「先出一份方案」（对账 #423）：**方案 + 它是对着哪组参数写的**。
    *
@@ -1442,6 +1449,16 @@ export function EcommerceStudio({
                         对比原图
                       </button>
                     ) : null}
+                    {r.prompt || r.model || r.note ? (
+                      <button
+                        type="button"
+                        className={styles.linkBtn}
+                        data-ecommerce-result-detail
+                        onClick={() => setDetailTarget(r)}
+                      >
+                        详情
+                      </button>
+                    ) : null}
                   </span>
                 </figcaption>
               </figure>
@@ -1450,6 +1467,75 @@ export function EcommerceStudio({
         )}
         {longImage}
       </section>
+
+      {detailTarget ? (
+        <div
+          className={styles.confirm}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ecommerce-result-detail-title"
+          data-ecommerce-result-detail-dialog
+        >
+          <div className={styles.confirmCard}>
+            <h2 className={styles.confirmTitle} id="ecommerce-result-detail-title">
+              结果详情
+            </h2>
+            <dl className={styles.detailGrid}>
+              {detailTarget.model ? (
+                <>
+                  <dt>模型</dt>
+                  <dd>{detailTarget.model}</dd>
+                </>
+              ) : null}
+              {detailTarget.ratio ? (
+                <>
+                  <dt>比例</dt>
+                  <dd>{detailTarget.ratio}</dd>
+                </>
+              ) : null}
+              {detailTarget.createdAt ? (
+                <>
+                  <dt>生成时间</dt>
+                  <dd>{new Date(detailTarget.createdAt).toLocaleString('zh-CN')}</dd>
+                </>
+              ) : null}
+              {detailTarget.note ? (
+                <>
+                  <dt>任务要求</dt>
+                  <dd>{detailTarget.note}</dd>
+                </>
+              ) : null}
+            </dl>
+            {detailTarget.prompt ? (
+              <pre className={styles.detailPrompt} data-ecommerce-result-prompt>
+                {detailTarget.prompt}
+              </pre>
+            ) : null}
+            <div className={styles.confirmActions}>
+              {detailTarget.prompt ? (
+                <button
+                  type="button"
+                  className={styles.cancel}
+                  data-ecommerce-result-prompt-copy
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(detailTarget.prompt ?? '')
+                  }}
+                >
+                  复制提示词
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={styles.cancel}
+                data-ecommerce-result-detail-close
+                onClick={() => setDetailTarget(null)}
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {compareTarget ? (
         <div

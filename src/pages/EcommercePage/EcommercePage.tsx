@@ -1073,6 +1073,13 @@ function StudioHost({ projectId }: { projectId: string }) {
           sourcePreview: activeTask.sourceAssetHash ? (
             <ResultPreview hash={activeTask.sourceAssetHash} />
           ) : undefined,
+          ...(row.prompt ? { prompt: row.prompt } : {}),
+          ...(row.model ?? activeTask.request.model
+            ? { model: row.model ?? activeTask.request.model }
+            : {}),
+          ratio: activeTask.request.ratio,
+          ...(activeTask.request.note ? { note: activeTask.request.note } : {}),
+          createdAt: row.createdAt,
           onDownload: downloadOf(hash),
           onSaveToLibrary: saveToLibraryOf(hash, {
             ...(width !== undefined ? { width } : {}),

@@ -34320,6 +34320,26 @@ async function g159(browser) {
     originalUntouched,
     `原状态=${originalAfter?.status ?? '丢失'} hash一致=${originalAfter?.assetHash === sourceResult?.assetHash}`,
   )
+  const detailVisible = await page
+    .locator('[data-ecommerce-result-detail]')
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★★ 编辑结果出现可追溯的「详情」入口', detailVisible)
+  if (detailVisible) {
+    await page.locator('[data-ecommerce-result-detail]').click()
+    const detailText = await page.locator('[data-ecommerce-result-detail-dialog]').innerText()
+    rec(
+      g,
+      '★★★ 详情展示实际模型、比例、任务要求与完整提示词',
+      /比例/.test(detailText) &&
+        detailText.includes(instruction) &&
+        detailText.includes('模型') &&
+        detailText.includes('任务要求'),
+      detailText.replace(/\n/g, ' | ').slice(0, 160),
+    )
+    await page.locator('[data-ecommerce-result-detail-close]').click()
+  }
   const compareVisible = await page
     .locator('[data-ecommerce-compare-source]')
     .waitFor({ state: 'visible', timeout: 10000 })
