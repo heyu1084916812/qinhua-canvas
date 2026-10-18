@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
+import { useAsset, useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
 import { dialogueTextOf, type TimelineClip } from '../../domain/storyboard/ffmpegPack'
 import styles from './EpisodePreview.module.css'
 
@@ -21,6 +21,9 @@ import styles from './EpisodePreview.module.css'
  */
 export interface EpisodePreviewProps {
   clips: readonly TimelineClip[]
+  bgmHash?: string
+  bgmName?: string
+  bgmVolume?: number
   /** 当前第几段（0 起；调用方已按片段数夹好范围） */
   at: number
   playing: boolean
@@ -29,7 +32,17 @@ export interface EpisodePreviewProps {
   onClose: () => void
 }
 
-export function EpisodePreview({ clips, at, playing, onAt, onTogglePlay, onClose }: EpisodePreviewProps) {
+export function EpisodePreview({
+  clips,
+  bgmHash,
+  bgmName,
+  bgmVolume,
+  at,
+  playing,
+  onAt,
+  onTogglePlay,
+  onClose,
+}: EpisodePreviewProps) {
   /**
    * 键盘口径与画布灯箱 / 文本编辑灯箱一致：**Esc 关闭**；
    * 空格顺手做播放暂停（预览里最顺手的一个键，且不会与页面其它快捷键打架 —— 这一层是浮层）。
@@ -65,6 +78,7 @@ export function EpisodePreview({ clips, at, playing, onAt, onTogglePlay, onClose
       onClick={onClose}
     >
       <div className={styles.panel} onClick={(e) => e.stopPropagation()}>
+        <BgmTrack hash={bgmHash} playing={playing} volume={bgmVolume ?? 0.2} />
         <div className={styles.stage}>
           <PreviewMedia
             key={`${clip.shotId}-${index}`}
@@ -80,6 +94,11 @@ export function EpisodePreview({ clips, at, playing, onAt, onTogglePlay, onClose
           <span className={styles.dialogue} data-preview-dialogue>
             {dialogueTextOf(clip) || '（这一镜没有台词）'}
           </span>
+          {bgmHash ? (
+            <span className={styles.bgmTag} data-preview-bgm>
+              BGM · {bgmName || bgmHash.slice(0, 8)}
+            </span>
+          ) : null}
           <div className={styles.tools}>
             <button type="button" className={styles.btn} data-preview-prev onClick={() => step(-1)}>
               上一镜
@@ -97,6 +116,37 @@ export function EpisodePreview({ clips, at, playing, onAt, onTogglePlay, onClose
         </div>
       </div>
     </div>
+  )
+}
+
+function BgmTrack({
+  hash,
+  playing,
+  volume,
+}: {
+  hash?: string
+  playing: boolean
+  volume: number
+}) {
+  const url = useAsset(hash)
+  const ref = useRef<HTMLAudioElement | null>(null)
+  useEffect(() => {
+    const audio = ref.current
+    if (!audio) return
+    audio.volume = Math.min(1, Math.max(0, volume))
+    if (playing) void audio.play().catch(() => undefined)
+    else audio.pause()
+  }, [playing, url, volume])
+  if (!url) return null
+  return (
+    <audio
+      ref={ref}
+      className={styles.bgmAudio}
+      src={url}
+      loop
+      autoPlay={playing}
+      data-preview-bgm-audio
+    />
   )
 }
 

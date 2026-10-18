@@ -975,14 +975,14 @@ export function EcommerceStudio({
               data-ecommerce-open-canvas
               onClick={onOpenCanvas}
             >
-              在画布里打开
+              打开项目画布
             </button>
           </span>
         </header>
         {results.length === 0 ? (
           <p className={styles.empty} data-ecommerce-empty>
             还没有结果。上传产品图、选好参数后点「开始生成」—— 图片会落到这个项目里，
-            每一张都能单独下载，也能在画布里继续改。
+            每一张都能单独下载；要精修时会复制成一份独立画布节点，不碰电商内部执行节点。
           </p>
         ) : (
           <div className={styles.grid} data-ecommerce-grid>
@@ -1068,7 +1068,7 @@ export function EcommerceStudio({
                       </button>
                     ) : null}
                     {/*
-                      在画布里改这一张（对账 #424）：跳过去之后画布**选中并居中**这个节点。
+                      复制到画布改这一张：结果先复制成独立节点再跳过去，画布**选中并居中**副本。
                       以前只有结果区顶部那个「在画布里打开」—— 它只到项目级，
                       图一多就得自己在一堆节点里找（这正是用户在漫剧那边也提过的同一件事）。
                     */}
@@ -1079,7 +1079,7 @@ export function EcommerceStudio({
                         data-ecommerce-focus-canvas
                         onClick={r.onFocusInCanvas}
                       >
-                        在画布里改这一张
+                        复制到画布并编辑
                       </button>
                     ) : null}
                     {r.onCropInCanvas ? (
@@ -1087,6 +1087,7 @@ export function EcommerceStudio({
                         type="button"
                         className={styles.linkBtn}
                         data-ecommerce-crop-canvas
+                        title="先复制成独立画布节点，再打开裁剪"
                         onClick={r.onCropInCanvas}
                       >
                         裁剪这一张
@@ -1097,6 +1098,7 @@ export function EcommerceStudio({
                         type="button"
                         className={styles.linkBtn}
                         data-ecommerce-annotate-canvas
+                        title="先复制成独立画布节点，再打开标注"
                         onClick={r.onAnnotateInCanvas}
                       >
                         加文字/标注
@@ -1107,6 +1109,7 @@ export function EcommerceStudio({
                         type="button"
                         className={styles.linkBtn}
                         data-ecommerce-rotate-canvas
+                        title="先复制成独立画布节点，再打开旋转"
                         onClick={r.onRotateInCanvas}
                       >
                         旋转

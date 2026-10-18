@@ -14,7 +14,7 @@ import {
   CanvasExecutionProvider,
   useCanvasExecution,
 } from '../../workbenches/canvas/execution/CanvasExecutionProvider'
-import { useAsset } from '../../workbenches/canvas/hooks/useAsset'
+import { useAsset, useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
 import { applyDefaults, resolveDefaults } from '../../features/canvas/createNodeWithDefaults'
 import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
@@ -51,6 +51,7 @@ import {
 import { asAppError, describeError } from '../../shared/result'
 import { buildEpisodePack, episodeTimeline } from '../../domain/storyboard/ffmpegPack'
 import { toBytes } from '../../platform/assets'
+import { importAudioAsset } from '../../features/storyboard/importAudioAsset'
 import { EpisodePreview } from './EpisodePreview'
 import { SourcePreview } from './SourcePreview'
 import {
@@ -98,6 +99,7 @@ import {
   type DramaCharacter,
   type DramaScene,
   type StoryboardDoc,
+  type StoryboardEpisode,
   type StoryboardLine,
   type StoryboardShot,
 } from '../../domain/storyboard/storyboard'
@@ -1171,6 +1173,40 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   const exportBaseName = () =>
     (doc.script.title.trim() || projectName.trim() || '未命名漫剧').replace(/[\\/:*?"<>|]/g, '_')
 
+  const onPickBgm = async () => {
+    if (!selected) return
+    setStatus('正在导入背景音乐…')
+    try {
+      const asset = await importAudioAsset({ platform, store: canvasStore, projectId })
+      if (!asset) {
+        setStatus('')
+        return
+      }
+      apply(
+        updateEpisode(
+          doc,
+          selected.id,
+          {
+            bgmHash: asset.hash,
+            bgmName: asset.name,
+            bgmVolume: selected.bgmVolume ?? 0.2,
+          },
+          Date.now(),
+        ),
+      )
+      setStatus(`已导入背景音乐「${asset.name}」`)
+    } catch (error) {
+      const appError = asAppError(error)
+      setStatus(appError ? describeError(appError) : String(error))
+    }
+  }
+
+  const onRemoveBgm = () => {
+    if (!selected) return
+    apply(updateEpisode(doc, selected.id, { bgmHash: '' }, Date.now()))
+    setStatus('已移除背景音乐')
+  }
+
   const onExport = async () => {
     try {
       await flush()
@@ -1212,6 +1248,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         const hash = shot.videoHash ?? shot.imageHash
         if (hash) wanted.add(hash)
       }
+      if (selected.bgmHash) wanted.add(selected.bgmHash)
       const info = new Map<string, { mime: string; local: boolean }>()
       for (const hash of wanted) {
         const rows = await platform.storage.query('assets', { id: hash })
@@ -1248,9 +1285,11 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         files = 2
       }
       const remote = pack.clips.filter((c) => !c.local).length
+      const remoteBgm = pack.bgm && !pack.bgm.local ? 1 : 0
       const notes = [
         pack.missing.length > 0 ? `${pack.missing.length} 镜没素材` : '',
-        remote > 0 ? `${remote} 份素材要先去下载` : '',
+        remote + remoteBgm > 0 ? `${remote + remoteBgm} 份素材要先去下载` : '',
+        pack.bgmMissing ? '背景音乐缺失，未进命令' : '',
       ].filter(Boolean)
       setStatus(
         `已导出合成包（${files} 个文件）${notes.length > 0 ? ` —— 包里写明了：${notes.join('、')}` : ''}`,
@@ -1738,6 +1777,16 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                     />
                   </label>
                 </div>
+                <BgmField
+                  episode={selected}
+                  onPick={() => void onPickBgm()}
+                  onRemove={onRemoveBgm}
+                  onVolume={(volume) =>
+                    apply(
+                      updateEpisode(doc, selected.id, { bgmVolume: volume }, Date.now()),
+                    )
+                  }
+                />
               </div>
 
               <div className={styles.block}>
@@ -1928,6 +1977,9 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       {preview && timeline.clips.length > 0 ? (
         <EpisodePreview
           clips={timeline.clips}
+          bgmHash={selected?.bgmHash}
+          bgmName={selected?.bgmName}
+          bgmVolume={selected?.bgmVolume}
           at={preview.at}
           playing={preview.playing}
           onAt={(at) => setPreview({ at, playing: true })}
@@ -1943,6 +1995,76 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
           onClose={() => setSourcePreview(null)}
         />
       ) : null}
+    </div>
+  )
+}
+
+function BgmField({
+  episode,
+  onPick,
+  onRemove,
+  onVolume,
+}: {
+  episode: StoryboardEpisode
+  onPick: () => void
+  onRemove: () => void
+  onVolume: (volume: number) => void
+}) {
+  const meta = useAssetMeta(episode.bgmHash)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const volume = episode.bgmVolume ?? 0.2
+
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = volume
+  }, [volume, meta.url])
+
+  return (
+    <div className={styles.bgmField} data-storyboard-bgm={episode.id}>
+      <div className={styles.bgmHead}>
+        <div>
+          <span className={styles.label}>背景音乐</span>
+          <p className={styles.bgmName} data-storyboard-bgm-name>
+            {episode.bgmHash ? episode.bgmName || episode.bgmHash.slice(0, 12) : '这一集还没有背景音乐'}
+          </p>
+        </div>
+        <div className={styles.bgmActions}>
+          <button type="button" className={styles.ghost} data-storyboard-bgm-pick onClick={onPick}>
+            {episode.bgmHash ? '更换音频' : '选择音频'}
+          </button>
+          {episode.bgmHash ? (
+            <button type="button" className={styles.ghost} data-storyboard-bgm-remove onClick={onRemove}>
+              移除
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {episode.bgmHash ? (
+        meta.missing ? (
+          <p className={styles.bgmMissing} data-storyboard-bgm-missing>
+            音频素材缺失{meta.expectedPath ? `（本该在 ${meta.expectedPath}）` : ''}
+          </p>
+        ) : meta.url ? (
+          <div className={styles.bgmPlayer}>
+            <audio ref={audioRef} controls src={meta.url} data-storyboard-bgm-audio />
+            <label className={styles.bgmVolume}>
+              <span>音量 {Math.round(volume * 100)}%</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value={Math.round(volume * 100)}
+                data-storyboard-bgm-volume
+                onChange={(e) => onVolume(Number(e.target.value) / 100)}
+              />
+            </label>
+          </div>
+        ) : (
+          <p className={styles.hint}>正在读取音频…</p>
+        )
+      ) : (
+        <p className={styles.hint}>支持 MP3 / WAV / OGG / M4A / AAC / FLAC，最大 50MB。</p>
+      )}
     </div>
   )
 }

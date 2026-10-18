@@ -98,7 +98,15 @@ export interface StoryboardEpisode {
   hookOpen?: string
   /** 结尾钩子（同上） */
   hookEnd?: string
+  /** 这一集使用的背景音乐素材 hash（只存引用，字节在 assets 表） */
+  bgmHash?: string
+  /** 用户可读的音频原名；hash 不可读，界面与合成包要显示它 */
+  bgmName?: string
+  /** 0..1；只在有 bgmHash 时有意义，默认 0.2 */
+  bgmVolume?: number
 }
+
+export const DEFAULT_BGM_VOLUME = 0.2
 
 export interface StoryboardShot {
   id: string
@@ -288,6 +296,9 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
     if (!id) return []
     const hookOpen = text(row.hookOpen)
     const hookEnd = text(row.hookEnd)
+    const bgmHash = text(row.bgmHash)
+    const bgmName = text(row.bgmName)
+    const bgmVolume = clampVolume(row.bgmVolume)
     /** 原文范围：两个数、且 from < to 才认（脏数据当没有，不做"猜个范围"） */
     const rangeRaw = row.sourceRange && typeof row.sourceRange === 'object' ? (row.sourceRange as Record<string, unknown>) : null
     const from = rangeRaw ? num(rangeRaw.from, -1) : -1
@@ -300,6 +311,13 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
         ...(from >= 0 && to > from ? { sourceRange: { from, to } } : {}),
         ...(hookOpen ? { hookOpen } : {}),
         ...(hookEnd ? { hookEnd } : {}),
+        ...(bgmHash
+          ? {
+              bgmHash,
+              ...(bgmName ? { bgmName } : {}),
+              bgmVolume,
+            }
+          : {}),
       },
     ]
   })
@@ -576,7 +594,12 @@ export function addEpisode(doc: StoryboardDoc, now = 0): StoryboardDoc {
 export function updateEpisode(
   doc: StoryboardDoc,
   id: string,
-  patch: Partial<Pick<StoryboardEpisode, 'title' | 'summary' | 'hookOpen' | 'hookEnd'>>,
+  patch: Partial<
+    Pick<
+      StoryboardEpisode,
+      'title' | 'summary' | 'hookOpen' | 'hookEnd' | 'bgmHash' | 'bgmName' | 'bgmVolume'
+    >
+  >,
   now = 0,
 ): StoryboardDoc {
   return {
@@ -585,6 +608,9 @@ export function updateEpisode(
       if (e.id !== id) return e
       const hookOpen = text(patch.hookOpen, e.hookOpen ?? '').trim()
       const hookEnd = text(patch.hookEnd, e.hookEnd ?? '').trim()
+      const bgmHash = text(patch.bgmHash, e.bgmHash ?? '').trim()
+      const bgmName = text(patch.bgmName, e.bgmName ?? '').trim()
+      const bgmVolume = clampVolume(patch.bgmVolume, e.bgmVolume ?? DEFAULT_BGM_VOLUME)
       const next: StoryboardEpisode = {
         ...e,
         title: text(patch.title, e.title) || e.title,
@@ -595,10 +621,26 @@ export function updateEpisode(
       else delete next.hookOpen
       if (hookEnd) next.hookEnd = hookEnd
       else delete next.hookEnd
+      if (bgmHash) {
+        next.bgmHash = bgmHash
+        if (bgmName) next.bgmName = bgmName
+        else delete next.bgmName
+        next.bgmVolume = bgmVolume
+      } else {
+        delete next.bgmHash
+        delete next.bgmName
+        delete next.bgmVolume
+      }
       return next
     }),
     updatedAt: now,
   }
+}
+
+function clampVolume(value: unknown, fallback = DEFAULT_BGM_VOLUME): number {
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(1, Math.max(0, n))
 }
 
 /** 删一集**连它的镜头一起删**（否则那些镜头会变成孤儿，界面上再也看不到） */
@@ -1360,6 +1402,13 @@ export function exportStoryboardMarkdown(doc: StoryboardDoc): string {
     }
     if (episode.hookEnd?.trim()) {
       lines.push(`> 结尾钩子：${episode.hookEnd.trim()}`)
+      lines.push('')
+    }
+    if (episode.bgmHash) {
+      const volume = Math.round((episode.bgmVolume ?? DEFAULT_BGM_VOLUME) * 100)
+      lines.push(
+        `> 背景音乐：${episode.bgmName?.trim() || episode.bgmHash}（${episode.bgmHash.slice(0, 8)}…，音量 ${volume}%）`,
+      )
       lines.push('')
     }
     const shots = shotsOf(doc, episode.id)

@@ -77,6 +77,22 @@
   white-space: nowrap;
 }
 
+.bgmTag {
+  max-width: 180px;
+  overflow: hidden;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-control);
+  background: var(--bg-hover);
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bgmAudio {
+  display: none;
+}
+
 .tools {
   display: flex;
   gap: var(--space-2);

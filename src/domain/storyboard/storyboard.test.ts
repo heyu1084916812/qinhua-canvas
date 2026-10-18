@@ -533,6 +533,46 @@ describe('原文与溯源', () => {
     expect(md).toContain('> 开场钩子：开场钩子')
     expect(md).toContain('> 结尾钩子：结尾钩子')
   })
+
+  it('★ BGM：写入、音量夹取、清空时三个字段一起删；导出能读出曲名与音量', () => {
+    let doc = emptyStoryboard('p1')
+    doc = addEpisode(doc, 1)
+    const id = doc.episodes[0]!.id
+    doc = updateEpisode(
+      doc,
+      id,
+      { bgmHash: 'music-hash', bgmName: '雨夜主题.mp3', bgmVolume: 1.8 },
+      2,
+    )
+    expect(doc.episodes[0]).toMatchObject({
+      bgmHash: 'music-hash',
+      bgmName: '雨夜主题.mp3',
+      bgmVolume: 1,
+    })
+    expect(exportStoryboardMarkdown(doc)).toContain('背景音乐：雨夜主题.mp3')
+    expect(exportStoryboardMarkdown(doc)).toContain('音量 100%')
+
+    doc = updateEpisode(doc, id, { bgmHash: '' }, 3)
+    expect('bgmHash' in doc.episodes[0]!).toBe(false)
+    expect('bgmName' in doc.episodes[0]!).toBe(false)
+    expect('bgmVolume' in doc.episodes[0]!).toBe(false)
+  })
+
+  it('★ 读回：有 hash 才认 BGM；音量脏值回落默认，没有 hash 时字段整体丢弃', () => {
+    const doc = parseStoryboard(
+      {
+        episodes: [
+          { id: 'e1', title: '一', summary: '', bgmHash: 'h1', bgmName: 'a.mp3', bgmVolume: -1 },
+          { id: 'e2', title: '二', summary: '', bgmName: 'orphan.mp3', bgmVolume: 0.9 },
+        ],
+        shots: [],
+      },
+      'p1',
+    )
+    expect(doc.episodes[0]).toMatchObject({ bgmHash: 'h1', bgmName: 'a.mp3', bgmVolume: 0 })
+    expect('bgmHash' in doc.episodes[1]!).toBe(false)
+    expect('bgmName' in doc.episodes[1]!).toBe(false)
+  })
 })
 
 /**

@@ -93,6 +93,7 @@ describe('flowIo 导出 / 导入', () => {
           projectId: 'proj1',
           taskId: 'et1',
           nodeId: 'n2',
+          canvasCopyNodeId: 'n1',
           position: 0,
           createdAt: 1,
           updatedAt: 1,
@@ -135,6 +136,8 @@ describe('flowIo 导出 / 导入', () => {
       (n) => (n.data as { model?: string } | undefined)?.model === 'gpt-image',
     )!
     expect(importedResults[0].nodeId).toBe(importedGen.id)
+    const importedPrompt = importedNodes.find((n) => n.type === 'prompt')!
+    expect(importedResults[0].canvasCopyNodeId).toBe(importedPrompt.id)
   })
 
   /**

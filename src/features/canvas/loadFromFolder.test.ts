@@ -28,6 +28,7 @@ describe('从文件夹加载素材', () => {
       assetFolderFiles: {
         'pic-a.png': new Blob([png as unknown as BlobPart], { type: 'image/png' }),
         'notes.md': new Blob(['hello'], { type: 'text/markdown' }),
+        'theme.mp3': new Blob(['audio'], { type: 'audio/mpeg' }),
       },
     })
     await platform.assetFolder!.pick()
@@ -36,7 +37,7 @@ describe('从文件夹加载素材', () => {
     const result = await loadAssetsFromFolder({ platform, store, projectId: 'p1' }, { x: 0, y: 0 })
     // 失败必须带原因（只报"1 个失败"等于没报）
     expect(result.failures).toEqual([])
-    expect(result).toMatchObject({ imported: 1, skipped: 1, failed: 0 })
+    expect(result).toMatchObject({ imported: 1, skipped: 2, failed: 0 })
 
     const nodes = store.getSnapshot().nodes
     expect(nodes).toHaveLength(1)

@@ -5,6 +5,7 @@ import {
   attachShotImages,
   attachShotVideos,
   emptyStoryboard,
+  updateEpisode,
   updateShot,
   type StoryboardDoc,
 } from './storyboard'
@@ -146,6 +147,18 @@ describe('合成包 · FFmpeg 命令', () => {
     expect(cmd).toContain('-map "[outv]"')
   })
 
+  it('★★ BGM 在片段之后追加一个循环输入，裁到总时长并通过 `-shortest` 收口', () => {
+    const cmd = ffmpegCommand(
+      [clip({ file: 'a.png', seconds: 2 }), clip({ index: 2, file: 'b.png', seconds: 3 })],
+      { bgm: { file: 'music.mp3', volume: 0.25 } },
+    )
+    expect(cmd).toContain('-i b.png -stream_loop -1 -i music.mp3')
+    expect(cmd).toContain('[2:a]atrim=0:5,volume=0.25[bgm]')
+    expect(cmd).toContain('-map "[outv]" -map "[bgm]"')
+    expect(cmd).toContain('-c:a aac -b:a 192k')
+    expect(cmd).toContain('-shortest')
+  })
+
   it('★ 一镜都没有 ⇒ 空串（调用方据此不导出，而不是导一份跑不了的包）', () => {
     expect(ffmpegCommand([])).toBe('')
   })
@@ -273,5 +286,48 @@ describe('合成包 · 整包与清单', () => {
     expect(md).toContain('设置 → 存储')
     expect(md).toContain('# 未命名漫剧')
     expect(md).toContain('第 1 镜：还没出图')
+  })
+
+  it('★★ BGM 有本地字节 ⇒ 进命令、进清单；坏引用 ⇒ 不进命令并明确写缺料', () => {
+    let withBgm = doc()
+    withBgm = updateEpisode(
+      withBgm,
+      withBgm.episodes[0]!.id,
+      { bgmHash: 'music-hash', bgmName: '雨夜主题.mp3', bgmVolume: 0.35 },
+      1,
+    )
+    const ok = buildEpisodePack({
+      doc: withBgm,
+      episode: withBgm.episodes[0]!,
+      episodeNo: 1,
+      assetOf: (hash) =>
+        hash === 'hash-a'
+          ? { mime: 'image/png', local: true }
+          : hash === 'music-hash'
+            ? { mime: 'audio/mpeg', local: true }
+            : undefined,
+      folderName: 'my-assets',
+    })
+    expect(ok.bgm).toMatchObject({
+      file: 'music-hash.mp3',
+      local: true,
+      volume: 0.35,
+      name: '雨夜主题.mp3',
+    })
+    expect(ok.command).toContain('music-hash.mp3')
+    expect(ok.markdown).toContain('背景音乐')
+    expect(ok.markdown).toContain('音量 35%')
+
+    const missing = buildEpisodePack({
+      doc: withBgm,
+      episode: withBgm.episodes[0]!,
+      episodeNo: 1,
+      assetOf: (hash) => (hash === 'hash-a' ? { mime: 'image/png', local: true } : undefined),
+      folderName: 'my-assets',
+    })
+    expect(missing.bgm).toBeUndefined()
+    expect(missing.bgmMissing).toContain('素材库里查不到')
+    expect(missing.command).not.toContain('music-hash')
+    expect(missing.markdown).toContain('已从合成命令中排除')
   })
 })

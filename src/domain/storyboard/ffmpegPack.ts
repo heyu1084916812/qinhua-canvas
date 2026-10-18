@@ -80,6 +80,14 @@ export interface PackMissing {
   reason: string
 }
 
+export interface PackBgm {
+  hash: string
+  file: string
+  local: boolean
+  volume: number
+  name?: string
+}
+
 /** 一条素材在库里的样子（页面查 `assets` 行后喂进来；domain 不许 import 平台层） */
 export interface PackAssetInfo {
   mime: string
@@ -91,6 +99,8 @@ export type PackAssetLookup = (hash: string) => PackAssetInfo | undefined
 export interface EpisodePack {
   clips: PackClip[]
   missing: PackMissing[]
+  bgm?: PackBgm
+  bgmMissing?: string
   /** 一条**单行**命令（换行 + `\` 在 PowerShell 里不是续行，会连反斜杠一起吞掉） */
   command: string
   /** SRT 全文；这一集一句台词都没有时是空串 */
@@ -173,7 +183,13 @@ export function episodeTimeline(
  */
 export function ffmpegCommand(
   clips: readonly PackClip[],
-  opts: { width?: number; height?: number; fps?: number; output?: string } = {},
+  opts: {
+    width?: number
+    height?: number
+    fps?: number
+    output?: string
+    bgm?: { file: string; volume?: number }
+  } = {},
 ): string {
   if (clips.length === 0) return ''
   const w = opts.width ?? PACK_WIDTH
@@ -194,11 +210,22 @@ export function ffmpegCommand(
     )
   })
   const concat = `${clips.map((_, i) => `[v${i}]`).join('')}concat=n=${clips.length}:v=1:a=0[outv]`
+  const totalSeconds = clips.reduce((sum, clip) => sum + clip.seconds, 0)
+  let audioChain = ''
+  if (opts.bgm?.file) {
+    const inputIndex = clips.length
+    inputs.push(`-stream_loop -1 -i ${opts.bgm.file}`)
+    const volume = Math.min(1, Math.max(0, opts.bgm.volume ?? 0.2))
+    audioChain = `[${inputIndex}:a]atrim=0:${totalSeconds},volume=${volume}[bgm]`
+  }
   return [
     'ffmpeg -y',
     ...inputs,
-    `-filter_complex "${[...chains, concat].join(';')}"`,
-    '-map "[outv]" -c:v libx264 -pix_fmt yuv420p -movflags +faststart',
+    `-filter_complex "${[...chains, concat, ...(audioChain ? [audioChain] : [])].join(';')}"`,
+    '-map "[outv]"',
+    ...(audioChain ? ['-map "[bgm]" -c:a aac -b:a 192k'] : []),
+    '-c:v libx264 -pix_fmt yuv420p -movflags +faststart',
+    ...(audioChain ? ['-shortest'] : []),
     output,
   ].join(' ')
 }
@@ -279,6 +306,8 @@ export function dialogueTextOf(clip: TimelineClip): string {
 export interface PackMarkdownArgs {
   clips: readonly PackClip[]
   missing: readonly PackMissing[]
+  bgm?: PackBgm
+  bgmMissing?: string
   command: string
   srt: string
   /** 剧名（空则回落「未命名漫剧」） */
@@ -298,7 +327,7 @@ export interface PackMarkdownArgs {
  * 注意事项只写两条会真把人绊倒的（视频长度与分镜表不一致、尺寸改哪儿），不写通用 FFmpeg 科普。
  */
 export function packMarkdown(args: PackMarkdownArgs): string {
-  const { clips, missing, command, srt, episode, episodeNo } = args
+  const { clips, missing, bgm, bgmMissing, command, srt, episode, episodeNo } = args
   const title = args.title.trim() || '未命名漫剧'
   const ep = episode.title.trim() || `第 ${episodeNo} 集`
   const total = clips.reduce((sum, c) => sum + c.seconds, 0)
@@ -327,15 +356,27 @@ export function packMarkdown(args: PackMarkdownArgs): string {
   out.push(command)
   out.push('```')
   out.push('')
+  if (bgm || bgmMissing) {
+    out.push('## 三、背景音乐')
+    out.push('')
+    if (bgm) {
+      out.push(
+        `- \`${bgm.file}\`${bgm.name ? `（${bgm.name}）` : ''}，音量 ${Math.round(bgm.volume * 100)}%，循环并裁到成片长度。`,
+      )
+    } else {
+      out.push(`- ${bgmMissing}`)
+    }
+    out.push('')
+  }
   if (srt) {
-    out.push('## 三、字幕（复制出来存成 `.srt`，或用同目录下那份）')
+    out.push(`## ${bgm || bgmMissing ? '四' : '三'}、字幕（复制出来存成 \`.srt\`，或用同目录下那份）`)
     out.push('')
     out.push('```srt')
     out.push(srt.trimEnd())
     out.push('```')
     out.push('')
   }
-  out.push('## 四、逐镜清单')
+  out.push(`## ${bgm || bgmMissing ? '五' : '四'}、逐镜清单`)
   out.push('')
   out.push(`第 ${episodeNo} 集 · 可合成 ${clips.length} 镜 · 粗排 ${total} 秒`)
   out.push('')
@@ -348,27 +389,31 @@ export function packMarkdown(args: PackMarkdownArgs): string {
     )
   }
   out.push('')
-  out.push('## 五、这几份素材**不在素材文件夹里**（远端产物没有本地字节）')
+  out.push(
+    `## ${bgm || bgmMissing ? '六' : '五'}、这几份素材**不在素材文件夹里**（远端产物没有本地字节）`,
+  )
   out.push('')
   const remote = clips.filter((c) => !c.local)
-  if (remote.length === 0) {
+  if (remote.length === 0 && (!bgm || bgm.local)) {
     out.push('无 —— 这一集要用的素材都在本地。')
   } else {
     out.push('下面这些是**远端产物**（应用手里只有地址、没有字节）：先在画布上把它们下载下来，')
     out.push('存成命令里那个文件名、放进素材文件夹，再跑命令 —— 否则 FFmpeg 会报找不到文件。')
     out.push('')
     for (const clip of remote) out.push(`- 第 ${clip.index} 镜：\`${clip.file}\``)
+    if (bgm && !bgm.local) out.push(`- 背景音乐：\`${bgm.file}\``)
   }
   out.push('')
-  out.push('## 六、缺料的镜头（它们不在命令里）')
+  out.push(`## ${bgm || bgmMissing ? '七' : '六'}、缺料的镜头（它们不在命令里）`)
   out.push('')
-  if (missing.length === 0) {
+  if (missing.length === 0 && !bgmMissing) {
     out.push('无 —— 这一集每一镜都进了命令。')
   } else {
     for (const item of missing) out.push(`- 第 ${item.index} 镜：${item.reason}`)
+    if (bgmMissing) out.push(`- 背景音乐：${bgmMissing}`)
   }
   out.push('')
-  out.push('## 七、两条注意事项')
+  out.push(`## ${bgm || bgmMissing ? '八' : '七'}、两条注意事项`)
   out.push('')
   out.push(
     '- **视频按它的实际长度进片**，静帧按分镜表里那个秒数 —— 两者不一致时，字幕会跟着漂。' +
@@ -396,11 +441,34 @@ export interface BuildPackArgs {
 export function buildEpisodePack(args: BuildPackArgs): EpisodePack {
   const { clips, missing } = episodeClips(args.doc, args.episode.id, args.assetOf)
   const output = args.output ?? `第${args.episodeNo}集.mp4`
-  const command = ffmpegCommand(clips, { output })
+  let bgm: PackBgm | undefined
+  let bgmMissing: string | undefined
+  if (args.episode.bgmHash) {
+    const info = args.assetOf(args.episode.bgmHash)
+    if (info) {
+      bgm = {
+        hash: args.episode.bgmHash,
+        file: assetFileName(args.episode.bgmHash, info.mime),
+        local: info.local,
+        volume: Math.min(1, Math.max(0, args.episode.bgmVolume ?? 0.2)),
+        ...(args.episode.bgmName?.trim() ? { name: args.episode.bgmName.trim() } : {}),
+      }
+    } else {
+      bgmMissing = `背景音乐「${
+        args.episode.bgmName?.trim() || args.episode.bgmHash.slice(0, 8)
+      }」在素材库里查不到，已从合成命令中排除`
+    }
+  }
+  const command = ffmpegCommand(clips, {
+    output,
+    ...(bgm ? { bgm: { file: bgm.file, volume: bgm.volume } } : {}),
+  })
   const srt = srtOf(clips)
   const markdown = packMarkdown({
     clips,
     missing,
+    ...(bgm ? { bgm } : {}),
+    ...(bgmMissing ? { bgmMissing } : {}),
     command,
     srt,
     title: args.doc.script.title,
@@ -409,5 +477,13 @@ export function buildEpisodePack(args: BuildPackArgs): EpisodePack {
     folderName: args.folderName,
     output,
   })
-  return { clips, missing, command, srt, markdown }
+  return {
+    clips,
+    missing,
+    ...(bgm ? { bgm } : {}),
+    ...(bgmMissing ? { bgmMissing } : {}),
+    command,
+    srt,
+    markdown,
+  }
 }

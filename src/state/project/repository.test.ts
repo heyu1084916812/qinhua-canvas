@@ -199,6 +199,7 @@ describe('ProjectRepository（内存存储）', () => {
       projectId: p.id,
       taskId: 'et1',
       nodeId: 'n1',
+      canvasCopyNodeId: 'n1',
       position: 0,
       createdAt: 1,
       updatedAt: 1,
@@ -217,6 +218,7 @@ describe('ProjectRepository（内存存储）', () => {
     expect(results[0].id).not.toBe('er1')
     expect(results[0].taskId).toBe(tasks[0].id)
     expect(results[0].nodeId).toBe(copiedNodes[0].id)
+    expect(results[0].canvasCopyNodeId).toBe(copiedNodes[0].id)
     expect((copiedNodes[0].data as { ecommerceBatch?: string }).ecommerceBatch).not.toBe(
       'batch-old',
     )

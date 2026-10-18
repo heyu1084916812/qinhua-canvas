@@ -1,7 +1,7 @@
-import { assetMimeOfName, isAssetFileName } from '../../domain/shared/assetLocation'
+import { assetMimeOfName } from '../../domain/shared/assetLocation'
 import type { Point } from '../../domain/canvas/geometry/rect'
 import { createId } from '../../shared/id'
-import { createAssetNode, importAssetFile, type ImportDeps } from './importAsset'
+import { createAssetNode, importAssetFile, isImportableMedia, type ImportDeps } from './importAsset'
 
 /**
  * 「从文件夹加载」（对账 #196 · 增量 3）：把用户指定目录里的图片 / 视频批量建成素材与节点。
@@ -57,7 +57,11 @@ export async function loadAssetsFromFolder(
 
   const names = await folder.list()
   /** 先过一遍扩展名：非素材文件**不占进度**（它们的数量在这里一次性记进 `skipped`） */
-  const files = names.filter(isAssetFileName)
+  const files = names.filter((name) => {
+    const mime = assetMimeOfName(name)
+    /* BGM 也住在 assets，但画布文件夹加载只建图片 / 视频节点。 */
+    return !!mime && isImportableMedia(mime)
+  })
   result.skipped = names.length - files.length
   let done = 0
   deps.store.beginPlan(`folder:${createId('plan')}`, '从文件夹加载素材')

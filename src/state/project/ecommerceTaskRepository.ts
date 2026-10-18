@@ -57,6 +57,9 @@ function resultOf(row: Record<string, unknown>): EcommerceResultRecord {
     taskId: String(row.taskId),
     projectId: String(row.projectId),
     nodeId: String(row.nodeId),
+    ...(stringOrUndefined(row.canvasCopyNodeId)
+      ? { canvasCopyNodeId: String(row.canvasCopyNodeId) }
+      : {}),
     position: Number(row.position) || 0,
     createdAt: Number(row.createdAt) || 0,
     updatedAt: Number(row.updatedAt) || 0,

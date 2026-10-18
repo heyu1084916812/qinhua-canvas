@@ -343,6 +343,12 @@ export function deserializeProject(
     projectId: newProjectId,
     taskId: taskIdMap.get(String(result.taskId)) ?? String(result.taskId),
     nodeId: idMap.get(String(result.nodeId)) ?? String(result.nodeId),
+    ...(result.canvasCopyNodeId
+      ? {
+          canvasCopyNodeId:
+            idMap.get(String(result.canvasCopyNodeId)) ?? String(result.canvasCopyNodeId),
+        }
+      : {}),
   }))
 
   const project: FlowProject = {

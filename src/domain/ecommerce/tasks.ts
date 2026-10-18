@@ -33,6 +33,13 @@ export interface EcommerceResultRecord {
   projectId: string
   /** 内部执行节点；节点删了结果行仍保留，只是不允许重跑 */
   nodeId: string
+  /**
+   * 用户在画布里编辑时显式生成的副本节点。
+   *
+   * 内部执行节点只负责跑引擎；画布里的编辑对象必须是这一份独立副本。
+   * 节点被用户删掉后字段会悬空，下次点击重新复制。
+   */
+  canvasCopyNodeId?: string
   position: number
   createdAt: number
   updatedAt: number

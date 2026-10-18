@@ -53,6 +53,7 @@ import { createPackStore } from '../../state/project/packStore'
 import { loadEcommerceDraft, saveEcommerceDraft } from '../../state/project/ecommerceDraft'
 import { createEcommerceTaskRepository } from '../../state/project/ecommerceTaskRepository'
 import { createAssetLibraryRepository } from '../../state/project/assetLibraryRepository'
+import { ensureEcommerceCanvasCopy } from '../../features/ecommerce/ensureCanvasCopy'
 import {
   cleanEcommerceDraftRefs,
   type EcommerceFormDraft,
@@ -473,6 +474,53 @@ function StudioHost({ projectId }: { projectId: string }) {
       platform.logger.log('warn', '[ecommerce] 任务历史读取失败', { error: String(e) })
     }
   }, [platform, projectId, taskRepo])
+
+  /**
+   * 结果卡上的编辑动作只编辑**显式副本**。
+   *
+   * 内部执行节点仍在画布里承担 runEngine，但用户从电商结果进入编辑时，
+   * 新建（或复用）一份 `canvasCopyNodeId`，之后改名、连线、改参数都不再影响任务。
+   */
+  const openCanvasCopy = useCallback(
+    (row: EcommerceResultRecord, mode?: 'crop' | 'annotate' | 'rotate') => {
+      try {
+        const copy = ensureEcommerceCanvasCopy({
+          store,
+          projectId,
+          result: row,
+          title: `电商结果 ${row.position + 1}`,
+        })
+        if (copy.created) {
+          const next: EcommerceResultRecord = {
+            ...row,
+            canvasCopyNodeId: copy.nodeId,
+            updatedAt: Date.now(),
+          }
+          void taskRepo
+            .updateResult(next)
+            .then(() => setResultRows((rows) => rows.map((item) => (item.id === next.id ? next : item))))
+            .catch((error) => {
+              platform.logger.log('warn', '[ecommerce] 保存画布副本引用失败', {
+                error: String(error),
+              })
+            })
+        }
+        navigate(
+          projectRoute(
+            'canvas',
+            projectId,
+            mode
+              ? { focus: copy.nodeId, [mode]: true }
+              : { focus: copy.nodeId },
+          ),
+        )
+      } catch (error) {
+        platform.logger.log('warn', '[ecommerce] 创建画布副本失败', { error: String(error) })
+        store.notify('创建画布副本失败，请稍后重试', 'error')
+      }
+    },
+    [navigate, platform, projectId, store, taskRepo],
+  )
 
   /** 点一条历史批次：把结果区切到那一批，不改表单、不重跑。 */
   const onSelectTask = useCallback(
@@ -961,30 +1009,10 @@ function StudioHost({ projectId }: { projectId: string }) {
           }),
           onRerun: rerunnable ? () => rerun(false) : undefined,
           onReplace: rerunnable ? () => rerun(true) : undefined,
-          onFocusInCanvas: node
-            ? () => navigate(projectRoute('canvas', projectId, { focus: row.nodeId }))
-            : undefined,
-          onCropInCanvas: node
-            ? () =>
-                navigate(
-                  projectRoute('canvas', projectId, { focus: row.nodeId, crop: true }),
-                )
-            : undefined,
-          onAnnotateInCanvas: node
-            ? () =>
-                navigate(
-                  projectRoute('canvas', projectId, {
-                    focus: row.nodeId,
-                    annotate: true,
-                  }),
-                )
-            : undefined,
-          onRotateInCanvas: node
-            ? () =>
-                navigate(
-                  projectRoute('canvas', projectId, { focus: row.nodeId, rotate: true }),
-                )
-            : undefined,
+          onFocusInCanvas: () => openCanvasCopy(row),
+          onCropInCanvas: () => openCanvasCopy(row, 'crop'),
+          onAnnotateInCanvas: () => openCanvasCopy(row, 'annotate'),
+          onRotateInCanvas: () => openCanvasCopy(row, 'rotate'),
         }
       })
     }
@@ -1052,6 +1080,7 @@ function StudioHost({ projectId }: { projectId: string }) {
     platform,
     navigate,
     projectId,
+    openCanvasCopy,
     syncResultRow,
     refreshTask,
     refreshTaskHistory,

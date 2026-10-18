@@ -192,6 +192,70 @@
   gap: var(--space-3);
 }
 
+.bgmField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg-canvas);
+  border: var(--border);
+  border-radius: var(--radius-control);
+}
+
+.bgmHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.bgmName {
+  margin: var(--space-1) 0 0;
+  overflow: hidden;
+  color: var(--text-1);
+  font-size: var(--fs-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bgmActions,
+.bgmPlayer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.bgmPlayer {
+  flex-wrap: wrap;
+}
+
+.bgmPlayer audio {
+  flex: 1 1 260px;
+  min-width: 220px;
+  height: 34px;
+}
+
+.bgmVolume {
+  display: flex;
+  flex: 1 1 180px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 150px;
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+}
+
+.bgmVolume input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.bgmMissing {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--fs-label);
+}
+
 .primary {
   height: 34px;
   padding: 0 var(--space-4);

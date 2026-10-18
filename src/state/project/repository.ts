@@ -315,6 +315,12 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
         taskId: taskIdMap.get(String(result.taskId))!,
         projectId: copy.id,
         nodeId: idMap.get(String(result.nodeId)) ?? String(result.nodeId),
+        ...(result.canvasCopyNodeId
+          ? {
+              canvasCopyNodeId:
+                idMap.get(String(result.canvasCopyNodeId)) ?? String(result.canvasCopyNodeId),
+            }
+          : {}),
       }))
       await storage.transaction(
         ['projects', ...GRAPH_TABLES, 'storyboards', 'ecommerceTasks', 'ecommerceResults'],

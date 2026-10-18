@@ -40,6 +40,12 @@ export const ASSET_EXT_BY_MIME: Record<string, string> = {
   'video/mp4': 'mp4',
   'video/webm': 'webm',
   'video/quicktime': 'mov',
+  'audio/mpeg': 'mp3',
+  'audio/wav': 'wav',
+  'audio/ogg': 'ogg',
+  'audio/mp4': 'm4a',
+  'audio/aac': 'aac',
+  'audio/flac': 'flac',
 }
 
 const MIME_BY_EXT: Record<string, string> = {
@@ -51,6 +57,12 @@ const MIME_BY_EXT: Record<string, string> = {
   mp4: 'video/mp4',
   webm: 'video/webm',
   mov: 'video/quicktime',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  flac: 'audio/flac',
 }
 
 /** 认不出的类型落这个扩展名：宁可存下来，也不要因为类型不认识就把素材丢了 */
@@ -69,7 +81,12 @@ function mimeKey(mime: string): string {
  * 同一种 mime 在磁盘上的**常见后缀别名**（表里只留 canonical 那个，这里补上其余）。
  * 只影响"文件选择器给不给选"，不影响 `<hash>.<ext>` 的命名 —— 命名必须唯一。
  */
-const EXT_ALIASES: Record<string, string[]> = { jpg: ['jpg', 'jpeg'] }
+const EXT_ALIASES: Record<string, string[]> = {
+  jpg: ['jpg', 'jpeg'],
+  mp3: ['mp3'],
+  wav: ['wav'],
+  m4a: ['m4a', 'mp4'],
+}
 
 /**
  * mime → 扩展名清单（**不含点**，供文件选择器用）。

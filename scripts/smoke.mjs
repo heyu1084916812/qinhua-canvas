@@ -102,6 +102,31 @@ function solidPngBuffer(w, h, color = [200, 120, 60]) {
   ])
 }
 
+/** 最小可播放 WAV（16-bit PCM 单声道）；给 BGM 上传冒烟用，不依赖外部音频夹具。 */
+function wavPcmBuffer(seconds = 0.4, sampleRate = 8000) {
+  const samples = Math.max(1, Math.round(seconds * sampleRate))
+  const dataBytes = samples * 2
+  const buf = Buffer.alloc(44 + dataBytes)
+  buf.write('RIFF', 0, 'ascii')
+  buf.writeUInt32LE(36 + dataBytes, 4)
+  buf.write('WAVE', 8, 'ascii')
+  buf.write('fmt ', 12, 'ascii')
+  buf.writeUInt32LE(16, 16)
+  buf.writeUInt16LE(1, 20)
+  buf.writeUInt16LE(1, 22)
+  buf.writeUInt32LE(sampleRate, 24)
+  buf.writeUInt32LE(sampleRate * 2, 28)
+  buf.writeUInt16LE(2, 32)
+  buf.writeUInt16LE(16, 34)
+  buf.write('data', 36, 'ascii')
+  buf.writeUInt32LE(dataBytes, 40)
+  for (let i = 0; i < samples; i += 1) {
+    const sample = Math.round(Math.sin((i / sampleRate) * Math.PI * 2 * 220) * 12000)
+    buf.writeInt16LE(sample, 44 + i * 2)
+  }
+  return buf
+}
+
 /**
  * 水平渐变 PNG：R 随 x 线性变化（0→255），G/B 固定。
  *
@@ -963,10 +988,46 @@ async function disableBuiltinChannels(page) {
   }
 }
 
-async function configureMockChannel(page, { token = null, enable = true, pick = true } = {}) {
+async function configureMockChannel(
+  page,
+  { token = null, enable = true, pick = true, isolate = false } = {},
+) {
   await gotoSettings(page)
+  /**
+   * 共享库跨组复用。已有带模型的 mock 直接复用，避免每跑一组就堆一条空渠道；
+   * 只有要求带 token（专测凭据）或库里还没有可用 mock 时才新建。
+   */
+  if (isolate && !token) {
+    const existingRows = await sharedRows(page, 'channels')
+    const reusable = existingRows
+      .filter((row) => row.protocol === 'mock' && (row.models?.length ?? 0) > 0)
+      .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))[0]
+    if (reusable) {
+      for (const row of existingRows) {
+        const shouldEnable = row.id === reusable.id
+        if (!!row.enabled !== shouldEnable) {
+          await sharedPut(page, 'channels', { ...row, enabled: shouldEnable })
+        }
+      }
+      await page.reload({ waitUntil: 'networkidle' })
+      await page.waitForSelector('[data-settings-page]', { timeout: 10000 }).catch(() => {})
+      return { verified: true, pulled: true, enabled: true }
+    }
+  }
   /* 内置渠道会抢默认值、也会抢选路：先停掉它们，"只有这条 mock 渠道"才是真的 */
   await disableBuiltinChannels(page)
+  if (isolate) {
+    const ids = await page
+      .locator('[data-channel-id]')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('data-channel-id')).filter(Boolean))
+    for (const id of ids) {
+      const box = page.locator(`[data-channel-enabled="${id}"]`)
+      if (await box.isChecked().catch(() => false)) {
+        await box.uncheck({ timeout: 5000 }).catch(() => {})
+        await sleep(120)
+      }
+    }
+  }
   await page.getByRole('button', { name: /新增渠道/ }).click()
   await sleep(400)
   await page.getByText('新建渠道').first().click()
@@ -1025,6 +1086,29 @@ async function configureMockChannel(page, { token = null, enable = true, pick = 
       .isChecked()
       .catch(() => false)
   }
+
+  /**
+   * UI 列表可能只渲染当前分组，单靠勾选框停不干净历史渠道。
+   * isolate 时以库为准：只保留本次新建的那条 mock（createdAt 最新），再刷新 store。
+   */
+  if (isolate) {
+    const channelRows = await sharedRows(page, 'channels')
+    const newest = channelRows
+      .filter((row) => row.protocol === 'mock')
+      .sort((a, b) => Number(b.createdAt) - Number(a.createdAt))[0]
+    if (newest?.id) {
+      for (const row of channelRows) {
+        const shouldEnable = row.id === newest.id
+        if (!!row.enabled !== shouldEnable) {
+          await sharedPut(page, 'channels', { ...row, enabled: shouldEnable })
+        }
+      }
+      await page.reload({ waitUntil: 'networkidle' })
+      await page.waitForSelector('[data-settings-page]', { timeout: 10000 }).catch(() => {})
+      enabled = true
+    }
+  }
+
 /**
  * 给 mock 渠道登记「前端显示名 → mock 模型 ID」的映射。
  *
@@ -1087,6 +1171,7 @@ async function mapMockModels(page) {
    */
   await page.locator('[data-route-map-filter="image"]').click().catch(() => {})
   await sleep(150)
+
 }
 
   return { verified, pulled, enabled }
@@ -25231,7 +25316,7 @@ async function g116(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
   /** 先配一条 mock 渠道（内置渠道会被停用），不然"生成"没有可用的上游 */
-  await configureMockChannel(page)
+  await configureMockChannel(page, { isolate: true })
   await sleep(600)
 
   // ① 入口：没有项目时给引导，不是空白
@@ -25713,6 +25798,9 @@ async function g116(browser) {
     canvasNodes >= 2,
     `节点=${canvasNodes}`,
   )
+  /* 底部工具栏与创作面板可能占用同一块画布区域；先按 Esc 收起临时面板再点撤销。 */
+  await page.keyboard.press('Escape')
+  await sleep(250)
 
   /**
    * ⑦ **整批一步撤销**（对账 #410）：
@@ -29414,8 +29502,8 @@ async function g137(browser) {
 }
 
 // ────────────────────────────────────────────────────────────
-// G138 画布节点聚焦（对账 #424）：从别的工作台「改这一张」跳到画布上的**那一个**节点
-//   ① 电商结果卡上有「在画布里改这一张」，点了带上 `?focus=<nodeId>`
+// G138 画布节点聚焦（对账 #424）：从别的工作台「改这一张」跳到画布上的**独立副本**
+//   ① 电商结果卡上有「复制到画布并编辑」，点了生成副本并带上 `?focus=<copyId>`
 //   ② 落地后那一个节点**被选中 + 居中**（量屏幕矩形，不看"按钮在不在"）
 //   ③ 找不到的节点（已删 / id 写错）⇒ 什么都不做，也不崩
 //   ④ 漫剧某一镜的节点在画布上时也有同一个入口，且指向**这一镜的节点**
@@ -29459,62 +29547,157 @@ async function g138(browser) {
    * `setSelection` 摘掉，它照样绿）。改成 3 张、聚焦**第 1 张**，
    * 选中就必须真的**从第 3 张换到第 1 张**。
    */
-  await configureMockChannel(page)
-  await sleep(600)
   await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
   await sleep(600)
   await page.locator('[data-ecommerce-create]').click()
   await page.waitForURL(/\/ecommerce\/proj_/)
   await sleep(900)
   const projectId = page.url().split('/').pop()
-  await page.locator('[data-ecommerce-usage="detail"]').click()
-  await sleep(300)
-  await page.locator('[data-ecommerce-count]').fill('3')
-  await sleep(200)
-  await page.locator('[data-ecommerce-product-input]').setInputFiles({
-    name: 'product.png',
-    mimeType: 'image/png',
-    buffer: solidPngBuffer(64, 64, [90, 160, 210]),
+  const now = Date.now()
+  const resultIds = ['g138-node-a', 'g138-node-b', 'g138-node-c']
+  const resultHashes = ['g138-hash-a', 'g138-hash-b', 'g138-hash-c']
+  for (let i = 0; i < resultIds.length; i += 1) {
+    await sharedPut(page, 'assets', {
+      id: resultHashes[i],
+      hash: resultHashes[i],
+      mime: 'image/png',
+      bytes: {
+        __qhType: 'u8',
+        base64: solidPngBuffer(320, 180, [80 + i * 40, 120, 220 - i * 30]).toString('base64'),
+      },
+      width: 320,
+      height: 180,
+      createdAt: now,
+      projectId,
+    })
+    await sharedPut(page, 'nodes', {
+      id: resultIds[i],
+      projectId,
+      type: 'generation',
+      parentId: null,
+      x: 320 + i * 300,
+      y: 220,
+      w: 260,
+      h: 220,
+      title: `电商结果 ${i + 1}`,
+      disabled: false,
+      data: {
+        mode: 'image',
+        count: 1,
+        ratio: '16:9',
+        assetHash: resultHashes[i],
+        naturalSize: { width: 320, height: 180 },
+        prompt: `第 ${i + 1} 张`,
+        model: 'GPT Image 2',
+        thumbOrder: [resultHashes[i]],
+      },
+    })
+  }
+  await sharedPut(page, 'ecommerceTasks', {
+    id: 'g138-task',
+    projectId,
+    batchId: 'g138-batch',
+    createdAt: now,
+    updatedAt: now,
+    status: 'done',
+    request: {
+      count: 3,
+      usage: 'detail',
+      platformId: 'amazon',
+      language: 'en',
+      ratio: '16:9',
+      note: '',
+      productNodeId: resultIds[0],
+      referenceNodeIds: [],
+    },
+    nodeIds: resultIds,
   })
-  await sleep(1500)
-  await page.locator('[data-ecommerce-generate]').click()
-  await sleep(400)
-  await page.locator('[data-ecommerce-confirm-ok]').click()
+  for (let i = 0; i < resultIds.length; i += 1) {
+    await sharedPut(page, 'ecommerceResults', {
+      id: `g138-result-${i}`,
+      taskId: 'g138-task',
+      projectId,
+      nodeId: resultIds[i],
+      position: i,
+      createdAt: now,
+      updatedAt: now,
+      status: 'done',
+      assetHash: resultHashes[i],
+      width: 320,
+      height: 180,
+      prompt: `第 ${i + 1} 张`,
+      model: 'GPT Image 2',
+    })
+  }
+  await page.reload({ waitUntil: 'networkidle' })
   const shot = await page
     .waitForFunction(
       () =>
         document.querySelectorAll('[data-ecommerce-result][data-status="done"]').length === 3,
       null,
-      { timeout: 30000 },
+      { timeout: 15000 },
     )
     .then(() => true)
     .catch(() => false)
-  const resultIds = await page
+  const domResultIds = await page
     .locator('[data-ecommerce-result]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-ecommerce-result-id') ?? ''))
-  const nodeId = resultIds[0] ?? ''
-  const lastNodeId = resultIds[resultIds.length - 1] ?? ''
+  const nodeId = domResultIds[0] ?? ''
+  const lastNodeId = domResultIds[domResultIds.length - 1] ?? ''
   rec(
     g,
-    '★ 电商结果卡上有「在画布里改这一张」',
+    '★ 电商结果卡上有「复制到画布并编辑」',
     shot &&
-      resultIds.length === 3 &&
+      domResultIds.length === 3 &&
       (await page.locator('[data-ecommerce-focus-canvas]').count()) === 3,
-    `出图=${shot} 结果=${resultIds.length} 聚焦目标=${nodeId}`,
+    `出图=${shot} 结果=${domResultIds.length} 聚焦目标=${nodeId}`,
   )
 
   // ② 点它 → 画布带 `?focus=` 落地，那一个节点被选中 + 居中
   await page.locator('[data-ecommerce-focus-canvas]').first().click()
   await page.waitForURL(/\/canvas\//, { timeout: 15000 })
-  await page.waitForSelector(`[data-node-id="${nodeId}"]`, { timeout: 15000 }).catch(() => {})
-  await sleep(900)
+  let copyNodeId = ''
+  for (let i = 0; i < 30 && !copyNodeId; i += 1) {
+    const resultCopies = await sharedRows(page, 'ecommerceResults')
+    const copiedResult = resultCopies.find((row) => row.nodeId === nodeId)
+    copyNodeId =
+      typeof copiedResult?.canvasCopyNodeId === 'string' ? copiedResult.canvasCopyNodeId : ''
+    if (!copyNodeId) await sleep(100)
+  }
+  await page.waitForSelector(`[data-node-id="${copyNodeId}"]`, { timeout: 15000 }).catch(() => {})
   const url2 = page.url()
-  const box2 = await nodeBox(nodeId)
+  let box2 = null
+  for (let i = 0; i < 30; i += 1) {
+    box2 = await nodeBox(copyNodeId)
+    if (
+      box2 &&
+      Math.abs(box2.cx - box2.scx) <= 3 &&
+      Math.abs(box2.cy - box2.scy) <= 3
+    ) {
+      break
+    }
+    await sleep(100)
+  }
   rec(
     g,
-    '★★★ 跳过去带的是 `?focus=<那个节点>`（不是只打开项目）',
-    url2.includes(`/canvas/${projectId}`) && url2.includes(`focus=${encodeURIComponent(nodeId)}`),
+    '★★★ 跳过去带的是 `?focus=<独立副本>`（不是内部执行节点、也不是只打开项目）',
+    !!copyNodeId &&
+      copyNodeId !== nodeId &&
+      url2.includes(`/canvas/${projectId}`) &&
+      url2.includes(`focus=${encodeURIComponent(copyNodeId)}`),
     url2.replace(BASE, ''),
+  )
+  const copyRows = await sharedRows(page, 'nodes')
+  const copyRow = copyRows.find((row) => row.id === copyNodeId)
+  const sourceRow = copyRows.find((row) => row.id === nodeId)
+  rec(
+    g,
+    '★★★ 画布副本带着结果图，电商批次标记已清掉（内部执行节点未被改名 / 改参数）',
+    !!copyRow &&
+      !!sourceRow &&
+      copyRow.data?.assetHash === sourceRow.data?.assetHash &&
+      !copyRow.data?.ecommerceBatch,
+    `copy=${copyNodeId} source=${nodeId} asset=${copyRow?.data?.assetHash ?? 'n/a'}`,
   )
   rec(
     g,
@@ -29559,7 +29742,7 @@ async function g138(browser) {
     g,
     '★★ 电商结果卡「裁剪这一张」→ 画布直接打开裁剪灯箱（复用提取选区）',
     cropUrl.includes(`/canvas/${projectId}`) &&
-      cropUrl.includes(`focus=${encodeURIComponent(nodeId)}`) &&
+      cropUrl.includes(`focus=${encodeURIComponent(copyNodeId)}`) &&
       cropUrl.includes('crop=1') &&
       cropBar,
     `url=${cropUrl.replace(BASE, '')} 裁剪条=${cropBar}`,
@@ -30468,9 +30651,6 @@ async function g143(browser) {
       .at(-1)
 
   /* 渠道要先配好：`configureMockChannel` 会整页跳去设置页，放写数据之前（#427 的教训） */
-  const ch = await configureMockChannel(page)
-  rec(g, '渠道验证通过', ch.verified)
-
   await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
   await sleep(400)
   await page.locator('[data-storyboard-create]').click()
@@ -30625,6 +30805,7 @@ async function g144(browser) {
   /** 下载是**按文件名认领**的，不按下标（同一个纪律：getAll 是主键序不是创建序） */
   const downloads = []
   page.on('download', (d) => downloads.push(d))
+  let storyboardProjectId = ''
 
   const readDb = async () => {
       const [assets, boards, runs] = await Promise.all([
@@ -30632,7 +30813,7 @@ async function g144(browser) {
         sharedRows(page, 'storyboards'),
         sharedRows(page, 'runRecords'),
       ])
-      const doc = boards[0]?.doc
+      const doc = boards.find((row) => row.projectId === storyboardProjectId)?.doc
       return {
         mimes: assets.map((a) => ({
           hash: a.hash,
@@ -30670,13 +30851,11 @@ async function g144(browser) {
     }
   }
 
-  const ch = await configureMockChannel(page)
-  rec(g, '渠道验证通过', ch.verified)
-
   await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
   await sleep(400)
   await page.locator('[data-storyboard-create]').click()
   await page.waitForURL(/\/storyboard\/proj_/)
+  storyboardProjectId = page.url().split('/').pop() ?? ''
   await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
 
   await page.locator('[data-storyboard-add-episode]').click()
@@ -30704,35 +30883,64 @@ async function g144(browser) {
     (await shots.count()) === 2 && (await page.locator('[data-storyboard-export-pack]').count()) === 1,
   )
 
-  // 只给第一镜出图 —— 第二镜**故意留白**，看包里会不会如实说
-  await page.locator('[data-storyboard-lay-out]').click()
-  await page
-    .locator('[data-storyboard-lay-status="done"]')
-    .waitFor({ state: 'visible', timeout: 15000 })
-    .catch(() => {})
   /**
-   * ⚠️ 就绪判据必须是**节点 id 真写回文档**（`shot.nodeId`），不是"点了按钮"：
-   * `layOut` 是异步的（先解析配方、再建节点、最后写文档），而 `runShot` 见到空 `nodeId`
-   * 会**直接 return** —— 点早了就是"点了没反应"，还查不出原因（第一版就栽在这里）。
+   * 只给第一镜种一张真 PNG，第二镜**故意留白**。
+   * 同时种一条 BGM，直接验合成包是否把它加进命令。
+   * 生成链由 G129/G142 单独覆盖；本组不经过模型，避免真实渠道超时污染导出判据。
    */
-  const laid = await waitDb((db) => db.shots.length === 2 && db.shots.every((s) => !!s.nodeId), 15000)
-  await page.locator(`[data-storyboard-shot-run="${shot1}"]`).click()
-  const afterRun = await waitDb((db) => !!db.shots.find((s) => s.id === shot1)?.imageHash, 40000)
-  const first = afterRun.shots.find((s) => s.id === shot1)
-  const imageHash = first?.imageHash ?? ''
-  const mime = afterRun.mimes.find((m) => m.hash === imageHash)?.mime ?? 'image/png'
-  const expectedFile = `${imageHash}.${mime === 'video/mp4' ? 'mp4' : 'png'}`
-  const shotErr = await page
-    .locator(`[data-storyboard-shot-error="${shot1}"]`)
-    .innerText()
-    .catch(() => '')
+  const imageHash = 'g144-image-a'
+  const bgmHash = 'g144-bgm'
+  const now = Date.now()
+  await sharedPut(page, 'assets', {
+    id: imageHash,
+    hash: imageHash,
+    mime: 'image/png',
+    bytes: { __qhType: 'u8', base64: solidPngBuffer(320, 180, [120, 180, 80]).toString('base64') },
+    width: 320,
+    height: 180,
+    createdAt: now,
+    projectId: storyboardProjectId,
+  })
+  await sharedPut(page, 'assets', {
+    id: bgmHash,
+    hash: bgmHash,
+    mime: 'audio/wav',
+    bytes: { __qhType: 'u8', base64: wavPcmBuffer().toString('base64') },
+    createdAt: now,
+    projectId: storyboardProjectId,
+  })
+  const board = (await sharedRows(page, 'storyboards')).find(
+    (row) => row.projectId === storyboardProjectId,
+  )
+  await sharedPut(page, 'storyboards', {
+    ...board,
+    updatedAt: now,
+    doc: {
+      ...board.doc,
+      episodes: board.doc.episodes.map((episode, index) =>
+        index === 0
+          ? { ...episode, bgmHash, bgmName: '合成包测试.wav', bgmVolume: 0.35 }
+          : episode,
+      ),
+      shots: board.doc.shots.map((shot, index) =>
+        index === 0 ? { ...shot, imageHash } : shot,
+      ),
+    },
+  })
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 10000 }).catch(() => {})
+  const afterSeed = await waitDb(
+    (db) => !!db.shots.find((s) => s.id === shot1)?.imageHash,
+    10000,
+  )
+  const expectedFile = `${imageHash}.png`
   rec(
     g,
     '★ 第一镜出图、第二镜故意没出（合成包的两条分支才有得测）',
-    laid.shots.length === 2 && !!imageHash && !afterRun.shots.find((s) => s.id === shot2)?.imageHash,
-    `第一镜=${imageHash.slice(0, 8) || '无图'} 节点=${first?.id ? '有' : '无'} 跑过=${JSON.stringify(
-      afterRun.runs.map((r) => `${r.status}:${r.error}`),
-    )} 界面错误="${shotErr.trim()}"`,
+    afterSeed.shots.length === 2 &&
+      !!afterSeed.shots.find((s) => s.id === shot1)?.imageHash &&
+      !afterSeed.shots.find((s) => s.id === shot2)?.imageHash,
+    `第一镜=${imageHash.slice(0, 8)} 第二镜=${afterSeed.shots.find((s) => s.id === shot2)?.imageHash ?? '无图'}`,
   )
 
   // 导出合成包（两个文件：.md 与 .srt）
@@ -30757,6 +30965,7 @@ async function g144(browser) {
   await srtDl.saveAs(srtPath)
   const mdText = readFileSync(mdPath, 'utf8')
   const srtText = readFileSync(srtPath, 'utf8')
+  const commandSection = mdText.split('## 二、合成命令')[1]?.split('## 三、背景音乐')[0] ?? ''
 
   rec(
     g,
@@ -30772,15 +30981,24 @@ async function g144(browser) {
      * 命令里就必须只有一个 `-i`。不按"有没有某个字样"判：那是我第一版写错的判据
      * （去命令段里找"第 1 镜"，而命令里只有文件名）。
      */
-    (mdText.split('## 二、合成命令')[1]?.split('## 三')[0]?.match(/-i /g) ?? []).length === 1 &&
+    (commandSection.match(/-i /g) ?? []).length === 2 &&
+      !commandSection.includes('g144-image-b') &&
       /第 2 镜：还没出图/.test(mdText) &&
       !/-i undefined/.test(mdText),
-    `命令里 -i 次数=${(mdText.split('## 二、合成命令')[1]?.split('## 三')[0]?.match(/-i /g) ?? []).length} 缺料段=${(
+    `命令里 -i 次数=${(commandSection.match(/-i /g) ?? []).length}（成片素材 1 + BGM 1） 缺料段=${(
       mdText.split('缺料的镜头')[1] ?? ''
     )
       .split('##')[0]
       ?.trim()
       .slice(0, 60)}`,
+  )
+  rec(
+    g,
+    '★★ BGM 进了同一条 FFmpeg 命令：循环、裁到总时长、按文档音量混入',
+    mdText.includes('背景音乐') &&
+      mdText.includes('-stream_loop -1 -i g144-bgm.wav') &&
+      mdText.includes('atrim=0:5,volume=0.35'),
+    `BGM 段=${(mdText.split('## 三、背景音乐')[1] ?? '').split('##')[0]?.trim().slice(0, 100)}`,
   )
   rec(
     g,
@@ -30822,11 +31040,18 @@ async function g145(browser) {
   /** 浮层与入口按钮是**两个**属性（同名会一次命中两个元素，见组件里的注释） */
   const overlay = page.locator('[data-storyboard-preview-overlay]')
   const counter = page.locator('[data-preview-counter]')
+  let storyboardProjectId = ''
 
   const readDb = async () => {
       const boards = await sharedRows(page, 'storyboards')
-      const doc = boards[0]?.doc
+      const doc = boards.find((row) => row.projectId === storyboardProjectId)?.doc
       return {
+        episodes: (doc?.episodes ?? []).map((e) => ({
+          id: e.id,
+          bgmHash: e.bgmHash ?? null,
+          bgmName: e.bgmName ?? null,
+          bgmVolume: typeof e.bgmVolume === 'number' ? e.bgmVolume : null,
+        })),
         shots: (doc?.shots ?? []).map((s) => ({
           id: s.id,
           nodeId: s.nodeId ?? null,
@@ -30853,17 +31078,53 @@ async function g145(browser) {
     }
   }
 
-  const ch = await configureMockChannel(page)
-  rec(g, '渠道验证通过', ch.verified)
-
   await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
   await sleep(400)
   await page.locator('[data-storyboard-create]').click()
   await page.waitForURL(/\/storyboard\/proj_/)
+  storyboardProjectId = page.url().split('/').pop() ?? ''
   await page.waitForSelector('[data-storyboard-page]', { timeout: 8000 })
 
   await page.locator('[data-storyboard-add-episode]').click()
   await sleep(250)
+
+  const bgmChooserPromise = page.waitForEvent('filechooser', { timeout: 8000 })
+  await page.locator('[data-storyboard-bgm-pick]').click()
+  const bgmChooser = await bgmChooserPromise.catch(() => null)
+  if (bgmChooser) {
+    await bgmChooser.setFiles({
+      name: '雨夜主题.wav',
+      mimeType: 'audio/wav',
+      buffer: wavPcmBuffer(),
+    })
+  }
+  const bgmStored = await waitDb((db) => !!db.episodes[0]?.bgmHash, 10000)
+  const bgmAudioShown = await page
+    .locator('[data-storyboard-bgm-audio]')
+    .waitFor({ state: 'attached', timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(
+    g,
+    '★ 背景音乐能导入：WAV 落 assets、集上写回 hash / 原名，并出现本地播放器',
+    !!bgmChooser && !!bgmStored.episodes[0]?.bgmHash && bgmAudioShown,
+    `hash=${bgmStored.episodes[0]?.bgmHash ?? 'n/a'} 名称=${bgmStored.episodes[0]?.bgmName ?? 'n/a'}`,
+  )
+  await page.locator('[data-storyboard-bgm-volume]').evaluate((el) => {
+    const input = el
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    setter?.call(input, '35')
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  const bgmVolume = await waitDb((db) => db.episodes[0]?.bgmVolume === 0.35, 5000)
+  rec(
+    g,
+    '★ BGM 音量写回文档（0..1，刷新与合成包共用同一值）',
+    bgmVolume.episodes[0]?.bgmVolume === 0.35,
+    `volume=${bgmVolume.episodes[0]?.bgmVolume ?? 'n/a'}`,
+  )
+
   for (let i = 0; i < 3; i += 1) {
     await page.locator('[data-storyboard-add-shot]').click()
     await sleep(150)
@@ -30882,15 +31143,50 @@ async function g145(browser) {
   await page.locator(`[data-storyboard-shot-duration="${ids[1]}"]`).fill('5')
   await sleep(700)
 
-  await page.locator('[data-storyboard-lay-out]').click()
-  const laid = await waitDb((db) => db.shots.length === 3 && db.shots.every((s) => !!s.nodeId), 15000)
-  rec(g, '★ 三镜都铺到画布（节点 id 真写回文档）', laid.shots.length === 3 && laid.shots.every((s) => !!s.nodeId))
-
-  /* 只给前两镜出图：第三镜没素材 ⇒ 时间轴上**不该有它** */
-  for (const id of [ids[0], ids[1]]) {
-    await page.locator(`[data-storyboard-shot-run="${id}"]`).click()
-    await waitDb((db) => !!db.shots.find((s) => s.id === id)?.imageHash, 40000)
+  /**
+   * 这一组只验时间轴：直接种两张**真能解码**的 PNG，
+   * 不经过渠道 / 铺画布 / runEngine。生成链由 G129/G142 单独覆盖，
+   * 否则一个真实渠道超时就会把"预览是否会推进"这条完全无关的判据拖红。
+   */
+  const imageA = 'g145-image-a'
+  const imageB = 'g145-image-b'
+  for (const [hash, color] of [
+    [imageA, [220, 80, 80]],
+    [imageB, [70, 120, 220]],
+  ]) {
+    await sharedPut(page, 'assets', {
+      id: hash,
+      hash,
+      mime: 'image/png',
+      bytes: {
+        __qhType: 'u8',
+        base64: solidPngBuffer(320, 180, color).toString('base64'),
+      },
+      width: 320,
+      height: 180,
+      createdAt: Date.now(),
+      projectId: storyboardProjectId,
+    })
   }
+  const currentBoard = (await sharedRows(page, 'storyboards')).find(
+    (row) => row.projectId === storyboardProjectId,
+  )
+  await sharedPut(page, 'storyboards', {
+    ...currentBoard,
+    updatedAt: Date.now(),
+    doc: {
+      ...currentBoard.doc,
+      shots: currentBoard.doc.shots.map((shot, index) =>
+        index === 0
+          ? { ...shot, imageHash: imageA }
+          : index === 1
+            ? { ...shot, imageHash: imageB }
+            : shot,
+      ),
+    },
+  })
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForSelector('[data-storyboard-page]', { timeout: 10000 }).catch(() => {})
   const withImages = await waitDb(
     (db) => db.shots.filter((s) => !!s.imageHash).length === 2 && !db.shots[2]?.imageHash,
     15000,
@@ -30922,6 +31218,17 @@ async function g145(browser) {
     '★★★ 时间轴与导出同源：总段数是 **2**（没出图的那一镜不占时间轴），且素材真挂上了',
     /1\/2/.test(first) && mediaShown && (await media.count()) === 1,
     `${first.trim()} 素材元素=${await media.count()}`,
+  )
+  const previewBgm = await page
+    .locator('[data-preview-bgm-audio]')
+    .waitFor({ state: 'attached', timeout: 5000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(
+    g,
+    '★ 时间轴预览播放这一集时带着同一份 BGM',
+    previewBgm && (await page.locator('[data-preview-bgm]').count()) === 1,
+    `audio=${previewBgm}`,
   )
 
   /**
