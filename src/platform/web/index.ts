@@ -64,6 +64,7 @@ export function createWebPlatform(
     network,
     assets: createStorageAssetPort(storage, {
       thumbUrl: (hash) => `${SHARED_STORE_URL}/thumb/${encodeURIComponent(hash)}`,
+      sourceUrl: (hash) => `${SHARED_STORE_URL}/asset/${encodeURIComponent(hash)}`,
     }),
     assetFolder: overrides.assetFolder ?? createWebAssetFolder(),
     // 浏览器里没有"起子进程"这回事：不传就是"没有这一项"

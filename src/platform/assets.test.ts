@@ -67,4 +67,11 @@ describe('素材读回端口（M6-12）', () => {
     expect(await port.readUrl('h1')).toBeNull()
     expect(await port.readUrl('nope')).toBeNull()
   })
+
+  it('桌面本机进程用的 sourceUrl 由平台注入，不读取素材表', () => {
+    const port = createStorageAssetPort(createMemoryStorage(), {
+      sourceUrl: (hash) => `http://127.0.0.1:18765/asset/${hash}`,
+    })
+    expect(port.sourceUrl?.('h1')).toBe('http://127.0.0.1:18765/asset/h1')
+  })
 })

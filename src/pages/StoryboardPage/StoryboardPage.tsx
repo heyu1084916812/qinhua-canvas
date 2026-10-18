@@ -51,7 +51,12 @@ import {
   type MergeSuggestion,
 } from '../../domain/storyboard/mergeSuggest'
 import { asAppError, describeError } from '../../shared/result'
-import { buildEpisodePack, episodeTimeline } from '../../domain/storyboard/ffmpegPack'
+import {
+  buildEpisodePack,
+  episodeTimeline,
+  ffmpegArgs,
+  type PackClip,
+} from '../../domain/storyboard/ffmpegPack'
 import { toBytes } from '../../platform/assets'
 import { importAudioAsset } from '../../features/storyboard/importAudioAsset'
 import { EpisodePreview } from './EpisodePreview'
@@ -299,6 +304,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
    * 存一份状态就有两个来源。
    */
   const [preview, setPreview] = useState<{ at: number; playing: boolean } | null>(null)
+  const [rendering, setRendering] = useState(false)
   /** 原文预览（对账 #547）：分集与分镜共用；只读，不在这里编辑文档。 */
   const [sourcePreview, setSourcePreview] = useState<{
     title: string
@@ -1489,6 +1495,31 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     }
   }
 
+  /** 只逐条读这一集真正会用到的素材元数据，不把整张 assets 表拉进内存。 */
+  const loadPackAssetInfo = async (episode: StoryboardEpisode) => {
+    const wanted = new Set<string>()
+    for (const shot of shotsOf(doc, episode.id)) {
+      const hash = shot.videoHash ?? shot.imageHash
+      if (hash) wanted.add(hash)
+      for (const line of shot.lines) {
+        if (line.audioHash) wanted.add(line.audioHash)
+      }
+    }
+    if (episode.bgmHash) wanted.add(episode.bgmHash)
+    const info = new Map<string, { mime: string; local: boolean }>()
+    for (const hash of wanted) {
+      const rows = await platform.storage.query('assets', { id: hash })
+      const row = rows[0] as { mime?: unknown; bytes?: unknown } | undefined
+      if (!row) continue
+      const bytes = toBytes(row.bytes)
+      info.set(hash, {
+        mime: typeof row.mime === 'string' && row.mime ? row.mime : 'image/png',
+        local: !!bytes && bytes.length > 0,
+      })
+    }
+    return info
+  }
+
   /**
    * **导出合成包**（对账 #431；《轻画-漫剧形态调研.md》§M7-6）。
    *
@@ -1511,26 +1542,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
        * `assets` 每行都带全分辨率字节，按项目整表拉一次 = 把这一集的图全读进内存
        * （`ports.ts` 那条注释记着这个内存峰值的教训）。
        */
-      const wanted = new Set<string>()
-      for (const shot of shotsOf(doc, selected.id)) {
-        const hash = shot.videoHash ?? shot.imageHash
-        if (hash) wanted.add(hash)
-        for (const line of shot.lines) {
-          if (line.audioHash) wanted.add(line.audioHash)
-        }
-      }
-      if (selected.bgmHash) wanted.add(selected.bgmHash)
-      const info = new Map<string, { mime: string; local: boolean }>()
-      for (const hash of wanted) {
-        const rows = await platform.storage.query('assets', { id: hash })
-        const row = rows[0] as { mime?: unknown; bytes?: unknown } | undefined
-        if (!row) continue
-        const bytes = toBytes(row.bytes)
-        info.set(hash, {
-          mime: typeof row.mime === 'string' && row.mime ? row.mime : 'image/png',
-          local: !!bytes && bytes.length > 0,
-        })
-      }
+      const info = await loadPackAssetInfo(selected)
       const pack = buildEpisodePack({
         doc,
         episode: selected,
@@ -1571,6 +1583,109 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       )
     } catch {
       setStatus('导出合成包失败')
+    }
+  }
+
+  /**
+   * 桌面内直接调用本机 FFmpeg 出片。
+   *
+   * 浏览器没有子进程，入口不显示；桌面版把共享库素材通过本机回环 HTTP 地址交给
+   * FFmpeg，避免把整集视频经 IPC / Base64 来回搬运。真正的成片仍由用户保存到本地。
+   */
+  const renderEpisode = async () => {
+    if (!selected || !platform.cli) return
+    const cli = platform.cli
+    setRendering(true)
+    setStatus('正在检查本机 FFmpeg…')
+    try {
+      await flush()
+      const ffmpeg = await cli.which('ffmpeg')
+      if (!ffmpeg) {
+        setStatus('没找到本机 FFmpeg：先安装 FFmpeg，并让它能在终端里直接运行')
+        return
+      }
+      const info = await loadPackAssetInfo(selected)
+      const episodeNo = episodes.findIndex((episode) => episode.id === selected.id) + 1
+      const pack = buildEpisodePack({
+        doc,
+        episode: selected,
+        episodeNo,
+        assetOf: (hash) => info.get(hash),
+        folderName: platform.assetFolder?.current()?.name ?? null,
+      })
+      if (pack.clips.length === 0) {
+        setStatus('这一集还没有能合成的素材：先「铺到画布」再出图')
+        return
+      }
+
+      const urls = new Map<string, string>()
+      const sourceOf = async (hash: string) => {
+        const existing = urls.get(hash)
+        if (existing) return existing
+        const meta = info.get(hash)
+        if (!meta) throw new Error(`素材库缺少 ${hash.slice(0, 8)}…，无法合成`)
+        if (meta.local) {
+          const local = platform.assets.sourceUrl?.(hash)
+          if (local) {
+            urls.set(hash, local)
+            return local
+          }
+        }
+        const remote = await platform.assets.readUrl(hash)
+        if (remote?.url) {
+          urls.set(hash, remote.url)
+          return remote.url
+        }
+        throw new Error(`素材 ${hash.slice(0, 8)}… 既没有本地字节，也没有可读取的远端地址`)
+      }
+
+      const renderClips: PackClip[] = []
+      for (const clip of pack.clips) {
+        renderClips.push({ ...clip, file: await sourceOf(clip.hash) })
+      }
+      const bgmFile = pack.bgm ? await sourceOf(pack.bgm.hash) : ''
+      const voiceFiles: { file: string; start: number }[] = []
+      for (const voice of pack.voices) {
+        voiceFiles.push({ file: await sourceOf(voice.hash), start: voice.start })
+      }
+
+      const outDir = await cli.outDir()
+      const sep = outDir.includes('\\') ? '\\' : '/'
+      const output = `${outDir}${outDir.endsWith(sep) ? '' : sep}${exportBaseName()}-第${episodeNo}集-${Date.now()}.mp4`
+      const args = ffmpegArgs(renderClips, {
+        output,
+        ...(pack.bgm
+          ? { bgm: { file: bgmFile, volume: pack.bgm.volume } }
+          : {}),
+        ...(voiceFiles.length > 0 ? { voices: voiceFiles } : {}),
+      })
+      setStatus(`正在用本机 FFmpeg 合成第 ${episodeNo} 集…`)
+      const outcome = await cli.run({
+        id: `storyboard-render-${Date.now()}`,
+        program: ffmpeg,
+        args,
+        timeoutMs: 30 * 60_000,
+      })
+      if (outcome.timedOut) {
+        setStatus('本机 FFmpeg 合成超时（30 分钟）')
+        return
+      }
+      if (outcome.code !== 0) {
+        const reason = outcome.stderr.trim().slice(-500) || `退出码 ${String(outcome.code)}`
+        setStatus(`本机 FFmpeg 合成失败：${reason}`)
+        return
+      }
+      const bytes = await cli.readOut(output)
+      await platform.files.saveFile(
+        `${exportBaseName()}-第${episodeNo}集-成片.mp4`,
+        new Blob([Uint8Array.from(bytes).buffer], { type: 'video/mp4' }),
+      )
+      setStatus(`第 ${episodeNo} 集成片已生成并保存`)
+    } catch (error) {
+      const appError = asAppError(error)
+      setStatus(appError ? describeError(appError) : String(error))
+    } finally {
+      setRendering(false)
     }
   }
 
@@ -2166,6 +2281,18 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                     >
                       导出合成包
                     </button>
+                    {platform.cli ? (
+                      <button
+                        type="button"
+                        className={styles.ghost}
+                        data-storyboard-render-video
+                        disabled={timeline.clips.length === 0 || rendering}
+                        title="调用本机 FFmpeg 直接合成并保存成片；需要 FFmpeg 已加入 PATH"
+                        onClick={() => void renderEpisode()}
+                      >
+                        {rendering ? '本机合成中…' : '本机合成成片'}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className={styles.ghost}

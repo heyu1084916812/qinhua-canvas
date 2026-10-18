@@ -520,6 +520,20 @@ fn load_thumb(root: &Path, id: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+fn load_asset(root: &Path, id: &str) -> Result<(Vec<u8>, String), String> {
+    let row = read_json(&row_path(root, "assets", id)?)?;
+    let mime = row
+        .get("mime")
+        .and_then(Value::as_str)
+        .unwrap_or("application/octet-stream")
+        .to_string();
+    let bytes = row
+        .get("bytes")
+        .and_then(binary_marker_bytes)
+        .ok_or_else(|| "asset has no local bytes".to_string())?;
+    Ok((bytes, mime))
+}
+
 fn body_json<T: for<'de> Deserialize<'de>>(request: &mut Request) -> Result<T, String> {
     let mut raw = Vec::new();
     request
@@ -550,6 +564,30 @@ fn handle(store: &Store, mut request: Request) {
     }
 
     let root = store.root.as_path();
+    if request.method() == &Method::Get && path.starts_with("/asset/") {
+        let id = path.trim_start_matches("/asset/");
+        let _guard = store.lock.lock().expect("store lock poisoned");
+        match load_asset(root, id) {
+            Ok((bytes, mime)) => {
+                let _ = respond_bytes(
+                    request,
+                    StatusCode(200),
+                    bytes,
+                    &mime,
+                    origin.as_deref(),
+                );
+            }
+            Err(error) => {
+                let _ = respond_json(
+                    request,
+                    StatusCode(404),
+                    json!({ "ok": false, "error": error }),
+                    origin.as_deref(),
+                );
+            }
+        }
+        return;
+    }
     if request.method() == &Method::Get && path.starts_with("/thumb/") {
         let id = path.trim_start_matches("/thumb/");
         let _guard = store.lock.lock().expect("store lock poisoned");
@@ -911,6 +949,24 @@ mod tests {
         let files = row_files(&root, "assets").unwrap();
         assert_eq!(files, vec![row_path(&root, "assets", "a1").unwrap()]);
         assert_eq!(list_rows(&root, "assets").unwrap(), vec![row]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn local_asset_endpoint_payload_returns_raw_bytes_and_mime() {
+        let root = temp_root("asset-bytes");
+        let row = json!({
+            "id": "a1",
+            "mime": "image/png",
+            "bytes": {
+                "__qhType": "u8",
+                "base64": "AQIDBA=="
+            }
+        });
+        write_row(&root, "assets", &row).unwrap();
+        let (bytes, mime) = load_asset(&root, "a1").unwrap();
+        assert_eq!(bytes, vec![1, 2, 3, 4]);
+        assert_eq!(mime, "image/png");
         let _ = fs::remove_dir_all(root);
     }
 

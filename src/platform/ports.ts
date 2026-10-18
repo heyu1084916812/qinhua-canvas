@@ -173,6 +173,13 @@ export interface AssetPort {
   /** 可直接给 `<img>` 的缩略图地址；共享存储走独立小文件接口。 */
   thumbUrl?(hash: string): string | null
   /**
+   * 本机进程（FFmpeg 等）可直接读取的**原始素材地址**。
+   *
+   * 与 `readUrl` 的远端素材地址不是一回事：这里只给共享存储里真有本地字节的素材，
+   * 浏览器页面本身不需要它；桌面 CLI 通过本机回环 HTTP 读取，避免把大文件塞进 IPC。
+   */
+  sourceUrl?(hash: string): string | null
+  /**
    * **远端素材**（视频成片）的地址：Agnes 的产物托管域不带 CORS 头，
    * 字节根本取不回来（实测 `net::ERR_FAILED`），`assets` 行里只有一条 `url`。
    *

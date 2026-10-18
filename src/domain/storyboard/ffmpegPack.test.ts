@@ -13,6 +13,7 @@ import {
   buildEpisodePack,
   episodeClips,
   episodeTimeline,
+  ffmpegArgs,
   ffmpegCommand,
   packMarkdown,
   srtOf,
@@ -141,6 +142,16 @@ describe('合成包 · FFmpeg 命令', () => {
     expect(loopAt).toBeLessThan(secondAt)
     /* 视频不加 `-loop`：它自己会走完 */
     expect(cmd).not.toContain('-loop 1 -t 3 -i b.mp4')
+  })
+
+  it('★ 本机 CLI 走参数数组：不过 shell，输出路径与滤镜串原样保留', () => {
+    const args = ffmpegArgs([clip({ file: 'http://127.0.0.1:18765/asset/h1', seconds: 3 })], {
+      output: 'D:\\成片\\第1集.mp4',
+    })
+    expect(args[0]).toBe('-y')
+    expect(args).toContain('http://127.0.0.1:18765/asset/h1')
+    expect(args.at(-1)).toBe('D:\\成片\\第1集.mp4')
+    expect(args.join(' ')).toContain('concat=n=1:v=1:a=0[outv]')
   })
 
   it('★★★ 是**一条单行**命令（换行 + `\\` 在 PowerShell 里会被连反斜杠一起吞掉）', () => {
@@ -277,7 +288,7 @@ describe('合成包 · 整包与清单', () => {
     expect(pack.markdown).toContain('# 雨夜快递 · 第 1 集 · 合成包')
     expect(pack.markdown).toContain('ffmpeg -y -loop 1 -t 3 -i hash-a.png')
     /* 成品名跟着集数走（`buildEpisodePack` 的默认值）——命令末尾与"怎么用"里都是它 */
-    expect(pack.command.endsWith('第1集.mp4')).toBe(true)
+    expect(pack.command.endsWith('"第1集.mp4"')).toBe(true)
     expect(pack.markdown).toContain('得到 `第1集.mp4`')
     expect(pack.markdown).toContain('`my-assets`')
     expect(pack.markdown).toContain('第 2 镜：还没出图')

@@ -212,7 +212,7 @@ export function episodeTimeline(
  * 而这里天然是**混合**的（有的是 png 静帧、有的是 mp4 片段）—— 用 demuxer 会在第一个静帧上崩。
  * 代价是重编码（本地跑得慢一点），换来的是"一条命令对任何组合都能出片"。
  */
-export function ffmpegCommand(
+export function ffmpegArgs(
   clips: readonly PackClip[],
   opts: {
     width?: number
@@ -222,8 +222,8 @@ export function ffmpegCommand(
     bgm?: { file: string; volume?: number }
     voices?: readonly { file: string; start: number }[]
   } = {},
-): string {
-  if (clips.length === 0) return ''
+): string[] {
+  if (clips.length === 0) return []
   const w = opts.width ?? PACK_WIDTH
   const h = opts.height ?? PACK_HEIGHT
   const fps = opts.fps ?? PACK_FPS
@@ -235,7 +235,11 @@ export function ffmpegCommand(
      * 静帧要自己"活"够这一镜的秒数：`-loop 1 -t N` 是**输入侧**选项，
      * 必须写在它自己那个 `-i` 之前 —— 写到命令末尾只会作用到最后一个输入上。
      */
-    inputs.push(clip.kind === 'image' ? `-loop 1 -t ${clip.seconds} -i ${clip.file}` : `-i ${clip.file}`)
+    if (clip.kind === 'image') {
+      inputs.push('-loop', '1', '-t', String(clip.seconds), '-i', clip.file)
+    } else {
+      inputs.push('-i', clip.file)
+    }
     const fadeSeconds = Math.min(0.3, Math.max(0.1, clip.seconds / 4))
     let chain =
       `[${i}:v]scale=${w}:${h}:force_original_aspect_ratio=decrease,` +
@@ -253,7 +257,7 @@ export function ffmpegCommand(
   const audioLabels: string[] = []
   let nextInput = clips.length
   if (opts.bgm?.file) {
-    inputs.push(`-stream_loop -1 -i ${opts.bgm.file}`)
+    inputs.push('-stream_loop', '-1', '-i', opts.bgm.file)
     const volume = Math.min(1, Math.max(0, opts.bgm.volume ?? 0.2))
     audioChains.push(`[${nextInput}:a]atrim=0:${totalSeconds},volume=${volume}[bgm]`)
     audioLabels.push('[bgm]')
@@ -265,7 +269,7 @@ export function ffmpegCommand(
       `[${nextInput}:a]aresample=48000,adelay=${delay}|${delay},volume=1.0[voice${i}]`,
     )
     audioLabels.push(`[voice${i}]`)
-    inputs.push(`-i ${voice.file}`)
+    inputs.push('-i', voice.file)
     nextInput += 1
   }
   let audioMap = ''
@@ -279,15 +283,36 @@ export function ffmpegCommand(
     audioMap = '[aout]'
   }
   return [
-    'ffmpeg -y',
+    '-y',
     ...inputs,
-    `-filter_complex "${[...chains, concat, ...audioFilters].join(';')}"`,
-    '-map "[outv]"',
-    ...(audioMap ? [`-map "${audioMap}" -c:a aac -b:a 192k`] : []),
-    '-c:v libx264 -pix_fmt yuv420p -movflags +faststart',
+    '-filter_complex',
+    [...chains, concat, ...audioFilters].join(';'),
+    '-map',
+    '[outv]',
+    ...(audioMap ? ['-map', audioMap, '-c:a', 'aac', '-b:a', '192k'] : []),
+    '-c:v',
+    'libx264',
+    '-pix_fmt',
+    'yuv420p',
+    '-movflags',
+    '+faststart',
     ...(audioMap ? ['-shortest'] : []),
     output,
-  ].join(' ')
+  ]
+}
+
+function shellArg(value: string): string {
+  return /^[A-Za-z0-9_./:=+%#-]+$/.test(value)
+    ? value
+    : `"${value.replaceAll('"', '\\"')}"`
+}
+
+export function ffmpegCommand(
+  clips: readonly PackClip[],
+  opts: Parameters<typeof ffmpegArgs>[1] = {},
+): string {
+  const args = ffmpegArgs(clips, opts)
+  return args.length > 0 ? ['ffmpeg', ...args.map(shellArg)].join(' ') : ''
 }
 
 /** 秒 → `HH:MM:SS,mmm`（SRT 的时间格式就是这一种，逗号不是句点） */

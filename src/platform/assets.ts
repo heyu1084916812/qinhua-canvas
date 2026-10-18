@@ -19,7 +19,10 @@ export function toBytes(value: unknown): Uint8Array | null {
 
 export function createStorageAssetPort(
   storage: StoragePort,
-  options: { thumbUrl?: (hash: string) => string | null } = {},
+  options: {
+    thumbUrl?: (hash: string) => string | null
+    sourceUrl?: (hash: string) => string | null
+  } = {},
 ): AssetPort {
   return {
     async read(hash: string): Promise<AssetPayload | null> {
@@ -42,5 +45,6 @@ export function createStorageAssetPort(
       return { url, mime: row?.mime ?? 'video/mp4' }
     },
     thumbUrl: options.thumbUrl,
+    sourceUrl: options.sourceUrl,
   }
 }
