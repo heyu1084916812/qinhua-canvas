@@ -952,7 +952,11 @@ function StudioHost({ projectId }: { projectId: string }) {
    * 先确保编辑对象是独立画布副本，再把副本作为产品图输入；新产物另起一个批次，
    * 原结果与内部执行节点都不动。这样“换背景”失败或效果不满意时，历史仍可回看。
    */
-  const editResult = async (nodeId: string, instruction: string) => {
+  const editResult = async (
+    nodeId: string,
+    instruction: string,
+    options?: { referenceNodeId?: string },
+  ) => {
     const row =
       resultRows.find((item) => item.nodeId === nodeId || item.canvasCopyNodeId === nodeId) ?? null
     if (!row) throw new Error('没找到这张结果对应的素材记录')
@@ -967,7 +971,7 @@ function StudioHost({ projectId }: { projectId: string }) {
         count: 1,
         ratio: activeTask?.request.ratio ?? '1:1',
         productNodeId: copy.nodeId,
-        referenceNodeIds: [],
+        referenceNodeIds: options?.referenceNodeId ? [options.referenceNodeId] : [],
         note: text,
         ...(row.model ? { model: row.model } : {}),
       },
@@ -984,9 +988,13 @@ function StudioHost({ projectId }: { projectId: string }) {
    * 批量编辑仍逐张走 `editResult`：每张独立复制、独立任务、独立结果记录。
    * 不把多个节点塞进一个任务，失败时才能知道具体是哪张没改成。
    */
-  const editResults = async (nodeIds: readonly string[], instruction: string) => {
+  const editResults = async (
+    nodeIds: readonly string[],
+    instruction: string,
+    options?: { referenceNodeId?: string },
+  ) => {
     for (const nodeId of nodeIds) {
-      await editResult(nodeId, instruction)
+      await editResult(nodeId, instruction, options)
     }
   }
 

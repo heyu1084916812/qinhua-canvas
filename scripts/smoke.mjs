@@ -34236,6 +34236,26 @@ async function g159(browser) {
     presetText.includes('杂物') && !(await page.locator('[data-ecommerce-edit-submit]').isDisabled()),
     presetText,
   )
+  await page.locator('[data-ecommerce-edit-reference-input]').setInputFiles({
+    name: 'edit-reference.png',
+    mimeType: 'image/png',
+    buffer: solidPngBuffer(48, 48, [210, 120, 40]),
+  })
+  await page
+    .waitForFunction(
+      () => {
+        const img = document.querySelector('[data-ecommerce-edit-reference-preview] img')
+        return !!img && img.complete && img.naturalWidth > 0
+      },
+      null,
+      { timeout: 10000 },
+    )
+    .catch(() => {})
+  const editReferenceShown = await page
+    .locator('[data-ecommerce-edit-reference-preview] img')
+    .evaluate((img) => img.complete && img.naturalWidth > 0)
+    .catch(() => false)
+  rec(g, '★ 单张 AI 编辑可以带一张参考图进入请求', editReferenceShown)
 
   const instruction = '只把背景换成海边日落，产品、构图和画面文字保持不变'
   await page.locator('[data-ecommerce-edit-instruction]').fill(instruction)
@@ -34274,11 +34294,14 @@ async function g159(browser) {
     originalAfter?.status === 'done' &&
     originalAfter.assetHash === sourceResult.assetHash &&
     originalAfter.prompt === sourceResult.prompt
+  const editReferenceStored =
+    Array.isArray(editTask?.request?.referenceNodeIds) &&
+    editTask.request.referenceNodeIds.length === 1
   rec(
     g,
     '★★★ AI 编辑生成独立新任务和新结果，编辑指令真的进了提示词',
-    newTaskCreated && newResultDone && promptWritten,
-    `任务 ${tasksBefore.length}→${tasksAfter.length} 状态=${editResult?.status ?? '无'} 提示词=${promptWritten}`,
+    newTaskCreated && newResultDone && promptWritten && editReferenceStored,
+    `任务 ${tasksBefore.length}→${tasksAfter.length} 状态=${editResult?.status ?? '无'} 提示词=${promptWritten} 参考图=${editReferenceStored}`,
   )
   rec(
     g,
@@ -34476,6 +34499,21 @@ async function g160(browser) {
     /2\s*次真实用量/.test(dialogText) && /原结果全部保留/.test(dialogText),
     dialogText.replace(/\n/g, ' | ').slice(0, 140),
   )
+  await page.locator('[data-ecommerce-batch-edit-reference-input]').setInputFiles({
+    name: 'batch-reference.png',
+    mimeType: 'image/png',
+    buffer: solidPngBuffer(48, 48, [80, 180, 140]),
+  })
+  await page
+    .waitForFunction(
+      () => {
+        const img = document.querySelector('[data-ecommerce-batch-edit-reference-preview] img')
+        return !!img && img.complete && img.naturalWidth > 0
+      },
+      null,
+      { timeout: 10000 },
+    )
+    .catch(() => {})
   await page.locator('[data-ecommerce-batch-edit-preset="white-bg"]').click()
   const instruction =
     '只把每一张的背景都换成浅灰摄影棚背景，产品、构图和画面文字保持不变'
@@ -34527,7 +34565,13 @@ async function g160(browser) {
   rec(
     g,
     '★★ 两张编辑任务都保存了同一条批量要求',
-    editTasks.every((task) => task.request?.note === instruction),
+    editTasks.every(
+      (task) =>
+        task.request?.note === instruction &&
+        Array.isArray(task.request?.referenceNodeIds) &&
+        task.request.referenceNodeIds.length === 1,
+    ),
+    `参考图=${editTasks.map((task) => task.request?.referenceNodeIds?.length ?? 0).join(',')}`,
   )
 
   await page.screenshot({ path: `${OUT}/160-g160-batch-edit.png` })

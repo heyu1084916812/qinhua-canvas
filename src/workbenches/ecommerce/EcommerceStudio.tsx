@@ -136,9 +136,17 @@ export interface EcommerceStudioProps {
    */
   onGenerate: (request: EcommerceRequest, shotPlan?: readonly EcommerceShot[]) => Promise<void>
   /** 以结果图为输入做一次定向 AI 编辑；产物作为新批次，原结果保留 */
-  onEditResult?: (nodeId: string, instruction: string) => Promise<void>
+  onEditResult?: (
+    nodeId: string,
+    instruction: string,
+    options?: { referenceNodeId?: string },
+  ) => Promise<void>
   /** 对多张结果串行执行同一套定向编辑；每张仍生成独立新批次，原结果保留 */
-  onEditResults?: (nodeIds: readonly string[], instruction: string) => Promise<void>
+  onEditResults?: (
+    nodeIds: readonly string[],
+    instruction: string,
+    options?: { referenceNodeId?: string },
+  ) => Promise<void>
   /** 可选出图模型（前端显示名，来自固定清单）；空数组时只显示"默认（按渠道解析）" */
   models?: readonly string[]
   /** 当前选中的模型；空串 = 用默认解析出来的那一个 */
@@ -269,11 +277,15 @@ export function EcommerceStudio({
   const [editInstruction, setEditInstruction] = useState('')
   const [editError, setEditError] = useState('')
   const [editSubmitting, setEditSubmitting] = useState(false)
+  const [editReference, setEditReference] = useState<EcommerceUpload | null>(null)
+  const [editReferenceBusy, setEditReferenceBusy] = useState(false)
   const [selectedEditNodes, setSelectedEditNodes] = useState<Set<string>>(() => new Set())
   const [batchEditOpen, setBatchEditOpen] = useState(false)
   const [batchInstruction, setBatchInstruction] = useState('')
   const [batchEditError, setBatchEditError] = useState('')
   const [batchEditSubmitting, setBatchEditSubmitting] = useState(false)
+  const [batchReference, setBatchReference] = useState<EcommerceUpload | null>(null)
+  const [batchReferenceBusy, setBatchReferenceBusy] = useState(false)
   const [compareTarget, setCompareTarget] = useState<EcommerceResultItem | null>(null)
   /**
    * 「先出一份方案」（对账 #423）：**方案 + 它是对着哪组参数写的**。
@@ -363,6 +375,31 @@ export function EcommerceStudio({
       const room = Math.max(0, 4 - references.length)
       for (const f of picked.slice(0, room)) await onPick(f, 'reference')
     })()
+  }
+
+  const pickEditReference = async (file: File | undefined, batch: boolean) => {
+    if (!file) return
+    if (batch) {
+      setBatchReferenceBusy(true)
+      setBatchEditError('')
+    } else {
+      setEditReferenceBusy(true)
+      setEditError('')
+    }
+    try {
+      const uploaded = await onUpload(file, 'reference')
+      if (!uploaded) {
+        const message = '参考图没能读进来（格式不支持或读取失败）'
+        if (batch) setBatchEditError(message)
+        else setEditError(message)
+        return
+      }
+      if (batch) setBatchReference(uploaded)
+      else setEditReference(uploaded)
+    } finally {
+      if (batch) setBatchReferenceBusy(false)
+      else setEditReferenceBusy(false)
+    }
   }
 
   /** 拖放的四个处理器：两块上传区共用（`kind` 决定落到哪儿） */
@@ -509,9 +546,14 @@ export function EcommerceStudio({
     setEditError('')
     setEditSubmitting(true)
     try {
-      await onEditResult(editTarget.nodeId, instruction)
+      await onEditResult(
+        editTarget.nodeId,
+        instruction,
+        editReference ? { referenceNodeId: editReference.nodeId } : undefined,
+      )
       setEditTarget(null)
       setEditInstruction('')
+      setEditReference(null)
     } catch (e) {
       setEditError(e instanceof Error ? e.message : 'AI 编辑失败，原因见下方结果区')
     } finally {
@@ -542,9 +584,14 @@ export function EcommerceStudio({
     setBatchEditError('')
     setBatchEditSubmitting(true)
     try {
-      await onEditResults([...selectedEditNodes], instruction)
+      await onEditResults(
+        [...selectedEditNodes],
+        instruction,
+        batchReference ? { referenceNodeId: batchReference.nodeId } : undefined,
+      )
       setBatchEditOpen(false)
       setBatchInstruction('')
+      setBatchReference(null)
       setSelectedEditNodes(new Set())
     } catch (e) {
       setBatchEditError(e instanceof Error ? e.message : '批量 AI 编辑失败')
@@ -1076,6 +1123,7 @@ export function EcommerceStudio({
                 onClick={() => {
                   setBatchEditOpen(true)
                   setBatchInstruction(note.trim())
+                  setBatchReference(null)
                   setBatchEditError('')
                 }}
               >
@@ -1281,6 +1329,7 @@ export function EcommerceStudio({
                         onClick={() => {
                           setEditTarget({ nodeId: r.nodeId, label: '这张结果' })
                           setEditInstruction(note.trim())
+                          setEditReference(null)
                           setEditError('')
                         }}
                       >
@@ -1378,6 +1427,40 @@ export function EcommerceStudio({
                 </button>
               ))}
             </div>
+            <div className={styles.editReferenceRow}>
+              <input
+                id="ecommerce-batch-edit-reference"
+                type="file"
+                accept="image/*"
+                hidden
+                data-ecommerce-batch-edit-reference-input
+                disabled={batchReferenceBusy}
+                onChange={(e) => {
+                  void pickEditReference(e.target.files?.[0], true)
+                  e.currentTarget.value = ''
+                }}
+              />
+              <label className={styles.editPreset} htmlFor="ecommerce-batch-edit-reference">
+                {batchReferenceBusy
+                  ? '正在读取参考图…'
+                  : batchReference
+                    ? '更换参考图'
+                    : '上传参考图（可选）'}
+              </label>
+              {batchReference ? (
+                <span className={styles.editReferencePreview} data-ecommerce-batch-edit-reference-preview>
+                  {batchReference.preview}
+                  <button
+                    type="button"
+                    className={styles.linkBtn}
+                    data-ecommerce-batch-edit-reference-remove
+                    onClick={() => setBatchReference(null)}
+                  >
+                    移除
+                  </button>
+                </span>
+              ) : null}
+            </div>
             <textarea
               className={styles.editInput}
               data-ecommerce-batch-edit-instruction
@@ -1404,6 +1487,7 @@ export function EcommerceStudio({
                 onClick={() => {
                   setBatchEditOpen(false)
                   setBatchInstruction('')
+                  setBatchReference(null)
                   setBatchEditError('')
                 }}
               >
@@ -1461,6 +1545,36 @@ export function EcommerceStudio({
                 </button>
               ))}
             </div>
+            <div className={styles.editReferenceRow}>
+              <input
+                id="ecommerce-edit-reference"
+                type="file"
+                accept="image/*"
+                hidden
+                data-ecommerce-edit-reference-input
+                disabled={editReferenceBusy}
+                onChange={(e) => {
+                  void pickEditReference(e.target.files?.[0], false)
+                  e.currentTarget.value = ''
+                }}
+              />
+              <label className={styles.editPreset} htmlFor="ecommerce-edit-reference">
+                {editReferenceBusy ? '正在读取参考图…' : editReference ? '更换参考图' : '上传参考图（可选）'}
+              </label>
+              {editReference ? (
+                <span className={styles.editReferencePreview} data-ecommerce-edit-reference-preview>
+                  {editReference.preview}
+                  <button
+                    type="button"
+                    className={styles.linkBtn}
+                    data-ecommerce-edit-reference-remove
+                    onClick={() => setEditReference(null)}
+                  >
+                    移除
+                  </button>
+                </span>
+              ) : null}
+            </div>
             <textarea
               className={styles.editInput}
               data-ecommerce-edit-instruction
@@ -1487,6 +1601,7 @@ export function EcommerceStudio({
                 onClick={() => {
                   setEditTarget(null)
                   setEditInstruction('')
+                  setEditReference(null)
                   setEditError('')
                 }}
               >
