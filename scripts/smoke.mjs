@@ -25336,7 +25336,8 @@ async function g116(browser) {
     g,
     '★★ 工作室：四档用途 + 六平台 + 语言/张数/比例都在',
     (await page.locator('[data-ecommerce-form]').count()) === 1 &&
-      JSON.stringify(usages) === JSON.stringify(['main', 'white-bg', 'detail', 'set']) &&
+      JSON.stringify(usages) ===
+        JSON.stringify(['main', 'white-bg', 'detail', 'set', 'recreate']) &&
       (await page.locator('[data-ecommerce-platform] option').count()) === 7 &&
       (await page.locator('[data-ecommerce-ratio] option').count()) === 5,
     `用途=${usages.join(',')}`,
@@ -25369,6 +25370,24 @@ async function g116(browser) {
     .evaluate((el) => el.naturalWidth > 0)
     .catch(() => false)
   rec(g, '★★ 上传产品图后预览能解码（真的落库并读回来）', previewOk)
+
+  await page.locator('[data-ecommerce-usage="recreate"]').click()
+  await sleep(250)
+  const recreateHint = await page.locator('[data-ecommerce-recreate-hint]').innerText().catch(() => '')
+  const recreateCount = await page.locator('[data-ecommerce-count]').inputValue()
+  await page.locator('[data-ecommerce-generate]').click()
+  await sleep(300)
+  const recreateError = await page.locator('[data-ecommerce-error]').innerText().catch(() => '')
+  rec(
+    g,
+    '★★ 爆款复刻是独立用途：没传参考图就明确拦截，默认给 4 张',
+    recreateCount === '4' &&
+      recreateHint.includes('先上传一张参考图') &&
+      recreateError.includes('爆款复刻要先把那张参考图上传'),
+    `count=${recreateCount} hint=${recreateHint.slice(0, 40)} error=${recreateError.slice(0, 40)}`,
+  )
+  await page.locator('[data-ecommerce-usage="main"]').click()
+  await sleep(250)
 
   // ④ 二次确认（D6）：先报"预计 N 张"，确认后才发请求
   await page.locator('[data-ecommerce-generate]').click()

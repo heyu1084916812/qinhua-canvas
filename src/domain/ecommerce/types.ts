@@ -6,8 +6,8 @@
  * （上传动作仍走既有的 `importAssetFile` + `createAssetNode`）。
  */
 
-/** 用途：主图 / 白底图 / 详情页 / 套图（设置清单 §6 与 #380 的形态） */
-export type EcommerceUsage = 'main' | 'white-bg' | 'detail' | 'set'
+/** 用途：主图 / 白底图 / 详情页 / 套图 / 爆款复刻 */
+export type EcommerceUsage = 'main' | 'white-bg' | 'detail' | 'set' | 'recreate'
 
 /** 文案语言：跨境常去的八种 + 中文 */
 export type EcommerceLanguage = 'zh-CN' | 'en' | 'ru' | 'ja' | 'ko' | 'de' | 'es' | 'ar'
@@ -37,7 +37,13 @@ export interface EcommerceRequest {
   model?: string
 }
 
-export const ECOMMERCE_USAGES: readonly EcommerceUsage[] = ['main', 'white-bg', 'detail', 'set']
+export const ECOMMERCE_USAGES: readonly EcommerceUsage[] = [
+  'main',
+  'white-bg',
+  'detail',
+  'set',
+  'recreate',
+]
 export const ECOMMERCE_LANGUAGES: readonly EcommerceLanguage[] = [
   'zh-CN',
   'en',
@@ -62,7 +68,9 @@ export function usageLabel(usage: EcommerceUsage): string {
       ? '白底图'
       : usage === 'detail'
         ? '详情页'
-        : '套图'
+        : usage === 'set'
+          ? '套图'
+          : '爆款复刻'
 }
 
 export function languageLabel(language: EcommerceLanguage): string {

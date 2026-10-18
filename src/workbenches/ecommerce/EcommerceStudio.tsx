@@ -5,7 +5,11 @@ import {
   type DragEvent as ReactDragEvent,
   type ReactNode,
 } from 'react'
-import { ECOMMERCE_DEFAULT_COUNT } from '../../domain/ecommerce/plan'
+import {
+  ECOMMERCE_DEFAULT_COUNT,
+  EcommerceRequestError,
+  buildEcommercePlan,
+} from '../../domain/ecommerce/plan'
 import { ECOMMERCE_PLATFORMS, type EcommercePlatform } from '../../domain/ecommerce/platforms'
 import { intentRows, type EcommerceIntentDraft } from '../../domain/ecommerce/chatParse'
 import { planSummaryOf, type EcommercePlanSession } from '../../domain/ecommerce/sessions'
@@ -365,6 +369,12 @@ export function EcommerceStudio({
       setError('先上传一张产品图 —— 没有产品图就没有可改的主体')
       return
     }
+    try {
+      buildEcommercePlan(buildRequest())
+    } catch (e) {
+      setError(e instanceof EcommerceRequestError ? e.message : '这次参数没有通过校验，请检查后再试')
+      return
+    }
     setError('')
     setConfirming(true)
   }
@@ -668,7 +678,7 @@ export function EcommerceStudio({
           {...dropProps('reference')}
         >
           <label className={styles.blockTitle} htmlFor="ecommerce-reference">
-            参考图（可选，最多 4 张）
+            参考图（{usage === 'recreate' ? '爆款复刻至少 1 张' : '可选'}，最多 4 张）
           </label>
           <input
             id="ecommerce-reference"
@@ -698,6 +708,11 @@ export function EcommerceStudio({
               +
             </label>
           </div>
+          {usage === 'recreate' && references.length === 0 ? (
+            <p className={styles.hint} data-ecommerce-recreate-hint>
+              爆款复刻要先上传一张参考图；产品主体仍以产品图为准，不会复制参考图的品牌与文案。
+            </p>
+          ) : null}
         </section>
 
         <section className={styles.block}>

@@ -31,6 +31,7 @@ const USAGE_HINTS: Record<EcommerceUsage, string> = {
   'white-bg': '白底图：纯白背景、不要场景道具、产品边缘干净',
   detail: '详情页：按卖点分段表达，信息层级清楚',
   set: '套图：主图 + 场景图 + 细节图 + 卖点图，整套风格统一',
+  recreate: '爆款复刻：保留参考图的构图、镜头、光影、版式与氛围，产品外观以产品图为准',
 }
 
 export interface BuildPromptOptions {
@@ -125,6 +126,15 @@ const SET_SHOTS: readonly EcommerceShot[] = [
   { title: '组合搭配', brief: '与同系列 / 常见搭配物同框，说明怎么配着用' },
 ]
 
+const RECREATE_SHOTS: readonly EcommerceShot[] = [
+  { title: '同构图复刻', brief: '沿用参考图的机位、主体比例、光影与版式，替换成本次产品' },
+  { title: '同风格换背景', brief: '保持参考图的色彩与光线语言，换一个不抢主体的近似场景' },
+  { title: '近景质感版', brief: '沿用参考图的调性，推近到产品材质与工艺最能说明品质的一处' },
+  { title: '生活场景版', brief: '保留参考图的镜头语言，把产品放进可信的日常使用环境' },
+  { title: '留白文案版', brief: '沿用版式节奏，给指定语言的标题与卖点留出干净区域' },
+  { title: '竖版裁切版', brief: '保持视觉重心与层级，按当前比例重新组织成适合竖屏的构图' },
+]
+
 /** 白底图 = **抽卡**：N 张是同一件事的 N 次尝试，脚本故意只有一条（用户明确说这样没问题） */
 const WHITE_BG_SHOT: EcommerceShot = {
   title: '白底图',
@@ -140,7 +150,14 @@ const WHITE_BG_SHOT: EcommerceShot = {
  */
 export function ecommerceShots(usage: EcommerceUsage, count: number): readonly EcommerceShot[] {
   if (usage === 'white-bg') return Array.from({ length: count }, () => WHITE_BG_SHOT)
-  const base = usage === 'main' ? MAIN_SHOTS : usage === 'detail' ? DETAIL_SHOTS : SET_SHOTS
+  const base =
+    usage === 'main'
+      ? MAIN_SHOTS
+      : usage === 'detail'
+        ? DETAIL_SHOTS
+        : usage === 'recreate'
+          ? RECREATE_SHOTS
+          : SET_SHOTS
   return Array.from({ length: count }, (_, i) => {
     const hit = base[i]
     if (hit) return hit
@@ -165,6 +182,13 @@ export function buildEcommercePrompt(
   if (note) lines.push(note)
 
   lines.push(`用途：${usageLabel(request.usage)} —— ${USAGE_HINTS[request.usage]}`)
+  if (request.usage === 'recreate') {
+    lines.push(
+      '复刻边界：只借参考图的构图、机位、光影、色温、版式节奏与氛围；' +
+        '产品外观、颜色、材质、结构以产品图为准。不复制参考图的品牌 Logo、商标、水印、' +
+        '人物身份与不可核实文案，不把参考图产品直接搬进结果。',
+    )
+  }
   /* 有镜头脚本就写清"这一张只做什么" —— 这是逐张不同的落点 */
   if (shot) lines.push(`这一张只做：${shot.title} —— ${shot.brief}`)
   lines.push(`目标平台：${platformRuleSummary(platform)}`)

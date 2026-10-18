@@ -69,8 +69,8 @@ export function buildIntentSystem(): string {
 ${ECOMMERCE_INTENT_MARKER}输出契约（必须严格遵守）
 1. 只输出一个 JSON 对象，不要解释、不要客套；可以用 \`\`\`json 代码块包住。
 2. 只允许下面这几个键，**没听出来的键就不要写**（不许猜、不许替用户填默认值）：
-   {"usage":"主图|白底图|详情页|套图","platformId":"平台 id","language":"语言代码","count":张数,"ratio":"比例","note":"补充要求"}
-3. usage 只能写那四个中文词之一；platformId 只能写"可用平台"里给出的 id；
+   {"usage":"主图|白底图|详情页|套图|爆款复刻","platformId":"平台 id","language":"语言代码","count":张数,"ratio":"比例","note":"补充要求"}
+3. usage 只能写那五个中文词之一；platformId 只能写"可用平台"里给出的 id；
    language 只能写"可用语言"里给出的代码；ratio 只能写 1:1 / 3:4 / 4:3 / 16:9 / 9:16。
 4. count 是 1–${ECOMMERCE_COUNT_MAX} 的整数。
 5. note 写用户对画面的补充要求（用原话里的词，不要自己发挥）；没有就写空字符串。

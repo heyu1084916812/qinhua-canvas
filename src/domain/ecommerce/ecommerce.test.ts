@@ -94,8 +94,14 @@ describe('提示词拼装', () => {
 })
 
 describe('执行计划与校验', () => {
-  it('默认张数：主图 1 / 白底 1 / 详情 4 / 套图 8', () => {
-    expect(ECOMMERCE_DEFAULT_COUNT).toEqual({ main: 1, 'white-bg': 1, detail: 4, set: 8 })
+  it('默认张数：主图 1 / 白底 1 / 详情 4 / 套图 8 / 爆款复刻 4', () => {
+    expect(ECOMMERCE_DEFAULT_COUNT).toEqual({
+      main: 1,
+      'white-bg': 1,
+      detail: 4,
+      set: 8,
+      recreate: 4,
+    })
   })
 
   it('★ 参考图去重，并去掉与产品图相同的那个', () => {
@@ -116,6 +122,7 @@ describe('执行计划与校验', () => {
       ['比例不认识', { ...base, ratio: '2:3' }],
       ['平台不存在', { ...base, platformId: 'nope' }],
       ['语言不认识', { ...base, language: 'fr' as never }],
+      ['爆款复刻没上传参考图', { ...base, usage: 'recreate', referenceNodeIds: [] }],
     ]
     for (const [label, request] of cases) {
       expect(() => buildEcommercePlan(request), label).toThrow(EcommerceRequestError)
@@ -202,6 +209,29 @@ describe('逐张镜头脚本', () => {
     expect(plan.prompt).toBe(plan.prompts[0])
     // 单张不该出现"同批"那句（它只在多张时有意义）
     expect(plan.prompts[0]).not.toContain('同批：')
+  })
+
+  it('★★ 爆款复刻用参考图，但明确不复制品牌与文案，产品外观仍以产品图为准', () => {
+    const plan = buildEcommercePlan({
+      ...base,
+      usage: 'recreate',
+      count: 4,
+      referenceNodeIds: ['viral-ref'],
+    })
+    expect(plan.referenceNodeIds).toEqual(['viral-ref'])
+    expect(plan.prompts).toHaveLength(4)
+    expect(new Set(plan.prompts).size).toBe(4)
+    expect(plan.prompts.map(shotTitleOf)).toEqual([
+      '同构图复刻',
+      '同风格换背景',
+      '近景质感版',
+      '生活场景版',
+    ])
+    for (const prompt of plan.prompts) {
+      expect(prompt).toContain('复刻边界')
+      expect(prompt).toContain('不复制参考图的品牌 Logo')
+      expect(prompt).toContain('产品外观、颜色、材质、结构以产品图为准')
+    }
   })
 })
 

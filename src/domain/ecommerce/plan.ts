@@ -24,6 +24,7 @@ export const ECOMMERCE_DEFAULT_COUNT: Record<EcommerceRequest['usage'], number> 
   'white-bg': 1,
   detail: 4,
   set: 8,
+  recreate: 4,
 }
 
 export interface EcommercePlan {
@@ -59,6 +60,12 @@ export function buildEcommercePlan(
 ): EcommercePlan {
   if (!request.productNodeId) {
     throw new EcommerceRequestError('先上传一张产品图 —— 没有产品图就没有可改的主体')
+  }
+  if (
+    request.usage === 'recreate' &&
+    !request.referenceNodeIds.some((id) => id && id !== request.productNodeId)
+  ) {
+    throw new EcommerceRequestError('爆款复刻要先把那张参考图上传到「参考图」')
   }
   if (!ECOMMERCE_USAGES.includes(request.usage)) {
     throw new EcommerceRequestError(`不认识的用途：${String(request.usage)}`)
