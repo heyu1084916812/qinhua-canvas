@@ -474,6 +474,13 @@ export function EcommerceStudio({
 
   /** 当前表单对应的分镜键（只有影响分镜的那几项进键） */
   const currentShotKey = shotKeyOf({ usage, platformId, language, count, ratio, note })
+  const doneResultCount = results.filter((result) => result.status === 'done').length
+  const selectedDownloadCount = results.filter(
+    (result) =>
+      result.status === 'done' &&
+      selectedEditNodes.has(result.nodeId) &&
+      !!result.onDownload,
+  ).length
   const editPresets = useMemo(
     () => [
       {
@@ -597,6 +604,28 @@ export function EcommerceStudio({
       setBatchEditError(e instanceof Error ? e.message : '批量 AI 编辑失败')
     } finally {
       setBatchEditSubmitting(false)
+    }
+  }
+
+  const selectAllDone = () => {
+    setSelectedEditNodes(
+      new Set(
+        results
+          .filter((result) => result.status === 'done')
+          .map((result) => result.nodeId),
+      ),
+    )
+  }
+
+  const downloadSelected = async () => {
+    const targets = results.filter(
+      (result) => result.status === 'done' && selectedEditNodes.has(result.nodeId),
+    )
+    for (const result of targets) {
+      await Promise.resolve(result.onDownload?.())
+      if (targets.length > 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 250))
+      }
     }
   }
 
@@ -1130,6 +1159,37 @@ export function EcommerceStudio({
                 批量 AI 编辑（{selectedEditNodes.size}）
               </button>
             ) : null}
+            {selectedDownloadCount > 0 ? (
+              <button
+                type="button"
+                className={styles.linkBtn}
+                data-ecommerce-download-selected
+                onClick={() => void downloadSelected()}
+              >
+                下载所选（{selectedDownloadCount}）
+              </button>
+            ) : null}
+            {doneResultCount > 0 ? (
+              <button
+                type="button"
+                className={styles.linkBtn}
+                data-ecommerce-select-all
+                disabled={selectedEditNodes.size === doneResultCount}
+                onClick={selectAllDone}
+              >
+                全选已完成
+              </button>
+            ) : null}
+            {selectedEditNodes.size > 0 ? (
+              <button
+                type="button"
+                className={styles.linkBtn}
+                data-ecommerce-clear-selection
+                onClick={() => setSelectedEditNodes(new Set())}
+              >
+                取消选择
+              </button>
+            ) : null}
             {onDownloadAll && downloadableCount > 0 ? (
               <button
                 type="button"
@@ -1188,7 +1248,7 @@ export function EcommerceStudio({
                 data-status={r.status}
               >
                 <div className={styles.cellBody}>
-                  {onEditResults && r.status === 'done' ? (
+                  {r.status === 'done' && (onEditResults || r.onDownload) ? (
                     <label className={styles.selectResult} title="选择这张用于批量 AI 编辑">
                       <input
                         type="checkbox"

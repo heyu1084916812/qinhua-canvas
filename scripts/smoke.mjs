@@ -34478,6 +34478,23 @@ async function g160(browser) {
       .map((row) => [row.id, row.assetHash ?? '']),
   )
 
+  await page.locator('[data-ecommerce-select-all]').click()
+  const allSelected = await page.locator('[data-ecommerce-result-select]:checked').count()
+  rec(g, '★ 全选已完成只选中完成结果', allSelected === 2, `已选=${allSelected}`)
+  const selectedDownload = page
+    .waitForEvent('download', { timeout: 10000 })
+    .catch(() => null)
+  await page.locator('[data-ecommerce-download-selected]').click()
+  rec(g, '★ 下载所选入口触发真实下载', !!(await selectedDownload))
+  await sleep(600)
+  await page.locator('[data-ecommerce-clear-selection]').click()
+  rec(
+    g,
+    '★ 取消选择后批量入口消失',
+    (await page.locator('[data-ecommerce-batch-edit]').count()) === 0 &&
+      (await page.locator('[data-ecommerce-result-select]:checked').count()) === 0,
+  )
+
   const boxes = page.locator('[data-ecommerce-result-select]')
   await boxes.nth(0).check()
   await boxes.nth(1).check()
