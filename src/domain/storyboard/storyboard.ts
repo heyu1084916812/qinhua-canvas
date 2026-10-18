@@ -62,7 +62,12 @@ export interface DramaAsset {
   turnaroundHash?: string
 }
 
-export type DramaCharacter = DramaAsset
+export interface DramaCharacter extends DramaAsset {
+  /** 这个角色的默认配音音色；台词自己选了音色时以台词为准 */
+  voice?: string
+  /** 这个角色的默认语速；台词自己写了语速时以台词为准 */
+  speed?: number
+}
 export type DramaScene = DramaAsset
 
 /**
@@ -80,9 +85,9 @@ export interface StoryboardLine {
   speakerId?: string
   text: string
   emotion?: string
-  /** 配音音色 id；空 = 使用当前配音渠道的默认音色 */
+  /** 配音音色 id；空 = 先继承说话角色的默认音色，再回落到当前渠道默认音色 */
   voice?: string
-  /** 语速 0.25..4；空 = 1 */
+  /** 语速 0.25..4；空 = 先继承说话角色的默认语速，再回落 1 */
   speed?: number
   /** TTS 产物素材 hash（只存引用，字节在 assets） */
   audioHash?: string
@@ -270,6 +275,11 @@ function parseShotLines(row: Record<string, unknown>, knownCharacters: ReadonlyS
     const speakerId = speakerRaw && knownCharacters.has(speakerRaw) ? speakerRaw : ''
     const emotion = text(record.emotion).trim()
     const voice = text(record.voice).trim()
+    const hasSpeed =
+      record.speed !== undefined &&
+      record.speed !== null &&
+      record.speed !== '' &&
+      Number.isFinite(Number(record.speed))
     const speed = clampSpeechSpeed(record.speed, 1)
     const audioHash = text(record.audioHash).trim()
     const audioName = text(record.audioName).trim()
@@ -279,7 +289,7 @@ function parseShotLines(row: Record<string, unknown>, knownCharacters: ReadonlyS
       ...(speakerId ? { speakerId } : {}),
       ...(emotion ? { emotion } : {}),
       ...(voice ? { voice } : {}),
-      ...(speed !== 1 ? { speed } : {}),
+      ...(hasSpeed ? { speed } : {}),
       ...(audioHash
         ? {
             audioHash,
@@ -305,7 +315,7 @@ function parseShotLines(row: Record<string, unknown>, knownCharacters: ReadonlyS
  * 而界面上根本看不到 —— 那比丢掉更难查。
  */
 /** 资产数组的容错读回（缺 id / 缺 name 的整条丢掉；别名只留非空字符串、去重） */
-function parseAssetList(raw: unknown): DramaAsset[] {
+function parseAssetList(raw: unknown, withSpeech = false): DramaAsset[] {
   if (!Array.isArray(raw)) return []
   return raw.flatMap((a) => {
     if (!a || typeof a !== 'object') return []
@@ -320,6 +330,14 @@ function parseAssetList(raw: unknown): DramaAsset[] {
     const baseHash = text(row.baseHash)
     const turnaroundNodeId = text(row.turnaroundNodeId)
     const turnaroundHash = text(row.turnaroundHash)
+    const voice = withSpeech ? text(row.voice).trim() : ''
+    const hasSpeed =
+      withSpeech &&
+      row.speed !== undefined &&
+      row.speed !== null &&
+      row.speed !== '' &&
+      Number.isFinite(Number(row.speed))
+    const speed = hasSpeed ? clampSpeechSpeed(row.speed, 1) : 1
     return [
       {
         id,
@@ -330,6 +348,8 @@ function parseAssetList(raw: unknown): DramaAsset[] {
         ...(baseHash ? { baseHash } : {}),
         ...(turnaroundNodeId ? { turnaroundNodeId } : {}),
         ...(turnaroundHash ? { turnaroundHash } : {}),
+        ...(voice ? { voice } : {}),
+        ...(hasSpeed ? { speed } : {}),
       },
     ]
   })
@@ -338,7 +358,7 @@ function parseAssetList(raw: unknown): DramaAsset[] {
 export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc {
   const o = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
   const scriptRaw = o.script && typeof o.script === 'object' ? (o.script as Record<string, unknown>) : {}
-  const characters = parseAssetList(o.characters)
+  const characters: DramaCharacter[] = parseAssetList(o.characters, true)
   const scenes = parseAssetList(o.scenes)
   const knownCharacters = new Set(characters.map((c) => c.id))
   const knownScenes = new Set(scenes.map((s) => s.id))
@@ -923,9 +943,8 @@ export function updateShotLine(
       }
       if (patch.speed !== undefined) {
         const speed = clampSpeechSpeed(patch.speed, line.speed ?? 1)
-        if ((line.speed ?? 1) !== speed) {
-          if (speed !== 1) next.speed = speed
-          else delete next.speed
+        if (line.speed !== speed) {
+          next.speed = speed
           delete next.audioHash
           delete next.audioName
           shotChanged = true
@@ -960,6 +979,22 @@ function clampSpeechSpeed(value: unknown, fallback: number): number {
   const n = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(n)) return fallback
   return Math.round(Math.min(4, Math.max(0.25, n)) * 100) / 100
+}
+
+/** 一句台词最终使用的音色 / 语速：台词显式值 > 说话角色默认值 > 调用方的渠道默认。 */
+export function speechSettingsOf(
+  doc: StoryboardDoc,
+  line: StoryboardLine,
+): { voice?: string; speed: number } {
+  const character = line.speakerId
+    ? doc.characters.find((item) => item.id === line.speakerId)
+    : undefined
+  const voice = line.voice?.trim() || character?.voice?.trim() || ''
+  const speed = line.speed ?? character?.speed ?? 1
+  return {
+    ...(voice ? { voice } : {}),
+    speed: clampSpeechSpeed(speed, 1),
+  }
 }
 
 /** 删一句台词（不存在那一句时返回原引用） */
@@ -1032,7 +1067,9 @@ export function addScene(doc: StoryboardDoc, now = 0): StoryboardDoc {
 export function updateCharacter(
   doc: StoryboardDoc,
   id: string,
-  patch: Partial<Pick<DramaAsset, 'name' | 'description' | 'aliases'>>,
+  patch: Partial<
+    Pick<DramaCharacter, 'name' | 'description' | 'aliases' | 'voice' | 'speed'>
+  >,
   now = 0,
 ): StoryboardDoc {
   if (!doc.characters.some((c) => c.id === id)) return doc
@@ -1042,7 +1079,23 @@ export function updateCharacter(
     const aliases = patch.aliases
       ? [...new Set(patch.aliases.map((a) => text(a).trim()).filter((a) => a && a !== name))]
       : c.aliases
-    return { ...c, name, description: text(patch.description, c.description), aliases }
+    const next: DramaCharacter = {
+      ...c,
+      name,
+      description: text(patch.description, c.description),
+      aliases,
+    }
+    if (patch.voice !== undefined) {
+      const voice = text(patch.voice).trim()
+      if (voice) next.voice = voice
+      else delete next.voice
+    }
+    if (patch.speed !== undefined) {
+      const speed = clampSpeechSpeed(patch.speed, c.speed ?? 1)
+      if (speed !== 1) next.speed = speed
+      else delete next.speed
+    }
+    return next
   })
   return { ...doc, characters, updatedAt: now }
 }

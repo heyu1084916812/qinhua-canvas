@@ -96,6 +96,7 @@ import {
   shotVideoPrompt,
   shotsNeedingNode,
   shotsOf,
+  speechSettingsOf,
   storyboardStats,
   toggleShotCharacter,
   updateCharacter,
@@ -1343,7 +1344,6 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   const voiceLine = async (
     shot: StoryboardShot,
     lineId: string,
-    voice: string,
     options: { quiet?: boolean } = {},
   ): Promise<boolean> => {
     const report = (text: string) => {
@@ -1358,6 +1358,8 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       report('还没有可用的配音模型：去设置里给渠道勾选一个 audio / tts 模型')
       return false
     }
+    const speech = speechSettingsOf(docRef.current ?? doc, line)
+    const voice = speech.voice || speechTarget.voices[0] || 'alloy'
     setVoiceBusy((current) => ({ ...current, [lineId]: true }))
     const ac = new AbortController()
     const timer = window.setTimeout(() => ac.abort(), 120_000)
@@ -1367,7 +1369,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         model: speechTarget.model,
         text: line.text,
         voice,
-        speed: line.speed ?? 1,
+        speed: speech.speed,
         responseFormat: 'mp3',
         timeoutMs: 120_000,
         signal: ac.signal,
@@ -1390,7 +1392,6 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
           shot.id,
           lineId,
           {
-            voice,
             audioHash: asset.hash,
             audioName: `${speaker}-${line.text.trim().slice(0, 16)}.mp3`,
           },
@@ -1436,7 +1437,6 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       const success = await voiceLine(
         shot,
         line.id,
-        line.voice || speechTarget.voices[0] || 'alloy',
         { quiet: true },
       )
       if (success) ok += 1
@@ -2010,6 +2010,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                 turnaroundState={
                   c.turnaroundNodeId ? exec.nodeStateOf(c.turnaroundNodeId) : undefined
                 }
+                voices={speechTarget?.voices ?? []}
                 onPatch={(patch) => apply(updateCharacter(doc, c.id, patch, 0))}
                 onRemove={() => removeOneAsset('char', c.id)}
                 onMake={() => void makeAssetBase('char', c.id)}
@@ -2428,7 +2429,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                         onLineRemove={(lineId) => apply(removeShotLine(doc, shot.id, lineId, 0))}
                         speechTarget={speechTarget}
                         voiceBusy={voiceBusy}
-                        onVoice={(lineId, voice) => void voiceLine(shot, lineId, voice)}
+                        onVoice={(lineId) => void voiceLine(shot, lineId)}
                         onMove={(id, delta) => apply(moveShot(doc, id, delta, 0))}
                         onRemove={removeOneShot}
                         onRun={() => runShot(shot)}
@@ -2610,7 +2611,7 @@ function ShotCard({
   onLineRemove: (lineId: string) => void
   speechTarget: SpeechTarget | null
   voiceBusy: Record<string, boolean>
-  onVoice: (lineId: string, voice: string) => void
+  onVoice: (lineId: string) => void
   onMove: (id: string, delta: number) => void
   onRemove: (id: string) => void
   onRun: () => void
@@ -2858,7 +2859,16 @@ function ShotCard({
             <ul className={styles.lineList}>
               {shot.lines.map((line) => {
                 const voices = speechTarget?.voices.length ? speechTarget.voices : ['alloy', 'nova']
-                const voice = line.voice || voices[0] || 'alloy'
+                const speaker = characters.find((item) => item.id === line.speakerId)
+                const inheritedVoice = speaker?.voice?.trim() || ''
+                const inheritedSpeed = speaker?.speed ?? 1
+                const voiceOptions = [
+                  ...new Set(
+                    [line.voice, inheritedVoice, ...voices].filter(
+                      (item): item is string => Boolean(item),
+                    ),
+                  ),
+                ]
                 const busy = !!voiceBusy[line.id]
                 return (
                   <li key={line.id} className={styles.lineRow} data-storyboard-line={line.id}>
@@ -2900,11 +2910,16 @@ function ShotCard({
                         <span>音色</span>
                         <select
                           className={styles.select}
-                          value={voice}
+                          value={line.voice ?? ''}
                           data-storyboard-line-voice-style={line.id}
                           onChange={(e) => onLinePatch(line.id, { voice: e.target.value })}
                         >
-                          {voices.map((item) => (
+                          <option value="">
+                            {inheritedVoice
+                              ? `跟随角色（${inheritedVoice}）`
+                              : '跟随渠道默认'}
+                          </option>
+                          {voiceOptions.map((item) => (
                             <option key={item} value={item}>
                               {item}
                             </option>
@@ -2919,7 +2934,7 @@ function ShotCard({
                           min={0.25}
                           max={4}
                           step={0.05}
-                          value={line.speed ?? 1}
+                          value={line.speed ?? inheritedSpeed}
                           data-storyboard-line-voice-speed={line.id}
                           onChange={(e) => onLinePatch(line.id, { speed: Number(e.target.value) })}
                         />
@@ -2930,7 +2945,7 @@ function ShotCard({
                         data-storyboard-line-voice={line.id}
                         disabled={!speechTarget || busy || !line.text.trim()}
                         title={speechTarget?.label ?? '先在设置里勾选配音模型'}
-                        onClick={() => onVoice(line.id, voice)}
+                        onClick={() => onVoice(line.id)}
                       >
                         {busy ? '生成中…' : line.audioHash ? '重配这一句' : '生成配音'}
                       </button>
@@ -3042,6 +3057,7 @@ function AssetRow({
   state,
   hasTurnaroundNode = false,
   turnaroundState,
+  voices = [],
   onPatch,
   onRemove,
   onMake,
@@ -3053,7 +3069,7 @@ function AssetRow({
   onMergeConfirm,
   onMergeCancel,
 }: {
-  asset: DramaAsset
+  asset: DramaAsset & Partial<Pick<DramaCharacter, 'voice' | 'speed'>>
   kind: 'char' | 'scene'
   /** 有多少镜在用（删除确认里如实报数） */
   usedBy: number
@@ -3064,7 +3080,12 @@ function AssetRow({
   /** 多视角 turnaround 的节点现在还在画布上 */
   hasTurnaroundNode?: boolean
   turnaroundState?: RunTaskState
-  onPatch: (patch: Partial<Pick<DramaAsset, 'name' | 'description' | 'aliases'>>) => void
+  voices?: readonly string[]
+  onPatch: (
+    patch: Partial<
+      Pick<DramaCharacter, 'name' | 'description' | 'aliases' | 'voice' | 'speed'>
+    >,
+  ) => void
   onRemove: () => void
   onMake: () => void
   onTurnaround?: () => void
@@ -3127,9 +3148,15 @@ function AssetRow({
           : turnaroundStatusKind === 'failed'
             ? '生成失败'
             : '已出多视角'
+  const voiceOptions = [
+    ...new Set(
+      [asset.voice, ...voices].filter((item): item is string => Boolean(item)),
+    ),
+  ]
   return (
     <div
       className={styles.assetRow}
+      data-asset-kind={kind}
       {...(kind === 'char'
         ? { 'data-storyboard-character': asset.id }
         : { 'data-storyboard-scene': asset.id })}
@@ -3167,6 +3194,39 @@ function AssetRow({
         }}
         onBlur={() => setAliasText(asset.aliases.join('、'))}
       />
+      {kind === 'char' ? (
+        <div className={styles.assetVoiceRow}>
+          <label className={styles.inlineField}>
+            <span className={styles.label}>默认音色</span>
+            <select
+              className={styles.select}
+              value={asset.voice ?? ''}
+              data-storyboard-character-voice={asset.id}
+              onChange={(e) => onPatch({ voice: e.target.value })}
+            >
+              <option value="">跟随渠道默认</option>
+              {voiceOptions.map((voice) => (
+                <option key={voice} value={voice}>
+                  {voice}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.inlineField}>
+            <span className={styles.label}>默认语速</span>
+            <input
+              className={styles.input}
+              type="number"
+              min={0.25}
+              max={4}
+              step={0.05}
+              value={asset.speed ?? 1}
+              data-storyboard-character-speed={asset.id}
+              onChange={(e) => onPatch({ speed: Number(e.target.value) })}
+            />
+          </label>
+        </div>
+      ) : null}
       <button
         type="button"
         className={confirming ? `${styles.iconBtn} ${styles.iconBtnDanger}` : styles.iconBtn}

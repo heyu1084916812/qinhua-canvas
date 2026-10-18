@@ -31252,6 +31252,12 @@ async function g145(browser) {
       const boards = await sharedRows(page, 'storyboards')
       const doc = boards.find((row) => row.projectId === storyboardProjectId)?.doc
       return {
+        characters: (doc?.characters ?? []).map((c) => ({
+          id: c.id,
+          name: c.name,
+          voice: c.voice ?? null,
+          speed: typeof c.speed === 'number' ? c.speed : null,
+        })),
         episodes: (doc?.episodes ?? []).map((e) => ({
           id: e.id,
           bgmHash: e.bgmHash ?? null,
@@ -31302,6 +31308,21 @@ async function g145(browser) {
 
   await page.locator('[data-storyboard-add-episode]').click()
   await sleep(250)
+  await page.locator('[data-storyboard-add-character]').click()
+  await sleep(250)
+  const characterId =
+    (await page.locator('[data-storyboard-character]').first().getAttribute('data-storyboard-character')) ??
+    ''
+  await page
+    .locator(`[data-storyboard-character-voice="${characterId}"]`)
+    .selectOption('nova')
+  await page.locator(`[data-storyboard-character-speed="${characterId}"]`).fill('1.2')
+  const characterVoice = await waitDb(
+    (db) =>
+      db.characters[0]?.voice === 'nova' &&
+      db.characters[0]?.speed === 1.2,
+    5000,
+  )
 
   const bgmChooserPromise = page.waitForEvent('filechooser', { timeout: 8000 })
   await page.locator('[data-storyboard-bgm-pick]').click()
@@ -31356,8 +31377,53 @@ async function g145(browser) {
   const firstLineInput = await fillShotLine(page, ids[0], '第一镜的台词')
   const currentLineId =
     (await firstLineInput.getAttribute('data-storyboard-line-text')) ?? ''
-  await fillShotLine(page, ids[1], '第二镜的台词')
+  const secondLineInput = await fillShotLine(page, ids[1], '第二镜的台词')
+  const secondLineId =
+    (await secondLineInput.getAttribute('data-storyboard-line-text')) ?? ''
+  await page
+    .locator(`[data-storyboard-line-speaker="${currentLineId}"]`)
+    .selectOption(characterId)
+  await page
+    .locator(`[data-storyboard-line-speaker="${secondLineId}"]`)
+    .selectOption(characterId)
   await sleep(500)
+  const inheritedVoiceLabel = await page
+    .locator(`[data-storyboard-line-voice-style="${currentLineId}"] option`)
+    .first()
+    .innerText()
+  rec(
+    g,
+    '★★ 角色默认音色 / 语速落库，台词留空时明确显示跟随角色',
+    characterVoice.characters[0]?.voice === 'nova' &&
+      characterVoice.characters[0]?.speed === 1.2 &&
+      inheritedVoiceLabel.includes('nova'),
+    `voice=${characterVoice.characters[0]?.voice ?? 'n/a'} speed=${characterVoice.characters[0]?.speed ?? 'n/a'} label=${inheritedVoiceLabel}`,
+  )
+  const characterVoiceShot = await page
+    .locator(`[data-storyboard-character="${characterId}"]`)
+    .screenshot({
+      path: `${OUT}/145-character-voice.png`,
+      animations: 'disabled',
+    })
+    .catch(() => Buffer.alloc(0))
+  rec(
+    g,
+    '★ 角色默认音色与语速在资产行内完整渲染（截图级）',
+    characterVoiceShot.length > 1000,
+    `png=${characterVoiceShot.length}B`,
+  )
+  const baseButtonFit = await page
+    .locator(`[data-storyboard-asset-base="${characterId}"]`)
+    .evaluate((el) => ({
+      whiteSpace: getComputedStyle(el).whiteSpace,
+      height: Math.round(el.getBoundingClientRect().height),
+    }))
+  rec(
+    g,
+    '★ 窄资产行里的操作按钮不拆成竖排文字',
+    baseButtonFit.whiteSpace === 'nowrap' && baseButtonFit.height <= 36,
+    `whiteSpace=${baseButtonFit.whiteSpace} height=${baseButtonFit.height}`,
+  )
   await page.locator(`[data-storyboard-line-voice="${currentLineId}"]`).click()
   const voiceStored = await waitDb((db) => !!db.shots[0]?.lines[0]?.audioHash, 15000)
   const voiceAudioShown = await page
@@ -31371,6 +31437,12 @@ async function g145(browser) {
     '★ 单句台词能生成配音：音频落 assets、行上写回 hash，并出现播放器',
     !!voiceStored.shots[0]?.lines[0]?.audioHash && voiceAudioShown,
     `hash=${voiceStored.shots[0]?.lines[0]?.audioHash ?? 'n/a'}`,
+  )
+  rec(
+    g,
+    '★★ 生成配音不会把角色默认音色硬写进台词，后续改角色仍可继续继承',
+    voiceStored.shots[0]?.lines[0]?.voice === null,
+    `lineVoice=${voiceStored.shots[0]?.lines[0]?.voice ?? 'null'}`,
   )
   rec(
     g,

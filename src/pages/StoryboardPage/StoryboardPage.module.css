@@ -516,6 +516,15 @@
   border-radius: var(--radius-control);
 }
 
+.assetRow[data-asset-kind='char'] {
+  grid-template-areas:
+    'kind name remove'
+    'desc desc desc'
+    'alias alias alias'
+    'voice voice voice'
+    'foot foot foot';
+}
+
 .assetKind {
   grid-area: kind;
   font-size: var(--fs-chip);
@@ -534,6 +543,18 @@
   grid-area: alias;
 }
 
+.assetVoiceRow {
+  grid-area: voice;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  gap: var(--space-2);
+}
+
+.assetVoiceRow .select,
+.assetVoiceRow .input {
+  width: 100%;
+}
+
 .assetRow > button {
   grid-area: remove;
 }
@@ -547,8 +568,13 @@
 
 .assetFootRow {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+}
+
+.assetFootRow .ghost {
+  white-space: nowrap;
 }
 
 /*
