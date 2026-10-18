@@ -36,6 +36,7 @@ import {
   shotPrompt,
   shotPromptWithAssets,
   shotRefNodeIds,
+  shotVideoPrompt,
   shotsNeedingNode,
   shotsOf,
   storyboardStats,
@@ -910,6 +911,28 @@ describe('这一镜出视频：节点记账与产物镜像', () => {
     expect('videoNodeId' in bare.shots[0]!).toBe(false)
     expect('videoEndNodeId' in bare.shots[0]!).toBe(false)
     expect('videoHash' in bare.shots[0]!).toBe(false)
+  })
+
+  it('★★ 视频提示词只写运镜时仍保留画面基准；首尾帧会追加下一镜衔接', () => {
+    let doc = sample()
+    const firstId = doc.shots[0]!.id
+    doc = updateShot(doc, firstId, { videoPrompt: '镜头缓慢推进，人物抬头' }, 20)
+    doc = addShot(doc, doc.episodes[0]!.id, 21)
+    const [first, next] = shotsOf(doc, doc.episodes[0]!.id)
+    doc = updateShot(doc, next!.id, { scene: '门口，快递箱放下' }, 22)
+    const withNext = shotVideoPrompt(doc, first!, shotsOf(doc, doc.episodes[0]!.id)[1])
+    expect(withNext).toContain('镜头缓慢推进，人物抬头')
+    expect(withNext).toContain('画面基准：')
+    expect(withNext).toContain(first!.scene)
+    expect(withNext).toContain('镜头衔接：')
+    expect(withNext).toContain('门口，快递箱放下')
+  })
+
+  it('★ 没写视频提示词时仍补一条自然镜头运动约束', () => {
+    const doc = sample()
+    const text = shotVideoPrompt(doc, doc.shots[0]!)
+    expect(text).toContain('镜头运动：')
+    expect(text).toContain('保持人物身份、服装、场景与光线一致')
   })
 })
 

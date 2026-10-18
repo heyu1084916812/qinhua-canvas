@@ -86,6 +86,7 @@ import {
   setShotVideoNode,
   shotPromptWithAssets,
   shotRefNodeIds,
+  shotVideoPrompt,
   shotsNeedingNode,
   shotsOf,
   storyboardStats,
@@ -1117,6 +1118,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       const videoMode = endFrameNodeId
         ? 'first-last-frame'
         : singleImageMode
+      const videoPrompt = shotVideoPrompt(doc, shot, endFrameNodeId ? nextShot : undefined)
       const imageNode = graph.nodes.find((n) => n.id === shot.nodeId)
       const data = await resolveDefaults({
         channels,
@@ -1124,7 +1126,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         extraData: {
           mode: 'video',
           model: recipe.model,
-          prompt: shotPromptWithAssets(doc, shot),
+          prompt: videoPrompt,
           ...(videoMode ? { videoMode } : {}),
         },
       })
@@ -1144,7 +1146,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
               ...data,
               mode: 'video',
               model: recipe.model,
-              prompt: shotPromptWithAssets(doc, shot),
+              prompt: videoPrompt,
               count: 1,
               ...(videoMode ? { videoMode } : {}),
             },
@@ -2654,6 +2656,17 @@ function ShotCard({
           placeholder="留空就用上面的「画面」"
           data-storyboard-shot-prompt={shot.id}
           onChange={(e) => onPatch(shot.id, { prompt: e.target.value })}
+        />
+      </label>
+      <label className={styles.field}>
+        <span className={styles.label}>视频提示词（运镜 / 动作）</span>
+        <textarea
+          className={styles.textarea}
+          rows={2}
+          value={shot.videoPrompt ?? ''}
+          placeholder="例如：镜头缓慢推进，人物抬头看向门口；留空则自动生成自然运动"
+          data-storyboard-shot-video-prompt={shot.id}
+          onChange={(e) => onPatch(shot.id, { videoPrompt: e.target.value })}
         />
       </label>
     </li>

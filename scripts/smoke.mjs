@@ -30481,6 +30481,7 @@ async function g142(browser) {
           id: n.id,
           mode: n.data?.mode ?? null,
           videoMode: n.data?.videoMode ?? null,
+          prompt: n.data?.prompt ?? null,
           assetHash: n.data?.assetHash ?? null,
         })),
         edges: projectEdges.map((e) => ({ source: e.source, target: e.target })),
@@ -30527,8 +30528,11 @@ async function g142(browser) {
   await sleep(250)
   const shot1 = await shots.nth(0).getAttribute('data-storyboard-shot')
   const shot2 = await shots.nth(1).getAttribute('data-storyboard-shot')
+  const motionPrompt = '镜头缓慢推进，骑手抬头看向门牌，雨滴从画面右侧落下'
   await page.locator(`[data-storyboard-shot-scene="${shot1}"]`).fill('雨夜的街道，霓虹倒影')
   await page.locator(`[data-storyboard-shot-scene="${shot2}"]`).fill('十五楼门前，快递箱放下')
+  await page.locator(`[data-storyboard-shot-video-prompt="${shot1}"]`).fill(motionPrompt)
+  await sleep(250)
   rec(g, '★ 先有两镜可分', (await shots.count()) === 2, `镜=${await shots.count()}`)
 
   // ② 铺到画布
@@ -30589,6 +30593,14 @@ async function g142(browser) {
     '★★★ 产物真是视频：这条 hash 在库里的 mime = video/mp4',
     !!videoAsset && videoAsset.mime === 'video/mp4' && !!s1?.videoHash,
     `mime=${videoAsset?.mime ?? '无'} hash=${(s1?.videoHash ?? '').slice(0, 10)}`,
+  )
+  rec(
+    g,
+    '★★★ 视频请求使用独立运镜提示词，并保留画面基准',
+    typeof videoNode?.prompt === 'string' &&
+      videoNode.prompt.includes(motionPrompt) &&
+      videoNode.prompt.includes('画面基准：'),
+    String(videoNode?.prompt ?? '').slice(0, 120),
   )
   rec(
     g,
@@ -30663,6 +30675,14 @@ async function g142(browser) {
       pairEdges.some((edge) => edge.source === pairShot?.nodeId) &&
       pairEdges.some((edge) => edge.source === shot2AfterImage?.nodeId),
     `模式=${pairVideoNode?.videoMode ?? '无'} 尾帧=${(pairShot?.videoEndNodeId ?? '').slice(0, 10)} 上游=${pairEdges.length}`,
+  )
+  rec(
+    g,
+    '★★ 首尾帧视频提示词追加下一镜衔接，不是继续复读静帧提示词',
+    typeof pairVideoNode?.prompt === 'string' &&
+      pairVideoNode.prompt.includes('镜头衔接：') &&
+      pairVideoNode.prompt.includes('十五楼门前，快递箱放下'),
+    String(pairVideoNode?.prompt ?? '').slice(-150),
   )
   rec(
     g,

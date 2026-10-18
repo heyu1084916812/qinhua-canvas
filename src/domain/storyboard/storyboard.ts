@@ -137,6 +137,13 @@ export interface StoryboardShot {
   /** 画面提示词：留空就由 `scene` 派生（`shotPrompt`） */
   prompt: string
   /**
+   * 视频提示词：专门写运镜、动作、表情与节奏。
+   *
+   * 留空时仍以画面提示词为基准，并追加一条最小“自然镜头运动”约束；
+   * 它不能替代静态画面提示词（人物 / 场景一致性仍来自后者与资产块）。
+   */
+  videoPrompt?: string
+  /**
    * 这一镜发生在哪个场景（引用 `scenes[].id`）。
    *
    * 空 = 还没定。**读回时会丢掉悬空引用**（见 `parseStoryboard`）——
@@ -379,6 +386,7 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
         lines: parseShotLines(row, knownCharacters),
         durationSec: num(row.durationSec, DEFAULT_SHOT_SECONDS),
         prompt: text(row.prompt),
+        ...(text(row.videoPrompt).trim() ? { videoPrompt: text(row.videoPrompt).trim() } : {}),
         /* 空串不落成字段：没有就是没有，别写一个 `undefined` 占位 */
         ...(nodeId ? { nodeId } : {}),
         ...(imageHash ? { imageHash } : {}),
@@ -590,6 +598,34 @@ export function shotPromptWithAssets(doc: StoryboardDoc, shot: StoryboardShot): 
   return `${base}\n\n${ASSET_BLOCK_HEADER}\n${lines.join('\n')}`
 }
 
+/**
+ * 真正发给视频模型的提示词。
+ *
+ * 画面提示词回答“画面里有什么”，视频提示词回答“怎么动”。旧项目没有视频提示词时，
+ * 不能直接把静帧提示词发过去就完事（模型通常只会做很小的漂移），所以补一条最小运动约束；
+ * 有下一镜尾帧时再显式写清“从这一镜自然过渡到下一镜”，让首尾帧语义进入语言层。
+ */
+export function shotVideoPrompt(
+  doc: StoryboardDoc,
+  shot: StoryboardShot,
+  nextShot?: StoryboardShot,
+): string {
+  const visual = shotPromptWithAssets(doc, shot)
+  const motion = shot.videoPrompt?.trim()
+  const lines = [motion ? `${motion}\n\n画面基准：${visual}` : visual]
+  if (!motion) {
+    lines.push('镜头运动：生成自然、连续的镜头运动，保持人物身份、服装、场景与光线一致。')
+  }
+  if (nextShot) {
+    const nextScene = nextShot.scene.trim() || shotPrompt(nextShot)
+    lines.push(
+      `镜头衔接：从这一镜自然过渡到下一镜——${nextScene}。` +
+        '动作、视线与运动方向要连续，避免突然跳变。',
+    )
+  }
+  return lines.join('\n\n')
+}
+
 export function updateScript(
   doc: StoryboardDoc,
   patch: Partial<StoryboardScript>,
@@ -731,6 +767,7 @@ export function updateShot(
             scene: text(patch.scene, s.scene),
             durationSec: Math.max(1, Math.round(num(patch.durationSec, s.durationSec))),
             prompt: text(patch.prompt, s.prompt),
+            videoPrompt: text(patch.videoPrompt, s.videoPrompt ?? ''),
             /* 对白层**不在这里改**：它有增删改三种动作，走 `addShotLine` / `updateShotLine` /
                `removeShotLine`（同一个函数里塞三种语义，迟早在某一路写错） */
           }
