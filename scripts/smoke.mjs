@@ -34166,6 +34166,7 @@ async function g159(browser) {
   await sleep(600)
   await page.locator('[data-ecommerce-create]').click()
   await page.waitForURL(/\/ecommerce\/proj_/)
+  const ecommerceProjectId = /\/ecommerce\/([^/?]+)/.exec(page.url())?.[1] ?? ''
   await sleep(900)
 
   await page.locator('[data-ecommerce-product-input]').setInputFiles({
@@ -34187,8 +34188,12 @@ async function g159(browser) {
     .catch(() => false)
   rec(g, '★★ 先跑出一张原结果', sourceDone, `结果=${await page.locator('[data-ecommerce-result]').count()}`)
 
-  const tasksBefore = await sharedRows(page, 'ecommerceTasks')
-  const resultsBefore = await sharedRows(page, 'ecommerceResults')
+  const tasksBefore = (await sharedRows(page, 'ecommerceTasks')).filter(
+    (row) => row.projectId === ecommerceProjectId,
+  )
+  const resultsBefore = (await sharedRows(page, 'ecommerceResults')).filter(
+    (row) => row.projectId === ecommerceProjectId,
+  )
   const sourceTask = tasksBefore
     .slice()
     .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
@@ -34201,6 +34206,15 @@ async function g159(browser) {
   const blankDisabled = await page.locator('[data-ecommerce-edit-submit]').isDisabled()
   rec(g, '★ 空编辑指令时提交按钮禁用（不会悄悄发付费请求）', blankDisabled)
 
+  await page.locator('[data-ecommerce-edit-preset="cleanup"]').click()
+  const presetText = await page.locator('[data-ecommerce-edit-instruction]').inputValue()
+  rec(
+    g,
+    '★ 常用编辑模板可一键填入，仍允许继续修改具体文字',
+    presetText.includes('杂物') && !(await page.locator('[data-ecommerce-edit-submit]').isDisabled()),
+    presetText,
+  )
+
   const instruction = '只把背景换成海边日落，产品、构图和画面文字保持不变'
   await page.locator('[data-ecommerce-edit-instruction]').fill(instruction)
   const typedEnabled = !(await page.locator('[data-ecommerce-edit-submit]').isDisabled())
@@ -34212,8 +34226,12 @@ async function g159(browser) {
   let editTask = null
   let editResult = null
   for (let i = 0; i < 120; i += 1) {
-    tasksAfter = await sharedRows(page, 'ecommerceTasks')
-    resultsAfter = await sharedRows(page, 'ecommerceResults')
+    tasksAfter = (await sharedRows(page, 'ecommerceTasks')).filter(
+      (row) => row.projectId === ecommerceProjectId,
+    )
+    resultsAfter = (await sharedRows(page, 'ecommerceResults')).filter(
+      (row) => row.projectId === ecommerceProjectId,
+    )
     editTask = tasksAfter
       .slice()
       .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))

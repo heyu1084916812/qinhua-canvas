@@ -414,6 +414,36 @@ export function EcommerceStudio({
 
   /** 当前表单对应的分镜键（只有影响分镜的那几项进键） */
   const currentShotKey = shotKeyOf({ usage, platformId, language, count, ratio, note })
+  const editPresets = useMemo(
+    () => [
+      {
+        key: 'cleanup',
+        label: '清理杂物',
+        instruction:
+          '只去掉画面中与产品无关的杂物、污点与干扰元素，产品和画面文字保持原样。',
+      },
+      {
+        key: 'white-bg',
+        label: '纯白背景',
+        instruction:
+          '只把背景换成纯白背景，产品边缘保持干净，产品外观、构图与画面文字不变。',
+      },
+      {
+        key: 'light',
+        label: '统一光线',
+        instruction:
+          '只优化光线与清晰度，让产品受光更均匀、材质更清楚；构图、产品和文字不变。',
+      },
+      {
+        key: 'translate',
+        label: `翻译成${languageLabel(language)}`,
+        instruction:
+          `只把画面中的文字翻译成${languageLabel(language)}，保持原有排版、字号与视觉层级；` +
+          '产品和背景不变，不新增无法核实的文案。',
+      },
+    ],
+    [language],
+  )
   /** 方案还作不作数：键不等 = 表单改过了，那份方案作废 */
   const activeShotPlan = shotPlan && shotPlan.key === currentShotKey ? shotPlan.shots : null
   const planStale = !!shotPlan && activeShotPlan === null
@@ -1200,6 +1230,22 @@ export function EcommerceStudio({
               {editTarget.label}。只改你写明的内容，未点名的产品、人物、构图、光影和文字保持不变；
               原图与历史都不会被覆盖。
             </p>
+            <div className={styles.editPresets} aria-label="常用编辑要求">
+              {editPresets.map((preset) => (
+                <button
+                  key={preset.key}
+                  type="button"
+                  className={styles.editPreset}
+                  data-ecommerce-edit-preset={preset.key}
+                  onClick={() => {
+                    setEditInstruction(preset.instruction)
+                    if (editError) setEditError('')
+                  }}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
             <textarea
               className={styles.editInput}
               data-ecommerce-edit-instruction
