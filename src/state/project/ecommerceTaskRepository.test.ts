@@ -56,6 +56,26 @@ describe('电商任务 / 结果仓储（内存存储）', () => {
     expect(latest?.results[1]?.errorText).toBe('上游 500')
   })
 
+  it('AI 编辑任务保存来源任务 / 来源结果 / 原图 hash，用于前后对比', async () => {
+    const storage = createMemoryStorage()
+    const repo = createEcommerceTaskRepository(storage)
+    const { task } = await repo.create({
+      projectId: 'p1',
+      batchId: 'edit-1',
+      request: { ...request, usage: 'edit', count: 1, note: '只换背景' },
+      nodeIds: ['n-edit'],
+      sourceTaskId: 'task-origin',
+      sourceResultId: 'result-origin',
+      sourceAssetHash: 'hash-origin',
+      at: 300,
+    })
+    expect(task.sourceTaskId).toBe('task-origin')
+    expect(task.sourceResultId).toBe('result-origin')
+    expect(task.sourceAssetHash).toBe('hash-origin')
+    const latest = await repo.latestWithResults('p1')
+    expect(latest?.task.sourceAssetHash).toBe('hash-origin')
+  })
+
   it('latest 选最近的一批；没有结果的任务不冒充当前结果', async () => {
     const storage = createMemoryStorage()
     const repo = createEcommerceTaskRepository(storage)

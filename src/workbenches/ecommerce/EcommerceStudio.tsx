@@ -67,6 +67,8 @@ export interface EcommerceResultItem {
   /** 失败原因（`status === 'failed'` 时必须有 —— 不许静默） */
   error?: string
   preview?: ReactNode
+  /** AI 编辑结果的原图预览；普通生成结果为空 */
+  sourcePreview?: ReactNode
   /**
    * 产物素材 hash（对账 #420）：长图拼合要靠它把像素画进一张 canvas。
    *
@@ -272,6 +274,7 @@ export function EcommerceStudio({
   const [batchInstruction, setBatchInstruction] = useState('')
   const [batchEditError, setBatchEditError] = useState('')
   const [batchEditSubmitting, setBatchEditSubmitting] = useState(false)
+  const [compareTarget, setCompareTarget] = useState<EcommerceResultItem | null>(null)
   /**
    * 「先出一份方案」（对账 #423）：**方案 + 它是对着哪组参数写的**。
    *
@@ -1284,6 +1287,16 @@ export function EcommerceStudio({
                         AI 编辑这一张
                       </button>
                     ) : null}
+                    {r.sourcePreview && r.preview ? (
+                      <button
+                        type="button"
+                        className={styles.linkBtn}
+                        data-ecommerce-compare-source
+                        onClick={() => setCompareTarget(r)}
+                      >
+                        对比原图
+                      </button>
+                    ) : null}
                   </span>
                 </figcaption>
               </figure>
@@ -1292,6 +1305,46 @@ export function EcommerceStudio({
         )}
         {longImage}
       </section>
+
+      {compareTarget ? (
+        <div
+          className={styles.confirm}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ecommerce-compare-title"
+          data-ecommerce-compare-dialog
+        >
+          <div className={`${styles.confirmCard} ${styles.compareCard}`}>
+            <h2 className={styles.confirmTitle} id="ecommerce-compare-title">
+              编辑前后对比
+            </h2>
+            <div className={styles.compareGrid}>
+              <figure className={styles.comparePane}>
+                <figcaption>原图</figcaption>
+                <div className={styles.compareImage} data-ecommerce-compare-source-image>
+                  {compareTarget.sourcePreview}
+                </div>
+              </figure>
+              <figure className={styles.comparePane}>
+                <figcaption>编辑结果</figcaption>
+                <div className={styles.compareImage} data-ecommerce-compare-result-image>
+                  {compareTarget.preview}
+                </div>
+              </figure>
+            </div>
+            <div className={styles.confirmActions}>
+              <button
+                type="button"
+                className={styles.cancel}
+                data-ecommerce-compare-close
+                onClick={() => setCompareTarget(null)}
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {batchEditOpen ? (
         <div

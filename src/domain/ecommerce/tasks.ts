@@ -23,6 +23,11 @@ export interface EcommerceTaskRecord {
   status: EcommerceTaskStatus
   request: EcommerceRequest
   nodeIds: string[]
+  /** AI 编辑任务来自哪一批 / 哪一张；普通生成任务为空 */
+  sourceTaskId?: string
+  sourceResultId?: string
+  /** 原图素材 hash：结果卡「对比原图」直接用它，不回查旧任务 */
+  sourceAssetHash?: string
   errorText?: string
 }
 

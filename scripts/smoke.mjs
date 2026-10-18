@@ -34264,6 +34264,47 @@ async function g159(browser) {
     originalUntouched,
     `原状态=${originalAfter?.status ?? '丢失'} hash一致=${originalAfter?.assetHash === sourceResult?.assetHash}`,
   )
+  const compareVisible = await page
+    .locator('[data-ecommerce-compare-source]')
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★★ 编辑结果出现「对比原图」入口', compareVisible)
+  if (compareVisible) {
+    await page.locator('[data-ecommerce-compare-source]').click()
+    const compareDialog = page.locator('[data-ecommerce-compare-dialog]')
+    await compareDialog.waitFor({ state: 'visible', timeout: 5000 })
+    await page
+      .waitForFunction(
+        () =>
+          [
+            ...document.querySelectorAll(
+              '[data-ecommerce-compare-dialog] [data-ecommerce-compare-source-image] img, [data-ecommerce-compare-dialog] [data-ecommerce-compare-result-image] img',
+            ),
+          ].every((img) => img.complete && img.naturalWidth > 0),
+        null,
+        { timeout: 10000 },
+      )
+      .catch(() => {})
+    const compareImages = await page.evaluate(() =>
+      [
+        ...document.querySelectorAll(
+          '[data-ecommerce-compare-dialog] img[data-ecommerce-compare-source-image], [data-ecommerce-compare-dialog] [data-ecommerce-compare-source-image] img, [data-ecommerce-compare-dialog] [data-ecommerce-compare-result-image] img',
+        ),
+      ].map((img) => ({
+        source: !!img.closest('[data-ecommerce-compare-source-image]'),
+        width: img.naturalWidth,
+      })),
+    )
+    rec(
+      g,
+      '★★★ 前后对比弹窗能同时解码原图与编辑结果',
+      compareImages.some((item) => item.source && item.width > 0) &&
+        compareImages.some((item) => !item.source && item.width > 0),
+      compareImages.map((item) => `${item.source ? '原图' : '结果'}=${item.width}`).join(' / '),
+    )
+    await page.locator('[data-ecommerce-compare-close]').click()
+  }
 
   await page.screenshot({ path: `${OUT}/159-g159-ai-edit.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))

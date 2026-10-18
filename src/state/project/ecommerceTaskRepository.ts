@@ -20,6 +20,9 @@ export interface EcommerceTaskRepository {
     batchId: string
     request: EcommerceRequest
     nodeIds: readonly string[]
+    sourceTaskId?: string
+    sourceResultId?: string
+    sourceAssetHash?: string
     at?: number
   }): Promise<{ task: EcommerceTaskRecord; results: EcommerceResultRecord[] }>
   updateResult(result: EcommerceResultRecord): Promise<void>
@@ -43,6 +46,15 @@ function taskOf(row: Record<string, unknown>): EcommerceTaskRecord {
     status: statusOfTask(row.status),
     request: (row.request ?? {}) as EcommerceRequest,
     nodeIds: Array.isArray(row.nodeIds) ? row.nodeIds.map(String) : [],
+    ...(typeof row.sourceTaskId === 'string' && row.sourceTaskId
+      ? { sourceTaskId: row.sourceTaskId }
+      : {}),
+    ...(typeof row.sourceResultId === 'string' && row.sourceResultId
+      ? { sourceResultId: row.sourceResultId }
+      : {}),
+    ...(typeof row.sourceAssetHash === 'string' && row.sourceAssetHash
+      ? { sourceAssetHash: row.sourceAssetHash }
+      : {}),
     ...(typeof row.errorText === 'string' && row.errorText ? { errorText: row.errorText } : {}),
   }
 }
@@ -82,7 +94,16 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
       .sort((a, b) => a.position - b.position)
 
   return {
-    async create({ projectId, batchId, request, nodeIds, at = Date.now() }) {
+    async create({
+      projectId,
+      batchId,
+      request,
+      nodeIds,
+      sourceTaskId,
+      sourceResultId,
+      sourceAssetHash,
+      at = Date.now(),
+    }) {
       const taskId = createId('ect')
       const task: EcommerceTaskRecord = {
         id: taskId,
@@ -93,6 +114,9 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
         status: 'running',
         request,
         nodeIds: [...nodeIds],
+        ...(sourceTaskId ? { sourceTaskId } : {}),
+        ...(sourceResultId ? { sourceResultId } : {}),
+        ...(sourceAssetHash ? { sourceAssetHash } : {}),
       }
       const results: EcommerceResultRecord[] = nodeIds.map((nodeId, position) => ({
         id: createId('ecr'),

@@ -798,7 +798,15 @@ function StudioHost({ projectId }: { projectId: string }) {
     }
   }
 
-  const onGenerate = async (request: EcommerceRequest, shotPlan?: readonly EcommerceShot[]) => {
+  const onGenerate = async (
+    request: EcommerceRequest,
+    shotPlan?: readonly EcommerceShot[],
+    lineage?: {
+      sourceTaskId?: string
+      sourceResultId?: string
+      sourceAssetHash?: string
+    },
+  ) => {
     /**
      * ① **先按确定性脚本建一次计划**：它同时完成**全部校验**。
      *
@@ -918,6 +926,9 @@ function StudioHost({ projectId }: { projectId: string }) {
         batchId,
         request,
         nodeIds: created,
+        ...(lineage?.sourceTaskId ? { sourceTaskId: lineage.sourceTaskId } : {}),
+        ...(lineage?.sourceResultId ? { sourceResultId: lineage.sourceResultId } : {}),
+        ...(lineage?.sourceAssetHash ? { sourceAssetHash: lineage.sourceAssetHash } : {}),
       })
       task = createdTask.task
       setActiveTask(task)
@@ -948,17 +959,25 @@ function StudioHost({ projectId }: { projectId: string }) {
     const text = instruction.trim()
     if (!text) throw new Error('先在左侧「补充要求」写清要换成的背景')
     const copy = ensureResultCopy(row)
-    await onGenerate({
-      usage: 'edit',
-      platformId: activeTask?.request.platformId,
-      language: activeTask?.request.language ?? 'zh-CN',
-      count: 1,
-      ratio: activeTask?.request.ratio ?? '1:1',
-      productNodeId: copy.nodeId,
-      referenceNodeIds: [],
-      note: text,
-      ...(row.model ? { model: row.model } : {}),
-    })
+    await onGenerate(
+      {
+        usage: 'edit',
+        platformId: activeTask?.request.platformId,
+        language: activeTask?.request.language ?? 'zh-CN',
+        count: 1,
+        ratio: activeTask?.request.ratio ?? '1:1',
+        productNodeId: copy.nodeId,
+        referenceNodeIds: [],
+        note: text,
+        ...(row.model ? { model: row.model } : {}),
+      },
+      undefined,
+      {
+        sourceTaskId: row.taskId,
+        sourceResultId: row.id,
+        ...(row.assetHash ? { sourceAssetHash: row.assetHash } : {}),
+      },
+    )
   }
 
   /**
@@ -1043,6 +1062,9 @@ function StudioHost({ projectId }: { projectId: string }) {
             row.errorText ??
             (row.status === 'canceled' ? '已取消（结果仍保留在库里）' : undefined),
           preview: hash ? <ResultPreview hash={hash} /> : undefined,
+          sourcePreview: activeTask.sourceAssetHash ? (
+            <ResultPreview hash={activeTask.sourceAssetHash} />
+          ) : undefined,
           onDownload: downloadOf(hash),
           onSaveToLibrary: saveToLibraryOf(hash, {
             ...(width !== undefined ? { width } : {}),
