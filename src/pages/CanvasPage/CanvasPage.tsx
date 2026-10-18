@@ -159,7 +159,7 @@ function CanvasProject({ projectId }: { projectId: string }) {
       if (template && !seededRef.current && n.length === 0 && e.length === 0) {
         seededRef.current = true
         seedTemplate(store, template)
-        // 模板节点落在世界原点，而顶栏 / 左工具栏是**悬浮**浮层——不适配视图的话
+        // 模板节点落在世界原点，而底部工具栏是**悬浮**浮层——不适配视图的话
         // 第一排节点会连同它浮在节点外的标题一起被浮层压住。等一帧（画布挂载 + 节点落位）再适配。
         // 带 `?focus=` 时不适配"全部"：两件事会互相盖掉，而聚焦是用户明确要的那件。
         if (!focusId) requestAnimationFrame(() => requestAnimationFrame(() => fitCanvasView(store)))

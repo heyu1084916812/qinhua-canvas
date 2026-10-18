@@ -3723,16 +3723,18 @@ async function g17(browser) {
 
   // ── 7. 工具栏存在且新建菜单可展开 ──
   const toolbarExists = (await page.locator('[data-canvas-toolbar]').count()) === 1
-  rec(g, '左侧竖向工具栏存在（§6.1 / §6.5）', toolbarExists)
+  rec(g, '画布底部水平工具栏存在（§6.1 / §6.5）', toolbarExists)
 
   /**
-   * 工具栏加大一半（用户 2026-09-19 第 7 条）。与顶栏同理：`zoom` 不改
-   * `clientWidth`，必须量屏幕矩形。48×280、按钮 **36**（2026-10-07 第 13 批 #6：由 54 缩回 1×）。
+   * 底部工具栏的锚点是画布工作区，不是整个窗口。必须同时量：
+   * 水平中心、底边距离、工具排列方向，避免只改 flex 方向却没有真正居中。
    */
   const tbRect = await page.evaluate(() => {
     const el = document.querySelector('[data-canvas-toolbar]')
     const btn = el?.querySelector('[data-toolbar-icon]')
     if (!el || !btn) return null
+    const surface = document.querySelector('[data-canvas-surface]')?.getBoundingClientRect()
+    const style = getComputedStyle(el)
     const r = el.getBoundingClientRect()
     const br = btn.getBoundingClientRect()
     const btns = [...el.querySelectorAll('[data-toolbar-icon]')]
@@ -3742,14 +3744,48 @@ async function g17(browser) {
       h: Math.round(r.height),
       btnW: Math.round(br.width),
       padTop: Math.round(br.top - r.top),
-      padBottom: Math.round(r.bottom - last.bottom),
+      padBottom: Math.round(r.bottom - br.bottom),
       padLeft: Math.round(br.left - r.left),
-      padRight: Math.round(r.right - br.right),
+      padRight: Math.round(r.right - last.right),
+      toolbarCx: (r.left + r.right) / 2,
+      surfaceCx: surface ? (surface.left + surface.right) / 2 : null,
+      surfaceBottom: surface?.bottom ?? null,
+      barBottom: r.bottom,
+      cssBottom: parseFloat(style.bottom),
+      firstLeft: br.left,
+      lastLeft: last.left,
+      firstTop: br.top,
+      lastTop: last.top,
+      barLeft: r.left,
+      barRight: r.right,
+      viewportWidth: window.innerWidth,
     }
   })
   rec(
     g,
-    '★ 左侧工具栏是 1× 尺寸（按钮 36px；用户第 13 批 #6「缩小三分之一」）',
+    '★ 工具栏水平居中对齐画布工作区',
+    !!tbRect &&
+      tbRect.surfaceCx !== null &&
+      Math.abs(tbRect.toolbarCx - tbRect.surfaceCx) <= 1,
+    tbRect ? `工具栏=${tbRect.toolbarCx.toFixed(1)} 画布=${tbRect.surfaceCx?.toFixed(1)}` : 'null',
+  )
+  rec(
+    g,
+    '★ 工具栏贴画布底部且按钮横向排列',
+    !!tbRect &&
+      tbRect.surfaceBottom !== null &&
+      Math.abs(tbRect.surfaceBottom - tbRect.barBottom - tbRect.cssBottom) <= 1 &&
+      tbRect.lastLeft > tbRect.firstLeft &&
+      Math.abs(tbRect.lastTop - tbRect.firstTop) <= 1 &&
+      tbRect.barLeft >= 0 &&
+      tbRect.barRight <= tbRect.viewportWidth,
+    tbRect
+      ? `底距=${(tbRect.surfaceBottom - tbRect.barBottom).toFixed(1)} 期望=${tbRect.cssBottom} 横向跨度=${Math.round(tbRect.lastLeft - tbRect.firstLeft)}`
+      : 'null',
+  )
+  rec(
+    g,
+    '★ 底部工具栏是 1× 尺寸（按钮 36px；用户第 13 批 #6「缩小三分之一」）',
     !!tbRect && Math.abs(tbRect.btnW - 36) <= 1,
     tbRect ? `${tbRect.w}×${tbRect.h} 按钮=${tbRect.btnW}` : 'null',
   )
@@ -3760,7 +3796,7 @@ async function g17(browser) {
    */
   rec(
     g,
-    '★ 首个按钮到顶边 / 左右边的间距相等（不再「离顶部偏大」）',
+    '★ 工具项到工具栏四边的内距相等',
     !!tbRect &&
       Math.abs(tbRect.padTop - tbRect.padLeft) <= 1 &&
       Math.abs(tbRect.padTop - tbRect.padRight) <= 1 &&
@@ -4051,7 +4087,7 @@ async function g17(browser) {
   const notOccluded = nodeBoxes.length > 0 && nodeBoxes.every((bx) => bx.x >= SIDEBAR_R - 1)
   rec(
     g,
-    '★ 重置视图后节点不被左侧功能栏遮挡（§5.10）',
+    '★ 重置视图后节点不被应用壳侧栏遮挡（§5.10）',
     notOccluded,
     `最左节点 x=${nodeBoxes.length ? Math.min(...nodeBoxes.map((b) => b.x)).toFixed(0) : 'n/a'} 侧栏右沿=${SIDEBAR_R}`,
   )
@@ -4113,6 +4149,80 @@ async function g17(browser) {
     `gaps=${gaps.join(',')}`,
   )
   await page.screenshot({ path: `${OUT}/31-g17-align-arrange.png` })
+
+  /**
+   * 窄窗口不是桌面壳的常态（minWidth=1024），但网页端仍可能打开。
+   * 工具栏居中后必须先占住底部操作带，HUD 与小地图再向上让位；
+   * 判据取每个按钮圆心处的真实命中元素，不能只看矩形是否在视口内。
+   */
+  await page.setViewportSize({ width: 800, height: 800 })
+  await sleep(350)
+  const narrowToolbar = await page.evaluate(() => {
+    const box = (selector) => {
+      const el = document.querySelector(selector)
+      const r = el?.getBoundingClientRect()
+      return r ? { left: r.left, top: r.top, right: r.right, bottom: r.bottom } : null
+    }
+    const bar = document.querySelector('[data-canvas-toolbar]')
+    const surface = box('[data-canvas-surface]')
+    const toolbar = box('[data-canvas-toolbar]')
+    const hud = box('[data-flow-hud]')
+    const minimap = box('[data-canvas-minimap]')
+    const overlaps = (a, b) =>
+      !!a && !!b && Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0 &&
+      Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0
+    const hitToolbar = [...(bar?.querySelectorAll('[data-toolbar-icon]') ?? [])].every((el) => {
+      const r = el.getBoundingClientRect()
+      return !!document
+        .elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+        ?.closest('[data-canvas-toolbar]')
+    })
+    return {
+      surface,
+      toolbar,
+      hitToolbar,
+      centerDelta:
+        surface && toolbar
+          ? Math.abs((surface.left + surface.right) / 2 - (toolbar.left + toolbar.right) / 2)
+          : Infinity,
+      collision: overlaps(toolbar, hud) || overlaps(toolbar, minimap),
+    }
+  })
+  rec(
+    g,
+    '★ 窄窗口下工具栏仍居中且每个按钮可命中',
+    !!narrowToolbar.toolbar &&
+      narrowToolbar.centerDelta <= 1 &&
+      narrowToolbar.hitToolbar,
+    `中心差=${narrowToolbar.centerDelta.toFixed(1)} 命中=${narrowToolbar.hitToolbar}`,
+  )
+  rec(
+    g,
+    '★ 窄窗口下状态条 / 小地图为底部工具栏让位',
+    !!narrowToolbar.toolbar && !narrowToolbar.collision,
+  )
+  await page.locator('[data-toolbar-add]').hover()
+  await sleep(250)
+  const narrowMenu = await page.evaluate(() => {
+    const menu = document.querySelector('[data-toolbar-menu]')
+    const first = menu?.querySelector('[data-toolbar-menu-item]')
+    const r = first?.getBoundingClientRect()
+    const hit = r
+      ? document
+          .elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+          ?.closest('[data-toolbar-menu]')
+      : null
+    return { visible: !!menu, firstHit: !!hit }
+  })
+  rec(
+    g,
+    '★ 窄窗口下弹出菜单压过小地图且菜单项可点击',
+    narrowMenu.visible && narrowMenu.firstHit,
+    `visible=${narrowMenu.visible} hit=${narrowMenu.firstHit}`,
+  )
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await sleep(250)
 
   await ctx.close()
 }
@@ -9554,7 +9664,7 @@ async function g62(browser) {
   }
   await tpl.click()
   await page.waitForURL(/\/canvas\//)
-  /** 等节点与左侧工具栏都挂上再量边界（固定 900ms 在负载下不够：实测两个 null） */
+  /** 等节点与底部工具栏都挂上再量边界（固定 900ms 在负载下不够：实测两个 null） */
   await page
     .locator('[data-node-id]')
     .first()
@@ -9579,7 +9689,7 @@ async function g62(browser) {
   const barEdge = await edgeOf('[data-canvas-toolbar]')
   rec(
     g,
-    '★ 左侧工具栏与画布没糊成一片',
+    '★ 底部工具栏与画布没糊成一片',
     !!barEdge && barEdge.step > 6,
     barEdge ? `内=${barEdge.inside.toFixed(1)} 外=${barEdge.outside.toFixed(1)} 差=${barEdge.step.toFixed(1)}` : 'null',
   )
@@ -11545,28 +11655,17 @@ async function g71(browser) {
 /**
  * 选中单个节点。
  *
- * 点击点要避开两处遮挡：
- *  1. **左侧竖向工具条**（`[data-canvas-toolbar]`）—— 它常驻画布左侧，
- *     节点若被摆到左边缘附近，`x=40` 会正好落在它上面（实测报
- *     “toolbar subtree intercepts pointer events”）；
- *  2. 节点中央的上传 `+`（点它会弹文件选择器）。
+ * 点击点要避开节点中央的上传 `+`（点它会弹文件选择器）。
  *
  * ⚠️ 这里**曾经**按 `[data-topbar]` 的下沿算 y（旧画布有悬浮顶栏）。
  * 2026-09-27 顶栏已整体去除（§6.2），那个查询恒返回 0、
- * 于是 y 落到 16 —— 正好撞上左侧工具条。
- * 现在改为**运行时按工具条右沿算 x**，不依赖任何已删除的元素。
+ * 现在固定取节点左侧的安全内缩点，不依赖工具栏位置。
  */
 async function selectSingleNode(page, node) {
   const b = await node.boundingBox()
   if (!b) return
-  const toolbarRight = await page
-    .evaluate(() => {
-      const el = document.querySelector('[data-canvas-toolbar]')
-      return el ? el.getBoundingClientRect().right : 0
-    })
-    .catch(() => 0)
-  /* 工具条右沿之后再留 16px；节点很窄时退回节点中部，别越出节点 */
-  const x = Math.max(8, Math.min(toolbarRight + 16, b.width - 8))
+  /* 节点很窄时也保证点击点落在左侧安全区内。 */
+  const x = Math.max(8, Math.min(24, b.width - 8))
   /* 贴近节点顶部但不出界：避开发动机中央的上传 `+` */
   const y = Math.max(8, Math.min(16, b.height - 14))
   await node.click({ position: { x, y } })
@@ -12907,7 +13006,7 @@ async function g80(browser) {
   )
   rec(
     g,
-    '★ 画布左侧竖向工具条保留（§6.1）',
+    '★ 画布底部水平工具条保留（§6.1）',
     (await page.locator('[data-canvas-toolbar]').count()) === 1,
   )
   /**
