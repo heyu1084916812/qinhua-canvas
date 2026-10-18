@@ -961,6 +961,16 @@ function StudioHost({ projectId }: { projectId: string }) {
     })
   }
 
+  /**
+   * 批量编辑仍逐张走 `editResult`：每张独立复制、独立任务、独立结果记录。
+   * 不把多个节点塞进一个任务，失败时才能知道具体是哪张没改成。
+   */
+  const editResults = async (nodeIds: readonly string[], instruction: string) => {
+    for (const nodeId of nodeIds) {
+      await editResult(nodeId, instruction)
+    }
+  }
+
   const results = useMemo<EcommerceResultItem[]>(() => {
     const downloadOf = (hash: string | undefined) =>
       hash
@@ -1202,6 +1212,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       onUpload={onUpload}
       onGenerate={onGenerate}
       onEditResult={editResult}
+      onEditResults={editResults}
       running={exec.isRunning || preparingShots}
       results={results}
       onOpenCanvas={() => navigate(projectRoute('canvas', projectId))}

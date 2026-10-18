@@ -34270,7 +34270,7 @@ async function g159(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160]
 const skippedGroups = new Set(
   String(process.env.SMOKE_SKIP ?? '')
     .split(',')
@@ -34341,4 +34341,133 @@ if (fail) {
   console.log('\n失败项：')
   for (const r of results.filter((x) => !x.pass)) console.log(` - [${r.group}] ${r.name} ${r.detail}`)
   process.exitCode = 1
+}
+// ────────────────────────────────────────────────────────────
+// G160 电商批量 AI 编辑：多选结果 → 逐张独立新批次，原结果不覆盖
+// ────────────────────────────────────────────────────────────
+async function g160(browser) {
+  const g = 'G160 电商批量 AI 编辑'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page, { isolate: true })
+  await sleep(600)
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
+  await sleep(600)
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  const projectId = /\/ecommerce\/([^/?]+)/.exec(page.url())?.[1] ?? ''
+  await sleep(900)
+  await page.locator('[data-ecommerce-product-input]').setInputFiles({
+    name: 'batch-edit-source.png',
+    mimeType: 'image/png',
+    buffer: solidPngBuffer(64, 64, [90, 160, 210]),
+  })
+  await sleep(1500)
+  await page.locator('[data-ecommerce-count]').fill('2')
+  await page.locator('[data-ecommerce-generate]').click()
+  await sleep(350)
+  await page.locator('[data-ecommerce-confirm-ok]').click()
+  const twoDone = await page
+    .waitForFunction(
+      () => document.querySelectorAll('[data-ecommerce-result][data-status="done"]').length === 2,
+      null,
+      { timeout: 40000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★★ 先跑出两张原结果', twoDone, `结果=${await page.locator('[data-ecommerce-result]').count()}`)
+
+  const projectTasks = async () =>
+    (await sharedRows(page, 'ecommerceTasks')).filter((row) => row.projectId === projectId)
+  const projectResults = async () =>
+    (await sharedRows(page, 'ecommerceResults')).filter((row) => row.projectId === projectId)
+  const tasksBefore = await projectTasks()
+  const resultsBefore = await projectResults()
+  const originals = new Map(
+    resultsBefore
+      .filter((row) => row.status === 'done')
+      .map((row) => [row.id, row.assetHash ?? '']),
+  )
+
+  const boxes = page.locator('[data-ecommerce-result-select]')
+  await boxes.nth(0).check()
+  await boxes.nth(1).check()
+  const batchButtonText = await page.locator('[data-ecommerce-batch-edit]').innerText()
+  rec(
+    g,
+    '★★ 两张结果可多选，批量入口显示选中数量',
+    /批量 AI 编辑（2）/.test(batchButtonText),
+    batchButtonText,
+  )
+
+  await page.locator('[data-ecommerce-batch-edit]').click()
+  const dialog = page.locator('[data-ecommerce-batch-edit-dialog]')
+  await dialog.waitFor({ state: 'visible', timeout: 5000 })
+  const dialogText = await dialog.innerText()
+  rec(
+    g,
+    '★★ 批量编辑确认明确写出 2 次真实用量，且每张都会保留原结果',
+    /2\s*次真实用量/.test(dialogText) && /原结果全部保留/.test(dialogText),
+    dialogText.replace(/\n/g, ' | ').slice(0, 140),
+  )
+  await page.locator('[data-ecommerce-batch-edit-preset="white-bg"]').click()
+  const instruction =
+    '只把每一张的背景都换成浅灰摄影棚背景，产品、构图和画面文字保持不变'
+  await page.locator('[data-ecommerce-batch-edit-instruction]').fill(instruction)
+  await page.locator('[data-ecommerce-batch-edit-submit]').click()
+
+  let tasksAfter = tasksBefore
+  let resultsAfter = resultsBefore
+  let editTasks = []
+  for (let i = 0; i < 180; i += 1) {
+    tasksAfter = await projectTasks()
+    resultsAfter = await projectResults()
+    editTasks = tasksAfter.filter((row) => row.request?.usage === 'edit')
+    if (
+      editTasks.length >= 2 &&
+      editTasks.every(
+        (task) =>
+          resultsAfter.find((row) => row.taskId === task.id)?.status === 'done',
+      )
+    ) {
+      break
+    }
+    await sleep(200)
+  }
+
+  const editResults = editTasks.flatMap((task) =>
+    resultsAfter.filter((row) => row.taskId === task.id),
+  )
+  const originalsUntouched =
+    originals.size === 2 &&
+    [...originals].every(([id, hash]) => {
+      const row = resultsAfter.find((item) => item.id === id)
+      return row?.status === 'done' && row.assetHash === hash
+    })
+  rec(
+    g,
+    '★★★ 批量编辑生成两张独立新结果，而不是把多张塞进同一个任务',
+    editTasks.length === 2 &&
+      editResults.length === 2 &&
+      editResults.every((row) => row.status === 'done' && !!row.assetHash),
+    `编辑任务=${editTasks.length} 编辑结果=${editResults.length} 状态=${editResults.map((r) => r.status).join(',')}`,
+  )
+  rec(
+    g,
+    '★★★ 两张原结果的 hash 与完成状态都保持不变',
+    originalsUntouched,
+    [...originals].map(([id, hash]) => `${id.slice(-6)}=${hash.slice(0, 6)}`).join(' / '),
+  )
+  rec(
+    g,
+    '★★ 两张编辑任务都保存了同一条批量要求',
+    editTasks.every((task) => task.request?.note === instruction),
+  )
+
+  await page.screenshot({ path: `${OUT}/160-g160-batch-edit.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
 }

@@ -135,6 +135,8 @@ export interface EcommerceStudioProps {
   onGenerate: (request: EcommerceRequest, shotPlan?: readonly EcommerceShot[]) => Promise<void>
   /** 以结果图为输入做一次定向 AI 编辑；产物作为新批次，原结果保留 */
   onEditResult?: (nodeId: string, instruction: string) => Promise<void>
+  /** 对多张结果串行执行同一套定向编辑；每张仍生成独立新批次，原结果保留 */
+  onEditResults?: (nodeIds: readonly string[], instruction: string) => Promise<void>
   /** 可选出图模型（前端显示名，来自固定清单）；空数组时只显示"默认（按渠道解析）" */
   models?: readonly string[]
   /** 当前选中的模型；空串 = 用默认解析出来的那一个 */
@@ -214,6 +216,7 @@ export function EcommerceStudio({
   onUpload,
   onGenerate,
   onEditResult,
+  onEditResults,
   models = [],
   model,
   onModelChange,
@@ -264,6 +267,11 @@ export function EcommerceStudio({
   const [editInstruction, setEditInstruction] = useState('')
   const [editError, setEditError] = useState('')
   const [editSubmitting, setEditSubmitting] = useState(false)
+  const [selectedEditNodes, setSelectedEditNodes] = useState<Set<string>>(() => new Set())
+  const [batchEditOpen, setBatchEditOpen] = useState(false)
+  const [batchInstruction, setBatchInstruction] = useState('')
+  const [batchEditError, setBatchEditError] = useState('')
+  const [batchEditSubmitting, setBatchEditSubmitting] = useState(false)
   /**
    * 「先出一份方案」（对账 #423）：**方案 + 它是对着哪组参数写的**。
    *
@@ -283,6 +291,18 @@ export function EcommerceStudio({
    * 电商这两块一直没有：同一个应用里两种手感，是很容易被当成"坏了"的那种不一致）。
    */
   const [dragOver, setDragOver] = useState<'product' | 'reference' | null>(null)
+
+  useEffect(() => {
+    const valid = new Set(
+      results.filter((result) => result.status === 'done').map((result) => result.nodeId),
+    )
+    setSelectedEditNodes((current) => {
+      const next = new Set([...current].filter((id) => valid.has(id)))
+      return next.size === current.size && [...next].every((id) => current.has(id))
+        ? current
+        : next
+    })
+  }, [results])
 
   /**
    * 把当前表单回给页面落库。
@@ -493,6 +513,40 @@ export function EcommerceStudio({
       setEditError(e instanceof Error ? e.message : 'AI 编辑失败，原因见下方结果区')
     } finally {
       setEditSubmitting(false)
+    }
+  }
+
+  const toggleEditSelection = (nodeId: string) => {
+    setSelectedEditNodes((current) => {
+      const next = new Set(current)
+      if (next.has(nodeId)) next.delete(nodeId)
+      else next.add(nodeId)
+      return next
+    })
+  }
+
+  const submitBatchEdit = async () => {
+    if (!onEditResults) return
+    const instruction = batchInstruction.trim()
+    if (!instruction) {
+      setBatchEditError('先写清这批图要统一改什么')
+      return
+    }
+    if (selectedEditNodes.size === 0) {
+      setBatchEditError('先选择至少一张结果')
+      return
+    }
+    setBatchEditError('')
+    setBatchEditSubmitting(true)
+    try {
+      await onEditResults([...selectedEditNodes], instruction)
+      setBatchEditOpen(false)
+      setBatchInstruction('')
+      setSelectedEditNodes(new Set())
+    } catch (e) {
+      setBatchEditError(e instanceof Error ? e.message : '批量 AI 编辑失败')
+    } finally {
+      setBatchEditSubmitting(false)
     }
   }
 
@@ -1010,6 +1064,21 @@ export function EcommerceStudio({
         <header className={styles.resultsHead}>
           <span className={styles.blockTitle}>结果</span>
           <span className={styles.headTools}>
+            {onEditResults && selectedEditNodes.size > 0 ? (
+              <button
+                type="button"
+                className={styles.linkBtn}
+                data-ecommerce-batch-edit
+                disabled={running}
+                onClick={() => {
+                  setBatchEditOpen(true)
+                  setBatchInstruction(note.trim())
+                  setBatchEditError('')
+                }}
+              >
+                批量 AI 编辑（{selectedEditNodes.size}）
+              </button>
+            ) : null}
             {onDownloadAll && downloadableCount > 0 ? (
               <button
                 type="button"
@@ -1068,6 +1137,17 @@ export function EcommerceStudio({
                 data-status={r.status}
               >
                 <div className={styles.cellBody}>
+                  {onEditResults && r.status === 'done' ? (
+                    <label className={styles.selectResult} title="选择这张用于批量 AI 编辑">
+                      <input
+                        type="checkbox"
+                        data-ecommerce-result-select={r.nodeId}
+                        checked={selectedEditNodes.has(r.nodeId)}
+                        aria-label="选择这张用于批量 AI 编辑"
+                        onChange={() => toggleEditSelection(r.nodeId)}
+                      />
+                    </label>
+                  ) : null}
                   {r.preview ?? (
                     <span className={styles.cellState}>
                       {r.status === 'failed' ? '失败' : r.status === 'done' ? '已完成' : '生成中…'}
@@ -1212,6 +1292,88 @@ export function EcommerceStudio({
         )}
         {longImage}
       </section>
+
+      {batchEditOpen ? (
+        <div
+          className={styles.confirm}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ecommerce-batch-edit-title"
+          data-ecommerce-batch-edit-dialog
+        >
+          <div className={styles.confirmCard}>
+            <h2 className={styles.confirmTitle} id="ecommerce-batch-edit-title">
+              批量 AI 编辑
+            </h2>
+            <p className={styles.confirmText}>
+              将对选中的 {selectedEditNodes.size} 张图逐张执行同一套修改要求。每张都会生成独立新批次，
+              原结果全部保留；会调用你的渠道，产生 {selectedEditNodes.size} 次真实用量。
+            </p>
+            <div className={styles.editPresets} aria-label="常用批量编辑要求">
+              {editPresets.map((preset) => (
+                <button
+                  key={preset.key}
+                  type="button"
+                  className={styles.editPreset}
+                  data-ecommerce-batch-edit-preset={preset.key}
+                  onClick={() => {
+                    setBatchInstruction(preset.instruction)
+                    if (batchEditError) setBatchEditError('')
+                  }}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            <textarea
+              className={styles.editInput}
+              data-ecommerce-batch-edit-instruction
+              value={batchInstruction}
+              maxLength={ECOMMERCE_NOTE_MAX}
+              onChange={(e) => {
+                setBatchInstruction(e.target.value)
+                if (batchEditError) setBatchEditError('')
+              }}
+              placeholder="例如：只把每一张的背景都换成浅灰摄影棚背景，产品和文字保持不变"
+              aria-label="这批图统一要改什么"
+            />
+            {batchEditError ? (
+              <p className={styles.editError} data-ecommerce-batch-edit-error>
+                {batchEditError}
+              </p>
+            ) : null}
+            <div className={styles.confirmActions}>
+              <button
+                type="button"
+                className={styles.cancel}
+                data-ecommerce-batch-edit-cancel
+                disabled={batchEditSubmitting}
+                onClick={() => {
+                  setBatchEditOpen(false)
+                  setBatchInstruction('')
+                  setBatchEditError('')
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className={`${styles.generate} ${styles.editSubmit}`}
+                data-ecommerce-batch-edit-submit
+                disabled={
+                  batchEditSubmitting ||
+                  running ||
+                  selectedEditNodes.size === 0 ||
+                  !batchInstruction.trim()
+                }
+                onClick={() => void submitBatchEdit()}
+              >
+                {batchEditSubmitting ? '正在逐张执行…' : `生成 ${selectedEditNodes.size} 张编辑结果`}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* 单张结果定向编辑：独立批次、独立指令，不覆盖原结果 */}
       {editTarget ? (
