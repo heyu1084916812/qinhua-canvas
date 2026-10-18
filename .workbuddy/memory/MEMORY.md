@@ -8296,3 +8296,8 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
 - **详情是纯只读动作**：不触发模型、不改任务；复制只做 clipboard，失败也不应影响页面。
 - **普通结果同样可追溯**：只要存在 prompt/model/note 就显示入口，不把详情限定为 AI 编辑。
 - **收口基线**：G159 **13/13**。
+### ★ 生成节点默认模型必须先按 mode 分类（2026-10-19 → 对账 #599）
+
+- **渠道模型顺序不是业务语义**：同一渠道同时有 chat / image / video 时，"第一个模型"可能恰好是聊天模型。生成节点若把类别留空，`resolveForNode` 会把它写进图片节点；界面有模型名，执行层却不发图片请求，症状看起来像“按钮点了没反应”。
+- **`resolveDefaults` 必须传类别**：提示词节点 = `chat`；生成 / 批量节点看 `extraData.mode`，`video` 走视频，其余按图片。不能只依赖 `newGeneratingNodeData` 事后补 `mode`，因为模型配方已经在那之前选错。
+- **测试夹具要故意把 chat 放第一**：这样“图片档仍选 img-1、视频档仍选 video-1”才是在测分类，而不是测列表顺序碰巧正确。G142 的 mock 映射同时补 `Agnes Image 2.5 Flash → mock-image-1`。

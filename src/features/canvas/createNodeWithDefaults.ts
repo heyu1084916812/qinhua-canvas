@@ -80,7 +80,21 @@ export async function resolveDefaults(opts: {
   let data: Record<string, unknown> = { ...(extraData ?? {}) }
   if (!withDefaults || !TYPES_WITH_RECIPE.has(type)) return data
 
-  const category = type === 'prompt' ? 'chat' : undefined
+  /**
+   * 生成节点必须按它将来的 `mode` 选默认模型。
+   *
+   * 只按渠道顺序取“第一个模型”会在同一渠道同时提供 chat / image / video 时
+   * 把聊天模型写进图片节点：界面显示模型名，执行层按图片请求发送，最后表现为
+   * “点了生成但什么都没发生”。没有显式 mode 时，生成 / 批量节点的默认档是图片。
+   */
+  const category =
+    type === 'prompt'
+      ? 'chat'
+      : type === 'generation' || type === 'batch'
+        ? extraData?.mode === 'video'
+          ? 'video'
+          : 'image'
+        : undefined
   const recipe = await channels.defaultForNewNode({}, category)
   if (!recipe) return data
 

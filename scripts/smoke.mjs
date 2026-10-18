@@ -1133,6 +1133,12 @@ async function mapMockModels(page) {
    */
   const rows = [
     ['image', 'GPT Image 2', 'mock-image-1'],
+    /**
+     * 新建图片节点现在默认选生图档第一条 `Agnes Image 2.5 Flash`。
+     * mock 渠道也必须登记同一逻辑名，否则“铺到画布”建出的节点虽然连到了 mock
+     * 渠道，选路却找不到它，出图会静默不启动。
+     */
+    ['image', 'Agnes Image 2.5 Flash', 'mock-image-1'],
     ['chat', 'GPT-6 Astra', 'mock-chat-1'],
     ['video', '即梦 2.5', 'mock-video-1'],
     ['audio', 'OpenAI TTS', 'mock-speech-1'],

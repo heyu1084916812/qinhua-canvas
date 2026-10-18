@@ -34,8 +34,17 @@ async function store() {
           credentialRef: null,
           enabled: true,
           models: [
-            { id: 'img-1', category: 'image', inputTypes: ['text'], maxCount: 4 },
+            /**
+             * 故意把聊天模型放第一：真实渠道的模型顺序不可控，默认值不能靠“排第一”。
+             */
             { id: 'chat-1', category: 'chat', inputTypes: ['text'], maxCount: 1 },
+            { id: 'img-1', category: 'image', inputTypes: ['text'], maxCount: 4 },
+            {
+              id: 'video-1',
+              category: 'video',
+              inputTypes: ['text', 'image'],
+              maxCount: 1,
+            },
           ],
           modelCache: [],
           createdAt: 1,
@@ -61,6 +70,22 @@ describe('resolveDefaults · 只有需要配方的类型才注入默认值', () 
     expect(data.model).toBe('img-1')
     // newGeneratingNodeData 必须基于 spec 默认值叠加，否则会丢掉 mode
     expect(data.mode).toBe('image')
+  })
+
+  it('★★ 显式图片 / 视频模式只从对应类别取默认模型，聊天模型排第一也不会串档', async () => {
+    const channels = await store()
+    const image = await resolveDefaults({
+      channels,
+      type: 'generation',
+      extraData: { mode: 'image' },
+    })
+    const video = await resolveDefaults({
+      channels,
+      type: 'generation',
+      extraData: { mode: 'video' },
+    })
+    expect(image.model).toBe('img-1')
+    expect(video.model).toBe('video-1')
   })
 
   it('提示词节点：带上渠道与模型（文本类）', async () => {
