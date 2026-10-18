@@ -6,8 +6,14 @@
  * （上传动作仍走既有的 `importAssetFile` + `createAssetNode`）。
  */
 
-/** 用途：主图 / 白底图 / 详情页 / 套图 / 爆款复刻 */
-export type EcommerceUsage = 'main' | 'white-bg' | 'detail' | 'set' | 'recreate'
+/**
+ * 用途：主图 / 白底图 / 详情页 / 套图 / 爆款复刻 / 结果图定向编辑。
+ *
+ * `edit` 是**结果卡上的后续动作**，不是新建任务表单里的第六个用途：
+ * 它必须有一张现成结果作为上游，且每次只改一张。表单可选用途见
+ * `ECOMMERCE_FORM_USAGES`。
+ */
+export type EcommerceUsage = 'main' | 'white-bg' | 'detail' | 'set' | 'recreate' | 'edit'
 
 /** 文案语言：跨境常去的八种 + 中文 */
 export type EcommerceLanguage = 'zh-CN' | 'en' | 'ru' | 'ja' | 'ko' | 'de' | 'es' | 'ar'
@@ -37,13 +43,16 @@ export interface EcommerceRequest {
   model?: string
 }
 
-export const ECOMMERCE_USAGES: readonly EcommerceUsage[] = [
+/** 新建电商任务时可选的用途；刻意不包含 `edit`。 */
+export const ECOMMERCE_FORM_USAGES: readonly EcommerceUsage[] = [
   'main',
   'white-bg',
   'detail',
   'set',
   'recreate',
 ]
+/** 整个电商领域认识的用途；包含结果卡后续动作 `edit`。 */
+export const ECOMMERCE_USAGES: readonly EcommerceUsage[] = [...ECOMMERCE_FORM_USAGES, 'edit']
 export const ECOMMERCE_LANGUAGES: readonly EcommerceLanguage[] = [
   'zh-CN',
   'en',
@@ -70,7 +79,9 @@ export function usageLabel(usage: EcommerceUsage): string {
         ? '详情页'
         : usage === 'set'
           ? '套图'
-          : '爆款复刻'
+          : usage === 'recreate'
+            ? '爆款复刻'
+            : 'AI 编辑'
 }
 
 export function languageLabel(language: EcommerceLanguage): string {

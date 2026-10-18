@@ -25,6 +25,7 @@ export const ECOMMERCE_DEFAULT_COUNT: Record<EcommerceRequest['usage'], number> 
   detail: 4,
   set: 8,
   recreate: 4,
+  edit: 1,
 }
 
 export interface EcommercePlan {
@@ -69,6 +70,12 @@ export function buildEcommercePlan(
   }
   if (!ECOMMERCE_USAGES.includes(request.usage)) {
     throw new EcommerceRequestError(`不认识的用途：${String(request.usage)}`)
+  }
+  if (request.usage === 'edit' && !request.note?.trim()) {
+    throw new EcommerceRequestError('AI 编辑要写清这一张具体改什么 —— 空指令不会发请求')
+  }
+  if (request.usage === 'edit' && request.count !== 1) {
+    throw new EcommerceRequestError('AI 编辑一次只改一张；要改多张请逐张操作')
   }
   if (!ECOMMERCE_LANGUAGES.includes(request.language)) {
     throw new EcommerceRequestError(`不认识的文案语言：${String(request.language)}`)

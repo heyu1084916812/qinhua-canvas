@@ -481,30 +481,38 @@ function StudioHost({ projectId }: { projectId: string }) {
    * 内部执行节点仍在画布里承担 runEngine，但用户从电商结果进入编辑时，
    * 新建（或复用）一份 `canvasCopyNodeId`，之后改名、连线、改参数都不再影响任务。
    */
+  const ensureResultCopy = useCallback(
+    (row: EcommerceResultRecord) => {
+      const copy = ensureEcommerceCanvasCopy({
+        store,
+        projectId,
+        result: row,
+        title: `电商结果 ${row.position + 1}`,
+      })
+      if (copy.created) {
+        const next: EcommerceResultRecord = {
+          ...row,
+          canvasCopyNodeId: copy.nodeId,
+          updatedAt: Date.now(),
+        }
+        void taskRepo
+          .updateResult(next)
+          .then(() => setResultRows((rows) => rows.map((item) => (item.id === next.id ? next : item))))
+          .catch((error) => {
+            platform.logger.log('warn', '[ecommerce] 保存画布副本引用失败', {
+              error: String(error),
+            })
+          })
+      }
+      return copy
+    },
+    [platform, projectId, store, taskRepo],
+  )
+
   const openCanvasCopy = useCallback(
     (row: EcommerceResultRecord, mode?: 'crop' | 'annotate' | 'rotate') => {
       try {
-        const copy = ensureEcommerceCanvasCopy({
-          store,
-          projectId,
-          result: row,
-          title: `电商结果 ${row.position + 1}`,
-        })
-        if (copy.created) {
-          const next: EcommerceResultRecord = {
-            ...row,
-            canvasCopyNodeId: copy.nodeId,
-            updatedAt: Date.now(),
-          }
-          void taskRepo
-            .updateResult(next)
-            .then(() => setResultRows((rows) => rows.map((item) => (item.id === next.id ? next : item))))
-            .catch((error) => {
-              platform.logger.log('warn', '[ecommerce] 保存画布副本引用失败', {
-                error: String(error),
-              })
-            })
-        }
+        const copy = ensureResultCopy(row)
         navigate(
           projectRoute(
             'canvas',
@@ -519,7 +527,7 @@ function StudioHost({ projectId }: { projectId: string }) {
         store.notify('创建画布副本失败，请稍后重试', 'error')
       }
     },
-    [navigate, platform, projectId, store, taskRepo],
+    [ensureResultCopy, navigate, platform, projectId],
   )
 
   /** 点一条历史批次：把结果区切到那一批，不改表单、不重跑。 */
@@ -927,6 +935,32 @@ function StudioHost({ projectId }: { projectId: string }) {
     await refreshTaskHistory()
   }
 
+  /**
+   * 以当前结果图为上游做一次**定向 AI 编辑**。
+   *
+   * 先确保编辑对象是独立画布副本，再把副本作为产品图输入；新产物另起一个批次，
+   * 原结果与内部执行节点都不动。这样“换背景”失败或效果不满意时，历史仍可回看。
+   */
+  const editResult = async (nodeId: string, instruction: string) => {
+    const row =
+      resultRows.find((item) => item.nodeId === nodeId || item.canvasCopyNodeId === nodeId) ?? null
+    if (!row) throw new Error('没找到这张结果对应的素材记录')
+    const text = instruction.trim()
+    if (!text) throw new Error('先在左侧「补充要求」写清要换成的背景')
+    const copy = ensureResultCopy(row)
+    await onGenerate({
+      usage: 'edit',
+      platformId: activeTask?.request.platformId,
+      language: activeTask?.request.language ?? 'zh-CN',
+      count: 1,
+      ratio: activeTask?.request.ratio ?? '1:1',
+      productNodeId: copy.nodeId,
+      referenceNodeIds: [],
+      note: text,
+      ...(row.model ? { model: row.model } : {}),
+    })
+  }
+
   const results = useMemo<EcommerceResultItem[]>(() => {
     const downloadOf = (hash: string | undefined) =>
       hash
@@ -1167,6 +1201,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       onModelChange={setModel}
       onUpload={onUpload}
       onGenerate={onGenerate}
+      onEditResult={editResult}
       running={exec.isRunning || preparingShots}
       results={results}
       onOpenCanvas={() => navigate(projectRoute('canvas', projectId))}

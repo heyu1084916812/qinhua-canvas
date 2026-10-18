@@ -22,9 +22,9 @@ import {
 } from '../../domain/ecommerce/chatShots'
 import {
   ECOMMERCE_COUNT_MAX,
+  ECOMMERCE_FORM_USAGES,
   ECOMMERCE_LANGUAGES,
   ECOMMERCE_RATIOS,
-  ECOMMERCE_USAGES,
   languageLabel,
   usageLabel,
   type EcommerceLanguage,
@@ -133,6 +133,8 @@ export interface EcommerceStudioProps {
    * 页面就**不再多花一次对话额度**去问模型 —— 直接用这份。
    */
   onGenerate: (request: EcommerceRequest, shotPlan?: readonly EcommerceShot[]) => Promise<void>
+  /** 以结果图为输入做一次定向 AI 编辑；产物作为新批次，原结果保留 */
+  onEditResult?: (nodeId: string, instruction: string) => Promise<void>
   /** 可选出图模型（前端显示名，来自固定清单）；空数组时只显示"默认（按渠道解析）" */
   models?: readonly string[]
   /** 当前选中的模型；空串 = 用默认解析出来的那一个 */
@@ -211,6 +213,7 @@ export function EcommerceStudio({
   platforms = ECOMMERCE_PLATFORMS,
   onUpload,
   onGenerate,
+  onEditResult,
   models = [],
   model,
   onModelChange,
@@ -256,6 +259,11 @@ export function EcommerceStudio({
   const [error, setError] = useState('')
   /** 「一句话生成方案」的输入框（#422）：纯 UI 态，不进表单、不落库 */
   const [intentText, setIntentText] = useState('')
+  /** 结果卡上的定向 AI 编辑：一次只打开一张，指令不进入左侧表单草稿 */
+  const [editTarget, setEditTarget] = useState<{ nodeId: string; label: string } | null>(null)
+  const [editInstruction, setEditInstruction] = useState('')
+  const [editError, setEditError] = useState('')
+  const [editSubmitting, setEditSubmitting] = useState(false)
   /**
    * 「先出一份方案」（对账 #423）：**方案 + 它是对着哪组参数写的**。
    *
@@ -435,6 +443,26 @@ export function EcommerceStudio({
       await onGenerate(buildRequest(), activeShotPlan ?? undefined)
     } catch (e) {
       setError(e instanceof Error ? e.message : '生成失败，原因见下方结果区')
+    }
+  }
+
+  const submitEdit = async () => {
+    if (!editTarget || !onEditResult) return
+    const instruction = editInstruction.trim()
+    if (!instruction) {
+      setEditError('先写清这一张要改什么，例如：只把背景换成海边日落，产品和文字保持不变')
+      return
+    }
+    setEditError('')
+    setEditSubmitting(true)
+    try {
+      await onEditResult(editTarget.nodeId, instruction)
+      setEditTarget(null)
+      setEditInstruction('')
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : 'AI 编辑失败，原因见下方结果区')
+    } finally {
+      setEditSubmitting(false)
     }
   }
 
@@ -718,7 +746,7 @@ export function EcommerceStudio({
         <section className={styles.block}>
           <span className={styles.blockTitle}>用途</span>
           <div className={styles.segments} role="radiogroup" aria-label="用途">
-            {ECOMMERCE_USAGES.map((u) => (
+            {ECOMMERCE_FORM_USAGES.map((u) => (
               <button
                 key={u}
                 type="button"
@@ -1130,6 +1158,22 @@ export function EcommerceStudio({
                         旋转
                       </button>
                     ) : null}
+                    {onEditResult && r.status === 'done' ? (
+                      <button
+                        type="button"
+                        className={styles.linkBtn}
+                        data-ecommerce-edit-result
+                        disabled={running}
+                        title="只改你写明的内容，原图和原任务都会保留"
+                        onClick={() => {
+                          setEditTarget({ nodeId: r.nodeId, label: '这张结果' })
+                          setEditInstruction(note.trim())
+                          setEditError('')
+                        }}
+                      >
+                        AI 编辑这一张
+                      </button>
+                    ) : null}
                   </span>
                 </figcaption>
               </figure>
@@ -1138,6 +1182,68 @@ export function EcommerceStudio({
         )}
         {longImage}
       </section>
+
+      {/* 单张结果定向编辑：独立批次、独立指令，不覆盖原结果 */}
+      {editTarget ? (
+        <div
+          className={styles.confirm}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ecommerce-edit-title"
+          data-ecommerce-edit-dialog
+        >
+          <div className={styles.confirmCard}>
+            <h2 className={styles.confirmTitle} id="ecommerce-edit-title">
+              AI 编辑这一张
+            </h2>
+            <p className={styles.confirmText}>
+              {editTarget.label}。只改你写明的内容，未点名的产品、人物、构图、光影和文字保持不变；
+              原图与历史都不会被覆盖。
+            </p>
+            <textarea
+              className={styles.editInput}
+              data-ecommerce-edit-instruction
+              value={editInstruction}
+              maxLength={ECOMMERCE_NOTE_MAX}
+              onChange={(e) => {
+                setEditInstruction(e.target.value)
+                if (editError) setEditError('')
+              }}
+              placeholder="例如：只把背景换成海边日落，产品和画面文字保持不变"
+              aria-label="这一张要改什么"
+            />
+            {editError ? (
+              <p className={styles.editError} data-ecommerce-edit-error>
+                {editError}
+              </p>
+            ) : null}
+            <div className={styles.confirmActions}>
+              <button
+                type="button"
+                className={styles.cancel}
+                data-ecommerce-edit-cancel
+                disabled={editSubmitting}
+                onClick={() => {
+                  setEditTarget(null)
+                  setEditInstruction('')
+                  setEditError('')
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className={`${styles.generate} ${styles.editSubmit}`}
+                data-ecommerce-edit-submit
+                disabled={editSubmitting || running || !editInstruction.trim()}
+                onClick={() => void submitEdit()}
+              >
+                {editSubmitting ? '提交中…' : '生成编辑结果'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* 付费确认（D6）：先报"预计 N 张"，确认后才发请求 */}
       {confirming ? (

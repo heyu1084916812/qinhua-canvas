@@ -25448,7 +25448,20 @@ async function g116(browser) {
     .then(() => true)
     .catch(() => false)
   await sleep(1600) // 等节点防抖落库
+  /**
+   * 只读**这次套图任务自己的节点**。
+   *
+   * 同一测试库会被多组复用，库里完全可能有更早的主图 / AI 编辑提示词；
+   * 拿全表 `filter` 会把它们算进来，失败信息看起来像“套图生成了 8 条”，
+   * 实际是断言跨任务串了数据。任务行的 `nodeIds` 才是这次请求的边界。
+   */
+  const shotTask = (await sharedRows(page, 'ecommerceTasks'))
+    .slice()
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+    .find((row) => row.request?.usage === 'set')
+  const shotNodeIds = new Set(shotTask?.nodeIds ?? [])
   const shotPrompts = (await sharedRows(page, 'nodes'))
+    .filter((row) => shotNodeIds.has(row.id))
     .filter(
       (row) => typeof row?.data?.prompt === 'string' && row.data.prompt.includes('这一张只做'),
     )
@@ -25456,21 +25469,18 @@ async function g116(browser) {
   const shotTitles = shotPrompts.map(
     (p) => (p.match(/这一张只做：([^—]+)/) ?? [])[1]?.trim() ?? '',
   )
-  /**
-   * 库里此时有两批节点：第 1 张主图（正面全身）+ 这次套图 4 张。
-   * 按**集合**比这次的四个镜头，别按下标（`getAll` 的顺序是主键序，不是创建序）。
-   */
+  /** 按**集合**比这次的四个镜头，别按下标（`getAll` 的顺序是主键序，不是创建序）。 */
   const wantShots = new Set(['白底主图', '氛围主图', '45° 侧视', '细节特写'])
-  const gotShots = new Set(shotTitles.filter((t) => t !== '正面全身'))
+  const gotShots = new Set(shotTitles)
   const shotsMatch = gotShots.size === wantShots.size && [...wantShots].every((t) => gotShots.has(t))
   rec(
     g,
     '★★★ 套图 4 张 = 四个节点四条不同提示词（不是同一句抽 4 次）',
     setDone &&
-      shotPrompts.length === 5 &&
-      new Set(shotPrompts).size === 5 &&
+      shotPrompts.length === 4 &&
+      new Set(shotPrompts).size === 4 &&
       shotsMatch,
-    `出图=${setDone} 条数=${shotPrompts.length} 唯一=${new Set(shotPrompts).size} 标题=${shotTitles.join('/')}`,
+    `任务=${shotTask?.id ?? '未找到'} 出图=${setDone} 条数=${shotPrompts.length} 唯一=${new Set(shotPrompts).size} 标题=${shotTitles.join('/')}`,
   )
 
   /**
@@ -33977,7 +33987,109 @@ async function g156(browser) {
     await ctx.close()
   }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158]
+// ────────────────────────────────────────────────────────────
+// G159 电商结果定向 AI 编辑：独立批次、原结果不覆盖
+// ────────────────────────────────────────────────────────────
+async function g159(browser) {
+  const g = 'G159 电商 AI 编辑'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page, { isolate: true })
+  await sleep(600)
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
+  await sleep(600)
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  await sleep(900)
+
+  await page.locator('[data-ecommerce-product-input]').setInputFiles({
+    name: 'ai-edit-source.png',
+    mimeType: 'image/png',
+    buffer: solidPngBuffer(64, 64, [80, 140, 220]),
+  })
+  await sleep(1500)
+  await page.locator('[data-ecommerce-generate]').click()
+  await sleep(350)
+  await page.locator('[data-ecommerce-confirm-ok]').click()
+  const sourceDone = await page
+    .waitForFunction(
+      () => document.querySelectorAll('[data-ecommerce-result][data-status="done"]').length > 0,
+      null,
+      { timeout: 25000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★★ 先跑出一张原结果', sourceDone, `结果=${await page.locator('[data-ecommerce-result]').count()}`)
+
+  const tasksBefore = await sharedRows(page, 'ecommerceTasks')
+  const resultsBefore = await sharedRows(page, 'ecommerceResults')
+  const sourceTask = tasksBefore
+    .slice()
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
+  const sourceResult = resultsBefore.find((row) => row.taskId === sourceTask?.id && row.status === 'done')
+  rec(g, '原任务与原结果已落表（后续检查只认库）', !!sourceTask && !!sourceResult)
+
+  await page.locator('[data-ecommerce-edit-result]').first().click()
+  const dialog = page.locator('[data-ecommerce-edit-dialog]')
+  await dialog.waitFor({ state: 'visible', timeout: 5000 })
+  const blankDisabled = await page.locator('[data-ecommerce-edit-submit]').isDisabled()
+  rec(g, '★ 空编辑指令时提交按钮禁用（不会悄悄发付费请求）', blankDisabled)
+
+  const instruction = '只把背景换成海边日落，产品、构图和画面文字保持不变'
+  await page.locator('[data-ecommerce-edit-instruction]').fill(instruction)
+  const typedEnabled = !(await page.locator('[data-ecommerce-edit-submit]').isDisabled())
+  rec(g, '★ 写下编辑指令后可以提交，且弹窗显示原图不会被覆盖', typedEnabled)
+  await page.locator('[data-ecommerce-edit-submit]').click()
+
+  let tasksAfter = tasksBefore
+  let resultsAfter = resultsBefore
+  let editTask = null
+  let editResult = null
+  for (let i = 0; i < 120; i += 1) {
+    tasksAfter = await sharedRows(page, 'ecommerceTasks')
+    resultsAfter = await sharedRows(page, 'ecommerceResults')
+    editTask = tasksAfter
+      .slice()
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
+      .find((row) => row.request?.usage === 'edit')
+    editResult = resultsAfter.find((row) => row.taskId === editTask?.id)
+    if (editResult?.status === 'done' || editResult?.status === 'failed') break
+    await sleep(150)
+  }
+  const originalAfter = resultsAfter.find((row) => row.id === sourceResult?.id)
+  const newTaskCreated = tasksAfter.length === tasksBefore.length + 1 && !!editTask
+  const newResultDone = editResult?.status === 'done' && typeof editResult.assetHash === 'string'
+  const promptWritten =
+    typeof editResult?.prompt === 'string' &&
+    editResult.prompt.includes(instruction) &&
+    editResult.prompt.includes('用途：AI 编辑')
+  const originalUntouched =
+    !!sourceResult &&
+    originalAfter?.status === 'done' &&
+    originalAfter.assetHash === sourceResult.assetHash &&
+    originalAfter.prompt === sourceResult.prompt
+  rec(
+    g,
+    '★★★ AI 编辑生成独立新任务和新结果，编辑指令真的进了提示词',
+    newTaskCreated && newResultDone && promptWritten,
+    `任务 ${tasksBefore.length}→${tasksAfter.length} 状态=${editResult?.status ?? '无'} 提示词=${promptWritten}`,
+  )
+  rec(
+    g,
+    '★★ 原任务 / 原结果没有被覆盖（hash 与提示词都保持原样）',
+    originalUntouched,
+    `原状态=${originalAfter?.status ?? '丢失'} hash一致=${originalAfter?.assetHash === sourceResult?.assetHash}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/159-g159-ai-edit.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159]
 const skippedGroups = new Set(
   String(process.env.SMOKE_SKIP ?? '')
     .split(',')

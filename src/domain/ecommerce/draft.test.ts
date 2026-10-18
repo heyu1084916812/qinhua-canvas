@@ -47,6 +47,10 @@ describe('电商左侧草稿纯数据', () => {
     expect(normalizeEcommerceFormDraft({ usage: 'detail' }).count).toBe(4)
   })
 
+  it('结果图后续动作 edit 不允许写回左侧新建表单', () => {
+    expect(normalizeEcommerceFormDraft({ usage: 'edit' }).usage).toBe('main')
+  })
+
   it('with/read 是同一份往返，且不吞掉 ecommerce.batchId 与 extra 其它键', () => {
     const next = withEcommerceFormDraft(
       { cover: { hash: 'h1' }, ecommerce: { batchId: 'ecb_1' } },

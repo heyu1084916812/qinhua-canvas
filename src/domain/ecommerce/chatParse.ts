@@ -3,9 +3,9 @@ import { ECOMMERCE_PLATFORMS, type EcommercePlatform } from './platforms'
 import { ECOMMERCE_NOTE_MAX } from './prompt'
 import {
   ECOMMERCE_COUNT_MAX,
+  ECOMMERCE_FORM_USAGES,
   ECOMMERCE_LANGUAGES,
   ECOMMERCE_RATIOS,
-  ECOMMERCE_USAGES,
   languageLabel,
   usageLabel,
   type EcommerceLanguage,
@@ -108,7 +108,10 @@ function trimmed(value: unknown): string {
 function pickUsage(value: unknown): EcommerceUsage | undefined {
   const s = trimmed(value)
   if (!s) return undefined
-  return ECOMMERCE_USAGES.find((u) => u === s) ?? ECOMMERCE_USAGES.find((u) => usageLabel(u) === s)
+  return (
+    ECOMMERCE_FORM_USAGES.find((u) => u === s) ??
+    ECOMMERCE_FORM_USAGES.find((u) => usageLabel(u) === s)
+  )
 }
 
 /** 平台：认 id（大小写不敏感），也认清单里的**显示名**；都不中就不认 */

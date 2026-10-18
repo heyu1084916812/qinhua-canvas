@@ -2,9 +2,9 @@ import { ECOMMERCE_DEFAULT_COUNT } from './plan'
 import { ECOMMERCE_NOTE_MAX } from './prompt'
 import {
   ECOMMERCE_COUNT_MAX,
+  ECOMMERCE_FORM_USAGES,
   ECOMMERCE_LANGUAGES,
   ECOMMERCE_RATIOS,
-  ECOMMERCE_USAGES,
   type EcommerceLanguage,
   type EcommerceUsage,
 } from './types'
@@ -53,7 +53,7 @@ function stringOf(value: unknown, max: number): string {
 }
 
 function usageOf(value: unknown): EcommerceUsage {
-  return ECOMMERCE_USAGES.includes(value as EcommerceUsage)
+  return ECOMMERCE_FORM_USAGES.includes(value as EcommerceUsage)
     ? (value as EcommerceUsage)
     : DEFAULT_ECOMMERCE_FORM_DRAFT.usage
 }

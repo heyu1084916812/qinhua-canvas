@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ECOMMERCE_PLATFORMS, GENERIC_SOURCE, platformById, platformRuleSummary } from './platforms'
 import {
+  ECOMMERCE_EDIT_HARD_RULES,
   ECOMMERCE_HARD_RULES,
   ECOMMERCE_NOTE_MAX,
   buildEcommercePrompt,
@@ -11,7 +12,12 @@ import {
   EcommerceRequestError,
   buildEcommercePlan,
 } from './plan'
-import { ECOMMERCE_COUNT_MAX, type EcommerceRequest } from './types'
+import {
+  ECOMMERCE_COUNT_MAX,
+  ECOMMERCE_FORM_USAGES,
+  ECOMMERCE_USAGES,
+  type EcommerceRequest,
+} from './types'
 
 /**
  * 电商 A 版的领域层（对账 #384 / #380a）。
@@ -94,6 +100,12 @@ describe('提示词拼装', () => {
 })
 
 describe('执行计划与校验', () => {
+  it('表单只给五个用途；edit 只作为结果图的后续动作存在', () => {
+    expect(ECOMMERCE_FORM_USAGES).toEqual(['main', 'white-bg', 'detail', 'set', 'recreate'])
+    expect(ECOMMERCE_USAGES).toContain('edit')
+    expect(ECOMMERCE_FORM_USAGES).not.toContain('edit')
+  })
+
   it('默认张数：主图 1 / 白底 1 / 详情 4 / 套图 8 / 爆款复刻 4', () => {
     expect(ECOMMERCE_DEFAULT_COUNT).toEqual({
       main: 1,
@@ -101,6 +113,7 @@ describe('执行计划与校验', () => {
       detail: 4,
       set: 8,
       recreate: 4,
+      edit: 1,
     })
   })
 
@@ -123,6 +136,8 @@ describe('执行计划与校验', () => {
       ['平台不存在', { ...base, platformId: 'nope' }],
       ['语言不认识', { ...base, language: 'fr' as never }],
       ['爆款复刻没上传参考图', { ...base, usage: 'recreate', referenceNodeIds: [] }],
+      ['AI 编辑空指令', { ...base, usage: 'edit', note: '  ' }],
+      ['AI 编辑多张', { ...base, usage: 'edit', count: 2, note: '把背景换掉' }],
     ]
     for (const [label, request] of cases) {
       expect(() => buildEcommercePlan(request), label).toThrow(EcommerceRequestError)
@@ -232,6 +247,22 @@ describe('逐张镜头脚本', () => {
       expect(prompt).toContain('不复制参考图的品牌 Logo')
       expect(prompt).toContain('产品外观、颜色、材质、结构以产品图为准')
     }
+  })
+
+  it('★★ 定向 AI 编辑只改用户点名项，未点名内容保持不变', () => {
+    const plan = buildEcommercePlan({
+      ...base,
+      usage: 'edit',
+      count: 1,
+      note: '把背景换成海边日落，产品不要动',
+    })
+    expect(plan.prompts).toHaveLength(1)
+    expect(plan.prompts[0]).toContain('把背景换成海边日落，产品不要动')
+    expect(plan.prompts[0]).toContain('编辑边界')
+    expect(plan.prompts[0]).toContain('未点名的产品、人物、构图、光影、文字与背景保持不变')
+    expect(plan.prompts[0]).toContain('这一张只做：定向编辑')
+    for (const rule of ECOMMERCE_EDIT_HARD_RULES) expect(plan.prompts[0]).toContain(rule)
+    expect(plan.prompts[0]).not.toContain(ECOMMERCE_HARD_RULES[0]!)
   })
 })
 

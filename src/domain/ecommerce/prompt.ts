@@ -25,6 +25,13 @@ export const ECOMMERCE_HARD_RULES: readonly string[] = [
   '画面文字只用指定语言，不出现乱码与拼写错误',
 ]
 
+/** 定向编辑时只锁“未点名项”，否则用户明确要求改产品颜色也会被硬规则挡住。 */
+export const ECOMMERCE_EDIT_HARD_RULES: readonly string[] = [
+  '只执行用户点名的那一项修改，未点名之处保持不变',
+  '不编造参数、认证、功效与价格',
+  '画面文字只用指定语言，不出现乱码与拼写错误',
+]
+
 /** 用途给模型的一句提示（与平台的规则摘要互补：一个说"要什么"，一个说"注意什么"） */
 const USAGE_HINTS: Record<EcommerceUsage, string> = {
   main: '主图：产品为画面主体，构图干净、留白得当',
@@ -32,6 +39,7 @@ const USAGE_HINTS: Record<EcommerceUsage, string> = {
   detail: '详情页：按卖点分段表达，信息层级清楚',
   set: '套图：主图 + 场景图 + 细节图 + 卖点图，整套风格统一',
   recreate: '爆款复刻：保留参考图的构图、镜头、光影、版式与氛围，产品外观以产品图为准',
+  edit: 'AI 编辑：只修改用户点名的那一项，其余画面、产品与版式尽量保持不变',
 }
 
 export interface BuildPromptOptions {
@@ -135,6 +143,11 @@ const RECREATE_SHOTS: readonly EcommerceShot[] = [
   { title: '竖版裁切版', brief: '保持视觉重心与层级，按当前比例重新组织成适合竖屏的构图' },
 ]
 
+const EDIT_SHOT: EcommerceShot = {
+  title: '定向编辑',
+  brief: '先读懂用户的修改要求，只改被点名的那一项；主体身份、产品结构与画面版式保持不变',
+}
+
 /** 白底图 = **抽卡**：N 张是同一件事的 N 次尝试，脚本故意只有一条（用户明确说这样没问题） */
 const WHITE_BG_SHOT: EcommerceShot = {
   title: '白底图',
@@ -150,6 +163,7 @@ const WHITE_BG_SHOT: EcommerceShot = {
  */
 export function ecommerceShots(usage: EcommerceUsage, count: number): readonly EcommerceShot[] {
   if (usage === 'white-bg') return Array.from({ length: count }, () => WHITE_BG_SHOT)
+  if (usage === 'edit') return Array.from({ length: count }, () => EDIT_SHOT)
   const base =
     usage === 'main'
       ? MAIN_SHOTS
@@ -189,6 +203,12 @@ export function buildEcommercePrompt(
         '人物身份与不可核实文案，不把参考图产品直接搬进结果。',
     )
   }
+  if (request.usage === 'edit') {
+    lines.push(
+      '编辑边界：只执行补充要求里明确点名的修改，未点名的产品、人物、构图、光影、文字与背景保持不变。' +
+        '不新增品牌 Logo、水印、认证、价格或无法核实的信息。',
+    )
+  }
   /* 有镜头脚本就写清"这一张只做什么" —— 这是逐张不同的落点 */
   if (shot) lines.push(`这一张只做：${shot.title} —— ${shot.brief}`)
   lines.push(`目标平台：${platformRuleSummary(platform)}`)
@@ -201,7 +221,9 @@ export function buildEcommercePrompt(
   if (request.count > 1 && request.usage !== 'white-bg') {
     lines.push(`同批：共 ${request.count} 张，每张的镜头都不一样 —— 这一张不要重复其它张的视角与卖点`)
   }
-  lines.push(`硬约束：${ECOMMERCE_HARD_RULES.join('；')}`)
+  lines.push(
+    `硬约束：${(request.usage === 'edit' ? ECOMMERCE_EDIT_HARD_RULES : ECOMMERCE_HARD_RULES).join('；')}`,
+  )
 
   return lines.join('\n')
 }
