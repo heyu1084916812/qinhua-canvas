@@ -8125,3 +8125,20 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   可见窗口 20 秒无心跳自动 reload，生产二次失败重启。验证白屏恢复可用 CDP `Page.crash`，
   30 秒后要求 `#root=1`；验证托盘关闭用 `WM_CLOSE` 后要求进程活、窗口隐藏，再启动要求
   第二实例退出且原窗口可见。
+
+## 2026-10-18 第 157 批（共享库全量冒烟矩阵 / #574 / #575）
+
+- **目录口径以实测为准**：`%LOCALAPPDATA%\com.qinghua.canvas` 根下只有
+  `shared-store-v1`、`shell-v2`、`cli-out`、`window.json`。`shell-v2` 是当前 Tauri/WebView2
+  的固定用户数据目录，`EBWebView` 在它内部，不是旧数据；业务真相只在 `shared-store-v1`。
+- **旧轮转副本在上一层**：`%LOCALAPPDATA%\qinghua-profile-backups` 实测约 20.8GB。
+  代码中的旧 profile 自动备份调用已停用；用户确认后已删除并复核不存在，根目录四项保持不动。
+- **冒烟矩阵必须每组独立 `LOCALAPPDATA`**：`scripts/smoke-matrix.mjs` 默认单组 300 秒，
+  每组后即时写 `summary.json`；137 组全部有复跑通过结果。不要多个矩阵并行，它们会争 18765 端口。
+- **共享库迁移后禁止再用旧 IndexedDB 探针**：`scripts/smoke.mjs` 里所有
+  `indexedDB.open('qinghua')` 已改为 `sharedRow/sharedRows/sharedPut/sharedBulkPut`；二进制素材
+  必须写 `{__qhType:'u8',base64}`，否则灯箱只看到按数字键展开的对象。
+- **自动标题会让旧 locator 失效**：节点生成后标题会从模板名变成业务名，后续必须用捕获到的
+  `data-node-id` 重建 locator；`data-node-asset` 也可能异步出现，断言要轮询，不能读一次就判定。
+- **同落点节点会互相挡鼠标**：提取选区连续生成的两张局部图默认同坐标；冒烟用 DEV-only
+  `window.__canvasDebug().placeNode(id,x,y)` 精确落位。位置摆好后还要 `resetView`，否则右侧端口在视口外。

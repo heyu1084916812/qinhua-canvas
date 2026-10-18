@@ -222,6 +222,18 @@ function CanvasProject({ projectId }: { projectId: string }) {
       selection: store.getSelection(),
       canUndo: store.canUndo(),
       canRedo: store.canRedo(),
+      placeNode(id: string, x: number, y: number) {
+        const node = store.getSnapshot().nodes.find((n) => n.id === id)
+        if (!node) return false
+        store.dispatch({
+          kind: 'node.move',
+          ids: [id],
+          dx: x - node.x,
+          dy: y - node.y,
+          phase: 'end',
+        })
+        return true
+      },
     })
     return () => {
       delete (window as unknown as Record<string, unknown>).__canvasDebug
