@@ -30564,9 +30564,17 @@ async function g142(browser) {
     (await page.locator(`[data-storyboard-shot-video="${shot1}"]`).count()) === 1 &&
       (await page.locator(`[data-storyboard-shot-video="${shot2}"]`).count()) === 0,
   )
+  rec(
+    g,
+    '★★ 有已出图但缺视频的镜头时，「这一集出视频」可用',
+    (await page.locator('[data-storyboard-run-all-video]').isEnabled()) &&
+      /缺视频的\s*1\s*个镜头/.test(
+        (await page.locator('[data-storyboard-run-all-video]').getAttribute('title')) ?? '',
+      ),
+  )
 
-  // ⑤ 出视频
-  await page.locator(`[data-storyboard-shot-video="${shot1}"]`).click()
+  // ⑤ 整集出视频：当前只有第一镜具备条件 ⇒ 只跑它，不会碰没图的第二镜
+  await page.locator('[data-storyboard-run-all-video]').click()
   const afterVideo = await waitDb(
     (db) => !!db.shots.find((s) => s.id === shot1)?.videoHash,
     60000,
@@ -30615,6 +30623,11 @@ async function g142(browser) {
       /已出/.test(await page.locator('[data-storyboard-lay-status="done"]').innerText()),
     (await page.locator('[data-storyboard-lay-status="done"]').innerText()).trim(),
   )
+  rec(
+    g,
+    '★ 整集视频跑完后入口自动变灰（没有待出视频的镜头）',
+    await page.locator('[data-storyboard-run-all-video]').isDisabled(),
+  )
 
   /*
    * ⑥ 下一镜也出图后，重出第一镜 = 复用原视频节点 + 首尾帧。
@@ -30639,7 +30652,28 @@ async function g142(browser) {
     pairButtonText.trim(),
   )
 
-  const nodesBeforePair = afterPairImage.nodes.length
+  rec(
+    g,
+    '★★ 第二镜出图后，「这一集出视频」重新出现并只补缺的那一镜',
+    (await page.locator('[data-storyboard-run-all-video]').isEnabled()) &&
+      /缺视频的\s*1\s*个镜头/.test(
+        (await page.locator('[data-storyboard-run-all-video]').getAttribute('title')) ?? '',
+      ),
+  )
+  await page.locator('[data-storyboard-run-all-video]').click()
+  const afterSecondVideo = await waitDb(
+    (db) => !!db.shots.find((s) => s.id === shot2)?.videoHash,
+    60000,
+  )
+  rec(
+    g,
+    '★★★ 整集出视频补齐第二镜，且没有重跑已有视频的第一镜',
+    !!afterSecondVideo.shots.find((s) => s.id === shot2)?.videoHash &&
+      afterSecondVideo.shots.find((s) => s.id === shot1)?.videoHash === s1?.videoHash,
+    `第一镜=${(afterSecondVideo.shots.find((s) => s.id === shot1)?.videoHash ?? '').slice(0, 8)} 第二镜=${(afterSecondVideo.shots.find((s) => s.id === shot2)?.videoHash ?? '').slice(0, 8)}`,
+  )
+
+  const nodesBeforePair = afterSecondVideo.nodes.length
   const videoNodeBeforePair = s1?.videoNodeId ?? ''
   await page.locator(`[data-storyboard-shot-video="${shot1}"]`).click()
   const afterPairVideo = await waitDb((db) => {

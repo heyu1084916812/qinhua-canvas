@@ -486,6 +486,15 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   const liveNodeIds = new Set(graph.nodes.map((n) => n.id))
   const needNodes = shotsNeedingNode(shots, liveNodeIds)
   const laidCount = shots.filter((s) => s.nodeId && liveNodeIds.has(s.nodeId)).length
+  const videoPending = shots.filter(
+    (shot) =>
+      shot.nodeId &&
+      liveNodeIds.has(shot.nodeId) &&
+      shot.imageHash &&
+      (!shot.videoHash ||
+        !shot.videoNodeId ||
+        !liveNodeIds.has(shot.videoNodeId)),
+  ).length
   /**
    * 这一集的时间轴（预览播放与合成包**共用** `episodeTimeline`）。
    *
@@ -1064,14 +1073,20 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
    * **为什么另铺节点、而不像出图那样 `inPlace`**：写回会把这一镜的**图**顶掉，
    * 而图还得留着 —— 它既是视频的输入，也是分镜表里的画面。图与视频各占一个节点，两条都在。
    */
-  const makeShotVideo = async (shot: StoryboardShot) => {
+  const makeShotVideo = async (
+    shot: StoryboardShot,
+    options: { quiet?: boolean } = {},
+  ): Promise<boolean> => {
+    const report = (kind: 'running' | 'done' | 'error', text: string) => {
+      if (!options.quiet) setLay({ kind, text })
+    }
     if (!shot.nodeId || !liveNodeIds.has(shot.nodeId)) {
-      setLay({ kind: 'error', text: '这一镜还没铺到画布 —— 先铺一次，出了图再出视频' })
-      return
+      report('error', '这一镜还没铺到画布 —— 先铺一次，出了图再出视频')
+      return false
     }
     if (!shot.imageHash) {
-      setLay({ kind: 'error', text: '这一镜还没有图 —— 图生视频要先有画面，先点「出图」' })
-      return
+      report('error', '这一镜还没有图 —— 图生视频要先有画面，先点「出图」')
+      return false
     }
     try {
       /**
@@ -1080,11 +1095,8 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
        */
       const recipe = await channels.defaultForNewNode({}, 'video')
       if (!recipe?.channelId || !recipe?.model) {
-        setLay({
-          kind: 'error',
-          text: '还没有可用的视频渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上视频模型',
-        })
-        return
+        report('error', '还没有可用的视频渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上视频模型')
+        return false
       }
       const latestDoc = docRef.current
       const episodeShots = latestDoc ? shotsOf(latestDoc, shot.episodeId) : []
@@ -1198,34 +1210,71 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         canvasStore.endPlan()
       }
       if (!nodeId) {
-        setLay({ kind: 'error', text: '视频节点没能建出来（渠道或模型没配全）' })
-        return
+        report('error', '视频节点没能建出来（渠道或模型没配全）')
+        return false
       }
       const current = docRef.current
       if (current) apply(setShotVideoNode(current, shot.id, nodeId, 0, endFrameNodeId))
-      setLay({
-        kind: 'running',
-        text: endFrameNodeId
+      report(
+        'running',
+        endFrameNodeId
           ? '这一镜的视频在跑（首尾帧：接到下一镜的画面）…'
           : nextFrameNodeId
             ? '这一镜的视频在跑（当前视频模型不支持首尾帧，按单张首帧生成）…'
             : '这一镜的视频在跑…',
-      })
+      )
       await exec.runNode(nodeId, { inPlace: true })
       const state = exec.nodeStateOf(nodeId)
       if (state?.kind === 'failed') {
-        setLay({ kind: 'error', text: `这一镜的视频生成失败：${describeError(state.error)}` })
-        return
+        report('error', `这一镜的视频生成失败：${describeError(state.error)}`)
+        return false
       }
-      setLay({
-        kind: 'done',
-        text: endFrameNodeId
+      report(
+        'done',
+        endFrameNodeId
           ? '这一镜的视频已出（用了这一镜与下一镜的首尾帧）'
           : '这一镜的视频已出（画布里就挂在这一镜的图右边）',
-      })
+      )
+      return true
     } catch (e) {
-      setLay({ kind: 'error', text: humanError(e) })
+      report('error', humanError(e))
+      return false
     }
+  }
+
+  /** 这一集出视频：只跑“有图但还没有视频”的镜头，逐镜串行，避免免费额度被并发打满。 */
+  const runEpisodeVideos = async () => {
+    const targets = shots.filter(
+      (shot) =>
+        shot.nodeId &&
+        liveNodeIds.has(shot.nodeId) &&
+        shot.imageHash &&
+        (!shot.videoHash ||
+          !shot.videoNodeId ||
+          !liveNodeIds.has(shot.videoNodeId)),
+    )
+    if (targets.length === 0) {
+      setLay({ kind: 'done', text: '这一集没有待出视频的镜头（要重出请用单镜那把）' })
+      return
+    }
+    let ok = 0
+    let failed = 0
+    for (let i = 0; i < targets.length; i += 1) {
+      setLay({
+        kind: 'running',
+        text: `这一集出视频 ${i + 1}/${targets.length}：第 ${shots.indexOf(targets[i]!) + 1} 镜…`,
+      })
+      const success = await makeShotVideo(targets[i]!, { quiet: true })
+      if (success) ok += 1
+      else failed += 1
+    }
+    setLay({
+      kind: failed > 0 ? 'error' : 'done',
+      text:
+        failed > 0
+          ? `这一集视频跑完：成功 ${ok} 镜，失败 ${failed} 镜（失败原因见各自状态）`
+          : `这一集 ${ok} 镜视频已出`,
+    })
   }
 
   /**
@@ -2003,6 +2052,20 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                       onClick={() => void runEpisode()}
                     >
                       这一集出图
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.ghost}
+                      data-storyboard-run-all-video
+                      disabled={videoPending === 0 || exec.isRunning}
+                      title={
+                        videoPending > 0
+                          ? `逐镜生成这一集还缺视频的 ${videoPending} 个镜头`
+                          : '这一集没有待出视频的镜头'
+                      }
+                      onClick={() => void runEpisodeVideos()}
+                    >
+                      这一集出视频
                     </button>
                     {/**
                      * 「预览这一集」（对账 #432）：调研稿 §M7-6 的预览那一半。
