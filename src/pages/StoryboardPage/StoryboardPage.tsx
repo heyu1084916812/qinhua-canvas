@@ -1152,6 +1152,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
           mode: 'video',
           model: recipe.model,
           prompt: videoPrompt,
+          durationSec: shot.durationSec,
           ...(videoMode ? { videoMode } : {}),
         },
       })
@@ -1173,6 +1174,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
               model: recipe.model,
               prompt: videoPrompt,
               count: 1,
+              durationSec: shot.durationSec,
               ...(videoMode ? { videoMode } : {}),
             },
           })

@@ -30481,6 +30481,7 @@ async function g142(browser) {
           id: n.id,
           mode: n.data?.mode ?? null,
           videoMode: n.data?.videoMode ?? null,
+          durationSec: n.data?.durationSec ?? null,
           prompt: n.data?.prompt ?? null,
           assetHash: n.data?.assetHash ?? null,
         })),
@@ -30490,6 +30491,7 @@ async function g142(browser) {
           id: s.id,
           nodeId: s.nodeId ?? null,
           imageHash: s.imageHash ?? null,
+          durationSec: s.durationSec ?? null,
           videoNodeId: s.videoNodeId ?? null,
           videoEndNodeId: s.videoEndNodeId ?? null,
           videoHash: s.videoHash ?? null,
@@ -30609,6 +30611,12 @@ async function g142(browser) {
       videoNode.prompt.includes(motionPrompt) &&
       videoNode.prompt.includes('画面基准：'),
     String(videoNode?.prompt ?? '').slice(0, 120),
+  )
+  rec(
+    g,
+    '★★★ 分镜时长写进视频节点，时间轴与视频生成使用同一秒数',
+    videoNode?.durationSec === afterVideo.shots.find((s) => s.id === shot1)?.durationSec,
+    `节点=${String(videoNode?.durationSec ?? '无')} 分镜=${String(afterVideo.shots.find((s) => s.id === shot1)?.durationSec ?? '无')}`,
   )
   rec(
     g,
