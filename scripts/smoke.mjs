@@ -31356,6 +31356,34 @@ async function g145(browser) {
     !!voiceStored.shots[0]?.lines[0]?.audioHash && voiceAudioShown,
     `hash=${voiceStored.shots[0]?.lines[0]?.audioHash ?? 'n/a'}`,
   )
+  rec(
+    g,
+    '★★ 还有未配音台词时，「补齐本集配音」可用并显示待补句数',
+    (await page.locator('[data-storyboard-run-all-voice]').isEnabled()) &&
+      /还缺配音的\s*1\s*句台词/.test(
+        (await page.locator('[data-storyboard-run-all-voice]').getAttribute('title')) ?? '',
+      ),
+  )
+  const firstAudioHash = voiceStored.shots[0]?.lines[0]?.audioHash ?? ''
+  await page.locator('[data-storyboard-run-all-voice]').click()
+  const batchVoices = await waitDb(
+    (db) =>
+      !!db.shots[0]?.lines[0]?.audioHash &&
+      !!db.shots[1]?.lines[0]?.audioHash,
+    20000,
+  )
+  rec(
+    g,
+    '★★★ 补齐本集配音只跑缺的那一句，已有音频 hash 不变',
+    batchVoices.shots[0]?.lines[0]?.audioHash === firstAudioHash &&
+      !!batchVoices.shots[1]?.lines[0]?.audioHash,
+    `第一句=${(batchVoices.shots[0]?.lines[0]?.audioHash ?? '').slice(0, 8)} 第二句=${(batchVoices.shots[1]?.lines[0]?.audioHash ?? '').slice(0, 8)}`,
+  )
+  rec(
+    g,
+    '★ 整集配音完成后入口自动变灰',
+    await page.locator('[data-storyboard-run-all-voice]').isDisabled(),
+  )
   /* 第 1 镜 1 秒：让"自动推进"这件事在冒烟里几秒内就能验到 */
   await page.locator(`[data-storyboard-shot-duration="${ids[0]}"]`).fill('1')
   await page.locator(`[data-storyboard-shot-duration="${ids[1]}"]`).fill('5')

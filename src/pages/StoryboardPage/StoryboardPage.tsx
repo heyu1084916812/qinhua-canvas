@@ -495,6 +495,12 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         !shot.videoNodeId ||
         !liveNodeIds.has(shot.videoNodeId)),
   ).length
+  const voicePending = shots.reduce(
+    (count, shot) =>
+      count +
+      shot.lines.filter((line) => line.text.trim() && !line.audioHash).length,
+    0,
+  )
   /**
    * 这一集的时间轴（预览播放与合成包**共用** `episodeTimeline`）。
    *
@@ -1322,15 +1328,23 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     setLay({ kind: 'done', text: `已跑完这一集 ${targets.length} 镜（失败的镜头各自标了原因）` })
   }
 
-  const voiceLine = async (shot: StoryboardShot, lineId: string, voice: string) => {
+  const voiceLine = async (
+    shot: StoryboardShot,
+    lineId: string,
+    voice: string,
+    options: { quiet?: boolean } = {},
+  ): Promise<boolean> => {
+    const report = (text: string) => {
+      if (!options.quiet) setStatus(text)
+    }
     const line = shot.lines.find((item) => item.id === lineId)
     if (!line || !line.text.trim()) {
-      setStatus('先写台词，再生成配音')
-      return
+      report('先写台词，再生成配音')
+      return false
     }
     if (!speechTarget) {
-      setStatus('还没有可用的配音模型：去设置里给渠道勾选一个 audio / tts 模型')
-      return
+      report('还没有可用的配音模型：去设置里给渠道勾选一个 audio / tts 模型')
+      return false
     }
     setVoiceBusy((current) => ({ ...current, [lineId]: true }))
     const ac = new AbortController()
@@ -1371,10 +1385,12 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
           Date.now(),
         ),
       )
-      setStatus(`已生成配音：${speaker} · ${line.text.trim().slice(0, 20)}`)
+      report(`已生成配音：${speaker} · ${line.text.trim().slice(0, 20)}`)
+      return true
     } catch (error) {
       const appError = asAppError(error)
-      setStatus(appError ? describeError(appError) : String(error))
+      report(appError ? describeError(appError) : String(error))
+      return false
     } finally {
       window.clearTimeout(timer)
       setVoiceBusy((current) => {
@@ -1383,6 +1399,42 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         return next
       })
     }
+  }
+
+  /** 补齐本集配音：只跑“有台词且还没有音频”的句子，逐句串行，已有配音不重跑。 */
+  const runEpisodeVoices = async () => {
+    if (!speechTarget) {
+      setStatus('还没有可用的配音模型：去设置里给渠道勾选一个 audio / tts 模型')
+      return
+    }
+    const targets = shots.flatMap((shot) =>
+      shot.lines
+        .filter((line) => line.text.trim() && !line.audioHash)
+        .map((line) => ({ shot, line })),
+    )
+    if (targets.length === 0) {
+      setStatus('这一集没有待生成的台词配音')
+      return
+    }
+    let ok = 0
+    let failed = 0
+    for (let i = 0; i < targets.length; i += 1) {
+      const { shot, line } = targets[i]!
+      setStatus(`正在补齐本集配音 ${i + 1}/${targets.length}：第 ${shots.indexOf(shot) + 1} 镜…`)
+      const success = await voiceLine(
+        shot,
+        line.id,
+        line.voice || speechTarget.voices[0] || 'alloy',
+        { quiet: true },
+      )
+      if (success) ok += 1
+      else failed += 1
+    }
+    setStatus(
+      failed > 0
+        ? `本集配音跑完：成功 ${ok} 句，失败 ${failed} 句（失败原因见状态提示）`
+        : `本集 ${ok} 句配音已生成`,
+    )
   }
 
   /** 导出文件名的主干（剧名 → 项目名 → 未命名；顺手把文件名里不能用的字符换掉） */
@@ -2066,6 +2118,26 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                       onClick={() => void runEpisodeVideos()}
                     >
                       这一集出视频
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.ghost}
+                      data-storyboard-run-all-voice
+                      disabled={
+                        voicePending === 0 ||
+                        !speechTarget ||
+                        Object.keys(voiceBusy).length > 0
+                      }
+                      title={
+                        speechTarget
+                          ? voicePending > 0
+                            ? `逐句补齐这一集还缺配音的 ${voicePending} 句台词`
+                            : '这一集没有待补配音的台词'
+                          : '先去设置里给渠道勾选一个 audio / tts 模型'
+                      }
+                      onClick={() => void runEpisodeVoices()}
+                    >
+                      补齐本集配音
                     </button>
                     {/**
                      * 「预览这一集」（对账 #432）：调研稿 §M7-6 的预览那一半。
