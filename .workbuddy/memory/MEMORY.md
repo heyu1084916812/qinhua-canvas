@@ -8126,6 +8126,20 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
   30 秒后要求 `#root=1`；验证托盘关闭用 `WM_CLOSE` 后要求进程活、窗口隐藏，再启动要求
   第二实例退出且原窗口可见。
 
+## 2026-10-18 第 158 批（Agnes Video 2.5 Flash / 免费额度 429）
+
+- **前端视频默认模型是 `PRESET_AGNES_MODELS` 里的视频那一项**，改显示名不能只改 UI 文案；
+  同时要把上游 ID `agnes-video-2.5-flash` 和旧名 `Agnes Video 2.0` 放进 aliases。
+- **显示名改名必须兼容旧 modelMap**：旧渠道里存的是 `Agnes Video 2.0 → agnes-video-2.5-flash`，
+  新显示名 `Agnes Video 2.5 Flash` 不能因为没有 exact key 就把显示名直接发给上游。
+  `resolveUpstreamModel` 会增加 alias fallback；但用户显式清空新显示名时不得回退旧映射。
+- **Agnes Video 2.5 Flash 免费的是价格，不是速率**：官方 Flash 文档写明当前 `$0 / second` 限时免费，
+  同时 429 的错误表明确写“Request rate exceeds the limit”。真实记录里 `sentModel` 正确，
+  429 是服务端限流，不是路由发错模型，也不是余额为 0。
+- **免费账户 429 不应在同一轮里快速重试**：默认 `maxRetries=2` + 1s/2s 退避会在几秒内继续打，
+  只会延长冷却；`runEngine` 现在识别 `free user API rate limit` / 中文“免费用户的 API 速率限制”后直接落失败，
+  普通 429 仍按退避重试。
+
 ## 2026-10-18 第 157 批（共享库全量冒烟矩阵 / #574 / #575）
 
 - **目录口径以实测为准**：`%LOCALAPPDATA%\com.qinghua.canvas` 根下只有

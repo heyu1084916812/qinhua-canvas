@@ -88,7 +88,14 @@ export function httpMessage(status: number): string {
  */
 export function statusToFailure(status: number, body?: string): { error: AppError; message: string } {
   const reason = serverReasonOf(body)
-  const base = httpMessage(status)
+  const freeRateLimit =
+    status === 429 &&
+    /free user API rate limit|\u514d\u8d39\u7528\u6237\u7684\s*API\s*\u901f\u7387\u9650\u5236/i.test(
+      `${reason ?? ''}\n${body ?? ''}`,
+    )
+  const base = freeRateLimit
+    ? '免费账户的 API 调用频率已达上限（429）；模型本身免费，但不等于不限速'
+    : httpMessage(status)
   // 有服务端原因就把它附在后面：用户看到的先是「怎么回事」，再是「大概是哪一类」
   const message = reason ? `${base}｜服务端：${reason}` : base
   /**

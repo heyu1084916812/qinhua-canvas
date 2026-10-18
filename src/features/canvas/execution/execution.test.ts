@@ -9,7 +9,7 @@ import { fingerprintHex } from '../../../domain/shared/hash'
 import { mockImageHash } from '../../../platform/channels/mock'
 import { imageSizeFromHeader } from '../../../domain/shared/imageSize'
 import { solidPng } from '../../../platform/channels/mockPng'
-import type { ChannelAdapter, GeneratedAsset } from '../../../platform/channels/types'
+import { ChannelError, type ChannelAdapter, type GeneratedAsset } from '../../../platform/channels/types'
 import { generationSpec } from '../../../domain/canvas/nodeSpecs/generation'
 import type { GenerationData } from '../../../domain/canvas/model/node'
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
@@ -781,6 +781,31 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     expect(summary.succeeded).toBe(1)
     // 成功那条**不该**带失败原因（免得日志给成功记录挂一句"为什么失败"）
     expect(summary.records[0]!.errorText).toBeUndefined()
+  })
+
+  it('free-tier rate limit is reported once instead of retried inside the same run', async () => {
+    const { store, promptId } = setup()
+    const plan = buildRunPlan('node', { originNodeId: promptId }, store.getSnapshot(), 'single')
+    const channel = createMockChannel()
+    let calls = 0
+    channel.generateImage = async () => {
+      calls += 1
+      throw new ChannelError({
+        kind: 'http',
+        status: 429,
+        body: 'You have reached the free user API rate limit.',
+      })
+    }
+
+    const summary = await runEngine(
+      plan,
+      deps(store, channel, { policy: { maxRetries: 2, backoffBase: 1 } }),
+    )
+    store.endPlan()
+
+    expect(calls).toBe(1)
+    expect(summary.failed).toBe(1)
+    expect(summary.records[0]!.errorText).toContain('HTTP 429')
   })
 
   it('超过重试上限记为失败，并留下 failed 版本的 RunRecord', async () => {

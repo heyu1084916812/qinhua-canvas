@@ -18,6 +18,24 @@ describe('resolveUpstreamModel', () => {
     expect(resolveUpstreamModel({ 'image-2': 'gpt-image-2' }, 'image-2')).toBe('gpt-image-2')
   })
 
+  it('show-name rename keeps the existing alias mapping', () => {
+    expect(
+      resolveUpstreamModel(
+        { 'Agnes Video 2.0': 'agnes-video-2.5-flash' },
+        'Agnes Video 2.5 Flash',
+      ),
+    ).toBe('agnes-video-2.5-flash')
+  })
+
+  it('explicitly clearing the current show-name does not revive a legacy alias', () => {
+    expect(
+      resolveUpstreamModel(
+        { 'Agnes Video 2.5 Flash': '', 'Agnes Video 2.0': 'agnes-video-2.5-flash' },
+        'Agnes Video 2.5 Flash',
+      ),
+    ).toBe('Agnes Video 2.5 Flash')
+  })
+
   it('★ 显式配成空串 = 未配，退回恒等（不是「映射成空 ID」）', () => {
     expect(resolveUpstreamModel({ 'image-2': '   ' }, 'image-2')).toBe('image-2')
   })

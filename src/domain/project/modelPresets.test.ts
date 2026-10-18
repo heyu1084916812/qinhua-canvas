@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  PRESET_AGNES_MODELS,
   PRESET_CHAT_MODELS,
   PRESET_IMAGE_MODELS,
   PRESET_MODELS,
@@ -87,6 +88,14 @@ describe('固定模型目录', () => {
       'MiniMax H3',
       'Wan 3.0',
     ])
+  })
+
+  it('Agnes video defaults to the currently free 2.5 Flash preset', () => {
+    const video = PRESET_AGNES_MODELS.find((m) => m.category === 'video')
+    expect(video?.id).toBe('Agnes Video 2.5 Flash')
+    expect(video?.aliases).toContain('agnes-video-2.5-flash')
+    expect(presetIdForUpstream('agnes-video-2.5-flash')).toBe('Agnes Video 2.5 Flash')
+    expect(presetIdForUpstream('agnes-video-v2.0')).toBe('Agnes Video 2.5 Flash')
   })
 
   it('每个显示名只出现一次（跨分类也不重名）', () => {

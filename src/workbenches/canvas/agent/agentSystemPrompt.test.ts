@@ -221,11 +221,11 @@ describe('引用段', () => {
    */
   it('★ 图片 / 视频两档模型进了提示词，并写明「不必再写、也别换」', () => {
     const p = buildAgentSystemPromptWithContext(empty, undefined, {
-      mediaModels: { image: 'Agnes Image 2.5 Flash', video: 'Agnes Video 2.0' },
+      mediaModels: { image: 'Agnes Image 2.5 Flash', video: 'Agnes Video 2.5 Flash' },
     })
     expect(p).toContain('## 这次建出来的生成节点用哪个模型')
     expect(p).toContain('- 图片：Agnes Image 2.5 Flash')
-    expect(p).toContain('- 视频：Agnes Video 2.0')
+    expect(p).toContain('- 视频：Agnes Video 2.5 Flash')
     expect(p).toContain('不必在计划里再写一遍')
   })
 

@@ -14,6 +14,8 @@
  * 键一定是**逻辑名**（界面与节点存储用的名字），值是该渠道发请求时真正要带的 ID。
  * 空对象 = 恒等映射（见 `resolveUpstreamModel`），老渠道零迁移。
  */
+import { upstreamAliasesOf } from './modelPresets'
+
 export type ModelMap = Readonly<Record<string, string>>
 
 /**
@@ -33,9 +35,17 @@ export function resolveUpstreamModel(map: ModelMap | null | undefined, logicalNa
   const name = logicalName.trim()
   if (!name) return null
   const mapped = map?.[name]
-  // 恒等映射：没配、或配了空串，都退回逻辑名本身（空串是「未配」不是「配成空」）
-  if (mapped === undefined || mapped.trim() === '') return name
-  return mapped
+  /*
+   * 显示名可能随产品迭代改名，但旧渠道里保存的是旧显示名和已填映射。
+   * 只有新显示名完全没出现在映射表时才回退到模型别名；用户显式清空新名字时仍保持清空。
+   */
+  if (mapped !== undefined) return mapped.trim() || name
+  for (const alias of upstreamAliasesOf(name)) {
+    if (alias === name) continue
+    const legacy = map?.[alias]
+    if (legacy?.trim()) return legacy.trim()
+  }
+  return name
 }
 
 /**

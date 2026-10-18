@@ -41,13 +41,13 @@ describe('Agent 会话 · 基本 CRUD', () => {
       channelId: 'c1',
       model: 'Agnes 2.5 Pro',
       imageModel: 'Agnes Image 2.5 Flash',
-      videoModel: 'Agnes Video 2.0',
+      videoModel: 'Agnes Video 2.5 Flash',
     })
     const row = (await s.list('p1')).find((x) => x.id === a.id)!
     expect(row).toMatchObject({
       model: 'Agnes 2.5 Pro',
       imageModel: 'Agnes Image 2.5 Flash',
-      videoModel: 'Agnes Video 2.0',
+      videoModel: 'Agnes Video 2.5 Flash',
     })
   })
 })

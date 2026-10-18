@@ -117,6 +117,19 @@ function normalizeError(e: unknown): AppError {
 function isRetryable(error: AppError, policy: RunPolicy): boolean {
   if (error.kind === 'network') return error.detail !== 'aborted'
   if (error.kind === 'http') {
+    /*
+     * 免费账户的速率限制通常是一个较长的冷却窗口。本轮内等 1–2 秒再打只会
+     * 继续吃 429，还会把用户仅有的免费额度窗口搅得更久；直接如实返回，
+     * 让用户等待后再试。普通 429（查询过频）仍走退避重试。
+     */
+    if (
+      error.status === 429 &&
+      /free user API rate limit|\u514d\u8d39\u7528\u6237\u7684\s*API\s*\u901f\u7387\u9650\u5236/i.test(
+        error.body ?? '',
+      )
+    ) {
+      return false
+    }
     return policy.retryableStatuses.includes(error.status) || isRetryableStatus(error.status)
   }
   return false

@@ -145,7 +145,7 @@ export const PRESET_VIDEO_MODELS: readonly PresetModel[] = [
  *     老映射表里配过的键、渠道自己上报的 ID，都会被 `presetIdForUpstream` 归一成新显示名
  *     —— 不这么做它们会以「另一个模型」的身份漏回下拉（#121 报过的形态）。
  *   - 生图 → `agnes-image-2.5-flash`（官方写明综合超越 2.1 Flash，当前免费）
- *   - 视频 → `agnes-video-v2.0`（三个视频模型里唯一真出过片的）
+ *   - 视频 → `agnes-video-2.5-flash`（官方当前限时免费；旧的 2.0 显示名继续作为别名归一）
  */
 export const PRESET_AGNES_MODELS: readonly PresetModel[] = [
   {
@@ -162,7 +162,12 @@ export const PRESET_AGNES_MODELS: readonly PresetModel[] = [
     vendor: 'agnes',
     aliases: ['agnes-image-2.5-flash'],
   },
-  { id: 'Agnes Video 2.0', category: 'video', vendor: 'agnes', aliases: ['agnes-video-v2.0'] },
+  {
+    id: 'Agnes Video 2.5 Flash',
+    category: 'video',
+    vendor: 'agnes',
+    aliases: ['agnes-video-2.5-flash', 'Agnes Video 2.0', 'agnes-video-v2.0'],
+  },
 ]
 
 export const PRESET_MODELS: readonly PresetModel[] = [

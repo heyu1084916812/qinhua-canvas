@@ -13952,7 +13952,7 @@ async function g79(browser) {
     '★ 视频档列出固定显示名（Agnes 自有那个在最前）',
     JSON.stringify(videoValues.slice(0, 6)) ===
       JSON.stringify([
-        'Agnes Video 2.0',
+        'Agnes Video 2.5 Flash',
         '即梦 2.5',
         'Gemini Omni Flash 1.1',
         'Minimax H3 Max',
@@ -14048,7 +14048,7 @@ async function g79(browser) {
       // Agnes 有自己的显示名，不再把它的 ID 塞进别家的名字里
       trimmedLabels.includes('Agnes 2.5 Flash') &&
       trimmedLabels.includes('Agnes 3.0 Flash') &&
-      trimmedLabels.includes('Agnes Video 2.0') &&
+      trimmedLabels.includes('Agnes Video 2.5 Flash') &&
       trimmedLabels.includes('Deepseek 4.1 Flash') &&
       trimmedLabels.includes('GLM 5.3 Flash') &&
       trimmedLabels.includes('HY 4') &&
@@ -21207,8 +21207,8 @@ async function g98(browser) {
  *     480P/720P/1080P、4–30 秒、有生成音频、1/2/4 个；
  *   · MiniMax H3（图七/图八）：4 个模式（「文生视频」灰）、7 档画幅、768P/2K、5–15 秒、无音频；
  *   · H3 Max（图九/最后两张）：3 个模式、**只有自适应一档画幅**、480P/768P、5–15 秒、无音频；
- *   · Agnes Video 2.0（官方站没有文档页，真令牌实测）：三个模式、**没有 auto**、
- *     720p/1080p、4–12 秒、无音频、数量只有 1。
+ *   · Agnes Video 2.5 Flash（官方 Flash 页）：三个模式、**没有 auto**、
+ *     只有 720P、4–12 秒、无音频、数量只有 1。
  */
 async function g99(browser) {
   const g = 'G99 按模型配视频参数'
@@ -21359,19 +21359,19 @@ async function g99(browser) {
     `模式=${JSON.stringify(geminiMode.vals)} 画幅=${JSON.stringify(geminiRatio.vals)} 清晰度=${JSON.stringify(geminiSize.vals)} 时长滑块=${await panel.locator('[data-param-duration-range]').count()}`,
   )
 
-  // ④ Agnes Video 2.0：官方站没有它的文档页（真令牌实测），**没有「自适应」这一档**
-  await pickModel('Agnes Video 2.0')
+  // ④ Agnes Video 2.5 Flash：官方文档固定 720P，**没有「自适应」这一档**
+  await pickModel('Agnes Video 2.5 Flash')
   const agnesMode = await readChip('videoMode')
   const agnesRatio = await readChip('ratio')
   const agnesSize = await readChip('size')
   rec(
     g,
-    '★★ Agnes Video 2.0：3 个模式 / 6 档画幅（**没有自适应**，官方文档写明 auto 会 400）/ 720p·1080p / 4–12 秒 / 数量只有 1',
+    '★★ Agnes Video 2.5 Flash：3 个模式 / 6 档画幅（**没有自适应**，官方文档写明 auto 会 400）/ 只有 720P / 4–12 秒 / 数量只有 1',
     agnesMode.vals.length === 3 &&
       agnesMode.disabled.length === 0 &&
       JSON.stringify(agnesRatio.vals) ===
         JSON.stringify(['21:9', '16:9', '4:3', '1:1', '3:4', '9:16']) &&
-      JSON.stringify(agnesSize.vals) === JSON.stringify(['720p', '1080p']) &&
+      JSON.stringify(agnesSize.vals) === JSON.stringify(['720P']) &&
       JSON.stringify(await durationRange()) === JSON.stringify(['4', '12']) &&
       !(await hasChip('count')),
     `模式=${JSON.stringify(agnesMode.vals)} 画幅=${JSON.stringify(agnesRatio.vals)} 清晰度=${JSON.stringify(agnesSize.vals)} 时长=${JSON.stringify(await durationRange())}`,
