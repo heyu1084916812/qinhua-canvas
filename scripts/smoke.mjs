@@ -34484,6 +34484,19 @@ async function g160(browser) {
   await page.locator('[data-ecommerce-select-all]').click()
   const allSelected = await page.locator('[data-ecommerce-result-select]:checked').count()
   rec(g, '★ 全选已完成只选中完成结果', allSelected === 2, `已选=${allSelected}`)
+  const selectedHashes = [...originals.values()].filter(Boolean)
+  await page.locator('[data-ecommerce-save-selected]').click()
+  await sleep(900)
+  const libraryRowsAfterBatch = await sharedRows(page, 'assetLibrary')
+  rec(
+    g,
+    '★ 收藏所选把两张结果都写入素材库',
+    selectedHashes.length === 2 &&
+      selectedHashes.every((hash) =>
+        libraryRowsAfterBatch.some((row) => row.hash === hash),
+      ),
+    `收藏=${selectedHashes.filter((hash) => libraryRowsAfterBatch.some((row) => row.hash === hash)).length}/2`,
+  )
   const selectedDownload = page
     .waitForEvent('download', { timeout: 10000 })
     .catch(() => null)

@@ -286,6 +286,7 @@ export function EcommerceStudio({
   const [batchEditSubmitting, setBatchEditSubmitting] = useState(false)
   const [batchReference, setBatchReference] = useState<EcommerceUpload | null>(null)
   const [batchReferenceBusy, setBatchReferenceBusy] = useState(false)
+  const [savingSelected, setSavingSelected] = useState(false)
   const [compareTarget, setCompareTarget] = useState<EcommerceResultItem | null>(null)
   /**
    * 「先出一份方案」（对账 #423）：**方案 + 它是对着哪组参数写的**。
@@ -481,6 +482,12 @@ export function EcommerceStudio({
       selectedEditNodes.has(result.nodeId) &&
       !!result.onDownload,
   ).length
+  const selectedSaveCount = results.filter(
+    (result) =>
+      result.status === 'done' &&
+      selectedEditNodes.has(result.nodeId) &&
+      !!result.onSaveToLibrary,
+  ).length
   const editPresets = useMemo(
     () => [
       {
@@ -626,6 +633,24 @@ export function EcommerceStudio({
       if (targets.length > 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 250))
       }
+    }
+  }
+
+  const saveSelectedToLibrary = async () => {
+    const targets = results.filter(
+      (result) =>
+        result.status === 'done' &&
+        selectedEditNodes.has(result.nodeId) &&
+        !!result.onSaveToLibrary,
+    )
+    if (targets.length === 0) return
+    setSavingSelected(true)
+    try {
+      for (const result of targets) {
+        await Promise.resolve(result.onSaveToLibrary?.())
+      }
+    } finally {
+      setSavingSelected(false)
     }
   }
 
@@ -1167,6 +1192,17 @@ export function EcommerceStudio({
                 onClick={() => void downloadSelected()}
               >
                 下载所选（{selectedDownloadCount}）
+              </button>
+            ) : null}
+            {selectedSaveCount > 0 ? (
+              <button
+                type="button"
+                className={styles.linkBtn}
+                data-ecommerce-save-selected
+                disabled={savingSelected}
+                onClick={() => void saveSelectedToLibrary()}
+              >
+                {savingSelected ? '收藏中…' : `收藏所选（${selectedSaveCount}）`}
               </button>
             ) : null}
             {doneResultCount > 0 ? (
