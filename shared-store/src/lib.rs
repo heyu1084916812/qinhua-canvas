@@ -70,6 +70,14 @@ fn meta_path(root: &Path, table: &str, id: &str) -> Result<PathBuf, String> {
     Ok(table_dir(root, table)?.join(format!("{}.meta.json", hex_id(id))))
 }
 
+fn is_row_file(path: &Path) -> bool {
+    path.extension().is_some_and(|ext| ext == "json")
+        && !path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(".meta.json"))
+}
+
 fn thumb_path(root: &Path, id: &str) -> PathBuf {
     root.join("_thumbs").join(format!("{}.webp", hex_id(id)))
 }
@@ -117,7 +125,7 @@ fn list_rows(root: &Path, table: &str) -> Result<Vec<Value>, String> {
     let mut files = fs::read_dir(&dir)
         .map_err(|error| format!("read table dir: {error}"))?
         .filter_map(Result::ok)
-        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+        .filter(|entry| is_row_file(&entry.path()))
         .collect::<Vec<_>>();
     files.sort_by_key(|entry| entry.file_name());
     let mut rows = Vec::with_capacity(files.len());
@@ -136,7 +144,7 @@ fn row_files(root: &Path, table: &str) -> Result<Vec<PathBuf>, String> {
         .map_err(|error| format!("read table dir: {error}"))?
         .filter_map(Result::ok)
         .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .filter(|path| is_row_file(path))
         .collect::<Vec<_>>();
     files.sort();
     Ok(files)
@@ -788,6 +796,25 @@ mod tests {
             .map(|file| read_json(&file).unwrap())
             .collect::<Vec<_>>();
         assert_eq!(page, vec![json!({ "id": "b" })]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn asset_metadata_sidecars_are_not_listed_as_rows() {
+        let root = temp_root("asset-sidecar");
+        let row = json!({
+            "id": "a1",
+            "mime": "image/png",
+            "bytes": {
+                "__qhType": "u8",
+                "base64": "AQIDBA=="
+            }
+        });
+        write_row(&root, "assets", &row).unwrap();
+
+        let files = row_files(&root, "assets").unwrap();
+        assert_eq!(files, vec![row_path(&root, "assets", "a1").unwrap()]);
+        assert_eq!(list_rows(&root, "assets").unwrap(), vec![row]);
         let _ = fs::remove_dir_all(root);
     }
 }
