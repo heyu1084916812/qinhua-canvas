@@ -2781,6 +2781,24 @@ function ShotCard({
             onChange={(e) => onPatch(shot.id, { durationSec: Number(e.target.value) })}
           />
         </label>
+        {index < total - 1 ? (
+          <label className={styles.field}>
+            <span className={styles.label}>转场到下一镜</span>
+            <select
+              className={styles.select}
+              value={shot.transition ?? 'cut'}
+              data-storyboard-shot-transition={shot.id}
+              onChange={(e) =>
+                onPatch(shot.id, {
+                  transition: e.target.value === 'fade' ? 'fade' : 'cut',
+                })
+              }
+            >
+              <option value="cut">硬切</option>
+              <option value="fade">淡入淡出（黑场）</option>
+            </select>
+          </label>
+        ) : null}
       </div>
       <label className={styles.field}>
         <span className={styles.label}>画面提示词</span>

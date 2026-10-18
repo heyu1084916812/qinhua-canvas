@@ -97,6 +97,16 @@ describe('合成包 · 片段清单', () => {
     expect(timeline.missing).toEqual(pack.missing)
   })
 
+  it('★★ 第一镜设置淡入淡出 ⇒ 时间轴给前一镜 fadeOut、后一镜 fadeIn', () => {
+    const doc = two()
+    const withFade = updateShot(doc, doc.shots[0]!.id, { transition: 'fade' }, 2)
+    const timeline = episodeTimeline(withFade, doc.episodes[0]!.id)
+    expect(timeline.clips.map((clip) => [clip.fadeOut === true, clip.fadeIn === true])).toEqual([
+      [true, false],
+      [false, true],
+    ])
+  })
+
   it('★★ 没素材的镜头**不占时间轴**（预览里没有画面可放，命令里也没有文件可用）', () => {
     const doc = two()
     const bareShot = { ...doc.shots[1]! }
@@ -158,6 +168,15 @@ describe('合成包 · FFmpeg 命令', () => {
     expect(cmd).toContain('-map "[outv]" -map "[aout]"')
     expect(cmd).toContain('-c:a aac -b:a 192k')
     expect(cmd).toContain('-shortest')
+  })
+
+  it('★★ 淡入淡出转场生成前后两段 fade 滤镜，且落点按各自秒数计算', () => {
+    const cmd = ffmpegCommand([
+      clip({ file: 'a.png', seconds: 4, fadeOut: true }),
+      clip({ index: 2, file: 'b.png', seconds: 2, fadeIn: true }),
+    ])
+    expect(cmd).toContain('fade=t=out:st=3.700:d=0.300')
+    expect(cmd).toContain('fade=t=in:st=0:d=0.300')
   })
 
   it('配音按句起点延迟后与 BGM 混成一条音轨', () => {

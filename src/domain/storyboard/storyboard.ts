@@ -134,6 +134,12 @@ export interface StoryboardShot {
   lines: StoryboardLine[]
   /** 这一镜预计几秒（成片节奏的粗排；导出表里带上） */
   durationSec: number
+  /**
+   * 到下一镜的转场。空 = 硬切；`fade` = 当前镜淡出到黑、下一镜淡入。
+   *
+   * 只记录“到下一镜”这一条边，避免相邻两镜各存一份转场后互相矛盾。
+   */
+  transition?: 'cut' | 'fade'
   /** 画面提示词：留空就由 `scene` 派生（`shotPrompt`） */
   prompt: string
   /**
@@ -368,6 +374,7 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
     const videoNodeId = text(row.videoNodeId)
     const videoEndNodeId = text(row.videoEndNodeId)
     const videoHash = text(row.videoHash)
+    const transition = text(row.transition).trim() === 'fade' ? 'fade' : ''
     /** 悬空引用一律丢掉（手改过的备份 / 删过资产的老数据都可能留） */
     const sceneIdRaw = text(row.sceneId)
     const sceneId = sceneIdRaw && knownScenes.has(sceneIdRaw) ? sceneIdRaw : ''
@@ -387,6 +394,7 @@ export function parseStoryboard(raw: unknown, projectId: string): StoryboardDoc 
         durationSec: num(row.durationSec, DEFAULT_SHOT_SECONDS),
         prompt: text(row.prompt),
         ...(text(row.videoPrompt).trim() ? { videoPrompt: text(row.videoPrompt).trim() } : {}),
+        ...(transition ? { transition } : {}),
         /* 空串不落成字段：没有就是没有，别写一个 `undefined` 占位 */
         ...(nodeId ? { nodeId } : {}),
         ...(imageHash ? { imageHash } : {}),
@@ -760,19 +768,21 @@ export function updateShot(
 ): StoryboardDoc {
   return {
     ...doc,
-    shots: doc.shots.map((s) =>
-      s.id === id
-        ? {
-            ...s,
-            scene: text(patch.scene, s.scene),
-            durationSec: Math.max(1, Math.round(num(patch.durationSec, s.durationSec))),
-            prompt: text(patch.prompt, s.prompt),
-            videoPrompt: text(patch.videoPrompt, s.videoPrompt ?? ''),
-            /* 对白层**不在这里改**：它有增删改三种动作，走 `addShotLine` / `updateShotLine` /
-               `removeShotLine`（同一个函数里塞三种语义，迟早在某一路写错） */
-          }
-        : s,
-    ),
+    shots: doc.shots.map((s) => {
+      if (s.id !== id) return s
+      const next: StoryboardShot = {
+        ...s,
+        scene: text(patch.scene, s.scene),
+        durationSec: Math.max(1, Math.round(num(patch.durationSec, s.durationSec))),
+        prompt: text(patch.prompt, s.prompt),
+        videoPrompt: text(patch.videoPrompt, s.videoPrompt ?? ''),
+        /* 对白层**不在这里改**：它有增删改三种动作，走 `addShotLine` / `updateShotLine` /
+           `removeShotLine`（同一个函数里塞三种语义，迟早在某一路写错） */
+      }
+      if (patch.transition === 'fade') next.transition = 'fade'
+      else if (patch.transition === 'cut') delete next.transition
+      return next
+    }),
     updatedAt: now,
   }
 }

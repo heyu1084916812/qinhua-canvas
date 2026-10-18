@@ -26,6 +26,7 @@ import {
   shotsOf,
   type StoryboardDoc,
   type StoryboardEpisode,
+  type StoryboardShot,
 } from './storyboard'
 
 /** 输出画布尺寸（竖屏漫剧的默认档；要改就改命令里那三个数字，包里的注意事项会写出来） */
@@ -49,6 +50,10 @@ export interface TimelineClip {
   hash: string
   /** 这一镜的时长（秒） */
   seconds: number
+  /** 上一镜设置了淡入淡出，这一段从黑场淡入 */
+  fadeIn?: boolean
+  /** 这一镜设置了到下一镜的淡入淡出，这一段末尾淡出到黑场 */
+  fadeOut?: boolean
   /**
    * 这一镜的台词（说话人已解出名字；空 = 没说清）。
    *
@@ -161,7 +166,7 @@ export function episodeTimeline(
   doc: StoryboardDoc,
   episodeId: string,
 ): { clips: TimelineClip[]; missing: PackMissing[] } {
-  const clips: TimelineClip[] = []
+  const picked: { shot: StoryboardShot; clip: TimelineClip }[] = []
   const missing: PackMissing[] = []
   shotsOf(doc, episodeId).forEach((shot, i) => {
     const index = i + 1
@@ -174,18 +179,30 @@ export function episodeTimeline(
       missing.push({ index, reason: '还没出图 —— 这一镜没有任何素材可拼' })
       return
     }
-    clips.push({
-      index,
-      shotId: shot.id,
-      kind: pick.kind,
-      hash: pick.hash,
-      seconds: Math.max(1, Math.round(shot.durationSec)),
-      lines: shotDialogueLines(doc, shot),
-      scene: sceneNameOf(doc, shot),
-      cast: characterNamesOf(doc, shot),
+    picked.push({
+      shot,
+      clip: {
+        index,
+        shotId: shot.id,
+        kind: pick.kind,
+        hash: pick.hash,
+        seconds: Math.max(1, Math.round(shot.durationSec)),
+        lines: shotDialogueLines(doc, shot),
+        scene: sceneNameOf(doc, shot),
+        cast: characterNamesOf(doc, shot),
+      },
     })
   })
-  return { clips, missing }
+  /**
+   * 转场只发生在**前后两段都真的有素材**时：中间缺一镜时不能跨过它硬接淡出，
+   * 否则预览看起来像“上一镜要结束了”，命令却把它接在更后面的画面上。
+   */
+  for (let i = 1; i < picked.length; i += 1) {
+    if (picked[i - 1]!.shot.transition !== 'fade') continue
+    picked[i - 1]!.clip.fadeOut = true
+    picked[i]!.clip.fadeIn = true
+  }
+  return { clips: picked.map((entry) => entry.clip), missing }
 }
 
 /**
@@ -219,10 +236,16 @@ export function ffmpegCommand(
      * 必须写在它自己那个 `-i` 之前 —— 写到命令末尾只会作用到最后一个输入上。
      */
     inputs.push(clip.kind === 'image' ? `-loop 1 -t ${clip.seconds} -i ${clip.file}` : `-i ${clip.file}`)
-    chains.push(
+    const fadeSeconds = Math.min(0.3, Math.max(0.1, clip.seconds / 4))
+    let chain =
       `[${i}:v]scale=${w}:${h}:force_original_aspect_ratio=decrease,` +
-        `pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps},format=yuv420p[v${i}]`,
-    )
+      `pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps},format=yuv420p`
+    if (clip.fadeIn) chain += `,fade=t=in:st=0:d=${fadeSeconds.toFixed(3)}`
+    if (clip.fadeOut) {
+      const start = Math.max(0, clip.seconds - fadeSeconds).toFixed(3)
+      chain += `,fade=t=out:st=${start}:d=${fadeSeconds.toFixed(3)}`
+    }
+    chains.push(`${chain}[v${i}]`)
   })
   const concat = `${clips.map((_, i) => `[v${i}]`).join('')}concat=n=${clips.length}:v=1:a=0[outv]`
   const totalSeconds = clips.reduce((sum, clip) => sum + clip.seconds, 0)

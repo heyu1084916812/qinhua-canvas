@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type CSSProperties } from 'react'
 import { useAsset, useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
 import {
   dialogueTextOf,
@@ -221,6 +221,14 @@ function PreviewMedia({
   /** 要**原图**：预览是"看清画面"，用缩略图（240px）糊在大屏上等于没预览 */
   const meta = useAssetMeta(clip.hash, { preferThumb: false })
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const mediaClass = [
+    styles.media,
+    clip.fadeIn ? styles.fadeIn : '',
+    clip.fadeOut ? styles.fadeOut : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+  const mediaStyle = { '--clip-seconds': `${clip.seconds}s` } as CSSProperties
   /**
    * 回调放 ref：`onAdvance` 每次渲染都是新函数，直接进依赖会让静帧的定时器
    * **每渲染一次就重头计时** —— 于是它永远走不到下一段（"点了播放但不动"）。
@@ -255,8 +263,11 @@ function PreviewMedia({
     return (
       <video
         ref={videoRef}
-        className={styles.media}
+        className={mediaClass}
+        style={mediaStyle}
         data-preview-media="video"
+        data-preview-fade-in={clip.fadeIn ? 'true' : undefined}
+        data-preview-fade-out={clip.fadeOut ? 'true' : undefined}
         src={meta.url}
         muted
         playsInline
@@ -265,5 +276,15 @@ function PreviewMedia({
       />
     )
   }
-  return <img className={styles.media} data-preview-media="image" src={meta.url} alt="" />
+  return (
+    <img
+      className={mediaClass}
+      style={mediaStyle}
+      data-preview-media="image"
+      data-preview-fade-in={clip.fadeIn ? 'true' : undefined}
+      data-preview-fade-out={clip.fadeOut ? 'true' : undefined}
+      src={meta.url}
+      alt=""
+    />
+  )
 }

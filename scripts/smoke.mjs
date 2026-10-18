@@ -31337,6 +31337,7 @@ async function g145(browser) {
   await page.locator(`[data-storyboard-shot-scene="${ids[0]}"]`).fill('雨里骑车')
   await page.locator(`[data-storyboard-shot-scene="${ids[1]}"]`).fill('把箱子放下')
   await page.locator(`[data-storyboard-shot-scene="${ids[2]}"]`).fill('转身走远')
+  await page.locator(`[data-storyboard-shot-transition="${ids[0]}"]`).selectOption('fade')
   const firstLineInput = await fillShotLine(page, ids[0], '第一镜的台词')
   const currentLineId =
     (await firstLineInput.getAttribute('data-storyboard-line-text')) ?? ''
@@ -31465,6 +31466,16 @@ async function g145(browser) {
     /1\/2/.test(first) && mediaShown && (await media.count()) === 1,
     `${first.trim()} 素材元素=${await media.count()}`,
   )
+  const firstFade = await media.first().evaluate((el) => ({
+    marker: el.getAttribute('data-preview-fade-out') === 'true',
+    animation: getComputedStyle(el).animationName,
+  }))
+  rec(
+    g,
+    '★★★ 第一镜设置淡入淡出后，预览首段确实挂上淡出动画',
+    firstFade.marker && firstFade.animation !== 'none',
+    `marker=${firstFade.marker} animation=${firstFade.animation}`,
+  )
   const previewBgm = await page
     .locator('[data-preview-bgm-audio]')
     .waitFor({ state: 'attached', timeout: 5000 })
@@ -31495,6 +31506,17 @@ async function g145(browser) {
    */
   const advanced = await waitText(counter, /2\/2/, 12000)
   rec(g, '★★★ 静帧按分镜秒数**自动推进**（不是只能手点下一镜）', /2\/2/.test(advanced), advanced.trim())
+  await media.first().waitFor({ state: 'attached', timeout: 5000 }).catch(() => {})
+  const secondFade = await media.first().evaluate((el) => ({
+    marker: el.getAttribute('data-preview-fade-in') === 'true',
+    animation: getComputedStyle(el).animationName,
+  }))
+  rec(
+    g,
+    '★★★ 自动推进后的下一镜确实挂上淡入动画（转场与时间轴同源）',
+    secondFade.marker && secondFade.animation !== 'none',
+    `marker=${secondFade.marker} animation=${secondFade.animation}`,
+  )
 
   // 上一镜 / 暂停 / Esc
   await page.locator('[data-preview-prev]').click()
