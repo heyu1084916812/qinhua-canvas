@@ -4,13 +4,15 @@ use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tiny_http::{Header, Method, Request, Response, Server, StatusCode};
 
 pub const PORT: u16 = 18765;
 
 static STARTED: OnceLock<()> = OnceLock::new();
+static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone)]
 struct Store {
@@ -86,17 +88,80 @@ fn write_atomic(path: &Path, payload: &[u8]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| format!("create dir: {error}"))?;
     }
-    let temporary = path.with_extension("tmp");
+    let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let temporary = path.with_file_name(format!(
+        ".{}.{}.tmp",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("row"),
+        sequence
+    ));
     fs::write(&temporary, payload).map_err(|error| format!("write temp: {error}"))?;
-    if path.exists() {
-        fs::remove_file(path).map_err(|error| format!("replace old file: {error}"))?;
+    let deadline = Instant::now() + Duration::from_millis(750);
+    loop {
+        if path.exists() {
+            match fs::remove_file(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::WouldBlock
+                    ) && Instant::now() < deadline =>
+                {
+                    thread::sleep(Duration::from_millis(10));
+                    continue;
+                }
+                Err(error) => {
+                    let _ = fs::remove_file(&temporary);
+                    return Err(format!("replace old file: {error}"));
+                }
+            }
+        }
+        match fs::rename(&temporary, path) {
+            Ok(()) => return Ok(()),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::PermissionDenied
+                        | std::io::ErrorKind::AlreadyExists
+                        | std::io::ErrorKind::WouldBlock
+                ) && Instant::now() < deadline =>
+            {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => {
+                let _ = fs::remove_file(&temporary);
+                return Err(format!("rename temp: {error}"));
+            }
+        }
     }
-    fs::rename(&temporary, path).map_err(|error| format!("rename temp: {error}"))
 }
 
 fn read_json(path: &Path) -> Result<Value, String> {
-    let raw = fs::read_to_string(path).map_err(|error| format!("read {}: {error}", path.display()))?;
-    serde_json::from_str(&raw).map_err(|error| format!("parse {}: {error}", path.display()))
+    let deadline = Instant::now() + Duration::from_millis(500);
+    loop {
+        match fs::read_to_string(path) {
+            Ok(raw) => {
+                return serde_json::from_str(&raw)
+                    .map_err(|error| format!("parse {}: {error}", path.display()))
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+                ) && Instant::now() < deadline =>
+            {
+                /*
+                 * Windows 不能原子覆盖已存在文件，`write_atomic` 会先删旧文件再
+                 * rename 新文件。读线程可能正好落在这两个动作之间；短暂重试
+                 * 等写完，而不是把一次正常写入暴露成页面未捕获异常。
+                 */
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => return Err(format!("read {}: {error}", path.display())),
+        }
+    }
 }
 
 fn write_row(root: &Path, table: &str, row: &Value) -> Result<(), String> {
@@ -158,6 +223,14 @@ fn strip_payload(row: &mut Value) {
         let Some(value) = fields.get(name) else {
             continue;
         };
+        /*
+         * `data` 在 nodes / storyboards 等表里是正常业务对象，只有 assets 的
+         * bytes/thumb 这类字段才是 `{ "__qhType": "u8", base64 }` 二进制标记。
+         * 不能按字段名盲删，否则节点 data 会在列表投影里整体消失。
+         */
+        if value.get("__qhType").and_then(Value::as_str) != Some("u8") {
+            continue;
+        }
         let length = value
             .get("base64")
             .and_then(Value::as_str)
@@ -479,6 +552,7 @@ fn handle(store: &Store, mut request: Request) {
     let root = store.root.as_path();
     if request.method() == &Method::Get && path.starts_with("/thumb/") {
         let id = path.trim_start_matches("/thumb/");
+        let _guard = store.lock.lock().expect("store lock poisoned");
         match load_thumb(root, id) {
             Ok(bytes) => {
                 let _ = respond_bytes(request, StatusCode(200), bytes, "image/webp", origin.as_deref());
@@ -535,6 +609,7 @@ fn handle(store: &Store, mut request: Request) {
                 if metadata_file.exists() {
                     vec![read_json(&metadata_file)?]
                 } else {
+                    let _guard = store.lock.lock().expect("store lock poisoned");
                     let full = read_json(&row_path(root, &body.table, id)?)?;
                     write_sidecars(root, &body.table, &full)?;
                     let mut metadata = full;
@@ -590,6 +665,7 @@ fn handle(store: &Store, mut request: Request) {
                     if metadata_file.exists() {
                         return read_json(&metadata_file);
                     }
+                    let _guard = store.lock.lock().expect("store lock poisoned");
                     let row = read_json(&file)?;
                     write_sidecars(root, &table, &row)?;
                     let mut metadata = row;
@@ -782,6 +858,26 @@ mod tests {
     }
 
     #[test]
+    fn metadata_projection_keeps_business_data_objects() {
+        let mut row = json!({
+            "id": "n1",
+            "type": "generation",
+            "data": {
+                "channelId": "ch-1",
+                "model": "image-model"
+            }
+        });
+        strip_payload(&mut row);
+        assert_eq!(
+            row.get("data"),
+            Some(&json!({
+                "channelId": "ch-1",
+                "model": "image-model"
+            }))
+        );
+    }
+
+    #[test]
     fn row_page_lists_only_the_requested_file_slice() {
         let root = temp_root("page");
         for id in ["a", "b", "c"] {
@@ -815,6 +911,50 @@ mod tests {
         let files = row_files(&root, "assets").unwrap();
         assert_eq!(files, vec![row_path(&root, "assets", "a1").unwrap()]);
         assert_eq!(list_rows(&root, "assets").unwrap(), vec![row]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn read_retries_across_atomic_replace_window() {
+        let root = temp_root("replace-window");
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("row.json");
+        let writer_path = path.clone();
+        let writer = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(30));
+            fs::write(writer_path, br#"{"id":"a1"}"#).unwrap();
+        });
+
+        assert_eq!(read_json(&path).unwrap(), json!({ "id": "a1" }));
+        writer.join().unwrap();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn concurrent_atomic_writes_leave_a_valid_row() {
+        let root = temp_root("concurrent-write");
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("row.json");
+        let mut handles = Vec::new();
+        for writer in 0..8 {
+            let path = path.clone();
+            handles.push(thread::spawn(move || {
+                for sequence in 0..10 {
+                    let payload = format!(r#"{{"id":"{writer}-{sequence}"}}"#);
+                    write_atomic(&path, payload.as_bytes()).unwrap();
+                }
+            }));
+        }
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        assert!(read_json(&path).unwrap().get("id").is_some());
+        assert!(
+            fs::read_dir(&root)
+                .unwrap()
+                .flatten()
+                .all(|entry| !entry.file_name().to_string_lossy().ends_with(".tmp"))
+        );
         let _ = fs::remove_dir_all(root);
     }
 }

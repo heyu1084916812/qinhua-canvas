@@ -27,7 +27,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   rmSync,
   statSync,
 } from 'node:fs'
@@ -55,8 +54,10 @@ const probeRoot = path.join(ROOT, '.playwright-verify/release-shell')
 const scratch = path.join(probeRoot, new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19))
 const appDir = path.join(scratch, 'app')
 const dataDir = path.join(scratch, 'data')
+const localAppData = path.join(scratch, 'localappdata')
 const exePath = path.join(appDir, 'qinghua.exe')
 mkdirSync(appDir, { recursive: true })
+mkdirSync(localAppData, { recursive: true })
 copyFileSync(EXE_SRC, exePath)
 console.log(`临时布局：${scratch}`)
 console.log(`  程序 ${exePath}（${statSync(exePath).size} B）`)
@@ -67,28 +68,6 @@ function check(name, ok, detail = '') {
   console.log(`${ok ? '✅' : '❌'} ${name}${detail ? ` — ${detail}` : ''}`)
 }
 
-/** 目录递归字节数（IndexedDB 是目录，`statSync` 对它只会给 0） */
-function dirSize(dir) {
-  if (!existsSync(dir)) return 0
-  let total = 0
-  const stack = [dir]
-  while (stack.length > 0) {
-    const cur = stack.pop()
-    for (const entry of readdirSync(cur, { withFileTypes: true })) {
-      const full = path.join(cur, entry.name)
-      if (entry.isDirectory()) stack.push(full)
-      else {
-        try {
-          total += statSync(full).size
-        } catch {
-          /* 正在写的文件跳过 */
-        }
-      }
-    }
-  }
-  return total
-}
-
 /**
  * release 构建带着 `windows_subsystem = "windows"`（`src-tauri/src/main.rs` 第一行），
  * **没有控制台**：Rust 那些 `eprintln!` 到不了任何地方。所以这里虽然接着管道，
@@ -97,7 +76,11 @@ function dirSize(dir) {
 const logFile = createWriteStream(path.join(scratch, 'app.log'))
 const app = spawn(exePath, [], {
   cwd: appDir,
-  env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}` },
+  env: {
+    ...process.env,
+    LOCALAPPDATA: localAppData,
+    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}`,
+  },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
 app.stdout.on('data', (b) => logFile.write(b))
@@ -151,6 +134,7 @@ function cleanup() {
     const opts = { recursive: true, force: true, maxRetries: 10, retryDelay: 400 }
     rmSync(appDir, opts)
     rmSync(dataDir, opts)
+    rmSync(localAppData, opts)
     console.log(`已清掉临时的 app\\ 与 data\\（截图与日志留在 ${scratch}）`)
   } catch (err) {
     console.log(`⚠️ 临时目录没清干净（不影响判据）：${String(err).split('\n')[0]}`)
@@ -269,18 +253,17 @@ check(
   `${JSON.stringify(wasm)} 期望 ${expectedWasm}${wasm.error ? ` err=${wasm.error}` : ''}`,
 )
 
-// ⑥ 数据目录按「程序目录上一级的 data\」落地（闸门 1–4），默认库被迁过来
-const indexDb = path.join(dataDir, 'EBWebView/Default/IndexedDB')
-const srcIndexDb = process.env.LOCALAPPDATA
-  ? path.join(process.env.LOCALAPPDATA, 'com.qinghua.canvas/EBWebView/Default/IndexedDB')
-  : null
-const srcBytes = srcIndexDb ? dirSize(srcIndexDb) : 0
-const dstBytes = dirSize(indexDb)
-const migratedOk = srcBytes === 0 || dstBytes >= srcBytes * 0.9
+// ⑥ 独立 LOCALAPPDATA 下的 shared-store 必须真的启动，且不能连回用户真实库
+const sharedStoreDir = path.join(localAppData, 'com.qinghua.canvas', 'shared-store-v1')
+const health = await fetch('http://127.0.0.1:18765/health')
+  .then((res) => (res.ok ? res.json() : null))
+  .catch(() => null)
 check(
-  '同级 data\\ 自动创建，默认库被迁过来（源目录只被读）',
-  existsSync(dataDir) && existsSync(indexDb) && migratedOk,
-  `源 ${(srcBytes / 1024 / 1024).toFixed(1)} MB → 临时 ${(dstBytes / 1024 / 1024).toFixed(1)} MB`,
+  '独立 LOCALAPPDATA 下的 shared-store 已启动',
+  existsSync(sharedStoreDir) &&
+    health?.ok === true &&
+    path.resolve(String(health?.dataDir ?? '')) === path.resolve(sharedStoreDir),
+  `health=${JSON.stringify(health)} 期望目录=${sharedStoreDir}`,
 )
 
 // ⑦ 生产构建不该有运行时错误

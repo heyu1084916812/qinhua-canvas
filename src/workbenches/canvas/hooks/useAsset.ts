@@ -2,8 +2,16 @@ import { useEffect, useState } from 'react'
 import { usePlatform } from '../../../app/providers/PlatformProvider'
 import type { PlatformKit } from '../../../platform/ports'
 import { assetFileName, expectedAssetPath } from '../../../domain/shared/assetLocation'
-import { ensureAssetThumb, THUMB_MIME, thumbBytesOf } from '../../../platform/assetThumb'
-import { freshAssetOf } from '../../../features/canvas/freshAssets'
+import {
+  ensureAssetThumb,
+  THUMB_MIME,
+  thumbBytesOf,
+} from '../../../platform/assetThumb'
+import {
+  ensureFreshDisplayThumb,
+  freshAssetOf,
+  freshThumbOf,
+} from '../../../platform/freshAssets'
 
 /**
  * 按 hash 从 assets 表读回媒体本体并生成 objectURL（产品文档 §8：hash 即主键）。
@@ -63,6 +71,24 @@ export async function loadAssetUrl(
   const fresh = freshAssetOf(hash)
   if (fresh) {
     const mime = fresh.type || null
+    /**
+     * 画布节点优先走缩略图。fresh 分支以前直接给原图，导致 5.5MB 大图
+     * 在首帧先整张解码；现在仍在内存里完成缩小，但只把 640px 的结果交给
+     * `<img>`。灯箱等要真实像素的调用方不开 `preferThumb`，仍拿原图。
+     */
+    if (opts.preferThumb === true && (mime ?? '').startsWith('image/')) {
+      const thumb =
+        freshThumbOf(hash) ??
+        (await ensureFreshDisplayThumb(hash))
+      if (thumb) {
+        return {
+          url: URL.createObjectURL(thumb),
+          mime,
+          expectedPath: expectedAssetPath(platform.assetFolder?.current()?.name, hash, mime),
+          thumb: true,
+        }
+      }
+    }
     return {
       url: URL.createObjectURL(fresh),
       mime,
@@ -202,7 +228,33 @@ export function useAssetMeta(
     const backoffOf = (attempt: number) => (attempt < 12 ? 250 : 500)
 
     const load = async (attempt: number) => {
-      const meta = await loadAssetUrl(platform, hash, { preferThumb })
+      let meta: AssetMeta
+      try {
+        meta = await loadAssetUrl(platform, hash, { preferThumb })
+      } catch {
+        /*
+         * 共享存储写新素材时会极短地出现“行还没落盘”。`loadAssetUrl` 的查询
+         * 可能因此抛错；这和“查到了行但字节为空”一样属于可重试状态。
+         * 不能让它冒成未捕获异常，否则一次正常生成会在页面上留下红错，
+         * 同时这张图也不会继续等待落库。
+         */
+        if (!alive) return
+        if (attempt < MAX_ATTEMPTS) {
+          timer = setTimeout(() => void load(attempt + 1), backoffOf(attempt))
+        } else {
+          setMeta({
+            url: null,
+            mime: null,
+            missing: true,
+            expectedPath: expectedAssetPath(
+              platform.assetFolder?.current()?.name,
+              hash,
+              null,
+            ),
+          })
+        }
+        return
+      }
       if (!alive) return
       if (!meta.url) {
         if (attempt < MAX_ATTEMPTS) {

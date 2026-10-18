@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke": "node scripts/smoke.mjs",
+    "soak": "node scripts/soak-ui.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

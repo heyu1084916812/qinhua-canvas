@@ -46,12 +46,12 @@ export function createMemoryStorage(seed: MemorySeed = {}): StoragePort {
     return map
   }
 
-  return {
+  const port: StoragePort = {
     async open() {
       /* 内存实现无需打开 */
     },
     async transaction(_tables, fn) {
-      return fn()
+      return fn(port)
     },
     async put(table, row) {
       tableOf(table).set(row.id, { ...row })
@@ -85,6 +85,7 @@ export function createMemoryStorage(seed: MemorySeed = {}): StoragePort {
       return seed.usage ?? { used: 0, quota: 1024 * 1024 * 1024 }
     },
   }
+  return port
 }
 
 function textResponse(status: number, text: string): NetworkResponse {

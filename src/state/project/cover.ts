@@ -26,13 +26,13 @@ export async function rememberCanvasCover(
      * （改名 / 删除 / 又一次导入）覆盖掉。放进事务后 Dexie 会在同一个 store 上串行化，
      * 于是这个"读旧值再写回"的窗口对其它写者不再可见。
      */
-    await storage.transaction(['projects'], async () => {
-      const rows = (await storage.query('projects', { id: projectId })) as RowOf<'projects'>[]
+    await storage.transaction(['projects'], async (tx) => {
+      const rows = (await tx.query('projects', { id: projectId })) as RowOf<'projects'>[]
       const row = rows[0]
       if (!row) return
       const extra = (row as Record<string, unknown>).extra
       if (readCoverMark(extra)?.hash === hash) return
-      await storage.put(
+      await tx.put(
         'projects',
         { ...(row as Record<string, unknown>), extra: withCoverMark(extra, hash, at) } as never,
       )

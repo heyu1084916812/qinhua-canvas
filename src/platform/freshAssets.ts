@@ -1,3 +1,6 @@
+import { makeThumbBytes, THUMB_MIME } from './assetThumb'
+import type { ImageSize } from '../domain/shared/imageSize'
+
 /**
  * **刚导入的素材本体，在内存里留一小会儿**（对账 #408 的优化，2026-10-10）。
  *
@@ -29,6 +32,8 @@ const MAX_TOTAL_BYTES = 48 * 1024 * 1024
 interface Entry {
   blob: Blob
   bytes: number
+  thumb?: Blob
+  thumbJob?: Promise<Blob | null>
 }
 
 const entries = new Map<string, Entry>()
@@ -44,9 +49,59 @@ export function rememberFreshAsset(hash: string, blob: Blob): void {
     totalBytes -= previous.bytes
     entries.delete(hash)
   }
-  entries.set(hash, { blob, bytes: blob.size })
+  entries.set(hash, {
+    blob,
+    bytes: blob.size + (previous?.thumb?.size ?? 0),
+    ...(previous?.thumb ? { thumb: previous.thumb } : {}),
+    ...(previous?.thumbJob ? { thumbJob: previous.thumbJob } : {}),
+  })
   totalBytes += blob.size
   evict()
+}
+
+/**
+ * 预热 / 复用一份 fresh 显示缩略图。同 hash 的并发消费者拿到同一个 Promise，
+ * 不会各自解码一遍大图。
+ */
+export function ensureFreshThumb(
+  hash: string,
+  build: (blob: Blob) => Promise<Blob | null>,
+): Promise<Blob | null> {
+  const entry = entries.get(hash)
+  if (!entry) return Promise.resolve(null)
+  if (entry.thumb) return Promise.resolve(entry.thumb)
+  if (entry.thumbJob) return entry.thumbJob
+  entry.thumbJob = build(entry.blob)
+    .then((thumb) => {
+      if (thumb && entries.get(hash) === entry) {
+        entry.thumb = thumb
+        entry.bytes += thumb.size
+        totalBytes += thumb.size
+        evict()
+      }
+      return thumb
+    })
+    .catch(() => null)
+    .finally(() => {
+      entry.thumbJob = undefined
+    })
+  return entry.thumbJob
+}
+
+export function freshThumbOf(hash: string): Blob | null {
+  return entries.get(hash)?.thumb ?? null
+}
+
+/** 新素材首帧与落库共用这一份 320px 缩略图，避免再启动一份 640px 后台解码。 */
+export function ensureFreshDisplayThumb(
+  hash: string,
+  knownSize?: ImageSize | null,
+): Promise<Blob | null> {
+  return ensureFreshThumb(hash, (source) =>
+    makeThumbBytes(source, 320, knownSize).then((bytes) =>
+      bytes ? new Blob([bytes as unknown as BlobPart], { type: THUMB_MIME }) : null,
+    ),
+  )
 }
 
 /** 取一份刚导入的素材；没有就是 `null`（调用方回落去库里读） */

@@ -145,8 +145,12 @@ describe('内存存储', () => {
 
   it('transaction 透传返回值', async () => {
     const platform = createMemoryPlatform()
-    const out = await platform.storage.transaction(['nodes'], async () => 42)
+    const out = await platform.storage.transaction(['nodes'], async (tx) => {
+      await tx.put('nodes', { id: 'n-tx', projectId: 'p2' })
+      return 42
+    })
     expect(out).toBe(42)
+    expect(await platform.storage.query('nodes', { id: 'n-tx' })).toHaveLength(1)
   })
 
   it('容量上报', async () => {

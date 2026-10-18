@@ -67,7 +67,13 @@ export function GenerationNodeView(props: NodeViewProps) {
    * 决策本身是纯函数（`assetBoxCorrection`，带单测），这里只负责把元数据喂给它。
    */
   const reportNatural = (width: number, height: number) => {
-    const fix = assetBoxCorrection({ w: props.node.w, h: props.node.h }, { width, height })
+    /**
+     * 新导入 / 新生成的素材在节点数据里已经有真实 naturalSize。
+     * 此时画面上的 `<img>` 可能只是 320px 缩略图，不能拿它的
+     * naturalWidth 反过来覆盖真实像素；但框错了仍要用真实尺寸纠正。
+     */
+    const natural = data.naturalSize ?? { width, height }
+    const fix = assetBoxCorrection({ w: props.node.w, h: props.node.h }, natural)
     if (!fix) return
     props.emit({
       type: 'updateData',
@@ -118,6 +124,8 @@ export function GenerationNodeView(props: NodeViewProps) {
     <div
       className={`${styles.media} ${dropping ? styles.dropping : ''}`}
       data-generation-media
+      data-natural-width={data.naturalSize?.width}
+      data-natural-height={data.naturalSize?.height}
       onDragOver={(e) => {
         // 只在文件拖拽时亮起落点提示，避免节点拖动误触
         if (!Array.from(e.dataTransfer.types).includes('Files')) return

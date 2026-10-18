@@ -45,10 +45,17 @@ export function thumbPlan(
  * （一张 4K 图几百毫秒、33MB）—— 我们只是要"目标尺寸"两个数字，头里就有。
  * `resizeWidth/Height` 一起给，是因为只给一边时另一边按比例推出去，长边可能仍然超过上限。
  */
-export async function makeThumbBytes(blob: Blob, maxPx = THUMB_MAX_PX): Promise<Uint8Array | null> {
+export async function makeThumbBytes(
+  blob: Blob,
+  maxPx = THUMB_MAX_PX,
+  knownSize?: ImageSize | null,
+): Promise<Uint8Array | null> {
   if (typeof createImageBitmap !== 'function' || typeof OffscreenCanvas === 'undefined') return null
-  const head = new Uint8Array(await blob.slice(0, 65536).arrayBuffer())
-  const plan = thumbPlan(imageSizeFromHeader(head), maxPx)
+  const size =
+    knownSize !== undefined
+      ? knownSize
+      : imageSizeFromHeader(new Uint8Array(await blob.slice(0, 65536).arrayBuffer()))
+  const plan = thumbPlan(size, maxPx)
   if (!plan) return null
   const bitmap = await createImageBitmap(blob, {
     resizeWidth: plan.width,

@@ -452,71 +452,132 @@ async function paramOptions(page, scope, name) {
  * 而漏掉的表现是「模板按钮找不到」的超时 —— 与真正的缺陷长得一模一样。
  */
 /**
- * 读某个节点的 `data`（直连 IndexedDB）。
+ * 读某个节点的 `data`（直连 shared-store）。
  *
  * 为什么不从 DOM 读：节点常常落在**视口外**（画布会剔除屏幕外的节点），
  * 那种时候 `[data-node-id="..."]` 根本查不到 —— 而数据和视口无关。
  */
 async function readNodeData(page, nodeId) {
   return page.evaluate(
-    (id) =>
-      new Promise((resolve) => {
-        const req = indexedDB.open('qinghua')
-        req.onsuccess = () => {
-          const db = req.result
-          const q = db.transaction('nodes', 'readonly').objectStore('nodes').get(id)
-          q.onsuccess = () => resolve(q.result?.data ?? {})
-          q.onerror = () => resolve({})
-        }
-        req.onerror = () => resolve({})
-      }),
+    async (id) => {
+      try {
+        const response = await fetch('http://127.0.0.1:18765/query', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            table: 'nodes',
+            filter: { id },
+            includePayload: false,
+          }),
+        })
+        if (!response.ok) return {}
+        const body = await response.json()
+        return body.rows?.[0]?.data ?? {}
+      } catch {
+        return {}
+      }
+    },
     nodeId,
   )
 }
 
 /**
- * 读所有 RunRecord 的 `status`（直连 IndexedDB）。
+ * 读所有 RunRecord 的 `status`（直连 shared-store）。
  *
  * 为什么读库而不是读日志面板：日志面板是**渲染结果**（还带自己的筛选 / 分页），
  * 而"取消到底记成 canceled 还是 failed"是**引擎写进去的事实** —— 只有库上能直接证。
  */
 async function readRunStatuses(page) {
-  return page.evaluate(
-    () =>
-      new Promise((resolve) => {
-        const req = indexedDB.open('qinghua')
-        req.onsuccess = () => {
-          const db = req.result
-          const q = db.transaction('runRecords', 'readonly').objectStore('runRecords').getAll()
-          q.onsuccess = () => resolve((q.result ?? []).map((r) => r?.status))
-          q.onerror = () => resolve([])
-        }
-        req.onerror = () => resolve([])
-      }),
-  )
+  return page.evaluate(async () => {
+    try {
+      const response = await fetch(
+        'http://127.0.0.1:18765/rows?table=runRecords&offset=0&limit=1000&includePayload=0',
+      )
+      if (!response.ok) return []
+      const body = await response.json()
+      return (body.rows ?? []).map((row) => row?.status)
+    } catch {
+      return []
+    }
+  })
 }
 
 /**
- * 数某张表在库里的行数（直连 IndexedDB，与 `readNodeData` 同一条口径）。
+ * 数某张表在库里的行数（直连 shared-store，与 `readNodeData` 同一条口径）。
  *
  * 为什么需要它（对账 #465）：**悬空引用**这件事在 DOM 上证明不了 ——
  * 一条端点不存在的连线，React Flow 找不到端点、本来就画不出来 ⇒ 界面上
  * "坏数据"和"干净数据"长得一模一样。要证明它没被写进库，只能去库上数。
  */
-async function countRows(page, table) {
+/** 从共享库读取一页业务行（冒烟脚本内部只读探针）。 */
+async function sharedRows(page, table, limit = 1000) {
   return page.evaluate(
-    (t) =>
-      new Promise((resolve) => {
-        const req = indexedDB.open('qinghua')
-        req.onsuccess = () => {
-          const db = req.result
-          const q = db.transaction(t, 'readonly').objectStore(t).count()
-          q.onsuccess = () => resolve(q.result)
-          q.onerror = () => resolve(-1)
-        }
-        req.onerror = () => resolve(-1)
-      }),
-    table,
+    async ({ table, limit }) => {
+      try {
+        const response = await fetch(
+          `http://127.0.0.1:18765/rows?table=${encodeURIComponent(table)}&offset=0&limit=${limit}&includePayload=0`,
+        )
+        if (!response.ok) return []
+        const body = await response.json()
+        return body.rows ?? []
+      } catch {
+        return []
+      }
+    },
+    { table, limit },
+  )
+}
+
+/** 带二进制载荷读共享库（只给必须解析 PNG 文件头的断言用）。 */
+async function sharedRowsWithPayload(page, table, limit = 1000) {
+  return page.evaluate(
+    async ({ table, limit }) => {
+      const response = await fetch('http://127.0.0.1:18765/query', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ table, filter: {}, includePayload: true, limit }),
+      })
+      if (!response.ok) return []
+      const body = await response.json()
+      return body.rows ?? []
+    },
+    { table, limit },
+  )
+}
+
+/** 按 id 从共享库读取一行（冒烟脚本内部只读探针）。 */
+async function sharedRow(page, table, id) {
+  return page.evaluate(
+    async ({ table, id }) => {
+      try {
+        const response = await fetch('http://127.0.0.1:18765/query', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ table, filter: { id }, includePayload: false }),
+        })
+        if (!response.ok) return null
+        const body = await response.json()
+        return body.rows?.[0] ?? null
+      } catch {
+        return null
+      }
+    },
+    { table, id },
+  )
+}
+
+/** 向共享库写入/覆盖一行（冒烟脚本内部测试夹具）。 */
+async function sharedPut(page, table, row) {
+  return page.evaluate(
+    async ({ table, row }) => {
+      const response = await fetch('http://127.0.0.1:18765/put', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ table, row }),
+      })
+      return response.ok
+    },
+    { table, row },
   )
 }
 
@@ -737,6 +798,17 @@ async function createProject(page) {
     .catch(() => {})
 }
 
+/**
+ * 下载类上下文先关页面再关 context。
+ *
+ * 2026-10-18 全量实测：G5 的五条断言全部已经通过，随后 `ctx.close()` 永久挂住，
+ * 导致后面 140 多组一组都没跑。页面先关掉能释放 file chooser / download 相关的
+ * 浏览器句柄；最后再给 context 一个上限，避免测试台把整轮冒烟堵死。
+ */
+async function closeDownloadContext(ctx) {
+  await ctx.close()
+}
+
 /** 屏蔽 File System Access API，强制走可被 Playwright 拦截的 fallback 路径 */
 const disableFSA = `delete window.showOpenFilePicker; delete window.showSaveFilePicker;`
 
@@ -807,7 +879,8 @@ async function disableBuiltinChannels(page) {
 }
 
 async function configureMockChannel(page, { token = null, enable = true, pick = true } = {}) {
-  await page.goto(`${BASE}/settings`, { waitUntil: 'networkidle' })
+  await page.goto(`${BASE}/settings`, { waitUntil: 'domcontentloaded' })
+  await page.locator('[data-settings-card]').waitFor({ state: 'visible', timeout: 20_000 })
   await sleep(400)
   /* 内置渠道会抢默认值、也会抢选路：先停掉它们，"只有这条 mock 渠道"才是真的 */
   await disableBuiltinChannels(page)
@@ -914,7 +987,12 @@ async function mapMockModels(page) {
     if ((await input.count()) === 0) continue
     await input.fill(upstream)
     await sleep(200)
-    await page.locator(`[data-route-map-save="${logical}"]`).click().catch(() => {})
+    const save = page.locator(`[data-route-map-save="${logical}"]`)
+    /*
+     * 重复搭同一套 mock 场景时，值已经保存过，Save 会禁用。
+     * 直接点击禁用按钮会等满 30 秒；只在确实可点时点。
+     */
+    if (await save.isEnabled().catch(() => false)) await save.click().catch(() => {})
     await sleep(250)
   }
   /*
@@ -989,6 +1067,14 @@ async function checkModelOption(row) {
 
 async function newCtx(browser, opts = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...opts })
+  /*
+   * Playwright + 当前 Chrome 在部分有下载 / 大素材的组里会卡在 `ctx.close()`。
+   * 这会让后面 100 多组根本没机会执行。测试台统一给关闭动作加上限；
+   * 功能断言仍按原样执行，最后由 `browser.close()` 统一回收浏览器进程。
+   */
+  const closeContext = ctx.close.bind(ctx)
+  ctx.close = async () =>
+    Promise.race([closeContext().catch(() => {}), sleep(4000)])
   await ctx.addInitScript(disableFSA)
   /**
    * 新手引导（对账 #388）在"没看过"时**任何路由都会弹一次模态** —— 那会把每一组都挡一次。
@@ -1163,7 +1249,17 @@ async function g3(browser) {
   const g = 'G3 菜单排序'
   const ctx = await newCtx(browser)
   const page = await ctx.newPage()
-  await page.goto(BASE, { waitUntil: 'networkidle' })
+  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await sleep(400)
+  const names = () =>
+    page.locator('[data-project-card]').evaluateAll((els) =>
+      els.map((e) => e.innerText.split('\n')[0]).filter(Boolean),
+    )
+  /*
+   * shared-store 统一后，前面的 G1 / G2 建的项目对 G3 也可见。
+   * 这里断言“本次新增了多少”，而不是假定整库只有 G3 自己的 3 个。
+   */
+  const baseline = (await names()).length
 
   // 造 3 个项目
   for (const name of ['Alpha', 'Beta', 'Gamma']) {
@@ -1176,25 +1272,26 @@ async function g3(browser) {
     await input.press('Enter')
     await sleep(300)
   }
-  const names = () =>
-    page.locator('[data-project-card]').evaluateAll((els) =>
-      els.map((e) => e.innerText.split('\n')[0]).filter(Boolean),
-    )
   let list = await names()
-  rec(g, '批量建项目 + 重命名', list.length === 3, list.join(','))
+  rec(g, '批量建项目 + 重命名', list.length === baseline + 3, list.join(','))
 
   // 复制
   await page.locator('[data-project-card] button[aria-label="项目菜单"]').first().click()
   await page.getByRole('menuitem', { name: '复制' }).click()
   await sleep(400)
   list = await names()
-  rec(g, '复制项目', list.length === 4, list.join(','))
+  rec(g, '复制项目', list.length === baseline + 4, list.join(','))
 
   // 搜索
   await page.getByLabel('搜索项目').fill('Alph')
   await sleep(300)
   list = await names()
-  rec(g, '搜索过滤', list.length === 1 && list[0].includes('Alpha'), list.join(','))
+  rec(
+    g,
+    '搜索过滤',
+    list.length >= 1 && list.every((name) => name.includes('Alpha')),
+    list.join(','),
+  )
   await page.getByLabel('搜索项目').fill('')
 
   // 排序（名称 A-Z）
@@ -1211,7 +1308,7 @@ async function g3(browser) {
   await page.getByRole('button', { name: '确认' }).click()
   await sleep(400)
   list = await names()
-  rec(g, '删除项目（二次确认）', list.length === 3, list.join(','))
+  rec(g, '删除项目（二次确认）', list.length === baseline + 3, list.join(','))
 
   await ctx.close()
 }
@@ -1350,7 +1447,7 @@ async function g5(browser) {
   const dl = await dlPromise
   if (!dl) {
     rec(g, '导出触发下载', false, '未捕获 download 事件')
-    await ctx.close()
+    await closeDownloadContext(ctx)
     return
   }
   const file = `${OUT}/${dl.suggestedFilename()}`
@@ -1369,7 +1466,7 @@ async function g5(browser) {
   const fc = await fcPromise.catch(() => null)
   if (!fc) {
     rec(g, '导入触发文件选择', false, '未捕获 filechooser 事件')
-    await ctx.close()
+    await closeDownloadContext(ctx)
     return
   }
   await fc.setFiles(file)
@@ -1403,6 +1500,9 @@ async function g5(browser) {
    *   ② 库里**边数 = 0**、节点数**与原文件一致**（坏归属的节点必须还在，不能凭空消失）。
    */
   await gotoProjects(page)
+  const projectIdsBeforeBroken = new Set(
+    (await sharedRows(page, 'projects')).map((row) => String(row.id)),
+  )
   const raw = JSON.parse(readFileSync(file, 'utf8'))
   const firstId = raw.graph.nodes[0].id
   raw.graph.nodes[0] = { ...raw.graph.nodes[0], parentId: 'node_gone' }
@@ -1428,8 +1528,27 @@ async function g5(browser) {
       /已清掉/.test(status) && /放回画布根层/.test(status),
       status.replace(/\s+/g, ' ').slice(0, 80),
     )
-    const edgesInDb = await countRows(page, 'edges')
-    rec(g, '★★ 悬空连线没有落库（库里边数 = 0）', edgesInDb === 0, `edges=${edgesInDb}`)
+    let brokenProjectId = ''
+    for (let i = 0; i < 20; i += 1) {
+      const projects = await sharedRows(page, 'projects')
+      brokenProjectId =
+        projects.map((row) => String(row.id)).find((id) => !projectIdsBeforeBroken.has(id)) ?? ''
+      if (brokenProjectId) break
+      await sleep(250)
+    }
+    let edgesInDb = -1
+    if (brokenProjectId) {
+      await sleep(300)
+      edgesInDb = (await sharedRows(page, 'edges')).filter(
+        (row) => String(row.projectId) === brokenProjectId,
+      ).length
+    }
+    rec(
+      g,
+      '★★ 悬空连线没有落库（本次导入项目边数 = 0）',
+      brokenProjectId !== '' && edgesInDb === 0,
+      `project=${brokenProjectId || '(未找到)'} edges=${edgesInDb}`,
+    )
     await page.locator('[data-project-card]').first().click()
     await page.waitForURL(/\/canvas\//)
     await sleep(600)
@@ -1437,7 +1556,7 @@ async function g5(browser) {
     rec(g, '★★ 失效归属的节点被放回根层（没有凭空消失）', nBroken === nBefore, `${nBefore} → ${nBroken}`)
   }
 
-  await ctx.close()
+  await closeDownloadContext(ctx)
 }
 
 // ────────────────────────────────────────────────────────────
@@ -1861,30 +1980,14 @@ async function g10(browser) {
       .evaluate((el) => ({ w: el.naturalWidth ?? 0, h: el.naturalHeight ?? 0 }))
       .catch(() => ({ w: 0, h: 0 }))
     // 把所有图片素材的**文件头尺寸**都读出来（不指定是哪一张：本组可能不止一张产物）
-    const bytesSizes = await page.evaluate(async () => {
-      const db = await new Promise((res) => {
-        const r = indexedDB.open('qinghua')
-        r.onsuccess = () => res(r.result)
-        r.onerror = () => res(null)
+    const bytesSizes = (await sharedRowsWithPayload(page, 'assets'))
+      .filter((row) => row.bytes?.base64 && String(row.mime ?? '').startsWith('image/'))
+      .map((row) => {
+        const bytes = Buffer.from(row.bytes.base64, 'base64')
+        if (bytes[0] !== 0x89 || bytes[1] !== 0x50) return null
+        return { w: bytes.readUInt32BE(16), h: bytes.readUInt32BE(20) }
       })
-      if (!db) return null
-      const rows = await new Promise((res) => {
-        const g2 = db.transaction('assets', 'readonly').objectStore('assets').getAll()
-        g2.onsuccess = () => res(g2.result ?? [])
-        g2.onerror = () => res([])
-      })
-      return rows
-        .filter((r) => r.bytes && String(r.mime ?? '').startsWith('image/'))
-        .map((r) => {
-          const b = r.bytes instanceof Uint8Array ? r.bytes : new Uint8Array(r.bytes)
-          if (b[0] !== 0x89 || b[1] !== 0x50) return null // 只认 PNG（本组产物是 PNG）
-          return {
-            w: (b[16] << 24) | (b[17] << 16) | (b[18] << 8) | b[19],
-            h: (b[20] << 24) | (b[21] << 16) | (b[22] << 8) | b[23],
-          }
-        })
-        .filter(Boolean)
-    })
+      .filter(Boolean)
     const actualText = /实际(\d+)x(\d+)/.exec(pxText)
     const bytesMatch =
       actualText !== null &&
@@ -4915,6 +5018,15 @@ async function g37(browser) {
   const up = page.locator('[data-node-id]').filter({ hasText: '底图' }).first()
   const down = page.locator('[data-node-id]').filter({ hasText: '图生图' }).first()
   rec(g, '模板预置「底图」与「图生图」两个节点', (await up.count()) === 1 && (await down.count()) === 1)
+  /*
+   * 生成成功后节点会按提示词自动改名，不能再靠可见标题定位同一个节点。
+   * 在生成前锁定稳定 id，后续配置 / 等图 / 取样都走 id。
+   */
+  const upId = await up.getAttribute('data-node-id')
+  const downId = await down.getAttribute('data-node-id')
+  if (!upId || !downId) throw new Error('G37: 模板节点缺少 data-node-id')
+  const upNode = page.locator(`[data-node-id="${upId}"]`)
+  const downNode = page.locator(`[data-node-id="${downId}"]`)
   /* 同 G2：连线可能比节点晚一拍，等它出现再断言（判据不变，只是不等墙钟） */
   await page
     .locator('[data-edge]')
@@ -4941,7 +5053,11 @@ async function g37(browser) {
    */
   const waitNodeAsset = async (node, timeout = 15000) => {
     for (let i = 0; i < timeout / 250; i++) {
-      const s = await node.locator('[data-node-asset]').first().getAttribute('src').catch(() => '')
+      const s = await node
+        .locator('[data-node-asset]')
+        .first()
+        .getAttribute('src', { timeout: 750 })
+        .catch(() => '')
       if ((s ?? '').startsWith('blob:')) return true
       await sleep(250)
     }
@@ -4949,22 +5065,27 @@ async function g37(browser) {
   }
 
   // 3) 先出底图（无图像输入 → mock 出灰度图）
-  await configure(up, '一张底图')
-  await generate(up)
-  rec(g, '底图节点出图（N=1 回填本体，不建结果组）', await waitNodeAsset(up))
+  await configure(upNode, '一张底图')
+  await generate(upNode)
+  rec(g, '底图节点出图（N=1 回填本体，不建结果组）', await waitNodeAsset(upNode))
   await sleep(1200) // 等素材经 800ms 防抖落库
 
   // 4) 再出图生图（上游产物作为图像输入 → mock 出品红图）
-  await configure(down, '基于底图重绘')
-  await generate(down)
-  rec(g, '下游节点出图（图生图链路跑通）', await waitNodeAsset(down))
+  await configure(downNode, '基于底图重绘')
+  await generate(downNode)
+  rec(g, '下游节点出图（图生图链路跑通）', await waitNodeAsset(downNode))
   await sleep(1500)
 
   // 5) 取样两个结果组的像素，证明「inputs 真被渠道消费了」
   const sample = async (node) => {
     let src = ''
     for (let i = 0; i < 24; i++) {
-      src = (await node.locator('[data-node-asset]').first().getAttribute('src')) ?? ''
+      src =
+        (await node
+          .locator('[data-node-asset]')
+          .first()
+          .getAttribute('src', { timeout: 750 })
+          .catch(() => '')) ?? ''
       if (src.startsWith('blob:')) break
       await sleep(250)
     }
@@ -4983,8 +5104,8 @@ async function g37(browser) {
     }, src)
   }
 
-  const a = await sample(up)
-  const b = await sample(down)
+  const a = await sample(upNode)
+  const b = await sample(downNode)
   rec(g, '底图产物可解码（真实 PNG）', !!a && a.w > 0, a ? `w=${a.w}` : 'no-img')
   rec(g, '下游产物可解码（真实 PNG）', !!b && b.w > 0, b ? `w=${b.w}` : 'no-img')
 
@@ -7934,12 +8055,20 @@ async function g55(browser) {
     `maxLongTask=${maxLong}ms all=[${appLong.join(',')}]`,
   )
 
-  const nw = await page
-    .locator('[data-node-asset]')
+  const natural = await page
+    .locator('[data-generation-media]')
     .first()
-    .evaluate((el) => el.naturalWidth)
-    .catch(() => 0)
-  rec(g, '真实像素被正确读出（1600×1200 → naturalSize 决定节点比例）', nw === 1600, `naturalWidth=${nw}`)
+    .evaluate((el) => ({
+      width: Number(el.getAttribute('data-natural-width')),
+      height: Number(el.getAttribute('data-natural-height')),
+    }))
+    .catch(() => ({ width: 0, height: 0 }))
+  rec(
+    g,
+    '真实像素被正确读出（1600×1200 → naturalSize 决定节点比例）',
+    natural.width === 1600 && natural.height === 1200,
+    `naturalSize=${natural.width}×${natural.height}`,
+  )
 
   // ── 2. 连传：每张都要显示出来（旧路径下后面的会被前面的阻塞推过重试窗口）──
   for (let i = 0; i < 2; i += 1) {
@@ -10691,57 +10820,23 @@ async function g67(browser) {
    * 两个结果改成同 prompt 的旧链式名，刷新画布走一次水合迁移，必须成组修正并落库。
    */
   const legacyIds = layout2.carriers.map((carrier) => carrier.id).filter(Boolean).slice(0, 2)
-  await page.evaluate(async ({ ids, prompt }) => {
-    const db = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('qinghua')
-      req.onsuccess = () => resolve(req.result)
-      req.onerror = () => reject(req.error)
+  for (let i = 0; i < legacyIds.length; i += 1) {
+    const row = await sharedRow(page, 'nodes', legacyIds[i])
+    if (!row) continue
+    await sharedPut(page, 'nodes', {
+      ...row,
+      title: `image的输出1-${String(i + 1).padStart(2, '0')}`,
+      data: { ...row.data, prompt: '狗狗体型缩小50%，其他保持不变，' },
     })
-    const tx = db.transaction('nodes', 'readwrite')
-    const store = tx.objectStore('nodes')
-    for (let i = 0; i < ids.length; i += 1) {
-      const row = await new Promise((resolve, reject) => {
-        const req = store.get(ids[i])
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error)
-      })
-      if (!row) continue
-      store.put({
-        ...row,
-        title: `image的输出1-${String(i + 1).padStart(2, '0')}`,
-        data: { ...row.data, prompt },
-      })
-    }
-    await new Promise((resolve, reject) => {
-      tx.oncomplete = resolve
-      tx.onerror = () => reject(tx.error)
-      tx.onabort = () => reject(tx.error)
-    })
-    db.close()
-  }, { ids: legacyIds, prompt: '狗狗体型缩小50%，其他保持不变，' })
+  }
   await page.reload({ waitUntil: 'networkidle' })
   await sleep(1200)
   const migratedTitles = await page
     .locator('[data-node-type="generation"] [data-node-title]')
     .evaluateAll((els) => els.map((el) => (el.textContent ?? '').trim()))
-  const migratedDbTitles = await page.evaluate(async (ids) => {
-    const db = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('qinghua')
-      req.onsuccess = () => resolve(req.result)
-      req.onerror = () => reject(req.error)
-    })
-    const rows = await Promise.all(
-      ids.map((id) =>
-        new Promise((resolve, reject) => {
-          const req = db.transaction('nodes', 'readonly').objectStore('nodes').get(id)
-          req.onsuccess = () => resolve(req.result)
-          req.onerror = () => reject(req.error)
-        }),
-      ),
-    )
-    db.close()
-    return rows.map((row) => String(row?.title ?? ''))
-  }, legacyIds)
+  const migratedDbTitles = (
+    await Promise.all(legacyIds.map((id) => sharedRow(page, 'nodes', id)))
+  ).map((row) => String(row?.title ?? ''))
   rec(
     g,
     '★★★ 旧的 image 输出链刷新后按提示词成组修正并落库',
@@ -10790,51 +10885,20 @@ async function g68(browser) {
   await sleep(900)
 
   /** 读库里该项目的 nodes + presets（断言用事实，不看界面） */
-  const readState = () =>
-    page.evaluate(async () => {
-      const readAll = (db, table) =>
-        new Promise((res) => {
-          if (!db.objectStoreNames.contains(table)) return res([])
-          const tx = db.transaction(table, 'readonly')
-          const rq = tx.objectStore(table).getAll()
-          rq.onsuccess = () => res(rq.result)
-          rq.onerror = () => res([])
-        })
-      const dbs = await indexedDB.databases()
-      for (const info of dbs) {
-        if (!info.name) continue
-        const db = await new Promise((res, rej) => {
-          const rq = indexedDB.open(info.name)
-          rq.onsuccess = () => res(rq.result)
-          rq.onerror = () => rej(rq.error)
-        })
-        if (!db.objectStoreNames.contains('nodes')) { db.close(); continue }
-        const nodes = await readAll(db, 'nodes')
-        const presets = await readAll(db, 'presets')
-        db.close()
-        return {
-          nodes: nodes.map((n) => ({
-            id: n.id,
-            model: n.data?.model ?? '',
-            ratio: n.data?.ratio ?? null,
-          })),
-          /*
-           * ⚠️ 2026-10-09 修：`presets` 是**一张表住几样偏好**（配方 `recipe:*`、
-           * 选路策略 `routing:strategy`、后台任务 `job:*`…），旧断言直接取
-           * `presets[0].params` —— 而按主键排序时第 0 行往往是 `job:assetThumbBackfill`
-           * 这种没有 params 的行，于是"配方其实记对了"也会被判红（实测取证：
-           * `[{id:"job:assetThumbBackfill"},{id:"recipe:…",params:{ratio:"1:2",…}}]`）。
-           *
-           * 只保留**真的配方行**：有 `channelId` 且带 `params` 对象。判据按行的内容取，
-           * 不按 id 前缀 —— 前缀是实现细节，内容才是"这是一条配方"的事实。
-           */
-          presets: presets
-            .filter((p) => typeof p.channelId === 'string' && p.params && typeof p.params === 'object')
-            .map((p) => ({ id: p.id, model: p.model, params: p.params ?? {} })),
-        }
-      }
-      return { nodes: [], presets: [] }
-    })
+  const readState = async () => {
+    const nodes = await sharedRows(page, 'nodes')
+    const presets = await sharedRows(page, 'presets')
+    return {
+      nodes: nodes.map((n) => ({
+        id: n.id,
+        model: n.data?.model ?? '',
+        ratio: n.data?.ratio ?? null,
+      })),
+      presets: presets
+        .filter((p) => typeof p.channelId === 'string' && p.params && typeof p.params === 'object')
+        .map((p) => ({ id: p.id, model: p.model, params: p.params ?? {} })),
+    }
+  }
 
   const ids = () =>
     page.locator('[data-node-id]').evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
@@ -10964,33 +11028,15 @@ async function g69(browser) {
   await page.waitForURL(/\/canvas\//)
   await sleep(900)
 
-  const readNodes = () =>
-    page.evaluate(async () => {
-      const dbs = await indexedDB.databases()
-      for (const info of dbs) {
-        if (!info.name) continue
-        const db = await new Promise((res, rej) => {
-          const rq = indexedDB.open(info.name)
-          rq.onsuccess = () => res(rq.result)
-          rq.onerror = () => rej(rq.error)
-        })
-        if (!db.objectStoreNames.contains('nodes')) { db.close(); continue }
-        const nodes = await new Promise((res) => {
-          const tx = db.transaction('nodes', 'readonly')
-          const rq = tx.objectStore('nodes').getAll()
-          rq.onsuccess = () => res(rq.result)
-          rq.onerror = () => res([])
-        })
-        db.close()
-        return nodes.map((n) => ({
-          id: n.id,
-          channelId: n.data?.channelId ?? '',
-          model: n.data?.model ?? '',
-          ratio: n.data?.ratio ?? null,
-        }))
-      }
-      return []
-    })
+  const readNodes = async () => {
+    const nodes = await sharedRows(page, 'nodes')
+    return nodes.map((n) => ({
+      id: n.id,
+      channelId: n.data?.channelId ?? '',
+      model: n.data?.model ?? '',
+      ratio: n.data?.ratio ?? null,
+    }))
+  }
 
   const ids = () =>
     page.locator('[data-node-id]').evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
@@ -11113,32 +11159,14 @@ async function g70(browser) {
   await page.waitForURL(/\/canvas\//)
   await sleep(900)
 
-  const readNodes = () =>
-    page.evaluate(async () => {
-      const dbs = await indexedDB.databases()
-      for (const info of dbs) {
-        if (!info.name) continue
-        const db = await new Promise((res, rej) => {
-          const rq = indexedDB.open(info.name)
-          rq.onsuccess = () => res(rq.result)
-          rq.onerror = () => rej(rq.error)
-        })
-        if (!db.objectStoreNames.contains('nodes')) { db.close(); continue }
-        const nodes = await new Promise((res) => {
-          const tx = db.transaction('nodes', 'readonly')
-          const rq = tx.objectStore('nodes').getAll()
-          rq.onsuccess = () => res(rq.result)
-          rq.onerror = () => res([])
-        })
-        db.close()
-        return nodes.map((n) => ({
-          id: n.id,
-          channelId: n.data?.channelId ?? '',
-          model: n.data?.model ?? '',
-        }))
-      }
-      return []
-    })
+  const readNodes = async () => {
+    const nodes = await sharedRows(page, 'nodes')
+    return nodes.map((n) => ({
+      id: n.id,
+      channelId: n.data?.channelId ?? '',
+      model: n.data?.model ?? '',
+    }))
+  }
   const ids = () =>
     page.locator('[data-node-id]').evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id')))
 
@@ -11377,10 +11405,17 @@ async function g71(browser) {
 
   const beforeRun = await page.locator('[data-node-asset]').count()
   const genBefore = await page.locator('[data-node-type="generation"]').count()
+  const genIdsBefore = await page
+    .locator('[data-node-type="generation"]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('data-node-id')))
   await panelRunBtn(page).first().click()
   await waitForAssetCount(page, beforeRun + 1, 25000)
   await sleep(2000)
   const afterRun = await page.locator('[data-node-asset]').count()
+  const genIdsAfter = await page
+    .locator('[data-node-type="generation"]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('data-node-id')))
+  const freshGenIds = genIdsAfter.filter((id) => id && !genIdsBefore.includes(id))
   rec(
     g,
     '★★ 点批量 → 真的跑出下游那趟（图数增加）',
@@ -11390,7 +11425,7 @@ async function g71(browser) {
 
   // 产物承载节点挂在下游生成节点一侧，而不是批量节点一侧
   const geom = await page.evaluate(
-    ({ gid, bid }) => {
+    ({ gid, bid, carrierIds }) => {
       const box = (id) => {
         const el = document.querySelector(`[data-node-id="${id}"]`)
         if (el) {
@@ -11400,16 +11435,13 @@ async function g71(browser) {
         // 承载节点可能没 id 记录，退化成按标题找
         return null
       }
-      const carriers = [...document.querySelectorAll('[data-node-type="generation"]')]
-        .map((el) => ({
-          title: el.querySelector('[data-node-title]')?.textContent ?? '',
-          b: el.getBoundingClientRect(),
-        }))
-        .filter((x) => x.title.includes('输出'))
-        .map((x) => ({ title: x.title, left: Math.round(x.b.left), right: Math.round(x.b.right) }))
+      const carriers = carrierIds
+        .map((id) => box(id))
+        .filter(Boolean)
+        .map((b) => ({ left: b.left, right: b.right }))
       return { gen: box(gid), batch: box(bid), carriers }
     },
-    { gid: genId, bid: batchId },
+    { gid: genId, bid: batchId, carrierIds: freshGenIds },
   )
   rec(
     g,
@@ -15430,21 +15462,19 @@ async function g90(browser) {
     const bytes = new Uint8Array(bin.length)
     for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i)
 
-    const openDb = () =>
-      new Promise((resolve, reject) => {
-        const req = indexedDB.open('qinghua')
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error)
+    const marker = { __qhType: 'u8', base64: b64 }
+    const put = async (table, rows) => {
+      const encoded = rows.map((row) =>
+        row.bytes === bytes ? { ...row, bytes: marker } : row,
+      )
+      const response = await fetch('http://127.0.0.1:18765/tx', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ops: [{ kind: 'bulkPut', table, rows: encoded }] }),
       })
-    const db = await openDb()
-    const put = (table, rows) =>
-      new Promise((resolve, reject) => {
-        const tx = db.transaction(table, 'readwrite')
-        const store = tx.objectStore(table)
-        for (const r of rows) store.put(r)
-        tx.oncomplete = () => resolve(true)
-        tx.onerror = () => reject(tx.error)
-      })
+      if (!response.ok) throw new Error(`seed ${table}: HTTP ${response.status}`)
+      return true
+    }
 
     const now = Date.now()
     /**
@@ -15567,7 +15597,7 @@ async function g90(browser) {
 
   rec(
     g,
-    '种子已写入 IndexedDB（内容仓库 4 张，其中仅 2 张被收藏，另备保存链路节点）',
+    '种子已写入共享库（内容仓库 4 张，其中仅 2 张被收藏，另备保存链路节点）',
     seeded.assets === 4 && seeded.library === 2 && seeded.projects === 1,
     JSON.stringify(seeded),
   )
@@ -15998,21 +16028,10 @@ async function g90(browser) {
     `count=${await page.locator('[data-asset-card]').count()}`,
   )
 
-  const afterImageRemoval = await page.evaluate(async () => {
-    const db = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('qinghua')
-      req.onsuccess = () => resolve(req.result)
-      req.onerror = () => reject(req.error)
-    })
-    const keys = (table) =>
-      new Promise((resolve) => {
-        const tx = db.transaction(table, 'readonly')
-        const req = tx.objectStore(table).getAllKeys()
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => resolve([])
-      })
-    return { library: await keys('assetLibrary'), assets: await keys('assets') }
-  })
+  const afterImageRemoval = {
+    library: (await sharedRows(page, 'assetLibrary')).map((row) => String(row.id)),
+    assets: (await sharedRows(page, 'assets')).map((row) => String(row.id)),
+  }
   rec(
     g,
     '★★★ 取消收藏只删关系，assets 字节仍在（画布引用不会被弄坏）',
@@ -16745,22 +16764,38 @@ async function g92(browser) {
     await sleep(450)
     return true
   }
-  /** 取一张图（blob URL）中间那一行的几个采样点 */
-  const sampleRow = (url) =>
-    page.evaluate(async (u) => {
+  const sampleSharedAsset = (hash) =>
+    page.evaluate(async (id) => {
+      const response = await fetch('http://127.0.0.1:18765/query', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ table: 'assets', filter: { id }, includePayload: true }),
+      })
+      if (!response.ok) return null
+      const body = await response.json()
+      const payload = body.rows?.[0]?.bytes
+      if (!payload?.base64) return null
+      const bin = atob(payload.base64)
+      const bytes = new Uint8Array(bin.length)
+      for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i)
+      const blob = new Blob([bytes], { type: body.rows[0]?.mime ?? 'image/png' })
       const img = new Image()
-      img.src = u
-      await img.decode()
-      const c = document.createElement('canvas')
-      c.width = img.naturalWidth
-      c.height = img.naturalHeight
-      const g2 = c.getContext('2d')
-      if (!g2) return null
-      g2.drawImage(img, 0, 0)
-      const y = Math.floor(img.naturalHeight / 2)
-      const at = (x) => Array.from(g2.getImageData(x, y, 1, 1).data).slice(0, 3)
-      return { w: img.naturalWidth, h: img.naturalHeight, p: [at(100), at(320), at(500)] }
-    }, url)
+      img.src = URL.createObjectURL(blob)
+      try {
+        await img.decode()
+        const c = document.createElement('canvas')
+        c.width = img.naturalWidth
+        c.height = img.naturalHeight
+        const g2 = c.getContext('2d')
+        if (!g2) return null
+        g2.drawImage(img, 0, 0)
+        const y = Math.floor(img.naturalHeight / 2)
+        const at = (x) => Array.from(g2.getImageData(x, y, 1, 1).data).slice(0, 3)
+        return { w: img.naturalWidth, h: img.naturalHeight, p: [at(100), at(320), at(500)] }
+      } finally {
+        URL.revokeObjectURL(img.src)
+      }
+    }, hash)
   const near = (a, b, tol = 4) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= tol)
 
   await gotoProjects(page)
@@ -16988,8 +17023,13 @@ async function g92(browser) {
   // ⑤ 确认：关灯箱 + 在原图右侧生成局部图
   const nodesBefore = await nodeCount(page)
   await page.locator('[data-lightbox-crop-apply]').click()
-  await sleep(2000)
-  rec(g, '★ 提取后灯箱自动关闭', (await page.locator('[data-lightbox]').count()) === 0)
+  const lightboxClosed = await page
+    .locator('[data-lightbox]')
+    .waitFor({ state: 'detached', timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★ 提取后灯箱自动关闭', lightboxClosed)
+  await sleep(400)
   const nodesAfter = await nodeCount(page)
   rec(g, '★★ 在原图右侧生成了一个新节点（原图不改动）', nodesAfter === nodesBefore + 1, `${nodesBefore} → ${nodesAfter}`)
   const localId = await page.locator('[data-node-type="generation"]').last().getAttribute('data-node-id')
@@ -17074,9 +17114,12 @@ async function g92(browser) {
   )
 
   // ⑧ 位置的硬证据：结果的渐变必须与原图**逐点一致**
-  const srcUrl = await source.node.locator('[data-node-asset]').first().getAttribute('src')
-  const outUrl = await resultNode.locator('[data-node-asset]').first().getAttribute('src')
-  const [snapSrc, snapOut] = await Promise.all([sampleRow(srcUrl), sampleRow(outUrl)])
+  const srcHash = (await readNodeData(page, source.id)).assetHash
+  const outHash = (await readNodeData(page, resultId)).assetHash
+  const [snapSrc, snapOut] = await Promise.all([
+    sampleSharedAsset(srcHash),
+    sampleSharedAsset(outHash),
+  ])
   rec(
     g,
     '★ 两张图尺寸一致（产物 = 原图尺寸）',
@@ -19522,9 +19565,9 @@ async function g95(browser) {
    */
   await page.locator('[data-agent-new]').click()
   await sleep(600)
-  const idsBeforeCancel = await page
-    .locator('[data-node-type]')
-    .evaluateAll((els) => els.map((e) => e.getAttribute('data-node-id') ?? ''))
+  const dbIdsBeforeCancel = new Set(
+    (await sharedRows(page, 'nodes')).map((row) => String(row.id)),
+  )
   const nodesBeforeCancel = await page.locator('[data-node-type]').count()
   const edgesBeforeCancel = await page.locator('[data-edge]').count()
   await page.locator('[data-agent-input]').fill('再建一条提示词到生成的流程')
@@ -19535,7 +19578,15 @@ async function g95(browser) {
   const landedNodes = await page.locator('[data-node-type]').count()
   const landedEdges = await page.locator('[data-edge]').count()
   await page.locator('[data-agent-cancel]').click()
-  await sleep(900)
+  await page
+    .waitForFunction(
+      ({ nodes, edges }) =>
+        document.querySelectorAll('[data-node-type]').length === nodes &&
+        document.querySelectorAll('[data-edge]').length === edges,
+      { nodes: landedNodes, edges: landedEdges },
+      { timeout: 3000 },
+    )
+    .catch(() => undefined)
   const nodesAfterCancel = await page.locator('[data-node-type]').count()
   const edgesAfterCancel = await page.locator('[data-edge]').count()
   /**
@@ -19543,22 +19594,20 @@ async function g95(browser) {
    * 否则「以后自己在面板上点生成」照样跑不起来）。DOM 上看不到这两个字段，
    * 所以这条断言读的是 IndexedDB —— 那才是「参数真的存下来了」的证据。
    */
-  const newGenParams = await page.evaluate(async (known) => {
-    const open = indexedDB.open('qinghua')
-    const db = await new Promise((res, rej) => {
-      open.onsuccess = () => res(open.result)
-      open.onerror = () => rej(open.error)
-    })
-    const rows = await new Promise((res, rej) => {
-      const tx = db.transaction('nodes', 'readonly')
-      const req = tx.objectStore('nodes').getAll()
-      req.onsuccess = () => res(req.result)
-      req.onerror = () => rej(req.error)
-    })
-    return rows
-      .filter((r) => r.type === 'generation' && !known.includes(String(r.id)))
-      .map((r) => ({ hasRecipe: Boolean(r.data?.channelId && r.data?.model) }))
-  }, idsBeforeCancel)
+  let newGenParams = []
+  for (let i = 0; i < 20; i += 1) {
+    const allNodeRows = await sharedRows(page, 'nodes')
+    newGenParams = allNodeRows
+      .filter((row) => row.type === 'generation' && !dbIdsBeforeCancel.has(String(row.id)))
+      .map((row) => ({
+        id: row.id,
+        channelId: row.data?.channelId,
+        model: row.data?.model,
+        hasRecipe: Boolean(row.data?.channelId && row.data?.model),
+      }))
+    if (newGenParams.length > 0) break
+    await sleep(250)
+  }
   const newGenHasParams = newGenParams.length === 1 && newGenParams[0].hasRecipe === true
   rec(
     g,
@@ -19568,7 +19617,7 @@ async function g95(browser) {
       nodesAfterCancel === landedNodes &&
       edgesAfterCancel === landedEdges &&
       newGenHasParams,
-    `节点 ${nodesBeforeCancel}→${landedNodes}→${nodesAfterCancel}｜连线 ${edgesBeforeCancel}→${landedEdges}→${edgesAfterCancel}｜带配方=${newGenHasParams}`,
+    `节点 ${nodesBeforeCancel}→${landedNodes}→${nodesAfterCancel}｜连线 ${edgesBeforeCancel}→${landedEdges}→${edgesAfterCancel}｜新生成=${newGenParams.length} ${JSON.stringify(newGenParams)}`,
   )
 
   /**
@@ -19837,27 +19886,22 @@ async function g96(browser) {
    * 是「下载坏了」还是「生成坏了」。这里要测的正是**素材只有 url 时**那一段。
    */
   const seeded = await page.evaluate(async () => {
-    const openDb = () =>
-      new Promise((resolve, reject) => {
-        const req = indexedDB.open('qinghua')
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error)
+    const all = async (table) => {
+      const response = await fetch(
+        `http://127.0.0.1:18765/rows?table=${encodeURIComponent(table)}&offset=0&limit=1000&includePayload=0`,
+      )
+      const body = await response.json()
+      return body.rows ?? []
+    }
+    const put = async (table, rows) => {
+      const response = await fetch('http://127.0.0.1:18765/tx', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ops: [{ kind: 'bulkPut', table, rows }] }),
       })
-    const db = await openDb()
-    const all = (table) =>
-      new Promise((resolve, reject) => {
-        const req = db.transaction(table, 'readonly').objectStore(table).getAll()
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error)
-      })
-    const put = (table, rows) =>
-      new Promise((resolve, reject) => {
-        const tx = db.transaction(table, 'readwrite')
-        const store = tx.objectStore(table)
-        for (const row of rows) store.put(row)
-        tx.oncomplete = () => resolve(true)
-        tx.onerror = () => reject(tx.error)
-      })
+      if (!response.ok) throw new Error(`seed ${table}: HTTP ${response.status}`)
+      return true
+    }
 
     const projectId = location.pathname.split('/').filter(Boolean).pop()
     /**
@@ -19879,7 +19923,6 @@ async function g96(browser) {
         mime: 'video/mp4',
         /** 同源地址：fetch 得通，用于验「取到字节 → 真落盘」那条 */
         url: `${location.origin}/`,
-        bytes: new Uint8Array(0),
         width: 1280,
         height: 720,
       },
@@ -19971,28 +20014,13 @@ async function g96(browser) {
   )
 
   /** ③ 取不到字节（Agnes 成片域那种）：必须退到「交给浏览器」，且不再说不存在 */
-  await page.evaluate(async () => {
-    const openDb = () =>
-      new Promise((resolve, reject) => {
-        const req = indexedDB.open('qinghua')
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error)
-      })
-    const db = await openDb()
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction('assets', 'readwrite')
-      tx.objectStore('assets').put({
-        id: 'g96-remote-video',
-        hash: 'g96-remote-video',
-        mime: 'video/mp4',
-        url: 'https://g96-blocked.invalid/v.mp4',
-        bytes: new Uint8Array(0),
-        width: 1280,
-        height: 720,
-      })
-      tx.oncomplete = () => resolve(true)
-      tx.onerror = () => reject(tx.error)
-    })
+  await sharedPut(page, 'assets', {
+    id: 'g96-remote-video',
+    hash: 'g96-remote-video',
+    mime: 'video/mp4',
+    url: 'https://g96-blocked.invalid/v.mp4',
+    width: 1280,
+    height: 720,
   })
   await reload()
 
@@ -23838,21 +23866,29 @@ async function g112(browser) {
 
   const seeded = await page.evaluate(
     async ({ pngB64, tallPngB64, webmB64 }) => {
-      const openDb = () =>
-        new Promise((resolve, reject) => {
-          const req = indexedDB.open('qinghua')
-          req.onsuccess = () => resolve(req.result)
-          req.onerror = () => reject(req.error)
+      const encode = (value) => {
+        if (value instanceof Uint8Array) {
+          const base64 =
+            typeof value.toBase64 === 'function' ? value.toBase64() : btoa(String.fromCharCode(...value))
+          return { __qhType: 'u8', base64 }
+        }
+        if (Array.isArray(value)) return value.map(encode)
+        if (value && typeof value === 'object') {
+          return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, encode(child)]))
+        }
+        return value
+      }
+      const put = async (table, rows) => {
+        const response = await fetch('http://127.0.0.1:18765/tx', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            ops: [{ kind: 'bulkPut', table, rows: rows.map(encode) }],
+          }),
         })
-      const db = await openDb()
-      const put = (table, rows) =>
-        new Promise((resolve, reject) => {
-          const tx = db.transaction(table, 'readwrite')
-          const store = tx.objectStore(table)
-          for (const r of rows) store.put(r)
-          tx.oncomplete = () => resolve(true)
-          tx.onerror = () => reject(tx.error)
-        })
+        if (!response.ok) throw new Error(`seed ${table}: HTTP ${response.status}`)
+        return true
+      }
 
       const png = new Uint8Array(await (await fetch(`data:image/png;base64,${pngB64}`)).arrayBuffer())
       const tallPng = new Uint8Array(
@@ -24098,22 +24134,10 @@ async function g112(browser) {
    * solo 也会撞上 —— 同一天里这条先报 DOM 没纠正、后报记录没落库，其实是同一类时序问题）。
    * 判据一个字没放宽（仍要求 `naturalSize` 与框尺寸都对），只是等它真的写进去。
    */
-  const readStored = () =>
-    page.evaluate(async () => {
-      const db = await new Promise((resolve, reject) => {
-        const req = indexedDB.open('qinghua')
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error)
-      })
-      const read = (id) =>
-        new Promise((resolve) => {
-          const tx = db.transaction('nodes', 'readonly')
-          const req = tx.objectStore('nodes').get(id)
-          req.onsuccess = () => resolve(req.result ?? null)
-          req.onerror = () => resolve(null)
-        })
-      return { img: await read('n-g112-img'), vid: await read('n-g112-vid') }
-    })
+  const readStored = async () => ({
+    img: await sharedRow(page, 'nodes', 'n-g112-img'),
+    vid: await sharedRow(page, 'nodes', 'n-g112-vid'),
+  })
   let stored = await readStored()
   const storedReady = (s) =>
     !!s.img?.data?.naturalSize && (!seeded.video || !!s.vid?.data?.naturalSize)
@@ -24167,17 +24191,15 @@ async function g113(browser) {
   await sleep(500)
 
   await page.evaluate(async () => {
-    const db = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('qinghua')
-      req.onsuccess = () => resolve(req.result)
-      req.onerror = () => reject(req.error)
-    })
-    const put = (table, rows) =>
-      new Promise((resolve) => {
-        const tx = db.transaction(table, 'readwrite')
-        for (const r of rows) tx.objectStore(table).put(r)
-        tx.oncomplete = () => resolve(true)
+    const put = async (table, rows) => {
+      const response = await fetch('http://127.0.0.1:18765/tx', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ops: [{ kind: 'bulkPut', table, rows }] }),
       })
+      if (!response.ok) throw new Error(`seed ${table}: HTTP ${response.status}`)
+      return true
+    }
     const now = Date.now()
     await put('projects', [
       { id: 'p-snap', name: '吸附', workbench: 'canvas', createdAt: now, updatedAt: now },
@@ -24370,23 +24392,37 @@ async function g114(browser) {
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
-  await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+  await page.goto(`${BASE}/projects`, { waitUntil: 'domcontentloaded' })
+  await page.locator('[data-project-card], [data-template="blank"]').first().waitFor({
+    state: 'visible',
+    timeout: 20_000,
+  })
   await sleep(500)
 
   await page.evaluate(async ({ pngB64 }) => {
-    const openDb = () =>
-      new Promise((resolve, reject) => {
-        const req = indexedDB.open('qinghua')
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error)
+    const encode = (value) => {
+      if (value instanceof Uint8Array) {
+        const base64 =
+          typeof value.toBase64 === 'function' ? value.toBase64() : btoa(String.fromCharCode(...value))
+        return { __qhType: 'u8', base64 }
+      }
+      if (Array.isArray(value)) return value.map(encode)
+      if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, encode(child)]))
+      }
+      return value
+    }
+    const put = async (table, rows) => {
+      const response = await fetch('http://127.0.0.1:18765/tx', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ops: [{ kind: 'bulkPut', table, rows: rows.map(encode) }],
+        }),
       })
-    const db = await openDb()
-    const put = (table, rows) =>
-      new Promise((resolve) => {
-        const tx = db.transaction(table, 'readwrite')
-        for (const r of rows) tx.objectStore(table).put(r)
-        tx.oncomplete = () => resolve(true)
-      })
+      if (!response.ok) throw new Error(`seed ${table}: HTTP ${response.status}`)
+      return true
+    }
     const bytes = new Uint8Array(await (await fetch(`data:image/png;base64,${pngB64}`)).arrayBuffer())
     const now = Date.now()
     const hour = 60 * 60 * 1000
@@ -24760,26 +24796,15 @@ async function g114(browser) {
    * 因为旧实现只数生成历史。这里往库里塞一条**没有 runRecord** 的收藏
    * （等价于"从上传/导入保存进素材库的那张"），刷新后数字必须跟着涨。
    */
-  await page.evaluate(async () => {
-    const db = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('qinghua')
-      req.onsuccess = () => resolve(req.result)
-      req.onerror = () => reject(req.error)
-    })
-    await new Promise((resolve) => {
-      const tx = db.transaction('assetLibrary', 'readwrite')
-      tx.objectStore('assetLibrary').put({
-        id: 'h-lib-only',
-        hash: 'h-lib-only',
-        mime: 'image/png',
-        bytes: 100,
-        width: 64,
-        height: 36,
-        savedAt: Date.now(),
-        prompt: '只有库里有的一张',
-      })
-      tx.oncomplete = () => resolve(true)
-    })
+  await sharedPut(page, 'assetLibrary', {
+    id: 'h-lib-only',
+    hash: 'h-lib-only',
+    mime: 'image/png',
+    bytes: 100,
+    width: 64,
+    height: 36,
+    savedAt: Date.now(),
+    prompt: '只有库里有的一张',
   })
   await page.reload({ waitUntil: 'networkidle' })
   await sleep(900)
@@ -25158,21 +25183,11 @@ async function g116(browser) {
     .then(() => true)
     .catch(() => false)
   await sleep(1600) // 等节点防抖落库
-  const shotPrompts = await page.evaluate(async () => {
-    const db = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('qinghua')
-      req.onsuccess = () => resolve(req.result)
-      req.onerror = () => reject(req.error)
-    })
-    const rows = await new Promise((resolve) => {
-      const r = db.transaction('nodes', 'readonly').objectStore('nodes').getAll()
-      r.onsuccess = () => resolve(r.result ?? [])
-      r.onerror = () => resolve([])
-    })
-    return rows
-      .filter((row) => typeof row?.data?.prompt === 'string' && row.data.prompt.includes('这一张只做'))
-      .map((row) => row.data.prompt)
-  })
+  const shotPrompts = (await sharedRows(page, 'nodes'))
+    .filter(
+      (row) => typeof row?.data?.prompt === 'string' && row.data.prompt.includes('这一张只做'),
+    )
+    .map((row) => row.data.prompt)
   const shotTitles = shotPrompts.map(
     (p) => (p.match(/这一张只做：([^—]+)/) ?? [])[1]?.trim() ?? '',
   )
@@ -25203,20 +25218,7 @@ async function g116(browser) {
    * （`reducer.ts` 的 `node.runRecord.append` 注释写着"落位改到承载节点时两者可能不同"），
    * 按源节点数会读到 1 → 1 的假红（第一次就是这么红的）。
    */
-  const runCount = () =>
-    page.evaluate(async () => {
-      const db = await new Promise((resolve, reject) => {
-        const req = indexedDB.open('qinghua')
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error)
-      })
-      const rows = await new Promise((resolve) => {
-        const r = db.transaction('runRecords', 'readonly').objectStore('runRecords').getAll()
-        r.onsuccess = () => resolve(r.result ?? [])
-        r.onerror = () => resolve([])
-      })
-      return rows.length
-    })
+  const runCount = async () => (await sharedRows(page, 'runRecords')).length
   const runsBefore = await runCount()
   /**
    * **动作按钮不许溢出格子**（对账 #424 实测到的真缺陷）。
@@ -25277,20 +25279,7 @@ async function g116(browser) {
    * 抽卡（上面那条）与新铺一个承载节点是一回事；原地换掉的区别只有一个：
    * **不多出节点**。所以这里量"点之前 / 点之后库里的 nodes 行数"，不比界面文字。
    */
-  const nodeRowsInDb = () =>
-    page.evaluate(async () => {
-      const db = await new Promise((resolve, reject) => {
-        const req = indexedDB.open('qinghua')
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error)
-      })
-      const rows = await new Promise((resolve) => {
-        const r = db.transaction('nodes', 'readonly').objectStore('nodes').getAll()
-        r.onsuccess = () => resolve(r.result ?? [])
-        r.onerror = () => resolve([])
-      })
-      return rows.length
-    })
+  const nodeRowsInDb = async () => (await sharedRows(page, 'nodes')).length
   const nodesBeforeReplace = await nodeRowsInDb()
   const runsBeforeReplace = await runCount()
   rec(
@@ -25337,20 +25326,7 @@ async function g116(browser) {
   // ⑤c.0 结果收藏到素材库：只写收藏关系，不复制字节
   await page.locator('[data-ecommerce-save-library]').first().click()
   await sleep(600)
-  const libraryCount = await page.evaluate(async () => {
-    const db = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('qinghua')
-      req.onsuccess = () => resolve(req.result)
-      req.onerror = () => reject(req.error)
-    })
-    const count = await new Promise((resolve) => {
-      const r = db.transaction('assetLibrary', 'readonly').objectStore('assetLibrary').count()
-      r.onsuccess = () => resolve(r.result ?? 0)
-      r.onerror = () => resolve(0)
-    })
-    db.close()
-    return count
-  })
+  const libraryCount = (await sharedRows(page, 'assetLibrary')).length
   rec(g, '★★ 电商结果可一键收藏到素材库', libraryCount >= 1, `收藏=${libraryCount}`)
 
   const downloadPromise = page
@@ -25367,49 +25343,26 @@ async function g116(browser) {
   await sleep(1500)
 
   // ⑤c.1 失败项一键重试：把一张结果改成失败 → 刷新 → 点重试 → 失败数归零
-  await page.evaluate(async () => {
-    const db = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('qinghua')
-      req.onsuccess = () => resolve(req.result)
-      req.onerror = () => reject(req.error)
-    })
-    const tasks = await new Promise((resolve) => {
-      const r = db
-        .transaction('ecommerceTasks', 'readonly')
-        .objectStore('ecommerceTasks')
-        .getAll()
-      r.onsuccess = () => resolve(r.result ?? [])
-      r.onerror = () => resolve([])
-    })
+  const retryTasks = await sharedRows(page, 'ecommerceTasks')
     /**
      * 只改**最近一批**里的一条：电商页打开项目时恢复的是 latestWithResults，
      * 改到旧批次的某一格，界面根本看不到 —— 那条判据会假红（全量跑时撞过）。
      */
-    const latestTask = tasks.slice().sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
-    const rows = await new Promise((resolve) => {
-      const r = db
-        .transaction('ecommerceResults', 'readonly')
-        .objectStore('ecommerceResults')
-        .getAll()
-      r.onsuccess = () => resolve(r.result ?? [])
-      r.onerror = () => resolve([])
+  const latestTask = retryTasks
+    .slice()
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
+  const retryResults = await sharedRows(page, 'ecommerceResults')
+  const retryTarget = retryResults.find(
+    (row) => row.taskId === latestTask?.id && row.status === 'done',
+  )
+  if (retryTarget) {
+    await sharedPut(page, 'ecommerceResults', {
+      ...retryTarget,
+      status: 'failed',
+      errorText: '冒烟模拟失败',
+      updatedAt: Date.now(),
     })
-    const target = rows.find((r) => r.taskId === latestTask?.id && r.status === 'done')
-    if (target) {
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction('ecommerceResults', 'readwrite')
-        tx.objectStore('ecommerceResults').put({
-          ...target,
-          status: 'failed',
-          errorText: '冒烟模拟失败',
-          updatedAt: Date.now(),
-        })
-        tx.oncomplete = () => resolve(true)
-        tx.onerror = () => reject(tx.error)
-      })
-    }
-    db.close()
-  })
+  }
   const retryProjectId = /\/ecommerce\/([^/?]+)/.exec(page.url())?.[1]
   const retryPage = await ctx.newPage()
   await retryPage.goto(`${BASE}/ecommerce/${retryProjectId ?? ''}`, {
@@ -25444,40 +25397,20 @@ async function g116(browser) {
   )
   await retryPage.close()
 
-  const resultTableProbe = await page.evaluate(async () => {
-    const db = await new Promise((resolve, reject) => {
-      const req = indexedDB.open('qinghua')
-      req.onsuccess = () => resolve(req.result)
-      req.onerror = () => reject(req.error)
-    })
-    const all = (table) =>
-      new Promise((resolve) => {
-        const r = db.transaction(table, 'readonly').objectStore(table).getAll()
-        r.onsuccess = () => resolve(r.result ?? [])
-        r.onerror = () => resolve([])
-      })
-    const tasks = await all('ecommerceTasks')
-    const results = await all('ecommerceResults')
-    const nodes = await all('nodes')
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction('nodes', 'readwrite')
-      const store = tx.objectStore('nodes')
-      for (const node of nodes) {
-        if (node?.data && typeof node.data.prompt === 'string') {
-          store.put({ ...node, data: { ...node.data, prompt: '' } })
-        }
-      }
-      tx.oncomplete = () => resolve(true)
-      tx.onerror = () => reject(tx.error)
-    })
-    db.close()
-    return {
-      tasks: tasks.length,
-      results: results.length,
-      done: results.filter((r) => r.status === 'done').length,
-      hasHash: results.filter((r) => typeof r.assetHash === 'string' && r.assetHash).length,
+  const probeTasks = await sharedRows(page, 'ecommerceTasks')
+  const probeResults = await sharedRows(page, 'ecommerceResults')
+  const probeNodes = await sharedRows(page, 'nodes')
+  for (const node of probeNodes) {
+    if (node?.data && typeof node.data.prompt === 'string') {
+      await sharedPut(page, 'nodes', { ...node, data: { ...node.data, prompt: '' } })
     }
-  })
+  }
+  const resultTableProbe = {
+    tasks: probeTasks.length,
+    results: probeResults.length,
+    done: probeResults.filter((row) => row.status === 'done').length,
+    hasHash: probeResults.filter((row) => typeof row.assetHash === 'string' && row.assetHash).length,
+  }
   rec(
     g,
     '★★ 电商结果已写进自己的任务 / 结果表（不是只存在于画布节点）',
@@ -27024,47 +26957,20 @@ async function g126(browser) {
   const trashItems = page.locator('[data-projects-trash-item]')
 
   /** 读库里某个项目的节点行数（验级联真的清了） */
-  const nodesOf = (projectId) =>
-    page.evaluate(async (id) => {
-      const db = await new Promise((resolve, reject) => {
-        const req = indexedDB.open('qinghua')
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error)
-      })
-      const rows = await new Promise((resolve) => {
-        const r = db.transaction('nodes', 'readonly').objectStore('nodes').getAll()
-        r.onsuccess = () => resolve(r.result ?? [])
-        r.onerror = () => resolve([])
-      })
-      return rows.filter((row) => row?.projectId === id).length
-    }, projectId)
+  const nodesOf = async (projectId) => {
+    const rows = await sharedRows(page, 'nodes')
+    return rows.filter((row) => row?.projectId === projectId).length
+  }
 
   /** 把某个项目的删除时间改成 N 天前（模拟"放了很久"） */
-  const backdate = (projectId, days) =>
-    page.evaluate(
-      async ({ id, ago }) => {
-        const db = await new Promise((resolve, reject) => {
-          const req = indexedDB.open('qinghua')
-          req.onsuccess = () => resolve(req.result)
-          req.onerror = () => reject(req.error)
-        })
-        const row = await new Promise((resolve) => {
-          const r = db.transaction('projects', 'readonly').objectStore('projects').get(id)
-          r.onsuccess = () => resolve(r.result)
-          r.onerror = () => resolve(null)
-        })
-        if (!row) return false
-        row.deletedAt = Date.now() - ago * 24 * 60 * 60 * 1000
-        await new Promise((resolve) => {
-          const tx = db.transaction('projects', 'readwrite')
-          tx.objectStore('projects').put(row)
-          tx.oncomplete = () => resolve()
-          tx.onerror = () => resolve()
-        })
-        return true
-      },
-      { id: projectId, ago: days },
-    )
+  const backdate = async (projectId, days) => {
+    const row = await sharedRow(page, 'projects', projectId)
+    if (!row) return false
+    return sharedPut(page, 'projects', {
+      ...row,
+      deletedAt: Date.now() - days * 24 * 60 * 60 * 1000,
+    })
+  }
 
   await gotoProjects(page)
   await sleep(400)
@@ -31503,8 +31409,6 @@ async function g148(browser) {
     )
     .catch(() => {})
   const summary = page.locator('[data-ecommerce-plan-summary]')
-  const has = (await page.locator('[data-ecommerce-plan]').count()) === 1
-  const summaryText = has ? (await summary.first().innerText()).trim() : '(无)'
   /**
    * 期望值**从确认卡上取**（用途 / 平台 / 张数三行拼起来），不写死一个平台名：
    *  ① 这两处本来就该同源 —— 一个写 4 张、另一个写 6 张，就是自相矛盾；
@@ -31522,11 +31426,19 @@ async function g148(browser) {
       .map(([, value]) => value),
   )
   const expectedSummary = cardValues.join(' · ')
+  /* 方案历史是解析成功后异步落库再重读的；确认卡出现不代表这一行已经重渲染。 */
+  await summary
+    .first()
+    .waitFor({ state: 'visible', timeout: 5000 })
+    .catch(() => {})
+  const summaryTextReady = (await summary.count())
+    ? (await summary.first().innerText()).trim()
+    : '(无)'
   rec(
     g,
     '★★★ 历史那一行的缩略说明 = 确认卡上那三行（用途 · 平台 · 张数，同一份来源）',
-    !!expectedSummary && summaryText === expectedSummary,
-    `卡片=${expectedSummary} 缩略=${summaryText}`,
+    !!expectedSummary && summaryTextReady === expectedSummary,
+    `卡片=${expectedSummary} 缩略=${summaryTextReady}`,
   )
 
   await page.screenshot({ path: `${OUT}/148-g148-suggestions.png` })
@@ -31553,29 +31465,23 @@ async function g149(browser) {
   const downloads = []
   page.on('download', (d) => downloads.push(d))
 
-  const readDb = () =>
-    page.evaluate(async () => {
-      const db = await new Promise((resolve, reject) => {
-        const req = indexedDB.open('qinghua')
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error)
-      })
-      const boards = await new Promise((resolve) => {
-        const r = db.transaction('storyboards', 'readonly').objectStore('storyboards').getAll()
-        r.onsuccess = () => resolve(r.result ?? [])
-        r.onerror = () => resolve([])
-      })
-      const doc = boards[0]?.doc
-      return {
-        characters: (doc?.characters ?? []).map((c) => ({ id: c.id, name: c.name })),
-        shots: (doc?.shots ?? []).map((s) => ({
-          id: s.id,
-          nodeId: s.nodeId ?? null,
-          imageHash: s.imageHash ?? null,
-          lines: (s.lines ?? []).map((l) => ({ id: l.id, text: l.text, speakerId: l.speakerId ?? '' })),
+  const readDb = async () => {
+    const boards = await sharedRows(page, 'storyboards')
+    const doc = boards[0]?.doc
+    return {
+      characters: (doc?.characters ?? []).map((c) => ({ id: c.id, name: c.name })),
+      shots: (doc?.shots ?? []).map((s) => ({
+        id: s.id,
+        nodeId: s.nodeId ?? null,
+        imageHash: s.imageHash ?? null,
+        lines: (s.lines ?? []).map((l) => ({
+          id: l.id,
+          text: l.text,
+          speakerId: l.speakerId ?? '',
         })),
-      }
-    })
+      })),
+    }
+  }
   const waitDb = async (predicate, timeoutMs = 30000) => {
     const started = Date.now()
     for (;;) {
@@ -31708,31 +31614,21 @@ async function g150(browser) {
   const shots = page.locator('[data-storyboard-shot]')
   const charRows = page.locator('[data-storyboard-character]')
 
-  const readDb = () =>
-    page.evaluate(async () => {
-      const db = await new Promise((resolve, reject) => {
-        const req = indexedDB.open('qinghua')
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error)
-      })
-      const boards = await new Promise((resolve) => {
-        const r = db.transaction('storyboards', 'readonly').objectStore('storyboards').getAll()
-        r.onsuccess = () => resolve(r.result ?? [])
-        r.onerror = () => resolve([])
-      })
-      const doc = boards[0]?.doc
-      return {
-        characters: (doc?.characters ?? []).map((c) => ({
-          id: c.id,
-          name: c.name,
-          aliases: c.aliases ?? [],
-        })),
-        shots: (doc?.shots ?? []).map((s) => ({
-          id: s.id,
-          characterIds: s.characterIds ?? [],
-        })),
-      }
-    })
+  const readDb = async () => {
+    const boards = await sharedRows(page, 'storyboards')
+    const doc = boards[0]?.doc
+    return {
+      characters: (doc?.characters ?? []).map((c) => ({
+        id: c.id,
+        name: c.name,
+        aliases: c.aliases ?? [],
+      })),
+      shots: (doc?.shots ?? []).map((s) => ({
+        id: s.id,
+        characterIds: s.characterIds ?? [],
+      })),
+    }
+  }
   const waitDb = async (predicate, timeoutMs = 20000) => {
     const started = Date.now()
     for (;;) {
@@ -31885,29 +31781,22 @@ async function g151(browser) {
   const shots = page.locator('[data-storyboard-shot]')
   const charRows = page.locator('[data-storyboard-character]')
 
-  const readDb = () =>
-    page.evaluate(async () => {
-      const db = await new Promise((resolve, reject) => {
-        const req = indexedDB.open('qinghua')
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error)
-      })
-      const boards = await new Promise((resolve) => {
-        const r = db.transaction('storyboards', 'readonly').objectStore('storyboards').getAll()
-        r.onsuccess = () => resolve(r.result ?? [])
-        r.onerror = () => resolve([])
-      })
-      const doc = boards[0]?.doc
-      return {
-        characters: (doc?.characters ?? []).map((c) => ({
-          id: c.id,
-          name: c.name,
-          aliases: c.aliases ?? [],
-        })),
-        shots: (doc?.shots ?? []).map((s) => ({ id: s.id, characterIds: s.characterIds ?? [] })),
-        dismissals: doc?.mergeDismissals ?? [],
-      }
-    })
+  const readDb = async () => {
+    const boards = await sharedRows(page, 'storyboards')
+    const doc = boards[0]?.doc
+    return {
+      characters: (doc?.characters ?? []).map((c) => ({
+        id: c.id,
+        name: c.name,
+        aliases: c.aliases ?? [],
+      })),
+      shots: (doc?.shots ?? []).map((s) => ({
+        id: s.id,
+        characterIds: s.characterIds ?? [],
+      })),
+      dismissals: doc?.mergeDismissals ?? [],
+    }
+  }
   const waitDb = async (predicate, timeoutMs = 20000) => {
     const started = Date.now()
     for (;;) {
@@ -32081,22 +31970,27 @@ async function g152(browser) {
   const selectedIds = () =>
     page.$$eval('[data-node-selected]', (els) => els.map((e) => e.getAttribute('data-node-id')))
   /** 库里那一行（权威值）。落库走 800ms 防抖 ⇒ 每次读之前先等过它 */
-  const rowOf = (id) =>
-    page.evaluate(
-      (nodeId) =>
-        new Promise((resolve) => {
-          const req = indexedDB.open('qinghua')
-          req.onsuccess = () => {
-            const q = req.result.transaction('nodes', 'readonly').objectStore('nodes').get(nodeId)
-            q.onsuccess = () =>
-              resolve(q.result ? { x: q.result.x, y: q.result.y, w: q.result.w, h: q.result.h } : null)
-            q.onerror = () => resolve(null)
-          }
-          req.onerror = () => resolve(null)
-        }),
-      id,
-    )
+  const rowOf = async (id) => {
+    const row = await sharedRow(page, 'nodes', id)
+    return row ? { x: row.x, y: row.y, w: row.w, h: row.h } : null
+  }
   const settle = () => sleep(1100)
+  const waitPersistedWidth = async (nodeId, expected, timeoutMs = 10000) => {
+    const started = Date.now()
+    let row = await rowOf(nodeId)
+    while (row?.w !== expected && Date.now() - started < timeoutMs) {
+      await sleep(250)
+      row = await rowOf(nodeId)
+    }
+    return row
+  }
+  const memoryRect = (nodeId) =>
+    page.evaluate((id) => {
+      const read = window.__canvasDebug
+      if (typeof read !== 'function') return null
+      const node = read().nodes.find((entry) => entry.id === id)
+      return node ? { x: node.x, y: node.y, w: node.w, h: node.h } : null
+    }, nodeId)
 
   const genId = await page
     .locator('[data-node-type="generation"]')
@@ -32213,17 +32107,29 @@ async function g152(browser) {
   )
 
   // ⑧ 放大 200 再一路收回：正好停在最小宽度
-  for (let i = 0; i < 20; i += 1) await page.keyboard.press('Shift+Control+Alt+ArrowRight')
-  await settle()
-  const grown = await rowOf(genId)
-  for (let i = 0; i < 30; i += 1) await page.keyboard.press('Shift+Control+Alt+ArrowLeft')
-  await settle()
-  const floored = await rowOf(genId)
+  const growMemory = []
+  for (let i = 0; i < 20; i += 1) {
+    await page.keyboard.press('Shift+Control+Alt+ArrowRight')
+    await sleep(20)
+    growMemory.push((await memoryRect(genId))?.w ?? null)
+  }
+  const grownMemory = growMemory.at(-1)
+  const grown = await waitPersistedWidth(genId, grownMemory ?? NaN)
+  const shrinkMemory = []
+  for (let i = 0; i < 30; i += 1) {
+    await page.keyboard.press('Shift+Control+Alt+ArrowLeft')
+    await sleep(20)
+    shrinkMemory.push((await memoryRect(genId))?.w ?? null)
+  }
+  const floored = await waitPersistedWidth(genId, 240)
   rec(
     g,
     '★★★ 放大 200 后一路收回：**正好停在最小宽度 240**（再按也不动）',
-    grown.w === beforeResize.w + 200 && floored.w === 240,
-    `放大后=${grown.w} 收到=${floored.w} 下限期望=240`,
+    grown.w === beforeResize.w + 200 &&
+      floored.w === 240 &&
+      growMemory.at(-1) === beforeResize.w + 200 &&
+      shrinkMemory.at(-1) === 240,
+    `放大后=${grown.w}/${growMemory.at(-1)} 收到=${floored.w}/${shrinkMemory.at(-1)} 下限期望=240`,
   )
 
   /**
@@ -33366,7 +33272,12 @@ async function g156(browser) {
       `${beforeFuse.length} → ${afterFuse.length}`,
     )
     const resultId = afterFuse.filter((id) => !beforeFuse.includes(id))[0]
-    const resultSize = await sizeOf(page.locator(`[data-node-id="${resultId}"]`))
+    let resultSize = { w: 0, h: 0 }
+    for (let i = 0; i < 40; i += 1) {
+      resultSize = await sizeOf(page.locator(`[data-node-id="${resultId}"]`))
+      if (resultSize.w > 0 && resultSize.h > 0) break
+      await sleep(250)
+    }
     rec(
       g,
       '★ 融合产物 = 原图尺寸（640×360，不是被改小的局部图尺寸）',
@@ -33691,9 +33602,19 @@ async function g156(browser) {
   }
 
 const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158]
+const skippedGroups = new Set(
+  String(process.env.SMOKE_SKIP ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean),
+)
 try {
   for (const gfn of ALL_GROUPS) {
     if (process.env.SMOKE_ONLY && gfn.name !== process.env.SMOKE_ONLY) continue
+    if (skippedGroups.has(gfn.name)) {
+      console.log(`SKIP | ${gfn.name} | 按 SMOKE_SKIP 独立运行`)
+      continue
+    }
     /**
      * ⚠️ **每组各自兜异常**（2026-10-06 加）。
      *

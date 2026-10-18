@@ -101,9 +101,9 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
         updatedAt: at,
         status: 'pending',
       }))
-      await storage.transaction(['ecommerceTasks', 'ecommerceResults'], async () => {
-        await storage.put('ecommerceTasks', task as never)
-        await storage.bulkPut('ecommerceResults', results as never)
+      await storage.transaction(['ecommerceTasks', 'ecommerceResults'], async (tx) => {
+        await tx.put('ecommerceTasks', task as never)
+        await tx.bulkPut('ecommerceResults', results as never)
       })
       return { task, results }
     },
@@ -142,10 +142,10 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
     },
 
     async remove(taskId) {
-      await storage.transaction(['ecommerceTasks', 'ecommerceResults'], async () => {
-        await storage.delete('ecommerceTasks', taskId)
-        const rows = await storage.query('ecommerceResults', { taskId })
-        for (const row of rows) await storage.delete('ecommerceResults', row.id)
+      await storage.transaction(['ecommerceTasks', 'ecommerceResults'], async (tx) => {
+        await tx.delete('ecommerceTasks', taskId)
+        const rows = await tx.query('ecommerceResults', { taskId })
+        for (const row of rows) await tx.delete('ecommerceResults', row.id)
       })
     },
   }

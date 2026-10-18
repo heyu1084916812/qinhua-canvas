@@ -19,6 +19,7 @@ import { isGenericGenerationTitle } from '../../../domain/canvas/naming/autoTitl
 import { createId } from '../../../shared/id'
 import type { ExecutionPlacement } from '../../shared/execution/placement'
 import type { CanvasRunTask } from './buildRunPlan'
+import { rememberFreshAsset } from '../../../platform/freshAssets'
 
 /** 新建承载节点与源节点的水平间距（用户 2026-09-16：新节点落在源节点右侧） */
 const NEW_NODE_GAP_X = 72
@@ -157,6 +158,17 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
      */
     commit(task, targetId, assets) {
       const first = assets[0]
+      /**
+       * 生成产物和刚上传的素材一样，字节已经在当前线程里。先放进 fresh-assets
+       * 直通车，节点首帧就不必等 asset.put 落库后再按 hash 回查。
+       */
+      for (const asset of assets) {
+        if (asset.bytes.length === 0) continue
+        rememberFreshAsset(
+          asset.hash,
+          new Blob([asset.bytes as unknown as BlobPart], { type: asset.mime }),
+        )
+      }
       const natural =
         first && first.width && first.height ? { width: first.width, height: first.height } : undefined
       const patch: Record<string, unknown> = {

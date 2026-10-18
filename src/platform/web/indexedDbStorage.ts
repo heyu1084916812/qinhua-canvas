@@ -180,13 +180,13 @@ export function createIndexedDbStorage(dbName?: string): StoragePort {
    */
   const needsOpen = () => !db.isOpen()
 
-  return {
+  const port: StoragePort = {
     async open() {
       if (needsOpen()) await db.open()
     },
     async transaction(tables, fn) {
       if (needsOpen()) await db.open()
-      return db.transaction('rw', tables.map(tableOf), () => fn())
+      return db.transaction('rw', tables.map(tableOf), () => fn(port))
     },
     async put(table, row) {
       if (needsOpen()) await db.open()
@@ -231,4 +231,5 @@ export function createIndexedDbStorage(dbName?: string): StoragePort {
       return { used: estimate.usage ?? 0, quota: estimate.quota ?? 0 }
     },
   }
+  return port
 }

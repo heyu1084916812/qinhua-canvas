@@ -88,7 +88,7 @@ export interface StorageScanOptions {
 
 export interface StoragePort {
   open(): Promise<void>
-  transaction<T>(tables: TableName[], fn: () => Promise<T>): Promise<T>
+  transaction<T>(tables: TableName[], fn: (tx: StoragePort) => Promise<T>): Promise<T>
   put<K extends TableName>(table: K, row: RowOf<K>): Promise<void>
   bulkPut<K extends TableName>(table: K, rows: RowOf<K>[]): Promise<void>
   delete<K extends TableName>(table: K, id: string): Promise<void>

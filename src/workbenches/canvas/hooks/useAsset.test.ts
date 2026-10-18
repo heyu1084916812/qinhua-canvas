@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { loadAssetUrl } from './useAsset'
 import { createMemoryAssetFolder } from '../../../platform/memory/index'
 import type { PlatformKit } from '../../../platform/ports'
-import { clearFreshAssets, rememberFreshAsset } from '../../../features/canvas/freshAssets'
+import { clearFreshAssets, rememberFreshAsset } from '../../../platform/freshAssets'
 
 /**
  * 素材读回的两条来源（对账 #196 · 增量 2）：
@@ -16,7 +16,7 @@ function kitWithFolder(folder: ReturnType<typeof createMemoryAssetFolder>): Plat
     storage: {
       async open() {},
       async transaction(_t, fn) {
-        return fn()
+        return fn(this as PlatformKit['storage'])
       },
       async put() {},
       async bulkPut() {},

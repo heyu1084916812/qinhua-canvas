@@ -166,20 +166,20 @@ export function createSnapshotStore(storage: StoragePort): SnapshotStore {
       if (!snap) throw new Error('这份快照已经不在库里了')
       const projectId = snap.projectId
 
-      await storage.transaction(['nodes', 'edges', 'runRecords'], async () => {
+      await storage.transaction(['nodes', 'edges', 'runRecords'], async (tx) => {
         // 先把现有的图清掉，再写回快照里的 —— 原地覆盖，项目 id 不变
         for (const table of ['nodes', 'edges'] as const) {
-          const rows = await storage.query(table, { projectId })
-          for (const row of rows) await storage.delete(table, row.id)
+          const rows = await tx.query(table, { projectId })
+          for (const row of rows) await tx.delete(table, row.id)
         }
-        if (snap.nodes.length) await storage.bulkPut('nodes', snap.nodes as never)
-        if (snap.edges.length) await storage.bulkPut('edges', snap.edges as never)
+        if (snap.nodes.length) await tx.bulkPut('nodes', snap.nodes as never)
+        if (snap.edges.length) await tx.bulkPut('edges', snap.edges as never)
         /**
          * 运行记录**不清空、只补写**：它是"跑过什么"的历史，
          * 清掉会让日志凭空少一截，而用户只是想把画布退回某个状态。
          * 快照里已有的行按 id 覆盖，缺的保留。
          */
-        if (snap.runRecords.length) await storage.bulkPut('runRecords', snap.runRecords as never)
+        if (snap.runRecords.length) await tx.bulkPut('runRecords', snap.runRecords as never)
       })
     },
 

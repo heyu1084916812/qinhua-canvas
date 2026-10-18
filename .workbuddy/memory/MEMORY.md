@@ -1,5 +1,25 @@
 # CanvasFlow（轻画）项目记忆
 
+### ★★★ 共享库事务必须是显式 tx 端口（2026-10-18 → 对账 #574）
+
+- **模块级 `active` 事务会串写并“假成功”**：画布事务尚未提交时，电商结果
+  `storage.put()` 会误加入该事务；提交快照取走后再 push 的 op 可能被丢掉，
+  表现是“节点已经有图，`ecommerceResults.status` 仍停在 pending”。
+  `StoragePort.transaction()` 现在把独立的 `tx` 作为回调参数传入，事务内只能
+  用 `tx.put/bulkPut/delete/query`；事务之间排队，事务外的并发写单独直写。
+- **回归判据**：`sharedStorage.test.ts` 必须同时证明①事务内两次写只发一次
+  `/tx`；②事务外并发 `put` 走 `/put` 且不出现在 `/tx` body 里。
+- **素材首帧只解码一次**：fresh 素材的 320px 显示缩略图由
+  `platform/freshAssets.ts` 共用同一个 Promise；画布落库直接复用该缩略图，
+  不再另起 640px 后台解码。大字节 base64 优先走原生
+  `Uint8Array.prototype.toBase64()`，G55 实测 511ms / 最长任务 63ms。
+- **生成产物也要进 fresh 直通车**：否则节点先查共享库等落盘，G95 两图并发
+  会从约 1s 退化到 3s；`canvasPlacement.commit` 必须 `rememberFreshAsset`。
+- **固定条数断言的组必须一组一库**：G114 固定 3 张历史、G116 固定两批任务，
+  同一 shared-store 连续跑会把真实结果染红。用独立 `LOCALAPPDATA` 启动
+  `qinghua-store`，跑完即停。release 验收也必须注入独立 `LOCALAPPDATA`，
+  再核对 `/health.dataDir`，不能读用户真实库。
+
 ### ★★★ 三端统一库：不要再修 origin，改用 shared-store（2026-10-18 → 对账 #571）
 
 - **同 URL 不等于同一个库**：Chrome profile、WebView2 profile、`127.0.0.1` 与
@@ -33,6 +53,23 @@
 - **★★ `.meta.json` 必须从表扫描中排除**：元数据边车和正式行同目录时，
   `extension == "json"` 会把两者都算成业务行，症状是素材总数翻倍、分页重复。
   所有 `list_rows` / `row_files` 走同一个 `is_row_file` 判据，不能各写一套过滤。
+- **★★★ 共享库测试不能再读 IndexedDB（2026-10-18 → 对账 #574）**：全量冒烟里
+  大量旧探针仍 `indexedDB.open('qinghua')`，统一库后会报 object store 不存在。
+  读节点 / 运行记录 / 漫剧文档 / 删表清理一律走 `scripts/smoke.mjs` 的
+  `sharedRows / sharedRow / sharedRowsWithPayload`。浏览器 context 也不再天然隔离业务库：
+  全量后段会累积几十个项目、渠道，导致断言“只应有 N 个”假红；需要隔离时用
+  独立 `LOCALAPPDATA` + 独立 shared-store，一组一库。
+- **★★ Playwright `ctx.close()` 会偶发永久挂住**：G5 断言全过后卡死、后续组
+  一组都没跑。`newCtx` 已统一给 context 关闭加 4 秒上限；但真正需要继续
+  全局跑时，G5 这类下载上下文仍建议 `SMOKE_SKIP=g5` 单独核断言。
+- **★★ 写文件必须“唯一临时文件 + 替换重试 + 同一写锁”**：Windows 上并发补
+  `.meta.json` / 缩略图时实测 `replace old file: 拒绝访问 (os error 5)` 和
+  `os error 2`。`write_atomic` 的 temp 名不能再由目标路径固定推导；所有
+  sidecar 写入（包括 `/thumb` 懒生成）也必须和正式行共用 `Store.lock`。
+- **长跑巡检入口**：`npm run soak`；`SOAK_ONLY=/storyboard SOAK_SECONDS=180`
+  可定向。真实 112 素材库 414 次导航仅 1 次漫剧页瞬时超时，定向 103 次复跑
+  0 失败。开发壳首帧可能白约 10 秒后恢复；release 壳启动约 18 秒但能完整
+  绘出首页，不能只凭“窗口出现”判断健康。
 
 ### 桌面旧源素材核对（2026-10-17）
 

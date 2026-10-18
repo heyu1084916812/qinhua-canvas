@@ -37,6 +37,7 @@ import { applyGraphPatches, toPersistPlan } from './persist'
 import type { PlatformKit, Row } from '../../../platform/ports'
 import { mirrorAssetsToFolder } from '../../../platform/assetMirror'
 import { ensureAssetThumb, needsThumb, rowBytesBlob } from '../../../platform/assetThumb'
+import { ensureFreshDisplayThumb } from '../../../platform/freshAssets'
 
 export interface CanvasStoreOptions {
   platform: PlatformKit
@@ -438,13 +439,28 @@ function createPersister(platform: PlatformKit, debounceMs: number) {
     if (!plan.upserts.length && !plan.deletes.length) return
     /** 素材行：**落库成功后**再镜像到素材文件夹（把写盘塞进 DB 事务里是错的语义） */
     const assetRows: Row[] = []
+    const freshThumbs = new Map<string, Uint8Array>()
+    for (const upsert of plan.upserts) {
+      if (upsert.table !== 'assets') continue
+      for (const row of upsert.rows) {
+        if (!needsThumb(row)) continue
+        const thumb = await ensureFreshDisplayThumb(row.id)
+        if (thumb) freshThumbs.set(row.id, new Uint8Array(await thumb.arrayBuffer()))
+      }
+    }
     try {
-      await platform.storage.transaction(plan.tables as TableName[], async () => {
+      await platform.storage.transaction(plan.tables as TableName[], async (tx) => {
         for (const u of plan.upserts) {
-          await platform.storage.bulkPut(u.table, u.rows as never)
-          if (u.table === 'assets') assetRows.push(...u.rows)
+          const rows =
+            u.table === 'assets'
+              ? u.rows.map((row) =>
+                  freshThumbs.has(row.id) ? { ...row, thumb: freshThumbs.get(row.id) } : row,
+                )
+              : u.rows
+          await tx.bulkPut(u.table, rows as never)
+          if (u.table === 'assets') assetRows.push(...rows)
         }
-        for (const d of plan.deletes) for (const id of d.ids) await platform.storage.delete(d.table, id)
+        for (const d of plan.deletes) for (const id of d.ids) await tx.delete(d.table, id)
       })
     } catch (err) {
       // 落库失败是数据问题（配额 / 表损坏），不该让交互链路抛异常

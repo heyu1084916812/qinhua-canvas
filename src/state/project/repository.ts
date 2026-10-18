@@ -132,11 +132,11 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
   }
 
   /** **彻底**删一个项目：只有永久删除 / 清空回收站才走这里（级联表一起清） */
-  const purgeOne = async (id: string): Promise<void> => {
-    await storage.delete('projects', id)
+  const purgeOne = async (db: StoragePort, id: string): Promise<void> => {
+    await db.delete('projects', id)
     for (const table of PROJECT_CASCADE_TABLES) {
-      const rows = await storage.query(table, { projectId: id })
-      for (const row of rows) await storage.delete(table, row.id)
+      const rows = await db.query(table, { projectId: id })
+      for (const row of rows) await db.delete(table, row.id)
     }
   }
 
@@ -216,16 +216,16 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
     },
 
     async purge(id) {
-      await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async () => {
-        await purgeOne(id)
+      await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async (tx) => {
+        await purgeOne(tx, id)
       })
     },
 
     async purgeAll() {
       const deleted = await listDeletedProjects()
       if (deleted.length === 0) return 0
-      await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async () => {
-        for (const p of deleted) await purgeOne(p.id)
+      await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async (tx) => {
+        for (const p of deleted) await purgeOne(tx, p.id)
       })
       return deleted.length
     },
@@ -234,8 +234,8 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
       const cutoff = now - days * 24 * 60 * 60 * 1000
       const old = (await listDeletedProjects()).filter((p) => (p.deletedAt ?? 0) < cutoff)
       if (old.length === 0) return 0
-      await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async () => {
-        for (const p of old) await purgeOne(p.id)
+      await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async (tx) => {
+        for (const p of old) await purgeOne(tx, p.id)
       })
       return old.length
     },
@@ -318,20 +318,20 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
       }))
       await storage.transaction(
         ['projects', ...GRAPH_TABLES, 'storyboards', 'ecommerceTasks', 'ecommerceResults'],
-        async () => {
-          await storage.put('projects', copy as never)
-          for (const n of newNodes) await storage.put('nodes', n as never)
-          for (const e of newEdges) await storage.put('edges', e as never)
+        async (tx) => {
+          await tx.put('projects', copy as never)
+          for (const n of newNodes) await tx.put('nodes', n as never)
+          for (const e of newEdges) await tx.put('edges', e as never)
           if (storyboardDoc) {
-            await storage.put('storyboards', {
+            await tx.put('storyboards', {
               id: copy.id,
               projectId: copy.id,
               updatedAt: now,
               doc: { ...storyboardDoc, projectId: copy.id },
             } as never)
           }
-          for (const task of newTasks) await storage.put('ecommerceTasks', task as never)
-          for (const result of newResults) await storage.put('ecommerceResults', result as never)
+          for (const task of newTasks) await tx.put('ecommerceTasks', task as never)
+          for (const result of newResults) await tx.put('ecommerceResults', result as never)
         },
       )
       return { ...copy, nodeCount: newNodes.length }

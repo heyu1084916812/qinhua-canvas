@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   clearFreshAssets,
+  ensureFreshThumb,
   forgetFreshAsset,
   freshAssetOf,
   freshAssetStats,
+  freshThumbOf,
   rememberFreshAsset,
 } from './freshAssets'
 
@@ -72,5 +74,22 @@ describe('刚导入的素材直通车', () => {
     rememberFreshAsset('', blobOf(8))
     rememberFreshAsset('h1', new Blob([]))
     expect(freshAssetStats().count).toBe(0)
+  })
+
+  it('same fresh asset runs one thumbnail job and caches the result', async () => {
+    rememberFreshAsset('h1', blobOf(100))
+    let calls = 0
+    const build = async () => {
+      calls += 1
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      return new Blob(['thumb'], { type: 'image/webp' })
+    }
+    const [a, b] = await Promise.all([
+      ensureFreshThumb('h1', build),
+      ensureFreshThumb('h1', build),
+    ])
+    expect(calls).toBe(1)
+    expect(a).toBe(b)
+    expect(freshThumbOf('h1')).toBe(a)
   })
 })

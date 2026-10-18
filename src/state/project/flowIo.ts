@@ -235,22 +235,22 @@ export async function importProjectFromFile(
       'ecommerceTasks',
       'ecommerceResults',
     ],
-    async () => {
-      await platform.storage.put('projects', project as never)
-      for (const r of nodes) await platform.storage.put('nodes', r as never)
-      for (const r of edges) await platform.storage.put('edges', r as never)
-      for (const r of assets) await platform.storage.put('assets', r as never)
+    async (tx) => {
+      await tx.put('projects', project as never)
+      for (const r of nodes) await tx.put('nodes', r as never)
+      for (const r of edges) await tx.put('edges', r as never)
+      for (const r of assets) await tx.put('assets', r as never)
       if (storyboard) {
-        await platform.storage.put('storyboards', {
+        await tx.put('storyboards', {
           id: newId,
           projectId: newId,
           updatedAt: Date.now(),
           doc: { ...storyboard, projectId: newId },
         } as never)
       }
-      for (const task of ecommerce.tasks) await platform.storage.put('ecommerceTasks', task as never)
+      for (const task of ecommerce.tasks) await tx.put('ecommerceTasks', task as never)
       for (const result of ecommerce.results) {
-        await platform.storage.put('ecommerceResults', result as never)
+        await tx.put('ecommerceResults', result as never)
       }
     },
   )

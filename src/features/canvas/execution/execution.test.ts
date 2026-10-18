@@ -15,6 +15,7 @@ import type { GenerationData } from '../../../domain/canvas/model/node'
 import type { GraphSnapshot } from '../../../domain/canvas/model/graph'
 import { buildRunPlan, type CanvasRunTask } from './buildRunPlan'
 import { createCanvasPlacement } from './canvasPlacement'
+import { freshAssetOf } from '../../../platform/freshAssets'
 // 引擎上移共享层（M6-5 路径 B）；画布测试通过注入 CanvasPlacement 复现原行为
 import { runEngine, type RunEngineDeps } from '../../shared/execution/runEngine'
 import { pixelSummaryOf } from '../../../domain/shared/execution/runRecord'
@@ -493,6 +494,7 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     // 结果写回：assetHash = 产物字节的内容指纹（mock 口径由渠道自己给出，避免与实现脱节）
     const expected = mockImageHash({ model: 'mock-image-1', prompt: PROMPT_TEXT })
     expect(dataOf(store, genId).assetHash).toBe(expected)
+    expect(freshAssetOf(expected)).not.toBeNull()
 
     // 单一产物的落点就是生成节点自己（结果组已下线，产物不再进容器）
     // 产物写实：hash / 缩略图顺序 / 真实像素都落在生成节点自己身上

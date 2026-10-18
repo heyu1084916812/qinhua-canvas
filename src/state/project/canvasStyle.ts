@@ -47,14 +47,14 @@ export async function saveCanvasStyle(
   if (!projectId || projectId === 'demo') return false
   let wrote = false
   try {
-    await storage.transaction(['projects'], async () => {
-      const rows = (await storage.query('projects', { id: projectId })) as RowOf<'projects'>[]
+    await storage.transaction(['projects'], async (tx) => {
+      const rows = (await tx.query('projects', { id: projectId })) as RowOf<'projects'>[]
       const row = rows[0]
       if (!row) return
       const extra = (row as Record<string, unknown>).extra
       const current = readCanvasStyle(extra)
       if (JSON.stringify(current) === JSON.stringify(style)) return
-      await storage.put(
+      await tx.put(
         'projects',
         { ...(row as Record<string, unknown>), extra: withCanvasStyle(extra, style) } as never,
       )

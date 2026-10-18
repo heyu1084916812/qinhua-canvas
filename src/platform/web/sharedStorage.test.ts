@@ -86,20 +86,55 @@ describe('shared storage', () => {
     )
     const storage = createSharedStorage()
 
-    await storage.transaction(['nodes'], async () => {
-      await storage.put('nodes', { id: 'n1' })
-      await storage.put('nodes', { id: 'n2' })
+    await storage.transaction(['nodes'], async (tx) => {
+      await tx.put('nodes', { id: 'n1' })
+      await tx.put('nodes', { id: 'n2' })
     })
     expect(urls.filter((url) => url.endsWith('/tx'))).toHaveLength(1)
     expect(urls.filter((url) => url.endsWith('/put'))).toHaveLength(0)
 
     urls.length = 0
     await expect(
-      storage.transaction(['nodes'], async () => {
-        await storage.put('nodes', { id: 'n3' })
+      storage.transaction(['nodes'], async (tx) => {
+        await tx.put('nodes', { id: 'n3' })
         throw new Error('stop')
       }),
     ).rejects.toThrow('stop')
     expect(urls.filter((url) => url.endsWith('/tx'))).toHaveLength(0)
+  })
+
+  it('事务之外的并发写不会混进当前事务，也不会被事务提交吞掉', async () => {
+    const calls: Array<{ url: string; body: unknown }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null })
+        return response({ ok: true })
+      }),
+    )
+    const storage = createSharedStorage()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let entered!: () => void
+    const ready = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const txRun = storage.transaction(['nodes'], async (tx) => {
+      await tx.put('nodes', { id: 'tx-row', projectId: 'p1' })
+      entered()
+      await gate
+    })
+    await ready
+    await storage.put('nodes', { id: 'outside-row', projectId: 'p1' })
+    release()
+    await txRun
+
+    const direct = calls.find((call) => call.url.endsWith('/put'))
+    const atomic = calls.find((call) => call.url.endsWith('/tx'))
+    expect(direct?.body).toMatchObject({ table: 'nodes', row: { id: 'outside-row' } })
+    expect(atomic?.body).toMatchObject({ ops: [{ kind: 'put', table: 'nodes' }] })
+    expect(JSON.stringify(atomic?.body)).not.toContain('outside-row')
   })
 })

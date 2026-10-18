@@ -9,7 +9,7 @@ import type { CanvasStore } from '../../state/workbenches/canvas/store'
 import type { Point } from '../../domain/canvas/geometry/rect'
 import type { GenerationData } from '../../domain/canvas/model/node'
 import { rememberCanvasCover } from '../../state/project/cover'
-import { rememberFreshAsset } from './freshAssets'
+import { ensureFreshDisplayThumb, rememberFreshAsset } from '../../platform/freshAssets'
 
 /** 导入可接受的类型（§6.8 状态 A：图片 png/jpg/webp；视频 mp4/webm/mov） */
 export const IMPORT_ACCEPT = 'image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime'
@@ -55,7 +55,10 @@ export async function importAssetFile(deps: ImportDeps, file?: File): Promise<Im
    * 就在内存里了。记进 `freshAssets` 之后，节点不必等 IndexedDB 那一趟就能显示。
    * 落库这条路**一行没改** —— 缓存只是让"看得见"不再排队等 IO。
    */
-  rememberFreshAsset(hash, blob)
+  const freshBlob = new Blob([bytes as unknown as BlobPart], { type: mime })
+  rememberFreshAsset(hash, freshBlob)
+  const freshImageSize = mime.startsWith('image/') ? imageSizeFromHeader(bytes) : null
+  void ensureFreshDisplayThumb(hash, freshImageSize)
   /**
    * 表 naturalSize（供「有内容锁原始比例」与节点初始尺寸）。
    *

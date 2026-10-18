@@ -22,12 +22,13 @@ type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue }
 
-interface ActiveTransaction {
-  ops: Array<Record<string, unknown>>
-  rows: Map<string, Row | null>
-}
-
 function marker(bytes: Uint8Array) {
+  const nativeToBase64 = (
+    bytes as Uint8Array & { toBase64?: () => string }
+  ).toBase64
+  if (typeof nativeToBase64 === 'function') {
+    return { __qhType: 'u8', base64: nativeToBase64.call(bytes) }
+  }
   let binary = ''
   for (let offset = 0; offset < bytes.length; offset += 0x8000) {
     binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
@@ -128,7 +129,7 @@ function matches(row: Row, filter: Partial<Row>): boolean {
 }
 
 export function createSharedStorage(): StoragePort {
-  let active: ActiveTransaction | null = null
+  let transactionTail: Promise<void> = Promise.resolve()
 
   const rawPut = async (table: TableName, row: RowOf<TableName>, timeoutMs?: number) => {
     await post('/put', { table, row: encodeValue(row) }, timeoutMs)
@@ -192,63 +193,70 @@ export function createSharedStorage(): StoragePort {
     },
 
     async transaction(_tables, fn) {
-      if (active) return fn()
-      active = { ops: [], rows: new Map() }
-      try {
-        const result = await fn()
-        const ops = active.ops
+      const execute = async () => {
+        const ops: Array<Record<string, unknown>> = []
+        const rows = new Map<string, Row | null>()
+        const tx: StoragePort = {
+          ...port,
+          async transaction(_nestedTables, nestedFn) {
+            return nestedFn(tx)
+          },
+          async put(table, row) {
+            const id = rowId(row as Row)
+            rows.set(rowKey(table, id), { ...row } as Row)
+            ops.push({ kind: 'put', table, row: encodeValue(row) })
+          },
+          async bulkPut(table, nextRows) {
+            for (const row of nextRows) {
+              const id = rowId(row as Row)
+              rows.set(rowKey(table, id), { ...row } as Row)
+            }
+            ops.push({ kind: 'bulkPut', table, rows: encodeValue(nextRows) })
+          },
+          async delete(table, id) {
+            rows.set(rowKey(table, id), null)
+            ops.push({ kind: 'delete', table, id })
+          },
+          async query(table, filter, options) {
+            const committed = await rawQuery(table, filter, options)
+            const merged = new Map<string, RowOf<typeof table>>()
+            for (const row of committed) merged.set(row.id, row)
+            const prefix = `${table}\u0000`
+            for (const [key, row] of rows) {
+              if (!key.startsWith(prefix)) continue
+              const id = key.slice(prefix.length)
+              if (row === null) merged.delete(id)
+              else if (matches(row, filter)) merged.set(id, row as RowOf<typeof table>)
+            }
+            return [...merged.values()]
+          },
+        }
+        const result = await fn(tx)
         if (ops.length > 0) await post('/tx', { ops }, 10 * 60_000)
         return result
-      } finally {
-        active = null
       }
+      const result = transactionTail.then(execute, execute)
+      transactionTail = result.then(
+        () => undefined,
+        () => undefined,
+      )
+      return result
     },
 
     async put(table, row) {
-      const id = rowId(row as Row)
-      if (active) {
-        active.rows.set(rowKey(table, id), { ...row } as Row)
-        active.ops.push({ kind: 'put', table, row: encodeValue(row) })
-        return
-      }
       await rawPut(table, row)
     },
 
     async bulkPut(table, rows) {
-      if (active) {
-        for (const row of rows) {
-          const id = rowId(row as Row)
-          active.rows.set(rowKey(table, id), { ...row } as Row)
-        }
-        active.ops.push({ kind: 'bulkPut', table, rows: encodeValue(rows) })
-        return
-      }
       await rawBulkPut(table, rows)
     },
 
     async delete(table, id) {
-      if (active) {
-        active.rows.set(rowKey(table, id), null)
-        active.ops.push({ kind: 'delete', table, id })
-        return
-      }
       await rawDelete(table, id)
     },
 
     async query(table, filter, options) {
-      const committed = await rawQuery(table, filter, options)
-      if (!active) return committed
-
-      const merged = new Map<string, RowOf<typeof table>>()
-      for (const row of committed) merged.set(row.id, row)
-      const prefix = `${table}\u0000`
-      for (const [key, row] of active.rows) {
-        if (!key.startsWith(prefix)) continue
-        const id = key.slice(prefix.length)
-        if (row === null) merged.delete(id)
-        else if (matches(row, filter)) merged.set(id, row as RowOf<typeof table>)
-      }
-      return [...merged.values()]
+      return rawQuery(table, filter, options)
     },
 
     async scan(table, batchSize, onBatch, options?: StorageScanOptions) {
