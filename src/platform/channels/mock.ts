@@ -72,6 +72,14 @@ const DEFAULT_MODELS: ModelCapability[] = [
     maxReferenceImages: 2,
   },
   {
+    id: 'Kling V2 数字人口播 Std',
+    category: 'video',
+    inputTypes: ['text', 'image', 'audio'],
+    aspectRatios: ['1:1'],
+    durations: [3, 15],
+    maxReferenceImages: 1,
+  },
+  {
     id: 'mock-speech-1',
     category: 'audio',
     inputTypes: ['text'],

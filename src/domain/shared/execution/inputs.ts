@@ -33,6 +33,7 @@ export interface ImageInput {
  * 前面的更可能是主参考图。
  */
 export const MAX_IMAGE_INPUTS = 4
+export const MAX_AUDIO_INPUTS = 1
 
 /**
  * 摊平集合：把 `collection` 项替换成它的 items（递归，应对批量接批量）。
@@ -55,6 +56,10 @@ export function flattenInputs(inputs: readonly NodeInput[]): NodeInput[] {
 
 function isImageMime(mime: string): boolean {
   return mime.toLowerCase().startsWith('image/')
+}
+
+function isAudioMime(mime: string): boolean {
+  return mime.toLowerCase().startsWith('audio/')
 }
 
 /**
@@ -100,6 +105,24 @@ export function imageInputsOf(
   for (const input of flattenInputs(inputs)) {
     if (input.kind !== 'asset') continue
     if (!isImageMime(input.mime)) continue
+    if (seen.has(input.assetHash)) continue
+    seen.add(input.assetHash)
+    out.push({ assetHash: input.assetHash, mime: input.mime })
+    if (out.length >= max) break
+  }
+  return out
+}
+
+/** 音频素材：数字人口播这类端点一次只接一条音轨。 */
+export function audioInputsOf(
+  inputs: readonly NodeInput[],
+  max: number = MAX_AUDIO_INPUTS,
+): ImageInput[] {
+  const seen = new Set<string>()
+  const out: ImageInput[] = []
+  for (const input of flattenInputs(inputs)) {
+    if (input.kind !== 'asset') continue
+    if (!isAudioMime(input.mime)) continue
     if (seen.has(input.assetHash)) continue
     seen.add(input.assetHash)
     out.push({ assetHash: input.assetHash, mime: input.mime })

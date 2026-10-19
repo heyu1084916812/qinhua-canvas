@@ -116,6 +116,11 @@ import {
 } from '../../domain/storyboard/storyboard'
 import styles from './StoryboardPage.module.css'
 
+const DIGITAL_HUMAN_MODEL_IDS = [
+  'Kling V2 数字人口播 Std',
+  'Kling V2 数字人口播 Pro',
+] as const
+
 /**
  * 漫剧工作台页（对账 #382，第一阶段）。
  *
@@ -240,6 +245,30 @@ function StoryboardProject({ projectId }: { projectId: string }) {
 function StoryboardEditor({ projectId }: { projectId: string }) {
   const platform = usePlatform()
   const channels = useChannels()
+  const channelState = useSyncExternalStore(
+    channels.subscribe,
+    channels.getState,
+    channels.getState,
+  )
+  const digitalHumanTarget = useMemo(() => {
+    for (const modelId of DIGITAL_HUMAN_MODEL_IDS) {
+      const channel = channelState.channels.find(
+        (item) =>
+          item.enabled &&
+          item.models.some(
+            (model) => model.id === modelId && model.category === 'video',
+          ),
+      )
+      if (channel) {
+        return {
+          channelId: channel.id,
+          channelName: channel.name,
+          model: modelId,
+        }
+      }
+    }
+    return null
+  }, [channelState.channels])
   const skills = useSkillsOptional()
   const navigate = useNavigate()
   /** 画布那一边：铺节点要 store，出图要执行引擎（都在 Provider 里） */
@@ -286,6 +315,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   const chatTarget = useMemo(() => resolveChatTarget(channelList), [channelList])
   const speechTarget = useMemo(() => resolveSpeechTarget(channelList), [channelList])
   const [voiceBusy, setVoiceBusy] = useState<Record<string, boolean>>({})
+  const [digitalHumanBusy, setDigitalHumanBusy] = useState<string | null>(null)
   const [breaking, setBreaking] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
   const [breakMsg, setBreakMsg] = useState('')
   const [breakConfirm, setBreakConfirm] = useState(false)
@@ -1258,6 +1288,148 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     } catch (e) {
       report('error', humanError(e))
       return false
+    }
+  }
+
+  /**
+   * 单句数字人口播：RunningHub 官方数字人端点直接接收「人物图 + 配音音频」。
+   *
+   * 这一步刻意只开放给“这一镜只有一句台词且该句已有配音”的场景：
+   * 端点的 audioUrl 只有一条，未经混音的多句对白不能假装已经对齐成一条音轨。
+   */
+  const makeDigitalHuman = async (shot: StoryboardShot, line: StoryboardLine) => {
+    if (!digitalHumanTarget) {
+      setLay({
+        kind: 'error',
+        text: '当前没有可用的数字人口播模型：在 RunningHub 渠道勾选 Kling V2 数字人口播',
+      })
+      return
+    }
+    if (!shot.nodeId || !liveNodeIds.has(shot.nodeId) || !shot.imageHash) {
+      setLay({ kind: 'error', text: '这一镜还没有可用的图片节点' })
+      return
+    }
+    if (!line.audioHash) {
+      setLay({ kind: 'error', text: '这一句还没有配音，先生成配音再出口播视频' })
+      return
+    }
+    setDigitalHumanBusy(line.id)
+    setLay({ kind: 'running', text: '正在调用数字人口播模型…' })
+    const ac = new AbortController()
+    const timer = window.setTimeout(() => ac.abort(), 20 * 60 * 1000)
+    try {
+      const [image, audio] = await Promise.all([
+        platform.assets.read(shot.imageHash),
+        platform.assets.read(line.audioHash),
+      ])
+      if (!image || !audio) {
+        throw new Error('人像图或配音音频的素材字节已经不在库里')
+      }
+      const outputs = await channels.generateVideo({
+        kind: 'video',
+        channelId: digitalHumanTarget.channelId,
+        model: digitalHumanTarget.model,
+        prompt:
+          '生成单人数字人口播视频，保持人物身份、服装、构图与画面风格一致，口型自然贴合配音，避免夸张动作和镜头跳变。',
+        inputs: [
+          {
+            kind: 'asset',
+            nodeId: shot.nodeId,
+            assetHash: shot.imageHash,
+            mime: image.mime || 'image/png',
+          },
+          {
+            kind: 'asset',
+            nodeId: shot.nodeId,
+            assetHash: line.audioHash,
+            mime: audio.mime || 'audio/mpeg',
+          },
+        ],
+        params: {},
+        signal: ac.signal,
+      })
+      const output = outputs[0]
+      if (!output) throw new Error('数字人口播模型没有返回视频')
+      canvasStore.dispatch({
+        kind: 'asset.put',
+        asset: {
+          hash: output.hash,
+          mime: output.mime || 'video/mp4',
+          bytes: output.bytes,
+          ...(output.url ? { url: output.url } : {}),
+          createdAt: Date.now(),
+          projectId,
+        },
+      })
+      const data = await resolveDefaults({
+        channels,
+        type: 'generation',
+        extraData: {
+          mode: 'video',
+          channelId: digitalHumanTarget.channelId,
+          model: digitalHumanTarget.model,
+          prompt: '数字人口播',
+          durationSec: shot.durationSec,
+          assetHash: output.hash,
+        },
+      })
+      const imageNode = graph.nodes.find((node) => node.id === shot.nodeId)
+      let videoNodeId =
+        shot.videoNodeId && liveNodeIds.has(shot.videoNodeId) ? shot.videoNodeId : ''
+      canvasStore.beginPlan('storyboard:digital-human', '单句数字人口播')
+      try {
+        if (videoNodeId) {
+          canvasStore.dispatch({
+            kind: 'node.updateData',
+            id: videoNodeId,
+            patch: {
+              ...data,
+              mode: 'video',
+              channelId: digitalHumanTarget.channelId,
+              model: digitalHumanTarget.model,
+              prompt: '数字人口播',
+              durationSec: shot.durationSec,
+              assetHash: output.hash,
+            },
+          })
+        } else {
+          videoNodeId =
+            applyDefaults({
+              store: canvasStore,
+              channels,
+              projectId,
+              type: 'generation',
+              at: { x: (imageNode?.x ?? 40) + 280, y: (imageNode?.y ?? 40) },
+              data,
+            }) ?? ''
+        }
+        if (videoNodeId) {
+          const connected = graph.edges.some(
+            (edge) => edge.source === shot.nodeId && edge.target === videoNodeId,
+          )
+          if (!connected) {
+            canvasStore.dispatch({
+              kind: 'edge.connect',
+              source: shot.nodeId,
+              target: videoNodeId,
+            })
+          }
+        }
+      } finally {
+        canvasStore.endPlan()
+      }
+      if (!videoNodeId) throw new Error('口播视频节点没能建出来')
+      const current = docRef.current
+      if (current) {
+        const withNode = setShotVideoNode(current, shot.id, videoNodeId, 0)
+        apply(attachShotVideos(withNode, [{ shotId: shot.id, hash: output.hash }], 0))
+      }
+      setLay({ kind: 'done', text: '这一句的数字人口播视频已生成' })
+    } catch (error) {
+      setLay({ kind: 'error', text: humanError(error) })
+    } finally {
+      setDigitalHumanBusy(null)
+      window.clearTimeout(timer)
     }
   }
 
@@ -2430,6 +2602,16 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                         speechTarget={speechTarget}
                         voiceBusy={voiceBusy}
                         onVoice={(lineId) => void voiceLine(shot, lineId)}
+                        onMakeDigitalHuman={
+                          digitalHumanTarget
+                            ? (lineId) => {
+                                const line = shot.lines.find((item) => item.id === lineId)
+                                if (line) void makeDigitalHuman(shot, line)
+                              }
+                            : undefined
+                        }
+                        digitalHumanBusyLineId={digitalHumanBusy}
+                        digitalHumanModel={digitalHumanTarget?.model}
                         onMove={(id, delta) => apply(moveShot(doc, id, delta, 0))}
                         onRemove={removeOneShot}
                         onRun={() => runShot(shot)}
@@ -2591,6 +2773,9 @@ function ShotCard({
   speechTarget,
   voiceBusy,
   onVoice,
+  onMakeDigitalHuman,
+  digitalHumanBusyLineId,
+  digitalHumanModel,
 }: {
   shot: StoryboardShot
   index: number
@@ -2612,6 +2797,9 @@ function ShotCard({
   speechTarget: SpeechTarget | null
   voiceBusy: Record<string, boolean>
   onVoice: (lineId: string) => void
+  onMakeDigitalHuman?: (lineId: string) => void
+  digitalHumanBusyLineId: string | null
+  digitalHumanModel?: string
   onMove: (id: string, delta: number) => void
   onRemove: (id: string) => void
   onRun: () => void
@@ -2870,6 +3058,9 @@ function ShotCard({
                   ),
                 ]
                 const busy = !!voiceBusy[line.id]
+                const digitalHumanBusy = digitalHumanBusyLineId === line.id
+                const canDigitalHuman =
+                  !!onMakeDigitalHuman && shot.lines.length === 1 && !!line.audioHash
                 return (
                   <li key={line.id} className={styles.lineRow} data-storyboard-line={line.id}>
                     <div className={styles.lineMain}>
@@ -2949,6 +3140,22 @@ function ShotCard({
                       >
                         {busy ? '生成中…' : line.audioHash ? '重配这一句' : '生成配音'}
                       </button>
+                      {canDigitalHuman ? (
+                        <button
+                          type="button"
+                          className={styles.ghost}
+                          data-storyboard-line-digital-human={line.id}
+                          disabled={digitalHumanBusy}
+                          title={`用 ${digitalHumanModel ?? '数字人口播模型'} 生成这一镜的口播视频`}
+                          onClick={() => onMakeDigitalHuman?.(line.id)}
+                        >
+                          {digitalHumanBusy
+                            ? '口播视频生成中…'
+                            : shot.videoHash
+                              ? '重做数字人口播'
+                              : '数字人口播'}
+                        </button>
+                      ) : null}
                       {line.audioHash ? (
                         <LineVoiceAudio hash={line.audioHash} />
                       ) : (

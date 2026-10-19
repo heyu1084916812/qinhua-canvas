@@ -4,7 +4,7 @@
  * 生成：`node scripts/gen-runninghub-models.mjs <RH_CLI>/src/rh_cli/catalog/data/capabilities.json`
  * 来源：RunningHub 官方 CLI（github.com/HM-RunningHub/RH_CLI）随包附带的端点目录
  *       capabilities.json —— version 2026-06-02，共 356 个端点；
- *       本文件只留**精挑的 29 个端点**（官方 CLI 的 13 个快捷选择 + 之前已交付的 4 个）。
+ *       本文件只留**精挑的 31 个端点**（官方 CLI 的 13 个快捷选择 + 之前已交付的 4 个）。
  *
  * 官方 CLI 建请求体的最后一步是「**必填 + 有默认值**而还没填的参数一律补默认值」
  * （`model/payload.py`）—— 适配器照同一条规则走 `requiredDefaults`。
@@ -34,6 +34,8 @@ export interface RunningHubEndpointSpec {
   promptKey?: string
   /** 参考图 / 视频 / 音频参数的键与是否多值 */
   media?: RunningHubMediaParam
+  /** 音频输入（数字人口播等端点与图片分开声明） */
+  audio?: RunningHubMediaParam
   /** 比例、清晰度、时长：键名各端点不同（`aspectRatio` / `ratio`…），故逐个记 */
   ratio?: RunningHubDrivenParam
   resolution?: RunningHubDrivenParam
@@ -57,6 +59,24 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     kind: 'image',
     label: '即梦图片 4.6 文生图',
     promptKey: 'prompt',
+  },
+  {
+    id: 'kling-v2-ai-avatar-pro/image-audio-to-video',
+    task: 'lip-sync-video',
+    kind: 'video',
+    label: 'Kling V2 Pro 数字人口播视频',
+    promptKey: 'prompt',
+    media: { "key": "imageUrl", "type": "IMAGE", "required": true },
+    audio: { "key": "audioUrl", "type": "AUDIO", "required": true },
+  },
+  {
+    id: 'kling-v2-ai-avatar-standard/image-audio-to-video',
+    task: 'lip-sync-video',
+    kind: 'video',
+    label: 'Kling V2 Std 数字人口播视频',
+    promptKey: 'prompt',
+    media: { "key": "imageUrl", "type": "IMAGE", "required": true },
+    audio: { "key": "audioUrl", "type": "AUDIO", "required": true },
   },
   {
     id: 'kling-v3.0-pro/image-to-video',
@@ -482,5 +502,21 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
     kind: 'video',
     textEndpoint: 'rhart-video/sparkvideo-2.0/text-to-video',
     imageEndpoint: 'rhart-video/sparkvideo-2.0/image-to-video',
+  },
+  {
+    // 官方目录：Kling V2 Std 数字人口播视频
+    id: 'Kling V2 数字人口播 Std',
+    hint: '一张人物图 + 一句配音生成口型同步视频；必须同时有图与音频',
+    kind: 'video',
+    textEndpoint: 'kling-v2-ai-avatar-standard/image-audio-to-video',
+    imageEndpoint: 'kling-v2-ai-avatar-standard/image-audio-to-video',
+  },
+  {
+    // 官方目录：Kling V2 Pro 数字人口播视频
+    id: 'Kling V2 数字人口播 Pro',
+    hint: '一张人物图 + 一句配音生成口型同步视频；Pro 档更稳，价格更高',
+    kind: 'video',
+    textEndpoint: 'kling-v2-ai-avatar-pro/image-audio-to-video',
+    imageEndpoint: 'kling-v2-ai-avatar-pro/image-audio-to-video',
   },
 ]

@@ -3,7 +3,7 @@ import { fingerprintBytes } from '../../domain/shared/hash'
 import { createMemoryPlatform } from '../../platform/memory'
 import type { NetworkRequest, NetworkResponse } from '../../platform/ports'
 import { createRunningHubAdapter, RUNNINGHUB_ENDPOINT_SPECS, RUNNINGHUB_MODELS } from './runninghub'
-import { ChannelError, type ImageRunRequest } from './types'
+import { ChannelError, type ImageRunRequest, type VideoRunRequest } from './types'
 import type { ResolvedChannelConfig } from './registry'
 import { presetIdForUpstream } from '../../domain/project/modelPresets'
 
@@ -32,10 +32,10 @@ function json(status: number, obj: unknown): NetworkResponse {
 }
 
 /** 产物下载那一跳：只有它回二进制 */
-function bytes(status: number, data: Uint8Array): NetworkResponse {
+function bytes(status: number, data: Uint8Array, mime = 'image/png'): NetworkResponse {
   return {
     status,
-    headers: { 'content-type': 'image/png' },
+    headers: { 'content-type': mime },
     async text() {
       return ''
     },
@@ -216,6 +216,79 @@ describe('RunningHub 适配器 / 标准模型（金额路）', () => {
     const image = (submitBody as unknown as { imageUrls: string }).imageUrls
     expect(typeof image).toBe('string')
     expect(image.startsWith('data:image/png;base64,')).toBe(true)
+  })
+
+  it('★★ 数字人口播把图片与音频分别上传，并写进 imageUrl / audioUrl', async () => {
+    let submitBody: Record<string, unknown> | null = null
+    const uploads: string[] = []
+    const videoBytes = new Uint8Array([0, 0, 0, 24, 102, 116, 121, 112])
+    const platform = createMemoryPlatform({
+      rows: {
+        assets: [
+          { id: 'avatar-image', bytes: PNG_BYTES, mime: 'image/png' },
+          { id: 'avatar-audio', bytes: new Uint8Array([82, 73, 70, 70]), mime: 'audio/wav' },
+        ],
+      },
+      handler: async (req: NetworkRequest) => {
+        if (req.url.endsWith('/openapi/v2/query')) {
+          return json(200, {
+            status: 'SUCCESS',
+            results: [{ url: 'https://files.runninghub.cn/avatar.mp4' }],
+          })
+        }
+        if (req.url.endsWith('/media/upload/binary')) {
+          const file = (req.body as FormData).get('file') as File
+          uploads.push(file.name)
+          return json(200, {
+            code: 0,
+            data: { download_url: `https://files.runninghub.cn/${file.name}` },
+          })
+        }
+        if (
+          req.url.endsWith(
+            '/openapi/v2/kling-v2-ai-avatar-standard/image-audio-to-video',
+          )
+        ) {
+          submitBody = req.body as Record<string, unknown>
+          return json(200, { code: 0, taskId: 'avatar-task' })
+        }
+        if (req.url.endsWith('/avatar.mp4')) {
+          return bytes(200, videoBytes, 'video/mp4')
+        }
+        return json(200, {})
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    const request: VideoRunRequest = {
+      kind: 'video',
+      channelId: 'c1',
+      model: 'Kling V2 数字人口播 Std',
+      prompt: '保持人物与画面一致，口型自然同步',
+      inputs: [
+        {
+          kind: 'asset',
+          nodeId: 'img-node',
+          assetHash: 'avatar-image',
+          mime: 'image/png',
+        },
+        {
+          kind: 'asset',
+          nodeId: 'audio-node',
+          assetHash: 'avatar-audio',
+          mime: 'audio/wav',
+        },
+      ],
+      params: {},
+    }
+    const assets = await adapter.generateVideo(request, signal)
+
+    expect(uploads).toEqual(['ref.png', 'audio.wav'])
+    expect(submitBody).toMatchObject({
+      prompt: '保持人物与画面一致，口型自然同步',
+      imageUrl: 'https://files.runninghub.cn/ref.png',
+      audioUrl: 'https://files.runninghub.cn/audio.wav',
+    })
+    expect(assets[0]?.mime).toBe('video/mp4')
   })
 })
 

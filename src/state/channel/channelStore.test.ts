@@ -369,6 +369,25 @@ describe('channelStore', () => {
     expect(store.getState().channels.map((c) => c.name)).toEqual(['B', 'A'])
   })
 
+  it('generateVideo 直连当前启用渠道并返回视频素材（数字人口播不走画布节点也能提交）', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p, { seedBuiltins: false })
+    const ch = await store.create({ name: 'Mock', protocol: 'mock', baseUrl: '' })
+    const outputs = await store.generateVideo({
+      kind: 'video',
+      channelId: ch.id,
+      model: 'Kling V2 数字人口播 Std',
+      prompt: '保持人物一致，口型自然同步',
+      inputs: [],
+      params: {},
+      signal: new AbortController().signal,
+    })
+
+    expect(outputs).toHaveLength(1)
+    expect(outputs[0]?.mime).toBe('video/mp4')
+    expect(outputs[0]?.hash).toBeTruthy()
+  })
+
   /**
    * 生成配方（新建节点默认渠道 + 模型 + 参数，2026-09-18 定稿为**按渠道记忆**）。
    *

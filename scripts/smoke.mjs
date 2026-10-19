@@ -31260,9 +31260,33 @@ async function g145(browser) {
   let storyboardProjectId = ''
 
   const readDb = async () => {
-      const boards = await sharedRows(page, 'storyboards')
+      const [boards, nodes, assets, edges] = await Promise.all([
+        sharedRows(page, 'storyboards'),
+        sharedRows(page, 'nodes'),
+        sharedRows(page, 'assets'),
+        sharedRows(page, 'edges'),
+      ])
       const doc = boards.find((row) => row.projectId === storyboardProjectId)?.doc
       return {
+        nodes: nodes
+          .filter((row) => row.projectId === storyboardProjectId)
+          .map((node) => ({
+            id: String(node.id),
+            type: node.type,
+            data: node.data ?? {},
+          })),
+        assets: assets
+          .filter((row) => row.projectId === storyboardProjectId)
+          .map((asset) => ({
+            hash: asset.hash ?? asset.id,
+            mime: asset.mime,
+          })),
+        edges: edges
+          .filter((row) => row.projectId === storyboardProjectId)
+          .map((edge) => ({
+            source: edge.source,
+            target: edge.target,
+          })),
         characters: (doc?.characters ?? []).map((c) => ({
           id: c.id,
           name: c.name,
@@ -31279,6 +31303,8 @@ async function g145(browser) {
           id: s.id,
           nodeId: s.nodeId ?? null,
           imageHash: s.imageHash ?? null,
+          videoNodeId: s.videoNodeId ?? null,
+          videoHash: s.videoHash ?? null,
           lines: (s.lines ?? []).map((line) => ({
             id: line.id,
             text: line.text ?? '',
@@ -31495,9 +31521,11 @@ async function g145(browser) {
    */
   const imageA = 'g145-image-a'
   const imageB = 'g145-image-b'
-  for (const [hash, color] of [
-    [imageA, [220, 80, 80]],
-    [imageB, [70, 120, 220]],
+  const imageNodeA = 'g145-node-a'
+  const imageNodeB = 'g145-node-b'
+  for (const [hash, nodeId, color] of [
+    [imageA, imageNodeA, [220, 80, 80]],
+    [imageB, imageNodeB, [70, 120, 220]],
   ]) {
     await sharedPut(page, 'assets', {
       id: hash,
@@ -31512,6 +31540,28 @@ async function g145(browser) {
       createdAt: Date.now(),
       projectId: storyboardProjectId,
     })
+    await sharedPut(page, 'nodes', {
+      id: nodeId,
+      projectId: storyboardProjectId,
+      type: 'generation',
+      parentId: null,
+      x: 240,
+      y: hash === imageA ? 220 : 500,
+      w: 260,
+      h: 220,
+      title: hash === imageA ? '第一镜画面' : '第二镜画面',
+      disabled: false,
+      data: {
+        mode: 'image',
+        count: 1,
+        ratio: '16:9',
+        assetHash: hash,
+        naturalSize: { width: 320, height: 180 },
+        prompt: hash === imageA ? '雨里骑车' : '把箱子放下',
+        model: 'GPT Image 2',
+        thumbOrder: [hash],
+      },
+    })
   }
   const currentBoard = (await sharedRows(page, 'storyboards')).find(
     (row) => row.projectId === storyboardProjectId,
@@ -31523,9 +31573,9 @@ async function g145(browser) {
       ...currentBoard.doc,
       shots: currentBoard.doc.shots.map((shot, index) =>
         index === 0
-          ? { ...shot, imageHash: imageA }
+          ? { ...shot, nodeId: imageNodeA, imageHash: imageA }
           : index === 1
-            ? { ...shot, imageHash: imageB }
+            ? { ...shot, nodeId: imageNodeB, imageHash: imageB }
             : shot,
       ),
     },
@@ -31575,7 +31625,7 @@ async function g145(browser) {
    * 直接数会偶尔数到 0（**第四十一轮全量真撞上了**：计数写着 1/2，图还没挂）。
    * 所以按"元素真出现"等，不拿墙钟赌，也不把这条判据拆成两条。
    */
-  const media = page.locator('[data-preview-media="image"]')
+  const media = page.locator('[data-preview-media="image"], [data-preview-media="video"]')
   const mediaShown = await media
     .first()
     .waitFor({ state: 'attached', timeout: 10000 })
@@ -31666,6 +31716,55 @@ async function g145(browser) {
     .then(() => true)
     .catch(() => false)
   rec(g, '★「关闭」按钮也能关（两条出口都留着）', closedByButton)
+
+  const digitalHumanButton = page.locator(
+    `[data-storyboard-line-digital-human="${currentLineId}"]`,
+  )
+  const digitalHumanShown = await digitalHumanButton
+    .waitFor({ state: 'visible', timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(
+    g,
+    '★★ 单句已有配音的镜头出现「数字人口播」入口，并标明实际模型',
+    digitalHumanShown &&
+      (await digitalHumanButton.isEnabled()) &&
+      /数字人口播\s*Std/.test((await digitalHumanButton.getAttribute('title')) ?? ''),
+    `title=${(await digitalHumanButton.getAttribute('title')) ?? 'none'}`,
+  )
+  await digitalHumanButton.click()
+  const digitalHumanDb = await waitDb((db) => {
+    const shot = db.shots[0]
+    return (
+      !!shot?.videoHash &&
+      db.nodes.some((node) => node.id === shot.videoNodeId) &&
+      db.assets.some(
+        (asset) => asset.hash === shot.videoHash && asset.mime === 'video/mp4',
+      )
+    )
+  }, 20000)
+  const digitalShot = digitalHumanDb.shots[0]
+  const digitalNode = digitalHumanDb.nodes.find((node) => node.id === digitalShot?.videoNodeId)
+  const digitalAsset = digitalHumanDb.assets.find((asset) => asset.hash === digitalShot?.videoHash)
+  rec(
+    g,
+    '★★★ 数字人口播真实走通：视频 hash 写回镜头、节点落库且产物是 video/mp4',
+    !!digitalShot?.videoHash &&
+      !!digitalNode &&
+      digitalNode.type === 'generation' &&
+      digitalAsset?.mime === 'video/mp4',
+    `shot=${(digitalShot?.videoHash ?? 'none').slice(0, 8)} node=${digitalShot?.videoNodeId ?? 'none'} type=${digitalNode?.type ?? 'none'} mime=${digitalAsset?.mime ?? 'none'}`,
+  )
+  rec(
+    g,
+    '★★ 数字人口播视频节点保留人像图上游连线',
+    !!digitalShot?.nodeId &&
+      !!digitalShot?.videoNodeId &&
+      digitalHumanDb.edges.some(
+        (edge) => edge.source === digitalShot.nodeId && edge.target === digitalShot.videoNodeId,
+      ),
+    `${digitalShot?.nodeId ?? 'none'} → ${digitalShot?.videoNodeId ?? 'none'}`,
+  )
 
   await page.screenshot({ path: `${OUT}/145-g145-preview.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))

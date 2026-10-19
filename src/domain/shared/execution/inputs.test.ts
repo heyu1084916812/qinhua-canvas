@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { NodeInput } from './types'
-import { flattenInputs, imageInputsOf, MAX_IMAGE_INPUTS } from './inputs'
+import { audioInputsOf, flattenInputs, imageInputsOf, MAX_IMAGE_INPUTS } from './inputs'
 
 const text = (id: string): NodeInput => ({ kind: 'text', nodeId: id, text: `t:${id}` })
 const asset = (id: string, mime = 'image/png'): NodeInput => ({
@@ -82,5 +82,25 @@ describe('imageInputsOf / 图像输入提取', () => {
 
   it('空输入 → 空数组', () => {
     expect(imageInputsOf([])).toEqual([])
+  })
+})
+
+describe('audioInputsOf / 音频输入提取', () => {
+  it('只收 audio/*，图片与视频都不混入数字人口播音轨', () => {
+    expect(
+      audioInputsOf([
+        asset('i', 'image/png'),
+        asset('v', 'video/mp4'),
+        asset('a', 'audio/wav'),
+      ]),
+    ).toEqual([{ assetHash: 'h:a', mime: 'audio/wav' }])
+  })
+
+  it('同一段音频多次连线只上传一次', () => {
+    const inputs: NodeInput[] = [
+      { kind: 'asset', nodeId: 'x', assetHash: 'same', mime: 'audio/mpeg' },
+      { kind: 'asset', nodeId: 'y', assetHash: 'same', mime: 'audio/mpeg' },
+    ]
+    expect(audioInputsOf(inputs)).toEqual([{ assetHash: 'same', mime: 'audio/mpeg' }])
   })
 })

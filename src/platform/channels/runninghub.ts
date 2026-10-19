@@ -1,5 +1,5 @@
 import { fingerprintBytes } from '../../domain/shared/hash'
-import { imageInputsOf } from '../../domain/shared/execution/inputs'
+import { audioInputsOf, imageInputsOf } from '../../domain/shared/execution/inputs'
 import type { ModelCapability } from '../../domain/shared/capability'
 import { asAppError, describeError } from '../../shared/result'
 import { bytesToBase64 } from './base64'
@@ -130,13 +130,19 @@ export function resolveRunningHubEndpoint(
 export function runningHubCapability(model: RunningHubModel): ModelCapability {
   const spec = specById.get(model.textEndpoint)
   const needsImage = model.imageEndpoint !== undefined || spec?.media?.required === true
+  const needsAudio = spec?.audio?.required === true
   const durations = spec?.duration?.options
     ?.map((v) => Number(v))
     .filter((v) => Number.isFinite(v))
+  const inputTypes: ModelCapability['inputTypes'] = [
+    'text',
+    ...(needsImage ? (['image'] as const) : []),
+    ...(needsAudio ? (['audio'] as const) : []),
+  ]
   return {
     id: model.id,
     category: model.kind,
-    inputTypes: needsImage ? ['text', 'image'] : ['text'],
+    inputTypes,
     ...(spec?.ratio?.options ? { aspectRatios: [...spec.ratio.options] } : {}),
     ...(spec?.resolution?.options ? { resolutions: [...spec.resolution.options] } : {}),
     ...(durations && durations.length > 0
@@ -302,6 +308,52 @@ export function createRunningHubAdapter(
     return { bytes, mime: res.headers['content-type'] ?? 'image/png' }
   }
 
+  const mediaFileName = (mime: string, prefix: string): string => {
+    const ext =
+      ({
+        'image/png': 'png',
+        'image/jpeg': 'jpg',
+        'image/webp': 'webp',
+        'audio/mpeg': 'mp3',
+        'audio/wav': 'wav',
+        'audio/ogg': 'ogg',
+        'audio/mp4': 'm4a',
+        'audio/aac': 'aac',
+        'audio/flac': 'flac',
+      } as Record<string, string>)[mime.toLowerCase()] ?? 'bin'
+    return `${prefix}.${ext}`
+  }
+
+  const uploadMedia = async (
+    bytes: Uint8Array,
+    mime: string,
+    signal: AbortSignal,
+    prefix: string,
+  ): Promise<string> => {
+    const form = new FormData()
+    form.append(
+      'file',
+      new Blob([bytes as BlobPart], { type: mime }),
+      mediaFileName(mime, prefix),
+    )
+    const res = await readJson(
+      await deps.network.request(
+        {
+          url: `${host}${STD_PATH}/media/upload/binary`,
+          method: 'POST',
+          headers: key ? { Authorization: `Bearer ${key}` } : {},
+          body: form,
+          timeoutMs: 120000,
+        },
+        signal,
+      ),
+    )
+    if (res.code !== 0 || !res.data?.download_url) {
+      throw upstreamError(null, describeRhError(res, '素材上传失败'))
+    }
+    return res.data.download_url
+  }
+
   const assetsFrom = async (res: RhResponse, signal: AbortSignal): Promise<GeneratedAsset[]> => {
     const items = res.results ?? []
     const urls = items
@@ -346,24 +398,33 @@ export function createRunningHubAdapter(
         values.push(`data:${mime};base64,${bytesToBase64(bytes)}`)
         continue
       }
-      const form = new FormData()
-      form.append('file', new Blob([bytes as BlobPart], { type: mime }), 'ref.png')
-      const res = await readJson(
-        await deps.network.request(
-          {
-            url: `${host}${STD_PATH}/media/upload/binary`,
-            method: 'POST',
-            headers: key ? { Authorization: `Bearer ${key}` } : {},
-            body: form,
-            timeoutMs: 120000,
-          },
+      values.push(await uploadMedia(bytes, mime, signal, 'ref'))
+    }
+    return values
+  }
+
+  /**
+   * 音频输入：数字人口播端点的 `audioUrl` 是独立媒体键。
+   *
+   * 统一先走官方 binary upload，不内联 data URI：音频端点多数要求可抓取 URL，
+   * 且上传后会得到服务端自己的 `download_url`，比把几十 MB 塞进 JSON 稳。
+   */
+  const resolveAudio = async (
+    request: ImageRunRequest | VideoRunRequest,
+    signal: AbortSignal,
+  ): Promise<string[]> => {
+    const values: string[] = []
+    for (const ref of audioInputsOf(request.inputs)) {
+      const payload = await deps.assets.read(ref.assetHash).catch(() => null)
+      if (!payload || payload.bytes.length === 0) continue
+      values.push(
+        await uploadMedia(
+          new Uint8Array(payload.bytes),
+          payload.mime || ref.mime,
           signal,
+          'audio',
         ),
       )
-      if (res.code !== 0 || !res.data?.download_url) {
-        throw upstreamError(null, describeRhError(res, '参考图上传失败'))
-      }
-      values.push(res.data.download_url)
     }
     return values
   }
@@ -383,9 +444,10 @@ export function createRunningHubAdapter(
     spec: RunningHubEndpointSpec,
     request: ImageRunRequest | VideoRunRequest,
     images: string[],
+    audios: string[],
   ): Record<string, unknown> => {
     const payload: Record<string, unknown> = {}
-    payload[spec.promptKey ?? 'prompt'] = request.prompt
+    if (spec.promptKey) payload[spec.promptKey] = request.prompt
 
     const media = spec.media
     if (media && media.type === 'IMAGE') {
@@ -400,6 +462,21 @@ export function createRunningHubAdapter(
         }
       } else {
         payload[media.key] = media.multiple ? images : images[0]
+      }
+    }
+
+    const audio = spec.audio
+    if (audio) {
+      if (audios.length === 0) {
+        if (audio.required) {
+          throw new ChannelError({
+            kind: 'validation',
+            field: '配音音频',
+            reason: '这个模型必须带一段配音音频',
+          })
+        }
+      } else {
+        payload[audio.key] = audio.multiple ? audios : audios[0]
       }
     }
 
@@ -427,7 +504,8 @@ export function createRunningHubAdapter(
     signal: AbortSignal,
   ): Promise<GeneratedAsset[]> => {
     const images = await resolveImages(spec, request, signal)
-    const payload = buildPayload(spec, request, images)
+    const audios = spec.audio ? await resolveAudio(request, signal) : []
+    const payload = buildPayload(spec, request, images, audios)
     const submitted = await readJson(
       await json(`${host}${STD_PATH}/${spec.id}`, payload, signal, SUBMIT_TIMEOUT_MS),
     )

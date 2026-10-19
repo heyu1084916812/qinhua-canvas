@@ -183,6 +183,24 @@ const MODELS = [
     text: 'rhart-video/sparkvideo-2.0/text-to-video',
     image: 'rhart-video/sparkvideo-2.0/image-to-video',
   },
+  {
+    slug: 'video-kling-avatar-std',
+    label: 'Kling V2 Std 数字人口播视频',
+    preset: 'Kling V2 数字人口播 Std',
+    hint: '一张人物图 + 一句配音生成口型同步视频；必须同时有图与音频',
+    kind: 'video',
+    text: 'kling-v2-ai-avatar-standard/image-audio-to-video',
+    image: 'kling-v2-ai-avatar-standard/image-audio-to-video',
+  },
+  {
+    slug: 'video-kling-avatar-pro',
+    label: 'Kling V2 Pro 数字人口播视频',
+    preset: 'Kling V2 数字人口播 Pro',
+    hint: '一张人物图 + 一句配音生成口型同步视频；Pro 档更稳，价格更高',
+    kind: 'video',
+    text: 'kling-v2-ai-avatar-pro/image-audio-to-video',
+    image: 'kling-v2-ai-avatar-pro/image-audio-to-video',
+  },
 ]
 
 /** 界面能驱动的档位参数 → 它在端点规格里的角色 */
@@ -216,11 +234,17 @@ function specOf(id) {
   }
   const prompt = params.find((p) => p.key === 'prompt' || p.key === 'text')
   if (prompt) spec.promptKey = prompt.key
-  const media = params.find((p) => MEDIA_TYPES.has(p.type))
+  const media = params.find((p) => p.type === 'IMAGE' || p.type === 'VIDEO')
   if (media) {
     spec.media = { key: media.key, type: media.type }
     if (media.multiple) spec.media.multiple = true
     if (media.required) spec.media.required = true
+  }
+  const audio = params.find((p) => p.type === 'AUDIO')
+  if (audio) {
+    spec.audio = { key: audio.key, type: audio.type }
+    if (audio.multiple) spec.audio.multiple = true
+    if (audio.required) spec.audio.required = true
   }
   for (const role of ['ratio', 'resolution', 'duration']) {
     const p = params.find((x) => DRIVEN[x.key] === role)
@@ -281,6 +305,8 @@ lines.push('  /** 提示词参数的键（目录里所有端点都是 `prompt`�
 lines.push('  promptKey?: string')
 lines.push('  /** 参考图 / 视频 / 音频参数的键与是否多值 */')
 lines.push('  media?: RunningHubMediaParam')
+  lines.push('  /** 音频输入（数字人口播等端点与图片分开声明） */')
+  lines.push('  audio?: RunningHubMediaParam')
 lines.push('  /** 比例、清晰度、时长：键名各端点不同（`aspectRatio` / `ratio`…），故逐个记 */')
 lines.push('  ratio?: RunningHubDrivenParam')
 lines.push('  resolution?: RunningHubDrivenParam')
@@ -300,6 +326,7 @@ for (const s of specs) {
   put('label', q(s.label))
   if (s.promptKey) put('promptKey', q(s.promptKey))
   if (s.media) put('media', jsonish(s.media))
+  if (s.audio) put('audio', jsonish(s.audio))
   if (s.ratio) put('ratio', jsonish(s.ratio))
   if (s.resolution) put('resolution', jsonish(s.resolution))
   if (s.duration) put('duration', jsonish(s.duration))

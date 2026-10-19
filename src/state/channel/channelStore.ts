@@ -37,6 +37,7 @@ import type {
   GeneratedAsset,
   SpeechRunRequest,
   TextResult,
+  VideoRunRequest,
   VerifyResult,
 } from '../../platform/channels/types'
 import type { ChatMessage, ToolDeclaration } from '../../domain/shared/execution/types'
@@ -227,6 +228,10 @@ export interface ChannelStoreActions {
   generateSpeech(
     req: SpeechRunRequest & { signal: AbortSignal },
   ): Promise<GeneratedAsset>
+  /** 单次视频调用；给不经过画布节点的直连工作流（如漫剧数字人口播）使用。 */
+  generateVideo(
+    req: VideoRunRequest & { signal: AbortSignal },
+  ): Promise<GeneratedAsset[]>
 }
 
 export type ChannelStore = MiniStore<ChannelStoreState> & ChannelStoreActions
@@ -816,6 +821,19 @@ export function createChannelStore(
     )
   }
 
+  const generateVideo: ChannelStoreActions['generateVideo'] = async ({
+    signal,
+    ...request
+  }) => {
+    const ch = store.getState().channels.find((c) => c.id === request.channelId)
+    if (!ch) throw new Error(`[channelStore] 渠道不存在：${request.channelId}`)
+    const apiKey = ch.credentialRef ? await repo.loadToken(ch.credentialRef) : null
+    const config: ResolvedChannelConfig = { ...toSafeConfig(ch, catalog()), apiKey }
+    const adapter = createChannelAdapter(config, platform)
+    const upstreamModel = resolveUpstreamModel(ch.modelMap, request.model) ?? request.model
+    return adapter.generateVideo({ ...request, model: upstreamModel }, signal)
+  }
+
   return {
     ...store,
     load,
@@ -845,5 +863,6 @@ export function createChannelStore(
     defaultForNewNode,
     completeWithTools,
     generateSpeech,
+    generateVideo,
   }
 }

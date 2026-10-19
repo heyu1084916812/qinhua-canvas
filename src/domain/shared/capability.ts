@@ -8,7 +8,7 @@
 export interface ModelCapability {
   id: string
   category: 'image' | 'chat' | 'video' | 'audio'
-  inputTypes: ('text' | 'image' | 'video')[]
+  inputTypes: ('text' | 'image' | 'video' | 'audio')[]
   aspectRatios?: string[]
   resolutions?: string[]
   qualities?: string[]
@@ -45,6 +45,9 @@ export function clampDuration(sec: number, cap?: ModelCapability): number {
   return Math.min(Math.max(Math.round(sec), min), max)
 }
 
-export function supportsInput(cap: ModelCapability, type: 'text' | 'image' | 'video'): boolean {
+export function supportsInput(
+  cap: ModelCapability,
+  type: 'text' | 'image' | 'video' | 'audio',
+): boolean {
   return cap.inputTypes.includes(type)
 }

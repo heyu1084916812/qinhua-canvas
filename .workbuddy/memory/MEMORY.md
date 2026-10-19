@@ -19,6 +19,13 @@
 - **展开时应取消旧高亮动画**：切项拉伸动画可能跨越 hover 展开那一帧；`lastOpen` 发现 open 变化时先 `cancel()`，再按当前项重新锚定，避免旧 transform 把高亮带偏。
 - **G80 的判据改为中心点对象**：同一组图标同时比较 `x / y`，容差仍为 1px；只比 x 会把这次用户看到的纵向跳动漏掉。
 
+### ★ 漫剧单句数字人口播（2026-10-19 → 对账 #604）
+
+- **单句限制是产品语义，不是偷懒**：Kling V2 AI Avatar 端点只有一个 `audioUrl`；一镜多句尚未混音时强行生成，会把“口型同步”说成假话。入口条件固定为：恰好一句台词、该句已有 `audioHash`、该镜有仍在画布里的图片节点。
+- **图片与音频分开走上传链**：`resolveImages` 处理 `imageUrl`，`resolveAudio` 只取 `audioInputsOf` 的第一条音轨，两者都走 `/media/upload/binary`；请求体写 `imageUrl` / `audioUrl`，不要再把音频塞进 `media` 或 data URI。
+- **生成后必须有真实节点**：产物先 `asset.put`，再创建 / 复用 `mode:'video'` 生成节点，最后写 `videoHash + videoNodeId` 到分镜；图片上游边要保留，否则用户后续在画布里看不出这条视频从哪张人像图来。
+- **G145 测试夹具要有真节点**：只往分镜写 `imageHash` 不够，`liveNodeIds` 会正确拒绝；必须同时落一张 `generation` 节点并把 `shot.nodeId` 指过去，数字人口播才可执行。
+
 ### ★★★ 共享库事务必须是显式 tx 端口（2026-10-18 → 对账 #574）
 
 - **模块级 `active` 事务会串写并“假成功”**：画布事务尚未提交时，电商结果
