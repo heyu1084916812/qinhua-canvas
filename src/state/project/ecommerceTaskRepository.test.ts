@@ -76,6 +76,29 @@ describe('电商任务 / 结果仓储（内存存储）', () => {
     expect(latest?.task.sourceAssetHash).toBe('hash-origin')
   })
 
+  it('appendResults 为抽卡承载节点追加结果行，位置接在队尾且任务回到 running', async () => {
+    const storage = createMemoryStorage()
+    const repo = createEcommerceTaskRepository(storage)
+    const created = await repo.create({
+      projectId: 'p1',
+      batchId: 'batch-append',
+      request,
+      nodeIds: ['n1', 'n2'],
+      at: 100,
+    })
+    const appended = await repo.appendResults(created.task.id, ['n3', 'n3', 'n4'])
+    expect(appended.task.status).toBe('running')
+    expect(appended.task.nodeIds).toEqual(['n1', 'n2', 'n3', 'n4'])
+    expect(appended.results.map((r) => [r.position, r.status, r.nodeId])).toEqual([
+      [0, 'pending', 'n1'],
+      [1, 'pending', 'n2'],
+      [2, 'pending', 'n3'],
+      [3, 'pending', 'n4'],
+    ])
+    const latest = await repo.latestWithResults('p1')
+    expect(latest?.results.map((r) => r.nodeId)).toEqual(['n1', 'n2', 'n3', 'n4'])
+  })
+
   it('latest 选最近的一批；没有结果的任务不冒充当前结果', async () => {
     const storage = createMemoryStorage()
     const repo = createEcommerceTaskRepository(storage)

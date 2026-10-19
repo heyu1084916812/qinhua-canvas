@@ -25,6 +25,10 @@ export interface EcommerceTaskRepository {
     sourceAssetHash?: string
     at?: number
   }): Promise<{ task: EcommerceTaskRecord; results: EcommerceResultRecord[] }>
+  appendResults(
+    taskId: string,
+    nodeIds: readonly string[],
+  ): Promise<{ task: EcommerceTaskRecord; results: EcommerceResultRecord[] }>
   updateResult(result: EcommerceResultRecord): Promise<void>
   updateTask(task: EcommerceTaskRecord): Promise<void>
   results(taskId: string): Promise<EcommerceResultRecord[]>
@@ -137,6 +141,41 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
 
     async updateResult(result) {
       await storage.put('ecommerceResults', result as never)
+    },
+
+    async appendResults(taskId, nodeIds) {
+      const taskRows = (await storage.query('ecommerceTasks', { id: taskId })) as unknown as Record<
+        string,
+        unknown
+      >[]
+      const task = taskRows.map(taskOf)[0]
+      if (!task) throw new Error(`电商任务不存在：${taskId}`)
+      const existing = await resultsOf(taskId)
+      const currentIds = new Set(task.nodeIds)
+      const appendedIds = [...new Set(nodeIds)].filter((id) => id && !currentIds.has(id))
+      const at = Date.now()
+      const start = existing.reduce((max, row) => Math.max(max, row.position), -1) + 1
+      const appended: EcommerceResultRecord[] = appendedIds.map((nodeId, offset) => ({
+        id: createId('ecr'),
+        taskId,
+        projectId: task.projectId,
+        nodeId,
+        position: start + offset,
+        createdAt: at,
+        updatedAt: at,
+        status: 'pending',
+      }))
+      const nextTask: EcommerceTaskRecord = {
+        ...task,
+        updatedAt: at,
+        status: appended.length > 0 ? 'running' : task.status,
+        nodeIds: [...task.nodeIds, ...appendedIds],
+      }
+      await storage.transaction(['ecommerceTasks', 'ecommerceResults'], async (tx) => {
+        await tx.put('ecommerceTasks', nextTask as never)
+        if (appended.length > 0) await tx.bulkPut('ecommerceResults', appended as never)
+      })
+      return { task: nextTask, results: [...existing, ...appended] }
     },
 
     async updateTask(task) {

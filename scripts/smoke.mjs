@@ -988,11 +988,146 @@ async function disableBuiltinChannels(page) {
   }
 }
 
+const SMOKE_MOCK_MODELS = [
+  {
+    id: 'mock-image-1',
+    category: 'image',
+    inputTypes: ['text'],
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'],
+    resolutions: ['1k', '2k', '4k'],
+    maxCount: 4,
+  },
+  {
+    id: 'mock-image-edit-1',
+    category: 'image',
+    inputTypes: ['text', 'image'],
+    aspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'],
+    resolutions: ['1k', '2k'],
+    maxCount: 1,
+    maxReferenceImages: 4,
+  },
+  ...['Standard', 'High Fidelity', 'Low Resolution', 'CGI', 'Text Refine'].map((name) => ({
+    id: `Topaz 图像超清 ${name}`,
+    category: 'image',
+    inputTypes: ['text', 'image'],
+    scales: ['2x', '4x', '6x'],
+    maxCount: 1,
+    maxReferenceImages: 1,
+  })),
+  { id: 'mock-chat-1', category: 'chat', inputTypes: ['text'] },
+  {
+    id: 'mock-video-1',
+    category: 'video',
+    inputTypes: ['text', 'image'],
+    aspectRatios: ['16:9', '9:16'],
+    durations: [3, 15],
+    maxReferenceImages: 2,
+  },
+  {
+    id: 'Kling V2 数字人口播 Std',
+    category: 'video',
+    inputTypes: ['text', 'image', 'audio'],
+    aspectRatios: ['1:1'],
+    durations: [3, 15],
+    maxReferenceImages: 1,
+  },
+  {
+    id: 'Topaz 视频超清',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    resolutions: ['720p', '1080p', '4k'],
+    frameRates: [30, 60],
+    maxReferenceImages: 1,
+  },
+  {
+    id: 'RH 视频超分',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    resolutions: ['720p', '1080p', '2k', '4k'],
+    maxReferenceImages: 1,
+  },
+  {
+    id: '全能视频X 视频编辑',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    resolutions: ['480p', '720p'],
+    maxReferenceImages: 1,
+  },
+  {
+    id: '万相2.7 视频续写',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    resolutions: ['720P', '1080P'],
+    durations: [2, 15],
+    maxReferenceImages: 1,
+  },
+  {
+    id: 'mock-speech-1',
+    category: 'audio',
+    inputTypes: ['text'],
+    voices: ['alloy', 'nova'],
+  },
+]
+
+const SMOKE_MOCK_MODEL_MAP = {
+  'Agnes Image 2.5 Flash': 'mock-image-1',
+  'GPT Image 2': 'mock-image-1',
+  '全能图片X-3（图生图）': 'mock-image-edit-1',
+  'GPT-6 Astra': 'mock-chat-1',
+  '即梦 2.5': 'mock-video-1',
+  'OpenAI TTS': 'mock-speech-1',
+}
+
+async function seedIsolatedMockChannel(page) {
+  const rows = await sharedRows(page, 'channels')
+  const template = rows[0] ?? {}
+  const now = Date.now()
+  const target = {
+    ...template,
+    id: 'ch_smoke_mock',
+    name: 'Smoke Mock',
+    protocol: 'mock',
+    baseUrl: 'http://mock.local',
+    enabled: true,
+    order: 999,
+    priority: 999,
+    weight: 1,
+    routeStrategy: 'priority',
+    models: SMOKE_MOCK_MODELS,
+    modelCache: SMOKE_MOCK_MODELS,
+    modelMap: SMOKE_MOCK_MODEL_MAP,
+    credentialRef: null,
+    altCredentialRef: null,
+    hasToken: false,
+    hasAltToken: false,
+    tokenTail: null,
+    altTokenTail: null,
+    lastTestAt: now,
+    lastTestLatency: 0,
+    createdAt: now,
+  }
+  await sharedPut(page, 'channels', target)
+  for (const row of rows) {
+    if (row.id === target.id || !row.enabled) continue
+    await sharedPut(page, 'channels', { ...row, enabled: false })
+  }
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForSelector('[data-settings-page]', { timeout: 10000 }).catch(() => {})
+  const after = await sharedRows(page, 'channels')
+  const seeded = after.find((row) => row.id === target.id)
+  return {
+    verified: seeded?.enabled === true && seeded?.protocol === 'mock',
+    pulled: seeded?.enabled === true,
+    enabled: seeded?.enabled === true,
+  }
+}
+
 async function configureMockChannel(
   page,
   { token = null, enable = true, pick = true, isolate = false } = {},
 ) {
   await gotoSettings(page)
+  if (isolate) return seedIsolatedMockChannel(page)
   /**
    * 共享库跨组复用。已有带模型的 mock 直接复用，避免每跑一组就堆一条空渠道；
    * 只有要求带 token（专测凭据）或库里还没有可用 mock 时才新建。
@@ -25618,6 +25753,11 @@ async function g116(browser) {
     (await page.locator('[data-ecommerce-rerun]').count()) >= 4,
     `按钮=${await page.locator('[data-ecommerce-rerun]').count()}`,
   )
+  const resultRowsOfShotTask = async () =>
+    (await sharedRows(page, 'ecommerceResults')).filter(
+      (row) => row.taskId === shotTask?.id,
+    )
+  const resultsBeforeRerun = await resultRowsOfShotTask()
   await page.locator('[data-ecommerce-rerun]').first().click()
   let runsAfter = runsBefore
   for (let i = 0; i < 60; i += 1) {
@@ -25630,6 +25770,33 @@ async function g116(browser) {
     '★★ 点「重跑这一张」真的又跑了一趟（项目运行记录 +1，不必整批重来）',
     runsAfter === runsBefore + 1,
     `${runsBefore} → ${runsAfter}`,
+  )
+  let resultsAfterRerun = resultsBeforeRerun
+  for (let i = 0; i < 60; i += 1) {
+    resultsAfterRerun = await resultRowsOfShotTask()
+    if (
+      resultsAfterRerun.length === resultsBeforeRerun.length + 1 &&
+      resultsAfterRerun.some(
+        (row) =>
+          !resultsBeforeRerun.some((before) => before.id === row.id) &&
+          row.status === 'done' &&
+          !!row.assetHash,
+      )
+    ) {
+      break
+    }
+    await sleep(150)
+  }
+  const rerunResultRow = resultsAfterRerun.find(
+    (row) => !resultsBeforeRerun.some((before) => before.id === row.id),
+  )
+  rec(
+    g,
+    '★★★ 抽卡重跑在结果区新增一张结果，而不是只把承载节点留在画布上',
+    resultsAfterRerun.length === resultsBeforeRerun.length + 1 &&
+      rerunResultRow?.status === 'done' &&
+      !!rerunResultRow.assetHash,
+    `结果 ${resultsBeforeRerun.length}→${resultsAfterRerun.length} 新节点=${rerunResultRow?.nodeId ?? '无'} hash=${(rerunResultRow?.assetHash ?? '').slice(0, 8)}`,
   )
 
   /**
@@ -25781,6 +25948,7 @@ async function g116(browser) {
   )
 
   // ⑤d.1 历史批次 UI（对账 #479）：至少两条，点旧批次切回 1 张结果
+  const expectedLatestResults = resultsAfterRerun.length
   const taskButtons = page.locator('[data-ecommerce-task]')
   const taskCount = await taskButtons.count()
   rec(g, '★★ 历史批次列表至少两条（每次开始生成一条）', taskCount >= 2, `批次=${taskCount}`)
@@ -25803,15 +25971,15 @@ async function g116(browser) {
     await taskButtons.first().click()
     const switchedBack = await page
       .waitForFunction(
-        () => document.querySelectorAll('[data-ecommerce-result]').length === 4,
-        null,
+        (count) => document.querySelectorAll('[data-ecommerce-result]').length === count,
+        expectedLatestResults,
         { timeout: 10000 },
       )
       .then(() => true)
       .catch(() => false)
     rec(
       g,
-      '★ 点新批次后结果区切回最近一批（4 张）',
+      `★ 点新批次后结果区切回最近一批（${expectedLatestResults} 张）`,
       switchedBack,
       `结果=${await page.locator('[data-ecommerce-result]').count()}`,
     )
@@ -25830,8 +25998,8 @@ async function g116(browser) {
       const resultsAfterRemove = await page.locator('[data-ecommerce-result]').count()
       rec(
         g,
-        '★ 历史批次两下确认删除；删旧批次不影响当前批次结果（仍是 4 张）',
-        removed && resultsAfterRemove === 4,
+        `★ 历史批次两下确认删除；删旧批次不影响当前批次结果（仍是 ${expectedLatestResults} 张）`,
+        removed && resultsAfterRemove === expectedLatestResults,
         `批次=${await page.locator('[data-ecommerce-task]').count()} 结果=${resultsAfterRemove}`,
       )
     }
@@ -31791,13 +31959,16 @@ async function g145(browser) {
     .waitFor({ state: 'visible', timeout: 8000 })
     .then(() => true)
     .catch(() => false)
+  const digitalHumanTitle = digitalHumanShown
+    ? ((await digitalHumanButton.getAttribute('title')) ?? '')
+    : ''
   rec(
     g,
     '★★ 单句已有配音的镜头出现「数字人口播」入口，并标明实际模型',
     digitalHumanShown &&
       (await digitalHumanButton.isEnabled()) &&
-      /数字人口播\s*Std/.test((await digitalHumanButton.getAttribute('title')) ?? ''),
-    `title=${(await digitalHumanButton.getAttribute('title')) ?? 'none'}`,
+      /数字人口播\s*Std/.test(digitalHumanTitle),
+    `title=${digitalHumanTitle || 'none'}`,
   )
   await digitalHumanButton.click()
   const digitalHumanDb = await waitDb((db) => {
@@ -34769,7 +34940,7 @@ async function g159(browser) {
   await page.locator('[data-ecommerce-edit-preset="cleanup"]').click()
   await page
     .locator('[data-ecommerce-edit-model]')
-    .selectOption('mock-image-edit-1')
+    .selectOption('全能图片X-3（图生图）')
   const presetText = await page.locator('[data-ecommerce-edit-instruction]').inputValue()
   rec(
     g,
@@ -34838,7 +35009,7 @@ async function g159(browser) {
   const editReferenceStored =
     Array.isArray(editTask?.request?.referenceNodeIds) &&
     editTask.request.referenceNodeIds.length === 1
-  const editModelStored = editTask?.request?.model === 'mock-image-edit-1'
+  const editModelStored = editTask?.request?.model === '全能图片X-3（图生图）'
   rec(
     g,
     '★★★ AI 编辑生成独立新任务和新结果，编辑指令真的进了提示词',
@@ -35185,7 +35356,7 @@ async function g160(browser) {
   await page.locator('[data-ecommerce-batch-edit-preset="white-bg"]').click()
   await page
     .locator('[data-ecommerce-batch-edit-model]')
-    .selectOption('mock-image-edit-1')
+    .selectOption('全能图片X-3（图生图）')
   const instruction =
     '只把每一张的背景都换成浅灰摄影棚背景，产品、构图和画面文字保持不变'
   await page.locator('[data-ecommerce-batch-edit-instruction]').fill(instruction)
@@ -35239,7 +35410,7 @@ async function g160(browser) {
     editTasks.every(
       (task) =>
         task.request?.note === instruction &&
-        task.request?.model === 'mock-image-edit-1' &&
+        task.request?.model === '全能图片X-3（图生图）' &&
         Array.isArray(task.request?.referenceNodeIds) &&
         task.request.referenceNodeIds.length === 1,
     ),

@@ -1155,9 +1155,35 @@ function StudioHost({ projectId }: { projectId: string }) {
           row.status === 'canceled' ? 'failed' : row.status
         const rerunnable = !!node && row.status !== 'running' && row.status !== 'pending'
         const rerun = async (inPlace = false) => {
+          const before = new Set(store.getSnapshot().nodes.map((item) => item.id))
           await exec.runNode(row.nodeId, inPlace ? { inPlace: true } : undefined)
-          await syncResultRow(activeTask.id, row.nodeId)
-          await refreshTask(activeTask)
+          let taskForRefresh = activeTask
+          if (!inPlace) {
+            const carriers = store
+              .getSnapshot()
+              .nodes.filter(
+                (item) =>
+                  !before.has(item.id) &&
+                  (item.data as { __carrierOf?: string }).__carrierOf === row.nodeId,
+              )
+            if (carriers.length > 0) {
+              const appended = await taskRepo.appendResults(
+                activeTask.id,
+                carriers.map((item) => item.id),
+              )
+              taskForRefresh = appended.task
+              setActiveTask(appended.task)
+              setResultRows(appended.results)
+              for (const carrier of carriers) {
+                await syncResultRow(activeTask.id, carrier.id)
+              }
+            } else {
+              await syncResultRow(activeTask.id, row.nodeId)
+            }
+          } else {
+            await syncResultRow(activeTask.id, row.nodeId)
+          }
+          await refreshTask(taskForRefresh)
           await refreshTaskHistory()
         }
         return {
@@ -1265,6 +1291,8 @@ function StudioHost({ projectId }: { projectId: string }) {
     refreshTask,
     refreshTaskHistory,
     assetLibraryRepo,
+    taskRepo,
+    store,
   ])
 
   const failedCount = results.filter((r) => r.status === 'failed').length

@@ -104,6 +104,10 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
       /**
        * 打上「承载节点」来源标记（2026-09-24）。
        *
+       * 所有新承载节点都要带它，不只批量 / 循环。普通生成节点重跑时也会新铺一个节点；
+       * 上层若只看「图里多了一个 generation」，无法知道它对应哪一次结果。电商的
+       * 「重跑这一张（抽卡）」正是靠这个字段把新节点追加回原任务。
+       *
        * 分发器节点（批量 / 循环）跑完一次后，产物节点会带一条
        * 「分发器 → 承载节点」的连线。那条线让承载节点在拓扑上成了分发器的下游，
        * 而承载节点带着 `sourceData`（渠道 / 模型齐全）—— 于是「一键运行」
@@ -118,9 +122,7 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
        *
        * 字段名与循环节点的运行期字段同一约定：`__` 前缀表示「引擎写的元信息」。
        */
-      if (task.sourceType === 'batch' || task.sourceType === 'loop') {
-        data.__carrierOf = task.nodeId
-      }
+      data.__carrierOf = task.nodeId
 
       return {
         targetId,
