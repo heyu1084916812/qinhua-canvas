@@ -124,6 +124,13 @@ export interface EcommerceResultItem {
   onSaveToLibrary?: () => Promise<void> | void
 }
 
+export interface EcommerceLongImageTools {
+  /** 与结果卡同一口径：任务运行中不许再发一次付费请求 */
+  busy?: boolean
+  editResult?: (nodeId: string) => void
+  upscaleResult?: (nodeId: string) => void
+}
+
 export interface EcommerceStudioProps {
   projectName: string
   /** 项目级草稿（对账 #477）：刷新 / 切走后把左侧表单原样放回来 */
@@ -189,8 +196,8 @@ export interface EcommerceStudioProps {
    * （`files.saveFile`），那是**装配层**的活。不传就不渲染这个入口。
    */
   onOpenLongImage?: () => void
-  /** 长图面板本身（页面注入的 ReactNode）；为空就不渲染 */
-  longImage?: ReactNode
+  /** 长图面板本身；工作台把内部编辑 / 超清入口交给页面渲染 */
+  longImage?: (tools: EcommerceLongImageTools) => ReactNode
   /**
    * 「用一句话生成方案」（对账 #422）：页面注入 —— 只有页面拿得到渠道。
    * 不传就不渲染这一块（与长图面板同一条口径）。
@@ -330,6 +337,41 @@ export function EcommerceStudio({
     )
     return ECOMMERCE_UPSCALE_OPTIONS.filter((option) => available.has(option.id))
   }, [upscaleProfiles])
+
+  const openEditForResult = (result: EcommerceResultItem) => {
+    if (!onEditResult || running) return
+    setEditTarget({ nodeId: result.nodeId, label: '这张结果' })
+    setEditInstruction(note.trim())
+    setEditModel('')
+    setEditReference(null)
+    setEditError('')
+  }
+
+  const openUpscaleForResult = (result: EcommerceResultItem) => {
+    if (!onUpscaleResult || running) return
+    const first = availableUpscaleOptions[0]
+    if (!first) return
+    setUpscaleTarget({ items: [result], batch: false })
+    setUpscaleProfile(first.id)
+    setUpscaleScale('4x')
+    setUpscaleError('')
+  }
+
+  const longImageNode = longImage?.({
+    busy: running,
+    ...(onEditResult ? {
+      editResult: (nodeId: string) => {
+        const result = results.find((item) => item.nodeId === nodeId)
+        if (result) openEditForResult(result)
+      },
+    } : {}),
+    ...(onUpscaleResult && availableUpscaleOptions.length > 0 ? {
+      upscaleResult: (nodeId: string) => {
+        const result = results.find((item) => item.nodeId === nodeId)
+        if (result) openUpscaleForResult(result)
+      },
+    } : {}),
+  })
   /**
    * 「先出一份方案」（对账 #423）：**方案 + 它是对着哪组参数写的**。
    *
@@ -1527,13 +1569,7 @@ export function EcommerceStudio({
                         data-ecommerce-edit-result
                         disabled={running}
                         title="只改你写明的内容，原图和原任务都会保留"
-                        onClick={() => {
-                          setEditTarget({ nodeId: r.nodeId, label: '这张结果' })
-                          setEditInstruction(note.trim())
-                          setEditModel('')
-                          setEditReference(null)
-                          setEditError('')
-                        }}
+                        onClick={() => openEditForResult(r)}
                       >
                         AI 编辑这一张
                       </button>
@@ -1547,14 +1583,7 @@ export function EcommerceStudio({
                         data-ecommerce-upscale-result
                         disabled={running}
                         title="调用真实 Topaz 超分端点；原图与原任务都会保留"
-                        onClick={() => {
-                          const first = availableUpscaleOptions[0]
-                          if (!first) return
-                          setUpscaleTarget({ items: [r], batch: false })
-                          setUpscaleProfile(first.id)
-                          setUpscaleScale('4x')
-                          setUpscaleError('')
-                        }}
+                        onClick={() => openUpscaleForResult(r)}
                       >
                         AI 超清
                       </button>
@@ -1585,7 +1614,7 @@ export function EcommerceStudio({
             ))}
           </div>
         )}
-        {longImage}
+        {longImageNode}
       </section>
 
       {detailTarget ? (

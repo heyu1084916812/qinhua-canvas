@@ -165,6 +165,15 @@ function EcommerceProject({ projectId }: { projectId: string }) {
     createStore({ workbench: 'canvas', platform, projectId }),
   )
   const store = cached.store
+  /**
+   * 水合门：页面在工作区可交互之前必须先把同一个画布 store 的节点 / 连线读回来。
+   *
+   * 为什么不能像旧版一样“后台读、表单先开”：用户如果很快上传产品图，`node.create`
+   * 会先写进空 store，随后异步 `store.hydrate()` 用磁盘快照覆盖内存图；磁盘上节点还在，
+   * 本地图却已经没有它，出图时第一条 `edge.connect` 就报“源节点不存在”。
+   */
+  const [hydrated, setHydrated] = useState(cached.hydrated)
+  const [hydrateError, setHydrateError] = useState('')
 
   /**
    * 离开这一页时把还没到防抖时间的写入**冲一次**（与画布页同一手法）。
@@ -187,23 +196,40 @@ function EcommerceProject({ projectId }: { projectId: string }) {
     if (cached.hydrated) return
     let cancelled = false
     void (async () => {
-      await platform.storage.open()
-      const [nodes, edges] = await Promise.all([
-        platform.storage.query('nodes', { projectId }),
-        platform.storage.query('edges', { projectId }),
-      ])
-      if (cancelled) return
-      cached.hydrated = true
-      store.hydrate({
-        projectId,
-        nodes: nodes as unknown as NodeSnapshot[],
-        edges: edges as unknown as Edge[],
-      })
+      try {
+        await platform.storage.open()
+        const [nodes, edges] = await Promise.all([
+          platform.storage.query('nodes', { projectId }),
+          platform.storage.query('edges', { projectId }),
+        ])
+        if (cancelled) return
+        cached.hydrated = true
+        store.hydrate({
+          projectId,
+          nodes: nodes as unknown as NodeSnapshot[],
+          edges: edges as unknown as Edge[],
+        })
+        setHydrated(true)
+      } catch (e) {
+        if (!cancelled) {
+          setHydrateError(e instanceof Error ? e.message : String(e))
+        }
+      }
     })()
     return () => {
       cancelled = true
     }
   }, [cached, platform, projectId, store])
+
+  if (!hydrated) {
+    return (
+      <div className={styles.emptyWrap} data-ecommerce-hydrating>
+        <p className={styles.emptyText}>
+          {hydrateError ? `项目读取失败：${hydrateError}` : '正在读取这个电商项目…'}
+        </p>
+      </div>
+    )
+  }
 
   return (
     <CanvasStoreProvider store={store}>
@@ -1421,8 +1447,14 @@ function StudioHost({ projectId }: { projectId: string }) {
       onPlanShots={onPlanShots}
       shotPlanNote={shotPlanNote}
       onOpenLongImage={() => setLongOpen(true)}
-      longImage={
-        longOpen ? <LongImagePanel tiles={longTiles} onClose={() => setLongOpen(false)} /> : null
+      longImage={(tools) =>
+        longOpen ? (
+          <LongImagePanel
+            tiles={longTiles}
+            tools={tools}
+            onClose={() => setLongOpen(false)}
+          />
+        ) : null
       }
     />
   )

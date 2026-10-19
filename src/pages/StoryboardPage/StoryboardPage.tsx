@@ -248,6 +248,12 @@ function StoryboardProject({ projectId }: { projectId: string }) {
     createStore({ workbench: 'canvas', platform, projectId }),
   )
   const store = cached.store
+  /**
+   * 水合门与电商页同源：工作区一旦可点，用户就可能立刻铺镜头 / 上传资产；
+   * 后台水合若随后补一次 `store.hydrate()`，会把刚写进内存的节点覆盖掉。
+   */
+  const [hydrated, setHydrated] = useState(cached.hydrated)
+  const [hydrateError, setHydrateError] = useState('')
 
   useEffect(() => () => store.dispose(), [store])
 
@@ -264,23 +270,40 @@ function StoryboardProject({ projectId }: { projectId: string }) {
     if (cached.hydrated) return
     let cancelled = false
     void (async () => {
-      await platform.storage.open()
-      const [nodes, edges] = await Promise.all([
-        platform.storage.query('nodes', { projectId }),
-        platform.storage.query('edges', { projectId }),
-      ])
-      if (cancelled) return
-      cached.hydrated = true
-      store.hydrate({
-        projectId,
-        nodes: nodes as unknown as NodeSnapshot[],
-        edges: edges as unknown as Edge[],
-      })
+      try {
+        await platform.storage.open()
+        const [nodes, edges] = await Promise.all([
+          platform.storage.query('nodes', { projectId }),
+          platform.storage.query('edges', { projectId }),
+        ])
+        if (cancelled) return
+        cached.hydrated = true
+        store.hydrate({
+          projectId,
+          nodes: nodes as unknown as NodeSnapshot[],
+          edges: edges as unknown as Edge[],
+        })
+        setHydrated(true)
+      } catch (e) {
+        if (!cancelled) {
+          setHydrateError(e instanceof Error ? e.message : String(e))
+        }
+      }
     })()
     return () => {
       cancelled = true
     }
   }, [cached, platform, projectId, store])
+
+  if (!hydrated) {
+    return (
+      <div className={styles.emptyWrap} data-storyboard-hydrating>
+        <p className={styles.emptyText}>
+          {hydrateError ? `项目读取失败：${hydrateError}` : '正在读取这个漫剧项目…'}
+        </p>
+      </div>
+    )
+  }
 
   return (
     <CanvasStoreProvider store={store}>

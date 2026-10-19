@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
+import type { EcommerceLongImageTools } from '../../workbenches/ecommerce/EcommerceStudio'
 import { loadAssetUrl } from '../../workbenches/canvas/hooks/useAsset'
 import { addTile, moveTile, planLongImage, removeTile } from '../../domain/ecommerce/longImage'
 import styles from './LongImagePanel.module.css'
@@ -42,10 +43,12 @@ export interface LongImageTileSource {
 
 export function LongImagePanel({
   tiles,
+  tools,
   onClose,
 }: {
   /** 参与拼合的结果（页面已按"已完成 + 有 hash"过滤并用 useMemo 稳定引用） */
   tiles: readonly LongImageTileSource[]
+  tools?: EcommerceLongImageTools
   onClose: () => void
 }) {
   const platform = usePlatform()
@@ -183,8 +186,8 @@ export function LongImagePanel({
       ) : null}
       {/*
         编排（对账 #426）：这一段就是"编辑态"里**不需要任何新模型能力**的那一半 ——
-        选谁进长图、按什么顺序。像素级的那些（裁剪 / 抠图 / 局部重绘 / 延展 / 超清…）
-        要么需要渠道能力、要么等价于在画布里改，仍记在 #380b 的余项里。
+        选谁进长图、按什么顺序。逐段的打开 / 裁剪 / 标注 / 旋转复用画布副本；
+        AI 编辑 / AI 超清复用结果卡的同一套付费确认弹窗（对账 #622）。
 
         ⚠️ **放在预览之前**：预览是一张几千像素高的长条（`max-height: 520px` 自己也滚），
         编排压在它下面就会被顶到折叠线以下 —— 用户打开面板根本看不见有这个功能
@@ -283,6 +286,17 @@ export function LongImagePanel({
                         在画布中打开
                       </button>
                     ) : null}
+                    {tools?.editResult ? (
+                      <button
+                        type="button"
+                        className={styles.ghost}
+                        data-ecommerce-longimage-ai-edit={tile.id}
+                        disabled={tools.busy}
+                        onClick={() => tools.editResult?.(tile.id)}
+                      >
+                        AI 编辑
+                      </button>
+                    ) : null}
                     {editActionsOf(tile.id, tiles)?.crop ? (
                       <button
                         type="button"
@@ -291,6 +305,17 @@ export function LongImagePanel({
                         onClick={() => editActionsOf(tile.id, tiles)?.crop()}
                       >
                         裁剪
+                      </button>
+                    ) : null}
+                    {tools?.upscaleResult ? (
+                      <button
+                        type="button"
+                        className={styles.ghost}
+                        data-ecommerce-longimage-upscale={tile.id}
+                        disabled={tools.busy}
+                        onClick={() => tools.upscaleResult?.(tile.id)}
+                      >
+                        AI 超清
                       </button>
                     ) : null}
                     {editActionsOf(tile.id, tiles)?.annotate ? (

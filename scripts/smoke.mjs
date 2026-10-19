@@ -1111,8 +1111,20 @@ async function seedIsolatedMockChannel(page) {
     if (row.id === target.id || !row.enabled) continue
     await sharedPut(page, 'channels', { ...row, enabled: false })
   }
-  await page.reload({ waitUntil: 'networkidle' })
-  await page.waitForSelector('[data-settings-page]', { timeout: 10000 }).catch(() => {})
+  /*
+   * 设置页会持续挂着应用级连接，`networkidle` 在 CI / 长跑环境里可能永远不满足。
+   * 这里要证明的是“渠道已写入并能被页面读回”，所以等 DOM 就绪 + 设置卡真正出现即可。
+   */
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.locator('[data-settings-card]').waitFor({ state: 'visible', timeout: 20_000 })
+  /*
+   * 设置卡可见只证明页面挂载了，不证明 ChannelStore 已完成 hydrate。
+   * 后续马上进入电商页时若渠道还没读回，会表现为“点生成什么也没发生”。
+   * 用刚种下的稳定 id 等 UI 真正看见它，才算夹具就绪。
+   */
+  await page
+    .locator(`[data-channel-id="${target.id}"]`)
+    .waitFor({ state: 'visible', timeout: 20_000 })
   const after = await sharedRows(page, 'channels')
   const seeded = after.find((row) => row.id === target.id)
   return {
@@ -30432,13 +30444,51 @@ async function g139(browser) {
   const editActions = await page
     .locator(`[data-ecommerce-longimage-edit-menu="${editId}"] button`)
     .count()
+  const aiEditVisible =
+    (await page.locator(`[data-ecommerce-longimage-ai-edit="${editId}"]`).count()) === 1
+  const aiUpscaleVisible =
+    (await page.locator(`[data-ecommerce-longimage-upscale="${editId}"]`).count()) === 1
   rec(
     g,
-    '★★ 长图每一段都能展开逐张编辑器入口（打开 / 裁剪 / 标注 / 旋转）',
-    editActions === 4,
-    `入口 ${editActions} 个`,
+    '★★ 长图每一段都能展开逐张编辑器入口（打开 / 裁剪 / 标注 / 旋转 / AI 编辑 / AI 超清）',
+    editActions === 6 && aiEditVisible && aiUpscaleVisible,
+    `入口 ${editActions} 个 / AI 编辑=${aiEditVisible} / AI 超清=${aiUpscaleVisible}`,
   )
   await page.screenshot({ path: `${OUT}/139-g139-long-image-edit-menu.png` })
+
+  await page.locator(`[data-ecommerce-longimage-ai-edit="${editId}"]`).click()
+  const aiEditOpened = await page
+    .locator('[data-ecommerce-edit-dialog]')
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★★ 长图段内「AI 编辑」复用结果卡弹窗，不另开一套请求状态', aiEditOpened)
+  await page.locator('[data-ecommerce-edit-cancel]').click()
+  await page
+    .locator('[data-ecommerce-edit-dialog]')
+    .waitFor({ state: 'hidden', timeout: 10000 })
+    .catch(() => {})
+
+  await page.locator(`[data-ecommerce-longimage-upscale="${editId}"]`).click()
+  const aiUpscaleOpened = await page
+    .locator('[data-ecommerce-upscale-dialog]')
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .then(() => true)
+    .catch(() => false)
+  const aiUpscaleCount = aiUpscaleOpened
+    ? (await page.locator('[data-ecommerce-upscale-count]').innerText()).trim()
+    : ''
+  rec(
+    g,
+    '★★ 长图段内「AI 超清」复用结果卡弹窗，并且只处理当前这一段',
+    aiUpscaleOpened && aiUpscaleCount.includes('1 张'),
+    `弹窗=${aiUpscaleOpened} 数量=${aiUpscaleCount || '无'}`,
+  )
+  await page.locator('[data-ecommerce-upscale-cancel]').click()
+  await page
+    .locator('[data-ecommerce-upscale-dialog]')
+    .waitFor({ state: 'hidden', timeout: 10000 })
+    .catch(() => {})
 
   await page.locator(`[data-ecommerce-longimage-crop="${editId}"]`).click()
   const cropOpened = await page
