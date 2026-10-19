@@ -1133,6 +1133,7 @@ async function mapMockModels(page) {
    */
   const rows = [
     ['image', 'GPT Image 2', 'mock-image-1'],
+    ['image', '全能图片X-3（图生图）', 'mock-image-edit-1'],
     /**
      * 新建图片节点现在默认选生图档第一条 `Agnes Image 2.5 Flash`。
      * mock 渠道也必须登记同一逻辑名，否则“铺到画布”建出的节点虽然连到了 mock
@@ -34663,6 +34664,9 @@ async function g159(browser) {
   rec(g, '★ 空编辑指令时提交按钮禁用（不会悄悄发付费请求）', blankDisabled)
 
   await page.locator('[data-ecommerce-edit-preset="cleanup"]').click()
+  await page
+    .locator('[data-ecommerce-edit-model]')
+    .selectOption('mock-image-edit-1')
   const presetText = await page.locator('[data-ecommerce-edit-instruction]').inputValue()
   rec(
     g,
@@ -34731,11 +34735,16 @@ async function g159(browser) {
   const editReferenceStored =
     Array.isArray(editTask?.request?.referenceNodeIds) &&
     editTask.request.referenceNodeIds.length === 1
+  const editModelStored = editTask?.request?.model === 'mock-image-edit-1'
   rec(
     g,
     '★★★ AI 编辑生成独立新任务和新结果，编辑指令真的进了提示词',
-    newTaskCreated && newResultDone && promptWritten && editReferenceStored,
-    `任务 ${tasksBefore.length}→${tasksAfter.length} 状态=${editResult?.status ?? '无'} 提示词=${promptWritten} 参考图=${editReferenceStored}`,
+    newTaskCreated &&
+      newResultDone &&
+      promptWritten &&
+      editReferenceStored &&
+      editModelStored,
+    `任务 ${tasksBefore.length}→${tasksAfter.length} 状态=${editResult?.status ?? '无'} 提示词=${promptWritten} 参考图=${editReferenceStored} 模型=${editTask?.request?.model ?? 'none'}`,
   )
   rec(
     g,
@@ -35071,6 +35080,9 @@ async function g160(browser) {
     )
     .catch(() => {})
   await page.locator('[data-ecommerce-batch-edit-preset="white-bg"]').click()
+  await page
+    .locator('[data-ecommerce-batch-edit-model]')
+    .selectOption('mock-image-edit-1')
   const instruction =
     '只把每一张的背景都换成浅灰摄影棚背景，产品、构图和画面文字保持不变'
   await page.locator('[data-ecommerce-batch-edit-instruction]').fill(instruction)
@@ -35124,6 +35136,7 @@ async function g160(browser) {
     editTasks.every(
       (task) =>
         task.request?.note === instruction &&
+        task.request?.model === 'mock-image-edit-1' &&
         Array.isArray(task.request?.referenceNodeIds) &&
         task.request.referenceNodeIds.length === 1,
     ),

@@ -587,6 +587,14 @@
   line-height: var(--lh-body);
 }
 
+.editModel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--text-2);
+  font-size: var(--fs-label);
+}
+
 .editPresets {
   display: flex;
   flex-wrap: wrap;

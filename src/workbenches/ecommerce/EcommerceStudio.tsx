@@ -151,13 +151,13 @@ export interface EcommerceStudioProps {
   onEditResult?: (
     nodeId: string,
     instruction: string,
-    options?: { referenceNodeId?: string },
+    options?: { referenceNodeId?: string; model?: string },
   ) => Promise<void>
   /** 对多张结果串行执行同一套定向编辑；每张仍生成独立新批次，原结果保留 */
   onEditResults?: (
     nodeIds: readonly string[],
     instruction: string,
-    options?: { referenceNodeId?: string },
+    options?: { referenceNodeId?: string; model?: string },
   ) => Promise<void>
   /** 以结果图为输入做真实 Topaz 超分；profile 与倍率都必须从领域常量里选 */
   onUpscaleResult?: (
@@ -169,6 +169,8 @@ export interface EcommerceStudioProps {
   upscaleProfiles?: readonly EcommerceUpscaleProfile[]
   /** 可选出图模型（前端显示名，来自固定清单）；空数组时只显示"默认（按渠道解析）" */
   models?: readonly string[]
+  /** 可做图生图编辑的模型（必须真实声明 image 输入） */
+  editModels?: readonly string[]
   /** 当前选中的模型；空串 = 用默认解析出来的那一个 */
   model: string
   onModelChange: (model: string) => void
@@ -250,6 +252,7 @@ export function EcommerceStudio({
   onUpscaleResult,
   upscaleProfiles,
   models = [],
+  editModels = [],
   model,
   onModelChange,
   running,
@@ -297,6 +300,7 @@ export function EcommerceStudio({
   /** 结果卡上的定向 AI 编辑：一次只打开一张，指令不进入左侧表单草稿 */
   const [editTarget, setEditTarget] = useState<{ nodeId: string; label: string } | null>(null)
   const [editInstruction, setEditInstruction] = useState('')
+  const [editModel, setEditModel] = useState('')
   const [editError, setEditError] = useState('')
   const [editSubmitting, setEditSubmitting] = useState(false)
   const [editReference, setEditReference] = useState<EcommerceUpload | null>(null)
@@ -304,6 +308,7 @@ export function EcommerceStudio({
   const [selectedEditNodes, setSelectedEditNodes] = useState<Set<string>>(() => new Set())
   const [batchEditOpen, setBatchEditOpen] = useState(false)
   const [batchInstruction, setBatchInstruction] = useState('')
+  const [batchEditModel, setBatchEditModel] = useState('')
   const [batchEditError, setBatchEditError] = useState('')
   const [batchEditSubmitting, setBatchEditSubmitting] = useState(false)
   const [batchReference, setBatchReference] = useState<EcommerceUpload | null>(null)
@@ -608,11 +613,15 @@ export function EcommerceStudio({
       await onEditResult(
         editTarget.nodeId,
         instruction,
-        editReference ? { referenceNodeId: editReference.nodeId } : undefined,
+        {
+          ...(editReference ? { referenceNodeId: editReference.nodeId } : {}),
+          ...(editModel ? { model: editModel } : {}),
+        },
       )
       setEditTarget(null)
       setEditInstruction('')
       setEditReference(null)
+      setEditModel('')
     } catch (e) {
       setEditError(e instanceof Error ? e.message : 'AI 编辑失败，原因见下方结果区')
     } finally {
@@ -667,11 +676,15 @@ export function EcommerceStudio({
       await onEditResults(
         [...selectedEditNodes],
         instruction,
-        batchReference ? { referenceNodeId: batchReference.nodeId } : undefined,
+        {
+          ...(batchReference ? { referenceNodeId: batchReference.nodeId } : {}),
+          ...(batchEditModel ? { model: batchEditModel } : {}),
+        },
       )
       setBatchEditOpen(false)
       setBatchInstruction('')
       setBatchReference(null)
+      setBatchEditModel('')
       setSelectedEditNodes(new Set())
     } catch (e) {
       setBatchEditError(e instanceof Error ? e.message : '批量 AI 编辑失败')
@@ -1243,6 +1256,7 @@ export function EcommerceStudio({
                 onClick={() => {
                   setBatchEditOpen(true)
                   setBatchInstruction(note.trim())
+                  setBatchEditModel('')
                   setBatchReference(null)
                   setBatchEditError('')
                 }}
@@ -1516,6 +1530,7 @@ export function EcommerceStudio({
                         onClick={() => {
                           setEditTarget({ nodeId: r.nodeId, label: '这张结果' })
                           setEditInstruction(note.trim())
+                          setEditModel('')
                           setEditReference(null)
                           setEditError('')
                         }}
@@ -1748,6 +1763,24 @@ export function EcommerceStudio({
                 </span>
               ) : null}
             </div>
+            {editModels.length > 0 ? (
+              <label className={styles.editModel}>
+                <span>编辑模型</span>
+                <select
+                  className={styles.select}
+                  value={batchEditModel}
+                  data-ecommerce-batch-edit-model
+                  onChange={(e) => setBatchEditModel(e.target.value)}
+                >
+                  <option value="">跟随原任务模型</option>
+                  {editModels.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <textarea
               className={styles.editInput}
               data-ecommerce-batch-edit-instruction
@@ -1774,6 +1807,7 @@ export function EcommerceStudio({
                 onClick={() => {
                   setBatchEditOpen(false)
                   setBatchInstruction('')
+                  setBatchEditModel('')
                   setBatchReference(null)
                   setBatchEditError('')
                 }}
@@ -1862,6 +1896,24 @@ export function EcommerceStudio({
                 </span>
               ) : null}
             </div>
+            {editModels.length > 0 ? (
+              <label className={styles.editModel}>
+                <span>编辑模型</span>
+                <select
+                  className={styles.select}
+                  value={editModel}
+                  data-ecommerce-edit-model
+                  onChange={(e) => setEditModel(e.target.value)}
+                >
+                  <option value="">跟随原任务模型</option>
+                  {editModels.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <textarea
               className={styles.editInput}
               data-ecommerce-edit-instruction
@@ -1888,6 +1940,7 @@ export function EcommerceStudio({
                 onClick={() => {
                   setEditTarget(null)
                   setEditInstruction('')
+                  setEditModel('')
                   setEditReference(null)
                   setEditError('')
                 }}

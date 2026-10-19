@@ -48,6 +48,15 @@ const DEFAULT_MODELS: ModelCapability[] = [
     resolutions: ['1k', '2k'],
     maxCount: 4,
   },
+  {
+    id: 'mock-image-edit-1',
+    category: 'image',
+    inputTypes: ['text', 'image'],
+    aspectRatios: ['1:1', '16:9'],
+    resolutions: ['1k', '2k'],
+    maxCount: 1,
+    maxReferenceImages: 4,
+  },
   ...['Standard', 'High Fidelity', 'Low Resolution', 'CGI', 'Text Refine'].map((name) => ({
     id: `Topaz 图像超清 ${name}`,
     category: 'image' as const,

@@ -43,7 +43,11 @@ import {
   type ShotPlanResult,
 } from '../../domain/ecommerce/chatShots'
 import type { EcommerceShot } from '../../domain/ecommerce/prompt'
-import { panelModelOptions } from '../../domain/project/modelCatalog'
+import {
+  capabilityOfLogical,
+  logicalNames,
+  panelModelOptions,
+} from '../../domain/project/modelCatalog'
 import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
 import { projectRoute } from '../../domain/shared/workbench'
 import { downloadAsset } from '../../features/canvas/downloadAsset'
@@ -618,6 +622,16 @@ function StudioHost({ projectId }: { projectId: string }) {
     () => channels.getState().channels,
     () => channels.getState().channels,
   )
+  const editModels = useMemo(() => {
+    const enabled = channelList.filter((channel) => channel.enabled)
+    return logicalNames(enabled).filter((name) => {
+      const capability = capabilityOfLogical(enabled, name)
+      return (
+        capability?.category === 'image' &&
+        capability.inputTypes.includes('image')
+      )
+    })
+  }, [channelList])
   const upscaleProfiles = useMemo(
     () =>
       ECOMMERCE_UPSCALE_OPTIONS.filter((option) =>
@@ -989,7 +1003,7 @@ function StudioHost({ projectId }: { projectId: string }) {
   const editResult = async (
     nodeId: string,
     instruction: string,
-    options?: { referenceNodeId?: string },
+    options?: { referenceNodeId?: string; model?: string },
   ) => {
     const row =
       resultRows.find((item) => item.nodeId === nodeId || item.canvasCopyNodeId === nodeId) ?? null
@@ -1007,7 +1021,9 @@ function StudioHost({ projectId }: { projectId: string }) {
         productNodeId: copy.nodeId,
         referenceNodeIds: options?.referenceNodeId ? [options.referenceNodeId] : [],
         note: text,
-        ...(row.model ? { model: row.model } : {}),
+        ...(options?.model || row.model
+          ? { model: options?.model || row.model }
+          : {}),
       },
       undefined,
       {
@@ -1025,7 +1041,7 @@ function StudioHost({ projectId }: { projectId: string }) {
   const editResults = async (
     nodeIds: readonly string[],
     instruction: string,
-    options?: { referenceNodeId?: string },
+    options?: { referenceNodeId?: string; model?: string },
   ) => {
     for (const nodeId of nodeIds) {
       await editResult(nodeId, instruction, options)
@@ -1327,6 +1343,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       onDraftChange={handleDraftChange}
       platforms={platforms}
       models={models}
+      editModels={editModels}
       model={model}
       onModelChange={setModel}
       onUpload={onUpload}
