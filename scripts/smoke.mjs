@@ -34472,16 +34472,26 @@ async function g159(browser) {
     .catch(() => false)
   rec(g, '★★ 先跑出一张原结果', sourceDone, `结果=${await page.locator('[data-ecommerce-result]').count()}`)
 
-  const tasksBefore = (await sharedRows(page, 'ecommerceTasks')).filter(
-    (row) => row.projectId === ecommerceProjectId,
-  )
-  const resultsBefore = (await sharedRows(page, 'ecommerceResults')).filter(
-    (row) => row.projectId === ecommerceProjectId,
-  )
-  const sourceTask = tasksBefore
-    .slice()
-    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
-  const sourceResult = resultsBefore.find((row) => row.taskId === sourceTask?.id && row.status === 'done')
+  let tasksBefore = []
+  let resultsBefore = []
+  let sourceTask = null
+  let sourceResult = null
+  for (let i = 0; i < 60; i += 1) {
+    tasksBefore = (await sharedRows(page, 'ecommerceTasks')).filter(
+      (row) => row.projectId === ecommerceProjectId,
+    )
+    resultsBefore = (await sharedRows(page, 'ecommerceResults')).filter(
+      (row) => row.projectId === ecommerceProjectId,
+    )
+    sourceTask = tasksBefore
+      .slice()
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
+    sourceResult = resultsBefore.find(
+      (row) => row.taskId === sourceTask?.id && row.status === 'done',
+    )
+    if (sourceTask && sourceResult) break
+    await sleep(100)
+  }
   rec(g, '原任务与原结果已落表（后续检查只认库）', !!sourceTask && !!sourceResult)
 
   await page.locator('[data-ecommerce-edit-result]').first().click()
@@ -34632,6 +34642,78 @@ async function g159(browser) {
     )
     await page.locator('[data-ecommerce-compare-close]').click()
   }
+
+  const upscaleSource = editResult ?? sourceResult
+  await page
+    .locator(
+      `[data-ecommerce-result][data-ecommerce-result-id="${upscaleSource?.nodeId}"] [data-ecommerce-upscale-result]`,
+    )
+    .click()
+  const upscaleDialog = page.locator('[data-ecommerce-upscale-dialog]')
+  await upscaleDialog.waitFor({ state: 'visible', timeout: 5000 })
+  const upscaleDefaultModel = await page.locator('[data-ecommerce-upscale-model]').innerText()
+  const upscaleProfileCount = await page.locator('[data-ecommerce-upscale-profile]').count()
+  rec(
+    g,
+    '★★ AI 超清弹窗默认就是真实 Topaz 模型，而不是普通生图',
+    upscaleDefaultModel.includes('Topaz 图像超清 Standard'),
+    upscaleDefaultModel.trim(),
+  )
+  rec(
+    g,
+    '★★ AI 超清只列出当前可路由的五个 Topaz 方案',
+    upscaleProfileCount === 5,
+    `方案=${upscaleProfileCount}`,
+  )
+  await page.locator('[data-ecommerce-upscale-profile="text-refine"]').click()
+  await page.locator('[data-ecommerce-upscale-scale="6x"]').click()
+  await page.locator('[data-ecommerce-upscale-submit]').click()
+  await sleep(600)
+  const upscaleErrorText = await page
+    .locator('[data-ecommerce-upscale-error]')
+    .innerText()
+    .catch(() => '')
+
+  let tasksWithUpscale = tasksAfter
+  let resultsWithUpscale = resultsAfter
+  let upscaleTask = null
+  let upscaleResult = null
+  for (let i = 0; i < 120; i += 1) {
+    tasksWithUpscale = (await sharedRows(page, 'ecommerceTasks')).filter(
+      (row) => row.projectId === ecommerceProjectId,
+    )
+    resultsWithUpscale = (await sharedRows(page, 'ecommerceResults')).filter(
+      (row) => row.projectId === ecommerceProjectId,
+    )
+    upscaleTask = tasksWithUpscale.find(
+      (row) => row.request?.scale === '6x' && row.request?.model === 'Topaz 图像超清 Text Refine',
+    )
+    upscaleResult = resultsWithUpscale.find((row) => row.taskId === upscaleTask?.id)
+    if (upscaleResult?.status === 'done' || upscaleResult?.status === 'failed') break
+    await sleep(150)
+  }
+  rec(
+    g,
+    '★★★ AI 超清生成独立任务，模型 / 6x / 来源图都真实落表',
+    !!upscaleTask &&
+      upscaleTask.request?.usage === 'edit' &&
+      upscaleTask.request?.model === 'Topaz 图像超清 Text Refine' &&
+      upscaleTask.request?.scale === '6x' &&
+      typeof upscaleTask.request?.channelId === 'string' &&
+      upscaleTask.sourceTaskId === upscaleSource?.taskId &&
+      upscaleTask.sourceAssetHash === upscaleSource?.assetHash,
+    `任务=${upscaleTask?.id ?? '无'} 模型=${upscaleTask?.request?.model ?? '无'} scale=${upscaleTask?.request?.scale ?? '无'} error=${upscaleErrorText}`,
+  )
+  rec(
+    g,
+    '★★★ AI 超清结果完成且原结果 hash 未被覆盖',
+    upscaleResult?.status === 'done' &&
+      typeof upscaleResult.assetHash === 'string' &&
+      upscaleResult.assetHash.length > 0 &&
+      resultsWithUpscale.find((row) => row.id === upscaleSource?.id)?.assetHash ===
+        upscaleSource?.assetHash,
+    `新状态=${upscaleResult?.status ?? '无'} 新hash=${(upscaleResult?.assetHash ?? '').slice(0, 8)}`,
+  )
 
   await page.screenshot({ path: `${OUT}/159-g159-ai-edit.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))

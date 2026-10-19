@@ -11,6 +11,8 @@ export interface ModelCapability {
   inputTypes: ('text' | 'image' | 'video' | 'audio')[]
   aspectRatios?: string[]
   resolutions?: string[]
+  /** 超分模型的放大倍数（`2x / 4x / 6x`） */
+  scales?: string[]
   qualities?: string[]
   maxCount?: number
   durations?: [number, number]

@@ -48,6 +48,14 @@ const DEFAULT_MODELS: ModelCapability[] = [
     resolutions: ['1k', '2k'],
     maxCount: 4,
   },
+  ...['Standard', 'High Fidelity', 'Low Resolution', 'CGI', 'Text Refine'].map((name) => ({
+    id: `Topaz 图像超清 ${name}`,
+    category: 'image' as const,
+    inputTypes: ['text', 'image'] as ('text' | 'image')[],
+    scales: ['2x', '4x', '6x'],
+    maxCount: 1,
+    maxReferenceImages: 1,
+  })),
   {
     // 离线文本 LLM：供提示词节点的「优化 / 翻译」使用（§6.7），category 为 chat
     id: 'mock-chat-1',

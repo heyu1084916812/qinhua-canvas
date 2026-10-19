@@ -4,7 +4,7 @@
  * 生成：`node scripts/gen-runninghub-models.mjs <RH_CLI>/src/rh_cli/catalog/data/capabilities.json`
  * 来源：RunningHub 官方 CLI（github.com/HM-RunningHub/RH_CLI）随包附带的端点目录
  *       capabilities.json —— version 2026-06-02，共 356 个端点；
- *       本文件只留**精挑的 31 个端点**（官方 CLI 的 13 个快捷选择 + 之前已交付的 4 个）。
+ *       本文件只留**精挑的 36 个端点**（官方 CLI 的 13 个快捷选择 + 之前已交付的 4 个）。
  *
  * 官方 CLI 建请求体的最后一步是「**必填 + 有默认值**而还没填的参数一律补默认值」
  * （`model/payload.py`）—— 适配器照同一条规则走 `requiredDefaults`。
@@ -40,6 +40,8 @@ export interface RunningHubEndpointSpec {
   ratio?: RunningHubDrivenParam
   resolution?: RunningHubDrivenParam
   duration?: RunningHubDrivenParam
+  /** 超分类模型的放大倍数（2x / 4x / 6x） */
+  scale?: RunningHubDrivenParam
   /** 必填且界面上没有对应档位的参数（键 → 照官方目录的默认值原样补） */
   requiredDefaults?: Record<string, unknown>
 }
@@ -326,6 +328,51 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     resolution: { "key": "resolution", "options": [ "2k", "3k" ] },
   },
   {
+    id: 'topazlabs/image-upscale-cgi',
+    task: 'image-upscale',
+    kind: 'image',
+    label: 'topazlabs图像放大CGI',
+    media: { "key": "imageUrl", "type": "IMAGE", "required": true },
+    scale: { "key": "scale", "options": [ "2x", "4x", "6x" ] },
+    requiredDefaults: { "scale": "2x" },
+  },
+  {
+    id: 'topazlabs/image-upscale-high-fidelity-v2',
+    task: 'image-upscale',
+    kind: 'image',
+    label: 'topazlabs图像放大High Fidelity V2',
+    media: { "key": "imageUrl", "type": "IMAGE", "required": true },
+    scale: { "key": "scale", "options": [ "2x", "4x", "6x" ] },
+    requiredDefaults: { "scale": "2x" },
+  },
+  {
+    id: 'topazlabs/image-upscale-standard-v2',
+    task: 'image-upscale',
+    kind: 'image',
+    label: 'topazlabs图像放大StandardV2',
+    media: { "key": "imageUrl", "type": "IMAGE", "required": true },
+    scale: { "key": "scale", "options": [ "2x", "4x", "6x" ] },
+    requiredDefaults: { "scale": "2x" },
+  },
+  {
+    id: 'topazlabs/image-upscale-text-refine',
+    task: 'image-upscale',
+    kind: 'image',
+    label: 'topazlabs图像放大Text Refine',
+    media: { "key": "imageUrl", "type": "IMAGE", "required": true },
+    scale: { "key": "scale", "options": [ "2x", "4x", "6x" ] },
+    requiredDefaults: { "scale": "2x" },
+  },
+  {
+    id: 'topazlabs/image-upscale/low-resolution-v2',
+    task: 'image-upscale',
+    kind: 'image',
+    label: 'topazlabs图像放大Low Resolution V2',
+    media: { "key": "imageUrl", "type": "IMAGE", "required": true },
+    scale: { "key": "scale", "options": [ "2x", "4x", "6x" ] },
+    requiredDefaults: { "scale": "2x" },
+  },
+  {
     id: 'vidu/image-to-video-q3-pro',
     task: 'image-to-video',
     kind: 'video',
@@ -502,6 +549,41 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
     kind: 'video',
     textEndpoint: 'rhart-video/sparkvideo-2.0/text-to-video',
     imageEndpoint: 'rhart-video/sparkvideo-2.0/image-to-video',
+  },
+  {
+    // 官方目录：Topaz 图像超清 Standard
+    id: 'Topaz 图像超清 Standard',
+    hint: '通用 2x / 4x / 6x 无损放大，适合大多数商品图',
+    kind: 'image',
+    textEndpoint: 'topazlabs/image-upscale-standard-v2',
+  },
+  {
+    // 官方目录：Topaz 图像超清 High Fidelity
+    id: 'Topaz 图像超清 High Fidelity',
+    hint: '更强调纹理与细节保真，适合高分辨率商品图',
+    kind: 'image',
+    textEndpoint: 'topazlabs/image-upscale-high-fidelity-v2',
+  },
+  {
+    // 官方目录：Topaz 图像超清 Low Resolution
+    id: 'Topaz 图像超清 Low Resolution',
+    hint: '针对低清晰度、压缩痕迹较重的图片',
+    kind: 'image',
+    textEndpoint: 'topazlabs/image-upscale/low-resolution-v2',
+  },
+  {
+    // 官方目录：Topaz 图像超清 CGI
+    id: 'Topaz 图像超清 CGI',
+    hint: '适合渲染图、3D 商品图和干净几何边缘',
+    kind: 'image',
+    textEndpoint: 'topazlabs/image-upscale-cgi',
+  },
+  {
+    // 官方目录：Topaz 图像超清 Text Refine
+    id: 'Topaz 图像超清 Text Refine',
+    hint: '优先保护文字边缘，适合带卖点文案的商品图',
+    kind: 'image',
+    textEndpoint: 'topazlabs/image-upscale-text-refine',
   },
   {
     // 官方目录：Kling V2 Std 数字人口播视频

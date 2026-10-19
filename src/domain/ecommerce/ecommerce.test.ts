@@ -138,6 +138,8 @@ describe('执行计划与校验', () => {
       ['爆款复刻没上传参考图', { ...base, usage: 'recreate', referenceNodeIds: [] }],
       ['AI 编辑空指令', { ...base, usage: 'edit', note: '  ' }],
       ['AI 编辑多张', { ...base, usage: 'edit', count: 2, note: '把背景换掉' }],
+      ['AI 超清非法倍数', { ...base, usage: 'edit', note: 'AI 超清', scale: '8x' as never }],
+      ['AI 超清误用于主图', { ...base, usage: 'main', scale: '4x' }],
     ]
     for (const [label, request] of cases) {
       expect(() => buildEcommercePlan(request), label).toThrow(EcommerceRequestError)

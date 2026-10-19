@@ -96,6 +96,8 @@ export interface GenerationData {
    */
   resolution?: string
   quality?: 'auto' | 'low' | 'medium' | 'high'
+  /** Topaz 等超分类模型的放大倍数（2x / 4x / 6x） */
+  scale?: string
   /**
    * **背景**（用户 2026-10-15：只剩两格 —— 默认 / 透明底）。
    *

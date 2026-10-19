@@ -6,6 +6,8 @@
  * （上传动作仍走既有的 `importAssetFile` + `createAssetNode`）。
  */
 
+import type { EcommerceUpscaleScale } from './upscale'
+
 /**
  * 用途：主图 / 白底图 / 详情页 / 套图 / 爆款复刻 / 结果图定向编辑。
  *
@@ -41,6 +43,10 @@ export interface EcommerceRequest {
    *（见 `domain/project/modelRouting.ts`）。
    */
   model?: string
+  /** AI 超清等专项结果操作使用固定渠道，避免只换模型却还落在原渠道 */
+  channelId?: string
+  /** Topaz 超分放大倍数；只有 AI 超清动作会写 */
+  scale?: EcommerceUpscaleScale
 }
 
 /** 新建电商任务时可选的用途；刻意不包含 `edit`。 */

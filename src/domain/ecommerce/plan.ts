@@ -17,6 +17,7 @@ import {
   ECOMMERCE_USAGES,
   type EcommerceRequest,
 } from './types'
+import { isUpscaleScale } from './upscale'
 
 /** 用途 → 默认张数（表单初值；用户可改，改完仍要过校验） */
 export const ECOMMERCE_DEFAULT_COUNT: Record<EcommerceRequest['usage'], number> = {
@@ -76,6 +77,9 @@ export function buildEcommercePlan(
   }
   if (request.usage === 'edit' && request.count !== 1) {
     throw new EcommerceRequestError('AI 编辑一次只改一张；要改多张请逐张操作')
+  }
+  if (request.scale !== undefined && (!isUpscaleScale(request.scale) || request.usage !== 'edit')) {
+    throw new EcommerceRequestError('AI 超清只支持 2x / 4x / 6x，并且只能用于结果图编辑')
   }
   if (!ECOMMERCE_LANGUAGES.includes(request.language)) {
     throw new EcommerceRequestError(`不认识的文案语言：${String(request.language)}`)

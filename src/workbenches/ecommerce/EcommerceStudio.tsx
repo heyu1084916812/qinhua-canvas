@@ -37,6 +37,12 @@ import {
   DEFAULT_ECOMMERCE_FORM_DRAFT,
   type EcommerceFormDraft,
 } from '../../domain/ecommerce/draft'
+import {
+  ECOMMERCE_UPSCALE_OPTIONS,
+  ECOMMERCE_UPSCALE_SCALES,
+  type EcommerceUpscaleProfile,
+  type EcommerceUpscaleScale,
+} from '../../domain/ecommerce/upscale'
 import styles from './EcommerceStudio.module.css'
 
 /**
@@ -153,6 +159,14 @@ export interface EcommerceStudioProps {
     instruction: string,
     options?: { referenceNodeId?: string },
   ) => Promise<void>
+  /** 以结果图为输入做真实 Topaz 超分；profile 与倍率都必须从领域常量里选 */
+  onUpscaleResult?: (
+    nodeId: string,
+    profile: EcommerceUpscaleProfile,
+    scale: EcommerceUpscaleScale,
+  ) => Promise<void>
+  /** 当前渠道真正启用、可路由的 Topaz profile；空数组时隐藏超清入口 */
+  upscaleProfiles?: readonly EcommerceUpscaleProfile[]
   /** 可选出图模型（前端显示名，来自固定清单）；空数组时只显示"默认（按渠道解析）" */
   models?: readonly string[]
   /** 当前选中的模型；空串 = 用默认解析出来的那一个 */
@@ -233,6 +247,8 @@ export function EcommerceStudio({
   onGenerate,
   onEditResult,
   onEditResults,
+  onUpscaleResult,
+  upscaleProfiles,
   models = [],
   model,
   onModelChange,
@@ -295,6 +311,17 @@ export function EcommerceStudio({
   const [savingSelected, setSavingSelected] = useState(false)
   const [compareTarget, setCompareTarget] = useState<EcommerceResultItem | null>(null)
   const [detailTarget, setDetailTarget] = useState<EcommerceResultItem | null>(null)
+  const [upscaleTarget, setUpscaleTarget] = useState<EcommerceResultItem | null>(null)
+  const [upscaleProfile, setUpscaleProfile] = useState<EcommerceUpscaleProfile>('standard')
+  const [upscaleScale, setUpscaleScale] = useState<EcommerceUpscaleScale>('4x')
+  const [upscaleSubmitting, setUpscaleSubmitting] = useState(false)
+  const [upscaleError, setUpscaleError] = useState('')
+  const availableUpscaleOptions = useMemo(() => {
+    const available = new Set(
+      upscaleProfiles ?? ECOMMERCE_UPSCALE_OPTIONS.map((option) => option.id),
+    )
+    return ECOMMERCE_UPSCALE_OPTIONS.filter((option) => available.has(option.id))
+  }, [upscaleProfiles])
   /**
    * 「先出一份方案」（对账 #423）：**方案 + 它是对着哪组参数写的**。
    *
@@ -579,6 +606,20 @@ export function EcommerceStudio({
       setEditError(e instanceof Error ? e.message : 'AI 编辑失败，原因见下方结果区')
     } finally {
       setEditSubmitting(false)
+    }
+  }
+
+  const submitUpscale = async () => {
+    if (!upscaleTarget || !onUpscaleResult) return
+    setUpscaleError('')
+    setUpscaleSubmitting(true)
+    try {
+      await onUpscaleResult(upscaleTarget.nodeId, upscaleProfile, upscaleScale)
+      setUpscaleTarget(null)
+    } catch (e) {
+      setUpscaleError(e instanceof Error ? e.message : 'AI 超清失败，原因见下方结果区')
+    } finally {
+      setUpscaleSubmitting(false)
     }
   }
 
@@ -1439,6 +1480,27 @@ export function EcommerceStudio({
                         AI 编辑这一张
                       </button>
                     ) : null}
+                    {onUpscaleResult &&
+                    availableUpscaleOptions.length > 0 &&
+                    r.status === 'done' ? (
+                      <button
+                        type="button"
+                        className={styles.linkBtn}
+                        data-ecommerce-upscale-result
+                        disabled={running}
+                        title="调用真实 Topaz 超分端点；原图与原任务都会保留"
+                        onClick={() => {
+                          const first = availableUpscaleOptions[0]
+                          if (!first) return
+                          setUpscaleTarget(r)
+                          setUpscaleProfile(first.id)
+                          setUpscaleScale('4x')
+                          setUpscaleError('')
+                        }}
+                      >
+                        AI 超清
+                      </button>
+                    ) : null}
                     {r.sourcePreview && r.preview ? (
                       <button
                         type="button"
@@ -1797,6 +1859,100 @@ export function EcommerceStudio({
                 onClick={() => void submitEdit()}
               >
                 {editSubmitting ? '提交中…' : '生成编辑结果'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {upscaleTarget ? (
+        <div
+          className={styles.confirm}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ecommerce-upscale-title"
+          data-ecommerce-upscale-dialog
+        >
+          <div className={styles.confirmCard}>
+            <h2 className={styles.confirmTitle} id="ecommerce-upscale-title">
+              AI 超清
+            </h2>
+            <p className={styles.confirmText}>
+              使用真实 Topaz 超分模型放大这张结果，不重绘商品也不生成新画面。原图和原任务都会保留；
+              会调用当前渠道，产生一次真实用量。
+            </p>
+            <div className={styles.upscaleSection}>
+              <span className={styles.upscaleLabel}>方案</span>
+              <div className={styles.editPresets} aria-label="AI 超清方案">
+                {availableUpscaleOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={
+                      option.id === upscaleProfile
+                        ? `${styles.editPreset} ${styles.editPresetOn}`
+                        : styles.editPreset
+                    }
+                    data-ecommerce-upscale-profile={option.id}
+                    title={option.hint}
+                    onClick={() => setUpscaleProfile(option.id)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className={styles.upscaleSection}>
+              <span className={styles.upscaleLabel}>放大倍数</span>
+              <div className={styles.editPresets} aria-label="AI 超清倍数">
+                {ECOMMERCE_UPSCALE_SCALES.map((scale) => (
+                  <button
+                    key={scale}
+                    type="button"
+                    className={
+                      scale === upscaleScale
+                        ? `${styles.editPreset} ${styles.editPresetOn}`
+                        : styles.editPreset
+                    }
+                    data-ecommerce-upscale-scale={scale}
+                    onClick={() => setUpscaleScale(scale)}
+                  >
+                    {scale}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className={styles.hint} data-ecommerce-upscale-model>
+              {
+                availableUpscaleOptions.find((option) => option.id === upscaleProfile)?.model
+              }
+            </p>
+            {upscaleError ? (
+              <p className={styles.editError} data-ecommerce-upscale-error>
+                {upscaleError}
+              </p>
+            ) : null}
+            <div className={styles.confirmActions}>
+              <button
+                type="button"
+                className={styles.cancel}
+                data-ecommerce-upscale-cancel
+                disabled={upscaleSubmitting}
+                onClick={() => {
+                  setUpscaleTarget(null)
+                  setUpscaleError('')
+                }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className={styles.generate}
+                data-ecommerce-upscale-submit
+                disabled={upscaleSubmitting || running}
+                onClick={() => void submitUpscale()}
+              >
+                {upscaleSubmitting ? '提交中…' : `AI 超清 ${upscaleScale}`}
               </button>
             </div>
           </div>

@@ -72,6 +72,13 @@ import { canvasStoreFor } from '../../state/workbenches/canvas/storeCache'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import type { Edge } from '../../domain/canvas/model/edge'
 import type { EcommerceRequest } from '../../domain/ecommerce/types'
+import {
+  ECOMMERCE_UPSCALE_OPTIONS,
+  upscaleNoteOf,
+  upscaleOptionOf,
+  type EcommerceUpscaleProfile,
+  type EcommerceUpscaleScale,
+} from '../../domain/ecommerce/upscale'
 import styles from './EcommercePage.module.css'
 
 /**
@@ -611,6 +618,19 @@ function StudioHost({ projectId }: { projectId: string }) {
     () => channels.getState().channels,
     () => channels.getState().channels,
   )
+  const upscaleProfiles = useMemo(
+    () =>
+      ECOMMERCE_UPSCALE_OPTIONS.filter((option) =>
+        channelList.some(
+          (channel) =>
+            channel.enabled &&
+            channel.models.some(
+              (model) => model.id === option.model && model.category === 'image',
+            ),
+        ),
+      ).map((option) => option.id),
+    [channelList],
+  )
   const chatTarget = useMemo(() => resolveChatTarget(channelList), [channelList])
 
   /**
@@ -857,6 +877,18 @@ function StudioHost({ projectId }: { projectId: string }) {
     }
     /* 用户选过就用他选的；没选过还是走解析出来的默认那一套 */
     const modelForRun = request.model || recipe.model
+    const requestedChannel = channelList.find(
+      (channel) =>
+        channel.enabled &&
+        channel.id === request.channelId &&
+        channel.models.some((model) => model.id === modelForRun && model.category === 'image'),
+    )
+    const modelChannel = channelList.find(
+      (channel) =>
+        channel.enabled &&
+        channel.models.some((model) => model.id === modelForRun && model.category === 'image'),
+    )
+    const channelForRun = requestedChannel?.id ?? modelChannel?.id ?? recipe.channelId
 
     /**
      * **两段式**（对账 #410）：
@@ -876,6 +908,7 @@ function StudioHost({ projectId }: { projectId: string }) {
         type: 'generation',
         extraData: {
           mode: 'image',
+          channelId: channelForRun,
           model: modelForRun,
           ecommerceBatch: batchId,
           /**
@@ -885,6 +918,7 @@ function StudioHost({ projectId }: { projectId: string }) {
           prompt: plan.prompts[i] ?? plan.prompt,
           ratio: plan.ratio,
           count: 1,
+          ...(request.scale ? { scale: request.scale } : {}),
         },
       })
       prescribed.push({ at: { x: 420 + (i % 3) * 300, y: 60 + Math.floor(i / 3) * 240 }, data })
@@ -996,6 +1030,55 @@ function StudioHost({ projectId }: { projectId: string }) {
     for (const nodeId of nodeIds) {
       await editResult(nodeId, instruction, options)
     }
+  }
+
+  /**
+   * AI 超清：把结果复制成独立节点，再调用真实的 Topaz 超分模型。
+   *
+   * 这里不走提示词模板，也不允许“看起来更清楚”的普通生图；模型必须来自当前
+   * RunningHub 渠道勾选的 Topaz 端点。新任务照常保留来源，可用于前后对比。
+   */
+  const upscaleResult = async (
+    nodeId: string,
+    profile: EcommerceUpscaleProfile,
+    scale: EcommerceUpscaleScale,
+  ) => {
+    const row =
+      resultRows.find((item) => item.nodeId === nodeId || item.canvasCopyNodeId === nodeId) ?? null
+    if (!row?.assetHash) throw new Error('没找到这张结果的原始素材')
+    const option = upscaleOptionOf(profile)
+    const target = channelList.find(
+      (channel) =>
+        channel.enabled &&
+        channel.models.some(
+          (model) => model.id === option.model && model.category === 'image',
+        ),
+    )
+    if (!target) {
+      throw new Error(`当前没有可用的「${option.model}」渠道，请先在 RunningHub 勾选该模型`)
+    }
+    const copy = ensureResultCopy(row)
+    await onGenerate(
+      {
+        usage: 'edit',
+        channelId: target.id,
+        platformId: activeTask?.request.platformId,
+        language: activeTask?.request.language ?? 'zh-CN',
+        count: 1,
+        ratio: activeTask?.request.ratio ?? '1:1',
+        productNodeId: copy.nodeId,
+        referenceNodeIds: [],
+        note: upscaleNoteOf(profile, scale),
+        model: option.model,
+        scale,
+      },
+      undefined,
+      {
+        sourceTaskId: row.taskId,
+        sourceResultId: row.id,
+        sourceAssetHash: row.assetHash,
+      },
+    )
   }
 
   const results = useMemo<EcommerceResultItem[]>(() => {
@@ -1250,6 +1333,8 @@ function StudioHost({ projectId }: { projectId: string }) {
       onGenerate={onGenerate}
       onEditResult={editResult}
       onEditResults={editResults}
+      onUpscaleResult={upscaleResult}
+      upscaleProfiles={upscaleProfiles}
       running={exec.isRunning || preparingShots}
       results={results}
       onOpenCanvas={() => navigate(projectRoute('canvas', projectId))}

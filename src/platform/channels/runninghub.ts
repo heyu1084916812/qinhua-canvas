@@ -145,6 +145,7 @@ export function runningHubCapability(model: RunningHubModel): ModelCapability {
     inputTypes,
     ...(spec?.ratio?.options ? { aspectRatios: [...spec.ratio.options] } : {}),
     ...(spec?.resolution?.options ? { resolutions: [...spec.resolution.options] } : {}),
+    ...(spec?.scale?.options ? { scales: [...spec.scale.options] } : {}),
     ...(durations && durations.length > 0
       ? { durations: [Math.min(...durations), Math.max(...durations)] as [number, number] }
       : {}),
@@ -490,6 +491,7 @@ export function createRunningHubAdapter(
     put(spec.ratio, request.params?.ratio)
     put(spec.resolution, request.params?.resolution)
     put(spec.duration, request.params?.duration)
+    put(spec.scale, request.params?.scale)
 
     for (const [k, v] of Object.entries(spec.requiredDefaults ?? {})) {
       if (!(k in payload)) payload[k] = v

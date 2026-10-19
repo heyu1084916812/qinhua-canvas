@@ -37,6 +37,8 @@ export function generationParams(data: GenerationData): Record<string, unknown> 
     // `'auto'` 是「不指定」，不是「1K」——原样下发会让渠道收到一个它不认的档位值。
     resolution: data.resolution && data.resolution !== 'auto' ? data.resolution : null,
     quality: data.quality ?? null,
+    /** 只有超分类任务才有倍率；普通生图不能多一个 `scale: null`。 */
+    ...(data.scale ? { scale: data.scale } : {}),
     /** 「背景」：同样地，`auto` = 不指定，不下发 */
     background: data.background && data.background !== 'auto' ? data.background : null,
     /**

@@ -6,6 +6,7 @@ import { createRunningHubAdapter, RUNNINGHUB_ENDPOINT_SPECS, RUNNINGHUB_MODELS }
 import { ChannelError, type ImageRunRequest, type VideoRunRequest } from './types'
 import type { ResolvedChannelConfig } from './registry'
 import { presetIdForUpstream } from '../../domain/project/modelPresets'
+import { ECOMMERCE_UPSCALE_OPTIONS } from '../../domain/ecommerce/upscale'
 
 /** 真实 PNG 头（`imageSizeFromHeader` 要能读出来，产物才有像素） */
 const PNG_BYTES = new Uint8Array([
@@ -58,6 +59,23 @@ const config: ResolvedChannelConfig = {
 }
 
 const signal = new AbortController().signal
+
+describe('RunningHub 电商 AI 超清目录', () => {
+  it('五项 profile 都映射到真实 image-upscale 端点', () => {
+    for (const option of ECOMMERCE_UPSCALE_OPTIONS) {
+      const model = RUNNINGHUB_MODELS.find((item) => item.id === option.model)
+      expect(model, option.model).toBeDefined()
+      const endpoint = model?.textEndpoint
+      expect(endpoint, option.model).toBeTruthy()
+      const spec = RUNNINGHUB_ENDPOINT_SPECS.find((item) => item.id === endpoint)
+      expect(spec, option.model).toMatchObject({
+        task: 'image-upscale',
+        media: { key: 'imageUrl', type: 'IMAGE', required: true },
+        scale: { key: 'scale', options: ['2x', '4x', '6x'] },
+      })
+    }
+  })
+})
 
 const imageRequest = (model: string, inputs: ImageRunRequest['inputs'] = []): ImageRunRequest => ({
   kind: 'image',
@@ -113,6 +131,50 @@ describe('RunningHub 适配器 / 标准模型（金额路）', () => {
       aspectRatio: '1:1',
       resolution: '2k',
     })
+  })
+
+  it('★★ Topaz 图像超清走真实端点：imageUrl + scale，不发送无关 prompt', async () => {
+    let submitBody: Record<string, unknown> | null = null
+    const platform = createMemoryPlatform({
+      rows: {
+        assets: [{ id: 'topaz-image', bytes: PNG_BYTES, mime: 'image/png' }],
+      },
+      handler: async (req: NetworkRequest) => {
+        if (req.url.endsWith('/openapi/v2/query')) {
+          return json(200, {
+            status: 'SUCCESS',
+            results: [{ url: 'https://files.runninghub.cn/topaz.png' }],
+          })
+        }
+        if (req.url.endsWith('/openapi/v2/topazlabs/image-upscale-standard-v2')) {
+          submitBody = req.body as Record<string, unknown>
+          return json(200, { code: 0, taskId: 'topaz-task' })
+        }
+        if (req.url.endsWith('/topaz.png')) return bytes(200, PNG_BYTES)
+        return json(200, {})
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    const outputs = await adapter.generateImage(
+      {
+        ...imageRequest('Topaz 图像超清 Standard', [
+          {
+            kind: 'asset',
+            nodeId: 'topaz-node',
+            assetHash: 'topaz-image',
+            mime: 'image/png',
+          },
+        ]),
+        params: { count: 1, scale: '4x' },
+      },
+      signal,
+    )
+
+    expect(outputs[0]?.mime).toBe('image/png')
+    expect(submitBody).toMatchObject({ scale: '4x' })
+    expect(submitBody).not.toHaveProperty('prompt')
+    const image = (submitBody as unknown as { imageUrl: string }).imageUrl
+    expect(image.startsWith('data:image/png;base64,')).toBe(true)
   })
 
   it('任务终态 FAILED → 带上服务端原话（含 812 的充值 / 币路指引）', async () => {

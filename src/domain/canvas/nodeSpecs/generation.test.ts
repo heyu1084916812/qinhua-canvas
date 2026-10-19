@@ -153,6 +153,25 @@ describe('生成节点规格 / 请求参数按功能类别分支（§6.8）', ()
     expect(unset!.params.resolution).toBeNull()
   })
 
+  it('超分倍率只在真实设置时下发，普通生图不携带 scale', () => {
+    const upscale = reqOf('generation', {
+      mode: 'image',
+      channelId: 'c',
+      model: 'Topaz 图像超清 Standard',
+      prompt: 'p',
+      scale: '4x',
+    })
+    expect(upscale!.params).toMatchObject({ scale: '4x' })
+
+    const normal = reqOf('generation', {
+      mode: 'image',
+      channelId: 'c',
+      model: 'm',
+      prompt: 'p',
+    })
+    expect(normal!.params).not.toHaveProperty('scale')
+  })
+
   it('视频模式：发 模式 / 清晰度 / 时长 / 参考模式 / 生成数量', () => {
     const req = reqOf('generation', {
       mode: 'video',

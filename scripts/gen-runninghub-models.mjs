@@ -184,6 +184,46 @@ const MODELS = [
     image: 'rhart-video/sparkvideo-2.0/image-to-video',
   },
   {
+    slug: 'image-topaz-upscale-standard',
+    label: 'Topaz 图像超清 Standard',
+    preset: 'Topaz 图像超清 Standard',
+    hint: '通用 2x / 4x / 6x 无损放大，适合大多数商品图',
+    kind: 'image',
+    text: 'topazlabs/image-upscale-standard-v2',
+  },
+  {
+    slug: 'image-topaz-upscale-high-fidelity',
+    label: 'Topaz 图像超清 High Fidelity',
+    preset: 'Topaz 图像超清 High Fidelity',
+    hint: '更强调纹理与细节保真，适合高分辨率商品图',
+    kind: 'image',
+    text: 'topazlabs/image-upscale-high-fidelity-v2',
+  },
+  {
+    slug: 'image-topaz-upscale-low-resolution',
+    label: 'Topaz 图像超清 Low Resolution',
+    preset: 'Topaz 图像超清 Low Resolution',
+    hint: '针对低清晰度、压缩痕迹较重的图片',
+    kind: 'image',
+    text: 'topazlabs/image-upscale/low-resolution-v2',
+  },
+  {
+    slug: 'image-topaz-upscale-cgi',
+    label: 'Topaz 图像超清 CGI',
+    preset: 'Topaz 图像超清 CGI',
+    hint: '适合渲染图、3D 商品图和干净几何边缘',
+    kind: 'image',
+    text: 'topazlabs/image-upscale-cgi',
+  },
+  {
+    slug: 'image-topaz-upscale-text-refine',
+    label: 'Topaz 图像超清 Text Refine',
+    preset: 'Topaz 图像超清 Text Refine',
+    hint: '优先保护文字边缘，适合带卖点文案的商品图',
+    kind: 'image',
+    text: 'topazlabs/image-upscale-text-refine',
+  },
+  {
     slug: 'video-kling-avatar-std',
     label: 'Kling V2 Std 数字人口播视频',
     preset: 'Kling V2 数字人口播 Std',
@@ -209,6 +249,7 @@ const DRIVEN = {
   ratio: 'ratio',
   resolution: 'resolution',
   duration: 'duration',
+  scale: 'scale',
 }
 const MEDIA_TYPES = new Set(['IMAGE', 'VIDEO', 'AUDIO'])
 
@@ -249,6 +290,14 @@ function specOf(id) {
   for (const role of ['ratio', 'resolution', 'duration']) {
     const p = params.find((x) => DRIVEN[x.key] === role)
     if (p) spec[role] = { key: p.key, ...(p.options ? { options: p.options } : {}) }
+  }
+  /*
+   * `scale` 不是通用生成参数：只有 image-upscale 端点里的同名参数才是放大倍数。
+   * 如果只按键名扫，即梦等普通生图里恰好叫 scale 的参数会被误当成 2x/4x/6x。
+   */
+  if (e.task === 'image-upscale') {
+    const p = params.find((x) => DRIVEN[x.key] === 'scale')
+    if (p) spec.scale = { key: p.key, ...(p.options ? { options: p.options } : {}) }
   }
   /** 必填参数的默认值：差值由适配器补（与官方 CLI 同一条规则） */
   const defaults = {}
@@ -311,6 +360,8 @@ lines.push('  /** 比例、清晰度、时长：键名各端点不同（`aspectR
 lines.push('  ratio?: RunningHubDrivenParam')
 lines.push('  resolution?: RunningHubDrivenParam')
 lines.push('  duration?: RunningHubDrivenParam')
+  lines.push('  /** 超分类模型的放大倍数（2x / 4x / 6x） */')
+  lines.push('  scale?: RunningHubDrivenParam')
 lines.push('  /** 必填且界面上没有对应档位的参数（键 → 照官方目录的默认值原样补） */')
 lines.push('  requiredDefaults?: Record<string, unknown>')
 lines.push('}')
@@ -330,6 +381,7 @@ for (const s of specs) {
   if (s.ratio) put('ratio', jsonish(s.ratio))
   if (s.resolution) put('resolution', jsonish(s.resolution))
   if (s.duration) put('duration', jsonish(s.duration))
+  if (s.scale) put('scale', jsonish(s.scale))
   if (s.requiredDefaults) put('requiredDefaults', jsonish(s.requiredDefaults))
   lines.push('  },')
 }
