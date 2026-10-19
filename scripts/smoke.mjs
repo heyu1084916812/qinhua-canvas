@@ -31953,7 +31953,7 @@ async function g145(browser) {
   rec(g, '★「关闭」按钮也能关（两条出口都留着）', closedByButton)
 
   const digitalHumanButton = page.locator(
-    `[data-storyboard-line-digital-human="${currentLineId}"]`,
+    `[data-storyboard-shot-digital-human="${ids[0]}"]`,
   )
   const digitalHumanShown = await digitalHumanButton
     .waitFor({ state: 'visible', timeout: 8000 })
@@ -31964,7 +31964,7 @@ async function g145(browser) {
     : ''
   rec(
     g,
-    '★★ 单句已有配音的镜头出现「数字人口播」入口，并标明实际模型',
+    '★★ 整镜已有配音时出现「数字人口播」入口，并标明实际模型',
     digitalHumanShown &&
       (await digitalHumanButton.isEnabled()) &&
       /数字人口播\s*Std/.test(digitalHumanTitle),
@@ -32241,6 +32241,64 @@ async function g145(browser) {
           edge.target === videoExtendShot?.videoNodeId,
       ),
     `${videoExtendNodeBefore} → ${videoExtendShot?.videoNodeId ?? 'none'}`,
+  )
+
+  // ★ 同一角色多句台词：先生成第二句配音，再合并成一条音轨做整镜口播
+  const beforeMixed = await readDb()
+  const digitalHumanNodeBefore = beforeMixed.shots[0]?.videoNodeId ?? ''
+  const digitalHumanHashBefore = beforeMixed.shots[0]?.videoHash ?? ''
+  await page.locator(`[data-storyboard-line-add="${ids[0]}"]`).click()
+  await sleep(300)
+  const lineTextInputs = page.locator(
+    `[data-storyboard-lines="${ids[0]}"] [data-storyboard-line-text]`,
+  )
+  const mixedLineInput = lineTextInputs.last()
+  const mixedLineId = (await mixedLineInput.getAttribute('data-storyboard-line-text')) ?? ''
+  await mixedLineInput.fill('这是同一角色的第二句台词')
+  await page
+    .locator(`[data-storyboard-line-speaker="${mixedLineId}"]`)
+    .selectOption(characterId)
+  await page.locator(`[data-storyboard-line-voice="${mixedLineId}"]`).click()
+  const withSecondAudio = await waitDb(
+    (db) =>
+      !!db.shots[0]?.lines.find((line) => line.id === mixedLineId)?.audioHash,
+    20000,
+  )
+  const secondAudioReady = !!withSecondAudio.shots[0]?.lines.find(
+    (line) => line.id === mixedLineId,
+  )?.audioHash
+  const assetsBeforeDigitalHuman = new Set(
+    withSecondAudio.assets.map((asset) => asset.hash),
+  )
+  const mixedButton = page.locator(`[data-storyboard-shot-digital-human="${ids[0]}"]`)
+  const mixedButtonText = await mixedButton.innerText().catch(() => '')
+  await mixedButton.click()
+  const mixedDone = await waitDb(
+    (db) => {
+      const shot = db.shots[0]
+      return (
+        !!shot?.videoNodeId &&
+        shot.videoHash !== digitalHumanHashBefore &&
+        db.assets.some(
+          (asset) =>
+            !assetsBeforeDigitalHuman.has(asset.hash) && asset.mime === 'audio/wav',
+        )
+      )
+    },
+    30000,
+  )
+  const mixedAudio = mixedDone.assets.find(
+    (asset) =>
+      !assetsBeforeDigitalHuman.has(asset.hash) && asset.mime === 'audio/wav',
+  )
+  rec(
+    g,
+    '★★★ 同一角色多句台词先合并为一条 WAV，再生成整镜数字人口播',
+    secondAudioReady &&
+      /2 句/.test(mixedButtonText) &&
+      !!mixedAudio &&
+      mixedDone.shots[0]?.videoHash !== digitalHumanHashBefore,
+    `第二句配音=${secondAudioReady} 按钮=${mixedButtonText} 合并音频=${mixedAudio?.hash?.slice(0, 8) ?? '无'} 视频=${digitalHumanHashBefore.slice(0, 8)}→${(mixedDone.shots[0]?.videoHash ?? '').slice(0, 8)} 节点=${digitalHumanNodeBefore}→${mixedDone.shots[0]?.videoNodeId ?? '无'}`,
   )
 
   await page.screenshot({ path: `${OUT}/145-g145-preview.png` })

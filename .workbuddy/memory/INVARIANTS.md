@@ -170,6 +170,7 @@
 ## comic
 
 - 模型 Project→Episode(话)→Page(页)→Panel(格)。页 = 切割树 `layout`（叶子只持 `panelId`）+ 内容池 `panels`（**版式与内容解耦**）；格 = `scene` / `shot` / `balloons`（对白贴纸，格内 0..1 相对坐标，**不烘进图**）。**几何与顺序彻底解耦**：h 切沿 y 分行、v 切沿 x 分列，`children[0]` 恒最上/最左；**RTL 只重排阅读序号、不动几何**。空 `layout` = 未排版。读回 `normalizeComicProject` 只补不删。
+- **数字人口播是镜头级单一音轨**：同一角色多句先合成一条 WAV；多句必须显式同 `speakerId`，多角色镜头拒绝。逐句按钮只生成配音，整镜按钮才调用数字人模型。
 - 阅读层：**页序 = 叙事序、不随方向翻转**（方向只管格内顺序与翻页手感，`rtl` 下 `←` 才前进）；双页 `spreadGroups`（`loneFirst`）/ `spreadNeighbor` / `spreadSlots`（定长 2、方向镜像）；**步进变「一组」但边界判定同源**；版式是 UI 态、刷新回落单页。
 - **拖拽翻页 `dragNav`**（`dragAxis` / `dragTurnThreshold=clamp(48,120,w*0.28)` / `dragIntent` / `dragTurnOffset` 自由 0.55、撞边阻尼 0.22、上限 ±72 / `dragTurnVerdict`）**必须与 `readerNav` 共用同一套「屏幕方向→叙事增量」映射**，否则出现第二套翻页语义。纵向手势不劫持（`.stage` `touch-action:pan-y`）。reduced-motion 保留跟手、只去掉过场。
 - 对白三纯函数（`movedBalloonRect` / `resizedBalloonRect` 左上角固定、尺寸夹 `[MIN,1]`、尾巴按相对比例跟随 / `movedTail` 夹 `[0,1]`、无尾巴返 `null`）：**气泡与尾巴一体参与平移缩放 ⇒ 唯一能改尾巴指向的是拖尾巴**（少了它会同时冒出「拖走气泡尾巴留原地」与「放大把尾巴吞进气泡」两个 bug）。三条命令 `balloon.move` / `balloon.resize` / `balloon.moveTail` 正交，刻意不合并成 patch。`BalloonLayer` 存**起点快照 `base` + 抓取偏移** ⇒ 预览与提交同源。手柄只在选中格渲染；**尾巴堆叠分两态**；尺寸手柄 `translate(-100%,-100%)` 落在贴纸内侧（格子 `overflow:hidden` 骑角会被裁）。

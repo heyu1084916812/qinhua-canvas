@@ -51,6 +51,8 @@ import {
   type MergeSuggestion,
 } from '../../domain/storyboard/mergeSuggest'
 import { asAppError, describeError } from '../../shared/result'
+import { fingerprintBytesSync } from '../../domain/shared/hash'
+import { digitalHumanPlanOf } from '../../domain/storyboard/digitalHuman'
 import {
   buildEpisodePack,
   episodeTimeline,
@@ -59,6 +61,7 @@ import {
   type PackClip,
 } from '../../domain/storyboard/ffmpegPack'
 import { toBytes } from '../../platform/assets'
+import { mixAudioSequentially } from '../../platform/web/audioMix'
 import { importAudioAsset } from '../../features/storyboard/importAudioAsset'
 import { downloadAsset } from '../../features/canvas/downloadAsset'
 import { EpisodePreview } from './EpisodePreview'
@@ -1416,12 +1419,12 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   }
 
   /**
-   * 单句数字人口播：RunningHub 官方数字人端点直接接收「人物图 + 配音音频」。
-   *
-   * 这一步刻意只开放给“这一镜只有一句台词且该句已有配音”的场景：
-   * 端点的 audioUrl 只有一条，未经混音的多句对白不能假装已经对齐成一条音轨。
+   * 整镜数字人口播：RunningHub 官方数字人端点只接收一条音轨。
+   * 同一角色的多句台词先按顺序合成一条 WAV；多角色镜头仍拒绝，避免把多人
+   * 对白错误地映射到同一个人的口型上。
    */
-  const makeDigitalHuman = async (shot: StoryboardShot, line: StoryboardLine) => {
+  const makeDigitalHuman = async (shot: StoryboardShot) => {
+    const plan = digitalHumanPlanOf(shot)
     if (!digitalHumanTarget) {
       setLay({
         kind: 'error',
@@ -1433,21 +1436,43 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       setLay({ kind: 'error', text: '这一镜还没有可用的图片节点' })
       return
     }
-    if (!line.audioHash) {
-      setLay({ kind: 'error', text: '这一句还没有配音，先生成配音再出口播视频' })
+    if (!plan.ok) {
+      setLay({ kind: 'error', text: plan.reason })
       return
     }
-    setDigitalHumanBusy(line.id)
-    setLay({ kind: 'running', text: '正在调用数字人口播模型…' })
+    setDigitalHumanBusy(shot.id)
+    setLay({
+      kind: 'running',
+      text: plan.lines.length > 1 ? '正在合并整镜配音并生成数字人视频…' : '正在调用数字人口播模型…',
+    })
     const ac = new AbortController()
     const timer = window.setTimeout(() => ac.abort(), 20 * 60 * 1000)
     try {
-      const [image, audio] = await Promise.all([
-        platform.assets.read(shot.imageHash),
-        platform.assets.read(line.audioHash),
-      ])
-      if (!image || !audio) {
+      const image = await platform.assets.read(shot.imageHash)
+      const audioClips = await Promise.all(
+        plan.lines.map(async (line) => {
+          const audio = await platform.assets.read(line.audioHash!)
+          if (!audio) throw new Error('有台词配音的素材字节已经不在库里')
+          return audio
+        }),
+      )
+      if (!image) {
         throw new Error('人像图或配音音频的素材字节已经不在库里')
+      }
+      const mixed = plan.lines.length > 1 ? await mixAudioSequentially(audioClips) : audioClips[0]!
+      const audioHash =
+        plan.lines.length > 1 ? fingerprintBytesSync(mixed.bytes) : plan.lines[0]!.audioHash!
+      if (plan.lines.length > 1) {
+        canvasStore.dispatch({
+          kind: 'asset.put',
+          asset: {
+            hash: audioHash,
+            mime: mixed.mime,
+            bytes: mixed.bytes,
+            createdAt: Date.now(),
+            projectId,
+          },
+        })
       }
       const outputs = await channels.generateVideo({
         kind: 'video',
@@ -1465,8 +1490,8 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
           {
             kind: 'asset',
             nodeId: shot.nodeId,
-            assetHash: line.audioHash,
-            mime: audio.mime || 'audio/mpeg',
+            assetHash: audioHash,
+            mime: mixed.mime || 'audio/mpeg',
           },
         ],
         params: {},
@@ -1550,7 +1575,13 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         const withNode = setShotVideoNode(current, shot.id, videoNodeId, 0)
         apply(attachShotVideos(withNode, [{ shotId: shot.id, hash: output.hash }], 0))
       }
-      setLay({ kind: 'done', text: '这一句的数字人口播视频已生成' })
+      setLay({
+        kind: 'done',
+        text:
+          plan.lines.length > 1
+            ? `整镜 ${plan.lines.length} 句配音已合并，数字人口播视频已生成`
+            : '这一句的数字人口播视频已生成',
+      })
     } catch (error) {
       setLay({ kind: 'error', text: humanError(error) })
     } finally {
@@ -3089,14 +3120,9 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                         voiceBusy={voiceBusy}
                         onVoice={(lineId) => void voiceLine(shot, lineId)}
                         onMakeDigitalHuman={
-                          digitalHumanTarget
-                            ? (lineId) => {
-                                const line = shot.lines.find((item) => item.id === lineId)
-                                if (line) void makeDigitalHuman(shot, line)
-                              }
-                            : undefined
+                          digitalHumanTarget ? () => void makeDigitalHuman(shot) : undefined
                         }
-                        digitalHumanBusyLineId={digitalHumanBusy}
+                        digitalHumanBusyShotId={digitalHumanBusy}
                         digitalHumanModel={digitalHumanTarget?.model}
                         onMove={(id, delta) => apply(moveShot(doc, id, delta, 0))}
                         onRemove={removeOneShot}
@@ -3328,7 +3354,7 @@ function ShotCard({
   voiceBusy,
   onVoice,
   onMakeDigitalHuman,
-  digitalHumanBusyLineId,
+  digitalHumanBusyShotId,
   digitalHumanModel,
 }: {
   shot: StoryboardShot
@@ -3351,8 +3377,8 @@ function ShotCard({
   speechTarget: SpeechTarget | null
   voiceBusy: Record<string, boolean>
   onVoice: (lineId: string) => void
-  onMakeDigitalHuman?: (lineId: string) => void
-  digitalHumanBusyLineId: string | null
+  onMakeDigitalHuman?: () => void
+  digitalHumanBusyShotId: string | null
   digitalHumanModel?: string
   onMove: (id: string, delta: number) => void
   onRemove: (id: string) => void
@@ -3414,6 +3440,8 @@ function ShotCard({
   const upscaleBusy = videoUpscaleBusyShotId === shot.id
   const videoEditing = videoEditBusyShotId === shot.id
   const videoExtending = videoExtendBusyShotId === shot.id
+  const digitalHumanPlan = digitalHumanPlanOf(shot)
+  const digitalHumanBusy = digitalHumanBusyShotId === shot.id
 
   const openUpscale = () => {
     const target = videoUpscaleTargets[0]
@@ -3979,14 +4007,40 @@ function ShotCard({
         <div className={styles.field} data-storyboard-lines={shot.id}>
           <div className={styles.linesHead}>
             <span className={styles.label}>台词 / 旁白</span>
-            <button
-              type="button"
-              className={styles.ghost}
-              data-storyboard-line-add={shot.id}
-              onClick={onAddLine}
-            >
-              加一句
-            </button>
+            <div className={styles.linesHeadActions}>
+              {shot.lines.length > 0 ? (
+                <button
+                  type="button"
+                  className={styles.ghost}
+                  data-storyboard-shot-digital-human={shot.id}
+                  disabled={!digitalHumanPlan.ok || digitalHumanBusy}
+                  title={
+                    digitalHumanPlan.ok
+                      ? `用 ${digitalHumanModel ?? '数字人口播模型'} 生成这一镜的口播视频`
+                      : digitalHumanPlan.reason
+                  }
+                  onClick={onMakeDigitalHuman}
+                >
+                  {digitalHumanBusy
+                    ? '口播视频生成中…'
+                    : shot.videoHash
+                      ? shot.lines.length > 1
+                        ? `重做数字人口播（${shot.lines.length} 句）`
+                        : '重做数字人口播'
+                      : shot.lines.length > 1
+                        ? `数字人口播（${shot.lines.length} 句）`
+                        : '数字人口播'}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={styles.ghost}
+                data-storyboard-line-add={shot.id}
+                onClick={onAddLine}
+              >
+                加一句
+              </button>
+            </div>
           </div>
           {shot.lines.length === 0 ? (
             <p className={styles.hint} data-storyboard-lines-empty={shot.id}>
@@ -4007,9 +4061,6 @@ function ShotCard({
                   ),
                 ]
                 const busy = !!voiceBusy[line.id]
-                const digitalHumanBusy = digitalHumanBusyLineId === line.id
-                const canDigitalHuman =
-                  !!onMakeDigitalHuman && shot.lines.length === 1 && !!line.audioHash
                 return (
                   <li key={line.id} className={styles.lineRow} data-storyboard-line={line.id}>
                     <div className={styles.lineMain}>
@@ -4089,22 +4140,6 @@ function ShotCard({
                       >
                         {busy ? '生成中…' : line.audioHash ? '重配这一句' : '生成配音'}
                       </button>
-                      {canDigitalHuman ? (
-                        <button
-                          type="button"
-                          className={styles.ghost}
-                          data-storyboard-line-digital-human={line.id}
-                          disabled={digitalHumanBusy}
-                          title={`用 ${digitalHumanModel ?? '数字人口播模型'} 生成这一镜的口播视频`}
-                          onClick={() => onMakeDigitalHuman?.(line.id)}
-                        >
-                          {digitalHumanBusy
-                            ? '口播视频生成中…'
-                            : shot.videoHash
-                              ? '重做数字人口播'
-                              : '数字人口播'}
-                        </button>
-                      ) : null}
                       {line.audioHash ? (
                         <LineVoiceAudio hash={line.audioHash} />
                       ) : (
