@@ -30198,9 +30198,20 @@ async function g138(browser) {
       url2.includes(`focus=${encodeURIComponent(copyNodeId)}`),
     url2.replace(BASE, ''),
   )
-  const copyRows = await sharedRows(page, 'nodes')
-  const copyRow = copyRows.find((row) => row.id === copyNodeId)
-  const sourceRow = copyRows.find((row) => row.id === nodeId)
+  let copyRow = null
+  let sourceRow = null
+  for (let i = 0; i < 30; i += 1) {
+    const copyRows = await sharedRows(page, 'nodes')
+    copyRow = copyRows.find((row) => row.id === copyNodeId) ?? null
+    sourceRow = copyRows.find((row) => row.id === nodeId) ?? null
+    if (
+      copyRow?.data?.assetHash === sourceRow?.data?.assetHash &&
+      !copyRow?.data?.ecommerceBatch
+    ) {
+      break
+    }
+    await sleep(100)
+  }
   rec(
     g,
     '★★★ 画布副本带着结果图，电商批次标记已清掉（内部执行节点未被改名 / 改参数）',
