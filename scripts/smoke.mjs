@@ -32838,8 +32838,11 @@ async function g147(browser) {
 
   /* 渠道先配好（`configureMockChannel` 会整页跳去设置页，放在建项目之前） */
   await configureMockChannel(page, { isolate: true })
-  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
-  await sleep(600)
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'domcontentloaded' })
+  await page.locator('[data-ecommerce-create]').waitFor({
+    state: 'visible',
+    timeout: 20_000,
+  })
   await page.locator('[data-ecommerce-create]').click()
   await page.waitForURL(/\/ecommerce\/proj_/)
   await page.locator('[data-ecommerce-form]').waitFor({ state: 'visible', timeout: 20_000 })
@@ -32957,12 +32960,14 @@ async function g148(browser) {
   const chips = page.locator('[data-ecommerce-suggestion]')
   const input = page.locator('[data-ecommerce-intent-input]')
 
-  await configureMockChannel(page)
+  await configureMockChannel(page, { isolate: true })
   await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
   await sleep(600)
   await page.locator('[data-ecommerce-create]').click()
   await page.waitForURL(/\/ecommerce\/proj_/)
-  await sleep(900)
+  await page
+    .locator('[data-ecommerce-form]')
+    .waitFor({ state: 'visible', timeout: 20_000 })
 
   rec(
     g,
