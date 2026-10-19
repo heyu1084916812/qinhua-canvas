@@ -4,7 +4,7 @@
  * 生成：`node scripts/gen-runninghub-models.mjs <RH_CLI>/src/rh_cli/catalog/data/capabilities.json`
  * 来源：RunningHub 官方 CLI（github.com/HM-RunningHub/RH_CLI）随包附带的端点目录
  *       capabilities.json —— version 2026-06-02，共 356 个端点；
- *       本文件只留**精挑的 54 个端点**（官方 CLI 快捷选择 + 本项目已交付的端点）。
+ *       本文件只留**精挑的 59 个端点**（官方 CLI 快捷选择 + 本项目已交付的端点）。
  *
  * 官方 CLI 建请求体的最后一步是「**必填 + 有默认值**而还没填的参数一律补默认值」
  * （`model/payload.py`）—— 适配器照同一条规则走 `requiredDefaults`。
@@ -79,6 +79,14 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     promptKey: 'prompt',
   },
   {
+    id: 'alibaba/wan-2.7/image-edit',
+    task: 'image-to-image',
+    kind: 'image',
+    label: '万相2.7-图像编辑',
+    promptKey: 'prompt',
+    media: { "key": "imageUrls", "type": "IMAGE", "multiple": true, "required": true },
+  },
+  {
     id: 'alibaba/wan-2.7/image-edit-pro',
     task: 'image-to-image',
     kind: 'image',
@@ -110,6 +118,14 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     resolution: { "key": "resolution", "options": [ "720P", "1080P" ] },
     duration: { "key": "duration", "options": [ "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15" ] },
     requiredDefaults: { "resolution": "1080P", "duration": "5" },
+  },
+  {
+    id: 'bytedance/jimeng-4.6/image-to-image',
+    task: 'image-to-image',
+    kind: 'image',
+    label: '即梦图片 4.6 图生图',
+    promptKey: 'prompt',
+    media: { "key": "imageUrls", "type": "IMAGE", "multiple": true, "required": true },
   },
   {
     id: 'bytedance/jimeng-4.6/text-to-image',
@@ -209,6 +225,15 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     ratio: { "key": "aspectRatio", "options": [ "3:1", "2:1", "16:9", "3:2", "1:1", "2:3", "9:16", "1:2", "1:3" ] },
   },
   {
+    id: 'luma/uni-1/image-edit',
+    task: 'image-to-image',
+    kind: 'image',
+    label: 'Luma uni-1 图像编辑',
+    promptKey: 'prompt',
+    media: { "key": "imageUrl", "type": "IMAGE", "required": true },
+    ratio: { "key": "aspectRatio", "options": [ "3:1", "2:1", "16:9", "3:2", "1:1", "2:3", "9:16", "1:2", "1:3" ] },
+  },
+  {
     id: 'minimax/hailuo-02/t2v-pro',
     task: 'text-to-video',
     kind: 'video',
@@ -252,6 +277,14 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     label: '全能图片X-3-图生图',
     promptKey: 'prompt',
     media: { "key": "imageUrls", "type": "IMAGE", "required": true },
+  },
+  {
+    id: 'rhart-image-g-4/image-to-image',
+    task: 'image-to-image',
+    kind: 'image',
+    label: '全能图片X-4-图生图',
+    promptKey: 'prompt',
+    media: { "key": "imageUrls", "type": "IMAGE" },
   },
   {
     id: 'rhart-image-n-g31-flash/image-to-image',
@@ -316,6 +349,14 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     ratio: { "key": "aspectRatio", "options": [ "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "5:4", "4:5", "21:9" ] },
     resolution: { "key": "resolution", "options": [ "1k", "2k", "4k" ] },
     requiredDefaults: { "resolution": "1k" },
+  },
+  {
+    id: 'rhart-image-x-official/edit',
+    task: 'image-to-image',
+    kind: 'image',
+    label: '全能图片X-图片编辑-官方稳定版',
+    promptKey: 'prompt',
+    media: { "key": "image", "type": "IMAGE", "required": true },
   },
   {
     id: 'rhart-video-g-official/edit-video',
@@ -677,6 +718,13 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
     textEndpoint: 'alibaba/qwen-image-2.0-pro/image-edit',
   },
   {
+    // 官方目录：万相2.7 图像编辑
+    id: '万相2.7 图像编辑',
+    hint: '官方万相 2.7 图生图，最多 9 张参考图，提示词驱动编辑',
+    kind: 'image',
+    textEndpoint: 'alibaba/wan-2.7/image-edit',
+  },
+  {
     // 官方目录：万相 2.7 图像编辑 Pro
     id: '万相 2.7 图像编辑 Pro',
     hint: '官方万相 2.7 Pro 图生图，最多 9 张参考图，提示词驱动编辑',
@@ -684,11 +732,32 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
     textEndpoint: 'alibaba/wan-2.7/image-edit-pro',
   },
   {
+    // 官方目录：Luma Uni-1 图像编辑
+    id: 'Luma Uni-1 图像编辑',
+    hint: '官方 Luma Uni-1 图生图，支持九档画幅',
+    kind: 'image',
+    textEndpoint: 'luma/uni-1/image-edit',
+  },
+  {
     // 官方目录：Luma Uni-1 Max 图像编辑
     id: 'Luma Uni-1 Max 图像编辑',
     hint: '官方 Luma Uni-1 Max 图生图，支持 3:1 到 1:3 共九档画幅',
     kind: 'image',
     textEndpoint: 'luma/uni-1-max/image-edit',
+  },
+  {
+    // 官方目录：全能图片X 图片编辑
+    id: '全能图片X 图片编辑',
+    hint: '官方全能图片 X 单图编辑，支持长指令',
+    kind: 'image',
+    textEndpoint: 'rhart-image-x-official/edit',
+  },
+  {
+    // 官方目录：全能图片X-4 图生图
+    id: '全能图片X-4 图生图',
+    hint: '全能图片 X-4 图生图，按提示词修改输入图片',
+    kind: 'image',
+    textEndpoint: 'rhart-image-g-4/image-to-image',
   },
   {
     // 官方目录：千问 2.0 文生图
@@ -700,9 +769,10 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
   {
     // 官方目录：即梦图片 4.6
     id: '即梦图片 4.6',
-    hint: '字节即梦 4.6；宽高档位官方写作像素（应用里暂不发尺寸，服务端默认）',
+    hint: '字节即梦 4.6；文生图与图生图都接，宽高档位由服务端默认',
     kind: 'image',
     textEndpoint: 'bytedance/jimeng-4.6/text-to-image',
+    imageEndpoint: 'bytedance/jimeng-4.6/image-to-image',
   },
   {
     // 官方目录：全能视频V3.1 Fast

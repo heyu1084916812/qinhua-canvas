@@ -1006,6 +1006,13 @@ const SMOKE_MOCK_MODELS = [
     maxCount: 1,
     maxReferenceImages: 4,
   },
+  {
+    id: '万相2.7 图像编辑',
+    category: 'image',
+    inputTypes: ['text', 'image'],
+    maxCount: 1,
+    maxReferenceImages: 9,
+  },
   ...['Standard', 'High Fidelity', 'Low Resolution', 'CGI', 'Text Refine'].map((name) => ({
     id: `Topaz 图像超清 ${name}`,
     category: 'image',
@@ -1139,6 +1146,7 @@ const SMOKE_MOCK_MODEL_MAP = {
   'Agnes Image 2.5 Flash': 'mock-image-1',
   'GPT Image 2': 'mock-image-1',
   '全能图片X-3（图生图）': 'mock-image-edit-1',
+  '万相2.7 图像编辑': 'mock-image-edit-1',
   'GPT-6 Astra': 'mock-chat-1',
   '即梦 2.5': 'mock-video-1',
   'OpenAI TTS': 'mock-speech-1',
@@ -35305,6 +35313,16 @@ async function g159(browser) {
   )
 
   await page.locator('[data-ecommerce-edit-preset="cleanup"]').click()
+  const editModelOptions = await page
+    .locator('[data-ecommerce-edit-model] option')
+    .allInnerTexts()
+    .catch(() => [])
+  rec(
+    g,
+    '★★ 新增官方图生图模型进入电商编辑模型下拉',
+    editModelOptions.some((text) => text.includes('万相2.7 图像编辑')),
+    JSON.stringify(editModelOptions),
+  )
   await page
     .locator('[data-ecommerce-edit-model]')
     .selectOption('全能图片X-3（图生图）')

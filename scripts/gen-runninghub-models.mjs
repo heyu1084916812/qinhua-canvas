@@ -120,6 +120,13 @@ const MODELS = [
     text: 'alibaba/qwen-image-2.0-pro/image-edit',
   },
   {
+    slug: 'image-wan-edit',
+    label: '万相2.7 图像编辑',
+    hint: '官方万相 2.7 图生图，最多 9 张参考图，提示词驱动编辑',
+    kind: 'image',
+    text: 'alibaba/wan-2.7/image-edit',
+  },
+  {
     slug: 'image-wan-edit-pro',
     label: '万相 2.7 图像编辑 Pro',
     hint: '官方万相 2.7 Pro 图生图，最多 9 张参考图，提示词驱动编辑',
@@ -127,11 +134,32 @@ const MODELS = [
     text: 'alibaba/wan-2.7/image-edit-pro',
   },
   {
+    slug: 'image-luma-uni-edit',
+    label: 'Luma Uni-1 图像编辑',
+    hint: '官方 Luma Uni-1 图生图，支持九档画幅',
+    kind: 'image',
+    text: 'luma/uni-1/image-edit',
+  },
+  {
     slug: 'image-luma-uni-max-edit',
     label: 'Luma Uni-1 Max 图像编辑',
     hint: '官方 Luma Uni-1 Max 图生图，支持 3:1 到 1:3 共九档画幅',
     kind: 'image',
     text: 'luma/uni-1-max/image-edit',
+  },
+  {
+    slug: 'image-x-official-edit',
+    label: '全能图片X 图片编辑',
+    hint: '官方全能图片 X 单图编辑，支持长指令',
+    kind: 'image',
+    text: 'rhart-image-x-official/edit',
+  },
+  {
+    slug: 'image-g4-i2i',
+    label: '全能图片X-4 图生图',
+    hint: '全能图片 X-4 图生图，按提示词修改输入图片',
+    kind: 'image',
+    text: 'rhart-image-g-4/image-to-image',
   },
   {
     slug: 'image-qwen',
@@ -143,9 +171,10 @@ const MODELS = [
   {
     slug: 'image-jimeng',
     label: '即梦图片 4.6',
-    hint: '字节即梦 4.6；宽高档位官方写作像素（应用里暂不发尺寸，服务端默认）',
+    hint: '字节即梦 4.6；文生图与图生图都接，宽高档位由服务端默认',
     kind: 'image',
     text: 'bytedance/jimeng-4.6/text-to-image',
+    image: 'bytedance/jimeng-4.6/image-to-image',
   },
   {
     slug: 'video-fast',

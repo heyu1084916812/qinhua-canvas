@@ -84,12 +84,15 @@ describe('RunningHub 电商 AI 超清目录', () => {
 })
 
 describe('RunningHub 高质量图像编辑目录', () => {
-  it('四个专业图生图模型都映射真实 image-to-image 端点，并声明图片输入', () => {
+  it('专业图生图模型都映射真实 image-to-image 端点，并声明图片输入', () => {
     for (const [modelId, endpointId, mediaKey] of [
       ['全能图片PRO Ultra（图像编辑）', 'rhart-image-n-pro-official/edit-ultra', 'imageUrls'],
       ['千问 2.0 Pro 图像编辑', 'alibaba/qwen-image-2.0-pro/image-edit', 'imageUrls'],
+      ['万相2.7 图像编辑', 'alibaba/wan-2.7/image-edit', 'imageUrls'],
       ['万相 2.7 图像编辑 Pro', 'alibaba/wan-2.7/image-edit-pro', 'imageUrls'],
+      ['Luma Uni-1 图像编辑', 'luma/uni-1/image-edit', 'imageUrl'],
       ['Luma Uni-1 Max 图像编辑', 'luma/uni-1-max/image-edit', 'imageUrl'],
+      ['全能图片X 图片编辑', 'rhart-image-x-official/edit', 'image'],
     ] as const) {
       const model = RUNNINGHUB_MODELS.find((item) => item.id === modelId)
       expect(model, modelId).toMatchObject({ kind: 'image', textEndpoint: endpointId })
@@ -100,6 +103,31 @@ describe('RunningHub 高质量图像编辑目录', () => {
       })
       expect(runningHubCapability(model!).inputTypes).toContain('image')
     }
+  })
+
+  it('全能图片X-4 的图片槽可选，即梦 4.6 文生 / 图生共用同一模型名', () => {
+    const g4 = RUNNINGHUB_MODELS.find((item) => item.id === '全能图片X-4 图生图')
+    expect(g4).toMatchObject({
+      kind: 'image',
+      textEndpoint: 'rhart-image-g-4/image-to-image',
+    })
+    expect(
+      RUNNINGHUB_ENDPOINT_SPECS.find(
+        (item) => item.id === 'rhart-image-g-4/image-to-image',
+      ),
+    ).toMatchObject({
+      task: 'image-to-image',
+      media: { key: 'imageUrls', type: 'IMAGE' },
+    })
+    expect(runningHubCapability(g4!).inputTypes).toContain('image')
+
+    const jimeng = RUNNINGHUB_MODELS.find((item) => item.id === '即梦图片 4.6')
+    expect(jimeng).toMatchObject({
+      kind: 'image',
+      textEndpoint: 'bytedance/jimeng-4.6/text-to-image',
+      imageEndpoint: 'bytedance/jimeng-4.6/image-to-image',
+    })
+    expect(runningHubCapability(jimeng!).inputTypes).toContain('image')
   })
 })
 
