@@ -4,7 +4,7 @@
  * 生成：`node scripts/gen-runninghub-models.mjs <RH_CLI>/src/rh_cli/catalog/data/capabilities.json`
  * 来源：RunningHub 官方 CLI（github.com/HM-RunningHub/RH_CLI）随包附带的端点目录
  *       capabilities.json —— version 2026-06-02，共 356 个端点；
- *       本文件只留**精挑的 44 个端点**（官方 CLI 快捷选择 + 本项目已交付的端点）。
+ *       本文件只留**精挑的 53 个端点**（官方 CLI 快捷选择 + 本项目已交付的端点）。
  *
  * 官方 CLI 建请求体的最后一步是「**必填 + 有默认值**而还没填的参数一律补默认值」
  * （`model/payload.py`）—— 适配器照同一条规则走 `requiredDefaults`。
@@ -51,6 +51,16 @@ export interface RunningHubEndpointSpec {
 /** 精挑的端点规格（key = 端点 id） */
 export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
   {
+    id: 'alibaba/happyhorse-1.0/video-edit',
+    task: 'video-edit',
+    kind: 'video',
+    label: 'happyhorse-1.0/video-edit',
+    promptKey: 'prompt',
+    media: { "key": "videoUrl", "type": "VIDEO", "required": true },
+    resolution: { "key": "resolution", "options": [ "720p", "1080p" ] },
+    requiredDefaults: { "resolution": "1080p" },
+  },
+  {
     id: 'alibaba/qwen-image-2.0-pro/image-edit',
     task: 'image-to-image',
     kind: 'image',
@@ -93,6 +103,17 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     promptKey: 'prompt',
   },
   {
+    id: 'gemini-omni-flash/video-edit',
+    task: 'video-edit',
+    kind: 'video',
+    label: '全能视频 Omni Flash 视频编辑-低价渠道版',
+    promptKey: 'prompt',
+    media: { "key": "videoUrl", "type": "VIDEO", "required": true },
+    ratio: { "key": "aspectRatio", "options": [ "16:9", "9:16" ] },
+    resolution: { "key": "resolution", "options": [ "720p", "1080p", "4k" ] },
+    requiredDefaults: { "resolution": "720p" },
+  },
+  {
     id: 'kling-v2-ai-avatar-pro/image-audio-to-video',
     task: 'lip-sync-video',
     kind: 'video',
@@ -129,6 +150,33 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     ratio: { "key": "aspectRatio", "options": [ "1:1", "16:9", "9:16" ] },
     duration: { "key": "duration", "options": [ "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15" ] },
     requiredDefaults: { "duration": "5", "sound": true },
+  },
+  {
+    id: 'kling-video-o1-std/edit-video',
+    task: 'video-edit',
+    kind: 'video',
+    label: '可灵视频编辑o1',
+    promptKey: 'prompt',
+    media: { "key": "videoUrl", "type": "VIDEO", "required": true },
+    requiredDefaults: { "mode": "std", "keepOriginalSound": true },
+  },
+  {
+    id: 'kling-video-o3-pro/video-edit',
+    task: 'video-edit',
+    kind: 'video',
+    label: 'kling-video-o3-pro/video-edit',
+    promptKey: 'prompt',
+    media: { "key": "videoUrl", "type": "VIDEO", "required": true },
+    requiredDefaults: { "keepOriginalSound": true },
+  },
+  {
+    id: 'kling-video-o3-std/video-edit',
+    task: 'video-edit',
+    kind: 'video',
+    label: 'kling-video-o3-std/video-edit',
+    promptKey: 'prompt',
+    media: { "key": "videoUrl", "type": "VIDEO", "required": true },
+    requiredDefaults: { "keepOriginalSound": true },
   },
   {
     id: 'luma/uni-1-max/image-edit',
@@ -259,6 +307,16 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     requiredDefaults: { "resolution": "480p" },
   },
   {
+    id: 'rhart-video-g-official/video-extend',
+    task: 'video-extend',
+    kind: 'video',
+    label: '全能视频X-视频续写-官方稳定版',
+    promptKey: 'prompt',
+    media: { "key": "videoUrl", "type": "VIDEO", "required": true },
+    duration: { "key": "duration", "options": [ "6", "10" ] },
+    requiredDefaults: { "duration": "6" },
+  },
+  {
     id: 'rhart-video-g/image-to-video',
     task: 'image-to-video',
     kind: 'video',
@@ -282,6 +340,15 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     requiredDefaults: { "aspectRatio": "2:3", "resolution": "720p" },
   },
   {
+    id: 'rhart-video-r/gen4-aleph-official/video-to-video',
+    task: 'video-edit',
+    kind: 'video',
+    label: '全能视频R-gen4-aleph/视频编辑-官方稳定版',
+    promptKey: 'prompt',
+    media: { "key": "videoUrl", "type": "VIDEO", "required": true },
+    ratio: { "key": "aspectRatio", "options": [ "16:9", "9:16", "1:1", "4:3", "3:4" ] },
+  },
+  {
     id: 'rhart-video-s/image-to-video',
     task: 'image-to-video',
     kind: 'video',
@@ -301,6 +368,16 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     ratio: { "key": "aspectRatio", "options": [ "9:16", "16:9" ] },
     duration: { "key": "duration", "options": [ "10", "15" ] },
     requiredDefaults: { "duration": "10", "aspectRatio": "9:16" },
+  },
+  {
+    id: 'rhart-video-v3.1-fast-official/video-extend',
+    task: 'video-extend',
+    kind: 'video',
+    label: '全能视频V3.1-fast-视频扩展-官方稳定版',
+    promptKey: 'prompt',
+    media: { "key": "video", "type": "VIDEO", "required": true },
+    resolution: { "key": "resolution", "options": [ "720p", "1080p" ] },
+    requiredDefaults: { "resolution": "720p" },
   },
   {
     id: 'rhart-video-v3.1-fast/image-to-video',
@@ -324,6 +401,16 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     resolution: { "key": "resolution", "options": [ "720p", "1080p", "4k" ] },
     duration: { "key": "duration", "options": [ "8" ] },
     requiredDefaults: { "aspectRatio": "9:16", "resolution": "720p" },
+  },
+  {
+    id: 'rhart-video-v3.1-pro-official/video-extend',
+    task: 'video-extend',
+    kind: 'video',
+    label: '全能视频V3.1-pro-视频扩展-官方稳定版',
+    promptKey: 'prompt',
+    media: { "key": "video", "type": "VIDEO", "required": true },
+    resolution: { "key": "resolution", "options": [ "720p", "1080p" ] },
+    requiredDefaults: { "resolution": "720p" },
   },
   {
     id: 'rhart-video-v3.1-pro/image-to-video',
@@ -730,10 +817,73 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
     textEndpoint: 'rhart-video-g-official/edit-video',
   },
   {
+    // 官方目录：Kling O3 Pro 视频编辑
+    id: 'Kling O3 Pro 视频编辑',
+    hint: '可灵 O3 Pro 官方视频编辑，默认保持原声；当前入口只送输入视频和指令',
+    kind: 'video',
+    textEndpoint: 'kling-video-o3-pro/video-edit',
+  },
+  {
+    // 官方目录：Kling O3 Std 视频编辑
+    id: 'Kling O3 Std 视频编辑',
+    hint: '可灵 O3 Std 官方视频编辑，默认保持原声；当前入口只送输入视频和指令',
+    kind: 'video',
+    textEndpoint: 'kling-video-o3-std/video-edit',
+  },
+  {
+    // 官方目录：Kling O1 Std 视频编辑
+    id: 'Kling O1 Std 视频编辑',
+    hint: '可灵 O1 Std 官方视频编辑，默认保持原声；当前入口只送输入视频和指令',
+    kind: 'video',
+    textEndpoint: 'kling-video-o1-std/edit-video',
+  },
+  {
+    // 官方目录：全能视频 Omni Flash 视频编辑
+    id: '全能视频 Omni Flash 视频编辑',
+    hint: 'RunningHub Omni Flash 视频编辑，支持 720p / 1080p / 4K',
+    kind: 'video',
+    textEndpoint: 'gemini-omni-flash/video-edit',
+  },
+  {
+    // 官方目录：HappyHorse 1.0 视频编辑
+    id: 'HappyHorse 1.0 视频编辑',
+    hint: 'HappyHorse 1.0 官方视频编辑，支持 720p / 1080p',
+    kind: 'video',
+    textEndpoint: 'alibaba/happyhorse-1.0/video-edit',
+  },
+  {
+    // 官方目录：全能视频R Gen4 Aleph 视频编辑
+    id: '全能视频R Gen4 Aleph 视频编辑',
+    hint: 'RunningHub Gen4 Aleph 官方视频编辑，当前入口只送输入视频和指令',
+    kind: 'video',
+    textEndpoint: 'rhart-video-r/gen4-aleph-official/video-to-video',
+  },
+  {
     // 官方目录：万相2.7 视频续写
     id: '万相2.7 视频续写',
     hint: '沿已有视频继续生成后续动作与镜头，可选 2–15 秒',
     kind: 'video',
     textEndpoint: 'alibaba/wan-2.7/video-extend',
+  },
+  {
+    // 官方目录：全能视频X 视频续写
+    id: '全能视频X 视频续写',
+    hint: '沿已有视频继续生成后续动作与镜头，可选 6 / 10 秒',
+    kind: 'video',
+    textEndpoint: 'rhart-video-g-official/video-extend',
+  },
+  {
+    // 官方目录：全能视频V3.1 Pro 视频扩展
+    id: '全能视频V3.1 Pro 视频扩展',
+    hint: '沿已有视频扩展后续镜头，可选 720p / 1080p',
+    kind: 'video',
+    textEndpoint: 'rhart-video-v3.1-pro-official/video-extend',
+  },
+  {
+    // 官方目录：全能视频V3.1 Fast 视频扩展
+    id: '全能视频V3.1 Fast 视频扩展',
+    hint: '沿已有视频快速扩展后续镜头，可选 720p / 1080p',
+    kind: 'video',
+    textEndpoint: 'rhart-video-v3.1-fast-official/video-extend',
   },
 ]

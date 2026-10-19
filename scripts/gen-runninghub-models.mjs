@@ -294,12 +294,75 @@ const MODELS = [
     text: 'rhart-video-g-official/edit-video',
   },
   {
+    slug: 'video-kling-o3-pro-edit',
+    label: 'Kling O3 Pro 视频编辑',
+    hint: '可灵 O3 Pro 官方视频编辑，默认保持原声；当前入口只送输入视频和指令',
+    kind: 'video',
+    text: 'kling-video-o3-pro/video-edit',
+  },
+  {
+    slug: 'video-kling-o3-std-edit',
+    label: 'Kling O3 Std 视频编辑',
+    hint: '可灵 O3 Std 官方视频编辑，默认保持原声；当前入口只送输入视频和指令',
+    kind: 'video',
+    text: 'kling-video-o3-std/video-edit',
+  },
+  {
+    slug: 'video-kling-o1-std-edit',
+    label: 'Kling O1 Std 视频编辑',
+    hint: '可灵 O1 Std 官方视频编辑，默认保持原声；当前入口只送输入视频和指令',
+    kind: 'video',
+    text: 'kling-video-o1-std/edit-video',
+  },
+  {
+    slug: 'video-omni-flash-edit',
+    label: '全能视频 Omni Flash 视频编辑',
+    hint: 'RunningHub Omni Flash 视频编辑，支持 720p / 1080p / 4K',
+    kind: 'video',
+    text: 'gemini-omni-flash/video-edit',
+  },
+  {
+    slug: 'video-happyhorse-edit',
+    label: 'HappyHorse 1.0 视频编辑',
+    hint: 'HappyHorse 1.0 官方视频编辑，支持 720p / 1080p',
+    kind: 'video',
+    text: 'alibaba/happyhorse-1.0/video-edit',
+  },
+  {
+    slug: 'video-gen4-aleph-edit',
+    label: '全能视频R Gen4 Aleph 视频编辑',
+    hint: 'RunningHub Gen4 Aleph 官方视频编辑，当前入口只送输入视频和指令',
+    kind: 'video',
+    text: 'rhart-video-r/gen4-aleph-official/video-to-video',
+  },
+  {
     slug: 'video-wan-extend',
     label: '万相2.7 视频续写',
     preset: '万相2.7 视频续写',
     hint: '沿已有视频继续生成后续动作与镜头，可选 2–15 秒',
     kind: 'video',
     text: 'alibaba/wan-2.7/video-extend',
+  },
+  {
+    slug: 'video-rh-g-extend',
+    label: '全能视频X 视频续写',
+    hint: '沿已有视频继续生成后续动作与镜头，可选 6 / 10 秒',
+    kind: 'video',
+    text: 'rhart-video-g-official/video-extend',
+  },
+  {
+    slug: 'video-rh-v31-pro-extend',
+    label: '全能视频V3.1 Pro 视频扩展',
+    hint: '沿已有视频扩展后续镜头，可选 720p / 1080p',
+    kind: 'video',
+    text: 'rhart-video-v3.1-pro-official/video-extend',
+  },
+  {
+    slug: 'video-rh-v31-fast-extend',
+    label: '全能视频V3.1 Fast 视频扩展',
+    hint: '沿已有视频快速扩展后续镜头，可选 720p / 1080p',
+    kind: 'video',
+    text: 'rhart-video-v3.1-fast-official/video-extend',
   },
 ]
 
@@ -337,7 +400,16 @@ function specOf(id) {
   }
   const prompt = params.find((p) => p.key === 'prompt' || p.key === 'text')
   if (prompt) spec.promptKey = prompt.key
-  const media = params.find((p) => p.type === 'IMAGE' || p.type === 'VIDEO')
+  /**
+   * 端点同时声明图片与视频时，优先取**必填**的那个。
+   *
+   * Gemini Omni Flash 的参数顺序是「可选 imageUrls → resolution → 必填 videoUrl」；
+   * 只取第一个媒体参数会把模型错认成图生图。当前运行时的单媒体槽只接一个键，
+   * 所以新增模型前还必须确认另一个媒体参数是可选的。
+   */
+  const media =
+    params.find((p) => (p.type === 'IMAGE' || p.type === 'VIDEO') && p.required) ??
+    params.find((p) => p.type === 'IMAGE' || p.type === 'VIDEO')
   if (media) {
     spec.media = { key: media.key, type: media.type }
     if (media.multiple) spec.media.multiple = true

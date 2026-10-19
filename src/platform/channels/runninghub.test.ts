@@ -105,18 +105,42 @@ describe('RunningHub 高质量图像编辑目录', () => {
 
 describe('RunningHub 视频超清目录与请求', () => {
   it('视频超清 / 视频编辑模型都映射到真实端点，并声明视频输入', () => {
-    for (const [modelId, endpointId, task] of [
-      ['Topaz 视频超清', 'topazlabs/video-upscale', 'video-upscale'],
-      ['RH 视频超分', 'rhart-video/video-upscaler', 'video-upscale'],
-      ['全能视频X 视频编辑', 'rhart-video-g-official/edit-video', 'video-edit'],
-      ['万相2.7 视频续写', 'alibaba/wan-2.7/video-extend', 'video-extend'],
+    for (const [modelId, endpointId, task, mediaKey] of [
+      ['Topaz 视频超清', 'topazlabs/video-upscale', 'video-upscale', 'videoUrl'],
+      ['RH 视频超分', 'rhart-video/video-upscaler', 'video-upscale', 'videoUrl'],
+      ['全能视频X 视频编辑', 'rhart-video-g-official/edit-video', 'video-edit', 'videoUrl'],
+      ['Kling O3 Pro 视频编辑', 'kling-video-o3-pro/video-edit', 'video-edit', 'videoUrl'],
+      ['Kling O3 Std 视频编辑', 'kling-video-o3-std/video-edit', 'video-edit', 'videoUrl'],
+      ['Kling O1 Std 视频编辑', 'kling-video-o1-std/edit-video', 'video-edit', 'videoUrl'],
+      ['全能视频 Omni Flash 视频编辑', 'gemini-omni-flash/video-edit', 'video-edit', 'videoUrl'],
+      ['HappyHorse 1.0 视频编辑', 'alibaba/happyhorse-1.0/video-edit', 'video-edit', 'videoUrl'],
+      [
+        '全能视频R Gen4 Aleph 视频编辑',
+        'rhart-video-r/gen4-aleph-official/video-to-video',
+        'video-edit',
+        'videoUrl',
+      ],
+      ['万相2.7 视频续写', 'alibaba/wan-2.7/video-extend', 'video-extend', 'videoUrl'],
+      ['全能视频X 视频续写', 'rhart-video-g-official/video-extend', 'video-extend', 'videoUrl'],
+      [
+        '全能视频V3.1 Pro 视频扩展',
+        'rhart-video-v3.1-pro-official/video-extend',
+        'video-extend',
+        'video',
+      ],
+      [
+        '全能视频V3.1 Fast 视频扩展',
+        'rhart-video-v3.1-fast-official/video-extend',
+        'video-extend',
+        'video',
+      ],
     ] as const) {
       const model = RUNNINGHUB_MODELS.find((item) => item.id === modelId)
       expect(model, modelId).toMatchObject({ kind: 'video', textEndpoint: endpointId })
       const spec = RUNNINGHUB_ENDPOINT_SPECS.find((item) => item.id === endpointId)
       expect(spec, endpointId).toMatchObject({
         task,
-        media: { key: 'videoUrl', type: 'VIDEO', required: true },
+        media: { key: mediaKey, type: 'VIDEO', required: true },
       })
       expect(runningHubCapability(model!).inputTypes).toContain('video')
     }
@@ -245,6 +269,122 @@ describe('RunningHub 视频超清目录与请求', () => {
     expect(outputs[0]?.mime).toBe('video/mp4')
   })
 
+  it('★★ Kling O3 Pro 视频编辑不发送清晰度，按官方默认保持原声', async () => {
+    let submitBody: Record<string, unknown> | null = null
+    const platform = createMemoryPlatform({
+      rows: {
+        assets: [{ id: 'kling-edit-source', bytes: VIDEO_BYTES, mime: 'video/mp4' }],
+      },
+      handler: async (req: NetworkRequest) => {
+        if (req.url.endsWith('/openapi/v2/media/upload/binary')) {
+          return json(200, {
+            code: 0,
+            data: { download_url: 'https://files.runninghub.cn/kling-edit-source.mp4' },
+          })
+        }
+        if (req.url.endsWith('/openapi/v2/kling-video-o3-pro/video-edit')) {
+          submitBody = req.body as Record<string, unknown>
+          return json(200, { code: 0, taskId: 'kling-video-edit-task' })
+        }
+        if (req.url.endsWith('/openapi/v2/query')) {
+          return json(200, {
+            status: 'SUCCESS',
+            results: [{ url: 'https://files.runninghub.cn/kling-edit-result.mp4' }],
+          })
+        }
+        if (req.url.endsWith('/kling-edit-result.mp4')) {
+          return bytes(200, VIDEO_BYTES, 'video/mp4')
+        }
+        return json(200, {})
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    const outputs = await adapter.generateVideo(
+      {
+        kind: 'video',
+        channelId: 'c1',
+        model: 'Kling O3 Pro 视频编辑',
+        prompt: '保留人物动作，把服装替换为图里的款式',
+        inputs: [
+          {
+            kind: 'asset',
+            nodeId: 'video-node',
+            assetHash: 'kling-edit-source',
+            mime: 'video/mp4',
+          },
+        ],
+        params: {},
+      },
+      signal,
+    )
+
+    expect(submitBody).toMatchObject({
+      videoUrl: 'https://files.runninghub.cn/kling-edit-source.mp4',
+      prompt: '保留人物动作，把服装替换为图里的款式',
+      keepOriginalSound: true,
+    })
+    expect(submitBody).not.toHaveProperty('resolution')
+    expect(outputs[0]?.mime).toBe('video/mp4')
+  })
+
+  it('★★ Gemini Omni Flash 同时声明图片与视频时，仍以必填视频为输入槽并发送真实清晰度', async () => {
+    let submitBody: Record<string, unknown> | null = null
+    const platform = createMemoryPlatform({
+      rows: {
+        assets: [{ id: 'omni-edit-source', bytes: VIDEO_BYTES, mime: 'video/mp4' }],
+      },
+      handler: async (req: NetworkRequest) => {
+        if (req.url.endsWith('/openapi/v2/media/upload/binary')) {
+          return json(200, {
+            code: 0,
+            data: { download_url: 'https://files.runninghub.cn/omni-edit-source.mp4' },
+          })
+        }
+        if (req.url.endsWith('/openapi/v2/gemini-omni-flash/video-edit')) {
+          submitBody = req.body as Record<string, unknown>
+          return json(200, { code: 0, taskId: 'omni-video-edit-task' })
+        }
+        if (req.url.endsWith('/openapi/v2/query')) {
+          return json(200, {
+            status: 'SUCCESS',
+            results: [{ url: 'https://files.runninghub.cn/omni-edit-result.mp4' }],
+          })
+        }
+        if (req.url.endsWith('/omni-edit-result.mp4')) {
+          return bytes(200, VIDEO_BYTES, 'video/mp4')
+        }
+        return json(200, {})
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    const outputs = await adapter.generateVideo(
+      {
+        kind: 'video',
+        channelId: 'c1',
+        model: '全能视频 Omni Flash 视频编辑',
+        prompt: '把画面改成雨夜，保持人物动作不变',
+        inputs: [
+          {
+            kind: 'asset',
+            nodeId: 'video-node',
+            assetHash: 'omni-edit-source',
+            mime: 'video/mp4',
+          },
+        ],
+        params: { resolution: '4k' },
+      },
+      signal,
+    )
+
+    expect(submitBody).toMatchObject({
+      videoUrl: 'https://files.runninghub.cn/omni-edit-source.mp4',
+      prompt: '把画面改成雨夜，保持人物动作不变',
+      resolution: '4k',
+    })
+    expect(submitBody).not.toHaveProperty('imageUrls')
+    expect(outputs[0]?.mime).toBe('video/mp4')
+  })
+
   it('★★ 视频续写把输入视频、清晰度与新增时长送到真实 video-extend 端点', async () => {
     let submitBody: Record<string, unknown> | null = null
     const platform = createMemoryPlatform({
@@ -301,6 +441,84 @@ describe('RunningHub 视频超清目录与请求', () => {
       duration: '8',
     })
     expect(outputs[0]?.mime).toBe('video/mp4')
+  })
+
+  it('★★ 新增续写端点只发送各自声明的参数，不夹带另一档', async () => {
+    const cases = [
+      {
+        model: '全能视频X 视频续写',
+        endpoint: '/openapi/v2/rhart-video-g-official/video-extend',
+        mediaKey: 'videoUrl',
+        params: { duration: 10 },
+        expected: { duration: '10' },
+        absent: 'resolution',
+      },
+      {
+        model: '全能视频V3.1 Pro 视频扩展',
+        endpoint: '/openapi/v2/rhart-video-v3.1-pro-official/video-extend',
+        mediaKey: 'video',
+        params: { resolution: '1080p' },
+        expected: { resolution: '1080p' },
+        absent: 'duration',
+      },
+    ] as const
+
+    for (const item of cases) {
+      let submitBody: Record<string, unknown> | null = null
+      const platform = createMemoryPlatform({
+        rows: {
+          assets: [{ id: 'extend-source', bytes: VIDEO_BYTES, mime: 'video/mp4' }],
+        },
+        handler: async (req: NetworkRequest) => {
+          if (req.url.endsWith('/openapi/v2/media/upload/binary')) {
+            return json(200, {
+              code: 0,
+              data: { download_url: 'https://files.runninghub.cn/new-extend-source.mp4' },
+            })
+          }
+          if (req.url.endsWith(item.endpoint)) {
+            submitBody = req.body as Record<string, unknown>
+            return json(200, { code: 0, taskId: 'new-extend-task' })
+          }
+          if (req.url.endsWith('/openapi/v2/query')) {
+            return json(200, {
+              status: 'SUCCESS',
+              results: [{ url: 'https://files.runninghub.cn/new-extend-result.mp4' }],
+            })
+          }
+          if (req.url.endsWith('/new-extend-result.mp4')) {
+            return bytes(200, VIDEO_BYTES, 'video/mp4')
+          }
+          return json(200, {})
+        },
+      })
+      const adapter = createRunningHubAdapter(config, platform, FAST)
+      const outputs = await adapter.generateVideo(
+        {
+          kind: 'video',
+          channelId: 'c1',
+          model: item.model,
+          prompt: '人物继续向前走，镜头缓慢跟随',
+          inputs: [
+            {
+              kind: 'asset',
+              nodeId: 'video-node',
+              assetHash: 'extend-source',
+              mime: 'video/mp4',
+            },
+          ],
+          params: item.params,
+        },
+        signal,
+      )
+      expect(submitBody, item.model).toMatchObject({
+        [item.mediaKey]: 'https://files.runninghub.cn/new-extend-source.mp4',
+        prompt: '人物继续向前走，镜头缓慢跟随',
+        ...item.expected,
+      })
+      expect(submitBody).not.toHaveProperty(item.absent)
+      expect(outputs[0]?.mime).toBe('video/mp4')
+    }
   })
 })
 

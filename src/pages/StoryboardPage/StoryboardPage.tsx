@@ -378,7 +378,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
             item.inputTypes.includes('video'),
         )
         const resolutions = videoEditResolutionsOf(model)
-        if (!capability || resolutions.length === 0) continue
+        if (!capability) continue
         out.push({
           channelId: channel.id,
           channelName: channel.name,
@@ -403,7 +403,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         )
         const resolutions = videoExtendResolutionsOf(model)
         const durations = videoExtendDurationsOf(model)
-        if (!capability || resolutions.length === 0 || durations.length === 0) continue
+        if (!capability) continue
         out.push({
           channelId: channel.id,
           channelName: channel.name,
@@ -1784,7 +1784,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
             mime: sourceMime,
           },
         ],
-        params: { resolution },
+        params: resolution ? { resolution } : {},
         signal: ac.signal,
       })
       const output = outputs[0]
@@ -1813,7 +1813,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
           channelId: target.channelId,
           model: target.model,
           prompt,
-          resolution,
+          ...(resolution ? { resolution } : {}),
           durationSec: shot.durationSec,
           assetHash: output.hash,
           assetMime: mime,
@@ -1849,7 +1849,12 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         const withNode = setShotVideoNode(current, shot.id, editNodeId, 0)
         apply(attachShotVideos(withNode, [{ shotId: shot.id, hash: output.hash }], 0))
       }
-      setLay({ kind: 'done', text: `这一镜的视频已按 ${resolution} 编辑完成` })
+      setLay({
+        kind: 'done',
+        text: resolution
+          ? `这一镜的视频已按 ${resolution} 编辑完成`
+          : '这一镜的视频已编辑完成',
+      })
     } catch (error) {
       setLay({ kind: 'error', text: humanError(error) })
     } finally {
@@ -1864,7 +1869,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     target: VideoExtendTarget,
     instruction: string,
     resolution: string,
-    duration: number,
+    duration: number | null,
   ) => {
     if (videoExtendBusy) return
     if (!shot.videoHash || !shot.videoNodeId || !liveNodeIds.has(shot.videoNodeId)) {
@@ -1899,7 +1904,10 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
             mime: sourceMime,
           },
         ],
-        params: { resolution, duration },
+        params: {
+          ...(resolution ? { resolution } : {}),
+          ...(duration !== null ? { duration } : {}),
+        },
         signal: ac.signal,
       })
       const output = outputs[0]
@@ -1928,8 +1936,8 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
           channelId: target.channelId,
           model: target.model,
           prompt,
-          resolution,
-          durationSec: duration,
+          ...(resolution ? { resolution } : {}),
+          ...(duration !== null ? { durationSec: duration } : {}),
           assetHash: output.hash,
           assetMime: mime,
         },
@@ -1964,7 +1972,13 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
         const withNode = setShotVideoNode(current, shot.id, extendNodeId, 0)
         apply(attachShotVideos(withNode, [{ shotId: shot.id, hash: output.hash }], 0))
       }
-      setLay({ kind: 'done', text: `这一镜已续写 ${duration} 秒 · ${resolution}` })
+      setLay({
+        kind: 'done',
+        text:
+          duration !== null
+            ? `这一镜已续写 ${duration} 秒${resolution ? ` · ${resolution}` : ''}`
+            : `这一镜已按 ${resolution} 续写完成`,
+      })
     } catch (error) {
       setLay({ kind: 'error', text: humanError(error) })
     } finally {
@@ -3435,7 +3449,7 @@ function ShotCard({
     target: VideoExtendTarget,
     instruction: string,
     resolution: string,
-    duration: number,
+    duration: number | null,
   ) => void
   onDownloadVideo?: () => void
   /** 「看本集原文」（对账 #547）：这一集有可回看的原文片段时才传 */
@@ -3453,7 +3467,7 @@ function ShotCard({
   const [videoExtendTargetIndex, setVideoExtendTargetIndex] = useState(0)
   const [videoExtendInstruction, setVideoExtendInstruction] = useState('')
   const [videoExtendResolution, setVideoExtendResolution] = useState('720P')
-  const [videoExtendDuration, setVideoExtendDuration] = useState(5)
+  const [videoExtendDuration, setVideoExtendDuration] = useState<number | null>(5)
   const currentUpscaleTarget =
     videoUpscaleTargets[Math.min(upscaleTargetIndex, videoUpscaleTargets.length - 1)]
   const currentVideoEditTarget =
@@ -3810,21 +3824,23 @@ function ShotCard({
               ))}
             </select>
           </label>
-          <label className={styles.inlineField}>
-            <span className={styles.label}>清晰度</span>
-            <select
-              className={styles.select}
-              value={videoEditResolution}
-              data-storyboard-video-edit-resolution={shot.id}
-              onChange={(e) => setVideoEditResolution(e.target.value)}
-            >
-              {currentVideoEditTarget.resolutions.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
+          {currentVideoEditTarget.resolutions.length > 0 ? (
+            <label className={styles.inlineField}>
+              <span className={styles.label}>清晰度</span>
+              <select
+                className={styles.select}
+                value={videoEditResolution}
+                data-storyboard-video-edit-resolution={shot.id}
+                onChange={(e) => setVideoEditResolution(e.target.value)}
+              >
+                {currentVideoEditTarget.resolutions.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <div className={styles.videoEditActions}>
             <button
               type="button"
@@ -3893,36 +3909,40 @@ function ShotCard({
               ))}
             </select>
           </label>
-          <label className={styles.inlineField}>
-            <span className={styles.label}>清晰度</span>
-            <select
-              className={styles.select}
-              value={videoExtendResolution}
-              data-storyboard-video-extend-resolution={shot.id}
-              onChange={(e) => setVideoExtendResolution(e.target.value)}
-            >
-              {currentVideoExtendTarget.resolutions.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className={styles.inlineField}>
-            <span className={styles.label}>新增时长</span>
-            <select
-              className={styles.select}
-              value={videoExtendDuration}
-              data-storyboard-video-extend-duration={shot.id}
-              onChange={(e) => setVideoExtendDuration(Number(e.target.value))}
-            >
-              {currentVideoExtendTarget.durations.map((value) => (
-                <option key={value} value={value}>
-                  {value}s
-                </option>
-              ))}
-            </select>
-          </label>
+          {currentVideoExtendTarget.resolutions.length > 0 ? (
+            <label className={styles.inlineField}>
+              <span className={styles.label}>清晰度</span>
+              <select
+                className={styles.select}
+                value={videoExtendResolution}
+                data-storyboard-video-extend-resolution={shot.id}
+                onChange={(e) => setVideoExtendResolution(e.target.value)}
+              >
+                {currentVideoExtendTarget.resolutions.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {currentVideoExtendTarget.durations.length > 0 ? (
+            <label className={styles.inlineField}>
+              <span className={styles.label}>新增时长</span>
+              <select
+                className={styles.select}
+                value={videoExtendDuration ?? ''}
+                data-storyboard-video-extend-duration={shot.id}
+                onChange={(e) => setVideoExtendDuration(Number(e.target.value))}
+              >
+                {currentVideoExtendTarget.durations.map((value) => (
+                  <option key={value} value={value}>
+                    {value}s
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <div className={styles.videoEditActions}>
             <button
               type="button"

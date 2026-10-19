@@ -1054,11 +1054,70 @@ const SMOKE_MOCK_MODELS = [
     maxReferenceImages: 1,
   },
   {
+    id: 'Kling O3 Pro 视频编辑',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    maxReferenceImages: 1,
+  },
+  {
+    id: 'Kling O3 Std 视频编辑',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    maxReferenceImages: 1,
+  },
+  {
+    id: 'Kling O1 Std 视频编辑',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    maxReferenceImages: 1,
+  },
+  {
+    id: '全能视频 Omni Flash 视频编辑',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    resolutions: ['720p', '1080p', '4k'],
+    maxReferenceImages: 1,
+  },
+  {
+    id: 'HappyHorse 1.0 视频编辑',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    resolutions: ['720p', '1080p'],
+    maxReferenceImages: 1,
+  },
+  {
+    id: '全能视频R Gen4 Aleph 视频编辑',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    maxReferenceImages: 1,
+  },
+  {
     id: '万相2.7 视频续写',
     category: 'video',
     inputTypes: ['text', 'video'],
     resolutions: ['720P', '1080P'],
     durations: [2, 15],
+    maxReferenceImages: 1,
+  },
+  {
+    id: '全能视频X 视频续写',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    durations: [6, 10],
+    maxReferenceImages: 1,
+  },
+  {
+    id: '全能视频V3.1 Pro 视频扩展',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    resolutions: ['720p', '1080p'],
+    maxReferenceImages: 1,
+  },
+  {
+    id: '全能视频V3.1 Fast 视频扩展',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    resolutions: ['720p', '1080p'],
     maxReferenceImages: 1,
   },
   {
@@ -32238,6 +32297,36 @@ async function g145(browser) {
     .catch(() => false)
   if (videoEditShown) await videoEditButton.click()
   const videoEditInstruction = '把白天改成雨夜，保持人物动作和镜头运动不变'
+  const videoEditTarget = page.locator(`[data-storyboard-video-edit-target="${ids[0]}"]`)
+  const videoEditTargets = await videoEditTarget
+    .locator('option')
+    .allInnerTexts()
+    .catch(() => [])
+  const klingTargetIndex = videoEditTargets.findIndex((text) =>
+    text.includes('Kling O3 Pro 视频编辑'),
+  )
+  const universalTargetIndex = videoEditTargets.findIndex((text) =>
+    text.includes('全能视频X 视频编辑'),
+  )
+  let klingHasNoResolution = false
+  if (klingTargetIndex >= 0) {
+    await videoEditTarget.selectOption(String(klingTargetIndex))
+    await page.waitForTimeout(100)
+    klingHasNoResolution =
+      (await page
+        .locator(`[data-storyboard-video-edit-resolution="${ids[0]}"]`)
+        .count()
+        .catch(() => 0)) === 0
+  }
+  rec(
+    g,
+    '★★ Kling O3 Pro 出现在视频编辑模型里，且不伪造官方不存在的清晰度档',
+    klingTargetIndex >= 0 && universalTargetIndex >= 0 && klingHasNoResolution,
+    `models=${JSON.stringify(videoEditTargets)} kling=${klingTargetIndex} universal=${universalTargetIndex} noResolution=${klingHasNoResolution}`,
+  )
+  if (universalTargetIndex >= 0) {
+    await videoEditTarget.selectOption(String(universalTargetIndex))
+  }
   rec(
     g,
     '★★ 已有镜头视频时出现真实「视频编辑」入口和官方模型',
@@ -32306,6 +32395,61 @@ async function g145(browser) {
     .catch(() => false)
   if (videoExtendShown) await videoExtendButton.click()
   const videoExtendInstruction = '人物继续向前走，镜头缓慢跟随，保持雨夜氛围'
+  const videoExtendTarget = page.locator(`[data-storyboard-video-extend-target="${ids[0]}"]`)
+  const videoExtendTargets = await videoExtendTarget
+    .locator('option')
+    .allInnerTexts()
+    .catch(() => [])
+  const wanExtendIndex = videoExtendTargets.findIndex((text) =>
+    text.includes('万相2.7 视频续写'),
+  )
+  const rhExtendIndex = videoExtendTargets.findIndex((text) =>
+    text.includes('全能视频X 视频续写'),
+  )
+  const proExtendIndex = videoExtendTargets.findIndex((text) =>
+    text.includes('全能视频V3.1 Pro 视频扩展'),
+  )
+  let rhExtendNoResolution = false
+  let proExtendNoDuration = false
+  if (rhExtendIndex >= 0) {
+    await videoExtendTarget.selectOption(String(rhExtendIndex))
+    await page.waitForTimeout(100)
+    rhExtendNoResolution =
+      (await page
+        .locator(`[data-storyboard-video-extend-resolution="${ids[0]}"]`)
+        .count()
+        .catch(() => 0)) === 0 &&
+      (await page
+        .locator(`[data-storyboard-video-extend-duration="${ids[0]}"]`)
+        .count()
+        .catch(() => 0)) === 1
+  }
+  if (proExtendIndex >= 0) {
+    await videoExtendTarget.selectOption(String(proExtendIndex))
+    await page.waitForTimeout(100)
+    proExtendNoDuration =
+      (await page
+        .locator(`[data-storyboard-video-extend-duration="${ids[0]}"]`)
+        .count()
+        .catch(() => 0)) === 0 &&
+      (await page
+        .locator(`[data-storyboard-video-extend-resolution="${ids[0]}"]`)
+        .count()
+        .catch(() => 0)) === 1
+  }
+  rec(
+    g,
+    '★★ 新增续写模型各自只显示真实参数：全能视频X 有秒数无清晰度，V3.1 有清晰度无秒数',
+    wanExtendIndex >= 0 &&
+      rhExtendIndex >= 0 &&
+      proExtendIndex >= 0 &&
+      rhExtendNoResolution &&
+      proExtendNoDuration,
+    `models=${JSON.stringify(videoExtendTargets)} rhNoResolution=${rhExtendNoResolution} proNoDuration=${proExtendNoDuration}`,
+  )
+  if (wanExtendIndex >= 0) {
+    await videoExtendTarget.selectOption(String(wanExtendIndex))
+  }
   rec(
     g,
     '★★ 已有镜头视频时出现真实「视频续写」入口和官方模型',
