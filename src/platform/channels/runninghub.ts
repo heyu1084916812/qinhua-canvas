@@ -21,6 +21,7 @@ import {
   RUNNINGHUB_ENDPOINT_SPECS,
   RUNNINGHUB_MODELS,
   type RunningHubDrivenParam,
+  type RunningHubMediaParam,
   type RunningHubModel,
   type RunningHubEndpointSpec,
 } from './runninghubEndpoints'
@@ -127,16 +128,19 @@ export function resolveRunningHubEndpoint(
  * 适配器**不会**把那个档位发出去（见 `buildPayload` 第 ③ 条）—— 发一个端点不认的值
  * 只会换来一句看不懂的服务端报错。
  *
- * `inputTypes` 里带 image 的两种情况：模型有图生档，或者它的端点**本身就必填参考图**
- * （「只吃参考图」的那两个模型）—— 后者如果报成 text-only，用户会在画布上选中它、
- * 连图都懒得连，然后收到一句“必须带参考图”。
+ * `inputTypes` 里的 image 表示端点**接受**图片：可能来自独立图生档，也可能是
+ * 主媒体槽 / 次媒体槽中的参考图。即使图片只是可选项，也要如实上报，否则工作台
+ * 会以为模型不支持画面参考，最终把一个官方能力静默丢掉。
  */
 export function runningHubCapability(model: RunningHubModel): ModelCapability {
   const spec = specById.get(model.textEndpoint)
+  const mediaSlots = [spec?.media, spec?.secondaryMedia].filter(
+    (slot): slot is RunningHubMediaParam => slot !== undefined,
+  )
   const needsImage =
     model.imageEndpoint !== undefined ||
-    (spec?.media?.type === 'IMAGE' && spec.media.required === true)
-  const needsVideo = spec?.media?.type === 'VIDEO' && spec.media.required === true
+    mediaSlots.some((slot) => slot.type === 'IMAGE')
+  const needsVideo = mediaSlots.some((slot) => slot.type === 'VIDEO')
   const needsAudio = spec?.audio?.required === true
   const durations = spec?.duration?.options
     ?.map((v) => Number(v))
@@ -505,8 +509,8 @@ export function createRunningHubAdapter(
     const payload: Record<string, unknown> = {}
     if (spec.promptKey) payload[spec.promptKey] = request.prompt
 
-    const media = spec.media
-    if (media && (media.type === 'IMAGE' || media.type === 'VIDEO')) {
+    const putMedia = (media: RunningHubEndpointSpec['media']) => {
+      if (!media || (media.type !== 'IMAGE' && media.type !== 'VIDEO')) return
       const values = media.type === 'VIDEO' ? videos : images
       if (values.length === 0) {
         /** 必填媒体缺了：当场说清差什么，别让服务端回一句看不懂的 4xx */
@@ -524,6 +528,8 @@ export function createRunningHubAdapter(
         payload[media.key] = media.multiple ? values : values[0]
       }
     }
+    putMedia(spec.media)
+    putMedia(spec.secondaryMedia)
 
     const audio = spec.audio
     if (audio) {
@@ -565,8 +571,14 @@ export function createRunningHubAdapter(
     request: ImageRunRequest | VideoRunRequest,
     signal: AbortSignal,
   ): Promise<GeneratedAsset[]> => {
-    const images = spec.media?.type === 'IMAGE' ? await resolveImages(spec, request, signal) : []
-    const videos = spec.media?.type === 'VIDEO' ? await resolveVideos(request, signal) : []
+    const hasImageSlot = [spec.media, spec.secondaryMedia].some(
+      (slot) => slot?.type === 'IMAGE',
+    )
+    const hasVideoSlot = [spec.media, spec.secondaryMedia].some(
+      (slot) => slot?.type === 'VIDEO',
+    )
+    const images = hasImageSlot ? await resolveImages(spec, request, signal) : []
+    const videos = hasVideoSlot ? await resolveVideos(request, signal) : []
     const audios = spec.audio ? await resolveAudio(request, signal) : []
     const payload = buildPayload(spec, request, images, videos, audios)
     const submitted = await readJson(

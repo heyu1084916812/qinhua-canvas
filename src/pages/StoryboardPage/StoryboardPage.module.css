@@ -526,6 +526,27 @@
   margin-left: auto;
 }
 
+.videoEditReference {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 30px;
+  color: var(--text-2);
+  font-size: var(--fs-label);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.videoEditReference input {
+  margin: 0;
+  accent-color: var(--text-1);
+}
+
+.videoEditReference:has(input:disabled) {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
 .shotImage {
   display: inline-flex;
   overflow: hidden;

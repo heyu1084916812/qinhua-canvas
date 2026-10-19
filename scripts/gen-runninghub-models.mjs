@@ -296,44 +296,51 @@ const MODELS = [
   {
     slug: 'video-kling-o3-pro-edit',
     label: 'Kling O3 Pro 视频编辑',
-    hint: '可灵 O3 Pro 官方视频编辑，默认保持原声；当前入口只送输入视频和指令',
+    hint: '可灵 O3 Pro 官方视频编辑，默认保持原声，可参考当前镜头画面',
     kind: 'video',
     text: 'kling-video-o3-pro/video-edit',
   },
   {
     slug: 'video-kling-o3-std-edit',
     label: 'Kling O3 Std 视频编辑',
-    hint: '可灵 O3 Std 官方视频编辑，默认保持原声；当前入口只送输入视频和指令',
+    hint: '可灵 O3 Std 官方视频编辑，默认保持原声，可参考当前镜头画面',
     kind: 'video',
     text: 'kling-video-o3-std/video-edit',
   },
   {
     slug: 'video-kling-o1-std-edit',
     label: 'Kling O1 Std 视频编辑',
-    hint: '可灵 O1 Std 官方视频编辑，默认保持原声；当前入口只送输入视频和指令',
+    hint: '可灵 O1 Std 官方视频编辑，默认保持原声，可参考当前镜头画面',
     kind: 'video',
     text: 'kling-video-o1-std/edit-video',
   },
   {
     slug: 'video-omni-flash-edit',
     label: '全能视频 Omni Flash 视频编辑',
-    hint: 'RunningHub Omni Flash 视频编辑，支持 720p / 1080p / 4K',
+    hint: 'RunningHub Omni Flash 视频编辑，可参考当前画面，支持 720p / 1080p / 4K',
     kind: 'video',
     text: 'gemini-omni-flash/video-edit',
   },
   {
     slug: 'video-happyhorse-edit',
     label: 'HappyHorse 1.0 视频编辑',
-    hint: 'HappyHorse 1.0 官方视频编辑，支持 720p / 1080p',
+    hint: 'HappyHorse 1.0 官方视频编辑，可参考当前画面，支持 720p / 1080p',
     kind: 'video',
     text: 'alibaba/happyhorse-1.0/video-edit',
   },
   {
     slug: 'video-gen4-aleph-edit',
     label: '全能视频R Gen4 Aleph 视频编辑',
-    hint: 'RunningHub Gen4 Aleph 官方视频编辑，当前入口只送输入视频和指令',
+    hint: 'RunningHub Gen4 Aleph 官方视频编辑，可参考当前镜头画面',
     kind: 'video',
     text: 'rhart-video-r/gen4-aleph-official/video-to-video',
+  },
+  {
+    slug: 'video-wan-edit',
+    label: '万相2.7 视频编辑',
+    hint: '结合当前镜头画面编辑已有视频，可选 720P / 1080P',
+    kind: 'video',
+    text: 'alibaba/wan-2.7/video-edit',
   },
   {
     slug: 'video-wan-extend',
@@ -401,20 +408,29 @@ function specOf(id) {
   const prompt = params.find((p) => p.key === 'prompt' || p.key === 'text')
   if (prompt) spec.promptKey = prompt.key
   /**
-   * 端点同时声明图片与视频时，优先取**必填**的那个。
+   * 一个端点最多保留两个媒体槽：主槽 + 次槽。
    *
-   * Gemini Omni Flash 的参数顺序是「可选 imageUrls → resolution → 必填 videoUrl」；
-   * 只取第一个媒体参数会把模型错认成图生图。当前运行时的单媒体槽只接一个键，
-   * 所以新增模型前还必须确认另一个媒体参数是可选的。
+   * 主槽优先取**必填**媒体，避免 Gemini Omni Flash 这种「可选图片在前、
+   * 必填视频在后」的参数顺序把模型认错。次槽用于 Kling / Omni / Gen4 的
+   * 可选参考图，也用于图片必填、视频可选的组合。超过两个媒体槽时不猜，
+   * 生成阶段直接失败，等运行时契约扩好再接。
    */
-  const media =
-    params.find((p) => (p.type === 'IMAGE' || p.type === 'VIDEO') && p.required) ??
-    params.find((p) => p.type === 'IMAGE' || p.type === 'VIDEO')
-  if (media) {
-    spec.media = { key: media.key, type: media.type }
-    if (media.multiple) spec.media.multiple = true
-    if (media.required) spec.media.required = true
+  const mediaParams = params.filter((p) => p.type === 'IMAGE' || p.type === 'VIDEO')
+  if (mediaParams.slice(2).some((p) => p.required)) {
+    throw new Error(`端点 ${id} 有第三个必填媒体槽，当前运行时只支持 2 个`)
   }
+  const media =
+    mediaParams.find((p) => p.required) ?? mediaParams[0]
+  const secondary =
+    mediaParams.find((p) => p.key !== media?.key)
+  const mediaSpec = (p) => {
+    const out = { key: p.key, type: p.type }
+    if (p.multiple) out.multiple = true
+    if (p.required) out.required = true
+    return out
+  }
+  if (media) spec.media = mediaSpec(media)
+  if (secondary) spec.secondaryMedia = mediaSpec(secondary)
   const audio = params.find((p) => p.type === 'AUDIO')
   if (audio) {
     spec.audio = { key: audio.key, type: audio.type }
@@ -488,6 +504,8 @@ lines.push('  /** 提示词参数的键（目录里所有端点都是 `prompt`�
 lines.push('  promptKey?: string')
 lines.push('  /** 参考图 / 视频 / 音频参数的键与是否多值 */')
 lines.push('  media?: RunningHubMediaParam')
+lines.push('  /** 第二个媒体槽（可选参考图，或图片必填 + 视频可选的组合） */')
+lines.push('  secondaryMedia?: RunningHubMediaParam')
   lines.push('  /** 音频输入（数字人口播等端点与图片分开声明） */')
   lines.push('  audio?: RunningHubMediaParam')
 lines.push('  /** 比例、清晰度、时长：键名各端点不同（`aspectRatio` / `ratio`…），故逐个记 */')
@@ -513,6 +531,7 @@ for (const s of specs) {
   put('label', q(s.label))
   if (s.promptKey) put('promptKey', q(s.promptKey))
   if (s.media) put('media', jsonish(s.media))
+  if (s.secondaryMedia) put('secondaryMedia', jsonish(s.secondaryMedia))
   if (s.audio) put('audio', jsonish(s.audio))
   if (s.ratio) put('ratio', jsonish(s.ratio))
   if (s.resolution) put('resolution', jsonish(s.resolution))

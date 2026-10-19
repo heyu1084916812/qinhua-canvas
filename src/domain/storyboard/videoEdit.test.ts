@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   isVideoEditModel,
   normalizeVideoEditResolution,
+  videoEditRequiresReferenceImage,
   videoEditResolutionsOf,
 } from './videoEdit'
 
@@ -33,6 +34,12 @@ describe('漫剧视频编辑档位', () => {
       '1080p',
     ])
     expect(videoEditResolutionsOf('全能视频R Gen4 Aleph 视频编辑')).toEqual([])
+    expect(videoEditResolutionsOf('万相2.7 视频编辑')).toEqual(['720P', '1080P'])
+  })
+
+  it('只有万相 2.7 视频编辑把参考画面声明为必需', () => {
+    expect(videoEditRequiresReferenceImage('万相2.7 视频编辑')).toBe(true)
+    expect(videoEditRequiresReferenceImage('Kling O3 Pro 视频编辑')).toBe(false)
   })
 
   it('不把别的视频模型当成编辑模型', () => {
@@ -40,5 +47,6 @@ describe('漫剧视频编辑档位', () => {
     expect(isVideoEditModel('全能视频X 视频编辑')).toBe(true)
     expect(isVideoEditModel('Kling O3 Pro 视频编辑')).toBe(true)
     expect(isVideoEditModel('全能视频 Omni Flash 视频编辑')).toBe(true)
+    expect(isVideoEditModel('万相2.7 视频编辑')).toBe(true)
   })
 })

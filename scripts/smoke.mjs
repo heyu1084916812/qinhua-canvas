@@ -1056,40 +1056,47 @@ const SMOKE_MOCK_MODELS = [
   {
     id: 'Kling O3 Pro 视频编辑',
     category: 'video',
-    inputTypes: ['text', 'video'],
+    inputTypes: ['text', 'image', 'video'],
     maxReferenceImages: 1,
   },
   {
     id: 'Kling O3 Std 视频编辑',
     category: 'video',
-    inputTypes: ['text', 'video'],
+    inputTypes: ['text', 'image', 'video'],
     maxReferenceImages: 1,
   },
   {
     id: 'Kling O1 Std 视频编辑',
     category: 'video',
-    inputTypes: ['text', 'video'],
+    inputTypes: ['text', 'image', 'video'],
     maxReferenceImages: 1,
   },
   {
     id: '全能视频 Omni Flash 视频编辑',
     category: 'video',
-    inputTypes: ['text', 'video'],
+    inputTypes: ['text', 'image', 'video'],
     resolutions: ['720p', '1080p', '4k'],
-    maxReferenceImages: 1,
+    maxReferenceImages: 3,
   },
   {
     id: 'HappyHorse 1.0 视频编辑',
     category: 'video',
-    inputTypes: ['text', 'video'],
+    inputTypes: ['text', 'image', 'video'],
     resolutions: ['720p', '1080p'],
-    maxReferenceImages: 1,
+    maxReferenceImages: 5,
   },
   {
     id: '全能视频R Gen4 Aleph 视频编辑',
     category: 'video',
-    inputTypes: ['text', 'video'],
+    inputTypes: ['text', 'image', 'video'],
     maxReferenceImages: 1,
+  },
+  {
+    id: '万相2.7 视频编辑',
+    category: 'video',
+    inputTypes: ['text', 'image', 'video'],
+    resolutions: ['720P', '1080P'],
+    maxReferenceImages: 3,
   },
   {
     id: '万相2.7 视频续写',
@@ -32308,7 +32315,11 @@ async function g145(browser) {
   const universalTargetIndex = videoEditTargets.findIndex((text) =>
     text.includes('全能视频X 视频编辑'),
   )
+  const wanEditTargetIndex = videoEditTargets.findIndex((text) =>
+    text.includes('万相2.7 视频编辑'),
+  )
   let klingHasNoResolution = false
+  let klingReferenceChecked = false
   if (klingTargetIndex >= 0) {
     await videoEditTarget.selectOption(String(klingTargetIndex))
     await page.waitForTimeout(100)
@@ -32317,16 +32328,23 @@ async function g145(browser) {
         .locator(`[data-storyboard-video-edit-resolution="${ids[0]}"]`)
         .count()
         .catch(() => 0)) === 0
+    const reference = page.locator(
+      `[data-storyboard-video-edit-reference="${ids[0]}"]`,
+    )
+    klingReferenceChecked =
+      (await reference.count().catch(() => 0)) === 1 &&
+      (await reference.isChecked().catch(() => false))
   }
   rec(
     g,
-    '★★ Kling O3 Pro 出现在视频编辑模型里，且不伪造官方不存在的清晰度档',
-    klingTargetIndex >= 0 && universalTargetIndex >= 0 && klingHasNoResolution,
-    `models=${JSON.stringify(videoEditTargets)} kling=${klingTargetIndex} universal=${universalTargetIndex} noResolution=${klingHasNoResolution}`,
+    '★★ Kling O3 Pro 出现在视频编辑模型里：无虚假清晰度档，并默认参考当前画面',
+    klingTargetIndex >= 0 &&
+      universalTargetIndex >= 0 &&
+      wanEditTargetIndex >= 0 &&
+      klingHasNoResolution &&
+      klingReferenceChecked,
+    `models=${JSON.stringify(videoEditTargets)} kling=${klingTargetIndex} universal=${universalTargetIndex} wan=${wanEditTargetIndex} noResolution=${klingHasNoResolution} reference=${klingReferenceChecked}`,
   )
-  if (universalTargetIndex >= 0) {
-    await videoEditTarget.selectOption(String(universalTargetIndex))
-  }
   rec(
     g,
     '★★ 已有镜头视频时出现真实「视频编辑」入口和官方模型',
@@ -32344,9 +32362,6 @@ async function g145(browser) {
   await page
     .locator(`[data-storyboard-video-edit-instruction="${ids[0]}"]`)
     .fill(videoEditInstruction)
-  await page
-    .locator(`[data-storyboard-video-edit-resolution="${ids[0]}"]`)
-    .selectOption('720p')
   await page.locator(`[data-storyboard-video-edit-submit="${ids[0]}"]`).click()
   const videoEditDb = await waitDb((db) => {
     const shot = db.shots[0]
@@ -32354,7 +32369,7 @@ async function g145(browser) {
     return (
       !!shot?.videoNodeId &&
       shot.videoNodeId !== videoEditNodeBefore &&
-      next?.data?.model === '全能视频X 视频编辑' &&
+      next?.data?.model === 'Kling O3 Pro 视频编辑' &&
       next?.data?.assetMime === 'video/mp4'
     )
   }, 20000)
@@ -32365,26 +32380,30 @@ async function g145(browser) {
   )
   rec(
     g,
-    '★★★ 视频编辑真实走通：720p 新视频落独立节点，指令与产物 MIME 都落库',
+    '★★★ Kling 视频编辑真实走通：新视频落独立节点，镜头画面与视频都作为真实上游',
     !!videoEditShot?.videoHash &&
       videoEditNode?.data?.prompt === videoEditInstruction &&
-      videoEditNode?.data?.resolution === '720p' &&
       videoEditDb.assets.some(
         (asset) =>
           asset.hash === videoEditShot.videoHash && asset.mime === 'video/mp4',
       ),
-    `node=${videoEditShot?.videoNodeId ?? 'none'} hash=${(videoEditShot?.videoHash ?? '').slice(0, 8)} prompt=${videoEditNode?.data?.prompt ?? 'none'}`,
+    `node=${videoEditShot?.videoNodeId ?? 'none'} hash=${(videoEditShot?.videoHash ?? '').slice(0, 8)} prompt=${videoEditNode?.data?.prompt ?? 'none'} resolution=${String(videoEditNode?.data?.resolution ?? 'none')}`,
   )
   rec(
     g,
-    '★★ 视频编辑保留上一版视频节点，并保留输入视频 → 编辑结果的连线',
+    '★★ 视频编辑保留上一版视频节点，并保留输入视频 / 当前画面 → 编辑结果的两条连线',
     !!upscaleNodeStillThere &&
       videoEditDb.edges.some(
         (edge) =>
           edge.source === videoEditNodeBefore &&
           edge.target === videoEditShot?.videoNodeId,
+      ) &&
+      videoEditDb.edges.some(
+        (edge) =>
+          edge.source === imageNodeA &&
+          edge.target === videoEditShot?.videoNodeId,
       ),
-    `${videoEditNodeBefore} → ${videoEditShot?.videoNodeId ?? 'none'}`,
+    `${videoEditNodeBefore} + ${imageNodeA} → ${videoEditShot?.videoNodeId ?? 'none'}`,
   )
 
   const videoExtendNodeBefore = videoEditShot?.videoNodeId ?? ''

@@ -120,6 +120,7 @@ describe('RunningHub 视频超清目录与请求', () => {
         'video-edit',
         'videoUrl',
       ],
+      ['万相2.7 视频编辑', 'alibaba/wan-2.7/video-edit', 'video-edit', 'imageUrls'],
       ['万相2.7 视频续写', 'alibaba/wan-2.7/video-extend', 'video-extend', 'videoUrl'],
       ['全能视频X 视频续写', 'rhart-video-g-official/video-extend', 'video-extend', 'videoUrl'],
       [
@@ -140,7 +141,11 @@ describe('RunningHub 视频超清目录与请求', () => {
       const spec = RUNNINGHUB_ENDPOINT_SPECS.find((item) => item.id === endpointId)
       expect(spec, endpointId).toMatchObject({
         task,
-        media: { key: mediaKey, type: 'VIDEO', required: true },
+        media: {
+          key: mediaKey,
+          type: mediaKey === 'imageUrls' ? 'IMAGE' : 'VIDEO',
+          required: true,
+        },
       })
       expect(runningHubCapability(model!).inputTypes).toContain('video')
     }
@@ -271,15 +276,27 @@ describe('RunningHub 视频超清目录与请求', () => {
 
   it('★★ Kling O3 Pro 视频编辑不发送清晰度，按官方默认保持原声', async () => {
     let submitBody: Record<string, unknown> | null = null
+    const uploadedNames: string[] = []
     const platform = createMemoryPlatform({
       rows: {
-        assets: [{ id: 'kling-edit-source', bytes: VIDEO_BYTES, mime: 'video/mp4' }],
+        assets: [
+          { id: 'kling-edit-source', bytes: VIDEO_BYTES, mime: 'video/mp4' },
+          { id: 'kling-reference-image', bytes: PNG_BYTES, mime: 'image/png' },
+        ],
       },
       handler: async (req: NetworkRequest) => {
         if (req.url.endsWith('/openapi/v2/media/upload/binary')) {
+          const form = req.body as FormData
+          const file = form.get('file')
+          uploadedNames.push(file instanceof File ? file.name : String(file ?? ''))
           return json(200, {
             code: 0,
-            data: { download_url: 'https://files.runninghub.cn/kling-edit-source.mp4' },
+            data: {
+              download_url:
+                file instanceof File && file.type.startsWith('image/')
+                  ? 'https://files.runninghub.cn/kling-reference.png'
+                  : 'https://files.runninghub.cn/kling-edit-source.mp4',
+            },
           })
         }
         if (req.url.endsWith('/openapi/v2/kling-video-o3-pro/video-edit')) {
@@ -312,6 +329,12 @@ describe('RunningHub 视频超清目录与请求', () => {
             assetHash: 'kling-edit-source',
             mime: 'video/mp4',
           },
+          {
+            kind: 'asset',
+            nodeId: 'image-node',
+            assetHash: 'kling-reference-image',
+            mime: 'image/png',
+          },
         ],
         params: {},
       },
@@ -320,11 +343,27 @@ describe('RunningHub 视频超清目录与请求', () => {
 
     expect(submitBody).toMatchObject({
       videoUrl: 'https://files.runninghub.cn/kling-edit-source.mp4',
+      imageUrls: ['https://files.runninghub.cn/kling-reference.png'],
       prompt: '保留人物动作，把服装替换为图里的款式',
       keepOriginalSound: true,
     })
+    expect(uploadedNames.sort()).toEqual(['ref.png', 'video.mp4'])
     expect(submitBody).not.toHaveProperty('resolution')
     expect(outputs[0]?.mime).toBe('video/mp4')
+    const model = RUNNINGHUB_MODELS.find((item) => item.id === 'Kling O3 Pro 视频编辑')
+    expect(runningHubCapability(model!).inputTypes).toEqual([
+      'text',
+      'image',
+      'video',
+    ])
+    const spec = RUNNINGHUB_ENDPOINT_SPECS.find(
+      (item) => item.id === 'kling-video-o3-pro/video-edit',
+    )
+    expect(spec?.secondaryMedia).toMatchObject({
+      key: 'imageUrls',
+      type: 'IMAGE',
+      multiple: true,
+    })
   })
 
   it('★★ Gemini Omni Flash 同时声明图片与视频时，仍以必填视频为输入槽并发送真实清晰度', async () => {
@@ -382,6 +421,82 @@ describe('RunningHub 视频超清目录与请求', () => {
       resolution: '4k',
     })
     expect(submitBody).not.toHaveProperty('imageUrls')
+    expect(outputs[0]?.mime).toBe('video/mp4')
+  })
+
+  it('★★ 万相2.7 视频编辑同时发送必填参考图和输入视频，并按目录补齐默认参数', async () => {
+    let submitBody: Record<string, unknown> | null = null
+    const platform = createMemoryPlatform({
+      rows: {
+        assets: [
+          { id: 'wan-edit-video', bytes: VIDEO_BYTES, mime: 'video/mp4' },
+          { id: 'wan-edit-image', bytes: PNG_BYTES, mime: 'image/png' },
+        ],
+      },
+      handler: async (req: NetworkRequest) => {
+        if (req.url.endsWith('/openapi/v2/media/upload/binary')) {
+          const form = req.body as FormData
+          const file = form.get('file')
+          return json(200, {
+            code: 0,
+            data: {
+              download_url:
+                file instanceof File && file.type.startsWith('image/')
+                  ? 'https://files.runninghub.cn/wan-edit-image.png'
+                  : 'https://files.runninghub.cn/wan-edit-video.mp4',
+            },
+          })
+        }
+        if (req.url.endsWith('/openapi/v2/alibaba/wan-2.7/video-edit')) {
+          submitBody = req.body as Record<string, unknown>
+          return json(200, { code: 0, taskId: 'wan-edit-task' })
+        }
+        if (req.url.endsWith('/openapi/v2/query')) {
+          return json(200, {
+            status: 'SUCCESS',
+            results: [{ url: 'https://files.runninghub.cn/wan-edit-result.mp4' }],
+          })
+        }
+        if (req.url.endsWith('/wan-edit-result.mp4')) {
+          return bytes(200, VIDEO_BYTES, 'video/mp4')
+        }
+        return json(200, {})
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    const outputs = await adapter.generateVideo(
+      {
+        kind: 'video',
+        channelId: 'c1',
+        model: '万相2.7 视频编辑',
+        prompt: '把人物服装替换为参考图里的款式',
+        inputs: [
+          {
+            kind: 'asset',
+            nodeId: 'video-node',
+            assetHash: 'wan-edit-video',
+            mime: 'video/mp4',
+          },
+          {
+            kind: 'asset',
+            nodeId: 'image-node',
+            assetHash: 'wan-edit-image',
+            mime: 'image/png',
+          },
+        ],
+        params: { resolution: '1080P' },
+      },
+      signal,
+    )
+
+    expect(submitBody).toMatchObject({
+      imageUrls: ['https://files.runninghub.cn/wan-edit-image.png'],
+      videoUrl: 'https://files.runninghub.cn/wan-edit-video.mp4',
+      prompt: '把人物服装替换为参考图里的款式',
+      resolution: '1080P',
+      duration: '0',
+      aspectRatio: '16:9',
+    })
     expect(outputs[0]?.mime).toBe('video/mp4')
   })
 

@@ -127,6 +127,7 @@ import {
 import {
   normalizeVideoEditResolution,
   VIDEO_EDIT_MODEL_IDS,
+  videoEditRequiresReferenceImage,
   videoEditResolutionsOf,
   type VideoEditModelId,
 } from '../../domain/storyboard/videoEdit'
@@ -159,6 +160,8 @@ interface VideoEditTarget {
   model: VideoEditModelId
   label: string
   resolutions: readonly string[]
+  supportsReferenceImage: boolean
+  requiresReferenceImage: boolean
 }
 
 interface VideoExtendTarget {
@@ -385,6 +388,8 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
           model,
           label: `${model} · ${channel.name}`,
           resolutions,
+          supportsReferenceImage: capability.inputTypes.includes('image'),
+          requiresReferenceImage: videoEditRequiresReferenceImage(model),
         })
       }
     }
@@ -1747,6 +1752,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     target: VideoEditTarget,
     instruction: string,
     resolution: string,
+    useReferenceImage: boolean,
   ) => {
     if (videoEditBusy) return
     const prompt = instruction.trim()
@@ -1765,6 +1771,24 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     }
     const sourceMime =
       (sourceNode.data as { assetMime?: string }).assetMime ?? 'video/mp4'
+    const referenceNode =
+      useReferenceImage && shot.nodeId && liveNodeIds.has(shot.nodeId)
+        ? graph.nodes.find((node) => node.id === shot.nodeId)
+        : null
+    const referenceHash = useReferenceImage ? shot.imageHash : undefined
+    if (
+      useReferenceImage &&
+      (!target.supportsReferenceImage || !referenceNode || !referenceHash)
+    ) {
+      setLay({ kind: 'error', text: '这一镜没有可引用的画面，取消参考图后再试' })
+      return
+    }
+    if (target.requiresReferenceImage && !useReferenceImage) {
+      setLay({ kind: 'error', text: '这个模型必须参考当前镜头画面' })
+      return
+    }
+    const referenceMime =
+      (referenceNode?.data as { assetMime?: string } | undefined)?.assetMime ?? 'image/png'
 
     setVideoEditBusy(shot.id)
     setLay({ kind: 'running', text: `正在用 ${target.model} 编辑这一镜…` })
@@ -1783,6 +1807,16 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
             assetHash: shot.videoHash,
             mime: sourceMime,
           },
+          ...(referenceNode && referenceHash
+            ? [
+                {
+                  kind: 'asset' as const,
+                  nodeId: referenceNode.id,
+                  assetHash: referenceHash,
+                  mime: referenceMime,
+                },
+              ]
+            : []),
         ],
         params: resolution ? { resolution } : {},
         signal: ac.signal,
@@ -1838,6 +1872,13 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
             source: shot.videoNodeId,
             target: editNodeId,
           })
+          if (referenceNode) {
+            canvasStore.dispatch({
+              kind: 'edge.connect',
+              source: referenceNode.id,
+              target: editNodeId,
+            })
+          }
         }
       } finally {
         canvasStore.endPlan()
@@ -1852,8 +1893,8 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       setLay({
         kind: 'done',
         text: resolution
-          ? `这一镜的视频已按 ${resolution} 编辑完成`
-          : '这一镜的视频已编辑完成',
+          ? `这一镜的视频已按 ${resolution} 编辑完成${referenceNode ? '（已参考当前画面）' : ''}`
+          : `这一镜的视频已编辑完成${referenceNode ? '（已参考当前画面）' : ''}`,
       })
     } catch (error) {
       setLay({ kind: 'error', text: humanError(error) })
@@ -3208,12 +3249,13 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                           shot.videoNodeId &&
                           liveNodeIds.has(shot.videoNodeId) &&
                           videoEditTargets.length > 0
-                            ? (target, instruction, resolution) =>
+                            ? (target, instruction, resolution, useReferenceImage) =>
                                 void makeVideoEdit(
                                   shot,
                                   target,
                                   instruction,
                                   resolution,
+                                  useReferenceImage,
                                 )
                             : undefined
                         }
@@ -3442,6 +3484,7 @@ function ShotCard({
     target: VideoEditTarget,
     instruction: string,
     resolution: string,
+    useReferenceImage: boolean,
   ) => void
   videoExtendTargets: readonly VideoExtendTarget[]
   videoExtendBusyShotId: string | null
@@ -3463,6 +3506,7 @@ function ShotCard({
   const [videoEditTargetIndex, setVideoEditTargetIndex] = useState(0)
   const [videoEditInstruction, setVideoEditInstruction] = useState('')
   const [videoEditResolution, setVideoEditResolution] = useState('480p')
+  const [videoEditUseReference, setVideoEditUseReference] = useState(false)
   const [videoExtendOpen, setVideoExtendOpen] = useState(false)
   const [videoExtendTargetIndex, setVideoExtendTargetIndex] = useState(0)
   const [videoExtendInstruction, setVideoExtendInstruction] = useState('')
@@ -3474,6 +3518,10 @@ function ShotCard({
     videoEditTargets[Math.min(videoEditTargetIndex, videoEditTargets.length - 1)]
   const currentVideoExtendTarget =
     videoExtendTargets[Math.min(videoExtendTargetIndex, videoExtendTargets.length - 1)]
+  const canReferenceShotImage =
+    Boolean(shot.imageHash) &&
+    laidOut &&
+    Boolean(currentVideoEditTarget?.supportsReferenceImage)
   const upscaleBusy = videoUpscaleBusyShotId === shot.id
   const videoEditing = videoEditBusyShotId === shot.id
   const videoExtending = videoExtendBusyShotId === shot.id
@@ -3496,6 +3544,9 @@ function ShotCard({
     setVideoEditTargetIndex(0)
     setVideoEditInstruction('')
     setVideoEditResolution(normalizeVideoEditResolution(target.model))
+    setVideoEditUseReference(
+      Boolean(target.supportsReferenceImage && shot.imageHash && laidOut),
+    )
     setVideoEditOpen(true)
   }
 
@@ -3815,6 +3866,9 @@ function ShotCard({
                 if (!nextTarget) return
                 setVideoEditTargetIndex(nextIndex)
                 setVideoEditResolution(normalizeVideoEditResolution(nextTarget.model))
+                setVideoEditUseReference(
+                  Boolean(nextTarget.supportsReferenceImage && shot.imageHash && laidOut),
+                )
               }}
             >
               {videoEditTargets.map((target, targetIndex) => (
@@ -3841,6 +3895,28 @@ function ShotCard({
               </select>
             </label>
           ) : null}
+          {currentVideoEditTarget.supportsReferenceImage ? (
+            <label
+              className={styles.videoEditReference}
+              title={
+                canReferenceShotImage
+                  ? '把当前镜头画面作为参考图一起发送'
+                  : '当前镜头没有可引用的画面'
+              }
+            >
+              <input
+                type="checkbox"
+                checked={videoEditUseReference && canReferenceShotImage}
+                disabled={!canReferenceShotImage}
+                data-storyboard-video-edit-reference={shot.id}
+                onChange={(e) => setVideoEditUseReference(e.target.checked)}
+              />
+              <span>
+                参考当前画面
+                {currentVideoEditTarget.requiresReferenceImage ? '（必需）' : ''}
+              </span>
+            </label>
+          ) : null}
           <div className={styles.videoEditActions}>
             <button
               type="button"
@@ -3855,13 +3931,19 @@ function ShotCard({
               type="button"
               className={styles.primary}
               data-storyboard-video-edit-submit={shot.id}
-              disabled={videoEditing || !videoEditInstruction.trim()}
+              disabled={
+                videoEditing ||
+                !videoEditInstruction.trim() ||
+                (currentVideoEditTarget.requiresReferenceImage &&
+                  !(videoEditUseReference && canReferenceShotImage))
+              }
               onClick={() => {
                 setVideoEditOpen(false)
                 onVideoEdit?.(
                   currentVideoEditTarget,
                   videoEditInstruction,
                   videoEditResolution,
+                  videoEditUseReference && canReferenceShotImage,
                 )
               }}
             >
