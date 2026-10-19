@@ -265,6 +265,14 @@ const MODELS = [
     kind: 'video',
     text: 'rhart-video-g-official/edit-video',
   },
+  {
+    slug: 'video-wan-extend',
+    label: '万相2.7 视频续写',
+    preset: '万相2.7 视频续写',
+    hint: '沿已有视频继续生成后续动作与镜头，可选 2–15 秒',
+    kind: 'video',
+    text: 'alibaba/wan-2.7/video-extend',
+  },
 ]
 
 /** 界面能驱动的档位参数 → 它在端点规格里的角色 */

@@ -29,6 +29,12 @@
 - **同一个值，两种协议名**：OpenAI 兼容视频读 `params.durationSec`，RunningHub 的端点目录读 `params.duration`。生成参数必须同时输出两者且来自同一个 `GenerationData.durationSec`，否则一种渠道正常、另一种静默落默认值。
 - **不要在适配器里猜另一种字段**：适配器各按协议读自己的字段；映射收口在 `generationParams`，避免 OpenAI / RunningHub 两处各写一套兼容分支。
 
+### 漫剧镜头视频续写（2026-10-19 → 对账 #611）
+
+- **续写时长与分镜叙事时长不是同一个字段**：节点 `durationSec` 记这次新增多少秒，分镜 `durationSec` 仍是这一镜在整集中的叙事时长；不要把续写结果长度反写回分镜。
+- **续写结果必须另起节点并保留旧视频**：输入视频作为新节点上游，镜头 `videoNodeId/videoHash` 指向新结果；旧版本留在画布用于对比与回退。
+- **时长要真的进请求**：RunningHub 续写读 `params.duration`，而画布生成参数由 `durationSec` 同时映射 `duration`；只写节点数据不映射协议字段仍会被服务端换成默认时长。
+
 ### 电商结果 AI 超清（2026-10-19 → 对账 #605）
 
 - **`scale` 不是通用生图参数**：普通生成节点只有在用户真的选择倍率时才带 `scale`；`generationParams` 与 RunningHub 生成器都按任务类型分支，避免 `scale: null` 污染普通请求、也避免即梦里同名 `scale` 被误判成超分。

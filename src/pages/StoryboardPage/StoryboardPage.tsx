@@ -126,6 +126,13 @@ import {
   videoEditResolutionsOf,
   type VideoEditModelId,
 } from '../../domain/storyboard/videoEdit'
+import {
+  normalizeVideoExtendSettings,
+  VIDEO_EXTEND_MODEL_IDS,
+  videoExtendDurationsOf,
+  videoExtendResolutionsOf,
+  type VideoExtendModelId,
+} from '../../domain/storyboard/videoExtend'
 import styles from './StoryboardPage.module.css'
 
 const DIGITAL_HUMAN_MODEL_IDS = [
@@ -148,6 +155,15 @@ interface VideoEditTarget {
   model: VideoEditModelId
   label: string
   resolutions: readonly string[]
+}
+
+interface VideoExtendTarget {
+  channelId: string
+  channelName: string
+  model: VideoExtendModelId
+  label: string
+  resolutions: readonly string[]
+  durations: readonly number[]
 }
 
 /**
@@ -347,6 +363,32 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     }
     return out
   }, [channelState.channels])
+  const videoExtendTargets = useMemo(() => {
+    const out: VideoExtendTarget[] = []
+    for (const channel of channelState.channels) {
+      if (!channel.enabled) continue
+      for (const model of VIDEO_EXTEND_MODEL_IDS) {
+        const capability = channel.models.find(
+          (item) =>
+            item.id === model &&
+            item.category === 'video' &&
+            item.inputTypes.includes('video'),
+        )
+        const resolutions = videoExtendResolutionsOf(model)
+        const durations = videoExtendDurationsOf(model)
+        if (!capability || resolutions.length === 0 || durations.length === 0) continue
+        out.push({
+          channelId: channel.id,
+          channelName: channel.name,
+          model,
+          label: `${model} · ${channel.name}`,
+          resolutions,
+          durations,
+        })
+      }
+    }
+    return out
+  }, [channelState.channels])
   const skills = useSkillsOptional()
   const navigate = useNavigate()
   /** 画布那一边：铺节点要 store，出图要执行引擎（都在 Provider 里） */
@@ -396,6 +438,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   const [digitalHumanBusy, setDigitalHumanBusy] = useState<string | null>(null)
   const [videoUpscaleBusy, setVideoUpscaleBusy] = useState<string | null>(null)
   const [videoEditBusy, setVideoEditBusy] = useState<string | null>(null)
+  const [videoExtendBusy, setVideoExtendBusy] = useState<string | null>(null)
   const [breaking, setBreaking] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
   const [breakMsg, setBreakMsg] = useState('')
   const [breakConfirm, setBreakConfirm] = useState(false)
@@ -1760,6 +1803,121 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     }
   }
 
+  /** 已有镜头视频 → 续写后续动作，结果落独立新视频节点，旧视频保留。 */
+  const makeVideoExtend = async (
+    shot: StoryboardShot,
+    target: VideoExtendTarget,
+    instruction: string,
+    resolution: string,
+    duration: number,
+  ) => {
+    if (videoExtendBusy) return
+    if (!shot.videoHash || !shot.videoNodeId || !liveNodeIds.has(shot.videoNodeId)) {
+      setLay({ kind: 'error', text: '这一镜还没有可续写的视频节点' })
+      return
+    }
+    const sourceNode = graph.nodes.find((node) => node.id === shot.videoNodeId)
+    if (!sourceNode) {
+      setLay({ kind: 'error', text: '这一镜的视频节点已经不在画布上' })
+      return
+    }
+    const sourceMime =
+      (sourceNode.data as { assetMime?: string }).assetMime ?? 'video/mp4'
+    const prompt =
+      instruction.trim() || '延续当前镜头内容与运动，保持人物、场景和画风一致'
+
+    setVideoExtendBusy(shot.id)
+    setLay({ kind: 'running', text: `正在用 ${target.model} 续写这一镜…` })
+    const ac = new AbortController()
+    const timer = window.setTimeout(() => ac.abort(), 20 * 60 * 1000)
+    try {
+      const outputs = await channels.generateVideo({
+        kind: 'video',
+        channelId: target.channelId,
+        model: target.model,
+        prompt,
+        inputs: [
+          {
+            kind: 'asset',
+            nodeId: shot.videoNodeId,
+            assetHash: shot.videoHash,
+            mime: sourceMime,
+          },
+        ],
+        params: { resolution, duration },
+        signal: ac.signal,
+      })
+      const output = outputs[0]
+      if (!output) throw new Error('视频续写模型没有返回视频')
+      const mime = output.mime || 'video/mp4'
+      if (!mime.toLowerCase().startsWith('video/')) {
+        throw new Error(`视频续写返回了非视频产物：${mime}`)
+      }
+
+      canvasStore.dispatch({
+        kind: 'asset.put',
+        asset: {
+          hash: output.hash,
+          mime,
+          bytes: output.bytes,
+          ...(output.url ? { url: output.url } : {}),
+          createdAt: Date.now(),
+          projectId,
+        },
+      })
+      const data = await resolveDefaults({
+        channels,
+        type: 'generation',
+        extraData: {
+          mode: 'video',
+          channelId: target.channelId,
+          model: target.model,
+          prompt,
+          resolution,
+          durationSec: duration,
+          assetHash: output.hash,
+          assetMime: mime,
+        },
+      })
+
+      let extendNodeId = ''
+      canvasStore.beginPlan('storyboard:video-extend', '镜头视频续写')
+      try {
+        extendNodeId =
+          applyDefaults({
+            store: canvasStore,
+            channels,
+            projectId,
+            type: 'generation',
+            at: { x: sourceNode.x + 320, y: sourceNode.y },
+            data,
+          }) ?? ''
+        if (extendNodeId) {
+          canvasStore.dispatch({
+            kind: 'edge.connect',
+            source: shot.videoNodeId,
+            target: extendNodeId,
+          })
+        }
+      } finally {
+        canvasStore.endPlan()
+      }
+      if (!extendNodeId) throw new Error('视频续写节点没能建出来')
+
+      const current = docRef.current
+      if (current) {
+        const withNode = setShotVideoNode(current, shot.id, extendNodeId, 0)
+        apply(attachShotVideos(withNode, [{ shotId: shot.id, hash: output.hash }], 0))
+      }
+      setLay({ kind: 'done', text: `这一镜已续写 ${duration} 秒 · ${resolution}` })
+    } catch (error) {
+      setLay({ kind: 'error', text: humanError(error) })
+    } finally {
+      setVideoExtendBusy(null)
+      window.clearTimeout(timer)
+    }
+  }
+
   /** 这一集出视频：只跑“有图但还没有视频”的镜头，逐镜串行，避免免费额度被并发打满。 */
   const runEpisodeVideos = async () => {
     const targets = shots.filter(
@@ -2995,6 +3153,23 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                                 )
                             : undefined
                         }
+                        videoExtendTargets={videoExtendTargets}
+                        videoExtendBusyShotId={videoExtendBusy}
+                        onVideoExtend={
+                          shot.videoHash &&
+                          shot.videoNodeId &&
+                          liveNodeIds.has(shot.videoNodeId) &&
+                          videoExtendTargets.length > 0
+                            ? (target, instruction, resolution, duration) =>
+                                void makeVideoExtend(
+                                  shot,
+                                  target,
+                                  instruction,
+                                  resolution,
+                                  duration,
+                                )
+                            : undefined
+                        }
                         onBindScene={(sceneId) => apply(bindShotScene(doc, shot.id, sceneId, 0))}
                         onToggleCharacter={(characterId) =>
                           apply(toggleShotCharacter(doc, shot.id, characterId, 0))
@@ -3131,6 +3306,9 @@ function ShotCard({
   videoEditTargets,
   videoEditBusyShotId,
   onVideoEdit,
+  videoExtendTargets,
+  videoExtendBusyShotId,
+  onVideoExtend,
   onShowSource,
   onAddLine,
   onLinePatch,
@@ -3191,6 +3369,14 @@ function ShotCard({
     instruction: string,
     resolution: string,
   ) => void
+  videoExtendTargets: readonly VideoExtendTarget[]
+  videoExtendBusyShotId: string | null
+  onVideoExtend?: (
+    target: VideoExtendTarget,
+    instruction: string,
+    resolution: string,
+    duration: number,
+  ) => void
   /** 「看本集原文」（对账 #547）：这一集有可回看的原文片段时才传 */
   onShowSource?: () => void
 }) {
@@ -3202,12 +3388,20 @@ function ShotCard({
   const [videoEditTargetIndex, setVideoEditTargetIndex] = useState(0)
   const [videoEditInstruction, setVideoEditInstruction] = useState('')
   const [videoEditResolution, setVideoEditResolution] = useState('480p')
+  const [videoExtendOpen, setVideoExtendOpen] = useState(false)
+  const [videoExtendTargetIndex, setVideoExtendTargetIndex] = useState(0)
+  const [videoExtendInstruction, setVideoExtendInstruction] = useState('')
+  const [videoExtendResolution, setVideoExtendResolution] = useState('720P')
+  const [videoExtendDuration, setVideoExtendDuration] = useState(5)
   const currentUpscaleTarget =
     videoUpscaleTargets[Math.min(upscaleTargetIndex, videoUpscaleTargets.length - 1)]
   const currentVideoEditTarget =
     videoEditTargets[Math.min(videoEditTargetIndex, videoEditTargets.length - 1)]
+  const currentVideoExtendTarget =
+    videoExtendTargets[Math.min(videoExtendTargetIndex, videoExtendTargets.length - 1)]
   const upscaleBusy = videoUpscaleBusyShotId === shot.id
   const videoEditing = videoEditBusyShotId === shot.id
+  const videoExtending = videoExtendBusyShotId === shot.id
 
   const openUpscale = () => {
     const target = videoUpscaleTargets[0]
@@ -3226,6 +3420,17 @@ function ShotCard({
     setVideoEditInstruction('')
     setVideoEditResolution(normalizeVideoEditResolution(target.model))
     setVideoEditOpen(true)
+  }
+
+  const openVideoExtend = () => {
+    const target = videoExtendTargets[0]
+    if (!target) return
+    const normalized = normalizeVideoExtendSettings(target.model)
+    setVideoExtendTargetIndex(0)
+    setVideoExtendInstruction('延续当前镜头内容与运动，保持人物、场景和画风一致')
+    setVideoExtendResolution(normalized.resolution)
+    setVideoExtendDuration(normalized.duration)
+    setVideoExtendOpen(true)
   }
 
   /**
@@ -3387,6 +3592,19 @@ function ShotCard({
               }
             >
               {videoEditing ? '视频编辑中…' : '视频编辑'}
+            </button>
+          ) : null}
+          {onVideoExtend && shot.videoHash ? (
+            <button
+              type="button"
+              className={styles.ghost}
+              data-storyboard-video-extend={shot.id}
+              disabled={busy || videoExtending}
+              onClick={() =>
+                videoExtendOpen ? setVideoExtendOpen(false) : openVideoExtend()
+              }
+            >
+              {videoExtending ? '视频续写中…' : '视频续写'}
             </button>
           ) : null}
         </div>
@@ -3554,6 +3772,105 @@ function ShotCard({
               }}
             >
               开始编辑
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {videoExtendOpen && currentVideoExtendTarget ? (
+        <div
+          className={styles.videoEditPanel}
+          data-storyboard-video-extend-panel={shot.id}
+        >
+          <label className={`${styles.inlineField} ${styles.videoEditPrompt}`}>
+            <span className={styles.label}>续写要求</span>
+            <textarea
+              className={styles.textarea}
+              rows={2}
+              value={videoExtendInstruction}
+              placeholder="续写接下来发生什么，保持人物、场景和画风一致"
+              data-storyboard-video-extend-instruction={shot.id}
+              onChange={(e) => setVideoExtendInstruction(e.target.value)}
+            />
+          </label>
+          <label className={styles.inlineField}>
+            <span className={styles.label}>模型</span>
+            <select
+              className={styles.select}
+              value={videoExtendTargetIndex}
+              data-storyboard-video-extend-target={shot.id}
+              onChange={(e) => {
+                const nextIndex = Number(e.target.value)
+                const nextTarget = videoExtendTargets[nextIndex]
+                if (!nextTarget) return
+                const normalized = normalizeVideoExtendSettings(nextTarget.model)
+                setVideoExtendTargetIndex(nextIndex)
+                setVideoExtendResolution(normalized.resolution)
+                setVideoExtendDuration(normalized.duration)
+              }}
+            >
+              {videoExtendTargets.map((target, targetIndex) => (
+                <option key={`${target.channelId}:${target.model}`} value={targetIndex}>
+                  {target.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.inlineField}>
+            <span className={styles.label}>清晰度</span>
+            <select
+              className={styles.select}
+              value={videoExtendResolution}
+              data-storyboard-video-extend-resolution={shot.id}
+              onChange={(e) => setVideoExtendResolution(e.target.value)}
+            >
+              {currentVideoExtendTarget.resolutions.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.inlineField}>
+            <span className={styles.label}>新增时长</span>
+            <select
+              className={styles.select}
+              value={videoExtendDuration}
+              data-storyboard-video-extend-duration={shot.id}
+              onChange={(e) => setVideoExtendDuration(Number(e.target.value))}
+            >
+              {currentVideoExtendTarget.durations.map((value) => (
+                <option key={value} value={value}>
+                  {value}s
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className={styles.videoEditActions}>
+            <button
+              type="button"
+              className={styles.ghost}
+              data-storyboard-video-extend-cancel={shot.id}
+              disabled={videoExtending}
+              onClick={() => setVideoExtendOpen(false)}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className={styles.primary}
+              data-storyboard-video-extend-submit={shot.id}
+              disabled={videoExtending}
+              onClick={() => {
+                setVideoExtendOpen(false)
+                onVideoExtend?.(
+                  currentVideoExtendTarget,
+                  videoExtendInstruction,
+                  videoExtendResolution,
+                  videoExtendDuration,
+                )
+              }}
+            >
+              开始续写
             </button>
           </div>
         </div>

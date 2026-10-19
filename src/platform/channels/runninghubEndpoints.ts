@@ -4,7 +4,7 @@
  * 生成：`node scripts/gen-runninghub-models.mjs <RH_CLI>/src/rh_cli/catalog/data/capabilities.json`
  * 来源：RunningHub 官方 CLI（github.com/HM-RunningHub/RH_CLI）随包附带的端点目录
  *       capabilities.json —— version 2026-06-02，共 356 个端点；
- *       本文件只留**精挑的 39 个端点**（官方 CLI 快捷选择 + 本项目已交付的端点）。
+ *       本文件只留**精挑的 40 个端点**（官方 CLI 快捷选择 + 本项目已交付的端点）。
  *
  * 官方 CLI 建请求体的最后一步是「**必填 + 有默认值**而还没填的参数一律补默认值」
  * （`model/payload.py`）—— 适配器照同一条规则走 `requiredDefaults`。
@@ -56,6 +56,18 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     kind: 'image',
     label: '千问2.0-文生图',
     promptKey: 'prompt',
+  },
+  {
+    id: 'alibaba/wan-2.7/video-extend',
+    task: 'video-extend',
+    kind: 'video',
+    label: '万相2.7-视频续写',
+    promptKey: 'prompt',
+    media: { "key": "videoUrl", "type": "VIDEO", "required": true },
+    audio: { "key": "audioUrl", "type": "AUDIO" },
+    resolution: { "key": "resolution", "options": [ "720P", "1080P" ] },
+    duration: { "key": "duration", "options": [ "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15" ] },
+    requiredDefaults: { "resolution": "1080P", "duration": "5" },
   },
   {
     id: 'bytedance/jimeng-4.6/text-to-image',
@@ -652,5 +664,12 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
     hint: '用文字指令修改已有视频的画面、风格或动作，保留原镜头节奏',
     kind: 'video',
     textEndpoint: 'rhart-video-g-official/edit-video',
+  },
+  {
+    // 官方目录：万相2.7 视频续写
+    id: '万相2.7 视频续写',
+    hint: '沿已有视频继续生成后续动作与镜头，可选 2–15 秒',
+    kind: 'video',
+    textEndpoint: 'alibaba/wan-2.7/video-extend',
   },
 ]

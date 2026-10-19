@@ -119,6 +119,14 @@ const DEFAULT_MODELS: ModelCapability[] = [
     maxReferenceImages: 1,
   },
   {
+    id: '万相2.7 视频续写',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    resolutions: ['720P', '1080P'],
+    durations: [2, 15],
+    maxReferenceImages: 1,
+  },
+  {
     id: 'mock-speech-1',
     category: 'audio',
     inputTypes: ['text'],

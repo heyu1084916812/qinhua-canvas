@@ -89,6 +89,7 @@ describe('RunningHub 视频超清目录与请求', () => {
       ['Topaz 视频超清', 'topazlabs/video-upscale', 'video-upscale'],
       ['RH 视频超分', 'rhart-video/video-upscaler', 'video-upscale'],
       ['全能视频X 视频编辑', 'rhart-video-g-official/edit-video', 'video-edit'],
+      ['万相2.7 视频续写', 'alibaba/wan-2.7/video-extend', 'video-extend'],
     ] as const) {
       const model = RUNNINGHUB_MODELS.find((item) => item.id === modelId)
       expect(model, modelId).toMatchObject({ kind: 'video', textEndpoint: endpointId })
@@ -220,6 +221,64 @@ describe('RunningHub 视频超清目录与请求', () => {
       videoUrl: 'https://files.runninghub.cn/edit-source.mp4',
       prompt: '把白天改成雨夜，保持人物动作不变',
       resolution: '720p',
+    })
+    expect(outputs[0]?.mime).toBe('video/mp4')
+  })
+
+  it('★★ 视频续写把输入视频、清晰度与新增时长送到真实 video-extend 端点', async () => {
+    let submitBody: Record<string, unknown> | null = null
+    const platform = createMemoryPlatform({
+      rows: {
+        assets: [{ id: 'extend-video-source', bytes: VIDEO_BYTES, mime: 'video/mp4' }],
+      },
+      handler: async (req: NetworkRequest) => {
+        if (req.url.endsWith('/openapi/v2/media/upload/binary')) {
+          return json(200, {
+            code: 0,
+            data: { download_url: 'https://files.runninghub.cn/extend-source.mp4' },
+          })
+        }
+        if (req.url.endsWith('/openapi/v2/alibaba/wan-2.7/video-extend')) {
+          submitBody = req.body as Record<string, unknown>
+          return json(200, { code: 0, taskId: 'video-extend-task' })
+        }
+        if (req.url.endsWith('/openapi/v2/query')) {
+          return json(200, {
+            status: 'SUCCESS',
+            results: [{ url: 'https://files.runninghub.cn/extend-result.mp4' }],
+          })
+        }
+        if (req.url.endsWith('/extend-result.mp4')) {
+          return bytes(200, VIDEO_BYTES, 'video/mp4')
+        }
+        return json(200, {})
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    const outputs = await adapter.generateVideo(
+      {
+        kind: 'video',
+        channelId: 'c1',
+        model: '万相2.7 视频续写',
+        prompt: '人物继续向前走，镜头缓慢跟随',
+        inputs: [
+          {
+            kind: 'asset',
+            nodeId: 'video-node',
+            assetHash: 'extend-video-source',
+            mime: 'video/mp4',
+          },
+        ],
+        params: { resolution: '1080P', duration: 8 },
+      },
+      signal,
+    )
+
+    expect(submitBody).toMatchObject({
+      videoUrl: 'https://files.runninghub.cn/extend-source.mp4',
+      prompt: '人物继续向前走，镜头缓慢跟随',
+      resolution: '1080P',
+      duration: '8',
     })
     expect(outputs[0]?.mime).toBe('video/mp4')
   })

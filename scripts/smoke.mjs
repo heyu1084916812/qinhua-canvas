@@ -31969,6 +31969,80 @@ async function g145(browser) {
     `${videoEditNodeBefore} → ${videoEditShot?.videoNodeId ?? 'none'}`,
   )
 
+  const videoExtendNodeBefore = videoEditShot?.videoNodeId ?? ''
+  const videoExtendButton = page.locator(`[data-storyboard-video-extend="${ids[0]}"]`)
+  const videoExtendShown = await videoExtendButton
+    .waitFor({ state: 'visible', timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
+  if (videoExtendShown) await videoExtendButton.click()
+  const videoExtendInstruction = '人物继续向前走，镜头缓慢跟随，保持雨夜氛围'
+  rec(
+    g,
+    '★★ 已有镜头视频时出现真实「视频续写」入口和官方模型',
+    videoExtendShown &&
+      (await page
+        .locator(`[data-storyboard-video-extend-panel="${ids[0]}"]`)
+        .isVisible()
+        .catch(() => false)) &&
+      (await page
+        .locator(`[data-storyboard-video-extend-target="${ids[0]}"] option`)
+        .allInnerTexts()
+        .catch(() => [])
+      ).some((text) => text.includes('万相2.7 视频续写')),
+  )
+  await page
+    .locator(`[data-storyboard-video-extend-instruction="${ids[0]}"]`)
+    .fill(videoExtendInstruction)
+  await page
+    .locator(`[data-storyboard-video-extend-resolution="${ids[0]}"]`)
+    .selectOption('1080P')
+  await page
+    .locator(`[data-storyboard-video-extend-duration="${ids[0]}"]`)
+    .selectOption('8')
+  await page.locator(`[data-storyboard-video-extend-submit="${ids[0]}"]`).click()
+  const videoExtendDb = await waitDb((db) => {
+    const shot = db.shots[0]
+    const next = db.nodes.find((node) => node.id === shot?.videoNodeId)
+    return (
+      !!shot?.videoNodeId &&
+      shot.videoNodeId !== videoExtendNodeBefore &&
+      next?.data?.model === '万相2.7 视频续写' &&
+      next?.data?.assetMime === 'video/mp4'
+    )
+  }, 20000)
+  const videoExtendShot = videoExtendDb.shots[0]
+  const videoExtendNode = videoExtendDb.nodes.find(
+    (node) => node.id === videoExtendShot?.videoNodeId,
+  )
+  const videoEditNodeStillThere = videoExtendDb.nodes.find(
+    (node) => node.id === videoExtendNodeBefore,
+  )
+  rec(
+    g,
+    '★★★ 视频续写真实走通：1080P / 8 秒新视频落独立节点，指令与时长都落库',
+    !!videoExtendShot?.videoHash &&
+      videoExtendNode?.data?.prompt === videoExtendInstruction &&
+      videoExtendNode?.data?.resolution === '1080P' &&
+      videoExtendNode?.data?.durationSec === 8 &&
+      videoExtendDb.assets.some(
+        (asset) =>
+          asset.hash === videoExtendShot.videoHash && asset.mime === 'video/mp4',
+      ),
+    `node=${videoExtendShot?.videoNodeId ?? 'none'} duration=${videoExtendNode?.data?.durationSec ?? 'none'} prompt=${videoExtendNode?.data?.prompt ?? 'none'}`,
+  )
+  rec(
+    g,
+    '★★ 视频续写保留上一版视频节点，并保留输入视频 → 续写结果的连线',
+    !!videoEditNodeStillThere &&
+      videoExtendDb.edges.some(
+        (edge) =>
+          edge.source === videoExtendNodeBefore &&
+          edge.target === videoExtendShot?.videoNodeId,
+      ),
+    `${videoExtendNodeBefore} → ${videoExtendShot?.videoNodeId ?? 'none'}`,
+  )
+
   await page.screenshot({ path: `${OUT}/145-g145-preview.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
