@@ -82,6 +82,23 @@ describe('resolveChatTarget', () => {
   })
 })
 
+describe('chat auto-routing eligibility', () => {
+  it('does not auto-select a remote chat channel without a saved token', () => {
+    const target = resolveChatTarget([
+      ch({
+        id: 'remote-without-token',
+        protocol: 'openai-compatible',
+        baseUrl: 'https://example.com/v1',
+        hasToken: false,
+        hasAltToken: false,
+        models: [cap('chat-1', 'chat')],
+      }),
+      ch({ id: 'mock-usable', models: [cap('chat-2', 'chat')] }),
+    ])
+    expect(target?.channelId).toBe('mock-usable')
+  })
+})
+
 describe('buildBreakdownSystem', () => {
   it('技能正文在前、契约在后，契约里带识别标记', () => {
     const system = buildBreakdownSystem('你是一名短片分镜导演。')

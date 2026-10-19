@@ -1,4 +1,5 @@
 import type { Channel } from '../project/channel'
+import { channelIsRoutable } from '../project/channel'
 import { toLogicalName } from '../project/modelCatalog'
 
 /**
@@ -32,7 +33,7 @@ export interface SpeechTarget {
  */
 export function resolveChatTarget(channels: readonly Channel[]): ChatTarget | null {
   for (const ch of channels) {
-    if (!ch.enabled) continue
+    if (!channelIsRoutable(ch)) continue
     const model = (ch.models ?? []).find((m) => m.category === 'chat')
     if (!model) continue
     /**
@@ -49,7 +50,7 @@ export function resolveChatTarget(channels: readonly Channel[]): ChatTarget | nu
 /** 挑一条真有配音模型的已启用渠道；只认用户勾过的 audio 模型。 */
 export function resolveSpeechTarget(channels: readonly Channel[]): SpeechTarget | null {
   for (const ch of channels) {
-    if (!ch.enabled) continue
+    if (!channelIsRoutable(ch)) continue
     const model = (ch.models ?? []).find((m) => m.category === 'audio')
     if (!model) continue
     const shown = toLogicalName(channels, model.id) || model.id

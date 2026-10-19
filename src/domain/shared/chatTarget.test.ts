@@ -5,12 +5,32 @@ import type { Channel } from '../project/channel'
 const channel = (over: Partial<Channel>): Channel =>
   ({
     id: 'ch1',
+    protocol: 'mock',
+    baseUrl: '',
+    hasToken: false,
+    hasAltToken: false,
     name: '测试渠道',
     enabled: true,
     models: [],
     modelMap: {},
     ...over,
   }) as Channel
+
+describe('channel routing eligibility', () => {
+  it('does not auto-select a remote speech channel without a saved token', () => {
+    expect(
+      resolveSpeechTarget([
+        channel({
+          protocol: 'openai-compatible',
+          baseUrl: 'https://example.com/v1',
+          hasToken: false,
+          hasAltToken: false,
+          models: [{ id: 'tts-1', category: 'audio', inputTypes: ['text'] }],
+        }),
+      ]),
+    ).toBeNull()
+  })
+})
 
 describe('resolveSpeechTarget', () => {
   it('只挑已启用且勾了 audio 模型的渠道，并带出音色清单', () => {

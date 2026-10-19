@@ -269,6 +269,35 @@ export function requiresBaseUrl(protocol: string, catalog: ProtocolCatalog = BUI
   return protocolRequiresBaseUrl(protocol, catalog)
 }
 
+/**
+ * Whether this channel can actually send a request now.
+ *
+ * `credentialRef` is allocated as soon as a channel is created and only means
+ * the credential slot exists. Automatic routing must use the persisted token
+ * flags instead, otherwise a fresh database can pick an enabled but
+ * unconfigured built-in channel as its default.
+ */
+export function channelIsRoutable(
+  channel: Pick<
+    Channel,
+    'protocol' | 'baseUrl' | 'enabled' | 'hasToken' | 'hasAltToken'
+  >,
+  catalog: ProtocolCatalog = BUILTIN_CATALOG,
+): boolean {
+  if (!channel.enabled) return false
+  const def = protocolById(channel.protocol, catalog)
+  if (!def || def.status !== 'ready') return false
+  if (protocolRequiresBaseUrl(channel.protocol, catalog) && !channel.baseUrl.trim()) return false
+  if (def.family === 'mock' || def.family === 'cli-gateway') return true
+  if (channel.hasToken || channel.hasAltToken) return true
+  try {
+    const host = new URL(channel.baseUrl).hostname.toLowerCase()
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1'
+  } catch {
+    return false
+  }
+}
+
 /** 协议定义（含自建项）；未登记返回 undefined */
 export function channelProtocol(
   proto: string,

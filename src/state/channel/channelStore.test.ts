@@ -22,6 +22,18 @@ function jsonResponse(status: number, body: unknown): NetworkResponse {
 }
 
 describe('channelStore', () => {
+  it('fresh built-in RunningHub cannot become the default without saved credentials', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+    const runningHub = store.getState().channels.find((c) => c.protocol === 'runninghub-api')
+
+    expect(runningHub?.enabled).toBe(true)
+    expect(runningHub?.hasToken).toBe(false)
+    expect(runningHub?.hasAltToken).toBe(false)
+    expect((await store.defaultForNewNode({}, 'image'))?.channelId).not.toBe(runningHub?.id)
+  })
+
   it('create / saveToken / verify 只测通不通，不顺手刷模型缓存', async () => {
     const p = createMemoryPlatform()
     /** 这条用例数的是"自己建的渠道"的条数 ⇒ 不补内置渠道（第 20 批的三条常驻渠道） */
@@ -519,6 +531,36 @@ describe('channelStore', () => {
     // 新建默认是启用的（第 19 批 #3），所以这里要**显式关掉**才是"未启用"这一档
     await store.setEnabled(ch.id, false)
     expect(await store.defaultForNewNode({})).toBeNull()
+  })
+
+  it('★★ 远端渠道已启用但没令牌时不能抢默认模型', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+    const ch = await store.create({
+      name: 'Remote without token',
+      protocol: 'openai-compatible',
+      baseUrl: 'https://example.com/v1',
+    })
+    await store.setEnabled(ch.id, true)
+    await store.setModels(ch.id, [{ id: 'image-a', category: 'image', inputTypes: ['text'] }])
+
+    expect(await store.defaultForNewNode({}, 'image')).toBeNull()
+  })
+
+  it('★★ localhost 无令牌端点仍可作为默认（本地模型不是未配置）', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+    const ch = await store.create({
+      name: 'Local',
+      protocol: 'openai-compatible',
+      baseUrl: 'http://127.0.0.1:11434/v1',
+    })
+    await store.setEnabled(ch.id, true)
+    await store.setModels(ch.id, [{ id: 'image-a', category: 'image', inputTypes: ['text'] }])
+
+    expect((await store.defaultForNewNode({}, 'image'))?.channelId).toBe(ch.id)
   })
 
   /**

@@ -32,6 +32,8 @@ async function store() {
           protocol: 'openai-images',
           baseUrl: 'https://relay.example.com',
           credentialRef: null,
+          hasToken: true,
+          hasAltToken: false,
           enabled: true,
           models: [
             /**

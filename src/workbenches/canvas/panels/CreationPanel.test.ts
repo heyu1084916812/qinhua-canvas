@@ -104,6 +104,8 @@ async function channelStore(
         protocol: 'openai-images',
         baseUrl: 'https://relay.example.com',
         credentialRef: null,
+        hasToken: true,
+        hasAltToken: false,
         enabled: r.enabled,
         // 不给 modelCache 的行走「默认有一个可拉取的模型」，与加本参数前的行为一致
         modelCache:

@@ -29,6 +29,8 @@ function channel(id: string, models: string[], enabled = true) {
     protocol: 'openai-images',
     baseUrl: 'https://relay.example.com',
     credentialRef: null,
+    hasToken: true,
+    hasAltToken: false,
     enabled,
     models: models.map((m) => ({ id: m, category: 'image', inputTypes: ['text'], maxCount: 4 })),
     modelCache: [],

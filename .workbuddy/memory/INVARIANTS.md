@@ -160,6 +160,7 @@
 
 ## canvas · 渠道与协议
 
+- **自动选路只认“现在真能发请求”的渠道**：`credentialRef` 在新建时就分配，不能当令牌存在证明；统一走 `channelIsRoutable`，它用 `hasToken / hasAltToken` 判断 HTTP 凭据，并放行无需 HTTP 令牌的 mock / 本机 CLI 与无令牌 localhost。生成默认值、对话和配音必须共用这条规则。
 - **`ChannelAdapter` 五方法**：`verify` / `listModels` / `generateImage` / `generateVideo` / `completeText`；依赖 `ChannelDeps = Pick<PlatformKit,'network'|'assets'>`。
 - **媒体输入按 `NodeInput.mime` 分类，不按节点 mode 猜**：生成节点产物把真实类型写在 `GenerationData.assetMime`；上游收集时用 `assetMime ?? (mode === 'video' ? 'video/mp4' : 'image/png')`。RunningHub 的 `IMAGE / VIDEO / AUDIO` 槽由端点目录驱动，视频超清必须走 `videoInputsOf` + binary upload + `videoUrl`，不能复用图片上传路径。
 - **生图按输入分叉**：`imageInputsOf(request.inputs)` 非空 → `/v1/images/edits`（multipart，重复 `image` 字段，≤4 张、按 hash 去重）；否则 `/v1/images/generations`。**素材读不到**才回落 generations；**端点不支持如实报错、不静默降级**（否则用户以为参考图生效了）。挑选规则收口在 `domain/shared/execution/inputs.ts`（`flattenInputs` / `imageInputsOf` / `MAX_IMAGE_INPUTS=4`）。

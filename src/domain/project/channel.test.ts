@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   channelCapabilities,
+  channelIsRoutable,
   createChannel,
   maskTokenTail,
   OFFLINE_PROTOCOLS,
@@ -122,6 +123,38 @@ describe('requiresBaseUrl（地址为空时能不能验）', () => {
 
   it('与候选表口径一致：能探测的协议都需要地址', () => {
     for (const p of PROBE_PROTOCOLS) expect(requiresBaseUrl(p.value)).toBe(true)
+  })
+})
+
+describe('channelIsRoutable - automatic routing only uses channels that can send now', () => {
+  const route = (patch: Partial<Parameters<typeof channelIsRoutable>[0]>) => ({
+    protocol: 'openai-compatible',
+    baseUrl: 'https://example.com/v1',
+    enabled: true,
+    hasToken: false,
+    hasAltToken: false,
+    ...patch,
+  })
+
+  it('rejects a remote channel with an allocated credential slot but no saved token', () => {
+    expect(channelIsRoutable(route({}))).toBe(false)
+  })
+
+  it('accepts a saved primary or alternate token', () => {
+    expect(channelIsRoutable(route({ hasToken: true }))).toBe(true)
+    expect(channelIsRoutable(route({ hasAltToken: true }))).toBe(true)
+  })
+
+  it('allows localhost without a token and protocols that do not use HTTP credentials', () => {
+    expect(channelIsRoutable(route({ baseUrl: 'http://127.0.0.1:11434/v1' }))).toBe(true)
+    expect(channelIsRoutable(route({ protocol: 'mock', baseUrl: '' }))).toBe(true)
+    expect(channelIsRoutable(route({ protocol: 'gpt-cli', baseUrl: '' }))).toBe(true)
+  })
+
+  it('rejects disabled, address-less, unknown and non-ready protocols', () => {
+    expect(channelIsRoutable(route({ enabled: false, hasToken: true }))).toBe(false)
+    expect(channelIsRoutable(route({ baseUrl: '' }))).toBe(false)
+    expect(channelIsRoutable(route({ protocol: 'missing-protocol' }))).toBe(false)
   })
 })
 

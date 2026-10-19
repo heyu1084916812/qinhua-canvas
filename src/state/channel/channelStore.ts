@@ -1,7 +1,7 @@
 import { createStore as createVanilla } from 'zustand/vanilla'
 import type { PlatformKit } from '../../platform/ports'
 import type { Channel, CreateChannelInput } from '../../domain/project/channel'
-import { requiresBaseUrl, tokenTailOf } from '../../domain/project/channel'
+import { channelIsRoutable, requiresBaseUrl, tokenTailOf } from '../../domain/project/channel'
 import {
   buildProtocolCatalog,
   protocolById,
@@ -650,6 +650,15 @@ export function createChannelStore(
 
   const enabledChannels = (): Channel[] => store.getState().channels.filter((c) => c.enabled)
   /**
+   * 默认定点只允许“现在真能发请求”的渠道。
+   * 启用但没令牌、也没填地址的内置渠道不能抢默认模型；否则全新库第一次生成
+   * 会选到 RunningHub 之类未配置的站点，任务停在 pending。
+   *
+   * mock 与 CLI 不需要 HTTP 令牌；localhost 端点允许无令牌（本地模型）。
+   */
+  const routableChannels = (): Channel[] =>
+    store.getState().channels.filter((channel) => channelIsRoutable(channel, catalog()))
+  /**
    * 配方的两个动作放在这里，是因为**解析需要渠道列表**（它有哪些已勾选模型），
    * 而这个 store 正是列表的持有者。规则本身仍在 domain 的纯函数里，
    * 这里只把列表喂给它——不复制那份判断。
@@ -728,7 +737,7 @@ export function createChannelStore(
      * 只拿**已启用**的渠道参与解析：把没启用的当默认值，用户一生成就报
      * 「平台未启用」，比空着更让人困惑。
      */
-    const usable = enabledChannels()
+    const usable = routableChannels()
     /**
      * 解析链收在 domain 的纯函数里（见 generationPreset.resolveForNode），
      * 面板兜底与创建路径**调的是同一个函数**——两条路各写一份必然漂移。
