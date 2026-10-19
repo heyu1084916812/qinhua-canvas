@@ -634,6 +634,31 @@ export function EcommerceStudio({
     })
   }
 
+  /**
+   * 把历史批次的**参数**带回表单。
+   *
+   * 刻意不碰产品图 / 参考图：历史里存的是节点 id，用户当前上传槽可能已经换了素材；
+   * 静默替换上传物比“少恢复三个字段”危险得多。`edit` 任务也不适用，它不是新建表单用途。
+   */
+  const applyTaskSettings = (task: EcommerceTaskRecord) => {
+    const request = task.request
+    if (!ECOMMERCE_FORM_USAGES.includes(request.usage)) return
+    setUsage(request.usage)
+    setPlatformId(request.platformId ?? '')
+    setLanguage(request.language)
+    onModelChange(request.model ?? '')
+    setCount(
+      Number.isInteger(request.count) && request.count >= 1
+        ? Math.min(request.count, ECOMMERCE_COUNT_MAX)
+        : ECOMMERCE_DEFAULT_COUNT[request.usage],
+    )
+    setRatio(ECOMMERCE_RATIOS.includes(request.ratio) ? request.ratio : '1:1')
+    setNote((request.note ?? '').slice(0, ECOMMERCE_NOTE_MAX))
+    setShotPlan(null)
+    setConfirming(false)
+    setError('')
+  }
+
   const confirm = async () => {
     const blankRow = activeShotPlan?.findIndex((s) => !s.title.trim() || !s.brief.trim()) ?? -1
     if (blankRow >= 0) {
@@ -962,6 +987,17 @@ export function EcommerceStudio({
                   >
                     <span className={styles.planTitleText}>{taskSummaryOf(task)}</span>
                   </button>
+                  {ECOMMERCE_FORM_USAGES.includes(task.request.usage) ? (
+                    <button
+                      type="button"
+                      className={styles.planApply}
+                      data-ecommerce-task-apply={task.id}
+                      title="把这些参数带回表单（不替换当前产品图和参考图）"
+                      onClick={() => applyTaskSettings(task)}
+                    >
+                      参数
+                    </button>
+                  ) : null}
                   {onRemoveTask ? (
                     <button
                       type="button"

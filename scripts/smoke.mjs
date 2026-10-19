@@ -26056,6 +26056,61 @@ async function g116(browser) {
   const taskCount = await taskButtons.count()
   rec(g, '★★ 历史批次列表至少两条（每次开始生成一条）', taskCount >= 2, `批次=${taskCount}`)
   if (taskCount >= 2) {
+    const originalForm = {
+      usage:
+        (await page
+          .locator('[data-ecommerce-usage][aria-checked="true"]')
+          .getAttribute('data-ecommerce-usage')) ?? '',
+      platform: await page.locator('[data-ecommerce-platform]').inputValue(),
+      language: await page.locator('[data-ecommerce-language]').inputValue(),
+      count: await page.locator('[data-ecommerce-count]').inputValue(),
+      ratio: await page.locator('[data-ecommerce-ratio]').inputValue(),
+      note: await page.locator('[data-ecommerce-note]').inputValue(),
+      model: await page.locator('[data-ecommerce-model]').inputValue(),
+    }
+    const oldTaskId = (await taskButtons.last().getAttribute('data-ecommerce-task')) ?? ''
+    const allTaskRows = await sharedRows(page, 'ecommerceTasks')
+    const oldTask = allTaskRows.find((row) => row.id === oldTaskId)
+    const oldRequest = oldTask?.request ?? {}
+    const productSrcBeforeApply = await page
+      .locator('[data-ecommerce-product-preview] img')
+      .getAttribute('src')
+      .catch(() => null)
+    await page.locator('[data-ecommerce-platform]').selectOption('temu').catch(() => {})
+    await page.locator('[data-ecommerce-language]').selectOption('ru').catch(() => {})
+    await page.locator('[data-ecommerce-count]').fill('3')
+    await page.locator('[data-ecommerce-note]').fill('临时改过的参数')
+    await page.locator(`[data-ecommerce-task-apply="${oldTaskId}"]`).click()
+    await sleep(150)
+    const appliedForm = {
+      usage: await page
+        .locator(`[data-ecommerce-usage="${oldRequest.usage}"]`)
+        .getAttribute('aria-checked'),
+      platform: await page.locator('[data-ecommerce-platform]').inputValue(),
+      language: await page.locator('[data-ecommerce-language]').inputValue(),
+      count: await page.locator('[data-ecommerce-count]').inputValue(),
+      ratio: await page.locator('[data-ecommerce-ratio]').inputValue(),
+      note: await page.locator('[data-ecommerce-note]').inputValue(),
+      model: await page.locator('[data-ecommerce-model]').inputValue(),
+    }
+    const productSrcAfterApply = await page
+      .locator('[data-ecommerce-product-preview] img')
+      .getAttribute('src')
+      .catch(() => null)
+    rec(
+      g,
+      '★★ 历史批次可把参数带回表单，但不替换当前产品图 / 参考图',
+      appliedForm.usage === 'true' &&
+        appliedForm.platform === (oldRequest.platformId ?? '') &&
+        appliedForm.language === oldRequest.language &&
+        Number(appliedForm.count) === oldRequest.count &&
+        appliedForm.ratio === oldRequest.ratio &&
+        appliedForm.note === (oldRequest.note ?? '') &&
+        appliedForm.model === (oldRequest.model ?? '') &&
+        productSrcBeforeApply === productSrcAfterApply &&
+        (await page.locator('[data-ecommerce-result]').count()) === expectedLatestResults,
+      `表单=${JSON.stringify(appliedForm)} 产品图不变=${productSrcBeforeApply === productSrcAfterApply}`,
+    )
     await taskButtons.last().click()
     const switchedToOne = await page
       .waitForFunction(
@@ -26086,6 +26141,16 @@ async function g116(browser) {
       switchedBack,
       `结果=${await page.locator('[data-ecommerce-result]').count()}`,
     )
+    if (originalForm.usage) {
+      await page.locator(`[data-ecommerce-usage="${originalForm.usage}"]`).click()
+    }
+    await page.locator('[data-ecommerce-platform]').selectOption(originalForm.platform)
+    await page.locator('[data-ecommerce-language]').selectOption(originalForm.language)
+    await page.locator('[data-ecommerce-count]').fill(originalForm.count)
+    await page.locator('[data-ecommerce-ratio]').selectOption(originalForm.ratio)
+    await page.locator('[data-ecommerce-note]').fill(originalForm.note)
+    await page.locator('[data-ecommerce-model]').selectOption(originalForm.model)
+    await sleep(700)
     const removeButtons = page.locator('[data-ecommerce-task-remove]')
     if ((await removeButtons.count()) >= 2) {
       await removeButtons.last().click()

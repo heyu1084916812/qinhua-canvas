@@ -853,6 +853,22 @@
   color: var(--danger);
 }
 
+.planApply {
+  padding: 2px var(--space-2);
+  border: none;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+
+.planApply:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .seg,
   .generate,
