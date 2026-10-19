@@ -12687,10 +12687,16 @@ async function g80(browser) {
       const ws = document.querySelector('[data-app-workspace]')
       const t0 = performance.now()
       const tick = () => {
+        const navItems = [...document.querySelectorAll('[data-sidebar-item]')].map((el) => {
+          const rect = el.getBoundingClientRect()
+          return { y: rect.top, h: rect.height }
+        })
         window.__slotFrames.push({
           t: Math.round(performance.now() - t0),
           slot: slot ? slot.getBoundingClientRect().width : -1,
           ws: ws ? ws.getBoundingClientRect().left : -1,
+          navY: navItems.map((item) => item.y),
+          navH: navItems.map((item) => item.h),
         })
         if (performance.now() - t0 < 700) requestAnimationFrame(tick)
       }
@@ -12717,6 +12723,16 @@ async function g80(browser) {
     const to = vals[vals.length - 1] ?? 0
     const lo = Math.min(from, to)
     const hi = Math.max(from, to)
+    const maxArrayDrift = (key) =>
+      frames.length
+        ? frames.reduce((max, frame) => {
+            const base = frames[0][key]
+            return Math.max(
+              max,
+              ...frame[key].map((value, i) => Math.abs(value - (base[i] ?? value))),
+            )
+          }, 0)
+        : 999
     /**
      * **动画时长**（第一次离开起点 → 第一次到达终点）。为什么不用"采到几帧"对比两条轨迹：
      * 帧数是**帧率相关**的 —— 2026-10-10 全量第八轮实测悬停采到 21 个中间帧、按钮只采到 10 个
@@ -12744,13 +12760,23 @@ async function g80(browser) {
             0,
           )
         : 999,
+      navCount: frames[0]?.navY.length ?? 0,
+      navDrift: maxArrayDrift('navY'),
+      navHeightDrift: maxArrayDrift('navH'),
     }
   }
   const slideDetail = (s) =>
     `帧数=${s.frames} 起=${Math.round(s.from)} 末=${Math.round(s.to)} 中间帧=${s.mids} 时长=${s.durMs}ms ` +
-    `两量脱节=${s.drift.toFixed(2)}px 反向位移=${s.back.toFixed(2)}px`
+    `两量脱节=${s.drift.toFixed(2)}px 反向位移=${s.back.toFixed(2)}px ` +
+    `一级导航纵向漂移=${s.navDrift.toFixed(2)}px 高度漂移=${s.navHeightDrift.toFixed(2)}px`
   const slideOk = (s, span) =>
-    Math.abs(s.span - span) <= 2 && s.mids >= 3 && s.drift <= 1.5 && s.back <= 0.6
+    Math.abs(s.span - span) <= 2 &&
+    s.mids >= 3 &&
+    s.drift <= 1.5 &&
+    s.back <= 0.6 &&
+    s.navCount === 8 &&
+    s.navDrift <= 1 &&
+    s.navHeightDrift <= 0.5
 
   // 先回到收起态（上一段结束时鼠标还在侧栏上）
   await page.mouse.move(900, 500)
