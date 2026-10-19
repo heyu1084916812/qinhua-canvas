@@ -25559,7 +25559,11 @@ async function g116(browser) {
   // ② 新建 → 工作室（表单齐全）
   await page.locator('[data-ecommerce-create]').click()
   await page.waitForURL(/\/ecommerce\/proj_/)
-  await sleep(900)
+  /*
+   * #623 之后，项目页要等画布节点 / 连线水合完成才渲染工作区。
+   * 这里等真实表单锚点，不再用固定 900ms 猜水合速度。
+   */
+  await page.locator('[data-ecommerce-form]').waitFor({ state: 'visible', timeout: 20_000 })
   const usages = await page
     .locator('[data-ecommerce-usage]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-ecommerce-usage')))
