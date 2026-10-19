@@ -29025,7 +29025,7 @@ async function g134(browser) {
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
-  await configureMockChannel(page)
+  await configureMockChannel(page, { isolate: true })
   await sleep(500)
 
   // ① 建电商项目 + 传产品图 + 详情页 3 张 / 3:4
@@ -30592,7 +30592,7 @@ async function g141(browser) {
   const pageErrors = []
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
-  const g141ch = await configureMockChannel(page)
+  const g141ch = await configureMockChannel(page, { isolate: true })
   rec(g, '渠道验证通过（mock 带 video 模型）', g141ch.verified)
 
   await gotoProjects(page)
@@ -32829,7 +32829,7 @@ async function g149(browser) {
     }
   }
 
-  await configureMockChannel(page)
+  await configureMockChannel(page, { isolate: true })
   await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
   await sleep(400)
   await page.locator('[data-storyboard-create]').click()
@@ -33136,7 +33136,7 @@ async function g151(browser) {
     }
   }
 
-  await configureMockChannel(page)
+  await configureMockChannel(page, { isolate: true })
   await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
   await sleep(400)
   await page.locator('[data-storyboard-create]').click()
