@@ -609,6 +609,13 @@ export function EcommerceStudio({
           `只把画面中的文字翻译成${languageLabel(language)}，保持原有排版、字号与视觉层级；` +
           '产品和背景不变，不新增无法核实的文案。',
       },
+      {
+        key: 'text-edit',
+        label: '替换画面文字',
+        instruction:
+          '只把画面中明确指定的文字“旧文字”替换为“新文字”；保持原有字体风格、字号、排版位置与视觉层级。' +
+          '其他文字、产品和背景不变，不新增无法核实的文案。',
+      },
     ],
     [language],
   )

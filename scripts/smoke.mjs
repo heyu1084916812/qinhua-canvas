@@ -35124,6 +35124,18 @@ async function g159(browser) {
   const blankDisabled = await page.locator('[data-ecommerce-edit-submit]').isDisabled()
   rec(g, '★ 空编辑指令时提交按钮禁用（不会悄悄发付费请求）', blankDisabled)
 
+  await page.locator('[data-ecommerce-edit-preset="text-edit"]').click()
+  const textEditPreset = await page.locator('[data-ecommerce-edit-instruction]').inputValue()
+  rec(
+    g,
+    '★ 画面文字模板明确要求填写旧文字 / 新文字，并保留字体与排版',
+    textEditPreset.includes('旧文字') &&
+      textEditPreset.includes('新文字') &&
+      textEditPreset.includes('字体风格') &&
+      !(await page.locator('[data-ecommerce-edit-submit]').isDisabled()),
+    textEditPreset,
+  )
+
   await page.locator('[data-ecommerce-edit-preset="cleanup"]').click()
   await page
     .locator('[data-ecommerce-edit-model]')
