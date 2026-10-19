@@ -1054,6 +1054,18 @@ const SMOKE_MOCK_MODELS = [
     maxReferenceImages: 1,
   },
   {
+    id: '火山字幕擦除 标准版',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    maxReferenceImages: 1,
+  },
+  {
+    id: '火山字幕擦除 精细化版',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    maxReferenceImages: 1,
+  },
+  {
     id: '全能视频X 视频编辑',
     category: 'video',
     inputTypes: ['text', 'video'],
@@ -32369,7 +32381,73 @@ async function g145(browser) {
     `旧节点=${oldVideoStillThere?.id ?? 'none'} 边=${oldVideoNodeId} → ${upscaleShot?.videoNodeId ?? 'none'}`,
   )
 
-  const videoEditNodeBefore = upscaleShot?.videoNodeId ?? ''
+  const videoEraseBefore = upscaleShot?.videoNodeId ?? ''
+  const videoEraseButton = page.locator(`[data-storyboard-video-erase="${ids[0]}"]`)
+  const videoEraseShown = await videoEraseButton
+    .waitFor({ state: 'visible', timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
+  if (videoEraseShown) await videoEraseButton.click()
+  const videoEraseTarget = page.locator(`[data-storyboard-video-erase-target="${ids[0]}"]`)
+  const videoEraseTargets = await videoEraseTarget
+    .locator('option')
+    .allInnerTexts()
+    .catch(() => [])
+  const eraseProIndex = videoEraseTargets.findIndex((text) =>
+    text.includes('火山字幕擦除 精细化版'),
+  )
+  if (eraseProIndex >= 0) {
+    await videoEraseTarget.selectOption(String(eraseProIndex))
+  }
+  rec(
+    g,
+    '★★ 已有视频时出现真实「字幕擦除」入口和官方标准 / 精细化模型',
+    videoEraseShown &&
+      (await page
+        .locator(`[data-storyboard-video-erase-panel="${ids[0]}"]`)
+        .isVisible()
+        .catch(() => false)) &&
+      videoEraseTargets.some((text) => text.includes('火山字幕擦除 标准版')) &&
+      videoEraseTargets.some((text) => text.includes('火山字幕擦除 精细化版')),
+    `入口=${videoEraseShown} 模型=${JSON.stringify(videoEraseTargets)}`,
+  )
+  await page.locator(`[data-storyboard-video-erase-submit="${ids[0]}"]`).click()
+  const videoEraseDb = await waitDb((db) => {
+    const shot = db.shots[0]
+    const next = db.nodes.find((node) => node.id === shot?.videoNodeId)
+    return (
+      !!shot?.videoNodeId &&
+      shot.videoNodeId !== videoEraseBefore &&
+      next?.data?.model === '火山字幕擦除 精细化版' &&
+      next?.data?.assetMime === 'video/mp4'
+    )
+  }, 20000)
+  const videoEraseShot = videoEraseDb.shots[0]
+  const videoEraseNode = videoEraseDb.nodes.find(
+    (node) => node.id === videoEraseShot?.videoNodeId,
+  )
+  const videoBeforeEraseStillThere = videoEraseDb.nodes.find(
+    (node) => node.id === videoEraseBefore,
+  )
+  rec(
+    g,
+    '★★★ 字幕擦除真实走通：结果落独立新视频节点，旧视频与上游连线保留',
+    !!videoEraseShot?.videoHash &&
+      videoEraseNode?.data?.model === '火山字幕擦除 精细化版' &&
+      videoEraseDb.assets.some(
+        (asset) =>
+          asset.hash === videoEraseShot.videoHash && asset.mime === 'video/mp4',
+      ) &&
+      !!videoBeforeEraseStillThere &&
+      videoEraseDb.edges.some(
+        (edge) =>
+          edge.source === videoEraseBefore &&
+          edge.target === videoEraseShot?.videoNodeId,
+      ),
+    `旧=${videoEraseBefore} 新=${videoEraseShot?.videoNodeId ?? 'none'} hash=${(videoEraseShot?.videoHash ?? '').slice(0, 8)}`,
+  )
+
+  const videoEditNodeBefore = videoEraseShot?.videoNodeId ?? ''
   const videoEditButton = page.locator(`[data-storyboard-video-edit="${ids[0]}"]`)
   const videoEditShown = await videoEditButton
     .waitFor({ state: 'visible', timeout: 8000 })

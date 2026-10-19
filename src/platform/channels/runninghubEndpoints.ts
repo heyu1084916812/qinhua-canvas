@@ -4,7 +4,7 @@
  * 生成：`node scripts/gen-runninghub-models.mjs <RH_CLI>/src/rh_cli/catalog/data/capabilities.json`
  * 来源：RunningHub 官方 CLI（github.com/HM-RunningHub/RH_CLI）随包附带的端点目录
  *       capabilities.json —— version 2026-06-02，共 356 个端点；
- *       本文件只留**精挑的 59 个端点**（官方 CLI 快捷选择 + 本项目已交付的端点）。
+ *       本文件只留**精挑的 61 个端点**（官方 CLI 快捷选择 + 本项目已交付的端点）。
  *
  * 官方 CLI 建请求体的最后一步是「**必填 + 有默认值**而还没填的参数一律补默认值」
  * （`model/payload.py`）—— 适配器照同一条规则走 `requiredDefaults`。
@@ -625,6 +625,20 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     requiredDefaults: { "style": "general", "aspectRatio": "16:9", "resolution": "720p", "duration": "5", "audio": true },
   },
   {
+    id: 'volc-subtitle-erase-pro/video',
+    task: 'video-subtitle-erase',
+    kind: 'video',
+    label: '火山字幕擦除-视频字幕擦除（精细化版）',
+    media: { "key": "videoUrl", "type": "VIDEO", "required": true },
+  },
+  {
+    id: 'volc-subtitle-erase/video',
+    task: 'video-subtitle-erase',
+    kind: 'video',
+    label: '火山字幕擦除-视频字幕擦除（标准版）',
+    media: { "key": "videoUrl", "type": "VIDEO", "required": true },
+  },
+  {
     id: 'youchuan/text-to-image-v7',
     task: 'text-to-image',
     kind: 'image',
@@ -902,6 +916,20 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
     hint: '把已有视频放大到 720p / 1080p / 2K / 4K',
     kind: 'video',
     textEndpoint: 'rhart-video/video-upscaler',
+  },
+  {
+    // 官方目录：火山字幕擦除 标准版
+    id: '火山字幕擦除 标准版',
+    hint: '自动擦除已有视频中的字幕，结果另起新视频节点',
+    kind: 'video',
+    textEndpoint: 'volc-subtitle-erase/video',
+  },
+  {
+    // 官方目录：火山字幕擦除 精细化版
+    id: '火山字幕擦除 精细化版',
+    hint: '精细化擦除已有视频中的字幕或普通文字，结果另起新视频节点',
+    kind: 'video',
+    textEndpoint: 'volc-subtitle-erase-pro/video',
   },
   {
     // 官方目录：全能视频X 视频编辑

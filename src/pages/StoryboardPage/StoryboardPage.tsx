@@ -125,6 +125,10 @@ import {
   type VideoUpscaleModelId,
 } from '../../domain/storyboard/videoUpscale'
 import {
+  VIDEO_ERASE_MODEL_IDS,
+  type VideoEraseModelId,
+} from '../../domain/storyboard/videoErase'
+import {
   normalizeVideoEditResolution,
   VIDEO_EDIT_MODEL_IDS,
   videoEditRequiresReferenceImage,
@@ -152,6 +156,13 @@ interface VideoUpscaleTarget {
   label: string
   resolutions: readonly string[]
   frameRates: readonly number[]
+}
+
+interface VideoEraseTarget {
+  channelId: string
+  channelName: string
+  model: VideoEraseModelId
+  label: string
 }
 
 interface VideoEditTarget {
@@ -395,6 +406,28 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     }
     return out
   }, [channelState.channels])
+  const videoEraseTargets = useMemo(() => {
+    const out: VideoEraseTarget[] = []
+    for (const channel of channelState.channels) {
+      if (!channel.enabled) continue
+      for (const model of VIDEO_ERASE_MODEL_IDS) {
+        const capability = channel.models.find(
+          (item) =>
+            item.id === model &&
+            item.category === 'video' &&
+            item.inputTypes.includes('video'),
+        )
+        if (!capability) continue
+        out.push({
+          channelId: channel.id,
+          channelName: channel.name,
+          model,
+          label: `${model} · ${channel.name}`,
+        })
+      }
+    }
+    return out
+  }, [channelState.channels])
   const videoExtendTargets = useMemo(() => {
     const out: VideoExtendTarget[] = []
     for (const channel of channelState.channels) {
@@ -469,6 +502,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   const [voiceBusy, setVoiceBusy] = useState<Record<string, boolean>>({})
   const [digitalHumanBusy, setDigitalHumanBusy] = useState<string | null>(null)
   const [videoUpscaleBusy, setVideoUpscaleBusy] = useState<string | null>(null)
+  const [videoEraseBusy, setVideoEraseBusy] = useState<string | null>(null)
   const [videoEditBusy, setVideoEditBusy] = useState<string | null>(null)
   const [videoExtendBusy, setVideoExtendBusy] = useState<string | null>(null)
   const [breaking, setBreaking] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
@@ -1742,6 +1776,115 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       setLay({ kind: 'error', text: humanError(error) })
     } finally {
       setVideoUpscaleBusy(null)
+      window.clearTimeout(timer)
+    }
+  }
+
+  /** 已有镜头视频 → 用真实字幕擦除端点生成新视频节点，旧视频保留。 */
+  const makeVideoErase = async (
+    shot: StoryboardShot,
+    target: VideoEraseTarget,
+  ) => {
+    if (videoEraseBusy) return
+    if (!shot.videoHash || !shot.videoNodeId || !liveNodeIds.has(shot.videoNodeId)) {
+      setLay({ kind: 'error', text: '这一镜还没有可擦除字幕的视频节点' })
+      return
+    }
+    const sourceNode = graph.nodes.find((node) => node.id === shot.videoNodeId)
+    if (!sourceNode) {
+      setLay({ kind: 'error', text: '这一镜的视频节点已经不在画布上' })
+      return
+    }
+    const sourceMime =
+      (sourceNode.data as { assetMime?: string }).assetMime ?? 'video/mp4'
+
+    setVideoEraseBusy(shot.id)
+    setLay({ kind: 'running', text: `正在用 ${target.model} 擦除这一镜的字幕…` })
+    const ac = new AbortController()
+    const timer = window.setTimeout(() => ac.abort(), 20 * 60 * 1000)
+    try {
+      const outputs = await channels.generateVideo({
+        kind: 'video',
+        channelId: target.channelId,
+        model: target.model,
+        prompt: '',
+        inputs: [
+          {
+            kind: 'asset',
+            nodeId: shot.videoNodeId,
+            assetHash: shot.videoHash,
+            mime: sourceMime,
+          },
+        ],
+        params: {},
+        signal: ac.signal,
+      })
+      const output = outputs[0]
+      if (!output) throw new Error('字幕擦除模型没有返回视频')
+      const mime = output.mime || 'video/mp4'
+      if (!mime.toLowerCase().startsWith('video/')) {
+        throw new Error(`字幕擦除返回了非视频产物：${mime}`)
+      }
+
+      canvasStore.dispatch({
+        kind: 'asset.put',
+        asset: {
+          hash: output.hash,
+          mime,
+          bytes: output.bytes,
+          ...(output.url ? { url: output.url } : {}),
+          createdAt: Date.now(),
+          projectId,
+        },
+      })
+      const data = await resolveDefaults({
+        channels,
+        type: 'generation',
+        extraData: {
+          mode: 'video',
+          channelId: target.channelId,
+          model: target.model,
+          prompt: '视频字幕擦除',
+          durationSec: shot.durationSec,
+          assetHash: output.hash,
+          assetMime: mime,
+        },
+      })
+
+      let eraseNodeId = ''
+      canvasStore.beginPlan('storyboard:video-erase', '镜头视频字幕擦除')
+      try {
+        eraseNodeId =
+          applyDefaults({
+            store: canvasStore,
+            channels,
+            projectId,
+            type: 'generation',
+            at: { x: sourceNode.x + 320, y: sourceNode.y },
+            data,
+          }) ?? ''
+        if (eraseNodeId) {
+          canvasStore.dispatch({
+            kind: 'edge.connect',
+            source: shot.videoNodeId,
+            target: eraseNodeId,
+          })
+        }
+      } finally {
+        canvasStore.endPlan()
+      }
+      if (!eraseNodeId) throw new Error('字幕擦除节点没能建出来')
+
+      const current = docRef.current
+      if (current) {
+        const withNode = setShotVideoNode(current, shot.id, eraseNodeId, 0)
+        apply(attachShotVideos(withNode, [{ shotId: shot.id, hash: output.hash }], 0))
+      }
+      setLay({ kind: 'done', text: '这一镜的字幕已擦除，新视频已保存' })
+    } catch (error) {
+      setLay({ kind: 'error', text: humanError(error) })
+    } finally {
+      setVideoEraseBusy(null)
       window.clearTimeout(timer)
     }
   }
@@ -3242,6 +3385,16 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                                 )
                             : undefined
                         }
+                        videoEraseTargets={videoEraseTargets}
+                        videoEraseBusyShotId={videoEraseBusy}
+                        onVideoErase={
+                          shot.videoHash &&
+                          shot.videoNodeId &&
+                          liveNodeIds.has(shot.videoNodeId) &&
+                          videoEraseTargets.length > 0
+                            ? (target) => void makeVideoErase(shot, target)
+                            : undefined
+                        }
                         videoEditTargets={videoEditTargets}
                         videoEditBusyShotId={videoEditBusy}
                         onVideoEdit={
@@ -3418,6 +3571,9 @@ function ShotCard({
   videoUpscaleTargets,
   videoUpscaleBusyShotId,
   onVideoUpscale,
+  videoEraseTargets,
+  videoEraseBusyShotId,
+  onVideoErase,
   videoEditTargets,
   videoEditBusyShotId,
   onVideoEdit,
@@ -3478,6 +3634,9 @@ function ShotCard({
     resolution: string,
     frameRate: number | null,
   ) => void
+  videoEraseTargets: readonly VideoEraseTarget[]
+  videoEraseBusyShotId: string | null
+  onVideoErase?: (target: VideoEraseTarget) => void
   videoEditTargets: readonly VideoEditTarget[]
   videoEditBusyShotId: string | null
   onVideoEdit?: (
@@ -3502,6 +3661,8 @@ function ShotCard({
   const [upscaleTargetIndex, setUpscaleTargetIndex] = useState(0)
   const [upscaleResolution, setUpscaleResolution] = useState('1080p')
   const [upscaleFrameRate, setUpscaleFrameRate] = useState<number | null>(30)
+  const [videoEraseOpen, setVideoEraseOpen] = useState(false)
+  const [videoEraseTargetIndex, setVideoEraseTargetIndex] = useState(0)
   const [videoEditOpen, setVideoEditOpen] = useState(false)
   const [videoEditTargetIndex, setVideoEditTargetIndex] = useState(0)
   const [videoEditInstruction, setVideoEditInstruction] = useState('')
@@ -3514,6 +3675,8 @@ function ShotCard({
   const [videoExtendDuration, setVideoExtendDuration] = useState<number | null>(5)
   const currentUpscaleTarget =
     videoUpscaleTargets[Math.min(upscaleTargetIndex, videoUpscaleTargets.length - 1)]
+  const currentVideoEraseTarget =
+    videoEraseTargets[Math.min(videoEraseTargetIndex, videoEraseTargets.length - 1)]
   const currentVideoEditTarget =
     videoEditTargets[Math.min(videoEditTargetIndex, videoEditTargets.length - 1)]
   const currentVideoExtendTarget =
@@ -3523,6 +3686,7 @@ function ShotCard({
     laidOut &&
     Boolean(currentVideoEditTarget?.supportsReferenceImage)
   const upscaleBusy = videoUpscaleBusyShotId === shot.id
+  const videoErasing = videoEraseBusyShotId === shot.id
   const videoEditing = videoEditBusyShotId === shot.id
   const videoExtending = videoExtendBusyShotId === shot.id
   const digitalHumanPlan = digitalHumanPlanOf(shot)
@@ -3714,6 +3878,17 @@ function ShotCard({
               {upscaleBusy ? '视频超清中…' : '视频超清'}
             </button>
           ) : null}
+          {onVideoErase && shot.videoHash ? (
+            <button
+              type="button"
+              className={styles.ghost}
+              data-storyboard-video-erase={shot.id}
+              disabled={busy || videoErasing}
+              onClick={() => setVideoEraseOpen((current) => !current)}
+            >
+              {videoErasing ? '字幕擦除中…' : '字幕擦除'}
+            </button>
+          ) : null}
           {onVideoEdit && shot.videoHash ? (
             <button
               type="button"
@@ -3834,6 +4009,51 @@ function ShotCard({
               }}
             >
               开始超清
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {videoEraseOpen && currentVideoEraseTarget ? (
+        <div
+          className={styles.videoEditPanel}
+          data-storyboard-video-erase-panel={shot.id}
+        >
+          <label className={styles.inlineField}>
+            <span className={styles.label}>模型</span>
+            <select
+              className={styles.select}
+              value={videoEraseTargetIndex}
+              data-storyboard-video-erase-target={shot.id}
+              onChange={(e) => setVideoEraseTargetIndex(Number(e.target.value))}
+            >
+              {videoEraseTargets.map((target, targetIndex) => (
+                <option key={`${target.channelId}:${target.model}`} value={targetIndex}>
+                  {target.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className={styles.videoEditActions}>
+            <button
+              type="button"
+              className={styles.ghost}
+              data-storyboard-video-erase-cancel={shot.id}
+              disabled={videoErasing}
+              onClick={() => setVideoEraseOpen(false)}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className={styles.primary}
+              data-storyboard-video-erase-submit={shot.id}
+              disabled={videoErasing}
+              onClick={() => {
+                setVideoEraseOpen(false)
+                onVideoErase?.(currentVideoEraseTarget)
+              }}
+            >
+              开始擦除
             </button>
           </div>
         </div>

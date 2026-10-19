@@ -136,6 +136,13 @@ describe('RunningHub 视频超清目录与请求', () => {
     for (const [modelId, endpointId, task, mediaKey] of [
       ['Topaz 视频超清', 'topazlabs/video-upscale', 'video-upscale', 'videoUrl'],
       ['RH 视频超分', 'rhart-video/video-upscaler', 'video-upscale', 'videoUrl'],
+      ['火山字幕擦除 标准版', 'volc-subtitle-erase/video', 'video-subtitle-erase', 'videoUrl'],
+      [
+        '火山字幕擦除 精细化版',
+        'volc-subtitle-erase-pro/video',
+        'video-subtitle-erase',
+        'videoUrl',
+      ],
       ['全能视频X 视频编辑', 'rhart-video-g-official/edit-video', 'video-edit', 'videoUrl'],
       ['Kling O3 Pro 视频编辑', 'kling-video-o3-pro/video-edit', 'video-edit', 'videoUrl'],
       ['Kling O3 Std 视频编辑', 'kling-video-o3-std/video-edit', 'video-edit', 'videoUrl'],
@@ -237,6 +244,61 @@ describe('RunningHub 视频超清目录与请求', () => {
       targetFps: '60',
     })
     expect(submitBody).not.toHaveProperty('prompt')
+    expect(outputs[0]?.mime).toBe('video/mp4')
+  })
+
+  it('★★ 字幕擦除只上传输入视频，不伪造提示词、清晰度或帧率', async () => {
+    let submitBody: Record<string, unknown> | null = null
+    const platform = createMemoryPlatform({
+      rows: {
+        assets: [{ id: 'erase-source', bytes: VIDEO_BYTES, mime: 'video/mp4' }],
+      },
+      handler: async (req: NetworkRequest) => {
+        if (req.url.endsWith('/openapi/v2/media/upload/binary')) {
+          return json(200, {
+            code: 0,
+            data: { download_url: 'https://files.runninghub.cn/erase-source.mp4' },
+          })
+        }
+        if (req.url.endsWith('/openapi/v2/volc-subtitle-erase-pro/video')) {
+          submitBody = req.body as Record<string, unknown>
+          return json(200, { code: 0, taskId: 'erase-task' })
+        }
+        if (req.url.endsWith('/openapi/v2/query')) {
+          return json(200, {
+            status: 'SUCCESS',
+            results: [{ url: 'https://files.runninghub.cn/erase-result.mp4' }],
+          })
+        }
+        if (req.url.endsWith('/erase-result.mp4')) {
+          return bytes(200, VIDEO_BYTES, 'video/mp4')
+        }
+        return json(200, {})
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    const outputs = await adapter.generateVideo(
+      {
+        kind: 'video',
+        channelId: 'c1',
+        model: '火山字幕擦除 精细化版',
+        prompt: '',
+        inputs: [
+          {
+            kind: 'asset',
+            nodeId: 'video-node',
+            assetHash: 'erase-source',
+            mime: 'video/mp4',
+          },
+        ],
+        params: {},
+      },
+      signal,
+    )
+
+    expect(submitBody).toEqual({
+      videoUrl: 'https://files.runninghub.cn/erase-source.mp4',
+    })
     expect(outputs[0]?.mime).toBe('video/mp4')
   })
 

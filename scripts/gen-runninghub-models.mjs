@@ -315,6 +315,20 @@ const MODELS = [
     text: 'rhart-video/video-upscaler',
   },
   {
+    slug: 'video-subtitle-erase',
+    label: '火山字幕擦除 标准版',
+    hint: '自动擦除已有视频中的字幕，结果另起新视频节点',
+    kind: 'video',
+    text: 'volc-subtitle-erase/video',
+  },
+  {
+    slug: 'video-subtitle-erase-pro',
+    label: '火山字幕擦除 精细化版',
+    hint: '精细化擦除已有视频中的字幕或普通文字，结果另起新视频节点',
+    kind: 'video',
+    text: 'volc-subtitle-erase-pro/video',
+  },
+  {
     slug: 'video-rh-g-edit',
     label: '全能视频X 视频编辑',
     preset: '全能视频X 视频编辑',
