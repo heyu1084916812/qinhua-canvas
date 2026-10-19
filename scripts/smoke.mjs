@@ -12563,7 +12563,10 @@ async function g80(browser) {
         const el = document.querySelector(sel)
         if (!el) return null
         const r = el.getBoundingClientRect()
-        return Math.round((r.left + r.width / 2) * 10) / 10
+        return {
+          x: Math.round((r.left + r.width / 2) * 10) / 10,
+          y: Math.round((r.top + r.height / 2) * 10) / 10,
+        }
       }),
     )
   const wsLeft = () =>
@@ -12594,7 +12597,7 @@ async function g80(browser) {
   )
   rec(
     g,
-    '★★ 折叠时图标**一个都不动**（#313：两态图标中心逐个相等）',
+    '★★ 折叠时图标**一个都不动**（两态图标中心的 x / y 都逐个相等）',
     /*
      * 容差 1px：图标自己的**字形宽**会有亚像素差（实测主题那枚 31.2 vs 32 —— 字形是 14.64px，
      * 两态取整方向不同），而用户报的"跳"是 2px 起步、且动画中途会甩到 ~113px。
@@ -12606,8 +12609,16 @@ async function g80(browser) {
      * `>= 5` 是防止有人把选择器全写坏、让这条断言退化成"空集也算过"。
      */
     expandedIcons.length === collapsedIcons.length &&
-      expandedIcons.filter((x) => x !== null).length >= 5 &&
-      expandedIcons.every((x, i) => x === null || Math.abs(x - (collapsedIcons[i] ?? -1)) <= 1),
+      expandedIcons.filter((point) => point !== null).length >= 5 &&
+      expandedIcons.every((point, i) => {
+        const before = collapsedIcons[i]
+        return (
+          point === null ||
+          (before !== null &&
+            Math.abs(point.x - before.x) <= 1 &&
+            Math.abs(point.y - before.y) <= 1)
+        )
+      }),
     `展开=${JSON.stringify(expandedIcons)} 收起=${JSON.stringify(collapsedIcons)}`,
   )
   rec(

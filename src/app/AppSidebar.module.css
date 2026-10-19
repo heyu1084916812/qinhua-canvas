@@ -114,8 +114,10 @@
    * 收起/展开两种状态的定位基准就一致了。
    */
   width: 100%;
-  box-sizing: border-box;
+  height: 40px;
   min-height: 40px;
+  flex: 0 0 40px;
+  box-sizing: border-box;
   gap: var(--space-1);
 }
 
@@ -332,6 +334,7 @@
   gap: var(--space-2);
   width: 100%;
   height: 40px;
+  flex: 0 0 40px;
   /* Group 2: keep 20px below the logo row. */
   margin-top: var(--space-sidebar-group);
   /* 左距用"轴对齐"那一档（两态一致 ⇒ 折叠时不动，见 `--rail-icon-left` 的说明） */
@@ -431,6 +434,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  flex: 0 0 auto;
   gap: 2px;
   margin-top: var(--space-sidebar-group);
 }
@@ -469,6 +473,7 @@
   align-items: center;
   gap: var(--space-2);
   height: 40px;
+  flex: 0 0 40px;
   /*
    * 左距用"轴对齐"那一档（对账 #313）：展开态与收起态落点相同 ⇒ 折叠时图标不动。
    * 收起态不再用 `justify-content: center`（那是跟着实时宽度算的，折叠一开头就会把图标甩出去）。
@@ -535,6 +540,7 @@
 .recent {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   gap: var(--space-1);
   margin-top: var(--space-sidebar-group);
   /* 列表长了就自己滚，别把底部的主题按钮顶出去 */
@@ -602,6 +608,7 @@
 .foot {
   /* `margin-top: auto` 把它压到底部；上面的 recent 若很长会先滚 */
   margin-top: auto;
+  flex: 0 0 auto;
   padding-top: var(--space-2);
   border-top: 1px solid var(--stroke);
   display: flex;

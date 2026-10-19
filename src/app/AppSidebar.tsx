@@ -240,6 +240,7 @@ export function AppSidebar() {
   /** 上一次量到的几何：切项时拿它当伸缩动画的起点 */
   const displayedRect = useRef<NavItemRect | null>(null)
   const lastActiveTo = useRef<string | null>(null)
+  const lastOpen = useRef(open)
   const stretchAnimation = useRef<Animation | null>(null)
   const [navHighlight, setNavHighlight] = useState<NavItemRect | null>(null)
   const activeNavTo = useMemo(
@@ -274,7 +275,9 @@ export function AppSidebar() {
       }
       const previous = displayedRect.current
       const switched = lastActiveTo.current !== null && lastActiveTo.current !== activeNavTo
+      const openChanged = lastOpen.current !== open
       lastActiveTo.current = activeNavTo
+    lastOpen.current = open
       displayedRect.current = next
       setNavHighlight(next)
 
@@ -282,7 +285,7 @@ export function AppSidebar() {
         typeof window.matchMedia === 'function' &&
         window.matchMedia('(prefers-reduced-motion: reduce)').matches
       const node = highlightRef.current
-      if (switched && previous && node && !reduce) {
+      if (switched && previous && node && !reduce && !openChanged) {
         stretchAnimation.current?.cancel()
         /** 拉伸 → 尾端跟随 → 收回；最后一段带过冲 ⇒ 一点回弹 */
         stretchAnimation.current = node.animate(navStretchKeyframes(previous, next), {
@@ -290,6 +293,9 @@ export function AppSidebar() {
           easing: 'linear',
           fill: 'none',
         })
+      } else {
+        stretchAnimation.current?.cancel()
+        stretchAnimation.current = null
       }
     }
     measure()
