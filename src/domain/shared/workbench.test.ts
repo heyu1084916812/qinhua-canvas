@@ -57,7 +57,10 @@ describe('工作台骨架', () => {
       expect(new URLSearchParams(url.split('?')[1]).get('focus')).toBe('a&b=c')
     })
 
-    it('★ crop 可以单独用，也可以和 focus 组合（focus 在前，crop=1）', () => {
+    it('★ extract / crop / annotate / rotate 可以单独用，也可以和 focus 组合', () => {
+      expect(projectRoute('canvas', 'p1', { focus: 'n1', extract: true })).toBe(
+        '/canvas/p1?focus=n1&extract=1',
+      )
       expect(projectRoute('canvas', 'p1', { crop: true })).toBe('/canvas/p1?crop=1')
       expect(projectRoute('canvas', 'p1', { focus: 'n1', crop: true })).toBe(
         '/canvas/p1?focus=n1&crop=1',

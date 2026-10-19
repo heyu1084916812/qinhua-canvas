@@ -547,7 +547,7 @@ function StudioHost({ projectId }: { projectId: string }) {
   )
 
   const openCanvasCopy = useCallback(
-    (row: EcommerceResultRecord, mode?: 'crop' | 'annotate' | 'rotate') => {
+    (row: EcommerceResultRecord, mode?: 'extract' | 'crop' | 'annotate' | 'rotate') => {
       try {
         const copy = ensureResultCopy(row)
         navigate(
@@ -1242,6 +1242,7 @@ function StudioHost({ projectId }: { projectId: string }) {
           onRerun: rerunnable ? () => rerun(false) : undefined,
           onReplace: rerunnable ? () => rerun(true) : undefined,
           onFocusInCanvas: () => openCanvasCopy(row),
+          onExtractInCanvas: () => openCanvasCopy(row, 'extract'),
           onCropInCanvas: () => openCanvasCopy(row, 'crop'),
           onAnnotateInCanvas: () => openCanvasCopy(row, 'annotate'),
           onRotateInCanvas: () => openCanvasCopy(row, 'rotate'),
@@ -1295,6 +1296,8 @@ function StudioHost({ projectId }: { projectId: string }) {
             ? undefined
             : () => exec.runNode(id, { inPlace: true }),
         onFocusInCanvas: () => navigate(projectRoute('canvas', projectId, { focus: id })),
+        onExtractInCanvas: () =>
+          navigate(projectRoute('canvas', projectId, { focus: id, extract: true })),
         onCropInCanvas: () =>
           navigate(projectRoute('canvas', projectId, { focus: id, crop: true })),
         onAnnotateInCanvas: () =>
@@ -1378,9 +1381,14 @@ function StudioHost({ projectId }: { projectId: string }) {
       results.flatMap((r) => {
         if (r.status !== 'done' || !r.imageHash || !r.pixelSize) return []
         const edit =
-          r.onFocusInCanvas && r.onCropInCanvas && r.onAnnotateInCanvas && r.onRotateInCanvas
+          r.onFocusInCanvas &&
+            r.onExtractInCanvas &&
+            r.onCropInCanvas &&
+            r.onAnnotateInCanvas &&
+            r.onRotateInCanvas
             ? {
                 focus: r.onFocusInCanvas,
+                extract: r.onExtractInCanvas,
                 crop: r.onCropInCanvas,
                 annotate: r.onAnnotateInCanvas,
                 rotate: r.onRotateInCanvas,

@@ -70,6 +70,8 @@ function CanvasProject({ projectId }: { projectId: string }) {
   const [hydratedAt, setHydratedAt] = useState(0)
   /** 要聚焦的节点（对账 #424）：`?focus=<nodeId>`，没有就是普通打开 */
   const focusId = new URLSearchParams(location.search).get('focus')
+  /** 落地后是否直接进入带上下文的提取选区（电商结果卡的「局部重绘」） */
+  const extractId = new URLSearchParams(location.search).get('extract')
   /** 落地后是否直接打开裁剪灯箱（电商结果卡的「裁剪这一张」） */
   const cropId = new URLSearchParams(location.search).get('crop')
   /** 落地后是否直接打开标注 / 旋转编辑器（与 crop 同一套深链口径） */
@@ -186,11 +188,12 @@ function CanvasProject({ projectId }: { projectId: string }) {
     if (!focusId || projectId === 'demo' || !cached.hydrated) return
     if (focusCanvasNode(store, focusId)) {
       store.setSelection([focusId])
-      if (cropId === '1') store.openCropLightbox(focusId)
+      if (extractId === '1') store.openCropLightbox(focusId)
+      else if (cropId === '1') store.openCropLightbox(focusId, { plain: true })
       else if (annotateId === '1') store.openAnnotateEditor(focusId)
       else if (rotateId === '1') store.openRotateEditor(focusId)
     }
-  }, [focusId, cropId, annotateId, rotateId, projectId, store, cached, hydratedAt])
+  }, [focusId, extractId, cropId, annotateId, rotateId, projectId, store, cached, hydratedAt])
 
   useEffect(() => () => store.dispose(), [store])
 

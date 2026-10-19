@@ -30049,8 +30049,40 @@ async function g138(browser) {
     cropUrl.includes(`/canvas/${projectId}`) &&
       cropUrl.includes(`focus=${encodeURIComponent(copyNodeId)}`) &&
       cropUrl.includes('crop=1') &&
+      (await page.locator('[data-lightbox][data-lightbox-mode="crop"]').count()) === 1 &&
       cropBar,
-    `url=${cropUrl.replace(BASE, '')} 裁剪条=${cropBar}`,
+    `url=${cropUrl.replace(BASE, '')} 模式=${await page.locator('[data-lightbox]').getAttribute('data-lightbox-mode')} 裁剪条=${cropBar}`,
+  )
+  await page.keyboard.press('Escape')
+  await sleep(250)
+
+  /**
+   * ③b2 局部重绘：复制副本 → 直接进入“提取选区”模式。
+   * 后续改图与融合仍在画布完成，不复用 plain 裁剪，也不另造一个假的重绘端点。
+   */
+  await page.goto(`${BASE}/ecommerce/${projectId}`, { waitUntil: 'networkidle' })
+  await page
+    .locator('[data-ecommerce-result][data-status="done"]')
+    .first()
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .catch(() => {})
+  await page.locator('[data-ecommerce-extract-canvas]').first().click()
+  await page.waitForURL(/\/canvas\//, { timeout: 15000 })
+  const extractUrl = page.url()
+  const extractBar = await page
+    .locator('[data-lightbox-crop-bar]')
+    .waitFor({ state: 'visible', timeout: 15000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(
+    g,
+    '★★ 电商结果卡「局部重绘」→ 画布直接进入带上下文的提取选区',
+    extractUrl.includes(`/canvas/${projectId}`) &&
+      extractUrl.includes(`focus=${encodeURIComponent(copyNodeId)}`) &&
+      extractUrl.includes('extract=1') &&
+      (await page.locator('[data-lightbox][data-lightbox-mode="extract"]').count()) === 1 &&
+      extractBar,
+    `url=${extractUrl.replace(BASE, '')} 模式=${await page.locator('[data-lightbox]').getAttribute('data-lightbox-mode')} 选区块=${extractBar}`,
   )
   await page.keyboard.press('Escape')
   await sleep(250)
@@ -30452,11 +30484,13 @@ async function g139(browser) {
     (await page.locator(`[data-ecommerce-longimage-ai-edit="${editId}"]`).count()) === 1
   const aiUpscaleVisible =
     (await page.locator(`[data-ecommerce-longimage-upscale="${editId}"]`).count()) === 1
+  const extractVisible =
+    (await page.locator(`[data-ecommerce-longimage-extract="${editId}"]`).count()) === 1
   rec(
     g,
-    '★★ 长图每一段都能展开逐张编辑器入口（打开 / 裁剪 / 标注 / 旋转 / AI 编辑 / AI 超清）',
-    editActions === 6 && aiEditVisible && aiUpscaleVisible,
-    `入口 ${editActions} 个 / AI 编辑=${aiEditVisible} / AI 超清=${aiUpscaleVisible}`,
+    '★★ 长图每一段都能展开逐张编辑器入口（打开 / 局部重绘 / 裁剪 / 标注 / 旋转 / AI 编辑 / AI 超清）',
+    editActions === 7 && aiEditVisible && aiUpscaleVisible && extractVisible,
+    `入口 ${editActions} 个 / 局部重绘=${extractVisible} / AI 编辑=${aiEditVisible} / AI 超清=${aiUpscaleVisible}`,
   )
   await page.screenshot({ path: `${OUT}/139-g139-long-image-edit-menu.png` })
 

@@ -114,8 +114,10 @@ export interface EcommerceResultItem {
    * 由页面注入（路由是页面的事）；不传就不渲染这个入口。
    */
   onFocusInCanvas?: () => void
-  /** 「裁剪这一张」：跳到画布并直接打开裁剪灯箱（复用画布已有的提取选区能力） */
+  /** 「裁剪这一张」：跳到画布并打开 plain 裁剪（不写选区上下文） */
   onCropInCanvas?: () => void
+  /** 「局部重绘」：跳到画布并进入提取选区；改完用融合节点回贴原图 */
+  onExtractInCanvas?: () => void
   /** 「加文字/标注」：跳到画布并直接打开标注编辑器 */
   onAnnotateInCanvas?: () => void
   /** 「旋转」：跳到画布并直接打开旋转与镜像编辑器 */
@@ -1538,6 +1540,17 @@ export function EcommerceStudio({
                         onClick={r.onCropInCanvas}
                       >
                         裁剪这一张
+                      </button>
+                    ) : null}
+                    {r.onExtractInCanvas ? (
+                      <button
+                        type="button"
+                        className={styles.linkBtn}
+                        data-ecommerce-extract-canvas
+                        title="先复制成独立画布节点并提取选区；修改后用融合节点回贴原图"
+                        onClick={r.onExtractInCanvas}
+                      >
+                        局部重绘
                       </button>
                     ) : null}
                     {r.onAnnotateInCanvas ? (

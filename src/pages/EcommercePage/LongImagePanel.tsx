@@ -35,6 +35,7 @@ export interface LongImageTileSource {
   height: number
   edit?: {
     focus: () => void
+    extract: () => void
     crop: () => void
     annotate: () => void
     rotate: () => void
@@ -295,6 +296,16 @@ export function LongImagePanel({
                         onClick={() => tools.editResult?.(tile.id)}
                       >
                         AI 编辑
+                      </button>
+                    ) : null}
+                    {editActionsOf(tile.id, tiles)?.extract ? (
+                      <button
+                        type="button"
+                        className={styles.ghost}
+                        data-ecommerce-longimage-extract={tile.id}
+                        onClick={() => editActionsOf(tile.id, tiles)?.extract()}
+                      >
+                        局部重绘
                       </button>
                     ) : null}
                     {editActionsOf(tile.id, tiles)?.crop ? (
