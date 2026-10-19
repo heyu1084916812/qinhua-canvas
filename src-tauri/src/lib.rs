@@ -1,3 +1,11 @@
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+use tauri::menu::{Menu, MenuItem};
+use tauri::path::BaseDirectory;
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{Manager, State};
 /**
  * 轻画桌面壳（Tauri 2）的入口。
  *
@@ -14,13 +22,6 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FsExt;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_updater::UpdaterExt;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
-use tauri::menu::{Menu, MenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Manager, State};
 
 /// 「选一个目录当素材文件夹」：弹系统目录选择框 → 把该目录**递归**加进 fs 作用域 → 返回绝对路径。
 ///
@@ -275,7 +276,12 @@ fn system_roots(app: &tauri::AppHandle) -> Vec<PathBuf> {
     if let Ok(p) = app.path().data_dir() {
         roots.push(p);
     }
-    for key in ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "SystemRoot"] {
+    for key in [
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "ProgramW6432",
+        "SystemRoot",
+    ] {
         if let Ok(value) = std::env::var(key) {
             if !value.is_empty() {
                 roots.push(PathBuf::from(value));
@@ -509,10 +515,7 @@ fn profile_backup_info(app: tauri::AppHandle) -> ProfileBackupInfo {
     let dir = current_data_dir(&app)
         .map(|data_dir| data_dir.to_string_lossy().to_string())
         .unwrap_or_default();
-    ProfileBackupInfo {
-        dir,
-        keep: 0,
-    }
+    ProfileBackupInfo { dir, keep: 0 }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -662,7 +665,11 @@ async fn fetch_bytes(url: String, timeout_ms: Option<u64>) -> Result<FetchedByte
         .timeout(std::time::Duration::from_millis(timeout_ms.unwrap_or(8000)))
         .build()
         .map_err(|err| err.to_string())?;
-    let response = client.get(&url).send().await.map_err(|err| err.to_string())?;
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|err| err.to_string())?;
     let status = response.status().as_u16();
     let content_type = response
         .headers()
@@ -718,7 +725,9 @@ async fn fetch_text(
     }
     let verb = method.unwrap_or_else(|| "GET".into()).to_uppercase();
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_millis(timeout_ms.unwrap_or(10000)))
+        .timeout(std::time::Duration::from_millis(
+            timeout_ms.unwrap_or(10000),
+        ))
         .build()
         .map_err(|err| err.to_string())?;
 
@@ -782,7 +791,10 @@ mod fetch_text_tests {
         for m in ["GET", "POST", "PUT", "DELETE", "HEAD"] {
             assert!(matches!(m, "GET" | "POST" | "PUT" | "DELETE" | "HEAD"));
         }
-        assert!(!matches!("PATCH", "GET" | "POST" | "PUT" | "DELETE" | "HEAD"));
+        assert!(!matches!(
+            "PATCH",
+            "GET" | "POST" | "PUT" | "DELETE" | "HEAD"
+        ));
     }
 }
 
@@ -816,7 +828,10 @@ mod storage_tests {
             "Preferences",
             "blob_storage",
         ] {
-            assert!(!is_cache_dir_name(name), "{name} 是用户数据，绝不能当缓存删");
+            assert!(
+                !is_cache_dir_name(name),
+                "{name} 是用户数据，绝不能当缓存删"
+            );
         }
     }
 
@@ -1038,7 +1053,10 @@ mod cli_tests {
         assert_eq!(clamp_timeout(Some(0)), 1_000);
         assert_eq!(clamp_timeout(Some(999)), 1_000);
         assert_eq!(clamp_timeout(Some(5_000)), 5_000);
-        assert_eq!(clamp_timeout(Some(CLI_MAX_TIMEOUT_MS + 1)), CLI_MAX_TIMEOUT_MS);
+        assert_eq!(
+            clamp_timeout(Some(CLI_MAX_TIMEOUT_MS + 1)),
+            CLI_MAX_TIMEOUT_MS
+        );
     }
 
     #[test]
@@ -1082,9 +1100,37 @@ mod cli_tests {
     }
 }
 
+fn bundled_program_relative(program: &str) -> Option<PathBuf> {
+    if program.eq_ignore_ascii_case("ffmpeg") {
+        Some(PathBuf::from("resources").join("ffmpeg.exe"))
+    } else {
+        None
+    }
+}
+
+fn bundled_program_path(app: &tauri::AppHandle, program: &str) -> Option<PathBuf> {
+    let relative = bundled_program_relative(program)?;
+    if let Ok(path) = app.path().resolve(&relative, BaseDirectory::Resource) {
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    #[cfg(debug_assertions)]
+    {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+    None
+}
+
 /// 「这个命令到底能不能跑」——只看文件在不在，**不执行任何东西**。
 #[tauri::command]
-fn cli_which(program: String) -> Option<String> {
+fn cli_which(app: tauri::AppHandle, program: String) -> Option<String> {
+    if let Some(path) = bundled_program_path(&app, &program) {
+        return Some(path.to_string_lossy().to_string());
+    }
     let path_var = std::env::var("PATH").unwrap_or_default();
     find_in_path(&program, &path_var, &|p| p.is_file()).map(|p| p.to_string_lossy().to_string())
 }
@@ -1442,8 +1488,7 @@ fn valid_cli_out_name(name: &str) -> bool {
 fn cli_write_out(app: tauri::AppHandle, name: String, bytes: Vec<u8>) -> Result<String, String> {
     if !valid_cli_out_name(&name) {
         return Err(
-            "字幕文件名不合法：只写文件名、扩展名必须是 .srt，不能包含路径或控制字符"
-                .to_string(),
+            "字幕文件名不合法：只写文件名、扩展名必须是 .srt，不能包含路径或控制字符".to_string(),
         );
     }
     if bytes.is_empty() {
@@ -1552,8 +1597,14 @@ mod cli_out_tests {
         // 目录本身不是文件
         assert!(!is_inside(root, Path::new(r"C:\data\cli-out")));
         // `..` 一律拒：starts_with 不做规范化，不挡这条就能读到隔壁
-        assert!(!is_inside(root, Path::new(r"C:\data\cli-out\..\secret.txt")));
-        assert!(!is_inside(root, Path::new(r"C:\data\cli-out\sub\..\..\secret.txt")));
+        assert!(!is_inside(
+            root,
+            Path::new(r"C:\data\cli-out\..\secret.txt")
+        ));
+        assert!(!is_inside(
+            root,
+            Path::new(r"C:\data\cli-out\sub\..\..\secret.txt")
+        ));
         // 前缀相同但不是同一层（`cli-out2` 不是 `cli-out` 的子目录）
         assert!(!is_inside(root, Path::new(r"C:\data\cli-out2\a.png")));
         // 完全无关的盘
@@ -1907,7 +1958,10 @@ fn start_ui_watchdog(app: &tauri::AppHandle) {
                 .state::<UiHealth>()
                 .reloads
                 .fetch_add(1, Ordering::Relaxed);
-            eprintln!("[ui] 20 秒无心跳，WebView 可能白屏，执行第 {} 次重载", attempts + 1);
+            eprintln!(
+                "[ui] 20 秒无心跳，WebView 可能白屏，执行第 {} 次重载",
+                attempts + 1
+            );
             if let Ok(mut last) = app.state::<UiHealth>().last.lock() {
                 *last = Instant::now();
             }
@@ -1933,17 +1987,35 @@ mod window_state_tests {
     #[test]
     fn keeps_geometry_that_fits_a_monitor() {
         let got = sanitize_geometry(
-            WindowGeometry { x: 100, y: 80, w: 1440, h: 900 },
+            WindowGeometry {
+                x: 100,
+                y: 80,
+                w: 1440,
+                h: 900,
+            },
             &[monitor(0, 0, 2560, 1440)],
         );
-        assert_eq!(got, Some(WindowGeometry { x: 100, y: 80, w: 1440, h: 900 }));
+        assert_eq!(
+            got,
+            Some(WindowGeometry {
+                x: 100,
+                y: 80,
+                w: 1440,
+                h: 900
+            })
+        );
     }
 
     #[test]
     fn keeps_a_window_on_a_negative_x_second_monitor() {
         // 副屏在主屏左边 ⇒ 合法的 x 是负数，不能被当成"屏幕外"
         let got = sanitize_geometry(
-            WindowGeometry { x: -1800, y: 40, w: 1200, h: 800 },
+            WindowGeometry {
+                x: -1800,
+                y: 40,
+                w: 1200,
+                h: 800,
+            },
             &[monitor(0, 0, 2560, 1440), monitor(-1920, 0, 1920, 1080)],
         );
         assert!(got.is_some());
@@ -1953,7 +2025,12 @@ mod window_state_tests {
     fn drops_geometry_of_a_monitor_that_is_gone() {
         // 副屏拔掉：x=-1800 那条现在哪块屏幕都不沾 ⇒ None（调用方居中）
         let got = sanitize_geometry(
-            WindowGeometry { x: -1800, y: 40, w: 1200, h: 800 },
+            WindowGeometry {
+                x: -1800,
+                y: 40,
+                w: 1200,
+                h: 800,
+            },
             &[monitor(0, 0, 2560, 1440)],
         );
         assert_eq!(got, None);
@@ -1962,7 +2039,12 @@ mod window_state_tests {
     #[test]
     fn bumps_a_too_small_size_to_the_minimum() {
         let got = sanitize_geometry(
-            WindowGeometry { x: 0, y: 0, w: 300, h: 200 },
+            WindowGeometry {
+                x: 0,
+                y: 0,
+                w: 300,
+                h: 200,
+            },
             &[monitor(0, 0, 2560, 1440)],
         )
         .unwrap();
@@ -1972,7 +2054,12 @@ mod window_state_tests {
     #[test]
     fn clamps_a_size_larger_than_the_monitor() {
         let got = sanitize_geometry(
-            WindowGeometry { x: 0, y: 0, w: 5000, h: 4000 },
+            WindowGeometry {
+                x: 0,
+                y: 0,
+                w: 5000,
+                h: 4000,
+            },
             &[monitor(0, 0, 1920, 1080)],
         )
         .unwrap();
@@ -1983,7 +2070,12 @@ mod window_state_tests {
     fn rejects_a_window_whose_title_bar_is_above_the_screen() {
         // y 在屏幕上方（拖不回来）⇒ None
         let got = sanitize_geometry(
-            WindowGeometry { x: 100, y: -400, w: 1200, h: 800 },
+            WindowGeometry {
+                x: 100,
+                y: -400,
+                w: 1200,
+                h: 800,
+            },
             &[monitor(0, 0, 2560, 1440)],
         );
         assert_eq!(got, None);
@@ -1992,7 +2084,12 @@ mod window_state_tests {
     #[test]
     fn saved_state_round_trips_through_json() {
         let state = SavedWindow {
-            geometry: Some(WindowGeometry { x: 12, y: 34, w: 1440, h: 900 }),
+            geometry: Some(WindowGeometry {
+                x: 12,
+                y: 34,
+                w: 1440,
+                h: 900,
+            }),
             maximized: true,
         };
         let text = serde_json::to_string(&state).unwrap();
@@ -2004,6 +2101,32 @@ mod window_state_tests {
                 .maximized,
             false
         );
+    }
+}
+
+#[cfg(test)]
+mod bundled_program_tests {
+    use super::*;
+
+    #[test]
+    fn only_ffmpeg_maps_to_the_bundled_resource() {
+        assert_eq!(
+            bundled_program_relative("ffmpeg"),
+            Some(PathBuf::from("resources").join("ffmpeg.exe"))
+        );
+        assert_eq!(
+            bundled_program_relative("FFMPEG"),
+            Some(PathBuf::from("resources").join("ffmpeg.exe"))
+        );
+        assert_eq!(bundled_program_relative("ffprobe"), None);
+        assert_eq!(bundled_program_relative("notepad"), None);
+    }
+
+    #[test]
+    fn debug_resource_candidate_lives_under_src_tauri() {
+        let relative = bundled_program_relative("ffmpeg").unwrap();
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative);
+        assert!(path.ends_with(Path::new("src-tauri").join("resources").join("ffmpeg.exe")));
     }
 }
 
@@ -2030,7 +2153,9 @@ pub fn run() {
          * 窗口几何的节流时钟（见 `WindowSaveClock`）。初值往回拨 10 秒，
          * 免得"启动后第一次微调尺寸"被节流吃掉。
          */
-        .manage(WindowSaveClock(std::sync::Mutex::new(std::time::Instant::now())))
+        .manage(WindowSaveClock(std::sync::Mutex::new(
+            std::time::Instant::now(),
+        )))
         .manage(UiHealth::default())
         /*
          * 本机 CLI 的进程表（见上面「本机 CLI」那一段）。
@@ -2207,11 +2332,7 @@ mod data_dir_tests {
 
     #[test]
     fn chosen_install_dir_gets_sibling_data_dir() {
-        let got = decide_data_dir(
-            Path::new("D:\\轻画\\app"),
-            &none_roots(),
-            &always,
-        );
+        let got = decide_data_dir(Path::new("D:\\轻画\\app"), &none_roots(), &always);
         assert_eq!(got, Some(PathBuf::from("D:\\轻画\\data")));
     }
 
@@ -2237,9 +2358,15 @@ mod data_dir_tests {
     #[test]
     fn drive_root_is_not_a_usable_parent() {
         // 装在 D:\app ⇒ 上一级是盘根 D:\ ⇒ 不做"隔壁 data"
-        assert_eq!(decide_data_dir(Path::new("D:\\app"), &none_roots(), &always), None);
+        assert_eq!(
+            decide_data_dir(Path::new("D:\\app"), &none_roots(), &always),
+            None
+        );
         // 程序直接躺在盘根 ⇒ 连上一级都没有
-        assert_eq!(decide_data_dir(Path::new("D:\\qinghua.exe"), &none_roots(), &always), None);
+        assert_eq!(
+            decide_data_dir(Path::new("D:\\qinghua.exe"), &none_roots(), &always),
+            None
+        );
     }
 
     #[test]
@@ -2254,11 +2381,19 @@ mod data_dir_tests {
         // 数据不能跟着进构建缓存（`cargo clean` 会连它一起删）
         let roots = none_roots();
         assert_eq!(
-            decide_data_dir(Path::new("E:\\proj\\src-tauri\\target\\debug"), &roots, &always),
+            decide_data_dir(
+                Path::new("E:\\proj\\src-tauri\\target\\debug"),
+                &roots,
+                &always
+            ),
             None
         );
         assert_eq!(
-            decide_data_dir(Path::new("E:\\proj\\src-tauri\\target\\release"), &roots, &always),
+            decide_data_dir(
+                Path::new("E:\\proj\\src-tauri\\target\\release"),
+                &roots,
+                &always
+            ),
             None
         );
         // 但真的装在 `...\轻画\app` 时要生效（"target" 只在 dev 那一层出现）

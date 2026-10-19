@@ -6,6 +6,7 @@ dist/
 dist-ssr/
 *.local
 target/
+.cache/
 
 # 测试与验证产物
 coverage/
@@ -27,6 +28,10 @@ scripts/probe-*.mjs
 # 那页 2026-10-06 按用户要求**连本地也删了**（不留副本）；这条规则留着防同类再犯：
 # 以后再写一次性排查页，放 `scripts/`、不进版本库。
 scripts/__*.html
+
+# Desktop FFmpeg runtime (downloaded and hash-verified by prepare-ffmpeg.mjs)
+src-tauri/resources/ffmpeg.exe
+src-tauri/resources/ffmpeg.exe.tmp
 
 # 漫剧调研稿（2026-10-09 起入库，原先被忽略规则挡在库外）
 #

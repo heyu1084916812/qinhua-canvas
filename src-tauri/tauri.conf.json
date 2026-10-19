@@ -7,7 +7,7 @@
     "devUrl": "http://127.0.0.1:1420",
     "beforeDevCommand": "npm run dev:vite",
     "frontendDist": "../dist",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "npm run build && npm run prepare:ffmpeg"
   },
   "app": {
     "windows": [
@@ -34,6 +34,12 @@
     "active": true,
     "targets": ["nsis", "msi"],
     "createUpdaterArtifacts": true,
+    "resources": [
+      "resources/ffmpeg.exe",
+      "resources/FFMPEG-LICENSE.txt",
+      "resources/FFMPEG-NOTICE.txt",
+      "resources/ffmpeg-build.json"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

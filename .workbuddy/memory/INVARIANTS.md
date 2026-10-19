@@ -170,6 +170,8 @@
 
 ## comic
 
+- **桌面合成必须自带可验证的 FFmpeg**：安装包使用固定版本与 SHA-256 的 Windows 二进制，`cli_which("ffmpeg")` 先解析 Tauri resource，再查开发目录与 PATH；release 门禁必须在临时安装布局里实际编码 H.264，不能只验证版本字符串。
+
 - 模型 Project→Episode(话)→Page(页)→Panel(格)。页 = 切割树 `layout`（叶子只持 `panelId`）+ 内容池 `panels`（**版式与内容解耦**）；格 = `scene` / `shot` / `balloons`（对白贴纸，格内 0..1 相对坐标，**不烘进图**）。**几何与顺序彻底解耦**：h 切沿 y 分行、v 切沿 x 分列，`children[0]` 恒最上/最左；**RTL 只重排阅读序号、不动几何**。空 `layout` = 未排版。读回 `normalizeComicProject` 只补不删。
 - **数字人口播是镜头级单一音轨**：同一角色多句先合成一条 WAV；多句必须显式同 `speakerId`，多角色镜头拒绝。逐句按钮只生成配音，整镜按钮才调用数字人模型。
 - 阅读层：**页序 = 叙事序、不随方向翻转**（方向只管格内顺序与翻页手感，`rtl` 下 `←` 才前进）；双页 `spreadGroups`（`loneFirst`）/ `spreadNeighbor` / `spreadSlots`（定长 2、方向镜像）；**步进变「一组」但边界判定同源**；版式是 UI 态、刷新回落单页。

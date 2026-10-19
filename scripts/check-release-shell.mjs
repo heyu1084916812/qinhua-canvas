@@ -5,13 +5,14 @@
 // 前端资源内嵌进 exe、没有 dev 服务器兜底、`__APP_VERSION__` 由构建时注入、
 // 11.7 MB 的 mediapipe wasm 也在包里。这些差异只在 release 里才暴露。
 //
-// 它验的六件事（每条都读**磁盘或页面里的真值**，不读"意图"）：
+// 它验的七件事（每条都读**磁盘或页面里的真值**，不读"意图"）：
 //   ① 跑的是内嵌前端（`http://tauri.localhost`），不是 :1420 的开发服务器；
 //   ② 平台判定是 desktop；
 //   ③ 首屏 + 首次引导能渲染、能关掉；项目页能把**真库里的项目**渲染成卡片；
 //   ④ 「关于」面板显示的版本 = package.json 的版本（构建时注入有没有生效）；
 //   ⑤ mediapipe wasm 能从包里取到且字节数与 dist 一致；
 //   ⑥ 同级 `data\` 自动创建、默认 profile 的 IndexedDB 被迁过来。
+//   ⑦ 随包 FFmpeg 能从安装布局解析并真实编码 H.264 MP4。
 //
 // 隔离：把 exe 拷到 `<工作区>/.playwright-verify/release-shell/app/` 再跑，
 // 于是 Rust 那条「程序目录上一级的 `data\`」规则生效（闸门 0 只对 `src-tauri\target\{debug,release}` 放行），
@@ -26,6 +27,7 @@ import {
   createWriteStream,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -35,6 +37,7 @@ import { chromium } from 'playwright'
 
 const ROOT = process.cwd()
 const EXE_SRC = process.env.QH_RELEASE_EXE ?? path.join(ROOT, 'src-tauri/target/release/qinghua.exe')
+const RESOURCE_SRC = path.join(path.dirname(EXE_SRC), 'resources')
 const PORT = Number(process.env.QH_CDP_PORT ?? 9444)
 const KEEP_PROFILE = process.env.QH_KEEP_PROFILE === '1'
 const PKG_VERSION = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version
@@ -59,6 +62,13 @@ const exePath = path.join(appDir, 'qinghua.exe')
 mkdirSync(appDir, { recursive: true })
 mkdirSync(localAppData, { recursive: true })
 copyFileSync(EXE_SRC, exePath)
+if (existsSync(RESOURCE_SRC)) {
+  const resourceTarget = path.join(appDir, 'resources')
+  mkdirSync(resourceTarget, { recursive: true })
+  for (const name of readdirSync(RESOURCE_SRC)) {
+    copyFileSync(path.join(RESOURCE_SRC, name), path.join(resourceTarget, name))
+  }
+}
 console.log(`临时布局：${scratch}`)
 console.log(`  程序 ${exePath}（${statSync(exePath).size} B）`)
 
@@ -253,7 +263,44 @@ check(
   `${JSON.stringify(wasm)} 期望 ${expectedWasm}${wasm.error ? ` err=${wasm.error}` : ''}`,
 )
 
-// ⑥ 独立 LOCALAPPDATA 下的 shared-store 必须真的启动，且不能连回用户真实库
+// ⑥ 随包 FFmpeg 必须从安装布局解析并真实编码
+const ffmpeg = await page.evaluate(async () => {
+  try {
+    const invoke = window.__TAURI_INTERNALS__?.invoke
+    if (!invoke) return { ok: false, error: 'TAURI_INTERNALS.invoke missing' }
+    const program = await invoke('cli_which', { program: 'ffmpeg' })
+    if (!program) return { ok: false, error: 'cli_which(ffmpeg) returned null' }
+    const outDir = await invoke('cli_out_dir')
+    const name = `release-ffmpeg-${Date.now()}.mp4`
+    const run = await invoke('cli_run', {
+      id: `release-ffmpeg-${Date.now()}`,
+      program,
+      args: ['-y', '-f', 'lavfi', '-i', 'color=c=red:s=108x192:r=30', '-t', '1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', name],
+      cwd: outDir,
+      timeoutMs: 60000,
+    })
+    const base64 = await invoke('cli_read_out', { path: `${outDir}\\${name}` })
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+    const header = new TextDecoder('latin1').decode(bytes.slice(0, 32))
+    return {
+      ok: run.code === 0 && bytes.length > 1000 && header.includes('ftyp'),
+      program,
+      bytes: bytes.length,
+      header,
+      code: run.code,
+      timedOut: run.timedOut,
+    }
+  } catch (error) {
+    return { ok: false, error: String(error) }
+  }
+})
+check(
+  '随包 FFmpeg 能被 release 壳解析并真实编码 H.264 MP4',
+  ffmpeg.ok === true,
+  JSON.stringify(ffmpeg),
+)
+
+// ⑦ 独立 LOCALAPPDATA 下的 shared-store 必须真的启动，且不能连回用户真实库
 const sharedStoreDir = path.join(localAppData, 'com.qinghua.canvas', 'shared-store-v1')
 const health = await fetch('http://127.0.0.1:18765/health')
   .then((res) => (res.ok ? res.json() : null))
