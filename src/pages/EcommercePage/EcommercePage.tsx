@@ -1322,7 +1322,12 @@ function StudioHost({ projectId }: { projectId: string }) {
       : results.filter((r) => r.status === 'failed').map((r) => r.nodeId)
     if (ids.length === 0) return
     for (const nodeId of ids) {
-      await exec.runNode(nodeId)
+      /**
+       * 重试失败项 = 把这一格救回来，不是再抽一张。
+       * 必须显式原地运行；否则失败节点一旦已有旧产物，会另铺承载节点，
+       * 而结果行仍盯着原节点，界面看起来“重试成功但结果没变”。
+       */
+      await exec.runNode(nodeId, { inPlace: true })
       if (activeTask) await syncResultRow(activeTask.id, nodeId)
     }
     if (activeTask) await refreshTask(activeTask)

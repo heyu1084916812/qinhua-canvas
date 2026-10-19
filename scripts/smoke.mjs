@@ -25906,6 +25906,8 @@ async function g116(browser) {
     retryVisible,
     `失败=${await retryPage.locator('[data-ecommerce-result][data-status="failed"]').count()} 入口=${retryVisible}`,
   )
+  const retryNodeCountBefore = (await sharedRows(page, 'nodes')).length
+  const retryResultCountBefore = (await sharedRows(page, 'ecommerceResults')).length
   await retryPage.locator('[data-ecommerce-retry-failed]').click()
   const retried = await retryPage
     .waitForFunction(
@@ -25920,6 +25922,17 @@ async function g116(browser) {
     '★★ 点重试后失败项真的跑完（失败数归零）',
     retried,
     `失败=${await retryPage.locator('[data-ecommerce-result][data-status="failed"]').count()}`,
+  )
+  await sleep(800)
+  const retryNodeCountAfter = (await sharedRows(page, 'nodes')).length
+  const retryResultCountAfter = (await sharedRows(page, 'ecommerceResults')).length
+  rec(
+    g,
+    '★★★ 重试失败项是原地救回这一格：结果行数与画布节点数都不增加',
+    retried &&
+      retryNodeCountAfter === retryNodeCountBefore &&
+      retryResultCountAfter === retryResultCountBefore,
+    `节点 ${retryNodeCountBefore}→${retryNodeCountAfter} · 结果 ${retryResultCountBefore}→${retryResultCountAfter}`,
   )
   await retryPage.close()
 
