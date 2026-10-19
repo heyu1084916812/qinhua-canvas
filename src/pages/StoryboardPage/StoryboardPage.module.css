@@ -520,6 +520,22 @@
   border-radius: var(--radius-control);
 }
 
+.shotVideo {
+  display: inline-flex;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-canvas);
+}
+
+.shotVideoPlayer {
+  display: block;
+  width: 160px;
+  height: 90px;
+  object-fit: contain;
+}
+
 .shotImg {
   display: block;
   width: 96px;

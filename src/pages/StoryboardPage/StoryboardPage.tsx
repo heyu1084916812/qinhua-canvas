@@ -60,6 +60,7 @@ import {
 } from '../../domain/storyboard/ffmpegPack'
 import { toBytes } from '../../platform/assets'
 import { importAudioAsset } from '../../features/storyboard/importAudioAsset'
+import { downloadAsset } from '../../features/canvas/downloadAsset'
 import { EpisodePreview } from './EpisodePreview'
 import { SourcePreview } from './SourcePreview'
 import {
@@ -3170,6 +3171,15 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                                 )
                             : undefined
                         }
+                        onDownloadVideo={
+                          shot.videoHash
+                            ? () =>
+                                void downloadAsset(
+                                  { assets: platform.assets, files: platform.files },
+                                  shot.videoHash!,
+                                )
+                            : undefined
+                        }
                         onBindScene={(sceneId) => apply(bindShotScene(doc, shot.id, sceneId, 0))}
                         onToggleCharacter={(characterId) =>
                           apply(toggleShotCharacter(doc, shot.id, characterId, 0))
@@ -3309,6 +3319,7 @@ function ShotCard({
   videoExtendTargets,
   videoExtendBusyShotId,
   onVideoExtend,
+  onDownloadVideo,
   onShowSource,
   onAddLine,
   onLinePatch,
@@ -3377,6 +3388,7 @@ function ShotCard({
     resolution: string,
     duration: number,
   ) => void
+  onDownloadVideo?: () => void
   /** 「看本集原文」（对账 #547）：这一集有可回看的原文片段时才传 */
   onShowSource?: () => void
 }) {
@@ -3518,6 +3530,11 @@ function ShotCard({
         </div>
       </div>
       <div className={styles.shotBar}>
+        {shot.videoHash ? (
+          <span className={styles.shotVideo} data-storyboard-shot-video-preview={shot.id}>
+            <ShotVideo hash={shot.videoHash} />
+          </span>
+        ) : null}
         {shot.imageHash ? (
           <span className={styles.shotImage} data-storyboard-shot-image={shot.id}>
             <ShotThumb hash={shot.imageHash} />
@@ -3605,6 +3622,16 @@ function ShotCard({
               }
             >
               {videoExtending ? '视频续写中…' : '视频续写'}
+            </button>
+          ) : null}
+          {onDownloadVideo && shot.videoHash ? (
+            <button
+              type="button"
+              className={styles.ghost}
+              data-storyboard-download-video={shot.id}
+              onClick={onDownloadVideo}
+            >
+              下载视频
             </button>
           ) : null}
         </div>
@@ -4529,6 +4556,23 @@ function ShotThumb({ hash }: { hash: string }) {
   const url = useAsset(hash)
   if (!url) return null
   return <img className={styles.shotImg} src={url} alt="" />
+}
+
+/** 当前镜头视频预览：视频节点可能已被替换，但镜头 hash 始终指向当前版本。 */
+function ShotVideo({ hash }: { hash: string }) {
+  const meta = useAssetMeta(hash)
+  if (meta.missing) return <span className={styles.error}>视频素材缺失</span>
+  if (!meta.url) return <span className={styles.hint}>正在读取视频…</span>
+  return (
+    <video
+      className={styles.shotVideoPlayer}
+      controls
+      playsInline
+      preload="metadata"
+      src={meta.url}
+      data-storyboard-shot-video={hash}
+    />
+  )
 }
 
 /** 把任意异常翻成给用户看的句子（`asAppError` + `describeError` 是本项目统一的翻译对） */

@@ -31833,6 +31833,35 @@ async function g145(browser) {
     `${digitalShot?.nodeId ?? 'none'} → ${digitalShot?.videoNodeId ?? 'none'}`,
   )
 
+  const shotVideoPreview = page.locator(
+    `[data-storyboard-shot-video-preview="${ids[0]}"] video`,
+  )
+  const shotVideoPreviewShown = await shotVideoPreview
+    .waitFor({ state: 'attached', timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
+  const shotVideoFacts = shotVideoPreviewShown
+    ? await shotVideoPreview.evaluate((video) => ({
+        controls: video.hasAttribute('controls'),
+        src: video.getAttribute('src') ?? '',
+      }))
+    : { controls: false, src: '' }
+  rec(
+    g,
+    '★★ 镜头生成视频后可在卡片内直接预览当前版本',
+    shotVideoPreviewShown && shotVideoFacts.controls && shotVideoFacts.src.length > 0,
+    `controls=${shotVideoFacts.controls} src=${shotVideoFacts.src.slice(0, 32)}`,
+  )
+  const shotVideoDownload = page
+    .waitForEvent('download', { timeout: 10000 })
+    .catch(() => null)
+  await page.locator(`[data-storyboard-download-video="${ids[0]}"]`).click()
+  rec(
+    g,
+    '★ 当前镜头视频可直接下载',
+    !!(await shotVideoDownload),
+  )
+
   const oldVideoNodeId = digitalShot?.videoNodeId ?? ''
   const oldVideoHash = digitalShot?.videoHash ?? ''
   const upscaleButton = page.locator(`[data-storyboard-shot-upscale="${ids[0]}"]`)
