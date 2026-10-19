@@ -136,6 +136,7 @@ describe('RunningHub 视频超清目录与请求', () => {
     for (const [modelId, endpointId, task, mediaKey] of [
       ['Topaz 视频超清', 'topazlabs/video-upscale', 'video-upscale', 'videoUrl'],
       ['RH 视频超分', 'rhart-video/video-upscaler', 'video-upscale', 'videoUrl'],
+      ['RH 视频补帧', 'rhart-video/video-fps-increaser', 'video-fps-increase', 'videoUrl'],
       ['火山字幕擦除 标准版', 'volc-subtitle-erase/video', 'video-subtitle-erase', 'videoUrl'],
       [
         '火山字幕擦除 精细化版',
@@ -298,6 +299,61 @@ describe('RunningHub 视频超清目录与请求', () => {
 
     expect(submitBody).toEqual({
       videoUrl: 'https://files.runninghub.cn/erase-source.mp4',
+    })
+    expect(outputs[0]?.mime).toBe('video/mp4')
+  })
+
+  it('★★ 视频补帧只上传输入视频，不发送目录未声明的帧率或分辨率', async () => {
+    let submitBody: Record<string, unknown> | null = null
+    const platform = createMemoryPlatform({
+      rows: {
+        assets: [{ id: 'fps-source', bytes: VIDEO_BYTES, mime: 'video/mp4' }],
+      },
+      handler: async (req: NetworkRequest) => {
+        if (req.url.endsWith('/openapi/v2/media/upload/binary')) {
+          return json(200, {
+            code: 0,
+            data: { download_url: 'https://files.runninghub.cn/fps-source.mp4' },
+          })
+        }
+        if (req.url.endsWith('/openapi/v2/rhart-video/video-fps-increaser')) {
+          submitBody = req.body as Record<string, unknown>
+          return json(200, { code: 0, taskId: 'fps-task' })
+        }
+        if (req.url.endsWith('/openapi/v2/query')) {
+          return json(200, {
+            status: 'SUCCESS',
+            results: [{ url: 'https://files.runninghub.cn/fps-result.mp4' }],
+          })
+        }
+        if (req.url.endsWith('/fps-result.mp4')) {
+          return bytes(200, VIDEO_BYTES, 'video/mp4')
+        }
+        return json(200, {})
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    const outputs = await adapter.generateVideo(
+      {
+        kind: 'video',
+        channelId: 'c1',
+        model: 'RH 视频补帧',
+        prompt: '视频补帧',
+        inputs: [
+          {
+            kind: 'asset',
+            nodeId: 'video-node',
+            assetHash: 'fps-source',
+            mime: 'video/mp4',
+          },
+        ],
+        params: {},
+      },
+      signal,
+    )
+
+    expect(submitBody).toEqual({
+      videoUrl: 'https://files.runninghub.cn/fps-source.mp4',
     })
     expect(outputs[0]?.mime).toBe('video/mp4')
   })

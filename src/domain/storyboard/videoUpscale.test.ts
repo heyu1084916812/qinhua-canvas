@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   isVideoUpscaleModel,
   normalizeVideoUpscaleSettings,
+  videoUpscaleActionOf,
   videoUpscaleOptionsOf,
 } from './videoUpscale'
 
@@ -20,6 +21,19 @@ describe('漫剧视频超清档位', () => {
     })
   })
 
+  it('RH 视频补帧不伪造分辨率或帧率，只走视频后处理', () => {
+    expect(videoUpscaleOptionsOf('RH 视频补帧')).toEqual({
+      resolutions: [],
+      frameRates: [],
+    })
+    expect(normalizeVideoUpscaleSettings('RH 视频补帧', '1080p', 60)).toEqual({
+      resolution: '',
+      frameRate: null,
+    })
+    expect(videoUpscaleActionOf('RH 视频补帧')).toBe('fps')
+    expect(videoUpscaleActionOf('Topaz 视频超清')).toBe('upscale')
+  })
+
   it('非法档位回落到 1080p 与模型默认帧率', () => {
     expect(normalizeVideoUpscaleSettings('Topaz 视频超清', '8k', 120)).toEqual({
       resolution: '1080p',
@@ -34,5 +48,6 @@ describe('漫剧视频超清档位', () => {
   it('只认两条真实视频超清模型', () => {
     expect(isVideoUpscaleModel('Topaz 图像超清 Standard')).toBe(false)
     expect(isVideoUpscaleModel('Topaz 视频超清')).toBe(true)
+    expect(isVideoUpscaleModel('RH 视频补帧')).toBe(true)
   })
 })

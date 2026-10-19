@@ -315,6 +315,13 @@ const MODELS = [
     text: 'rhart-video/video-upscaler',
   },
   {
+    slug: 'video-rh-fps-increaser',
+    label: 'RH 视频补帧',
+    hint: '对已有视频做帧率增强，结果另起新视频节点',
+    kind: 'video',
+    text: 'rhart-video/video-fps-increaser',
+  },
+  {
     slug: 'video-subtitle-erase',
     label: '火山字幕擦除 标准版',
     hint: '自动擦除已有视频中的字幕，结果另起新视频节点',

@@ -1054,6 +1054,12 @@ const SMOKE_MOCK_MODELS = [
     maxReferenceImages: 1,
   },
   {
+    id: 'RH 视频补帧',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    maxReferenceImages: 1,
+  },
+  {
     id: '火山字幕擦除 标准版',
     category: 'video',
     inputTypes: ['text', 'video'],
@@ -32326,15 +32332,44 @@ async function g145(browser) {
     .locator(`[data-storyboard-upscale-target="${ids[0]}"] option`)
     .allInnerTexts()
     .catch(() => [])
+  const fpsTargetIndex = upscaleTargetOptions.findIndex((text) =>
+    text.includes('RH 视频补帧'),
+  )
+  const topazTargetIndex = upscaleTargetOptions.findIndex((text) =>
+    text.includes('Topaz 视频超清'),
+  )
+  let fpsHasNoSettings = false
+  if (fpsTargetIndex >= 0) {
+    await page
+      .locator(`[data-storyboard-upscale-target="${ids[0]}"]`)
+      .selectOption(String(fpsTargetIndex))
+    await page.waitForTimeout(100)
+    fpsHasNoSettings =
+      (await page
+        .locator(`[data-storyboard-upscale-resolution="${ids[0]}"]`)
+        .count()
+        .catch(() => 0)) === 0 &&
+      (await page
+        .locator(`[data-storyboard-upscale-fps="${ids[0]}"]`)
+        .count()
+        .catch(() => 0)) === 0
+  }
   rec(
     g,
-    '★★ 已有镜头视频时出现真实「视频超清」入口，并使用启用的 Topaz / RH 模型',
+    '★★ 已有视频时出现真实「视频后处理」入口；补帧模型不伪造清晰度 / 帧率',
     upscaleShown &&
       (await upscalePanel.isVisible().catch(() => false)) &&
       upscaleTargetOptions.some((text) => text.includes('Topaz 视频超清')) &&
-      upscaleTargetOptions.some((text) => text.includes('RH 视频超分')),
-    `入口=${upscaleShown} 目标=${upscaleTargetOptions.join(' / ')}`,
+      upscaleTargetOptions.some((text) => text.includes('RH 视频超分')) &&
+      fpsTargetIndex >= 0 &&
+      fpsHasNoSettings,
+    `入口=${upscaleShown} 目标=${upscaleTargetOptions.join(' / ')} 补帧无档位=${fpsHasNoSettings}`,
   )
+  if (topazTargetIndex >= 0) {
+    await page
+      .locator(`[data-storyboard-upscale-target="${ids[0]}"]`)
+      .selectOption(String(topazTargetIndex))
+  }
   await page
     .locator(`[data-storyboard-upscale-resolution="${ids[0]}"]`)
     .selectOption('4k')
