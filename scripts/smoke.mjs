@@ -32640,12 +32640,12 @@ async function g147(browser) {
   const sentence = '给我做一套亚马逊英文详情页，4 张，3:4，突出防水材质'
 
   /* 渠道先配好（`configureMockChannel` 会整页跳去设置页，放在建项目之前） */
-  await configureMockChannel(page)
+  await configureMockChannel(page, { isolate: true })
   await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
   await sleep(600)
   await page.locator('[data-ecommerce-create]').click()
   await page.waitForURL(/\/ecommerce\/proj_/)
-  await sleep(900)
+  await page.locator('[data-ecommerce-form]').waitFor({ state: 'visible', timeout: 20_000 })
   const projectUrl = page.url()
 
   rec(
