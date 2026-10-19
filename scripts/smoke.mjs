@@ -31083,6 +31083,7 @@ async function g143(browser) {
       .at(-1)
 
   /* 渠道要先配好：`configureMockChannel` 会整页跳去设置页，放写数据之前（#427 的教训） */
+  await configureMockChannel(page, { isolate: true })
   await page.goto(`${BASE}/storyboard`, { waitUntil: 'networkidle' })
   await sleep(400)
   await page.locator('[data-storyboard-create]').click()
@@ -31437,11 +31438,11 @@ async function g144(browser) {
      * 命令里就必须只有一个 `-i`。不按"有没有某个字样"判：那是我第一版写错的判据
      * （去命令段里找"第 1 镜"，而命令里只有文件名）。
      */
-    (commandSection.match(/-i /g) ?? []).length === 3 &&
+    (commandSection.match(/-i /g) ?? []).length === 4 &&
       !commandSection.includes('g144-image-b') &&
       /第 2 镜：还没出图/.test(mdText) &&
       !/-i undefined/.test(mdText),
-    `命令里 -i 次数=${(commandSection.match(/-i /g) ?? []).length}（成片素材 1 + BGM 1） 缺料段=${(
+    `命令里 -i 次数=${(commandSection.match(/-i /g) ?? []).length}（成片素材 1 + BGM 1 + 配音 1 + SRT 1） 缺料段=${(
       mdText.split('缺料的镜头')[1] ?? ''
     )
       .split('##')[0]
