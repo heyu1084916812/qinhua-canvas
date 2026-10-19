@@ -24,6 +24,11 @@
 - **默认行为不能顺手改掉**：首项保留「跟随原任务模型」，空值仍用结果行原模型；只有用户显式选择才覆盖 `request.model`，否则老项目的编辑结果会悄悄换模型。
 - **单张与批量共用同一个模型字段**：两个弹窗各自保存 UI 选择，但都通过 `EcommerceRequest.model` 进入任务；任务与结果继续独立留痕，原结果不覆盖。
 
+### 视频时长双协议字段（2026-10-19 → 对账 #610）
+
+- **同一个值，两种协议名**：OpenAI 兼容视频读 `params.durationSec`，RunningHub 的端点目录读 `params.duration`。生成参数必须同时输出两者且来自同一个 `GenerationData.durationSec`，否则一种渠道正常、另一种静默落默认值。
+- **不要在适配器里猜另一种字段**：适配器各按协议读自己的字段；映射收口在 `generationParams`，避免 OpenAI / RunningHub 两处各写一套兼容分支。
+
 ### 电商结果 AI 超清（2026-10-19 → 对账 #605）
 
 - **`scale` 不是通用生图参数**：普通生成节点只有在用户真的选择倍率时才带 `scale`；`generationParams` 与 RunningHub 生成器都按任务类型分支，避免 `scale: null` 污染普通请求、也避免即梦里同名 `scale` 被误判成超分。

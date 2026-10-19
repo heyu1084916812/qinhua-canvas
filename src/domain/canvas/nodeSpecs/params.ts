@@ -23,6 +23,8 @@ export function generationParams(data: GenerationData): Record<string, unknown> 
       size: data.size ?? null,
       resolution: data.resolution ?? null,
       durationSec: data.durationSec ?? null,
+      /** RunningHub 等端点按 `duration` 读时长；OpenAI 兼容视频仍读 `durationSec` */
+      duration: data.durationSec ?? null,
       fps: data.fps ?? null,
       refMode: data.refMode ?? null,
       /** 「生成数量」（图三/图六/图八/图十那排 1/2/4）：适配器据此发 `n` */
