@@ -34,6 +34,26 @@ describe('channelStore', () => {
     expect((await store.defaultForNewNode({}, 'image'))?.channelId).not.toBe(runningHub?.id)
   })
 
+  it('RunningHub 没有主 Key 时不拉取模型，也不写缓存', async () => {
+    const p = createMemoryPlatform()
+    const store = createChannelStore(p)
+    await store.load()
+    const runningHub = store.getState().channels.find((c) => c.protocol === 'runninghub-api')!
+
+    await store.setModels(runningHub.id, [
+      { id: 'stale-runninghub-model', category: 'image', inputTypes: ['text'] },
+    ])
+    expect(store.getState().channels.find((c) => c.id === runningHub.id)!.models).toHaveLength(1)
+
+    await store.refreshModels(runningHub.id)
+
+    const updated = store.getState().channels.find((c) => c.id === runningHub.id)!
+    expect(store.getState().models.status).toBe('error')
+    expect(store.getState().models.message).toContain('还没填令牌')
+    expect(updated.modelCache).toEqual([])
+    expect(updated.models).toEqual([])
+  })
+
   it('create / saveToken / verify 只测通不通，不顺手刷模型缓存', async () => {
     const p = createMemoryPlatform()
     /** 这条用例数的是"自己建的渠道"的条数 ⇒ 不补内置渠道（第 20 批的三条常驻渠道） */

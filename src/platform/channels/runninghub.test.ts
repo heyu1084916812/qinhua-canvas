@@ -66,6 +66,46 @@ const config: ResolvedChannelConfig = {
 
 const signal = new AbortController().signal
 
+describe('RunningHub 模型拉取鉴权', () => {
+  it('无 Key 时直接失败，不发请求，也不返回内置模型', async () => {
+    let calls = 0
+    const platform = createMemoryPlatform({
+      handler: async () => {
+        calls += 1
+        return json(200, { code: 0 })
+      },
+    })
+    const adapter = createRunningHubAdapter({ ...config, apiKey: null }, platform, FAST)
+    const err = await adapter
+      .listModels(config, signal)
+      .then(() => null)
+      .catch((e: unknown) => e as ChannelError)
+
+    expect(err).toBeInstanceOf(ChannelError)
+    expect(err?.appError).toMatchObject({ kind: 'channel', detail: 'missingKey' })
+    expect(calls).toBe(0)
+  })
+
+  it('Key 无效时不返回内置模型', async () => {
+    let calls = 0
+    const platform = createMemoryPlatform({
+      handler: async () => {
+        calls += 1
+        return json(200, { code: 401, msg: 'invalid key' })
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    const err = await adapter
+      .listModels(config, signal)
+      .then(() => null)
+      .catch((e: unknown) => e as ChannelError)
+
+    expect(err).toBeInstanceOf(ChannelError)
+    expect(err?.appError).toMatchObject({ kind: 'http', status: 401 })
+    expect(calls).toBe(1)
+  })
+})
+
 describe('RunningHub 电商 AI 超清目录', () => {
   it('五项 profile 都映射到真实 image-upscale 端点', () => {
     for (const option of ECOMMERCE_UPSCALE_OPTIONS) {

@@ -711,7 +711,22 @@ export function createRunningHubAdapter(
    * 应用那一拉是 best-effort：拉不到就只给模型，不让整次验证失败 ——
    * 用户手里若是「金额 Key」，`aiapp/list` 本来就是空的，那不该被当成「渠道没配好」。
    */
-  const listModels = async (signal: AbortSignal): Promise<ModelCapability[]> => {
+  const assertAccountReady = async (signal: AbortSignal): Promise<void> => {
+    if (!key) throw new ChannelError({ kind: 'channel', detail: 'missingKey' })
+    const res = await readJson(
+      await json(`${host}${ACCOUNT_PATH}`, { apikey: key }, signal, VERIFY_TIMEOUT_MS),
+    )
+    if (res.code !== 0) {
+      const message = describeRhError(res, 'Key 验证失败')
+      throw new ChannelError({ kind: 'http', status: 401, body: message })
+    }
+  }
+
+  const listModels = async (
+    signal: AbortSignal,
+    accountAlreadyChecked = false,
+  ): Promise<ModelCapability[]> => {
+    if (!accountAlreadyChecked) await assertAccountReady(signal)
     const models: ModelCapability[] = RUNNINGHUB_MODELS.map(runningHubCapability)
     try {
       const res = await readJson(
@@ -752,7 +767,7 @@ export function createRunningHubAdapter(
         if (!appError) throw e
         return { ok: false, error: appError, message: describeError(appError) }
       }
-      return { ok: true, models: await listModels(signal) }
+      return { ok: true, models: await listModels(signal, true) }
     },
     listModels: (_cfg, signal) => listModels(signal),
     generateImage: (request, signal) => generate(request, signal),

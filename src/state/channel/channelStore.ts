@@ -644,6 +644,14 @@ export function createChannelStore(
       // 此前它没有 catch：地址错的时候抛成未捕获拒绝，用户点了按钮**什么反应都没有**。
       const app = asAppError(e)
       const message = app ? describeError(app) : e instanceof Error ? e.message : String(e)
+      if (app?.kind === 'channel' && app.detail === 'missingKey') {
+        const cleared = await repo.update(id, { modelCache: [], models: [] })
+        store.setState((s) => ({
+          channels: s.channels.map((c) => (c.id === id ? cleared : c)),
+          models: { status: 'error', message },
+        }))
+        return
+      }
       store.setState({ models: { status: 'error', message } })
     }
   }
