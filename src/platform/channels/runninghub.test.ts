@@ -83,6 +83,26 @@ describe('RunningHub 电商 AI 超清目录', () => {
   })
 })
 
+describe('RunningHub 高质量图像编辑目录', () => {
+  it('四个专业图生图模型都映射真实 image-to-image 端点，并声明图片输入', () => {
+    for (const [modelId, endpointId, mediaKey] of [
+      ['全能图片PRO Ultra（图像编辑）', 'rhart-image-n-pro-official/edit-ultra', 'imageUrls'],
+      ['千问 2.0 Pro 图像编辑', 'alibaba/qwen-image-2.0-pro/image-edit', 'imageUrls'],
+      ['万相 2.7 图像编辑 Pro', 'alibaba/wan-2.7/image-edit-pro', 'imageUrls'],
+      ['Luma Uni-1 Max 图像编辑', 'luma/uni-1-max/image-edit', 'imageUrl'],
+    ] as const) {
+      const model = RUNNINGHUB_MODELS.find((item) => item.id === modelId)
+      expect(model, modelId).toMatchObject({ kind: 'image', textEndpoint: endpointId })
+      const spec = RUNNINGHUB_ENDPOINT_SPECS.find((item) => item.id === endpointId)
+      expect(spec, endpointId).toMatchObject({
+        task: 'image-to-image',
+        media: { key: mediaKey, type: 'IMAGE', required: true },
+      })
+      expect(runningHubCapability(model!).inputTypes).toContain('image')
+    }
+  })
+})
+
 describe('RunningHub 视频超清目录与请求', () => {
   it('视频超清 / 视频编辑模型都映射到真实端点，并声明视频输入', () => {
     for (const [modelId, endpointId, task] of [
