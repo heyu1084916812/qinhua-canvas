@@ -46,13 +46,21 @@ describe('电商任务 / 结果仓储（内存存储）', () => {
       nodeIds: ['n1', 'n2'],
       at: 100,
     })
-    await repo.updateResult({ ...results[0]!, status: 'done', assetHash: 'h1', width: 64, height: 64 })
+    await repo.updateResult({
+      ...results[0]!,
+      status: 'done',
+      assetHash: 'h1',
+      mime: 'video/mp4',
+      width: 64,
+      height: 64,
+    })
     await repo.updateResult({ ...results[1]!, status: 'failed', errorText: '上游 500' })
     await repo.updateTask({ ...task, status: 'partial', updatedAt: 200, errorText: '一张失败' })
     const latest = await repo.latestWithResults('p1')
     expect(latest?.task.status).toBe('partial')
     expect(latest?.task.errorText).toBe('一张失败')
     expect(latest?.results[0]?.assetHash).toBe('h1')
+    expect(latest?.results[0]?.mime).toBe('video/mp4')
     expect(latest?.results[1]?.errorText).toBe('上游 500')
   })
 

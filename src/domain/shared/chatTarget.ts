@@ -31,7 +31,54 @@ export interface SpeechTarget {
  * （渠道真能跑，名字由上游兜），对"拿模型读需求"不行 —— 用户点下去会拿着一个不存在的模型
  * 去请求，得到一句难懂的渠道错误。这里只认"用户勾过的对话模型"，找不到就**如实说没配**。
  */
-export function resolveChatTarget(channels: readonly Channel[]): ChatTarget | null {
+export function chatTargetOptions(
+  channels: readonly Channel[],
+): Array<{ value: string; channelId: string; model: string; label: string }> {
+  const out: Array<{ value: string; channelId: string; model: string; label: string }> = []
+  const seen = new Set<string>()
+  for (const ch of channels) {
+    if (!channelIsRoutable(ch)) continue
+    for (const model of ch.models ?? []) {
+      if (model.category !== 'chat') continue
+      const key = `${ch.id}\u0000${model.id}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const shown = toLogicalName(channels, model.id) || model.id
+      out.push({
+        value: `${ch.id}::${model.id}`,
+        channelId: ch.id,
+        model: model.id,
+        label: `${ch.name} · ${shown}`,
+      })
+    }
+  }
+  return out
+}
+
+/**
+ * `preferredModel` 允许用户显式指定解析模型；它可以是渠道里存的上游 id，
+ * 也可以是前端显示名。找不到时仍回落到第一条可路由对话模型，由界面如实展示。
+ */
+export function resolveChatTarget(
+  channels: readonly Channel[],
+  preferredModel = '',
+): ChatTarget | null {
+  if (preferredModel) {
+    const preferred = chatTargetOptions(channels).find(
+      (item) =>
+        item.value === preferredModel ||
+        item.model === preferredModel ||
+        toLogicalName(channels, item.model) === preferredModel ||
+        item.label === preferredModel,
+    )
+    if (preferred) {
+      return {
+        channelId: preferred.channelId,
+        model: preferred.model,
+        label: preferred.label,
+      }
+    }
+  }
   for (const ch of channels) {
     if (!channelIsRoutable(ch)) continue
     const model = (ch.models ?? []).find((m) => m.category === 'chat')

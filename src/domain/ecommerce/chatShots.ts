@@ -43,10 +43,12 @@ export const SHOT_BRIEF_MAX = 200
  * 与真去调用，必须是同一个条件 —— 两处各写一份迟早对不上（说花了没花 / 花了没说）。
  */
 export function shouldExpandShots(request: {
+  mediaKind?: EcommerceRequest['mediaKind']
   usage: EcommerceRequest['usage']
   count: number
   note?: string
 }): boolean {
+  if (request.mediaKind === 'video') return false
   return request.count > 1 && request.usage !== 'white-bg' && (request.note ?? '').trim().length > 0
 }
 

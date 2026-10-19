@@ -21,6 +21,8 @@ export interface ProjectTreeModel {
   unfiled: ProjectTreeUnfiledGroup[]
 }
 
+export const PROJECT_GROUP_LIMIT = 5
+
 const UNFILED_LABEL: Record<WorkbenchId, string> = {
   canvas: '未归档画布',
   ecommerce: '未归档电商',
@@ -82,4 +84,23 @@ export function buildProjectTree(
   }))
 
   return { pinnedProjects, folders: folderGroups, unfiled }
+}
+
+/**
+ * 单个项目分组默认只露出 5 项；当前项目若排在后面，显示时临时提到第一项。
+ * 排序本身不写回，只影响这一屏的投影。
+ */
+export function projectGroupWindow(
+  items: readonly ProjectListItem[],
+  activeProjectId: string | null,
+  expanded: boolean,
+): { visible: ProjectListItem[]; hidden: number } {
+  const active = items.find((project) => project.id === activeProjectId)
+  const ordered = active
+    ? [active, ...items.filter((project) => project.id !== active.id)]
+    : [...items]
+  return {
+    visible: expanded ? ordered : ordered.slice(0, PROJECT_GROUP_LIMIT),
+    hidden: Math.max(0, ordered.length - PROJECT_GROUP_LIMIT),
+  }
 }

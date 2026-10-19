@@ -169,13 +169,14 @@
 }
 
 .projectName {
-  color: var(--sidebar-nav);
+  color: var(--text-3);
 }
 
-.projectKind {
+.projectTime {
   flex: 0 0 auto;
   color: var(--text-3);
   font-size: var(--fs-chip);
+  font-variant-numeric: tabular-nums;
 }
 
 .projectRowActive {
@@ -185,6 +186,10 @@
 .projectRowActive .projectName {
   color: var(--text-1);
   font-weight: 600;
+}
+
+.projectRowActive .projectIcon {
+  color: var(--text-1);
 }
 
 .rowActions {
@@ -239,6 +244,27 @@
   align-items: center;
   color: var(--text-3);
   font-size: var(--fs-chip);
+}
+
+.groupExpand {
+  width: calc(100% - 23px);
+  height: 26px;
+  margin-left: 23px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: calc(var(--radius-control) - 3px);
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font-sans);
+  font-size: var(--fs-chip);
+  text-align: left;
+  cursor: pointer;
+}
+
+.groupExpand:hover,
+.groupExpand:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text-1);
 }
 
 .skeletons {

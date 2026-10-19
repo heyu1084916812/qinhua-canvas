@@ -19,11 +19,13 @@ import type {
 } from '../domain/project/project'
 import { createProjectRepository } from '../state/project/repository'
 import { buildProjectExport } from '../state/project/flowIo'
+import { forgetActiveCanvas } from '../state/project/activeCanvas'
+import { formatRelative } from '../domain/shared/time'
 import {
   getProjectsRevision,
   subscribeProjectsChanged,
 } from '../state/project/projectEvents'
-import { buildProjectTree } from './projectTreeModel'
+import { buildProjectTree, projectGroupWindow } from './projectTreeModel'
 import { usePlatform } from './providers/PlatformProvider'
 import {
   IconCanvas,
@@ -143,6 +145,9 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
   const [folders, setFolders] = useState<ProjectFolder[]>([])
   const [loading, setLoading] = useState(false)
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set())
+  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  )
   const [menu, setMenu] = useState<MenuTarget | null>(null)
   const [moveMenuOpen, setMoveMenuOpen] = useState(false)
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null)
@@ -153,6 +158,7 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
+      await platform.storage.open()
       const [nextProjects, nextFolders] = await Promise.all([
         repo.list(),
         repo.listFolders(),
@@ -167,7 +173,7 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
     } finally {
       setLoading(false)
     }
-  }, [repo])
+  }, [platform.storage, repo])
 
   useEffect(() => {
     if (!open) return
@@ -197,8 +203,30 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
 
   const tree = useMemo(() => buildProjectTree(projects, folders), [folders, projects])
 
+  const groupWindow = useCallback(
+    (items: readonly ProjectListItem[], groupId: string) => {
+      const expanded = expandedGroups.has(groupId)
+      const grouped = projectGroupWindow(items, activeProjectId, expanded)
+      return {
+        ...grouped,
+        expanded,
+      }
+    },
+    [activeProjectId, expandedGroups],
+  )
+  const pinnedWindow = groupWindow(tree.pinnedProjects, 'pinned')
+
   const toggleGroup = (id: string) => {
     setCollapsed((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleExpandedGroup = (id: string) => {
+    setExpandedGroups((current) => {
       const next = new Set(current)
       if (next.has(id)) next.delete(id)
       else next.add(id)
@@ -488,10 +516,10 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
         ) : (
           <>
             {tree.pinnedProjects.length > 0 && (
-              <div className={styles.section}>
+              <div className={styles.section} data-project-tree-group-id="pinned">
                 <div className={styles.sectionLabel}>置顶</div>
                 <ul className={styles.list}>
-                  {tree.pinnedProjects.map((project) => (
+                  {pinnedWindow.visible.map((project) => (
                     <ProjectRow
                       key={project.id}
                       project={project}
@@ -502,15 +530,28 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
                     />
                   ))}
                 </ul>
+                {pinnedWindow.hidden > 0 && (
+                  <GroupExpandButton
+                    count={pinnedWindow.hidden}
+                    expanded={pinnedWindow.expanded}
+                    groupId="pinned"
+                    onToggle={toggleExpandedGroup}
+                  />
+                )}
               </div>
             )}
 
             {tree.folders.map(({ folder, projects: folderProjects }) => {
               const groupId = `folder:${folder.id}`
               const isCollapsed = collapsed.has(groupId)
+              const window = groupWindow(folderProjects, groupId)
               const total = projects.filter((project) => project.folderId === folder.id).length
               return (
-                <div className={styles.section} key={folder.id}>
+                <div
+                  className={styles.section}
+                  key={folder.id}
+                  data-project-tree-group-id={groupId}
+                >
                   <GroupRow
                     label={folder.name}
                     count={total}
@@ -525,7 +566,7 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
                       {folderProjects.length === 0 ? (
                         <li className={styles.groupEmpty}>文件夹为空</li>
                       ) : (
-                        folderProjects.map((project) => (
+                        window.visible.map((project) => (
                           <ProjectRow
                             key={project.id}
                             project={project}
@@ -540,6 +581,14 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
                       )}
                     </ul>
                   )}
+                  {!isCollapsed && window.hidden > 0 && (
+                    <GroupExpandButton
+                      count={window.hidden}
+                      expanded={window.expanded}
+                      groupId={groupId}
+                      onToggle={toggleExpandedGroup}
+                    />
+                  )}
                 </div>
               )
             })}
@@ -547,8 +596,13 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
             {tree.unfiled.map(({ workbench, label, projects: groupProjects }) => {
               const groupId = `workbench:${workbench}`
               const isCollapsed = collapsed.has(groupId)
+              const window = groupWindow(groupProjects, groupId)
               return (
-                <div className={styles.section} key={workbench}>
+                <div
+                  className={styles.section}
+                  key={workbench}
+                  data-project-tree-group-id={groupId}
+                >
                   <GroupRow
                     label={label}
                     count={groupProjects.length}
@@ -563,7 +617,7 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
                       {groupProjects.length === 0 ? (
                         <li className={styles.groupEmpty}>暂无项目</li>
                       ) : (
-                        groupProjects.map((project) => (
+                        window.visible.map((project) => (
                           <ProjectRow
                             key={project.id}
                             project={project}
@@ -577,6 +631,14 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
                         ))
                       )}
                     </ul>
+                  )}
+                  {!isCollapsed && window.hidden > 0 && (
+                    <GroupExpandButton
+                      count={window.hidden}
+                      expanded={window.expanded}
+                      groupId={groupId}
+                      onToggle={toggleExpandedGroup}
+                    />
                   )}
                 </div>
               )
@@ -729,6 +791,7 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
                     disabled={menuProject.id !== activeProjectId}
                     onClick={() => {
                       setMenu(null)
+                      forgetActiveCanvas()
                       navigate('/projects')
                     }}
                   />
@@ -914,6 +977,30 @@ function GroupRow({
   )
 }
 
+function GroupExpandButton({
+  count,
+  expanded,
+  groupId,
+  onToggle,
+}: {
+  count: number
+  expanded: boolean
+  groupId: string
+  onToggle: (groupId: string) => void
+}) {
+  return (
+    <button
+      type="button"
+      className={styles.groupExpand}
+      data-project-tree-expand={groupId}
+      aria-expanded={expanded}
+      onClick={() => onToggle(groupId)}
+    >
+      {expanded ? '收起' : `展开显示 (${count})`}
+    </button>
+  )
+}
+
 function ProjectRow({
   project,
   active,
@@ -933,13 +1020,22 @@ function ProjectRow({
       className={active ? `${styles.projectRow} ${styles.projectRowActive}` : styles.projectRow}
       data-project-tree-item={project.id}
       data-project-tree-workbench={project.workbench}
+      data-project-tree-active={active ? 'true' : 'false'}
     >
-      <button type="button" className={styles.projectMain} onClick={onOpen} title={project.name}>
+      <button
+        type="button"
+        className={styles.projectMain}
+        onClick={onOpen}
+        title={project.name}
+        aria-current={active ? 'page' : undefined}
+      >
         <span className={styles.projectIcon}>
           <Icon size={15} />
         </span>
         <span className={styles.projectName}>{project.name}</span>
-        <span className={styles.projectKind}>{SHORT_WORKBENCH_LABEL[project.workbench]}</span>
+        <span className={styles.projectTime} title={new Date(project.updatedAt).toLocaleString('zh-CN')}>
+          {formatRelative(project.updatedAt)}
+        </span>
       </button>
       <div className={styles.rowActions}>
         <button

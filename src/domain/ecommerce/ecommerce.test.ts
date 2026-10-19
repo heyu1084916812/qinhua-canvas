@@ -126,6 +126,40 @@ describe('执行计划与校验', () => {
     expect(plan.referenceNodeIds).toEqual(['r1', 'r2'])
   })
 
+  it('★★ 多张产品图全部保留，并从参考图里全部排除', () => {
+    const plan = buildEcommercePlan({
+      ...base,
+      productNodeId: 'p1',
+      productNodeIds: ['p1', 'p2', 'p2', 'p3'],
+      referenceNodeIds: ['p2', 'p3', 'r1'],
+    })
+    expect(plan.productNodeIds).toEqual(['p1', 'p2', 'p3'])
+    expect(plan.referenceNodeIds).toEqual(['r1'])
+  })
+
+  it('★ 视频任务只能出一条，并生成视频提示词', () => {
+    expect(() =>
+      buildEcommercePlan({
+        ...base,
+        mediaKind: 'video',
+        modeLabel: '带货视频',
+        count: 2,
+      }),
+    ).toThrow('视频一次只能生成 1 条')
+
+    const plan = buildEcommercePlan({
+      ...base,
+      mediaKind: 'video',
+      modeLabel: '带货视频',
+      count: 1,
+      durationSec: 10,
+      note: '展示防水',
+    })
+    expect(plan.prompts[0]).toContain('带货视频')
+    expect(plan.prompts[0]).toContain('10 秒')
+    expect(plan.prompts[0]).toContain('展示防水')
+  })
+
   it('★★ 非法输入逐条抛错 —— 不静默兜底', () => {
     const cases: [string, EcommerceRequest][] = [
       ['空产品图', { ...base, productNodeId: '' }],

@@ -21,6 +21,10 @@ import {
  * 草稿只负责记住"是哪几张"。
  */
 export interface EcommerceFormDraft {
+  /** 当前工作台功能的稳定显示名；空 = 按 usage 回落。 */
+  modeLabel: string
+  mediaKind: 'image' | 'video'
+  videoDuration: number
   usage: EcommerceUsage
   platformId: string
   language: EcommerceLanguage
@@ -29,10 +33,15 @@ export interface EcommerceFormDraft {
   note: string
   model: string
   productNodeId: string | null
+  /** 多角度产品图；顺序决定第一张主产品图，最多 3 张 */
+  productNodeIds: string[]
   referenceNodeIds: string[]
 }
 
 export const DEFAULT_ECOMMERCE_FORM_DRAFT: EcommerceFormDraft = {
+  modeLabel: '',
+  mediaKind: 'image',
+  videoDuration: 5,
   usage: 'main',
   platformId: 'amazon',
   language: 'en',
@@ -41,6 +50,7 @@ export const DEFAULT_ECOMMERCE_FORM_DRAFT: EcommerceFormDraft = {
   note: '',
   model: '',
   productNodeId: null,
+  productNodeIds: [],
   referenceNodeIds: [],
 }
 
@@ -85,8 +95,26 @@ export function normalizeEcommerceFormDraft(value: unknown): EcommerceFormDraft 
     ? [...new Set(raw.referenceNodeIds.filter((id): id is string => typeof id === 'string' && !!id))]
         .slice(0, 4)
     : []
+  const legacyProductNodeId =
+    typeof raw.productNodeId === 'string' && raw.productNodeId ? raw.productNodeId : null
+  const productNodeIds = Array.isArray(raw.productNodeIds)
+    ? [
+        ...new Set(
+          raw.productNodeIds.filter((id): id is string => typeof id === 'string' && !!id),
+        ),
+      ].slice(0, 3)
+    : legacyProductNodeId
+      ? [legacyProductNodeId]
+      : []
+  const productNodeId = productNodeIds[0] ?? legacyProductNodeId
 
   return {
+    modeLabel: stringOf(raw.modeLabel, 80),
+    mediaKind: raw.mediaKind === 'video' ? 'video' : 'image',
+    videoDuration:
+      typeof raw.videoDuration === 'number' && Number.isFinite(raw.videoDuration)
+        ? Math.min(Math.max(Math.round(raw.videoDuration), 1), 30)
+        : 5,
     usage,
     platformId: stringOf(raw.platformId, 100) || DEFAULT_ECOMMERCE_FORM_DRAFT.platformId,
     language: languageOf(raw.language),
@@ -94,10 +122,8 @@ export function normalizeEcommerceFormDraft(value: unknown): EcommerceFormDraft 
     ratio,
     note: stringOf(raw.note, ECOMMERCE_NOTE_MAX),
     model: stringOf(raw.model, 200),
-    productNodeId:
-      typeof raw.productNodeId === 'string' && raw.productNodeId
-        ? raw.productNodeId
-        : null,
+    productNodeId: productNodeId ?? null,
+    productNodeIds,
     referenceNodeIds,
   }
 }
@@ -136,11 +162,17 @@ export function cleanEcommerceDraftRefs(
   draft: EcommerceFormDraft,
   validNodeIds: ReadonlySet<string>,
 ): EcommerceFormDraft {
-  const productNodeId =
-    draft.productNodeId && validNodeIds.has(draft.productNodeId) ? draft.productNodeId : null
+  const productNodeIds = [...new Set([
+    ...(draft.productNodeId ? [draft.productNodeId] : []),
+    ...(draft.productNodeIds ?? []),
+  ])]
+    .filter((id) => validNodeIds.has(id))
+    .slice(0, 3)
+  const productNodeId = productNodeIds[0] ?? null
   return {
     ...draft,
     productNodeId,
+    productNodeIds,
     referenceNodeIds: draft.referenceNodeIds.filter((id) => validNodeIds.has(id)).slice(0, 4),
   }
 }

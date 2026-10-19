@@ -46,6 +46,8 @@ export interface EcommercePlan {
   prompts: readonly string[]
   /** 参考图：去掉重复、去掉与产品图相同的那个 */
   referenceNodeIds: string[]
+  /** 所有产品图；第 1 项 = `request.productNodeId` */
+  productNodeIds: string[]
 }
 
 /** 输入不合法时抛这个 —— 界面据此把话原样说给用户听 */
@@ -63,9 +65,19 @@ export function buildEcommercePlan(
   if (!request.productNodeId) {
     throw new EcommerceRequestError('先上传一张产品图 —— 没有产品图就没有可改的主体')
   }
+  if (request.mediaKind !== undefined && request.mediaKind !== 'image' && request.mediaKind !== 'video') {
+    throw new EcommerceRequestError(`不认识的生成类型：${String(request.mediaKind)}`)
+  }
+  if (request.mediaKind === 'video' && request.count !== 1) {
+    throw new EcommerceRequestError('视频一次只能生成 1 条')
+  }
+  const productNodeIds = [
+    ...new Set([request.productNodeId, ...(request.productNodeIds ?? [])]),
+  ].filter(Boolean)
+  const productSet = new Set(productNodeIds)
   if (
     request.usage === 'recreate' &&
-    !request.referenceNodeIds.some((id) => id && id !== request.productNodeId)
+    !request.referenceNodeIds.some((id) => id && !productSet.has(id))
   ) {
     throw new EcommerceRequestError('爆款复刻要先把那张参考图上传到「参考图」')
   }
@@ -104,7 +116,7 @@ export function buildEcommercePlan(
   }
 
   const referenceNodeIds = [...new Set(request.referenceNodeIds)].filter(
-    (id) => id && id !== request.productNodeId,
+    (id) => id && !productSet.has(id),
   )
   const prompts = buildEcommercePrompts(request, options)
 
@@ -115,5 +127,6 @@ export function buildEcommercePlan(
     prompt: prompts[0] ?? '',
     prompts,
     referenceNodeIds,
+    productNodeIds,
   }
 }

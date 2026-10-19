@@ -192,8 +192,30 @@ export function buildEcommercePrompt(
     : platformById(request.platformId)
 
   const lines: string[] = []
-  const note = (request.note ?? '').trim().slice(0, ECOMMERCE_NOTE_MAX)
+  const note = [request.modePrompt, request.note]
+    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    .map((item) => item.trim().slice(0, ECOMMERCE_NOTE_MAX))
+    .join('\n')
+    .trim()
+    .slice(0, ECOMMERCE_NOTE_MAX * 2)
   if (note) lines.push(note)
+
+  if (request.mediaKind === 'video') {
+    lines.push(
+      `任务：${request.modeLabel || '电商商品视频'}。生成一段可直接用于电商展示的短视频。`,
+    )
+    lines.push(
+      `产品一致性：产品外观、颜色、材质、结构、比例与细节严格以产品图为准；多张产品图是同一商品的不同角度。`,
+    )
+    lines.push(
+      `镜头要求：画面有明确主体、自然运动与商业摄影光线；动作连续，不闪烁、不变形、不突然换商品。`,
+    )
+    lines.push(`时长：${request.durationSec ?? 5} 秒；比例：${request.ratio}`)
+    lines.push(
+      `硬约束：不新增品牌 Logo、水印、认证、价格或无法核实的参数；不复制参考素材中的品牌标识与人物身份。`,
+    )
+    return lines.join('\n')
+  }
 
   lines.push(`用途：${usageLabel(request.usage)} —— ${USAGE_HINTS[request.usage]}`)
   if (request.usage === 'recreate') {

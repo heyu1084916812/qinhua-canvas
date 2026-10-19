@@ -8,6 +8,13 @@
 const ACTIVE_CANVAS_KEY = 'qinghua:active-canvas-id'
 
 let memoryId: string | null = null
+let revision = 0
+const listeners = new Set<() => void>()
+
+function notify(): void {
+  revision += 1
+  for (const listener of listeners) listener()
+}
 
 function session(): Storage | null {
   if (typeof window === 'undefined') return null
@@ -25,6 +32,7 @@ export function rememberActiveCanvas(projectId: string): void {
   } catch {
     /* 隐私模式 / 存储禁用时仍保留内存值 */
   }
+  notify()
 }
 
 export function activeCanvasId(): string | null {
@@ -42,4 +50,14 @@ export function forgetActiveCanvas(): void {
   } catch {
     /* 忽略 */
   }
+  notify()
+}
+
+export function subscribeActiveCanvas(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+export function getActiveCanvasRevision(): number {
+  return revision
 }

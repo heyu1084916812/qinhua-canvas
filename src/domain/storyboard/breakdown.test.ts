@@ -80,6 +80,17 @@ describe('resolveChatTarget', () => {
     expect(target?.model).toBe('mock-chat-1')
     expect(target?.label).toContain('GPT-6 Astra')
   })
+
+  it('用户显式选择的解析模型优先于默认第一条', () => {
+    const target = resolveChatTarget(
+      [
+        ch({ id: 'a', models: [cap('chat-a', 'chat')] }),
+        ch({ id: 'b', models: [cap('chat-b', 'chat')] }),
+      ],
+      'b::chat-b',
+    )
+    expect(target).toEqual({ channelId: 'b', model: 'chat-b', label: 'b · chat-b' })
+  })
 })
 
 describe('chat auto-routing eligibility', () => {

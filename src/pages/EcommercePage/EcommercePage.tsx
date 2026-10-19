@@ -9,7 +9,7 @@ import {
   CanvasExecutionProvider,
   useCanvasExecution,
 } from '../../workbenches/canvas/execution/CanvasExecutionProvider'
-import { useAsset } from '../../workbenches/canvas/hooks/useAsset'
+import { useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
 import { EcommerceStudio, type EcommerceResultItem, type EcommerceUpload } from '../../workbenches/ecommerce/EcommerceStudio'
 import { createAgentSessionStore } from '../../state/agent/sessionStore'
 import {
@@ -34,7 +34,7 @@ import {
   parseEcommerceIntent,
   type EcommerceIntentDraft,
 } from '../../domain/ecommerce/chatParse'
-import { resolveChatTarget } from '../../domain/shared/chatTarget'
+import { chatTargetOptions, resolveChatTarget } from '../../domain/shared/chatTarget'
 import {
   buildShotsSystem,
   buildShotsText,
@@ -241,10 +241,13 @@ function EcommerceProject({ projectId }: { projectId: string }) {
 }
 
 /** 结果缩略图：按 hash 取素材（hook 必须落在子组件里，不能在 map 里调） */
-function ResultPreview({ hash }: { hash: string }) {
-  const url = useAsset(hash)
-  if (!url) return null
-  return <img src={url} alt="" />
+function ResultPreview({ hash, mime }: { hash: string; mime?: string }) {
+  const meta = useAssetMeta(hash)
+  if (!meta.url) return null
+  if ((mime ?? meta.mime)?.startsWith('video/')) {
+    return <video src={meta.url} controls loop playsInline preload="metadata" />
+  }
+  return <img src={meta.url} alt="" />
 }
 
 function StudioHost({ projectId }: { projectId: string }) {
@@ -295,9 +298,9 @@ function StudioHost({ projectId }: { projectId: string }) {
    */
   const [savedDraft, setSavedDraft] = useState<EcommerceFormDraft | null | undefined>(undefined)
   const [initialUploads, setInitialUploads] = useState<{
-    product: EcommerceUpload | null
+    products: EcommerceUpload[]
     references: EcommerceUpload[]
-  }>({ product: null, references: [] })
+  }>({ products: [], references: [] })
   const draftTimer = useRef<number | null>(null)
   const draftLatest = useRef<EcommerceFormDraft | null>(null)
   /** 长图面板开不开（对账 #420）：纯 UI 态，不落库 */
@@ -330,6 +333,7 @@ function StudioHost({ projectId }: { projectId: string }) {
    */
   const [preparingShots, setPreparingShots] = useState(false)
   const models = useMemo(() => panelModelOptions('image'), [])
+  const videoModels = useMemo(() => panelModelOptions('video'), [])
   /**
    * 平台清单 = 内置 + **扩展包带进来的规则**（对账 #386 的 E3）。
    *
@@ -401,18 +405,20 @@ function StudioHost({ projectId }: { projectId: string }) {
         nodes.filter((node) => assetHashesOfNode(node).length > 0).map((node) => node.id),
       )
       const cleaned = draft ? cleanEcommerceDraftRefs(draft, validNodeIds) : null
-      const product = uploadOf(cleaned?.productNodeId)
+      const products = (cleaned?.productNodeIds ?? [])
+        .map((id) => uploadOf(id))
+        .filter((item): item is EcommerceUpload => item !== null)
       const references = (cleaned?.referenceNodeIds ?? [])
         .map((id) => uploadOf(id))
         .filter((item): item is EcommerceUpload => item !== null)
       if (cleaned) setModel(cleaned.model)
-      setInitialUploads({ product, references })
+      setInitialUploads({ products, references })
       setSavedDraft(cleaned)
       draftLatest.current = cleaned
       if (
         draft &&
         cleaned &&
-        (draft.productNodeId !== cleaned?.productNodeId ||
+        (draft.productNodeIds.join('|') !== cleaned.productNodeIds.join('|') ||
           draft.referenceNodeIds.join('|') !== cleaned.referenceNodeIds.join('|'))
       ) {
         void saveEcommerceDraft(platform.storage, projectId, cleaned)
@@ -450,7 +456,9 @@ function StudioHost({ projectId }: { projectId: string }) {
       const hash = node ? assetHashesOfNode(node)[0] : undefined
       const natural = (node?.data as { naturalSize?: { width?: unknown; height?: unknown } } | undefined)
         ?.naturalSize
-      const data = node?.data as { prompt?: unknown; model?: unknown } | undefined
+      const data = node?.data as
+        | { prompt?: unknown; model?: unknown; assetMime?: unknown }
+        | undefined
       const width =
         typeof natural?.width === 'number' && natural.width > 0 ? natural.width : undefined
       const height =
@@ -472,6 +480,9 @@ function StudioHost({ projectId }: { projectId: string }) {
         updatedAt: Date.now(),
         status,
         ...(hash ? { assetHash: hash } : {}),
+        ...(typeof data?.assetMime === 'string' && data.assetMime
+          ? { mime: data.assetMime }
+          : {}),
         ...(width !== undefined ? { width } : {}),
         ...(height !== undefined ? { height } : {}),
         ...(typeof data?.prompt === 'string' && data.prompt ? { prompt: data.prompt } : {}),
@@ -671,7 +682,12 @@ function StudioHost({ projectId }: { projectId: string }) {
       ).map((option) => option.id),
     [channelList],
   )
-  const chatTarget = useMemo(() => resolveChatTarget(channelList), [channelList])
+  const intentModelOptions = useMemo(() => chatTargetOptions(channelList), [channelList])
+  const [intentModel, setIntentModel] = useState('')
+  const chatTarget = useMemo(
+    () => resolveChatTarget(channelList, intentModel),
+    [channelList, intentModel],
+  )
 
   /**
    * 一句话 → 待确认草稿（对账 #422）。
@@ -911,9 +927,14 @@ function StudioHost({ projectId }: { projectId: string }) {
       setShotPlanNote('')
     }
 
-    const recipe = await channels.defaultForNewNode({}, 'image')
+    const mediaKind = request.mediaKind ?? 'image'
+    const recipe = await channels.defaultForNewNode({}, mediaKind)
     if (!recipe?.channelId || !recipe?.model) {
-      throw new Error('还没有可用的生图渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上模型')
+      throw new Error(
+        mediaKind === 'video'
+          ? '还没有可用的视频渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上视频模型'
+          : '还没有可用的生图渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上模型',
+      )
     }
     /* 用户选过就用他选的；没选过还是走解析出来的默认那一套 */
     const modelForRun = request.model || recipe.model
@@ -921,12 +942,16 @@ function StudioHost({ projectId }: { projectId: string }) {
       (channel) =>
         channel.enabled &&
         channel.id === request.channelId &&
-        channel.models.some((model) => model.id === modelForRun && model.category === 'image'),
+        channel.models.some(
+          (model) => model.id === modelForRun && model.category === mediaKind,
+        ),
     )
     const modelChannel = channelList.find(
       (channel) =>
         channel.enabled &&
-        channel.models.some((model) => model.id === modelForRun && model.category === 'image'),
+        channel.models.some(
+          (model) => model.id === modelForRun && model.category === mediaKind,
+        ),
     )
     const channelForRun = requestedChannel?.id ?? modelChannel?.id ?? recipe.channelId
 
@@ -947,7 +972,7 @@ function StudioHost({ projectId }: { projectId: string }) {
         channels,
         type: 'generation',
         extraData: {
-          mode: 'image',
+          mode: mediaKind,
           channelId: channelForRun,
           model: modelForRun,
           ecommerceBatch: batchId,
@@ -959,6 +984,7 @@ function StudioHost({ projectId }: { projectId: string }) {
           ratio: plan.ratio,
           count: 1,
           ...(request.scale ? { scale: request.scale } : {}),
+          ...(mediaKind === 'video' ? { durationSec: request.durationSec ?? 5 } : {}),
         },
       })
       prescribed.push({ at: { x: 420 + (i % 3) * 300, y: 60 + Math.floor(i / 3) * 240 }, data })
@@ -979,7 +1005,9 @@ function StudioHost({ projectId }: { projectId: string }) {
         created.push(id)
         store.setSelection([id])
         /* 产品图与参考图都连成上游：引擎按上游素材收集输入，这是"不改产品外观"的物理来源 */
-        store.dispatch({ kind: 'edge.connect', source: request.productNodeId, target: id })
+        for (const productNodeId of plan.productNodeIds) {
+          store.dispatch({ kind: 'edge.connect', source: productNodeId, target: id })
+        }
         for (const ref of plan.referenceNodeIds) {
           store.dispatch({ kind: 'edge.connect', source: ref, target: id })
         }
@@ -995,10 +1023,15 @@ function StudioHost({ projectId }: { projectId: string }) {
      */
     let task: EcommerceTaskRecord | null = null
     try {
+      const effectiveRequest: EcommerceRequest = {
+        ...request,
+        resolvedModel: modelForRun,
+        resolvedChannelId: channelForRun,
+      }
       const createdTask = await taskRepo.create({
         projectId,
         batchId,
-        request,
+        request: effectiveRequest,
         nodeIds: created,
         ...(lineage?.sourceTaskId ? { sourceTaskId: lineage.sourceTaskId } : {}),
         ...(lineage?.sourceResultId ? { sourceResultId: lineage.sourceResultId } : {}),
@@ -1216,11 +1249,12 @@ function StudioHost({ projectId }: { projectId: string }) {
           nodeId: row.nodeId,
           status,
           imageHash: hash,
+          ...(row.mime ? { mime: row.mime } : {}),
           pixelSize: width !== undefined && height !== undefined ? { width, height } : null,
           error:
             row.errorText ??
             (row.status === 'canceled' ? '已取消（结果仍保留在库里）' : undefined),
-          preview: hash ? <ResultPreview hash={hash} /> : undefined,
+          preview: hash ? <ResultPreview hash={hash} mime={row.mime} /> : undefined,
           sourcePreview: activeTask.sourceAssetHash ? (
             <ResultPreview hash={activeTask.sourceAssetHash} />
           ) : undefined,
@@ -1254,7 +1288,7 @@ function StudioHost({ projectId }: { projectId: string }) {
     return nodeIds.map((id) => {
       const node = graph.nodes.find((n) => n.id === id)
       const data = node?.data as
-        | { prompt?: unknown; model?: unknown; ratio?: unknown }
+        | { prompt?: unknown; model?: unknown; ratio?: unknown; assetMime?: unknown }
         | undefined
       const state = exec.nodeStateOf(id)
       const hash = node ? assetHashesOfNode(node)[0] : undefined
@@ -1279,9 +1313,17 @@ function StudioHost({ projectId }: { projectId: string }) {
         nodeId: id,
         status,
         imageHash: hash,
+        ...(typeof data?.assetMime === 'string' && data.assetMime
+          ? { mime: data.assetMime }
+          : {}),
         pixelSize,
         error: state?.kind === 'failed' ? describeError(state.error) : undefined,
-        preview: hash ? <ResultPreview hash={hash} /> : undefined,
+        preview: hash ? (
+          <ResultPreview
+            hash={hash}
+            mime={typeof data?.assetMime === 'string' ? data.assetMime : undefined}
+          />
+        ) : undefined,
         onDownload: downloadOf(hash),
         onSaveToLibrary: saveToLibraryOf(hash, {
           ...(pixelSize ? { width: pixelSize.width, height: pixelSize.height } : {}),
@@ -1379,7 +1421,13 @@ function StudioHost({ projectId }: { projectId: string }) {
   const longTiles = useMemo<LongImageTileSource[]>(
     () =>
       results.flatMap((r) => {
-        if (r.status !== 'done' || !r.imageHash || !r.pixelSize) return []
+        if (
+          r.status !== 'done' ||
+          !r.imageHash ||
+          !r.pixelSize ||
+          r.mime?.startsWith('video/')
+        )
+          return []
         const edit =
           r.onFocusInCanvas &&
             r.onExtractInCanvas &&
@@ -1414,11 +1462,12 @@ function StudioHost({ projectId }: { projectId: string }) {
     <EcommerceStudio
       projectName={projectName || '未命名项目'}
       initialDraft={savedDraft}
-      initialProduct={initialUploads.product}
+      initialProducts={initialUploads.products}
       initialReferences={initialUploads.references}
       onDraftChange={handleDraftChange}
       platforms={platforms}
       models={models}
+      videoModels={videoModels}
       editModels={editModels}
       model={model}
       onModelChange={setModel}
@@ -1446,6 +1495,9 @@ function StudioHost({ projectId }: { projectId: string }) {
       onSelectTask={(taskId) => void onSelectTask(taskId)}
       onRemoveTask={(taskId) => void onRemoveTask(taskId)}
       chatTargetLabel={chatTarget?.label ?? ''}
+      chatModels={intentModelOptions}
+      intentModel={intentModel}
+      onIntentModelChange={setIntentModel}
       intentError={intentError}
       onIntentApplied={() => setIntent(null)}
       onIntentDiscard={() => {

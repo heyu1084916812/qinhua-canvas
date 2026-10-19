@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectFolder, ProjectListItem } from '../domain/project/project'
-import { buildProjectTree } from './projectTreeModel'
+import { buildProjectTree, projectGroupWindow } from './projectTreeModel'
 
 function project(
   id: string,
@@ -101,5 +101,19 @@ describe('buildProjectTree', () => {
       'pinned-folder',
       'normal',
     ])
+  })
+
+  it('分组默认只显示 5 项，当前项从后面临时提到第一项', () => {
+    const items = Array.from({ length: 8 }, (_, index) => project(`p${index + 1}`))
+    const collapsed = projectGroupWindow(items, 'p7', false)
+    expect(collapsed.visible.map((item) => item.id)).toEqual([
+      'p7',
+      'p1',
+      'p2',
+      'p3',
+      'p4',
+    ])
+    expect(collapsed.hidden).toBe(3)
+    expect(projectGroupWindow(items, 'p7', true).visible).toHaveLength(8)
   })
 })

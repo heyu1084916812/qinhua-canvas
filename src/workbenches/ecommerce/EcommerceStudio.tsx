@@ -70,6 +70,8 @@ export interface EcommerceUpload {
 export interface EcommerceResultItem {
   nodeId: string
   status: 'pending' | 'running' | 'done' | 'failed'
+  /** 产物 MIME；视频结果据此使用播放器而不是 img。 */
+  mime?: string
   /** 失败原因（`status === 'failed'` 时必须有 —— 不许静默） */
   error?: string
   preview?: ReactNode
@@ -126,6 +128,146 @@ export interface EcommerceResultItem {
   onSaveToLibrary?: () => Promise<void> | void
 }
 
+type StudioCategory = 'product' | 'video' | 'wear'
+
+interface StudioMode {
+  id: string
+  category: StudioCategory
+  label: string
+  usage: EcommerceUsage
+  count: number
+  mediaKind: 'image' | 'video'
+  ratio?: string
+  promptPrefix?: string
+}
+
+const STUDIO_CATEGORIES: readonly {
+  id: StudioCategory
+  label: string
+}[] = [
+  { id: 'product', label: '商品' },
+  { id: 'video', label: '视频' },
+  { id: 'wear', label: '穿戴' },
+]
+
+const STUDIO_MODES: readonly StudioMode[] = [
+  {
+    id: 'product-set',
+    category: 'product',
+    label: '商品套图',
+    usage: 'set',
+    count: 8,
+    mediaKind: 'image',
+  },
+  {
+    id: 'product-detail',
+    category: 'product',
+    label: 'A+ 详情页',
+    usage: 'detail',
+    count: 4,
+    mediaKind: 'image',
+  },
+  {
+    id: 'product-recreate',
+    category: 'product',
+    label: '爆款复刻',
+    usage: 'recreate',
+    count: 4,
+    mediaKind: 'image',
+  },
+  {
+    id: 'product-white',
+    category: 'product',
+    label: '白底图',
+    usage: 'white-bg',
+    count: 1,
+    mediaKind: 'image',
+    ratio: '1:1',
+  },
+  {
+    id: 'product-retouch',
+    category: 'product',
+    label: '产品精修',
+    usage: 'main',
+    count: 1,
+    mediaKind: 'image',
+    promptPrefix:
+      '做专业商品精修：只优化产品本身的光泽、瑕疵、清晰度与透视，保持产品外观、颜色、材质和结构不变。',
+  },
+  {
+    id: 'product-recolor',
+    category: 'product',
+    label: '产品换色',
+    usage: 'main',
+    count: 1,
+    mediaKind: 'image',
+    promptPrefix:
+      '只替换产品的主色，保持产品造型、材质、结构、镜头、背景和画面文字不变；不要新增品牌标识。',
+  },
+  {
+    id: 'video-recreate',
+    category: 'video',
+    label: '视频复刻',
+    usage: 'recreate',
+    count: 1,
+    mediaKind: 'video',
+    ratio: '9:16',
+    promptPrefix:
+      '参考素材只借镜头、节奏、景别、转场和光线；商品主体必须来自产品图，不复制品牌、人物身份和水印。',
+  },
+  {
+    id: 'video-commerce',
+    category: 'video',
+    label: '带货视频',
+    usage: 'set',
+    count: 1,
+    mediaKind: 'video',
+    ratio: '9:16',
+    promptPrefix:
+      '生成一条简洁的电商带货短视频：开头快速展示商品，随后展示核心卖点与使用场景，镜头自然连续。',
+  },
+  {
+    id: 'wear-set',
+    category: 'wear',
+    label: '服装组图',
+    usage: 'set',
+    count: 6,
+    mediaKind: 'image',
+    promptPrefix:
+      '保持服装版型、颜色、面料、图案和结构不变，生成完整的服装电商展示组图。',
+  },
+  {
+    id: 'wear-model',
+    category: 'wear',
+    label: '模特穿搭',
+    usage: 'set',
+    count: 4,
+    mediaKind: 'image',
+    promptPrefix:
+      '让模特自然穿着产品图里的服装，保持服装版型、颜色、图案和细节一致；可用参考图控制模特形象。',
+  },
+  {
+    id: 'wear-tryon',
+    category: 'wear',
+    label: '试穿换装',
+    usage: 'main',
+    count: 1,
+    mediaKind: 'image',
+    promptPrefix:
+      '把产品图里的服装自然穿到参考人物身上，保持服装颜色、图案、版型和材质一致，不改变人物身份。',
+  },
+  {
+    id: 'wear-detail',
+    category: 'wear',
+    label: '服装细节',
+    usage: 'detail',
+    count: 4,
+    mediaKind: 'image',
+    promptPrefix:
+      '围绕服装的领口、袖口、走线、面料纹理和版型生成细节展示图，保持与产品图完全一致。',
+  },
+]
+
 export interface EcommerceLongImageTools {
   /** 与结果卡同一口径：任务运行中不许再发一次付费请求 */
   busy?: boolean
@@ -138,7 +280,7 @@ export interface EcommerceStudioProps {
   /** 项目级草稿（对账 #477）：刷新 / 切走后把左侧表单原样放回来 */
   initialDraft?: EcommerceFormDraft | null
   /** 与草稿一起恢复的上传槽；页面按节点 id 校验后再传，悬空引用不会出现在这里 */
-  initialProduct?: EcommerceUpload | null
+  initialProducts?: readonly EcommerceUpload[]
   initialReferences?: readonly EcommerceUpload[]
   /** 表单每次变化后回传；页面负责防抖落库 */
   onDraftChange?: (draft: EcommerceFormDraft) => void
@@ -178,6 +320,8 @@ export interface EcommerceStudioProps {
   upscaleProfiles?: readonly EcommerceUpscaleProfile[]
   /** 可选出图模型（前端显示名，来自固定清单）；空数组时只显示"默认（按渠道解析）" */
   models?: readonly string[]
+  /** 可选视频模型；视频品类只从这里选。 */
+  videoModels?: readonly string[]
   /** 可做图生图编辑的模型（必须真实声明 image 输入） */
   editModels?: readonly string[]
   /** 当前选中的模型；空串 = 用默认解析出来的那一个 */
@@ -214,6 +358,11 @@ export interface EcommerceStudioProps {
    * 如实显示"会用谁"；空 = 没配，按钮禁用并说明原因。
    */
   chatTargetLabel?: string
+  /** 已启用对话模型；空 = 没配。 */
+  chatModels?: readonly { value: string; label: string }[]
+  /** 用户显式选择的解析模型；空 = 默认。 */
+  intentModel?: string
+  onIntentModelChange?: (model: string) => void
   /** 解析失败 / 没配对话模型时的如实说法 */
   intentError?: string
   /** 用户点了「应用到表单」——页面据此收起确认卡 */
@@ -250,7 +399,7 @@ export interface EcommerceStudioProps {
 export function EcommerceStudio({
   projectName,
   initialDraft = null,
-  initialProduct = null,
+  initialProducts = [],
   initialReferences = [],
   onDraftChange,
   platforms = ECOMMERCE_PLATFORMS,
@@ -261,6 +410,7 @@ export function EcommerceStudio({
   onUpscaleResult,
   upscaleProfiles,
   models = [],
+  videoModels = [],
   editModels = [],
   model,
   onModelChange,
@@ -277,6 +427,9 @@ export function EcommerceStudio({
   parsingIntent = false,
   intent = null,
   chatTargetLabel = '',
+  chatModels = [],
+  intentModel = '',
+  onIntentModelChange,
   intentError = '',
   onIntentApplied,
   onIntentDiscard,
@@ -291,13 +444,26 @@ export function EcommerceStudio({
   shotPlanNote = '',
 }: EcommerceStudioProps) {
   const saved = initialDraft ?? DEFAULT_ECOMMERCE_FORM_DRAFT
+  const initialMode =
+    STUDIO_MODES.find(
+      (item) =>
+        item.label === saved.modeLabel &&
+        item.mediaKind === (saved.mediaKind ?? 'image'),
+    ) ??
+    STUDIO_MODES.find(
+      (item) => item.usage === saved.usage && item.mediaKind === (saved.mediaKind ?? 'image'),
+    ) ??
+    STUDIO_MODES[0]
+  const [category, setCategory] = useState<StudioCategory>(initialMode.category)
+  const [modeId, setModeId] = useState(initialMode.id)
+  const [videoDuration, setVideoDuration] = useState(saved.videoDuration ?? 5)
   const [usage, setUsage] = useState<EcommerceUsage>(saved.usage)
   const [platformId, setPlatformId] = useState<string>(saved.platformId)
   const [language, setLanguage] = useState<EcommerceLanguage>(saved.language)
   const [count, setCount] = useState<number>(saved.count)
   const [ratio, setRatio] = useState<string>(saved.ratio)
   const [note, setNote] = useState(saved.note)
-  const [product, setProduct] = useState<EcommerceUpload | null>(initialProduct)
+  const [products, setProducts] = useState<EcommerceUpload[]>([...initialProducts])
   const [references, setReferences] = useState<EcommerceUpload[]>([...initialReferences])
   /** 二次确认：点生成先算出"预计 N 张"，确认后才真的发请求（#384 的 D6） */
   const [confirming, setConfirming] = useState(false)
@@ -341,7 +507,7 @@ export function EcommerceStudio({
   }, [upscaleProfiles])
 
   const openEditForResult = (result: EcommerceResultItem) => {
-    if (!onEditResult || running) return
+    if (!onEditResult || running || result.mime?.startsWith('video/')) return
     setEditTarget({ nodeId: result.nodeId, label: '这张结果' })
     setEditInstruction(note.trim())
     setEditModel('')
@@ -350,7 +516,7 @@ export function EcommerceStudio({
   }
 
   const openUpscaleForResult = (result: EcommerceResultItem) => {
-    if (!onUpscaleResult || running) return
+    if (!onUpscaleResult || running || result.mime?.startsWith('video/')) return
     const first = availableUpscaleOptions[0]
     if (!first) return
     setUpscaleTarget({ items: [result], batch: false })
@@ -393,6 +559,20 @@ export function EcommerceStudio({
    * 电商这两块一直没有：同一个应用里两种手感，是很容易被当成"坏了"的那种不一致）。
    */
   const [dragOver, setDragOver] = useState<'product' | 'reference' | null>(null)
+  const mode = STUDIO_MODES.find((item) => item.id === modeId) ?? initialMode
+  const categoryModes = useMemo(
+    () => STUDIO_MODES.filter((item) => item.category === category),
+    [category],
+  )
+  const visibleResults = useMemo(
+    () =>
+      results.filter((result) =>
+        mode.mediaKind === 'video'
+          ? result.mime?.startsWith('video/')
+          : !result.mime?.startsWith('video/'),
+      ),
+    [mode.mediaKind, results],
+  )
 
   useEffect(() => {
     const valid = new Set(
@@ -414,6 +594,9 @@ export function EcommerceStudio({
    */
   useEffect(() => {
     onDraftChange?.({
+      modeLabel: mode.label,
+      mediaKind: mode.mediaKind,
+      videoDuration,
       usage,
       platformId,
       language,
@@ -421,15 +604,47 @@ export function EcommerceStudio({
       ratio,
       note,
       model,
-      productNodeId: product?.nodeId ?? null,
+      productNodeId: products[0]?.nodeId ?? null,
+      productNodeIds: products.map((item) => item.nodeId),
       referenceNodeIds: references.map((r) => r.nodeId),
     })
-  }, [usage, platformId, language, count, ratio, note, model, product?.nodeId, references, onDraftChange])
+  }, [
+    usage,
+    mode,
+    videoDuration,
+    platformId,
+    language,
+    count,
+    ratio,
+    note,
+    model,
+    products,
+    references,
+    onDraftChange,
+  ])
 
   const platform = useMemo(
     () => platforms.find((p) => p.id === platformId) ?? null,
     [platforms, platformId],
   )
+
+  const activateMode = (next: StudioMode) => {
+    const previousKind = mode.mediaKind
+    setModeId(next.id)
+    setCategory(next.category)
+    setUsage(next.usage)
+    setCount(next.count)
+    if (next.ratio) setRatio(next.ratio)
+    if (previousKind !== next.mediaKind) onModelChange('')
+    setShotPlan(null)
+    setPlanError('')
+    setError('')
+  }
+
+  const activateCategory = (next: StudioCategory) => {
+    const first = STUDIO_MODES.find((item) => item.category === next)
+    if (first) activateMode(first)
+  }
 
   const onPick = async (file: File | undefined, kind: 'product' | 'reference') => {
     if (!file) return
@@ -439,8 +654,19 @@ export function EcommerceStudio({
       setError('这张图没能读进来（格式不支持或读取失败），换一张再试')
       return
     }
-    if (kind === 'product') setProduct(uploaded)
-    else setReferences((prev) => [...prev, uploaded].slice(0, 4))
+    if (kind === 'product') {
+      setProducts((prev) => {
+        if (prev.some((item) => item.nodeId === uploaded.nodeId)) return prev
+        if (prev.length >= 3 || prev.length + references.length >= 4) return prev
+        return [...prev, uploaded]
+      })
+    } else {
+      setReferences((prev) => {
+        if (prev.some((item) => item.nodeId === uploaded.nodeId)) return prev
+        if (prev.length + products.length >= 4) return prev
+        return [...prev, uploaded]
+      })
+    }
   }
 
   /**
@@ -456,10 +682,11 @@ export function EcommerceStudio({
     if (picked.length === 0) return
     void (async () => {
       if (kind === 'product') {
-        await onPick(picked[0], 'product')
+        const room = Math.max(0, Math.min(3, 4 - references.length) - products.length)
+        for (const file of picked.slice(0, room)) await onPick(file, 'product')
         return
       }
-      const room = Math.max(0, 4 - references.length)
+      const room = Math.max(0, Math.min(4 - references.length, 4 - products.length))
       for (const f of picked.slice(0, room)) await onPick(f, 'reference')
     })()
   }
@@ -507,20 +734,25 @@ export function EcommerceStudio({
   })
 
   const buildRequest = (): EcommerceRequest => ({
+    mediaKind: mode.mediaKind,
+    modeLabel: mode.label,
     usage,
     platformId: platformId || undefined,
     language,
-    count,
+    count: mode.mediaKind === 'video' ? 1 : count,
     ratio,
-    productNodeId: product?.nodeId ?? '',
+    productNodeId: products[0]?.nodeId ?? '',
+    productNodeIds: products.map((item) => item.nodeId),
     referenceNodeIds: references.map((r) => r.nodeId),
     note,
+    ...(mode.promptPrefix ? { modePrompt: mode.promptPrefix } : {}),
+    ...(mode.mediaKind === 'video' ? { durationSec: videoDuration } : {}),
     /* 空串不写进请求：让页面按"默认解析"那条路走（与没选过完全一致） */
     ...(model ? { model } : {}),
   })
 
   const start = () => {
-    if (!product) {
+    if (products.length === 0) {
       setError('先上传一张产品图 —— 没有产品图就没有可改的主体')
       return
     }
@@ -561,26 +793,33 @@ export function EcommerceStudio({
 
   /** 当前表单对应的分镜键（只有影响分镜的那几项进键） */
   const currentShotKey = shotKeyOf({ usage, platformId, language, count, ratio, note })
-  const doneResultCount = results.filter((result) => result.status === 'done').length
-  const selectedDownloadCount = results.filter(
+  const doneResultCount = visibleResults.filter((result) => result.status === 'done').length
+  const selectedDownloadCount = visibleResults.filter(
     (result) =>
       result.status === 'done' &&
       selectedEditNodes.has(result.nodeId) &&
       !!result.onDownload,
   ).length
-  const selectedSaveCount = results.filter(
+  const selectedSaveCount = visibleResults.filter(
     (result) =>
       result.status === 'done' &&
       selectedEditNodes.has(result.nodeId) &&
       !!result.onSaveToLibrary,
   ).length
-  const selectedUpscaleCount = results.filter(
+  const selectedUpscaleCount = visibleResults.filter(
     (result) =>
       result.status === 'done' &&
       selectedEditNodes.has(result.nodeId) &&
+      !result.mime?.startsWith('video/') &&
       !!result.imageHash &&
       !!onUpscaleResult &&
       availableUpscaleOptions.length > 0,
+  ).length
+  const selectedImageEditCount = visibleResults.filter(
+    (result) =>
+      result.status === 'done' &&
+      selectedEditNodes.has(result.nodeId) &&
+      !result.mime?.startsWith('video/'),
   ).length
   const editPresets = useMemo(
     () => [
@@ -643,6 +882,19 @@ export function EcommerceStudio({
   const applyTaskSettings = (task: EcommerceTaskRecord) => {
     const request = task.request
     if (!ECOMMERCE_FORM_USAGES.includes(request.usage)) return
+    const matchedMode =
+      STUDIO_MODES.find(
+        (item) =>
+          item.label === request.modeLabel &&
+          item.mediaKind === (request.mediaKind ?? 'image'),
+      ) ??
+      STUDIO_MODES.find(
+        (item) => item.usage === request.usage && item.mediaKind === (request.mediaKind ?? 'image'),
+      )
+    if (matchedMode) {
+      setCategory(matchedMode.category)
+      setModeId(matchedMode.id)
+    }
     setUsage(request.usage)
     setPlatformId(request.platformId ?? '')
     setLanguage(request.language)
@@ -654,6 +906,7 @@ export function EcommerceStudio({
     )
     setRatio(ECOMMERCE_RATIOS.includes(request.ratio) ? request.ratio : '1:1')
     setNote((request.note ?? '').slice(0, ECOMMERCE_NOTE_MAX))
+    if (request.durationSec) setVideoDuration(request.durationSec)
     setShotPlan(null)
     setConfirming(false)
     setError('')
@@ -742,7 +995,15 @@ export function EcommerceStudio({
       setBatchEditError('先写清这批图要统一改什么')
       return
     }
-    if (selectedEditNodes.size === 0) {
+    const imageNodeIds = results
+      .filter(
+        (result) =>
+          result.status === 'done' &&
+          selectedEditNodes.has(result.nodeId) &&
+          !result.mime?.startsWith('video/'),
+      )
+      .map((result) => result.nodeId)
+    if (imageNodeIds.length === 0) {
       setBatchEditError('先选择至少一张结果')
       return
     }
@@ -750,7 +1011,7 @@ export function EcommerceStudio({
     setBatchEditSubmitting(true)
     try {
       await onEditResults(
-        [...selectedEditNodes],
+        imageNodeIds,
         instruction,
         {
           ...(batchReference ? { referenceNodeId: batchReference.nodeId } : {}),
@@ -772,7 +1033,7 @@ export function EcommerceStudio({
   const selectAllDone = () => {
     setSelectedEditNodes(
       new Set(
-        results
+        visibleResults
           .filter((result) => result.status === 'done')
           .map((result) => result.nodeId),
       ),
@@ -780,7 +1041,7 @@ export function EcommerceStudio({
   }
 
   const downloadSelected = async () => {
-    const targets = results.filter(
+    const targets = visibleResults.filter(
       (result) => result.status === 'done' && selectedEditNodes.has(result.nodeId),
     )
     for (const result of targets) {
@@ -792,7 +1053,7 @@ export function EcommerceStudio({
   }
 
   const saveSelectedToLibrary = async () => {
-    const targets = results.filter(
+    const targets = visibleResults.filter(
       (result) =>
         result.status === 'done' &&
         selectedEditNodes.has(result.nodeId) &&
@@ -830,11 +1091,33 @@ export function EcommerceStudio({
 
   return (
     <div className={styles.wrap} data-ecommerce-studio>
-      {/* 左：参数（用户 2026-10-09：左边传图 + 选参数，右边出图） */}
+      <aside className={styles.categoryRail} data-ecommerce-categories>
+        {STUDIO_CATEGORIES.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={
+              item.id === category
+                ? `${styles.categoryButton} ${styles.categoryButtonOn}`
+                : styles.categoryButton
+            }
+            data-ecommerce-category={item.id}
+            aria-pressed={item.id === category}
+            onClick={() => activateCategory(item.id)}
+          >
+            <CategoryGlyph category={item.id} />
+            <span>{item.label}</span>
+          </button>
+        ))}
+      </aside>
+
+      {/* 右：参数 */}
       <aside className={styles.form} data-ecommerce-form>
         <header className={styles.head}>
-          <h1 className={styles.title}>电商出图</h1>
-          <p className={styles.sub}>{projectName}</p>
+          <h1 className={styles.title}>参数</h1>
+          <p className={styles.sub}>
+            {projectName} · {mode.label}
+          </p>
         </header>
 
         {/*
@@ -847,6 +1130,24 @@ export function EcommerceStudio({
         {onParseIntent ? (
           <section className={styles.block} data-ecommerce-intent>
             <span className={styles.blockTitle}>用一句话生成方案</span>
+            <label className={styles.field}>
+              <span className={styles.fieldLabel}>解析模型</span>
+              <select
+                className={styles.select}
+                value={intentModel}
+                data-ecommerce-intent-model
+                onChange={(e) => onIntentModelChange?.(e.target.value)}
+              >
+                <option value="">
+                  {chatTargetLabel ? `默认 · ${chatTargetLabel}` : '未配置对话模型'}
+                </option>
+                {chatModels.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <textarea
               className={styles.textarea}
               value={intentText}
@@ -885,7 +1186,7 @@ export function EcommerceStudio({
               </button>
               <span className={styles.hint} data-ecommerce-intent-note>
                 {chatTargetLabel
-                  ? `会用 ${chatTargetLabel} 解析`
+                  ? `本次使用 ${chatTargetLabel}`
                   : '还没有可用的对话模型：先去「设置 → 渠道配置」给一条渠道勾上对话模型'}
               </span>
             </div>
@@ -930,16 +1231,11 @@ export function EcommerceStudio({
              * 以前这些都只活在组件状态里 —— 刷新或切走就没了，昨天想好的方案今天得重打一遍。
              * 有一条「删除」在：历史只留最近的几条，不想留的自己清掉。
              */}
-            {onRestorePlan ? (
+            {onRestorePlan && planHistory.length > 0 ? (
               <div className={styles.planHistory} data-ecommerce-plan-history>
                 <span className={styles.planHistoryTitle}>最近的方案</span>
-                {planHistory.length === 0 ? (
-                  <span className={styles.hint} data-ecommerce-plan-empty>
-                    还没有 —— 上面写一句、解析成功，第一条就留在这里
-                  </span>
-                ) : (
-                  <ul className={styles.planList}>
-                    {planHistory.map((plan) => (
+                <ul className={styles.planList}>
+                  {planHistory.map((plan) => (
                       <li key={plan.id} className={styles.planItem} data-ecommerce-plan={plan.id}>
                         <button
                           type="button"
@@ -964,9 +1260,8 @@ export function EcommerceStudio({
                           ×
                         </button>
                       </li>
-                    ))}
-                  </ul>
-                )}
+                  ))}
+                </ul>
               </div>
             ) : null}
           </section>
@@ -1028,27 +1323,47 @@ export function EcommerceStudio({
           {...dropProps('product')}
         >
           <label className={styles.blockTitle} htmlFor="ecommerce-product">
-            产品图（必填）
+            产品图
           </label>
           <input
             id="ecommerce-product"
             className={styles.file}
             type="file"
             accept="image/*"
+            multiple
             data-ecommerce-product-input
-            onChange={(e) => void onPick(e.target.files?.[0], 'product')}
+            onChange={(e) => {
+              const files = [...(e.target.files ?? [])]
+              void (async () => {
+                for (const file of files) await onPick(file, 'product')
+              })()
+              e.currentTarget.value = ''
+            }}
           />
           <div className={styles.slotRow}>
-            {product ? (
-              <div className={styles.slot} data-ecommerce-product-preview>
-                {product.preview}
+            {products.map((item, index) => (
+              <div key={item.nodeId} className={styles.slot} data-ecommerce-product-preview>
+                {item.preview}
+                <button
+                  type="button"
+                  className={styles.slotRemove}
+                  aria-label={`移除第 ${index + 1} 张产品图`}
+                  onClick={() => setProducts((prev) => prev.filter((row) => row.nodeId !== item.nodeId))}
+                >
+                  ×
+                </button>
               </div>
-            ) : (
+            ))}
+            {products.length === 0 ? (
               <label className={styles.emptySlot} htmlFor="ecommerce-product">
-                <span>点这里上传产品图（也可以直接把图拖进来）</span>
-                <span className={styles.emptyHint}>白底 / 场景图都行，越清楚越好</span>
+                <span>上传产品图</span>
+                <span className={styles.emptyHint}>支持 1–3 张，多角度更容易保持一致</span>
               </label>
-            )}
+            ) : products.length < 3 && products.length + references.length < 4 ? (
+              <label className={styles.addSlot} htmlFor="ecommerce-product" data-ecommerce-product-add>
+                +
+              </label>
+            ) : null}
           </div>
         </section>
 
@@ -1060,13 +1375,13 @@ export function EcommerceStudio({
           {...dropProps('reference')}
         >
           <label className={styles.blockTitle} htmlFor="ecommerce-reference">
-            参考图（{usage === 'recreate' ? '爆款复刻至少 1 张' : '可选'}，最多 4 张）
+            参考图（{usage === 'recreate' ? '必填' : '可选'}）
           </label>
           <input
             id="ecommerce-reference"
             className={styles.file}
             type="file"
-            accept="image/*"
+            accept="image/*,video/*"
             multiple
             data-ecommerce-reference-input
             onChange={(e) => {
@@ -1080,15 +1395,27 @@ export function EcommerceStudio({
             {references.map((r) => (
               <div key={r.nodeId} className={styles.slot} data-ecommerce-reference-preview>
                 {r.preview}
+                <button
+                  type="button"
+                  className={styles.slotRemove}
+                  aria-label="移除参考图"
+                  onClick={() =>
+                    setReferences((prev) => prev.filter((row) => row.nodeId !== r.nodeId))
+                  }
+                >
+                  ×
+                </button>
               </div>
             ))}
-            <label
-              className={styles.addSlot}
-              htmlFor="ecommerce-reference"
-              data-ecommerce-reference-add
-            >
-              +
-            </label>
+            {references.length + products.length < 4 ? (
+              <label
+                className={styles.addSlot}
+                htmlFor="ecommerce-reference"
+                data-ecommerce-reference-add
+              >
+                +
+              </label>
+            ) : null}
           </div>
           {usage === 'recreate' && references.length === 0 ? (
             <p className={styles.hint} data-ecommerce-recreate-hint>
@@ -1098,30 +1425,7 @@ export function EcommerceStudio({
         </section>
 
         <section className={styles.block}>
-          <span className={styles.blockTitle}>用途</span>
-          <div className={styles.segments} role="radiogroup" aria-label="用途">
-            {ECOMMERCE_FORM_USAGES.map((u) => (
-              <button
-                key={u}
-                type="button"
-                role="radio"
-                aria-checked={usage === u}
-                className={usage === u ? `${styles.seg} ${styles.segOn}` : styles.seg}
-                data-ecommerce-usage={u}
-                onClick={() => {
-                  setUsage(u)
-                  /* 与用途切换同一个事件里改张数，避免 effect 在用户输入之后再覆盖它。 */
-                  setCount(ECOMMERCE_DEFAULT_COUNT[u])
-                }}
-              >
-                {usageLabel(u)}
-              </button>
-            ))}
-          </div>
-        </section>
-
-        <section className={styles.block}>
-          <span className={styles.blockTitle}>平台与语言</span>
+          <span className={styles.blockTitle}>平台与参数</span>
           <div className={styles.twoCols}>
             <label className={styles.field}>
               <span className={styles.fieldLabel}>平台</span>
@@ -1144,7 +1448,9 @@ export function EcommerceStudio({
               渠道**不在这里选** —— 与画布同一条口径：模型定下来，谁提供它由选路决定。
             */}
             <label className={styles.field}>
-              <span className={styles.fieldLabel}>模型</span>
+              <span className={styles.fieldLabel}>
+                {mode.mediaKind === 'video' ? '视频模型' : '生成模型'}
+              </span>
               <select
                 className={styles.select}
                 value={model}
@@ -1152,7 +1458,7 @@ export function EcommerceStudio({
                 onChange={(e) => onModelChange(e.target.value)}
               >
                 <option value="">默认（按渠道解析）</option>
-                {models.map((m) => (
+                {(mode.mediaKind === 'video' ? videoModels : models).map((m) => (
                   <option key={m} value={m}>
                     {m}
                   </option>
@@ -1175,16 +1481,33 @@ export function EcommerceStudio({
               </select>
             </label>
             <label className={styles.field}>
-              <span className={styles.fieldLabel}>张数</span>
-              <input
-                className={styles.input}
-                type="number"
-                min={1}
-                max={ECOMMERCE_COUNT_MAX}
-                value={count}
-                data-ecommerce-count
-                onChange={(e) => setCount(Number(e.target.value))}
-              />
+              <span className={styles.fieldLabel}>
+                {mode.mediaKind === 'video' ? '时长' : '张数'}
+              </span>
+              {mode.mediaKind === 'video' ? (
+                <select
+                  className={styles.select}
+                  value={videoDuration}
+                  data-ecommerce-video-duration
+                  onChange={(e) => setVideoDuration(Number(e.target.value))}
+                >
+                  {[5, 10, 15].map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {seconds} 秒
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  className={styles.input}
+                  type="number"
+                  min={1}
+                  max={ECOMMERCE_COUNT_MAX}
+                  value={count}
+                  data-ecommerce-count
+                  onChange={(e) => setCount(Number(e.target.value))}
+                />
+              )}
             </label>
             <label className={styles.field}>
               <span className={styles.fieldLabel}>比例</span>
@@ -1318,7 +1641,7 @@ export function EcommerceStudio({
           data-ecommerce-generate
           onClick={start}
         >
-          {running ? '生成中…' : '开始生成'}
+          {running ? '生成中…' : mode.mediaKind === 'video' ? '生成视频' : `生成${mode.label}`}
         </button>
 
         {/* 这一次的分镜从哪来的（对账 #406）：跑完如实说，回落也如实说是为什么 */}
@@ -1329,12 +1652,37 @@ export function EcommerceStudio({
         ) : null}
       </aside>
 
-      {/* 右：结果 */}
+      {/* 中：产物 */}
       <section className={styles.results} data-ecommerce-results>
+        <nav className={styles.modeBar} data-ecommerce-modes>
+          {categoryModes.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={
+                item.id === mode.id
+                  ? `${styles.modeButton} ${styles.modeButtonOn}`
+                  : styles.modeButton
+              }
+              data-ecommerce-mode={item.id}
+              {...(STUDIO_MODES.find(
+                (candidate) =>
+                  candidate.category === item.category && candidate.usage === item.usage,
+              )?.id === item.id
+                ? { 'data-ecommerce-usage': item.usage }
+                : {})}
+              aria-pressed={item.id === mode.id}
+              aria-checked={item.usage === usage}
+              onClick={() => activateMode(item)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
         <header className={styles.resultsHead}>
-          <span className={styles.blockTitle}>结果</span>
+          <span className={styles.blockTitle}>{mode.label}</span>
           <span className={styles.headTools}>
-            {onEditResults && selectedEditNodes.size > 0 ? (
+            {onEditResults && selectedImageEditCount > 0 ? (
               <button
                 type="button"
                 className={styles.linkBtn}
@@ -1348,7 +1696,7 @@ export function EcommerceStudio({
                   setBatchEditError('')
                 }}
               >
-                批量 AI 编辑（{selectedEditNodes.size}）
+                批量 AI 编辑（{selectedImageEditCount}）
               </button>
             ) : null}
             {selectedDownloadCount > 0 ? (
@@ -1381,10 +1729,11 @@ export function EcommerceStudio({
                 onClick={() => {
                   const first = availableUpscaleOptions[0]
                   if (!first) return
-                  const items = results.filter(
+                  const items = visibleResults.filter(
                     (result) =>
                       result.status === 'done' &&
                       selectedEditNodes.has(result.nodeId) &&
+                      !result.mime?.startsWith('video/') &&
                       !!result.imageHash,
                   )
                   if (items.length === 0) return
@@ -1438,12 +1787,19 @@ export function EcommerceStudio({
                 重试失败项（{failedCount}）
               </button>
             ) : null}
-            {onOpenLongImage ? (
+            {onOpenLongImage && mode.mediaKind === 'image' ? (
               <button
                 type="button"
                 className={styles.linkBtn}
                 data-ecommerce-longimage-open
-                disabled={!results.some((r) => r.status === 'done' && r.imageHash)}
+                disabled={
+                  !visibleResults.some(
+                    (r) =>
+                      r.status === 'done' &&
+                      r.imageHash &&
+                      !r.mime?.startsWith('video/'),
+                  )
+                }
                 title="把这一批已完成的图按 1920 宽等比拼成一张详情页长图"
                 onClick={onOpenLongImage}
               >
@@ -1460,14 +1816,31 @@ export function EcommerceStudio({
             </button>
           </span>
         </header>
-        {results.length === 0 ? (
-          <p className={styles.empty} data-ecommerce-empty>
-            还没有结果。上传产品图、选好参数后点「开始生成」—— 图片会落到这个项目里，
-            每一张都能单独下载；要精修时会复制成一份独立画布节点，不碰电商内部执行节点。
-          </p>
+        {visibleResults.length === 0 ? (
+          <div className={styles.hero} data-ecommerce-empty>
+            <div className={styles.heroIntro}>
+              <h2>AI {mode.label}</h2>
+              <p>
+                {mode.mediaKind === 'video'
+                  ? '上传产品图，生成一段可直接用于电商展示的视频。'
+                  : '上传产品图并设置参数，生成可下载、可继续精修的商品图。'}
+              </p>
+            </div>
+            <div className={styles.heroCanvas}>
+              <div className={styles.heroProduct}>
+                {products[0]?.preview ?? <span>产品图</span>}
+              </div>
+              <span className={styles.heroArrow}>→</span>
+              <div className={styles.heroResults}>
+                <span>{mode.mediaKind === 'video' ? '视频预览' : '主图'}</span>
+                <span>{mode.mediaKind === 'video' ? '商品展示' : '细节图'}</span>
+                <span>{mode.mediaKind === 'video' ? '镜头节奏' : '卖点图'}</span>
+              </div>
+            </div>
+          </div>
         ) : (
           <div className={styles.grid} data-ecommerce-grid>
-            {results.map((r) => (
+            {visibleResults.map((r) => (
               <figure
                 key={r.nodeId}
                 className={styles.cell}
@@ -1571,10 +1944,10 @@ export function EcommerceStudio({
                         data-ecommerce-focus-canvas
                         onClick={r.onFocusInCanvas}
                       >
-                        复制到画布并编辑
+                        {r.mime?.startsWith('video/') ? '在画布打开' : '复制到画布并编辑'}
                       </button>
                     ) : null}
-                    {r.onCropInCanvas ? (
+                    {!r.mime?.startsWith('video/') && r.onCropInCanvas ? (
                       <button
                         type="button"
                         className={styles.linkBtn}
@@ -1585,7 +1958,7 @@ export function EcommerceStudio({
                         裁剪这一张
                       </button>
                     ) : null}
-                    {r.onExtractInCanvas ? (
+                    {!r.mime?.startsWith('video/') && r.onExtractInCanvas ? (
                       <button
                         type="button"
                         className={styles.linkBtn}
@@ -1596,7 +1969,7 @@ export function EcommerceStudio({
                         局部重绘
                       </button>
                     ) : null}
-                    {r.onAnnotateInCanvas ? (
+                    {!r.mime?.startsWith('video/') && r.onAnnotateInCanvas ? (
                       <button
                         type="button"
                         className={styles.linkBtn}
@@ -1607,7 +1980,7 @@ export function EcommerceStudio({
                         加文字/标注
                       </button>
                     ) : null}
-                    {r.onRotateInCanvas ? (
+                    {!r.mime?.startsWith('video/') && r.onRotateInCanvas ? (
                       <button
                         type="button"
                         className={styles.linkBtn}
@@ -1618,7 +1991,7 @@ export function EcommerceStudio({
                         旋转
                       </button>
                     ) : null}
-                    {onEditResult && r.status === 'done' ? (
+                    {onEditResult && r.status === 'done' && !r.mime?.startsWith('video/') ? (
                       <button
                         type="button"
                         className={styles.linkBtn}
@@ -1632,7 +2005,8 @@ export function EcommerceStudio({
                     ) : null}
                     {onUpscaleResult &&
                     availableUpscaleOptions.length > 0 &&
-                    r.status === 'done' ? (
+                    r.status === 'done' &&
+                    !r.mime?.startsWith('video/') ? (
                       <button
                         type="button"
                         className={styles.linkBtn}
@@ -1644,7 +2018,7 @@ export function EcommerceStudio({
                         AI 超清
                       </button>
                     ) : null}
-                    {r.sourcePreview && r.preview ? (
+                    {r.sourcePreview && r.preview && !r.mime?.startsWith('video/') ? (
                       <button
                         type="button"
                         className={styles.linkBtn}
@@ -1795,8 +2169,8 @@ export function EcommerceStudio({
               批量 AI 编辑
             </h2>
             <p className={styles.confirmText}>
-              将对选中的 {selectedEditNodes.size} 张图逐张执行同一套修改要求。每张都会生成独立新批次，
-              原结果全部保留；会调用你的渠道，产生 {selectedEditNodes.size} 次真实用量。
+              将对选中的 {selectedImageEditCount} 张图逐张执行同一套修改要求。每张都会生成独立新批次，
+              原结果全部保留；会调用你的渠道，产生 {selectedImageEditCount} 次真实用量。
             </p>
             <div className={styles.editPresets} aria-label="常用批量编辑要求">
               {editPresets.map((preset) => (
@@ -1906,12 +2280,12 @@ export function EcommerceStudio({
                 disabled={
                   batchEditSubmitting ||
                   running ||
-                  selectedEditNodes.size === 0 ||
+                  selectedImageEditCount === 0 ||
                   !batchInstruction.trim()
                 }
                 onClick={() => void submitBatchEdit()}
               >
-                {batchEditSubmitting ? '正在逐张执行…' : `生成 ${selectedEditNodes.size} 张编辑结果`}
+                {batchEditSubmitting ? '正在逐张执行…' : `生成 ${selectedImageEditCount} 张编辑结果`}
               </button>
             </div>
           </div>
@@ -2157,7 +2531,9 @@ export function EcommerceStudio({
           <div className={styles.confirmCard}>
             <h2 className={styles.confirmTitle}>确认生成</h2>
             <p className={styles.confirmText}>
-              将生成 <b>{count}</b> 张{usageLabel(usage)}，比例 {ratio}
+              将生成 <b>{mode.mediaKind === 'video' ? 1 : count}</b>{' '}
+              {mode.mediaKind === 'video' ? '条' : '张'}
+              {mode.mediaKind === 'video' ? mode.label : usageLabel(usage)}，比例 {ratio}
               {platform ? `，面向 ${platform.name}` : ''}。会调用你的渠道，产生真实用量。
             </p>
             {/*
@@ -2195,12 +2571,46 @@ export function EcommerceStudio({
                 data-ecommerce-confirm-ok
                 onClick={() => void confirm()}
               >
-                确认生成 {count} 张
+                确认生成 {mode.mediaKind === 'video' ? 1 : count}{' '}
+                {mode.mediaKind === 'video' ? '条视频' : '张'}
               </button>
             </div>
           </div>
         </div>
       ) : null}
     </div>
+  )
+}
+
+function CategoryGlyph({ category }: { category: StudioCategory }) {
+  const common = {
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.6,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    'aria-hidden': true,
+  }
+  if (category === 'video') {
+    return (
+      <svg {...common} width={20} height={20} viewBox="0 0 24 24">
+        <rect x="3.5" y="5" width="13" height="14" rx="2" />
+        <path d="m16.5 9 4-2v10l-4-2Z" />
+        <path d="m8 9 4 3-4 3Z" />
+      </svg>
+    )
+  }
+  if (category === 'wear') {
+    return (
+      <svg {...common} width={20} height={20} viewBox="0 0 24 24">
+        <path d="M9 4.5 5 7l2 5 1.5-.7V20h7V11.3L17 12l2-5-4-2.5a3 3 0 0 1-6 0Z" />
+      </svg>
+    )
+  }
+  return (
+    <svg {...common} width={20} height={20} viewBox="0 0 24 24">
+      <path d="M5 8.5h14l-1 11H6Z" />
+      <path d="M9 8.5V7a3 3 0 0 1 6 0v1.5" />
+    </svg>
   )
 }

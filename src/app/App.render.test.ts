@@ -140,7 +140,7 @@ describe('App 路由整树渲染冒烟', () => {
     expect(html).toContain('data-qinghua-wordmark')
   }, TREE_TIMEOUT)
 
-  it('项目路由下：项目网格与模板库都在（§5.1 的迁移目标）', async () => {
+  it('项目路由下：项目空态在，模板库入口已移除', async () => {
     const html = await renderTree(['/projects'])
     /*
      * 空库时是**空态**（`data-new-project`），不是网格末尾那张「+ 新建」卡
@@ -148,6 +148,6 @@ describe('App 路由整树渲染冒烟', () => {
      * 否则测的是「有没有项目」而不是「项目页渲染出来了没」。
      */
     expect(html).toContain('data-new-project')
-    expect(html).toContain('data-template="text2img"')
+    expect(html).not.toContain('data-template=')
   }, TREE_TIMEOUT)
 })

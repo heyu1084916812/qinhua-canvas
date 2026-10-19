@@ -39,7 +39,7 @@ const TRASH_KEEP_DAYS = 30
  * 项目页（产品文档 §5.1 / §5.3；路由 `/projects`）。
  *
  * 原名 `HomePage`。2026-09-27 应用壳改版时**一分为二**：
- * 这里只留「项目网格 + 模板库」这件正事，品牌 / 欢迎 / 一级导航
+ * 这里只留「项目网格」这件正事，品牌 / 欢迎 / 一级导航
  * 全部交给应用壳（§5.2「首页不再有自己的顶栏」）。
  *
  * 为什么是改名而不是并存两个页面：原来那个 `HomePage` 里根本没有「欢迎」内容
@@ -124,14 +124,26 @@ export function ProjectsPage() {
 
   useEffect(() => {
     let alive = true
-    void store.load().then(() => {
+    void (async () => {
+      try {
+        await platform.storage.open()
+      } catch (error) {
+        if (alive) {
+          setStatus(
+            `项目列表读取失败：${error instanceof Error ? error.message : String(error)}`,
+            'error',
+          )
+        }
+        return
+      }
+      await store.load()
       const error = store.getState().error
       if (alive && error) setStatus(`项目列表读取失败：${error}`, 'error')
-    })
+    })()
     return () => {
       alive = false
     }
-  }, [setStatus, store])
+  }, [platform.storage, setStatus, store])
 
   const createBlank = async (workbench: WorkbenchId = 'canvas') => {
     // 不传 name：由 domain 按 workbench 取默认名（现只有 canvas「未命名项目」）
@@ -625,31 +637,6 @@ export function ProjectsPage() {
           )}
         </section>
 
-        {/* —— 模板库 —— */}
-        <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>模板库</h2>
-          <div className={styles.grid}>
-            {TEMPLATES.map((t) => (
-              <button
-                key={t.id}
-                className={styles.tplCard}
-                data-template={t.id}
-                onClick={() => void createFromTemplate(t.id, t.name)}
-              >
-                <div className={styles.tplThumb} aria-hidden />
-                {/*
-                  单独加一个 `tplBody`：模板卡是**有边框的盒子**，内容必须离边框有内边距；
-                  而项目卡（`card`）是**无边框、文字与封面左对齐**，两者共用 `.cardBody`
-                  却不能共用内边距 —— 用户 2026-10-06 报的"文字贴边"就是这个。
-                */}
-                <div className={`${styles.cardBody} ${styles.tplBody}`}>
-                  <div className={styles.cardName}>{t.name}</div>
-                  <div className={styles.cardMeta}>{t.hint}</div>
-                </div>
-              </button>
-            ))}
-          </div>
-        </section>
       </main>
 
       {/* 语气 → role / aria-live：一处决定（`domain/ui/notice.ts`）；data-status-tone 给冒烟读 */}
@@ -752,6 +739,20 @@ export function ProjectsPage() {
 
       {/* 菜单点击外部关闭的遮罩 */}
       {menuId !== null && <div className={styles.menuBackdrop} onClick={() => setMenuId(null)} />}
+
+      {import.meta.env.MODE === 'development' ? (
+        <div className={styles.templateTestBridge} data-dev-template-bridge aria-hidden="true">
+          {TEMPLATES.map((template) => (
+            <button
+              key={template.id}
+              type="button"
+              tabIndex={-1}
+              data-template={template.id}
+              onClick={() => void createFromTemplate(template.id, template.name)}
+            />
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -81,6 +81,7 @@ function resultOf(row: Record<string, unknown>): EcommerceResultRecord {
     updatedAt: Number(row.updatedAt) || 0,
     status: statusOfResult(row.status),
     ...(stringOrUndefined(row.assetHash) ? { assetHash: String(row.assetHash) } : {}),
+    ...(stringOrUndefined(row.mime) ? { mime: String(row.mime) } : {}),
     ...(numberOrUndefined(row.width) !== undefined ? { width: Number(row.width) } : {}),
     ...(numberOrUndefined(row.height) !== undefined ? { height: Number(row.height) } : {}),
     ...(stringOrUndefined(row.prompt) ? { prompt: String(row.prompt) } : {}),

@@ -29,6 +29,11 @@ import {
 } from '../state/ui/globalSettings'
 import styles from './AppSidebar.module.css'
 import { ProjectTree } from './ProjectTree'
+import {
+  activeCanvasId,
+  getActiveCanvasRevision,
+  subscribeActiveCanvas,
+} from '../state/project/activeCanvas'
 
 /**
  * 应用壳左侧功能栏（产品文档 §2.2 / 架构文档 §5.10）。
@@ -180,6 +185,15 @@ export function AppSidebar() {
     const m = /^\/(canvas|ecommerce|storyboard)\/(.+)$/.exec(location.pathname)
     return m ? { workbench: m[1] as WorkbenchId, id: m[2] } : null
   }, [location.pathname])
+  useSyncExternalStore(
+    subscribeActiveCanvas,
+    getActiveCanvasRevision,
+    getActiveCanvasRevision,
+  )
+  const selectedProjectId =
+    activeProject?.workbench === 'canvas'
+      ? activeProject.id
+      : activeCanvasId() ?? activeProject?.id ?? null
 
   /**
    * 一级导航的**滑动高亮块**（用户 2026-10-14：「当前项切换时的高亮块从旧位置
@@ -400,7 +414,7 @@ export function AppSidebar() {
         })}
       </nav>
 
-      <ProjectTree open={open} activeProjectId={activeProject?.id ?? null} />
+      <ProjectTree open={open} activeProjectId={selectedProjectId} />
 
       {/* 底部：主题切换常驻（用户 2026-09-27：主题放侧栏底部；收起态也保留图标位） */}
       <div className={styles.foot}>

@@ -50,6 +50,8 @@ export interface EcommerceResultRecord {
   updatedAt: number
   status: EcommerceResultStatus
   assetHash?: string
+  /** 产物 MIME；视频任务由此决定结果区用 video 播放而不是 img。 */
+  mime?: string
   width?: number
   height?: number
   prompt?: string
@@ -121,5 +123,7 @@ export function taskSummaryOf(
   const p = (n: number) => String(n).padStart(2, '0')
   const time = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
   const platform = task.request.platformId ? platformLabel(task.request.platformId) : '通用'
-  return `${time} · ${usageLabel(task.request.usage)} · ${platform} · ${task.request.count} 张 · ${taskStatusLabel(task.status)}`
+  const label = task.request.modeLabel || usageLabel(task.request.usage)
+  const unit = task.request.mediaKind === 'video' ? '条' : '张'
+  return `${time} · ${label} · ${platform} · ${task.request.count} ${unit} · ${taskStatusLabel(task.status)}`
 }

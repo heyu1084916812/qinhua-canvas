@@ -56,5 +56,21 @@ describe('电商任务 / 结果状态纯函数', () => {
         },
       }),
     ).toContain('· 通用 · 1 张 · 已完成')
+    expect(
+      taskSummaryOf({
+        createdAt: at,
+        status: 'done',
+        request: {
+          mediaKind: 'video',
+          modeLabel: '带货视频',
+          usage: 'set',
+          language: 'en',
+          count: 1,
+          ratio: '9:16',
+          productNodeId: 'n1',
+          referenceNodeIds: [],
+        },
+      }),
+    ).toContain('· 带货视频 · 通用 · 1 条 · 已完成')
   })
 })

@@ -21,6 +21,12 @@ export type EcommerceUsage = 'main' | 'white-bg' | 'detail' | 'set' | 'recreate'
 export type EcommerceLanguage = 'zh-CN' | 'en' | 'ru' | 'ja' | 'ko' | 'de' | 'es' | 'ar'
 
 export interface EcommerceRequest {
+  /** 这次生产图片还是视频；历史任务缺省按图片处理 */
+  mediaKind?: 'image' | 'video'
+  /** 当前工作台功能名（用于历史与原样回填，不参与提示词白名单判断） */
+  modeLabel?: string
+  /** 功能自带的约束，与用户手写 note 分开保存，避免回填时重复。 */
+  modePrompt?: string
   usage: EcommerceUsage
   /** 平台 id，来自 platforms.ts；做白底图时可以不选（白底是通用要求） */
   platformId?: string
@@ -31,6 +37,8 @@ export interface EcommerceRequest {
   ratio: string
   /** 产品图：走节点 id（与画布同源） */
   productNodeId: string
+  /** 多角度产品图；`productNodeId` 仍是第一张。旧任务可缺省。 */
+  productNodeIds?: string[]
   /** 参考图：0..N 张 */
   referenceNodeIds: string[]
   /** 用户自由补充的一句需求（可空） */
@@ -43,10 +51,15 @@ export interface EcommerceRequest {
    *（见 `domain/project/modelRouting.ts`）。
    */
   model?: string
+  /** 实际解析并发送给渠道的上游模型 / 渠道；用于任务追溯，不回填表单。 */
+  resolvedModel?: string
+  resolvedChannelId?: string
   /** AI 超清等专项结果操作使用固定渠道，避免只换模型却还落在原渠道 */
   channelId?: string
   /** Topaz 超分放大倍数；只有 AI 超清动作会写 */
   scale?: EcommerceUpscaleScale
+  /** 视频生成时长；只在 mediaKind='video' 时使用 */
+  durationSec?: number
 }
 
 /** 新建电商任务时可选的用途；刻意不包含 `edit`。 */

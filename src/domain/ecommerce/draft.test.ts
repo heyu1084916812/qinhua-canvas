@@ -10,6 +10,9 @@ import {
 describe('电商左侧草稿纯数据', () => {
   it('完整草稿逐项读回，不对字段做多余转换', () => {
     const draft = {
+      modeLabel: 'A+ 详情页',
+      mediaKind: 'image',
+      videoDuration: 5,
       usage: 'detail',
       platformId: 'amazon',
       language: 'en',
@@ -18,6 +21,7 @@ describe('电商左侧草稿纯数据', () => {
       note: '突出防水材质',
       model: 'GPT Image 2.5 Flare',
       productNodeId: 'node_product',
+      productNodeIds: ['node_product'],
       referenceNodeIds: ['node_ref_1', 'node_ref_2'],
     } as const
     expect(normalizeEcommerceFormDraft(draft)).toEqual(draft)
@@ -49,6 +53,21 @@ describe('电商左侧草稿纯数据', () => {
 
   it('结果图后续动作 edit 不允许写回左侧新建表单', () => {
     expect(normalizeEcommerceFormDraft({ usage: 'edit' }).usage).toBe('main')
+  })
+
+  it('多产品图去重并限制 3 张，第一张同步为主产品图', () => {
+    const out = normalizeEcommerceFormDraft({
+      productNodeId: 'p1',
+      productNodeIds: ['p1', 'p1', 'p2', 'p3', 'p4'],
+    })
+    expect(out.productNodeIds).toEqual(['p1', 'p2', 'p3'])
+    expect(out.productNodeId).toBe('p1')
+  })
+
+  it('旧草稿只有 productNodeId 时归一成单元素产品图数组', () => {
+    const out = normalizeEcommerceFormDraft({ productNodeId: 'legacy' })
+    expect(out.productNodeIds).toEqual(['legacy'])
+    expect(out.productNodeId).toBe('legacy')
   })
 
   it('with/read 是同一份往返，且不吞掉 ecommerce.batchId 与 extra 其它键', () => {

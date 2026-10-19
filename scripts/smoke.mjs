@@ -683,6 +683,19 @@ async function gotoSettings(page) {
   await sleep(400)
 }
 
+async function projectTemplateLibraryHidden(page) {
+  const bridgeHidden = await page
+    .locator('[data-dev-template-bridge]')
+    .evaluate((el) => {
+      const style = getComputedStyle(el)
+      return style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0'
+    })
+    .catch(() => true)
+  return (
+    (await page.getByRole('heading', { name: '模板库' }).count()) === 0 && bridgeHidden
+  )
+}
+
 /**
  * 确保应用壳侧栏处于**展开**态（导航项的文字与「最近项目」只在展开时渲染）。
  *
@@ -13330,7 +13343,11 @@ async function g80(browser) {
     (await rail.count()) === 1 && (await rail.getAttribute('data-sidebar-open')) === 'true',
     `open=${await rail.getAttribute('data-sidebar-open')}`,
   )
-  rec(g, '项目页有自己的内容（模板库）', (await page.locator('[data-template="text2img"]').count()) >= 1)
+  rec(
+    g,
+    '★ 项目页不再展示模板库（开发兼容桥也不可见）',
+    await projectTemplateLibraryHidden(page),
+  )
 
   // ── ④ 主题切换在侧栏底部 ──
   const themeInRail = await rail.locator('[data-theme-toggle]').count()
@@ -25661,10 +25678,10 @@ async function g116(browser) {
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-ecommerce-usage')))
   rec(
     g,
-    '★★ 工作室：四档用途 + 六平台 + 语言/张数/比例都在',
+    '★★ 工作室：商品功能条 + 六平台 + 语言/张数/比例都在',
     (await page.locator('[data-ecommerce-form]').count()) === 1 &&
       JSON.stringify(usages) ===
-        JSON.stringify(['main', 'white-bg', 'detail', 'set', 'recreate']) &&
+        JSON.stringify(['set', 'detail', 'recreate', 'white-bg', 'main']) &&
       (await page.locator('[data-ecommerce-platform] option').count()) === 7 &&
       (await page.locator('[data-ecommerce-ratio] option').count()) === 5,
     `用途=${usages.join(',')}`,
@@ -25683,20 +25700,42 @@ async function g116(browser) {
     modelOptions.length > 1 && modelOptions[0] === '默认（按渠道解析）',
     modelOptions.slice(0, 4).join(' / '),
   )
+  const intentModelOptions = await page
+    .locator('[data-ecommerce-intent-model] option')
+    .evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ''))
+  rec(
+    g,
+    '★ 解析方案可显式选择对话模型',
+    intentModelOptions.length > 1,
+    intentModelOptions.join(' / '),
+  )
 
   // ③ 上传产品图：预览必须真的能解码（不是只有一个空框）
-  await page.locator('[data-ecommerce-product-input]').setInputFiles({
-    name: 'product.png',
-    mimeType: 'image/png',
-    buffer: solidPngBuffer(64, 64, [12, 200, 90]),
-  })
+  await page.locator('[data-ecommerce-product-input]').setInputFiles([
+    {
+      name: 'product-front.png',
+      mimeType: 'image/png',
+      buffer: solidPngBuffer(64, 64, [12, 200, 90]),
+    },
+    {
+      name: 'product-side.png',
+      mimeType: 'image/png',
+      buffer: solidPngBuffer(64, 64, [24, 120, 210]),
+    },
+  ])
   await sleep(1500)
+  const productPreviews = await page.locator('[data-ecommerce-product-preview]').count()
   const previewOk = await page
     .locator('[data-ecommerce-product-preview] img')
     .first()
     .evaluate((el) => el.naturalWidth > 0)
     .catch(() => false)
-  rec(g, '★★ 上传产品图后预览能解码（真的落库并读回来）', previewOk)
+  rec(
+    g,
+    '★★ 多张产品图都能落库并预览',
+    productPreviews === 2 && previewOk,
+    `slots=${productPreviews} decode=${previewOk}`,
+  )
 
   await page.locator('[data-ecommerce-usage="recreate"]').click()
   await sleep(250)
@@ -25751,6 +25790,16 @@ async function g116(browser) {
     '★★★ 确认后真的出图：结果区有产物、且预览能解码',
     done && resultCount >= 1 && imgOk,
     `结果=${resultCount} 出图=${done} 解码=${imgOk}`,
+  )
+  const firstTask = (await sharedRows(page, 'ecommerceTasks'))
+    .slice()
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
+  rec(
+    g,
+    '★★ 多产品图都写入任务请求（不是只留第一张）',
+    Array.isArray(firstTask?.request?.productNodeIds) &&
+      firstTask.request.productNodeIds.length === 2,
+    `productNodeIds=${JSON.stringify(firstTask?.request?.productNodeIds ?? [])}`,
   )
 
   /**
@@ -26307,10 +26356,10 @@ async function g116(browser) {
   }
   rec(
     g,
-    '★★★ 整批算一步撤销：某一次撤销让套图 4 个节点 + 4 条连线**同时**退掉',
+    '★★★ 整批算一步撤销：某一次撤销让套图 4 个节点及它们的全部输入连线**同时**退掉',
     !!dropped &&
       dropped.after.nodes === dropped.before.nodes - 4 &&
-      dropped.after.edges === dropped.before.edges - 4,
+      dropped.after.edges <= dropped.before.edges - 4,
     dropped
       ? `按了 ${presses} 次；那一次：节点 ${dropped.before.nodes}→${dropped.after.nodes}、连线 ${dropped.before.edges}→${dropped.after.edges}`
       : `按了 ${presses} 次都没出现"一次掉 4"（初始 节点=${beforeUndo.nodes} 线=${beforeUndo.edges}）`,
@@ -35728,7 +35777,185 @@ async function g159(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160]
+// ────────────────────────────────────────────────────────────
+// G161 电商视频工作流：三栏视频品类 → 1 条视频 → 视频结果与任务字段
+// ────────────────────────────────────────────────────────────
+async function g161(browser) {
+  const g = 'G161 电商视频工作流'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page, { isolate: true })
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  await page.locator('[data-ecommerce-form]').waitFor({ state: 'visible', timeout: 20_000 })
+
+  await page.locator('[data-ecommerce-product-input]').setInputFiles({
+    name: 'video-product.png',
+    mimeType: 'image/png',
+    buffer: solidPngBuffer(64, 64, [34, 150, 220]),
+  })
+  await sleep(1200)
+
+  await page.locator('[data-ecommerce-category="video"]').click()
+  await sleep(250)
+  rec(
+    g,
+    '★ 视频品类显示自己的功能条与时长控件',
+    (await page.locator('[data-ecommerce-mode="video-recreate"]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-mode="video-commerce"]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-video-duration]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-count]').count()) === 0,
+  )
+
+  await page.locator('[data-ecommerce-mode="video-commerce"]').click()
+  await page.locator('[data-ecommerce-generate]').click()
+  await sleep(350)
+  const confirmText = await page.locator('[data-ecommerce-confirm]').innerText().catch(() => '')
+  rec(g, '★ 视频确认按“条”表达且固定 1 条', /1\s*条/.test(confirmText), confirmText.replace(/\n/g, ' | '))
+  await page.locator('[data-ecommerce-confirm-ok]').click()
+
+  const done = await page
+    .waitForFunction(
+      () => document.querySelectorAll('[data-ecommerce-result][data-status="done"] video').length > 0,
+      null,
+      { timeout: 40_000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  rec(g, '★★ 视频结果在产物区用 video 播放器展示', done)
+
+  const projectId = page.url().split('/ecommerce/')[1]?.split('?')[0] ?? ''
+  const task = (await sharedRows(page, 'ecommerceTasks'))
+    .filter((row) => row.projectId === projectId)
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
+  const result = (await sharedRows(page, 'ecommerceResults'))
+    .filter((row) => row.taskId === task?.id)
+    .find((row) => row.status === 'done')
+  rec(
+    g,
+    '★★★ 视频任务真实落库：mediaKind / 时长 / 模型 / 视频 MIME',
+    task?.request?.mediaKind === 'video' &&
+      task?.request?.modeLabel === '带货视频' &&
+      task?.request?.durationSec === 5 &&
+      typeof task?.request?.resolvedModel === 'string' &&
+      task.request.resolvedModel.length > 0 &&
+      result?.mime === 'video/mp4',
+    `task=${task?.id ?? '无'} model=${task?.request?.resolvedModel ?? '无'} mime=${result?.mime ?? '无'}`,
+  )
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await page.screenshot({ path: `${OUT}/161-ecommerce-video.png` })
+  await ctx.close()
+}
+
+// ────────────────────────────────────────────────────────────
+// G162 项目树窗口：5 条上限、展开、当前画布跨页面高亮、模板库移除
+// ────────────────────────────────────────────────────────────
+async function g162(browser) {
+  const g = 'G162 项目导航窗口'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await gotoProjects(page)
+  const now = Date.now()
+  await sharedBulkPut(
+    page,
+    'projects',
+    Array.from({ length: 8 }, (_, index) => ({
+      id: `g162-p${index + 1}`,
+      name: `导航项目 ${index + 1}`,
+      workbench: 'canvas',
+      createdAt: now - (8 - index) * 60_000,
+      updatedAt: now - (8 - index) * 3_600_000,
+    })),
+  )
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await page.locator('[data-projects-heading]').waitFor({ state: 'visible', timeout: 20_000 })
+  await ensureSidebarOpen(page)
+
+  const group = page.locator('[data-project-tree-group-id="workbench:canvas"]')
+  await group.waitFor({ state: 'visible', timeout: 10_000 })
+  const collapsedItems = group.locator('[data-project-tree-item]')
+  rec(
+    g,
+    '★★ 单个项目分组默认最多渲染 5 条',
+    (await collapsedItems.count()) === 5,
+    `items=${await collapsedItems.count()}`,
+  )
+  rec(
+    g,
+    '★ 行尾显示相对修改时间，不再显示工作台类型',
+    (await group.innerText()).includes('小时前') &&
+      !(await group.innerText()).includes('画布项目'),
+  )
+
+  const expand = group.locator('[data-project-tree-expand="workbench:canvas"]')
+  rec(
+    g,
+    '★ 第 6 条起出现“展开显示 (N)”',
+    (await expand.innerText()).includes('展开显示 (3)') &&
+      (await expand.getAttribute('aria-expanded')) === 'false',
+    await expand.innerText(),
+  )
+  await expand.click()
+  rec(
+    g,
+    '★ 展开后 8 条全部可见，按钮变为“收起”',
+    (await collapsedItems.count()) === 8 &&
+      (await expand.innerText()).trim() === '收起' &&
+      (await expand.getAttribute('aria-expanded')) === 'true',
+    `items=${await collapsedItems.count()} text=${await expand.innerText()}`,
+  )
+  await expand.click()
+
+  await page.goto(`${BASE}/canvas/g162-p1`, { waitUntil: 'domcontentloaded' })
+  await page
+    .waitForFunction(
+      () => sessionStorage.getItem('qinghua:active-canvas-id') === 'g162-p1',
+      null,
+      { timeout: 10_000 },
+    )
+    .catch(() => {})
+  await ensureSidebarOpen(page)
+  await page.locator('[data-sidebar-settings]').click()
+  await gotoSettings(page)
+  await ensureSidebarOpen(page)
+
+  const activeGroup = page.locator('[data-project-tree-group-id="workbench:canvas"]')
+  const activeRow = activeGroup.locator('[data-project-tree-item="g162-p1"]')
+  rec(
+    g,
+    '★★ 当前画布在离开画布页后仍高亮',
+    (await activeRow.getAttribute('data-project-tree-active')) === 'true' &&
+      (await activeRow.locator('[aria-current="page"]').count()) === 1,
+  )
+  rec(
+    g,
+    '★★ 当前画布若原本排在第 6 条后，收起状态仍被临时提到前 5 条',
+    (await activeGroup.locator('[data-project-tree-item]').count()) === 5 &&
+      (await activeGroup.locator('[data-project-tree-item]').first().getAttribute(
+        'data-project-tree-item',
+      )) === 'g162-p1',
+  )
+
+  await page.locator('[data-sidebar-item="/projects"]').click()
+  await page.locator('[data-projects-heading]').waitFor({ state: 'visible', timeout: 20_000 })
+  rec(
+    g,
+    '★★ 项目页模板库已移除',
+    await projectTemplateLibraryHidden(page),
+  )
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await page.screenshot({ path: `${OUT}/162-project-navigation-window.png` })
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162]
 const skippedGroups = new Set(
   String(process.env.SMOKE_SKIP ?? '')
     .split(',')
