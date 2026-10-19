@@ -12569,9 +12569,30 @@ async function g80(browser) {
         }
       }),
     )
+  /**
+   * 一级导航按整组验，不只抽查一个图标。
+   * 展开时文字重新参与布局，若某个 flex 子项被重新分配高度，
+   * 可能只把后半组项推移几像素；只比项目图标会漏掉这种回归。
+   */
+  const navItemGeometry = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('[data-sidebar-item]')].map((el) => {
+        const r = el.getBoundingClientRect()
+        const icon = el.querySelector('span')?.getBoundingClientRect()
+        return {
+          id: el.getAttribute('data-sidebar-item'),
+          x: Math.round(r.left * 10) / 10,
+          y: Math.round(r.top * 10) / 10,
+          w: Math.round(r.width * 10) / 10,
+          h: Math.round(r.height * 10) / 10,
+          iconY: icon ? Math.round(icon.top * 10) / 10 : null,
+        }
+      }),
+    )
   const wsLeft = () =>
     page.evaluate(() => Math.round(document.querySelector('[data-app-workspace]')?.getBoundingClientRect().left ?? -1))
   const expandedIcons = await iconCenters()
+  const expandedNavItems = await navItemGeometry()
   const expandedWsLeft = await wsLeft()
 
   await page.mouse.move(900, 500)
@@ -12579,7 +12600,26 @@ async function g80(browser) {
   const leftW = Math.round((await rail.boundingBox()).width)
   rec(g, '★★ 移开鼠标自动收回 64px', leftW === 64, `${leftW}px`)
   const collapsedIcons = await iconCenters()
+  const collapsedNavItems = await navItemGeometry()
   const collapsedWsLeft = await wsLeft()
+  rec(
+    g,
+    '★★ 展开前后八个一级导航项整体不动（逐项比对 y / 高度 / 图标 y）',
+    expandedNavItems.length === 8 &&
+      collapsedNavItems.length === expandedNavItems.length &&
+      collapsedNavItems.every((before, i) => {
+        const after = expandedNavItems[i]
+        return (
+          after?.id === before.id &&
+          Math.abs(after.y - before.y) <= 1 &&
+          Math.abs(after.h - before.h) <= 1 &&
+          after.iconY !== null &&
+          before.iconY !== null &&
+          Math.abs(after.iconY - before.iconY) <= 1
+        )
+      }),
+    `收起=${JSON.stringify(collapsedNavItems)} 展开=${JSON.stringify(expandedNavItems)}`,
+  )
   /*
    * ⚠️ 口径在 2026-10-08 被用户**改回来了**（原话：「左边这个悬停是长出来的，不是往右推出来的，
    * 我要的是展开按钮展开的那种效果」）⇒ 断言跟着反过来：
