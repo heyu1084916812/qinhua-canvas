@@ -316,7 +316,7 @@ export function createChannelStore(
      * 配方**不在这里预读**：它是按项目的，而 store 这一层不知道当前是哪个项目。
      * 改成 `defaultForNewNode(projectId)` 时按需读一次（结果进 recipeCache）。
      */
-    const [channels, customRows, routeStrategy, recipeMemory] = await Promise.all([
+    const [loadedChannels, customRows, routeStrategy, recipeMemory] = await Promise.all([
       /**
        * ★ 读表时**补齐三条内置渠道**（用户第 20 批）：它们常驻、置顶、不可删。
        * 补齐放在仓储里（写行的唯一入口），这里只负责取"补完之后的整表"。
@@ -326,6 +326,20 @@ export function createChannelStore(
       presets.loadRoutingStrategy(),
       presets.loadRecipeMemory(),
     ])
+    let channels = loadedChannels
+    const staleRunningHub = channels.filter(
+      (c) =>
+        c.protocol === 'runninghub-api' &&
+        !c.hasToken &&
+        (c.modelCache.length > 0 || c.models.length > 0),
+    )
+    if (staleRunningHub.length > 0) {
+      const cleared = await Promise.all(
+        staleRunningHub.map((c) => repo.update(c.id, { modelCache: [], models: [] })),
+      )
+      const clearedById = new Map(cleared.map((c) => [c.id, c]))
+      channels = channels.map((c) => clearedById.get(c.id) ?? c)
+    }
     const customProtocols = customRows
       .map((r) => toCustomDefinition(r as Record<string, unknown>))
       .filter((p): p is ProtocolDefinition => p !== null)

@@ -45,11 +45,17 @@ describe('channelStore', () => {
     ])
     expect(store.getState().channels.find((c) => c.id === runningHub.id)!.models).toHaveLength(1)
 
-    await store.refreshModels(runningHub.id)
+    const reloaded = createChannelStore(p)
+    await reloaded.load()
+    const afterLoad = reloaded.getState().channels.find((c) => c.id === runningHub.id)!
+    expect(afterLoad.modelCache).toEqual([])
+    expect(afterLoad.models).toEqual([])
 
-    const updated = store.getState().channels.find((c) => c.id === runningHub.id)!
-    expect(store.getState().models.status).toBe('error')
-    expect(store.getState().models.message).toContain('还没填令牌')
+    await reloaded.refreshModels(runningHub.id)
+
+    const updated = reloaded.getState().channels.find((c) => c.id === runningHub.id)!
+    expect(reloaded.getState().models.status).toBe('error')
+    expect(reloaded.getState().models.message).toContain('还没填令牌')
     expect(updated.modelCache).toEqual([])
     expect(updated.models).toEqual([])
   })
