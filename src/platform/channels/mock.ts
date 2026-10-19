@@ -88,6 +88,21 @@ const DEFAULT_MODELS: ModelCapability[] = [
     maxReferenceImages: 1,
   },
   {
+    id: 'Topaz 视频超清',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    resolutions: ['720p', '1080p', '4k'],
+    frameRates: [30, 60],
+    maxReferenceImages: 1,
+  },
+  {
+    id: 'RH 视频超分',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    resolutions: ['720p', '1080p', '2k', '4k'],
+    maxReferenceImages: 1,
+  },
+  {
     id: 'mock-speech-1',
     category: 'audio',
     inputTypes: ['text'],

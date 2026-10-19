@@ -4,7 +4,7 @@
  * 生成：`node scripts/gen-runninghub-models.mjs <RH_CLI>/src/rh_cli/catalog/data/capabilities.json`
  * 来源：RunningHub 官方 CLI（github.com/HM-RunningHub/RH_CLI）随包附带的端点目录
  *       capabilities.json —— version 2026-06-02，共 356 个端点；
- *       本文件只留**精挑的 36 个端点**（官方 CLI 的 13 个快捷选择 + 之前已交付的 4 个）。
+ *       本文件只留**精挑的 38 个端点**（官方 CLI 快捷选择 + 本项目已交付的端点）。
  *
  * 官方 CLI 建请求体的最后一步是「**必填 + 有默认值**而还没填的参数一律补默认值」
  * （`model/payload.py`）—— 适配器照同一条规则走 `requiredDefaults`。
@@ -40,6 +40,8 @@ export interface RunningHubEndpointSpec {
   ratio?: RunningHubDrivenParam
   resolution?: RunningHubDrivenParam
   duration?: RunningHubDrivenParam
+  /** 视频超清的输出帧率（如 Topaz 的 targetFps） */
+  fps?: RunningHubDrivenParam
   /** 超分类模型的放大倍数（2x / 4x / 6x） */
   scale?: RunningHubDrivenParam
   /** 必填且界面上没有对应档位的参数（键 → 照官方目录的默认值原样补） */
@@ -311,6 +313,15 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     requiredDefaults: { "resolution": "720p", "duration": "5" },
   },
   {
+    id: 'rhart-video/video-upscaler',
+    task: 'video-upscale',
+    kind: 'video',
+    label: 'RH视频超分',
+    media: { "key": "videoUrl", "type": "VIDEO", "required": true },
+    resolution: { "key": "targetResolution", "options": [ "720p", "1080p", "2k", "4k" ] },
+    requiredDefaults: { "targetResolution": "1080p" },
+  },
+  {
     id: 'seedream-v5-lite/image-to-image',
     task: 'image-to-image',
     kind: 'image',
@@ -371,6 +382,16 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     media: { "key": "imageUrl", "type": "IMAGE", "required": true },
     scale: { "key": "scale", "options": [ "2x", "4x", "6x" ] },
     requiredDefaults: { "scale": "2x" },
+  },
+  {
+    id: 'topazlabs/video-upscale',
+    task: 'video-upscale',
+    kind: 'video',
+    label: 'topazlabs视频放大',
+    media: { "key": "videoUrl", "type": "VIDEO", "required": true },
+    resolution: { "key": "targetResolution", "options": [ "720p", "1080p", "4k" ] },
+    fps: { "key": "targetFps", "options": [ "30", "60" ] },
+    requiredDefaults: { "targetResolution": "1080p", "targetFps": "30" },
   },
   {
     id: 'vidu/image-to-video-q3-pro',
@@ -600,5 +621,19 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
     kind: 'video',
     textEndpoint: 'kling-v2-ai-avatar-pro/image-audio-to-video',
     imageEndpoint: 'kling-v2-ai-avatar-pro/image-audio-to-video',
+  },
+  {
+    // 官方目录：Topaz 视频超清
+    id: 'Topaz 视频超清',
+    hint: '把已有视频放大到 720p / 1080p / 4K，可选 30 / 60fps',
+    kind: 'video',
+    textEndpoint: 'topazlabs/video-upscale',
+  },
+  {
+    // 官方目录：RH 视频超分
+    id: 'RH 视频超分',
+    hint: '把已有视频放大到 720p / 1080p / 2K / 4K',
+    kind: 'video',
+    textEndpoint: 'rhart-video/video-upscaler',
   },
 ]

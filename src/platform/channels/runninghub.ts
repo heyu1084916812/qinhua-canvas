@@ -1,5 +1,9 @@
 import { fingerprintBytes } from '../../domain/shared/hash'
-import { audioInputsOf, imageInputsOf } from '../../domain/shared/execution/inputs'
+import {
+  audioInputsOf,
+  imageInputsOf,
+  videoInputsOf,
+} from '../../domain/shared/execution/inputs'
 import type { ModelCapability } from '../../domain/shared/capability'
 import { asAppError, describeError } from '../../shared/result'
 import { bytesToBase64 } from './base64'
@@ -129,7 +133,10 @@ export function resolveRunningHubEndpoint(
  */
 export function runningHubCapability(model: RunningHubModel): ModelCapability {
   const spec = specById.get(model.textEndpoint)
-  const needsImage = model.imageEndpoint !== undefined || spec?.media?.required === true
+  const needsImage =
+    model.imageEndpoint !== undefined ||
+    (spec?.media?.type === 'IMAGE' && spec.media.required === true)
+  const needsVideo = spec?.media?.type === 'VIDEO' && spec.media.required === true
   const needsAudio = spec?.audio?.required === true
   const durations = spec?.duration?.options
     ?.map((v) => Number(v))
@@ -137,6 +144,7 @@ export function runningHubCapability(model: RunningHubModel): ModelCapability {
   const inputTypes: ModelCapability['inputTypes'] = [
     'text',
     ...(needsImage ? (['image'] as const) : []),
+    ...(needsVideo ? (['video'] as const) : []),
     ...(needsAudio ? (['audio'] as const) : []),
   ]
   return {
@@ -146,6 +154,13 @@ export function runningHubCapability(model: RunningHubModel): ModelCapability {
     ...(spec?.ratio?.options ? { aspectRatios: [...spec.ratio.options] } : {}),
     ...(spec?.resolution?.options ? { resolutions: [...spec.resolution.options] } : {}),
     ...(spec?.scale?.options ? { scales: [...spec.scale.options] } : {}),
+    ...(spec?.fps?.options
+      ? {
+          frameRates: spec.fps.options
+            .map((v) => Number(v))
+            .filter((v) => Number.isFinite(v)),
+        }
+      : {}),
     ...(durations && durations.length > 0
       ? { durations: [Math.min(...durations), Math.max(...durations)] as [number, number] }
       : {}),
@@ -295,7 +310,11 @@ export function createRunningHubAdapter(
   }
 
   /** 结果 URL → 字节（桌面壳里 fetch 不受 CORS 限制；浏览器里若被拦，报可读的错） */
-  const download = async (url: string, signal: AbortSignal): Promise<{ bytes: Uint8Array; mime: string }> => {
+  const download = async (
+    url: string,
+    signal: AbortSignal,
+    fallbackMime = 'image/png',
+  ): Promise<{ bytes: Uint8Array; mime: string }> => {
     let res: NetworkResponse
     try {
       res = await deps.network.request({ url, method: 'GET', timeoutMs: 120000 }, signal)
@@ -306,7 +325,9 @@ export function createRunningHubAdapter(
       })
     }
     const bytes = new Uint8Array(await res.arrayBuffer())
-    return { bytes, mime: res.headers['content-type'] ?? 'image/png' }
+    const rawMime = (res.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase()
+    const mime = /^(image|video|audio)\//.test(rawMime ?? '') ? rawMime! : fallbackMime
+    return { bytes, mime }
   }
 
   const mediaFileName = (mime: string, prefix: string): string => {
@@ -321,6 +342,9 @@ export function createRunningHubAdapter(
         'audio/mp4': 'm4a',
         'audio/aac': 'aac',
         'audio/flac': 'flac',
+        'video/mp4': 'mp4',
+        'video/webm': 'webm',
+        'video/quicktime': 'mov',
       } as Record<string, string>)[mime.toLowerCase()] ?? 'bin'
     return `${prefix}.${ext}`
   }
@@ -355,7 +379,11 @@ export function createRunningHubAdapter(
     return res.data.download_url
   }
 
-  const assetsFrom = async (res: RhResponse, signal: AbortSignal): Promise<GeneratedAsset[]> => {
+  const assetsFrom = async (
+    res: RhResponse,
+    signal: AbortSignal,
+    fallbackMime = 'image/png',
+  ): Promise<GeneratedAsset[]> => {
     const items = res.results ?? []
     const urls = items
       .map((i) => i.url ?? i.outputUrl)
@@ -369,7 +397,7 @@ export function createRunningHubAdapter(
     }
     const out: GeneratedAsset[] = []
     for (const url of urls) {
-      const { bytes, mime } = await download(url, signal)
+      const { bytes, mime } = await download(url, signal, fallbackMime)
       out.push({ hash: await fingerprintBytes(bytes), mime, bytes, url })
     }
     return out
@@ -431,6 +459,32 @@ export function createRunningHubAdapter(
   }
 
   /**
+   * 视频输入：视频超清端点要求一个可下载的视频 URL。
+   *
+   * 与音频同一条路径：先走官方 binary upload，再把服务端返回的 download_url
+   * 写进目录声明的媒体键。视频不内联 data URI，避免几十 MB 的 base64 撑爆 JSON。
+   */
+  const resolveVideos = async (
+    request: ImageRunRequest | VideoRunRequest,
+    signal: AbortSignal,
+  ): Promise<string[]> => {
+    const values: string[] = []
+    for (const ref of videoInputsOf(request.inputs)) {
+      const payload = await deps.assets.read(ref.assetHash).catch(() => null)
+      if (!payload || payload.bytes.length === 0) continue
+      values.push(
+        await uploadMedia(
+          new Uint8Array(payload.bytes),
+          payload.mime || ref.mime,
+          signal,
+          'video',
+        ),
+      )
+    }
+    return values
+  }
+
+  /**
    * 建请求体：四条规则逐条对齐官方 CLI 的 `model/payload.py`。
    *
    *  ① 提示词写进端点的 prompt 键；
@@ -445,24 +499,29 @@ export function createRunningHubAdapter(
     spec: RunningHubEndpointSpec,
     request: ImageRunRequest | VideoRunRequest,
     images: string[],
+    videos: string[],
     audios: string[],
   ): Record<string, unknown> => {
     const payload: Record<string, unknown> = {}
     if (spec.promptKey) payload[spec.promptKey] = request.prompt
 
     const media = spec.media
-    if (media && media.type === 'IMAGE') {
-      if (images.length === 0) {
-        /** 必填的参考图缺了：当场说清「这个模型必须连一张图」，别让服务端回一句看不懂的 4xx */
+    if (media && (media.type === 'IMAGE' || media.type === 'VIDEO')) {
+      const values = media.type === 'VIDEO' ? videos : images
+      if (values.length === 0) {
+        /** 必填媒体缺了：当场说清差什么，别让服务端回一句看不懂的 4xx */
         if (media.required) {
           throw new ChannelError({
             kind: 'validation',
-            field: '参考图',
-            reason: '这个模型必须带一张参考图（把图片 / 生成节点连到它左边）',
+            field: media.type === 'VIDEO' ? '输入视频' : '参考图',
+            reason:
+              media.type === 'VIDEO'
+                ? '这个模型必须带一段输入视频（把视频节点连到它左边）'
+                : '这个模型必须带一张参考图（把图片 / 生成节点连到它左边）',
           })
         }
       } else {
-        payload[media.key] = media.multiple ? images : images[0]
+        payload[media.key] = media.multiple ? values : values[0]
       }
     }
 
@@ -492,6 +551,7 @@ export function createRunningHubAdapter(
     put(spec.resolution, request.params?.resolution)
     put(spec.duration, request.params?.duration)
     put(spec.scale, request.params?.scale)
+    put(spec.fps, request.params?.fps)
 
     for (const [k, v] of Object.entries(spec.requiredDefaults ?? {})) {
       if (!(k in payload)) payload[k] = v
@@ -505,9 +565,10 @@ export function createRunningHubAdapter(
     request: ImageRunRequest | VideoRunRequest,
     signal: AbortSignal,
   ): Promise<GeneratedAsset[]> => {
-    const images = await resolveImages(spec, request, signal)
+    const images = spec.media?.type === 'IMAGE' ? await resolveImages(spec, request, signal) : []
+    const videos = spec.media?.type === 'VIDEO' ? await resolveVideos(request, signal) : []
     const audios = spec.audio ? await resolveAudio(request, signal) : []
-    const payload = buildPayload(spec, request, images, audios)
+    const payload = buildPayload(spec, request, images, videos, audios)
     const submitted = await readJson(
       await json(`${host}${STD_PATH}/${spec.id}`, payload, signal, SUBMIT_TIMEOUT_MS),
     )
@@ -518,7 +579,11 @@ export function createRunningHubAdapter(
     if (!taskId) {
       throw upstreamError(null, describeRhError(submitted, '提交成功但没有 taskId'))
     }
-    return assetsFrom(await waitForTask(String(taskId), signal), signal)
+    return assetsFrom(
+      await waitForTask(String(taskId), signal),
+      signal,
+      spec.kind === 'video' ? 'video/mp4' : 'image/png',
+    )
   }
 
   /** AI 应用（**币**）：拉节点 → 填提示词 / 图 → 跑 → 轮询 */
@@ -598,7 +663,11 @@ export function createRunningHubAdapter(
     if (!taskId) {
       throw upstreamError(null, describeRhError(submitted, '提交 AI 应用失败'))
     }
-    return assetsFrom(await waitForTask(String(taskId), signal), signal)
+    return assetsFrom(
+      await waitForTask(String(taskId), signal),
+      signal,
+      request.kind === 'video' ? 'video/mp4' : 'image/png',
+    )
   }
 
   const generate = async (

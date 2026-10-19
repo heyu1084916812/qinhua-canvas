@@ -173,6 +173,7 @@ export function createCanvasPlacement(getProjectId: () => string): ExecutionPlac
         first && first.width && first.height ? { width: first.width, height: first.height } : undefined
       const patch: Record<string, unknown> = {
         assetHash: first?.hash ?? null,
+        assetMime: first?.mime ?? null,
         thumbOrder: assets.map((a) => a.hash),
         naturalSize: natural,
       }

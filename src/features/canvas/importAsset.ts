@@ -132,6 +132,7 @@ export function createAssetNode(
     ...generationSpec.createDefaultData(),
     mode,
     assetHash: asset.hash,
+    assetMime: asset.mime,
     // 记下真实像素：日后拖进 / 拖出容器、复制粘贴都靠它恢复比例（§6.16）
     naturalSize: asset.width && asset.height ? { width: asset.width, height: asset.height } : undefined,
     thumbOrder: [asset.hash],

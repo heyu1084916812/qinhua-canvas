@@ -31832,6 +31832,74 @@ async function g145(browser) {
     `${digitalShot?.nodeId ?? 'none'} → ${digitalShot?.videoNodeId ?? 'none'}`,
   )
 
+  const oldVideoNodeId = digitalShot?.videoNodeId ?? ''
+  const oldVideoHash = digitalShot?.videoHash ?? ''
+  const upscaleButton = page.locator(`[data-storyboard-shot-upscale="${ids[0]}"]`)
+  const upscaleShown = await upscaleButton
+    .waitFor({ state: 'visible', timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
+  if (upscaleShown) await upscaleButton.click()
+  const upscalePanel = page.locator(`[data-storyboard-upscale-panel="${ids[0]}"]`)
+  const upscaleTargetOptions = await page
+    .locator(`[data-storyboard-upscale-target="${ids[0]}"] option`)
+    .allInnerTexts()
+    .catch(() => [])
+  rec(
+    g,
+    '★★ 已有镜头视频时出现真实「视频超清」入口，并使用启用的 Topaz / RH 模型',
+    upscaleShown &&
+      (await upscalePanel.isVisible().catch(() => false)) &&
+      upscaleTargetOptions.some((text) => text.includes('Topaz 视频超清')) &&
+      upscaleTargetOptions.some((text) => text.includes('RH 视频超分')),
+    `入口=${upscaleShown} 目标=${upscaleTargetOptions.join(' / ')}`,
+  )
+  await page
+    .locator(`[data-storyboard-upscale-resolution="${ids[0]}"]`)
+    .selectOption('4k')
+  await page.locator(`[data-storyboard-upscale-fps="${ids[0]}"]`).selectOption('60')
+  await page.locator(`[data-storyboard-upscale-submit="${ids[0]}"]`).click()
+  const upscaleDb = await waitDb((db) => {
+    const shot = db.shots[0]
+    const next = db.nodes.find((node) => node.id === shot?.videoNodeId)
+    return (
+      !!shot?.videoNodeId &&
+      shot.videoNodeId !== oldVideoNodeId &&
+      !!shot.videoHash &&
+      next?.data?.model === 'Topaz 视频超清' &&
+      next?.data?.assetMime === 'video/mp4'
+    )
+  }, 20000)
+  const upscaleShot = upscaleDb.shots[0]
+  const upscaleNode = upscaleDb.nodes.find((node) => node.id === upscaleShot?.videoNodeId)
+  const oldVideoStillThere = upscaleDb.nodes.find((node) => node.id === oldVideoNodeId)
+  rec(
+    g,
+    '★★★ 视频超清真实走通：4K / 60fps 结果落新视频节点，镜头指向新 hash',
+    !!upscaleShot?.videoHash &&
+      upscaleShot.videoHash !== oldVideoHash &&
+      !!upscaleNode &&
+      upscaleNode.data?.channelId !== undefined &&
+      upscaleNode.data?.resolution === '4k' &&
+      upscaleNode.data?.fps === '60' &&
+      upscaleDb.assets.some(
+        (asset) => asset.hash === upscaleShot.videoHash && asset.mime === 'video/mp4',
+      ),
+    `旧=${oldVideoNodeId}/${oldVideoHash.slice(0, 8)} 新=${upscaleShot?.videoNodeId ?? 'none'}/${(upscaleShot?.videoHash ?? '').slice(0, 8)} model=${upscaleNode?.data?.model ?? 'none'}`,
+  )
+  rec(
+    g,
+    '★★ 超清不覆盖旧视频：旧节点与旧素材仍在，并保留旧视频 → 新视频的上游连线',
+    !!oldVideoStillThere &&
+      oldVideoStillThere.data?.assetHash === oldVideoHash &&
+      upscaleDb.edges.some(
+        (edge) =>
+          edge.source === oldVideoNodeId &&
+          edge.target === upscaleShot?.videoNodeId,
+      ),
+    `旧节点=${oldVideoStillThere?.id ?? 'none'} 边=${oldVideoNodeId} → ${upscaleShot?.videoNodeId ?? 'none'}`,
+  )
+
   await page.screenshot({ path: `${OUT}/145-g145-preview.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()

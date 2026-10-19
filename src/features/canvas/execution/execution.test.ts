@@ -494,6 +494,7 @@ describe('runEngine · mock 渠道出图', () => {  it('完整跑通一次：结
     // 结果写回：assetHash = 产物字节的内容指纹（mock 口径由渠道自己给出，避免与实现脱节）
     const expected = mockImageHash({ model: 'mock-image-1', prompt: PROMPT_TEXT })
     expect(dataOf(store, genId).assetHash).toBe(expected)
+    expect(dataOf(store, genId).assetMime).toBe('image/png')
     expect(freshAssetOf(expected)).not.toBeNull()
 
     // 单一产物的落点就是生成节点自己（结果组已下线，产物不再进容器）

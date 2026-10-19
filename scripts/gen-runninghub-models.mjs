@@ -241,6 +241,22 @@ const MODELS = [
     text: 'kling-v2-ai-avatar-pro/image-audio-to-video',
     image: 'kling-v2-ai-avatar-pro/image-audio-to-video',
   },
+  {
+    slug: 'video-topaz-video-upscale',
+    label: 'Topaz 视频超清',
+    preset: 'Topaz 视频超清',
+    hint: '把已有视频放大到 720p / 1080p / 4K，可选 30 / 60fps',
+    kind: 'video',
+    text: 'topazlabs/video-upscale',
+  },
+  {
+    slug: 'video-rh-video-upscaler',
+    label: 'RH 视频超分',
+    preset: 'RH 视频超分',
+    hint: '把已有视频放大到 720p / 1080p / 2K / 4K',
+    kind: 'video',
+    text: 'rhart-video/video-upscaler',
+  },
 ]
 
 /** 界面能驱动的档位参数 → 它在端点规格里的角色 */
@@ -248,8 +264,10 @@ const DRIVEN = {
   aspectRatio: 'ratio',
   ratio: 'ratio',
   resolution: 'resolution',
+  targetResolution: 'resolution',
   duration: 'duration',
   scale: 'scale',
+  targetFps: 'fps',
 }
 const MEDIA_TYPES = new Set(['IMAGE', 'VIDEO', 'AUDIO'])
 
@@ -287,7 +305,7 @@ function specOf(id) {
     if (audio.multiple) spec.audio.multiple = true
     if (audio.required) spec.audio.required = true
   }
-  for (const role of ['ratio', 'resolution', 'duration']) {
+  for (const role of ['ratio', 'resolution', 'duration', 'fps']) {
     const p = params.find((x) => DRIVEN[x.key] === role)
     if (p) spec[role] = { key: p.key, ...(p.options ? { options: p.options } : {}) }
   }
@@ -324,7 +342,7 @@ lines.push(' *')
 lines.push(' * 生成：`node scripts/gen-runninghub-models.mjs <RH_CLI>/src/rh_cli/catalog/data/capabilities.json`')
 lines.push(' * 来源：RunningHub 官方 CLI（github.com/HM-RunningHub/RH_CLI）随包附带的端点目录')
 lines.push(` *       capabilities.json —— version ${catalog.version}，共 ${catalog.total} 个端点；`)
-lines.push(' *       本文件只留**精挑的 ' + specs.length + ' 个端点**（官方 CLI 的 13 个快捷选择 + 之前已交付的 4 个）。')
+lines.push(' *       本文件只留**精挑的 ' + specs.length + ' 个端点**（官方 CLI 快捷选择 + 本项目已交付的端点）。')
 lines.push(' *')
 lines.push(' * 官方 CLI 建请求体的最后一步是「**必填 + 有默认值**而还没填的参数一律补默认值」')
 lines.push(' * （`model/payload.py`）—— 适配器照同一条规则走 `requiredDefaults`。')
@@ -360,6 +378,8 @@ lines.push('  /** 比例、清晰度、时长：键名各端点不同（`aspectR
 lines.push('  ratio?: RunningHubDrivenParam')
 lines.push('  resolution?: RunningHubDrivenParam')
 lines.push('  duration?: RunningHubDrivenParam')
+  lines.push('  /** 视频超清的输出帧率（如 Topaz 的 targetFps） */')
+  lines.push('  fps?: RunningHubDrivenParam')
   lines.push('  /** 超分类模型的放大倍数（2x / 4x / 6x） */')
   lines.push('  scale?: RunningHubDrivenParam')
 lines.push('  /** 必填且界面上没有对应档位的参数（键 → 照官方目录的默认值原样补） */')
@@ -381,6 +401,7 @@ for (const s of specs) {
   if (s.ratio) put('ratio', jsonish(s.ratio))
   if (s.resolution) put('resolution', jsonish(s.resolution))
   if (s.duration) put('duration', jsonish(s.duration))
+    if (s.fps) put('fps', jsonish(s.fps))
   if (s.scale) put('scale', jsonish(s.scale))
   if (s.requiredDefaults) put('requiredDefaults', jsonish(s.requiredDefaults))
   lines.push('  },')

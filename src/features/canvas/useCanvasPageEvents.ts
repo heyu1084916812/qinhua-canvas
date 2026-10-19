@@ -31,7 +31,7 @@ export function useCanvasPageEvents(store: CanvasStore, onOpenSettings?: () => v
       store.dispatch({
         kind: 'node.updateData',
         id: nodeId,
-        patch: { assetHash: asset.hash, naturalSize: natural },
+        patch: { assetHash: asset.hash, assetMime: asset.mime, naturalSize: natural },
         // 有内容即锁原始比例（§6.16）：不换框的话，一张 2:1 的图会缩在
         // 240×240 的方框中间、上下各留一条白边。
         ...(natural ? { size: assetNodeSize(natural) } : {}),
@@ -69,7 +69,7 @@ export function useCanvasPageEvents(store: CanvasStore, onOpenSettings?: () => v
           store.dispatch({
             kind: 'node.updateData',
             id: nodeId,
-            patch: { assetHash: undefined },
+            patch: { assetHash: undefined, assetMime: undefined },
             transient: false,
           })
           break

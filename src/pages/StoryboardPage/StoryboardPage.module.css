@@ -472,6 +472,22 @@
   min-height: 0;
 }
 
+.upscalePanel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: var(--border);
+}
+
+.upscaleActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
 .shotImage {
   display: inline-flex;
   overflow: hidden;

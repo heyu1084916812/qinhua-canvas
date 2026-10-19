@@ -34,6 +34,7 @@ export interface ImageInput {
  */
 export const MAX_IMAGE_INPUTS = 4
 export const MAX_AUDIO_INPUTS = 1
+export const MAX_VIDEO_INPUTS = 1
 
 /**
  * 摊平集合：把 `collection` 项替换成它的 items（递归，应对批量接批量）。
@@ -60,6 +61,10 @@ function isImageMime(mime: string): boolean {
 
 function isAudioMime(mime: string): boolean {
   return mime.toLowerCase().startsWith('audio/')
+}
+
+function isVideoMime(mime: string): boolean {
+  return mime.toLowerCase().startsWith('video/')
 }
 
 /**
@@ -123,6 +128,30 @@ export function audioInputsOf(
   for (const input of flattenInputs(inputs)) {
     if (input.kind !== 'asset') continue
     if (!isAudioMime(input.mime)) continue
+    if (seen.has(input.assetHash)) continue
+    seen.add(input.assetHash)
+    out.push({ assetHash: input.assetHash, mime: input.mime })
+    if (out.length >= max) break
+  }
+  return out
+}
+
+/**
+ * 视频素材：视频超清等端点一次只接一条视频。
+ *
+ * 与图片 / 音频共用同一条「摊平 → 按 MIME 收口 → 按 hash 去重」规则。
+ * 单独暴露函数而不是让渠道自己写 `startsWith('video/')`，否则同一段判定会
+ * 在 RunningHub、OpenAI 视频和其它适配器里各漂一份。
+ */
+export function videoInputsOf(
+  inputs: readonly NodeInput[],
+  max: number = MAX_VIDEO_INPUTS,
+): ImageInput[] {
+  const seen = new Set<string>()
+  const out: ImageInput[] = []
+  for (const input of flattenInputs(inputs)) {
+    if (input.kind !== 'asset') continue
+    if (!isVideoMime(input.mime)) continue
     if (seen.has(input.assetHash)) continue
     seen.add(input.assetHash)
     out.push({ assetHash: input.assetHash, mime: input.mime })

@@ -41,8 +41,14 @@ describe('createAssetNode', () => {
     expect(id).toBeTruthy()
     const node = store.getSnapshot().nodes.find((n) => n.id === id)!
     expect(node.type).toBe('generation')
-    const data = node.data as { assetHash?: string; mode?: string; thumbOrder?: string[] }
+    const data = node.data as {
+      assetHash?: string
+      assetMime?: string
+      mode?: string
+      thumbOrder?: string[]
+    }
     expect(data.assetHash).toBe('h1')
+    expect(data.assetMime).toBe('image/png')
     expect(data.mode).toBe('image')
     expect(data.thumbOrder).toEqual(['h1'])
     expect(node.x).toBe(10)
@@ -57,7 +63,7 @@ describe('createAssetNode', () => {
       { x: 0, y: 0 },
     )
     const node = store.getSnapshot().nodes.find((n) => n.id === id)!
-    expect((node.data as { mode: string }).mode).toBe('video')
+    expect(node.data).toMatchObject({ mode: 'video', assetMime: 'video/mp4' })
   })
 
   it('一次导入 = 一个撤销单元：撤一步节点就没了（否则留下空节点或孤儿素材）', () => {

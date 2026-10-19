@@ -160,6 +160,7 @@
 ## canvas · 渠道与协议
 
 - **`ChannelAdapter` 五方法**：`verify` / `listModels` / `generateImage` / `generateVideo` / `completeText`；依赖 `ChannelDeps = Pick<PlatformKit,'network'|'assets'>`。
+- **媒体输入按 `NodeInput.mime` 分类，不按节点 mode 猜**：生成节点产物把真实类型写在 `GenerationData.assetMime`；上游收集时用 `assetMime ?? (mode === 'video' ? 'video/mp4' : 'image/png')`。RunningHub 的 `IMAGE / VIDEO / AUDIO` 槽由端点目录驱动，视频超清必须走 `videoInputsOf` + binary upload + `videoUrl`，不能复用图片上传路径。
 - **生图按输入分叉**：`imageInputsOf(request.inputs)` 非空 → `/v1/images/edits`（multipart，重复 `image` 字段，≤4 张、按 hash 去重）；否则 `/v1/images/generations`。**素材读不到**才回落 generations；**端点不支持如实报错、不静默降级**（否则用户以为参考图生效了）。挑选规则收口在 `domain/shared/execution/inputs.ts`（`flattenInputs` / `imageInputsOf` / `MAX_IMAGE_INPUTS=4`）。
 - **`models`（用户勾选）vs `modelCache`（拉回全部）双层**；**未声明能力 = 不设限，不能 `?? 1` 取最小值**（把「没有信息」渲染成「参数坏了」）。
 - 设置页三按钮分问三个问题（验证地址 / 验证协议 / 拉取模型）；**「填一处 → 点另一处」的按钮必须先落库**（表单态 vs 落库态）。`asAppError`：平台层抛的不是 `Error`，用户可见面不许出现 `[object Object]`。

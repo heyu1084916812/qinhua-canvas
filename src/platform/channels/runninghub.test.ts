@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { fingerprintBytes } from '../../domain/shared/hash'
 import { createMemoryPlatform } from '../../platform/memory'
 import type { NetworkRequest, NetworkResponse } from '../../platform/ports'
-import { createRunningHubAdapter, RUNNINGHUB_ENDPOINT_SPECS, RUNNINGHUB_MODELS } from './runninghub'
+import {
+  createRunningHubAdapter,
+  runningHubCapability,
+  RUNNINGHUB_ENDPOINT_SPECS,
+  RUNNINGHUB_MODELS,
+} from './runninghub'
 import { ChannelError, type ImageRunRequest, type VideoRunRequest } from './types'
 import type { ResolvedChannelConfig } from './registry'
 import { presetIdForUpstream } from '../../domain/project/modelPresets'
@@ -15,6 +20,7 @@ const PNG_BYTES = new Uint8Array([
   0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01,
   0x08, 0x02, 0x00, 0x00, 0x00,
 ])
+const VIDEO_BYTES = new TextEncoder().encode('mock-video-bytes')
 
 function json(status: number, obj: unknown): NetworkResponse {
   return {
@@ -74,6 +80,85 @@ describe('RunningHub 电商 AI 超清目录', () => {
         scale: { key: 'scale', options: ['2x', '4x', '6x'] },
       })
     }
+  })
+})
+
+describe('RunningHub 视频超清目录与请求', () => {
+  it('Topaz / RH 两条模型都映射到真实 video-upscale 端点，并声明视频输入', () => {
+    for (const [modelId, endpointId] of [
+      ['Topaz 视频超清', 'topazlabs/video-upscale'],
+      ['RH 视频超分', 'rhart-video/video-upscaler'],
+    ] as const) {
+      const model = RUNNINGHUB_MODELS.find((item) => item.id === modelId)
+      expect(model, modelId).toMatchObject({ kind: 'video', textEndpoint: endpointId })
+      const spec = RUNNINGHUB_ENDPOINT_SPECS.find((item) => item.id === endpointId)
+      expect(spec, endpointId).toMatchObject({
+        task: 'video-upscale',
+        media: { key: 'videoUrl', type: 'VIDEO', required: true },
+      })
+      expect(runningHubCapability(model!).inputTypes).toContain('video')
+    }
+  })
+
+  it('★★ 视频先上传为 videoUrl，再按目录发送 targetResolution / targetFps，产物保持视频 MIME', async () => {
+    let uploadedName = ''
+    let submitBody: Record<string, unknown> | null = null
+    const platform = createMemoryPlatform({
+      rows: {
+        assets: [{ id: 'video-source', bytes: VIDEO_BYTES, mime: 'video/mp4' }],
+      },
+      handler: async (req: NetworkRequest) => {
+        if (req.url.endsWith('/openapi/v2/media/upload/binary')) {
+          const form = req.body as FormData
+          const file = form.get('file')
+          uploadedName = file instanceof File ? file.name : String(file ?? '')
+          return json(200, {
+            code: 0,
+            data: { download_url: 'https://files.runninghub.cn/source.mp4' },
+          })
+        }
+        if (req.url.endsWith('/openapi/v2/topazlabs/video-upscale')) {
+          submitBody = req.body as Record<string, unknown>
+          return json(200, { code: 0, taskId: 'video-upscale-task' })
+        }
+        if (req.url.endsWith('/openapi/v2/query')) {
+          return json(200, {
+            status: 'SUCCESS',
+            results: [{ url: 'https://files.runninghub.cn/result.mp4' }],
+          })
+        }
+        if (req.url.endsWith('/result.mp4')) return bytes(200, VIDEO_BYTES, 'video/mp4')
+        return json(200, {})
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    const outputs = await adapter.generateVideo(
+      {
+        kind: 'video',
+        channelId: 'c1',
+        model: 'Topaz 视频超清',
+        prompt: '',
+        inputs: [
+          {
+            kind: 'asset',
+            nodeId: 'video-node',
+            assetHash: 'video-source',
+            mime: 'video/mp4',
+          },
+        ],
+        params: { resolution: '4k', fps: '60' },
+      },
+      signal,
+    )
+
+    expect(uploadedName).toBe('video.mp4')
+    expect(submitBody).toMatchObject({
+      videoUrl: 'https://files.runninghub.cn/source.mp4',
+      targetResolution: '4k',
+      targetFps: '60',
+    })
+    expect(submitBody).not.toHaveProperty('prompt')
+    expect(outputs[0]?.mime).toBe('video/mp4')
   })
 })
 

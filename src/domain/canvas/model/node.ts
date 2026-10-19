@@ -66,6 +66,14 @@ export interface GenerationData {
   mode: 'image' | 'video'
   assetHash?: string
   /**
+   * 节点当前产物的真实 MIME。
+   *
+   * 视频节点作为上游时，仅看 `mode` 不足以描述素材类型；而 `NodeInput` 必须带
+   * 准确 MIME，RunningHub 才会把它放进 VIDEO 上传槽而不是 IMAGE。新产物由
+   * `CanvasPlacement.commit` 从 `GeneratedAsset.mime` 写入；老数据按 mode 回落。
+   */
+  assetMime?: string
+  /**
    * 产物**真实像素**尺寸（§6.16「有内容锁原始比例」）。
    *
    * 为什么存在 data 里而不是「用时查 assets 表」：脱离结果容器、复制粘贴
@@ -163,6 +171,8 @@ export interface GenerationData {
   /** 生成音频（图三/图六的「生成音频 开启/关闭」）：只有支持它的模型才摆 */
   generateAudio?: boolean
   durationSec?: number
+  /** 视频超清的输出帧率；只有能力表声明 frameRates 的模型会使用 */
+  fps?: string
   refMode?: 'first-last-frame' | 'all-purpose'
   // 缩略图状态
   thumbOrder: string[]

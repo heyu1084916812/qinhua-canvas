@@ -1,5 +1,11 @@
 # CanvasFlow（轻画）项目记忆
 
+### 漫剧镜头视频超清（2026-10-19 → 对账 #606）
+
+- **视频节点不能靠 `mode:'video'` 猜 MIME**：生成节点的产物真实类型必须落 `assetMime`，否则下游 `collectInputs` 会把视频写成 `image/png`，RunningHub 也会把它送进 IMAGE 槽。旧数据可按 mode 回落 `video/mp4`，新数据一律以 `GeneratedAsset.mime` 为准。
+- **RunningHub 的媒体槽必须由端点目录驱动**：`IMAGE / VIDEO / AUDIO` 决定上传函数与请求键，不能只补 `images` 路径。视频超清走 `videoInputsOf`、binary upload、`videoUrl`，Topaz 的帧率字段是 `targetFps`，RH 没有帧率档。
+- **视频超清结果必须另起节点**：旧视频节点与旧 hash 保留，新节点连接旧视频作为上游，再把镜头 `videoNodeId / videoHash` 指向新结果。覆盖旧节点会丢掉对比与回退能力。
+
 ### 电商结果 AI 超清（2026-10-19 → 对账 #605）
 
 - **`scale` 不是通用生图参数**：普通生成节点只有在用户真的选择倍率时才带 `scale`；`generationParams` 与 RunningHub 生成器都按任务类型分支，避免 `scale: null` 污染普通请求、也避免即梦里同名 `scale` 被误判成超分。

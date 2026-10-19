@@ -114,12 +114,27 @@ import {
   type StoryboardLine,
   type StoryboardShot,
 } from '../../domain/storyboard/storyboard'
+import {
+  normalizeVideoUpscaleSettings,
+  VIDEO_UPSCALE_MODEL_IDS,
+  videoUpscaleOptionsOf,
+  type VideoUpscaleModelId,
+} from '../../domain/storyboard/videoUpscale'
 import styles from './StoryboardPage.module.css'
 
 const DIGITAL_HUMAN_MODEL_IDS = [
   'Kling V2 数字人口播 Std',
   'Kling V2 数字人口播 Pro',
 ] as const
+
+interface VideoUpscaleTarget {
+  channelId: string
+  channelName: string
+  model: VideoUpscaleModelId
+  label: string
+  resolutions: readonly string[]
+  frameRates: readonly number[]
+}
 
 /**
  * 漫剧工作台页（对账 #382，第一阶段）。
@@ -269,6 +284,31 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     }
     return null
   }, [channelState.channels])
+  const videoUpscaleTargets = useMemo(() => {
+    const out: VideoUpscaleTarget[] = []
+    for (const channel of channelState.channels) {
+      if (!channel.enabled) continue
+      for (const model of VIDEO_UPSCALE_MODEL_IDS) {
+        const capability = channel.models.find(
+          (item) =>
+            item.id === model &&
+            item.category === 'video' &&
+            item.inputTypes.includes('video'),
+        )
+        const options = videoUpscaleOptionsOf(model)
+        if (!capability || !options) continue
+        out.push({
+          channelId: channel.id,
+          channelName: channel.name,
+          model,
+          label: `${model} · ${channel.name}`,
+          resolutions: options.resolutions,
+          frameRates: options.frameRates,
+        })
+      }
+    }
+    return out
+  }, [channelState.channels])
   const skills = useSkillsOptional()
   const navigate = useNavigate()
   /** 画布那一边：铺节点要 store，出图要执行引擎（都在 Provider 里） */
@@ -316,6 +356,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   const speechTarget = useMemo(() => resolveSpeechTarget(channelList), [channelList])
   const [voiceBusy, setVoiceBusy] = useState<Record<string, boolean>>({})
   const [digitalHumanBusy, setDigitalHumanBusy] = useState<string | null>(null)
+  const [videoUpscaleBusy, setVideoUpscaleBusy] = useState<string | null>(null)
   const [breaking, setBreaking] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
   const [breakMsg, setBreakMsg] = useState('')
   const [breakConfirm, setBreakConfirm] = useState(false)
@@ -1371,6 +1412,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
           prompt: '数字人口播',
           durationSec: shot.durationSec,
           assetHash: output.hash,
+          assetMime: output.mime || 'video/mp4',
         },
       })
       const imageNode = graph.nodes.find((node) => node.id === shot.nodeId)
@@ -1390,6 +1432,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
               prompt: '数字人口播',
               durationSec: shot.durationSec,
               assetHash: output.hash,
+              assetMime: output.mime || 'video/mp4',
             },
           })
         } else {
@@ -1429,6 +1472,134 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
       setLay({ kind: 'error', text: humanError(error) })
     } finally {
       setDigitalHumanBusy(null)
+      window.clearTimeout(timer)
+    }
+  }
+
+  /**
+   * 已有镜头视频 → 真实视频超清。
+   *
+   * 旧视频节点与素材一个都不动：超清结果落成新的视频节点，并把它作为旧节点的下游。
+   * 镜头的 `videoNodeId / videoHash` 指向新结果；旧节点仍留在画布上可供对比 / 回退。
+   */
+  const makeVideoUpscale = async (
+    shot: StoryboardShot,
+    target: VideoUpscaleTarget,
+    resolution: string,
+    frameRate: number | null,
+  ) => {
+    if (videoUpscaleBusy) return
+    if (
+      !shot.videoHash ||
+      !shot.videoNodeId ||
+      !liveNodeIds.has(shot.videoNodeId)
+    ) {
+      setLay({ kind: 'error', text: '这一镜还没有可超清的视频节点' })
+      return
+    }
+    const sourceNode = graph.nodes.find((node) => node.id === shot.videoNodeId)
+    if (!sourceNode) {
+      setLay({ kind: 'error', text: '这一镜的视频节点已经不在画布上' })
+      return
+    }
+    const sourceMime =
+      (sourceNode.data as { assetMime?: string }).assetMime ?? 'video/mp4'
+
+    setVideoUpscaleBusy(shot.id)
+    setLay({ kind: 'running', text: `正在用 ${target.model} 超清这一镜…` })
+    const ac = new AbortController()
+    const timer = window.setTimeout(() => ac.abort(), 20 * 60 * 1000)
+    try {
+      const outputs = await channels.generateVideo({
+        kind: 'video',
+        channelId: target.channelId,
+        model: target.model,
+        prompt: '视频超清',
+        inputs: [
+          {
+            kind: 'asset',
+            nodeId: shot.videoNodeId,
+            assetHash: shot.videoHash,
+            mime: sourceMime,
+          },
+        ],
+        params: {
+          resolution,
+          ...(frameRate !== null ? { fps: String(frameRate) } : {}),
+        },
+        signal: ac.signal,
+      })
+      const output = outputs[0]
+      if (!output) throw new Error('视频超清模型没有返回视频')
+      const mime = output.mime || 'video/mp4'
+      if (!mime.toLowerCase().startsWith('video/')) {
+        throw new Error(`视频超清返回了非视频产物：${mime}`)
+      }
+
+      canvasStore.dispatch({
+        kind: 'asset.put',
+        asset: {
+          hash: output.hash,
+          mime,
+          bytes: output.bytes,
+          ...(output.url ? { url: output.url } : {}),
+          createdAt: Date.now(),
+          projectId,
+        },
+      })
+      const data = await resolveDefaults({
+        channels,
+        type: 'generation',
+        extraData: {
+          mode: 'video',
+          channelId: target.channelId,
+          model: target.model,
+          prompt: '视频超清',
+          resolution,
+          ...(frameRate !== null ? { fps: String(frameRate) } : {}),
+          durationSec: shot.durationSec,
+          assetHash: output.hash,
+          assetMime: mime,
+        },
+      })
+
+      let upscaleNodeId = ''
+      canvasStore.beginPlan('storyboard:video-upscale', '镜头视频超清')
+      try {
+        upscaleNodeId =
+          applyDefaults({
+            store: canvasStore,
+            channels,
+            projectId,
+            type: 'generation',
+            at: { x: sourceNode.x + 320, y: sourceNode.y },
+            data,
+          }) ?? ''
+        if (upscaleNodeId) {
+          canvasStore.dispatch({
+            kind: 'edge.connect',
+            source: shot.videoNodeId,
+            target: upscaleNodeId,
+          })
+        }
+      } finally {
+        canvasStore.endPlan()
+      }
+      if (!upscaleNodeId) throw new Error('视频超清节点没能建出来')
+
+      const current = docRef.current
+      if (current) {
+        const withNode = setShotVideoNode(current, shot.id, upscaleNodeId, 0)
+        apply(attachShotVideos(withNode, [{ shotId: shot.id, hash: output.hash }], 0))
+      }
+      setLay({
+        kind: 'done',
+        text: `这一镜已生成 ${resolution}${frameRate !== null ? ` · ${frameRate}fps` : ''} 超清视频`,
+      })
+    } catch (error) {
+      setLay({ kind: 'error', text: humanError(error) })
+    } finally {
+      setVideoUpscaleBusy(null)
       window.clearTimeout(timer)
     }
   }
@@ -2636,6 +2807,22 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                             liveNodeIds.has(shots[index + 1]!.nodeId!) &&
                             shots[index + 1]?.imageHash,
                         )}
+                        videoUpscaleTargets={videoUpscaleTargets}
+                        videoUpscaleBusyShotId={videoUpscaleBusy}
+                        onVideoUpscale={
+                          shot.videoHash &&
+                          shot.videoNodeId &&
+                          liveNodeIds.has(shot.videoNodeId) &&
+                          videoUpscaleTargets.length > 0
+                            ? (target, resolution, frameRate) =>
+                                void makeVideoUpscale(
+                                  shot,
+                                  target,
+                                  resolution,
+                                  frameRate,
+                                )
+                            : undefined
+                        }
                         onBindScene={(sceneId) => apply(bindShotScene(doc, shot.id, sceneId, 0))}
                         onToggleCharacter={(characterId) =>
                           apply(toggleShotCharacter(doc, shot.id, characterId, 0))
@@ -2766,6 +2953,9 @@ function ShotCard({
   onLocate,
   onMakeVideo,
   videoPairHint,
+  videoUpscaleTargets,
+  videoUpscaleBusyShotId,
+  onVideoUpscale,
   onShowSource,
   onAddLine,
   onLinePatch,
@@ -2811,9 +3001,35 @@ function ShotCard({
   onMakeVideo?: () => void
   /** 下一镜也已经出图：视频将优先使用首尾帧，把两镜画面接起来 */
   videoPairHint?: boolean
+  /** 当前启用渠道里真实可路由的视频超清模型 */
+  videoUpscaleTargets: readonly VideoUpscaleTarget[]
+  videoUpscaleBusyShotId: string | null
+  onVideoUpscale?: (
+    target: VideoUpscaleTarget,
+    resolution: string,
+    frameRate: number | null,
+  ) => void
   /** 「看本集原文」（对账 #547）：这一集有可回看的原文片段时才传 */
   onShowSource?: () => void
 }) {
+  const [upscaleOpen, setUpscaleOpen] = useState(false)
+  const [upscaleTargetIndex, setUpscaleTargetIndex] = useState(0)
+  const [upscaleResolution, setUpscaleResolution] = useState('1080p')
+  const [upscaleFrameRate, setUpscaleFrameRate] = useState<number | null>(30)
+  const currentUpscaleTarget =
+    videoUpscaleTargets[Math.min(upscaleTargetIndex, videoUpscaleTargets.length - 1)]
+  const upscaleBusy = videoUpscaleBusyShotId === shot.id
+
+  const openUpscale = () => {
+    const target = videoUpscaleTargets[0]
+    if (!target) return
+    const normalized = normalizeVideoUpscaleSettings(target.model)
+    setUpscaleTargetIndex(0)
+    setUpscaleResolution(normalized.resolution)
+    setUpscaleFrameRate(normalized.frameRate)
+    setUpscaleOpen(true)
+  }
+
   /**
    * 状态一格写完（界面 / 冒烟都读这一个属性）：
    * 没铺 → idle；铺了没跑 → laid；跑着 → running；失败 → failed；有图 → done。
@@ -2951,8 +3167,105 @@ function ShotCard({
                 : `出视频${videoPairHint ? ' · 首尾帧' : ''}`}
             </button>
           ) : null}
+          {onVideoUpscale && shot.videoHash ? (
+            <button
+              type="button"
+              className={styles.ghost}
+              data-storyboard-shot-upscale={shot.id}
+              disabled={busy || upscaleBusy}
+              onClick={() => (upscaleOpen ? setUpscaleOpen(false) : openUpscale())}
+            >
+              {upscaleBusy ? '视频超清中…' : '视频超清'}
+            </button>
+          ) : null}
         </div>
       </div>
+      {upscaleOpen && currentUpscaleTarget ? (
+        <div className={styles.upscalePanel} data-storyboard-upscale-panel={shot.id}>
+          <label className={styles.inlineField}>
+            <span className={styles.label}>模型</span>
+            <select
+              className={styles.select}
+              value={upscaleTargetIndex}
+              data-storyboard-upscale-target={shot.id}
+              onChange={(e) => {
+                const nextIndex = Number(e.target.value)
+                const nextTarget = videoUpscaleTargets[nextIndex]
+                if (!nextTarget) return
+                const normalized = normalizeVideoUpscaleSettings(nextTarget.model)
+                setUpscaleTargetIndex(nextIndex)
+                setUpscaleResolution(normalized.resolution)
+                setUpscaleFrameRate(normalized.frameRate)
+              }}
+            >
+              {videoUpscaleTargets.map((target, targetIndex) => (
+                <option key={`${target.channelId}:${target.model}`} value={targetIndex}>
+                  {target.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.inlineField}>
+            <span className={styles.label}>清晰度</span>
+            <select
+              className={styles.select}
+              value={upscaleResolution}
+              data-storyboard-upscale-resolution={shot.id}
+              onChange={(e) => setUpscaleResolution(e.target.value)}
+            >
+              {currentUpscaleTarget.resolutions.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+          {currentUpscaleTarget.frameRates.length > 0 ? (
+            <label className={styles.inlineField}>
+              <span className={styles.label}>帧率</span>
+              <select
+                className={styles.select}
+                value={upscaleFrameRate ?? ''}
+                data-storyboard-upscale-fps={shot.id}
+                onChange={(e) => setUpscaleFrameRate(Number(e.target.value))}
+              >
+                {currentUpscaleTarget.frameRates.map((value) => (
+                  <option key={value} value={value}>
+                    {value}fps
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <div className={styles.upscaleActions}>
+            <button
+              type="button"
+              className={styles.ghost}
+              data-storyboard-upscale-cancel={shot.id}
+              disabled={upscaleBusy}
+              onClick={() => setUpscaleOpen(false)}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className={styles.primary}
+              data-storyboard-upscale-submit={shot.id}
+              disabled={upscaleBusy}
+              onClick={() => {
+                setUpscaleOpen(false)
+                onVideoUpscale?.(
+                  currentUpscaleTarget,
+                  upscaleResolution,
+                  upscaleFrameRate,
+                )
+              }}
+            >
+              开始超清
+            </button>
+          </div>
+        </div>
+      ) : null}
       {state?.kind === 'failed' ? (
         <p className={styles.error} data-storyboard-shot-error={shot.id}>
           {describeError(state.error)}

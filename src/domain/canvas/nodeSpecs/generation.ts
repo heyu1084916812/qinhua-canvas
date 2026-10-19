@@ -99,7 +99,9 @@ export const generationSpec: NodeSpec<GenerationData> = {
           kind: 'asset',
           nodeId: upstream.id,
           assetHash: hash,
-          mime: GENERATION_ASSET_MIME,
+          mime:
+            upData.assetMime ??
+            (upData.mode === 'video' ? 'video/mp4' : GENERATION_ASSET_MIME),
           /**
            * 带上素材的**原始像素**（用户 2026-09-24）。
            *

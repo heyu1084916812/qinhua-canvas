@@ -42,6 +42,34 @@ describe('生成节点规格 / 输入收集（M6-12）', () => {
     ])
   })
 
+  it('视频上游保留真实 MIME；老视频没有 assetMime 时按 video/mp4 回落', () => {
+    const g = graph(
+      [
+        node({ id: 'down', type: 'generation', data: { mode: 'video' } as never }),
+        node({
+          id: 'up',
+          type: 'generation',
+          data: { mode: 'video', assetHash: 'h-video', assetMime: 'video/webm' } as never,
+        }),
+      ],
+      [{ id: 'e1', projectId: 'p1', source: 'up', target: 'down' }],
+    )
+    expect(getSpec('generation')!.collectInputs({ node: g.nodes[0]!, graph: g })).toEqual([
+      { kind: 'asset', nodeId: 'up', assetHash: 'h-video', mime: 'video/webm' },
+    ])
+
+    const legacy = graph(
+      [
+        node({ id: 'down', type: 'generation', data: { mode: 'video' } as never }),
+        node({ id: 'up', type: 'generation', data: { mode: 'video', assetHash: 'h-old' } as never }),
+      ],
+      [{ id: 'e1', projectId: 'p1', source: 'up', target: 'down' }],
+    )
+    expect(getSpec('generation')!.collectInputs({ node: legacy.nodes[0]!, graph: legacy })).toEqual([
+      { kind: 'asset', nodeId: 'up', assetHash: 'h-old', mime: 'video/mp4' },
+    ])
+  })
+
   it('上游还没生成（无 assetHash）→ 不产生输入，也不报错', () => {
     const g = graph(
       [
@@ -187,7 +215,9 @@ describe('生成节点规格 / 请求参数按功能类别分支（§6.8）', ()
     expect(req!.params).toEqual({
       ratio: null,
       size: '720p',
+      resolution: null,
       durationSec: 8,
+      fps: null,
       refMode: 'all-purpose',
       count: 4,
       videoMode: null,
@@ -195,17 +225,18 @@ describe('生成节点规格 / 请求参数按功能类别分支（§6.8）', ()
     })
   })
 
-  it('视频模式不发图片参数：别让渠道收到 resolution 却不知道该不该用', () => {
+  it('视频模式保留超清分辨率 / 帧率，但不发图片画质与背景', () => {
     const req = reqOf('generation', {
       mode: 'video',
       channelId: 'c',
       model: 'm',
       prompt: 'p',
       resolution: '2k',
+      fps: '60',
       quality: 'high',
       count: 4,
     })
-    expect(req!.params).not.toHaveProperty('resolution')
+    expect(req!.params).toMatchObject({ resolution: '2k', fps: '60' })
     expect(req!.params).not.toHaveProperty('quality')
     /**
      * ⚠️ `count` 现在**两边都有**：图片是「生成几张」，视频是图三/图六那排
@@ -229,7 +260,9 @@ describe('生成节点规格 / 请求参数按功能类别分支（§6.8）', ()
     expect(req!.params).toEqual({
       ratio: null,
       size: '480p',
+      resolution: null,
       durationSec: 5,
+      fps: null,
       refMode: 'first-last-frame',
       count: null,
       videoMode: null,

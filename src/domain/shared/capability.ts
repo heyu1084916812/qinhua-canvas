@@ -13,6 +13,8 @@ export interface ModelCapability {
   resolutions?: string[]
   /** 超分模型的放大倍数（`2x / 4x / 6x`） */
   scales?: string[]
+  /** 视频超清可选择的帧率（例如 Topaz 的 `30 / 60`） */
+  frameRates?: number[]
   qualities?: string[]
   maxCount?: number
   durations?: [number, number]
