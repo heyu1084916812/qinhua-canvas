@@ -120,6 +120,12 @@ import {
   videoUpscaleOptionsOf,
   type VideoUpscaleModelId,
 } from '../../domain/storyboard/videoUpscale'
+import {
+  normalizeVideoEditResolution,
+  VIDEO_EDIT_MODEL_IDS,
+  videoEditResolutionsOf,
+  type VideoEditModelId,
+} from '../../domain/storyboard/videoEdit'
 import styles from './StoryboardPage.module.css'
 
 const DIGITAL_HUMAN_MODEL_IDS = [
@@ -134,6 +140,14 @@ interface VideoUpscaleTarget {
   label: string
   resolutions: readonly string[]
   frameRates: readonly number[]
+}
+
+interface VideoEditTarget {
+  channelId: string
+  channelName: string
+  model: VideoEditModelId
+  label: string
+  resolutions: readonly string[]
 }
 
 /**
@@ -309,6 +323,30 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     }
     return out
   }, [channelState.channels])
+  const videoEditTargets = useMemo(() => {
+    const out: VideoEditTarget[] = []
+    for (const channel of channelState.channels) {
+      if (!channel.enabled) continue
+      for (const model of VIDEO_EDIT_MODEL_IDS) {
+        const capability = channel.models.find(
+          (item) =>
+            item.id === model &&
+            item.category === 'video' &&
+            item.inputTypes.includes('video'),
+        )
+        const resolutions = videoEditResolutionsOf(model)
+        if (!capability || resolutions.length === 0) continue
+        out.push({
+          channelId: channel.id,
+          channelName: channel.name,
+          model,
+          label: `${model} · ${channel.name}`,
+          resolutions,
+        })
+      }
+    }
+    return out
+  }, [channelState.channels])
   const skills = useSkillsOptional()
   const navigate = useNavigate()
   /** 画布那一边：铺节点要 store，出图要执行引擎（都在 Provider 里） */
@@ -357,6 +395,7 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
   const [voiceBusy, setVoiceBusy] = useState<Record<string, boolean>>({})
   const [digitalHumanBusy, setDigitalHumanBusy] = useState<string | null>(null)
   const [videoUpscaleBusy, setVideoUpscaleBusy] = useState<string | null>(null)
+  const [videoEditBusy, setVideoEditBusy] = useState<string | null>(null)
   const [breaking, setBreaking] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
   const [breakMsg, setBreakMsg] = useState('')
   const [breakConfirm, setBreakConfirm] = useState(false)
@@ -1604,6 +1643,123 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
     }
   }
 
+  /** 已有镜头视频 → 按文字指令编辑，结果落独立新视频节点，旧视频保留。 */
+  const makeVideoEdit = async (
+    shot: StoryboardShot,
+    target: VideoEditTarget,
+    instruction: string,
+    resolution: string,
+  ) => {
+    if (videoEditBusy) return
+    const prompt = instruction.trim()
+    if (!prompt) {
+      setLay({ kind: 'error', text: '先写清这段视频要改什么' })
+      return
+    }
+    if (!shot.videoHash || !shot.videoNodeId || !liveNodeIds.has(shot.videoNodeId)) {
+      setLay({ kind: 'error', text: '这一镜还没有可编辑的视频节点' })
+      return
+    }
+    const sourceNode = graph.nodes.find((node) => node.id === shot.videoNodeId)
+    if (!sourceNode) {
+      setLay({ kind: 'error', text: '这一镜的视频节点已经不在画布上' })
+      return
+    }
+    const sourceMime =
+      (sourceNode.data as { assetMime?: string }).assetMime ?? 'video/mp4'
+
+    setVideoEditBusy(shot.id)
+    setLay({ kind: 'running', text: `正在用 ${target.model} 编辑这一镜…` })
+    const ac = new AbortController()
+    const timer = window.setTimeout(() => ac.abort(), 20 * 60 * 1000)
+    try {
+      const outputs = await channels.generateVideo({
+        kind: 'video',
+        channelId: target.channelId,
+        model: target.model,
+        prompt,
+        inputs: [
+          {
+            kind: 'asset',
+            nodeId: shot.videoNodeId,
+            assetHash: shot.videoHash,
+            mime: sourceMime,
+          },
+        ],
+        params: { resolution },
+        signal: ac.signal,
+      })
+      const output = outputs[0]
+      if (!output) throw new Error('视频编辑模型没有返回视频')
+      const mime = output.mime || 'video/mp4'
+      if (!mime.toLowerCase().startsWith('video/')) {
+        throw new Error(`视频编辑返回了非视频产物：${mime}`)
+      }
+
+      canvasStore.dispatch({
+        kind: 'asset.put',
+        asset: {
+          hash: output.hash,
+          mime,
+          bytes: output.bytes,
+          ...(output.url ? { url: output.url } : {}),
+          createdAt: Date.now(),
+          projectId,
+        },
+      })
+      const data = await resolveDefaults({
+        channels,
+        type: 'generation',
+        extraData: {
+          mode: 'video',
+          channelId: target.channelId,
+          model: target.model,
+          prompt,
+          resolution,
+          durationSec: shot.durationSec,
+          assetHash: output.hash,
+          assetMime: mime,
+        },
+      })
+
+      let editNodeId = ''
+      canvasStore.beginPlan('storyboard:video-edit', '镜头视频编辑')
+      try {
+        editNodeId =
+          applyDefaults({
+            store: canvasStore,
+            channels,
+            projectId,
+            type: 'generation',
+            at: { x: sourceNode.x + 320, y: sourceNode.y },
+            data,
+          }) ?? ''
+        if (editNodeId) {
+          canvasStore.dispatch({
+            kind: 'edge.connect',
+            source: shot.videoNodeId,
+            target: editNodeId,
+          })
+        }
+      } finally {
+        canvasStore.endPlan()
+      }
+      if (!editNodeId) throw new Error('视频编辑节点没能建出来')
+
+      const current = docRef.current
+      if (current) {
+        const withNode = setShotVideoNode(current, shot.id, editNodeId, 0)
+        apply(attachShotVideos(withNode, [{ shotId: shot.id, hash: output.hash }], 0))
+      }
+      setLay({ kind: 'done', text: `这一镜的视频已按 ${resolution} 编辑完成` })
+    } catch (error) {
+      setLay({ kind: 'error', text: humanError(error) })
+    } finally {
+      setVideoEditBusy(null)
+      window.clearTimeout(timer)
+    }
+  }
+
   /** 这一集出视频：只跑“有图但还没有视频”的镜头，逐镜串行，避免免费额度被并发打满。 */
   const runEpisodeVideos = async () => {
     const targets = shots.filter(
@@ -2823,6 +2979,22 @@ function StoryboardEditor({ projectId }: { projectId: string }) {
                                 )
                             : undefined
                         }
+                        videoEditTargets={videoEditTargets}
+                        videoEditBusyShotId={videoEditBusy}
+                        onVideoEdit={
+                          shot.videoHash &&
+                          shot.videoNodeId &&
+                          liveNodeIds.has(shot.videoNodeId) &&
+                          videoEditTargets.length > 0
+                            ? (target, instruction, resolution) =>
+                                void makeVideoEdit(
+                                  shot,
+                                  target,
+                                  instruction,
+                                  resolution,
+                                )
+                            : undefined
+                        }
                         onBindScene={(sceneId) => apply(bindShotScene(doc, shot.id, sceneId, 0))}
                         onToggleCharacter={(characterId) =>
                           apply(toggleShotCharacter(doc, shot.id, characterId, 0))
@@ -2956,6 +3128,9 @@ function ShotCard({
   videoUpscaleTargets,
   videoUpscaleBusyShotId,
   onVideoUpscale,
+  videoEditTargets,
+  videoEditBusyShotId,
+  onVideoEdit,
   onShowSource,
   onAddLine,
   onLinePatch,
@@ -3009,6 +3184,13 @@ function ShotCard({
     resolution: string,
     frameRate: number | null,
   ) => void
+  videoEditTargets: readonly VideoEditTarget[]
+  videoEditBusyShotId: string | null
+  onVideoEdit?: (
+    target: VideoEditTarget,
+    instruction: string,
+    resolution: string,
+  ) => void
   /** 「看本集原文」（对账 #547）：这一集有可回看的原文片段时才传 */
   onShowSource?: () => void
 }) {
@@ -3016,9 +3198,16 @@ function ShotCard({
   const [upscaleTargetIndex, setUpscaleTargetIndex] = useState(0)
   const [upscaleResolution, setUpscaleResolution] = useState('1080p')
   const [upscaleFrameRate, setUpscaleFrameRate] = useState<number | null>(30)
+  const [videoEditOpen, setVideoEditOpen] = useState(false)
+  const [videoEditTargetIndex, setVideoEditTargetIndex] = useState(0)
+  const [videoEditInstruction, setVideoEditInstruction] = useState('')
+  const [videoEditResolution, setVideoEditResolution] = useState('480p')
   const currentUpscaleTarget =
     videoUpscaleTargets[Math.min(upscaleTargetIndex, videoUpscaleTargets.length - 1)]
+  const currentVideoEditTarget =
+    videoEditTargets[Math.min(videoEditTargetIndex, videoEditTargets.length - 1)]
   const upscaleBusy = videoUpscaleBusyShotId === shot.id
+  const videoEditing = videoEditBusyShotId === shot.id
 
   const openUpscale = () => {
     const target = videoUpscaleTargets[0]
@@ -3028,6 +3217,15 @@ function ShotCard({
     setUpscaleResolution(normalized.resolution)
     setUpscaleFrameRate(normalized.frameRate)
     setUpscaleOpen(true)
+  }
+
+  const openVideoEdit = () => {
+    const target = videoEditTargets[0]
+    if (!target) return
+    setVideoEditTargetIndex(0)
+    setVideoEditInstruction('')
+    setVideoEditResolution(normalizeVideoEditResolution(target.model))
+    setVideoEditOpen(true)
   }
 
   /**
@@ -3178,6 +3376,19 @@ function ShotCard({
               {upscaleBusy ? '视频超清中…' : '视频超清'}
             </button>
           ) : null}
+          {onVideoEdit && shot.videoHash ? (
+            <button
+              type="button"
+              className={styles.ghost}
+              data-storyboard-video-edit={shot.id}
+              disabled={busy || videoEditing}
+              onClick={() =>
+                videoEditOpen ? setVideoEditOpen(false) : openVideoEdit()
+              }
+            >
+              {videoEditing ? '视频编辑中…' : '视频编辑'}
+            </button>
+          ) : null}
         </div>
       </div>
       {upscaleOpen && currentUpscaleTarget ? (
@@ -3262,6 +3473,87 @@ function ShotCard({
               }}
             >
               开始超清
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {videoEditOpen && currentVideoEditTarget ? (
+        <div
+          className={styles.videoEditPanel}
+          data-storyboard-video-edit-panel={shot.id}
+        >
+          <label className={`${styles.inlineField} ${styles.videoEditPrompt}`}>
+            <span className={styles.label}>修改要求</span>
+            <textarea
+              className={styles.textarea}
+              rows={2}
+              value={videoEditInstruction}
+              placeholder="例如：把白天改成雨夜，保留人物动作和镜头运动"
+              data-storyboard-video-edit-instruction={shot.id}
+              onChange={(e) => setVideoEditInstruction(e.target.value)}
+            />
+          </label>
+          <label className={styles.inlineField}>
+            <span className={styles.label}>模型</span>
+            <select
+              className={styles.select}
+              value={videoEditTargetIndex}
+              data-storyboard-video-edit-target={shot.id}
+              onChange={(e) => {
+                const nextIndex = Number(e.target.value)
+                const nextTarget = videoEditTargets[nextIndex]
+                if (!nextTarget) return
+                setVideoEditTargetIndex(nextIndex)
+                setVideoEditResolution(normalizeVideoEditResolution(nextTarget.model))
+              }}
+            >
+              {videoEditTargets.map((target, targetIndex) => (
+                <option key={`${target.channelId}:${target.model}`} value={targetIndex}>
+                  {target.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.inlineField}>
+            <span className={styles.label}>清晰度</span>
+            <select
+              className={styles.select}
+              value={videoEditResolution}
+              data-storyboard-video-edit-resolution={shot.id}
+              onChange={(e) => setVideoEditResolution(e.target.value)}
+            >
+              {currentVideoEditTarget.resolutions.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className={styles.videoEditActions}>
+            <button
+              type="button"
+              className={styles.ghost}
+              data-storyboard-video-edit-cancel={shot.id}
+              disabled={videoEditing}
+              onClick={() => setVideoEditOpen(false)}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className={styles.primary}
+              data-storyboard-video-edit-submit={shot.id}
+              disabled={videoEditing || !videoEditInstruction.trim()}
+              onClick={() => {
+                setVideoEditOpen(false)
+                onVideoEdit?.(
+                  currentVideoEditTarget,
+                  videoEditInstruction,
+                  videoEditResolution,
+                )
+              }}
+            >
+              开始编辑
             </button>
           </div>
         </div>

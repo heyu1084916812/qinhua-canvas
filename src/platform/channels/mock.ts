@@ -103,6 +103,13 @@ const DEFAULT_MODELS: ModelCapability[] = [
     maxReferenceImages: 1,
   },
   {
+    id: '全能视频X 视频编辑',
+    category: 'video',
+    inputTypes: ['text', 'video'],
+    resolutions: ['480p', '720p'],
+    maxReferenceImages: 1,
+  },
+  {
     id: 'mock-speech-1',
     category: 'audio',
     inputTypes: ['text'],

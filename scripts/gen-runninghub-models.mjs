@@ -257,6 +257,14 @@ const MODELS = [
     kind: 'video',
     text: 'rhart-video/video-upscaler',
   },
+  {
+    slug: 'video-rh-g-edit',
+    label: '全能视频X 视频编辑',
+    preset: '全能视频X 视频编辑',
+    hint: '用文字指令修改已有视频的画面、风格或动作，保留原镜头节奏',
+    kind: 'video',
+    text: 'rhart-video-g-official/edit-video',
+  },
 ]
 
 /** 界面能驱动的档位参数 → 它在端点规格里的角色 */

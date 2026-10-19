@@ -31900,6 +31900,74 @@ async function g145(browser) {
     `旧节点=${oldVideoStillThere?.id ?? 'none'} 边=${oldVideoNodeId} → ${upscaleShot?.videoNodeId ?? 'none'}`,
   )
 
+  const videoEditNodeBefore = upscaleShot?.videoNodeId ?? ''
+  const videoEditButton = page.locator(`[data-storyboard-video-edit="${ids[0]}"]`)
+  const videoEditShown = await videoEditButton
+    .waitFor({ state: 'visible', timeout: 8000 })
+    .then(() => true)
+    .catch(() => false)
+  if (videoEditShown) await videoEditButton.click()
+  const videoEditInstruction = '把白天改成雨夜，保持人物动作和镜头运动不变'
+  rec(
+    g,
+    '★★ 已有镜头视频时出现真实「视频编辑」入口和官方模型',
+    videoEditShown &&
+      (await page
+        .locator(`[data-storyboard-video-edit-panel="${ids[0]}"]`)
+        .isVisible()
+        .catch(() => false)) &&
+      (await page
+        .locator(`[data-storyboard-video-edit-target="${ids[0]}"] option`)
+        .allInnerTexts()
+        .catch(() => [])
+      ).some((text) => text.includes('全能视频X 视频编辑')),
+  )
+  await page
+    .locator(`[data-storyboard-video-edit-instruction="${ids[0]}"]`)
+    .fill(videoEditInstruction)
+  await page
+    .locator(`[data-storyboard-video-edit-resolution="${ids[0]}"]`)
+    .selectOption('720p')
+  await page.locator(`[data-storyboard-video-edit-submit="${ids[0]}"]`).click()
+  const videoEditDb = await waitDb((db) => {
+    const shot = db.shots[0]
+    const next = db.nodes.find((node) => node.id === shot?.videoNodeId)
+    return (
+      !!shot?.videoNodeId &&
+      shot.videoNodeId !== videoEditNodeBefore &&
+      next?.data?.model === '全能视频X 视频编辑' &&
+      next?.data?.assetMime === 'video/mp4'
+    )
+  }, 20000)
+  const videoEditShot = videoEditDb.shots[0]
+  const videoEditNode = videoEditDb.nodes.find((node) => node.id === videoEditShot?.videoNodeId)
+  const upscaleNodeStillThere = videoEditDb.nodes.find(
+    (node) => node.id === videoEditNodeBefore,
+  )
+  rec(
+    g,
+    '★★★ 视频编辑真实走通：720p 新视频落独立节点，指令与产物 MIME 都落库',
+    !!videoEditShot?.videoHash &&
+      videoEditNode?.data?.prompt === videoEditInstruction &&
+      videoEditNode?.data?.resolution === '720p' &&
+      videoEditDb.assets.some(
+        (asset) =>
+          asset.hash === videoEditShot.videoHash && asset.mime === 'video/mp4',
+      ),
+    `node=${videoEditShot?.videoNodeId ?? 'none'} hash=${(videoEditShot?.videoHash ?? '').slice(0, 8)} prompt=${videoEditNode?.data?.prompt ?? 'none'}`,
+  )
+  rec(
+    g,
+    '★★ 视频编辑保留上一版视频节点，并保留输入视频 → 编辑结果的连线',
+    !!upscaleNodeStillThere &&
+      videoEditDb.edges.some(
+        (edge) =>
+          edge.source === videoEditNodeBefore &&
+          edge.target === videoEditShot?.videoNodeId,
+      ),
+    `${videoEditNodeBefore} → ${videoEditShot?.videoNodeId ?? 'none'}`,
+  )
+
   await page.screenshot({ path: `${OUT}/145-g145-preview.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()

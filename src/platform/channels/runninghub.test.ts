@@ -84,16 +84,17 @@ describe('RunningHub 电商 AI 超清目录', () => {
 })
 
 describe('RunningHub 视频超清目录与请求', () => {
-  it('Topaz / RH 两条模型都映射到真实 video-upscale 端点，并声明视频输入', () => {
-    for (const [modelId, endpointId] of [
-      ['Topaz 视频超清', 'topazlabs/video-upscale'],
-      ['RH 视频超分', 'rhart-video/video-upscaler'],
+  it('视频超清 / 视频编辑模型都映射到真实端点，并声明视频输入', () => {
+    for (const [modelId, endpointId, task] of [
+      ['Topaz 视频超清', 'topazlabs/video-upscale', 'video-upscale'],
+      ['RH 视频超分', 'rhart-video/video-upscaler', 'video-upscale'],
+      ['全能视频X 视频编辑', 'rhart-video-g-official/edit-video', 'video-edit'],
     ] as const) {
       const model = RUNNINGHUB_MODELS.find((item) => item.id === modelId)
       expect(model, modelId).toMatchObject({ kind: 'video', textEndpoint: endpointId })
       const spec = RUNNINGHUB_ENDPOINT_SPECS.find((item) => item.id === endpointId)
       expect(spec, endpointId).toMatchObject({
-        task: 'video-upscale',
+        task,
         media: { key: 'videoUrl', type: 'VIDEO', required: true },
       })
       expect(runningHubCapability(model!).inputTypes).toContain('video')
@@ -158,6 +159,68 @@ describe('RunningHub 视频超清目录与请求', () => {
       targetFps: '60',
     })
     expect(submitBody).not.toHaveProperty('prompt')
+    expect(outputs[0]?.mime).toBe('video/mp4')
+  })
+
+  it('★★ 视频编辑把文字指令、输入视频和分辨率送到真实 edit-video 端点', async () => {
+    let submitBody: Record<string, unknown> | null = null
+    let uploadedName = ''
+    const platform = createMemoryPlatform({
+      rows: {
+        assets: [{ id: 'edit-video-source', bytes: VIDEO_BYTES, mime: 'video/mp4' }],
+      },
+      handler: async (req: NetworkRequest) => {
+        if (req.url.endsWith('/openapi/v2/media/upload/binary')) {
+          const form = req.body as FormData
+          const file = form.get('file')
+          uploadedName = file instanceof File ? file.name : String(file ?? '')
+          return json(200, {
+            code: 0,
+            data: { download_url: 'https://files.runninghub.cn/edit-source.mp4' },
+          })
+        }
+        if (req.url.endsWith('/openapi/v2/rhart-video-g-official/edit-video')) {
+          submitBody = req.body as Record<string, unknown>
+          return json(200, { code: 0, taskId: 'video-edit-task' })
+        }
+        if (req.url.endsWith('/openapi/v2/query')) {
+          return json(200, {
+            status: 'SUCCESS',
+            results: [{ url: 'https://files.runninghub.cn/edit-result.mp4' }],
+          })
+        }
+        if (req.url.endsWith('/edit-result.mp4')) {
+          return bytes(200, VIDEO_BYTES, 'video/mp4')
+        }
+        return json(200, {})
+      },
+    })
+    const adapter = createRunningHubAdapter(config, platform, FAST)
+    const outputs = await adapter.generateVideo(
+      {
+        kind: 'video',
+        channelId: 'c1',
+        model: '全能视频X 视频编辑',
+        prompt: '把白天改成雨夜，保持人物动作不变',
+        inputs: [
+          {
+            kind: 'asset',
+            nodeId: 'video-node',
+            assetHash: 'edit-video-source',
+            mime: 'video/mp4',
+          },
+        ],
+        params: { resolution: '720p' },
+      },
+      signal,
+    )
+
+    expect(uploadedName).toBe('video.mp4')
+    expect(submitBody).toMatchObject({
+      videoUrl: 'https://files.runninghub.cn/edit-source.mp4',
+      prompt: '把白天改成雨夜，保持人物动作不变',
+      resolution: '720p',
+    })
     expect(outputs[0]?.mime).toBe('video/mp4')
   })
 })

@@ -4,7 +4,7 @@
  * 生成：`node scripts/gen-runninghub-models.mjs <RH_CLI>/src/rh_cli/catalog/data/capabilities.json`
  * 来源：RunningHub 官方 CLI（github.com/HM-RunningHub/RH_CLI）随包附带的端点目录
  *       capabilities.json —— version 2026-06-02，共 356 个端点；
- *       本文件只留**精挑的 38 个端点**（官方 CLI 快捷选择 + 本项目已交付的端点）。
+ *       本文件只留**精挑的 39 个端点**（官方 CLI 快捷选择 + 本项目已交付的端点）。
  *
  * 官方 CLI 建请求体的最后一步是「**必填 + 有默认值**而还没填的参数一律补默认值」
  * （`model/payload.py`）—— 适配器照同一条规则走 `requiredDefaults`。
@@ -199,6 +199,16 @@ export const RUNNINGHUB_ENDPOINT_SPECS: readonly RunningHubEndpointSpec[] = [
     ratio: { "key": "aspectRatio", "options": [ "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "5:4", "4:5", "21:9" ] },
     resolution: { "key": "resolution", "options": [ "1k", "2k", "4k" ] },
     requiredDefaults: { "resolution": "1k" },
+  },
+  {
+    id: 'rhart-video-g-official/edit-video',
+    task: 'video-edit',
+    kind: 'video',
+    label: '全能视频X-编辑视频-官方稳定版',
+    promptKey: 'prompt',
+    media: { "key": "videoUrl", "type": "VIDEO", "required": true },
+    resolution: { "key": "resolution", "options": [ "720p", "480p" ] },
+    requiredDefaults: { "resolution": "480p" },
   },
   {
     id: 'rhart-video-g/image-to-video',
@@ -635,5 +645,12 @@ export const RUNNINGHUB_MODELS: readonly RunningHubModel[] = [
     hint: '把已有视频放大到 720p / 1080p / 2K / 4K',
     kind: 'video',
     textEndpoint: 'rhart-video/video-upscaler',
+  },
+  {
+    // 官方目录：全能视频X 视频编辑
+    id: '全能视频X 视频编辑',
+    hint: '用文字指令修改已有视频的画面、风格或动作，保留原镜头节奏',
+    kind: 'video',
+    textEndpoint: 'rhart-video-g-official/edit-video',
   },
 ]
