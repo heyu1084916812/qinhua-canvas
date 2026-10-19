@@ -311,7 +311,10 @@ export function EcommerceStudio({
   const [savingSelected, setSavingSelected] = useState(false)
   const [compareTarget, setCompareTarget] = useState<EcommerceResultItem | null>(null)
   const [detailTarget, setDetailTarget] = useState<EcommerceResultItem | null>(null)
-  const [upscaleTarget, setUpscaleTarget] = useState<EcommerceResultItem | null>(null)
+  const [upscaleTarget, setUpscaleTarget] = useState<{
+    items: readonly EcommerceResultItem[]
+    batch: boolean
+  } | null>(null)
   const [upscaleProfile, setUpscaleProfile] = useState<EcommerceUpscaleProfile>('standard')
   const [upscaleScale, setUpscaleScale] = useState<EcommerceUpscaleScale>('4x')
   const [upscaleSubmitting, setUpscaleSubmitting] = useState(false)
@@ -522,6 +525,14 @@ export function EcommerceStudio({
       selectedEditNodes.has(result.nodeId) &&
       !!result.onSaveToLibrary,
   ).length
+  const selectedUpscaleCount = results.filter(
+    (result) =>
+      result.status === 'done' &&
+      selectedEditNodes.has(result.nodeId) &&
+      !!result.imageHash &&
+      !!onUpscaleResult &&
+      availableUpscaleOptions.length > 0,
+  ).length
   const editPresets = useMemo(
     () => [
       {
@@ -610,14 +621,21 @@ export function EcommerceStudio({
   }
 
   const submitUpscale = async () => {
-    if (!upscaleTarget || !onUpscaleResult) return
+    if (!upscaleTarget?.items.length || !onUpscaleResult) return
     setUpscaleError('')
     setUpscaleSubmitting(true)
+    let completed = 0
     try {
-      await onUpscaleResult(upscaleTarget.nodeId, upscaleProfile, upscaleScale)
+      for (const item of upscaleTarget.items) {
+        await onUpscaleResult(item.nodeId, upscaleProfile, upscaleScale)
+        completed += 1
+      }
+      if (upscaleTarget.batch) setSelectedEditNodes(new Set())
       setUpscaleTarget(null)
     } catch (e) {
-      setUpscaleError(e instanceof Error ? e.message : 'AI 超清失败，原因见下方结果区')
+      const done = completed > 0 ? `已完成 ${completed}/${upscaleTarget.items.length} 张；` : ''
+      const reason = e instanceof Error ? e.message : 'AI 超清失败，原因见下方结果区'
+      setUpscaleError(`${done}${reason}`)
     } finally {
       setUpscaleSubmitting(false)
     }
@@ -1253,6 +1271,31 @@ export function EcommerceStudio({
                 {savingSelected ? '收藏中…' : `收藏所选（${selectedSaveCount}）`}
               </button>
             ) : null}
+            {selectedUpscaleCount > 0 ? (
+              <button
+                type="button"
+                className={styles.linkBtn}
+                data-ecommerce-upscale-selected
+                disabled={running}
+                onClick={() => {
+                  const first = availableUpscaleOptions[0]
+                  if (!first) return
+                  const items = results.filter(
+                    (result) =>
+                      result.status === 'done' &&
+                      selectedEditNodes.has(result.nodeId) &&
+                      !!result.imageHash,
+                  )
+                  if (items.length === 0) return
+                  setUpscaleTarget({ items, batch: true })
+                  setUpscaleProfile(first.id)
+                  setUpscaleScale('4x')
+                  setUpscaleError('')
+                }}
+              >
+                超清所选（{selectedUpscaleCount}）
+              </button>
+            ) : null}
             {doneResultCount > 0 ? (
               <button
                 type="button"
@@ -1333,12 +1376,12 @@ export function EcommerceStudio({
               >
                 <div className={styles.cellBody}>
                   {r.status === 'done' && (onEditResults || r.onDownload) ? (
-                    <label className={styles.selectResult} title="选择这张用于批量 AI 编辑">
+                    <label className={styles.selectResult} title="选择这张用于批量操作">
                       <input
                         type="checkbox"
                         data-ecommerce-result-select={r.nodeId}
                         checked={selectedEditNodes.has(r.nodeId)}
-                        aria-label="选择这张用于批量 AI 编辑"
+                        aria-label="选择这张用于批量操作"
                         onChange={() => toggleEditSelection(r.nodeId)}
                       />
                     </label>
@@ -1492,7 +1535,7 @@ export function EcommerceStudio({
                         onClick={() => {
                           const first = availableUpscaleOptions[0]
                           if (!first) return
-                          setUpscaleTarget(r)
+                          setUpscaleTarget({ items: [r], batch: false })
                           setUpscaleProfile(first.id)
                           setUpscaleScale('4x')
                           setUpscaleError('')
@@ -1878,8 +1921,17 @@ export function EcommerceStudio({
               AI 超清
             </h2>
             <p className={styles.confirmText}>
-              使用真实 Topaz 超分模型放大这张结果，不重绘商品也不生成新画面。原图和原任务都会保留；
-              会调用当前渠道，产生一次真实用量。
+              使用真实 Topaz 超分模型放大
+              {upscaleTarget.items.length > 1
+                ? `所选 ${upscaleTarget.items.length} 张结果`
+                : '这张结果'}
+              ，不重绘商品也不生成新画面。原图和原任务都会保留；会调用当前渠道，产生
+              {upscaleTarget.items.length > 1
+                ? ` ${upscaleTarget.items.length} 次真实用量。`
+                : '一次真实用量。'}
+            </p>
+            <p className={styles.hint} data-ecommerce-upscale-count>
+              本次处理 {upscaleTarget.items.length} 张
             </p>
             <div className={styles.upscaleSection}>
               <span className={styles.upscaleLabel}>方案</span>
@@ -1952,7 +2004,9 @@ export function EcommerceStudio({
                 disabled={upscaleSubmitting || running}
                 onClick={() => void submitUpscale()}
               >
-                {upscaleSubmitting ? '提交中…' : `AI 超清 ${upscaleScale}`}
+                {upscaleSubmitting
+                  ? `提交中…（${upscaleTarget.items.length} 张）`
+                  : `AI 超清 ${upscaleScale}${upscaleTarget.items.length > 1 ? `（${upscaleTarget.items.length}）` : ''}`}
               </button>
             </div>
           </div>

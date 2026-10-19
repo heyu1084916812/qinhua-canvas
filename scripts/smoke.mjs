@@ -35062,6 +35062,86 @@ async function g160(browser) {
     `参考图=${editTasks.map((task) => task.request?.referenceNodeIds?.length ?? 0).join(',')}`,
   )
 
+  const tasksBeforeUpscale = await projectTasks()
+  const resultsBeforeUpscale = await projectResults()
+  const originalNodeIds = resultsBefore
+    .filter((row) => row.status === 'done')
+    .map((row) => String(row.nodeId))
+  const originalTaskId = String(
+    resultsBefore.find((row) => row.status === 'done')?.taskId ?? '',
+  )
+  if (originalTaskId) {
+    await page.locator(`[data-ecommerce-task="${originalTaskId}"]`).click()
+    await page
+      .locator(`[data-ecommerce-result-select="${originalNodeIds[0]}"]`)
+      .waitFor({ state: 'attached', timeout: 8000 })
+      .catch(() => {})
+  }
+  for (const nodeId of originalNodeIds) {
+    await page.locator(`[data-ecommerce-result-select="${nodeId}"]`).check()
+  }
+  const batchUpscaleEntry = page.locator('[data-ecommerce-upscale-selected]')
+  rec(
+    g,
+    '★★ 所选结果出现批量超清入口，并显示真实选中数量',
+    (await batchUpscaleEntry.count()) === 1 &&
+      /超清所选（2）/.test(await batchUpscaleEntry.innerText()),
+    `入口=${await batchUpscaleEntry.innerText().catch(() => '无')}`,
+  )
+  await batchUpscaleEntry.click()
+  const batchUpscaleDialog = page.locator('[data-ecommerce-upscale-dialog]')
+  await batchUpscaleDialog.waitFor({ state: 'visible', timeout: 5000 })
+  rec(
+    g,
+    '★★ 批量超清确认明确写出 2 次真实用量',
+    /2\s*次真实用量/.test(await batchUpscaleDialog.innerText()) &&
+      /本次处理\s*2\s*张/.test(
+        await page.locator('[data-ecommerce-upscale-count]').innerText(),
+      ),
+    (await batchUpscaleDialog.innerText()).replace(/\n/g, ' | ').slice(0, 160),
+  )
+  await page.locator('[data-ecommerce-upscale-submit]').click()
+
+  let tasksAfterUpscale = tasksBeforeUpscale
+  let resultsAfterUpscale = resultsBeforeUpscale
+  let batchUpscaleTasks = []
+  for (let i = 0; i < 180; i += 1) {
+    tasksAfterUpscale = await projectTasks()
+    resultsAfterUpscale = await projectResults()
+    const beforeIds = new Set(tasksBeforeUpscale.map((row) => row.id))
+    batchUpscaleTasks = tasksAfterUpscale.filter(
+      (row) => !beforeIds.has(row.id) && row.request?.scale === '4x',
+    )
+    if (
+      batchUpscaleTasks.length >= 2 &&
+      batchUpscaleTasks.every(
+        (task) =>
+          resultsAfterUpscale.find((row) => row.taskId === task.id)?.status === 'done',
+      )
+    ) {
+      break
+    }
+    await sleep(200)
+  }
+  const originalSources = new Set(resultsBefore.map((row) => row.id))
+  rec(
+    g,
+    '★★★ 批量超清逐张创建独立任务，两张原结果 hash 与状态不变',
+    batchUpscaleTasks.length === 2 &&
+      batchUpscaleTasks.every((task) => originalSources.has(task.sourceResultId)) &&
+      [...originals].every(([id, hash]) => {
+        const row = resultsAfterUpscale.find((item) => item.id === id)
+        return row?.status === 'done' && row.assetHash === hash
+      }),
+    `超清任务=${batchUpscaleTasks.length} 来源=${batchUpscaleTasks.map((task) => task.sourceResultId).join(',')}`,
+  )
+  rec(
+    g,
+    '★★ 批量超清完成后清空选择，避免重复付费',
+    (await page.locator('[data-ecommerce-upscale-selected]').count()) === 0 &&
+      (await page.locator('[data-ecommerce-result-select]:checked').count()) === 0,
+  )
+
   await page.screenshot({ path: `${OUT}/160-g160-batch-edit.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
