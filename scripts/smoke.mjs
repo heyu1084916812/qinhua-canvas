@@ -30252,7 +30252,7 @@ async function g139(browser) {
       return c ? { w: c.width, h: c.height } : null
     })
 
-  await configureMockChannel(page)
+  await configureMockChannel(page, { isolate: true })
   await sleep(500)
 
   // 准备一批：详情页 3 张 3:4 ⇒ 每张 2560 高、总高 7680（与 G134 同一套数）
@@ -30424,7 +30424,34 @@ async function g139(browser) {
     reopened.map((r) => r.id.slice(-6)).join(' / '),
   )
 
-  await page.screenshot({ path: `${OUT}/139-g139-long-image-arrange.png` })
+  const editId = reopened[0]?.id ?? ''
+  await page.locator(`[data-ecommerce-longimage-edit="${editId}"]`).click()
+  await page
+    .locator(`[data-ecommerce-longimage-edit-menu="${editId}"]`)
+    .waitFor({ state: 'visible', timeout: 10000 })
+  const editActions = await page
+    .locator(`[data-ecommerce-longimage-edit-menu="${editId}"] button`)
+    .count()
+  rec(
+    g,
+    '★★ 长图每一段都能展开逐张编辑器入口（打开 / 裁剪 / 标注 / 旋转）',
+    editActions === 4,
+    `入口 ${editActions} 个`,
+  )
+  await page.screenshot({ path: `${OUT}/139-g139-long-image-edit-menu.png` })
+
+  await page.locator(`[data-ecommerce-longimage-crop="${editId}"]`).click()
+  const cropOpened = await page
+    .locator('[data-lightbox-crop-bar]')
+    .waitFor({ state: 'visible', timeout: 30000 })
+    .then(() => true)
+    .catch(() => false)
+  rec(
+    g,
+    '★★★ 长图里点「裁剪」会复制为独立画布节点并直接打开裁剪灯箱',
+    cropOpened && /\/canvas\//.test(new URL(page.url()).pathname),
+    page.url(),
+  )
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
 }

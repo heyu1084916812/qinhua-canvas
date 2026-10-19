@@ -1349,18 +1349,27 @@ function StudioHost({ projectId }: { projectId: string }) {
    */
   const longTiles = useMemo<LongImageTileSource[]>(
     () =>
-      results.flatMap((r) =>
-        r.status === 'done' && r.imageHash && r.pixelSize
-          ? [
-              {
-                id: r.nodeId,
-                hash: r.imageHash,
-                width: r.pixelSize.width,
-                height: r.pixelSize.height,
-              },
-            ]
-          : [],
-      ),
+      results.flatMap((r) => {
+        if (r.status !== 'done' || !r.imageHash || !r.pixelSize) return []
+        const edit =
+          r.onFocusInCanvas && r.onCropInCanvas && r.onAnnotateInCanvas && r.onRotateInCanvas
+            ? {
+                focus: r.onFocusInCanvas,
+                crop: r.onCropInCanvas,
+                annotate: r.onAnnotateInCanvas,
+                rotate: r.onRotateInCanvas,
+              }
+            : undefined
+        return [
+          {
+            id: r.nodeId,
+            hash: r.imageHash,
+            width: r.pixelSize.width,
+            height: r.pixelSize.height,
+            ...(edit ? { edit } : {}),
+          },
+        ]
+      }),
     [results],
   )
 

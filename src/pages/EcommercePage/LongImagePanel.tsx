@@ -32,6 +32,12 @@ export interface LongImageTileSource {
   hash: string
   width: number
   height: number
+  edit?: {
+    focus: () => void
+    crop: () => void
+    annotate: () => void
+    rotate: () => void
+  }
 }
 
 export function LongImagePanel({
@@ -78,6 +84,7 @@ export function LongImagePanel({
   const [ready, setReady] = useState(false)
   const [drawn, setDrawn] = useState(0)
   const [status, setStatus] = useState('')
+  const [editId, setEditId] = useState<string | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -212,6 +219,20 @@ export function LongImagePanel({
                   {tile.w} × {tile.h}
                 </span>
                 <span className={styles.rowTools}>
+                  {sourceHasEdit(tile.id, tiles) ? (
+                    <button
+                      type="button"
+                      className={styles.iconBtn}
+                      aria-label="编辑这一张"
+                      title="编辑这一张"
+                      aria-expanded={editId === tile.id}
+                      data-ecommerce-longimage-edit={tile.id}
+                      data-open={editId === tile.id ? 'true' : 'false'}
+                      onClick={() => setEditId((id) => (id === tile.id ? null : tile.id))}
+                    >
+                      <IconEdit />
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className={styles.iconBtn}
@@ -245,6 +266,55 @@ export function LongImagePanel({
                     <IconCross />
                   </button>
                 </span>
+                {editId === tile.id ? (
+                  <div
+                    className={styles.editBar}
+                    role="group"
+                    aria-label={`编辑第 ${i + 1} 张`}
+                    data-ecommerce-longimage-edit-menu={tile.id}
+                  >
+                    {editActionsOf(tile.id, tiles)?.focus ? (
+                      <button
+                        type="button"
+                        className={styles.ghost}
+                        data-ecommerce-longimage-focus={tile.id}
+                        onClick={() => editActionsOf(tile.id, tiles)?.focus()}
+                      >
+                        在画布中打开
+                      </button>
+                    ) : null}
+                    {editActionsOf(tile.id, tiles)?.crop ? (
+                      <button
+                        type="button"
+                        className={styles.ghost}
+                        data-ecommerce-longimage-crop={tile.id}
+                        onClick={() => editActionsOf(tile.id, tiles)?.crop()}
+                      >
+                        裁剪
+                      </button>
+                    ) : null}
+                    {editActionsOf(tile.id, tiles)?.annotate ? (
+                      <button
+                        type="button"
+                        className={styles.ghost}
+                        data-ecommerce-longimage-annotate={tile.id}
+                        onClick={() => editActionsOf(tile.id, tiles)?.annotate()}
+                      >
+                        加文字/标注
+                      </button>
+                    ) : null}
+                    {editActionsOf(tile.id, tiles)?.rotate ? (
+                      <button
+                        type="button"
+                        className={styles.ghost}
+                        data-ecommerce-longimage-rotate={tile.id}
+                        onClick={() => editActionsOf(tile.id, tiles)?.rotate()}
+                      >
+                        旋转
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
               </li>
             ))}
           </ol>
@@ -320,6 +390,26 @@ function IconCross() {
     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M6 6l12 12" />
       <path d="M18 6L6 18" />
+    </svg>
+  )
+}
+
+function sourceHasEdit(id: string, tiles: readonly LongImageTileSource[]): boolean {
+  return Boolean(editActionsOf(id, tiles))
+}
+
+function editActionsOf(
+  id: string,
+  tiles: readonly LongImageTileSource[],
+): LongImageTileSource['edit'] {
+  return tiles.find((tile) => tile.id === id)?.edit
+}
+
+function IconEdit() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
     </svg>
   )
 }
