@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createMemoryStorage } from '../../platform/memory'
+import type { StoragePort } from '../../platform/ports'
 import { createProjectRepository } from './repository'
 import { createId } from '../../shared/id'
 
@@ -33,6 +34,35 @@ describe('ProjectRepository（内存存储）', () => {
     expect(list[0].id).toBe(b.id) // b 创建更晚 → 排前面
     const aItem = list.find((p) => p.id === a.id)!
     expect(aItem.nodeCount).toBe(2)
+  })
+
+  it('list 固定只查 projects / nodes / runRecords 三张表，不按项目逐个查询', async () => {
+    const base = createMemoryStorage()
+    const calls: string[] = []
+    const tracked: StoragePort = {
+      ...base,
+      query: (async (table, filter, options) => {
+        calls.push(table)
+        return base.query(table, filter, options)
+      }) as StoragePort['query'],
+    }
+    const repo = createProjectRepository(tracked)
+    const projects = await Promise.all(
+      Array.from({ length: 12 }, (_, index) => repo.create({ name: `P${index}` })),
+    )
+    for (const project of projects) {
+      await tracked.put('nodes', { id: createId('node'), projectId: project.id, type: 'prompt' })
+    }
+
+    calls.length = 0
+    const list = await repo.list()
+
+    expect(list).toHaveLength(projects.length)
+    expect(calls.filter((table) => ['projects', 'nodes', 'runRecords'].includes(table))).toEqual([
+      'projects',
+      'nodes',
+      'runRecords',
+    ])
   })
 
   it('remove 是软删：项目列表看不到，但节点 / 连线仍在（回收站可还原）', async () => {

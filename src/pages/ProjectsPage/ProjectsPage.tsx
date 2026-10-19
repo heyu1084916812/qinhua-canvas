@@ -123,8 +123,15 @@ export function ProjectsPage() {
   const [trashConfirmOld, setTrashConfirmOld] = useState(false)
 
   useEffect(() => {
-    void store.load()
-  }, [store])
+    let alive = true
+    void store.load().then(() => {
+      const error = store.getState().error
+      if (alive && error) setStatus(`项目列表读取失败：${error}`, 'error')
+    })
+    return () => {
+      alive = false
+    }
+  }, [setStatus, store])
 
   const createBlank = async (workbench: WorkbenchId = 'canvas') => {
     // 不传 name：由 domain 按 workbench 取默认名（现只有 canvas「未命名项目」）

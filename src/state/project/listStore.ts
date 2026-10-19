@@ -25,6 +25,8 @@ export interface ProjectListState {
   visible: ProjectListItem[]
   loading: boolean
   loaded: boolean
+  /** 最近一次读取项目列表的失败原因；成功后清空 */
+  error: string | null
   sort: ProjectSort
   query: string
 }
@@ -89,15 +91,30 @@ export function createProjectListStore(repo: ProjectRepository): ProjectListStor
     visible: [],
     loading: false,
     loaded: false,
+    error: null,
     sort: 'updated',
     query: '',
   }))
 
   const load: ProjectListActions['load'] = async () => {
-    store.setState({ loading: true })
-    const projects = await repo.list()
-    const { query, sort } = store.getState()
-    store.setState({ projects, visible: deriveVisible(projects, query, sort), loading: false, loaded: true })
+    store.setState({ loading: true, error: null })
+    try {
+      const projects = await repo.list()
+      const { query, sort } = store.getState()
+      store.setState({
+        projects,
+        visible: deriveVisible(projects, query, sort),
+        loading: false,
+        loaded: true,
+        error: null,
+      })
+    } catch (error) {
+      store.setState({
+        loading: false,
+        loaded: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   const create: ProjectListActions['create'] = async (input) => {

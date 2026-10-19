@@ -1,9 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import { createMemoryStorage } from '../../platform/memory'
 import { createProjectRepository } from './repository'
+import type { ProjectRepository } from './repository'
 import { createProjectListStore } from './listStore'
 
 describe('ProjectListStore', () => {
+  it('读取失败时结束 loading 并保留可读错误，不伪装成空列表', async () => {
+    const repo = {
+      list: async () => {
+        throw new Error('shared store unavailable')
+      },
+    } as unknown as ProjectRepository
+    const store = createProjectListStore(repo)
+
+    await store.load()
+
+    expect(store.getState().loading).toBe(false)
+    expect(store.getState().loaded).toBe(false)
+    expect(store.getState().error).toContain('shared store unavailable')
+    expect(store.getState().visible).toEqual([])
+  })
+
   it('removeMany 原子更新列表并保留未选项目', async () => {
     const storage = createMemoryStorage()
     const repo = createProjectRepository(storage)

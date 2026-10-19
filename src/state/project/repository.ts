@@ -163,7 +163,56 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
         .map(toProject)
         .filter((p) => !p.deletedAt)
         .sort((a, b) => b.updatedAt - a.updatedAt)
-      return Promise.all(projects.map(toListItem))
+      if (projects.length === 0) return []
+
+      /**
+       * 项目列表不能按项目逐个查节点和运行记录。
+       *
+       * 56 个项目会瞬间发 112 个 `/query`；其中任一请求被中断，
+       * `Promise.all` 就整批失败，页面会错误地显示成"没有项目"。
+       * 这里固定为三张整表查询，再在内存里按 projectId 聚合。
+       */
+      const ids = new Set(projects.map((p) => p.id))
+      const [nodeRows, recordRows] = await Promise.all([
+        storage.query('nodes', {}, { fields: ['id', 'projectId'] }),
+        storage.query('runRecords', {}, { fields: ['id', 'projectId', 'createdAt', 'outputHashes'] }),
+      ])
+      const nodeCounts = new Map<string, number>()
+      for (const row of nodeRows) {
+        const projectId = (row as { projectId?: unknown }).projectId
+        if (typeof projectId === 'string' && ids.has(projectId)) {
+          nodeCounts.set(projectId, (nodeCounts.get(projectId) ?? 0) + 1)
+        }
+      }
+      const latestHash = new Map<string, { createdAt: number; hash: string }>()
+      for (const row of recordRows) {
+        const record = row as unknown as {
+          projectId?: unknown
+          createdAt?: unknown
+          outputHashes?: unknown
+        }
+        if (typeof record.projectId !== 'string' || !ids.has(record.projectId)) continue
+        if (!Array.isArray(record.outputHashes)) continue
+        const hashes = record.outputHashes.filter((hash): hash is string => typeof hash === 'string')
+        const hash = hashes[hashes.length - 1]
+        if (!hash) continue
+        const createdAt = typeof record.createdAt === 'number' ? record.createdAt : 0
+        const previous = latestHash.get(record.projectId)
+        if (!previous || createdAt > previous.createdAt) {
+          latestHash.set(record.projectId, { createdAt, hash })
+        }
+      }
+      return projects.map((p) => {
+        const generated = latestHash.get(p.id)
+        return {
+          ...p,
+          nodeCount: nodeCounts.get(p.id) ?? 0,
+          coverHash: resolveProjectCover({
+            generated: generated ? { hash: generated.hash, at: generated.createdAt } : null,
+            marked: readCoverMark(p.extra),
+          }),
+        }
+      })
     },
 
     async listDeleted() {
