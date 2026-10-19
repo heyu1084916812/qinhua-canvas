@@ -10,6 +10,7 @@ describe('ProjectListStore', () => {
       list: async () => {
         throw new Error('shared store unavailable')
       },
+      listFolders: async () => [],
     } as unknown as ProjectRepository
     const store = createProjectListStore(repo)
 
@@ -50,5 +51,34 @@ describe('ProjectListStore', () => {
     await store.removeMany([])
 
     expect(store.getState().projects).toHaveLength(0)
+  })
+
+  it('文件夹与置顶动作写回列表，删除文件夹后项目回到未归档', async () => {
+    const storage = createMemoryStorage()
+    const repo = createProjectRepository(storage)
+    const store = createProjectListStore(repo)
+    await store.load()
+
+    const folder = await store.createFolder('客户项目')
+    const canvas = await store.create({ name: '画布', workbench: 'canvas', folderId: folder.id })
+    const ecommerce = await store.create({
+      name: '电商',
+      workbench: 'ecommerce',
+      folderId: folder.id,
+    })
+    await store.setProjectPinned(ecommerce.id, true)
+
+    expect(store.getState().folders.map((item) => item.id)).toContain(folder.id)
+    expect(store.getState().projects.filter((item) => item.folderId === folder.id)).toHaveLength(2)
+    expect(store.getState().visible[0].id).toBe(ecommerce.id)
+
+    await store.removeFolder(folder.id)
+
+    expect(store.getState().folders).toHaveLength(0)
+    expect(
+      store.getState().projects
+        .filter((item) => [canvas.id, ecommerce.id].includes(item.id))
+        .map((item) => item.folderId),
+    ).toEqual([null, null])
   })
 })

@@ -8547,3 +8547,10 @@ React 端口 → `invoke` → Rust `check_update` → updater 插件读配置 �
 - **句级 `1.0` 是合法覆盖**：旧逻辑把 1 当“删除字段”，会重新继承角色 1.2；现在只要用户填 1，就保留显式 `speed: 1`，读回也按数值存在保留。
 - **改角色默认值不删已有音频**：默认值是未来生成规则，不是批量失效按钮；重配音走用户动作。
 - **窄资产行按钮**：`flex-wrap + white-space: nowrap`，否则“出定妆图”会竖排。G145 有截图与高度判据。
+## 2026-10-19 项目树 / 素材发送 / 灯箱固定操作
+
+- **共享存储新增表时要同时改三处**：`src/platform/ports.ts` 的 `TableName`、`shared-store/src/lib.rs` 的 `table_dir` 白名单、以及共享存储健康协议版本。只改前端 Dexie 时，浏览器测试可能过，桌面壳会直接报 `unknown table: projectFolders`。
+- **共享存储版本一变动，所有等待健康检查的脚本都要跟**：`sharedStorage.test.ts`、`scripts/smoke-matrix.mjs` 里的版本断言必须同轮更新；否则独立库冒烟全部卡在 `store-start-failed`。
+- **项目树不能只靠路由变化刷新**：项目页内重命名 / 置顶 / 移动不会改变 URL。仓储成功写入后调用 `notifyProjectsChanged()`，侧栏用 `useSyncExternalStore` 订阅；否则 UI 会一直显示旧树。
+- **灯箱详情不要把底部操作放在同一个滚动容器里**：长提示词会把“发送到画布”滚到面板外。正确结构是头部固定、正文 `overflow-y: auto`、底部操作独立 `flex: 0 0 auto`。
+- **真库只读视觉验收**：桌面开发壳连 CDP 后，项目树/Agent/素材页只做打开、悬停、截图和几何测量；不在真实 `shared-store-v1` 里创建文件夹、项目或发送素材。写入类验证走内存单测或独立库。

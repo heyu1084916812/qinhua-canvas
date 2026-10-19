@@ -15,6 +15,10 @@ export interface Project {
   thumbnail?: string | null
   /** 后续里程碑扩展位（模板来源、封面策略等），不进 UI 逻辑 */
   extra?: Record<string, unknown>
+  /** 一层项目文件夹；null / 缺省 = 未归档 */
+  folderId?: string | null
+  /** 有值即置顶；数值用于多个置顶项之间的稳定排序 */
+  pinnedAt?: number
   /**
    * 删除时间戳（软删）。**有值 = 在回收站里**，项目列表不再显示它。
    *
@@ -50,6 +54,15 @@ export interface ProjectListItem extends Project {
 export interface CreateProjectInput {
   name?: string
   workbench?: WorkbenchId
+  folderId?: string | null
+}
+
+export interface ProjectFolder {
+  id: string
+  name: string
+  createdAt: number
+  updatedAt: number
+  pinnedAt?: number
 }
 
 const DEFAULT_NAME: Record<WorkbenchId, string> = {
@@ -75,5 +88,19 @@ export function createProject(
     updatedAt: now,
     thumbnail: null,
     extra: {},
+    folderId: input.folderId ?? null,
+  }
+}
+
+export function createProjectFolder(
+  input: { name?: string },
+  id: string,
+  now: number,
+): ProjectFolder {
+  return {
+    id,
+    name: input.name?.trim() || '未命名文件夹',
+    createdAt: now,
+    updatedAt: now,
   }
 }

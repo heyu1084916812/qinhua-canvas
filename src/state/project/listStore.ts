@@ -1,5 +1,9 @@
 import { createStore as createVanilla } from 'zustand/vanilla'
-import type { ProjectListItem, CreateProjectInput } from '../../domain/project/project'
+import type {
+  CreateProjectInput,
+  ProjectFolder,
+  ProjectListItem,
+} from '../../domain/project/project'
 import type { ProjectRepository } from './repository'
 
 /**
@@ -21,6 +25,7 @@ export type ProjectSort = 'updated' | 'created' | 'name'
 export interface ProjectListState {
   /** 原始项目列表（按 updatedAt 倒序，来自仓储） */
   projects: ProjectListItem[]
+  folders: ProjectFolder[]
   /** 经过滤 + 排序、供视图直接渲染的列表 */
   visible: ProjectListItem[]
   loading: boolean
@@ -34,6 +39,12 @@ export interface ProjectListState {
 export interface ProjectListActions {
   load: () => Promise<void>
   create: (input?: CreateProjectInput) => Promise<ProjectListItem>
+  createFolder: (name?: string) => Promise<ProjectFolder>
+  renameFolder: (id: string, name: string) => Promise<void>
+  removeFolder: (id: string) => Promise<void>
+  setFolderPinned: (id: string, pinned: boolean) => Promise<void>
+  setProjectPinned: (id: string, pinned: boolean) => Promise<void>
+  setProjectFolder: (id: string, folderId: string | null) => Promise<void>
   rename: (id: string, name: string) => Promise<void>
   duplicate: (id: string) => Promise<ProjectListItem>
   /** 软删：项目从列表消失、进回收站（对账 #378 A3） */
@@ -72,7 +83,9 @@ function sortProjects(projects: ProjectListItem[], sort: ProjectSort): ProjectLi
       return copy.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
     case 'updated':
     default:
-      return copy.sort((a, b) => b.updatedAt - a.updatedAt)
+      return copy.sort(
+        (a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0) || b.updatedAt - a.updatedAt,
+      )
   }
 }
 
@@ -88,6 +101,7 @@ function deriveVisible(projects: ProjectListItem[], query: string, sort: Project
 export function createProjectListStore(repo: ProjectRepository): ProjectListStore {
   const store = createVanillaStore<ProjectListState>(() => ({
     projects: [],
+    folders: [],
     visible: [],
     loading: false,
     loaded: false,
@@ -99,10 +113,11 @@ export function createProjectListStore(repo: ProjectRepository): ProjectListStor
   const load: ProjectListActions['load'] = async () => {
     store.setState({ loading: true, error: null })
     try {
-      const projects = await repo.list()
+      const [projects, folders] = await Promise.all([repo.list(), repo.listFolders()])
       const { query, sort } = store.getState()
       store.setState({
         projects,
+        folders,
         visible: deriveVisible(projects, query, sort),
         loading: false,
         loaded: true,
@@ -124,6 +139,37 @@ export function createProjectListStore(repo: ProjectRepository): ProjectListStor
       return { projects, visible: deriveVisible(projects, s.query, s.sort) }
     })
     return item
+  }
+
+  const createFolder: ProjectListActions['createFolder'] = async (name) => {
+    const folder = await repo.createFolder(name)
+    store.setState((s) => ({ folders: [folder, ...s.folders] }))
+    return folder
+  }
+
+  const renameFolder: ProjectListActions['renameFolder'] = async (id, name) => {
+    await repo.renameFolder(id, name)
+    await load()
+  }
+
+  const removeFolder: ProjectListActions['removeFolder'] = async (id) => {
+    await repo.removeFolder(id)
+    await load()
+  }
+
+  const setFolderPinned: ProjectListActions['setFolderPinned'] = async (id, pinned) => {
+    await repo.setFolderPinned(id, pinned)
+    await load()
+  }
+
+  const setProjectPinned: ProjectListActions['setProjectPinned'] = async (id, pinned) => {
+    await repo.setProjectPinned(id, pinned)
+    await load()
+  }
+
+  const setProjectFolder: ProjectListActions['setProjectFolder'] = async (id, folderId) => {
+    await repo.setProjectFolder(id, folderId)
+    await load()
   }
 
   const rename: ProjectListActions['rename'] = async (id, name) => {
@@ -189,6 +235,12 @@ export function createProjectListStore(repo: ProjectRepository): ProjectListStor
     ...store,
     load,
     create,
+    createFolder,
+    renameFolder,
+    removeFolder,
+    setFolderPinned,
+    setProjectPinned,
+    setProjectFolder,
     rename,
     duplicate,
     remove,

@@ -1,8 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { usePlatform } from './providers/PlatformProvider'
-import { createProjectRepository, type ProjectRepository } from '../state/project/repository'
-import { projectRoute, type WorkbenchId } from '../domain/shared/workbench'
+import type { WorkbenchId } from '../domain/shared/workbench'
 import {
   SIDEBAR_COLLAPSED_W,
   SIDEBAR_HOVER_IN_MS,
@@ -30,6 +28,7 @@ import {
   subscribeGlobalSettings,
 } from '../state/ui/globalSettings'
 import styles from './AppSidebar.module.css'
+import { ProjectTree } from './ProjectTree'
 
 /**
  * 应用壳左侧功能栏（产品文档 §2.2 / 架构文档 §5.10）。
@@ -115,17 +114,7 @@ function isItemActive(item: NavItem, pathname: string, activeWorkbench: Workbenc
   return pathname === item.to || pathname.startsWith(`${item.to}/`)
 }
 
-/** 最近项目列表展示几条。够点最近用的；再多就把侧栏变成项目页了。 */
-const RECENT_LIMIT = 6
-
-interface RecentItem {
-  id: string
-  title: string
-  workbench: WorkbenchId
-}
-
 export function AppSidebar() {
-  const platform = usePlatform()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -182,43 +171,9 @@ export function AppSidebar() {
   }
 
   /**
-   * 「最近项目」的数据。
+   * 当前工作台与项目 id（用于高亮项目树、并让画布一级导航只在画布里亮）。
    *
-   * 仓库与 HomePage 同源（同一个 `createProjectRepository`），但**不共享实例**：
-   * 侧栏全路由常驻，而首页会被卸载；共享实例就得处理两边生命周期，
-   * 换来的只是一个内存里的列表缓存。这里各自读库，读的是同一份事实。
-   */
-  const repoRef = useRef<ProjectRepository | null>(null)
-  const [recent, setRecent] = useState<RecentItem[]>([])
-
-  // 收起态不展示列表 —— 那就没必要读库（少一次全表查询）
-  useEffect(() => {
-    if (!open) return
-    let alive = true
-    void (async () => {
-      const repo = (repoRef.current ??= createProjectRepository(platform.storage))
-      const list = await repo.list()
-      if (!alive) return
-      setRecent(
-        [...list]
-          .sort((a, b) => b.updatedAt - a.updatedAt)
-          .slice(0, RECENT_LIMIT)
-          .map((p) => ({ id: p.id, title: p.name, workbench: p.workbench })),
-      )
-    })()
-    return () => {
-      alive = false
-    }
-    /**
-     * 依赖里带 `location.pathname`：从画布返回首页、或新建项目后，
-     * 列表应当重读。不带它就会出现「刚建的项目不在最近列表里」。
-     */
-  }, [open, platform, location.pathname])
-
-  /**
-   * 当前工作台与项目 id（用于高亮最近项目、并让画布一级导航只在画布里亮）。
-   *
-   * 不能只看 `/canvas/`：电商与漫剧也是项目工作台，点侧栏「最近项目」时必须回到
+   * 不能只看 `/canvas/`：电商与漫剧也是项目工作台，点侧栏项目树时必须回到
    * 它自己的工作台，否则用户会从电商列表莫名跳进节点画布（对账 #399）。
    */
   const activeProject = useMemo(() => {
@@ -445,37 +400,7 @@ export function AppSidebar() {
         })}
       </nav>
 
-      {/*
-        最近项目：**常驻挂载**，收起态只是被 `data-sidebar-text` 淡出（同上）。
-        读库那一步仍以 `open` 为门槛（见上面的 effect）—— 收起时不必查表。
-      */}
-      <div className={styles.recent} data-sidebar-recent data-sidebar-text>
-        <div className={styles.recentHead}>最近项目</div>
-        {recent.length === 0 ? (
-          <div className={styles.recentEmpty}>还没有项目</div>
-        ) : (
-          <ul className={styles.recentList}>
-            {recent.map((p) => (
-              <li key={p.id}>
-                <button
-                  type="button"
-                  className={
-                    p.id === activeProject?.id
-                      ? `${styles.recentItem} ${styles.recentItemOn}`
-                      : styles.recentItem
-                  }
-                  data-sidebar-recent-item={p.id}
-                  data-sidebar-recent-workbench={p.workbench}
-                  title={p.title}
-                  onClick={() => navigate(projectRoute(p.workbench, p.id))}
-                >
-                  {p.title}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      <ProjectTree open={open} activeProjectId={activeProject?.id ?? null} />
 
       {/* 底部：主题切换常驻（用户 2026-09-27：主题放侧栏底部；收起态也保留图标位） */}
       <div className={styles.foot}>

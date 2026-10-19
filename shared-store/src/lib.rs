@@ -38,6 +38,7 @@ fn hex_id(value: &str) -> String {
 fn table_dir(root: &Path, table: &str) -> Result<PathBuf, String> {
     let allowed = [
         "projects",
+        "projectFolders",
         "nodes",
         "edges",
         "channels",
@@ -611,7 +612,7 @@ fn handle(store: &Store, mut request: Request) {
             return Ok(json!({
                 "ok": true,
                 "service": "qinghua-shared-store",
-                "version": 2,
+                "version": 3,
                 "dataDir": root.to_string_lossy(),
             }));
         }
@@ -843,6 +844,23 @@ mod tests {
         );
         delete_row(&root, "projects", "p1").unwrap();
         assert!(query_rows(&root, "projects", &Map::new()).unwrap().is_empty());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn project_folders_table_is_available() {
+        let root = temp_root("project-folders");
+        let row = json!({ "id": "f1", "name": "客户项目", "updatedAt": 1 });
+        write_row(&root, "projectFolders", &row).unwrap();
+        assert_eq!(
+            query_rows(
+                &root,
+                "projectFolders",
+                &Map::from_iter([("id".to_string(), Value::String("f1".to_string()))])
+            )
+            .unwrap(),
+            vec![row]
+        );
         let _ = fs::remove_dir_all(root);
     }
 

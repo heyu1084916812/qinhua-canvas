@@ -21,7 +21,7 @@ describe('shared storage', () => {
         response({
           ok: true,
           service: 'qinghua-shared-store',
-          version: 2,
+          version: 3,
         }),
       ),
     )
@@ -36,7 +36,7 @@ describe('shared storage', () => {
         response({
           ok: true,
           service: 'qinghua-shared-store',
-          version: 1,
+          version: 2,
         }),
       ),
     )

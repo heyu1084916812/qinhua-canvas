@@ -10,13 +10,13 @@
   left: 0;
   z-index: 30;
   box-sizing: border-box;
-  width: 300px;
+  width: min(336px, calc(100vw - 24px));
   /*
    * **固定高度**（用户 2026-10-02：「agentskill 面板要固定尺寸比例，当前点击收藏
    * 或者我的的时候会变短」）。原先只有 `max-height`，列表长短不同 ⇒ 面板高度
    * 跟着内容变：切个页签整块浮层就抽一下，点在左侧的星标都要重新找位置。
    */
-  height: 340px;
+  height: min(360px, calc(100vh - 24px));
   padding: var(--space-2);
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
@@ -59,9 +59,12 @@
   display: flex;
   align-items: center;
   gap: var(--space-1);
+  min-width: 0;
 }
 
 .title {
+  flex: 0 0 auto;
+  white-space: nowrap;
   font-size: var(--fs-label);
   font-weight: var(--fw-title);
   color: var(--text-1);
@@ -73,6 +76,7 @@
 }
 
 .headBtn {
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -84,6 +88,7 @@
   color: var(--text-1);
   font-family: var(--font-sans);
   font-size: var(--fs-chip);
+  white-space: nowrap;
   cursor: pointer;
 }
 .headBtn:hover,
@@ -119,6 +124,7 @@
   right: 0;
   z-index: 31;
   min-width: 208px;
+  max-width: min(260px, calc(100vw - 32px));
   padding: 4px;
   border: 1px solid var(--stroke);
   border-radius: var(--radius-control);
@@ -150,6 +156,7 @@
   font-family: var(--font-sans);
   font-size: var(--fs-chip);
   color: var(--text-3);
+  overflow-wrap: anywhere;
 }
 
 /* 「导入 Skill」展开后的两把选取器：缩进一格，表示从上一个入口分出来的 */
@@ -164,13 +171,16 @@
   display: flex;
   align-items: center;
   gap: var(--space-1);
+  min-width: 0;
 }
 
 .tabs {
+  flex: 0 0 auto;
   display: inline-flex;
   gap: 2px;
 }
 .tab {
+  flex: 0 0 auto;
   height: 24px;
   padding: 0 var(--space-2);
   border: none;
@@ -179,6 +189,7 @@
   color: var(--text-2);
   font-family: var(--font-sans);
   font-size: var(--fs-chip);
+  white-space: nowrap;
   cursor: pointer;
 }
 .tab:hover {
@@ -191,7 +202,7 @@
 
 .search {
   flex: 1 1 auto;
-  min-width: 0;
+  min-width: 72px;
   height: 24px;
   padding: 0 var(--space-2);
   border: 1px solid var(--stroke);

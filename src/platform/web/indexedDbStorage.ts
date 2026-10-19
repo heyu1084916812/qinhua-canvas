@@ -34,6 +34,7 @@ import type { StoragePort, Row, TableName } from '../ports'
  */
 class QinghuaDB extends Dexie {
   projects!: Table<Row, string>
+  projectFolders!: Table<Row, string>
   nodes!: Table<Row, string>
   edges!: Table<Row, string>
   channels!: Table<Row, string>
@@ -159,6 +160,15 @@ class QinghuaDB extends Dexie {
      */
     this.version(13).stores({
       inspirationCache: 'id, fetchedAt',
+    })
+    /**
+     * v14：项目导航的一层文件夹。
+     *
+     * `projects.folderId` 只是普通 JSON 字段，不需要索引；文件夹本身单独一表，
+     * 便于重命名 / 置顶 / 删除时不动项目内容。
+     */
+    this.version(14).stores({
+      projectFolders: 'id, updatedAt',
     })
   }
 }

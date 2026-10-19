@@ -642,6 +642,9 @@
   right: var(--space-2);
   top: var(--space-2);
   z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   opacity: 0;
   transition: opacity var(--dur-hover) var(--ease-out);
 }
@@ -697,6 +700,16 @@
 .menuBtn:hover {
   background: var(--control-inverse-bg-hover);
   color: var(--control-inverse-text-hover);
+}
+
+.menuBtn:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.menuBtn:disabled:hover {
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
 }
 
 .menu {
@@ -862,19 +875,31 @@
 
 .previewDetails {
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
-  padding: var(--space-6);
   background: var(--bg-surface);
-  overflow: auto;
+  overflow: hidden;
 }
 
 .previewHeader {
+  flex: 0 0 auto;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
+  padding: var(--space-6) var(--space-6) var(--space-4);
+}
+
+.previewBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 var(--space-6) var(--space-5);
 }
 
 .previewHeading {
@@ -1216,12 +1241,14 @@
 }
 
 .previewActions {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-top: auto;
-  padding-top: var(--space-4);
+  margin: 0;
+  padding: var(--space-4) var(--space-6) var(--space-5);
   border-top: var(--border);
+  background: var(--bg-surface);
 }
 
 .previewSpacer {
@@ -1275,7 +1302,16 @@
     border-bottom: var(--border);
   }
   .previewDetails {
-    padding: var(--space-5);
+    padding: 0;
+  }
+  .previewHeader {
+    padding: var(--space-5) var(--space-5) var(--space-3);
+  }
+  .previewBody {
+    padding: 0 var(--space-5) var(--space-4);
+  }
+  .previewActions {
+    padding: var(--space-3) var(--space-5) var(--space-4);
   }
 }
 

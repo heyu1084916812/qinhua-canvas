@@ -147,6 +147,74 @@ describe('ProjectRepository（内存存储）', () => {
     expect(after?.updatedAt).toBeGreaterThanOrEqual(p.updatedAt)
   })
 
+  it('文件夹可混放画布 / 电商 / 漫剧，删除文件夹只把项目放回未归档', async () => {
+    const storage = createMemoryStorage()
+    const repo = createProjectRepository(storage)
+    const folder = await repo.createFolder('客户项目')
+    const canvas = await repo.create({ name: '画布', workbench: 'canvas' })
+    const ecommerce = await repo.create({ name: '电商', workbench: 'ecommerce' })
+    const storyboard = await repo.create({ name: '漫剧', workbench: 'storyboard' })
+
+    for (const item of [canvas, ecommerce, storyboard]) {
+      await repo.setProjectFolder(item.id, folder.id)
+    }
+
+    const stored = await repo.list()
+    expect(stored.filter((item) => item.folderId === folder.id)).toHaveLength(3)
+    expect(new Set(stored.map((item) => item.workbench))).toEqual(
+      new Set(['canvas', 'ecommerce', 'storyboard']),
+    )
+
+    await repo.removeFolder(folder.id)
+
+    expect(await repo.listFolders()).toHaveLength(0)
+    expect((await repo.list()).map((item) => item.folderId)).toEqual([null, null, null])
+    expect(await storage.query('projects', {})).toHaveLength(3)
+  })
+
+  it('文件夹与项目都按置顶优先排序，取消置顶后字段被清掉', async () => {
+    const storage = createMemoryStorage()
+    const repo = createProjectRepository(storage)
+    const oldFolder = await repo.createFolder('旧文件夹')
+    await new Promise((resolve) => setTimeout(resolve, 2))
+    const newFolder = await repo.createFolder('新文件夹')
+    const oldProject = await repo.create({ name: '旧项目' })
+    await new Promise((resolve) => setTimeout(resolve, 2))
+    await repo.create({ name: '新项目' })
+
+    await repo.setFolderPinned(oldFolder.id, true)
+    expect((await repo.listFolders()).map((item) => item.id)).toEqual([
+      oldFolder.id,
+      newFolder.id,
+    ])
+    await repo.setFolderPinned(oldFolder.id, false)
+    expect((await repo.listFolders())[0].pinnedAt).toBeUndefined()
+
+    await repo.setProjectPinned(oldProject.id, true)
+    expect((await repo.list())[0].id).toBe(oldProject.id)
+    await repo.setProjectPinned(oldProject.id, false)
+    expect(
+      (await repo.list()).find((item) => item.id === oldProject.id)?.pinnedAt,
+    ).toBeUndefined()
+  })
+
+  it('创建项目可直接进文件夹；复制副本继承文件夹但不继承置顶', async () => {
+    const storage = createMemoryStorage()
+    const repo = createProjectRepository(storage)
+    const folder = await repo.createFolder('归档')
+    const source = await repo.create({
+      name: '原项目',
+      workbench: 'ecommerce',
+      folderId: folder.id,
+    })
+    await repo.setProjectPinned(source.id, true)
+
+    const copy = await repo.duplicate(source.id)
+
+    expect(copy.folderId).toBe(folder.id)
+    expect(copy.pinnedAt).toBeUndefined()
+  })
+
   it('duplicate 复制项目与图数据，节点/连线 id 重映射且归属新项目', async () => {
     const storage = createMemoryStorage()
     const repo = createProjectRepository(storage)

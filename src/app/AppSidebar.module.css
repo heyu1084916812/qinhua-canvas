@@ -43,7 +43,7 @@
    */
   --rail-icon-left: calc((var(--sidebar-collapsed-w, 64px) - var(--space-3) * 2 - 20px) / 2);
   /*
-   * Four groups: logo + toggle / new project / nav / recent.
+   * Four groups: logo + toggle / new project / nav / project tree.
    * Keep gap at 0 so only each group margin-top controls spacing.
    */
   gap: 0;
@@ -407,7 +407,7 @@
  * 就会把"图标 + 标签"整体当内容居中（实测图标被推出侧栏，x 从 23 掉到 -10）。
  * 压成零宽之后：它仍在 DOM 里、仍按上面那条规则淡出，但不参与宽度计算 ⇒ 居中的就是图标本身。
  *
- * 只认 `data-sidebar-label`（内联文字）：品牌文字标与「最近项目」不在此列
+ * 只认 `data-sidebar-label`（内联文字）：品牌文字标与「所有项目」不在此列
  * （前者要**原地**淡出，后者整块淡出，各有各的规则）。
  */
 .rail:not(.railOpen) [data-sidebar-label] {
@@ -535,78 +535,10 @@
   gap: 0;
 }
 
-/* ── 最近项目 ── */
-
-.recent {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  gap: var(--space-1);
-  margin-top: var(--space-sidebar-group);
-  /* 列表长了就自己滚，别把底部的主题按钮顶出去 */
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.recentHead {
-  padding: 0 var(--space-2);
-  color: var(--text-3);
-  font-size: var(--fs-nav);
-  line-height: var(--lh-nav);
-  font-weight: 400;
-}
-
-.recentEmpty {
-  padding: var(--space-1) var(--space-2);
-  color: var(--text-3);
-  font-size: var(--fs-label);
-}
-
-.recentList {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.recentItem {
-  display: block;
-  width: 100%;
-  padding: 6px var(--space-2);
-  box-sizing: border-box;
-  border: none;
-  border-radius: calc(var(--radius-control) - 2px);
-  background: transparent;
-  color: var(--sidebar-nav);
-  font-family: var(--font-sans);
-  font-size: var(--fs-nav);
-  line-height: var(--lh-nav);
-  text-align: left;
-  /* 单行截断：项目名可能很长，侧栏宽度固定 */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-
-.recentItem:hover {
-  background: var(--bg-hover);
-  color: var(--text-1);
-}
-
-.recentItemOn,
-.recentItemOn:hover {
-  background: var(--bg-surface);
-  color: var(--sidebar-nav);
-  font-weight: 600;
-}
-
 /* ── 底部：主题切换 ── */
 
 .foot {
-  /* `margin-top: auto` 把它压到底部；上面的 recent 若很长会先滚 */
+  /* `margin-top: auto` 把它压到底部；上面的项目树若很长会先滚 */
   margin-top: auto;
   flex: 0 0 auto;
   padding-top: var(--space-2);

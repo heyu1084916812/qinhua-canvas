@@ -31,11 +31,15 @@ export function AssetPreview({
   onClose,
   onDownload,
   onTagsChange,
+  canSendToCanvas = false,
+  onSendToCanvas,
 }: {
   asset: LibraryAsset
   onClose: () => void
   onDownload: () => void
   onTagsChange?: (tags: string[]) => void
+  canSendToCanvas?: boolean
+  onSendToCanvas?: () => void
 }) {
   const { url, mime } = useAssetMeta(asset.hash)
   const channelStore = useChannels()
@@ -207,7 +211,8 @@ export function AssetPreview({
             </button>
           </div>
 
-          <section className={styles.detailSection}>
+          <div className={styles.previewBody}>
+            <section className={styles.detailSection}>
             <h4 className={styles.detailLabel}>配色方案</h4>
             <div className={styles.paletteBoard} data-asset-preview-palette>
               {paletteText === PALETTE_UNAVAILABLE ? (
@@ -251,9 +256,9 @@ export function AssetPreview({
                 ))
               )}
             </div>
-          </section>
+            </section>
 
-          <section className={styles.detailSection}>
+            <section className={styles.detailSection}>
             <h4 className={styles.detailLabel}>原提示词</h4>
             {/*
               提示词**整块可点即复制**，右上角另给一枚按钮（用户原话：「提示词也是一样能点击复制
@@ -296,101 +301,112 @@ export function AssetPreview({
                 {displayMeta(asset.prompt)}
               </div>
             </div>
-          </section>
+            </section>
 
-          <dl className={styles.metaGrid}>
-            <div className={styles.metaItem}>
-              <dt>像素</dt>
-              <dd data-asset-preview-size>{sizeText}</dd>
-            </div>
-            <div className={styles.metaItem}>
-              <dt>比例</dt>
-              <dd data-asset-preview-ratio>{displayMeta(asset.ratio)}</dd>
-            </div>
-            <div className={styles.metaItem}>
-              <dt>画质</dt>
-              <dd data-asset-preview-quality>{displayMeta(asset.quality)}</dd>
-            </div>
-            <div className={styles.metaItem}>
-              <dt>模型</dt>
-              <dd data-asset-preview-model>
-                {displayMeta(modelLabel || asset.model)}
-                {modelLabel && modelLabel !== asset.model ? (
-                  <span className={styles.metaRaw}>上游 ID：{asset.model}</span>
-                ) : null}
-              </dd>
-            </div>
-            <div className={`${styles.metaItem} ${styles.metaItemWide}`}>
-              <dt>渠道</dt>
-              <dd data-asset-preview-channel>
-                {displayMeta(channelLabel)}
-                {channel && asset.channelId ? (
-                  <span className={styles.metaRaw}>ID：{asset.channelId}</span>
-                ) : null}
-              </dd>
-            </div>
-            <div className={`${styles.metaItem} ${styles.metaItemWide}`}>
-              <dt>时间</dt>
-              <dd data-asset-preview-time>{capturedAt || MISSING}</dd>
-            </div>
-          </dl>
+            <dl className={styles.metaGrid}>
+              <div className={styles.metaItem}>
+                <dt>像素</dt>
+                <dd data-asset-preview-size>{sizeText}</dd>
+              </div>
+              <div className={styles.metaItem}>
+                <dt>比例</dt>
+                <dd data-asset-preview-ratio>{displayMeta(asset.ratio)}</dd>
+              </div>
+              <div className={styles.metaItem}>
+                <dt>画质</dt>
+                <dd data-asset-preview-quality>{displayMeta(asset.quality)}</dd>
+              </div>
+              <div className={styles.metaItem}>
+                <dt>模型</dt>
+                <dd data-asset-preview-model>
+                  {displayMeta(modelLabel || asset.model)}
+                  {modelLabel && modelLabel !== asset.model ? (
+                    <span className={styles.metaRaw}>上游 ID：{asset.model}</span>
+                  ) : null}
+                </dd>
+              </div>
+              <div className={`${styles.metaItem} ${styles.metaItemWide}`}>
+                <dt>渠道</dt>
+                <dd data-asset-preview-channel>
+                  {displayMeta(channelLabel)}
+                  {channel && asset.channelId ? (
+                    <span className={styles.metaRaw}>ID：{asset.channelId}</span>
+                  ) : null}
+                </dd>
+              </div>
+              <div className={`${styles.metaItem} ${styles.metaItemWide}`}>
+                <dt>时间</dt>
+                <dd data-asset-preview-time>{capturedAt || MISSING}</dd>
+              </div>
+            </dl>
 
-          {/*
-            标签（对账 #303）：只有**收藏过**的素材能打 —— 标签是"我的整理"，
-            挂在收藏关系（`assetLibrary` 行）上。没收藏时如实指出去收藏，不摆一个存不下去的输入框。
-          */}
-          <div className={styles.tagBlock} data-asset-tags>
-            <div className={styles.tagHead}>
-              <span className={styles.tagLabel}>标签</span>
-            </div>
-            <div className={styles.tagRow}>
-              {tags.length === 0 ? (
-                <span className={styles.metaMuted}>还没有标签</span>
-              ) : null}
-              {tags.map((tag) => (
-                <span key={tag} className={styles.tagChip} data-asset-tag={tag}>
-                  {tag}
-                  <button
-                    type="button"
-                    className={styles.tagRemove}
-                    aria-label={`删除标签 ${tag}`}
-                    data-asset-tag-remove={tag}
-                    onClick={() => onTagsChange?.(removeTag(tags, tag))}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-            <form
-              className={styles.tagForm}
-              onSubmit={(event) => {
-                event.preventDefault()
-                commitTag()
-              }}
-            >
-              <input
-                className={styles.tagInput}
-                value={tagDraft}
-                maxLength={MAX_TAG_LEN * 6}
-                placeholder="输入标签，多个用；分开，回车确认"
-                aria-label="新标签"
-                data-asset-tag-input
-                onChange={(event) => {
-                  setTagDraft(event.target.value)
-                  if (tagHint) setTagHint('')
+            {/*
+              标签（对账 #303）：只有**收藏过**的素材能打 —— 标签是"我的整理"，
+              挂在收藏关系（`assetLibrary` 行）上。没收藏时如实指出去收藏，不摆一个存不下去的输入框。
+            */}
+            <div className={styles.tagBlock} data-asset-tags>
+              <div className={styles.tagHead}>
+                <span className={styles.tagLabel}>标签</span>
+              </div>
+              <div className={styles.tagRow}>
+                {tags.length === 0 ? (
+                  <span className={styles.metaMuted}>还没有标签</span>
+                ) : null}
+                {tags.map((tag) => (
+                  <span key={tag} className={styles.tagChip} data-asset-tag={tag}>
+                    {tag}
+                    <button
+                      type="button"
+                      className={styles.tagRemove}
+                      aria-label={`删除标签 ${tag}`}
+                      data-asset-tag-remove={tag}
+                      onClick={() => onTagsChange?.(removeTag(tags, tag))}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <form
+                className={styles.tagForm}
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  commitTag()
                 }}
-              />
-            </form>
-            {tagHint ? (
-              <p className={styles.tagHint} data-asset-tag-hint>
-                {tagHint}
-              </p>
-            ) : null}
+              >
+                <input
+                  className={styles.tagInput}
+                  value={tagDraft}
+                  maxLength={MAX_TAG_LEN * 6}
+                  placeholder="输入标签，多个用；分开，回车确认"
+                  aria-label="新标签"
+                  data-asset-tag-input
+                  onChange={(event) => {
+                    setTagDraft(event.target.value)
+                    if (tagHint) setTagHint('')
+                  }}
+                />
+              </form>
+              {tagHint ? (
+                <p className={styles.tagHint} data-asset-tag-hint>
+                  {tagHint}
+                </p>
+              ) : null}
+            </div>
           </div>
 
           <div className={styles.previewActions}>
             <span className={styles.previewSpacer} />
+            <button
+              type="button"
+              className={styles.ghost}
+              data-asset-preview-send
+              disabled={!canSendToCanvas}
+              title={canSendToCanvas ? '发送到当前画布' : '先打开一个画布'}
+              onClick={onSendToCanvas}
+            >
+              发送到画布
+            </button>
             <button
               type="button"
               className={styles.ghost}

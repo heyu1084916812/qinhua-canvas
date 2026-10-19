@@ -6,6 +6,7 @@ import type { ProtocolDefinition } from '../domain/project/protocol'
 /** 表名与产品文档 §8 数据模型一致 */
 export type TableName =
   | 'projects'
+  | 'projectFolders'
   | 'nodes'
   | 'edges'
   | 'channels'

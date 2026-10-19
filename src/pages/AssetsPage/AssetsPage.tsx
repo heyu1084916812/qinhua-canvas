@@ -6,11 +6,13 @@ import { toLogicalName } from '../../domain/project/modelCatalog'
 import type { LibraryAsset } from '../../domain/shared/assetLibrary'
 import type { GroupMode, HistoryOutput, QuickFilter } from '../../domain/shared/assetHistory'
 import { downloadAsset } from '../../features/canvas/downloadAsset'
+import { sendAssetToActiveCanvas } from '../../features/assets/sendToActiveCanvas'
 import { noticeA11y, type NoticeTone } from '../../domain/ui/notice'
 import { createAssetLibraryRepository } from '../../state/project/assetLibraryRepository'
 import { createAssetHistoryRepository } from '../../state/project/assetHistoryRepository'
 import { createAssetLibraryStore } from '../../state/project/assetLibraryStore'
 import type { AssetsView } from '../../state/project/assetLibraryStore'
+import { activeCanvasId } from '../../state/project/activeCanvas'
 import { AssetCard } from './AssetCard'
 import { AssetPreview } from './AssetPreview'
 import { MasonryGrid } from './MasonryGrid'
@@ -136,6 +138,7 @@ export function AssetsPage() {
   const showLibrary = quick === 'saved'
   const [selectedHash, setSelectedHash] = useState<string | null>(null)
   const [preview, setPreview] = useState<LibraryAsset | null>(null)
+  const [canSendToCanvas, setCanSendToCanvas] = useState(() => !!activeCanvasId())
   const [menuHash, setMenuHash] = useState<string | null>(null)
   const [confirmHash, setConfirmHash] = useState<string | null>(null)
   const [status, setStatusText] = useState('')
@@ -156,6 +159,25 @@ export function AssetsPage() {
     setStatusText(text)
     setStatusTone(tone)
   }, [])
+
+  const handleSendToCanvas = useCallback(
+    async (asset: LibraryAsset) => {
+      const projectId = activeCanvasId()
+      if (!projectId) {
+        setCanSendToCanvas(false)
+        setStatus('先打开一个画布，再发送素材', 'error')
+        return
+      }
+      setCanSendToCanvas(true)
+      try {
+        const sent = await sendAssetToActiveCanvas(platform, asset)
+        setStatus(`已发送到画布「${sent.projectName}」`)
+      } catch (error) {
+        setStatus(`发送失败：${error instanceof Error ? error.message : String(error)}`, 'error')
+      }
+    },
+    [platform, setStatus],
+  )
 
   useEffect(() => {
     void store.load()
@@ -505,6 +527,8 @@ export function AssetsPage() {
                           onConfirmRemove={() => void handleRemove(item.hash)}
                           onCancelRemove={() => setConfirmHash(null)}
                           onDownload={() => void handleDownload(item.hash)}
+                          canSendToCanvas={canSendToCanvas}
+                          onSendToCanvas={() => void handleSendToCanvas(cardAssetOf(item))}
                         />
                       ),
                     )}
@@ -544,6 +568,8 @@ export function AssetsPage() {
                   onConfirmRemove={() => void handleRemove(asset.hash)}
                   onCancelRemove={() => setConfirmHash(null)}
                   onDownload={() => void handleDownload(asset.hash)}
+                  canSendToCanvas={canSendToCanvas}
+                  onSendToCanvas={() => void handleSendToCanvas(asset)}
                 />
               ))}
             </CardsLayout>
@@ -574,6 +600,8 @@ export function AssetsPage() {
           onClose={() => setPreview(null)}
           onDownload={() => void handleDownload(preview.hash)}
           onTagsChange={(next) => void handleTagsChange(preview.hash, next)}
+          canSendToCanvas={canSendToCanvas}
+          onSendToCanvas={() => void handleSendToCanvas(preview)}
         />
       )}
     </div>

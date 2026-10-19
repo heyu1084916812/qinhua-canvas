@@ -54,11 +54,23 @@ async function* assetRowsByHashes(
   }
 }
 
-export async function exportProject(
+export interface ProjectExportPayload {
+  fileName: string
+  blob: Blob
+}
+
+/**
+ * 生成项目导出文件但不弹保存框。
+ *
+ * 项目树里的「上传到 OSS」需要把同一份 `.flow.json` 直接交给托管端口；
+ * 若再走 `exportProject`，用户会被迫先选一次保存位置，上传的是磁盘副本，
+ * 入口语义就错了。序列化规则仍只保留在这一处。
+ */
+export async function buildProjectExport(
   platform: PlatformKit,
   projectId: string,
   opts: ExportOptions = {},
-): Promise<ExportResult> {
+): Promise<ProjectExportPayload> {
   await platform.storage.open()
   const [projRows, nodes, edges, storyboardRows, ecommerceTasks, ecommerceResults] =
     await Promise.all([
@@ -113,8 +125,7 @@ export async function exportProject(
       // 立刻转成 Blob：字符串是 JS 堆里的，Blob 由浏览器管（可以落盘），下一段才不会叠加
       parts.push(new Blob([part]))
     }
-    await platform.files.saveFile(fileName, new Blob(parts, { type: 'application/json' }))
-    return { fileName }
+    return { fileName, blob: new Blob(parts, { type: 'application/json' }) }
   }
 
   const flow = serializeProject(
@@ -133,6 +144,15 @@ export async function exportProject(
   )
   // 只带结构的这一档很小，缩进留着 —— 用户可能自己打开看一眼
   const blob = new Blob([JSON.stringify(flow, null, 2)], { type: 'application/json' })
+  return { fileName, blob }
+}
+
+export async function exportProject(
+  platform: PlatformKit,
+  projectId: string,
+  opts: ExportOptions = {},
+): Promise<ExportResult> {
+  const { fileName, blob } = await buildProjectExport(platform, projectId, opts)
   await platform.files.saveFile(fileName, blob)
   return { fileName }
 }

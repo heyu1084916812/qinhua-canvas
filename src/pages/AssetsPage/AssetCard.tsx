@@ -40,6 +40,8 @@ export function AssetCard({
   onConfirmRemove,
   onCancelRemove,
   onDownload,
+  canSendToCanvas = false,
+  onSendToCanvas,
 }: {
   asset: LibraryAsset
   layout?: AssetsView
@@ -60,6 +62,9 @@ export function AssetCard({
   onConfirmRemove: () => void
   onCancelRemove: () => void
   onDownload: () => void
+  /** 当前应用会话里是否已经有打开过的画布 */
+  canSendToCanvas?: boolean
+  onSendToCanvas?: () => void
 }) {
   const { url, mime } = useAssetMeta(asset.hash, { preferThumb: true })
   const isVideo = (mime ?? asset.mime).startsWith('video/')
@@ -192,6 +197,31 @@ export function AssetCard({
       </button>
 
       <div className={styles.cardActions}>
+        {!confirming && (
+          <button
+            type="button"
+            className={styles.menuBtn}
+            data-asset-send={asset.hash}
+            aria-label="发送到当前画布"
+            title={canSendToCanvas ? '发送到当前画布' : '先打开一个画布'}
+            disabled={!canSendToCanvas}
+            onClick={(event) => {
+              event.stopPropagation()
+              onSendToCanvas?.()
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="m21 3-7.8 18-3.1-7.2L3 10.8 21 3Z"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path d="m10.1 13.9 5.2-5.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
         {confirming && saved ? (
           <div className={styles.confirm}>
             <span className={styles.confirmText}>取消收藏？</span>

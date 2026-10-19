@@ -1,8 +1,15 @@
 import type { StoragePort, TableName } from '../../platform/ports'
-import type { Project, ProjectListItem, CreateProjectInput } from '../../domain/project/project'
-import { createProject } from '../../domain/project/project'
+import {
+  createProject,
+  createProjectFolder,
+  type CreateProjectInput,
+  type Project,
+  type ProjectFolder,
+  type ProjectListItem,
+} from '../../domain/project/project'
 import { readCoverMark, resolveProjectCover } from '../../domain/project/cover'
 import { createId } from '../../shared/id'
+import { notifyProjectsChanged } from './projectEvents'
 
 /**
  * projects 表仓储（架构 §5.10：项目 CRUD 不是图数据，直连 platform.storage，
@@ -16,6 +23,14 @@ export interface ProjectRepository {
   list(): Promise<ProjectListItem[]>
   /** 回收站里的项目，按删除时间倒序（最近删的在前） */
   listDeleted(): Promise<ProjectListItem[]>
+  /** 一层项目文件夹；置顶在前，其后按最近更新排序 */
+  listFolders(): Promise<ProjectFolder[]>
+  createFolder(name?: string): Promise<ProjectFolder>
+  renameFolder(id: string, name: string): Promise<void>
+  removeFolder(id: string): Promise<void>
+  setFolderPinned(id: string, pinned: boolean): Promise<void>
+  setProjectPinned(id: string, pinned: boolean): Promise<void>
+  setProjectFolder(id: string, folderId: string | null): Promise<void>
   get(id: string): Promise<Project | null>
   create(input?: CreateProjectInput): Promise<ProjectListItem>
   rename(id: string, name: string): Promise<void>
@@ -85,10 +100,20 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
     updatedAt: (row.updatedAt as number) ?? 0,
     thumbnail: (row.thumbnail as string | null | undefined) ?? null,
     extra: (row.extra as Record<string, unknown> | undefined) ?? {},
+    folderId: typeof row.folderId === 'string' && row.folderId ? row.folderId : null,
+    ...(typeof row.pinnedAt === 'number' && row.pinnedAt > 0 ? { pinnedAt: row.pinnedAt } : {}),
     // 只在真有值时带上：无值时不写这个键，导出的 JSON 里不会多一个 null 字段
     ...(typeof row.deletedAt === 'number' && row.deletedAt > 0
       ? { deletedAt: row.deletedAt }
       : {}),
+  })
+
+  const toFolder = (row: Record<string, unknown>): ProjectFolder => ({
+    id: String(row.id),
+    name: (row.name as string) || '未命名文件夹',
+    createdAt: (row.createdAt as number) ?? 0,
+    updatedAt: (row.updatedAt as number) ?? 0,
+    ...(typeof row.pinnedAt === 'number' && row.pinnedAt > 0 ? { pinnedAt: row.pinnedAt } : {}),
   })
 
   const get = async (id: string): Promise<Project | null> => {
@@ -155,14 +180,93 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
       .sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0))
   }
 
+  const listFolders = async (): Promise<ProjectFolder[]> => {
+    const rows = await storage.query('projectFolders', {})
+    return rows
+      .map(toFolder)
+      .sort(
+        (a, b) =>
+          (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0) ||
+          b.updatedAt - a.updatedAt ||
+          a.name.localeCompare(b.name, 'zh'),
+      )
+  }
+
   return {
+    listFolders,
+
+    async createFolder(name) {
+      const folder = createProjectFolder({ name }, createId('folder'), Date.now())
+      await storage.put('projectFolders', folder as never)
+      notifyProjectsChanged()
+      return folder
+    },
+
+    async renameFolder(id, name) {
+      const rows = await storage.query('projectFolders', { id })
+      const row = rows[0]
+      if (!row) return
+      await storage.put('projectFolders', {
+        ...row,
+        name: name.trim() || toFolder(row).name,
+        updatedAt: Date.now(),
+      } as never)
+      notifyProjectsChanged()
+    },
+
+    async removeFolder(id) {
+      await storage.transaction(['projects', 'projectFolders'], async (tx) => {
+        const projects = await tx.query('projects', { folderId: id })
+        const now = Date.now()
+        for (const project of projects) {
+          await tx.put('projects', { ...project, folderId: null, updatedAt: now } as never)
+        }
+        await tx.delete('projectFolders', id)
+      })
+      notifyProjectsChanged()
+    },
+
+    async setFolderPinned(id, pinned) {
+      const rows = await storage.query('projectFolders', { id })
+      const row = rows[0]
+      if (!row) return
+      const { pinnedAt: _old, ...rest } = row as Record<string, unknown>
+      await storage.put(
+        'projectFolders',
+        { ...rest, ...(pinned ? { pinnedAt: Date.now() } : {}) } as never,
+      )
+      notifyProjectsChanged()
+    },
+
+    async setProjectPinned(id, pinned) {
+      const existing = await get(id)
+      if (!existing) return
+      const { pinnedAt: _old, ...rest } = existing as Project
+      await storage.put(
+        'projects',
+        { ...rest, ...(pinned ? { pinnedAt: Date.now() } : {}) } as never,
+      )
+      notifyProjectsChanged()
+    },
+
+    async setProjectFolder(id, folderId) {
+      const existing = await get(id)
+      if (!existing) return
+      if (folderId) {
+        const folder = await storage.query('projectFolders', { id: folderId })
+        if (!folder[0]) throw new Error('目标文件夹不存在')
+      }
+      await storage.put('projects', { ...existing, folderId, updatedAt: Date.now() } as never)
+      notifyProjectsChanged()
+    },
+
     async list() {
       const rows = await storage.query('projects', {})
       // 回收站里的项目不在列表里 —— 这是"软删"对用户可见的那一半
       const projects = rows
         .map(toProject)
         .filter((p) => !p.deletedAt)
-        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .sort((a, b) => (b.pinnedAt ?? 0) - (a.pinnedAt ?? 0) || b.updatedAt - a.updatedAt)
       if (projects.length === 0) return []
 
       /**
@@ -225,6 +329,7 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
       // 复用 domain 的构造函数：默认名按 workbench 区分（现只有 canvas「未命名项目」）
       const project = createProject(input, createId('proj'), Date.now())
       await storage.put('projects', project as never)
+      notifyProjectsChanged()
       return { ...project, nodeCount: 0 }
     },
 
@@ -236,6 +341,7 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
         name: name.trim() || existing.name,
         updatedAt: Date.now(),
       } as never)
+      notifyProjectsChanged()
     },
 
     /** 软删：只打标记，级联表一条不动（还原时才不需要"重建"图） */
@@ -243,17 +349,21 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
       const existing = await get(id)
       if (!existing) return
       await storage.put('projects', { ...existing, deletedAt: Date.now() } as never)
+      notifyProjectsChanged()
     },
 
     async removeMany(ids) {
       const unique = [...new Set(ids)]
       if (unique.length === 0) return
       const at = Date.now()
+      let changed = false
       for (const id of unique) {
         const existing = await get(id)
         if (!existing) continue
         await storage.put('projects', { ...existing, deletedAt: at } as never)
+        changed = true
       }
+      if (changed) notifyProjectsChanged()
     },
 
     async restore(id) {
@@ -262,12 +372,14 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
       if (!row) return
       const { deletedAt: _drop, ...rest } = row as Record<string, unknown>
       await storage.put('projects', rest as never)
+      notifyProjectsChanged()
     },
 
     async purge(id) {
       await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async (tx) => {
         await purgeOne(tx, id)
       })
+      notifyProjectsChanged()
     },
 
     async purgeAll() {
@@ -276,6 +388,7 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
       await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async (tx) => {
         for (const p of deleted) await purgeOne(tx, p.id)
       })
+      notifyProjectsChanged()
       return deleted.length
     },
 
@@ -286,6 +399,7 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
       await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async (tx) => {
         for (const p of old) await purgeOne(tx, p.id)
       })
+      notifyProjectsChanged()
       return old.length
     },
 
@@ -294,7 +408,7 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
       if (!src) throw new Error(`[repository] 复制失败：项目不存在 ${id}`)
       const now = Date.now()
       // 副本绝不能继承 deletedAt：否则复制出来的项目一出现就在回收站里
-      const { deletedAt: _noDeleted, ...clean } = src
+      const { deletedAt: _noDeleted, pinnedAt: _notPinned, ...clean } = src
       const copy: Project = {
         ...clean,
         id: createId('proj'),
@@ -389,6 +503,7 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
           for (const result of newResults) await tx.put('ecommerceResults', result as never)
         },
       )
+      notifyProjectsChanged()
       return { ...copy, nodeCount: newNodes.length }
     },
   }

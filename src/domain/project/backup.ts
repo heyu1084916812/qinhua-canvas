@@ -38,6 +38,7 @@ export const BACKUP_VERSION = 1 as const
  */
 export const BACKUP_TABLES = [
   'projects',
+  'projectFolders',
   'nodes',
   'edges',
   'tasks',

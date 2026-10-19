@@ -28,6 +28,7 @@ import { seedTemplate, type TemplateId } from '../../state/project/templates'
 import type { NodeSnapshot, NodeType } from '../../domain/canvas/model/node'
 import type { Edge } from '../../domain/canvas/model/edge'
 import { migrateLegacyGeneratedTitles } from '../../domain/canvas/naming/autoTitle'
+import { rememberActiveCanvas } from '../../state/project/activeCanvas'
 import styles from './CanvasPage.module.css'
 
 /**
@@ -68,6 +69,9 @@ function CanvasProject({ projectId }: { projectId: string }) {
    * 那支 effect 会在节点还没读回来时跑一次，然后**再也不会跑**。
    */
   const [hydratedAt, setHydratedAt] = useState(0)
+  useEffect(() => {
+    if (projectId !== 'demo') rememberActiveCanvas(projectId)
+  }, [projectId])
   /** 要聚焦的节点（对账 #424）：`?focus=<nodeId>`，没有就是普通打开 */
   const focusId = new URLSearchParams(location.search).get('focus')
   /** 落地后是否直接进入带上下文的提取选区（电商结果卡的「局部重绘」） */
