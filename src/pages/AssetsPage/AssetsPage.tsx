@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react'
 import { useSyncExternalStore } from 'react'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { useChannels } from '../../app/providers/ChannelStoreProvider'
@@ -137,6 +145,11 @@ export function AssetsPage() {
    */
   const showLibrary = quick === 'saved'
   const [selectedHash, setSelectedHash] = useState<string | null>(null)
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedHashes, setSelectedHashes] = useState<Set<string>>(() => new Set())
+  const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null)
+  const [confirmRemoveSelection, setConfirmRemoveSelection] = useState(false)
+  const [removingSelection, setRemovingSelection] = useState(false)
   const [preview, setPreview] = useState<LibraryAsset | null>(null)
   const [canSendToCanvas, setCanSendToCanvas] = useState(() => !!activeCanvasId())
   const [menuHash, setMenuHash] = useState<string | null>(null)
@@ -191,10 +204,36 @@ export function AssetsPage() {
     }
   }, [collapsedGroups])
 
-  const selectAsset = (hash: string) => {
-    setSelectedHash(hash)
+  const selectAsset = (hash: string, event: ReactMouseEvent<HTMLButtonElement>) => {
     setMenuHash(null)
     setConfirmHash(null)
+    if (!selectionMode) {
+      setSelectedHash(hash)
+      return
+    }
+    const checkboxToggle = event.currentTarget.hasAttribute('data-asset-select')
+    const additive = checkboxToggle || event.ctrlKey || event.metaKey
+    if (event.shiftKey && selectionAnchor) {
+      const from = selectableHashes.indexOf(selectionAnchor)
+      const to = selectableHashes.indexOf(hash)
+      if (from >= 0 && to >= 0) {
+        const [start, end] = from < to ? [from, to] : [to, from]
+        setSelectedHashes(new Set(selectableHashes.slice(start, end + 1)))
+      } else {
+        setSelectedHashes(new Set([hash]))
+      }
+    } else if (additive) {
+      setSelectedHashes((prev) => {
+        const next = new Set(prev)
+        if (next.has(hash)) next.delete(hash)
+        else next.add(hash)
+        return next
+      })
+    } else {
+      setSelectedHashes(new Set([hash]))
+    }
+    setSelectedHash(hash)
+    setSelectionAnchor(hash)
   }
 
   const openAsset = (asset: LibraryAsset) => {
@@ -202,6 +241,46 @@ export function AssetsPage() {
     setPreview(asset)
     setMenuHash(null)
     setConfirmHash(null)
+  }
+
+  const previewSequence = useMemo(
+    () =>
+      showLibrary
+        ? assets
+        : groups.flatMap((group) =>
+            group.items.flatMap((item) =>
+              item.kind === 'failed' ? [] : [cardAssetOf(item)],
+            ),
+          ),
+    [assets, groups, showLibrary],
+  )
+  const selectableHashes = useMemo(
+    () =>
+      showLibrary
+        ? assets.map((asset) => asset.hash)
+        : groups.flatMap((group) =>
+            collapsedGroups.has(group.key)
+              ? []
+              : group.items.flatMap((item) => (item.kind === 'output' ? [item.hash] : [])),
+          ),
+    [assets, collapsedGroups, groups, showLibrary],
+  )
+  const selectableSet = useMemo(() => new Set(selectableHashes), [selectableHashes])
+  useEffect(() => {
+    setSelectedHashes((prev) => {
+      const next = new Set([...prev].filter((hash) => selectableSet.has(hash)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [selectableSet])
+  const previewIndex = preview
+    ? previewSequence.findIndex((item) => item.hash === preview.hash)
+    : -1
+  const movePreview = (delta: -1 | 1) => {
+    if (previewIndex < 0) return
+    const next = previewSequence[previewIndex + delta]
+    if (!next) return
+    setPreview(next)
+    setSelectedHash(next.hash)
   }
 
   const handleDownload = async (hash: string) => {
@@ -226,6 +305,61 @@ export function AssetsPage() {
       setStatus('取消收藏失败', 'error')
     }
   }
+
+  const leaveSelection = () => {
+    setSelectionMode(false)
+    setSelectedHashes(new Set())
+    setSelectionAnchor(null)
+    setConfirmRemoveSelection(false)
+  }
+
+  const toggleSelectionMode = () => {
+    if (selectionMode) leaveSelection()
+    else setSelectionMode(true)
+  }
+
+  const handleRemoveRecords = async (hashes: readonly string[]) => {
+    const targets = [...new Set(hashes.filter(Boolean))]
+    if (targets.length === 0) return
+    setRemovingSelection(true)
+    try {
+      const count = await store.removeMany(targets)
+      const removed = new Set(targets)
+      if (preview && removed.has(preview.hash)) setPreview(null)
+      if (selectedHash && removed.has(selectedHash)) setSelectedHash(null)
+      setSelectedHashes((prev) => new Set([...prev].filter((hash) => !removed.has(hash))))
+      setConfirmHash(null)
+      setConfirmRemoveSelection(false)
+      setStatus(`已从素材页移除 ${count} 条记录，画布素材与生成历史未被删除`)
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '移除素材记录失败', 'error')
+    } finally {
+      setRemovingSelection(false)
+    }
+  }
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('input, textarea, select, [contenteditable="true"], video')) return
+      if (event.key === 'Escape' && confirmRemoveSelection) {
+        event.preventDefault()
+        setConfirmRemoveSelection(false)
+        return
+      }
+      if (
+        (event.key === 'Delete' || event.key === 'Backspace') &&
+        selectionMode &&
+        selectedHashes.size > 0 &&
+        !preview
+      ) {
+        event.preventDefault()
+        setConfirmRemoveSelection(true)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [confirmRemoveSelection, preview, selectedHashes, selectionMode])
 
   /**
    * 改标签（对账 #303）。
@@ -328,7 +462,47 @@ export function AssetsPage() {
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          className={styles.selectAction}
+          data-assets-select-mode
+          aria-pressed={selectionMode}
+          onClick={toggleSelectionMode}
+        >
+          {selectionMode ? '退出选择' : '选择'}
+        </button>
       </div>
+
+      {selectionMode && (
+        <div className={styles.selectBar} data-assets-select-bar>
+          <span className={styles.selectCount}>已选 {selectedHashes.size} 项</span>
+          <button
+            type="button"
+            className={styles.selectAction}
+            disabled={selectableHashes.length === 0}
+            onClick={() => setSelectedHashes(new Set(selectableHashes))}
+          >
+            全选当前结果
+          </button>
+          <button
+            type="button"
+            className={styles.selectAction}
+            disabled={selectedHashes.size === 0}
+            onClick={() => setSelectedHashes(new Set())}
+          >
+            清空选择
+          </button>
+          <button
+            type="button"
+            className={`${styles.selectAction} ${styles.selectDanger}`}
+            data-assets-remove-selected
+            disabled={selectedHashes.size === 0 || removingSelection}
+            onClick={() => setConfirmRemoveSelection(true)}
+          >
+            移除所选
+          </button>
+        </div>
+      )}
 
       {/* 第 3 排：左筛选 + 右内容 */}
       <div className={styles.body} data-assets-body>
@@ -509,7 +683,9 @@ export function AssetsPage() {
                           }
                           saved={item.saved}
                           selected={selectedHash === item.hash}
-                          onSelect={() => selectAsset(item.hash)}
+                          checked={selectedHashes.has(item.hash)}
+                          selectionMode={selectionMode}
+                          onSelect={(event) => selectAsset(item.hash, event)}
                           onOpen={() => openAsset(cardAssetOf(item))}
                           confirming={confirmHash === item.hash}
                           menuOpen={menuHash === item.hash}
@@ -524,7 +700,7 @@ export function AssetsPage() {
                             setConfirmHash(item.hash)
                             setMenuHash(null)
                           }}
-                          onConfirmRemove={() => void handleRemove(item.hash)}
+                          onConfirmRemove={() => void handleRemoveRecords([item.hash])}
                           onCancelRemove={() => setConfirmHash(null)}
                           onDownload={() => void handleDownload(item.hash)}
                           canSendToCanvas={canSendToCanvas}
@@ -553,7 +729,9 @@ export function AssetsPage() {
                     asset.channelId ? channelById.get(asset.channelId)?.name ?? asset.channelId : ''
                   }
                   selected={selectedHash === asset.hash}
-                  onSelect={() => selectAsset(asset.hash)}
+                  checked={selectedHashes.has(asset.hash)}
+                  selectionMode={selectionMode}
+                  onSelect={(event) => selectAsset(asset.hash, event)}
                   onOpen={() => openAsset(asset)}
                   confirming={confirmHash === asset.hash}
                   menuOpen={menuHash === asset.hash}
@@ -565,7 +743,7 @@ export function AssetsPage() {
                     setConfirmHash(asset.hash)
                     setMenuHash(null)
                   }}
-                  onConfirmRemove={() => void handleRemove(asset.hash)}
+                  onConfirmRemove={() => void handleRemoveRecords([asset.hash])}
                   onCancelRemove={() => setConfirmHash(null)}
                   onDownload={() => void handleDownload(asset.hash)}
                   canSendToCanvas={canSendToCanvas}
@@ -584,14 +762,43 @@ export function AssetsPage() {
         {status}
       </div>
 
-      {(menuHash !== null || confirmHash !== null) && (
+      {(menuHash !== null || confirmHash !== null || confirmRemoveSelection) && (
         <div
           className={styles.backdrop}
           onClick={() => {
             setMenuHash(null)
             setConfirmHash(null)
+            if (!removingSelection) setConfirmRemoveSelection(false)
           }}
         />
+      )}
+
+      {confirmRemoveSelection && (
+        <div className={styles.removeDialog} role="dialog" aria-modal="true" data-assets-remove-dialog>
+          <h2 className={styles.removeTitle}>移除所选素材记录？</h2>
+          <p className={styles.removeHint}>
+            将从素材页移除 {selectedHashes.size} 条记录。画布中仍被引用的素材与生成历史不会删除。
+          </p>
+          <div className={styles.removeActions}>
+            <button
+              type="button"
+              className={styles.selectAction}
+              disabled={removingSelection}
+              onClick={() => setConfirmRemoveSelection(false)}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className={`${styles.selectAction} ${styles.selectDanger}`}
+              data-assets-remove-confirm
+              disabled={removingSelection}
+              onClick={() => void handleRemoveRecords([...selectedHashes])}
+            >
+              {removingSelection ? '处理中…' : '确认移除'}
+            </button>
+          </div>
+        </div>
       )}
 
       {preview && (
@@ -602,6 +809,15 @@ export function AssetsPage() {
           onTagsChange={(next) => void handleTagsChange(preview.hash, next)}
           canSendToCanvas={canSendToCanvas}
           onSendToCanvas={() => void handleSendToCanvas(preview)}
+          onPrevious={previewIndex > 0 ? () => movePreview(-1) : undefined}
+          onNext={
+            previewIndex >= 0 && previewIndex < previewSequence.length - 1
+              ? () => movePreview(1)
+              : undefined
+          }
+          positionLabel={
+            previewIndex >= 0 ? `${previewIndex + 1} / ${previewSequence.length}` : undefined
+          }
         />
       )}
     </div>

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   assetKindOf,
   formatAssetSize,
@@ -29,6 +29,8 @@ export function AssetCard({
   channelLabel,
   saved = true,
   selected,
+  checked = false,
+  selectionMode = false,
   onSelect,
   onOpen,
   confirming,
@@ -50,7 +52,10 @@ export function AssetCard({
   /** 这张收藏了没有（默认 true：素材库里的卡片当然都收藏过） */
   saved?: boolean
   selected: boolean
-  onSelect: () => void
+  /** 选择模式下的勾选状态；普通模式的选中态仍由 `selected` 表达。 */
+  checked?: boolean
+  selectionMode?: boolean
+  onSelect: (event: ReactMouseEvent<HTMLButtonElement>) => void
   onOpen: () => void
   confirming: boolean
   menuOpen: boolean
@@ -85,6 +90,8 @@ export function AssetCard({
     styles.card,
     layout === 'list' ? styles.cardList : '',
     selected ? styles.cardSelected : '',
+    checked ? styles.cardChecked : '',
+    selectionMode ? styles.cardSelectionMode : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -97,7 +104,33 @@ export function AssetCard({
       className={className}
       data-asset-card={asset.hash}
       data-asset-selected={selected ? 'true' : 'false'}
+      data-asset-checked={checked ? 'true' : 'false'}
     >
+      {selectionMode && (
+        <button
+          type="button"
+          className={styles.selectionBox}
+          data-asset-select={asset.hash}
+          aria-label={checked ? '取消选择这张素材' : '选择这张素材'}
+          aria-pressed={checked}
+          onClick={(event) => {
+            event.stopPropagation()
+            onSelect(event)
+          }}
+        >
+          {checked && (
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="m5 12 4.5 4.5L19 7"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          )}
+        </button>
+      )}
       <button
         type="button"
         className={styles.cardMain}
@@ -222,9 +255,9 @@ export function AssetCard({
             </svg>
           </button>
         )}
-        {confirming && saved ? (
+        {confirming ? (
           <div className={styles.confirm}>
-            <span className={styles.confirmText}>取消收藏？</span>
+            <span className={styles.confirmText}>移除记录？</span>
             <button
               type="button"
               className={styles.confirmYes}
@@ -280,20 +313,7 @@ export function AssetCard({
             >
               下载
             </button>
-            {saved ? (
-              <button
-                type="button"
-                className={`${styles.menuItem} ${styles.menuDanger}`}
-                role="menuitem"
-                data-asset-remove={asset.hash}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onRequestRemove()
-                }}
-              >
-                取消收藏
-              </button>
-            ) : (
+            {!saved && (
               <button
                 type="button"
                 className={styles.menuItem}
@@ -307,6 +327,18 @@ export function AssetCard({
                 收藏到素材库
               </button>
             )}
+            <button
+              type="button"
+              className={`${styles.menuItem} ${styles.menuDanger}`}
+              role="menuitem"
+              data-asset-remove={asset.hash}
+              onClick={(event) => {
+                event.stopPropagation()
+                onRequestRemove()
+              }}
+            >
+              移除记录
+            </button>
           </div>
         )}
       </div>

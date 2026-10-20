@@ -222,6 +222,9 @@ export function InspirationPage() {
     return favOnly ? base.filter((c) => favs.has(c.id)) : base
   }, [activeCases, query, sourceId, modelCategory, tag, favOnly, favs])
   const visible = useMemo(() => filtered.slice(0, limit), [filtered, limit])
+  const detailIndex = detail
+    ? visible.findIndex((item) => item.id === detail.id)
+    : -1
   /**
    * 标签只列**当前来源**里真出现过的（用户 2026-10-14：「灵感库下方的标签应该
    * 对应每个来源，而不是显示全部的标签，需要分来源来对应」）。
@@ -642,7 +645,21 @@ export function InspirationPage() {
           onRefresh={refreshSource}
         />
       )}
-      {detail && <InspirationDetail item={detail} onClose={() => setDetail(null)} />}
+      {detail && (
+        <InspirationDetail
+          item={detail}
+          onClose={() => setDetail(null)}
+          onPrevious={
+            detailIndex > 0 ? () => setDetail(visible[detailIndex - 1] ?? null) : undefined
+          }
+          onNext={
+            detailIndex >= 0 && detailIndex < visible.length - 1
+              ? () => setDetail(visible[detailIndex + 1] ?? null)
+              : undefined
+          }
+          positionLabel={detailIndex >= 0 ? `${detailIndex + 1} / ${visible.length}` : undefined}
+        />
+      )}
     </div>
   )
 }

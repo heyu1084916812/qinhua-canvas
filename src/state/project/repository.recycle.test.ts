@@ -102,6 +102,20 @@ describe('回收站 · 软删与还原', () => {
     expect(await platform.storage.query('projects', {})).toHaveLength(0)
   })
 
+  it('★★ 批量彻底删除只处理回收站里选中的项目，并一次清掉各自级联数据', async () => {
+    const platform = seed()
+    const repo = createProjectRepository(platform.storage)
+    await repo.removeMany(['p1', 'p2'])
+
+    expect(await repo.purgeMany(['p1', '不存在'])).toBe(1)
+    expect((await repo.listDeleted()).map((project) => project.id)).toEqual(['p2'])
+    expect(await platform.storage.query('projects', { id: 'p1' })).toHaveLength(0)
+    expect(await platform.storage.query('nodes', { projectId: 'p1' })).toHaveLength(0)
+    expect(await platform.storage.query('edges', { projectId: 'p1' })).toHaveLength(0)
+    expect(await platform.storage.query('runRecords', { projectId: 'p1' })).toHaveLength(0)
+    expect(await platform.storage.query('nodes', { projectId: 'p2' })).toHaveLength(1)
+  })
+
   it('★ 删除不存在的项目是空操作（不抛错、不写脏行）', async () => {
     const platform = seed()
     const repo = createProjectRepository(platform.storage)

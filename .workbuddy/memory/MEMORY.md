@@ -1,5 +1,20 @@
 # CanvasFlow（轻画）项目记忆
 
+### 画布 Agent 对话模型：固定显示名、单回合后端选路（2026-10-20 → 对账 #663）
+
+- **画布对话模型不能提前绑定渠道**：会话只存 `GPT-6 Astra` 这类逻辑名；`channelIdForLogical()` 只服务生成节点配方，不能拿来给 Agent LLM 选站。每轮真实发送用 `resolveRoutedChatTarget()` → `resolveRouteFor()`，按全局策略从启用、地址齐全、令牌可用（含 localhost / 本机 CLI 例外）的渠道中选。
+- **一次用户回合只选一次路**：确认和自动续跑可能拆成多次 `completeWithTools`，必须复用 `chatRouteRef` 里的同一个渠道；否则均衡分摊会在工具结果回填时换站。下一次用户发送新消息才重新路由。
+- **固定显示名命中别名时不能把显示名发给上游**：`routeCandidatesFor()` 现在显式按「映射值 → 同名 ID → 预设别名命中的真实 ID」取值。实测 `GPT-6 Astra` + 渠道模型 `gpt-6-astra` 必须发送 `gpt-6-astra`，不是显示名。
+- 验证：`chatTarget` / `modelRouting` / Agent 对话定向 **53/53**，`npx tsc --noEmit` 通过。
+
+### 电商 Phase 0：素材多选、回收站批处理与失败记录（2026-10-20）
+
+- **素材“删除”不是删文件**：素材页批量移除写 `presets/assetRecordsHidden:v1` 隐藏索引，并删除 `assetLibrary` 收藏关系；`assets` 字节和 `runRecords` 保留。再次 `save()` 同一 hash 会解除隐藏。这样才能支持 Del 多选，又不会从画布仍引用的节点下面抽走字节。
+- **素材选择是 UI 态**：工具栏“选择”进入模式；Shift 范围、Ctrl/Meta 追加、卡片复选框切换。Del 只打开二次确认，取消不改变选择；成功后保留选择模式，清掉已删除项。
+- **回收站批量彻底删除必须走仓储单事务**：`repo.purgeMany()` 每张级联表只查一次，按 projectId 集合批删；UI 二次确认、忙碌态、失败保留未完成项。批量还原是逐项可部分成功，必须如实报告成功/失败数量。
+- **测试夹具坑**：慢帧下 `configureMockChannel()` 的 UI 映射可能落到错误渠道。现在助手在库层给本次新建 mock 行补固定模型与映射并停用内置渠道；否则 Agent 的规则选路会正确报“无可用渠道”，看起来像产品故障。
+- 验证：全量单测 **2873 passed / 1 skipped**；`npm run check` 通过；隔离冒烟 G95 **88/88**、G114 **29/29**、G164 **40/40**、G165 **7/7**。
+
 ### 电商对话模型口径与 3.8 Flash 延迟（2026-10-20 → 对账 #651）
 
 - **电商对话模型必须与画布同口径**：下拉只显示固定前端逻辑名（如 `Gemini 3.8 Flash`），不显示 `comfly ·` 等渠道前缀；请求时用 `resolveRouteFor()` 按全局选路策略在后台挑渠道，组件层不提前锁死渠道。

@@ -1,6 +1,12 @@
 import type { Channel } from '../project/channel'
 import { channelIsRoutable } from '../project/channel'
 import { toLogicalName } from '../project/modelCatalog'
+import { resolveUpstreamModel } from '../project/modelMapping'
+import {
+  resolveRouteFor,
+  type RouteChannelSource,
+  type RouteStrategy,
+} from '../project/modelRouting'
 
 /**
  * **挑一条真有对话模型的已启用渠道**（对账 #414 抽出来，对账 #422 起两家共用）。
@@ -21,6 +27,18 @@ export interface SpeechTarget {
   model: string
   label: string
   voices: string[]
+}
+
+/**
+ * 画布 Agent 这一轮实际要走的渠道。
+ *
+ * `logicalModel` 是用户看到并保存在会话里的固定前端显示名；
+ * `upstreamModel` 只用于请求与诊断，不回到 UI，也不写回会话。
+ */
+export interface RoutedChatTarget {
+  channelId: string
+  logicalModel: string
+  upstreamModel: string
 }
 
 /**
@@ -100,6 +118,54 @@ export function resolveChatTarget(
     return { channelId: ch.id, model: model.id, label: `${ch.name} · ${shown}` }
   }
   return null
+}
+
+/**
+ * 把渠道行收敛成选路所需的最小视图。
+ *
+ * `channelIsRoutable()` 是唯一「现在真的能发请求」判据：它同时考虑启用状态、
+ * 协议是否就绪、地址是否齐全、令牌是否保存，以及 localhost / 本机 CLI 的例外。
+ */
+function routeSources(channels: readonly Channel[]): RouteChannelSource[] {
+  return channels.map((channel) => ({
+    id: channel.id,
+    enabled: channel.enabled,
+    hasToken: channelIsRoutable(channel),
+    priority: channel.priority,
+    weight: channel.weight,
+    lastTestLatency: channel.lastTestLatency,
+    modelIds: channel.models.map((model) => model.id),
+    modelMap: channel.modelMap,
+  }))
+}
+
+/**
+ * 固定前端逻辑名 → 本轮实际渠道。
+ *
+ * 画布 Agent 不把渠道写进模型选择：同一个显示名可能由多条渠道提供，
+ * 哪一条能跑、该优先哪一条，统一交给全局选路策略。
+ */
+export function resolveRoutedChatTarget(
+  channels: readonly Channel[],
+  logicalModel: string,
+  strategy: RouteStrategy,
+  options: { random?: number; attempt?: number } = {},
+): RoutedChatTarget | null {
+  const logical = logicalModel.trim()
+  if (!logical) return null
+  const picked = resolveRouteFor(routeSources(channels), logical, {
+    strategy,
+    resolve: resolveUpstreamModel,
+    ...(options.random !== undefined ? { random: options.random } : {}),
+    ...(options.attempt !== undefined ? { attempt: options.attempt } : {}),
+  })
+  return picked
+    ? {
+        channelId: picked.channelId,
+        logicalModel: logical,
+        upstreamModel: picked.upstreamModel,
+      }
+    : null
 }
 
 /** 挑一条真有配音模型的已启用渠道；只认用户勾过的 audio 模型。 */

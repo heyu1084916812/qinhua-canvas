@@ -32,6 +32,10 @@ export interface EcommerceTaskRepository {
   ): Promise<{ task: EcommerceTaskRecord; results: EcommerceResultRecord[] }>
   updateResult(result: EcommerceResultRecord): Promise<void>
   updateTask(task: EcommerceTaskRecord): Promise<void>
+  removeResult(
+    resultId: string,
+    at?: number,
+  ): Promise<{ task: EcommerceTaskRecord; results: EcommerceResultRecord[] } | null>
   interruptUnfinished(
     taskId: string,
     reason: string,
@@ -187,6 +191,38 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
 
     async updateTask(task) {
       await storage.put('ecommerceTasks', task as never)
+    },
+
+    async removeResult(resultId, at = Date.now()) {
+      return storage.transaction(['ecommerceTasks', 'ecommerceResults'], async (tx) => {
+        const resultRows = (await tx.query('ecommerceResults', {
+          id: resultId,
+        })) as unknown as Record<string, unknown>[]
+        const target = resultRows.map(resultOf)[0]
+        if (!target || (target.status !== 'failed' && target.status !== 'canceled')) return null
+        const taskRows = (await tx.query('ecommerceTasks', {
+          id: target.taskId,
+        })) as unknown as Record<string, unknown>[]
+        const task = taskRows.map(taskOf)[0]
+        if (!task) return null
+        await tx.delete('ecommerceResults', resultId)
+        const remaining = (
+          (await tx.query('ecommerceResults', {
+            taskId: task.id,
+          })) as unknown as Record<string, unknown>[]
+        )
+          .map(resultOf)
+          .sort((a, b) => a.position - b.position)
+        const nextTask: EcommerceTaskRecord = {
+          ...task,
+          updatedAt: at,
+          status: taskStatusOf(remaining),
+          nodeIds: remaining.map((row) => row.nodeId),
+        }
+        delete nextTask.errorText
+        await tx.put('ecommerceTasks', nextTask as never)
+        return { task: nextTask, results: remaining }
+      })
     },
 
     async interruptUnfinished(taskId, reason, at = Date.now()) {

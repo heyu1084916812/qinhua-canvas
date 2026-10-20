@@ -114,6 +114,8 @@ export interface AssetLibraryActions {
   setGroup: (group: GroupMode) => void
   setView: (view: AssetsView) => void
   remove: (hash: string) => Promise<void>
+  /** 从素材页移除一条或多条记录；只隐藏记录并删收藏关系，不动资产字节。 */
+  removeMany: (hashes: readonly string[]) => Promise<number>
 }
 
 export type AssetLibraryStore = MiniStore<AssetLibraryState> & AssetLibraryActions
@@ -207,21 +209,25 @@ export function createAssetLibraryStore(
 
   const load: AssetLibraryActions['load'] = async () => {
     store.setState({ loading: true })
-    const [assets, rawHistory, tagMap] = await Promise.all([
+    const [rawAssets, rawHistory, tagMap, hidden] = await Promise.all([
       repo.list(),
       historyRepo ? historyRepo.list() : Promise.resolve<HistoryItem[]>([]),
       repo.listTagMap(),
+      repo.listHidden(),
     ])
+    const assets = rawAssets.filter((asset) => !hidden.has(asset.hash))
     /**
      * 历史条目的标签是**按 hash 从收藏库拼过来的镜像**（对账 #303）：
      * 标签只有一份真相在 `assetLibrary` 行上，历史那边不另存一份 ——
      * 两份就会分叉（改了标签，历史卡片还挂着旧的）。
      */
-    const history = rawHistory.map((item) =>
-      item.kind === 'output'
-        ? { ...item, tags: normalizeTags(tagMap.get(item.hash)) }
-        : item,
-    )
+    const history = rawHistory
+      .filter((item) => item.kind !== 'output' || !hidden.has(item.hash))
+      .map((item) =>
+        item.kind === 'output'
+          ? { ...item, tags: normalizeTags(tagMap.get(item.hash)) }
+          : item,
+      )
     /** 时间基准取**这一次加载**那一瞬：与派生值用同一个数，跨零点也不会自相矛盾 */
     const now = Date.now()
     store.setState({
@@ -333,6 +339,32 @@ export function createAssetLibraryStore(
     }
   }
 
+  const removeMany: AssetLibraryActions['removeMany'] = async (hashes) => {
+    const targets = new Set(hashes.filter(Boolean))
+    if (targets.size === 0) return 0
+    const snapshot = {
+      assets: store.getState().assets,
+      history: store.getState().history,
+    }
+    store.setState((s) => {
+      const assets = s.assets.filter((asset) => !targets.has(asset.hash))
+      const history = s.history.filter(
+        (item) => item.kind !== 'output' || !targets.has(item.hash),
+      )
+      return { assets, history, ...derive({ ...s, assets, history }) }
+    })
+    try {
+      return await repo.removeMany([...targets])
+    } catch {
+      store.setState((s) => ({
+        assets: snapshot.assets,
+        history: snapshot.history,
+        ...derive({ ...s, assets: snapshot.assets, history: snapshot.history }),
+      }))
+      throw new Error('移除素材记录失败')
+    }
+  }
+
   return {
     ...store,
     load,
@@ -347,5 +379,6 @@ export function createAssetLibraryStore(
     setGroup,
     setView,
     remove,
+    removeMany,
   }
 }

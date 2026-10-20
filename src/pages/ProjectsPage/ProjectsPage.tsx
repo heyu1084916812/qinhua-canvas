@@ -118,6 +118,10 @@ export function ProjectsPage() {
    */
   const [trashOpen, setTrashOpen] = useState(false)
   const [trashItems, setTrashItems] = useState<ProjectListItem[]>([])
+  const [trashSelectedIds, setTrashSelectedIds] = useState<ReadonlySet<string>>(new Set())
+  const [trashSelectionAnchor, setTrashSelectionAnchor] = useState<string | null>(null)
+  const [trashBusy, setTrashBusy] = useState(false)
+  const [trashConfirmBulk, setTrashConfirmBulk] = useState(false)
   const [trashConfirmClear, setTrashConfirmClear] = useState(false)
   /** 「清理 30 天前」的二次确认（与清空回收站同一套：先点一次变文案，再点才真删） */
   const [trashConfirmOld, setTrashConfirmOld] = useState(false)
@@ -172,12 +176,18 @@ export function ProjectsPage() {
   const toggleTrash = async () => {
     if (trashOpen) {
       setTrashOpen(false)
+      setTrashSelectedIds(new Set())
+      setTrashSelectionAnchor(null)
+      setTrashConfirmBulk(false)
       setTrashConfirmClear(false)
       setTrashConfirmOld(false)
       return
     }
     setTrashItems(await store.listDeleted())
     setTrashOpen(true)
+    setTrashSelectedIds(new Set())
+    setTrashSelectionAnchor(null)
+    setTrashConfirmBulk(false)
     setTrashConfirmClear(false)
     setTrashConfirmOld(false)
     setMenuId(null)
@@ -187,28 +197,139 @@ export function ProjectsPage() {
   const refreshTrash = async () => {
     const next = await store.listDeleted()
     setTrashItems(next)
+    const live = new Set(next.map((project) => project.id))
+    setTrashSelectedIds((prev) => {
+      const kept = new Set([...prev].filter((id) => live.has(id)))
+      return kept.size === prev.size ? prev : kept
+    })
     if (next.length === 0) {
+      setTrashSelectedIds(new Set())
+      setTrashSelectionAnchor(null)
+      setTrashConfirmBulk(false)
       setTrashConfirmClear(false)
       setTrashConfirmOld(false)
     }
   }
 
   const handleRestore = async (id: string) => {
-    await store.restore(id)
-    await refreshTrash()
-    setStatus('已从回收站还原')
+    if (trashBusy) return
+    setTrashBusy(true)
+    try {
+      await store.restore(id)
+      await refreshTrash()
+      setStatus('已从回收站还原')
+    } catch (error) {
+      setStatus(`还原失败：${error instanceof Error ? error.message : String(error)}`, 'error')
+    } finally {
+      setTrashBusy(false)
+    }
   }
 
   const handlePurge = async (id: string) => {
-    await store.purge(id)
-    await refreshTrash()
-    setStatus('已彻底删除（不可恢复）')
+    if (trashBusy) return
+    setTrashBusy(true)
+    try {
+      await store.purge(id)
+      await refreshTrash()
+      setStatus('已彻底删除（不可恢复）')
+    } catch (error) {
+      setStatus(`彻底删除失败：${error instanceof Error ? error.message : String(error)}`, 'error')
+    } finally {
+      setTrashBusy(false)
+    }
   }
 
   const handlePurgeAll = async () => {
-    const n = await store.purgeAll()
+    if (trashBusy) return
+    const total = trashItems.length
+    setTrashBusy(true)
+    setTrashConfirmClear(false)
+    try {
+      const n = await store.purgeAll()
+      await refreshTrash()
+      setStatus(`已清空回收站（${n} / ${total} 个项目）`)
+    } catch (error) {
+      setStatus(
+        `清空回收站失败，未完成的项目仍保留：${error instanceof Error ? error.message : String(error)}`,
+        'error',
+      )
+      await refreshTrash()
+    } finally {
+      setTrashBusy(false)
+    }
+  }
+
+  const toggleTrashItem = (id: string, shift: boolean) => {
+    setTrashConfirmBulk(false)
+    setTrashSelectedIds((current) => {
+      if (shift && trashSelectionAnchor) {
+        const from = trashItems.findIndex((project) => project.id === trashSelectionAnchor)
+        const to = trashItems.findIndex((project) => project.id === id)
+        if (from >= 0 && to >= 0) {
+          const [start, end] = from < to ? [from, to] : [to, from]
+          return new Set(trashItems.slice(start, end + 1).map((project) => project.id))
+        }
+      }
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+    setTrashSelectionAnchor(id)
+  }
+
+  const selectAllTrash = () => {
+    setTrashSelectedIds(new Set(trashItems.map((project) => project.id)))
+    setTrashSelectionAnchor(trashItems[0]?.id ?? null)
+    setTrashConfirmBulk(false)
+  }
+
+  const restoreTrashSelected = async () => {
+    if (trashBusy || trashSelectedIds.size === 0) return
+    setTrashBusy(true)
+    const selected = [...trashSelectedIds]
+    const failed: string[] = []
+    let restored = 0
+    for (const [index, id] of selected.entries()) {
+      setStatus(`正在还原 ${index + 1} / ${selected.length} 个项目…`)
+      try {
+        await store.restore(id)
+        restored += 1
+      } catch {
+        failed.push(id)
+      }
+    }
     await refreshTrash()
-    setStatus(`已清空回收站（${n} 个项目）`)
+    setTrashSelectedIds(new Set(failed))
+    setTrashSelectionAnchor(failed[0] ?? null)
+    setTrashBusy(false)
+    if (failed.length === 0) {
+      setStatus(`已还原 ${restored} 个项目`)
+    } else {
+      setStatus(`已还原 ${restored} 个，${failed.length} 个失败并保留选择`, 'error')
+    }
+  }
+
+  const purgeTrashSelected = async () => {
+    if (trashBusy || trashSelectedIds.size === 0) return
+    setTrashBusy(true)
+    setTrashConfirmBulk(false)
+    const selected = [...trashSelectedIds]
+    try {
+      const n = await store.purgeMany(selected)
+      await refreshTrash()
+      setTrashSelectedIds(new Set())
+      setTrashSelectionAnchor(null)
+      setStatus(`已彻底删除 ${n} 个项目（不可恢复）`)
+    } catch (error) {
+      setStatus(
+        `批量彻底删除失败，未完成的项目仍保留：${error instanceof Error ? error.message : String(error)}`,
+        'error',
+      )
+      await refreshTrash()
+    } finally {
+      setTrashBusy(false)
+    }
   }
 
   /**
@@ -218,18 +339,30 @@ export function ProjectsPage() {
    * 界面上把"有几个、要清哪些"写在按钮上，点两次才执行 —— 误触的代价必须由确认拦住。
    */
   const handlePurgeOld = async () => {
-    const n = await store.purgeOlderThan(TRASH_KEEP_DAYS)
-    await refreshTrash()
+    if (trashBusy) return
+    setTrashBusy(true)
     setTrashConfirmOld(false)
-    setStatus(
-      n > 0 ? `已清理 ${n} 个 ${TRASH_KEEP_DAYS} 天前的项目（不可恢复）` : `没有超过 ${TRASH_KEEP_DAYS} 天的项目`,
-    )
+    try {
+      const n = await store.purgeOlderThan(TRASH_KEEP_DAYS)
+      await refreshTrash()
+      setStatus(
+        n > 0 ? `已清理 ${n} 个 ${TRASH_KEEP_DAYS} 天前的项目（不可恢复）` : `没有超过 ${TRASH_KEEP_DAYS} 天的项目`,
+      )
+    } catch (error) {
+      setStatus(`清理旧项目失败：${error instanceof Error ? error.message : String(error)}`, 'error')
+      await refreshTrash()
+    } finally {
+      setTrashBusy(false)
+    }
   }
 
   /** 回收站里"超过保留期"的那几条：只用来把**数量**写在按钮上，不代表会去自动删 */
   const oldTrashCount = trashItems.filter(
     (p) => typeof p.deletedAt === 'number' && p.deletedAt < Date.now() - TRASH_KEEP_DAYS * 86_400_000,
   ).length
+  const trashSelectedCount = trashSelectedIds.size
+  const allTrashSelected =
+    trashItems.length > 0 && trashItems.every((project) => trashSelectedIds.has(project.id))
 
   const visibleIds = shown.map((p) => p.id)
   const selectedCount = selectedIds.size
@@ -520,12 +653,17 @@ export function ProjectsPage() {
                   <button
                     className={styles.trashDanger}
                     data-projects-trash-clear
+                    disabled={trashBusy}
                     onClick={() => {
                       if (trashConfirmClear) void handlePurgeAll()
                       else setTrashConfirmClear(true)
                     }}
                   >
-                    {trashConfirmClear ? '再点一次清空' : '清空回收站'}
+                    {trashBusy
+                      ? '处理中…'
+                      : trashConfirmClear
+                        ? '再点一次清空'
+                        : '清空回收站'}
                   </button>
                 )}
                 {/*
@@ -536,6 +674,7 @@ export function ProjectsPage() {
                   <button
                     className={styles.trashDanger}
                     data-projects-trash-purge-old
+                    disabled={trashBusy}
                     onClick={() => {
                       if (trashConfirmOld) void handlePurgeOld()
                       else setTrashConfirmOld(true)
@@ -547,6 +686,52 @@ export function ProjectsPage() {
                   </button>
                 )}
               </div>
+              {trashItems.length > 0 && (
+                <div className={styles.trashBulk} data-projects-trash-bulk>
+                  <button
+                    type="button"
+                    className={styles.ghost}
+                    data-projects-trash-select-all
+                    disabled={trashBusy}
+                    onClick={() => {
+                      if (allTrashSelected) {
+                        setTrashSelectedIds(new Set())
+                        setTrashSelectionAnchor(null)
+                      } else {
+                        selectAllTrash()
+                      }
+                    }}
+                  >
+                    {allTrashSelected ? '取消全选' : '全选'}
+                  </button>
+                  <span className={styles.trashSelectedCount}>
+                    已选 {trashSelectedCount} / {trashItems.length}
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.ghost}
+                    data-projects-trash-restore-selected
+                    disabled={trashBusy || trashSelectedCount === 0}
+                    onClick={() => void restoreTrashSelected()}
+                  >
+                    还原所选
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.trashDanger}
+                    data-projects-trash-purge-selected
+                    disabled={trashBusy || trashSelectedCount === 0}
+                    onClick={() => {
+                      if (trashConfirmBulk) void purgeTrashSelected()
+                      else setTrashConfirmBulk(true)
+                    }}
+                  >
+                    {trashConfirmBulk
+                      ? `再点一次彻底删除这 ${trashSelectedCount} 个`
+                      : '彻底删除所选'}
+                  </button>
+                </div>
+              )}
               {trashItems.length === 0 ? (
                 <p className={styles.trashEmpty} data-projects-trash-empty>
                   回收站是空的
@@ -554,7 +739,37 @@ export function ProjectsPage() {
               ) : (
                 <ul className={styles.trashList}>
                   {trashItems.map((p) => (
-                    <li key={p.id} className={styles.trashItem} data-projects-trash-item={p.id}>
+                    <li
+                      key={p.id}
+                      className={
+                        trashSelectedIds.has(p.id)
+                          ? `${styles.trashItem} ${styles.trashItemSelected}`
+                          : styles.trashItem
+                      }
+                      data-projects-trash-item={p.id}
+                      data-projects-trash-selected={trashSelectedIds.has(p.id) ? 'true' : 'false'}
+                    >
+                      <button
+                        type="button"
+                        className={styles.trashCheck}
+                        data-projects-trash-check={p.id}
+                        aria-label={trashSelectedIds.has(p.id) ? '取消选择项目' : '选择项目'}
+                        aria-pressed={trashSelectedIds.has(p.id)}
+                        disabled={trashBusy}
+                        onClick={(event) => toggleTrashItem(p.id, event.shiftKey)}
+                      >
+                        {trashSelectedIds.has(p.id) && (
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path
+                              d="m5 12 4.5 4.5L19 7"
+                              stroke="currentColor"
+                              strokeWidth="2.4"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        )}
+                      </button>
                       <span className={styles.trashName}>{p.name}</span>
                       <span className={styles.trashMeta}>
                         {p.deletedAt ? `删除于 ${formatRelative(p.deletedAt)}` : ''} · {p.nodeCount} 个节点
@@ -562,6 +777,7 @@ export function ProjectsPage() {
                       <button
                         className={styles.ghost}
                         data-projects-trash-restore={p.id}
+                        disabled={trashBusy}
                         onClick={() => void handleRestore(p.id)}
                       >
                         还原
@@ -569,6 +785,7 @@ export function ProjectsPage() {
                       <button
                         className={styles.trashDanger}
                         data-projects-trash-purge={p.id}
+                        disabled={trashBusy}
                         onClick={() => void handlePurge(p.id)}
                       >
                         彻底删除

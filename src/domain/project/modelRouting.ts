@@ -236,15 +236,25 @@ export function routeCandidatesFor(
          */
         upstreamAliasesOf(name).some((alias) => c.modelIds.includes(alias)),
     )
-    .map((c) => ({
-      channelId: c.id,
-      enabled: c.enabled,
-      hasToken: c.hasToken,
-      priority: c.priority,
-      weight: c.weight,
-      latencyMs: c.lastTestLatency,
-      upstreamModel: resolve(c.modelMap, name),
-    }))
+    .map((c) => {
+      const mapped = (c.modelMap ?? {})[name]?.trim()
+      const direct = c.modelIds.includes(name) ? name : undefined
+      const alias = upstreamAliasesOf(name).find((item) => c.modelIds.includes(item))
+      return {
+        channelId: c.id,
+        enabled: c.enabled,
+        hasToken: c.hasToken,
+        priority: c.priority,
+        weight: c.weight,
+        latencyMs: c.lastTestLatency,
+        /**
+         * 固定显示名通过别名命中时，请求必须发别名对应的真实上游 ID。
+         * 没有显式映射时若直接返回逻辑名，会出现「选路成功，但站点收到
+         * `GPT-6 Astra` 这种不存在的模型名」——前端显示名反而把请求弄坏。
+         */
+        upstreamModel: mapped || direct || alias || resolve(c.modelMap, name),
+      }
+    })
 }
 
 /**

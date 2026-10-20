@@ -21,6 +21,10 @@ import {
   presetOf,
   toLogicalName,
 } from '../../../../domain/project/modelCatalog'
+import {
+  resolveRoutedChatTarget,
+  type RoutedChatTarget,
+} from '../../../../domain/shared/chatTarget'
 import { presetModelsOf } from '../../../../domain/project/modelPresets'
 import { resolveDefaults } from '../../../../features/canvas/createNodeWithDefaults'
 import { subscribeAgentHandoff, takeAgentHandoff } from '../../../../features/canvas/agentHandoff'
@@ -221,6 +225,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     () => channels.getState().channels,
     () => channels.getState().channels,
   )
+  const routeStrategy = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().routeStrategy,
+    () => channels.getState().routeStrategy,
+  )
   /** 会话改名：就地编辑，Enter 提交 / Esc 取消（不弹原生 prompt —— 那会打断画布操作） */
   const [renaming, setRenaming] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
@@ -254,6 +263,13 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const abortRefs = useRef(new Map<string, AbortController>())
   /** 每个会话这个回合走的是原生 tools 还是 JSON 降级；确认后续跑要沿用同一条 */
   const toolModeRef = useRef(new Map<string, 'native' | 'json'>())
+  /**
+   * 一次用户回合解析出的实际渠道。
+   *
+   * 确认与自动执行会把同一回合拆成多次模型调用，这些调用必须继续走同一条渠道；
+   * 下一次真正发送新消息时再按全局策略重新选路。
+   */
+  const chatRouteRef = useRef(new Map<string, RoutedChatTarget>())
   const scrollRef = useRef<HTMLDivElement | null>(null)
 
   /**
@@ -310,10 +326,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
      * 第二轮报的「agnes 的是不是多了」就是这条）。
      */
     const chat = panelModelOptions('chat').filter(
-      (n) => channelIdForLogical(enabled, n) !== undefined,
+      (name) =>
+        resolveRoutedChatTarget(allChannels, name, routeStrategy, { random: 0 }) !== null,
     )
     return { image: pick('image'), video: pick('video'), chat }
-  }, [allChannels, enabled])
+  }, [allChannels, enabled, routeStrategy])
   const chatModelOptions = modelOptionsByKind.chat
   /**
    * **已经放进这次对话的模型**（正文里的 `model` chip）。
@@ -332,6 +349,25 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const shownModel = useMemo(
     () => toLogicalName(allChannels, current?.model ?? ''),
     [allChannels, current?.model],
+  )
+  /**
+   * 取本轮路由：同一会话、同一逻辑模型在本轮内复用；换模型或开始新消息时重新选。
+   * UI 只保存逻辑名，渠道始终是后台实现细节。
+   */
+  const resolveChatRoute = useCallback(
+    (session: AgentSession, fresh = false): RoutedChatTarget | null => {
+      const logicalModel = toLogicalName(allChannels, session.model) || session.model.trim()
+      if (!logicalModel) return null
+      const cached = chatRouteRef.current.get(session.id)
+      if (!fresh && cached?.logicalModel === logicalModel) return cached
+      const routed = resolveRoutedChatTarget(allChannels, logicalModel, routeStrategy, {
+        random: Math.random(),
+      })
+      if (routed) chatRouteRef.current.set(session.id, routed)
+      else chatRouteRef.current.delete(session.id)
+      return routed
+    },
+    [allChannels, routeStrategy],
   )
 
   /**
@@ -396,13 +432,21 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         panelModelOptions(category).filter(
           (n) => channelIdForLogical(liveEnabled, n) !== undefined,
         )
-      const liveModelOptions = livePick('chat')
+      const liveModelOptions = panelModelOptions('chat').filter(
+        (name) =>
+          resolveRoutedChatTarget(
+            liveChannels,
+            name,
+            channels.getState().routeStrategy,
+            { random: 0 },
+          ) !== null,
+      )
       const saved = await presets.loadAgentDefault()
-      const fallbackChannel = saved?.channelId ?? liveEnabled[0]?.id ?? ''
+      const savedModel = toLogicalName(liveChannels, saved?.model ?? '')
       const created = await sessions.create({
         projectId,
-        channelId: fallbackChannel,
-        model: defaultModelFor(liveModelOptions, saved?.model),
+        channelId: '',
+        model: defaultModelFor(liveModelOptions, savedModel),
         imageModel: livePick('image')[0] ?? '',
         videoModel: livePick('video')[0] ?? '',
       })
@@ -619,21 +663,25 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   )
 
   const loopDeps = useCallback(
-    (session: AgentSession, toolMode: 'native' | 'json' = 'native') => ({
-      adapter: {
-        completeText: (req: TextRunRequest, signal: AbortSignal) =>
-          channels.completeWithTools({
-            channelId: req.channelId,
-            model: req.model,
-            tools: req.tools ?? (toolMode === 'native' ? AGENT_TOOLS : []),
-            messages: req.messages ?? [],
-            signal,
-          }),
-      },
-      channelId: session.channelId,
-      model: session.model,
-      tools: toolMode === 'native' ? AGENT_TOOLS : [],
-      toolMode,
+    (session: AgentSession, toolMode: 'native' | 'json' = 'native') => {
+      const route = resolveChatRoute(session)
+      const logicalModel =
+        route?.logicalModel ?? (toLogicalName(allChannels, session.model) || session.model)
+      return {
+        adapter: {
+          completeText: (req: TextRunRequest, signal: AbortSignal) =>
+            channels.completeWithTools({
+              channelId: req.channelId,
+              model: req.model,
+              tools: req.tools ?? (toolMode === 'native' ? AGENT_TOOLS : []),
+              messages: req.messages ?? [],
+              signal,
+            }),
+        },
+        channelId: route?.channelId ?? '',
+        model: logicalModel,
+        tools: toolMode === 'native' ? AGENT_TOOLS : [],
+        toolMode,
       /**
        * 确认**之前**的预检（用户 2026-10-02：「重复让我确认新建工作流，重复了三次，
        * 但是我的画布中没有」）。计划本身落不了地时，别让用户白点一次确认 ——
@@ -660,9 +708,10 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         executeConfirmedTool(name, args, toolCtx(originOf(viewport))),
       executeRead: (name: string, args: unknown) =>
         executeReadTool(name, args, toolCtx(originOf(viewport))),
-      signal: abortRefs.current.get(session.id)?.signal ?? new AbortController().signal,
-    }),
-    [channels, viewport, toolCtx, store],
+        signal: abortRefs.current.get(session.id)?.signal ?? new AbortController().signal,
+      }
+    },
+    [allChannels, channels, resolveChatRoute, viewport, toolCtx, store],
   )
 
   /** 把循环的结果落到界面上：回答就显示，要确认就出预览卡，刹车/报错就说清楚 */
@@ -710,8 +759,16 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   const sendText = useCallback(async (raw: string) => {
     const text = raw.trim()
     if (!text || !current) return
-    if (!current.channelId || !current.model) {
+    if (!current.model) {
       setStatusFor(current.id, { kind: 'error', message: '还没选模型：先在上面选一个对话模型' })
+      return
+    }
+    const chatRoute = resolveChatRoute(current, true)
+    if (!chatRoute) {
+      setStatusFor(current.id, {
+        kind: 'error',
+        message: `没有可用的渠道提供「${shownModel || current.model}」：请在渠道配置里勾选该模型或补好模型映射`,
+      })
       return
     }
     const controller = new AbortController()
@@ -742,7 +799,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
             ...(req.timeoutMs ? { timeoutMs: req.timeoutMs } : {}),
           }),
       },
-      { channelId: current.channelId, model: current.model },
+      { channelId: chatRoute.channelId, model: chatRoute.logicalModel },
       controller.signal,
     )
     if (controller.signal.aborted) return
@@ -820,7 +877,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     perImageRef.current = perImage
     const system = buildAgentSystemPromptWithContext(
       summary,
-      { model: current.model },
+      { model: chatRoute.logicalModel },
       {
         /**
          * 用户说了「其他保持不变 / 只改 X」→ 给这次规划加一段**硬约束**
@@ -910,6 +967,8 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     allSkills,
     toolCtx,
     viewport,
+    resolveChatRoute,
+    shownModel,
   ])
 
   /** 输入框那条路：把草稿交给 `sendText` */
@@ -975,11 +1034,11 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
 
   const newSession = useCallback(async () => {
     const saved = await presets.loadAgentDefault()
-    const channelId = saved?.channelId ?? enabled[0]?.id ?? ''
+    const savedModel = toLogicalName(allChannels, saved?.model ?? '')
     const created = await sessions.create({
       projectId,
-      channelId,
-      model: defaultModelFor(chatModelOptions, saved?.model),
+      channelId: '',
+      model: defaultModelFor(chatModelOptions, savedModel),
       /**
        * 「跟随选中」也覆盖**会话开局**这一档：用户先选中一张香蕉 2 的图再打开对话，
        * 面板上显示的就该是香蕉 2，而不是模型清单的第一个（见 `selectedModelOf`）。
@@ -993,7 +1052,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
     presets,
     sessions,
     projectId,
-    enabled,
+    allChannels,
     refresh,
     switchTo,
     defaultModelFor,
@@ -1022,23 +1081,18 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
   )
 
   /**
-   * 选模型：**同时**把渠道定下来。
+   * 选模型：只保存固定的前端逻辑名。
    *
-   * 用户 2026-10-02 拍板把「选渠道」这一档从对话窗去掉（「不要有选择渠道」）——
-   * 用户眼里只有模型名，渠道是实现细节。但发请求必须带渠道，所以这里在选模型
-   * 的同时解析出「哪条渠道能提供它」，而不是留个空让用户自己去配。
-   *
-   * 当前会话已经在用的渠道若能提供这个模型就**不换**（`preferChannelId`）：
-   * 同一个模型在多条渠道都有时，换渠道会让它突然走另一条线，用户没要求这件事。
+   * 渠道由下一次真实发送时的 `resolveRoutedChatTarget()` 按全局策略解析，
+   * 不写进会话。旧会话留下的 `channelId` 在这一刻清掉，避免继续沿用历史绑定。
    */
   const pickModel = useCallback(
     async (model: string) => {
       if (!current) return
-      const channelId =
-        channelIdForLogical(enabled, model, current.channelId) ?? current.channelId
-      await patchSession({ model, channelId })
+      chatRouteRef.current.delete(current.id)
+      await patchSession({ model, channelId: '' })
     },
-    [current, enabled, patchSession],
+    [current, patchSession],
   )
 
   /**

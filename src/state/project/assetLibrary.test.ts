@@ -80,6 +80,31 @@ describe('素材库仓储', () => {
     expect(await storage.query('assets', {})).toHaveLength(1)
     expect(await storage.query('nodes', {})).toHaveLength(1)
   })
+
+  it('removeMany 隐藏素材页记录并删收藏关系，assets、运行记录与节点原样保留', async () => {
+    const { storage, repo } = seedStorage({
+      assets: [{ id: 'a1', hash: 'a1', mime: 'image/png', bytes: new Uint8Array(4) }],
+      assetLibrary: [{ id: 'a1', hash: 'a1', mime: 'image/png', bytes: 4, savedAt: 1 }],
+      runRecords: [{ id: 'r1', projectId: 'p1', outputHashes: ['a1'] }],
+      nodes: [{ id: 'n1', projectId: 'p1', data: { assetHash: 'a1' } }],
+    })
+    expect(await repo.removeMany(['a1'])).toBe(1)
+    expect(await repo.list()).toHaveLength(0)
+    expect([...(await repo.listHidden())]).toEqual(['a1'])
+    expect(await storage.query('assets', {})).toHaveLength(1)
+    expect(await storage.query('runRecords', {})).toHaveLength(1)
+    expect(await storage.query('nodes', {})).toHaveLength(1)
+  })
+
+  it('隐藏后再次保存会恢复素材页记录', async () => {
+    const { repo } = seedStorage({})
+    await repo.save(saved({ hash: 'a1' }))
+    await repo.removeMany(['a1'])
+    expect(await repo.list()).toHaveLength(0)
+    await repo.save(saved({ hash: 'a1', prompt: '重新收藏' }))
+    expect((await repo.list()).map((item) => item.hash)).toEqual(['a1'])
+    expect((await repo.listHidden()).has('a1')).toBe(false)
+  })
 })
 
 describe('素材库 store', () => {
@@ -156,6 +181,50 @@ describe('素材库 store', () => {
     await store.load()
     await expect(store.remove('v1')).rejects.toThrow('删除素材失败')
     expect(store.getState().visible.map((item) => item.hash)).toEqual(['v1', 'i1'])
+  })
+
+  it('批量移除后素材库与全部历史同时消失，底层字节仍在', async () => {
+    const { storage, repo } = seedStorage({
+      assets: [
+        { id: 'i1', hash: 'i1', mime: 'image/png', bytes: 4 },
+        { id: 'v1', hash: 'v1', mime: 'video/mp4', bytes: 8 },
+      ],
+      assetLibrary: [
+        { id: 'i1', hash: 'i1', mime: 'image/png', bytes: 4, savedAt: 10 },
+        { id: 'v1', hash: 'v1', mime: 'video/mp4', bytes: 8, savedAt: 20 },
+      ],
+      runRecords: [
+        {
+          id: 'r1',
+          nodeId: 'n1',
+          projectId: 'p1',
+          version: 1,
+          createdAt: 10,
+          status: 'succeeded',
+          inputs: [],
+          params: { prompt: '图片' },
+          outputHashes: ['i1'],
+        },
+        {
+          id: 'r2',
+          nodeId: 'n2',
+          projectId: 'p1',
+          version: 1,
+          createdAt: 20,
+          status: 'succeeded',
+          inputs: [],
+          params: { prompt: '视频' },
+          outputHashes: ['v1'],
+        },
+      ],
+    })
+    const store = createAssetLibraryStore(repo, createAssetHistoryRepository(storage))
+    await store.load()
+    expect(await store.removeMany(['i1', 'v1'])).toBe(2)
+    expect(store.getState().visible).toHaveLength(0)
+    expect(store.getState().historyVisible).toHaveLength(0)
+    expect(await storage.query('assets', {})).toHaveLength(2)
+    expect(await storage.query('runRecords', {})).toHaveLength(2)
   })
 })
 

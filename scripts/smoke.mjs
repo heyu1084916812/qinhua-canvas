@@ -1371,6 +1371,45 @@ async function configureMockChannel(
   }
 
   /**
+   * 「选择模型 / 模型映射」两块在慢帧里可能落到错误的渠道行上（实测过一次：
+   * 映射写进了内置 RunningHub，新 mock 行仍是空的）。测试助手必须在**库层**
+   * 给本次新建的 mock 渠道补齐固定夹具，否则 Agent 的“按规则选路”会诚实地
+   * 报“没有可用渠道”，把测试夹具问题伪装成产品缺陷。
+   */
+  if (createdId) {
+    const freshRows = await sharedRows(page, 'channels')
+    const mock = freshRows.find((row) => String(row.id) === createdId)
+    if (mock) {
+      const models = [
+        { id: 'mock-image-1', category: 'image', inputTypes: ['text', 'image'] },
+        { id: 'mock-image-edit-1', category: 'image', inputTypes: ['text', 'image'] },
+        { id: 'mock-chat-1', category: 'chat', inputTypes: ['text'] },
+        { id: 'mock-video-1', category: 'video', inputTypes: ['text', 'image'] },
+        { id: 'mock-speech-1', category: 'audio', inputTypes: ['text'], voices: ['alloy', 'nova'] },
+      ]
+      await sharedPut(page, 'channels', {
+        ...mock,
+        enabled: true,
+        models,
+        modelCache: models,
+        modelMap: {
+          'GPT Image 2': 'mock-image-1',
+          '全能图片X-3（图生图）': 'mock-image-edit-1',
+          'Agnes Image 2.5 Flash': 'mock-image-1',
+          'GPT-6 Astra': 'mock-chat-1',
+          '即梦 2.5': 'mock-video-1',
+          'OpenAI TTS': 'mock-speech-1',
+        },
+      })
+      enabled = true
+    }
+    for (const row of freshRows) {
+      if (!String(row.id).startsWith('ch_builtin_') || !row.enabled) continue
+      await sharedPut(page, 'channels', { ...row, enabled: false })
+    }
+  }
+
+  /**
    * UI 列表可能只渲染当前分组，单靠勾选框停不干净历史渠道。
    * isolate 时以库为准：只保留本次新建的那条 mock（createdAt 最新），再刷新 store。
    */
@@ -25451,6 +25490,60 @@ async function g114(browser) {
     `左侧=${JSON.stringify(quickCountsLibOnly)}`,
   )
 
+  /** ⑧ 素材多选：Shift 范围选择 → Del 二次确认 → 只隐藏素材页记录 */
+  await page.locator('[data-assets-select-mode]').click()
+  await sleep(250)
+  const selectChecks = page.locator('[data-asset-select]')
+  const selectableCount = await selectChecks.count()
+  await selectChecks.nth(0).click()
+  await selectChecks.nth(1).click({ modifiers: ['Shift'] })
+  await sleep(200)
+  const selectedHashes = await page
+    .locator('[data-asset-checked="true"]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('data-asset-card')))
+  rec(
+    g,
+    '★★ 素材支持选择模式与 Shift 连续范围选择',
+    selectableCount >= 2 && selectedHashes.length === 2 && selectedHashes.every(Boolean),
+    `可勾选=${selectableCount} 已选=${selectedHashes.join(',')}`,
+  )
+
+  await page.keyboard.press('Delete')
+  await page.locator('[data-assets-remove-dialog]').waitFor({ state: 'visible', timeout: 3000 })
+  rec(
+    g,
+    '★★ Delete 只打开二次确认，不立即删除',
+    (await page.locator('[data-assets-remove-confirm]').count()) === 1 &&
+      (await page.locator('[data-asset-checked="true"]').count()) === 2,
+  )
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+  await sleep(200)
+  rec(
+    g,
+    '★ 取消二次确认不改变已选素材',
+    (await page.locator('[data-assets-remove-dialog]').count()) === 0 &&
+      (await page.locator('[data-asset-checked="true"]').count()) === 2,
+  )
+
+  await page.keyboard.press('Delete')
+  await page.locator('[data-assets-remove-confirm]').click()
+  await sleep(700)
+  const hiddenRows = (await sharedRows(page, 'presets')).find(
+    (row) => row.id === 'assetRecordsHidden:v1',
+  )
+  const hiddenSet = new Set(
+    Array.isArray(hiddenRows?.hashes) ? hiddenRows.hashes.map(String) : [],
+  )
+  rec(
+    g,
+    '★★★ 确认后素材页记录消失，但 assets / runRecords 原样保留',
+    selectedHashes.every((hash) => hiddenSet.has(hash)) &&
+      (await page.locator('[data-asset-card]').count()) === selectableCount - 2 &&
+      (await sharedRows(page, 'assets')).length === 3 &&
+      (await sharedRows(page, 'runRecords')).length === 4,
+    `隐藏=${[...hiddenSet].join(',')} 页面剩余=${await page.locator('[data-asset-card]').count()}`,
+  )
+
   await page.screenshot({ path: `${OUT}/114-g114-history.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
@@ -27807,6 +27900,89 @@ async function g126(browser) {
   )
 
   await page.screenshot({ path: `${OUT}/126-g126-trash.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+// ────────────────────────────────────────────────────────────
+// G165 回收站多选：范围选择、批量彻底删除、批量还原
+// ────────────────────────────────────────────────────────────
+async function g165(browser) {
+  const g = 'G165 回收站多选'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await gotoProjects(page)
+  const now = Date.now()
+  await sharedBulkPut(
+    page,
+    'projects',
+    ['p1', 'p2', 'p3', 'p4'].map((id, index) => ({
+      id,
+      name: `回收项目 ${id}`,
+      workbench: 'canvas',
+      createdAt: now + index,
+      updatedAt: now + index,
+      deletedAt: now - index * 1000,
+    })),
+  )
+  await sharedBulkPut(page, 'nodes', [
+    { id: 'n1', projectId: 'p1', type: 'prompt' },
+    { id: 'n2', projectId: 'p2', type: 'prompt' },
+  ])
+  await page.reload({ waitUntil: 'networkidle' })
+  await sleep(500)
+  await page.locator('[data-projects-trash-toggle]').click()
+  await sleep(400)
+
+  const items = page.locator('[data-projects-trash-item]')
+  const checks = page.locator('[data-projects-trash-check]')
+  rec(g, '回收站出现多选入口与四条项目', (await items.count()) === 4 && (await checks.count()) === 4)
+
+  await checks.nth(0).click()
+  await checks.nth(1).click({ modifiers: ['Shift'] })
+  const selected = await page
+    .locator('[data-projects-trash-selected="true"]')
+    .evaluateAll((els) => els.map((el) => el.getAttribute('data-projects-trash-item')))
+  rec(
+    g,
+    'Shift 连续选择两条，并显示已选数量',
+    selected.length === 2 &&
+      (await page.locator('[data-projects-trash-bulk]').innerText()).includes('已选 2 / 4'),
+    selected.join(','),
+  )
+
+  await page.locator('[data-projects-trash-purge-selected]').click()
+  rec(
+    g,
+    '批量彻底删除第一次点击只进入二次确认',
+    /再点一次/.test(await page.locator('[data-projects-trash-purge-selected]').innerText()),
+  )
+  await page.locator('[data-projects-trash-purge-selected]').click()
+  await sleep(800)
+  const nodes = await sharedRows(page, 'nodes')
+  rec(
+    g,
+    '批量彻底删除只清掉所选项目及级联节点',
+    (await items.count()) === 2 &&
+      selected.every((id) => !nodes.some((row) => row.projectId === id)),
+    `剩余=${await items.count()} selected=${selected.join(',')}`,
+  )
+
+  await page.locator('[data-projects-trash-select-all]').click()
+  rec(g, '全选剩余项目', (await page.locator('[data-projects-trash-selected="true"]').count()) === 2)
+  await page.locator('[data-projects-trash-restore-selected]').click()
+  await sleep(800)
+  rec(
+    g,
+    '还原所选后回收站清空、项目列表恢复两条',
+    (await items.count()) === 0 && (await page.locator('[data-project-card]').count()) === 2,
+    `trash=${await items.count()} cards=${await page.locator('[data-project-card]').count()}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/165-trash-multiselect.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
 }
@@ -36588,6 +36764,26 @@ async function g164(browser) {
     JSON.stringify(failedOverlay),
   )
   await page.screenshot({ path: `${OUT}/164-ecommerce-failed${themeSuffix}.png` })
+  if (failedResult) {
+    await page.locator(`[data-ecommerce-remove-failed="${failedResult.nodeId}"]`).click()
+    await page.waitForFunction(
+      (resultId) =>
+        !document.querySelector(`[data-ecommerce-result-id="${resultId}"]`),
+      failedResult.nodeId,
+      { timeout: 10000 },
+    )
+  }
+  const failedRowsAfterRemove = failedResult
+    ? (await sharedRows(page, 'ecommerceResults')).filter((row) => row.id === failedResult.id)
+    : []
+  rec(
+    g,
+    '★★ 失败结果可移除记录，不删除同批成功结果',
+    !!failedResult &&
+      failedRowsAfterRemove.length === 0 &&
+      (await page.locator('[data-ecommerce-result][data-status="done"]').count()) >= 1,
+    `剩余失败记录=${failedRowsAfterRemove.length}`,
+  )
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await page.screenshot({ path: `${OUT}/164-ecommerce-params-replica${themeSuffix}.png` })
   await page.setViewportSize({ width: 1024, height: 768 })
@@ -36641,7 +36837,7 @@ async function g164(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164, g165]
 const skippedGroups = new Set(
   [
     String(process.env.SMOKE_SKIP ?? ''),

@@ -44,6 +44,8 @@ export interface ProjectRepository {
   restore(id: string): Promise<void>
   /** **永久删除**：从回收站里彻底清掉，这时才动级联表 */
   purge(id: string): Promise<void>
+  /** 批量彻底删除（一个事务内完成，供回收站多选使用） */
+  purgeMany(ids: readonly string[]): Promise<number>
   /** 清空回收站（逐个永久删除） */
   purgeAll(): Promise<number>
   /**
@@ -156,13 +158,21 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
     return { ...p, nodeCount: nodes.length, coverHash }
   }
 
-  /** **彻底**删一个项目：只有永久删除 / 清空回收站才走这里（级联表一起清） */
-  const purgeOne = async (db: StoragePort, id: string): Promise<void> => {
-    await db.delete('projects', id)
-    for (const table of PROJECT_CASCADE_TABLES) {
-      const rows = await db.query(table, { projectId: id })
-      for (const row of rows) await db.delete(table, row.id)
-    }
+  /** 批量彻底删除：级联表各扫一次，避免回收站多选时 N×M 次查询。 */
+  const purgeProjects = async (ids: readonly string[]): Promise<number> => {
+    const targets = new Set(ids.filter(Boolean))
+    if (targets.size === 0) return 0
+    await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async (tx) => {
+      for (const id of targets) await tx.delete('projects', id)
+      for (const table of PROJECT_CASCADE_TABLES) {
+        const rows = await tx.query(table, {})
+        for (const row of rows) {
+          if (!targets.has(String(row.projectId))) continue
+          await tx.delete(table, row.id)
+        }
+      }
+    })
+    return targets.size
   }
 
   /**
@@ -376,31 +386,32 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
     },
 
     async purge(id) {
-      await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async (tx) => {
-        await purgeOne(tx, id)
-      })
+      await purgeProjects([id])
       notifyProjectsChanged()
+    },
+
+    async purgeMany(ids) {
+      const deleted = new Set((await listDeletedProjects()).map((project) => project.id))
+      const n = await purgeProjects(ids.filter((id) => deleted.has(id)))
+      if (n > 0) notifyProjectsChanged()
+      return n
     },
 
     async purgeAll() {
       const deleted = await listDeletedProjects()
       if (deleted.length === 0) return 0
-      await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async (tx) => {
-        for (const p of deleted) await purgeOne(tx, p.id)
-      })
+      const n = await purgeProjects(deleted.map((project) => project.id))
       notifyProjectsChanged()
-      return deleted.length
+      return n
     },
 
     async purgeOlderThan(days, now = Date.now()) {
       const cutoff = now - days * 24 * 60 * 60 * 1000
       const old = (await listDeletedProjects()).filter((p) => (p.deletedAt ?? 0) < cutoff)
       if (old.length === 0) return 0
-      await storage.transaction(['projects', ...PROJECT_CASCADE_TABLES], async (tx) => {
-        for (const p of old) await purgeOne(tx, p.id)
-      })
+      const n = await purgeProjects(old.map((project) => project.id))
       notifyProjectsChanged()
-      return old.length
+      return n
     },
 
     async duplicate(id: string) {

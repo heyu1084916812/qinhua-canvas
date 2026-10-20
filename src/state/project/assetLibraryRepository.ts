@@ -38,6 +38,14 @@ export interface AssetLibraryRepository {
    * 字节可能仍被画布节点引用，删掉会在用户看不到的地方弄坏画布。
    */
   remove(hash: string): Promise<void>
+  /**
+   * 从素材页移除记录：隐藏该 hash，并删除收藏关系。
+   *
+   * 只动素材页自己的记录与隐藏索引，不删 `assets` 字节，也不删运行记录。
+   */
+  removeMany(hashes: readonly string[]): Promise<number>
+  /** 素材页隐藏索引（跨刷新保存） */
+  listHidden(): Promise<Set<string>>
   /** 给任意素材 hash 写标签；标签独立存，不再要求先收藏。 */
   setTags(hash: string, tags: readonly string[]): Promise<void>
 }
@@ -45,6 +53,7 @@ export interface AssetLibraryRepository {
 /** 收藏关系 + 独立标签映射 */
 const TABLES: TableName[] = ['assetLibrary', 'presets']
 const TAGS_KEY = 'assetTags:v1'
+const HIDDEN_KEY = 'assetRecordsHidden:v1'
 
 export function createAssetLibraryRepository(storage: StoragePort): AssetLibraryRepository {
   /**
@@ -83,6 +92,23 @@ export function createAssetLibraryRepository(storage: StoragePort): AssetLibrary
   const saveTagMap = (map: Map<string, string[]>) =>
     storage.put('presets', { id: TAGS_KEY, tags: Object.fromEntries(map) })
 
+  const hiddenFrom = (row: unknown): Set<string> => {
+    const hashes = (row as { hashes?: unknown } | undefined)?.hashes
+    return new Set(
+      Array.isArray(hashes)
+        ? hashes.filter((hash): hash is string => typeof hash === 'string' && hash.length > 0)
+        : [],
+    )
+  }
+
+  const loadHidden = async (): Promise<Set<string>> => {
+    const rows = (await storage.query('presets', { id: HIDDEN_KEY })) as unknown[]
+    return hiddenFrom(rows[0])
+  }
+
+  const writeHidden = async (hidden: ReadonlySet<string>) =>
+    storage.put('presets', { id: HIDDEN_KEY, hashes: [...hidden] })
+
   return {
     async list() {
       const rows = await storage.query('assetLibrary', {})
@@ -106,10 +132,31 @@ export function createAssetLibraryRepository(storage: StoragePort): AssetLibrary
         ...row,
         id: asset.hash,
       })
+      const hidden = await loadHidden()
+      if (hidden.delete(asset.hash)) await writeHidden(hidden)
     },
 
     async remove(hash: string) {
       await storage.delete('assetLibrary', hash)
+    },
+
+    async removeMany(hashes) {
+      const targets = new Set(hashes.filter((hash) => hash.trim()))
+      if (targets.size === 0) return 0
+      await storage.transaction(['assetLibrary', 'presets'], async (tx) => {
+        const rows = (await tx.query('presets', { id: HIDDEN_KEY })) as unknown[]
+        const hidden = hiddenFrom(rows[0])
+        for (const hash of targets) {
+          hidden.add(hash)
+          await tx.delete('assetLibrary', hash)
+        }
+        await tx.put('presets', { id: HIDDEN_KEY, hashes: [...hidden] })
+      })
+      return targets.size
+    },
+
+    async listHidden() {
+      return loadHidden()
     },
 
     async setTags(hash: string, tags: readonly string[]) {

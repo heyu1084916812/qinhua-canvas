@@ -172,6 +172,47 @@
   border-bottom: var(--border);
 }
 
+.selectBar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-6);
+  border-bottom: var(--border);
+  background: var(--bg-subtle);
+}
+
+.selectCount {
+  margin-right: auto;
+  color: var(--text-2);
+  font-size: var(--fs-label);
+}
+
+.selectAction {
+  min-height: 30px;
+  padding: 0 var(--space-3);
+  border: var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.selectAction:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.selectAction:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.selectDanger {
+  color: var(--danger);
+}
+
 .segmented {
   display: inline-flex;
   gap: var(--space-1);
@@ -607,6 +648,15 @@
   box-shadow: 0 0 0 1px var(--accent);
 }
 
+.cardChecked {
+  border-color: var(--accent);
+  background: var(--bg-subtle);
+}
+
+.cardSelectionMode .cardMain {
+  cursor: default;
+}
+
 .cardMain {
   display: block;
   width: 100%;
@@ -665,6 +715,34 @@
   background: var(--control-inverse-bg);
   color: var(--control-inverse-text);
   cursor: pointer;
+}
+
+.selectionBox {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--stroke-focus);
+  border-radius: 6px;
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+  cursor: pointer;
+}
+
+.selectionBox[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.cardSelectionMode .favorite {
+  left: calc(var(--space-2) + 28px);
 }
 
 .favorite:hover {
@@ -823,6 +901,41 @@
   z-index: 1;
 }
 
+.removeDialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 50;
+  width: min(420px, calc(100vw - var(--space-8)));
+  box-sizing: border-box;
+  padding: var(--space-5);
+  border: var(--border);
+  border-radius: var(--radius-node);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+  transform: translate(-50%, -50%);
+}
+
+.removeTitle {
+  margin: 0;
+  color: var(--text-1);
+  font-size: var(--fs-panel-title);
+  font-weight: var(--fw-panel-title);
+}
+
+.removeHint {
+  margin: var(--space-2) 0 var(--space-5);
+  color: var(--text-2);
+  font-size: var(--fs-label);
+  line-height: 1.6;
+}
+
+.removeActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
 .overlay {
   position: fixed;
   inset: 0;
@@ -862,6 +975,55 @@
   background: var(--bg-canvas);
   border-right: var(--border);
   overflow: hidden;
+}
+
+.previewNav {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: var(--border);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  color: var(--text-1);
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.previewNav:hover:not(:disabled),
+.previewNav:focus-visible {
+  background: var(--bg-hover);
+}
+
+.previewNav:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.previewNavPrev {
+  left: var(--space-3);
+}
+
+.previewNavNext {
+  right: var(--space-3);
+}
+
+.previewPosition {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-3);
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  transform: translateX(-50%);
 }
 
 .previewMedia {

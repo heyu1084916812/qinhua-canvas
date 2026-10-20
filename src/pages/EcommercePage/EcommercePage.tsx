@@ -62,6 +62,11 @@ import { createEcommerceTaskRepository } from '../../state/project/ecommerceTask
 import { createAssetLibraryRepository } from '../../state/project/assetLibraryRepository'
 import { ensureEcommerceCanvasCopy } from '../../features/ecommerce/ensureCanvasCopy'
 import {
+  acquireEcommerceTaskLease,
+  hasEcommerceTaskLease,
+  releaseEcommerceTaskLease,
+} from '../../features/ecommerce/execution/taskLease'
+import {
   cleanEcommerceDraftRefs,
   type EcommerceFormDraft,
 } from '../../domain/ecommerce/draft'
@@ -450,6 +455,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       let latest = latestRow
       let list = initialList
       for (const runningTask of initialList.filter((task) => task.status === 'running')) {
+        if (hasEcommerceTaskLease(runningTask.id)) continue
         const recovered = await taskRepo.interruptUnfinished(
           runningTask.id,
           '上次生成被中断，请重新生成。',
@@ -542,6 +548,19 @@ function StudioHost({ projectId }: { projectId: string }) {
       platform.logger.log('warn', '[ecommerce] 任务历史读取失败', { error: String(e) })
     }
   }, [platform, projectId, taskRepo])
+
+  const removeFailedResult = useCallback(
+    async (taskId: string, resultId: string) => {
+      const next = await taskRepo.removeResult(resultId)
+      if (!next) return
+      if (activeTask?.id === taskId) {
+        setActiveTask(next.task)
+        setResultRows(next.results)
+      }
+      await refreshTaskHistory()
+    },
+    [activeTask?.id, refreshTaskHistory, taskRepo],
+  )
 
   /**
    * 结果卡上的编辑动作只编辑**显式副本**。
@@ -1160,15 +1179,20 @@ function StudioHost({ projectId }: { projectId: string }) {
       setActiveTask(null)
       setResultRows([])
     }
-    /* 一次生成 N 张就是 N 个独立任务；和画布一致，同时发请求，不做“排队”等待。 */
-    await Promise.all(
-      created.map(async (id) => {
-        await exec.runNode(id)
-        if (task) await syncResultRow(task.id, id)
-      }),
-    )
-    if (task) await refreshTask(task)
-    await refreshTaskHistory()
+    if (task) acquireEcommerceTaskLease(task.id)
+    try {
+      /* 一次生成 N 张就是 N 个独立任务；和画布一致，同时发请求，不做“排队”等待。 */
+      await Promise.all(
+        created.map(async (id) => {
+          await exec.runNode(id)
+          if (task) await syncResultRow(task.id, id)
+        }),
+      )
+      if (task) await refreshTask(task)
+      await refreshTaskHistory()
+    } finally {
+      if (task) releaseEcommerceTaskLease(task.id)
+    }
   }
 
   /**
@@ -1398,6 +1422,10 @@ function StudioHost({ projectId }: { projectId: string }) {
           }),
           onRerun: rerunnable ? () => rerun(false) : undefined,
           onReplace: rerunnable ? () => rerun(true) : undefined,
+          onRemoveFailed:
+            row.status === 'failed'
+              ? () => void removeFailedResult(activeTask.id, row.id)
+              : undefined,
           onFocusInCanvas: () => openCanvasCopy(row),
           onExtractInCanvas: () => openCanvasCopy(row, 'extract'),
           onCropInCanvas: () => openCanvasCopy(row, 'crop'),

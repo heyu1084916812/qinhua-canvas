@@ -121,6 +121,8 @@ export interface EcommerceResultItem {
    * 失败的那张尤其需要它（失败原因就写在旁边，重试不必回头改参数）。
    */
   onRerun?: () => Promise<void> | void
+  /** 失败结果专用：移除这条失败记录，不动同批次成功结果。 */
+  onRemoveFailed?: () => void
   /**
    * **原地换掉这一格**（对账 #413）：产物写回同一个节点，画布上**不多一个节点**。
    *
@@ -2205,6 +2207,16 @@ export function EcommerceStudio({
                     <span className={styles.cellError}>
                       {r.error ?? '失败（没有原因记录）'}
                     </span>
+                    {r.onRemoveFailed ? (
+                      <button
+                        type="button"
+                        className={styles.cellRemove}
+                        data-ecommerce-remove-failed={r.nodeId}
+                        onClick={r.onRemoveFailed}
+                      >
+                        移除
+                      </button>
+                    ) : null}
                   </figcaption>
                 ) : null}
               </figure>

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { resolveSpeechTarget, userConfiguredChannels } from './chatTarget'
+import {
+  resolveRoutedChatTarget,
+  resolveSpeechTarget,
+  userConfiguredChannels,
+} from './chatTarget'
 import type { Channel } from '../project/channel'
 
 const channel = (over: Partial<Channel>): Channel =>
@@ -71,5 +75,94 @@ describe('resolveSpeechTarget', () => {
 
   it('没有可用的 audio 模型就如实返回 null', () => {
     expect(resolveSpeechTarget([channel({ models: [] })])).toBeNull()
+  })
+})
+
+describe('resolveRoutedChatTarget', () => {
+  const chatModel = { id: 'gpt-6-astra', category: 'chat' as const, inputTypes: ['text' as const] }
+
+  it('固定显示名交给全局优先度选路，不依赖会话里上次的渠道', () => {
+    const target = resolveRoutedChatTarget(
+      [
+        channel({
+          id: 'low',
+          protocol: 'openai-compatible',
+          baseUrl: 'https://low.test/v1',
+          hasToken: true,
+          priority: 1,
+          models: [chatModel],
+        }),
+        channel({
+          id: 'high',
+          protocol: 'openai-compatible',
+          baseUrl: 'https://high.test/v1',
+          hasToken: true,
+          priority: 9,
+          models: [chatModel],
+        }),
+      ],
+      'GPT-6 Astra',
+      'priority',
+      { random: 0 },
+    )
+    expect(target).toEqual({
+      channelId: 'high',
+      logicalModel: 'GPT-6 Astra',
+      upstreamModel: 'gpt-6-astra',
+    })
+  })
+
+  it('模型映射参与候选解析，返回该渠道的真实上游 ID', () => {
+    const target = resolveRoutedChatTarget(
+      [
+        channel({
+          id: 'mapped',
+          protocol: 'openai-compatible',
+          baseUrl: 'https://mapped.test/v1',
+          hasToken: true,
+          modelMap: { 'GPT-6 Astra': 'gpt-6-astra-site' },
+        }),
+      ],
+      'GPT-6 Astra',
+      'priority',
+    )
+    expect(target?.channelId).toBe('mapped')
+    expect(target?.upstreamModel).toBe('gpt-6-astra-site')
+  })
+
+  it('没有令牌的远程渠道不参与选路', () => {
+    expect(
+      resolveRoutedChatTarget(
+        [
+          channel({
+            id: 'no-token',
+            protocol: 'openai-compatible',
+            baseUrl: 'https://no-token.test/v1',
+            hasToken: false,
+            models: [chatModel],
+          }),
+        ],
+        'GPT-6 Astra',
+        'priority',
+      ),
+    ).toBeNull()
+  })
+
+  it('没有任何渠道提供该固定显示名时返回 null', () => {
+    expect(
+      resolveRoutedChatTarget(
+        [
+          channel({
+            id: 'other-model',
+            protocol: 'openai-compatible',
+            baseUrl: 'https://other.test/v1',
+            hasToken: true,
+            models: [{ id: 'other-chat', category: 'chat', inputTypes: ['text'] }],
+          }),
+        ],
+        'GPT-6 Astra',
+        'priority',
+      ),
+    ).toBeNull()
   })
 })

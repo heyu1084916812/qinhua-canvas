@@ -1356,6 +1356,24 @@
   word-break: break-word;
 }
 
+.cellRemove {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+
+.cellRemove:hover,
+.cellRemove:focus-visible {
+  color: var(--text-1);
+  background: var(--bg-hover);
+}
+
 /* 单张操作（重跑 / 下载）：与错误文字同一行，跑着的那张按钮置灰 */
 .cellActions {
   /*

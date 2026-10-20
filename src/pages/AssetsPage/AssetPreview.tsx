@@ -33,6 +33,9 @@ export function AssetPreview({
   onTagsChange,
   canSendToCanvas = false,
   onSendToCanvas,
+  onPrevious,
+  onNext,
+  positionLabel,
 }: {
   asset: LibraryAsset
   onClose: () => void
@@ -40,6 +43,9 @@ export function AssetPreview({
   onTagsChange?: (tags: string[]) => void
   canSendToCanvas?: boolean
   onSendToCanvas?: () => void
+  onPrevious?: () => void
+  onNext?: () => void
+  positionLabel?: string
 }) {
   const { url, mime } = useAssetMeta(asset.hash)
   const channelStore = useChannels()
@@ -108,6 +114,20 @@ export function AssetPreview({
         onClose()
         return
       }
+      const target = event.target as HTMLElement | null
+      const inEditable =
+        target?.closest('input, textarea, select, [contenteditable="true"]') != null
+      const inVideo = target?.closest('video') != null
+      if (!inEditable && !inVideo && event.key === 'ArrowLeft' && onPrevious) {
+        event.preventDefault()
+        onPrevious()
+        return
+      }
+      if (!inEditable && !inVideo && event.key === 'ArrowRight' && onNext) {
+        event.preventDefault()
+        onNext()
+        return
+      }
       if (event.key !== 'Tab') return
       const focusable = panelRef.current?.querySelectorAll<HTMLElement>(
         'button:not([disabled]), [href], video[controls], [tabindex]:not([tabindex="-1"])',
@@ -125,7 +145,7 @@ export function AssetPreview({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, asset.hash])
+  }, [asset.hash, onClose, onNext, onPrevious])
 
   useEffect(() => {
     if (isVideo || !url) {
@@ -167,6 +187,17 @@ export function AssetPreview({
         onClick={(event) => event.stopPropagation()}
       >
         <section className={styles.previewStage} data-asset-preview-stage>
+          <button
+            type="button"
+            className={`${styles.previewNav} ${styles.previewNavPrev}`}
+            data-asset-preview-prev
+            aria-label="上一张素材"
+            title="上一张（←）"
+            disabled={!onPrevious}
+            onClick={onPrevious}
+          >
+            ‹
+          </button>
           {isVideo ? (
             <video
               className={styles.previewMedia}
@@ -186,6 +217,22 @@ export function AssetPreview({
               draggable={false}
             />
           )}
+          <button
+            type="button"
+            className={`${styles.previewNav} ${styles.previewNavNext}`}
+            data-asset-preview-next
+            aria-label="下一张素材"
+            title="下一张（→）"
+            disabled={!onNext}
+            onClick={onNext}
+          >
+            ›
+          </button>
+          {positionLabel ? (
+            <span className={styles.previewPosition} data-asset-preview-position>
+              {positionLabel}
+            </span>
+          ) : null}
         </section>
 
         <aside className={styles.previewDetails} data-asset-preview-details>

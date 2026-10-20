@@ -235,6 +235,16 @@ describe('routeCandidatesFor', () => {
     expect(out[0]!.upstreamModel).toBe('gpt-image-2.5-flare')
   })
 
+  it('★ 固定显示名经别名命中时，返回渠道真实上游 ID 而不是显示名', () => {
+    const out = routeCandidatesFor(
+      [ch({ id: 'A', modelIds: ['gpt-6-astra'] })],
+      'GPT-6 Astra',
+      resolveUpstreamModel,
+    )
+    expect(out).toHaveLength(1)
+    expect(out[0]!.upstreamModel).toBe('gpt-6-astra')
+  })
+
   it('映射值为空白 → 不算提供（那是「没配」，不是「配成空」）', () => {
     const out = routeCandidatesFor(
       [ch({ id: 'A', modelIds: ['other'], modelMap: { 'GPT Image 2.5 Flare': '   ' } })],

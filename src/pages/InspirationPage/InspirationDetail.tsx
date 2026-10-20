@@ -29,9 +29,15 @@ export function downloadNameOf(item: InspirationCase): string {
 export function InspirationDetail({
   item,
   onClose,
+  onPrevious,
+  onNext,
+  positionLabel,
 }: {
   item: InspirationCase
   onClose: () => void
+  onPrevious?: () => void
+  onNext?: () => void
+  positionLabel?: string
 }) {
   const platform = usePlatform()
   const [copied, setCopied] = useState(false)
@@ -43,9 +49,24 @@ export function InspirationDetail({
   useEffect(() => {
     closeRef.current?.focus()
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.preventDefault()
-      onClose()
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+        return
+      }
+      const target = e.target as HTMLElement | null
+      const inEditable =
+        target?.closest('input, textarea, select, [contenteditable="true"]') != null
+      const inVideo = target?.closest('video') != null
+      if (!inEditable && !inVideo && e.key === 'ArrowLeft' && onPrevious) {
+        e.preventDefault()
+        onPrevious()
+        return
+      }
+      if (!inEditable && !inVideo && e.key === 'ArrowRight' && onNext) {
+        e.preventDefault()
+        onNext()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => {
@@ -53,7 +74,7 @@ export function InspirationDetail({
       if (timer.current) clearTimeout(timer.current)
       if (downloadTimer.current) clearTimeout(downloadTimer.current)
     }
-  }, [onClose])
+  }, [onClose, onNext, onPrevious])
 
   const copy = () => {
     if (!item.prompt) return
@@ -90,6 +111,17 @@ export function InspirationDetail({
     >
       <div className={styles.detail}>
         <div className={styles.detailStage}>
+          <button
+            type="button"
+            className={`${styles.detailNav} ${styles.detailNavPrev}`}
+            data-inspiration-prev
+            aria-label="上一条灵感"
+            title="上一条（←）"
+            disabled={!onPrevious}
+            onClick={onPrevious}
+          >
+            ‹
+          </button>
           {item.videoUrl ? (
             <video
               className={styles.detailVideo}
@@ -106,6 +138,22 @@ export function InspirationDetail({
           ) : (
             <span className={styles.shotEmpty}>这个案例没有预览图</span>
           )}
+          <button
+            type="button"
+            className={`${styles.detailNav} ${styles.detailNavNext}`}
+            data-inspiration-next
+            aria-label="下一条灵感"
+            title="下一条（→）"
+            disabled={!onNext}
+            onClick={onNext}
+          >
+            ›
+          </button>
+          {positionLabel ? (
+            <span className={styles.detailPosition} data-inspiration-position>
+              {positionLabel}
+            </span>
+          ) : null}
         </div>
 
         <aside className={styles.detailSide}>

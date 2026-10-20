@@ -90,6 +90,31 @@ describe('电商任务 / 结果仓储（内存存储）', () => {
     expect(await repo.interruptUnfinished(task.id, '再次收口', 300)).toBeNull()
   })
 
+  it('失败记录可单独移除：成功结果保留，任务节点与状态重新收口', async () => {
+    const storage = createMemoryStorage()
+    const repo = createEcommerceTaskRepository(storage)
+    const { results } = await repo.create({
+      projectId: 'p1',
+      batchId: 'batch-remove-failed',
+      request,
+      nodeIds: ['n1', 'n2'],
+      at: 100,
+    })
+    await repo.updateResult({ ...results[0]!, status: 'done', assetHash: 'kept', updatedAt: 110 })
+    await repo.updateResult({
+      ...results[1]!,
+      status: 'failed',
+      errorText: '上游失败',
+      updatedAt: 120,
+    })
+    const removed = await repo.removeResult(results[1]!.id, 200)
+    expect(removed?.results.map((row) => [row.nodeId, row.status])).toEqual([['n1', 'done']])
+    expect(removed?.task.nodeIds).toEqual(['n1'])
+    expect(removed?.task.status).toBe('done')
+    expect(removed?.task.errorText).toBeUndefined()
+    expect(await repo.removeResult(results[0]!.id, 300)).toBeNull()
+  })
+
   it('AI 编辑任务保存来源任务 / 来源结果 / 原图 hash，用于前后对比', async () => {
     const storage = createMemoryStorage()
     const repo = createEcommerceTaskRepository(storage)
