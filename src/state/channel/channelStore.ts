@@ -40,7 +40,7 @@ import type {
   VideoRunRequest,
   VerifyResult,
 } from '../../platform/channels/types'
-import type { ChatMessage, ToolDeclaration } from '../../domain/shared/execution/types'
+import type { ChatMessage, NodeInput, ToolDeclaration } from '../../domain/shared/execution/types'
 import { describeError, asAppError } from '../../shared/result'
 
 /**
@@ -220,6 +220,11 @@ export interface ChannelStoreActions {
     model: string
     tools: readonly ToolDeclaration[]
     messages: readonly ChatMessage[]
+    /**
+     * 随本轮对话附带的视觉素材。电商商品分析必须真正把原图发给模型，
+     * 只写文件名或节点 id 不算“看过图”。
+     */
+    inputs?: readonly NodeInput[]
     signal: AbortSignal
     /** 单次调用的等待上限；不给走 Agent 的默认值（见 `AGENT_CHAT_TIMEOUT_MS`） */
     timeoutMs?: number
@@ -792,6 +797,7 @@ export function createChannelStore(
     model,
     tools,
     messages,
+    inputs = [],
     signal,
     timeoutMs,
   }) => {
@@ -817,7 +823,7 @@ export function createChannelStore(
         channelId,
         model: upstreamModel,
         prompt: '',
-        inputs: [],
+        inputs: [...inputs],
         params: {},
         tools,
         messages,

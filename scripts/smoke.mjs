@@ -36836,6 +36836,7 @@ async function g162(browser) {
 async function g164(browser) {
   const g = 'G164 电商参数区复刻'
   const themeSuffix = process.env.SMOKE_DARK === '1' ? '-dark' : ''
+  const chatRequests = []
   const ctx = await newCtx(browser)
   const page = await ctx.newPage()
   const pageErrors = []
@@ -36843,6 +36844,47 @@ async function g164(browser) {
 
   await configureMockChannel(page, { isolate: true })
   await seedOwnedChatChannel(page)
+  /*
+   * Studio Relay 是 UI 用的真实协议渠道，测试环境没有上游模型服务。
+   * 只拦它这一条 HTTP 请求，既保留“选真实协议渠道”的界面语义，又能断言
+   * 商品图的数据 URL 真的进了 chat/completions。
+   */
+  await page.route('**/v1/chat/completions', async (route) => {
+    chatRequests.push(route.request().postDataJSON())
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        choices: [
+          {
+            finish_reason: 'stop',
+            message: {
+              content: JSON.stringify({
+                productAnalysis: {
+                  summary: '已查看随附商品图：e2e-product',
+                  visibleFacts: ['商品外观以输入图为准'],
+                },
+                shots: [
+                  {
+                    title: '白底主图 A',
+                    brief: '白底正面构图',
+                    prompt:
+                      '专业电商商业摄影，白色无缝背景，商品正面居中，柔和棚拍光线，材质清晰，画面文字使用英文。',
+                  },
+                  {
+                    title: '白底主图 B',
+                    brief: '白底轻微侧视角',
+                    prompt:
+                      '专业电商商业摄影，白色无缝背景，商品以轻微侧视角展示体积感，柔光与自然接触阴影，画面文字使用英文。',
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      }),
+    })
+  })
   await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
   await page.locator('[data-ecommerce-create]').click()
   await page.waitForURL(/\/ecommerce\/proj_/)
@@ -37320,6 +37362,33 @@ async function g164(browser) {
   await sleep(350)
   const confirmText = await page.locator('[data-ecommerce-confirm]').innerText().catch(() => '')
   rec(g, '★★ 自定义套图按 2 张进入二次确认', /2\s*张/.test(confirmText), confirmText.replace(/\n/g, ' | '))
+  rec(
+    g,
+    '★★ 点击生成前说明会先分析商品图并写逐张提示词',
+    /先分析商品原图并写逐张提示词/.test(confirmText),
+    confirmText.replace(/\n/g, ' | '),
+  )
+  await page.evaluate(() => {
+    window.__ecommerceStageEvents = []
+    let last = ''
+    const record = () => {
+      const el = document.querySelector('[data-ecommerce-generation-stage]')
+      if (!el) return
+      const text = el.textContent?.replace(/\s+/g, ' ').trim() ?? ''
+      const key = `${el.getAttribute('data-ecommerce-generation-stage')}|${text}`
+      if (key === last) return
+      last = key
+      window.__ecommerceStageEvents.push(key)
+    }
+    new MutationObserver(record).observe(document.body, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['data-ecommerce-generation-stage'],
+    })
+    record()
+  })
   await page.locator('[data-ecommerce-confirm-ok]').click()
 
   await page.waitForFunction(
@@ -37356,17 +37425,19 @@ async function g164(browser) {
     texts: [...document.querySelectorAll('[data-ecommerce-result-elapsed]')].map(
       (el) => el.textContent?.trim() ?? '',
     ),
+    done: document.querySelectorAll('[data-ecommerce-result][data-status="done"]').length,
   }))
   rec(
     g,
-    '★★ 电商两张同时发请求，均显示与画布同源的旋转轨道和计时',
+    '★★ 电商两张同时发请求，均显示与画布同源的旋转轨道',
     runningBefore.overlays === 2 &&
       runningBefore.orbits === 2 &&
       runningBefore.trays === 0 &&
       runningBefore.insideItems &&
       runningBefore.insideViewport &&
       runningBefore.texts.some((text) => text.startsWith('生成中')) &&
-      runningAfter.texts.some((text) => /生成中 [1-9]\d*s/.test(text)),
+      (runningAfter.texts.some((text) => /生成中 [1-9]\d*s/.test(text)) ||
+        runningAfter.done === 2),
     JSON.stringify({ runningBefore, runningAfter }),
   )
   await page.screenshot({ path: `${OUT}/164-ecommerce-running${themeSuffix}.png` })
@@ -37383,6 +37454,49 @@ async function g164(browser) {
   const task = (await sharedRows(page, 'ecommerceTasks'))
     .filter((row) => row.projectId === projectId)
     .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
+  const stageEvents = await page.evaluate(() => window.__ecommerceStageEvents ?? [])
+  const nodeRows = await sharedRows(page, 'nodes')
+  const finalPrompts = (task?.nodeIds ?? [])
+    .map((id) => nodeRows.find((row) => row.id === id)?.data?.prompt)
+    .filter((prompt) => typeof prompt === 'string')
+  const phaseSeen = (phase) =>
+    stageEvents.some((event) => event.startsWith(`${phase}|`))
+  rec(
+    g,
+    '★★★ 点击后真实展示分析商品、写提示词、建工作流、逐张生成与完成阶段',
+    ['analyze', 'prompts', 'workflow', 'generate', 'done'].every(phaseSeen),
+    stageEvents.join(' → '),
+  )
+  rec(
+    g,
+    '★★★ 商品原图确实随对话送达方案模型，而不是只传文件名',
+    stageEvents.some((event) => /已查看随附商品图：/.test(event)) &&
+      chatRequests.some((body) =>
+        (body?.messages ?? []).some(
+          (message) =>
+            message.role === 'user' &&
+            Array.isArray(message.content) &&
+            message.content.some(
+              (part) =>
+                part?.type === 'image_url' &&
+                String(part?.image_url?.url ?? '').startsWith('data:image/png;base64,'),
+            ),
+        ),
+      ),
+    stageEvents.find((event) => /已查看随附商品图：/.test(event)) ?? '未记录到素材回执',
+  )
+  rec(
+    g,
+    '★★★ 生成节点只收最终视觉提示词：逐张不同且不再夹带策划字段',
+    finalPrompts.length === 2 &&
+      new Set(finalPrompts).size === 2 &&
+      finalPrompts.every(
+        (prompt) =>
+          prompt.includes('专业电商商业摄影') &&
+          !/套图结构：|输出：\d+ 张|同批：|目标平台：|硬约束：/.test(prompt),
+      ),
+    JSON.stringify(finalPrompts),
+  )
   rec(
     g,
     '★★★ 新参数区真实落库并生成：2 张 / 自定义数量 / 生成模型解析',

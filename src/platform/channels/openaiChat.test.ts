@@ -373,6 +373,42 @@ describe('openaiChat adapter / 多轮消息', () => {
     ])
   })
 
+  it('★★ messages + inputs：商品图只挂到最后一条 user，历史消息仍是纯文本', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        bodies.push(req.body as Record<string, unknown>)
+        return resp(200, { choices: [{ message: { content: '已分析' }, finish_reason: 'stop' }] })
+      },
+    })
+    const adapter = createOpenAiChatAdapter(cfg, {
+      network: net,
+      assets: platformWith([{ id: 'product', bytes: PNG_BYTES, mime: 'image/png' }]).assets,
+    })
+    await adapter.completeText(
+      {
+        ...request([
+          { kind: 'asset', nodeId: 'p1', assetHash: 'product', mime: 'image/png' },
+        ]),
+        messages: [
+          { role: 'system', content: '先分析商品图' },
+          { role: 'user', content: '上一轮要求' },
+          { role: 'assistant', content: '收到' },
+          { role: 'user', content: '这一轮写最终提示词' },
+        ],
+      },
+      signal,
+    )
+    const messages = (bodies[0] as { messages: { role: string; content: unknown }[] }).messages
+    expect(messages[1]).toEqual({ role: 'user', content: '上一轮要求' })
+    expect(messages[2]).toEqual({ role: 'assistant', content: '收到' })
+    expect(Array.isArray(messages[3]!.content)).toBe(true)
+    expect(messages[3]!.content).toMatchObject([
+      { type: 'text', text: '这一轮写最终提示词' },
+      { type: 'image_url' },
+    ])
+  })
+
   it('★ 不给 messages 时仍是单条 user 消息（老路径一个字没变）', async () => {
     const { bodies, adapter } = capture()
     await adapter.completeText(request([], '你好'), signal)

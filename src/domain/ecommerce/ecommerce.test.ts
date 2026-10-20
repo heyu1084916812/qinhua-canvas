@@ -7,8 +7,6 @@ import {
   platformRuleSummary,
 } from './platforms'
 import {
-  ECOMMERCE_EDIT_HARD_RULES,
-  ECOMMERCE_HARD_RULES,
   ECOMMERCE_NOTE_MAX,
   buildEcommercePrompt,
   updateEcommerceShot,
@@ -141,21 +139,22 @@ describe('工具独立选项', () => {
 })
 
 describe('提示词拼装', () => {
-  it('★ 六段都在：note / 用途 / 平台（含来源与日期）/ 语言 / 张数比例 / 硬约束', () => {
+  it('★ 输出可直接执行的画面描述，不夹带策划字段', () => {
     const text = buildEcommercePrompt({ ...base, note: '突出防水材质' })
     expect(text.split('\n')[0]).toBe('突出防水材质')
-    expect(text).toContain('用途：主图')
-    expect(text).toContain('目标平台：亚马逊')
-    expect(text).toContain('通用建议')
-    expect(text).toContain('2026-10-09')
-    expect(text).toContain('文案语言：English')
-    expect(text).toContain('输出：1 张，比例 1:1')
-    for (const rule of ECOMMERCE_HARD_RULES) expect(text).toContain(rule)
+    expect(text).toContain('专业电商商品摄影')
+    expect(text).toContain('亚马逊常见商品图做法')
+    expect(text).toContain('English')
+    expect(text).toContain('1:1 画幅')
+    expect(text).toContain('严格参照输入商品图')
+    expect(text).not.toContain('套图结构：')
+    expect(text).not.toContain('目标平台：')
+    expect(text).not.toContain('输出：1 张')
   })
 
-  it('★ 没选平台时如实写「未指定平台」，不编一个平台名', () => {
+  it('★ 没选平台时用通用商品图要求，不编一个平台名', () => {
     const text = buildEcommercePrompt({ ...base, platformId: undefined, usage: 'white-bg' })
-    expect(text).toContain('未指定平台')
+    expect(text).toContain('通用电商商品图要求')
     expect(text).not.toContain('亚马逊')
   })
 
@@ -265,17 +264,18 @@ describe('执行计划与校验', () => {
  * 主图 / 详情页 / 套图逐张不同，白底图保持抽卡（N 条相同）。
  */
 describe('逐张镜头脚本', () => {
-  /** 从提示词里取出「这一张只做：<标题>」的标题 */
+  /** 从最终提示词首句里取出镜头标题 */
   const shotTitleOf = (text: string): string =>
-    (text.match(/这一张只做：([^—]+)/) ?? [])[1]?.trim() ?? ''
+    (text.match(/镜头「([^」]+)」/) ?? [])[1]?.trim() ?? ''
 
-  it('★★ 套图 8 张 = 8 条互不相同的提示词，且每条都带镜头标题与硬约束', () => {
+  it('★★ 套图 8 张 = 8 条互不相同的最终提示词，且首句明确镜头', () => {
     const plan = buildEcommercePlan({ ...base, usage: 'set', count: 8 })
     expect(plan.prompts).toHaveLength(8)
     expect(new Set(plan.prompts).size).toBe(8)
     for (const p of plan.prompts) {
-      expect(p).toContain('这一张只做：')
-      for (const rule of ECOMMERCE_HARD_RULES) expect(p).toContain(rule)
+      expect(p).toContain('专业电商商品摄影')
+      expect(p).toContain('严格参照输入商品图')
+      expect(p).not.toContain('这一张只做：')
     }
     expect(plan.prompts.map(shotTitleOf)).toEqual([
       '白底主图',
@@ -311,7 +311,7 @@ describe('逐张镜头脚本', () => {
 
   it('★★ 多张时提示词里明确"每张的镜头都不一样"（修的就是"同一张画 N 遍"）', () => {
     const plan = buildEcommercePlan({ ...base, usage: 'detail', count: 4 })
-    for (const p of plan.prompts) expect(p).toContain('每张的镜头都不一样')
+    for (const p of plan.prompts) expect(p).toContain('必须与同批其他图片不同')
   })
 
   it('★ 张数超过脚本长度也不重复：第 9 张起给"换构图"的通用项', () => {
@@ -326,8 +326,8 @@ describe('逐张镜头脚本', () => {
     expect(plan.prompts).toHaveLength(1)
     expect(plan.prompts[0]).toContain('正面全身')
     expect(plan.prompt).toBe(plan.prompts[0])
-    // 单张不该出现"同批"那句（它只在多张时有意义）
-    expect(plan.prompts[0]).not.toContain('同批：')
+    // 单张不该出现"同批其他图片"这句（它只在多张时有意义）
+    expect(plan.prompts[0]).not.toContain('同批其他图片')
   })
 
   it('★★ 爆款复刻用参考图，但明确不复制品牌与文案，产品外观仍以产品图为准', () => {
@@ -347,9 +347,9 @@ describe('逐张镜头脚本', () => {
       '生活场景版',
     ])
     for (const prompt of plan.prompts) {
-      expect(prompt).toContain('复刻边界')
-      expect(prompt).toContain('不复制参考图的品牌 Logo')
-      expect(prompt).toContain('产品外观、颜色、材质、结构以产品图为准')
+      expect(prompt).toContain('只借鉴参考图的构图')
+      expect(prompt).toContain('不要复制参考图的品牌 Logo')
+      expect(prompt).toContain('产品外观、颜色、材质、结构仍以商品原图为准')
     }
   })
 
@@ -362,11 +362,10 @@ describe('逐张镜头脚本', () => {
     })
     expect(plan.prompts).toHaveLength(1)
     expect(plan.prompts[0]).toContain('把背景换成海边日落，产品不要动')
-    expect(plan.prompts[0]).toContain('编辑边界')
+    expect(plan.prompts[0]).toContain('只执行用户明确点名的修改')
     expect(plan.prompts[0]).toContain('未点名的产品、人物、构图、光影、文字与背景保持不变')
-    expect(plan.prompts[0]).toContain('这一张只做：定向编辑')
-    for (const rule of ECOMMERCE_EDIT_HARD_RULES) expect(plan.prompts[0]).toContain(rule)
-    expect(plan.prompts[0]).not.toContain(ECOMMERCE_HARD_RULES[0]!)
+    expect(plan.prompts[0]).toContain('镜头「定向编辑」')
+    expect(plan.prompts[0]).toContain('不要新增品牌 Logo、水印、认证、价格')
   })
 })
 
@@ -384,6 +383,16 @@ describe('逐行改方案', () => {
     expect(next).not.toBe(shots)
     expect(next[0]).toBe(shots[0])
     expect(next[1]).toEqual({ title: '细节特写', brief: '改成俯拍接口处' })
+  })
+
+  it('★★ 改策划后旧最终提示词作废，避免标题与画面错位', () => {
+    const withPrompt = [
+      { title: '正面', brief: '产品正对镜头', prompt: '旧最终提示词' },
+      { title: '细节', brief: '贴近拍材质', prompt: '另一条最终提示词' },
+    ]
+    const next = updateEcommerceShot(withPrompt, 0, { brief: '改成俯拍' })
+    expect(next[0]).toEqual({ title: '正面', brief: '改成俯拍' })
+    expect(next[1]).toBe(withPrompt[1])
   })
 
   it('★ 只改标题、只改要点都成立，另一项原样保留', () => {

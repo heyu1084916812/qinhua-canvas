@@ -924,6 +924,59 @@
   cursor: not-allowed;
 }
 
+.generationStage {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  margin: 7px 18px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  color: var(--text-1);
+}
+
+.generationStageDot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.generationStage[data-ecommerce-generation-stage='failed'] .generationStageDot {
+  background: var(--danger);
+}
+
+.generationStageCopy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.generationStageCopy strong {
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+
+.generationStageCopy span {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: var(--fs-label);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.generationStageCount {
+  flex: 0 0 auto;
+  color: var(--text-2);
+  font-size: var(--fs-label);
+  font-variant-numeric: tabular-nums;
+}
+
 .resultsHead {
   display: flex;
   align-items: center;
@@ -1582,6 +1635,13 @@
   color: var(--text-1);
 }
 
+.confirmFlow {
+  margin: calc(var(--space-1) * -1) 0 0;
+  color: var(--text-2);
+  font-size: var(--fs-label);
+  line-height: var(--lh-body);
+}
+
 .editInput {
   width: 100%;
   min-height: 112px;
@@ -1943,6 +2003,7 @@
 @media (prefers-reduced-motion: reduce) {
   .seg,
   .generate,
+  .generationStage,
   .cancel,
   .linkBtn,
   .addSlot,

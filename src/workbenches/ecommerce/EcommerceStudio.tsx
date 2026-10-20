@@ -15,8 +15,10 @@ import type { EcommerceIntentDraft } from '../../domain/ecommerce/chatParse'
 import type { EcommercePlanSession } from '../../domain/ecommerce/sessions'
 import type { EcommerceTaskRecord } from '../../domain/ecommerce/tasks'
 import {
+  shouldExpandShots,
   type ShotPlanResult,
 } from '../../domain/ecommerce/chatShots'
+import type { EcommerceGenerationStage } from '../../domain/ecommerce/progress'
 import {
   ecommerceLanguageOptionLabel,
   ecommerceLanguageOptions,
@@ -396,6 +398,31 @@ export function ResultStatusOverlay({ item }: { item: EcommerceResultItem }) {
           生成中 {elapsed}s
         </span>
       </span>
+    </div>
+  )
+}
+
+export function GenerationStageView({ stage }: { stage: EcommerceGenerationStage | null }) {
+  if (!stage) return null
+  return (
+    <div
+      className={styles.generationStage}
+      data-ecommerce-generation-stage={stage.phase}
+      data-current={stage.current}
+      data-total={stage.total}
+      role={stage.phase === 'failed' ? 'alert' : 'status'}
+      aria-live="polite"
+    >
+      <span className={styles.generationStageDot} aria-hidden="true" />
+      <span className={styles.generationStageCopy}>
+        <strong>{stage.label}</strong>
+        {stage.detail ? <span title={stage.detail}>{stage.detail}</span> : null}
+      </span>
+      {stage.total ? (
+        <span className={styles.generationStageCount}>
+          {stage.current ?? 0}/{stage.total}
+        </span>
+      ) : null}
     </div>
   )
 }
@@ -1134,6 +1161,8 @@ export interface EcommerceStudioProps {
    * 是"按你的要求现写的"还是"回落默认脚本（因为什么）"。空串 = 这次没这回事，不显示。
    */
   shotPlanNote?: string
+  /** 当前生成阶段；页面负责推进，工作台只负责如实显示。 */
+  generationStage?: EcommerceGenerationStage | null
 }
 
 export function EcommerceStudio({
@@ -1164,6 +1193,7 @@ export function EcommerceStudio({
   intentModel = '',
   onIntentModelChange,
   onConfigureChannels,
+  generationStage = null,
 }: EcommerceStudioProps) {
   const saved = initialDraft ?? DEFAULT_ECOMMERCE_FORM_DRAFT
   const initialMode =
@@ -1628,10 +1658,17 @@ export function EcommerceStudio({
       setError('先上传一张模特参考图，或把模特来源切回 AI 生成')
       return
     }
+    const request = buildRequest()
     try {
-      buildEcommercePlan(buildRequest())
+      buildEcommercePlan(request)
     } catch (e) {
       setError(e instanceof EcommerceRequestError ? e.message : '这次参数没有通过校验，请检查后再试')
+      return
+    }
+    if (shouldExpandShots(request) && !chatTargetLabel) {
+      setError(
+        '这类商品图需要先用对话模型分析商品原图并写逐张提示词。请先在右侧「对话模型」配置渠道，再生成。',
+      )
       return
     }
     setError('')
@@ -1876,6 +1913,10 @@ export function EcommerceStudio({
           : ['首屏主视觉', '规格参数', '售后说明'],
     },
   ]
+  const confirmUsesAiPlan =
+    confirming && chatTargetLabel
+      ? shouldExpandShots(buildRequest())
+      : false
 
   return (
     <div className={styles.wrap} data-ecommerce-studio>
@@ -2255,6 +2296,7 @@ export function EcommerceStudio({
         >
           {running ? '生成中…' : mode.mediaKind === 'video' ? '生成视频' : `生成${mode.label}`}
         </button>
+        <GenerationStageView stage={generationStage} />
 
       </aside>
 
@@ -2906,6 +2948,11 @@ export function EcommerceStudio({
               {ecommerceRatioLabel(ratio)}
               {platform ? `，面向 ${platform.name}` : ''}。会调用你的渠道，产生真实用量。
             </p>
+            {confirmUsesAiPlan ? (
+              <p className={styles.confirmFlow} data-ecommerce-confirm-ai-flow>
+                确认后会先分析商品原图并写逐张提示词，再交给生图模型。
+              </p>
+            ) : null}
             <div className={styles.confirmActions}>
               <button
                 type="button"

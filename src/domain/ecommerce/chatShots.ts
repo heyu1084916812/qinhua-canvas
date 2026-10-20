@@ -30,6 +30,7 @@ export const ECOMMERCE_SHOTS_MARKER = '【电商分镜扩写】'
 /** 单条 title / brief 的字符上限（提示词别被一条离谱的长句撑爆） */
 export const SHOT_TITLE_MAX = 40
 export const SHOT_BRIEF_MAX = 200
+export const SHOT_PROMPT_MAX = 1800
 
 /**
  * 这一次值不值得**问模型**。
@@ -49,7 +50,12 @@ export function shouldExpandShots(request: {
   note?: string
 }): boolean {
   if (request.mediaKind === 'video') return false
-  return request.count > 1 && request.usage !== 'white-bg' && (request.note ?? '').trim().length > 0
+  /*
+   * 白底图是抽卡语义，直接执行同一件事；编辑指令本身已经是最终要求。
+   * 其余商品图都必须先看商品原图再写最终视觉提示词，包括只有 1 张的主图。
+   * note 不是前提：没有补充要求时，商品外观本身仍需要被分析和转写成画面描述。
+   */
+  return request.usage !== 'white-bg' && request.usage !== 'edit'
 }
 
 /**
@@ -84,16 +90,19 @@ export function shotKeyOf(input: {
 
 /** 系统指令 = 契约（写法与 `chatParse` / 拆镜那几条保持同一形状） */
 export function buildShotsSystem(): string {
-  return `你是一名电商视觉导演，负责把一次出图需求拆成"每一张拍什么"的拍摄简报。
+  return `你是一名电商视觉导演和商业摄影提示词工程师。先查看随消息附上的商品原图与参考图，再结合用户要求，为每一张图写可直接交给生图模型的最终视觉提示词。
 
 ${ECOMMERCE_SHOTS_MARKER}输出契约（必须严格遵守）
 1. 只输出一个 JSON 对象，不要解释、不要客套；可以用 \`\`\`json 代码块包住。
-2. 结构固定为：{"shots":[{"title":"短名","brief":"这一张要什么"}]}
-3. **条数必须等于要求的张数**：一条不多、一条不少，顺序就是出图顺序（第 1 条 = 第 1 张）。
-4. title 不超过 10 个字（它会写进提示词）；brief 一句话，说清这一张的视角 / 构图 / 卖点。
-5. **任意两条不许是同一个意思**（同样的画面换个说法不算不同）。
-6. 只能用用户给出的信息与商品类别的常识；**不许编造材质、参数、认证、功效与价格**。
-7. 用户的补充要求优先级最高：它说突出什么，就围绕它安排卖点顺序。`
+2. 结构固定为：
+{"productAnalysis":{"summary":"对商品原图的实际观察摘要","visibleFacts":["可见外观事实"]},"shots":[{"title":"短名","brief":"这一张的内部策划意图","prompt":"可直接交给你生图模型的最终视觉提示词"}]}
+3. 必须先基于附图写 productAnalysis：只写图中确实看得见的主体、颜色、材质、结构、包装与使用线索；看不清的不要猜。
+4. **shots 条数必须等于要求的张数**：一条不多、一条不少，顺序就是出图顺序（第 1 条 = 第 1 张）。
+5. title 不超过 10 个字；brief 一句话，内部说明这一张的视角 / 构图 / 卖点，不要把它当最终提示词。
+6. prompt 必须是一段自包含的商业摄影画面描述，至少交代：主体与可见外观、场景/背景、镜头与构图、光线与色调、材质表现、画面文字策略。不要在 prompt 里写"套图结构 / 目标平台 / 输出 N 张 / 同批 / 硬约束"等策划字段。
+7. **任意两条 prompt 不许相同或只是换词重复**；整个套图保持统一视觉语言，但每张镜头、景别、构图和表达任务必须不同。
+8. 商品外观严格以附图为准；**不许编造材质、参数、认证、功效、价格、品牌或图中不存在的结构**。
+9. 用户补充要求优先级最高；平台规则用于约束构图与文字策略，不把规则原文抄进 prompt。`
 }
 
 /**
@@ -106,15 +115,19 @@ ${ECOMMERCE_SHOTS_MARKER}输出契约（必须严格遵守）
 export function buildShotsText(
   request: EcommerceRequest,
   platforms: readonly EcommercePlatform[] = ECOMMERCE_PLATFORMS,
+  visualCount = 0,
 ): string {
   const platform = platforms.find((p) => p.id === request.platformId) ?? null
   const lines = [
+    `附带的视觉素材：${visualCount > 0 ? `${visualCount} 张商品原图 / 参考图` : '未收到图片'}`,
     `用户的要求：${(request.note ?? '').trim() || '（用户没写补充要求）'}`,
+    `功能：${request.modeLabel?.trim() || usageLabel(request.usage)}`,
     `用途：${usageLabel(request.usage)}`,
     `目标平台：${platformRuleSummary(platform)}`,
     `文案语言：${languageLabel(request.language)}`,
     `要求张数：${request.count}`,
     `比例：${request.ratio}`,
+    `专属配置：${request.modePrompt?.trim() || '无'}`,
     '',
     `默认镜头脚本（可作结构参考；请按上面那句要求调整顺序与内容 —— 商品不同，卖点顺序就该不同）：`,
   ]
@@ -125,7 +138,7 @@ export function buildShotsText(
 }
 
 export type ShotsReplyParse =
-  | { ok: true; shots: readonly EcommerceShot[] }
+  | { ok: true; shots: readonly EcommerceShot[]; analysis: string }
   | { ok: false; error: string }
 
 /**
@@ -135,8 +148,32 @@ export type ShotsReplyParse =
  * 只说"出方案失败"，用户既不知道该改什么，也不知道能不能直接出图。
  */
 export type ShotPlanResult =
-  | { ok: true; shots: readonly EcommerceShot[] }
+  | { ok: true; shots: readonly EcommerceShot[]; analysis: string }
   | { ok: false; error: string }
+
+function productAnalysisOf(json: unknown): string {
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return ''
+  const raw = (json as { productAnalysis?: unknown }).productAnalysis
+  if (typeof raw === 'string') return raw.trim()
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return ''
+  const summary = (raw as { summary?: unknown }).summary
+  return typeof summary === 'string' ? summary.trim() : ''
+}
+
+/**
+ * 用户截图里的那类内容属于策划元数据，不是生图模型能直接执行的画面描述。
+ * 解析层直接拦住，避免模型没按契约回时又把旧问题送进付费生图。
+ */
+export function looksLikePlanningPrompt(text: string): boolean {
+  return [
+    /(^|\n)\s*套图结构\s*[:：]/,
+    /(^|\n)\s*输出\s*[:：]\s*\d+\s*张/,
+    /(^|\n)\s*同批\s*[:：]/,
+    /(^|\n)\s*这一张只做\s*[:：]/,
+    /(^|\n)\s*目标平台\s*[:：]/,
+    /(^|\n)\s*硬约束\s*[:：]/,
+  ].some((pattern) => pattern.test(text))
+}
 
 /**
  * 解析模型的回复。
@@ -167,6 +204,13 @@ export function parseShotsReply(raw: string, count: number): ShotsReplyParse {
       error: `分镜条数对不上：要 ${count} 条，模型回了 ${list.length} 条。`,
     }
   }
+  const analysis = productAnalysisOf(json)
+  if (!analysis) {
+    return {
+      ok: false,
+      error: '没有拿到商品原图分析：模型必须先看附图并返回 productAnalysis.summary。',
+    }
+  }
   const shots: EcommerceShot[] = []
   for (let i = 0; i < list.length; i += 1) {
     const item = list[i]
@@ -176,9 +220,28 @@ export function parseShotsReply(raw: string, count: number): ShotsReplyParse {
     const row = item as Record<string, unknown>
     const title = (typeof row.title === 'string' ? row.title.trim() : '').slice(0, SHOT_TITLE_MAX)
     const brief = (typeof row.brief === 'string' ? row.brief.trim() : '').slice(0, SHOT_BRIEF_MAX)
+    const prompt = (typeof row.prompt === 'string' ? row.prompt.trim() : '').slice(
+      0,
+      SHOT_PROMPT_MAX,
+    )
     /* brief 是这一条的**实质**：空的就是这条模型没写，不许拿 title 顶上 */
     if (!brief) return { ok: false, error: `第 ${i + 1} 条分镜没写清楚要什么，整批回落。` }
-    shots.push({ title: title || `第 ${i + 1} 张`, brief })
+    if (!prompt) {
+      return {
+        ok: false,
+        error: `第 ${i + 1} 条只有策划简报，没有最终生图提示词，已停止。`,
+      }
+    }
+    if (looksLikePlanningPrompt(prompt)) {
+      return {
+        ok: false,
+        error: `第 ${i + 1} 条的 prompt 仍是策划字段，不是生图提示词，已停止。`,
+      }
+    }
+    shots.push({ title: title || `第 ${i + 1} 张`, brief, prompt })
   }
-  return { ok: true, shots }
+  if (shots.length > 1 && new Set(shots.map((shot) => shot.prompt)).size !== shots.length) {
+    return { ok: false, error: '逐张最终提示词有重复，无法保证每张镜头不同，整批停止。' }
+  }
+  return { ok: true, shots, analysis }
 }

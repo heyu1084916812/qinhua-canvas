@@ -54,6 +54,8 @@ import {
 } from '../../domain/project/modelCatalog'
 import { imageParamsFor } from '../../domain/canvas/layout/imageParams'
 import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
+import { imageAssetInputsOf } from '../../domain/shared/execution/inputs'
+import type { NodeInput } from '../../domain/shared/execution/types'
 import { projectRoute } from '../../domain/shared/workbench'
 import { downloadAsset } from '../../features/canvas/downloadAsset'
 import { asAppError, describeError } from '../../shared/result'
@@ -99,6 +101,7 @@ import {
 } from './EcommerceWorkbench'
 import type { Edge } from '../../domain/canvas/model/edge'
 import type { EcommerceRequest } from '../../domain/ecommerce/types'
+import type { EcommerceGenerationStage } from '../../domain/ecommerce/progress'
 import {
   ECOMMERCE_UPSCALE_OPTIONS,
   upscaleNoteOf,
@@ -364,6 +367,7 @@ function StudioHost({ projectId }: { projectId: string }) {
    * 用户点两下就花两次对话额度（而且要等两遍）。
    */
   const [preparingShots, setPreparingShots] = useState(false)
+  const [generationStage, setGenerationStage] = useState<EcommerceGenerationStage | null>(null)
   const models = useMemo(() => panelModelOptions('image'), [])
   const videoModels = useMemo(() => panelModelOptions('video'), [])
   const imageParamOptionsByModel = useMemo(
@@ -1112,6 +1116,29 @@ function StudioHost({ projectId }: { projectId: string }) {
    * **不抛错**：所有失败都变成 `{ ok:false, error }` —— 调用方要的是"能不能拿到方案"，
    * 而不是一个异常（分镜失败从来不该让出图失败）。
    */
+  const visualInputsFor = (request: EcommerceRequest): Extract<NodeInput, { kind: 'asset' }>[] => {
+    const nodeIds = [
+      ...new Set([
+        request.productNodeId,
+        ...(request.productNodeIds ?? []),
+        ...request.referenceNodeIds,
+      ]),
+    ].filter(Boolean)
+    const raw: NodeInput[] = []
+    for (const nodeId of nodeIds) {
+      const node = graph.nodes.find((item) => item.id === nodeId)
+      if (!node) continue
+      const mime =
+        typeof (node.data as { assetMime?: unknown }).assetMime === 'string'
+          ? ((node.data as { assetMime: string }).assetMime)
+          : 'image/png'
+      for (const assetHash of assetHashesOfNode(node)) {
+        raw.push({ kind: 'asset', nodeId, assetHash, mime })
+      }
+    }
+    return imageAssetInputsOf(raw)
+  }
+
   const requestShots = async (request: EcommerceRequest): Promise<ShotPlanResult> => {
     if (!chatTarget) {
       return {
@@ -1119,31 +1146,56 @@ function StudioHost({ projectId }: { projectId: string }) {
         error: '没有可用的对话模型 —— 先去「设置 → 渠道配置」给一条渠道勾上对话模型',
       }
     }
+    const visualInputs = visualInputsFor(request)
+    if (visualInputs.length === 0) {
+      return {
+        ok: false,
+        error: '没有可随对话发送的商品图 —— 无法先分析产品外观，已停止本次生图。',
+      }
+    }
+    setGenerationStage({
+      phase: 'analyze',
+      label: '正在分析商品原图与需求',
+      detail: `已附 ${visualInputs.length} 张视觉素材`,
+    })
     const ac = new AbortController()
-    /* 30 秒兜底：分镜是一次小请求，卡住就该早点回落去出图 */
-    const timer = setTimeout(() => ac.abort(), 30_000)
+    /* 多模态请求要读图并写逐张提示词，给 60 秒；卡住也必须如实失败。 */
+    const timer = setTimeout(() => ac.abort(), 60_000)
     try {
       const result = await channels.completeWithTools({
         channelId: chatTarget.channelId,
         model: chatTarget.model,
         tools: [],
+        inputs: visualInputs,
         messages: [
           { role: 'system', content: buildShotsSystem() },
-          { role: 'user', content: buildShotsText(request, platforms) },
+          {
+            role: 'user',
+            content: buildShotsText(request, platforms, visualInputs.length),
+          },
         ],
         signal: ac.signal,
       })
       const parsed = parseShotsReply(result.text, request.count)
-      return parsed.ok ? { ok: true, shots: parsed.shots } : { ok: false, error: parsed.error }
+      if (parsed.ok) {
+        setGenerationStage({
+          phase: 'prompts',
+          label: '正在整理逐张生图提示词',
+          detail: parsed.analysis,
+        })
+      }
+      return parsed.ok
+        ? { ok: true, shots: parsed.shots, analysis: parsed.analysis }
+        : { ok: false, error: parsed.error }
     } catch (e) {
       const err = asAppError(e)
       return {
         ok: false,
         error: ac.signal.aborted
-          ? '分镜请求超时（30 秒没回）。'
+          ? '商品分析与提示词请求超时（60 秒没回）。'
           : err
             ? describeError(err)
-            : '分镜请求失败。',
+            : '商品分析与提示词请求失败。',
       }
     } finally {
       clearTimeout(timer)
@@ -1174,186 +1226,208 @@ function StudioHost({ projectId }: { projectId: string }) {
       sourceAssetHash?: string
     },
   ) => {
-    /**
-     * ① **先按确定性脚本建一次计划**：它同时完成**全部校验**。
-     *
-     * 顺序有讲究 —— 校验不过就当场抛错，**绝不在一个非法请求上先花掉一次对话额度**
-     * （先问分镜再校验，等于让用户为一次必然失败的生成多付一次对话费）。
-     */
-    let plan = buildEcommercePlan(request, { platforms })
+    setShotPlanNote('')
+    setGenerationStage({ phase: 'validate', label: '正在检查素材与参数' })
+    try {
+      /**
+       * ① **先按确定性脚本建一次计划**：它同时完成**全部校验**。
+       *
+       * 校验不过就当场抛错，**绝不在一个非法请求上先花掉一次对话额度**。
+       */
+      let plan = buildEcommercePlan(request, { platforms })
 
-    /**
-     * ② **分镜**（对账 #406 / #423）。三条路，按优先级：
-     *  - **A 用户已经确认过一份**（`shotPlan`，条数与张数对得上）⇒ 直接用，**不再多花**；
-     *  - **B 值得问、且有对话模型** ⇒ 现问一次（判据与确认卡那句提示是同一个纯函数）；
-     *  - **C 其余** ⇒ 用第 ① 步那份确定性脚本。
-     * 无论走哪条，**绝不因为分镜失败而让用户出不了图**，并且**如实说走了哪条、为什么**。
-     */
-    const usablePlan = shotPlan && shotPlan.length === request.count ? shotPlan : null
-    if (usablePlan) {
-      plan = buildEcommercePlan(request, { platforms, shots: usablePlan })
-      setShotPlanNote(`这 ${request.count} 张的镜头用的是你刚确认的那份方案。`)
-    } else if (shouldExpandShots(request)) {
-      if (!chatTarget) {
-        setShotPlanNote('这几张用的是默认镜头脚本：没有可用的对话模型。')
-      } else {
-        const target = chatTarget
+      /**
+       * ② **商品分析 + 最终提示词**。
+       *
+       * 白底图保留抽卡语义；编辑直接使用用户的编辑指令。其余商品图必须先把
+       * 商品原图随对话发出，让模型返回 productAnalysis 与每张的最终 prompt。
+       * 这一步失败时停止，不再拿策划简报冒充生图提示词。
+       */
+      const usablePlan = shotPlan && shotPlan.length === request.count ? shotPlan : null
+      if (usablePlan) {
+        plan = buildEcommercePlan(request, { platforms, shots: usablePlan })
+        setShotPlanNote(`这 ${request.count} 张使用已确认的逐张方案。`)
+        setGenerationStage({ phase: 'prompts', label: '正在采用已确认的逐张提示词' })
+      } else if (shouldExpandShots(request)) {
+        if (!chatTarget) {
+          throw new Error(
+            '没有可用的对话模型：无法先分析商品原图并写逐张提示词。为避免把策划文案直接送去生图，本轮未生成。',
+          )
+        }
         setPreparingShots(true)
         try {
           const out = await requestShots(request)
-          if (out.ok) {
-            plan = buildEcommercePlan(request, { platforms, shots: out.shots })
-            setShotPlanNote(
-              `这 ${request.count} 张的镜头是按你的要求现写的（${target.label}，多花了一次对话额度）。`,
-            )
-          } else {
-            setShotPlanNote(`这几张用了默认镜头脚本：${out.error}`)
+          if (!out.ok) {
+            throw new Error(`商品分析或逐张提示词生成失败：${out.error}`)
           }
+          plan = buildEcommercePlan(request, { platforms, shots: out.shots })
+          setShotPlanNote(
+            `已分析商品图，并由 ${chatTarget.label} 生成 ${request.count} 条不同的最终提示词。`,
+          )
         } finally {
           setPreparingShots(false)
         }
-      }
-    } else {
-      /* 这一趟没打算问模型：把上一次的说明清掉，免得挂在界面上误导 */
-      setShotPlanNote('')
-    }
-
-    const mediaKind = request.mediaKind ?? 'image'
-    const recipe = await channels.defaultForNewNode({}, mediaKind)
-    const target = resolveGenerationTarget({
-      channels: channelList,
-      category: mediaKind,
-      catalog: channels.protocolCatalog(),
-      strategy: routeStrategy,
-      ...(request.model ? { logicalModel: request.model } : {}),
-      ...(request.channelId ? { channelId: request.channelId } : {}),
-      recipe,
-    })
-    if (!target) {
-      throw new Error(
-        request.model
-          ? `所选模型「${request.model}」没有可用的真实${mediaKind === 'video' ? '视频' : '生图'}渠道`
-          : mediaKind === 'video'
-            ? '还没有可用的视频渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上视频模型'
-            : '还没有可用的生图渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上模型',
-      )
-    }
-    const modelForRun = target.logicalModel
-    const channelForRun = target.channelId
-
-    /**
-     * **两段式**（对账 #410）：
-     *
-     * ① 先把 N 张节点的默认值**全部异步解析完**（读渠道配方是异步的）；
-     * ② 再在一个 `beginPlan` / `endPlan` 里**同步**落节点与连线。
-     *
-     * 为什么不能写成"循环里 await + 外面包一层 plan"：`beginPlan` 之间一旦让出
-     * 事务边界，撤销就会断成好几步（`createNodeWithDefaults` 的文件注释记着当年怎么栽的）。
-     * 于是用户按一次撤销，5 张套图应当**整批**退回去，而不是退 5 次还留着连线。
-     */
-    const batchId = createId('ecb')
-    const prescribed: { at: { x: number; y: number }; data: Record<string, unknown> }[] = []
-    for (let i = 0; i < plan.count; i += 1) {
-      const data = await resolveDefaults({
-        channels,
-        type: 'generation',
-        extraData: {
-          mode: mediaKind,
-          channelId: channelForRun,
-          model: modelForRun,
-          ecommerceBatch: batchId,
-          /**
-           * 逐张提示词（用户 2026-10-10 #10）：第 i 张用 `plan.prompts[i]`。
-           * 白底图时 N 条相同（抽卡），主图 / 详情页 / 套图逐张不同（镜头脚本）。
-           */
-          prompt: plan.prompts[i] ?? plan.prompt,
-          ratio: ecommerceAspectRatio(plan.ratio),
-          ...(request.resolution ? { resolution: request.resolution } : {}),
-          ...(request.quality ? { quality: request.quality } : {}),
-          count: 1,
-          ...(request.scale ? { scale: request.scale } : {}),
-          ...(mediaKind === 'video' ? { durationSec: request.durationSec ?? 5 } : {}),
-        },
-      })
-      prescribed.push({ at: { x: 420 + (i % 3) * 300, y: 60 + Math.floor(i / 3) * 240 }, data })
-    }
-    const created: string[] = []
-    store.beginPlan('ecommerce:generate', `电商出图 ×${prescribed.length}`)
-    try {
-      for (const item of prescribed) {
-        const id = applyDefaults({
-          store,
-          channels,
-          projectId,
-          type: 'generation',
-          at: item.at,
-          data: item.data,
+      } else {
+        setGenerationStage({
+          phase: 'prompts',
+          label:
+            request.usage === 'white-bg'
+              ? '正在准备白底图抽卡提示词'
+              : '正在准备编辑提示词',
         })
-        if (!id) continue
-        created.push(id)
-        store.setSelection([id])
-        /* 产品图与参考图都连成上游：引擎按上游素材收集输入，这是"不改产品外观"的物理来源 */
-        for (const productNodeId of plan.productNodeIds) {
-          store.dispatch({ kind: 'edge.connect', source: productNodeId, target: id })
-        }
-        for (const ref of plan.referenceNodeIds) {
-          store.dispatch({ kind: 'edge.connect', source: ref, target: id })
-        }
       }
-    } finally {
-      store.endPlan()
-    }
-    /**
-     * 先落任务与逐格结果，再跑引擎。
-     *
-     * 写失败**不挡出图**：内部节点仍会跑完，界面退回旧口径；下一次存储可用时
-     * 再写入新表。结果表是结果真源，但不能反过来变成"存储一写失败就出不了图"。
-     */
-    let task: EcommerceTaskRecord | null = null
-    try {
-      const effectiveRequest: EcommerceRequest = {
-        ...request,
-        resolvedModel: modelForRun,
-        resolvedChannelId: channelForRun,
-      }
-      const createdTask = await taskRepo.create({
-        projectId,
-        batchId,
-        request: effectiveRequest,
-        nodeIds: created,
-        ...(lineage?.sourceTaskId ? { sourceTaskId: lineage.sourceTaskId } : {}),
-        ...(lineage?.sourceResultId ? { sourceResultId: lineage.sourceResultId } : {}),
-        ...(lineage?.sourceAssetHash ? { sourceAssetHash: lineage.sourceAssetHash } : {}),
+
+      const mediaKind = request.mediaKind ?? 'image'
+      const recipe = await channels.defaultForNewNode({}, mediaKind)
+      const target = resolveGenerationTarget({
+        channels: channelList,
+        category: mediaKind,
+        catalog: channels.protocolCatalog(),
+        strategy: routeStrategy,
+        ...(request.model ? { logicalModel: request.model } : {}),
+        ...(request.channelId ? { channelId: request.channelId } : {}),
+        recipe,
       })
-      task = createdTask.task
-      setActiveTask(task)
-      setResultRows(createdTask.results)
-    } catch {
-      setActiveTask(null)
-      setResultRows([])
-    }
-    if (task) acquireEcommerceTaskLease(task.id)
-    try {
+      if (!target) {
+        throw new Error(
+          request.model
+            ? `所选模型「${request.model}」没有可用的真实${mediaKind === 'video' ? '视频' : '生图'}渠道`
+            : mediaKind === 'video'
+              ? '还没有可用的视频渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上视频模型'
+              : '还没有可用的生图渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上模型',
+        )
+      }
+      const modelForRun = target.logicalModel
+      const channelForRun = target.channelId
+
       /**
-       * 任务行一落库就把 pending 结果排到最终位置。
-       * 工作台不再等整批 Promise.all 结束才画结果，也不再使用左上角全局托盘。
+       * **两段式**（对账 #410）：先异步解析全部默认值，再在同一个
+       * `beginPlan` / `endPlan` 内同步落节点，保证一次撤销整批退回。
        */
-      if (task) await queueWorkbenchRefresh()
-      /* 一次生成 N 张就是 N 个独立任务；和画布一致，同时发请求，不做“排队”等待。 */
-      await Promise.all(
-        created.map(async (id) => {
-          await exec.runNode(id)
-          if (task) {
-            await syncResultRow(task.id, id)
-            await queueWorkbenchRefresh()
+      const batchId = createId('ecb')
+      const prescribed: { at: { x: number; y: number }; data: Record<string, unknown> }[] = []
+      for (let i = 0; i < plan.count; i += 1) {
+        const data = await resolveDefaults({
+          channels,
+          type: 'generation',
+          extraData: {
+            mode: mediaKind,
+            channelId: channelForRun,
+            model: modelForRun,
+            ecommerceBatch: batchId,
+            /** 第 i 张只发第 i 条最终提示词；白底图仍允许 N 条相同（抽卡）。 */
+            prompt: plan.prompts[i] ?? plan.prompt,
+            ratio: ecommerceAspectRatio(plan.ratio),
+            ...(request.resolution ? { resolution: request.resolution } : {}),
+            ...(request.quality ? { quality: request.quality } : {}),
+            count: 1,
+            ...(request.scale ? { scale: request.scale } : {}),
+            ...(mediaKind === 'video' ? { durationSec: request.durationSec ?? 5 } : {}),
+          },
+        })
+        prescribed.push({
+          at: { x: 420 + (i % 3) * 300, y: 60 + Math.floor(i / 3) * 240 },
+          data,
+        })
+      }
+      setGenerationStage({ phase: 'workflow', label: '正在创建工作流' })
+      const created: string[] = []
+      store.beginPlan('ecommerce:generate', `电商出图 ×${prescribed.length}`)
+      try {
+        for (const item of prescribed) {
+          const id = applyDefaults({
+            store,
+            channels,
+            projectId,
+            type: 'generation',
+            at: item.at,
+            data: item.data,
+          })
+          if (!id) continue
+          created.push(id)
+          store.setSelection([id])
+          /* 产品图与参考图都连成上游：引擎按上游素材收集输入。 */
+          for (const productNodeId of plan.productNodeIds) {
+            store.dispatch({ kind: 'edge.connect', source: productNodeId, target: id })
           }
-        }),
-      )
-      if (task) await refreshTask(task)
-      await refreshTaskHistory()
-      await queueWorkbenchRefresh()
-    } finally {
-      if (task) releaseEcommerceTaskLease(task.id)
+          for (const ref of plan.referenceNodeIds) {
+            store.dispatch({ kind: 'edge.connect', source: ref, target: id })
+          }
+        }
+      } finally {
+        store.endPlan()
+      }
+      if (created.length === 0) throw new Error('工作流没有建成：生成节点未能写入画布')
+
+      /**
+       * 先落任务与逐格结果，再并发跑引擎。
+       * 写失败不挡出图；结果表是结果真源，但存储失败不能反过来阻断请求。
+       */
+      let task: EcommerceTaskRecord | null = null
+      try {
+        const effectiveRequest: EcommerceRequest = {
+          ...request,
+          resolvedModel: modelForRun,
+          resolvedChannelId: channelForRun,
+        }
+        const createdTask = await taskRepo.create({
+          projectId,
+          batchId,
+          request: effectiveRequest,
+          nodeIds: created,
+          ...(lineage?.sourceTaskId ? { sourceTaskId: lineage.sourceTaskId } : {}),
+          ...(lineage?.sourceResultId ? { sourceResultId: lineage.sourceResultId } : {}),
+          ...(lineage?.sourceAssetHash ? { sourceAssetHash: lineage.sourceAssetHash } : {}),
+        })
+        task = createdTask.task
+        setActiveTask(task)
+        setResultRows(createdTask.results)
+      } catch {
+        setActiveTask(null)
+        setResultRows([])
+      }
+      if (task) acquireEcommerceTaskLease(task.id)
+      try {
+        if (task) await queueWorkbenchRefresh()
+        let completed = 0
+        setGenerationStage({
+          phase: 'generate',
+          label: `正在生成 0/${created.length}`,
+          current: 0,
+          total: created.length,
+        })
+        await Promise.all(
+          created.map(async (id) => {
+            await exec.runNode(id)
+            if (task) {
+              await syncResultRow(task.id, id)
+              await queueWorkbenchRefresh()
+            }
+            completed += 1
+            setGenerationStage({
+              phase: 'generate',
+              label: `正在生成 ${completed}/${created.length}`,
+              current: completed,
+              total: created.length,
+            })
+          }),
+        )
+        if (task) await refreshTask(task)
+        await refreshTaskHistory()
+        await queueWorkbenchRefresh()
+        setGenerationStage({
+          phase: 'done',
+          label: `本批已结束 ${created.length}/${created.length}`,
+          current: created.length,
+          total: created.length,
+        })
+      } finally {
+        if (task) releaseEcommerceTaskLease(task.id)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '生成失败'
+      setGenerationStage({ phase: 'failed', label: '生成失败', detail: message })
+      throw error
     }
   }
 
@@ -1813,6 +1887,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       }}
       onPlanShots={onPlanShots}
       shotPlanNote={shotPlanNote}
+      generationStage={generationStage}
       onOpenLongImage={() => setLongOpen(true)}
       longImage={(tools) =>
         longOpen ? (

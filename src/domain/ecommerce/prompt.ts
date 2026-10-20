@@ -12,7 +12,7 @@
  *    电商图最常见的翻车方式，不给模型"这次可以编"的机会；
  * 3. **没选平台就说没选**：不编一个通用平台名，也不套别家的规则。
  */
-import { platformById, platformRuleSummary, type EcommercePlatform } from './platforms'
+import { platformById, type EcommercePlatform } from './platforms'
 import {
   ecommerceLanguageOptionLabel,
   ecommerceRatioLabel,
@@ -78,6 +78,11 @@ export interface EcommerceShot {
   title: string
   /** 这一张具体要什么 */
   brief: string
+  /**
+   * 对话模型写出的最终生图提示词。
+   * 有它时生成节点只发这一段；没有时才由确定性脚本拼一份可执行的画面描述。
+   */
+  prompt?: string
 }
 
 /**
@@ -99,11 +104,24 @@ export function updateEcommerceShot(
 ): readonly EcommerceShot[] {
   const current = shots[index]
   if (!current) return shots
+  const changed = patch.title !== undefined || patch.brief !== undefined
   const next: EcommerceShot = {
     title: patch.title ?? current.title,
     brief: patch.brief ?? current.brief,
+    /*
+     * 用户改标题 / 策划后，上一次模型写的最终提示词已经不对应这行，必须一起作废。
+     * 只显式改 prompt 时则保留当前 title / brief。
+     */
+    ...(!changed && current.prompt ? { prompt: current.prompt } : {}),
+    ...(patch.prompt !== undefined ? { prompt: patch.prompt } : {}),
   }
-  if (next.title === current.title && next.brief === current.brief) return shots
+  if (
+    next.title === current.title &&
+    next.brief === current.brief &&
+    next.prompt === current.prompt
+  ) {
+    return shots
+  }
   const out = shots.slice()
   out[index] = next
   return out
@@ -208,49 +226,48 @@ export function buildEcommercePrompt(
 
   if (request.mediaKind === 'video') {
     lines.push(
-      `任务：${request.modeLabel || '电商商品视频'}。生成一段可直接用于电商展示的短视频。`,
+      `生成一段 ${request.durationSec ?? 5} 秒的${request.modeLabel || '电商商品视频'}，` +
+        `产品外观、颜色、材质、结构、比例与细节严格以输入商品图为准，多张商品图视为同一商品的不同角度。`,
     )
     lines.push(
-      `产品一致性：产品外观、颜色、材质、结构、比例与细节严格以产品图为准；多张产品图是同一商品的不同角度。`,
+      '使用自然、连续、有商业摄影质感的镜头和运动，主体清晰，不闪烁、不变形、不突然换商品。',
     )
     lines.push(
-      `镜头要求：画面有明确主体、自然运动与商业摄影光线；动作连续，不闪烁、不变形、不突然换商品。`,
-    )
-    lines.push(`时长：${request.durationSec ?? 5} 秒；比例：${request.ratio}`)
-    lines.push(
-      `硬约束：不新增品牌 Logo、水印、认证、价格或无法核实的参数；不复制参考素材中的品牌标识与人物身份。`,
+      '不要新增品牌 Logo、水印、认证、价格或无法核实的参数，也不要复制参考素材中的品牌标识与人物身份。',
     )
     return lines.join('\n')
   }
 
-  lines.push(`用途：${usageLabel(request.usage)} —— ${USAGE_HINTS[request.usage]}`)
+  const shotTitle = shot?.title || usageLabel(request.usage)
+  const shotBrief = shot?.brief || USAGE_HINTS[request.usage]
+  lines.push(
+    `专业电商商品摄影，镜头「${shotTitle}」：${shotBrief}。整套画面保持统一的产品气质、色温与光线语言` +
+      (request.count > 1
+        ? '，但这一张的镜头、景别和构图必须与同批其他图片不同。'
+        : '。'),
+  )
   if (request.usage === 'recreate') {
     lines.push(
-      '复刻边界：只借参考图的构图、机位、光影、色温、版式节奏与氛围；' +
-        '产品外观、颜色、材质、结构以产品图为准。不复制参考图的品牌 Logo、商标、水印、' +
-        '人物身份与不可核实文案，不把参考图产品直接搬进结果。',
+      '只借鉴参考图的构图、机位、光影、色温、版式节奏与氛围，产品外观、颜色、材质、结构仍以商品原图为准；' +
+        '不要复制参考图的品牌 Logo、商标、水印、人物身份或不可核实文案。',
     )
   }
   if (request.usage === 'edit') {
     lines.push(
-      '编辑边界：只执行补充要求里明确点名的修改，未点名的产品、人物、构图、光影、文字与背景保持不变。' +
-        '不新增品牌 Logo、水印、认证、价格或无法核实的信息。',
+      '只执行用户明确点名的修改，未点名的产品、人物、构图、光影、文字与背景保持不变；' +
+        '不要新增品牌 Logo、水印、认证、价格或无法核实的信息。',
     )
   }
-  /* 有镜头脚本就写清"这一张只做什么" —— 这是逐张不同的落点 */
-  if (shot) lines.push(`这一张只做：${shot.title} —— ${shot.brief}`)
-  lines.push(`目标平台：${platformRuleSummary(platform)}`)
-  lines.push(`文案语言：${ecommerceLanguageOptionLabel(request.language, request.usage)}`)
-  lines.push(`输出：${request.count} 张，比例 ${ecommerceRatioLabel(request.ratio)}`)
-  /**
-   * 多张 + 非白底时，明确告诉模型"同批还有别的张"。
-   * 加这一句是因为模型很容易把"套图"理解成"同一张画 N 遍"（用户看到的就是那个）。
-   */
-  if (request.count > 1 && request.usage !== 'white-bg') {
-    lines.push(`同批：共 ${request.count} 张，每张的镜头都不一样 —— 这一张不要重复其它张的视角与卖点`)
+  if (platform) {
+    lines.push(`构图与画面层级遵循${platform.name}常见商品图做法：${platform.rules}`)
+  } else {
+    lines.push('按通用电商商品图要求处理，产品为画面主体，背景与道具不抢主体。')
   }
   lines.push(
-    `硬约束：${(request.usage === 'edit' ? ECOMMERCE_EDIT_HARD_RULES : ECOMMERCE_HARD_RULES).join('；')}`,
+    `按 ${ecommerceRatioLabel(request.ratio)} 画幅组织画面。画面文字只使用${ecommerceLanguageOptionLabel(request.language, request.usage)}，保持拼写正确、排版清晰，不出现乱码。`,
+  )
+  lines.push(
+    '商品外观、颜色、材质与结构必须严格参照输入商品图；不要编造参数、认证、功效、价格、品牌或图中不存在的结构。',
   )
 
   return lines.join('\n')
@@ -267,7 +284,5 @@ export function buildEcommercePrompts(
       `分镜条数（${shots.length}）与张数（${request.count}）对不上 —— 不接受悄悄补齐或截断`,
     )
   }
-  return shots.map((shot) =>
-    buildEcommercePrompt(request, options, shot),
-  )
+  return shots.map((shot) => shot.prompt?.trim() || buildEcommercePrompt(request, options, shot))
 }

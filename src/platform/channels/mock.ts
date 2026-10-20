@@ -618,6 +618,7 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
         }
         const shots = Number((userMsg.match(/要求张数：(\d+)/) ?? [])[1]) || 1
         const note = ((userMsg.match(/用户的要求：(.+)/) ?? [])[1] ?? '').trim()
+        const images = imageInputsOf(request.inputs)
         const angles = [
           '正面全身',
           '45° 侧面',
@@ -630,9 +631,21 @@ export function createMockChannel(opts: MockChannelOptions = {}): MockChannel {
         ]
         return {
           text: JSON.stringify({
+            productAnalysis: {
+              summary:
+                images.length > 0
+                  ? `已查看随附商品图：${images.map((item) => item.assetHash.slice(0, 8)).join('、')}`
+                  : '未收到商品图',
+              visibleFacts: ['商品主体与外观以输入图为准'],
+            },
             shots: Array.from({ length: shots }, (_, i) => ({
               title: `模型第 ${i + 1} 镜`,
               brief: `${note}｜${angles[i] ?? '换一个不重复的构图'}`,
+              prompt:
+                `专业电商商业摄影，${angles[i] ?? '换一个不重复的构图'}，` +
+                `${note || '突出商品本身'}。商品外观、颜色、材质与结构严格参照输入商品图，` +
+                `背景简洁且不抢主体，使用柔和商业棚拍光线与清晰材质表现，` +
+                `画面文字仅使用指定语言，拼写正确、排版清晰。`,
             })),
           }),
         }
