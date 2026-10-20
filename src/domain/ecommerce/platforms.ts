@@ -37,10 +37,57 @@ export interface EcommercePlatform {
 /** 未核实的一律用这句话 —— 界面与提示词里都不许把它说成官方规则 */
 export const GENERIC_SOURCE = '通用建议：未核实官方规则，按常见做法整理'
 
+function platformEntry(input: {
+  id: string
+  name: string
+  group: EcommercePlatformGroup
+  ratios?: readonly string[]
+  languages?: readonly EcommerceLanguage[]
+  countHint?: string
+  rules?: string
+}): EcommercePlatform {
+  return {
+    id: input.id,
+    name: input.name,
+    group: input.group,
+    ratios: input.ratios ?? ['1:1', '3:4'],
+    languages: input.languages ?? ['zh-CN', 'en'],
+    countHint: input.countHint ?? '主图 1 张；套图常见 5-9 张',
+    rules:
+      input.rules ??
+      '以商品图为主体，版式、文字比例和卖点表达跟随站点常见做法；具体规范以商家后台为准。',
+    updatedAt: '2026-10-20',
+    sourceNote: GENERIC_SOURCE,
+  }
+}
+
+/** 下拉显示顺序按用户参考图固定 */
+export const ECOMMERCE_PLATFORM_ORDER: readonly string[] = [
+  'amazon',
+  'taobao',
+  '1688',
+  'temu',
+  'tiktok-shop',
+  'pinduoduo',
+  'douyin',
+  'ozon',
+  'independent',
+  'shopee',
+  'alibaba',
+  'aliexpress',
+  'shein',
+  'jd',
+  'mercadolibre',
+  'coupang',
+  'wayfair',
+  'lazada',
+  'ebay',
+]
+
 export const ECOMMERCE_PLATFORMS: readonly EcommercePlatform[] = [
   {
     id: 'amazon',
-    name: 'Amazon',
+    name: '亚马逊',
     group: 'cross-border',
     ratios: ['1:1', '3:4', '16:9'],
     languages: ['en', 'de', 'es', 'ja'],
@@ -88,7 +135,7 @@ export const ECOMMERCE_PLATFORMS: readonly EcommercePlatform[] = [
   },
   {
     id: 'taobao',
-    name: '淘宝',
+    name: '淘宝天猫',
     group: 'china',
     ratios: ['1:1', '3:4'],
     languages: ['zh-CN'],
@@ -110,6 +157,86 @@ export const ECOMMERCE_PLATFORMS: readonly EcommercePlatform[] = [
     updatedAt: '2026-10-09',
     sourceNote: GENERIC_SOURCE,
   },
+  platformEntry({
+    id: 'tiktok-shop',
+    name: 'TikTok Shop',
+    group: 'cross-border',
+    languages: ['en', 'zh-CN', 'ja', 'es', 'th', 'ms'],
+  }),
+  platformEntry({
+    id: 'pinduoduo',
+    name: '拼多多',
+    group: 'china',
+    languages: ['zh-CN'],
+  }),
+  platformEntry({
+    id: 'douyin',
+    name: '抖音电商',
+    group: 'china',
+    languages: ['zh-CN'],
+  }),
+  platformEntry({
+    id: 'ozon',
+    name: 'OZON',
+    group: 'cross-border',
+    languages: ['ru', 'en'],
+  }),
+  platformEntry({
+    id: 'independent',
+    name: '独立站',
+    group: 'cross-border',
+    ratios: ['1:1', '4:3', '16:9', '9:16'],
+    languages: ['en', 'zh-CN', 'de', 'fr', 'es', 'pt'],
+  }),
+  platformEntry({
+    id: 'alibaba',
+    name: '阿里国际站',
+    group: 'cross-border',
+    languages: ['en', 'zh-CN', 'es', 'ru'],
+  }),
+  platformEntry({
+    id: 'aliexpress',
+    name: '速卖通',
+    group: 'cross-border',
+    languages: ['en', 'zh-CN', 'ru', 'es', 'pt'],
+  }),
+  platformEntry({
+    id: 'shein',
+    name: 'SHEIN',
+    group: 'cross-border',
+    languages: ['en', 'zh-CN', 'es', 'de', 'fr'],
+  }),
+  platformEntry({
+    id: 'mercadolibre',
+    name: '美客多',
+    group: 'cross-border',
+    languages: ['es', 'pt'],
+  }),
+  platformEntry({
+    id: 'coupang',
+    name: 'Coupang',
+    group: 'cross-border',
+    languages: ['ko', 'en'],
+  }),
+  platformEntry({
+    id: 'wayfair',
+    name: 'Wayfair',
+    group: 'cross-border',
+    ratios: ['1:1', '4:3', '16:9'],
+    languages: ['en'],
+  }),
+  platformEntry({
+    id: 'lazada',
+    name: 'Lazada',
+    group: 'cross-border',
+    languages: ['en', 'zh-CN', 'th', 'ms'],
+  }),
+  platformEntry({
+    id: 'ebay',
+    name: 'eBay',
+    group: 'cross-border',
+    languages: ['en', 'de', 'es'],
+  }),
 ]
 
 /** 按 id 取平台；找不到返回 null（白底图不选平台是合法输入，不要在这里抛） */

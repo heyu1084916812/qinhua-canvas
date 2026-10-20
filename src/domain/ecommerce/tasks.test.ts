@@ -41,7 +41,7 @@ describe('电商任务 / 结果状态纯函数', () => {
           referenceNodeIds: [],
         },
       }),
-    ).toBe('2026-10-15 08:05 · 详情页 · Amazon · 4 张 · 部分完成')
+    ).toBe('2026-10-15 08:05 · 详情页 · 亚马逊 · 4 张 · 部分完成')
     expect(
       taskSummaryOf({
         createdAt: at,

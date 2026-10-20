@@ -6,7 +6,11 @@ import {
   type ReactNode,
 } from 'react'
 import { EcommerceRequestError, buildEcommercePlan } from '../../domain/ecommerce/plan'
-import { ECOMMERCE_PLATFORMS, type EcommercePlatform } from '../../domain/ecommerce/platforms'
+import {
+  ECOMMERCE_PLATFORM_ORDER,
+  ECOMMERCE_PLATFORMS,
+  type EcommercePlatform,
+} from '../../domain/ecommerce/platforms'
 import type { EcommerceIntentDraft } from '../../domain/ecommerce/chatParse'
 import type { EcommercePlanSession } from '../../domain/ecommerce/sessions'
 import type { EcommerceTaskRecord } from '../../domain/ecommerce/tasks'
@@ -14,9 +18,10 @@ import {
   type ShotPlanResult,
 } from '../../domain/ecommerce/chatShots'
 import {
-  ECOMMERCE_LANGUAGES,
-  ECOMMERCE_RATIOS,
-  languageLabel,
+  ecommerceLanguageOptionLabel,
+  ecommerceLanguageOptions,
+  ecommerceRatioLabel,
+  ecommerceRatioOptions,
   usageLabel,
   type EcommerceLanguage,
   type EcommerceModeOptions,
@@ -46,6 +51,7 @@ import {
 } from '../../domain/ecommerce/modeOptions'
 import {
   DEFAULT_ECOMMERCE_FORM_DRAFT,
+  type EcommerceModeFormState,
   type EcommerceFormDraft,
 } from '../../domain/ecommerce/draft'
 import {
@@ -301,10 +307,43 @@ function modelIconFor(label: string): ReactNode {
   return preset ? <ModelIcon vendor={preset.vendor} size={19} /> : undefined
 }
 
+function OptionCheck({ checked }: { checked: boolean }) {
+  return (
+    <span className={styles.optionMark} aria-hidden="true">
+      {checked ? (
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="m3.2 8.2 3.1 3.1 6.5-6.6" />
+        </svg>
+      ) : null}
+    </span>
+  )
+}
+
 function textOptions(
   items: readonly { id: string; label: string }[],
 ): EcommerceSelectOption[] {
   return items.map((item) => ({ value: item.id, label: item.label }))
+}
+
+function defaultModeFormState(mode: StudioMode): EcommerceModeFormState {
+  return {
+    platformId: 'amazon',
+    language: 'en',
+    ratio:
+      mode.usage === 'detail'
+        ? 'aplus-premium-web'
+        : (mode.ratio ?? '1:1'),
+    note: '',
+  }
 }
 
 function ModeSpecificParameters({
@@ -470,7 +509,7 @@ function ModeSpecificParameters({
               data-ecommerce-option={`detail-${item.id}`}
               onClick={() => toggleOption('detailHighlights', item.id)}
             >
-              <span className={styles.optionMark} aria-hidden />
+              <OptionCheck checked={selected('detailHighlights', item.id)} />
               <OptionContent option={item} />
             </button>
           ))}
@@ -564,7 +603,7 @@ function ModeSpecificParameters({
               data-ecommerce-option={`retouch-${item.id}`}
               onClick={() => toggleOption('retouchActions', item.id)}
             >
-              <span className={styles.optionMark} aria-hidden />
+              <OptionCheck checked={selected('retouchActions', item.id)} />
               <OptionContent option={item} />
             </button>
           ))}
@@ -665,7 +704,7 @@ function ModeSpecificParameters({
               data-ecommerce-option={`video-${item.id}`}
               onClick={() => toggleOption('videoTypes', item.id)}
             >
-              <span className={styles.optionMark} aria-hidden />
+              <OptionCheck checked={selected('videoTypes', item.id)} />
               <OptionContent option={item} />
             </button>
           ))}
@@ -694,7 +733,7 @@ function ModeSpecificParameters({
               data-ecommerce-option={`wear-${item.id}`}
               onClick={() => toggleOption('wearTypes', item.id)}
             >
-              <span className={styles.optionMark} aria-hidden />
+              <OptionCheck checked={selected('wearTypes', item.id)} />
               <OptionContent option={item} />
             </button>
           ))}
@@ -785,7 +824,7 @@ function ModeSpecificParameters({
               data-ecommerce-option={`wear-detail-${item.id}`}
               onClick={() => toggleOption('wearDetails', item.id)}
             >
-              <span className={styles.optionMark} aria-hidden />
+              <OptionCheck checked={selected('wearDetails', item.id)} />
               <OptionContent option={item} />
             </button>
           ))}
@@ -1060,10 +1099,15 @@ export function EcommerceStudio({
   const [modeId, setModeId] = useState(initialMode.id)
   const videoDuration = saved.videoDuration ?? 5
   const [usage, setUsage] = useState<EcommerceUsage>(saved.usage)
-  const [platformId, setPlatformId] = useState<string>(saved.platformId)
-  const [language, setLanguage] = useState<EcommerceLanguage>(saved.language)
-  const [ratio, setRatio] = useState<string>(saved.ratio)
-  const [note, setNote] = useState(saved.note)
+  const [modeStates, setModeStates] = useState<Record<string, EcommerceModeFormState>>(() => ({
+    ...saved.modeStates,
+    [initialMode.id]: {
+      platformId: saved.platformId,
+      language: saved.language,
+      ratio: saved.ratio,
+      note: saved.note,
+    },
+  }))
   const [modeOptionsByMode, setModeOptionsByMode] = useState<
     Record<string, EcommerceModeOptions>
   >(() => ({
@@ -1154,6 +1198,24 @@ export function EcommerceStudio({
    */
   const [dragOver, setDragOver] = useState<'product' | 'reference' | null>(null)
   const mode = STUDIO_MODES.find((item) => item.id === modeId) ?? initialMode
+  const modeFormState = modeStates[mode.id] ?? defaultModeFormState(mode)
+  const platformId = modeFormState.platformId
+  const language = modeFormState.language
+  const ratio = modeFormState.ratio
+  const note = modeFormState.note
+  const updateModeFormState = (patch: Partial<EcommerceModeFormState>) => {
+    setModeStates((current) => ({
+      ...current,
+      [mode.id]: {
+        ...(current[mode.id] ?? defaultModeFormState(mode)),
+        ...patch,
+      },
+    }))
+  }
+  const setPlatformId = (value: string) => updateModeFormState({ platformId: value })
+  const setLanguage = (value: EcommerceLanguage) => updateModeFormState({ language: value })
+  const setRatio = (value: string) => updateModeFormState({ ratio: value })
+  const setNote = (value: string) => updateModeFormState({ note: value })
   const modeOptions =
     modeOptionsByMode[mode.id] ?? defaultEcommerceModeOptions(mode.id)
   const effectiveCount = ecommerceModeCount(mode.id, mode.count, modeOptions)
@@ -1218,6 +1280,7 @@ export function EcommerceStudio({
       note,
       model,
       modeOptions,
+      modeStates: { ...modeStates, [mode.id]: modeFormState },
       productNodeId: products[0]?.nodeId ?? null,
       productNodeIds: products.map((item) => item.nodeId),
       referenceNodeIds: references.map((r) => r.nodeId),
@@ -1233,6 +1296,8 @@ export function EcommerceStudio({
     note,
     model,
     modeOptions,
+    modeFormState,
+    modeStates,
     products,
     references,
     onDraftChange,
@@ -1242,6 +1307,15 @@ export function EcommerceStudio({
     () => platforms.find((p) => p.id === platformId) ?? null,
     [platforms, platformId],
   )
+  const orderedPlatforms = useMemo(() => {
+    const rank = new Map(ECOMMERCE_PLATFORM_ORDER.map((id, index) => [id, index]))
+    return [...platforms].sort(
+      (left, right) =>
+        (rank.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+          (rank.get(right.id) ?? Number.MAX_SAFE_INTEGER) ||
+        left.name.localeCompare(right.name, 'zh-CN'),
+    )
+  }, [platforms])
 
   const activateMode = (next: StudioMode) => {
     const previousKind = mode.mediaKind
@@ -1256,7 +1330,14 @@ export function EcommerceStudio({
             [next.id]: defaultEcommerceModeOptions(next.id),
           },
     )
-    if (next.ratio) setRatio(next.ratio)
+    setModeStates((current) =>
+      current[next.id]
+        ? current
+        : {
+            ...current,
+            [next.id]: defaultModeFormState(next),
+          },
+    )
     if (previousKind !== next.mediaKind) onModelChange('')
     setError('')
   }
@@ -1452,9 +1533,9 @@ export function EcommerceStudio({
       },
       {
         key: 'translate',
-        label: `翻译成${languageLabel(language)}`,
+        label: `翻译成${ecommerceLanguageOptionLabel(language, usage)}`,
         instruction:
-          `只把画面中的文字翻译成${languageLabel(language)}，保持原有排版、字号与视觉层级；` +
+          `只把画面中的文字翻译成${ecommerceLanguageOptionLabel(language, usage)}，保持原有排版、字号与视觉层级；` +
           '产品和背景不变，不新增无法核实的文案。',
       },
       {
@@ -1806,7 +1887,7 @@ export function EcommerceStudio({
                   onChange={setPlatformId}
                   options={[
                     { value: '', label: '不指定（通用）' },
-                    ...platforms.map((platform) => ({
+                    ...orderedPlatforms.map((platform) => ({
                       value: platform.id,
                       label: platform.name,
                     })),
@@ -1822,10 +1903,7 @@ export function EcommerceStudio({
                 name="language"
                 value={language}
                 onChange={(value) => setLanguage(value as EcommerceLanguage)}
-                options={ECOMMERCE_LANGUAGES.map((item) => ({
-                  value: item,
-                  label: languageLabel(item),
-                }))}
+                options={ecommerceLanguageOptions(mode.usage)}
                 dataAttributes={{ 'data-ecommerce-language': true }}
               />
             </div>
@@ -1839,10 +1917,7 @@ export function EcommerceStudio({
                   name="ratio"
                   value={ratio}
                   onChange={setRatio}
-                  options={ECOMMERCE_RATIOS.map((item) => ({
-                    value: item,
-                    label: item,
-                  }))}
+                  options={ecommerceRatioOptions(mode.usage, mode.mediaKind)}
                   dataAttributes={{ 'data-ecommerce-ratio': true }}
                 />
               </div>
@@ -2067,7 +2142,7 @@ export function EcommerceStudio({
               {detailTarget.ratio ? (
                 <>
                   <dt>比例</dt>
-                  <dd>{detailTarget.ratio}</dd>
+                  <dd>{ecommerceRatioLabel(detailTarget.ratio)}</dd>
                 </>
               ) : null}
               {detailTarget.createdAt ? (
@@ -2537,7 +2612,8 @@ export function EcommerceStudio({
             <p className={styles.confirmText}>
               将生成 <b>{mode.mediaKind === 'video' ? 1 : effectiveCount}</b>{' '}
               {mode.mediaKind === 'video' ? '条' : '张'}
-              {mode.mediaKind === 'video' ? mode.label : usageLabel(usage)}，比例 {ratio}
+              {mode.mediaKind === 'video' ? mode.label : usageLabel(usage)}，比例{' '}
+              {ecommerceRatioLabel(ratio)}
               {platform ? `，面向 ${platform.name}` : ''}。会调用你的渠道，产生真实用量。
             </p>
             <div className={styles.confirmActions}>

@@ -13,7 +13,13 @@
  * 3. **没选平台就说没选**：不编一个通用平台名，也不套别家的规则。
  */
 import { platformById, platformRuleSummary, type EcommercePlatform } from './platforms'
-import { languageLabel, usageLabel, type EcommerceRequest, type EcommerceUsage } from './types'
+import {
+  ecommerceLanguageOptionLabel,
+  ecommerceRatioLabel,
+  usageLabel,
+  type EcommerceRequest,
+  type EcommerceUsage,
+} from './types'
 
 /** 单次请求里 note 允许的最大长度（再长应当写进提示词节点，而不是这个表单） */
 export const ECOMMERCE_NOTE_MAX = 500
@@ -234,8 +240,8 @@ export function buildEcommercePrompt(
   /* 有镜头脚本就写清"这一张只做什么" —— 这是逐张不同的落点 */
   if (shot) lines.push(`这一张只做：${shot.title} —— ${shot.brief}`)
   lines.push(`目标平台：${platformRuleSummary(platform)}`)
-  lines.push(`文案语言：${languageLabel(request.language)}`)
-  lines.push(`输出：${request.count} 张，比例 ${request.ratio}`)
+  lines.push(`文案语言：${ecommerceLanguageOptionLabel(request.language, request.usage)}`)
+  lines.push(`输出：${request.count} 张，比例 ${ecommerceRatioLabel(request.ratio)}`)
   /**
    * 多张 + 非白底时，明确告诉模型"同批还有别的张"。
    * 加这一句是因为模型很容易把"套图"理解成"同一张画 N 遍"（用户看到的就是那个）。

@@ -163,7 +163,7 @@ describe('提示词与逐张拼装', () => {
     expect(text).toContain('用户的要求：突出防水材质，模特手持场景')
     expect(text).toContain('要求张数：4')
     expect(text).toContain('比例：3:4')
-    expect(text).toContain('Amazon')
+    expect(text).toContain('亚马逊')
     expect(text).toContain('默认镜头脚本')
     /* 默认脚本的条目也要在（第 1 条对应第 1 张） */
     expect(text).toContain('- 首图：全貌 + 卖点主张')

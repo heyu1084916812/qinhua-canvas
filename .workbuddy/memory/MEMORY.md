@@ -1,5 +1,14 @@
 # CanvasFlow（轻画）项目记忆
 
+### 电商工具独立选项（2026-10-20 → 对账 #646）
+
+- **顶部工具不能共享同一份表单状态**：`platformId / language / ratio / note` 原先只有一份，切换商品套图、A+、爆款复刻时会互相污染。现在按 mode id 存在 `modeStates`，并随草稿持久化；新增工具时先给 `defaultModeFormState()`，不要在 JSX 里零散重置。
+- **A+ 的“版面类型”不是模型宽高比**：界面保存 `aplus-premium-web/mobile/standard`，生成节点必须经 `ecommerceAspectRatio()` 映射为 `16:9/9:16/4:3`；直接把语义值作为节点 ratio 会让渠道收到非法比例。
+- **语言集合按用途分组**：商品套图 8 项、爆款复刻 11 项，顺序来自用户参考图；不要再用一份全局语言列表覆盖。
+- **平台显示名和顺序是产品数据**：`ECOMMERCE_PLATFORM_ORDER` 固定 19 个平台顺序，UI 排序使用它；`ECOMMERCE_PLATFORMS` 声明本身不应承担展示顺序。
+- **未选卡片也必须可辨认**：多选卡基础态用 `--bg-surface + --border`，选中态依靠矢量勾选表达，不能只靠选中背景；否则浅色主题下未选项会和面板底融成一片。
+- 收口证据：G164 明暗 **36/36**，全量单测 **2851 passed / 1 skipped**；截图 `.playwright-verify/164-ecommerce-language-set.png`、`164-ecommerce-language-recreate.png`、`164-ecommerce-aplus-ratio.png`。
+
 ### 电商自定义下拉与套图配置（2026-10-20 → 对账 #645）
 
 - **方案模型必须过滤渠道来源，不只是换 UI**：`userConfiguredChannels()` 排除 `ch_builtin_*` 与 `protocol='mock'`，电商页再用它生成 `chatTargetOptions` / `resolveChatTarget`。否则测试种子或旧数据里的 `Smoke Mock · GPT-6 Astra` 会出现在真实用户界面。

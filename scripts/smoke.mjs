@@ -36136,6 +36136,36 @@ async function g164(browser) {
       platformGeometry.height > 0,
     JSON.stringify(platformGeometry),
   )
+  const platformLabels = await platformMenu
+    .locator('[data-ecommerce-select-option]')
+    .evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ''))
+  rec(
+    g,
+    '★★ 上架平台按参考图提供 19 个平台',
+    JSON.stringify(platformLabels.slice(1)) ===
+      JSON.stringify([
+        '亚马逊',
+        '淘宝天猫',
+        '1688',
+        'Temu',
+        'TikTok Shop',
+        '拼多多',
+        '抖音电商',
+        'OZON',
+        '独立站',
+        'Shopee',
+        '阿里国际站',
+        '速卖通',
+        'SHEIN',
+        '京东',
+        '美客多',
+        'Coupang',
+        'Wayfair',
+        'Lazada',
+        'eBay',
+      ]),
+    platformLabels.join(' / '),
+  )
   await page.keyboard.press('Escape')
   await platformMenu.waitFor({ state: 'detached', timeout: 2000 }).catch(() => {})
   rec(
@@ -36155,6 +36185,75 @@ async function g164(browser) {
     (await platformMenu.count()) === 0 &&
       (await platformTrigger.innerText()).trim().length > 0,
     await platformTrigger.innerText(),
+  )
+  const languageTrigger = page.locator('[data-ecommerce-language]')
+  await languageTrigger.click()
+  const setLanguageMenu = page.locator('[data-ecommerce-menu="language"]')
+  await setLanguageMenu.waitFor({ state: 'visible', timeout: 3000 })
+  const setLanguageLabels = await setLanguageMenu
+    .locator('[data-ecommerce-select-option]')
+    .evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ''))
+  rec(
+    g,
+    '★★ 商品套图语言按参考图提供 8 种',
+    JSON.stringify(setLanguageLabels) ===
+      JSON.stringify(['英文', '中文', '日文', '韩文', '西班牙文', '俄语', '泰语', '马来语']),
+    setLanguageLabels.join(' / '),
+  )
+  await page.screenshot({ path: `${OUT}/164-ecommerce-language-set${themeSuffix}.png` })
+  await setLanguageMenu.locator('[data-ecommerce-select-option="ja"]').click()
+  await setLanguageMenu.waitFor({ state: 'detached', timeout: 2000 }).catch(() => {})
+
+  await page.locator('[data-ecommerce-mode="product-recreate"]').click()
+  const recreateLanguageTrigger = page.locator('[data-ecommerce-language]')
+  rec(
+    g,
+    '★★ 顶部工具的平台 / 语言 / 比例状态互不覆盖',
+    (await page.locator('[data-ecommerce-platform]').innerText()).trim() === '亚马逊' &&
+      (await recreateLanguageTrigger.innerText()).trim() === '英文',
+    `platform=${await page.locator('[data-ecommerce-platform]').innerText()} language=${await recreateLanguageTrigger.innerText()}`,
+  )
+  await recreateLanguageTrigger.click()
+  const recreateLanguageMenu = page.locator('[data-ecommerce-menu="language"]')
+  await recreateLanguageMenu.waitFor({ state: 'visible', timeout: 3000 })
+  const recreateLanguageLabels = await recreateLanguageMenu
+    .locator('[data-ecommerce-select-option]')
+    .evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ''))
+  rec(
+    g,
+    '★★ 爆款复刻语言按参考图提供 11 种',
+    JSON.stringify(recreateLanguageLabels) ===
+      JSON.stringify([
+        '英文',
+        '中文',
+        '日文',
+        '韩文',
+        '俄语',
+        '德语',
+        '法语',
+        '西班牙语',
+        '葡萄牙语',
+        '泰语',
+        '马来语',
+      ]),
+    recreateLanguageLabels.join(' / '),
+  )
+  await page.screenshot({ path: `${OUT}/164-ecommerce-language-recreate${themeSuffix}.png` })
+  await recreateLanguageMenu.locator('[data-ecommerce-select-option="ru"]').click()
+  await recreateLanguageMenu.waitFor({ state: 'detached', timeout: 2000 }).catch(() => {})
+  await page.locator('[data-ecommerce-platform]').click()
+  const recreatePlatformMenu = page.locator('[data-ecommerce-menu="platform"]')
+  await recreatePlatformMenu.waitFor({ state: 'visible', timeout: 3000 })
+  await recreatePlatformMenu.locator('[data-ecommerce-select-option="temu"]').click()
+  await recreatePlatformMenu.waitFor({ state: 'detached', timeout: 2000 }).catch(() => {})
+
+  await page.locator('[data-ecommerce-mode="product-set"]').click()
+  rec(
+    g,
+    '★★ 切回商品套图后原平台与语言仍保留',
+    (await page.locator('[data-ecommerce-platform]').innerText()).trim() === 'eBay' &&
+      (await page.locator('[data-ecommerce-language]').innerText()).trim() === '日文',
+    `platform=${await page.locator('[data-ecommerce-platform]').innerText()} language=${await page.locator('[data-ecommerce-language]').innerText()}`,
   )
   const formOrder = await page.evaluate(() => {
     const note = document.querySelector('[data-ecommerce-note]')?.getBoundingClientRect()
@@ -36266,6 +36365,64 @@ async function g164(browser) {
       (await page.locator('[data-ecommerce-mode-params="product-detail"]').innerText()).includes(
         '传递核心价值',
       ),
+  )
+  const aplusRatioTrigger = page.locator('[data-ecommerce-ratio]')
+  rec(
+    g,
+    '★★ A+ 详情页默认使用参考图中的高级A+（Web端）',
+    (await aplusRatioTrigger.innerText()).trim() === '高级A+（Web端）',
+    await aplusRatioTrigger.innerText(),
+  )
+  await aplusRatioTrigger.click()
+  const aplusRatioMenu = page.locator('[data-ecommerce-menu="ratio"]')
+  await aplusRatioMenu.waitFor({ state: 'visible', timeout: 3000 })
+  const aplusRatioLabels = await aplusRatioMenu
+    .locator('[data-ecommerce-select-option]')
+    .evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ''))
+  rec(
+    g,
+    '★★ A+ 比例菜单按参考图提供 3 种版面 + 4 种普通比例',
+    JSON.stringify(aplusRatioLabels) ===
+      JSON.stringify([
+        '高级A+（Web端）',
+        '高级A+（移动端）',
+        '普通A+',
+        '1:1',
+        '4:3',
+        '16:9',
+        '9:16',
+      ]),
+    aplusRatioLabels.join(' / '),
+  )
+  await page.screenshot({ path: `${OUT}/164-ecommerce-aplus-ratio${themeSuffix}.png` })
+  await page.keyboard.press('Escape')
+  await aplusRatioMenu.waitFor({ state: 'detached', timeout: 2000 }).catch(() => {})
+  const detailCards = await page.evaluate(() => {
+    const selected = document.querySelector('[data-ecommerce-option="detail-hero"]')
+    const unselected = document.querySelector('[data-ecommerce-option="detail-craft"]')
+    if (!selected || !unselected) return null
+    const selectedStyle = getComputedStyle(selected)
+    const unselectedStyle = getComputedStyle(unselected)
+    return {
+      selectedBg: selectedStyle.backgroundColor,
+      unselectedBg: unselectedStyle.backgroundColor,
+      selectedBorder: selectedStyle.borderTopWidth,
+      unselectedBorder: unselectedStyle.borderTopWidth,
+      selectedChecks: selected.querySelectorAll('svg').length,
+      unselectedChecks: unselected.querySelectorAll('svg').length,
+    }
+  })
+  rec(
+    g,
+    '★★ 优化项未选也有卡面与描边，选中项显示勾选',
+    !!detailCards &&
+      detailCards.selectedBg !== 'rgba(0, 0, 0, 0)' &&
+      detailCards.unselectedBg !== 'rgba(0, 0, 0, 0)' &&
+      detailCards.selectedBorder === '1px' &&
+      detailCards.unselectedBorder === '1px' &&
+      detailCards.selectedChecks >= 1 &&
+      detailCards.unselectedChecks === 0,
+    JSON.stringify(detailCards),
   )
   await page.screenshot({ path: `${OUT}/164-ecommerce-params-detail${themeSuffix}.png` })
   await page.locator('[data-ecommerce-mode="product-retouch"]').click()

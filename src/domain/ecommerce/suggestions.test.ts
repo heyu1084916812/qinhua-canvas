@@ -15,7 +15,7 @@ describe('电商为您推荐', () => {
     expect(list.map((s) => s.label)).toEqual(['主图 · 1 张', '详情页 · 4 张', '套图 · 6 张'])
     /* 语言用 `languageLabel` 那一份（`English` 而不是另写一个"英文"）——
        与确认卡上的「文案语言」同源，不许出现第二张语言标签表 */
-    expect(list[1]!.text).toBe('给我做一套 Amazon English详情页，4 张')
+    expect(list[1]!.text).toBe('给我做一套 亚马逊 English详情页，4 张')
   })
 
   it('★★ 换平台 / 换语言就换句子（用户改表单，推荐当场跟着改）', () => {
@@ -43,7 +43,7 @@ describe('方案缩略说明', () => {
       ratio: '3:4',
       note: '突出防水材质，还要出现模特手持场景，画面里不要出现文字',
     })
-    expect(summary).toBe('详情页 · Amazon · 4 张')
+    expect(summary).toBe('详情页 · 亚马逊 · 4 张')
     expect(summary).not.toContain('防水')
   })
 

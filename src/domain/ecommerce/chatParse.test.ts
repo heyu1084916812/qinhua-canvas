@@ -37,7 +37,7 @@ describe('parseEcommerceIntent：只认白名单，一个都不许猜', () => {
     })
     expect(out.rows).toEqual([
       { label: '用途', value: '详情页' },
-      { label: '平台', value: 'Amazon' },
+      { label: '平台', value: '亚马逊' },
       { label: '文案语言', value: 'English' },
       { label: '张数', value: '4 张' },
       { label: '比例', value: '3:4' },
@@ -54,7 +54,7 @@ describe('parseEcommerceIntent：只认白名单，一个都不许猜', () => {
   it('★★ 编造的取值一律丢弃：认不出的宁可不要，也不替用户填', () => {
     /* 五项全不认 ⇒ 没有可用项 ⇒ 整条判失败（不是"空草案"） */
     expect(parseEcommerceIntent(
-      JSON.stringify({ usage: '海报', platformId: 'shopify', language: 'fr', count: 99, ratio: '2:3' }),
+      JSON.stringify({ usage: '海报', platformId: 'shopify', language: 'xx', count: 99, ratio: '2:3' }),
     )).toEqual({
       ok: false,
       error:
@@ -150,7 +150,7 @@ describe('intentRows / buildIntentText / buildIntentSystem', () => {
   it('用户消息里带着平台白名单与语言白名单（模型才知道边界）', () => {
     const text = buildIntentText('做一套亚马逊英文详情页', ECOMMERCE_PLATFORMS)
     expect(text).toContain('做一套亚马逊英文详情页')
-    expect(text).toContain('- amazon（Amazon）')
+    expect(text).toContain('- amazon（亚马逊）')
     expect(text).toContain('- jd（')
     expect(text).toContain('en（English）')
     expect(text).toContain('zh-CN（中文简体）')

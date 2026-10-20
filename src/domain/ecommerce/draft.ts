@@ -36,10 +36,19 @@ export interface EcommerceFormDraft {
   model: string
   /** 当前功能的专属参数；稳定 id，不把显示文案写进草稿。 */
   modeOptions: EcommerceModeOptions
+  /** 每个顶部工具各自保存的平台 / 语言 / 比例 / 要求，切换工具互不覆盖 */
+  modeStates: Record<string, EcommerceModeFormState>
   productNodeId: string | null
   /** 多角度产品图；顺序决定第一张主产品图，最多 3 张 */
   productNodeIds: string[]
   referenceNodeIds: string[]
+}
+
+export interface EcommerceModeFormState {
+  platformId: string
+  language: EcommerceLanguage
+  ratio: string
+  note: string
 }
 
 export const DEFAULT_ECOMMERCE_FORM_DRAFT: EcommerceFormDraft = {
@@ -54,6 +63,7 @@ export const DEFAULT_ECOMMERCE_FORM_DRAFT: EcommerceFormDraft = {
   note: '',
   model: '',
   modeOptions: {},
+  modeStates: {},
   productNodeId: null,
   productNodeIds: [],
   referenceNodeIds: [],
@@ -77,6 +87,27 @@ function languageOf(value: unknown): EcommerceLanguage {
   return ECOMMERCE_LANGUAGES.includes(value as EcommerceLanguage)
     ? (value as EcommerceLanguage)
     : DEFAULT_ECOMMERCE_FORM_DRAFT.language
+}
+
+function normalizeModeStates(value: unknown): Record<string, EcommerceModeFormState> {
+  if (!isRecord(value)) return {}
+  const out: Record<string, EcommerceModeFormState> = {}
+  for (const [rawKey, rawState] of Object.entries(value).slice(0, 40)) {
+    const key = stringOf(rawKey, 80)
+    if (!key || !isRecord(rawState)) continue
+    const ratio =
+      typeof rawState.ratio === 'string' && ECOMMERCE_RATIOS.includes(rawState.ratio)
+        ? rawState.ratio
+        : DEFAULT_ECOMMERCE_FORM_DRAFT.ratio
+    out[key] = {
+      platformId:
+        stringOf(rawState.platformId, 100) || DEFAULT_ECOMMERCE_FORM_DRAFT.platformId,
+      language: languageOf(rawState.language),
+      ratio,
+      note: stringOf(rawState.note, ECOMMERCE_NOTE_MAX),
+    }
+  }
+  return out
 }
 
 /**
@@ -128,6 +159,7 @@ export function normalizeEcommerceFormDraft(value: unknown): EcommerceFormDraft 
     note: stringOf(raw.note, ECOMMERCE_NOTE_MAX),
     model: stringOf(raw.model, 200),
     modeOptions: normalizeEcommerceModeOptions(raw.modeOptions),
+    modeStates: normalizeModeStates(raw.modeStates),
     productNodeId: productNodeId ?? null,
     productNodeIds,
     referenceNodeIds,

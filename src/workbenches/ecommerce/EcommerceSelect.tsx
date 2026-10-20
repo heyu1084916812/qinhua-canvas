@@ -40,7 +40,7 @@ interface MenuPosition {
 
 const POPUP_GAP = 6
 const POPUP_EDGE = 12
-const POPUP_MAX_HEIGHT = 280
+const POPUP_MAX_HEIGHT = 420
 
 export function EcommerceSelect({
   ariaLabel,

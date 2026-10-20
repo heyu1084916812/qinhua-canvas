@@ -439,9 +439,9 @@
   align-items: flex-start;
   gap: 9px;
   padding: 10px 11px;
-  border: 0;
+  border: var(--border);
   border-radius: var(--radius-control);
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   color: var(--text-2);
   font: inherit;
   text-align: left;
@@ -460,8 +460,7 @@
   color: var(--text-1);
 }
 
-.choiceRadio,
-.optionMark {
+.choiceRadio {
   flex: 0 0 auto;
   width: 14px;
   height: 14px;
@@ -470,6 +469,21 @@
   border: var(--border);
   border-radius: 50%;
   background: transparent;
+}
+
+.optionMark {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+  box-sizing: border-box;
+  border: var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--control-inverse-text);
 }
 
 .choiceCardOn .choiceRadio {
@@ -501,14 +515,14 @@
 }
 
 .optionTile {
-  min-height: 44px;
+  min-height: 58px;
   display: flex;
   align-items: flex-start;
-  gap: 7px;
-  padding: 8px 9px;
-  border: 0;
+  gap: 9px;
+  padding: 9px 10px;
+  border: var(--border);
   border-radius: var(--radius-control);
-  background: var(--bg-subtle);
+  background: var(--bg-surface);
   color: var(--text-2);
   font: inherit;
   font-size: var(--fs-chip);
@@ -525,6 +539,7 @@
 
 .optionLabel {
   color: inherit;
+  font-size: var(--fs-label);
   line-height: 1.35;
 }
 
@@ -544,10 +559,6 @@
 .optionTileOn:hover {
   background: var(--bg-surface);
   color: var(--text-1);
-}
-
-.optionMark {
-  border-radius: 4px;
 }
 
 .optionTileOn .optionMark {

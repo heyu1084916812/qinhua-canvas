@@ -77,6 +77,7 @@ import {
 } from '../../domain/ecommerce/platforms'
 import {
   ECOMMERCE_LANGUAGES,
+  ecommerceAspectRatio,
   languageLabel,
   type EcommerceLanguage,
 } from '../../domain/ecommerce/types'
@@ -1041,7 +1042,7 @@ function StudioHost({ projectId }: { projectId: string }) {
            * 白底图时 N 条相同（抽卡），主图 / 详情页 / 套图逐张不同（镜头脚本）。
            */
           prompt: plan.prompts[i] ?? plan.prompt,
-          ratio: plan.ratio,
+          ratio: ecommerceAspectRatio(plan.ratio),
           count: 1,
           ...(request.scale ? { scale: request.scale } : {}),
           ...(mediaKind === 'video' ? { durationSec: request.durationSec ?? 5 } : {}),

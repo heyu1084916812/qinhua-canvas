@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { ECOMMERCE_PLATFORMS, GENERIC_SOURCE, platformById, platformRuleSummary } from './platforms'
+import {
+  ECOMMERCE_PLATFORM_ORDER,
+  ECOMMERCE_PLATFORMS,
+  GENERIC_SOURCE,
+  platformById,
+  platformRuleSummary,
+} from './platforms'
 import {
   ECOMMERCE_EDIT_HARD_RULES,
   ECOMMERCE_HARD_RULES,
@@ -16,6 +22,9 @@ import {
   ECOMMERCE_COUNT_MAX,
   ECOMMERCE_FORM_USAGES,
   ECOMMERCE_USAGES,
+  ecommerceAspectRatio,
+  ecommerceLanguageOptions,
+  ecommerceRatioOptions,
   type EcommerceRequest,
 } from './types'
 
@@ -36,10 +45,14 @@ const base: EcommerceRequest = {
 }
 
 describe('电商平台规则库', () => {
-  it('首批 6 个平台，id 唯一、名字不重复', () => {
-    expect(ECOMMERCE_PLATFORMS).toHaveLength(6)
-    expect(new Set(ECOMMERCE_PLATFORMS.map((p) => p.id)).size).toBe(6)
-    expect(new Set(ECOMMERCE_PLATFORMS.map((p) => p.name)).size).toBe(6)
+  it('平台目录覆盖参考图 19 个平台，id 唯一、名字不重复', () => {
+    expect(ECOMMERCE_PLATFORMS).toHaveLength(19)
+    expect(new Set(ECOMMERCE_PLATFORMS.map((p) => p.id)).size).toBe(19)
+    expect(new Set(ECOMMERCE_PLATFORMS.map((p) => p.name)).size).toBe(19)
+    expect(ECOMMERCE_PLATFORM_ORDER).toHaveLength(19)
+    expect(ECOMMERCE_PLATFORM_ORDER.every((id) => ECOMMERCE_PLATFORMS.some((p) => p.id === id))).toBe(
+      true,
+    )
   })
 
   it('★ 每条都带更新日期与来源 —— 未核实就如实写「通用建议」', () => {
@@ -65,10 +78,65 @@ describe('电商平台规则库', () => {
   })
 
   it('platformById：找不到给 null（白底图不选平台是合法输入）', () => {
-    expect(platformById('amazon')?.name).toBe('Amazon')
+    expect(platformById('amazon')?.name).toBe('亚马逊')
     expect(platformById('nope')).toBeNull()
     expect(platformById(undefined)).toBeNull()
     expect(platformRuleSummary(null)).toContain('未指定平台')
+  })
+})
+
+describe('工具独立选项', () => {
+  it('商品套图与爆款复刻使用各自的语言集合和顺序', () => {
+    expect(ecommerceLanguageOptions('set').map((item) => item.label)).toEqual([
+      '英文',
+      '中文',
+      '日文',
+      '韩文',
+      '西班牙文',
+      '俄语',
+      '泰语',
+      '马来语',
+    ])
+    expect(ecommerceLanguageOptions('recreate').map((item) => item.label)).toEqual([
+      '英文',
+      '中文',
+      '日文',
+      '韩文',
+      '俄语',
+      '德语',
+      '法语',
+      '西班牙语',
+      '葡萄牙语',
+      '泰语',
+      '马来语',
+    ])
+  })
+
+  it('A+ 详情页提供版面类型，并映射成真实生成宽高比', () => {
+    expect(ecommerceRatioOptions('detail')).toEqual([
+      { value: 'aplus-premium-web', label: '高级A+（Web端）' },
+      { value: 'aplus-premium-mobile', label: '高级A+（移动端）' },
+      { value: 'aplus-standard', label: '普通A+' },
+      { value: '1:1', label: '1:1' },
+      { value: '4:3', label: '4:3' },
+      { value: '16:9', label: '16:9' },
+      { value: '9:16', label: '9:16' },
+    ])
+    expect(ecommerceAspectRatio('aplus-premium-web')).toBe('16:9')
+    expect(ecommerceAspectRatio('aplus-premium-mobile')).toBe('9:16')
+    expect(ecommerceAspectRatio('aplus-standard')).toBe('4:3')
+    expect(ecommerceAspectRatio('3:4')).toBe('3:4')
+  })
+
+  it('A+ 版面进入提示词时写人话，执行计划保留用户原选择', () => {
+    const plan = buildEcommercePlan({
+      ...base,
+      usage: 'detail',
+      count: 4,
+      ratio: 'aplus-premium-web',
+    })
+    expect(plan.ratio).toBe('aplus-premium-web')
+    expect(plan.prompt).toContain('高级A+（Web端）')
   })
 })
 
@@ -77,7 +145,7 @@ describe('提示词拼装', () => {
     const text = buildEcommercePrompt({ ...base, note: '突出防水材质' })
     expect(text.split('\n')[0]).toBe('突出防水材质')
     expect(text).toContain('用途：主图')
-    expect(text).toContain('目标平台：Amazon')
+    expect(text).toContain('目标平台：亚马逊')
     expect(text).toContain('通用建议')
     expect(text).toContain('2026-10-09')
     expect(text).toContain('文案语言：English')
@@ -88,7 +156,7 @@ describe('提示词拼装', () => {
   it('★ 没选平台时如实写「未指定平台」，不编一个平台名', () => {
     const text = buildEcommercePrompt({ ...base, platformId: undefined, usage: 'white-bg' })
     expect(text).toContain('未指定平台')
-    expect(text).not.toContain('Amazon')
+    expect(text).not.toContain('亚马逊')
   })
 
   it('note 超长自动截断（表单之外的长文应当写进提示词节点）', () => {
@@ -168,7 +236,7 @@ describe('执行计划与校验', () => {
       ['张数不是整数', { ...base, count: 1.5 }],
       ['比例不认识', { ...base, ratio: '2:3' }],
       ['平台不存在', { ...base, platformId: 'nope' }],
-      ['语言不认识', { ...base, language: 'fr' as never }],
+      ['语言不认识', { ...base, language: 'xx' as never }],
       ['爆款复刻没上传参考图', { ...base, usage: 'recreate', referenceNodeIds: [] }],
       ['AI 编辑空指令', { ...base, usage: 'edit', note: '  ' }],
       ['AI 编辑多张', { ...base, usage: 'edit', count: 2, note: '把背景换掉' }],

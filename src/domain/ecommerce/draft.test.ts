@@ -23,6 +23,7 @@ describe('电商左侧草稿纯数据', () => {
       modeOptions: {
         detailHighlights: ['hero', 'coreSelling'],
       },
+      modeStates: {},
       productNodeId: 'node_product',
       productNodeIds: ['node_product'],
       referenceNodeIds: ['node_ref_1', 'node_ref_2'],
@@ -52,6 +53,49 @@ describe('电商左侧草稿纯数据', () => {
   it('张数非法时按该用途默认值，不从别的用途借数', () => {
     expect(normalizeEcommerceFormDraft({ usage: 'set', count: Number.NaN }).count).toBe(8)
     expect(normalizeEcommerceFormDraft({ usage: 'detail' }).count).toBe(4)
+  })
+
+  it('每个顶部工具的平台、语言、比例与要求独立回读', () => {
+    const out = normalizeEcommerceFormDraft({
+      modeStates: {
+        'product-set': {
+          platformId: 'amazon',
+          language: 'en',
+          ratio: '1:1',
+          note: '套图要求',
+        },
+        'product-detail': {
+          platformId: 'taobao',
+          language: 'zh-CN',
+          ratio: 'aplus-premium-web',
+          note: '详情页要求',
+        },
+        broken: {
+          platformId: 'x',
+          language: 'xx',
+          ratio: 'bad',
+          note: 9,
+        },
+      },
+    })
+    expect(out.modeStates['product-set']).toEqual({
+      platformId: 'amazon',
+      language: 'en',
+      ratio: '1:1',
+      note: '套图要求',
+    })
+    expect(out.modeStates['product-detail']).toEqual({
+      platformId: 'taobao',
+      language: 'zh-CN',
+      ratio: 'aplus-premium-web',
+      note: '详情页要求',
+    })
+    expect(out.modeStates.broken).toEqual({
+      platformId: 'x',
+      language: 'en',
+      ratio: '1:1',
+      note: '',
+    })
   })
 
   it('结果图后续动作 edit 不允许写回左侧新建表单', () => {

@@ -17,8 +17,20 @@ import type { EcommerceUpscaleScale } from './upscale'
  */
 export type EcommerceUsage = 'main' | 'white-bg' | 'detail' | 'set' | 'recreate' | 'edit'
 
-/** 文案语言：跨境常去的八种 + 中文 */
-export type EcommerceLanguage = 'zh-CN' | 'en' | 'ru' | 'ja' | 'ko' | 'de' | 'es' | 'ar'
+/** 文案语言：覆盖当前电商工作台出现的全部语言 */
+export type EcommerceLanguage =
+  | 'zh-CN'
+  | 'en'
+  | 'ru'
+  | 'ja'
+  | 'ko'
+  | 'de'
+  | 'fr'
+  | 'es'
+  | 'pt'
+  | 'th'
+  | 'ms'
+  | 'ar'
 
 export type EcommerceModeOptionValue =
   | string
@@ -82,18 +94,66 @@ export const ECOMMERCE_FORM_USAGES: readonly EcommerceUsage[] = [
 /** 整个电商领域认识的用途；包含结果卡后续动作 `edit`。 */
 export const ECOMMERCE_USAGES: readonly EcommerceUsage[] = [...ECOMMERCE_FORM_USAGES, 'edit']
 export const ECOMMERCE_LANGUAGES: readonly EcommerceLanguage[] = [
-  'zh-CN',
   'en',
-  'ru',
+  'zh-CN',
   'ja',
   'ko',
-  'de',
   'es',
+  'ru',
+  'de',
+  'fr',
+  'pt',
+  'th',
+  'ms',
   'ar',
 ]
 
+/** 商品套图使用的语言与顺序，按用户参考图固定 */
+export const ECOMMERCE_SET_LANGUAGES: readonly EcommerceLanguage[] = [
+  'en',
+  'zh-CN',
+  'ja',
+  'ko',
+  'es',
+  'ru',
+  'th',
+  'ms',
+]
+
+/** 爆款复刻使用的语言与顺序，按用户参考图固定 */
+export const ECOMMERCE_RECREATE_LANGUAGES: readonly EcommerceLanguage[] = [
+  'en',
+  'zh-CN',
+  'ja',
+  'ko',
+  'ru',
+  'de',
+  'fr',
+  'es',
+  'pt',
+  'th',
+  'ms',
+]
+
+/** A+ 详情页的版面类型与普通比例共用同一个字段 */
+export const ECOMMERCE_A_PLUS_RATIOS: readonly string[] = [
+  'aplus-premium-web',
+  'aplus-premium-mobile',
+  'aplus-standard',
+  '1:1',
+  '4:3',
+  '16:9',
+  '9:16',
+]
+
+/** 真正可以发给图片模型的宽高比 */
+export const ECOMMERCE_BASE_RATIOS: readonly string[] = ['1:1', '3:4', '4:3', '16:9', '9:16']
+
 /** 通用比例档（平台的 ratios 是它的子集；表单在没选平台时用这一份） */
-export const ECOMMERCE_RATIOS: readonly string[] = ['1:1', '3:4', '4:3', '16:9', '9:16']
+export const ECOMMERCE_RATIOS: readonly string[] = [
+  ...ECOMMERCE_BASE_RATIOS,
+  ...ECOMMERCE_A_PLUS_RATIOS.filter((ratio) => !ECOMMERCE_BASE_RATIOS.includes(ratio)),
+]
 
 /** 张数上限：一次请求最多 12 张（再多就不该走这个表单，该走批量节点） */
 export const ECOMMERCE_COUNT_MAX = 12
@@ -120,8 +180,80 @@ export function languageLabel(language: EcommerceLanguage): string {
     ja: '日本語',
     ko: '한국어',
     de: 'Deutsch',
+    fr: 'Français',
     es: 'Español',
+    pt: 'Português',
+    th: 'ไทย',
+    ms: 'Bahasa Melayu',
     ar: 'العربية',
   }
   return map[language]
+}
+
+export function ecommerceLanguagesFor(usage: EcommerceUsage): readonly EcommerceLanguage[] {
+  if (usage === 'set') return ECOMMERCE_SET_LANGUAGES
+  if (usage === 'recreate') return ECOMMERCE_RECREATE_LANGUAGES
+  return ECOMMERCE_LANGUAGES
+}
+
+export function ecommerceLanguageOptionLabel(
+  language: EcommerceLanguage,
+  usage: EcommerceUsage,
+): string {
+  if (usage !== 'set' && usage !== 'recreate') return languageLabel(language)
+  const labels: Partial<Record<EcommerceLanguage, string>> = {
+    en: '英文',
+    'zh-CN': '中文',
+    ja: '日文',
+    ko: '韩文',
+    es: usage === 'set' ? '西班牙文' : '西班牙语',
+    ru: '俄语',
+    de: '德语',
+    fr: '法语',
+    pt: '葡萄牙语',
+    th: '泰语',
+    ms: '马来语',
+  }
+  return labels[language] ?? languageLabel(language)
+}
+
+export function ecommerceLanguageOptions(usage: EcommerceUsage): Array<{
+  value: EcommerceLanguage
+  label: string
+}> {
+  return ecommerceLanguagesFor(usage).map((language) => ({
+    value: language,
+    label: ecommerceLanguageOptionLabel(language, usage),
+  }))
+}
+
+export function ecommerceRatioOptions(
+  usage: EcommerceUsage,
+  mediaKind: 'image' | 'video' = 'image',
+): Array<{
+  value: string
+  label: string
+}> {
+  const values =
+    mediaKind === 'video'
+      ? ['9:16', '16:9', '1:1']
+      : usage === 'detail'
+      ? ECOMMERCE_A_PLUS_RATIOS
+      : ECOMMERCE_BASE_RATIOS
+  return values.map((value) => ({ value, label: ecommerceRatioLabel(value) }))
+}
+
+export function ecommerceRatioLabel(ratio: string): string {
+  if (ratio === 'aplus-premium-web') return '高级A+（Web端）'
+  if (ratio === 'aplus-premium-mobile') return '高级A+（移动端）'
+  if (ratio === 'aplus-standard') return '普通A+'
+  return ratio
+}
+
+/** A+ 版面需要落到模型能理解的宽高比；普通比例原样返回 */
+export function ecommerceAspectRatio(ratio: string): string {
+  if (ratio === 'aplus-premium-web') return '16:9'
+  if (ratio === 'aplus-premium-mobile') return '9:16'
+  if (ratio === 'aplus-standard') return '4:3'
+  return ratio
 }
