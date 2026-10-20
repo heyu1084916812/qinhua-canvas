@@ -212,7 +212,12 @@ export function AssetsPage() {
       return
     }
     const checkboxToggle = event.currentTarget.hasAttribute('data-asset-select')
-    const additive = checkboxToggle || event.ctrlKey || event.metaKey
+    /**
+     * 选择模式里点卡片本身就是“加入 / 移出本次选择”。
+     * 只有勾选框才能多选的交互会让用户连续点两张卡时永远只剩最后一张，
+     * 看起来就像“多选删除没做好”。
+     */
+    const additive = checkboxToggle || selectionMode || event.ctrlKey || event.metaKey
     if (event.shiftKey && selectionAnchor) {
       const from = selectableHashes.indexOf(selectionAnchor)
       const to = selectableHashes.indexOf(hash)

@@ -55,7 +55,7 @@
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: fill;
   background: var(--bg-subtle);
   pointer-events: auto;
 }
@@ -260,88 +260,87 @@
   cursor: default;
 }
 
-.failureTray {
+.resultRunning,
+.resultFailure {
   position: absolute;
-  left: 12px;
-  bottom: 64px;
-  z-index: 20;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-width: 260px;
-}
-
-.failureItem {
-  display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--danger) 50%, var(--stroke));
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--bg-surface) 88%, var(--danger));
-  color: var(--text-2);
-  font-size: var(--fs-chip);
-}
-
-.failureBody {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.failureBody small {
-  color: var(--text-3);
-  overflow-wrap: anywhere;
-}
-
-.failureItem button {
-  border: none;
-  background: transparent;
-  color: var(--danger);
-  cursor: pointer;
-}
-
-.runningTray {
-  position: absolute;
-  left: 12px;
-  top: 12px;
-  z-index: 20;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.runningItem {
-  display: flex;
-  align-items: center;
+  justify-content: center;
   gap: 8px;
-  min-width: 128px;
-  padding: 8px 10px;
-  border: var(--border);
-  border-radius: 7px;
-  background: var(--bg-surface);
+  box-sizing: border-box;
+  padding: 16px;
+  background:
+    linear-gradient(
+      110deg,
+      transparent 30%,
+      color-mix(in srgb, var(--bg-hover) 72%, transparent) 48%,
+      transparent 66%
+    ),
+    var(--bg-subtle);
+  background-size: 230% 100%, auto;
   color: var(--text-2);
-  font-size: var(--fs-chip);
-  box-shadow: var(--shadow-float);
+  font-size: calc(12px * var(--wb-inv-scale, 1));
+  text-align: center;
+  animation: workbenchShimmer 2.4s ease-in-out infinite;
 }
 
 .runningOrbit {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--stroke);
+  width: calc(30px * var(--wb-inv-scale, 1));
+  height: calc(30px * var(--wb-inv-scale, 1));
+  box-sizing: border-box;
+  border: calc(2px * var(--wb-inv-scale, 1)) solid var(--stroke);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: workbenchSpin 0.9s linear infinite;
+}
+
+.resultFailure {
+  border: 1px solid color-mix(in srgb, var(--danger) 48%, var(--stroke));
+  background: color-mix(in srgb, var(--bg-surface) 90%, var(--danger));
+  animation: none;
+}
+
+.resultFailure strong {
+  color: var(--danger);
+  font-size: calc(14px * var(--wb-inv-scale, 1));
+}
+
+.resultFailure small {
+  display: -webkit-box;
+  max-width: 42ch;
+  overflow: hidden;
+  color: var(--text-3);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.resultFailure button {
+  padding: calc(6px * var(--wb-inv-scale, 1)) calc(10px * var(--wb-inv-scale, 1));
+  border: none;
+  border-radius: 5px;
+  background: var(--bg-surface);
+  color: var(--danger);
+  font: inherit;
+  font-size: calc(12px * var(--wb-inv-scale, 1));
+  cursor: pointer;
 }
 
 @keyframes workbenchSpin {
   to { transform: rotate(360deg); }
 }
 
+@keyframes workbenchShimmer {
+  0%, 100% { background-position: 130% 0, 0 0; }
+  50% { background-position: -30% 0, 0 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .runningOrbit {
+  .runningOrbit,
+  .resultRunning {
     animation: none;
   }
 }

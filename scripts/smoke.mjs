@@ -25507,15 +25507,16 @@ async function g114(browser) {
   await sleep(250)
   const selectChecks = page.locator('[data-asset-select]')
   const selectableCount = await selectChecks.count()
-  await selectChecks.nth(0).click()
-  await selectChecks.nth(1).click({ modifiers: ['Shift'] })
+  const selectCards = page.locator('[data-asset-open]')
+  await selectCards.nth(0).click()
+  await selectCards.nth(1).click()
   await sleep(200)
   const selectedHashes = await page
     .locator('[data-asset-checked="true"]')
     .evaluateAll((els) => els.map((el) => el.getAttribute('data-asset-card')))
   rec(
     g,
-    '★★ 素材支持选择模式与 Shift 连续范围选择',
+    '★★ 选择模式里连续点两张卡片即可多选，不要求用户找小勾选框',
     selectableCount >= 2 && selectedHashes.length === 2 && selectedHashes.every(Boolean),
     `可勾选=${selectableCount} 已选=${selectedHashes.join(',')}`,
   )
@@ -28033,6 +28034,39 @@ async function g166(browser) {
       })
       if (!response.ok) throw new Error(`${table}: HTTP ${response.status}`)
     }
+    /**
+     * G166 固定使用 p-wb。上一轮运行会把文字 / 上传对象留在同一项目里，
+     * 不清掉的话下一次“三条历史结果”会读成 5 条，测试结论完全失真。
+     */
+    const clearProjectRows = async (table) => {
+      const response = await fetch('http://127.0.0.1:18765/query', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ table, filter: { projectId: 'p-wb' }, includePayload: false, limit: 1000 }),
+      })
+      const rows = response.ok ? (await response.json()).rows ?? [] : []
+      for (const row of rows) {
+        await fetch('http://127.0.0.1:18765/delete', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ table, id: row.id }),
+        })
+      }
+    }
+    for (const table of [
+      'ecommerceCanvasItems',
+      'ecommerceResults',
+      'ecommerceTasks',
+      'assets',
+      'projects',
+    ]) {
+      await clearProjectRows(table)
+    }
+    await fetch('http://127.0.0.1:18765/delete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ table: 'projects', id: 'p-wb' }),
+    })
     const bytes = new Uint8Array(await (await fetch(`data:image/png;base64,${pngB64}`)).arrayBuffer())
     const now = Date.now()
     await bulk('projects', [
@@ -28143,15 +28177,10 @@ async function g166(browser) {
   rec(g, '三条历史结果自动回填到独立无限工作台', (await items.count()) === 3, `items=${await items.count()}`)
   rec(
     g,
-    '底部工具栏包含选择 / 抓手 / 上传 / 文字 / 网格 / 上一步 / 下一步',
-    (await page.locator('[data-ecommerce-workbench-toolbar] button').count()) === 7,
+    '底部工具栏包含选择 / 抓手 / 上传 / 文字 / 上一步 / 下一步，不再摆无意义网格开关',
+    (await page.locator('[data-ecommerce-workbench-toolbar] button').count()) === 6 &&
+      (await page.locator('[data-ecommerce-workbench-toolbar] [data-grid-size]').count()) === 0,
   )
-  const gridButton = page.locator('[data-ecommerce-workbench-toolbar] [data-grid-size]')
-  await gridButton.click()
-  await gridButton.click()
-  await gridButton.click()
-  await gridButton.click()
-  rec(g, '网格与吸附尺寸可在 16 / 8 / 32 / 关闭之间切换', (await gridButton.getAttribute('data-grid-size')) === '16')
 
   const layout = await items.evaluateAll((els) =>
     els.map((el) => ({
@@ -28192,6 +28221,42 @@ async function g166(browser) {
       (await page.locator('[data-ecommerce-rotate-handle]').count()) === 1 &&
       (await page.locator('[data-ecommerce-action-panel]').count()) === 1,
   )
+  const actionTextBeforeBlank = await page.locator('[data-ecommerce-action-panel]').innerText()
+  const blank = await page.evaluate(() => {
+    const workbench = document.querySelector('[data-ecommerce-workbench]')?.getBoundingClientRect()
+    if (!workbench) return null
+    const blocked = (x, y) => {
+      const el = document.elementFromPoint(x, y)
+      return !!el?.closest(
+        '[data-ecommerce-workbench-item],[data-ecommerce-action-panel],[data-ecommerce-workbench-toolbar],[data-ecommerce-workbench-log],[data-ecommerce-workbench-zoom]',
+      )
+    }
+    for (let y = workbench.bottom - 120; y > workbench.top + 20; y -= 24) {
+      for (let x = workbench.right - 24; x > workbench.left + 20; x -= 24) {
+        if (!blocked(x, y)) return { x, y }
+      }
+    }
+    return null
+  })
+  if (blank) await page.mouse.click(blank.x, blank.y)
+  rec(
+    g,
+    '点击图片进入选中态，点击工作台空白立即取消选中与功能面板',
+    !!blank &&
+      (await page.locator('[data-ecommerce-item-size]').count()) === 0 &&
+      (await page.locator('[data-ecommerce-action-panel]').count()) === 0,
+    `panelBefore=${Boolean(actionTextBeforeBlank)} blank=${JSON.stringify(blank)}`,
+  )
+  await items.first().click()
+  const resultActionText = await page.locator('[data-ecommerce-action-panel]').innerText()
+  rec(
+    g,
+    '结果功能面板只保留电商自己的下载 / 收藏，不再出现“在画布中打开”',
+    resultActionText.includes('下载') &&
+      resultActionText.includes('收藏到素材库') &&
+      !resultActionText.includes('画布'),
+    resultActionText.replace(/\n/g, ' | '),
+  )
   const panelGeometry = await page.evaluate(() => {
     const panel = document.querySelector('[data-ecommerce-action-panel]')?.getBoundingClientRect()
     const workbench = document.querySelector('[data-ecommerce-workbench]')?.getBoundingClientRect()
@@ -28220,9 +28285,7 @@ async function g166(browser) {
   const box = await wb.boundingBox()
   if (box) {
     await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.45)
-    await page.keyboard.down('Control')
     await page.mouse.wheel(0, -220)
-    await page.keyboard.up('Control')
   }
   await sleep(350)
   const zoomAfter = Number(await wb.getAttribute('data-zoom'))
@@ -28231,7 +28294,7 @@ async function g166(browser) {
   )
   rec(
     g,
-    'Ctrl + 滚轮缩放工作台，世界网格同步缩放',
+    '滚轮直接缩放工作台，世界网格同步缩放',
     zoomAfter > zoomBefore && gridAfter !== gridBefore,
     `${zoomBefore}% → ${zoomAfter}% / ${gridBefore} → ${gridAfter}`,
   )
@@ -28248,6 +28311,16 @@ async function g166(browser) {
   }
   const widthAfter = Number(await selected.getAttribute('data-item-width'))
   rec(g, '边中手柄可自由拉宽图片', widthAfter > widthBefore, `${widthBefore} → ${widthAfter}`)
+  const mediaState = await selected.locator('img').evaluate((el) => ({
+    fit: getComputedStyle(el).objectFit,
+    source: el.getAttribute('data-ecommerce-media-source'),
+  }))
+  rec(
+    g,
+    '选中对象加载原图，边中拉伸的是图片本体而不是容器留白',
+    mediaState.fit === 'fill' && mediaState.source === 'original',
+    `object-fit=${mediaState.fit} source=${mediaState.source}`,
+  )
 
   const rotate = page.locator('[data-ecommerce-rotate-handle]')
   const rotateBox = await rotate.boundingBox()
@@ -28299,6 +28372,7 @@ async function g166(browser) {
     }
   })
   rec(g, '电商日志浮层只存在于中央工作台，不遮住参数区', !!logGeometry?.inside && !logGeometry.overlapsForm, JSON.stringify(logGeometry))
+  await page.locator('[data-ecommerce-workbench-log-toggle]').click()
 
   await page.locator('[data-ecommerce-product-input]').setInputFiles({
     name: 'preview.png',
@@ -28328,6 +28402,29 @@ async function g166(browser) {
     '底部工具栏可添加文字，并进入独立撤销 / 重做栈',
     textAdded === 1 && textAfterUndo === 0 && textAfterRedo === 1,
     `${textAdded} / ${textAfterUndo} / ${textAfterRedo}`,
+  )
+
+  await page
+    .locator('[data-ecommerce-workbench] input[type="file"]')
+    .setInputFiles({
+      name: 'workbench-upload.png',
+      mimeType: 'image/png',
+      buffer: solidPngBuffer(120, 80, [40, 120, 190]),
+    })
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-ecommerce-workbench-item]').length === 5,
+    null,
+    { timeout: 10000 },
+  )
+  await page.locator('[data-ecommerce-workbench-item]').last().click()
+  const uploadActionText = await page.locator('[data-ecommerce-action-panel]').innerText()
+  rec(
+    g,
+    '工作台上传的图片被选中后出现下载 / 收藏功能，而不是空面板',
+    uploadActionText.includes('图片对象') &&
+      uploadActionText.includes('下载') &&
+      uploadActionText.includes('收藏到素材库'),
+    uploadActionText.replace(/\n/g, ' | '),
   )
 
   await page.screenshot({ path: `${OUT}/166-ecommerce-workbench.png` })
@@ -31339,13 +31436,17 @@ async function g139(browser) {
     (await page.locator(`[data-ecommerce-longimage-ai-edit="${editId}"]`).count()) === 1
   const aiUpscaleVisible =
     (await page.locator(`[data-ecommerce-longimage-upscale="${editId}"]`).count()) === 1
-  const extractVisible =
-    (await page.locator(`[data-ecommerce-longimage-extract="${editId}"]`).count()) === 1
+  const editMenuText = await page
+    .locator(`[data-ecommerce-longimage-edit-menu="${editId}"]`)
+    .innerText()
   rec(
     g,
-    '★★ 长图每一段都能展开逐张编辑器入口（打开 / 局部重绘 / 裁剪 / 标注 / 旋转 / AI 编辑 / AI 超清）',
-    editActions === 7 && aiEditVisible && aiUpscaleVisible && extractVisible,
-    `入口 ${editActions} 个 / 局部重绘=${extractVisible} / AI 编辑=${aiEditVisible} / AI 超清=${aiUpscaleVisible}`,
+    '★★ 长图段内只保留电商自己的 AI 编辑 / AI 超清，不再跳无限画布',
+    editActions === 2 &&
+      aiEditVisible &&
+      aiUpscaleVisible &&
+      !editMenuText.includes('画布'),
+    `入口 ${editActions} 个 / AI 编辑=${aiEditVisible} / AI 超清=${aiUpscaleVisible} / ${editMenuText.replace(/\n/g, ' | ')}`,
   )
   await page.screenshot({ path: `${OUT}/139-g139-long-image-edit-menu.png` })
 
@@ -31383,16 +31484,11 @@ async function g139(browser) {
     .waitFor({ state: 'hidden', timeout: 10000 })
     .catch(() => {})
 
-  await page.locator(`[data-ecommerce-longimage-crop="${editId}"]`).click()
-  const cropOpened = await page
-    .locator('[data-lightbox-crop-bar]')
-    .waitFor({ state: 'visible', timeout: 30000 })
-    .then(() => true)
-    .catch(() => false)
   rec(
     g,
-    '★★★ 长图里点「裁剪」会复制为独立画布节点并直接打开裁剪灯箱',
-    cropOpened && /\/canvas\//.test(new URL(page.url()).pathname),
+    '★★ 长图里不存在任何跨工作台跳转，页面仍停在电商工作台',
+    !/\/canvas\//.test(new URL(page.url()).pathname) &&
+      (await page.locator('[data-ecommerce-longimage-crop]').count()) === 0,
     page.url(),
   )
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
@@ -37085,6 +37181,10 @@ async function g164(browser) {
   const runningBefore = await page.evaluate(() => ({
     overlays: document.querySelectorAll('[data-ecommerce-result-overlay="running"]').length,
     orbits: document.querySelectorAll('[data-ecommerce-result-overlay="running"] [data-ecommerce-result-orbit]').length,
+    trays: document.querySelectorAll('[data-ecommerce-running-tray]').length,
+    insideItems: [...document.querySelectorAll('[data-ecommerce-result-overlay="running"]')].every(
+      (el) => !!el.closest('[data-ecommerce-workbench-item]'),
+    ),
     texts: [...document.querySelectorAll('[data-ecommerce-result-elapsed]')].map(
       (el) => el.textContent?.trim() ?? '',
     ),
@@ -37100,6 +37200,8 @@ async function g164(browser) {
     '★★ 电商两张同时发请求，均显示与画布同源的旋转轨道和计时',
     runningBefore.overlays === 2 &&
       runningBefore.orbits === 2 &&
+      runningBefore.trays === 0 &&
+      runningBefore.insideItems &&
       runningBefore.texts.some((text) => text.startsWith('生成中')) &&
       runningAfter.texts.some((text) => /生成中 [1-9]\d*s/.test(text)),
     JSON.stringify({ runningBefore, runningAfter }),

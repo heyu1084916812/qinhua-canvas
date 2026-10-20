@@ -33,13 +33,6 @@ export interface LongImageTileSource {
   hash: string
   width: number
   height: number
-  edit?: {
-    focus: () => void
-    extract: () => void
-    crop: () => void
-    annotate: () => void
-    rotate: () => void
-  }
 }
 
 export function LongImagePanel({
@@ -187,8 +180,8 @@ export function LongImagePanel({
       ) : null}
       {/*
         编排（对账 #426）：这一段就是"编辑态"里**不需要任何新模型能力**的那一半 ——
-        选谁进长图、按什么顺序。逐段的打开 / 裁剪 / 标注 / 旋转复用画布副本；
-        AI 编辑 / AI 超清复用结果卡的同一套付费确认弹窗（对账 #622）。
+        选谁进长图、按什么顺序。段内只保留电商自己的 AI 编辑 / AI 超清，
+        复用结果卡的同一套付费确认弹窗（对账 #622）；不从这里跳到无限画布。
 
         ⚠️ **放在预览之前**：预览是一张几千像素高的长条（`max-height: 520px` 自己也滚），
         编排压在它下面就会被顶到折叠线以下 —— 用户打开面板根本看不见有这个功能
@@ -223,7 +216,7 @@ export function LongImagePanel({
                   {tile.w} × {tile.h}
                 </span>
                 <span className={styles.rowTools}>
-                  {sourceHasEdit(tile.id, tiles) ? (
+                  {tools?.editResult || tools?.upscaleResult ? (
                     <button
                       type="button"
                       className={styles.iconBtn}
@@ -277,16 +270,6 @@ export function LongImagePanel({
                     aria-label={`编辑第 ${i + 1} 张`}
                     data-ecommerce-longimage-edit-menu={tile.id}
                   >
-                    {editActionsOf(tile.id, tiles)?.focus ? (
-                      <button
-                        type="button"
-                        className={styles.ghost}
-                        data-ecommerce-longimage-focus={tile.id}
-                        onClick={() => editActionsOf(tile.id, tiles)?.focus()}
-                      >
-                        在画布中打开
-                      </button>
-                    ) : null}
                     {tools?.editResult ? (
                       <button
                         type="button"
@@ -298,26 +281,6 @@ export function LongImagePanel({
                         AI 编辑
                       </button>
                     ) : null}
-                    {editActionsOf(tile.id, tiles)?.extract ? (
-                      <button
-                        type="button"
-                        className={styles.ghost}
-                        data-ecommerce-longimage-extract={tile.id}
-                        onClick={() => editActionsOf(tile.id, tiles)?.extract()}
-                      >
-                        局部重绘
-                      </button>
-                    ) : null}
-                    {editActionsOf(tile.id, tiles)?.crop ? (
-                      <button
-                        type="button"
-                        className={styles.ghost}
-                        data-ecommerce-longimage-crop={tile.id}
-                        onClick={() => editActionsOf(tile.id, tiles)?.crop()}
-                      >
-                        裁剪
-                      </button>
-                    ) : null}
                     {tools?.upscaleResult ? (
                       <button
                         type="button"
@@ -327,26 +290,6 @@ export function LongImagePanel({
                         onClick={() => tools.upscaleResult?.(tile.id)}
                       >
                         AI 超清
-                      </button>
-                    ) : null}
-                    {editActionsOf(tile.id, tiles)?.annotate ? (
-                      <button
-                        type="button"
-                        className={styles.ghost}
-                        data-ecommerce-longimage-annotate={tile.id}
-                        onClick={() => editActionsOf(tile.id, tiles)?.annotate()}
-                      >
-                        加文字/标注
-                      </button>
-                    ) : null}
-                    {editActionsOf(tile.id, tiles)?.rotate ? (
-                      <button
-                        type="button"
-                        className={styles.ghost}
-                        data-ecommerce-longimage-rotate={tile.id}
-                        onClick={() => editActionsOf(tile.id, tiles)?.rotate()}
-                      >
-                        旋转
                       </button>
                     ) : null}
                   </div>
@@ -428,17 +371,6 @@ function IconCross() {
       <path d="M18 6L6 18" />
     </svg>
   )
-}
-
-function sourceHasEdit(id: string, tiles: readonly LongImageTileSource[]): boolean {
-  return Boolean(editActionsOf(id, tiles))
-}
-
-function editActionsOf(
-  id: string,
-  tiles: readonly LongImageTileSource[],
-): LongImageTileSource['edit'] {
-  return tiles.find((tile) => tile.id === id)?.edit
 }
 
 function IconEdit() {

@@ -56,11 +56,11 @@ function seed() {
 }
 
 describe('ecommerceCanvasRepository', () => {
-  it('从结果回填布局，只渲染成功且已有产物的结果', async () => {
+  it('从结果回填布局，成功、失败和运行中都会占住最终位置', async () => {
     const storage = seed()
     const repo = createEcommerceCanvasRepository(storage)
     const items = await repo.sync('p1', 1280)
-    expect(items.map((item) => item.resultId)).toEqual(['r1', 'r2'])
+    expect(items.map((item) => item.resultId)).toEqual(['r1', 'r2', 'failed'])
     expect(items[0]!.x).toBe(96)
     expect(items[0]!.width).toBe(922)
     expect(items[1]!.y).toBe(
@@ -87,19 +87,10 @@ describe('ecommerceCanvasRepository', () => {
     const storage = seed()
     const repo = createEcommerceCanvasRepository(storage)
     await repo.sync('p1', 1280)
-    await storage.put('ecommerceResults', {
-      id: 'r2',
-      taskId: 't1',
-      projectId: 'p1',
-      nodeId: 'n2',
-      position: 1,
-      createdAt: 2,
-      status: 'failed',
-      assetHash: 'a2',
-    } as never)
+    await storage.delete('ecommerceResults', 'failed')
     const next = await repo.sync('p1', 1280)
-    expect(next.map((item) => item.resultId)).toEqual(['r1'])
-    await repo.removeByResultIds('p1', ['r1'])
+    expect(next.map((item) => item.resultId)).toEqual(['r1', 'r2'])
+    await repo.removeByResultIds('p1', ['r1', 'r2'])
     expect(await repo.list('p1')).toHaveLength(0)
   })
 

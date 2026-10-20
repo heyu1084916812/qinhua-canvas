@@ -137,19 +137,6 @@ export interface EcommerceResultItem {
    * 运行记录照常 +1（换掉的是画面，不是历史）。
    */
   onReplace?: () => Promise<void> | void
-  /**
-   * 「在画布里改这一张」（对账 #424）：跳到画布并把**这个节点**选中 + 居中。
-   * 由页面注入（路由是页面的事）；不传就不渲染这个入口。
-   */
-  onFocusInCanvas?: () => void
-  /** 「裁剪这一张」：跳到画布并打开 plain 裁剪（不写选区上下文） */
-  onCropInCanvas?: () => void
-  /** 「局部重绘」：跳到画布并进入提取选区；改完用融合节点回贴原图 */
-  onExtractInCanvas?: () => void
-  /** 「加文字/标注」：跳到画布并直接打开标注编辑器 */
-  onAnnotateInCanvas?: () => void
-  /** 「旋转」：跳到画布并直接打开旋转与镜像编辑器 */
-  onRotateInCanvas?: () => void
   /** 收藏到素材库（只写收藏关系，不复制字节） */
   onSaveToLibrary?: () => Promise<void> | void
 }
@@ -1073,8 +1060,6 @@ export interface EcommerceStudioProps {
   results: readonly EcommerceResultItem[]
   /** 页面装配好的无限工作台。工作台模块不反向 import 页面。 */
   workbench?: ReactNode
-  /** 在画布里打开这个项目（结果已经是画布节点，这是"发送到画布"的落点） */
-  onOpenCanvas: () => void
   /** 失败 / 取消的结果统一重试（逐张重跑） */
   onRetryFailed?: () => void
   failedCount?: number

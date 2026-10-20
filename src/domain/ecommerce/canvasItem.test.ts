@@ -129,6 +129,60 @@ describe('ecommerce canvas item layout', () => {
     expect(merged.removedIds).toEqual(['old-r9'])
   })
 
+  it('运行中与失败结果也有最终落位，运行框不再依赖左侧托盘', () => {
+    const items = layoutEcommerceResults(
+      'p1',
+      [task('t1', 1)],
+      [
+        result('running', 't1', 0, {
+          status: 'running',
+          assetHash: undefined,
+          mime: undefined,
+          width: undefined,
+          height: undefined,
+        }),
+        result('failed', 't1', 1, {
+          status: 'failed',
+          assetHash: undefined,
+          mime: undefined,
+          width: undefined,
+          height: undefined,
+          errorText: '上游失败',
+        }),
+      ],
+      1280,
+    )
+    expect(items.map((item) => item.resultId)).toEqual(['running', 'failed'])
+    expect(items[0]!.height).toBe(items[0]!.width)
+    expect(items[1]!.y - (items[0]!.y + items[0]!.height)).toBe(24)
+  })
+
+  it('取消结果仍保留可移除的位置，视频任务按 task.mediaKind 建视频容器', () => {
+    const videoTask = task('video-task', 1)
+    videoTask.request = {
+      ...videoTask.request,
+      mediaKind: 'video',
+      ratio: '9:16',
+      count: 1,
+    }
+    const [item] = layoutEcommerceResults(
+      'p1',
+      [videoTask],
+      [
+        result('canceled', 'video-task', 0, {
+          status: 'canceled',
+          assetHash: undefined,
+          mime: undefined,
+          width: undefined,
+          height: undefined,
+        }),
+      ],
+      1280,
+    )
+    expect(item).toMatchObject({ resultId: 'canceled', kind: 'video', aspectLocked: false })
+    expect(item!.height).toBe(Math.round(item!.width / (9 / 16)))
+  })
+
   it('默认宽度受视口约束', () => {
     expect(defaultWorkbenchWidth(1280)).toBe(922)
     expect(defaultWorkbenchWidth(400)).toBe(288)
@@ -156,26 +210,6 @@ describe('ecommerce canvas item layout', () => {
     expect(snapped.y).toBe(3)
     expect(snapped.guides.x).toBe(500)
     expect(snapped.guides.y).toBe(203)
-  })
-
-  it('支持吸附到网格线', () => {
-    const item: EcommerceCanvasItem = {
-      id: 'moving',
-      projectId: 'p1',
-      kind: 'image',
-      x: 0,
-      y: 0,
-      width: 300,
-      height: 200,
-      rotation: 0,
-      zIndex: 1,
-      aspectLocked: true,
-      createdAt: 1,
-      updatedAt: 1,
-    }
-    const snapped = snapWorkbenchMove(item, 29, 65, [], 1, 32)
-    expect(snapped.x).toBe(32)
-    expect(snapped.y).toBe(64)
   })
 
   it('重复添加对象时自动避开已有对象', () => {

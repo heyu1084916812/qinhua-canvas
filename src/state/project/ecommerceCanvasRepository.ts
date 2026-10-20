@@ -145,18 +145,31 @@ export function createEcommerceCanvasRepository(
         return materialize(positioned, at)
       })
       const resultByResultId = new Map(results.map((result) => [result.id, result]))
+      const taskByTaskId = new Map(tasks.map((task) => [task.id, task]))
       const updatedExisting = merged.items
         .filter((item) => !item.id.startsWith('pending:'))
         .map((item) => {
           if (!item.resultId) return item
           const result = resultByResultId.get(item.resultId as string)
           if (!result) return item
-          const kind = result.mime?.startsWith('video/') ? 'video' : 'image'
+          const task = taskByTaskId.get(result.taskId)
+          const kind =
+            result.mime?.startsWith('video/') || task?.request.mediaKind === 'video'
+              ? 'video'
+              : 'image'
+          const wasPlaceholder = !item.assetHash
+          const aspect =
+            result.width && result.height
+              ? result.width / result.height
+              : null
           const next = {
             ...item,
             kind,
             taskId: result.taskId,
             assetHash: result.assetHash ?? item.assetHash,
+            ...(wasPlaceholder && aspect
+              ? { height: Math.max(120, Math.round(item.width / aspect)) }
+              : {}),
             updatedAt: at,
           } satisfies EcommerceCanvasItem
           return next

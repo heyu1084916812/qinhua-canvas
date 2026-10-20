@@ -1,4 +1,5 @@
 import type { EcommerceResultRecord, EcommerceTaskRecord } from './tasks'
+import { ecommerceAspectRatio } from './types'
 
 /**
  * 电商无限工作台里的一个可编辑对象。
@@ -47,6 +48,14 @@ export function resultAspectOf(result: Pick<EcommerceResultRecord, 'width' | 'he
   return width && height ? width / height : 1
 }
 
+export function ratioAspectOf(ratio: string | undefined): number {
+  if (!ratio) return 1
+  const [width, height] = ecommerceAspectRatio(ratio)
+    .split(':')
+    .map((part) => Number(part))
+  return width && height && width > 0 && height > 0 ? width / height : 1
+}
+
 export function defaultWorkbenchWidth(viewportWidth: number): number {
   return Math.max(
     WORKBENCH_MIN_WIDTH,
@@ -62,7 +71,7 @@ export function defaultWorkbenchWidth(viewportWidth: number): number {
  */
 export function layoutEcommerceResults(
   projectId: string,
-  tasks: readonly Pick<EcommerceTaskRecord, 'id' | 'createdAt'>[],
+  tasks: readonly Pick<EcommerceTaskRecord, 'id' | 'createdAt' | 'request'>[],
   results: readonly EcommerceResultRecord[],
   viewportWidth = 1280,
 ): NewEcommerceCanvasItem[] {
@@ -71,8 +80,8 @@ export function layoutEcommerceResults(
       .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
       .map((task, index) => [task.id, index] as const),
   )
-  const ready = results
-    .filter((result) => result.status === 'done' && !!result.assetHash && !!result.mime)
+  const taskById = new Map(tasks.map((task) => [task.id, task] as const))
+  const laidOut = [...results]
     .sort((a, b) => {
       const taskA = taskOrder.get(a.taskId) ?? Number.MAX_SAFE_INTEGER
       const taskB = taskOrder.get(b.taskId) ?? Number.MAX_SAFE_INTEGER
@@ -88,7 +97,7 @@ export function layoutEcommerceResults(
   let y = WORKBENCH_TOP
   let previousTask = ''
   let maxZ = 1
-  return ready.map((result) => {
+  return laidOut.map((result) => {
     /**
      * `y` 在上一条之后已经加过普通图片间距；换任务时补到任务间距，
      * 不是再叠一次 96，否则实际会变成 120。
@@ -97,9 +106,16 @@ export function layoutEcommerceResults(
       y += WORKBENCH_TASK_GAP - WORKBENCH_ITEM_GAP
     }
     previousTask = result.taskId
-    const aspect = resultAspectOf(result)
+    const task = taskById.get(result.taskId)
+    const aspect =
+      result.width && result.height
+        ? resultAspectOf(result)
+        : ratioAspectOf(task?.request.ratio)
     const height = Math.max(120, Math.round(width / aspect))
-    const kind = result.mime?.startsWith('video/') ? 'video' : 'image'
+    const kind =
+      result.mime?.startsWith('video/') || task?.request.mediaKind === 'video'
+        ? 'video'
+        : 'image'
     const item: NewEcommerceCanvasItem = {
       projectId,
       kind,
@@ -112,7 +128,7 @@ export function layoutEcommerceResults(
       height,
       rotation: 0,
       zIndex: maxZ++,
-      aspectLocked: true,
+      aspectLocked: kind === 'image',
     }
     y += height + WORKBENCH_ITEM_GAP
     return item
@@ -193,7 +209,6 @@ export function snapWorkbenchMove(
   nextY: number,
   others: readonly EcommerceCanvasItem[],
   scale: number,
-  gridSize = 0,
 ): { x: number; y: number; guides: { x: number | null; y: number | null } } {
   const threshold = 8 / Math.max(scale, 0.1)
   const itemXs = [nextX, nextX + item.width / 2, nextX + item.width]
@@ -217,22 +232,6 @@ export function snapWorkbenchMove(
         if (Math.abs(delta) <= threshold && (!bestY || Math.abs(delta) < Math.abs(bestY.delta))) {
           bestY = { delta, line: b }
         }
-      }
-    }
-  }
-  if (gridSize > 0) {
-    for (const a of itemXs) {
-      const line = Math.round(a / gridSize) * gridSize
-      const delta = line - a
-      if (Math.abs(delta) <= threshold && (!bestX || Math.abs(delta) < Math.abs(bestX.delta))) {
-        bestX = { delta, line }
-      }
-    }
-    for (const a of itemYs) {
-      const line = Math.round(a / gridSize) * gridSize
-      const delta = line - a
-      if (Math.abs(delta) <= threshold && (!bestY || Math.abs(delta) < Math.abs(bestY.delta))) {
-        bestY = { delta, line }
       }
     }
   }

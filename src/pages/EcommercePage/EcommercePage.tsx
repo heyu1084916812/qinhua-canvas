@@ -16,6 +16,7 @@ import { openGlobalSettings } from '../../state/ui/globalSettings'
 import { channelIsRoutable } from '../../domain/project/channel'
 import { resolveRouteFor } from '../../domain/project/modelRouting'
 import { resolveUpstreamModel } from '../../domain/project/modelMapping'
+import { resolveGenerationTarget } from '../../domain/project/generationRouting'
 import {
   planTitleOf,
   recentPlanSessions,
@@ -118,8 +119,8 @@ import styles from './EcommercePage.module.css'
  * ## A 版的数据落在哪
  *
  * 复用电商的**画布图**：产品图 / 参考图 = 素材节点，出图 = 生成节点 + 运行记录，
- * 结果字节仍是内容寻址的 `assets`。所以"发送到画布"在这里就是「在画布里打开」
- * —— 结果本来就已经是这个项目的画布节点。专业版（#380）要独立数据模型时再补表。
+ * 结果字节仍是内容寻址的 `assets`。用户界面将电商与无限画布保持隔离：
+ * 电商结果只能在工作台里下载、收藏或继续 AI 编辑，不从功能面板跳到画布。
  */
 
 export function EcommercePage() {
@@ -276,7 +277,6 @@ function StudioHost({ projectId }: { projectId: string }) {
   const store = useCanvasStore()
   const graph = useGraph()
   const exec = useCanvasExecution()
-  const navigate = useNavigate()
   const taskRepo = useMemo(() => createEcommerceTaskRepository(platform.storage), [platform])
   const canvasRepo = useMemo(
     () => createEcommerceCanvasRepository(platform.storage),
@@ -300,6 +300,7 @@ function StudioHost({ projectId }: { projectId: string }) {
   const [canvasItems, setCanvasItems] = useState<EcommerceCanvasItem[]>([])
   const [workbenchResults, setWorkbenchResults] = useState<EcommerceResultRecord[]>([])
   const canvasSaveQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const workbenchRefreshQueueRef = useRef<Promise<void>>(Promise.resolve())
   const legacyNodeIds = useMemo(() => {
     if (!taskLoaded || activeTask) return []
     return graph.nodes
@@ -380,6 +381,16 @@ function StudioHost({ projectId }: { projectId: string }) {
       setWorkbenchResults(rows)
     },
     [canvasRepo, projectId, taskRepo],
+  )
+  const queueWorkbenchRefresh = useCallback(
+    (viewportWidth?: number) => {
+      const next = workbenchRefreshQueueRef.current
+        .catch(() => undefined)
+        .then(() => refreshWorkbench(viewportWidth))
+      workbenchRefreshQueueRef.current = next.catch(() => undefined)
+      return next
+    },
+    [refreshWorkbench],
   )
 
   useEffect(() => {
@@ -624,27 +635,6 @@ function StudioHost({ projectId }: { projectId: string }) {
     [platform, projectId, store, taskRepo],
   )
 
-  const openCanvasCopy = useCallback(
-    (row: EcommerceResultRecord, mode?: 'extract' | 'crop' | 'annotate' | 'rotate') => {
-      try {
-        const copy = ensureResultCopy(row)
-        navigate(
-          projectRoute(
-            'canvas',
-            projectId,
-            mode
-              ? { focus: copy.nodeId, [mode]: true }
-              : { focus: copy.nodeId },
-          ),
-        )
-      } catch (error) {
-        platform.logger.log('warn', '[ecommerce] 创建画布副本失败', { error: String(error) })
-        store.notify('创建画布副本失败，请稍后重试', 'error')
-      }
-    },
-    [ensureResultCopy, navigate, platform, projectId],
-  )
-
   const handleCanvasItemsChange = useCallback(
     (next: EcommerceCanvasItem[]) => {
       setCanvasItems(next)
@@ -659,46 +649,43 @@ function StudioHost({ projectId }: { projectId: string }) {
   )
 
   const handleWorkbenchAction = useCallback(
-    (resultId: string, action: EcommerceWorkbenchAction) => {
+    (item: EcommerceCanvasItem, action: EcommerceWorkbenchAction) => {
       const row =
-        workbenchResults.find((result) => result.id === resultId) ??
-        resultRows.find((result) => result.id === resultId)
-      if (!row) return
+        (item.resultId
+          ? workbenchResults.find((result) => result.id === item.resultId) ??
+            resultRows.find((result) => result.id === item.resultId)
+          : null) ?? null
+      const hash = item.assetHash ?? row?.assetHash
+      if (!hash) return
       if (action === 'download') {
-        if (!row.assetHash) return
-        void downloadAsset(
-          { assets: platform.assets, files: platform.files },
-          row.assetHash,
-        )
+        void downloadAsset({ assets: platform.assets, files: platform.files }, hash)
         return
       }
       if (action === 'save') {
-        if (!row.assetHash) return
-        void assetLibraryRepo
-          .save({
-            hash: row.assetHash,
-            mime: row.mime ?? 'image/png',
-            bytes: 0,
-            width: row.width ?? 0,
-            height: row.height ?? 0,
+        void (async () => {
+          const payload = await platform.assets.read(hash)
+          await assetLibraryRepo.save({
+            hash,
+            mime:
+              payload?.mime ??
+              row?.mime ??
+              (item.kind === 'video' ? 'video/mp4' : 'image/png'),
+            bytes: payload?.bytes.length ?? 0,
+            width: row?.width ?? item.width,
+            height: row?.height ?? item.height,
             savedAt: Date.now(),
             projectId,
-            ...(row.prompt ? { prompt: row.prompt } : {}),
-            ...(row.model ? { model: row.model } : {}),
+            ...(row?.prompt ? { prompt: row.prompt } : {}),
+            ...(row?.model ? { model: row.model } : {}),
           })
+        })()
           .then(() => store.notify('已收藏到素材库', 'info'))
           .catch(() => store.notify('收藏失败', 'error'))
         return
       }
-      if (action === 'canvas') openCanvasCopy(row)
-      if (action === 'crop') openCanvasCopy(row, 'crop')
-      if (action === 'extract') openCanvasCopy(row, 'extract')
-      if (action === 'annotate') openCanvasCopy(row, 'annotate')
-      if (action === 'rotate') openCanvasCopy(row, 'rotate')
     },
     [
       assetLibraryRepo,
-      openCanvasCopy,
       platform,
       projectId,
       resultRows,
@@ -1173,31 +1160,26 @@ function StudioHost({ projectId }: { projectId: string }) {
 
     const mediaKind = request.mediaKind ?? 'image'
     const recipe = await channels.defaultForNewNode({}, mediaKind)
-    if (!recipe?.channelId || !recipe?.model) {
+    const target = resolveGenerationTarget({
+      channels: channelList,
+      category: mediaKind,
+      catalog: channels.protocolCatalog(),
+      strategy: routeStrategy,
+      ...(request.model ? { logicalModel: request.model } : {}),
+      ...(request.channelId ? { channelId: request.channelId } : {}),
+      recipe,
+    })
+    if (!target) {
       throw new Error(
-        mediaKind === 'video'
-          ? '还没有可用的视频渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上视频模型'
-          : '还没有可用的生图渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上模型',
+        request.model
+          ? `所选模型「${request.model}」没有可用的真实${mediaKind === 'video' ? '视频' : '生图'}渠道`
+          : mediaKind === 'video'
+            ? '还没有可用的视频渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上视频模型'
+            : '还没有可用的生图渠道 —— 先去「全局设置 → 渠道配置」配一条并勾上模型',
       )
     }
-    /* 用户选过就用他选的；没选过还是走解析出来的默认那一套 */
-    const modelForRun = request.model || recipe.model
-    const requestedChannel = channelList.find(
-      (channel) =>
-        channel.enabled &&
-        channel.id === request.channelId &&
-        channel.models.some(
-          (model) => model.id === modelForRun && model.category === mediaKind,
-        ),
-    )
-    const modelChannel = channelList.find(
-      (channel) =>
-        channel.enabled &&
-        channel.models.some(
-          (model) => model.id === modelForRun && model.category === mediaKind,
-        ),
-    )
-    const channelForRun = requestedChannel?.id ?? modelChannel?.id ?? recipe.channelId
+    const modelForRun = target.logicalModel
+    const channelForRun = target.channelId
 
     /**
      * **两段式**（对账 #410）：
@@ -1290,16 +1272,24 @@ function StudioHost({ projectId }: { projectId: string }) {
     }
     if (task) acquireEcommerceTaskLease(task.id)
     try {
+      /**
+       * 任务行一落库就把 pending 结果排到最终位置。
+       * 工作台不再等整批 Promise.all 结束才画结果，也不再使用左上角全局托盘。
+       */
+      if (task) await queueWorkbenchRefresh()
       /* 一次生成 N 张就是 N 个独立任务；和画布一致，同时发请求，不做“排队”等待。 */
       await Promise.all(
         created.map(async (id) => {
           await exec.runNode(id)
-          if (task) await syncResultRow(task.id, id)
+          if (task) {
+            await syncResultRow(task.id, id)
+            await queueWorkbenchRefresh()
+          }
         }),
       )
       if (task) await refreshTask(task)
       await refreshTaskHistory()
-      await refreshWorkbench()
+      await queueWorkbenchRefresh()
     } finally {
       if (task) releaseEcommerceTaskLease(task.id)
     }
@@ -1500,7 +1490,7 @@ function StudioHost({ projectId }: { projectId: string }) {
           }
           await refreshTask(taskForRefresh)
           await refreshTaskHistory()
-          await refreshWorkbench()
+          await queueWorkbenchRefresh()
         }
         return {
           nodeId: row.nodeId,
@@ -1538,11 +1528,6 @@ function StudioHost({ projectId }: { projectId: string }) {
             row.status === 'failed'
               ? () => void removeFailedResult(activeTask.id, row.id)
               : undefined,
-          onFocusInCanvas: () => openCanvasCopy(row),
-          onExtractInCanvas: () => openCanvasCopy(row, 'extract'),
-          onCropInCanvas: () => openCanvasCopy(row, 'crop'),
-          onAnnotateInCanvas: () => openCanvasCopy(row, 'annotate'),
-          onRotateInCanvas: () => openCanvasCopy(row, 'rotate'),
         }
       })
     }
@@ -1596,15 +1581,6 @@ function StudioHost({ projectId }: { projectId: string }) {
           status === 'running' ? undefined : () => exec.runNode(id),
         onReplace:
           status === 'running' ? undefined : () => exec.runNode(id, { inPlace: true }),
-        onFocusInCanvas: () => navigate(projectRoute('canvas', projectId, { focus: id })),
-        onExtractInCanvas: () =>
-          navigate(projectRoute('canvas', projectId, { focus: id, extract: true })),
-        onCropInCanvas: () =>
-          navigate(projectRoute('canvas', projectId, { focus: id, crop: true })),
-        onAnnotateInCanvas: () =>
-          navigate(projectRoute('canvas', projectId, { focus: id, annotate: true })),
-        onRotateInCanvas: () =>
-          navigate(projectRoute('canvas', projectId, { focus: id, rotate: true })),
       }
     })
   }, [
@@ -1614,9 +1590,7 @@ function StudioHost({ projectId }: { projectId: string }) {
     exec,
     graph.nodes,
     platform,
-    navigate,
     projectId,
-    openCanvasCopy,
     syncResultRow,
     refreshTask,
     refreshTaskHistory,
@@ -1688,27 +1662,12 @@ function StudioHost({ projectId }: { projectId: string }) {
           r.mime?.startsWith('video/')
         )
           return []
-        const edit =
-          r.onFocusInCanvas &&
-            r.onExtractInCanvas &&
-            r.onCropInCanvas &&
-            r.onAnnotateInCanvas &&
-            r.onRotateInCanvas
-            ? {
-                focus: r.onFocusInCanvas,
-                extract: r.onExtractInCanvas,
-                crop: r.onCropInCanvas,
-                annotate: r.onAnnotateInCanvas,
-                rotate: r.onRotateInCanvas,
-              }
-            : undefined
         return [
           {
             id: r.nodeId,
             hash: r.imageHash,
             width: r.pixelSize.width,
             height: r.pixelSize.height,
-            ...(edit ? { edit } : {}),
           },
         ]
       }),
@@ -1748,15 +1707,7 @@ function StudioHost({ projectId }: { projectId: string }) {
           tasks={taskHistory}
           activeResults={resultRows}
           running={exec.isRunning || preparingShots}
-          availableActions={[
-            'download',
-            'save',
-            'canvas',
-            'crop',
-            'extract',
-            'annotate',
-            'rotate',
-          ]}
+          availableActions={['download', 'save']}
           onItemsChange={handleCanvasItemsChange}
           onCanvasUpload={onWorkbenchUpload}
           onAction={handleWorkbenchAction}
@@ -1764,11 +1715,13 @@ function StudioHost({ projectId }: { projectId: string }) {
             channelList.find((channel) => channel.id === channelId)?.name ?? channelId
           }
           onRemoveFailed={(resultId) => {
-            if (activeTask) void removeFailedResult(activeTask.id, resultId)
+            const row =
+              workbenchResults.find((result) => result.id === resultId) ??
+              resultRows.find((result) => result.id === resultId)
+            if (row) void removeFailedResult(row.taskId, resultId)
           }}
         />
       }
-      onOpenCanvas={() => navigate(projectRoute('canvas', projectId))}
       onRetryFailed={failedCount > 0 ? () => void retryFailed() : undefined}
       failedCount={failedCount}
       onDownloadAll={downloadableCount > 0 ? () => void downloadAll() : undefined}

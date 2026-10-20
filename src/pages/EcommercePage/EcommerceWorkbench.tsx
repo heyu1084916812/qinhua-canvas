@@ -15,7 +15,12 @@ import {
   findFreeWorkbenchPosition,
   snapWorkbenchMove,
 } from '../../domain/ecommerce/canvasItem'
-import type { EcommerceResultRecord, EcommerceTaskRecord } from '../../domain/ecommerce/tasks'
+import {
+  resultDisplayStatus,
+  type EcommerceDisplayResultStatus,
+  type EcommerceResultRecord,
+  type EcommerceTaskRecord,
+} from '../../domain/ecommerce/tasks'
 import {
   screenToWorld as canvasScreenToWorld,
   type Viewport as CanvasViewport,
@@ -54,13 +59,6 @@ interface Interaction {
 
 export type EcommerceWorkbenchAction =
   | 'download'
-  | 'canvas'
-  | 'edit'
-  | 'crop'
-  | 'extract'
-  | 'annotate'
-  | 'rotate'
-  | 'upscale'
   | 'save'
 
 interface EcommerceWorkbenchProps {
@@ -74,7 +72,7 @@ interface EcommerceWorkbenchProps {
   availableActions?: readonly EcommerceWorkbenchAction[]
   onItemsChange: (items: EcommerceCanvasItem[]) => void
   onCanvasUpload?: (file: File) => Promise<{ hash: string; width?: number; height?: number } | null>
-  onAction?: (resultId: string, action: EcommerceWorkbenchAction) => void
+  onAction?: (item: EcommerceCanvasItem, action: EcommerceWorkbenchAction) => void
   onRemoveFailed?: (resultId: string) => void
   channelLabelOf?: (channelId: string) => string
 }
@@ -130,7 +128,7 @@ function itemScreenRect(item: EcommerceCanvasItem, viewport: Viewport): {
   }
 }
 
-function ToolIcon({ name }: { name: WorkbenchTool | 'upload' | 'text' | 'grid' | 'undo' | 'redo' | 'log' | 'close' | 'download' | 'canvas' | 'edit' | 'crop' | 'extract' | 'annotate' | 'rotate' | 'upscale' | 'save' }) {
+function ToolIcon({ name }: { name: WorkbenchTool | 'upload' | 'text' | 'undo' | 'redo' | 'log' | 'close' | 'download' | 'rotate' | 'save' }) {
   const common = {
     width: 17,
     height: 17,
@@ -154,9 +152,6 @@ function ToolIcon({ name }: { name: WorkbenchTool | 'upload' | 'text' | 'grid' |
   if (name === 'text') {
     return <svg {...common}><path d="M5 5h14" /><path d="M12 5v14" /><path d="M8 19h8" /></svg>
   }
-  if (name === 'grid') {
-    return <svg {...common}><path d="M4 4h16v16H4z" /><path d="M4 10h16M4 15h16M10 4v16M15 4v16" /></svg>
-  }
   if (name === 'undo' || name === 'redo') {
     return <svg {...common}><path d={name === 'undo' ? 'M9 7 4 12l5 5' : 'm15 7 5 5-5 5'} /><path d={name === 'undo' ? 'M4 12h9a6 6 0 0 1 6 6' : 'M20 12h-9a6 6 0 0 0-6 6'} /></svg>
   }
@@ -169,32 +164,14 @@ function ToolIcon({ name }: { name: WorkbenchTool | 'upload' | 'text' | 'grid' |
   if (name === 'download') {
     return <svg {...common}><path d="M12 4v11" /><path d="m7.5 10.5 4.5 4.5 4.5-4.5" /><path d="M5 19h14" /></svg>
   }
-  if (name === 'canvas') {
-    return <svg {...common}><path d="M4 5h16v14H4z" /><path d="m7 15 3-3 2.5 2.5L16 11l3 3" /><circle cx="9" cy="8.5" r="1.2" /></svg>
-  }
-  if (name === 'edit') {
-    return <svg {...common}><path d="m4 20 4.2-1 10.6-10.6-3.2-3.2L5 15.8Z" /><path d="m13.8 7 3.2 3.2" /></svg>
-  }
-  if (name === 'crop') {
-    return <svg {...common}><path d="M7 3v14a2 2 0 0 0 2 2h12" /><path d="M3 7h14a2 2 0 0 1 2 2v12" /></svg>
-  }
-  if (name === 'extract') {
-    return <svg {...common}><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4" /><path d="M8 12h8" /></svg>
-  }
-  if (name === 'annotate') {
-    return <svg {...common}><path d="m4 20 4.2-1 10.6-10.6-3.2-3.2L5 15.8Z" /><path d="M4 4h6" /></svg>
-  }
   if (name === 'rotate') {
     return <svg {...common}><path d="M20 11a8 8 0 1 0-2.4 5.7" /><path d="M20 5v6h-6" /></svg>
-  }
-  if (name === 'upscale') {
-    return <svg {...common}><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" /><path d="M8 12h8" /></svg>
   }
   return <svg {...common}><path d="M5 4h14v16l-7-3-7 3z" /></svg>
 }
 
-function WorkbenchMedia({ item }: { item: EcommerceCanvasItem }) {
-  const meta = useAssetMeta(item.assetHash, { preferThumb: true })
+function WorkbenchMedia({ item, original }: { item: EcommerceCanvasItem; original: boolean }) {
+  const meta = useAssetMeta(item.assetHash, { preferThumb: !original })
   if (!item.assetHash) return <span className={styles.missing}>素材不存在</span>
   if (!meta.url) return <span className={styles.mediaLoading}>载入中…</span>
   if ((item.kind === 'video' || meta.mime?.startsWith('video/'))) {
@@ -205,11 +182,20 @@ function WorkbenchMedia({ item }: { item: EcommerceCanvasItem }) {
         controls
         playsInline
         preload="metadata"
+        data-ecommerce-media-source={original ? 'original' : 'thumb'}
         onPointerDown={(event) => event.stopPropagation()}
       />
     )
   }
-  return <img className={styles.media} src={meta.url} alt="" draggable={false} />
+  return (
+    <img
+      className={styles.media}
+      src={meta.url}
+      alt=""
+      draggable={false}
+      data-ecommerce-media-source={original ? 'original' : 'thumb'}
+    />
+  )
 }
 
 function elapsedLabel(task: EcommerceTaskRecord): string {
@@ -218,22 +204,56 @@ function elapsedLabel(task: EcommerceTaskRecord): string {
   return `${Math.round(ms / 1000)}s`
 }
 
-function RunningWorkbenchResult({ result }: { result: EcommerceResultRecord }) {
+function WorkbenchResultPlaceholder({
+  result,
+  status,
+  errorText,
+  onRemove,
+}: {
+  result: EcommerceResultRecord
+  status: EcommerceDisplayResultStatus
+  errorText: string
+  onRemove?: () => void
+}) {
   const [seconds, setSeconds] = useState(0)
   useEffect(() => {
-    const started = Date.now()
+    if (status !== 'running') return
+    const started = result.createdAt || Date.now()
     const timer = window.setInterval(() => {
-      setSeconds(Math.floor((Date.now() - started) / 1000))
+      setSeconds(Math.max(0, Math.floor((Date.now() - started) / 1000)))
     }, 500)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [result.createdAt, status])
+  if (status === 'failed') {
+    return (
+      <div
+        className={styles.resultFailure}
+        data-ecommerce-result-overlay="failed"
+        role="alert"
+      >
+        <strong>生成失败</strong>
+        <small data-ecommerce-result-error>{errorText}</small>
+        {onRemove ? (
+          <button
+            type="button"
+            data-ecommerce-remove-failed={result.nodeId}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation()
+              onRemove()
+            }}
+          >
+            移除记录
+          </button>
+        ) : null}
+      </div>
+    )
+  }
   return (
     <div
-      className={styles.runningItem}
-      data-ecommerce-result
-      data-ecommerce-result-id={result.nodeId}
-      data-status="running"
+      className={styles.resultRunning}
       data-ecommerce-result-overlay="running"
+      aria-live="polite"
     >
       <span className={styles.runningOrbit} data-ecommerce-result-orbit aria-hidden />
       <span data-ecommerce-result-elapsed={seconds}>生成中 {seconds}s</span>
@@ -248,7 +268,7 @@ export function EcommerceWorkbench({
   tasks,
   activeResults = [],
   running = false,
-  availableActions = ['download', 'canvas'],
+  availableActions = ['download', 'save'],
   onItemsChange,
   onCanvasUpload,
   onAction,
@@ -267,7 +287,6 @@ export function EcommerceWorkbench({
   const [viewport, setViewport] = useState<Viewport>({ x: 48, y: 48, scale: 0.72 })
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [tool, setTool] = useState<WorkbenchTool>('select')
-  const [gridSize, setGridSize] = useState<number | null>(16)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({
     x: null,
@@ -320,19 +339,14 @@ export function EcommerceWorkbench({
     const node = viewportRef.current
     if (!node) return
     const onWheel = (event: WheelEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('[data-ecommerce-action-panel], [data-ecommerce-workbench-log]')) {
+        return
+      }
       event.preventDefault()
       const rect = node.getBoundingClientRect()
       setViewport((current) => {
         const canvasViewport = toCanvasViewport(current)
-        if (!event.ctrlKey && !event.metaKey) {
-          return fromCanvasViewport(
-            panBy(
-              canvasViewport,
-              event.shiftKey ? -event.deltaY : 0,
-              event.shiftKey ? 0 : -event.deltaY,
-            ),
-          )
-        }
         const zoom = clamp(
           current.scale * Math.exp(-event.deltaY * 0.0015),
           MIN_SCALE,
@@ -356,11 +370,42 @@ export function EcommerceWorkbench({
     () => new Map(results.map((result) => [result.id, result])),
     [results],
   )
+  const activeResultById = useMemo(
+    () => new Map(activeResults.map((result) => [result.id, result] as const)),
+    [activeResults],
+  )
+  const taskById = useMemo(
+    () => new Map(tasks.map((task) => [task.id, task] as const)),
+    [tasks],
+  )
   const selected = localItems.find((item) => item.id === selectedId) ?? null
-  const selectedResult = selected?.resultId ? resultById.get(selected.resultId) ?? null : null
-  const failedResults = activeResults.filter((result) => result.status === 'failed')
-  const runningResults = activeResults.filter(
-    (result) => result.status === 'pending' || result.status === 'running',
+  const selectedResult = selected?.resultId
+    ? activeResultById.get(selected.resultId) ??
+      resultById.get(selected.resultId) ??
+      null
+    : null
+
+  const displayStatusOf = useCallback(
+    (result: EcommerceResultRecord): EcommerceDisplayResultStatus => {
+      const task = taskById.get(result.taskId)
+      const terminal =
+        task &&
+        (task.status === 'done' ||
+          task.status === 'partial' ||
+          task.status === 'failed' ||
+          task.status === 'canceled')
+      if (
+        terminal &&
+        (result.status === 'pending' || result.status === 'running')
+      ) {
+        return result.assetHash ? 'done' : 'failed'
+      }
+      return resultDisplayStatus({
+        stored: result.status,
+        hasAsset: Boolean(result.assetHash),
+      })
+    },
+    [taskById],
   )
 
   const fitAll = useCallback(() => {
@@ -514,6 +559,17 @@ export function EcommerceWorkbench({
   }
 
   const beginPan = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button === 0 && tool === 'select' && !spaceHeld) {
+      const target = event.target as HTMLElement
+      if (
+        !target.closest(
+          '[data-ecommerce-workbench-item], [data-ecommerce-action-panel], [data-ecommerce-workbench-toolbar], [data-ecommerce-workbench-log], [data-ecommerce-workbench-zoom], button',
+        )
+      ) {
+        setSelectedId(null)
+        setEditingTextId(null)
+      }
+    }
     if (event.button !== 1 && tool !== 'hand' && !spaceHeld) return
     event.preventDefault()
     interactionRef.current = {
@@ -593,7 +649,6 @@ export function EcommerceWorkbench({
           rawY,
           localItemsRef.current.filter((candidate) => candidate.id !== item.id),
           interaction.startViewport.scale,
-          gridSize ?? 0,
         )
         setGuides(snapped.guides)
         updateLocalItems((current) =>
@@ -746,17 +801,11 @@ export function EcommerceWorkbench({
     setActionPanelHeight((current) => (Math.abs(current - height) > 1 ? height : current))
   }, [selected?.id, selectedResult?.id, localItems.length])
 
-  const selectedActions = selectedResult
+  const selectedAssetHash = selected?.assetHash ?? selectedResult?.assetHash
+  const selectedActions = selectedAssetHash
     ? ([
-        ['download', '下载', Boolean(selectedResult.assetHash)],
-        ['save', '收藏到素材库', Boolean(selectedResult.assetHash)],
-        ['canvas', '在画布中打开', true],
-        ['crop', '裁剪', true],
-        ['annotate', '标注', true],
-        ['rotate', '旋转 / 镜像', true],
-        ['extract', '局部重绘', true],
-        ['edit', 'AI 编辑', true],
-        ['upscale', 'AI 超清', true],
+        ['download', '下载'],
+        ['save', '收藏到素材库'],
       ] as const)
     : []
 
@@ -775,14 +824,10 @@ export function EcommerceWorkbench({
       <div
         className={styles.canvasGlow}
         aria-hidden
-        style={
-          gridSize
-            ? {
-                backgroundSize: `${gridSize * viewport.scale}px ${gridSize * viewport.scale}px`,
-                backgroundPosition: `${viewport.x}px ${viewport.y}px`,
-              }
-            : { opacity: 0 }
-        }
+        style={{
+          backgroundSize: `${18 * viewport.scale}px ${18 * viewport.scale}px`,
+          backgroundPosition: `${viewport.x}px ${viewport.y}px`,
+        }}
       />
       <div
         className={styles.world}
@@ -795,7 +840,16 @@ export function EcommerceWorkbench({
         }
       >
         {localItems.map((item) => {
-          const result = item.resultId ? resultById.get(item.resultId) : null
+          const result = item.resultId ? resultById.get(item.resultId) ?? null : null
+          const activeResult = result
+            ? activeResultById.get(result.id) ?? result
+            : null
+          const status = activeResult ? displayStatusOf(activeResult) : null
+          const task = activeResult ? taskById.get(activeResult.taskId) : null
+          const errorText =
+            activeResult?.errorText ??
+            task?.errorText ??
+            '任务已结束，但没有返回可展示的结果'
           const selectedItem = item.id === selectedId
           return (
             <div
@@ -817,7 +871,7 @@ export function EcommerceWorkbench({
               data-ecommerce-result={result ? true : undefined}
               data-ecommerce-result-id={result?.nodeId ?? item.resultId ?? item.id}
               data-ecommerce-result-record-id={item.resultId}
-              data-status={result ? 'done' : undefined}
+              data-status={status ?? undefined}
               data-item-x={Math.round(item.x)}
               data-item-y={Math.round(item.y)}
               data-item-width={Math.round(item.width)}
@@ -831,7 +885,18 @@ export function EcommerceWorkbench({
                 else setSelectedId(item.id)
               }}
             >
-              {item.kind === 'text' ? (
+              {activeResult && status && status !== 'done' ? (
+                <WorkbenchResultPlaceholder
+                  result={activeResult}
+                  status={status}
+                  errorText={errorText}
+                  onRemove={
+                    status === 'failed' && result
+                      ? () => onRemoveFailed?.(result.id)
+                      : undefined
+                  }
+                />
+              ) : item.kind === 'text' ? (
                 editingTextId === item.id ? (
                   <textarea
                     className={styles.textEditor}
@@ -862,7 +927,10 @@ export function EcommerceWorkbench({
                   <div className={styles.textContent}>{item.text}</div>
                 )
               ) : (
-                <WorkbenchMedia item={item} />
+                <WorkbenchMedia
+                  item={item}
+                  original={selectedItem || !item.resultId}
+                />
               )}
               {selectedItem && (
                 <>
@@ -918,7 +986,15 @@ export function EcommerceWorkbench({
           onPointerDown={(event) => event.stopPropagation()}
         >
           <header className={styles.panelHead}>
-            <strong>{selected.kind === 'text' ? '文字对象' : selected.kind === 'video' ? '视频结果' : '图片结果'}</strong>
+            <strong>
+              {selected.kind === 'text'
+                ? '文字对象'
+                : selected.kind === 'video'
+                  ? '视频结果'
+                  : selected.resultId
+                    ? '图片结果'
+                    : '图片对象'}
+            </strong>
             <span>{Math.round(selected.rotation)}°</span>
           </header>
           {selectedResult ? (
@@ -928,24 +1004,22 @@ export function EcommerceWorkbench({
             </dl>
           ) : null}
           <div className={styles.panelActions}>
-            {selectedActions.map(([action, label, enabled]) => (
-              (() => {
-                const active = enabled && availableActions.includes(action) && !!onAction
-                return (
+            {selectedActions.map(([action, label]) => {
+              const active = availableActions.includes(action) && !!onAction
+              return (
               <button
                 key={action}
                 type="button"
                 data-ecommerce-workbench-action={action}
                 disabled={!active}
                 title={active ? label : `${label}：待接入`}
-                onClick={() => selectedResult && onAction?.(selectedResult.id, action)}
+                onClick={() => onAction?.(selected, action)}
               >
                 <ToolIcon name={action} />
                 <span>{label}</span>
               </button>
-                )
-              })()
-            ))}
+              )
+            })}
             {selected.kind === 'text' ? (
               <button
                 type="button"
@@ -957,46 +1031,6 @@ export function EcommerceWorkbench({
             ) : null}
           </div>
         </aside>
-      )}
-
-      {failedResults.length > 0 && (
-        <div className={styles.failureTray} data-ecommerce-failure-tray>
-          {failedResults.map((result) => (
-            <div
-              key={result.id}
-              className={styles.failureItem}
-              data-ecommerce-result
-              data-ecommerce-result-id={result.nodeId}
-              data-status="failed"
-            >
-              <div
-                className={styles.failureBody}
-                data-ecommerce-result-overlay="failed"
-                role="alert"
-              >
-                <span>生成失败</span>
-                <small data-ecommerce-result-error>
-                  {result.errorText ?? '没有收到失败原因，请查看电商日志'}
-                </small>
-              </div>
-              <button
-                type="button"
-                data-ecommerce-remove-failed={result.nodeId}
-                onClick={() => onRemoveFailed?.(result.id)}
-              >
-                移除
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {runningResults.length > 0 && (
-        <div className={styles.runningTray} data-ecommerce-running-tray>
-          {runningResults.map((result) => (
-            <RunningWorkbenchResult key={result.id} result={result} />
-          ))}
-        </div>
       )}
 
       <div className={styles.toolbar} data-ecommerce-workbench-toolbar>
@@ -1012,19 +1046,6 @@ export function EcommerceWorkbench({
         </button>
         <button type="button" title="添加文字" onClick={addText}>
           <ToolIcon name="text" />
-        </button>
-        <button
-          type="button"
-          title={gridSize ? `网格与吸附：${gridSize}px` : '网格与吸附：关闭'}
-          data-grid-size={gridSize ?? 'off'}
-          data-tool-active={gridSize !== null}
-          onClick={() =>
-            setGridSize((current) =>
-              current === 16 ? 8 : current === 8 ? 32 : current === 32 ? null : 16,
-            )
-          }
-        >
-          <ToolIcon name="grid" />
         </button>
         <span className={styles.toolDivider} />
         <button type="button" title="上一步" disabled={undoRef.current.length === 0} onClick={undo} data-history-version={historyVersion}>
@@ -1090,10 +1111,10 @@ export function EcommerceWorkbench({
         </aside>
       )}
 
-      {localItems.length === 0 && failedResults.length === 0 ? (
+      {localItems.length === 0 ? (
         <div className={styles.empty} data-ecommerce-workbench-empty>
           <span>生成结果会按任务顺序出现在这里</span>
-          <small>滚轮平移，Ctrl/⌘ + 滚轮缩放，空格或抓手拖动</small>
+          <small>滚轮缩放，空格或抓手拖动</small>
         </div>
       ) : null}
 

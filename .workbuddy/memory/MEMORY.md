@@ -7,6 +7,14 @@
 - **固定显示名命中别名时不能把显示名发给上游**：`routeCandidatesFor()` 现在显式按「映射值 → 同名 ID → 预设别名命中的真实 ID」取值。实测 `GPT-6 Astra` + 渠道模型 `gpt-6-astra` 必须发送 `gpt-6-astra`，不是显示名。
 - 验证：`chatTarget` / `modelRouting` / Agent 对话定向 **53/53**，`npx tsc --noEmit` 通过。
 
+### 电商生成选路、原图缩放与最终位置占位（2026-10-20 → 对账 #664–#674）
+
+- **真实渠道存在时，mock 永不参与兜底**：真实库中的 `ch_smoke_mock` 仍是启用状态且 priority 999；旧逻辑在用户选择的逻辑模型没有直接命中 `models` 时回落 `defaultForNewNode()`，就会把真实任务送进 Smoke Mock。现在生成统一走 `resolveGenerationTarget()`：先按 `image / video` 类别与 `channelIsRoutable()` 过滤，只要存在真实候选就绝不回落到 `protocol='mock'`；只有隔离冒烟库完全没有真实渠道时才允许 mock。
+- **运行框必须直接占最终位置**：电商任务一创建就调用工作台同步，`pending / running / failed / canceled` 都进入 `ecommerceCanvasItems` 的确定性纵向布局；每张 `runNode` 完成并 `syncResultRow` 后立即刷新。左上角 running/failure tray 已删除，避免日志显示失败时旁边仍挂一排“生成中”。
+- **电商与无限画布在 UI 层隔离**：结果面板、长图段内和页面装配层不再提供“在画布中打开 / 裁剪 / 标注 / 旋转”；电商自己保留下载、收藏、AI 编辑和 AI 超清。内部仍可复制节点供引擎执行，但这不是用户可见的跨工作台跳转。
+- **交互口径**：滚轮直接以指针为锚缩放；点击对象选中、点击空白取消；选中和上传对象加载原图；四边手柄使用 `object-fit: fill` 拉伸图片本体，四角仍等比。底部不再渲染网格开关。素材选择模式中连续点卡片即可叠加 / 取消，Delete 仍先二次确认。
+- **验证**：全量 **2889 passed / 1 skipped**，`npm run check`、`npm run build` 通过；隔离矩阵 G114 **29/29**、G164 **40/40**、G166 **19/19**；`generationRouting` / `canvasItem` / `ecommerceCanvasRepository` 定向 **16/16**。截图 `.playwright-verify/166-ecommerce-workbench.png`、`164-ecommerce-running.png`、`164-ecommerce-failed.png`。
+
 ### 电商 Phase 0：素材多选、回收站批处理与失败记录（2026-10-20）
 
 - **素材“删除”不是删文件**：素材页批量移除写 `presets/assetRecordsHidden:v1` 隐藏索引，并删除 `assetLibrary` 收藏关系；`assets` 字节和 `runRecords` 保留。再次 `save()` 同一 hash 会解除隐藏。这样才能支持 Del 多选，又不会从画布仍引用的节点下面抽走字节。
