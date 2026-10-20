@@ -89,6 +89,11 @@ export type VerifyResult =
 export type ChannelDeps = Pick<PlatformKit, 'network' | 'assets'> & {
   hosting?: PlatformKit['hosting']
   /**
+   * 桌面壳的原生 HTTP 请求。公开模型目录等接口可能没有 CORS 头，
+   * 浏览器 fetch 会失败；有这一项时优先走壳，缺席时仍回落到普通 network。
+   */
+  remoteBytes?: Pick<NonNullable<PlatformKit['remoteBytes']>, 'request'>
+  /**
    * **本机 CLI**（对账 #308）。可选：浏览器里没有它，那条路（`cli-gateway` 族）
    * 就回落到"访问用户自建网关"的老实现 —— 两条路并存，谁在就用谁。
    */

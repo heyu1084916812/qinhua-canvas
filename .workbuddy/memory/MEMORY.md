@@ -1,10 +1,18 @@
 # CanvasFlow（轻画）项目记忆
 
+### 电商全并发与 Comfly 全量模型（2026-10-20 → 对账 #649 / #650）
+
+- **电商 N 张必须一次全部发请求**：用户明确不要等待态。`onGenerate` 用 `Promise.all(created.map(...))`；结果展示只有 `running / done / failed`，`pending / queued` 都映射成“生成中”，不得再出现“排队中”。
+- **中断任务不能永远转圈**：页面重开时扫描所有 `ecommerceTasks.status='running'`，用 `interruptUnfinished()` 把 pending / running 结果标成“上次生成被中断，请重新生成”；只提示不自动重发，避免重复扣费。
+- **Comfly 两条模型目录必须合并**：鉴权 `/v1/models` 实测 751，公开 `/api/models/price` 实测 881，并集 887。旧实现只读 751 并把大量视频模型当 chat；现在并集后按 `tags / categories / input_modalities / output_modalities` 分类。
+- **公开目录没有 CORS，桌面端必须走原生 HTTP**：`ChannelDeps.remoteBytes.request` 已接通 Rust `fetch_text`；浏览器无此端口时回落 751，不让整次拉取失败。真实桌面拉取显示 887，分类为 chat 616 / image 140 / video 102 / audio 29。
+- **收口证据**：G164 明暗各 39/39，双卡同帧“生成中 1s”；全量单测 2859 passed / 1 skipped；check、build 通过；截图 `.playwright-verify/164-ecommerce-running.png`、`comfly-model-pull-final.png`。
+
 ### 电商中断任务与批次调度（2026-10-20 → 对账 #648）
 
 - **“全部排队中”先查任务是否已中断，不要直接当成请求慢**：真实任务 `ect_c1e8aac6-584c-4401-a1c8-e329dfa34138` 的 8 条结果在创建后一秒内全部写成 `pending`，任务行仍是 `running`，但桌面壳后来重启，`exec.nodeStateOf()` 已经清空；页面只读结果表，于是把遗留 pending 永久画成“排队中”。
-- **当前电商批次是串行**：`onGenerate` 创建全部节点和结果行后执行 `for … await exec.runNode(id)`。正常活动态应是“第一张生成中，其余排队”；如果全部排队且长时间不变，说明请求未开始或进程中断。
-- **中断恢复不得自动重发**：启动时若发现 `ecommerceTasks.status='running'` 但没有当前 live 执行，应把未完成结果收口为“上次生成被中断”并给显式重试；自动发送会重复扣费。N 张是串行、固定并发还是全部并发，仍需产品拍板。
+- **电商批次已改为全并发**（#649）：`onGenerate` 现在用 `Promise.all` 同时执行全部节点；旧“串行 / 固定并发待拍板”的描述作废。
+- **中断恢复已落地且不自动重发**（#649）：启动时若发现 `ecommerceTasks.status='running'` 但没有当前 live 执行，`interruptUnfinished()` 会把未完成结果收口为“上次生成被中断，请重新生成”。
 
 ### 电商方案模型可达性与生成状态（2026-10-20 → 对账 #647）
 

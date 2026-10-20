@@ -164,16 +164,20 @@ export function classifyError(
  * 而面板要按类别筛模型（提示词节点只列 `chat`、生成节点只列 `image` / `video`）。
  * 猜错的代价是「这个模型没出现在该出现的位置」，比「把所有模型都塞给用户」小。
  */
-export function toModelCapability(modelId: string): ModelCapability {
+export function toModelCapability(
+  modelId: string,
+  categoryHint?: ModelCapability['category'],
+): ModelCapability {
   const id = modelId.toLowerCase()
   const category: ModelCapability['category'] =
-    id.includes('tts') || id.includes('speech') || id.includes('voice')
+    categoryHint ??
+    (id.includes('tts') || id.includes('speech') || id.includes('voice')
       ? 'audio'
       : id.includes('video')
         ? 'video'
         : id.includes('image')
           ? 'image'
-          : 'chat'
+          : 'chat')
   return {
     id: modelId,
     category,

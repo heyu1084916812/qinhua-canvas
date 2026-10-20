@@ -3,6 +3,7 @@ import { createId } from '../../shared/id'
 import {
   statusOfResult,
   statusOfTask,
+  taskStatusOf,
   type EcommerceResultRecord,
   type EcommerceTaskRecord,
 } from '../../domain/ecommerce/tasks'
@@ -31,6 +32,11 @@ export interface EcommerceTaskRepository {
   ): Promise<{ task: EcommerceTaskRecord; results: EcommerceResultRecord[] }>
   updateResult(result: EcommerceResultRecord): Promise<void>
   updateTask(task: EcommerceTaskRecord): Promise<void>
+  interruptUnfinished(
+    taskId: string,
+    reason: string,
+    at?: number,
+  ): Promise<{ task: EcommerceTaskRecord; results: EcommerceResultRecord[] } | null>
   results(taskId: string): Promise<EcommerceResultRecord[]>
   latestWithResults(projectId: string): Promise<{
     task: EcommerceTaskRecord
@@ -181,6 +187,37 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
 
     async updateTask(task) {
       await storage.put('ecommerceTasks', task as never)
+    },
+
+    async interruptUnfinished(taskId, reason, at = Date.now()) {
+      return storage.transaction(['ecommerceTasks', 'ecommerceResults'], async (tx) => {
+        const taskRows = (await tx.query('ecommerceTasks', { id: taskId })) as unknown as Record<
+          string,
+          unknown
+        >[]
+        const task = taskRows.map(taskOf)[0]
+        if (!task || task.status !== 'running') return null
+        const rows = (await tx.query('ecommerceResults', {
+          taskId,
+        })) as unknown as Record<string, unknown>[]
+        const results = rows
+          .map(resultOf)
+          .sort((a, b) => a.position - b.position)
+          .map((row) =>
+            row.status === 'pending' || row.status === 'running'
+              ? { ...row, status: 'failed' as const, errorText: reason, updatedAt: at }
+              : row,
+          )
+        const nextTask: EcommerceTaskRecord = {
+          ...task,
+          status: taskStatusOf(results),
+          errorText: reason,
+          updatedAt: at,
+        }
+        await tx.put('ecommerceTasks', nextTask as never)
+        await tx.bulkPut('ecommerceResults', results as never)
+        return { task: nextTask, results }
+      })
     },
 
     results: resultsOf,

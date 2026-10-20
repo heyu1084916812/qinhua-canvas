@@ -64,6 +64,32 @@ describe('电商任务 / 结果仓储（内存存储）', () => {
     expect(latest?.results[1]?.errorText).toBe('上游 500')
   })
 
+  it('中断收口：running 任务下所有 pending / running 结果变 failed，可重复调用且不覆盖已完成项', async () => {
+    const storage = createMemoryStorage()
+    const repo = createEcommerceTaskRepository(storage)
+    const { task, results } = await repo.create({
+      projectId: 'p1',
+      batchId: 'batch-interrupt',
+      request,
+      nodeIds: ['n1', 'n2'],
+      at: 100,
+    })
+    await repo.updateResult({
+      ...results[0]!,
+      status: 'done',
+      assetHash: 'kept',
+      updatedAt: 110,
+    })
+    const recovered = await repo.interruptUnfinished(task.id, '上次生成被中断，请重新生成', 200)
+    expect(recovered?.task.status).toBe('partial')
+    expect(recovered?.task.errorText).toContain('上次生成被中断')
+    expect(recovered?.results.map((row) => [row.status, row.assetHash ?? ''])).toEqual([
+      ['done', 'kept'],
+      ['failed', ''],
+    ])
+    expect(await repo.interruptUnfinished(task.id, '再次收口', 300)).toBeNull()
+  })
+
   it('AI 编辑任务保存来源任务 / 来源结果 / 原图 hash，用于前后对比', async () => {
     const storage = createMemoryStorage()
     const repo = createEcommerceTaskRepository(storage)

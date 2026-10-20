@@ -36496,9 +36496,9 @@ async function g164(browser) {
   }))
   rec(
     g,
-    '★★ 电商生成卡运行中显示与画布同源的旋转轨道和计时',
-    runningBefore.overlays >= 1 &&
-      runningBefore.orbits >= 1 &&
+    '★★ 电商两张同时发请求，均显示与画布同源的旋转轨道和计时',
+    runningBefore.overlays === 2 &&
+      runningBefore.orbits === 2 &&
       runningBefore.texts.some((text) => text.startsWith('生成中')) &&
       runningAfter.texts.some((text) => /生成中 [1-9]\d*s/.test(text)),
     JSON.stringify({ runningBefore, runningAfter }),

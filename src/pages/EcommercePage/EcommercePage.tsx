@@ -444,11 +444,24 @@ function StudioHost({ projectId }: { projectId: string }) {
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const [latest, list] = await Promise.all([
+      const [latestRow, initialList] = await Promise.all([
         taskRepo.latestWithResults(projectId),
         taskRepo.list(projectId),
       ])
       if (cancelled) return
+      let latest = latestRow
+      let list = initialList
+      for (const runningTask of initialList.filter((task) => task.status === 'running')) {
+        const recovered = await taskRepo.interruptUnfinished(
+          runningTask.id,
+          '上次生成被中断，请重新生成。',
+        )
+        if (cancelled) return
+        if (recovered) {
+          list = list.map((task) => (task.id === recovered.task.id ? recovered.task : task))
+          if (latest?.task.id === recovered.task.id) latest = recovered
+        }
+      }
       setActiveTask(latest?.task ?? null)
       setResultRows(latest?.results ?? [])
       setTaskHistory(list)
@@ -1105,11 +1118,13 @@ function StudioHost({ projectId }: { projectId: string }) {
       setActiveTask(null)
       setResultRows([])
     }
-    /* 逐张跑：并发交给渠道侧没有意义（这里每张都是一个独立节点），串行更稳、也更好报错 */
-    for (const id of created) {
-      await exec.runNode(id)
-      if (task) await syncResultRow(task.id, id)
-    }
+    /* 一次生成 N 张就是 N 个独立任务；和画布一致，同时发请求，不做“排队”等待。 */
+    await Promise.all(
+      created.map(async (id) => {
+        await exec.runNode(id)
+        if (task) await syncResultRow(task.id, id)
+      }),
+    )
     if (task) await refreshTask(task)
     await refreshTaskHistory()
   }
@@ -1277,7 +1292,7 @@ function StudioHost({ projectId }: { projectId: string }) {
           ...(liveState?.kind ? { live: liveState.kind } : {}),
           hasAsset: !!hash,
         })
-        const rerunnable = !!node && status !== 'running' && status !== 'pending'
+        const rerunnable = !!node && status !== 'running'
         const rerun = async (inPlace = false) => {
           const before = new Set(store.getSnapshot().nodes.map((item) => item.id))
           await exec.runNode(row.nodeId, inPlace ? { inPlace: true } : undefined)
@@ -1396,11 +1411,9 @@ function StudioHost({ projectId }: { projectId: string }) {
           ...(typeof data?.ratio === 'string' && data.ratio ? { ratio: data.ratio } : {}),
         }),
         onRerun:
-          status === 'running' || status === 'pending' ? undefined : () => exec.runNode(id),
+          status === 'running' ? undefined : () => exec.runNode(id),
         onReplace:
-          status === 'running' || status === 'pending'
-            ? undefined
-            : () => exec.runNode(id, { inPlace: true }),
+          status === 'running' ? undefined : () => exec.runNode(id, { inPlace: true }),
         onFocusInCanvas: () => navigate(projectRoute('canvas', projectId, { focus: id })),
         onExtractInCanvas: () =>
           navigate(projectRoute('canvas', projectId, { focus: id, extract: true })),

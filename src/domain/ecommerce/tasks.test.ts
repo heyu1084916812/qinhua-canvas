@@ -31,13 +31,13 @@ describe('电商任务 / 结果状态纯函数', () => {
     expect(statusOfResult('canceled')).toBe('canceled')
   })
 
-  it('实时运行态优先于旧产物 hash：重跑已有结果仍显示生成中', () => {
+  it('实时运行态优先于旧产物 hash：重跑已有结果仍显示生成中，没有等待态', () => {
     expect(
       resultDisplayStatus({ stored: 'done', live: 'running', hasAsset: true }),
     ).toBe('running')
     expect(
       resultDisplayStatus({ stored: 'failed', live: 'queued', hasAsset: true }),
-    ).toBe('pending')
+    ).toBe('running')
     expect(
       resultDisplayStatus({ stored: 'done', live: 'failed', hasAsset: true }),
     ).toBe('failed')
@@ -47,7 +47,7 @@ describe('电商任务 / 结果状态纯函数', () => {
     expect(resultDisplayStatus({ stored: 'done', hasAsset: true })).toBe('done')
     expect(resultDisplayStatus({ stored: 'running', hasAsset: true })).toBe('running')
     expect(resultDisplayStatus({ stored: 'canceled', hasAsset: false })).toBe('failed')
-    expect(resultDisplayStatus({ stored: 'pending', hasAsset: false })).toBe('pending')
+    expect(resultDisplayStatus({ stored: 'pending', hasAsset: false })).toBe('running')
   })
 
   it('★ 历史批次摘要：时间 / 用途 / 平台 / 张数 / 状态', () => {

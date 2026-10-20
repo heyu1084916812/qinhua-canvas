@@ -31,13 +31,13 @@ describe('ecommerce result status overlay', () => {
     expect(html).toContain('生成中 0s')
   })
 
-  it('renders queued work distinctly from active generation', () => {
+  it('never renders a waiting state', () => {
     const html = renderToStaticMarkup(
       createElement(ResultStatusOverlay, {
-        item: { nodeId: 'gen_pending', status: 'pending' },
+        item: { nodeId: 'gen_running', status: 'running' },
       }),
     )
-    expect(html).toContain('data-ecommerce-result-overlay="pending"')
-    expect(html).toContain('排队中')
+    expect(html).not.toContain('排队中')
+    expect(html).not.toContain('data-ecommerce-result-overlay="pending"')
   })
 })

@@ -7,8 +7,8 @@ export type EcommerceTaskStatus = 'running' | 'done' | 'partial' | 'failed' | 'c
 /** 逐格结果状态（与界面上的 EcommerceResultItem.status 一一对应，canceled 归到 failed 展示） */
 export type EcommerceResultStatus = 'pending' | 'running' | 'done' | 'failed' | 'canceled'
 
-/** 电商结果卡真正展示的四种状态（取消归到失败）。 */
-export type EcommerceDisplayResultStatus = Exclude<EcommerceResultStatus, 'canceled'>
+/** 电商结果卡真正展示的三种状态（取消归到失败；不存在等待态）。 */
+export type EcommerceDisplayResultStatus = 'running' | 'done' | 'failed'
 
 /** 执行宿主暴露的实时状态；这里只取 kind，避免领域层反向依赖执行层类型。 */
 export type EcommerceResultLiveState =
@@ -22,7 +22,7 @@ export type EcommerceResultLiveState =
  * 计算结果卡的状态。
  *
  * 实时状态优先于结果行和旧产物：重跑一张已有结果时，旧 hash 仍在，
- * 但界面必须先显示「生成中 / 排队中」，失败也要立刻盖住旧图。
+ * 但界面必须先显示「生成中」，失败也要立刻盖住旧图。
  */
 export function resultDisplayStatus(args: {
   stored: EcommerceResultStatus
@@ -30,13 +30,12 @@ export function resultDisplayStatus(args: {
   hasAsset: boolean
 }): EcommerceDisplayResultStatus {
   const { stored, live, hasAsset } = args
-  if (live === 'running') return 'running'
-  if (live === 'queued') return 'pending'
   if (live === 'failed' || live === 'canceled') return 'failed'
-  if (stored === 'running') return 'running'
+  if (live === 'queued' || live === 'running') return 'running'
   if (stored === 'failed' || stored === 'canceled') return 'failed'
-  if (hasAsset || stored === 'done') return 'done'
-  return 'pending'
+  if (stored === 'running') return 'running'
+  if (live === 'succeeded' || stored === 'done' || hasAsset) return 'done'
+  return 'running'
 }
 
 /**

@@ -23,6 +23,66 @@ export interface OpenAiChatConfig extends SafeChannelConfig {
   apiKey: string | null
 }
 
+interface ComflyCatalogModel {
+  key?: unknown
+  name?: unknown
+  categories?: unknown
+  tags?: unknown
+  input_modalities?: unknown
+  output_modalities?: unknown
+}
+
+function stringValues(value: unknown): string[] {
+  if (typeof value === 'string') return [value]
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : []
+}
+
+/**
+ * Comfly 的公开模型目录比鉴权后的 `/v1/models` 更完整：
+ * 实测同一时刻前者 881 条、后者 751 条。公开目录还带 `tags / categories /
+ * input_modalities / output_modalities`，比按模型名猜类别可靠。
+ */
+function comflyCategoryOf(model: ComflyCatalogModel): ModelCapability['category'] | undefined {
+  const output = stringValues(model.output_modalities).map((value) => value.toLowerCase())
+  if (output.includes('video')) return 'video'
+  if (output.includes('image')) return 'image'
+  if (output.includes('audio')) return 'audio'
+
+  const categories = stringValues(model.categories).map((value) => value.toLowerCase())
+  if (categories.includes('video')) return 'video'
+  if (categories.includes('image')) return 'image'
+  if (categories.includes('audio')) return 'audio'
+  if (categories.includes('text')) return 'chat'
+
+  const tags = stringValues(model.tags).join(',')
+  if (tags.includes('视频')) return 'video'
+  if (tags.includes('绘图') || tags.includes('图像编辑')) return 'image'
+  if (tags.includes('文本转语音') || tags.includes('音频') || tags.includes('音乐')) return 'audio'
+  if (tags.includes('对话') || tags.includes('识图') || tags.includes('推理')) return 'chat'
+  return undefined
+}
+
+function mergeComflyCatalog(
+  official: readonly ModelCapability[],
+  catalog: readonly ComflyCatalogModel[],
+): ModelCapability[] {
+  const merged = new Map(official.map((model) => [model.id, model]))
+  for (const item of catalog) {
+    const id =
+      typeof item.key === 'string' && item.key.trim()
+        ? item.key.trim()
+        : typeof item.name === 'string' && item.name.trim()
+          ? item.name.trim()
+          : ''
+    if (!id) continue
+    const hint = comflyCategoryOf(item)
+    if (!merged.has(id) || hint) merged.set(id, toModelCapability(id, hint))
+  }
+  return [...merged.values()]
+}
+
 /** 聊天补全的一条内容片段；纯文本时直接发字符串（兼容性更好），带图才走数组形态 */
 type ContentPart =
   | { type: 'text'; text: string }
@@ -56,6 +116,10 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
   const base = openAiBaseUrl(config)
   const modelsUrl = `${base}/models`
   const chatUrl = `${base}/chat/completions`
+  const comflyCatalogUrl =
+    config.protocol === 'comfly'
+      ? new URL('/api/models/price?version=', base).toString()
+      : null
 
   const verify: ChannelAdapter['verify'] = async (_cfg, signal): Promise<VerifyResult> => {
     try {
@@ -85,6 +149,37 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
   }
 
   const listModels: ChannelAdapter['listModels'] = async (_cfg, signal): Promise<ModelCapability[]> => {
+    const catalogPromise = comflyCatalogUrl
+      ? (deps.remoteBytes?.request
+          ? deps.remoteBytes.request({
+              url: comflyCatalogUrl,
+              method: 'GET',
+              headers: { accept: 'application/json' },
+              timeoutMs: VERIFY_TIMEOUT_MS,
+            })
+          : deps.network.request(
+              {
+                url: comflyCatalogUrl,
+                method: 'GET',
+                headers: { accept: 'application/json' },
+                timeoutMs: VERIFY_TIMEOUT_MS,
+              },
+              signal,
+            )
+        )
+          .then(async (response) => {
+            if (response.status < 200 || response.status >= 300) return []
+            const text =
+              typeof response.text === 'string' ? response.text : await response.text()
+            try {
+              const body = JSON.parse(text) as { data?: { models?: ComflyCatalogModel[] } }
+              return Array.isArray(body.data?.models) ? body.data.models : []
+            } catch {
+              return []
+            }
+          })
+          .catch(() => [])
+      : Promise.resolve([] as ComflyCatalogModel[])
     const res = await deps.network.request(
       { url: modelsUrl, method: 'GET', headers: authHeader(config.apiKey), timeoutMs: VERIFY_TIMEOUT_MS },
       signal,
@@ -95,7 +190,9 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
       throw new ChannelError(error)
     }
     const body = await res.json<{ data?: { id: string }[] }>().catch(() => ({ data: [] as { id: string }[] }))
-    return (body.data ?? []).map((m) => toModelCapability(m.id))
+    const official = (body.data ?? []).map((m) => toModelCapability(m.id))
+    const catalog = await catalogPromise
+    return catalog.length > 0 ? mergeComflyCatalog(official, catalog) : official
   }
 
   /** 读出素材并编码成 data URL；读不到的跳过（不因此让提问失败） */

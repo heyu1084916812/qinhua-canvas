@@ -89,7 +89,7 @@ export interface EcommerceUpload {
 
 export interface EcommerceResultItem {
   nodeId: string
-  status: 'pending' | 'running' | 'done' | 'failed'
+  status: 'running' | 'done' | 'failed'
   /** 产物 MIME；视频结果据此使用播放器而不是 img。 */
   mime?: string
   /** 失败原因（`status === 'failed'` 时必须有 —— 不许静默） */
@@ -395,7 +395,7 @@ export function ResultStatusOverlay({ item }: { item: EcommerceResultItem }) {
           className={styles.resultRunningText}
           data-ecommerce-result-elapsed={elapsed}
         >
-          {item.status === 'pending' ? '排队中' : `生成中 ${elapsed}s`}
+          生成中 {elapsed}s
         </span>
       </span>
     </div>
@@ -2194,9 +2194,7 @@ export function EcommerceStudio({
                       <span className={styles.cellState}>已完成</span>
                     ) : null
                   )}
-                  {r.status === 'pending' ||
-                  r.status === 'running' ||
-                  r.status === 'failed' ? (
+                  {r.status === 'running' || r.status === 'failed' ? (
                     <ResultStatusOverlay item={r} />
                   ) : null}
                 </div>

@@ -80,6 +80,85 @@ describe('openaiChat adapter / 基础契约', () => {
   })
 })
 
+describe('openaiChat adapter / Comfly 全量模型目录', () => {
+  const comflyCfg: ResolvedChannelConfig = {
+    ...cfg,
+    protocol: 'comfly',
+    baseUrl: 'https://ai.comfly.org',
+  }
+
+  it('★★ 合并鉴权目录与公开模型目录，缺失模型补齐且按元数据分类', async () => {
+    const urls: string[] = []
+    const net = createMemoryNetwork({
+      handler: async (request) => {
+        urls.push(request.url)
+        return resp(200, {
+          data: [{ id: 'gpt-image-2' }, { id: 'existing-chat' }],
+        })
+      },
+    })
+    const remoteUrls: string[] = []
+    const a = createOpenAiChatAdapter(comflyCfg, {
+      network: net,
+      assets: platformWith([]).assets,
+      remoteBytes: {
+        request: async (remoteRequest) => {
+          remoteUrls.push(remoteRequest.url)
+          return {
+            status: 200,
+            headers: {},
+            text: JSON.stringify({
+              data: {
+                models: [
+                  { key: 'gpt-image-2', tags: '绘图,图像编辑' },
+                  { key: 'grok-imagine-video', tags: '视频,异步任务' },
+                  { key: 'gemini-3.8-flash-thinking-low', tags: '对话,推理' },
+                  { key: 'new-tts', tags: '文本转语音' },
+                ],
+              },
+            }),
+          }
+        },
+      },
+    })
+    const models = await a.listModels(comflyCfg, signal)
+
+    expect(urls).toEqual(['https://ai.comfly.org/v1/models'])
+    expect(remoteUrls).toEqual(['https://ai.comfly.org/api/models/price?version='])
+    expect(models.map((model) => model.id)).toEqual([
+      'gpt-image-2',
+      'existing-chat',
+      'grok-imagine-video',
+      'gemini-3.8-flash-thinking-low',
+      'new-tts',
+    ])
+    expect(models.map((model) => [model.id, model.category])).toEqual([
+      ['gpt-image-2', 'image'],
+      ['existing-chat', 'chat'],
+      ['grok-imagine-video', 'video'],
+      ['gemini-3.8-flash-thinking-low', 'chat'],
+      ['new-tts', 'audio'],
+    ])
+  })
+
+  it('公开目录失败时仍返回鉴权目录，不让模型拉取整批失败', async () => {
+    const net = createMemoryNetwork({
+      handler: async (_req) => {
+        return resp(200, { data: [{ id: 'gpt-image-2' }] })
+      },
+    })
+    const a = createOpenAiChatAdapter(comflyCfg, {
+      network: net,
+      assets: platformWith([]).assets,
+      remoteBytes: {
+        request: async () => ({ status: 503, headers: {}, text: '' }),
+      },
+    })
+    const models = await a.listModels(comflyCfg, signal)
+    expect(models.map((model) => model.id)).toEqual(['gpt-image-2'])
+  })
+})
+
 describe('openaiChat adapter / 多模态（上游图片送进 LLM）', () => {
   it('纯文本：content 直接是字符串（对中转站兼容性更好）', async () => {
     let body: unknown = null
