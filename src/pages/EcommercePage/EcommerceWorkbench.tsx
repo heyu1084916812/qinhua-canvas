@@ -21,6 +21,8 @@ import {
   type EcommerceResultRecord,
   type EcommerceTaskRecord,
 } from '../../domain/ecommerce/tasks'
+import type { RunRecord } from '../../domain/canvas/model/runRecord'
+import { pixelSummaryOf } from '../../domain/shared/execution/runRecord'
 import {
   screenToWorld as canvasScreenToWorld,
   type Viewport as CanvasViewport,
@@ -66,6 +68,7 @@ interface EcommerceWorkbenchProps {
   items: readonly EcommerceCanvasItem[]
   results: readonly EcommerceResultRecord[]
   tasks: readonly EcommerceTaskRecord[]
+  runs?: readonly RunRecord[]
   /** 当前活跃批次，用于兼容既有失败卡与结果状态锚点。 */
   activeResults?: readonly EcommerceResultRecord[]
   running?: boolean
@@ -266,6 +269,7 @@ export function EcommerceWorkbench({
   items,
   results,
   tasks,
+  runs = [],
   activeResults = [],
   running = false,
   availableActions = ['download', 'save'],
@@ -378,6 +382,13 @@ export function EcommerceWorkbench({
     () => new Map(tasks.map((task) => [task.id, task] as const)),
     [tasks],
   )
+  const latestRunByNode = useMemo(() => {
+    const byNode = new Map<string, RunRecord>()
+    for (const run of [...runs].sort((a, b) => b.createdAt - a.createdAt)) {
+      if (!byNode.has(run.nodeId)) byNode.set(run.nodeId, run)
+    }
+    return byNode
+  }, [runs])
   const selected = localItems.find((item) => item.id === selectedId) ?? null
   const selectedResult = selected?.resultId
     ? activeResultById.get(selected.resultId) ??
@@ -387,6 +398,9 @@ export function EcommerceWorkbench({
 
   const displayStatusOf = useCallback(
     (result: EcommerceResultRecord): EcommerceDisplayResultStatus => {
+      const run = latestRunByNode.get(result.nodeId)
+      if (run?.status === 'failed' || run?.status === 'canceled') return 'failed'
+      if (run?.status === 'succeeded') return result.assetHash ? 'done' : 'failed'
       const task = taskById.get(result.taskId)
       const terminal =
         task &&
@@ -405,7 +419,7 @@ export function EcommerceWorkbench({
         hasAsset: Boolean(result.assetHash),
       })
     },
-    [taskById],
+    [latestRunByNode, taskById],
   )
 
   const fitAll = useCallback(() => {
@@ -846,7 +860,9 @@ export function EcommerceWorkbench({
             : null
           const status = activeResult ? displayStatusOf(activeResult) : null
           const task = activeResult ? taskById.get(activeResult.taskId) : null
+          const run = activeResult ? latestRunByNode.get(activeResult.nodeId) : null
           const errorText =
+            run?.errorText ??
             activeResult?.errorText ??
             task?.errorText ??
             '任务已结束，但没有返回可展示的结果'
@@ -1081,7 +1097,52 @@ export function EcommerceWorkbench({
             </button>
           </header>
           <div className={styles.logRows}>
-            {tasks.length === 0 ? (
+            {runs.length > 0 ? (
+              [...runs]
+                .sort((a, b) => b.createdAt - a.createdAt)
+                .map((run) => {
+                  const task = tasks.find((item) => item.nodeIds.includes(run.nodeId))
+                  const result = results.find((item) => item.nodeId === run.nodeId)
+                  const params = (run.params ?? {}) as { model?: unknown }
+                  const model =
+                    run.sentModel ??
+                    (typeof params.model === 'string' ? params.model : undefined) ??
+                    result?.model ??
+                    '—'
+                  const channelId = run.sentChannelId
+                  const channel = channelId ? channelLabelOf?.(channelId) ?? channelId : ''
+                  const pixels = pixelSummaryOf(run)
+                  return (
+                    <article
+                      key={run.id}
+                      data-ecommerce-run-record={run.id}
+                      data-status={run.status}
+                    >
+                      <span data-status={run.status}>
+                        {run.status === 'succeeded'
+                          ? '成功'
+                          : run.status === 'canceled'
+                            ? '取消'
+                            : '失败'}
+                      </span>
+                      <p>
+                        {task?.request.modeLabel || task?.request.usage || '电商生成'}
+                        {typeof result?.position === 'number'
+                          ? ` · 第 ${result.position + 1} 张`
+                          : ''}
+                      </p>
+                      <small>
+                        {model}
+                        {channel ? ` · ${channel}` : ''} ·{' '}
+                        {run.durationMs > 0 ? `${(run.durationMs / 1000).toFixed(1)}s` : '<1s'} ·{' '}
+                        {new Date(run.createdAt).toLocaleTimeString('zh-CN')}
+                      </small>
+                      {pixels ? <small>{pixels}</small> : null}
+                      {run.errorText ? <p className={styles.logError}>{run.errorText}</p> : null}
+                    </article>
+                  )
+                })
+            ) : tasks.length === 0 ? (
               <p>还没有电商任务。</p>
             ) : (
               [...tasks]

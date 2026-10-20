@@ -320,7 +320,11 @@ export function AssetsPage() {
 
   const toggleSelectionMode = () => {
     if (selectionMode) leaveSelection()
-    else setSelectionMode(true)
+    else {
+      setSelectedHashes(new Set())
+      setSelectionAnchor(null)
+      setSelectionMode(true)
+    }
   }
 
   const handleRemoveRecords = async (hashes: readonly string[]) => {
@@ -352,19 +356,27 @@ export function AssetsPage() {
         setConfirmRemoveSelection(false)
         return
       }
+      const deleteTargets =
+        selectionMode
+          ? selectedHashes
+          : selectedHash
+            ? new Set([selectedHash])
+            : null
       if (
         (event.key === 'Delete' || event.key === 'Backspace') &&
-        selectionMode &&
-        selectedHashes.size > 0 &&
+        deleteTargets &&
+        deleteTargets.size > 0 &&
+        !confirmRemoveSelection &&
         !preview
       ) {
         event.preventDefault()
+        if (!selectionMode) setSelectedHashes(deleteTargets)
         setConfirmRemoveSelection(true)
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [confirmRemoveSelection, preview, selectedHashes, selectionMode])
+  }, [confirmRemoveSelection, preview, selectedHash, selectedHashes, selectionMode])
 
   /**
    * 改标签（对账 #303）。

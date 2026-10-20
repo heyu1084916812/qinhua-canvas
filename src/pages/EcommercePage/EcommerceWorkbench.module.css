@@ -487,11 +487,13 @@
   font-size: var(--fs-chip);
 }
 
-.logRows article > span[data-status='done'] {
+.logRows article > span[data-status='done'],
+.logRows article > span[data-status='succeeded'] {
   color: var(--success);
 }
 
-.logRows article > span[data-status='failed'] {
+.logRows article > span[data-status='failed'],
+.logRows article > span[data-status='canceled'] {
   color: var(--danger);
 }
 

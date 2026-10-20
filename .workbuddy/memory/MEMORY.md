@@ -15,6 +15,15 @@
 - **交互口径**：滚轮直接以指针为锚缩放；点击对象选中、点击空白取消；选中和上传对象加载原图；四边手柄使用 `object-fit: fill` 拉伸图片本体，四角仍等比。底部不再渲染网格开关。素材选择模式中连续点卡片即可叠加 / 取消，Delete 仍先二次确认。
 - **验证**：全量 **2889 passed / 1 skipped**，`npm run check`、`npm run build` 通过；隔离矩阵 G114 **29/29**、G164 **40/40**、G166 **19/19**；`generationRouting` / `canvasItem` / `ecommerceCanvasRepository` 定向 **16/16**。截图 `.playwright-verify/166-ecommerce-workbench.png`、`164-ecommerce-running.png`、`164-ecommerce-failed.png`。
 
+### 电商结果必须由 RunRecord 收口（2026-10-21 → 对账 #675–#677）
+
+- **不要读 `exec.nodeStateOf()` 来判断跑完后结果**：执行宿主在 `runNode` 返回前会清掉节点状态；真实库 6 次 API 调用都是 HTTP 503，`ecommerceResults` 却全员停在 running。`syncResultRow()` 必须先 `store.flush()`，再按 `projectId + nodeId` 读取最近 `runRecords`，以它的 succeeded / failed / canceled 为最终状态。
+- **启动 / 刷新也要 reconcile**：`EcommerceTaskRepository.reconcileFromRunRecords()` 修正遗留 running 结果与任务，并写回真实 errorText；当前真实项目加载后 failed 7 / running 0。
+- **电商日志按一次 API 调用一行**：显示 sentModel、sentChannelId、耗时、请求/实际像素和完整 errorText。不要再只显示任务级摘要。
+- **失败删除依据不能只看结果行**：结果行可能残留 running，而 RunRecord 已 failed；`removeResult()` 必须接受最近 RunRecord 的 failed/canceled，否则删除无效且下一次 sync 会复活。G164 有“删除后跑新任务不返回”的回归。
+- **素材 Del 不要求先打开选择模式**：普通单击选中一张后按 Delete/Backspace 就应走同一个二次确认；进入多选模式时先清空上一次临时选择。
+- **验证**：真实页面 failed 7 / running 0，日志 18 次调用 / 13 次失败含完整 503 原因；隔离矩阵 G114 **30/30**、G164 **42/42**、G166 **19/19**；定向 17/17。截图 `.playwright-verify/real-ecommerce-run-logs.png`。
+
 ### 电商 Phase 0：素材多选、回收站批处理与失败记录（2026-10-20）
 
 - **素材“删除”不是删文件**：素材页批量移除写 `presets/assetRecordsHidden:v1` 隐藏索引，并删除 `assetLibrary` 收藏关系；`assets` 字节和 `runRecords` 保留。再次 `save()` 同一 hash 会解除隐藏。这样才能支持 Del 多选，又不会从画布仍引用的节点下面抽走字节。

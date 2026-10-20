@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createMemoryStorage } from '../../platform/memory'
 import { createEcommerceCanvasRepository } from './ecommerceCanvasRepository'
+import { createEcommerceTaskRepository } from './ecommerceTaskRepository'
 
 function seed() {
   return createMemoryStorage({
@@ -134,5 +135,114 @@ describe('ecommerceCanvasRepository', () => {
         .map((item) => item.y + item.height),
     )
     expect(added.y).toBeGreaterThanOrEqual(firstBottom + 96)
+  })
+})
+
+describe('ecommerceTaskRepository · RunRecord reconciliation', () => {
+  it('API 已失败但结果行仍是 running 时，用 RunRecord 收口真实错误并更新任务', async () => {
+    const storage = createMemoryStorage({
+      rows: {
+        ecommerceTasks: [
+          {
+            id: 't-real',
+            projectId: 'p1',
+            batchId: 'b-real',
+            createdAt: 1,
+            updatedAt: 1,
+            status: 'running',
+            request: { count: 1 },
+            nodeIds: ['n-real'],
+          },
+        ],
+        ecommerceResults: [
+          {
+            id: 'r-real',
+            taskId: 't-real',
+            projectId: 'p1',
+            nodeId: 'n-real',
+            position: 0,
+            createdAt: 1,
+            updatedAt: 1,
+            status: 'running',
+          },
+        ],
+        runRecords: [
+          {
+            id: 'run-real',
+            projectId: 'p1',
+            nodeId: 'n-real',
+            version: 1,
+            createdAt: 2,
+            status: 'failed',
+            inputs: [],
+            params: { model: 'gemini-3.1-flash-image' },
+            outputHashes: [],
+            fingerprint: 'fp',
+            taskId: 'engine-task',
+            durationMs: 1200,
+            errorText: 'HTTP 503：当前分组没有可用渠道',
+            sentChannelId: 'comfly',
+            sentModel: 'gemini-3.1-flash-image-512px',
+          },
+        ],
+      },
+    })
+    const repo = createEcommerceTaskRepository(storage)
+    const result = await repo.reconcileFromRunRecords('p1', 3)
+    expect(result.results[0]).toMatchObject({
+      status: 'failed',
+      errorText: 'HTTP 503：当前分组没有可用渠道',
+    })
+    expect(result.tasks[0]).toMatchObject({
+      status: 'failed',
+      errorText: 'HTTP 503：当前分组没有可用渠道',
+    })
+    expect(await repo.listResults('p1')).toMatchObject([
+      { id: 'r-real', status: 'failed', errorText: 'HTTP 503：当前分组没有可用渠道' },
+    ])
+  })
+
+  it('结果行残留 running、但最近 RunRecord 已失败时，移除记录必须真正删掉', async () => {
+    const storage = createMemoryStorage({
+      rows: {
+        ecommerceTasks: [
+          {
+            id: 't-remove',
+            projectId: 'p1',
+            batchId: 'b-remove',
+            createdAt: 1,
+            updatedAt: 1,
+            status: 'running',
+            request: { count: 1 },
+            nodeIds: ['n-remove'],
+          },
+        ],
+        ecommerceResults: [
+          {
+            id: 'r-remove',
+            taskId: 't-remove',
+            projectId: 'p1',
+            nodeId: 'n-remove',
+            position: 0,
+            createdAt: 1,
+            updatedAt: 1,
+            status: 'running',
+          },
+        ],
+        runRecords: [
+          {
+            id: 'run-remove',
+            projectId: 'p1',
+            nodeId: 'n-remove',
+            createdAt: 2,
+            status: 'failed',
+            errorText: '真实失败',
+          },
+        ],
+      },
+    })
+    const repo = createEcommerceTaskRepository(storage)
+    await expect(repo.removeResult('r-remove')).resolves.not.toBeNull()
+    expect(await repo.listResults('p1')).toEqual([])
   })
 })

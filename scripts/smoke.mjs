@@ -25502,7 +25502,18 @@ async function g114(browser) {
     `左侧=${JSON.stringify(quickCountsLibOnly)}`,
   )
 
-  /** ⑧ 素材多选：Shift 范围选择 → Del 二次确认 → 只隐藏素材页记录 */
+  /** ⑧ 素材删除：普通选中和显式多选都必须响应 Del，且先二次确认 */
+  const firstAssetCard = page.locator('[data-asset-open]').first()
+  await firstAssetCard.click()
+  await page.keyboard.press('Delete')
+  await page.locator('[data-assets-remove-dialog]').waitFor({ state: 'visible', timeout: 3000 })
+  rec(
+    g,
+    '★ 普通单击选中一张素材后，按 Del 也会打开二次确认',
+    (await page.locator('[data-assets-remove-dialog]').innerText()).includes('1 条记录'),
+  )
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+
   await page.locator('[data-assets-select-mode]').click()
   await sleep(250)
   const selectChecks = page.locator('[data-asset-select]')
@@ -37245,11 +37256,27 @@ async function g164(browser) {
   const failureReason =
     '生成失败：服务端返回了无法解析的响应，请检查渠道返回格式；这是一段用于验证长错误不会溢出的说明文字。'
   if (failedResult) {
-    await sharedPut(page, 'ecommerceResults', {
-      ...failedResult,
+    await sharedPut(page, 'runRecords', {
+      id: `smoke-ecommerce-failed-${Date.now()}`,
+      projectId,
+      nodeId: failedResult.nodeId,
+      version: 999,
+      createdAt: Date.now(),
       status: 'failed',
+      inputs: [],
+      params: { model: failedResult.model ?? 'mock-image-1' },
+      outputHashes: [],
+      fingerprint: 'smoke-failed',
+      taskId: 'smoke-ecommerce-engine-task',
+      durationMs: 1200,
+      sentChannelId: task?.request?.resolvedChannelId ?? undefined,
+      sentModel: 'mock-image-1',
       errorText: failureReason,
-      updatedAt: Date.now(),
+    })
+    const stale = { ...failedResult, status: 'running', updatedAt: Date.now() }
+    delete stale.errorText
+    await sharedPut(page, 'ecommerceResults', {
+      ...stale,
     })
   }
   await page.reload({ waitUntil: 'networkidle' })
@@ -37289,6 +37316,26 @@ async function g164(browser) {
     JSON.stringify(failedOverlay),
   )
   await page.screenshot({ path: `${OUT}/164-ecommerce-failed${themeSuffix}.png` })
+  await page.locator('[data-ecommerce-workbench-log-toggle]').click()
+  await page.locator('[data-ecommerce-run-record]').first().waitFor({ state: 'visible', timeout: 5000 })
+  const runLog = await page.evaluate(() => {
+    const records = [...document.querySelectorAll('[data-ecommerce-run-record]')]
+    const failed = records.find((node) => node.getAttribute('data-status') === 'failed')
+    return {
+      count: records.length,
+      failedText: failed?.textContent?.trim() ?? '',
+    }
+  })
+  rec(
+    g,
+    '★★★ 电商日志按每次 API 调用列出状态、模型与真实失败原因',
+    runLog.count >= 2 &&
+      runLog.failedText.includes('失败') &&
+      runLog.failedText.includes('mock-image-1') &&
+      runLog.failedText.includes('无法解析的响应'),
+    JSON.stringify(runLog),
+  )
+  await page.locator('[data-ecommerce-workbench-log-toggle]').click()
   if (failedResult) {
     await page.locator(`[data-ecommerce-remove-failed="${failedResult.nodeId}"]`).click()
     await page.waitForFunction(
@@ -37309,6 +37356,35 @@ async function g164(browser) {
       (await page.locator('[data-ecommerce-result][data-status="done"]').count()) >= 1,
     `剩余失败记录=${failedRowsAfterRemove.length}`,
   )
+  if (failedResult) {
+    const tasksBeforeNewRun = (await sharedRows(page, 'ecommerceTasks')).filter(
+      (row) => row.projectId === projectId,
+    ).length
+    await page.locator('[data-ecommerce-generate]').click()
+    await page.locator('[data-ecommerce-confirm-ok]').click()
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const count = (await sharedRows(page, 'ecommerceTasks')).filter(
+        (row) => row.projectId === projectId,
+      ).length
+      if (count > tasksBeforeNewRun) break
+      await sleep(250)
+    }
+    await sleep(1200)
+    const returnedResults = (await sharedRows(page, 'ecommerceResults')).filter(
+      (row) => row.id === failedResult.id,
+    )
+    const returnedItems = (await sharedRows(page, 'ecommerceCanvasItems')).filter(
+      (row) => row.resultId === failedResult.id,
+    )
+    rec(
+      g,
+      '★★★ 已移除的失败记录在运行新任务后不会自动返回',
+      returnedResults.length === 0 &&
+        returnedItems.length === 0 &&
+        (await page.locator(`[data-ecommerce-result-record-id="${failedResult.id}"]`).count()) === 0,
+      `结果行=${returnedResults.length} 工作台对象=${returnedItems.length}`,
+    )
+  }
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await page.screenshot({ path: `${OUT}/164-ecommerce-params-replica${themeSuffix}.png` })
   await page.setViewportSize({ width: 1024, height: 768 })

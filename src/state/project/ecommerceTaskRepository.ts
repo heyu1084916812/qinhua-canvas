@@ -44,6 +44,16 @@ export interface EcommerceTaskRepository {
   results(taskId: string): Promise<EcommerceResultRecord[]>
   /** 整个项目的逐格结果，供无限工作台按任务与 position 回填空间布局。 */
   listResults(projectId: string): Promise<EcommerceResultRecord[]>
+  /**
+   * 用 RunRecord 的终态 reconcile 电商结果与任务。
+   *
+   * 执行宿主会在 `runNode` 返回前清掉内存状态，因此只读 `nodeStateOf()` 会把
+   * 已失败的 API 调用永久留在 running。RunRecord 是每次调用的持久事实源。
+   */
+  reconcileFromRunRecords(
+    projectId: string,
+    at?: number,
+  ): Promise<{ results: EcommerceResultRecord[]; tasks: EcommerceTaskRecord[] }>
   latestWithResults(projectId: string): Promise<{
     task: EcommerceTaskRecord
     results: EcommerceResultRecord[]
@@ -196,12 +206,36 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
     },
 
     async removeResult(resultId, at = Date.now()) {
+      /**
+       * 结果行可能因为执行宿主在 `runNode` 收尾前清掉内存态而停在 running；
+       * 此时界面依据 RunRecord 已显示失败，但用户点“移除记录”会被旧的
+       * running 状态挡住，下一次 sync 又把它带回来。以最近一次 RunRecord
+       * 的 failed / canceled 作为第二个可删除判据。
+       */
+      const beforeRows = (await storage.query('ecommerceResults', {
+        id: resultId,
+      })) as unknown as Record<string, unknown>[]
+      const before = beforeRows.map(resultOf)[0]
+      if (!before) return null
+      const runRows = (
+        (await storage.query('runRecords', {
+          projectId: before.projectId,
+          nodeId: before.nodeId,
+        })) as unknown as Record<string, unknown>[]
+      ).sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0))
+      const latestRunStatus = String(runRows[0]?.status ?? '')
+      const removable =
+        before.status === 'failed' ||
+        before.status === 'canceled' ||
+        latestRunStatus === 'failed' ||
+        latestRunStatus === 'canceled'
+      if (!removable) return null
       return storage.transaction(['ecommerceTasks', 'ecommerceResults'], async (tx) => {
         const resultRows = (await tx.query('ecommerceResults', {
           id: resultId,
         })) as unknown as Record<string, unknown>[]
         const target = resultRows.map(resultOf)[0]
-        if (!target || (target.status !== 'failed' && target.status !== 'canceled')) return null
+        if (!target) return null
         const taskRows = (await tx.query('ecommerceTasks', {
           id: target.taskId,
         })) as unknown as Record<string, unknown>[]
@@ -228,6 +262,22 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
     },
 
     async interruptUnfinished(taskId, reason, at = Date.now()) {
+      const previewRows = (await storage.query('ecommerceTasks', {
+        id: taskId,
+      })) as unknown as Record<string, unknown>[]
+      const preview = previewRows.map(taskOf)[0]
+      const runRows = preview
+        ? ((await storage.query('runRecords', {
+            projectId: preview.projectId,
+          })) as unknown as Record<string, unknown>[])
+        : []
+      const latestRunByNode = new Map<string, Record<string, unknown>>()
+      for (const run of runRows.sort(
+        (a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0),
+      )) {
+        const nodeId = String(run.nodeId ?? '')
+        if (nodeId && !latestRunByNode.has(nodeId)) latestRunByNode.set(nodeId, run)
+      }
       return storage.transaction(['ecommerceTasks', 'ecommerceResults'], async (tx) => {
         const taskRows = (await tx.query('ecommerceTasks', { id: taskId })) as unknown as Record<
           string,
@@ -243,13 +293,23 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
           .sort((a, b) => a.position - b.position)
           .map((row) =>
             row.status === 'pending' || row.status === 'running'
-              ? { ...row, status: 'failed' as const, errorText: reason, updatedAt: at }
+              ? (() => {
+                  const run = latestRunByNode.get(row.nodeId)
+                  const runError =
+                    String(run?.status ?? '') === 'failed' &&
+                    typeof run?.errorText === 'string' &&
+                    run.errorText
+                      ? run.errorText
+                      : reason
+                  return { ...row, status: 'failed' as const, errorText: runError, updatedAt: at }
+                })()
               : row,
           )
         const nextTask: EcommerceTaskRecord = {
           ...task,
           status: taskStatusOf(results),
-          errorText: reason,
+          errorText:
+            results.find((row) => row.status === 'failed' && row.errorText)?.errorText ?? reason,
           updatedAt: at,
         }
         await tx.put('ecommerceTasks', nextTask as never)
@@ -259,6 +319,86 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
     },
 
     results: resultsOf,
+
+    async reconcileFromRunRecords(projectId, at = Date.now()) {
+      const [taskRows, resultRows, runRows] = await Promise.all([
+        storage.query('ecommerceTasks', { projectId }),
+        storage.query('ecommerceResults', { projectId }),
+        storage.query('runRecords', { projectId }),
+      ])
+      const tasks = (taskRows as unknown as Record<string, unknown>[]).map(taskOf)
+      const results = (resultRows as unknown as Record<string, unknown>[]).map(resultOf)
+      const latestByNode = new Map<string, Record<string, unknown>>()
+      for (const run of (runRows as unknown as Record<string, unknown>[]).sort(
+        (a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0),
+      )) {
+        const nodeId = String(run.nodeId ?? '')
+        if (nodeId && !latestByNode.has(nodeId)) latestByNode.set(nodeId, run)
+      }
+      const changed: EcommerceResultRecord[] = []
+      const nextResults = results.map((row) => {
+        if (row.status !== 'pending' && row.status !== 'running') return row
+        const run = latestByNode.get(row.nodeId)
+        const runStatus = String(run?.status ?? '')
+        if (runStatus !== 'succeeded' && runStatus !== 'failed' && runStatus !== 'canceled') {
+          return row
+        }
+        const { errorText: _oldError, ...rest } = row
+        const next: EcommerceResultRecord = {
+          ...rest,
+          updatedAt: at,
+          status: runStatus === 'succeeded' ? 'done' : 'failed',
+          ...(runStatus === 'succeeded' && typeof run?.sentModel === 'string'
+            ? { model: run.sentModel }
+            : {}),
+          ...(typeof run?.outputWidth === 'number' && run.outputWidth > 0
+            ? { width: run.outputWidth }
+            : {}),
+          ...(typeof run?.outputHeight === 'number' && run.outputHeight > 0
+            ? { height: run.outputHeight }
+            : {}),
+          ...(runStatus !== 'succeeded'
+            ? {
+                errorText:
+                  typeof run?.errorText === 'string' && run.errorText
+                    ? run.errorText
+                    : '这次 API 调用失败，但上游没有返回可读原因',
+              }
+            : {}),
+        }
+        changed.push(next)
+        return next
+      })
+      const affected = new Set(changed.map((row) => row.taskId))
+      for (const task of tasks) {
+        const rows = nextResults.filter((row) => row.taskId === task.id)
+        const realError = rows.find((row) => row.status === 'failed' && row.errorText)?.errorText
+        if (realError && realError !== task.errorText) affected.add(task.id)
+      }
+      const nextTasks = tasks.map((task) => {
+        if (!affected.has(task.id)) return task
+        const rows = nextResults.filter((row) => row.taskId === task.id)
+        const failed = rows.find((row) => row.status === 'failed' && row.errorText)
+        const { errorText: _oldError, ...rest } = task
+        return {
+          ...rest,
+          updatedAt: at,
+          status: taskStatusOf(rows),
+          ...(failed?.errorText ? { errorText: failed.errorText } : {}),
+        } satisfies EcommerceTaskRecord
+      })
+      const changedTasks = nextTasks.filter(
+        (task) => {
+          const old = tasks.find((candidate) => candidate.id === task.id)
+          return old?.status !== task.status || old?.errorText !== task.errorText
+        },
+      )
+      await storage.transaction(['ecommerceResults', 'ecommerceTasks'], async (tx) => {
+        if (changed.length > 0) await tx.bulkPut('ecommerceResults', changed as never)
+        if (changedTasks.length > 0) await tx.bulkPut('ecommerceTasks', changedTasks as never)
+      })
+      return { results: nextResults, tasks: nextTasks }
+    },
 
     async listResults(projectId) {
       return (

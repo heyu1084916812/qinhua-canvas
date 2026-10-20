@@ -91,6 +91,7 @@ import {
 } from '../../domain/ecommerce/types'
 import { canvasStoreFor } from '../../state/workbenches/canvas/storeCache'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
+import type { RunRecord } from '../../domain/canvas/model/runRecord'
 import {
   EcommerceWorkbench,
   type EcommerceWorkbenchAction,
@@ -299,6 +300,7 @@ function StudioHost({ projectId }: { projectId: string }) {
   const [taskHistory, setTaskHistory] = useState<EcommerceTaskRecord[]>([])
   const [canvasItems, setCanvasItems] = useState<EcommerceCanvasItem[]>([])
   const [workbenchResults, setWorkbenchResults] = useState<EcommerceResultRecord[]>([])
+  const [workbenchRuns, setWorkbenchRuns] = useState<RunRecord[]>([])
   const canvasSaveQueueRef = useRef<Promise<void>>(Promise.resolve())
   const workbenchRefreshQueueRef = useRef<Promise<void>>(Promise.resolve())
   const legacyNodeIds = useMemo(() => {
@@ -373,14 +375,17 @@ function StudioHost({ projectId }: { projectId: string }) {
   const refreshWorkbench = useCallback(
     async (viewportWidth = Math.max(760, Math.round(window.innerWidth * 0.72))) => {
       await canvasSaveQueueRef.current
-      const [items, rows] = await Promise.all([
+      await taskRepo.reconcileFromRunRecords(projectId)
+      const [items, rows, runs] = await Promise.all([
         canvasRepo.sync(projectId, viewportWidth),
         taskRepo.listResults(projectId),
+        platform.storage.query('runRecords', { projectId }),
       ])
       setCanvasItems(items)
       setWorkbenchResults(rows)
+      setWorkbenchRuns(runs as unknown as RunRecord[])
     },
-    [canvasRepo, projectId, taskRepo],
+    [canvasRepo, platform, projectId, taskRepo],
   )
   const queueWorkbenchRefresh = useCallback(
     (viewportWidth?: number) => {
@@ -531,8 +536,22 @@ function StudioHost({ projectId }: { projectId: string }) {
         typeof natural?.height === 'number' && natural.height > 0 ? natural.height : undefined
       const current = (await taskRepo.results(taskId)).find((r) => r.nodeId === nodeId)
       if (!current) return
+      /**
+       * `runNode` 返回前执行宿主会清掉节点内存状态；因此这里不能只看
+       * `exec.nodeStateOf()`，否则所有失败都会落成最后一条 running。
+       * RunRecord 才是每次调用的持久事实源，先 flush 再读取。
+       */
+      await store.flush()
+      const runRows = (
+        (await platform.storage.query('runRecords', { projectId, nodeId })) as unknown as RunRecord[]
+      ).sort((a, b) => b.createdAt - a.createdAt)
+      const run = runRows[0]
       const status: EcommerceResultRecord['status'] =
-        state?.kind === 'canceled'
+        run?.status === 'failed' || run?.status === 'canceled'
+          ? 'failed'
+          : run?.status === 'succeeded'
+            ? 'done'
+            : state?.kind === 'canceled'
           ? 'canceled'
           : resultDisplayStatus({
               stored: current.status,
@@ -551,12 +570,16 @@ function StudioHost({ projectId }: { projectId: string }) {
         ...(height !== undefined ? { height } : {}),
         ...(typeof data?.prompt === 'string' && data.prompt ? { prompt: data.prompt } : {}),
         ...(typeof data?.model === 'string' && data.model ? { model: data.model } : {}),
-        ...(state?.kind === 'failed' ? { errorText: describeError(state.error) } : {}),
+        ...(run?.errorText
+          ? { errorText: run.errorText }
+          : state?.kind === 'failed'
+            ? { errorText: describeError(state.error) }
+            : {}),
       }
       await taskRepo.updateResult(next)
       setResultRows((rows) => rows.map((row) => (row.id === next.id ? next : row)))
     },
-    [exec, store, taskRepo],
+    [exec, platform, projectId, store, taskRepo],
   )
 
   /** 用最新的逐格状态收口整批任务（running / partial / done / failed / canceled）。 */
@@ -1705,6 +1728,7 @@ function StudioHost({ projectId }: { projectId: string }) {
           items={canvasItems}
           results={workbenchResults}
           tasks={taskHistory}
+          runs={workbenchRuns}
           activeResults={resultRows}
           running={exec.isRunning || preparingShots}
           availableActions={['download', 'save']}
