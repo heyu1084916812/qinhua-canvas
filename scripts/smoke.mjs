@@ -23,7 +23,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 /**
  * **用户自己建的渠道**这一组选择器（2026-10-08 加）。
  *
- * 背景：三条内置渠道（`ch_builtin_*`）常驻列表最前、**不可删、名称与协议固定**
+ * 背景：内置渠道（`ch_builtin_*`）常驻列表最前、**不可删、名称与协议固定**
  * （用户第 20 批口径）。于是凡是要验「新增 / 排序 / 删除 / 改名」的组，
  * 都不能再用 `.first()` / `.nth(1)` 去指"刚建的那条"—— 实测 G8 与 G45
  * 拿到的都是 ModelScope 那一行（断言去看别人的协议标签），G44 更是直接
@@ -972,7 +972,7 @@ const disableFSA = `delete window.showOpenFilePicker; delete window.showSaveFile
  *   `allChannels.length === 0` → 「还没有配置任何渠道」；
  *   否则若一条都没启用 → 「已配置的渠道都未启用」。
  *
- * 内置三条渠道**恒常驻**（用户第 20 批）之后，第一档从界面上**不可达**了 ——
+ * 内置渠道**恒常驻**（用户第 20 批起）之后，第一档从界面上**不可达**了 ——
  * 所以 G42 那条从「无渠道」改成验**第二档**（那才是用户真会遇到的情形：
  * 渠道建了、令牌没填、开关还开着或没开）。第一档留着做防御分支，由面板单测覆盖。
  */
@@ -2150,7 +2150,7 @@ async function g8(browser) {
   rec(g, '新增渠道出现在列表', created)
   /**
    * ⚠️ 定位到**正在编辑的那条**（`data-channel-selected`），不是 `.first()`。
-   * 2026-10-08：列表最前常驻三条内置渠道，`.first()` 拿到的是 ModelScope（MS）——
+   * 2026-10-08：列表最前常驻内置渠道，`.first()` 拿到的是 ModelScope（MS）——
    * 这条断言会变成"去看别人家的协议标签"，新渠道对不对根本没验。
    * 短标签同时已从可见文字改成属性（用户第 21 批：「后面的缩写文字删掉」）。
    */
@@ -5951,7 +5951,7 @@ async function g42(browser) {
   /**
    * 4) 渠道都停用：**创作面板**给出引导条。
    *
-   * ⚠️ 场景改过（2026-10-08）：原来是「一条渠道都没有」，而三条内置渠道**恒常驻**
+   * ⚠️ 场景改过（2026-10-08）：原来是「一条渠道都没有」，而内置渠道**恒常驻**
    * （用户第 20 批）⇒ 那一档在界面上已经不可达。改成验它的隔壁那一档
    * ——「渠道都在、但一条都没启用」，那才是用户真会遇到的情形
    * （渠道建了、令牌没填 / 开关没开）。
@@ -6276,13 +6276,13 @@ async function g44(browser) {
   await gotoSettings(page)
   await sleep(400)
   /**
-   * ⚠️ 口径改过（2026-10-08）：不再是「起始无渠道」——三条内置渠道常驻列表，
-   * 起始状态是**内置三条 + 用户 0 条**。断言拆成两条，各自守一件事：
-   * 内置确实在（且是三条），用户侧确实是干净的（本组做的排序 / 删除才有意义）。
+   * ⚠️ 口径改过（2026-10-08）：不再是「起始无渠道」——内置渠道常驻列表，
+   * 起始状态是**内置渠道 + 用户 0 条**。断言拆成两条，各自守一件事：
+   * 内置确实在，用户侧确实是干净的（本组做的排序 / 删除才有意义）。
    */
   const builtinRows = await page.locator('[data-channel-item][data-channel-id^="ch_builtin_"]').count()
   const emptyHint = await page.locator(USER_CHANNEL).count()
-  rec(g, '起始：内置三条常驻 + 用户侧无渠道（本组自带状态）', builtinRows === 3 && emptyHint === 0, `内置=${builtinRows} 用户=${emptyHint}`)
+  rec(g, '起始：内置渠道常驻 + 用户侧无渠道（本组自带状态）', builtinRows === 4 && emptyHint === 0, `内置=${builtinRows} 用户=${emptyHint}`)
 
   // ① 建两条：新渠道排在**末尾**（与下方「+ 新增渠道」按钮的位置一致）
   await page.getByRole('button', { name: /新增渠道/ }).click()
@@ -6569,7 +6569,7 @@ async function g44(browser) {
   )
   rec(
     g,
-    '★★ 内置三条不可拖（cursor: default）、用户渠道可拖（cursor: grab）',
+    '★★ 内置渠道不可拖（cursor: default）、用户渠道可拖（cursor: grab）',
     rowMetrics.filter((m) => m.fixed).every((m) => !m.draggable && m.cursor === 'default') &&
       rowMetrics.filter((m) => !m.fixed).length > 0 &&
       rowMetrics.filter((m) => !m.fixed).every((m) => m.draggable && m.cursor === 'grab'),
@@ -6648,7 +6648,7 @@ async function g44(browser) {
 
   /**
    * ★★ **真手势拖动**（不是 `dragAndDrop`）：用户渠道之间要能换序，
-   * 而且内置三条仍在最前（用户第 2 条的两半）。
+   * 而且内置渠道仍在最前（用户第 2 条的两半）。
    *
    * 为什么另加一条：`page.dragAndDrop` 直接合成 dragstart / drop 事件，
    * **绕过浏览器的原生拖动机制** —— 原生拖动起不来时它照样绿（桌面壳 WebView2
@@ -6684,7 +6684,7 @@ async function g44(browser) {
   )
   rec(
     g,
-    '★★ 内置三条仍在最前（拖完没被挤动）',
+    '★★ 内置渠道仍在最前（拖完没被挤动）',
     builtinFirst.every((id) => id.startsWith('ch_builtin_')),
     builtinFirst.join(','),
   )

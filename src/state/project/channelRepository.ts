@@ -13,7 +13,7 @@ import { ROUTE_STRATEGIES } from '../../domain/project/modelRouting'
  */
 export interface ChannelRepository {
   list(): Promise<Channel[]>
-  /** 补齐**三条内置渠道**后返回整表（用户第 20 批：它们常驻列表最上方） */
+  /** 补齐**常驻内置渠道**后返回整表（用户第 20 批起：它们常驻列表最上方） */
   seedBuiltins(): Promise<Channel[]>
   get(id: string): Promise<Channel | null>
   create(input: CreateChannelInput): Promise<Channel>
@@ -102,7 +102,7 @@ export function createChannelRepository(storage: StoragePort, credentials: Crede
   }
 
   /**
-   * 补齐三条内置渠道（**只补不改**）：缺哪条建哪条，已存在的一律原样留着
+   * 补齐常驻内置渠道（**只补不改**）：缺哪条建哪条，已存在的一律原样留着
    *（用户配过的令牌 / 启用 / 地址都不动）。返回补完之后的整表。
    */
   const seedBuiltins = async (): Promise<Channel[]> => {

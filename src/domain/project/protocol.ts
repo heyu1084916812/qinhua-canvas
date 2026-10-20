@@ -279,6 +279,19 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
     note: '中转站，OpenAI 兼容形态（/v1/models 需鉴权）。',
   },
   {
+    id: 'soonstudio',
+    name: 'SoonStudio',
+    short: 'SOON',
+    family: 'openai-compatible',
+    kind: 'station',
+    status: 'ready',
+    capabilities: ['chat', 'image', 'video'],
+    defaultBaseUrl: 'https://soonstudio.ai',
+    versionPath: '/v1',
+    docUrl: 'https://soonstudio.ai/docs',
+    note: 'SoonStudio API：对话、生图与视频统一使用该站密钥。OpenAI 兼容模型走 /v1；Gemini 模型若被网关要求原生形状，会自动切到 /v1beta/models/{id}:generateContent。',
+  },
+  {
     id: 'agnes',
     name: 'Agnes',
     short: 'AGNES',
@@ -338,7 +351,7 @@ export const BUILTIN_PROTOCOLS: ProtocolDefinition[] = [
        *
        * 与上面那条 `runninghub`（本机 CLI）**并存**、各管一种用法：
        * CLI 那条跑你本机命令，这一条按站点走网络 —— 对用户来说就是"又一条普通渠道"，
-       * 与 ModelScope / Agnes 同一类（固定三条内置渠道里，RunningHub 用**这一条**）。
+       * 与 ModelScope / Agnes 同一类（常驻内置渠道里，RunningHub 用**这一条**）。
        *
        * `status: 'ready'`（2026-10-08 起）：适配器已落地（`platform/channels/runninghub.ts`），
        * 且是**独立实现**而非复用 `async-task`：RunningHub 取结果是

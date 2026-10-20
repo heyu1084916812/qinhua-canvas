@@ -270,7 +270,7 @@ function toSafeConfig(ch: Channel, catalog: ProtocolCatalog): ResolvedChannelCon
 }
 
 /**
- * @param opts.seedBuiltins 读表时是否补齐**三条内置渠道**（默认 `true`，用户第 20 批）。
+ * @param opts.seedBuiltins 读表时是否补齐**常驻内置渠道**（默认 `true`，用户第 20 批）。
  *   测试里那几条"一个渠道都没有"的用例传 `false` —— 它们测的是空态，不该被内置渠道填满；
  *   真实运行时永远用默认值（内置渠道必须常驻）。
  */
@@ -323,7 +323,7 @@ export function createChannelStore(
      */
     const [loadedChannels, customRows, routeStrategy, recipeMemory] = await Promise.all([
       /**
-       * ★ 读表时**补齐三条内置渠道**（用户第 20 批）：它们常驻、置顶、不可删。
+       * ★ 读表时**补齐常驻内置渠道**（用户第 20 批起）：它们常驻、置顶、不可删。
        * 补齐放在仓储里（写行的唯一入口），这里只负责取"补完之后的整表"。
        */
       seedBuiltins ? repo.seedBuiltins() : repo.list(),

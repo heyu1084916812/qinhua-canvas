@@ -1,5 +1,13 @@
 # CanvasFlow（轻画）项目记忆
 
+### SoonStudio 协议、Gemini 原生格式与账号分组边界（2026-10-21 → 对账 #685）
+
+- **`gemini-4-argon` 不是错误映射**：SoonStudio 渠道里 `Gemini 3.8 Flash` → `gemini-4-argon` 是用户明确配置；前端显示名与上游 ID 分离本来就是设计。排查时先读渠道 `modelMap`，不要把“显示名不同”误判成选路 bug。
+- **400 与 404 是两层问题**：OpenAI `/v1/chat/completions` 对 Gemini 返回 400 `gemini_native_request_required`，要求 `/v1beta/models/{id}:generateContent`；按原生格式重试后，当前 SoonStudio 密钥又返回 404 `Model ... is not supported by any configured account in this group`。前者是协议格式，后者是账号分组未开通模型，不能混成一句“服务端错误”。
+- **回退只认明确信号**：`openaiChat` 只在 Gemini 模型、无工具调用、服务端明确要求原生格式时重试，避免所有模型都多打一轮请求。转换必须覆盖 `systemInstruction`、`contents[].parts[]`、图片 `inlineData` 与 candidates 文本回读。
+- **SoonStudio 是常驻站点**：`soonstudio` 协议固定 `https://soonstudio.ai`，第 4 条内置渠道 `ch_builtin_soonstudio` 由 `seedBuiltins()` 幂等补齐；地址可改、名称 / 协议固定、不可删。
+- 验证：全量单测 **2903 passed / 1 skipped**；定向协议 / 内置渠道 / Gemini 回退 **56/56**；check / build / smoke 语法检查通过。
+
 ### 电商出图必须“看图 → 最终提示词 → 生图”（2026-10-21 → 对账 #684）
 
 - **策划简报不是生图提示词**：`title + brief` 只适合内部选镜头；真正写进生成节点 `data.prompt` 的必须是完整画面描述（主体外观、场景、镜头、光线、材质、文字策略）。任何 `套图结构 / 输出 N 张 / 同批 / 目标平台 / 硬约束` 标签都应被解析层拦住。

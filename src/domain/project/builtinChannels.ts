@@ -2,10 +2,10 @@ import { createChannel, type Channel, type CreateChannelInput } from './channel'
 import { BUILTIN_CATALOG, protocolById, type ProtocolCatalog } from './protocol'
 
 /**
- * **三条内置渠道**（用户第 20 批，口径已确认）。
+ * **常驻内置渠道**（用户第 20 批起，后续按站点持续补充）。
  *
- * 「参考图三大雄画布的这个固定三个渠道 MODELSCOPE Agnes RuningHub」——
- * 它们是**渠道列表里常驻的三行**：一直在最上面、**不出现在"点击新建"里**、
+ * 从参考产品最初的 ModelScope / Agnes / RunningHub，到后续补充的站点协议 ——
+ * 它们是**渠道列表里常驻的行**：一直在最上面、**不出现在"点击新建"里**、
  * **不能删除**；**名称与协议固定**，**站点地址留口子（可改）**；
  * 令牌 / 启用 / 模型选择照常由用户配（那是"你这台机器上怎么用它"）。
  *
@@ -24,6 +24,7 @@ export const BUILTIN_CHANNEL_IDS = [
   'ch_builtin_modelscope',
   'ch_builtin_agnes',
   'ch_builtin_runninghub',
+  'ch_builtin_soonstudio',
 ] as const
 
 /** 内置渠道的排序位基准（实际用 `BASE + 序号`，越小越靠前） */
@@ -42,6 +43,7 @@ export const BUILTIN_CHANNELS: readonly BuiltinChannelSpec[] = [
   { id: 'ch_builtin_agnes', name: 'Agnes', protocol: 'agnes' },
   /** RunningHub 用 **API** 那条（用户：「runninghub它也有api」）；CLI 那条仍留给本机用法 */
   { id: 'ch_builtin_runninghub', name: 'RunningHub', protocol: 'runninghub-api' },
+  { id: 'ch_builtin_soonstudio', name: 'SoonStudio', protocol: 'soonstudio' },
 ]
 
 /** 这条渠道是不是内置的（界面据此禁用删除 / 锁定名称与协议） */

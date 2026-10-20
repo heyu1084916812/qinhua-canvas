@@ -3,6 +3,19 @@ import { createMemoryPlatform } from '../../platform/memory'
 import { createChannelRepository } from './channelRepository'
 
 describe('channelRepository', () => {
+  it('seedBuiltins 幂等补齐常驻渠道，包含 SoonStudio 与它的站点协议', async () => {
+    const p = createMemoryPlatform()
+    const repo = createChannelRepository(p.storage, p.credentials)
+    await repo.seedBuiltins()
+    await repo.seedBuiltins()
+    const rows = await repo.list()
+    const soon = rows.find((channel) => channel.id === 'ch_builtin_soonstudio')
+    expect(rows.filter((channel) => channel.id.startsWith('ch_builtin_'))).toHaveLength(4)
+    expect(soon?.name).toBe('SoonStudio')
+    expect(soon?.protocol).toBe('soonstudio')
+    expect(soon?.baseUrl).toBe('https://soonstudio.ai')
+  })
+
   it('create / list / get / update', async () => {
     const p = createMemoryPlatform()
     const repo = createChannelRepository(p.storage, p.credentials)

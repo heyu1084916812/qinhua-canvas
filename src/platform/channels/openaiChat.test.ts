@@ -217,6 +217,65 @@ describe('openaiChat adapter / 多模态（上游图片送进 LLM）', () => {
     expect(r.text).toBe('ok')
   })
 
+  it('★★ Gemini 被网关要求改走原生协议时，自动重试 /v1beta 并把商品图转成 inlineData', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const net = createMemoryNetwork({
+      handler: async (req) => {
+        calls.push({ url: req.url, body: req.body })
+        if (req.url.endsWith('/v1/chat/completions')) {
+          return resp(400, {
+            error: {
+              code: 'gemini_native_request_required',
+              message: 'Use POST /v1beta/models/gemini-4-argon:generateContent',
+            },
+          })
+        }
+        return resp(200, {
+          candidates: [
+            {
+              content: { parts: [{ text: '{"ok":true}' }] },
+              finishReason: 'STOP',
+            },
+          ],
+        })
+      },
+    })
+    const adapter = createOpenAiChatAdapter(cfg, {
+      network: net,
+      assets: platformWith([{ id: 'h1', bytes: PNG_BYTES, mime: 'image/png' }]).assets,
+    })
+    const result = await adapter.completeText(
+      {
+        ...request(
+          [{ kind: 'asset', nodeId: 'n1', assetHash: 'h1', mime: 'image/png' }],
+          '',
+        ),
+        model: 'gemini-4-argon',
+        messages: [
+          { role: 'system', content: '只输出 JSON' },
+          { role: 'user', content: '分析商品图' },
+        ],
+      },
+      signal,
+    )
+    expect(result.text).toBe('{"ok":true}')
+    expect(result.finishReason).toBe('stop')
+    expect(calls.map((call) => call.url)).toEqual([
+      'https://x/v1/chat/completions',
+      'https://x/v1beta/models/gemini-4-argon:generateContent',
+    ])
+    const native = calls[1]!.body as {
+      systemInstruction: { parts: { text: string }[] }
+      contents: { role: string; parts: unknown[] }[]
+    }
+    expect(native.systemInstruction.parts[0]!.text).toBe('只输出 JSON')
+    expect(native.contents[0]!.role).toBe('user')
+    expect(native.contents[0]!.parts).toMatchObject([
+      { text: '分析商品图' },
+      { inlineData: { mimeType: 'image/png', data: 'iVBORw0KGgo=' } },
+    ])
+  })
+
   it('响应里没有 message.content → 报解析错误，不返回空串', async () => {
     // 空串会被上层当成「模型回答了，只是回答是空的」写回节点，把用户原文冲掉。
     const net = createMemoryNetwork({

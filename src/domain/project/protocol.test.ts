@@ -153,6 +153,8 @@ describe('stationProtocolForUrl', () => {
     expect(stationProtocolForUrl('https://yuli.host')?.id).toBe('yuli')
     expect(stationProtocolForUrl('https://yuli.host/v1')?.id).toBe('yuli')
     expect(stationProtocolForUrl('https://apihub.agnes-ai.com/v1')?.id).toBe('agnes')
+    expect(stationProtocolForUrl('https://soonstudio.ai')?.id).toBe('soonstudio')
+    expect(stationProtocolForUrl('https://soonstudio.ai/v1')?.id).toBe('soonstudio')
   })
 
   it('未知站点返回 undefined（调用方回落通用模板）', () => {

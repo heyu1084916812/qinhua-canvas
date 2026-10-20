@@ -104,6 +104,68 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary)
 }
 
+type GeminiPart =
+  | { text: string }
+  | { inlineData: { mimeType: string; data: string } }
+
+interface GeminiNativeBody {
+  candidates?: {
+    content?: { parts?: { text?: unknown }[] }
+    finishReason?: string
+  }[]
+}
+
+function geminiInlinePart(part: ContentPart): GeminiPart | null {
+  if (part.type !== 'image_url') return null
+  const match = /^data:([^;]+);base64,(.+)$/s.exec(part.image_url.url)
+  return match
+    ? { inlineData: { mimeType: match[1]!, data: match[2]! } }
+    : null
+}
+
+/**
+ * SoonStudio 等网关会把 Gemini 模型暴露在 `/v1/models`，但 OpenAI
+ * `/v1/chat/completions` 会被明确拒绝，要求改用 Google 原生
+ * `/v1beta/models/{id}:generateContent`。只在这类**明确的协议迁移错误**上重试，
+ * 不把所有模型都盲目打成两次请求。
+ */
+function geminiNativeRequired(status: number, detail: string): boolean {
+  if (![400, 404, 405, 415].includes(status)) return false
+  return /gemini_native_request_required|Use POST \/v1beta\/models\/|generateContent/i.test(detail)
+}
+
+function geminiNativeBody(
+  request: TextRunRequest,
+  imageParts: readonly ContentPart[],
+): Record<string, unknown> {
+  const source =
+    request.messages && request.messages.length > 0
+      ? request.messages.map((message) => ({ role: message.role, content: message.content }))
+      : [{ role: 'user' as const, content: request.prompt }]
+  const systemInstruction = source
+    .filter((message) => message.role === 'system')
+    .map((message) => message.content.trim())
+    .filter(Boolean)
+    .join('\n\n')
+  const inline = imageParts.map(geminiInlinePart).filter((part): part is GeminiPart => !!part)
+  const lastUser = source.reduce((acc, message, index) => (message.role === 'user' ? index : acc), -1)
+  const contents = source.flatMap((message, index) =>
+    message.role === 'system'
+      ? []
+      : [{
+        role: message.role === 'assistant' ? 'model' : 'user',
+        parts: [
+          { text: message.content || ' ' },
+          ...(index === lastUser ? inline : []),
+        ],
+      }],
+  )
+  return {
+    ...(systemInstruction ? { systemInstruction: { parts: [{ text: systemInstruction }] } } : {}),
+    contents,
+  }
+}
+
 /**
  * OpenAI 兼容协议的**聊天**能力（产品文档 §11 / §6.7）。
  *
@@ -300,6 +362,53 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
     )
     if (res.status < 200 || res.status >= 300) {
       const detail = await res.text().catch(() => '')
+      /**
+       * 部分网关（SoonStudio 已实测）把 Gemini 模型列在同一个模型目录里，
+       * 但聊天端点会要求改走 Google 原生形状。只在服务端明确要求时重试，
+       * 并按原生长相转回 `TextResult`，上层无需感知协议差异。
+       */
+      if (
+        !request.tools?.length &&
+        /gemini/i.test(request.model) &&
+        geminiNativeRequired(res.status, detail)
+      ) {
+        const root = openAiBaseUrl(config).replace(/\/v\d+$/i, '')
+        const nativeRes = await deps.network.request(
+          {
+            url: `${root}/v1beta/models/${encodeURIComponent(request.model)}:generateContent`,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeader(config.apiKey) },
+            body: geminiNativeBody(request, parts),
+            timeoutMs: request.timeoutMs ?? CHAT_TIMEOUT_MS,
+          },
+          signal,
+        )
+        const nativeRaw = await nativeRes.text().catch(() => '')
+        if (nativeRes.status < 200 || nativeRes.status >= 300) {
+          const { error } = classifyError(null, nativeRes.status, nativeRaw)
+          throw new ChannelError(error)
+        }
+        let nativeBody: GeminiNativeBody | null = null
+        try {
+          nativeBody = JSON.parse(nativeRaw) as GeminiNativeBody
+        } catch {
+          nativeBody = null
+        }
+        const nativeText = (nativeBody?.candidates?.[0]?.content?.parts ?? [])
+          .map((part) => (typeof part.text === 'string' ? part.text : ''))
+          .join('')
+        if (!nativeText.trim()) {
+          throw new ChannelError({
+            kind: 'parse',
+            raw: nativeRaw || 'Gemini 原生响应里没有 candidates[0].content.parts[].text',
+          })
+        }
+        const finish = nativeBody?.candidates?.[0]?.finishReason
+        return {
+          text: nativeText,
+          finishReason: finish === 'MAX_TOKENS' ? 'length' : finish === 'STOP' ? 'stop' : undefined,
+        }
+      }
       const { error } = classifyError(null, res.status, detail)
       throw new ChannelError(error)
     }
