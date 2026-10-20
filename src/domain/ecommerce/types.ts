@@ -20,6 +20,13 @@ export type EcommerceUsage = 'main' | 'white-bg' | 'detail' | 'set' | 'recreate'
 /** 文案语言：跨境常去的八种 + 中文 */
 export type EcommerceLanguage = 'zh-CN' | 'en' | 'ru' | 'ja' | 'ko' | 'de' | 'es' | 'ar'
 
+export type EcommerceModeOptionValue =
+  | string
+  | string[]
+  | Record<string, number>
+
+export type EcommerceModeOptions = Record<string, EcommerceModeOptionValue>
+
 export interface EcommerceRequest {
   /** 这次生产图片还是视频；历史任务缺省按图片处理 */
   mediaKind?: 'image' | 'video'
@@ -27,6 +34,8 @@ export interface EcommerceRequest {
   modeLabel?: string
   /** 功能自带的约束，与用户手写 note 分开保存，避免回填时重复。 */
   modePrompt?: string
+  /** 当前功能专属参数；值使用稳定 id，展示文案可随时替换。 */
+  modeOptions?: EcommerceModeOptions
   usage: EcommerceUsage
   /** 平台 id，来自 platforms.ts；做白底图时可以不选（白底是通用要求） */
   platformId?: string

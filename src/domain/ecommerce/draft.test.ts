@@ -20,6 +20,9 @@ describe('电商左侧草稿纯数据', () => {
       ratio: '3:4',
       note: '突出防水材质',
       model: 'GPT Image 2.5 Flare',
+      modeOptions: {
+        detailHighlights: ['hero', 'coreSelling'],
+      },
       productNodeId: 'node_product',
       productNodeIds: ['node_product'],
       referenceNodeIds: ['node_ref_1', 'node_ref_2'],
@@ -37,7 +40,7 @@ describe('电商左侧草稿纯数据', () => {
       model: 'm'.repeat(999),
       referenceNodeIds: ['a', '', 'a', 'b', 'c', 'd', 'e'],
     })
-    expect(out.usage).toBe('main')
+    expect(out.usage).toBe('set')
     expect(out.language).toBe('en')
     expect(out.count).toBe(12)
     expect(out.ratio).toBe('1:1')
@@ -52,7 +55,7 @@ describe('电商左侧草稿纯数据', () => {
   })
 
   it('结果图后续动作 edit 不允许写回左侧新建表单', () => {
-    expect(normalizeEcommerceFormDraft({ usage: 'edit' }).usage).toBe('main')
+    expect(normalizeEcommerceFormDraft({ usage: 'edit' }).usage).toBe('set')
   })
 
   it('多产品图去重并限制 3 张，第一张同步为主产品图', () => {

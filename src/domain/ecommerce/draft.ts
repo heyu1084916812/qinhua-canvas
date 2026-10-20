@@ -1,4 +1,5 @@
 import { ECOMMERCE_DEFAULT_COUNT } from './plan'
+import { normalizeEcommerceModeOptions } from './modeOptions'
 import { ECOMMERCE_NOTE_MAX } from './prompt'
 import {
   ECOMMERCE_COUNT_MAX,
@@ -6,6 +7,7 @@ import {
   ECOMMERCE_LANGUAGES,
   ECOMMERCE_RATIOS,
   type EcommerceLanguage,
+  type EcommerceModeOptions,
   type EcommerceUsage,
 } from './types'
 
@@ -32,6 +34,8 @@ export interface EcommerceFormDraft {
   ratio: string
   note: string
   model: string
+  /** 当前功能的专属参数；稳定 id，不把显示文案写进草稿。 */
+  modeOptions: EcommerceModeOptions
   productNodeId: string | null
   /** 多角度产品图；顺序决定第一张主产品图，最多 3 张 */
   productNodeIds: string[]
@@ -39,16 +43,17 @@ export interface EcommerceFormDraft {
 }
 
 export const DEFAULT_ECOMMERCE_FORM_DRAFT: EcommerceFormDraft = {
-  modeLabel: '',
+  modeLabel: '商品套图',
   mediaKind: 'image',
   videoDuration: 5,
-  usage: 'main',
+  usage: 'set',
   platformId: 'amazon',
   language: 'en',
-  count: ECOMMERCE_DEFAULT_COUNT.main,
+  count: ECOMMERCE_DEFAULT_COUNT.set,
   ratio: '1:1',
   note: '',
   model: '',
+  modeOptions: {},
   productNodeId: null,
   productNodeIds: [],
   referenceNodeIds: [],
@@ -122,6 +127,7 @@ export function normalizeEcommerceFormDraft(value: unknown): EcommerceFormDraft 
     ratio,
     note: stringOf(raw.note, ECOMMERCE_NOTE_MAX),
     model: stringOf(raw.model, 200),
+    modeOptions: normalizeEcommerceModeOptions(raw.modeOptions),
     productNodeId: productNodeId ?? null,
     productNodeIds,
     referenceNodeIds,

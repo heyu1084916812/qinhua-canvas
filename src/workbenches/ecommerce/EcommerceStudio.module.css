@@ -3,7 +3,7 @@
 .wrap {
   position: relative;
   display: grid;
-  grid-template-columns: 68px minmax(0, 1fr) minmax(320px, 352px);
+  grid-template-columns: 68px minmax(0, 1fr) 320px;
   grid-template-areas: "categories stage form";
   gap: var(--space-3);
   width: 100%;
@@ -61,13 +61,23 @@
   grid-area: form;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: 12px;
   min-height: 0;
   border-radius: 8px;
   background: var(--bg-app);
-  padding: var(--space-4);
+  padding: 20px 18px;
   box-sizing: border-box;
+  overflow: hidden;
+}
+
+.formScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
   overflow-y: auto;
+  padding-right: 2px;
 }
 
 .results {
@@ -143,6 +153,13 @@
   gap: var(--space-2);
 }
 
+.blockHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
 /*
  * 拖放悬停（对账 #427）：松手会落在这儿的那一块**整块**亮起来。
  * 用"虚线描边"而不是只换个底色 —— 形状语言本身就是"可以放这儿"，
@@ -182,8 +199,8 @@
 
 .slot {
   position: relative;
-  width: 76px;
-  height: 76px;
+  width: 84px;
+  height: 84px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -225,8 +242,8 @@
 }
 
 .emptySlot {
-  width: 100%;
-  height: 96px;
+  width: 84px;
+  height: 84px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -248,8 +265,8 @@
 }
 
 .addSlot {
-  width: 76px;
-  height: 76px;
+  width: 84px;
+  height: 84px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -258,6 +275,12 @@
   color: var(--text-2);
   font-size: var(--fs-panel-title);
   cursor: pointer;
+}
+
+.uploadPlus {
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-2);
 }
 
 .addSlot:hover {
@@ -296,6 +319,189 @@
 .twoCols {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+}
+
+.choiceGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.choiceCard {
+  width: 100%;
+  min-height: 58px;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 11px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.choiceCard:hover,
+.choiceCard:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.choiceCardOn,
+.choiceCardOn:hover {
+  background: var(--bg-surface);
+  color: var(--text-1);
+}
+
+.choiceRadio,
+.optionMark {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  box-sizing: border-box;
+  border: var(--border);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.choiceCardOn .choiceRadio {
+  border: 4px solid var(--control-inverse-bg);
+  background: var(--bg-surface);
+}
+
+.choiceTitle,
+.choiceHint {
+  display: block;
+}
+
+.choiceTitle {
+  font-size: var(--fs-label);
+  font-weight: 600;
+}
+
+.choiceHint {
+  margin-top: 2px;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  line-height: 1.45;
+}
+
+.optionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.optionTile {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-chip);
+  text-align: left;
+  cursor: pointer;
+}
+
+.optionTile:hover,
+.optionTile:focus-visible {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.optionTileOn,
+.optionTileOn:hover {
+  background: var(--bg-surface);
+  color: var(--text-1);
+}
+
+.optionMark {
+  border-radius: 4px;
+}
+
+.optionTileOn .optionMark {
+  border-color: var(--control-inverse-bg);
+  background: var(--control-inverse-bg);
+}
+
+.stepperList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.stepperRow {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  color: var(--text-2);
+  font-size: var(--fs-label);
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stepper button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  color: var(--text-1);
+  font: inherit;
+  cursor: pointer;
+}
+
+.stepper button:hover {
+  background: var(--bg-hover);
+}
+
+.stepper span[data-ecommerce-set-count] {
+  min-width: 18px;
+}
+
+.colorControl {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.colorControl input[type='color'] {
+  width: 44px;
+  height: 36px;
+  padding: 2px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--bg-subtle);
+  cursor: pointer;
+}
+
+.personSettings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-1);
+}
+
+.personGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-2);
 }
 
@@ -454,9 +660,6 @@
 }
 
 .generate {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
   flex: 0 0 auto;
   height: 36px;
   border: none;
@@ -614,6 +817,112 @@
 .heroResults span:first-child {
   grid-row: span 2;
   min-height: 220px;
+}
+
+.caseSection {
+  flex: 1 1 auto;
+  min-height: 520px;
+  display: flex;
+  align-items: center;
+  padding: var(--space-4) 0 var(--space-8);
+  box-sizing: border-box;
+}
+
+.carousel {
+  width: 100%;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(360px, 48%);
+  gap: var(--space-4);
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: inline mandatory;
+  scrollbar-width: thin;
+  padding: var(--space-1) var(--space-4) var(--space-4);
+}
+
+.caseCard {
+  min-height: 390px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-radius: 16px;
+  background: var(--bg-subtle);
+  scroll-snap-align: center;
+  box-sizing: border-box;
+}
+
+.caseHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.caseTitle {
+  color: var(--text-1);
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+
+.caseTag {
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+}
+
+.caseBody {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(130px, 0.9fr) 24px minmax(0, 1.5fr);
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.caseSource,
+.caseResults span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.caseSource {
+  min-height: 260px;
+}
+
+.caseSource img,
+.caseSource video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.caseArrow {
+  color: var(--text-3);
+  text-align: center;
+}
+
+.caseResults {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.caseResults span {
+  min-height: 118px;
+}
+
+.caseResults span:first-child {
+  grid-row: span 2;
+  min-height: 252px;
 }
 
 .grid {
@@ -985,6 +1294,27 @@
 
   .form {
     overflow: visible;
+  }
+
+  .formScroll {
+    overflow: visible;
+  }
+
+  .carousel {
+    grid-auto-columns: minmax(280px, 88%);
+    padding-inline: 0;
+  }
+
+  .caseSection {
+    min-height: 430px;
+  }
+
+  .caseCard {
+    min-height: 340px;
+  }
+
+  .caseBody {
+    grid-template-columns: minmax(100px, 0.9fr) 20px minmax(0, 1.3fr);
   }
 
   .heroCanvas {

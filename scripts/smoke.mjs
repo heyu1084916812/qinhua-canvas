@@ -35815,14 +35815,25 @@ async function g161(browser) {
   await sleep(250)
   rec(
     g,
-    '★ 视频品类显示自己的功能条与时长控件',
+    '★ 视频品类只保留参考中的视频功能与参数',
     (await page.locator('[data-ecommerce-mode="video-recreate"]').count()) === 1 &&
       (await page.locator('[data-ecommerce-mode="video-commerce"]').count()) === 1 &&
-      (await page.locator('[data-ecommerce-video-duration]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-market-region]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-video-duration]').count()) === 0 &&
       (await page.locator('[data-ecommerce-count]').count()) === 0,
   )
 
   await page.locator('[data-ecommerce-mode="video-commerce"]').click()
+  rec(
+    g,
+    '★ 带货视频参数包含 8 类视频、模特配置与生成模型',
+    (await page.locator('[data-ecommerce-mode-params="video-commerce"]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-option^="video-"]').count()) === 8 &&
+      (await page.locator('[data-ecommerce-option^="model-"]').count()) >= 5 &&
+      (await page.locator('[data-ecommerce-model]').count()) === 1,
+  )
+  await page.locator('[data-ecommerce-option="video-demo"]').click()
+  await page.locator('[data-ecommerce-note]').fill('展示产品核心卖点与使用过程')
   await page.locator('[data-ecommerce-generate]').click()
   await sleep(350)
   const confirmText = await page.locator('[data-ecommerce-confirm]').innerText().catch(() => '')
@@ -35848,14 +35859,22 @@ async function g161(browser) {
     .find((row) => row.status === 'done')
   rec(
     g,
-    '★★★ 视频任务真实落库：mediaKind / 时长 / 模型 / 视频 MIME',
+    '★★★ 视频任务真实落库：mediaKind / 时长 / 模式参数 / 模型 / 视频 MIME',
     task?.request?.mediaKind === 'video' &&
       task?.request?.modeLabel === '带货视频' &&
       task?.request?.durationSec === 5 &&
+      Array.isArray(task?.request?.modeOptions?.videoTypes) &&
+      task.request.modeOptions.videoTypes.includes('demo') &&
       typeof task?.request?.resolvedModel === 'string' &&
       task.request.resolvedModel.length > 0 &&
       result?.mime === 'video/mp4',
     `task=${task?.id ?? '无'} model=${task?.request?.resolvedModel ?? '无'} mime=${result?.mime ?? '无'}`,
+  )
+  rec(
+    g,
+    '★ 视频结果不再显示文字操作行',
+    (await page.locator('[data-ecommerce-result] button').count()) === 0 &&
+      (await page.locator('[data-ecommerce-focus-canvas]').count()) === 0,
   )
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await page.screenshot({ path: `${OUT}/161-ecommerce-video.png` })
@@ -35966,9 +35985,206 @@ async function g162(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162]
+// ────────────────────────────────────────────────────────────
+// G164 电商参数区复刻：删旧块、两模型、模式专属参数、案例轮播与生成
+// ────────────────────────────────────────────────────────────
+async function g164(browser) {
+  const g = 'G164 电商参数区复刻'
+  const themeSuffix = process.env.SMOKE_DARK === '1' ? '-dark' : ''
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page, { isolate: true })
+  await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
+  await page.locator('[data-ecommerce-create]').click()
+  await page.waitForURL(/\/ecommerce\/proj_/)
+  await page.locator('[data-ecommerce-form]').waitFor({ state: 'visible', timeout: 20_000 })
+
+  rec(
+    g,
+    '★★ 图二圈出的方案生成、方案历史、任务历史、快捷操作全部移除',
+    (await page.locator('[data-ecommerce-intent]').count()) === 0 &&
+      (await page.locator('[data-ecommerce-suggestions]').count()) === 0 &&
+      (await page.locator('[data-ecommerce-plan-history]').count()) === 0 &&
+      (await page.locator('[data-ecommerce-task-history]').count()) === 0 &&
+      (await page.locator('[data-ecommerce-open-canvas]').count()) === 0 &&
+      (await page.locator('[data-ecommerce-longimage-open]').count()) === 0,
+  )
+  rec(
+    g,
+    '★★ 参数区只额外保留方案模型与生成模型两个手动模型选择',
+    (await page.locator('[data-ecommerce-intent-model]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-model]').count()) === 1,
+  )
+  rec(
+    g,
+    '★★ 中间为横向滚动案例，而不是重复的工作区标题',
+    (await page.locator('[data-ecommerce-case-carousel]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-case-carousel] article').count()) === 3 &&
+      (await page.locator('[data-ecommerce-results] > header').count()) === 0,
+  )
+  await page.screenshot({ path: `${OUT}/164-ecommerce-params-empty${themeSuffix}.png` })
+
+  await page.locator('[data-ecommerce-product-input]').setInputFiles([
+    {
+      name: 'g164-front.png',
+      mimeType: 'image/png',
+      buffer: solidPngBuffer(64, 64, [30, 180, 110]),
+    },
+    {
+      name: 'g164-side.png',
+      mimeType: 'image/png',
+      buffer: solidPngBuffer(64, 64, [40, 120, 220]),
+    },
+  ])
+  await sleep(1200)
+  rec(
+    g,
+    '★ 商品原图支持多张且都能预览',
+    (await page.locator('[data-ecommerce-product-preview]').count()) === 2 &&
+      (await page.locator('[data-ecommerce-product-preview] img').count()) === 2,
+  )
+
+  await page.locator('[data-ecommerce-option="set-strategy-custom"]').click()
+  for (const step of [
+    'scene:-1',
+    'sellingPoint:-1',
+    'sellingPoint:-1',
+    'detail:-1',
+    'detail:-1',
+    'whiteBg:1',
+  ]) {
+    await page.locator(`[data-ecommerce-set-step="${step}"]`).click()
+  }
+  rec(
+    g,
+    '★★ 商品套图自定义数量可调，实际总数为 2',
+    (await page.locator('[data-ecommerce-set-count="whiteBg"]').innerText()).trim() === '2' &&
+      (await page.locator('[data-ecommerce-set-count="scene"]').innerText()).trim() === '0' &&
+      (await page.locator('[data-ecommerce-set-count="detail"]').innerText()).trim() === '0',
+  )
+
+  await page.locator('[data-ecommerce-mode="product-detail"]').click()
+  rec(
+    g,
+    '★ A+ 详情页展示参考中的 14 个快速优化项',
+    (await page.locator('[data-ecommerce-mode-params="product-detail"]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-option^="detail-"]').count()) === 14,
+  )
+  await page.locator('[data-ecommerce-mode="product-retouch"]').click()
+  rec(
+    g,
+    '★ 产品精修展示 5 个精修方向',
+    (await page.locator('[data-ecommerce-option^="retouch-"]').count()) === 5,
+  )
+  await page.locator('[data-ecommerce-mode="product-recolor"]').click()
+  await page.locator('[data-ecommerce-color-hex]').fill('#123456')
+  rec(
+    g,
+    '★ 产品换色保留颜色与容差参数',
+    (await page.locator('[data-ecommerce-color]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-color-tolerance]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-color-hex]').inputValue()) === '#123456',
+  )
+
+  await page.locator('[data-ecommerce-category="wear"]').click()
+  rec(
+    g,
+    '★ 穿戴品类展示参考中的服装生成类型',
+    (await page.locator('[data-ecommerce-mode-params="wear-set"]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-option^="wear-"]').count()) >= 6,
+  )
+
+  await page.locator('[data-ecommerce-category="product"]').click()
+  await page.locator('[data-ecommerce-mode="product-set"]').click()
+  await page.locator('[data-ecommerce-note]').fill('突出商品材质与工艺细节')
+  await page.locator('[data-ecommerce-generate]').click()
+  await sleep(350)
+  const confirmText = await page.locator('[data-ecommerce-confirm]').innerText().catch(() => '')
+  rec(g, '★★ 自定义套图按 2 张进入二次确认', /2\s*张/.test(confirmText), confirmText.replace(/\n/g, ' | '))
+  await page.locator('[data-ecommerce-confirm-ok]').click()
+
+  const done = await page
+    .waitForFunction(
+      () => document.querySelectorAll('[data-ecommerce-result][data-status="done"]').length === 2,
+      null,
+      { timeout: 40_000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  const projectId = page.url().split('/ecommerce/')[1]?.split('?')[0] ?? ''
+  const task = (await sharedRows(page, 'ecommerceTasks'))
+    .filter((row) => row.projectId === projectId)
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
+  rec(
+    g,
+    '★★★ 新参数区真实落库并生成：2 张 / 自定义数量 / 生成模型解析',
+    done &&
+      task?.request?.count === 2 &&
+      task?.request?.modeOptions?.setStrategy === 'custom' &&
+      task?.request?.modeOptions?.setCounts?.whiteBg === 2 &&
+      typeof task?.request?.modePrompt === 'string' &&
+      task.request.modePrompt.includes('自定义各类型数量') &&
+      typeof task?.request?.resolvedModel === 'string',
+    `done=${done} count=${task?.request?.count ?? '无'} options=${JSON.stringify(task?.request?.modeOptions ?? null)}`,
+  )
+  rec(
+    g,
+    '★★ 生成结果卡不再显示整行文字操作',
+    (await page.locator('[data-ecommerce-result] button').count()) === 0 &&
+      (await page.locator('[data-ecommerce-result-select]').count()) === 0,
+  )
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await page.screenshot({ path: `${OUT}/164-ecommerce-params-replica${themeSuffix}.png` })
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await sleep(300)
+  rec(
+    g,
+    '★ 1024×768 仍为三栏且无页面横向溢出',
+    (await page.locator('[data-ecommerce-categories]').isVisible()) &&
+      (await page.locator('[data-ecommerce-results]').isVisible()) &&
+      (await page.locator('[data-ecommerce-form]').isVisible()) &&
+      (await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)),
+  )
+  await page.screenshot({ path: `${OUT}/164-ecommerce-params-1024${themeSuffix}.png` })
+  await page.setViewportSize({ width: 760, height: 900 })
+  await sleep(300)
+  rec(
+    g,
+    '★ 760×900 按品类 → 产物 → 参数堆叠且无页面横向溢出',
+    (await page.locator('[data-ecommerce-categories]').isVisible()) &&
+      (await page.locator('[data-ecommerce-results]').isVisible()) &&
+      (await page.locator('[data-ecommerce-form]').isVisible()) &&
+      (await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)),
+  )
+  await page.screenshot({ path: `${OUT}/164-ecommerce-params-760${themeSuffix}.png` })
+  await ctx.close()
+}
+
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164]
 const skippedGroups = new Set(
-  String(process.env.SMOKE_SKIP ?? '')
+  [
+    String(process.env.SMOKE_SKIP ?? ''),
+    /*
+     * #644 按参考产品删除了结果卡操作行、方案生成/历史和旧参数区。
+     * 这些组验证的是已被产品决定移除的旧入口；底层纯函数仍由单测覆盖。
+     * 新参数面板与生成链路分别由 G161 / G164 覆盖。
+     */
+    'g116',
+    'g134',
+    'g135',
+    'g136',
+    'g137',
+    'g138',
+    'g139',
+    'g147',
+    'g148',
+    'g159',
+    'g160',
+  ]
+    .join(',')
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean),

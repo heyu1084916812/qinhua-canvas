@@ -5,34 +5,45 @@ import {
   type DragEvent as ReactDragEvent,
   type ReactNode,
 } from 'react'
-import {
-  ECOMMERCE_DEFAULT_COUNT,
-  EcommerceRequestError,
-  buildEcommercePlan,
-} from '../../domain/ecommerce/plan'
+import { EcommerceRequestError, buildEcommercePlan } from '../../domain/ecommerce/plan'
 import { ECOMMERCE_PLATFORMS, type EcommercePlatform } from '../../domain/ecommerce/platforms'
-import { intentRows, type EcommerceIntentDraft } from '../../domain/ecommerce/chatParse'
-import { planSummaryOf, type EcommercePlanSession } from '../../domain/ecommerce/sessions'
-import { taskSummaryOf, type EcommerceTaskRecord } from '../../domain/ecommerce/tasks'
-import { buildSuggestions } from '../../domain/ecommerce/suggestions'
+import type { EcommerceIntentDraft } from '../../domain/ecommerce/chatParse'
+import type { EcommercePlanSession } from '../../domain/ecommerce/sessions'
+import type { EcommerceTaskRecord } from '../../domain/ecommerce/tasks'
 import {
-  shotKeyOf,
-  shouldExpandShots,
   type ShotPlanResult,
 } from '../../domain/ecommerce/chatShots'
 import {
-  ECOMMERCE_COUNT_MAX,
-  ECOMMERCE_FORM_USAGES,
   ECOMMERCE_LANGUAGES,
   ECOMMERCE_RATIOS,
   languageLabel,
   usageLabel,
   type EcommerceLanguage,
+  type EcommerceModeOptions,
   type EcommerceRequest,
   type EcommerceUsage,
 } from '../../domain/ecommerce/types'
-import { ECOMMERCE_NOTE_MAX, updateEcommerceShot } from '../../domain/ecommerce/prompt'
+import { ECOMMERCE_NOTE_MAX } from '../../domain/ecommerce/prompt'
 import type { EcommerceShot } from '../../domain/ecommerce/prompt'
+import {
+  AGE_OPTIONS,
+  BODY_OPTIONS,
+  DETAIL_HIGHLIGHT_OPTIONS,
+  ETHNICITY_OPTIONS,
+  GENDER_OPTIONS,
+  PRODUCT_SET_COUNT_OPTIONS,
+  RETOUCH_OPTIONS,
+  VIDEO_TYPE_OPTIONS,
+  WEAR_DETAIL_OPTIONS,
+  WEAR_TYPE_OPTIONS,
+  buildEcommerceModeOptionsPrompt,
+  defaultEcommerceModeOptions,
+  ecommerceModeCount,
+  modeOptionCounts,
+  modeOptionString,
+  modeOptionStrings,
+  normalizeEcommerceModeOptions,
+} from '../../domain/ecommerce/modeOptions'
 import {
   DEFAULT_ECOMMERCE_FORM_DRAFT,
   type EcommerceFormDraft,
@@ -268,6 +279,537 @@ const STUDIO_MODES: readonly StudioMode[] = [
   },
 ]
 
+function ModeSpecificParameters({
+  modeId,
+  options,
+  setOption,
+  toggleOption,
+}: {
+  modeId: string
+  options: EcommerceModeOptions
+  setOption: (key: string, value: string | string[] | Record<string, number>) => void
+  toggleOption: (key: string, id: string) => void
+}) {
+  const setCounts = modeOptionCounts(options)
+  const updateSetCount = (id: string, delta: number) => {
+    const next = Math.min(Math.max((setCounts[id] ?? 0) + delta, 0), 12)
+    setOption('setCounts', { ...setCounts, [id]: next })
+  }
+  const selected = (key: string, id: string) => modeOptionStrings(options, key).includes(id)
+
+  if (modeId === 'product-set') {
+    const strategy = modeOptionString(options, 'setStrategy', 'smart')
+    return (
+      <section className={styles.block} data-ecommerce-mode-params="product-set">
+        <span className={styles.blockTitle}>套图结构配置</span>
+        <div className={styles.choiceGroup} role="radiogroup" aria-label="套图结构配置">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={strategy === 'smart'}
+            className={
+              strategy === 'smart'
+                ? `${styles.choiceCard} ${styles.choiceCardOn}`
+                : styles.choiceCard
+            }
+            data-ecommerce-option="set-strategy-smart"
+            onClick={() => setOption('setStrategy', 'smart')}
+          >
+            <span className={styles.choiceRadio} aria-hidden />
+            <span>
+              <span className={styles.choiceTitle}>智能匹配</span>
+              <span className={styles.choiceHint}>AI 智能分析商品图，匹配最佳 Listing 套图</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={strategy === 'custom'}
+            className={
+              strategy === 'custom'
+                ? `${styles.choiceCard} ${styles.choiceCardOn}`
+                : styles.choiceCard
+            }
+            data-ecommerce-option="set-strategy-custom"
+            onClick={() => setOption('setStrategy', 'custom')}
+          >
+            <span className={styles.choiceRadio} aria-hidden />
+            <span>
+              <span className={styles.choiceTitle}>自定义配置</span>
+              <span className={styles.choiceHint}>可自由调整各类型图片数量，至少选择 1 张</span>
+            </span>
+          </button>
+        </div>
+        {strategy === 'custom' ? (
+          <div className={styles.stepperList} data-ecommerce-set-counts>
+            {PRODUCT_SET_COUNT_OPTIONS.map((item) => (
+              <div key={item.id} className={styles.stepperRow}>
+                <span>{item.label}</span>
+                <span className={styles.stepper}>
+                  <button
+                    type="button"
+                    aria-label={`${item.label}减少一张`}
+                    data-ecommerce-set-step={`${item.id}:-1`}
+                    onClick={() => updateSetCount(item.id, -1)}
+                  >
+                    −
+                  </button>
+                  <span data-ecommerce-set-count={item.id}>{setCounts[item.id] ?? 0}</span>
+                  <button
+                    type="button"
+                    aria-label={`${item.label}增加一张`}
+                    data-ecommerce-set-step={`${item.id}:1`}
+                    onClick={() => updateSetCount(item.id, 1)}
+                  >
+                    +
+                  </button>
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </section>
+    )
+  }
+
+  if (modeId === 'product-detail') {
+    return (
+      <section className={styles.block} data-ecommerce-mode-params="product-detail">
+        <span className={styles.blockTitle}>快速优化项</span>
+        <span className={styles.hint}>选择常用的优化方向，可多选</span>
+        <div className={styles.optionGrid}>
+          {DETAIL_HIGHLIGHT_OPTIONS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="checkbox"
+              aria-checked={selected('detailHighlights', item.id)}
+              className={
+                selected('detailHighlights', item.id)
+                  ? `${styles.optionTile} ${styles.optionTileOn}`
+                  : styles.optionTile
+              }
+              data-ecommerce-option={`detail-${item.id}`}
+              onClick={() => toggleOption('detailHighlights', item.id)}
+            >
+              <span className={styles.optionMark} aria-hidden />
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </section>
+    )
+  }
+
+  if (modeId === 'product-recreate') {
+    const level = modeOptionString(options, 'recreateLevel', 'style')
+    return (
+      <section className={styles.block} data-ecommerce-mode-params="product-recreate">
+        <span className={styles.blockTitle}>复刻程度</span>
+        <div className={styles.choiceGroup} role="radiogroup" aria-label="复刻程度">
+          {[
+            ['style', '参考风格', '参考整体风格与结构，自动调整色彩和重构场景'],
+            ['high', '高度复刻', '参考构图与视觉结构替换产品，场景细节略有差异'],
+          ].map(([id, label, hint]) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={level === id}
+              className={
+                level === id
+                  ? `${styles.choiceCard} ${styles.choiceCardOn}`
+                  : styles.choiceCard
+              }
+              data-ecommerce-option={`recreate-${id}`}
+              onClick={() => setOption('recreateLevel', id)}
+            >
+              <span className={styles.choiceRadio} aria-hidden />
+              <span>
+                <span className={styles.choiceTitle}>{label}</span>
+                <span className={styles.choiceHint}>{hint}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+    )
+  }
+
+  if (modeId === 'product-white') {
+    return (
+      <section className={styles.block} data-ecommerce-mode-params="product-white">
+        <span className={styles.blockTitle}>白底类型</span>
+        <div className={styles.segments} role="radiogroup" aria-label="白底类型">
+          {[
+            ['standard', '标准白底'],
+            ['multi', '多角度白底'],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={modeOptionString(options, 'whiteStyle', 'standard') === id}
+              className={
+                modeOptionString(options, 'whiteStyle', 'standard') === id
+                  ? `${styles.seg} ${styles.segOn}`
+                  : styles.seg
+              }
+              data-ecommerce-option={`white-${id}`}
+              onClick={() => setOption('whiteStyle', id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </section>
+    )
+  }
+
+  if (modeId === 'product-retouch') {
+    return (
+      <section className={styles.block} data-ecommerce-mode-params="product-retouch">
+        <span className={styles.blockTitle}>快速优化项</span>
+        <div className={styles.optionGrid}>
+          {RETOUCH_OPTIONS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="checkbox"
+              aria-checked={selected('retouchActions', item.id)}
+              className={
+                selected('retouchActions', item.id)
+                  ? `${styles.optionTile} ${styles.optionTileOn}`
+                  : styles.optionTile
+              }
+              data-ecommerce-option={`retouch-${item.id}`}
+              onClick={() => toggleOption('retouchActions', item.id)}
+            >
+              <span className={styles.optionMark} aria-hidden />
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </section>
+    )
+  }
+
+  if (modeId === 'product-recolor') {
+    return (
+      <section className={styles.block} data-ecommerce-mode-params="product-recolor">
+        <span className={styles.blockTitle}>目标颜色</span>
+        <div className={styles.colorControl}>
+          <input
+            type="color"
+            value={modeOptionString(options, 'targetColor', '#ff6b00')}
+            data-ecommerce-color
+            onChange={(e) => setOption('targetColor', e.target.value)}
+          />
+          <input
+            className={styles.input}
+            value={modeOptionString(options, 'targetColor', '#ff6b00')}
+            data-ecommerce-color-hex
+            onChange={(e) => setOption('targetColor', e.target.value)}
+          />
+        </div>
+        <label className={styles.field}>
+          <span className={styles.fieldLabel}>
+            颜色容差 {modeOptionString(options, 'colorTolerance', '60')}%
+          </span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={modeOptionString(options, 'colorTolerance', '60')}
+            data-ecommerce-color-tolerance
+            onChange={(e) => setOption('colorTolerance', e.target.value)}
+          />
+        </label>
+      </section>
+    )
+  }
+
+  if (modeId === 'video-recreate') {
+    const replicate = modeOptionString(options, 'videoReplicateMode', 'full')
+    return (
+      <section className={styles.block} data-ecommerce-mode-params="video-recreate">
+        <span className={styles.blockTitle}>视频复刻模式</span>
+        <div className={styles.choiceGroup} role="radiogroup" aria-label="视频复刻模式">
+          {[
+            ['full', '完全复刻', '完全复刻视频中的商品、构图、镜头与节奏'],
+            ['similar', '相似复刻', '参考镜头结构与风格，允许画面自然变化'],
+          ].map(([id, label, hint]) => (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={replicate === id}
+              className={
+                replicate === id
+                  ? `${styles.choiceCard} ${styles.choiceCardOn}`
+                  : styles.choiceCard
+              }
+              data-ecommerce-option={`video-replicate-${id}`}
+              onClick={() => setOption('videoReplicateMode', id)}
+            >
+              <span className={styles.choiceRadio} aria-hidden />
+              <span>
+                <span className={styles.choiceTitle}>{label}</span>
+                <span className={styles.choiceHint}>{hint}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+        <PersonSettings options={options} setOption={setOption} />
+      </section>
+    )
+  }
+
+  if (modeId === 'video-commerce') {
+    return (
+      <section className={styles.block} data-ecommerce-mode-params="video-commerce">
+        <span className={styles.blockTitle}>视频类型</span>
+        <div className={styles.optionGrid}>
+          {VIDEO_TYPE_OPTIONS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="checkbox"
+              aria-checked={selected('videoTypes', item.id)}
+              className={
+                selected('videoTypes', item.id)
+                  ? `${styles.optionTile} ${styles.optionTileOn}`
+                  : styles.optionTile
+              }
+              data-ecommerce-option={`video-${item.id}`}
+              onClick={() => toggleOption('videoTypes', item.id)}
+            >
+              <span className={styles.optionMark} aria-hidden />
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <PersonSettings options={options} setOption={setOption} />
+      </section>
+    )
+  }
+
+  if (modeId === 'wear-set') {
+    return (
+      <section className={styles.block} data-ecommerce-mode-params="wear-set">
+        <span className={styles.blockTitle}>生成类型</span>
+        <div className={styles.optionGrid}>
+          {WEAR_TYPE_OPTIONS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="checkbox"
+              aria-checked={selected('wearTypes', item.id)}
+              className={
+                selected('wearTypes', item.id)
+                  ? `${styles.optionTile} ${styles.optionTileOn}`
+                  : styles.optionTile
+              }
+              data-ecommerce-option={`wear-${item.id}`}
+              onClick={() => toggleOption('wearTypes', item.id)}
+            >
+              <span className={styles.optionMark} aria-hidden />
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <label className={styles.field}>
+          <span className={styles.fieldLabel}>展示面</span>
+          <select
+            className={styles.select}
+            value={modeOptionString(options, 'wearSide', 'front')}
+            data-ecommerce-option="wear-side"
+            onChange={(e) => setOption('wearSide', e.target.value)}
+          >
+            <option value="front">正面</option>
+            <option value="back">背面</option>
+            <option value="both">正面与背面</option>
+          </select>
+        </label>
+      </section>
+    )
+  }
+
+  if (modeId === 'wear-model') {
+    return (
+      <section className={styles.block} data-ecommerce-mode-params="wear-model">
+        <span className={styles.blockTitle}>模特形象</span>
+        <PersonSettings options={options} setOption={setOption} />
+      </section>
+    )
+  }
+
+  if (modeId === 'wear-tryon') {
+    return (
+      <section className={styles.block} data-ecommerce-mode-params="wear-tryon">
+        <span className={styles.blockTitle}>试穿配置</span>
+        <div className={styles.twoCols}>
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>人物保留</span>
+            <select
+              className={styles.select}
+              value={modeOptionString(options, 'personPreserve', 'high')}
+              data-ecommerce-option="person-preserve"
+              onChange={(e) => setOption('personPreserve', e.target.value)}
+            >
+              <option value="high">自然保持</option>
+              <option value="strict">严格保持</option>
+            </select>
+          </label>
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>服装版型</span>
+            <select
+              className={styles.select}
+              value={modeOptionString(options, 'outfitPreserve', 'on')}
+              data-ecommerce-option="outfit-preserve"
+              onChange={(e) => setOption('outfitPreserve', e.target.value)}
+            >
+              <option value="on">严格保持</option>
+              <option value="off">允许微调</option>
+            </select>
+          </label>
+        </div>
+        <PersonSettings options={options} setOption={setOption} />
+      </section>
+    )
+  }
+
+  if (modeId === 'wear-detail') {
+    return (
+      <section className={styles.block} data-ecommerce-mode-params="wear-detail">
+        <span className={styles.blockTitle}>细节类型</span>
+        <div className={styles.optionGrid}>
+          {WEAR_DETAIL_OPTIONS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="checkbox"
+              aria-checked={selected('wearDetails', item.id)}
+              className={
+                selected('wearDetails', item.id)
+                  ? `${styles.optionTile} ${styles.optionTileOn}`
+                  : styles.optionTile
+              }
+              data-ecommerce-option={`wear-detail-${item.id}`}
+              onClick={() => toggleOption('wearDetails', item.id)}
+            >
+              <span className={styles.optionMark} aria-hidden />
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </section>
+    )
+  }
+
+  return null
+}
+
+function PersonSettings({
+  options,
+  setOption,
+}: {
+  options: EcommerceModeOptions
+  setOption: (key: string, value: string | string[] | Record<string, number>) => void
+}) {
+  const source = modeOptionString(options, 'modelSource', 'ai')
+  return (
+    <div className={styles.personSettings}>
+      <span className={styles.fieldLabel}>模特形象</span>
+      <div className={styles.segments} role="radiogroup" aria-label="模特来源">
+        {[
+          ['ai', 'AI 生成'],
+          ['upload', '自行上传'],
+        ].map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="radio"
+            aria-checked={source === id}
+            className={
+              source === id ? `${styles.seg} ${styles.segOn}` : styles.seg
+            }
+            data-ecommerce-option={`model-source-${id}`}
+            onClick={() => setOption('modelSource', id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {source === 'upload' ? (
+        <span className={styles.hint}>请在上方参考素材中上传模特照片</span>
+      ) : (
+        <div className={styles.personGrid}>
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>性别</span>
+            <select
+              className={styles.select}
+              value={modeOptionString(options, 'modelGender', 'female')}
+              data-ecommerce-option="model-gender"
+              onChange={(e) => setOption('modelGender', e.target.value)}
+            >
+              {GENDER_OPTIONS.map((item) => (
+                <option key={item.id} value={item.id}>{item.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>年龄</span>
+            <select
+              className={styles.select}
+              value={modeOptionString(options, 'modelAge', 'young')}
+              data-ecommerce-option="model-age"
+              onChange={(e) => setOption('modelAge', e.target.value)}
+            >
+              {AGE_OPTIONS.map((item) => (
+                <option key={item.id} value={item.id}>{item.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>族裔</span>
+            <select
+              className={styles.select}
+              value={modeOptionString(options, 'modelEthnicity', 'asian')}
+              data-ecommerce-option="model-ethnicity"
+              onChange={(e) => setOption('modelEthnicity', e.target.value)}
+            >
+              {ETHNICITY_OPTIONS.map((item) => (
+                <option key={item.id} value={item.id}>{item.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>体型</span>
+            <select
+              className={styles.select}
+              value={modeOptionString(options, 'modelBody', 'standard')}
+              data-ecommerce-option="model-body"
+              onChange={(e) => setOption('modelBody', e.target.value)}
+            >
+              {BODY_OPTIONS.map((item) => (
+                <option key={item.id} value={item.id}>{item.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+      <input
+        className={styles.input}
+        value={modeOptionString(options, 'modelDetails')}
+        placeholder="补充细节（选填）：发型、妆容偏好等"
+        data-ecommerce-option="model-details"
+        onChange={(e) => setOption('modelDetails', e.target.value)}
+      />
+    </div>
+  )
+}
+
 export interface EcommerceLongImageTools {
   /** 与结果卡同一口径：任务运行中不许再发一次付费请求 */
   busy?: boolean
@@ -416,32 +958,11 @@ export function EcommerceStudio({
   onModelChange,
   running,
   results,
-  onOpenCanvas,
-  onRetryFailed,
-  failedCount = 0,
-  onDownloadAll,
-  downloadableCount = 0,
-  onOpenLongImage,
   longImage,
-  onParseIntent,
-  parsingIntent = false,
-  intent = null,
   chatTargetLabel = '',
   chatModels = [],
   intentModel = '',
   onIntentModelChange,
-  intentError = '',
-  onIntentApplied,
-  onIntentDiscard,
-  planHistory = [],
-  onRestorePlan,
-  onRemovePlan,
-  taskHistory = [],
-  activeTaskId = '',
-  onSelectTask,
-  onRemoveTask,
-  onPlanShots,
-  shotPlanNote = '',
 }: EcommerceStudioProps) {
   const saved = initialDraft ?? DEFAULT_ECOMMERCE_FORM_DRAFT
   const initialMode =
@@ -456,22 +977,25 @@ export function EcommerceStudio({
     STUDIO_MODES[0]
   const [category, setCategory] = useState<StudioCategory>(initialMode.category)
   const [modeId, setModeId] = useState(initialMode.id)
-  const [videoDuration, setVideoDuration] = useState(saved.videoDuration ?? 5)
+  const videoDuration = saved.videoDuration ?? 5
   const [usage, setUsage] = useState<EcommerceUsage>(saved.usage)
   const [platformId, setPlatformId] = useState<string>(saved.platformId)
   const [language, setLanguage] = useState<EcommerceLanguage>(saved.language)
-  const [count, setCount] = useState<number>(saved.count)
   const [ratio, setRatio] = useState<string>(saved.ratio)
   const [note, setNote] = useState(saved.note)
+  const [modeOptionsByMode, setModeOptionsByMode] = useState<
+    Record<string, EcommerceModeOptions>
+  >(() => ({
+    [initialMode.id]: {
+      ...defaultEcommerceModeOptions(initialMode.id),
+      ...normalizeEcommerceModeOptions(saved.modeOptions),
+    },
+  }))
   const [products, setProducts] = useState<EcommerceUpload[]>([...initialProducts])
   const [references, setReferences] = useState<EcommerceUpload[]>([...initialReferences])
   /** 二次确认：点生成先算出"预计 N 张"，确认后才真的发请求（#384 的 D6） */
   const [confirming, setConfirming] = useState(false)
-  /** 历史批次删除的两下确认（同一时刻只允许一条处于确认态） */
-  const [confirmTaskId, setConfirmTaskId] = useState('')
   const [error, setError] = useState('')
-  /** 「一句话生成方案」的输入框（#422）：纯 UI 态，不进表单、不落库 */
-  const [intentText, setIntentText] = useState('')
   /** 结果卡上的定向 AI 编辑：一次只打开一张，指令不进入左侧表单草稿 */
   const [editTarget, setEditTarget] = useState<{ nodeId: string; label: string } | null>(null)
   const [editInstruction, setEditInstruction] = useState('')
@@ -488,9 +1012,9 @@ export function EcommerceStudio({
   const [batchEditSubmitting, setBatchEditSubmitting] = useState(false)
   const [batchReference, setBatchReference] = useState<EcommerceUpload | null>(null)
   const [batchReferenceBusy, setBatchReferenceBusy] = useState(false)
-  const [savingSelected, setSavingSelected] = useState(false)
   const [compareTarget, setCompareTarget] = useState<EcommerceResultItem | null>(null)
   const [detailTarget, setDetailTarget] = useState<EcommerceResultItem | null>(null)
+  const selectedImageEditCount = 0
   const [upscaleTarget, setUpscaleTarget] = useState<{
     items: readonly EcommerceResultItem[]
     batch: boolean
@@ -541,25 +1065,31 @@ export function EcommerceStudio({
     } : {}),
   })
   /**
-   * 「先出一份方案」（对账 #423）：**方案 + 它是对着哪组参数写的**。
-   *
-   * 存 `key` 而不是只存 shots：用户改完表单再看那份方案，它就已经是对着旧参数写的了。
-   * 继续拿它出图会出现"方案上写着 3 张、实际出 4 张"这种错位 —— 所以比一比键，
-   * 不相等就**当场作废**（界面上明说），出图时重新问一次。
-   */
-  const [shotPlan, setShotPlan] = useState<{
-    key: string
-    shots: readonly EcommerceShot[]
-  } | null>(null)
-  const [planningShots, setPlanningShots] = useState(false)
-  const [planError, setPlanError] = useState('')
-  /**
    * 正在往哪一块拖（对账 #427）：`null` = 没在拖。只用来画一个"松手会落这儿"的提示 ——
    * 没有提示的话，用户拖着图悬在框上不知道能不能放（画布那边早就有拖放，
    * 电商这两块一直没有：同一个应用里两种手感，是很容易被当成"坏了"的那种不一致）。
    */
   const [dragOver, setDragOver] = useState<'product' | 'reference' | null>(null)
   const mode = STUDIO_MODES.find((item) => item.id === modeId) ?? initialMode
+  const modeOptions =
+    modeOptionsByMode[mode.id] ?? defaultEcommerceModeOptions(mode.id)
+  const effectiveCount = ecommerceModeCount(mode.id, mode.count, modeOptions)
+  const setModeOptions = (next: EcommerceModeOptions) => {
+    setModeOptionsByMode((current) => ({
+      ...current,
+      [mode.id]: normalizeEcommerceModeOptions(next),
+    }))
+  }
+  const setModeOption = (key: string, value: string | string[] | Record<string, number>) => {
+    setModeOptions({ ...modeOptions, [key]: value })
+  }
+  const toggleModeOption = (key: string, id: string) => {
+    const current = modeOptionStrings(modeOptions, key)
+    setModeOption(
+      key,
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+    )
+  }
   const categoryModes = useMemo(
     () => STUDIO_MODES.filter((item) => item.category === category),
     [category],
@@ -600,10 +1130,11 @@ export function EcommerceStudio({
       usage,
       platformId,
       language,
-      count,
+      count: effectiveCount,
       ratio,
       note,
       model,
+      modeOptions,
       productNodeId: products[0]?.nodeId ?? null,
       productNodeIds: products.map((item) => item.nodeId),
       referenceNodeIds: references.map((r) => r.nodeId),
@@ -614,10 +1145,11 @@ export function EcommerceStudio({
     videoDuration,
     platformId,
     language,
-    count,
+    effectiveCount,
     ratio,
     note,
     model,
+    modeOptions,
     products,
     references,
     onDraftChange,
@@ -633,11 +1165,16 @@ export function EcommerceStudio({
     setModeId(next.id)
     setCategory(next.category)
     setUsage(next.usage)
-    setCount(next.count)
+    setModeOptionsByMode((current) =>
+      current[next.id]
+        ? current
+        : {
+            ...current,
+            [next.id]: defaultEcommerceModeOptions(next.id),
+          },
+    )
     if (next.ratio) setRatio(next.ratio)
     if (previousKind !== next.mediaKind) onModelChange('')
-    setShotPlan(null)
-    setPlanError('')
     setError('')
   }
 
@@ -733,27 +1270,56 @@ export function EcommerceStudio({
     },
   })
 
-  const buildRequest = (): EcommerceRequest => ({
-    mediaKind: mode.mediaKind,
-    modeLabel: mode.label,
-    usage,
-    platformId: platformId || undefined,
-    language,
-    count: mode.mediaKind === 'video' ? 1 : count,
-    ratio,
-    productNodeId: products[0]?.nodeId ?? '',
-    productNodeIds: products.map((item) => item.nodeId),
-    referenceNodeIds: references.map((r) => r.nodeId),
-    note,
-    ...(mode.promptPrefix ? { modePrompt: mode.promptPrefix } : {}),
-    ...(mode.mediaKind === 'video' ? { durationSec: videoDuration } : {}),
-    /* 空串不写进请求：让页面按"默认解析"那条路走（与没选过完全一致） */
-    ...(model ? { model } : {}),
-  })
+  const buildRequest = (): EcommerceRequest => {
+    const modePrompt = [mode.promptPrefix, buildEcommerceModeOptionsPrompt(mode.id, modeOptions)]
+      .filter((item): item is string => !!item?.trim())
+      .join('\n')
+    return {
+      mediaKind: mode.mediaKind,
+      modeLabel: mode.label,
+      modeOptions,
+      usage,
+      platformId: platformId || undefined,
+      language,
+      count: mode.mediaKind === 'video' ? 1 : effectiveCount,
+      ratio,
+      productNodeId: products[0]?.nodeId ?? '',
+      productNodeIds: products.map((item) => item.nodeId),
+      referenceNodeIds: references.map((r) => r.nodeId),
+      note,
+      ...(modePrompt ? { modePrompt } : {}),
+      ...(mode.mediaKind === 'video' ? { durationSec: videoDuration } : {}),
+      /* 空串不写进请求：让页面按"默认解析"那条路走（与没选过完全一致） */
+      ...(model ? { model } : {}),
+    }
+  }
 
   const start = () => {
     if (products.length === 0) {
       setError('先上传一张产品图 —— 没有产品图就没有可改的主体')
+      return
+    }
+    if (
+      (mode.id === 'product-recreate' ||
+        mode.id === 'video-recreate' ||
+        mode.id === 'wear-tryon') &&
+      references.length === 0
+    ) {
+      setError(
+        mode.id === 'video-recreate'
+          ? '先上传一段参考视频'
+          : mode.id === 'wear-tryon'
+            ? '先上传一张人物参考图'
+            : '先上传一张爆款参考图',
+      )
+      return
+    }
+    if (
+      (mode.id === 'video-commerce' || mode.id === 'wear-model') &&
+      modeOptionString(modeOptions, 'modelSource', 'ai') === 'upload' &&
+      references.length === 0
+    ) {
+      setError('先上传一张模特参考图，或把模特来源切回 AI 生成')
       return
     }
     try {
@@ -766,61 +1332,6 @@ export function EcommerceStudio({
     setConfirming(true)
   }
 
-  /**
-   * 「先出一份方案」（对账 #423）。
-   *
-   * ⚠️ 存进 state 的 `key` 取自**这一次发出去的请求**，不是"回来时的表单"：
-   * 请求在路上时用户完全可能又改了字，那时回来的是**旧参数**的方案 ——
-   * 按当时的表单记键，这份方案会被当成有效的（正是 #419 那条教训的反面）。
-   */
-  const makePlan = async () => {
-    if (!onPlanShots) return
-    const request = buildRequest()
-    const key = shotKeyOf(request)
-    setPlanningShots(true)
-    setPlanError('')
-    try {
-      const result = await onPlanShots(request)
-      if (result.ok) setShotPlan({ key, shots: result.shots })
-      else {
-        setShotPlan(null)
-        setPlanError(result.error)
-      }
-    } finally {
-      setPlanningShots(false)
-    }
-  }
-
-  /** 当前表单对应的分镜键（只有影响分镜的那几项进键） */
-  const currentShotKey = shotKeyOf({ usage, platformId, language, count, ratio, note })
-  const doneResultCount = visibleResults.filter((result) => result.status === 'done').length
-  const selectedDownloadCount = visibleResults.filter(
-    (result) =>
-      result.status === 'done' &&
-      selectedEditNodes.has(result.nodeId) &&
-      !!result.onDownload,
-  ).length
-  const selectedSaveCount = visibleResults.filter(
-    (result) =>
-      result.status === 'done' &&
-      selectedEditNodes.has(result.nodeId) &&
-      !!result.onSaveToLibrary,
-  ).length
-  const selectedUpscaleCount = visibleResults.filter(
-    (result) =>
-      result.status === 'done' &&
-      selectedEditNodes.has(result.nodeId) &&
-      !result.mime?.startsWith('video/') &&
-      !!result.imageHash &&
-      !!onUpscaleResult &&
-      availableUpscaleOptions.length > 0,
-  ).length
-  const selectedImageEditCount = visibleResults.filter(
-    (result) =>
-      result.status === 'done' &&
-      selectedEditNodes.has(result.nodeId) &&
-      !result.mime?.startsWith('video/'),
-  ).length
   const editPresets = useMemo(
     () => [
       {
@@ -858,72 +1369,11 @@ export function EcommerceStudio({
     ],
     [language],
   )
-  /** 方案还作不作数：键不等 = 表单改过了，那份方案作废 */
-  const activeShotPlan = shotPlan && shotPlan.key === currentShotKey ? shotPlan.shots : null
-  const planStale = !!shotPlan && activeShotPlan === null
-  /** 这一趟值不值得出方案：与 #406"真去调用模型"是**同一个纯函数** */
-  const canPlanShots = !!onPlanShots && !!chatTargetLabel && shouldExpandShots({ usage, count, note })
-
-  /** 逐行改方案（对账 #514）：只动草稿，参数指纹不变 ⇒ 方案仍然作数 */
-  const editShot = (index: number, patch: Partial<EcommerceShot>) => {
-    setShotPlan((current) => {
-      if (!current) return current
-      const nextShots = updateEcommerceShot(current.shots, index, patch)
-      return nextShots === current.shots ? current : { ...current, shots: nextShots }
-    })
-  }
-
-  /**
-   * 把历史批次的**参数**带回表单。
-   *
-   * 刻意不碰产品图 / 参考图：历史里存的是节点 id，用户当前上传槽可能已经换了素材；
-   * 静默替换上传物比“少恢复三个字段”危险得多。`edit` 任务也不适用，它不是新建表单用途。
-   */
-  const applyTaskSettings = (task: EcommerceTaskRecord) => {
-    const request = task.request
-    if (!ECOMMERCE_FORM_USAGES.includes(request.usage)) return
-    const matchedMode =
-      STUDIO_MODES.find(
-        (item) =>
-          item.label === request.modeLabel &&
-          item.mediaKind === (request.mediaKind ?? 'image'),
-      ) ??
-      STUDIO_MODES.find(
-        (item) => item.usage === request.usage && item.mediaKind === (request.mediaKind ?? 'image'),
-      )
-    if (matchedMode) {
-      setCategory(matchedMode.category)
-      setModeId(matchedMode.id)
-    }
-    setUsage(request.usage)
-    setPlatformId(request.platformId ?? '')
-    setLanguage(request.language)
-    onModelChange(request.model ?? '')
-    setCount(
-      Number.isInteger(request.count) && request.count >= 1
-        ? Math.min(request.count, ECOMMERCE_COUNT_MAX)
-        : ECOMMERCE_DEFAULT_COUNT[request.usage],
-    )
-    setRatio(ECOMMERCE_RATIOS.includes(request.ratio) ? request.ratio : '1:1')
-    setNote((request.note ?? '').slice(0, ECOMMERCE_NOTE_MAX))
-    if (request.durationSec) setVideoDuration(request.durationSec)
-    setShotPlan(null)
-    setConfirming(false)
-    setError('')
-  }
-
   const confirm = async () => {
-    const blankRow = activeShotPlan?.findIndex((s) => !s.title.trim() || !s.brief.trim()) ?? -1
-    if (blankRow >= 0) {
-      setConfirming(false)
-      setError(`方案第 ${blankRow + 1} 行还没写全 —— 标题和要点都补上再生成`)
-      return
-    }
     setConfirming(false)
     setError('')
     try {
-      /* 只把**没过期**的那份带过去；过期等于没有（页面会重新问一次） */
-      await onGenerate(buildRequest(), activeShotPlan ?? undefined)
+      await onGenerate(buildRequest())
     } catch (e) {
       setError(e instanceof Error ? e.message : '生成失败，原因见下方结果区')
     }
@@ -979,15 +1429,6 @@ export function EcommerceStudio({
     }
   }
 
-  const toggleEditSelection = (nodeId: string) => {
-    setSelectedEditNodes((current) => {
-      const next = new Set(current)
-      if (next.has(nodeId)) next.delete(nodeId)
-      else next.add(nodeId)
-      return next
-    })
-  }
-
   const submitBatchEdit = async () => {
     if (!onEditResults) return
     const instruction = batchInstruction.trim()
@@ -1030,64 +1471,51 @@ export function EcommerceStudio({
     }
   }
 
-  const selectAllDone = () => {
-    setSelectedEditNodes(
-      new Set(
-        visibleResults
-          .filter((result) => result.status === 'done')
-          .map((result) => result.nodeId),
-      ),
-    )
-  }
-
-  const downloadSelected = async () => {
-    const targets = visibleResults.filter(
-      (result) => result.status === 'done' && selectedEditNodes.has(result.nodeId),
-    )
-    for (const result of targets) {
-      await Promise.resolve(result.onDownload?.())
-      if (targets.length > 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 250))
-      }
-    }
-  }
-
-  const saveSelectedToLibrary = async () => {
-    const targets = visibleResults.filter(
-      (result) =>
-        result.status === 'done' &&
-        selectedEditNodes.has(result.nodeId) &&
-        !!result.onSaveToLibrary,
-    )
-    if (targets.length === 0) return
-    setSavingSelected(true)
-    try {
-      for (const result of targets) {
-        await Promise.resolve(result.onSaveToLibrary?.())
-      }
-    } finally {
-      setSavingSelected(false)
-    }
-  }
-
-  /**
-   * 把**待确认**草稿真的填进表单（#422）。
-   *
-   * 只覆盖草稿里**真有**的那几项 —— 没认出来的键在草稿里根本不存在，
-   * 于是表单里原有（或被用户手改过）的值一个不动。这就是"不猜"在界面上的落点。
-   */
-  const applyIntent = () => {
-    if (!intent) return
-    const nextUsage = intent.usage ?? usage
-    if (intent.usage) setUsage(nextUsage)
-    if (intent.platformId) setPlatformId(intent.platformId)
-    if (intent.language) setLanguage(intent.language)
-    if (intent.count !== undefined) setCount(intent.count)
-    else if (intent.usage) setCount(ECOMMERCE_DEFAULT_COUNT[nextUsage])
-    if (intent.ratio) setRatio(intent.ratio)
-    if (intent.note) setNote(intent.note)
-    onIntentApplied?.()
-  }
+  const referenceRequired =
+    mode.id === 'product-recreate' ||
+    mode.id === 'video-recreate' ||
+    mode.id === 'wear-tryon'
+  const showReferenceBlock =
+    referenceRequired ||
+    mode.id === 'wear-model' ||
+    mode.id === 'video-commerce'
+  const referenceLabel =
+    mode.id === 'video-recreate'
+      ? '参考视频'
+      : mode.id === 'wear-tryon'
+        ? '人物参考图'
+        : mode.id === 'wear-model' || mode.id === 'video-commerce'
+          ? '模特参考图'
+          : '参考图（爆款图）'
+  const carouselCases = [
+    {
+      id: 'case-1',
+      title: mode.mediaKind === 'video' ? '短视频案例' : `${mode.label}案例`,
+      tag: '商品原图',
+      tiles:
+        mode.mediaKind === 'video'
+          ? ['开场展示', '产品演示', '卖点口播']
+          : ['白底主图', '核心卖点', '细节特写'],
+    },
+    {
+      id: 'case-2',
+      title: mode.mediaKind === 'video' ? '场景短片案例' : '场景套图案例',
+      tag: '场景延展',
+      tiles:
+        mode.mediaKind === 'video'
+          ? ['场景建立', '使用过程', '收尾展示']
+          : ['使用场景', '多角度图', '质感特写'],
+    },
+    {
+      id: 'case-3',
+      title: mode.mediaKind === 'video' ? '带货视频案例' : '详情页案例',
+      tag: '详情结构',
+      tiles:
+        mode.mediaKind === 'video'
+          ? ['痛点开场', '产品解决', '行动引导']
+          : ['首屏主视觉', '规格参数', '售后说明'],
+    },
+  ]
 
   return (
     <div className={styles.wrap} data-ecommerce-studio>
@@ -1120,201 +1548,26 @@ export function EcommerceStudio({
           </p>
         </header>
 
-        {/*
-          一句话 → 待确认方案（对账 #422，用户 2026-10-11：「先说清楚它听懂了什么，
-          确认了再填表」）。三件事刻意分开：
-            ① 输入与"会用谁解析"如实写出来（没配对话模型时按钮是灰的 + 说明原因）；
-            ② 解析结果只进**这张卡片**，表单一点没动；
-            ③ 点「应用到表单」才真的覆盖 —— 且只覆盖草稿里真有的那几项。
-        */}
-        {onParseIntent ? (
-          <section className={styles.block} data-ecommerce-intent>
-            <span className={styles.blockTitle}>用一句话生成方案</span>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>解析模型</span>
-              <select
-                className={styles.select}
-                value={intentModel}
-                data-ecommerce-intent-model
-                onChange={(e) => onIntentModelChange?.(e.target.value)}
-              >
-                <option value="">
-                  {chatTargetLabel ? `默认 · ${chatTargetLabel}` : '未配置对话模型'}
-                </option>
-                {chatModels.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <textarea
-              className={styles.textarea}
-              value={intentText}
-              placeholder="例：给我做一套亚马逊英文详情页，4 张，3:4，突出防水材质"
-              data-ecommerce-intent-input
-              onChange={(e) => setIntentText(e.target.value)}
-            />
-            {/**
-             * 起手式（对账 #434）：按**此刻选的平台 / 语言**给三句现成的话，点一下填进输入框。
-             * 刻意只写平台 / 语言 / 用途 / 张数这些确定性事实 —— 不替用户想卖点，
-             * 也不是"AI 推荐"（那要么再花一次额度，要么拿规则装智能）。
-             */}
-            <div className={styles.suggestRow} data-ecommerce-suggestions>
-              {buildSuggestions({ platforms, platformId, language }).map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={styles.suggestChip}
-                  title={item.text}
-                  data-ecommerce-suggestion={item.id}
-                  onClick={() => setIntentText(item.text)}
-                >
+        <div className={styles.formScroll}>
+        {chatModels.length > 0 ? (
+          <label className={styles.field}>
+            <span className={styles.fieldLabel}>方案模型</span>
+            <select
+              className={styles.select}
+              value={intentModel}
+              data-ecommerce-intent-model
+              onChange={(e) => onIntentModelChange?.(e.target.value)}
+            >
+              <option value="">
+                {chatTargetLabel ? `默认 · ${chatTargetLabel}` : '未配置对话模型'}
+              </option>
+              {chatModels.map((item) => (
+                <option key={item.value} value={item.value}>
                   {item.label}
-                </button>
+                </option>
               ))}
-            </div>
-            <div className={styles.intentRow}>
-              <button
-                type="button"
-                className={styles.linkBtn}
-                data-ecommerce-intent-parse
-                disabled={parsingIntent || !chatTargetLabel || intentText.trim().length === 0}
-                onClick={() => void onParseIntent(intentText)}
-              >
-                {parsingIntent ? '解析中…' : '解析成方案'}
-              </button>
-              <span className={styles.hint} data-ecommerce-intent-note>
-                {chatTargetLabel
-                  ? `本次使用 ${chatTargetLabel}`
-                  : '还没有可用的对话模型：先去「设置 → 渠道配置」给一条渠道勾上对话模型'}
-              </span>
-            </div>
-            {intentError ? (
-              <p className={styles.error} role="alert" data-ecommerce-intent-error>
-                {intentError}
-              </p>
-            ) : null}
-            {intent ? (
-              <div className={styles.intentCard} data-ecommerce-intent-card>
-                <p className={styles.intentLead}>听懂了这些，确认后才会填进表单：</p>
-                <ul className={styles.intentList}>
-                  {intentRows(intent, platforms).map((row) => (
-                    <li key={row.label} className={styles.intentItem} data-ecommerce-intent-row>
-                      <span className={styles.intentLabel}>{row.label}</span>
-                      <span className={styles.intentValue}>{row.value}</span>
-                    </li>
-                  ))}
-                </ul>
-                <div className={styles.intentActions}>
-                  <button
-                    type="button"
-                    className={styles.linkBtn}
-                    data-ecommerce-intent-discard
-                    onClick={() => onIntentDiscard?.()}
-                  >
-                    丢弃
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.generate} ${styles.intentApply}`}
-                    data-ecommerce-intent-apply
-                    onClick={applyIntent}
-                  >
-                    应用到表单
-                  </button>
-                </div>
-              </div>
-            ) : null}
-            {/**
-             * **最近的方案**（对账 #433）：一次成功的解析留一条，点一条把那张确认卡放回来。
-             * 以前这些都只活在组件状态里 —— 刷新或切走就没了，昨天想好的方案今天得重打一遍。
-             * 有一条「删除」在：历史只留最近的几条，不想留的自己清掉。
-             */}
-            {onRestorePlan && planHistory.length > 0 ? (
-              <div className={styles.planHistory} data-ecommerce-plan-history>
-                <span className={styles.planHistoryTitle}>最近的方案</span>
-                <ul className={styles.planList}>
-                  {planHistory.map((plan) => (
-                      <li key={plan.id} className={styles.planItem} data-ecommerce-plan={plan.id}>
-                        <button
-                          type="button"
-                          className={styles.planOpen}
-                          title={plan.title}
-                          data-ecommerce-plan-open={plan.id}
-                          onClick={() => onRestorePlan(plan)}
-                        >
-                          <span className={styles.planTitleText}>{plan.title}</span>
-                          {/* 缩略说明只写平台 / 用途 / 张数这类确定性事实（对账 #434） */}
-                          <span className={styles.planMeta} data-ecommerce-plan-summary={plan.id}>
-                            {planSummaryOf(plan.draft, platforms)}
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.planRemove}
-                          aria-label={`删除方案 ${plan.title}`}
-                          data-ecommerce-plan-remove={plan.id}
-                          onClick={() => void onRemovePlan?.(plan.id)}
-                        >
-                          ×
-                        </button>
-                      </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </section>
-        ) : null}
-
-        {onSelectTask && taskHistory.length > 0 ? (
-          <section className={styles.block} data-ecommerce-task-history>
-            <span className={styles.blockTitle}>历史批次</span>
-            <ul className={styles.planList}>
-              {taskHistory.slice(0, 8).map((task) => (
-                <li key={task.id} className={styles.planItem}>
-                  <button
-                    type="button"
-                    className={styles.planOpen}
-                    data-ecommerce-task={task.id}
-                    data-ecommerce-task-active={task.id === activeTaskId ? 'true' : 'false'}
-                    onClick={() => onSelectTask(task.id)}
-                  >
-                    <span className={styles.planTitleText}>{taskSummaryOf(task)}</span>
-                  </button>
-                  {ECOMMERCE_FORM_USAGES.includes(task.request.usage) ? (
-                    <button
-                      type="button"
-                      className={styles.planApply}
-                      data-ecommerce-task-apply={task.id}
-                      title="把这些参数带回表单（不替换当前产品图和参考图）"
-                      onClick={() => applyTaskSettings(task)}
-                    >
-                      参数
-                    </button>
-                  ) : null}
-                  {onRemoveTask ? (
-                    <button
-                      type="button"
-                      className={styles.planRemove}
-                      data-ecommerce-task-remove={task.id}
-                      aria-label={`删除批次 ${taskSummaryOf(task)}`}
-                      onClick={() => {
-                        if (confirmTaskId === task.id) {
-                          setConfirmTaskId('')
-                          onRemoveTask(task.id)
-                        } else {
-                          setConfirmTaskId(task.id)
-                        }
-                      }}
-                    >
-                      {confirmTaskId === task.id ? '确认' : '×'}
-                    </button>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          </section>
+            </select>
+          </label>
         ) : null}
 
         <section
@@ -1322,9 +1575,12 @@ export function EcommerceStudio({
           data-ecommerce-product-drop={dragOver === 'product' ? 'true' : 'false'}
           {...dropProps('product')}
         >
-          <label className={styles.blockTitle} htmlFor="ecommerce-product">
-            产品图
-          </label>
+          <div className={styles.blockHead}>
+            <label className={styles.blockTitle} htmlFor="ecommerce-product">
+              商品原图
+            </label>
+            <span className={styles.hint}>支持 1–3 张图片，多角度效果更佳</span>
+          </div>
           <input
             id="ecommerce-product"
             className={styles.file}
@@ -1356,8 +1612,8 @@ export function EcommerceStudio({
             ))}
             {products.length === 0 ? (
               <label className={styles.emptySlot} htmlFor="ecommerce-product">
-                <span>上传产品图</span>
-                <span className={styles.emptyHint}>支持 1–3 张，多角度更容易保持一致</span>
+                <span className={styles.uploadPlus}>+</span>
+                <span>上传图片</span>
               </label>
             ) : products.length < 3 && products.length + references.length < 4 ? (
               <label className={styles.addSlot} htmlFor="ecommerce-product" data-ecommerce-product-add>
@@ -1367,106 +1623,110 @@ export function EcommerceStudio({
           </div>
         </section>
 
-        <section
-          className={
-            dragOver === 'reference' ? `${styles.block} ${styles.blockDrop}` : styles.block
-          }
-          data-ecommerce-reference-drop={dragOver === 'reference' ? 'true' : 'false'}
-          {...dropProps('reference')}
-        >
-          <label className={styles.blockTitle} htmlFor="ecommerce-reference">
-            参考图（{usage === 'recreate' ? '必填' : '可选'}）
-          </label>
-          <input
-            id="ecommerce-reference"
-            className={styles.file}
-            type="file"
-            accept="image/*,video/*"
-            multiple
-            data-ecommerce-reference-input
-            onChange={(e) => {
-              const files = [...(e.target.files ?? [])]
-              void (async () => {
-                for (const f of files) await onPick(f, 'reference')
-              })()
-            }}
-          />
-          <div className={styles.slotRow}>
-            {references.map((r) => (
-              <div key={r.nodeId} className={styles.slot} data-ecommerce-reference-preview>
-                {r.preview}
-                <button
-                  type="button"
-                  className={styles.slotRemove}
-                  aria-label="移除参考图"
-                  onClick={() =>
-                    setReferences((prev) => prev.filter((row) => row.nodeId !== r.nodeId))
-                  }
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-            {references.length + products.length < 4 ? (
-              <label
-                className={styles.addSlot}
-                htmlFor="ecommerce-reference"
-                data-ecommerce-reference-add
-              >
-                +
+        {showReferenceBlock ? (
+          <section
+            className={
+              dragOver === 'reference' ? `${styles.block} ${styles.blockDrop}` : styles.block
+            }
+            data-ecommerce-reference-drop={dragOver === 'reference' ? 'true' : 'false'}
+            {...dropProps('reference')}
+          >
+            <div className={styles.blockHead}>
+              <label className={styles.blockTitle} htmlFor="ecommerce-reference">
+                {referenceLabel}
               </label>
+              <span className={styles.hint}>{referenceRequired ? '必填' : '选填'}</span>
+            </div>
+            <input
+              id="ecommerce-reference"
+              className={styles.file}
+              type="file"
+              accept={mode.id === 'video-recreate' ? 'video/*,image/*' : 'image/*'}
+              multiple={mode.id !== 'video-recreate'}
+              data-ecommerce-reference-input
+              onChange={(e) => {
+                const files = [...(e.target.files ?? [])]
+                void (async () => {
+                  for (const f of files) await onPick(f, 'reference')
+                })()
+              }}
+            />
+            <div className={styles.slotRow}>
+              {references.map((r) => (
+                <div key={r.nodeId} className={styles.slot} data-ecommerce-reference-preview>
+                  {r.preview}
+                  <button
+                    type="button"
+                    className={styles.slotRemove}
+                    aria-label="移除参考图"
+                    onClick={() =>
+                      setReferences((prev) => prev.filter((row) => row.nodeId !== r.nodeId))
+                    }
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              {references.length + products.length < 4 ? (
+                <label
+                  className={styles.addSlot}
+                  htmlFor="ecommerce-reference"
+                  data-ecommerce-reference-add
+                >
+                  +
+                </label>
+              ) : null}
+            </div>
+            {referenceRequired && references.length === 0 ? (
+              <p className={styles.hint} data-ecommerce-recreate-hint>
+                {mode.id === 'video-recreate'
+                  ? '先上传参考视频，再生成同款视频。'
+                  : mode.id === 'wear-tryon'
+                    ? '先上传人物参考图，服装和人物都会以素材为准。'
+                    : '先上传爆款参考图，产品主体仍以商品原图为准。'}
+              </p>
             ) : null}
-          </div>
-          {usage === 'recreate' && references.length === 0 ? (
-            <p className={styles.hint} data-ecommerce-recreate-hint>
-              爆款复刻要先上传一张参考图；产品主体仍以产品图为准，不会复制参考图的品牌与文案。
-            </p>
-          ) : null}
-        </section>
+          </section>
+        ) : null}
 
         <section className={styles.block}>
-          <span className={styles.blockTitle}>平台与参数</span>
           <div className={styles.twoCols}>
+            {mode.mediaKind === 'video' ? (
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>市场地区</span>
+                <select
+                  className={styles.select}
+                  value={modeOptionString(modeOptions, 'marketRegion', 'us')}
+                  data-ecommerce-market-region
+                  onChange={(e) => setModeOption('marketRegion', e.target.value)}
+                >
+                  <option value="us">美国</option>
+                  <option value="uk">英国</option>
+                  <option value="eu">欧洲</option>
+                  <option value="sea">东南亚</option>
+                  <option value="me">中东</option>
+                </select>
+              </label>
+            ) : (
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>上架平台</span>
+                <select
+                  className={styles.select}
+                  value={platformId}
+                  data-ecommerce-platform
+                  onChange={(e) => setPlatformId(e.target.value)}
+                >
+                  <option value="">不指定（通用）</option>
+                  {platforms.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className={styles.field}>
-              <span className={styles.fieldLabel}>平台</span>
-              <select
-                className={styles.select}
-                value={platformId}
-                data-ecommerce-platform
-                onChange={(e) => setPlatformId(e.target.value)}
-              >
-                <option value="">不指定（通用）</option>
-                {platforms.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {/*
-              出图模型（用户 2026-10-10 #2：「左边的参数栏没有模型相关的参数选择」）。
-              渠道**不在这里选** —— 与画布同一条口径：模型定下来，谁提供它由选路决定。
-            */}
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>
-                {mode.mediaKind === 'video' ? '视频模型' : '生成模型'}
-              </span>
-              <select
-                className={styles.select}
-                value={model}
-                data-ecommerce-model
-                onChange={(e) => onModelChange(e.target.value)}
-              >
-                <option value="">默认（按渠道解析）</option>
-                {(mode.mediaKind === 'video' ? videoModels : models).map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>文案语言</span>
+              <span className={styles.fieldLabel}>语言</span>
               <select
                 className={styles.select}
                 value={language}
@@ -1482,35 +1742,8 @@ export function EcommerceStudio({
             </label>
             <label className={styles.field}>
               <span className={styles.fieldLabel}>
-                {mode.mediaKind === 'video' ? '时长' : '张数'}
+                {mode.mediaKind === 'video' ? '视频比例' : '图片比例'}
               </span>
-              {mode.mediaKind === 'video' ? (
-                <select
-                  className={styles.select}
-                  value={videoDuration}
-                  data-ecommerce-video-duration
-                  onChange={(e) => setVideoDuration(Number(e.target.value))}
-                >
-                  {[5, 10, 15].map((seconds) => (
-                    <option key={seconds} value={seconds}>
-                      {seconds} 秒
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  className={styles.input}
-                  type="number"
-                  min={1}
-                  max={ECOMMERCE_COUNT_MAX}
-                  value={count}
-                  data-ecommerce-count
-                  onChange={(e) => setCount(Number(e.target.value))}
-                />
-              )}
-            </label>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>比例</span>
               <select
                 className={styles.select}
                 value={ratio}
@@ -1525,17 +1758,41 @@ export function EcommerceStudio({
               </select>
             </label>
           </div>
-          {platform ? (
-            <p className={styles.hint} data-ecommerce-platform-hint>
-              {platform.countHint}；比例常见 {platform.ratios.join(' / ')}
-            </p>
-          ) : null}
         </section>
 
+        <ModeSpecificParameters
+          modeId={mode.id}
+          options={modeOptions}
+          setOption={setModeOption}
+          toggleOption={toggleModeOption}
+        />
+
+        <label className={styles.field}>
+          <span className={styles.fieldLabel}>
+            {mode.mediaKind === 'video' ? '视频模型' : '生成模型'}
+          </span>
+          <select
+            className={styles.select}
+            value={model}
+            data-ecommerce-model
+            onChange={(e) => onModelChange(e.target.value)}
+          >
+            <option value="">默认（按渠道解析）</option>
+            {(mode.mediaKind === 'video' ? videoModels : models).map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <section className={styles.block}>
-          <label className={styles.blockTitle} htmlFor="ecommerce-note">
-            补充要求（可选）
-          </label>
+          <div className={styles.blockHead}>
+            <label className={styles.blockTitle} htmlFor="ecommerce-note">
+              商品卖点 &amp; 要求
+            </label>
+            <span className={styles.hint}>选填</span>
+          </div>
           <textarea
             id="ecommerce-note"
             className={styles.textarea}
@@ -1547,92 +1804,12 @@ export function EcommerceStudio({
           />
         </section>
 
-        {/*
-          先出一份方案（对账 #423）。
-
-          为什么非要"出图之前"看见：分镜一直在**确认生成之后**才由模型现编 ——
-          用户花钱之前根本不知道那 N 张会被写成什么。这份方案是**草稿**：
-          看过了就按它出图（不再多花对话额度），改过表单它就当场作废。
-        */}
-        {canPlanShots ? (
-          <section className={styles.block} data-ecommerce-shot-plan-block>
-            <span className={styles.blockTitle}>设计方案</span>
-            <div className={styles.intentRow}>
-              <button
-                type="button"
-                className={styles.linkBtn}
-                data-ecommerce-shot-plan-make
-                disabled={planningShots || running}
-                onClick={() => void makePlan()}
-              >
-                {planningShots ? '正在出方案…' : shotPlan ? '重新生成方案' : '先出一份方案'}
-              </button>
-              <span className={styles.hint}>
-                {shotPlan
-                  ? `重新生成会再花一次对话额度（用 ${chatTargetLabel}）`
-                  : `用 ${chatTargetLabel} 把这几张拍什么写出来，看过再决定要不要出图`}
-              </span>
-            </div>
-            {planError ? (
-              <p className={styles.error} role="alert" data-ecommerce-shot-plan-error>
-                {planError}
-              </p>
-            ) : null}
-            {planStale ? (
-              <p className={styles.hint} data-ecommerce-shot-plan-stale>
-                表单改过了，这份方案作废 —— 出图时会重新问一次。
-              </p>
-            ) : null}
-            {activeShotPlan ? (
-              <div className={styles.intentCard} data-ecommerce-shot-plan-card>
-                <p className={styles.intentLead}>
-                  这 {activeShotPlan.length} 张会这样拍（标题和要点可以直接改）：
-                </p>
-                <ul className={styles.intentList}>
-                  {activeShotPlan.map((shot, i) => (
-                    <li key={i} className={styles.intentItem} data-ecommerce-shot-plan-row>
-                      <span className={styles.intentLabel}>{i + 1}</span>
-                      <span className={styles.shotEdit}>
-                        <input
-                          className={styles.shotTitleInput}
-                          value={shot.title}
-                          maxLength={80}
-                          aria-label={`第 ${i + 1} 张标题`}
-                          data-ecommerce-shot-plan-title
-                          onChange={(e) => editShot(i, { title: e.target.value })}
-                        />
-                        <input
-                          className={styles.shotBriefInput}
-                          value={shot.brief}
-                          maxLength={240}
-                          aria-label={`第 ${i + 1} 张要点`}
-                          data-ecommerce-shot-plan-brief
-                          onChange={(e) => editShot(i, { brief: e.target.value })}
-                        />
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                <div className={styles.intentActions}>
-                  <button
-                    type="button"
-                    className={styles.linkBtn}
-                    data-ecommerce-shot-plan-discard
-                    onClick={() => setShotPlan(null)}
-                  >
-                    丢掉方案
-                  </button>
-                </div>
-              </div>
-            ) : null}
-          </section>
-        ) : null}
-
         {error ? (
           <p className={styles.error} role="alert" data-ecommerce-error>
             {error}
           </p>
         ) : null}
+        </div>
 
         <button
           type="button"
@@ -1644,12 +1821,6 @@ export function EcommerceStudio({
           {running ? '生成中…' : mode.mediaKind === 'video' ? '生成视频' : `生成${mode.label}`}
         </button>
 
-        {/* 这一次的分镜从哪来的（对账 #406）：跑完如实说，回落也如实说是为什么 */}
-        {shotPlanNote ? (
-          <p className={styles.hint} data-ecommerce-shot-plan>
-            {shotPlanNote}
-          </p>
-        ) : null}
       </aside>
 
       {/* 中：产物 */}
@@ -1679,163 +1850,32 @@ export function EcommerceStudio({
             </button>
           ))}
         </nav>
-        <header className={styles.resultsHead}>
-          <span className={styles.blockTitle}>{mode.label}</span>
-          <span className={styles.headTools}>
-            {onEditResults && selectedImageEditCount > 0 ? (
-              <button
-                type="button"
-                className={styles.linkBtn}
-                data-ecommerce-batch-edit
-                disabled={running}
-                onClick={() => {
-                  setBatchEditOpen(true)
-                  setBatchInstruction(note.trim())
-                  setBatchEditModel('')
-                  setBatchReference(null)
-                  setBatchEditError('')
-                }}
-              >
-                批量 AI 编辑（{selectedImageEditCount}）
-              </button>
-            ) : null}
-            {selectedDownloadCount > 0 ? (
-              <button
-                type="button"
-                className={styles.linkBtn}
-                data-ecommerce-download-selected
-                onClick={() => void downloadSelected()}
-              >
-                下载所选（{selectedDownloadCount}）
-              </button>
-            ) : null}
-            {selectedSaveCount > 0 ? (
-              <button
-                type="button"
-                className={styles.linkBtn}
-                data-ecommerce-save-selected
-                disabled={savingSelected}
-                onClick={() => void saveSelectedToLibrary()}
-              >
-                {savingSelected ? '收藏中…' : `收藏所选（${selectedSaveCount}）`}
-              </button>
-            ) : null}
-            {selectedUpscaleCount > 0 ? (
-              <button
-                type="button"
-                className={styles.linkBtn}
-                data-ecommerce-upscale-selected
-                disabled={running}
-                onClick={() => {
-                  const first = availableUpscaleOptions[0]
-                  if (!first) return
-                  const items = visibleResults.filter(
-                    (result) =>
-                      result.status === 'done' &&
-                      selectedEditNodes.has(result.nodeId) &&
-                      !result.mime?.startsWith('video/') &&
-                      !!result.imageHash,
-                  )
-                  if (items.length === 0) return
-                  setUpscaleTarget({ items, batch: true })
-                  setUpscaleProfile(first.id)
-                  setUpscaleScale('4x')
-                  setUpscaleError('')
-                }}
-              >
-                超清所选（{selectedUpscaleCount}）
-              </button>
-            ) : null}
-            {doneResultCount > 0 ? (
-              <button
-                type="button"
-                className={styles.linkBtn}
-                data-ecommerce-select-all
-                disabled={selectedEditNodes.size === doneResultCount}
-                onClick={selectAllDone}
-              >
-                全选已完成
-              </button>
-            ) : null}
-            {selectedEditNodes.size > 0 ? (
-              <button
-                type="button"
-                className={styles.linkBtn}
-                data-ecommerce-clear-selection
-                onClick={() => setSelectedEditNodes(new Set())}
-              >
-                取消选择
-              </button>
-            ) : null}
-            {onDownloadAll && downloadableCount > 0 ? (
-              <button
-                type="button"
-                className={styles.linkBtn}
-                data-ecommerce-download-all
-                onClick={onDownloadAll}
-              >
-                下载全部（{downloadableCount}）
-              </button>
-            ) : null}
-            {onRetryFailed && failedCount > 0 ? (
-              <button
-                type="button"
-                className={styles.linkBtn}
-                data-ecommerce-retry-failed
-                onClick={onRetryFailed}
-              >
-                重试失败项（{failedCount}）
-              </button>
-            ) : null}
-            {onOpenLongImage && mode.mediaKind === 'image' ? (
-              <button
-                type="button"
-                className={styles.linkBtn}
-                data-ecommerce-longimage-open
-                disabled={
-                  !visibleResults.some(
-                    (r) =>
-                      r.status === 'done' &&
-                      r.imageHash &&
-                      !r.mime?.startsWith('video/'),
-                  )
-                }
-                title="把这一批已完成的图按 1920 宽等比拼成一张详情页长图"
-                onClick={onOpenLongImage}
-              >
-                拼成长图
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className={styles.linkBtn}
-              data-ecommerce-open-canvas
-              onClick={onOpenCanvas}
-            >
-              打开项目画布
-            </button>
-          </span>
-        </header>
         {visibleResults.length === 0 ? (
-          <div className={styles.hero} data-ecommerce-empty>
-            <div className={styles.heroIntro}>
-              <h2>AI {mode.label}</h2>
-              <p>
-                {mode.mediaKind === 'video'
-                  ? '上传产品图，生成一段可直接用于电商展示的视频。'
-                  : '上传产品图并设置参数，生成可下载、可继续精修的商品图。'}
-              </p>
-            </div>
-            <div className={styles.heroCanvas}>
-              <div className={styles.heroProduct}>
-                {products[0]?.preview ?? <span>产品图</span>}
-              </div>
-              <span className={styles.heroArrow}>→</span>
-              <div className={styles.heroResults}>
-                <span>{mode.mediaKind === 'video' ? '视频预览' : '主图'}</span>
-                <span>{mode.mediaKind === 'video' ? '商品展示' : '细节图'}</span>
-                <span>{mode.mediaKind === 'video' ? '镜头节奏' : '卖点图'}</span>
-              </div>
+          <div className={styles.caseSection} data-ecommerce-empty>
+            <div className={styles.carousel} data-ecommerce-case-carousel>
+              {carouselCases.map((item, index) => (
+                <article className={styles.caseCard} key={item.id}>
+                  <header className={styles.caseHead}>
+                    <span className={styles.caseTitle}>{item.title}</span>
+                    <span className={styles.caseTag}>{item.tag}</span>
+                  </header>
+                  <div className={styles.caseBody}>
+                    <div className={styles.caseSource}>
+                      {index === 0 && products[0]?.preview ? (
+                        products[0].preview
+                      ) : (
+                        <span>{mode.mediaKind === 'video' ? '视频' : '商品'}</span>
+                      )}
+                    </div>
+                    <span className={styles.caseArrow}>→</span>
+                    <div className={styles.caseResults}>
+                      {item.tiles.map((tile) => (
+                        <span key={tile}>{tile}</span>
+                      ))}
+                    </div>
+                  </div>
+                </article>
+              ))}
             </div>
           </div>
         ) : (
@@ -1849,197 +1889,19 @@ export function EcommerceStudio({
                 data-status={r.status}
               >
                 <div className={styles.cellBody}>
-                  {r.status === 'done' && (onEditResults || r.onDownload) ? (
-                    <label className={styles.selectResult} title="选择这张用于批量操作">
-                      <input
-                        type="checkbox"
-                        data-ecommerce-result-select={r.nodeId}
-                        checked={selectedEditNodes.has(r.nodeId)}
-                        aria-label="选择这张用于批量操作"
-                        onChange={() => toggleEditSelection(r.nodeId)}
-                      />
-                    </label>
-                  ) : null}
                   {r.preview ?? (
                     <span className={styles.cellState}>
                       {r.status === 'failed' ? '失败' : r.status === 'done' ? '已完成' : '生成中…'}
                     </span>
                   )}
                 </div>
-                <figcaption className={styles.cellFoot}>
-                  {r.status === 'failed' ? (
-                    <span className={styles.cellError}>{r.error ?? '失败（没有原因记录）'}</span>
-                  ) : null}
-                  <span className={styles.cellActions}>
-                    {r.onRerun ? (
-                      <button
-                        type="button"
-                        className={styles.linkBtn}
-                        data-ecommerce-rerun
-                        disabled={r.status === 'running' || r.status === 'pending'}
-                        onClick={() => {
-                          /** 失败要说话：重跑抛错时把原因摆到表单上方那条错误行（与生成同一条出口） */
-                          void (async () => {
-                            try {
-                              await r.onRerun?.()
-                            } catch (err) {
-                              setError(err instanceof Error ? err.message : String(err))
-                            }
-                          })()
-                        }}
-                      >
-                        {r.status === 'running' || r.status === 'pending' ? '生成中…' : '重跑这一张'}
-                      </button>
-                    ) : null}
-                    {r.onReplace ? (
-                      <button
-                        type="button"
-                        className={styles.linkBtn}
-                        data-ecommerce-replace
-                        disabled={r.status === 'running' || r.status === 'pending'}
-                        title="产出的新图直接替换这一格（不会多出一个节点）"
-                        onClick={() => {
-                          void (async () => {
-                            try {
-                              await r.onReplace?.()
-                            } catch (err) {
-                              setError(err instanceof Error ? err.message : String(err))
-                            }
-                          })()
-                        }}
-                      >
-                        原地换掉
-                      </button>
-                    ) : null}
-                    {r.status !== 'failed' ? (
-                      <button
-                        type="button"
-                        className={styles.linkBtn}
-                        disabled={!r.onDownload}
-                        data-ecommerce-download
-                        onClick={r.onDownload}
-                      >
-                        下载
-                      </button>
-                    ) : null}
-                    {r.onSaveToLibrary ? (
-                      <button
-                        type="button"
-                        className={styles.linkBtn}
-                        data-ecommerce-save-library
-                        onClick={() => void r.onSaveToLibrary?.()}
-                      >
-                        收藏
-                      </button>
-                    ) : null}
-                    {/*
-                      复制到画布改这一张：结果先复制成独立节点再跳过去，画布**选中并居中**副本。
-                      以前只有结果区顶部那个「在画布里打开」—— 它只到项目级，
-                      图一多就得自己在一堆节点里找（这正是用户在漫剧那边也提过的同一件事）。
-                    */}
-                    {r.onFocusInCanvas ? (
-                      <button
-                        type="button"
-                        className={styles.linkBtn}
-                        data-ecommerce-focus-canvas
-                        onClick={r.onFocusInCanvas}
-                      >
-                        {r.mime?.startsWith('video/') ? '在画布打开' : '复制到画布并编辑'}
-                      </button>
-                    ) : null}
-                    {!r.mime?.startsWith('video/') && r.onCropInCanvas ? (
-                      <button
-                        type="button"
-                        className={styles.linkBtn}
-                        data-ecommerce-crop-canvas
-                        title="先复制成独立画布节点，再打开裁剪"
-                        onClick={r.onCropInCanvas}
-                      >
-                        裁剪这一张
-                      </button>
-                    ) : null}
-                    {!r.mime?.startsWith('video/') && r.onExtractInCanvas ? (
-                      <button
-                        type="button"
-                        className={styles.linkBtn}
-                        data-ecommerce-extract-canvas
-                        title="先复制成独立画布节点并提取选区；修改后用融合节点回贴原图"
-                        onClick={r.onExtractInCanvas}
-                      >
-                        局部重绘
-                      </button>
-                    ) : null}
-                    {!r.mime?.startsWith('video/') && r.onAnnotateInCanvas ? (
-                      <button
-                        type="button"
-                        className={styles.linkBtn}
-                        data-ecommerce-annotate-canvas
-                        title="先复制成独立画布节点，再打开标注"
-                        onClick={r.onAnnotateInCanvas}
-                      >
-                        加文字/标注
-                      </button>
-                    ) : null}
-                    {!r.mime?.startsWith('video/') && r.onRotateInCanvas ? (
-                      <button
-                        type="button"
-                        className={styles.linkBtn}
-                        data-ecommerce-rotate-canvas
-                        title="先复制成独立画布节点，再打开旋转"
-                        onClick={r.onRotateInCanvas}
-                      >
-                        旋转
-                      </button>
-                    ) : null}
-                    {onEditResult && r.status === 'done' && !r.mime?.startsWith('video/') ? (
-                      <button
-                        type="button"
-                        className={styles.linkBtn}
-                        data-ecommerce-edit-result
-                        disabled={running}
-                        title="只改你写明的内容，原图和原任务都会保留"
-                        onClick={() => openEditForResult(r)}
-                      >
-                        AI 编辑这一张
-                      </button>
-                    ) : null}
-                    {onUpscaleResult &&
-                    availableUpscaleOptions.length > 0 &&
-                    r.status === 'done' &&
-                    !r.mime?.startsWith('video/') ? (
-                      <button
-                        type="button"
-                        className={styles.linkBtn}
-                        data-ecommerce-upscale-result
-                        disabled={running}
-                        title="调用真实 Topaz 超分端点；原图与原任务都会保留"
-                        onClick={() => openUpscaleForResult(r)}
-                      >
-                        AI 超清
-                      </button>
-                    ) : null}
-                    {r.sourcePreview && r.preview && !r.mime?.startsWith('video/') ? (
-                      <button
-                        type="button"
-                        className={styles.linkBtn}
-                        data-ecommerce-compare-source
-                        onClick={() => setCompareTarget(r)}
-                      >
-                        对比原图
-                      </button>
-                    ) : null}
-                    {r.prompt || r.model || r.note ? (
-                      <button
-                        type="button"
-                        className={styles.linkBtn}
-                        data-ecommerce-result-detail
-                        onClick={() => setDetailTarget(r)}
-                      >
-                        详情
-                      </button>
-                    ) : null}
-                  </span>
-                </figcaption>
+                {r.status === 'failed' ? (
+                  <figcaption className={styles.cellFoot}>
+                    <span className={styles.cellError}>
+                      {r.error ?? '失败（没有原因记录）'}
+                    </span>
+                  </figcaption>
+                ) : null}
               </figure>
             ))}
           </div>
@@ -2531,31 +2393,11 @@ export function EcommerceStudio({
           <div className={styles.confirmCard}>
             <h2 className={styles.confirmTitle}>确认生成</h2>
             <p className={styles.confirmText}>
-              将生成 <b>{mode.mediaKind === 'video' ? 1 : count}</b>{' '}
+              将生成 <b>{mode.mediaKind === 'video' ? 1 : effectiveCount}</b>{' '}
               {mode.mediaKind === 'video' ? '条' : '张'}
               {mode.mediaKind === 'video' ? mode.label : usageLabel(usage)}，比例 {ratio}
               {platform ? `，面向 ${platform.name}` : ''}。会调用你的渠道，产生真实用量。
             </p>
-            {/*
-              分镜会怎么来（对账 #406）：这件事必须在**点生成之前**说清楚 ——
-              让模型现写分镜是**一次额外的付费调用**，不许悄悄多花。
-              条件与页面里"真去调用"的条件是**同一个纯函数**（`shouldExpandShots`），
-              两处各写一份迟早对不上（说花了没花 / 花了没说）。
-            */}
-            {shouldExpandShots({ usage, count, note }) ? (
-              <p
-                className={styles.hint}
-                data-ecommerce-confirm-shots={
-                  activeShotPlan ? 'confirmed' : chatTargetLabel ? 'model' : 'script'
-                }
-              >
-                {activeShotPlan
-                  ? '这几张的镜头用你刚确认的那份方案 —— 不再多花对话额度。'
-                  : chatTargetLabel
-                    ? `这几张的镜头会先让 ${chatTargetLabel} 按你的要求展开 —— 这一趟会多花一次对话额度（失败就用默认脚本，不会耽误出图）。`
-                    : '没配对话模型：这几张会用默认镜头脚本（每张不同，但不按你写的要求调整）。'}
-              </p>
-            ) : null}
             <div className={styles.confirmActions}>
               <button
                 type="button"
@@ -2571,7 +2413,7 @@ export function EcommerceStudio({
                 data-ecommerce-confirm-ok
                 onClick={() => void confirm()}
               >
-                确认生成 {mode.mediaKind === 'video' ? 1 : count}{' '}
+                确认生成 {mode.mediaKind === 'video' ? 1 : effectiveCount}{' '}
                 {mode.mediaKind === 'video' ? '条视频' : '张'}
               </button>
             </div>
