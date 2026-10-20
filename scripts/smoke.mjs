@@ -28210,6 +28210,22 @@ async function g166(browser) {
   await page.locator('[data-ecommerce-workbench]').waitFor({ state: 'visible', timeout: 15000 })
   await sleep(700)
 
+  const navTargets = await page.evaluate(() =>
+    ['canvas', 'ecommerce', 'storyboard'].map((workbench) => ({
+      workbench,
+      href:
+        document
+          .querySelector(`[data-sidebar-item="/${workbench}"]`)
+          ?.getAttribute('href') ?? '',
+    })),
+  )
+  rec(
+    g,
+    '★★ 一级导航的画布 / 电商 / 漫剧都保留当前项目 id',
+    navTargets.every(({ workbench, href }) => href.endsWith(`/${workbench}/p-wb`)),
+    navTargets.map(({ href }) => href).join(' | '),
+  )
+
   const items = page.locator('[data-ecommerce-workbench-item]')
   rec(g, '三条历史结果自动回填到独立无限工作台', (await items.count()) === 3, `items=${await items.count()}`)
   rec(
@@ -28482,17 +28498,71 @@ async function g166(browser) {
   await page.locator('[data-ecommerce-workbench-toolbar] button[title="添加文字"]').click()
   await sleep(250)
   const textAdded = await page.locator('[data-ecommerce-workbench-item][data-item-kind="text"]').count()
-  await page.locator('[data-ecommerce-workbench-toolbar] button[title="上一步"]').click()
+  await page.keyboard.press('Escape')
+  const shortcutFocus = await page.evaluate(() => {
+    const workbench = document.querySelector('[data-ecommerce-workbench]')?.getBoundingClientRect()
+    if (!workbench) return null
+    for (let y = workbench.bottom - 80; y > workbench.top + 40; y -= 32) {
+      for (let x = workbench.right - 48; x > workbench.left + 40; x -= 32) {
+        const target = document.elementFromPoint(x, y)
+        if (
+          target &&
+          !target.closest(
+            '[data-ecommerce-workbench-item],[data-ecommerce-action-panel],[data-ecommerce-workbench-toolbar],[data-ecommerce-workbench-log],[data-ecommerce-workbench-zoom]',
+          )
+        ) {
+          return { x, y }
+        }
+      }
+    }
+    return null
+  })
+  if (shortcutFocus) await page.mouse.click(shortcutFocus.x, shortcutFocus.y)
+  await page.keyboard.press('Control+z')
   await sleep(250)
   const textAfterUndo = await page.locator('[data-ecommerce-workbench-item][data-item-kind="text"]').count()
-  await page.locator('[data-ecommerce-workbench-toolbar] button[title="下一步"]').click()
+  await page.keyboard.press('Control+Shift+z')
   await sleep(250)
   const textAfterRedo = await page.locator('[data-ecommerce-workbench-item][data-item-kind="text"]').count()
   rec(
     g,
-    '底部工具栏可添加文字，并进入独立撤销 / 重做栈',
+    '★ 底部工具栏可添加文字，Ctrl+Z / Ctrl+Shift+Z 走同一撤销 / 重做栈',
     textAdded === 1 && textAfterUndo === 0 && textAfterRedo === 1,
     `${textAdded} / ${textAfterUndo} / ${textAfterRedo}`,
+  )
+  const fitBox = await page.locator('[data-ecommerce-workbench]').boundingBox()
+  if (fitBox) {
+    await page.mouse.move(fitBox.x + fitBox.width * 0.55, fitBox.y + fitBox.height * 0.45)
+    await page.mouse.wheel(0, -220)
+    await sleep(250)
+  }
+  await page.keyboard.press('z')
+  await sleep(200)
+  const viewportAfterZ = await page.evaluate(() => {
+    const root = document.querySelector('[data-ecommerce-workbench]')
+    return {
+      x: Number(root?.getAttribute('data-viewport-x')),
+      y: Number(root?.getAttribute('data-viewport-y')),
+      scale: Number(root?.getAttribute('data-zoom')),
+    }
+  })
+  await page.locator('[data-ecommerce-workbench-fit]').click()
+  await sleep(200)
+  const viewportAfterFitButton = await page.evaluate(() => {
+    const root = document.querySelector('[data-ecommerce-workbench]')
+    return {
+      x: Number(root?.getAttribute('data-viewport-x')),
+      y: Number(root?.getAttribute('data-viewport-y')),
+      scale: Number(root?.getAttribute('data-zoom')),
+    }
+  })
+  rec(
+    g,
+    '★★ Z 键显示全部素材，结果与「适配全部」按钮一致',
+    Math.abs(viewportAfterZ.x - viewportAfterFitButton.x) <= 0.01 &&
+      Math.abs(viewportAfterZ.y - viewportAfterFitButton.y) <= 0.01 &&
+      Math.abs(viewportAfterZ.scale - viewportAfterFitButton.scale) <= 0.01,
+    `${JSON.stringify(viewportAfterZ)} / ${JSON.stringify(viewportAfterFitButton)}`,
   )
 
   await page
@@ -37523,36 +37593,60 @@ async function g164(browser) {
     .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
   const failureReason =
     '生成失败：服务端返回了无法解析的响应，请检查渠道返回格式；这是一段用于验证长错误不会溢出的说明文字。'
-  if (failedResult) {
+  const markResultFailed = async (result, version) => {
     await sharedPut(page, 'runRecords', {
-      id: `smoke-ecommerce-failed-${Date.now()}`,
+      id: `smoke-ecommerce-failed-${version}-${Date.now()}`,
       projectId,
-      nodeId: failedResult.nodeId,
-      version: 999,
+      nodeId: result.nodeId,
+      version,
       createdAt: Date.now(),
       status: 'failed',
       inputs: [],
-      params: { model: failedResult.model ?? 'mock-image-1' },
+      params: { model: result.model ?? 'mock-image-1' },
       outputHashes: [],
-      fingerprint: 'smoke-failed',
+      fingerprint: `smoke-failed-${version}`,
       taskId: 'smoke-ecommerce-engine-task',
       durationMs: 1200,
       sentChannelId: task?.request?.resolvedChannelId ?? undefined,
       sentModel: 'mock-image-1',
       errorText: failureReason,
     })
-    const stale = { ...failedResult, status: 'running', updatedAt: Date.now() }
+    const stale = { ...result, status: 'running', updatedAt: Date.now() }
     delete stale.errorText
-    await sharedPut(page, 'ecommerceResults', {
-      ...stale,
-    })
+    await sharedPut(page, 'ecommerceResults', stale)
   }
-  await page.reload({ waitUntil: 'networkidle' })
-  await page.waitForFunction(
-    () => document.querySelector('[data-ecommerce-result][data-status="failed"]'),
-    null,
-    { timeout: 15_000 },
-  )
+  if (failedResult) {
+    /**
+     * 先离开电商页再写测试失败记录。
+     * 页面离场会 flush 自己的内存快照；边开着页边从外部写库，reload 前的离场写回
+     * 会把刚塞进去的 failed 覆盖回 done——这正是旧冒烟曾出现的假超时。
+     */
+    await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+    await page.locator('[data-ecommerce-workbench]').waitFor({ state: 'detached' })
+    await markResultFailed(failedResult, 999)
+  }
+  await page.goto(`${BASE}/ecommerce/${projectId}`, { waitUntil: 'networkidle' })
+  await page.locator('[data-ecommerce-workbench]').waitFor({ state: 'visible', timeout: 15000 })
+  const firstFailureLoaded = await page
+    .waitForFunction(
+      () => document.querySelector('[data-ecommerce-result][data-status="failed"]'),
+      null,
+      { timeout: 30_000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  if (!firstFailureLoaded) {
+    const diagnostic = await page.evaluate(() => ({
+      url: location.href,
+      cards: [...document.querySelectorAll('[data-ecommerce-result]')].map((node) => ({
+        id: node.getAttribute('data-ecommerce-result-id'),
+        status: node.getAttribute('data-status'),
+        text: node.textContent?.trim().slice(0, 120),
+      })),
+      body: document.body.textContent?.replace(/\s+/g, ' ').slice(0, 300),
+    }))
+    throw new Error(`首次失败态未出现：${JSON.stringify(diagnostic)}`)
+  }
   await page.waitForFunction(
     () => {
       const reason = document.querySelector('[data-ecommerce-result-error]')?.textContent ?? ''
@@ -37613,6 +37707,77 @@ async function g164(browser) {
   )
   await page.locator('[data-ecommerce-workbench-log-toggle]').click()
   if (failedResult) {
+    const retryButton = page.locator(
+      `[data-ecommerce-retry-failed="${failedResult.nodeId}"]`,
+    )
+    const retryButtonVisible =
+      (await retryButton.count()) === 1 && (await retryButton.isVisible())
+    if (retryButtonVisible) {
+      await retryButton.click()
+      const retryStarted = await page
+        .waitForFunction(
+          (nodeId) =>
+            !!document.querySelector(
+              `[data-ecommerce-result-id="${nodeId}"][data-status="running"]`,
+            ),
+          failedResult.nodeId,
+          { timeout: 5000 },
+        )
+        .then(() => true)
+        .catch(() => false)
+      const retryDone = retryStarted
+        ? await page
+            .waitForFunction(
+              (nodeId) =>
+                !!document.querySelector(
+                  `[data-ecommerce-result-id="${nodeId}"][data-status="done"]`,
+                ),
+              failedResult.nodeId,
+              { timeout: 20000 },
+            )
+            .then(() => true)
+            .catch(() => false)
+        : false
+      rec(
+        g,
+        '★★ 失败结果可原地重新生成：先进入生成中，完成后回到成功结果',
+        retryButtonVisible && retryStarted && retryDone,
+        `visible=${retryButtonVisible} running=${retryStarted} done=${retryDone}`,
+      )
+    } else {
+      rec(g, '★★ 失败结果可原地重新生成：先进入生成中，完成后回到成功结果', false, '未找到重新生成按钮')
+    }
+    const retrySucceededRow = (await sharedRows(page, 'ecommerceResults')).find(
+      (row) => row.id === failedResult.id,
+    )
+    await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' })
+    await page.locator('[data-ecommerce-workbench]').waitFor({ state: 'detached' })
+    if (retrySucceededRow) await markResultFailed(retrySucceededRow, 1000)
+    await page.goto(`${BASE}/ecommerce/${projectId}`, { waitUntil: 'networkidle' })
+    await page.locator('[data-ecommerce-workbench]').waitFor({ state: 'visible', timeout: 15000 })
+    const secondFailureLoaded = await page
+      .waitForFunction(
+        (nodeId) =>
+          !!document.querySelector(
+            `[data-ecommerce-result-id="${nodeId}"][data-status="failed"]`,
+          ),
+        failedResult.nodeId,
+        { timeout: 30_000 },
+      )
+      .then(() => true)
+      .catch(() => false)
+    if (!secondFailureLoaded) {
+      const diagnostic = await page.evaluate((nodeId) => ({
+        url: location.href,
+        nodeId,
+        cards: [...document.querySelectorAll('[data-ecommerce-result]')].map((node) => ({
+          id: node.getAttribute('data-ecommerce-result-id'),
+          status: node.getAttribute('data-status'),
+          text: node.textContent?.trim().slice(0, 120),
+        })),
+      }), failedResult.nodeId)
+      throw new Error(`重试后再次失败态未出现：${JSON.stringify(diagnostic)}`)
+    }
     await page.locator(`[data-ecommerce-remove-failed="${failedResult.nodeId}"]`).click()
     await page.waitForFunction(
       (resultId) =>

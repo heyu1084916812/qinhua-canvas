@@ -446,6 +446,24 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
     expect(body.n).toBe(4)
   })
 
+  it('★★ 面板传大写 4K 时，GPT Image 2.5 Sunburst 实际下发 2880x2880', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const assets = await adapter(calls).generateImage(
+      {
+        ...request([], 1),
+        model: 'gpt-image-2.5-sunburst',
+        params: { count: 1, ratio: '1:1', resolution: '4K', quality: 'high' },
+      },
+      signal,
+    )
+    expect(calls[0]!.body).toMatchObject({
+      size: '2880x2880',
+      quality: 'high',
+    })
+    expect(assets[0]!.requestedWidth).toBe(2880)
+    expect(assets[0]!.requestedHeight).toBe(2880)
+  })
+
   /**
    * **自定义像素优先生效**（用户 2026-10-15：「自定义要加上」）。
    *
@@ -991,6 +1009,9 @@ describe('openaiImages adapter / 生图参数（size 像素化、quality 透传�
     expect(openAiImageSize('16:9', '4k')).toBe('3840x2160')
     expect(openAiImageSize('9:16', '4k')).toBe('2160x3840')
     expect(openAiImageSize('1:1', '4k')).toBe('2880x2880')
+    /* 电商 / 画布面板传的是大写，不能因此掉回 1K */
+    expect(openAiImageSize('1:1', '4K')).toBe('2880x2880')
+    expect(openAiImageSize('16:9', '4K')).toBe('3840x2160')
   })
 
   it('2K 档：1:1 → 2048x2048，16:9 → 2736x1536', () => {

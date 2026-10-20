@@ -1418,7 +1418,8 @@
   word-break: break-word;
 }
 
-.cellRemove {
+.cellRemove,
+.cellRetry {
   flex: 0 0 auto;
   padding: 4px 8px;
   border: 0;
@@ -1431,9 +1432,15 @@
 }
 
 .cellRemove:hover,
-.cellRemove:focus-visible {
+.cellRemove:focus-visible,
+.cellRetry:hover,
+.cellRetry:focus-visible {
   color: var(--text-1);
   background: var(--bg-hover);
+}
+
+.cellRetry {
+  color: var(--text-1);
 }
 
 /* 单张操作（重跑 / 下载）：与错误文字同一行，跑着的那张按钮置灰 */

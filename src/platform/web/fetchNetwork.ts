@@ -1,6 +1,7 @@
 import type { NetworkPort, NetworkRequest, NetworkResponse, StreamChunk } from '../ports'
 import type { AppError } from '../../shared/result'
 import { parseSSELine, createLineSplitter } from '../sse'
+import { base64ToBytes } from '../../domain/shared/base64'
 
 /**
  * 请求体是否「原样上传」的形态（M6-12）。
@@ -63,13 +64,10 @@ function toAppError(e: unknown, signal: AbortSignal): AppError {
   return { kind: 'network', detail: 'dns' }
 }
 
-function toResponse(res: Response, text: string): NetworkResponse {
-  const headers: Record<string, string> = {}
-  res.headers.forEach((value, key) => {
-    headers[key] = value
-  })
+function toResponse(status: number, headers: Record<string, string>, buffer: ArrayBuffer): NetworkResponse {
+  const text = new TextDecoder().decode(buffer)
   return {
-    status: res.status,
+    status,
     headers,
     async text() {
       return text
@@ -82,7 +80,7 @@ function toResponse(res: Response, text: string): NetworkResponse {
       }
     },
     async arrayBuffer() {
-      return new TextEncoder().encode(text).buffer as ArrayBuffer
+      return buffer.slice(0)
     },
   }
 }
@@ -113,7 +111,12 @@ export function createFetchNetwork(remote?: {
     headers?: Record<string, string>
     body?: string
     timeoutMs?: number
-  }): Promise<{ status: number; headers: Record<string, string>; text: string }>
+  }): Promise<{
+    status: number
+    headers: Record<string, string>
+    text: string
+    bodyBase64?: string
+  }>
 }): NetworkPort {
   const shellRequest = remote?.request
   /** 走壳的原生 HTTP 打一次（不带 signal：Rust 侧自带超时） */
@@ -129,23 +132,14 @@ export function createFetchNetwork(remote?: {
     if (res.status < 200 || res.status >= 300) {
       throw { kind: 'http', status: res.status, body: res.text.slice(0, 500) } satisfies AppError
     }
-    return {
-      status: res.status,
-      headers: res.headers ?? {},
-      async text() {
-        return res.text
-      },
-      async json<T = unknown>() {
-        try {
-          return JSON.parse(res.text) as T
-        } catch {
-          throw { kind: 'parse', raw: res.text.slice(0, 2000) } satisfies AppError
-        }
-      },
-      async arrayBuffer() {
-        return new TextEncoder().encode(res.text).buffer as ArrayBuffer
-      },
-    }
+    /**
+     * 旧壳只回 text；新壳同时回 bodyBase64。后者是二进制唯一可靠来源，
+     * 前者留给尚未同步升级的壳做兼容，但绝不能再声称它能还原图片字节。
+     */
+    const buffer = res.bodyBase64
+      ? base64ToBytes(res.bodyBase64).buffer
+      : new TextEncoder().encode(res.text).buffer
+    return toResponse(res.status, res.headers ?? {}, buffer as ArrayBuffer)
   }
 
   return {
@@ -163,11 +157,21 @@ export function createFetchNetwork(remote?: {
           body,
           signal: controller.signal,
         })
-        const text = await res.text()
+        /**
+         * 必须一次读成 ArrayBuffer，再按需解码为文本。
+         * 先 `text()` 再 `TextEncoder` 会把图片等二进制里所有非法 UTF-8 字节
+         * 换成 U+FFFD；PNG 的 0x89 首字节会变成 `ef bf bd`，文件永久损坏。
+         */
+        const buffer = await res.arrayBuffer()
+        const text = new TextDecoder().decode(buffer)
         if (!res.ok) {
           throw { kind: 'http', status: res.status, body: text.slice(0, 500) } satisfies AppError
         }
-        return toResponse(res, text)
+        const responseHeaders: Record<string, string> = {}
+        res.headers.forEach((value, key) => {
+          responseHeaders[key] = value
+        })
+        return toResponse(res.status, responseHeaders, buffer)
       } catch (e) {
         /** 浏览器这一层过不去（多为 CORS）且壳有原生 HTTP ⇒ 换一条路再试一次 */
         if (shellRequest && !signal.aborted && isCorsLikeNetworkError(toAppError(e, signal))) {

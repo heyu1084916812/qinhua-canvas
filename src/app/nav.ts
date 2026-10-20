@@ -8,6 +8,7 @@ import {
   IconSkills,
   IconStoryboard,
 } from './AppSidebarIcons'
+import { projectRoute, type WorkbenchId } from '../domain/shared/workbench'
 
 export interface NavItem {
   to: string
@@ -35,6 +36,18 @@ export const NAV: NavItem[] = [
   { to: '/inspiration', label: '灵感库', icon: IconInspiration },
   { to: '/assets', label: '我的素材', icon: IconAssets },
 ]
+
+const WORKBENCH_NAV = new Map<string, WorkbenchId>([
+  ['/canvas', 'canvas'],
+  ['/ecommerce', 'ecommerce'],
+  ['/storyboard', 'storyboard'],
+])
+
+/** 一级工作台入口：有当前项目时保留项目 id，没有才去无项目引导页。 */
+export function navTargetFor(to: string, projectId: string | null): string {
+  const workbench = WORKBENCH_NAV.get(to)
+  return workbench && projectId ? projectRoute(workbench, projectId) : to
+}
 
 /**
  * **不再出现在侧栏、但顶栏标题仍要认**的路径（用户 2026-10-06，对账 #259）。

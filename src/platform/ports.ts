@@ -526,6 +526,12 @@ export interface RemoteTextResponse {
   status: number
   headers: Record<string, string>
   text: string
+  /**
+   * 原始响应字节的 base64。文本调用方继续用 `text`；
+   * 图片 / 视频等二进制必须走这份，不能把 `text` 再编码回字节。
+   * 桌面壳仅对二进制响应保留该字段，单次上限 64MB；文本响应上限仍为 8MB。
+   */
+  bodyBase64?: string
 }
 
 /**

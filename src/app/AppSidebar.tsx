@@ -16,7 +16,7 @@ import { UpdateButton } from './UpdateNotice'
 import { CatLogo } from './CatLogo'
 import { QinghuaWordmark } from './QinghuaWordmark'
 import { isTauri } from '@tauri-apps/api/core'
-import { NAV, type NavItem } from './nav'
+import { navTargetFor, NAV, type NavItem } from './nav'
 import {
   IconNewProject,
   IconSettings,
@@ -190,10 +190,7 @@ export function AppSidebar() {
     getActiveCanvasRevision,
     getActiveCanvasRevision,
   )
-  const selectedProjectId =
-    activeProject?.workbench === 'canvas'
-      ? activeProject.id
-      : activeCanvasId() ?? activeProject?.id ?? null
+  const selectedProjectId = activeProject?.id ?? activeCanvasId() ?? null
 
   /**
    * 一级导航的**滑动高亮块**（用户 2026-10-14：「当前项切换时的高亮块从旧位置
@@ -383,7 +380,7 @@ export function AppSidebar() {
           return (
             <Link
               key={item.to}
-              to={item.to}
+              to={navTargetFor(item.to, selectedProjectId)}
               /*
                * ⚠️ 手写高亮而不用 `NavLink`：需要一条额外的规则 ——
                * `/canvas` 与 `/canvas/:id` 一起亮（前者是「无项目时打开空白画布」

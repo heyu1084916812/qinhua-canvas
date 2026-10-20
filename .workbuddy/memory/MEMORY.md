@@ -1,5 +1,15 @@
 # CanvasFlow（轻画）项目记忆
 
+### 4K 大小写、二进制响应与电商首屏/并发收口（2026-10-21 → 对账 #686）
+
+- **`4K` 和 `4k` 不能当成两个值**：真实 RunRecord 已证明面板大写 `4K` 会掉进 `1K` 默认预算，任务表面仍写着 4K。协议映射入口先 `trim().toLowerCase()`；GPT Image 2.5 Sunburst 1:1 的 4K 必须断言实际 `size=2880x2880`，不能只断言表单保存了字符串。
+- **响应是字节，不是文本**：旧 `fetchNetwork` 先 `res.text()` 再 `TextEncoder` 会把 PNG 的 `0x89` 变成 `efbfbd`，文件彻底损坏。一次读 `ArrayBuffer`，文本按需 `TextDecoder`；桌面跨域回落走 Rust `fetch_text` 的 `bodyBase64`，不要从 `text` 反推二进制。旧损坏素材不可修复，只能重新生成。
+- **先对账，再读首屏**：`latestWithResults()` 之前必须 `reconcileFromRunRecords()`；否则结果行已 running、RunRecord 已 failed/succeeded 时，首屏一直转。并发生成整批收尾也必须在 `refreshTask()` 内先对账，再读 rows，否则数据库已完成而 React 仍显示 running。
+- **失败重试先写 running**：直接 `rerun(false)` 会让旧 failed RunRecord 压住新状态。`retryWorkbenchResult()` 先更新结果行、刷新 UI，再 `runNode(..., { inPlace: true })`。电商工作台当前渲染 `workbench` 时右侧结果列表不渲染，失败重试按钮在画布失败占位卡上。
+- **快捷键只在非编辑态生效**：`Ctrl+Z / Ctrl+Shift+Z`、`Z / 0` 在 input / textarea / contenteditable 内让浏览器保留原生行为；冒烟要先 Escape 并点画布空白再按快捷键。
+- **外部写库前先离开页面**：SPA 离场会 flush 内存快照。冒烟若在电商页仍挂着时直接写 failed 数据，再 reload，离场写回可能覆盖测试数据；先导航到项目页并等 workbench detached，再写库、再回电商页。
+- 验证：全量单测 **2908 passed / 1 skipped**；check / build 通过；Rust **33/33**；G164 明暗各 **50/50**；G166 明暗各 **25/25**。
+
 ### SoonStudio 协议、Gemini 原生格式与账号分组边界（2026-10-21 → 对账 #685）
 
 - **`gemini-4-argon` 不是错误映射**：SoonStudio 渠道里 `Gemini 3.8 Flash` → `gemini-4-argon` 是用户明确配置；前端显示名与上游 ID 分离本来就是设计。排查时先读渠道 `modelMap`，不要把“显示名不同”误判成选路 bug。

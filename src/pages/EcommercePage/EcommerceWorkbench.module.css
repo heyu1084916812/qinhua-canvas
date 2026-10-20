@@ -338,6 +338,13 @@
   cursor: pointer;
 }
 
+.resultFailureActions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(6px * var(--wb-inv-scale, 1));
+}
+
 @keyframes workbenchSpin {
   to { transform: rotate(360deg); }
 }

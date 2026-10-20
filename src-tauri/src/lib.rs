@@ -703,13 +703,28 @@ async fn fetch_bytes(url: String, timeout_ms: Option<u64>) -> Result<FetchedByte
  * 边界：
  * 1. 只认 http / https；
  * 2. **不跟随重定向以外的魔法**：状态码与响应头原样回给前端，"算不算通过"由渠道层判断；
- * 3. 正文上限 8MB —— 模型列表 / 一次对话回包远小于此，超过即拒（不当下载器用）。
+ * 3. 文本正文上限 8MB；图片 / 视频等二进制上限 64MB。
+ *    前者覆盖模型列表与对话回包，后者只服务生成产物回落，不做通用下载器。
  */
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct FetchedText {
     status: u16,
     headers: std::collections::HashMap<String, String>,
     text: String,
+    body_base64: String,
+}
+
+fn is_textual_content_type(value: Option<&str>) -> bool {
+    let Some(value) = value else {
+        return false;
+    };
+    let lower = value.to_ascii_lowercase();
+    lower.starts_with("text/")
+        || lower.contains("json")
+        || lower.contains("xml")
+        || lower.contains("javascript")
+        || lower.contains("x-www-form-urlencoded")
 }
 
 #[tauri::command]
@@ -758,15 +773,41 @@ async fn fetch_text(
             out_headers.insert(name.as_str().to_string(), v.to_string());
         }
     }
+    let content_type = out_headers
+        .get("content-type")
+        .cloned()
+        .or_else(|| out_headers.get("Content-Type").cloned());
+    let textual = is_textual_content_type(content_type.as_deref());
     let bytes = response.bytes().await.map_err(|err| err.to_string())?;
-    if bytes.len() > 8 * 1024 * 1024 {
-        return Err("响应太大（超过 8MB）".into());
+    let limit = if textual {
+        8 * 1024 * 1024
+    } else {
+        64 * 1024 * 1024
+    };
+    if bytes.len() > limit {
+        return Err(if textual {
+            "响应太大（文本超过 8MB）".into()
+        } else {
+            "响应太大（二进制超过 64MB）".into()
+        });
     }
     Ok(FetchedText {
         status,
         headers: out_headers,
-        // 渠道层要的是 JSON 文本；非 UTF-8 用替换字符兜住，不让整条请求因为编码崩掉
-        text: String::from_utf8_lossy(&bytes).to_string(),
+        // 文本响应完整解码；二进制只留前 64KB 供 HTTP 错误文案使用，
+        // 不把几十 MB 的图片再复制成一份无意义字符串。
+        text: if textual {
+            String::from_utf8_lossy(&bytes).to_string()
+        } else {
+            String::from_utf8_lossy(&bytes[..bytes.len().min(64 * 1024)]).to_string()
+        },
+        // 文本响应不额外复制一份 base64；图片 / 视频等二进制必须走原始字节。
+        // 0x89 在 text 里会变成 U+FFFD，永远不能从 text 反推文件内容。
+        body_base64: if textual {
+            String::new()
+        } else {
+            base64_encode(&bytes)
+        },
     })
 }
 
@@ -795,6 +836,17 @@ mod fetch_text_tests {
             "PATCH",
             "GET" | "POST" | "PUT" | "DELETE" | "HEAD"
         ));
+    }
+
+    #[test]
+    fn content_type_splits_text_from_binary() {
+        assert!(super::is_textual_content_type(Some(
+            "application/json; charset=utf-8"
+        )));
+        assert!(super::is_textual_content_type(Some("text/event-stream")));
+        assert!(!super::is_textual_content_type(Some("image/png")));
+        assert!(!super::is_textual_content_type(Some("video/mp4")));
+        assert!(!super::is_textual_content_type(None));
     }
 }
 

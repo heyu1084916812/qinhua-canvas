@@ -64,6 +64,7 @@ interface Interaction {
 export type EcommerceWorkbenchAction =
   | 'download'
   | 'save'
+  | 'retry'
 
 interface EcommerceWorkbenchProps {
   projectId: string
@@ -136,7 +137,7 @@ function itemScreenRect(item: EcommerceCanvasItem, viewport: Viewport): {
   }
 }
 
-function ToolIcon({ name }: { name: WorkbenchTool | 'upload' | 'text' | 'undo' | 'redo' | 'log' | 'close' | 'download' | 'rotate' | 'save' }) {
+function ToolIcon({ name }: { name: WorkbenchTool | 'upload' | 'text' | 'undo' | 'redo' | 'log' | 'close' | 'download' | 'rotate' | 'save' | 'retry' }) {
   const common = {
     width: 17,
     height: 17,
@@ -173,6 +174,9 @@ function ToolIcon({ name }: { name: WorkbenchTool | 'upload' | 'text' | 'undo' |
     return <svg {...common}><path d="M12 4v11" /><path d="m7.5 10.5 4.5 4.5 4.5-4.5" /><path d="M5 19h14" /></svg>
   }
   if (name === 'rotate') {
+    return <svg {...common}><path d="M20 11a8 8 0 1 0-2.4 5.7" /><path d="M20 5v6h-6" /></svg>
+  }
+  if (name === 'retry') {
     return <svg {...common}><path d="M20 11a8 8 0 1 0-2.4 5.7" /><path d="M20 5v6h-6" /></svg>
   }
   return <svg {...common}><path d="M5 4h14v16l-7-3-7 3z" /></svg>
@@ -216,11 +220,13 @@ function WorkbenchResultPlaceholder({
   result,
   status,
   errorText,
+  onRetry,
   onRemove,
 }: {
   result: EcommerceResultRecord
   status: EcommerceDisplayResultStatus
   errorText: string
+  onRetry?: () => void
   onRemove?: () => void
 }) {
   const [seconds, setSeconds] = useState(0)
@@ -241,19 +247,34 @@ function WorkbenchResultPlaceholder({
       >
         <strong>生成失败</strong>
         <small data-ecommerce-result-error>{errorText}</small>
-        {onRemove ? (
-          <button
-            type="button"
-            data-ecommerce-remove-failed={result.nodeId}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation()
-              onRemove()
-            }}
-          >
-            移除记录
-          </button>
-        ) : null}
+        <div className={styles.resultFailureActions}>
+          {onRetry ? (
+            <button
+              type="button"
+              data-ecommerce-retry-failed={result.nodeId}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                onRetry()
+              }}
+            >
+              重新生成
+            </button>
+          ) : null}
+          {onRemove ? (
+            <button
+              type="button"
+              data-ecommerce-remove-failed={result.nodeId}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                onRemove()
+              }}
+            >
+              移除记录
+            </button>
+          ) : null}
+        </div>
       </div>
     )
   }
@@ -417,6 +438,7 @@ export function EcommerceWorkbench({
   const displayStatusOf = useCallback(
     (result: EcommerceResultRecord): EcommerceDisplayResultStatus => {
       const run = latestRunByNode.get(result.nodeId)
+      if (result.status === 'running' && (!run || result.updatedAt >= run.createdAt)) return 'running'
       if (run?.status === 'failed' || run?.status === 'canceled') return 'failed'
       if (run?.status === 'succeeded') return result.assetHash ? 'done' : 'failed'
       const task = taskById.get(result.taskId)
@@ -489,13 +511,24 @@ export function EcommerceWorkbench({
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
       if (target?.closest('input, textarea, [contenteditable="true"]')) return
+      const key = event.key.toLowerCase()
+      const command = event.ctrlKey || event.metaKey
       if (event.code === 'Space') {
         event.preventDefault()
         setSpaceHeld(true)
       }
-      if (event.key.toLowerCase() === 'v') setTool('select')
-      if (event.key.toLowerCase() === 'h') setTool('hand')
-      if (event.key === '0') fitAll()
+      if (command && key === 'z') {
+        event.preventDefault()
+        if (event.shiftKey) redo()
+        else undo()
+        return
+      }
+      if (key === 'v') setTool('select')
+      if (key === 'h') setTool('hand')
+      if (key === '0' || (!command && key === 'z')) {
+        event.preventDefault()
+        fitAll()
+      }
       if (event.key === 'Escape') {
         setSelectedIds(new Set())
         setEditingTextId(null)
@@ -944,12 +977,18 @@ export function EcommerceWorkbench({
   }, [selected?.id, selectedResult?.id, localItems.length])
 
   const selectedAssetHash = selected?.assetHash ?? selectedResult?.assetHash
-  const selectedActions = selectedAssetHash
-    ? ([
-        ['download', '下载'],
-        ['save', '收藏到素材库'],
-      ] as const)
-    : []
+  const selectedResultStatus = selectedResult ? displayStatusOf(selectedResult) : null
+  const selectedActions = [
+    ...(selectedResultStatus === 'failed'
+      ? ([['retry', '重新生成']] as const)
+      : []),
+    ...(selectedAssetHash
+      ? ([
+          ['download', '下载'],
+          ['save', '收藏到素材库'],
+        ] as const)
+      : []),
+  ]
 
   const minimap = useMemo(() => {
     if (size.width <= 0 || size.height <= 0) return null
@@ -1101,6 +1140,11 @@ export function EcommerceWorkbench({
                   result={activeResult}
                   status={status}
                   errorText={errorText}
+                  onRetry={
+                    status === 'failed' && result
+                      ? () => onAction?.(item, 'retry')
+                      : undefined
+                  }
                   onRemove={
                     status === 'failed' && result
                       ? () => onRemoveFailed?.(result.id)
@@ -1306,10 +1350,10 @@ export function EcommerceWorkbench({
           <ToolIcon name="text" />
         </button>
         <span className={styles.toolDivider} />
-        <button type="button" title="上一步" disabled={undoRef.current.length === 0} onClick={undo} data-history-version={historyVersion}>
+        <button type="button" title="上一步 (Ctrl+Z)" disabled={undoRef.current.length === 0} onClick={undo} data-history-version={historyVersion}>
           <ToolIcon name="undo" />
         </button>
-        <button type="button" title="下一步" disabled={redoRef.current.length === 0} onClick={redo} data-history-version={historyVersion}>
+        <button type="button" title="下一步 (Ctrl+Shift+Z)" disabled={redoRef.current.length === 0} onClick={redo} data-history-version={historyVersion}>
           <ToolIcon name="redo" />
         </button>
       </div>
@@ -1319,7 +1363,14 @@ export function EcommerceWorkbench({
         {selectedIds.size > 1 ? (
           <span data-ecommerce-selection-count>已选 {selectedIds.size} 项</span>
         ) : null}
-        <button type="button" onClick={fitAll}>适配全部</button>
+        <button
+          type="button"
+          title="显示全部素材 (Z / 0)"
+          data-ecommerce-workbench-fit
+          onClick={fitAll}
+        >
+          适配全部
+        </button>
       </div>
 
       <button

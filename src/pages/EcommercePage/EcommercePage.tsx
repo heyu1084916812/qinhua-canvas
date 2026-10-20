@@ -512,6 +512,13 @@ function StudioHost({ projectId }: { projectId: string }) {
   useEffect(() => {
     let cancelled = false
     void (async () => {
+      /**
+       * 必须先对账，再读首屏结果。
+       * 反过来的话：结果行仍是 running，而对应 RunRecord 已经 failed / succeeded，
+       * 首屏会一直显示“生成中”；后一次的 refreshWorkbench 只修正 workbenchResults，
+       * 不会回写当前批次的 resultRows，直到用户再刷新一次才看到终态。
+       */
+      await taskRepo.reconcileFromRunRecords(projectId)
       const [latestRow, initialList] = await Promise.all([
         taskRepo.latestWithResults(projectId),
         taskRepo.list(projectId),
@@ -608,6 +615,12 @@ function StudioHost({ projectId }: { projectId: string }) {
   /** 用最新的逐格状态收口整批任务（running / partial / done / failed / canceled）。 */
   const refreshTask = useCallback(
     async (task: EcommerceTaskRecord) => {
+      /**
+       * 并发生成时，单张 `syncResultRow` 可能比 RunRecord 的最终可见稍早，
+       * 先把结果行按各自最新 RunRecord 收口，再计算整批状态。
+       * 否则数据库会先变成 done，但 `resultRows` 仍停在 running，界面一直转。
+       */
+      await taskRepo.reconcileFromRunRecords(projectId)
       const rows = await taskRepo.results(task.id)
       const status = taskStatusOf(rows)
       const failed = rows.find((r) => r.status === 'failed' && r.errorText)
@@ -622,7 +635,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       setActiveTask(next)
       setResultRows(rows)
     },
-    [taskRepo],
+    [projectId, taskRepo],
   )
   /** 刷新历史批次列表（#399 第二期 / #479 的任务列表 UI）。 */
   const refreshTaskHistory = useCallback(async () => {
@@ -712,6 +725,41 @@ function StudioHost({ projectId }: { projectId: string }) {
     [canvasRepo, platform, projectId, store, taskRepo],
   )
 
+  const retryWorkbenchResult = useCallback(
+    async (resultId: string) => {
+      const row =
+        workbenchResults.find((result) => result.id === resultId) ??
+        resultRows.find((result) => result.id === resultId)
+      if (!row) return
+      const { errorText: _oldError, ...rest } = row
+      const running: EcommerceResultRecord = {
+        ...rest,
+        status: 'running',
+        updatedAt: Date.now(),
+      }
+      await taskRepo.updateResult(running)
+      setResultRows((rows) =>
+        rows.map((result) => (result.id === running.id ? running : result)),
+      )
+      await exec.runNode(row.nodeId, { inPlace: true })
+      await syncResultRow(row.taskId, row.nodeId)
+      if (activeTask?.id === row.taskId) await refreshTask(activeTask)
+      await refreshTaskHistory()
+      await queueWorkbenchRefresh()
+    },
+    [
+      activeTask,
+      exec,
+      queueWorkbenchRefresh,
+      refreshTask,
+      refreshTaskHistory,
+      resultRows,
+      syncResultRow,
+      taskRepo,
+      workbenchResults,
+    ],
+  )
+
   const handleWorkbenchAction = useCallback(
     (item: EcommerceCanvasItem, action: EcommerceWorkbenchAction) => {
       const row =
@@ -719,6 +767,10 @@ function StudioHost({ projectId }: { projectId: string }) {
           ? workbenchResults.find((result) => result.id === item.resultId) ??
             resultRows.find((result) => result.id === item.resultId)
           : null) ?? null
+      if (action === 'retry') {
+        if (row) void retryWorkbenchResult(row.id)
+        return
+      }
       const hash = item.assetHash ?? row?.assetHash
       if (!hash) return
       if (action === 'download') {
@@ -753,6 +805,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       platform,
       projectId,
       resultRows,
+      retryWorkbenchResult,
       store,
       workbenchResults,
     ],
@@ -1658,7 +1711,17 @@ function StudioHost({ projectId }: { projectId: string }) {
             ...(row.model ? { model: row.model } : {}),
             ...(activeTask.request.ratio ? { ratio: activeTask.request.ratio } : {}),
           }),
-          onRerun: rerunnable ? () => rerun(false) : undefined,
+          /**
+           * 失败 / 取消后的“重新生成”必须先把结果行切回 running。
+           * 直接 `rerun(false)` 会让旧 failed RunRecord 继续压住新状态，
+           * 用户点击后看到的仍是失败卡，无法判断请求是否真的发出。
+           */
+          onRerun:
+            row.status === 'failed' || row.status === 'canceled'
+              ? () => retryWorkbenchResult(row.id)
+              : rerunnable
+                ? () => rerun(false)
+                : undefined,
           onReplace: rerunnable ? () => rerun(true) : undefined,
           onRemoveFailed:
             row.status === 'failed'
@@ -1758,29 +1821,17 @@ function StudioHost({ projectId }: { projectId: string }) {
     const ids = activeTask
       ? resultRows
           .filter((r) => r.status === 'failed' || r.status === 'canceled')
-          .map((r) => r.nodeId)
-      : results.filter((r) => r.status === 'failed').map((r) => r.nodeId)
+          .map((r) => r.id)
+      : results
+          .filter((r) => r.status === 'failed')
+          .flatMap((r) => (r.resultId ? [r.resultId] : []))
     if (ids.length === 0) return
-    for (const nodeId of ids) {
-      /**
-       * 重试失败项 = 把这一格救回来，不是再抽一张。
-       * 必须显式原地运行；否则失败节点一旦已有旧产物，会另铺承载节点，
-       * 而结果行仍盯着原节点，界面看起来“重试成功但结果没变”。
-       */
-      await exec.runNode(nodeId, { inPlace: true })
-      if (activeTask) await syncResultRow(activeTask.id, nodeId)
-    }
-    if (activeTask) await refreshTask(activeTask)
-    await refreshTaskHistory()
-    await refreshWorkbench()
+    for (const resultId of ids) await retryWorkbenchResult(resultId)
   }, [
     activeTask,
-    exec,
-    refreshTask,
-    refreshTaskHistory,
+    retryWorkbenchResult,
     resultRows,
     results,
-    syncResultRow,
   ])
 
   /**
@@ -1845,7 +1896,7 @@ function StudioHost({ projectId }: { projectId: string }) {
           runs={workbenchRuns}
           activeResults={resultRows}
           running={exec.isRunning || preparingShots}
-          availableActions={['download', 'save']}
+          availableActions={['download', 'save', 'retry']}
           onItemsChange={handleCanvasItemsChange}
           onCanvasUpload={onWorkbenchUpload}
           onAction={handleWorkbenchAction}

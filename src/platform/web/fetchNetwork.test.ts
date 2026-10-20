@@ -56,6 +56,49 @@ describe('requestInit · 头部合并', () => {
 describe('createFetchNetwork · 跨域回落（对账 #518）', () => {
   const abort = () => new AbortController().signal
 
+  it('★★ 二进制响应保持原始字节：PNG 0x89 不能被 UTF-8 替换', async () => {
+    const network = createFetchNetwork()
+    const original = globalThis.fetch
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff])
+    globalThis.fetch = (async () =>
+      new Response(png, {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      })) as unknown as typeof fetch
+    try {
+      const response = await network.request({ url: 'https://x/a.png' }, abort())
+      expect(new Uint8Array(await response.arrayBuffer())).toEqual(png)
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
+  it('★★ 跨域回落收到 bodyBase64 时仍还原原始 PNG 字节', async () => {
+    const network = createFetchNetwork({
+      request: async () => {
+        const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff])
+        return {
+          status: 200,
+          headers: { 'content-type': 'image/png' },
+          text: '\ufffdPNG\r\n\u001a\n\ufffd',
+          bodyBase64: btoa(String.fromCharCode(...png)),
+        }
+      },
+    })
+    const original = globalThis.fetch
+    globalThis.fetch = (() => {
+      throw new TypeError('Failed to fetch')
+    }) as typeof fetch
+    try {
+      const response = await network.request({ url: 'https://x/a.png' }, abort())
+      expect(new Uint8Array(await response.arrayBuffer())).toEqual(
+        new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff]),
+      )
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
   it('★★ 页面请求被跨域拦下时，改用壳的原生 HTTP 再打一次并成功', async () => {
     const seen: { url: string; method?: string; headers?: Record<string, string>; body?: string }[] = []
     const network = createFetchNetwork({

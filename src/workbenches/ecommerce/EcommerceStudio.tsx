@@ -2380,6 +2380,17 @@ export function EcommerceStudio({
                     <span className={styles.cellError}>
                       {r.error ?? '失败（没有原因记录）'}
                     </span>
+                    {r.onRerun ? (
+                      <button
+                        type="button"
+                        className={styles.cellRetry}
+                        data-ecommerce-retry-result={r.nodeId}
+                        disabled={running}
+                        onClick={() => void r.onRerun?.()}
+                      >
+                        重新生成
+                      </button>
+                    ) : null}
                     {r.onRemoveFailed ? (
                       <button
                         type="button"

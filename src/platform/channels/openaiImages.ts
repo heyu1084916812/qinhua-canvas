@@ -89,7 +89,12 @@ export function openAiImageSize(ratio: unknown, resolution?: unknown): string | 
   const aspect = rawW / rawH
   // 比例字面量本身超 3:1（如 22:7）不发——文档明确拒绝
   if (Math.max(aspect, 1 / aspect) > 3) return null
-  const tier = resolution === '2k' ? '2k' : resolution === '4k' ? '4k' : '1k'
+  /**
+   * 面板发的是 `1K / 2K / 4K`，协议层历史上只认小写。
+   * 不做大小写归一会把“4K”静默降成 1K，且任务里仍写着 4K，极难发现。
+   */
+  const wanted = typeof resolution === 'string' ? resolution.trim().toLowerCase() : ''
+  const tier = wanted === '2k' ? '2k' : wanted === '4k' ? '4k' : '1k'
   const budget = RES_PIXEL_BUDGET[tier]
   if (tier === '4k' && Math.abs(aspect - 1) < 1e-9) {
     // 4K 1:1 特批：2880×2880（用户 2026-09-16 指定，且在文档约束内）

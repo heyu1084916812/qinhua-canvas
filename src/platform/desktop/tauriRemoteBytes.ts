@@ -19,6 +19,7 @@ interface RawFetchedText {
   status: number
   headers: Record<string, string>
   text: string
+  bodyBase64?: string
 }
 
 /**
@@ -59,7 +60,12 @@ export function createTauriRemoteBytes(): RemoteBytesPort {
         body: req.body ?? '',
         timeoutMs: req.timeoutMs,
       })
-      return { status: raw.status, headers: raw.headers ?? {}, text: raw.text ?? '' }
+      return {
+        status: raw.status,
+        headers: raw.headers ?? {},
+        text: raw.text ?? '',
+        ...(raw.bodyBase64 ? { bodyBase64: raw.bodyBase64 } : {}),
+      }
     },
   }
 }
