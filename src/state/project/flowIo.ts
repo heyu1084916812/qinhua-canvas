@@ -72,7 +72,15 @@ export async function buildProjectExport(
   opts: ExportOptions = {},
 ): Promise<ProjectExportPayload> {
   await platform.storage.open()
-  const [projRows, nodes, edges, storyboardRows, ecommerceTasks, ecommerceResults] =
+  const [
+    projRows,
+    nodes,
+    edges,
+    storyboardRows,
+    ecommerceTasks,
+    ecommerceResults,
+    ecommerceCanvasItems,
+  ] =
     await Promise.all([
       platform.storage.query('projects', { id: projectId }),
       platform.storage.query('nodes', { projectId }),
@@ -85,6 +93,7 @@ export async function buildProjectExport(
       platform.storage.query('storyboards', { projectId }),
       platform.storage.query('ecommerceTasks', { projectId }),
       platform.storage.query('ecommerceResults', { projectId }),
+      platform.storage.query('ecommerceCanvasItems', { projectId }),
     ])
   const project = projRows[0]
   if (!project) throw new Error(`[flowIo] 导出失败：项目不存在 ${projectId}`)
@@ -117,6 +126,7 @@ export async function buildProjectExport(
         ecommerce: {
           tasks: ecommerceTasks as never,
           results: ecommerceResults as never,
+          canvasItems: ecommerceCanvasItems as never,
         },
       },
       { exportedAt },
@@ -137,6 +147,7 @@ export async function buildProjectExport(
       ecommerce: {
         tasks: ecommerceTasks as never,
         results: ecommerceResults as never,
+        canvasItems: ecommerceCanvasItems as never,
       },
       assets: [] as never,
     },
@@ -254,6 +265,7 @@ export async function importProjectFromFile(
       'storyboards',
       'ecommerceTasks',
       'ecommerceResults',
+      'ecommerceCanvasItems',
     ],
     async (tx) => {
       await tx.put('projects', project as never)
@@ -271,6 +283,9 @@ export async function importProjectFromFile(
       for (const task of ecommerce.tasks) await tx.put('ecommerceTasks', task as never)
       for (const result of ecommerce.results) {
         await tx.put('ecommerceResults', result as never)
+      }
+      for (const item of ecommerce.canvasItems) {
+        await tx.put('ecommerceCanvasItems', item as never)
       }
     },
   )

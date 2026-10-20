@@ -1,0 +1,542 @@
+.workbench {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: var(--border);
+  border-radius: 8px;
+  background: var(--bg-canvas);
+  cursor: default;
+  touch-action: none;
+}
+
+.workbench[data-tool='hand'] {
+  cursor: grab;
+}
+
+.workbench[data-tool='hand']:active {
+  cursor: grabbing;
+}
+
+.canvasGlow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(var(--canvas-grid-line) 1px, transparent 1px);
+  background-size: 18px 18px;
+  opacity: 0.55;
+}
+
+.world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.item {
+  position: absolute;
+  transform-origin: 50% 50%;
+  border: 1px solid transparent;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+  user-select: none;
+  cursor: move;
+}
+
+.itemSelected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 calc(1px * var(--wb-inv-scale, 1)) var(--accent), var(--shadow-float);
+}
+
+.media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--bg-subtle);
+  pointer-events: auto;
+}
+
+.mediaLoading,
+.missing {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--text-3);
+  font-size: calc(13px * var(--wb-inv-scale, 1));
+}
+
+.sizeLabel {
+  position: absolute;
+  left: 50%;
+  top: calc(-28px * var(--wb-inv-scale, 1));
+  transform: translateX(-50%);
+  padding: calc(3px * var(--wb-inv-scale, 1)) calc(7px * var(--wb-inv-scale, 1));
+  border-radius: 4px;
+  background: var(--control-inverse-bg);
+  color: var(--control-inverse-text);
+  font-size: calc(11px * var(--wb-inv-scale, 1));
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.resizeHandle {
+  position: absolute;
+  width: calc(9px * var(--wb-inv-scale, 1));
+  height: calc(9px * var(--wb-inv-scale, 1));
+  padding: 0;
+  border: calc(1px * var(--wb-inv-scale, 1)) solid var(--accent);
+  border-radius: 50%;
+  background: var(--bg-surface);
+}
+
+.handle_nw { left: 0; top: 0; transform: translate(-50%, -50%); cursor: nwse-resize; }
+.handle_n { left: 50%; top: 0; transform: translate(-50%, -50%); cursor: ns-resize; }
+.handle_ne { right: 0; top: 0; transform: translate(50%, -50%); cursor: nesw-resize; }
+.handle_e { right: 0; top: 50%; transform: translate(50%, -50%); cursor: ew-resize; }
+.handle_se { right: 0; bottom: 0; transform: translate(50%, 50%); cursor: nwse-resize; }
+.handle_s { left: 50%; bottom: 0; transform: translate(-50%, 50%); cursor: ns-resize; }
+.handle_sw { left: 0; bottom: 0; transform: translate(-50%, 50%); cursor: nesw-resize; }
+.handle_w { left: 0; top: 50%; transform: translate(-50%, -50%); cursor: ew-resize; }
+
+.rotateHandle {
+  position: absolute;
+  left: 50%;
+  bottom: calc(-46px * var(--wb-inv-scale, 1));
+  display: grid;
+  place-items: center;
+  width: calc(28px * var(--wb-inv-scale, 1));
+  height: calc(28px * var(--wb-inv-scale, 1));
+  padding: 0;
+  border: calc(1px * var(--wb-inv-scale, 1)) solid var(--border-color, var(--stroke));
+  border-radius: 50%;
+  background: var(--bg-surface);
+  color: var(--text-2);
+  transform: translateX(-50%);
+  cursor: grab;
+}
+
+.rotateHandle svg {
+  width: calc(15px * var(--wb-inv-scale, 1));
+  height: calc(15px * var(--wb-inv-scale, 1));
+}
+
+.guideX,
+.guideY {
+  position: absolute;
+  pointer-events: none;
+  background: var(--accent);
+  opacity: 0.7;
+}
+
+.guideX {
+  top: -5000px;
+  width: 1px;
+  height: 10000px;
+}
+
+.guideY {
+  left: -5000px;
+  width: 10000px;
+  height: 1px;
+}
+
+.textItem {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.textContent,
+.textEditor {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 30px;
+  line-height: 1.3;
+  resize: none;
+  outline: none;
+}
+
+.textEditor {
+  background: var(--bg-surface);
+  border: 1px solid var(--accent);
+}
+
+.actionPanel {
+  position: absolute;
+  z-index: 30;
+  width: 220px;
+  max-height: calc(100% - 24px);
+  overflow: auto;
+  border: var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-1);
+  font-size: var(--fs-label);
+}
+
+.panelHead span {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.panelMeta {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  padding: 10px 0;
+  border-block: var(--border);
+}
+
+.panelMeta div {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.panelMeta dt {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.panelMeta dd {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panelActions {
+  display: grid;
+  gap: 2px;
+}
+
+.panelActions button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-label);
+  text-align: left;
+  cursor: pointer;
+}
+
+.panelActions button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.panelActions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.failureTray {
+  position: absolute;
+  left: 12px;
+  bottom: 64px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 260px;
+}
+
+.failureItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 50%, var(--stroke));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bg-surface) 88%, var(--danger));
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+}
+
+.failureBody {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.failureBody small {
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+
+.failureItem button {
+  border: none;
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.runningTray {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.runningItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 128px;
+  padding: 8px 10px;
+  border: var(--border);
+  border-radius: 7px;
+  background: var(--bg-surface);
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  box-shadow: var(--shadow-float);
+}
+
+.runningOrbit {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--stroke);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: workbenchSpin 0.9s linear infinite;
+}
+
+@keyframes workbenchSpin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runningOrbit {
+    animation: none;
+  }
+}
+
+.toolbar {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px;
+  border: var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+  transform: translateX(-50%);
+}
+
+.toolbar button,
+.logButton {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.toolbar button:hover:not(:disabled),
+.logButton:hover {
+  background: var(--bg-hover);
+  color: var(--text-1);
+}
+
+.toolbar button[data-tool-active='true'] {
+  background: var(--bg-selected);
+  color: var(--text-1);
+}
+
+.toolbar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.toolDivider {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: var(--stroke);
+}
+
+.zoomReadout {
+  position: absolute;
+  left: 12px;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.zoomReadout button {
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+}
+
+.logButton {
+  position: absolute;
+  right: 12px;
+  bottom: 14px;
+  display: inline-flex;
+  width: auto;
+  gap: 6px;
+  padding: 0 10px;
+  border: var(--border);
+  background: var(--bg-surface);
+  font-size: var(--fs-label);
+}
+
+.logPanel {
+  position: absolute;
+  right: 12px;
+  bottom: 56px;
+  z-index: 28;
+  width: min(340px, 35%);
+  max-height: min(420px, calc(100% - 80px));
+  display: flex;
+  flex-direction: column;
+  border: var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-float);
+}
+
+.logPanel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: var(--border);
+  color: var(--text-1);
+  font-size: var(--fs-label);
+}
+
+.logPanel > header button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.logRows {
+  overflow: auto;
+  padding: 8px;
+}
+
+.logRows article {
+  padding: 9px 8px;
+  border-bottom: var(--border);
+}
+
+.logRows article:last-child {
+  border-bottom: 0;
+}
+
+.logRows article > span {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.logRows article > span[data-status='done'] {
+  color: var(--success);
+}
+
+.logRows article > span[data-status='failed'] {
+  color: var(--danger);
+}
+
+.logRows p {
+  margin: 4px 0 3px;
+  color: var(--text-2);
+  font-size: var(--fs-label);
+}
+
+.logRows .logError {
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.logRows small {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 6px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.empty span {
+  color: var(--text-2);
+  font-size: var(--fs-body);
+}
+
+.empty small {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+}
+
+@media (max-width: 980px) {
+  .actionPanel {
+    width: 204px;
+  }
+  .logPanel {
+    width: min(300px, 42%);
+  }
+}

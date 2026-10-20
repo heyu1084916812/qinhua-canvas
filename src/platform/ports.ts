@@ -62,6 +62,11 @@ export type TableName =
   | 'ecommerceTasks'
   | 'ecommerceResults'
   /**
+   * 电商无限工作台的空间布局。一行 = 一个可编辑对象（图片 / 视频 / 文本）。
+   * 图片只引用 `assets` 的 hash；任务事实仍以 `ecommerceTasks` / `ecommerceResults` 为准。
+   */
+  | 'ecommerceCanvasItems'
+  /**
    * 灵感库的**索引缓存**（用户 2026-10-14）。
    *
    * 一行 = 一个来源：存解析后的案例数组 + 拉取时间。**只存索引、不存媒体** ——

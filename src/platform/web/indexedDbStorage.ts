@@ -54,6 +54,7 @@ class QinghuaDB extends Dexie {
   /** 电商任务与逐格结果（对账 #399 第二期） */
   ecommerceTasks!: Table<Row, string>
   ecommerceResults!: Table<Row, string>
+  ecommerceCanvasItems!: Table<Row, string>
   /** 灵感库的索引缓存（一行 = 一个来源；只存索引、不存媒体，见 `TableName` 的说明） */
   inspirationCache!: Table<Row, string>
 
@@ -169,6 +170,15 @@ class QinghuaDB extends Dexie {
      */
     this.version(14).stores({
       projectFolders: 'id, updatedAt',
+    })
+    /**
+     * v15：电商无限工作台的空间布局。
+     *
+     * 结果表回答「生成了什么」，这一张只回答「对象摆在无限工作台的哪里」。
+     * 按 projectId 读取整个项目的对象；按 resultId 可用于清理单条失败 / 已移除结果。
+     */
+    this.version(15).stores({
+      ecommerceCanvasItems: 'id, projectId, resultId, taskId, updatedAt',
     })
   }
 }

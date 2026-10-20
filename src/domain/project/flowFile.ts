@@ -54,6 +54,7 @@ export interface FlowGraph {
   ecommerce?: {
     tasks: FlowRow[]
     results: FlowRow[]
+    canvasItems?: FlowRow[]
   }
 }
 
@@ -96,6 +97,9 @@ export function serializeProject(
             ecommerce: {
               tasks: graph.ecommerce.tasks.map((r) => ({ ...r })),
               results: graph.ecommerce.results.map((r) => ({ ...r })),
+              ...(graph.ecommerce.canvasItems
+                ? { canvasItems: graph.ecommerce.canvasItems.map((r) => ({ ...r })) }
+                : {}),
             },
           }
         : {}),
@@ -122,7 +126,7 @@ export async function* serializeProjectStream(
     nodes: FlowRow[]
     edges: FlowRow[]
     storyboard?: Record<string, unknown>
-    ecommerce?: { tasks: FlowRow[]; results: FlowRow[] }
+    ecommerce?: { tasks: FlowRow[]; results: FlowRow[]; canvasItems?: FlowRow[] }
   },
   meta: { exportedAt: number },
   assets: AsyncIterable<FlowRow>,
@@ -141,7 +145,7 @@ export async function* serializeProjectStream(
   /** 漫剧文档：与 `serializeProject` **同一位置、同一形状**（有单测钉着两版 deep-equal） */
   const storyboardPart = graph.storyboard ? `,"storyboard":${JSON.stringify(graph.storyboard)}` : ''
   const ecommercePart = graph.ecommerce
-    ? `,"ecommerce":{"tasks":${JSON.stringify(graph.ecommerce.tasks)},"results":${JSON.stringify(graph.ecommerce.results)}}`
+    ? `,"ecommerce":{"tasks":${JSON.stringify(graph.ecommerce.tasks)},"results":${JSON.stringify(graph.ecommerce.results)}${graph.ecommerce.canvasItems ? `,"canvasItems":${JSON.stringify(graph.ecommerce.canvasItems)}` : ''}}`
     : ''
   yield (
     `{"format":"qinghua.flow","version":1,"exportedAt":${meta.exportedAt},` +
@@ -192,7 +196,7 @@ export interface DeserializeResult {
   edges: FlowRow[]
   assets: FlowRow[]
   /** 电商任务 / 结果；老文件没有这一项时为空。 */
-  ecommerce: { tasks: FlowRow[]; results: FlowRow[] }
+  ecommerce: { tasks: FlowRow[]; results: FlowRow[]; canvasItems: FlowRow[] }
   /** 引用了 knownModels 中不存在的模型（产品文档 §5.7「模型缺失」） */
   missingModels: string[]
   /**
@@ -350,6 +354,28 @@ export function deserializeProject(
         }
       : {}),
   }))
+  const resultIdMap = new Map<string, string>()
+  for (const result of flow.graph.ecommerce?.results ?? []) {
+    const remapped = ecommerceResults.find(
+      (candidate) =>
+        String(candidate.nodeId) ===
+          (idMap.get(String(result.nodeId)) ?? String(result.nodeId)) &&
+        String(candidate.taskId) ===
+          (taskIdMap.get(String(result.taskId)) ?? String(result.taskId)),
+    )
+    if (remapped) resultIdMap.set(String(result.id), String(remapped.id))
+  }
+  const ecommerceCanvasItems = (flow.graph.ecommerce?.canvasItems ?? []).map((item) => ({
+    ...item,
+    id: createId('eci'),
+    projectId: newProjectId,
+    ...(item.taskId
+      ? { taskId: taskIdMap.get(String(item.taskId)) ?? String(item.taskId) }
+      : {}),
+    ...(item.resultId
+      ? { resultId: resultIdMap.get(String(item.resultId)) ?? String(item.resultId) }
+      : {}),
+  }))
 
   const project: FlowProject = {
     ...flow.project,
@@ -364,7 +390,7 @@ export function deserializeProject(
     nodes,
     edges,
     assets,
-    ecommerce: { tasks: ecommerceTasks, results: ecommerceResults },
+    ecommerce: { tasks: ecommerceTasks, results: ecommerceResults, canvasItems: ecommerceCanvasItems },
     missingModels,
     repaired,
   }

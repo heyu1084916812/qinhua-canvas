@@ -91,6 +91,7 @@ const PROJECT_CASCADE_TABLES: TableName[] = [
   /* 电商任务与逐格结果（对账 #399 第二期）：脱离项目就没有意义 */
   'ecommerceTasks',
   'ecommerceResults',
+  'ecommerceCanvasItems',
 ]
 
 export function createProjectRepository(storage: StoragePort): ProjectRepository {
@@ -449,6 +450,7 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
        */
       const taskRows = await storage.query('ecommerceTasks', { projectId: id })
       const resultRows = await storage.query('ecommerceResults', { projectId: id })
+      const canvasRows = await storage.query('ecommerceCanvasItems', { projectId: id })
       const taskIdMap = new Map<string, string>()
       const batchIdMap = new Map<string, string>()
       for (const task of taskRows) {
@@ -483,21 +485,44 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
           ? task.nodeIds.map((nodeId) => idMap.get(String(nodeId)) ?? String(nodeId))
           : [],
       }))
-      const newResults = resultRows.map((result) => ({
-        ...result,
-        id: createId('ecr'),
-        taskId: taskIdMap.get(String(result.taskId))!,
+      const resultIdMap = new Map<string, string>()
+      const newResults = resultRows.map((result) => {
+        const resultId = createId('ecr')
+        resultIdMap.set(String(result.id), resultId)
+        return {
+          ...result,
+          id: resultId,
+          taskId: taskIdMap.get(String(result.taskId))!,
+          projectId: copy.id,
+          nodeId: idMap.get(String(result.nodeId)) ?? String(result.nodeId),
+          ...(result.canvasCopyNodeId
+            ? {
+                canvasCopyNodeId:
+                  idMap.get(String(result.canvasCopyNodeId)) ?? String(result.canvasCopyNodeId),
+              }
+            : {}),
+        }
+      })
+      const newCanvasItems = canvasRows.map((item) => ({
+        ...item,
+        id: createId('eci'),
         projectId: copy.id,
-        nodeId: idMap.get(String(result.nodeId)) ?? String(result.nodeId),
-        ...(result.canvasCopyNodeId
-          ? {
-              canvasCopyNodeId:
-                idMap.get(String(result.canvasCopyNodeId)) ?? String(result.canvasCopyNodeId),
-            }
+        ...(item.taskId
+          ? { taskId: taskIdMap.get(String(item.taskId)) ?? String(item.taskId) }
+          : {}),
+        ...(item.resultId
+          ? { resultId: resultIdMap.get(String(item.resultId)) ?? String(item.resultId) }
           : {}),
       }))
       await storage.transaction(
-        ['projects', ...GRAPH_TABLES, 'storyboards', 'ecommerceTasks', 'ecommerceResults'],
+        [
+          'projects',
+          ...GRAPH_TABLES,
+          'storyboards',
+          'ecommerceTasks',
+          'ecommerceResults',
+          'ecommerceCanvasItems',
+        ],
         async (tx) => {
           await tx.put('projects', copy as never)
           for (const n of newNodes) await tx.put('nodes', n as never)
@@ -512,6 +537,9 @@ export function createProjectRepository(storage: StoragePort): ProjectRepository
           }
           for (const task of newTasks) await tx.put('ecommerceTasks', task as never)
           for (const result of newResults) await tx.put('ecommerceResults', result as never)
+          for (const item of newCanvasItems) {
+            await tx.put('ecommerceCanvasItems', item as never)
+          }
         },
       )
       notifyProjectsChanged()

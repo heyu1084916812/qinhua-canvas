@@ -54,6 +54,7 @@ export const BACKUP_TABLES = [
   /* 电商工作台的任务与结果（对账 #399 第二期）：业务数据，必须进全库备份 */
   'ecommerceTasks',
   'ecommerceResults',
+  'ecommerceCanvasItems',
   // 字体是本机界面偏好；体积不小，所以**可选**（见 BackupOptions.includeFonts）
   'fonts',
 ] as const

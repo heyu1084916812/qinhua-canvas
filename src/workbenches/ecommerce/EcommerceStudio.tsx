@@ -85,10 +85,14 @@ export interface EcommerceUpload {
   nodeId: string
   hash: string
   preview: ReactNode
+  width?: number
+  height?: number
 }
 
 export interface EcommerceResultItem {
   nodeId: string
+  /** 电商结果表的真实 id；工作台操作按它回查。 */
+  resultId?: string
   status: 'running' | 'done' | 'failed'
   /** 产物 MIME；视频结果据此使用播放器而不是 img。 */
   mime?: string
@@ -1067,6 +1071,8 @@ export interface EcommerceStudioProps {
   onModelChange: (model: string) => void
   running: boolean
   results: readonly EcommerceResultItem[]
+  /** 页面装配好的无限工作台。工作台模块不反向 import 页面。 */
+  workbench?: ReactNode
   /** 在画布里打开这个项目（结果已经是画布节点，这是"发送到画布"的落点） */
   onOpenCanvas: () => void
   /** 失败 / 取消的结果统一重试（逐张重跑） */
@@ -1156,6 +1162,7 @@ export function EcommerceStudio({
   onModelChange,
   running,
   results,
+  workbench,
   longImage,
   chatTargetLabel = '',
   chatModels = [],
@@ -1199,6 +1206,10 @@ export function EcommerceStudio({
   const [references, setReferences] = useState<EcommerceUpload[]>([...initialReferences])
   /** 二次确认：点生成先算出"预计 N 张"，确认后才真的发请求（#384 的 D6） */
   const [confirming, setConfirming] = useState(false)
+  const [uploadPreview, setUploadPreview] = useState<{
+    kind: 'product' | 'reference'
+    index: number
+  } | null>(null)
   const [error, setError] = useState('')
   const [writingSellingPoints, setWritingSellingPoints] = useState(false)
   const [sellingPointsError, setSellingPointsError] = useState('')
@@ -1235,6 +1246,36 @@ export function EcommerceStudio({
     )
     return ECOMMERCE_UPSCALE_OPTIONS.filter((option) => available.has(option.id))
   }, [upscaleProfiles])
+
+  const uploadPreviewItems =
+    uploadPreview?.kind === 'product' ? products : uploadPreview?.kind === 'reference' ? references : []
+  const uploadPreviewItem = uploadPreview ? uploadPreviewItems[uploadPreview.index] ?? null : null
+
+  useEffect(() => {
+    if (!uploadPreview) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setUploadPreview(null)
+      }
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault()
+        setUploadPreview((current) =>
+          current && current.index > 0 ? { ...current, index: current.index - 1 } : current,
+        )
+      }
+      if (event.key === 'ArrowRight') {
+        event.preventDefault()
+        setUploadPreview((current) =>
+          current && current.index < uploadPreviewItems.length - 1
+            ? { ...current, index: current.index + 1 }
+            : current,
+        )
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [uploadPreview, uploadPreviewItems.length])
 
   const openEditForResult = (result: EcommerceResultItem) => {
     if (!onEditResult || running || result.mime?.startsWith('video/')) return
@@ -1845,7 +1886,15 @@ export function EcommerceStudio({
           <div className={styles.slotRow}>
             {products.map((item, index) => (
               <div key={item.nodeId} className={styles.slot} data-ecommerce-product-preview>
-                {item.preview}
+                <button
+                  type="button"
+                  className={styles.slotPreview}
+                  data-ecommerce-product-open={index}
+                  aria-label={`放大预览第 ${index + 1} 张商品图`}
+                  onClick={() => setUploadPreview({ kind: 'product', index })}
+                >
+                  {item.preview}
+                </button>
                 <button
                   type="button"
                   className={styles.slotRemove}
@@ -1900,7 +1949,17 @@ export function EcommerceStudio({
             <div className={styles.slotRow}>
               {references.map((r) => (
                 <div key={r.nodeId} className={styles.slot} data-ecommerce-reference-preview>
-                  {r.preview}
+                  <button
+                    type="button"
+                    className={styles.slotPreview}
+                    data-ecommerce-reference-open={references.indexOf(r)}
+                    aria-label="放大预览参考图"
+                    onClick={() =>
+                      setUploadPreview({ kind: 'reference', index: references.indexOf(r) })
+                    }
+                  >
+                    {r.preview}
+                  </button>
                   <button
                     type="button"
                     className={styles.slotRemove}
@@ -2154,7 +2213,7 @@ export function EcommerceStudio({
             </button>
           ))}
         </nav>
-        {visibleResults.length === 0 ? (
+        {workbench ?? (visibleResults.length === 0 ? (
           <div className={styles.caseSection} data-ecommerce-empty>
             <div className={styles.carousel} data-ecommerce-case-carousel>
               {carouselCases.map((item, index) => (
@@ -2222,7 +2281,7 @@ export function EcommerceStudio({
               </figure>
             ))}
           </div>
-        )}
+        ))}
         {longImageNode}
       </section>
 
@@ -2706,6 +2765,59 @@ export function EcommerceStudio({
                   : `AI 超清 ${upscaleScale}${upscaleTarget.items.length > 1 ? `（${upscaleTarget.items.length}）` : ''}`}
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {uploadPreview && uploadPreviewItem ? (
+        <div
+          className={styles.uploadLightbox}
+          role="dialog"
+          aria-modal="true"
+          data-ecommerce-upload-lightbox
+          onClick={() => setUploadPreview(null)}
+        >
+          <div className={styles.uploadLightboxBody} onClick={(event) => event.stopPropagation()}>
+            <button
+              type="button"
+              className={styles.uploadLightboxClose}
+              aria-label="关闭预览"
+              onClick={() => setUploadPreview(null)}
+            >
+              ×
+            </button>
+            <button
+              type="button"
+              className={`${styles.uploadLightboxArrow} ${styles.uploadLightboxPrev}`}
+              aria-label="上一张"
+              disabled={uploadPreview.index <= 0}
+              onClick={() =>
+                setUploadPreview((current) =>
+                  current && current.index > 0 ? { ...current, index: current.index - 1 } : current,
+                )
+              }
+            >
+              ‹
+            </button>
+            <div className={styles.uploadLightboxStage}>{uploadPreviewItem.preview}</div>
+            <button
+              type="button"
+              className={`${styles.uploadLightboxArrow} ${styles.uploadLightboxNext}`}
+              aria-label="下一张"
+              disabled={uploadPreview.index >= uploadPreviewItems.length - 1}
+              onClick={() =>
+                setUploadPreview((current) =>
+                  current && current.index < uploadPreviewItems.length - 1
+                    ? { ...current, index: current.index + 1 }
+                    : current,
+                )
+              }
+            >
+              ›
+            </button>
+            <span className={styles.uploadLightboxCount} data-ecommerce-upload-position>
+              {uploadPreview.index + 1} / {uploadPreviewItems.length}
+            </span>
           </div>
         </div>
       ) : null}

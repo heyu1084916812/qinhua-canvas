@@ -57,6 +57,7 @@ fn table_dir(root: &Path, table: &str) -> Result<PathBuf, String> {
         "storyboards",
         "ecommerceTasks",
         "ecommerceResults",
+        "ecommerceCanvasItems",
         "inspirationCache",
     ];
     if !allowed.contains(&table) {

@@ -60,6 +60,8 @@ import { createPackStore } from '../../state/project/packStore'
 import { loadEcommerceDraft, saveEcommerceDraft } from '../../state/project/ecommerceDraft'
 import { createEcommerceTaskRepository } from '../../state/project/ecommerceTaskRepository'
 import { createAssetLibraryRepository } from '../../state/project/assetLibraryRepository'
+import { createEcommerceCanvasRepository } from '../../state/project/ecommerceCanvasRepository'
+import type { EcommerceCanvasItem } from '../../domain/ecommerce/canvasItem'
 import { ensureEcommerceCanvasCopy } from '../../features/ecommerce/ensureCanvasCopy'
 import {
   acquireEcommerceTaskLease,
@@ -88,6 +90,10 @@ import {
 } from '../../domain/ecommerce/types'
 import { canvasStoreFor } from '../../state/workbenches/canvas/storeCache'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
+import {
+  EcommerceWorkbench,
+  type EcommerceWorkbenchAction,
+} from './EcommerceWorkbench'
 import type { Edge } from '../../domain/canvas/model/edge'
 import type { EcommerceRequest } from '../../domain/ecommerce/types'
 import {
@@ -272,6 +278,10 @@ function StudioHost({ projectId }: { projectId: string }) {
   const exec = useCanvasExecution()
   const navigate = useNavigate()
   const taskRepo = useMemo(() => createEcommerceTaskRepository(platform.storage), [platform])
+  const canvasRepo = useMemo(
+    () => createEcommerceCanvasRepository(platform.storage),
+    [platform],
+  )
   const assetLibraryRepo = useMemo(
     () => createAssetLibraryRepository(platform.storage),
     [platform],
@@ -287,6 +297,9 @@ function StudioHost({ projectId }: { projectId: string }) {
   const [resultRows, setResultRows] = useState<EcommerceResultRecord[]>([])
   const [taskLoaded, setTaskLoaded] = useState(false)
   const [taskHistory, setTaskHistory] = useState<EcommerceTaskRecord[]>([])
+  const [canvasItems, setCanvasItems] = useState<EcommerceCanvasItem[]>([])
+  const [workbenchResults, setWorkbenchResults] = useState<EcommerceResultRecord[]>([])
+  const canvasSaveQueueRef = useRef<Promise<void>>(Promise.resolve())
   const legacyNodeIds = useMemo(() => {
     if (!taskLoaded || activeTask) return []
     return graph.nodes
@@ -355,6 +368,19 @@ function StudioHost({ projectId }: { projectId: string }) {
    * 若被内置那份压住，这个机制就白做了。
    */
   const [platforms, setPlatforms] = useState<readonly EcommercePlatform[]>(ECOMMERCE_PLATFORMS)
+
+  const refreshWorkbench = useCallback(
+    async (viewportWidth = Math.max(760, Math.round(window.innerWidth * 0.72))) => {
+      await canvasSaveQueueRef.current
+      const [items, rows] = await Promise.all([
+        canvasRepo.sync(projectId, viewportWidth),
+        taskRepo.listResults(projectId),
+      ])
+      setCanvasItems(items)
+      setWorkbenchResults(rows)
+    },
+    [canvasRepo, projectId, taskRepo],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -470,11 +496,12 @@ function StudioHost({ projectId }: { projectId: string }) {
       setResultRows(latest?.results ?? [])
       setTaskHistory(list)
       setTaskLoaded(true)
+      await refreshWorkbench()
     })()
     return () => {
       cancelled = true
     }
-  }, [taskRepo, projectId])
+  }, [projectId, refreshWorkbench, taskRepo])
 
   /** 把某一格从内部节点的最新状态同步回结果表（跑完 / 失败 / 取消都走这里）。 */
   const syncResultRow = useCallback(
@@ -558,8 +585,9 @@ function StudioHost({ projectId }: { projectId: string }) {
         setResultRows(next.results)
       }
       await refreshTaskHistory()
+      await refreshWorkbench()
     },
-    [activeTask?.id, refreshTaskHistory, taskRepo],
+    [activeTask?.id, refreshTaskHistory, refreshWorkbench, taskRepo],
   )
 
   /**
@@ -615,6 +643,68 @@ function StudioHost({ projectId }: { projectId: string }) {
       }
     },
     [ensureResultCopy, navigate, platform, projectId],
+  )
+
+  const handleCanvasItemsChange = useCallback(
+    (next: EcommerceCanvasItem[]) => {
+      setCanvasItems(next)
+      canvasSaveQueueRef.current = canvasSaveQueueRef.current
+        .then(() => canvasRepo.replace(projectId, next))
+        .catch((error) => {
+          platform.logger.log('warn', '[ecommerce] 工作台布局保存失败', { error: String(error) })
+          store.notify('工作台布局没保存下来，请稍后再试', 'error')
+        })
+    },
+    [canvasRepo, platform, projectId, store],
+  )
+
+  const handleWorkbenchAction = useCallback(
+    (resultId: string, action: EcommerceWorkbenchAction) => {
+      const row =
+        workbenchResults.find((result) => result.id === resultId) ??
+        resultRows.find((result) => result.id === resultId)
+      if (!row) return
+      if (action === 'download') {
+        if (!row.assetHash) return
+        void downloadAsset(
+          { assets: platform.assets, files: platform.files },
+          row.assetHash,
+        )
+        return
+      }
+      if (action === 'save') {
+        if (!row.assetHash) return
+        void assetLibraryRepo
+          .save({
+            hash: row.assetHash,
+            mime: row.mime ?? 'image/png',
+            bytes: 0,
+            width: row.width ?? 0,
+            height: row.height ?? 0,
+            savedAt: Date.now(),
+            projectId,
+            ...(row.prompt ? { prompt: row.prompt } : {}),
+            ...(row.model ? { model: row.model } : {}),
+          })
+          .then(() => store.notify('已收藏到素材库', 'info'))
+          .catch(() => store.notify('收藏失败', 'error'))
+        return
+      }
+      if (action === 'canvas') openCanvasCopy(row)
+      if (action === 'crop') openCanvasCopy(row, 'crop')
+      if (action === 'extract') openCanvasCopy(row, 'extract')
+      if (action === 'annotate') openCanvasCopy(row, 'annotate')
+      if (action === 'rotate') openCanvasCopy(row, 'rotate')
+    },
+    [
+      assetLibraryRepo,
+      openCanvasCopy,
+      platform,
+      projectId,
+      resultRows,
+      store,
+      workbenchResults,
+    ],
   )
 
   /** 点一条历史批次：把结果区切到那一批，不改表单、不重跑。 */
@@ -943,7 +1033,26 @@ function StudioHost({ projectId }: { projectId: string }) {
     const index = store.getSnapshot().nodes.length
     const nodeId = createAssetNode(deps, asset, { x: 40, y: 40 + index * 200 })
     if (!nodeId) return null
-    return { nodeId, hash: asset.hash, preview: <ResultPreview hash={asset.hash} /> }
+    return {
+      nodeId,
+      hash: asset.hash,
+      preview: <ResultPreview hash={asset.hash} />,
+      ...(asset.width ? { width: asset.width } : {}),
+      ...(asset.height ? { height: asset.height } : {}),
+    }
+  }
+
+  const onWorkbenchUpload = async (
+    file: File,
+  ): Promise<{ hash: string; width?: number; height?: number } | null> => {
+    const uploaded = await onUpload(file, 'product')
+    return uploaded
+      ? {
+          hash: uploaded.hash,
+          ...(uploaded.width ? { width: uploaded.width } : {}),
+          ...(uploaded.height ? { height: uploaded.height } : {}),
+        }
+      : null
   }
 
   /**
@@ -1190,6 +1299,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       )
       if (task) await refreshTask(task)
       await refreshTaskHistory()
+      await refreshWorkbench()
     } finally {
       if (task) releaseEcommerceTaskLease(task.id)
     }
@@ -1390,9 +1500,11 @@ function StudioHost({ projectId }: { projectId: string }) {
           }
           await refreshTask(taskForRefresh)
           await refreshTaskHistory()
+          await refreshWorkbench()
         }
         return {
           nodeId: row.nodeId,
+          resultId: row.id,
           status,
           imageHash: hash,
           ...(row.mime ? { mime: row.mime } : {}),
@@ -1550,6 +1662,7 @@ function StudioHost({ projectId }: { projectId: string }) {
     }
     if (activeTask) await refreshTask(activeTask)
     await refreshTaskHistory()
+    await refreshWorkbench()
   }, [
     activeTask,
     exec,
@@ -1627,6 +1740,34 @@ function StudioHost({ projectId }: { projectId: string }) {
       upscaleProfiles={upscaleProfiles}
       running={exec.isRunning || preparingShots}
       results={results}
+      workbench={
+        <EcommerceWorkbench
+          projectId={projectId}
+          items={canvasItems}
+          results={workbenchResults}
+          tasks={taskHistory}
+          activeResults={resultRows}
+          running={exec.isRunning || preparingShots}
+          availableActions={[
+            'download',
+            'save',
+            'canvas',
+            'crop',
+            'extract',
+            'annotate',
+            'rotate',
+          ]}
+          onItemsChange={handleCanvasItemsChange}
+          onCanvasUpload={onWorkbenchUpload}
+          onAction={handleWorkbenchAction}
+          channelLabelOf={(channelId) =>
+            channelList.find((channel) => channel.id === channelId)?.name ?? channelId
+          }
+          onRemoveFailed={(resultId) => {
+            if (activeTask) void removeFailedResult(activeTask.id, resultId)
+          }}
+        />
+      }
       onOpenCanvas={() => navigate(projectRoute('canvas', projectId))}
       onRetryFailed={failedCount > 0 ? () => void retryFailed() : undefined}
       failedCount={failedCount}

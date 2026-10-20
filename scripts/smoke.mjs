@@ -1376,9 +1376,13 @@ async function configureMockChannel(
    * 给本次新建的 mock 渠道补齐固定夹具，否则 Agent 的“按规则选路”会诚实地
    * 报“没有可用渠道”，把测试夹具问题伪装成产品缺陷。
    */
-  if (createdId) {
+  const writeMockFixture = async () => {
     const freshRows = await sharedRows(page, 'channels')
-    const mock = freshRows.find((row) => String(row.id) === createdId)
+    const mock = createdId
+      ? freshRows.find((row) => String(row.id) === createdId)
+      : freshRows
+          .filter((row) => row.protocol === 'mock')
+          .sort((a, b) => Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0))[0]
     if (mock) {
       const models = [
         { id: 'mock-image-1', category: 'image', inputTypes: ['text', 'image'] },
@@ -1401,13 +1405,21 @@ async function configureMockChannel(
           'OpenAI TTS': 'mock-speech-1',
         },
       })
-      enabled = true
     }
     for (const row of freshRows) {
       if (!String(row.id).startsWith('ch_builtin_') || !row.enabled) continue
       await sharedPut(page, 'channels', { ...row, enabled: false })
     }
+    return !!mock
   }
+  enabled = (await writeMockFixture()) || enabled
+  /**
+   * 设置页自身还有草稿 / 防抖写入；刚写入的库层夹具可能被一次迟到的 UI
+   * 提交覆盖。重载到干净状态后再写一次，才是最终权威。
+   */
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForSelector('[data-settings-page]', { timeout: 10000 }).catch(() => {})
+  enabled = (await writeMockFixture()) || enabled
 
   /**
    * UI 列表可能只渲染当前分组，单靠勾选框停不干净历史渠道。
@@ -27988,6 +28000,417 @@ async function g165(browser) {
 }
 
 // ────────────────────────────────────────────────────────────
+// G166 电商无限工作台：自动纵向落位、缩放、选择、缩放/旋转手柄与独立日志
+// ────────────────────────────────────────────────────────────
+async function g166(browser) {
+  const g = 'G166 电商无限工作台'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await gotoProjects(page)
+  await page.evaluate(async ({ pngB64 }) => {
+    const encode = (value) => {
+      if (value instanceof Uint8Array) {
+        let binary = ''
+        for (let offset = 0; offset < value.length; offset += 0x8000) {
+          binary += String.fromCharCode(...value.subarray(offset, offset + 0x8000))
+        }
+        return { __qhType: 'u8', base64: btoa(binary) }
+      }
+      if (Array.isArray(value)) return value.map(encode)
+      if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, encode(child)]))
+      }
+      return value
+    }
+    const bulk = async (table, rows) => {
+      const response = await fetch('http://127.0.0.1:18765/bulkPut', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ table, rows: encode(rows) }),
+      })
+      if (!response.ok) throw new Error(`${table}: HTTP ${response.status}`)
+    }
+    const bytes = new Uint8Array(await (await fetch(`data:image/png;base64,${pngB64}`)).arrayBuffer())
+    const now = Date.now()
+    await bulk('projects', [
+      { id: 'p-wb', name: '无限工作台', workbench: 'ecommerce', createdAt: now, updatedAt: now },
+    ])
+    await bulk('assets', [
+      { id: 'wb-a1', hash: 'wb-a1', mime: 'image/png', bytes, width: 1600, height: 900 },
+      { id: 'wb-a2', hash: 'wb-a2', mime: 'image/png', bytes, width: 1000, height: 1000 },
+      { id: 'wb-a3', hash: 'wb-a3', mime: 'image/png', bytes, width: 900, height: 1600 },
+    ])
+    await bulk('ecommerceTasks', [
+      {
+        id: 'wb-t1',
+        projectId: 'p-wb',
+        batchId: 'wb-b1',
+        createdAt: now - 2000,
+        updatedAt: now - 1000,
+        status: 'done',
+        request: {
+          usage: 'set',
+          language: 'zh-CN',
+          ratio: '1:1',
+          count: 2,
+          productNodeId: '',
+          productNodeIds: [],
+          referenceNodeIds: [],
+          modeLabel: '商品套图',
+        },
+        nodeIds: ['wb-n1', 'wb-n2'],
+      },
+      {
+        id: 'wb-t2',
+        projectId: 'p-wb',
+        batchId: 'wb-b2',
+        createdAt: now - 500,
+        updatedAt: now,
+        status: 'done',
+        request: {
+          usage: 'set',
+          language: 'zh-CN',
+          ratio: '9:16',
+          count: 1,
+          productNodeId: '',
+          productNodeIds: [],
+          referenceNodeIds: [],
+          modeLabel: '商品套图',
+        },
+        nodeIds: ['wb-n3'],
+      },
+    ])
+    await bulk('ecommerceResults', [
+      {
+        id: 'wb-r1',
+        taskId: 'wb-t1',
+        projectId: 'p-wb',
+        nodeId: 'wb-n1',
+        position: 0,
+        createdAt: now - 2000,
+        updatedAt: now,
+        status: 'done',
+        assetHash: 'wb-a1',
+        mime: 'image/png',
+        width: 1600,
+        height: 900,
+        prompt: '第一张',
+        model: 'Nano Banana 2',
+      },
+      {
+        id: 'wb-r2',
+        taskId: 'wb-t1',
+        projectId: 'p-wb',
+        nodeId: 'wb-n2',
+        position: 1,
+        createdAt: now - 1900,
+        updatedAt: now,
+        status: 'done',
+        assetHash: 'wb-a2',
+        mime: 'image/png',
+        width: 1000,
+        height: 1000,
+        prompt: '第二张',
+        model: 'Nano Banana 2',
+      },
+      {
+        id: 'wb-r3',
+        taskId: 'wb-t2',
+        projectId: 'p-wb',
+        nodeId: 'wb-n3',
+        position: 0,
+        createdAt: now - 500,
+        updatedAt: now,
+        status: 'done',
+        assetHash: 'wb-a3',
+        mime: 'image/png',
+        width: 900,
+        height: 1600,
+        prompt: '第三张',
+        model: 'Nano Banana 2 Pro',
+      },
+    ])
+  }, { pngB64: solidPngBuffer(64, 36).toString('base64') })
+
+  await page.goto(`${BASE}/ecommerce/p-wb`, { waitUntil: 'networkidle' })
+  await page.locator('[data-ecommerce-workbench]').waitFor({ state: 'visible', timeout: 15000 })
+  await sleep(700)
+
+  const items = page.locator('[data-ecommerce-workbench-item]')
+  rec(g, '三条历史结果自动回填到独立无限工作台', (await items.count()) === 3, `items=${await items.count()}`)
+  rec(
+    g,
+    '底部工具栏包含选择 / 抓手 / 上传 / 文字 / 网格 / 上一步 / 下一步',
+    (await page.locator('[data-ecommerce-workbench-toolbar] button').count()) === 7,
+  )
+  const gridButton = page.locator('[data-ecommerce-workbench-toolbar] [data-grid-size]')
+  await gridButton.click()
+  await gridButton.click()
+  await gridButton.click()
+  await gridButton.click()
+  rec(g, '网格与吸附尺寸可在 16 / 8 / 32 / 关闭之间切换', (await gridButton.getAttribute('data-grid-size')) === '16')
+
+  const layout = await items.evaluateAll((els) =>
+    els.map((el) => ({
+      y: Number(el.getAttribute('data-item-y')),
+      h: Number(el.getAttribute('data-item-height')),
+    })),
+  )
+  rec(
+    g,
+    '同一任务纵向排，下一任务从下方 96px 继续',
+    layout[1].y - (layout[0].y + layout[0].h) === 24 &&
+      layout[2].y - (layout[1].y + layout[1].h) === 96,
+    JSON.stringify(layout),
+  )
+
+  const layoutBeforeMode = await items.evaluateAll((els) =>
+    els.map((el) => `${el.getAttribute('data-item-x')}:${el.getAttribute('data-item-y')}`),
+  )
+  await page.locator('[data-ecommerce-mode="product-detail"]').click()
+  await sleep(250)
+  const layoutAfterMode = await items.evaluateAll((els) =>
+    els.map((el) => `${el.getAttribute('data-item-x')}:${el.getAttribute('data-item-y')}`),
+  )
+  rec(
+    g,
+    '顶部功能与左侧品类只换右侧参数，不重载中央工作台',
+    JSON.stringify(layoutAfterMode) === JSON.stringify(layoutBeforeMode) && (await items.count()) === 3,
+    `${layoutBeforeMode.join(',')} / ${layoutAfterMode.join(',')}`,
+  )
+  await page.locator('[data-ecommerce-mode="product-set"]').click()
+
+  await items.first().click()
+  rec(
+    g,
+    '单击图片出现尺寸、八个手柄、旋转柄和功能面板',
+    (await page.locator('[data-ecommerce-item-size]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-resize-handle]').count()) === 8 &&
+      (await page.locator('[data-ecommerce-rotate-handle]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-action-panel]').count()) === 1,
+  )
+  const panelGeometry = await page.evaluate(() => {
+    const panel = document.querySelector('[data-ecommerce-action-panel]')?.getBoundingClientRect()
+    const workbench = document.querySelector('[data-ecommerce-workbench]')?.getBoundingClientRect()
+    const form = document.querySelector('[data-ecommerce-form]')?.getBoundingClientRect()
+    if (!panel || !workbench || !form) return null
+    return {
+      inside:
+        panel.left >= workbench.left &&
+        panel.right <= workbench.right &&
+        panel.top >= workbench.top &&
+        panel.bottom <= workbench.bottom,
+      overlapsForm:
+        panel.right > form.left &&
+        panel.left < form.right &&
+        panel.bottom > form.top &&
+        panel.top < form.bottom,
+    }
+  })
+  rec(g, '功能面板不越过中央工作台，也不遮住右侧参数区', !!panelGeometry?.inside && !panelGeometry.overlapsForm, JSON.stringify(panelGeometry))
+
+  const zoomBefore = Number(await page.locator('[data-ecommerce-workbench]').getAttribute('data-zoom'))
+  const gridBefore = await page.locator('[data-ecommerce-workbench] > [class*="canvasGlow"]').evaluate(
+    (el) => getComputedStyle(el).backgroundSize,
+  )
+  const wb = page.locator('[data-ecommerce-workbench]')
+  const box = await wb.boundingBox()
+  if (box) {
+    await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.45)
+    await page.keyboard.down('Control')
+    await page.mouse.wheel(0, -220)
+    await page.keyboard.up('Control')
+  }
+  await sleep(350)
+  const zoomAfter = Number(await wb.getAttribute('data-zoom'))
+  const gridAfter = await page.locator('[data-ecommerce-workbench] > [class*="canvasGlow"]').evaluate(
+    (el) => getComputedStyle(el).backgroundSize,
+  )
+  rec(
+    g,
+    'Ctrl + 滚轮缩放工作台，世界网格同步缩放',
+    zoomAfter > zoomBefore && gridAfter !== gridBefore,
+    `${zoomBefore}% → ${zoomAfter}% / ${gridBefore} → ${gridAfter}`,
+  )
+
+  const selected = items.first()
+  const widthBefore = Number(await selected.getAttribute('data-item-width'))
+  const east = page.locator('[data-ecommerce-resize-handle="e"]')
+  const eastBox = await east.boundingBox()
+  if (eastBox) {
+    await page.mouse.move(eastBox.x + eastBox.width / 2, eastBox.y + eastBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(eastBox.x + eastBox.width / 2 + 70, eastBox.y + eastBox.height / 2, { steps: 6 })
+    await page.mouse.up()
+  }
+  const widthAfter = Number(await selected.getAttribute('data-item-width'))
+  rec(g, '边中手柄可自由拉宽图片', widthAfter > widthBefore, `${widthBefore} → ${widthAfter}`)
+
+  const rotate = page.locator('[data-ecommerce-rotate-handle]')
+  const rotateBox = await rotate.boundingBox()
+  const selectedBox = await selected.boundingBox()
+  await page.evaluate(() => {
+    window.__g166Rotate = { down: 0, move: 0, up: 0 }
+    document.addEventListener('pointerdown', () => { window.__g166Rotate.down += 1 }, true)
+    document.addEventListener('pointermove', () => { window.__g166Rotate.move += 1 }, true)
+    document.addEventListener('pointerup', () => { window.__g166Rotate.up += 1 }, true)
+  })
+  let rotationDuring = 0
+  if (rotateBox && selectedBox) {
+    await page.mouse.move(rotateBox.x + rotateBox.width / 2, rotateBox.y + rotateBox.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(selectedBox.x + selectedBox.width + 50, selectedBox.y + selectedBox.height / 2, { steps: 8 })
+    rotationDuring = Number(await selected.getAttribute('data-item-rotation'))
+    await page.mouse.up()
+  }
+  const rotation = Number(await selected.getAttribute('data-item-rotation'))
+  const rotateEvents = await page.evaluate(() => window.__g166Rotate)
+  await sleep(250)
+  const rowBeforeReload = (await sharedRows(page, 'ecommerceCanvasItems')).find(
+    (row) => row.resultId === 'wb-r1',
+  )
+  rec(g, '旋转手柄按拖动角度改变图片旋转', Math.abs(rotation) > 1, `${rotation}° during=${rotationDuring} events=${JSON.stringify(rotateEvents)}`)
+
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.locator('[data-ecommerce-workbench]').waitFor({ state: 'visible', timeout: 15000 })
+  await sleep(500)
+  const persisted = page.locator('[data-ecommerce-result-record-id="wb-r1"]')
+  const persistedWidth = Number(await persisted.getAttribute('data-item-width'))
+  const persistedRotation = Number(await persisted.getAttribute('data-item-rotation'))
+  rec(
+    g,
+    '尺寸与旋转在刷新后仍保留',
+    persistedWidth === widthAfter && Math.abs(persistedRotation - rotation) <= 1,
+    `width=${persistedWidth}/${widthAfter} rotation=${persistedRotation}/${rotation} savedBeforeReload=${rowBeforeReload?.rotation}`,
+  )
+
+  await page.locator('[data-ecommerce-workbench-log-toggle]').click()
+  const logGeometry = await page.evaluate(() => {
+    const log = document.querySelector('[data-ecommerce-workbench-log]')?.getBoundingClientRect()
+    const workbench = document.querySelector('[data-ecommerce-workbench]')?.getBoundingClientRect()
+    const form = document.querySelector('[data-ecommerce-form]')?.getBoundingClientRect()
+    if (!log || !workbench || !form) return null
+    return {
+      inside: log.left >= workbench.left && log.right <= workbench.right + 1,
+      overlapsForm: log.right > form.left,
+    }
+  })
+  rec(g, '电商日志浮层只存在于中央工作台，不遮住参数区', !!logGeometry?.inside && !logGeometry.overlapsForm, JSON.stringify(logGeometry))
+
+  await page.locator('[data-ecommerce-product-input]').setInputFiles({
+    name: 'preview.png',
+    mimeType: 'image/png',
+    buffer: solidPngBuffer(80, 50, [200, 80, 30]),
+  })
+  await sleep(900)
+  await page.locator('[data-ecommerce-product-open="0"]').click()
+  rec(
+    g,
+    '商品原图缩略图可打开大图预览',
+    (await page.locator('[data-ecommerce-upload-lightbox]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-upload-position]').innerText()).includes('1 / 1'),
+  )
+  await page.keyboard.press('Escape')
+  await page.locator('[data-ecommerce-workbench-toolbar] button[title="添加文字"]').click()
+  await sleep(250)
+  const textAdded = await page.locator('[data-ecommerce-workbench-item][data-item-kind="text"]').count()
+  await page.locator('[data-ecommerce-workbench-toolbar] button[title="上一步"]').click()
+  await sleep(250)
+  const textAfterUndo = await page.locator('[data-ecommerce-workbench-item][data-item-kind="text"]').count()
+  await page.locator('[data-ecommerce-workbench-toolbar] button[title="下一步"]').click()
+  await sleep(250)
+  const textAfterRedo = await page.locator('[data-ecommerce-workbench-item][data-item-kind="text"]').count()
+  rec(
+    g,
+    '底部工具栏可添加文字，并进入独立撤销 / 重做栈',
+    textAdded === 1 && textAfterUndo === 0 && textAfterRedo === 1,
+    `${textAdded} / ${textAfterUndo} / ${textAfterRedo}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/166-ecommerce-workbench.png` })
+  await page.setViewportSize({ width: 1024, height: 768 })
+  await sleep(350)
+  rec(
+    g,
+    '1024×768 下工作台与参数区同时可用且无页面横向溢出',
+    (await page.locator('[data-ecommerce-workbench]').isVisible()) &&
+      (await page.locator('[data-ecommerce-form]').isVisible()) &&
+      (await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)),
+  )
+  await page.screenshot({ path: `${OUT}/166-ecommerce-workbench-1024.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+// ────────────────────────────────────────────────────────────
+// G167 电商跨路由连续执行：切到项目页再回来，慢任务继续而不是“上次生成被中断”
+// ────────────────────────────────────────────────────────────
+async function g167(browser) {
+  const g = 'G167 电商跨路由执行'
+  const ctx = await newCtx(browser)
+  const page = await ctx.newPage()
+  const pageErrors = []
+  page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
+
+  await configureMockChannel(page, { isolate: true })
+  await gotoProjects(page)
+  const now = Date.now()
+  await sharedPut(page, 'projects', {
+    id: 'p-route-run',
+    name: '跨路由生成',
+    workbench: 'ecommerce',
+    createdAt: now,
+    updatedAt: now,
+  })
+  await page.goto(`${BASE}/ecommerce/p-route-run`, { waitUntil: 'networkidle' })
+  await page.locator('[data-ecommerce-form]').waitFor({ state: 'visible', timeout: 15000 })
+  await page.locator('[data-ecommerce-product-input]').setInputFiles({
+    name: 'route-product.png',
+    mimeType: 'image/png',
+    buffer: solidPngBuffer(64, 64, [80, 160, 220]),
+  })
+  await sleep(800)
+  await page.locator('[data-ecommerce-mode="product-white"]').click()
+  await page.locator('[data-ecommerce-note]').fill('慢速测试图')
+  await page.locator('[data-ecommerce-generate]').click()
+  await page.locator('[data-ecommerce-confirm-ok]').click()
+  await page.locator('[data-ecommerce-result-overlay="running"]').first().waitFor({ state: 'visible', timeout: 10000 })
+  rec(g, '慢任务已启动并显示生成中', (await page.locator('[data-ecommerce-result-overlay="running"]').count()) >= 1)
+
+  await ensureSidebarOpen(page)
+  await page.locator('[data-sidebar-item="/projects"]').click()
+  await page.waitForURL(/\/projects$/)
+  await sleep(5200)
+  await page.locator('[data-project-card="p-route-run"]').click()
+  await page.waitForURL(/\/ecommerce\/p-route-run/)
+  await page.locator('[data-ecommerce-workbench]').waitFor({ state: 'visible', timeout: 15000 })
+  const done = await page
+    .waitForFunction(
+      () => document.querySelector('[data-ecommerce-result][data-status="done"]'),
+      null,
+      { timeout: 15000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  const task = (await sharedRows(page, 'ecommerceTasks')).find((row) => row.projectId === 'p-route-run')
+  rec(
+    g,
+    '离开电商页不中断任务，返回后结果已完成且没有误标中断',
+    done &&
+      task?.status === 'done' &&
+      !String(task?.errorText ?? '').includes('中断'),
+    `done=${done} status=${task?.status ?? '无'} error=${task?.errorText ?? ''}`,
+  )
+
+  await page.screenshot({ path: `${OUT}/167-ecommerce-route-continuity.png` })
+  rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
+  await ctx.close()
+}
+
+// ────────────────────────────────────────────────────────────
 // G127 漫剧工作台（对账 #382 第一阶段）：
 //   剧本 → 分集 → 分镜（逐镜画面/台词/时长/提示词）→ 刷新仍在 → 导出分镜表。
 //   这一组刻意**不碰视频**：视频参数表（#120）没补齐之前，那一段不算交付。
@@ -36476,9 +36899,9 @@ async function g164(browser) {
   )
   rec(
     g,
-    '★★ 中间为横向滚动案例，而不是重复的工作区标题',
-    (await page.locator('[data-ecommerce-case-carousel]').count()) === 1 &&
-      (await page.locator('[data-ecommerce-case-carousel] article').count()) === 3 &&
+    '★★ 中间为空态无限工作台，而不是重复的工作区标题',
+    (await page.locator('[data-ecommerce-workbench]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-workbench-empty]').count()) === 1 &&
       (await page.locator('[data-ecommerce-results] > header').count()) === 0,
   )
   await page.screenshot({ path: `${OUT}/164-ecommerce-params-empty${themeSuffix}.png` })
@@ -36837,7 +37260,7 @@ async function g164(browser) {
   await ctx.close()
 }
 
-const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164, g165]
+const ALL_GROUPS = [g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11, g12, g13, g14, g15, g16, g17, g18, g19, g23, g24, g37, g42, g43, g44, g45, g46, g47, g48, g49, g51, g52, g53, g55, g56, g57, g58, g59, g60, g61, g62, g63, g64, g65, g66, g67, g68, g69, g70, g71, g72, g73, g74, g75, g76, g77, g78, g79, g80, g81, g82, g83, g84, g85, g86, g87, g88, g89, g90, g91, g92, g93, g94, g95, g96, g97, g98, g99, g100, g101, g102, g103, g104, g105, g106, g107, g108, g109, g110, g111, g112, g113, g114, g115, g116, g117, g118, g119, g120, g121, g122, g123, g124, g125, g126, g127, g128, g129, g130, g131, g132, g133, g134, g135, g136, g137, g138, g139, g140, g141, g142, g143, g144, g145, g146, g147, g148, g149, g150, g151, g152, g153, g154, g155, g156, g157, g158, g159, g160, g161, g162, g164, g165, g166, g167]
 const skippedGroups = new Set(
   [
     String(process.env.SMOKE_SKIP ?? ''),

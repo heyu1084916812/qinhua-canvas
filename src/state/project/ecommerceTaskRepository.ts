@@ -42,6 +42,8 @@ export interface EcommerceTaskRepository {
     at?: number,
   ): Promise<{ task: EcommerceTaskRecord; results: EcommerceResultRecord[] } | null>
   results(taskId: string): Promise<EcommerceResultRecord[]>
+  /** 整个项目的逐格结果，供无限工作台按任务与 position 回填空间布局。 */
+  listResults(projectId: string): Promise<EcommerceResultRecord[]>
   latestWithResults(projectId: string): Promise<{
     task: EcommerceTaskRecord
     results: EcommerceResultRecord[]
@@ -257,6 +259,16 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
     },
 
     results: resultsOf,
+
+    async listResults(projectId) {
+      return (
+        (await storage.query('ecommerceResults', {
+          projectId,
+        })) as unknown as Record<string, unknown>[]
+      )
+        .map(resultOf)
+        .sort((a, b) => a.createdAt - b.createdAt || a.position - b.position)
+    },
 
     async latestWithResults(projectId) {
       const rows = (await storage.query('ecommerceTasks', { projectId })) as unknown as Record<
