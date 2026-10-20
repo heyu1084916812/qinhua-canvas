@@ -35829,6 +35829,7 @@ async function g161(browser) {
     '★ 带货视频参数包含 8 类视频、模特配置与生成模型',
     (await page.locator('[data-ecommerce-mode-params="video-commerce"]').count()) === 1 &&
       (await page.locator('[data-ecommerce-option^="video-"]').count()) === 8 &&
+      (await page.locator('[data-ecommerce-option-hint]').count()) === 8 &&
       (await page.locator('[data-ecommerce-option^="model-"]').count()) >= 5 &&
       (await page.locator('[data-ecommerce-model]').count()) === 1,
   )
@@ -36103,7 +36104,11 @@ async function g164(browser) {
     g,
     '★ A+ 详情页展示参考中的 14 个快速优化项',
     (await page.locator('[data-ecommerce-mode-params="product-detail"]').count()) === 1 &&
-      (await page.locator('[data-ecommerce-option^="detail-"]').count()) === 14,
+      (await page.locator('[data-ecommerce-option^="detail-"]').count()) === 14 &&
+      (await page.locator('[data-ecommerce-option-hint]').count()) === 14 &&
+      (await page.locator('[data-ecommerce-mode-params="product-detail"]').innerText()).includes(
+        '传递核心价值',
+      ),
   )
   await page.screenshot({ path: `${OUT}/164-ecommerce-params-detail${themeSuffix}.png` })
   await page.locator('[data-ecommerce-mode="product-retouch"]').click()
@@ -36132,6 +36137,7 @@ async function g164(browser) {
     '★ 穿戴品类展示参考中的服装生成类型',
     (await page.locator('[data-ecommerce-mode-params="wear-set"]').count()) === 1 &&
       (await page.locator('[data-ecommerce-option^="wear-"]').count()) >= 6 &&
+      (await page.locator('[data-ecommerce-option-hint]').count()) === 5 &&
       (await page.locator('[data-ecommerce-platform]').count()) === 0 &&
       (await page.locator('[data-ecommerce-ratio]').count()) === 0 &&
       (await page.locator('[data-ecommerce-language]').count()) === 1,

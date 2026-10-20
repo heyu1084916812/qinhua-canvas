@@ -279,6 +279,19 @@ const STUDIO_MODES: readonly StudioMode[] = [
   },
 ]
 
+function OptionContent({ option }: { option: (typeof DETAIL_HIGHLIGHT_OPTIONS)[number] }) {
+  return (
+    <span className={styles.optionText}>
+      <span className={styles.optionLabel}>{option.label}</span>
+      {option.hint ? (
+        <span className={styles.optionHint} data-ecommerce-option-hint>
+          {option.hint}
+        </span>
+      ) : null}
+    </span>
+  )
+}
+
 function ModeSpecificParameters({
   modeId,
   options,
@@ -393,7 +406,7 @@ function ModeSpecificParameters({
               onClick={() => toggleOption('detailHighlights', item.id)}
             >
               <span className={styles.optionMark} aria-hidden />
-              {item.label}
+              <OptionContent option={item} />
             </button>
           ))}
         </div>
@@ -487,7 +500,7 @@ function ModeSpecificParameters({
               onClick={() => toggleOption('retouchActions', item.id)}
             >
               <span className={styles.optionMark} aria-hidden />
-              {item.label}
+              <OptionContent option={item} />
             </button>
           ))}
         </div>
@@ -588,7 +601,7 @@ function ModeSpecificParameters({
               onClick={() => toggleOption('videoTypes', item.id)}
             >
               <span className={styles.optionMark} aria-hidden />
-              {item.label}
+              <OptionContent option={item} />
             </button>
           ))}
         </div>
@@ -617,7 +630,7 @@ function ModeSpecificParameters({
               onClick={() => toggleOption('wearTypes', item.id)}
             >
               <span className={styles.optionMark} aria-hidden />
-              {item.label}
+              <OptionContent option={item} />
             </button>
           ))}
         </div>
@@ -702,7 +715,7 @@ function ModeSpecificParameters({
               onClick={() => toggleOption('wearDetails', item.id)}
             >
               <span className={styles.optionMark} aria-hidden />
-              {item.label}
+              <OptionContent option={item} />
             </button>
           ))}
         </div>

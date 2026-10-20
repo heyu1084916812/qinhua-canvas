@@ -3,6 +3,7 @@ import type { EcommerceModeOptions } from './types'
 export interface EcommerceOption {
   id: string
   label: string
+  hint?: string
 }
 
 export const PRODUCT_SET_COUNT_OPTIONS: readonly EcommerceOption[] = [
@@ -14,20 +15,20 @@ export const PRODUCT_SET_COUNT_OPTIONS: readonly EcommerceOption[] = [
 ]
 
 export const DETAIL_HIGHLIGHT_OPTIONS: readonly EcommerceOption[] = [
-  { id: 'hero', label: '首屏主视觉' },
-  { id: 'coreSelling', label: '核心卖点图' },
-  { id: 'usageScene', label: '使用场景图' },
-  { id: 'multiAngle', label: '多角度图' },
-  { id: 'brandStory', label: '品牌故事图' },
-  { id: 'comparison', label: '效果对比图' },
-  { id: 'craft', label: '工艺制作图' },
-  { id: 'sizeChart', label: '尺寸尺码图' },
-  { id: 'specTable', label: '规格参数表' },
-  { id: 'accessories', label: '配件/赠品图' },
-  { id: 'series', label: '系列展示图' },
-  { id: 'ingredients', label: '商品成分图' },
-  { id: 'warranty', label: '售后保障图' },
-  { id: 'usageGuide', label: '使用建议图' },
+  { id: 'hero', label: '首屏主视觉', hint: '传递核心价值' },
+  { id: 'coreSelling', label: '核心卖点图', hint: '突出差异化优势' },
+  { id: 'usageScene', label: '使用场景图', hint: '呈现真实使用场景' },
+  { id: 'multiAngle', label: '多角度图', hint: '多角度呈现外观' },
+  { id: 'brandStory', label: '品牌故事图', hint: '传递品牌价值' },
+  { id: 'comparison', label: '效果对比图', hint: '直观展示使用差异' },
+  { id: 'craft', label: '工艺制作图', hint: '展示制作过程' },
+  { id: 'sizeChart', label: '尺寸尺码图', hint: '展示规格信息' },
+  { id: 'specTable', label: '规格参数表', hint: '展示详细商品数据' },
+  { id: 'accessories', label: '配件/赠品图', hint: '明确收货所有物品' },
+  { id: 'series', label: '系列展示图', hint: '多色或多 SKU 展示' },
+  { id: 'ingredients', label: '商品成分图', hint: '展示配方/材质/成分' },
+  { id: 'warranty', label: '售后保障图', hint: '说明售后保障政策' },
+  { id: 'usageGuide', label: '使用建议图', hint: '说明保养/使用建议' },
 ]
 
 export const RETOUCH_OPTIONS: readonly EcommerceOption[] = [
@@ -39,22 +40,22 @@ export const RETOUCH_OPTIONS: readonly EcommerceOption[] = [
 ]
 
 export const VIDEO_TYPE_OPTIONS: readonly EcommerceOption[] = [
-  { id: 'ugc', label: 'UGC 种草' },
-  { id: 'demo', label: '产品演示' },
-  { id: 'reaction', label: '反应展示' },
-  { id: 'drama', label: '带货短剧' },
-  { id: 'tvc', label: 'TVC 广告' },
-  { id: 'painPoint', label: '痛点解决' },
-  { id: 'unboxing', label: '开箱种草' },
-  { id: 'voiceover', label: '产品口播' },
+  { id: 'ugc', label: 'UGC 种草', hint: '用户真实分享体验' },
+  { id: 'demo', label: '产品演示', hint: '多角度展示与使用演示' },
+  { id: 'reaction', label: '反应展示', hint: '记录真实使用反馈' },
+  { id: 'drama', label: '带货短剧', hint: '用剧情承载商品卖点' },
+  { id: 'tvc', label: 'TVC 广告', hint: '品牌质感与产品大片' },
+  { id: 'painPoint', label: '痛点解决', hint: '从问题切入展示方案' },
+  { id: 'unboxing', label: '开箱种草', hint: '第一视角展示开箱体验' },
+  { id: 'voiceover', label: '产品口播', hint: '人物讲解核心卖点' },
 ]
 
 export const WEAR_TYPE_OPTIONS: readonly EcommerceOption[] = [
-  { id: 'whiteRetouch', label: '白底精修图' },
-  { id: 'threeD', label: '3D 立体效果图' },
-  { id: 'mannequin', label: '人台图' },
-  { id: 'detail', label: '细节特写图' },
-  { id: 'sellingPoint', label: '卖点图' },
+  { id: 'whiteRetouch', label: '白底精修图', hint: '纯白背景的产品精修展示图' },
+  { id: 'threeD', label: '3D 立体效果图', hint: '具有立体感和层次感' },
+  { id: 'mannequin', label: '人台图', hint: '使用人台展示服装效果' },
+  { id: 'detail', label: '细节特写图', hint: '展示产品细节和材质' },
+  { id: 'sellingPoint', label: '卖点图', hint: '突出核心卖点的营销图' },
 ]
 
 export const WEAR_DETAIL_OPTIONS: readonly EcommerceOption[] = [

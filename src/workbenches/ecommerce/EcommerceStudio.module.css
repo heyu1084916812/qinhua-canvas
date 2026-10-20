@@ -501,9 +501,9 @@
 }
 
 .optionTile {
-  min-height: 42px;
+  min-height: 44px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 7px;
   padding: 8px 9px;
   border: 0;
@@ -514,6 +514,24 @@
   font-size: var(--fs-chip);
   text-align: left;
   cursor: pointer;
+}
+
+.optionText {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.optionLabel {
+  color: inherit;
+  line-height: 1.35;
+}
+
+.optionHint {
+  color: var(--text-3);
+  font-size: var(--fs-chip);
+  line-height: 1.35;
 }
 
 .optionTile:hover,
