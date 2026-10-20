@@ -121,14 +121,23 @@ export function createEcommerceCanvasRepository(
       const desired = layoutEcommerceResults(projectId, tasks, results, viewportWidth)
       const merged = mergeWorkbenchItems(existing, desired)
       const at = Date.now()
+      const removedIds = new Set(merged.removedIds)
+      /**
+       * 已隐藏 / 已删除的结果对象不能参与下一批的底部计算。
+       * 否则历史对象虽然会在本事务里删掉，新任务仍会先被排到它们下方几十屏之外，
+       * 用户看到的就是“点了生成，画布里没有占位”。
+       */
+      const retainedExisting = existing.filter((item) => !removedIds.has(item.id))
       const taskBottom = new Map<string, number>()
-      let globalBottom = existing.reduce(
+      let globalBottom = retainedExisting.reduce(
         (bottom, item) => Math.max(bottom, item.y + item.height),
         Number.NEGATIVE_INFINITY,
       )
       const added = merged.added.map((item) => {
         const key = item.taskId ?? ''
-        const existingInTask = existing.filter((candidate) => (candidate.taskId ?? '') === key)
+        const existingInTask = retainedExisting.filter(
+          (candidate) => (candidate.taskId ?? '') === key,
+        )
         const existingTaskBottom = existingInTask.reduce(
           (bottom, candidate) => Math.max(bottom, candidate.y + candidate.height),
           Number.NEGATIVE_INFINITY,

@@ -136,6 +136,81 @@ describe('ecommerceCanvasRepository', () => {
     )
     expect(added.y).toBeGreaterThanOrEqual(firstBottom + 96)
   })
+
+  it('已隐藏历史对象不参与新批次底部计算，不会把占位推到几十屏之外', async () => {
+    const storage = createMemoryStorage({
+      rows: {
+        ecommerceTasks: [
+          {
+            id: 'old',
+            projectId: 'p1',
+            batchId: 'b-old',
+            createdAt: 1,
+            updatedAt: 1,
+            status: 'failed',
+            request: { count: 1, ratio: '1:1' },
+            nodeIds: ['old-node'],
+          },
+          {
+            id: 'new',
+            projectId: 'p1',
+            batchId: 'b-new',
+            createdAt: 2,
+            updatedAt: 2,
+            status: 'running',
+            request: { count: 1, ratio: '1:1' },
+            nodeIds: ['new-node'],
+          },
+        ],
+        ecommerceResults: [
+          {
+            id: 'old-result',
+            taskId: 'old',
+            projectId: 'p1',
+            nodeId: 'old-node',
+            position: 0,
+            createdAt: 1,
+            updatedAt: 1,
+            status: 'failed',
+            hiddenAt: 3,
+          },
+          {
+            id: 'new-result',
+            taskId: 'new',
+            projectId: 'p1',
+            nodeId: 'new-node',
+            position: 0,
+            createdAt: 2,
+            updatedAt: 2,
+            status: 'running',
+          },
+        ],
+        ecommerceCanvasItems: [
+          {
+            id: 'old-item',
+            projectId: 'p1',
+            kind: 'image',
+            taskId: 'old',
+            resultId: 'old-result',
+            x: 96,
+            y: 20000,
+            width: 747,
+            height: 747,
+            rotation: 0,
+            zIndex: 1,
+            aspectLocked: true,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+      },
+    })
+    const repo = createEcommerceCanvasRepository(storage)
+    const items = await repo.sync('p1', 1280)
+    expect(items).toHaveLength(1)
+    expect(items[0]?.resultId).toBe('new-result')
+    expect(items[0]!.y).toBe(72)
+  })
 })
 
 describe('ecommerceTaskRepository · RunRecord reconciliation', () => {

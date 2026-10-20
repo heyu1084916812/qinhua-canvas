@@ -47,15 +47,17 @@ interface Point {
 }
 
 interface Interaction {
-  kind: 'move' | 'resize' | 'rotate' | 'pan'
+  kind: 'move' | 'resize' | 'rotate' | 'pan' | 'marquee'
   itemId?: string
   handle?: ResizeHandle
   startClient: Point
   startViewport: Viewport
   startItem?: EcommerceCanvasItem
+  startItems?: EcommerceCanvasItem[]
   startWorld: Point
   center?: Point
   startAngle?: number
+  additive?: boolean
   moved: boolean
 }
 
@@ -83,6 +85,9 @@ interface EcommerceWorkbenchProps {
 const MIN_SCALE = 0.1
 const MAX_SCALE = 4
 const MIN_ITEM_SIZE = 96
+const MINIMAP_WIDTH = 184
+const MINIMAP_HEIGHT = 112
+const MINIMAP_PADDING = 9
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
@@ -291,7 +296,19 @@ export function EcommerceWorkbench({
   const [viewport, setViewport] = useState<Viewport>({ x: 48, y: 48, scale: 0.72 })
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [tool, setTool] = useState<WorkbenchTool>('select')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const [selectionBox, setSelectionBox] = useState<{
+    left: number
+    top: number
+    width: number
+    height: number
+  } | null>(null)
+  const selectionBoxRef = useRef<{
+    left: number
+    top: number
+    width: number
+    height: number
+  } | null>(null)
   const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({
     x: null,
     y: null,
@@ -301,7 +318,7 @@ export function EcommerceWorkbench({
   const [editingTextId, setEditingTextId] = useState<string | null>(null)
   const [actionPanelHeight, setActionPanelHeight] = useState(420)
   const [historyVersion, setHistoryVersion] = useState(0)
-  const lastItemCountRef = useRef(0)
+  const lastItemIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     if (interactionRef.current) return
@@ -389,7 +406,8 @@ export function EcommerceWorkbench({
     }
     return byNode
   }, [runs])
-  const selected = localItems.find((item) => item.id === selectedId) ?? null
+  const selectedItems = localItems.filter((item) => selectedIds.has(item.id))
+  const selected = selectedItems.length === 1 ? selectedItems[0]! : null
   const selectedResult = selected?.resultId
     ? activeResultById.get(selected.resultId) ??
       resultById.get(selected.resultId) ??
@@ -442,10 +460,30 @@ export function EcommerceWorkbench({
     ))
   }, [localItems])
 
+  /** 新批次落位后把视口带到新对象，而不是把用户留在旧结果的位置。 */
+  const focusItems = useCallback((targets: readonly EcommerceCanvasItem[]) => {
+    if (!viewportRef.current || targets.length === 0) return
+    const rect = viewportRef.current.getBoundingClientRect()
+    setViewport(fromCanvasViewport(
+      fitViewport(
+        targets.map((item) => ({
+          x: item.x,
+          y: item.y,
+          w: item.width,
+          h: item.height,
+        })),
+        { x: 0, y: 0, w: rect.width, h: rect.height },
+        96,
+      ),
+    ))
+  }, [])
+
   useEffect(() => {
-    if (lastItemCountRef.current === 0 && localItems.length > 0) fitAll()
-    lastItemCountRef.current = localItems.length
-  }, [fitAll, localItems.length])
+    const previousIds = lastItemIdsRef.current
+    const fresh = localItems.filter((item) => !previousIds.has(item.id))
+    if (fresh.length > 0) focusItems(fresh)
+    lastItemIdsRef.current = new Set(localItems.map((item) => item.id))
+  }, [focusItems, localItems])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -458,10 +496,14 @@ export function EcommerceWorkbench({
       if (event.key.toLowerCase() === 'v') setTool('select')
       if (event.key.toLowerCase() === 'h') setTool('hand')
       if (event.key === '0') fitAll()
-      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedId) {
+      if (event.key === 'Escape') {
+        setSelectedIds(new Set())
+        setEditingTextId(null)
+      }
+      if ((event.key === 'Delete' || event.key === 'Backspace') && selectedIds.size > 0) {
         event.preventDefault()
-        commitItems(localItems.filter((item) => item.id !== selectedId))
-        setSelectedId(null)
+        commitItems(localItems.filter((item) => !selectedIds.has(item.id)))
+        setSelectedIds(new Set())
       }
     }
     const onKeyUp = (event: KeyboardEvent) => {
@@ -518,13 +560,29 @@ export function EcommerceWorkbench({
     event.stopPropagation()
     const rect = viewportRef.current?.getBoundingClientRect()
     if (!rect) return
-    setSelectedId(item.id)
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey
+    let nextSelection: Set<string>
+    if (additive) {
+      nextSelection = new Set(selectedIds)
+      if (nextSelection.has(item.id)) nextSelection.delete(item.id)
+      else nextSelection.add(item.id)
+    } else {
+      nextSelection = selectedIds.has(item.id)
+        ? new Set(selectedIds)
+        : new Set([item.id])
+    }
+    setSelectedIds(nextSelection)
+    if (!nextSelection.has(item.id)) return
+    const movingItems = localItemsRef.current.filter((candidate) =>
+      nextSelection.has(candidate.id),
+    )
     interactionRef.current = {
       kind: 'move',
       itemId: item.id,
       startClient: { x: event.clientX, y: event.clientY },
       startViewport: viewport,
       startItem: item,
+      startItems: movingItems,
       startWorld: screenToWorkbenchWorld({ x: event.clientX, y: event.clientY }, viewport, rect),
       moved: false,
     }
@@ -537,6 +595,7 @@ export function EcommerceWorkbench({
     handle: ResizeHandle,
   ) => {
     event.stopPropagation()
+    setSelectedIds(new Set([item.id]))
     const rect = viewportRef.current?.getBoundingClientRect()
     if (!rect) return
     interactionRef.current = {
@@ -554,6 +613,7 @@ export function EcommerceWorkbench({
 
   const beginRotate = (event: ReactPointerEvent, item: EcommerceCanvasItem) => {
     event.stopPropagation()
+    setSelectedIds(new Set([item.id]))
     const rect = viewportRef.current?.getBoundingClientRect()
     if (!rect) return
     const world = screenToWorkbenchWorld({ x: event.clientX, y: event.clientY }, viewport, rect)
@@ -577,12 +637,33 @@ export function EcommerceWorkbench({
       const target = event.target as HTMLElement
       if (
         !target.closest(
-          '[data-ecommerce-workbench-item], [data-ecommerce-action-panel], [data-ecommerce-workbench-toolbar], [data-ecommerce-workbench-log], [data-ecommerce-workbench-zoom], button',
+          '[data-ecommerce-workbench-item], [data-ecommerce-action-panel], [data-ecommerce-workbench-toolbar], [data-ecommerce-workbench-log], [data-ecommerce-workbench-zoom], [data-ecommerce-workbench-minimap], button',
         )
       ) {
-        setSelectedId(null)
         setEditingTextId(null)
+        const rect = viewportRef.current?.getBoundingClientRect()
+        if (rect) {
+          const box = {
+            left: event.clientX - rect.left,
+            top: event.clientY - rect.top,
+            width: 0,
+            height: 0,
+          }
+          selectionBoxRef.current = box
+          setSelectionBox(box)
+          interactionRef.current = {
+            kind: 'marquee',
+            startClient: { x: event.clientX, y: event.clientY },
+            startViewport: viewport,
+            startWorld: { x: 0, y: 0 },
+            additive: event.shiftKey,
+            moved: false,
+          }
+          event.currentTarget.setPointerCapture?.(event.pointerId)
+          event.preventDefault()
+        }
       }
+      return
     }
     if (event.button !== 1 && tool !== 'hand' && !spaceHeld) return
     event.preventDefault()
@@ -600,6 +681,26 @@ export function EcommerceWorkbench({
     if (!interaction) return
     interactionRef.current = null
     setGuides({ x: null, y: null })
+    if (interaction.kind === 'marquee') {
+      const box = selectionBoxRef.current
+      const next = interaction.moved && box
+        ? localItemsRef.current.filter((item) => {
+            const screen = itemScreenRect(item, interaction.startViewport)
+            return (
+              screen.left + screen.width >= box.left &&
+              screen.left <= box.left + box.width &&
+              screen.top + screen.height >= box.top &&
+              screen.top <= box.top + box.height
+            )
+          }).map((item) => item.id)
+        : []
+      setSelectedIds((current) =>
+        new Set(interaction.additive ? [...current, ...next] : next),
+      )
+      setSelectionBox(null)
+      selectionBoxRef.current = null
+      return
+    }
     if (interaction.kind !== 'pan' && interaction.moved) {
       undoRef.current.push([...items])
       redoRef.current = []
@@ -651,6 +752,20 @@ export function EcommerceWorkbench({
         return
       }
       const rect = viewportRef.current?.getBoundingClientRect()
+      if (interaction.kind === 'marquee') {
+        if (!rect) return
+        const left = Math.min(interaction.startClient.x, event.clientX) - rect.left
+        const top = Math.min(interaction.startClient.y, event.clientY) - rect.top
+        const box = {
+          left,
+          top,
+          width: Math.abs(event.clientX - interaction.startClient.x),
+          height: Math.abs(event.clientY - interaction.startClient.y),
+        }
+        selectionBoxRef.current = box
+        setSelectionBox(box)
+        return
+      }
       if (!rect || !interaction.startItem || !interaction.itemId) return
       const item = interaction.startItem
       if (interaction.kind === 'move') {
@@ -661,13 +776,26 @@ export function EcommerceWorkbench({
           item,
           rawX,
           rawY,
-          localItemsRef.current.filter((candidate) => candidate.id !== item.id),
+          localItemsRef.current.filter(
+            (candidate) => !interaction.startItems?.some((moving) => moving.id === candidate.id),
+          ),
           interaction.startViewport.scale,
         )
         setGuides(snapped.guides)
+        const deltaX = snapped.x - item.x
+        const deltaY = snapped.y - item.y
+        const moving = new Map(
+          (interaction.startItems ?? [item]).map((candidate) => [candidate.id, candidate] as const),
+        )
         updateLocalItems((current) =>
           current.map((candidate) =>
-            candidate.id === item.id ? { ...candidate, x: snapped.x, y: snapped.y } : candidate,
+            moving.has(candidate.id)
+              ? {
+                  ...candidate,
+                  x: moving.get(candidate.id)!.x + deltaX,
+                  y: moving.get(candidate.id)!.y + deltaY,
+                }
+              : candidate,
           ),
         )
         return
@@ -763,7 +891,7 @@ export function EcommerceWorkbench({
       updatedAt: Date.now(),
     }
     commitItems([...localItems, item])
-    setSelectedId(item.id)
+    setSelectedIds(new Set([item.id]))
     setEditingTextId(item.id)
   }
 
@@ -791,7 +919,7 @@ export function EcommerceWorkbench({
       updatedAt: Date.now(),
     }
     commitItems([...localItems, item])
-    setSelectedId(item.id)
+    setSelectedIds(new Set([item.id]))
   }
 
   const panel = useMemo(() => {
@@ -823,6 +951,70 @@ export function EcommerceWorkbench({
       ] as const)
     : []
 
+  const minimap = useMemo(() => {
+    if (size.width <= 0 || size.height <= 0) return null
+    const view = {
+      x: -viewport.x / viewport.scale,
+      y: -viewport.y / viewport.scale,
+      width: size.width / viewport.scale,
+      height: size.height / viewport.scale,
+    }
+    const bounds = localItems.reduce(
+      (acc, item) => ({
+        minX: Math.min(acc.minX, item.x),
+        minY: Math.min(acc.minY, item.y),
+        maxX: Math.max(acc.maxX, item.x + item.width),
+        maxY: Math.max(acc.maxY, item.y + item.height),
+      }),
+      {
+        minX: view.x,
+        minY: view.y,
+        maxX: view.x + view.width,
+        maxY: view.y + view.height,
+      },
+    )
+    const worldWidth = Math.max(1, bounds.maxX - bounds.minX)
+    const worldHeight = Math.max(1, bounds.maxY - bounds.minY)
+    const scale = Math.min(
+      (MINIMAP_WIDTH - MINIMAP_PADDING * 2) / worldWidth,
+      (MINIMAP_HEIGHT - MINIMAP_PADDING * 2) / worldHeight,
+    )
+    return {
+      bounds,
+      scale,
+      items: localItems.map((item) => ({
+        id: item.id,
+        left: MINIMAP_PADDING + (item.x - bounds.minX) * scale,
+        top: MINIMAP_PADDING + (item.y - bounds.minY) * scale,
+        width: Math.max(2, item.width * scale),
+        height: Math.max(2, item.height * scale),
+        selected: selectedIds.has(item.id),
+      })),
+      viewportRect: {
+        left: MINIMAP_PADDING + (view.x - bounds.minX) * scale,
+        top: MINIMAP_PADDING + (view.y - bounds.minY) * scale,
+        width: view.width * scale,
+        height: view.height * scale,
+      },
+    }
+  }, [localItems, selectedIds, size.height, size.width, viewport])
+
+  const moveViewportFromMinimap = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!minimap) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    const worldX =
+      minimap.bounds.minX +
+      (event.clientX - rect.left - MINIMAP_PADDING) / minimap.scale
+    const worldY =
+      minimap.bounds.minY +
+      (event.clientY - rect.top - MINIMAP_PADDING) / minimap.scale
+    setViewport(fromCanvasViewport({
+      x: worldX - size.width / (2 * viewport.scale),
+      y: worldY - size.height / (2 * viewport.scale),
+      zoom: viewport.scale,
+    }))
+  }
+
   return (
     <div
       ref={viewportRef}
@@ -830,6 +1022,8 @@ export function EcommerceWorkbench({
       data-ecommerce-workbench
       data-tool={tool}
       data-zoom={Math.round(viewport.scale * 100)}
+      data-viewport-x={Math.round(viewport.x)}
+      data-viewport-y={Math.round(viewport.y)}
       onPointerDown={beginPan}
       onDoubleClick={(event) => {
         if (event.target === event.currentTarget) fitAll()
@@ -864,9 +1058,10 @@ export function EcommerceWorkbench({
           const errorText =
             run?.errorText ??
             activeResult?.errorText ??
+            result?.errorText ??
             task?.errorText ??
             '任务已结束，但没有返回可展示的结果'
-          const selectedItem = item.id === selectedId
+          const selectedItem = selectedIds.has(item.id)
           return (
             <div
               key={item.id}
@@ -880,7 +1075,7 @@ export function EcommerceWorkbench({
                 top: item.y,
                 width: item.width,
                 height: item.height,
-                zIndex: selectedItem ? 10000 : item.zIndex,
+                zIndex: selectedItem ? item.zIndex + 10000 : item.zIndex,
                 transform: `rotate(${item.rotation}deg)`,
               }}
               data-ecommerce-workbench-item={item.id}
@@ -898,7 +1093,7 @@ export function EcommerceWorkbench({
               onDoubleClick={(event) => {
                 event.stopPropagation()
                 if (item.kind === 'text') setEditingTextId(item.id)
-                else setSelectedId(item.id)
+                else setSelectedIds(new Set([item.id]))
               }}
             >
               {activeResult && status && status !== 'done' ? (
@@ -948,7 +1143,7 @@ export function EcommerceWorkbench({
                   original={selectedItem || !item.resultId}
                 />
               )}
-              {selectedItem && (
+              {selectedItem && selectedIds.size === 1 && (
                 <>
                   <span className={styles.sizeLabel} data-ecommerce-item-size>
                     {Math.round(item.width)} × {Math.round(item.height)}
@@ -992,6 +1187,15 @@ export function EcommerceWorkbench({
           <div className={styles.guideY} style={{ top: guides.y }} aria-hidden />
         )}
       </div>
+
+      {selectionBox ? (
+        <div
+          className={styles.selectionMarquee}
+          data-ecommerce-selection-marquee
+          aria-hidden="true"
+          style={selectionBox}
+        />
+      ) : null}
 
       {selected && panel && (
         <aside
@@ -1049,6 +1253,44 @@ export function EcommerceWorkbench({
         </aside>
       )}
 
+      {minimap ? (
+        <div
+          className={styles.minimap}
+          data-ecommerce-workbench-minimap
+          role="button"
+          tabIndex={0}
+          aria-label="工作台小地图，点击定位视口"
+          title="小地图：点击定位"
+          onPointerDown={(event) => {
+            event.stopPropagation()
+            moveViewportFromMinimap(event)
+          }}
+        >
+          {minimap.items.map((item) => (
+            <span
+              key={item.id}
+              className={styles.minimapItem}
+              data-selected={item.selected ? 'true' : undefined}
+              style={{
+                left: item.left,
+                top: item.top,
+                width: item.width,
+                height: item.height,
+              }}
+            />
+          ))}
+          <span
+            className={styles.minimapViewport}
+            style={{
+              left: minimap.viewportRect.left,
+              top: minimap.viewportRect.top,
+              width: minimap.viewportRect.width,
+              height: minimap.viewportRect.height,
+            }}
+          />
+        </div>
+      ) : null}
+
       <div className={styles.toolbar} data-ecommerce-workbench-toolbar>
         <button type="button" data-tool-active={tool === 'select'} title="选择 (V)" onClick={() => setTool('select')}>
           <ToolIcon name="select" />
@@ -1074,6 +1316,9 @@ export function EcommerceWorkbench({
 
       <div className={styles.zoomReadout} data-ecommerce-workbench-zoom>
         {Math.round(viewport.scale * 100)}%
+        {selectedIds.size > 1 ? (
+          <span data-ecommerce-selection-count>已选 {selectedIds.size} 项</span>
+        ) : null}
         <button type="button" onClick={fitAll}>适配全部</button>
       </div>
 

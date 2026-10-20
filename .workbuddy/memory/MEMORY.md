@@ -31,6 +31,14 @@
 - **电商图片参数不能另抄模型表**：页面层用无限画布的 `imageParamsFor()` 生成 `imageParamOptionsByModel`，工作台按选中的显示名渲染分辨率/质量；分辨率默认 auto，GPT Image 2 质量三档，2.5 五档。`resolution / quality` 要同时进入 draft、request、节点 extraData，否则界面能选但请求不会带。
 - **验证**：全量 **2892 passed / 1 skipped**，`npm run check`、`npm run build` 通过；隔离矩阵 G114 **31/31**、G164 **45/45**、G166 **20/20**；G164 断言 GPT Image 2 显示自动/1K/2K/4K 与自动/低/中/高，且任务请求真正带 `resolution=4K / quality=high`；G166 断言删除后 hiddenAt 写入且刷新不复活。
 
+### 新批次进入视口、小地图与工作台框选（2026-10-21 → 对账 #681–#683）
+
+- **隐藏对象不能参与底部计算**：真实库新任务一度落在 `y=18000–22600`，因为 `sync()` 在计算 globalBottom 时仍把已隐藏对象算进去。计算位置必须使用 `existing` 排除 `merged.removedIds` 后的 retained 集合。
+- **新对象要自动进入视口**：`EcommerceWorkbench` 用上次 item id 集合识别新增对象，出现新 id 就对新对象矩形 `fitViewport()`；不要只在空工作台首次加载时 fit，否则用户会以为没有生成。
+- **小地图是工作台派生 UI**：对象 / 视口框从 `localItems + viewport + size` 现算；点击小地图只移动视口，不修改对象布局。
+- **工作台框选只维护一份 `selectedIds`**：空白拖框在屏幕坐标与 item screen rect 求交，Shift 追加；多选后拖动应用同一 world delta；Delete 一次删所有选中对象，删除带 resultId 的对象时仍走 hiddenAt。
+- **验证**：全量 **2893 passed / 1 skipped**，`npm run check`、`npm run build` 通过；G164 **45/45**、G166 **23/23**。
+
 ### 电商 Phase 0：素材多选、回收站批处理与失败记录（2026-10-20）
 
 - **素材“删除”不是删文件**：素材页批量移除写 `presets/assetRecordsHidden:v1` 隐藏索引，并删除 `assetLibrary` 收藏关系；`assets` 字节和 `runRecords` 保留。再次 `save()` 同一 hash 会解除隐藏。这样才能支持 Del 多选，又不会从画布仍引用的节点下面抽走字节。

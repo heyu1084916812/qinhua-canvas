@@ -28218,6 +28218,33 @@ async function g166(browser) {
     (await page.locator('[data-ecommerce-workbench-toolbar] button').count()) === 6 &&
       (await page.locator('[data-ecommerce-workbench-toolbar] [data-grid-size]').count()) === 0,
   )
+  const minimap = page.locator('[data-ecommerce-workbench-minimap]')
+  rec(
+    g,
+    '左下角显示工作台小地图',
+    (await minimap.count()) === 1 && (await minimap.isVisible()),
+  )
+  const workbenchRoot = page.locator('[data-ecommerce-workbench]')
+  const viewportBeforeMini = {
+    x: Number(await workbenchRoot.getAttribute('data-viewport-x')),
+    y: Number(await workbenchRoot.getAttribute('data-viewport-y')),
+  }
+  const miniBox = await minimap.boundingBox()
+  if (miniBox) {
+    await page.mouse.click(miniBox.x + miniBox.width * 0.82, miniBox.y + miniBox.height * 0.78)
+  }
+  const viewportAfterMini = {
+    x: Number(await workbenchRoot.getAttribute('data-viewport-x')),
+    y: Number(await workbenchRoot.getAttribute('data-viewport-y')),
+  }
+  rec(
+    g,
+    '点击小地图可以移动工作台视口',
+    viewportAfterMini.x !== viewportBeforeMini.x || viewportAfterMini.y !== viewportBeforeMini.y,
+    `${JSON.stringify(viewportBeforeMini)} → ${JSON.stringify(viewportAfterMini)}`,
+  )
+  await page.locator('[data-ecommerce-workbench-zoom] button').click()
+  await sleep(250)
 
   const layout = await items.evaluateAll((els) =>
     els.map((el) => ({
@@ -28232,6 +28259,33 @@ async function g166(browser) {
       layout[2].y - (layout[1].y + layout[1].h) === 96,
     JSON.stringify(layout),
   )
+  const marqueeBoxes = await items.evaluateAll((els) =>
+    els.slice(0, 2).map((el) => {
+      const rect = el.getBoundingClientRect()
+      return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
+    }),
+  )
+  if (marqueeBoxes.length === 2) {
+    const left = Math.min(...marqueeBoxes.map((box) => box.left)) - 8
+    const top = Math.min(...marqueeBoxes.map((box) => box.top)) - 8
+    const right = Math.max(...marqueeBoxes.map((box) => box.right)) + 8
+    const bottom = Math.max(...marqueeBoxes.map((box) => box.bottom)) + 8
+    await page.mouse.move(left, top)
+    await page.mouse.down()
+    await page.mouse.move(right, bottom, { steps: 8 })
+    await sleep(80)
+    const boxVisible = (await page.locator('[data-ecommerce-selection-marquee]').count()) > 0
+    await page.mouse.up()
+    await sleep(200)
+    rec(
+      g,
+      '★★ 电商工作台空白拖动可框选多个对象',
+      boxVisible &&
+        (await page.locator('[data-ecommerce-selection-count]').count()) === 1 &&
+        /已选\s*[2-9]/.test(await page.locator('[data-ecommerce-selection-count]').innerText()),
+    )
+    await page.keyboard.press('Escape')
+  }
 
   const layoutBeforeMode = await items.evaluateAll((els) =>
     els.map((el) => `${el.getAttribute('data-item-x')}:${el.getAttribute('data-item-y')}`),
@@ -28464,6 +28518,8 @@ async function g166(browser) {
     uploadActionText.replace(/\n/g, ' | '),
   )
 
+  await page.locator('[data-ecommerce-workbench-zoom] button').click()
+  await sleep(250)
   await page.locator('[data-ecommerce-result-record-id="wb-r1"]').click()
   await page.keyboard.press('Delete')
   await sleep(700)
@@ -37278,6 +37334,19 @@ async function g164(browser) {
     insideItems: [...document.querySelectorAll('[data-ecommerce-result-overlay="running"]')].every(
       (el) => !!el.closest('[data-ecommerce-workbench-item]'),
     ),
+    insideViewport: (() => {
+      const workbench = document.querySelector('[data-ecommerce-workbench]')?.getBoundingClientRect()
+      if (!workbench) return false
+      return [...document.querySelectorAll('[data-ecommerce-result-overlay="running"]')].every((el) => {
+        const rect = el.getBoundingClientRect()
+        return (
+          rect.right >= workbench.left &&
+          rect.left <= workbench.right &&
+          rect.bottom >= workbench.top &&
+          rect.top <= workbench.bottom
+        )
+      })
+    })(),
     texts: [...document.querySelectorAll('[data-ecommerce-result-elapsed]')].map(
       (el) => el.textContent?.trim() ?? '',
     ),
@@ -37295,6 +37364,7 @@ async function g164(browser) {
       runningBefore.orbits === 2 &&
       runningBefore.trays === 0 &&
       runningBefore.insideItems &&
+      runningBefore.insideViewport &&
       runningBefore.texts.some((text) => text.startsWith('生成中')) &&
       runningAfter.texts.some((text) => /生成中 [1-9]\d*s/.test(text)),
     JSON.stringify({ runningBefore, runningAfter }),
@@ -37369,6 +37439,14 @@ async function g164(browser) {
     null,
     { timeout: 15_000 },
   )
+  await page.waitForFunction(
+    () => {
+      const reason = document.querySelector('[data-ecommerce-result-error]')?.textContent ?? ''
+      return reason.includes('无法解析的响应')
+    },
+    null,
+    { timeout: 5000 },
+  ).catch(() => {})
   const failedOverlay = await page.evaluate(() => {
     const overlay = document.querySelector(
       '[data-ecommerce-result][data-status="failed"] [data-ecommerce-result-overlay="failed"]',
@@ -37432,13 +37510,23 @@ async function g164(browser) {
   const failedRowsAfterRemove = failedResult
     ? (await sharedRows(page, 'ecommerceResults')).filter((row) => row.id === failedResult.id)
     : []
+  const remainingRows = failedResult
+    ? (await sharedRows(page, 'ecommerceResults')).filter(
+        (row) => row.taskId === failedResult.taskId,
+      )
+    : []
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-ecommerce-result][data-status="done"]').length >= 1,
+    null,
+    { timeout: 5000 },
+  ).catch(() => {})
   rec(
     g,
     '★★ 失败结果可移除记录，不删除同批成功结果',
     !!failedResult &&
       failedRowsAfterRemove.length === 0 &&
-      (await page.locator('[data-ecommerce-result][data-status="done"]').count()) >= 1,
-    `剩余失败记录=${failedRowsAfterRemove.length}`,
+      remainingRows.some((row) => row.status === 'done'),
+    `剩余失败记录=${failedRowsAfterRemove.length} 同批成功=${remainingRows.filter((row) => row.status === 'done').length}`,
   )
   if (failedResult) {
     const tasksBeforeNewRun = (await sharedRows(page, 'ecommerceTasks')).filter(

@@ -146,6 +146,15 @@
   height: 1px;
 }
 
+.selectionMarquee {
+  position: absolute;
+  z-index: 45;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  pointer-events: none;
+}
+
 .textItem {
   border-color: transparent;
   background: transparent;
@@ -359,6 +368,47 @@
   background: var(--bg-surface);
   box-shadow: var(--shadow-float);
   transform: translateX(-50%);
+}
+
+.minimap {
+  position: absolute;
+  left: 12px;
+  bottom: 48px;
+  z-index: 24;
+  width: 184px;
+  height: 112px;
+  overflow: hidden;
+  border: var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-surface) 92%, transparent);
+  box-shadow: var(--shadow-float);
+  cursor: crosshair;
+}
+
+.minimap:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.minimapItem {
+  position: absolute;
+  min-width: 2px;
+  min-height: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--text-3) 42%, transparent);
+}
+
+.minimapItem[data-selected='true'] {
+  background: var(--accent);
+}
+
+.minimapViewport {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  pointer-events: none;
 }
 
 .toolbar button,
