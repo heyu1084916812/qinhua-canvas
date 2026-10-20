@@ -18,6 +18,8 @@ describe('电商左侧草稿纯数据', () => {
       language: 'en',
       count: 4,
       ratio: '3:4',
+      resolution: '4K',
+      quality: 'high',
       note: '突出防水材质',
       model: 'GPT Image 2.5 Flare',
       modeOptions: {
@@ -82,18 +84,24 @@ describe('电商左侧草稿纯数据', () => {
       platformId: 'amazon',
       language: 'en',
       ratio: '1:1',
+      resolution: 'auto',
+      quality: 'auto',
       note: '套图要求',
     })
     expect(out.modeStates['product-detail']).toEqual({
       platformId: 'taobao',
       language: 'zh-CN',
       ratio: 'aplus-premium-web',
+      resolution: 'auto',
+      quality: 'auto',
       note: '详情页要求',
     })
     expect(out.modeStates.broken).toEqual({
       platformId: 'x',
       language: 'en',
       ratio: '1:1',
+      resolution: 'auto',
+      quality: 'auto',
       note: '',
     })
   })

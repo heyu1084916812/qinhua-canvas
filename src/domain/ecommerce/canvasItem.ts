@@ -82,6 +82,7 @@ export function layoutEcommerceResults(
   )
   const taskById = new Map(tasks.map((task) => [task.id, task] as const))
   const laidOut = [...results]
+    .filter((result) => !result.hiddenAt)
     .sort((a, b) => {
       const taskA = taskOrder.get(a.taskId) ?? Number.MAX_SAFE_INTEGER
       const taskB = taskOrder.get(b.taskId) ?? Number.MAX_SAFE_INTEGER

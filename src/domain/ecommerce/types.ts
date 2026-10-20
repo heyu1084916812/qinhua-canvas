@@ -56,6 +56,13 @@ export interface EcommerceRequest {
   count: number
   /** 比例：'1:1' | '3:4' | '4:3' | '16:9' | '9:16' */
   ratio: string
+  /**
+   * 图片清晰度档位：自动 / 512 / 1K / 2K / 3K / 4K，或模型支持的像素尺寸。
+   * 空串 / 'auto' = 不向渠道指定。
+   */
+  resolution?: string
+  /** GPT Image 等模型的质量档位；空串 / 'auto' = 不向渠道指定。 */
+  quality?: string
   /** 产品图：走节点 id（与画布同源） */
   productNodeId: string
   /** 多角度产品图；`productNodeId` 仍是第一张。旧任务可缺省。 */

@@ -89,6 +89,11 @@ export interface EcommerceUpload {
   height?: number
 }
 
+export interface EcommerceImageParamOptions {
+  resolutions: readonly string[]
+  qualities: readonly string[]
+}
+
 export interface EcommerceResultItem {
   nodeId: string
   /** 电商结果表的真实 id；工作台操作按它回查。 */
@@ -409,6 +414,8 @@ function defaultModeFormState(mode: StudioMode): EcommerceModeFormState {
       mode.usage === 'detail'
         ? 'aplus-premium-web'
         : (mode.ratio ?? '1:1'),
+    resolution: 'auto',
+    quality: 'auto',
     note: '',
   }
 }
@@ -1051,6 +1058,8 @@ export interface EcommerceStudioProps {
   models?: readonly string[]
   /** 可选视频模型；视频品类只从这里选。 */
   videoModels?: readonly string[]
+  /** 与无限画布同源的生图模型参数能力，按前端显示名索引。 */
+  imageParamOptionsByModel?: Readonly<Record<string, EcommerceImageParamOptions>>
   /** 可做图生图编辑的模型（必须真实声明 image 输入） */
   editModels?: readonly string[]
   /** 当前选中的模型；空串 = 用默认解析出来的那一个 */
@@ -1142,6 +1151,7 @@ export function EcommerceStudio({
   upscaleProfiles,
   models = [],
   videoModels = [],
+  imageParamOptionsByModel = {},
   editModels = [],
   model,
   onModelChange,
@@ -1176,6 +1186,8 @@ export function EcommerceStudio({
       platformId: saved.platformId,
       language: saved.language,
       ratio: saved.ratio,
+      resolution: saved.resolution,
+      quality: saved.quality,
       note: saved.note,
     },
   }))
@@ -1307,6 +1319,8 @@ export function EcommerceStudio({
   const platformId = modeFormState.platformId
   const language = modeFormState.language
   const ratio = modeFormState.ratio
+  const resolution = modeFormState.resolution
+  const quality = modeFormState.quality
   const note = modeFormState.note
   const updateModeFormState = (patch: Partial<EcommerceModeFormState>) => {
     setModeStates((current) => ({
@@ -1320,6 +1334,8 @@ export function EcommerceStudio({
   const setPlatformId = (value: string) => updateModeFormState({ platformId: value })
   const setLanguage = (value: EcommerceLanguage) => updateModeFormState({ language: value })
   const setRatio = (value: string) => updateModeFormState({ ratio: value })
+  const setResolution = (value: string) => updateModeFormState({ resolution: value })
+  const setQuality = (value: string) => updateModeFormState({ quality: value })
   const setNote = (value: string) => updateModeFormState({ note: value })
   const modeOptions =
     modeOptionsByMode[mode.id] ?? defaultEcommerceModeOptions(mode.id)
@@ -1382,6 +1398,8 @@ export function EcommerceStudio({
       language,
       count: effectiveCount,
       ratio,
+      resolution,
+      quality,
       note,
       model,
       modeOptions,
@@ -1398,6 +1416,8 @@ export function EcommerceStudio({
     language,
     effectiveCount,
     ratio,
+    resolution,
+    quality,
     note,
     model,
     modeOptions,
@@ -1552,6 +1572,8 @@ export function EcommerceStudio({
       language,
       count: mode.mediaKind === 'video' ? 1 : effectiveCount,
       ratio,
+      ...(mode.mediaKind === 'image' && resolution !== 'auto' ? { resolution } : {}),
+      ...(mode.mediaKind === 'image' && quality !== 'auto' ? { quality } : {}),
       productNodeId: products[0]?.nodeId ?? '',
       productNodeIds: products.map((item) => item.nodeId),
       referenceNodeIds: references.map((r) => r.nodeId),
@@ -1786,6 +1808,45 @@ export function EcommerceStudio({
   ].includes(mode.id)
   const showPlatformField = mode.id !== 'wear-set'
   const showRatioField = mode.id !== 'wear-set'
+  const imageParamOptions =
+    imageParamOptionsByModel[model] ?? {
+      resolutions: ['1K', '2K', '4K'],
+      qualities: [],
+    }
+  const qualityLabels: Record<string, string> = {
+    auto: '自动',
+    low: '低',
+    medium: '中',
+    high: '高',
+    xhigh: '超高',
+    max: '极致',
+  }
+  const resolutionChoices = [
+    { value: 'auto', label: '自动' },
+    ...imageParamOptions.resolutions
+      .filter((value) => value !== 'auto')
+      .map((value) => ({ value, label: value })),
+  ]
+  const qualityChoices = [
+    { value: 'auto', label: '自动' },
+    ...imageParamOptions.qualities.map((value) => ({
+      value,
+      label: qualityLabels[value] ?? value,
+    })),
+  ]
+  const showResolutionField = mode.mediaKind === 'image'
+  const showQualityField = mode.mediaKind === 'image' && qualityChoices.length > 1
+  const handleGenerateModelChange = (next: string) => {
+    const nextOptions = imageParamOptionsByModel[next] ?? {
+      resolutions: ['1K', '2K', '4K'],
+      qualities: [],
+    }
+    onModelChange(next)
+    updateModeFormState({
+      resolution: nextOptions.resolutions.includes(resolution) ? resolution : 'auto',
+      quality: nextOptions.qualities.includes(quality) ? quality : 'auto',
+    })
+  }
   const carouselCases = [
     {
       id: 'case-1',
@@ -2045,6 +2106,32 @@ export function EcommerceStudio({
                 />
               </div>
             ) : null}
+            {showResolutionField ? (
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>分辨率</span>
+                <EcommerceSelect
+                  ariaLabel="图片分辨率"
+                  name="resolution"
+                  value={resolution}
+                  onChange={setResolution}
+                  options={resolutionChoices}
+                  dataAttributes={{ 'data-ecommerce-resolution': true }}
+                />
+              </div>
+            ) : null}
+            {showQualityField ? (
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>质量</span>
+                <EcommerceSelect
+                  ariaLabel="图片质量"
+                  name="quality"
+                  value={quality}
+                  onChange={setQuality}
+                  options={qualityChoices}
+                  dataAttributes={{ 'data-ecommerce-quality': true }}
+                />
+              </div>
+            ) : null}
           </div>
         </section>
         ) : null}
@@ -2128,7 +2215,7 @@ export function EcommerceStudio({
             ariaLabel={mode.mediaKind === 'video' ? '视频模型' : '生成模型'}
             name="generate-model"
             value={model}
-            onChange={onModelChange}
+            onChange={handleGenerateModelChange}
             placeholder="默认（按渠道解析）"
             menuMinWidth={250}
             options={[

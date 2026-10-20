@@ -25516,6 +25516,32 @@ async function g114(browser) {
 
   await page.locator('[data-assets-select-mode]').click()
   await sleep(250)
+  await page.locator('[data-assets-view-mode="grid"]').click()
+  await sleep(250)
+  const marqueeCards = page.locator('[data-asset-open]')
+  const firstCard = await marqueeCards.nth(0).boundingBox()
+  const secondCard = await marqueeCards.nth(1).boundingBox()
+  if (firstCard && secondCard) {
+    const left = Math.min(firstCard.x, secondCard.x) - 6
+    const top = Math.min(firstCard.y, secondCard.y) - 6
+    const right = Math.max(firstCard.x + firstCard.width, secondCard.x + secondCard.width) + 6
+    const bottom = Math.max(firstCard.y + firstCard.height, secondCard.y + secondCard.height) + 6
+    await page.mouse.move(left, top)
+    await page.mouse.down()
+    await page.mouse.move(right, bottom, { steps: 8 })
+    await sleep(80)
+    const marqueeVisible = (await page.locator('[data-assets-marquee]').count()) > 0
+    await page.mouse.up()
+    await sleep(250)
+    rec(
+      g,
+      '★★ 选择模式支持在工作区空白处拖出选框，框内素材自动选中',
+      marqueeVisible &&
+        (await page.locator('[data-asset-checked="true"]').count()) >= 2,
+      `marquee=${marqueeVisible} selected=${await page.locator('[data-asset-checked="true"]').count()}`,
+    )
+  }
+  await page.getByRole('button', { name: '清空选择', exact: true }).click()
   const selectChecks = page.locator('[data-asset-select]')
   const selectableCount = await selectChecks.count()
   const selectCards = page.locator('[data-asset-open]')
@@ -28436,6 +28462,23 @@ async function g166(browser) {
       uploadActionText.includes('下载') &&
       uploadActionText.includes('收藏到素材库'),
     uploadActionText.replace(/\n/g, ' | '),
+  )
+
+  await page.locator('[data-ecommerce-result-record-id="wb-r1"]').click()
+  await page.keyboard.press('Delete')
+  await sleep(700)
+  const hiddenResult = (await sharedRows(page, 'ecommerceResults')).find(
+    (row) => row.id === 'wb-r1',
+  )
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.locator('[data-ecommerce-workbench]').waitFor({ state: 'visible', timeout: 15000 })
+  await sleep(500)
+  rec(
+    g,
+    '★★ 工作台删除图片后写入 hiddenAt，刷新也不会被结果真源重新补回来',
+    typeof hiddenResult?.hiddenAt === 'number' &&
+      (await page.locator('[data-ecommerce-result-record-id="wb-r1"]').count()) === 0,
+    `hiddenAt=${hiddenResult?.hiddenAt ?? '无'}`,
   )
 
   await page.screenshot({ path: `${OUT}/166-ecommerce-workbench.png` })
@@ -36903,6 +36946,45 @@ async function g164(browser) {
       (await platformTrigger.innerText()).trim().length > 0,
     await platformTrigger.innerText(),
   )
+  const generateModelTrigger = page.locator('[data-ecommerce-model]')
+  await generateModelTrigger.click()
+  const generateModelMenu = page.locator('[data-ecommerce-menu="generate-model"]')
+  await generateModelMenu.waitFor({ state: 'visible', timeout: 3000 })
+  await generateModelMenu.locator('[data-ecommerce-select-option="GPT Image 2"]').click()
+  await generateModelMenu.waitFor({ state: 'detached', timeout: 3000 }).catch(() => {})
+  const resolutionTrigger = page.locator('[data-ecommerce-resolution]')
+  const qualityTrigger = page.locator('[data-ecommerce-quality]')
+  rec(
+    g,
+    '★★ GPT Image 2 在电商参数区显示同源的分辨率与质量选项',
+    (await resolutionTrigger.count()) === 1 && (await qualityTrigger.count()) === 1,
+  )
+  await resolutionTrigger.click()
+  const resolutionMenu = page.locator('[data-ecommerce-menu="resolution"]')
+  await resolutionMenu.waitFor({ state: 'visible', timeout: 3000 })
+  const resolutionLabels = await resolutionMenu
+    .locator('[data-ecommerce-select-option]')
+    .evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ''))
+  rec(
+    g,
+    '★★ 分辨率档位来自无限画布 imageParamsFor：自动 / 1K / 2K / 4K',
+    JSON.stringify(resolutionLabels) === JSON.stringify(['自动', '1K', '2K', '4K']),
+    resolutionLabels.join(' / '),
+  )
+  await resolutionMenu.locator('[data-ecommerce-select-option="4K"]').click()
+  await qualityTrigger.click()
+  const qualityMenu = page.locator('[data-ecommerce-menu="quality"]')
+  await qualityMenu.waitFor({ state: 'visible', timeout: 3000 })
+  const qualityLabels = await qualityMenu
+    .locator('[data-ecommerce-select-option]')
+    .evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ''))
+  rec(
+    g,
+    '★★ GPT Image 2 的质量档位为自动 / 低 / 中 / 高',
+    JSON.stringify(qualityLabels) === JSON.stringify(['自动', '低', '中', '高']),
+    qualityLabels.join(' / '),
+  )
+  await qualityMenu.locator('[data-ecommerce-select-option="high"]').click()
   const languageTrigger = page.locator('[data-ecommerce-language]')
   await languageTrigger.click()
   const setLanguageMenu = page.locator('[data-ecommerce-menu="language"]')
@@ -37240,8 +37322,10 @@ async function g164(browser) {
       task?.request?.modeOptions?.setCounts?.whiteBg === 2 &&
       typeof task?.request?.modePrompt === 'string' &&
       task.request.modePrompt.includes('自定义各类型数量') &&
+      task?.request?.resolution === '4K' &&
+      task?.request?.quality === 'high' &&
       typeof task?.request?.resolvedModel === 'string',
-    `done=${done} count=${task?.request?.count ?? '无'} options=${JSON.stringify(task?.request?.modeOptions ?? null)}`,
+    `done=${done} count=${task?.request?.count ?? '无'} resolution=${task?.request?.resolution ?? '无'} quality=${task?.request?.quality ?? '无'} options=${JSON.stringify(task?.request?.modeOptions ?? null)}`,
   )
   rec(
     g,

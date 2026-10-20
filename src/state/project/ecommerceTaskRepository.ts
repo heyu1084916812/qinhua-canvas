@@ -31,6 +31,7 @@ export interface EcommerceTaskRepository {
     nodeIds: readonly string[],
   ): Promise<{ task: EcommerceTaskRecord; results: EcommerceResultRecord[] }>
   updateResult(result: EcommerceResultRecord): Promise<void>
+  setResultHidden(resultId: string, hidden: boolean, at?: number): Promise<void>
   updateTask(task: EcommerceTaskRecord): Promise<void>
   removeResult(
     resultId: string,
@@ -104,6 +105,9 @@ function resultOf(row: Record<string, unknown>): EcommerceResultRecord {
     status: statusOfResult(row.status),
     ...(stringOrUndefined(row.assetHash) ? { assetHash: String(row.assetHash) } : {}),
     ...(stringOrUndefined(row.mime) ? { mime: String(row.mime) } : {}),
+    ...(numberOrUndefined(row.hiddenAt) !== undefined
+      ? { hiddenAt: Number(row.hiddenAt) }
+      : {}),
     ...(numberOrUndefined(row.width) !== undefined ? { width: Number(row.width) } : {}),
     ...(numberOrUndefined(row.height) !== undefined ? { height: Number(row.height) } : {}),
     ...(stringOrUndefined(row.prompt) ? { prompt: String(row.prompt) } : {}),
@@ -164,6 +168,19 @@ export function createEcommerceTaskRepository(storage: StoragePort): EcommerceTa
 
     async updateResult(result) {
       await storage.put('ecommerceResults', result as never)
+    },
+
+    async setResultHidden(resultId, hidden, at = Date.now()) {
+      const rows = (await storage.query('ecommerceResults', {
+        id: resultId,
+      })) as unknown as Record<string, unknown>[]
+      const row = rows.map(resultOf)[0]
+      if (!row) return
+      const { hiddenAt: _hiddenAt, ...rest } = row
+      await storage.put(
+        'ecommerceResults',
+        (hidden ? { ...rest, hiddenAt: at } : rest) as never,
+      )
     },
 
     async appendResults(taskId, nodeIds) {

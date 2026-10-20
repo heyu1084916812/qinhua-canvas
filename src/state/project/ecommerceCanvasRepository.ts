@@ -77,6 +77,7 @@ function resultOf(row: Record<string, unknown>): EcommerceResultRecord {
       ? { assetHash: row.assetHash }
       : {}),
     ...(typeof row.mime === 'string' && row.mime ? { mime: row.mime } : {}),
+    ...(typeof row.hiddenAt === 'number' ? { hiddenAt: row.hiddenAt } : {}),
     ...(typeof row.width === 'number' ? { width: row.width } : {}),
     ...(typeof row.height === 'number' ? { height: row.height } : {}),
     ...(typeof row.prompt === 'string' ? { prompt: row.prompt } : {}),

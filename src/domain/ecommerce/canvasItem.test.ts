@@ -183,6 +183,19 @@ describe('ecommerce canvas item layout', () => {
     expect(item!.height).toBe(Math.round(item!.width / (9 / 16)))
   })
 
+  it('用户从工作台删除的结果带 hiddenAt 后不再被自动回填', () => {
+    const items = layoutEcommerceResults(
+      'p1',
+      [task('t1', 1)],
+      [
+        result('visible', 't1', 0),
+        result('hidden', 't1', 1, { hiddenAt: 99 }),
+      ],
+      1280,
+    )
+    expect(items.map((item) => item.resultId)).toEqual(['visible'])
+  })
+
   it('默认宽度受视口约束', () => {
     expect(defaultWorkbenchWidth(1280)).toBe(922)
     expect(defaultWorkbenchWidth(400)).toBe(288)

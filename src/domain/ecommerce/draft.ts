@@ -32,6 +32,8 @@ export interface EcommerceFormDraft {
   language: EcommerceLanguage
   count: number
   ratio: string
+  resolution: string
+  quality: string
   note: string
   model: string
   /** 当前功能的专属参数；稳定 id，不把显示文案写进草稿。 */
@@ -48,6 +50,8 @@ export interface EcommerceModeFormState {
   platformId: string
   language: EcommerceLanguage
   ratio: string
+  resolution: string
+  quality: string
   note: string
 }
 
@@ -60,6 +64,8 @@ export const DEFAULT_ECOMMERCE_FORM_DRAFT: EcommerceFormDraft = {
   language: 'en',
   count: ECOMMERCE_DEFAULT_COUNT.set,
   ratio: '1:1',
+  resolution: 'auto',
+  quality: 'auto',
   note: '',
   model: '',
   modeOptions: {},
@@ -104,6 +110,8 @@ function normalizeModeStates(value: unknown): Record<string, EcommerceModeFormSt
         stringOf(rawState.platformId, 100) || DEFAULT_ECOMMERCE_FORM_DRAFT.platformId,
       language: languageOf(rawState.language),
       ratio,
+      resolution: stringOf(rawState.resolution, 40) || 'auto',
+      quality: stringOf(rawState.quality, 40) || 'auto',
       note: stringOf(rawState.note, ECOMMERCE_NOTE_MAX),
     }
   }
@@ -156,6 +164,8 @@ export function normalizeEcommerceFormDraft(value: unknown): EcommerceFormDraft 
     language: languageOf(raw.language),
     count,
     ratio,
+    resolution: stringOf(raw.resolution, 40) || DEFAULT_ECOMMERCE_FORM_DRAFT.resolution,
+    quality: stringOf(raw.quality, 40) || DEFAULT_ECOMMERCE_FORM_DRAFT.quality,
     note: stringOf(raw.note, ECOMMERCE_NOTE_MAX),
     model: stringOf(raw.model, 200),
     modeOptions: normalizeEcommerceModeOptions(raw.modeOptions),

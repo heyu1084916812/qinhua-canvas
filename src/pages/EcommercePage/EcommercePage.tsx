@@ -52,6 +52,7 @@ import {
   logicalNames,
   panelModelOptions,
 } from '../../domain/project/modelCatalog'
+import { imageParamsFor } from '../../domain/canvas/layout/imageParams'
 import { assetHashesOfNode } from '../../domain/canvas/graph/assetRefs'
 import { projectRoute } from '../../domain/shared/workbench'
 import { downloadAsset } from '../../features/canvas/downloadAsset'
@@ -299,6 +300,7 @@ function StudioHost({ projectId }: { projectId: string }) {
   const [taskLoaded, setTaskLoaded] = useState(false)
   const [taskHistory, setTaskHistory] = useState<EcommerceTaskRecord[]>([])
   const [canvasItems, setCanvasItems] = useState<EcommerceCanvasItem[]>([])
+  const canvasItemsRef = useRef<EcommerceCanvasItem[]>([])
   const [workbenchResults, setWorkbenchResults] = useState<EcommerceResultRecord[]>([])
   const [workbenchRuns, setWorkbenchRuns] = useState<RunRecord[]>([])
   const canvasSaveQueueRef = useRef<Promise<void>>(Promise.resolve())
@@ -364,6 +366,22 @@ function StudioHost({ projectId }: { projectId: string }) {
   const [preparingShots, setPreparingShots] = useState(false)
   const models = useMemo(() => panelModelOptions('image'), [])
   const videoModels = useMemo(() => panelModelOptions('video'), [])
+  const imageParamOptionsByModel = useMemo(
+    () =>
+      Object.fromEntries(
+        models.map((name) => {
+          const spec = imageParamsFor(name)
+          return [
+            name,
+            {
+              resolutions: spec?.sizes ?? ['1K', '2K', '4K'],
+              qualities: spec?.qualities ?? [],
+            },
+          ]
+        }),
+      ),
+    [models],
+  )
   /**
    * 平台清单 = 内置 + **扩展包带进来的规则**（对账 #386 的 E3）。
    *
@@ -381,6 +399,7 @@ function StudioHost({ projectId }: { projectId: string }) {
         taskRepo.listResults(projectId),
         platform.storage.query('runRecords', { projectId }),
       ])
+      canvasItemsRef.current = items
       setCanvasItems(items)
       setWorkbenchResults(rows)
       setWorkbenchRuns(runs as unknown as RunRecord[])
@@ -660,7 +679,25 @@ function StudioHost({ projectId }: { projectId: string }) {
 
   const handleCanvasItemsChange = useCallback(
     (next: EcommerceCanvasItem[]) => {
+      const before = canvasItemsRef.current
+      const nextIds = new Set(next.map((item) => item.id))
+      const beforeIds = new Set(before.map((item) => item.id))
+      const hiddenResultIds = before
+        .filter((item) => item.resultId && !nextIds.has(item.id))
+        .map((item) => item.resultId as string)
+      const restoredResultIds = next
+        .filter((item) => item.resultId && !beforeIds.has(item.id))
+        .map((item) => item.resultId as string)
+      canvasItemsRef.current = next
       setCanvasItems(next)
+      void Promise.all([
+        ...hiddenResultIds.map((resultId) => taskRepo.setResultHidden(resultId, true)),
+        ...restoredResultIds.map((resultId) => taskRepo.setResultHidden(resultId, false)),
+      ]).catch((error) => {
+        platform.logger.log('warn', '[ecommerce] 工作台结果显隐保存失败', {
+          error: String(error),
+        })
+      })
       canvasSaveQueueRef.current = canvasSaveQueueRef.current
         .then(() => canvasRepo.replace(projectId, next))
         .catch((error) => {
@@ -668,7 +705,7 @@ function StudioHost({ projectId }: { projectId: string }) {
           store.notify('工作台布局没保存下来，请稍后再试', 'error')
         })
     },
-    [canvasRepo, platform, projectId, store],
+    [canvasRepo, platform, projectId, store, taskRepo],
   )
 
   const handleWorkbenchAction = useCallback(
@@ -1231,6 +1268,8 @@ function StudioHost({ projectId }: { projectId: string }) {
            */
           prompt: plan.prompts[i] ?? plan.prompt,
           ratio: ecommerceAspectRatio(plan.ratio),
+          ...(request.resolution ? { resolution: request.resolution } : {}),
+          ...(request.quality ? { quality: request.quality } : {}),
           count: 1,
           ...(request.scale ? { scale: request.scale } : {}),
           ...(mediaKind === 'video' ? { durationSec: request.durationSec ?? 5 } : {}),
@@ -1710,6 +1749,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       platforms={platforms}
       models={models}
       videoModels={videoModels}
+      imageParamOptionsByModel={imageParamOptionsByModel}
       editModels={editModels}
       model={model}
       onModelChange={setModel}

@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react'
 import { useSyncExternalStore } from 'react'
@@ -148,6 +149,13 @@ export function AssetsPage() {
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedHashes, setSelectedHashes] = useState<Set<string>>(() => new Set())
   const [selectionAnchor, setSelectionAnchor] = useState<string | null>(null)
+  const [marquee, setMarquee] = useState<{
+    startX: number
+    startY: number
+    currentX: number
+    currentY: number
+    additive: boolean
+  } | null>(null)
   const [confirmRemoveSelection, setConfirmRemoveSelection] = useState(false)
   const [removingSelection, setRemovingSelection] = useState(false)
   const [preview, setPreview] = useState<LibraryAsset | null>(null)
@@ -239,6 +247,69 @@ export function AssetsPage() {
     }
     setSelectedHash(hash)
     setSelectionAnchor(hash)
+  }
+
+  const beginMarquee = (event: ReactPointerEvent<HTMLElement>) => {
+    if (!selectionMode || event.button !== 0 || event.pointerType === 'touch') return
+    const target = event.target as HTMLElement
+    if (
+      target.closest(
+        '[data-asset-card], button, a, input, textarea, select, [contenteditable="true"]',
+      )
+    ) {
+      return
+    }
+    event.preventDefault()
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    setMarquee({
+      startX: event.clientX,
+      startY: event.clientY,
+      currentX: event.clientX,
+      currentY: event.clientY,
+      additive: event.shiftKey,
+    })
+  }
+
+  const moveMarquee = (event: ReactPointerEvent<HTMLElement>) => {
+    if (!marquee) return
+    setMarquee((current) =>
+      current
+        ? { ...current, currentX: event.clientX, currentY: event.clientY }
+        : current,
+    )
+  }
+
+  const finishMarquee = (event: ReactPointerEvent<HTMLElement>) => {
+    if (!marquee) return
+    const rect = {
+      left: Math.min(marquee.startX, marquee.currentX),
+      top: Math.min(marquee.startY, marquee.currentY),
+      right: Math.max(marquee.startX, marquee.currentX),
+      bottom: Math.max(marquee.startY, marquee.currentY),
+    }
+    const cardHashes = [...document.querySelectorAll<HTMLElement>('[data-asset-card]')]
+      .filter((card) => {
+        const box = card.getBoundingClientRect()
+        return (
+          box.right >= rect.left &&
+          box.left <= rect.right &&
+          box.bottom >= rect.top &&
+          box.top <= rect.bottom
+        )
+      })
+      .map((card) => card.getAttribute('data-asset-card'))
+      .filter((hash): hash is string => !!hash && selectableSet.has(hash))
+    setSelectedHashes((current) =>
+      new Set(marquee.additive ? [...current, ...cardHashes] : cardHashes),
+    )
+    if (cardHashes.length > 0) setSelectionAnchor(cardHashes[cardHashes.length - 1]!)
+    setMarquee(null)
+    event.currentTarget.releasePointerCapture?.(event.pointerId)
+  }
+
+  const cancelMarquee = (event: ReactPointerEvent<HTMLElement>) => {
+    setMarquee(null)
+    event.currentTarget.releasePointerCapture?.(event.pointerId)
   }
 
   const openAsset = (asset: LibraryAsset) => {
@@ -624,7 +695,28 @@ export function AssetsPage() {
         </div>
       </aside>
 
-      <main className={styles.main} data-assets-stage>
+      <main
+        className={styles.main}
+        data-assets-stage
+        data-assets-selection-mode={selectionMode ? 'true' : 'false'}
+        onPointerDown={beginMarquee}
+        onPointerMove={moveMarquee}
+        onPointerUp={finishMarquee}
+        onPointerCancel={cancelMarquee}
+      >
+        {marquee ? (
+          <div
+            className={styles.marquee}
+            data-assets-marquee
+            aria-hidden="true"
+            style={{
+              left: Math.min(marquee.startX, marquee.currentX),
+              top: Math.min(marquee.startY, marquee.currentY),
+              width: Math.abs(marquee.currentX - marquee.startX),
+              height: Math.abs(marquee.currentY - marquee.startY),
+            }}
+          />
+        ) : null}
         <p className={styles.count} data-assets-count>
           {loading
             ? '载入中…'

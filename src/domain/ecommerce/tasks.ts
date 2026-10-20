@@ -83,6 +83,8 @@ export interface EcommerceResultRecord {
   assetHash?: string
   /** 产物 MIME；视频任务由此决定结果区用 video 播放而不是 img。 */
   mime?: string
+  /** 用户从电商工作台删除该图片时写入；结果行仍保留用于日志与历史。 */
+  hiddenAt?: number
   width?: number
   height?: number
   prompt?: string

@@ -24,6 +24,13 @@
 - **素材 Del 不要求先打开选择模式**：普通单击选中一张后按 Delete/Backspace 就应走同一个二次确认；进入多选模式时先清空上一次临时选择。
 - **验证**：真实页面 failed 7 / running 0，日志 18 次调用 / 13 次失败含完整 503 原因；隔离矩阵 G114 **30/30**、G164 **42/42**、G166 **19/19**；定向 17/17。截图 `.playwright-verify/real-ecommerce-run-logs.png`。
 
+### 素材框选、工作台结果隐藏与图片参数（2026-10-21 → 对账 #678–#680）
+
+- **素材框选只属于选择模式**：空白处 pointerdown 起框，卡片自身不触发；pointerup 批量读取 `[data-asset-card]` 的矩形与 hash，Shift 追加、否则替换。不要另写一层 card click 逻辑。
+- **删除工作台图片 ≠ 删除结果真源**：页面 `handleCanvasItemsChange` 对消失的 `resultId` 调 `setResultHidden(true)`，撤销恢复时调 false；`layoutEcommerceResults()` 跳过 hiddenAt。否则下一轮 `sync()` 会把用户删掉的图完全按结果表补回来。
+- **电商图片参数不能另抄模型表**：页面层用无限画布的 `imageParamsFor()` 生成 `imageParamOptionsByModel`，工作台按选中的显示名渲染分辨率/质量；分辨率默认 auto，GPT Image 2 质量三档，2.5 五档。`resolution / quality` 要同时进入 draft、request、节点 extraData，否则界面能选但请求不会带。
+- **验证**：全量 **2892 passed / 1 skipped**，`npm run check`、`npm run build` 通过；隔离矩阵 G114 **31/31**、G164 **45/45**、G166 **20/20**；G164 断言 GPT Image 2 显示自动/1K/2K/4K 与自动/低/中/高，且任务请求真正带 `resolution=4K / quality=high`；G166 断言删除后 hiddenAt 写入且刷新不复活。
+
 ### 电商 Phase 0：素材多选、回收站批处理与失败记录（2026-10-20）
 
 - **素材“删除”不是删文件**：素材页批量移除写 `presets/assetRecordsHidden:v1` 隐藏索引，并删除 `assetLibrary` 收藏关系；`assets` 字节和 `runRecords` 保留。再次 `save()` 同一 hash 会解除隐藏。这样才能支持 Del 多选，又不会从画布仍引用的节点下面抽走字节。

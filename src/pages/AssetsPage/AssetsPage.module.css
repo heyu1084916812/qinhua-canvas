@@ -657,6 +657,15 @@
   cursor: default;
 }
 
+.marquee {
+  position: fixed;
+  z-index: 60;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  pointer-events: none;
+}
+
 .cardMain {
   display: block;
   width: 100%;
