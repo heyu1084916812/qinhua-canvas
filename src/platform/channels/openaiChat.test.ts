@@ -110,7 +110,8 @@ describe('openaiChat adapter / Comfly 全量模型目录', () => {
             text: JSON.stringify({
               data: {
                 models: [
-                  { key: 'gpt-image-2', tags: '绘图,图像编辑' },
+                  { key: 'gpt-image-2', tags: '对话' },
+                  { key: 'gemini-3.1-flash-image', tags: '对话' },
                   { key: 'grok-imagine-video', tags: '视频,异步任务' },
                   { key: 'gemini-3.8-flash-thinking-low', tags: '对话,推理' },
                   { key: 'new-tts', tags: '文本转语音' },
@@ -128,6 +129,7 @@ describe('openaiChat adapter / Comfly 全量模型目录', () => {
     expect(models.map((model) => model.id)).toEqual([
       'gpt-image-2',
       'existing-chat',
+      'gemini-3.1-flash-image',
       'grok-imagine-video',
       'gemini-3.8-flash-thinking-low',
       'new-tts',
@@ -135,6 +137,7 @@ describe('openaiChat adapter / Comfly 全量模型目录', () => {
     expect(models.map((model) => [model.id, model.category])).toEqual([
       ['gpt-image-2', 'image'],
       ['existing-chat', 'chat'],
+      ['gemini-3.1-flash-image', 'image'],
       ['grok-imagine-video', 'video'],
       ['gemini-3.8-flash-thinking-low', 'chat'],
       ['new-tts', 'audio'],

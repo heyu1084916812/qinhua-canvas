@@ -36055,9 +36055,10 @@ async function g164(browser) {
   )
   rec(
     g,
-    '★★ 参数区只额外保留方案模型与生成模型两个手动模型选择',
+    '★★ 参数区只额外保留对话模型与生成模型两个手动模型选择',
     (await page.locator('[data-ecommerce-intent-model]').count()) === 1 &&
-      (await page.locator('[data-ecommerce-model]').count()) === 1,
+      (await page.locator('[data-ecommerce-model]').count()) === 1 &&
+      (await page.locator('[data-param-section="plan-model"]').innerText()).includes('对话模型'),
   )
   rec(
     g,
@@ -36076,16 +36077,16 @@ async function g164(browser) {
   const planTrigger = page.locator('[data-ecommerce-intent-model]')
   rec(
     g,
-    '★★ 方案模型只显示可路由的非 mock 渠道',
+    '★★ 对话模型只显示可路由的前端显示名，不显示渠道前缀',
     !(await planTrigger.isDisabled()) &&
-      (await planTrigger.innerText()).includes('Studio Relay'),
+      (await planTrigger.innerText()).includes('GPT-6 Astra'),
     await planTrigger.innerText(),
   )
   await page.locator('[data-ecommerce-configure-channels]').click()
   await page.locator('[data-global-settings]').waitFor({ state: 'visible', timeout: 5000 })
   rec(
     g,
-    '★ 方案模型旁可直接打开渠道配置',
+    '★ 对话模型旁可直接打开渠道配置',
     (await page.locator('[data-global-settings-tab="channels"][aria-pressed="true"]').count()) === 1,
   )
   await page.locator('[data-global-settings-close]').click()
@@ -36097,8 +36098,9 @@ async function g164(browser) {
   const planMenuText = (await planMenu.innerText()).trim()
   rec(
     g,
-    '★★ 方案模型浮层不含内置 / Smoke Mock，当前项有勾选且带厂商图标',
-    planMenuText.includes('Studio Relay') &&
+    '★★ 对话模型浮层不含内置 / Smoke Mock，当前项有勾选且带厂商图标',
+    planMenuText.includes('GPT-6 Astra') &&
+      !planMenuText.includes('Studio Relay') &&
       !planMenuText.includes('Smoke Mock') &&
       !planMenuText.includes('ModelScope') &&
       !planMenuText.includes('RunningHub') &&

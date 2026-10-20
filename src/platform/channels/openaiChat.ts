@@ -77,7 +77,13 @@ function mergeComflyCatalog(
           ? item.name.trim()
           : ''
     if (!id) continue
-    const hint = comflyCategoryOf(item)
+    /**
+     * 模型 ID 里的显式媒体词优先于站点 tags。实测 Comfly 把
+     * `gemini-3.1-flash-image` 的 tags 错标成“对话”，但 ID 明确含 image；
+     * 让错误元数据覆盖 ID 会把它重新塞回对话模型下拉。
+     */
+    const idCategory = toModelCapability(id).category
+    const hint = idCategory === 'chat' ? comflyCategoryOf(item) : idCategory
     if (!merged.has(id) || hint) merged.set(id, toModelCapability(id, hint))
   }
   return [...merged.values()]

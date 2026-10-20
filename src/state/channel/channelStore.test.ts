@@ -217,6 +217,33 @@ describe('channelStore', () => {
     expect(updated.models).toEqual([])
   })
 
+  it('refreshModels 同步刷新已勾选模型的能力分类，但不新增勾选', async () => {
+    const p = createMemoryPlatform({
+      handler: async (req: NetworkRequest) =>
+        req.url.endsWith('/v1/models')
+          ? jsonResponse(200, { data: [{ id: 'gpt-image-2' }, { id: 'gemini-3.8-flash' }] })
+          : jsonResponse(404, ''),
+    })
+    const store = createChannelStore(p)
+    const ch = await store.create({
+      name: 'Comfly',
+      protocol: 'openai-compatible',
+      baseUrl: 'https://relay.test',
+    })
+    await store.setModels(ch.id, [
+      { id: 'gpt-image-2', category: 'chat', inputTypes: ['text'] },
+    ])
+    await store.refreshModels(ch.id)
+    const updated = store.getState().channels.find((item) => item.id === ch.id)!
+    expect(updated.models.map((model) => [model.id, model.category])).toEqual([
+      ['gpt-image-2', 'image'],
+    ])
+    expect(updated.modelCache.map((model) => model.id)).toEqual([
+      'gpt-image-2',
+      'gemini-3.8-flash',
+    ])
+  })
+
   it('detectProtocol：命中候选协议并写回 protocol（探测即替用户填对下拉那一格）', async () => {
     const p = createMemoryPlatform({
       handler: async (req: NetworkRequest) =>

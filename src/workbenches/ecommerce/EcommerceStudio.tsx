@@ -1025,7 +1025,7 @@ export interface EcommerceStudioProps {
   platforms?: readonly EcommercePlatform[]
   /** 上传一张图：由页面落到画布（assets + 节点），返回节点 id 与预览 */
   onUpload: (file: File, kind: 'product' | 'reference') => Promise<EcommerceUpload | null>
-  /** 用当前方案模型生成一段可直接编辑的商品卖点文案。 */
+  /** 用当前对话模型生成一段可直接编辑的商品卖点文案。 */
   onWriteSellingPoints?: (request: EcommerceRequest) => Promise<string>
   /**
    * 点「开始生成」并在二次确认之后调用；页面负责建节点 + 跑引擎。
@@ -1094,12 +1094,12 @@ export interface EcommerceStudioProps {
    * 如实显示"会用谁"；空 = 没配，按钮禁用并说明原因。
    */
   chatTargetLabel?: string
-  /** 已启用对话模型；空 = 没配。 */
-  chatModels?: readonly { value: string; label: string }[]
+  /** 可路由的前端对话模型显示名；空 = 没配。 */
+  chatModels?: readonly string[]
   /** 用户显式选择的解析模型；空 = 默认。 */
   intentModel?: string
   onIntentModelChange?: (model: string) => void
-  /** 从方案模型空态直接打开渠道配置。 */
+  /** 从对话模型空态直接打开渠道配置。 */
   onConfigureChannels?: () => void
   /** 解析失败 / 没配对话模型时的如实说法 */
   intentError?: string
@@ -2038,7 +2038,7 @@ export function EcommerceStudio({
 
         <div className={styles.field} data-param-section="plan-model">
           <span className={styles.fieldHead}>
-            <span className={styles.fieldLabel}>方案模型</span>
+            <span className={styles.fieldLabel}>对话模型</span>
             {onConfigureChannels ? (
               <button
                 type="button"
@@ -2051,12 +2051,14 @@ export function EcommerceStudio({
             ) : null}
           </span>
           <EcommerceSelect
-            ariaLabel="方案模型"
+            ariaLabel="对话模型"
             name="intent-model"
             value={
-              chatModels.find((item) => item.value === intentModel)?.value ??
-              chatModels.find((item) => item.label === chatTargetLabel)?.value ??
-              chatModels[0]?.value ??
+              (chatModels.includes(intentModel) ? intentModel : undefined) ??
+              (chatTargetLabel && chatModels.includes(chatTargetLabel)
+                ? chatTargetLabel
+                : undefined) ??
+              chatModels[0] ??
               ''
             }
             onChange={(value) => onIntentModelChange?.(value)}
@@ -2064,9 +2066,9 @@ export function EcommerceStudio({
             menuMinWidth={260}
             disabled={chatModels.length === 0}
             options={chatModels.map((item) => ({
-              value: item.value,
-              label: item.label,
-              icon: modelIconFor(item.label),
+              value: item,
+              label: item,
+              icon: modelIconFor(item),
             }))}
             dataAttributes={{ 'data-ecommerce-intent-model': true }}
           />

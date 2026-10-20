@@ -30,6 +30,9 @@ export interface ChannelRepository {
 
 const toChannel = (row: Record<string, unknown>): Channel => {
   const modelCache = (row.modelCache as Channel['modelCache']) ?? []
+  const cacheById = new Map(modelCache.map((model) => [model.id, model]))
+  const storedModels =
+    row.models === undefined ? modelCache : ((row.models as Channel['models']) ?? [])
   return {
     id: String(row.id),
     name: (row.name as string) || '新建渠道',
@@ -55,7 +58,12 @@ const toChannel = (row: Record<string, unknown>): Channel => {
     // 加本字段之前，画布 / 漫画的模型下拉列的就是 modelCache 全集。
     // 键一旦存在（哪怕值是 []）就以它为准——用户在面板里取消全选也是合法状态，不能被回落覆盖。
     // 口径：**只补不删**（缺字段补默认值，多余字段不动）。
-    models: row.models === undefined ? modelCache : ((row.models as Channel['models']) ?? []),
+    /**
+     * `models` 只保存“用户勾了谁”，能力元数据以最新 `modelCache` 为准。
+     * 否则上游模型分类修正后，已勾选行仍会带着旧 category，
+     * 典型现象是生图模型继续出现在“对话模型”下拉里。
+     */
+    models: storedModels.map((selected) => cacheById.get(selected.id) ?? selected),
     modelCache,
     /**
      * M7 三项（映射 / 优先度 / 权重）：老行没有这些键 → 补**缺省值**。

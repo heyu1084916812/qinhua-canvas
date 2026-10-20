@@ -89,6 +89,29 @@ describe('channelRepository', () => {
     expect((await repo.get('cleared'))!.models).toEqual([])
   })
 
+  it('已勾选模型的能力元数据跟随最新 modelCache 刷新', async () => {
+    const p = createMemoryPlatform()
+    const repo = createChannelRepository(p.storage, p.credentials)
+    const cached = [
+      { id: 'gemini-3.1-flash-image', category: 'image', inputTypes: ['text', 'image'] },
+    ]
+    await p.storage.put('channels', {
+      id: 'ch-category-refresh',
+      name: 'Comfly',
+      protocol: 'comfly',
+      baseUrl: 'https://ai.comfly.org',
+      enabled: true,
+      models: [{ id: 'gemini-3.1-flash-image', category: 'chat', inputTypes: ['text'] }],
+      modelCache: cached,
+      order: 1,
+      createdAt: 1,
+    } as never)
+    const channel = await repo.get('ch-category-refresh')
+    expect(channel?.models.map((model) => [model.id, model.category])).toEqual([
+      ['gemini-3.1-flash-image', 'image'],
+    ])
+  })
+
   it('老行读回补 tokenTail / lastTest* 为 null，不炸', async () => {
     const p = createMemoryPlatform()
     const repo = createChannelRepository(p.storage, p.credentials)

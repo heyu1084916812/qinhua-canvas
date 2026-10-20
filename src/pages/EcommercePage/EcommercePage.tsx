@@ -13,6 +13,9 @@ import { useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
 import { EcommerceStudio, type EcommerceResultItem, type EcommerceUpload } from '../../workbenches/ecommerce/EcommerceStudio'
 import { createAgentSessionStore } from '../../state/agent/sessionStore'
 import { openGlobalSettings } from '../../state/ui/globalSettings'
+import { channelIsRoutable } from '../../domain/project/channel'
+import { resolveRouteFor } from '../../domain/project/modelRouting'
+import { resolveUpstreamModel } from '../../domain/project/modelMapping'
 import {
   planTitleOf,
   recentPlanSessions,
@@ -35,11 +38,6 @@ import {
   parseEcommerceIntent,
   type EcommerceIntentDraft,
 } from '../../domain/ecommerce/chatParse'
-import {
-  chatTargetOptions,
-  resolveChatTarget,
-  userConfiguredChannels,
-} from '../../domain/shared/chatTarget'
 import {
   buildShotsSystem,
   buildShotsText,
@@ -670,8 +668,8 @@ function StudioHost({ projectId }: { projectId: string }) {
   }, [flushDraft])
 
   /**
-   * 对话渠道：**只认用户真勾过对话模型的启用渠道**，找不到就如实说没配
-   * （`resolveChatTarget`，与漫剧拆镜同一条口径 —— 对账 #414 / #422）。
+   * 对话模型与画布同口径：下拉只显示固定前端显示名，渠道是实现细节；
+   * 真正请求时由 `resolveRouteFor` 按全局选路策略选择启用且可路由的渠道。
    *
    * 用 `useSyncExternalStore` 而不是读一次：用户去设置页改完渠道再切回来，
    * 这一栏的按钮状态必须立刻跟上，否则会停在"没有可用的对话模型"上，看起来像坏了。
@@ -704,18 +702,62 @@ function StudioHost({ projectId }: { projectId: string }) {
       ).map((option) => option.id),
     [channelList],
   )
-  const ownChatChannels = useMemo(
-    () => userConfiguredChannels(channelList),
+  const routeStrategy = useSyncExternalStore(
+    channels.subscribe,
+    () => channels.getState().routeStrategy,
+    () => channels.getState().routeStrategy,
+  )
+  const routedChatChannels = useMemo(
+    () =>
+      channelList.filter(
+        (channel) =>
+          channel.protocol !== 'mock' &&
+          channel.enabled &&
+          channelIsRoutable(channel),
+      ),
     [channelList],
   )
+  const chatRouteSources = useMemo(
+    () =>
+      routedChatChannels.map((channel) => ({
+        id: channel.id,
+        enabled: channel.enabled,
+        /** 与画布执行宿主同一口径：localhost / 本机网关无令牌也可路由。 */
+        hasToken: channelIsRoutable(channel),
+        priority: channel.priority,
+        weight: channel.weight,
+        lastTestLatency: channel.lastTestLatency,
+        modelIds: channel.models.map((model) => model.id),
+        modelMap: channel.modelMap,
+      })),
+    [routedChatChannels],
+  )
   const intentModelOptions = useMemo(
-    () => chatTargetOptions(ownChatChannels),
-    [ownChatChannels],
+    () =>
+      panelModelOptions('chat').filter(
+        (name) =>
+          resolveRouteFor(chatRouteSources, name, {
+            strategy: routeStrategy,
+            resolve: resolveUpstreamModel,
+          }) !== null,
+      ),
+    [chatRouteSources, routeStrategy],
   )
   const [intentModel, setIntentModel] = useState('')
   const chatTarget = useMemo(
-    () => resolveChatTarget(ownChatChannels, intentModel),
-    [intentModel, ownChatChannels],
+    () => {
+      const selected = intentModelOptions.includes(intentModel)
+        ? intentModel
+        : (intentModelOptions[0] ?? '')
+      const route = resolveRouteFor(chatRouteSources, selected, {
+        strategy: routeStrategy,
+        resolve: resolveUpstreamModel,
+      })
+      return route
+        ? { channelId: route.channelId, model: selected, label: selected }
+        : null
+    },
+    [chatRouteSources, intentModel, intentModelOptions, routeStrategy],
   )
 
   /**

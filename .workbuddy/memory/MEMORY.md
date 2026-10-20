@@ -1,11 +1,18 @@
 # CanvasFlow（轻画）项目记忆
 
+### 电商对话模型口径与 3.8 Flash 延迟（2026-10-20 → 对账 #651）
+
+- **电商对话模型必须与画布同口径**：下拉只显示固定前端逻辑名（如 `Gemini 3.8 Flash`），不显示 `comfly ·` 等渠道前缀；请求时用 `resolveRouteFor()` 按全局选路策略在后台挑渠道，组件层不提前锁死渠道。
+- **已选模型的分类必须以最新目录为准**：仓库读回和 `refreshModels` 都要把 `models[]` 的 capability 用 `modelCache[]` 同 ID 行覆盖。Comfly 把 `gemini-3.1-flash-image` 的 tags 错标成“对话”，所以模型 ID 明确的 `image / video / tts` 词应优先于 tags，否则生图模型会混入对话模型。
+- **3.8 Flash 延迟证据**：最小流式首包 2028ms / 完成 2152ms；非流式热请求 3237ms；另一次冷非流式超过 150s 未返回并主动终止。慢主要在 Comfly 上游偶发排队，不是前端渲染；电商请求当前是非流式完整响应 + 30 秒超时。
+- **验证**：真实界面只剩 `Gemini 3.8 Flash` 且无渠道前缀；G164 明暗各 39/39；全量 2861 passed / 1 skipped；check/build 通过。截图 `.playwright-verify/ecommerce-dialog-model-final.png`。
+
 ### 电商全并发与 Comfly 全量模型（2026-10-20 → 对账 #649 / #650）
 
 - **电商 N 张必须一次全部发请求**：用户明确不要等待态。`onGenerate` 用 `Promise.all(created.map(...))`；结果展示只有 `running / done / failed`，`pending / queued` 都映射成“生成中”，不得再出现“排队中”。
 - **中断任务不能永远转圈**：页面重开时扫描所有 `ecommerceTasks.status='running'`，用 `interruptUnfinished()` 把 pending / running 结果标成“上次生成被中断，请重新生成”；只提示不自动重发，避免重复扣费。
 - **Comfly 两条模型目录必须合并**：鉴权 `/v1/models` 实测 751，公开 `/api/models/price` 实测 881，并集 887。旧实现只读 751 并把大量视频模型当 chat；现在并集后按 `tags / categories / input_modalities / output_modalities` 分类。
-- **公开目录没有 CORS，桌面端必须走原生 HTTP**：`ChannelDeps.remoteBytes.request` 已接通 Rust `fetch_text`；浏览器无此端口时回落 751，不让整次拉取失败。真实桌面拉取显示 887，分类为 chat 616 / image 140 / video 102 / audio 29。
+- **公开目录没有 CORS，桌面端必须走原生 HTTP**：`ChannelDeps.remoteBytes.request` 已接通 Rust `fetch_text`；浏览器无此端口时回落 751，不让整次拉取失败。真实桌面拉取显示 887；分类经 #651 复核为 chat 591 / image 140 / video 117 / audio 39。
 - **收口证据**：G164 明暗各 39/39，双卡同帧“生成中 1s”；全量单测 2859 passed / 1 skipped；check、build 通过；截图 `.playwright-verify/164-ecommerce-running.png`、`comfly-model-pull-final.png`。
 
 ### 电商中断任务与批次调度（2026-10-20 → 对账 #648）

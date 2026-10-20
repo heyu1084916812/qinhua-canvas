@@ -645,8 +645,17 @@ export function createChannelStore(
       const logicalNames = [
         ...new Set([...models.map((m) => m.id), ...ch.models.map((m) => m.id)]),
       ]
+      /**
+       * 已勾选模型的选择集合不变，但能力元数据必须跟着最新目录刷新。
+       * Comfly 旧缓存曾把 `gemini-3.1-flash-image` 误判为 chat；只更新
+       * `modelCache` 会让它继续以“Nano Banana 2”出现在对话模型里。
+       */
+      const refreshedSelection = ch.models.map(
+        (selected) => models.find((model) => model.id === selected.id) ?? selected,
+      )
       const updated = await repo.update(id, {
         modelCache: models,
+        models: refreshedSelection,
         modelMap: buildDefaultModelMap(ch.modelMap, logicalNames, models.map((m) => m.id)),
       })
       store.setState((s) => ({
