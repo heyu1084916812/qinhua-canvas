@@ -17,13 +17,16 @@ const channel = (over: Partial<Channel>): Channel =>
   }) as Channel
 
 describe('channel routing eligibility', () => {
-  it('excludes built-in and offline mock channels from user model choices', () => {
+  it('keeps configured built-in channels but excludes the offline mock channel', () => {
     const channels = [
       channel({ id: 'ch_builtin_modelscope', protocol: 'modelscope' }),
       channel({ id: 'ch_smoke_mock', protocol: 'mock' }),
       channel({ id: 'ch_mine', protocol: 'openai-compatible', baseUrl: 'https://mine.test/v1' }),
     ]
-    expect(userConfiguredChannels(channels).map((item) => item.id)).toEqual(['ch_mine'])
+    expect(userConfiguredChannels(channels).map((item) => item.id)).toEqual([
+      'ch_builtin_modelscope',
+      'ch_mine',
+    ])
   })
 
   it('does not auto-select a remote speech channel without a saved token', () => {

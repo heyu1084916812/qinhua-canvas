@@ -1,7 +1,6 @@
 import type { Channel } from '../project/channel'
 import { channelIsRoutable } from '../project/channel'
 import { toLogicalName } from '../project/modelCatalog'
-import { isBuiltinChannelId } from '../project/builtinChannels'
 
 /**
  * **挑一条真有对话模型的已启用渠道**（对账 #414 抽出来，对账 #422 起两家共用）。
@@ -25,13 +24,11 @@ export interface SpeechTarget {
 }
 
 /**
- * Channels the user configured themselves. Built-ins and the offline mock
- * channel must not appear as production model choices.
+ * Channels that can contribute production model choices. Built-in channels
+ * are allowed once the user configures them; the offline mock channel never is.
  */
 export function userConfiguredChannels(channels: readonly Channel[]): Channel[] {
-  return channels.filter(
-    (channel) => !isBuiltinChannelId(channel.id) && channel.protocol !== 'mock',
-  )
+  return channels.filter((channel) => channel.protocol !== 'mock')
 }
 
 /**

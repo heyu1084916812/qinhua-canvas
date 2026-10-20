@@ -328,6 +328,80 @@ function OptionCheck({ checked }: { checked: boolean }) {
   )
 }
 
+export function ResultStatusOverlay({ item }: { item: EcommerceResultItem }) {
+  const running = item.status === 'running'
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    if (!running) {
+      setElapsed(0)
+      return
+    }
+    const startedAt = Date.now()
+    const timer = window.setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startedAt) / 1000))
+    }, 500)
+    return () => window.clearInterval(timer)
+  }, [running])
+
+  if (item.status === 'failed') {
+    return (
+      <div
+        className={`${styles.resultOverlay} ${styles.resultOverlayError}`}
+        data-ecommerce-result-overlay="failed"
+        role="alert"
+      >
+        <span className={styles.resultFailure}>
+          <svg
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 7.5v5.5" />
+            <path d="M12 16.8h.01" />
+          </svg>
+          <span className={styles.resultFailureTitle}>生成失败</span>
+          <span
+            className={styles.resultFailureText}
+            data-ecommerce-result-error
+            title={item.error}
+          >
+            {item.error ?? '没有收到失败原因，请查看画布运行日志'}
+          </span>
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className={styles.resultOverlay}
+      data-ecommerce-result-overlay={item.status}
+    >
+      <span className={styles.resultRunning}>
+        <span
+          className={styles.resultOrbit}
+          data-ecommerce-result-orbit
+          aria-hidden="true"
+        />
+        <span
+          className={styles.resultRunningText}
+          data-ecommerce-result-elapsed={elapsed}
+        >
+          {item.status === 'pending' ? '排队中' : `生成中 ${elapsed}s`}
+        </span>
+      </span>
+    </div>
+  )
+}
+
 function textOptions(
   items: readonly { id: string; label: string }[],
 ): EcommerceSelectOption[] {
@@ -1025,6 +1099,8 @@ export interface EcommerceStudioProps {
   /** 用户显式选择的解析模型；空 = 默认。 */
   intentModel?: string
   onIntentModelChange?: (model: string) => void
+  /** 从方案模型空态直接打开渠道配置。 */
+  onConfigureChannels?: () => void
   /** 解析失败 / 没配对话模型时的如实说法 */
   intentError?: string
   /** 用户点了「应用到表单」——页面据此收起确认卡 */
@@ -1083,6 +1159,7 @@ export function EcommerceStudio({
   chatModels = [],
   intentModel = '',
   onIntentModelChange,
+  onConfigureChannels,
 }: EcommerceStudioProps) {
   const saved = initialDraft ?? DEFAULT_ECOMMERCE_FORM_DRAFT
   const initialMode =
@@ -1960,7 +2037,19 @@ export function EcommerceStudio({
         ) : null}
 
         <div className={styles.field} data-param-section="plan-model">
-          <span className={styles.fieldLabel}>方案模型</span>
+          <span className={styles.fieldHead}>
+            <span className={styles.fieldLabel}>方案模型</span>
+            {onConfigureChannels ? (
+              <button
+                type="button"
+                className={styles.fieldAction}
+                data-ecommerce-configure-channels
+                onClick={onConfigureChannels}
+              >
+                渠道配置
+              </button>
+            ) : null}
+          </span>
           <EcommerceSelect
             ariaLabel="方案模型"
             name="intent-model"
@@ -2101,10 +2190,15 @@ export function EcommerceStudio({
               >
                 <div className={styles.cellBody}>
                   {r.preview ?? (
-                    <span className={styles.cellState}>
-                      {r.status === 'failed' ? '失败' : r.status === 'done' ? '已完成' : '生成中…'}
-                    </span>
+                    r.status === 'done' ? (
+                      <span className={styles.cellState}>已完成</span>
+                    ) : null
                   )}
+                  {r.status === 'pending' ||
+                  r.status === 'running' ||
+                  r.status === 'failed' ? (
+                    <ResultStatusOverlay item={r} />
+                  ) : null}
                 </div>
                 {r.status === 'failed' ? (
                   <figcaption className={styles.cellFoot}>

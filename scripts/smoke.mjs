@@ -36076,11 +36076,20 @@ async function g164(browser) {
   const planTrigger = page.locator('[data-ecommerce-intent-model]')
   rec(
     g,
-    '★★ 方案模型只显示用户自定义的非 mock 渠道',
+    '★★ 方案模型只显示可路由的非 mock 渠道',
     !(await planTrigger.isDisabled()) &&
       (await planTrigger.innerText()).includes('Studio Relay'),
     await planTrigger.innerText(),
   )
+  await page.locator('[data-ecommerce-configure-channels]').click()
+  await page.locator('[data-global-settings]').waitFor({ state: 'visible', timeout: 5000 })
+  rec(
+    g,
+    '★ 方案模型旁可直接打开渠道配置',
+    (await page.locator('[data-global-settings-tab="channels"][aria-pressed="true"]').count()) === 1,
+  )
+  await page.locator('[data-global-settings-close]').click()
+  await page.locator('[data-global-settings]').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {})
   await planTrigger.click()
   const planMenu = page.locator('[data-ecommerce-menu="intent-model"]')
   await planMenu.waitFor({ state: 'visible', timeout: 5000 })
@@ -36460,12 +36469,41 @@ async function g164(browser) {
 
   await page.locator('[data-ecommerce-category="product"]').click()
   await page.locator('[data-ecommerce-mode="product-set"]').click()
-  await page.locator('[data-ecommerce-note]').fill('突出商品材质与工艺细节')
+  await page.locator('[data-ecommerce-note]').fill('突出商品材质与工艺细节；慢速测试图')
   await page.locator('[data-ecommerce-generate]').click()
   await sleep(350)
   const confirmText = await page.locator('[data-ecommerce-confirm]').innerText().catch(() => '')
   rec(g, '★★ 自定义套图按 2 张进入二次确认', /2\s*张/.test(confirmText), confirmText.replace(/\n/g, ' | '))
   await page.locator('[data-ecommerce-confirm-ok]').click()
+
+  await page.waitForFunction(
+    () => document.querySelector('[data-ecommerce-result-overlay="running"]'),
+    null,
+    { timeout: 10_000 },
+  )
+  const runningBefore = await page.evaluate(() => ({
+    overlays: document.querySelectorAll('[data-ecommerce-result-overlay="running"]').length,
+    orbits: document.querySelectorAll('[data-ecommerce-result-overlay="running"] [data-ecommerce-result-orbit]').length,
+    texts: [...document.querySelectorAll('[data-ecommerce-result-elapsed]')].map(
+      (el) => el.textContent?.trim() ?? '',
+    ),
+  }))
+  await sleep(1200)
+  const runningAfter = await page.evaluate(() => ({
+    texts: [...document.querySelectorAll('[data-ecommerce-result-elapsed]')].map(
+      (el) => el.textContent?.trim() ?? '',
+    ),
+  }))
+  rec(
+    g,
+    '★★ 电商生成卡运行中显示与画布同源的旋转轨道和计时',
+    runningBefore.overlays >= 1 &&
+      runningBefore.orbits >= 1 &&
+      runningBefore.texts.some((text) => text.startsWith('生成中')) &&
+      runningAfter.texts.some((text) => /生成中 [1-9]\d*s/.test(text)),
+    JSON.stringify({ runningBefore, runningAfter }),
+  )
+  await page.screenshot({ path: `${OUT}/164-ecommerce-running${themeSuffix}.png` })
 
   const done = await page
     .waitForFunction(
@@ -36497,6 +36535,57 @@ async function g164(browser) {
     (await page.locator('[data-ecommerce-result] button').count()) === 0 &&
       (await page.locator('[data-ecommerce-result-select]').count()) === 0,
   )
+
+  const failedResult = (await sharedRows(page, 'ecommerceResults'))
+    .filter((row) => row.projectId === projectId && row.status === 'done')
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
+  const failureReason =
+    '生成失败：服务端返回了无法解析的响应，请检查渠道返回格式；这是一段用于验证长错误不会溢出的说明文字。'
+  if (failedResult) {
+    await sharedPut(page, 'ecommerceResults', {
+      ...failedResult,
+      status: 'failed',
+      errorText: failureReason,
+      updatedAt: Date.now(),
+    })
+  }
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.waitForFunction(
+    () => document.querySelector('[data-ecommerce-result][data-status="failed"]'),
+    null,
+    { timeout: 15_000 },
+  )
+  const failedOverlay = await page.evaluate(() => {
+    const overlay = document.querySelector(
+      '[data-ecommerce-result][data-status="failed"] [data-ecommerce-result-overlay="failed"]',
+    )
+    const card = overlay?.closest('[data-ecommerce-result]')
+    const reason = overlay?.querySelector('[data-ecommerce-result-error]')
+    if (!overlay || !card || !reason) return null
+    const overlayRect = overlay.getBoundingClientRect()
+    const cardRect = card.getBoundingClientRect()
+    return {
+      role: overlay.getAttribute('role'),
+      reason: reason.textContent?.trim() ?? '',
+      inside:
+        overlayRect.left >= cardRect.left - 1 &&
+        overlayRect.right <= cardRect.right + 1 &&
+        overlayRect.top >= cardRect.top - 1 &&
+        overlayRect.bottom <= cardRect.bottom + 1,
+      wrapped: reason.scrollWidth <= reason.clientWidth + 1,
+    }
+  })
+  rec(
+    g,
+    '★★ 失败结果在卡片中央显示可读原因，长文本不溢出',
+    !!failedResult &&
+      failedOverlay?.role === 'alert' &&
+      failedOverlay.reason.includes('无法解析的响应') &&
+      failedOverlay.inside &&
+      failedOverlay.wrapped,
+    JSON.stringify(failedOverlay),
+  )
+  await page.screenshot({ path: `${OUT}/164-ecommerce-failed${themeSuffix}.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await page.screenshot({ path: `${OUT}/164-ecommerce-params-replica${themeSuffix}.png` })
   await page.setViewportSize({ width: 1024, height: 768 })

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { statusOfResult, statusOfTask, taskStatusOf, taskSummaryOf } from './tasks'
+import {
+  resultDisplayStatus,
+  statusOfResult,
+  statusOfTask,
+  taskStatusOf,
+  taskSummaryOf,
+} from './tasks'
 
 describe('电商任务 / 结果状态纯函数', () => {
   it('全部完成 = done', () => {
@@ -23,6 +29,25 @@ describe('电商任务 / 结果状态纯函数', () => {
     expect(statusOfResult('nonsense')).toBe('failed')
     expect(statusOfTask('partial')).toBe('partial')
     expect(statusOfResult('canceled')).toBe('canceled')
+  })
+
+  it('实时运行态优先于旧产物 hash：重跑已有结果仍显示生成中', () => {
+    expect(
+      resultDisplayStatus({ stored: 'done', live: 'running', hasAsset: true }),
+    ).toBe('running')
+    expect(
+      resultDisplayStatus({ stored: 'failed', live: 'queued', hasAsset: true }),
+    ).toBe('pending')
+    expect(
+      resultDisplayStatus({ stored: 'done', live: 'failed', hasAsset: true }),
+    ).toBe('failed')
+  })
+
+  it('没有实时状态时按结果行与产物如实收口', () => {
+    expect(resultDisplayStatus({ stored: 'done', hasAsset: true })).toBe('done')
+    expect(resultDisplayStatus({ stored: 'running', hasAsset: true })).toBe('running')
+    expect(resultDisplayStatus({ stored: 'canceled', hasAsset: false })).toBe('failed')
+    expect(resultDisplayStatus({ stored: 'pending', hasAsset: false })).toBe('pending')
   })
 
   it('★ 历史批次摘要：时间 / 用途 / 平台 / 张数 / 状态', () => {

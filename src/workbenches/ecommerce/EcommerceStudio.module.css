@@ -721,9 +721,34 @@
   min-width: 0;
 }
 
+.fieldHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
 .fieldLabel {
   font-size: var(--fs-chip);
   color: var(--text-2);
+}
+
+.fieldAction {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+
+.fieldAction:hover,
+.fieldAction:focus-visible {
+  color: var(--text-1);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .select,
@@ -1179,6 +1204,7 @@
 }
 
 .cellBody {
+  position: relative;
   aspect-ratio: 1;
   display: flex;
   align-items: center;
@@ -1198,6 +1224,118 @@
 .cellState {
   font-size: var(--fs-label);
   color: var(--text-2);
+}
+
+.resultOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3);
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--bg-surface) 72%, transparent);
+}
+
+.resultOverlayError {
+  background: color-mix(in srgb, var(--bg-surface) 88%, var(--danger));
+}
+
+.resultRunning {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  animation: resultRise var(--dur-panel) var(--ease-out);
+}
+
+.resultOrbit {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-pill);
+  animation: resultBreathe 2.4s ease-in-out infinite;
+}
+
+.resultOrbit::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-pill);
+  border: 3px solid var(--stroke);
+}
+
+.resultOrbit::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-pill);
+  border: 3px solid transparent;
+  border-top-color: var(--accent);
+  border-left-color: var(--accent);
+  animation: resultSpin 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.resultRunningText {
+  color: var(--text-2);
+  font-size: var(--fs-label);
+  font-variant-numeric: tabular-nums;
+}
+
+.resultFailure {
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--danger);
+  text-align: center;
+}
+
+.resultFailureTitle {
+  font-size: var(--fs-label);
+  font-weight: 600;
+}
+
+.resultFailureText {
+  display: -webkit-box;
+  max-height: 4.2em;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: var(--fs-chip);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+@keyframes resultSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes resultBreathe {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+@keyframes resultRise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .cellFoot {
@@ -1680,5 +1818,11 @@
   .addSlot,
   .emptySlot {
     transition: none;
+  }
+
+  .resultRunning,
+  .resultOrbit,
+  .resultOrbit::after {
+    animation: none;
   }
 }

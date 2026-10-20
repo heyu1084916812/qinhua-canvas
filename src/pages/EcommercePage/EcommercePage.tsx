@@ -12,6 +12,7 @@ import {
 import { useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
 import { EcommerceStudio, type EcommerceResultItem, type EcommerceUpload } from '../../workbenches/ecommerce/EcommerceStudio'
 import { createAgentSessionStore } from '../../state/agent/sessionStore'
+import { openGlobalSettings } from '../../state/ui/globalSettings'
 import {
   planTitleOf,
   recentPlanSessions,
@@ -67,6 +68,7 @@ import {
   type EcommerceFormDraft,
 } from '../../domain/ecommerce/draft'
 import {
+  resultDisplayStatus,
   taskStatusOf,
   type EcommerceResultRecord,
   type EcommerceTaskRecord,
@@ -472,18 +474,16 @@ function StudioHost({ projectId }: { projectId: string }) {
         typeof natural?.width === 'number' && natural.width > 0 ? natural.width : undefined
       const height =
         typeof natural?.height === 'number' && natural.height > 0 ? natural.height : undefined
-      const status: EcommerceResultRecord['status'] =
-        state?.kind === 'failed'
-          ? 'failed'
-          : state?.kind === 'canceled'
-            ? 'canceled'
-            : hash
-              ? 'done'
-              : state?.kind === 'running'
-                ? 'running'
-                : 'pending'
       const current = (await taskRepo.results(taskId)).find((r) => r.nodeId === nodeId)
       if (!current) return
+      const status: EcommerceResultRecord['status'] =
+        state?.kind === 'canceled'
+          ? 'canceled'
+          : resultDisplayStatus({
+              stored: current.status,
+              ...(state?.kind ? { live: state.kind } : {}),
+              hasAsset: !!hash,
+            })
       const next: EcommerceResultRecord = {
         ...current,
         updatedAt: Date.now(),
@@ -1271,9 +1271,13 @@ function StudioHost({ projectId }: { projectId: string }) {
         const height =
           row.height ??
           (typeof natural?.height === 'number' && natural.height > 0 ? natural.height : undefined)
-        const status: EcommerceResultItem['status'] =
-          row.status === 'canceled' ? 'failed' : row.status
-        const rerunnable = !!node && row.status !== 'running' && row.status !== 'pending'
+        const liveState = exec.nodeStateOf(row.nodeId)
+        const status: EcommerceResultItem['status'] = resultDisplayStatus({
+          stored: row.status,
+          ...(liveState?.kind ? { live: liveState.kind } : {}),
+          hasAsset: !!hash,
+        })
+        const rerunnable = !!node && status !== 'running' && status !== 'pending'
         const rerun = async (inPlace = false) => {
           const before = new Set(store.getSnapshot().nodes.map((item) => item.id))
           await exec.runNode(row.nodeId, inPlace ? { inPlace: true } : undefined)
@@ -1314,6 +1318,7 @@ function StudioHost({ projectId }: { projectId: string }) {
           pixelSize: width !== undefined && height !== undefined ? { width, height } : null,
           error:
             row.errorText ??
+            (liveState?.kind === 'failed' ? describeError(liveState.error) : undefined) ??
             (row.status === 'canceled' ? '已取消（结果仍保留在库里）' : undefined),
           preview: hash ? <ResultPreview hash={hash} mime={row.mime} /> : undefined,
           sourcePreview: activeTask.sourceAssetHash ? (
@@ -1363,13 +1368,11 @@ function StudioHost({ projectId }: { projectId: string }) {
           ? { width: sizeRaw.width, height: sizeRaw.height }
           : null
       const status: EcommerceResultItem['status'] =
-        state?.kind === 'failed'
-          ? 'failed'
-          : hash
-            ? 'done'
-            : state?.kind === 'running'
-              ? 'running'
-              : 'pending'
+        resultDisplayStatus({
+          stored: 'pending',
+          ...(state?.kind ? { live: state.kind } : {}),
+          hasAsset: !!hash,
+        })
       return {
         nodeId: id,
         status,
@@ -1560,6 +1563,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       chatModels={intentModelOptions}
       intentModel={intentModel}
       onIntentModelChange={setIntentModel}
+      onConfigureChannels={() => openGlobalSettings('channels')}
       intentError={intentError}
       onIntentApplied={() => setIntent(null)}
       onIntentDiscard={() => {

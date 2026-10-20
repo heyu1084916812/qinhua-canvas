@@ -1,5 +1,12 @@
 # CanvasFlow（轻画）项目记忆
 
+### 电商方案模型可达性与生成状态（2026-10-20 → 对账 #647）
+
+- **方案模型不能一刀切排除内置渠道**：`userConfiguredChannels()` 现在只剔除 `protocol='mock'`；是否真正可选由 `chatTargetOptions()` 里的 `channelIsRoutable()`、启用状态、地址、令牌和 `chat` 模型共同决定。用户自己启用并配好的 `ch_builtin_*` 必须能出现，否则会出现“明明有 44 条渠道却无法配置方案模型”。
+- **实时运行态优先于旧产物 hash**：`resultDisplayStatus()` 必须先看 `exec.nodeStateOf()` 的 queued / running / failed，再看结果行和 hash。顺序写反时，重跑一张已有结果会一直显示“已完成”，运行动画永远不出现。
+- **失败态与画布同形态**：居中错误图标 + “生成失败” + 最多三行可换行原因 + `role=alert`；底部保留完整原因。运行态用 34px 呼吸轨道、1.1s 双色弧线和 500ms 更新的秒数，`prefers-reduced-motion` 下停动画但保留文字。
+- **验证口径**：G164 明暗各 **39/39**，含真实运行计时、强制失败态与长文本边界；全量单测 **2856 passed / 1 skipped**；`npm run check`、`npm run build`、Impeccable detector 通过。证据 `.playwright-verify/164-ecommerce-running{,-dark}.png`、`164-ecommerce-failed{,-dark}.png`。
+
 ### 电商工具独立选项（2026-10-20 → 对账 #646）
 
 - **顶部工具不能共享同一份表单状态**：`platformId / language / ratio / note` 原先只有一份，切换商品套图、A+、爆款复刻时会互相污染。现在按 mode id 存在 `modeStates`，并随草稿持久化；新增工具时先给 `defaultModeFormState()`，不要在 JSX 里零散重置。
@@ -11,7 +18,7 @@
 
 ### 电商自定义下拉与套图配置（2026-10-20 → 对账 #645）
 
-- **方案模型必须过滤渠道来源，不只是换 UI**：`userConfiguredChannels()` 排除 `ch_builtin_*` 与 `protocol='mock'`，电商页再用它生成 `chatTargetOptions` / `resolveChatTarget`。否则测试种子或旧数据里的 `Smoke Mock · GPT-6 Astra` 会出现在真实用户界面。
+- **方案模型要过滤的是不可路由与 mock，不是所有内置渠道**（#647 已修正）：旧实现排除 `ch_builtin_*` 会导致用户配置好的内置渠道也无法选择。现在 `userConfiguredChannels()` 只排除 `protocol='mock'`，再交给 `chatTargetOptions()` / `channelIsRoutable()` 判断启用、地址、令牌和真实对话模型。
 - **下拉浮层不能住在滚动容器里**：右侧参数栏是 `overflow-y:auto`，自定义菜单必须 portal 到 `body` 并用 `position:fixed` 按触发器矩形定位；同时夹紧视口边界、上下空间不足时翻转。只把原生 `<select>` 换成绝对定位 div，短屏仍会被裁切。
 - **模型菜单的图标来源是逻辑模型名**：方案模型的 label 是 `渠道名 · 逻辑模型名`，取最后一段交给 `presetOf()`，再渲染 `ModelIcon`；不要把渠道图标当模型图标。
 - **商品套图自定义数量必须有启停语义**：0 不仅是数字，还代表该类图未启用。界面用独立 checkbox 与数量步进器同步；仅加 `−/+` 会让用户无法一眼看出哪些类型参与生成。
