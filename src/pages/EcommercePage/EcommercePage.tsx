@@ -71,7 +71,11 @@ import {
   ECOMMERCE_PLATFORMS,
   type EcommercePlatform,
 } from '../../domain/ecommerce/platforms'
-import { ECOMMERCE_LANGUAGES, type EcommerceLanguage } from '../../domain/ecommerce/types'
+import {
+  ECOMMERCE_LANGUAGES,
+  languageLabel,
+  type EcommerceLanguage,
+} from '../../domain/ecommerce/types'
 import { canvasStoreFor } from '../../state/workbenches/canvas/storeCache'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import type { Edge } from '../../domain/canvas/model/edge'
@@ -770,6 +774,51 @@ function StudioHost({ projectId }: { projectId: string }) {
     } finally {
       clearTimeout(timer)
       setParsingIntent(false)
+    }
+  }
+
+  const onWriteSellingPoints = async (request: EcommerceRequest): Promise<string> => {
+    if (!chatTarget) {
+      throw new Error('没有可用的对话模型 —— 先在渠道配置里勾选一个对话模型')
+    }
+    const ac = new AbortController()
+    const timer = setTimeout(() => ac.abort(), 30_000)
+    try {
+      const platform =
+        ECOMMERCE_PLATFORMS.find((item) => item.id === request.platformId)?.name ?? '通用'
+      const result = await channels.completeWithTools({
+        channelId: chatTarget.channelId,
+        model: chatTarget.model,
+        tools: [],
+        messages: [
+          {
+            role: 'system',
+            content:
+              '你是电商图片文案助手。只根据用户已经提供的事实，写 2–4 句简洁的商品卖点与画面要求。' +
+              '不要编造参数、认证、功效、价格或品牌信息；只输出可直接放进输入框的正文，不要标题、解释或 JSON。',
+          },
+          {
+            role: 'user',
+            content: [
+              `功能：${request.modeLabel ?? '电商图片'}`,
+              `平台：${platform}`,
+              `文案语言：${languageLabel(request.language)}`,
+              `用户已有要求：${request.note?.trim() || '无'}`,
+              `专属配置：${request.modePrompt?.trim() || '无'}`,
+            ].join('\n'),
+          },
+        ],
+        signal: ac.signal,
+      })
+      const text = result.text.trim().replace(/^```(?:text)?\s*|\s*```$/g, '').trim()
+      if (!text) throw new Error('模型没有返回可用的卖点文案')
+      return text.slice(0, 500)
+    } catch (e) {
+      if (ac.signal.aborted) throw new Error('AI 帮写超时（30 秒没回），请稍后重试')
+      const err = asAppError(e)
+      throw new Error(err ? describeError(err) : 'AI 帮写失败，请稍后重试')
+    } finally {
+      clearTimeout(timer)
     }
   }
 
@@ -1472,6 +1521,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       model={model}
       onModelChange={setModel}
       onUpload={onUpload}
+      onWriteSellingPoints={onWriteSellingPoints}
       onGenerate={onGenerate}
       onEditResult={editResult}
       onEditResults={editResults}

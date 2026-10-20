@@ -36018,6 +36018,38 @@ async function g164(browser) {
     (await page.locator('[data-ecommerce-intent-model]').count()) === 1 &&
       (await page.locator('[data-ecommerce-model]').count()) === 1,
   )
+  const formOrder = await page.evaluate(() => {
+    const note = document.querySelector('[data-ecommerce-note]')?.getBoundingClientRect()
+    const plan = document.querySelector('[data-ecommerce-intent-model]')?.getBoundingClientRect()
+    const generate = document.querySelector('[data-ecommerce-model]')?.getBoundingClientRect()
+    const modeParams = document.querySelector('[data-ecommerce-mode-params]')?.getBoundingClientRect()
+    const form = document.querySelector('[data-ecommerce-form]')
+    return {
+      ordered:
+        !!note &&
+        !!plan &&
+        !!generate &&
+        !!modeParams &&
+        note.bottom < plan.top &&
+        plan.bottom < generate.top &&
+        generate.bottom < modeParams.top,
+      headings: form?.querySelectorAll('h1,h2,h3').length ?? -1,
+      extraSubtitle: (form?.textContent ?? '').includes('电商出图 ·'),
+    }
+  })
+  rec(
+    g,
+    '★★ 商品卖点位于参考位置，两个模型紧接卖点，功能专属参数在后',
+    formOrder.ordered && formOrder.headings === 0 && !formOrder.extraSubtitle,
+    JSON.stringify(formOrder),
+  )
+  rec(
+    g,
+    '★ 商品卖点标题右侧为 AI 帮写，不再显示额外的选填文字',
+    (await page.locator('[data-ecommerce-ai-write]').count()) === 1 &&
+      (await page.locator('[data-ecommerce-form]').innerText()).includes('商品卖点 & 要求') &&
+      !(await page.locator('[data-ecommerce-form]').innerText()).includes('选填'),
+  )
   rec(
     g,
     '★★ 中间为横向滚动案例，而不是重复的工作区标题',
@@ -36073,12 +36105,15 @@ async function g164(browser) {
     (await page.locator('[data-ecommerce-mode-params="product-detail"]').count()) === 1 &&
       (await page.locator('[data-ecommerce-option^="detail-"]').count()) === 14,
   )
+  await page.screenshot({ path: `${OUT}/164-ecommerce-params-detail${themeSuffix}.png` })
   await page.locator('[data-ecommerce-mode="product-retouch"]').click()
   rec(
     g,
     '★ 产品精修展示 5 个精修方向',
-    (await page.locator('[data-ecommerce-option^="retouch-"]').count()) === 5,
+    (await page.locator('[data-ecommerce-option^="retouch-"]').count()) === 5 &&
+      (await page.locator('[data-param-section="common"]').count()) === 0,
   )
+  await page.screenshot({ path: `${OUT}/164-ecommerce-params-retouch${themeSuffix}.png` })
   await page.locator('[data-ecommerce-mode="product-recolor"]').click()
   await page.locator('[data-ecommerce-color-hex]').fill('#123456')
   rec(
@@ -36086,16 +36121,22 @@ async function g164(browser) {
     '★ 产品换色保留颜色与容差参数',
     (await page.locator('[data-ecommerce-color]').count()) === 1 &&
       (await page.locator('[data-ecommerce-color-tolerance]').count()) === 1 &&
-      (await page.locator('[data-ecommerce-color-hex]').inputValue()) === '#123456',
+      (await page.locator('[data-ecommerce-color-hex]').inputValue()) === '#123456' &&
+      (await page.locator('[data-param-section="selling"]').count()) === 0,
   )
+  await page.screenshot({ path: `${OUT}/164-ecommerce-params-recolor${themeSuffix}.png` })
 
   await page.locator('[data-ecommerce-category="wear"]').click()
   rec(
     g,
     '★ 穿戴品类展示参考中的服装生成类型',
     (await page.locator('[data-ecommerce-mode-params="wear-set"]').count()) === 1 &&
-      (await page.locator('[data-ecommerce-option^="wear-"]').count()) >= 6,
+      (await page.locator('[data-ecommerce-option^="wear-"]').count()) >= 6 &&
+      (await page.locator('[data-ecommerce-platform]').count()) === 0 &&
+      (await page.locator('[data-ecommerce-ratio]').count()) === 0 &&
+      (await page.locator('[data-ecommerce-language]').count()) === 1,
   )
+  await page.screenshot({ path: `${OUT}/164-ecommerce-params-wear${themeSuffix}.png` })
 
   await page.locator('[data-ecommerce-category="product"]').click()
   await page.locator('[data-ecommerce-mode="product-set"]').click()

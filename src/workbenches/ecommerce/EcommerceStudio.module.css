@@ -80,6 +80,88 @@
   padding-right: 2px;
 }
 
+.formScroll > [data-param-section='product'] {
+  order: 1;
+}
+
+.formScroll > [data-param-section='common'] {
+  order: 2;
+}
+
+.formScroll > [data-param-section='selling'] {
+  order: 3;
+}
+
+.formScroll > [data-param-section='plan-model'] {
+  order: 4;
+}
+
+.formScroll > [data-param-section='generate-model'] {
+  order: 5;
+}
+
+.formScroll > [data-param-section='mode'] {
+  order: 6;
+}
+
+.formScroll > .error {
+  order: 99;
+}
+
+.formScroll[data-ecommerce-param-mode='product-recreate'] > [data-param-section='mode'] {
+  order: 2;
+}
+
+.formScroll[data-ecommerce-param-mode='product-recreate'] > [data-param-section='common'] {
+  order: 6;
+}
+
+.formScroll[data-ecommerce-param-mode='product-retouch'] > [data-param-section='mode'] {
+  order: 2;
+}
+
+.formScroll[data-ecommerce-param-mode='product-recolor'] > [data-param-section='mode'] {
+  order: 2;
+}
+
+.formScroll[data-ecommerce-param-mode='product-recolor'] > [data-param-section='plan-model'] {
+  order: 3;
+}
+
+.formScroll[data-ecommerce-param-mode='product-recolor'] > [data-param-section='generate-model'] {
+  order: 4;
+}
+
+.formScroll[data-ecommerce-param-mode='video-recreate'] > [data-param-section='mode'] {
+  order: 2;
+}
+
+.formScroll[data-ecommerce-param-mode='video-recreate'] > [data-param-section='common'] {
+  order: 3;
+}
+
+.formScroll[data-ecommerce-param-mode='video-commerce'] > [data-param-section='mode'] {
+  order: 4;
+}
+
+.formScroll[data-ecommerce-param-mode='wear-set'] > [data-param-section='selling'] {
+  order: 2;
+}
+
+.formScroll[data-ecommerce-param-mode='wear-set'] > [data-param-section='common'] {
+  order: 3;
+}
+
+.formScroll[data-ecommerce-param-mode='wear-set'] > [data-param-section='mode'] {
+  order: 4;
+}
+
+.formScroll[data-ecommerce-param-mode='wear-model'] > [data-param-section='mode'],
+.formScroll[data-ecommerce-param-mode='wear-tryon'] > [data-param-section='mode'],
+.formScroll[data-ecommerce-param-mode='wear-detail'] > [data-param-section='mode'] {
+  order: 2;
+}
+
 .results {
   grid-area: stage;
   display: flex;
@@ -158,6 +240,28 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-2);
+}
+
+.aiWrite {
+  min-height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--fs-chip);
+  cursor: pointer;
+}
+
+.aiWrite:hover:not(:disabled),
+.aiWrite:focus-visible {
+  background: var(--bg-hover);
+}
+
+.aiWrite:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
 }
 
 /*

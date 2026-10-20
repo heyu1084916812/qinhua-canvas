@@ -470,6 +470,7 @@ function ModeSpecificParameters({
     return (
       <section className={styles.block} data-ecommerce-mode-params="product-retouch">
         <span className={styles.blockTitle}>快速优化项</span>
+        <span className={styles.hint}>选择常用优化方向，可多选</span>
         <div className={styles.optionGrid}>
           {RETOUCH_OPTIONS.map((item) => (
             <button
@@ -498,6 +499,7 @@ function ModeSpecificParameters({
     return (
       <section className={styles.block} data-ecommerce-mode-params="product-recolor">
         <span className={styles.blockTitle}>目标颜色</span>
+        <span className={styles.hint}>选择要替换成的目标颜色</span>
         <div className={styles.colorControl}>
           <input
             type="color"
@@ -569,6 +571,7 @@ function ModeSpecificParameters({
     return (
       <section className={styles.block} data-ecommerce-mode-params="video-commerce">
         <span className={styles.blockTitle}>视频类型</span>
+        <span className={styles.hint}>选择常用优化方向，可多选</span>
         <div className={styles.optionGrid}>
           {VIDEO_TYPE_OPTIONS.map((item) => (
             <button
@@ -833,6 +836,8 @@ export interface EcommerceStudioProps {
   platforms?: readonly EcommercePlatform[]
   /** 上传一张图：由页面落到画布（assets + 节点），返回节点 id 与预览 */
   onUpload: (file: File, kind: 'product' | 'reference') => Promise<EcommerceUpload | null>
+  /** 用当前方案模型生成一段可直接编辑的商品卖点文案。 */
+  onWriteSellingPoints?: (request: EcommerceRequest) => Promise<string>
   /**
    * 点「开始生成」并在二次确认之后调用；页面负责建节点 + 跑引擎。
    *
@@ -939,13 +944,13 @@ export interface EcommerceStudioProps {
 }
 
 export function EcommerceStudio({
-  projectName,
   initialDraft = null,
   initialProducts = [],
   initialReferences = [],
   onDraftChange,
   platforms = ECOMMERCE_PLATFORMS,
   onUpload,
+  onWriteSellingPoints,
   onGenerate,
   onEditResult,
   onEditResults,
@@ -996,6 +1001,8 @@ export function EcommerceStudio({
   /** 二次确认：点生成先算出"预计 N 张"，确认后才真的发请求（#384 的 D6） */
   const [confirming, setConfirming] = useState(false)
   const [error, setError] = useState('')
+  const [writingSellingPoints, setWritingSellingPoints] = useState(false)
+  const [sellingPointsError, setSellingPointsError] = useState('')
   /** 结果卡上的定向 AI 编辑：一次只打开一张，指令不进入左侧表单草稿 */
   const [editTarget, setEditTarget] = useState<{ nodeId: string; label: string } | null>(null)
   const [editInstruction, setEditInstruction] = useState('')
@@ -1294,6 +1301,21 @@ export function EcommerceStudio({
     }
   }
 
+  const writeSellingPoints = async () => {
+    if (!onWriteSellingPoints) return
+    setWritingSellingPoints(true)
+    setSellingPointsError('')
+    try {
+      const text = (await onWriteSellingPoints(buildRequest())).trim()
+      if (!text) throw new Error('模型没有返回可用的卖点文案')
+      setNote(text.slice(0, ECOMMERCE_NOTE_MAX))
+    } catch (e) {
+      setSellingPointsError(e instanceof Error ? e.message : 'AI 帮写失败，请稍后重试')
+    } finally {
+      setWritingSellingPoints(false)
+    }
+  }
+
   const start = () => {
     if (products.length === 0) {
       setError('先上传一张产品图 —— 没有产品图就没有可改的主体')
@@ -1487,6 +1509,21 @@ export function EcommerceStudio({
         : mode.id === 'wear-model' || mode.id === 'video-commerce'
           ? '模特参考图'
           : '参考图（爆款图）'
+  const showCommonFields = ![
+    'product-retouch',
+    'product-recolor',
+    'wear-model',
+    'wear-tryon',
+    'wear-detail',
+  ].includes(mode.id)
+  const showSellingPoints = ![
+    'product-recolor',
+    'wear-model',
+    'wear-tryon',
+    'wear-detail',
+  ].includes(mode.id)
+  const showPlatformField = mode.id !== 'wear-set'
+  const showRatioField = mode.id !== 'wear-set'
   const carouselCases = [
     {
       id: 'case-1',
@@ -1541,38 +1578,11 @@ export function EcommerceStudio({
 
       {/* 右：参数 */}
       <aside className={styles.form} data-ecommerce-form>
-        <header className={styles.head}>
-          <h1 className={styles.title}>参数</h1>
-          <p className={styles.sub}>
-            {projectName} · {mode.label}
-          </p>
-        </header>
-
-        <div className={styles.formScroll}>
-        {chatModels.length > 0 ? (
-          <label className={styles.field}>
-            <span className={styles.fieldLabel}>方案模型</span>
-            <select
-              className={styles.select}
-              value={intentModel}
-              data-ecommerce-intent-model
-              onChange={(e) => onIntentModelChange?.(e.target.value)}
-            >
-              <option value="">
-                {chatTargetLabel ? `默认 · ${chatTargetLabel}` : '未配置对话模型'}
-              </option>
-              {chatModels.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-
+        <div className={styles.formScroll} data-ecommerce-param-mode={mode.id}>
         <section
           className={dragOver === 'product' ? `${styles.block} ${styles.blockDrop}` : styles.block}
           data-ecommerce-product-drop={dragOver === 'product' ? 'true' : 'false'}
+          data-param-section="product"
           {...dropProps('product')}
         >
           <div className={styles.blockHead}>
@@ -1689,9 +1699,10 @@ export function EcommerceStudio({
           </section>
         ) : null}
 
-        <section className={styles.block}>
+        {showCommonFields ? (
+        <section className={styles.block} data-param-section="common">
           <div className={styles.twoCols}>
-            {mode.mediaKind === 'video' ? (
+            {showPlatformField && mode.mediaKind === 'video' ? (
               <label className={styles.field}>
                 <span className={styles.fieldLabel}>市场地区</span>
                 <select
@@ -1707,7 +1718,7 @@ export function EcommerceStudio({
                   <option value="me">中东</option>
                 </select>
               </label>
-            ) : (
+            ) : showPlatformField ? (
               <label className={styles.field}>
                 <span className={styles.fieldLabel}>上架平台</span>
                 <select
@@ -1724,7 +1735,7 @@ export function EcommerceStudio({
                   ))}
                 </select>
               </label>
-            )}
+            ) : null}
             <label className={styles.field}>
               <span className={styles.fieldLabel}>语言</span>
               <select
@@ -1740,34 +1751,82 @@ export function EcommerceStudio({
                 ))}
               </select>
             </label>
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>
-                {mode.mediaKind === 'video' ? '视频比例' : '图片比例'}
-              </span>
-              <select
-                className={styles.select}
-                value={ratio}
-                data-ecommerce-ratio
-                onChange={(e) => setRatio(e.target.value)}
-              >
-                {ECOMMERCE_RATIOS.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {showRatioField ? (
+              <label className={styles.field}>
+                <span className={styles.fieldLabel}>
+                  {mode.mediaKind === 'video' ? '视频比例' : '图片比例'}
+                </span>
+                <select
+                  className={styles.select}
+                  value={ratio}
+                  data-ecommerce-ratio
+                  onChange={(e) => setRatio(e.target.value)}
+                >
+                  {ECOMMERCE_RATIOS.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
           </div>
         </section>
+        ) : null}
 
-        <ModeSpecificParameters
-          modeId={mode.id}
-          options={modeOptions}
-          setOption={setModeOption}
-          toggleOption={toggleModeOption}
-        />
+        {showSellingPoints ? (
+        <section className={styles.block} data-param-section="selling">
+          <div className={styles.blockHead}>
+            <label className={styles.blockTitle} htmlFor="ecommerce-note">
+              商品卖点 &amp; 要求
+            </label>
+            <button
+              type="button"
+              className={styles.aiWrite}
+              data-ecommerce-ai-write
+              disabled={writingSellingPoints || !chatTargetLabel}
+              onClick={() => void writeSellingPoints()}
+            >
+              {writingSellingPoints ? '生成中…' : 'AI 帮写'}
+            </button>
+          </div>
+          <textarea
+            id="ecommerce-note"
+            className={styles.textarea}
+            value={note}
+            maxLength={ECOMMERCE_NOTE_MAX}
+            placeholder="例：突出防水材质；模特手持场景；不要出现文字"
+            data-ecommerce-note
+            onChange={(e) => setNote(e.target.value)}
+          />
+          {sellingPointsError ? (
+            <p className={styles.error} role="alert" data-ecommerce-ai-write-error>
+              {sellingPointsError}
+            </p>
+          ) : null}
+        </section>
+        ) : null}
 
-        <label className={styles.field}>
+        <label className={styles.field} data-param-section="plan-model">
+          <span className={styles.fieldLabel}>方案模型</span>
+          <select
+            className={styles.select}
+            value={intentModel}
+            data-ecommerce-intent-model
+            onChange={(e) => onIntentModelChange?.(e.target.value)}
+          >
+            <option value="">
+              {chatTargetLabel ? `默认 · ${chatTargetLabel}` : '未配置对话模型'}
+            </option>
+            {chatModels.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className={styles.field} data-param-section="generate-model">
           <span className={styles.fieldLabel}>
             {mode.mediaKind === 'video' ? '视频模型' : '生成模型'}
           </span>
@@ -1786,23 +1845,14 @@ export function EcommerceStudio({
           </select>
         </label>
 
-        <section className={styles.block}>
-          <div className={styles.blockHead}>
-            <label className={styles.blockTitle} htmlFor="ecommerce-note">
-              商品卖点 &amp; 要求
-            </label>
-            <span className={styles.hint}>选填</span>
-          </div>
-          <textarea
-            id="ecommerce-note"
-            className={styles.textarea}
-            value={note}
-            maxLength={ECOMMERCE_NOTE_MAX}
-            placeholder="例：突出防水材质；模特手持场景；不要出现文字"
-            data-ecommerce-note
-            onChange={(e) => setNote(e.target.value)}
+        <div data-param-section="mode">
+          <ModeSpecificParameters
+            modeId={mode.id}
+            options={modeOptions}
+            setOption={setModeOption}
+            toggleOption={toggleModeOption}
           />
-        </section>
+        </div>
 
         {error ? (
           <p className={styles.error} role="alert" data-ecommerce-error>
