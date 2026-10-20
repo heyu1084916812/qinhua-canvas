@@ -34,7 +34,11 @@ import {
   parseEcommerceIntent,
   type EcommerceIntentDraft,
 } from '../../domain/ecommerce/chatParse'
-import { chatTargetOptions, resolveChatTarget } from '../../domain/shared/chatTarget'
+import {
+  chatTargetOptions,
+  resolveChatTarget,
+  userConfiguredChannels,
+} from '../../domain/shared/chatTarget'
 import {
   buildShotsSystem,
   buildShotsText,
@@ -686,11 +690,18 @@ function StudioHost({ projectId }: { projectId: string }) {
       ).map((option) => option.id),
     [channelList],
   )
-  const intentModelOptions = useMemo(() => chatTargetOptions(channelList), [channelList])
+  const ownChatChannels = useMemo(
+    () => userConfiguredChannels(channelList),
+    [channelList],
+  )
+  const intentModelOptions = useMemo(
+    () => chatTargetOptions(ownChatChannels),
+    [ownChatChannels],
+  )
   const [intentModel, setIntentModel] = useState('')
   const chatTarget = useMemo(
-    () => resolveChatTarget(channelList, intentModel),
-    [channelList, intentModel],
+    () => resolveChatTarget(ownChatChannels, intentModel),
+    [intentModel, ownChatChannels],
   )
 
   /**

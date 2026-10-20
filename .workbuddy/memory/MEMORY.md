@@ -1,5 +1,15 @@
 # CanvasFlow（轻画）项目记忆
 
+### 电商自定义下拉与套图配置（2026-10-20 → 对账 #645）
+
+- **方案模型必须过滤渠道来源，不只是换 UI**：`userConfiguredChannels()` 排除 `ch_builtin_*` 与 `protocol='mock'`，电商页再用它生成 `chatTargetOptions` / `resolveChatTarget`。否则测试种子或旧数据里的 `Smoke Mock · GPT-6 Astra` 会出现在真实用户界面。
+- **下拉浮层不能住在滚动容器里**：右侧参数栏是 `overflow-y:auto`，自定义菜单必须 portal 到 `body` 并用 `position:fixed` 按触发器矩形定位；同时夹紧视口边界、上下空间不足时翻转。只把原生 `<select>` 换成绝对定位 div，短屏仍会被裁切。
+- **模型菜单的图标来源是逻辑模型名**：方案模型的 label 是 `渠道名 · 逻辑模型名`，取最后一段交给 `presetOf()`，再渲染 `ModelIcon`；不要把渠道图标当模型图标。
+- **商品套图自定义数量必须有启停语义**：0 不仅是数字，还代表该类图未启用。界面用独立 checkbox 与数量步进器同步；仅加 `−/+` 会让用户无法一眼看出哪些类型参与生成。
+- **G164 的隔离库需要自己的 chat 渠道**：`Smoke Mock` 现在被生产菜单正确排除，测试方案模型时必须额外 seed 一条非内置、非 mock、localhost 的 `openai-compatible` 渠道；不要为了测试把 mock 重新放回 UI。
+- **右侧参数栏的滚动条必须贴面板最右沿**：滚动容器本身要铺到 `form` 右边，右内距下沉给内容；把滚动容器继续放在 `18px` 内边距里面，滚动条就会画在内容列右沿，用户一眼能看出“浮在面板中间”。同时只保留 `::-webkit-scrollbar-*`，不要写 `scrollbar-width` / `scrollbar-color`。
+- 收口证据：G164 明暗 **28/28**，全量单测 **2847 passed / 1 skipped**，`npm run check` 与 Impeccable detector 通过；截图 `.playwright-verify/164-ecommerce-select-plan.png`、`164-ecommerce-set-custom-fullscreen.png`、`164-ecommerce-scrollbar-edge.png`。
+
 ### 项目树窗口与电商三栏（2026-10-20 → 对账 #641 / #642）
 
 - **分组 5 条上限是一层“投影”，不是数据重排**：置顶、每个文件夹、每个未归档工作台分别最多显示 5 条；当前项目若在窗口外，只在本次渲染中临时提到第 1 条，不能写回 `projects` 的 `updatedAt / pinnedAt` 或仓储顺序。`展开显示 (N)` 只扩当前分组，和分组折叠是两份状态。

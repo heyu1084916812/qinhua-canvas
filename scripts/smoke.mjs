@@ -1239,6 +1239,45 @@ async function seedIsolatedMockChannel(page) {
   }
 }
 
+async function seedOwnedChatChannel(page) {
+  const rows = await sharedRows(page, 'channels')
+  const template = rows[0] ?? {}
+  const now = Date.now()
+  const models = [
+    {
+      id: 'studio-chat-1',
+      category: 'chat',
+      inputTypes: ['text'],
+    },
+  ]
+  const target = {
+    ...template,
+    id: 'ch_smoke_owned_chat',
+    name: 'Studio Relay',
+    protocol: 'openai-compatible',
+    baseUrl: 'http://127.0.0.1:18765/v1',
+    enabled: true,
+    order: 998,
+    priority: 998,
+    weight: 1,
+    routeStrategy: 'priority',
+    models,
+    modelCache: models,
+    modelMap: { 'GPT-6 Astra': 'studio-chat-1' },
+    credentialRef: null,
+    altCredentialRef: null,
+    hasToken: false,
+    hasAltToken: false,
+    tokenTail: null,
+    altTokenTail: null,
+    lastTestAt: now,
+    lastTestLatency: 0,
+    createdAt: now,
+  }
+  await sharedPut(page, 'channels', target)
+  return target
+}
+
 async function configureMockChannel(
   page,
   { token = null, enable = true, pick = true, isolate = false } = {},
@@ -35998,6 +36037,7 @@ async function g164(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
   await configureMockChannel(page, { isolate: true })
+  await seedOwnedChatChannel(page)
   await page.goto(`${BASE}/ecommerce`, { waitUntil: 'networkidle' })
   await page.locator('[data-ecommerce-create]').click()
   await page.waitForURL(/\/ecommerce\/proj_/)
@@ -36018,6 +36058,103 @@ async function g164(browser) {
     '★★ 参数区只额外保留方案模型与生成模型两个手动模型选择',
     (await page.locator('[data-ecommerce-intent-model]').count()) === 1 &&
       (await page.locator('[data-ecommerce-model]').count()) === 1,
+  )
+  rec(
+    g,
+    '★★ 电商工作台不再使用任何原生 select',
+    (await page.locator('[data-ecommerce-studio] select').count()) === 0,
+  )
+  const formWidth = await page
+    .locator('[data-ecommerce-form]')
+    .evaluate((el) => el.getBoundingClientRect().width)
+  rec(
+    g,
+    '★ 全屏参数栏按参考比例加宽到 360px',
+    formWidth >= 350,
+    `width=${formWidth}`,
+  )
+  const planTrigger = page.locator('[data-ecommerce-intent-model]')
+  rec(
+    g,
+    '★★ 方案模型只显示用户自定义的非 mock 渠道',
+    !(await planTrigger.isDisabled()) &&
+      (await planTrigger.innerText()).includes('Studio Relay'),
+    await planTrigger.innerText(),
+  )
+  await planTrigger.click()
+  const planMenu = page.locator('[data-ecommerce-menu="intent-model"]')
+  await planMenu.waitFor({ state: 'visible', timeout: 5000 })
+  await page.screenshot({ path: `${OUT}/164-ecommerce-select-plan${themeSuffix}.png` })
+  const planMenuText = (await planMenu.innerText()).trim()
+  rec(
+    g,
+    '★★ 方案模型浮层不含内置 / Smoke Mock，当前项有勾选且带厂商图标',
+    planMenuText.includes('Studio Relay') &&
+      !planMenuText.includes('Smoke Mock') &&
+      !planMenuText.includes('ModelScope') &&
+      !planMenuText.includes('RunningHub') &&
+      (await planMenu.locator('[data-ecommerce-select-option][aria-selected="true"]').count()) === 1 &&
+      (await planMenu.locator('[data-model-icon]').count()) >= 1,
+    planMenuText.replace(/\n/g, ' | '),
+  )
+  await page.locator('[data-ecommerce-note]').click()
+  await planMenu.waitFor({ state: 'detached', timeout: 2000 }).catch(() => {})
+  rec(
+    g,
+    '★ 点击浮层外部会关闭自定义菜单',
+    (await planMenu.count()) === 0,
+  )
+
+  const platformTrigger = page.locator('[data-ecommerce-platform]')
+  await platformTrigger.click()
+  const platformMenu = page.locator('[data-ecommerce-menu="platform"]')
+  await platformMenu.waitFor({ state: 'visible', timeout: 5000 })
+  const platformGeometry = await page.evaluate(() => {
+    const menu = document.querySelector('[data-ecommerce-menu="platform"]')
+    if (!menu) return null
+    const rect = menu.getBoundingClientRect()
+    return {
+      left: rect.left,
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height,
+      viewportW: innerWidth,
+      viewportH: innerHeight,
+    }
+  })
+  rec(
+    g,
+    '★★ 自定义菜单脱离滚动容器，完整落在视口内',
+    !!platformGeometry &&
+      platformGeometry.left >= 0 &&
+      platformGeometry.top >= 0 &&
+      platformGeometry.right <= platformGeometry.viewportW &&
+      platformGeometry.bottom <= platformGeometry.viewportH &&
+      platformGeometry.width >= 220 &&
+      platformGeometry.height > 0,
+    JSON.stringify(platformGeometry),
+  )
+  await page.keyboard.press('Escape')
+  await platformMenu.waitFor({ state: 'detached', timeout: 2000 }).catch(() => {})
+  rec(
+    g,
+    '★ Esc 可关闭自定义菜单',
+    (await platformMenu.count()) === 0,
+  )
+  await platformTrigger.focus()
+  await page.keyboard.press('ArrowDown')
+  await platformMenu.waitFor({ state: 'visible', timeout: 3000 })
+  await page.keyboard.press('End')
+  await page.keyboard.press('Enter')
+  await platformMenu.waitFor({ state: 'detached', timeout: 3000 }).catch(() => {})
+  rec(
+    g,
+    '★ 键盘 ArrowDown / End / Enter 可完成选择',
+    (await platformMenu.count()) === 0 &&
+      (await platformTrigger.innerText()).trim().length > 0,
+    await platformTrigger.innerText(),
   )
   const formOrder = await page.evaluate(() => {
     const note = document.querySelector('[data-ecommerce-note]')?.getBoundingClientRect()
@@ -36081,6 +36218,26 @@ async function g164(browser) {
   )
 
   await page.locator('[data-ecommerce-option="set-strategy-custom"]').click()
+  rec(
+    g,
+    '★★ 商品套图自定义配置使用逐项面板，含说明与启用勾选',
+    (await page.locator('[data-ecommerce-set-item]').count()) === 5 &&
+      (await page.locator('[data-ecommerce-set-item] [data-ecommerce-set-enabled]').count()) === 5 &&
+      (await page.locator('[data-ecommerce-set-item] [data-ecommerce-set-count]').count()) === 5 &&
+      (await page.locator('[data-ecommerce-set-item]').first().innerText()).includes('多角度呈现商品细节') &&
+      (await page.locator('[data-ecommerce-set-item="other"]').innerText()).includes('AI 智能匹配'),
+  )
+  await page.screenshot({ path: `${OUT}/164-ecommerce-set-custom${themeSuffix}.png` })
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  await sleep(250)
+  await page.screenshot({ path: `${OUT}/164-ecommerce-set-custom-fullscreen${themeSuffix}.png` })
+  rec(
+    g,
+    '★ 1920x1080 全屏下套图自定义面板可见',
+    await page.locator('[data-ecommerce-set-item="whiteBg"]').isVisible(),
+  )
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await sleep(250)
   for (const step of [
     'scene:-1',
     'sellingPoint:-1',
@@ -36196,6 +36353,32 @@ async function g164(browser) {
       (await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)),
   )
   await page.screenshot({ path: `${OUT}/164-ecommerce-params-1024${themeSuffix}.png` })
+  await page.setViewportSize({ width: 900, height: 700 })
+  await sleep(300)
+  const scrollbarEdge = await page.evaluate(() => {
+    const form = document.querySelector('[data-ecommerce-form]')
+    const scroller = form?.querySelector(':scope > div')
+    if (!form || !scroller) return null
+    const formRect = form.getBoundingClientRect()
+    const scrollRect = scroller.getBoundingClientRect()
+    return {
+      overflow: scroller.scrollHeight > scroller.clientHeight,
+      rightGap: Math.abs(formRect.right - scrollRect.right),
+      barWidth: getComputedStyle(scroller, '::-webkit-scrollbar').width,
+      scrollHeight: scroller.scrollHeight,
+      clientHeight: scroller.clientHeight,
+    }
+  })
+  rec(
+    g,
+    '★★ 参数栏滚动条贴面板最右沿，不使用原生粗条',
+    !!scrollbarEdge &&
+      scrollbarEdge.overflow &&
+      scrollbarEdge.rightGap <= 1 &&
+      scrollbarEdge.barWidth === '4px',
+    JSON.stringify(scrollbarEdge),
+  )
+  await page.screenshot({ path: `${OUT}/164-ecommerce-scrollbar-edge${themeSuffix}.png` })
   await page.setViewportSize({ width: 760, height: 900 })
   await sleep(300)
   rec(

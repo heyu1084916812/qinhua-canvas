@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveSpeechTarget } from './chatTarget'
+import { resolveSpeechTarget, userConfiguredChannels } from './chatTarget'
 import type { Channel } from '../project/channel'
 
 const channel = (over: Partial<Channel>): Channel =>
@@ -17,6 +17,15 @@ const channel = (over: Partial<Channel>): Channel =>
   }) as Channel
 
 describe('channel routing eligibility', () => {
+  it('excludes built-in and offline mock channels from user model choices', () => {
+    const channels = [
+      channel({ id: 'ch_builtin_modelscope', protocol: 'modelscope' }),
+      channel({ id: 'ch_smoke_mock', protocol: 'mock' }),
+      channel({ id: 'ch_mine', protocol: 'openai-compatible', baseUrl: 'https://mine.test/v1' }),
+    ]
+    expect(userConfiguredChannels(channels).map((item) => item.id)).toEqual(['ch_mine'])
+  })
+
   it('does not auto-select a remote speech channel without a saved token', () => {
     expect(
       resolveSpeechTarget([

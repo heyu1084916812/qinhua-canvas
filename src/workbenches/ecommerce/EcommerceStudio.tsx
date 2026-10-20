@@ -54,6 +54,9 @@ import {
   type EcommerceUpscaleProfile,
   type EcommerceUpscaleScale,
 } from '../../domain/ecommerce/upscale'
+import { presetOf } from '../../domain/project/modelCatalog'
+import { ModelIcon } from '../../features/shared/modelIcon/ModelIcon'
+import { EcommerceSelect, type EcommerceSelectOption } from './EcommerceSelect'
 import styles from './EcommerceStudio.module.css'
 
 /**
@@ -292,6 +295,18 @@ function OptionContent({ option }: { option: (typeof DETAIL_HIGHLIGHT_OPTIONS)[n
   )
 }
 
+function modelIconFor(label: string): ReactNode {
+  const logicalName = label.split(' · ').at(-1)?.trim() ?? label.trim()
+  const preset = presetOf(logicalName)
+  return preset ? <ModelIcon vendor={preset.vendor} size={19} /> : undefined
+}
+
+function textOptions(
+  items: readonly { id: string; label: string }[],
+): EcommerceSelectOption[] {
+  return items.map((item) => ({ value: item.id, label: item.label }))
+}
+
 function ModeSpecificParameters({
   modeId,
   options,
@@ -306,6 +321,10 @@ function ModeSpecificParameters({
   const setCounts = modeOptionCounts(options)
   const updateSetCount = (id: string, delta: number) => {
     const next = Math.min(Math.max((setCounts[id] ?? 0) + delta, 0), 12)
+    setOption('setCounts', { ...setCounts, [id]: next })
+  }
+  const toggleSetCount = (id: string) => {
+    const next = (setCounts[id] ?? 0) > 0 ? 0 : 1
     setOption('setCounts', { ...setCounts, [id]: next })
   }
   const selected = (key: string, id: string) => modeOptionStrings(options, key).includes(id)
@@ -354,31 +373,77 @@ function ModeSpecificParameters({
           </button>
         </div>
         {strategy === 'custom' ? (
-          <div className={styles.stepperList} data-ecommerce-set-counts>
-            {PRODUCT_SET_COUNT_OPTIONS.map((item) => (
-              <div key={item.id} className={styles.stepperRow}>
-                <span>{item.label}</span>
-                <span className={styles.stepper}>
+          <div className={styles.setCountList} data-ecommerce-set-counts>
+            {PRODUCT_SET_COUNT_OPTIONS.map((item) => {
+              const count = setCounts[item.id] ?? 0
+              return (
+                <div
+                  key={item.id}
+                  className={styles.setCountItem}
+                  data-ecommerce-set-item={item.id}
+                >
                   <button
                     type="button"
-                    aria-label={`${item.label}减少一张`}
-                    data-ecommerce-set-step={`${item.id}:-1`}
-                    onClick={() => updateSetCount(item.id, -1)}
+                    role="checkbox"
+                    aria-checked={count > 0}
+                    aria-label={`${item.label}${count > 0 ? '已启用' : '未启用'}`}
+                    className={
+                      count > 0
+                        ? `${styles.setCheck} ${styles.setCheckOn}`
+                        : styles.setCheck
+                    }
+                    data-ecommerce-set-enabled={item.id}
+                    onClick={() => toggleSetCount(item.id)}
                   >
-                    −
+                    {count > 0 ? (
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="m3.2 8.2 3.1 3.1 6.5-6.6" />
+                      </svg>
+                    ) : null}
                   </button>
-                  <span data-ecommerce-set-count={item.id}>{setCounts[item.id] ?? 0}</span>
-                  <button
-                    type="button"
-                    aria-label={`${item.label}增加一张`}
-                    data-ecommerce-set-step={`${item.id}:1`}
-                    onClick={() => updateSetCount(item.id, 1)}
-                  >
-                    +
-                  </button>
-                </span>
-              </div>
-            ))}
+                  <span className={styles.setCountBody}>
+                    <span className={styles.setCountTitleRow}>
+                      <span className={styles.setCountTitle}>{item.label}</span>
+                      {item.id === 'other' ? (
+                        <span className={styles.setAiBadge}>AI 智能匹配</span>
+                      ) : null}
+                    </span>
+                    {item.hint ? (
+                      <span className={styles.setCountHint}>{item.hint}</span>
+                    ) : null}
+                  </span>
+                  <span className={styles.stepper}>
+                    <button
+                      type="button"
+                      aria-label={`${item.label}减少一张`}
+                      data-ecommerce-set-step={`${item.id}:-1`}
+                      onClick={() => updateSetCount(item.id, -1)}
+                    >
+                      -
+                    </button>
+                    <span data-ecommerce-set-count={item.id}>{count}</span>
+                    <button
+                      type="button"
+                      aria-label={`${item.label}增加一张`}
+                      data-ecommerce-set-step={`${item.id}:1`}
+                      onClick={() => updateSetCount(item.id, 1)}
+                    >
+                      +
+                    </button>
+                  </span>
+                </div>
+              )
+            })}
           </div>
         ) : null}
       </section>
@@ -634,19 +699,21 @@ function ModeSpecificParameters({
             </button>
           ))}
         </div>
-        <label className={styles.field}>
+        <div className={styles.field}>
           <span className={styles.fieldLabel}>展示面</span>
-          <select
-            className={styles.select}
+          <EcommerceSelect
+            ariaLabel="展示面"
+            name="wear-side"
             value={modeOptionString(options, 'wearSide', 'front')}
-            data-ecommerce-option="wear-side"
-            onChange={(e) => setOption('wearSide', e.target.value)}
-          >
-            <option value="front">正面</option>
-            <option value="back">背面</option>
-            <option value="both">正面与背面</option>
-          </select>
-        </label>
+            onChange={(value) => setOption('wearSide', value)}
+            options={[
+              { value: 'front', label: '正面' },
+              { value: 'back', label: '背面' },
+              { value: 'both', label: '正面与背面' },
+            ]}
+            dataAttributes={{ 'data-ecommerce-option': 'wear-side' }}
+          />
+        </div>
       </section>
     )
   }
@@ -665,30 +732,34 @@ function ModeSpecificParameters({
       <section className={styles.block} data-ecommerce-mode-params="wear-tryon">
         <span className={styles.blockTitle}>试穿配置</span>
         <div className={styles.twoCols}>
-          <label className={styles.field}>
+          <div className={styles.field}>
             <span className={styles.fieldLabel}>人物保留</span>
-            <select
-              className={styles.select}
+            <EcommerceSelect
+              ariaLabel="人物保留"
+              name="person-preserve"
               value={modeOptionString(options, 'personPreserve', 'high')}
-              data-ecommerce-option="person-preserve"
-              onChange={(e) => setOption('personPreserve', e.target.value)}
-            >
-              <option value="high">自然保持</option>
-              <option value="strict">严格保持</option>
-            </select>
-          </label>
-          <label className={styles.field}>
+              onChange={(value) => setOption('personPreserve', value)}
+              options={[
+                { value: 'high', label: '自然保持' },
+                { value: 'strict', label: '严格保持' },
+              ]}
+              dataAttributes={{ 'data-ecommerce-option': 'person-preserve' }}
+            />
+          </div>
+          <div className={styles.field}>
             <span className={styles.fieldLabel}>服装版型</span>
-            <select
-              className={styles.select}
+            <EcommerceSelect
+              ariaLabel="服装版型"
+              name="outfit-preserve"
               value={modeOptionString(options, 'outfitPreserve', 'on')}
-              data-ecommerce-option="outfit-preserve"
-              onChange={(e) => setOption('outfitPreserve', e.target.value)}
-            >
-              <option value="on">严格保持</option>
-              <option value="off">允许微调</option>
-            </select>
-          </label>
+              onChange={(value) => setOption('outfitPreserve', value)}
+              options={[
+                { value: 'on', label: '严格保持' },
+                { value: 'off', label: '允许微调' },
+              ]}
+              dataAttributes={{ 'data-ecommerce-option': 'outfit-preserve' }}
+            />
+          </div>
         </div>
         <PersonSettings options={options} setOption={setOption} />
       </section>
@@ -761,58 +832,50 @@ function PersonSettings({
         <span className={styles.hint}>请在上方参考素材中上传模特照片</span>
       ) : (
         <div className={styles.personGrid}>
-          <label className={styles.field}>
+          <div className={styles.field}>
             <span className={styles.fieldLabel}>性别</span>
-            <select
-              className={styles.select}
+            <EcommerceSelect
+              ariaLabel="模特性别"
+              name="model-gender"
               value={modeOptionString(options, 'modelGender', 'female')}
-              data-ecommerce-option="model-gender"
-              onChange={(e) => setOption('modelGender', e.target.value)}
-            >
-              {GENDER_OPTIONS.map((item) => (
-                <option key={item.id} value={item.id}>{item.label}</option>
-              ))}
-            </select>
-          </label>
-          <label className={styles.field}>
+              onChange={(value) => setOption('modelGender', value)}
+              options={textOptions(GENDER_OPTIONS)}
+              dataAttributes={{ 'data-ecommerce-option': 'model-gender' }}
+            />
+          </div>
+          <div className={styles.field}>
             <span className={styles.fieldLabel}>年龄</span>
-            <select
-              className={styles.select}
+            <EcommerceSelect
+              ariaLabel="模特年龄"
+              name="model-age"
               value={modeOptionString(options, 'modelAge', 'young')}
-              data-ecommerce-option="model-age"
-              onChange={(e) => setOption('modelAge', e.target.value)}
-            >
-              {AGE_OPTIONS.map((item) => (
-                <option key={item.id} value={item.id}>{item.label}</option>
-              ))}
-            </select>
-          </label>
-          <label className={styles.field}>
+              onChange={(value) => setOption('modelAge', value)}
+              options={textOptions(AGE_OPTIONS)}
+              dataAttributes={{ 'data-ecommerce-option': 'model-age' }}
+            />
+          </div>
+          <div className={styles.field}>
             <span className={styles.fieldLabel}>族裔</span>
-            <select
-              className={styles.select}
+            <EcommerceSelect
+              ariaLabel="模特族裔"
+              name="model-ethnicity"
               value={modeOptionString(options, 'modelEthnicity', 'asian')}
-              data-ecommerce-option="model-ethnicity"
-              onChange={(e) => setOption('modelEthnicity', e.target.value)}
-            >
-              {ETHNICITY_OPTIONS.map((item) => (
-                <option key={item.id} value={item.id}>{item.label}</option>
-              ))}
-            </select>
-          </label>
-          <label className={styles.field}>
+              onChange={(value) => setOption('modelEthnicity', value)}
+              options={textOptions(ETHNICITY_OPTIONS)}
+              dataAttributes={{ 'data-ecommerce-option': 'model-ethnicity' }}
+            />
+          </div>
+          <div className={styles.field}>
             <span className={styles.fieldLabel}>体型</span>
-            <select
-              className={styles.select}
+            <EcommerceSelect
+              ariaLabel="模特体型"
+              name="model-body"
               value={modeOptionString(options, 'modelBody', 'standard')}
-              data-ecommerce-option="model-body"
-              onChange={(e) => setOption('modelBody', e.target.value)}
-            >
-              {BODY_OPTIONS.map((item) => (
-                <option key={item.id} value={item.id}>{item.label}</option>
-              ))}
-            </select>
-          </label>
+              onChange={(value) => setOption('modelBody', value)}
+              options={textOptions(BODY_OPTIONS)}
+              dataAttributes={{ 'data-ecommerce-option': 'model-body' }}
+            />
+          </div>
         </div>
       )}
       <input
@@ -1716,72 +1779,73 @@ export function EcommerceStudio({
         <section className={styles.block} data-param-section="common">
           <div className={styles.twoCols}>
             {showPlatformField && mode.mediaKind === 'video' ? (
-              <label className={styles.field}>
+              <div className={styles.field}>
                 <span className={styles.fieldLabel}>市场地区</span>
-                <select
-                  className={styles.select}
+                <EcommerceSelect
+                  ariaLabel="市场地区"
+                  name="market-region"
                   value={modeOptionString(modeOptions, 'marketRegion', 'us')}
-                  data-ecommerce-market-region
-                  onChange={(e) => setModeOption('marketRegion', e.target.value)}
-                >
-                  <option value="us">美国</option>
-                  <option value="uk">英国</option>
-                  <option value="eu">欧洲</option>
-                  <option value="sea">东南亚</option>
-                  <option value="me">中东</option>
-                </select>
-              </label>
+                  onChange={(value) => setModeOption('marketRegion', value)}
+                  options={[
+                    { value: 'us', label: '美国' },
+                    { value: 'uk', label: '英国' },
+                    { value: 'eu', label: '欧洲' },
+                    { value: 'sea', label: '东南亚' },
+                    { value: 'me', label: '中东' },
+                  ]}
+                  dataAttributes={{ 'data-ecommerce-market-region': true }}
+                />
+              </div>
             ) : showPlatformField ? (
-              <label className={styles.field}>
+              <div className={styles.field}>
                 <span className={styles.fieldLabel}>上架平台</span>
-                <select
-                  className={styles.select}
+                <EcommerceSelect
+                  ariaLabel="上架平台"
+                  name="platform"
                   value={platformId}
-                  data-ecommerce-platform
-                  onChange={(e) => setPlatformId(e.target.value)}
-                >
-                  <option value="">不指定（通用）</option>
-                  {platforms.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  onChange={setPlatformId}
+                  options={[
+                    { value: '', label: '不指定（通用）' },
+                    ...platforms.map((platform) => ({
+                      value: platform.id,
+                      label: platform.name,
+                    })),
+                  ]}
+                  dataAttributes={{ 'data-ecommerce-platform': true }}
+                />
+              </div>
             ) : null}
-            <label className={styles.field}>
+            <div className={styles.field}>
               <span className={styles.fieldLabel}>语言</span>
-              <select
-                className={styles.select}
+              <EcommerceSelect
+                ariaLabel="输出语言"
+                name="language"
                 value={language}
-                data-ecommerce-language
-                onChange={(e) => setLanguage(e.target.value as EcommerceLanguage)}
-              >
-                {ECOMMERCE_LANGUAGES.map((l) => (
-                  <option key={l} value={l}>
-                    {languageLabel(l)}
-                  </option>
-                ))}
-              </select>
-            </label>
+                onChange={(value) => setLanguage(value as EcommerceLanguage)}
+                options={ECOMMERCE_LANGUAGES.map((item) => ({
+                  value: item,
+                  label: languageLabel(item),
+                }))}
+                dataAttributes={{ 'data-ecommerce-language': true }}
+              />
+            </div>
             {showRatioField ? (
-              <label className={styles.field}>
+              <div className={styles.field}>
                 <span className={styles.fieldLabel}>
                   {mode.mediaKind === 'video' ? '视频比例' : '图片比例'}
                 </span>
-                <select
-                  className={styles.select}
+                <EcommerceSelect
+                  ariaLabel={mode.mediaKind === 'video' ? '视频比例' : '图片比例'}
+                  name="ratio"
                   value={ratio}
-                  data-ecommerce-ratio
-                  onChange={(e) => setRatio(e.target.value)}
-                >
-                  {ECOMMERCE_RATIOS.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  onChange={setRatio}
+                  options={ECOMMERCE_RATIOS.map((item) => ({
+                    value: item,
+                    label: item,
+                  }))}
+                  dataAttributes={{ 'data-ecommerce-ratio': true }}
+                />
+              </div>
             ) : null}
           </div>
         </section>
@@ -1820,43 +1884,52 @@ export function EcommerceStudio({
         </section>
         ) : null}
 
-        <label className={styles.field} data-param-section="plan-model">
+        <div className={styles.field} data-param-section="plan-model">
           <span className={styles.fieldLabel}>方案模型</span>
-          <select
-            className={styles.select}
-            value={intentModel}
-            data-ecommerce-intent-model
-            onChange={(e) => onIntentModelChange?.(e.target.value)}
-          >
-            <option value="">
-              {chatTargetLabel ? `默认 · ${chatTargetLabel}` : '未配置对话模型'}
-            </option>
-            {chatModels.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
+          <EcommerceSelect
+            ariaLabel="方案模型"
+            name="intent-model"
+            value={
+              chatModels.find((item) => item.value === intentModel)?.value ??
+              chatModels.find((item) => item.label === chatTargetLabel)?.value ??
+              chatModels[0]?.value ??
+              ''
+            }
+            onChange={(value) => onIntentModelChange?.(value)}
+            placeholder="未配置对话模型"
+            menuMinWidth={260}
+            disabled={chatModels.length === 0}
+            options={chatModels.map((item) => ({
+              value: item.value,
+              label: item.label,
+              icon: modelIconFor(item.label),
+            }))}
+            dataAttributes={{ 'data-ecommerce-intent-model': true }}
+          />
+        </div>
 
-        <label className={styles.field} data-param-section="generate-model">
+        <div className={styles.field} data-param-section="generate-model">
           <span className={styles.fieldLabel}>
             {mode.mediaKind === 'video' ? '视频模型' : '生成模型'}
           </span>
-          <select
-            className={styles.select}
+          <EcommerceSelect
+            ariaLabel={mode.mediaKind === 'video' ? '视频模型' : '生成模型'}
+            name="generate-model"
             value={model}
-            data-ecommerce-model
-            onChange={(e) => onModelChange(e.target.value)}
-          >
-            <option value="">默认（按渠道解析）</option>
-            {(mode.mediaKind === 'video' ? videoModels : models).map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        </label>
+            onChange={onModelChange}
+            placeholder="默认（按渠道解析）"
+            menuMinWidth={250}
+            options={[
+              { value: '', label: '默认（按渠道解析）' },
+              ...(mode.mediaKind === 'video' ? videoModels : models).map((item) => ({
+                value: item,
+                label: item,
+                icon: modelIconFor(item),
+              })),
+            ]}
+            dataAttributes={{ 'data-ecommerce-model': true }}
+          />
+        </div>
 
         <div data-param-section="mode">
           <ModeSpecificParameters
@@ -2148,22 +2221,25 @@ export function EcommerceStudio({
               ) : null}
             </div>
             {editModels.length > 0 ? (
-              <label className={styles.editModel}>
+              <div className={styles.editModel}>
                 <span>编辑模型</span>
-                <select
-                  className={styles.select}
+                <EcommerceSelect
+                  ariaLabel="批量编辑模型"
+                  name="batch-edit-model"
                   value={batchEditModel}
-                  data-ecommerce-batch-edit-model
-                  onChange={(e) => setBatchEditModel(e.target.value)}
-                >
-                  <option value="">跟随原任务模型</option>
-                  {editModels.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  onChange={setBatchEditModel}
+                  menuMinWidth={250}
+                  options={[
+                    { value: '', label: '跟随原任务模型' },
+                    ...editModels.map((item) => ({
+                      value: item,
+                      label: item,
+                      icon: modelIconFor(item),
+                    })),
+                  ]}
+                  dataAttributes={{ 'data-ecommerce-batch-edit-model': true }}
+                />
+              </div>
             ) : null}
             <textarea
               className={styles.editInput}
@@ -2281,22 +2357,25 @@ export function EcommerceStudio({
               ) : null}
             </div>
             {editModels.length > 0 ? (
-              <label className={styles.editModel}>
+              <div className={styles.editModel}>
                 <span>编辑模型</span>
-                <select
-                  className={styles.select}
+                <EcommerceSelect
+                  ariaLabel="单张编辑模型"
+                  name="edit-model"
                   value={editModel}
-                  data-ecommerce-edit-model
-                  onChange={(e) => setEditModel(e.target.value)}
-                >
-                  <option value="">跟随原任务模型</option>
-                  {editModels.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  onChange={setEditModel}
+                  menuMinWidth={250}
+                  options={[
+                    { value: '', label: '跟随原任务模型' },
+                    ...editModels.map((item) => ({
+                      value: item,
+                      label: item,
+                      icon: modelIconFor(item),
+                    })),
+                  ]}
+                  dataAttributes={{ 'data-ecommerce-edit-model': true }}
+                />
+              </div>
             ) : null}
             <textarea
               className={styles.editInput}

@@ -7,11 +7,11 @@ export interface EcommerceOption {
 }
 
 export const PRODUCT_SET_COUNT_OPTIONS: readonly EcommerceOption[] = [
-  { id: 'whiteBg', label: '白底图' },
-  { id: 'scene', label: '场景图' },
-  { id: 'sellingPoint', label: '卖点图' },
-  { id: 'detail', label: '细节图' },
-  { id: 'other', label: '其他图' },
+  { id: 'whiteBg', label: '白底图', hint: '白底主体，多角度呈现商品细节' },
+  { id: 'scene', label: '场景图', hint: '展示商品的生活使用场景和人物搭配' },
+  { id: 'sellingPoint', label: '卖点图', hint: '展示商品的核心卖点及细节特征' },
+  { id: 'detail', label: '细节图', hint: '突出材质、工艺和局部细节' },
+  { id: 'other', label: '其他图', hint: '对比图、尺寸图等，根据商品智能匹配' },
 ]
 
 export const DETAIL_HIGHLIGHT_OPTIONS: readonly EcommerceOption[] = [
