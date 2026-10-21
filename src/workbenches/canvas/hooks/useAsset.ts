@@ -4,6 +4,9 @@ import type { PlatformKit } from '../../../platform/ports'
 import { assetFileName, expectedAssetPath } from '../../../domain/shared/assetLocation'
 import {
   ensureAssetThumb,
+  ensureAssetPreview,
+  makePreviewBytes,
+  PREVIEW_MIME,
   THUMB_MIME,
   thumbBytesOf,
 } from '../../../platform/assetThumb'
@@ -39,6 +42,8 @@ export interface AssetMeta {
    * 要原图的地方（灯箱、旋转 / 标注要拿像素的那两层）**别**用带这个标记的 URL。
    */
   thumb?: boolean
+  /** 这条 URL 是 1600px 工作台预览，不是原图。 */
+  preview?: boolean
 }
 
 /**
@@ -56,7 +61,7 @@ export interface AssetMeta {
 export async function loadAssetUrl(
   platform: PlatformKit,
   hash: string,
-  opts: { preferThumb?: boolean } = {},
+  opts: { preferThumb?: boolean; preferPreview?: boolean } = {},
 ): Promise<AssetMeta> {
   /**
    * **刚导入的那一份直接在内存里命中**（对账 #408 的优化；判据与数据见 `freshAssets.ts` 的表）。
@@ -89,6 +94,19 @@ export async function loadAssetUrl(
         }
       }
     }
+    if (opts.preferPreview === true && (mime ?? '').startsWith('image/')) {
+      const preview = await makePreviewBytes(fresh)
+      if (preview) {
+        return {
+          url: URL.createObjectURL(
+            new Blob([preview as unknown as BlobPart], { type: PREVIEW_MIME }),
+          ),
+          mime,
+          expectedPath: expectedAssetPath(platform.assetFolder?.current()?.name, hash, mime),
+          preview: true,
+        }
+      }
+    }
     return {
       url: URL.createObjectURL(fresh),
       mime,
@@ -96,6 +114,7 @@ export async function loadAssetUrl(
     }
   }
   const preferThumb = opts.preferThumb === true
+  const preferPreview = opts.preferPreview === true
   const directThumbUrl = preferThumb ? platform.assets.thumbUrl?.(hash) : null
   if (directThumbUrl) {
     const [metadata] = await platform.storage.query('assets', { id: hash }, {
@@ -115,12 +134,40 @@ export async function loadAssetUrl(
       }
     }
   }
+  const directPreviewUrl = preferPreview ? platform.assets.previewUrl?.(hash) : null
+  if (directPreviewUrl) {
+    const [metadata] = await platform.storage.query('assets', { id: hash }, {
+      includePayload: false,
+      fields: ['id', 'mime', 'previewLength'],
+    })
+    if (Number((metadata as { previewLength?: unknown } | undefined)?.previewLength) > 0) {
+      return {
+        url: directPreviewUrl,
+        mime: (metadata as { mime?: string } | undefined)?.mime ?? null,
+        expectedPath: expectedAssetPath(
+          platform.assetFolder?.current()?.name,
+          hash,
+          (metadata as { mime?: string } | undefined)?.mime ?? null,
+        ),
+        preview: true,
+      }
+    }
+  }
   const rows = await platform.storage.query('assets', { id: hash }, {
-    includePayload: !preferThumb,
-    fields: preferThumb ? ['id', 'mime', 'thumb', 'url'] : undefined,
+    includePayload: !preferThumb && !preferPreview,
+    fields:
+      preferThumb || preferPreview
+        ? ['id', 'mime', 'thumb', 'preview', 'url']
+        : undefined,
   })
   let row = rows[0] as
-    | { bytes?: Uint8Array | number[]; mime?: string; url?: string; thumb?: Uint8Array | number[] }
+    | {
+        bytes?: Uint8Array | number[]
+        mime?: string
+        url?: string
+        thumb?: Uint8Array | number[]
+        preview?: Uint8Array | number[]
+      }
     | undefined
   const mime = row?.mime ?? null
   /**
@@ -150,6 +197,17 @@ export async function loadAssetUrl(
       thumb: true,
     }
   }
+  const previewBytes = preferPreview ? thumbBytesOf(row?.preview) : null
+  if (previewBytes) {
+    return {
+      url: URL.createObjectURL(
+        new Blob([previewBytes as unknown as BlobPart], { type: PREVIEW_MIME }),
+      ),
+      mime,
+      expectedPath,
+      preview: true,
+    }
+  }
   /**
    * **素材文件夹优先**（对账 #196 · 增量 2）：用户把素材托管到自己的文件夹后，以磁盘上那份为准。
    * 命中条件 = 已授权目录 + 该 hash 的文件确实在目录里；否则回落内置库（IndexedDB）。
@@ -162,16 +220,18 @@ export async function loadAssetUrl(
     const onDisk = await folder.read(assetFileName(hash, mime ?? 'image/png'))
     if (onDisk) {
       scheduleThumb(platform, row, onDisk, preferThumb && isImage)
+      schedulePreview(platform, row, onDisk, preferPreview && isImage)
       return { url: URL.createObjectURL(onDisk), mime, expectedPath }
     }
   }
-  if (preferThumb && !row?.bytes) {
+  if ((preferThumb || preferPreview) && !row?.bytes) {
     row = (await platform.storage.query('assets', { id: hash }))[0] as typeof row
   }
   if (!row?.bytes) return { url: null, mime, expectedPath }
   const buf = row.bytes instanceof Uint8Array ? row.bytes : new Uint8Array(row.bytes as number[])
   const blob = new Blob([buf as BlobPart], { type: mime ?? 'image/png' })
   scheduleThumb(platform, row, blob, preferThumb && isImage)
+  schedulePreview(platform, row, blob, preferPreview && isImage)
   return { url: URL.createObjectURL(blob), mime, expectedPath }
 }
 
@@ -193,6 +253,16 @@ function scheduleThumb(
   void ensureAssetThumb(platform, row as never, source)
 }
 
+function schedulePreview(
+  platform: PlatformKit,
+  row: { preview?: unknown } | undefined,
+  source: Blob,
+  want: boolean,
+): void {
+  if (!want || !row || thumbBytesOf(row.preview)) return
+  void ensureAssetPreview(platform, row as never, source)
+}
+
 /**
  * 同 `useAsset`，但把 mime 一并返回。
  *
@@ -201,10 +271,11 @@ function scheduleThumb(
  */
 export function useAssetMeta(
   hash: string | undefined,
-  opts: { preferThumb?: boolean } = {},
+  opts: { preferThumb?: boolean; preferPreview?: boolean } = {},
 ): AssetMeta {
   const platform = usePlatform()
   const preferThumb = opts.preferThumb === true
+  const preferPreview = opts.preferPreview === true
   const [meta, setMeta] = useState<AssetMeta>({ url: null, mime: null })
 
   useEffect(() => {
@@ -230,7 +301,7 @@ export function useAssetMeta(
     const load = async (attempt: number) => {
       let meta: AssetMeta
       try {
-        meta = await loadAssetUrl(platform, hash, { preferThumb })
+        meta = await loadAssetUrl(platform, hash, { preferThumb, preferPreview })
       } catch {
         /*
          * 共享存储写新素材时会极短地出现“行还没落盘”。`loadAssetUrl` 的查询
@@ -284,7 +355,7 @@ export function useAssetMeta(
     // effect 每帧重跑 —— 旧 URL 被 revoke、重查库建新 URL，<img> 每帧换 src
     // 触发重新解码，用户看到的就是「拖动时图片一闪一闪」。
     // 素材落库的时差由上面的退避重试兜住，不需要借 graph 变更来触发。
-  }, [hash, platform, preferThumb])
+  }, [hash, platform, preferThumb, preferPreview])
 
   return meta
 }
@@ -302,6 +373,11 @@ export function useAssetMeta(
  */
 export function useAssetThumb(hash: string | undefined): AssetMeta {
   return useAssetMeta(hash, { preferThumb: true })
+}
+
+/** 工作台高清显示：1600px 预览，明显比节点缩略图清楚，但不等同于原图。 */
+export function useAssetPreview(hash: string | undefined): AssetMeta {
+  return useAssetMeta(hash, { preferPreview: true })
 }
 
 /** 只要 URL 的那条（走**缩略图**）—— 画布节点媒体框与各类小图都用它 */

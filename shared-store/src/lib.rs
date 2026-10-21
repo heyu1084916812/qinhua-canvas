@@ -86,6 +86,11 @@ fn thumb_path(root: &Path, id: &str) -> PathBuf {
     root.join("_thumbs").join(format!("{}.webp", hex_id(id)))
 }
 
+fn preview_path(root: &Path, id: &str) -> PathBuf {
+    root.join("_previews")
+        .join(format!("{}.webp", hex_id(id)))
+}
+
 fn write_atomic(path: &Path, payload: &[u8]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| format!("create dir: {error}"))?;
@@ -282,12 +287,19 @@ fn write_sidecars(root: &Path, table: &str, row: &Value) -> Result<(), String> {
     {
         write_atomic(&thumb_path(root, id), &thumb)?;
     }
+    if let Some(preview) = row.get("preview").and_then(binary_marker_bytes) {
+        write_atomic(&preview_path(root, id), &preview)?;
+    }
     Ok(())
 }
 
 fn remove_sidecars(root: &Path, table: &str, id: &str) -> Result<(), String> {
     if table == "assets" {
-        for path in [meta_path(root, table, id)?, thumb_path(root, id)] {
+        for path in [
+            meta_path(root, table, id)?,
+            thumb_path(root, id),
+            preview_path(root, id),
+        ] {
             if path.exists() {
                 fs::remove_file(path).map_err(|error| format!("remove sidecar: {error}"))?;
             }
@@ -522,6 +534,20 @@ fn load_thumb(root: &Path, id: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+fn load_preview(root: &Path, id: &str) -> Result<Vec<u8>, String> {
+    let sidecar = preview_path(root, id);
+    if sidecar.exists() {
+        return fs::read(sidecar).map_err(|error| format!("read preview: {error}"));
+    }
+    let row = read_json(&row_path(root, "assets", id)?)?;
+    let bytes = row
+        .get("preview")
+        .and_then(binary_marker_bytes)
+        .ok_or_else(|| "asset has no preview".to_string())?;
+    write_atomic(&sidecar, &bytes)?;
+    Ok(bytes)
+}
+
 fn load_asset(root: &Path, id: &str) -> Result<(Vec<u8>, String), String> {
     let row = read_json(&row_path(root, "assets", id)?)?;
     let mime = row
@@ -608,12 +634,30 @@ fn handle(store: &Store, mut request: Request) {
         }
         return;
     }
+    if request.method() == &Method::Get && path.starts_with("/preview/") {
+        let id = path.trim_start_matches("/preview/");
+        let _guard = store.lock.lock().expect("store lock poisoned");
+        match load_preview(root, id) {
+            Ok(bytes) => {
+                let _ = respond_bytes(request, StatusCode(200), bytes, "image/webp", origin.as_deref());
+            }
+            Err(error) => {
+                let _ = respond_json(
+                    request,
+                    StatusCode(404),
+                    json!({ "ok": false, "error": error }),
+                    origin.as_deref(),
+                );
+            }
+        }
+        return;
+    }
     let result = (|| -> Result<Value, String> {
         if request.method() == &Method::Get && path == "/health" {
             return Ok(json!({
                 "ok": true,
                 "service": "qinghua-shared-store",
-                "version": 3,
+                "version": 4,
                 "dataDir": root.to_string_lossy(),
             }));
         }
@@ -904,12 +948,18 @@ mod tests {
             "thumb": {
                 "__qhType": "u8",
                 "base64": "AQID"
+            },
+            "preview": {
+                "__qhType": "u8",
+                "base64": "AQIDBA=="
             }
         });
         strip_payload(&mut row);
         assert!(row.get("bytes").is_none());
         assert!(row.get("thumb").is_none());
+        assert!(row.get("preview").is_none());
         assert_eq!(row.get("bytesLength").and_then(Value::as_u64), Some(4));
+        assert_eq!(row.get("previewLength").and_then(Value::as_u64), Some(4));
         project_fields(&mut row, Some("id,mime,bytesLength"));
         assert_eq!(row, json!({ "id": "a1", "mime": "image/png", "bytesLength": 4 }));
     }

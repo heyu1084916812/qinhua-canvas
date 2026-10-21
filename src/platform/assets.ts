@@ -21,6 +21,7 @@ export function createStorageAssetPort(
   storage: StoragePort,
   options: {
     thumbUrl?: (hash: string) => string | null
+    previewUrl?: (hash: string) => string | null
     sourceUrl?: (hash: string) => string | null
   } = {},
 ): AssetPort {
@@ -45,6 +46,7 @@ export function createStorageAssetPort(
       return { url, mime: row?.mime ?? 'video/mp4' }
     },
     thumbUrl: options.thumbUrl,
+    previewUrl: options.previewUrl,
     sourceUrl: options.sourceUrl,
   }
 }

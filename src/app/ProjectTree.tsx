@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -26,6 +27,7 @@ import {
   subscribeProjectsChanged,
 } from '../state/project/projectEvents'
 import { buildProjectTree, projectGroupWindow } from './projectTreeModel'
+import { projectMenuPosition, type ProjectMenuFrame } from './projectMenuPosition'
 import { usePlatform } from './providers/PlatformProvider'
 import {
   IconCanvas,
@@ -106,23 +108,6 @@ function safeFileName(name: string): string {
   return (name.trim() || '未命名项目').replace(/[\\/:*?"<>|]/g, '_')
 }
 
-function menuPosition(anchor: DOMRect, estimatedHeight: number) {
-  const width = 216
-  const padding = 8
-  const left =
-    typeof window === 'undefined'
-      ? anchor.left
-      : Math.min(Math.max(padding, anchor.right - width), window.innerWidth - width - padding)
-  const below = anchor.bottom + 4
-  const top =
-    typeof window === 'undefined'
-      ? below
-      : below + estimatedHeight <= window.innerHeight - padding
-        ? below
-        : Math.max(padding, anchor.top - estimatedHeight - 4)
-  return { left, top }
-}
-
 /**
  * 侧栏「所有项目」树。
  *
@@ -149,11 +134,13 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
     () => new Set(),
   )
   const [menu, setMenu] = useState<MenuTarget | null>(null)
+  const [menuFrame, setMenuFrame] = useState<ProjectMenuFrame | null>(null)
   const [moveMenuOpen, setMoveMenuOpen] = useState(false)
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null)
   const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget | null>(null)
   const [status, setStatus] = useState<StatusState | null>(null)
   const renameInputRef = useRef<HTMLInputElement | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -239,8 +226,26 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
     button: HTMLButtonElement,
   ) => {
     setMoveMenuOpen(false)
+    setMenuFrame(null)
     setMenu({ ...target, anchor: button.getBoundingClientRect() })
   }
+
+  useLayoutEffect(() => {
+    const node = menuRef.current
+    if (!menu || !node) return
+    const next = projectMenuPosition(menu.anchor, node.scrollHeight, {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    })
+    setMenuFrame((current) =>
+      current &&
+      current.left === next.left &&
+      current.top === next.top &&
+      current.maxHeight === next.maxHeight
+        ? current
+        : next,
+    )
+  }, [menu, moveMenuOpen])
 
   const startRename = (kind: 'folder' | 'project', id: string, value: string) => {
     setMenu(null)
@@ -664,9 +669,20 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
         createPortal(
           <div className={styles.menuLayer} onPointerDown={() => setMenu(null)}>
             <div
+              ref={menuRef}
               className={styles.menu}
               role="menu"
-              style={menuPosition(menu.anchor, 500)}
+              data-project-menu
+              style={
+                menuFrame
+                  ? menuFrame
+                  : {
+                      left: menu.anchor.left,
+                      top: menu.anchor.bottom + 4,
+                      maxHeight: Math.max(1, window.innerHeight - menu.anchor.bottom - 12),
+                      visibility: 'hidden',
+                    }
+              }
               onPointerDown={(event) => event.stopPropagation()}
             >
               {menu.kind === 'folder' && menuFolder && (

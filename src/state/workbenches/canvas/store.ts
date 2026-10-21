@@ -36,7 +36,13 @@ import { getSpec } from '../../../domain/canvas/nodeSpecs'
 import { applyGraphPatches, toPersistPlan } from './persist'
 import type { PlatformKit, Row } from '../../../platform/ports'
 import { mirrorAssetsToFolder } from '../../../platform/assetMirror'
-import { ensureAssetThumb, needsThumb, rowBytesBlob } from '../../../platform/assetThumb'
+import {
+  ensureAssetPreview,
+  ensureAssetThumb,
+  needsPreview,
+  needsThumb,
+  rowBytesBlob,
+} from '../../../platform/assetThumb'
 import { ensureFreshDisplayThumb } from '../../../platform/freshAssets'
 
 export interface CanvasStoreOptions {
@@ -481,9 +487,10 @@ function createPersister(platform: PlatformKit, debounceMs: number) {
        * 补失败什么都不做 —— 缩略图是优化，不是功能。
        */
       for (const row of assetRows) {
-        if (!needsThumb(row)) continue
         const blob = rowBytesBlob(row)
-        if (blob) void ensureAssetThumb(platform, row, blob)
+        if (!blob) continue
+        if (needsThumb(row)) void ensureAssetThumb(platform, row, blob)
+        if (needsPreview(row)) void ensureAssetPreview(platform, row, blob)
       }
     }
   }

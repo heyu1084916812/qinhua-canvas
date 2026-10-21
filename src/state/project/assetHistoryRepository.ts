@@ -93,6 +93,7 @@ export function createAssetHistoryRepository(storage: StoragePort): AssetHistory
           .map((row) => normalizeMetaString((row as { hash?: unknown; id?: unknown }).hash ?? (row as { id?: unknown }).id))
           .filter((h): h is string => !!h),
         projects: projects as never,
+        includeFailures: false,
       })
     },
   }

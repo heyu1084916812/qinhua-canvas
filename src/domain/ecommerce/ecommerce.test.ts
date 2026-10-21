@@ -300,13 +300,31 @@ describe('逐张镜头脚本', () => {
     expect(new Set(plan.prompts).size).toBe(4)
   })
 
-  it('★★ 白底图是**抽卡**：N 张的提示词完全相同（用户明确说这样没问题）', () => {
-    const plan = buildEcommercePlan({ ...base, usage: 'white-bg', count: 3 })
+  it('白底图按所选角度逐张生成，不同角度对应不同提示词', () => {
+    const plan = buildEcommercePlan({
+      ...base,
+      usage: 'white-bg',
+      count: 3,
+      modeOptions: { whiteBgCounts: { front: 1, left45: 1, right45: 1 } },
+    })
     expect(plan.prompts).toHaveLength(3)
-    expect(new Set(plan.prompts).size).toBe(1)
+    expect(new Set(plan.prompts).size).toBe(3)
     expect(plan.prompts[0]).toContain('纯白背景')
+    expect(plan.prompts[0]).toContain('正面')
+    expect(plan.prompts[1]).toContain('左45°')
+    expect(plan.prompts[2]).toContain('右45°')
     // 抽卡不该带"每张都不一样"那句 —— 那会把用户想要的多试几次变成"必须换构图"
     expect(plan.prompts[0]).not.toContain('每张的镜头都不一样')
+  })
+
+  it('同一角度选 2 张时仍是同角度抽卡', () => {
+    const plan = buildEcommercePlan({
+      ...base,
+      usage: 'white-bg',
+      count: 2,
+      modeOptions: { whiteBgCounts: { front: 2 } },
+    })
+    expect(new Set(plan.prompts).size).toBe(1)
   })
 
   it('★★ 多张时提示词里明确"每张的镜头都不一样"（修的就是"同一张画 N 遍"）', () => {

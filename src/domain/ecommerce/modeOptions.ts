@@ -66,6 +66,19 @@ export const WEAR_DETAIL_OPTIONS: readonly EcommerceOption[] = [
   { id: 'silhouette', label: '版型' },
 ]
 
+export const WHITE_BG_ANGLE_OPTIONS: readonly EcommerceOption[] = [
+  { id: 'front', label: '正面', hint: '产品正对镜头，完整展示正面结构与比例' },
+  { id: 'left45', label: '左45°', hint: '向左转 45°，同时看到正面与左侧面' },
+  { id: 'right45', label: '右45°', hint: '向右转 45°，同时看到正面与右侧面' },
+  { id: 'side', label: '正侧面', hint: '90° 侧面，展示厚度、轮廓与侧面结构' },
+  { id: 'back', label: '背面', hint: '完整背面，展示背部结构与材质' },
+  { id: 'top', label: '俯视', hint: '自上而下俯拍，交代整体轮廓与顶部细节' },
+  { id: 'bottom', label: '底部', hint: '底部视角，展示底面结构、接触面与材质' },
+  { id: 'detail', label: '细节', hint: '贴近拍摄关键材质、工艺与结构细节' },
+]
+
+export const DEFAULT_WHITE_BG_COUNTS: Readonly<Record<string, number>> = { front: 1 }
+
 export const GENDER_OPTIONS: readonly EcommerceOption[] = [
   { id: 'female', label: '女性' },
   { id: 'male', label: '男性' },
@@ -118,7 +131,7 @@ export function defaultEcommerceModeOptions(modeId: string): EcommerceModeOption
     return { detailHighlights: ['hero', 'coreSelling', 'usageScene', 'multiAngle'] }
   }
   if (modeId === 'product-recreate') return { recreateLevel: 'style' }
-  if (modeId === 'product-white') return { whiteStyle: 'standard' }
+  if (modeId === 'product-white') return { whiteBgCounts: { ...DEFAULT_WHITE_BG_COUNTS } }
   if (modeId === 'product-retouch') return { retouchActions: ['gloss', 'repair', 'clarity'] }
   if (modeId === 'product-recolor') {
     return { targetColor: '#ff6b00', colorTolerance: '60' }
@@ -217,6 +230,30 @@ export function modeOptionCounts(
     : {}
 }
 
+export function whiteBgCountsOf(options: EcommerceModeOptions): Record<string, number> {
+  const counts = modeOptionCounts(options, 'whiteBgCounts')
+  if (Object.keys(counts).length > 0) return counts
+  // 旧草稿的“多角度白底”没有逐角度数量；迁移成八个角度各 1 张，避免直接丢配置。
+  if (modeOptionString(options, 'whiteStyle', 'standard') === 'multi') {
+    return Object.fromEntries(WHITE_BG_ANGLE_OPTIONS.map((item) => [item.id, 1]))
+  }
+  return { ...DEFAULT_WHITE_BG_COUNTS }
+}
+
+export function batchWhiteOutputError(
+  sourceCount: number,
+  perSourceCount: number,
+): string | null {
+  if (sourceCount > 12) return '批量白底一次最多上传 12 张源图。'
+  if (sourceCount > 0 && perSourceCount < 1) {
+    return '批量白底每张源图至少要选择一个角度、生成 1 张。'
+  }
+  if (sourceCount * perSourceCount > 36) {
+    return `批量白底最多 36 张输出：当前 ${sourceCount} 张源图 × 每张 ${perSourceCount} 张角度图。请减少源图或角度张数。`
+  }
+  return null
+}
+
 function labelOf(options: readonly EcommerceOption[], ids: readonly string[]): string[] {
   return ids
     .map((id) => options.find((item) => item.id === id)?.label)
@@ -228,6 +265,13 @@ export function ecommerceModeCount(
   fallback: number,
   options: EcommerceModeOptions,
 ): number {
+  if (modeId === 'product-white') {
+    const total = WHITE_BG_ANGLE_OPTIONS.reduce(
+      (sum, option) => sum + Math.max(0, whiteBgCountsOf(options)[option.id] ?? 0),
+      0,
+    )
+    return Math.min(Math.max(total || 1, 1), 12)
+  }
   if (modeId !== 'product-set') return Math.min(Math.max(fallback, 1), 12)
   if (modeOptionString(options, 'setStrategy', 'smart') !== 'custom') return fallback
   const counts = modeOptionCounts(options)
@@ -268,9 +312,11 @@ export function buildEcommerceModeOptionsPrompt(
     )
   }
   if (modeId === 'product-white') {
-    lines.push(
-      `白底类型：${modeOptionString(options, 'whiteStyle', 'standard') === 'multi' ? '多角度白底' : '标准白底'}`,
-    )
+    const counts = whiteBgCountsOf(options)
+    const summary = WHITE_BG_ANGLE_OPTIONS.filter((item) => (counts[item.id] ?? 0) > 0)
+      .map((item) => `${item.label}${counts[item.id]}张`)
+      .join('、')
+    lines.push(`白底角度：${summary || '正面1张'}`)
   }
   if (modeId === 'product-retouch') {
     const labels = labelOf(RETOUCH_OPTIONS, modeOptionStrings(options, 'retouchActions'))

@@ -82,6 +82,20 @@ describe('buildHistory', () => {
     expect(items[0]).toMatchObject({ kind: 'failed', id: 'r-fail' })
   })
 
+  it('素材页可选只展示有产物的历史，不为无产物 RunRecord 建失败卡片', () => {
+    const items = buildHistory({
+      runs: [
+        run({ id: 'r-ok', outputHashes: ['ok'] }),
+        run({ id: 'r-fail', status: 'failed', outputHashes: [] }),
+      ],
+      assets: [asset('ok')],
+      savedHashes: [],
+      projects: [],
+      includeFailures: false,
+    })
+    expect(items.map((item) => item.kind)).toEqual(['output'])
+  })
+
   it('★ 记录在、素材字节没了 ⇒ 照样列出（带 0 字节），不悄悄跳过', () => {
     const items = buildHistory({
       runs: [run({ outputHashes: ['gone'] })],

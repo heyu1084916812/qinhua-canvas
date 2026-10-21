@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildEcommerceModeOptionsPrompt,
+  batchWhiteOutputError,
   defaultEcommerceModeOptions,
   ecommerceModeCount,
   normalizeEcommerceModeOptions,
+  whiteBgCountsOf,
 } from './modeOptions'
 
 describe('ecommerce mode options', () => {
@@ -36,6 +38,36 @@ describe('ecommerce mode options', () => {
         setCounts: { whiteBg: 0, scene: 0, sellingPoint: 0, detail: 0, other: 0 },
       }),
     ).toBe(1)
+  })
+
+  it('product-white sums per-angle counts and migrates the old multi-angle option', () => {
+    expect(
+      ecommerceModeCount('product-white', 1, {
+        whiteBgCounts: { front: 1, left45: 2, back: 1 },
+      }),
+    ).toBe(4)
+    expect(whiteBgCountsOf({ whiteStyle: 'multi' })).toMatchObject({
+      front: 1,
+      left45: 1,
+      right45: 1,
+      side: 1,
+      back: 1,
+      top: 1,
+      bottom: 1,
+      detail: 1,
+    })
+    expect(
+      buildEcommerceModeOptionsPrompt('product-white', {
+        whiteBgCounts: { front: 1, left45: 2 },
+      }),
+    ).toContain('白底角度：正面1张、左45°2张')
+  })
+
+  it('batch white enforces 12 source images and 36 total outputs', () => {
+    expect(batchWhiteOutputError(12, 3)).toBeNull()
+    expect(batchWhiteOutputError(12, 4)).toContain('36')
+    expect(batchWhiteOutputError(13, 1)).toContain('12')
+    expect(batchWhiteOutputError(2, 0)).toContain('至少要选择')
   })
 
   it('turns stable option ids into a model-facing prompt for each feature family', () => {

@@ -178,6 +178,8 @@ export interface AssetPort {
   read(hash: string): Promise<AssetPayload | null>
   /** 可直接给 `<img>` 的缩略图地址；共享存储走独立小文件接口。 */
   thumbUrl?(hash: string): string | null
+  /** 工作台用的 1600px 高清预览；没有时调用方回落到原图并后台生成。 */
+  previewUrl?(hash: string): string | null
   /**
    * 本机进程（FFmpeg 等）可直接读取的**原始素材地址**。
    *

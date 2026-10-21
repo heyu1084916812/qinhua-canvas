@@ -19,6 +19,8 @@ import { imageSizeFromHeader, type ImageSize } from '../domain/shared/imageSize'
  */
 export const THUMB_MAX_PX = 640
 export const THUMB_MIME = 'image/webp'
+export const PREVIEW_MAX_PX = 1600
+export const PREVIEW_MIME = 'image/webp'
 
 /**
  * 要不要缩、缩成多大（**纯函数**，可单测）。
@@ -50,6 +52,25 @@ export async function makeThumbBytes(
   maxPx = THUMB_MAX_PX,
   knownSize?: ImageSize | null,
 ): Promise<Uint8Array | null> {
+  return makeScaledImageBytes(blob, maxPx, knownSize, THUMB_MIME, 0.82)
+}
+
+/** 工作台高清预览：比 640px 清晰，又不会把每张 4K 原图同时解码进显存。 */
+export async function makePreviewBytes(
+  blob: Blob,
+  maxPx = PREVIEW_MAX_PX,
+  knownSize?: ImageSize | null,
+): Promise<Uint8Array | null> {
+  return makeScaledImageBytes(blob, maxPx, knownSize, PREVIEW_MIME, 0.9)
+}
+
+async function makeScaledImageBytes(
+  blob: Blob,
+  maxPx: number,
+  knownSize: ImageSize | null | undefined,
+  mime: string,
+  quality: number,
+): Promise<Uint8Array | null> {
   if (typeof createImageBitmap !== 'function' || typeof OffscreenCanvas === 'undefined') return null
   const size =
     knownSize !== undefined
@@ -67,7 +88,7 @@ export async function makeThumbBytes(
     const ctx = canvas.getContext('2d')
     if (!ctx) return null
     ctx.drawImage(bitmap, 0, 0)
-    const out = await canvas.convertToBlob({ type: THUMB_MIME, quality: 0.82 })
+    const out = await canvas.convertToBlob({ type: mime, quality })
     return new Uint8Array(await out.arrayBuffer())
   } finally {
     bitmap.close()
@@ -89,7 +110,21 @@ export async function ensureAssetThumb(platform: PlatformKit, row: Row, source: 
       if (thumbBytesOf(row.thumb)) return false
       const thumb = await makeThumbBytes(source)
       if (!thumb) return false
-      await platform.storage.put('assets', { ...row, thumb } as never)
+      await persistAssetVariant(platform, row.id, 'thumb', thumb)
+      return true
+    })
+  } catch {
+    return false
+  }
+}
+
+export async function ensureAssetPreview(platform: PlatformKit, row: Row, source: Blob): Promise<boolean> {
+  try {
+    if (thumbBytesOf(row.preview)) return false
+    return await inThumbSlot(async () => {
+      const preview = await makePreviewBytes(source)
+      if (!preview) return false
+      await persistAssetVariant(platform, row.id, 'preview', preview)
       return true
     })
   } catch {
@@ -115,6 +150,11 @@ const waiting: (() => void)[] = []
 export function needsThumb(row: Row): boolean {
   const mime = typeof row.mime === 'string' ? row.mime : ''
   return !thumbBytesOf(row.thumb) && mime.startsWith('image/') && !!row.bytes
+}
+
+export function needsPreview(row: Row): boolean {
+  const mime = typeof row.mime === 'string' ? row.mime : ''
+  return !thumbBytesOf(row.preview) && mime.startsWith('image/') && !!row.bytes
 }
 
 /**
@@ -209,4 +249,25 @@ async function inThumbSlot<T>(job: () => Promise<T>): Promise<T> {
     running -= 1
     waiting.shift()?.()
   }
+}
+
+let variantWriteTail: Promise<void> = Promise.resolve()
+
+/**
+ * 缩略图和高清预览会先后生成；整行覆盖时必须串行读改写，否则后完成的那个
+ * 会拿旧快照把另一个字段抹掉。
+ */
+function persistAssetVariant(
+  platform: PlatformKit,
+  id: string,
+  key: 'thumb' | 'preview',
+  bytes: Uint8Array,
+): Promise<void> {
+  const write = async () => {
+    const latest = (await platform.storage.query('assets', { id }))[0]
+    if (!latest) return
+    await platform.storage.put('assets', { ...latest, [key]: bytes } as never)
+  }
+  variantWriteTail = variantWriteTail.then(write, write)
+  return variantWriteTail
 }

@@ -131,7 +131,7 @@ export function buildShotsText(
     '',
     `默认镜头脚本（可作结构参考；请按上面那句要求调整顺序与内容 —— 商品不同，卖点顺序就该不同）：`,
   ]
-  for (const shot of ecommerceShots(request.usage, request.count)) {
+  for (const shot of ecommerceShots(request.usage, request.count, request.modeOptions)) {
     lines.push(`- ${shot.title}：${shot.brief}`)
   }
   return lines.join('\n')

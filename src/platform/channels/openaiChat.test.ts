@@ -162,6 +162,60 @@ describe('openaiChat adapter / Comfly 全量模型目录', () => {
   })
 })
 
+describe('openaiChat adapter / SoonStudio 站点分类', () => {
+  const soonCfg: ResolvedChannelConfig = {
+    ...cfg,
+    protocol: 'soonstudio',
+    baseUrl: 'https://soonstudio.ai',
+  }
+
+  it('合并公开 customModels，并以 primaryType 覆盖按模型名猜出的分类', async () => {
+    const net = createMemoryNetwork({
+      handler: async () => resp(200, {
+        data: [
+          { id: 'soon-image' },
+          { id: 'soon-video' },
+          { id: 'soon-audio' },
+          { id: 'soon-text' },
+        ],
+      }),
+    })
+    const remoteUrls: string[] = []
+    const a = createOpenAiChatAdapter(soonCfg, {
+      network: net,
+      assets: platformWith([]).assets,
+      remoteBytes: {
+        request: async (request) => {
+          remoteUrls.push(request.url)
+          return {
+            status: 200,
+            headers: {},
+            text: JSON.stringify({
+              customModels: [
+                { id: 'soon-image', name: '图像模型', primaryType: 'image' },
+                { id: 'soon-video', name: '视频模型', primaryType: 'video' },
+                { id: 'soon-audio', name: '音频模型', primaryType: 'audio' },
+                { id: 'soon-text', name: '对话模型', primaryType: 'text' },
+                { id: 'catalog-only', name: '目录独有', primaryType: 'image' },
+              ],
+            }),
+          }
+        },
+      },
+    })
+
+    const models = await a.listModels(soonCfg, signal)
+    expect(remoteUrls).toEqual(['https://soonstudio.ai/api/web/catalog-overrides'])
+    expect(models.map((model) => [model.id, model.category])).toEqual([
+      ['soon-image', 'image'],
+      ['soon-video', 'video'],
+      ['soon-audio', 'audio'],
+      ['soon-text', 'chat'],
+      ['catalog-only', 'image'],
+    ])
+  })
+})
+
 describe('openaiChat adapter / 多模态（上游图片送进 LLM）', () => {
   it('纯文本：content 直接是字符串（对中转站兼容性更好）', async () => {
     let body: unknown = null

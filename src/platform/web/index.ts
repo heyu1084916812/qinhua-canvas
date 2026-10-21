@@ -64,6 +64,7 @@ export function createWebPlatform(
     network,
     assets: createStorageAssetPort(storage, {
       thumbUrl: (hash) => `${SHARED_STORE_URL}/thumb/${encodeURIComponent(hash)}`,
+      previewUrl: (hash) => `${SHARED_STORE_URL}/preview/${encodeURIComponent(hash)}`,
       sourceUrl: (hash) => `${SHARED_STORE_URL}/asset/${encodeURIComponent(hash)}`,
     }),
     assetFolder: overrides.assetFolder ?? createWebAssetFolder(),

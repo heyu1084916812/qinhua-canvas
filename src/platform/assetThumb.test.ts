@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { createMemoryPlatform } from './memory/index'
 import { ensureAssetThumb, makeThumbBytes, thumbPlan } from './assetThumb'
-import { backfillAssetThumbs, needsThumb, thumbBytesOf } from './assetThumb'
+import {
+  PREVIEW_MAX_PX,
+  backfillAssetThumbs,
+  needsPreview,
+  needsThumb,
+  thumbBytesOf,
+} from './assetThumb'
 
 /**
  * 缩略图（对账 #231）的**护栏**测试。
@@ -29,6 +35,13 @@ describe('thumbPlan：要不要缩、缩成多大', () => {
 
   it('极端长条也不会算出 0（否则 canvas 尺寸非法）', () => {
     expect(thumbPlan({ width: 8000, height: 20 }, 640)).toEqual({ width: 640, height: 2 })
+  })
+
+  it('工作台预览使用独立的 1600px 上限，不把素材页 640px 缩略图口径改大', () => {
+    expect(thumbPlan({ width: 3840, height: 2160 }, PREVIEW_MAX_PX)).toEqual({
+      width: 1600,
+      height: 900,
+    })
   })
 })
 
@@ -65,6 +78,28 @@ describe('needsThumb：哪一行该补', () => {
     ).toBe(false)
     expect(needsThumb({ id: 'c', mime: 'video/mp4', bytes: new Uint8Array([1]) })).toBe(false)
     expect(needsThumb({ id: 'd', mime: 'image/png', url: 'https://example.com/a.png' })).toBe(false)
+  })
+})
+
+describe('needsPreview：工作台高清预览与节点缩略图分开补', () => {
+  it('已有 preview / 视频 / 只有远端地址都不补；大图仍可补', () => {
+    expect(
+      needsPreview({
+        id: 'a',
+        mime: 'image/png',
+        bytes: new Uint8Array([1]),
+        preview: new Uint8Array([2]),
+      }),
+    ).toBe(false)
+    expect(
+      needsPreview({ id: 'b', mime: 'video/mp4', bytes: new Uint8Array([1]) }),
+    ).toBe(false)
+    expect(
+      needsPreview({ id: 'c', mime: 'image/png', url: 'https://example.com/a.png' }),
+    ).toBe(false)
+    expect(
+      needsPreview({ id: 'd', mime: 'image/png', bytes: new Uint8Array([1]) }),
+    ).toBe(true)
   })
 })
 

@@ -102,7 +102,7 @@ export interface BackupCounts {
  */
 function encodeRow(table: BackupTable, row: BackupRow): BackupRow {
   if (table === 'assets') {
-    const { bytes, thumb: _thumb, ...rest } = row
+    const { bytes, thumb: _thumb, preview: _preview, ...rest } = row
     const encoded = encodeBytes(bytes)
     // 缩略图是本机缓存（可重建），不进备份 —— 与项目导出的口径一致
     return encoded ? { ...rest, bytesBase64: encoded } : { ...rest }

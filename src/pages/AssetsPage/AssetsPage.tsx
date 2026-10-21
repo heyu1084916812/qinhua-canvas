@@ -27,12 +27,11 @@ import { AssetPreview } from './AssetPreview'
 import { MasonryGrid } from './MasonryGrid'
 import styles from './AssetsPage.module.css'
 
-/** 左侧"快速筛选"（参考图那一栏：全部素材 / 收藏内容 / 最近 7 天 / 生成失败） */
+/** 左侧“快速筛选”（只展示实际有产物的素材历史）。 */
 const QUICK_FILTERS: readonly { id: QuickFilter; label: string }[] = [
   { id: 'all', label: '全部素材' },
   { id: 'saved', label: '收藏内容' },
   { id: 'recent', label: '最近 7 天' },
-  { id: 'failed', label: '生成失败' },
 ]
 
 /**
@@ -73,13 +72,13 @@ function CardsLayout({ view, children }: { view: AssetsView; children: ReactNode
  * 我的素材（`/assets`）。
  *
  * 用户 2026-10-06 第 8 条 + 同日答复定下的结构（参考图五）：
- * - **两个页签**：全部历史（含未收藏、含生成失败）/ 素材库（用户收藏过的）；
- * - **左侧**：快速筛选（全部 / 收藏 / 最近 7 天 / 生成失败）+ 模型生成分组（那一栏会**同时**当筛选器用）；
+ * - **两个页签**：全部有产物的历史（含未收藏）/ 素材库（用户收藏过的）；
+ * - **左侧**：快速筛选（全部 / 收藏 / 最近 7 天）+ 模型生成分组；
  * - **顶部**：搜索 + 类型档（带数量）+ 分组方式 + 网格 / 列表切换；
  * - 大标题仍是**「我的素材」**（用户明确保留，不跟着参考图改叫"素材管理"）。
  *
  * 数据来源仍是两张表：`assetLibrary` 是"用户点头留下的"，`runRecords` 是"跑过的全部"
- *（历史里也列**没收藏的**与**失败的** —— 那才是"全部历史"四个字的意思）。
+ *（历史里也列**没收藏但有产物的**记录；失败 RunRecord 保留在底层，不再显示成素材）。
  */
 export function AssetsPage() {
   const platform = usePlatform()

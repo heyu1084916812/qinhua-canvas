@@ -117,6 +117,11 @@ export interface BuildHistoryArgs {
   projects: readonly { id?: unknown; name?: unknown }[]
   /** 注入"现在"，保证纯函数可测 */
   now?: number
+  /**
+   * 是否为素材页生成失败条目。底层 RunRecord 始终保留；素材页按用户确认只展示
+   * 有产物的历史，默认值仍为 true，避免影响其他调用方与既有领域测试。
+   */
+  includeFailures?: boolean
 }
 
 /**
@@ -160,6 +165,7 @@ export function buildHistory(args: BuildHistoryArgs): HistoryItem[] {
       : []
 
     if (hashes.length === 0) {
+      if (args.includeFailures === false) continue
       /** 没有产物 = 失败（或还没回来的排队记录；两者对用户是同一件事：这次没出图） */
       failures.push({
         kind: 'failed',

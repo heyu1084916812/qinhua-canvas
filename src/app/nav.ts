@@ -43,10 +43,23 @@ const WORKBENCH_NAV = new Map<string, WorkbenchId>([
   ['/storyboard', 'storyboard'],
 ])
 
-/** 一级工作台入口：有当前项目时保留项目 id，没有才去无项目引导页。 */
-export function navTargetFor(to: string, projectId: string | null): string {
+export interface NavProjectContext {
+  id: string
+  workbench: WorkbenchId
+}
+
+/**
+ * 一级工作台入口只沿用到**同类型项目**。
+ *
+ * 从一个电商项目切去「画布」时，绝不能把这个电商项目的 id 塞进 `/canvas/:id`：
+ * 那会把一个电商任务伪装成节点画布，并让两个工作台重新串在一起。
+ * 类型不同就进目标工作台自己的入口页。
+ */
+export function navTargetFor(to: string, project: NavProjectContext | null): string {
   const workbench = WORKBENCH_NAV.get(to)
-  return workbench && projectId ? projectRoute(workbench, projectId) : to
+  return workbench && project?.workbench === workbench
+    ? projectRoute(workbench, project.id)
+    : to
 }
 
 /**

@@ -18,6 +18,7 @@ import {
   CHAT_TIMEOUT_MS,
   VERIFY_TIMEOUT_MS,
 } from './openaiCommon'
+import { prepareChatImage } from './chatImageInput'
 
 export interface OpenAiChatConfig extends SafeChannelConfig {
   apiKey: string | null
@@ -30,6 +31,13 @@ interface ComflyCatalogModel {
   tags?: unknown
   input_modalities?: unknown
   output_modalities?: unknown
+}
+
+interface SoonStudioCatalogModel {
+  id?: unknown
+  name?: unknown
+  maker?: unknown
+  primaryType?: unknown
 }
 
 function stringValues(value: unknown): string[] {
@@ -84,6 +92,43 @@ function mergeComflyCatalog(
      */
     const idCategory = toModelCapability(id).category
     const hint = idCategory === 'chat' ? comflyCategoryOf(item) : idCategory
+    if (!merged.has(id) || hint) merged.set(id, toModelCapability(id, hint))
+  }
+  return [...merged.values()]
+}
+
+function soonStudioCategoryOf(
+  model: SoonStudioCatalogModel,
+): ModelCapability['category'] | undefined {
+  const type =
+    typeof model.primaryType === 'string' ? model.primaryType.trim().toLowerCase() : ''
+  if (type === 'video') return 'video'
+  if (type === 'image') return 'image'
+  if (type === 'audio') return 'audio'
+  if (type === 'text') return 'chat'
+  return undefined
+}
+
+function mergeSoonStudioCatalog(
+  official: readonly ModelCapability[],
+  catalog: readonly SoonStudioCatalogModel[],
+): ModelCapability[] {
+  const merged = new Map(official.map((model) => [model.id, model]))
+  for (const item of catalog) {
+    const id =
+      typeof item.id === 'string' && item.id.trim()
+        ? item.id.trim()
+        : typeof item.name === 'string' && item.name.trim()
+          ? item.name.trim()
+          : ''
+    if (!id) continue
+    /**
+     * SoonStudio 公开目录的 `primaryType` 就是站点自己的分栏，优先于按名称猜。
+     * 站点没给时才保留 ID 中明确的媒体词。
+     */
+    const siteCategory = soonStudioCategoryOf(item)
+    const idCategory = toModelCapability(id).category
+    const hint = siteCategory ?? (idCategory === 'chat' ? undefined : idCategory)
     if (!merged.has(id) || hint) merged.set(id, toModelCapability(id, hint))
   }
   return [...merged.values()]
@@ -188,6 +233,10 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
     config.protocol === 'comfly'
       ? new URL('/api/models/price?version=', base).toString()
       : null
+  const soonStudioCatalogUrl =
+    config.protocol === 'soonstudio'
+      ? new URL('/api/web/catalog-overrides', base).toString()
+      : null
 
   const verify: ChannelAdapter['verify'] = async (_cfg, signal): Promise<VerifyResult> => {
     try {
@@ -217,17 +266,18 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
   }
 
   const listModels: ChannelAdapter['listModels'] = async (_cfg, signal): Promise<ModelCapability[]> => {
-    const catalogPromise = comflyCatalogUrl
+    const publicCatalogUrl = comflyCatalogUrl ?? soonStudioCatalogUrl
+    const catalogPromise = publicCatalogUrl
       ? (deps.remoteBytes?.request
           ? deps.remoteBytes.request({
-              url: comflyCatalogUrl,
+              url: publicCatalogUrl,
               method: 'GET',
               headers: { accept: 'application/json' },
               timeoutMs: VERIFY_TIMEOUT_MS,
             })
           : deps.network.request(
               {
-                url: comflyCatalogUrl,
+                url: publicCatalogUrl,
                 method: 'GET',
                 headers: { accept: 'application/json' },
                 timeoutMs: VERIFY_TIMEOUT_MS,
@@ -240,14 +290,27 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
             const text =
               typeof response.text === 'string' ? response.text : await response.text()
             try {
-              const body = JSON.parse(text) as { data?: { models?: ComflyCatalogModel[] } }
-              return Array.isArray(body.data?.models) ? body.data.models : []
+              if (comflyCatalogUrl) {
+                const body = JSON.parse(text) as { data?: { models?: ComflyCatalogModel[] } }
+                return Array.isArray(body.data?.models)
+                  ? body.data.models.map((item) => ({ catalog: 'comfly' as const, item }))
+                  : []
+              }
+              const body = JSON.parse(text) as {
+                customModels?: SoonStudioCatalogModel[]
+              }
+              return Array.isArray(body.customModels)
+                ? body.customModels.map((item) => ({ catalog: 'soonstudio' as const, item }))
+                : []
             } catch {
               return []
             }
           })
           .catch(() => [])
-      : Promise.resolve([] as ComflyCatalogModel[])
+      : Promise.resolve([] as (
+          | { catalog: 'comfly'; item: ComflyCatalogModel }
+          | { catalog: 'soonstudio'; item: SoonStudioCatalogModel }
+        )[])
     const res = await deps.network.request(
       { url: modelsUrl, method: 'GET', headers: authHeader(config.apiKey), timeoutMs: VERIFY_TIMEOUT_MS },
       signal,
@@ -260,7 +323,16 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
     const body = await res.json<{ data?: { id: string }[] }>().catch(() => ({ data: [] as { id: string }[] }))
     const official = (body.data ?? []).map((m) => toModelCapability(m.id))
     const catalog = await catalogPromise
-    return catalog.length > 0 ? mergeComflyCatalog(official, catalog) : official
+    if (catalog.length === 0) return official
+    return catalog[0].catalog === 'soonstudio'
+      ? mergeSoonStudioCatalog(
+          official,
+          catalog.map((entry) => entry.item as SoonStudioCatalogModel),
+        )
+      : mergeComflyCatalog(
+          official,
+          catalog.map((entry) => entry.item as ComflyCatalogModel),
+        )
   }
 
   /** 读出素材并编码成 data URL；读不到的跳过（不因此让提问失败） */
@@ -269,9 +341,16 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
     for (const item of imageInputsOf(request.inputs)) {
       const payload = await deps.assets.read(item.assetHash)
       if (!payload) continue
+      const prepared = await prepareChatImage({
+        bytes: payload.bytes,
+        mime: payload.mime,
+      })
       parts.push({
         type: 'image_url',
-        image_url: { url: `data:${payload.mime};base64,${toBase64(payload.bytes)}`, detail: 'auto' },
+        image_url: {
+          url: `data:${prepared.mime};base64,${toBase64(prepared.bytes)}`,
+          detail: 'auto',
+        },
       })
     }
     return parts

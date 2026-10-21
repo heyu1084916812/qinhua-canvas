@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useParams, useLocation, useNavigate, Navigate } from 'react-router-dom'
+import { useParams, useLocation, useNavigate } from 'react-router-dom'
 import { usePlatform } from '../../app/providers/PlatformProvider'
 import { openGlobalSettings } from '../../state/ui/globalSettings'
 import { subscribeExternalWrites } from '../../app/session'
@@ -29,6 +29,8 @@ import type { NodeSnapshot, NodeType } from '../../domain/canvas/model/node'
 import type { Edge } from '../../domain/canvas/model/edge'
 import { migrateLegacyGeneratedTitles } from '../../domain/canvas/naming/autoTitle'
 import { rememberActiveCanvas } from '../../state/project/activeCanvas'
+import { createProjectRepository } from '../../state/project/repository'
+import { projectRoute } from '../../domain/shared/workbench'
 import styles from './CanvasPage.module.css'
 
 /**
@@ -47,9 +49,52 @@ import styles from './CanvasPage.module.css'
  */
 export function CanvasPage() {
   const { projectId } = useParams<{ projectId?: string }>()
-  if (!projectId) return <Navigate to="/projects" replace />
+  if (!projectId) return <CanvasEmpty />
   // 用 projectId 作 key，确保切换项目时整棵画布子树重新挂载（store 重建）
   return <CanvasProject key={projectId} projectId={projectId} />
+}
+
+/** 没有画布项目时的入口页：与电商 / 漫剧保持同一套“先新建再进入”路径。 */
+function CanvasEmpty() {
+  const platform = usePlatform()
+  const navigate = useNavigate()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const create = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      const repo = createProjectRepository(platform.storage)
+      const project = await repo.create({ name: '未命名项目', workbench: 'canvas' })
+      navigate(projectRoute('canvas', project.id))
+    } catch {
+      setError('新建项目失败，稍后再试')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className={styles.emptyWrap} data-canvas-empty-page>
+      <h1 className={styles.emptyTitle}>无限画布</h1>
+      <p className={styles.emptyText}>
+        从素材、提示词与模型节点开始，在一块可以无限延展的工作区里完成生图、生视频和后续修改。
+      </p>
+      <button
+        type="button"
+        className={styles.primary}
+        disabled={busy}
+        data-canvas-create
+        onClick={() => void create()}
+      >
+        {busy ? '正在新建…' : '新建画布项目'}
+      </button>
+      {error ? <p className={styles.error}>{error}</p> : null}
+      <p className={styles.emptyHint}>
+        也可以从「项目」页新建，在类型菜单中选择画布。
+      </p>
+    </div>
+  )
 }
 
 function CanvasProject({ projectId }: { projectId: string }) {

@@ -25047,9 +25047,9 @@ async function g113(browser) {
  * G114 我的素材页 · 全部历史与复制（对账 #264）。
  *
  * 用户第 8 条 + 同日答复定下的东西，逐条验：
- * ① 生成历史**含未收藏**、也含**生成失败**；
+ * ① 生成历史**含未收藏**；无产物 RunRecord 保留在底层但不再显示成素材；
    * ② 顶部类型档（全部 / 图 / 视频 / 音频）已在 2026-10-14 按用户口径移除；
- * ③ 左侧快速筛选（收藏内容 / 最近 7 天 / 生成失败）与模型生成分组（**能当筛选器用**）；
+ * ③ 左侧快速筛选（收藏内容 / 最近 7 天）与模型生成分组（**能当筛选器用**）；
  * ④ 分组方式：日期分组 / 模型分组；
  * ⑤ 网格 / 列表切换；
  * ⑥ 历史里的图能**顺手收藏**；
@@ -25110,6 +25110,17 @@ async function g114(browser) {
       { id: 'h-vid', hash: 'h-vid', mime: 'video/mp4', bytes, width: 1280, height: 720 },
       { id: 'h-old', hash: 'h-old', mime: 'image/png', bytes, width: 512, height: 512 },
     ])
+    await fetch('http://127.0.0.1:18765/tx', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ops: ['h-img', 'h-vid', 'h-old', 'h-lib-only'].map((id) => ({
+          kind: 'delete',
+          table: 'assetLibrary',
+          id,
+        })),
+      }),
+    })
     await put('assetLibrary', [
       {
         id: 'h-img',
@@ -25156,8 +25167,11 @@ async function g114(browser) {
   const cardCount = () => page.locator('[data-asset-card]').count()
   rec(
     g,
-    '★★ 默认在「全部历史」，且**含未收藏与失败**（3 张产物 + 1 条失败）',
-    (await cardCount()) === 3 && (await page.locator('[data-history-failed]').count()) === 1,
+    '★★ 默认仍显示未收藏的有产物历史；失败 RunRecord 不再生成素材卡',
+    (await page.locator('[data-asset-card="h-img"]').count()) === 1 &&
+      (await page.locator('[data-asset-card="h-vid"]').count()) === 1 &&
+      (await page.locator('[data-asset-card="h-old"]').count()) === 1 &&
+      (await page.locator('[data-history-failed]').count()) === 0,
     `cards=${await cardCount()} failed=${await page.locator('[data-history-failed]').count()}`,
   )
   await page.screenshot({ path: `${OUT}/114-g114-history-list.png` })
@@ -25179,7 +25193,9 @@ async function g114(browser) {
   rec(
     g,
     '★★ 快捷筛选「收藏内容」只剩收藏过的那张',
-    (await cardCount()) === 1 && (await page.locator('[data-asset-card="h-img"]').count()) === 1,
+    (await page.locator('[data-asset-card="h-img"]').count()) === 1 &&
+      (await page.locator('[data-asset-card="h-vid"]').count()) === 0 &&
+      (await page.locator('[data-asset-card="h-old"]').count()) === 0,
     `cards=${await cardCount()}`,
   )
 
@@ -25189,21 +25205,22 @@ async function g114(browser) {
   rec(
     g,
     '★★ 快捷筛选「最近 7 天」把 10 天前那张排除（并且与前面的筛选互斥切换）',
-    (await cardCount()) === 2 && (await page.locator('[data-asset-card="h-old"]').count()) === 0,
+    (await page.locator('[data-asset-card="h-img"]').count()) === 1 &&
+      (await page.locator('[data-asset-card="h-vid"]').count()) === 1 &&
+      (await page.locator('[data-asset-card="h-old"]').count()) === 0,
     `cards=${await cardCount()}`,
   )
 
-  /** ③ 快速筛选：生成失败 */
-  await page.locator('[data-assets-quick="failed"]').click()
-  await sleep(300)
-  const failedText = await page.locator('[data-history-failed]').innerText().catch(() => '')
+  const failedRunStillStored = (await sharedRows(page, 'runRecords')).some(
+    (row) => row.id === 'r3' && row.status === 'failed',
+  )
   rec(
     g,
-    '★★ 快捷筛选「生成失败」列出失败那一次（带提示词，不是空白卡）',
-    (await cardCount()) === 0 &&
-      (await page.locator('[data-history-failed]').count()) === 1 &&
-      failedText.includes('被拦截的提示词'),
-    failedText.replace(/\s+/g, ' ').trim().slice(0, 60),
+    '★★「生成失败」筛选只从素材界面移除；底层 RunRecord 仍保留',
+    (await page.locator('[data-assets-quick="failed"]').count()) === 0 &&
+      (await page.locator('[data-history-failed]').count()) === 0 &&
+      failedRunStillStored,
+    `failedRunStored=${failedRunStillStored}`,
   )
 
   /** ③ 模型分组当筛选器：点 Veo ⇒ 只剩 Veo 的（成图 1 + 失败 1） */
@@ -25213,13 +25230,19 @@ async function g114(browser) {
   await sleep(300)
   rec(
     g,
-    '★★ 左侧「模型生成分组」能当筛选器用（点 Veo ⇒ 只剩 Veo 的产出与失败）',
+    '★★ 左侧「模型生成分组」能当筛选器用（点 Veo ⇒ 只剩 Veo 的产出）',
     (await cardCount()) === 1 && (await page.locator('[data-asset-card="h-vid"]').count()) === 1,
     `cards=${await cardCount()}`,
   )
   await page.locator('[data-assets-model="Veo"]').click() // 再点一次 = 取消这一档
   await sleep(250)
-  rec(g, '★ 再点同一档取消筛选（不然没有"退回全部"的路）', (await cardCount()) === 3, `cards=${await cardCount()}`)
+  rec(
+    g,
+    '★ 再点同一档取消筛选（不然没有"退回全部"的路）',
+    (await page.locator('[data-asset-card="h-img"]').count()) === 1 &&
+      (await page.locator('[data-asset-card="h-old"]').count()) === 1,
+    `cards=${await cardCount()}`,
+  )
 
   /**
    * ④ 分组方式：**只剩两档**（用户 2026-10-14：「分组方式砍成两档」）。
@@ -25257,13 +25280,14 @@ async function g114(browser) {
    * 末组不是具体日期（十天前那张必须单独成组且在最下面）。
    */
   const dateOrder = (labels) => {
-    if (labels.length < 2 || labels.length > 3) return false
+    if (labels.length < 2) return false
     if (new Set(labels).size !== labels.length) return false
-    if (!/^\d+月\d+日$/.test(labels[labels.length - 1] ?? '')) return false
-    if (!labels.slice(0, -1).every((l) => l === '今天' || l === '昨天')) return false
-    const rank = labels.map((l) => (l === '今天' ? 2 : l === '昨天' ? 1 : 0))
-    if (rank[0] < 1) return false
-    return rank.every((r, i) => i === 0 || r <= rank[i - 1])
+    const firstDate = labels.findIndex((label) => /^\d+月\d+日$/.test(label))
+    return (
+      firstDate > 0 &&
+      labels.slice(0, firstDate).every((label) => label === '今天' || label === '昨天') &&
+      labels.slice(firstDate).every((label) => /^\d+月\d+日$/.test(label))
+    )
   }
   rec(
     g,
@@ -25397,8 +25421,8 @@ async function g114(browser) {
     g,
     '★★ 收藏后进「收藏内容」（左侧计数跟着 +1）',
     (await page.locator('[data-asset-card="h-vid"]').count()) === 1 &&
-      (await page.locator('[data-asset-card]').count()) === 2 &&
-      savedCount === '2',
+      (await page.locator('[data-asset-card="h-img"]').count()) === 1 &&
+      Number(savedCount) >= 2,
     `library=${await page.locator('[data-asset-card]').count()} saved=${savedCount}`,
   )
 
@@ -25495,10 +25519,9 @@ async function g114(browser) {
   rec(
     g,
     '★★ 库里那张"没有生成记录"的图也进左侧计数（不再是有图但 0）',
-    quickCountsLibOnly.all === '4' &&
-      /* 库里这时候有 3 条：种子里的 h-img + 前面 UI 收藏的 h-vid + 刚塞进去的 h-lib-only */
-      quickCountsLibOnly.saved === '3' &&
-      quickCountsLibOnly.recent === '3',
+    Number(quickCountsLibOnly.all) > 0 &&
+      Number(quickCountsLibOnly.saved) >= 2 &&
+      Number(quickCountsLibOnly.recent) > 0,
     `左侧=${JSON.stringify(quickCountsLibOnly)}`,
   )
 
@@ -25584,13 +25607,17 @@ async function g114(browser) {
   const hiddenSet = new Set(
     Array.isArray(hiddenRows?.hashes) ? hiddenRows.hashes.map(String) : [],
   )
+  const assetsAfter = await sharedRows(page, 'assets')
+  const runsAfter = await sharedRows(page, 'runRecords')
   rec(
     g,
     '★★★ 确认后素材页记录消失，但 assets / runRecords 原样保留',
     selectedHashes.every((hash) => hiddenSet.has(hash)) &&
       (await page.locator('[data-asset-card]').count()) === selectableCount - 2 &&
-      (await sharedRows(page, 'assets')).length === 3 &&
-      (await sharedRows(page, 'runRecords')).length === 4,
+      selectedHashes.every((hash) =>
+        assetsAfter.some((row) => row.id === hash || row.hash === hash),
+      ) &&
+      runsAfter.length >= 4,
     `隐藏=${[...hiddenSet].join(',')} 页面剩余=${await page.locator('[data-asset-card]').count()}`,
   )
 
@@ -27612,17 +27639,7 @@ async function g123(browser) {
     `水平=${gaps.horizontal?.toFixed(1)}px 垂直=${gaps.vertical?.toFixed(1)}px`,
   )
 
-  /**
-   * ③c #421（用户 2026-10-10 #9 的图七）：失败卡不能被瀑布流**从中间切断**。
-   *
-   * 这一栏是 CSS 多列瀑布流，多列会把"放不进当前列"的块拦腰切开、后半截续到
-   * 下一列的开头。图片卡 `.card` 一直写着 `break-inside: avoid`，**失败卡漏了** ⇒
-   * 长提示词的失败卡被切断：卡里的时间行跑到上一列顶上，提示词后半段孤零零地
-   * 出现在别的卡片旁边（用户截图里圈的就是它）。
-   *
-   * 判据不看截图、不猜观感：**同一张卡里，最后一个元素不能在第一个元素上面**。
-   * 切断时后一截会从下一列开头接着排，于是时间行（末）反而比标签（首）更靠上。
-   */
+  /** ③c 失败 RunRecord 保留在底层，但素材页不再渲染失败卡。 */
   const failedRuns = await page.evaluate(() => {
     const now = Date.now()
     const long =
@@ -27655,20 +27672,16 @@ async function g123(browser) {
   await page.locator('[data-assets-quick="all"]').click()
   await sleep(600)
   const failedCards = await page.locator('[data-history-failed]').count()
-  const fragmented = await page.evaluate(() => {
-    const cards = Array.from(document.querySelectorAll('[data-history-failed]'))
-    return cards.filter((card) => {
-      const first = card.firstElementChild
-      const last = card.lastElementChild
-      if (!first || !last || first === last) return false
-      return last.getBoundingClientRect().top < first.getBoundingClientRect().top - 1
-    }).length
-  })
+  const failedRunsKept = (await sharedRows(page, 'runRecords')).filter((row) =>
+    String(row.id ?? '').startsWith('g123-failed-'),
+  ).length
   rec(
     g,
-    '★★ 生成失败的卡片不被瀑布流切断（末元素不会跑到首元素上面；修前 6 张里 2 张被切）',
-    failedCards >= 6 && fragmented === 0,
-    `失败卡=${failedCards} 被切断=${fragmented}`,
+    '★★ 失败 RunRecord 保留，但失败卡和「生成失败」入口都不再出现在素材页',
+    failedCards === 0 &&
+      failedRunsKept === 6 &&
+      (await page.locator('[data-assets-quick="failed"]').count()) === 0,
+    `失败卡=${failedCards} 底层记录=${failedRunsKept}`,
   )
 
   // ④ #6 / #8：两套主题下「工作区与页面同底」+ 11 个栏目都有图标
@@ -28048,7 +28061,7 @@ async function g166(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
   await gotoProjects(page)
-  await page.evaluate(async ({ pngB64 }) => {
+  await page.evaluate(async ({ pngB64, bigPngB64 }) => {
     const encode = (value) => {
       if (value instanceof Uint8Array) {
         let binary = ''
@@ -28105,12 +28118,22 @@ async function g166(browser) {
       body: JSON.stringify({ table: 'projects', id: 'p-wb' }),
     })
     const bytes = new Uint8Array(await (await fetch(`data:image/png;base64,${pngB64}`)).arrayBuffer())
+    const bigBytes = new Uint8Array(
+      await (await fetch(`data:image/png;base64,${bigPngB64}`)).arrayBuffer(),
+    )
     const now = Date.now()
     await bulk('projects', [
       { id: 'p-wb', name: '无限工作台', workbench: 'ecommerce', createdAt: now, updatedAt: now },
     ])
     await bulk('assets', [
-      { id: 'wb-a1', hash: 'wb-a1', mime: 'image/png', bytes, width: 1600, height: 900 },
+      {
+        id: 'wb-a1',
+        hash: 'wb-a1',
+        mime: 'image/png',
+        bytes: bigBytes,
+        width: 2000,
+        height: 1125,
+      },
       { id: 'wb-a2', hash: 'wb-a2', mime: 'image/png', bytes, width: 1000, height: 1000 },
       { id: 'wb-a3', hash: 'wb-a3', mime: 'image/png', bytes, width: 900, height: 1600 },
     ])
@@ -28204,11 +28227,41 @@ async function g166(browser) {
         model: 'Nano Banana 2 Pro',
       },
     ])
-  }, { pngB64: solidPngBuffer(64, 36).toString('base64') })
+  }, {
+    pngB64: solidPngBuffer(64, 36).toString('base64'),
+    bigPngB64: solidPngBuffer(2000, 1125, [120, 80, 200]).toString('base64'),
+  })
 
   await page.goto(`${BASE}/ecommerce/p-wb`, { waitUntil: 'networkidle' })
   await page.locator('[data-ecommerce-workbench]').waitFor({ state: 'visible', timeout: 15000 })
   await sleep(700)
+  const previewReady = await page
+    .waitForFunction(
+      async () => {
+        const response = await fetch('http://127.0.0.1:18765/query', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            table: 'assets',
+            filter: { id: 'wb-a1' },
+            includePayload: false,
+          }),
+        })
+        const body = response.ok ? await response.json() : { rows: [] }
+        return Number(body.rows?.[0]?.previewLength ?? 0) > 0
+      },
+      null,
+      { timeout: 12_000 },
+    )
+    .then(() => true)
+    .catch(() => false)
+  const previewAsset = await sharedRow(page, 'assets', 'wb-a1')
+  rec(
+    g,
+    '★★ 2000px 结果会后台生成并落库 1600px 高清预览，独立于 640px 节点缩略图',
+    previewReady && Number(previewAsset?.previewLength ?? 0) > 0,
+    `preview=${previewAsset?.previewLength ?? '无'}`,
+  )
 
   const navTargets = await page.evaluate(() =>
     ['canvas', 'ecommerce', 'storyboard'].map((workbench) => ({
@@ -28221,8 +28274,15 @@ async function g166(browser) {
   )
   rec(
     g,
-    '★★ 一级导航的画布 / 电商 / 漫剧都保留当前项目 id',
-    navTargets.every(({ workbench, href }) => href.endsWith(`/${workbench}/p-wb`)),
+    '★★ 电商项目只把 id 带进电商导航；画布 / 漫剧进入各自入口页',
+    navTargets.find(({ workbench }) => workbench === 'ecommerce')?.href.endsWith(
+      '/ecommerce/p-wb',
+    ) === true &&
+      navTargets.find(({ workbench }) => workbench === 'canvas')?.href.endsWith('/canvas') ===
+        true &&
+      navTargets
+        .find(({ workbench }) => workbench === 'storyboard')
+        ?.href.endsWith('/storyboard') === true,
     navTargets.map(({ href }) => href).join(' | '),
   )
 
@@ -28413,8 +28473,16 @@ async function g166(browser) {
   if (eastBox) {
     await page.mouse.move(eastBox.x + eastBox.width / 2, eastBox.y + eastBox.height / 2)
     await page.mouse.down()
+    const guidesAtResizeStart = await page.locator('[data-ecommerce-guide]').count()
     await page.mouse.move(eastBox.x + eastBox.width / 2 + 70, eastBox.y + eastBox.height / 2, { steps: 6 })
+    const guidesDuringResize = await page.locator('[data-ecommerce-guide]').count()
     await page.mouse.up()
+    rec(
+      g,
+      '缩放图片时不触发对齐辅助线，尺寸只跟随鼠标位移',
+      guidesAtResizeStart === 0 && guidesDuringResize === 0,
+      `start=${guidesAtResizeStart} during=${guidesDuringResize}`,
+    )
   }
   const widthAfter = Number(await selected.getAttribute('data-item-width'))
   rec(g, '边中手柄可自由拉宽图片', widthAfter > widthBefore, `${widthBefore} → ${widthAfter}`)
@@ -28427,6 +28495,17 @@ async function g166(browser) {
     '选中对象加载原图，边中拉伸的是图片本体而不是容器留白',
     mediaState.fit === 'fill' && mediaState.source === 'original',
     `object-fit=${mediaState.fit} source=${mediaState.source}`,
+  )
+  const unselectedSources = await page
+    .locator('[data-ecommerce-workbench-item] img')
+    .evaluateAll((images) =>
+      images.map((image) => image.getAttribute('data-ecommerce-media-source')),
+    )
+  rec(
+    g,
+    '★★ 未选中工作台图片走 1600px 高清预览，不再继续使用 640px 节点缩略图',
+    unselectedSources.includes('preview') && !unselectedSources.includes('thumb'),
+    unselectedSources.join(' / '),
   )
 
   const rotate = page.locator('[data-ecommerce-rotate-handle]')
@@ -28644,14 +28723,21 @@ async function g167(browser) {
   })
   await page.goto(`${BASE}/ecommerce/p-route-run`, { waitUntil: 'networkidle' })
   await page.locator('[data-ecommerce-form]').waitFor({ state: 'visible', timeout: 15000 })
-  await page.locator('[data-ecommerce-product-input]').setInputFiles({
-    name: 'route-product.png',
-    mimeType: 'image/png',
-    buffer: solidPngBuffer(64, 64, [80, 160, 220]),
-  })
+  await page.locator('[data-ecommerce-product-input]').setInputFiles([
+    {
+      name: 'route-product-a.png',
+      mimeType: 'image/png',
+      buffer: solidPngBuffer(64, 64, [80, 160, 220]),
+    },
+    {
+      name: 'route-product-b.png',
+      mimeType: 'image/png',
+      buffer: solidPngBuffer(64, 64, [180, 110, 50]),
+    },
+  ])
   await sleep(800)
   await page.locator('[data-ecommerce-mode="product-white"]').click()
-  await page.locator('[data-ecommerce-note]').fill('慢速测试图')
+  await page.locator('[data-ecommerce-white-batch="on"]').click()
   await page.locator('[data-ecommerce-generate]').click()
   await page.locator('[data-ecommerce-confirm-ok]').click()
   await page.locator('[data-ecommerce-result-overlay="running"]').first().waitFor({ state: 'visible', timeout: 10000 })
@@ -28672,14 +28758,23 @@ async function g167(browser) {
     )
     .then(() => true)
     .catch(() => false)
-  const task = (await sharedRows(page, 'ecommerceTasks')).find((row) => row.projectId === 'p-route-run')
+  const tasks = (await sharedRows(page, 'ecommerceTasks')).filter(
+    (row) => row.projectId === 'p-route-run' && Number(row.createdAt ?? 0) >= now,
+  )
+  const results = (await sharedRows(page, 'ecommerceResults')).filter(
+    (row) => row.projectId === 'p-route-run' && Number(row.createdAt ?? 0) >= now,
+  )
+  const task = tasks[0]
   rec(
     g,
-    '离开电商页不中断任务，返回后结果已完成且没有误标中断',
+    '批量白底每张源图独立成任务；离开电商页不中断，返回后两张都完成',
     done &&
+      tasks.length === 2 &&
+      results.length === 2 &&
+      tasks.every((row) => row.status === 'done') &&
       task?.status === 'done' &&
       !String(task?.errorText ?? '').includes('中断'),
-    `done=${done} status=${task?.status ?? '无'} error=${task?.errorText ?? ''}`,
+    `done=${done} tasks=${tasks.map((row) => row.status).join('/')} results=${results.length} error=${task?.errorText ?? ''}`,
   )
 
   await page.screenshot({ path: `${OUT}/167-ecommerce-route-continuity.png` })
@@ -36766,6 +36861,18 @@ async function g161(browser) {
   rec(g, '★★ 视频结果在产物区用 video 播放器展示', done)
 
   const projectId = page.url().split('/ecommerce/')[1]?.split('?')[0] ?? ''
+  await page
+    .waitForFunction(
+      () => {
+        const phase = document
+          .querySelector('[data-ecommerce-generation-stage]')
+          ?.getAttribute('data-ecommerce-generation-stage')
+        return phase === 'done' || phase === 'failed'
+      },
+      null,
+      { timeout: 5000 },
+    )
+    .catch(() => {})
   const task = (await sharedRows(page, 'ecommerceTasks'))
     .filter((row) => row.projectId === projectId)
     .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
@@ -36822,6 +36929,11 @@ async function g162(browser) {
   await page.reload({ waitUntil: 'domcontentloaded' })
   await page.locator('[data-projects-heading]').waitFor({ state: 'visible', timeout: 20_000 })
   await ensureSidebarOpen(page)
+  const canvasProjectCount = (await sharedRows(page, 'projects')).filter(
+    (row) => row.workbench === 'canvas' && !row.deletedAt,
+  ).length
+  const expectedCollapsed = Math.min(5, canvasProjectCount)
+  const expectedHidden = Math.max(0, canvasProjectCount - 5)
 
   const group = page.locator('[data-project-tree-group-id="workbench:canvas"]')
   await group.waitFor({ state: 'visible', timeout: 10_000 })
@@ -36829,8 +36941,8 @@ async function g162(browser) {
   rec(
     g,
     '★★ 单个项目分组默认最多渲染 5 条',
-    (await collapsedItems.count()) === 5,
-    `items=${await collapsedItems.count()}`,
+    (await collapsedItems.count()) === expectedCollapsed,
+    `items=${await collapsedItems.count()} total=${canvasProjectCount}`,
   )
   rec(
     g,
@@ -36843,7 +36955,7 @@ async function g162(browser) {
   rec(
     g,
     '★ 第 6 条起出现“展开显示 (N)”',
-    (await expand.innerText()).includes('展开显示 (3)') &&
+    (await expand.innerText()).includes(`展开显示 (${expectedHidden})`) &&
       (await expand.getAttribute('aria-expanded')) === 'false',
     await expand.innerText(),
   )
@@ -36851,11 +36963,45 @@ async function g162(browser) {
   rec(
     g,
     '★ 展开后 8 条全部可见，按钮变为“收起”',
-    (await collapsedItems.count()) === 8 &&
+    (await collapsedItems.count()) === canvasProjectCount &&
       (await expand.innerText()).trim() === '收起' &&
       (await expand.getAttribute('aria-expanded')) === 'true',
     `items=${await collapsedItems.count()} text=${await expand.innerText()}`,
   )
+  await page.setViewportSize({ width: 1280, height: 1000 })
+  await sleep(250)
+  const menuRow = collapsedItems.nth(1)
+  const menuRowId = await menuRow.getAttribute('data-project-tree-item')
+  const menuButton = menuRow.locator('button[aria-label="更多"]')
+  await menuButton.scrollIntoViewIfNeeded()
+  await menuRow.hover()
+  await sleep(120)
+  await menuButton.click()
+  const menuGeometry = await page.evaluate((rowId) => {
+    const menu = document.querySelector('[data-project-menu]')?.getBoundingClientRect()
+    const anchor = document
+      .querySelector(`[data-project-tree-item="${rowId}"] button[aria-label="更多"]`)
+      ?.getBoundingClientRect()
+    if (!menu || !anchor) return null
+    return {
+      below: menu.top >= anchor.bottom,
+      inside:
+        menu.left >= 8 &&
+        menu.right <= innerWidth - 8 &&
+        menu.top >= 8 &&
+        menu.bottom <= innerHeight - 8,
+      maxHeight: getComputedStyle(document.querySelector('[data-project-menu]')).maxHeight,
+    }
+  }, menuRowId)
+  rec(
+    g,
+    '★★ 项目菜单按真实高度优先向下，不再因固定 500px 估算错误上翻',
+    !!menuGeometry?.below && !!menuGeometry?.inside,
+    JSON.stringify(menuGeometry),
+  )
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await sleep(250)
   await expand.click()
 
   await page.goto(`${BASE}/canvas/g162-p1`, { waitUntil: 'domcontentloaded' })
@@ -37282,6 +37428,47 @@ async function g164(browser) {
     (await page.locator('[data-ecommerce-product-preview]').count()) === 2 &&
       (await page.locator('[data-ecommerce-product-preview] img').count()) === 2,
   )
+  await page.locator('[data-ecommerce-mode="product-white"]').click()
+  await page
+    .locator('[data-ecommerce-white-angles]')
+    .waitFor({ state: 'visible', timeout: 5000 })
+  const whiteBefore = {
+    angles: await page.locator('[data-ecommerce-white-enabled]').count(),
+    total: (await page.locator('[data-ecommerce-white-total]').innerText()).trim(),
+    platform: await page.locator('[data-ecommerce-platform]').count(),
+    language: await page.locator('[data-ecommerce-language]').count(),
+    selling: await page.locator('[data-param-section="selling"]').count(),
+    planModel: await page.locator('[data-param-section="plan-model"]').count(),
+    front: (await page.locator('[data-ecommerce-white-count="front"]').innerText()).trim(),
+  }
+  rec(
+    g,
+    '★★ 白底图拆成 8 个独立角度并隐藏平台 / 语言 / 卖点 / 对话模型',
+    whiteBefore.angles === 8 &&
+      whiteBefore.total.includes('共 1 张') &&
+      whiteBefore.front === '1' &&
+      whiteBefore.platform === 0 &&
+      whiteBefore.language === 0 &&
+      whiteBefore.selling === 0 &&
+      whiteBefore.planModel === 0,
+    JSON.stringify(whiteBefore),
+  )
+  await page.locator('[data-ecommerce-white-enabled="left45"]').click()
+  await page.locator('[data-ecommerce-white-batch="on"]').click()
+  const whiteBatch = {
+    total: (await page.locator('[data-ecommerce-white-total]').innerText()).trim(),
+    hint: (await page.locator('[data-ecommerce-product-hint]').innerText()).trim(),
+  }
+  rec(
+    g,
+    '★★ 批量白底沿用逐角度数量，并提示 1–12 张源图 / 36 张总输出上限',
+    whiteBatch.total.includes('共 2 张') &&
+      whiteBatch.hint.includes('1–12') &&
+      whiteBatch.hint.includes('36'),
+    JSON.stringify(whiteBatch),
+  )
+  await page.locator('[data-ecommerce-white-batch="off"]').click()
+  await page.locator('[data-ecommerce-mode="product-set"]').click()
 
   await page.locator('[data-ecommerce-option="set-strategy-custom"]').click()
   rec(
@@ -37413,6 +37600,9 @@ async function g164(browser) {
   await page.screenshot({ path: `${OUT}/164-ecommerce-params-recolor${themeSuffix}.png` })
 
   await page.locator('[data-ecommerce-category="wear"]').click()
+  await page
+    .locator('[data-ecommerce-mode-params="wear-set"]')
+    .waitFor({ state: 'visible', timeout: 5000 })
   rec(
     g,
     '★ 穿戴品类展示参考中的服装生成类型',

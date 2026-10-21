@@ -190,7 +190,17 @@ export function AppSidebar() {
     getActiveCanvasRevision,
     getActiveCanvasRevision,
   )
-  const selectedProjectId = activeProject?.id ?? activeCanvasId() ?? null
+  const sessionCanvasId = activeCanvasId()
+  /**
+   * `activeCanvasId` 是本次会话最后打开的**画布**项目，不是“任意工作台的当前项目”。
+   * 因此它只补一个 canvas 类型上下文，不能把同一 id 再带给电商 / 漫剧。
+   */
+  const navigationProject =
+    activeProject ??
+    (sessionCanvasId
+      ? { id: sessionCanvasId, workbench: 'canvas' as const }
+      : null)
+  const selectedProjectId = navigationProject?.id ?? null
 
   /**
    * 一级导航的**滑动高亮块**（用户 2026-10-14：「当前项切换时的高亮块从旧位置
@@ -380,7 +390,7 @@ export function AppSidebar() {
           return (
             <Link
               key={item.to}
-              to={navTargetFor(item.to, selectedProjectId)}
+              to={navTargetFor(item.to, navigationProject)}
               /*
                * ⚠️ 手写高亮而不用 `NavLink`：需要一条额外的规则 ——
                * `/canvas` 与 `/canvas/:id` 一起亮（前者是「无项目时打开空白画布」

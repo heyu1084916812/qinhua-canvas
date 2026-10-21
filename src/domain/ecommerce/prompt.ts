@@ -20,6 +20,11 @@ import {
   type EcommerceRequest,
   type EcommerceUsage,
 } from './types'
+import {
+  WHITE_BG_ANGLE_OPTIONS,
+  whiteBgCountsOf,
+} from './modeOptions'
+import type { EcommerceModeOptions } from './types'
 
 /** 单次请求里 note 允许的最大长度（再长应当写进提示词节点，而不是这个表单） */
 export const ECOMMERCE_NOTE_MAX = 500
@@ -173,10 +178,15 @@ const EDIT_SHOT: EcommerceShot = {
 }
 
 /** 白底图 = **抽卡**：N 张是同一件事的 N 次尝试，脚本故意只有一条（用户明确说这样没问题） */
-const WHITE_BG_SHOT: EcommerceShot = {
-  title: '白底图',
-  brief: '纯白背景、不要场景道具，产品边缘干净、正对镜头',
-}
+const WHITE_BG_SHOT_BY_ANGLE = new Map(
+  WHITE_BG_ANGLE_OPTIONS.map((angle) => [
+    angle.id,
+    {
+      title: `白底图 · ${angle.label}`,
+      brief: `纯白背景、不要场景道具，产品边缘干净；${angle.hint ?? angle.label}`,
+    } satisfies EcommerceShot,
+  ]),
+)
 
 /**
  * 这一次要出几张 × 每张要什么。
@@ -185,8 +195,24 @@ const WHITE_BG_SHOT: EcommerceShot = {
  * - 主图 / 详情页 / 套图：按脚本顺序取，N 超过脚本长度时给"换构图"的通用项
  *   （保证 N 张不同，而不是把前几张重复一遍）。
  */
-export function ecommerceShots(usage: EcommerceUsage, count: number): readonly EcommerceShot[] {
-  if (usage === 'white-bg') return Array.from({ length: count }, () => WHITE_BG_SHOT)
+export function ecommerceShots(
+  usage: EcommerceUsage,
+  count: number,
+  modeOptions?: EcommerceModeOptions,
+): readonly EcommerceShot[] {
+  if (usage === 'white-bg') {
+    const counts = whiteBgCountsOf(modeOptions ?? {})
+    const shots = WHITE_BG_ANGLE_OPTIONS.flatMap((angle) =>
+      Array.from(
+        { length: Math.max(0, counts[angle.id] ?? 0) },
+        () => WHITE_BG_SHOT_BY_ANGLE.get(angle.id)!,
+      ),
+    )
+    while (shots.length < count) {
+      shots.push(WHITE_BG_SHOT_BY_ANGLE.get('front')!)
+    }
+    return shots.slice(0, count)
+  }
   if (usage === 'edit') return Array.from({ length: count }, () => EDIT_SHOT)
   const base =
     usage === 'main'
@@ -278,7 +304,8 @@ export function buildEcommercePrompts(
   request: EcommerceRequest,
   options: BuildPromptOptions = {},
 ): string[] {
-  const shots = options.shots ?? ecommerceShots(request.usage, request.count)
+  const shots =
+    options.shots ?? ecommerceShots(request.usage, request.count, request.modeOptions)
   if (shots.length !== request.count) {
     throw new Error(
       `分镜条数（${shots.length}）与张数（${request.count}）对不上 —— 不接受悄悄补齐或截断`,

@@ -29,7 +29,10 @@ import {
 } from '../../domain/canvas/geometry/coords'
 import { fitViewport, panBy, zoomAt } from '../../domain/canvas/geometry/transform'
 import { createId } from '../../shared/id'
-import { useAssetMeta } from '../../workbenches/canvas/hooks/useAsset'
+import {
+  useAssetMeta,
+  useAssetPreview,
+} from '../../workbenches/canvas/hooks/useAsset'
 import styles from './EcommerceWorkbench.module.css'
 
 type WorkbenchTool = 'select' | 'hand'
@@ -183,7 +186,13 @@ function ToolIcon({ name }: { name: WorkbenchTool | 'upload' | 'text' | 'undo' |
 }
 
 function WorkbenchMedia({ item, original }: { item: EcommerceCanvasItem; original: boolean }) {
-  const meta = useAssetMeta(item.assetHash, { preferThumb: !original })
+  const originalMeta = useAssetMeta(
+    original ? item.assetHash : undefined,
+  )
+  const previewMeta = useAssetPreview(
+    original ? undefined : item.assetHash,
+  )
+  const meta = original ? originalMeta : previewMeta
   if (!item.assetHash) return <span className={styles.missing}>素材不存在</span>
   if (!meta.url) return <span className={styles.mediaLoading}>载入中…</span>
   if ((item.kind === 'video' || meta.mime?.startsWith('video/'))) {
@@ -194,7 +203,7 @@ function WorkbenchMedia({ item, original }: { item: EcommerceCanvasItem; origina
         controls
         playsInline
         preload="metadata"
-        data-ecommerce-media-source={original ? 'original' : 'thumb'}
+        data-ecommerce-media-source={original ? 'original' : 'preview'}
         onPointerDown={(event) => event.stopPropagation()}
       />
     )
@@ -205,7 +214,7 @@ function WorkbenchMedia({ item, original }: { item: EcommerceCanvasItem; origina
       src={meta.url}
       alt=""
       draggable={false}
-      data-ecommerce-media-source={original ? 'original' : 'thumb'}
+      data-ecommerce-media-source={original ? 'original' : 'preview'}
     />
   )
 }
@@ -629,6 +638,8 @@ export function EcommerceWorkbench({
   ) => {
     event.stopPropagation()
     setSelectedIds(new Set([item.id]))
+    /* resize 永不参与吸附；开始缩放时先清掉 move 留下的辅助线。 */
+    setGuides({ x: null, y: null })
     const rect = viewportRef.current?.getBoundingClientRect()
     if (!rect) return
     interactionRef.current = {
@@ -1225,10 +1236,20 @@ export function EcommerceWorkbench({
           )
         })}
         {guides.x !== null && (
-          <div className={styles.guideX} style={{ left: guides.x }} aria-hidden />
+          <div
+            className={styles.guideX}
+            style={{ left: guides.x }}
+            data-ecommerce-guide="x"
+            aria-hidden
+          />
         )}
         {guides.y !== null && (
-          <div className={styles.guideY} style={{ top: guides.y }} aria-hidden />
+          <div
+            className={styles.guideY}
+            style={{ top: guides.y }}
+            data-ecommerce-guide="y"
+            aria-hidden
+          />
         )}
       </div>
 

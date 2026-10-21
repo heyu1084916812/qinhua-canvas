@@ -158,8 +158,8 @@ function EcommerceEmpty() {
     <div className={styles.emptyWrap} data-ecommerce-empty-page>
       <h1 className={styles.emptyTitle}>电商工作台</h1>
       <p className={styles.emptyText}>
-        上传产品图、选平台与用途，右边直接出图。结果会落成这个项目的画布节点，
-        所以随时能换个界面继续细修。
+        上传产品图、选平台与用途，右边直接出图。任务与结果都留在这个电商工作台，
+        不会和无限画布项目混在一起。
       </p>
       <button
         type="button"
@@ -367,6 +367,12 @@ function StudioHost({ projectId }: { projectId: string }) {
    * 用户点两下就花两次对话额度（而且要等两遍）。
    */
   const [preparingShots, setPreparingShots] = useState(false)
+  /**
+   * 只覆盖“校验 → 分析 → 建节点 → 提交 API”这段提交期。
+   * 请求一旦发出，结果行和占位已经可见，按钮必须释放，允许用户继续下一批；
+   * 不能用 `exec.isRunning` 把按钮锁到所有图片都返回。
+   */
+  const [submitting, setSubmitting] = useState(false)
   const [generationStage, setGenerationStage] = useState<EcommerceGenerationStage | null>(null)
   const models = useMemo(() => panelModelOptions('image'), [])
   const videoModels = useMemo(() => panelModelOptions('video'), [])
@@ -1279,6 +1285,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       sourceAssetHash?: string
     },
   ) => {
+    setSubmitting(true)
     setShotPlanNote('')
     setGenerationStage({ phase: 'validate', label: '正在检查素材与参数' })
     try {
@@ -1440,47 +1447,90 @@ function StudioHost({ projectId }: { projectId: string }) {
         setResultRows([])
       }
       if (task) acquireEcommerceTaskLease(task.id)
-      try {
-        if (task) await queueWorkbenchRefresh()
-        let completed = 0
-        setGenerationStage({
-          phase: 'generate',
-          label: `正在生成 0/${created.length}`,
-          current: 0,
-          total: created.length,
-        })
-        await Promise.all(
-          created.map(async (id) => {
-            await exec.runNode(id)
-            if (task) {
-              await syncResultRow(task.id, id)
-              await queueWorkbenchRefresh()
+      if (task) await queueWorkbenchRefresh()
+      let completed = 0
+      setGenerationStage({
+        phase: 'generate',
+        label: `正在生成 0/${created.length}`,
+        current: 0,
+        total: created.length,
+      })
+
+      /*
+       * 请求已经提交，`onGenerate` 不再等图片返回。进度改从 RunRecord / 任务结果表
+       * 轮询收口：这比依赖执行 Promise 更适合跨路由页面，也能在结果表先完成时
+       * 同步更新阶段条，不会一直停在“生成 0/N”。
+       */
+      const runJobs = created.map((id) =>
+        exec.runNode(id).then(async () => {
+          if (task) await syncResultRow(task.id, id)
+        }),
+      )
+      const allJobs = Promise.all(runJobs)
+      void allJobs.catch(() => undefined)
+      if (task) {
+        const currentTask = task
+        void (async () => {
+          const startedAt = Date.now()
+          try {
+            while (Date.now() - startedAt < 10 * 60_000) {
+              await taskRepo.reconcileFromRunRecords(projectId)
+              const rows = await taskRepo.results(currentTask.id)
+              completed = rows.filter(
+                (row) => row.status === 'done' || row.status === 'failed' || row.status === 'canceled',
+              ).length
+              setGenerationStage((current) =>
+                current?.phase === 'done'
+                  ? current
+                  : {
+                      phase: 'generate',
+                      label: `正在生成 ${completed}/${created.length}`,
+                      current: completed,
+                      total: created.length,
+                    },
+              )
+              if (completed >= created.length) break
+              await new Promise((resolve) => window.setTimeout(resolve, 250))
             }
-            completed += 1
+            await refreshTask(currentTask)
+            await refreshTaskHistory()
+            await queueWorkbenchRefresh()
             setGenerationStage({
-              phase: 'generate',
-              label: `正在生成 ${completed}/${created.length}`,
-              current: completed,
+              phase: 'done',
+              label: `本批已结束 ${created.length}/${created.length}`,
+              current: created.length,
               total: created.length,
             })
-          }),
-        )
-        if (task) await refreshTask(task)
-        await refreshTaskHistory()
-        await queueWorkbenchRefresh()
-        setGenerationStage({
-          phase: 'done',
-          label: `本批已结束 ${created.length}/${created.length}`,
-          current: created.length,
-          total: created.length,
-        })
-      } finally {
-        if (task) releaseEcommerceTaskLease(task.id)
+          } catch (error) {
+            const message = error instanceof Error ? error.message : '生成失败'
+            setGenerationStage({ phase: 'failed', label: '生成失败', detail: message })
+          } finally {
+            releaseEcommerceTaskLease(currentTask.id)
+          }
+        })()
+      } else {
+        void allJobs
+          .then(async () => {
+            await refreshTaskHistory()
+            await queueWorkbenchRefresh()
+            setGenerationStage({
+              phase: 'done',
+              label: `本批已结束 ${created.length}/${created.length}`,
+              current: created.length,
+              total: created.length,
+            })
+          })
+          .catch((error: unknown) => {
+            const message = error instanceof Error ? error.message : '生成失败'
+            setGenerationStage({ phase: 'failed', label: '生成失败', detail: message })
+          })
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : '生成失败'
       setGenerationStage({ phase: 'failed', label: '生成失败', detail: message })
       throw error
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -1798,6 +1848,42 @@ function StudioHost({ projectId }: { projectId: string }) {
     store,
   ])
 
+  /*
+   * 阶段条的第二条真相来源：页面已经拿到的结果状态。
+   *
+   * 单张执行 Promise 在跨路由 / 并发批次的收尾时机并不适合作为唯一进度来源；
+   * 只要结果表或实时节点状态已经给出终态，就在这里补齐 x/N 与“已结束”，
+   * 避免结果卡已经完成而阶段条还停在 1/N。
+   */
+  useEffect(() => {
+    if (!activeTask || results.length === 0) return
+    const terminal = results.filter((result) => result.status !== 'running').length
+    if (terminal === 0) return
+    setGenerationStage((current) => {
+      if (terminal >= results.length) {
+        const label = `本批已结束 ${results.length}/${results.length}`
+        return current?.phase === 'done' && current.label === label
+          ? current
+          : {
+              phase: 'done',
+              label,
+              current: results.length,
+              total: results.length,
+            }
+      }
+      if (current?.phase === 'done') return current
+      const label = `正在生成 ${terminal}/${results.length}`
+      return current?.phase === 'generate' && current.label === label
+        ? current
+        : {
+            phase: 'generate',
+            label,
+            current: terminal,
+            total: results.length,
+          }
+    })
+  }, [activeTask, results])
+
   const failedCount = results.filter((r) => r.status === 'failed').length
   const downloadableCount = results.filter((r) => r.status === 'done' && r.imageHash).length
 
@@ -1885,7 +1971,7 @@ function StudioHost({ projectId }: { projectId: string }) {
       onEditResults={editResults}
       onUpscaleResult={upscaleResult}
       upscaleProfiles={upscaleProfiles}
-      running={exec.isRunning || preparingShots}
+      running={submitting || preparingShots}
       results={results}
       workbench={
         <EcommerceWorkbench
@@ -1895,7 +1981,7 @@ function StudioHost({ projectId }: { projectId: string }) {
           tasks={taskHistory}
           runs={workbenchRuns}
           activeResults={resultRows}
-          running={exec.isRunning || preparingShots}
+          running={exec.isRunning}
           availableActions={['download', 'save', 'retry']}
           onItemsChange={handleCanvasItemsChange}
           onCanvasUpload={onWorkbenchUpload}

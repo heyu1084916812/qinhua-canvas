@@ -124,3 +124,57 @@
 .externalBtn:hover {
   opacity: 0.88;
 }
+.emptyWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  max-width: 52ch;
+  margin: 0 auto;
+  padding: 96px var(--space-4) var(--space-4);
+  color: var(--text-1);
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: var(--fs-page-title);
+  line-height: var(--lh-page-title);
+  font-weight: var(--fw-page-title);
+}
+
+.emptyText {
+  margin: 0;
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--text-2);
+}
+
+.emptyHint {
+  margin: 0;
+  font-size: var(--fs-chip);
+  color: var(--text-3);
+}
+
+.primary {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--text-1);
+  color: var(--bg-surface);
+  font-family: var(--font-sans);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--fs-label);
+}

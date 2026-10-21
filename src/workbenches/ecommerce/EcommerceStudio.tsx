@@ -43,6 +43,8 @@ import {
   VIDEO_TYPE_OPTIONS,
   WEAR_DETAIL_OPTIONS,
   WEAR_TYPE_OPTIONS,
+  WHITE_BG_ANGLE_OPTIONS,
+  batchWhiteOutputError,
   buildEcommerceModeOptionsPrompt,
   defaultEcommerceModeOptions,
   ecommerceModeCount,
@@ -50,6 +52,7 @@ import {
   modeOptionString,
   modeOptionStrings,
   normalizeEcommerceModeOptions,
+  whiteBgCountsOf,
 } from '../../domain/ecommerce/modeOptions'
 import {
   DEFAULT_ECOMMERCE_FORM_DRAFT,
@@ -655,30 +658,110 @@ function ModeSpecificParameters({
   }
 
   if (modeId === 'product-white') {
+    const counts = whiteBgCountsOf(options)
+    const total = WHITE_BG_ANGLE_OPTIONS.reduce(
+      (sum, item) => sum + Math.max(0, counts[item.id] ?? 0),
+      0,
+    )
+    const setCount = (id: string, next: number) => {
+      setOption('whiteBgCounts', {
+        ...counts,
+        [id]: Math.min(Math.max(next, 0), 12),
+      })
+    }
     return (
       <section className={styles.block} data-ecommerce-mode-params="product-white">
-        <span className={styles.blockTitle}>白底类型</span>
-        <div className={styles.segments} role="radiogroup" aria-label="白底类型">
+        <span className={styles.blockTitle}>白底模式</span>
+        <div className={styles.segments} role="radiogroup" aria-label="白底模式">
           {[
-            ['standard', '标准白底'],
-            ['multi', '多角度白底'],
+            ['off', '单张白底'],
+            ['on', '批量白底'],
           ].map(([id, label]) => (
             <button
               key={id}
               type="button"
               role="radio"
-              aria-checked={modeOptionString(options, 'whiteStyle', 'standard') === id}
+              aria-checked={modeOptionString(options, 'whiteBatch', 'off') === id}
               className={
-                modeOptionString(options, 'whiteStyle', 'standard') === id
+                modeOptionString(options, 'whiteBatch', 'off') === id
                   ? `${styles.seg} ${styles.segOn}`
                   : styles.seg
               }
-              data-ecommerce-option={`white-${id}`}
-              onClick={() => setOption('whiteStyle', id)}
+              data-ecommerce-white-batch={id}
+              onClick={() => setOption('whiteBatch', id)}
             >
               {label}
             </button>
           ))}
+        </div>
+        <div className={styles.blockHead}>
+          <span className={styles.blockTitle}>白底角度</span>
+          <span className={styles.hint} data-ecommerce-white-total>
+            共 {total} 张 · 每个角度独立生成
+          </span>
+        </div>
+        <div className={styles.setCountList} data-ecommerce-white-angles>
+          {WHITE_BG_ANGLE_OPTIONS.map((item) => {
+            const count = counts[item.id] ?? 0
+            return (
+              <div className={styles.setCountItem} key={item.id}>
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={count > 0}
+                  aria-label={`${item.label}${count > 0 ? '已启用' : '未启用'}`}
+                  className={
+                    count > 0
+                      ? `${styles.setCheck} ${styles.setCheckOn}`
+                      : styles.setCheck
+                  }
+                  data-ecommerce-white-enabled={item.id}
+                  onClick={() => setCount(item.id, count > 0 ? 0 : 1)}
+                >
+                  {count > 0 ? (
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="m3.2 8.2 3.1 3.1 6.5-6.6" />
+                    </svg>
+                  ) : null}
+                </button>
+                <span className={styles.setCountBody}>
+                  <span className={styles.setCountTitle}>{item.label}</span>
+                  {item.hint ? (
+                    <span className={styles.setCountHint}>{item.hint}</span>
+                  ) : null}
+                </span>
+                <span className={styles.stepper}>
+                  <button
+                    type="button"
+                    aria-label={`${item.label}减少一张`}
+                    data-ecommerce-white-step={`${item.id}:-1`}
+                    onClick={() => setCount(item.id, count - 1)}
+                  >
+                    -
+                  </button>
+                  <span data-ecommerce-white-count={item.id}>{count}</span>
+                  <button
+                    type="button"
+                    aria-label={`${item.label}增加一张`}
+                    data-ecommerce-white-step={`${item.id}:1`}
+                    onClick={() => setCount(item.id, count + 1)}
+                  >
+                    +
+                  </button>
+                </span>
+              </div>
+            )
+          })}
         </div>
       </section>
     )
@@ -1370,6 +1453,11 @@ export function EcommerceStudio({
   const modeOptions =
     modeOptionsByMode[mode.id] ?? defaultEcommerceModeOptions(mode.id)
   const effectiveCount = ecommerceModeCount(mode.id, mode.count, modeOptions)
+  const batchWhite =
+    mode.id === 'product-white' &&
+    modeOptionString(modeOptions, 'whiteBatch', 'off') === 'on'
+  const productLimit = batchWhite ? 12 : 3
+  const batchOutputCount = batchWhite ? products.length * effectiveCount : effectiveCount
   const setModeOptions = (next: EcommerceModeOptions) => {
     setModeOptionsByMode((current) => ({
       ...current,
@@ -1513,7 +1601,8 @@ export function EcommerceStudio({
     if (kind === 'product') {
       setProducts((prev) => {
         if (prev.some((item) => item.nodeId === uploaded.nodeId)) return prev
-        if (prev.length >= 3 || prev.length + references.length >= 4) return prev
+        if (prev.length >= productLimit) return prev
+        if (!batchWhite && prev.length + references.length >= 4) return prev
         return [...prev, uploaded]
       })
     } else {
@@ -1538,7 +1627,12 @@ export function EcommerceStudio({
     if (picked.length === 0) return
     void (async () => {
       if (kind === 'product') {
-        const room = Math.max(0, Math.min(3, 4 - references.length) - products.length)
+        const room = Math.max(
+          0,
+          (batchWhite
+            ? productLimit
+            : Math.min(productLimit, 4 - references.length)) - products.length,
+        )
         for (const file of picked.slice(0, room)) await onPick(file, 'product')
         return
       }
@@ -1635,6 +1729,17 @@ export function EcommerceStudio({
       setError('先上传一张产品图 —— 没有产品图就没有可改的主体')
       return
     }
+    if (!batchWhite && products.length > 3) {
+      setError('单张白底模式最多用 3 张商品图；要保留更多源图，请切回批量白底')
+      return
+    }
+    const batchLimitError = batchWhite
+      ? batchWhiteOutputError(products.length, effectiveCount)
+      : null
+    if (batchLimitError) {
+      setError(batchLimitError)
+      return
+    }
     if (
       (mode.id === 'product-recreate' ||
         mode.id === 'video-recreate' ||
@@ -1716,7 +1821,18 @@ export function EcommerceStudio({
     setConfirming(false)
     setError('')
     try {
-      await onGenerate(buildRequest())
+      if (batchWhite) {
+        for (const product of products) {
+          await onGenerate({
+            ...buildRequest(),
+            productNodeId: product.nodeId,
+            productNodeIds: [product.nodeId],
+            referenceNodeIds: [],
+          })
+        }
+      } else {
+        await onGenerate(buildRequest())
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : '生成失败，原因见下方结果区')
     }
@@ -1842,8 +1958,11 @@ export function EcommerceStudio({
     'wear-model',
     'wear-tryon',
     'wear-detail',
+    'product-white',
   ].includes(mode.id)
-  const showPlatformField = mode.id !== 'wear-set'
+  const showPlatformAndLanguage =
+    mode.id !== 'wear-set' && mode.id !== 'product-white'
+  const showLanguageField = mode.id !== 'product-white'
   const showRatioField = mode.id !== 'wear-set'
   const imageParamOptions =
     imageParamOptionsByModel[model] ?? {
@@ -1953,7 +2072,11 @@ export function EcommerceStudio({
             <label className={styles.blockTitle} htmlFor="ecommerce-product">
               商品原图
             </label>
-            <span className={styles.hint}>支持 1–3 张图片，多角度效果更佳</span>
+            <span className={styles.hint} data-ecommerce-product-hint>
+              {batchWhite
+                ? `支持 1–12 张源图；每张按上方角度独立生成，最多 36 张输出`
+                : '支持 1–3 张图片，多角度效果更佳'}
+            </span>
           </div>
           <input
             id="ecommerce-product"
@@ -1997,7 +2120,8 @@ export function EcommerceStudio({
                 <span className={styles.uploadPlus}>+</span>
                 <span>上传图片</span>
               </label>
-            ) : products.length < 3 && products.length + references.length < 4 ? (
+            ) : products.length < productLimit &&
+              (batchWhite || products.length + references.length < 4) ? (
               <label className={styles.addSlot} htmlFor="ecommerce-product" data-ecommerce-product-add>
                 +
               </label>
@@ -2084,7 +2208,7 @@ export function EcommerceStudio({
         {showCommonFields ? (
         <section className={styles.block} data-param-section="common">
           <div className={styles.twoCols}>
-            {showPlatformField && mode.mediaKind === 'video' ? (
+            {showPlatformAndLanguage && mode.mediaKind === 'video' ? (
               <div className={styles.field}>
                 <span className={styles.fieldLabel}>市场地区</span>
                 <EcommerceSelect
@@ -2102,7 +2226,7 @@ export function EcommerceStudio({
                   dataAttributes={{ 'data-ecommerce-market-region': true }}
                 />
               </div>
-            ) : showPlatformField ? (
+            ) : showPlatformAndLanguage ? (
               <div className={styles.field}>
                 <span className={styles.fieldLabel}>上架平台</span>
                 <EcommerceSelect
@@ -2121,17 +2245,19 @@ export function EcommerceStudio({
                 />
               </div>
             ) : null}
-            <div className={styles.field}>
-              <span className={styles.fieldLabel}>语言</span>
-              <EcommerceSelect
-                ariaLabel="输出语言"
-                name="language"
-                value={language}
-                onChange={(value) => setLanguage(value as EcommerceLanguage)}
-                options={ecommerceLanguageOptions(mode.usage)}
-                dataAttributes={{ 'data-ecommerce-language': true }}
-              />
-            </div>
+            {showLanguageField ? (
+              <div className={styles.field}>
+                <span className={styles.fieldLabel}>语言</span>
+                <EcommerceSelect
+                  ariaLabel="输出语言"
+                  name="language"
+                  value={language}
+                  onChange={(value) => setLanguage(value as EcommerceLanguage)}
+                  options={ecommerceLanguageOptions(mode.usage)}
+                  dataAttributes={{ 'data-ecommerce-language': true }}
+                />
+              </div>
+            ) : null}
             {showRatioField ? (
               <div className={styles.field}>
                 <span className={styles.fieldLabel}>
@@ -2210,6 +2336,7 @@ export function EcommerceStudio({
         </section>
         ) : null}
 
+        {mode.id !== 'product-white' ? (
         <div className={styles.field} data-param-section="plan-model">
           <span className={styles.fieldHead}>
             <span className={styles.fieldLabel}>对话模型</span>
@@ -2247,6 +2374,7 @@ export function EcommerceStudio({
             dataAttributes={{ 'data-ecommerce-intent-model': true }}
           />
         </div>
+        ) : null}
 
         <div className={styles.field} data-param-section="generate-model">
           <span className={styles.fieldLabel}>
@@ -2953,7 +3081,7 @@ export function EcommerceStudio({
           <div className={styles.confirmCard}>
             <h2 className={styles.confirmTitle}>确认生成</h2>
             <p className={styles.confirmText}>
-              将生成 <b>{mode.mediaKind === 'video' ? 1 : effectiveCount}</b>{' '}
+              将生成 <b>{mode.mediaKind === 'video' ? 1 : batchOutputCount}</b>{' '}
               {mode.mediaKind === 'video' ? '条' : '张'}
               {mode.mediaKind === 'video' ? mode.label : usageLabel(usage)}，比例{' '}
               {ecommerceRatioLabel(ratio)}
@@ -2979,7 +3107,7 @@ export function EcommerceStudio({
                 data-ecommerce-confirm-ok
                 onClick={() => void confirm()}
               >
-                确认生成 {mode.mediaKind === 'video' ? 1 : effectiveCount}{' '}
+                确认生成 {mode.mediaKind === 'video' ? 1 : batchOutputCount}{' '}
                 {mode.mediaKind === 'video' ? '条视频' : '张'}
               </button>
             </div>

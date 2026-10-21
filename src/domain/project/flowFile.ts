@@ -172,7 +172,7 @@ export async function* serializeProjectStream(
  * 缩略图是**本机缓存**（换台机器重新生成即可，代价很小），不属于"项目内容"。
  */
 function toFlowAssetRow(row: FlowRow): FlowRow {
-  const { bytes, thumb: _droppedThumb, ...rest } = row
+  const { bytes, thumb: _droppedThumb, preview: _droppedPreview, ...rest } = row
   const encoded = encodeBytes(bytes)
   return encoded === null ? { ...rest } : { ...rest, bytesBase64: encoded }
 }
@@ -316,7 +316,12 @@ export function deserializeProject(
      * 被 `JSON.stringify` 成 `{"0":82,…}` 的缩略图。留着它，节点会"以为有缩略图"却读到空的，
      * 显示成一张破图 —— 而真相只是"这份缓存对本机没意义"。本机的缩略图会重新生成。
      */
-    const { bytesBase64, thumb: _foreignThumb, ...rest } = row as FlowRow & { bytesBase64?: unknown }
+    const {
+      bytesBase64,
+      thumb: _foreignThumb,
+      preview: _foreignPreview,
+      ...rest
+    } = row as FlowRow & { bytesBase64?: unknown }
     const bytes = decodeBytes(bytesBase64)
     return { ...rest, projectId: newProjectId, ...(bytes ? { bytes } : {}) }
   })
