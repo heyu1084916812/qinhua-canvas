@@ -28121,6 +28121,25 @@ async function g166(browser) {
     const bigBytes = new Uint8Array(
       await (await fetch(`data:image/png;base64,${bigPngB64}`)).arrayBuffer(),
     )
+    const previewBytes = await new Promise((resolve, reject) => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 160
+      canvas.height = 90
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        reject(new Error('canvas unavailable'))
+        return
+      }
+      ctx.fillStyle = '#7b58c9'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          reject(new Error('preview encode failed'))
+          return
+        }
+        resolve(new Uint8Array(await blob.arrayBuffer()))
+      }, 'image/webp', 0.8)
+    })
     const now = Date.now()
     await bulk('projects', [
       { id: 'p-wb', name: '无限工作台', workbench: 'ecommerce', createdAt: now, updatedAt: now },
@@ -28131,10 +28150,19 @@ async function g166(browser) {
         hash: 'wb-a1',
         mime: 'image/png',
         bytes: bigBytes,
+        preview: previewBytes,
         width: 2000,
         height: 1125,
       },
-      { id: 'wb-a2', hash: 'wb-a2', mime: 'image/png', bytes, width: 1000, height: 1000 },
+      {
+        id: 'wb-a2',
+        hash: 'wb-a2',
+        mime: 'image/png',
+        bytes,
+        preview: previewBytes,
+        width: 1000,
+        height: 1000,
+      },
       { id: 'wb-a3', hash: 'wb-a3', mime: 'image/png', bytes, width: 900, height: 1600 },
     ])
     await bulk('ecommerceTasks', [
@@ -28232,6 +28260,29 @@ async function g166(browser) {
     bigPngB64: solidPngBuffer(2000, 1125, [120, 80, 200]).toString('base64'),
   })
 
+  let delayedOriginalQueries = 0
+  let failedPreviewRequests = 0
+  await page.route('**/query', async (route) => {
+    const body = route.request().postData() ?? ''
+    if (
+      body.includes('"table":"assets"') &&
+      body.includes('"id":"wb-a1"') &&
+      body.includes('"includePayload":true')
+    ) {
+      delayedOriginalQueries += 1
+      await sleep(1200)
+    }
+    await route.continue()
+  })
+  await page.route('**/preview/wb-a2', async (route) => {
+    failedPreviewRequests += 1
+    await route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: false, error: 'simulated preview miss' }),
+    })
+  })
+
   await page.goto(`${BASE}/ecommerce/p-wb`, { waitUntil: 'networkidle' })
   await page.locator('[data-ecommerce-workbench]').waitFor({ state: 'visible', timeout: 15000 })
   await sleep(700)
@@ -28284,6 +28335,53 @@ async function g166(browser) {
         .find(({ workbench }) => workbench === 'storyboard')
         ?.href.endsWith('/storyboard') === true,
     navTargets.map(({ href }) => href).join(' | '),
+  )
+  const a1Item = page.locator('[data-ecommerce-result-record-id="wb-r1"]')
+  const a2Item = page.locator('[data-ecommerce-result-record-id="wb-r2"]')
+  await a2Item
+    .locator('img[data-ecommerce-media-source="original"]')
+    .waitFor({ state: 'visible', timeout: 12_000 })
+  rec(
+    g,
+    '★★ 预览端点失败时自动回退原图，不再留下没有加载结果的空白图框',
+    failedPreviewRequests > 0 &&
+      (await a2Item.locator('[data-ecommerce-media-state="ready"]').count()) === 1,
+    `preview404=${failedPreviewRequests}`,
+  )
+  const a1PreviewBeforeClick = await a1Item.evaluate((el) => ({
+    state: el.querySelector('[data-ecommerce-media-state]')?.getAttribute('data-ecommerce-media-state'),
+    source: el.querySelector('img')?.getAttribute('data-ecommerce-media-source'),
+  }))
+  await a1Item.click()
+  const a1PreviewWhileOriginalLoads = await a1Item.evaluate((el) => ({
+    state: el.querySelector('[data-ecommerce-media-state]')?.getAttribute('data-ecommerce-media-state'),
+    source: el.querySelector('img')?.getAttribute('data-ecommerce-media-source'),
+    loading: el.querySelectorAll('[data-ecommerce-media-loading]').length,
+  }))
+  await a1Item
+    .locator('img[data-ecommerce-media-source="original"]')
+    .waitFor({ state: 'visible', timeout: 5000 })
+  const a1OriginalReady = await a1Item.evaluate((el) => ({
+    state: el.querySelector('[data-ecommerce-media-state]')?.getAttribute('data-ecommerce-media-state'),
+    source: el.querySelector('img')?.getAttribute('data-ecommerce-media-source'),
+  }))
+  rec(
+    g,
+    '★★ 选中图片后保留已加载预览，原图就绪再替换，不再瞬间变成“载入中”',
+    delayedOriginalQueries > 0 &&
+      a1PreviewBeforeClick.state === 'ready' &&
+      a1PreviewBeforeClick.source === 'preview' &&
+      a1PreviewWhileOriginalLoads.state === 'ready' &&
+      a1PreviewWhileOriginalLoads.source === 'preview' &&
+      a1PreviewWhileOriginalLoads.loading === 0 &&
+      a1OriginalReady.state === 'ready' &&
+      a1OriginalReady.source === 'original',
+    JSON.stringify({
+      delayedOriginalQueries,
+      before: a1PreviewBeforeClick,
+      during: a1PreviewWhileOriginalLoads,
+      after: a1OriginalReady,
+    }),
   )
 
   const items = page.locator('[data-ecommerce-workbench-item]')
@@ -28486,6 +28584,9 @@ async function g166(browser) {
   }
   const widthAfter = Number(await selected.getAttribute('data-item-width'))
   rec(g, '边中手柄可自由拉宽图片', widthAfter > widthBefore, `${widthBefore} → ${widthAfter}`)
+  await selected
+    .locator('img[data-ecommerce-media-source="original"]')
+    .waitFor({ state: 'visible', timeout: 5000 })
   const mediaState = await selected.locator('img').evaluate((el) => ({
     fit: getComputedStyle(el).objectFit,
     source: el.getAttribute('data-ecommerce-media-source'),

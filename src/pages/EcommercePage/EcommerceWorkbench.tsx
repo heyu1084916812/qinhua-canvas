@@ -186,36 +186,102 @@ function ToolIcon({ name }: { name: WorkbenchTool | 'upload' | 'text' | 'undo' |
 }
 
 function WorkbenchMedia({ item, original }: { item: EcommerceCanvasItem; original: boolean }) {
-  const originalMeta = useAssetMeta(
-    original ? item.assetHash : undefined,
-  )
-  const previewMeta = useAssetPreview(
-    original ? undefined : item.assetHash,
-  )
-  const meta = original ? originalMeta : previewMeta
+  const previewMeta = useAssetPreview(item.assetHash)
+  const [previewFailedUrl, setPreviewFailedUrl] = useState<string | null>(null)
+  const [originalFailedUrl, setOriginalFailedUrl] = useState<string | null>(null)
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null)
+
+  /*
+   * 与画布节点一致：640/1600 预览先顶住，原图只在选中或预览不可用时补读。
+   * 这里不能在选中瞬间把预览 URL 丢掉 —— 原图还在读的那几百毫秒正是截图里
+   * “点开以后反而载入中”的来源。
+   */
+  const previewUrl =
+    previewMeta.url && previewMeta.url !== previewFailedUrl ? previewMeta.url : null
+  const needOriginal = original || !!previewFailedUrl || previewMeta.missing === true
+  const originalMeta = useAssetMeta(needOriginal ? item.assetHash : undefined)
+  const originalUrl =
+    originalMeta.url && originalMeta.url !== originalFailedUrl ? originalMeta.url : null
+  const url = originalUrl ?? previewUrl
+  const source = url && url === originalUrl ? 'original' : url ? 'preview' : null
+  const loaded = !!url && loadedUrl === url
+  const missing =
+    !url &&
+    ((needOriginal && originalMeta.missing === true) ||
+      (!needOriginal && previewMeta.missing === true))
+
   if (!item.assetHash) return <span className={styles.missing}>素材不存在</span>
-  if (!meta.url) return <span className={styles.mediaLoading}>载入中…</span>
-  if ((item.kind === 'video' || meta.mime?.startsWith('video/'))) {
+  if (missing) {
+    const expectedPath = originalMeta.expectedPath ?? previewMeta.expectedPath
     return (
-      <video
-        className={styles.media}
-        src={meta.url}
-        controls
-        playsInline
-        preload="metadata"
-        data-ecommerce-media-source={original ? 'original' : 'preview'}
-        onPointerDown={(event) => event.stopPropagation()}
-      />
+      <span className={styles.mediaMissing} data-ecommerce-media-missing>
+        <span className={styles.mediaMissingTitle}>素材缺失</span>
+        {expectedPath ? (
+          <span className={styles.mediaMissingPath} title={expectedPath}>
+            {expectedPath}
+          </span>
+        ) : null}
+      </span>
+    )
+  }
+
+  if (item.kind === 'video' || originalMeta.mime?.startsWith('video/') || previewMeta.mime?.startsWith('video/')) {
+    return (
+      <span
+        className={styles.mediaStage}
+        aria-busy={!loaded}
+        data-ecommerce-media-state={loaded ? 'ready' : url ? 'loading' : 'pending'}
+      >
+        {url ? (
+          <video
+            className={loaded ? `${styles.media} ${styles.mediaReady}` : styles.media}
+            src={url}
+            controls
+            playsInline
+            preload="metadata"
+            data-ecommerce-media-source={source}
+            onLoadedData={() => setLoadedUrl(url)}
+            onError={() => {
+              if (source === 'preview') setPreviewFailedUrl(url)
+              else if (url) setOriginalFailedUrl(url)
+              setLoadedUrl(null)
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+          />
+        ) : null}
+        {!loaded ? <span className={styles.mediaPending} data-ecommerce-media-loading /> : null}
+        <span className={styles.srOnly} aria-live="polite">
+          {loaded ? '图片已载入' : '正在载入图片'}
+        </span>
+      </span>
     )
   }
   return (
-    <img
-      className={styles.media}
-      src={meta.url}
-      alt=""
-      draggable={false}
-      data-ecommerce-media-source={original ? 'original' : 'preview'}
-    />
+    <span
+      className={styles.mediaStage}
+      aria-busy={!loaded}
+      data-ecommerce-media-state={loaded ? 'ready' : url ? 'loading' : 'pending'}
+    >
+      {url ? (
+        <img
+          className={loaded ? `${styles.media} ${styles.mediaReady}` : styles.media}
+          src={url}
+          alt=""
+          draggable={false}
+          data-ecommerce-media-source={source}
+          onLoad={() => setLoadedUrl(url)}
+          onError={() => {
+            if (source === 'preview') setPreviewFailedUrl(url)
+            else if (url) setOriginalFailedUrl(url)
+            setLoadedUrl(null)
+          }}
+        />
+      ) : null}
+      {!loaded ? <span className={styles.mediaPending} data-ecommerce-media-loading /> : null}
+      <span className={styles.srOnly} aria-live="polite">
+        {loaded ? '图片已载入' : '正在载入图片'}
+      </span>
+    </span>
   )
 }
 

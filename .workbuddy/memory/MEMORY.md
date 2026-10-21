@@ -1,5 +1,12 @@
 # CanvasFlow（轻画）项目记忆
 
+### 电商工作台媒体与画布同源加载（2026-10-21 → 对账 #688）
+
+- **有 URL 不等于已经能显示**：直接 `<img src={url}>` 会在素材字节未落库、预览端点 404 或解码失败时留下空白框。工作台必须按 `pending → loading → ready / missing` 表达状态，并在 `onLoad` 后才把图从透明切到可见。
+- **选中不能丢掉预览**：原图读取期间继续显示已解码的 1600px 预览，原图 `onLoad` 后再替换；否则点击只会在几百毫秒里变成“载入中”，比未选中时更差。
+- **回退链固定为 preview → original → missing**：预览 `onError` 才启用原图读取，原图也失败才显示素材缺失。不要把两个 hook 都无条件同时加载，那会重新引入每张 4K 同时解码的问题。
+- 回归判据：`data-ecommerce-media-state=ready`、`data-ecommerce-media-loading`、`data-ecommerce-media-missing`。G166 会模拟 preview 404、原图查询延迟 1.2 秒，并断言延迟期间预览仍为 ready。
+
 ### 项目工作台隔离、1600px 预览与批量白底（2026-10-21 → 对账 #687-R1）
 
 - **项目 id 必须带类型**：`activeCanvasId` 只代表最后一次打开的 `canvas` 项目。`navTargetFor()` 只在目标工作台与项目类型一致时续 id；电商项目点画布 / 漫剧必须进入各自入口页。`/canvas` 无 id 现在是可新建项目引导页，不再跳 `/projects`。

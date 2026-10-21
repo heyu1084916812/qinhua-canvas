@@ -58,9 +58,74 @@
   object-fit: fill;
   background: var(--bg-subtle);
   pointer-events: auto;
+  opacity: 0;
+  transition: opacity 140ms ease-out;
 }
 
-.mediaLoading,
+.mediaReady {
+  opacity: 1;
+}
+
+.mediaStage {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-subtle);
+}
+
+.mediaPending {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--bg-subtle), var(--bg-hover), var(--bg-subtle));
+  background-size: 200% 100%;
+  animation: mediaShimmer 1.4s linear infinite;
+  pointer-events: none;
+}
+
+.mediaMissing {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px;
+  background: var(--bg-subtle);
+  color: var(--text-2);
+  text-align: center;
+}
+
+.mediaMissingTitle {
+  color: var(--text-1);
+  font-size: calc(13px * var(--wb-inv-scale, 1));
+  font-weight: 600;
+}
+
+.mediaMissingPath {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: calc(11px * var(--wb-inv-scale, 1));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .missing {
   display: grid;
   place-items: center;
@@ -68,6 +133,22 @@
   height: 100%;
   color: var(--text-3);
   font-size: calc(13px * var(--wb-inv-scale, 1));
+}
+
+@keyframes mediaShimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .media {
+    transition: none;
+  }
+
+  .mediaPending {
+    animation: none;
+  }
 }
 
 .sizeLabel {
