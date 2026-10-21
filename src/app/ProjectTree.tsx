@@ -20,7 +20,7 @@ import type {
 } from '../domain/project/project'
 import { createProjectRepository } from '../state/project/repository'
 import { buildProjectExport } from '../state/project/flowIo'
-import { forgetActiveCanvas } from '../state/project/activeCanvas'
+import { forgetActiveWorkbench } from '../state/project/activeCanvas'
 import { formatRelative } from '../domain/shared/time'
 import {
   getProjectsRevision,
@@ -803,11 +803,11 @@ export function ProjectTree({ open, activeProjectId }: ProjectTreeProps) {
                   />
                   <MenuButton
                     icon={<IconCloseCanvas />}
-                    label="关闭画布"
+                    label="关闭项目"
                     disabled={menuProject.id !== activeProjectId}
                     onClick={() => {
                       setMenu(null)
-                      forgetActiveCanvas()
+                      forgetActiveWorkbench(menuProject.workbench)
                       navigate('/projects')
                     }}
                   />

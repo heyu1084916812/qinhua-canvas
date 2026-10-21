@@ -8695,9 +8695,9 @@ async function g55(browser) {
     natural.width === 1600 && natural.height === 1200,
     `naturalSize=${natural.width}×${natural.height}`,
   )
-
   // ── 2. 连传：每张都要显示出来（旧路径下后面的会被前面的阻塞推过重试窗口）──
   for (let i = 0; i < 2; i += 1) {
+    await clickBlankCanvas(page)
     const [c] = await Promise.all([
       page.waitForEvent('filechooser', { timeout: 8000 }).catch(() => null),
       page.locator('[data-toolbar-import]').click(),
@@ -28398,16 +28398,6 @@ async function g166(browser) {
 
   const items = page.locator('[data-ecommerce-workbench-item]')
   rec(g, '三条历史结果自动回填到独立无限工作台', (await items.count()) === 3, `items=${await items.count()}`)
-  const resultConfigText = await a1Item
-    .locator('[data-ecommerce-result-config]')
-    .innerText()
-    .catch(() => '')
-  rec(
-    g,
-    '★★ 图片本身标明策划类型与真实比例，用户不必靠猜',
-    /核心卖点图/.test(resultConfigText) && /4:3/.test(resultConfigText),
-    resultConfigText,
-  )
   rec(
     g,
     '底部工具栏包含选择 / 抓手 / 上传 / 文字 / 上一步 / 下一步，不再摆无意义网格开关',
@@ -28451,7 +28441,7 @@ async function g166(browser) {
   rec(
     g,
     '同一任务纵向排，下一任务从下方 96px 继续',
-    layout[1].y - (layout[0].y + layout[0].h) === 24 &&
+    layout[1].y - (layout[0].y + layout[0].h) === 0 &&
       layout[2].y - (layout[1].y + layout[1].h) === 96,
     JSON.stringify(layout),
   )
@@ -37051,6 +37041,22 @@ async function g162(browser) {
       updatedAt: now - (8 - index) * 3_600_000,
     })),
   )
+  await sharedBulkPut(page, 'projects', [
+    {
+      id: 'g162-ecom',
+      name: '最近电商项目',
+      workbench: 'ecommerce',
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'g162-story',
+      name: '最近漫剧项目',
+      workbench: 'storyboard',
+      createdAt: now,
+      updatedAt: now,
+    },
+  ])
   await page.reload({ waitUntil: 'domcontentloaded' })
   await page.locator('[data-projects-heading]').waitFor({ state: 'visible', timeout: 20_000 })
   await ensureSidebarOpen(page)
@@ -37157,6 +37163,36 @@ async function g162(browser) {
       (await activeGroup.locator('[data-project-tree-item]').first().getAttribute(
         'data-project-tree-item',
       )) === 'g162-p1',
+  )
+
+  await page.goto(`${BASE}/ecommerce/g162-ecom`, { waitUntil: 'domcontentloaded' })
+  await page.locator('[data-ecommerce-form]').waitFor({ state: 'visible', timeout: 20_000 })
+  await page.goto(`${BASE}/storyboard/g162-story`, { waitUntil: 'domcontentloaded' })
+  await page.locator('[data-storyboard-page]').waitFor({ state: 'visible', timeout: 20_000 })
+  await page.goto(`${BASE}/settings`, { waitUntil: 'domcontentloaded' })
+  await ensureSidebarOpen(page)
+  const recentNavHrefs = await page.evaluate(() =>
+    ['canvas', 'ecommerce', 'storyboard'].map((workbench) => ({
+      workbench,
+      href:
+        document
+          .querySelector(`[data-sidebar-item="/${workbench}"]`)
+          ?.getAttribute('href') ?? '',
+    })),
+  )
+  rec(
+    g,
+    '★★ 三个一级工作台入口分别打开各自最近项目，不再先落新建引导页',
+    recentNavHrefs.every(({ workbench, href }) =>
+      href.endsWith(
+        workbench === 'canvas'
+          ? '/canvas/g162-p1'
+          : workbench === 'ecommerce'
+            ? '/ecommerce/g162-ecom'
+            : '/storyboard/g162-story',
+      ),
+    ),
+    recentNavHrefs.map(({ href }) => href).join(' | '),
   )
 
   await page.locator('[data-sidebar-item="/projects"]').click()
@@ -37861,6 +37897,40 @@ async function g164(browser) {
         runningAfter.done === 2),
     JSON.stringify({ runningBefore, runningAfter }),
   )
+  const runningTask = (await sharedRows(page, 'ecommerceTasks'))
+    .filter((row) => row.projectId === page.url().split('/ecommerce/')[1]?.split('?')[0])
+    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]
+  const runningResults = (await sharedRows(page, 'ecommerceResults'))
+    .filter((row) => row.taskId === runningTask?.id)
+    .sort((a, b) => Number(a.position) - Number(b.position))
+  const runningGeometry = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-ecommerce-result-record-id]')]
+      .map((el) => ({
+        id: el.getAttribute('data-ecommerce-result-record-id') ?? '',
+        y: Number(el.getAttribute('data-item-y')),
+        width: Number(el.getAttribute('data-item-width')),
+        height: Number(el.getAttribute('data-item-height')),
+      }))
+      .sort((a, b) => a.y - b.y),
+  )
+  const runningRatiosMatch = runningResults.every((row) => {
+    const geometry = runningGeometry.find((item) => item.id === row.id)
+    if (!geometry || !row.ratio) return false
+    const [w, h] = String(row.ratio).split(':').map(Number)
+    return w > 0 && h > 0 && Math.abs(geometry.width / geometry.height - w / h) < 0.02
+  })
+  rec(
+    g,
+    '★★ 占位阶段就使用逐张策划比例，且同任务图片之间没有空隙',
+    runningResults.length === 2 &&
+      runningRatiosMatch &&
+      runningGeometry.every(
+        (item, index) =>
+          index === 0 ||
+          item.y === runningGeometry[index - 1].y + runningGeometry[index - 1].height,
+      ),
+    JSON.stringify({ results: runningResults.map((row) => row.ratio), runningGeometry }),
+  )
   await page.screenshot({ path: `${OUT}/164-ecommerce-running${themeSuffix}.png` })
 
   const done = await page
@@ -37962,7 +38032,13 @@ async function g164(browser) {
   rec(
     g,
     '★★ 生成结果卡不再显示整行文字操作',
-    (await page.locator('[data-ecommerce-result] button').count()) === 0 &&
+    (await page.locator('[data-ecommerce-result]').evaluateAll((els) =>
+      els.every(
+        (el) =>
+          !el.textContent?.includes('下载') &&
+          !el.textContent?.includes('收藏到素材库'),
+      ),
+    )) &&
       (await page.locator('[data-ecommerce-result-select]').count()) === 0,
   )
 

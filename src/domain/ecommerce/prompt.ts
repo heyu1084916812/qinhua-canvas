@@ -257,6 +257,14 @@ export function buildEcommercePrompt(
   options: BuildPromptOptions = {},
   shot?: EcommerceShot,
 ): string {
+  /*
+   * 对话模型给出的已经是可直接交给生图模型的最终正文。
+   * 这里再拼平台、视觉系统和硬约束会制造中英混用；模型专属包装由
+   * `imagePromptProfile` 在解析目标模型后统一完成。
+   */
+  const modelPrompt = shot?.prompt?.trim()
+  if (modelPrompt) return modelPrompt
+
   const platform = options.platforms
     ? (options.platforms.find((p) => p.id === request.platformId) ?? null)
     : platformById(request.platformId)
@@ -287,13 +295,11 @@ export function buildEcommercePrompt(
   const shotTitle = shot?.title || usageLabel(request.usage)
   const shotBrief = shot?.brief || USAGE_HINTS[request.usage]
   const effectiveRatio = effectiveEcommerceShotRatio(request, shot)
-  const modelPrompt = shot?.prompt?.trim()
   lines.push(
-    modelPrompt ||
-      (`专业电商商品摄影，镜头「${shotTitle}」：${shotBrief}。整套画面保持统一的产品气质、色温与光线语言` +
-        (request.count > 1
-          ? '，但这一张的镜头、景别和构图必须与同批其他图片不同。'
-          : '。')),
+    `专业电商商品摄影，镜头「${shotTitle}」：${shotBrief}。整套画面保持统一的产品气质、色温与光线语言` +
+      (request.count > 1
+        ? '，但这一张的镜头、景别和构图必须与同批其他图片不同。'
+        : '。'),
   )
   if (request.usage === 'recreate') {
     lines.push(

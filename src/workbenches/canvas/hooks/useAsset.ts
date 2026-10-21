@@ -77,14 +77,13 @@ export async function loadAssetUrl(
   if (fresh) {
     const mime = fresh.type || null
     /**
-     * 画布节点优先走缩略图。fresh 分支以前直接给原图，导致 5.5MB 大图
-     * 在首帧先整张解码；现在仍在内存里完成缩小，但只把 640px 的结果交给
-     * `<img>`。灯箱等要真实像素的调用方不开 `preferThumb`，仍拿原图。
+     * 画布节点优先走缩略图。刚导入时若 640px 缩略图还没编好，先立即返回
+     * 手里已有的原图 objectURL，后台缩略图继续生成；下一次图变更 / 重挂载
+     * 就切到 640px。不能在这里等重编码 —— 用户会先把上传看成“卡了”。
+     * 灯箱等要真实像素的调用方不开 `preferThumb`，始终拿原图。
      */
     if (opts.preferThumb === true && (mime ?? '').startsWith('image/')) {
-      const thumb =
-        freshThumbOf(hash) ??
-        (await ensureFreshDisplayThumb(hash))
+      const thumb = freshThumbOf(hash)
       if (thumb) {
         return {
           url: URL.createObjectURL(thumb),
@@ -93,6 +92,7 @@ export async function loadAssetUrl(
           thumb: true,
         }
       }
+      void ensureFreshDisplayThumb(hash)
     }
     if (opts.preferPreview === true && (mime ?? '').startsWith('image/')) {
       const preview = await makePreviewBytes(fresh)

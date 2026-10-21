@@ -94,6 +94,7 @@ describe('ecommerce canvas item layout', () => {
         rotation: 12,
         zIndex: 4,
         aspectLocked: false,
+        autoLayout: true,
         createdAt: 1,
         updatedAt: 1,
       },
@@ -109,6 +110,7 @@ describe('ecommerce canvas item layout', () => {
         rotation: 0,
         zIndex: 1,
         aspectLocked: true,
+        autoLayout: true,
         createdAt: 1,
         updatedAt: 1,
       },
@@ -154,7 +156,7 @@ describe('ecommerce canvas item layout', () => {
     )
     expect(items.map((item) => item.resultId)).toEqual(['running', 'failed'])
     expect(items[0]!.height).toBe(items[0]!.width)
-    expect(items[1]!.y - (items[0]!.y + items[0]!.height)).toBe(24)
+    expect(items[1]!.y - (items[0]!.y + items[0]!.height)).toBe(0)
   })
 
   it('取消结果仍保留可移除的位置，视频任务按 task.mediaKind 建视频容器', () => {
@@ -235,6 +237,7 @@ describe('ecommerce canvas item layout', () => {
       rotation: 0,
       zIndex: 2,
       aspectLocked: true,
+      autoLayout: false,
       createdAt: 1,
       updatedAt: 1,
     }
@@ -258,6 +261,7 @@ describe('ecommerce canvas item layout', () => {
       rotation: 0,
       zIndex: 1,
       aspectLocked: false,
+      autoLayout: false,
       createdAt: 1,
       updatedAt: 1,
     }]

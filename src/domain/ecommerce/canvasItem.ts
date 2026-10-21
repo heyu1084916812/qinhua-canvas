@@ -22,6 +22,8 @@ export interface EcommerceCanvasItem {
   rotation: number
   zIndex: number
   aspectLocked: boolean
+  /** 生成结果默认参与纵向自动排版；用户手动移动或缩放后关闭。 */
+  autoLayout: boolean
   createdAt: number
   updatedAt: number
 }
@@ -31,7 +33,7 @@ export type NewEcommerceCanvasItem = Omit<
   'id' | 'createdAt' | 'updatedAt'
 >
 
-export const WORKBENCH_ITEM_GAP = 24
+export const WORKBENCH_ITEM_GAP = 0
 export const WORKBENCH_TASK_GAP = 96
 export const WORKBENCH_LEFT = 96
 export const WORKBENCH_TOP = 72
@@ -130,6 +132,7 @@ export function layoutEcommerceResults(
       rotation: 0,
       zIndex: maxZ++,
       aspectLocked: kind === 'image',
+      autoLayout: true,
     }
     y += height + WORKBENCH_ITEM_GAP
     return item

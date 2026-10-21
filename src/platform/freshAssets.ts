@@ -1,4 +1,4 @@
-import { makeThumbBytes, THUMB_MIME } from './assetThumb'
+import { makeThumbBytes, THUMB_MAX_PX, THUMB_MIME } from './assetThumb'
 import type { ImageSize } from '../domain/shared/imageSize'
 
 /**
@@ -92,13 +92,18 @@ export function freshThumbOf(hash: string): Blob | null {
   return entries.get(hash)?.thumb ?? null
 }
 
-/** 新素材首帧与落库共用这一份 320px 缩略图，避免再启动一份 640px 后台解码。 */
+/**
+ * 新素材首帧与落库共用同一份 640px 缩略图。
+ *
+ * 以前首帧用 320px、落库后用 640px，导致同一张上传图刚进画布时明显更糊，
+ * 重开项目才变清楚。首帧和解码上限必须一致，用户看到的不能取决于素材是否刚导入。
+ */
 export function ensureFreshDisplayThumb(
   hash: string,
   knownSize?: ImageSize | null,
 ): Promise<Blob | null> {
   return ensureFreshThumb(hash, (source) =>
-    makeThumbBytes(source, 320, knownSize).then((bytes) =>
+    makeThumbBytes(source, THUMB_MAX_PX, knownSize).then((bytes) =>
       bytes ? new Blob([bytes as unknown as BlobPart], { type: THUMB_MIME }) : null,
     ),
   )

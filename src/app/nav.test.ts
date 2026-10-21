@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { navTargetFor } from './nav'
+import { navProjectContextFor, navTargetFor } from './nav'
 
 describe('一级工作台导航按项目类型隔离', () => {
   it('类型一致时保留项目 id', () => {
@@ -32,5 +32,23 @@ describe('一级工作台导航按项目类型隔离', () => {
     expect(
       navTargetFor('/settings', { id: 'proj_1', workbench: 'canvas' }),
     ).toBe('/settings')
+  })
+
+  it('跨工作台导航使用目标工作台自己的最近项目，而不是当前项目或入口页', () => {
+    const active = { id: 'proj_canvas', workbench: 'canvas' as const }
+    const recentIds = {
+      canvas: 'canvas-recent',
+      ecommerce: 'ecommerce-recent',
+      storyboard: 'storyboard-recent',
+    }
+    expect(navProjectContextFor('/canvas', active, recentIds)).toEqual(active)
+    expect(navProjectContextFor('/ecommerce', active, recentIds)).toEqual({
+      id: 'ecommerce-recent',
+      workbench: 'ecommerce',
+    })
+    expect(navTargetFor('/ecommerce', navProjectContextFor('/ecommerce', active, recentIds))).toBe(
+      '/ecommerce/ecommerce-recent',
+    )
+    expect(navProjectContextFor('/projects', active, recentIds)).toBeNull()
   })
 })

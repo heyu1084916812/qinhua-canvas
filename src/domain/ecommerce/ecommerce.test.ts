@@ -16,6 +16,7 @@ import {
   EcommerceRequestError,
   buildEcommercePlan,
 } from './plan'
+import { imagePromptForModel } from './imagePromptProfile'
 import {
   ECOMMERCE_COUNT_MAX,
   ECOMMERCE_FORM_USAGES,
@@ -384,17 +385,33 @@ describe('逐张镜头脚本', () => {
       { shots },
     )
     expect(fixed.shots.map((shot) => shot.ratio)).toEqual(['16:9', '16:9'])
-    expect(fixed.prompts.every((prompt) => prompt.includes('按 16:9 画幅'))).toBe(true)
+    expect(
+      fixed.prompts.every((prompt) =>
+        imagePromptForModel({ prompt, model: 'GPT Image 2.5', ratio: '16:9' }).includes(
+          '16:9',
+        ),
+      ),
+    ).toBe(true)
 
     const smart = buildEcommercePlan(
       { ...base, usage: 'set', count: 2, ratio: 'smart' },
       { shots },
     )
     expect(smart.shots.map((shot) => shot.ratio)).toEqual(['4:3', '21:9'])
-    expect(smart.prompts[0]).toContain('按 4:3 画幅')
-    expect(smart.prompts[1]).toContain('按 21:9 画幅')
-    expect(smart.prompts[0]).toContain('主文案「Dry comfort」')
-    expect(smart.prompts[1]).toContain('同一字体与暖沙色体系')
+    expect(
+      imagePromptForModel({
+        prompt: smart.prompts[0]!,
+        model: 'GPT Image 2.5',
+        ratio: smart.shots[0]!.ratio,
+      }),
+    ).toContain('4:3')
+    expect(
+      imagePromptForModel({
+        prompt: smart.prompts[1]!,
+        model: 'GPT Image 2.5',
+        ratio: smart.shots[1]!.ratio,
+      }),
+    ).toContain('21:9')
   })
 
   it('智能比例只属于商品套图，不允许偷偷落到主图或详情页', () => {

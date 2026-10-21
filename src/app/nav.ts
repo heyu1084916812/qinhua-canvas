@@ -43,9 +43,26 @@ const WORKBENCH_NAV = new Map<string, WorkbenchId>([
   ['/storyboard', 'storyboard'],
 ])
 
+export function workbenchForNav(to: string): WorkbenchId | null {
+  return WORKBENCH_NAV.get(to) ?? null
+}
+
 export interface NavProjectContext {
   id: string
   workbench: WorkbenchId
+}
+
+/** 目标一级入口只使用该工作台自己的最近项目；当前路由的项目优先。 */
+export function navProjectContextFor(
+  to: string,
+  activeProject: NavProjectContext | null,
+  recentIds: Partial<Record<WorkbenchId, string | null>>,
+): NavProjectContext | null {
+  const workbench = workbenchForNav(to)
+  if (!workbench) return null
+  if (activeProject?.workbench === workbench) return activeProject
+  const id = recentIds[workbench]
+  return id ? { id, workbench } : null
 }
 
 /**
@@ -56,7 +73,7 @@ export interface NavProjectContext {
  * 类型不同就进目标工作台自己的入口页。
  */
 export function navTargetFor(to: string, project: NavProjectContext | null): string {
-  const workbench = WORKBENCH_NAV.get(to)
+  const workbench = workbenchForNav(to)
   return workbench && project?.workbench === workbench
     ? projectRoute(workbench, project.id)
     : to

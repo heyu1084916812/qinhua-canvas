@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { THUMB_MAX_PX } from './assetThumb'
 import {
   clearFreshAssets,
+  ensureFreshDisplayThumb,
   ensureFreshThumb,
   forgetFreshAsset,
   freshAssetOf,
@@ -8,6 +10,18 @@ import {
   freshThumbOf,
   rememberFreshAsset,
 } from './freshAssets'
+
+const { makeThumbBytes } = vi.hoisted(() => ({
+  makeThumbBytes: vi.fn(async () => new Uint8Array([1, 2, 3])),
+}))
+
+vi.mock('./assetThumb', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./assetThumb')>()
+  return {
+    ...actual,
+    makeThumbBytes,
+  }
+})
 
 /**
  * 「刚导入的素材直通车」（对账 #408 的优化）。
@@ -20,7 +34,10 @@ import {
 const blobOf = (bytes: number) => new Blob([new Uint8Array(bytes)])
 
 describe('刚导入的素材直通车', () => {
-  beforeEach(() => clearFreshAssets())
+  beforeEach(() => {
+    clearFreshAssets()
+    makeThumbBytes.mockClear()
+  })
 
   it('记进去就能取出来，而且是同一个 Blob（内容寻址 ⇒ 不会取错）', () => {
     const blob = blobOf(16)
@@ -91,5 +108,16 @@ describe('刚导入的素材直通车', () => {
     expect(calls).toBe(1)
     expect(a).toBe(b)
     expect(freshThumbOf('h1')).toBe(a)
+  })
+
+  it('首帧缩略图与落库缩略图使用同一个 640px 上限', async () => {
+    rememberFreshAsset('hash-1', blobOf(9))
+    const thumb = await ensureFreshDisplayThumb('hash-1', { width: 1600, height: 1200 })
+    expect(thumb?.type).toBe('image/webp')
+    expect(makeThumbBytes).toHaveBeenCalledWith(
+      expect.any(Blob),
+      THUMB_MAX_PX,
+      { width: 1600, height: 1200 },
+    )
   })
 })

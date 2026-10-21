@@ -67,15 +67,86 @@ describe('ecommerceCanvasRepository', () => {
     expect(items[1]!.y).toBe(
       items[0]!.y +
         items[0]!.height +
-        24,
+        0,
     )
+  })
+
+  it('待生成占位直接使用逐张策划比例；完成后变高会重排后续对象，不留空隙也不重叠', async () => {
+    const storage = createMemoryStorage({
+      rows: {
+        ecommerceTasks: [
+          {
+            id: 't-ratio',
+            projectId: 'p1',
+            batchId: 'b-ratio',
+            createdAt: 1,
+            updatedAt: 1,
+            status: 'running',
+            request: { usage: 'set', count: 2, ratio: 'smart' },
+            nodeIds: ['n1', 'n2'],
+          },
+        ],
+        ecommerceResults: [
+          {
+            id: 'r1',
+            taskId: 't-ratio',
+            projectId: 'p1',
+            nodeId: 'n1',
+            position: 0,
+            createdAt: 1,
+            updatedAt: 1,
+            status: 'pending',
+            ratio: '21:9',
+          },
+          {
+            id: 'r2',
+            taskId: 't-ratio',
+            projectId: 'p1',
+            nodeId: 'n2',
+            position: 1,
+            createdAt: 2,
+            updatedAt: 2,
+            status: 'pending',
+            ratio: '4:3',
+            shotTitle: '商品细节图',
+          },
+        ],
+      },
+    })
+    const repo = createEcommerceCanvasRepository(storage)
+    const before = await repo.sync('p1', 1280)
+    const first = before.find((item) => item.resultId === 'r1')!
+    const second = before.find((item) => item.resultId === 'r2')!
+    expect(first.height).toBe(Math.round(first.width / (21 / 9)))
+    expect(second.y).toBe(first.y + first.height)
+
+    await storage.put('ecommerceResults', {
+      id: 'r1',
+      taskId: 't-ratio',
+      projectId: 'p1',
+      nodeId: 'n1',
+      position: 0,
+      createdAt: 1,
+      updatedAt: 3,
+      status: 'done',
+      assetHash: 'a1',
+      mime: 'image/png',
+      width: 1000,
+      height: 1000,
+      ratio: '21:9',
+    } as never)
+    const after = await repo.sync('p1', 1280)
+    const nextFirst = after.find((item) => item.resultId === 'r1')!
+    const nextSecond = after.find((item) => item.resultId === 'r2')!
+    expect(nextFirst.height).toBe(nextFirst.width)
+    expect(nextSecond.y).toBe(nextFirst.y + nextFirst.height)
   })
 
   it('再次 sync 不覆盖用户调整过的坐标', async () => {
     const storage = seed()
     const repo = createEcommerceCanvasRepository(storage)
     const [first] = await repo.sync('p1', 1280)
-    await repo.save({ ...first!, x: 777, y: 333, rotation: 15 })
+    await repo.save({ ...first!, x: 777, y: 333, rotation: 15, autoLayout: false })
     const next = await repo.sync('p1', 1280)
     expect(next.find((item) => item.resultId === 'r1')).toMatchObject({
       x: 777,
@@ -100,7 +171,9 @@ describe('ecommerceCanvasRepository', () => {
     const repo = createEcommerceCanvasRepository(storage)
     const first = await repo.sync('p1', 1280)
     const moved = first.map((item, index) =>
-      index === 0 ? { ...item, x: 240, y: 900, width: 1200, height: 1000 } : item,
+      index === 0
+        ? { ...item, x: 240, y: 900, width: 1200, height: 1000, autoLayout: false }
+        : item,
     )
     await repo.replace('p1', moved)
     await storage.put('ecommerceTasks', {

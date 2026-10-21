@@ -67,25 +67,6 @@
   opacity: 1;
 }
 
-.resultConfigBadge {
-  position: absolute;
-  z-index: 4;
-  left: calc(8px * var(--wb-inv-scale, 1));
-  top: calc(8px * var(--wb-inv-scale, 1));
-  max-width: calc(100% - 16px * var(--wb-inv-scale, 1));
-  box-sizing: border-box;
-  overflow: hidden;
-  padding: calc(4px * var(--wb-inv-scale, 1)) calc(7px * var(--wb-inv-scale, 1));
-  border-radius: 4px;
-  background: var(--control-inverse-bg);
-  color: var(--control-inverse-text);
-  font-size: calc(10px * var(--wb-inv-scale, 1));
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
 .mediaStage {
   position: relative;
   display: block;
@@ -306,7 +287,15 @@
   font-size: var(--fs-label);
 }
 
+.panelHead strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .panelHead span {
+  flex: none;
   color: var(--text-3);
   font-size: var(--fs-chip);
 }

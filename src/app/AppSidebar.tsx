@@ -16,7 +16,7 @@ import { UpdateButton } from './UpdateNotice'
 import { CatLogo } from './CatLogo'
 import { QinghuaWordmark } from './QinghuaWordmark'
 import { isTauri } from '@tauri-apps/api/core'
-import { navTargetFor, NAV, type NavItem } from './nav'
+import { navProjectContextFor, navTargetFor, NAV, type NavItem } from './nav'
 import {
   IconNewProject,
   IconSettings,
@@ -31,6 +31,7 @@ import styles from './AppSidebar.module.css'
 import { ProjectTree } from './ProjectTree'
 import {
   activeCanvasId,
+  activeWorkbenchId,
   getActiveCanvasRevision,
   subscribeActiveCanvas,
 } from '../state/project/activeCanvas'
@@ -78,6 +79,7 @@ interface NavItemRect {
 function navStretchKeyframes(from: NavItemRect, to: NavItemRect): Keyframe[] {
   const forward = to.y >= from.y
   const lead = 'cubic-bezier(0.22, 1, 0.36, 1)'
+  // impeccable-disable-next-line bounce-easing -- user explicitly requested a slight rebound on the nav highlight.
   const settle = 'cubic-bezier(0.34, 1.56, 0.64, 1)'
   if (forward) {
     return [
@@ -195,12 +197,15 @@ export function AppSidebar() {
    * `activeCanvasId` 是本次会话最后打开的**画布**项目，不是“任意工作台的当前项目”。
    * 因此它只补一个 canvas 类型上下文，不能把同一 id 再带给电商 / 漫剧。
    */
-  const navigationProject =
-    activeProject ??
-    (sessionCanvasId
-      ? { id: sessionCanvasId, workbench: 'canvas' as const }
-      : null)
-  const selectedProjectId = navigationProject?.id ?? null
+  const projectForNav = (to: string) => {
+    return navProjectContextFor(to, activeProject, {
+      canvas: activeWorkbenchId('canvas'),
+      ecommerce: activeWorkbenchId('ecommerce'),
+      storyboard: activeWorkbenchId('storyboard'),
+    })
+  }
+  const selectedProjectId =
+    activeProject?.id ?? sessionCanvasId ?? activeWorkbenchId('canvas')
 
   /**
    * 一级导航的**滑动高亮块**（用户 2026-10-14：「当前项切换时的高亮块从旧位置
@@ -390,7 +395,7 @@ export function AppSidebar() {
           return (
             <Link
               key={item.to}
-              to={navTargetFor(item.to, navigationProject)}
+              to={navTargetFor(item.to, projectForNav(item.to))}
               /*
                * ⚠️ 手写高亮而不用 `NavLink`：需要一条额外的规则 ——
                * `/canvas` 与 `/canvas/:id` 一起亮（前者是「无项目时打开空白画布」

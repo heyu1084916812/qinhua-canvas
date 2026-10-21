@@ -6,6 +6,7 @@ import {
   WORKBENCH_TASK_GAP,
   layoutEcommerceResults,
   mergeWorkbenchItems,
+  ratioAspectOf,
   type EcommerceCanvasItem,
   type NewEcommerceCanvasItem,
 } from '../../domain/ecommerce/canvasItem'
@@ -45,6 +46,8 @@ function itemOf(row: Record<string, unknown>): EcommerceCanvasItem {
     rotation: number(row.rotation),
     zIndex: Math.max(0, number(row.zIndex, 1)),
     aspectLocked: row.aspectLocked !== false,
+    autoLayout:
+      typeof row.autoLayout === 'boolean' ? row.autoLayout : !!row.resultId,
     createdAt: number(row.createdAt),
     updatedAt: number(row.updatedAt),
   }
@@ -82,6 +85,16 @@ function resultOf(row: Record<string, unknown>): EcommerceResultRecord {
     ...(typeof row.height === 'number' ? { height: row.height } : {}),
     ...(typeof row.prompt === 'string' ? { prompt: row.prompt } : {}),
     ...(typeof row.model === 'string' ? { model: row.model } : {}),
+    ...(typeof row.shotTitle === 'string' && row.shotTitle ? { shotTitle: row.shotTitle } : {}),
+    ...(typeof row.brief === 'string' && row.brief ? { brief: row.brief } : {}),
+    ...(typeof row.ratio === 'string' && row.ratio ? { ratio: row.ratio } : {}),
+    ...(typeof row.headline === 'string' && row.headline ? { headline: row.headline } : {}),
+    ...(typeof row.subheadline === 'string' && row.subheadline
+      ? { subheadline: row.subheadline }
+      : {}),
+    ...(typeof row.visualSystem === 'string' && row.visualSystem
+      ? { visualSystem: row.visualSystem }
+      : {}),
     ...(typeof row.errorText === 'string' ? { errorText: row.errorText } : {}),
   }
 }
@@ -167,25 +180,54 @@ export function createEcommerceCanvasRepository(
             result.mime?.startsWith('video/') || task?.request.mediaKind === 'video'
               ? 'video'
               : 'image'
-          const wasPlaceholder = !item.assetHash
           const aspect =
             result.width && result.height
               ? result.width / result.height
-              : null
+              : result.ratio
+                ? ratioAspectOf(result.ratio)
+                : ratioAspectOf(task?.request.ratio)
           const next = {
             ...item,
             kind,
             taskId: result.taskId,
             assetHash: result.assetHash ?? item.assetHash,
-            ...(wasPlaceholder && aspect
+            ...(item.autoLayout && aspect
               ? { height: Math.max(120, Math.round(item.width / aspect)) }
               : {}),
             updatedAt: at,
           } satisfies EcommerceCanvasItem
           return next
         })
+      const reflowedExisting = (() => {
+        const byTask = new Map<string, EcommerceCanvasItem[]>()
+        for (const item of updatedExisting) {
+          if (!item.autoLayout || !item.resultId || !item.taskId) continue
+          const group = byTask.get(item.taskId) ?? []
+          group.push(item)
+          byTask.set(item.taskId, group)
+        }
+        const positions = new Map<string, number>()
+        for (const [taskId, group] of byTask) {
+          group.sort((left, right) => {
+            const l = resultByResultId.get(left.resultId!)
+            const r = resultByResultId.get(right.resultId!)
+            return (l?.position ?? 0) - (r?.position ?? 0)
+          })
+          let y = Math.min(...group.map((item) => item.y))
+          for (const item of group) {
+            positions.set(item.id, y)
+            y += item.height + WORKBENCH_ITEM_GAP
+          }
+          taskBottom.set(taskId, y)
+          globalBottom = Math.max(globalBottom, y)
+        }
+        return updatedExisting.map((item) => {
+          const y = positions.get(item.id)
+          return y === undefined ? item : { ...item, y, x: WORKBENCH_LEFT }
+        })
+      })()
       const finalItems = [
-        ...updatedExisting,
+        ...reflowedExisting,
         ...added,
       ].sort((a, b) => a.zIndex - b.zIndex || a.createdAt - b.createdAt)
       await storage.transaction(['ecommerceCanvasItems'], async (tx) => {
@@ -193,7 +235,7 @@ export function createEcommerceCanvasRepository(
           for (const id of merged.removedIds) await tx.delete('ecommerceCanvasItems', id)
         }
         if (added.length > 0) await tx.bulkPut('ecommerceCanvasItems', added as never)
-        const changed = updatedExisting.filter((item) => {
+        const changed = reflowedExisting.filter((item) => {
           const before = existing.find((candidate) => candidate.id === item.id)
           return before && JSON.stringify(before) !== JSON.stringify(item)
         })

@@ -957,6 +957,7 @@ export function EcommerceWorkbench({
                   ...candidate,
                   x: moving.get(candidate.id)!.x + deltaX,
                   y: moving.get(candidate.id)!.y + deltaY,
+                  autoLayout: false,
                 }
               : candidate,
           ),
@@ -1003,7 +1004,9 @@ export function EcommerceWorkbench({
         }
         updateLocalItems((current) =>
           current.map((candidate) =>
-            candidate.id === item.id ? { ...candidate, x, y, width, height } : candidate,
+            candidate.id === item.id
+              ? { ...candidate, x, y, width, height, autoLayout: false }
+              : candidate,
           ),
         )
       }
@@ -1050,6 +1053,7 @@ export function EcommerceWorkbench({
       rotation: 0,
       zIndex: Math.max(0, ...localItems.map((candidate) => candidate.zIndex)) + 1,
       aspectLocked: false,
+      autoLayout: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
@@ -1078,6 +1082,7 @@ export function EcommerceWorkbench({
       rotation: 0,
       zIndex: Math.max(0, ...localItems.map((candidate) => candidate.zIndex)) + 1,
       aspectLocked: true,
+      autoLayout: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
@@ -1317,22 +1322,6 @@ export function EcommerceWorkbench({
                   original={selectedItem || !item.resultId}
                 />
               )}
-              {activeResult?.shotTitle && status === 'done' ? (
-                <span
-                  className={styles.resultConfigBadge}
-                  data-ecommerce-result-config
-                  title={[
-                    activeResult.shotTitle,
-                    activeResult.ratio ? `比例 ${activeResult.ratio}` : '',
-                    activeResult.visualSystem ?? '',
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                >
-                  {activeResult.shotTitle}
-                  {activeResult.ratio ? ` · ${activeResult.ratio}` : ''}
-                </span>
-              ) : null}
               {selectedItem && selectedIds.size === 1 && (
                 <>
                   <span className={styles.sizeLabel} data-ecommerce-item-size>
@@ -1412,7 +1401,7 @@ export function EcommerceWorkbench({
                 : selected.kind === 'video'
                   ? '视频结果'
                   : selected.resultId
-                    ? '图片结果'
+                    ? `图片结果${selectedResult?.shotTitle ? ` · ${selectedResult.shotTitle}` : ''}`
                     : '图片对象'}
             </strong>
             <span>{Math.round(selected.rotation)}°</span>
@@ -1420,7 +1409,6 @@ export function EcommerceWorkbench({
           {selectedResult ? (
             <dl className={styles.panelMeta}>
               <div><dt>模型</dt><dd>{selectedResult.model || '—'}</dd></div>
-              <div><dt>类型</dt><dd>{selectedResult.shotTitle || '—'}</dd></div>
               <div><dt>比例</dt><dd>{selectedResult.ratio || '—'}</dd></div>
               <div><dt>像素</dt><dd>{selectedResult.width ?? '?'} × {selectedResult.height ?? '?'}</dd></div>
             </dl>

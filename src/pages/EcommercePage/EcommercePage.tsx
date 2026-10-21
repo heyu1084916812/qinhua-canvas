@@ -33,6 +33,7 @@ import {
 } from '../../features/canvas/importAsset'
 import { applyDefaults, resolveDefaults } from '../../features/canvas/createNodeWithDefaults'
 import { buildEcommercePlan } from '../../domain/ecommerce/plan'
+import { imagePromptForModel } from '../../domain/ecommerce/imagePromptProfile'
 import {
   buildIntentSystem,
   buildIntentText,
@@ -94,6 +95,7 @@ import {
   type EcommerceLanguage,
 } from '../../domain/ecommerce/types'
 import { canvasStoreFor } from '../../state/workbenches/canvas/storeCache'
+import { rememberActiveWorkbench } from '../../state/project/activeCanvas'
 import type { NodeSnapshot } from '../../domain/canvas/model/node'
 import type { RunRecord } from '../../domain/canvas/model/runRecord'
 import {
@@ -181,6 +183,9 @@ function EcommerceEmpty() {
 
 function EcommerceProject({ projectId }: { projectId: string }) {
   const platform = usePlatform()
+  useEffect(() => {
+    rememberActiveWorkbench('ecommerce', projectId)
+  }, [projectId])
   /**
    * **与画布页共用同一个 store 实例**（对账 #411）。
    *
@@ -1426,7 +1431,13 @@ function StudioHost({ projectId }: { projectId: string }) {
             model: modelForRun,
             ecommerceBatch: batchId,
             /** 第 i 张只发第 i 条最终提示词；白底图仍允许 N 条相同（抽卡）。 */
-            prompt: plan.prompts[i] ?? plan.prompt,
+            prompt: imagePromptForModel({
+              prompt: plan.prompts[i] ?? plan.prompt,
+              model: modelForRun,
+              ratio: shot?.ratio ?? plan.ratio,
+              headline: shot?.headline,
+              subheadline: shot?.subheadline,
+            }),
             ratio: ecommerceAspectRatio(shot?.ratio ?? plan.ratio),
             ...(shot?.title ? { shotTitle: shot.title } : {}),
             ...(shot?.brief ? { brief: shot.brief } : {}),

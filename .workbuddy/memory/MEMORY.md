@@ -1,5 +1,14 @@
 # CanvasFlow（轻画）项目记忆
 
+### 电商占位重排、模型化提示词与最近项目（2026-10-21 → 对账 #690）
+
+- **占位比例漏在仓储读取层**：结果表明明有 `ratio`，`ecommerceCanvasRepository.resultOf()` 不读就等于没有；占位会退回任务默认 1:1。仓储映射必须保留所有影响布局的字段。
+- **完成变高必须重排**：只改当前对象高度、不动后续 y 才会叠图。自动布局由 `autoLayout` 标记：生成结果默认 true，sync 按任务 position 连续重排；用户手动移动/缩放后设 false，绝不再拉回。
+- **任务内无缝**：`WORKBENCH_ITEM_GAP=0`，任务之间仍保留 96px 分组间隔。
+- **英文正文后拼中文约束就是混语言**：模型最终 prompt 原样保留，交给 `imagePromptProfile` 按目标模型包同语言模板。规划阶段必须把 designSystem、字体和文案写进 prompt 本身，不能指望显示层补。
+- **上传首帧不要等重编码**：fresh 原图 objectURL 可以立即显示，后台再生成 640px 缩略图；落盘与首帧缓存上限统一为 640px。否则 320→640 会出现“刚上传糊，重开清楚”。
+- **最近项目按工作台分开记**：sessionStorage 用 `qinghua:active-workbench:{canvas|ecommerce|storyboard}` 三个槽。一级入口点哪个工作台，就取那个工作台自己的最近项目；当前路由项目优先。
+
 ### 电商无白帧媒体与智能套图逐张配置（2026-10-21 → 对账 #689）
 
 - **有 URL 到能显示还差一次解码**：预览可继续挂在 DOM，原图先在脱离 DOM 的 `new Image()` 里 `onload`，成功后才替换 `displayedImage`。不要直接把 `<img src>` 从预览切到原图，Chromium 会先撤掉旧帧，出现白色闪帧。

@@ -9,6 +9,7 @@ import { createProjectRepository } from '../../state/project/repository'
 import { createStoryboardStore } from '../../state/project/storyboardStore'
 import { createStore } from '../../state/createStore'
 import { canvasStoreFor } from '../../state/workbenches/canvas/storeCache'
+import { rememberActiveWorkbench } from '../../state/project/activeCanvas'
 import { CanvasStoreProvider, useCanvasStore, useGraph } from '../../workbenches/canvas/storeContext'
 import {
   CanvasExecutionProvider,
@@ -259,6 +260,9 @@ function StoryboardEmpty() {
  */
 function StoryboardProject({ projectId }: { projectId: string }) {
   const platform = usePlatform()
+  useEffect(() => {
+    rememberActiveWorkbench('storyboard', projectId)
+  }, [projectId])
   const cached = canvasStoreFor(projectId, () =>
     createStore({ workbench: 'canvas', platform, projectId }),
   )
