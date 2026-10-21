@@ -415,10 +415,20 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
        */
       await channels.load()
       const rows = await refresh()
+      const defaultSkillId = await presets.loadAgentDefaultSkill()
       if (!alive) return
       if (rows.length > 0) {
-        setCurrent(rows[0]!)
-        setMessages(rows[0]!.messages)
+        const head = rows[0]!
+        if (!head.skillId && defaultSkillId) {
+          const next = { ...head, skillId: defaultSkillId }
+          await sessions.save(next)
+          setList([next, ...rows.slice(1)])
+          setCurrent(next)
+          setMessages(next.messages)
+        } else {
+          setCurrent(head)
+          setMessages(head.messages)
+        }
         return
       }
       /**
@@ -449,6 +459,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
         model: defaultModelFor(liveModelOptions, savedModel),
         imageModel: livePick('image')[0] ?? '',
         videoModel: livePick('video')[0] ?? '',
+        skillId: defaultSkillId || undefined,
       })
       if (!alive) return
       setList([created])
@@ -1034,6 +1045,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
 
   const newSession = useCallback(async () => {
     const saved = await presets.loadAgentDefault()
+    const defaultSkillId = await presets.loadAgentDefaultSkill()
     const savedModel = toLogicalName(allChannels, saved?.model ?? '')
     const created = await sessions.create({
       projectId,
@@ -1045,6 +1057,7 @@ export function AgentPanel({ projectId, onClose }: { projectId: string; onClose:
        */
       imageModel: selectedModelOf('image') || modelOptionsByKind.image[0] || '',
       videoModel: selectedModelOf('video') || modelOptionsByKind.video[0] || '',
+      skillId: defaultSkillId || undefined,
     })
     await refresh()
     await switchTo(created)

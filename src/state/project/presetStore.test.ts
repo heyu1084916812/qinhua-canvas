@@ -76,6 +76,15 @@ describe('Agent 默认模型 · UI 偏好', () => {
   it('★ 没收藏过返回空数组（不返回 null，也不抛）', async () => {
     expect(await store().loadSkillFavorites()).toEqual([])
   })
+
+  it('★ Agent 默认技能是单独的偏好行，清空后回到 null', async () => {
+    const s = store()
+    expect(await s.loadAgentDefaultSkill()).toBeNull()
+    await s.saveAgentDefaultSkill('skill_libtv_1')
+    expect(await s.loadAgentDefaultSkill()).toBe('skill_libtv_1')
+    await s.saveAgentDefaultSkill(null)
+    expect(await s.loadAgentDefaultSkill()).toBeNull()
+  })
 })
 
 /**

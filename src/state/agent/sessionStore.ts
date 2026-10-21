@@ -89,6 +89,8 @@ export interface AgentSessionStore {
     /** 建生成节点时默认用的图片 / 视频模型（用户 2026-10-03 的三档选择） */
     imageModel?: string
     videoModel?: string
+    /** 新建会话时可直接带入的技能；仍保持单技能契约 */
+    skillId?: string
   }): Promise<AgentSession>
   save(session: AgentSession): Promise<void>
   rename(id: string, title: string): Promise<void>
@@ -136,7 +138,7 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
       return rows.map(toSession).sort((a, b) => b.updatedAt - a.updatedAt)
     },
 
-    async create({ projectId, channelId, model, title, imageModel, videoModel }) {
+    async create({ projectId, channelId, model, title, imageModel, videoModel, skillId }) {
       const now = Date.now()
       const session: AgentSession = {
         id: createId('chat'),
@@ -146,6 +148,7 @@ export function createAgentSessionStore(storage: StoragePort): AgentSessionStore
         model,
         ...(imageModel ? { imageModel } : {}),
         ...(videoModel ? { videoModel } : {}),
+        ...(skillId ? { skillId } : {}),
         messages: [],
         createdAt: now,
         updatedAt: now,

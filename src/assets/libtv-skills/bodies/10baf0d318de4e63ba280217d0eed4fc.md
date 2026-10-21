@@ -1,0 +1,144 @@
+{
+  "skill_name": "TVC前期置景美术参考",
+  "skill_tag": ["TVC", "置景", "美术概念", "氛围稿", "预演参考"],
+  "skill_description": "TVC项目前期美术置景工具，先选择风格参考、景别、导演风格，生成置景氛围概念图、机位参考图，用于勘景、搭景、方案确认，快照可导出给Wan3.0做动态预演样片",
+  "system_prompt": "商业TVC广告标准，电影级摄影，空间透视严谨，镜头物理逻辑正确，物体尺寸比例合理，光影统一，光源方向一致，无畸形穿插，材质写实，色彩可控，画面干净，优先保证空间结构可信；\n严格匹配选定【风格参考】流派、选定景别、选定导演视觉风格；区分焦段、机位、景深、快门质感；\n支持超宽画幅2.39:1 / 5:1，适配LED大屏、TVC成片。",
+  "negative_prompt_global": "透视错乱，物体穿插扭曲，畸形道具，多余文字，水印，卡通，手绘涂鸦，人脸崩坏，杂乱元素，强噪点，变形，肢体崩坏，文字logo，脏污，边框，错误暗角",
+  "form": [
+    {
+      "key": "style_reference",
+      "label": "风格参考",
+      "type": "select",
+      "required": true,
+      "options": ["写实商业广告", "A24电影美学", "韦斯安德森美学", "新中式美学", "极简产品静物", "复古胶片叙事", "赛博科幻", "自然治愈生活感", "工业硬核质感", "时尚时装大片"],
+      "default": "写实商业广告"
+    },
+    {
+      "key": "scene_category",
+      "label": "TVC品类",
+      "type": "select",
+      "required": true,
+      "options": ["汽车", "美妆", "食品饮料", "家居", "3C科技", "奢侈品", "服饰", "综合空间"]
+    },
+    {
+      "key": "scene_type",
+      "label": "置景类型",
+      "type": "select",
+      "required": true,
+      "options": ["实景棚搭景", "外景自然置景", "极简影棚", "复古场景", "工业空间", "赛博虚拟置景", "都市街道", "自然山野"]
+    },
+    {
+      "key": "shot_size",
+      "label": "景别",
+      "type": "select",
+      "required": true,
+      "options": ["远景", "全景", "中景", "中近景", "近景", "特写"],
+      "default": "中景"
+    },
+    {
+      "key": "director_style",
+      "label": "导演视觉风格",
+      "type": "select",
+      "required": true,
+      "options": ["写实纪实", "极简高级", "电影叙事感", "广告轻奢", "暗调氛围感", "清新明亮", "赛博未来", "复古胶片"],
+      "default": "极简高级"
+    },
+    {
+      "key": "main_subject",
+      "label": "画面核心主体与摆放区域",
+      "type": "textarea",
+      "required": true,
+      "placeholder": "例：银色咖啡机放在画面中下区域，预留演员手部操作空间"
+    },
+    {
+      "key": "aspect_ratio",
+      "label": "画幅比例",
+      "type": "select",
+      "required": true,
+      "options": ["16:9", "2.39:1 电影宽幅", "5:1 超宽LED屏"],
+      "default": "2.39:1 电影宽幅"
+    },
+    {
+      "key": "camera_pos",
+      "label": "机位",
+      "type": "select",
+      "required": true,
+      "options": ["平视", "低角度仰拍", "高角度俯拍", "过肩机位"],
+      "default": "平视"
+    },
+    {
+      "key": "focal",
+      "label": "焦段",
+      "type": "select",
+      "required": true,
+      "options": ["24mm广角", "35mm人文", "50mm标准", "85mm人像", "135mm长焦"],
+      "default": "35mm人文"
+    },
+    {
+      "key": "depth",
+      "label": "景深",
+      "type": "select",
+      "required": true,
+      "options": ["浅景深", "大景深"],
+      "default": "浅景深"
+    },
+    {
+      "key": "light_style",
+      "label": "光影预设",
+      "type": "select",
+      "required": true,
+      "options": ["柔光棚拍", "硬光侧光", "黄金时刻自然光", "阴天漫射光", "霓虹氛围光", "轮廓背光"],
+      "default": "柔光棚拍"
+    },
+    {
+      "key": "light_dir",
+      "label": "主光源方向",
+      "type": "select",
+      "required": true,
+      "options": ["左前方", "右前方", "左侧", "右侧", "后方逆光"],
+      "default": "左前方"
+    },
+    {
+      "key": "color_tone",
+      "label": "色调风格",
+      "type": "select",
+      "required": true,
+      "options": ["冷调高级灰", "暖胶片", "低饱和极简", "高对比商业色", "莫兰迪柔和"],
+      "default": "冷调高级灰"
+    },
+    {
+      "key": "texture_style",
+      "label": "画面质感",
+      "type": "select",
+      "required": true,
+      "options": ["干净数字机", "低颗粒胶片", "高颗粒胶片"],
+      "default": "干净数字机"
+    },
+    {
+      "key": "perspective_strict",
+      "label": "透视严格度",
+      "type": "select",
+      "required": true,
+      "options": ["宽松概念稿", "严格写实"],
+      "default": "宽松概念稿"
+    },
+    {
+      "key": "camera_move",
+      "label": "镜头运动备注（给Wan动态预演）",
+      "type": "input",
+      "required": false,
+      "placeholder": "固定机位 / 缓慢横移 / 向前推镜 / 缓慢摇镜"
+    },
+    {
+      "key": "extra_note",
+      "label": "额外约束备注",
+      "type": "textarea",
+      "required": false,
+      "placeholder": "预留绿幕、预留置景通道、不要反光地面、需要分层前景中景背景等"
+    }
+  ],
+  "branch_prompt": {
+    "main": "【TVC前期置景美术参考】\n风格参考：{{style_reference}}\n商业TVC广告置景，场景：{{scene_type}}，景别：{{shot_size}}，导演视觉风格：{{director_style}}，空间结构完整，透视{{perspective_strict}}，地面、墙面、环境结构连贯。\n画面主体区域：{{main_subject}}，预留表演/产品摆放区域。\n镜头参数：{{aspect_ratio}}，{{camera_pos}}，{{focal}}，景深{{depth}}\n光影：{{light_style}}，主光源方向{{light_dir}}，辅光柔和，光影过渡自然，没有杂乱阴影。\n色调：{{color_tone}}，商业广告调色，干净高级。\n质感：{{texture_style}}，8K，RAW摄影质感，细节丰富，材质真实，无文字水印。\n用途：美术置景方案参考，供置景组搭景、勘景参考，空间尺寸逻辑合理。\n附加备注：{{extra_note}}"
+  },
+  "output_snapshot_template": "【前期快照｜可迁移Wan3.0动态预演】\n风格参考：{{style_reference}}\n项目品类：{{scene_category}}\n置景类型：{{scene_type}}\n景别：{{shot_size}}\n导演风格：{{director_style}}\n画幅：{{aspect_ratio}}\n机位：{{camera_pos}}｜焦段：{{focal}}｜景深：{{depth}}\n光影：{{light_style}}｜主光方向：{{light_dir}}\n色调：{{color_tone}}｜质感：{{texture_style}}\n镜头运动：{{camera_move}}\n场景描述：{{main_subject}}\n额外约束：{{extra_note}}"
+}

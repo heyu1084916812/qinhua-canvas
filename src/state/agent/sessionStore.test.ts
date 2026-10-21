@@ -50,6 +50,24 @@ describe('Agent 会话 · 基本 CRUD', () => {
       videoModel: 'Agnes Video 2.5 Flash',
     })
   })
+
+  it('★ 新建会话可以直接带入单技能，空值不落库', async () => {
+    const s = store()
+    const withSkill = await s.create({
+      projectId: 'p1',
+      channelId: 'c1',
+      model: 'm1',
+      skillId: 'skill-1',
+    })
+    const without = await s.create({
+      projectId: 'p1',
+      channelId: 'c1',
+      model: 'm1',
+    })
+    const rows = await s.list('p1')
+    expect(rows.find((row) => row.id === withSkill.id)?.skillId).toBe('skill-1')
+    expect(rows.find((row) => row.id === without.id)?.skillId).toBeUndefined()
+  })
 })
 
 describe('Agent 会话 · 隔离（最容易出错的地方）', () => {

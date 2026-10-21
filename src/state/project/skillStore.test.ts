@@ -43,6 +43,19 @@ describe('SkillStore · 用户技能 CRUD', () => {
     expect(without && 'image' in without).toBe(false)
   })
 
+  it('★ LibTV 来源 id 落库能读回，用于「添加到 Agent」去重', async () => {
+    const s = store()
+    const created = await s.create({
+      name: 'LibTV 技能',
+      content: '正文',
+      libtvId: 'libtv:template-1',
+    })
+    expect(created.libtvId).toBe('libtv:template-1')
+    expect((await s.loadAll()).find((skill) => skill.id === created.id)?.libtvId).toBe(
+      'libtv:template-1',
+    )
+  })
+
   it('★ 按更新时间倒序（刚改的排最前）', async () => {
     const s = store()
     const a = await s.create({ name: 'A', content: 'a' })

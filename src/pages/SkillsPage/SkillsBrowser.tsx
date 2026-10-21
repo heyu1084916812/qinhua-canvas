@@ -1,110 +1,142 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { noticeA11y } from '../../domain/ui/notice'
 import { useSkills } from '../../app/providers/SkillStoreProvider'
 import {
   parseSkillMarkdown,
   type BuiltinSkill,
-  type SkillInputMode,
   type UserSkill,
 } from '../../domain/prompt/skill'
+import {
+  LIBTV_CATEGORIES,
+  libtvCardImageOf,
+  libtvCategoryOf,
+  libtvHasBody,
+  libtvMediaLabel,
+  type LibtvCategory,
+  type LibtvSkill,
+  type LibtvSourceGroup,
+} from '../../domain/prompt/libtvSkill'
+import {
+  LIBTV_CATEGORY_COUNTS,
+  LIBTV_SKILLS,
+} from '../../state/project/libtvSkillCatalog'
+import { SkillStarIcon } from './SkillLibraryIcons'
 import styles from './SkillsPage.module.css'
 
-/**
- * 技能库**第一层：卡片浏览**（产品文档 §7A.1）。
- *
- * 2026-09-27 从「左列表 + 右编辑」的单层结构拆出来 —— 文档 §7A 早就写明
- * 「卡片浏览 → 点击卡片编辑……点击进入第二层编辑；返回浏览层时保留搜索与筛选项」，
- * 代码此前是单层并列，没跟上。
- *
- * 分层后这个组件**只负责挑**（搜索 / 筛选 / 新建 / 导入 / 点卡片），
- * 挑中谁交给页面（`onPick`）去切第二层；编辑逻辑全在 `SkillEditor` 里。
- * 两层互不知道对方的内部状态 —— 那是「两层」与「一页两栏」的实质区别。
- */
+export type { LibtvSourceGroup }
 
-export type SkillFilter = 'all' | 'builtin' | 'user' | 'preset'
+export type SkillCardPick =
+  | { kind: 'libtv'; skill: LibtvSkill }
+  | { kind: 'builtin'; skill: BuiltinSkill }
+  | { kind: 'user'; skill: UserSkill }
 
-export type SkillPick =
-  | { source: 'builtin'; skill: BuiltinSkill }
-  | { source: 'user'; skill: UserSkill }
+const JIMENG_BUILTIN_IDS = new Set([
+  'builtin:tvc-creation',
+  'builtin:video-shot-design',
+  'builtin:video-sop',
+  'builtin:image-logo',
+  'builtin:image-ecommerce',
+  'builtin:image-poster',
+  'builtin:video-reverse-skill',
+])
 
-const FILTERS: readonly { id: SkillFilter; label: string }[] = [
-  { id: 'all', label: '全部' },
-  { id: 'builtin', label: '内置' },
-  { id: 'user', label: '我的' },
-  { id: 'preset', label: '功能预设词' },
-]
+const SOURCE_LABEL: Record<SkillCardPick['kind'], string> = {
+  libtv: 'LibTV',
+  builtin: '轻画内置',
+  user: '我的技能',
+}
 
-const INPUT_MODE_LABEL: Record<SkillInputMode, string> = {
-  text: '需要文本',
-  image: '需要图片',
-  any: '文本或图片',
+function searchHit(values: readonly string[], query: string): boolean {
+  const q = query.trim().toLowerCase()
+  return !q || values.some((value) => value.toLowerCase().includes(q))
 }
 
 export function SkillsBrowser({
-  filter,
+  source,
+  category,
   query,
-  onFilter,
+  favorites,
+  onSource,
+  onCategory,
   onQuery,
-  onPick,
+  onToggleFavorite,
+  onOpenDetail,
+  onUse,
   onNew,
   onOpenPresets,
 }: {
-  filter: SkillFilter
+  source: LibtvSourceGroup
+  category: LibtvCategory
   query: string
-  onFilter: (f: SkillFilter) => void
-  onQuery: (q: string) => void
-  onPick: (pick: SkillPick) => void
+  favorites: readonly string[]
+  onSource: (source: LibtvSourceGroup) => void
+  onCategory: (category: LibtvCategory) => void
+  onQuery: (query: string) => void
+  onToggleFavorite: (pick: SkillCardPick) => void
+  onOpenDetail: (pick: SkillCardPick) => void
+  onUse: (pick: SkillCardPick) => void
   onNew: (draft: Omit<UserSkill, 'id' | 'updatedAt' | 'source'>) => void
-  /** 打开「功能预设词」的第二层（它不是技能，没有 Skill 对象可传） */
   onOpenPresets: () => void
 }) {
   const { builtinSkills, userSkills, loading, create } = useSkills()
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+  const [visibleLimit, setVisibleLimit] = useState(60)
   const fileRef = useRef<HTMLInputElement | null>(null)
 
-  /** 搜索：名称 / 说明 / 标签都算，用户记不清写在哪一处也能找到 */
-  const visibleBuiltins = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return builtinSkills
-    return builtinSkills.filter((s) =>
-      [s.name, s.description, ...s.tags].some((t) => t.toLowerCase().includes(q)),
-    )
-  }, [builtinSkills, query])
+  const jimengSkills = useMemo(
+    () => builtinSkills.filter((skill) => JIMENG_BUILTIN_IDS.has(skill.id)),
+    [builtinSkills],
+  )
+  const otherBuiltins = useMemo(
+    () => builtinSkills.filter((skill) => !JIMENG_BUILTIN_IDS.has(skill.id)),
+    [builtinSkills],
+  )
+  const mineCount = mineCountOf(userSkills, otherBuiltins)
 
-  const visibleUsers = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return userSkills
-    return userSkills.filter((s) =>
-      [s.name, s.description, ...s.tags].some((t) => t.toLowerCase().includes(q)),
+  const cards = useMemo<SkillCardPick[]>(() => {
+    if (source === 'libtv') {
+      return LIBTV_SKILLS.filter((skill) => libtvCategoryOf(skill) === category)
+        .filter((skill) =>
+          searchHit([skill.name, skill.description, skill.useScenario, ...skill.tags], query),
+        )
+        .map((skill) => ({ kind: 'libtv' as const, skill }))
+    }
+    const list =
+      source === 'jimeng'
+        ? jimengSkills.map((skill) => ({ kind: 'builtin' as const, skill }))
+        : [
+            ...userSkills.map((skill) => ({ kind: 'user' as const, skill })),
+            ...otherBuiltins.map((skill) => ({ kind: 'builtin' as const, skill })),
+          ]
+    return list.filter((item) =>
+      searchHit([item.skill.name, item.skill.description, ...item.skill.tags], query),
     )
-  }, [userSkills, query])
+  }, [category, jimengSkills, otherBuiltins, query, source, userSkills])
 
-  /**
-   * 导入 md（用户 2026-09-24：「上传 md 文件然后自动加载解析」）。
-   *
-   * 支持多选：一次导入一整组技能是常见需求。
-   * **逐个独立成败** —— 其中一个格式不对不该让其余几个也失败，
-   * 所以收集成功数与失败原因最后一起报，而不是遇到第一个错误就中断。
-   */
+  useEffect(() => {
+    setVisibleLimit(60)
+  }, [category, query, source])
+
+  const shownCards = cards.slice(0, visibleLimit)
+
   const importFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return
     let ok = 0
     const failed: string[] = []
     for (const file of Array.from(files)) {
       try {
-        const raw = await file.text()
-        const fallbackName = file.name.replace(/\.md$/i, '')
-        const parsed = parseSkillMarkdown(raw, fallbackName)
+        const parsed = parseSkillMarkdown(await file.text(), file.name.replace(/\.md$/i, ''))
         if (!parsed.ok) {
           failed.push(`${file.name}：${parsed.error}`)
           continue
         }
         await create(parsed.skill)
         ok += 1
-      } catch (e) {
-        failed.push(`${file.name}：${e instanceof Error ? e.message : String(e)}`)
+      } catch (error) {
+        failed.push(`${file.name}：${error instanceof Error ? error.message : String(error)}`)
       }
     }
+    if (ok > 0) onSource('mine')
     setNotice(
       failed.length === 0
         ? { kind: 'ok', text: `已导入 ${ok} 条技能` }
@@ -115,48 +147,94 @@ export function SkillsBrowser({
     )
   }
 
-  const startNew = () => {
-    /*
-     * 空草稿直接进编辑层：用户得先看到编辑界面才能填。
-     * 校验放在**保存**时（`validateSkill`）—— 在这里拦会把「点新建没反应」
-     * 变成一个没有任何提示的死路。
-     */
-    onNew({ name: '', description: '', content: '', inputMode: 'text', tags: [] })
+  const openOnEnter = (event: React.KeyboardEvent, pick: SkillCardPick) => {
+    if (event.key !== 'Enter') return
+    event.preventDefault()
+    onOpenDetail(pick)
   }
-
-  const showPresets = filter === 'all' || filter === 'preset'
-  const showBuiltins = filter === 'all' || filter === 'builtin'
-  const showSkills = filter === 'all' || filter === 'user'
 
   return (
     <div className={styles.browser} data-skills-browser>
+      <div className={styles.sourceTabs} role="tablist" aria-label="技能来源">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={source === 'libtv'}
+          className={source === 'libtv' ? `${styles.sourceTab} ${styles.sourceTabOn}` : styles.sourceTab}
+          data-skills-source-tab="libtv"
+          onClick={() => onSource('libtv')}
+        >
+          LibTV
+          <span>{LIBTV_SKILLS.length}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={source === 'jimeng'}
+          className={source === 'jimeng' ? `${styles.sourceTab} ${styles.sourceTabOn}` : styles.sourceTab}
+          data-skills-source-tab="jimeng"
+          onClick={() => onSource('jimeng')}
+        >
+          即梦
+          <span>{jimengSkills.length}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={source === 'mine'}
+          className={source === 'mine' ? `${styles.sourceTab} ${styles.sourceTabOn}` : styles.sourceTab}
+          data-skills-source-tab="mine"
+          onClick={() => onSource('mine')}
+        >
+          我的
+          <span>{mineCount}</span>
+        </button>
+      </div>
+
       <div className={styles.browserBar}>
-        <div className={styles.filters} role="tablist" aria-label="技能分类">
-          {FILTERS.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              role="tab"
-              aria-selected={filter === f.id}
-              className={filter === f.id ? `${styles.chip} ${styles.chipOn}` : styles.chip}
-              data-skills-filter={f.id}
-              onClick={() => onFilter(f.id)}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        {source === 'libtv' ? (
+          <div className={styles.filters} role="tablist" aria-label="LibTV 分类">
+            {LIBTV_CATEGORIES.map((item) => (
+              <button
+                key={item}
+                type="button"
+                role="tab"
+                aria-selected={category === item}
+                className={category === item ? `${styles.chip} ${styles.chipOn}` : styles.chip}
+                data-skills-filter={item}
+                onClick={() => onCategory(item)}
+              >
+                {item}
+                <span className={styles.chipCount}>{LIBTV_CATEGORY_COUNTS.get(item) ?? 0}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <span className={styles.sourceSummary}>
+            {source === 'jimeng' ? '项目内置的即梦 Skill' : '我的技能与轻画内置'}
+          </span>
+        )}
         <input
           className={styles.search}
           type="search"
-          placeholder="搜索技能"
-          aria-label="搜索技能"
+          placeholder="搜索 Skill"
+          aria-label="搜索 Skill"
           value={query}
           data-skills-search
-          onChange={(e) => onQuery(e.target.value)}
+          onChange={(event) => onQuery(event.target.value)}
         />
         <div className={styles.browserActions}>
-          <button type="button" className={styles.ghost} data-skills-new onClick={startNew}>
+          <button type="button" className={styles.ghost} data-skills-presets onClick={onOpenPresets}>
+            功能预设词
+          </button>
+          <button
+            type="button"
+            className={styles.ghost}
+            data-skills-new
+            onClick={() =>
+              onNew({ name: '', description: '', content: '', inputMode: 'text', tags: [] })
+            }
+          >
             ＋ 新建
           </button>
           <button
@@ -174,16 +252,15 @@ export function SkillsBrowser({
             multiple
             hidden
             data-skills-file
-            onChange={(e) => {
-              void importFiles(e.target.files)
-              // 清掉 value：同一个文件连选两次也要能触发 change
-              e.target.value = ''
+            onChange={(event) => {
+              void importFiles(event.target.files)
+              event.target.value = ''
             }}
           />
         </div>
       </div>
 
-      {notice && (
+      {notice ? (
         <div
           className={notice.kind === 'ok' ? styles.noticeOk : styles.noticeErr}
           data-skills-notice={notice.kind}
@@ -191,96 +268,116 @@ export function SkillsBrowser({
         >
           {notice.text}
         </div>
-      )}
+      ) : null}
 
       <div className={styles.cards} data-skills-cards>
-        {/* 功能预设词：一张独立卡片，点它进第二层编辑三条内置指令（§7A.4） */}
-        {showPresets && (
-          <button
-            type="button"
-            className={styles.card}
-            data-skills-preset-card
-            onClick={onOpenPresets}
-          >
-            <span className={styles.cardName}>功能预设词</span>
-            <span className={styles.cardDesc}>
-              提示词节点上「优化 / 翻译 / 反推」的系统指令
-            </span>
-            <span className={styles.cardMeta}>内置动作 · 3 条</span>
-          </button>
+        {loading && source !== 'libtv' ? (
+          <div className={styles.empty}>加载中…</div>
+        ) : cards.length === 0 ? (
+          <div className={styles.empty} data-skills-empty>
+            没有匹配的 Skill
+          </div>
+        ) : (
+          shownCards.map((pick) => {
+            const skill = pick.skill
+            const favorite = favorites.includes(skill.id)
+            const runnable = pick.kind === 'libtv' ? libtvHasBody(pick.skill) : true
+            const image =
+              pick.kind === 'libtv' ? libtvCardImageOf(pick.skill) : pick.skill.image ?? null
+            const mediaLabel =
+              pick.kind === 'libtv' ? libtvMediaLabel(pick.skill.resultType) : null
+            return (
+              <article
+                key={`${pick.kind}:${skill.id}`}
+                className={styles.card}
+                role="button"
+                tabIndex={0}
+                aria-label={`${skill.name}，双击查看详情`}
+                title="双击查看详情"
+                data-skill-item={skill.id}
+                data-skill-source={pick.kind}
+                data-skill-runnable={runnable}
+                onDoubleClick={() => onOpenDetail(pick)}
+                onKeyDown={(event) => openOnEnter(event, pick)}
+              >
+                <div className={styles.cardShot} data-skill-shot={skill.id}>
+                  {image ? (
+                    <img className={styles.cardShotImg} src={image} alt="" loading="lazy" />
+                  ) : (
+                    <span className={styles.cardShotEmpty}>
+                      {pick.kind === 'libtv' ? '目录示例' : '技能'}
+                    </span>
+                  )}
+                  {mediaLabel ? (
+                    <span className={styles.mediaBadge} data-skill-media-type={mediaLabel}>
+                      {mediaLabel}
+                    </span>
+                  ) : null}
+                </div>
+
+                <div className={styles.cardBody}>
+                  <span className={styles.cardName}>{skill.name}</span>
+                  {skill.description ? (
+                    <span className={styles.cardDesc}>{skill.description}</span>
+                  ) : null}
+                  <span className={styles.cardMeta}>
+                    {SOURCE_LABEL[pick.kind]}
+                    {pick.kind === 'libtv' && !runnable ? ' · 暂无正文' : ''}
+                  </span>
+                </div>
+
+                <div className={styles.cardActions} data-skill-hover-actions>
+                  <button
+                    type="button"
+                    className={favorite ? `${styles.cardActionIcon} ${styles.starOn}` : styles.cardActionIcon}
+                    aria-pressed={favorite}
+                    aria-label={favorite ? `取消收藏 ${skill.name}` : `收藏 ${skill.name}`}
+                    title={favorite ? '取消收藏' : '收藏'}
+                    data-skill-card-favorite={skill.id}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onToggleFavorite(pick)
+                    }}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                  >
+                    <SkillStarIcon size={15} filled={favorite} />
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.cardUse}
+                    disabled={!runnable}
+                    title={runnable ? '添加到 Agent' : '暂无 Skill 正文，不能添加到 Agent'}
+                    data-skill-card-use={skill.id}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onUse(pick)
+                    }}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                  >
+                    使用
+                  </button>
+                </div>
+              </article>
+            )
+          })
         )}
-
-        {showBuiltins &&
-          (loading ? null : (
-            visibleBuiltins.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                className={styles.card}
-                data-skill-item={s.id}
-                data-skill-source="builtin"
-                data-skills-builtin-card
-                onClick={() => onPick({ source: 'builtin', skill: s })}
-              >
-                {/*
-                  **图片 / 效果位**（用户 2026-10-02：「我项目的 skill 菜单也要有图片、
-                  效果的展示，不能单单是一个框里面加上内容」）。
-                  图从技能 frontmatter 的 `image:` 来；没填就画一枚占位，
-                  位置先占住，用户以后往 md 里补一行就有图。
-                */}
-                <span className={styles.cardShot} data-skill-shot={s.id}>
-                  {s.image ? (
-                    <img className={styles.cardShotImg} src={s.image} alt="" />
-                  ) : (
-                    <span className={styles.cardShotEmpty}>效果图</span>
-                  )}
-                </span>
-                <span className={styles.cardBody}>
-                  <span className={styles.cardSource}>内置技能</span>
-                  <span className={styles.cardName}>{s.name}</span>
-                  {s.description && <span className={styles.cardDesc}>{s.description}</span>}
-                  <span className={styles.cardMeta}>内置 · {INPUT_MODE_LABEL[s.inputMode]}</span>
-                </span>
-              </button>
-            ))
-          ))}
-
-        {showSkills &&
-          (loading ? (
-            <div className={styles.empty}>加载中…</div>
-          ) : visibleUsers.length === 0 ? (
-            <div className={styles.empty} data-skills-empty>
-              还没有技能。
-              <br />
-              「新建」写一个，或「导入 md」。
-            </div>
-          ) : (
-            visibleUsers.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                className={styles.card}
-                data-skill-item={s.id}
-                data-skill-source="user"
-                onClick={() => onPick({ source: 'user', skill: s })}
-              >
-                <span className={styles.cardShot} data-skill-shot={s.id}>
-                  {s.image ? (
-                    <img className={styles.cardShotImg} src={s.image} alt="" />
-                  ) : (
-                    <span className={styles.cardShotEmpty}>效果图</span>
-                  )}
-                </span>
-                <span className={styles.cardBody}>
-                  <span className={styles.cardSource}>我的技能</span>
-                  <span className={styles.cardName}>{s.name}</span>
-                  {s.description && <span className={styles.cardDesc}>{s.description}</span>}
-                  <span className={styles.cardMeta}>我的 · {INPUT_MODE_LABEL[s.inputMode]}</span>
-                </span>
-              </button>
-            ))
-          ))}
+        {cards.length > shownCards.length ? (
+          <div className={styles.moreRow}>
+            <button
+              type="button"
+              className={styles.ghost}
+              data-skills-more
+              onClick={() => setVisibleLimit((limit) => limit + 60)}
+            >
+              加载更多（已显示 {shownCards.length} / {cards.length}）
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   )
+}
+
+function mineCountOf(users: readonly UserSkill[], builtins: readonly BuiltinSkill[]): number {
+  return users.length + builtins.length
 }

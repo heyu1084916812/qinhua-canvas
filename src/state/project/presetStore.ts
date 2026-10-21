@@ -36,6 +36,7 @@ const ROUTE_STRATEGY_ROW_ID = 'routing:strategy'
  * 两者不要混为一谈 —— 混了就会出现「聊得越多，偏好表越大」。
  */
 const AGENT_DEFAULT_ROW_ID = 'agent:default'
+const AGENT_DEFAULT_SKILL_ROW_ID = 'agent:skill'
 
 /**
  * **技能收藏**的保留行 id（用户 2026-10-03：对话窗的技能菜单要按参考产品分成
@@ -89,6 +90,10 @@ export interface PresetStore {
   loadAgentDefault(): Promise<AgentDefaultModel | null>
   /** 写 Agent 默认模型。**只影响之后新建的会话**，不回头改已有会话（§8） */
   saveAgentDefault(value: AgentDefaultModel): Promise<void>
+  /** 读 Agent 默认技能（单技能，技能库「添加到 Agent」写入） */
+  loadAgentDefaultSkill(): Promise<string | null>
+  /** 写 Agent 默认技能；空值表示不设置默认技能 */
+  saveAgentDefaultSkill(skillId: string | null): Promise<void>
   /** 读技能收藏（技能 id 列表）；没收藏过返回空数组 */
   loadSkillFavorites(): Promise<string[]>
   /** 写技能收藏（整份覆盖） */
@@ -186,6 +191,25 @@ export function createPresetStore(storage: StoragePort): PresetStore {
         await storage.put('presets', { id: AGENT_DEFAULT_ROW_ID, ...value } as never)
       } catch {
         // 偏好写不进去不该打断对话：最坏情况只是下次还得重选
+      }
+    },
+    async loadAgentDefaultSkill() {
+      try {
+        const rows = await storage.query('presets', { id: AGENT_DEFAULT_SKILL_ROW_ID })
+        const row = rows[0] as { skillId?: unknown } | undefined
+        return typeof row?.skillId === 'string' && row.skillId ? row.skillId : null
+      } catch {
+        return null
+      }
+    },
+    async saveAgentDefaultSkill(skillId) {
+      try {
+        await storage.put(
+          'presets',
+          { id: AGENT_DEFAULT_SKILL_ROW_ID, skillId: skillId || null } as never,
+        )
+      } catch {
+        // 偏好写不进去不该打断使用；最坏情况只是下次仍需手选
       }
     },
     async loadSkillFavorites() {

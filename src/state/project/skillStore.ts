@@ -43,6 +43,7 @@ function userSkillFromRow(row: unknown): UserSkill | null {
     id,
     source: 'user',
     builtinId: typeof r.builtinId === 'string' && r.builtinId ? r.builtinId : undefined,
+    libtvId: typeof r.libtvId === 'string' && r.libtvId ? r.libtvId : undefined,
     name,
     content,
     description: typeof r.description === 'string' ? r.description : '',
@@ -57,6 +58,7 @@ function userSkillToRow(skill: UserSkill): Record<string, unknown> {
   return {
     id: skill.id,
     builtinId: skill.builtinId,
+    libtvId: skill.libtvId,
     name: skill.name,
     description: skill.description,
     content: skill.content,
@@ -110,6 +112,7 @@ export interface SkillStore {
     inputMode?: SkillInputMode
     tags?: string[]
     image?: string
+    libtvId?: string
   }): Promise<UserSkill>
   save(skill: UserSkill): Promise<void>
   remove(id: string): Promise<void>
@@ -228,6 +231,7 @@ export function createSkillStore(storage: StoragePort): SkillStore {
         inputMode: input.inputMode ?? 'text',
         tags: (input.tags ?? []).slice(0, 8),
         ...(input.image ? { image: input.image.slice(0, SKILL_LIMITS.imageMax) } : {}),
+        ...(input.libtvId ? { libtvId: input.libtvId } : {}),
         updatedAt: Date.now(),
       }
       await storage.put('skills', userSkillToRow(skill) as never)

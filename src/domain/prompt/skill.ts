@@ -59,6 +59,8 @@ export interface UserSkill extends Skill {
   source: 'user'
   /** 若该条来自内置技能，记录来源内置 id；用于恢复默认与去重复制。 */
   builtinId?: string
+  /** 若该条由 LibTV 外部技能按需加入，记录目录 id；用于去重。 */
+  libtvId?: string
 }
 
 export type SkillEntity = BuiltinSkill | UserSkill

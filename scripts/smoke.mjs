@@ -634,6 +634,20 @@ async function sharedPut(page, table, row) {
   )
 }
 
+async function sharedDelete(page, table, id) {
+  return page.evaluate(
+    async ({ table, id }) => {
+      const response = await fetch('http://127.0.0.1:18765/delete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ table, id }),
+      })
+      return response.ok
+    },
+    { table, id },
+  )
+}
+
 async function sharedBulkPut(page, table, rows) {
   return page.evaluate(
     async ({ table, rows }) => {
@@ -1407,7 +1421,7 @@ async function configureMockChannel(
       })
     }
     for (const row of freshRows) {
-      if (!String(row.id).startsWith('ch_builtin_') || !row.enabled) continue
+      if (String(row.id) === String(mock?.id ?? '') || !row.enabled) continue
       await sharedPut(page, 'channels', { ...row, enabled: false })
     }
     return !!mock
@@ -12301,6 +12315,10 @@ async function g73(browser) {
   page.on('pageerror', (e) => pageErrors.push(String(e).slice(0, 160)))
 
   await configureMockChannel(page)
+  const staleSkills = (await sharedRows(page, 'skills', 2000)).filter(
+    (row) => row.name === '冒烟技能',
+  )
+  for (const row of staleSkills) await sharedDelete(page, 'skills', String(row.id))
 
   // ── 先在技能库建一条技能 ──
   await page.goto(`${BASE}/skills`, { waitUntil: 'networkidle' })
@@ -12317,10 +12335,14 @@ async function g73(browser) {
   await page.locator('[data-skill-content]').fill('把这段文字改写成一句诗。只输出结果。')
   await page.locator('[data-skill-save]').click()
   await sleep(900)
+  const createdSkillCard = page
+    .locator('[data-skill-item][data-skill-source="user"]', { hasText: '冒烟技能' })
+    .first()
+  const createdSkillId = await createdSkillCard.getAttribute('data-skill-item')
   rec(
     g,
     '技能库里建出一条技能',
-    (await page.locator('[data-skill-item][data-skill-source="user"]').count()) === 1,
+    (await createdSkillCard.count()) === 1,
   )
 
   // ── 回画布，建提示词节点 ──
@@ -12410,6 +12432,7 @@ async function g73(browser) {
   }
   rec(g, '★ ④ 对照：优化点了立刻生效（不需要再点生成）', changed)
 
+  if (createdSkillId) await sharedDelete(page, 'skills', createdSkillId)
   await page.screenshot({ path: `${OUT}/89-g73-skill-as-setting.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
   await ctx.close()
@@ -14815,7 +14838,7 @@ async function g79(browser) {
  *  ④ ★ 返回浏览层时，搜索与筛选项**不丢**（文档 §7A.1 明确要求）。
  */
 async function g82(browser) {
-  const g = 'G82 技能库两层'
+  const g = 'G82 LibTV 技能库'
   const ctx = await newCtx(browser)
   const page = await ctx.newPage()
   const pageErrors = []
@@ -14823,6 +14846,11 @@ async function g82(browser) {
 
   await page.goto(`${BASE}/skills`, { waitUntil: 'networkidle' })
   await sleep(700)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await sleep(350)
+  const favoritesBefore = await sharedRow(page, 'presets', 'skill:favorites')
+  const defaultSkillBefore = await sharedRow(page, 'presets', 'agent:skill')
+  let copiedSkillId = null
 
   /**
    * ★★ 三层各自居中（用户 2026-09-28：「技能库的 UI 也要居中，不要左对齐」）。
@@ -14842,26 +14870,136 @@ async function g82(browser) {
       [sel, '[data-app-workspace]'],
     )
 
-  rec(g, '第一层是卡片浏览（browser 在 DOM）', (await page.locator('[data-skills-browser]').count()) === 1)
-  rec(g, '★★ 浏览层有居中舞台且水平居中', (await page.locator('[data-skills-browser-stage]').count()) === 1 && (await centerOffset('[data-skills-browser-stage]')) <= 2, `offset=${await centerOffset('[data-skills-browser-stage]')}`)
+  rec(g, '浏览层与居中舞台在 DOM', (await page.locator('[data-skills-browser]').count()) === 1 && (await centerOffset('[data-skills-browser-stage]')) <= 2)
+  const widthUse = await page.evaluate(() => {
+    const stage = document.querySelector('[data-skills-browser-stage]')
+    const workspace = document.querySelector('[data-app-workspace]')
+    if (!stage || !workspace) return 0
+    return stage.getBoundingClientRect().width / workspace.getBoundingClientRect().width
+  })
+  rec(g, '★★ 技能库占满右侧工作区，不再收窄居中', widthUse > 0.9, `占比=${widthUse.toFixed(3)}`)
+
+  const sources = await page
+    .locator('[data-skills-source-tab]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-skills-source-tab')))
+  rec(g, '★ 一级分 LibTV / 即梦 / 我的', JSON.stringify(sources) === JSON.stringify(['libtv', 'jimeng', 'mine']), sources.join(','))
+
+  const categories = await page
+    .locator('[data-skills-filter]')
+    .evaluateAll((els) => els.map((e) => e.getAttribute('data-skills-filter')))
   rec(
     g,
-    '★ 分类筛选齐备（全部 / 内置 / 我的 / 功能预设词）',
-    JSON.stringify(
-      await page
-        .locator('[data-skills-filter]')
-        .evaluateAll((els) => els.map((e) => e.getAttribute('data-skills-filter'))),
-    ) === JSON.stringify(['all', 'builtin', 'user', 'preset']),
+    '★★ LibTV 分类沿用参考图的 7 类，并补推荐 / 发现',
+    JSON.stringify(categories) ===
+      JSON.stringify([
+        '推荐',
+        '专业影视',
+        '商业广告',
+        '短剧漫剧',
+        '动漫游戏',
+        '音乐MV',
+        '自媒体创作',
+        '通用技能',
+        '发现',
+      ]),
+    categories.join(','),
   )
-  rec(g, '★ 有搜索框与新建 / 导入入口', (await page.locator('[data-skills-search]').count()) === 1 && (await page.locator('[data-skills-new]').count()) === 1 && (await page.locator('[data-skills-import]').count()) === 1)
-  /**
-   * ★★ 页面级「← 返回」必须没有。用户 2026-09-27 第 2 条：「技能工作区里面的
-   * 返回也不要了，刚刚我说了的，都不需要了的」。不能只看第一层 —— 第一层本就没
-   * 有返回按钮；要证明「整页都没有」，在两层都量。
-   */
-  rec(g, '★★ 浏览层没有页面级「← 返回」', (await page.locator('[data-skills-back]').count()) === 0)
+  const categoryRows = await page
+    .locator('[data-skills-filter]')
+    .evaluateAll((els) => new Set(els.map((el) => Math.round(el.getBoundingClientRect().top))).size)
+  rec(g, '★★ 分类在宽屏下保持单行，不被搜索框挤压', categoryRows === 1, `行数=${categoryRows}`)
 
-  // 建一条技能当素材
+  const libtvCards = page.locator('[data-skill-source="libtv"]')
+  rec(g, '★★ LibTV 首批卡片真实出现', (await libtvCards.count()) >= 3, `cards=${await libtvCards.count()}`)
+  const firstRowY = await libtvCards.evaluateAll((els) =>
+    els.slice(0, 3).map((el) => Math.round(el.getBoundingClientRect().top)),
+  )
+  rec(g, '★★ 桌面端按三列排版', new Set(firstRowY).size === 1, `y=${firstRowY.join(',')}`)
+
+  const firstCard = libtvCards.first()
+  await firstCard.hover()
+  await sleep(180)
+  const actionOpacity = await firstCard
+    .locator('[data-skill-hover-actions]')
+    .evaluate((el) => getComputedStyle(el).opacity)
+  rec(
+    g,
+    '★★ 悬停后右上角出现收藏与使用',
+    Number(actionOpacity) > 0.9 &&
+      (await firstCard.locator('[data-skill-card-favorite]').count()) === 1 &&
+      (await firstCard.locator('[data-skill-card-use]').count()) === 1,
+    `opacity=${actionOpacity}`,
+  )
+
+  // 找一条确定有正文、且带画布案例的推荐 Skill。
+  await page.locator('[data-skills-filter="发现"]').click()
+  await page.locator('[data-skills-search]').fill('分镜升镜师')
+  await sleep(350)
+  const detailCard = page.locator('[data-skill-source="libtv"]', { hasText: '分镜升镜师' }).first()
+  rec(g, '★ 可搜索到带正文的 Skill', (await detailCard.count()) === 1)
+  await detailCard.dblclick()
+  await sleep(500)
+  rec(
+    g,
+    '★★ 双击打开详情灯箱而不是编辑表单',
+    (await page.locator('[data-skill-detail]').count()) === 1 &&
+      (await page.locator('[data-skill-editor]').count()) === 0,
+  )
+  rec(
+    g,
+    '★★ 示例右上角保留媒体类型标志',
+    (await page.locator('[data-skill-detail-media-type]').count()) === 1,
+  )
+  const caseHref = await page.locator('[data-skill-detail-canvas-case]').getAttribute('href')
+  rec(
+    g,
+    '★★ 预览左上角有「创作详情」画布案例链接',
+    !!caseHref?.includes('/canvas/chat-share?shareId='),
+    caseHref ?? '无',
+  )
+  await page
+    .locator('[data-skill-detail-body]')
+    .waitFor({ state: 'visible', timeout: 10000 })
+    .catch(() => {})
+  rec(
+    g,
+    '★★ 详情按需读取真实 Skill 正文',
+    (await page.locator('[data-skill-detail-body]').count()) === 1 &&
+      (await page.locator('[data-skill-detail-body]').innerText()).length > 100,
+  )
+
+  await page.locator('[data-skill-detail-favorite]').click()
+  await sleep(250)
+  rec(
+    g,
+    '★ 详情收藏状态可切换',
+    (await page.locator('[data-skill-detail-favorite]').getAttribute('aria-pressed')) === 'true',
+  )
+
+  await page.locator('[data-skill-detail-add-agent]').click()
+  await sleep(1000)
+  rec(
+    g,
+    '★★ 添加到 Agent 后按需落成用户技能并给出回执',
+    /设为 Agent 技能/.test(await page.locator('[data-skills-action-notice]').innerText()),
+    await page.locator('[data-skills-action-notice]').innerText().catch(() => '无提示'),
+  )
+  await page.locator('[data-skill-detail-close]').click()
+  await sleep(300)
+
+  await page.locator('[data-skills-source-tab="mine"]').click()
+  await page.locator('[data-skills-search]').fill('分镜升镜师')
+  await sleep(400)
+  const copiedCard = page.locator('[data-skill-source="user"]', { hasText: '分镜升镜师' }).first()
+  copiedSkillId = await copiedCard.getAttribute('data-skill-item')
+  rec(
+    g,
+    '★★ LibTV 技能只在「使用」时落到我的技能，不批量写 1472 行',
+    (await copiedCard.count()) === 1,
+  )
+
+  // 新建 / 编辑 / 删除仍保留。
+  await page.locator('[data-skills-search]').fill('')
   await page.locator('[data-skills-new]').click()
   await sleep(400)
   rec(g, '★ 点「新建」直接进第二层编辑（不是先落一条空技能）', (await page.locator('[data-skill-editor]').count()) === 1)
@@ -14881,7 +15019,7 @@ async function g82(browser) {
   await sleep(900)
   rec(g, '保存后回到浏览层', (await page.locator('[data-skills-browser]').count()) === 1)
   const userCards = page.locator('[data-skill-item][data-skill-source="user"]')
-  rec(g, '★ 新技能以卡片形式出现', (await userCards.count()) === 1)
+  rec(g, '★ 新技能以卡片形式出现', (await userCards.count()) >= 1)
   /**
    * ★★ 长名字 / 长说明不溢出容器：卡片本身与两个文本节点都要满足
    * `scrollWidth <= clientWidth + 1`（留 1px 给亚像素取整）。
@@ -14901,46 +15039,94 @@ async function g82(browser) {
    * ★★ 搜索 / 筛选跨层保留。先设搜索词与筛选，进编辑再返回，
    * 两个状态都必须还在 —— 否则用户每次从编辑层回来都要重设一遍。
    */
-  await page.locator('[data-skills-filter="user"]').click()
   await page.locator('[data-skills-search]').fill('两层冒烟')
   await sleep(350)
-  await userCards.first().click()
+  const targetUserCard = page.locator('[data-skill-source="user"]', { hasText: '两层冒烟' }).first()
+  await targetUserCard.dblclick()
   await sleep(450)
-  rec(g, '★ 点卡片进第二层编辑', (await page.locator('[data-skill-editor]').count()) === 1)
+  rec(g, '★ 用户技能双击也先进入详情', (await page.locator('[data-skill-detail]').count()) === 1)
+  await page.locator('[data-skill-detail-edit]').click()
+  await sleep(450)
+  rec(g, '★ 详情内保留用户技能编辑入口', (await page.locator('[data-skill-editor]').count()) === 1)
   await page.locator('[data-skills-back]').click()
   await sleep(450)
   const kept = await page.evaluate(() => {
     const search = document.querySelector('[data-skills-search]')
-    const on = document.querySelector('[data-skills-filter][aria-selected="true"]')
-    return { query: search ? search.value : null, filter: on?.getAttribute('data-skills-filter') ?? null }
+    const source = document.querySelector('[data-skills-source-tab][aria-selected="true"]')
+    return { query: search ? search.value : null, source: source?.getAttribute('data-skills-source-tab') ?? null }
   })
   rec(
     g,
-    '★★ 返回浏览层时搜索与筛选项都保留',
-    kept.query === '两层冒烟' && kept.filter === 'user',
-    `query=${kept.query} filter=${kept.filter}`,
+    '★★ 返回浏览层时搜索与来源分组都保留',
+    kept.query === '两层冒烟' && kept.source === 'mine',
+    `query=${kept.query} source=${kept.source}`,
   )
 
-  // 删掉刚建的技能，避免污染后续组
-  await userCards.first().click()
+  await targetUserCard.dblclick()
   await sleep(450)
+  await page.locator('[data-skill-detail-edit]').click()
+  await sleep(350)
   await page.locator('[data-skill-remove]').click()
   await sleep(250)
   await page.locator('[data-skill-remove-yes]').click()
   await sleep(800)
-  rec(g, '删除后回浏览层且卡片消失', (await page.locator('[data-skills-browser]').count()) === 1 && (await page.locator('[data-skill-item][data-skill-source="user"]').count()) === 0)
+  rec(
+    g,
+    '删除后回浏览层且目标卡片消失',
+    (await page.locator('[data-skills-browser]').count()) === 1 &&
+      (await page.locator('[data-skill-source="user"]', { hasText: '两层冒烟' }).count()) === 0,
+  )
 
   // 第三层（功能预设词）同样要居中
-  // 先把筛选与搜索复位到「全部」，否则「我的」筛选下不渲染预设词卡片
-  await page.locator('[data-skills-filter="all"]').click()
   await page.locator('[data-skills-search]').fill('')
   await sleep(300)
-  await page.locator('[data-skills-preset-card]').click()
+  await page.locator('[data-skills-presets]').click()
   await sleep(450)
   rec(g, '★★ 预设词层有居中舞台且水平居中', (await page.locator('[data-presets-stage]').count()) === 1 && (await centerOffset('[data-presets-stage]')) <= 2, `offset=${await centerOffset('[data-presets-stage]')}`)
   rec(g, '预设词层有「返回浏览」', (await page.locator('[data-presets-back]').count()) === 1)
   await page.locator('[data-presets-back]').click()
   await sleep(350)
+
+  await page.locator('[data-skills-source-tab="libtv"]').click()
+  await page.locator('[data-skills-filter="推荐"]').click()
+  await page.setViewportSize({ width: 1024, height: 700 })
+  await sleep(350)
+  const responsive = await page.evaluate(() => ({
+    noOverflow: document.documentElement.scrollWidth <= innerWidth,
+    y: [...document.querySelectorAll('[data-skill-source="libtv"]')]
+      .slice(0, 3)
+      .map((el) => Math.round(el.getBoundingClientRect().top)),
+  }))
+  rec(
+    g,
+    '★ 1024 宽回落两列且无横向溢出',
+    responsive.noOverflow && responsive.y.length >= 3 && responsive.y[0] === responsive.y[1] && responsive.y[2] > responsive.y[1],
+    JSON.stringify(responsive),
+  )
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await sleep(300)
+
+  /**
+   * 单技能接入的终点不是「复制成功」，而是**新 Agent 会话真的带着这条技能**。
+   * 这里用刚添加的「分镜升镜师」验证默认技能从技能库一路进入 Agent 会话。
+   */
+  await createProject(page)
+  await page.locator('[data-canvas-agent]').click()
+  await sleep(800)
+  const agentSkillTitle = await page.locator('[data-agent-skill-open]').getAttribute('title')
+  rec(
+    g,
+    '★★ 添加到 Agent 的单技能在新会话中真实生效',
+    !!agentSkillTitle && agentSkillTitle.includes('分镜升镜师'),
+    agentSkillTitle ?? '无标题',
+  )
+
+  // 冒烟库是组间共享的：把本组创建的默认技能、收藏和用户技能恢复原状。
+  if (copiedSkillId) await sharedDelete(page, 'skills', copiedSkillId)
+  if (defaultSkillBefore) await sharedPut(page, 'presets', defaultSkillBefore)
+  else await sharedDelete(page, 'presets', 'agent:skill')
+  if (favoritesBefore) await sharedPut(page, 'presets', favoritesBefore)
+  else await sharedDelete(page, 'presets', 'skill:favorites')
 
   await page.screenshot({ path: `${OUT}/98-g82-skills-two-level.png` })
   rec(g, '无未捕获异常', pageErrors.length === 0, pageErrors.join(' | '))
@@ -18274,21 +18460,11 @@ async function g94(browser) {
   await page.goto(`${BASE}/skills`, { waitUntil: 'networkidle' })
   await sleep(700)
 
-  const filters = await page
-    .locator('[data-skills-filter]')
-    .evaluateAll((els) => els.map((e) => e.getAttribute('data-skills-filter')))
-  rec(
-    g,
-    '★ 筛选含「内置」分类',
-    JSON.stringify(filters) === JSON.stringify(['all', 'builtin', 'user', 'preset']),
-    filters.join(','),
-  )
-
-  await page.locator('[data-skills-filter="builtin"]').click()
+  await page.locator('[data-skills-source-tab="jimeng"]').click()
   await sleep(400)
-  const builtinCards = page.locator('[data-skills-builtin-card]')
+  const builtinCards = page.locator('[data-skill-item][data-skill-source="builtin"]')
   const builtinCount = await builtinCards.count()
-  rec(g, '★★ 随包内置技能已进入技能库（含即梦 Skill 包 7 个）', builtinCount >= 11, `内置=${builtinCount}`)
+  rec(g, '★★「即梦」第二类只收即梦 Skill 包 7 个', builtinCount === 7, `即梦=${builtinCount}`)
   /**
    * ★★ 技能卡要带**图片 / 效果位**（用户 2026-10-02：「我项目的 skill 菜单也要有图片、
    * 效果的展示，不能单单是一个框里面加上内容」）。
@@ -18296,7 +18472,9 @@ async function g94(browser) {
    * 图从技能 frontmatter 的 `image:` 来；现在都是占位（用户说「可以留空，后期我
    * 自己添加」），所以判据是**每张卡都有一位**，不是「有图」。
    */
-  const skillShots = await page.locator('[data-skill-shot]').count()
+  const skillShots = await page
+    .locator('[data-skill-item][data-skill-source="builtin"] [data-skill-shot]')
+    .count()
   rec(
     g,
     '★★ 技能卡带图片 / 效果位（可留空，后期自己补图）',
@@ -18334,23 +18512,26 @@ async function g94(browser) {
     { name: '创作分镜', must: ['版本 v1.9', '安全运镜'] },
     { name: 'TVC 商业广告视频创作流程', must: ['TVC 广告片全流程创作 Skill', '阶段规范'] },
   ]) {
-    await page.locator('[data-skills-builtin-card]', { hasText: c.name }).first().click()
-    await sleep(400)
-    const content = await page.locator('[data-skill-content]').inputValue()
+    await page.locator('[data-skill-source="builtin"]', { hasText: c.name }).first().dblclick()
+    await sleep(450)
+    const content = await page.locator('[data-skill-detail-body]').innerText()
     const missing = c.must.filter((m) => !content.includes(m))
     rec(
       g,
-      `★★「${c.name}」正文已内置 references 全文`,
+      `★★「${c.name}」详情正文已内置 references 全文`,
       missing.length === 0,
       missing.length ? `缺=${missing.join('、')}` : `${content.length} 字`,
     )
-    await page.locator('[data-skills-back]').click()
+    await page.locator('[data-skill-detail-close]').click()
     await sleep(350)
   }
 
   const builtinCard = builtinCards.first()
   const builtinId = await builtinCard.getAttribute('data-skill-item')
-  await builtinCard.click()
+  await builtinCard.dblclick()
+  await sleep(450)
+  rec(g, '★ 内置技能双击先进入详情', (await page.locator('[data-skill-detail]').count()) === 1)
+  await page.locator('[data-skill-detail-edit]').click()
   await sleep(450)
 
   const nameInput = page.locator('[data-skill-name]')
@@ -18396,10 +18577,10 @@ async function g94(browser) {
   await sleep(900)
   rec(g, '保存副本后回到浏览层', (await page.locator('[data-skills-browser]').count()) === 1)
 
-  await page.locator('[data-skills-filter="builtin"]').click()
-  await sleep(350)
-  await page.locator(`[data-skill-item="${builtinId}"]`).click()
+  await page.locator(`[data-skill-item="${builtinId}"]`).dblclick()
   await sleep(450)
+  await page.locator('[data-skill-detail-edit]').click()
+  await sleep(350)
   rec(
     g,
     '★★ 用户副本已改，内置默认正文不变',
@@ -18425,10 +18606,13 @@ async function g94(browser) {
 
   await page.locator('[data-skills-back]').click()
   await sleep(350)
-  await page.locator('[data-skills-filter="user"]').click()
+  await page.locator('[data-skills-source-tab="mine"]').click()
   await sleep(350)
-  await page.locator('[data-skill-item][data-skill-source="user"]').first().click()
+  const restoredCard = page.locator('[data-skill-source="user"]', { hasText: defaultName }).first()
+  await restoredCard.dblclick()
   await sleep(450)
+  await page.locator('[data-skill-detail-edit]').click()
+  await sleep(350)
   rec(
     g,
     '★★ 用户副本恢复成内置默认（名称与正文都回到默认）',
@@ -18440,13 +18624,12 @@ async function g94(browser) {
   await sleep(200)
   await page.locator('[data-skill-remove-yes]').click()
   await sleep(700)
-  await page.locator('[data-skills-filter="builtin"]').click()
+  await page.locator('[data-skills-source-tab="jimeng"]').click()
   await sleep(350)
   rec(
     g,
     '清理副本后内置技能仍在',
-    (await page.locator('[data-skill-item][data-skill-source="user"]').count()) === 0 &&
-      (await page.locator(`[data-skill-item="${builtinId}"]`).count()) >= 1,
+    (await page.locator(`[data-skill-item="${builtinId}"]`).count()) === 1,
   )
 
   await page.screenshot({ path: `${OUT}/110-g94-builtin-skills.png` })
