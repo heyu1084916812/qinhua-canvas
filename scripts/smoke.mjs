@@ -20189,10 +20189,17 @@ async function g95(browser) {
     `节点=${plannedGenId ?? '?'} src=${agentImage.slice(0, 12)}`,
   )
 
+  let assistantReplyCount = 0
+  for (let i = 0; i < 40; i += 1) {
+    assistantReplyCount = await page.locator('[data-agent-message="assistant"]').count()
+    if (assistantReplyCount > 0) break
+    await sleep(250)
+  }
   rec(
     g,
     '★★ 落地与执行的结果都回填了，模型给出收尾回答（闭环）',
-    (await page.locator('[data-agent-message="assistant"]').count()) > 0,
+    assistantReplyCount > 0,
+    `assistant=${assistantReplyCount}`,
   )
 
   /**
