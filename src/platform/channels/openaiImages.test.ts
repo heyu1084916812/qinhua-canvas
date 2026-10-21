@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   createOpenAiImagesAdapter,
   customImageSize,
@@ -10,6 +10,7 @@ import { createMemoryNetwork, createMemoryPlatform } from '../../platform/memory
 import { solidPng } from './mockPng'
 import type { ResolvedChannelConfig } from './registry'
 import { ChannelError, type ImageRunRequest } from './types'
+import { CHAT_IMAGE_MAX_BYTES, MODEL_IMAGE_MIME } from './chatImageInput'
 
 /** 测试用的 b64 编码（`btoa` 不接受 Uint8Array，逐字节转字符串） */
 function bytesToB64(bytes: Uint8Array): string {
@@ -230,6 +231,39 @@ describe('openaiImages adapter / 图生图（M6-12）', () => {
     expect(form.getAll('image')).toHaveLength(2)
     const names = form.getAll('image').map((v) => (v as File).name)
     expect(names).toEqual(['h1.png', 'h2.jpg'])
+  })
+
+  it('超大参考图先压缩成 ≤2MB WebP，再把副本放进 multipart', async () => {
+    const calls: { url: string; body: unknown }[] = []
+    const original = new Uint8Array(CHAT_IMAGE_MAX_BYTES + 1)
+    const platform = platformWithAssets([{ id: 'h-big', bytes: original, mime: 'image/png' }])
+    const bitmap = { width: 2048, height: 1152, close: vi.fn() }
+    class FakeOffscreenCanvas {
+      getContext() {
+        return { drawImage: vi.fn() }
+      }
+      async convertToBlob() {
+        return new Blob([new Uint8Array([9, 8, 7])], { type: MODEL_IMAGE_MIME })
+      }
+    }
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => bitmap))
+    vi.stubGlobal('OffscreenCanvas', FakeOffscreenCanvas)
+    try {
+      const a = createOpenAiImagesAdapter(cfg, {
+        network: networkSeeing('/v1/images/edits', calls),
+        assets: platform.assets,
+      })
+      await a.generateImage(
+        request([{ kind: 'asset', nodeId: 'up', assetHash: 'h-big', mime: 'image/png' }]),
+        signal,
+      )
+      const file = (calls[0]!.body as FormData).get('image') as File
+      expect(file.type).toBe(MODEL_IMAGE_MIME)
+      expect(Array.from(new Uint8Array(await file.arrayBuffer()))).toEqual([9, 8, 7])
+      expect(original.byteLength).toBe(CHAT_IMAGE_MAX_BYTES + 1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('素材读不到（未落库 / 已清理）→ 回落文生图，不硬失败', async () => {

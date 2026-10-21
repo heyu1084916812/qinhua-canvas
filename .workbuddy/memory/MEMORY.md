@@ -1,5 +1,13 @@
 # CanvasFlow（轻画）项目记忆
 
+### 无限画布生成图片输入统一压缩（2026-10-21 → 对账 #691）
+
+- **对话压缩不等于生成压缩**：`openaiChat` 用了 `prepareChatImage()`，不代表 `openaiImages` / `openaiVideo` / `runninghub` 也用了。三条生成链路此前仍直接读原图并 Base64，几张大图就会请求体过大。
+- **唯一入口**：`prepareModelImageInput()` = 2048px 最长边 + 目标 2MB + WebP + 0.88/0.76/0.64/0.52 降质。任何模型图片请求都先过这一层，原图和素材库不改。
+- **覆盖范围**：OpenAI multipart edits、Data URI、Gemini inlineData、视频首尾帧 / 参考图、RunningHub 参考图内联与 AI App 上传。音频、视频本体不要误用图片压缩。
+- **失败不阻断**：无 `createImageBitmap` / `OffscreenCanvas` 或编码失败时返回原字节。优化不能把本来能跑的请求变成不能跑。
+- 回归判据：超大参考图的 multipart `File.type` 必须是 `image/webp`，文件字节是压缩副本，原字节长度保持不变。
+
 ### 电商占位重排、模型化提示词与最近项目（2026-10-21 → 对账 #690）
 
 - **占位比例漏在仓储读取层**：结果表明明有 `ratio`，`ecommerceCanvasRepository.resultOf()` 不读就等于没有；占位会退回任务默认 1:1。仓储映射必须保留所有影响布局的字段。

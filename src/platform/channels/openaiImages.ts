@@ -3,6 +3,7 @@ import { imageInputsOf } from '../../domain/shared/execution/inputs'
 import { imageSizeFromHeader } from '../../domain/shared/imageSize'
 import { imageParamsFor, type ImageParamSpec } from '../../domain/canvas/layout/imageParams'
 import { bytesToBase64 } from './base64'
+import { prepareModelImageInput } from './chatImageInput'
 import { mjFlags } from '../../domain/canvas/layout/mjParams'
 import {
   CUSTOM_SIZE_MAX_EDGE as MAX_EDGE,
@@ -375,10 +376,14 @@ export function createOpenAiImagesAdapter(
     for (const item of wanted) {
       const payload = await deps.assets.read(item.assetHash)
       if (!payload) continue
-      const copy = new Uint8Array(payload.bytes)
+      const prepared = await prepareModelImageInput({
+        bytes: payload.bytes,
+        mime: payload.mime,
+      })
+      const copy = new Uint8Array(prepared.bytes)
       files.push({
-        blob: new Blob([copy as BlobPart], { type: payload.mime }),
-        name: `${item.assetHash.slice(0, 12)}.${fileExtensionOf(payload.mime)}`,
+        blob: new Blob([copy as BlobPart], { type: prepared.mime }),
+        name: `${item.assetHash.slice(0, 12)}.${fileExtensionOf(prepared.mime)}`,
       })
     }
     return files
@@ -461,7 +466,13 @@ export function createOpenAiImagesAdapter(
     for (const item of imageInputsOf(request.inputs)) {
       const payload = await deps.assets.read(item.assetHash).catch(() => null)
       if (!payload || payload.bytes.length === 0) continue
-      out.push(`data:${payload.mime || item.mime};base64,${bytesToBase64(payload.bytes)}`)
+      const prepared = await prepareModelImageInput({
+        bytes: payload.bytes,
+        mime: payload.mime || item.mime,
+      })
+      out.push(
+        `data:${prepared.mime};base64,${bytesToBase64(prepared.bytes)}`,
+      )
     }
     return out
   }
@@ -483,7 +494,14 @@ export function createOpenAiImagesAdapter(
     for (const item of imageInputsOf(request.inputs)) {
       const payload = await deps.assets.read(item.assetHash).catch(() => null)
       if (!payload || payload.bytes.length === 0) continue
-      out.push({ mimeType: payload.mime || item.mime, data: bytesToBase64(payload.bytes) })
+      const prepared = await prepareModelImageInput({
+        bytes: payload.bytes,
+        mime: payload.mime || item.mime,
+      })
+      out.push({
+        mimeType: prepared.mime,
+        data: bytesToBase64(prepared.bytes),
+      })
     }
     return out
   }

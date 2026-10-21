@@ -7,6 +7,7 @@ import {
 import type { ModelCapability } from '../../domain/shared/capability'
 import { asAppError, describeError } from '../../shared/result'
 import { bytesToBase64 } from './base64'
+import { prepareModelImageInput } from './chatImageInput'
 import type { NetworkResponse, SafeChannelConfig } from '../ports'
 import {
   ChannelError,
@@ -425,8 +426,12 @@ export function createRunningHubAdapter(
     for (const ref of imageInputsOf(request.inputs)) {
       const payload = await deps.assets.read(ref.assetHash).catch(() => null)
       if (!payload || payload.bytes.length === 0) continue
-      const bytes = new Uint8Array(payload.bytes)
-      const mime = payload.mime || ref.mime
+      const prepared = await prepareModelImageInput({
+        bytes: payload.bytes,
+        mime: payload.mime || ref.mime,
+      })
+      const bytes = new Uint8Array(prepared.bytes)
+      const mime = prepared.mime
       if (spec.kind !== 'video' && bytes.byteLength < INLINE_LIMIT_BYTES) {
         values.push(`data:${mime};base64,${bytesToBase64(bytes)}`)
         continue
@@ -643,9 +648,13 @@ export function createRunningHubAdapter(
     for (const [i, ref] of refs.entries()) {
       const payload = await deps.assets.read(ref.assetHash).catch(() => null)
       if (!payload || payload.bytes.length === 0) continue
-      const bytes = new Uint8Array(payload.bytes)
+      const prepared = await prepareModelImageInput({
+        bytes: payload.bytes,
+        mime: payload.mime || ref.mime,
+      })
+      const bytes = new Uint8Array(prepared.bytes)
       const form = new FormData()
-      form.append('file', new Blob([bytes as BlobPart], { type: payload.mime || ref.mime }), 'ref.png')
+      form.append('file', new Blob([bytes as BlobPart], { type: prepared.mime }), 'ref.png')
       form.append('apiKey', key)
       form.append('fileType', 'input')
       const up = await readJson(

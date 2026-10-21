@@ -28,6 +28,7 @@ import {
   VERIFY_TIMEOUT_MS,
 } from './openaiCommon'
 import { bytesToBase64 } from './base64'
+import { prepareModelImageInput } from './chatImageInput'
 
 /**
  * OpenAI 兼容族的**视频**分支。
@@ -404,7 +405,11 @@ export function createOpenAiVideoAdapter(
           body: `参考素材（${input.assetHash.slice(0, 8)}…）的字节不在本地素材库里，无法作为首尾帧 / 参考图发出。`,
         })
       }
-      const mime = payload.mime || input.mime
+      const prepared = await prepareModelImageInput({
+        bytes: payload.bytes,
+        mime: payload.mime || input.mime,
+      })
+      const mime = prepared.mime
       /**
        * ① 配了图床就先传上去用公网直链（省请求体）；② 没配 / 传失败就内联 Base64。
        * `upload` 在「没配图床」时返回 null、真失败时抛错 —— 两种都落回 ②，
@@ -412,11 +417,11 @@ export function createOpenAiVideoAdapter(
        */
       const hosted = await deps.hosting
         ?.upload({
-          blob: new Blob([new Uint8Array(payload.bytes) as BlobPart], { type: mime }),
+          blob: new Blob([new Uint8Array(prepared.bytes) as BlobPart], { type: mime }),
           name: `${input.assetHash.slice(0, 12)}.${fileExtensionOf(mime)}`,
         })
         .catch(() => null)
-      out.push(hosted?.url ?? `data:${mime};base64,${bytesToBase64(payload.bytes)}`)
+      out.push(hosted?.url ?? `data:${mime};base64,${bytesToBase64(prepared.bytes)}`)
     }
     return out
   }

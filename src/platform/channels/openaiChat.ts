@@ -18,7 +18,7 @@ import {
   CHAT_TIMEOUT_MS,
   VERIFY_TIMEOUT_MS,
 } from './openaiCommon'
-import { prepareChatImage } from './chatImageInput'
+import { prepareModelImageInput } from './chatImageInput'
 
 export interface OpenAiChatConfig extends SafeChannelConfig {
   apiKey: string | null
@@ -341,7 +341,7 @@ export function createOpenAiChatAdapter(config: OpenAiChatConfig, deps: ChannelD
     for (const item of imageInputsOf(request.inputs)) {
       const payload = await deps.assets.read(item.assetHash)
       if (!payload) continue
-      const prepared = await prepareChatImage({
+      const prepared = await prepareModelImageInput({
         bytes: payload.bytes,
         mime: payload.mime,
       })
