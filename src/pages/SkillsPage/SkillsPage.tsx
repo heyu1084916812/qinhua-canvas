@@ -5,13 +5,14 @@ import { useSkills } from '../../app/providers/SkillStoreProvider'
 import { presetTextEntries } from '../../domain/prompt/presetText'
 import type { BuiltinSkill, UserSkill } from '../../domain/prompt/skill'
 import {
+  libtvAgentContentOf,
   libtvHasBody,
   type LibtvCategory,
   type LibtvSourceGroup,
 } from '../../domain/prompt/libtvSkill'
 import { noticeA11y } from '../../domain/ui/notice'
 import { createPresetStore } from '../../state/project/presetStore'
-import { loadLibtvSkillBody } from '../../state/project/libtvSkillCatalog'
+import { loadLibtvSkillFiles } from '../../state/project/libtvSkillCatalog'
 import { PresetTextSection } from './PresetTextSection'
 import { SkillDetailDialog, type SkillDetailSource } from './SkillDetailDialog'
 import { SkillEditor } from './SkillEditor'
@@ -107,7 +108,8 @@ export function SkillsPage() {
         if (existing) {
           agentSkillId = existing.id
         } else {
-          const content = await loadLibtvSkillBody(pick.skill)
+          const files = await loadLibtvSkillFiles(pick.skill)
+          const content = files ? libtvAgentContentOf(files) : ''
           if (!content) {
             setNotice({ kind: 'error', text: '读取 Skill 正文失败，暂不能添加到 Agent。' })
             return

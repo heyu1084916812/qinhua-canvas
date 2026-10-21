@@ -14968,6 +14968,47 @@ async function g82(browser) {
       (await page.locator('[data-skill-detail-body]').innerText()).length > 100,
   )
 
+  await page.locator('[data-skill-detail-close]').click()
+  await page.locator('[data-skills-search]').fill('AIGC TVC Dir')
+  await sleep(350)
+  const multiFileCard = page.locator('[data-skill-source="libtv"]', { hasText: 'AIGC TVC Dir' }).first()
+  await multiFileCard.dblclick()
+  await page.locator('[data-skill-detail-body]').waitFor({ state: 'visible', timeout: 10000 })
+  const multiFileCount = await page.locator('[data-skill-file-count]').innerText()
+  await page.locator('[data-skill-file-trigger]').click()
+  await page.locator('[data-skill-file-menu]').waitFor({ state: 'visible' })
+  rec(
+    g,
+    '★★ 多文件 Skill 按真实 MD 文件分开列出',
+    multiFileCount.includes('21') &&
+      (await page.locator('[data-skill-file-option]').count()) === 21,
+    multiFileCount,
+  )
+  const mainBodyBeforeFileSwitch = await page.locator('[data-skill-detail-body]').innerText()
+  await page.locator('[data-skill-file-option="references/audio-policy.md"]').click()
+  await page
+    .locator('[data-skill-file-content="references/audio-policy.md"]')
+    .waitFor({ state: 'visible' })
+  rec(
+    g,
+    '★★ 选择附件后只切换该 MD 的正文',
+    (await page.locator('[data-skill-detail-body]').innerText()) !== mainBodyBeforeFileSwitch,
+  )
+  await page.locator('[data-skill-view="json"]').click()
+  await page.locator('[data-skill-detail-json]').waitFor({ state: 'visible' })
+  const multiFileJson = await page.locator('[data-skill-detail-json]').innerText()
+  rec(
+    g,
+    '★★ JSON 视图包含完整文件对象',
+    multiFileJson.includes('"SKILL.md"') &&
+      multiFileJson.includes('references/audio-policy.md'),
+  )
+  await page.locator('[data-skill-detail-close]').click()
+  await page.locator('[data-skills-search]').fill('分镜升镜师')
+  await sleep(350)
+  await page.locator('[data-skill-source="libtv"]', { hasText: '分镜升镜师' }).first().dblclick()
+  await page.locator('[data-skill-detail-body]').waitFor({ state: 'visible', timeout: 10000 })
+
   await page.locator('[data-skill-detail-favorite]').click()
   await sleep(250)
   rec(

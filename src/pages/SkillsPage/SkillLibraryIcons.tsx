@@ -49,3 +49,37 @@ export function SkillPlayIcon(props: IconProps) {
     </svg>
   )
 }
+
+export function SkillFileIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M7 3h7l4 4v14H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" />
+      <path d="M14 3v5h5M9 13h6M9 17h5" />
+    </svg>
+  )
+}
+
+export function SkillEyeIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
+      <circle cx="12" cy="12" r="2.5" />
+    </svg>
+  )
+}
+
+export function SkillCodeIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="m8.5 8-4 4 4 4M15.5 8l4 4-4 4" />
+    </svg>
+  )
+}
+
+export function SkillChevronIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="m7 9.5 5 5 5-5" />
+    </svg>
+  )
+}

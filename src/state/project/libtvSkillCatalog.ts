@@ -3,6 +3,7 @@ import {
   libtvCategoryOf,
   type LibtvCategory,
   type LibtvSkill,
+  type LibtvSkillFile,
 } from '../../domain/prompt/libtvSkill'
 
 interface LibtvCatalogFile {
@@ -52,8 +53,10 @@ export function libtvCategoryCounts(
   return counts
 }
 
-const bodyCache = new Map<string, Promise<string | null>>()
-const bodyShardCache = new Map<string, Promise<Record<string, string> | null>>()
+type LibtvBodyEntry = string | Record<string, unknown>
+
+const fileCache = new Map<string, Promise<LibtvSkillFile[] | null>>()
+const bodyShardCache = new Map<string, Promise<Record<string, LibtvBodyEntry> | null>>()
 
 function bodyShardOf(bodyFile: string): string {
   const name = bodyFile.split('/').pop()?.toLowerCase() ?? ''
@@ -62,7 +65,7 @@ function bodyShardOf(bodyFile: string): string {
   return '_'
 }
 
-function loadBodyShard(bodyFile: string): Promise<Record<string, string> | null> {
+function loadBodyShard(bodyFile: string): Promise<Record<string, LibtvBodyEntry> | null> {
   const shard = bodyShardOf(bodyFile)
   const cached = bodyShardCache.get(shard)
   if (cached) return cached
@@ -74,28 +77,51 @@ function loadBodyShard(bodyFile: string): Promise<Record<string, string> | null>
     if (response.status === 404) return null
     if (!response.ok) throw new Error(`Skill 正文分片读取失败（HTTP ${response.status}）`)
     const payload = (await response.json()) as unknown
-    return payload && typeof payload === 'object' ? (payload as Record<string, string>) : {}
+    return payload && typeof payload === 'object'
+      ? (payload as Record<string, LibtvBodyEntry>)
+      : {}
   })()
   bodyShardCache.set(shard, request)
   request.catch(() => bodyShardCache.delete(shard))
   return request
 }
 
-export async function loadLibtvSkillBody(skill: LibtvSkill): Promise<string | null> {
+function filesOfEntry(entry: LibtvBodyEntry | undefined): LibtvSkillFile[] {
+  if (typeof entry === 'string') {
+    const content = entry.trim()
+    return content ? [{ path: 'SKILL.md', content }] : []
+  }
+  if (!entry || typeof entry !== 'object') return []
+  return Object.entries(entry)
+    .filter(([, value]) => typeof value === 'string' && value.trim())
+    .map(([filePath, value]) => ({ path: filePath, content: (value as string).trim() }))
+    .sort((left, right) => {
+      if (left.path === 'SKILL.md') return -1
+      if (right.path === 'SKILL.md') return 1
+      return left.path.localeCompare(right.path, 'zh-CN')
+    })
+}
+
+export async function loadLibtvSkillFiles(skill: LibtvSkill): Promise<LibtvSkillFile[] | null> {
   const bodyFile = skill.bodyFile
   if (!bodyFile) return null
-  const cached = bodyCache.get(bodyFile)
+  const cached = fileCache.get(bodyFile)
   if (cached) return cached
   const request = (async () => {
     const shard = await loadBodyShard(bodyFile)
-    const value = shard?.[bodyFile]
-    return typeof value === 'string' && value.trim() ? value.trim() : null
+    const files = filesOfEntry(shard?.[bodyFile])
+    return files.length ? files : null
   })()
-  bodyCache.set(bodyFile, request)
+  fileCache.set(bodyFile, request)
   try {
     return await request
   } catch (error) {
-    bodyCache.delete(bodyFile)
+    fileCache.delete(bodyFile)
     throw error
   }
+}
+
+export async function loadLibtvSkillBody(skill: LibtvSkill): Promise<string | null> {
+  const files = await loadLibtvSkillFiles(skill)
+  return files?.find((file) => file.path === 'SKILL.md')?.content ?? files?.[0]?.content ?? null
 }

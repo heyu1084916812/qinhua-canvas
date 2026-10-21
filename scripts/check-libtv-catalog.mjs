@@ -16,12 +16,29 @@ if (!existsSync(bodyDir)) throw new Error('缺少 LibTV 正文分片目录')
 const bodyKeys = new Set()
 const duplicateKeys = []
 const emptyKeys = []
+let fileTotal = 0
+let multiFileSkills = 0
 for (const file of readdirSync(bodyDir).filter((name) => name.endsWith('.json'))) {
   const payload = JSON.parse(readFileSync(path.join(bodyDir, file), 'utf8'))
   for (const [key, value] of Object.entries(payload)) {
     if (bodyKeys.has(key)) duplicateKeys.push(key)
     bodyKeys.add(key)
-    if (typeof value !== 'string' || !value.trim()) emptyKeys.push(key)
+    if (typeof value === 'string') {
+      if (!value.trim()) emptyKeys.push(key)
+      fileTotal += 1
+      continue
+    }
+    if (!value || typeof value !== 'object') {
+      emptyKeys.push(key)
+      continue
+    }
+    const files = Object.entries(value)
+    fileTotal += files.length
+    if (files.length > 1) multiFileSkills += 1
+    if (!files.some(([path]) => path === 'SKILL.md')) emptyKeys.push(`${key}:SKILL.md`)
+    for (const [filePath, content] of files) {
+      if (typeof content !== 'string' || !content.trim()) emptyKeys.push(`${key}:${filePath}`)
+    }
   }
 }
 const missing = withBody.map((item) => item.bodyFile).filter((key) => !bodyKeys.has(key))
@@ -30,10 +47,11 @@ if (duplicateKeys.length) {
   throw new Error(`LibTV 正文重复 ${duplicateKeys.length} 份：${duplicateKeys.slice(0, 5)}`)
 }
 if (emptyKeys.length) throw new Error(`空 LibTV 正文 ${emptyKeys.length} 份：${emptyKeys.slice(0, 5)}`)
+if (fileTotal <= withBody.length) throw new Error('LibTV 正文没有识别到任何附件文件')
 
 const canvasCases = items.filter((item) =>
   (item.cases ?? []).some((entry) => typeof entry.canvasCaseUrl === 'string' && entry.canvasCaseUrl),
 ).length
 console.log(
-  `✔ LibTV 技能目录：${items.length} 条 / ${withBody.length} 份正文 / ${canvasCases} 条画布案例 / 正文 ${readdirSync(bodyDir).filter((name) => name.endsWith('.json')).length} 个分片`,
+  `✔ LibTV 技能目录：${items.length} 条 / ${withBody.length} 个技能正文 / ${fileTotal} 个 MD 文件（${multiFileSkills} 个多文件技能）/ ${canvasCases} 条画布案例 / 正文 ${readdirSync(bodyDir).filter((name) => name.endsWith('.json')).length} 个分片`,
 )

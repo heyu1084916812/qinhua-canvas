@@ -4,6 +4,7 @@ import {
   libtvCardImageOf,
   libtvCategoryOf,
   libtvHasBody,
+  libtvAgentContentOf,
   libtvMediaLabel,
   libtvPreviewOf,
   libtvThumbnailUrl,
@@ -86,5 +87,14 @@ describe('LibTV Skill 领域规则', () => {
       'https://example.com/cover.png',
     )
     expect(libtvThumbnailUrl(null)).toBeNull()
+  })
+
+  it('Agent 单技能正文保留主文件与附件的文件边界', () => {
+    expect(
+      libtvAgentContentOf([
+        { path: 'SKILL.md', content: '主流程' },
+        { path: 'references/camera.md', content: '镜头参考' },
+      ]),
+    ).toBe('# SKILL.md\n\n主流程\n\n---\n\n# references/camera.md\n\n镜头参考')
   })
 })

@@ -49,6 +49,11 @@ export interface LibtvPreview {
   kind: 'image' | 'video'
 }
 
+export interface LibtvSkillFile {
+  path: string
+  content: string
+}
+
 const MEDIA_LABEL: Record<LibtvSkill['resultType'], string> = {
   1: '文本',
   2: '图片',
@@ -136,4 +141,12 @@ export function libtvThumbnailUrl(url: string | null): string | null {
 
 export function libtvHasBody(skill: LibtvSkill): boolean {
   return typeof skill.bodyFile === 'string' && skill.bodyFile.length > 0
+}
+
+/** 单技能 Agent 契约仍是一段正文：把主文件和附件按文件边界拼进去。 */
+export function libtvAgentContentOf(files: readonly LibtvSkillFile[]): string {
+  return files
+    .filter((file) => file.content.trim())
+    .map((file) => `# ${file.path}\n\n${file.content.trim()}`)
+    .join('\n\n---\n\n')
 }

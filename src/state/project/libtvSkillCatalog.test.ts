@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { libtvCategoryCounts, loadLibtvCatalog, loadLibtvSkillBody } from './libtvSkillCatalog'
+import {
+  libtvCategoryCounts,
+  loadLibtvCatalog,
+  loadLibtvSkillBody,
+  loadLibtvSkillFiles,
+} from './libtvSkillCatalog'
 
 const items = [
   {
@@ -76,13 +81,25 @@ describe('LibTV 目录异步加载', () => {
         return new Response(catalogRaw, { status: 200 })
       }
       expect(value).toContain('/libtv-skills/bodies/b.json')
-      return new Response(JSON.stringify({ 'bodies/body.md': '正文内容' }), { status: 200 })
+      return new Response(
+        JSON.stringify({
+          'bodies/body.md': {
+            'SKILL.md': '正文内容',
+            'references/camera-language.md': '镜头语言',
+          },
+        }),
+        { status: 200 },
+      )
     })
     vi.stubGlobal('fetch', fetchMock)
     const skills = await loadLibtvCatalog()
     await expect(loadLibtvSkillBody(skills[0]!)).resolves.toBe('正文内容')
     const callsAfterShardLoad = fetchMock.mock.calls.length
     await expect(loadLibtvSkillBody(skills[0]!)).resolves.toBe('正文内容')
+    await expect(loadLibtvSkillFiles(skills[0]!)).resolves.toEqual([
+      { path: 'SKILL.md', content: '正文内容' },
+      { path: 'references/camera-language.md', content: '镜头语言' },
+    ])
     await expect(loadLibtvSkillBody(skills[1]!)).resolves.toBeNull()
     expect(fetchMock).toHaveBeenCalledTimes(callsAfterShardLoad)
   })

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { BuiltinSkill, UserSkill } from '../../domain/prompt/skill'
 import {
   libtvCanvasCaseOf,
@@ -6,9 +6,18 @@ import {
   libtvMediaLabel,
   libtvPreviewOf,
   type LibtvSkill,
+  type LibtvSkillFile,
 } from '../../domain/prompt/libtvSkill'
-import { loadLibtvSkillBody } from '../../state/project/libtvSkillCatalog'
-import { SkillCloseIcon, SkillExternalIcon, SkillStarIcon } from './SkillLibraryIcons'
+import { loadLibtvSkillFiles } from '../../state/project/libtvSkillCatalog'
+import {
+  SkillChevronIcon,
+  SkillCloseIcon,
+  SkillCodeIcon,
+  SkillExternalIcon,
+  SkillEyeIcon,
+  SkillFileIcon,
+  SkillStarIcon,
+} from './SkillLibraryIcons'
 import styles from './SkillsPage.module.css'
 
 export type SkillDetailSource =
@@ -34,8 +43,14 @@ export function SkillDetailDialog({
   onEdit?: () => void
 }) {
   const closeRef = useRef<HTMLButtonElement>(null)
-  const [body, setBody] = useState('')
+  const filePickerRef = useRef<HTMLDivElement>(null)
+  const [files, setFiles] = useState<LibtvSkillFile[]>([])
+  const [selectedPath, setSelectedPath] = useState('SKILL.md')
+  const [viewMode, setViewMode] = useState<'document' | 'json'>('document')
+  const [filePickerOpen, setFilePickerOpen] = useState(false)
+  const [filePickerUp, setFilePickerUp] = useState(false)
   const [bodyLoading, setBodyLoading] = useState(source.kind === 'libtv')
+  const [bodyError, setBodyError] = useState('')
   const [previewFailed, setPreviewFailed] = useState(false)
 
   const skill = source.skill
@@ -68,17 +83,28 @@ export function SkillDetailDialog({
 
   useEffect(() => {
     setPreviewFailed(false)
+    setFilePickerOpen(false)
+    setFilePickerUp(false)
+    setViewMode('document')
+    setSelectedPath('SKILL.md')
+    setBodyError('')
     if (source.kind !== 'libtv') {
-      setBody(source.skill.content)
+      setFiles([{ path: 'SKILL.md', content: source.skill.content }])
       setBodyLoading(false)
       return
     }
     let alive = true
-    setBody('')
+    setFiles([])
     setBodyLoading(true)
-    void loadLibtvSkillBody(source.skill)
-      .then((content) => {
-        if (alive) setBody(content ?? '')
+    void loadLibtvSkillFiles(source.skill)
+      .then((loaded) => {
+        if (!alive) return
+        setFiles(loaded ?? [])
+        setSelectedPath(loaded?.[0]?.path ?? 'SKILL.md')
+      })
+      .catch((error) => {
+        if (!alive) return
+        setBodyError(error instanceof Error ? error.message : String(error))
       })
       .finally(() => {
         if (alive) setBodyLoading(false)
@@ -88,6 +114,20 @@ export function SkillDetailDialog({
     }
   }, [source])
 
+  useEffect(() => {
+    if (!filePickerOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (!filePickerRef.current?.contains(event.target as Node)) setFilePickerOpen(false)
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    return () => window.removeEventListener('pointerdown', onPointerDown)
+  }, [filePickerOpen])
+
+  const selectedFile = files.find((file) => file.path === selectedPath) ?? files[0] ?? null
+  const jsonText = useMemo(
+    () => JSON.stringify(Object.fromEntries(files.map((file) => [file.path, file.content])), null, 2),
+    [files],
+  )
   const mediaLabel = libtv ? libtvMediaLabel(libtv.resultType) : null
 
   return (
@@ -222,14 +262,144 @@ export function SkillDetailDialog({
               ) : null}
             </dl>
 
-            <h2 className={styles.sectionTitle}>Skill</h2>
+            <div className={styles.skillFilesBar}>
+              <div className={styles.skillFilesHeading}>
+                <h2 className={styles.sectionTitle}>Skill</h2>
+                <span className={styles.skillFilesCount} data-skill-file-count>
+                  {files.length} 个文件
+                </span>
+              </div>
+              <div className={styles.skillFileTools}>
+                <div
+                  ref={filePickerRef}
+                  className={styles.skillFilePicker}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape' && filePickerOpen) {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      setFilePickerOpen(false)
+                    }
+                  }}
+                >
+                  <button
+                    type="button"
+                    className={styles.skillFileTrigger}
+                    disabled={viewMode === 'json' || files.length === 0}
+                    aria-haspopup="listbox"
+                    aria-expanded={filePickerOpen}
+                    title={viewMode === 'json' ? 'JSON 视图包含全部文件' : '选择 Markdown 文件'}
+                    data-skill-file-trigger
+                    onClick={(event) => {
+                      if (filePickerOpen) {
+                        setFilePickerOpen(false)
+                        return
+                      }
+                      const rect = event.currentTarget.getBoundingClientRect()
+                      const below = window.innerHeight - rect.bottom
+                      setFilePickerUp(below < 286 && rect.top > 286)
+                      setFilePickerOpen(true)
+                    }}
+                  >
+                    <SkillFileIcon size={14} />
+                    <span>{viewMode === 'json' ? '全部文件' : selectedFile?.path ?? '选择文件'}</span>
+                    <SkillChevronIcon size={13} />
+                  </button>
+                  {filePickerOpen ? (
+                    <div
+                      className={
+                        filePickerUp
+                          ? `${styles.skillFileMenu} ${styles.skillFileMenuUp}`
+                          : styles.skillFileMenu
+                      }
+                      role="listbox"
+                      aria-label="Skill Markdown 文件"
+                      data-skill-file-menu
+                    >
+                      {files.map((file) => (
+                        <button
+                          key={file.path}
+                          type="button"
+                          role="option"
+                          aria-selected={file.path === selectedFile?.path}
+                          className={
+                            file.path === selectedFile?.path
+                              ? `${styles.skillFileOption} ${styles.skillFileOptionOn}`
+                              : styles.skillFileOption
+                          }
+                          title={file.path}
+                          data-skill-file-option={file.path}
+                          onClick={() => {
+                            setSelectedPath(file.path)
+                            setFilePickerOpen(false)
+                          }}
+                        >
+                          <SkillFileIcon size={14} />
+                          <span>{file.path}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <div className={styles.skillViewToggle} role="group" aria-label="Skill 显示格式">
+                  <button
+                    type="button"
+                    className={
+                      viewMode === 'document'
+                        ? `${styles.skillViewButton} ${styles.skillViewButtonOn}`
+                        : styles.skillViewButton
+                    }
+                    aria-pressed={viewMode === 'document'}
+                    aria-label="文档视图"
+                    title="文档视图"
+                    data-skill-view="document"
+                    onClick={() => setViewMode('document')}
+                  >
+                    <SkillEyeIcon size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className={
+                      viewMode === 'json'
+                        ? `${styles.skillViewButton} ${styles.skillViewButtonOn}`
+                        : styles.skillViewButton
+                    }
+                    aria-pressed={viewMode === 'json'}
+                    aria-label="JSON 视图"
+                    title="JSON 视图"
+                    data-skill-view="json"
+                    onClick={() => {
+                      setFilePickerOpen(false)
+                      setViewMode('json')
+                    }}
+                  >
+                    <SkillCodeIcon size={16} />
+                  </button>
+                </div>
+              </div>
+            </div>
             {bodyLoading ? (
               <div className={styles.skillBodyEmpty} data-skill-detail-body-loading>
                 正在读取 Skill 正文…
               </div>
-            ) : body ? (
-              <pre className={styles.skillBody} data-skill-detail-body>
-                {body}
+            ) : bodyError ? (
+              <div className={styles.skillBodyEmpty} role="alert" data-skill-detail-files-error>
+                {bodyError}
+              </div>
+            ) : viewMode === 'json' && files.length ? (
+              <pre
+                className={`${styles.skillBody} ${styles.skillJsonBody}`}
+                data-skill-detail-body
+                data-skill-detail-json
+              >
+                {jsonText}
+              </pre>
+            ) : selectedFile ? (
+              <pre
+                className={styles.skillBody}
+                data-skill-detail-body
+                data-skill-file-content={selectedFile.path}
+              >
+                {selectedFile.content}
               </pre>
             ) : (
               <div className={styles.skillBodyEmpty} data-skill-detail-body-empty>
