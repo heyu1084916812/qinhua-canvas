@@ -6,6 +6,7 @@ import {
   libtvHasBody,
   libtvMediaLabel,
   libtvPreviewOf,
+  libtvThumbnailUrl,
   type LibtvSkill,
 } from './libtvSkill'
 
@@ -71,5 +72,19 @@ describe('LibTV Skill 领域规则', () => {
   it('正文可用性只认 bodyFile', () => {
     expect(libtvHasBody(skill())).toBe(false)
     expect(libtvHasBody(skill({ bodyFile: 'bodies/test.md' }))).toBe(true)
+  })
+
+  it('LibTV 卡片图转 640px WebP，未知域名保持原样', () => {
+    expect(
+      libtvThumbnailUrl(
+        'https://libtv-res.liblib.art/upload-images/a/cover.png?token=1',
+      ),
+    ).toBe(
+      'https://libtv-res.liblib.art/upload-images/a/cover.png?token=1&x-oss-process=image%2Fresize%2Cw_640%2Fformat%2Cwebp%2Fquality%2Cq_72',
+    )
+    expect(libtvThumbnailUrl('https://example.com/cover.png')).toBe(
+      'https://example.com/cover.png',
+    )
+    expect(libtvThumbnailUrl(null)).toBeNull()
   })
 })

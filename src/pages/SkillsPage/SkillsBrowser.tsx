@@ -12,13 +12,15 @@ import {
   libtvCategoryOf,
   libtvHasBody,
   libtvMediaLabel,
+  libtvThumbnailUrl,
   type LibtvCategory,
   type LibtvSkill,
   type LibtvSourceGroup,
 } from '../../domain/prompt/libtvSkill'
 import {
-  LIBTV_CATEGORY_COUNTS,
-  LIBTV_SKILLS,
+  LIBTV_CATALOG_TOTAL,
+  libtvCategoryCounts,
+  loadLibtvCatalog,
 } from '../../state/project/libtvSkillCatalog'
 import { SkillStarIcon } from './SkillLibraryIcons'
 import styles from './SkillsPage.module.css'
@@ -80,8 +82,28 @@ export function SkillsBrowser({
 }) {
   const { builtinSkills, userSkills, loading, create } = useSkills()
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
-  const [visibleLimit, setVisibleLimit] = useState(60)
+  const [visibleLimit, setVisibleLimit] = useState(30)
+  const [libtvSkills, setLibtvSkills] = useState<LibtvSkill[]>([])
+  const [libtvLoading, setLibtvLoading] = useState(true)
+  const [libtvError, setLibtvError] = useState('')
   const fileRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void loadLibtvCatalog()
+      .then((skills) => {
+        if (alive) setLibtvSkills(skills)
+      })
+      .catch((error) => {
+        if (alive) setLibtvError(error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => {
+        if (alive) setLibtvLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const jimengSkills = useMemo(
     () => builtinSkills.filter((skill) => JIMENG_BUILTIN_IDS.has(skill.id)),
@@ -92,10 +114,11 @@ export function SkillsBrowser({
     [builtinSkills],
   )
   const mineCount = mineCountOf(userSkills, otherBuiltins)
+  const categoryCounts = useMemo(() => libtvCategoryCounts(libtvSkills), [libtvSkills])
 
   const cards = useMemo<SkillCardPick[]>(() => {
     if (source === 'libtv') {
-      return LIBTV_SKILLS.filter((skill) => libtvCategoryOf(skill) === category)
+      return libtvSkills.filter((skill) => libtvCategoryOf(skill) === category)
         .filter((skill) =>
           searchHit([skill.name, skill.description, skill.useScenario, ...skill.tags], query),
         )
@@ -111,10 +134,10 @@ export function SkillsBrowser({
     return list.filter((item) =>
       searchHit([item.skill.name, item.skill.description, ...item.skill.tags], query),
     )
-  }, [category, jimengSkills, otherBuiltins, query, source, userSkills])
+  }, [category, jimengSkills, libtvSkills, otherBuiltins, query, source, userSkills])
 
   useEffect(() => {
-    setVisibleLimit(60)
+    setVisibleLimit(30)
   }, [category, query, source])
 
   const shownCards = cards.slice(0, visibleLimit)
@@ -165,7 +188,7 @@ export function SkillsBrowser({
           onClick={() => onSource('libtv')}
         >
           LibTV
-          <span>{LIBTV_SKILLS.length}</span>
+          <span>{LIBTV_CATALOG_TOTAL}</span>
         </button>
         <button
           type="button"
@@ -205,7 +228,7 @@ export function SkillsBrowser({
                 onClick={() => onCategory(item)}
               >
                 {item}
-                <span className={styles.chipCount}>{LIBTV_CATEGORY_COUNTS.get(item) ?? 0}</span>
+                <span className={styles.chipCount}>{categoryCounts.get(item) ?? 0}</span>
               </button>
             ))}
           </div>
@@ -271,8 +294,12 @@ export function SkillsBrowser({
       ) : null}
 
       <div className={styles.cards} data-skills-cards>
-        {loading && source !== 'libtv' ? (
+        {(loading && source !== 'libtv') || (source === 'libtv' && libtvLoading) ? (
           <div className={styles.empty}>加载中…</div>
+        ) : source === 'libtv' && libtvError ? (
+          <div className={styles.empty} data-skills-libtv-error>
+            {libtvError}
+          </div>
         ) : cards.length === 0 ? (
           <div className={styles.empty} data-skills-empty>
             没有匹配的 Skill
@@ -284,6 +311,7 @@ export function SkillsBrowser({
             const runnable = pick.kind === 'libtv' ? libtvHasBody(pick.skill) : true
             const image =
               pick.kind === 'libtv' ? libtvCardImageOf(pick.skill) : pick.skill.image ?? null
+            const cardImage = pick.kind === 'libtv' ? libtvThumbnailUrl(image) : image
             const mediaLabel =
               pick.kind === 'libtv' ? libtvMediaLabel(pick.skill.resultType) : null
             return (
@@ -301,8 +329,15 @@ export function SkillsBrowser({
                 onKeyDown={(event) => openOnEnter(event, pick)}
               >
                 <div className={styles.cardShot} data-skill-shot={skill.id}>
-                  {image ? (
-                    <img className={styles.cardShotImg} src={image} alt="" loading="lazy" />
+                  {cardImage ? (
+                    <img
+                      className={styles.cardShotImg}
+                      src={cardImage}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      data-skill-card-image={skill.id}
+                    />
                   ) : (
                     <span className={styles.cardShotEmpty}>
                       {pick.kind === 'libtv' ? '目录示例' : '技能'}
@@ -367,7 +402,7 @@ export function SkillsBrowser({
               type="button"
               className={styles.ghost}
               data-skills-more
-              onClick={() => setVisibleLimit((limit) => limit + 60)}
+              onClick={() => setVisibleLimit((limit) => limit + 30)}
             >
               加载更多（已显示 {shownCards.length} / {cards.length}）
             </button>

@@ -118,6 +118,22 @@ export function libtvCardImageOf(skill: LibtvSkill): string | null {
   return null
 }
 
+const THUMBNAIL_PROCESS = 'image/resize,w_640/format,webp/quality,q_72'
+const THUMBNAIL_HOSTS = new Set(['libtv-res.liblib.art', 'liblibai-online.liblib.cloud'])
+
+/** 卡片只取 640px WebP；详情仍使用原图。CDN 不支持时自动保留原 URL。 */
+export function libtvThumbnailUrl(url: string | null): string | null {
+  if (!url) return null
+  try {
+    const parsed = new URL(url)
+    if (!THUMBNAIL_HOSTS.has(parsed.hostname)) return url
+    parsed.searchParams.set('x-oss-process', THUMBNAIL_PROCESS)
+    return parsed.toString()
+  } catch {
+    return url
+  }
+}
+
 export function libtvHasBody(skill: LibtvSkill): boolean {
   return typeof skill.bodyFile === 'string' && skill.bodyFile.length > 0
 }

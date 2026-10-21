@@ -4,7 +4,7 @@ import process from 'node:process'
 
 const root = path.resolve(import.meta.dirname, '..')
 const cargo = process.platform === 'win32' ? 'cargo.exe' : 'cargo'
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+const viteEntry = path.join(root, 'node_modules', 'vite', 'bin', 'vite.js')
 
 async function healthy() {
   try {
@@ -45,7 +45,11 @@ if (!(await healthy())) {
   }
 }
 
-const vite = spawn(npm, ['run', 'dev:vite'], { cwd: root, stdio: 'inherit' })
+// Windows + Node 24 不能直接 spawn `npm.cmd`；绕过 npm 直接启动 Vite。
+const vite = spawn(process.execPath, [viteEntry], {
+  cwd: root,
+  stdio: 'inherit',
+})
 
 const stop = () => {
   vite.kill()

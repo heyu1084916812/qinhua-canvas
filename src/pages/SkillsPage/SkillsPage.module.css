@@ -254,6 +254,8 @@
   color: var(--text-1);
   cursor: pointer;
   outline: none;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 116px;
 }
 
 .card:hover,

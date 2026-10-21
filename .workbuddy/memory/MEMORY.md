@@ -1,5 +1,14 @@
 # CanvasFlow（轻画）项目记忆
 
+### 技能库电商跳转与滚动性能（2026-10-22 → 对账 #698）
+
+- **先区分“可复现崩溃”与“高风险资源链”**：本轮没有拿到 qinghua / WebView2 dump，因此不能编造崩溃栈。能确认的是 `npm.cmd` spawn `EINVAL`、704 份 Markdown 进入 Vite 模块图后开发进程 CPU 满载、卡片直接加载 4K 原图；这些都是桌面 WebView2 退出或卡死的高风险条件。
+- **Windows + Node 24 不要 spawn `npm.cmd`**：开发脚本直接 `spawn(process.execPath, ['node_modules/vite/bin/vite.js'])`，既不依赖 `shell:true`，也不会留 `DEP0190`。
+- **大目录不能进 Vite 模块图**：目录放 `public/libtv-skills/catalog.json` 异步 fetch；704 份正文按 UUID 首字符拆成 16 个 JSON 分片，详情打开时只取当前分片。`check-libtv-catalog.mjs` 校验 1472 条目录、704 个正文 key 和 133 条画布案例。
+- **卡片必须走 CDN 缩略图**：LibTV 地址附加 `x-oss-process=image/resize,w_640/format,webp/quality,q_72`；实测首屏 29 张全部自然宽 ≤640px，加载到 110 张仍全部是缩略图。详情继续用原图。
+- **分页首屏 30 是当前基线**：列表用 `loading=lazy`、`decoding=async` 和 `content-visibility:auto`。110 卡滚动探针 p95 8.1ms、最长 14.8ms、>33ms 0 帧。
+- **桌面路由要直接验 WebView**：Playwright `connectOverCDP` 会被 WebView2 的 shared worker 目标触发内部断言；改用 `/json/list` 的页面级 WebSocket 和原始 CDP 方法。连续 3 次 `/skills → /ecommerce` 无 page error，强制 GC 后堆约 21MB、DOM 806。
+
 ### LibTV 技能库导入可行性（2026-10-21 → 对账 #693–#696）
 
 - **先分清索引、正文、媒体**：`skill.zip/_catalog.json` 有 1472 个目录项、1459 个带案例媒体；顶层 Skill Markdown 759 份，实际成功映射并落盘 **704 份**。卡片可以全量展示，但「添加 Skill 到 Agent」只能对有正文的技能开放，缺正文时明确禁用。
@@ -11,7 +20,7 @@
 - **详情与编辑要拆开**：现有单击进编辑，用户新口径是双击进详情灯箱。详情展示示例媒体、目录简介与正文；编辑（尤其用户技能）仍需保留独立入口，不能为了照参考图把现有编辑能力删掉。
 - **「添加到 Agent」当前是单技能会话字段**：Agent 会话只存一个 `skillId`。技能库页没有活动会话时，`添加` 的落点需要产品确认；确认前不要把按钮做成只弹提示的假功能。
 - **用户已拍板先单技能**：第一阶段只让 Agent 用上一条 Skill，多技能持久列表后置。外部 LibTV 技能按需落成用户技能 / 等价只读投影再写入 `AgentSession.skillId`，不要一次写 1472 行。
-- **全屏浏览不是“把卡片放大”**：用户反馈分类被搜索框挤压。最终结构是浏览舞台 `max-width:none` 占满右侧工作区，分类独占一行，搜索与操作放第二行；宽屏三列、1024 两列。目录首屏只渲染 60 条。
+- **全屏浏览不是“把卡片放大”**：用户反馈分类被搜索框挤压。最终结构是浏览舞台 `max-width:none` 占满右侧工作区，分类独占一行，搜索与操作放第二行；宽屏三列、1024 两列。目录首屏现为 30 条（#698），每次加载更多 +30。
 - **切换分类 / 搜索时必须重置分页**：`visibleLimit` 不重置会从上一次的 60/120 条继续截断，表现为“新分类丢了前半段”。这条由 G82 与目录搜索共同覆盖。
 - **默认 Agent 技能会跨冒烟组污染共享库**：G82 设置 `presets.agent:skill` 后，G95 会把「分镜升镜师」自动带进新会话，连带改变闭环保留断言。冒烟必须在测试后恢复 `agent:skill` 与 `skill:favorites`，并删除本组复制出的用户技能。
 - **G95 的“收尾回答”失败不是产品问题**：生成图片出现后，测试立刻数 assistant 消息会偶发读到 0；实际消息稍后才写入。断言改成有上限轮询后 G95 **88/88**。异步回填不能用一次瞬时计数。
